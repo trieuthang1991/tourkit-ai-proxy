@@ -1,0 +1,354 @@
+Tổng hợp Prompt & Spec cho tính năng Review khách hàng bằng AI
+Tôi sẽ đóng gói lại toàn bộ thành một bộ tài liệu để bạn dùng cho việc lên giao diện và tính năng. Bao gồm:
+
+Mô tả tính năng tổng quan
+Spec màn hình (cho designer/dev FE)
+Prompt gọi LLM (cho dev BE)
+Schema dữ liệu cơ bản
+
+
+1. Mô tả tính năng (Product Spec)
+TÊN TÍNH NĂNG: Review khách hàng bằng AI
+
+MỤC ĐÍCH: 
+Hỗ trợ Sale/CSKH ra quyết định chăm sóc khách hàng nhanh và 
+chính xác hơn, dựa trên phân tích AI từ dữ liệu khách hàng 
+sẵn có (profile, lịch sử mua hàng, lịch sử chăm sóc).
+
+NGƯỜI DÙNG:
+- Sale: review nhóm khách được phân công để lên kế hoạch chăm sóc
+- CSKH: review khách trước khi liên hệ để biết bối cảnh
+- Manager: review nhóm khách trọng điểm để giao việc
+
+CƠ CHẾ HOẠT ĐỘNG (Mô hình User-triggered Batch):
+1. User vào màn hình danh sách khách hàng
+2. User lọc/chọn nhóm khách muốn review (tối đa 200 khách/lần)
+3. User bấm nút "Review bằng AI"
+4. Hệ thống chạy AI cho từng khách (song song 10-20 request)
+5. Kết quả stream về UI: khách nào xong hiện ngay, không chờ cả batch
+6. Kết quả lưu vào DB, lần sau xem lại không tốn AI (cache)
+7. Khi data khách thay đổi (đơn mới, chăm sóc mới) → cache 
+   tự động đánh dấu "cần cập nhật", có thể bấm nút refresh
+
+QUY MÔ DỰ KIẾN: <1.000 khách
+
+2. Spec màn hình UI
+Màn hình 1: Danh sách khách hàng + Batch Review
+COMPONENT: Customer List View
+
+ELEMENTS:
+- Header: tiêu đề + nút "Review bằng AI" (disable nếu chưa chọn ai)
+- Filter bar: lọc theo phân khúc, ngày mua cuối, hạng, sale phụ trách
+- Search bar: tìm tên/SĐT/email
+- Checkbox "Chọn tất cả" + checkbox từng dòng
+- Bảng khách hàng với các cột:
+  * Checkbox
+  * Tên + ID
+  * Phân khúc (VIP/Thường/Mới)
+  * Hạng AI (A/B/C/D) - nếu đã có review
+  * Tổng chi
+  * Đơn cuối (cách bao nhiêu ngày)
+  * Trạng thái review: 
+    - "Chưa review"
+    - "Đã review (x ngày trước)"
+    - "Cần cập nhật" (data đã đổi)
+  * Action: nút "Xem review"
+
+HÀNH VI:
+- User tick chọn khách → đếm số đã chọn trên header
+- Bấm "Review bằng AI" → mở modal confirm:
+  * "Sẽ review N khách (M đã có cache còn hợp lệ, K cần gọi AI)"
+  * "Ước tính chi phí: ~X token"
+  * "Thời gian dự kiến: ~Y giây"
+  * 2 nút: Hủy / Bắt đầu review
+- Sau khi bấm Bắt đầu → chuyển sang trạng thái Processing
+Màn hình 2: Trạng thái Processing (streaming)
+COMPONENT: Batch Review Progress
+
+ELEMENTS:
+- Progress bar: "Đang xử lý X/N khách" + % hoàn thành
+- Nút "Dừng" (cancel batch)
+- List khách đang xử lý, mỗi dòng có 1 trong các trạng thái:
+  * ⏳ Đang xử lý
+  * ✓ Xong - kèm preview ngắn: "Hạng A - Cần gọi gấp"
+  * ✗ Lỗi - kèm nút "Thử lại"
+- Click vào dòng đã xong → mở chi tiết review (modal/drawer)
+
+HÀNH VI:
+- Khi mỗi review xong, dòng đó animate fade-in kết quả
+- Có thể vừa xem chi tiết khách đã xong, vừa để batch chạy tiếp
+- Khi xong hết → hiện toast "Đã review xong N khách" + nút "Xem báo cáo tổng"
+Màn hình 3: Chi tiết Review của 1 khách
+COMPONENT: Customer AI Review Card
+
+ELEMENTS:
+- Header: 
+  * Avatar + Tên + Mã KH + Ngày tạo
+  * Badge phân khúc (VIP/Thường) + Badge hạng AI (A/B/C/D)
+  
+- Cảnh báo (nếu có): 
+  * Box màu vàng/đỏ với icon
+  * 1-2 câu mô tả vấn đề cần chú ý
+
+- Chân dung: 
+  * 1-2 câu mô tả khách là ai, đang ở giai đoạn nào
+
+- Số liệu chính (4 ô grid):
+  * Tổng chi
+  * Số đơn
+  * AOV (đơn trung bình)
+  * Đơn cuối cách X ngày
+
+- Việc cần làm NGAY:
+  * Box xanh nổi bật
+  * 1 hành động cụ thể + lý do
+
+- Gợi ý 30 ngày tới:
+  * Bullet list 2-3 ý tưởng
+
+- Điểm sáng / Điểm cần lưu ý:
+  * 2 cột song song, mỗi cột 2-3 gạch đầu dòng
+
+- Sở thích & thói quen:
+  * Rút ra từ lịch sử, dạng prose ngắn
+
+- Footer:
+  * Nút "Review hữu ích" (thumb up)
+  * Nút "Chưa chính xác" (thumb down + form feedback)
+  * Nút "Cập nhật review" (gọi lại AI cho khách này)
+  * Timestamp: "Review tạo lúc HH:MM ngày DD/MM"
+
+HÀNH VI:
+- Bấm thumb up/down: ghi nhận feedback, hiện toast cảm ơn
+- Bấm "Cập nhật": loading 5-10s, kết quả mới thay thế review cũ
+- Có thể copy nội dung review để paste vào tin nhắn chăm sóc
+Màn hình 4 (optional): Smart List
+COMPONENT: Saved Smart Lists
+
+Cho phép user lưu các bộ lọc thường dùng để review định kỳ:
+- "Khách VIP chưa mua > 30 ngày"
+- "Khách mới tháng này"
+- "Khách có khiếu nại tuần trước"
+
+Mỗi smart list có nút "Review ngay" → chạy batch luôn cho list đó.
+
+3. Prompt gọi LLM (cho Backend)
+Prompt chính - Review 1 khách hàng
+Bạn là trợ lý phân tích khách hàng cho đội Sale/CSKH của một 
+doanh nghiệp [MÔ TẢ NGÀNH NGHỀ - VD: bán lẻ thời trang / dịch vụ 
+spa / phân phối thực phẩm].
+
+NHIỆM VỤ: Dựa trên dữ liệu khách hàng dưới đây, viết một bản 
+review NGẮN GỌN, THỰC DỤNG để nhân viên có thể đọc trong 30 
+giây và biết phải làm gì tiếp theo.
+
+DỮ LIỆU KHÁCH HÀNG:
+{customer_data_json}
+
+QUY TẮC BẮT BUỘC:
+1. CHỈ dựa trên dữ liệu được cung cấp, KHÔNG suy diễn hay bịa thông tin
+2. Nếu thiếu dữ liệu ở mục nào, ghi rõ "Chưa đủ dữ liệu để đánh giá"
+3. Văn phong ngắn gọn, cụ thể, dùng được luôn - tránh chung chung
+4. Dùng tiếng Việt tự nhiên, không dịch máy
+5. Mọi đề xuất hành động phải gắn với dữ liệu thực tế của khách
+
+ĐỊNH DẠNG OUTPUT (JSON):
+{
+  "rank": "A" | "B" | "C" | "D",
+  "rank_reason": "Lý do xếp hạng, 1 câu ngắn",
+  
+  "alert": {
+    "level": "high" | "medium" | "none",
+    "message": "Mô tả vấn đề cần chú ý, để trống nếu không có"
+  },
+  
+  "portrait": "Chân dung khách hàng, 1-2 câu",
+  
+  "strengths": [
+    "Điểm tích cực 1",
+    "Điểm tích cực 2"
+  ],
+  
+  "concerns": [
+    "Điểm cần lưu ý 1",
+    "Điểm cần lưu ý 2"
+  ],
+  
+  "preferences": "Sở thích & thói quen rút ra từ lịch sử, prose 1-2 câu",
+  
+  "action_now": {
+    "task": "Việc cần làm ngay hôm nay, cụ thể",
+    "reason": "Lý do dựa trên dữ liệu nào"
+  },
+  
+  "action_30days": [
+    "Ý tưởng chăm sóc 1",
+    "Ý tưởng chăm sóc 2",
+    "Ý tưởng chăm sóc 3"
+  ],
+  
+  "product_suggestions": [
+    "Sản phẩm/dịch vụ phù hợp để gợi ý 1",
+    "Sản phẩm/dịch vụ phù hợp để gợi ý 2"
+  ]
+}
+
+TIÊU CHÍ XẾP HẠNG:
+- A: Khách VIP, trung thành, giá trị cao, ổn định
+- B: Khách tốt, có tiềm năng phát triển hoặc giữ chân
+- C: Khách bình thường, cần kích hoạt thêm
+- D: Khách rủi ro rời bỏ, ít tương tác, hoặc có vấn đề
+Cấu trúc dữ liệu input cho prompt
+json{
+  "customer": {
+    "id": "KH001",
+    "name": "Nguyễn Văn A",
+    "age": 35,
+    "gender": "male",
+    "location": "Hà Nội",
+    "segment": "VIP",
+    "created_at": "2023-01-15",
+    "source": "Facebook Ads"
+  },
+  "metrics": {
+    "total_orders": 12,
+    "total_spent": 45000000,
+    "currency": "VND",
+    "aov": 3750000,
+    "last_purchase_date": "2025-09-28",
+    "last_purchase_days_ago": 45,
+    "avg_days_between_orders": 60,
+    "care_interactions_count": 23,
+    "last_care_date": "2025-10-25",
+    "last_care_days_ago": 12,
+    "complaint_count": 1,
+    "return_rate": 0.05
+  },
+  "purchase_history": [
+    {
+      "date": "2025-09-28",
+      "products": ["SP-A: Áo sơ mi", "SP-B: Quần tây"],
+      "amount": 5200000,
+      "channel": "Online"
+    }
+    // ... 10-20 đơn gần nhất
+  ],
+  "care_history": [
+    {
+      "date": "2025-10-25",
+      "channel": "call",
+      "duration_minutes": 8,
+      "summary": "Khách hỏi về dòng sản phẩm mới, tỏ ra quan tâm",
+      "sentiment": "positive",
+      "outcome": "Hẹn gọi lại sau 2 tuần"
+    }
+    // ... 20-50 lần chăm sóc gần nhất
+  ]
+}
+Prompt phụ - Tóm tắt nhanh cho danh sách
+Khi hiển thị trên list view, không cần load full review. Dùng prompt này để có tóm tắt 1 dòng:
+Dựa trên dữ liệu khách hàng dưới đây, viết MỘT DÒNG tóm tắt 
+(tối đa 80 ký tự) gồm: hạng + tình trạng + hành động ưu tiên.
+
+VÍ DỤ OUTPUT:
+- "Hạng A - Trung thành 2 năm - Cần gọi gấp về sản phẩm mới"
+- "Hạng C - Có dấu hiệu rời bỏ - Tặng voucher kích hoạt"
+- "Hạng B - Mua đều - Upsell combo cao cấp"
+
+DỮ LIỆU:
+{customer_data_json}
+
+OUTPUT: chỉ 1 dòng, không giải thích thêm.
+Lưu ý cho dev BE
+1. Dùng response_format JSON mode (Claude/GPT đều hỗ trợ)
+2. Temperature: 0.3 - 0.5 (thấp để ổn định, không quá cứng)
+3. Max tokens output: 1500 là đủ
+4. Retry logic: nếu parse JSON fail, retry tối đa 2 lần
+5. Validate output: kiểm tra các field bắt buộc trước khi lưu DB
+6. Timeout: 30 giây/request, nếu lâu hơn thì fail và cho retry
+
+4. Schema Database cơ bản
+sql-- Lưu kết quả review
+TABLE customer_ai_review {
+  id              UUID PRIMARY KEY
+  customer_id     UUID NOT NULL  -- FK đến bảng customer
+  
+  -- Nội dung review
+  rank            CHAR(1)        -- A/B/C/D
+  rank_reason     TEXT
+  alert_level     VARCHAR(10)    -- high/medium/none
+  alert_message   TEXT
+  portrait        TEXT
+  strengths       JSONB          -- array of strings
+  concerns        JSONB          -- array of strings
+  preferences     TEXT
+  action_now      JSONB          -- {task, reason}
+  action_30days   JSONB          -- array of strings
+  product_suggestions JSONB      -- array of strings
+  summary_line    VARCHAR(120)   -- tóm tắt 1 dòng cho list view
+  
+  -- Metadata
+  data_fingerprint VARCHAR(64)   -- hash của data input, để check stale
+  status          VARCHAR(20)    -- fresh/stale/processing/error
+  ai_model        VARCHAR(50)    -- claude-sonnet-4-5, gpt-4...
+  tokens_used     INT
+  generated_at    TIMESTAMP
+  generated_by    UUID           -- user nào trigger review này
+  
+  -- Feedback
+  feedback_rating VARCHAR(10)    -- helpful/not_helpful/null
+  feedback_note   TEXT
+  feedback_at     TIMESTAMP
+}
+
+-- Lưu lịch sử batch review jobs
+TABLE ai_review_batch {
+  id              UUID PRIMARY KEY
+  user_id         UUID            -- ai trigger
+  customer_ids    JSONB           -- list ID khách được review
+  total_count     INT
+  success_count   INT
+  error_count     INT
+  status          VARCHAR(20)     -- processing/done/cancelled
+  started_at      TIMESTAMP
+  finished_at     TIMESTAMP
+}
+
+-- Index cần có
+CREATE INDEX idx_review_customer ON customer_ai_review(customer_id);
+CREATE INDEX idx_review_status ON customer_ai_review(status);
+CREATE INDEX idx_review_rank ON customer_ai_review(rank);
+
+5. Checklist triển khai
+GIAI ĐOẠN 1 - MVP (1-2 tuần):
+[ ] Schema DB cho review
+[ ] API: POST /reviews/batch - tạo batch review job
+[ ] API: GET /reviews/batch/{id}/stream - SSE streaming kết quả
+[ ] API: GET /reviews/customer/{id} - lấy review của 1 KH
+[ ] API: POST /reviews/{id}/feedback - ghi nhận feedback
+[ ] Worker xử lý batch (queue + parallel calls)
+[ ] Prompt + parser JSON
+[ ] UI: List view + checkbox + nút Review
+[ ] UI: Progress streaming
+[ ] UI: Chi tiết review card
+
+GIAI ĐOẠN 2 - Tinh chỉnh (1-2 tuần):
+[ ] Cache logic + data fingerprint
+[ ] Smart list (saved filter)
+[ ] Auto mark "stale" khi có event đơn mới/chăm sóc mới
+[ ] Dashboard tổng hợp theo rank A/B/C/D
+[ ] Export review ra Excel/PDF
+
+GIAI ĐOẠN 3 - Mở rộng (sau khi ổn định):
+[ ] Batch tự động đêm cho top khách VIP
+[ ] AI gợi ý nội dung tin nhắn chăm sóc từ review
+[ ] So sánh review qua thời gian (khách này tháng trước vs giờ)
+[ ] Báo cáo hiệu quả tính năng (review nào dẫn đến đơn hàng?)
+
+Bạn có thể gửi file này cho team design và dev để bắt đầu triển khai. Nếu cần tôi tinh chỉnh thêm:
+
+Tùy biến prompt theo ngành cụ thể của bạn (bán lẻ/F&B/dịch vụ/B2B...)
+Chi tiết hóa API spec với request/response cụ thể
+Vẽ wireframe chi tiết các màn hình
+
+Bạn cho tôi biết ngành nghề kinh doanh cụ thể để tôi tùy biến prompt cho chuẩn hơn nhé.

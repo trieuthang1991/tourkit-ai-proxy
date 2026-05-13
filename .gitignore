@@ -3,3 +3,13 @@ obj/
 *.user
 .vs/
 appsettings.Production.json
+
+# Local secrets — chứa real API keys cho OpenCode + 9routes. Copy từ
+# appsettings.example.json và điền key thật. KHÔNG commit file này.
+appsettings.json
+
+# Claude Code local state (per-machine permissions)
+.claude/settings.local.json
+
+# Runtime-generated review cache (re-populated by AI calls)
+data/reviews.json

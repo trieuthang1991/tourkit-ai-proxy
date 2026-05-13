@@ -126,10 +126,17 @@ input:focus, textarea:focus, select:focus { outline: none; }
 }
 
 /* ---------- Step bar ---------- */
+/* Container ngoài: phần sub-header band, có background + border-bottom giống header gốc */
+.wizard-stepbar {
+  padding: 20px 32px 16px;          /* top khoảng cách thoáng với app-header (sticky bên trên) */
+  background: var(--surface);
+  border-bottom: 1px solid var(--border);
+}
 .steps {
   display: flex;
+  justify-content: center;          /* center 4 step ngang màn */
+  align-items: center;
   gap: 6px;
-  padding: 0 0 14px;
   overflow-x: auto;
 }
 .step {
@@ -827,6 +834,7 @@ input:focus, textarea:focus, select:focus { outline: none; }
   border-radius: 16px;
   width: 100%;
   max-width: 480px;
+  max-height: 90vh;             /* tránh dialog content dài tràn viewport (đè sticky header) */
   box-shadow: 0 24px 64px rgba(15,23,42,0.18);
   display: flex;
   flex-direction: column;
@@ -838,6 +846,7 @@ input:focus, textarea:focus, select:focus { outline: none; }
   gap: 12px;
   padding: 18px 20px 14px;
   border-bottom: 1px solid var(--border);
+  flex-shrink: 0;               /* head luôn cao cố định, body scroll trong phần còn lại */
 }
 .dialog-head-icon {
   width: 32px;
@@ -864,6 +873,9 @@ input:focus, textarea:focus, select:focus { outline: none; }
 }
 .dialog-body {
   padding: 20px;
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;             /* nội dung dài → scroll bên trong, head/foot vẫn dán */
 }
 .dialog-foot {
   padding: 14px 20px;
@@ -872,6 +884,7 @@ input:focus, textarea:focus, select:focus { outline: none; }
   display: flex;
   justify-content: flex-end;
   gap: 10px;
+  flex-shrink: 0;
 }
 .dialog-msg-box {
   width: 100%;
@@ -1327,6 +1340,8 @@ body.editorial .ai-bubble .hl { color: #FDBA74; }
   animation: fadeIn 0.15s ease;
 }
 @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
+@keyframes slideIn { from { transform: translateX(100%); } to { transform: translateX(0); } }
+@keyframes pulse { 0%,100% { opacity: 1; } 50% { opacity: 0.5; } }
 .modal-card {
   background: var(--surface, #fff);
   border-radius: 16px;

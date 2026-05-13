@@ -1,0 +1,653 @@
+[
+  {
+    "id": "KH001",
+    "name": "Nguyễn Văn An",
+    "phone": "0912345678",
+    "email": "an.nguyen@gmail.com",
+    "age": 42,
+    "gender": "male",
+    "location": "Hà Nội",
+    "segment": "VIP",
+    "createdAt": "2022-03-15",
+    "source": "Sale giới thiệu",
+    "metrics": {
+      "totalTours": 8, "totalSpent": 184000000, "aov": 23000000,
+      "lastPurchaseDate": "2026-03-12", "lastPurchaseDaysAgo": 62,
+      "avgDaysBetweenOrders": 95, "careInteractions": 21, "lastCareDaysAgo": 18,
+      "complaintCount": 0, "cancelCount": 0
+    },
+    "purchases": [
+      { "date": "2026-03-12", "destination": "Phú Quốc", "nights": 4, "pax": 4, "amount": 28000000, "channel": "Sale" },
+      { "date": "2025-11-20", "destination": "Đà Lạt", "nights": 3, "pax": 4, "amount": 18000000, "channel": "Sale" },
+      { "date": "2025-07-08", "destination": "Hạ Long", "nights": 2, "pax": 4, "amount": 14000000, "channel": "Online" },
+      { "date": "2025-04-15", "destination": "Phú Yên", "nights": 4, "pax": 4, "amount": 22000000, "channel": "Sale" },
+      { "date": "2024-12-22", "destination": "Sapa", "nights": 3, "pax": 4, "amount": 19500000, "channel": "Sale" },
+      { "date": "2024-08-10", "destination": "Đà Nẵng - Hội An", "nights": 5, "pax": 4, "amount": 31000000, "channel": "Sale" },
+      { "date": "2024-04-05", "destination": "Côn Đảo", "nights": 3, "pax": 4, "amount": 26500000, "channel": "Sale" },
+      { "date": "2023-12-18", "destination": "Quy Nhơn", "nights": 4, "pax": 4, "amount": 25000000, "channel": "Online" }
+    ],
+    "careLogs": [
+      { "date": "2026-04-25", "channel": "call", "summary": "Cảm ơn sau tour Phú Quốc, hỏi tour hè cho gia đình mở rộng (8 người).", "sentiment": "positive", "outcome": "Hẹn gửi đề xuất tour Côn Đảo/Phú Quốc tháng 6" },
+      { "date": "2026-03-08", "channel": "zalo", "summary": "Xác nhận lịch bay tour Phú Quốc.", "sentiment": "neutral", "outcome": "OK" },
+      { "date": "2026-01-12", "channel": "call", "summary": "Hỏi giá tour Tết Nguyên đán cho cả gia đình.", "sentiment": "positive", "outcome": "Báo giá tour Đà Lạt 3N2Đ" }
+    ]
+  },
+
+  {
+    "id": "KH002",
+    "name": "Trần Thị Bích Hà",
+    "phone": "0987654321",
+    "email": "ha.tran@outlook.com",
+    "age": 35,
+    "gender": "female",
+    "location": "TP HCM",
+    "segment": "VIP",
+    "createdAt": "2023-05-20",
+    "source": "Facebook Ads",
+    "metrics": {
+      "totalTours": 5, "totalSpent": 96500000, "aov": 19300000,
+      "lastPurchaseDate": "2026-02-18", "lastPurchaseDaysAgo": 84,
+      "avgDaysBetweenOrders": 110, "careInteractions": 14, "lastCareDaysAgo": 35,
+      "complaintCount": 1, "cancelCount": 0
+    },
+    "purchases": [
+      { "date": "2026-02-18", "destination": "Nhật Bản (Tokyo-Kyoto)", "nights": 6, "pax": 2, "amount": 42000000, "channel": "Sale" },
+      { "date": "2025-10-04", "destination": "Đà Nẵng", "nights": 3, "pax": 2, "amount": 11500000, "channel": "Online" },
+      { "date": "2025-06-22", "destination": "Singapore", "nights": 4, "pax": 2, "amount": 23000000, "channel": "Sale" },
+      { "date": "2024-12-15", "destination": "Phú Quốc", "nights": 3, "pax": 2, "amount": 12000000, "channel": "Online" },
+      { "date": "2024-05-10", "destination": "Bali", "nights": 5, "pax": 2, "amount": 28000000, "channel": "Sale" }
+    ],
+    "careLogs": [
+      { "date": "2026-04-08", "channel": "zalo", "summary": "Hỏi tour châu Âu hè 2026 cho 2 vợ chồng.", "sentiment": "positive", "outcome": "Sale Tuyến gửi brochure Ý-Pháp" },
+      { "date": "2026-02-25", "channel": "call", "summary": "Khiếu nại bữa ăn hôm cuối tour Nhật không hợp khẩu vị, có vẻ muối.", "sentiment": "negative", "outcome": "Đã xin lỗi + tặng voucher 2tr" },
+      { "date": "2025-12-20", "channel": "zalo", "summary": "Chúc mừng Giáng sinh, không có nhu cầu ngay.", "sentiment": "neutral", "outcome": "Cảm ơn" }
+    ]
+  },
+  {
+    "id": "KH003",
+    "name": "Lê Minh Tuấn",
+    "phone": "0903456789",
+    "email": "tuanle@yahoo.com",
+    "age": 28,
+    "gender": "male",
+    "location": "Đà Nẵng",
+    "segment": "Thường",
+    "createdAt": "2024-09-10",
+    "source": "Tiktok",
+    "metrics": {
+      "totalTours": 3, "totalSpent": 24500000, "aov": 8166000,
+      "lastPurchaseDate": "2025-12-05", "lastPurchaseDaysAgo": 159,
+      "avgDaysBetweenOrders": 120, "careInteractions": 6, "lastCareDaysAgo": 95,
+      "complaintCount": 0, "cancelCount": 1
+    },
+    "purchases": [
+      { "date": "2025-12-05", "destination": "Đà Lạt", "nights": 2, "pax": 2, "amount": 7500000, "channel": "Online" },
+      { "date": "2025-07-15", "destination": "Phú Yên", "nights": 3, "pax": 2, "amount": 9000000, "channel": "Online" },
+      { "date": "2024-10-22", "destination": "Hà Giang", "nights": 4, "pax": 2, "amount": 8000000, "channel": "Online" }
+    ],
+    "careLogs": [
+      { "date": "2026-02-08", "channel": "zalo", "summary": "Hỏi tour Tây Bắc 30/4, sau đó im không phản hồi tiếp.", "sentiment": "neutral", "outcome": "Đã gửi báo giá, không chốt" },
+      { "date": "2025-11-25", "channel": "call", "summary": "Khách báo huỷ tour Mộc Châu, lý do bận công việc.", "sentiment": "negative", "outcome": "Hoàn cọc 50%" }
+    ]
+  },
+  {
+    "id": "KH004",
+    "name": "Phạm Thu Hương",
+    "phone": "0978111222",
+    "email": "huong.pham@gmail.com",
+    "age": 45,
+    "gender": "female",
+    "location": "Hải Phòng",
+    "segment": "VIP",
+    "createdAt": "2021-08-12",
+    "source": "Bạn bè giới thiệu",
+    "metrics": {
+      "totalTours": 11, "totalSpent": 256000000, "aov": 23272000,
+      "lastPurchaseDate": "2026-04-20", "lastPurchaseDaysAgo": 23,
+      "avgDaysBetweenOrders": 75, "careInteractions": 32, "lastCareDaysAgo": 8,
+      "complaintCount": 0, "cancelCount": 0
+    },
+    "purchases": [
+      { "date": "2026-04-20", "destination": "Hàn Quốc (Seoul-Busan)", "nights": 6, "pax": 5, "amount": 95000000, "channel": "Sale" },
+      { "date": "2026-01-08", "destination": "Phú Quốc", "nights": 4, "pax": 5, "amount": 32000000, "channel": "Sale" },
+      { "date": "2025-10-15", "destination": "Mai Châu - Mộc Châu", "nights": 3, "pax": 4, "amount": 16000000, "channel": "Sale" },
+      { "date": "2025-07-22", "destination": "Quy Nhơn", "nights": 4, "pax": 5, "amount": 22000000, "channel": "Sale" }
+    ],
+    "careLogs": [
+      { "date": "2026-05-05", "channel": "call", "summary": "Cảm ơn tour Hàn Quốc, hài lòng dịch vụ hướng dẫn viên. Hỏi tour thu đông cho con gái.", "sentiment": "positive", "outcome": "Sale Hà gửi tour Sa Pa + Đông Bắc tháng 10" },
+      { "date": "2026-04-15", "channel": "zalo", "summary": "Confirm visa Hàn Quốc xong.", "sentiment": "neutral", "outcome": "OK" }
+    ]
+  },
+  {
+    "id": "KH005",
+    "name": "Hoàng Đức Mạnh",
+    "phone": "0966789012",
+    "email": "manh.hoang@company.vn",
+    "age": 38,
+    "gender": "male",
+    "location": "Hà Nội",
+    "segment": "Thường",
+    "createdAt": "2024-01-08",
+    "source": "Google Search",
+    "metrics": {
+      "totalTours": 2, "totalSpent": 32000000, "aov": 16000000,
+      "lastPurchaseDate": "2025-08-12", "lastPurchaseDaysAgo": 274,
+      "avgDaysBetweenOrders": 200, "careInteractions": 4, "lastCareDaysAgo": 180,
+      "complaintCount": 0, "cancelCount": 0
+    },
+    "purchases": [
+      { "date": "2025-08-12", "destination": "Côn Đảo", "nights": 3, "pax": 2, "amount": 18000000, "channel": "Online" },
+      { "date": "2024-04-22", "destination": "Đà Nẵng", "nights": 4, "pax": 2, "amount": 14000000, "channel": "Online" }
+    ],
+    "careLogs": [
+      { "date": "2025-11-15", "channel": "zalo", "summary": "Gửi thiệp sinh nhật, không phản hồi.", "sentiment": "neutral", "outcome": "Không tương tác" }
+    ]
+  },
+  {
+    "id": "KH006",
+    "name": "Vũ Thị Mai",
+    "phone": "0934567890",
+    "email": "mai.vu@gmail.com",
+    "age": 32,
+    "gender": "female",
+    "location": "TP HCM",
+    "segment": "Mới",
+    "createdAt": "2026-03-02",
+    "source": "Facebook Ads",
+    "metrics": {
+      "totalTours": 1, "totalSpent": 12500000, "aov": 12500000,
+      "lastPurchaseDate": "2026-03-15", "lastPurchaseDaysAgo": 59,
+      "avgDaysBetweenOrders": null, "careInteractions": 3, "lastCareDaysAgo": 45,
+      "complaintCount": 0, "cancelCount": 0
+    },
+    "purchases": [
+      { "date": "2026-03-15", "destination": "Phú Quốc", "nights": 3, "pax": 2, "amount": 12500000, "channel": "Online" }
+    ],
+    "careLogs": [
+      { "date": "2026-03-28", "channel": "call", "summary": "Sale gọi follow-up sau tour, khách hài lòng, hỏi tour Đà Nẵng cuối năm.", "sentiment": "positive", "outcome": "Hẹn gửi báo giá tháng 9" },
+      { "date": "2026-03-05", "channel": "zalo", "summary": "Tư vấn lịch tour Phú Quốc.", "sentiment": "positive", "outcome": "Chốt 12.5tr" }
+    ]
+  },
+  {
+    "id": "KH007",
+    "name": "Đặng Quốc Bảo",
+    "phone": "0945123456",
+    "email": "baodq@gmail.com",
+    "age": 50,
+    "gender": "male",
+    "location": "Cần Thơ",
+    "segment": "VIP",
+    "createdAt": "2020-11-05",
+    "source": "Sale giới thiệu",
+    "metrics": {
+      "totalTours": 14, "totalSpent": 412000000, "aov": 29428000,
+      "lastPurchaseDate": "2025-12-28", "lastPurchaseDaysAgo": 136,
+      "avgDaysBetweenOrders": 90, "careInteractions": 38, "lastCareDaysAgo": 62,
+      "complaintCount": 1, "cancelCount": 0
+    },
+    "purchases": [
+      { "date": "2025-12-28", "destination": "Châu Âu (Pháp-Ý-Thuỵ Sĩ)", "nights": 10, "pax": 6, "amount": 168000000, "channel": "Sale" },
+      { "date": "2025-08-15", "destination": "Phú Quốc", "nights": 4, "pax": 6, "amount": 35000000, "channel": "Sale" },
+      { "date": "2025-04-10", "destination": "Đà Lạt", "nights": 3, "pax": 6, "amount": 22000000, "channel": "Sale" }
+    ],
+    "careLogs": [
+      { "date": "2026-03-12", "channel": "call", "summary": "Hỏi visa Mỹ cho gia đình + tour California-New York.", "sentiment": "positive", "outcome": "Đang chờ kết quả visa Mỹ" },
+      { "date": "2026-01-15", "channel": "zalo", "summary": "Phản hồi sau tour châu Âu: rất hài lòng dịch vụ, chỉ phàn nàn hotel ngày 4 không như brochure.", "sentiment": "neutral", "outcome": "Xin lỗi + ghi nhận" }
+    ]
+  },
+  {
+    "id": "KH008",
+    "name": "Bùi Thị Lan Anh",
+    "phone": "0908765432",
+    "email": "anhbui@yahoo.com",
+    "age": 26,
+    "gender": "female",
+    "location": "Đà Nẵng",
+    "segment": "Mới",
+    "createdAt": "2026-04-12",
+    "source": "Instagram",
+    "metrics": {
+      "totalTours": 1, "totalSpent": 6800000, "aov": 6800000,
+      "lastPurchaseDate": "2026-04-25", "lastPurchaseDaysAgo": 18,
+      "avgDaysBetweenOrders": null, "careInteractions": 2, "lastCareDaysAgo": 14,
+      "complaintCount": 0, "cancelCount": 0
+    },
+    "purchases": [
+      { "date": "2026-04-25", "destination": "Hội An", "nights": 2, "pax": 2, "amount": 6800000, "channel": "Online" }
+    ],
+    "careLogs": [
+      { "date": "2026-04-29", "channel": "zalo", "summary": "Khách trẻ thích chụp ảnh, hỏi tour Sapa mùa lúa chín.", "sentiment": "positive", "outcome": "Hẹn báo giá tháng 9" }
+    ]
+  },
+  {
+    "id": "KH009",
+    "name": "Ngô Văn Hùng",
+    "phone": "0918222333",
+    "email": "hung.ngo@gmail.com",
+    "age": 55,
+    "gender": "male",
+    "location": "Hà Nội",
+    "segment": "Thường",
+    "createdAt": "2023-09-18",
+    "source": "Sale giới thiệu",
+    "metrics": {
+      "totalTours": 4, "totalSpent": 58000000, "aov": 14500000,
+      "lastPurchaseDate": "2025-09-20", "lastPurchaseDaysAgo": 235,
+      "avgDaysBetweenOrders": 140, "careInteractions": 8, "lastCareDaysAgo": 120,
+      "complaintCount": 2, "cancelCount": 1
+    },
+    "purchases": [
+      { "date": "2025-09-20", "destination": "Nha Trang", "nights": 4, "pax": 3, "amount": 18000000, "channel": "Sale" },
+      { "date": "2025-02-10", "destination": "Sapa", "nights": 3, "pax": 3, "amount": 12000000, "channel": "Sale" },
+      { "date": "2024-06-08", "destination": "Đà Nẵng", "nights": 4, "pax": 3, "amount": 15000000, "channel": "Online" },
+      { "date": "2024-01-15", "destination": "Phú Quốc", "nights": 3, "pax": 3, "amount": 13000000, "channel": "Online" }
+    ],
+    "careLogs": [
+      { "date": "2026-01-12", "channel": "call", "summary": "Khách phàn nàn về xe đưa đón sân bay tour Nha Trang trễ 30 phút.", "sentiment": "negative", "outcome": "Đã xin lỗi + ghi nhận với NCC" }
+    ]
+  },
+  {
+    "id": "KH010",
+    "name": "Đỗ Hoàng Yến",
+    "phone": "0989456789",
+    "email": "yendo@gmail.com",
+    "age": 41,
+    "gender": "female",
+    "location": "TP HCM",
+    "segment": "VIP",
+    "createdAt": "2022-06-30",
+    "source": "Sale giới thiệu",
+    "metrics": {
+      "totalTours": 7, "totalSpent": 145000000, "aov": 20714000,
+      "lastPurchaseDate": "2026-04-05", "lastPurchaseDaysAgo": 38,
+      "avgDaysBetweenOrders": 85, "careInteractions": 18, "lastCareDaysAgo": 25,
+      "complaintCount": 0, "cancelCount": 0
+    },
+    "purchases": [
+      { "date": "2026-04-05", "destination": "Đài Loan", "nights": 5, "pax": 3, "amount": 38000000, "channel": "Sale" },
+      { "date": "2025-12-20", "destination": "Phú Quốc", "nights": 4, "pax": 3, "amount": 22000000, "channel": "Sale" },
+      { "date": "2025-08-30", "destination": "Đà Lạt", "nights": 3, "pax": 3, "amount": 14000000, "channel": "Online" }
+    ],
+    "careLogs": [
+      { "date": "2026-04-18", "channel": "zalo", "summary": "Hài lòng tour Đài Loan, đang quan tâm Maldives kỷ niệm 15 năm cưới.", "sentiment": "positive", "outcome": "Sale gửi gói honeymoon Maldives" }
+    ]
+  },
+  {
+    "id": "KH011",
+    "name": "Phan Văn Thành",
+    "phone": "0944556677",
+    "email": "thanhpv@outlook.com",
+    "age": 30,
+    "gender": "male",
+    "location": "Bình Dương",
+    "segment": "Mới",
+    "createdAt": "2026-02-20",
+    "source": "Google Ads",
+    "metrics": {
+      "totalTours": 1, "totalSpent": 8200000, "aov": 8200000,
+      "lastPurchaseDate": "2026-03-08", "lastPurchaseDaysAgo": 66,
+      "avgDaysBetweenOrders": null, "careInteractions": 2, "lastCareDaysAgo": 60,
+      "complaintCount": 0, "cancelCount": 0
+    },
+    "purchases": [
+      { "date": "2026-03-08", "destination": "Đà Lạt", "nights": 2, "pax": 2, "amount": 8200000, "channel": "Online" }
+    ],
+    "careLogs": [
+      { "date": "2026-03-13", "channel": "zalo", "summary": "Sale follow-up sau tour, khách phản hồi tích cực.", "sentiment": "positive", "outcome": "Chưa có nhu cầu mới" }
+    ]
+  },
+  {
+    "id": "KH012",
+    "name": "Trương Thị Diệu",
+    "phone": "0976554433",
+    "email": "dieutruong@gmail.com",
+    "age": 48,
+    "gender": "female",
+    "location": "Huế",
+    "segment": "Thường",
+    "createdAt": "2024-04-22",
+    "source": "Bạn bè giới thiệu",
+    "metrics": {
+      "totalTours": 3, "totalSpent": 41500000, "aov": 13833000,
+      "lastPurchaseDate": "2026-01-20", "lastPurchaseDaysAgo": 113,
+      "avgDaysBetweenOrders": 130, "careInteractions": 7, "lastCareDaysAgo": 75,
+      "complaintCount": 0, "cancelCount": 0
+    },
+    "purchases": [
+      { "date": "2026-01-20", "destination": "Phú Quốc", "nights": 4, "pax": 4, "amount": 18000000, "channel": "Sale" },
+      { "date": "2025-04-15", "destination": "Đà Nẵng", "nights": 3, "pax": 4, "amount": 12500000, "channel": "Sale" },
+      { "date": "2024-08-10", "destination": "Sapa", "nights": 3, "pax": 4, "amount": 11000000, "channel": "Online" }
+    ],
+    "careLogs": [
+      { "date": "2026-02-28", "channel": "call", "summary": "Cảm ơn sau tour Phú Quốc, hỏi tour mùa hè cho cả nhà 6 người.", "sentiment": "positive", "outcome": "Sale gửi báo giá Quy Nhơn-Phú Yên" }
+    ]
+  },
+  {
+    "id": "KH013",
+    "name": "Lý Minh Khang",
+    "phone": "0938112233",
+    "email": "khangly@yahoo.com",
+    "age": 36,
+    "gender": "male",
+    "location": "TP HCM",
+    "segment": "Thường",
+    "createdAt": "2023-07-10",
+    "source": "Tiktok",
+    "metrics": {
+      "totalTours": 4, "totalSpent": 52000000, "aov": 13000000,
+      "lastPurchaseDate": "2025-11-12", "lastPurchaseDaysAgo": 182,
+      "avgDaysBetweenOrders": 145, "careInteractions": 9, "lastCareDaysAgo": 90,
+      "complaintCount": 1, "cancelCount": 0
+    },
+    "purchases": [
+      { "date": "2025-11-12", "destination": "Đà Nẵng - Hội An", "nights": 4, "pax": 2, "amount": 14500000, "channel": "Online" },
+      { "date": "2025-04-25", "destination": "Phú Quốc", "nights": 3, "pax": 2, "amount": 12000000, "channel": "Online" },
+      { "date": "2024-08-18", "destination": "Đà Lạt", "nights": 2, "pax": 2, "amount": 8000000, "channel": "Online" },
+      { "date": "2024-02-14", "destination": "Phú Yên", "nights": 4, "pax": 2, "amount": 17500000, "channel": "Sale" }
+    ],
+    "careLogs": [
+      { "date": "2026-02-15", "channel": "zalo", "summary": "Gửi promo Valentine, không phản hồi.", "sentiment": "neutral", "outcome": "Không tương tác" }
+    ]
+  },
+  {
+    "id": "KH014",
+    "name": "Mai Anh Thư",
+    "phone": "0925334455",
+    "email": "thumai@gmail.com",
+    "age": 29,
+    "gender": "female",
+    "location": "Hà Nội",
+    "segment": "Mới",
+    "createdAt": "2026-01-15",
+    "source": "Instagram",
+    "metrics": {
+      "totalTours": 2, "totalSpent": 17000000, "aov": 8500000,
+      "lastPurchaseDate": "2026-04-10", "lastPurchaseDaysAgo": 33,
+      "avgDaysBetweenOrders": 60, "careInteractions": 4, "lastCareDaysAgo": 20,
+      "complaintCount": 0, "cancelCount": 0
+    },
+    "purchases": [
+      { "date": "2026-04-10", "destination": "Hà Giang", "nights": 3, "pax": 2, "amount": 9500000, "channel": "Online" },
+      { "date": "2026-02-08", "destination": "Mộc Châu", "nights": 2, "pax": 2, "amount": 7500000, "channel": "Online" }
+    ],
+    "careLogs": [
+      { "date": "2026-04-22", "channel": "zalo", "summary": "Cô gái trẻ thích các điểm vùng cao, hỏi tour Tà Xùa, Bắc Hà.", "sentiment": "positive", "outcome": "Sale gửi gợi ý tour mùa thu" }
+    ]
+  },
+  {
+    "id": "KH015",
+    "name": "Nguyễn Hoàng Sơn",
+    "phone": "0913445566",
+    "email": "son.nguyen@company.vn",
+    "age": 44,
+    "gender": "male",
+    "location": "Hà Nội",
+    "segment": "VIP",
+    "createdAt": "2022-09-08",
+    "source": "Sale giới thiệu",
+    "metrics": {
+      "totalTours": 6, "totalSpent": 178000000, "aov": 29666000,
+      "lastPurchaseDate": "2026-03-25", "lastPurchaseDaysAgo": 49,
+      "avgDaysBetweenOrders": 80, "careInteractions": 19, "lastCareDaysAgo": 30,
+      "complaintCount": 0, "cancelCount": 0
+    },
+    "purchases": [
+      { "date": "2026-03-25", "destination": "Maldives", "nights": 5, "pax": 2, "amount": 65000000, "channel": "Sale" },
+      { "date": "2025-12-10", "destination": "Phú Quốc", "nights": 4, "pax": 4, "amount": 28000000, "channel": "Sale" },
+      { "date": "2025-09-18", "destination": "Đà Lạt", "nights": 3, "pax": 4, "amount": 17000000, "channel": "Sale" }
+    ],
+    "careLogs": [
+      { "date": "2026-04-12", "channel": "call", "summary": "Cảm ơn tour Maldives, sẽ giới thiệu công ty đoàn 30 người team building cuối năm.", "sentiment": "positive", "outcome": "Sale follow-up tháng 8 chốt teambuilding" }
+    ]
+  },
+  {
+    "id": "KH016",
+    "name": "Cao Thị Hồng",
+    "phone": "0987112233",
+    "email": "hongcao@yahoo.com",
+    "age": 52,
+    "gender": "female",
+    "location": "Hải Phòng",
+    "segment": "Thường",
+    "createdAt": "2024-03-20",
+    "source": "Bạn bè giới thiệu",
+    "metrics": {
+      "totalTours": 2, "totalSpent": 28000000, "aov": 14000000,
+      "lastPurchaseDate": "2025-07-08", "lastPurchaseDaysAgo": 309,
+      "avgDaysBetweenOrders": 200, "careInteractions": 5, "lastCareDaysAgo": 200,
+      "complaintCount": 1, "cancelCount": 0
+    },
+    "purchases": [
+      { "date": "2025-07-08", "destination": "Đà Nẵng", "nights": 3, "pax": 4, "amount": 15000000, "channel": "Sale" },
+      { "date": "2024-12-22", "destination": "Sapa", "nights": 3, "pax": 4, "amount": 13000000, "channel": "Online" }
+    ],
+    "careLogs": [
+      { "date": "2025-10-25", "channel": "call", "summary": "Phàn nàn về phòng khách sạn nhỏ trong tour Đà Nẵng so với hình quảng cáo.", "sentiment": "negative", "outcome": "Tặng voucher 1tr, khách chưa quay lại" }
+    ]
+  },
+  {
+    "id": "KH017",
+    "name": "Tô Văn Đạt",
+    "phone": "0967889900",
+    "email": "dattv@gmail.com",
+    "age": 33,
+    "gender": "male",
+    "location": "Vũng Tàu",
+    "segment": "Mới",
+    "createdAt": "2026-03-18",
+    "source": "Facebook Ads",
+    "metrics": {
+      "totalTours": 1, "totalSpent": 9500000, "aov": 9500000,
+      "lastPurchaseDate": "2026-04-08", "lastPurchaseDaysAgo": 35,
+      "avgDaysBetweenOrders": null, "careInteractions": 2, "lastCareDaysAgo": 22,
+      "complaintCount": 0, "cancelCount": 0
+    },
+    "purchases": [
+      { "date": "2026-04-08", "destination": "Phú Quốc", "nights": 3, "pax": 2, "amount": 9500000, "channel": "Online" }
+    ],
+    "careLogs": [
+      { "date": "2026-04-20", "channel": "zalo", "summary": "Khách hài lòng, đang lên kế hoạch tuần trăng mật tháng 11.", "sentiment": "positive", "outcome": "Sale gửi gợi ý tour Phuket-Bangkok" }
+    ]
+  },
+  {
+    "id": "KH018",
+    "name": "Trịnh Minh Đức",
+    "phone": "0905667788",
+    "email": "ductm@gmail.com",
+    "age": 39,
+    "gender": "male",
+    "location": "TP HCM",
+    "segment": "Thường",
+    "createdAt": "2023-12-05",
+    "source": "Google Search",
+    "metrics": {
+      "totalTours": 5, "totalSpent": 67000000, "aov": 13400000,
+      "lastPurchaseDate": "2026-02-28", "lastPurchaseDaysAgo": 74,
+      "avgDaysBetweenOrders": 110, "careInteractions": 11, "lastCareDaysAgo": 50,
+      "complaintCount": 0, "cancelCount": 0
+    },
+    "purchases": [
+      { "date": "2026-02-28", "destination": "Phú Quốc", "nights": 3, "pax": 3, "amount": 14000000, "channel": "Online" },
+      { "date": "2025-09-15", "destination": "Đà Lạt", "nights": 2, "pax": 3, "amount": 9500000, "channel": "Online" },
+      { "date": "2025-04-22", "destination": "Côn Đảo", "nights": 3, "pax": 2, "amount": 16500000, "channel": "Sale" },
+      { "date": "2024-09-10", "destination": "Hạ Long", "nights": 2, "pax": 3, "amount": 11000000, "channel": "Online" }
+    ],
+    "careLogs": [
+      { "date": "2026-03-23", "channel": "zalo", "summary": "Đang plan hè cho cả nhà, hỏi tour biển miền Trung.", "sentiment": "positive", "outcome": "Sale gửi tour Phú Yên-Quy Nhơn" }
+    ]
+  },
+  {
+    "id": "KH019",
+    "name": "Lê Bích Phương",
+    "phone": "0921334455",
+    "email": "phuongle@gmail.com",
+    "age": 27,
+    "gender": "female",
+    "location": "Cần Thơ",
+    "segment": "Mới",
+    "createdAt": "2026-04-05",
+    "source": "Tiktok",
+    "metrics": {
+      "totalTours": 0, "totalSpent": 0, "aov": 0,
+      "lastPurchaseDate": null, "lastPurchaseDaysAgo": null,
+      "avgDaysBetweenOrders": null, "careInteractions": 3, "lastCareDaysAgo": 5,
+      "complaintCount": 0, "cancelCount": 0
+    },
+    "purchases": [],
+    "careLogs": [
+      { "date": "2026-05-08", "channel": "zalo", "summary": "Khách hỏi giá tour Đà Lạt cuối tuần cho 2 người, đang so sánh với đối thủ.", "sentiment": "neutral", "outcome": "Sale gửi báo giá đặc biệt 20% off" },
+      { "date": "2026-04-28", "channel": "zalo", "summary": "Tư vấn lần đầu, khách trẻ thiên về budget thấp.", "sentiment": "neutral", "outcome": "Đang theo dõi" }
+    ]
+  },
+  {
+    "id": "KH020",
+    "name": "Đinh Quang Vinh",
+    "phone": "0935667799",
+    "email": "vinhdq@yahoo.com",
+    "age": 60,
+    "gender": "male",
+    "location": "Hà Nội",
+    "segment": "VIP",
+    "createdAt": "2019-05-18",
+    "source": "Sale giới thiệu",
+    "metrics": {
+      "totalTours": 18, "totalSpent": 520000000, "aov": 28888000,
+      "lastPurchaseDate": "2026-04-30", "lastPurchaseDaysAgo": 13,
+      "avgDaysBetweenOrders": 75, "careInteractions": 52, "lastCareDaysAgo": 5,
+      "complaintCount": 1, "cancelCount": 0
+    },
+    "purchases": [
+      { "date": "2026-04-30", "destination": "Nhật Bản (hoa anh đào)", "nights": 7, "pax": 4, "amount": 88000000, "channel": "Sale" },
+      { "date": "2026-01-12", "destination": "Phú Quốc", "nights": 4, "pax": 4, "amount": 32000000, "channel": "Sale" },
+      { "date": "2025-10-08", "destination": "Đà Lạt", "nights": 3, "pax": 4, "amount": 19500000, "channel": "Sale" }
+    ],
+    "careLogs": [
+      { "date": "2026-05-08", "channel": "call", "summary": "Cảm ơn tour Nhật, hỏi tour cuối năm cho vợ chồng đi Bali kỷ niệm cưới vàng.", "sentiment": "positive", "outcome": "Sale gửi gói honeymoon Bali Suite" }
+    ]
+  },
+  {
+    "id": "KH021",
+    "name": "Nguyễn Thị Mỹ Linh",
+    "phone": "0944778899",
+    "email": "linhnguyen@outlook.com",
+    "age": 34,
+    "gender": "female",
+    "location": "TP HCM",
+    "segment": "Thường",
+    "createdAt": "2024-06-12",
+    "source": "Facebook Ads",
+    "metrics": {
+      "totalTours": 3, "totalSpent": 38000000, "aov": 12666000,
+      "lastPurchaseDate": "2025-12-15", "lastPurchaseDaysAgo": 149,
+      "avgDaysBetweenOrders": 140, "careInteractions": 6, "lastCareDaysAgo": 110,
+      "complaintCount": 0, "cancelCount": 1
+    },
+    "purchases": [
+      { "date": "2025-12-15", "destination": "Phú Quốc", "nights": 3, "pax": 3, "amount": 13500000, "channel": "Online" },
+      { "date": "2025-06-20", "destination": "Đà Nẵng", "nights": 4, "pax": 3, "amount": 14500000, "channel": "Online" },
+      { "date": "2024-09-25", "destination": "Sapa", "nights": 3, "pax": 3, "amount": 10000000, "channel": "Online" }
+    ],
+    "careLogs": [
+      { "date": "2026-01-22", "channel": "zalo", "summary": "Khách huỷ tour Tết do gia đình bận, không phản hồi nhiều.", "sentiment": "neutral", "outcome": "Hoàn 80% cọc" }
+    ]
+  },
+  {
+    "id": "KH022",
+    "name": "Hoàng Văn Lâm",
+    "phone": "0918445566",
+    "email": "lam.hoang@gmail.com",
+    "age": 31,
+    "gender": "male",
+    "location": "Bắc Ninh",
+    "segment": "Thường",
+    "createdAt": "2024-11-25",
+    "source": "Google Ads",
+    "metrics": {
+      "totalTours": 2, "totalSpent": 16500000, "aov": 8250000,
+      "lastPurchaseDate": "2025-10-20", "lastPurchaseDaysAgo": 205,
+      "avgDaysBetweenOrders": 165, "careInteractions": 3, "lastCareDaysAgo": 175,
+      "complaintCount": 0, "cancelCount": 0
+    },
+    "purchases": [
+      { "date": "2025-10-20", "destination": "Đà Lạt", "nights": 2, "pax": 2, "amount": 8000000, "channel": "Online" },
+      { "date": "2025-05-05", "destination": "Phú Yên", "nights": 3, "pax": 2, "amount": 8500000, "channel": "Online" }
+    ],
+    "careLogs": [
+      { "date": "2025-12-18", "channel": "zalo", "summary": "Gửi gói khuyến mãi Tết, khách xem nhưng không phản hồi.", "sentiment": "neutral", "outcome": "Không tương tác" }
+    ]
+  },
+  {
+    "id": "KH023",
+    "name": "Phùng Thị Thanh",
+    "phone": "0976223344",
+    "email": "thanhpt@gmail.com",
+    "age": 47,
+    "gender": "female",
+    "location": "Đà Nẵng",
+    "segment": "VIP",
+    "createdAt": "2021-12-08",
+    "source": "Bạn bè giới thiệu",
+    "metrics": {
+      "totalTours": 9, "totalSpent": 215000000, "aov": 23888000,
+      "lastPurchaseDate": "2026-04-15", "lastPurchaseDaysAgo": 28,
+      "avgDaysBetweenOrders": 95, "careInteractions": 26, "lastCareDaysAgo": 15,
+      "complaintCount": 0, "cancelCount": 0
+    },
+    "purchases": [
+      { "date": "2026-04-15", "destination": "Thái Lan (Bangkok-Pattaya)", "nights": 5, "pax": 5, "amount": 42000000, "channel": "Sale" },
+      { "date": "2025-12-30", "destination": "Phú Quốc", "nights": 4, "pax": 5, "amount": 32000000, "channel": "Sale" },
+      { "date": "2025-08-20", "destination": "Côn Đảo", "nights": 3, "pax": 5, "amount": 28000000, "channel": "Sale" }
+    ],
+    "careLogs": [
+      { "date": "2026-04-28", "channel": "call", "summary": "Cảm ơn tour Thái, hỏi gói Singapore-Malaysia cho con đi du học hè.", "sentiment": "positive", "outcome": "Sale chuẩn bị tour ASEAN 6N5Đ" }
+    ]
+  },
+  {
+    "id": "KH024",
+    "name": "Võ Hoàng Nam",
+    "phone": "0931556677",
+    "email": "namvh@yahoo.com",
+    "age": 25,
+    "gender": "male",
+    "location": "TP HCM",
+    "segment": "Mới",
+    "createdAt": "2026-04-22",
+    "source": "Tiktok",
+    "metrics": {
+      "totalTours": 0, "totalSpent": 0, "aov": 0,
+      "lastPurchaseDate": null, "lastPurchaseDaysAgo": null,
+      "avgDaysBetweenOrders": null, "careInteractions": 4, "lastCareDaysAgo": 3,
+      "complaintCount": 0, "cancelCount": 0
+    },
+    "purchases": [],
+    "careLogs": [
+      { "date": "2026-05-10", "channel": "zalo", "summary": "Khách đang so sánh tour Côn Đảo - Phú Quốc, hỏi giá liên tục, chưa chốt.", "sentiment": "neutral", "outcome": "Sale gửi flash sale 15% off cuối tuần" },
+      { "date": "2026-04-28", "channel": "zalo", "summary": "Đang plan tour với bạn bè 6 người dịp 30/4, hỏi nhiều option.", "sentiment": "neutral", "outcome": "Đang theo dõi" }
+    ]
+  },
+  {
+    "id": "KH025",
+    "name": "Trần Văn Quang",
+    "phone": "0989889900",
+    "email": "quang.tran@company.vn",
+    "age": 41,
+    "gender": "male",
+    "location": "Hà Nội",
+    "segment": "Thường",
+    "createdAt": "2024-08-15",
+    "source": "Sale giới thiệu",
+    "metrics": {
+      "totalTours": 2, "totalSpent": 65000000, "aov": 32500000,
+      "lastPurchaseDate": "2025-11-30", "lastPurchaseDaysAgo": 164,
+      "avgDaysBetweenOrders": 280, "careInteractions": 5, "lastCareDaysAgo": 130,
+      "complaintCount": 0, "cancelCount": 0
+    },
+    "purchases": [
+      { "date": "2025-11-30", "destination": "Hàn Quốc", "nights": 5, "pax": 4, "amount": 42000000, "channel": "Sale" },
+      { "date": "2024-12-20", "destination": "Phú Quốc", "nights": 4, "pax": 4, "amount": 23000000, "channel": "Sale" }
+    ],
+    "careLogs": [
+      { "date": "2026-01-05", "channel": "call", "summary": "Cảm ơn tour Hàn, hỏi gói teambuilding 50 người cho công ty mùa hè.", "sentiment": "positive", "outcome": "Sale chuẩn bị quotation MICE 50 pax" }
+    ]
+  }
+]

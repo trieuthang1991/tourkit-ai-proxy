@@ -1,8 +1,41 @@
 // Step 1: Form + AI Assistant panel
 const { useState, useEffect, useRef } = React;
 
-function Step1Form({ request, setRequest, onGenerate, generating, genStream, genProgress, aiTone }) {
+function Step1Form({ request, setRequest, onGenerate, generating, genStream, genProgress, aiTone, pushToast }) {
   const [showAddPref, setShowAddPref] = React.useState(false);
+  const [historyOpen, setHistoryOpen] = React.useState(false);
+  const [history, setHistory] = React.useState(() => window.tourkitHistory?.load() || []);
+
+  // Reload history mỗi khi panel mở (đề phòng vừa save mới)
+  React.useEffect(() => {
+    if (historyOpen) setHistory(window.tourkitHistory?.load() || []);
+  }, [historyOpen]);
+
+  const loadFromHistory = (entry) => {
+    setRequest(entry.request);
+    setHistoryOpen(false);
+    pushToast && pushToast(`Đã tải yêu cầu: ${entry.summary}`);
+  };
+
+  const removeFromHistory = (id, e) => {
+    e.stopPropagation();
+    window.tourkitHistory?.remove(id);
+    setHistory(window.tourkitHistory?.load() || []);
+  };
+
+  const clearAllHistory = () => {
+    if (history.length > 0 && !window.confirm(`Xoá toàn bộ ${history.length} yêu cầu cũ?`)) return;
+    window.tourkitHistory?.clear();
+    setHistory([]);
+  };
+
+  const fmtRelTime = (ts) => {
+    const diff = Date.now() - ts;
+    if (diff < 60e3) return 'vừa xong';
+    if (diff < 3600e3) return `${Math.floor(diff/60e3)} phút trước`;
+    if (diff < 86400e3) return `${Math.floor(diff/3600e3)} giờ trước`;
+    return `${Math.floor(diff/86400e3)} ngày trước`;
+  };
 
   const updatePref = (p) => {
     setRequest(r => ({
@@ -24,12 +57,82 @@ function Step1Form({ request, setRequest, onGenerate, generating, genStream, gen
   return (
     <div className="layout-2col-58">
       <div className="card">
-        <div className="card-header">
+        <div className="card-header" style={{position: 'relative'}}>
           <div className="card-icon"><Icon name="users" size={18} /></div>
           <h3>NHẬP YÊU CẦU ĐƠN HÀNG</h3>
-          <span style={{marginLeft: 'auto', fontSize: 11, color: 'var(--text-3)', letterSpacing: '0.05em'}}>
-            MÃ: <strong style={{color: 'var(--text)'}}>{request.code}</strong>
-          </span>
+          <div style={{marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 12}}>
+            {history.length > 0 && (
+              <button type="button" className="btn btn-ghost btn-sm"
+                onClick={() => setHistoryOpen(o => !o)}
+                style={{fontSize: 11}}>
+                <Icon name="clock" size={12} /> Yêu cầu cũ ({history.length})
+                <Icon name={historyOpen ? 'chevronUp' : 'chevronDown'} size={12} />
+              </button>
+            )}
+            <span style={{fontSize: 11, color: 'var(--text-3)', letterSpacing: '0.05em'}}>
+              MÃ: <strong style={{color: 'var(--text)'}}>{request.code}</strong>
+            </span>
+          </div>
+
+          {historyOpen && (
+            <div style={{
+              position: 'absolute', top: 'calc(100% + 6px)', right: 12, left: 12,
+              zIndex: 20, background: 'white', border: '1px solid var(--border)',
+              borderRadius: 10, boxShadow: '0 8px 24px rgba(0,0,0,0.12)',
+              padding: 10, maxHeight: 360, overflowY: 'auto'
+            }}>
+              <div style={{display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8, paddingBottom: 8, borderBottom: '1px solid var(--border)'}}>
+                <div style={{fontSize: 10, fontWeight: 700, letterSpacing: '0.1em', color: 'var(--text-3)'}}>
+                  YÊU CẦU GẦN ĐÂY ({history.length}) · LƯU CỤC BỘ
+                </div>
+                <button className="btn btn-ghost btn-sm" type="button"
+                  onClick={clearAllHistory}
+                  style={{fontSize: 10, color: 'var(--danger)'}}>
+                  <Icon name="trash" size={11} /> Xoá hết
+                </button>
+              </div>
+
+              <div style={{display: 'grid', gap: 4}}>
+                {history.map(entry => {
+                  const r = entry.request;
+                  const totalPax = (r.adults || 0) + (r.children || 0);
+                  return (
+                    <button key={entry.id} type="button"
+                      onClick={() => loadFromHistory(entry)}
+                      style={{
+                        display: 'grid', gridTemplateColumns: '1fr auto auto',
+                        alignItems: 'center', gap: 10,
+                        padding: '8px 10px', borderRadius: 6,
+                        border: '1px solid var(--border)', background: 'var(--bg)',
+                        cursor: 'pointer', textAlign: 'left'
+                      }}>
+                      <div style={{minWidth: 0}}>
+                        <div style={{fontSize: 13, fontWeight: 700, color: 'var(--text)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap'}}>
+                          {r.route}
+                        </div>
+                        <div style={{fontSize: 11, color: 'var(--text-3)', marginTop: 2}}>
+                          {r.days}N{r.nights}Đ · {totalPax} khách · {fmtVND(r.budgetPerPax)}/pax
+                          {r.preferences?.length > 0 && ` · ${r.preferences.slice(0, 3).join(', ')}${r.preferences.length > 3 ? '...' : ''}`}
+                        </div>
+                      </div>
+                      <span style={{fontSize: 10, color: 'var(--text-3)', whiteSpace: 'nowrap'}}>
+                        {fmtRelTime(entry.ts)}
+                      </span>
+                      <button type="button"
+                        onClick={(e) => removeFromHistory(entry.id, e)}
+                        title="Xoá khỏi lịch sử"
+                        style={{
+                          padding: 4, border: 'none', background: 'transparent',
+                          color: 'var(--text-3)', cursor: 'pointer', borderRadius: 4
+                        }}>
+                        <Icon name="close" size={12} />
+                      </button>
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+          )}
         </div>
 
         <div className="field">
@@ -167,7 +270,7 @@ function AIAssistantPanel({ request, onGenerate, generating, genStream, genProgr
     if (streamRef.current) streamRef.current.scrollTop = streamRef.current.scrollHeight;
   }, [genStream]);
 
-  // Greeting tĩnh build từ params — không call AI cho đến khi user bấm "SINH TOUR BẰNG AI".
+  // Mô tả tổng hợp tĩnh từ params — không call AI cho đến khi user bấm "SINH TOUR BẰNG AI".
   const analysis = React.useMemo(() => {
     const total = request.adults + request.children;
     if (!request.route || total === 0) return null;
@@ -180,7 +283,7 @@ function AIAssistantPanel({ request, onGenerate, generating, genStream, genProgr
       ]
     };
   }, [request.route, request.adults, request.children, request.days, request.nights, request.budgetPerPax, request.preferences.join(','), aiTone]);
-  const loading = false;   // không còn auto-load AI
+  const loading = false;
 
   const renderText = (text) => {
     if (!text) return null;

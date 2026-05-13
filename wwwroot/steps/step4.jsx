@@ -98,6 +98,10 @@ function Step4Quote({ request, itinerary, rows, onBack, onRestart, marketing, pu
           link={shareLink}
           title={marketing.tourName}
           summary={shareSummary}
+          request={request}
+          marketing={marketing}
+          totalSale={totalSale}
+          perPax={totalSale / Math.max(totalPax, 1)}
           onSent={(channel) => {
             setStatus('SENT');
             pushToast && pushToast(`Đã gửi báo giá qua ${channel === 'zalo' ? 'Zalo' : channel === 'mail' ? 'Email' : 'SMS'}`);
@@ -137,14 +141,14 @@ function SalePredictor({ request }) {
     setLoading(true);
     try {
       const prompt = `Bạn là analyst dự đoán tỉ lệ chốt sale tour B2B Việt Nam. Dựa trên:
-- Đoàn: ${request.adults + request.children} khách (B2B công ty)
-- Ngân sách khách: ${fmtVND(request.budgetPerPax)}/pax
-- Khởi hành: ${request.startDate} (mùa hè cao điểm)
-- Tour: ${request.route}, ${request.days}N${request.nights}Đ
-- Loại: ${request.preferences.includes('Team Building') ? 'Team Building/MICE' : 'Du lịch thường'}
+        - Đoàn: ${request.adults + request.children} khách (B2B công ty)
+        - Ngân sách khách: ${fmtVND(request.budgetPerPax)}/pax
+        - Khởi hành: ${request.startDate} (mùa hè cao điểm)
+        - Tour: ${request.route}, ${request.days}N${request.nights}Đ
+        - Loại: ${request.preferences.includes('Team Building') ? 'Team Building/MICE' : 'Du lịch thường'}
 
-Dự đoán tỉ lệ chốt sale (60-90%) dựa trên lịch sử các deal tương tự. Trả JSON THUẦN:
-{"rate": 78, "reason": "1 câu giải thích ngắn lý do (15-20 chữ)"}`;
+        Dự đoán tỉ lệ chốt sale (60-90%) dựa trên lịch sử các deal tương tự. Trả JSON THUẦN:
+        {"rate": 78, "reason": "1 câu giải thích ngắn lý do (15-20 chữ)"}`;
       const raw = await window.claude.complete(prompt);
       const m = raw.match(/\{[\s\S]*\}/);
       if (m) setData({ ...JSON.parse(m[0]), pristine: false });

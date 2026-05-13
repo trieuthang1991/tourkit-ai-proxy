@@ -119,8 +119,9 @@ function ConfirmDialog({ open, title, eyebrow = 'XÁC NHẬN', message, confirmL
   );
 }
 
-// Share dialog with QR + copy link + channel buttons
-function ShareDialog({ open, onClose, link, title, summary, onSent }) {
+// Share dialog with QR + copy link + customer details + channel buttons
+function ShareDialog({ open, onClose, link, title, summary, onSent,
+                      request, marketing, totalSale, perPax }) {
   const [copied, setCopied] = uD(false);
   // Default message tĩnh — không call AI cho đến khi user bấm "Viết bằng AI".
   const defaultMsg = `📋 Kính gửi Anh/Chị,\n\nTourkit xin gửi đề xuất chương trình ${title}.\n${summary}\n\nXem chi tiết báo giá: ${link}\n\nMọi thông tin chi tiết xin liên hệ trực tiếp với tư vấn viên. Trân trọng.`;
@@ -178,18 +179,109 @@ Output: text thuần, KHÔNG markdown, KHÔNG dấu ngoặc.`);
     onSent && onSent(channel);
   };
 
-  const qrSrc = `https://api.qrserver.com/v1/create-qr-code/?size=180x180&margin=4&data=${encodeURIComponent(link)}`;
+  const qrSrc = `https://api.qrserver.com/v1/create-qr-code/?size=200x200&margin=4&data=${encodeURIComponent(link)}`;
+
+  // Format ngày khởi hành dạng dd/mm/yyyy
+  const fmtDate = (iso) => {
+    if (!iso) return null;
+    const d = new Date(iso);
+    if (isNaN(d)) return iso;
+    return d.toLocaleDateString('vi-VN', { day: '2-digit', month: '2-digit', year: 'numeric' });
+  };
+
+  const totalPax = request ? (request.adults || 0) + (request.children || 0) : 0;
+  const startDateFmt = fmtDate(request?.startDate);
+  const budgetCmpPct = (request?.budgetPerPax && perPax) ? Math.round((perPax / request.budgetPerPax - 1) * 100) : null;
+  const budgetBadge = budgetCmpPct === null ? null
+    : budgetCmpPct <= 0 ? { text: `Thấp hơn ngân sách ${Math.abs(budgetCmpPct)}%`, color: 'var(--success)' }
+    : budgetCmpPct <= 5 ? { text: `Sát ngân sách (+${budgetCmpPct}%)`, color: 'var(--warning)' }
+    : { text: `Vượt ngân sách +${budgetCmpPct}%`, color: 'var(--danger)' };
 
   return (
     <Dialog open={open} onClose={onClose} title="Gửi báo giá cho khách"
-      eyebrow="CHIA SẺ · QUOTATION" icon="share" maxWidth={560}>
-      <div style={{display: 'grid', gridTemplateColumns: '180px 1fr', gap: 20, alignItems: 'start'}}>
-        <div style={{padding: 8, border: '1px solid var(--border)', borderRadius: 10, background: 'white'}}>
-          <img src={qrSrc} alt="QR báo giá" width="164" height="164" style={{display: 'block', borderRadius: 6}} />
-          <div style={{fontSize: 10, fontWeight: 700, color: 'var(--text-3)', textAlign: 'center', letterSpacing: '0.08em', marginTop: 6}}>QUÉT QR XEM BÁO GIÁ</div>
+      eyebrow="CHIA SẺ · QUOTATION" icon="share" maxWidth={860}>
+
+      {/* Tour header card */}
+      {(marketing || request) && (
+        <div style={{padding: 16, borderRadius: 12, background: 'linear-gradient(135deg, #f8fafc 0%, #eef2ff 100%)', border: '1px solid var(--border)', marginBottom: 16}}>
+          <div style={{display: 'flex', alignItems: 'baseline', gap: 10, flexWrap: 'wrap'}}>
+            {request?.code && (
+              <span style={{fontSize: 10, fontWeight: 700, letterSpacing: '0.1em', padding: '3px 8px', borderRadius: 4, background: 'var(--text)', color: 'white'}}>
+                {request.code}
+              </span>
+            )}
+            <div style={{fontSize: 17, fontWeight: 800, color: 'var(--text)', letterSpacing: '-0.01em', flex: 1, minWidth: 0}}>
+              {title || marketing?.tourName || 'Tour'}
+            </div>
+          </div>
+          {marketing?.tagline && (
+            <div style={{fontSize: 12, fontStyle: 'italic', color: 'var(--text-2)', marginTop: 4}}>
+              "{marketing.tagline}"
+            </div>
+          )}
+        </div>
+      )}
+
+      <div style={{display: 'grid', gridTemplateColumns: '200px 1fr', gap: 24, alignItems: 'start'}}>
+        {/* Left: QR + channels */}
+        <div>
+          <div style={{padding: 10, border: '1px solid var(--border)', borderRadius: 10, background: 'white'}}>
+            <img src={qrSrc} alt="QR báo giá" width="180" height="180" style={{display: 'block', borderRadius: 6, margin: '0 auto'}} />
+            <div style={{fontSize: 10, fontWeight: 700, color: 'var(--text-3)', textAlign: 'center', letterSpacing: '0.08em', marginTop: 8}}>QUÉT QR XEM BÁO GIÁ</div>
+          </div>
+
+          <div style={{fontSize: 10, fontWeight: 700, color: 'var(--text-3)', letterSpacing: '0.1em', textTransform: 'uppercase', marginTop: 16, marginBottom: 8}}>GỬI QUA KÊNH</div>
+          <div style={{display: 'grid', gap: 8}}>
+            <button className="channel-btn zalo" onClick={() => sendVia('zalo')}>
+              <Icon name="share" size={14} /> Zalo
+            </button>
+            <button className="channel-btn mail" onClick={() => sendVia('mail')}>
+              <Icon name="mail" size={14} /> Email
+            </button>
+            <button className="channel-btn sms" onClick={() => sendVia('sms')}>
+              <Icon name="phone" size={14} /> SMS
+            </button>
+          </div>
         </div>
 
+        {/* Right: info + link + AI */}
         <div>
+          {/* Customer / tour info grid */}
+          {request && (
+            <div style={{display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, marginBottom: 16}}>
+              <InfoCell label="Đoàn khách" value={`${request.adults || 0} NL + ${request.children || 0} TE`} sub={`Tổng ${totalPax} khách`} icon="users" />
+              <InfoCell label="Tuyến" value={request.route || '—'} icon="pin" />
+              <InfoCell label="Thời lượng" value={`${request.days} N ${request.nights} Đ`} icon="calendar" />
+              <InfoCell label="Khởi hành" value={startDateFmt || 'Chưa định ngày'} icon="calendar" />
+              {totalSale !== undefined && (
+                <InfoCell label="Tổng báo giá" value={fmtVND(totalSale)} icon="dollar" highlight />
+              )}
+              {perPax !== undefined && (
+                <InfoCell label="Giá / Người lớn" value={fmtVND(perPax)} icon="user" highlight badge={budgetBadge} />
+              )}
+            </div>
+          )}
+
+          {/* Preferences chips */}
+          {request?.preferences?.length > 0 && (
+            <div style={{marginBottom: 14}}>
+              <div style={{fontSize: 10, fontWeight: 700, color: 'var(--text-3)', letterSpacing: '0.1em', textTransform: 'uppercase', marginBottom: 6}}>SỞ THÍCH</div>
+              <div style={{display: 'flex', flexWrap: 'wrap', gap: 6}}>
+                {request.preferences.map(p => (
+                  <span key={p} style={{fontSize: 11, padding: '3px 9px', borderRadius: 10, background: 'var(--bg)', color: 'var(--text-2)', border: '1px solid var(--border)'}}>{p}</span>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* Notes */}
+          {request?.notes && (
+            <div style={{marginBottom: 14, padding: 10, background: 'var(--bg)', borderRadius: 8, borderLeft: '3px solid var(--accent)'}}>
+              <div style={{fontSize: 10, fontWeight: 700, color: 'var(--text-3)', letterSpacing: '0.1em', textTransform: 'uppercase', marginBottom: 4}}>GHI CHÚ CỦA KHÁCH</div>
+              <div style={{fontSize: 12, color: 'var(--text-2)', lineHeight: 1.55}}>{request.notes}</div>
+            </div>
+          )}
+
           <div style={{fontSize: 10, fontWeight: 700, color: 'var(--text-3)', letterSpacing: '0.1em', textTransform: 'uppercase', marginBottom: 6}}>LINK BÁO GIÁ</div>
           <div className="link-row">
             <span style={{flex: 1, fontSize: 12, fontFamily: 'monospace', color: 'var(--text-2)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap'}}>{link}</span>
@@ -200,7 +292,7 @@ Output: text thuần, KHÔNG markdown, KHÔNG dấu ngoặc.`);
           </div>
 
           <div style={{fontSize: 10, fontWeight: 700, color: 'var(--text-3)', letterSpacing: '0.1em', textTransform: 'uppercase', marginTop: 16, marginBottom: 6, display: 'flex', alignItems: 'center', gap: 8}}>
-            <Icon name="sparkle" size={11} /> NỘI DUNG AI GỢI Ý
+            <Icon name="sparkle" size={11} /> NỘI DUNG TIN NHẮN
           </div>
           {loading ? (
             <div className="dialog-msg-box">
@@ -222,22 +314,26 @@ Output: text thuần, KHÔNG markdown, KHÔNG dấu ngoặc.`);
           </div>
         </div>
       </div>
-
-      <div style={{marginTop: 22, paddingTop: 18, borderTop: '1px solid var(--border)'}}>
-        <div style={{fontSize: 10, fontWeight: 700, color: 'var(--text-3)', letterSpacing: '0.1em', textTransform: 'uppercase', marginBottom: 10}}>GỬI QUA KÊNH</div>
-        <div style={{display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 10}}>
-          <button className="channel-btn zalo" onClick={() => sendVia('zalo')}>
-            <Icon name="share" size={16} /> Zalo
-          </button>
-          <button className="channel-btn mail" onClick={() => sendVia('mail')}>
-            <Icon name="mail" size={16} /> Email
-          </button>
-          <button className="channel-btn sms" onClick={() => sendVia('sms')}>
-            <Icon name="phone" size={16} /> SMS
-          </button>
-        </div>
-      </div>
     </Dialog>
+  );
+}
+
+// Helper cell cho ShareDialog info grid
+function InfoCell({ label, value, sub, icon, highlight, badge }) {
+  return (
+    <div style={{padding: 10, border: '1px solid var(--border)', borderRadius: 8, background: highlight ? 'linear-gradient(135deg, #fef3c7 0%, #fde68a 30%, #ffffff 100%)' : 'white'}}>
+      <div style={{display: 'flex', alignItems: 'center', gap: 5, fontSize: 9, fontWeight: 700, color: 'var(--text-3)', letterSpacing: '0.1em', textTransform: 'uppercase', marginBottom: 4}}>
+        {icon && <Icon name={icon} size={10} />}
+        {label}
+      </div>
+      <div style={{fontSize: 14, fontWeight: 700, color: 'var(--text)', letterSpacing: '-0.01em', lineHeight: 1.2}}>{value}</div>
+      {sub && <div style={{fontSize: 11, color: 'var(--text-3)', marginTop: 2}}>{sub}</div>}
+      {badge && (
+        <div style={{display: 'inline-block', fontSize: 10, fontWeight: 700, padding: '2px 6px', borderRadius: 4, background: badge.color, color: 'white', marginTop: 4}}>
+          {badge.text}
+        </div>
+      )}
+    </div>
   );
 }
 

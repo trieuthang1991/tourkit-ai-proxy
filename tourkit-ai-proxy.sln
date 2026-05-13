@@ -1,0 +1,24 @@
+Microsoft Visual Studio Solution File, Format Version 12.00
+# Visual Studio Version 17
+VisualStudioVersion = 17.5.2.0
+MinimumVisualStudioVersion = 10.0.40219.1
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "TourkitAiProxy", "TourkitAiProxy.csproj", "{8697122D-14D7-6D51-8526-FA0A3DB812A9}"
+EndProject
+Global
+	GlobalSection(SolutionConfigurationPlatforms) = preSolution
+		Debug|Any CPU = Debug|Any CPU
+		Release|Any CPU = Release|Any CPU
+	EndGlobalSection
+	GlobalSection(ProjectConfigurationPlatforms) = postSolution
+		{8697122D-14D7-6D51-8526-FA0A3DB812A9}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{8697122D-14D7-6D51-8526-FA0A3DB812A9}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{8697122D-14D7-6D51-8526-FA0A3DB812A9}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{8697122D-14D7-6D51-8526-FA0A3DB812A9}.Release|Any CPU.Build.0 = Release|Any CPU
+	EndGlobalSection
+	GlobalSection(SolutionProperties) = preSolution
+		HideSolutionNode = FALSE
+	EndGlobalSection
+	GlobalSection(ExtensibilityGlobals) = postSolution
+		SolutionGuid = {42A529AE-0D9C-4E7B-B6CC-3D6E6C596A23}
+	EndGlobalSection
+EndGlobal
