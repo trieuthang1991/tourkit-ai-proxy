@@ -375,6 +375,15 @@ function DealsPage({ pushToast }) {
         ) : (
           <div className="deals-tablewrap">
             <table className="deals-table">
+              <colgroup>
+                <col className="col-rank" />
+                <col className="col-cust" />
+                <col className="col-val" />
+                <col className="col-win" />
+                <col className="col-prio" />
+                <col className="col-action" />
+                <col className="col-go" />
+              </colgroup>
               <thead><tr>
                 <th>#</th><th>Khách hàng / Cơ hội</th><th>Giá trị</th><th>Win</th>
                 <th>Ưu tiên</th><th>Hành động nên làm</th><th></th>
