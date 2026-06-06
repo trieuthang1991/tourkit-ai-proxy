@@ -166,5 +166,34 @@
     );
   }
 
-  window.SearchControls = { SearchInput, FilterChip, FilterChipRow, FilterButton, BottomSheet, SearchSelect, AdvancedFilterSheet };
+  // ─── AdvancedFilterPanel — phiên bản INLINE (toggle dưới filter bar) ──────
+  // API y hệt AdvancedFilterSheet (drop-in replacement) nhưng render INLINE thay vì BottomSheet popup.
+  // Phù hợp khi page có chỗ rộng, muốn user thấy filter ngay không che list.
+  function AdvancedFilterPanel({ open, onClose, title = 'Bộ lọc nâng cao',
+                                 value, onApply, defaultValue, children }) {
+    const [draft, setDraft] = s(value || {});
+    e(() => { if (open) setDraft(value || {}); }, [open]);
+    if (!open) return null;
+    const apply = () => { onApply(draft); onClose(); };
+    const clear = () => { setDraft(defaultValue || {}); onApply(defaultValue || {}); onClose(); };
+    return (
+      <div className="sc-panel" role="region" aria-label={title}>
+        <div className="sc-panel-head">
+          <div className="sc-panel-title">{title}</div>
+          <button className="sc-panel-x" onClick={onClose} aria-label="Đóng"><Icon name="close" size={14} /></button>
+        </div>
+        <div className="sc-panel-body">
+          {typeof children === 'function'
+            ? children({ draft, set: (k, v) => setDraft(d => ({ ...d, [k]: v })) })
+            : children}
+        </div>
+        <div className="sc-panel-foot">
+          <button className="sc-sheet-btn ghost" onClick={clear}><Icon name="trash" size={14} /> Xóa lọc</button>
+          <button className="sc-sheet-btn primary" onClick={apply}><Icon name="check" size={14} stroke={2.5} /> Áp dụng</button>
+        </div>
+      </div>
+    );
+  }
+
+  window.SearchControls = { SearchInput, FilterChip, FilterChipRow, FilterButton, BottomSheet, SearchSelect, AdvancedFilterSheet, AdvancedFilterPanel };
 })();

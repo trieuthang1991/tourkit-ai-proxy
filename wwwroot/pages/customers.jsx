@@ -333,7 +333,7 @@ function CustomersPage({ pushToast }) {
       </div>
 
       {/* AdvancedFilterSheet — draft state + footer Apply/Clear auto */}
-      <window.SearchControls.AdvancedFilterSheet
+      <window.SearchControls.AdvancedFilterPanel
         open={sheetOpen} onClose={() => setSheetOpen(false)}
         value={filter} defaultValue={EMPTY_FILTER}
         onApply={setFilter}>
@@ -392,7 +392,7 @@ function CustomersPage({ pushToast }) {
             </div>
           </div>
         )}
-      </window.SearchControls.AdvancedFilterSheet>
+      </window.SearchControls.AdvancedFilterPanel>
 
       {/* Progress section khi đang chạy: pipeline + bar + live stream + log */}
       {busy && (
