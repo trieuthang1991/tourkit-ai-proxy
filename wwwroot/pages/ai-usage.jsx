@@ -1,5 +1,4 @@
-// pages/ai-usage.jsx — Giám sát chi phí AI (admin view).
-// 4 KPI cards (gọi/tokens in/out/cost VND) + budget bar + 4 bảng (feature/model/user/log).
+// pages/ai-usage.jsx — Giám sát chi phí AI. Bám format /assistant (hero cam-đen + eyebrow + pane sections).
 
 const { useState: _uS, useEffect: _uE } = React;
 
@@ -14,6 +13,11 @@ const FEATURE_COLOR = {
   visa: '#2563eb', deals: '#d97706', chat: '#16a34a', mail: '#8b5cf6',
   reviews: '#0ea5e9', 'tour-builder': '#f97316', completions: '#64748b', other: '#94a3b8',
 };
+
+// Eyebrow giống asst (uppercase + dot cam + em phụ)
+const Eyebrow = ({ children, sub }) => (
+  <div className="aiu-eyebrow">{children}{sub && <em> · {sub}</em>}</div>
+);
 
 function AiUsagePage({ pushToast }) {
   const [data, setData] = _uS(null);
@@ -45,22 +49,38 @@ function AiUsagePage({ pushToast }) {
 
   return (
     <main className="page aiu">
-      <header className="aiu-head">
-        <div>
-          <h1 className="aiu-title">Giám sát chi phí AI</h1>
-          <p className="aiu-sub">Theo dõi token, chi phí và quota theo feature / model / user. Cập nhật từ {data.generatedAt ? new Date(data.generatedAt).toLocaleString('vi-VN') : '—'}.</p>
+      {/* Hero (format /assistant) */}
+      <header className="aiu-hero">
+        <div className="aiu-hero-mark"><Icon name="chart" size={22} stroke={2.4} /></div>
+        <div className="aiu-hero-text">
+          <h1 className="aiu-hero-title">GIÁM SÁT CHI PHÍ AI
+            <span className="aiu-hero-badge">thời gian thực</span>
+          </h1>
+          <p className="aiu-hero-sub">Theo dõi token, chi phí và quota theo tính năng · model · user — chống cháy túi.</p>
         </div>
-        <div className="aiu-actions">
-          <div className="aiu-range">
-            {[1, 7, 30].map(d => (
-              <button key={d} className={'aiu-range-btn' + (days === d ? ' on' : '')} onClick={() => setDays(d)}>
-                {d === 1 ? 'Hôm nay' : d + ' ngày'}
-              </button>
-            ))}
+        <div className="aiu-hero-status">
+          <span className="aiu-status-pulse" />
+          <div className="aiu-status-text">
+            <b>{loading ? 'ĐANG CẬP NHẬT' : 'DỮ LIỆU MỚI'}</b>
+            <em>{data.generatedAt ? new Date(data.generatedAt).toLocaleTimeString('vi-VN') : '—'}</em>
           </div>
-          <button className="aiu-btn" onClick={load}><Icon name="refresh" size={14} /> Làm mới</button>
+          <button className="aiu-status-refresh" onClick={load} disabled={loading} title="Làm mới">
+            <Icon name="refresh" size={15} stroke={2.4} />
+          </button>
         </div>
       </header>
+
+      {/* Range chips (filter Hôm nay/7/30 ngày) */}
+      <div className="aiu-rangebar">
+        {[{ d: 1, l: 'Hôm nay' }, { d: 7, l: '7 ngày' }, { d: 30, l: '30 ngày' }].map(o => (
+          <button key={o.d} className={'aiu-range-chip' + (days === o.d ? ' on' : '')} onClick={() => setDays(o.d)}>{o.l}</button>
+        ))}
+        <span className="aiu-range-info">
+          {t.calls > 0 && t.cacheHits > 0 && (
+            <>Cache đã tiết kiệm <b>{fmtN(t.cacheHits)}</b> lượt gọi</>
+          )}
+        </span>
+      </div>
 
       {/* Cảnh báo vượt ngưỡng */}
       {overTenants.length > 0 && (
@@ -73,53 +93,59 @@ function AiUsagePage({ pushToast }) {
         </div>
       )}
 
-      {/* 4 KPI */}
-      <section className="aiu-kpis">
-        <div className="aiu-kpi">
-          <div className="aiu-kpi-lbl">Tổng số lượt gọi</div>
-          <div className="aiu-kpi-val">{fmtN(t.calls)}</div>
-          <div className="aiu-kpi-sub">{fmtN(t.cacheHits)} cache-hit (tiết kiệm)</div>
-        </div>
-        <div className="aiu-kpi">
-          <div className="aiu-kpi-lbl">Token IN</div>
-          <div className="aiu-kpi-val">{fmtN(t.inTok)}</div>
-          <div className="aiu-kpi-sub">prompts gửi đi</div>
-        </div>
-        <div className="aiu-kpi">
-          <div className="aiu-kpi-lbl">Token OUT</div>
-          <div className="aiu-kpi-val">{fmtN(t.outTok)}</div>
-          <div className="aiu-kpi-sub">AI trả về</div>
-        </div>
-        <div className="aiu-kpi accent">
-          <div className="aiu-kpi-lbl">Chi phí ước tính</div>
-          <div className="aiu-kpi-val">{fmtVnd(t.costVnd)} <em>đ</em></div>
-          <div className="aiu-kpi-sub">{days === 1 ? 'Hôm nay' : `${days} ngày gần nhất`}</div>
+      {/* Section: TỔNG QUAN — 4 KPI + budget pane */}
+      <section className="aiu-pane">
+        <Eyebrow sub={days === 1 ? 'HÔM NAY' : `${days} NGÀY GẦN NHẤT`}>TỔNG QUAN</Eyebrow>
+        <div className="aiu-kpis">
+          <div className="aiu-kpi">
+            <div className="aiu-kpi-lbl">Tổng lượt gọi</div>
+            <div className="aiu-kpi-val">{fmtN(t.calls)}</div>
+            <div className="aiu-kpi-sub">{fmtN(t.cacheHits)} cache-hit (tiết kiệm)</div>
+          </div>
+          <div className="aiu-kpi">
+            <div className="aiu-kpi-lbl">Token IN</div>
+            <div className="aiu-kpi-val">{fmtN(t.inTok)}</div>
+            <div className="aiu-kpi-sub">prompts gửi đi</div>
+          </div>
+          <div className="aiu-kpi">
+            <div className="aiu-kpi-lbl">Token OUT</div>
+            <div className="aiu-kpi-val">{fmtN(t.outTok)}</div>
+            <div className="aiu-kpi-sub">AI trả về</div>
+          </div>
+          <div className="aiu-kpi accent">
+            <div className="aiu-kpi-lbl">Chi phí ước tính</div>
+            <div className="aiu-kpi-val">{fmtVnd(t.costVnd)} <em>đ</em></div>
+            <div className="aiu-kpi-sub">đã trừ cache</div>
+          </div>
         </div>
       </section>
 
-      {/* Budget bar theo tenant */}
+      {/* Section: NGÂN SÁCH (chỉ hiện khi có tenant) */}
       {tenants.length > 0 && (
-        <section className="aiu-block">
-          <h3>Ngân sách AI hôm nay <em>(ngưỡng {fmtVnd(budget.dailyVnd)} đ/tenant)</em></h3>
+        <section className="aiu-pane">
+          <Eyebrow sub={`NGƯỠNG ${fmtVnd(budget.dailyVnd)} đ/TENANT`}>NGÂN SÁCH HÔM NAY</Eyebrow>
           <div className="aiu-budgets">
             {tenants.map(t => (
               <div key={t.tenant} className={'aiu-budget-row' + (t.overBudget ? ' over' : '')}>
                 <span className="aiu-budget-name">{t.tenant}</span>
                 <div className="aiu-budget-bar"><i style={{ width: Math.min(100, t.pct) + '%' }} /></div>
-                <span className="aiu-budget-val">{fmtVnd(t.costVnd)} đ <em>· {t.pct}%</em></span>
+                <span className="aiu-budget-val">{fmtVnd(t.costVnd)} <em>đ · {t.pct}%</em></span>
               </div>
             ))}
           </div>
         </section>
       )}
 
+      {/* Section: PHÂN TÍCH — 2 cột (feature/model) */}
       <div className="aiu-grid2">
-        {/* Theo feature */}
-        <section className="aiu-block">
-          <h3>Theo tính năng</h3>
+        <section className="aiu-pane">
+          <Eyebrow sub="THEO TÍNH NĂNG">PHÂN BỔ CHI PHÍ</Eyebrow>
           <table className="aiu-table">
-            <thead><tr><th>Tính năng</th><th>Lượt</th><th>Token (in/out)</th><th>Chi phí</th></tr></thead>
+            <thead><tr><th>Tính năng</th><th>Lượt</th><th>Token IN/OUT</th><th>Chi phí</th></tr></thead>
             <tbody>
+              {(data.byFeature || []).length === 0 && (
+                <tr><td colSpan={4} className="aiu-empty">Chưa có lượt gọi nào</td></tr>
+              )}
               {(data.byFeature || []).map(f => (
                 <tr key={f.feature}>
                   <td><span className="aiu-dot" style={{ background: FEATURE_COLOR[f.feature] || '#94a3b8' }} /> {FEATURE_LABEL[f.feature] || f.feature}</td>
@@ -132,12 +158,14 @@ function AiUsagePage({ pushToast }) {
           </table>
         </section>
 
-        {/* Theo model */}
-        <section className="aiu-block">
-          <h3>Theo model</h3>
+        <section className="aiu-pane">
+          <Eyebrow sub="THEO MODEL">PHÂN BỔ CHI PHÍ</Eyebrow>
           <table className="aiu-table">
-            <thead><tr><th>Model</th><th>Lượt</th><th>Token (in/out)</th><th>Chi phí</th></tr></thead>
+            <thead><tr><th>Model</th><th>Lượt</th><th>Token IN/OUT</th><th>Chi phí</th></tr></thead>
             <tbody>
+              {(data.byModel || []).length === 0 && (
+                <tr><td colSpan={4} className="aiu-empty">Chưa có lượt gọi nào</td></tr>
+              )}
               {(data.byModel || []).map(m => (
                 <tr key={m.model}>
                   <td><code>{m.model}</code></td>
@@ -151,10 +179,10 @@ function AiUsagePage({ pushToast }) {
         </section>
       </div>
 
-      {/* Top user */}
+      {/* Section: TOP USER */}
       {(data.byUser || []).length > 0 && (
-        <section className="aiu-block">
-          <h3>Top user tiêu nhiều nhất</h3>
+        <section className="aiu-pane">
+          <Eyebrow sub="TOP 10">USER TIÊU NHIỀU NHẤT</Eyebrow>
           <table className="aiu-table">
             <thead><tr><th>Session</th><th>Tenant</th><th>Lượt</th><th>Chi phí</th></tr></thead>
             <tbody>
@@ -171,13 +199,16 @@ function AiUsagePage({ pushToast }) {
         </section>
       )}
 
-      {/* Log gần đây */}
-      <section className="aiu-block">
-        <h3>Log {logs.length} lượt gọi gần nhất</h3>
+      {/* Section: LOG */}
+      <section className="aiu-pane">
+        <Eyebrow sub={`${logs.length} LƯỢT GẦN NHẤT`}>NHẬT KÝ CHI TIẾT</Eyebrow>
         <div className="aiu-log-wrap">
           <table className="aiu-table aiu-log">
-            <thead><tr><th>Thời gian</th><th>Tính năng</th><th>Model</th><th>In/Out</th><th>Latency</th><th>Chi phí</th><th>Status</th></tr></thead>
+            <thead><tr><th>Thời gian</th><th>Tính năng</th><th>Model</th><th>IN/OUT</th><th>Latency</th><th>Chi phí</th><th>Status</th></tr></thead>
             <tbody>
+              {logs.length === 0 && (
+                <tr><td colSpan={7} className="aiu-empty">Chưa có log nào</td></tr>
+              )}
               {logs.map((e, i) => (
                 <tr key={i} className={e.cached ? 'cached' : ''}>
                   <td>{new Date(e.ts).toLocaleTimeString('vi-VN')}</td>
