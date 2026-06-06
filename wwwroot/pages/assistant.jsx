@@ -572,20 +572,6 @@ function AssistantPage({ pushToast }) {
                     ? m.content
                     : (m.streaming ? <TypingDots stage={stage} /> : '')}
                 </div>
-                {/* Card "Biểu đồ đính kèm" cho message AI nếu có panelData (chỉ message mới nhất) */}
-                {m.role === 'assistant' && i === messages.length - 1 && panelData && !m.streaming && (
-                  <div className="asst-attach">
-                    <div className="asst-attach-ic"><Icon name="chart" size={15} /></div>
-                    <div className="asst-attach-text">
-                      <span>BIỂU ĐỒ ĐÍNH KÈM</span>
-                      <b>{panelData.title || 'Cơ cấu số liệu'}</b>
-                    </div>
-                    <a className="asst-attach-link"
-                      onClick={() => document.querySelector('.asst-pane.asst-right')?.scrollIntoView({ behavior: 'smooth' })}>
-                      Xem lớn <Icon name="arrowRight" size={12} stroke={2.4} />
-                    </a>
-                  </div>
-                )}
               </div>
             ))}
           </div>
