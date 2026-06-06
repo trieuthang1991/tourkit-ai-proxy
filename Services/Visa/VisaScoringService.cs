@@ -28,16 +28,32 @@ public class VisaScoringService
         string profile, string? country, string? provider, string? model, string? apiKey, CancellationToken ct)
     {
         var p = _registry.Resolve(provider);
-        var req = new CompleteRequest(
-            Prompt: BuildPrompt(profile, country), Provider: provider, Model: model,
-            MaxTokens: 2500, Temperature: 0.3, System: SYSTEM, ApiKey: apiKey);
+        Exception? last = null;
 
-        var res = await p.CompleteAsync(req, ct);
-        if (string.IsNullOrWhiteSpace(res.Text))
-            throw new InvalidOperationException($"AI trả rỗng khi chấm visa (finish={res.FinishReason})");
-
-        var parsed = Parse(res.Text);
-        return parsed with { AiModel = res.Model, AiProvider = p.Id };
+        // Retry 1 lần nếu AI trả JSON xấu (reasoning model) — chỉ thị chặt hơn + token cao hơn.
+        for (int attempt = 1; attempt <= 2; attempt++)
+        {
+            var prompt = attempt == 1
+                ? BuildPrompt(profile, country)
+                : BuildPrompt(profile, country) + "\n\nLƯU Ý: Lần trước trả SAI định dạng. CHỈ trả ĐÚNG 1 JSON object hợp lệ, không thêm chữ nào ngoài JSON.";
+            var req = new CompleteRequest(
+                Prompt: prompt, Provider: provider, Model: model,
+                MaxTokens: attempt == 1 ? 2500 : 3200, Temperature: 0.3, System: SYSTEM, ApiKey: apiKey);
+            try
+            {
+                var res = await p.CompleteAsync(req, ct);
+                if (string.IsNullOrWhiteSpace(res.Text))
+                    throw new InvalidOperationException($"AI trả rỗng (finish={res.FinishReason})");
+                return Parse(res.Text) with { AiModel = res.Model, AiProvider = p.Id };
+            }
+            catch (OperationCanceledException) { throw; }
+            catch (InvalidOperationException ex)
+            {
+                last = ex;
+                _log.LogWarning("Chấm visa lần {N} lỗi: {Msg}", attempt, ex.Message);
+            }
+        }
+        throw last ?? new InvalidOperationException("Chấm visa thất bại");
     }
 
     private static string BuildPrompt(string profile, string? country)

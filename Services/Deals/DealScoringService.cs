@@ -25,15 +25,33 @@ public class DealScoringService
     public async Task<DealScore> ScoreAsync(string profile, string? provider, string? model, string? apiKey, CancellationToken ct)
     {
         var p = _registry.Resolve(provider);
-        var req = new CompleteRequest(
-            Prompt: BuildPrompt(profile), Provider: provider, Model: model,
-            MaxTokens: 1600, Temperature: 0.3, System: SYSTEM, ApiKey: apiKey);
+        Exception? last = null;
 
-        var res = await p.CompleteAsync(req, ct);
-        if (string.IsNullOrWhiteSpace(res.Text))
-            throw new InvalidOperationException($"AI trả rỗng khi chấm deal (finish={res.FinishReason})");
-
-        return Parse(res.Text) with { AiModel = res.Model, AiProvider = p.Id };
+        // Reasoning model (deepseek/minimax) thỉnh thoảng trả JSON xấu/cụt → retry 1 lần với
+        // chỉ thị chặt hơn + token cao hơn. Phục hồi phần lớn deal lẽ ra bị rớt khỏi bảng.
+        for (int attempt = 1; attempt <= 2; attempt++)
+        {
+            var prompt = attempt == 1
+                ? BuildPrompt(profile)
+                : BuildPrompt(profile) + "\n\nLƯU Ý: Lần trước trả SAI định dạng. CHỈ trả ĐÚNG 1 JSON object hợp lệ, không thêm bất kỳ chữ nào ngoài JSON.";
+            var req = new CompleteRequest(
+                Prompt: prompt, Provider: provider, Model: model,
+                MaxTokens: attempt == 1 ? 1800 : 2400, Temperature: 0.3, System: SYSTEM, ApiKey: apiKey);
+            try
+            {
+                var res = await p.CompleteAsync(req, ct);
+                if (string.IsNullOrWhiteSpace(res.Text))
+                    throw new InvalidOperationException($"AI trả rỗng (finish={res.FinishReason})");
+                return Parse(res.Text) with { AiModel = res.Model, AiProvider = p.Id };
+            }
+            catch (OperationCanceledException) { throw; }
+            catch (InvalidOperationException ex)
+            {
+                last = ex;
+                _log.LogWarning("Chấm deal lần {N} lỗi: {Msg}", attempt, ex.Message);
+            }
+        }
+        throw last ?? new InvalidOperationException("Chấm deal thất bại");
     }
 
     private static string BuildPrompt(string profile) => $@"NHIỆM VỤ: Đánh giá khả năng THẮNG (chốt) cơ hội bán hàng dưới đây, dựa trên hành động của Sale.
