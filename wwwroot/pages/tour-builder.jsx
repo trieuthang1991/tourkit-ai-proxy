@@ -117,8 +117,8 @@ function TourBuilderPage({ pushToast }) {
     navigator.clipboard.writeText(JSON.stringify(form, null, 2));
     pushToast('Đã copy JSON form');
   }
-  function reset() {
-    if (!window.confirm('Xóa toàn bộ form?')) return;
+  async function reset() {
+    if (!(await window.appConfirm('Xóa toàn bộ form?', { title: 'Xóa form', confirmLabel: 'Xóa', danger: true }))) return;
     setForm(EMPTY()); setPrompt(''); pushToast('Đã xóa');
   }
 

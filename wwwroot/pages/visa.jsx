@@ -299,7 +299,7 @@ function VisaPage({ pushToast }) {
   const onPick = (a) => { setCurrent(a); setView(a.result ? 'result' : 'review'); setBusy(false); };
 
   const onDelete = async (id) => {
-    if (!window.confirm('Xóa hồ sơ thẩm định này?')) return;
+    if (!(await window.appConfirm('Xóa hồ sơ thẩm định này?', { title: 'Xóa hồ sơ', confirmLabel: 'Xóa', danger: true }))) return;
     try {
       const r = await window.tourkitAuth.authedFetch(`/api/v1/visa/assessments/${id}`, { method: 'DELETE' });
       if (r.ok) { pushToast('Đã xóa'); if (current?.id === id) goNew(); loadHistory(); }

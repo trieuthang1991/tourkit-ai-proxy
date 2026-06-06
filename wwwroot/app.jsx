@@ -163,7 +163,7 @@ function App() {
                     <Icon name="sparkle" size={15} /> Cấu hình AI
                   </button>
                   <button className="tb-menu-item danger"
-                    onClick={() => { setUserMenu(false); if (window.confirm('Đăng xuất khỏi TourKit?')) window.tourkitAuth.logout(); }}>
+                    onClick={async () => { setUserMenu(false); if (await window.appConfirm('Đăng xuất khỏi TourKit?', { title: 'Đăng xuất', confirmLabel: 'Đăng xuất', danger: true })) window.tourkitAuth.logout(); }}>
                     <Icon name="arrowRight" size={15} /> Đăng xuất
                   </button>
                 </div>

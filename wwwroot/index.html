@@ -25,6 +25,8 @@
 <script src="https://unpkg.com/react@18.3.1/umd/react.development.js" integrity="sha384-hD6/rw4ppMLGNu3tX5cjIb+uRZ7UkRJ6BPkLpg4hAu/6onKUg4lLsHAs9EBPT82L" crossorigin="anonymous"></script>
 <script src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.development.js" integrity="sha384-u6aeetuaXnQ38mYT8rp6sbXaQe3NL9t+IBXmnYxwkUI2Hw4bsp2Wvmx4yRQF1uAm" crossorigin="anonymous"></script>
 <script src="https://unpkg.com/@babel/standalone@7.29.0/babel.min.js" integrity="sha384-m08KidiNqLdpJqLq95G/LEi8Qvjl/xUYll3QILypMoQ65QorJ9Lvtp2RXYGBFj1y" crossorigin="anonymous"></script>
+<!-- Babel cache (patch Babel.transform) — phải load NGAY SAU babel để patch trước file .jsx đầu tiên -->
+<script src="core/babel-cache.js"></script>
 
 <!-- Chart.js (UMD, no build step) — professional charts cho trang Trợ lý số liệu -->
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.6/dist/chart.umd.min.js"></script>
@@ -42,6 +44,7 @@
 <script type="text/babel" src="core/parsers.js"></script>
 <script type="text/babel" src="core/ai-provider.jsx"></script>
 <script type="text/babel" src="core/auth.jsx"></script>
+<script type="text/babel" src="core/page-loader.jsx"></script>
 
 <!-- /components — reusable UI -->
 <script type="text/babel" src="components/tweaks-panel.jsx"></script>
@@ -50,6 +53,8 @@
 <script type="text/babel" src="components/search-controls.jsx"></script>
 <script type="text/babel" src="components/page-shell.jsx"></script>
 <script type="text/babel" src="components/data-controls.jsx"></script>
+<!-- Global dialog API (appAlert/appConfirm/appPrompt) — phải load SAU dialogs.jsx vì dùng window.ConfirmDialog/PromptDialog -->
+<script type="text/babel" src="core/dialog-api.jsx"></script>
 
 <!-- /steps — sub-views inside the wizard page -->
 <script type="text/babel" src="steps/step1.jsx"></script>

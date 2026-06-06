@@ -23,8 +23,8 @@ function Step1Form({ request, setRequest, onGenerate, generating, genStream, gen
     setHistory(window.tourkitHistory?.load() || []);
   };
 
-  const clearAllHistory = () => {
-    if (history.length > 0 && !window.confirm(`Xoá toàn bộ ${history.length} yêu cầu cũ?`)) return;
+  const clearAllHistory = async () => {
+    if (history.length > 0 && !(await window.appConfirm(`Xoá toàn bộ ${history.length} yêu cầu cũ?`, { title: 'Xoá lịch sử', confirmLabel: 'Xoá hết', danger: true }))) return;
     window.tourkitHistory?.clear();
     setHistory([]);
   };

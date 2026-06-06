@@ -196,7 +196,7 @@ function ComposeNewModal({ onClose, pushToast }) {
   async function send() {
     if (!to.trim()) { pushToast('Nhập người nhận', 'error'); return; }
     if (!body.trim()) { pushToast('Chưa có nội dung — soạn trước đã', 'error'); return; }
-    if (!window.confirm(`Gửi email tới ${to.trim()}?`)) return;
+    if (!(await window.appConfirm(`Gửi email tới ${to.trim()}?`, { title: 'Gửi email', confirmLabel: 'Gửi' }))) return;
     setSending(true);
     try {
       const r = await fetch('/api/v1/mail/compose/send', {
@@ -373,7 +373,7 @@ function MailPage({ pushToast }) {
 
   async function sendReply() {
     if (!sel || !draft.trim() || sending) return;
-    if (!window.confirm(`Gửi email trả lời tới ${sel.from?.email || 'khách'}?`)) return;
+    if (!(await window.appConfirm(`Gửi email trả lời tới ${sel.from?.email || 'khách'}?`, { title: 'Gửi trả lời', confirmLabel: 'Gửi' }))) return;
     setSending(true);
     try {
       const r = await fetch(`/api/v1/mail/${encodeURIComponent(sel.id)}/reply/send`, {
