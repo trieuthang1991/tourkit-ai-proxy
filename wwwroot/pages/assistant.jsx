@@ -121,24 +121,50 @@ function _chartInfo(rows) {
   let numKeys = keys.filter(k => k !== labelKey && typeof first[k] === 'number' && !_isIdKey(k) && !/percent/i.test(k));
   if (!numKeys.length || numKeys.length > 4) return null;
   numKeys = numKeys.sort((a, b) => (_isMoneyKey(b) ? 1 : 0) - (_isMoneyKey(a) ? 1 : 0)).slice(0, 4);
-  return { labelKey, series: numKeys.map(k => ({ key: k })), timeline: _looksTimeline(rows, labelKey) };
+
+  const timeline = _looksTimeline(rows, labelKey);
+  // ─── Chart-picker rõ ràng (chọn mặc định) ─────────────────────────────────
+  // • Tròn (donut) — CƠ CẤU/SHARE: 1 chỉ số duy nhất, dữ liệu phân loại (không timeline),
+  //   2-10 mục → vd cơ cấu sản phẩm, nguồn marketing, top KH theo share.
+  // • Cột DỌC (vertical bar) — TIMELINE: trục X là thời gian (T1, T2…, ngày…)
+  //   → vd doanh thu/chi phí theo tháng, dòng tiền theo ngày.
+  // • Cột NGANG (horizontal bar) — RANKING dài hoặc multi-metric: phân loại nhưng >10 mục
+  //   hoặc nhiều series → vd ranking 20 mục, so sánh nhiều chỉ số/cùng category.
+  return { labelKey, series: numKeys.map(k => ({ key: k })), timeline };
+}
+
+// Kind gợi ý "cơ cấu" → ưu tiên donut nếu 1 chỉ số (marketing, top theo share…)
+const _COMP_KINDS = new Set(['marketing', 'topcustomers', 'topsellers']);
+function _defaultChartType(info, rows, kind) {
+  if (info.timeline) return 'bar-vertical';
+  const singleMetric = info.series.length === 1;
+  const fewRows = rows.length <= 10;
+  if (singleMetric && fewRows) return 'doughnut';
+  if (singleMetric && _COMP_KINDS.has(kind)) return 'doughnut';
+  return 'bar-horizontal';
 }
 
 // Bảng màu cho từng lát biểu đồ tròn.
 const _SLICE_COLORS = ['#F97316', '#0EA5E9', '#10B981', '#8B5CF6', '#F59E0B', '#EF4444', '#14B8A6', '#6366F1', '#EC4899', '#84CC16'];
 
 // Biểu đồ chuyên nghiệp bằng Chart.js (nạp qua CDN ở index.html).
-function ChartView({ rows, info, focus }) {
+// chartType: 'doughnut' | 'bar-vertical' | 'bar-horizontal' (mặc định từ _defaultChartType + kind).
+function ChartView({ rows, info, focus, kind }) {
   const canvasRef = React.useRef(null);
   const chartRef = React.useRef(null);
   const allKeys = info.series.map(s => s.key);
   const focusSel = (focus || []).filter(f => allKeys.includes(f));
   const [sel, setSel] = React.useState(focusSel.length ? focusSel : allKeys.slice(0, info.timeline ? 3 : 1));
-  const [chartType, setChartType] = React.useState('bar');   // 'bar' | 'doughnut'
+  const [chartType, setChartType] = React.useState(() => _defaultChartType(info, rows, kind));
+  // Khi data đổi (panelData khác câu hỏi khác) → reset chartType + sel theo mặc định mới.
+  React.useEffect(() => {
+    setChartType(_defaultChartType(info, rows, kind));
+    setSel(focusSel.length ? focusSel : allKeys.slice(0, info.timeline ? 3 : 1));
+  }, [info.labelKey, rows.length, kind]);
 
   const activeCount = info.series.filter(s => sel.includes(s.key)).length;
-  // Tròn hợp lý: dữ liệu phân loại (không timeline), đúng 1 chỉ số, 2–10 mục.
-  const canPie = !info.timeline && rows.length >= 2 && rows.length <= 10;
+  // Tròn hợp lý: dữ liệu phân loại (không timeline), 2–12 mục (donut chart vẫn đọc được).
+  const canPie = !info.timeline && rows.length >= 2 && rows.length <= 12;
 
   React.useEffect(() => {
     if (!window.Chart || !canvasRef.current) return;
@@ -165,15 +191,15 @@ function ChartView({ rows, info, focus }) {
         type: 'doughnut',
         data: { labels, datasets: [{ data: vals, backgroundColor: labels.map((_, i) => _SLICE_COLORS[i % _SLICE_COLORS.length]), borderColor: '#fff', borderWidth: 2 }] },
         options: {
-          responsive: true, maintainAspectRatio: false, cutout: '58%',
+          responsive: true, maintainAspectRatio: false, cutout: '62%',
           plugins: {
-            legend: { position: 'right', labels: { font: { family: 'Be Vietnam Pro', size: 11 }, boxWidth: 12, padding: 8 } },
+            legend: { display: false },   // legend dòng do React render bên ngoài (mockup)
             tooltip: { callbacks: { label: (ctx) => ` ${ctx.label}: ${fmt(ctx.parsed)} (${(ctx.parsed / total * 100).toFixed(1)}%)` } }
           }
         }
       };
     } else {
-      const horizontal = !info.timeline;
+      const horizontal = chartType === 'bar-horizontal';
       const datasets = active.map((s, i) => ({
         label: _seriesName(s.key),
         data: data.map(r => Number(r[s.key]) || 0),
@@ -210,9 +236,24 @@ function ChartView({ rows, info, focus }) {
   const toggle = (k) => setSel(prev =>
     prev.includes(k) ? (prev.length > 1 ? prev.filter(x => x !== k) : prev) : [...prev, k]);
 
+  // Tính legend dòng (dot màu + nhãn + giá trị) cho donut — mockup style.
+  const showRowLegend = chartType === 'doughnut' && canPie && activeCount === 1;
+  const legendRows = showRowLegend ? (() => {
+    const key = info.series.find(s => sel.includes(s.key))?.key;
+    if (!key) return [];
+    const money = _isMoneyKey(key);
+    return rows.slice().sort((a, b) => (Number(b[key]) || 0) - (Number(a[key]) || 0)).map((r, i) => ({
+      label: String(r[info.labelKey]),
+      value: Number(r[key]) || 0,
+      formatted: money ? _vndShort(Number(r[key]) || 0) : window.fmtNum(Number(r[key]) || 0),
+      unit: money ? 'đ' : '',
+      color: _SLICE_COLORS[i % _SLICE_COLORS.length],
+    }));
+  })() : [];
+
   return (
     <div className="asst-chart">
-      {(info.series.length > 1 || (canPie && activeCount === 1)) && (
+      {(info.series.length > 1 || canPie) && (
         <div className="asst-chart-toolbar">
           {info.series.length > 1 ? (
             <div className="asst-metrics">
@@ -223,15 +264,33 @@ function ChartView({ rows, info, focus }) {
               ))}
             </div>
           ) : <span />}
-          {canPie && activeCount === 1 && (
-            <div className="asst-type-toggle">
-              <button className={chartType === 'bar' ? 'on' : ''} onClick={() => setChartType('bar')}>Cột</button>
-              <button className={chartType === 'doughnut' ? 'on' : ''} onClick={() => setChartType('doughnut')}>Tròn</button>
-            </div>
-          )}
+          <div className="asst-type-toggle">
+            {canPie && activeCount === 1 && (
+              <button className={chartType === 'doughnut' ? 'on' : ''} onClick={() => setChartType('doughnut')} title="Cơ cấu (tròn)">
+                <Icon name="chart" size={13} /> Tròn
+              </button>
+            )}
+            <button className={chartType === 'bar-vertical' ? 'on' : ''} onClick={() => setChartType('bar-vertical')} title="Theo thời gian (cột dọc)">
+              <Icon name="trend" size={13} /> Cột dọc
+            </button>
+            <button className={chartType === 'bar-horizontal' ? 'on' : ''} onClick={() => setChartType('bar-horizontal')} title="So sánh / xếp hạng (cột ngang)">
+              <Icon name="list" size={13} /> Cột ngang
+            </button>
+          </div>
         </div>
       )}
-      <div className="asst-canvas-wrap"><canvas ref={canvasRef} /></div>
+      <div className={'asst-canvas-wrap' + (showRowLegend ? ' donut' : '')}><canvas ref={canvasRef} /></div>
+      {showRowLegend && legendRows.length > 0 && (
+        <div className="asst-legend">
+          {legendRows.map((l, i) => (
+            <div key={i} className="asst-legend-row">
+              <span className="asst-legend-dot" style={{ background: l.color }} />
+              <span className="asst-legend-label">{l.label.toUpperCase()}</span>
+              <span className="asst-legend-val">{l.formatted}{l.unit && <em> {l.unit}</em>}</span>
+            </div>
+          ))}
+        </div>
+      )}
     </div>
   );
 }
@@ -323,7 +382,7 @@ function DataPanel({ data, onAsk }) {
       {chart && window.Chart && (
         <div className="asst-block">
           <div className="label">Biểu đồ</div>
-          <ChartView rows={rows} info={chart} focus={data.focus} />
+          <ChartView rows={rows} info={chart} focus={data.focus} kind={data.kind} />
         </div>
       )}
 
@@ -465,39 +524,52 @@ function AssistantPage({ pushToast }) {
   }
 
   // ─── 2 cột (luôn đã đăng nhập nhờ gate toàn cục) ─────────────────────────────
-  const suggestions = ['Doanh thu tháng này', 'Top khách hàng', 'Tour sắp khởi hành', 'Nguồn marketing tháng này'];
+  const suggestions = [
+    { q: 'Doanh thu tháng này',              icon: 'dollar' },
+    { q: 'Top khách hàng',                    icon: 'star' },
+    { q: 'Cơ cấu nguồn khách Marketing',     icon: 'chart' },
+    { q: 'Tour sắp khởi hành',                icon: 'plane' },
+  ];
 
-  const panelTitle = panelData ? (panelData.title || 'Số liệu') : 'Số liệu';
+  const panelTitle = panelData ? (panelData.title || 'Cơ cấu số liệu') : null;
 
   return (
     <main className="page asst">
-      <div className="page-title-block">
-        <h1 className="page-title">Trợ lý số liệu</h1>
-        <p className="page-sub">Hỏi bằng ngôn ngữ tự nhiên, AI tự truy xuất số liệu TourKit và phân tích.</p>
-      </div>
-
-      <div className="asst-grid">
-        {/* TRÁI: chat */}
-        <section className="asst-chat">
-          <div className="card-header asst-head">
-            <div className="card-icon"><Icon name="sparkle" size={18} /></div>
-            <h3>HỘI THOẠI</h3>
-            <button className="btn btn-ghost btn-sm" style={{ marginLeft: 'auto' }} onClick={clearCache}
-              disabled={clearing} title="Xóa cache số liệu — buộc hỏi lại lấy số mới">
-              ↻ {clearing ? 'Đang xóa…' : 'Xóa cache'}
-            </button>
+      {/* Header card cam-đen (mockup) */}
+      <header className="asst-hero">
+        <div className="asst-hero-mark"><Icon name="sparkle" size={22} stroke={2.4} /></div>
+        <div className="asst-hero-text">
+          <h1 className="asst-hero-title">TRỢ LÝ AI ĐỌC BÁO CÁO
+            <span className="asst-hero-badge">trực quan</span>
+          </h1>
+          <p className="asst-hero-sub">Hỏi đáp thông minh — AI tự truy xuất số liệu TourKit và trực quan hóa.</p>
+        </div>
+        <div className="asst-hero-status">
+          <span className="asst-status-pulse" />
+          <div className="asst-status-text">
+            <b>DỮ LIỆU ĐANG KẾT NỐI</b>
+            <em>Tenant {sessionInfo?.tenantId || '—'}</em>
           </div>
+          <button className="asst-status-refresh" onClick={clearCache} disabled={clearing}
+            title="Xóa cache số liệu — buộc hỏi lại lấy số mới">
+            <Icon name="refresh" size={15} stroke={2.4} />
+          </button>
+        </div>
+      </header>
+
+      <div className="asst-grid2">
+        {/* TRÁI: chat */}
+        <section className="asst-pane asst-chat">
+          <div className="asst-eyebrow">KÊNH PHÂN TÍCH NGÔN NGỮ TỰ NHIÊN <em>· NLP CHAT</em></div>
 
           <div className="asst-messages" ref={scrollRef}>
             {messages.length === 0 && (
-              <div className="asst-suggest">
-                <div className="label">Gợi ý câu hỏi</div>
-                <div className="asst-suggest-grid">
-                  {suggestions.map(s => (
-                    <button key={s} className="asst-chip" onClick={() => send(s)}>
-                      <Icon name="sparkle" size={13} /> <span>{s}</span>
-                    </button>
-                  ))}
+              <div className="asst-greet">
+                <div className="asst-greet-bubble">
+                  <p><b>Xin chào!</b> Tôi là <b>Trợ lý số liệu</b> của hệ thống TourKit.</p>
+                  <p>Tôi đã nạp toàn bộ dữ liệu vận hành du lịch năm 2026:
+                    <b> Tài chính, Hiệu suất chi nhánh, Doanh số theo Sản phẩm, Thị trường</b> và <b>Nguồn khách Marketing</b>.</p>
+                  <p>Bạn muốn tôi đọc và trực quan hóa báo cáo nào? Bấm gợi ý hoặc gõ câu hỏi bên dưới.</p>
                 </div>
               </div>
             )}
@@ -510,31 +582,72 @@ function AssistantPage({ pushToast }) {
                     ? m.content
                     : (m.streaming ? <TypingDots stage={stage} /> : '')}
                 </div>
+                {/* Card "Biểu đồ đính kèm" cho message AI nếu có panelData (chỉ message mới nhất) */}
+                {m.role === 'assistant' && i === messages.length - 1 && panelData && !m.streaming && (
+                  <div className="asst-attach">
+                    <div className="asst-attach-ic"><Icon name="chart" size={15} /></div>
+                    <div className="asst-attach-text">
+                      <span>BIỂU ĐỒ ĐÍNH KÈM</span>
+                      <b>{panelData.title || 'Cơ cấu số liệu'}</b>
+                    </div>
+                    <a className="asst-attach-link"
+                      onClick={() => document.querySelector('.asst-pane.asst-right')?.scrollIntoView({ behavior: 'smooth' })}>
+                      Xem lớn <Icon name="arrowRight" size={12} stroke={2.4} />
+                    </a>
+                  </div>
+                )}
               </div>
             ))}
           </div>
 
+          {messages.length > 0 && (
+            <div className="asst-quick">
+              <span className="asst-quick-lbl">GỢI Ý NHANH:</span>
+              {suggestions.slice(0, 3).map(s => (
+                <button key={s.q} className="asst-quick-chip" onClick={() => send(s.q)} disabled={loading}>
+                  <Icon name={s.icon} size={12} /> {s.q}
+                </button>
+              ))}
+            </div>
+          )}
+          {messages.length === 0 && (
+            <div className="asst-quick wide">
+              <span className="asst-quick-lbl">GỢI Ý CÂU HỎI NHANH:</span>
+              <div className="asst-quick-grid">
+                {suggestions.map(s => (
+                  <button key={s.q} className="asst-quick-chip" onClick={() => send(s.q)}>
+                    <Icon name={s.icon} size={13} /> {s.q}
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
+
           <div className="asst-input-row">
             <input
               className="asst-input"
-              placeholder="Hỏi về số liệu kinh doanh…"
+              placeholder="Hỏi AI phân tích báo cáo du lịch… (nhấn Enter để gửi)"
               value={input}
               onChange={e => setInput(e.target.value)}
               onKeyDown={e => { if (e.key === 'Enter') send(); }}
               disabled={loading}
             />
-            <button className="btn btn-primary" onClick={send} disabled={loading || !input.trim()}>
-              <Icon name="sparkle" size={14} /> Gửi
+            <button className="asst-send" onClick={send} disabled={loading || !input.trim()}>
+              <Icon name="arrowRight" size={16} stroke={2.4} />
             </button>
           </div>
         </section>
 
-        {/* PHẢI: số liệu */}
-        <section className="asst-rightcol">
-          <div className="card-header asst-head">
-            <div className="card-icon"><Icon name="paper" size={18} /></div>
-            <h3>{panelTitle.toUpperCase()}</h3>
-            {panelData && panelData.kind && <span className="asst-kind-tag">{panelData.kind}</span>}
+        {/* PHẢI: visualization slate */}
+        <section className="asst-pane asst-right">
+          <div className="asst-slate-head">
+            <div>
+              <div className="asst-eyebrow">
+                TRỰC QUAN HÓA <em>· ACTIVE VISUALIZATION SLATE</em>
+              </div>
+              {panelTitle && <h2 className="asst-slate-title">{panelTitle}</h2>}
+            </div>
+            {panelData && <div className="asst-slate-ic"><Icon name="chart" size={18} /></div>}
           </div>
           <DataPanel data={panelData} onAsk={(q) => send(q)} />
         </section>
