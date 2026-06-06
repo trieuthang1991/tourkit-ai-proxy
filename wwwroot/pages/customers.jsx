@@ -506,9 +506,9 @@ function CustomersPage({ pushToast }) {
                 </th>
                 <th style={th()}>Khách hàng</th>
                 <th style={th(100)}>Phân khúc</th>
-                <th style={th(70)}>Hạng AI</th>
+                <th style={th(90)}>Hạng AI</th>
                 <th style={th(120)}>Tổng chi</th>
-                <th style={th(80)}>Đơn cuối</th>
+                <th style={th(100)}>Đơn cuối</th>
                 <th style={th(200)}>Trạng thái review</th>
                 <th style={th(80)}></th>
               </tr>
@@ -602,7 +602,7 @@ function CustomersPage({ pushToast }) {
 }
 
 // ─── Small helper components ──────────────────────────────────────────────────
-const th = (w) => ({ padding: '10px 12px', fontWeight: 700, fontSize: 11, letterSpacing: '0.05em', textTransform: 'uppercase', color: 'var(--text-3)', width: w });
+const th = (w) => ({ padding: '10px 12px', fontWeight: 700, fontSize: 11, letterSpacing: '0.05em', textTransform: 'uppercase', color: 'var(--text-3)', width: w, whiteSpace: 'nowrap' });
 const td = () => ({ padding: '12px', verticalAlign: 'middle' });
 
 function SegBadge({ segment }) {
