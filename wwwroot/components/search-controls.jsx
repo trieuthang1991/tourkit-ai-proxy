@@ -143,5 +143,28 @@
     );
   }
 
-  window.SearchControls = { SearchInput, FilterChip, FilterChipRow, FilterButton, BottomSheet, SearchSelect };
+  // ─── AdvancedFilterSheet — wrapper sẵn footer Apply/Clear + draft state ────
+  // Tránh page nào cũng tự viết draft + 2 nút footer. Children render schema-free
+  // (page tự quyết các section bên trong), sheet lo lifecycle.
+  function AdvancedFilterSheet({ open, onClose, title = 'Bộ lọc nâng cao',
+                                 value, onApply, defaultValue, children }) {
+    const [draft, setDraft] = s(value || {});
+    e(() => { if (open) setDraft(value || {}); }, [open]);
+    const apply = () => { onApply(draft); onClose(); };
+    const clear = () => { setDraft(defaultValue || {}); onApply(defaultValue || {}); onClose(); };
+    // children là 1 function nhận { draft, set } → page render section trong sheet
+    return (
+      <BottomSheet open={open} onClose={onClose} title={title}
+        footer={<>
+          <button className="sc-sheet-btn ghost" onClick={clear}><Icon name="trash" size={14} /> Xóa lọc</button>
+          <button className="sc-sheet-btn primary" onClick={apply}><Icon name="check" size={14} stroke={2.5} /> Áp dụng</button>
+        </>}>
+        {typeof children === 'function'
+          ? children({ draft, set: (k, v) => setDraft(d => ({ ...d, [k]: v })) })
+          : children}
+      </BottomSheet>
+    );
+  }
+
+  window.SearchControls = { SearchInput, FilterChip, FilterChipRow, FilterButton, BottomSheet, SearchSelect, AdvancedFilterSheet };
 })();
