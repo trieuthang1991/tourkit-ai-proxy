@@ -1070,25 +1070,14 @@ input:focus, textarea:focus, select:focus { outline: none; }
 .quote-hero {
   position: relative;
   aspect-ratio: 16/7;
-  background: linear-gradient(135deg, #0F172A 0%, #1E293B 50%, #0F172A 100%);
+  /* Giữ nền dark + 2 quầng cam mềm INLINE (gộp từ pseudo ::before cũ) — không
+     dùng ::before/::after để tránh decorative layer chèn lên modal khác. */
+  background:
+    radial-gradient(circle at 80% 20%, rgba(249,115,22,0.30), transparent 55%),
+    radial-gradient(circle at 20% 80%, rgba(249,115,22,0.12), transparent 60%),
+    linear-gradient(135deg, #0F172A 0%, #1E293B 50%, #0F172A 100%);
   color: white;
   overflow: hidden;
-}
-.quote-hero::before {
-  content: '';
-  position: absolute;
-  inset: 0;
-  background:
-    radial-gradient(circle at 80% 20%, rgba(249,115,22,0.35), transparent 50%),
-    radial-gradient(circle at 20% 80%, rgba(249,115,22,0.15), transparent 60%);
-}
-.quote-hero::after {
-  content: '';
-  position: absolute;
-  inset: 0;
-  background:
-    linear-gradient(to bottom, transparent 40%, rgba(0,0,0,0.4) 100%),
-    repeating-linear-gradient(45deg, transparent 0px, transparent 20px, rgba(255,255,255,0.02) 20px, rgba(255,255,255,0.02) 21px);
 }
 .quote-hero-content {
   position: relative;
