@@ -14,7 +14,7 @@ function CustomerReviewDrawer({ customerId, onClose, onRefreshed, pushToast }) {
   const load = async () => {
     setLoading(true); setErr(null);
     try {
-      const resp = await fetch(`/api/v1/customers/${encodeURIComponent(customerId)}`);
+      const resp = await window.tourkitAuth.authedFetch(`/api/v1/customers/${encodeURIComponent(customerId)}`);
       if (!resp.ok) throw new Error('HTTP ' + resp.status);
       setData(await resp.json());
     } catch (e) {
@@ -36,7 +36,7 @@ function CustomerReviewDrawer({ customerId, onClose, onRefreshed, pushToast }) {
   const refreshReview = async () => {
     setRef(true);
     try {
-      const resp = await fetch(`/api/v1/reviews/customer/${encodeURIComponent(customerId)}/refresh`, { method: 'POST' });
+      const resp = await window.tourkitAuth.authedFetch(`/api/v1/reviews/customer/${encodeURIComponent(customerId)}/refresh`, { method: 'POST' });
       const json = await resp.json();
       if (!resp.ok) throw new Error(json.error || 'Refresh fail');
       setData(d => ({ ...d, review: json.review }));
@@ -51,7 +51,7 @@ function CustomerReviewDrawer({ customerId, onClose, onRefreshed, pushToast }) {
 
   const sendFeedback = async (rating) => {
     try {
-      const resp = await fetch(`/api/v1/reviews/${encodeURIComponent(customerId)}/feedback`, {
+      const resp = await window.tourkitAuth.authedFetch(`/api/v1/reviews/${encodeURIComponent(customerId)}/feedback`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ rating, note: fbNote || null })

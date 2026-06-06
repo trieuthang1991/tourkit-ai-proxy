@@ -299,13 +299,15 @@ function CustomersPage({ pushToast }) {
       {/* KPI strip — tính client-side từ items hiện tại */}
       <window.DataControls.KpiStrip items={(() => {
         const total = items.length;
+        const noTour = items.filter(c => !c.totalTours || c.totalTours === 0).length;
         const lastFirst = items.filter(c => c.totalTours === 1).length;
-        const repeat = items.filter(c => c.totalTours >= 2).length;
+        const repeat = items.filter(c => (c.totalTours || 0) >= 2).length;
         const reviewed = items.filter(c => c.reviewStatus && c.reviewStatus !== 'none').length;
         return [
           { icon: 'users',  label: 'Tổng',       value: total },
+          { icon: 'user',   label: 'Chưa mua',   value: noTour },
           { icon: 'star',   label: 'Lần đầu',    value: lastFirst },
-          { icon: 'trend',  label: 'Mua lại',    value: repeat, highlight: true },
+          { icon: 'trend',  label: 'Mua lại',    value: repeat, highlight: repeat > 0 },
           { icon: 'sparkle', label: 'Đã review', value: reviewed },
         ];
       })()} />
