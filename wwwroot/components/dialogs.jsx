@@ -17,7 +17,7 @@ function Dialog({ open, onClose, title, eyebrow, icon = 'sparkle', children, foo
   }, [open, onClose]);
 
   if (!open) return null;
-  return (
+  const content = (
     <div className="modal-backdrop" onClick={onClose}>
       <div className="dialog" onClick={e => e.stopPropagation()} style={{maxWidth}}>
         <div className="dialog-head">
@@ -33,6 +33,10 @@ function Dialog({ open, onClose, title, eyebrow, icon = 'sparkle', children, foo
       </div>
     </div>
   );
+  // Render qua React Portal vào <body> → THOÁT mọi stacking context của trang
+  // (.quote-hero-content position:relative+z-index, sidebar transform, ...).
+  // Đây là cách CHUẨN xử lý modal trong React, không cần đua z-index.
+  return ReactDOM.createPortal(content, document.body);
 }
 
 // Prompt dialog with AI suggestion support
