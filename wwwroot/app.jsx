@@ -47,14 +47,17 @@ function App() {
   const [toasts, setToasts] = uS([]);
   const [authUser, setAuthUser] = uS(() => window.tourkitAuth.getUser());
   const [authReady, setAuthReady] = uS(false);
-  const [hash, setHash] = uS(() => window.location.hash || '#/');
-
+  // Theo dõi path qua history API (router HTML5 — không còn `#`).
+  const [cur, setCur] = uS(() => (window.location.pathname || '/').split('?')[0]);
   uE(() => {
-    const f = () => setHash(window.location.hash || '#/');
-    window.addEventListener('hashchange', f);
-    return () => window.removeEventListener('hashchange', f);
+    const f = () => setCur((window.location.pathname || '/').split('?')[0]);
+    window.addEventListener('popstate', f);
+    window.addEventListener('tourkit:navigate', f);
+    return () => {
+      window.removeEventListener('popstate', f);
+      window.removeEventListener('tourkit:navigate', f);
+    };
   }, []);
-  const cur = (hash.replace(/^#/, '') || '/').split('?')[0];
   const isActive = (p) => p === '/' ? cur === '/' : cur.startsWith(p);
   const activeNav = NAV.find(n => isActive(n.to));
 
@@ -86,7 +89,7 @@ function App() {
   const onNavSearch = (e) => {
     if (e.key !== 'Enter') return;
     const m = NAV.find(n => n.label.toLowerCase().includes(navQuery.trim().toLowerCase()));
-    if (m) { window.location.hash = m.to; setNavQuery(''); }
+    if (m) { window.tourkitRouter.navigate(m.to); setNavQuery(''); }
   };
   const toggleFullscreen = () => {
     if (!document.fullscreenElement) document.documentElement.requestFullscreen?.();
@@ -115,7 +118,12 @@ function App() {
         <div className="sidebar-navlabel">Tính năng</div>
         <nav className="sidebar-nav">
           {NAV.map(n => (
-            <a key={n.to} href={'#' + n.to} className={'sidebar-item' + (isActive(n.to) ? ' active' : '')}>
+            <a key={n.to} href={n.to} className={'sidebar-item' + (isActive(n.to) ? ' active' : '')}
+               onClick={e => {
+                 if (e.defaultPrevented || e.button !== 0 || e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return;
+                 e.preventDefault();
+                 window.tourkitRouter.navigate(n.to);
+               }}>
               <Icon name={n.icon} size={16} /> <span>{n.label}</span>
             </a>
           ))}
