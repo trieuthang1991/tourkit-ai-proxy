@@ -258,18 +258,22 @@ function CustomersPage({ pushToast }) {
         </div>
       </div>
 
-      {/* Filter bar */}
-      <div style={{display: 'flex', gap: 8, marginBottom: 14, alignItems: 'center', flexWrap: 'wrap'}}>
-        <input className="input" placeholder="Tìm tên / SĐT / email / ID..."
-          value={search} onChange={e => setSearch(e.target.value)}
-          style={{flex: '1 1 220px', maxWidth: 320, fontSize: 13}} />
-        <div style={{display: 'flex', gap: 4}}>
-          {[{v:'all', l:'Tất cả'}, {v:'VIP', l:'VIP'}, {v:'Thường', l:'Thường'}, {v:'Mới', l:'Mới'}].map(o => (
-            <button key={o.v}
-              className={`btn btn-sm ${segFilter === o.v ? 'btn-primary' : 'btn-ghost'}`}
-              onClick={() => setSegFilter(o.v)}>{o.l}</button>
-          ))}
+      {/* Filter bar — bộ control search dùng chung (search-controls.jsx) */}
+      <div className="cust-filter">
+        <div className="cust-filter-search">
+          <window.SearchControls.SearchInput value={search} onChange={setSearch}
+            placeholder="Tìm tên / SĐT / email / ID khách hàng…" />
         </div>
+        <window.SearchControls.FilterChipRow>
+          {[{v:'all', l:'Tất cả'}, {v:'VIP', l:'VIP'}, {v:'Thường', l:'Thường'}, {v:'Mới', l:'Mới'}].map(o => (
+            <window.SearchControls.FilterChip key={o.v} on={segFilter === o.v} onClick={() => setSegFilter(o.v)}>
+              {o.l}
+            </window.SearchControls.FilterChip>
+          ))}
+        </window.SearchControls.FilterChipRow>
+        <span className="cust-filter-count">
+          {items.length > 0 && <>Hiển thị <b>{items.length}</b> khách hàng</>}
+        </span>
       </div>
 
       {/* Progress section khi đang chạy: pipeline + bar + live stream + log */}

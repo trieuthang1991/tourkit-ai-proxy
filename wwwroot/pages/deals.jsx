@@ -94,25 +94,24 @@ function DealDrawer({ item, onClose }) {
   </>);
 }
 
-// ─── Bộ lọc kết quả ───────────────────────────────────────────────────────────
+// ─── Bộ lọc kết quả ─── (mượn pattern mobile qua window.SearchControls) ───
 function DealFilters({ q, setQ, level, setLevel, riskOnly, setRiskOnly, shown, total }) {
+  const SC = window.SearchControls;
   const chips = [['all', 'Tất cả'], ['cao', 'Win cao'], ['trung_binh', 'Win TB'], ['thap', 'Win thấp']];
   return (
-    <div className="deals-filters">
-      <div className="deals-search">
-        <Icon name="search" size={14} />
-        <input placeholder="Tìm khách / cơ hội / phụ trách…" value={q} onChange={e => setQ(e.target.value)} />
-        {q && <button className="deals-search-x" onClick={() => setQ('')} aria-label="Xóa"><Icon name="close" size={13} /></button>}
+    <div className="cust-filter">
+      <div className="cust-filter-search">
+        <SC.SearchInput value={q} onChange={setQ} placeholder="Tìm khách / cơ hội / phụ trách…" />
       </div>
-      <div className="deals-chips">
+      <SC.FilterChipRow>
         {chips.map(([v, lbl]) => (
-          <button key={v} className={'deals-chip' + (level === v ? ' on' : '')} onClick={() => setLevel(v)}>{lbl}</button>
+          <SC.FilterChip key={v} on={level === v} onClick={() => setLevel(v)}>{lbl}</SC.FilterChip>
         ))}
-        <button className={'deals-chip risk' + (riskOnly ? ' on' : '')} onClick={() => setRiskOnly(r => !r)}>
+        <SC.FilterChip on={riskOnly} onClick={() => setRiskOnly(r => !r)} tone="warn">
           <Icon name="warning" size={12} /> Đang nguội
-        </button>
-      </div>
-      <div className="deals-count">Hiện <b>{shown}</b>/{total}</div>
+        </SC.FilterChip>
+      </SC.FilterChipRow>
+      <span className="cust-filter-count">Hiện <b>{shown}</b>/{total}</span>
     </div>
   );
 }
