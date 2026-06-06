@@ -143,10 +143,24 @@ Bắt đầu output ngay:`;
 
       if (parsed.days.length === 0) throw new Error('Parse text xong không có ngày nào');
 
+      // Strip AI reasoning leak khỏi title/tagline (vd model trả "Tour HN... 5 từ. OK."
+      // hoặc đoạn suy nghĩ dài) — chỉ giữ 1 dòng đầu, cap chiều dài, bỏ ngoặc kép bao.
+      const cleanTitle = (s, max = 60) => {
+        if (!s) return '';
+        let t = String(s).split('\n')[0].trim();
+        if ((t.startsWith('"') && t.endsWith('"')) || (t.startsWith('"') && t.endsWith('"'))) t = t.slice(1, -1).trim();
+        // bỏ chú thích kiểu "...(N từ)" hoặc "... 5 từ. OK." hoặc "Thêm X đầu:"
+        t = t.replace(/\([^)]{0,30}\)/g, '').replace(/\b\d+\s*từ\.?\s*OK\.?$/i, '').trim();
+        if (t.length > max) t = t.slice(0, max - 1).trim() + '…';
+        return t;
+      };
+      const safeName = cleanTitle(parsed.name, 60) || `TOUR ${dest.toUpperCase()}`;
+      const safeTag  = cleanTitle(parsed.tag, 80) || `HÀNH TRÌNH ${dest.toUpperCase()}`;
+
       setMarketing({
-        tourName: parsed.name || `TOUR ${dest.toUpperCase()}`,
-        tagline: parsed.tag || `HÀNH TRÌNH ${dest.toUpperCase()}`,
-        dayTitles: parsed.days.map((d, i) => d.title || `Ngày ${i+1} - ${dest}`)
+        tourName: safeName,
+        tagline: safeTag,
+        dayTitles: parsed.days.map((d, i) => cleanTitle(d.title, 70) || `Ngày ${i+1} - ${dest}`)
       });
 
       const itin = parsed.days.map((dayData, i) => ({
@@ -165,7 +179,7 @@ Bắt đầu output ngay:`;
       setItinerary(itin);
       setGenProgress(p => ({...p, daysDone: itin.length}));
 
-      const meta = { name: parsed.name, tag: parsed.tag, titles: parsed.days.map(d => d.title) };
+      const meta = { name: safeName, tag: safeTag, titles: parsed.days.map((d, i) => cleanTitle(d.title, 70)) };
 
       // Auto-derive costing rows from itinerary
       const TYPE_MARKUP = { HOTEL: 15, TRANSPORT: 20, MEAL: 10, ACTIVITY: 25, SIGHTSEEING: 20, GUIDE: 15 };
@@ -195,9 +209,9 @@ Bắt đầu output ngay:`;
 
       // Lưu nháp tour lên server (Redis theo công ty) — thay localStorage.
       const mkSave = {
-        tourName: parsed.name || `TOUR ${dest.toUpperCase()}`,
-        tagline: parsed.tag || `HÀNH TRÌNH ${dest.toUpperCase()}`,
-        dayTitles: parsed.days.map((d, i) => d.title || `Ngày ${i+1} - ${dest}`)
+        tourName: safeName,
+        tagline: safeTag,
+        dayTitles: parsed.days.map((d, i) => cleanTitle(d.title, 70) || `Ngày ${i+1} - ${dest}`)
       };
       saveTourToServer(itin, mkSave, derivedRows);
 
