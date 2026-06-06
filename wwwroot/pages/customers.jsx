@@ -327,8 +327,8 @@ function CustomersPage({ pushToast }) {
             🎂 Sinh nhật
           </window.SearchControls.FilterChip>
         </window.SearchControls.FilterChipRow>
-        <window.SearchControls.FilterButton count={activeFilterCount}
-          onClick={() => setSheetOpen(true)} />
+        <window.SearchControls.FilterButton count={activeFilterCount} open={sheetOpen}
+          onClick={() => setSheetOpen(o => !o)} />
         <window.DataControls.StatRow shown={items.length} total={items.length} suffix="khách hàng" />
       </div>
 

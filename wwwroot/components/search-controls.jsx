@@ -54,10 +54,10 @@
     return <div className="sc-chip-row">{children}</div>;
   }
 
-  // ─── FilterButton: nút "Bộ lọc" mở bottom sheet, có badge số filter đang bật
-  function FilterButton({ onClick, count = 0 }) {
+  // ─── FilterButton: nút "Bộ lọc" toggle panel/sheet, badge số filter, trạng thái mở
+  function FilterButton({ onClick, count = 0, open = false }) {
     return (
-      <button className="sc-filter-btn" onClick={onClick}>
+      <button className={'sc-filter-btn' + (open ? ' on' : '')} onClick={onClick}>
         <Icon name="sliders" size={15} /> Bộ lọc
         {count > 0 && <span className="sc-filter-dot">{count}</span>}
       </button>
