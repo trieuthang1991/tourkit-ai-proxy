@@ -8,4 +8,13 @@
   <ItemGroup>
     <Folder Include="Task\" />
   </ItemGroup>
+  <!-- Test project nằm trong thư mục con → loại khỏi glob **/*.cs của project chính. -->
+  <ItemGroup>
+    <Compile Remove="TourkitAiProxy.Tests/**/*.cs" />
+    <Content Remove="TourkitAiProxy.Tests/**" />
+  </ItemGroup>
+  <ItemGroup>
+    <PackageReference Include="MailKit" Version="4.17.0" />
+    <PackageReference Include="StackExchange.Redis" Version="2.13.17" />
+  </ItemGroup>
 </Project>

@@ -46,9 +46,23 @@
   }
 
   function saveConfig(cfg) {
-    // Sanity: KHÔNG bao giờ save api key vào localStorage — đề phòng dev quên.
+    // Config chỉ giữ provider/model. API key lưu RIÊNG (KEYS_STORAGE) theo yêu cầu: client-side.
     const clean = { provider: cfg.provider, model: cfg.model, _v: CONFIG_VERSION };
     localStorage.setItem(STORAGE_KEY, JSON.stringify(clean));
+  }
+
+  // ─── API key client-side (localStorage máy người dùng) ───────────────────────
+  // Theo yêu cầu: key của OpenAI/Anthropic lưu TRÊN MÁY người dùng, gửi kèm mỗi request,
+  // KHÔNG lưu trên server. (Đánh đổi: key nằm trong localStorage → JS trang đọc được.)
+  const KEYS_STORAGE = 'tourkit_ai_keys';
+  function loadKeys() {
+    try { return JSON.parse(localStorage.getItem(KEYS_STORAGE) || '{}') || {}; } catch { return {}; }
+  }
+  function getKey(providerId) { return loadKeys()[providerId] || ''; }
+  function setKey(providerId, val) {
+    const k = loadKeys();
+    if (val && val.trim()) k[providerId] = val.trim(); else delete k[providerId];
+    localStorage.setItem(KEYS_STORAGE, JSON.stringify(k));
   }
 
   // ─── Call backend ──────────────────────────────────────────────────────────
@@ -60,7 +74,8 @@
       provider, model,
       maxTokens: options.maxTokens,
       temperature: options.temperature,
-      system: options.system
+      system: options.system,
+      apiKey: options.apiKey || getKey(provider) || undefined
     };
     const resp = await fetch(`${API_BASE}/completions`, {
       method: 'POST',
@@ -83,7 +98,8 @@
       prompt, provider, model,
       maxTokens: options.maxTokens,
       temperature: options.temperature,
-      system: options.system
+      system: options.system,
+      apiKey: options.apiKey || getKey(provider) || undefined
     };
     const resp = await fetch(`${API_BASE}/completions/stream`, {
       method: 'POST',
@@ -201,7 +217,12 @@
       const json = await resp.json().catch(() => ({ error: `parse ${resp.status}` }));
       if (!resp.ok) throw new Error(json.error || `models ${resp.status}` + (json.body ? ` (${String(json.body).slice(0, 120)})` : ''));
       return json;
-    }
+    },
+
+    // Lưu/đọc API key client-side (localStorage máy người dùng). KHÔNG gửi lên server để lưu.
+    getKey,
+    setKey,
+    hasKey(providerId) { return !!getKey(providerId); }
   };
 
   // Shim: code cũ gọi window.claude.complete(...) đi qua tourkit.ai.
@@ -227,6 +248,9 @@ function AISettingsDialog({ open, onClose, onSaved }) {
   // Khi user bấm "Tải model đang chạy", fetch /api/v1/providers/{id}/models qua backend.
   const [liveModels, setLiveModels] = React.useState({});
   const [modelFilter, setModelFilter] = React.useState('');
+  const [keyInput, setKeyInput] = React.useState('');
+  const [keyMsg, setKeyMsg] = React.useState(null);   // {ok, text}
+  const [keyTick, setKeyTick] = React.useState(0);    // bump để re-render khi đổi key local
 
   React.useEffect(() => {
     if (!open) return;
@@ -236,6 +260,7 @@ function AISettingsDialog({ open, onClose, onSaved }) {
     setProviders(null);
     setLiveModels({});
     setModelFilter('');
+    setKeyInput(''); setKeyMsg(null);
     window.tourkit.ai.fetchProviders()
       .then(setProviders)
       .catch(e => setLoadErr(e.message));
@@ -273,6 +298,14 @@ function AISettingsDialog({ open, onClose, onSaved }) {
       window.tourkit.ai.setConfig(prev);
       setTesting(false);
     }
+  };
+
+  const saveKey = (providerId, valArg) => {
+    const val = (valArg !== undefined ? valArg : keyInput).trim();
+    window.tourkit.ai.setKey(providerId, val);   // lưu localStorage máy người dùng
+    setKeyInput('');
+    setKeyTick(t => t + 1);
+    setKeyMsg({ ok: true, text: val ? 'Đã lưu key trên máy bạn' : 'Đã xóa key' });
   };
 
   const currentProvider = providers?.find(p => p.id === cfg.provider);
@@ -314,22 +347,70 @@ function AISettingsDialog({ open, onClose, onSaved }) {
             <div className="field">
               <label className="label">Nhà cung cấp</label>
               <div style={{display: 'grid', gap: 10}}>
-                {allProviders.map(p => (
+                {allProviders.map(p => {
+                  const hk = p.needsKey && (!!window.tourkit.ai.getKey(p.id) || p.hasKey);
+                  return (
                   <label key={p.id} className={`provider-card ${cfg.provider === p.id ? 'active' : ''}`}>
                     <input type="radio" checked={cfg.provider === p.id}
-                      onChange={() => setCfg(c => ({...c, provider: p.id, model: p.models?.[0]?.id || c.model}))} />
+                      onChange={() => { setKeyInput(''); setKeyMsg(null); setCfg(c => ({...c, provider: p.id, model: p.models?.[0]?.id || c.model})); }} />
                     <div className="provider-info">
-                      <div className="provider-name">{p.label}</div>
+                      <div className="provider-name">
+                        {p.label}
+                        {p.needsKey && (
+                          <span style={{marginLeft: 8, fontSize: 11, fontWeight: 600,
+                            color: hk ? 'var(--success)' : 'var(--warning)'}}>
+                            {hk ? '● có key' : '○ cần key'}
+                          </span>
+                        )}
+                      </div>
                       <div className="provider-desc">
                         {p.id === 'claude-builtin' ? 'Trong Claude.ai/Artifacts · không cần backend'
+                          : p.needsKey ? (hk ? 'Dùng API key của bạn (lưu trên máy)' : 'Nhập API key của bạn để dùng')
                           : `${p.models.length} model${p.models.length > 1 ? 's' : ''} · server-side key`}
                       </div>
                     </div>
                   </label>
-                ))}
+                  );
+                })}
               </div>
             </div>
           )}
+
+          {/* API key cho provider BYO-key (OpenAI/Anthropic) — nhập ở UI, lưu server-side */}
+          {currentProvider && currentProvider.needsKey && (() => {
+            const _t = keyTick;   // ref để re-render khi đổi key
+            const curKey = !!window.tourkit.ai.getKey(currentProvider.id) || currentProvider.hasKey;
+            return (
+              <div className="field">
+                <label className="label">API key cho {currentProvider.label}</label>
+                <div style={{display: 'flex', gap: 8}}>
+                  <input className="input" type="password" autoComplete="off"
+                    placeholder={curKey ? '•••• đã lưu — nhập để đổi' : (currentProvider.id === 'openai' ? 'sk-...' : 'sk-ant-...')}
+                    value={keyInput} onChange={e => setKeyInput(e.target.value)} style={{flex: 1}} />
+                  <button className="btn btn-primary btn-sm" disabled={!keyInput.trim()} onClick={() => saveKey(currentProvider.id)}>
+                    Lưu key
+                  </button>
+                </div>
+                {keyMsg ? (
+                  <div style={{marginTop: 6, fontSize: 12, color: keyMsg.ok ? 'var(--success)' : 'var(--danger)'}}>
+                    {keyMsg.ok ? '✓ ' : '✗ '}{keyMsg.text}
+                  </div>
+                ) : (
+                  <div style={{marginTop: 6, fontSize: 12, color: curKey ? 'var(--success)' : 'var(--text-3)'}}>
+                    {curKey
+                      ? '✓ Đã có key — lưu trên máy bạn (localStorage), gửi kèm mỗi request.'
+                      : 'Key sẽ lưu trên máy bạn (localStorage), không lưu trên server.'}
+                  </div>
+                )}
+                {curKey && (
+                  <button className="btn btn-ghost btn-sm" style={{marginTop: 6}}
+                    onClick={() => saveKey(currentProvider.id, '')}>
+                    Xóa key
+                  </button>
+                )}
+              </div>
+            );
+          })()}
 
           {/* Model selector — show static list, kèm nút "Tải model đang chạy" để
               gọi backend GET /providers/{id}/models (cho provider có model động vd 9routes) */}
@@ -411,8 +492,8 @@ function AISettingsDialog({ open, onClose, onSaved }) {
           </div>
 
           <div style={{padding: 12, background: '#f8fafc', borderRadius: 8, fontSize: 12, color: 'var(--text-3)'}}>
-            <strong>Bảo mật:</strong> Mọi call AI đi qua backend tại <code>{`${window.location.origin}/api/v1/completions`}</code>.
-            API keys của các provider giữ server-side (appsettings.json / env var) — không bao giờ xuống client.
+            <strong>Lưu key:</strong> API key ChatGPT/Claude bạn nhập ở đây được lưu <strong>trên máy bạn</strong> (localStorage),
+            gửi kèm từng request và <strong>không lưu trên server</strong>. Lưu ý: key nằm trong localStorage nên JS của trang có thể đọc — chỉ dùng trên máy tin cậy.
           </div>
         </div>
 

@@ -13,3 +13,21 @@ appsettings.json
 
 # Runtime-generated review cache (re-populated by AI calls)
 data/reviews.json
+
+# Phiên đăng nhập TourKit (chứa credentials mã hóa) — KHÔNG commit
+data/tk-sessions.json
+
+# API key provider nhập từ UI (mã hóa) — KHÔNG commit
+data/provider-keys.json
+
+# SmartMail AI — hộp thư cache + creds Gmail (App Password mã hóa) + state đồng bộ — KHÔNG commit
+data/mails.json
+data/mail-account.json
+data/mail-sync.json
+
+# Ưu tiên Deal AI — cache điểm/bảng (chứa tên + SĐT khách thật từ CRM) — KHÔNG commit
+data/deal-cache.json
+
+# Thẩm định Visa AI — kết quả + ảnh hồ sơ gốc (PII nhạy cảm) — KHÔNG commit
+data/visa-assessments.json
+data/visa-files/

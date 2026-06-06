@@ -25,11 +25,13 @@ public static class AiEndpoints
     {
         var v1 = routes.MapGroup("/api/v1");
 
-        v1.MapGet("/providers", (ProviderRegistry reg) => Results.Json(
+        v1.MapGet("/providers", (ProviderRegistry reg, ProviderKeyStore keys) => Results.Json(
             reg.All.Select(p => new
             {
                 id = p.Id,
                 label = p.Label,
+                needsKey = p.Id is "openai" or "anthropic",   // provider BYO-key → UI hiện ô nhập
+                hasKey = keys.HasKey(p.Id),
                 models = p.Models.Select(m => new { id = m.Id, label = m.Label, recommended = m.Recommended })
             })
         ));

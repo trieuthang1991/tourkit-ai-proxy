@@ -14,6 +14,22 @@
 const { useState: uS, useEffect: uE } = React;
 const { Router, Route, Link } = window.tourkitRouter;
 
+function userInitials(name) {
+  if (!name) return '👤';
+  const w = name.trim().split(/\s+/);
+  return (w.slice(-2).map(x => x[0] || '').join('') || name[0] || '?').toUpperCase();
+}
+
+// Sidebar nav (style TourKit: dọc bên trái, mục active nền cam).
+const NAV = [
+  { to: '/',          icon: 'sparkle', label: 'Wizard tạo tour' },
+  { to: '/customers', icon: 'users',   label: 'Khách hàng' },
+  { to: '/assistant', icon: 'sparkle', label: 'Trợ lý số liệu' },
+  { to: '/mail',      icon: 'paper',   label: 'Hộp thư AI' },
+  { to: '/visa',      icon: 'shield',  label: 'Thẩm định Visa' },
+  { to: '/deals',     icon: 'trend',   label: 'Ưu tiên Deal AI' },
+];
+
 const TWEAK_DEFAULTS = /*EDITMODE-BEGIN*/{
   "theme": "orange",
   "aiTone": "Thân thiện, gọi Anh/Chị",
@@ -27,6 +43,28 @@ function App() {
   const [aiCfg, setAiCfg] = uS(() =>
     window.tourkit?.ai?.getConfig?.() || { provider: 'opencode-go', model: 'deepseek-v4-flash' });
   const [toasts, setToasts] = uS([]);
+  const [authUser, setAuthUser] = uS(() => window.tourkitAuth.getUser());
+  const [authReady, setAuthReady] = uS(false);
+  const [hash, setHash] = uS(() => window.location.hash || '#/');
+
+  uE(() => {
+    const f = () => setHash(window.location.hash || '#/');
+    window.addEventListener('hashchange', f);
+    return () => window.removeEventListener('hashchange', f);
+  }, []);
+  const cur = (hash.replace(/^#/, '') || '/').split('?')[0];
+  const isActive = (p) => p === '/' ? cur === '/' : cur.startsWith(p);
+  const activeNav = NAV.find(n => isActive(n.to));
+
+  // Đồng bộ chip user khi đăng nhập/đăng xuất (auth.jsx phát 'tourkit-auth-changed').
+  uE(() => window.tourkitAuth.onChange(() => setAuthUser(window.tourkitAuth.getUser())), []);
+
+  // Xác thực session với server khi mở app (sau reload/restart).
+  uE(() => {
+    let alive = true;
+    window.tourkitAuth.refresh().then(u => { if (alive) { setAuthUser(u); setAuthReady(true); } });
+    return () => { alive = false; };
+  }, []);
 
   uE(() => {
     document.body.classList.toggle('editorial', t.theme === 'editorial');
@@ -40,56 +78,113 @@ function App() {
     setTimeout(() => setToasts(ts => ts.filter(x => x.id !== id)), 3000);
   };
 
+  // Header: tìm nhanh (lọc NAV → Enter điều hướng), toàn màn hình, menu user.
+  const [navQuery, setNavQuery] = uS('');
+  const [userMenu, setUserMenu] = uS(false);
+  const onNavSearch = (e) => {
+    if (e.key !== 'Enter') return;
+    const m = NAV.find(n => n.label.toLowerCase().includes(navQuery.trim().toLowerCase()));
+    if (m) { window.location.hash = m.to; setNavQuery(''); }
+  };
+  const toggleFullscreen = () => {
+    if (!document.fullscreenElement) document.documentElement.requestFullscreen?.();
+    else document.exitFullscreen?.();
+  };
+
+  // ─── Gate toàn cục: chưa đăng nhập TourKit → màn login, không vào feature nào ───
+  if (!authUser) {
+    if (!authReady) return <div className="login-splash"><div className="login-splash-mark" /></div>;
+    return <window.LoginGate onAuthed={(u) => setAuthUser(u)} />;
+  }
+
   return (
-    <div className="app">
-      <header className="app-header">
-        <div className="app-title-row">
-          <div className="app-brand">
-            <div className="app-logo">
-              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-                <path d="M12 2L3 7v6c0 5 4 9 9 9s9-4 9-9V7l-9-5z" />
-                <path d="M12 8v8M8 12h8" />
-              </svg>
-            </div>
-            <div>
-              <h1 className="app-title">AI TOUR OPERATION & QUOTATION</h1>
-              <p className="app-tagline">Xây dựng chương trình & tính giá tour thông minh · Tourkit v1.0</p>
-            </div>
+    <div className="app-shell">
+      {/* Sidebar trái — style TourKit (logo cam, mục active nền cam) */}
+      <aside className="sidebar">
+        <div className="sidebar-logo">
+          <div className="sidebar-logo-mark">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M12 2L3 7v6c0 5 4 9 9 9s9-4 9-9V7l-9-5z" />
+              <path d="M12 8v8M8 12h8" />
+            </svg>
           </div>
-          <nav style={{display: 'flex', gap: 8, alignItems: 'center', marginLeft: 24}}>
-            <Link to="/" className="btn btn-ghost btn-sm">
-              <Icon name="sparkle" size={14} /> Wizard
-            </Link>
-            <Link to="/customers" className="btn btn-ghost btn-sm">
-              <Icon name="users" size={14} /> Khách hàng
-            </Link>
-            <Link to="/quotes" className="btn btn-ghost btn-sm">
-              <Icon name="paper" size={14} /> Tour đã lưu
-            </Link>
-          </nav>
-          <div className="app-actions" style={{marginLeft: 'auto'}}>
-            <button className="btn btn-ghost btn-sm" onClick={() => setAiSettingsOpen(true)} title={`AI: ${aiCfg.provider} · ${aiCfg.model}`}>
-              <Icon name="sparkle" size={14} /> AI: {aiCfg.model}
-            </button>
-            <div className="user-chip">
-              <div className="user-avatar">AH</div>
-              <span>Anh Hùng · Sales</span>
-            </div>
-          </div>
+          <div className="sidebar-logo-text">TOURKIT<span>AI Operation</span></div>
         </div>
-      </header>
+        <div className="sidebar-navlabel">Tính năng</div>
+        <nav className="sidebar-nav">
+          {NAV.map(n => (
+            <a key={n.to} href={'#' + n.to} className={'sidebar-item' + (isActive(n.to) ? ' active' : '')}>
+              <Icon name={n.icon} size={16} /> <span>{n.label}</span>
+            </a>
+          ))}
+        </nav>
+      </aside>
+
+      <div className="app-main">
+        <header className="topbar">
+          <div className="topbar-left">
+            <button className="tb-fs" onClick={toggleFullscreen} title="Toàn màn hình" aria-label="Toàn màn hình">
+              <Icon name="maximize" size={17} stroke={2.2} />
+            </button>
+            <div className="tb-search">
+              <Icon name="search" size={15} />
+              <input placeholder="Tìm trang, tính năng…" value={navQuery}
+                onChange={e => setNavQuery(e.target.value)} onKeyDown={onNavSearch} />
+            </div>
+          </div>
+          <div className="topbar-actions">
+            <button className="tb-icon" title="Hướng dẫn sử dụng"
+              onClick={() => pushToast('Chọn tính năng ở thanh bên trái để bắt đầu')}>
+              <Icon name="book" size={18} />
+            </button>
+            <button className="tb-icon" title="Thông báo"
+              onClick={() => pushToast('Chưa có thông báo mới')}>
+              <Icon name="bell" size={18} />
+            </button>
+            <button className="tb-ai" onClick={() => setAiSettingsOpen(true)} title={`AI: ${aiCfg.provider} · ${aiCfg.model}`}>
+              <Icon name="sparkle" size={14} /> <span>AI: {aiCfg.model}</span>
+            </button>
+            <div className="tb-userwrap">
+              <button className="tb-user" onClick={() => setUserMenu(v => !v)}>
+                <div className="user-avatar">{userInitials(authUser.fullName || authUser.companyName)}</div>
+                <span className="tb-user-name">{authUser.fullName || authUser.companyName || 'Tài khoản'}</span>
+                <Icon name="chevronDown" size={14} />
+              </button>
+              {userMenu && (<>
+                <div className="tb-userbackdrop" onClick={() => setUserMenu(false)} />
+                <div className="tb-menu">
+                  <div className="tb-menu-head">
+                    <div className="tb-menu-name">{authUser.fullName || 'Tài khoản'}</div>
+                    {authUser.tenantId && <div className="tb-menu-sub">{authUser.tenantId}</div>}
+                  </div>
+                  <button className="tb-menu-item" onClick={() => { setUserMenu(false); setAiSettingsOpen(true); }}>
+                    <Icon name="sparkle" size={15} /> Cấu hình AI
+                  </button>
+                  <button className="tb-menu-item danger"
+                    onClick={() => { setUserMenu(false); if (window.confirm('Đăng xuất khỏi TourKit?')) window.tourkitAuth.logout(); }}>
+                    <Icon name="arrowRight" size={15} /> Đăng xuất
+                  </button>
+                </div>
+              </>)}
+            </div>
+          </div>
+        </header>
 
       {/* Router: chọn page theo hash. Thêm page = thêm <Route> ở đây. */}
       <Router>
         <Route path="/"          render={() => <window.WizardPage pushToast={pushToast} tweaks={t} />} />
         <Route path="/customers" render={() => <window.CustomersPage pushToast={pushToast} />} />
-        <Route path="/quotes"    render={() => <window.QuotesPage pushToast={pushToast} />} />
+        <Route path="/assistant" render={() => <window.AssistantPage pushToast={pushToast} />} />
+        <Route path="/mail"      render={() => <window.MailPage pushToast={pushToast} />} />
+        <Route path="/visa"      render={() => <window.VisaPage pushToast={pushToast} />} />
+        <Route path="/deals"     render={() => <window.DealsPage pushToast={pushToast} />} />
         <Route path="*"          render={() => (
           <main className="page" style={{padding: 40, textAlign: 'center', color: 'var(--text-3)'}}>
             Trang không tồn tại. <Link to="/" style={{color: 'var(--accent)'}}>Về trang chính</Link>
           </main>
         )} />
       </Router>
+      </div>{/* /app-main */}
 
       <div className="toast-container">
         {toasts.map(t => (

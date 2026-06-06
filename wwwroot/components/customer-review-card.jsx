@@ -296,7 +296,7 @@ function RankBadge({ rank }) {
   return (
     <span style={{
       display: 'inline-block', width: 26, height: 26, lineHeight: '26px', textAlign: 'center',
-      borderRadius: '50%', background: colors[rank] || '#9ca3af', color: 'white', fontWeight: 700, fontSize: 12
+      borderRadius: '50%', background: colors[rank] || 'var(--text-3)', color: 'white', fontWeight: 700, fontSize: 12
     }}>{rank}</span>
   );
 }

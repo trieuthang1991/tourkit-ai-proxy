@@ -1,4 +1,5 @@
 using TourkitAiProxy.Models;
+using TourkitAiProxy.Services.TourKit;
 
 namespace TourkitAiProxy.Services.Reviews;
 
@@ -7,28 +8,28 @@ namespace TourkitAiProxy.Services.Reviews;
 /// Cancel: token nội bộ; client gọi POST /batch/{id}/cancel hoặc đóng SSE → ngừng.
 public class BatchService
 {
-    private readonly CustomerRepository _customers;
+    private readonly TourKitCustomerSource _source;
     private readonly ReviewService _reviews;
     private readonly BatchJobStore _jobs;
     private readonly ILogger<BatchService> _log;
 
     private const int CONCURRENCY = 10;
 
-    public BatchService(CustomerRepository customers, ReviewService reviews, BatchJobStore jobs, ILogger<BatchService> log)
+    public BatchService(TourKitCustomerSource source, ReviewService reviews, BatchJobStore jobs, ILogger<BatchService> log)
     {
-        _customers = customers; _reviews = reviews; _jobs = jobs; _log = log;
+        _source = source; _reviews = reviews; _jobs = jobs; _log = log;
     }
 
-    public BatchJob Start(IEnumerable<string> customerIds, bool forceFresh)
+    public BatchJob Start(IEnumerable<string> customerIds, bool forceFresh, string sessionId)
     {
         var job = _jobs.Create(customerIds);
         job.Status = "processing";
 
-        _ = RunAsync(job, forceFresh);   // fire-and-forget; SSE handler consume Events channel
+        _ = RunAsync(job, forceFresh, sessionId);   // fire-and-forget; SSE handler consume Events channel
         return job;
     }
 
-    private async Task RunAsync(BatchJob job, bool forceFresh)
+    private async Task RunAsync(BatchJob job, bool forceFresh, string sessionId)
     {
         var ct = job.Cts.Token;
 
@@ -43,7 +44,7 @@ public class BatchService
                 {
                     if (innerCt.IsCancellationRequested) return;
 
-                    var customer = _customers.Get(id);
+                    var customer = await _source.GetFullAsync(sessionId, id, innerCt);
                     if (customer == null)
                     {
                         Interlocked.Increment(ref _errors);

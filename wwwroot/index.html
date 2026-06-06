@@ -26,6 +26,12 @@
 <script src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.development.js" integrity="sha384-u6aeetuaXnQ38mYT8rp6sbXaQe3NL9t+IBXmnYxwkUI2Hw4bsp2Wvmx4yRQF1uAm" crossorigin="anonymous"></script>
 <script src="https://unpkg.com/@babel/standalone@7.29.0/babel.min.js" integrity="sha384-m08KidiNqLdpJqLq95G/LEi8Qvjl/xUYll3QILypMoQ65QorJ9Lvtp2RXYGBFj1y" crossorigin="anonymous"></script>
 
+<!-- Chart.js (UMD, no build step) — professional charts cho trang Trợ lý số liệu -->
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.6/dist/chart.umd.min.js"></script>
+
+<!-- TinyMCE self-hosted LOCAL (GPL, không CDN) — HTML editor cho soạn mail. File ở wwwroot/lib/tinymce/ -->
+<script src="lib/tinymce/tinymce.min.js" referrerpolicy="origin"></script>
+
 <!-- /lib — third-party-style libs (data, icons) -->
 <script src="lib/data.js"></script>
 <script type="text/babel" src="lib/icons.jsx"></script>
@@ -35,6 +41,7 @@
 <script type="text/babel" src="core/storage.js"></script>
 <script type="text/babel" src="core/parsers.js"></script>
 <script type="text/babel" src="core/ai-provider.jsx"></script>
+<script type="text/babel" src="core/auth.jsx"></script>
 
 <!-- /components — reusable UI -->
 <script type="text/babel" src="components/tweaks-panel.jsx"></script>
@@ -49,8 +56,11 @@
 
 <!-- /pages — top-level pages. Add a new page = drop a file here + 1 Route in app.jsx -->
 <script type="text/babel" src="pages/wizard.jsx"></script>
-<script type="text/babel" src="pages/quotes.jsx"></script>
 <script type="text/babel" src="pages/customers.jsx"></script>
+<script type="text/babel" src="pages/assistant.jsx"></script>
+<script type="text/babel" src="pages/mail.jsx"></script>
+<script type="text/babel" src="pages/visa.jsx"></script>
+<script type="text/babel" src="pages/deals.jsx"></script>
 
 <!-- Root: App shell + router -->
 <script type="text/babel" src="app.jsx"></script>

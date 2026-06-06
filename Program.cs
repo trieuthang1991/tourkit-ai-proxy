@@ -1,8 +1,10 @@
 using TourkitAiProxy.Configuration;
 using TourkitAiProxy.Endpoints;
 using TourkitAiProxy.Services;
+using TourkitAiProxy.Services.Chat;
 using TourkitAiProxy.Services.Providers;
 using TourkitAiProxy.Services.Reviews;
+using TourkitAiProxy.Services.TourKit;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -14,17 +16,34 @@ builder.Services.AddHttpClient("opencode", c =>
     c.BaseAddress = new Uri("https://opencode.ai/");
     c.Timeout     = TimeSpan.FromSeconds(120);
 });
-builder.Services.AddHttpClient("nine-routes", c =>
+var nineRoutes = builder.Services.AddHttpClient("nine-routes", c =>
 {
     c.Timeout = TimeSpan.FromSeconds(120);
 });
+// 9routes có thể chạy HTTPS với chứng chỉ TỰ KÝ (vd https tới IP). Bật cờ này để chấp nhận
+// cert tự ký CHỈ cho client 9routes (không ảnh hưởng các call khác). Tắt khi đã có cert hợp lệ.
+if (builder.Configuration.GetValue<bool>("Providers:NineRoutes:AllowInsecureTls"))
+{
+    nineRoutes.ConfigurePrimaryHttpMessageHandler(() => new HttpClientHandler
+    {
+        ServerCertificateCustomValidationCallback = HttpClientHandler.DangerousAcceptAnyServerCertificateValidator
+    });
+}
+
+builder.Services.AddHttpClient("openai",    c => c.Timeout = TimeSpan.FromSeconds(120));
+builder.Services.AddHttpClient("anthropic", c => c.Timeout = TimeSpan.FromSeconds(120));
 
 builder.Services.AddSingleton<UsageTracker>();
+
+// Lưu API key provider (OpenAI/Anthropic) nhập từ UI — server-side, mã hóa, gitignored.
+builder.Services.AddSingleton<ProviderKeyStore>();
 
 // AI providers — đăng ký 1 lần ở đây, ProviderRegistry tự pickup qua IEnumerable<IAiProvider>.
 // Thêm provider mới: implement IAiProvider + AddSingleton<IAiProvider, NewProvider>().
 builder.Services.AddSingleton<IAiProvider, OpenCodeProvider>();
 builder.Services.AddSingleton<IAiProvider, NineRoutesProvider>();
+builder.Services.AddSingleton<IAiProvider, OpenAIProvider>();
+builder.Services.AddSingleton<IAiProvider, AnthropicProvider>();
 builder.Services.AddSingleton<ProviderRegistry>();
 
 // Legacy OpenCodeClient cho code cũ còn reference (sẽ remove khi clean xong)
@@ -37,6 +56,51 @@ builder.Services.AddSingleton<BatchJobStore>();
 builder.Services.AddSingleton<ReviewService>();
 builder.Services.AddSingleton<BatchService>();
 
+// Chat-Analytics ("Trợ lý số liệu") — gọi TourKit.Api (toutkit-app) qua JWT.
+// BaseUrl: TourKit:BaseUrl (mặc định Production). Auth: client gửi token mã hóa (Crypton) → /login-token.
+builder.Services.AddHttpClient("tourkit", c =>
+{
+    // Staging có đủ surface /api/ai/* (prod chưa). Đổi sang prod khi đã deploy.
+    var baseUrl = builder.Configuration["TourKit:BaseUrl"] ?? "https://mobile-test-api-2.tourkit.vn";
+    c.BaseAddress = new Uri(baseUrl);
+    c.Timeout     = TimeSpan.FromSeconds(60);
+});
+builder.Services.AddSingleton<TourKitApiClient>();
+builder.Services.AddSingleton<TkSessionStore>();
+builder.Services.AddSingleton<TourkitAiProxy.Services.Cache.ChatCache>();   // Redis (nếu có) / in-memory
+builder.Services.AddSingleton<ChatAgentService>();
+
+// SmartMail AI — hộp thư Gmail (IMAP/MailKit) + phân loại AI + soạn nháp trả lời.
+// Creds Gmail: data/mail-account.json (App Password mã hóa) nhập từ UI, fallback Mail:Gmail:* / env.
+builder.Services.AddSingleton<TourkitAiProxy.Services.Mail.MailAccountStore>();
+builder.Services.AddSingleton<TourkitAiProxy.Services.Mail.MailSyncStore>();
+builder.Services.AddSingleton<TourkitAiProxy.Services.Mail.MailRepository>();
+builder.Services.AddSingleton<TourkitAiProxy.Services.Mail.IMailSource, TourkitAiProxy.Services.Mail.GmailImapClient>();
+builder.Services.AddSingleton<TourkitAiProxy.Services.Mail.IMailSender, TourkitAiProxy.Services.Mail.GmailSmtpClient>();
+builder.Services.AddSingleton<TourkitAiProxy.Services.Mail.MailClassifier>();
+builder.Services.AddSingleton<TourkitAiProxy.Services.Mail.MailReplyService>();
+
+// Ưu tiên Deal AI — phân tích cơ hội bán hàng (booking-ticket), chấm khả năng thắng, xếp hạng ưu tiên.
+// 2 tầng: heuristic xếp sơ bộ → AI chấm sâu top N (kèm lịch sử hành động Sale). Cần session TourKit.
+builder.Services.AddSingleton<TourkitAiProxy.Services.Deals.DealOpportunityClient>();
+builder.Services.AddSingleton<TourkitAiProxy.Services.Deals.DealScoringService>();
+builder.Services.AddSingleton<TourkitAiProxy.Services.Deals.DealRepository>();
+builder.Services.AddSingleton<TourkitAiProxy.Services.Deals.DealBatchJobStore>();
+builder.Services.AddSingleton<TourkitAiProxy.Services.Deals.DealBatchService>();
+
+// Thẩm định Visa AI — upload hồ sơ → AI vision đọc → chấm tỉ lệ đậu/rớt.
+// File gốc lưu tạm data/visa-files/ (tự xóa 7 ngày), kết quả data/visa-assessments.json.
+builder.Services.AddSingleton<TourkitAiProxy.Services.Visa.VisaFileStore>();
+builder.Services.AddSingleton<TourkitAiProxy.Services.Visa.VisaRepository>();
+builder.Services.AddSingleton<TourkitAiProxy.Services.Visa.VisaExtractionService>();
+builder.Services.AddSingleton<TourkitAiProxy.Services.Visa.VisaScoringService>();
+
+// Store bền vững (Redis dùng chung / fallback file) + nguồn dữ liệu THẬT TourKit (KH + NCC).
+builder.Services.AddSingleton<TourkitAiProxy.Services.Cache.RedisProvider>();
+builder.Services.AddSingleton<TourkitAiProxy.Services.Store.TenantStore>();
+builder.Services.AddSingleton<TourkitAiProxy.Services.TourKit.TourKitCustomerSource>();
+builder.Services.AddSingleton<TourkitAiProxy.Services.TourKit.TourKitNccClient>();
+
 // ─── Pipeline ────────────────────────────────────────────────────────────────
 var app = builder.Build();
 
@@ -47,5 +111,10 @@ app.UseTourkitStaticFiles();
 app.MapSystemEndpoints();
 app.MapAiEndpoints();
 app.MapReviewEndpoints();
+app.MapChatEndpoints();
+app.MapMailEndpoints();
+app.MapTourEndpoints();
+app.MapVisaEndpoints();
+app.MapDealEndpoints();
 
 app.Run();

@@ -37,7 +37,7 @@ function CustomersPage({ pushToast }) {
       const q = new URLSearchParams();
       if (segFilter !== 'all') q.set('segment', segFilter);
       if (search.trim()) q.set('search', search.trim());
-      const resp = await fetch('/api/v1/customers?' + q.toString());
+      const resp = await window.tourkitAuth.authedFetch('/api/v1/customers?' + q.toString());
       if (!resp.ok) throw new Error('HTTP ' + resp.status);
       setItems(await resp.json());
     } catch (e) {
@@ -82,7 +82,7 @@ function CustomersPage({ pushToast }) {
     setActiveStream(null);
 
     try {
-      const resp = await fetch('/api/v1/reviews/batch', {
+      const resp = await window.tourkitAuth.authedFetch('/api/v1/reviews/batch', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ customerIds: [...selected], forceFresh })
@@ -121,7 +121,7 @@ function CustomersPage({ pushToast }) {
   // Dùng fetch streaming (browser EventSource không support stop trigger qua POST đã start).
   const consumeStream = async (url) => {
     try {
-      const resp = await fetch(url);
+      const resp = await window.tourkitAuth.authedFetch(url);
       if (!resp.ok || !resp.body) throw new Error('Stream lỗi ' + resp.status);
       const reader = resp.body.getReader();
       const decoder = new TextDecoder('utf-8');
@@ -231,7 +231,7 @@ function CustomersPage({ pushToast }) {
 
   const cancelBatch = async () => {
     if (!job) return;
-    try { await fetch(job.cancelUrl, { method: 'POST' }); }
+    try { await window.tourkitAuth.authedFetch(job.cancelUrl, { method: 'POST' }); }
     catch {}
   };
 
@@ -277,7 +277,7 @@ function CustomersPage({ pushToast }) {
         <div style={{padding: 14, background: '#f0f9ff', border: '1px solid #bae6fd', borderRadius: 10, marginBottom: 16}}>
           {/* Pipeline diagram: 5 stage chip với count */}
           <div style={{display: 'flex', alignItems: 'center', gap: 6, marginBottom: 12, flexWrap: 'wrap'}}>
-            <StageChip icon="📥" label="Chờ"    count={stageCounts.queue}     color="#94a3b8" />
+            <StageChip icon="📥" label="Chờ"    count={stageCounts.queue}     color="var(--text-3)" />
             <Arrow />
             <StageChip icon="📋" label="Đọc DL" count={stageCounts.preparing} color="#6366f1" />
             <Arrow />
@@ -342,11 +342,11 @@ function CustomersPage({ pushToast }) {
 
           {/* Activity log */}
           {logOpen && (
-            <div style={{marginTop: 12, padding: 10, background: '#0f172a', color: '#cbd5e1', borderRadius: 8, fontFamily: 'ui-monospace, "SF Mono", monospace', fontSize: 11, lineHeight: 1.6, maxHeight: 220, overflowY: 'auto'}}>
+            <div style={{marginTop: 12, padding: 10, background: '#0f172a', color: 'var(--border-strong)', borderRadius: 8, fontFamily: 'ui-monospace, "SF Mono", monospace', fontSize: 11, lineHeight: 1.6, maxHeight: 220, overflowY: 'auto'}}>
               {activityLog.length === 0 ? <em style={{opacity: 0.6}}>Chưa có event...</em> :
                 activityLog.slice().reverse().map((e, i) => (
                   <div key={i} style={{display: 'flex', gap: 8}}>
-                    <span style={{color: '#64748b'}}>{e.ts}</span>
+                    <span style={{color: 'var(--text-3)'}}>{e.ts}</span>
                     {e.customerId && <span style={{color: '#fbbf24', fontWeight: 600}}>{e.customerId}</span>}
                     <span style={{color: stageLogColor(e.type)}}>[{e.type}]</span>
                     <span style={{flex: 1}}>{e.msg}</span>
@@ -496,14 +496,14 @@ function RankBadge({ rank }) {
   return (
     <span style={{
       display: 'inline-block', width: 26, height: 26, lineHeight: '26px', textAlign: 'center',
-      borderRadius: '50%', background: colors[rank] || '#9ca3af', color: 'white', fontWeight: 700, fontSize: 12
+      borderRadius: '50%', background: colors[rank] || 'var(--text-3)', color: 'white', fontWeight: 700, fontSize: 12
     }}>{rank}</span>
   );
 }
 
 // Map stage → icon + label. Dùng cho cả live batch states và static review states.
 const STAGE_VIEW = {
-  queue:      { icon: '⏳', label: 'Đang chờ',     color: '#94a3b8' },
+  queue:      { icon: '⏳', label: 'Đang chờ',     color: 'var(--text-3)' },
   preparing:  { icon: '📋', label: 'Đọc dữ liệu',  color: '#6366f1', spin: true },
   calling:    { icon: '🤖', label: 'Đang gọi AI',  color: '#f59e0b', spin: true },
   parsing:    { icon: '📝', label: 'Đang parse',   color: '#8b5cf6', spin: true },
@@ -556,7 +556,7 @@ function StageChip({ icon, label, count, color, pulse }) {
       display: 'inline-flex', alignItems: 'center', gap: 6,
       padding: '4px 10px', borderRadius: 999,
       background: active ? `${color}22` : '#f1f5f9',
-      border: `1px solid ${active ? color : '#e2e8f0'}`,
+      border: `1px solid ${active ? color : 'var(--border)'}`,
       color: active ? color : 'var(--text-3)',
       fontSize: 11, fontWeight: 600,
       animation: (pulse && active) ? 'pulse 1.5s ease-in-out infinite' : null
@@ -564,21 +564,21 @@ function StageChip({ icon, label, count, color, pulse }) {
       <span style={{fontSize: 13}}>{icon}</span>
       <span>{label}</span>
       <span style={{
-        background: active ? color : '#94a3b8', color: 'white',
+        background: active ? color : 'var(--text-3)', color: 'white',
         padding: '1px 6px', borderRadius: 8, fontSize: 10, fontWeight: 700, minWidth: 18, textAlign: 'center'
       }}>{count}</span>
     </div>
   );
 }
 function Arrow() {
-  return <span style={{color: '#cbd5e1', fontSize: 11}}>→</span>;
+  return <span style={{color: 'var(--border-strong)', fontSize: 11}}>→</span>;
 }
 function stageLogColor(type) {
   return {
-    start: '#cbd5e1', preparing: '#a5b4fc', calling: '#fbbf24',
-    chunk: '#94a3b8', parsing: '#c4b5fd', progress: '#86efac',
+    start: 'var(--border-strong)', preparing: '#a5b4fc', calling: '#fbbf24',
+    chunk: 'var(--text-3)', parsing: '#c4b5fd', progress: '#86efac',
     cached: '#7dd3fc', error: '#fca5a5', done: '#86efac', cancelled: '#fbbf24'
-  }[type] || '#cbd5e1';
+  }[type] || 'var(--border-strong)';
 }
 
 function Stat({ label, value, highlight, muted }) {
