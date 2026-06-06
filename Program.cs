@@ -80,6 +80,9 @@ builder.Services.AddSingleton<TourkitAiProxy.Services.Mail.IMailSender, TourkitA
 builder.Services.AddSingleton<TourkitAiProxy.Services.Mail.MailClassifier>();
 builder.Services.AddSingleton<TourkitAiProxy.Services.Mail.MailReplyService>();
 
+// Soạn Tour GIT bằng AI — bóc mô tả tự do thành form Tour GIT (Type=3) cho NV prefill.
+builder.Services.AddSingleton<TourkitAiProxy.Services.Tour.TourBuilderService>();
+
 // Ưu tiên Deal AI — phân tích cơ hội bán hàng (booking-ticket), chấm khả năng thắng, xếp hạng ưu tiên.
 // 2 tầng: heuristic xếp sơ bộ → AI chấm sâu top N (kèm lịch sử hành động Sale). Cần session TourKit.
 builder.Services.AddSingleton<TourkitAiProxy.Services.Deals.DealOpportunityClient>();
@@ -116,5 +119,6 @@ app.MapMailEndpoints();
 app.MapTourEndpoints();
 app.MapVisaEndpoints();
 app.MapDealEndpoints();
+app.MapTourBuilderEndpoints();
 
 app.Run();

@@ -28,6 +28,7 @@ const NAV = [
   { to: '/mail',      icon: 'paper',   label: 'Hộp thư AI' },
   { to: '/visa',      icon: 'shield',  label: 'Thẩm định Visa' },
   { to: '/deals',     icon: 'trend',   label: 'Ưu tiên Deal AI' },
+  { to: '/tour-builder', icon: 'pin',  label: 'Soạn Tour GIT (AI)' },
 ];
 
 const TWEAK_DEFAULTS = /*EDITMODE-BEGIN*/{
@@ -178,6 +179,7 @@ function App() {
         <Route path="/mail"      render={() => <window.MailPage pushToast={pushToast} />} />
         <Route path="/visa"      render={() => <window.VisaPage pushToast={pushToast} />} />
         <Route path="/deals"     render={() => <window.DealsPage pushToast={pushToast} />} />
+        <Route path="/tour-builder" render={() => <window.TourBuilderPage pushToast={pushToast} />} />
         <Route path="*"          render={() => (
           <main className="page" style={{padding: 40, textAlign: 'center', color: 'var(--text-3)'}}>
             Trang không tồn tại. <Link to="/" style={{color: 'var(--accent)'}}>Về trang chính</Link>
