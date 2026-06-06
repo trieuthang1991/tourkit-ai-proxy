@@ -851,15 +851,17 @@ input:focus, textarea:focus, select:focus { outline: none; }
 
 /* ---------- Dialog (replaces native prompt/confirm/alert) ---------- */
 .dialog {
-  background: white;
+  background: #ffffff;          /* solid — không bao giờ để text phía sau xuyên qua */
   border-radius: 16px;
   width: 100%;
   max-width: 480px;
   max-height: 90vh;             /* tránh dialog content dài tràn viewport (đè sticky header) */
-  box-shadow: 0 24px 64px rgba(15,23,42,0.18);
+  box-shadow: 0 24px 64px rgba(15,23,42,0.35);
   display: flex;
   flex-direction: column;
   overflow: hidden;
+  position: relative;           /* z-index context riêng */
+  isolation: isolate;
 }
 .dialog-head {
   display: flex;
@@ -954,6 +956,10 @@ input:focus, textarea:focus, select:focus { outline: none; }
 .channel-btn.zalo:hover { background: #0068ff; color: white; border-color: #0068ff; }
 .channel-btn.mail:hover { background: #ea4335; color: white; border-color: #ea4335; }
 .channel-btn.sms:hover { background: var(--success); color: white; border-color: var(--success); }
+/* Nút primary: gửi qua Hộp thư AI (Gmail SMTP nội bộ) */
+.channel-btn.smartmail { background: var(--primary); color: #fff; border-color: var(--primary); font-weight: 700; }
+.channel-btn.smartmail:hover:not(:disabled) { background: var(--primary-dark); border-color: var(--primary-dark); box-shadow: 0 6px 18px var(--primary-glow); }
+.channel-btn.smartmail:disabled { opacity: .55; cursor: not-allowed; box-shadow: none; }
 
 .btn-danger {
   background: var(--danger);
@@ -1215,11 +1221,11 @@ input:focus, textarea:focus, select:focus { outline: none; }
 .modal-backdrop {
   position: fixed;
   inset: 0;
-  /* Tăng độ tối + blur mạnh để text Wizard tour preview (font lớn) không
-     bleed qua modal (bug "TOUR DU LỊCH QUY NHƠN" overlay lên giá trong ShareDialog). */
-  background: rgba(15, 23, 42, 0.78);
-  backdrop-filter: blur(10px);
-  -webkit-backdrop-filter: blur(10px);
+  /* Backdrop NHƯ SỪNG — alpha 0.92 + blur 14px để text font-cực-to phía sau
+     (vd .quote-hero-title 36px Wizard step4) KHÔNG bleed qua modal. */
+  background: rgba(15, 23, 42, 0.92);
+  backdrop-filter: blur(14px);
+  -webkit-backdrop-filter: blur(14px);
   z-index: 100;
   display: grid;
   place-items: center;
@@ -1372,9 +1378,9 @@ body.editorial .ai-bubble .hl { color: #FDBA74; }
 /* ===== AI Settings Dialog ===== */
 .modal-overlay {
   position: fixed; inset: 0; z-index: 1000;
-  background: rgba(15, 23, 42, 0.78);
+  background: rgba(15, 23, 42, 0.92);
   display: flex; align-items: center; justify-content: center;
-  padding: 20px; backdrop-filter: blur(10px); -webkit-backdrop-filter: blur(10px);
+  padding: 20px; backdrop-filter: blur(14px); -webkit-backdrop-filter: blur(14px);
   animation: fadeIn 0.15s ease;
 }
 @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }

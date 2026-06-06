@@ -128,13 +128,50 @@ function ShareDialog({ open, onClose, link, title, summary, onSent,
   const [aiMsg, setAiMsg] = uD(defaultMsg);
   const [loading, setLoading] = uD(false);
   const [aiPristine, setAiPristine] = uD(true);
+  // Tích hợp Hộp thư AI: gửi email qua /api/v1/mail/compose/send thay vì mailto:
+  const [toEmail, setToEmail] = uD('');
+  const [mailReady, setMailReady] = uD(null); // true/false sau khi check; null = chưa biết
+  const [sending, setSending] = uD(false);
 
   uED(() => {
     if (!open) return;
     setCopied(false);
     setAiMsg(`📋 Kính gửi Anh/Chị,\n\nTourkit xin gửi đề xuất chương trình ${title}.\n${summary}\n\nXem chi tiết báo giá: ${link}\n\nMọi thông tin chi tiết xin liên hệ trực tiếp với tư vấn viên. Trân trọng.`);
     setAiPristine(true);
-  }, [open, title, summary, link]);
+    setToEmail(request?.customer?.email || request?.contactEmail || '');
+    // Check trạng thái hộp thư AI 1 lần khi mở dialog
+    (async () => {
+      try {
+        const r = await (window.tourkitAuth?.authedFetch?.('/api/v1/mail/account') || fetch('/api/v1/mail/account'));
+        const d = await r.json();
+        setMailReady(!!d.configured);
+      } catch { setMailReady(false); }
+    })();
+  }, [open, title, summary, link, request]);
+
+  const sendViaSmartMail = async () => {
+    if (!toEmail.trim()) { window.Tourkit_toast?.('Nhập email khách trước'); return; }
+    setSending(true);
+    try {
+      // Body HTML: dòng đầu giữ format AI message, link clickable.
+      const lines = aiMsg.split('\n').map(l => l ? `<p style="margin:0 0 8px">${l.replace(/&/g,'&amp;').replace(/</g,'&lt;')}</p>` : '<p style="margin:0 0 8px">&nbsp;</p>').join('');
+      const body = `<div style="font-family:'Be Vietnam Pro',Arial,sans-serif;font-size:14px;line-height:1.6;color:#0F172A">${lines}<p style="margin:16px 0 0"><a href="${link}" style="display:inline-block;background:#F97316;color:#fff;padding:10px 18px;border-radius:8px;text-decoration:none;font-weight:700">Xem báo giá chi tiết →</a></p></div>`;
+      const subject = `Báo giá: ${title}`;
+      const r = await (window.tourkitAuth?.authedFetch?.('/api/v1/mail/compose/send', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ to: toEmail.trim(), subject, text: body })
+      }) || fetch('/api/v1/mail/compose/send', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ to: toEmail.trim(), subject, text: body })
+      }));
+      const d = await r.json().catch(() => ({}));
+      if (!r.ok) throw new Error(d.error || ('HTTP ' + r.status));
+      window.Tourkit_toast?.(`✓ Đã gửi báo giá tới ${toEmail.trim()}`);
+      onSent && onSent('smartmail');
+    } catch (e) {
+      window.Tourkit_toast?.('Gửi email lỗi: ' + e.message);
+    } finally { setSending(false); }
+  };
 
   const runAiMsg = async () => {
     setLoading(true);
@@ -235,8 +272,18 @@ Output: text thuần, KHÔNG markdown, KHÔNG dấu ngoặc.`);
             <button className="channel-btn zalo" onClick={() => sendVia('zalo')}>
               <Icon name="share" size={14} /> Zalo
             </button>
-            <button className="channel-btn mail" onClick={() => sendVia('mail')}>
-              <Icon name="mail" size={14} /> Email
+            <input type="email" className="input" placeholder="Email khách (vd lan@gmail.com)"
+              value={toEmail} onChange={e => setToEmail(e.target.value)}
+              style={{fontSize: 12, padding: '8px 10px', borderRadius: 8}} />
+            <button className="channel-btn smartmail" onClick={sendViaSmartMail}
+              disabled={!toEmail.trim() || !mailReady || sending}
+              title={mailReady === false ? 'Hộp thư AI chưa cấu hình — vào /mail để kết nối Gmail' : undefined}>
+              <Icon name="sparkle" size={14} />
+              {sending ? 'Đang gửi…' : (mailReady === false ? 'Cấu hình hộp thư AI →' : 'Gửi qua Hộp thư AI')}
+            </button>
+            <button className="channel-btn mail" onClick={() => sendVia('mail')}
+              title="Mở mail client trên máy bạn">
+              <Icon name="mail" size={14} /> Mở Mail client
             </button>
             <button className="channel-btn sms" onClick={() => sendVia('sms')}>
               <Icon name="phone" size={14} /> SMS
