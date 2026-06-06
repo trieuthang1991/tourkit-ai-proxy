@@ -373,20 +373,20 @@ function CustomersPage({ pushToast }) {
                 onFrom={v => set('startDate', v)} onTo={v => set('endDate', v)} />
             </div>
             <div className="cust-sheet-row">
-              <label>Sắp xếp</label>
-              <window.SearchControls.FilterChipRow>
-                {[['', 'Mới nhất'], ['totalRevenue', 'Doanh thu cao'], ['totalTours', 'Số tour nhiều'], ['fullName', 'Tên A-Z']].map(([v, l]) => (
-                  <window.SearchControls.FilterChip key={v || 'newest'} on={draft.sortOrder === v}
-                    onClick={() => set('sortOrder', v)}>{l}</window.SearchControls.FilterChip>
-                ))}
-              </window.SearchControls.FilterChipRow>
-            </div>
-            <div className="cust-sheet-row">
               <label>Giới tính</label>
               <window.SearchControls.FilterChipRow>
                 {[['', 'Tất cả'], ['M', 'Nam'], ['F', 'Nữ']].map(([v, l]) => (
                   <window.SearchControls.FilterChip key={v || 'any'} on={draft.gender === v}
                     onClick={() => set('gender', v)}>{l}</window.SearchControls.FilterChip>
+                ))}
+              </window.SearchControls.FilterChipRow>
+            </div>
+            <div className="cust-sheet-row full">
+              <label>Sắp xếp</label>
+              <window.SearchControls.FilterChipRow>
+                {[['', 'Mới nhất'], ['totalRevenue', 'Doanh thu cao'], ['totalTours', 'Số tour nhiều'], ['fullName', 'Tên A-Z']].map(([v, l]) => (
+                  <window.SearchControls.FilterChip key={v || 'newest'} on={draft.sortOrder === v}
+                    onClick={() => set('sortOrder', v)}>{l}</window.SearchControls.FilterChip>
                 ))}
               </window.SearchControls.FilterChipRow>
             </div>
