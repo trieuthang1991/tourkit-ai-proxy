@@ -1201,8 +1201,11 @@ input:focus, textarea:focus, select:focus { outline: none; }
 .modal-backdrop {
   position: fixed;
   inset: 0;
-  background: rgba(15, 23, 42, 0.55);
-  backdrop-filter: blur(4px);
+  /* Tăng độ tối + blur mạnh để text Wizard tour preview (font lớn) không
+     bleed qua modal (bug "TOUR DU LỊCH QUY NHƠN" overlay lên giá trong ShareDialog). */
+  background: rgba(15, 23, 42, 0.78);
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
   z-index: 100;
   display: grid;
   place-items: center;
@@ -1355,9 +1358,9 @@ body.editorial .ai-bubble .hl { color: #FDBA74; }
 /* ===== AI Settings Dialog ===== */
 .modal-overlay {
   position: fixed; inset: 0; z-index: 1000;
-  background: rgba(15, 23, 42, 0.55);
+  background: rgba(15, 23, 42, 0.78);
   display: flex; align-items: center; justify-content: center;
-  padding: 20px; backdrop-filter: blur(2px);
+  padding: 20px; backdrop-filter: blur(10px); -webkit-backdrop-filter: blur(10px);
   animation: fadeIn 0.15s ease;
 }
 @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
