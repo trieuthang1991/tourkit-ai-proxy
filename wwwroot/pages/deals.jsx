@@ -95,7 +95,8 @@ function DealDrawer({ item, onClose }) {
 }
 
 // ─── Bộ lọc kết quả ─── (mượn pattern mobile qua window.SearchControls) ───
-function DealFilters({ q, setQ, level, setLevel, riskOnly, setRiskOnly, shown, total }) {
+function DealFilters({ q, setQ, level, setLevel, riskOnly, setRiskOnly, shown, total,
+                       advCount, advOpen, onAdvToggle }) {
   const SC = window.SearchControls;
   const chips = [['all', 'Tất cả'], ['cao', 'Win cao'], ['trung_binh', 'Win TB'], ['thap', 'Win thấp']];
   return (
@@ -111,7 +112,8 @@ function DealFilters({ q, setQ, level, setLevel, riskOnly, setRiskOnly, shown, t
           <Icon name="warning" size={12} /> Đang nguội
         </SC.FilterChip>
       </SC.FilterChipRow>
-      <span className="cust-filter-count">Hiện <b>{shown}</b>/{total}</span>
+      <SC.FilterButton count={advCount} open={advOpen} onClick={onAdvToggle} />
+      <window.DataControls.StatRow shown={shown} total={total} suffix="cơ hội" />
     </div>
   );
 }
@@ -151,6 +153,12 @@ function DealsPage({ pushToast }) {
   const [q, setQ] = _dS('');
   const [level, setLevel] = _dS('all');
   const [riskOnly, setRiskOnly] = _dS(false);
+
+  // Bộ lọc nâng cao (client-side trên board.items — không gọi lại AI)
+  const EMPTY_DEAL_FILTER = { status: '', source: '', staff: '', minValue: '', maxValue: '', maxAge: '', sortBy: 'priority' };
+  const [adv, setAdv] = _dS(EMPTY_DEAL_FILTER);
+  const [advOpen, setAdvOpen] = _dS(false);
+  const advCount = ['status','source','staff','minValue','maxValue','maxAge'].filter(k => adv[k] && adv[k] !== '').length + (adv.sortBy && adv.sortBy !== 'priority' ? 1 : 0);
   const cancelUrl = _dR(null);
   const isMobile = useIsMobile();
 
@@ -198,15 +206,52 @@ function DealsPage({ pushToast }) {
 
   const items = board?.items || [];
   const ql = q.trim().toLowerCase();
-  const filtered = items.filter(it => {
+  // Distinct values từ items để fill dropdown filter (không cần API lookups)
+  const dealLookups = (() => {
+    const s = new Set(), src = new Set(), staff = new Set();
+    for (const it of items) {
+      if (it.statusName) s.add(it.statusName);
+      if (it.sourceName) src.add(it.sourceName);
+      if (it.assignees) it.assignees.split(/[,;]/).forEach(a => a.trim() && staff.add(a.trim()));
+    }
+    return {
+      statuses: [...s].sort(),
+      sources:  [...src].sort(),
+      staffs:   [...staff].sort(),
+    };
+  })();
+  let filtered = items.filter(it => {
     if (level !== 'all' && it.level !== level) return false;
     if (riskOnly && it.riskFlag !== 'nguoi') return false;
     if (ql) {
       const hay = (it.customerName + ' ' + (it.title || '') + ' ' + (it.code || '') + ' ' + (it.assignees || '')).toLowerCase();
       if (!hay.includes(ql)) return false;
     }
+    if (adv.status && it.statusName !== adv.status) return false;
+    if (adv.source && it.sourceName !== adv.source) return false;
+    if (adv.staff && !(it.assignees || '').toLowerCase().includes(adv.staff.toLowerCase())) return false;
+    if (adv.minValue && (it.totalPrice || 0) < Number(adv.minValue)) return false;
+    if (adv.maxValue && (it.totalPrice || 0) > Number(adv.maxValue)) return false;
+    if (adv.maxAge && (it.ageDays || 0) > Number(adv.maxAge)) return false;
     return true;
   });
+  // Sắp xếp tùy chọn (mặc định = priority desc)
+  filtered = [...filtered].sort((a, b) => {
+    if (adv.sortBy === 'value') return (b.totalPrice || 0) - (a.totalPrice || 0);
+    if (adv.sortBy === 'win')   return (b.winRate || 0) - (a.winRate || 0);
+    if (adv.sortBy === 'age')   return (b.ageDays || 0) - (a.ageDays || 0);
+    if (adv.sortBy === 'ev')    return (b.expectedValue || 0) - (a.expectedValue || 0);
+    return (b.priorityScore || 0) - (a.priorityScore || 0);
+  });
+
+  // KPI strip counts
+  const c = {
+    total: items.length,
+    cao:   items.filter(it => it.level === 'cao').length,
+    tb:    items.filter(it => it.level === 'trung_binh').length,
+    thap:  items.filter(it => it.level === 'thap').length,
+    nguoi: items.filter(it => it.riskFlag === 'nguoi').length,
+  };
 
   return (
     <main className="page deals">
@@ -252,8 +297,74 @@ function DealsPage({ pushToast }) {
           </div>
         )}
 
+        <window.DataControls.KpiStrip items={[
+          { icon: 'trend',   label: 'Tổng',       value: c.total },
+          { icon: 'star',    label: 'Win cao',    value: c.cao, highlight: c.cao > 0 },
+          { icon: 'sparkle', label: 'Win TB',     value: c.tb },
+          { icon: 'warning', label: 'Win thấp',   value: c.thap },
+          { icon: 'warning', label: 'Đang nguội', value: c.nguoi },
+        ]} />
+
         <DealFilters q={q} setQ={setQ} level={level} setLevel={setLevel}
-          riskOnly={riskOnly} setRiskOnly={setRiskOnly} shown={filtered.length} total={items.length} />
+          riskOnly={riskOnly} setRiskOnly={setRiskOnly} shown={filtered.length} total={items.length}
+          advCount={advCount} advOpen={advOpen} onAdvToggle={() => setAdvOpen(o => !o)} />
+
+        <window.SearchControls.AdvancedFilterPanel
+          open={advOpen} onClose={() => setAdvOpen(false)}
+          value={adv} defaultValue={EMPTY_DEAL_FILTER} onApply={setAdv}>
+          {({ draft, set }) => (
+            <div className="cust-sheet-grid">
+              <div className="cust-sheet-row">
+                <label>Trạng thái</label>
+                <window.SearchControls.SearchSelect
+                  items={['', ...dealLookups.statuses].map(s => s || 'Tất cả trạng thái')}
+                  value={draft.status || 'Tất cả trạng thái'}
+                  onChange={v => set('status', v === 'Tất cả trạng thái' ? '' : v)}
+                  placeholder="Tất cả trạng thái" />
+              </div>
+              <div className="cust-sheet-row">
+                <label>Nguồn</label>
+                <window.SearchControls.SearchSelect
+                  items={['', ...dealLookups.sources].map(s => s || 'Tất cả nguồn')}
+                  value={draft.source || 'Tất cả nguồn'}
+                  onChange={v => set('source', v === 'Tất cả nguồn' ? '' : v)}
+                  placeholder="Tất cả nguồn" />
+              </div>
+              <div className="cust-sheet-row">
+                <label>NV phụ trách</label>
+                <window.SearchControls.SearchSelect
+                  items={['', ...dealLookups.staffs].map(s => s || 'Tất cả nhân viên')}
+                  value={draft.staff || 'Tất cả nhân viên'}
+                  onChange={v => set('staff', v === 'Tất cả nhân viên' ? '' : v)}
+                  placeholder="Tất cả nhân viên" />
+              </div>
+              <div className="cust-sheet-row">
+                <label>Tuổi cơ hội tối đa (ngày)</label>
+                <input type="number" className="tb-field" placeholder="vd 30" value={draft.maxAge}
+                  onChange={e => set('maxAge', e.target.value)} min={0} />
+              </div>
+              <div className="cust-sheet-row">
+                <label>Giá trị tối thiểu (đ)</label>
+                <input type="number" className="tb-field" placeholder="vd 10000000" value={draft.minValue}
+                  onChange={e => set('minValue', e.target.value)} min={0} />
+              </div>
+              <div className="cust-sheet-row">
+                <label>Giá trị tối đa (đ)</label>
+                <input type="number" className="tb-field" placeholder="bỏ trống = không giới hạn" value={draft.maxValue}
+                  onChange={e => set('maxValue', e.target.value)} min={0} />
+              </div>
+              <div className="cust-sheet-row full">
+                <label>Sắp xếp</label>
+                <window.SearchControls.FilterChipRow>
+                  {[['priority', 'Ưu tiên (mặc định)'], ['ev', 'Doanh thu kỳ vọng'], ['value', 'Giá trị deal'], ['win', 'Khả năng thắng'], ['age', 'Tuổi cơ hội']].map(([v, l]) => (
+                    <window.SearchControls.FilterChip key={v} on={draft.sortBy === v}
+                      onClick={() => set('sortBy', v)}>{l}</window.SearchControls.FilterChip>
+                  ))}
+                </window.SearchControls.FilterChipRow>
+              </div>
+            </div>
+          )}
+        </window.SearchControls.AdvancedFilterPanel>
 
         {filtered.length === 0 ? (
           <div className="deals-empty sm"><Icon name="search" size={22} /><div>Không có cơ hội nào khớp bộ lọc.</div></div>
