@@ -128,4 +128,9 @@ app.MapDealEndpoints();
 app.MapTourBuilderEndpoints();
 app.MapAiUsageEndpoints();
 
+// SPA fallback: mọi GET không match API/file (vd /mail, /customers, /assistant) → trả index.html.
+// Cho phép HTML5 history routing thay vì hash (#). F5 trên /mail không còn 404.
+// MapFallbackToFile chạy SAU cùng — chỉ catch khi không có route nào match trước đó.
+app.MapFallbackToFile("index.html");
+
 app.Run();

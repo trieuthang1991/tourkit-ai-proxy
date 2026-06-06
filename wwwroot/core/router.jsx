@@ -1,29 +1,39 @@
-// core/router.jsx — hash-based router cho no-build setup.
-// URL: /#/wizard, /#/quotes, /#/customers, …
+// core/router.jsx — HTML5 history-based router (KHÔNG còn `#` trong URL).
+// URL: /wizard, /quotes, /customers/123, …
 //
 // Cách dùng:
 //   <Router>
 //     <Route path="/" component={WizardPage} />
 //     <Route path="/quotes" component={QuotesPage} />
 //     <Route path="/customers/:id" component={CustomerDetail} />
-//     <NotFound />
+//     <NotFound />   {/* path="*" */}
 //   </Router>
 //
 //   <Link to="/quotes">Báo giá</Link>
 //   window.tourkitRouter.navigate('/quotes')
 //
-// Thêm page mới: 1 file pages/<name>.jsx + 1 <Route> trong app.jsx. Hết.
+// CẦN server fallback: mọi GET không match endpoint API/file → trả index.html
+// (xem app.MapFallbackToFile("index.html") trong Program.cs).
+// Trên IIS — đã tự cấu hình qua aspNetCore module (ASP.NET Core fallback chạy qua).
 
 (function () {
   'use strict';
 
-  // ─── Hash parsing ──────────────────────────────────────────────────────────
-  function currentPath() {
+  // ─── Migrate hash URL cũ → path URL mới (1 lần khi user mở link cũ) ────────
+  // VD user bookmark /#/mail → tự redirect sang /mail.
+  (function migrateHashToPath() {
     const h = window.location.hash || '';
-    if (!h.startsWith('#')) return '/';
-    // Strip query string (hash thường không có nhưng support phòng hờ)
-    const p = h.slice(1).split('?')[0];
-    return p || '/';
+    if (h.startsWith('#/') || h === '#') {
+      const newPath = h.slice(1) || '/';
+      const target = newPath + window.location.search;
+      window.history.replaceState({}, '', target);
+    }
+  })();
+
+  // ─── Path parsing ──────────────────────────────────────────────────────────
+  function currentPath() {
+    const p = window.location.pathname || '/';
+    return p === '' ? '/' : p;
   }
 
   function matchRoute(pattern, path) {
@@ -43,30 +53,33 @@
 
   function useRoute() { return React.useContext(RouteCtx); }
 
-  function useHashPath() {
+  // Theo dõi pushState/replaceState/popstate (history API không tự fire event khi push)
+  function usePath() {
     const [path, setPath] = React.useState(currentPath());
     React.useEffect(() => {
       const onChange = () => setPath(currentPath());
-      window.addEventListener('hashchange', onChange);
-      return () => window.removeEventListener('hashchange', onChange);
+      window.addEventListener('popstate', onChange);
+      window.addEventListener('tourkit:navigate', onChange);
+      return () => {
+        window.removeEventListener('popstate', onChange);
+        window.removeEventListener('tourkit:navigate', onChange);
+      };
     }, []);
     return path;
   }
 
   // ─── <Router> ──────────────────────────────────────────────────────────────
-  // Walks children, picks first <Route> whose `path` matches. Children không phải <Route>
-  // (vd: nav, header, sidebar) render bình thường ngoài context.
   function Router({ children }) {
-    const path = useHashPath();
+    const path = usePath();
     const kids = React.Children.toArray(children);
 
-    // Tách routes ra (children với prop.path) vs static elements (header, sidebar...)
-    const routes = kids.filter(c => c.props && typeof c.props.path === 'string');
+    const routes  = kids.filter(c => c.props && typeof c.props.path === 'string');
     const statics = kids.filter(c => !c.props || typeof c.props.path !== 'string');
 
     let matched = null;
     let matchedParams = null;
     for (const r of routes) {
+      if (r.props.path === '*') continue;
       const params = matchRoute(r.props.path, path);
       if (params) { matched = r; matchedParams = params; break; }
     }
@@ -96,10 +109,13 @@
     const active = path === to;
     const cls = [className, active ? 'active' : ''].filter(Boolean).join(' ');
     return (
-      <a href={'#' + to} className={cls} style={style} {...rest}
+      <a href={to} className={cls} style={style} {...rest}
          onClick={e => {
+           // Cho phép cmd/ctrl/shift-click + middle-click mở tab mới (default browser)
+           if (e.defaultPrevented || e.button !== 0 || e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return;
+           e.preventDefault();
            if (onClick) onClick(e);
-           // Cho phép cmd/ctrl-click mở tab mới (default browser hành xử)
+           navigate(to);
          }}>
         {children}
       </a>
@@ -107,9 +123,11 @@
   }
 
   // ─── Programmatic nav ──────────────────────────────────────────────────────
-  function navigate(to) {
-    if (window.location.hash === '#' + to) return;
-    window.location.hash = to;
+  function navigate(to, opts = {}) {
+    if (currentPath() === to) return;
+    if (opts.replace) window.history.replaceState({}, '', to);
+    else window.history.pushState({}, '', to);
+    window.dispatchEvent(new CustomEvent('tourkit:navigate'));
   }
 
   // ─── Expose ────────────────────────────────────────────────────────────────
