@@ -49,26 +49,18 @@ function AiUsagePage({ pushToast }) {
 
   return (
     <main className="page aiu">
-      {/* Hero (format /assistant) */}
-      <header className="aiu-hero">
-        <div className="aiu-hero-mark"><Icon name="chart" size={22} stroke={2.4} /></div>
-        <div className="aiu-hero-text">
-          <h1 className="aiu-hero-title">GIÁM SÁT CHI PHÍ AI
-            <span className="aiu-hero-badge">thời gian thực</span>
-          </h1>
-          <p className="aiu-hero-sub">Theo dõi token, chi phí và quota theo tính năng · model · user — chống cháy túi.</p>
-        </div>
-        <div className="aiu-hero-status">
-          <span className="aiu-status-pulse" />
-          <div className="aiu-status-text">
-            <b>{loading ? 'ĐANG CẬP NHẬT' : 'DỮ LIỆU MỚI'}</b>
-            <em>{data.generatedAt ? new Date(data.generatedAt).toLocaleTimeString('vi-VN') : '—'}</em>
-          </div>
-          <button className="aiu-status-refresh" onClick={load} disabled={loading} title="Làm mới">
-            <Icon name="refresh" size={15} stroke={2.4} />
-          </button>
-        </div>
-      </header>
+      <window.PageShell.PageHero
+        icon="chart"
+        title="Giám sát chi phí AI"
+        badge="thời gian thực"
+        sub="Theo dõi token, chi phí và quota theo tính năng · model · user — chống cháy túi."
+        status={{ label: loading ? 'ĐANG CẬP NHẬT' : 'DỮ LIỆU MỚI',
+          detail: data.generatedAt ? new Date(data.generatedAt).toLocaleTimeString('vi-VN') : '—',
+          tone: loading ? 'idle' : 'live' }}
+        actions={<button className="aiu-status-refresh" onClick={load} disabled={loading} title="Làm mới">
+          <Icon name="refresh" size={15} stroke={2.4} />
+        </button>}
+      />
 
       {/* Range chips (filter Hôm nay/7/30 ngày) */}
       <div className="aiu-rangebar">

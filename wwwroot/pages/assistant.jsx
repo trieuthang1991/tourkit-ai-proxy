@@ -535,27 +535,17 @@ function AssistantPage({ pushToast }) {
 
   return (
     <main className="page asst">
-      {/* Header card cam-đen (mockup) */}
-      <header className="asst-hero">
-        <div className="asst-hero-mark"><Icon name="sparkle" size={22} stroke={2.4} /></div>
-        <div className="asst-hero-text">
-          <h1 className="asst-hero-title">TRỢ LÝ AI ĐỌC BÁO CÁO
-            <span className="asst-hero-badge">trực quan</span>
-          </h1>
-          <p className="asst-hero-sub">Hỏi đáp thông minh — AI tự truy xuất số liệu TourKit và trực quan hóa.</p>
-        </div>
-        <div className="asst-hero-status">
-          <span className="asst-status-pulse" />
-          <div className="asst-status-text">
-            <b>DỮ LIỆU ĐANG KẾT NỐI</b>
-            <em>Tenant {sessionInfo?.tenantId || '—'}</em>
-          </div>
-          <button className="asst-status-refresh" onClick={clearCache} disabled={clearing}
-            title="Xóa cache số liệu — buộc hỏi lại lấy số mới">
-            <Icon name="refresh" size={15} stroke={2.4} />
-          </button>
-        </div>
-      </header>
+      <window.PageShell.PageHero
+        icon="sparkle"
+        title="Trợ lý AI đọc báo cáo"
+        badge="trực quan"
+        sub="Hỏi đáp thông minh — AI tự truy xuất số liệu TourKit và trực quan hóa."
+        status={{ label: 'DỮ LIỆU ĐANG KẾT NỐI', detail: `Tenant ${sessionInfo?.tenantId || '—'}` }}
+        actions={<button className="asst-status-refresh" onClick={clearCache} disabled={clearing}
+          title="Xóa cache số liệu — buộc hỏi lại lấy số mới">
+          <Icon name="refresh" size={15} stroke={2.4} />
+        </button>}
+      />
 
       <div className="asst-grid2">
         {/* TRÁI: chat */}

@@ -2071,8 +2071,8 @@ body.editorial .ai-bubble .hl { color: #FDBA74; }
   background: #fff; margin-top: 14px; min-height: 200px; display: block; }
 
 /* ─── Thẩm định Visa AI ─── product UI, bám design system warm-orange của app ── */
-.visa { display: grid; grid-template-columns: 280px 1fr; gap: 20px; max-width: 1180px;
-  margin: 0 auto; padding: 24px; align-items: start; }
+.visa { display: grid; grid-template-columns: 280px 1fr; gap: 20px;
+  align-items: start; }
 
 /* Rail trái: lịch sử */
 .visa-rail { position: sticky; top: 84px; display: flex; flex-direction: column; gap: 12px; }
@@ -2672,3 +2672,41 @@ body.editorial .ai-bubble .hl { color: #FDBA74; }
 .aiu-status { display: inline-block; padding: 2px 8px; border-radius: 999px; font-size: 10.5px; font-weight: 700; }
 .aiu-status.ok { background: #dcfce7; color: #047857; }
 .aiu-status.warn { background: #fef3c7; color: #92400e; }
+
+/* ─── PageShell shared (.ph-*) ─── format Trợ lý số liệu cho mọi page ─────── */
+.ph-hero { display: flex; align-items: center; gap: 18px; padding: 18px 22px;
+  background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-sm); margin-bottom: 14px; flex-wrap: wrap; }
+.ph-hero-mark { width: 52px; height: 52px; border-radius: 14px; flex-shrink: 0;
+  display: grid; place-items: center; color: #fff;
+  background: linear-gradient(135deg, #1f2937 0%, #0f172a 100%);
+  box-shadow: 0 6px 18px rgba(15,23,42,.25); position: relative; overflow: hidden; }
+.ph-hero-mark::after { content: ''; position: absolute; inset: -30%; border-radius: 50%;
+  background: radial-gradient(circle at 30% 30%, var(--primary), transparent 55%); opacity: .55; }
+.ph-hero-mark svg { position: relative; z-index: 1; }
+.ph-hero-text { flex: 1; min-width: 220px; }
+.ph-hero-title { margin: 0 0 4px; font-size: 22px; font-weight: 800; letter-spacing: -.01em;
+  color: var(--text); display: inline-flex; align-items: center; gap: 10px; }
+.ph-hero-badge { font-size: 10.5px; font-weight: 700; text-transform: uppercase; letter-spacing: .8px;
+  background: var(--primary-soft); color: var(--primary-dark); padding: 3px 9px; border-radius: 999px; }
+.ph-hero-sub { margin: 0; font-size: 12.5px; color: var(--text-3); line-height: 1.5; }
+.ph-hero-status { display: flex; align-items: center; gap: 10px; padding: 8px 12px;
+  background: var(--bg); border: 1px solid var(--border); border-radius: 999px; flex-shrink: 0; }
+.ph-status-pulse { width: 8px; height: 8px; border-radius: 999px; background: #16a34a;
+  box-shadow: 0 0 0 0 rgba(22,163,74,.55); animation: asstPulse 2s ease-out infinite; flex-shrink: 0; }
+.ph-status-pulse.idle { background: var(--text-3); animation: none; }
+.ph-status-text { display: flex; flex-direction: column; line-height: 1.15; }
+.ph-status-text b { font-size: 10px; font-weight: 800; letter-spacing: .5px; color: var(--text); }
+.ph-status-text em { font-size: 10.5px; font-style: normal; color: var(--text-3); }
+.ph-hero-actions { display: flex; align-items: center; gap: 8px; flex-shrink: 0; }
+
+/* Pane wrapper */
+.ph-pane { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-sm); padding: 18px; margin-bottom: 14px; }
+
+/* Eyebrow style chung */
+.ph-eyebrow { display: flex; align-items: center; gap: 8px; font-size: 11px; font-weight: 800;
+  text-transform: uppercase; letter-spacing: .6px; color: var(--text); margin-bottom: 14px; }
+.ph-eyebrow::before { content: ''; width: 7px; height: 7px; border-radius: 999px; background: var(--primary);
+  flex-shrink: 0; }
+.ph-eyebrow em { font-style: normal; color: var(--text-3); font-weight: 700; letter-spacing: .4px; }

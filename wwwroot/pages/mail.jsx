@@ -394,13 +394,13 @@ function MailPage({ pushToast }) {
   if (showConfig) {
     return (
       <main className="page mail">
-        <div className="mail-topbar">
-          <div>
-            <h1 className="mail-title">Hộp thư SmartMail AI</h1>
-            <p className="mail-tagline">Kết nối Gmail để bắt đầu.</p>
-          </div>
-          {account?.configured && <button className="mail-btn ghost" onClick={() => setShowConfig(false)}>← Quay lại hộp thư</button>}
-        </div>
+        <window.PageShell.PageHero
+          icon="mail"
+          title="Hộp thư SmartMail AI"
+          badge="Gmail"
+          sub="Kết nối hộp thư Gmail để bắt đầu phân loại + soạn phản hồi bằng AI."
+          actions={account?.configured && <button className="mail-btn ghost" onClick={() => setShowConfig(false)}>← Quay lại hộp thư</button>}
+        />
         <MailAccountForm account={account} pushToast={pushToast}
           onSaved={(a) => { setAccount(a); setShowConfig(false); load(); }} />
       </main>
@@ -411,17 +411,17 @@ function MailPage({ pushToast }) {
     <main className="page mail">
       {showCompose && <ComposeNewModal pushToast={pushToast} onClose={() => setShowCompose(false)} />}
 
-      <div className="mail-topbar">
-        <div>
-          <h1 className="mail-title">Hộp thư SmartMail AI</h1>
-          <p className="mail-tagline">
-            Đồng bộ Gmail · phân loại AI · soạn &amp; gửi phản hồi
-            {counts.unread > 0 && <span className="mail-unread-badge">{counts.unread} chưa đọc</span>}
-          </p>
-        </div>
-        <div className="mail-topbar-actions">
+      <window.PageShell.PageHero
+        icon="mail"
+        title="Hộp thư SmartMail AI"
+        badge={counts.unread > 0 ? `${counts.unread} chưa đọc` : 'đã đồng bộ'}
+        sub="Đồng bộ Gmail · AI phân loại 6 nhóm · soạn & gửi phản hồi 4 tông."
+        status={{ label: account?.configured ? 'GMAIL ĐÃ KẾT NỐI' : 'CHƯA CẤU HÌNH',
+          detail: account?.address || 'Chọn cấu hình →',
+          tone: account?.configured ? 'live' : 'idle' }}
+        actions={<>
           <button className="mail-btn ghost" onClick={() => setShowConfig(true)} title="Cấu hình hộp thư">
-            <span className="mail-acct-dot" /> {account?.address || 'Cấu hình'}
+            <span className="mail-acct-dot" /> Cấu hình
           </button>
           <button className="mail-btn outline" onClick={() => setShowCompose(true)}>
             <Icon name="sparkle" size={14} /> Soạn thư mới
@@ -429,8 +429,8 @@ function MailPage({ pushToast }) {
           <button className="mail-btn primary" onClick={sync} disabled={syncing}>
             <Icon name="paper" size={14} /> {syncing ? 'Đang đồng bộ…' : 'Đồng bộ'}
           </button>
-        </div>
-      </div>
+        </>}
+      />
 
       <div className="mail-grid">
         {/* TRÁI: filter rail */}

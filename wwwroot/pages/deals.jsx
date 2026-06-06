@@ -210,19 +210,22 @@ function DealsPage({ pushToast }) {
 
   return (
     <main className="page deals">
-      <div className="deals-head">
-        <div>
-          <h1 className="deals-title">Ưu tiên Deal AI</h1>
-          <p className="deals-sub">AI chấm khả năng thắng từng cơ hội (dựa trên hành động chăm sóc của Sale) và xếp hạng nên xử lý deal nào trước.</p>
-        </div>
-        <div className="deals-actions">
+      <window.PageShell.PageHero
+        icon="trend"
+        title="Ưu tiên Deal AI"
+        badge="EV + độ gấp"
+        sub="AI chấm khả năng thắng từng cơ hội bán hàng và xếp hạng nên xử lý deal nào trước."
+        status={{ label: items.length > 0 ? `${items.length} CƠ HỘI ĐÃ CHẤM` : (running ? 'ĐANG PHÂN TÍCH' : 'CHƯA PHÂN TÍCH'),
+          detail: board?.generatedAt ? new Date(board.generatedAt).toLocaleTimeString('vi-VN') : 'Bấm "Phân tích AI"',
+          tone: items.length > 0 ? 'live' : 'idle' }}
+        actions={<>
           <input className="deals-filter" placeholder="Phụ trách (phạm vi quét)…" value={assignee}
             onChange={e => setAssignee(e.target.value)} disabled={running} />
           {running
             ? <button className="deals-btn" onClick={cancel}><Icon name="close" size={15} /> Hủy</button>
             : <button className="deals-btn primary" onClick={run}><Icon name="sparkle" size={15} /> Phân tích AI</button>}
-        </div>
-      </div>
+        </>}
+      />
 
       {running && progress && (
         <div className="deals-progress">

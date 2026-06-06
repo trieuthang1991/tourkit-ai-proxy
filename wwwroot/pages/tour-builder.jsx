@@ -122,18 +122,22 @@ function TourBuilderPage({ pushToast }) {
     setForm(EMPTY()); setPrompt(''); pushToast('Đã xóa');
   }
 
+  const hasForm = form.title || form.expenses.length > 0 || form.services.length > 0;
   return (
     <main className="page tb">
-      <div className="tb-head">
-        <div>
-          <h1 className="tb-title">Soạn Tour GIT bằng AI</h1>
-          <p className="tb-sub">Mô tả tour ở khung trái → AI điền vào form bên phải. NV kiểm tra, bổ sung rồi tự đưa vào TourKit.</p>
-        </div>
-        <div className="tb-actions">
+      <window.PageShell.PageHero
+        icon="pin"
+        title="Soạn Tour GIT bằng AI"
+        badge="Type 3"
+        sub="Mô tả tự do ở khung trái → AI bóc tách thành form-control bên phải. NV bổ sung rồi tự đưa vào TourKit."
+        status={{ label: hasForm ? 'CÓ BẢN NHÁP' : 'CHƯA CÓ NHÁP',
+          detail: hasForm ? `${form.expenses.length} thu · ${form.services.length} dịch vụ` : 'Nhập mô tả & bấm AI',
+          tone: hasForm ? 'live' : 'idle' }}
+        actions={<>
           <button className="tb-btn" onClick={reset} disabled={busy}><Icon name="trash" size={14} /> Xóa</button>
           <button className="tb-btn" onClick={copyJson} disabled={busy}><Icon name="copy" size={14} /> Copy JSON</button>
-        </div>
-      </div>
+        </>}
+      />
 
       <div className="tb-grid">
         {/* TRÁI — input tự do */}

@@ -308,8 +308,20 @@ function VisaPage({ pushToast }) {
 
   const stepState = busy ? (view === 'upload' ? 'extracting' : 'scoring') : view;
 
+  const scored = history.filter(a => a.result).length;
   return (
-    <main className="page visa">
+    <main className="page" style={{padding: '18px 28px 60px', maxWidth: 1500, margin: '0 auto'}}>
+      <window.PageShell.PageHero
+        icon="shield"
+        title="Thẩm định Visa AI"
+        badge="vision"
+        sub="Upload hồ sơ → AI vision đọc → chấm tỉ lệ đậu/rớt + đề xuất bổ sung."
+        status={{ label: history.length > 0 ? `${history.length} HỒ SƠ` : 'CHƯA CÓ HỒ SƠ',
+          detail: scored > 0 ? `${scored} đã chấm` : 'Tải hồ sơ đầu tiên',
+          tone: history.length > 0 ? 'live' : 'idle' }}
+        actions={<button className="visa-btn primary" onClick={goNew}><Icon name="plus" size={15} stroke={2.5} /> Hồ sơ mới</button>}
+      />
+      <div className="visa">
       <VisaHistory items={history} activeId={current?.id} onPick={onPick} onNew={goNew} onDelete={onDelete} />
       <section className="visa-stage">
         <div className="visa-panel">
@@ -324,6 +336,7 @@ function VisaPage({ pushToast }) {
           </button>
         )}
       </section>
+      </div>
     </main>
   );
 }

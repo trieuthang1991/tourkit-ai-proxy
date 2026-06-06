@@ -238,15 +238,15 @@ function CustomersPage({ pushToast }) {
   const busy = progress.status === 'processing';
 
   return (
-    <main className="page" style={{padding: '24px 32px'}}>
-      <div style={{display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16, flexWrap: 'wrap', gap: 12}}>
-        <div>
-          <h2 style={{margin: 0, fontSize: 22, fontWeight: 700}}>Khách hàng</h2>
-          <div style={{color: 'var(--text-3)', fontSize: 13, marginTop: 2}}>
-            {items.length} KH · {selected.size} đã chọn
-          </div>
-        </div>
-        <div style={{display: 'flex', gap: 8, alignItems: 'center'}}>
+    <main className="page" style={{padding: '18px 28px 60px', maxWidth: 1500, margin: '0 auto'}}>
+      <window.PageShell.PageHero
+        icon="users"
+        title="Khách hàng"
+        badge="AI review"
+        sub="Chấm hạng A–D + đề xuất hành động cho từng khách bằng AI."
+        status={{ label: items.length > 0 ? `${items.length} KHÁCH HÀNG` : 'CHƯA CÓ DỮ LIỆU',
+          detail: selected.size > 0 ? `${selected.size} đã chọn` : 'Chọn KH để review' }}
+        actions={<>
           <button className="btn btn-ghost btn-sm" onClick={loadList} disabled={loading || busy}>
             <Icon name="refresh" size={14} /> Refresh
           </button>
@@ -255,8 +255,8 @@ function CustomersPage({ pushToast }) {
             onClick={() => setConfirm(true)}>
             <Icon name="sparkle" size={14} /> Review {selected.size > 0 ? `${selected.size} KH` : 'bằng AI'}
           </button>
-        </div>
-      </div>
+        </>}
+      />
 
       {/* Filter bar — bộ control search dùng chung (search-controls.jsx) */}
       <div className="cust-filter">
