@@ -1439,7 +1439,7 @@ body.editorial .ai-bubble .hl { color: #FDBA74; }
 .test-result.fail { background: #fee2e2; color: #991b1b; }
 
 /* ---------- Trợ lý số liệu (Chat-Analytics, v2.5 redesign) ---------- */
-.asst { padding: 18px 28px 60px; max-width: 1500px; margin: 0 auto; }
+.asst { padding: 18px 28px 60px; width: 100%; }
 
 /* Hero card (mockup): nền sáng, mark cam-đen tròn vuông, badge cam, status pulse phải */
 .asst-hero { display: flex; align-items: center; gap: 18px; padding: 18px 22px;
@@ -2227,7 +2227,7 @@ body.editorial .ai-bubble .hl { color: #FDBA74; }
 }
 
 /* ─── Ưu tiên Deal AI ─── product UI, bám design system warm-orange ──────────── */
-.deals { max-width: 1180px; margin: 0 auto; padding: 24px; }
+.deals { width: 100%; padding: 18px 28px 60px; }
 .deals-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 20px; margin-bottom: 18px; }
 .deals-title { margin: 0 0 4px; font-size: 22px; font-weight: 800; letter-spacing: -.01em; color: var(--text); }
 .deals-sub { margin: 0; font-size: 13px; color: var(--text-3); line-height: 1.55; max-width: 620px; }
@@ -2362,7 +2362,7 @@ body.editorial .ai-bubble .hl { color: #FDBA74; }
 }
 
 /* ─── Soạn Tour GIT bằng AI ── product UI, warm-orange ───────────────────────── */
-.tb { max-width: 1400px; margin: 0 auto; padding: 24px; }
+.tb { width: 100%; padding: 18px 28px 60px; }
 .tb-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 20px; margin-bottom: 18px; flex-wrap: wrap; }
 .tb-title { margin: 0 0 4px; font-size: 22px; font-weight: 800; letter-spacing: -.01em; color: var(--text); }
 .tb-sub { margin: 0; font-size: 13px; color: var(--text-3); line-height: 1.55; max-width: 720px; }
@@ -2567,7 +2567,7 @@ body.editorial .ai-bubble .hl { color: #FDBA74; }
 .cust-filter-count b { color: var(--text); }
 
 /* ─── Giám sát chi phí AI ─── bám format /assistant (hero + eyebrow + pane) ──── */
-.aiu { max-width: 1500px; margin: 0 auto; padding: 18px 28px 60px; }
+.aiu { width: 100%; padding: 18px 28px 60px; }
 .aiu-loading { padding: 60px; text-align: center; color: var(--text-3); font-size: 14px; }
 
 /* Hero card cam-đen (mẫu .asst-hero) */
@@ -2710,3 +2710,33 @@ body.editorial .ai-bubble .hl { color: #FDBA74; }
 .ph-eyebrow::before { content: ''; width: 7px; height: 7px; border-radius: 999px; background: var(--primary);
   flex-shrink: 0; }
 .ph-eyebrow em { font-style: normal; color: var(--text-3); font-weight: 700; letter-spacing: .4px; }
+
+/* ─── Responsive: hero + page padding cho mobile/tablet ──────────────────── */
+/* Tablet (≤ 1024px): hero giãn hợp lý, actions wrap xuống dòng */
+@media (max-width: 1024px) {
+  .ph-hero { gap: 14px; padding: 16px 18px; }
+  .ph-hero-text { min-width: 180px; }
+  .ph-hero-title { font-size: 19px; }
+  .ph-hero-actions { width: 100%; flex-wrap: wrap; }
+}
+/* Mobile lớn (≤ 768px): hero xếp dọc, status + actions full-width */
+@media (max-width: 768px) {
+  .ph-hero { flex-direction: column; align-items: stretch; gap: 12px; padding: 14px 16px; }
+  .ph-hero-mark { width: 44px; height: 44px; border-radius: 12px; }
+  .ph-hero-title { font-size: 18px; letter-spacing: 0; }
+  .ph-hero-sub { font-size: 12px; }
+  .ph-hero-status { align-self: flex-start; }
+  .ph-hero-actions { width: 100%; }
+}
+/* Mobile nhỏ (≤ 480px): co tiếp padding + title gọn */
+@media (max-width: 480px) {
+  .ph-hero-title { font-size: 16px; flex-wrap: wrap; gap: 6px; }
+  .ph-hero-badge { font-size: 10px; padding: 2px 7px; }
+}
+
+/* Page padding co theo viewport (mọi class wrapper .asst/.tb/.deals/.aiu) */
+@media (max-width: 768px) {
+  .asst, .tb, .deals, .aiu { padding: 14px 16px 40px; }
+  .page.visa { padding: 14px 16px 40px !important; }
+  .page { padding: 14px 16px 40px; }
+}

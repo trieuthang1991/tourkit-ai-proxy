@@ -310,7 +310,7 @@ function VisaPage({ pushToast }) {
 
   const scored = history.filter(a => a.result).length;
   return (
-    <main className="page" style={{padding: '18px 28px 60px', maxWidth: 1500, margin: '0 auto'}}>
+    <main className="page" style={{padding: '18px 28px 60px', width: '100%'}}>
       <window.PageShell.PageHero
         icon="shield"
         title="Thẩm định Visa AI"

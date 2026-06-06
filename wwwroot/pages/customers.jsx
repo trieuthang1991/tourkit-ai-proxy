@@ -238,7 +238,7 @@ function CustomersPage({ pushToast }) {
   const busy = progress.status === 'processing';
 
   return (
-    <main className="page" style={{padding: '18px 28px 60px', maxWidth: 1500, margin: '0 auto'}}>
+    <main className="page" style={{padding: '18px 28px 60px', width: '100%'}}>
       <window.PageShell.PageHero
         icon="users"
         title="Khách hàng"
