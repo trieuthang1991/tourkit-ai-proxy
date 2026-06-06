@@ -21,6 +21,35 @@ function CustomersPage({ pushToast }) {
   const [drawerId, setDrawerId]   = _uC(null);            // KH đang xem detail
   const [forceFresh, setForceFresh] = _uC(false);
 
+  // Bộ lọc nâng cao (mẫu mobile CustomerList.razor BottomSheet)
+  const [filter, setFilter] = _uC({
+    customerTypeId: 0, customerSourceId: 0, sellerId: 0,
+    gender: '', startDate: '', endDate: '', sortOrder: '',
+    birthdayThisMonth: false, careFilter: ''
+  });
+  const [sheetOpen, setSheetOpen] = _uC(false);
+  const [draft, setDraft] = _uC(filter);   // bản nháp khi mở sheet, Apply mới commit
+  const [lookups, setLookups] = _uC({ customerTypes: [], customerSources: [], sellers: [] });
+  const activeFilterCount = ['customerTypeId','customerSourceId','sellerId','gender','startDate','endDate','sortOrder','careFilter']
+    .filter(k => filter[k] && filter[k] !== 0).length + (filter.birthdayThisMonth ? 1 : 0);
+
+  // Load lookups 1 lần — best-effort (lỗi thì để rỗng, vẫn render filter rỗng)
+  _uEC(() => {
+    (async () => {
+      try {
+        const r = await window.tourkitAuth.authedFetch('/api/v1/customers/lookups');
+        if (r.ok) {
+          const d = await r.json();
+          setLookups({
+            customerTypes:   d.customerTypes   || [],
+            customerSources: d.customerSources || [],
+            sellers:         d.sellers         || [],
+          });
+        }
+      } catch { /* ignore */ }
+    })();
+  }, []);
+
   // Pipeline counts theo stage hiện tại (derived từ rowStatus, nhưng cache để render mượt).
   const [stageCounts, setStageCounts] = _uC({ queue: 0, preparing: 0, calling: 0, parsing: 0, done: 0, error: 0 });
 
@@ -37,6 +66,15 @@ function CustomersPage({ pushToast }) {
       const q = new URLSearchParams();
       if (segFilter !== 'all') q.set('segment', segFilter);
       if (search.trim()) q.set('search', search.trim());
+      if (filter.customerTypeId)   q.set('customerTypeId',   filter.customerTypeId);
+      if (filter.customerSourceId) q.set('customerSourceId', filter.customerSourceId);
+      if (filter.sellerId)         q.set('sellerId',         filter.sellerId);
+      if (filter.gender)           q.set('gender',           filter.gender);
+      if (filter.startDate)        q.set('startDate',        filter.startDate);
+      if (filter.endDate)          q.set('endDate',          filter.endDate);
+      if (filter.sortOrder)        q.set('sortOrder',        filter.sortOrder);
+      if (filter.birthdayThisMonth) q.set('birthdayThisMonth', 'true');
+      if (filter.careFilter)       q.set('careFilter',       filter.careFilter);
       const resp = await window.tourkitAuth.authedFetch('/api/v1/customers?' + q.toString());
       if (!resp.ok) throw new Error('HTTP ' + resp.status);
       setItems(await resp.json());
@@ -47,7 +85,7 @@ function CustomersPage({ pushToast }) {
     }
   };
 
-  _uEC(() => { loadList(); }, [segFilter]);
+  _uEC(() => { loadList(); }, [segFilter, filter]);
 
   // Debounce search
   _uEC(() => {
@@ -258,7 +296,7 @@ function CustomersPage({ pushToast }) {
         </>}
       />
 
-      {/* Filter bar — bộ control search dùng chung (search-controls.jsx) */}
+      {/* Filter bar — search + chip phân khúc + nút "Bộ lọc" mở BottomSheet */}
       <div className="cust-filter">
         <div className="cust-filter-search">
           <window.SearchControls.SearchInput value={search} onChange={setSearch}
@@ -270,11 +308,97 @@ function CustomersPage({ pushToast }) {
               {o.l}
             </window.SearchControls.FilterChip>
           ))}
+          <window.SearchControls.FilterChip on={filter.birthdayThisMonth}
+            onClick={() => setFilter(f => ({ ...f, birthdayThisMonth: !f.birthdayThisMonth }))}>
+            🎂 Sinh nhật
+          </window.SearchControls.FilterChip>
         </window.SearchControls.FilterChipRow>
+        <window.SearchControls.FilterButton count={activeFilterCount}
+          onClick={() => { setDraft(filter); setSheetOpen(true); }} />
         <span className="cust-filter-count">
           {items.length > 0 && <>Hiển thị <b>{items.length}</b> khách hàng</>}
         </span>
       </div>
+
+      {/* Bottom sheet "Bộ lọc nâng cao" — mẫu mobile */}
+      <window.SearchControls.BottomSheet open={sheetOpen} onClose={() => setSheetOpen(false)}
+        title="Bộ lọc nâng cao"
+        footer={<>
+          <button className="btn btn-ghost" style={{flex:1}}
+            onClick={() => { const empty = { customerTypeId:0, customerSourceId:0, sellerId:0, gender:'', startDate:'', endDate:'', sortOrder:'', birthdayThisMonth:false, careFilter:'' }; setDraft(empty); setFilter(empty); setSheetOpen(false); }}>
+            <Icon name="trash" size={14} /> Xóa lọc
+          </button>
+          <button className="btn btn-primary" style={{flex:1}}
+            onClick={() => { setFilter(draft); setSheetOpen(false); }}>
+            <Icon name="check" size={14} stroke={2.5} /> Áp dụng
+          </button>
+        </>}>
+        <div className="cust-sheet-grid">
+          <div className="cust-sheet-row">
+            <label>Loại khách hàng</label>
+            <window.SearchControls.SearchSelect
+              items={[{ id: 0, name: 'Tất cả loại' }, ...lookups.customerTypes]}
+              value={draft.customerTypeId ? lookups.customerTypes.find(t => t.id === draft.customerTypeId)?.name : 'Tất cả loại'}
+              getKey={it => it.name} getLabel={it => it.name}
+              onChange={n => {
+                const t = lookups.customerTypes.find(x => x.name === n);
+                setDraft(d => ({ ...d, customerTypeId: t ? t.id : 0 }));
+              }}
+              placeholder="Tất cả loại" />
+          </div>
+          <div className="cust-sheet-row">
+            <label>Nguồn khách hàng</label>
+            <window.SearchControls.SearchSelect
+              items={[{ id: 0, name: 'Tất cả nguồn' }, ...lookups.customerSources]}
+              value={draft.customerSourceId ? lookups.customerSources.find(t => t.id === draft.customerSourceId)?.name : 'Tất cả nguồn'}
+              getKey={it => it.name} getLabel={it => it.name}
+              onChange={n => {
+                const t = lookups.customerSources.find(x => x.name === n);
+                setDraft(d => ({ ...d, customerSourceId: t ? t.id : 0 }));
+              }}
+              placeholder="Tất cả nguồn" />
+          </div>
+          <div className="cust-sheet-row">
+            <label>NV phụ trách</label>
+            <window.SearchControls.SearchSelect
+              items={[{ id: 0, name: 'Tất cả nhân viên' }, ...lookups.sellers]}
+              value={draft.sellerId ? lookups.sellers.find(t => t.id === draft.sellerId)?.name : 'Tất cả nhân viên'}
+              getKey={it => it.name} getLabel={it => it.name}
+              onChange={n => {
+                const t = lookups.sellers.find(x => x.name === n);
+                setDraft(d => ({ ...d, sellerId: t ? t.id : 0 }));
+              }}
+              placeholder="Tất cả nhân viên" />
+          </div>
+          <div className="cust-sheet-row">
+            <label>Ngày tạo</label>
+            <div className="cust-sheet-2col">
+              <input type="date" className="input" value={draft.startDate}
+                onChange={e => setDraft(d => ({ ...d, startDate: e.target.value }))} />
+              <input type="date" className="input" value={draft.endDate}
+                onChange={e => setDraft(d => ({ ...d, endDate: e.target.value }))} />
+            </div>
+          </div>
+          <div className="cust-sheet-row">
+            <label>Sắp xếp</label>
+            <window.SearchControls.FilterChipRow>
+              {[['', 'Mới nhất'], ['totalRevenue', 'Doanh thu cao'], ['totalTours', 'Số tour nhiều'], ['fullName', 'Tên A-Z']].map(([v, l]) => (
+                <window.SearchControls.FilterChip key={v || 'newest'} on={draft.sortOrder === v}
+                  onClick={() => setDraft(d => ({ ...d, sortOrder: v }))}>{l}</window.SearchControls.FilterChip>
+              ))}
+            </window.SearchControls.FilterChipRow>
+          </div>
+          <div className="cust-sheet-row">
+            <label>Giới tính</label>
+            <window.SearchControls.FilterChipRow>
+              {[['', 'Tất cả'], ['M', 'Nam'], ['F', 'Nữ']].map(([v, l]) => (
+                <window.SearchControls.FilterChip key={v || 'any'} on={draft.gender === v}
+                  onClick={() => setDraft(d => ({ ...d, gender: v }))}>{l}</window.SearchControls.FilterChip>
+              ))}
+            </window.SearchControls.FilterChipRow>
+          </div>
+        </div>
+      </window.SearchControls.BottomSheet>
 
       {/* Progress section khi đang chạy: pipeline + bar + live stream + log */}
       {busy && (

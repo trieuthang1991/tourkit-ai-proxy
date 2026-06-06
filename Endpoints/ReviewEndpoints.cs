@@ -24,18 +24,42 @@ public static class ReviewEndpoints
     {
         var v1 = routes.MapGroup("/api/v1");
 
+        // ─── Customer lookups (loại/nguồn/NV) cho bộ lọc nâng cao ──────────────
+        v1.MapGet("/customers/lookups", async (HttpContext ctx, TourKitCustomerSource source, TkSessionStore sessions) =>
+        {
+            var sid = Sid(ctx);
+            if (sessions.Get(sid) == null) return Unauthorized();
+            try
+            {
+                var data = await source.GetLookupsAsync(sid!, ctx.RequestAborted);
+                // /api/ai/reference trả {enums, lookups:{customerTypes,customerSources,sellers,...}}
+                if (data.ValueKind == System.Text.Json.JsonValueKind.Object
+                    && data.TryGetProperty("lookups", out var lk)) return Results.Json(lk);
+                return Results.Json(data);
+            }
+            catch (TourKitApiException ex) { return Results.Json(new { error = ex.Message }, statusCode: ex.Status); }
+        });
+
         // ─── Customer list (KH thật) ───────────────────────────────────────────
         v1.MapGet("/customers", async (
             HttpContext ctx, TourKitCustomerSource source, ReviewRepository reviews,
             TkSessionStore sessions, ILogger<Program> log,
-            string? segment, string? search) =>
+            string? segment, string? search,
+            int? customerTypeId, int? customerSourceId, int? sellerId,
+            string? gender, string? careFilter, bool? birthdayThisMonth,
+            string? startDate, string? endDate, string? sortOrder) =>
         {
             var sid = Sid(ctx);
             if (sessions.Get(sid) == null) return Unauthorized();
 
             try
             {
-                var customers = await source.ListAsync(sid!, search, ListSize, ctx.RequestAborted);
+                var filter = new TourKitCustomerSource.CustomerFilter(
+                    Search: search, CustomerTypeId: customerTypeId, CustomerSourceId: customerSourceId,
+                    SellerId: sellerId, Gender: gender, CareFilter: careFilter,
+                    BirthdayThisMonth: birthdayThisMonth, StartDate: startDate, EndDate: endDate,
+                    SortOrder: sortOrder);
+                var customers = await source.ListAsync(sid!, filter, ListSize, ctx.RequestAborted);
                 if (!string.IsNullOrWhiteSpace(segment) && segment != "all")
                     customers = customers.Where(c => string.Equals(c.Segment, segment, StringComparison.OrdinalIgnoreCase)).ToList();
 

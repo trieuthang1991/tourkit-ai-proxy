@@ -19,10 +19,24 @@ public class TourKitCustomerSource
         _api = api; _sessions = sessions; _log = log;
     }
 
-    public async Task<List<Customer>> ListAsync(string sessionId, string? search, int pageSize, CancellationToken ct)
+    /// Lọc nâng cao — forward đầy đủ params /api/ai/customers theo schema mobile CustomerList.razor:
+    /// search, customerTypeId, customerSourceId, sellerId(nv phụ trách), gender, careFilter,
+    /// birthdayThisMonth, startDate, endDate, sortOrder.
+    public async Task<List<Customer>> ListAsync(string sessionId, CustomerFilter f, int pageSize, CancellationToken ct)
     {
-        var path = $"/api/ai/customers?pageIndex=1&pageSize={pageSize}";
-        if (!string.IsNullOrWhiteSpace(search)) path += "&filter=" + Uri.EscapeDataString(search.Trim());
+        var qs = new List<string> { "pageIndex=1", $"pageSize={pageSize}" };
+        if (!string.IsNullOrWhiteSpace(f.Search))         qs.Add("filter=" + Uri.EscapeDataString(f.Search.Trim()));
+        if (f.CustomerTypeId   is > 0)                    qs.Add("customerTypeId=" + f.CustomerTypeId);
+        if (f.CustomerSourceId is > 0)                    qs.Add("customerSourceId=" + f.CustomerSourceId);
+        if (f.SellerId         is > 0)                    qs.Add("sellerId=" + f.SellerId);
+        if (!string.IsNullOrWhiteSpace(f.Gender))         qs.Add("gender=" + Uri.EscapeDataString(f.Gender));
+        if (!string.IsNullOrWhiteSpace(f.CareFilter))     qs.Add("careFilter=" + Uri.EscapeDataString(f.CareFilter));
+        if (f.BirthdayThisMonth == true)                  qs.Add("birthdayThisMonth=true");
+        if (!string.IsNullOrWhiteSpace(f.StartDate))      qs.Add("startDate=" + Uri.EscapeDataString(f.StartDate));
+        if (!string.IsNullOrWhiteSpace(f.EndDate))        qs.Add("endDate=" + Uri.EscapeDataString(f.EndDate));
+        if (!string.IsNullOrWhiteSpace(f.SortOrder))      qs.Add("sortOrder=" + Uri.EscapeDataString(f.SortOrder));
+
+        var path = "/api/ai/customers?" + string.Join("&", qs);
         var data = await GetAsync(sessionId, path, ct);
 
         var list = new List<Customer>();
@@ -31,6 +45,24 @@ public class TourKitCustomerSource
                 list.Add(MapLight(it));
         return list;
     }
+
+    /// Bộ filter mở rộng — bám CustomerSearchRequest của TourKit.Api.
+    public record CustomerFilter(
+        string? Search = null,
+        int? CustomerTypeId = null,
+        int? CustomerSourceId = null,
+        int? SellerId = null,
+        string? Gender = null,           // "M" | "F" | null
+        string? CareFilter = null,       // mobile careFilters (0/1/2... theo TourKit)
+        bool? BirthdayThisMonth = null,
+        string? StartDate = null,        // yyyy-MM-dd
+        string? EndDate = null,
+        string? SortOrder = null         // tên cột (mới nhất/doanh thu...)
+    );
+
+    /// Lấy lookup data cho bộ lọc (loại KH / nguồn / NV phụ trách) qua /api/ai/reference.
+    public async Task<JsonElement> GetLookupsAsync(string sessionId, CancellationToken ct)
+        => await GetAsync(sessionId, "/api/ai/reference", ct);
 
     public async Task<Customer?> GetFullAsync(string sessionId, string id, CancellationToken ct)
     {
