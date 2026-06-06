@@ -24,10 +24,19 @@ public class NineRoutesProvider : IAiProvider
     private readonly IHttpClientFactory _http;
     private readonly IConfiguration _cfg;
     private readonly ILogger<NineRoutesProvider> _log;
+    private readonly AiUsageLog _usage;
+    private readonly AiCallContext _ctx;
 
-    public NineRoutesProvider(IHttpClientFactory http, IConfiguration cfg, ILogger<NineRoutesProvider> log)
+    public NineRoutesProvider(IHttpClientFactory http, IConfiguration cfg, ILogger<NineRoutesProvider> log,
+        AiUsageLog usage, AiCallContext ctx)
     {
-        _http = http; _cfg = cfg; _log = log;
+        _http = http; _cfg = cfg; _log = log; _usage = usage; _ctx = ctx;
+    }
+
+    private void LogUsage(string model, int inTok, int outTok, long ms)
+    {
+        var c = _ctx.Resolve();
+        _usage.Append(c.Feature, c.SessionId, c.Tenant, "nine-routes", model, inTok, outTok, ms);
     }
 
     private string BaseUrl =>
@@ -135,10 +144,12 @@ public class NineRoutesProvider : IAiProvider
 
         if (string.IsNullOrEmpty(text))
         {
+            LogUsage(model, inTok, outTok, sw.ElapsedMilliseconds);
             return new CompleteResult("", model, inTok, outTok, sw.ElapsedMilliseconds, finishReason,
                 Warning: "9routes trả response rỗng. Check model name + key.",
                 RawUpstream: raw[..Math.Min(raw.Length, 2000)]);
         }
+        LogUsage(model, inTok, outTok, sw.ElapsedMilliseconds);
         return new CompleteResult(text, model, inTok, outTok, sw.ElapsedMilliseconds, finishReason);
     }
 
@@ -252,6 +263,7 @@ public class NineRoutesProvider : IAiProvider
             }
         }
         sw.Stop();
+        LogUsage(model, inTok, outTok, sw.ElapsedMilliseconds);
         return new CompleteResult(fullText.ToString(), model, inTok, outTok, sw.ElapsedMilliseconds, finishReason, Attempts: chunks);
     }
 }

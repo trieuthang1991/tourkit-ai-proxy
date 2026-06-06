@@ -1,5 +1,6 @@
 using System.Text.Json;
 using TourkitAiProxy.Models;
+using TourkitAiProxy.Services.Cache;
 using TourkitAiProxy.Services.Json;
 using TourkitAiProxy.Services.Providers;
 
@@ -11,6 +12,7 @@ namespace TourkitAiProxy.Services.Tour;
 public class TourBuilderService
 {
     private readonly ProviderRegistry _registry;
+    private readonly AiResponseCache _cache;
     private readonly ILogger<TourBuilderService> _log;
 
     private const string SYSTEM =
@@ -18,9 +20,9 @@ public class TourBuilderService
         "CHỈ trả JSON thuần (bắt đầu '{'), KHÔNG markdown, KHÔNG giải thích ngoài JSON. " +
         "KHÔNG bịa thông tin chưa có — field nào không rõ thì để null/0/[]; ghi điều cần làm rõ vào 'warnings'. Tiếng Việt.";
 
-    public TourBuilderService(ProviderRegistry registry, ILogger<TourBuilderService> log)
+    public TourBuilderService(ProviderRegistry registry, AiResponseCache cache, ILogger<TourBuilderService> log)
     {
-        _registry = registry; _log = log;
+        _registry = registry; _cache = cache; _log = log;
     }
 
     public async Task<TourBuilderDraft> ParseAsync(TourBuilderRequest req, CancellationToken ct)
@@ -29,6 +31,9 @@ public class TourBuilderService
             throw new InvalidOperationException("Mô tả rỗng");
 
         var p = _registry.Resolve(req.Provider);
+        var key = AiResponseCache.Hash("tour-builder", req.Model, req.Prompt);
+        var cached = _cache.TryGet<TourBuilderDraft>(key);
+        if (cached != null) return cached;
         Exception? last = null;
         for (int attempt = 1; attempt <= 2; attempt++)
         {
@@ -45,7 +50,9 @@ public class TourBuilderService
                 var res = await p.CompleteAsync(cr, ct);
                 if (string.IsNullOrWhiteSpace(res.Text))
                     throw new InvalidOperationException($"AI trả rỗng (finish={res.FinishReason})");
-                return Parse(res.Text);
+                var ok = Parse(res.Text);
+                _cache.Save(key, ok);
+                return ok;
             }
             catch (OperationCanceledException) { throw; }
             catch (InvalidOperationException ex)

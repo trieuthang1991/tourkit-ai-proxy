@@ -34,6 +34,12 @@ builder.Services.AddHttpClient("openai",    c => c.Timeout = TimeSpan.FromSecond
 builder.Services.AddHttpClient("anthropic", c => c.Timeout = TimeSpan.FromSeconds(120));
 
 builder.Services.AddSingleton<UsageTracker>();
+// AI usage log per-request (data/ai-usage.jsonl) — biết feature/user/tenant nào tiêu bao nhiêu.
+builder.Services.AddHttpContextAccessor();
+builder.Services.AddSingleton<TourkitAiProxy.Services.AiUsageLog>();
+builder.Services.AddSingleton<TourkitAiProxy.Services.AiCallContext>();
+// Cache prompt-hash 24h cho Visa/Deal/TourBuilder (Redis nếu có, fallback in-memory).
+builder.Services.AddSingleton<TourkitAiProxy.Services.Cache.AiResponseCache>();
 
 // Lưu API key provider (OpenAI/Anthropic) nhập từ UI — server-side, mã hóa, gitignored.
 builder.Services.AddSingleton<ProviderKeyStore>();
@@ -120,5 +126,6 @@ app.MapTourEndpoints();
 app.MapVisaEndpoints();
 app.MapDealEndpoints();
 app.MapTourBuilderEndpoints();
+app.MapAiUsageEndpoints();
 
 app.Run();

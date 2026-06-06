@@ -23,8 +23,11 @@ public class AnthropicProvider : IAiProvider
     private const string BaseUrl = "https://api.anthropic.com";
     private readonly IHttpClientFactory _http;
     private readonly ProviderKeyStore _keys;
+    private readonly AiUsageLog _usage;
+    private readonly AiCallContext _ctx;
 
-    public AnthropicProvider(IHttpClientFactory http, ProviderKeyStore keys) { _http = http; _keys = keys; }
+    public AnthropicProvider(IHttpClientFactory http, ProviderKeyStore keys, AiUsageLog usage, AiCallContext ctx)
+    { _http = http; _keys = keys; _usage = usage; _ctx = ctx; }
 
     public async Task<CompleteResult> CompleteAsync(CompleteRequest req, CancellationToken ct)
     {
@@ -63,6 +66,8 @@ public class AnthropicProvider : IAiProvider
             throw new UpstreamException((int)resp.StatusCode, "Anthropic error", raw[..Math.Min(raw.Length, 800)]);
 
         var p = UpstreamParser.Parse(raw, "anthropic");
+        var c = _ctx.Resolve();
+        _usage.Append(c.Feature, c.SessionId, c.Tenant, Id, model, p.InputTokens, p.OutputTokens, sw.ElapsedMilliseconds);
         return new CompleteResult(p.Text, model, p.InputTokens, p.OutputTokens, sw.ElapsedMilliseconds, p.FinishReason);
     }
 

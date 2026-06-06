@@ -27,10 +27,19 @@ public class OpenCodeProvider : IAiProvider
     private readonly IHttpClientFactory _http;
     private readonly IConfiguration _cfg;
     private readonly ILogger<OpenCodeProvider> _log;
+    private readonly AiUsageLog _usage;
+    private readonly AiCallContext _ctx;
 
-    public OpenCodeProvider(IHttpClientFactory http, IConfiguration cfg, ILogger<OpenCodeProvider> log)
+    public OpenCodeProvider(IHttpClientFactory http, IConfiguration cfg, ILogger<OpenCodeProvider> log,
+        AiUsageLog usage, AiCallContext ctx)
     {
-        _http = http; _cfg = cfg; _log = log;
+        _http = http; _cfg = cfg; _log = log; _usage = usage; _ctx = ctx;
+    }
+
+    private void LogUsage(string model, int inTok, int outTok, long ms, string status = "ok")
+    {
+        var c = _ctx.Resolve();
+        _usage.Append(c.Feature, c.SessionId, c.Tenant, "opencode-go", model, inTok, outTok, ms, status: status);
     }
 
     private string? ApiKey =>
@@ -165,11 +174,13 @@ public class OpenCodeProvider : IAiProvider
             var hint = finishReason == "length"
                 ? "Upstream cắt vì max_tokens (đã auto-bump). Đổi model khác."
                 : "Parse trả text rỗng.";
+            LogUsage(model, inTok, outTok, sw.ElapsedMilliseconds, status: "empty");
             return new CompleteResult("", model, inTok, outTok, sw.ElapsedMilliseconds, finishReason, attempts,
                 Warning: hint,
                 RawUpstream: lastRaw[..Math.Min(lastRaw.Length, 2000)]);
         }
 
+        LogUsage(model, inTok, outTok, sw.ElapsedMilliseconds);
         return new CompleteResult(text, model, inTok, outTok, sw.ElapsedMilliseconds, finishReason, attempts);
     }
 
@@ -297,6 +308,7 @@ public class OpenCodeProvider : IAiProvider
         }
 
         sw.Stop();
+        LogUsage(model, inTok, outTok, sw.ElapsedMilliseconds);
         return new CompleteResult(fullText.ToString(), model, inTok, outTok, sw.ElapsedMilliseconds, finishReason, Attempts: chunks);
     }
 }

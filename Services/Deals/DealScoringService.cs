@@ -1,5 +1,6 @@
 using System.Text.Json;
 using TourkitAiProxy.Models;
+using TourkitAiProxy.Services.Cache;
 using TourkitAiProxy.Services.Json;
 using TourkitAiProxy.Services.Providers;
 
@@ -10,6 +11,7 @@ namespace TourkitAiProxy.Services.Deals;
 public class DealScoringService
 {
     private readonly ProviderRegistry _registry;
+    private readonly AiResponseCache _cache;
     private readonly ILogger<DealScoringService> _log;
 
     private const string SYSTEM =
@@ -17,14 +19,17 @@ public class DealScoringService
         "Căn cứ HÀNH ĐỘNG của Sale: mức độ tương tác, lần chăm sóc gần nhất, tiến triển qua các trạng thái, " +
         "phản hồi của khách, giá trị deal và độ trễ. CHỈ trả JSON thuần (bắt đầu '{'), KHÔNG markdown, KHÔNG giải thích ngoài JSON. Tiếng Việt.";
 
-    public DealScoringService(ProviderRegistry registry, ILogger<DealScoringService> log)
+    public DealScoringService(ProviderRegistry registry, AiResponseCache cache, ILogger<DealScoringService> log)
     {
-        _registry = registry; _log = log;
+        _registry = registry; _cache = cache; _log = log;
     }
 
     public async Task<DealScore> ScoreAsync(string profile, string? provider, string? model, string? apiKey, CancellationToken ct)
     {
         var p = _registry.Resolve(provider);
+        var key = AiResponseCache.Hash("deal-score", model, profile);
+        var cached = _cache.TryGet<DealScore>(key);
+        if (cached != null) return cached;
         Exception? last = null;
 
         // Reasoning model (deepseek/minimax) thỉnh thoảng trả JSON xấu/cụt → retry 1 lần với
@@ -42,7 +47,9 @@ public class DealScoringService
                 var res = await p.CompleteAsync(req, ct);
                 if (string.IsNullOrWhiteSpace(res.Text))
                     throw new InvalidOperationException($"AI trả rỗng (finish={res.FinishReason})");
-                return Parse(res.Text) with { AiModel = res.Model, AiProvider = p.Id };
+                var ok = Parse(res.Text) with { AiModel = res.Model, AiProvider = p.Id };
+                _cache.Save(key, ok);
+                return ok;
             }
             catch (OperationCanceledException) { throw; }
             catch (InvalidOperationException ex)

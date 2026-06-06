@@ -1,5 +1,6 @@
 using System.Text.Json;
 using TourkitAiProxy.Models;
+using TourkitAiProxy.Services.Cache;
 using TourkitAiProxy.Services.Json;
 using TourkitAiProxy.Services.Providers;
 
@@ -11,6 +12,7 @@ namespace TourkitAiProxy.Services.Visa;
 public class VisaScoringService
 {
     private readonly ProviderRegistry _registry;
+    private readonly AiResponseCache _cache;
     private readonly ILogger<VisaScoringService> _log;
 
     private const string SYSTEM =
@@ -19,15 +21,21 @@ public class VisaScoringService
         "ràng buộc về nước (công việc, tài sản, gia đình), lịch sử du lịch, tính nhất quán hồ sơ. " +
         "CHỈ trả JSON thuần (bắt đầu '{'), KHÔNG markdown, KHÔNG giải thích ngoài JSON. Tiếng Việt.";
 
-    public VisaScoringService(ProviderRegistry registry, ILogger<VisaScoringService> log)
+    public VisaScoringService(ProviderRegistry registry, AiResponseCache cache, ILogger<VisaScoringService> log)
     {
-        _registry = registry; _log = log;
+        _registry = registry; _cache = cache; _log = log;
     }
 
     public async Task<VisaResult> ScoreAsync(
         string profile, string? country, string? provider, string? model, string? apiKey, CancellationToken ct)
     {
         var p = _registry.Resolve(provider);
+
+        // Cache prompt-hash 24h: NV chấm lại cùng hồ sơ trong ngày → KHÔNG gọi AI.
+        var key = AiResponseCache.Hash("visa-score", model, $"{country}|{profile}");
+        var cached = _cache.TryGet<VisaResult>(key);
+        if (cached != null) return cached;
+
         Exception? last = null;
 
         // Retry 1 lần nếu AI trả JSON xấu (reasoning model) — chỉ thị chặt hơn + token cao hơn.
@@ -44,7 +52,9 @@ public class VisaScoringService
                 var res = await p.CompleteAsync(req, ct);
                 if (string.IsNullOrWhiteSpace(res.Text))
                     throw new InvalidOperationException($"AI trả rỗng (finish={res.FinishReason})");
-                return Parse(res.Text) with { AiModel = res.Model, AiProvider = p.Id };
+                var ok = Parse(res.Text) with { AiModel = res.Model, AiProvider = p.Id };
+                _cache.Save(key, ok);
+                return ok;
             }
             catch (OperationCanceledException) { throw; }
             catch (InvalidOperationException ex)
