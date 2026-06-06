@@ -1221,12 +1221,10 @@ input:focus, textarea:focus, select:focus { outline: none; }
 .modal-backdrop {
   position: fixed;
   inset: 0;
-  /* Backdrop NHƯ SỪNG — alpha 0.92 + blur 14px để text font-cực-to phía sau
-     (vd .quote-hero-title 36px Wizard step4) KHÔNG bleed qua modal. */
-  background: rgba(15, 23, 42, 0.92);
-  backdrop-filter: blur(14px);
-  -webkit-backdrop-filter: blur(14px);
-  z-index: 100;
+  background: rgba(15, 23, 42, 0.62);
+  backdrop-filter: blur(6px);
+  -webkit-backdrop-filter: blur(6px);
+  z-index: 9999;          /* Đảm bảo TRÊN MỌI element (sidebar/topbar/toast/...) — fix overlay từ trang dưới */
   display: grid;
   place-items: center;
   padding: 20px;
@@ -1377,10 +1375,10 @@ body.editorial .ai-bubble .hl { color: #FDBA74; }
 
 /* ===== AI Settings Dialog ===== */
 .modal-overlay {
-  position: fixed; inset: 0; z-index: 1000;
-  background: rgba(15, 23, 42, 0.92);
+  position: fixed; inset: 0; z-index: 9999;
+  background: rgba(15, 23, 42, 0.62);
   display: flex; align-items: center; justify-content: center;
-  padding: 20px; backdrop-filter: blur(14px); -webkit-backdrop-filter: blur(14px);
+  padding: 20px; backdrop-filter: blur(6px); -webkit-backdrop-filter: blur(6px);
   animation: fadeIn 0.15s ease;
 }
 @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }

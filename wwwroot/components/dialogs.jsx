@@ -7,7 +7,13 @@ function Dialog({ open, onClose, title, eyebrow, icon = 'sparkle', children, foo
     if (!open) return;
     const h = e => { if (e.key === 'Escape') onClose && onClose(); };
     window.addEventListener('keydown', h);
-    return () => window.removeEventListener('keydown', h);
+    // Lock body scroll khi modal mở — chống nội dung trang dưới scroll/leak qua.
+    const prev = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
+    return () => {
+      window.removeEventListener('keydown', h);
+      document.body.style.overflow = prev;
+    };
   }, [open, onClose]);
 
   if (!open) return null;
