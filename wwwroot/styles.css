@@ -2270,7 +2270,7 @@ body.editorial .ai-bubble .hl { color: #FDBA74; }
 
 /* Table */
 .deals-tablewrap { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius-lg); overflow: hidden; box-shadow: var(--shadow-sm); }
-.deals-meta { font-size: 12px; color: var(--text-3); margin: 0 0 10px; padding: 0; }
+.deals-meta { font-size: 12px; color: var(--text-3); margin: 4px 0 16px; padding: 0; border: 0; line-height: 1.5; }
 .deals-table { width: 100%; border-collapse: collapse; font-size: 13px; }
 .deals-table thead th { text-align: left; font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: .4px;
   color: var(--text-3); padding: 10px 14px; border-bottom: 1px solid var(--border); background: var(--bg); }
