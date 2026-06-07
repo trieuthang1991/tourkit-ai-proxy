@@ -42,13 +42,12 @@ public class ChatAgentService
         var question = history.LastOrDefault(m => m.Role == "user")?.Content ?? "";
 
         var tenantId = _sessions.Get(sessionId)?.TenantId ?? "";
-        var rkey = $"{tenantId}|{question.Trim().ToLowerInvariant()}";
-        if (!string.IsNullOrWhiteSpace(question)
-            && _cache.TryGet<ChatResult>("r|" + rkey, out var rc) && rc != null)
-        {
-            _log.LogInformation("[chat] full-response cache hit");
-            return rc;
-        }
+        // KHÔNG cache full-response theo question vì:
+        //   - Câu hỏi "Cơ cấu marketing" 1 lần → 30 phút sau hỏi lại trả analysis cũ y hệt,
+        //     dù dữ liệu thật đã đổi → user nhầm "kết quả giống nhau, AI bị đơ".
+        //   - Câu lặp lại cùng phiên thường vì user reload tab/đổi context, KHÔNG phải để dùng cache.
+        // Vẫn giữ cache CRM-data (key "d|tenant|path") ở Bước 2 — đó là cache đúng layer
+        // (cùng path → cùng dữ liệu thô; analysis vẫn chạy lại để bám hội thoại hiện tại).
 
         int tokIn = 0, tokOut = 0;
         long latency = 0;
@@ -130,9 +129,9 @@ public class ChatAgentService
         // ─── 3. Đọc envelope /api/ai/* (items + summary + total + title) ───────────
         var chatData = BuildChatData(tool, data);
 
-        // ─── 4. Analysis (AI pass 2) ───────────────────────────────────────────────
+        // ─── 4. Analysis (AI pass 2) — pass history để bắt nhịp câu trước-sau ──────
         var analysisReq = new CompleteRequest(
-            Prompt:      BuildAnalysisPrompt(question, tool, chatData.Raw ?? data, chatData.Stats),
+            Prompt:      BuildAnalysisPrompt(history, tool, chatData.Raw ?? data, chatData.Stats),
             Provider:    req.Provider, Model: req.Model,
             MaxTokens:   2000, Temperature: 0.4,
             System:      ANALYSIS_SYSTEM, ApiKey: req.ApiKey);
@@ -146,8 +145,6 @@ public class ChatAgentService
 
         object? prmsOut = toolParams.HasValue ? JsonSerializer.Deserialize<object>(toolParams.Value.GetRawText()) : null;
         var result = new ChatResult(finalReply, tool.Name, prmsOut, chatData, latency, tokIn, tokOut, analysis.Warning);
-        if (!string.IsNullOrWhiteSpace(question) && HasContent(chatData))
-            _cache.Set("r|" + rkey, result, CacheTtl);
         return result;
     }
 
@@ -161,15 +158,7 @@ public class ChatAgentService
         var history = req.Messages ?? new();
         var question = history.LastOrDefault(m => m.Role == "user")?.Content ?? "";
         var tenantId = _sessions.Get(sessionId)?.TenantId ?? "";
-        var rkey = $"{tenantId}|{question.Trim().ToLowerInvariant()}";
-
-        // Cache hit → trả ngay (không stage/stream).
-        if (!string.IsNullOrWhiteSpace(question)
-            && _cache.TryGet<ChatResult>("r|" + rkey, out var rc) && rc != null)
-        {
-            await emit(new { done = true, reply = rc.Reply, toolName = rc.ToolName, data = rc.Data, cached = true });
-            return;
-        }
+        // Bỏ full-response cache theo question (xem AskAsync) — chỉ giữ CRM-data cache (path).
 
         await emit(new { stage = "planning" });
         var plannerReq = new CompleteRequest(BuildPlannerPrompt(history), req.Provider, req.Model, 3000, 0.1, PLANNER_SYSTEM, req.ApiKey);
@@ -226,7 +215,7 @@ public class ChatAgentService
         // Gửi DATA SỚM → panel phải hiện số liệu/biểu đồ ngay, trong khi chữ phân tích chạy dần.
         await emit(new { stage = "analyzing", tool = tool.Name, data = chatData });
 
-        var analysisReq = new CompleteRequest(BuildAnalysisPrompt(question, tool, chatData.Raw ?? data, chatData.Stats), req.Provider, req.Model, 2000, 0.4, ANALYSIS_SYSTEM, req.ApiKey);
+        var analysisReq = new CompleteRequest(BuildAnalysisPrompt(history, tool, chatData.Raw ?? data, chatData.Stats), req.Provider, req.Model, 2000, 0.4, ANALYSIS_SYSTEM, req.ApiKey);
         var sb = new StringBuilder();
         var analysis = await StreamWithFallbackAsync(provider, analysisReq,
             async delta => { sb.Append(delta); await emit(new { delta }); }, ct);
@@ -235,9 +224,6 @@ public class ChatAgentService
             : (string.IsNullOrWhiteSpace(analysis.Text) ? "Đã lấy được số liệu (xem bảng bên phải)." : analysis.Text.Trim());
 
         object? prmsOut = toolParams.HasValue ? JsonSerializer.Deserialize<object>(toolParams.Value.GetRawText()) : null;
-        var result = new ChatResult(finalReply, tool.Name, prmsOut, chatData, analysis.LatencyMs, analysis.InputTokens, analysis.OutputTokens, analysis.Warning);
-        if (!string.IsNullOrWhiteSpace(question) && HasContent(chatData)) _cache.Set("r|" + rkey, result, CacheTtl);
-
         await emit(new { done = true, reply = finalReply, toolName = tool.Name, data = chatData });
     }
 
@@ -429,6 +415,11 @@ HỘI THOẠI:
 QUY TẮC:
 - Chọn 1 tool khớp nhất với câu hỏi cuối của người dùng.
 - Điền params hợp lý. Ngày dạng yyyy-MM-dd. ""tháng này"" → startDate=đầu tháng, endDate=cuối tháng dựa HÔM NAY.
+- NĂM:
+   * ""năm nay"" / không nói gì về năm → dùng năm HÔM NAY.
+   * ""năm 2025"" / ""2024"" / số 4 chữ rõ ràng → dùng đúng số đó.
+   * ""năm ngoái"" / ""năm trước"" → năm HÔM NAY trừ 1.
+   * ""cùng kỳ năm ngoái"" + có khoảng ngày → giữ tháng/ngày nhưng đổi năm = HÔM NAY trừ 1.
 - ""doanh thu / lợi nhuận / chi phí (tháng/kỳ này)"" ĐƠN GIẢN → dùng cashflow (gọn: thu/chi/lợi nhuận + biểu đồ). CHỈ dùng financial_summary khi hỏi CHI TIẾT/ĐẦY ĐỦ chỉ số, hoặc hỏi đích danh thực thu / công nợ / thực chi / lợi nhuận ròng.
 - Chỉ dùng key params có trong tool đã chọn.
 - Lọc theo THỊ TRƯỜNG (vd ""Nội địa miền Nam"", ""Hàn Quốc"") → điền marketName = ĐÚNG tên người dùng nói (KHÔNG tự đoán id).
@@ -449,7 +440,7 @@ Trả JSON ngay:";
         "KHÔNG dùng tên trường tiếng Anh (revenue, expense, kpiRevenue...) và KHÔNG nhắc tới Id. " +
         "Nêu nhận định chính + 1-2 đề xuất hành động nếu phù hợp. Không lặp lại nguyên bảng.";
 
-    private string BuildAnalysisPrompt(string question, ChatTool tool, JsonElement data, List<ChatStat> stats)
+    private string BuildAnalysisPrompt(List<ChatTurn> history, ChatTool tool, JsonElement data, List<ChatStat> stats)
     {
         var dataJson = data.GetRawText();
         if (dataJson.Length > 6000) dataJson = dataJson[..6000] + " …(cắt bớt)";
@@ -457,7 +448,16 @@ Trả JSON ngay:";
         var statsLine = stats.Count == 0 ? "(không có)" :
             string.Join("; ", stats.Select(s => $"{s.Label}={FmtNum(s.Value)}{s.Unit}"));
 
-        return $@"CÂU HỎI: {question}
+        // Truyền 6 lượt hội thoại gần nhất để AI bắt nhịp ngữ cảnh trước-sau
+        // (vd user hỏi "so sánh với năm trước" tham chiếu câu hỏi trước đó).
+        var convo = new StringBuilder();
+        foreach (var m in history.TakeLast(6))
+            convo.Append(m.Role == "user" ? "Người dùng: " : "Trợ lý: ").Append(m.Content).Append('\n');
+        var question = history.LastOrDefault(m => m.Role == "user")?.Content ?? "";
+
+        return $@"HỘI THOẠI GẦN NHẤT:
+{convo}
+CÂU HỎI HIỆN TẠI: {question}
 
 NGUỒN: {tool.Title} ({tool.Name})
 
@@ -466,7 +466,8 @@ SỐ LIỆU ĐÃ TÍNH: {statsLine}
 DỮ LIỆU THÔ (JSON):
 {dataJson}
 
-Viết phân tích ngắn gọn (3-6 câu) trả lời câu hỏi, bám đúng số liệu trên.";
+Viết phân tích ngắn gọn (3-6 câu) trả lời câu hỏi HIỆN TẠI, bám đúng số liệu trên.
+Nếu câu hỏi có ý ĐỐI CHIẾU với câu trước (vd 'so với năm ngoái', 'cao hơn không', 'theo chiều ngược lại') → so sánh tường minh với số liệu đã được nhắc trước đó.";
     }
 
     // ─── Stats tính server-side (deterministic) ───────────────────────────────────
