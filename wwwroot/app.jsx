@@ -85,6 +85,30 @@ function App() {
     setTimeout(() => setToasts(ts => ts.filter(x => x.id !== id)), 3000);
   };
 
+  // Sidebar collapse — lưu localStorage để giữ trạng thái qua reload.
+  const [sidebarCollapsed, setSidebarCollapsed] = uS(() => {
+    try { return localStorage.getItem('tourkit_sidebar_collapsed') === '1'; } catch { return false; }
+  });
+  const toggleSidebar = () => {
+    setSidebarCollapsed(prev => {
+      const next = !prev;
+      try { localStorage.setItem('tourkit_sidebar_collapsed', next ? '1' : '0'); } catch {}
+      return next;
+    });
+  };
+  // Phím tắt Ctrl/Cmd+B (chuẩn IDE/Notion) — KHÔNG fire khi đang gõ trong input/textarea/contenteditable.
+  uE(() => {
+    const onKey = (e) => {
+      if (!(e.key === 'b' || e.key === 'B') || !(e.ctrlKey || e.metaKey)) return;
+      const t = e.target;
+      if (t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.isContentEditable)) return;
+      e.preventDefault();
+      toggleSidebar();
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, []);
+
   // Header: tìm nhanh (lọc NAV → Enter điều hướng), toàn màn hình, menu user.
   const [navQuery, setNavQuery] = uS('');
   const [userMenu, setUserMenu] = uS(false);
@@ -105,7 +129,7 @@ function App() {
   }
 
   return (
-    <div className="app-shell">
+    <div className={'app-shell' + (sidebarCollapsed ? ' sidebar-collapsed' : '')}>
       {/* Sidebar trái — style TourKit (logo cam, mục active nền cam) */}
       <aside className="sidebar">
         <div className="sidebar-logo">
@@ -120,7 +144,9 @@ function App() {
         <div className="sidebar-navlabel">Tính năng</div>
         <nav className="sidebar-nav">
           {NAV.map(n => (
-            <a key={n.to} href={n.to} className={'sidebar-item' + (isActive(n.to) ? ' active' : '')}
+            <a key={n.to} href={n.to}
+               className={'sidebar-item' + (isActive(n.to) ? ' active' : '')}
+               title={sidebarCollapsed ? n.label : undefined}
                onClick={e => {
                  if (e.defaultPrevented || e.button !== 0 || e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return;
                  e.preventDefault();
@@ -130,6 +156,14 @@ function App() {
             </a>
           ))}
         </nav>
+        {/* Toggle thu/mở ở chân sidebar (Linear/Notion-style) */}
+        <button className="sidebar-toggle" onClick={toggleSidebar}
+          title={sidebarCollapsed ? 'Mở rộng menu (Ctrl+B)' : 'Thu gọn menu (Ctrl+B)'}
+          aria-label={sidebarCollapsed ? 'Mở rộng menu' : 'Thu gọn menu'}
+          aria-pressed={sidebarCollapsed}>
+          <Icon name={sidebarCollapsed ? 'chevronRight' : 'chevronLeft'} size={15} stroke={2.4} />
+          <span>{sidebarCollapsed ? 'Mở rộng' : 'Thu gọn'}</span>
+        </button>
       </aside>
 
       <div className="app-main">

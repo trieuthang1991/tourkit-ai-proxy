@@ -1687,8 +1687,25 @@ body.editorial .ai-bubble .hl { color: #FDBA74; }
 .app-shell { display: flex; min-height: 100vh; background: var(--bg); }
 .sidebar {
   width: 248px; flex-shrink: 0; background: var(--chrome); border-right: 1px solid var(--chrome-line);
-  position: sticky; top: 0; height: 100vh; overflow-y: auto; display: flex; flex-direction: column;
+  position: sticky; top: 0; height: 100vh; overflow-y: auto; overflow-x: hidden;
+  display: flex; flex-direction: column;
+  transition: width .2s ease;
 }
+/* Toggle thu/mở ở chân sidebar — sticky bottom để luôn thấy */
+.sidebar-toggle {
+  margin-top: auto;
+  display: flex; align-items: center; gap: 10px;
+  padding: 12px 18px;
+  background: transparent; border: 0; border-top: 1px solid var(--chrome-line);
+  color: var(--chrome-text-3); font-size: 12.5px; font-weight: 600;
+  cursor: pointer; text-align: left;
+  transition: color .15s, background .15s;
+  position: sticky; bottom: 0;
+  font-family: inherit;
+}
+.sidebar-toggle:hover { color: var(--chrome-text); background: var(--chrome-2); }
+.sidebar-toggle svg { flex-shrink: 0; color: var(--chrome-text-3); transition: color .15s; }
+.sidebar-toggle:hover svg { color: var(--chrome-text); }
 .sidebar-logo { display: flex; align-items: center; gap: 12px; padding: 18px 18px 16px; }
 .sidebar-logo-mark {
   width: 38px; height: 38px; border-radius: 10px; flex-shrink: 0; display: grid; place-items: center; color: #fff;
@@ -1709,6 +1726,16 @@ body.editorial .ai-bubble .hl { color: #FDBA74; }
 .sidebar-item:hover svg { color: var(--chrome-text); }
 .sidebar-item.active { background: var(--primary); color: #fff; font-weight: 600; }
 .sidebar-item.active svg { color: #fff; }
+
+/* ---- Collapsed state (toggle bằng nút chân sidebar hoặc Ctrl+B) ---- */
+.app-shell.sidebar-collapsed .sidebar { width: 64px; }
+.app-shell.sidebar-collapsed .sidebar-logo { justify-content: center; padding: 16px 0; }
+.app-shell.sidebar-collapsed .sidebar-logo-text,
+.app-shell.sidebar-collapsed .sidebar-item span,
+.app-shell.sidebar-collapsed .sidebar-toggle span,
+.app-shell.sidebar-collapsed .sidebar-navlabel { display: none; }
+.app-shell.sidebar-collapsed .sidebar-item { justify-content: center; padding: 11px 0; }
+.app-shell.sidebar-collapsed .sidebar-toggle { justify-content: center; padding: 12px 0; }
 
 .app-main { flex: 1; min-width: 0; display: flex; flex-direction: column; }
 .topbar {
@@ -1771,10 +1798,15 @@ body.editorial .ai-bubble .hl { color: #FDBA74; }
 .tb-menu-item.danger svg { transform: rotate(180deg); }
 
 @media (max-width: 1024px) {
-  .sidebar { width: 60px; }
-  .sidebar-logo-text, .sidebar-item span { display: none; }
-  .sidebar-logo { justify-content: center; padding: 16px 0; }
-  .sidebar-item { justify-content: center; padding: 11px 0; }
+  /* Mobile/tablet: auto-collapse, nhưng vẫn cho user toggle ngược nếu thích */
+  .app-shell:not(.sidebar-expanded) .sidebar { width: 60px; }
+  .app-shell:not(.sidebar-expanded) .sidebar-logo-text,
+  .app-shell:not(.sidebar-expanded) .sidebar-item span,
+  .app-shell:not(.sidebar-expanded) .sidebar-toggle span,
+  .app-shell:not(.sidebar-expanded) .sidebar-navlabel { display: none; }
+  .app-shell:not(.sidebar-expanded) .sidebar-logo { justify-content: center; padding: 16px 0; }
+  .app-shell:not(.sidebar-expanded) .sidebar-item { justify-content: center; padding: 11px 0; }
+  .app-shell:not(.sidebar-expanded) .sidebar-toggle { justify-content: center; padding: 12px 0; }
 }
 @media (max-width: 640px) {
   .topbar-actions .user-chip span { display: none; }
