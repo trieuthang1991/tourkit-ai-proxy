@@ -179,7 +179,16 @@ public class ChatAgentService
         var history = req.Messages ?? new();
         var question = history.LastOrDefault(m => m.Role == "user")?.Content ?? "";
         var tenantId = _sessions.Get(sessionId)?.TenantId ?? "";
-        // Bỏ full-response cache theo question (xem AskAsync) — chỉ giữ CRM-data cache (path).
+
+        // L1 cache (pre-planner): câu hỏi y hệt sau khi normalize → trả ngay, skip toàn bộ AI.
+        var l1Key = AgentCacheKeys.L1Key(tenantId, question);
+        if (!string.IsNullOrWhiteSpace(question)
+            && _cache.TryGet<ChatResult>("r1|" + l1Key, out var l1Hit) && l1Hit != null)
+        {
+            _log.LogInformation("[chat-stream] L1 cache hit");
+            await emit(new { done = true, reply = l1Hit.Reply, toolName = l1Hit.ToolName, data = l1Hit.Data, cached = true });
+            return;
+        }
 
         await emit(new { stage = "planning" });
         var plannerReq = new CompleteRequest(BuildPlannerPrompt(history), req.Provider, req.Model, 3000, 0.1, PLANNER_SYSTEM, req.ApiKey);
@@ -213,6 +222,17 @@ public class ChatAgentService
 
         await emit(new { stage = "fetching", tool = tool.Name, title = tool.Title });
         toolParams = await ResolveMarketAsync(sessionId, toolParams, ct);
+
+        // L2 cache (post-planner): tool + canonical params giống → trả ngay,
+        // skip dispatch + analysis. TTL 5 phút.
+        var l2Key = AgentCacheKeys.L2Key(tenantId, tool.Name, toolParams);
+        if (_cache.TryGet<ChatResult>("r2|" + l2Key, out var l2Hit) && l2Hit != null)
+        {
+            _log.LogInformation("[chat-stream] L2 cache hit ({Tool})", tool.Name);
+            await emit(new { done = true, reply = l2Hit.Reply, toolName = l2Hit.ToolName, data = l2Hit.Data, cached = true });
+            return;
+        }
+
         var path = ChatTools.BuildPath(tool, toolParams);
         _log.LogInformation("[chat-stream] tool={Tool} path={Path}", tool.Name, path);
 
@@ -245,6 +265,15 @@ public class ChatAgentService
             : (string.IsNullOrWhiteSpace(analysis.Text) ? "Đã lấy được số liệu (xem bảng bên phải)." : analysis.Text.Trim());
 
         object? prmsOut = toolParams.HasValue ? JsonSerializer.Deserialize<object>(toolParams.Value.GetRawText()) : null;
+
+        // Lưu L1 + L2 cache (chỉ khi có nội dung thực sự).
+        if (HasContent(chatData))
+        {
+            var ttl = ChooseTtl(toolParams);
+            var streamResult = new ChatResult(finalReply, tool.Name, prmsOut, chatData, analysis.LatencyMs, analysis.InputTokens, analysis.OutputTokens, analysis.Warning);
+            if (!string.IsNullOrWhiteSpace(question)) _cache.Set("r1|" + l1Key, streamResult, ttl);
+            _cache.Set("r2|" + l2Key, streamResult, ttl);
+        }
         await emit(new { done = true, reply = finalReply, toolName = tool.Name, data = chatData });
     }
 
