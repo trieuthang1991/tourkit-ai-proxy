@@ -158,6 +158,14 @@ public class ChatAgentService
 
         object? prmsOut = toolParams.HasValue ? JsonSerializer.Deserialize<object>(toolParams.Value.GetRawText()) : null;
         var result = new ChatResult(finalReply, tool.Name, prmsOut, chatData, latency, tokIn, tokOut, analysis.Warning);
+
+        // Lưu L1 + L2 cache (chỉ khi có nội dung thực sự).
+        if (HasContent(chatData))
+        {
+            var ttl = ChooseTtl(toolParams);
+            if (!string.IsNullOrWhiteSpace(question)) _cache.Set("r1|" + l1Key, result, ttl);
+            _cache.Set("r2|" + l2Key, result, ttl);
+        }
         return result;
     }
 
@@ -755,4 +763,20 @@ Nếu câu hỏi có ý ĐỐI CHIẾU với câu trước (vd 'so với năm ng
            ? p.GetString() : null;
 
     private static string FmtNum(double n) => n.ToString("#,##0.##", CultureInfo.InvariantCulture);
+
+    /// TTL ngắn (3 phút) cho query realtime (tháng này, hôm nay).
+    /// TTL dài (15 phút) cho query year/quarter cố định (data không đổi).
+    private static TimeSpan ChooseTtl(JsonElement? prms)
+    {
+        if (prms == null || prms.Value.ValueKind != JsonValueKind.Object) return TimeSpan.FromMinutes(5);
+        var today = DateTime.Now;
+        foreach (var p in prms.Value.EnumerateObject())
+        {
+            if (p.Value.ValueKind != JsonValueKind.String) continue;
+            var v = p.Value.GetString() ?? "";
+            if (v.StartsWith($"{today:yyyy-MM}") || v.StartsWith($"{today:yyyy}"))
+                return TimeSpan.FromMinutes(3);
+        }
+        return TimeSpan.FromMinutes(15);
+    }
 }
