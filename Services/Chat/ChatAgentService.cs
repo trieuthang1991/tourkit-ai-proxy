@@ -155,12 +155,30 @@ public class ChatAgentService
         var analysis = await CompleteWithFallbackAsync(provider, analysisReq, ct);
         tokIn += analysis.InputTokens; tokOut += analysis.OutputTokens; latency += analysis.LatencyMs;
 
-        var finalReply = string.IsNullOrWhiteSpace(analysis.Text)
+        // Apply guardrails: strip em-dash, retry neu qua ngan, validate so.
+        var rawReply = analysis.Text;
+        if (AgentGuardrails.IsTooShort(rawReply))
+        {
+            _log.LogWarning("[chat] analysis qua ngan ({Len} chars), retry voi max_tokens cao hon", rawReply?.Length ?? 0);
+            var retryReq = analysisReq with { MaxTokens = (analysisReq.MaxTokens ?? 2000) * 3 / 2 };
+            var retry = await CompleteWithFallbackAsync(provider, retryReq, ct);
+            if (!AgentGuardrails.IsTooShort(retry.Text))
+            {
+                rawReply = retry.Text;
+                tokIn += retry.InputTokens; tokOut += retry.OutputTokens; latency += retry.LatencyMs;
+            }
+        }
+
+        var finalReply = string.IsNullOrWhiteSpace(rawReply)
             ? "Đã lấy được số liệu (xem bảng bên phải) nhưng chưa tạo được phần phân tích."
-            : analysis.Text.Trim();
+            : AgentGuardrails.StripEmDash(rawReply.Trim());
+
+        // Validate so AI noi (warning only, khong block)
+        var numberWarning = AgentGuardrails.ValidateNumbers(finalReply, chatData.Stats);
+        var combinedWarning = string.Join(" | ", new[] { analysis.Warning, numberWarning }.Where(x => !string.IsNullOrWhiteSpace(x)));
 
         object? prmsOut = toolParams.HasValue ? JsonSerializer.Deserialize<object>(toolParams.Value.GetRawText()) : null;
-        var result = new ChatResult(finalReply, tool.Name, prmsOut, chatData, latency, tokIn, tokOut, analysis.Warning);
+        var result = new ChatResult(finalReply, tool.Name, prmsOut, chatData, latency, tokIn, tokOut, combinedWarning);
 
         // Lưu L1 + L2 cache (chỉ khi có nội dung thực sự và có tenantId hợp lệ).
         if (useCache && HasContent(chatData))
@@ -266,16 +284,25 @@ public class ChatAgentService
         var analysis = await StreamWithFallbackAsync(provider, analysisReq,
             async delta => { sb.Append(delta); await emit(new { delta }); }, ct);
 
-        var finalReply = sb.Length > 0 ? sb.ToString().Trim()
-            : (string.IsNullOrWhiteSpace(analysis.Text) ? "Đã lấy được số liệu (xem bảng bên phải)." : analysis.Text.Trim());
+        var rawStreamReply = sb.Length > 0 ? sb.ToString()
+            : (string.IsNullOrWhiteSpace(analysis.Text) ? "" : analysis.Text);
+
+        // Apply guardrails: strip em-dash, validate so.
+        var finalReply = string.IsNullOrWhiteSpace(rawStreamReply)
+            ? "Đã lấy được số liệu (xem bảng bên phải)."
+            : AgentGuardrails.StripEmDash(rawStreamReply.Trim());
+
+        // Validate so AI noi (warning only, khong block)
+        var numberWarning = AgentGuardrails.ValidateNumbers(finalReply, chatData.Stats);
+        var combinedWarning = string.Join(" | ", new[] { analysis.Warning, numberWarning }.Where(x => !string.IsNullOrWhiteSpace(x)));
 
         object? prmsOut = toolParams.HasValue ? JsonSerializer.Deserialize<object>(toolParams.Value.GetRawText()) : null;
 
-        // Lưu L1 + L2 cache (chỉ khi có nội dung thực sự và có tenantId hợp lệ).
+        // Luu L1 + L2 cache (chi khi co noi dung thuc su va co tenantId hop le).
         if (useCache && HasContent(chatData))
         {
             var ttl = ChooseTtl(toolParams);
-            var streamResult = new ChatResult(finalReply, tool.Name, prmsOut, chatData, analysis.LatencyMs, analysis.InputTokens, analysis.OutputTokens, analysis.Warning);
+            var streamResult = new ChatResult(finalReply, tool.Name, prmsOut, chatData, analysis.LatencyMs, analysis.InputTokens, analysis.OutputTokens, combinedWarning);
             if (!string.IsNullOrWhiteSpace(question)) _cache.Set("r1|" + l1Key, streamResult, ttl);
             _cache.Set("r2|" + l2Key, streamResult, ttl);
         }
