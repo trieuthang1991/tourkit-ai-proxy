@@ -2967,6 +2967,14 @@ body.editorial .ai-bubble .hl { color: #FDBA74; }
   background: radial-gradient(circle at 30% 30%, #FFFFFF 0%, #FFE7CC 60%, #FED7AA 100%);
   border-radius: 50%;
   display: grid; place-items: center;
+  overflow: hidden;
+  position: relative;
+}
+/* Ảnh mascot — fill toàn vòng tròn, hơi to 1 chút để cảm giác "đầy" + không thấy viền nền */
+.home-mascot-img {
+  width: 108%; height: 108%; object-fit: cover; object-position: center;
+  display: block;
+  user-select: none; -webkit-user-drag: none;
 }
 .home-mascot-label {
   display: inline-flex; align-items: center; gap: 10px;

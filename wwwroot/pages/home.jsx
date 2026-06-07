@@ -124,12 +124,17 @@
           </div>
         </div>
 
-        {/* Hero centerpiece — mascot + tagline TourKit AI */}
+        {/* Hero centerpiece — mascot TourKit AI + tagline.
+            Ảnh thật ở wwwroot/lib/mascot.png; nếu thiếu sẽ rớt về SVG fallback (onError). */}
         <button className="home-mascot" onClick={() => navigate('/assistant')}
           aria-label="Mở Trợ lý AI">
           <div className="home-mascot-ring">
             <div className="home-mascot-orb">
-              <svg viewBox="0 0 64 64" width="56" height="56" aria-hidden>
+              <img src="lib/mascot.png" alt="TourKit AI mascot"
+                className="home-mascot-img"
+                onError={(e) => { e.currentTarget.style.display = 'none'; e.currentTarget.nextSibling.style.display = 'block'; }} />
+              <svg viewBox="0 0 64 64" width="56" height="56" aria-hidden
+                className="home-mascot-svg-fallback" style={{ display: 'none' }}>
                 <defs>
                   <linearGradient id="m-g" x1="0" y1="0" x2="1" y2="1">
                     <stop offset="0%" stopColor="#FED7AA" />
