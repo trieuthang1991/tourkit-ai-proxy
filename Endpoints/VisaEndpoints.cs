@@ -14,9 +14,44 @@ namespace TourkitAiProxy.Endpoints;
 public static class VisaEndpoints
 {
     private const int MaxFiles = 10;
-    private const long MaxBytes = 10L * 1024 * 1024;   // 10MB/file
-    private static readonly HashSet<string> AllowedTypes =
+    private const long MaxBytes = 25L * 1024 * 1024;   // 25MB/file (PDF/DOCX có thể to)
+
+    // Whitelist 3 nhóm — quyết định cách gửi cho AI:
+    //   Image → vision (Images field)
+    //   PDF   → document (Documents field, Claude+OpenAI Responses đọc trực tiếp)
+    //   DOCX  → extract text bằng OpenXml → bỏ vào prompt
+    private static readonly HashSet<string> ImageTypes =
         new(StringComparer.OrdinalIgnoreCase) { "image/jpeg", "image/jpg", "image/png", "image/webp", "image/gif" };
+    private const string PdfType  = "application/pdf";
+    private const string DocxType = "application/vnd.openxmlformats-officedocument.wordprocessingml.document";
+
+    private static bool IsAllowed(string contentType, string fileName)
+    {
+        if (ImageTypes.Contains(contentType)) return true;
+        if (string.Equals(contentType, PdfType, StringComparison.OrdinalIgnoreCase)) return true;
+        if (string.Equals(contentType, DocxType, StringComparison.OrdinalIgnoreCase)) return true;
+        // Fallback theo phần mở rộng (1 số browser/Windows gửi MIME generic)
+        var ext = Path.GetExtension(fileName)?.ToLowerInvariant();
+        return ext is ".jpg" or ".jpeg" or ".png" or ".webp" or ".gif" or ".pdf" or ".docx";
+    }
+
+    private static (VisaExtractionService.UploadKind Kind, string? ResolvedMime) ClassifyFile(string contentType, string fileName)
+    {
+        if (ImageTypes.Contains(contentType)) return (VisaExtractionService.UploadKind.Image, contentType);
+        if (string.Equals(contentType, PdfType, StringComparison.OrdinalIgnoreCase)) return (VisaExtractionService.UploadKind.Pdf, PdfType);
+        if (string.Equals(contentType, DocxType, StringComparison.OrdinalIgnoreCase)) return (VisaExtractionService.UploadKind.Text, DocxType);
+        var ext = Path.GetExtension(fileName)?.ToLowerInvariant();
+        return ext switch
+        {
+            ".jpg" or ".jpeg" => (VisaExtractionService.UploadKind.Image, "image/jpeg"),
+            ".png"  => (VisaExtractionService.UploadKind.Image, "image/png"),
+            ".webp" => (VisaExtractionService.UploadKind.Image, "image/webp"),
+            ".gif"  => (VisaExtractionService.UploadKind.Image, "image/gif"),
+            ".pdf"  => (VisaExtractionService.UploadKind.Pdf,   PdfType),
+            ".docx" => (VisaExtractionService.UploadKind.Text,  DocxType),
+            _ => (VisaExtractionService.UploadKind.Image, contentType)
+        };
+    }
 
     public static void MapVisaEndpoints(this IEndpointRouteBuilder routes)
     {
@@ -45,16 +80,31 @@ public static class VisaEndpoints
             {
                 if (f.Length == 0) continue;
                 if (f.Length > MaxBytes)
-                    return Results.BadRequest(new { error = $"File '{f.FileName}' vượt 10MB" });
-                if (!AllowedTypes.Contains(f.ContentType))
-                    return Results.BadRequest(new { error = $"File '{f.FileName}' không hỗ trợ ({f.ContentType}). Chỉ nhận ảnh JPG/PNG/WEBP. (PDF: tách thành ảnh từng trang)" });
+                    return Results.BadRequest(new { error = $"File '{f.FileName}' vượt {MaxBytes / 1024 / 1024}MB" });
+                if (!IsAllowed(f.ContentType, f.FileName))
+                    return Results.BadRequest(new { error = $"File '{f.FileName}' không hỗ trợ ({f.ContentType}). Chỉ nhận ảnh (JPG/PNG/WEBP/GIF), PDF hoặc DOCX. (DOC cũ 97-2003 không hỗ trợ — convert sang DOCX/PDF)" });
 
                 using var ms = new MemoryStream();
                 await f.CopyToAsync(ms, ct);
                 var bytes = ms.ToArray();
                 rawBytes.Add((f.FileName, bytes));
-                var dataUrl = $"data:{f.ContentType};base64,{Convert.ToBase64String(bytes)}";
-                uploads.Add(new VisaExtractionService.UploadFile(f.FileName, dataUrl));
+
+                var (kind, mime) = ClassifyFile(f.ContentType, f.FileName);
+                if (kind == VisaExtractionService.UploadKind.Text)
+                {
+                    // DOCX → extract text bằng OpenXml, không cần data URL
+                    string text;
+                    try { text = DocxExtractor.ExtractText(bytes); }
+                    catch (Exception ex) { return Results.BadRequest(new { error = $"File '{f.FileName}' không phải DOCX hợp lệ: {ex.Message}" }); }
+                    if (string.IsNullOrWhiteSpace(text))
+                        return Results.BadRequest(new { error = $"File '{f.FileName}' rỗng — không trích được text" });
+                    uploads.Add(new VisaExtractionService.UploadFile(f.FileName, "", VisaExtractionService.UploadKind.Text, text));
+                }
+                else
+                {
+                    var dataUrl = $"data:{mime ?? f.ContentType};base64,{Convert.ToBase64String(bytes)}";
+                    uploads.Add(new VisaExtractionService.UploadFile(f.FileName, dataUrl, kind));
+                }
             }
             if (uploads.Count == 0) return Results.BadRequest(new { error = "File rỗng" });
 

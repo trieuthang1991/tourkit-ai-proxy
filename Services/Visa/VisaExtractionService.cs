@@ -27,7 +27,9 @@ public class VisaExtractionService
         _registry = registry; _log = log;
     }
 
-    public record UploadFile(string FileName, string DataUrl);
+    /// Kind = Image (jpg/png/webp/gif), Pdf (gửi vision API), Text (DOCX đã extract text)
+    public enum UploadKind { Image, Pdf, Text }
+    public record UploadFile(string FileName, string DataUrl, UploadKind Kind = UploadKind.Image, string? Text = null);
 
     /// Đọc toàn bộ file → VisaExtraction (gồm per-file + profile gộp) + (applicantName, country) suy ra.
     public async Task<(VisaExtraction Extraction, string? Name, string? Country)> ExtractAsync(
@@ -61,10 +63,19 @@ public class VisaExtractionService
         IAiProvider provider, UploadFile f, string? model, string? apiKey,
         ConcurrentBag<string> names, ConcurrentBag<string> countries, CancellationToken ct)
     {
+        // Build request theo Kind:
+        //   Image → đẩy vào Images (vision API như cũ)
+        //   Pdf   → đẩy vào Documents (Claude type:"document" hoặc OpenAI input_file)
+        //   Text  → đã extract text từ DOCX → bỏ thẳng vào prompt, KHÔNG multimodal
+        var prompt = f.Kind == UploadKind.Text
+            ? $"Tên file: {f.FileName}\n\nNội dung văn bản đã trích từ file DOCX:\n---\n{f.Text}\n---\n\n{PROMPT}"
+            : PROMPT;
+
         var req = new CompleteRequest(
-            Prompt: PROMPT, Provider: provider.Id, Model: model,
+            Prompt: prompt, Provider: provider.Id, Model: model,
             MaxTokens: 1200, Temperature: 0.1, System: SYSTEM, ApiKey: apiKey,
-            Images: new[] { f.DataUrl });
+            Images:    f.Kind == UploadKind.Image ? new[] { f.DataUrl } : null,
+            Documents: f.Kind == UploadKind.Pdf   ? new[] { f.DataUrl } : null);
 
         try
         {

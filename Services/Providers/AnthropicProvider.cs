@@ -69,17 +69,31 @@ public class AnthropicProvider : IAiProvider
         return new CompleteResult(p.Text, model, p.InputTokens, p.OutputTokens, sw.ElapsedMilliseconds, p.FinishReason);
     }
 
-    // Text thuần → string; có ảnh → mảng content {type:text}+{type:image, source:base64} (Claude vision).
+    // Text thuần → string; có ảnh/PDF → mảng content blocks (Claude vision + document):
+    //   {type:"text", text}
+    //   {type:"image", source:{type:base64, media_type, data}}
+    //   {type:"document", source:{type:base64, media_type:"application/pdf", data}}
     private static object BuildUserContent(CompleteRequest req)
     {
-        if (req.Images is not { Count: > 0 }) return req.Prompt;
+        bool hasImg = req.Images is { Count: > 0 };
+        bool hasDoc = req.Documents is { Count: > 0 };
+        if (!hasImg && !hasDoc) return req.Prompt;
+
         var parts = new List<object> { new { type = "text", text = req.Prompt } };
-        foreach (var url in req.Images)
-        {
-            var img = ImagePart.FromDataUrl(url);
-            if (img is null) continue;
-            parts.Add(new { type = "image", source = new { type = "base64", media_type = img.MediaType, data = img.Base64 } });
-        }
+        if (hasImg)
+            foreach (var url in req.Images!)
+            {
+                var img = ImagePart.FromDataUrl(url);
+                if (img is null) continue;
+                parts.Add(new { type = "image", source = new { type = "base64", media_type = img.MediaType, data = img.Base64 } });
+            }
+        if (hasDoc)
+            foreach (var url in req.Documents!)
+            {
+                var doc = ImagePart.FromDataUrl(url);   // tái dùng parser (chỉ tách media_type + base64)
+                if (doc is null) continue;
+                parts.Add(new { type = "document", source = new { type = "base64", media_type = doc.MediaType, data = doc.Base64 } });
+            }
         return parts;
     }
 

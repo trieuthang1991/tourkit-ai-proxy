@@ -8,6 +8,15 @@ using TourkitAiProxy.Services.TourKit;
 
 var builder = WebApplication.CreateBuilder(args);
 
+// Visa upload có thể tới 25MB × 10 file (PDF nhiều trang). Tăng giới hạn body request global lên 300MB.
+// Đủ cho mọi upload PDF/DOCX/ảnh; route khác không bị ảnh hưởng (chỉ là trần).
+builder.WebHost.ConfigureKestrel(o => o.Limits.MaxRequestBodySize = 300L * 1024 * 1024);
+builder.Services.Configure<Microsoft.AspNetCore.Http.Features.FormOptions>(o =>
+{
+    o.MultipartBodyLengthLimit = 300L * 1024 * 1024;
+    o.ValueLengthLimit = int.MaxValue;
+});
+
 // ─── DI / services ────────────────────────────────────────────────────────────
 builder.Services.AddTourkitCors();
 

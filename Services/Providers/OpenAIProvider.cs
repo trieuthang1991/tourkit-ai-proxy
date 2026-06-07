@@ -47,10 +47,11 @@ public class OpenAIProvider : IAiProvider
 
         // Schema Responses API:
         // - instructions: system prompt (top-level)
-        // - input: string khi text thuần; array {role,content[]} khi có ảnh/multimodal
+        // - input: string khi text thuần; array {role,content[]} khi có ảnh/PDF/multimodal
         // - max_output_tokens / temperature như chat completions
         // - store: false → không lưu state phía OpenAI (privacy + đỡ tốn)
-        object input = req.Images is { Count: > 0 } ? BuildMultimodalInput(req) : req.Prompt;
+        bool hasMulti = (req.Images is { Count: > 0 }) || (req.Documents is { Count: > 0 });
+        object input = hasMulti ? BuildMultimodalInput(req) : req.Prompt;
 
         var body = new
         {
@@ -84,16 +85,27 @@ public class OpenAIProvider : IAiProvider
     }
 
     // Multimodal input cho Responses API:
-    //   input: [{ role:"user", content:[ {type:"input_text",text}, {type:"input_image",image_url} ] }]
+    //   {type:"input_text", text}
+    //   {type:"input_image", image_url:"data:image/...;base64,..."}
+    //   {type:"input_file",  filename, file_data:"data:application/pdf;base64,..."}
     private static object[] BuildMultimodalInput(CompleteRequest req)
     {
         var parts = new List<object> { new { type = "input_text", text = req.Prompt } };
-        foreach (var url in req.Images!)
-        {
-            var img = ImagePart.FromDataUrl(url);
-            if (img is null) continue;
-            parts.Add(new { type = "input_image", image_url = $"data:{img.MediaType};base64,{img.Base64}" });
-        }
+        if (req.Images is { Count: > 0 })
+            foreach (var url in req.Images)
+            {
+                var img = ImagePart.FromDataUrl(url);
+                if (img is null) continue;
+                parts.Add(new { type = "input_image", image_url = $"data:{img.MediaType};base64,{img.Base64}" });
+            }
+        if (req.Documents is { Count: > 0 })
+            foreach (var url in req.Documents)
+            {
+                var doc = ImagePart.FromDataUrl(url);
+                if (doc is null) continue;
+                // filename giúp model biết context (vd "passport.pdf"); name không bắt buộc nhưng nên có.
+                parts.Add(new { type = "input_file", filename = "document.pdf", file_data = $"data:{doc.MediaType};base64,{doc.Base64}" });
+            }
         return new object[] { new { role = "user", content = parts } };
     }
 

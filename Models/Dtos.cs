@@ -16,7 +16,10 @@ public record CompleteRequest(
     [property: JsonPropertyName("apiKey")]       string? ApiKey = null,
     // Ảnh đính kèm (data-URL base64, vd "data:image/jpeg;base64,...") cho yêu cầu multimodal/vision.
     // CHỈ OpenAIProvider/AnthropicProvider xử lý; provider khác bỏ qua. Mặc định null → text-only như cũ.
-    [property: JsonPropertyName("images")]        IReadOnlyList<string>? Images = null
+    [property: JsonPropertyName("images")]        IReadOnlyList<string>? Images = null,
+    // PDF đính kèm (data-URL "data:application/pdf;base64,...") — Claude + OpenAI Responses đều đọc trực tiếp PDF.
+    // Mỗi item kèm tên file (tùy chọn) để model biết context.
+    [property: JsonPropertyName("documents")]     IReadOnlyList<string>? Documents = null
 );
 
 /// 1 ảnh đã tách khỏi data-URL: media type + base64 thuần (dùng build body multimodal cho provider).
