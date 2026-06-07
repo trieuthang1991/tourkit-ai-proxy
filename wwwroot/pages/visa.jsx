@@ -72,21 +72,22 @@ function VisaUploader({ onExtracted, onBusy, busy, pushToast }) {
   const cfg = window.tourkit.ai.getConfig();
   const visionOk = cfg.provider === 'openai' || cfg.provider === 'anthropic';
 
-  // Whitelist: ảnh, PDF, DOCX, ZIP. DOC cũ (97-2003) không hỗ trợ — convert sang DOCX/PDF.
-  // ZIP: server giải nén và xử lý từng entry bên trong; bỏ qua entry không phải định dạng hỗ trợ.
+  // Whitelist: ảnh, PDF, DOCX, ZIP, RAR. DOC cũ (97-2003) không hỗ trợ — convert sang DOCX/PDF.
+  // Archive (zip/rar): server giải nén và xử lý từng entry; bỏ qua entry không phải định dạng hỗ trợ.
   function isAccepted(f) {
     if (/^image\//.test(f.type)) return true;
     if (f.type === 'application/pdf') return true;
     if (f.type === 'application/vnd.openxmlformats-officedocument.wordprocessingml.document') return true;
     if (f.type === 'application/zip' || f.type === 'application/x-zip-compressed') return true;
+    if (f.type === 'application/x-rar-compressed' || f.type === 'application/vnd.rar' || f.type === 'application/x-rar') return true;
     const ext = (f.name || '').toLowerCase().split('.').pop();
-    return ['jpg', 'jpeg', 'png', 'webp', 'gif', 'pdf', 'docx', 'zip'].includes(ext);
+    return ['jpg', 'jpeg', 'png', 'webp', 'gif', 'pdf', 'docx', 'zip', 'rar'].includes(ext);
   }
   function addFiles(list) {
     const all = Array.from(list);
     const arr = all.filter(isAccepted);
     const rejected = all.length - arr.length;
-    if (rejected > 0) pushToast(`${rejected} file bị bỏ qua (chỉ nhận JPG/PNG/WEBP, PDF, DOCX, ZIP — KHÔNG nhận .DOC cũ)`, 'error');
+    if (rejected > 0) pushToast(`${rejected} file bị bỏ qua (chỉ nhận JPG/PNG/WEBP, PDF, DOCX, ZIP, RAR — KHÔNG nhận .DOC cũ)`, 'error');
     setFiles(prev => [...prev, ...arr].slice(0, 10));
   }
   const onPick = (e) => { addFiles(e.target.files); e.target.value = ''; };
@@ -140,10 +141,10 @@ function VisaUploader({ onExtracted, onBusy, busy, pushToast }) {
       <div className="visa-drop" onClick={() => inputRef.current?.click()}
         onDragOver={e => e.preventDefault()} onDrop={onDrop}>
         <input ref={inputRef} type="file" multiple hidden onChange={onPick}
-          accept="image/jpeg,image/png,image/webp,image/gif,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document,application/zip,application/x-zip-compressed,.jpg,.jpeg,.png,.webp,.gif,.pdf,.docx,.zip" />
+          accept="image/jpeg,image/png,image/webp,image/gif,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document,application/zip,application/x-zip-compressed,application/x-rar-compressed,application/vnd.rar,.jpg,.jpeg,.png,.webp,.gif,.pdf,.docx,.zip,.rar" />
         <div className="visa-drop-icon"><Icon name="paper" size={24} /></div>
         <div className="visa-drop-main">Kéo thả file vào đây hoặc bấm để chọn</div>
-        <div className="visa-drop-sub">JPG / PNG / WEBP · PDF · DOCX · ZIP (cả bộ hồ sơ) · ≤25MB mỗi file</div>
+        <div className="visa-drop-sub">JPG / PNG / WEBP · PDF · DOCX · ZIP / RAR (cả bộ hồ sơ) · ≤25MB mỗi file</div>
       </div>
 
       {files.length > 0 && (
@@ -151,7 +152,7 @@ function VisaUploader({ onExtracted, onBusy, busy, pushToast }) {
           {files.map((f, i) => {
             const isImg = /^image\//.test(f.type);
             const ext = (f.name || '').split('.').pop().toLowerCase();
-            const badge = !isImg ? (ext === 'pdf' ? 'PDF' : ext === 'docx' ? 'DOCX' : ext === 'zip' ? 'ZIP' : 'FILE') : null;
+            const badge = !isImg ? (ext === 'pdf' ? 'PDF' : ext === 'docx' ? 'DOCX' : ext === 'zip' ? 'ZIP' : ext === 'rar' ? 'RAR' : 'FILE') : null;
             return (
               <div className="visa-thumb" key={i}>
                 {isImg

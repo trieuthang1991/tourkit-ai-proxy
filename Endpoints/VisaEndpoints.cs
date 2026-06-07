@@ -1,4 +1,4 @@
-using System.IO.Compression;
+using SharpCompress.Archives;
 using TourkitAiProxy.Models;
 using TourkitAiProxy.Services.Visa;
 
@@ -34,49 +34,54 @@ public static class VisaEndpoints
         if (ImageTypes.Contains(contentType)) return true;
         if (string.Equals(contentType, PdfType, StringComparison.OrdinalIgnoreCase)) return true;
         if (string.Equals(contentType, DocxType, StringComparison.OrdinalIgnoreCase)) return true;
-        if (IsZipFile(contentType, fileName)) return true;
+        if (IsArchiveFile(contentType, fileName)) return true;
         // Fallback theo phần mở rộng (1 số browser/Windows gửi MIME generic)
         var ext = Path.GetExtension(fileName)?.ToLowerInvariant();
-        return ext is ".jpg" or ".jpeg" or ".png" or ".webp" or ".gif" or ".pdf" or ".docx" or ".zip";
+        return ext is ".jpg" or ".jpeg" or ".png" or ".webp" or ".gif" or ".pdf" or ".docx" or ".zip" or ".rar";
     }
 
-    private static bool IsZipFile(string contentType, string fileName)
+    private static bool IsArchiveFile(string contentType, string fileName)
     {
-        if (string.Equals(contentType, "application/zip", StringComparison.OrdinalIgnoreCase) ||
-            string.Equals(contentType, "application/x-zip-compressed", StringComparison.OrdinalIgnoreCase)) return true;
-        return string.Equals(Path.GetExtension(fileName), ".zip", StringComparison.OrdinalIgnoreCase);
+        var ct = contentType?.ToLowerInvariant() ?? "";
+        if (ct is "application/zip" or "application/x-zip-compressed"
+              or "application/x-rar-compressed" or "application/vnd.rar" or "application/x-rar") return true;
+        var ext = Path.GetExtension(fileName)?.ToLowerInvariant();
+        return ext is ".zip" or ".rar";
     }
 
-    /// Giải nén ZIP an toàn: bỏ folder entry, hidden file, __MACOSX, path traversal;
-    /// reject zip bomb (mỗi entry ≤ 25MB, tổng ≤ 300MB). Trả list (name, bytes).
-    private static List<(string Name, byte[] Data)> ExpandZip(byte[] zipBytes)
+    /// Giải nén ZIP/RAR an toàn (qua SharpCompress — auto-detect format):
+    /// bỏ folder entry, hidden file, __MACOSX, path traversal; reject bomb
+    /// (mỗi entry ≤ 25MB, tổng ≤ 300MB). Trả list (name, bytes).
+    private static List<(string Name, byte[] Data)> ExpandArchive(byte[] archiveBytes)
     {
         var result = new List<(string, byte[])>();
         long total = 0;
-        using var ms = new MemoryStream(zipBytes);
-        using var zip = new ZipArchive(ms, ZipArchiveMode.Read);
-        foreach (var entry in zip.Entries)
+        using var ms = new MemoryStream(archiveBytes);
+        using var archive = ArchiveFactory.OpenArchive(ms);
+        foreach (var entry in archive.Entries)
         {
-            // Skip folder / file rỗng / metadata
-            if (entry.Length == 0) continue;
-            if (entry.FullName.EndsWith("/", StringComparison.Ordinal)) continue;
-            if (entry.FullName.Contains("..", StringComparison.Ordinal))
-                throw new IOException($"Entry '{entry.FullName}' có path traversal — từ chối");
-            var fileName = Path.GetFileName(entry.FullName);
+            if (entry.IsDirectory) continue;
+            string fullName = (entry.Key ?? "").Replace('\\', '/');
+            if (string.IsNullOrWhiteSpace(fullName)) continue;
+            if (fullName.Contains("..", StringComparison.Ordinal))
+                throw new IOException($"Entry '{fullName}' có path traversal — từ chối");
+
+            string fileName = Path.GetFileName(fullName) ?? "";
             if (string.IsNullOrWhiteSpace(fileName)) continue;
-            if (fileName.StartsWith('.')) continue;                                                 // .DS_Store, ._*
-            if (entry.FullName.StartsWith("__MACOSX", StringComparison.Ordinal)) continue;
+            if (fileName.StartsWith('.')) continue;                                       // .DS_Store, ._*
+            if (fullName.StartsWith("__MACOSX", StringComparison.Ordinal)) continue;
 
-            // Zip bomb defense
-            if (entry.Length > MaxBytes)
-                throw new IOException($"Entry '{fileName}' trong ZIP vượt {MaxBytes / 1024 / 1024}MB");
-            total += entry.Length;
+            // Bomb defense
+            if (entry.Size > MaxBytes)
+                throw new IOException($"Entry '{fileName}' trong archive vượt {MaxBytes / 1024 / 1024}MB");
+            total += entry.Size;
             if (total > MaxTotalUnzippedBytes)
-                throw new IOException($"ZIP vượt {MaxTotalUnzippedBytes / 1024 / 1024}MB sau giải nén");
+                throw new IOException($"Archive vượt {MaxTotalUnzippedBytes / 1024 / 1024}MB sau giải nén");
 
-            using var es = entry.Open();
+            using var es = entry.OpenEntryStream();
             using var em = new MemoryStream();
             es.CopyTo(em);
+            if (em.Length == 0) continue;
             result.Add((fileName, em.ToArray()));
         }
         return result;
@@ -141,17 +146,17 @@ public static class VisaEndpoints
                 if (f.Length > MaxBytes)
                     return Results.BadRequest(new { error = $"File '{f.FileName}' vượt {MaxBytes / 1024 / 1024}MB" });
                 if (!IsAllowed(f.ContentType, f.FileName))
-                    return Results.BadRequest(new { error = $"File '{f.FileName}' không hỗ trợ ({f.ContentType}). Chỉ nhận ảnh (JPG/PNG/WEBP/GIF), PDF, DOCX hoặc ZIP. (DOC cũ 97-2003 không hỗ trợ — convert sang DOCX/PDF)" });
+                    return Results.BadRequest(new { error = $"File '{f.FileName}' không hỗ trợ ({f.ContentType}). Chỉ nhận ảnh (JPG/PNG/WEBP/GIF), PDF, DOCX, ZIP hoặc RAR. (DOC cũ 97-2003 không hỗ trợ — convert sang DOCX/PDF)" });
 
                 using var ms = new MemoryStream();
                 await f.CopyToAsync(ms, ct);
                 var bytes = ms.ToArray();
 
-                if (IsZipFile(f.ContentType, f.FileName))
+                if (IsArchiveFile(f.ContentType, f.FileName))
                 {
                     List<(string Name, byte[] Data)> entries;
-                    try { entries = ExpandZip(bytes); }
-                    catch (Exception ex) { return Results.BadRequest(new { error = $"ZIP '{f.FileName}' lỗi: {ex.Message}" }); }
+                    try { entries = ExpandArchive(bytes); }
+                    catch (Exception ex) { return Results.BadRequest(new { error = $"Archive '{f.FileName}' lỗi: {ex.Message}" }); }
 
                     foreach (var (name, data) in entries)
                     {
