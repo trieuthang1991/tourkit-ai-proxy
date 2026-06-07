@@ -1481,6 +1481,17 @@ body.editorial .ai-bubble .hl { color: #FDBA74; }
 .asst-status-refresh:hover:not(:disabled) { background: var(--primary-soft); color: var(--primary-dark); transform: rotate(60deg); }
 .asst-status-refresh:disabled { opacity: .4; cursor: not-allowed; }
 
+/* Nút "Đoạn mới" — bắt đầu cuộc trò chuyện mới (xóa SessionChatMemory + UI) */
+.asst-reset {
+  display: inline-flex; align-items: center; gap: 6px;
+  height: 32px; padding: 0 12px;
+  background: var(--bg); border: 1px solid var(--border);
+  border-radius: 8px; cursor: pointer;
+  font-size: 12.5px; font-weight: 600; color: var(--text-2);
+  transition: all .12s;
+}
+.asst-reset:hover { background: var(--primary-soft); color: var(--primary-dark); border-color: var(--primary); }
+
 /* Grid 2 cột cân */
 .asst-grid2 { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 16px;
   align-items: start; }

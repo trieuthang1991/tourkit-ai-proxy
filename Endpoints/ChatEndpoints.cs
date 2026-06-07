@@ -197,6 +197,15 @@ public static class ChatEndpoints
             }
         });
 
+        // ─── DELETE /chat/memory ─── xóa SessionChatMemory của phiên (bắt đầu cuộc trò chuyện mới) ──
+        v1.MapDelete("/chat/memory", (HttpContext ctx, TkSessionStore sessions) =>
+        {
+            var sid = ctx.Request.Headers["X-Session-Id"].FirstOrDefault() ?? "";
+            if (string.IsNullOrWhiteSpace(sid)) return Results.BadRequest(new { error = "Thiếu X-Session-Id" });
+            sessions.ClearMemory(sid);
+            return Results.Ok(new { ok = true });
+        });
+
         // ─── POST /chat/cache/clear ─── xóa cache số liệu của công ty (buộc gọi mới) ──
         v1.MapPost("/chat/cache/clear", (HttpContext ctx, TkSessionStore sessions, Services.Cache.ChatCache cache) =>
         {

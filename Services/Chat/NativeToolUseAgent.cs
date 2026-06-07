@@ -83,7 +83,13 @@ public class NativeToolUseAgent : IAgentRuntime
 
     // ── Buffered run ─────────────────────────────────────────────────────────────
 
-    public async Task<AgentResult> RunAsync(AgentInput input, CancellationToken ct)
+    // Thoa man interface IAgentRuntime.RunAsync(AgentInput, CancellationToken).
+    public Task<AgentResult> RunAsync(AgentInput input, CancellationToken ct)
+        => RunCoreAsync(input, ct, emit: null);
+
+    /// Buffered run co kem emit callback tuy chon de StreamAsync gui progress tung turn.
+    private async Task<AgentResult> RunCoreAsync(AgentInput input, CancellationToken ct,
+        Func<object, Task>? emit = null)
     {
         var apiKey = !string.IsNullOrWhiteSpace(input.ApiKey) ? input.ApiKey : _keys.Get("anthropic");
         if (string.IsNullOrWhiteSpace(apiKey))
@@ -124,6 +130,9 @@ public class NativeToolUseAgent : IAgentRuntime
         {
             iteration++;
             _log.LogDebug("[NativeTool] iteration={Iter} totalToolCalls={Tc}", iteration, totalToolCalls);
+
+            // Emit progress: bao hieu frontend dang o turn nao.
+            if (emit != null) await emit(new { stage = "thinking", iteration });
 
             // Goi Anthropic, nhan JsonDocument (caller phai dispose sau)
             var (_, doc, lat) = await CallAnthropicAsync(apiKey, model, system, tools, messages, linked.Token);
@@ -185,6 +194,10 @@ public class NativeToolUseAgent : IAgentRuntime
                 break;
             }
             totalToolCalls += toolUseBlocks.Count;
+
+            // Emit: bao frontend dang goi tool nao de hien trang thai "Đang lấy số liệu".
+            if (emit != null && toolUseBlocks.Count > 0)
+                await emit(new { stage = "fetching", iteration, tools = toolUseBlocks.Select(t => t.Name).ToArray() });
 
             // ── Thuc thi TAT CA tools song song (Task.WhenAll) ─────────────────
             // Lay JWT 1 lan truoc khi bat dau parallel tasks (co the bi renew ben trong)
@@ -258,6 +271,10 @@ public class NativeToolUseAgent : IAgentRuntime
                     lastParams   = er.Params;
                 }
             }
+
+            // Emit data ngay sau khi exec xong → frontend hien panel phai som nhat co the.
+            if (emit != null && lastData != null && !string.IsNullOrEmpty(lastData.Title))
+                await emit(new { stage = "data", iteration, tool = lastToolName, data = lastData });
 
             // ── Xay dung luot tiep: append assistant turn + user turn tool_results ──
             // Clone content truoc khi dispose doc
@@ -350,25 +367,29 @@ public class NativeToolUseAgent : IAgentRuntime
 
     // ── Streaming run ────────────────────────────────────────────────────────────
 
-    /// Chay buffered RunAsync roi emit toan bo ket qua (true per-chunk streaming cho G2-5+).
+    /// Chay RunAsync voi emit callback de frontend thay progress tung turn (G2-5).
+    /// Emit sequence:
+    ///   {stage:"thinking", iteration}   — truoc moi AI call
+    ///   {stage:"fetching", iteration, tools:[...]}  — khi co tool_use blocks
+    ///   {stage:"data", iteration, tool, data}        — sau khi exec xong, co ChatData
+    ///   {delta: text}                                — chuoi ky tu phan tich cuoi
+    ///   {done: true, reply, toolName, data}          — ket thuc
     public async Task StreamAsync(AgentInput input, Func<object, Task> emit, CancellationToken ct)
     {
-        await emit(new { stage = "thinking", iteration = 1 });
-
         AgentResult result;
         try
         {
-            result = await RunAsync(input, ct);
+            result = await RunCoreAsync(input, ct, emit: emit);
         }
         catch (Exception ex)
         {
-            _log.LogError(ex, "[NativeTool-stream] RunAsync loi");
+            _log.LogError(ex, "[NativeTool-stream] RunCoreAsync loi");
             await emit(new { error = ex.Message });
             await emit(new { done = true });
             return;
         }
 
-        // Neu co data → gui truoc de panel phai hien so lieu ngay.
+        // Neu co data va chua emit qua emit callback → gui them 1 lan de dam bao panel phai hien.
         if (result.Data != null && !string.IsNullOrEmpty(result.Data.Title))
             await emit(new { stage = "analyzing", tool = result.ToolName, data = result.Data });
 

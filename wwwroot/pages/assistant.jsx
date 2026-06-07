@@ -445,6 +445,22 @@ function AssistantPage({ pushToast }) {
     finally { setClearing(false); }
   }
 
+  // Xóa bộ nhớ hội thoại (SessionChatMemory) + reset UI về trạng thái ban đầu.
+  async function resetMemory() {
+    const ok = await window.appConfirm('Bắt đầu cuộc trò chuyện mới? Lịch sử hiện tại sẽ xoá.', {
+      title: 'Đoạn mới', confirmLabel: 'Xoá hết', danger: true
+    });
+    if (!ok) return;
+    try {
+      await window.tourkitAuth.authedFetch('/api/v1/chat/memory', { method: 'DELETE' });
+      setMessages([]);
+      setPanelData(null);
+      pushToast('Đã reset hội thoại', 'success');
+    } catch (e) {
+      pushToast('Reset lỗi: ' + e.message, 'error');
+    }
+  }
+
   const [messages, setMessages] = _aS([]);          // {role, content}
   const [input, setInput] = _aS('');
   const [loading, setLoading] = _aS(false);
@@ -541,10 +557,15 @@ function AssistantPage({ pushToast }) {
         badge="trực quan"
         sub="Hỏi đáp thông minh — AI tự truy xuất số liệu TourKit và trực quan hóa."
         status={{ label: 'DỮ LIỆU ĐANG KẾT NỐI', detail: `Tenant ${sessionInfo?.tenantId || '—'}` }}
-        actions={<button className="asst-status-refresh" onClick={clearCache} disabled={clearing}
-          title="Xóa cache số liệu — buộc hỏi lại lấy số mới">
-          <Icon name="refresh" size={15} stroke={2.4} />
-        </button>}
+        actions={<>
+          <button className="asst-reset" onClick={resetMemory} title="Bắt đầu cuộc trò chuyện mới">
+            <Icon name="plus" size={14} /> Đoạn mới
+          </button>
+          <button className="asst-status-refresh" onClick={clearCache} disabled={clearing}
+            title="Xóa cache số liệu — buộc hỏi lại lấy số mới">
+            <Icon name="refresh" size={15} stroke={2.4} />
+          </button>
+        </>}
       />
 
       <div className="asst-grid2">
