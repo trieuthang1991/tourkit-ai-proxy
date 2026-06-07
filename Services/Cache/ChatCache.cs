@@ -87,14 +87,14 @@ public class ChatCache
         }
     }
 
-    /// Xóa toàn bộ cache Chat-Analytics của 1 tenant (cả full-response `r|` lẫn CRM-data `d|`).
+    /// Xóa toàn bộ cache Chat-Analytics của 1 tenant (cả full-response `r1|`/`r2|` lẫn CRM-data `d|`).
     /// Trả về số key đã xóa. Dùng cho nút "Xóa cache" để buộc gọi lại số liệu mới.
     public int ClearTenant(string tenant)
     {
         int n = 0;
         if (_redis != null && _mux != null)
         {
-            var pattern = Prefix + "*|" + tenant + "|*";   // khớp tkai:r|{tenant}|… và tkai:d|{tenant}|…
+            var pattern = Prefix + "*|" + tenant + "|*";   // khớp tkai:r1|{tenant}|…, tkai:r2|{tenant}|…, tkai:d|{tenant}|…
             try
             {
                 foreach (var ep in _mux.GetEndPoints())
@@ -108,10 +108,12 @@ public class ChatCache
         }
         else
         {
-            var pr = "r|" + tenant + "|";
-            var pd = "d|" + tenant + "|";
+            // Khớp r1|, r2| (full-response L1/L2) và d| (CRM-data) theo tenant.
+            var pr1 = "r1|" + tenant + "|";
+            var pr2 = "r2|" + tenant + "|";
+            var pd  = "d|"  + tenant + "|";
             foreach (var k in _mem.Keys.ToList())
-                if (k.StartsWith(pr) || k.StartsWith(pd)) { _mem.TryRemove(k, out _); n++; }
+                if (k.StartsWith(pr1) || k.StartsWith(pr2) || k.StartsWith(pd)) { _mem.TryRemove(k, out _); n++; }
         }
         _log.LogInformation("Đã xóa {N} cache key cho tenant {T}", n, tenant);
         return n;

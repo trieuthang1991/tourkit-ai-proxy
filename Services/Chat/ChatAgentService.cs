@@ -42,10 +42,13 @@ public class ChatAgentService
         var question = history.LastOrDefault(m => m.Role == "user")?.Content ?? "";
 
         var tenantId = _sessions.Get(sessionId)?.TenantId ?? "";
+        // Bỏ qua cache khi không có tenantId thật (session expired/invalid) — tránh pollute cross-tenant.
+        bool useCache = !string.IsNullOrWhiteSpace(tenantId);
+
         // L1 cache (pre-planner): câu hỏi y hệt sau khi normalize → trả ngay, skip toàn bộ AI.
         // TTL ngắn (3 phút) để user F5/reload không bị stale lâu.
         var l1Key = AgentCacheKeys.L1Key(tenantId, question);
-        if (!string.IsNullOrWhiteSpace(question)
+        if (useCache && !string.IsNullOrWhiteSpace(question)
             && _cache.TryGet<ChatResult>("r1|" + l1Key, out var l1Hit) && l1Hit != null)
         {
             _log.LogInformation("[chat] L1 cache hit");
@@ -106,7 +109,7 @@ public class ChatAgentService
         // L2 cache (post-planner): tool + canonical params giống → trả ngay,
         // skip dispatch + analysis. TTL 5 phút.
         var l2Key = AgentCacheKeys.L2Key(tenantId, tool.Name, toolParams);
-        if (_cache.TryGet<ChatResult>("r2|" + l2Key, out var l2Hit) && l2Hit != null)
+        if (useCache && _cache.TryGet<ChatResult>("r2|" + l2Key, out var l2Hit) && l2Hit != null)
         {
             _log.LogInformation("[chat] L2 cache hit ({Tool})", tool.Name);
             return l2Hit;
@@ -159,8 +162,8 @@ public class ChatAgentService
         object? prmsOut = toolParams.HasValue ? JsonSerializer.Deserialize<object>(toolParams.Value.GetRawText()) : null;
         var result = new ChatResult(finalReply, tool.Name, prmsOut, chatData, latency, tokIn, tokOut, analysis.Warning);
 
-        // Lưu L1 + L2 cache (chỉ khi có nội dung thực sự).
-        if (HasContent(chatData))
+        // Lưu L1 + L2 cache (chỉ khi có nội dung thực sự và có tenantId hợp lệ).
+        if (useCache && HasContent(chatData))
         {
             var ttl = ChooseTtl(toolParams);
             if (!string.IsNullOrWhiteSpace(question)) _cache.Set("r1|" + l1Key, result, ttl);
@@ -179,10 +182,12 @@ public class ChatAgentService
         var history = req.Messages ?? new();
         var question = history.LastOrDefault(m => m.Role == "user")?.Content ?? "";
         var tenantId = _sessions.Get(sessionId)?.TenantId ?? "";
+        // Bỏ qua cache khi không có tenantId thật (session expired/invalid) — tránh pollute cross-tenant.
+        bool useCache = !string.IsNullOrWhiteSpace(tenantId);
 
         // L1 cache (pre-planner): câu hỏi y hệt sau khi normalize → trả ngay, skip toàn bộ AI.
         var l1Key = AgentCacheKeys.L1Key(tenantId, question);
-        if (!string.IsNullOrWhiteSpace(question)
+        if (useCache && !string.IsNullOrWhiteSpace(question)
             && _cache.TryGet<ChatResult>("r1|" + l1Key, out var l1Hit) && l1Hit != null)
         {
             _log.LogInformation("[chat-stream] L1 cache hit");
@@ -226,7 +231,7 @@ public class ChatAgentService
         // L2 cache (post-planner): tool + canonical params giống → trả ngay,
         // skip dispatch + analysis. TTL 5 phút.
         var l2Key = AgentCacheKeys.L2Key(tenantId, tool.Name, toolParams);
-        if (_cache.TryGet<ChatResult>("r2|" + l2Key, out var l2Hit) && l2Hit != null)
+        if (useCache && _cache.TryGet<ChatResult>("r2|" + l2Key, out var l2Hit) && l2Hit != null)
         {
             _log.LogInformation("[chat-stream] L2 cache hit ({Tool})", tool.Name);
             await emit(new { done = true, reply = l2Hit.Reply, toolName = l2Hit.ToolName, data = l2Hit.Data, cached = true });
@@ -266,8 +271,8 @@ public class ChatAgentService
 
         object? prmsOut = toolParams.HasValue ? JsonSerializer.Deserialize<object>(toolParams.Value.GetRawText()) : null;
 
-        // Lưu L1 + L2 cache (chỉ khi có nội dung thực sự).
-        if (HasContent(chatData))
+        // Lưu L1 + L2 cache (chỉ khi có nội dung thực sự và có tenantId hợp lệ).
+        if (useCache && HasContent(chatData))
         {
             var ttl = ChooseTtl(toolParams);
             var streamResult = new ChatResult(finalReply, tool.Name, prmsOut, chatData, analysis.LatencyMs, analysis.InputTokens, analysis.OutputTokens, analysis.Warning);
@@ -793,8 +798,9 @@ Nếu câu hỏi có ý ĐỐI CHIẾU với câu trước (vd 'so với năm ng
 
     private static string FmtNum(double n) => n.ToString("#,##0.##", CultureInfo.InvariantCulture);
 
-    /// TTL ngắn (3 phút) cho query realtime (tháng này, hôm nay).
-    /// TTL dài (15 phút) cho query year/quarter cố định (data không đổi).
+    /// TTL ngắn (3 phút) cho query realtime (tháng hiện tại — data đang cập nhật liên tục).
+    /// TTL dài (15 phút) cho query tháng cũ/quý cố định (data không đổi).
+    /// KHÔNG dùng prefix năm ("2026") vì match cả startDate=2026-01-01 (tháng cố định).
     private static TimeSpan ChooseTtl(JsonElement? prms)
     {
         if (prms == null || prms.Value.ValueKind != JsonValueKind.Object) return TimeSpan.FromMinutes(5);
@@ -803,7 +809,8 @@ Nếu câu hỏi có ý ĐỐI CHIẾU với câu trước (vd 'so với năm ng
         {
             if (p.Value.ValueKind != JsonValueKind.String) continue;
             var v = p.Value.GetString() ?? "";
-            if (v.StartsWith($"{today:yyyy-MM}") || v.StartsWith($"{today:yyyy}"))
+            // Chỉ check tháng hiện tại (yyyy-MM) — tháng cũ trong cùng năm là cố định, không cần TTL ngắn.
+            if (v.StartsWith($"{today:yyyy-MM}"))
                 return TimeSpan.FromMinutes(3);
         }
         return TimeSpan.FromMinutes(15);
