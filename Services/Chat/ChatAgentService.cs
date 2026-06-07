@@ -42,12 +42,15 @@ public class ChatAgentService
         var question = history.LastOrDefault(m => m.Role == "user")?.Content ?? "";
 
         var tenantId = _sessions.Get(sessionId)?.TenantId ?? "";
-        // KHÔNG cache full-response theo question vì:
-        //   - Câu hỏi "Cơ cấu marketing" 1 lần → 30 phút sau hỏi lại trả analysis cũ y hệt,
-        //     dù dữ liệu thật đã đổi → user nhầm "kết quả giống nhau, AI bị đơ".
-        //   - Câu lặp lại cùng phiên thường vì user reload tab/đổi context, KHÔNG phải để dùng cache.
-        // Vẫn giữ cache CRM-data (key "d|tenant|path") ở Bước 2 — đó là cache đúng layer
-        // (cùng path → cùng dữ liệu thô; analysis vẫn chạy lại để bám hội thoại hiện tại).
+        // L1 cache (pre-planner): câu hỏi y hệt sau khi normalize → trả ngay, skip toàn bộ AI.
+        // TTL ngắn (3 phút) để user F5/reload không bị stale lâu.
+        var l1Key = AgentCacheKeys.L1Key(tenantId, question);
+        if (!string.IsNullOrWhiteSpace(question)
+            && _cache.TryGet<ChatResult>("r1|" + l1Key, out var l1Hit) && l1Hit != null)
+        {
+            _log.LogInformation("[chat] L1 cache hit");
+            return l1Hit;
+        }
 
         int tokIn = 0, tokOut = 0;
         long latency = 0;
