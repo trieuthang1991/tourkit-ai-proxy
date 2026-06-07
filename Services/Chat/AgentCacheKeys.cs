@@ -27,4 +27,29 @@ public static class AgentCacheKeys
         // gộp whitespace
         return System.Text.RegularExpressions.Regex.Replace(noDiacritic, @"\s+", " ").Trim();
     }
+
+    /// Canonical hóa params JSON → string deterministic cho cache key:
+    ///   sort key alphabet, lowercase value (trừ marketName giữ case), trim.
+    public static string CanonicalParams(JsonElement? p)
+    {
+        if (p == null || p.Value.ValueKind != JsonValueKind.Object) return "";
+        var pairs = new List<string>();
+        foreach (var prop in p.Value.EnumerateObject().OrderBy(x => x.Name, StringComparer.Ordinal))
+        {
+            var val = prop.Value.ValueKind switch
+            {
+                JsonValueKind.String => prop.Value.GetString() ?? "",
+                JsonValueKind.Number => prop.Value.GetRawText(),
+                JsonValueKind.True => "true",
+                JsonValueKind.False => "false",
+                _ => prop.Value.GetRawText()
+            };
+            val = val.Trim();
+            // lowercase trừ marketName (giữ case cho readability)
+            if (!string.Equals(prop.Name, "marketName", StringComparison.OrdinalIgnoreCase))
+                val = val.ToLowerInvariant();
+            pairs.Add($"{prop.Name}={val}");
+        }
+        return string.Join(";", pairs);
+    }
 }
