@@ -2,6 +2,7 @@
 using System.Text.RegularExpressions;
 using System.Globalization;
 using TourkitAiProxy.Models;
+using System.Linq;
 
 namespace TourkitAiProxy.Services.Chat;
 
@@ -39,5 +40,78 @@ public static class AgentGuardrails
     {
         if (string.IsNullOrWhiteSpace(text)) return true;
         return text.Trim().Length < 30;
+    }
+
+    // ---------------------------------------------------------------
+    // ValidateNumbers: heuristic quet so AI noi, doi chieu voi stats
+    // ---------------------------------------------------------------
+
+    /// Quet so trong text AI, doi chieu voi stats server-side.
+    /// Neu co so lon (>1000) lech >5x so voi tat ca stat → tra warning.
+    /// Null = khong co van de.
+    public static string? ValidateNumbers(string? text, IReadOnlyList<ChatStat>? stats)
+    {
+        if (string.IsNullOrWhiteSpace(text) || stats is null || stats.Count == 0) return null;
+
+        // Tach so dang "1.000.000.000" hoac "200 trieu" hoac "5 ty"
+        var matches = Regex.Matches(text,
+            @"\b(\d{1,3}(?:[.,]\d{3})+|\d+\s*(?:ty|ti|trieu|tr|nghin|k))\b",
+            RegexOptions.IgnoreCase);
+
+        if (matches.Count == 0) return null;
+
+        var statValues = stats.Where(s => s.Value > 1000).Select(s => s.Value).ToList();
+        if (statValues.Count == 0) return null;
+
+        foreach (Match m in matches)
+        {
+            var parsed = ParseVndLike(m.Value);
+            if (parsed <= 0) continue;
+
+            // Cho phep lech toi <5x (AI thuong lam tron so); >=5x = drift canh bao
+            bool nearAny = statValues.Any(v => parsed > v / 5.0 && parsed < v * 5.0);
+            if (!nearAny)
+                return $"AI co the tham chieu so khong khop stat (so {m.Value} khong gan stat nao)";
+        }
+
+        return null;
+    }
+
+    private static double ParseVndLike(string s)
+    {
+        s = s.Trim().ToLowerInvariant();
+        double mult = 1;
+
+        if (s.EndsWith("ty") || s.EndsWith("ti"))
+        {
+            mult = 1_000_000_000;
+            s = s[..^2].Trim();
+        }
+        else if (s.Contains("trieu"))
+        {
+            mult = 1_000_000;
+            s = Regex.Replace(s, "trieu", "").Trim();
+        }
+        else if (s.EndsWith("tr"))
+        {
+            mult = 1_000_000;
+            s = s[..^2].Trim();
+        }
+        else if (s.Contains("nghin"))
+        {
+            mult = 1_000;
+            s = Regex.Replace(s, "nghin", "").Trim();
+        }
+        else if (s.EndsWith("k"))
+        {
+            mult = 1_000;
+            s = s[..^1].Trim();
+        }
+
+        var digits = Regex.Replace(s, @"[^\d]", "");
+        if (!double.TryParse(digits, NumberStyles.Number, CultureInfo.InvariantCulture, out var n))
+            return 0;
+
+        return n * mult;
     }
 }
