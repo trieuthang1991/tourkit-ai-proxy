@@ -1,5 +1,6 @@
 using System.Text;
 using System.Text.Json;
+using Microsoft.Extensions.Logging;
 using TourkitAiProxy.Models;
 
 namespace TourkitAiProxy.Services.Providers;
@@ -23,9 +24,10 @@ public class AnthropicProvider : IAiProvider
     private readonly ProviderKeyStore _keys;
     private readonly AiUsageLog _usage;
     private readonly AiCallContext _ctx;
+    private readonly ILogger<AnthropicProvider> _log;
 
-    public AnthropicProvider(IHttpClientFactory http, ProviderKeyStore keys, AiUsageLog usage, AiCallContext ctx)
-    { _http = http; _keys = keys; _usage = usage; _ctx = ctx; }
+    public AnthropicProvider(IHttpClientFactory http, ProviderKeyStore keys, AiUsageLog usage, AiCallContext ctx, ILogger<AnthropicProvider> log)
+    { _http = http; _keys = keys; _usage = usage; _ctx = ctx; _log = log; }
 
     public async Task<CompleteResult> CompleteAsync(CompleteRequest req, CancellationToken ct)
     {
@@ -37,6 +39,10 @@ public class AnthropicProvider : IAiProvider
         var maxTokens = req.MaxTokens is > 0 ? req.MaxTokens.Value : 4096;
         var temperature = req.Temperature ?? 0.3;
         var system = string.IsNullOrWhiteSpace(req.System) ? OpenCodeClient.DefaultSystem : req.System!;
+
+        // Anthropic cache yêu cầu prefix >=1024 tokens. <200 chars (~50 tok) chắc chắn không qua.
+        if (req.CacheSystem && system.Length < 200)
+            _log.LogWarning("[anthropic] CacheSystem=true nhưng system chỉ {Len} chars -- quá ngắn, Anthropic sẽ KHÔNG cache (cần >=1024 tok ~= 4000 chars)", system.Length);
 
         // Khi CacheSystem=true → gửi system dạng content blocks với cache_control.
         // Anthropic prompt caching: 90% off cho phần cached, TTL 5 phút mặc định.
@@ -68,6 +74,10 @@ public class AnthropicProvider : IAiProvider
         };
         msg.Headers.Add("x-api-key", key);
         msg.Headers.Add("anthropic-version", "2023-06-01");
+        // Bật prompt caching khi CacheSystem flag bật. Anthropic đã GA nhưng giữ header
+        // cho future-proof + compat với older API version.
+        if (req.CacheSystem)
+            msg.Headers.Add("anthropic-beta", "prompt-caching-2024-07-31");
 
         var sw = System.Diagnostics.Stopwatch.StartNew();
         var resp = await client.SendAsync(msg, ct);
