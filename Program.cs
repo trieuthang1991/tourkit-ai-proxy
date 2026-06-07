@@ -83,6 +83,9 @@ builder.Services.AddHttpClient("tourkit", c =>
 builder.Services.AddSingleton<TourKitApiClient>();
 builder.Services.AddSingleton<TkSessionStore>();
 builder.Services.AddSingleton<TourkitAiProxy.Services.Cache.ChatCache>();   // Redis (nếu có) / in-memory
+// Agent runtimes -- JsonPlannerAgent la fallback cho moi provider.
+// Phase 2 se them NativeToolUseAgent (Anthropic/OpenAI) truoc JsonPlannerAgent trong danh sach.
+builder.Services.AddSingleton<IAgentRuntime, JsonPlannerAgent>();
 builder.Services.AddSingleton<ChatAgentService>();
 
 // SmartMail AI — hộp thư Gmail (IMAP/MailKit) + phân loại AI + soạn nháp trả lời.
