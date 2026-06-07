@@ -55,7 +55,11 @@ public static class ToolSchemaGenerator
     /// </summary>
     private static object InferSchema(string paramName)
     {
-        // Ngay: dang yyyy-MM-dd
+        // 1. Literal match TRUOC: cac param ten chua "date" nhung la so nguyen (override)
+        if (paramName is "tabFilter" or "dateFilter")
+            return new { type = "integer" };
+
+        // 2. Substring "Date" sau: cac param ngay thuc su (dang yyyy-MM-dd)
         if (paramName.Contains("Date", StringComparison.OrdinalIgnoreCase))
             return new { type = "string", format = "date", description = "Ngày dạng yyyy-MM-dd" };
 
@@ -63,12 +67,8 @@ public static class ToolSchemaGenerator
         if (paramName is "pageIndex" or "pageSize")
             return new { type = "integer" };
 
-        // Nám + thang: so nguyen
+        // Nam + thang: so nguyen
         if (paramName is "year" or "month")
-            return new { type = "integer" };
-
-        // Tab / filter so: so nguyen
-        if (paramName is "tabFilter" or "dateFilter")
             return new { type = "integer" };
 
         // Enum groupBy
