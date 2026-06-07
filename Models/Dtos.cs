@@ -19,7 +19,10 @@ public record CompleteRequest(
     [property: JsonPropertyName("images")]        IReadOnlyList<string>? Images = null,
     // PDF đính kèm (data-URL "data:application/pdf;base64,...") — Claude + OpenAI Responses đều đọc trực tiếp PDF.
     // Mỗi item kèm tên file (tùy chọn) để model biết context.
-    [property: JsonPropertyName("documents")]     IReadOnlyList<string>? Documents = null
+    [property: JsonPropertyName("documents")]     IReadOnlyList<string>? Documents = null,
+    // Gợi ý provider cache system message + tools (Anthropic ephemeral, OpenAI auto).
+    // CHỈ áp dụng khi system+catalog đủ lớn (>=1024 tok). Provider khác bỏ qua.
+    [property: JsonPropertyName("cacheSystem")]   bool CacheSystem = false
 );
 
 /// 1 ảnh đã tách khỏi data-URL: media type + base64 thuần (dùng build body multimodal cho provider).
