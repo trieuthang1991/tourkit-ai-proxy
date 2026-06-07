@@ -38,12 +38,26 @@ public class AnthropicProvider : IAiProvider
         var temperature = req.Temperature ?? 0.3;
         var system = string.IsNullOrWhiteSpace(req.System) ? OpenCodeClient.DefaultSystem : req.System!;
 
+        // Khi CacheSystem=true → gửi system dạng content blocks với cache_control.
+        // Anthropic prompt caching: 90% off cho phần cached, TTL 5 phút mặc định.
+        object systemField = req.CacheSystem
+            ? (object)new object[]
+            {
+                new
+                {
+                    type = "text",
+                    text = system,
+                    cache_control = new { type = "ephemeral" }
+                }
+            }
+            : system;
+
         var body = new
         {
             model,
             max_tokens = maxTokens,
             temperature,
-            system,
+            system = systemField,
             messages = new object[] { new { role = "user", content = BuildUserContent(req) } }
         };
 
