@@ -57,12 +57,15 @@ public class JsonPlannerAgent : IAgentRuntime
 
         bool useCache = !string.IsNullOrWhiteSpace(input.TenantId) && !string.IsNullOrWhiteSpace(input.Username);
 
+        // Đọc bộ nhớ chat của phiên (fallback Empty nếu chưa có).
+        var memory = _sessions.GetMemory(input.SessionId) ?? SessionChatMemory.Empty();
+
         int tokIn = 0, tokOut = 0;
         long latency = 0;
 
         // ─── 1. Planner: AI chon tool + params ──────────────────────────────────
         var plannerReq = new CompleteRequest(
-            Prompt:      BuildPlannerPrompt(history),
+            Prompt:      BuildPlannerPrompt(history, memory),
             Provider:    provider.Id, Model: input.Model,
             MaxTokens:   3000, Temperature: 0.1,
             System:      PLANNER_SYSTEM, ApiKey: input.ApiKey,
@@ -193,6 +196,29 @@ public class JsonPlannerAgent : IAgentRuntime
             _cache.Set("r2|" + l2Key, ToChatResult(result, question), ttl);
         }
 
+        // Lưu bộ nhớ chat sau khi có kết quả thực sự (tool thành công + có data).
+        if (HasContent(chatData))
+        {
+            var paramsDict = ExtractParamsDict(toolParams);
+            // Lấy marketId đã resolve (nếu có trong params sau khi resolver chạy).
+            int? resolvedMarketId = null;
+            if (toolParams.HasValue && toolParams.Value.ValueKind == JsonValueKind.Object
+                && toolParams.Value.TryGetProperty("marketId", out var midEl)
+                && midEl.TryGetInt32(out var mid))
+                resolvedMarketId = mid;
+
+            var newMemory = memory with
+            {
+                LastTool      = tool.Name,
+                LastParams    = paramsDict,
+                LastMarketName = paramsDict.GetValueOrDefault("marketName") ?? memory.LastMarketName,
+                LastMarketId  = resolvedMarketId ?? memory.LastMarketId,
+                LastDataTitle = chatData.Title,
+                History       = history.TakeLast(10).ToList()
+            };
+            _sessions.UpdateMemory(input.SessionId, newMemory);
+        }
+
         return result;
     }
 
@@ -207,10 +233,13 @@ public class JsonPlannerAgent : IAgentRuntime
 
         bool useCache = !string.IsNullOrWhiteSpace(input.TenantId) && !string.IsNullOrWhiteSpace(input.Username);
 
+        // Đọc bộ nhớ chat của phiên (fallback Empty nếu chưa có).
+        var memory = _sessions.GetMemory(input.SessionId) ?? SessionChatMemory.Empty();
+
         await emit(new { stage = "planning" });
 
         var plannerReq = new CompleteRequest(
-            Prompt:      BuildPlannerPrompt(history),
+            Prompt:      BuildPlannerPrompt(history, memory),
             Provider:    provider.Id, Model: input.Model,
             MaxTokens:   3000, Temperature: 0.1,
             System:      PLANNER_SYSTEM, ApiKey: input.ApiKey,
@@ -319,6 +348,28 @@ public class JsonPlannerAgent : IAgentRuntime
             _cache.Set("r2|" + l2Key, streamResult, ttl);
         }
 
+        // Lưu bộ nhớ chat sau khi có kết quả thực sự (tool thành công + có data).
+        if (HasContent(chatData))
+        {
+            var paramsDict = ExtractParamsDict(toolParams);
+            int? resolvedMarketId = null;
+            if (toolParams.HasValue && toolParams.Value.ValueKind == JsonValueKind.Object
+                && toolParams.Value.TryGetProperty("marketId", out var midEl)
+                && midEl.TryGetInt32(out var mid))
+                resolvedMarketId = mid;
+
+            var newMemory = memory with
+            {
+                LastTool      = tool.Name,
+                LastParams    = paramsDict,
+                LastMarketName = paramsDict.GetValueOrDefault("marketName") ?? memory.LastMarketName,
+                LastMarketId  = resolvedMarketId ?? memory.LastMarketId,
+                LastDataTitle = chatData.Title,
+                History       = history.TakeLast(10).ToList()
+            };
+            _sessions.UpdateMemory(input.SessionId, newMemory);
+        }
+
         await emit(new { done = true, reply = finalReply, toolName = tool.Name, data = chatData });
     }
 
@@ -366,15 +417,31 @@ public class JsonPlannerAgent : IAgentRuntime
         "KHÔNG dùng tên trường tiếng Anh (revenue, expense, kpiRevenue...) và KHÔNG nhắc tới Id. " +
         "Nêu nhận định chính + 1-2 đề xuất hành động nếu phù hợp. Không lặp lại nguyên bảng.";
 
-    private string BuildPlannerPrompt(List<ChatTurn> history)
+    private string BuildPlannerPrompt(List<ChatTurn> history, SessionChatMemory memory)
     {
         var today = DateTime.Now;
         var convo = new StringBuilder();
         foreach (var m in history.TakeLast(6))
             convo.Append(m.Role == "user" ? "Người dùng: " : "Trợ lý: ").Append(m.Content).Append('\n');
 
-        return $@"HÔM NAY: {today:yyyy-MM-dd} (tháng {today.Month}, năm {today.Year}).
+        // Thêm context hội thoại trước nếu có (giúp follow-up như "còn X thì sao").
+        var memCtx = new StringBuilder();
+        if (memory.LastTool != null)
+        {
+            memCtx.AppendLine("HỘI THOẠI TRƯỚC:");
+            memCtx.AppendLine($"- Tool gần nhất: {memory.LastTool}");
+            var paramsLine = memory.LastParams != null && memory.LastParams.Count > 0
+                ? string.Join(", ", memory.LastParams.Select(p => $"{p.Key}={p.Value}"))
+                : "(không có)";
+            memCtx.AppendLine($"- Params: {paramsLine}");
+            if (memory.LastMarketName != null)
+                memCtx.AppendLine($"- Thị trường đã chọn: {memory.LastMarketName} (id={memory.LastMarketId})");
+            memCtx.AppendLine("Nếu câu hỏi follow-up (vd 'còn X thì sao', 'còn tháng trước') " +
+                              "→ GIỮ tool + params, chỉ đổi field user nói khác.");
+        }
 
+        return $@"HÔM NAY: {today:yyyy-MM-dd} (tháng {today.Month}, năm {today.Year}).
+{(memCtx.Length > 0 ? "\n" + memCtx : "")}
 CÁC TOOL CÓ SẴN:
 {ChatTools.CatalogForPrompt()}
 
@@ -399,6 +466,22 @@ OUTPUT JSON:
 {{ ""tool"": ""<tên tool hoặc none>"", ""params"": {{ }}, ""reply"": ""(chỉ khi tool=none)"" }}
 
 Trả JSON ngay:";
+    }
+
+    /// Trích xuất params từ JsonElement thành Dictionary<string, string> (string-only).
+    private static Dictionary<string, string> ExtractParamsDict(JsonElement? toolParams)
+    {
+        var dict = new Dictionary<string, string>();
+        if (toolParams is not { ValueKind: JsonValueKind.Object } obj) return dict;
+        foreach (var p in obj.EnumerateObject())
+        {
+            dict[p.Name] = p.Value.ValueKind switch
+            {
+                JsonValueKind.String => p.Value.GetString() ?? "",
+                _                   => p.Value.GetRawText()
+            };
+        }
+        return dict;
     }
 
     private string BuildAnalysisPrompt(List<ChatTurn> history, ChatTool tool, JsonElement data, List<ChatStat> stats)

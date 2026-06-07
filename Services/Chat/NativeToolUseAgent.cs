@@ -90,7 +90,10 @@ public class NativeToolUseAgent : IAgentRuntime
             throw new InvalidOperationException("Chưa nhập API key cho Claude (Anthropic).");
 
         var model  = input.Model ?? "claude-sonnet-4-5";
-        var system = SystemPromptBase + $" Hôm nay: {DateTime.Now:yyyy-MM-dd}.";
+
+        // Đọc bộ nhớ chat của phiên, bổ sung context hội thoại trước vào system prompt.
+        var memory = _sessions.GetMemory(input.SessionId) ?? SessionChatMemory.Empty();
+        var system = BuildSystemPrompt(memory);
 
         // Build messages tu history (gioi han 6 luot gan nhat)
         var messages = BuildMessages(input.History);
@@ -297,6 +300,42 @@ public class NativeToolUseAgent : IAgentRuntime
         var c = _ctx.Resolve();
         _usage.Append(c.Feature, c.SessionId, c.Tenant, "anthropic", model, totalInTok, totalOutTok, totalLat);
 
+        // Lưu bộ nhớ chat sau khi có kết quả thực sự (tool thành công + có data).
+        if (lastData != null && lastToolName != null)
+        {
+            var paramsDict = new Dictionary<string, string>();
+            if (lastParams != null)
+            {
+                // Serialize rồi parse lại để trích key/value dạng string an toàn.
+                try
+                {
+                    var paramsEl = JsonSerializer.SerializeToElement(lastParams, _jsonWeb);
+                    if (paramsEl.ValueKind == JsonValueKind.Object)
+                        foreach (var p in paramsEl.EnumerateObject())
+                            paramsDict[p.Name] = p.Value.ValueKind == JsonValueKind.String
+                                ? (p.Value.GetString() ?? "") : p.Value.GetRawText();
+                }
+                catch { /* bỏ qua nếu serialize lỗi */ }
+            }
+
+            // Lấy marketName/marketId từ params nếu có.
+            paramsDict.TryGetValue("marketName", out var resolvedMarketName);
+            int? resolvedMarketId = null;
+            if (paramsDict.TryGetValue("marketId", out var midStr) && int.TryParse(midStr, out var mid))
+                resolvedMarketId = mid;
+
+            var newMemory = memory with
+            {
+                LastTool      = lastToolName,
+                LastParams    = paramsDict,
+                LastMarketName = resolvedMarketName ?? memory.LastMarketName,
+                LastMarketId  = resolvedMarketId ?? memory.LastMarketId,
+                LastDataTitle = lastData.Title,
+                History       = input.History.TakeLast(10).ToList()
+            };
+            _sessions.UpdateMemory(input.SessionId, newMemory);
+        }
+
         return new AgentResult(
             Reply:        finalText,
             ToolName:     lastToolName ?? "none",
@@ -397,5 +436,33 @@ public class NativeToolUseAgent : IAgentRuntime
         foreach (var turn in history.TakeLast(6))
             msgs.Add(new { role = turn.Role, content = turn.Content });
         return msgs;
+    }
+
+    // ── System prompt builder (bao gom memory context) ───────────────────────────
+
+    /// Xây dựng system prompt: base + ngày hôm nay + context hội thoại trước (nếu có).
+    private static string BuildSystemPrompt(SessionChatMemory memory)
+    {
+        var sb = new StringBuilder();
+        sb.Append(SystemPromptBase);
+        sb.Append($" Hôm nay: {DateTime.Now:yyyy-MM-dd}.");
+
+        // Thêm context hội thoại trước để follow-up kế thừa tool + params.
+        if (memory.LastTool != null)
+        {
+            sb.Append("\n\n<conversation_context>");
+            sb.Append($"\nTool gần nhất: {memory.LastTool}");
+            if (memory.LastParams != null && memory.LastParams.Count > 0)
+            {
+                var paramsLine = string.Join(", ", memory.LastParams.Select(p => $"{p.Key}={p.Value}"));
+                sb.Append($"\nParams: {paramsLine}");
+            }
+            if (memory.LastMarketName != null)
+                sb.Append($"\nThị trường đã chọn: {memory.LastMarketName} (id={memory.LastMarketId})");
+            sb.Append("\nNếu user follow-up 'còn X thì sao' → giữ tool + params, chỉ đổi field user nói khác.");
+            sb.Append("\n</conversation_context>");
+        }
+
+        return sb.ToString();
     }
 }

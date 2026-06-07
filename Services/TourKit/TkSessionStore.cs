@@ -1,5 +1,6 @@
 using System.Collections.Concurrent;
 using System.Text.Json;
+using TourkitAiProxy.Services.Chat;
 using TourkitAiProxy.Services.Security;
 
 namespace TourkitAiProxy.Services.TourKit;
@@ -17,6 +18,9 @@ public class TkSession
     public string? CompanyName { get; set; }
     public DateTime JwtExpiresAt { get; set; }   // soft TTL — re-login khi quá hạn
     public DateTime LastUsed { get; set; }
+
+    // BỘ NHỚ CHAT — load/save cùng session xuống đĩa.
+    public SessionChatMemory ChatMemory { get; set; } = SessionChatMemory.Empty();
 }
 
 /// <summary>
@@ -40,8 +44,10 @@ public class TkSessionStore
     // Dọn phiên không dùng quá 30 ngày.
     private static readonly TimeSpan IdleTtl = TimeSpan.FromDays(30);
 
+    // ChatMemory nullable để tương thích ngược: session cũ không có trường này → Empty().
     private record Persisted(string Id, string TenantId, string Username, string EncPassword,
-        string? FullName, string? CompanyName, string LastUsedIso);
+        string? FullName, string? CompanyName, string LastUsedIso,
+        SessionChatMemory? ChatMemory = null);
 
     public TkSessionStore(TourKitApiClient api, IWebHostEnvironment env, ILogger<TkSessionStore> log)
     {
@@ -124,7 +130,8 @@ public class TkSessionStore
         try
         {
             var json = File.ReadAllText(_path);
-            var list = JsonSerializer.Deserialize<List<Persisted>>(json) ?? new();
+            var opts = new JsonSerializerOptions(JsonSerializerDefaults.Web);
+            var list = JsonSerializer.Deserialize<List<Persisted>>(json, opts) ?? new();
             foreach (var p in list)
             {
                 var pwd = Crypton.Decrypt(p.EncPassword);
@@ -134,7 +141,9 @@ public class TkSessionStore
                     Id = p.Id, TenantId = p.TenantId, Username = p.Username, Password = pwd,
                     FullName = p.FullName, CompanyName = p.CompanyName,
                     Jwt = "", JwtExpiresAt = DateTime.MinValue,    // ép re-login lần dùng đầu
-                    LastUsed = DateTime.TryParse(p.LastUsedIso, out var d) ? d.ToUniversalTime() : DateTime.UtcNow
+                    LastUsed = DateTime.TryParse(p.LastUsedIso, out var d) ? d.ToUniversalTime() : DateTime.UtcNow,
+                    // Tương thích ngược: session cũ không có ChatMemory → dùng Empty()
+                    ChatMemory = p.ChatMemory ?? SessionChatMemory.Empty()
                 };
             }
             _log.LogInformation("Loaded {N} TourKit sessions từ đĩa", _sessions.Count);
@@ -142,16 +151,46 @@ public class TkSessionStore
         catch (Exception ex) { _log.LogWarning(ex, "Load tk-sessions.json fail — bỏ qua"); }
     }
 
+    private static readonly JsonSerializerOptions _persistOpts =
+        new(JsonSerializerDefaults.Web) { WriteIndented = true };
+
     private void Persist()
     {
         try
         {
             var list = _sessions.Values.Select(s => new Persisted(
                 s.Id, s.TenantId, s.Username, Crypton.Encrypt(s.Password),
-                s.FullName, s.CompanyName, s.LastUsed.ToString("o"))).ToList();
+                s.FullName, s.CompanyName, s.LastUsed.ToString("o"),
+                s.ChatMemory)).ToList();
             lock (_ioLock)
-                File.WriteAllText(_path, JsonSerializer.Serialize(list, new JsonSerializerOptions { WriteIndented = true }));
+                File.WriteAllText(_path, JsonSerializer.Serialize(list, _persistOpts));
         }
         catch (Exception ex) { _log.LogWarning(ex, "Persist tk-sessions.json fail"); }
+    }
+
+    // ─── Chat memory helpers ────────────────────────────────────────────────────
+
+    /// Lấy bộ nhớ chat của phiên. Trả null nếu không tìm thấy phiên.
+    public SessionChatMemory? GetMemory(string sessionId)
+        => _sessions.TryGetValue(sessionId, out var s) ? s.ChatMemory : null;
+
+    /// Cập nhật bộ nhớ chat, tự gán LastUpdated = UtcNow, persist xuống đĩa.
+    public void UpdateMemory(string sessionId, SessionChatMemory memory)
+    {
+        if (_sessions.TryGetValue(sessionId, out var s))
+        {
+            s.ChatMemory = memory with { LastUpdated = DateTime.UtcNow };
+            Persist();
+        }
+    }
+
+    /// Xóa bộ nhớ chat về Empty (khi user yêu cầu reset hội thoại).
+    public void ClearMemory(string sessionId)
+    {
+        if (_sessions.TryGetValue(sessionId, out var s))
+        {
+            s.ChatMemory = SessionChatMemory.Empty();
+            Persist();
+        }
     }
 }
