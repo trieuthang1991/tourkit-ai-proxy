@@ -38,6 +38,7 @@ public class ChatAgentService
     public async Task<ChatResult> AskAsync(ChatRequest req, string sessionId, CancellationToken ct)
     {
         var provider = _registry.Resolve(req.Provider);
+        bool isAnthropic = string.Equals(provider.Id, "anthropic", StringComparison.OrdinalIgnoreCase);
         var history = req.Messages ?? new();
         var question = history.LastOrDefault(m => m.Role == "user")?.Content ?? "";
 
@@ -69,8 +70,9 @@ public class ChatAgentService
         var plannerReq = new CompleteRequest(
             Prompt:      BuildPlannerPrompt(history),
             Provider:    req.Provider, Model: req.Model,
-            MaxTokens:   3000, Temperature: 0.1,   // reasoning model có thể "nghĩ" dài trước JSON
-            System:      PLANNER_SYSTEM, ApiKey: req.ApiKey);
+            MaxTokens:   3000, Temperature: 0.1,   // reasoning model co the "nghi" dai truoc JSON
+            System:      PLANNER_SYSTEM, ApiKey: req.ApiKey,
+            CacheSystem: isAnthropic);
 
         var plan = await CompleteWithFallbackAsync(provider, plannerReq, ct);
         tokIn += plan.InputTokens; tokOut += plan.OutputTokens; latency += plan.LatencyMs;
@@ -152,12 +154,13 @@ public class ChatAgentService
         // ─── 3. Đọc envelope /api/ai/* (items + summary + total + title) ───────────
         var chatData = BuildChatData(tool, data);
 
-        // ─── 4. Analysis (AI pass 2) — pass history để bắt nhịp câu trước-sau ──────
+        // ─── 4. Analysis (AI pass 2) — pass history de bat nhip cau truoc-sau ──────
         var analysisReq = new CompleteRequest(
             Prompt:      BuildAnalysisPrompt(history, tool, chatData.Raw ?? data, chatData.Stats),
             Provider:    req.Provider, Model: req.Model,
             MaxTokens:   2000, Temperature: 0.4,
-            System:      ANALYSIS_SYSTEM, ApiKey: req.ApiKey);
+            System:      ANALYSIS_SYSTEM, ApiKey: req.ApiKey,
+            CacheSystem: isAnthropic);
 
         var analysis = await CompleteWithFallbackAsync(provider, analysisReq, ct);
         tokIn += analysis.InputTokens; tokOut += analysis.OutputTokens; latency += analysis.LatencyMs;
@@ -204,6 +207,7 @@ public class ChatAgentService
     public async Task AskStreamAsync(ChatRequest req, string sessionId, Func<object, Task> emit, CancellationToken ct)
     {
         var provider = _registry.Resolve(req.Provider);
+        bool isAnthropic = string.Equals(provider.Id, "anthropic", StringComparison.OrdinalIgnoreCase);
         var history = req.Messages ?? new();
         var question = history.LastOrDefault(m => m.Role == "user")?.Content ?? "";
 
@@ -229,7 +233,12 @@ public class ChatAgentService
         }
 
         await emit(new { stage = "planning" });
-        var plannerReq = new CompleteRequest(BuildPlannerPrompt(history), req.Provider, req.Model, 3000, 0.1, PLANNER_SYSTEM, req.ApiKey);
+        var plannerReq = new CompleteRequest(
+            Prompt:      BuildPlannerPrompt(history),
+            Provider:    req.Provider, Model: req.Model,
+            MaxTokens:   3000, Temperature: 0.1,
+            System:      PLANNER_SYSTEM, ApiKey: req.ApiKey,
+            CacheSystem: isAnthropic);
         var plan = await CompleteWithFallbackAsync(provider, plannerReq, ct);
 
         string toolName = "none"; JsonElement? toolParams = null; string? directReply = null;
@@ -294,7 +303,12 @@ public class ChatAgentService
         // Gửi DATA SỚM → panel phải hiện số liệu/biểu đồ ngay, trong khi chữ phân tích chạy dần.
         await emit(new { stage = "analyzing", tool = tool.Name, data = chatData });
 
-        var analysisReq = new CompleteRequest(BuildAnalysisPrompt(history, tool, chatData.Raw ?? data, chatData.Stats), req.Provider, req.Model, 2000, 0.4, ANALYSIS_SYSTEM, req.ApiKey);
+        var analysisReq = new CompleteRequest(
+            Prompt:      BuildAnalysisPrompt(history, tool, chatData.Raw ?? data, chatData.Stats),
+            Provider:    req.Provider, Model: req.Model,
+            MaxTokens:   2000, Temperature: 0.4,
+            System:      ANALYSIS_SYSTEM, ApiKey: req.ApiKey,
+            CacheSystem: isAnthropic);
         var sb = new StringBuilder();
         var analysis = await StreamWithFallbackAsync(provider, analysisReq,
             async delta => { sb.Append(delta); await emit(new { delta }); }, ct);
