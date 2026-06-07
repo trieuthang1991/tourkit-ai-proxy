@@ -436,6 +436,55 @@ Nếu analysis text <30 ký tự (sau strip) → retry 1 lần với `max_tokens
 
 - Max iteration 3. Hết → trả phần đã có với `warning = "AI vượt giới hạn vòng lặp"`.
 
+### 8.6 Log câu hỏi AI không suy luận được
+
+Mọi trường hợp dưới đây ghi vào `data/chat-unresolved.jsonl` (append-only,
+gitignored như các log PII khác) để dev review batch và tối ưu prompt/tool:
+
+| Trigger | Tag log |
+|---|---|
+| Planner trả `tool=none` nhưng câu chứa từ khóa data (doanh thu, khách, tour...) | `planner_none_but_data_intent` |
+| Planner returns JSON sai, HeuristicRoute cũng không match | `both_planner_and_heuristic_fail` |
+| Planner pick tool nhưng dispatch trả empty (sau khi đã retry) | `tool_returned_empty` |
+| Dispatch lỗi sau 2 retry (5xx, timeout) | `upstream_persistent_error` |
+| Guardrail bắt AI bịa số (lệch >5% so với stats) | `ai_hallucinated_numbers` |
+| Multi-step hit max iteration (3) mà AI vẫn xin gọi tool | `iteration_limit_reached` |
+| Phản hồi quá ngắn sau retry | `response_too_short_after_retry` |
+| User input >1500 ký tự (truncated) | `input_truncated` |
+| Prompt injection detected | `injection_blocked` |
+
+**Shape mỗi entry**:
+
+```json
+{
+  "ts": "2026-06-07T15:23:11.234Z",
+  "tag": "planner_none_but_data_intent",
+  "sessionId": "abc123",
+  "tenantId": "staging.tourkit.vn",
+  "question": "Cho biết tình hình kinh doanh quý 2 và so sánh quý 1",
+  "history": [...last 3 turns...],
+  "planner_raw": "{\"tool\":\"none\",\"reply\":\"...\"}",
+  "tool_chosen": null,
+  "params": null,
+  "ai_reply_preview": "Mình là trợ lý số liệu...",
+  "provider": "anthropic", "model": "claude-haiku-4-5",
+  "iterations": 1,
+  "latencyMs": 2340,
+  "tokensIn": 1820, "tokensOut": 412
+}
+```
+
+**Endpoint admin** (Phase 3): `GET /api/v1/chat/unresolved?days=7&tag=...`
+trả về aggregate (count by tag, top 20 sample questions). Hiển thị thêm 1
+tab trong dashboard `/ai-usage` tên **"Câu khó AI"** để dev:
+
+1. Thấy ngay user hay vướng câu nào → bổ sung tool / prompt rule.
+2. Theo dõi xu hướng: % câu fail có giảm sau mỗi lần tune không.
+3. Export CSV cho non-dev (manager) review.
+
+**Privacy**: log lưu ngày tháng + question + context, KHÔNG lưu username
+(đã có sessionId nếu cần trace back). Auto-rotate 30 ngày + max file size 50MB.
+
 ---
 
 ## 9. Phase plan
@@ -495,6 +544,8 @@ Nếu analysis text <30 ký tự (sau strip) → retry 1 lần với `max_tokens
 - Cache hit rate metrics: ghi `AiUsageLog` thêm field `cacheHit: l1|l2|l3|none`.
 - Dashboard `/ai-usage` thêm chart "Cache hit rate per feature/day".
 - Telemetry multi-step: ghi `iterations: 1/2/3` trong log.
+- **Unresolved questions log** (section 8.6): writer + endpoint admin
+  `GET /api/v1/chat/unresolved` + tab "Câu khó AI" trong dashboard.
 
 **Files đụng**:
 - `Services/Chat/HeuristicRoute.cs`
