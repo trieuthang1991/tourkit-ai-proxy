@@ -102,6 +102,16 @@ public class ChatAgentService
         // ─── 2. Dispatch sang TourKit.Api (đọc) ────────────────────────────────────
         // Resolver: đổi marketName ("Nội địa miền Nam") → marketId trước khi gọi (multi-step có kiểm soát).
         toolParams = await ResolveMarketAsync(sessionId, toolParams, ct);
+
+        // L2 cache (post-planner): tool + canonical params giống → trả ngay,
+        // skip dispatch + analysis. TTL 5 phút.
+        var l2Key = AgentCacheKeys.L2Key(tenantId, tool.Name, toolParams);
+        if (_cache.TryGet<ChatResult>("r2|" + l2Key, out var l2Hit) && l2Hit != null)
+        {
+            _log.LogInformation("[chat] L2 cache hit ({Tool})", tool.Name);
+            return l2Hit;
+        }
+
         var path = ChatTools.BuildPath(tool, toolParams);
         _log.LogInformation("[chat] tool={Tool} path={Path}", tool.Name, path);
 
