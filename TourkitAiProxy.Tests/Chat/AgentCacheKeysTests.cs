@@ -42,4 +42,29 @@ public class AgentCacheKeysTests
         Assert.Contains("groupBy=month", canon);
         Assert.Contains("marketName=Bắc Âu", canon);
     }
+
+    [Fact]
+    public void L1Key_same_inputs_same_key()
+    {
+        var k1 = AgentCacheKeys.L1Key("staging", "Doanh thu");
+        var k2 = AgentCacheKeys.L1Key("staging", "  DOANH THU  ");
+        Assert.Equal(k1, k2);
+    }
+
+    [Fact]
+    public void L1Key_different_tenants_different_keys()
+    {
+        var k1 = AgentCacheKeys.L1Key("tenant-a", "x");
+        var k2 = AgentCacheKeys.L1Key("tenant-b", "x");
+        Assert.NotEqual(k1, k2);
+    }
+
+    [Fact]
+    public void L2Key_includes_tool_and_canonical_params()
+    {
+        var p = JsonDocument.Parse("""{"year":2026}""").RootElement;
+        var k = AgentCacheKeys.L2Key("staging", "cashflow", p);
+        Assert.StartsWith("staging|cashflow|", k);
+        Assert.Contains("year=2026", k);
+    }
 }

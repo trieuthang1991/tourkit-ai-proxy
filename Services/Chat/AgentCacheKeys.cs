@@ -52,4 +52,12 @@ public static class AgentCacheKeys
         }
         return string.Join(";", pairs);
     }
+
+    /// L1 cache key: tenant + câu hỏi đã normalize.
+    public static string L1Key(string tenantId, string? question)
+        => $"{tenantId}|{Normalize(question)}";
+
+    /// L2 cache key: tenant + tên tool + canonical params.
+    public static string L2Key(string tenantId, string toolName, JsonElement? prms)
+        => $"{tenantId}|{toolName}|{CanonicalParams(prms)}";
 }
