@@ -62,6 +62,25 @@ function App() {
   const [toasts, setToasts] = uS([]);
   const [authUser, setAuthUser] = uS(() => window.tourkitAuth.getUser());
   const [authReady, setAuthReady] = uS(false);
+  // returnTo: đường dẫn cần đến sau khi đăng nhập.
+  //   Ưu tiên: ?next=/path > pathname hiện tại (nếu khác '/').
+  //   Lưu state + sessionStorage để giữ qua remount khi auth thay đổi.
+  const [returnTo] = uS(() => {
+    try {
+      const sp = new URLSearchParams(window.location.search);
+      const next = sp.get('next');
+      if (next && next.startsWith('/')) {
+        sessionStorage.setItem('tk_return_to', next); return next;
+      }
+      const saved = sessionStorage.getItem('tk_return_to');
+      if (saved) return saved;
+      const p = window.location.pathname || '/';
+      if (p !== '/' && !p.startsWith('/login')) {
+        sessionStorage.setItem('tk_return_to', p); return p;
+      }
+    } catch {}
+    return null;
+  });
   // Theo dõi path qua history API (router HTML5 — không còn `#`).
   const [cur, setCur] = uS(() => (window.location.pathname || '/').split('?')[0]);
   uE(() => {
@@ -80,9 +99,35 @@ function App() {
   uE(() => window.tourkitAuth.onChange(() => setAuthUser(window.tourkitAuth.getUser())), []);
 
   // Xác thực session với server khi mở app (sau reload/restart).
+  // Hỗ trợ auto-login qua URL: ?token=ENC&next=/mail
+  //   - Nếu có ?token=, gọi loginToken trước; thành công → giữ ?next= cho onAuthed redirect.
+  //   - Token được strip khỏi URL ngay để không lộ qua reload/bookmark.
   uE(() => {
     let alive = true;
-    window.tourkitAuth.refresh().then(u => { if (alive) { setAuthUser(u); setAuthReady(true); } });
+    (async () => {
+      const sp = new URLSearchParams(window.location.search);
+      const urlToken = sp.get('token');
+      if (urlToken) {
+        // Strip token khỏi URL trước khi login (an toàn nếu user F5 sau lỗi)
+        sp.delete('token');
+        const cleanUrl = window.location.pathname + (sp.toString() ? '?' + sp.toString() : '') + window.location.hash;
+        window.history.replaceState({}, '', cleanUrl);
+        try {
+          const u = await window.tourkitAuth.loginToken(urlToken);
+          if (alive) { setAuthUser(u); setAuthReady(true); }
+          return;
+        } catch (e) {
+          // Lỗi token → tiếp tục flow refresh bình thường, user thấy LoginGate
+          console.warn('[auth] Auto-login qua URL token thất bại:', e.message);
+        }
+      }
+      try {
+        const u = await window.tourkitAuth.refresh();
+        if (alive) { setAuthUser(u); setAuthReady(true); }
+      } catch {
+        if (alive) setAuthReady(true);
+      }
+    })();
     return () => { alive = false; };
   }, []);
 
@@ -138,7 +183,22 @@ function App() {
   // ─── Gate toàn cục: chưa đăng nhập TourKit → màn login, không vào feature nào ───
   if (!authUser) {
     if (!authReady) return <div className="login-splash"><div className="login-splash-mark" /></div>;
-    return <window.LoginGate onAuthed={(u) => setAuthUser(u)} />;
+    return <window.LoginGate onAuthed={(u) => {
+      setAuthUser(u);
+      // Sau login: nhảy về returnTo nếu có (ưu tiên ?next=/path > pathname trước login).
+      const target = sessionStorage.getItem('tk_return_to');
+      sessionStorage.removeItem('tk_return_to');
+      if (target && target.startsWith('/') && target !== window.location.pathname) {
+        window.tourkitRouter.navigate(target);
+      } else {
+        // Clean ?next= ra khỏi URL cho gọn
+        const url = new URL(window.location.href);
+        if (url.searchParams.has('next')) {
+          url.searchParams.delete('next');
+          window.history.replaceState({}, '', url.pathname + (url.search ? '?' + url.searchParams : '') + url.hash);
+        }
+      }
+    }} />;
   }
 
   return (
