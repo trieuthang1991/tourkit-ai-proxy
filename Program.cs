@@ -83,8 +83,10 @@ builder.Services.AddHttpClient("tourkit", c =>
 builder.Services.AddSingleton<TourKitApiClient>();
 builder.Services.AddSingleton<TkSessionStore>();
 builder.Services.AddSingleton<TourkitAiProxy.Services.Cache.ChatCache>();   // Redis (nếu có) / in-memory
-// Agent runtimes -- JsonPlannerAgent la fallback cho moi provider.
-// Phase 2 se them NativeToolUseAgent (Anthropic/OpenAI) truoc JsonPlannerAgent trong danh sach.
+// Agent runtimes -- thu tu quan trong: NativeToolUseAgent (Anthropic native tools) chay truoc,
+// JsonPlannerAgent la fallback cho moi provider khac (OpenCode, 9routes...).
+// ChatAgentService resolve runtime dau tien co Supports(provider)=true.
+builder.Services.AddSingleton<IAgentRuntime, NativeToolUseAgent>();
 builder.Services.AddSingleton<IAgentRuntime, JsonPlannerAgent>();
 builder.Services.AddSingleton<ChatAgentService>();
 
