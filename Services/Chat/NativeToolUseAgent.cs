@@ -12,9 +12,23 @@ namespace TourkitAiProxy.Services.Chat;
 /// Agent dung Anthropic native function-calling (tools API chinh thuc).
 /// Chi ap dung khi provider == "anthropic". Cac provider khac fallback ve JsonPlannerAgent.
 ///
-/// G2-2: single-turn — toi da 1 tool_use block, 2 AI call.
-///   Call 1: system + tools + user messages → co the tra stop_reason = "tool_use" hoac "end_turn".
-///   Call 2 (neu co tool_use): gui tool_result → lay phan tich final.
+/// G2-3: multi-turn loop max 3 iteration + parallel tool execution.
+///
+/// State machine:
+///   turn N (max N=3)
+///     → AI call (voi previous messages + tool_results tu turn truoc)
+///     → doc stop_reason:
+///         "tool_use"   → execute TAT CA tool_use blocks song song (Task.WhenAll)
+///                        → append assistant turn + user turn voi tool_result blocks
+///                        → N+1 (lap tiep)
+///         "end_turn"   → ket thuc, lay text
+///         "max_tokens" → ket thuc voi warning
+///     → N > 3? hard stop, tra phan da co + warning "AI vuot gioi han vong lap"
+///
+/// Hard limits:
+///   - Max iteration AI  : 3
+///   - Max tool calls    : 5 (tong cong toan bo session)
+///   - Wall-clock        : 30s
 ///
 /// BuildChatData + helper stats duoc tach ra ChatDataBuilder de share voi JsonPlannerAgent.
 /// </summary>
@@ -37,6 +51,11 @@ public class NativeToolUseAgent : IAgentRuntime
         "Nếu câu hỏi không cần số liệu, trả lời thẳng không gọi tool.";
 
     private static readonly JsonSerializerOptions _jsonWeb = new(JsonSerializerDefaults.Web);
+
+    // Gioi han cung de chong AI loop bat tan
+    private const int MaxIterations  = 3;
+    private const int MaxToolCalls   = 5;
+    private const int WallClockSec   = 30;
 
     public NativeToolUseAgent(
         TourKitApiClient api,
@@ -79,136 +98,220 @@ public class NativeToolUseAgent : IAgentRuntime
         // Build tool schema, cache_control o tool cuoi de Anthropic cache phan prompt nay.
         var tools = ToolSchemaGenerator.BuildAnthropicTools(addCacheControl: true);
 
-        var sw = Stopwatch.StartNew();
-        int inTok = 0, outTok = 0;
-        int iterations = 1;
+        // Wall-clock timeout 30s chia se qua linked token
+        using var wallClock = new CancellationTokenSource(TimeSpan.FromSeconds(WallClockSec));
+        using var linked   = CancellationTokenSource.CreateLinkedTokenSource(ct, wallClock.Token);
 
-        // ── Call 1: planner + tool selection ──────────────────────────────────────
-        using var doc1 = await CallAnthropicAsync(apiKey, model, system, tools, messages, ct);
-        var root1    = doc1.RootElement;
-        var stop1    = root1.GetProperty("stop_reason").GetString();
-        var usage1   = root1.GetProperty("usage");
-        inTok  += usage1.GetProperty("input_tokens").GetInt32();
-        outTok += usage1.GetProperty("output_tokens").GetInt32();
+        // ── Bien trang thai cho toan bo vong lap ──────────────────────────────
+        int  iteration     = 0;
+        int  totalToolCalls= 0;
+        int  totalInTok    = 0;
+        int  totalOutTok   = 0;
+        long totalLat      = 0;
 
-        // Phan tich content blocks tu response 1
-        string? toolName   = null;
-        JsonElement? toolInput = null;
-        string? toolUseId  = null;
-        string  finalText  = "";
+        // Ket qua tich luy qua cac turn
+        string    finalText   = "";
+        string?   lastToolName= null;
+        object?   lastParams  = null;
+        ChatData? lastData    = null;
+        string?   warning     = null;
 
-        foreach (var block in root1.GetProperty("content").EnumerateArray())
+        // ── Vong lap multi-turn (toi da MaxIterations = 3) ───────────────────
+        while (iteration < MaxIterations)
         {
-            var blockType = block.GetProperty("type").GetString();
-            if (blockType == "text")
-                finalText += block.GetProperty("text").GetString();
-            else if (blockType == "tool_use")
+            iteration++;
+            _log.LogDebug("[NativeTool] iteration={Iter} totalToolCalls={Tc}", iteration, totalToolCalls);
+
+            // Goi Anthropic, nhan JsonDocument (caller phai dispose sau)
+            var (_, doc, lat) = await CallAnthropicAsync(apiKey, model, system, tools, messages, linked.Token);
+            totalLat += lat;
+
+            var root    = doc.RootElement;
+            var usage   = root.GetProperty("usage");
+            totalInTok  += usage.GetProperty("input_tokens").GetInt32();
+            totalOutTok += usage.GetProperty("output_tokens").GetInt32();
+
+            var stopReason = root.GetProperty("stop_reason").GetString();
+
+            // Thu thap tat ca text blocks + tool_use blocks trong turn nay
+            var toolUseBlocks = new List<(string Id, string Name, JsonElement Input)>();
+            var sb = new StringBuilder();
+
+            foreach (var block in root.GetProperty("content").EnumerateArray())
             {
-                toolName   = block.GetProperty("name").GetString();
-                toolInput  = block.GetProperty("input").Clone();
-                toolUseId  = block.GetProperty("id").GetString();
+                var bt = block.GetProperty("type").GetString();
+                if (bt == "text")
+                    sb.Append(block.GetProperty("text").GetString());
+                else if (bt == "tool_use")
+                {
+                    toolUseBlocks.Add((
+                        block.GetProperty("id").GetString()!,
+                        block.GetProperty("name").GetString()!,
+                        block.GetProperty("input").Clone()
+                    ));
+                }
             }
-        }
 
-        ChatData? chatData = null;
+            // Text turn nay ghi de finalText (text y nghia nhat la turn cuoi cung)
+            if (sb.Length > 0)
+                finalText = sb.ToString();
 
-        if (stop1 == "tool_use" && toolName != null)
-        {
-            var tool = ChatTools.Find(toolName);
-            if (tool == null)
+            // ── Kiem tra dieu kien ket thuc vong lap ──────────────────────────
+            if (stopReason == "end_turn" || toolUseBlocks.Count == 0)
             {
-                // AI goi tool khong co trong catalog → bao loi, khong crash.
-                _log.LogWarning("[NativeTool] AI goi tool khong ton tai: {Name}", toolName);
-                finalText = $"Tool '{toolName}' không có trong catalog. Vui lòng thử lại.";
+                // AI tu nguyen ket thuc hoac khong goi them tool nao
+                doc.Dispose();
+                break;
             }
-            else
-            {
-                // ── Dispatch tool: goi TourKit.Api ────────────────────────────────
-                var jwt  = await _sessions.GetValidJwtAsync(input.SessionId, ct);
-                var path = ChatTools.BuildPath(tool, toolInput);
-                _log.LogInformation("[NativeTool] tool={Tool} path={Path}", tool.Name, path);
 
-                JsonElement toolData;
+            if (stopReason == "max_tokens")
+            {
+                // Het budget token — ket thuc voi warning
+                _log.LogWarning("[NativeTool] max_tokens tai iteration {N}", iteration);
+                warning = "AI hết token trước khi hoàn thành phân tích.";
+                doc.Dispose();
+                break;
+            }
+
+            // ── Kiem tra gioi han tong so tool calls ──────────────────────────
+            if (totalToolCalls + toolUseBlocks.Count > MaxToolCalls)
+            {
+                _log.LogWarning("[NativeTool] cap tool calls: {Used}+{Pending} > {Max}",
+                    totalToolCalls, toolUseBlocks.Count, MaxToolCalls);
+                doc.Dispose();
+                break;
+            }
+            totalToolCalls += toolUseBlocks.Count;
+
+            // ── Thuc thi TAT CA tools song song (Task.WhenAll) ─────────────────
+            // Lay JWT 1 lan truoc khi bat dau parallel tasks (co the bi renew ben trong)
+            var jwt = await _sessions.GetValidJwtAsync(input.SessionId, linked.Token);
+
+            var execTasks = toolUseBlocks.Select(async tub =>
+            {
+                var tool = ChatTools.Find(tub.Name);
+                if (tool == null)
+                {
+                    _log.LogWarning("[NativeTool] AI goi tool khong ton tai: {Name}", tub.Name);
+                    return (tub,
+                        ResultJson: $"{{\"error\":\"Tool {tub.Name} không có trong catalog\"}}",
+                        Tool: (ChatTool?)null,
+                        Data: (ChatData?)null,
+                        Params: (object?)null);
+                }
+
                 try
                 {
-                    toolData = await _api.GetAsync(jwt, path, ct);
+                    var path = ChatTools.BuildPath(tool, tub.Input);
+                    _log.LogInformation("[NativeTool] tool={Tool} path={Path}", tool.Name, path);
+                    var data   = await _api.GetAsync(jwt, path, linked.Token);
+                    var cd     = ChatDataBuilder.Build(tool, data);
+                    var pars   = JsonSerializer.Deserialize<object>(tub.Input.GetRawText());
+                    return (tub, ResultJson: data.GetRawText(), Tool: (ChatTool?)tool, Data: (ChatData?)cd, Params: (object?)pars);
                 }
                 catch (TourKitApiException ex) when (ex.Status == 401)
                 {
-                    // JWT het han giua chung → re-login 1 lan.
-                    jwt      = await _sessions.ForceReloginAsync(input.SessionId, ct);
-                    toolData = await _api.GetAsync(jwt, path, ct);
-                }
-
-                // Build ChatData tu tool + data (dung chung ChatDataBuilder).
-                chatData = ChatDataBuilder.Build(tool, toolData);
-
-                // ── Call 2: gui tool_result, nhan phan tich ──────────────────────
-                // Append assistant turn (phai clone content truoc vi doc1 se bi dispose).
-                var content1Clone = root1.GetProperty("content").Clone();
-                messages.Add(new { role = "assistant", content = content1Clone });
-                messages.Add(new { role = "user", content = (object)new[]
-                {
-                    new
+                    // JWT het han giua chung → re-login + retry 1 lan
+                    _log.LogWarning("[NativeTool] 401 khi goi tool {Name}, re-login...", tub.Name);
+                    try
                     {
-                        type        = "tool_result",
-                        tool_use_id = toolUseId,
-                        content     = toolData.GetRawText()
+                        var freshJwt = await _sessions.ForceReloginAsync(input.SessionId, linked.Token);
+                        var path     = ChatTools.BuildPath(tool, tub.Input);
+                        var data     = await _api.GetAsync(freshJwt, path, linked.Token);
+                        var cd       = ChatDataBuilder.Build(tool, data);
+                        var pars     = JsonSerializer.Deserialize<object>(tub.Input.GetRawText());
+                        return (tub, ResultJson: data.GetRawText(), Tool: (ChatTool?)tool, Data: (ChatData?)cd, Params: (object?)pars);
                     }
-                }});
-
-                using var doc2 = await CallAnthropicAsync(apiKey, model, system, tools, messages, ct);
-                var root2  = doc2.RootElement;
-                var usage2 = root2.GetProperty("usage");
-                inTok  += usage2.GetProperty("input_tokens").GetInt32();
-                outTok += usage2.GetProperty("output_tokens").GetInt32();
-                iterations = 2;
-
-                // Lay text tu response 2.
-                finalText = "";
-                foreach (var block in root2.GetProperty("content").EnumerateArray())
+                    catch (Exception ex2)
+                    {
+                        _log.LogError(ex2, "[NativeTool] tool {Name} that bai sau re-login", tub.Name);
+                        return (tub,
+                            ResultJson: $"{{\"error\":\"{ex2.Message}\"}}",
+                            Tool: (ChatTool?)tool,
+                            Data: (ChatData?)null,
+                            Params: (object?)null);
+                    }
+                }
+                catch (Exception ex)
                 {
-                    if (block.GetProperty("type").GetString() == "text")
-                        finalText += block.GetProperty("text").GetString();
+                    _log.LogError(ex, "[NativeTool] tool {Name} that bai", tub.Name);
+                    return (tub,
+                        ResultJson: $"{{\"error\":\"{ex.Message}\"}}",
+                        Tool: (ChatTool?)tool,
+                        Data: (ChatData?)null,
+                        Params: (object?)null);
+                }
+            }).ToArray();
+
+            var execResults = await Task.WhenAll(execTasks);
+
+            // Ghi loi ket qua tool cuoi cung co data (cho ChatData panel phai)
+            foreach (var er in execResults)
+            {
+                if (er.Data != null)
+                {
+                    lastData     = er.Data;
+                    lastToolName = er.Tool?.Name;
+                    lastParams   = er.Params;
                 }
             }
+
+            // ── Xay dung luot tiep: append assistant turn + user turn tool_results ──
+            // Clone content truoc khi dispose doc
+            var assistantContent = root.GetProperty("content").Clone();
+            messages.Add(new { role = "assistant", content = assistantContent });
+
+            // Moi tool_use co 1 tool_result tuong ung (ke ca loi)
+            var toolResultBlocks = execResults.Select(er => (object)new
+            {
+                type        = "tool_result",
+                tool_use_id = er.tub.Id,
+                content     = er.ResultJson
+            }).ToArray();
+            messages.Add(new { role = "user", content = toolResultBlocks });
+
+            doc.Dispose();
+        } // end while
+
+        // ── Kiem tra co bi hard-stop khong ────────────────────────────────────
+        if (iteration >= MaxIterations && warning == null)
+        {
+            _log.LogWarning("[NativeTool] hit max iterations ({Max})", MaxIterations);
+            warning = "AI vượt giới hạn vòng lặp (3).";
         }
 
-        long latencyMs = sw.ElapsedMilliseconds;
-
-        // Guardrail: xoa em-dash.
+        // ── Guardrails ────────────────────────────────────────────────────────
         finalText = AgentGuardrails.StripEmDash(finalText.Trim());
 
-        // Neu reply qua ngan → thong bao fallback (khong retry buffered o day, retry o streaming se phuc tap).
-        if (AgentGuardrails.IsTooShort(finalText) && chatData != null)
+        // Reply qua ngan → fallback message
+        if (AgentGuardrails.IsTooShort(finalText) && lastData != null)
             finalText = "Đã lấy được số liệu (xem bảng bên phải) nhưng chưa tạo được phần phân tích.";
 
-        // Validate so AI noi (warning only).
-        var numWarning = chatData != null
-            ? AgentGuardrails.ValidateNumbers(finalText, chatData.Stats) : null;
+        // Validate so AI noi (warning only, khong block)
+        var numWarning = lastData != null
+            ? AgentGuardrails.ValidateNumbers(finalText, lastData.Stats) : null;
+        if (numWarning != null && warning == null)
+            warning = numWarning;
 
-        // Ghi usage log.
+        // Ghi usage log
         var c = _ctx.Resolve();
-        _usage.Append(c.Feature, c.SessionId, c.Tenant, "anthropic", model, inTok, outTok, latencyMs);
-
-        object? paramsOut = toolInput.HasValue
-            ? JsonSerializer.Deserialize<object>(toolInput.Value.GetRawText()) : null;
+        _usage.Append(c.Feature, c.SessionId, c.Tenant, "anthropic", model, totalInTok, totalOutTok, totalLat);
 
         return new AgentResult(
             Reply:        finalText,
-            ToolName:     toolName ?? "none",
-            Params:       paramsOut,
-            Data:         chatData,
-            LatencyMs:    latencyMs,
-            InputTokens:  inTok,
-            OutputTokens: outTok,
-            Warning:      numWarning,
-            Iterations:   iterations);
+            ToolName:     lastToolName ?? "none",
+            Params:       lastParams,
+            Data:         lastData,
+            LatencyMs:    totalLat,
+            InputTokens:  totalInTok,
+            OutputTokens: totalOutTok,
+            Warning:      warning,
+            Iterations:   iteration);
     }
 
     // ── Streaming run ────────────────────────────────────────────────────────────
 
-    /// Phase 2: dung buffered RunAsync roi emit toan bo ket qua (true streaming phai co G2-3).
+    /// Chay buffered RunAsync roi emit toan bo ket qua (true per-chunk streaming cho G2-5+).
     public async Task StreamAsync(AgentInput input, Func<object, Task> emit, CancellationToken ct)
     {
         await emit(new { stage = "thinking", iteration = 1 });
@@ -242,8 +345,9 @@ public class NativeToolUseAgent : IAgentRuntime
 
     // ── Anthropic HTTP helper ────────────────────────────────────────────────────
 
-    /// Goi POST api.anthropic.com/v1/messages, tra JsonDocument (caller phai dispose).
-    private async Task<JsonDocument> CallAnthropicAsync(
+    /// Goi POST api.anthropic.com/v1/messages.
+    /// Tra (rawBody, JsonDocument, latencyMs). Caller CO TRACH NHIEM dispose JsonDocument.
+    private async Task<(string Raw, JsonDocument Doc, long LatencyMs)> CallAnthropicAsync(
         string apiKey, string model, string system,
         object[] tools, List<object> messages,
         CancellationToken ct)
@@ -265,12 +369,14 @@ public class NativeToolUseAgent : IAgentRuntime
                 Encoding.UTF8,
                 "application/json")
         };
-        req.Headers.Add("x-api-key",          apiKey);
-        req.Headers.Add("anthropic-version",  "2023-06-01");
-        req.Headers.Add("anthropic-beta",      "prompt-caching-2024-07-31");
+        req.Headers.Add("x-api-key",         apiKey);
+        req.Headers.Add("anthropic-version", "2023-06-01");
+        req.Headers.Add("anthropic-beta",    "prompt-caching-2024-07-31");
 
+        var sw   = Stopwatch.StartNew();
         var resp = await http.SendAsync(req, ct);
         var raw  = await resp.Content.ReadAsStringAsync(ct);
+        sw.Stop();
 
         if (!resp.IsSuccessStatusCode)
         {
@@ -278,7 +384,8 @@ public class NativeToolUseAgent : IAgentRuntime
             throw new UpstreamException((int)resp.StatusCode, "Anthropic API loi", snippet);
         }
 
-        return JsonDocument.Parse(raw);
+        var doc = JsonDocument.Parse(raw);
+        return (raw, doc, sw.ElapsedMilliseconds);
     }
 
     // ── Message builder ──────────────────────────────────────────────────────────
