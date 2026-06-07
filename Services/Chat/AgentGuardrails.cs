@@ -8,6 +8,15 @@ namespace TourkitAiProxy.Services.Chat;
 
 public static class AgentGuardrails
 {
+    // Compiled regex dung chung, tranh interpreter overhead moi call
+    private static readonly Regex _numberPattern = new(
+        @"\b(\d{1,3}(?:[.,]\d{3})+|\d+\s*(?:ty|ti|trieu|tr|nghin|k))\b",
+        RegexOptions.Compiled | RegexOptions.IgnoreCase);
+
+    private static readonly Regex _stripTrieu = new(@"trieu", RegexOptions.Compiled | RegexOptions.IgnoreCase);
+    private static readonly Regex _stripNghin = new(@"nghin", RegexOptions.Compiled | RegexOptions.IgnoreCase);
+    private static readonly Regex _digitsOnly = new(@"[^\d]", RegexOptions.Compiled);
+
     // ---------------------------------------------------------------
     // StripEmDash: thay em-dash (U+2014) + en-dash (U+2013) thanh hyphen
     // ---------------------------------------------------------------
@@ -27,6 +36,8 @@ public static class AgentGuardrails
     public static (string Text, bool Truncated) TruncateInput(string? input, int maxLen = 1500)
     {
         if (string.IsNullOrEmpty(input)) return ("", false);
+        if (maxLen <= 0)
+            throw new ArgumentOutOfRangeException(nameof(maxLen), "maxLen phai > 0");
         if (input.Length <= maxLen) return (input, false);
         return (input[..maxLen].TrimEnd(), true);
     }
@@ -47,16 +58,14 @@ public static class AgentGuardrails
     // ---------------------------------------------------------------
 
     /// Quet so trong text AI, doi chieu voi stats server-side.
-    /// Neu co so lon (>1000) lech >5x so voi tat ca stat → tra warning.
+    /// Neu co so lon (>1000) lech >5x so voi tat ca stat - tra warning.
     /// Null = khong co van de.
     public static string? ValidateNumbers(string? text, IReadOnlyList<ChatStat>? stats)
     {
         if (string.IsNullOrWhiteSpace(text) || stats is null || stats.Count == 0) return null;
 
         // Tach so dang "1.000.000.000" hoac "200 trieu" hoac "5 ty"
-        var matches = Regex.Matches(text,
-            @"\b(\d{1,3}(?:[.,]\d{3})+|\d+\s*(?:ty|ti|trieu|tr|nghin|k))\b",
-            RegexOptions.IgnoreCase);
+        var matches = _numberPattern.Matches(text);
 
         if (matches.Count == 0) return null;
 
@@ -90,7 +99,7 @@ public static class AgentGuardrails
         else if (s.Contains("trieu"))
         {
             mult = 1_000_000;
-            s = Regex.Replace(s, "trieu", "").Trim();
+            s = _stripTrieu.Replace(s, "").Trim();
         }
         else if (s.EndsWith("tr"))
         {
@@ -100,7 +109,7 @@ public static class AgentGuardrails
         else if (s.Contains("nghin"))
         {
             mult = 1_000;
-            s = Regex.Replace(s, "nghin", "").Trim();
+            s = _stripNghin.Replace(s, "").Trim();
         }
         else if (s.EndsWith("k"))
         {
@@ -108,7 +117,7 @@ public static class AgentGuardrails
             s = s[..^1].Trim();
         }
 
-        var digits = Regex.Replace(s, @"[^\d]", "");
+        var digits = _digitsOnly.Replace(s, "");
         if (!double.TryParse(digits, NumberStyles.Number, CultureInfo.InvariantCulture, out var n))
             return 0;
 

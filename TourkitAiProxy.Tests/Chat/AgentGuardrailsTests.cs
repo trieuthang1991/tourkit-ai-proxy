@@ -73,4 +73,22 @@ public class AgentGuardrailsTests
         var warning = AgentGuardrails.ValidateNumbers("anything", new List<ChatStat>());
         Assert.Null(warning);
     }
+
+    // ---------------------------------------------------------------
+    // TruncateInput guard: maxLen <= 0
+    // ---------------------------------------------------------------
+    [Fact]
+    public void TruncateInput_throws_when_maxLen_zero_or_negative()
+    {
+        Assert.Throws<ArgumentOutOfRangeException>(() => AgentGuardrails.TruncateInput("hello", 0));
+        Assert.Throws<ArgumentOutOfRangeException>(() => AgentGuardrails.TruncateInput("hello", -10));
+    }
+
+    [Fact]
+    public void TruncateInput_at_exact_maxLen_returns_unchanged()
+    {
+        var (text, truncated) = AgentGuardrails.TruncateInput("12345", 5);
+        Assert.Equal("12345", text);
+        Assert.False(truncated);
+    }
 }
