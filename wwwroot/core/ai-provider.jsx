@@ -262,7 +262,24 @@ function AISettingsDialog({ open, onClose, onSaved }) {
     setModelFilter('');
     setKeyInput(''); setKeyMsg(null);
     window.tourkit.ai.fetchProviders()
-      .then(setProviders)
+      .then(list => {
+        setProviders(list);
+        // AUTO-HEAL: model đã save có thể bị retire (vd "claude-3-5-haiku-latest"
+        // sau khi tôi update Models list). Nếu model không nằm trong list của
+        // provider hiện tại → tự đổi sang Recommended (giữ provider nguyên).
+        const saved = window.tourkit.ai.getConfig();
+        const p = list.find(x => x.id === saved.provider);
+        if (p && p.models?.length) {
+          const has = p.models.some(m => m.id === saved.model);
+          if (!has) {
+            const reco = p.models.find(m => m.recommended) || p.models[0];
+            const healed = { provider: saved.provider, model: reco.id };
+            window.tourkit.ai.setConfig(healed);
+            setCfg(healed);
+            setLoadErr(`Model "${saved.model}" đã ngưng phục vụ, đã tự đổi sang "${reco.id}".`);
+          }
+        }
+      })
       .catch(e => setLoadErr(e.message));
   }, [open]);
 

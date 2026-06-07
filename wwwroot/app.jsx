@@ -46,6 +46,19 @@ function App() {
   const [aiSettingsOpen, setAiSettingsOpen] = uS(false);
   const [aiCfg, setAiCfg] = uS(() =>
     window.tourkit?.ai?.getConfig?.() || { provider: 'opencode-go', model: 'deepseek-v4-flash' });
+  // Re-sync aiCfg sau mount + listen storage event (cross-tab sync).
+  // Bug trước: nếu window.tourkit chưa ready lúc useState init → fallback default;
+  // sau đó tab khác thay đổi cũng không sync → chip topbar lệch với localStorage.
+  uE(() => {
+    if (window.tourkit?.ai?.getConfig) setAiCfg(window.tourkit.ai.getConfig());
+    const onStorage = (e) => {
+      if (e.key === 'tourkit_ai_config' && window.tourkit?.ai?.getConfig) {
+        setAiCfg(window.tourkit.ai.getConfig());
+      }
+    };
+    window.addEventListener('storage', onStorage);
+    return () => window.removeEventListener('storage', onStorage);
+  }, []);
   const [toasts, setToasts] = uS([]);
   const [authUser, setAuthUser] = uS(() => window.tourkitAuth.getUser());
   const [authReady, setAuthReady] = uS(false);
