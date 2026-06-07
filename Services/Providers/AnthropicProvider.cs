@@ -13,11 +13,9 @@ public class AnthropicProvider : IAiProvider
 
     public IReadOnlyList<ProviderModel> Models { get; } = new[]
     {
-        new ProviderModel("claude-3-5-sonnet-latest", "Claude 3.5 Sonnet", Recommended: true),
-        new ProviderModel("claude-3-5-haiku-latest", "Claude 3.5 Haiku"),
-        new ProviderModel("claude-sonnet-4-5", "Claude Sonnet 4.5"),
+        new ProviderModel("claude-sonnet-4-5", "Claude Sonnet 4.5", Recommended: true),
+        new ProviderModel("claude-haiku-4-5", "Claude Haiku 4.5"),
         new ProviderModel("claude-opus-4-1", "Claude Opus 4.1"),
-        new ProviderModel("claude-3-opus-latest", "Claude 3 Opus"),
     };
 
     private const string BaseUrl = "https://api.anthropic.com";
