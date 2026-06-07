@@ -2906,12 +2906,17 @@ body.editorial .ai-bubble .hl { color: #FDBA74; }
 }
 .hp > * {
   position: relative; z-index: 1;
-  /* Giới hạn width trên màn wide (skill rule: contain page layouts với max-w mx-auto).
-     Background gradient + grid pattern vẫn full-screen qua ::before; chỉ content bị clamp. */
+  /* Giới hạn width trên màn wide (skill rule: contain page layouts).
+     Background + grid pattern vẫn full-screen qua ::before; chỉ content bị clamp. */
   max-width: 1320px;
   width: 100%;
   margin-left: auto;
   margin-right: auto;
+}
+/* Header full-width (user yêu cầu): brand trái sát mép, theme/clock phải sát mép.
+   Override max-width của rule above. */
+.hp > .hp-bar {
+  max-width: none;
 }
 
 /* Header 3-cột */
