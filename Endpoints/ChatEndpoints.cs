@@ -206,6 +206,39 @@ public static class ChatEndpoints
             return Results.Ok(new { ok = true });
         });
 
+        // ─── GET /chat/unresolved ─── đọc câu hỏi AI không suy luận được (unresolved-log) ──
+        v1.MapGet("/chat/unresolved", (UnresolvedQuestionsLog log, int? days, string? tag) =>
+        {
+            var entries = log.Read(days: days ?? 7, tag: tag, maxEntries: 200);
+
+            // Tổng hợp theo trigger tag để xem tag nào xuất hiện nhiều nhất
+            var byTag = entries
+                .GroupBy(e => e.TryGetProperty("tag", out var t) ? (t.GetString() ?? "unknown") : "unknown")
+                .Select(g => new {
+                    tag   = g.Key,
+                    count = g.Count(),
+                    sampleQuestions = g.Take(5)
+                        .Select(e => e.TryGetProperty("question", out var q) ? q.GetString() : null)
+                        .Where(q => q != null)
+                        .ToArray()
+                })
+                .OrderByDescending(x => x.count)
+                .ToArray();
+
+            // 50 entry gần nhất để hiển thị chi tiết
+            var entryList = entries.Take(50)
+                .Select(e => (object)JsonSerializer.Deserialize<object>(e.GetRawText(), SseJson)!)
+                .ToArray();
+
+            return Results.Json(new {
+                total   = entries.Count,
+                days    = days ?? 7,
+                tag,
+                byTag,
+                entries = entryList
+            }, SseJson);
+        });
+
         // ─── POST /chat/cache/clear ─── xóa cache số liệu của công ty (buộc gọi mới) ──
         v1.MapPost("/chat/cache/clear", (HttpContext ctx, TkSessionStore sessions, Services.Cache.ChatCache cache) =>
         {

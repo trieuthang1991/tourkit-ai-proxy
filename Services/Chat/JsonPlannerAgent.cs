@@ -758,23 +758,35 @@ Nếu câu hỏi có ý ĐỐI CHIẾU với câu trước (vd 'so với năm ng
 
         if (Has("dòng tiền", "cashflow", "xu hướng", "biểu đồ", "đồ thị")
             || (Has("tháng", "12 tháng", "theo tháng", "hàng tháng", "so sánh", "gần đây")
-                && Has("doanh thu", "doanh số", "chi phí", "lợi nhuận", "lãi")))
+                && Has("doanh thu", "doanh số", "chi phí", "lợi nhuận", "lãi"))
+            // EN: trend / chart keywords
+            || (Has("trend", "chart", "graph", "monthly", "over time")
+                && Has("revenue", "profit", "income", "expense", "cost", "sales")))
         {
             var start = new DateTime(now.Year, now.Month, 1).AddMonths(-11);
             return ("cashflow", P(new { startDate = start.ToString("yyyy-MM-dd"), endDate = now.ToString("yyyy-MM-dd"), groupBy = "month" }));
         }
-        if (Has("top khách", "khách hàng chi tiêu", "khách vip", "khách hàng tốt", "mua nhiều")) return ("top_customers", null);
-        if (Has("top nhân viên", "top seller", "nhân viên", "sale giỏi")) return ("top_sellers", null);
-        if (Has("marketing", "nguồn khách", "nguồn kh", "kênh")) return ("marketing", null);
-        if (Has("lịch hẹn", "cuộc hẹn", "cskh")) return ("appointments", null);
+        // top khách / top customer
+        if (Has("top khách", "khách hàng chi tiêu", "khách vip", "khách hàng tốt", "mua nhiều")
+            || (Has("top") && Has("customer", "client", "buyer"))) return ("top_customers", null);
+        // top nhân viên / top seller / salesperson
+        if (Has("top nhân viên", "top seller", "nhân viên", "sale giỏi")
+            || (Has("top") && Has("seller", "salesperson", "staff", "agent"))) return ("top_sellers", null);
+        // marketing / nguồn khách / source / channel
+        if (Has("marketing", "nguồn khách", "nguồn kh", "kênh", "source", "channel", "acquisition")) return ("marketing", null);
+        if (Has("lịch hẹn", "cuộc hẹn", "cskh", "appointment", "meeting")) return ("appointments", null);
         if (Has("phiếu thu", "phiếu chi", "voucher")) return ("vouchers", null);
-        if (Has("cơ hội", "booking ticket", "phiếu tư vấn", "lead")) return ("booking_tickets", null);
-        if (Has("thông báo", "cần duyệt", "chờ duyệt")) return ("notifications", null);
-        if (Has("công việc", "task", "đầu việc")) return ("tasks", null);
-        if (Has("tour sắp", "sắp khởi hành", "sắp đi")) return ("departures", null);
+        // cơ hội / lead / deal / opportunity
+        if (Has("cơ hội", "booking ticket", "phiếu tư vấn", "lead", "deal", "opportunity", "opportunities")) return ("booking_tickets", null);
+        if (Has("thông báo", "cần duyệt", "chờ duyệt", "notification", "pending approval")) return ("notifications", null);
+        if (Has("công việc", "đầu việc", "task", "tasks", "to-do", "todo")) return ("tasks", null);
+        // tour sắp / departures / upcoming
+        if (Has("tour sắp", "sắp khởi hành", "sắp đi", "departures", "upcoming tour", "upcoming departure")) return ("departures", null);
         if (Has("tour")) return ("tours", null);
-        if (Has("khách hàng", "danh sách kh")) return ("customers", null);
-        if (Has("doanh thu", "doanh số", "chi phí", "lợi nhuận", "lãi", "tài chính"))
+        if (Has("khách hàng", "danh sách kh", "customer list", "client list")) return ("customers", null);
+        // doanh thu / revenue / profit / income / expense / cost (đơn giản, không trend)
+        if (Has("doanh thu", "doanh số", "chi phí", "lợi nhuận", "lãi", "tài chính",
+                "revenue", "profit", "income", "expense", "cost", "sales", "earnings"))
         {
             var start = new DateTime(now.Year, now.Month, 1);
             return ("cashflow", P(new { startDate = start.ToString("yyyy-MM-dd"), endDate = now.ToString("yyyy-MM-dd"), groupBy = "month" }));
@@ -1063,8 +1075,13 @@ Nếu câu hỏi có ý ĐỐI CHIẾU với câu trước (vd 'so với năm ng
         if (string.IsNullOrWhiteSpace(question)) return false;
         string[] keywords =
         {
+            // VN
             "doanh thu", "lợi nhuận", "chi phí", "khách", "tour", "đặt",
-            "marketing", "deal", "cơ hội", "visa", "thu nhập", "ngân sách", "công nợ"
+            "marketing", "deal", "cơ hội", "visa", "thu nhập", "ngân sách", "công nợ",
+            // EN
+            "revenue", "profit", "income", "expense", "cost", "sales",
+            "customer", "client", "booking", "departure", "source", "channel",
+            "opportunity", "task", "voucher", "appointment"
         };
         var norm = question.ToLowerInvariant();
         return keywords.Any(k => norm.Contains(k));

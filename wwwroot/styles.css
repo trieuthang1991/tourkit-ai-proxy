@@ -2756,6 +2756,27 @@ body.editorial .ai-bubble .hl { color: #FDBA74; }
 .aiu-status.ok { background: #dcfce7; color: #047857; }
 .aiu-status.warn { background: #fef3c7; color: #92400e; }
 
+/* ─── Câu khó AI (UnresolvedTab trong /ai-usage) ─────────────────────────── */
+.unresolved-filters { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; margin-bottom: 14px; }
+.unresolved-filters select,
+.unresolved-filters input {
+  height: 32px; padding: 0 10px; border: 1px solid var(--border); border-radius: 6px;
+  font-size: 12.5px; background: var(--surface); color: var(--text); outline: none;
+}
+.unresolved-filters input { min-width: 260px; }
+.unresolved-filters select:focus,
+.unresolved-filters input:focus { border-color: var(--primary); box-shadow: 0 0 0 2px var(--primary-glow); }
+.unresolved-badge { background: var(--primary-soft); color: var(--primary-dark);
+  padding: 4px 11px; border-radius: 999px; font-size: 11.5px; font-weight: 700; }
+.unresolved-table td { vertical-align: top; }
+.unresolved-code { background: var(--bg); padding: 2px 7px; border-radius: 4px; font-size: 11.5px; white-space: nowrap; }
+.unresolved-samples { margin: 0; padding-left: 16px; font-size: 12px; color: var(--text-2); }
+.unresolved-samples li { margin-bottom: 2px; }
+.unresolved-details { margin-top: 12px; }
+.unresolved-details summary { font-size: 12.5px; font-weight: 600; cursor: pointer; color: var(--primary-dark); padding: 4px 0; }
+.unresolved-pre { font-size: 11px; background: var(--bg); border: 1px solid var(--border);
+  border-radius: 6px; padding: 12px; overflow-x: auto; max-height: 420px; color: var(--text-2); }
+
 /* ─── PageShell shared (.ph-*) ─── format Trợ lý số liệu cho mọi page ─────── */
 .ph-hero { display: flex; align-items: center; gap: 18px; padding: 18px 22px;
   background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius-lg);

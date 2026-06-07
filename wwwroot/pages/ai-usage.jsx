@@ -1,6 +1,6 @@
 // pages/ai-usage.jsx — Giám sát chi phí AI. Bám format /assistant (hero cam-đen + eyebrow + pane sections).
 
-const { useState: _uS, useEffect: _uE } = React;
+const { useState: _uS, useEffect: _uE, useCallback: _uCb } = React;
 
 const fmtN = (n) => Number(n || 0).toLocaleString('vi-VN');
 const fmtVnd = (n) => Number(n || 0).toLocaleString('vi-VN');
@@ -216,7 +216,87 @@ function AiUsagePage({ pushToast }) {
           </table>
         </div>
       </section>
+
+      {/* Section: CÂU KHÓ AI — unresolved questions log */}
+      <UnresolvedTab />
     </main>
+  );
+}
+
+// ── Tab "Câu khó AI" — đọc unresolved-log qua GET /api/v1/chat/unresolved ──
+function UnresolvedTab() {
+  const [data, setData] = _uS(null);
+  const [days, setDays] = _uS(7);
+  const [tag, setTag]   = _uS('');
+  const [loading, setLoading] = _uS(false);
+
+  const load = _uCb(async () => {
+    setLoading(true);
+    try {
+      const params = new URLSearchParams({ days });
+      if (tag) params.set('tag', tag);
+      const r = await fetch(`/api/v1/chat/unresolved?${params}`);
+      if (r.ok) setData(await r.json());
+    } finally { setLoading(false); }
+  }, [days, tag]);
+
+  _uE(() => { load(); }, [load]);
+
+  return (
+    <section className="aiu-pane">
+      <Eyebrow sub="CÂU HỎI AI KHÔNG SỬ LÝ ĐƯỢC">CÂU KHÓ AI</Eyebrow>
+
+      <div className="unresolved-filters">
+        <select value={days} onChange={e => setDays(+e.target.value)}>
+          <option value={1}>1 ngày</option>
+          <option value={7}>7 ngày</option>
+          <option value={30}>30 ngày</option>
+        </select>
+        <input
+          placeholder="Lọc theo tag (vd: planner_none_but_data_intent)"
+          value={tag}
+          onChange={e => setTag(e.target.value)}
+        />
+        <button className="aiu-range-chip on" onClick={load} disabled={loading}>
+          {loading ? 'Đang tải…' : 'Làm mới'}
+        </button>
+        {data && <span className="unresolved-badge">{data.total} entry</span>}
+      </div>
+
+      {data && data.byTag && data.byTag.length > 0 && (
+        <div className="unresolved-summary">
+          <table className="aiu-table unresolved-table">
+            <thead>
+              <tr><th>Tag</th><th>Count</th><th>Câu hỏi mẫu</th></tr>
+            </thead>
+            <tbody>
+              {data.byTag.map(t => (
+                <tr key={t.tag}>
+                  <td><code className="unresolved-code">{t.tag}</code></td>
+                  <td className="num">{t.count}</td>
+                  <td>
+                    <ul className="unresolved-samples">
+                      {(t.sampleQuestions || []).map((q, i) => <li key={i}>{q}</li>)}
+                    </ul>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+
+      {data && data.byTag && data.byTag.length === 0 && (
+        <div className="aiu-empty" style={{ padding: '24px 0' }}>Không có entry nào trong khoảng thời gian đã chọn.</div>
+      )}
+
+      {data && data.entries && data.entries.length > 0 && (
+        <details className="unresolved-details">
+          <summary>{Math.min(50, data.total)} entry chi tiết gần nhất</summary>
+          <pre className="unresolved-pre">{JSON.stringify(data.entries, null, 2)}</pre>
+        </details>
+      )}
+    </section>
   );
 }
 
