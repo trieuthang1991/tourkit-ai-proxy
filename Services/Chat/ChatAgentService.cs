@@ -49,13 +49,15 @@ public class ChatAgentService
         }
         question = truncQuestion;
 
-        var tenantId = _sessions.Get(sessionId)?.TenantId ?? "";
-        // Bỏ qua cache khi không có tenantId thật (session expired/invalid) — tránh pollute cross-tenant.
-        bool useCache = !string.IsNullOrWhiteSpace(tenantId);
+        var session = _sessions.Get(sessionId);
+        var tenantId = session?.TenantId ?? "";
+        var username = session?.Username ?? "";
+        // Cache PHẢI scope theo user (phân quyền data có thể khác giữa các user cùng tenant).
+        bool useCache = !string.IsNullOrWhiteSpace(tenantId) && !string.IsNullOrWhiteSpace(username);
 
         // L1 cache (pre-planner): câu hỏi y hệt sau khi normalize → trả ngay, skip toàn bộ AI.
         // TTL ngắn (3 phút) để user F5/reload không bị stale lâu.
-        var l1Key = AgentCacheKeys.L1Key(tenantId, question);
+        var l1Key = AgentCacheKeys.L1Key(tenantId, username, question);
         if (useCache && !string.IsNullOrWhiteSpace(question)
             && _cache.TryGet<ChatResult>("r1|" + l1Key, out var l1Hit) && l1Hit != null)
         {
@@ -117,7 +119,7 @@ public class ChatAgentService
 
         // L2 cache (post-planner): tool + canonical params giống → trả ngay,
         // skip dispatch + analysis. TTL 5 phút.
-        var l2Key = AgentCacheKeys.L2Key(tenantId, tool.Name, toolParams);
+        var l2Key = AgentCacheKeys.L2Key(tenantId, username, tool.Name, toolParams);
         if (useCache && _cache.TryGet<ChatResult>("r2|" + l2Key, out var l2Hit) && l2Hit != null)
         {
             _log.LogInformation("[chat] L2 cache hit ({Tool})", tool.Name);
@@ -218,12 +220,14 @@ public class ChatAgentService
         }
         question = truncQuestion2;
 
-        var tenantId = _sessions.Get(sessionId)?.TenantId ?? "";
-        // Bỏ qua cache khi không có tenantId thật (session expired/invalid) — tránh pollute cross-tenant.
-        bool useCache = !string.IsNullOrWhiteSpace(tenantId);
+        var session2 = _sessions.Get(sessionId);
+        var tenantId = session2?.TenantId ?? "";
+        var username = session2?.Username ?? "";
+        // Cache PHẢI scope theo user (phân quyền data có thể khác giữa các user cùng tenant).
+        bool useCache = !string.IsNullOrWhiteSpace(tenantId) && !string.IsNullOrWhiteSpace(username);
 
         // L1 cache (pre-planner): câu hỏi y hệt sau khi normalize → trả ngay, skip toàn bộ AI.
-        var l1Key = AgentCacheKeys.L1Key(tenantId, question);
+        var l1Key = AgentCacheKeys.L1Key(tenantId, username, question);
         if (useCache && !string.IsNullOrWhiteSpace(question)
             && _cache.TryGet<ChatResult>("r1|" + l1Key, out var l1Hit) && l1Hit != null)
         {
@@ -272,7 +276,7 @@ public class ChatAgentService
 
         // L2 cache (post-planner): tool + canonical params giống → trả ngay,
         // skip dispatch + analysis. TTL 5 phút.
-        var l2Key = AgentCacheKeys.L2Key(tenantId, tool.Name, toolParams);
+        var l2Key = AgentCacheKeys.L2Key(tenantId, username, tool.Name, toolParams);
         if (useCache && _cache.TryGet<ChatResult>("r2|" + l2Key, out var l2Hit) && l2Hit != null)
         {
             _log.LogInformation("[chat-stream] L2 cache hit ({Tool})", tool.Name);

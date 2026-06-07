@@ -46,16 +46,16 @@ public class AgentCacheKeysTests
     [Fact]
     public void L1Key_same_inputs_same_key()
     {
-        var k1 = AgentCacheKeys.L1Key("staging", "Doanh thu");
-        var k2 = AgentCacheKeys.L1Key("staging", "  DOANH THU  ");
+        var k1 = AgentCacheKeys.L1Key("staging", "u1", "Doanh thu");
+        var k2 = AgentCacheKeys.L1Key("staging", "u1", "  DOANH THU  ");
         Assert.Equal(k1, k2);
     }
 
     [Fact]
     public void L1Key_different_tenants_different_keys()
     {
-        var k1 = AgentCacheKeys.L1Key("tenant-a", "x");
-        var k2 = AgentCacheKeys.L1Key("tenant-b", "x");
+        var k1 = AgentCacheKeys.L1Key("tenant-a", "u", "x");
+        var k2 = AgentCacheKeys.L1Key("tenant-b", "u", "x");
         Assert.NotEqual(k1, k2);
     }
 
@@ -63,8 +63,25 @@ public class AgentCacheKeysTests
     public void L2Key_includes_tool_and_canonical_params()
     {
         var p = JsonDocument.Parse("""{"year":2026}""").RootElement;
-        var k = AgentCacheKeys.L2Key("staging", "cashflow", p);
-        Assert.StartsWith("staging|cashflow|", k);
+        var k = AgentCacheKeys.L2Key("staging", "u1", "cashflow", p);
+        Assert.StartsWith("staging|u1|cashflow|", k);
         Assert.Contains("year=2026", k);
+    }
+
+    [Fact]
+    public void L1Key_different_users_same_tenant_different_keys()
+    {
+        var k1 = AgentCacheKeys.L1Key("tenant-a", "user1", "x");
+        var k2 = AgentCacheKeys.L1Key("tenant-a", "user2", "x");
+        Assert.NotEqual(k1, k2);
+    }
+
+    [Fact]
+    public void L2Key_different_users_same_tenant_different_keys()
+    {
+        var p = JsonDocument.Parse("""{"year":2026}""").RootElement;
+        var k1 = AgentCacheKeys.L2Key("tenant-a", "user1", "cashflow", p);
+        var k2 = AgentCacheKeys.L2Key("tenant-a", "user2", "cashflow", p);
+        Assert.NotEqual(k1, k2);
     }
 }
