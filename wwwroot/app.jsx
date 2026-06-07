@@ -21,13 +21,15 @@ function userInitials(name) {
 }
 
 // Sidebar nav (style TourKit: dọc bên trái, mục active nền cam).
+// '/' giờ là Home Launcher (pages/home.jsx); Wizard tour quote chuyển sang '/wizard'.
 const NAV = [
-  { to: '/',          icon: 'sparkle', label: 'Wizard tạo tour' },
-  { to: '/customers', icon: 'users',   label: 'Khách hàng' },
+  { to: '/',          icon: 'sparkle', label: 'Trang chủ' },
   { to: '/assistant', icon: 'sparkle', label: 'Trợ lý số liệu' },
+  { to: '/wizard',    icon: 'sparkle', label: 'Tính giá Tour' },
+  { to: '/customers', icon: 'users',   label: 'Khách hàng' },
+  { to: '/deals',     icon: 'trend',   label: 'Ưu tiên Deal AI' },
   { to: '/mail',      icon: 'paper',   label: 'Hộp thư AI' },
   { to: '/visa',      icon: 'shield',  label: 'Thẩm định Visa' },
-  { to: '/deals',     icon: 'trend',   label: 'Ưu tiên Deal AI' },
   { to: '/tour-builder', icon: 'pin',  label: 'Soạn Tour GIT (AI)' },
   { to: '/ai-usage',     icon: 'chart',  label: 'Chi phí AI' },
 ];
@@ -182,7 +184,8 @@ function App() {
 
       {/* Router: chọn page theo hash. Thêm page = thêm <Route> ở đây. */}
       <Router>
-        <Route path="/"          render={() => <window.WizardPage pushToast={pushToast} tweaks={t} />} />
+        <Route path="/"          render={() => <window.HomePage pushToast={pushToast} />} />
+        <Route path="/wizard"    render={() => <window.WizardPage pushToast={pushToast} tweaks={t} />} />
         <Route path="/customers" render={() => <window.CustomersPage pushToast={pushToast} />} />
         <Route path="/assistant" render={() => <window.AssistantPage pushToast={pushToast} />} />
         <Route path="/mail"      render={() => <window.MailPage pushToast={pushToast} />} />
