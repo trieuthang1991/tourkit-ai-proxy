@@ -77,6 +77,33 @@
       .normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/đ/g, 'd');
   }
 
+  // Thử lần lượt mascot.png → .jpg → .webp; tất cả fail → SVG ngôi sao cam.
+  // Dùng absolute path '/lib/...' để route nào cũng resolve đúng.
+  function MascotImage() {
+    const candidates = ['/lib/mascot.png', '/lib/mascot.jpg', '/lib/mascot.webp'];
+    const [idx, setIdx] = s(0);
+    if (idx >= candidates.length) {
+      return (
+        <svg viewBox="0 0 64 64" width="56" height="56" aria-hidden>
+          <defs>
+            <linearGradient id="m-g" x1="0" y1="0" x2="1" y2="1">
+              <stop offset="0%" stopColor="#FED7AA" />
+              <stop offset="100%" stopColor="#FB923C" />
+            </linearGradient>
+          </defs>
+          <path fill="url(#m-g)" d="M32 6l4 10 10 4-10 4-4 10-4-10-10-4 10-4z" />
+          <circle cx="48" cy="16" r="3" fill="#FCD34D" />
+          <circle cx="14" cy="46" r="2.2" fill="#FCD34D" />
+        </svg>
+      );
+    }
+    return (
+      <img src={candidates[idx]} alt="TourKit AI mascot"
+        className="home-mascot-img"
+        onError={() => setIdx(i => i + 1)} />
+    );
+  }
+
   function HomePage({ pushToast }) {
     const [q, setQ] = s('');
     const user = window.tourkitAuth?.getUser?.() || {};
@@ -125,26 +152,14 @@
         </div>
 
         {/* Hero centerpiece — mascot TourKit AI + tagline.
-            Ảnh thật ở wwwroot/lib/mascot.png; nếu thiếu sẽ rớt về SVG fallback (onError). */}
+            Ảnh thật ở wwwroot/lib/mascot.{png|jpg|webp}; thử lần lượt, hết → SVG fallback.
+            ABSOLUTE path '/lib/...' để hoạt động đúng ở mọi route (chứ relative 'lib/...'
+            khi ở /something sẽ resolve thành /something/lib/mascot.png → 404). */}
         <button className="home-mascot" onClick={() => navigate('/assistant')}
           aria-label="Mở Trợ lý AI">
           <div className="home-mascot-ring">
             <div className="home-mascot-orb">
-              <img src="lib/mascot.png" alt="TourKit AI mascot"
-                className="home-mascot-img"
-                onError={(e) => { e.currentTarget.style.display = 'none'; e.currentTarget.nextSibling.style.display = 'block'; }} />
-              <svg viewBox="0 0 64 64" width="56" height="56" aria-hidden
-                className="home-mascot-svg-fallback" style={{ display: 'none' }}>
-                <defs>
-                  <linearGradient id="m-g" x1="0" y1="0" x2="1" y2="1">
-                    <stop offset="0%" stopColor="#FED7AA" />
-                    <stop offset="100%" stopColor="#FB923C" />
-                  </linearGradient>
-                </defs>
-                <path fill="url(#m-g)" d="M32 6l4 10 10 4-10 4-4 10-4-10-10-4 10-4z" />
-                <circle cx="48" cy="16" r="3" fill="#FCD34D" />
-                <circle cx="14" cy="46" r="2.2" fill="#FCD34D" />
-              </svg>
+              <MascotImage />
             </div>
           </div>
           <div className="home-mascot-label">
