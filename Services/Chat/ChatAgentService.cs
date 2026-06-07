@@ -21,6 +21,7 @@ public class ChatAgentService
     private readonly ProviderRegistry _registry;
     private readonly TkSessionStore _sessions;
     private readonly Cache.ChatCache _cache;
+    private readonly UnresolvedQuestionsLog _unresolved;
     private readonly ILogger<ChatAgentService> _log;
 
     public ChatAgentService(
@@ -28,13 +29,15 @@ public class ChatAgentService
         ProviderRegistry registry,
         TkSessionStore sessions,
         Cache.ChatCache cache,
+        UnresolvedQuestionsLog unresolved,
         ILogger<ChatAgentService> log)
     {
-        _runtimes = runtimes;
-        _registry = registry;
-        _sessions = sessions;
-        _cache = cache;
-        _log = log;
+        _runtimes   = runtimes;
+        _registry   = registry;
+        _sessions   = sessions;
+        _cache      = cache;
+        _unresolved = unresolved;
+        _log        = log;
     }
 
     public async Task<ChatResult> AskAsync(ChatRequest req, string sessionId, CancellationToken ct)
@@ -46,7 +49,25 @@ public class ChatAgentService
         // Truncate input truoc khi cache-key + truyen vao agent.
         var (truncQuestion, wasTruncated) = AgentGuardrails.TruncateInput(question, 1500);
         if (wasTruncated)
+        {
             _log.LogWarning("[chat] user input truncated tu {Orig} -> 1500 chars", question.Length);
+            // Trigger: input_truncated -- cau hoi qua dai, bi cat truoc khi gui vao agent
+            _unresolved.Append(
+                tag:            "input_truncated",
+                sessionId:      sessionId,
+                tenantId:       "",  // chua resolve session luc nay
+                question:       question,  // log nguyen ban truoc khi cat
+                history:        history,
+                plannerRaw:     null,
+                toolChosen:     null,
+                aiReplyPreview: null,
+                provider:       req.Provider,
+                model:          req.Model,
+                iterations:     null,
+                latencyMs:      0,
+                tokensIn:       0,
+                tokensOut:      0);
+        }
 
         // Thay the question trong history bang version da truncate (de agent nhan dung).
         if (wasTruncated && history.Count > 0)
@@ -120,7 +141,25 @@ public class ChatAgentService
 
         var (truncQuestion, wasTruncated) = AgentGuardrails.TruncateInput(question, 1500);
         if (wasTruncated)
+        {
             _log.LogWarning("[chat-stream] user input truncated tu {Orig} -> 1500 chars", question.Length);
+            // Trigger: input_truncated (stream path)
+            _unresolved.Append(
+                tag:            "input_truncated",
+                sessionId:      sessionId,
+                tenantId:       "",
+                question:       question,
+                history:        history,
+                plannerRaw:     null,
+                toolChosen:     null,
+                aiReplyPreview: null,
+                provider:       req.Provider,
+                model:          req.Model,
+                iterations:     null,
+                latencyMs:      0,
+                tokensIn:       0,
+                tokensOut:      0);
+        }
 
         if (wasTruncated && history.Count > 0)
         {

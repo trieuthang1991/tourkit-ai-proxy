@@ -22,6 +22,7 @@ public class JsonPlannerAgent : IAgentRuntime
     private readonly TourKitApiClient _api;
     private readonly TkSessionStore _sessions;
     private readonly Cache.ChatCache _cache;
+    private readonly UnresolvedQuestionsLog _unresolved;
     private readonly ILogger<JsonPlannerAgent> _log;
 
     private static readonly TimeSpan CacheTtl = TimeSpan.FromMinutes(30);
@@ -34,13 +35,15 @@ public class JsonPlannerAgent : IAgentRuntime
         TourKitApiClient api,
         TkSessionStore sessions,
         Cache.ChatCache cache,
+        UnresolvedQuestionsLog unresolved,
         ILogger<JsonPlannerAgent> log)
     {
-        _registry = registry;
-        _api = api;
-        _sessions = sessions;
-        _cache = cache;
-        _log = log;
+        _registry   = registry;
+        _api        = api;
+        _sessions   = sessions;
+        _cache      = cache;
+        _unresolved = unresolved;
+        _log        = log;
     }
 
     /// JsonPlannerAgent la fallback cho moi provider.
@@ -102,6 +105,46 @@ public class JsonPlannerAgent : IAgentRuntime
         // Khong can du lieu -> tra reply thang
         if (tool == null)
         {
+            // Trigger: planner_none_but_data_intent -- planner noi "none" nhung cau hoi ro rang can so lieu
+            if (toolName == "none" && HasDataKeyword(question))
+            {
+                _unresolved.Append(
+                    tag:            "planner_none_but_data_intent",
+                    sessionId:      input.SessionId,
+                    tenantId:       input.TenantId,
+                    question:       question,
+                    history:        input.History,
+                    plannerRaw:     plan.Text,
+                    toolChosen:     "none",
+                    aiReplyPreview: directReply,
+                    provider:       provider.Id,
+                    model:          input.Model,
+                    iterations:     1,
+                    latencyMs:      latency,
+                    tokensIn:       tokIn,
+                    tokensOut:      tokOut);
+            }
+            // Trigger: both_planner_and_heuristic_fail -- planner JSON loi VA heuristic cung tra null
+            // (biet duoc qua plannerRaw: neu parse thanh cong thi chi la "none", neu fail se co warning log)
+            else if (string.IsNullOrWhiteSpace(plan.Text) || plan.Text.TrimStart().StartsWith("{") == false)
+            {
+                _unresolved.Append(
+                    tag:            "both_planner_and_heuristic_fail",
+                    sessionId:      input.SessionId,
+                    tenantId:       input.TenantId,
+                    question:       question,
+                    history:        input.History,
+                    plannerRaw:     plan.Text,
+                    toolChosen:     null,
+                    aiReplyPreview: null,
+                    provider:       provider.Id,
+                    model:          input.Model,
+                    iterations:     1,
+                    latencyMs:      latency,
+                    tokensIn:       tokIn,
+                    tokensOut:      tokOut);
+            }
+
             var directText = !string.IsNullOrWhiteSpace(directReply)
                 ? directReply!
                 : "Mình là trợ lý số liệu Tourkit. Anh/Chị có thể hỏi: doanh thu tháng này, top khách hàng, danh sách tour sắp đi, nguồn marketing...";
@@ -143,13 +186,56 @@ public class JsonPlannerAgent : IAgentRuntime
             {
                 // JWT het han giua chung -> re-login 1 lan roi thu lai.
                 jwt = await _sessions.ForceReloginAsync(input.SessionId, ct);
-                data = await _api.GetAsync(jwt, path, ct);
+                try
+                {
+                    data = await _api.GetAsync(jwt, path, ct);
+                }
+                catch (TourKitApiException ex2)
+                {
+                    // Trigger: upstream_persistent_error -- loi sau ca 2 lan (re-login van fail)
+                    _unresolved.Append(
+                        tag:            "upstream_persistent_error",
+                        sessionId:      input.SessionId,
+                        tenantId:       input.TenantId,
+                        question:       question,
+                        history:        input.History,
+                        plannerRaw:     plan.Text,
+                        toolChosen:     tool.Name,
+                        aiReplyPreview: ex2.Message,
+                        provider:       provider.Id,
+                        model:          input.Model,
+                        iterations:     1,
+                        latencyMs:      latency,
+                        tokensIn:       tokIn,
+                        tokensOut:      tokOut);
+                    throw;
+                }
             }
             if (IsUsableData(data)) _cache.Set("d|" + cacheKey, data, CacheTtl);
         }
 
         // ─── 3. Doc envelope /api/ai/* (items + summary + total + title) ─────────
         var chatData = BuildChatData(tool, data);
+
+        // Trigger: tool_returned_empty -- dispatch thanh cong nhung data khong co noi dung huu ich
+        if (!HasContent(chatData))
+        {
+            _unresolved.Append(
+                tag:            "tool_returned_empty",
+                sessionId:      input.SessionId,
+                tenantId:       input.TenantId,
+                question:       question,
+                history:        input.History,
+                plannerRaw:     plan.Text,
+                toolChosen:     tool.Name,
+                aiReplyPreview: null,
+                provider:       provider.Id,
+                model:          input.Model,
+                iterations:     1,
+                latencyMs:      latency,
+                tokensIn:       tokIn,
+                tokensOut:      tokOut);
+        }
 
         // ─── 4. Analysis (AI pass 2) -- pass history de bat nhip cau truoc-sau ───
         var analysisReq = new CompleteRequest(
@@ -174,6 +260,25 @@ public class JsonPlannerAgent : IAgentRuntime
                 rawReply = retry.Text;
                 tokIn += retry.InputTokens; tokOut += retry.OutputTokens; latency += retry.LatencyMs;
             }
+            else
+            {
+                // Trigger: response_too_short_after_retry -- ca 2 lan (lan dau + retry) deu qua ngan
+                _unresolved.Append(
+                    tag:            "response_too_short_after_retry",
+                    sessionId:      input.SessionId,
+                    tenantId:       input.TenantId,
+                    question:       question,
+                    history:        input.History,
+                    plannerRaw:     plan.Text,
+                    toolChosen:     tool.Name,
+                    aiReplyPreview: retry.Text,
+                    provider:       provider.Id,
+                    model:          input.Model,
+                    iterations:     1,
+                    latencyMs:      latency,
+                    tokensIn:       tokIn,
+                    tokensOut:      tokOut);
+            }
         }
 
         var finalReply = string.IsNullOrWhiteSpace(rawReply)
@@ -182,6 +287,27 @@ public class JsonPlannerAgent : IAgentRuntime
 
         // Validate so AI noi (warning only, khong block)
         var numberWarning = AgentGuardrails.ValidateNumbers(finalReply, chatData.Stats);
+
+        // Trigger: ai_hallucinated_numbers -- AI bịa so lech xa so lieu thuc
+        if (!string.IsNullOrWhiteSpace(numberWarning))
+        {
+            _unresolved.Append(
+                tag:            "ai_hallucinated_numbers",
+                sessionId:      input.SessionId,
+                tenantId:       input.TenantId,
+                question:       question,
+                history:        input.History,
+                plannerRaw:     plan.Text,
+                toolChosen:     tool.Name,
+                aiReplyPreview: finalReply,
+                provider:       provider.Id,
+                model:          input.Model,
+                iterations:     1,
+                latencyMs:      latency,
+                tokensIn:       tokIn,
+                tokensOut:      tokOut);
+        }
+
         var combinedWarning = string.Join(" | ", new[] { analysis.Warning, numberWarning }
             .Where(x => !string.IsNullOrWhiteSpace(x)));
 
@@ -270,6 +396,45 @@ public class JsonPlannerAgent : IAgentRuntime
 
         if (tool == null)
         {
+            // Trigger: planner_none_but_data_intent (stream path)
+            if (toolName == "none" && HasDataKeyword(question))
+            {
+                _unresolved.Append(
+                    tag:            "planner_none_but_data_intent",
+                    sessionId:      input.SessionId,
+                    tenantId:       input.TenantId,
+                    question:       question,
+                    history:        input.History,
+                    plannerRaw:     plan.Text,
+                    toolChosen:     "none",
+                    aiReplyPreview: directReply,
+                    provider:       provider.Id,
+                    model:          input.Model,
+                    iterations:     1,
+                    latencyMs:      0,
+                    tokensIn:       0,
+                    tokensOut:      0);
+            }
+            else if (string.IsNullOrWhiteSpace(plan.Text) || plan.Text.TrimStart().StartsWith("{") == false)
+            {
+                // Trigger: both_planner_and_heuristic_fail (stream path)
+                _unresolved.Append(
+                    tag:            "both_planner_and_heuristic_fail",
+                    sessionId:      input.SessionId,
+                    tenantId:       input.TenantId,
+                    question:       question,
+                    history:        input.History,
+                    plannerRaw:     plan.Text,
+                    toolChosen:     null,
+                    aiReplyPreview: null,
+                    provider:       provider.Id,
+                    model:          input.Model,
+                    iterations:     1,
+                    latencyMs:      0,
+                    tokensIn:       0,
+                    tokensOut:      0);
+            }
+
             var reply = !string.IsNullOrWhiteSpace(directReply) ? directReply!
                 : "Mình là trợ lý số liệu Tourkit. Anh/Chị có thể hỏi: doanh thu tháng này, top khách hàng, tour sắp khởi hành, nguồn marketing...";
             await emit(new { done = true, reply, toolName = "none", data = (object?)null });
@@ -304,12 +469,55 @@ public class JsonPlannerAgent : IAgentRuntime
             catch (TourKitApiException ex) when (ex.Status == 401)
             {
                 jwt = await _sessions.ForceReloginAsync(input.SessionId, ct);
-                data = await _api.GetAsync(jwt, path, ct);
+                try
+                {
+                    data = await _api.GetAsync(jwt, path, ct);
+                }
+                catch (TourKitApiException ex2)
+                {
+                    // Trigger: upstream_persistent_error (stream path)
+                    _unresolved.Append(
+                        tag:            "upstream_persistent_error",
+                        sessionId:      input.SessionId,
+                        tenantId:       input.TenantId,
+                        question:       question,
+                        history:        input.History,
+                        plannerRaw:     plan.Text,
+                        toolChosen:     tool.Name,
+                        aiReplyPreview: ex2.Message,
+                        provider:       provider.Id,
+                        model:          input.Model,
+                        iterations:     1,
+                        latencyMs:      0,
+                        tokensIn:       0,
+                        tokensOut:      0);
+                    throw;
+                }
             }
             if (IsUsableData(data)) _cache.Set("d|" + cacheKey, data, CacheTtl);
         }
 
         var chatData = BuildChatData(tool, data);
+
+        // Trigger: tool_returned_empty (stream path)
+        if (!HasContent(chatData))
+        {
+            _unresolved.Append(
+                tag:            "tool_returned_empty",
+                sessionId:      input.SessionId,
+                tenantId:       input.TenantId,
+                question:       question,
+                history:        input.History,
+                plannerRaw:     plan.Text,
+                toolChosen:     tool.Name,
+                aiReplyPreview: null,
+                provider:       provider.Id,
+                model:          input.Model,
+                iterations:     1,
+                latencyMs:      0,
+                tokensIn:       0,
+                tokensOut:      0);
+        }
 
         // Gui DATA SOM -> panel phai hien so lieu/bieu do ngay, trong khi chu phan tich chay dan.
         await emit(new { stage = "analyzing", tool = tool.Name, data = chatData });
@@ -334,6 +542,27 @@ public class JsonPlannerAgent : IAgentRuntime
             : AgentGuardrails.StripEmDash(rawStreamReply.Trim());
 
         var numberWarning = AgentGuardrails.ValidateNumbers(finalReply, chatData.Stats);
+
+        // Trigger: ai_hallucinated_numbers (stream path)
+        if (!string.IsNullOrWhiteSpace(numberWarning))
+        {
+            _unresolved.Append(
+                tag:            "ai_hallucinated_numbers",
+                sessionId:      input.SessionId,
+                tenantId:       input.TenantId,
+                question:       question,
+                history:        input.History,
+                plannerRaw:     plan.Text,
+                toolChosen:     tool.Name,
+                aiReplyPreview: finalReply,
+                provider:       provider.Id,
+                model:          input.Model,
+                iterations:     1,
+                latencyMs:      analysis.LatencyMs,
+                tokensIn:       analysis.InputTokens,
+                tokensOut:      analysis.OutputTokens);
+        }
+
         var combinedWarning = string.Join(" | ", new[] { analysis.Warning, numberWarning }
             .Where(x => !string.IsNullOrWhiteSpace(x)));
 
@@ -825,4 +1054,19 @@ Nếu câu hỏi có ý ĐỐI CHIẾU với câu trước (vd 'so với năm ng
     // Chuyen AgentResult sang ChatResult de luu L2 cache (ChatAgentService dung khi save L1).
     private static ChatResult ToChatResult(AgentResult r, string question)
         => new(r.Reply, r.ToolName, r.Params, r.Data, r.LatencyMs, r.InputTokens, r.OutputTokens, r.Warning);
+
+    // ─── Trigger helper ─────────────────────────────────────────────────────────
+
+    /// Kiem tra cau hoi co tu khoa so lieu ro rang de phat hien planner_none_but_data_intent.
+    private static bool HasDataKeyword(string question)
+    {
+        if (string.IsNullOrWhiteSpace(question)) return false;
+        string[] keywords =
+        {
+            "doanh thu", "lợi nhuận", "chi phí", "khách", "tour", "đặt",
+            "marketing", "deal", "cơ hội", "visa", "thu nhập", "ngân sách", "công nợ"
+        };
+        var norm = question.ToLowerInvariant();
+        return keywords.Any(k => norm.Contains(k));
+    }
 }

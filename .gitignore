@@ -35,3 +35,7 @@ data/deal-cache.json
 # Thẩm định Visa AI — kết quả + ảnh hồ sơ gốc (PII nhạy cảm) — KHÔNG commit
 data/visa-assessments.json
 data/visa-files/
+
+# Chat-Analytics unresolved log (runtime state, có thể rotate) — KHÔNG commit
+data/chat-unresolved.jsonl
+data/chat-unresolved.jsonl.*

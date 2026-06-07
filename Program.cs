@@ -88,6 +88,7 @@ builder.Services.AddSingleton<TourkitAiProxy.Services.Cache.ChatCache>();   // R
 // ChatAgentService resolve runtime dau tien co Supports(provider)=true.
 builder.Services.AddSingleton<IAgentRuntime, NativeToolUseAgent>();
 builder.Services.AddSingleton<IAgentRuntime, JsonPlannerAgent>();
+builder.Services.AddSingleton<TourkitAiProxy.Services.Chat.UnresolvedQuestionsLog>();
 builder.Services.AddSingleton<ChatAgentService>();
 
 // SmartMail AI — hộp thư Gmail (IMAP/MailKit) + phân loại AI + soạn nháp trả lời.

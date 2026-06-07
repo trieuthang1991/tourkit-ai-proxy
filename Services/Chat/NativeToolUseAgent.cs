@@ -37,6 +37,7 @@ public class NativeToolUseAgent : IAgentRuntime
     private readonly TourKitApiClient _api;
     private readonly TkSessionStore _sessions;
     private readonly Cache.ChatCache _cache;
+    private readonly UnresolvedQuestionsLog _unresolved;
     private readonly ILogger<NativeToolUseAgent> _log;
     private readonly IHttpClientFactory _http;
     private readonly ProviderKeyStore _keys;
@@ -61,20 +62,22 @@ public class NativeToolUseAgent : IAgentRuntime
         TourKitApiClient api,
         TkSessionStore sessions,
         Cache.ChatCache cache,
+        UnresolvedQuestionsLog unresolved,
         ILogger<NativeToolUseAgent> log,
         IHttpClientFactory http,
         ProviderKeyStore keys,
         AiUsageLog usage,
         AiCallContext ctx)
     {
-        _api      = api;
-        _sessions = sessions;
-        _cache    = cache;
-        _log      = log;
-        _http     = http;
-        _keys     = keys;
-        _usage    = usage;
-        _ctx      = ctx;
+        _api        = api;
+        _sessions   = sessions;
+        _cache      = cache;
+        _unresolved = unresolved;
+        _log        = log;
+        _http       = http;
+        _keys       = keys;
+        _usage      = usage;
+        _ctx        = ctx;
     }
 
     /// Chi xu ly khi provider la "anthropic".
@@ -241,6 +244,23 @@ public class NativeToolUseAgent : IAgentRuntime
                     catch (Exception ex2)
                     {
                         _log.LogError(ex2, "[NativeTool] tool {Name} that bai sau re-login", tub.Name);
+                        // Trigger: upstream_persistent_error (re-login van fail)
+                        var q401 = input.History.LastOrDefault(m => m.Role == "user")?.Content ?? "";
+                        _unresolved.Append(
+                            tag:            "upstream_persistent_error",
+                            sessionId:      input.SessionId,
+                            tenantId:       input.TenantId,
+                            question:       q401,
+                            history:        input.History,
+                            plannerRaw:     null,
+                            toolChosen:     tub.Name,
+                            aiReplyPreview: ex2.Message,
+                            provider:       "anthropic",
+                            model:          input.Model,
+                            iterations:     iteration,
+                            latencyMs:      totalLat,
+                            tokensIn:       totalInTok,
+                            tokensOut:      totalOutTok);
                         return (tub,
                             ResultJson: $"{{\"error\":\"{ex2.Message}\"}}",
                             Tool: (ChatTool?)tool,
@@ -298,6 +318,24 @@ public class NativeToolUseAgent : IAgentRuntime
         {
             _log.LogWarning("[NativeTool] hit max iterations ({Max})", MaxIterations);
             warning = "AI vượt giới hạn vòng lặp (3).";
+
+            // Trigger: iteration_limit_reached -- AI vuot gioi han vong lap (3)
+            var question = input.History.LastOrDefault(m => m.Role == "user")?.Content ?? "";
+            _unresolved.Append(
+                tag:            "iteration_limit_reached",
+                sessionId:      input.SessionId,
+                tenantId:       input.TenantId,
+                question:       question,
+                history:        input.History,
+                plannerRaw:     null,
+                toolChosen:     lastToolName,
+                aiReplyPreview: finalText,
+                provider:       "anthropic",
+                model:          input.Model,
+                iterations:     iteration,
+                latencyMs:      totalLat,
+                tokensIn:       totalInTok,
+                tokensOut:      totalOutTok);
         }
 
         // ── Guardrails ────────────────────────────────────────────────────────
