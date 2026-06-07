@@ -201,6 +201,23 @@ function App() {
     }} />;
   }
 
+  // Trang chủ (/) là full-screen launcher — KHÔNG kế thừa sidebar/topbar.
+  // Click vào agent card sẽ navigate sang route khác → tự vào app-shell bình thường.
+  if (cur === '/' && window.HomePage) {
+    return (
+      <>
+        <window.HomePage pushToast={pushToast} />
+        <div className="toast-container">
+          {toasts.map(tt => (
+            <div key={tt.id} className={`toast ${tt.kind}`}>
+              <Icon name="check" size={14} stroke={2.5} /> {tt.text}
+            </div>
+          ))}
+        </div>
+      </>
+    );
+  }
+
   return (
     <div className={'app-shell' + (sidebarCollapsed ? ' sidebar-collapsed' : '')}>
       {/* Sidebar trái — style TourKit (logo cam, mục active nền cam) */}
