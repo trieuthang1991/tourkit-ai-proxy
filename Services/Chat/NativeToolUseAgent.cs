@@ -44,12 +44,18 @@ public class NativeToolUseAgent : IAgentRuntime
     private readonly AiUsageLog _usage;
     private readonly AiCallContext _ctx;
 
-    // System prompt ngan, inject ngay hom nay de AI co date context.
+    // System prompt: nhấn mạnh BẮT BUỘC gọi tool cho mọi câu liên quan số liệu kinh doanh,
+    // KHUYẾN KHÍCH gọi nhiều tool song song khi cần so sánh, và viết phân tích đầy đủ (không cụt).
     private static readonly string SystemPromptBase =
-        "Bạn là trợ lý số liệu Tourkit. Dùng tools để lấy dữ liệu thật, " +
-        "sau đó trả lời ngắn gọn tiếng Việt bám đúng số liệu. " +
-        "CHỈ dùng tools có trong catalog; TUYỆT ĐỐI không bịa số. " +
-        "Nếu câu hỏi không cần số liệu, trả lời thẳng không gọi tool.";
+        "Bạn là chuyên viên phân tích số liệu cho công ty du lịch Tourkit. " +
+        "Quy trình: (1) dùng tools để lấy dữ liệu thật; (2) viết PHÂN TÍCH ĐẦY ĐỦ tiếng Việt bám đúng số liệu. " +
+        "TUYỆT ĐỐI không bịa số; CHỈ dùng tools có trong catalog. " +
+        "BẮT BUỘC gọi tool cho mọi câu hỏi về doanh thu / chi phí / lợi nhuận / khách / tour / deal / marketing / cơ hội / công nợ / lịch hẹn — kể cả câu follow-up (vd 'phân tích thêm', 'tại sao', 'còn X thì sao'). " +
+        "KHI CẦN SO SÁNH (vd 'so với năm ngoái', 'so với tháng trước', 'cùng kỳ'): gọi NHIỀU tool SONG SONG cùng turn với param khác nhau (khoảng date khác, kỳ khác) để có 2 bộ số đối chiếu. " +
+        "PHÂN TÍCH phải có: (a) số chính + xu hướng; (b) so sánh nếu có 2 bộ số; (c) 1-2 đề xuất hành động. " +
+        "Dùng thuật ngữ tiếng Việt thuần (doanh thu/chi phí/lợi nhuận/khách hàng); KHÔNG dùng tên trường Anh (revenue/expense...) hoặc Id. " +
+        "KHÔNG dùng markdown (không **, ##, *, _, ``` — văn bản thuần). Xuống dòng giữa các đoạn bằng dòng trống. " +
+        "Chỉ trả lời thẳng KHÔNG gọi tool nếu là lời chào hoặc câu hỏi về cách dùng trợ lý.";
 
     private static readonly JsonSerializerOptions _jsonWeb = new(JsonSerializerDefaults.Web);
 
@@ -338,12 +344,53 @@ public class NativeToolUseAgent : IAgentRuntime
                 tokensOut:      totalOutTok);
         }
 
-        // ── Guardrails ────────────────────────────────────────────────────────
-        finalText = AgentGuardrails.StripEmDash(finalText.Trim());
+        // ── Fallback data tu memory: AI follow-up khong goi tool moi → giu lai panel cu.
+        // Vd user hoi "phan tich them" sau khi da co cashflow → lastData=null nhung memory.LastChatData con.
+        if (lastData == null && memory.LastChatData != null)
+        {
+            _log.LogInformation("[NativeTool] reuse LastChatData ({Title}) — AI khong goi tool turn nay",
+                memory.LastChatData.Title);
+            lastData     = memory.LastChatData;
+            lastToolName = memory.LastTool;
+            lastParams   = memory.LastParams;
+        }
 
-        // Reply qua ngan → fallback message
+        // ── Guardrails ────────────────────────────────────────────────────────
+        finalText = AgentGuardrails.StripMarkdown(AgentGuardrails.StripEmDash(finalText.Trim()));
+
+        // Reply qua ngan VA chua hit max_iter → retry voi token cao hon (4000 → 6000).
+        // Khac voi truoc: thay vi replace bang message generic, ta CO GANG re-call AI 1 lan.
+        if (AgentGuardrails.IsTooShort(finalText) && warning == null && messages.Count > 1)
+        {
+            _log.LogWarning("[NativeTool] reply qua ngan ({Len} chars), retry voi max_tokens=6000",
+                finalText?.Length ?? 0);
+            try
+            {
+                var (_, retryDoc, retryLat) = await CallAnthropicAsync(
+                    apiKey, model, system, tools, messages, linked.Token, maxTokens: 6000);
+                totalLat += retryLat;
+                var retryUsage = retryDoc.RootElement.GetProperty("usage");
+                totalInTok  += retryUsage.GetProperty("input_tokens").GetInt32();
+                totalOutTok += retryUsage.GetProperty("output_tokens").GetInt32();
+                var retrySb = new StringBuilder();
+                foreach (var block in retryDoc.RootElement.GetProperty("content").EnumerateArray())
+                {
+                    if (block.GetProperty("type").GetString() == "text")
+                        retrySb.Append(block.GetProperty("text").GetString());
+                }
+                retryDoc.Dispose();
+                if (!AgentGuardrails.IsTooShort(retrySb.ToString()))
+                    finalText = AgentGuardrails.StripMarkdown(AgentGuardrails.StripEmDash(retrySb.ToString().Trim()));
+            }
+            catch (Exception retryEx)
+            {
+                _log.LogWarning(retryEx, "[NativeTool] retry-on-short fail, giu finalText cu");
+            }
+        }
+
+        // Sau retry van qua ngan + co data → message generic (giu cho UX dep)
         if (AgentGuardrails.IsTooShort(finalText) && lastData != null)
-            finalText = "Đã lấy được số liệu (xem bảng bên phải) nhưng chưa tạo được phần phân tích.";
+            finalText = $"Đã lấy được số liệu \"{lastData.Title}\" (xem bảng bên phải) nhưng chưa tạo được phần phân tích đầy đủ. Anh/Chị thử hỏi cụ thể hơn — vd \"so với tháng trước\", \"top khách hàng nào đóng góp nhiều nhất\".";
 
         // Validate so AI noi (warning only, khong block)
         var numWarning = lastData != null
@@ -386,6 +433,7 @@ public class NativeToolUseAgent : IAgentRuntime
                 LastMarketName = resolvedMarketName ?? memory.LastMarketName,
                 LastMarketId  = resolvedMarketId ?? memory.LastMarketId,
                 LastDataTitle = lastData.Title,
+                LastChatData  = lastData,  // FULL data để follow-up text-only vẫn hiện panel cũ
                 History       = input.History.TakeLast(10).ToList()
             };
             _sessions.UpdateMemory(input.SessionId, newMemory);
@@ -448,12 +496,13 @@ public class NativeToolUseAgent : IAgentRuntime
     private async Task<(string Raw, JsonDocument Doc, long LatencyMs)> CallAnthropicAsync(
         string apiKey, string model, string system,
         object[] tools, List<object> messages,
-        CancellationToken ct)
+        CancellationToken ct,
+        int maxTokens = 4000)
     {
         var body = new
         {
             model,
-            max_tokens = 2000,
+            max_tokens = maxTokens,
             system,
             tools,
             messages

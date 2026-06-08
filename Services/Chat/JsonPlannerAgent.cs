@@ -148,7 +148,9 @@ public class JsonPlannerAgent : IAgentRuntime
             var directText = !string.IsNullOrWhiteSpace(directReply)
                 ? directReply!
                 : "Mình là trợ lý số liệu Tourkit. Anh/Chị có thể hỏi: doanh thu tháng này, top khách hàng, danh sách tour sắp đi, nguồn marketing...";
-            return new AgentResult(directText, "none", null, null, latency, tokIn, tokOut, plan.Warning, 1);
+            // Giữ panel phải nếu hội thoại trước đã có data (vd user chỉ chat thêm về cùng số liệu).
+            return new AgentResult(directText, memory.LastTool ?? "none", null, memory.LastChatData,
+                latency, tokIn, tokOut, plan.Warning, 1);
         }
 
         // ─── Resolver: doi marketName -> marketId ───────────────────────────────
@@ -241,7 +243,7 @@ public class JsonPlannerAgent : IAgentRuntime
         var analysisReq = new CompleteRequest(
             Prompt:      BuildAnalysisPrompt(history, tool, chatData.Raw ?? data, chatData.Stats),
             Provider:    provider.Id, Model: input.Model,
-            MaxTokens:   2000, Temperature: 0.4,
+            MaxTokens:   4000, Temperature: 0.4,
             System:      ANALYSIS_SYSTEM, ApiKey: input.ApiKey,
             CacheSystem: isAnthropic);
 
@@ -283,7 +285,7 @@ public class JsonPlannerAgent : IAgentRuntime
 
         var finalReply = string.IsNullOrWhiteSpace(rawReply)
             ? "Đã lấy được số liệu (xem bảng bên phải) nhưng chưa tạo được phần phân tích."
-            : AgentGuardrails.StripEmDash(rawReply.Trim());
+            : AgentGuardrails.StripMarkdown(AgentGuardrails.StripEmDash(rawReply.Trim()));
 
         // Validate so AI noi (warning only, khong block)
         var numberWarning = AgentGuardrails.ValidateNumbers(finalReply, chatData.Stats);
@@ -340,6 +342,7 @@ public class JsonPlannerAgent : IAgentRuntime
                 LastMarketName = paramsDict.GetValueOrDefault("marketName") ?? memory.LastMarketName,
                 LastMarketId  = resolvedMarketId ?? memory.LastMarketId,
                 LastDataTitle = chatData.Title,
+                LastChatData  = chatData,  // FULL data để follow-up text-only vẫn hiện panel cũ
                 History       = history.TakeLast(10).ToList()
             };
             _sessions.UpdateMemory(input.SessionId, newMemory);
@@ -437,7 +440,14 @@ public class JsonPlannerAgent : IAgentRuntime
 
             var reply = !string.IsNullOrWhiteSpace(directReply) ? directReply!
                 : "Mình là trợ lý số liệu Tourkit. Anh/Chị có thể hỏi: doanh thu tháng này, top khách hàng, tour sắp khởi hành, nguồn marketing...";
-            await emit(new { done = true, reply, toolName = "none", data = (object?)null });
+            // Giữ panel phải nếu hội thoại trước đã có data (vd user chỉ chat thêm về cùng số liệu).
+            await emit(new
+            {
+                done     = true,
+                reply,
+                toolName = memory.LastTool ?? "none",
+                data     = (object?)memory.LastChatData
+            });
             return;
         }
 
@@ -525,7 +535,7 @@ public class JsonPlannerAgent : IAgentRuntime
         var analysisReq = new CompleteRequest(
             Prompt:      BuildAnalysisPrompt(history, tool, chatData.Raw ?? data, chatData.Stats),
             Provider:    provider.Id, Model: input.Model,
-            MaxTokens:   2000, Temperature: 0.4,
+            MaxTokens:   4000, Temperature: 0.4,
             System:      ANALYSIS_SYSTEM, ApiKey: input.ApiKey,
             CacheSystem: isAnthropic);
 
@@ -539,7 +549,7 @@ public class JsonPlannerAgent : IAgentRuntime
         // Apply guardrails: strip em-dash, validate so.
         var finalReply = string.IsNullOrWhiteSpace(rawStreamReply)
             ? "Đã lấy được số liệu (xem bảng bên phải)."
-            : AgentGuardrails.StripEmDash(rawStreamReply.Trim());
+            : AgentGuardrails.StripMarkdown(AgentGuardrails.StripEmDash(rawStreamReply.Trim()));
 
         var numberWarning = AgentGuardrails.ValidateNumbers(finalReply, chatData.Stats);
 
@@ -594,6 +604,7 @@ public class JsonPlannerAgent : IAgentRuntime
                 LastMarketName = paramsDict.GetValueOrDefault("marketName") ?? memory.LastMarketName,
                 LastMarketId  = resolvedMarketId ?? memory.LastMarketId,
                 LastDataTitle = chatData.Title,
+                LastChatData  = chatData,  // FULL data để follow-up text-only vẫn hiện panel cũ
                 History       = history.TakeLast(10).ToList()
             };
             _sessions.UpdateMemory(input.SessionId, newMemory);
@@ -640,11 +651,16 @@ public class JsonPlannerAgent : IAgentRuntime
 
     private const string ANALYSIS_SYSTEM =
         "Bạn là chuyên viên phân tích kinh doanh cho công ty du lịch Tourkit. " +
-        "Phân tích súc tích, thực dụng bằng tiếng Việt, văn phong chuyên nghiệp. " +
+        "Viết PHÂN TÍCH ĐẦY ĐỦ tiếng Việt, văn phong chuyên nghiệp, dễ đọc cho lãnh đạo. " +
         "CHỈ dựa trên số liệu được cung cấp -- TUYỆT ĐỐI không bịa số. " +
         "Dùng thuật ngữ tiếng Việt thuần (doanh thu, chi phí, lợi nhuận, khách hàng...); " +
         "KHÔNG dùng tên trường tiếng Anh (revenue, expense, kpiRevenue...) và KHÔNG nhắc tới Id. " +
-        "Nêu nhận định chính + 1-2 đề xuất hành động nếu phù hợp. Không lặp lại nguyên bảng.";
+        "KHÔNG dùng markdown (không **, ##, *, _, ``` — văn bản thuần). Xuống dòng giữa các đoạn bằng dòng trống. " +
+        "Cấu trúc bài phân tích: " +
+        "(1) Số chính + nhận định mức độ (tốt/bình thường/đáng lo); " +
+        "(2) Xu hướng / phân bổ / so sánh nếu dữ liệu cho phép (vd top đóng góp, chênh lệch kỳ trước nếu có); " +
+        "(3) 1-2 đề xuất hành động cụ thể nếu phù hợp. " +
+        "KHÔNG cụt ngủn, KHÔNG lặp lại nguyên bảng. Độ dài hợp lý: 5-10 câu hoặc 2-3 đoạn ngắn.";
 
     private string BuildPlannerPrompt(List<ChatTurn> history, SessionChatMemory memory)
     {
@@ -737,8 +753,14 @@ SỐ LIỆU ĐÃ TÍNH: {statsLine}
 DỮ LIỆU THÔ (JSON):
 {dataJson}
 
-Viết phân tích ngắn gọn (3-6 câu) trả lời câu hỏi HIỆN TẠI, bám đúng số liệu trên.
-Nếu câu hỏi có ý ĐỐI CHIẾU với câu trước (vd 'so với năm ngoái', 'cao hơn không', 'theo chiều ngược lại') → so sánh tường minh với số liệu đã được nhắc trước đó.";
+Viết phân tích ĐẦY ĐỦ trả lời câu hỏi HIỆN TẠI, bám đúng số liệu trên.
+Yêu cầu:
+- Mở đầu bằng số chính + nhận định (tốt/bình thường/đáng lo).
+- Nếu items[] có nhiều dòng: chỉ ra top 2-3 đóng góp lớn nhất + chiếm % nào của tổng.
+- Nếu có dữ liệu kỳ trước trong hội thoại / thấy được trend → so sánh tường minh delta + % chênh.
+- Kết bằng 1-2 đề xuất hành động cụ thể (vd ""nên ưu tiên CSKH khách X"", ""giảm chi phí Y"").
+- Độ dài: 5-10 câu hoặc 2-3 đoạn ngắn. KHÔNG cụt 1-2 câu, KHÔNG dài lê thê copy bảng.
+- Nếu câu hỏi có ý ĐỐI CHIẾU (vd 'so với năm ngoái', 'cao hơn không') → bắt buộc so sánh tường minh với số đã nhắc trước đó trong hội thoại.";
     }
 
     // ─── Heuristic routing (fallback khi planner tra sai/khong-JSON) ─────────────

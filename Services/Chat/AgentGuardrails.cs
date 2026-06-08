@@ -17,6 +17,14 @@ public static class AgentGuardrails
     private static readonly Regex _stripNghin = new(@"nghin", RegexOptions.Compiled | RegexOptions.IgnoreCase);
     private static readonly Regex _digitsOnly = new(@"[^\d]", RegexOptions.Compiled);
 
+    // Markdown patterns to strip (frontend không render markdown — phải gỡ trước khi trả)
+    private static readonly Regex _mdBold       = new(@"\*\*([^*\n]+?)\*\*", RegexOptions.Compiled);
+    private static readonly Regex _mdItalicStar = new(@"(?<!\*)\*(?!\s|\*)([^*\n]+?)(?<!\s|\*)\*(?!\*)", RegexOptions.Compiled);
+    private static readonly Regex _mdItalicUnder = new(@"(?<!_)_([^_\n]+?)_(?!_)", RegexOptions.Compiled);
+    private static readonly Regex _mdHeading    = new(@"^#{1,6}\s+", RegexOptions.Compiled | RegexOptions.Multiline);
+    private static readonly Regex _mdCodeFence  = new(@"```[a-zA-Z]*\n?", RegexOptions.Compiled);
+    private static readonly Regex _mdInlineCode = new(@"`([^`\n]+?)`", RegexOptions.Compiled);
+
     // ---------------------------------------------------------------
     // StripEmDash: thay em-dash (U+2014) + en-dash (U+2013) thanh hyphen
     // ---------------------------------------------------------------
@@ -26,6 +34,34 @@ public static class AgentGuardrails
     {
         if (string.IsNullOrEmpty(input)) return input ?? "";
         return input.Replace('—', '-').Replace('–', '-');
+    }
+
+    // ---------------------------------------------------------------
+    // StripMarkdown: go ** ## * _ ``` ` -- frontend khong render markdown
+    // ---------------------------------------------------------------
+
+    /// <summary>
+    /// Gỡ markdown phổ biến (bold/italic/heading/code) thành text thuần.
+    /// Frontend chỉ render plain text với `white-space: pre-wrap` nên markdown sẽ
+    /// hiện như literal nếu không strip. Giữ nguyên xuống dòng và dấu gạch đầu dòng "-".
+    /// </summary>
+    public static string StripMarkdown(string? input)
+    {
+        if (string.IsNullOrEmpty(input)) return input ?? "";
+        var s = input;
+        // Code fence ``` (xóa marker, giữ nội dung)
+        s = _mdCodeFence.Replace(s, "");
+        // Inline code `xxx` → xxx
+        s = _mdInlineCode.Replace(s, "$1");
+        // Bold **xxx** → xxx
+        s = _mdBold.Replace(s, "$1");
+        // Italic *xxx* → xxx (cẩn thận không đụng bullet "* item" — pattern yêu cầu không space sau *)
+        s = _mdItalicStar.Replace(s, "$1");
+        // Italic _xxx_ → xxx
+        s = _mdItalicUnder.Replace(s, "$1");
+        // Heading "## Title" → "Title" (xóa dấu # đầu dòng)
+        s = _mdHeading.Replace(s, "");
+        return s;
     }
 
     // ---------------------------------------------------------------
