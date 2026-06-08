@@ -210,7 +210,7 @@ public static class VisaEndpoints
 
                 // Lưu file gốc tạm (tự xóa sau 7 ngày)
                 for (int i = 0; i < rawBytes.Count; i++)
-                    store.Save(id, i, rawBytes[i].name, rawBytes[i].data);
+                    store.Save("", id, i, rawBytes[i].name, rawBytes[i].data);
 
                 var now = DateTime.UtcNow.ToString("o");
                 var assessment = new VisaAssessment(
@@ -291,7 +291,7 @@ public static class VisaEndpoints
         // ─── DELETE /visa/assessments/{id} ─── xóa kết quả + file ────────────────
         v1.MapDelete("/visa/assessments/{id}", (string id, VisaRepository repo, VisaFileStore store) =>
         {
-            store.DeleteAssessment(id);
+            store.DeleteAssessment("", id);
             return repo.Delete("", id) ? Results.Json(new { ok = true }) : Results.NotFound(new { error = "Không tìm thấy" });
         });
     }
