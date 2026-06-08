@@ -14,9 +14,17 @@ const FEATURE_COLOR = {
   reviews: '#0ea5e9', 'tour-builder': '#f97316', completions: '#64748b', other: '#94a3b8',
 };
 
-// Eyebrow giống asst (uppercase + dot cam + em phụ)
+// Eyebrow nhỏ (dot cam + uppercase) — DÙNG TỐI ĐA 3 LẦN/page (taste: max 1 eyebrow / 3 section).
+// Trong dashboard này: KPI hero, Phân tích, Workflow log. Các section khác chỉ dùng <h3> đơn.
 const Eyebrow = ({ children, sub }) => (
   <div className="aiu-eyebrow">{children}{sub && <em> · {sub}</em>}</div>
+);
+// Header section gọn, KHÔNG dot cam — cho các section không cần "đánh dấu" mạnh
+const SectionTitle = ({ children, hint }) => (
+  <div className="aiu-section-title">
+    <h3>{children}</h3>
+    {hint && <span className="aiu-section-hint">{hint}</span>}
+  </div>
 );
 
 function AiUsagePage({ pushToast }) {
@@ -74,20 +82,20 @@ function AiUsagePage({ pushToast }) {
         </span>
       </div>
 
-      {/* Cảnh báo vượt ngưỡng */}
+      {/* Cảnh báo vượt ngưỡng (em-dash banned: dùng "·" thay) */}
       {overTenants.length > 0 && (
         <div className="aiu-warn">
           <Icon name="warning" size={16} />
           <div>
             <b>Cảnh báo:</b> {overTenants.length} tenant vượt ngân sách ngày
-            ({fmtVnd(budget.dailyVnd)} đ) — {overTenants.map(x => `${x.tenant} (${fmtVnd(x.costVnd)} đ)`).join(', ')}.
+            ({fmtVnd(budget.dailyVnd)} đ): {overTenants.map(x => `${x.tenant} (${fmtVnd(x.costVnd)} đ)`).join(', ')}.
           </div>
         </div>
       )}
 
-      {/* Section: TỔNG QUAN — 4 KPI + budget pane */}
+      {/* KPI hero strip — eyebrow #1/3 (chỉ section "đánh dấu" mạnh, kế đến là Phân tích + Workflow log) */}
       <section className="aiu-pane">
-        <Eyebrow sub={days === 1 ? 'HÔM NAY' : `${days} NGÀY GẦN NHẤT`}>TỔNG QUAN</Eyebrow>
+        <Eyebrow sub={days === 1 ? 'HÔM NAY' : `${days} NGÀY GẦN NHẤT`}>TỔNG QUAN CHI PHÍ</Eyebrow>
         <div className="aiu-kpis">
           <div className="aiu-kpi">
             <div className="aiu-kpi-lbl">Tổng lượt gọi</div>
@@ -112,10 +120,10 @@ function AiUsagePage({ pushToast }) {
         </div>
       </section>
 
-      {/* Section: NGÂN SÁCH (chỉ hiện khi có tenant) */}
+      {/* Ngân sách (compact list, không eyebrow — layout khác family với KPI strip để khỏi lặp) */}
       {tenants.length > 0 && (
         <section className="aiu-pane">
-          <Eyebrow sub={`NGƯỠNG ${fmtVnd(budget.dailyVnd)} đ/TENANT`}>NGÂN SÁCH HÔM NAY</Eyebrow>
+          <SectionTitle hint={`ngưỡng ${fmtVnd(budget.dailyVnd)} đ/tenant`}>Ngân sách hôm nay</SectionTitle>
           <div className="aiu-budgets">
             {tenants.map(t => (
               <div key={t.tenant} className={'aiu-budget-row' + (t.overBudget ? ' over' : '')}>
@@ -128,72 +136,75 @@ function AiUsagePage({ pushToast }) {
         </section>
       )}
 
-      {/* Section: PHÂN TÍCH — 2 cột (feature/model) */}
-      <div className="aiu-grid2">
-        <section className="aiu-pane">
-          <Eyebrow sub="THEO TÍNH NĂNG">PHÂN BỔ CHI PHÍ</Eyebrow>
-          <table className="aiu-table">
-            <thead><tr><th>Tính năng</th><th>Lượt</th><th>Token IN/OUT</th><th>Chi phí</th></tr></thead>
-            <tbody>
-              {(data.byFeature || []).length === 0 && (
-                <tr><td colSpan={4} className="aiu-empty">Chưa có lượt gọi nào</td></tr>
-              )}
-              {(data.byFeature || []).map(f => (
-                <tr key={f.feature}>
-                  <td><span className="aiu-dot" style={{ background: FEATURE_COLOR[f.feature] || '#94a3b8' }} /> {FEATURE_LABEL[f.feature] || f.feature}</td>
-                  <td className="num">{fmtN(f.calls)}</td>
-                  <td className="num">{fmtN(f.inTok)} / {fmtN(f.outTok)}</td>
-                  <td className="num strong">{fmtVnd(f.costVnd)} đ</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </section>
+      {/* Phân tích — 2 cột feature/model. Eyebrow #2/3 dùng chung cho cả grid. */}
+      <section className="aiu-pane aiu-analysis">
+        <Eyebrow sub="PHÂN BỔ THEO TÍNH NĂNG VÀ MODEL">PHÂN TÍCH CHI PHÍ</Eyebrow>
+        <div className="aiu-grid2">
+          <div className="aiu-subpane">
+            <SectionTitle hint="theo tính năng">Tính năng</SectionTitle>
+            <table className="aiu-table">
+              <thead><tr><th>Tính năng</th><th>Lượt</th><th>Token IN/OUT</th><th>Chi phí</th></tr></thead>
+              <tbody>
+                {(data.byFeature || []).length === 0 && (
+                  <tr><td colSpan={4} className="aiu-empty">Chưa có lượt gọi nào</td></tr>
+                )}
+                {(data.byFeature || []).map(f => (
+                  <tr key={f.feature}>
+                    <td><span className="aiu-dot" style={{ background: FEATURE_COLOR[f.feature] || '#94a3b8' }} /> {FEATURE_LABEL[f.feature] || f.feature}</td>
+                    <td className="num">{fmtN(f.calls)}</td>
+                    <td className="num">{fmtN(f.inTok)} / {fmtN(f.outTok)}</td>
+                    <td className="num strong">{fmtVnd(f.costVnd)} đ</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
 
-        <section className="aiu-pane">
-          <Eyebrow sub="THEO MODEL">PHÂN BỔ CHI PHÍ</Eyebrow>
-          <table className="aiu-table">
-            <thead><tr><th>Model</th><th>Lượt</th><th>Token IN/OUT</th><th>Chi phí</th></tr></thead>
-            <tbody>
-              {(data.byModel || []).length === 0 && (
-                <tr><td colSpan={4} className="aiu-empty">Chưa có lượt gọi nào</td></tr>
-              )}
-              {(data.byModel || []).map(m => (
-                <tr key={m.model}>
-                  <td><code>{m.model}</code></td>
-                  <td className="num">{fmtN(m.calls)}</td>
-                  <td className="num">{fmtN(m.inTok)} / {fmtN(m.outTok)}</td>
-                  <td className="num strong">{fmtVnd(m.costVnd)} đ</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </section>
-      </div>
+          <div className="aiu-subpane">
+            <SectionTitle hint="theo model">Model</SectionTitle>
+            <table className="aiu-table">
+              <thead><tr><th>Model</th><th>Lượt</th><th>Token IN/OUT</th><th>Chi phí</th></tr></thead>
+              <tbody>
+                {(data.byModel || []).length === 0 && (
+                  <tr><td colSpan={4} className="aiu-empty">Chưa có lượt gọi nào</td></tr>
+                )}
+                {(data.byModel || []).map(m => (
+                  <tr key={m.model}>
+                    <td><code>{m.model}</code></td>
+                    <td className="num">{fmtN(m.calls)}</td>
+                    <td className="num">{fmtN(m.inTok)} / {fmtN(m.outTok)}</td>
+                    <td className="num strong">{fmtVnd(m.costVnd)} đ</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </section>
 
-      {/* Section: TOP USER */}
+      {/* Top user — rank list, KHÁC layout family với section trên (không table) */}
       {(data.byUser || []).length > 0 && (
         <section className="aiu-pane">
-          <Eyebrow sub="TOP 10">USER TIÊU NHIỀU NHẤT</Eyebrow>
-          <table className="aiu-table">
-            <thead><tr><th>Session</th><th>Tenant</th><th>Lượt</th><th>Chi phí</th></tr></thead>
-            <tbody>
-              {data.byUser.map(u => (
-                <tr key={u.session}>
-                  <td><code>{u.session}…</code></td>
-                  <td>{u.tenant || '—'}</td>
-                  <td className="num">{fmtN(u.calls)}</td>
-                  <td className="num strong">{fmtVnd(u.costVnd)} đ</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
+          <SectionTitle hint={`top ${data.byUser.length} user tiêu nhiều nhất`}>User chi tiêu cao</SectionTitle>
+          <ol className="aiu-rank">
+            {data.byUser.map((u, i) => (
+              <li key={u.session}>
+                <span className="aiu-rank-num">{String(i + 1).padStart(2, '0')}</span>
+                <div className="aiu-rank-body">
+                  <code className="aiu-rank-id">{u.session}</code>
+                  <span className="aiu-rank-tenant">{u.tenant || '(không có tenant)'}</span>
+                </div>
+                <span className="aiu-rank-meta">{fmtN(u.calls)} lượt</span>
+                <span className="aiu-rank-cost">{fmtVnd(u.costVnd)} <em>đ</em></span>
+              </li>
+            ))}
+          </ol>
         </section>
       )}
 
-      {/* Section: LOG */}
+      {/* Nhật ký chi tiết — full-width, không eyebrow */}
       <section className="aiu-pane">
-        <Eyebrow sub={`${logs.length} LƯỢT GẦN NHẤT`}>NHẬT KÝ CHI TIẾT</Eyebrow>
+        <SectionTitle hint={`${logs.length} lượt gần nhất`}>Nhật ký chi tiết</SectionTitle>
         <div className="aiu-log-wrap">
           <table className="aiu-table aiu-log">
             <thead><tr><th>Thời gian</th><th>Tính năng</th><th>Model</th><th>IN/OUT</th><th>Latency</th><th>Chi phí</th><th>Status</th></tr></thead>
@@ -248,10 +259,9 @@ function WorkflowLogTab() {
 
   return (
     <section className="aiu-pane">
-      <Eyebrow sub="WORKFLOW TRACE LOG · CÁCH AI VẬN HÀNH">Workflow log</Eyebrow>
-      <div className="aiu-pane-head">
-        <h2>Lịch sử workflow đã chạy <span className="aiu-pane-sub">(mọi request debug=on được lưu vĩnh viễn)</span></h2>
-        <div className="aiu-pane-actions" style={{display:'flex', gap:8}}>
+      <Eyebrow sub="MỌI REQUEST DEBUG ĐƯỢC LƯU JSONL">WORKFLOW LOG</Eyebrow>
+      <div className="aiu-wflog-head">
+        <div className="aiu-wflog-filters">
           <select className="aiu-select" value={days} onChange={e => setDays(+e.target.value)}>
             <option value={1}>24h qua</option>
             <option value={7}>7 ngày</option>
@@ -263,57 +273,53 @@ function WorkflowLogTab() {
               <option key={s.workflow} value={s.workflow}>{s.workflow} ({s.count})</option>
             ))}
           </select>
-          <button className="aiu-status-refresh" onClick={load} disabled={loading} title="Tải lại">⟳</button>
+          <button className="aiu-status-refresh" onClick={load} disabled={loading} title="Tải lại">
+            <Icon name="refresh" size={14} stroke={2.4} />
+          </button>
         </div>
       </div>
 
       {data && data.summary && data.summary.length > 0 && (
-        <div className="aiu-block">
-          <div className="label">Tóm tắt theo workflow</div>
-          <div className="aiu-stats" style={{display:'grid', gridTemplateColumns:'repeat(auto-fit, minmax(180px, 1fr))', gap:10, marginBottom:14}}>
-            {data.summary.map(s => (
-              <div key={s.workflow} className="asst-stat">
-                <div className="asst-stat-val">{s.count}</div>
-                <div className="asst-stat-label">{s.workflow}</div>
-                <div style={{fontSize:11, color:'var(--text-3)', marginTop:6}}>
-                  min {(s.minMs/1000).toFixed(1)}s · max {(s.maxMs/1000).toFixed(1)}s
-                </div>
+        <div className="aiu-wflog-summary">
+          {data.summary.map(s => (
+            <div key={s.workflow} className="aiu-wflog-summary-card">
+              <div className="aiu-wflog-summary-val">{s.count}</div>
+              <div className="aiu-wflog-summary-lbl">{s.workflow}</div>
+              <div className="aiu-wflog-summary-meta">
+                {(s.minMs/1000).toFixed(1)}s ~ {(s.maxMs/1000).toFixed(1)}s
               </div>
-            ))}
-          </div>
+            </div>
+          ))}
         </div>
       )}
 
-      <div className="aiu-block">
-        <div className="label">{data?.count || 0} entry mới nhất</div>
-        <div className="aiu-table-wrap" style={{maxHeight: 600, overflow: 'auto'}}>
-          {(data?.entries || []).map((e, i) => {
-            const isOpen = expanded[e.runId];
-            return (
-              <div key={e.runId + ':' + i} className="aiu-trace-row" style={{borderBottom:'1px solid var(--border)', padding:'8px 0'}}>
-                <div style={{display:'flex', gap:10, alignItems:'baseline', cursor:'pointer'}}
-                     onClick={() => setExpanded(x => ({...x, [e.runId]: !isOpen}))}>
-                  <span style={{fontSize:11, color:'var(--text-3)', minWidth:130}}>{new Date(e.ts).toLocaleString('vi-VN')}</span>
-                  <span style={{fontWeight:600, color:'var(--primary)', minWidth:130}}>{e.workflow}</span>
-                  <span style={{fontSize:12, color:'var(--text-2)', fontVariantNumeric:'tabular-nums'}}>{e.totalMs}ms</span>
-                  <span style={{fontSize:12, color:'var(--text-3)'}}>{e.stepCount} bước</span>
-                  <span style={{fontSize:11, color:'var(--text-3)', fontFamily:'monospace', flex:1, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap'}}>
-                    {e.method} {e.path}
-                  </span>
-                  <span style={{fontSize:10, color:'var(--text-3)'}}>{isOpen ? '▾' : '▸'}</span>
+      <div className="aiu-wflog-list">
+        {(data?.entries || []).map((e, i) => {
+          const isOpen = expanded[e.runId];
+          return (
+            <div key={e.runId + ':' + i} className={'aiu-wflog-row' + (isOpen ? ' open' : '')}>
+              <button className="aiu-wflog-rowhead" onClick={() => setExpanded(x => ({...x, [e.runId]: !isOpen}))}>
+                <span className="aiu-wflog-ts">{new Date(e.ts).toLocaleString('vi-VN')}</span>
+                <span className="aiu-wflog-wf">{e.workflow}</span>
+                <span className="aiu-wflog-ms">{e.totalMs}ms</span>
+                <span className="aiu-wflog-steps">{e.stepCount} bước</span>
+                <span className="aiu-wflog-path"><code>{e.method} {e.path}</code></span>
+                <span className="aiu-wflog-chev">{isOpen ? '▾' : '▸'}</span>
+              </button>
+              {isOpen && e.trace && window.TraceView && (
+                <div className="aiu-wflog-detail">
+                  <window.TraceView trace={e.trace} />
                 </div>
-                {isOpen && e.trace && window.TraceView && (
-                  <div style={{marginTop:8, marginLeft:140}}>
-                    <window.TraceView trace={e.trace} />
-                  </div>
-                )}
-              </div>
-            );
-          })}
-          {(!data || data.count === 0) && (
-            <div className="aiu-empty">Chưa có trace nào trong {days} ngày qua. Bật debug toggle ở topbar rồi thao tác feature AI bất kỳ → trace tự lưu.</div>
-          )}
-        </div>
+              )}
+            </div>
+          );
+        })}
+        {(!data || data.count === 0) && (
+          <div className="aiu-empty">
+            Chưa có trace nào trong {days} ngày qua. Bật nút <Icon name="info" size={11}/> trên topbar
+            rồi thao tác feature AI bất kỳ, trace tự lưu xuống đĩa.
+          </div>
+        )}
       </div>
     </section>
   );
@@ -340,7 +346,7 @@ function UnresolvedTab() {
 
   return (
     <section className="aiu-pane">
-      <Eyebrow sub="CÂU HỎI AI KHÔNG SỬ LÝ ĐƯỢC">CÂU KHÓ AI</Eyebrow>
+      <SectionTitle hint="trigger tag — câu AI không suy luận được">Câu khó AI</SectionTitle>
 
       <div className="unresolved-filters">
         <select value={days} onChange={e => setDays(+e.target.value)}>
