@@ -63,9 +63,10 @@ public static class ReviewEndpoints
                 if (!string.IsNullOrWhiteSpace(segment) && segment != "all")
                     customers = customers.Where(c => string.Equals(c.Segment, segment, StringComparison.OrdinalIgnoreCase)).ToList();
 
+                var tenant = sessions.Get(sid)?.TenantId ?? "";
                 var items = customers.Select(c =>
                 {
-                    var r = reviews.Get(c.Id);
+                    var r = reviews.Get(tenant, c.Id);
                     return new CustomerListItem(
                         Id: c.Id, Name: c.Name, Segment: c.Segment,
                         TotalSpent: c.Metrics.TotalSpent, TotalTours: c.Metrics.TotalTours,
@@ -87,7 +88,8 @@ public static class ReviewEndpoints
             if (sessions.Get(sid) == null) return Unauthorized();
             var c = await source.GetFullAsync(sid!, id, ctx.RequestAborted);
             if (c == null) return Results.NotFound(new { error = $"Không tìm thấy KH {id}" });
-            return Results.Json(new { customer = c, review = reviews.Get(id) });
+            var tenant = sessions.Get(sid)?.TenantId ?? "";
+            return Results.Json(new { customer = c, review = reviews.Get(tenant, id) });
         });
 
         // ─── Sync single review ────────────────────────────────────────────────
@@ -112,7 +114,8 @@ public static class ReviewEndpoints
             }
             try
             {
-                var (review, fromCache) = await service.ReviewAsync(c, forceFresh, null, ctx.RequestAborted);
+                var tenant = sessions.Get(sid)?.TenantId ?? "";
+                var (review, fromCache) = await service.ReviewAsync(c, tenant, forceFresh, null, ctx.RequestAborted);
                 // Đính trace nếu user bật ?debug=1 / X-Debug header
                 var traceObj = trace.Current?.Enabled == true ? trace.Current.Build() : null;
                 return Results.Json(new { review, fromCache, _trace = traceObj });
@@ -130,7 +133,8 @@ public static class ReviewEndpoints
             if (c == null) return Results.NotFound(new { error = $"Không tìm thấy KH {id}" });
             try
             {
-                var (review, _) = await service.ReviewAsync(c, true, null, ctx.RequestAborted);
+                var tenant = sessions.Get(sid)?.TenantId ?? "";
+                var (review, _) = await service.ReviewAsync(c, tenant, true, null, ctx.RequestAborted);
                 var traceObj = trace.Current?.Enabled == true ? trace.Current.Build() : null;
                 return Results.Json(new { review, fromCache = false, _trace = traceObj });
             }
@@ -184,13 +188,28 @@ public static class ReviewEndpoints
         v1.MapPost("/reviews/batch/{jobId}/cancel", (string jobId, BatchService batch) =>
             batch.Cancel(jobId) ? Results.Json(new { ok = true }) : Results.BadRequest(new { error = "Job không tồn tại hoặc đã kết thúc" }));
 
-        // ─── Feedback ─────────────────────────────────────────────────────────────
-        v1.MapPost("/reviews/{customerId}/feedback", (string customerId, FeedbackRequest fb, ReviewRepository reviews) =>
+        // Admin: backfill TenantId cho rows legacy (migrated từ JSON cũ có TenantId="").
+        // Cần session hợp lệ — TenantId lấy từ session, dọn rows TenantId='' không xung đột.
+        v1.MapPost("/reviews/admin/backfill-tenant", async (HttpContext ctx, ReviewRepository reviews, TkSessionStore sessions) =>
         {
+            var sid = Sid(ctx);
+            var s = sessions.Get(sid);
+            if (s == null) return Unauthorized();
+            var updated = await reviews.BackfillTenantIdAsync(s.TenantId, ctx.RequestAborted);
+            return Results.Json(new { ok = true, tenantId = s.TenantId, updated });
+        });
+
+        // ─── Feedback ─────────────────────────────────────────────────────────────
+        v1.MapPost("/reviews/{customerId}/feedback", (string customerId, FeedbackRequest fb,
+            HttpContext ctx, ReviewRepository reviews, TkSessionStore sessions) =>
+        {
+            var sid = Sid(ctx);
+            if (sessions.Get(sid) == null) return Unauthorized();
             if (fb.Rating != "helpful" && fb.Rating != "not_helpful")
                 return Results.BadRequest(new { error = "rating phải là helpful|not_helpful" });
+            var tenant = sessions.Get(sid)?.TenantId ?? "";
             var entry = new ReviewFeedback(fb.Rating, fb.Note, DateTime.UtcNow.ToString("o"));
-            return reviews.SetFeedback(customerId, entry)
+            return reviews.SetFeedback(tenant, customerId, entry)
                 ? Results.Json(new { ok = true }) : Results.NotFound(new { error = "Chưa có review cho KH này" });
         });
 

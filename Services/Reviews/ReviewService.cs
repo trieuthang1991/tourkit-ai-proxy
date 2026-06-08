@@ -31,7 +31,7 @@ public class ReviewService
     /// `onStage` được gọi lifecycle: "preparing" → "calling" → "chunk" (kèm delta) → "parsing" → null khi done.
     /// Tuple: (review, fromCache).
     public async Task<(CustomerReview review, bool fromCache)> ReviewAsync(
-        Customer customer, bool forceFresh = false,
+        Customer customer, string tenantId, bool forceFresh = false,
         Func<string, string?, Task>? onStage = null,
         CancellationToken ct = default)
     {
@@ -39,6 +39,7 @@ public class ReviewService
         trace?.SetWorkflow("CustomerReview");
         trace?.SetMeta("customerId", customer.Id);
         trace?.SetMeta("customerName", customer.Name);
+        trace?.SetMeta("tenantId", tenantId);
         trace?.SetMeta("forceFresh", forceFresh);
 
         var fingerprint = ReviewRepository.FingerprintFor(customer);
@@ -46,7 +47,7 @@ public class ReviewService
 
         if (!forceFresh)
         {
-            var existing = _reviews.Get(customer.Id);
+            var existing = _reviews.Get(tenantId, customer.Id);
             if (existing != null && existing.DataFingerprint == fingerprint)
             {
                 fpTimer?.Done("ok",
@@ -144,7 +145,7 @@ public class ReviewService
             Feedback:            null
         );
 
-        _reviews.Save(review);
+        _reviews.Save(review, tenantId);
         return (review, false);
     }
 

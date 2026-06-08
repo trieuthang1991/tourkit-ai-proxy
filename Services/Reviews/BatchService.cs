@@ -11,13 +11,15 @@ public class BatchService
     private readonly TourKitCustomerSource _source;
     private readonly ReviewService _reviews;
     private readonly BatchJobStore _jobs;
+    private readonly TkSessionStore _sessions;
     private readonly ILogger<BatchService> _log;
 
     private const int CONCURRENCY = 10;
 
-    public BatchService(TourKitCustomerSource source, ReviewService reviews, BatchJobStore jobs, ILogger<BatchService> log)
+    public BatchService(TourKitCustomerSource source, ReviewService reviews, BatchJobStore jobs,
+        TkSessionStore sessions, ILogger<BatchService> log)
     {
-        _source = source; _reviews = reviews; _jobs = jobs; _log = log;
+        _source = source; _reviews = reviews; _jobs = jobs; _sessions = sessions; _log = log;
     }
 
     public BatchJob Start(IEnumerable<string> customerIds, bool forceFresh, string sessionId)
@@ -32,6 +34,7 @@ public class BatchService
     private async Task RunAsync(BatchJob job, bool forceFresh, string sessionId)
     {
         var ct = job.Cts.Token;
+        var tenantId = _sessions.Get(sessionId)?.TenantId ?? "";
 
         await job.Events.Writer.WriteAsync(new BatchEvent("start", Payload: new { total = job.Total }));
 
@@ -66,7 +69,7 @@ public class BatchService
                             ), innerCt);
                         }
 
-                        var (review, fromCache) = await _reviews.ReviewAsync(customer, forceFresh, OnStage, innerCt);
+                        var (review, fromCache) = await _reviews.ReviewAsync(customer, tenantId, forceFresh, OnStage, innerCt);
 
                         if (fromCache) job.Cached++;
                         job.Done++;

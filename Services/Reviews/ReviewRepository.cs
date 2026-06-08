@@ -49,19 +49,65 @@ public class ReviewRepository
         await TryMigrateFromJsonAsync(ct);
     }
 
-    /// Lấy review của 1 KH (ưu tiên DB, fallback file JSON khi DB lỗi).
-    public CustomerReview? Get(string customerId)
+    /// Backfill TenantId cho rows legacy (migrated từ JSON cũ có TenantId="").
+    /// Gọi 1 lần thủ công khi muốn dọn — không tự chạy vì cần biết tenantId.
+    /// Trả số rows đã update.
+    public async Task<int> BackfillTenantIdAsync(string tenantId, CancellationToken ct = default)
+    {
+        if (string.IsNullOrWhiteSpace(tenantId)) return 0;
+        try
+        {
+            await using var c = await _db.OpenAsync(ct);
+            // Nếu đã có row (tenantId, customerId) thật → bỏ qua (avoid PK violation), chỉ update row có TenantId=''
+            // mà KHÔNG có row tương ứng (tenantId, customerId) khác.
+            var rows = await c.ExecuteAsync(@"
+UPDATE r SET TenantId = @t
+FROM dbo.Reviews r
+WHERE r.TenantId = ''
+  AND NOT EXISTS (
+    SELECT 1 FROM dbo.Reviews x WHERE x.TenantId = @t AND x.CustomerId = r.CustomerId
+  );", new { t = tenantId });
+            _log.LogInformation("[ReviewRepo] Backfill TenantId={Tenant}: {N} rows updated", tenantId, rows);
+            return rows;
+        }
+        catch (Exception ex)
+        {
+            _log.LogError(ex, "[ReviewRepo] Backfill TenantId fail");
+            return 0;
+        }
+    }
+
+    /// Lấy review của 1 KH theo TenantId + CustomerId (DB), fallback file khi DB lỗi.
+    /// Nếu không tìm thấy theo tenant chính xác → thử bản TenantId="" (legacy migrated rows từ JSON cũ
+    /// chưa có tenant scope). Hành vi này là transitional: sau khi backfill tenantId, fallback sẽ ít gặp.
+    public CustomerReview? Get(string tenantId, string customerId)
     {
         try
         {
             using var c = _db.Open();
-            // Schema có composite PK (TenantId, CustomerId) nhưng ReviewService hiện chưa truyền tenantId
-            // → lấy bản gần nhất theo customerId. TODO: thread tenantId qua sau.
+            // Match chính xác (TenantId, CustomerId) trước
             var row = c.QueryFirstOrDefault<ReviewRow>(
                 @"SELECT TOP 1 DataJson, FeedbackJson FROM dbo.Reviews
-                  WHERE CustomerId = @id ORDER BY GeneratedAt DESC",
-                new { id = customerId });
-            return row != null ? Hydrate(row) : null;
+                  WHERE TenantId = @t AND CustomerId = @id
+                  ORDER BY GeneratedAt DESC",
+                new { t = tenantId, id = customerId });
+            if (row != null) return Hydrate(row);
+
+            // Fallback legacy: rows migrated từ JSON cũ có TenantId="" (transitional)
+            if (!string.IsNullOrEmpty(tenantId))
+            {
+                row = c.QueryFirstOrDefault<ReviewRow>(
+                    @"SELECT TOP 1 DataJson, FeedbackJson FROM dbo.Reviews
+                      WHERE TenantId = '' AND CustomerId = @id
+                      ORDER BY GeneratedAt DESC",
+                    new { id = customerId });
+                if (row != null)
+                {
+                    _log.LogInformation("[ReviewRepo] Get KH {Id}: dùng row legacy TenantId='' (chưa backfill)", customerId);
+                    return Hydrate(row);
+                }
+            }
+            return null;
         }
         catch (Exception ex)
         {
@@ -69,6 +115,11 @@ public class ReviewRepository
             return LegacyGet(customerId);
         }
     }
+
+    /// Overload cũ không có tenantId — giữ cho code cũ chưa thread (vd batch endpoint).
+    /// Tra DB không filter TenantId, lấy bản gần nhất. Khuyến nghị dùng overload có tenantId.
+    [Obsolete("Dùng Get(tenantId, customerId) thay vì — overload này không scope theo tenant")]
+    public CustomerReview? Get(string customerId) => Get("", customerId);
 
     /// Trả TẤT CẢ review (limit cứng 5000 — review service dùng list-status cho /customers list).
     public IReadOnlyDictionary<string, CustomerReview> All()
@@ -94,8 +145,8 @@ public class ReviewRepository
         }
     }
 
-    /// Upsert review. Lưu cả full DataJson + duplicate column cho index.
-    public void Save(CustomerReview review)
+    /// Upsert review với TenantId. Lưu cả full DataJson + duplicate column cho index.
+    public void Save(CustomerReview review, string tenantId)
     {
         try
         {
@@ -128,7 +179,7 @@ VALUES
                 new
                 {
                     CustomerId   = review.CustomerId,
-                    TenantId     = "",   // TODO: thread tenantId từ session vào ReviewService
+                    TenantId     = tenantId ?? "",
                     Rank         = review.Rank,
                     AlertLevel   = alertLevel,
                     Fingerprint  = review.DataFingerprint,
@@ -148,27 +199,34 @@ VALUES
         }
     }
 
-    /// Cập nhật feedback trên review đã có. Trả true nếu KH tồn tại.
-    public bool SetFeedback(string customerId, ReviewFeedback fb)
+    /// Overload không có tenantId — back-compat cho code cũ. Lưu với TenantId="".
+    [Obsolete("Dùng Save(review, tenantId) thay vì — overload này lưu TenantId='' không scope theo tenant")]
+    public void Save(CustomerReview review) => Save(review, "");
+
+    /// Cập nhật feedback của review (TenantId + CustomerId). Trả true nếu KH tồn tại.
+    public bool SetFeedback(string tenantId, string customerId, ReviewFeedback fb)
     {
         try
         {
             var feedbackJson = JsonSerializer.Serialize(fb, _jsonOpts);
             using var c = _db.Open();
-            // Cập nhật cả cột FeedbackJson + DataJson (để JSON đầy đủ vẫn nhất quán)
-            var existing = c.QueryFirstOrDefault<ReviewRow>(
-                @"SELECT TOP 1 DataJson FROM dbo.Reviews WHERE CustomerId = @id ORDER BY GeneratedAt DESC",
-                new { id = customerId });
-            if (existing == null) return false;
+            // Tìm row theo (tenant, customer) hoặc fallback legacy (tenant="")
+            var existing = c.QueryFirstOrDefault<(string DataJson, string MatchedTenant)>(
+                @"SELECT TOP 1 DataJson, TenantId AS MatchedTenant FROM dbo.Reviews
+                  WHERE (TenantId = @t OR TenantId = '') AND CustomerId = @id
+                  ORDER BY (CASE WHEN TenantId = @t THEN 0 ELSE 1 END), GeneratedAt DESC",
+                new { t = tenantId, id = customerId });
+            if (string.IsNullOrEmpty(existing.DataJson)) return false;
 
-            var rev = Hydrate(existing);
+            var rev = JsonSerializer.Deserialize<CustomerReview>(existing.DataJson, _jsonOpts);
             if (rev == null) return false;
             var updated = rev with { Feedback = fb };
             var dataJson = JsonSerializer.Serialize(updated, _jsonOpts);
 
             var rows = c.Execute(
-                @"UPDATE dbo.Reviews SET FeedbackJson = @fb, DataJson = @dj WHERE CustomerId = @id",
-                new { fb = feedbackJson, dj = dataJson, id = customerId });
+                @"UPDATE dbo.Reviews SET FeedbackJson = @fb, DataJson = @dj
+                  WHERE TenantId = @t AND CustomerId = @id",
+                new { fb = feedbackJson, dj = dataJson, t = existing.MatchedTenant, id = customerId });
             return rows > 0;
         }
         catch (Exception ex)
@@ -177,6 +235,10 @@ VALUES
             return LegacySetFeedback(customerId, fb);
         }
     }
+
+    /// Overload back-compat — KHÔNG scope theo tenant.
+    [Obsolete("Dùng SetFeedback(tenantId, customerId, fb) — overload này tìm cross-tenant")]
+    public bool SetFeedback(string customerId, ReviewFeedback fb) => SetFeedback("", customerId, fb);
 
     // ─── Migration JSON → DB (chạy 1 lần lúc khởi động nếu DB rỗng) ──────────────
 
