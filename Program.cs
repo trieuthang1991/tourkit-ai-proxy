@@ -119,7 +119,7 @@ builder.Services.AddSingleton<TourkitAiProxy.Services.Chat.UnresolvedQuestionsLo
 builder.Services.AddSingleton<ChatAgentService>();
 
 // SmartMail AI — hộp thư Gmail (IMAP/MailKit) + phân loại AI + soạn nháp trả lời.
-// Creds Gmail: data/mail-account.json (App Password mã hóa) nhập từ UI, fallback Mail:Gmail:* / env.
+// Creds Gmail: lưu per-tenant trong DB qua MailAccountStore (App Password Crypton-encrypted), nhập từ UI.
 builder.Services.AddSingleton<TourkitAiProxy.Services.Mail.MailAccountStore>();
 builder.Services.AddSingleton<TourkitAiProxy.Services.Mail.MailSyncStore>();
 builder.Services.AddSingleton<TourkitAiProxy.Services.Mail.MailRepository>();
