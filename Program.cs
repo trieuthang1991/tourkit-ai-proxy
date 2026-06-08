@@ -71,7 +71,10 @@ builder.Services.AddSingleton<ProviderRegistry>();
 // Legacy OpenCodeClient cho code cũ còn reference (sẽ remove khi clean xong)
 builder.Services.AddScoped<OpenCodeClient>();
 
-// Customer Review feature services (file-backed persistence, in-memory job store).
+// Workflow: connection factory SQL Server (PushDb shared instance, decrypt ENC: tự động).
+builder.Services.AddSingleton<TourkitAiProxy.Services.Db.TourkitAiDb>();
+
+// Customer Review feature services. ReviewRepository nay DB-backed (PushDb.dbo.Reviews) với fallback file.
 builder.Services.AddSingleton<CustomerRepository>();
 builder.Services.AddSingleton<ReviewRepository>();
 builder.Services.AddSingleton<BatchJobStore>();
@@ -134,6 +137,20 @@ builder.Services.AddSingleton<TourkitAiProxy.Services.TourKit.TourKitNccClient>(
 
 // ─── Pipeline ────────────────────────────────────────────────────────────────
 var app = builder.Build();
+
+// DB init: tạo schema dbo.Reviews/DealScores/AiHistory nếu chưa có + migrate JSON cũ vào DB.
+// Chạy async fire-and-forget — không block startup. Nếu DB chưa sẵn sàng → log warning, fallback file.
+_ = Task.Run(async () =>
+{
+    using var scope = app.Services.CreateScope();
+    var reviewRepo = scope.ServiceProvider.GetRequiredService<ReviewRepository>();
+    try { await reviewRepo.InitAsync(); }
+    catch (Exception ex)
+    {
+        scope.ServiceProvider.GetRequiredService<ILogger<Program>>()
+            .LogError(ex, "DB init/migrate fail — proxy vẫn chạy với fallback file");
+    }
+});
 
 app.UseCors(CorsSetup.PolicyName);
 // Trace middleware ĐẦU pipeline (trước routing/endpoints) — bất kỳ endpoint nào cũng có thể đọc trace.
