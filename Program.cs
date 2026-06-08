@@ -48,6 +48,11 @@ builder.Services.AddSingleton<UsageTracker>();
 // AI usage log per-request (data/ai-usage.jsonl) — biết feature/user/tenant nào tiêu bao nhiêu.
 builder.Services.AddHttpContextAccessor();
 
+// ITenantContext — đọc tenantId từ X-Session-Id header. Phase 1 RESTful sẽ dùng nhiều
+// qua TenantFilter; ở plan này chỉ register, services vẫn nhận tenantId qua parameter.
+builder.Services.AddScoped<TourkitAiProxy.Services.TourKit.ITenantContext,
+                          TourkitAiProxy.Services.TourKit.HttpTenantContext>();
+
 // Workflow debug trace: middleware detect ?debug=1 / X-Debug header → tạo TraceCollector per-request.
 // Service nào cần ghi trace inject IWorkflowTraceAccessor.Current?.Step(...). No-op khi debug off.
 builder.Services.AddSingleton<IWorkflowTraceAccessor, WorkflowTraceAccessor>();
