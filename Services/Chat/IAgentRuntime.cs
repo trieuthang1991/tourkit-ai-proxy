@@ -1,6 +1,7 @@
 // Services/Chat/IAgentRuntime.cs
 using TourkitAiProxy.Models;
 using TourkitAiProxy.Services.Providers;
+using TourkitAiProxy.Services.Workflow;
 
 namespace TourkitAiProxy.Services.Chat;
 

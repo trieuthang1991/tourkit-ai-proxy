@@ -2,6 +2,7 @@
 using TourkitAiProxy.Models;
 using TourkitAiProxy.Services.Providers;
 using TourkitAiProxy.Services.TourKit;
+using TourkitAiProxy.Services.Workflow;
 
 namespace TourkitAiProxy.Services.Chat;
 
@@ -22,6 +23,7 @@ public class ChatAgentService
     private readonly TkSessionStore _sessions;
     private readonly Cache.ChatCache _cache;
     private readonly UnresolvedQuestionsLog _unresolved;
+    private readonly IWorkflowTraceAccessor _traceAccessor;
     private readonly ILogger<ChatAgentService> _log;
 
     public ChatAgentService(
@@ -30,14 +32,16 @@ public class ChatAgentService
         TkSessionStore sessions,
         Cache.ChatCache cache,
         UnresolvedQuestionsLog unresolved,
+        IWorkflowTraceAccessor traceAccessor,
         ILogger<ChatAgentService> log)
     {
-        _runtimes   = runtimes;
-        _registry   = registry;
-        _sessions   = sessions;
-        _cache      = cache;
-        _unresolved = unresolved;
-        _log        = log;
+        _runtimes       = runtimes;
+        _registry       = registry;
+        _sessions       = sessions;
+        _cache          = cache;
+        _unresolved     = unresolved;
+        _traceAccessor  = traceAccessor;
+        _log            = log;
     }
 
     public async Task<ChatResult> AskAsync(ChatRequest req, string sessionId, CancellationToken ct)
@@ -47,7 +51,11 @@ public class ChatAgentService
         var question = history.LastOrDefault(m => m.Role == "user")?.Content ?? "";
 
         // Trace collector: Step() là no-op khi req.Debug=false → zero overhead trong production.
-        var trace = new TraceCollector(req.Debug);
+        // Tương thích cả ?debug=1 / X-Debug header thông qua trace accessor (set bởi middleware ngoài).
+        var trace = _traceAccessor.Current ?? new TraceCollector(req.Debug);
+        trace.SetWorkflow("ChatAgent");
+        trace.SetMeta("provider", provider.Id);
+        trace.SetMeta("model", req.Model);
 
         // Truncate input truoc khi cache-key + truyen vao agent.
         var (truncQuestion, wasTruncated) = AgentGuardrails.TruncateInput(question, 1500);
@@ -102,8 +110,8 @@ public class ChatAgentService
             l1Timer.Done("ok", "L1 HIT — câu hỏi giống y hệt trong cache → trả ngay, skip toàn bộ AI",
                 new() { ["cacheKey"] = l1Key });
             // Tra ket qua cache + dinh trace (chi co 1 step l1_cache_lookup) khi debug.
-            return req.Debug
-                ? l1Hit with { Trace = trace.Build(provider.Id, req.Model) }
+            return trace.Enabled
+                ? l1Hit with { Trace = trace.Build() }
                 : l1Hit;
         }
         l1Timer.Done("skip", useCache ? "L1 MISS — chưa có cache, chạy tiếp planner" : "L1 SKIP — chưa có session, không cache",
@@ -113,7 +121,7 @@ public class ChatAgentService
         var runtime = _runtimes.FirstOrDefault(r => r.Supports(provider))
             ?? _runtimes.OfType<JsonPlannerAgent>().Single();
         var agentName = runtime.GetType().Name;
-        trace.SetAgent(agentName);
+        trace.SetMeta("agent", agentName);
         trace.Step("runtime_select", "ok", 0,
             $"Provider {provider.Id} → dùng {agentName}",
             new() { ["provider"] = provider.Id, ["model"] = req.Model });
@@ -154,7 +162,7 @@ public class ChatAgentService
                 $"Lưu L1 cache TTL {ttl.TotalMinutes:0}phút (câu hỏi này hỏi lại sẽ trả ngay)");
         }
 
-        return req.Debug ? result with { Trace = trace.Build(provider.Id, req.Model) } : result;
+        return trace.Enabled ? result with { Trace = trace.Build() } : result;
     }
 
     /// <summary>
@@ -166,7 +174,10 @@ public class ChatAgentService
         var history = req.Messages ?? new();
         var question = history.LastOrDefault(m => m.Role == "user")?.Content ?? "";
 
-        var trace = new TraceCollector(req.Debug);
+        var trace = _traceAccessor.Current ?? new TraceCollector(req.Debug);
+        trace.SetWorkflow("ChatAgent");
+        trace.SetMeta("provider", provider.Id);
+        trace.SetMeta("model", req.Model);
 
         var (truncQuestion, wasTruncated) = AgentGuardrails.TruncateInput(question, 1500);
         if (wasTruncated) trace.Step("input_truncate", "ok", 0,
@@ -220,7 +231,7 @@ public class ChatAgentService
             {
                 done = true, reply = l1Hit.Reply, toolName = l1Hit.ToolName,
                 data = l1Hit.Data, cached = true,
-                trace = req.Debug ? trace.Build(provider.Id, req.Model) : null
+                trace = trace.Enabled ? trace.Build() : null
             });
             return;
         }
@@ -230,7 +241,7 @@ public class ChatAgentService
         var runtime = _runtimes.FirstOrDefault(r => r.Supports(provider))
             ?? _runtimes.OfType<JsonPlannerAgent>().Single();
         var agentName = runtime.GetType().Name;
-        trace.SetAgent(agentName);
+        trace.SetMeta("agent", agentName);
         trace.Step("runtime_select", "ok", 0,
             $"Provider {provider.Id} → dùng {agentName}",
             new() { ["provider"] = provider.Id, ["model"] = req.Model });
@@ -283,8 +294,8 @@ public class ChatAgentService
 
         // Emit trace event cuoi cung khi debug=true. Frontend nhan {trace:...} co the
         // render collapsible "Cach van hanh" duoi reply.
-        if (req.Debug)
-            await emit(new { trace = trace.Build(provider.Id, req.Model) });
+        if (trace.Enabled)
+            await emit(new { trace = trace.Build() });
     }
 
     // ─── Helpers ──────────────────────────────────────────────────────────────────

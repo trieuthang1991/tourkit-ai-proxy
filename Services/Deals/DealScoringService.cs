@@ -3,6 +3,7 @@ using TourkitAiProxy.Models;
 using TourkitAiProxy.Services.Cache;
 using TourkitAiProxy.Services.Json;
 using TourkitAiProxy.Services.Providers;
+using TourkitAiProxy.Services.Workflow;
 
 namespace TourkitAiProxy.Services.Deals;
 
@@ -12,6 +13,7 @@ public class DealScoringService
 {
     private readonly ProviderRegistry _registry;
     private readonly AiResponseCache _cache;
+    private readonly IWorkflowTraceAccessor _trace;
     private readonly ILogger<DealScoringService> _log;
 
     private const string SYSTEM =
@@ -19,17 +21,32 @@ public class DealScoringService
         "Căn cứ HÀNH ĐỘNG của Sale: mức độ tương tác, lần chăm sóc gần nhất, tiến triển qua các trạng thái, " +
         "phản hồi của khách, giá trị deal và độ trễ. CHỈ trả JSON thuần (bắt đầu '{'), KHÔNG markdown, KHÔNG giải thích ngoài JSON. Tiếng Việt.";
 
-    public DealScoringService(ProviderRegistry registry, AiResponseCache cache, ILogger<DealScoringService> log)
+    public DealScoringService(ProviderRegistry registry, AiResponseCache cache,
+        IWorkflowTraceAccessor trace, ILogger<DealScoringService> log)
     {
-        _registry = registry; _cache = cache; _log = log;
+        _registry = registry; _cache = cache; _trace = trace; _log = log;
     }
 
     public async Task<DealScore> ScoreAsync(string profile, string? provider, string? model, string? apiKey, CancellationToken ct)
     {
+        var trace = _trace.Current;
+        trace?.SetWorkflow("DealScoring");
+        trace?.SetMeta("profileChars", profile.Length);
+
         var p = _registry.Resolve(provider);
+        trace?.SetMeta("provider", p.Id);
+
         var key = AiResponseCache.Hash("deal-score", model, profile);
+        var cacheTimer = trace?.Begin("cache_lookup");
         var cached = _cache.TryGet<DealScore>(key);
-        if (cached != null) return cached;
+        if (cached != null)
+        {
+            cacheTimer?.Done("ok", $"Cache HIT (24h) → winRate={cached.WinRate}%, level={cached.Level}",
+                new() { ["winRate"] = cached.WinRate, ["level"] = cached.Level });
+            return cached;
+        }
+        cacheTimer?.Done("skip", "Cache MISS → gọi AI");
+
         Exception? last = null;
 
         // Reasoning model (deepseek/minimax) thỉnh thoảng trả JSON xấu/cụt → retry 1 lần với
@@ -42,12 +59,25 @@ public class DealScoringService
             var req = new CompleteRequest(
                 Prompt: prompt, Provider: provider, Model: model,
                 MaxTokens: attempt == 1 ? 1800 : 2400, Temperature: 0.3, System: SYSTEM, ApiKey: apiKey);
+            var aiTimer = trace?.Begin($"ai_score_attempt{attempt}");
             try
             {
                 var res = await p.CompleteAsync(req, ct);
                 if (string.IsNullOrWhiteSpace(res.Text))
+                {
+                    aiTimer?.Done("fail", $"AI trả rỗng (finish={res.FinishReason})");
                     throw new InvalidOperationException($"AI trả rỗng (finish={res.FinishReason})");
+                }
                 var ok = Parse(res.Text) with { AiModel = res.Model, AiProvider = p.Id };
+                aiTimer?.Done("ok",
+                    $"Provider {p.Id} → winRate={ok.WinRate}%, level={ok.Level}, tokens {res.InputTokens}/{res.OutputTokens}, {res.LatencyMs}ms",
+                    new() {
+                        ["provider"] = p.Id, ["model"] = res.Model,
+                        ["promptChars"] = prompt.Length, ["maxTokens"] = req.MaxTokens,
+                        ["tokIn"] = res.InputTokens, ["tokOut"] = res.OutputTokens,
+                        ["latencyMs"] = res.LatencyMs,
+                        ["winRate"] = ok.WinRate, ["level"] = ok.Level
+                    });
                 _cache.Save(key, ok);
                 return ok;
             }
@@ -55,6 +85,7 @@ public class DealScoringService
             catch (InvalidOperationException ex)
             {
                 last = ex;
+                aiTimer?.Done("fail", $"Attempt {attempt} lỗi: {ex.Message}");
                 _log.LogWarning("Chấm deal lần {N} lỗi: {Msg}", attempt, ex.Message);
             }
         }

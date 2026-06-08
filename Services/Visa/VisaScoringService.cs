@@ -3,6 +3,7 @@ using TourkitAiProxy.Models;
 using TourkitAiProxy.Services.Cache;
 using TourkitAiProxy.Services.Json;
 using TourkitAiProxy.Services.Providers;
+using TourkitAiProxy.Services.Workflow;
 
 namespace TourkitAiProxy.Services.Visa;
 
@@ -13,6 +14,7 @@ public class VisaScoringService
 {
     private readonly ProviderRegistry _registry;
     private readonly AiResponseCache _cache;
+    private readonly IWorkflowTraceAccessor _trace;
     private readonly ILogger<VisaScoringService> _log;
 
     private const string SYSTEM =
@@ -21,20 +23,34 @@ public class VisaScoringService
         "ràng buộc về nước (công việc, tài sản, gia đình), lịch sử du lịch, tính nhất quán hồ sơ. " +
         "CHỈ trả JSON thuần (bắt đầu '{'), KHÔNG markdown, KHÔNG giải thích ngoài JSON. Tiếng Việt.";
 
-    public VisaScoringService(ProviderRegistry registry, AiResponseCache cache, ILogger<VisaScoringService> log)
+    public VisaScoringService(ProviderRegistry registry, AiResponseCache cache,
+        IWorkflowTraceAccessor trace, ILogger<VisaScoringService> log)
     {
-        _registry = registry; _cache = cache; _log = log;
+        _registry = registry; _cache = cache; _trace = trace; _log = log;
     }
 
     public async Task<VisaResult> ScoreAsync(
         string profile, string? country, string? provider, string? model, string? apiKey, CancellationToken ct)
     {
+        var trace = _trace.Current;
+        trace?.SetWorkflow("VisaScoring");
+        trace?.SetMeta("country", country);
+        trace?.SetMeta("profileChars", profile.Length);
+
         var p = _registry.Resolve(provider);
+        trace?.SetMeta("provider", p.Id);
 
         // Cache prompt-hash 24h: NV chấm lại cùng hồ sơ trong ngày → KHÔNG gọi AI.
         var key = AiResponseCache.Hash("visa-score", model, $"{country}|{profile}");
+        var cacheTimer = trace?.Begin("cache_lookup");
         var cached = _cache.TryGet<VisaResult>(key);
-        if (cached != null) return cached;
+        if (cached != null)
+        {
+            cacheTimer?.Done("ok", $"Cache HIT (24h) → trả ngay, skip AI",
+                new() { ["cacheKey"] = key[..16] + "…", ["passRate"] = cached.PassRate });
+            return cached;
+        }
+        cacheTimer?.Done("skip", "Cache MISS → gọi AI", new() { ["cacheKey"] = key[..16] + "…" });
 
         Exception? last = null;
 
@@ -47,19 +63,34 @@ public class VisaScoringService
             var req = new CompleteRequest(
                 Prompt: prompt, Provider: provider, Model: model,
                 MaxTokens: attempt == 1 ? 2500 : 3200, Temperature: 0.3, System: SYSTEM, ApiKey: apiKey);
+            var aiTimer = trace?.Begin($"ai_score_attempt{attempt}");
             try
             {
                 var res = await p.CompleteAsync(req, ct);
                 if (string.IsNullOrWhiteSpace(res.Text))
+                {
+                    aiTimer?.Done("fail", $"AI trả rỗng (finish={res.FinishReason})");
                     throw new InvalidOperationException($"AI trả rỗng (finish={res.FinishReason})");
+                }
                 var ok = Parse(res.Text) with { AiModel = res.Model, AiProvider = p.Id };
+                aiTimer?.Done("ok",
+                    $"Provider {p.Id} → passRate={ok.PassRate}%, level={ok.Level}, tokens {res.InputTokens}/{res.OutputTokens}, {res.LatencyMs}ms",
+                    new() {
+                        ["provider"] = p.Id, ["model"] = res.Model,
+                        ["promptChars"] = prompt.Length, ["maxTokens"] = req.MaxTokens,
+                        ["tokIn"] = res.InputTokens, ["tokOut"] = res.OutputTokens,
+                        ["latencyMs"] = res.LatencyMs,
+                        ["passRate"] = ok.PassRate, ["level"] = ok.Level
+                    });
                 _cache.Save(key, ok);
+                trace?.Step("cache_save", "ok", 0, "Lưu kết quả vào cache 24h");
                 return ok;
             }
             catch (OperationCanceledException) { throw; }
             catch (InvalidOperationException ex)
             {
                 last = ex;
+                aiTimer?.Done("fail", $"Attempt {attempt} lỗi: {ex.Message}");
                 _log.LogWarning("Chấm visa lần {N} lỗi: {Msg}", attempt, ex.Message);
             }
         }

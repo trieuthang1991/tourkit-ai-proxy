@@ -2,6 +2,7 @@ using System.Text.Json;
 using TourkitAiProxy.Models;
 using TourkitAiProxy.Services.Json;
 using TourkitAiProxy.Services.Providers;
+using TourkitAiProxy.Services.Workflow;
 
 namespace TourkitAiProxy.Services.Mail;
 
@@ -10,6 +11,7 @@ namespace TourkitAiProxy.Services.Mail;
 public class MailClassifier
 {
     private readonly ProviderRegistry _registry;
+    private readonly IWorkflowTraceAccessor _trace;
     private readonly ILogger<MailClassifier> _log;
 
     private const string SYSTEM =
@@ -18,14 +20,19 @@ public class MailClassifier
         "Output ONLY raw JSON, KHÔNG markdown fences, KHÔNG giải thích, KHÔNG thinking. " +
         "Ký tự đầu tiên BẮT BUỘC là '{'.";
 
-    public MailClassifier(ProviderRegistry registry, ILogger<MailClassifier> log)
+    public MailClassifier(ProviderRegistry registry, IWorkflowTraceAccessor trace, ILogger<MailClassifier> log)
     {
-        _registry = registry; _log = log;
+        _registry = registry; _trace = trace; _log = log;
     }
 
     /// Gọi AI phân loại 1 email → (categoryKey đã chuẩn hóa, summary). Lỗi → (khac, "").
     public async Task<(string Category, string Summary)> ClassifyAsync(MailItem mail, CancellationToken ct)
     {
+        var trace = _trace.Current;
+        trace?.SetWorkflow("MailClassifier");
+        trace?.SetMeta("mailId", mail.Id);
+        trace?.SetMeta("subject", mail.Subject);
+
         var provider = _registry.Resolve(null);
         var req = new CompleteRequest(
             Prompt:      BuildPrompt(mail),
@@ -33,13 +40,25 @@ public class MailClassifier
             MaxTokens:   1000, Temperature: 0.1,
             System:      SYSTEM, ApiKey: null);
 
+        var aiTimer = trace?.Begin("ai_classify");
         try
         {
             var result = await provider.CompleteAsync(req, ct);
-            return ParseClassification(result.Text);
+            var parsed = ParseClassification(result.Text);
+            aiTimer?.Done("ok",
+                $"Provider {provider.Id} → category={parsed.Category}, tokens {result.InputTokens}/{result.OutputTokens}, {result.LatencyMs}ms",
+                new() {
+                    ["provider"] = provider.Id, ["model"] = result.Model,
+                    ["tokIn"] = result.InputTokens, ["tokOut"] = result.OutputTokens,
+                    ["latencyMs"] = result.LatencyMs,
+                    ["category"] = parsed.Category, ["summary"] = parsed.Summary,
+                    ["responseSnippet"] = result.Text.Length > 300 ? result.Text[..300] + "…" : result.Text
+                });
+            return parsed;
         }
         catch (Exception ex)
         {
+            aiTimer?.Done("fail", $"AI classify lỗi: {ex.Message} → fallback 'khac'");
             _log.LogWarning(ex, "Phân loại email {Id} lỗi → khac", mail.Id);
             return ("khac", "");
         }

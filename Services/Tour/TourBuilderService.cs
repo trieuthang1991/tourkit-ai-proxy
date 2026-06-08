@@ -3,6 +3,7 @@ using TourkitAiProxy.Models;
 using TourkitAiProxy.Services.Cache;
 using TourkitAiProxy.Services.Json;
 using TourkitAiProxy.Services.Providers;
+using TourkitAiProxy.Services.Workflow;
 
 namespace TourkitAiProxy.Services.Tour;
 
@@ -13,6 +14,7 @@ public class TourBuilderService
 {
     private readonly ProviderRegistry _registry;
     private readonly AiResponseCache _cache;
+    private readonly IWorkflowTraceAccessor _trace;
     private readonly ILogger<TourBuilderService> _log;
 
     private const string SYSTEM =
@@ -20,9 +22,10 @@ public class TourBuilderService
         "CHỈ trả JSON thuần (bắt đầu '{'), KHÔNG markdown, KHÔNG giải thích ngoài JSON. " +
         "KHÔNG bịa thông tin chưa có — field nào không rõ thì để null/0/[]; ghi điều cần làm rõ vào 'warnings'. Tiếng Việt.";
 
-    public TourBuilderService(ProviderRegistry registry, AiResponseCache cache, ILogger<TourBuilderService> log)
+    public TourBuilderService(ProviderRegistry registry, AiResponseCache cache,
+        IWorkflowTraceAccessor trace, ILogger<TourBuilderService> log)
     {
-        _registry = registry; _cache = cache; _log = log;
+        _registry = registry; _cache = cache; _trace = trace; _log = log;
     }
 
     public async Task<TourBuilderDraft> ParseAsync(TourBuilderRequest req, CancellationToken ct)
@@ -30,10 +33,23 @@ public class TourBuilderService
         if (string.IsNullOrWhiteSpace(req.Prompt))
             throw new InvalidOperationException("Mô tả rỗng");
 
+        var trace = _trace.Current;
+        trace?.SetWorkflow("TourBuilder");
+        trace?.SetMeta("promptChars", req.Prompt.Length);
+
         var p = _registry.Resolve(req.Provider);
+        trace?.SetMeta("provider", p.Id);
+
         var key = AiResponseCache.Hash("tour-builder", req.Model, req.Prompt);
+        var cacheTimer = trace?.Begin("cache_lookup");
         var cached = _cache.TryGet<TourBuilderDraft>(key);
-        if (cached != null) return cached;
+        if (cached != null)
+        {
+            cacheTimer?.Done("ok", $"Cache HIT (24h) → title='{cached.Title}'");
+            return cached;
+        }
+        cacheTimer?.Done("skip", "Cache MISS → gọi AI");
+
         Exception? last = null;
         for (int attempt = 1; attempt <= 2; attempt++)
         {
@@ -45,12 +61,25 @@ public class TourBuilderService
             var cr = new CompleteRequest(
                 Prompt: prompt, Provider: req.Provider, Model: req.Model,
                 MaxTokens: attempt == 1 ? 4500 : 8000, Temperature: 0.2, System: SYSTEM, ApiKey: req.ApiKey);
+            var aiTimer = trace?.Begin($"ai_parse_attempt{attempt}");
             try
             {
                 var res = await p.CompleteAsync(cr, ct);
                 if (string.IsNullOrWhiteSpace(res.Text))
+                {
+                    aiTimer?.Done("fail", $"AI trả rỗng (finish={res.FinishReason})");
                     throw new InvalidOperationException($"AI trả rỗng (finish={res.FinishReason})");
+                }
                 var ok = Parse(res.Text);
+                aiTimer?.Done("ok",
+                    $"Provider {p.Id} → bóc tour title='{ok.Title ?? "?"}', warnings={ok.Warnings?.Count ?? 0}, tokens {res.InputTokens}/{res.OutputTokens}, {res.LatencyMs}ms",
+                    new() {
+                        ["provider"] = p.Id, ["model"] = res.Model,
+                        ["promptChars"] = prompt.Length, ["maxTokens"] = cr.MaxTokens,
+                        ["tokIn"] = res.InputTokens, ["tokOut"] = res.OutputTokens,
+                        ["latencyMs"] = res.LatencyMs,
+                        ["title"] = ok.Title, ["warningsCount"] = ok.Warnings?.Count ?? 0
+                    });
                 _cache.Save(key, ok);
                 return ok;
             }
@@ -58,6 +87,7 @@ public class TourBuilderService
             catch (InvalidOperationException ex)
             {
                 last = ex;
+                aiTimer?.Done("fail", $"Attempt {attempt} lỗi: {ex.Message}");
                 _log.LogWarning("Bóc tour lần {N} lỗi: {Msg}", attempt, ex.Message);
             }
         }

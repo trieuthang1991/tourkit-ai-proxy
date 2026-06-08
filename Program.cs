@@ -5,6 +5,7 @@ using TourkitAiProxy.Services.Chat;
 using TourkitAiProxy.Services.Providers;
 using TourkitAiProxy.Services.Reviews;
 using TourkitAiProxy.Services.TourKit;
+using TourkitAiProxy.Services.Workflow;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -45,6 +46,10 @@ builder.Services.AddHttpClient("anthropic", c => c.Timeout = TimeSpan.FromSecond
 builder.Services.AddSingleton<UsageTracker>();
 // AI usage log per-request (data/ai-usage.jsonl) — biết feature/user/tenant nào tiêu bao nhiêu.
 builder.Services.AddHttpContextAccessor();
+
+// Workflow debug trace: middleware detect ?debug=1 / X-Debug header → tạo TraceCollector per-request.
+// Service nào cần ghi trace inject IWorkflowTraceAccessor.Current?.Step(...). No-op khi debug off.
+builder.Services.AddSingleton<IWorkflowTraceAccessor, WorkflowTraceAccessor>();
 builder.Services.AddSingleton<TourkitAiProxy.Services.AiUsageLog>();
 builder.Services.AddSingleton<TourkitAiProxy.Services.AiCallContext>();
 // Cache prompt-hash 24h cho Visa/Deal/TourBuilder (Redis nếu có, fallback in-memory).
@@ -129,6 +134,8 @@ builder.Services.AddSingleton<TourkitAiProxy.Services.TourKit.TourKitNccClient>(
 var app = builder.Build();
 
 app.UseCors(CorsSetup.PolicyName);
+// Trace middleware ĐẦU pipeline (trước routing/endpoints) — bất kỳ endpoint nào cũng có thể đọc trace.
+app.UseMiddleware<WorkflowTraceMiddleware>();
 app.UseTourkitStaticFiles();
 
 // ─── Routes ──────────────────────────────────────────────────────────────────

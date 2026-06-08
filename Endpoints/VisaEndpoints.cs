@@ -238,7 +238,8 @@ public static class VisaEndpoints
 
         // ─── POST /visa/assess/{id}/score ─── chấm điểm (bước 2) ─────────────────
         v1.MapPost("/visa/assess/{id}/score", async (string id, VisaScoreRequest req,
-            VisaScoringService scorer, VisaRepository repo, CancellationToken ct) =>
+            VisaScoringService scorer, VisaRepository repo,
+            TourkitAiProxy.Services.Workflow.IWorkflowTraceAccessor trace, CancellationToken ct) =>
         {
             var a = repo.Get(id);
             if (a is null) return Results.NotFound(new { error = "Không tìm thấy hồ sơ" });
@@ -259,6 +260,9 @@ public static class VisaEndpoints
                     UpdatedAt = DateTime.UtcNow.ToString("o")
                 };
                 repo.Save(updated);
+                // Đính trace nếu ?debug=1 / X-Debug header
+                var traceObj = trace.Current?.Enabled == true ? trace.Current.Build() : null;
+                if (traceObj != null) return Results.Json(new { assessment = updated, _trace = traceObj });
                 return Results.Json(updated);
             }
             catch (InvalidOperationException ex)

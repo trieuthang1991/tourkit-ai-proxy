@@ -1,6 +1,7 @@
 using System.Text.Json;
 using TourkitAiProxy.Models;
 using TourkitAiProxy.Services.Providers;
+using TourkitAiProxy.Services.Workflow;
 
 namespace TourkitAiProxy.Services.Reviews;
 
@@ -11,6 +12,7 @@ public class ReviewService
 {
     private readonly ReviewRepository _reviews;
     private readonly ProviderRegistry _registry;
+    private readonly IWorkflowTraceAccessor _trace;
     private readonly ILogger<ReviewService> _log;
 
     private const string SYSTEM_PROMPT =
@@ -19,9 +21,10 @@ public class ReviewService
         "Bắt đầu output bằng dấu `{` ngay. KHÔNG suy diễn ngoài dữ liệu. " +
         "Tiếng Việt tự nhiên, ngắn gọn, thực dụng. Đề xuất hành động phải gắn với dữ liệu thực tế.";
 
-    public ReviewService(ReviewRepository reviews, ProviderRegistry registry, ILogger<ReviewService> log)
+    public ReviewService(ReviewRepository reviews, ProviderRegistry registry,
+        IWorkflowTraceAccessor trace, ILogger<ReviewService> log)
     {
-        _reviews = reviews; _registry = registry; _log = log;
+        _reviews = reviews; _registry = registry; _trace = trace; _log = log;
     }
 
     /// Return review (cached nếu fingerprint không đổi & không forceFresh; gọi AI nếu cần).
@@ -32,14 +35,30 @@ public class ReviewService
         Func<string, string?, Task>? onStage = null,
         CancellationToken ct = default)
     {
+        var trace = _trace.Current;
+        trace?.SetWorkflow("CustomerReview");
+        trace?.SetMeta("customerId", customer.Id);
+        trace?.SetMeta("customerName", customer.Name);
+        trace?.SetMeta("forceFresh", forceFresh);
+
         var fingerprint = ReviewRepository.FingerprintFor(customer);
+        var fpTimer = trace?.Begin("fingerprint_check");
 
         if (!forceFresh)
         {
             var existing = _reviews.Get(customer.Id);
             if (existing != null && existing.DataFingerprint == fingerprint)
+            {
+                fpTimer?.Done("ok",
+                    $"Fingerprint khớp ({fingerprint[..8]}…) → trả review cũ, skip AI",
+                    new() { ["fingerprint"] = fingerprint, ["cached"] = true });
                 return (existing, true);
+            }
         }
+        fpTimer?.Done("skip",
+            forceFresh ? "forceFresh=true → bỏ qua cache, gọi AI mới"
+                       : "Fingerprint mới hoặc chưa có review → gọi AI",
+            new() { ["fingerprint"] = fingerprint });
 
         async Task Stage(string stage, string? delta = null)
         {
@@ -49,6 +68,10 @@ public class ReviewService
         await Stage("preparing");
         var prompt = BuildPrompt(customer);
         var provider = _registry.Resolve(null);   // dùng default provider
+        trace?.SetMeta("provider", provider.Id);
+        trace?.Step("prepare_prompt", "ok", 0,
+            $"Build prompt KH {customer.Name} ({customer.Id}), {prompt.Length:N0} chars",
+            new() { ["promptChars"] = prompt.Length, ["systemChars"] = SYSTEM_PROMPT.Length });
 
         var req = new CompleteRequest(
             Prompt:      prompt,
@@ -60,6 +83,7 @@ public class ReviewService
         );
 
         await Stage("calling");
+        var aiTimer = trace?.Begin("ai_complete");
 
         // Dùng CompleteAsync (buffered) thay vì StreamAsync vì:
         // 1. DeepSeek/Kimi reasoning models stream cả `reasoning_content` (chain-of-thought)
@@ -68,12 +92,34 @@ public class ReviewService
         // Trade-off: mất live-stream chunk preview, nhưng vẫn có stage indicator
         // (preparing/calling/parsing/done) đủ visibility.
         var result = await provider.CompleteAsync(req, ct);
+        aiTimer?.Done("ok",
+            $"Provider {provider.Id} → tokens {result.InputTokens}/{result.OutputTokens}, {result.LatencyMs}ms, {result.Text.Length:N0} chars JSON",
+            new() {
+                ["provider"] = provider.Id, ["model"] = result.Model,
+                ["tokIn"] = result.InputTokens, ["tokOut"] = result.OutputTokens,
+                ["latencyMs"] = result.LatencyMs,
+                ["responseChars"] = result.Text.Length,
+                ["finishReason"] = result.FinishReason,
+                ["responseSnippet"] = result.Text.Length > 400 ? result.Text[..400] + "…" : result.Text
+            });
 
         if (string.IsNullOrWhiteSpace(result.Text))
+        {
+            trace?.Step("ai_complete", "fail", 0, $"AI trả text rỗng (finish={result.FinishReason})");
             throw new InvalidOperationException($"AI trả text rỗng cho KH {customer.Id} (finish={result.FinishReason})");
+        }
 
         await Stage("parsing");
+        var parseTimer = trace?.Begin("parse_json");
         var parsed = ParseReviewJson(result.Text);
+        parseTimer?.Done("ok",
+            $"Parse JSON thành công → rank={parsed.Rank ?? "?"}, strengths={parsed.Strengths?.Count ?? 0}, concerns={parsed.Concerns?.Count ?? 0}",
+            new() {
+                ["rank"] = parsed.Rank,
+                ["alertHas"] = parsed.Alert != null,
+                ["strengthsCount"] = parsed.Strengths?.Count ?? 0,
+                ["concernsCount"] = parsed.Concerns?.Count ?? 0
+            });
 
         var review = new CustomerReview(
             Id:                  Guid.NewGuid().ToString("N"),

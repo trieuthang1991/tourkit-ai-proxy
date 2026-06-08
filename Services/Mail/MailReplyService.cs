@@ -1,6 +1,7 @@
 using System.Text.RegularExpressions;
 using TourkitAiProxy.Models;
 using TourkitAiProxy.Services.Providers;
+using TourkitAiProxy.Services.Workflow;
 
 namespace TourkitAiProxy.Services.Mail;
 
@@ -11,6 +12,7 @@ public class MailReplyService
     private readonly ProviderRegistry _registry;
     private readonly MailRepository _repo;
     private readonly MailAccountStore _account;
+    private readonly IWorkflowTraceAccessor _trace;
     private readonly ILogger<MailReplyService> _log;
 
     private const string SYSTEM =
@@ -20,41 +22,70 @@ public class MailReplyService
         "Bám đúng nội dung email khách; KHÔNG bịa thông tin chưa có (giá cụ thể, lịch trình, khuyến mãi) trừ khi có trong chỉ thị nhân viên. " +
         "CHỈ trả nội dung email (lời chào + thân bài + ký tên), KHÔNG markdown, KHÔNG bọc trong dấu nháy.";
 
-    public MailReplyService(ProviderRegistry registry, MailRepository repo, MailAccountStore account, ILogger<MailReplyService> log)
+    public MailReplyService(ProviderRegistry registry, MailRepository repo, MailAccountStore account,
+        IWorkflowTraceAccessor trace, ILogger<MailReplyService> log)
     {
-        _registry = registry; _repo = repo; _account = account; _log = log;
+        _registry = registry; _repo = repo; _account = account; _trace = trace; _log = log;
     }
 
     /// Trả lời 1 email. Stream nháp; trả text đầy đủ; lưu nháp + status dang_xu_ly.
     public async Task<string> DraftStreamAsync(
         MailItem mail, DraftReplyRequest req, Func<string, Task> onDelta, CancellationToken ct)
     {
+        var trace = _trace.Current;
+        trace?.SetWorkflow("MailReply");
+        trace?.SetMeta("mailId", mail.Id);
+        trace?.SetMeta("tone", req.Tone);
+        trace?.SetMeta("hasInstruction", !string.IsNullOrWhiteSpace(req.Instruction));
+
         var text = await RunAsync(
             BuildReplyPrompt(mail, MailTaxonomy.ToneLabel(req.Tone), req.Instruction),
             req.Provider, req.Model, req.ApiKey, onDelta, ct);
 
         if (text.Length > 0)
+        {
             _repo.SetDraft(mail.Id, new MailDraft(req.Tone, req.Instruction, text, DateTime.UtcNow.ToString("o")), status: "dang_xu_ly");
+            trace?.Step("save_draft", "ok", 0, $"Lưu nháp + đổi status sang 'dang_xu_ly'");
+        }
         return text;
     }
 
     /// Soạn email MỚI từ brief (người nhận + ý chính). Stream; trả text đầy đủ. KHÔNG lưu repo.
     public Task<string> ComposeNewStreamAsync(
         ComposeDraftRequest req, Func<string, Task> onDelta, CancellationToken ct)
-        => RunAsync(BuildComposePrompt(req, MailTaxonomy.ToneLabel(req.Tone)),
+    {
+        var trace = _trace.Current;
+        trace?.SetWorkflow("MailCompose");
+        trace?.SetMeta("to", req.To);
+        trace?.SetMeta("subject", req.Subject);
+        trace?.SetMeta("tone", req.Tone);
+        return RunAsync(BuildComposePrompt(req, MailTaxonomy.ToneLabel(req.Tone)),
                     req.Provider, req.Model, req.ApiKey, onDelta, ct);
+    }
 
     // ─── Lõi gọi provider + stream ───────────────────────────────────────────────
     private async Task<string> RunAsync(string prompt, string? provider, string? model, string? apiKey,
         Func<string, Task> onDelta, CancellationToken ct)
     {
+        var trace = _trace.Current;
         var p = _registry.Resolve(provider);
         var req = new CompleteRequest(prompt, provider, model, 2000, 0.6, SYSTEM, apiKey);
 
+        var aiTimer = trace?.Begin("ai_draft");
         // BUFFERED (không stream): reasoning model (minimax/deepseek) khi stream hay rò 'lời suy nghĩ'
         // (reasoning_content) lẫn vào nháp. CompleteAsync chỉ trả message.content sạch (mẫu ReviewService).
         var result = await p.CompleteAsync(req, ct);
         var text = CleanDraft(result.Text);
+        aiTimer?.Done("ok",
+            $"Provider {p.Id} → soạn email {text.Length} chars, tokens {result.InputTokens}/{result.OutputTokens}, {result.LatencyMs}ms",
+            new() {
+                ["provider"] = p.Id, ["model"] = result.Model,
+                ["promptChars"] = prompt.Length, ["systemChars"] = SYSTEM.Length,
+                ["tokIn"] = result.InputTokens, ["tokOut"] = result.OutputTokens,
+                ["latencyMs"] = result.LatencyMs,
+                ["replyChars"] = text.Length,
+                ["replySnippet"] = text.Length > 300 ? text[..300] + "…" : text
+            });
         if (text.Length > 0) await onDelta(text);   // đẩy 1 lần để UI hiện ngay
         return text;
     }

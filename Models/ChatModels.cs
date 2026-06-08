@@ -81,5 +81,5 @@ public record ChatResult(
     int TokensIn,
     int TokensOut,
     string? Warning,
-    TourkitAiProxy.Services.Chat.ChatTrace? Trace = null
+    TourkitAiProxy.Services.Workflow.WorkflowTrace? Trace = null
 );
