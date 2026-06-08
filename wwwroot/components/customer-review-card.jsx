@@ -10,6 +10,7 @@ function CustomerReviewDrawer({ customerId, onClose, onRefreshed, pushToast }) {
   const [refreshing, setRef]  = React.useState(false);
   const [fbNote, setFbNote]   = React.useState('');
   const [fbOpen, setFbOpen]   = React.useState(false);
+  const [lastTrace, setLastTrace] = React.useState(null);   // workflow trace từ lần refresh gần nhất
 
   const load = async () => {
     setLoading(true); setErr(null);
@@ -40,6 +41,8 @@ function CustomerReviewDrawer({ customerId, onClose, onRefreshed, pushToast }) {
       const json = await resp.json();
       if (!resp.ok) throw new Error(json.error || 'Refresh fail');
       setData(d => ({ ...d, review: json.review }));
+      // Lưu trace từ response nếu backend trả (khi user bật debug: ?debug=1 / X-Debug header)
+      if (json._trace) setLastTrace(json._trace);
       pushToast('✓ Đã cập nhật review');
       onRefreshed?.();
     } catch (e) {
@@ -246,6 +249,13 @@ function CustomerReviewDrawer({ customerId, onClose, onRefreshed, pushToast }) {
                   {r.feedback.rating === 'helpful' ? '👍 helpful' : '👎 not helpful'}
                 </span></>}
               </div>
+
+              {/* Debug trace — chỉ hiện khi user bật window.tourkitDebug.set(true) → refresh KH → backend trả _trace */}
+              {lastTrace && window.TraceView && (
+                <div style={{marginTop: 14}}>
+                  <window.TraceView trace={lastTrace} />
+                </div>
+              )}
             </>
           )}
         </div>

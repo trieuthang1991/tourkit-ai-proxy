@@ -169,6 +169,8 @@ function App() {
 
   // Header: tìm nhanh (lọc NAV → Enter điều hướng), toàn màn hình, menu user.
   const [navQuery, setNavQuery] = uS('');
+  // Workflow debug toggle: ON → tự đính X-Debug:1 header vào mọi fetch → response kèm _trace
+  const [debugOn, setDebugOn] = uS(() => window.tourkitDebug?.isOn?.() ?? false);
   const [userMenu, setUserMenu] = uS(false);
   const onNavSearch = (e) => {
     if (e.key !== 'Enter') return;
@@ -276,6 +278,17 @@ function App() {
             <button className="tb-icon" title="Thông báo"
               onClick={() => pushToast('Chưa có thông báo mới')}>
               <Icon name="bell" size={18} />
+            </button>
+            <button
+              className={'tb-icon tb-debug' + (debugOn ? ' on' : '')}
+              onClick={() => {
+                const next = !debugOn;
+                window.tourkitDebug?.set(next);
+                setDebugOn(next);
+                pushToast(next ? '🔍 Debug ON — mọi request AI sẽ có "Cách vận hành"' : 'Debug OFF');
+              }}
+              title={debugOn ? 'Đang HIỆN cách vận hành cho mọi feature AI — bấm để tắt' : 'Bật debug để xem cách AI vận hành (workflow trace)'}>
+              <Icon name="info" size={17} />
             </button>
             <button className="tb-ai" onClick={() => setAiSettingsOpen(true)} title={`AI: ${aiCfg.provider} · ${aiCfg.model}`}>
               <Icon name="sparkle" size={14} /> <span>AI: {aiCfg.model}</span>

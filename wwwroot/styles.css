@@ -1871,6 +1871,9 @@ body.editorial .ai-bubble .hl { color: #FDBA74; }
 .tb-icon { width: 38px; height: 38px; border: none; border-radius: 999px; background: none; color: var(--chrome-text-2);
   display: grid; place-items: center; cursor: pointer; transition: background .15s, color .15s; }
 .tb-icon:hover { background: var(--chrome-2); color: #fff; }
+/* Debug toggle ON: viền cam + glow nhẹ — để team biết đang ở chế độ debug */
+.tb-debug.on { background: var(--primary); color: #fff; box-shadow: 0 0 0 2px rgba(249, 115, 22, 0.25); }
+.tb-debug.on:hover { background: var(--primary-dark, #ea580c); }
 
 /* Pill AI */
 .tb-ai { display: inline-flex; align-items: center; gap: 6px; height: 38px; padding: 0 14px;

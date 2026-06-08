@@ -121,7 +121,8 @@ public static class ReviewEndpoints
         });
 
         v1.MapPost("/reviews/customer/{id}/refresh", async (string id, HttpContext ctx,
-            TourKitCustomerSource source, ReviewService service, TkSessionStore sessions, ILogger<Program> log) =>
+            TourKitCustomerSource source, ReviewService service, TkSessionStore sessions,
+            TourkitAiProxy.Services.Workflow.IWorkflowTraceAccessor trace, ILogger<Program> log) =>
         {
             var sid = Sid(ctx);
             if (sessions.Get(sid) == null) return Unauthorized();
@@ -130,7 +131,8 @@ public static class ReviewEndpoints
             try
             {
                 var (review, _) = await service.ReviewAsync(c, true, null, ctx.RequestAborted);
-                return Results.Json(new { review, fromCache = false });
+                var traceObj = trace.Current?.Enabled == true ? trace.Current.Build() : null;
+                return Results.Json(new { review, fromCache = false, _trace = traceObj });
             }
             catch (Exception ex) { log.LogError(ex, "Refresh KH {Id} lỗi", id); return Results.Json(new { error = ex.Message }, statusCode: 500); }
         });
