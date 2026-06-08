@@ -311,6 +311,14 @@ function DataPanel({ data, onAsk }) {
   const rows = React.useMemo(() => _extractRows(data ? data.raw : null), [data]);
   const isKpi = !!data && data.kind === 'kpi';   // financial-summary: items đã thành thẻ → không bảng/chart trùng
   const chart = React.useMemo(() => (data && !isKpi) ? _chartInfo(rows) : null, [data, isKpi, rows]);
+  // Map nhanh label → compareStat (để hiện delta vs kỳ đối chiếu khi render).
+  // HOOK PHẢI ở đây — trước early return — để React giữ hook order ổn định.
+  const compareMap = React.useMemo(() => {
+    if (!data || !data.compare || !data.compare.compareStats) return null;
+    const m = {};
+    for (const s of data.compare.compareStats) m[s.label] = s;
+    return m;
+  }, [data]);
 
   if (!data) {
     return (
@@ -353,18 +361,52 @@ function DataPanel({ data, onAsk }) {
 
   return (
     <div className="asst-data">
+      {data.compare && (
+        <div className="asst-compare-banner">
+          <Icon name="chart" size={14} />
+          <span>Đang so sánh:</span>
+          <strong>{data.compare.primaryLabel}</strong>
+          <span className="asst-cmp-vs">vs</span>
+          <strong className="asst-cmp-prev">{data.compare.compareLabel}</strong>
+        </div>
+      )}
+
       {data.stats && data.stats.length > 0 && (() => {
         const GROUP_VI = { revenue: 'Doanh thu', expense: 'Chi phí', profit: 'Lợi nhuận', other: 'Khác' };
         const ORDER = ['revenue', 'expense', 'profit', 'other'];
         const hasGroups = data.stats.some(s => s.group);
-        const card = (s, i) => (
-          <div key={i} className="asst-stat">
-            <div className="asst-stat-val" title={s.unit === 'đ' ? window.fmtVND(s.value) : window.fmtNum(s.value)}>
-              {s.unit === 'đ' ? _vndShort(s.value) : window.fmtNum(s.value)}
+        const card = (s, i) => {
+          const cmp = compareMap ? compareMap[s.label] : null;
+          // Bỏ delta cho stat đếm bản ghi (Tổng số / Số tour / Số khách) — % không có nghĩa.
+          const noisyDelta = /^(Tổng số|Số tour|Số khách|Số bản ghi|Số lượng)$/i.test(s.label);
+          let delta = null;
+          if (cmp && typeof cmp.value === 'number' && cmp.value !== 0 && !noisyDelta) {
+            const pct = ((s.value - cmp.value) / Math.abs(cmp.value)) * 100;
+            const isUp = pct >= 0;
+            const arrow = isUp ? '▲' : '▼';
+            // Lợi nhuận tăng = tốt (xanh); chi phí tăng = xấu (đỏ); doanh thu tăng = tốt.
+            const goodIfUp = (s.group !== 'expense');
+            const cls = (isUp === goodIfUp) ? 'asst-delta-pos' : 'asst-delta-neg';
+            delta = (
+              <div className={'asst-stat-delta ' + cls}>
+                <span className="asst-delta-arrow">{arrow}</span>
+                <span className="asst-delta-pct">{Math.abs(pct).toFixed(1)}%</span>
+                <span className="asst-delta-prev" title={cmp.unit === 'đ' ? window.fmtVND(cmp.value) : window.fmtNum(cmp.value)}>
+                  vs {cmp.unit === 'đ' ? _vndShort(cmp.value) : window.fmtNum(cmp.value)}
+                </span>
+              </div>
+            );
+          }
+          return (
+            <div key={i} className="asst-stat">
+              <div className="asst-stat-val" title={s.unit === 'đ' ? window.fmtVND(s.value) : window.fmtNum(s.value)}>
+                {s.unit === 'đ' ? _vndShort(s.value) : window.fmtNum(s.value)}
+              </div>
+              <div className="asst-stat-label">{s.label}</div>
+              {delta}
             </div>
-            <div className="asst-stat-label">{s.label}</div>
-          </div>
-        );
+          );
+        };
         if (!hasGroups) return <div className="asst-stats">{data.stats.map(card)}</div>;
         // Gom nhóm rõ ràng: Doanh thu / Chi phí / Lợi nhuận
         return (

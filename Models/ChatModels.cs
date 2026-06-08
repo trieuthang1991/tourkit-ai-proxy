@@ -46,6 +46,16 @@ public record ChatRequest(
 /// 1 thẻ số liệu bên panel phải. Value để raw (double) — frontend tự format (fmtVND/fmtNum).
 public record ChatStat(string Label, double Value, string? Unit, string? Group = null);  // Group: revenue|expense|profit|null
 
+/// Bộ số liệu KỲ ĐỐI CHIẾU (vd "Tháng 5/2026" so với primary "Tháng 6/2026").
+/// Backend dựng khi AI gọi cùng 1 tool 2 lần với param khác nhau ("so với tháng trước / cùng kỳ năm ngoái").
+/// Stats match với primary qua Label — frontend tính delta để hiện ▲/▼ % bên cạnh stat chính.
+public record ChatDataCompare(
+    string PrimaryLabel,        // vd "Tháng 6/2026", "Năm 2026"  — để dán nhãn bộ chính
+    string CompareLabel,        // vd "Tháng 5/2026", "Năm 2025"  — để dán nhãn bộ đối chiếu
+    List<ChatStat> CompareStats,// stats của kỳ đối chiếu (match Label với primary)
+    JsonElement? CompareRaw     // rows kỳ đối chiếu để chart vẽ 2 series (timeline) nếu có
+);
+
 /// Dữ liệu hiển thị panel phải: kind (loại tool), raw JSON từ TourKit, thẻ số liệu, gợi ý hỏi tiếp.
 public record ChatData(
     string Kind,
@@ -53,7 +63,8 @@ public record ChatData(
     JsonElement? Raw,
     List<ChatStat> Stats,
     List<string>? Focus,        // chỉ số người dùng muốn (vd ["expense"]) → frontend chỉ vẽ/hiện cột này
-    List<string>? Suggestions = null   // tag gợi ý "xem gì tiếp theo" (chip bấm là hỏi luôn)
+    List<string>? Suggestions = null,  // tag gợi ý "xem gì tiếp theo" (chip bấm là hỏi luôn)
+    ChatDataCompare? Compare = null    // kỳ đối chiếu nếu câu hỏi yêu cầu so sánh (vd "so với tháng trước")
 );
 
 /// Kết quả 1 lượt chat. Reply = phân tích (panel trái). Data = số liệu (panel phải).

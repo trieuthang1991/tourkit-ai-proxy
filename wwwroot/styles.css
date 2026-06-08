@@ -1650,6 +1650,32 @@ body.editorial .ai-bubble .hl { color: #FDBA74; }
   font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.06em;
   color: var(--text-3); margin-top: 6px;
 }
+
+/* Compare banner + delta badges (so sánh kỳ trước / cùng kỳ năm ngoái) */
+.asst-compare-banner {
+  display: inline-flex; align-items: center; gap: 8px;
+  background: linear-gradient(90deg, rgba(249,115,22,0.10), rgba(249,115,22,0.02));
+  border: 1px solid rgba(249,115,22,0.30); border-radius: 999px;
+  padding: 6px 14px; font-size: 12px; color: var(--text-2);
+  margin-bottom: 14px;
+}
+.asst-compare-banner svg { color: var(--primary); flex-shrink: 0; }
+.asst-compare-banner strong { color: var(--text); font-weight: 600; }
+.asst-compare-banner .asst-cmp-vs { color: var(--text-3); font-weight: 500; }
+.asst-compare-banner .asst-cmp-prev { color: var(--text-2); }
+
+.asst-stat-delta {
+  margin-top: 8px; padding-top: 8px; border-top: 1px dashed var(--border);
+  display: flex; align-items: baseline; flex-wrap: wrap; gap: 4px 6px;
+  font-size: 11px; line-height: 1.3;
+}
+.asst-delta-arrow { font-size: 10px; }
+.asst-delta-pct { font-weight: 700; font-variant-numeric: tabular-nums; }
+.asst-delta-prev { color: var(--text-3); font-weight: 500; font-variant-numeric: tabular-nums; margin-left: 2px; }
+.asst-delta-pos { color: #15803d; }                 /* xanh = tốt */
+.asst-delta-pos .asst-delta-prev { color: var(--text-3); }
+.asst-delta-neg { color: #b91c1c; }                 /* đỏ = xấu */
+.asst-delta-neg .asst-delta-prev { color: var(--text-3); }
 .asst-chart { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius-md); padding: 14px; margin-bottom: 16px; }
 .asst-canvas-wrap { position: relative; height: 300px; }
 .asst-chart-toolbar { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-bottom: 12px; flex-wrap: wrap; }

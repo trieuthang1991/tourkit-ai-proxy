@@ -287,15 +287,46 @@ public class NativeToolUseAgent : IAgentRuntime
 
             var execResults = await Task.WhenAll(execTasks);
 
-            // Ghi loi ket qua tool cuoi cung co data (cho ChatData panel phai)
-            foreach (var er in execResults)
+            // Gom ket qua: neu 2+ tool_use cung tool name (vd 2 lan cashflow voi date khac nhau)
+            // → ghep thanh ChatData.Compare (primary = ky gan hien tai nhat, compare = ky con lai).
+            // Neu chi 1 tool / hoac nhieu tool khac nhau → lay tool moi nhat co data nhu cu.
+            var successResults = execResults.Where(e => e.Data != null && e.Tool != null).ToList();
+            if (successResults.Count >= 2)
             {
-                if (er.Data != null)
+                // Group theo ten tool, chon group co >=2 ket qua de build compare
+                var grouped = successResults.GroupBy(e => e.Tool!.Name)
+                    .FirstOrDefault(g => g.Count() >= 2);
+                if (grouped != null)
                 {
-                    lastData     = er.Data;
-                    lastToolName = er.Tool?.Name;
-                    lastParams   = er.Params;
+                    var ordered = grouped.OrderByDescending(e => InferDateOrderKey(e.tub.Input)).ToList();
+                    var primary = ordered[0];
+                    var compare = ordered[1];
+                    var primaryLabel = InferPeriodLabel(primary.tub.Input) ?? "Kỳ chính";
+                    var compareLabel = InferPeriodLabel(compare.tub.Input) ?? "Kỳ đối chiếu";
+                    var compareRaw = TryParseRaw(compare.ResultJson);
+                    lastData = primary.Data with
+                    {
+                        Compare = new ChatDataCompare(
+                            PrimaryLabel: primaryLabel,
+                            CompareLabel: compareLabel,
+                            CompareStats: compare.Data!.Stats,
+                            CompareRaw: compareRaw)
+                    };
+                    lastToolName = primary.Tool!.Name;
+                    lastParams   = primary.Params;
+                    _log.LogInformation("[NativeTool] Compare built: primary={P} vs compare={C} ({Tool})",
+                        primaryLabel, compareLabel, grouped.Key);
                 }
+                else
+                {
+                    foreach (var er in execResults)
+                        if (er.Data != null) { lastData = er.Data; lastToolName = er.Tool?.Name; lastParams = er.Params; }
+                }
+            }
+            else
+            {
+                foreach (var er in execResults)
+                    if (er.Data != null) { lastData = er.Data; lastToolName = er.Tool?.Name; lastParams = er.Params; }
             }
 
             // Emit data ngay sau khi exec xong → frontend hien panel phai som nhat co the.
@@ -572,5 +603,69 @@ public class NativeToolUseAgent : IAgentRuntime
         }
 
         return sb.ToString();
+    }
+
+    // ── Compare helpers ─────────────────────────────────────────────────────────
+
+    /// <summary>
+    /// Đọc startDate hoặc startTime trong tool input, trả khóa string để ORDER theo thời gian.
+    /// Kỳ gần hiện tại nhất → key lớn nhất → được chọn làm primary.
+    /// </summary>
+    private static string InferDateOrderKey(JsonElement input)
+    {
+        if (input.ValueKind != JsonValueKind.Object) return "";
+        // Ưu tiên startDate, fallback endDate, fallback year
+        foreach (var name in new[] { "startDate", "endDate", "startTime", "endTime", "year" })
+        {
+            if (input.TryGetProperty(name, out var v) && v.ValueKind == JsonValueKind.String)
+                return v.GetString() ?? "";
+            if (input.TryGetProperty(name, out var vn) && vn.ValueKind == JsonValueKind.Number)
+                return vn.GetRawText();
+        }
+        return "";
+    }
+
+    /// <summary>
+    /// Đoán nhãn kỳ hiển thị từ tool input: "Tháng 6/2026", "Năm 2025", "01/06 - 30/06/2026"...
+    /// Heuristic gọn: nếu có startDate yyyy-MM-dd và endDate cùng tháng → "Tháng M/yyyy".
+    /// </summary>
+    private static string? InferPeriodLabel(JsonElement input)
+    {
+        if (input.ValueKind != JsonValueKind.Object) return null;
+        string? start = null, end = null;
+        if (input.TryGetProperty("startDate", out var s) && s.ValueKind == JsonValueKind.String) start = s.GetString();
+        if (input.TryGetProperty("endDate",   out var e) && e.ValueKind == JsonValueKind.String) end   = e.GetString();
+        if (start == null && input.TryGetProperty("year", out var y))
+            return $"Năm {(y.ValueKind == JsonValueKind.Number ? y.GetInt32().ToString() : y.GetString())}";
+        if (start == null || end == null) return null;
+
+        if (DateTime.TryParse(start, out var sd) && DateTime.TryParse(end, out var ed))
+        {
+            // Cùng tháng cùng năm → "Tháng M/yyyy"
+            if (sd.Year == ed.Year && sd.Month == ed.Month)
+                return $"Tháng {sd.Month}/{sd.Year}";
+            // Cùng năm khác tháng → "T1-T12/yyyy" hoặc "T{M1}-T{M2}/yyyy"
+            if (sd.Year == ed.Year)
+                return $"T{sd.Month}-T{ed.Month}/{sd.Year}";
+            // Khác năm → "yyyy → yyyy"
+            return $"{sd:yyyy-MM-dd} → {ed:yyyy-MM-dd}";
+        }
+        return $"{start} → {end}";
+    }
+
+    /// <summary>
+    /// Parse safe JsonElement từ chuỗi tool_result. Lấy items[] nếu có envelope, ngược lại lấy root.
+    /// </summary>
+    private static JsonElement? TryParseRaw(string json)
+    {
+        try
+        {
+            using var doc = JsonDocument.Parse(json);
+            var root = doc.RootElement;
+            if (root.ValueKind == JsonValueKind.Object && root.TryGetProperty("items", out var items))
+                return items.Clone();
+            return root.Clone();
+        }
+        catch { return null; }
     }
 }

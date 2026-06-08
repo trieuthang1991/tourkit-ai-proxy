@@ -219,6 +219,53 @@ public class JsonPlannerAgent : IAgentRuntime
         // ─── 3. Doc envelope /api/ai/* (items + summary + total + title) ─────────
         var chatData = BuildChatData(tool, data);
 
+        // ─── 3b. Compare intent: cau hoi co "so voi / cung ky / nam ngoai" → dispatch 2nd ──
+        // Chi ap dung cho tool co params date (cashflow, financial_summary, marketing...).
+        var compareShift = DetectCompareIntent(question);
+        if (compareShift != CompareShift.None && HasDateParams(toolParams))
+        {
+            var (comparePrms, compareLabel) = ShiftDateParams(toolParams!.Value, compareShift);
+            if (comparePrms.HasValue)
+            {
+                try
+                {
+                    var compPath = ChatTools.BuildPath(tool, comparePrms);
+                    _log.LogInformation("[JsonPlanner] Compare dispatch tool={Tool} path={Path}", tool.Name, compPath);
+
+                    JsonElement compData;
+                    var compCacheKey = $"{input.TenantId}|{compPath}";
+                    if (_cache.TryGet<JsonElement>("d|" + compCacheKey, out var cachedComp))
+                        compData = cachedComp;
+                    else
+                    {
+                        var jwt = await _sessions.GetValidJwtAsync(input.SessionId, ct);
+                        compData = await _api.GetAsync(jwt, compPath, ct);
+                        if (IsUsableData(compData)) _cache.Set("d|" + compCacheKey, compData, CacheTtl);
+                    }
+
+                    var compChat = BuildChatData(tool, compData);
+                    if (HasContent(compChat))
+                    {
+                        var primaryLabel = InferPeriodLabel(toolParams) ?? "Kỳ chính";
+                        chatData = chatData with
+                        {
+                            Compare = new ChatDataCompare(
+                                PrimaryLabel: primaryLabel,
+                                CompareLabel: compareLabel,
+                                CompareStats: compChat.Stats,
+                                CompareRaw: compChat.Raw)
+                        };
+                        _log.LogInformation("[JsonPlanner] Compare built: {P} vs {C}", primaryLabel, compareLabel);
+                    }
+                }
+                catch (Exception ex)
+                {
+                    // Compare la phu, fail thi log + tiep tuc voi primary
+                    _log.LogWarning(ex, "[JsonPlanner] Compare dispatch fail — skip compare");
+                }
+            }
+        }
+
         // Trigger: tool_returned_empty -- dispatch thanh cong nhung data khong co noi dung huu ich
         if (!HasContent(chatData))
         {
@@ -508,6 +555,45 @@ public class JsonPlannerAgent : IAgentRuntime
         }
 
         var chatData = BuildChatData(tool, data);
+
+        // Compare intent (stream): cau hoi co "so voi / cung ky / nam ngoai" → dispatch 2nd
+        var compareShiftS = DetectCompareIntent(question);
+        if (compareShiftS != CompareShift.None && HasDateParams(toolParams))
+        {
+            var (comparePrmsS, compareLabelS) = ShiftDateParams(toolParams!.Value, compareShiftS);
+            if (comparePrmsS.HasValue)
+            {
+                try
+                {
+                    var compPathS = ChatTools.BuildPath(tool, comparePrmsS);
+                    _log.LogInformation("[JsonPlanner-stream] Compare dispatch tool={Tool} path={Path}", tool.Name, compPathS);
+                    JsonElement compDataS;
+                    var compCacheKeyS = $"{input.TenantId}|{compPathS}";
+                    if (_cache.TryGet<JsonElement>("d|" + compCacheKeyS, out var cachedCompS))
+                        compDataS = cachedCompS;
+                    else
+                    {
+                        var jwtS = await _sessions.GetValidJwtAsync(input.SessionId, ct);
+                        compDataS = await _api.GetAsync(jwtS, compPathS, ct);
+                        if (IsUsableData(compDataS)) _cache.Set("d|" + compCacheKeyS, compDataS, CacheTtl);
+                    }
+                    var compChatS = BuildChatData(tool, compDataS);
+                    if (HasContent(compChatS))
+                    {
+                        var primaryLabelS = InferPeriodLabel(toolParams) ?? "Kỳ chính";
+                        chatData = chatData with
+                        {
+                            Compare = new ChatDataCompare(
+                                PrimaryLabel: primaryLabelS,
+                                CompareLabel: compareLabelS,
+                                CompareStats: compChatS.Stats,
+                                CompareRaw: compChatS.Raw)
+                        };
+                    }
+                }
+                catch (Exception ex) { _log.LogWarning(ex, "[JsonPlanner-stream] Compare dispatch fail"); }
+            }
+        }
 
         // Trigger: tool_returned_empty (stream path)
         if (!HasContent(chatData))
@@ -1107,5 +1193,108 @@ Yêu cầu:
         };
         var norm = question.ToLowerInvariant();
         return keywords.Any(k => norm.Contains(k));
+    }
+
+    // ─── Compare intent + date-shift helpers ────────────────────────────────────
+
+    /// Hướng dịch chuyển kỳ đối chiếu (kỳ trước / cùng kỳ năm ngoái...).
+    private enum CompareShift { None, PrevMonth, PrevYear, PrevQuarter }
+
+    /// Phát hiện câu hỏi có yêu cầu so sánh với kỳ trước/năm ngoái.
+    private static CompareShift DetectCompareIntent(string question)
+    {
+        if (string.IsNullOrWhiteSpace(question)) return CompareShift.None;
+        var q = question.ToLowerInvariant();
+        // Năm ngoái / cùng kỳ năm ngoái / năm trước / so với năm 2024
+        if (q.Contains("năm ngoái") || q.Contains("nam ngoai")
+            || q.Contains("cùng kỳ") || q.Contains("cung ky")
+            || q.Contains("năm trước") || q.Contains("nam truoc")
+            || q.Contains("last year") || q.Contains("year ago") || q.Contains("yoy"))
+            return CompareShift.PrevYear;
+        // Quý trước
+        if (q.Contains("quý trước") || q.Contains("quy truoc") || q.Contains("last quarter") || q.Contains("qoq"))
+            return CompareShift.PrevQuarter;
+        // Tháng trước / so với tháng trước
+        if (q.Contains("tháng trước") || q.Contains("thang truoc")
+            || q.Contains("last month") || q.Contains("month ago") || q.Contains("mom")
+            // "so với" + "tháng" hoặc "kỳ trước" (mơ hồ → default monthly)
+            || (q.Contains("so với") && (q.Contains("tháng") || q.Contains("kỳ"))))
+            return CompareShift.PrevMonth;
+        // "so sánh" + dải date có sẵn → mặc định dịch -1 tháng
+        if (q.Contains("so sánh") || q.Contains("so sanh") || q.Contains("compare"))
+            return CompareShift.PrevMonth;
+        return CompareShift.None;
+    }
+
+    /// Kiểm tra params có chứa startDate/endDate (đa số tool tài chính có).
+    private static bool HasDateParams(JsonElement? prms)
+    {
+        if (prms is not { ValueKind: JsonValueKind.Object } obj) return false;
+        return obj.TryGetProperty("startDate", out _) || obj.TryGetProperty("endDate", out _);
+    }
+
+    /// Dịch chuyển startDate/endDate theo CompareShift, trả params mới + nhãn kỳ.
+    private static (JsonElement? Params, string Label) ShiftDateParams(JsonElement prms, CompareShift shift)
+    {
+        if (prms.ValueKind != JsonValueKind.Object) return (null, "");
+        if (!prms.TryGetProperty("startDate", out var sEl) || sEl.ValueKind != JsonValueKind.String) return (null, "");
+        if (!prms.TryGetProperty("endDate",   out var eEl) || eEl.ValueKind != JsonValueKind.String) return (null, "");
+        if (!DateTime.TryParse(sEl.GetString(), out var sd)) return (null, "");
+        if (!DateTime.TryParse(eEl.GetString(), out var ed)) return (null, "");
+
+        DateTime newStart, newEnd;
+        switch (shift)
+        {
+            case CompareShift.PrevYear:
+                newStart = sd.AddYears(-1);
+                newEnd   = ed.AddYears(-1);
+                break;
+            case CompareShift.PrevQuarter:
+                newStart = sd.AddMonths(-3);
+                newEnd   = ed.AddMonths(-3);
+                break;
+            case CompareShift.PrevMonth:
+            default:
+                newStart = sd.AddMonths(-1);
+                newEnd   = ed.AddMonths(-1);
+                break;
+        }
+
+        // Build params mới (clone toàn bộ + override startDate/endDate)
+        var dict = new Dictionary<string, object?>();
+        foreach (var p in prms.EnumerateObject())
+        {
+            if (p.Name.Equals("startDate", StringComparison.OrdinalIgnoreCase)) continue;
+            if (p.Name.Equals("endDate",   StringComparison.OrdinalIgnoreCase)) continue;
+            dict[p.Name] = p.Value.ValueKind switch
+            {
+                JsonValueKind.String => p.Value.GetString(),
+                JsonValueKind.Number => p.Value.GetRawText(),
+                JsonValueKind.True => true,
+                JsonValueKind.False => false,
+                _ => null
+            };
+        }
+        dict["startDate"] = newStart.ToString("yyyy-MM-dd");
+        dict["endDate"]   = newEnd.ToString("yyyy-MM-dd");
+
+        var label = newStart.Year == newEnd.Year && newStart.Month == newEnd.Month
+            ? $"Tháng {newStart.Month}/{newStart.Year}"
+            : (newStart.Year == newEnd.Year ? $"T{newStart.Month}-T{newEnd.Month}/{newStart.Year}"
+                                            : $"{newStart:yyyy-MM-dd} → {newEnd:yyyy-MM-dd}");
+        return (JsonSerializer.SerializeToElement(dict), label);
+    }
+
+    /// Đoán nhãn kỳ "Tháng M/yyyy" từ startDate/endDate trong params (cùng tháng cùng năm).
+    private static string? InferPeriodLabel(JsonElement? prms)
+    {
+        if (prms is not { ValueKind: JsonValueKind.Object } obj) return null;
+        if (!obj.TryGetProperty("startDate", out var sEl) || sEl.ValueKind != JsonValueKind.String) return null;
+        if (!obj.TryGetProperty("endDate",   out var eEl) || eEl.ValueKind != JsonValueKind.String) return null;
+        if (!DateTime.TryParse(sEl.GetString(), out var sd)) return null;
+        if (!DateTime.TryParse(eEl.GetString(), out var ed)) return null;
+        if (sd.Year == ed.Year && sd.Month == ed.Month) return $"Tháng {sd.Month}/{sd.Year}";
+        if (sd.Year == ed.Year) return $"T{sd.Month}-T{ed.Month}/{sd.Year}";
+        return $"{sd:yyyy-MM-dd} → {ed:yyyy-MM-dd}";
     }
 }
