@@ -50,8 +50,9 @@ function _aiBody() {
 }
 
 // Đọc SSE soạn nháp; gọi onText với TOÀN BỘ text tích lũy. Trả text cuối.
+// Dùng authedFetch để tự gắn X-Session-Id (per-tenant scope).
 async function _streamDraft(url, body, onText) {
-  const r = await fetch(url, {
+  const r = await window.tourkitAuth.authedFetch(url, {
     method: 'POST', headers: { 'Content-Type': 'application/json', 'Accept': 'text/event-stream' },
     body: JSON.stringify(body),
   });
@@ -128,7 +129,7 @@ function MailAccountForm({ account, onSaved, pushToast }) {
     if (!address.trim() || !appPassword.trim()) { pushToast('Nhập địa chỉ Gmail + App Password', 'error'); return; }
     setSaving(true);
     try {
-      const r = await fetch('/api/v1/mail/account', {
+      const r = await window.tourkitAuth.authedFetch('/api/v1/mail/account', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ address: address.trim(), appPassword: appPassword.trim(), signature: signature.trim() }),
       });
@@ -199,7 +200,7 @@ function ComposeNewModal({ onClose, pushToast }) {
     if (!(await window.appConfirm(`Gửi email tới ${to.trim()}?`, { title: 'Gửi email', confirmLabel: 'Gửi' }))) return;
     setSending(true);
     try {
-      const r = await fetch('/api/v1/mail/compose/send', {
+      const r = await window.tourkitAuth.authedFetch('/api/v1/mail/compose/send', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ to: to.trim(), subject: subject.trim() || '(không tiêu đề)', text: body }),
       });
@@ -297,7 +298,7 @@ function MailPage({ pushToast }) {
   const sel = items.find(m => m.id === selId) || null;
 
   _mE(() => {
-    fetch('/api/v1/mail/account').then(r => r.json()).then(a => {
+    window.tourkitAuth.authedFetch('/api/v1/mail/account').then(r => r.json()).then(a => {
       setAccount(a);
       if (!a.configured) setShowConfig(true);
     }).catch(() => setAccount({ configured: false }));
@@ -315,7 +316,7 @@ function MailPage({ pushToast }) {
       if (fStatus) qs.set('status', fStatus);
       if (fCategory) qs.set('category', fCategory);
       if (search.trim()) qs.set('search', search.trim());
-      const r = await fetch('/api/v1/mail?' + qs.toString());
+      const r = await window.tourkitAuth.authedFetch('/api/v1/mail?' + qs.toString());
       const data = await r.json();
       if (r.ok) applyData(data); else pushToast(data.error || 'Lỗi tải hộp thư', 'error');
     } catch (e) { pushToast('Lỗi tải hộp thư: ' + e.message, 'error'); }
@@ -327,7 +328,7 @@ function MailPage({ pushToast }) {
   async function sync() {
     setSyncing(true);
     try {
-      const r = await fetch('/api/v1/mail/sync', { method: 'POST' });
+      const r = await window.tourkitAuth.authedFetch('/api/v1/mail/sync', { method: 'POST' });
       const data = await r.json();
       if (!r.ok) { pushToast(data.error || 'Đồng bộ lỗi', 'error'); if (r.status === 400) setShowConfig(true); return; }
       applyData(data);
@@ -346,13 +347,13 @@ function MailPage({ pushToast }) {
     if (m && !m.isRead) {
       setItems(prev => prev.map(x => x.id === id ? { ...x, isRead: true } : x));
       setCounts(c => ({ ...c, unread: Math.max(0, (c.unread || 0) - 1) }));
-      fetch(`/api/v1/mail/${encodeURIComponent(id)}/read`, { method: 'POST' }).catch(() => {});
+      window.tourkitAuth.authedFetch(`/api/v1/mail/${encodeURIComponent(id)}/read`, { method: 'POST' }).catch(() => {});
     }
   }
 
   async function setStatus(id, status) {
     try {
-      const r = await fetch(`/api/v1/mail/${encodeURIComponent(id)}/status`, {
+      const r = await window.tourkitAuth.authedFetch(`/api/v1/mail/${encodeURIComponent(id)}/status`, {
         method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ status }),
       });
       if (r.ok) { setItems(prev => prev.map(m => m.id === id ? { ...m, status } : m)); load(); }
@@ -376,7 +377,7 @@ function MailPage({ pushToast }) {
     if (!(await window.appConfirm(`Gửi email trả lời tới ${sel.from?.email || 'khách'}?`, { title: 'Gửi trả lời', confirmLabel: 'Gửi' }))) return;
     setSending(true);
     try {
-      const r = await fetch(`/api/v1/mail/${encodeURIComponent(sel.id)}/reply/send`, {
+      const r = await window.tourkitAuth.authedFetch(`/api/v1/mail/${encodeURIComponent(sel.id)}/reply/send`, {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ text: draft, tone, instruction }),
       });
