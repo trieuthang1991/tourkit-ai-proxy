@@ -20,12 +20,54 @@
     fallback: 'asst-trc-fallback',
   };
 
+  // Cap số step render — trace dài hơn (vd multi-iter agent với 50+ steps × N chats)
+  // sẽ tốn memory cho vDOM strings. User vẫn xem hết bằng cách click "Xem thêm".
+  const MAX_STEPS_RENDERED = 100;
+
+  // Step row — lazy stringify meta JSON. Mỗi step có state mở/đóng riêng;
+  // KHÔNG eager JSON.stringify(meta) ở render — chỉ stringify khi user click.
+  // Trace có 50+ steps × 5 chats = 250 stringify mỗi React render = tốn memory.
+  function StepRow({ s }) {
+    const [showMeta, setShowMeta] = useState(false);
+    const hasMeta = s.meta && Object.keys(s.meta).length > 0;
+    return (
+      <li className={'asst-trc-step ' + (STEP_CLS[s.status] || '')}>
+        <span className="asst-trc-icon">{STEP_ICON[s.status] || '·'}</span>
+        <div className="asst-trc-body">
+          <div className="asst-trc-line">
+            <span className="asst-trc-name">{s.name}</span>
+            <span className="asst-trc-ms">{s.durationMs}ms</span>
+          </div>
+          <div className="asst-trc-summary">{s.summary}</div>
+          {hasMeta && (
+            <div className="asst-trc-meta-det">
+              <button
+                type="button"
+                className="asst-trc-meta-btn"
+                onClick={() => setShowMeta(v => !v)}>
+                {showMeta ? '▾ ẩn chi tiết' : '▸ chi tiết'}
+              </button>
+              {showMeta && (
+                <pre className="asst-trc-meta-json">{JSON.stringify(s.meta, null, 2)}</pre>
+              )}
+            </div>
+          )}
+        </div>
+      </li>
+    );
+  }
+
   function TraceView({ trace }) {
     const [open, setOpen] = useState(false);
+    const [showAll, setShowAll] = useState(false);
     if (!trace || !trace.steps || !trace.steps.length) return null;
 
     // Nhãn workflow: ưu tiên trace.workflow (mới), fallback trace.agent (legacy chat).
     const wf = trace.workflow || trace.agent || 'Workflow';
+
+    const total = trace.steps.length;
+    const stepsToRender = showAll ? trace.steps : trace.steps.slice(0, MAX_STEPS_RENDERED);
+    const hidden = total - stepsToRender.length;
 
     return (
       <div className={'asst-trace' + (open ? ' open' : '')}>
@@ -33,30 +75,23 @@
           {window.Icon ? <window.Icon name="info" size={12} /> : null}
           <span>{open ? 'Ẩn' : 'Cách vận hành'}</span>
           <span className="asst-trace-meta">
-            {trace.steps.length} bước · {trace.totalMs}ms · {wf}
+            {total} bước · {trace.totalMs}ms · {wf}
           </span>
           <span className="asst-trace-chev">{open ? '▾' : '▸'}</span>
         </button>
         {open && (
           <ol className="asst-trace-steps">
-            {trace.steps.map((s, i) => (
-              <li key={i} className={'asst-trc-step ' + (STEP_CLS[s.status] || '')}>
-                <span className="asst-trc-icon">{STEP_ICON[s.status] || '·'}</span>
-                <div className="asst-trc-body">
-                  <div className="asst-trc-line">
-                    <span className="asst-trc-name">{s.name}</span>
-                    <span className="asst-trc-ms">{s.durationMs}ms</span>
-                  </div>
-                  <div className="asst-trc-summary">{s.summary}</div>
-                  {s.meta && Object.keys(s.meta).length > 0 && (
-                    <details className="asst-trc-meta-det">
-                      <summary>chi tiết</summary>
-                      <pre className="asst-trc-meta-json">{JSON.stringify(s.meta, null, 2)}</pre>
-                    </details>
-                  )}
-                </div>
+            {stepsToRender.map((s, i) => <StepRow key={i} s={s} />)}
+            {hidden > 0 && (
+              <li className="asst-trc-step asst-trc-more">
+                <button
+                  type="button"
+                  className="asst-trc-meta-btn"
+                  onClick={() => setShowAll(true)}>
+                  Xem thêm {hidden} bước còn lại
+                </button>
               </li>
-            ))}
+            )}
           </ol>
         )}
       </div>

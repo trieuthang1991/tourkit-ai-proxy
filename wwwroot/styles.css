@@ -1732,10 +1732,15 @@ body.editorial .ai-bubble .hl { color: #FDBA74; }
 .asst-trc-ms { font-size: 10px; color: var(--text-3); font-variant-numeric: tabular-nums; }
 .asst-trc-summary { color: var(--text-2); margin-top: 2px; line-height: 1.4; }
 .asst-trc-meta-det { margin-top: 4px; }
-.asst-trc-meta-det summary {
+.asst-trc-meta-det summary,
+.asst-trc-meta-btn {
   font-size: 10px; color: var(--primary-dark); cursor: pointer; font-weight: 600;
   text-transform: uppercase; letter-spacing: 0.04em;
+  background: none; border: none; padding: 0; font-family: inherit;
 }
+.asst-trc-meta-btn:hover { text-decoration: underline; }
+.asst-trc-more { justify-content: center; padding: 8px 0; }
+.asst-trc-more .asst-trc-meta-btn { font-size: 11px; }
 .asst-trc-meta-json {
   background: #0f172a; color: #e2e8f0; padding: 8px 10px; margin-top: 4px;
   border-radius: 6px; font-size: 10px; line-height: 1.45;
