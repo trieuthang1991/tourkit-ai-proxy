@@ -41,6 +41,7 @@ public static class MailEndpoints
         // ─── POST /mail/sync ───────────────────────────────────────────────────
         v1.MapPost("/mail/sync", async (
             IMailSource source, MailRepository repo, MailClassifier classifier,
+            TourkitAiProxy.Services.Workflow.IWorkflowTraceAccessor trace,
             ILogger<Program> log, HttpContext ctx) =>
         {
             IReadOnlyList<MailItem> fetched;
@@ -68,7 +69,8 @@ public static class MailEndpoints
             }
             log.LogInformation("[mail] sync: {Fetched} kéo về, {New} phân loại mới", fetched.Count, classified);
 
-            return Results.Json(new { items = repo.Filter(null, null, null), counts = repo.Counts(), classified });
+            var traceObj = trace.Current?.Enabled == true ? trace.Current.Build() : null;
+            return Results.Json(new { items = repo.Filter(null, null, null), counts = repo.Counts(), classified, _trace = traceObj });
         });
 
         // ─── GET /mail ─────────────────────────────────────────────────────────
@@ -88,7 +90,9 @@ public static class MailEndpoints
 
         // ─── POST /mail/compose/draft (SSE) ─── AI soạn email MỚI từ brief ──────
         v1.MapPost("/mail/compose/draft", async (
-            ComposeDraftRequest req, MailReplyService replyService, ILogger<Program> log, HttpContext ctx) =>
+            ComposeDraftRequest req, MailReplyService replyService,
+            TourkitAiProxy.Services.Workflow.IWorkflowTraceAccessor trace,
+            ILogger<Program> log, HttpContext ctx) =>
         {
             await StartSseAsync(ctx);
             var emit = Sse(ctx);
@@ -96,6 +100,7 @@ public static class MailEndpoints
             {
                 var text = await replyService.ComposeNewStreamAsync(req, async d => await emit(new { delta = d }), ctx.RequestAborted);
                 await emit(new { done = true, text });
+                if (trace.Current?.Enabled == true) await emit(new { trace = trace.Current.Build() });
             }
             catch (OperationCanceledException) { }
             catch (Exception ex)
@@ -127,6 +132,7 @@ public static class MailEndpoints
         // ─── POST /mail/{id}/reply/draft (SSE) ─────────────────────────────────
         v1.MapPost("/mail/{id}/reply/draft", async (
             string id, DraftReplyRequest req, MailRepository repo, MailReplyService replyService,
+            TourkitAiProxy.Services.Workflow.IWorkflowTraceAccessor trace,
             ILogger<Program> log, HttpContext ctx) =>
         {
             var mail = repo.Get(id);
@@ -144,6 +150,7 @@ public static class MailEndpoints
                 var text = await replyService.DraftStreamAsync(mail, req,
                     async d => await emit(new { delta = d }), ctx.RequestAborted);
                 await emit(new { done = true, text });
+                if (trace.Current?.Enabled == true) await emit(new { trace = trace.Current.Build() });
             }
             catch (OperationCanceledException) { }
             catch (Exception ex)
