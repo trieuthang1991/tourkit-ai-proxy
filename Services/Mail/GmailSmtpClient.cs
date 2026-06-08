@@ -22,9 +22,11 @@ public class GmailSmtpClient : IMailSender
 
     public async Task SendAsync(string toEmail, string? toName, string subject, string body, string? inReplyToMessageId, CancellationToken ct)
     {
-        var (address, appPassword) = _account.Get();
-        if (string.IsNullOrWhiteSpace(address) || string.IsNullOrWhiteSpace(appPassword))
+        // TODO(Task 6/7): thread tenantId param vào SendAsync — hiện pass "" placeholder.
+        var creds = _account.Get("");
+        if (creds is not { } c0 || string.IsNullOrWhiteSpace(c0.Address) || string.IsNullOrWhiteSpace(c0.AppPassword))
             throw new InvalidOperationException("Chưa cấu hình hộp thư Gmail.");
+        var (address, appPassword) = (c0.Address, c0.AppPassword);
         if (string.IsNullOrWhiteSpace(toEmail))
             throw new InvalidOperationException("Thiếu địa chỉ người nhận.");
 

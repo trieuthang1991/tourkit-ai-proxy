@@ -26,7 +26,7 @@ public static class MailEndpoints
 
         // ─── GET /mail/account ─── trạng thái cấu hình hộp thư (KHÔNG trả App Password) ──
         v1.MapGet("/mail/account", (MailAccountStore account) =>
-            Results.Json(new { address = account.CurrentAddress(), configured = account.IsConfigured(), signature = account.Signature() }));
+            Results.Json(new { address = account.CurrentAddress(""), configured = account.IsConfigured(""), signature = account.Signature("") }));
 
         // ─── POST /mail/account ─── nhập creds Gmail + chữ ký từ UI ──────────────
         v1.MapPost("/mail/account", (MailAccountRequest req, MailAccountStore account) =>
@@ -34,8 +34,8 @@ public static class MailEndpoints
             if (string.IsNullOrWhiteSpace(req.Address) || string.IsNullOrWhiteSpace(req.AppPassword))
                 return Results.BadRequest(new { error = "Thiếu địa chỉ Gmail hoặc App Password" });
             // App Password Gmail là 16 ký tự (có thể có khoảng trắng) — bỏ khoảng trắng.
-            account.Set(req.Address.Trim(), req.AppPassword.Replace(" ", "").Trim(), req.Signature);
-            return Results.Json(new { ok = true, address = account.CurrentAddress(), configured = account.IsConfigured(), signature = account.Signature() });
+            account.Set("", req.Address.Trim(), req.AppPassword.Replace(" ", "").Trim(), req.Signature);
+            return Results.Json(new { ok = true, address = account.CurrentAddress(""), configured = account.IsConfigured(""), signature = account.Signature("") });
         });
 
         // ─── POST /mail/sync ───────────────────────────────────────────────────
@@ -98,7 +98,7 @@ public static class MailEndpoints
             var emit = Sse(ctx);
             try
             {
-                var text = await replyService.ComposeNewStreamAsync(req, async d => await emit(new { delta = d }), ctx.RequestAborted);
+                var text = await replyService.ComposeNewStreamAsync("", req, async d => await emit(new { delta = d }), ctx.RequestAborted);
                 await emit(new { done = true, text });
                 if (trace.Current?.Enabled == true) await emit(new { trace = trace.Current.Build() });
             }
@@ -147,7 +147,7 @@ public static class MailEndpoints
             var emit = Sse(ctx);
             try
             {
-                var text = await replyService.DraftStreamAsync(mail, req,
+                var text = await replyService.DraftStreamAsync("", mail, req,
                     async d => await emit(new { delta = d }), ctx.RequestAborted);
                 await emit(new { done = true, text });
                 if (trace.Current?.Enabled == true) await emit(new { trace = trace.Current.Build() });

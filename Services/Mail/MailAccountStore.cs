@@ -1,89 +1,75 @@
-using System.Text.Json;
+using Dapper;
+using TourkitAiProxy.Services.Db;
 using TourkitAiProxy.Services.Security;
 
 namespace TourkitAiProxy.Services.Mail;
 
-/// Lưu/đọc creds hộp thư Gmail + chữ ký. Ưu tiên: file data/mail-account.json
-/// (App Password mã hóa Crypton) nhập từ UI → fallback config (Mail:Gmail:*) / env.
-/// App Password KHÔNG lưu plaintext. JWT/secret pattern giống TkSessionStore.
+/// <summary>
+/// Lưu/đọc creds hộp thư Gmail + chữ ký, SCOPED THEO TenantId.
+/// DB-backed (dbo.MailAccounts). App Password mã hóa Crypton; tenant khác KHÔNG thấy creds nhau.
+/// Không có fallback file — DB lỗi → throw, endpoint trả 503.
+/// </summary>
 public class MailAccountStore
 {
-    private readonly IConfiguration _cfg;
+    private readonly TourkitAiDb _db;
     private readonly ILogger<MailAccountStore> _log;
-    private readonly string _path;
-    private readonly object _lock = new();
-    private (string Address, string AppPassword)? _saved;
-    private string _signature = "";
 
-    public MailAccountStore(IWebHostEnvironment env, IConfiguration cfg, ILogger<MailAccountStore> log)
+    public MailAccountStore(TourkitAiDb db, ILogger<MailAccountStore> log)
     {
-        _cfg = cfg; _log = log;
-        var dir = Path.Combine(env.ContentRootPath, "data");
-        Directory.CreateDirectory(dir);
-        _path = Path.Combine(dir, "mail-account.json");
-        Load();
+        _db = db; _log = log;
     }
 
-    private void Load()
+    /// Lấy creds của tenant. null nếu chưa cấu hình.
+    public (string Address, string AppPassword)? Get(string tenantId)
     {
-        if (!File.Exists(_path)) return;
-        try
-        {
-            using var doc = JsonDocument.Parse(File.ReadAllText(_path));
-            var root = doc.RootElement;
-            var addr = root.TryGetProperty("address", out var a) ? a.GetString() ?? "" : "";
-            var encPwd = root.TryGetProperty("appPasswordEnc", out var p) ? p.GetString() ?? "" : "";
-            _signature = root.TryGetProperty("signature", out var s) ? s.GetString() ?? "" : "";
-            var pwd = string.IsNullOrEmpty(encPwd) ? "" : Crypton.Decrypt(encPwd);
-            if (!string.IsNullOrWhiteSpace(addr)) { _saved = (addr, pwd); _log.LogInformation("Loaded mail account {Addr}", addr); }
-        }
-        catch (Exception ex) { _log.LogWarning(ex, "Đọc mail-account.json lỗi"); }
+        if (string.IsNullOrWhiteSpace(tenantId)) return null;
+        using var c = _db.Open();
+        var row = c.QueryFirstOrDefault<(string Address, string AppPasswordEnc)>(
+            @"SELECT Address, AppPasswordEnc FROM dbo.MailAccounts WHERE TenantId = @t",
+            new { t = tenantId });
+        if (row.Address == null) return null;
+        var pwd = string.IsNullOrEmpty(row.AppPasswordEnc) ? "" : Crypton.Decrypt(row.AppPasswordEnc);
+        return (row.Address, pwd);
     }
 
-    /// Creds đang dùng: ưu tiên cái nhập từ UI (đã lưu), nếu không có thì config/env.
-    public (string Address, string AppPassword) Get()
+    /// Upsert creds + chữ ký cho tenant.
+    public void Set(string tenantId, string address, string appPassword, string? signature)
     {
-        lock (_lock)
-        {
-            if (_saved is { } s && !string.IsNullOrWhiteSpace(s.Address)) return s;
-        }
-        var addr = _cfg["Mail:Gmail:Address"];
-        if (string.IsNullOrWhiteSpace(addr)) addr = Environment.GetEnvironmentVariable("MAIL_GMAIL_ADDRESS");
-        var pwd = _cfg["Mail:Gmail:AppPassword"];
-        if (string.IsNullOrWhiteSpace(pwd)) pwd = Environment.GetEnvironmentVariable("MAIL_GMAIL_APP_PASSWORD");
-        return (addr ?? "", pwd ?? "");
-    }
+        if (string.IsNullOrWhiteSpace(tenantId))
+            throw new ArgumentException("tenantId rỗng", nameof(tenantId));
 
-    /// Lưu creds + chữ ký nhập từ UI (App Password mã hóa Crypton xuống đĩa).
-    public void Set(string address, string appPassword, string? signature)
-    {
-        lock (_lock)
-        {
-            _saved = (address.Trim(), appPassword.Trim());
-            _signature = (signature ?? "").Trim();
-            try
+        using var c = _db.Open();
+        c.Execute(@"
+MERGE dbo.MailAccounts AS T
+USING (SELECT @t AS TenantId) AS S
+   ON T.TenantId = S.TenantId
+WHEN MATCHED THEN UPDATE SET Address=@a, AppPasswordEnc=@p, Signature=@s, UpdatedAt=SYSUTCDATETIME()
+WHEN NOT MATCHED THEN INSERT (TenantId, Address, AppPasswordEnc, Signature, UpdatedAt)
+                       VALUES (@t, @a, @p, @s, SYSUTCDATETIME());",
+            new
             {
-                var obj = new { address = address.Trim(), appPasswordEnc = Crypton.Encrypt(appPassword.Trim()), signature = _signature };
-                File.WriteAllText(_path, JsonSerializer.Serialize(obj, new JsonSerializerOptions { WriteIndented = true }));
-                _log.LogInformation("Saved mail account {Addr}", address.Trim());
-            }
-            catch (Exception ex) { _log.LogError(ex, "Lưu mail-account.json lỗi"); }
-        }
+                t = tenantId,
+                a = address.Trim(),
+                p = Crypton.Encrypt(appPassword.Trim()),
+                s = (signature ?? "").Trim()
+            });
+        _log.LogInformation("[MailAccount] Set tenant={Tenant} address={Addr}", tenantId, address.Trim());
     }
 
-    public bool IsConfigured()
+    public bool IsConfigured(string tenantId) => Get(tenantId) is { } x && !string.IsNullOrWhiteSpace(x.Address);
+
+    /// Địa chỉ đang cấu hình (cho UI hiển thị) — KHÔNG trả App Password. Empty nếu chưa setup.
+    public string CurrentAddress(string tenantId) => Get(tenantId)?.Address ?? "";
+
+    /// Chữ ký công ty. Empty nếu chưa setup hoặc chưa đặt.
+    public string Signature(string tenantId)
     {
-        var (a, p) = Get();
-        return !string.IsNullOrWhiteSpace(a) && !string.IsNullOrWhiteSpace(p);
+        if (string.IsNullOrWhiteSpace(tenantId)) return "";
+        using var c = _db.Open();
+        return c.QueryFirstOrDefault<string?>(
+            @"SELECT Signature FROM dbo.MailAccounts WHERE TenantId = @t",
+            new { t = tenantId }) ?? "";
     }
 
-    /// Địa chỉ đang cấu hình (cho UI hiển thị) — KHÔNG trả App Password.
-    public string CurrentAddress() => Get().Address;
-
-    /// Chữ ký công ty (do công ty tự đặt ở UI). Rỗng nếu chưa đặt — KHÔNG mặc định
-    /// "Tourkit" vì đây là email công ty tour gửi cho khách của họ, không phải nền tảng.
-    public string Signature() => _signature ?? "";
-
-    /// Có đặt chữ ký riêng chưa?
-    public bool HasSignature() => !string.IsNullOrWhiteSpace(_signature);
+    public bool HasSignature(string tenantId) => !string.IsNullOrWhiteSpace(Signature(tenantId));
 }
