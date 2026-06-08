@@ -2,11 +2,9 @@ using TourkitAiProxy.Models;
 
 namespace TourkitAiProxy.Services.Mail;
 
-/// Nguồn mail trừu tượng. Phase 1: GmailImapClient (IMAP). Phase 2/sau: OAuth có thể implement
-/// interface này mà không đụng phần còn lại (endpoint/service agnostic về nguồn).
+/// <summary>Nguồn mail per-tenant — pull email mới hơn lần sync trước theo TenantId.</summary>
 public interface IMailSource
 {
-    /// Kéo tối đa `max` email mới nhất từ INBOX. Throw InvalidOperationException nếu chưa cấu hình,
-    /// hoặc exception khác nếu kết nối/auth lỗi.
-    Task<IReadOnlyList<MailItem>> FetchRecentAsync(int max, CancellationToken ct);
+    /// Pull N email mới nhất cho tenant. Incremental: chỉ email có UID > lần trước.
+    Task<IReadOnlyList<MailItem>> FetchRecentAsync(string tenantId, int max, CancellationToken ct);
 }

@@ -47,7 +47,7 @@ public static class MailEndpoints
             IReadOnlyList<MailItem> fetched;
             try
             {
-                fetched = await source.FetchRecentAsync(SyncMax, ctx.RequestAborted);
+                fetched = await source.FetchRecentAsync("", SyncMax, ctx.RequestAborted);
             }
             catch (InvalidOperationException ex)   // chưa cấu hình
             {

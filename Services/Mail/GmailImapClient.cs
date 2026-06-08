@@ -27,10 +27,10 @@ public class GmailImapClient : IMailSource
         _account = account; _sync = sync; _log = log;
     }
 
-    public async Task<IReadOnlyList<MailItem>> FetchRecentAsync(int max, CancellationToken ct)
+    public async Task<IReadOnlyList<MailItem>> FetchRecentAsync(string tenantId, int max, CancellationToken ct)
     {
-        // TODO(Task 6/7): thread tenantId param vào FetchRecentAsync — hiện pass "" placeholder.
-        var creds = _account.Get("");
+        // Creds + sync state scoped theo tenant — không leak cross-tenant.
+        var creds = _account.Get(tenantId);
         if (creds is not { } c0 || string.IsNullOrWhiteSpace(c0.Address) || string.IsNullOrWhiteSpace(c0.AppPassword))
             throw new InvalidOperationException(
                 "Chưa cấu hình hộp thư Gmail. Nhập địa chỉ + App Password (16 ký tự) ở phần Cấu hình hộp thư.");
@@ -44,7 +44,7 @@ public class GmailImapClient : IMailSource
         await inbox.OpenAsync(FolderAccess.ReadOnly, ct);
 
         var uidValidity = inbox.UidValidity;
-        var state = _sync.Get(address);
+        var state = _sync.Get(tenantId, address);
 
         // Liệt kê toàn bộ UID (rẻ — chỉ id), rồi chọn phần cần kéo.
         var allUids = await inbox.SearchAsync(SearchQuery.All, ct);
@@ -72,7 +72,7 @@ public class GmailImapClient : IMailSource
 
         // Cập nhật mốc UID cao nhất đã thấy (kể cả khi lần đầu chỉ kéo newest `max`).
         if (allUids.Count > 0)
-            _sync.Set(address, uidValidity, allUids.Max(u => u.Id));
+            _sync.Set(tenantId, address, uidValidity, allUids.Max(u => u.Id));
 
         await client.DisconnectAsync(true, ct);
         _log.LogInformation("IMAP kéo {N} email mới từ {Addr} (incremental={Inc})",

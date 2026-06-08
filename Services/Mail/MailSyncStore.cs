@@ -1,47 +1,54 @@
-using System.Text.Json;
+using Dapper;
+using TourkitAiProxy.Services.Db;
 
 namespace TourkitAiProxy.Services.Mail;
 
-/// State đồng bộ IMAP theo UID — để KÉO INCREMENTAL (chỉ email mới hơn lần trước) → không sót.
-/// Lưu data/mail-sync.json: per-address { uidValidity, lastUid }. UidValidity đổi (server reset)
-/// → coi như mới hoàn toàn, kéo lại từ đầu (newest N).
+/// <summary>
+/// State đồng bộ IMAP per-(TenantId, Address) — để kéo INCREMENTAL chỉ email UID mới hơn lần trước.
+/// DB-backed dbo.MailSyncState. UidValidity đổi (server reset) → coi như mới, kéo lại từ đầu.
+/// </summary>
 public class MailSyncStore
 {
     public record SyncState(uint UidValidity, uint LastUid);
 
-    private readonly string _path;
-    private readonly object _lock = new();
-    private Dictionary<string, SyncState> _map;
+    private readonly TourkitAiDb _db;
     private readonly ILogger<MailSyncStore> _log;
-    private static readonly JsonSerializerOptions _opts = new()
-    { WriteIndented = true, PropertyNamingPolicy = JsonNamingPolicy.CamelCase };
 
-    public MailSyncStore(IWebHostEnvironment env, ILogger<MailSyncStore> log)
+    public MailSyncStore(TourkitAiDb db, ILogger<MailSyncStore> log)
     {
-        _log = log;
-        var dir = Path.Combine(env.ContentRootPath, "data");
-        Directory.CreateDirectory(dir);
-        _path = Path.Combine(dir, "mail-sync.json");
-        _map = new();
-        if (File.Exists(_path))
-        {
-            try { _map = JsonSerializer.Deserialize<Dictionary<string, SyncState>>(File.ReadAllText(_path), _opts) ?? new(); }
-            catch (Exception ex) { _log.LogWarning(ex, "Đọc mail-sync.json lỗi"); }
-        }
+        _db = db; _log = log;
     }
 
-    public SyncState? Get(string address)
+    public SyncState? Get(string tenantId, string address)
     {
-        lock (_lock) return _map.TryGetValue(address, out var s) ? s : null;
+        if (string.IsNullOrWhiteSpace(tenantId) || string.IsNullOrWhiteSpace(address)) return null;
+        using var c = _db.Open();
+        var row = c.QueryFirstOrDefault<MailSyncRow>(
+            @"SELECT UidValidity, LastUid FROM dbo.MailSyncState
+              WHERE TenantId=@t AND Address=@a",
+            new { t = tenantId, a = address });
+        return row == null ? null : new SyncState((uint)row.UidValidity, (uint)row.LastUid);
     }
 
-    public void Set(string address, uint uidValidity, uint lastUid)
+    public void Set(string tenantId, string address, uint uidValidity, uint lastUid)
     {
-        lock (_lock)
-        {
-            _map[address] = new SyncState(uidValidity, lastUid);
-            try { File.WriteAllText(_path, JsonSerializer.Serialize(_map, _opts)); }
-            catch (Exception ex) { _log.LogError(ex, "Ghi mail-sync.json lỗi"); }
-        }
+        if (string.IsNullOrWhiteSpace(tenantId) || string.IsNullOrWhiteSpace(address))
+            throw new ArgumentException("tenantId / address rỗng");
+        using var c = _db.Open();
+        c.Execute(@"
+MERGE dbo.MailSyncState AS T
+USING (SELECT @t AS TenantId, @a AS Address) AS S
+   ON T.TenantId = S.TenantId AND T.Address = S.Address
+WHEN MATCHED THEN UPDATE SET UidValidity=@uv, LastUid=@lu, UpdatedAt=SYSUTCDATETIME()
+WHEN NOT MATCHED THEN INSERT (TenantId, Address, UidValidity, LastUid, UpdatedAt)
+                       VALUES (@t, @a, @uv, @lu, SYSUTCDATETIME());",
+            new { t = tenantId, a = address, uv = (long)uidValidity, lu = (long)lastUid });
+    }
+
+    /// <summary>Dapper row mapper — bind theo NAME, không phải ordinal.</summary>
+    private sealed class MailSyncRow
+    {
+        public long UidValidity { get; set; }
+        public long LastUid { get; set; }
     }
 }
