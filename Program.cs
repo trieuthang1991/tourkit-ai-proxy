@@ -50,6 +50,8 @@ builder.Services.AddHttpContextAccessor();
 // Workflow debug trace: middleware detect ?debug=1 / X-Debug header → tạo TraceCollector per-request.
 // Service nào cần ghi trace inject IWorkflowTraceAccessor.Current?.Step(...). No-op khi debug off.
 builder.Services.AddSingleton<IWorkflowTraceAccessor, WorkflowTraceAccessor>();
+// Trace nào có data thì lưu data/workflow-traces.jsonl để xem lại sau (audit, post-mortem).
+builder.Services.AddSingleton<WorkflowTraceLog>();
 builder.Services.AddSingleton<TourkitAiProxy.Services.AiUsageLog>();
 builder.Services.AddSingleton<TourkitAiProxy.Services.AiCallContext>();
 // Cache prompt-hash 24h cho Visa/Deal/TourBuilder (Redis nếu có, fallback in-memory).

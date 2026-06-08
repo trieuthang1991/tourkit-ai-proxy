@@ -83,5 +83,7 @@
   };
 
   window.TraceView = TraceView;
-  window.tourkitDebug = { isOn: isDebugOn, set: setDebugOn };
+  // Tên key tránh trùng JS reserved (set/get) — Babel/strict mode đôi khi transform
+  // `set: fn` thành setter, làm object chỉ có getter và đối tượng tourkitDebug = undefined.
+  window.tourkitDebug = { isOn: isDebugOn, setOn: setDebugOn, toggle: () => setDebugOn(!isDebugOn()) };
 })();

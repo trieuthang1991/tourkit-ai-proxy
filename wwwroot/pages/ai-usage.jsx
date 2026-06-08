@@ -219,7 +219,103 @@ function AiUsagePage({ pushToast }) {
 
       {/* Section: CÂU KHÓ AI — unresolved questions log */}
       <UnresolvedTab />
+
+      {/* Section: WORKFLOW LOG — workflow trace persisted (data/workflow-traces.jsonl) */}
+      <WorkflowLogTab />
     </main>
+  );
+}
+
+// ── Tab "Workflow log" — đọc workflow-traces.jsonl qua GET /api/v1/workflow-traces ──
+function WorkflowLogTab() {
+  const [data, setData] = _uS(null);
+  const [days, setDays] = _uS(7);
+  const [workflow, setWf] = _uS('');
+  const [loading, setLoading] = _uS(false);
+  const [expanded, setExpanded] = _uS({});   // {runId: bool}
+
+  const load = _uCb(async () => {
+    setLoading(true);
+    try {
+      const params = new URLSearchParams({ days });
+      if (workflow) params.set('workflow', workflow);
+      params.set('limit', '50');
+      const r = await fetch(`/api/v1/workflow-traces?${params}`);
+      if (r.ok) setData(await r.json());
+    } catch {} finally { setLoading(false); }
+  }, [days, workflow]);
+  _uE(() => { load(); }, [load]);
+
+  return (
+    <section className="aiu-pane">
+      <Eyebrow sub="WORKFLOW TRACE LOG · CÁCH AI VẬN HÀNH">Workflow log</Eyebrow>
+      <div className="aiu-pane-head">
+        <h2>Lịch sử workflow đã chạy <span className="aiu-pane-sub">(mọi request debug=on được lưu vĩnh viễn)</span></h2>
+        <div className="aiu-pane-actions" style={{display:'flex', gap:8}}>
+          <select className="aiu-select" value={days} onChange={e => setDays(+e.target.value)}>
+            <option value={1}>24h qua</option>
+            <option value={7}>7 ngày</option>
+            <option value={30}>30 ngày</option>
+          </select>
+          <select className="aiu-select" value={workflow} onChange={e => setWf(e.target.value)}>
+            <option value="">Tất cả workflow</option>
+            {(data?.summary || []).map(s => (
+              <option key={s.workflow} value={s.workflow}>{s.workflow} ({s.count})</option>
+            ))}
+          </select>
+          <button className="aiu-status-refresh" onClick={load} disabled={loading} title="Tải lại">⟳</button>
+        </div>
+      </div>
+
+      {data && data.summary && data.summary.length > 0 && (
+        <div className="aiu-block">
+          <div className="label">Tóm tắt theo workflow</div>
+          <div className="aiu-stats" style={{display:'grid', gridTemplateColumns:'repeat(auto-fit, minmax(180px, 1fr))', gap:10, marginBottom:14}}>
+            {data.summary.map(s => (
+              <div key={s.workflow} className="asst-stat">
+                <div className="asst-stat-val">{s.count}</div>
+                <div className="asst-stat-label">{s.workflow}</div>
+                <div style={{fontSize:11, color:'var(--text-3)', marginTop:6}}>
+                  min {(s.minMs/1000).toFixed(1)}s · max {(s.maxMs/1000).toFixed(1)}s
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      <div className="aiu-block">
+        <div className="label">{data?.count || 0} entry mới nhất</div>
+        <div className="aiu-table-wrap" style={{maxHeight: 600, overflow: 'auto'}}>
+          {(data?.entries || []).map((e, i) => {
+            const isOpen = expanded[e.runId];
+            return (
+              <div key={e.runId + ':' + i} className="aiu-trace-row" style={{borderBottom:'1px solid var(--border)', padding:'8px 0'}}>
+                <div style={{display:'flex', gap:10, alignItems:'baseline', cursor:'pointer'}}
+                     onClick={() => setExpanded(x => ({...x, [e.runId]: !isOpen}))}>
+                  <span style={{fontSize:11, color:'var(--text-3)', minWidth:130}}>{new Date(e.ts).toLocaleString('vi-VN')}</span>
+                  <span style={{fontWeight:600, color:'var(--primary)', minWidth:130}}>{e.workflow}</span>
+                  <span style={{fontSize:12, color:'var(--text-2)', fontVariantNumeric:'tabular-nums'}}>{e.totalMs}ms</span>
+                  <span style={{fontSize:12, color:'var(--text-3)'}}>{e.stepCount} bước</span>
+                  <span style={{fontSize:11, color:'var(--text-3)', fontFamily:'monospace', flex:1, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap'}}>
+                    {e.method} {e.path}
+                  </span>
+                  <span style={{fontSize:10, color:'var(--text-3)'}}>{isOpen ? '▾' : '▸'}</span>
+                </div>
+                {isOpen && e.trace && window.TraceView && (
+                  <div style={{marginTop:8, marginLeft:140}}>
+                    <window.TraceView trace={e.trace} />
+                  </div>
+                )}
+              </div>
+            );
+          })}
+          {(!data || data.count === 0) && (
+            <div className="aiu-empty">Chưa có trace nào trong {days} ngày qua. Bật debug toggle ở topbar rồi thao tác feature AI bất kỳ → trace tự lưu.</div>
+          )}
+        </div>
+      </div>
+    </section>
   );
 }
 

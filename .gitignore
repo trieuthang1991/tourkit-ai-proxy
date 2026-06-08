@@ -39,3 +39,7 @@ data/visa-files/
 # Chat-Analytics unresolved log (runtime state, có thể rotate) — KHÔNG commit
 data/chat-unresolved.jsonl
 data/chat-unresolved.jsonl.*
+
+# Workflow debug trace log (runtime state, có thể rotate) — KHÔNG commit
+data/workflow-traces.jsonl
+data/workflow-traces.jsonl.*

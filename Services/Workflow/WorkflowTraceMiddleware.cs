@@ -11,17 +11,32 @@ namespace TourkitAiProxy.Services.Workflow;
 public class WorkflowTraceMiddleware
 {
     private readonly RequestDelegate _next;
-    public WorkflowTraceMiddleware(RequestDelegate next) => _next = next;
+    private readonly WorkflowTraceLog _log;
+    public WorkflowTraceMiddleware(RequestDelegate next, WorkflowTraceLog log)
+    { _next = next; _log = log; }
 
     public async Task InvokeAsync(HttpContext ctx)
     {
         bool debug = IsDebugRequested(ctx);
+        TraceCollector? trace = null;
         if (debug)
         {
-            var trace = new TraceCollector(enabled: true);
+            trace = new TraceCollector(enabled: true);
             WorkflowTraceAccessor.AttachTo(ctx, trace);
         }
         await _next(ctx);
+        // Sau khi request xong: nếu có trace + workflow đã set + có step → lưu JSONL.
+        // Endpoint code có thể đã gọi trace.Build() để đính vào response — Build() lần nữa OK.
+        if (trace != null && trace.Enabled)
+        {
+            try
+            {
+                var built = trace.Build();
+                if (!string.IsNullOrEmpty(built.Workflow) && built.Steps.Count > 0)
+                    _log.Append(ctx, built);
+            }
+            catch { /* swallow — log không bao giờ phá flow chính */ }
+        }
     }
 
     private static bool IsDebugRequested(HttpContext ctx)

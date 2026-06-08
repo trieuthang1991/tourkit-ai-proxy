@@ -283,7 +283,7 @@ function App() {
               className={'tb-icon tb-debug' + (debugOn ? ' on' : '')}
               onClick={() => {
                 const next = !debugOn;
-                window.tourkitDebug?.set(next);
+                window.tourkitDebug?.setOn?.(next);
                 setDebugOn(next);
                 pushToast(next ? '🔍 Debug ON — mọi request AI sẽ có "Cách vận hành"' : 'Debug OFF');
               }}
