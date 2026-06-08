@@ -51,7 +51,7 @@ public class TourkitAiDb
             await using var cmd = c.CreateCommand();
             cmd.CommandText = SchemaSql;
             await cmd.ExecuteNonQueryAsync(ct);
-            _log.LogInformation("TourkitAiDb schema OK (Reviews/DealScores/AiHistory đã có/đã tạo)");
+            _log.LogInformation("TourkitAiDb schema OK (Reviews/DealScores/AiHistory/MailAccounts/Mails/MailSyncState/VisaAssessments đã có/đã tạo)");
         }
         catch (Exception ex)
         {
@@ -116,6 +116,70 @@ BEGIN
         CONSTRAINT PK_AiHistory PRIMARY KEY CLUSTERED (Id)
     );
     CREATE INDEX IX_AiHistory_FeatureEntity ON dbo.AiHistory(Feature, EntityId, GeneratedAt DESC);
+END;
+
+IF OBJECT_ID('dbo.MailAccounts', 'U') IS NULL
+BEGIN
+    CREATE TABLE dbo.MailAccounts (
+        TenantId        NVARCHAR(128)   NOT NULL,
+        Address         NVARCHAR(256)   NOT NULL,
+        AppPasswordEnc  NVARCHAR(512)   NOT NULL,
+        Signature       NVARCHAR(MAX)   NULL,
+        UpdatedAt       DATETIME2       NOT NULL,
+        CONSTRAINT PK_MailAccounts PRIMARY KEY CLUSTERED (TenantId)
+    );
+END;
+
+IF OBJECT_ID('dbo.Mails', 'U') IS NULL
+BEGIN
+    CREATE TABLE dbo.Mails (
+        TenantId        NVARCHAR(128)   NOT NULL,
+        Id              NVARCHAR(256)   NOT NULL,
+        FromName        NVARCHAR(256)   NULL,
+        FromEmail       NVARCHAR(256)   NULL,
+        Subject         NVARCHAR(1024)  NULL,
+        Body            NVARCHAR(MAX)   NULL,
+        BodyHtml        NVARCHAR(MAX)   NULL,
+        ReceivedAt      DATETIME2       NOT NULL,
+        IsRead          BIT             NOT NULL,
+        Category        NVARCHAR(32)    NULL,
+        Status          NVARCHAR(32)    NOT NULL,
+        AiSummary       NVARCHAR(MAX)   NULL,
+        DraftJson       NVARCHAR(MAX)   NULL,
+        CONSTRAINT PK_Mails PRIMARY KEY CLUSTERED (TenantId, Id)
+    );
+    CREATE INDEX IX_Mails_Tenant_Received ON dbo.Mails(TenantId, ReceivedAt DESC);
+END;
+
+IF OBJECT_ID('dbo.MailSyncState', 'U') IS NULL
+BEGIN
+    CREATE TABLE dbo.MailSyncState (
+        TenantId        NVARCHAR(128)   NOT NULL,
+        Address         NVARCHAR(256)   NOT NULL,
+        UidValidity     BIGINT          NOT NULL,
+        LastUid         BIGINT          NOT NULL,
+        UpdatedAt       DATETIME2       NOT NULL,
+        CONSTRAINT PK_MailSyncState PRIMARY KEY CLUSTERED (TenantId, Address)
+    );
+END;
+
+IF OBJECT_ID('dbo.VisaAssessments', 'U') IS NULL
+BEGIN
+    CREATE TABLE dbo.VisaAssessments (
+        TenantId        NVARCHAR(128)   NOT NULL,
+        Id              NVARCHAR(64)    NOT NULL,
+        ApplicantName   NVARCHAR(256)   NULL,
+        Country         NVARCHAR(64)    NULL,
+        Status          NVARCHAR(32)    NOT NULL,
+        ExtractionJson  NVARCHAR(MAX)   NOT NULL,
+        ResultJson      NVARCHAR(MAX)   NULL,
+        FileCount       INT             NOT NULL,
+        FilesPurged     BIT             NOT NULL,
+        CreatedAt       DATETIME2       NOT NULL,
+        UpdatedAt       DATETIME2       NOT NULL,
+        CONSTRAINT PK_VisaAssessments PRIMARY KEY CLUSTERED (TenantId, Id)
+    );
+    CREATE INDEX IX_VisaAssessments_Tenant_Created ON dbo.VisaAssessments(TenantId, CreatedAt DESC);
 END;
 ";
 }
