@@ -2,6 +2,7 @@ using System.Text;
 using System.Text.Json;
 using TourkitAiProxy.Models;
 using TourkitAiProxy.Services.Mail;
+using TourkitAiProxy.Services.TourKit;
 
 namespace TourkitAiProxy.Endpoints;
 
@@ -25,29 +26,47 @@ public static class MailEndpoints
         var v1 = routes.MapGroup("/api/v1");
 
         // ─── GET /mail/account ─── trạng thái cấu hình hộp thư (KHÔNG trả App Password) ──
-        v1.MapGet("/mail/account", (MailAccountStore account) =>
-            Results.Json(new { address = account.CurrentAddress(""), configured = account.IsConfigured(""), signature = account.Signature("") }));
+        v1.MapGet("/mail/account", (HttpContext ctx, MailAccountStore account, TkSessionStore sessions) =>
+        {
+            var auth = RequireSession(ctx, sessions);
+            if (auth == null) return Unauthorized();
+            var (_, tenant) = auth.Value;
+            return Results.Json(new
+            {
+                address = account.CurrentAddress(tenant),
+                configured = account.IsConfigured(tenant),
+                signature = account.Signature(tenant)
+            });
+        });
 
         // ─── POST /mail/account ─── nhập creds Gmail + chữ ký từ UI ──────────────
-        v1.MapPost("/mail/account", (MailAccountRequest req, MailAccountStore account) =>
+        v1.MapPost("/mail/account", (HttpContext ctx, MailAccountRequest req, MailAccountStore account, TkSessionStore sessions) =>
         {
+            var auth = RequireSession(ctx, sessions);
+            if (auth == null) return Unauthorized();
+            var (_, tenant) = auth.Value;
             if (string.IsNullOrWhiteSpace(req.Address) || string.IsNullOrWhiteSpace(req.AppPassword))
                 return Results.BadRequest(new { error = "Thiếu địa chỉ Gmail hoặc App Password" });
             // App Password Gmail là 16 ký tự (có thể có khoảng trắng) — bỏ khoảng trắng.
-            account.Set("", req.Address.Trim(), req.AppPassword.Replace(" ", "").Trim(), req.Signature);
-            return Results.Json(new { ok = true, address = account.CurrentAddress(""), configured = account.IsConfigured(""), signature = account.Signature("") });
+            account.Set(tenant, req.Address.Trim(), req.AppPassword.Replace(" ", "").Trim(), req.Signature);
+            return Results.Json(new { ok = true, address = account.CurrentAddress(tenant), configured = account.IsConfigured(tenant), signature = account.Signature(tenant) });
         });
 
         // ─── POST /mail/sync ───────────────────────────────────────────────────
         v1.MapPost("/mail/sync", async (
             IMailSource source, MailRepository repo, MailClassifier classifier,
             TourkitAiProxy.Services.Workflow.IWorkflowTraceAccessor trace,
+            TkSessionStore sessions,
             ILogger<Program> log, HttpContext ctx) =>
         {
+            var auth = RequireSession(ctx, sessions);
+            if (auth == null) return Unauthorized();
+            var (_, tenant) = auth.Value;
+
             IReadOnlyList<MailItem> fetched;
             try
             {
-                fetched = await source.FetchRecentAsync("", SyncMax, ctx.RequestAborted);
+                fetched = await source.FetchRecentAsync(tenant, SyncMax, ctx.RequestAborted);
             }
             catch (InvalidOperationException ex)   // chưa cấu hình
             {
@@ -62,43 +81,68 @@ public static class MailEndpoints
             int classified = 0;
             foreach (var mail in fetched)
             {
-                if (repo.Has("", mail.Id)) continue;   // đã có = đã phân loại → bỏ qua (tiết kiệm token)
+                if (repo.Has(tenant, mail.Id)) continue;   // đã có = đã phân loại → bỏ qua (tiết kiệm token)
                 var (cat, sum) = await classifier.ClassifyAsync(mail, ctx.RequestAborted);
-                repo.Upsert("", mail with { Category = cat, AiSummary = sum });
+                repo.Upsert(tenant, mail with { Category = cat, AiSummary = sum });
                 classified++;
             }
             log.LogInformation("[mail] sync: {Fetched} kéo về, {New} phân loại mới", fetched.Count, classified);
 
             var traceObj = trace.Current?.Enabled == true ? trace.Current.Build() : null;
-            return Results.Json(new { items = repo.Filter("", null, null, null), counts = repo.Counts(""), classified, _trace = traceObj });
+            return Results.Json(new { items = repo.Filter(tenant, null, null, null), counts = repo.Counts(tenant), classified, _trace = traceObj });
         });
 
         // ─── GET /mail ─────────────────────────────────────────────────────────
-        v1.MapGet("/mail", (MailRepository repo, string? status, string? category, string? search) =>
-            Results.Json(new { items = repo.Filter("", status, category, search), counts = repo.Counts("") }));
+        v1.MapGet("/mail", (HttpContext ctx, MailRepository repo, TkSessionStore sessions, string? status, string? category, string? search) =>
+        {
+            var auth = RequireSession(ctx, sessions);
+            if (auth == null) return Unauthorized();
+            var (_, tenant) = auth.Value;
+            return Results.Json(new { items = repo.Filter(tenant, status, category, search), counts = repo.Counts(tenant) });
+        });
 
         // ─── GET /mail/{id} ────────────────────────────────────────────────────
-        v1.MapGet("/mail/{id}", (string id, MailRepository repo) =>
+        v1.MapGet("/mail/{id}", (HttpContext ctx, string id, MailRepository repo, TkSessionStore sessions) =>
         {
-            var m = repo.Get("", id);
+            var auth = RequireSession(ctx, sessions);
+            if (auth == null) return Unauthorized();
+            var (_, tenant) = auth.Value;
+            var m = repo.Get(tenant, id);
             return m == null ? Results.NotFound(new { error = "Không tìm thấy email" }) : Results.Json(m);
         });
 
         // ─── POST /mail/{id}/read ─── đánh dấu đã đọc khi mở email ───────────────
-        v1.MapPost("/mail/{id}/read", (string id, MailRepository repo) =>
-            repo.SetRead("", id, true) ? Results.Json(new { ok = true }) : Results.NotFound(new { error = "Không tìm thấy email" }));
+        v1.MapPost("/mail/{id}/read", (HttpContext ctx, string id, MailRepository repo, TkSessionStore sessions) =>
+        {
+            var auth = RequireSession(ctx, sessions);
+            if (auth == null) return Unauthorized();
+            var (_, tenant) = auth.Value;
+            return repo.SetRead(tenant, id, true)
+                ? Results.Json(new { ok = true })
+                : Results.NotFound(new { error = "Không tìm thấy email" });
+        });
 
         // ─── POST /mail/compose/draft (SSE) ─── AI soạn email MỚI từ brief ──────
         v1.MapPost("/mail/compose/draft", async (
             ComposeDraftRequest req, MailReplyService replyService,
             TourkitAiProxy.Services.Workflow.IWorkflowTraceAccessor trace,
+            TkSessionStore sessions,
             ILogger<Program> log, HttpContext ctx) =>
         {
+            var auth = RequireSession(ctx, sessions);
+            if (auth == null)
+            {
+                ctx.Response.StatusCode = 401;
+                await ctx.Response.WriteAsJsonAsync(new { error = "Phiên không hợp lệ — đăng nhập lại" });
+                return;
+            }
+            var (_, tenant) = auth.Value;
+
             await StartSseAsync(ctx);
             var emit = Sse(ctx);
             try
             {
-                var text = await replyService.ComposeNewStreamAsync("", req, async d => await emit(new { delta = d }), ctx.RequestAborted);
+                var text = await replyService.ComposeNewStreamAsync(tenant, req, async d => await emit(new { delta = d }), ctx.RequestAborted);
                 await emit(new { done = true, text });
                 if (trace.Current?.Enabled == true) await emit(new { trace = trace.Current.Build() });
             }
@@ -111,9 +155,14 @@ public static class MailEndpoints
         });
 
         // ─── POST /mail/compose/send ─── gửi email MỚI qua SMTP ─────────────────
+        // NOTE: IMailSender.SendAsync chưa có tham số tenant — GmailSmtpClient bên trong vẫn dùng
+        // placeholder "" để đọc account. Sẽ thread tenant xuống sender ở task sau. Hiện chỉ require
+        // session để chặn anonymous.
         v1.MapPost("/mail/compose/send", async (
-            ComposeSendRequest req, IMailSender sender, ILogger<Program> log, HttpContext ctx) =>
+            ComposeSendRequest req, IMailSender sender, TkSessionStore sessions, ILogger<Program> log, HttpContext ctx) =>
         {
+            var auth = RequireSession(ctx, sessions);
+            if (auth == null) return Unauthorized();
             if (string.IsNullOrWhiteSpace(req.To)) return Results.BadRequest(new { error = "Thiếu người nhận" });
             if (string.IsNullOrWhiteSpace(req.Text)) return Results.BadRequest(new { error = "Nội dung rỗng" });
             try
@@ -133,9 +182,19 @@ public static class MailEndpoints
         v1.MapPost("/mail/{id}/reply/draft", async (
             string id, DraftReplyRequest req, MailRepository repo, MailReplyService replyService,
             TourkitAiProxy.Services.Workflow.IWorkflowTraceAccessor trace,
+            TkSessionStore sessions,
             ILogger<Program> log, HttpContext ctx) =>
         {
-            var mail = repo.Get("", id);
+            var auth = RequireSession(ctx, sessions);
+            if (auth == null)
+            {
+                ctx.Response.StatusCode = 401;
+                await ctx.Response.WriteAsJsonAsync(new { error = "Phiên không hợp lệ — đăng nhập lại" });
+                return;
+            }
+            var (_, tenant) = auth.Value;
+
+            var mail = repo.Get(tenant, id);
             if (mail == null)
             {
                 ctx.Response.StatusCode = 404;
@@ -147,7 +206,7 @@ public static class MailEndpoints
             var emit = Sse(ctx);
             try
             {
-                var text = await replyService.DraftStreamAsync("", mail, req,
+                var text = await replyService.DraftStreamAsync(tenant, mail, req,
                     async d => await emit(new { delta = d }), ctx.RequestAborted);
                 await emit(new { done = true, text });
                 if (trace.Current?.Enabled == true) await emit(new { trace = trace.Current.Build() });
@@ -163,9 +222,14 @@ public static class MailEndpoints
         // ─── POST /mail/{id}/reply/send ─── gửi nháp (đã sửa) cho khách qua SMTP ──
         v1.MapPost("/mail/{id}/reply/send", async (
             string id, SendReplyRequest req, MailRepository repo, IMailSender sender,
+            TkSessionStore sessions,
             ILogger<Program> log, HttpContext ctx) =>
         {
-            var mail = repo.Get("", id);
+            var auth = RequireSession(ctx, sessions);
+            if (auth == null) return Unauthorized();
+            var (_, tenant) = auth.Value;
+
+            var mail = repo.Get(tenant, id);
             if (mail == null) return Results.NotFound(new { error = "Không tìm thấy email" });
             if (string.IsNullOrWhiteSpace(req.Text)) return Results.BadRequest(new { error = "Nội dung trả lời rỗng" });
 
@@ -174,7 +238,7 @@ public static class MailEndpoints
                 await sender.SendReplyAsync(mail, req.Text, ctx.RequestAborted);
                 // Lưu nội dung đã gửi + chuyển trạng thái Đã phản hồi.
                 var draft = new MailDraft(req.Tone ?? mail.Draft?.Tone ?? "lich_su", req.Instruction, req.Text, DateTime.UtcNow.ToString("o"));
-                repo.SetDraft("", id, draft, status: "da_phan_hoi");
+                repo.SetDraft(tenant, id, draft, status: "da_phan_hoi");
                 return Results.Json(new { ok = true });
             }
             catch (InvalidOperationException ex)
@@ -189,11 +253,14 @@ public static class MailEndpoints
         });
 
         // ─── PATCH /mail/{id}/status ───────────────────────────────────────────
-        v1.MapPatch("/mail/{id}/status", (string id, UpdateStatusRequest req, MailRepository repo) =>
+        v1.MapPatch("/mail/{id}/status", (HttpContext ctx, string id, UpdateStatusRequest req, MailRepository repo, TkSessionStore sessions) =>
         {
+            var auth = RequireSession(ctx, sessions);
+            if (auth == null) return Unauthorized();
+            var (_, tenant) = auth.Value;
             if (!MailTaxonomy.IsStatus(req.Status))
                 return Results.BadRequest(new { error = "status không hợp lệ" });
-            return repo.SetStatus("", id, req.Status)
+            return repo.SetStatus(tenant, id, req.Status)
                 ? Results.Json(new { ok = true })
                 : Results.NotFound(new { error = "Không tìm thấy email" });
         });
@@ -217,4 +284,18 @@ public static class MailEndpoints
         await ctx.Response.Body.WriteAsync(bytes, ctx.RequestAborted);
         await ctx.Response.Body.FlushAsync(ctx.RequestAborted);
     };
+
+    /// Extract sessionId + tenantId từ request. Return null nếu missing/invalid session.
+    /// Handler caller trả 401 nếu null.
+    private static (string SessionId, string TenantId)? RequireSession(
+        HttpContext ctx, TourkitAiProxy.Services.TourKit.TkSessionStore sessions)
+    {
+        var sid = ctx.Request.Headers["X-Session-Id"].FirstOrDefault()
+            ?? ctx.Request.Query["sessionId"].FirstOrDefault();
+        var s = sessions.Get(sid);
+        return s == null ? null : (sid!, s.TenantId);
+    }
+
+    private static IResult Unauthorized()
+        => Results.Json(new { error = "Phiên không hợp lệ — đăng nhập lại" }, statusCode: 401);
 }
