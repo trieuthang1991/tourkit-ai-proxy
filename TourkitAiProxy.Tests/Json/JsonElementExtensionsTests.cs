@@ -63,4 +63,13 @@ public class JsonElementExtensionsTests
         Assert.Empty(json.GetStringListField("a"));
         Assert.Empty(json.GetStringListField("missing"));
     }
+
+    [Fact]
+    public void GetStringField_does_not_filter_blank_or_empty()
+    {
+        var json = JsonDocument.Parse("""{"empty":"","blank":"   ","real":"x"}""").RootElement;
+        Assert.Equal("", json.GetStringField("empty"));      // KHÔNG filter blank
+        Assert.Equal("   ", json.GetStringField("blank"));   // KHÔNG filter whitespace
+        Assert.Equal("x", json.GetStringField("real"));
+    }
 }

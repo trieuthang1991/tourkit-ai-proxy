@@ -25,7 +25,10 @@ public static class JsonElementExtensions
         return false;
     }
 
-    /// <summary>Lấy string value của field. Trả null nếu missing / không phải string / blank.</summary>
+    /// <summary>
+    /// Lấy string value của field. Trả null nếu missing / không phải string / JSON null.
+    /// KHÔNG filter blank — caller cần filter dùng <c>string.IsNullOrWhiteSpace</c> ngoài.
+    /// </summary>
     public static string? GetStringField(this JsonElement el, string name)
     {
         if (!el.TryGetField(name, out var p)) return null;
