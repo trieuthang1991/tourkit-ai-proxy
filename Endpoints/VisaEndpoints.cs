@@ -1,3 +1,6 @@
+// TODO(Task 11): pass real tenantId from session — hiện mọi repo call truyền "" placeholder
+// để VisaRepository.Save sẽ throw ArgumentException ở runtime cho tới khi tenant resolver
+// (ITenantContext / HttpTenantContext) được inject vào endpoint handler ở Task 11.
 using SharpCompress.Archives;
 using TourkitAiProxy.Models;
 using TourkitAiProxy.Services.Visa;
@@ -223,7 +226,7 @@ public static class VisaEndpoints
                     CreatedAt: now,
                     UpdatedAt: now);
 
-                repo.Save(assessment);
+                repo.Save("", assessment);
                 return Results.Json(assessment);
             }
             catch (InvalidOperationException ex)   // ví dụ: provider không có vision
@@ -241,7 +244,7 @@ public static class VisaEndpoints
             VisaScoringService scorer, VisaRepository repo,
             TourkitAiProxy.Services.Workflow.IWorkflowTraceAccessor trace, CancellationToken ct) =>
         {
-            var a = repo.Get(id);
+            var a = repo.Get("", id);
             if (a is null) return Results.NotFound(new { error = "Không tìm thấy hồ sơ" });
 
             var profile = !string.IsNullOrWhiteSpace(req.Profile) ? req.Profile! : a.Extraction.Profile;
@@ -259,7 +262,7 @@ public static class VisaEndpoints
                     Extraction = a.Extraction with { Profile = profile },
                     UpdatedAt = DateTime.UtcNow.ToString("o")
                 };
-                repo.Save(updated);
+                repo.Save("", updated);
                 // Đính trace nếu ?debug=1 / X-Debug header
                 var traceObj = trace.Current?.Enabled == true ? trace.Current.Build() : null;
                 if (traceObj != null) return Results.Json(new { assessment = updated, _trace = traceObj });
@@ -276,12 +279,12 @@ public static class VisaEndpoints
         });
 
         // ─── GET /visa/assessments ─── lịch sử ───────────────────────────────────
-        v1.MapGet("/visa/assessments", (VisaRepository repo) => Results.Json(repo.All()));
+        v1.MapGet("/visa/assessments", (VisaRepository repo) => Results.Json(repo.All("")));
 
         // ─── GET /visa/assessments/{id} ─── chi tiết ─────────────────────────────
         v1.MapGet("/visa/assessments/{id}", (string id, VisaRepository repo) =>
         {
-            var a = repo.Get(id);
+            var a = repo.Get("", id);
             return a is null ? Results.NotFound(new { error = "Không tìm thấy" }) : Results.Json(a);
         });
 
@@ -289,7 +292,7 @@ public static class VisaEndpoints
         v1.MapDelete("/visa/assessments/{id}", (string id, VisaRepository repo, VisaFileStore store) =>
         {
             store.DeleteAssessment(id);
-            return repo.Delete(id) ? Results.Json(new { ok = true }) : Results.NotFound(new { error = "Không tìm thấy" });
+            return repo.Delete("", id) ? Results.Json(new { ok = true }) : Results.NotFound(new { error = "Không tìm thấy" });
         });
     }
 
