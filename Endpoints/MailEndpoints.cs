@@ -62,31 +62,31 @@ public static class MailEndpoints
             int classified = 0;
             foreach (var mail in fetched)
             {
-                if (repo.Has(mail.Id)) continue;   // đã có = đã phân loại → bỏ qua (tiết kiệm token)
+                if (repo.Has("", mail.Id)) continue;   // đã có = đã phân loại → bỏ qua (tiết kiệm token)
                 var (cat, sum) = await classifier.ClassifyAsync(mail, ctx.RequestAborted);
-                repo.Upsert(mail with { Category = cat, AiSummary = sum });
+                repo.Upsert("", mail with { Category = cat, AiSummary = sum });
                 classified++;
             }
             log.LogInformation("[mail] sync: {Fetched} kéo về, {New} phân loại mới", fetched.Count, classified);
 
             var traceObj = trace.Current?.Enabled == true ? trace.Current.Build() : null;
-            return Results.Json(new { items = repo.Filter(null, null, null), counts = repo.Counts(), classified, _trace = traceObj });
+            return Results.Json(new { items = repo.Filter("", null, null, null), counts = repo.Counts(""), classified, _trace = traceObj });
         });
 
         // ─── GET /mail ─────────────────────────────────────────────────────────
         v1.MapGet("/mail", (MailRepository repo, string? status, string? category, string? search) =>
-            Results.Json(new { items = repo.Filter(status, category, search), counts = repo.Counts() }));
+            Results.Json(new { items = repo.Filter("", status, category, search), counts = repo.Counts("") }));
 
         // ─── GET /mail/{id} ────────────────────────────────────────────────────
         v1.MapGet("/mail/{id}", (string id, MailRepository repo) =>
         {
-            var m = repo.Get(id);
+            var m = repo.Get("", id);
             return m == null ? Results.NotFound(new { error = "Không tìm thấy email" }) : Results.Json(m);
         });
 
         // ─── POST /mail/{id}/read ─── đánh dấu đã đọc khi mở email ───────────────
         v1.MapPost("/mail/{id}/read", (string id, MailRepository repo) =>
-            repo.SetRead(id, true) ? Results.Json(new { ok = true }) : Results.NotFound(new { error = "Không tìm thấy email" }));
+            repo.SetRead("", id, true) ? Results.Json(new { ok = true }) : Results.NotFound(new { error = "Không tìm thấy email" }));
 
         // ─── POST /mail/compose/draft (SSE) ─── AI soạn email MỚI từ brief ──────
         v1.MapPost("/mail/compose/draft", async (
@@ -135,7 +135,7 @@ public static class MailEndpoints
             TourkitAiProxy.Services.Workflow.IWorkflowTraceAccessor trace,
             ILogger<Program> log, HttpContext ctx) =>
         {
-            var mail = repo.Get(id);
+            var mail = repo.Get("", id);
             if (mail == null)
             {
                 ctx.Response.StatusCode = 404;
@@ -165,7 +165,7 @@ public static class MailEndpoints
             string id, SendReplyRequest req, MailRepository repo, IMailSender sender,
             ILogger<Program> log, HttpContext ctx) =>
         {
-            var mail = repo.Get(id);
+            var mail = repo.Get("", id);
             if (mail == null) return Results.NotFound(new { error = "Không tìm thấy email" });
             if (string.IsNullOrWhiteSpace(req.Text)) return Results.BadRequest(new { error = "Nội dung trả lời rỗng" });
 
@@ -174,7 +174,7 @@ public static class MailEndpoints
                 await sender.SendReplyAsync(mail, req.Text, ctx.RequestAborted);
                 // Lưu nội dung đã gửi + chuyển trạng thái Đã phản hồi.
                 var draft = new MailDraft(req.Tone ?? mail.Draft?.Tone ?? "lich_su", req.Instruction, req.Text, DateTime.UtcNow.ToString("o"));
-                repo.SetDraft(id, draft, status: "da_phan_hoi");
+                repo.SetDraft("", id, draft, status: "da_phan_hoi");
                 return Results.Json(new { ok = true });
             }
             catch (InvalidOperationException ex)
@@ -193,7 +193,7 @@ public static class MailEndpoints
         {
             if (!MailTaxonomy.IsStatus(req.Status))
                 return Results.BadRequest(new { error = "status không hợp lệ" });
-            return repo.SetStatus(id, req.Status)
+            return repo.SetStatus("", id, req.Status)
                 ? Results.Json(new { ok = true })
                 : Results.NotFound(new { error = "Không tìm thấy email" });
         });

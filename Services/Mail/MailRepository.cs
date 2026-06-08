@@ -1,145 +1,206 @@
 using System.Globalization;
 using System.Text;
 using System.Text.Json;
+using Dapper;
 using TourkitAiProxy.Models;
+using TourkitAiProxy.Services.Db;
 
 namespace TourkitAiProxy.Services.Mail;
 
+/// <summary>
 /// Counts cho sidebar: tổng + chưa đọc + theo trạng thái + theo nhóm.
+/// </summary>
 public record MailCounts(int Total, int Unread, Dictionary<string, int> ByStatus, Dictionary<string, int> ByCategory);
 
-/// File-backed store: mailId → MailItem. Persist data/mails.json. Threadsafe qua lock.
-/// Mẫu ReviewRepository. Production: thay SQLite/Postgres.
+/// <summary>
+/// SQL Server-backed store: (TenantId, mailId) → MailItem. Persist dbo.Mails.
+/// Mọi method nhận tenantId — query luôn filter scoped theo tenant. Cross-tenant access trả null.
+/// Không fallback file — DB lỗi → throw, endpoint trả 503.
+/// </summary>
 public class MailRepository
 {
-    private readonly string _path;
-    private readonly object _lock = new();
-    private Dictionary<string, MailItem> _map;
+    private readonly TourkitAiDb _db;
     private readonly ILogger<MailRepository> _log;
     private static readonly JsonSerializerOptions _jsonOpts = new()
     {
-        WriteIndented = true,
         DefaultIgnoreCondition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull,
         PropertyNamingPolicy = JsonNamingPolicy.CamelCase
     };
 
-    public MailRepository(IWebHostEnvironment env, ILogger<MailRepository> log)
+    public MailRepository(TourkitAiDb db, ILogger<MailRepository> log)
     {
-        _log = log;
-        var dir = Path.Combine(env.ContentRootPath, "data");
-        Directory.CreateDirectory(dir);
-        _path = Path.Combine(dir, "mails.json");
+        _db = db; _log = log;
+    }
 
-        if (File.Exists(_path))
-        {
-            try
+    public MailItem? Get(string tenantId, string id)
+    {
+        if (string.IsNullOrWhiteSpace(tenantId) || string.IsNullOrWhiteSpace(id)) return null;
+        using var c = _db.Open();
+        var row = c.QueryFirstOrDefault<MailRow>(
+            @"SELECT * FROM dbo.Mails WHERE TenantId=@t AND Id=@id",
+            new { t = tenantId, id });
+        return row == null ? null : Hydrate(row);
+    }
+
+    public bool Has(string tenantId, string id)
+    {
+        if (string.IsNullOrWhiteSpace(tenantId) || string.IsNullOrWhiteSpace(id)) return false;
+        using var c = _db.Open();
+        return c.ExecuteScalar<int>(
+            "SELECT COUNT(1) FROM dbo.Mails WHERE TenantId=@t AND Id=@id",
+            new { t = tenantId, id }) > 0;
+    }
+
+    public void Upsert(string tenantId, MailItem item)
+    {
+        if (string.IsNullOrWhiteSpace(tenantId))
+            throw new ArgumentException("tenantId rỗng", nameof(tenantId));
+        using var c = _db.Open();
+        c.Execute(@"
+MERGE dbo.Mails AS T
+USING (SELECT @t AS TenantId, @id AS Id) AS S
+   ON T.TenantId = S.TenantId AND T.Id = S.Id
+WHEN MATCHED THEN UPDATE SET
+    FromName=@fn, FromEmail=@fe, Subject=@sub, Body=@body, BodyHtml=@html,
+    ReceivedAt=@recv, IsRead=@read, Category=@cat, Status=@stat,
+    AiSummary=@sum, DraftJson=@draft
+WHEN NOT MATCHED THEN INSERT
+    (TenantId, Id, FromName, FromEmail, Subject, Body, BodyHtml, ReceivedAt, IsRead, Category, Status, AiSummary, DraftJson)
+VALUES
+    (@t, @id, @fn, @fe, @sub, @body, @html, @recv, @read, @cat, @stat, @sum, @draft);",
+            new
             {
-                var json = File.ReadAllText(_path);
-                _map = JsonSerializer.Deserialize<Dictionary<string, MailItem>>(json, _jsonOpts) ?? new();
-                _log.LogInformation("Loaded {N} mails", _map.Count);
-            }
-            catch (Exception ex)
-            {
-                _log.LogError(ex, "Parse mails.json failed — reset rỗng");
-                _map = new();
-            }
-        }
-        else
+                t = tenantId, id = item.Id,
+                fn = item.From.Name, fe = item.From.Email,
+                sub = item.Subject, body = item.Body, html = item.BodyHtml,
+                recv = DateTime.TryParse(item.ReceivedAt, out var dt) ? dt : DateTime.UtcNow,
+                read = item.IsRead, cat = item.Category, stat = item.Status, sum = item.AiSummary,
+                draft = item.Draft == null ? null : JsonSerializer.Serialize(item.Draft, _jsonOpts)
+            });
+    }
+
+    public bool SetStatus(string tenantId, string id, string status)
+    {
+        if (string.IsNullOrWhiteSpace(tenantId)) return false;
+        using var c = _db.Open();
+        return c.Execute(
+            "UPDATE dbo.Mails SET Status=@s WHERE TenantId=@t AND Id=@id",
+            new { t = tenantId, id, s = status }) > 0;
+    }
+
+    public bool SetRead(string tenantId, string id, bool isRead = true)
+    {
+        if (string.IsNullOrWhiteSpace(tenantId)) return false;
+        using var c = _db.Open();
+        return c.Execute(
+            "UPDATE dbo.Mails SET IsRead=@r WHERE TenantId=@t AND Id=@id",
+            new { t = tenantId, id, r = isRead }) > 0;
+    }
+
+    public bool SetDraft(string tenantId, string id, MailDraft draft, string status)
+    {
+        if (string.IsNullOrWhiteSpace(tenantId)) return false;
+        using var c = _db.Open();
+        var draftJson = JsonSerializer.Serialize(draft, _jsonOpts);
+        return c.Execute(
+            "UPDATE dbo.Mails SET DraftJson=@d, Status=@s WHERE TenantId=@t AND Id=@id",
+            new { t = tenantId, id, d = draftJson, s = status }) > 0;
+    }
+
+    /// Lọc theo status/category/search (search bỏ dấu, không phân biệt hoa). Mới nhất trước.
+    public IReadOnlyList<MailItem> Filter(string tenantId, string? status, string? category, string? search)
+    {
+        if (string.IsNullOrWhiteSpace(tenantId)) return Array.Empty<MailItem>();
+        using var c = _db.Open();
+        var rows = c.Query<MailRow>(
+            "SELECT * FROM dbo.Mails WHERE TenantId=@t ORDER BY ReceivedAt DESC",
+            new { t = tenantId }).ToList();
+
+        IEnumerable<MailItem> q = rows.Select(Hydrate).Where(m => m != null)!;
+        if (!string.IsNullOrWhiteSpace(status))   q = q.Where(m => m!.Status == status);
+        if (!string.IsNullOrWhiteSpace(category)) q = q.Where(m => m!.Category == category);
+        if (!string.IsNullOrWhiteSpace(search))
         {
-            _map = new();
-            File.WriteAllText(_path, "{}");
+            var s = Norm(search);
+            q = q.Where(m => Norm($"{m!.Subject} {m.From.Name} {m.From.Email} {m.Body}").Contains(s));
         }
+        return q.ToList()!;
     }
 
-    public MailItem? Get(string id)
+    public MailCounts Counts(string tenantId)
     {
-        lock (_lock) return _map.TryGetValue(id, out var m) ? m : null;
-    }
+        if (string.IsNullOrWhiteSpace(tenantId))
+            return new MailCounts(0, 0, new(), new());
+        using var c = _db.Open();
+        var rows = c.Query<CountsRow>(
+            "SELECT Status, Category, IsRead FROM dbo.Mails WHERE TenantId=@t",
+            new { t = tenantId }).ToList();
 
-    public bool Has(string id)
-    {
-        lock (_lock) return _map.ContainsKey(id);
-    }
-
-    public void Upsert(MailItem item)
-    {
-        lock (_lock) { _map[item.Id] = item; Persist(); }
-    }
-
-    public bool SetStatus(string id, string status)
-    {
-        lock (_lock)
+        var byStatus = new Dictionary<string, int>();
+        var byCat = new Dictionary<string, int>();
+        int unread = 0;
+        foreach (var r in rows)
         {
-            if (!_map.TryGetValue(id, out var m)) return false;
-            _map[id] = m with { Status = status };
-            Persist();
-            return true;
+            byStatus[r.Status] = byStatus.GetValueOrDefault(r.Status) + 1;
+            var cat = r.Category ?? "khac";
+            byCat[cat] = byCat.GetValueOrDefault(cat) + 1;
+            if (!r.IsRead) unread++;
         }
+        return new MailCounts(rows.Count, unread, byStatus, byCat);
     }
 
-    public bool SetRead(string id, bool isRead = true)
+    // ─── Hydration ────────────────────────────────────────────────────────
+    private MailItem? Hydrate(MailRow row)
     {
-        lock (_lock)
+        try
         {
-            if (!_map.TryGetValue(id, out var m)) return false;
-            if (m.IsRead == isRead) return true;
-            _map[id] = m with { IsRead = isRead };
-            Persist();
-            return true;
+            MailDraft? draft = string.IsNullOrEmpty(row.DraftJson)
+                ? null
+                : JsonSerializer.Deserialize<MailDraft>(row.DraftJson, _jsonOpts);
+            return new MailItem(
+                Id: row.Id,
+                From: new MailContact(row.FromName ?? "", row.FromEmail ?? ""),
+                Subject: row.Subject ?? "",
+                Body: row.Body ?? "",
+                ReceivedAt: row.ReceivedAt.ToString("o"),
+                IsRead: row.IsRead,
+                Category: row.Category,
+                Status: row.Status,
+                AiSummary: row.AiSummary,
+                Draft: draft,
+                BodyHtml: row.BodyHtml);
         }
-    }
-
-    public bool SetDraft(string id, MailDraft draft, string status)
-    {
-        lock (_lock)
+        catch (Exception ex)
         {
-            if (!_map.TryGetValue(id, out var m)) return false;
-            _map[id] = m with { Draft = draft, Status = status };
-            Persist();
-            return true;
+            _log.LogWarning(ex, "[MailRepo] Hydrate row {Id} fail", row.Id);
+            return null;
         }
     }
 
-    /// Lọc theo status/category/search (search khớp subject+from+body, bỏ dấu, không phân biệt hoa).
-    /// Sắp xếp mới nhất trước.
-    public IReadOnlyList<MailItem> Filter(string? status, string? category, string? search)
+    /// <summary>Dapper row mapper cho dbo.Mails — bind theo NAME, không phải ordinal.</summary>
+    private sealed class MailRow
     {
-        lock (_lock)
-        {
-            IEnumerable<MailItem> q = _map.Values;
-            if (!string.IsNullOrWhiteSpace(status))   q = q.Where(m => m.Status == status);
-            if (!string.IsNullOrWhiteSpace(category)) q = q.Where(m => m.Category == category);
-            if (!string.IsNullOrWhiteSpace(search))
-            {
-                var s = Norm(search);
-                q = q.Where(m => Norm($"{m.Subject} {m.From.Name} {m.From.Email} {m.Body}").Contains(s));
-            }
-            return q.OrderByDescending(m => m.ReceivedAt, StringComparer.Ordinal).ToList();
-        }
+        public string TenantId { get; set; } = "";
+        public string Id { get; set; } = "";
+        public string? FromName { get; set; }
+        public string? FromEmail { get; set; }
+        public string? Subject { get; set; }
+        public string? Body { get; set; }
+        public string? BodyHtml { get; set; }
+        public DateTime ReceivedAt { get; set; }
+        public bool IsRead { get; set; }
+        public string? Category { get; set; }
+        public string Status { get; set; } = "moi";
+        public string? AiSummary { get; set; }
+        public string? DraftJson { get; set; }
     }
 
-    public MailCounts Counts()
+    /// <summary>Compact row mapper cho Counts — chỉ 3 column cần.</summary>
+    private sealed class CountsRow
     {
-        lock (_lock)
-        {
-            var byStatus = new Dictionary<string, int>();
-            var byCat = new Dictionary<string, int>();
-            int unread = 0;
-            foreach (var m in _map.Values)
-            {
-                byStatus[m.Status] = byStatus.GetValueOrDefault(m.Status) + 1;
-                var c = m.Category ?? "khac";
-                byCat[c] = byCat.GetValueOrDefault(c) + 1;
-                if (!m.IsRead) unread++;
-            }
-            return new MailCounts(_map.Count, unread, byStatus, byCat);
-        }
-    }
-
-    private void Persist()
-    {
-        try { File.WriteAllText(_path, JsonSerializer.Serialize(_map, _jsonOpts)); }
-        catch (Exception ex) { _log.LogError(ex, "Write mails.json failed"); }
+        public string Status { get; set; } = "moi";
+        public string? Category { get; set; }
+        public bool IsRead { get; set; }
     }
 
     /// Chuẩn hóa search: lowercase + bỏ dấu tiếng Việt + đ→d.
