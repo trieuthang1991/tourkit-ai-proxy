@@ -24,10 +24,10 @@ public class MailAccountStore
     {
         if (string.IsNullOrWhiteSpace(tenantId)) return null;
         using var c = _db.Open();
-        var row = c.QueryFirstOrDefault<(string Address, string AppPasswordEnc)>(
+        var row = c.QueryFirstOrDefault<MailAccountRow>(
             @"SELECT Address, AppPasswordEnc FROM dbo.MailAccounts WHERE TenantId = @t",
             new { t = tenantId });
-        if (row.Address == null) return null;
+        if (row == null || row.Address == null) return null;
         var pwd = string.IsNullOrEmpty(row.AppPasswordEnc) ? "" : Crypton.Decrypt(row.AppPasswordEnc);
         return (row.Address, pwd);
     }
@@ -72,4 +72,11 @@ WHEN NOT MATCHED THEN INSERT (TenantId, Address, AppPasswordEnc, Signature, Upda
     }
 
     public bool HasSignature(string tenantId) => !string.IsNullOrWhiteSpace(Signature(tenantId));
+
+    /// <summary>Dapper row mapper cho dbo.MailAccounts — bind theo NAME, không phải ordinal.</summary>
+    private sealed class MailAccountRow
+    {
+        public string Address { get; set; } = "";
+        public string AppPasswordEnc { get; set; } = "";
+    }
 }
