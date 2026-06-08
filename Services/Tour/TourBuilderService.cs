@@ -8,24 +8,33 @@ using TourkitAiProxy.Services.Workflow;
 namespace TourkitAiProxy.Services.Tour;
 
 /// AI đọc mô tả tự do (vd "Tour Đà Nẵng 3N2Đ, 20 khách, đi 15/7, KH chị Lan 0901...")
-/// → trả JSON Draft Tour GIT cho NV prefill form. BUFFERED + tolerant parse + retry 1 lần
-/// (mẫu DealScoringService) để dùng được cả reasoning model rẻ.
+/// → trả JSON Draft Tour GIT cho NV prefill form.
+///
+/// Dual-path (mirror Visa/Deal):
+/// - Provider Anthropic + có key  → NATIVE function-calling (submit_tour_draft schema enforce)
+/// - Mọi provider khác            → JSON-prompt + tolerant parse + retry 1 lần (legacy)
 public class TourBuilderService
 {
     private readonly ProviderRegistry _registry;
     private readonly AiResponseCache _cache;
+    private readonly NativeToolScorer _native;
     private readonly IWorkflowTraceAccessor _trace;
     private readonly ILogger<TourBuilderService> _log;
 
-    private const string SYSTEM =
+    private const string SystemJsonPrompt =
         "Bạn là chuyên viên điều hành tour Việt Nam, đọc mô tả của Sale và bóc tách thành form tour GIT (Group Inclusive Tour). " +
         "CHỈ trả JSON thuần (bắt đầu '{'), KHÔNG markdown, KHÔNG giải thích ngoài JSON. " +
         "KHÔNG bịa thông tin chưa có — field nào không rõ thì để null/0/[]; ghi điều cần làm rõ vào 'warnings'. Tiếng Việt.";
 
+    private const string SystemNativeTool =
+        "Bạn là chuyên viên điều hành tour Việt Nam, đọc mô tả của Sale và bóc tách thành form tour GIT. " +
+        "Gọi tool submit_tour_draft với kết quả. KHÔNG bịa — field không rõ để null/0/[]; ghi vào warnings. Tiếng Việt.";
+
     public TourBuilderService(ProviderRegistry registry, AiResponseCache cache,
+        NativeToolScorer native,
         IWorkflowTraceAccessor trace, ILogger<TourBuilderService> log)
     {
-        _registry = registry; _cache = cache; _trace = trace; _log = log;
+        _registry = registry; _cache = cache; _native = native; _trace = trace; _log = log;
     }
 
     public async Task<TourBuilderDraft> ParseAsync(TourBuilderRequest req, CancellationToken ct)
@@ -50,17 +59,65 @@ public class TourBuilderService
         }
         cacheTimer?.Done("skip", "Cache MISS → gọi AI");
 
+        // ── Dispatch theo provider ────────────────────────────────────────────
+        TourBuilderDraft result;
+        if (string.Equals(p.Id, "anthropic", StringComparison.OrdinalIgnoreCase))
+        {
+            trace?.Step("path_dispatch", "ok", 0,
+                "Provider anthropic → native function-calling (schema enforce)",
+                new() { ["path"] = "native-tool", ["tool"] = "submit_tour_draft" });
+            result = await ParseWithNativeToolAsync(req, trace, ct);
+        }
+        else
+        {
+            trace?.Step("path_dispatch", "ok", 0,
+                $"Provider {p.Id} → JSON-prompt fallback (tolerant parse + retry)",
+                new() { ["path"] = "json-prompt" });
+            result = await ParseWithJsonPromptAsync(p, req, trace, ct);
+        }
+
+        _cache.Save(key, result);
+        return result;
+    }
+
+    // ─── Native function-calling path (Anthropic) ─────────────────────────────────
+    private async Task<TourBuilderDraft> ParseWithNativeToolAsync(
+        TourBuilderRequest req, TraceCollector? trace, CancellationToken ct)
+    {
+        var schema = BuildTourDraftSchema();
+        var userPrompt = BuildPromptNative(req.Prompt);
+
+        // Tour Builder schema lớn (nested expenses/services) → tăng maxTokens lên 5000.
+        var res = await _native.RunAsync<TourBuilderDraft>(
+            systemPrompt:     SystemNativeTool,
+            userPrompt:       userPrompt,
+            toolSchema:       schema,
+            terminalToolName: "submit_tour_draft",
+            parser:           ParseToolInput,
+            apiKeyOverride:   req.ApiKey,
+            model:            string.IsNullOrWhiteSpace(req.Model) ? "claude-sonnet-4-5" : req.Model!,
+            maxTokens:        5000,
+            trace:            trace,
+            ct:               ct);
+
+        return res.Value;
+    }
+
+    // ─── JSON-prompt path (fallback) ──────────────────────────────────────────────
+    private async Task<TourBuilderDraft> ParseWithJsonPromptAsync(
+        IAiProvider p, TourBuilderRequest req, TraceCollector? trace, CancellationToken ct)
+    {
         Exception? last = null;
         for (int attempt = 1; attempt <= 2; attempt++)
         {
             var prompt = attempt == 1
-                ? BuildPrompt(req.Prompt)
-                : BuildPrompt(req.Prompt) + "\n\nLƯU Ý: Lần trước trả SAI định dạng. CHỈ trả ĐÚNG 1 JSON object, không chữ nào ngoài JSON.";
+                ? BuildPromptJson(req.Prompt)
+                : BuildPromptJson(req.Prompt) + "\n\nLƯU Ý: Lần trước trả SAI định dạng. CHỈ trả ĐÚNG 1 JSON object, không chữ nào ngoài JSON.";
             // Reasoning model (deepseek/minimax) tốn nhiều token "thinking" → cần budget rộng.
             // Lần 1 fail → tăng tiếp lần 2. Quan sát: FINISH=length là nguyên nhân chính cho JSON cụt.
             var cr = new CompleteRequest(
                 Prompt: prompt, Provider: req.Provider, Model: req.Model,
-                MaxTokens: attempt == 1 ? 4500 : 8000, Temperature: 0.2, System: SYSTEM, ApiKey: req.ApiKey);
+                MaxTokens: attempt == 1 ? 4500 : 8000, Temperature: 0.2, System: SystemJsonPrompt, ApiKey: req.ApiKey);
             var aiTimer = trace?.Begin($"ai_parse_attempt{attempt}");
             try
             {
@@ -70,7 +127,7 @@ public class TourBuilderService
                     aiTimer?.Done("fail", $"AI trả rỗng (finish={res.FinishReason})");
                     throw new InvalidOperationException($"AI trả rỗng (finish={res.FinishReason})");
                 }
-                var ok = Parse(res.Text);
+                var ok = ParseRawText(res.Text);
                 aiTimer?.Done("ok",
                     $"Provider {p.Id} → bóc tour title='{ok.Title ?? "?"}', warnings={ok.Warnings?.Count ?? 0}, tokens {res.InputTokens}/{res.OutputTokens}, {res.LatencyMs}ms",
                     new() {
@@ -80,7 +137,6 @@ public class TourBuilderService
                         ["latencyMs"] = res.LatencyMs,
                         ["title"] = ok.Title, ["warningsCount"] = ok.Warnings?.Count ?? 0
                     });
-                _cache.Save(key, ok);
                 return ok;
             }
             catch (OperationCanceledException) { throw; }
@@ -94,19 +150,13 @@ public class TourBuilderService
         throw last ?? new InvalidOperationException("Bóc tour thất bại");
     }
 
-    private static string BuildPrompt(string text) => $@"NHIỆM VỤ: Đọc mô tả Sale gửi dưới đây và trả JSON Draft Tour GIT.
+    // ─── Prompt builders ─────────────────────────────────────────────────────────
+    private static string BuildPromptJson(string text) => $@"NHIỆM VỤ: Đọc mô tả Sale gửi dưới đây và trả JSON Draft Tour GIT.
 
 MÔ TẢ CỦA SALE:
 {text.Trim()}
 
-QUY TẮC:
-1. Chỉ dùng thông tin trong mô tả, KHÔNG bịa
-2. Field không rõ → null / 0 / [] và ghi 'warnings'
-3. Ngày: chuyển về dạng yyyy-MM-dd (vd 'đi 15/7' → '2026-07-15', dùng năm hiện tại 2026 nếu không nói rõ)
-4. Số liệu tiền: bóc nguyên số đồng (vd '5 triệu' → 5000000, '1.2tr' → 1200000)
-5. tourType: 'Nội địa' | 'Inbound' (khách nước ngoài đến VN) | 'Outbound' (VN đi nước ngoài). Suy từ điểm đến.
-6. expenses (Phần thu) = khoản tiền Sale thu của khách: vé tour, phụ thu, bảo hiểm...
-7. services (Dịch vụ điều hành) = chi phí trả NCC: khách sạn, xe, ăn, vé tham quan...
+{CommonRules}
 
 OUTPUT JSON (KHÔNG markdown):
 {{
@@ -127,33 +177,125 @@ OUTPUT JSON (KHÔNG markdown):
 }}
 Bắt đầu trả JSON ngay:";
 
-    private TourBuilderDraft Parse(string raw)
+    private static string BuildPromptNative(string text) => $@"NHIỆM VỤ: Đọc mô tả Sale gửi dưới đây và GỌI TOOL submit_tour_draft với Draft Tour GIT.
+
+MÔ TẢ CỦA SALE:
+{text.Trim()}
+
+{CommonRules}
+
+Gọi submit_tour_draft NGAY. KHÔNG trả text giải thích ngoài tool.";
+
+    private const string CommonRules = @"QUY TẮC:
+1. Chỉ dùng thông tin trong mô tả, KHÔNG bịa
+2. Field không rõ → null / 0 / [] và ghi 'warnings'
+3. Ngày: chuyển về dạng yyyy-MM-dd (vd 'đi 15/7' → '2026-07-15', dùng năm hiện tại 2026 nếu không nói rõ)
+4. Số liệu tiền: bóc nguyên số đồng (vd '5 triệu' → 5000000, '1.2tr' → 1200000)
+5. tourType: 'Nội địa' | 'Inbound' (khách nước ngoài đến VN) | 'Outbound' (VN đi nước ngoài). Suy từ điểm đến.
+6. expenses (Phần thu) = khoản tiền Sale thu của khách: vé tour, phụ thu, bảo hiểm...
+7. services (Dịch vụ điều hành) = chi phí trả NCC: khách sạn, xe, ăn, vé tham quan...";
+
+    // ─── Schema cho native tool ─────────────────────────────────────────────────
+    private static JsonElement BuildTourDraftSchema()
+        => NativeToolScorer.BuildAnthropicTool(
+            name: "submit_tour_draft",
+            description: "Nộp Draft Tour GIT bóc từ mô tả Sale. Gọi DUY NHẤT 1 lần.",
+            properties: new
+            {
+                title = new { type = "string", description = "Tên tour ngắn gọn, vd 'Đà Nẵng - Hội An 3N2Đ'" },
+                marketName = new { type = new[] { "string", "null" }, description = "Tên thị trường hoặc null" },
+                tourType = new
+                {
+                    type = new[] { "string", "null" },
+                    @enum = new[] { "Nội địa", "Inbound", "Outbound", null! },
+                    description = "Loại tour suy từ điểm đến"
+                },
+                startDate = new { type = new[] { "string", "null" }, description = "yyyy-MM-dd hoặc null" },
+                endDate = new { type = new[] { "string", "null" }, description = "yyyy-MM-dd hoặc null" },
+                adultCount = new { type = new[] { "integer", "null" }, minimum = 0 },
+                childCount = new { type = new[] { "integer", "null" }, minimum = 0 },
+                customerName = new { type = new[] { "string", "null" } },
+                customerPhone = new { type = new[] { "string", "null" } },
+                customerEmail = new { type = new[] { "string", "null" } },
+                note = new { type = new[] { "string", "null" }, description = "Ghi chú/yêu cầu đặc biệt" },
+                expenses = new
+                {
+                    type = "array",
+                    description = "Phần thu — khoản tiền Sale thu của khách",
+                    items = new
+                    {
+                        type = "object",
+                        properties = new
+                        {
+                            title = new { type = "string" },
+                            unitPrice = new { type = "integer", minimum = 0 },
+                            quantity = new { type = "integer", minimum = 0 },
+                            vatPercent = new { type = "number", minimum = 0, maximum = 100 }
+                        },
+                        required = new[] { "title", "unitPrice", "quantity" }
+                    }
+                },
+                services = new
+                {
+                    type = "array",
+                    description = "Dịch vụ điều hành — chi phí trả NCC",
+                    items = new
+                    {
+                        type = "object",
+                        properties = new
+                        {
+                            name = new { type = "string" },
+                            providerName = new { type = new[] { "string", "null" } },
+                            quantity = new { type = "integer", minimum = 0 },
+                            nights = new { type = "integer", minimum = 0 },
+                            netPrice = new { type = "integer", minimum = 0 },
+                            vatPercent = new { type = "number", minimum = 0, maximum = 100 }
+                        },
+                        required = new[] { "name", "quantity", "netPrice" }
+                    }
+                },
+                warnings = new
+                {
+                    type = "array", items = new { type = "string" },
+                    description = "Điều cần Sale làm rõ thêm"
+                }
+            },
+            required: new[] { "expenses", "services", "warnings" });
+
+    // ─── Parsers ────────────────────────────────────────────────────────────────
+    private TourBuilderDraft ParseRawText(string raw)
     {
         try
         {
             using var doc = LooseJson.ParseFirstObject(raw);
-            var root = doc.RootElement;
-            return new TourBuilderDraft(
-                Title:         Str(root, "title"),
-                MarketName:    Str(root, "marketName"),
-                TourType:      Str(root, "tourType"),
-                StartDate:     Str(root, "startDate"),
-                EndDate:       Str(root, "endDate"),
-                AdultCount:    IntN(root, "adultCount"),
-                ChildCount:    IntN(root, "childCount"),
-                CustomerName:  Str(root, "customerName"),
-                CustomerPhone: Str(root, "customerPhone"),
-                CustomerEmail: Str(root, "customerEmail"),
-                Note:          Str(root, "note"),
-                Expenses:      ParseExpenses(root),
-                Services:      ParseServices(root),
-                Warnings:      StrList(root, "warnings"));
+            return ParseElement(doc.RootElement);
         }
         catch (Exception ex)
         {
             _log.LogError(ex, "Parse tour draft JSON lỗi. Raw: {Raw}", raw[..Math.Min(raw.Length, 200)]);
             throw new InvalidOperationException("AI trả kết quả không đúng định dạng");
         }
+    }
+
+    private static TourBuilderDraft ParseToolInput(JsonElement root) => ParseElement(root);
+
+    private static TourBuilderDraft ParseElement(JsonElement root)
+    {
+        return new TourBuilderDraft(
+            Title:         Str(root, "title"),
+            MarketName:    Str(root, "marketName"),
+            TourType:      Str(root, "tourType"),
+            StartDate:     Str(root, "startDate"),
+            EndDate:       Str(root, "endDate"),
+            AdultCount:    IntN(root, "adultCount"),
+            ChildCount:    IntN(root, "childCount"),
+            CustomerName:  Str(root, "customerName"),
+            CustomerPhone: Str(root, "customerPhone"),
+            CustomerEmail: Str(root, "customerEmail"),
+            Note:          Str(root, "note"),
+            Expenses:      ParseExpenses(root),
+            Services:      ParseServices(root),
+            Warnings:      StrList(root, "warnings"));
     }
 
     private static List<TourBuilderExpense> ParseExpenses(JsonElement root)
