@@ -24,4 +24,25 @@ public static class JsonElementExtensions
         }
         return false;
     }
+
+    /// <summary>Lấy string value của field. Trả null nếu missing / không phải string / blank.</summary>
+    public static string? GetStringField(this JsonElement el, string name)
+    {
+        if (!el.TryGetField(name, out var p)) return null;
+        return p.ValueKind == JsonValueKind.String ? p.GetString() : null;
+    }
+
+    /// <summary>Lấy list of non-blank strings. Trả empty list nếu missing / không phải array.</summary>
+    public static List<string> GetStringListField(this JsonElement el, string name)
+    {
+        var list = new List<string>();
+        if (!el.TryGetField(name, out var p) || p.ValueKind != JsonValueKind.Array) return list;
+        foreach (var item in p.EnumerateArray())
+        {
+            if (item.ValueKind != JsonValueKind.String) continue;
+            var s = item.GetString();
+            if (!string.IsNullOrWhiteSpace(s)) list.Add(s!);
+        }
+        return list;
+    }
 }
