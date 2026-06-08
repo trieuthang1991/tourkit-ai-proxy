@@ -185,12 +185,23 @@ public class NativeToolUseAgent : IAgentRuntime
                 finalText = sb.ToString();
 
             iterTimer?.Done("ok",
-                $"Iter{iteration}: stop={stopReason}, {toolUseBlocks.Count} tool_use, text={sb.Length}c, " +
+                $"POST https://api.anthropic.com/v1/messages (model={model}, {tools.Length} tools schema) → " +
+                $"stop={stopReason}, {toolUseBlocks.Count} tool_use, text={sb.Length}c, " +
                 $"tokens {usage.GetProperty("input_tokens").GetInt32()}/{usage.GetProperty("output_tokens").GetInt32()}",
                 new() {
+                    ["method"] = "POST",
+                    ["url"] = "https://api.anthropic.com/v1/messages",
+                    ["model"] = model,
+                    ["maxTokensReq"] = 4000,
+                    ["toolsSchemaCount"] = tools.Length,
+                    ["messagesCount"] = messages.Count,
+                    ["systemChars"] = system.Length,
                     ["stopReason"] = stopReason,
-                    ["toolCount"] = toolUseBlocks.Count,
-                    ["tools"] = toolUseBlocks.Select(t => t.Name).ToArray()
+                    ["toolUseCount"] = toolUseBlocks.Count,
+                    ["tools"] = toolUseBlocks.Select(t => t.Name).ToArray(),
+                    ["textChars"] = sb.Length,
+                    ["tokIn"] = usage.GetProperty("input_tokens").GetInt32(),
+                    ["tokOut"] = usage.GetProperty("output_tokens").GetInt32()
                 });
 
             // ── Kiem tra dieu kien ket thuc vong lap ──────────────────────────
@@ -303,10 +314,21 @@ public class NativeToolUseAgent : IAgentRuntime
 
             var dispatchTimer = trace?.Begin($"tool_dispatch_iter{iteration}");
             var execResults = await Task.WhenAll(execTasks);
+            var baseUrl = _api.BaseUrl;
+            var toolDetails = execResults.Select(e => new
+            {
+                tool = e.tub.Name,
+                params_ = e.tub.Input.GetRawText(),
+                url = e.Tool != null ? baseUrl + ChatTools.BuildPath(e.Tool, e.tub.Input) : "(tool không trong catalog)",
+                responseSize = e.ResultJson.Length,
+                ok = !e.ResultJson.StartsWith("{\"error\""),
+                responseSnippet = e.ResultJson.Length > 400 ? e.ResultJson[..400] + "…" : e.ResultJson
+            }).ToArray();
             dispatchTimer?.Done(
-                execResults.All(e => e.Tool != null && !e.ResultJson.StartsWith("{\"error\"")) ? "ok" : "fail",
-                $"Dispatch {execResults.Length} tool song song: {string.Join(", ", execResults.Select(e => e.tub.Name))}",
-                new() { ["tools"] = execResults.Select(e => new { e.tub.Name, params_ = e.tub.Input.GetRawText() }).ToArray() });
+                toolDetails.All(d => d.ok) ? "ok" : "fail",
+                $"GET {string.Join(" + ", toolDetails.Select(d => d.url))}" +
+                $" → tổng {toolDetails.Sum(d => d.responseSize):N0} bytes",
+                new() { ["method"] = "GET", ["auth"] = "Bearer JWT (TourKit session)", ["tools"] = toolDetails });
 
             // Gom ket qua: neu 2+ tool_use cung tool name (vd 2 lan cashflow voi date khac nhau)
             // → ghep thanh ChatData.Compare (primary = ky gan hien tai nhat, compare = ky con lai).

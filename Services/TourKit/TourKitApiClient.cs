@@ -32,6 +32,9 @@ public class TourKitApiClient
         _factory = factory; _log = log;
     }
 
+    /// BaseUrl đang dùng (vd "https://mobile-test-api-2.tourkit.vn"). Phục vụ trace/debug, KHÔNG có JWT.
+    public string BaseUrl => _factory.CreateClient("tourkit").BaseAddress?.ToString().TrimEnd('/') ?? "";
+
     /// POST /api/auth/login — body {tenantId, username, password}. Trả JWT.
     public async Task<TkLoginResult> LoginAsync(string tenantId, string username, string password, CancellationToken ct)
     {

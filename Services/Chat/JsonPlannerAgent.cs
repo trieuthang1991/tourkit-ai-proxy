@@ -83,9 +83,19 @@ public class JsonPlannerAgent : IAgentRuntime
         var plannerTimer = trace?.Begin("planner_call");
         var plan = await CompleteWithFallbackAsync(provider, plannerReq, ct);
         tokIn += plan.InputTokens; tokOut += plan.OutputTokens; latency += plan.LatencyMs;
+        var aiEndpoint = ProviderEndpoint(provider.Id);
         plannerTimer?.Done("ok",
-            $"AI chọn tool/params (tokens {plan.InputTokens}/{plan.OutputTokens}, {plan.LatencyMs}ms)",
+            $"POST {aiEndpoint} (model={input.Model ?? "default"}) → tokens {plan.InputTokens}/{plan.OutputTokens}, {plan.LatencyMs}ms",
             new() {
+                ["method"] = "POST",
+                ["url"] = aiEndpoint,
+                ["provider"] = provider.Id,
+                ["model"] = input.Model ?? "(default)",
+                ["systemChars"] = PLANNER_SYSTEM.Length,
+                ["promptChars"] = plannerReq.Prompt.Length,
+                ["maxTokens"] = plannerReq.MaxTokens,
+                ["temperature"] = plannerReq.Temperature,
+                ["cacheSystem"] = isAnthropic,
                 ["rawOutput"] = plan.Text.Length > 400 ? plan.Text[..400] + "…" : plan.Text,
                 ["tokIn"] = plan.InputTokens,
                 ["tokOut"] = plan.OutputTokens
@@ -256,10 +266,24 @@ public class JsonPlannerAgent : IAgentRuntime
             }
             if (IsUsableData(data)) _cache.Set("d|" + cacheKey, data, CacheTtl);
         }
+        var fullUrl = _api.BaseUrl + path;
+        var rawJson = data.GetRawText();
+        var itemCount = data.ValueKind == JsonValueKind.Object && data.TryGetProperty("items", out var itEl)
+                        && itEl.ValueKind == JsonValueKind.Array ? itEl.GetArrayLength()
+                        : (data.ValueKind == JsonValueKind.Array ? data.GetArrayLength() : 0);
         dispatchTimer?.Done(cacheHit ? "ok" : "ok",
-            (cacheHit ? "Cache HIT — số liệu lấy từ cache TourKit (đỡ 1 lần gọi API)" : "Gọi TourKit API thật")
-            + $" → path={path}",
-            new() { ["path"] = path, ["fromCache"] = cacheHit });
+            (cacheHit ? "Cache HIT — số liệu lấy từ cache TourKit (đỡ 1 lần gọi API)"
+                      : $"GET {fullUrl} → 200 OK, {itemCount} items, {rawJson.Length:N0} bytes"),
+            new() {
+                ["method"] = "GET",
+                ["url"] = fullUrl,
+                ["path"] = path,
+                ["auth"] = "Bearer JWT (TourKit session, không gửi ra client)",
+                ["fromCache"] = cacheHit,
+                ["responseSize"] = rawJson.Length,
+                ["itemCount"] = itemCount,
+                ["responseSnippet"] = rawJson.Length > 600 ? rawJson[..600] + "…" : rawJson
+            });
 
         // ─── 3. Doc envelope /api/ai/* (items + summary + total + title) ─────────
         var chatData = BuildChatData(tool, data);
@@ -307,9 +331,16 @@ public class JsonPlannerAgent : IAgentRuntime
                                 CompareRaw: compChat.Raw)
                         };
                         _log.LogInformation("[JsonPlanner] Compare built: {P} vs {C}", primaryLabel, compareLabel);
+                        var compFullUrl = _api.BaseUrl + compPath;
+                        var compSize = compData.GetRawText().Length;
                         trace?.Step("compare_dispatch", "ok", 0,
-                            $"Dispatch kỳ đối chiếu '{compareLabel}' → ghép delta vào panel",
-                            new() { ["compareLabel"] = compareLabel, ["path"] = compPath });
+                            $"GET {compFullUrl} → kỳ '{compareLabel}', {compSize:N0} bytes → ghép delta vào panel",
+                            new() {
+                                ["method"] = "GET",
+                                ["url"] = compFullUrl,
+                                ["compareLabel"] = compareLabel,
+                                ["responseSize"] = compSize
+                            });
                     }
                 }
                 catch (Exception ex)
@@ -354,8 +385,20 @@ public class JsonPlannerAgent : IAgentRuntime
         var analysis = await CompleteWithFallbackAsync(provider, analysisReq, ct);
         tokIn += analysis.InputTokens; tokOut += analysis.OutputTokens; latency += analysis.LatencyMs;
         analysisTimer?.Done("ok",
-            $"AI viết phân tích ({analysis.Text.Length} ký tự, tokens {analysis.InputTokens}/{analysis.OutputTokens})",
-            new() { ["chars"] = analysis.Text.Length, ["tokIn"] = analysis.InputTokens, ["tokOut"] = analysis.OutputTokens });
+            $"POST {aiEndpoint} (model={input.Model ?? "default"}) → tokens {analysis.InputTokens}/{analysis.OutputTokens}, {analysis.LatencyMs}ms, reply {analysis.Text.Length} ký tự",
+            new() {
+                ["method"] = "POST",
+                ["url"] = aiEndpoint,
+                ["provider"] = provider.Id,
+                ["model"] = input.Model ?? "(default)",
+                ["systemChars"] = ANALYSIS_SYSTEM.Length,
+                ["promptChars"] = analysisReq.Prompt.Length,
+                ["maxTokens"] = analysisReq.MaxTokens,
+                ["temperature"] = analysisReq.Temperature,
+                ["replyChars"] = analysis.Text.Length,
+                ["tokIn"] = analysis.InputTokens,
+                ["tokOut"] = analysis.OutputTokens
+            });
 
         // Apply guardrails: strip em-dash, retry neu qua ngan, validate so.
         var rawReply = analysis.Text;
@@ -476,6 +519,7 @@ public class JsonPlannerAgent : IAgentRuntime
     public async Task StreamAsync(AgentInput input, Func<object, Task> emit, CancellationToken ct)
     {
         var provider = input.Provider;
+        var trace = input.Trace;
         bool isAnthropic = string.Equals(provider.Id, "anthropic", StringComparison.OrdinalIgnoreCase);
         var history = input.History;
         var question = history.LastOrDefault(m => m.Role == "user")?.Content ?? "";
@@ -484,6 +528,10 @@ public class JsonPlannerAgent : IAgentRuntime
 
         // Đọc bộ nhớ chat của phiên (fallback Empty nếu chưa có).
         var memory = _sessions.GetMemory(input.SessionId) ?? SessionChatMemory.Empty();
+        trace?.Step("session_memory", "ok", 0,
+            memory.LastTool != null
+                ? $"Có context hội thoại trước: tool={memory.LastTool}, market={memory.LastMarketName ?? "-"}"
+                : "Hội thoại mới (chưa có context)");
 
         await emit(new { stage = "planning" });
 
@@ -493,7 +541,19 @@ public class JsonPlannerAgent : IAgentRuntime
             MaxTokens:   3000, Temperature: 0.1,
             System:      PLANNER_SYSTEM, ApiKey: input.ApiKey,
             CacheSystem: isAnthropic);
+        var plannerTimer = trace?.Begin("planner_call");
         var plan = await CompleteWithFallbackAsync(provider, plannerReq, ct);
+        var aiEndpoint = ProviderEndpoint(provider.Id);
+        plannerTimer?.Done("ok",
+            $"POST {aiEndpoint} (model={input.Model ?? "default"}) → tokens {plan.InputTokens}/{plan.OutputTokens}, {plan.LatencyMs}ms",
+            new() {
+                ["method"] = "POST", ["url"] = aiEndpoint,
+                ["provider"] = provider.Id, ["model"] = input.Model ?? "(default)",
+                ["systemChars"] = PLANNER_SYSTEM.Length, ["promptChars"] = plannerReq.Prompt.Length,
+                ["maxTokens"] = plannerReq.MaxTokens, ["temperature"] = plannerReq.Temperature,
+                ["rawOutput"] = plan.Text.Length > 400 ? plan.Text[..400] + "…" : plan.Text,
+                ["tokIn"] = plan.InputTokens, ["tokOut"] = plan.OutputTokens
+            });
 
         string toolName = "none"; JsonElement? toolParams = null; string? directReply = null;
         try
@@ -511,10 +571,21 @@ public class JsonPlannerAgent : IAgentRuntime
         }
 
         var tool = ChatTools.Find(toolName);
+        trace?.Step("tool_parse", tool != null ? "ok" : "fail", 0,
+            tool != null ? $"Tool='{toolName}'" + (toolParams.HasValue ? $", params={Summarize(toolParams)}" : "")
+                         : $"Planner trả tool='{toolName}' (không có trong catalog)",
+            new() { ["tool"] = toolName, ["params"] = toolParams?.GetRawText() });
+
         if (tool == null)
         {
             var (hName, hParams) = HeuristicRoute(question);
-            if (hName != null) { toolName = hName; toolParams = hParams; tool = ChatTools.Find(hName); }
+            if (hName != null)
+            {
+                toolName = hName; toolParams = hParams; tool = ChatTools.Find(hName);
+                trace?.Step("heuristic_route", "fallback", 0,
+                    $"Planner fail/none → heuristic keyword khớp '{hName}'",
+                    new() { ["tool"] = hName });
+            }
         }
 
         if (tool == null)
@@ -572,25 +643,40 @@ public class JsonPlannerAgent : IAgentRuntime
         }
 
         await emit(new { stage = "fetching", tool = tool.Name, title = tool.Title });
+        var resolverTimer = trace?.Begin("market_resolver");
+        var paramsBefore = toolParams?.GetRawText();
         toolParams = await ResolveMarketAsync(input.SessionId, toolParams, ct);
+        var paramsAfter = toolParams?.GetRawText();
+        resolverTimer?.Done(paramsBefore != paramsAfter ? "ok" : "skip",
+            paramsBefore != paramsAfter ? "Có marketName → tra /api/tours/markets → đổi sang marketId"
+                                        : "Không có marketName cần resolve",
+            new() { ["before"] = paramsBefore, ["after"] = paramsAfter });
 
         // L2 cache (post-planner)
         var l2Key = AgentCacheKeys.L2Key(input.TenantId, input.Username, tool.Name, toolParams);
+        var l2Timer = trace?.Begin("l2_cache_lookup");
         if (useCache && _cache.TryGet<ChatResult>("r2|" + l2Key, out var l2Hit) && l2Hit != null)
         {
             _log.LogInformation("[JsonPlanner-stream] L2 cache hit ({Tool})", tool.Name);
+            l2Timer?.Done("ok",
+                $"L2 HIT — tool '{tool.Name}' + params này đã chạy gần đây → trả ngay",
+                new() { ["cacheKey"] = l2Key });
             await emit(new { done = true, reply = l2Hit.Reply, toolName = l2Hit.ToolName, data = l2Hit.Data, cached = true });
             return;
         }
+        l2Timer?.Done("skip", "L2 MISS — chạy tiếp dispatch", new() { ["cacheKey"] = l2Key });
 
         var path = ChatTools.BuildPath(tool, toolParams);
         _log.LogInformation("[JsonPlanner-stream] tool={Tool} path={Path}", tool.Name, path);
 
         var cacheKey = $"{input.TenantId}|{path}";
+        var dispatchTimer = trace?.Begin("tool_dispatch");
         JsonElement data;
+        bool cacheHit = false;
         if (_cache.TryGet<JsonElement>("d|" + cacheKey, out var cachedData))
         {
             data = cachedData;
+            cacheHit = true;
         }
         else
         {
@@ -626,8 +712,26 @@ public class JsonPlannerAgent : IAgentRuntime
             }
             if (IsUsableData(data)) _cache.Set("d|" + cacheKey, data, CacheTtl);
         }
+        var fullUrl = _api.BaseUrl + path;
+        var rawJson = data.GetRawText();
+        var itemCount = data.ValueKind == JsonValueKind.Object && data.TryGetProperty("items", out var itEl)
+                        && itEl.ValueKind == JsonValueKind.Array ? itEl.GetArrayLength()
+                        : (data.ValueKind == JsonValueKind.Array ? data.GetArrayLength() : 0);
+        dispatchTimer?.Done("ok",
+            (cacheHit ? "Cache HIT — số liệu từ cache, đỡ 1 lần gọi API"
+                      : $"GET {fullUrl} → 200 OK, {itemCount} items, {rawJson.Length:N0} bytes"),
+            new() {
+                ["method"] = "GET", ["url"] = fullUrl, ["path"] = path,
+                ["auth"] = "Bearer JWT (TourKit session, không gửi ra client)",
+                ["fromCache"] = cacheHit,
+                ["responseSize"] = rawJson.Length, ["itemCount"] = itemCount,
+                ["responseSnippet"] = rawJson.Length > 600 ? rawJson[..600] + "…" : rawJson
+            });
 
         var chatData = BuildChatData(tool, data);
+        trace?.Step("build_chatdata", "ok", 0,
+            $"Envelope → ChatData: title='{chatData.Title}', {chatData.Stats.Count} stat card",
+            new() { ["statCount"] = chatData.Stats.Count, ["title"] = chatData.Title });
 
         // Compare intent (stream): cau hoi co "so voi / cung ky / nam ngoai" → dispatch 2nd
         var compareShiftS = DetectCompareIntent(question);
@@ -698,19 +802,35 @@ public class JsonPlannerAgent : IAgentRuntime
             System:      ANALYSIS_SYSTEM, ApiKey: input.ApiKey,
             CacheSystem: isAnthropic);
 
+        var analysisTimer = trace?.Begin("analysis_call");
         var sb = new StringBuilder();
         var analysis = await StreamWithFallbackAsync(provider, analysisReq,
             async delta => { sb.Append(delta); await emit(new { delta }); }, ct);
+        analysisTimer?.Done("ok",
+            $"POST {aiEndpoint} (stream, model={input.Model ?? "default"}) → tokens {analysis.InputTokens}/{analysis.OutputTokens}, {analysis.LatencyMs}ms, reply {sb.Length} ký tự",
+            new() {
+                ["method"] = "POST", ["url"] = aiEndpoint, ["streaming"] = true,
+                ["provider"] = provider.Id, ["model"] = input.Model ?? "(default)",
+                ["systemChars"] = ANALYSIS_SYSTEM.Length, ["promptChars"] = analysisReq.Prompt.Length,
+                ["maxTokens"] = analysisReq.MaxTokens, ["temperature"] = analysisReq.Temperature,
+                ["replyChars"] = sb.Length,
+                ["tokIn"] = analysis.InputTokens, ["tokOut"] = analysis.OutputTokens
+            });
 
         var rawStreamReply = sb.Length > 0 ? sb.ToString()
             : (string.IsNullOrWhiteSpace(analysis.Text) ? "" : analysis.Text);
 
         // Apply guardrails: strip em-dash, validate so.
+        var beforeStrip = rawStreamReply ?? "";
         var finalReply = string.IsNullOrWhiteSpace(rawStreamReply)
             ? "Đã lấy được số liệu (xem bảng bên phải)."
             : AgentGuardrails.StripMarkdown(AgentGuardrails.StripEmDash(rawStreamReply.Trim()));
+        if (beforeStrip != finalReply)
+            trace?.Step("guardrail_strip", "ok", 0, "Gỡ markdown + em-dash thành text thuần");
 
         var numberWarning = AgentGuardrails.ValidateNumbers(finalReply, chatData.Stats);
+        trace?.Step("guardrail_numbers", numberWarning == null ? "ok" : "fail", 0,
+            numberWarning ?? "Số liệu AI nói khớp stat server-side (no drift)");
 
         // Trigger: ai_hallucinated_numbers (stream path)
         if (!string.IsNullOrWhiteSpace(numberWarning))
@@ -1267,6 +1387,17 @@ Yêu cầu:
         var norm = question.ToLowerInvariant();
         return keywords.Any(k => norm.Contains(k));
     }
+
+    /// Endpoint AI provider (display-only, dùng trong trace để hiện "đã gọi đâu").
+    /// Hardcode để khỏi phải DI thêm config; phải sync nếu BaseUrl provider đổi.
+    private static string ProviderEndpoint(string providerId) => providerId switch
+    {
+        "anthropic"   => "https://api.anthropic.com/v1/messages",
+        "openai"      => "https://api.openai.com/v1/responses",
+        "opencode-go" => "https://opencode.ai/zen/go/v1/{chat/completions|messages}",
+        "nine-routes" => "(9routes local, BaseUrl từ config)",
+        _             => providerId
+    };
 
     /// Tóm tắt JsonElement params về dạng "k=v, k=v" cho trace summary (giới hạn 120 chars).
     private static string Summarize(JsonElement? prms)
