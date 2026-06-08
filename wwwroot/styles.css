@@ -1676,6 +1676,71 @@ body.editorial .ai-bubble .hl { color: #FDBA74; }
 .asst-delta-pos .asst-delta-prev { color: var(--text-3); }
 .asst-delta-neg { color: #b91c1c; }                 /* đỏ = xấu */
 .asst-delta-neg .asst-delta-prev { color: var(--text-3); }
+
+/* ── "Cách vận hành" debug trace — collapsible bên dưới mỗi assistant reply ── */
+.asst-debug-toggle {
+  display: inline-flex; align-items: center; gap: 4px;
+  padding: 6px 10px; font-size: 11px; font-weight: 600;
+  border: 1px solid var(--border-strong); background: var(--surface);
+  color: var(--text-2); border-radius: 999px;
+  letter-spacing: 0.04em; text-transform: uppercase;
+}
+.asst-debug-toggle:hover { border-color: var(--primary); color: var(--primary-dark); }
+.asst-debug-toggle.on   { background: var(--primary); color: #fff; border-color: var(--primary); }
+
+.asst-trace {
+  margin-top: 8px; max-width: 100%;
+  border: 1px solid var(--border); border-radius: var(--radius-md);
+  background: rgba(15, 23, 42, 0.02);
+  font-size: 12px;
+}
+.asst-trace-toggle {
+  width: 100%; display: flex; align-items: center; gap: 8px;
+  padding: 8px 12px; background: transparent; border: none; cursor: pointer;
+  font-size: 11px; font-weight: 600; color: var(--text-2);
+  text-transform: uppercase; letter-spacing: 0.05em;
+}
+.asst-trace-toggle:hover { background: rgba(15, 23, 42, 0.04); }
+.asst-trace-toggle svg { color: var(--primary); flex-shrink: 0; }
+.asst-trace-meta { color: var(--text-3); font-weight: 500; text-transform: none; letter-spacing: 0; margin-left: auto; }
+.asst-trace-chev { color: var(--text-3); font-size: 10px; }
+
+.asst-trace-steps {
+  list-style: none; padding: 0 12px 10px; margin: 0;
+  border-top: 1px solid var(--border);
+}
+.asst-trc-step {
+  display: flex; gap: 10px; padding: 8px 0;
+  border-bottom: 1px dashed var(--border);
+}
+.asst-trc-step:last-child { border-bottom: none; }
+.asst-trc-icon {
+  flex-shrink: 0; width: 18px; height: 18px; display: flex; align-items: center; justify-content: center;
+  border-radius: 50%; font-size: 11px; font-weight: 700; margin-top: 1px;
+}
+.asst-trc-ok       .asst-trc-icon { background: #dcfce7; color: #15803d; }
+.asst-trc-skip     .asst-trc-icon { background: #f1f5f9; color: #64748b; }
+.asst-trc-fail     .asst-trc-icon { background: #fee2e2; color: #b91c1c; }
+.asst-trc-fallback .asst-trc-icon { background: #fef3c7; color: #b45309; }
+
+.asst-trc-body { flex: 1; min-width: 0; }
+.asst-trc-line { display: flex; justify-content: space-between; align-items: baseline; gap: 8px; }
+.asst-trc-name {
+  font-family: ui-monospace, 'SF Mono', 'Cascadia Code', monospace;
+  font-size: 11px; color: var(--text); font-weight: 600;
+}
+.asst-trc-ms { font-size: 10px; color: var(--text-3); font-variant-numeric: tabular-nums; }
+.asst-trc-summary { color: var(--text-2); margin-top: 2px; line-height: 1.4; }
+.asst-trc-meta-det { margin-top: 4px; }
+.asst-trc-meta-det summary {
+  font-size: 10px; color: var(--primary-dark); cursor: pointer; font-weight: 600;
+  text-transform: uppercase; letter-spacing: 0.04em;
+}
+.asst-trc-meta-json {
+  background: #0f172a; color: #e2e8f0; padding: 8px 10px; margin-top: 4px;
+  border-radius: 6px; font-size: 10px; line-height: 1.45;
+  max-height: 200px; overflow: auto; white-space: pre;
+}
 .asst-chart { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius-md); padding: 14px; margin-bottom: 16px; }
 .asst-canvas-wrap { position: relative; height: 300px; }
 .asst-chart-toolbar { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-bottom: 12px; flex-wrap: wrap; }

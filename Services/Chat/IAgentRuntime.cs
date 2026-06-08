@@ -31,7 +31,8 @@ public record AgentInput(
     List<ChatTurn> History,    // history day du (chua truncate truoc khi truyen vao)
     string SessionId,
     string TenantId,
-    string Username);
+    string Username,
+    TraceCollector? Trace = null);  // No-op neu null hoac Enabled=false
 
 /// <summary>
 /// Ket qua tra ve tu 1 luot agent.

@@ -134,6 +134,12 @@ public class NativeToolUseAgent : IAgentRuntime
         ChatData? lastData    = null;
         string?   warning     = null;
 
+        var trace = input.Trace;
+        trace?.Step("session_memory", "ok", 0,
+            memory.LastTool != null
+                ? $"Context hội thoại trước: tool={memory.LastTool}"
+                : "Hội thoại mới");
+
         // ── Vong lap multi-turn (toi da MaxIterations = 3) ───────────────────
         while (iteration < MaxIterations)
         {
@@ -144,6 +150,7 @@ public class NativeToolUseAgent : IAgentRuntime
             if (emit != null) await emit(new { stage = "thinking", iteration });
 
             // Goi Anthropic, nhan JsonDocument (caller phai dispose sau)
+            var iterTimer = trace?.Begin($"anthropic_call_iter{iteration}");
             var (_, doc, lat) = await CallAnthropicAsync(apiKey, model, system, tools, messages, linked.Token);
             totalLat += lat;
 
@@ -176,6 +183,15 @@ public class NativeToolUseAgent : IAgentRuntime
             // Text turn nay ghi de finalText (text y nghia nhat la turn cuoi cung)
             if (sb.Length > 0)
                 finalText = sb.ToString();
+
+            iterTimer?.Done("ok",
+                $"Iter{iteration}: stop={stopReason}, {toolUseBlocks.Count} tool_use, text={sb.Length}c, " +
+                $"tokens {usage.GetProperty("input_tokens").GetInt32()}/{usage.GetProperty("output_tokens").GetInt32()}",
+                new() {
+                    ["stopReason"] = stopReason,
+                    ["toolCount"] = toolUseBlocks.Count,
+                    ["tools"] = toolUseBlocks.Select(t => t.Name).ToArray()
+                });
 
             // ── Kiem tra dieu kien ket thuc vong lap ──────────────────────────
             if (stopReason == "end_turn" || toolUseBlocks.Count == 0)
@@ -285,7 +301,12 @@ public class NativeToolUseAgent : IAgentRuntime
                 }
             }).ToArray();
 
+            var dispatchTimer = trace?.Begin($"tool_dispatch_iter{iteration}");
             var execResults = await Task.WhenAll(execTasks);
+            dispatchTimer?.Done(
+                execResults.All(e => e.Tool != null && !e.ResultJson.StartsWith("{\"error\"")) ? "ok" : "fail",
+                $"Dispatch {execResults.Length} tool song song: {string.Join(", ", execResults.Select(e => e.tub.Name))}",
+                new() { ["tools"] = execResults.Select(e => new { e.tub.Name, params_ = e.tub.Input.GetRawText() }).ToArray() });
 
             // Gom ket qua: neu 2+ tool_use cung tool name (vd 2 lan cashflow voi date khac nhau)
             // → ghep thanh ChatData.Compare (primary = ky gan hien tai nhat, compare = ky con lai).
@@ -316,6 +337,9 @@ public class NativeToolUseAgent : IAgentRuntime
                     lastParams   = primary.Params;
                     _log.LogInformation("[NativeTool] Compare built: primary={P} vs compare={C} ({Tool})",
                         primaryLabel, compareLabel, grouped.Key);
+                    trace?.Step("compare_built", "ok", 0,
+                        $"Phát hiện 2 tool '{grouped.Key}' cùng turn → ghép thành Compare: {primaryLabel} vs {compareLabel}",
+                        new() { ["primary"] = primaryLabel, ["compare"] = compareLabel });
                 }
                 else
                 {
@@ -384,6 +408,8 @@ public class NativeToolUseAgent : IAgentRuntime
             lastData     = memory.LastChatData;
             lastToolName = memory.LastTool;
             lastParams   = memory.LastParams;
+            trace?.Step("memory_data_reuse", "fallback", 0,
+                $"AI không gọi tool turn này → reuse data cũ từ memory: '{memory.LastDataTitle}'");
         }
 
         // ── Guardrails ────────────────────────────────────────────────────────

@@ -305,6 +305,61 @@ function TypingDots({ stage }) {
   );
 }
 
+// "Cách vận hành" — collapsible trace panel hiện các step workflow đã chạy.
+// Bật khi user toggle "Cách vận hành ON" + backend trả field trace trong response.
+function TraceView({ trace }) {
+  const [open, setOpen] = _aS(false);
+  if (!trace || !trace.steps || !trace.steps.length) return null;
+
+  const stepIcon = {
+    ok:       '✓',
+    skip:     '○',
+    fail:     '✗',
+    fallback: '↻',
+  };
+  const stepCls = {
+    ok:       'asst-trc-ok',
+    skip:     'asst-trc-skip',
+    fail:     'asst-trc-fail',
+    fallback: 'asst-trc-fallback',
+  };
+
+  return (
+    <div className={'asst-trace' + (open ? ' open' : '')}>
+      <button className="asst-trace-toggle" onClick={() => setOpen(v => !v)}>
+        <Icon name="info" size={12} />
+        <span>{open ? 'Ẩn' : 'Cách vận hành'}</span>
+        <span className="asst-trace-meta">
+          {trace.steps.length} bước · {trace.totalMs}ms · {trace.agent}
+        </span>
+        <span className="asst-trace-chev">{open ? '▾' : '▸'}</span>
+      </button>
+      {open && (
+        <ol className="asst-trace-steps">
+          {trace.steps.map((s, i) => (
+            <li key={i} className={'asst-trc-step ' + (stepCls[s.status] || '')}>
+              <span className="asst-trc-icon">{stepIcon[s.status] || '·'}</span>
+              <div className="asst-trc-body">
+                <div className="asst-trc-line">
+                  <span className="asst-trc-name">{s.name}</span>
+                  <span className="asst-trc-ms">{s.durationMs}ms</span>
+                </div>
+                <div className="asst-trc-summary">{s.summary}</div>
+                {s.meta && Object.keys(s.meta).length > 0 && (
+                  <details className="asst-trc-meta-det">
+                    <summary>chi tiết</summary>
+                    <pre className="asst-trc-meta-json">{JSON.stringify(s.meta, null, 2)}</pre>
+                  </details>
+                )}
+              </div>
+            </li>
+          ))}
+        </ol>
+      )}
+    </div>
+  );
+}
+
 function DataPanel({ data, onAsk }) {
   // Memo hóa rows/chart theo `data` (ổn định suốt lúc stream) → KHÔNG dựng lại chart mỗi token
   // (trước đây tính lại mỗi render → ChartView destroy+create liên tục → nhấp nháy khó chịu).
@@ -503,11 +558,14 @@ function AssistantPage({ pushToast }) {
     }
   }
 
-  const [messages, setMessages] = _aS([]);          // {role, content}
+  const [messages, setMessages] = _aS([]);          // {role, content, trace?}
   const [input, setInput] = _aS('');
   const [loading, setLoading] = _aS(false);
   const [stage, setStage] = _aS(null);   // 'planning'|'fetching'|'analyzing' khi đang stream
   const [panelData, setPanelData] = _aS(null);
+  // Debug toggle: hiện "Cách vận hành" dưới mỗi reply. Persist localStorage để giữ qua reload.
+  const [debug, setDebug] = _aS(() => localStorage.getItem('tourkit_chat_debug') === '1');
+  _aE(() => { localStorage.setItem('tourkit_chat_debug', debug ? '1' : '0'); }, [debug]);
   const scrollRef = _aR(null);
 
   _aE(() => {
@@ -535,7 +593,8 @@ function AssistantPage({ pushToast }) {
         headers: { 'Content-Type': 'application/json', 'Accept': 'text/event-stream', 'X-Session-Id': sessionId },
         body: JSON.stringify({
           messages: next, provider: cfg.provider, model: cfg.model,
-          apiKey: (window.tourkit.ai.getKey && cfg.provider) ? window.tourkit.ai.getKey(cfg.provider) : undefined
+          apiKey: (window.tourkit.ai.getKey && cfg.provider) ? window.tourkit.ai.getKey(cfg.provider) : undefined,
+          debug: debug
         })
       });
       if (resp.status === 401) { pushToast('Phiên hết hạn — đăng nhập lại', 'error'); logout(); return; }
@@ -568,7 +627,9 @@ function AssistantPage({ pushToast }) {
             if (o.reply) patch(a => ({ ...a, content: o.reply }));
             if (o.toolName) patch(a => ({ ...a, tool: o.toolName }));
             if (o.data && !dataSet) setPanelData(o.data);   // chỉ set nếu chưa có (luồng cache-hit)
+            if (o.trace) patch(a => ({ ...a, trace: o.trace }));   // trace event đính cùng done (cache-hit path)
           }
+          if (o.trace && !o.done) patch(a => ({ ...a, trace: o.trace }));   // trace event riêng (sau analysis stream)
 
         }
       }
@@ -600,6 +661,12 @@ function AssistantPage({ pushToast }) {
         sub="Hỏi đáp thông minh — AI tự truy xuất số liệu TourKit và trực quan hóa."
         status={{ label: 'DỮ LIỆU ĐANG KẾT NỐI', detail: `Tenant ${sessionInfo?.tenantId || '—'}` }}
         actions={<>
+          <button
+            className={'asst-debug-toggle' + (debug ? ' on' : '')}
+            onClick={() => setDebug(v => !v)}
+            title={debug ? 'Đang HIỆN cách vận hành dưới mỗi reply — bấm để TẮT' : 'Bấm để HIỆN cách vận hành (debug trace)'}>
+            <Icon name="info" size={13} /> Cách vận hành {debug ? 'ON' : 'OFF'}
+          </button>
           <button className="asst-reset" onClick={resetMemory} title="Bắt đầu cuộc trò chuyện mới">
             <Icon name="plus" size={14} /> Đoạn mới
           </button>
@@ -635,6 +702,7 @@ function AssistantPage({ pushToast }) {
                     ? m.content
                     : (m.streaming ? <TypingDots stage={stage} /> : '')}
                 </div>
+                {m.trace && <TraceView trace={m.trace} />}
               </div>
             ))}
           </div>

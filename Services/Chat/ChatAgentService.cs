@@ -46,8 +46,14 @@ public class ChatAgentService
         var history = req.Messages ?? new();
         var question = history.LastOrDefault(m => m.Role == "user")?.Content ?? "";
 
+        // Trace collector: Step() là no-op khi req.Debug=false → zero overhead trong production.
+        var trace = new TraceCollector(req.Debug);
+
         // Truncate input truoc khi cache-key + truyen vao agent.
         var (truncQuestion, wasTruncated) = AgentGuardrails.TruncateInput(question, 1500);
+        if (wasTruncated)
+            trace.Step("input_truncate", "ok", 0,
+                $"Câu hỏi {question.Length} ký tự > giới hạn 1500 → cắt còn 1500");
         if (wasTruncated)
         {
             _log.LogWarning("[chat] user input truncated tu {Orig} -> 1500 chars", question.Length);
@@ -88,16 +94,29 @@ public class ChatAgentService
 
         // L1 cache (pre-planner): cau hoi y het sau khi normalize -> tra ngay, skip toan bo AI.
         var l1Key = AgentCacheKeys.L1Key(tenantId, username, truncQuestion);
+        var l1Timer = trace.Begin("l1_cache_lookup");
         if (useCache && !string.IsNullOrWhiteSpace(truncQuestion)
             && _cache.TryGet<ChatResult>("r1|" + l1Key, out var l1Hit) && l1Hit != null)
         {
             _log.LogInformation("[chat] L1 cache hit");
-            return l1Hit;
+            l1Timer.Done("ok", "L1 HIT — câu hỏi giống y hệt trong cache → trả ngay, skip toàn bộ AI",
+                new() { ["cacheKey"] = l1Key });
+            // Tra ket qua cache + dinh trace (chi co 1 step l1_cache_lookup) khi debug.
+            return req.Debug
+                ? l1Hit with { Trace = trace.Build(provider.Id, req.Model) }
+                : l1Hit;
         }
+        l1Timer.Done("skip", useCache ? "L1 MISS — chưa có cache, chạy tiếp planner" : "L1 SKIP — chưa có session, không cache",
+            new() { ["cacheKey"] = l1Key });
 
         // Resolve runtime: runtime dau tien Supports(provider), fallback JsonPlannerAgent.
         var runtime = _runtimes.FirstOrDefault(r => r.Supports(provider))
             ?? _runtimes.OfType<JsonPlannerAgent>().Single();
+        var agentName = runtime.GetType().Name;
+        trace.SetAgent(agentName);
+        trace.Step("runtime_select", "ok", 0,
+            $"Provider {provider.Id} → dùng {agentName}",
+            new() { ["provider"] = provider.Id, ["model"] = req.Model });
 
         var input = new AgentInput(
             Provider:  provider,
@@ -106,9 +125,15 @@ public class ChatAgentService
             History:   history,
             SessionId: sessionId,
             TenantId:  tenantId,
-            Username:  username);
+            Username:  username,
+            Trace:     trace);
 
+        var agentRunTimer = trace.Begin("agent_run");
         var agentResult = await runtime.RunAsync(input, ct);
+        agentRunTimer.Done("ok",
+            $"Agent xong sau {agentResult.Iterations} iteration, tool={agentResult.ToolName}, " +
+            $"tokens={agentResult.InputTokens}/{agentResult.OutputTokens}",
+            new() { ["tool"] = agentResult.ToolName, ["iterations"] = agentResult.Iterations });
 
         var result = new ChatResult(
             agentResult.Reply,
@@ -125,9 +150,11 @@ public class ChatAgentService
         {
             var ttl = ChooseTtlFromResult(result);
             _cache.Set("r1|" + l1Key, result, ttl);
+            trace.Step("l1_cache_save", "ok", 0,
+                $"Lưu L1 cache TTL {ttl.TotalMinutes:0}phút (câu hỏi này hỏi lại sẽ trả ngay)");
         }
 
-        return result;
+        return req.Debug ? result with { Trace = trace.Build(provider.Id, req.Model) } : result;
     }
 
     /// <summary>
@@ -139,7 +166,11 @@ public class ChatAgentService
         var history = req.Messages ?? new();
         var question = history.LastOrDefault(m => m.Role == "user")?.Content ?? "";
 
+        var trace = new TraceCollector(req.Debug);
+
         var (truncQuestion, wasTruncated) = AgentGuardrails.TruncateInput(question, 1500);
+        if (wasTruncated) trace.Step("input_truncate", "ok", 0,
+            $"Câu hỏi {question.Length} ký tự > giới hạn 1500 → cắt còn 1500");
         if (wasTruncated)
         {
             _log.LogWarning("[chat-stream] user input truncated tu {Orig} -> 1500 chars", question.Length);
@@ -178,16 +209,31 @@ public class ChatAgentService
 
         // L1 cache (pre-planner)
         var l1Key = AgentCacheKeys.L1Key(tenantId, username, truncQuestion);
+        var l1Timer = trace.Begin("l1_cache_lookup");
         if (useCache && !string.IsNullOrWhiteSpace(truncQuestion)
             && _cache.TryGet<ChatResult>("r1|" + l1Key, out var l1Hit) && l1Hit != null)
         {
             _log.LogInformation("[chat-stream] L1 cache hit");
-            await emit(new { done = true, reply = l1Hit.Reply, toolName = l1Hit.ToolName, data = l1Hit.Data, cached = true });
+            l1Timer.Done("ok", "L1 HIT — trả ngay từ cache",
+                new() { ["cacheKey"] = l1Key });
+            await emit(new
+            {
+                done = true, reply = l1Hit.Reply, toolName = l1Hit.ToolName,
+                data = l1Hit.Data, cached = true,
+                trace = req.Debug ? trace.Build(provider.Id, req.Model) : null
+            });
             return;
         }
+        l1Timer.Done("skip", "L1 MISS — chạy planner",
+            new() { ["cacheKey"] = l1Key });
 
         var runtime = _runtimes.FirstOrDefault(r => r.Supports(provider))
             ?? _runtimes.OfType<JsonPlannerAgent>().Single();
+        var agentName = runtime.GetType().Name;
+        trace.SetAgent(agentName);
+        trace.Step("runtime_select", "ok", 0,
+            $"Provider {provider.Id} → dùng {agentName}",
+            new() { ["provider"] = provider.Id, ["model"] = req.Model });
 
         var input = new AgentInput(
             Provider:  provider,
@@ -196,7 +242,8 @@ public class ChatAgentService
             History:   history,
             SessionId: sessionId,
             TenantId:  tenantId,
-            Username:  username);
+            Username:  username,
+            Trace:     trace);
 
         // Wrapping emit: bat su kien {done} de luu L1 cache
         // (chat data va reply co trong event done cua agent).
@@ -230,7 +277,14 @@ public class ChatAgentService
         {
             var ttl = ChooseTtlByData(streamResult.Data);
             _cache.Set("r1|" + l1Key, streamResult, ttl);
+            trace.Step("l1_cache_save", "ok", 0,
+                $"Lưu L1 cache TTL {ttl.TotalMinutes:0}phút");
         }
+
+        // Emit trace event cuoi cung khi debug=true. Frontend nhan {trace:...} co the
+        // render collapsible "Cach van hanh" duoi reply.
+        if (req.Debug)
+            await emit(new { trace = trace.Build(provider.Id, req.Model) });
     }
 
     // ─── Helpers ──────────────────────────────────────────────────────────────────

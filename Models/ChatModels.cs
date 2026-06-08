@@ -35,12 +35,15 @@ public record ChatTurn(
 );
 
 /// SessionId có thể nằm trong body HOẶC header X-Session-Id (endpoint ưu tiên header).
+/// Debug=true → response/SSE đính thêm field "trace" liệt kê các bước workflow đã chạy
+/// (planner / dispatch / compare / analysis / guardrails…) cho team xem AI vận hành đúng/sai.
 public record ChatRequest(
     [property: JsonPropertyName("messages")]  List<ChatTurn>? Messages,
     [property: JsonPropertyName("sessionId")] string? SessionId,
     [property: JsonPropertyName("provider")]  string? Provider,
     [property: JsonPropertyName("model")]     string? Model,
-    [property: JsonPropertyName("apiKey")]    string? ApiKey = null
+    [property: JsonPropertyName("apiKey")]    string? ApiKey = null,
+    [property: JsonPropertyName("debug")]     bool    Debug  = false
 );
 
 /// 1 thẻ số liệu bên panel phải. Value để raw (double) — frontend tự format (fmtVND/fmtNum).
@@ -68,6 +71,7 @@ public record ChatData(
 );
 
 /// Kết quả 1 lượt chat. Reply = phân tích (panel trái). Data = số liệu (panel phải).
+/// Trace = bước workflow đã chạy (chỉ trả khi request.debug=true).
 public record ChatResult(
     string Reply,
     string ToolName,
@@ -76,5 +80,6 @@ public record ChatResult(
     long LatencyMs,
     int TokensIn,
     int TokensOut,
-    string? Warning
+    string? Warning,
+    TourkitAiProxy.Services.Chat.ChatTrace? Trace = null
 );

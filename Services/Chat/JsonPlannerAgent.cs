@@ -54,6 +54,7 @@ public class JsonPlannerAgent : IAgentRuntime
     public async Task<AgentResult> RunAsync(AgentInput input, CancellationToken ct)
     {
         var provider = input.Provider;
+        var trace = input.Trace;  // có thể null khi gọi từ test
         bool isAnthropic = string.Equals(provider.Id, "anthropic", StringComparison.OrdinalIgnoreCase);
         var history = input.History;
         var question = history.LastOrDefault(m => m.Role == "user")?.Content ?? "";
@@ -62,6 +63,11 @@ public class JsonPlannerAgent : IAgentRuntime
 
         // Đọc bộ nhớ chat của phiên (fallback Empty nếu chưa có).
         var memory = _sessions.GetMemory(input.SessionId) ?? SessionChatMemory.Empty();
+        trace?.Step("session_memory", "ok", 0,
+            memory.LastTool != null
+                ? $"Có context hội thoại trước: tool={memory.LastTool}, market={memory.LastMarketName ?? "-"}"
+                : "Hội thoại mới (chưa có context)",
+            new() { ["lastTool"] = memory.LastTool, ["lastMarket"] = memory.LastMarketName });
 
         int tokIn = 0, tokOut = 0;
         long latency = 0;
@@ -74,8 +80,16 @@ public class JsonPlannerAgent : IAgentRuntime
             System:      PLANNER_SYSTEM, ApiKey: input.ApiKey,
             CacheSystem: isAnthropic);
 
+        var plannerTimer = trace?.Begin("planner_call");
         var plan = await CompleteWithFallbackAsync(provider, plannerReq, ct);
         tokIn += plan.InputTokens; tokOut += plan.OutputTokens; latency += plan.LatencyMs;
+        plannerTimer?.Done("ok",
+            $"AI chọn tool/params (tokens {plan.InputTokens}/{plan.OutputTokens}, {plan.LatencyMs}ms)",
+            new() {
+                ["rawOutput"] = plan.Text.Length > 400 ? plan.Text[..400] + "…" : plan.Text,
+                ["tokIn"] = plan.InputTokens,
+                ["tokOut"] = plan.OutputTokens
+            });
 
         string toolName = "none"; JsonElement? toolParams = null; string? directReply = null;
         try
@@ -94,12 +108,22 @@ public class JsonPlannerAgent : IAgentRuntime
         }
 
         var tool = ChatTools.Find(toolName);
+        trace?.Step("tool_parse", tool != null ? "ok" : "fail", 0,
+            tool != null ? $"Tool='{toolName}'" + (toolParams.HasValue ? $", params={Summarize(toolParams)}" : "")
+                         : $"Planner trả tool='{toolName}' (không có trong catalog)",
+            new() { ["tool"] = toolName, ["params"] = toolParams?.GetRawText() });
 
         // Luoi an toan: planner fail/none nhung cau hoi ro rang can so lieu -> dinh tuyen theo tu khoa.
         if (tool == null)
         {
             var (hName, hParams) = HeuristicRoute(question);
-            if (hName != null) { toolName = hName; toolParams = hParams; tool = ChatTools.Find(hName); }
+            if (hName != null)
+            {
+                toolName = hName; toolParams = hParams; tool = ChatTools.Find(hName);
+                trace?.Step("heuristic_route", "fallback", 0,
+                    $"Planner fail/none → heuristic keyword khớp '{hName}'",
+                    new() { ["tool"] = hName });
+            }
         }
 
         // Khong can du lieu -> tra reply thang
@@ -154,27 +178,44 @@ public class JsonPlannerAgent : IAgentRuntime
         }
 
         // ─── Resolver: doi marketName -> marketId ───────────────────────────────
+        var resolverTimer = trace?.Begin("market_resolver");
+        var paramsBefore = toolParams?.GetRawText();
         toolParams = await ResolveMarketAsync(input.SessionId, toolParams, ct);
+        var paramsAfter = toolParams?.GetRawText();
+        resolverTimer?.Done(paramsBefore != paramsAfter ? "ok" : "skip",
+            paramsBefore != paramsAfter
+                ? "Có marketName → tra TourKit /api/tours/markets → đổi sang marketId"
+                : "Không có marketName cần resolve",
+            new() { ["before"] = paramsBefore, ["after"] = paramsAfter });
 
         // L2 cache (post-planner): tool + canonical params giong -> tra ngay, skip dispatch + analysis.
         var l2Key = AgentCacheKeys.L2Key(input.TenantId, input.Username, tool.Name, toolParams);
+        var l2Timer = trace?.Begin("l2_cache_lookup");
         if (useCache && _cache.TryGet<ChatResult>("r2|" + l2Key, out var l2Hit) && l2Hit != null)
         {
             _log.LogInformation("[JsonPlanner] L2 cache hit ({Tool})", tool.Name);
+            l2Timer?.Done("ok",
+                $"L2 HIT — tool '{tool.Name}' + params này đã chạy gần đây → trả ngay, skip dispatch + analysis",
+                new() { ["cacheKey"] = l2Key });
             object? l2Prms = toolParams.HasValue ? JsonSerializer.Deserialize<object>(toolParams.Value.GetRawText()) : null;
             return new AgentResult(l2Hit.Reply, l2Hit.ToolName, l2Prms, l2Hit.Data,
                 latency, tokIn, tokOut, l2Hit.Warning, 1);
         }
+        l2Timer?.Done("skip", "L2 MISS — chạy tiếp dispatch",
+            new() { ["cacheKey"] = l2Key });
 
         // ─── 2. Dispatch sang TourKit.Api ───────────────────────────────────────
         var path = ChatTools.BuildPath(tool, toolParams);
         _log.LogInformation("[JsonPlanner] tool={Tool} path={Path}", tool.Name, path);
 
         var cacheKey = $"{input.TenantId}|{path}";
+        var dispatchTimer = trace?.Begin("tool_dispatch");
         JsonElement data;
+        bool cacheHit = false;
         if (_cache.TryGet<JsonElement>("d|" + cacheKey, out var cachedData))
         {
             data = cachedData;
+            cacheHit = true;
             _log.LogInformation("[JsonPlanner] cache hit ({Key})", cacheKey);
         }
         else
@@ -215,15 +256,25 @@ public class JsonPlannerAgent : IAgentRuntime
             }
             if (IsUsableData(data)) _cache.Set("d|" + cacheKey, data, CacheTtl);
         }
+        dispatchTimer?.Done(cacheHit ? "ok" : "ok",
+            (cacheHit ? "Cache HIT — số liệu lấy từ cache TourKit (đỡ 1 lần gọi API)" : "Gọi TourKit API thật")
+            + $" → path={path}",
+            new() { ["path"] = path, ["fromCache"] = cacheHit });
 
         // ─── 3. Doc envelope /api/ai/* (items + summary + total + title) ─────────
         var chatData = BuildChatData(tool, data);
+        trace?.Step("build_chatdata", "ok", 0,
+            $"Envelope → ChatData: title='{chatData.Title}', {chatData.Stats.Count} stat card",
+            new() { ["statCount"] = chatData.Stats.Count, ["title"] = chatData.Title });
 
         // ─── 3b. Compare intent: cau hoi co "so voi / cung ky / nam ngoai" → dispatch 2nd ──
         // Chi ap dung cho tool co params date (cashflow, financial_summary, marketing...).
         var compareShift = DetectCompareIntent(question);
         if (compareShift != CompareShift.None && HasDateParams(toolParams))
         {
+            trace?.Step("compare_detected", "ok", 0,
+                $"Câu hỏi có ý so sánh → dịch params -{compareShift} để lấy kỳ đối chiếu",
+                new() { ["shift"] = compareShift.ToString() });
             var (comparePrms, compareLabel) = ShiftDateParams(toolParams!.Value, compareShift);
             if (comparePrms.HasValue)
             {
@@ -256,12 +307,17 @@ public class JsonPlannerAgent : IAgentRuntime
                                 CompareRaw: compChat.Raw)
                         };
                         _log.LogInformation("[JsonPlanner] Compare built: {P} vs {C}", primaryLabel, compareLabel);
+                        trace?.Step("compare_dispatch", "ok", 0,
+                            $"Dispatch kỳ đối chiếu '{compareLabel}' → ghép delta vào panel",
+                            new() { ["compareLabel"] = compareLabel, ["path"] = compPath });
                     }
                 }
                 catch (Exception ex)
                 {
                     // Compare la phu, fail thi log + tiep tuc voi primary
                     _log.LogWarning(ex, "[JsonPlanner] Compare dispatch fail — skip compare");
+                    trace?.Step("compare_dispatch", "fail", 0,
+                        $"Dispatch kỳ đối chiếu lỗi: {ex.Message}");
                 }
             }
         }
@@ -294,23 +350,30 @@ public class JsonPlannerAgent : IAgentRuntime
             System:      ANALYSIS_SYSTEM, ApiKey: input.ApiKey,
             CacheSystem: isAnthropic);
 
+        var analysisTimer = trace?.Begin("analysis_call");
         var analysis = await CompleteWithFallbackAsync(provider, analysisReq, ct);
         tokIn += analysis.InputTokens; tokOut += analysis.OutputTokens; latency += analysis.LatencyMs;
+        analysisTimer?.Done("ok",
+            $"AI viết phân tích ({analysis.Text.Length} ký tự, tokens {analysis.InputTokens}/{analysis.OutputTokens})",
+            new() { ["chars"] = analysis.Text.Length, ["tokIn"] = analysis.InputTokens, ["tokOut"] = analysis.OutputTokens });
 
         // Apply guardrails: strip em-dash, retry neu qua ngan, validate so.
         var rawReply = analysis.Text;
         if (AgentGuardrails.IsTooShort(rawReply))
         {
             _log.LogWarning("[JsonPlanner] analysis qua ngan ({Len} chars), retry voi max_tokens cao hon", rawReply?.Length ?? 0);
+            var retryTimer = trace?.Begin("analysis_retry");
             var retryReq = analysisReq with { MaxTokens = (analysisReq.MaxTokens ?? 2000) * 3 / 2 };
             var retry = await CompleteWithFallbackAsync(provider, retryReq, ct);
             if (!AgentGuardrails.IsTooShort(retry.Text))
             {
                 rawReply = retry.Text;
                 tokIn += retry.InputTokens; tokOut += retry.OutputTokens; latency += retry.LatencyMs;
+                retryTimer?.Done("ok", $"Reply ban đầu quá ngắn ({analysis.Text.Length}c) → retry với max_tokens x1.5 thành công ({retry.Text.Length}c)");
             }
             else
             {
+                retryTimer?.Done("fail", $"Retry vẫn quá ngắn ({retry.Text.Length}c) — log câu khó AI");
                 // Trigger: response_too_short_after_retry -- ca 2 lan (lan dau + retry) deu qua ngan
                 _unresolved.Append(
                     tag:            "response_too_short_after_retry",
@@ -330,12 +393,22 @@ public class JsonPlannerAgent : IAgentRuntime
             }
         }
 
+        var beforeStrip = rawReply ?? "";
         var finalReply = string.IsNullOrWhiteSpace(rawReply)
             ? "Đã lấy được số liệu (xem bảng bên phải) nhưng chưa tạo được phần phân tích."
             : AgentGuardrails.StripMarkdown(AgentGuardrails.StripEmDash(rawReply.Trim()));
+        if (beforeStrip != finalReply)
+            trace?.Step("guardrail_strip", "ok", 0,
+                "Gỡ markdown (**, ##, _, ```) và em-dash thành text thuần để frontend render đúng");
 
         // Validate so AI noi (warning only, khong block)
         var numberWarning = AgentGuardrails.ValidateNumbers(finalReply, chatData.Stats);
+        if (numberWarning != null)
+            trace?.Step("guardrail_numbers", "fail", 0,
+                $"Cảnh báo: {numberWarning}");
+        else
+            trace?.Step("guardrail_numbers", "ok", 0,
+                "Số liệu AI nói khớp stat server-side (no drift)");
 
         // Trigger: ai_hallucinated_numbers -- AI bịa so lech xa so lieu thuc
         if (!string.IsNullOrWhiteSpace(numberWarning))
@@ -1193,6 +1266,27 @@ Yêu cầu:
         };
         var norm = question.ToLowerInvariant();
         return keywords.Any(k => norm.Contains(k));
+    }
+
+    /// Tóm tắt JsonElement params về dạng "k=v, k=v" cho trace summary (giới hạn 120 chars).
+    private static string Summarize(JsonElement? prms)
+    {
+        if (prms is not { ValueKind: JsonValueKind.Object } obj) return "(không có)";
+        var parts = new List<string>();
+        foreach (var p in obj.EnumerateObject())
+        {
+            var v = p.Value.ValueKind switch
+            {
+                JsonValueKind.String => p.Value.GetString() ?? "",
+                JsonValueKind.Number => p.Value.GetRawText(),
+                JsonValueKind.True => "true",
+                JsonValueKind.False => "false",
+                _ => p.Value.ToString() ?? ""
+            };
+            parts.Add($"{p.Name}={v}");
+        }
+        var s = string.Join(", ", parts);
+        return s.Length > 120 ? s[..120] + "…" : s;
     }
 
     // ─── Compare intent + date-shift helpers ────────────────────────────────────
