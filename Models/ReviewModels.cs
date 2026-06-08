@@ -44,9 +44,25 @@ public record ReviewFeedback(
 );
 
 /// DTOs cho request endpoints.
+
+/// Sync 1 KH. Provider/Model/ApiKey override (optional) cho phép A/B test giữa 2 path
+/// (anthropic native-tool vs JSON fallback) per-call mà không đổi config global.
+/// Mẫu giống VisaScoringRequest / DealScoringRequest / TourBuilderRequest.
+public record SyncReviewRequest(
+    [property: JsonPropertyName("forceFresh")] bool ForceFresh = false,
+    [property: JsonPropertyName("provider")]   string? Provider = null,
+    [property: JsonPropertyName("model")]      string? Model = null,
+    [property: JsonPropertyName("apiKey")]     string? ApiKey = null
+);
+
+/// Batch nhiều KH. 3 override truyền vào sẽ áp dụng cho TẤT CẢ KH trong batch
+/// (cùng provider/model/apiKey → consistent kết quả + dễ so sánh batch).
 public record BatchReviewRequest(
     [property: JsonPropertyName("customerIds")] List<string> CustomerIds,
-    [property: JsonPropertyName("forceFresh")]  bool ForceFresh = false
+    [property: JsonPropertyName("forceFresh")]  bool ForceFresh = false,
+    [property: JsonPropertyName("provider")]    string? Provider = null,
+    [property: JsonPropertyName("model")]       string? Model = null,
+    [property: JsonPropertyName("apiKey")]      string? ApiKey = null
 );
 
 public record FeedbackRequest(

@@ -35,10 +35,15 @@ public class ReviewService
 
     /// Return review (cached nếu fingerprint không đổi & không forceFresh; gọi AI nếu cần).
     /// `onStage` lifecycle: "preparing" → "calling" → "parsing" → null khi done.
+    /// `providerOverride/modelOverride/apiKeyOverride`: per-call A/B test giữa 2 path
+    /// (vd anthropic native-tool vs opencode-go JSON fallback) mà KHÔNG đổi config global.
     /// Tuple: (review, fromCache).
     public async Task<(CustomerReview review, bool fromCache)> ReviewAsync(
         Customer customer, string tenantId, bool forceFresh = false,
         Func<string, string?, Task>? onStage = null,
+        string? providerOverride = null,
+        string? modelOverride = null,
+        string? apiKeyOverride = null,
         CancellationToken ct = default)
     {
         var trace = _trace.Current;
@@ -47,6 +52,8 @@ public class ReviewService
         trace?.SetMeta("customerName", customer.Name);
         trace?.SetMeta("tenantId", tenantId);
         trace?.SetMeta("forceFresh", forceFresh);
+        if (providerOverride != null) trace?.SetMeta("providerOverride", providerOverride);
+        if (modelOverride    != null) trace?.SetMeta("modelOverride", modelOverride);
 
         var fingerprint = ReviewRepository.FingerprintFor(customer);
         var fpTimer = trace?.Begin("fingerprint_check");
@@ -68,25 +75,31 @@ public class ReviewService
             new() { ["fingerprint"] = fingerprint });
 
         // ── Dispatch tới agent phù hợp ──────────────────────────────────────
-        // Provider override hiện chưa expose ở endpoint → dùng default registry.
-        // Thêm sau khi cần A/B test giữa 2 path (vd UI cho admin pick provider).
-        var defaultProviderId = _registry.Resolve(null).Id;
-        var agent = _agents.FirstOrDefault(a => a.Supports(defaultProviderId))
+        // Resolve provider id: ưu tiên override → fallback default registry.
+        // Pick agent đầu tiên Supports(providerId). Thứ tự đăng ký ở DI quyết định
+        // ai chạy trước (NativeToolReviewAgent trước, JsonPromptReviewAgent fallback).
+        var providerId = _registry.Resolve(providerOverride).Id;
+        var agent = _agents.FirstOrDefault(a => a.Supports(providerId))
             ?? throw new InvalidOperationException(
-                $"Không có IReviewAgent nào hỗ trợ provider '{defaultProviderId}' — " +
+                $"Không có IReviewAgent nào hỗ trợ provider '{providerId}' — " +
                 $"đăng ký ít nhất JsonPromptReviewAgent ở Program.cs để fallback.");
 
         trace?.Step("agent_dispatch", "ok", 0,
-            $"Provider mặc định '{defaultProviderId}' → pick {agent.GetType().Name}",
+            providerOverride != null
+                ? $"Provider override '{providerOverride}' → resolved '{providerId}' → pick {agent.GetType().Name}"
+                : $"Provider mặc định '{providerId}' → pick {agent.GetType().Name}",
             new() {
-                ["provider"] = defaultProviderId,
+                ["provider"] = providerId,
+                ["providerSource"] = providerOverride != null ? "override" : "default",
                 ["agent"] = agent.GetType().Name,
                 ["candidates"] = _agents.Select(a => a.GetType().Name).ToArray()
             });
 
         var result = await agent.RunAsync(
             customer, fingerprint, tenantId,
-            providerOverride: null, modelOverride: null, apiKeyOverride: null,
+            providerOverride: providerOverride,
+            modelOverride:    modelOverride,
+            apiKeyOverride:   apiKeyOverride,
             onStage: onStage, trace: trace, ct: ct);
 
         _reviews.Save(result.Review, tenantId);

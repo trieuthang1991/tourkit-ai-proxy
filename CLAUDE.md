@@ -123,9 +123,9 @@ data/
 | POST   | `/api/v1/completions/stream`      | SSE stream                                           |
 | GET    | `/api/v1/customers`               | list + filter (`segment`, `search`, `lastDays`); each item carries review `status` (none/fresh/stale) |
 | GET    | `/api/v1/customers/{id}`          | `{ customer, review }`                               |
-| POST   | `/api/v1/reviews/customer/{id}`   | sync review 1 customer; body optional `{forceFresh:bool}` |
-| POST   | `/api/v1/reviews/customer/{id}/refresh` | alias for `forceFresh=true`                    |
-| POST   | `/api/v1/reviews/batch`           | start batch job → `{jobId, total, streamUrl, cancelUrl}` (max 200 ids) |
+| POST   | `/api/v1/reviews/customer/{id}`   | sync review 1 customer; body optional `{forceFresh?, provider?, model?, apiKey?}` — 3 override sau cho A/B test 2 path |
+| POST   | `/api/v1/reviews/customer/{id}/refresh` | alias `forceFresh=true`; cũng nhận `{provider?, model?, apiKey?}` để refresh bằng provider khác |
+| POST   | `/api/v1/reviews/batch`           | start batch job; body `{customerIds[], forceFresh?, provider?, model?, apiKey?}` (max 200 ids; 3 override apply cho TẤT CẢ KH trong batch) → `{jobId, total, streamUrl, cancelUrl}` |
 | GET    | `/api/v1/reviews/batch/{jobId}/stream` | SSE progress; job auto-removed on completion   |
 | POST   | `/api/v1/reviews/batch/{jobId}/cancel` | cancel a running batch                          |
 | POST   | `/api/v1/reviews/{customerId}/feedback` | thumbs `helpful`/`not_helpful` + note          |

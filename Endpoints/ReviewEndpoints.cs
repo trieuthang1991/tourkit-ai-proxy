@@ -93,6 +93,8 @@ public static class ReviewEndpoints
         });
 
         // ─── Sync single review ────────────────────────────────────────────────
+        // Body optional: {forceFresh?, provider?, model?, apiKey?}. 3 override sau cho phép
+        // A/B test giữa anthropic native-tool vs JSON fallback mà không đổi config global.
         v1.MapPost("/reviews/customer/{id}", async (string id, HttpContext ctx,
             TourKitCustomerSource source, ReviewService service, TkSessionStore sessions,
             TourkitAiProxy.Services.Workflow.IWorkflowTraceAccessor trace, ILogger<Program> log) =>
@@ -102,20 +104,16 @@ public static class ReviewEndpoints
             var c = await source.GetFullAsync(sid!, id, ctx.RequestAborted);
             if (c == null) return Results.NotFound(new { error = $"Không tìm thấy KH {id}" });
 
-            bool forceFresh = false;
-            if (ctx.Request.ContentLength > 0)
-            {
-                try
-                {
-                    var body = await JsonSerializer.DeserializeAsync<Dictionary<string, JsonElement>>(ctx.Request.Body);
-                    if (body != null && body.TryGetValue("forceFresh", out var f) && f.ValueKind == JsonValueKind.True) forceFresh = true;
-                }
-                catch { }
-            }
+            var body = await ReadSyncBodyAsync(ctx);
             try
             {
                 var tenant = sessions.Get(sid)?.TenantId ?? "";
-                var (review, fromCache) = await service.ReviewAsync(c, tenant, forceFresh, null, ctx.RequestAborted);
+                var (review, fromCache) = await service.ReviewAsync(
+                    c, tenant, body.ForceFresh, onStage: null,
+                    providerOverride: body.Provider,
+                    modelOverride:    body.Model,
+                    apiKeyOverride:   body.ApiKey,
+                    ct:               ctx.RequestAborted);
                 // Đính trace nếu user bật ?debug=1 / X-Debug header
                 var traceObj = trace.Current?.Enabled == true ? trace.Current.Build() : null;
                 return Results.Json(new { review, fromCache, _trace = traceObj });
@@ -123,6 +121,8 @@ public static class ReviewEndpoints
             catch (Exception ex) { log.LogError(ex, "Review KH {Id} lỗi", id); return Results.Json(new { error = ex.Message }, statusCode: 500); }
         });
 
+        // Alias: forceFresh=true. Vẫn nhận provider/model/apiKey override để refresh
+        // bằng provider khác (vd "thử lại bằng Claude xem chất lượng có hơn không").
         v1.MapPost("/reviews/customer/{id}/refresh", async (string id, HttpContext ctx,
             TourKitCustomerSource source, ReviewService service, TkSessionStore sessions,
             TourkitAiProxy.Services.Workflow.IWorkflowTraceAccessor trace, ILogger<Program> log) =>
@@ -131,10 +131,16 @@ public static class ReviewEndpoints
             if (sessions.Get(sid) == null) return Unauthorized();
             var c = await source.GetFullAsync(sid!, id, ctx.RequestAborted);
             if (c == null) return Results.NotFound(new { error = $"Không tìm thấy KH {id}" });
+            var body = await ReadSyncBodyAsync(ctx);
             try
             {
                 var tenant = sessions.Get(sid)?.TenantId ?? "";
-                var (review, _) = await service.ReviewAsync(c, tenant, true, null, ctx.RequestAborted);
+                var (review, _) = await service.ReviewAsync(
+                    c, tenant, forceFresh: true, onStage: null,
+                    providerOverride: body.Provider,
+                    modelOverride:    body.Model,
+                    apiKeyOverride:   body.ApiKey,
+                    ct:               ctx.RequestAborted);
                 var traceObj = trace.Current?.Enabled == true ? trace.Current.Build() : null;
                 return Results.Json(new { review, fromCache = false, _trace = traceObj });
             }
@@ -142,6 +148,8 @@ public static class ReviewEndpoints
         });
 
         // ─── Batch ──────────────────────────────────────────────────────────────
+        // Body: {customerIds[], forceFresh?, provider?, model?, apiKey?}. 3 override
+        // áp dụng cho TẤT CẢ KH trong batch → batch nào dùng provider nào nhất quán.
         v1.MapPost("/reviews/batch", (BatchReviewRequest req, HttpContext ctx, BatchService batch, TkSessionStore sessions) =>
         {
             var sid = Sid(ctx);
@@ -149,7 +157,10 @@ public static class ReviewEndpoints
             if (req.CustomerIds == null || req.CustomerIds.Count == 0) return Results.BadRequest(new { error = "customerIds rỗng" });
             if (req.CustomerIds.Count > 200) return Results.BadRequest(new { error = "Tối đa 200 KH/batch" });
 
-            var job = batch.Start(req.CustomerIds, req.ForceFresh, sid!);
+            var job = batch.Start(req.CustomerIds, req.ForceFresh, sid!,
+                providerOverride: req.Provider,
+                modelOverride:    req.Model,
+                apiKeyOverride:   req.ApiKey);
             return Results.Json(new
             {
                 jobId = job.Id, total = job.Total,
@@ -224,4 +235,19 @@ public static class ReviewEndpoints
     private static int? AgeHours(CustomerReview? r)
         => r != null && DateTime.TryParse(r.GeneratedAt, out var dt)
            ? (int)((DateTime.UtcNow - dt.ToUniversalTime()).TotalHours) : null;
+
+    /// Đọc body cho POST /reviews/customer/{id} + /refresh — DTO optional, body có thể rỗng.
+    /// Trả default record khi body trống/JSON xấu (forceFresh=false, các override=null).
+    private static async Task<SyncReviewRequest> ReadSyncBodyAsync(HttpContext ctx)
+    {
+        if (ctx.Request.ContentLength is null or 0) return new SyncReviewRequest();
+        try
+        {
+            var body = await JsonSerializer.DeserializeAsync<SyncReviewRequest>(
+                ctx.Request.Body,
+                new JsonSerializerOptions { PropertyNameCaseInsensitive = true });
+            return body ?? new SyncReviewRequest();
+        }
+        catch { return new SyncReviewRequest(); }
+    }
 }

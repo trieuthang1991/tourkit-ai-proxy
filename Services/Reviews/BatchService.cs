@@ -27,16 +27,19 @@ public class BatchService
         _traceAccessor = traceAccessor; _traceLog = traceLog; _log = log;
     }
 
-    public BatchJob Start(IEnumerable<string> customerIds, bool forceFresh, string sessionId)
+    public BatchJob Start(IEnumerable<string> customerIds, bool forceFresh, string sessionId,
+        string? providerOverride = null, string? modelOverride = null, string? apiKeyOverride = null)
     {
         var job = _jobs.Create(customerIds);
         job.Status = "processing";
 
-        _ = RunAsync(job, forceFresh, sessionId);   // fire-and-forget; SSE handler consume Events channel
+        // 3 override apply CHO TẤT CẢ KH trong batch — nhất quán result, dễ so sánh batch.
+        _ = RunAsync(job, forceFresh, sessionId, providerOverride, modelOverride, apiKeyOverride);
         return job;
     }
 
-    private async Task RunAsync(BatchJob job, bool forceFresh, string sessionId)
+    private async Task RunAsync(BatchJob job, bool forceFresh, string sessionId,
+        string? providerOverride, string? modelOverride, string? apiKeyOverride)
     {
         var ct = job.Cts.Token;
         var tenantId = _sessions.Get(sessionId)?.TenantId ?? "";
@@ -48,6 +51,8 @@ public class BatchService
         trace?.SetMeta("batchJobId", job.Id);
         trace?.SetMeta("batchTotal", job.Total);
         trace?.SetMeta("tenant", tenantId);
+        if (providerOverride != null) trace?.SetMeta("batchProviderOverride", providerOverride);
+        if (modelOverride    != null) trace?.SetMeta("batchModelOverride", modelOverride);
 
         await job.Events.Writer.WriteAsync(new BatchEvent("start", Payload: new { total = job.Total }));
 
@@ -82,7 +87,12 @@ public class BatchService
                             ), innerCt);
                         }
 
-                        var (review, fromCache) = await _reviews.ReviewAsync(customer, tenantId, forceFresh, OnStage, innerCt);
+                        var (review, fromCache) = await _reviews.ReviewAsync(
+                            customer, tenantId, forceFresh, OnStage,
+                            providerOverride: providerOverride,
+                            modelOverride:    modelOverride,
+                            apiKeyOverride:   apiKeyOverride,
+                            ct:               innerCt);
 
                         if (fromCache) job.Cached++;
                         job.Done++;
