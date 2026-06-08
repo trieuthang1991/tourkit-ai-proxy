@@ -150,6 +150,12 @@ builder.Services.AddSingleton<TourkitAiProxy.Services.TourKit.TourKitNccClient>(
 // ─── Pipeline ────────────────────────────────────────────────────────────────
 var app = builder.Build();
 
+// Multi-tenant migration: backup legacy single-tenant data lần đầu deploy.
+// Sync — chỉ move file, không cần fire-and-forget. Idempotent — lần sau noop.
+TourkitAiProxy.Services.Db.MultiTenantMigration.Run(
+    Path.Combine(app.Environment.ContentRootPath, "data"),
+    app.Services.GetRequiredService<ILogger<Program>>());
+
 // DB init: tạo schema dbo.Reviews/DealScores/AiHistory nếu chưa có + migrate JSON cũ vào DB.
 // Chạy async fire-and-forget — không block startup. Nếu DB chưa sẵn sàng → log warning, fallback file.
 _ = Task.Run(async () =>
