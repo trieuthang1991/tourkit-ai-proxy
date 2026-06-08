@@ -85,24 +85,33 @@ function RichEditor({ value, onChange, minHeight }) {
   const ref = React.useRef(null);
   const edRef = React.useRef(null);
   React.useEffect(() => {
-    if (!window.tinymce || !ref.current) return;
+    if (!ref.current) return;
+    let cancelled = false;
     const initial = _looksHtml(value) ? value : (value || '').replace(/\n/g, '<br>');
-    window.tinymce.init({
-      target: ref.current,
-      license_key: 'gpl',
-      menubar: false, statusbar: false, branding: false, promotion: false,
-      plugins: 'lists link autolink',
-      toolbar: 'bold italic underline | bullist numlist | link | removeformat',
-      height: minHeight || 240,
-      content_style: "body{font-family:'Be Vietnam Pro',system-ui,sans-serif;font-size:14px;line-height:1.6;color:#221c15;}",
-      setup: (editor) => {
-        edRef.current = editor;
-        editor.on('init', () => editor.setContent(initial || ''));
-        const sync = () => onChange && onChange(editor.getContent());
-        editor.on('Change KeyUp ExecCommand Undo Redo blur', sync);
-      },
-    });
-    return () => { try { window.tinymce.remove(edRef.current); } catch {} edRef.current = null; };
+    // Lazy-load TinyMCE lần đầu mở RichEditor — index.html KHÔNG eager load nữa (tiết kiệm ~5MB).
+    window.loadTinyMCE().then(() => {
+      if (cancelled || !ref.current) return;
+      window.tinymce.init({
+        target: ref.current,
+        license_key: 'gpl',
+        menubar: false, statusbar: false, branding: false, promotion: false,
+        plugins: 'lists link autolink',
+        toolbar: 'bold italic underline | bullist numlist | link | removeformat',
+        height: minHeight || 240,
+        content_style: "body{font-family:'Be Vietnam Pro',system-ui,sans-serif;font-size:14px;line-height:1.6;color:#221c15;}",
+        setup: (editor) => {
+          edRef.current = editor;
+          editor.on('init', () => editor.setContent(initial || ''));
+          const sync = () => onChange && onChange(editor.getContent());
+          editor.on('Change KeyUp ExecCommand Undo Redo blur', sync);
+        },
+      });
+    }).catch((e) => console.error('[RichEditor] Load TinyMCE lỗi:', e));
+    return () => {
+      cancelled = true;
+      try { if (window.tinymce && edRef.current) window.tinymce.remove(edRef.current); } catch {}
+      edRef.current = null;
+    };
   }, []);
   return <textarea ref={ref} className="mail-rich-target" />;
 }
