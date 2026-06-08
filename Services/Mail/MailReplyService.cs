@@ -44,7 +44,7 @@ public class MailReplyService
 
         if (text.Length > 0)
         {
-            _repo.SetDraft("", mail.Id, new MailDraft(req.Tone, req.Instruction, text, DateTime.UtcNow.ToString("o")), status: "dang_xu_ly");
+            _repo.SetDraft(tenantId, mail.Id, new MailDraft(req.Tone, req.Instruction, text, DateTime.UtcNow.ToString("o")), status: "dang_xu_ly");
             trace?.Step("save_draft", "ok", 0, $"Lưu nháp + đổi status sang 'dang_xu_ly'");
         }
         return text;

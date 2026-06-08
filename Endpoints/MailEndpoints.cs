@@ -155,19 +155,17 @@ public static class MailEndpoints
         });
 
         // ─── POST /mail/compose/send ─── gửi email MỚI qua SMTP ─────────────────
-        // NOTE: IMailSender.SendAsync chưa có tham số tenant — GmailSmtpClient bên trong vẫn dùng
-        // placeholder "" để đọc account. Sẽ thread tenant xuống sender ở task sau. Hiện chỉ require
-        // session để chặn anonymous.
         v1.MapPost("/mail/compose/send", async (
             ComposeSendRequest req, IMailSender sender, TkSessionStore sessions, ILogger<Program> log, HttpContext ctx) =>
         {
             var auth = RequireSession(ctx, sessions);
             if (auth == null) return Unauthorized();
+            var (_, tenant) = auth.Value;
             if (string.IsNullOrWhiteSpace(req.To)) return Results.BadRequest(new { error = "Thiếu người nhận" });
             if (string.IsNullOrWhiteSpace(req.Text)) return Results.BadRequest(new { error = "Nội dung rỗng" });
             try
             {
-                await sender.SendAsync(req.To.Trim(), null, req.Subject ?? "", req.Text, null, ctx.RequestAborted);
+                await sender.SendAsync(tenant, req.To.Trim(), null, req.Subject ?? "", req.Text, null, ctx.RequestAborted);
                 return Results.Json(new { ok = true });
             }
             catch (InvalidOperationException ex) { return Results.Json(new { error = ex.Message }, statusCode: 400); }
@@ -235,7 +233,7 @@ public static class MailEndpoints
 
             try
             {
-                await sender.SendReplyAsync(mail, req.Text, ctx.RequestAborted);
+                await sender.SendReplyAsync(tenant, mail, req.Text, ctx.RequestAborted);
                 // Lưu nội dung đã gửi + chuyển trạng thái Đã phản hồi.
                 var draft = new MailDraft(req.Tone ?? mail.Draft?.Tone ?? "lich_su", req.Instruction, req.Text, DateTime.UtcNow.ToString("o"));
                 repo.SetDraft(tenant, id, draft, status: "da_phan_hoi");
