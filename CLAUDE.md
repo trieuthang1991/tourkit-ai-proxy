@@ -57,9 +57,18 @@ Services/
   Reviews/                                 ← Customer Review feature (see section below)
     CustomerRepository.cs                  ← read-only loader for data/customers.seed.json
     ReviewRepository.cs                    ← file-backed KV store (data/reviews.json), lock + fingerprint
-    ReviewService.cs                       ← prompt → IAiProvider → tolerant JSON parse → save
+    ReviewService.cs                       ← fingerprint cache → dispatch IReviewAgent → save (NO prompt/parse here)
     BatchService.cs                        ← Parallel.ForEachAsync (cap 10) → BatchJob.Events channel
     BatchJobStore.cs                       ← in-memory ConcurrentDictionary of running jobs
+    Agents/
+      IReviewAgent.cs                      ← strategy contract: Supports(providerId) + RunAsync(...)
+      ReviewPrompt.cs                      ← shared SYSTEM_PROMPT + user prompts + tool schema + tolerant parser (1 nguồn)
+      NativeToolReviewAgent.cs             ← Anthropic native function-calling (submit_customer_review schema enforce)
+      JsonPromptReviewAgent.cs             ← fallback prompt-JSON + tolerant parse (mọi provider khác)
+  Workflow/
+    AnthropicToolsClient.cs                ← reusable agentic loop (max 5 iter, terminal tool detect) — share Review/Visa/Deal/Tour/Mail
+    NativeToolScorer.cs                    ← thin wrapper RunAsync<T> cho service single-shot (Visa/Deal/Tour/Mail)
+    WorkflowTrace.cs + Accessor + Log      ← debug trace per-request (?debug=1) → JSONL audit
   Security/
     Crypton.cs                             ← AES-256/CBC — VERBATIM port of TourKit.Shared/Crypton.cs (token decrypt)
   Json/
@@ -79,7 +88,7 @@ Services/
     MailSyncStore.cs                       ← state đồng bộ data/mail-sync.json (per-address uidValidity+lastUid)
     IMailSender.cs + GmailSmtpClient.cs    ← gửi (trả lời + soạn mới) qua SMTP Gmail (587, App Password), thread qua In-Reply-To
     MailRepository.cs                      ← file-backed data/mails.json (lock) + Filter/Counts (mẫu ReviewRepository)
-    MailClassifier.cs                      ← prompt → provider → parse {category, summary} (tolerant LooseJson)
+    MailClassifier.cs                      ← dual-path classify: Anthropic native tool (submit_mail_classification, Haiku) / JSON fallback
     MailReplyService.cs                    ← soạn nháp theo tone + chỉ thị NV (stream)
 Endpoints/
   SystemEndpoints.cs                       ← GET /healthz
@@ -167,14 +176,40 @@ Streaming has NO retry.
 
 **9routes** is an OpenAI-compatible local router (default `http://localhost:20128/v1`). Quirk: non-stream calls sometimes return SSE-formatted body — `NineRoutesProvider.ParseResponse` detects `data:` prefix and walks chunks before falling back to plain JSON.
 
+## Native function-calling (Anthropic) — dual-path scoring
+
+5 single-shot AI feature (Customer Review / Visa / Deal / Tour Builder / Mail Classify) đều có **2 path**:
+
+| Provider hiện hành | Path chạy | Output enforce |
+|--------------------|-----------|----------------|
+| `anthropic` (`Providers:Default=anthropic`) | NATIVE function-calling: AI gọi terminal tool (`submit_*`) với JSON Schema enforce | Schema validate type/enum/required → 0% leak markdown/thinking |
+| `opencode-go` / `nine-routes` / `openai` (default hiện tại) | JSON-prompt: AI in JSON ra text + tolerant parse + retry x1 | Legacy — phụ thuộc prompt discipline |
+
+**Switch path:** đổi `appsettings.json` → `"Providers": { "Default": "anthropic" }` + nhập `"Anthropic": { "ApiKey": "sk-ant-..." }` (hoặc env `ANTHROPIC_API_KEY`). Trace sẽ hiện `path_dispatch: native-tool` thay vì `json-prompt`. **No breaking change** khi giữ default cũ — JSON path vẫn chạy như trước.
+
+**Shared infrastructure (`Services/Workflow/`):**
+- **`AnthropicToolsClient`** — agentic loop tổng quát cho `api.anthropic.com/v1/messages` với `tools[]`. Max 5 iter, terminal tool detection (dừng khi AI gọi `submit_*`), wall-clock 60s, tự ghi trace cho mỗi iter + tool dispatch. Trả `ToolsResult { TerminalInput, Iterations, TokensIn/Out, Latency, Warning }`. Reusable cho mọi feature single-shot HOẶC multi-step.
+- **`NativeToolScorer.RunAsync<T>(systemPrompt, userPrompt, schema, terminalToolName, parser, apiKey, model, maxTokens, trace)`** — thin wrapper cho score-like service: resolve apiKey (override → `ProviderKeyStore` fallback), gọi `AnthropicToolsClient`, throw nếu terminal null, parse → `T`, ghi `AiUsageLog`. `BuildAnthropicTool(name, description, properties, required[])` helper để khỏi nhớ shape `{name, description, input_schema:{type,properties,required}}`.
+
+**2 routing pattern:**
+1. **Strategy pattern (Customer Review)** — `IReviewAgent` interface + 2 class (`NativeToolReviewAgent`, `JsonPromptReviewAgent`). Đăng ký `IEnumerable<IReviewAgent>` ở DI (NativeTool TRƯỚC, Json SAU — thứ tự quan trọng). `ReviewService` resolve agent đầu tiên `Supports(defaultProviderId)`. Áp dụng khi schema rich + có thể mở rộng (vd Mức C multi-step augmentation).
+2. **In-service routing (Visa / Deal / Tour / Mail)** — `ScoreAsync` top: `if provider.Id == "anthropic" → ScoreWithNativeToolAsync; else → ScoreWithJsonPromptAsync`. Đơn giản hơn, không cần interface. Áp dụng khi schema nhỏ + ít kịch bản mở rộng.
+
+**Tool schema convention:** `submit_<entity>_<action>` (vd `submit_visa_score`, `submit_tour_draft`). Properties với `type` + `enum` + `description`; nullable dùng `type: ["string", "null"]` (JSON Schema 2020-12, Anthropic accepts). `required[]` chỉ list field BẮT BUỘC có — optional field có thể omit hoặc null. Parser dùng chung helper case-insensitive lookup từ `ReviewPrompt.ParseElement` hoặc local `TryGet/Str/Int/StrList`.
+
+**Tradeoffs:**
+- Native: 0% format error, dùng được haiku rẻ (vd Mail Classifier), không cần retry. Phụ thuộc API có function-calling (chỉ Anthropic, sau này thêm OpenAI Responses).
+- JSON: chạy mọi provider (kể cả reasoning model), nhưng ~5-10% trả format xấu → retry x1.
+
 ## Customer Review feature
 
-AI grades a customer (rank A–D, alert level, strengths/concerns, action-now + 30-day ideas, product suggestions) and persists the result. Flows through `ReviewEndpoints` → `ReviewService` → a provider → `ReviewRepository`.
+AI grades a customer (rank A–D, alert level, strengths/concerns, action-now + 30-day ideas, product suggestions) and persists the result. Flows through `ReviewEndpoints` → `ReviewService` → dispatch tới `IReviewAgent` → `ReviewRepository`.
 
 - **Storage is file-backed, not a DB.** Customers are read-only from `data/customers.seed.json` (`CustomerRepository`, loaded once at startup). Reviews persist to `data/reviews.json` (`ReviewRepository`, lock-guarded, camelCase JSON to match the JS frontend). Both are explicitly MVP placeholders — swap for EF/Dapper/SQLite to scale. `reviews.json` is mutable runtime state.
 - **Caching via data fingerprint.** `ReviewRepository.FingerprintFor(customer)` is a SHA-256 (first 32 hex) of the canonical customer JSON. `ReviewService.ReviewAsync` returns the cached review (no AI call) when the stored `DataFingerprint` matches and `forceFresh` is false. The customer-list endpoint reports `fresh`/`stale`/`none` by comparing fingerprints.
-- **Buffered, not streamed, to the model.** `ReviewService` deliberately calls `CompleteAsync` (not `StreamAsync`): DeepSeek/Kimi reasoning models interleave `reasoning_content` with `content`, so streaming would mix prose into the JSON. The `onStage` callback (`preparing` → `calling` → `parsing`) still gives the UI lifecycle visibility without live chunks. Uses the **default provider** (`Resolve(null)`), `maxTokens: 8000`, `temperature: 0.4`, and a tour-operator `SYSTEM_PROMPT` — change the industry by editing that const + the rank criteria in `BuildPrompt`.
-- **Tolerant JSON parse.** `ParseReviewJson` strips ``` fences, trims to the first balanced top-level `{...}` object (string/escape aware), and does case-insensitive + camelCase/snake_case key lookup. Missing fields fall back to sensible defaults rather than throwing.
+- **Strategy pattern dispatch.** `ReviewService` chỉ orchestrate (fingerprint check + Save) — KHÔNG hold prompt/parse logic nữa. Dispatch tới `IReviewAgent` đầu tiên `Supports(defaultProviderId)`. Xem section "Native function-calling" ở trên cho dual-path. Cả 2 agent dùng chung `ReviewPrompt.SYSTEM_*`, `BuildUserPrompt*`, `ParseElement`, `Compose` → 1 nguồn schema, không drift.
+- **Buffered, not streamed, to the model.** Cả 2 agent đều dùng buffered call (Json: `CompleteAsync`; Native: `AnthropicToolsClient.RunAsync` returns sau khi terminal tool gọi). DeepSeek/Kimi reasoning models interleave `reasoning_content` với `content`, streaming sẽ mix prose vào JSON. `onStage` callback (`preparing` → `calling` → `parsing`) cho UI lifecycle.
+- **Defaults (JSON path):** `Resolve(null)` default provider, `maxTokens: 8000`, `temperature: 0.4`, tour-operator system prompt ở `ReviewPrompt.SystemForJsonPrompt`. **Defaults (Native path):** `claude-sonnet-4-5`, `maxTokens: 4000` (schema enforce nên không leak → 4000 đủ). Đổi ngành = sửa `ReviewPrompt.SYSTEM_*` + `RankingCriteria` const.
 - **Batch is parallel + SSE.** `BatchService.Start` is fire-and-forget; `Parallel.ForEachAsync` runs up to `CONCURRENCY = 10` reviews, pushing `BatchEvent`s into the job's `Channel`. The SSE endpoint drains that channel to the client and removes the job when done. `BatchJobStore` is in-memory only — jobs are lost on restart and clients must re-trigger. Cancel via the cancel endpoint or by closing the SSE connection.
 
 ## Chat-Analytics feature ("Trợ lý số liệu")
@@ -200,7 +235,7 @@ Gmail inbox synced on demand, AI-classified, with AI-drafted replies. Flow lives
 - **Sync is on-demand (Refresh button), not a background poller.** `POST /mail/sync` is **incremental theo UID** (`MailSyncStore` lưu `data/mail-sync.json` per-address `{uidValidity, lastUid}`): chỉ kéo email có UID > lần trước → KHÔNG sót dù >N email mới giữa 2 lần sync. Lần đầu/khi UidValidity đổi → kéo `max` (30) mới nhất. Cờ `\Seen` của Gmail map sang `IsRead` lúc kéo. Vẫn **classify chỉ email MỚI** (`repo.Has(id)` skip → tiết kiệm token). Email id = Message-Id (MimeKit chuẩn hóa/tự sinh), fallback `{address}:{uid}`.
 - **Đọc/chưa đọc:** `POST /mail/{id}/read` đánh dấu đã đọc khi mở; `MailCounts.Unread` cho badge. Frontend in đậm + chấm cam dòng chưa đọc.
 - **Soạn thư MỚI:** `POST /mail/compose/draft` (SSE, AI viết từ `brief`) + `/mail/compose/send` (gửi tới người nhận bất kỳ) — `MailReplyService.ComposeNewStreamAsync` + `IMailSender.SendAsync`. Chữ ký công ty (`MailAccountStore.Signature()`, cấu hình ở UI, lưu trong `mail-account.json`) được dệt vào prompt soạn.
-- **Classification + reply reuse `ProviderRegistry`.** `MailClassifier.ClassifyAsync` (buffered, mẫu `ReviewService`) → `{category, summary}`; 6 categories normalized to a known set (lạ → `khac`). `MailReplyService.DraftStreamAsync` streams a tone-aware draft (4 tones) + staff instruction via `provider.StreamAsync`, saves the draft + flips status → `dang_xu_ly`. Both client AI prefs (`provider`/`model`/`apiKey`) flow through like the other features.
+- **Classification + reply reuse `ProviderRegistry`.** `MailClassifier.ClassifyAsync` (buffered, dual-path — xem "Native function-calling" section: Anthropic → `submit_mail_classification` tool với Haiku; else → JSON-prompt) → `{category, summary}`; 6 categories normalized to a known set (lạ → `khac`); lỗi cả 2 path → `("khac", "")` để mail vẫn lưu. `MailReplyService.DraftStreamAsync` streams a tone-aware draft (4 tones) + staff instruction via `provider.StreamAsync`, saves the draft + flips status → `dang_xu_ly`. Both client AI prefs (`provider`/`model`/`apiKey`) flow through like the other features.
 - **Sending = SMTP Gmail (`IMailSender`/`GmailSmtpClient`).** `POST /mail/{id}/reply/send` gửi nội dung (đã sửa) tới người gửi gốc qua `smtp.gmail.com:587` STARTTLS bằng chính App Password — gửi AS the company Gmail, nên KHÔNG dính SPF/DKIM/spam như giả mạo domain. Gắn `In-Reply-To`/`References` để vào đúng luồng. Gửi xong → lưu nội dung + status `da_phan_hoi`. Frontend confirm trước khi gửi.
 - **Storage = file-backed `data/mails.json`** (`MailRepository`, lock-guarded, camelCase, `Filter`/`Counts` with diacritics-insensitive search). MVP placeholder — swap for DB to scale.
 - **Taxonomy** (`MailTaxonomy`, single source): categories `hoi_dat_tour|xin_bao_gia|khieu_nai|xac_nhan|spam|khac`, statuses `moi|dang_xu_ly|da_phan_hoi|da_dong`, tones `lich_su|than_thien|dam_phan|xin_loi` — all with Vietnamese labels.
