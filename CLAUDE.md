@@ -81,13 +81,13 @@ Services/
     ChatAgentService.cs                    ← planner → CRM fetch → server-side stats → analysis (Chat-Analytics)
   Mail/                                    ← SmartMail AI feature (see section below)
     MailTaxonomy.cs                        ← 6 category / 4 status / 4 tone maps (Việt) + chuẩn hóa
-    MailAccountStore.cs                    ← creds Gmail: data/mail-account.json (App Password Crypton-enc) → config/env fallback
+    MailAccountStore.cs                    ← creds Gmail: dbo.MailAccounts per-tenant (App Password Crypton-enc); KHÔNG fallback config/env
     IMailSource.cs                         ← interface nguồn mail (để sau cắm OAuth)
     MailMapper.cs                          ← pure: MimeMessage → MailItem (test được)
     GmailImapClient.cs                     ← IMailSource qua IMAP Gmail (MailKit), incremental theo UID + \Seen→IsRead
-    MailSyncStore.cs                       ← state đồng bộ data/mail-sync.json (per-address uidValidity+lastUid)
+    MailSyncStore.cs                       ← state đồng bộ dbo.MailSyncState per-tenant (per-address uidValidity+lastUid)
     IMailSender.cs + GmailSmtpClient.cs    ← gửi (trả lời + soạn mới) qua SMTP Gmail (587, App Password), thread qua In-Reply-To
-    MailRepository.cs                      ← file-backed data/mails.json (lock) + Filter/Counts (mẫu ReviewRepository)
+    MailRepository.cs                      ← DB-backed dbo.Mails per-tenant (PK TenantId,Id) + Filter/Counts (diacritics-insensitive)
     MailClassifier.cs                      ← dual-path classify: Anthropic native tool (submit_mail_classification, Haiku) / JSON fallback
     MailReplyService.cs                    ← soạn nháp theo tone + chỉ thị NV (stream)
 Endpoints/
@@ -100,9 +100,12 @@ data/
   customers.seed.json                      ← seed customer list (replace with CRM/DB in prod)
   reviews.json                             ← persisted reviews (gitignored-ish runtime state)
   tk-sessions.json                         ← persisted TourKit sessions (gitignored; pwd Crypton-encrypted, no JWT)
-  mails.json                               ← SmartMail cache (gitignored; email + phân loại AI + đọc/chưa đọc)
-  mail-account.json                        ← creds Gmail + chữ ký (gitignored; App Password Crypton-encrypted)
-  mail-sync.json                           ← state đồng bộ IMAP theo UID (gitignored)
+  visa-files/{tenantId}/{assessmentId}/    ← Visa attachments per-tenant (gitignored runtime state)
+  # Mail/Visa JSON stores đã migrate sang SQL Server (xem multi-tenant fix 2026-06-09):
+  #   data/mails.json          → dbo.Mails           (composite PK TenantId,Id)
+  #   data/mail-account.json   → dbo.MailAccounts    (per-tenant)
+  #   data/mail-sync.json      → dbo.MailSyncState   (per-tenant)
+  #   data/visa-assessments.json → dbo.VisaAssessments (per-tenant)
 ```
 
 **Adding a new provider** (e.g. OpenAI direct, Anthropic direct, Ollama local):
@@ -140,6 +143,8 @@ data/
 | POST   | `/api/v1/mail/compose/draft`      | SSE: AI soạn email MỚI từ `{to, subject, brief, tone}` |
 | POST   | `/api/v1/mail/compose/send`       | gửi email mới qua SMTP `{to, subject, text}`         |
 | PATCH  | `/api/v1/mail/{id}/status`        | đổi trạng thái email (moi/dang_xu_ly/da_phan_hoi/da_dong) |
+
+**Tenant scoping** (multi-tenant fix 2026-06-09): tất cả endpoint `/api/v1/mail/*` và `/api/v1/visa/*` YÊU CẦU `X-Session-Id` header (hoặc `sessionId` query/body) — backend resolve `TenantId` qua `ITenantContext`/`HttpTenantContext` từ `TkSessionStore`. KHÔNG session → 401. Cross-tenant access (resource thuộc tenant khác) → null/404.
 
 **Legacy aliases** (`POST /api/ai/complete`, `POST /api/ai/stream`, `GET /api/ai/models`, `GET /api/ai/usage`) point to the same handlers — keep until all clients migrate.
 
@@ -231,13 +236,13 @@ A chat-left / data-right assistant. The user asks in natural language; the AI de
 
 Gmail inbox synced on demand, AI-classified, with AI-drafted replies. Flow lives in `MailEndpoints` → `Services/Mail/*`. Design doc: `docs/smartmail-ai-design.md`; implementation plan: `docs/superpowers/plans/2026-06-05-smartmail-ai.md`.
 
-- **Source = Gmail IMAP via MailKit, NOT OAuth.** `GmailImapClient` (implements `IMailSource`) connects `imap.gmail.com:993` read-only with an **App Password** (requires Gmail 2-Step Verification + IMAP enabled). The interface keeps OAuth swappable later. Creds resolved by `MailAccountStore`: persisted `data/mail-account.json` (App Password Crypton-encrypted, never plaintext, never returned to client) entered via UI → fallback `Mail:Gmail:Address`/`AppPassword` config or `MAIL_GMAIL_ADDRESS`/`MAIL_GMAIL_APP_PASSWORD` env.
-- **Sync is on-demand (Refresh button), not a background poller.** `POST /mail/sync` is **incremental theo UID** (`MailSyncStore` lưu `data/mail-sync.json` per-address `{uidValidity, lastUid}`): chỉ kéo email có UID > lần trước → KHÔNG sót dù >N email mới giữa 2 lần sync. Lần đầu/khi UidValidity đổi → kéo `max` (30) mới nhất. Cờ `\Seen` của Gmail map sang `IsRead` lúc kéo. Vẫn **classify chỉ email MỚI** (`repo.Has(id)` skip → tiết kiệm token). Email id = Message-Id (MimeKit chuẩn hóa/tự sinh), fallback `{address}:{uid}`.
+- **Source = Gmail IMAP via MailKit, NOT OAuth.** `GmailImapClient` (implements `IMailSource`) connects `imap.gmail.com:993` read-only with an **App Password** (requires Gmail 2-Step Verification + IMAP enabled). The interface keeps OAuth swappable later. Creds resolved by `MailAccountStore`: DB-backed `dbo.MailAccounts` per-tenant (App Password Crypton-encrypted, never plaintext, never returned to client) entered via UI per tenant. KHÔNG còn fallback config/env (đã drop từ commit multi-tenant fix 2026-06-09).
+- **Sync is on-demand (Refresh button), not a background poller.** `POST /mail/sync` is **incremental theo UID** (`MailSyncStore` lưu `dbo.MailSyncState` per-tenant per-address `{uidValidity, lastUid}`): chỉ kéo email có UID > lần trước → KHÔNG sót dù >N email mới giữa 2 lần sync. Lần đầu/khi UidValidity đổi → kéo `max` (30) mới nhất. Cờ `\Seen` của Gmail map sang `IsRead` lúc kéo. Vẫn **classify chỉ email MỚI** (`repo.Has(id)` skip → tiết kiệm token). Email id = Message-Id (MimeKit chuẩn hóa/tự sinh), fallback `{address}:{uid}`.
 - **Đọc/chưa đọc:** `POST /mail/{id}/read` đánh dấu đã đọc khi mở; `MailCounts.Unread` cho badge. Frontend in đậm + chấm cam dòng chưa đọc.
-- **Soạn thư MỚI:** `POST /mail/compose/draft` (SSE, AI viết từ `brief`) + `/mail/compose/send` (gửi tới người nhận bất kỳ) — `MailReplyService.ComposeNewStreamAsync` + `IMailSender.SendAsync`. Chữ ký công ty (`MailAccountStore.Signature()`, cấu hình ở UI, lưu trong `mail-account.json`) được dệt vào prompt soạn.
+- **Soạn thư MỚI:** `POST /mail/compose/draft` (SSE, AI viết từ `brief`) + `/mail/compose/send` (gửi tới người nhận bất kỳ) — `MailReplyService.ComposeNewStreamAsync` + `IMailSender.SendAsync`. Chữ ký công ty (`MailAccountStore.Signature()`, cấu hình ở UI per-tenant, lưu trong `dbo.MailAccounts`) được dệt vào prompt soạn.
 - **Classification + reply reuse `ProviderRegistry`.** `MailClassifier.ClassifyAsync` (buffered, dual-path — xem "Native function-calling" section: Anthropic → `submit_mail_classification` tool với Haiku; else → JSON-prompt) → `{category, summary}`; 6 categories normalized to a known set (lạ → `khac`); lỗi cả 2 path → `("khac", "")` để mail vẫn lưu. `MailReplyService.DraftStreamAsync` streams a tone-aware draft (4 tones) + staff instruction via `provider.StreamAsync`, saves the draft + flips status → `dang_xu_ly`. Both client AI prefs (`provider`/`model`/`apiKey`) flow through like the other features.
 - **Sending = SMTP Gmail (`IMailSender`/`GmailSmtpClient`).** `POST /mail/{id}/reply/send` gửi nội dung (đã sửa) tới người gửi gốc qua `smtp.gmail.com:587` STARTTLS bằng chính App Password — gửi AS the company Gmail, nên KHÔNG dính SPF/DKIM/spam như giả mạo domain. Gắn `In-Reply-To`/`References` để vào đúng luồng. Gửi xong → lưu nội dung + status `da_phan_hoi`. Frontend confirm trước khi gửi.
-- **Storage = file-backed `data/mails.json`** (`MailRepository`, lock-guarded, camelCase, `Filter`/`Counts` with diacritics-insensitive search). MVP placeholder — swap for DB to scale.
+- **Storage = SQL Server `dbo.Mails`** per-tenant scoped (`MailRepository`, composite PK `(TenantId, Id)`, index `IX_Mails_Tenant_Received` cho list/sort). Cross-tenant access trả null/404. KHÔNG fallback file — DB lỗi → 503.
 - **Taxonomy** (`MailTaxonomy`, single source): categories `hoi_dat_tour|xin_bao_gia|khieu_nai|xac_nhan|spam|khac`, statuses `moi|dang_xu_ly|da_phan_hoi|da_dong`, tones `lich_su|than_thien|dam_phan|xin_loi` — all with Vietnamese labels.
 - **Frontend:** `wwwroot/pages/mail.jsx` (route `/mail`), 3-column (filters / list / detail+compose). A built-in **config form** (`GET`/`POST /mail/account`) lets staff paste Gmail address + App Password to test without editing JSON. Draft uses the same SSE `{delta}`/`{done}` reader as `assistant.jsx`. Statuses/categories color-coded via CSS.
 - **Phase 2 (deferred):** 2-way sync (write `\Seen` back / mirror deletes), incremental UID fetch (hiện kéo 30 mới nhất/lần), OAuth source, assign-to-staff ("Của tôi"), attachments.
