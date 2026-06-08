@@ -1,4 +1,5 @@
 using TourkitAiProxy.Models;
+using TourkitAiProxy.Services.Workflow;
 
 namespace TourkitAiProxy.Services.Deals;
 
@@ -15,12 +16,16 @@ public class DealBatchService
     private readonly DealScoringService _scorer;
     private readonly DealRepository _repo;
     private readonly DealBatchJobStore _jobs;
+    private readonly IWorkflowTraceAccessor _traceAccessor;
+    private readonly WorkflowTraceLog _traceLog;
     private readonly ILogger<DealBatchService> _log;
 
     public DealBatchService(DealOpportunityClient client, DealScoringService scorer, DealRepository repo,
-        DealBatchJobStore jobs, ILogger<DealBatchService> log)
+        DealBatchJobStore jobs, IWorkflowTraceAccessor traceAccessor, WorkflowTraceLog traceLog,
+        ILogger<DealBatchService> log)
     {
-        _client = client; _scorer = scorer; _repo = repo; _jobs = jobs; _log = log;
+        _client = client; _scorer = scorer; _repo = repo; _jobs = jobs;
+        _traceAccessor = traceAccessor; _traceLog = traceLog; _log = log;
     }
 
     public DealBatchJob Start(string sessionId, string tenant, DealAnalyzeRequest req)
@@ -45,6 +50,14 @@ public class DealBatchService
         var topN = req.TopN is > 0 and <= 50 ? req.TopN.Value : DefaultTopN;
         var items = new List<DealBoardItem>();
         var gate = new object();
+
+        // Trace flow qua AsyncLocal từ endpoint /deals/analyze → batch background work.
+        var trace = _traceAccessor.Current;
+        trace?.SetWorkflow("DealBatch");
+        trace?.SetMeta("tenant", tenant);
+        trace?.SetMeta("topN", topN);
+        trace?.SetMeta("assignee", req.Assignee);
+        trace?.SetMeta("source", req.Source);
 
         try
         {
@@ -121,11 +134,25 @@ public class DealBatchService
     private static async Task Emit(DealBatchJob job, string type, object? payload = null, string? error = null)
         => await job.Events.Writer.WriteAsync(new DealBatchEvent(type, payload, error));
 
-    private static async Task Finish(DealBatchJob job, string status, object? payload, string? error = null)
+    private async Task Finish(DealBatchJob job, string status, object? payload, string? error = null)
     {
         job.Status = status;
         job.FinishedAt = DateTime.UtcNow;
         await job.Events.Writer.WriteAsync(new DealBatchEvent(status, payload, error));
+
+        // Trace cho batch: AsyncLocal flow qua Task.Run → trace.Current không null khi debug ON.
+        var trace = _traceAccessor.Current;
+        if (trace?.Enabled == true)
+        {
+            try
+            {
+                var built = trace.Build();
+                _traceLog.Append(ctx: null, built);
+                await job.Events.Writer.WriteAsync(new DealBatchEvent("trace", built));
+            }
+            catch (Exception ex) { _log.LogWarning(ex, "[deals] log trace fail"); }
+        }
+
         job.Events.Writer.Complete();
     }
 }

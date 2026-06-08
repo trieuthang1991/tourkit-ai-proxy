@@ -90,13 +90,36 @@ public static class AiEndpoints
         CompleteRequest req,
         ProviderRegistry registry,
         UsageTracker usage,
+        TourkitAiProxy.Services.Workflow.IWorkflowTraceAccessor traceAccessor,
         ILogger<Program> log,
         HttpContext ctx)
     {
         var provider = registry.Resolve(req.Provider);
+
+        // Wizard / raw passthrough caller có thể set X-Workflow header để tag trace.
+        // VD frontend wizard.jsx send X-Workflow: WizardTour → /completions log với workflow này
+        // thay vì để trống. Helper cho admin biết AI call nào thuộc feature gì.
+        var trace = traceAccessor.Current;
+        var wfHeader = ctx.Request.Headers["X-Workflow"].FirstOrDefault();
+        if (trace?.Enabled == true && !string.IsNullOrWhiteSpace(wfHeader))
+        {
+            trace.SetWorkflow(wfHeader);
+            trace.SetMeta("provider", provider.Id);
+            trace.SetMeta("model", req.Model);
+        }
+
         try
         {
+            var aiTimer = trace?.Begin("ai_complete");
             var result = await provider.CompleteAsync(req, ctx.RequestAborted);
+            aiTimer?.Done("ok",
+                $"POST → tokens {result.InputTokens}/{result.OutputTokens}, {result.LatencyMs}ms, {result.Text.Length} chars",
+                new() {
+                    ["provider"] = provider.Id, ["model"] = result.Model,
+                    ["tokIn"] = result.InputTokens, ["tokOut"] = result.OutputTokens,
+                    ["latencyMs"] = result.LatencyMs, ["replyChars"] = result.Text.Length,
+                    ["finishReason"] = result.FinishReason
+                });
             if (result.OutputTokens > 0)
                 usage.Track($"{provider.Id}:{result.Model}", result.InputTokens, result.OutputTokens, result.LatencyMs);
 

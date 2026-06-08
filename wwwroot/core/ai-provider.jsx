@@ -77,9 +77,13 @@
       system: options.system,
       apiKey: options.apiKey || getKey(provider) || undefined
     };
+    const headers = { 'Content-Type': 'application/json' };
+    // X-Workflow tag để backend gắn workflow name vào trace (vd 'WizardTour', 'WizardMarketing').
+    // Trống → trace để tên rỗng (chỉ thấy step ai_complete).
+    if (options.workflow) headers['X-Workflow'] = options.workflow;
     const resp = await fetch(`${API_BASE}/completions`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers,
       body: JSON.stringify(body)
     });
     if (!resp.ok) {
@@ -101,9 +105,11 @@
       system: options.system,
       apiKey: options.apiKey || getKey(provider) || undefined
     };
+    const headers = { 'Content-Type': 'application/json', 'Accept': 'text/event-stream' };
+    if (options.workflow) headers['X-Workflow'] = options.workflow;
     const resp = await fetch(`${API_BASE}/completions/stream`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'Accept': 'text/event-stream' },
+      headers,
       body: JSON.stringify(body)
     });
     if (!resp.ok) {

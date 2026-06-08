@@ -1,5 +1,6 @@
 using TourkitAiProxy.Models;
 using TourkitAiProxy.Services.TourKit;
+using TourkitAiProxy.Services.Workflow;
 
 namespace TourkitAiProxy.Services.Reviews;
 
@@ -12,14 +13,18 @@ public class BatchService
     private readonly ReviewService _reviews;
     private readonly BatchJobStore _jobs;
     private readonly TkSessionStore _sessions;
+    private readonly IWorkflowTraceAccessor _traceAccessor;
+    private readonly WorkflowTraceLog _traceLog;
     private readonly ILogger<BatchService> _log;
 
     private const int CONCURRENCY = 10;
 
     public BatchService(TourKitCustomerSource source, ReviewService reviews, BatchJobStore jobs,
-        TkSessionStore sessions, ILogger<BatchService> log)
+        TkSessionStore sessions, IWorkflowTraceAccessor traceAccessor, WorkflowTraceLog traceLog,
+        ILogger<BatchService> log)
     {
-        _source = source; _reviews = reviews; _jobs = jobs; _sessions = sessions; _log = log;
+        _source = source; _reviews = reviews; _jobs = jobs; _sessions = sessions;
+        _traceAccessor = traceAccessor; _traceLog = traceLog; _log = log;
     }
 
     public BatchJob Start(IEnumerable<string> customerIds, bool forceFresh, string sessionId)
@@ -35,6 +40,14 @@ public class BatchService
     {
         var ct = job.Cts.Token;
         var tenantId = _sessions.Get(sessionId)?.TenantId ?? "";
+
+        // Trace cho batch (AsyncLocal flow từ endpoint /reviews/batch). Mỗi review per-KH set
+        // SetWorkflow("CustomerReview") sẽ ghi đè — set lần cuối ở đây thành "CustomerReviewBatch"
+        // KHÔNG hoạt động vì ReviewService set sau. Cho nên dùng SetMeta để mark "batch" thay vì SetWorkflow.
+        var trace = _traceAccessor.Current;
+        trace?.SetMeta("batchJobId", job.Id);
+        trace?.SetMeta("batchTotal", job.Total);
+        trace?.SetMeta("tenant", tenantId);
 
         await job.Events.Writer.WriteAsync(new BatchEvent("start", Payload: new { total = job.Total }));
 
@@ -115,6 +128,23 @@ public class BatchService
                 Type: job.Status,
                 Payload: new { done = job.Done, errors = job.Errors, cached = job.Cached, total = job.Total }
             ));
+
+            // Trace cho batch: AsyncLocal flow qua Task.Run từ endpoint → traceFinal.Current giờ KHÔNG null.
+            // Manually log vào workflow-traces.jsonl + emit qua SSE channel cuối (nếu debug ON).
+            var traceFinal = _traceAccessor.Current;
+            if (traceFinal?.Enabled == true)
+            {
+                try
+                {
+                    var built = traceFinal.Build();
+                    _traceLog.Append(ctx: null, built);   // log to JSONL (background, no HttpContext)
+                    await job.Events.Writer.WriteAsync(new BatchEvent(
+                        Type: "trace", Payload: built
+                    ));
+                }
+                catch (Exception ex) { _log.LogWarning(ex, "[batch] log trace fail"); }
+            }
+
             job.Events.Writer.Complete();
         }
     }

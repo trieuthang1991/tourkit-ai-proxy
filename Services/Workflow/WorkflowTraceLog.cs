@@ -28,8 +28,12 @@ public class WorkflowTraceLog
         _filePath = Path.Combine(dataDir, "workflow-traces.jsonl");
     }
 
-    /// <summary>Ghi 1 trace entry. Gọi từ WorkflowTraceMiddleware sau khi request xong.</summary>
-    public void Append(HttpContext ctx, WorkflowTrace trace)
+    /// <summary>
+    /// Ghi 1 trace entry. Gọi từ WorkflowTraceMiddleware sau khi request xong,
+    /// HOẶC từ batch service (fire-and-forget) khi background work kết thúc.
+    /// `ctx` có thể null khi gọi từ background (HttpContext đã chết).
+    /// </summary>
+    public void Append(HttpContext? ctx, WorkflowTrace trace)
     {
         if (trace == null || trace.Steps == null || trace.Steps.Count == 0) return;
         try
@@ -47,8 +51,8 @@ public class WorkflowTraceLog
                     }
                 }
 
-                // Lấy session/tenant từ header nếu có
-                var sessionId = ctx.Request.Headers.TryGetValue("X-Session-Id", out var sid)
+                // Lấy session/path từ ctx nếu có; background work thì để null/"(bg)"
+                var sessionId = ctx?.Request.Headers.TryGetValue("X-Session-Id", out var sid) == true
                     ? sid.ToString() : null;
 
                 var entry = new
@@ -58,11 +62,11 @@ public class WorkflowTraceLog
                     runId       = trace.RunId,
                     totalMs     = trace.TotalMs,
                     stepCount   = trace.Steps.Count,
-                    path        = ctx.Request.Path.Value,
-                    method      = ctx.Request.Method,
-                    statusCode  = ctx.Response.StatusCode,
+                    path        = ctx?.Request.Path.Value ?? "(background)",
+                    method      = ctx?.Request.Method ?? "BG",
+                    statusCode  = ctx?.Response.StatusCode ?? 0,
                     sessionId,
-                    trace       = trace   // full trace với steps + meta
+                    trace       = trace
                 };
 
                 File.AppendAllText(_filePath,
