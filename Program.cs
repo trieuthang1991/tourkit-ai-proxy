@@ -78,6 +78,8 @@ builder.Services.AddSingleton<TourkitAiProxy.Services.Db.TourkitAiDb>();
 // Reusable Anthropic native-tools client — share giữa các feature single-shot
 // (Review/Visa/Deal/Wizard) qua AnthropicToolsClient.RunAsync(..., terminalToolName).
 builder.Services.AddSingleton<TourkitAiProxy.Services.Workflow.AnthropicToolsClient>();
+// Thin wrapper cho score-like service (Visa/Deal/Tour) — gọi RunAsync<T> với 1 terminal tool + parser.
+builder.Services.AddSingleton<TourkitAiProxy.Services.Workflow.NativeToolScorer>();
 
 // Customer Review feature services. ReviewRepository nay DB-backed (PushDb.dbo.Reviews) với fallback file.
 builder.Services.AddSingleton<CustomerRepository>();
