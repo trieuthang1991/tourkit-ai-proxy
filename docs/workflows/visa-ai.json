@@ -1,0 +1,127 @@
+{
+  "workflow": "VisaScoring",
+  "displayName": "Thẩm định hồ sơ Visa AI",
+  "purpose": "NV upload hồ sơ xin visa (ảnh/PDF/DOCX/ZIP/RAR) → AI Vision đọc giấy tờ → tổng hợp profile text → chấm tỉ lệ đậu/rớt + đề xuất bổ sung",
+  "frontendPage": "/visa",
+  "triggers": [
+    {
+      "ui": "Page /visa → click 'Tạo hồ sơ mới' → drag-drop file → AI tự extract → bấm 'Chấm điểm'",
+      "calls": "POST /api/v1/visa/assess (upload) → POST /api/v1/visa/assess/{id}/score"
+    }
+  ],
+  "endpoints": [
+    {
+      "method": "POST",
+      "path": "/api/v1/visa/assess",
+      "auth": "(không cần session — tool nội bộ)",
+      "body": "multipart/form-data: files[] (image/jpeg, image/png, application/pdf, .docx, .zip, .rar — max 25MB/file, 10 file)",
+      "queryParams": "?provider=...&model=...",
+      "responseStream": "SSE — emit { stage: 'extracting' } → { stage: 'extracted', extraction } → { done: true, assessment }"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/visa/assess/{id}/score",
+      "body": "{ profile?: string (NV có thể sửa AI extracted), country?: string, provider?, model?, apiKey? }",
+      "response": "{ assessment: VisaAssessment, _trace?: WorkflowTrace } hoặc raw assessment khi debug=off"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/visa/assess",
+      "response": "list hồ sơ đã chấm (sorted theo updatedAt)"
+    },
+    {
+      "method": "DELETE",
+      "path": "/api/v1/visa/assess/{id}",
+      "note": "Xoá hồ sơ + files đã upload"
+    }
+  ],
+  "pipeline": [
+    {
+      "phase": "PHASE 1 — EXTRACT (đọc hồ sơ thành text)",
+      "service": "VisaExtractionService.ExtractAsync",
+      "steps": [
+        "1.1 Whitelist + classify file type: image (vision) / PDF (PDF inline) / DOCX (DocumentFormat.OpenXml extract text) / ZIP|RAR (SharpCompress giải nén + recurse)",
+        "1.2 Đóng gói data-URL: image → 'data:image/jpeg;base64,...', PDF → 'data:application/pdf;base64,...'",
+        "1.3 Gọi AI Vision với multimodal input"
+      ],
+      "apiCall": {
+        "method": "POST",
+        "url": "Anthropic Claude (api.anthropic.com/v1/messages) hoặc OpenAI (api.openai.com/v1/responses) — provider có vision",
+        "body": {
+          "model": "claude-sonnet-4-5 hoặc gpt-5.4-mini",
+          "max_tokens": 4096,
+          "system": "Bạn là chuyên viên đọc hồ sơ xin visa. Đọc TẤT CẢ ảnh/PDF/text dưới đây, BÓC TÁCH thông tin thực rồi tổng hợp thành PROFILE text...",
+          "messages": [{
+            "role": "user",
+            "content": [
+              { "type": "text", "text": "Hãy bóc tách hồ sơ visa sau" },
+              { "type": "image", "source": { "type": "base64", "media_type": "image/jpeg", "data": "..." } },
+              { "type": "document", "source": { "type": "base64", "media_type": "application/pdf", "data": "..." } }
+            ]
+          }]
+        },
+        "expectedResponse": "JSON { profile: 'TÊN: ...\\nNGHỀ NGHIỆP: ...\\nTHU NHẬP: ...', detectedName, detectedCountry }"
+      },
+      "duration": "~30-60s tuỳ số file"
+    },
+    {
+      "phase": "PHASE 2 — SCORE (chấm dựa trên text profile)",
+      "service": "VisaScoringService.ScoreAsync",
+      "trigger": "NV review + chỉnh sửa profile nếu cần → bấm 'Chấm điểm'",
+      "steps": [
+        "2.1 Cache lookup (24h prompt-hash): Hash('visa-score', model, country|profile)",
+        "2.2 Cache HIT → trả ngay (không gọi AI)",
+        "2.3 Cache MISS → gọi AI với retry x1 nếu JSON xấu"
+      ],
+      "apiCall": {
+        "method": "POST",
+        "url": "Provider tự chọn (default opencode-go) → https://opencode.ai/zen/go/v1/chat/completions",
+        "body": {
+          "model": "deepseek-v4-flash (rẻ, đủ cho text-only scoring)",
+          "max_tokens": "2500 lần 1 → 3200 lần retry",
+          "temperature": 0.3,
+          "system": "Bạn là chuyên gia thẩm định hồ sơ xin visa du lịch, nhiều năm kinh nghiệm. Đánh giá KHÁCH QUAN dựa trên hồ sơ, theo nguyên tắc chung của lãnh sự: chứng minh tài chính, ràng buộc về nước, lịch sử du lịch, tính nhất quán hồ sơ. CHỈ trả JSON thuần.",
+          "prompt": "NHIỆM VỤ: Thẩm định khả năng ĐẬU/RỚT visa.\nNƯỚC: {country}\nHỒ SƠ: {profile}\nQUY TẮC: passRate 0-100, level cao/trung_binh/thap, missingDocs, suggestions, summaryLine..."
+        },
+        "expectedResponse": "JSON { passRate, level, summaryLine, strengths, weaknesses, missingDocs, suggestions, riskFactors }"
+      },
+      "duration": "~15-25s (text-only nhanh hơn vision)"
+    },
+    {
+      "phase": "PHASE 3 — LƯU + TRẢ KẾT QUẢ",
+      "service": "VisaRepository.Save",
+      "persistence": "data/visa-assessments.json (file lock-guarded, MVP)",
+      "fileStore": "data/visa-files/{id}/ (lưu file gốc, tự xoá sau 7 ngày)"
+    }
+  ],
+  "models": {
+    "extraction": "claude-sonnet-4-5 hoặc gpt-5.4-mini (cần vision)",
+    "scoring": "deepseek-v4-flash (text-only, rẻ)",
+    "fallback": "Provider khác qua AI Settings dialog"
+  },
+  "persistence": {
+    "metadata": "data/visa-assessments.json",
+    "files": "data/visa-files/{id}/*.{jpg,pdf,docx}",
+    "cleanup": "Files > 7 ngày tự xoá lúc khởi động",
+    "cache": "AiResponseCache (Redis nếu có / in-memory) — 24h cho score result",
+    "auditLog": "data/workflow-traces.jsonl + data/ai-usage.jsonl"
+  },
+  "frontendRender": {
+    "page": "wwwroot/pages/visa.jsx",
+    "layout": "Hero + Upload zone + List hồ sơ + Detail panel",
+    "displayElements": [
+      "PassRate gauge (vòng tròn % 0-100)",
+      "Level badge (cao/trung_binh/thap màu xanh/cam/đỏ)",
+      "SummaryLine",
+      "Strengths/Weaknesses 2-col",
+      "MissingDocs checklist",
+      "Suggestions ordered list",
+      "<TraceView trace={_trace}/> nếu debug ON"
+    ]
+  },
+  "knownIssues": [
+    "Vision extraction tốn tokens nhiều (~1-2k/file ảnh) — giới hạn 10 file/lần",
+    "ZIP/RAR có thể chứa file bomb — đã có path-traversal defense + MaxFilesAfterUnzip=30",
+    "Country tự detect từ ảnh (visa app form) — NV có thể override"
+  ]
+}

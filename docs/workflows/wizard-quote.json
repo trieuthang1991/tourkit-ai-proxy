@@ -1,0 +1,148 @@
+{
+  "workflow": "WizardQuote",
+  "displayName": "Wizard tạo tour quote (4 bước)",
+  "purpose": "NV nhập yêu cầu (điểm đến, ngày, khách, ngân sách, sở thích) → AI sinh tour itinerary đầy đủ (TÊN, tagline, lịch trình từng ngày, dịch vụ + giá + NCC) → NV review + chỉnh → xuất quote",
+  "frontendPage": "/wizard",
+  "triggers": [
+    {
+      "ui": "Page /wizard step 1-3: nhập input → step 4: bấm 'Sinh tour'",
+      "calls": "POST /api/v1/completions/stream (SSE) — gọi qua window.tourkit.ai.completeStream()"
+    }
+  ],
+  "endpoints": [
+    {
+      "method": "POST",
+      "path": "/api/v1/completions",
+      "auth": "(không cần session — proxy generic)",
+      "body": "CompleteRequest { prompt: string, provider?, model?, maxTokens?, temperature?, system?, apiKey?, images?, documents?, cacheSystem? }",
+      "response": "{ text, provider, model, latencyMs, inputTokens, outputTokens, finishReason, attempts, warning?, rawUpstream? }"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/completions/stream",
+      "responseSSE": "{ delta: '...token...' } x N → { done: true, text, provider, model, latencyMs, inputTokens, outputTokens, finishReason }"
+    }
+  ],
+  "pipeline": [
+    {
+      "phase": "BƯỚC 1-3 — Frontend collect input (không gọi AI)",
+      "steps": [
+        "Step 1: route (điểm đi-đến), days, nights, departureDate",
+        "Step 2: adults, children, infants, budgetPerPax (VND)",
+        "Step 3: preferences (chip select), preferenceNote (free text)"
+      ],
+      "fileFrontend": "wwwroot/steps/step1.jsx / step2.jsx / step3.jsx"
+    },
+    {
+      "phase": "BƯỚC 4 — Sinh tour (gọi AI)",
+      "service": "Frontend wizard.jsx → handleGenerate()",
+      "steps": [
+        {
+          "subStep": "4.0 Check cache localStorage (TourCache, key = SHA256 của request)",
+          "logic": "Cache HIT (< 24h) → load itinerary đã có, skip AI. forceFresh = true mặc định để luôn gọi mới."
+        },
+        {
+          "subStep": "4.1 Load NCC ưu tiên của công ty (TourKit CRM)",
+          "apiCall": {
+            "method": "GET",
+            "url": "{TourKit:BaseUrl}/api/ai/suppliers",
+            "headers": { "Authorization": "Bearer {jwt}" },
+            "note": "Lấy danh sách NCC THẬT của tenant để AI prefer khi assign supplier"
+          }
+        },
+        {
+          "subStep": "4.2 Build mega-prompt format text với `|` separator",
+          "format": "TÊN: <name>\\nTAG: <tagline>\\nNGÀY N | <day name>\\nHH:MM | TYPE | activity | giá | NCC | mô tả\\n..."
+        },
+        {
+          "subStep": "4.3 Stream AI response qua /api/v1/completions/stream",
+          "apiCall": {
+            "method": "POST",
+            "url": "/api/v1/completions/stream",
+            "body": {
+              "prompt": "Sinh tour Việt Nam theo format text DƯỚI ĐÂY... + NCC ƯU TIÊN + Input request",
+              "provider": "opencode-go (default)",
+              "model": "deepseek-v4-flash",
+              "maxTokens": 8192,
+              "temperature": 0.3,
+              "system": "Bạn xuất tour Việt Nam theo format text với `|` separator. Không JSON, không markdown, không giải thích. Bắt đầu ngay với 'TÊN:'."
+            },
+            "responseSSE": "Stream token bằng SSE → frontend nối thành full text"
+          },
+          "duration": "~30-60s tuỳ số ngày"
+        },
+        {
+          "subStep": "4.4 Parse text format → structured itinerary",
+          "service": "Parsers.parseTourText",
+          "fileFrontend": "wwwroot/core/parsers.js",
+          "output": "{ name, tagline, days: [{ dayNumber, dayName, activities: [{ time, type, name, price, supplier, description }] }] }"
+        },
+        {
+          "subStep": "4.5 (Optional) Sinh marketing copy + share image",
+          "apiCall": {
+            "method": "POST",
+            "url": "/api/v1/completions",
+            "body": "prompt sinh title/tagline/keywords cho marketing"
+          },
+          "trigger": "User click 'Marketing AI' (sau khi có itinerary)"
+        },
+        {
+          "subStep": "4.6 Lưu cache localStorage để mở lại không phải gọi AI",
+          "service": "Storage.writeTourCache",
+          "fileFrontend": "wwwroot/core/storage.js"
+        }
+      ]
+    }
+  ],
+  "providerRouting": {
+    "logic": "Proxy AiEndpoints.HandleStreamAsync → ProviderRegistry.Resolve(req.Provider) → IAiProvider.StreamAsync",
+    "providers": {
+      "opencode-go": {
+        "baseUrl": "https://opencode.ai",
+        "endpoints": [
+          "/zen/go/v1/chat/completions (OpenAI format, default cho deepseek/kimi)",
+          "/zen/go/v1/messages (Anthropic format, dùng cho minimax-m2.5/m2.7)"
+        ],
+        "models": "deepseek-v4-flash, deepseek-v4-pro, kimi-k2, minimax-m2.5..."
+      },
+      "9routes": {
+        "baseUrl": "config Providers:NineRoutes:BaseUrl (default http://localhost:20128/v1)",
+        "format": "OpenAI compat — quirk: non-stream call có thể trả SSE-formatted body"
+      },
+      "anthropic": {
+        "baseUrl": "https://api.anthropic.com/v1/messages",
+        "auth": "x-api-key header (key client gửi qua req.ApiKey, KHÔNG persist)",
+        "models": "claude-sonnet-4-5, claude-haiku-4-5, claude-opus-4-1"
+      },
+      "openai": {
+        "baseUrl": "https://api.openai.com/v1/responses",
+        "auth": "Bearer token (client gửi qua req.ApiKey)",
+        "models": "gpt-5.4-mini, gpt-5.4, gpt-5-mini, gpt-5, gpt-4.1-mini, gpt-4.1"
+      }
+    }
+  },
+  "frontendRender": {
+    "page": "wwwroot/pages/wizard.jsx",
+    "layout": "4 step horizontal stepper + step content + sticky footer (Tạo tour bằng AI)",
+    "displayElements": [
+      "Step 1-3: form fields validation realtime",
+      "Step 4: hero tour card với name/tagline + activity timeline + supplier badge + price total",
+      "Stream indicator: progress bar + 'AI đang sinh tour ngày N/M'",
+      "Action: edit row, drag reorder, swap supplier, recalc giá"
+    ]
+  },
+  "persistence": {
+    "frontendCache": "localStorage TourCache (key = SHA256 request, TTL 24h)",
+    "history": "localStorage RequestHistory (10 request gần nhất)",
+    "stats": "localStorage tour_stats { hits, misses, hitrate }",
+    "backendCache": "KHÔNG (proxy stateless cho /completions)",
+    "auditLog": "data/ai-usage.jsonl (mọi request /completions log token + cost)"
+  },
+  "knownIssues": [
+    "Wizard chưa có workflow trace endpoint vì /completions là passthrough raw — không phải feature-specific service. Trace của AI call vẫn nằm trong ai-usage.jsonl (token/cost per request) nhưng không có per-step.",
+    "Format text với `|` separator dễ vỡ nếu AI dùng `|` trong tên hoặc mô tả → parsers có defensive logic nhưng vẫn có thể miss vài dòng.",
+    "Reasoning model (Kimi/Minimax) đôi khi rò 'thinking' vào output → wrap thêm 'KHÔNG markdown, KHÔNG giải thích' trong system prompt.",
+    "NCC list cache 6h trong frontend (window.tourkit.ai loadNcc) — đổi NCC trên TourKit cần refresh page mới thấy."
+  ],
+  "extensionIdea": "Migrate sang feature-specific service (WizardTourService) với workflow trace + endpoint /api/v1/wizard/generate riêng → cùng pattern với CustomerReview/Visa/Deal."
+}

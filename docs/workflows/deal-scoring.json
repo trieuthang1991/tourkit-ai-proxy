@@ -1,0 +1,139 @@
+{
+  "workflow": "DealScoring",
+  "displayName": "Ưu tiên Deal AI — chấm khả năng thắng",
+  "purpose": "Pipeline 2 tầng: (1) heuristic xếp sơ bộ toàn bộ cơ hội mở → top N → (2) AI chấm sâu top N (winRate, level, signals/risks/nextAction) → kết hợp → bảng ưu tiên cho Sale",
+  "frontendPage": "/deals",
+  "triggers": [
+    {
+      "ui": "Page /deals → 'Phân tích bằng AI' → SSE progress (scanning/ranked/scored/done)",
+      "calls": "POST /api/v1/deals/analyze → GET /api/v1/deals/analyze/{jobId}/stream"
+    },
+    {
+      "ui": "Mở lại page → đọc bảng đã cache",
+      "calls": "GET /api/v1/deals/board"
+    }
+  ],
+  "endpoints": [
+    {
+      "method": "POST",
+      "path": "/api/v1/deals/analyze",
+      "auth": "X-Session-Id",
+      "body": "{ topN?: number (default 20, max 50), assignee?, source?, provider?, model?, apiKey? }",
+      "response": "{ jobId, streamUrl, cancelUrl, status: 'processing' }"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/deals/analyze/{jobId}/stream",
+      "responseSSE": "events: { type: 'scanning' } → { type: 'ranked', payload: { scanned, total } } → { type: 'scored', payload: item } (N lần) → { type: 'done', payload: { scanned, board } }"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/deals/analyze/{jobId}/cancel",
+      "response": "{ ok: true }"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/deals/board",
+      "response": "{ items: DealBoardItem[], generatedAt, scanned, total } — bảng ưu tiên đã cache cho tenant"
+    }
+  ],
+  "pipeline": [
+    {
+      "phase": "TẦNG 0 — LIST cơ hội mở (TourKit CRM)",
+      "service": "DealOpportunityClient.ListOpenAsync",
+      "apiCall": {
+        "method": "GET",
+        "url": "{TourKit:BaseUrl}/api/ai/booking-tickets?status=open&pageSize=200&...",
+        "headers": { "Authorization": "Bearer {jwt}" }
+      },
+      "output": "List<DealOpportunity> (id, code, customerName, phone, title, totalPrice, statusName, sourceName, assignees, ageDays)",
+      "duration": "~1-2s"
+    },
+    {
+      "phase": "TẦNG 1 — HEURISTIC sơ bộ (no AI)",
+      "service": "DealHeuristic.QuickScore",
+      "logic": "Tính điểm thô từ {totalPrice, ageDays, source, status} — KHÔNG gọi AI. Mục đích chọn top N có triển vọng nhất để AI tập trung chấm sâu, tiết kiệm token.",
+      "output": "List<DealOpportunity> sorted DESC theo QuickScore, take topN",
+      "emitSse": "{ type: 'ranked', payload: { scanned: <all>, total: <topN> } }"
+    },
+    {
+      "phase": "TẦNG 2 — AI chấm sâu top N (song song, concurrency=6)",
+      "service": "Parallel.ForEachAsync → DealOpportunityClient.GetContextAsync → DealScoringService.ScoreAsync",
+      "steps": [
+        {
+          "subStep": "2.1 Build context (lịch sử hành động Sale + thông tin cơ hội)",
+          "apiCall": {
+            "method": "GET",
+            "url": "{TourKit:BaseUrl}/api/ai/booking-tickets/{id}/context",
+            "note": "Trả Profile text (giàu) + Fingerprint SHA256 — cache key"
+          }
+        },
+        {
+          "subStep": "2.2 Cache lookup DB (DealRepository.GetScore)",
+          "sql": "SELECT DataJson FROM data/deal-cache.json (hiện file-backed) WHERE Fingerprint = @fp",
+          "hit": "Trả score cũ, skip AI"
+        },
+        {
+          "subStep": "2.3 Cache MISS — gọi AI",
+          "apiCall": {
+            "method": "POST",
+            "url": "Provider tự chọn (default opencode-go)",
+            "body": {
+              "model": "deepseek-v4-flash",
+              "max_tokens": "1800 lần 1 → 2400 retry",
+              "temperature": 0.3,
+              "system": "Bạn là trưởng phòng kinh doanh giàu kinh nghiệm, đánh giá khả năng CHỐT (thắng deal) của cơ hội tour. Căn cứ HÀNH ĐỘNG Sale: tương tác, chăm sóc gần nhất, tiến triển, phản hồi khách, giá trị deal, độ trễ. CHỈ trả JSON.",
+              "prompt": "NHIỆM VỤ: Đánh giá khả năng THẮNG cơ hội.\nHỒ SƠ:\n{profile}\nQUY TẮC: winRate 0-100, level cao/trung_binh/thap, signals (tích cực), risks, nextAction cụ thể..."
+            },
+            "expectedResponse": "JSON { winRate, level, summaryLine, signals, risks, nextAction, suggestedScript }"
+          },
+          "duration": "~15-25s/deal"
+        },
+        {
+          "subStep": "2.4 Lưu score vào DealRepository (cache 24h fingerprint)",
+          "persistence": "data/deal-cache.json"
+        }
+      ]
+    },
+    {
+      "phase": "TẦNG 3 — FINAL PRIORITY",
+      "service": "DealHeuristic.FinalPriority",
+      "logic": "Kết hợp AI winRate × totalPrice × urgency(ageDays) → priorityScore + expectedValue. RiskFlag nếu ageDays > 14 + winRate thấp.",
+      "output": "DealBoardItem { ..., priorityScore, expectedValue, deep: true, riskFlag }"
+    },
+    {
+      "phase": "TẦNG 4 — Lưu bảng + emit SSE 'done'",
+      "service": "DealRepository.SaveBoard(tenant, board)",
+      "persistence": "data/deal-cache.json (board snapshot)",
+      "emitSse": "{ type: 'done', payload: { scanned, board: { items, generatedAt, total } } }"
+    }
+  ],
+  "aiPrompt": {
+    "system": "Bạn là trưởng phòng kinh doanh giàu kinh nghiệm, đánh giá khả năng CHỐT (thắng deal) của cơ hội bán hàng tour. Căn cứ HÀNH ĐỘNG của Sale: mức độ tương tác, lần chăm sóc gần nhất, tiến triển qua các trạng thái, phản hồi của khách, giá trị deal và độ trễ. CHỈ trả JSON thuần (bắt đầu '{'), KHÔNG markdown, KHÔNG giải thích ngoài JSON. Tiếng Việt.",
+    "userTemplate": "NHIỆM VỤ: Đánh giá khả năng THẮNG (chốt) cơ hội bán hàng.\n\nHỒ SƠ CƠ HỘI:\n{profile}\n\nQUY TẮC:\n1. Chỉ dựa trên hồ sơ trên, KHÔNG bịa\n2. winRate = % khả năng chốt (0-100)\n3. level: cao (≥60), trung_binh (35-59), thap (<35)\n4. signals: dấu hiệu TÍCH CỰC\n5. risks: rủi ro\n6. nextAction: 1 hành động CỤ THỂ Sale làm tiếp theo NGAY\n7. suggestedScript: kịch bản message gợi ý\n\nOUTPUT JSON:\n{...schema...}"
+  },
+  "models": {
+    "default": "deepseek-v4-flash (rẻ, text-only đủ dùng)",
+    "alternatives": "Có thể override qua AI Settings"
+  },
+  "persistence": {
+    "cache": "data/deal-cache.json (file-backed, schema cho phép migrate SQL Server.dbo.DealScores nhưng repo chưa wire)",
+    "board": "data/deal-cache.json key 'boards/{tenant}'",
+    "ttl": "Fingerprint cache vô hạn (mới fetch context = mới score). Board snapshot ghi đè mỗi lần analyze.",
+    "auditLog": "data/workflow-traces.jsonl (KHI HttpContext còn — Deal batch chạy Task.Run nền nên hiện trace không capture được, sẽ refactor sang AsyncLocal sau)"
+  },
+  "frontendRender": {
+    "page": "wwwroot/pages/deals.jsx",
+    "displayElements": [
+      "KpiStrip: số deal scanned / scored / total value / avg winRate",
+      "Bảng ưu tiên: rank | tên KH | tour | giá | winRate badge | level color | nextAction | RiskFlag",
+      "SSE progress bar (scanning → ranked → scored x N → done)",
+      "Filter: assignee, source, level"
+    ]
+  },
+  "knownIssues": [
+    "Trace per-deal scoring KHÔNG capture được vì batch chạy Task.Run sau khi /analyze POST trả → HttpContext.Items die → IWorkflowTraceAccessor.Current=null. Cần refactor AsyncLocal<TraceCollector> để fix.",
+    "DealRepository còn dùng file JSON, schema dbo.DealScores đã có sẵn ở SQL Server (PushDb) — chưa migrate.",
+    "Concurrency=6 cho parallel scoring — quá thấp với batch lớn, quá cao với rate limit Anthropic."
+  ]
+}

@@ -1,0 +1,134 @@
+{
+  "workflow": "CustomerReview",
+  "displayName": "Chấm hạng khách hàng (A-D)",
+  "purpose": "AI đọc data 1 khách hàng (tours đã mua, doanh số, đặc điểm) → chấm rank A/B/C/D + portrait + đề xuất hành động CSKH",
+  "frontendPage": "/customers",
+  "triggers": [
+    {
+      "ui": "Click 'Xem' 1 KH chưa có review → drawer mở → bấm 'Cập nhật review'",
+      "calls": "POST /api/v1/reviews/customer/{id}"
+    },
+    {
+      "ui": "Drawer KH đã có review → bấm 'Cập nhật review' (refresh)",
+      "calls": "POST /api/v1/reviews/customer/{id}/refresh"
+    },
+    {
+      "ui": "Page /customers → chọn nhiều KH → bấm 'Review bằng AI' (batch SSE)",
+      "calls": "POST /api/v1/reviews/batch + GET /api/v1/reviews/batch/{jobId}/stream"
+    }
+  ],
+  "endpoints": [
+    {
+      "method": "POST",
+      "path": "/api/v1/reviews/customer/{id}",
+      "auth": "X-Session-Id (TourKit session)",
+      "body": "{ forceFresh?: boolean }",
+      "response": "{ review: CustomerReview, fromCache: boolean, _trace?: WorkflowTrace }"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/reviews/customer/{id}/refresh",
+      "auth": "X-Session-Id",
+      "body": "(none)",
+      "response": "{ review, fromCache: false, _trace? }"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/reviews/{customerId}/feedback",
+      "auth": "X-Session-Id",
+      "body": "{ rating: 'helpful'|'not_helpful', note?: string }",
+      "response": "{ ok: true }"
+    }
+  ],
+  "pipeline": [
+    {
+      "step": "1. Load customer từ TourKit CRM",
+      "service": "TourKitCustomerSource.GetFullAsync",
+      "apiCall": {
+        "method": "GET",
+        "url": "{TourKit:BaseUrl}/api/ai/customers/{id}",
+        "headers": { "Authorization": "Bearer {jwt}" },
+        "note": "JWT lấy từ TkSessionStore — không gửi ra client"
+      }
+    },
+    {
+      "step": "2. Tính fingerprint = SHA256 của customer JSON",
+      "service": "ReviewRepository.FingerprintFor",
+      "note": "Dùng làm cache key. Customer đổi data (tour mới, đổi tên) → fingerprint đổi → cache miss"
+    },
+    {
+      "step": "3. Tra cache DB (PushDb.dbo.Reviews)",
+      "sql": "SELECT TOP 1 DataJson FROM dbo.Reviews WHERE TenantId=@t AND CustomerId=@id ORDER BY GeneratedAt DESC",
+      "note": "Fallback legacy: nếu không thấy theo tenant chính xác → tìm TenantId='' (rows migrate từ JSON cũ chưa backfill)"
+    },
+    {
+      "step": "4a. Cache HIT (fingerprint khớp + !forceFresh)",
+      "result": "Trả review cũ ngay, fromCache=true, KHÔNG gọi AI"
+    },
+    {
+      "step": "4b. Cache MISS — gọi AI",
+      "service": "ReviewService.ReviewAsync → IAiProvider.CompleteAsync",
+      "apiCall": {
+        "method": "POST",
+        "url": "Provider tự chọn (default opencode-go → https://opencode.ai/zen/go/v1/chat/completions)",
+        "body": {
+          "model": "deepseek-v4-flash (mặc định, có thể override qua AI Settings)",
+          "max_tokens": 8000,
+          "temperature": 0.4,
+          "system": "Bạn là trợ lý phân tích khách hàng cho công ty du lịch / tour operator Việt Nam (Tourkit). Output ONLY raw JSON theo schema...",
+          "prompt": "NHIỆM VỤ: Phân tích KH tour... + Data KH JSON đầy đủ + Schema mẫu"
+        },
+        "expectedResponse": "JSON object { rank, rankReason, alert, portrait, strengths, concerns, preferences, actionNow, action30Days, productSuggestions, summaryLine }"
+      },
+      "duration": "~25-35s tuỳ KH"
+    },
+    {
+      "step": "5. Parse JSON tolerant",
+      "service": "ReviewService.ParseReviewJson",
+      "note": "Strip markdown fences, trim first balanced {...}, case-insensitive key lookup, fill defaults cho field thiếu"
+    },
+    {
+      "step": "6. Build CustomerReview + Save vào DB",
+      "sql": "MERGE dbo.Reviews ON (TenantId, CustomerId) → UPSERT đầy đủ field + FeedbackJson=NULL (review mới)"
+    },
+    {
+      "step": "7. Trả response",
+      "shape": "{ review: CustomerReview, fromCache: false, _trace?: WorkflowTrace }"
+    }
+  ],
+  "aiPrompt": {
+    "system": "Bạn là trợ lý phân tích khách hàng cho công ty du lịch / tour operator Việt Nam (Tourkit). Output ONLY raw JSON theo schema, KHÔNG markdown fences, KHÔNG giải thích, KHÔNG thinking. Bắt đầu output bằng dấu `{` ngay. KHÔNG suy diễn ngoài dữ liệu. Tiếng Việt tự nhiên, ngắn gọn, thực dụng.",
+    "userTemplate": "NHIỆM VỤ: Phân tích KH tour dưới đây và trả JSON review cho Sale/CSKH dùng quyết định chăm sóc.\n\nDỮ LIỆU KHÁCH HÀNG:\n{customer_json}\n\nQUY TẮC:\n- Rank A/B/C/D theo doanh số + tần suất + thời gian gắn bó\n- Alert level cao/trung_binh/thap nếu rủi ro hoặc cơ hội\n- Action now: 1 hành động cụ thể tuần này\n- Action 30 ngày: 2-3 ý kế hoạch dài hơi\n...\n\nOUTPUT JSON (schema bắt buộc):\n{...schema...}"
+  },
+  "models": {
+    "default": "deepseek-v4-flash (opencode-go provider)",
+    "alternatives": "Cấu hình AI: claude-haiku-4-5, claude-sonnet-4-5, gpt-5.4-mini, deepseek-v4-pro..."
+  },
+  "persistence": {
+    "table": "PushDb.dbo.Reviews",
+    "primaryKey": "(TenantId, CustomerId)",
+    "indexes": ["IX_Reviews_TenantId_Rank", "IX_Reviews_GeneratedAt"],
+    "fallback": "Nếu DB lỗi → read/write tới data/reviews.json (legacy)",
+    "auditLog": "data/workflow-traces.jsonl (khi debug=on) + data/ai-usage.jsonl (mọi request)"
+  },
+  "frontendRender": {
+    "page": "wwwroot/pages/customers.jsx",
+    "drawer": "wwwroot/components/customer-review-card.jsx",
+    "displayElements": [
+      "RankBadge (A/B/C/D vòng tròn màu)",
+      "Alert box (đỏ/cam/xanh theo level)",
+      "Portrait paragraph",
+      "4-stat grid (totals KH)",
+      "ActionNow green box",
+      "Action30Days list",
+      "Strengths/Concerns 2-col",
+      "ProductSuggestions chips",
+      "Feedback 👍/👎 footer",
+      "<TraceView trace={_trace}/> nếu debug ON"
+    ]
+  },
+  "knownIssues": [
+    "Reasoning model (Kimi/Minimax) streaming hay rò 'thinking' vào JSON → dùng buffered CompleteAsync thay vì stream",
+    "TenantId hiện scope đúng. Legacy 103 row từ JSON migrate cần POST /api/v1/reviews/admin/backfill-tenant 1 lần"
+  ]
+}
