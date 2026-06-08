@@ -4,6 +4,7 @@ using TourkitAiProxy.Services;
 using TourkitAiProxy.Services.Chat;
 using TourkitAiProxy.Services.Providers;
 using TourkitAiProxy.Services.Reviews;
+using TourkitAiProxy.Services.Reviews.Agents;
 using TourkitAiProxy.Services.TourKit;
 using TourkitAiProxy.Services.Workflow;
 
@@ -74,10 +75,19 @@ builder.Services.AddScoped<OpenCodeClient>();
 // Workflow: connection factory SQL Server (PushDb shared instance, decrypt ENC: tự động).
 builder.Services.AddSingleton<TourkitAiProxy.Services.Db.TourkitAiDb>();
 
+// Reusable Anthropic native-tools client — share giữa các feature single-shot
+// (Review/Visa/Deal/Wizard) qua AnthropicToolsClient.RunAsync(..., terminalToolName).
+builder.Services.AddSingleton<TourkitAiProxy.Services.Workflow.AnthropicToolsClient>();
+
 // Customer Review feature services. ReviewRepository nay DB-backed (PushDb.dbo.Reviews) với fallback file.
 builder.Services.AddSingleton<CustomerRepository>();
 builder.Services.AddSingleton<ReviewRepository>();
 builder.Services.AddSingleton<BatchJobStore>();
+// Review agent runtimes — thứ tự quan trọng: NativeToolReviewAgent (Anthropic native function-calling)
+// chạy trước, JsonPromptReviewAgent là fallback cho mọi provider khác (OpenCode/9routes/OpenAI).
+// ReviewService resolve agent đầu tiên Supports(defaultProviderId).
+builder.Services.AddSingleton<IReviewAgent, NativeToolReviewAgent>();
+builder.Services.AddSingleton<IReviewAgent, JsonPromptReviewAgent>();
 builder.Services.AddSingleton<ReviewService>();
 builder.Services.AddSingleton<BatchService>();
 
