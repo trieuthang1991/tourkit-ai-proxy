@@ -1,8 +1,6 @@
-// TODO(Task 11): pass real tenantId from session — hiện mọi repo call truyền "" placeholder
-// để VisaRepository.Save sẽ throw ArgumentException ở runtime cho tới khi tenant resolver
-// (ITenantContext / HttpTenantContext) được inject vào endpoint handler ở Task 11.
 using SharpCompress.Archives;
 using TourkitAiProxy.Models;
+using TourkitAiProxy.Services.TourKit;
 using TourkitAiProxy.Services.Visa;
 
 namespace TourkitAiProxy.Endpoints;
@@ -125,9 +123,13 @@ public static class VisaEndpoints
         var v1 = routes.MapGroup("/api/v1");
 
         // ─── POST /visa/assess ─── upload + AI đọc hồ sơ (bước 1) ────────────────
-        v1.MapPost("/visa/assess", async (HttpRequest request,
+        v1.MapPost("/visa/assess", async (HttpRequest request, HttpContext ctx, TkSessionStore sessions,
             VisaExtractionService extractor, VisaRepository repo, VisaFileStore store, CancellationToken ct) =>
         {
+            var auth = RequireSession(ctx, sessions);
+            if (auth == null) return Unauthorized();
+            var (_, tenant) = auth.Value;
+
             if (!request.HasFormContentType)
                 return Results.BadRequest(new { error = "Cần gửi dạng multipart/form-data (files[])" });
 
@@ -210,7 +212,7 @@ public static class VisaEndpoints
 
                 // Lưu file gốc tạm (tự xóa sau 7 ngày)
                 for (int i = 0; i < rawBytes.Count; i++)
-                    store.Save("", id, i, rawBytes[i].name, rawBytes[i].data);
+                    store.Save(tenant, id, i, rawBytes[i].name, rawBytes[i].data);
 
                 var now = DateTime.UtcNow.ToString("o");
                 var assessment = new VisaAssessment(
@@ -226,7 +228,7 @@ public static class VisaEndpoints
                     CreatedAt: now,
                     UpdatedAt: now);
 
-                repo.Save("", assessment);
+                repo.Save(tenant, assessment);
                 return Results.Json(assessment);
             }
             catch (InvalidOperationException ex)   // ví dụ: provider không có vision
@@ -241,10 +243,15 @@ public static class VisaEndpoints
 
         // ─── POST /visa/assess/{id}/score ─── chấm điểm (bước 2) ─────────────────
         v1.MapPost("/visa/assess/{id}/score", async (string id, VisaScoreRequest req,
+            HttpContext ctx, TkSessionStore sessions,
             VisaScoringService scorer, VisaRepository repo,
             TourkitAiProxy.Services.Workflow.IWorkflowTraceAccessor trace, CancellationToken ct) =>
         {
-            var a = repo.Get("", id);
+            var auth = RequireSession(ctx, sessions);
+            if (auth == null) return Unauthorized();
+            var (_, tenant) = auth.Value;
+
+            var a = repo.Get(tenant, id);
             if (a is null) return Results.NotFound(new { error = "Không tìm thấy hồ sơ" });
 
             var profile = !string.IsNullOrWhiteSpace(req.Profile) ? req.Profile! : a.Extraction.Profile;
@@ -262,7 +269,7 @@ public static class VisaEndpoints
                     Extraction = a.Extraction with { Profile = profile },
                     UpdatedAt = DateTime.UtcNow.ToString("o")
                 };
-                repo.Save("", updated);
+                repo.Save(tenant, updated);
                 // Đính trace nếu ?debug=1 / X-Debug header
                 var traceObj = trace.Current?.Enabled == true ? trace.Current.Build() : null;
                 if (traceObj != null) return Results.Json(new { assessment = updated, _trace = traceObj });
@@ -279,22 +286,48 @@ public static class VisaEndpoints
         });
 
         // ─── GET /visa/assessments ─── lịch sử ───────────────────────────────────
-        v1.MapGet("/visa/assessments", (VisaRepository repo) => Results.Json(repo.All("")));
+        v1.MapGet("/visa/assessments", (HttpContext ctx, TkSessionStore sessions, VisaRepository repo) =>
+        {
+            var auth = RequireSession(ctx, sessions);
+            if (auth == null) return Unauthorized();
+            var (_, tenant) = auth.Value;
+            return Results.Json(repo.All(tenant));
+        });
 
         // ─── GET /visa/assessments/{id} ─── chi tiết ─────────────────────────────
-        v1.MapGet("/visa/assessments/{id}", (string id, VisaRepository repo) =>
+        v1.MapGet("/visa/assessments/{id}", (string id, HttpContext ctx, TkSessionStore sessions, VisaRepository repo) =>
         {
-            var a = repo.Get("", id);
+            var auth = RequireSession(ctx, sessions);
+            if (auth == null) return Unauthorized();
+            var (_, tenant) = auth.Value;
+            var a = repo.Get(tenant, id);
             return a is null ? Results.NotFound(new { error = "Không tìm thấy" }) : Results.Json(a);
         });
 
         // ─── DELETE /visa/assessments/{id} ─── xóa kết quả + file ────────────────
-        v1.MapDelete("/visa/assessments/{id}", (string id, VisaRepository repo, VisaFileStore store) =>
+        v1.MapDelete("/visa/assessments/{id}", (string id, HttpContext ctx, TkSessionStore sessions, VisaRepository repo, VisaFileStore store) =>
         {
-            store.DeleteAssessment("", id);
-            return repo.Delete("", id) ? Results.Json(new { ok = true }) : Results.NotFound(new { error = "Không tìm thấy" });
+            var auth = RequireSession(ctx, sessions);
+            if (auth == null) return Unauthorized();
+            var (_, tenant) = auth.Value;
+            store.DeleteAssessment(tenant, id);
+            return repo.Delete(tenant, id) ? Results.Json(new { ok = true }) : Results.NotFound(new { error = "Không tìm thấy" });
         });
     }
 
     private static string? NullIfBlank(string? s) => string.IsNullOrWhiteSpace(s) ? null : s.Trim();
+
+    /// Extract sessionId + tenantId từ request. Return null nếu missing/invalid session.
+    /// Handler caller trả 401 nếu null.
+    private static (string SessionId, string TenantId)? RequireSession(
+        HttpContext ctx, TourkitAiProxy.Services.TourKit.TkSessionStore sessions)
+    {
+        var sid = ctx.Request.Headers["X-Session-Id"].FirstOrDefault()
+            ?? ctx.Request.Query["sessionId"].FirstOrDefault();
+        var s = sessions.Get(sid);
+        return s == null ? null : (sid!, s.TenantId);
+    }
+
+    private static IResult Unauthorized()
+        => Results.Json(new { error = "Phiên không hợp lệ — đăng nhập lại" }, statusCode: 401);
 }
