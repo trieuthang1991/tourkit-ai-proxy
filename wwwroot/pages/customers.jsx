@@ -427,24 +427,32 @@ function CustomersPage({ pushToast }) {
 
   const busy = progress.status === 'processing';
 
+  // Reset autoTriedRef MỖI khi đổi page/filter/search/segment → cho auto chạy lại
+  // với items mới (đổi trang xong, đổi VIP/Thường, search, đổi loại KH...).
+  _uEC(() => { autoTriedRef.current = false; }, [page, pageSize, filter, segFilter, search]);
+
   // Auto-trigger sau khi list load + autoReview ON + không busy.
-  // autoTriedRef tránh trigger lặp (batch xong list refresh → loop vô tận).
+  // autoTriedRef chỉ chặn LOOP trong cùng items snapshot (vd batch xong list refresh sẽ
+  // KHÔNG re-trigger vì items chưa đổi page/filter — chỉ reviewStatus đổi).
   _uEC(() => {
     const dbg = (m) => console.log('[auto-review]', m);
     if (!autoReview)            { dbg('skip: autoReview OFF'); return; }
     if (busy)                   { dbg('skip: đang busy'); return; }
     if (loading)                { dbg('skip: list đang loading'); return; }
     if (items.length === 0)     { dbg('skip: items rỗng'); return; }
-    if (autoTriedRef.current)   { dbg('skip: đã trigger 1 lần trong mount này'); return; }
+    if (autoTriedRef.current)   { dbg('skip: đã trigger cho items hiện tại'); return; }
 
-    const todo = items.filter(c => !c.reviewStatus || c.reviewStatus === 'none').slice(0, 30);
+    // KHÔNG cap 30 nữa — lấy hết KH chưa review trên page hiện tại (cap kỹ thuật 100 để
+    // tránh batch quá to nếu pageSize cao bất thường).
+    const todo = items.filter(c => !c.reviewStatus || c.reviewStatus === 'none').slice(0, 100);
     if (todo.length === 0) {
-      dbg(`trang này KHÔNG có KH "chưa review" — bỏ qua (items=${items.length}, đã review=${items.length})`);
+      dbg(`trang này KHÔNG có KH "chưa review" — bỏ qua (items=${items.length})`);
       pushToast(`Tự động review: trang này không có KH nào chưa review`, 'info');
+      autoTriedRef.current = true;   // mark để khỏi spam toast khi state khác đổi
       return;
     }
     autoTriedRef.current = true;
-    dbg(`trigger batch ${todo.length} KH chưa review (trên tổng ${items.length} đang xem)`);
+    dbg(`trigger batch ${todo.length} KH chưa review (tổng items trên trang ${items.length})`);
     const ids = new Set(todo.map(c => c.id));
     setSelected(ids);
     pushToast(`Tự động review ${todo.length} KH chưa có review…`, 'info');

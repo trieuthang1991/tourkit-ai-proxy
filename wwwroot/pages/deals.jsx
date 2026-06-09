@@ -221,12 +221,26 @@ function DealsPage({ pushToast }) {
   _dE(() => { loadList(); }, [page, pageSize]);
   _dE(() => { setPage(1); }, [pageSize]);   // đổi pageSize → về page 1
 
+  // Reset autoTriedRef khi đổi page/pageSize/filter — cho auto re-check trên view mới.
+  // Guard "vừa chấm < 30 phút" trong useEffect dưới sẽ tránh đốt token thừa.
+  _dE(() => { autoTriedRef.current = false; }, [page, pageSize, adv, q, level, riskOnly]);
+
   // Auto-trigger: bật ON + đã load list + chưa chạy + board cũ (>30min hoặc rỗng) → chạy phân tích.
   _dE(() => {
-    if (!autoAnalyze || running || listLoading || list.length === 0 || autoTriedRef.current) return;
+    const dbg = (m) => console.log('[auto-deal]', m);
+    if (!autoAnalyze)            { dbg('skip: autoAnalyze OFF'); return; }
+    if (running)                 { dbg('skip: đang running'); return; }
+    if (listLoading)             { dbg('skip: list đang loading'); return; }
+    if (list.length === 0)       { dbg('skip: list rỗng'); return; }
+    if (autoTriedRef.current)    { dbg('skip: đã trigger cho state hiện tại'); return; }
     const recent = board?.generatedAt && (Date.now() - new Date(board.generatedAt).getTime() < 30 * 60 * 1000);
-    if (recent) return;   // skip nếu vừa chấm < 30 phút
+    if (recent) {
+      dbg(`skip: vừa chấm < 30 phút (lúc ${board.generatedAt})`);
+      autoTriedRef.current = true;
+      return;
+    }
     autoTriedRef.current = true;
+    dbg(`trigger phân tích ${list.length} cơ hội`);
     pushToast(`Tự động phân tích ${list.length} cơ hội…`, 'info');
     setTimeout(() => run(), 300);
   }, [autoAnalyze, running, listLoading, list, board]);
