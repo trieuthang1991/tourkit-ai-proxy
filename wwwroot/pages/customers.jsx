@@ -430,10 +430,21 @@ function CustomersPage({ pushToast }) {
   // Auto-trigger sau khi list load + autoReview ON + không busy.
   // autoTriedRef tránh trigger lặp (batch xong list refresh → loop vô tận).
   _uEC(() => {
-    if (!autoReview || busy || loading || items.length === 0 || autoTriedRef.current) return;
+    const dbg = (m) => console.log('[auto-review]', m);
+    if (!autoReview)            { dbg('skip: autoReview OFF'); return; }
+    if (busy)                   { dbg('skip: đang busy'); return; }
+    if (loading)                { dbg('skip: list đang loading'); return; }
+    if (items.length === 0)     { dbg('skip: items rỗng'); return; }
+    if (autoTriedRef.current)   { dbg('skip: đã trigger 1 lần trong mount này'); return; }
+
     const todo = items.filter(c => !c.reviewStatus || c.reviewStatus === 'none').slice(0, 30);
-    if (todo.length === 0) return;
+    if (todo.length === 0) {
+      dbg(`trang này KHÔNG có KH "chưa review" — bỏ qua (items=${items.length}, đã review=${items.length})`);
+      pushToast(`Tự động review: trang này không có KH nào chưa review`, 'info');
+      return;
+    }
     autoTriedRef.current = true;
+    dbg(`trigger batch ${todo.length} KH chưa review (trên tổng ${items.length} đang xem)`);
     const ids = new Set(todo.map(c => c.id));
     setSelected(ids);
     pushToast(`Tự động review ${todo.length} KH chưa có review…`, 'info');

@@ -64,8 +64,23 @@ public class DealBatchService
             await Emit(job, "scanning");
             var all = await _client.ListOpenAsync(sessionId, req.Assignee, req.Source, ScanPageSize, ct);
 
-            // Tầng 1: heuristic xếp sơ bộ → top N
-            var ranked = all.OrderByDescending(DealHeuristic.QuickScore).Take(topN).ToList();
+            // 2 chế độ:
+            //  - Manual: req.DealIds có giá trị → filter chỉ những id được chọn (cap 50, skip heuristic)
+            //  - Auto: bỏ qua DealIds → heuristic quick-score → take top N
+            List<DealOpportunity> ranked;
+            if (req.DealIds != null && req.DealIds.Count > 0)
+            {
+                // DealOpportunity.Id là int, frontend gửi string → so sánh string
+                var wanted = req.DealIds.Take(50).ToHashSet();
+                ranked = all.Where(d => wanted.Contains(d.Id.ToString())).ToList();
+                trace?.SetMeta("mode", "manual");
+                trace?.SetMeta("dealIdsSelected", ranked.Count);
+            }
+            else
+            {
+                ranked = all.OrderByDescending(DealHeuristic.QuickScore).Take(topN).ToList();
+                trace?.SetMeta("mode", "auto");
+            }
             job.Total = ranked.Count;
             await Emit(job, "ranked", new { scanned = all.Count, total = ranked.Count });
 

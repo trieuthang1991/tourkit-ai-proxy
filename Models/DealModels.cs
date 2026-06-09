@@ -3,6 +3,7 @@ using System.Text.Json.Serialization;
 namespace TourkitAiProxy.Models;
 
 /// Cơ hội bán hàng (booking-ticket) dạng nhẹ từ /api/ai/booking-tickets — đầu vào heuristic.
+/// Các field cooling* server-side compute (upstream TourKit.Api ≥ commit thêm AiBookingTicketItem.IsCooling).
 public record DealOpportunity(
     int Id,
     string? Code,
@@ -16,8 +17,15 @@ public record DealOpportunity(
     string? SourceName,
     string? MarketName,
     string? Assignees,
-    string CreatedAt,      // ISO
-    int AgeDays            // ngày kể từ tạo
+    string CreatedAt,                  // ISO
+    int AgeDays,                       // ngày kể từ tạo
+    // ── Tín hiệu "đang nguội" từ upstream (LastInteractionAt = MAX(create,update,latestComment)) ──
+    string? LatestComment = null,      // nội dung comment Sale gần nhất
+    string? LatestCommentBy = null,
+    string? LatestCommentDate = null,  // ISO
+    string? LastInteractionAt = null,  // ISO
+    int CoolingDays = 0,               // số ngày từ LastInteractionAt tới hôm nay
+    bool IsCooling = false             // true nếu CoolingDays ≥ ngưỡng (upstream quyết, mặc định 7d)
 );
 
 /// Kết quả AI chấm sâu 1 deal (dùng detail + lịch sử hành động Sale).
@@ -62,10 +70,14 @@ public record DealBoard(
 );
 
 /// Body POST /api/v1/deals/analyze.
+/// 2 chế độ:
+///   1) DealIds rỗng/null → scan toàn pipeline (assignee/source filter) → heuristic → AI chấm sâu top N
+///   2) DealIds có giá trị → bỏ qua scan + heuristic, chấm AI cho ĐÚNG list id user chọn (cap 50)
 public record DealAnalyzeRequest(
     [property: JsonPropertyName("assignee")] string? Assignee,
     [property: JsonPropertyName("source")]   string? Source,
     [property: JsonPropertyName("topN")]     int? TopN,
+    [property: JsonPropertyName("dealIds")]  List<string>? DealIds,
     [property: JsonPropertyName("provider")] string? Provider,
     [property: JsonPropertyName("model")]    string? Model,
     [property: JsonPropertyName("apiKey")]   string? ApiKey

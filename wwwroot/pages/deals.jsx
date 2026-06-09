@@ -160,6 +160,13 @@ function DealsPage({ pushToast }) {
   const [progress, setProgress] = _dS(null);
   const [sel, setSel] = _dS(null);
 
+  // ─── Multi-select để chấm AI những deal cụ thể (giống Khách hàng) ────────
+  // Khi `selectedIds.size > 0` → bấm "Chấm AI N deal" gọi POST với dealIds: [...]
+  // Khi size = 0 → bấm "Phân tích AI" chấm top 20 ưu tiên auto.
+  const [selectedIds, setSelectedIds] = _dS(new Set());
+  const toggleDeal = (id) => setSelectedIds(s => { const n = new Set(s); n.has(id) ? n.delete(id) : n.add(id); return n; });
+  const clearSelected = () => setSelectedIds(new Set());
+
   // ─── Tự động phân tích ───────────────────────────────────────────────────
   // Toggle persist localStorage theo tenant. Khi BẬT + page mount + có cơ hội + chưa chấm gần đây
   // → tự run() phân tích. Chỉ trigger 1 lần per page-mount (autoTriedRef).
@@ -224,15 +231,19 @@ function DealsPage({ pushToast }) {
     setTimeout(() => run(), 300);
   }, [autoAnalyze, running, listLoading, list, board]);
 
-  async function run() {
+  async function run(overrideIds = null) {
     setRunning(true); setProgress({ stage: 'scanning' });
     const live = [];
     try {
       const cfg = window.tourkit.ai.getConfig();
       const key = window.tourkit.ai.getKey(cfg.provider);
+      // Nếu user chọn cụ thể → gửi dealIds; nếu auto → để trống, backend lấy top 20 ưu tiên.
+      const useIds = overrideIds || (selectedIds.size > 0 ? selectedIds : null);
+      const body = { provider: cfg.provider, model: cfg.model, apiKey: key || undefined };
+      if (useIds) body.dealIds = [...useIds];
       const r = await window.tourkitAuth.authedFetch('/api/v1/deals/analyze', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ provider: cfg.provider, model: cfg.model, apiKey: key || undefined }),
+        body: JSON.stringify(body),
       });
       const data = await r.json();
       if (!r.ok) { pushToast(data.error || 'Không khởi động được phân tích', 'error'); setRunning(false); setProgress(null); return; }
@@ -335,9 +346,17 @@ function DealsPage({ pushToast }) {
             onClick={toggleAutoAnalyze} title="Tự động phân tích cơ hội khi mở page (lưu theo tài khoản, skip nếu vừa chấm < 30 phút)">
             <Icon name={autoAnalyze ? 'check' : 'close'} size={14} /> Tự động {autoAnalyze ? 'ON' : 'OFF'}
           </button>
+          {selectedIds.size > 0 && !running && (
+            <button className="btn btn-ghost btn-sm" onClick={clearSelected} title="Bỏ chọn">
+              <Icon name="close" size={14} /> Bỏ chọn {selectedIds.size}
+            </button>
+          )}
           {running
             ? <button className="deals-btn" onClick={cancel}><Icon name="close" size={15} /> Hủy</button>
-            : <button className="deals-btn primary" onClick={run}><Icon name="sparkle" size={15} /> Phân tích AI</button>}
+            : <button className="deals-btn primary" onClick={() => run()}>
+                <Icon name="sparkle" size={15} />
+                {selectedIds.size > 0 ? `Chấm AI ${selectedIds.size} deal` : 'Phân tích AI (top 20 ưu tiên)'}
+              </button>}
         </>}
       />
 
@@ -451,6 +470,7 @@ function DealsPage({ pushToast }) {
           <div className="deals-tablewrap">
             <table className="deals-table">
               <colgroup>
+                <col className="col-check" />
                 <col className="col-rank" />
                 <col className="col-cust" />
                 <col className="col-val" />
@@ -460,6 +480,18 @@ function DealsPage({ pushToast }) {
                 <col className="col-go" />
               </colgroup>
               <thead><tr>
+                <th>
+                  <input type="checkbox" disabled={running}
+                    checked={filtered.length > 0 && filtered.every(it => selectedIds.has(it.id))}
+                    onChange={(e) => {
+                      const checked = e.target.checked;
+                      setSelectedIds(s => {
+                        const n = new Set(s);
+                        filtered.forEach(it => checked ? n.add(it.id) : n.delete(it.id));
+                        return n;
+                      });
+                    }} />
+                </th>
                 <th>#</th><th>Khách hàng / Cơ hội</th><th>Giá trị</th><th>Win</th>
                 <th>Ưu tiên</th><th>Hành động nên làm</th><th></th>
               </tr></thead>
@@ -469,7 +501,13 @@ function DealsPage({ pushToast }) {
                   // Rank chỉ có nghĩa cho deal đã chấm — unscored hiện "—" thay vì index list.
                   const rank = it._hasScore ? (boardItems.findIndex(b => b.id === it.id) + 1) : null;
                   return (
-                    <tr key={it.id} onClick={() => setSel(it)} className="deals-row">
+                    <tr key={it.id} onClick={() => setSel(it)}
+                        className={'deals-row' + (selectedIds.has(it.id) ? ' is-selected' : '')}>
+                      <td onClick={(e) => e.stopPropagation()}>
+                        <input type="checkbox" disabled={running}
+                          checked={selectedIds.has(it.id)}
+                          onChange={() => toggleDeal(it.id)} />
+                      </td>
                       <td className="deals-rank">{rank || <span style={{color:'var(--text-3)'}}>—</span>}</td>
                       <td>
                         <div className="deals-cust">{it.customerName}
