@@ -428,6 +428,20 @@ input:focus, textarea:focus, select:focus { outline: none; }
 .btn-lg { padding: 14px 22px; font-size: 14px; }
 .btn-sm { padding: 8px 12px; font-size: 12px; }
 
+/* Toggle nút "Tự động ON/OFF" — pill có viền + đốm trạng thái.
+   ON = primary tint (cam, fill mờ); OFF = neutral (xám, viền đứt).
+   Dùng cho /customers + /deals auto-review-toggle (lưu localStorage per-tenant). */
+.btn.autotoggle {
+  display: inline-flex; align-items: center; gap: 6px;
+  padding: 7px 12px; font-size: 12px; font-weight: 600;
+  border-radius: 999px; border: 1px solid var(--line); background: transparent;
+  transition: background .15s, border-color .15s, color .15s;
+}
+.btn.autotoggle.on  { background: rgba(255, 121, 39, 0.08); border-color: var(--primary); color: var(--primary-dark); }
+.btn.autotoggle.on:hover { background: rgba(255, 121, 39, 0.14); }
+.btn.autotoggle.off { color: var(--text-3); border-style: dashed; }
+.btn.autotoggle.off:hover { color: var(--text-2); border-color: var(--text-3); }
+
 /* ---------- AI Assistant ---------- */
 .ai-header {
   display: flex;
@@ -2432,8 +2446,8 @@ body.editorial .ai-bubble .hl { color: #FDBA74; }
 .deals-risk { display: inline-flex; align-items: center; gap: 3px; font-size: 10.5px; font-weight: 700; color: #b45309;
   background: #fef3c7; padding: 1px 6px; border-radius: 999px; }
 .deals-val { font-weight: 600; color: var(--text); white-space: nowrap; }
-.deals-win { display: inline-block; font-size: 12px; font-weight: 800; padding: 3px 9px; border-radius: 999px; }
-.deals-prio { width: 84px; height: 7px; border-radius: 999px; background: var(--bg); overflow: hidden; }
+.deals-win { display: inline-block; font-size: 13px; font-weight: 800; padding: 4px 12px; border-radius: 999px; min-width: 58px; text-align: center; }
+.deals-prio { width: 120px; height: 7px; border-radius: 999px; background: var(--bg); overflow: hidden; }
 .deals-prio i { display: block; height: 100%; background: linear-gradient(90deg, var(--primary), var(--primary-dark)); border-radius: 999px; }
 .deals-ev { font-size: 10.5px; color: var(--text-3); }
 .deals-action { font-size: 12.5px; color: var(--text-2); line-height: 1.55;
@@ -2442,9 +2456,9 @@ body.editorial .ai-bubble .hl { color: #FDBA74; }
 .deals-table col.col-rank   { width: 44px; }
 .deals-table col.col-cust   { width: 22%; }
 .deals-table col.col-val    { width: 10%; }
-.deals-table col.col-win    { width: 80px; }
-.deals-table col.col-prio   { width: 14%; }
-.deals-table col.col-action { width: auto; min-width: 360px; }
+.deals-table col.col-win    { width: 110px; }
+.deals-table col.col-prio   { width: 160px; }
+.deals-table col.col-action { width: auto; min-width: 340px; }
 .deals-table col.col-go     { width: 36px; }
 .deals-go { color: var(--text-3); width: 28px; }
 
@@ -3401,3 +3415,121 @@ html[data-home-theme="dark"] .hp-theme {
   .aiu-wflog-ts, .aiu-wflog-steps, .aiu-wflog-path { display: none; }
   .aiu-wflog-detail { padding: 4px 12px 14px 12px; }
 }
+
+/* ─── TKCheckbox ─── refined B2B checkbox replacing native <input type=checkbox>.
+   Animations: snap-in (spring), draw-on tick, soft halo on hover, keyboard focus ring. */
+.tk-check {
+  --tk-cb-size:   18px;
+  --tk-cb-radius: 5px;
+  --tk-cb-bg:     #FFFFFF;
+  --tk-cb-border: var(--border-strong);
+  --tk-cb-on:     var(--accent);
+  --tk-cb-on-dk:  var(--accent-dark);
+  --tk-cb-glow:   rgba(249, 115, 22, 0.10);
+  --tk-cb-ring:   rgba(249, 115, 22, 0.32);
+
+  display: inline-flex; align-items: center; gap: 10px;
+  cursor: pointer;
+  user-select: none;
+  line-height: 1;
+  position: relative;
+  -webkit-tap-highlight-color: transparent;
+}
+.tk-check-sm { --tk-cb-size: 14px; --tk-cb-radius: 4px; gap: 8px; }
+
+/* Native input — visually hidden NHƯNG vẫn click/focus được (a11y) */
+.tk-check > input {
+  position: absolute; inset: 0;
+  width: 100%; height: 100%;
+  margin: 0; padding: 0;
+  opacity: 0; cursor: inherit;
+  /* Limit hit area to box khi không có label, hoặc cả vùng nếu có */
+}
+.tk-check:not(.has-label) > input { width: var(--tk-cb-size); height: var(--tk-cb-size); inset: auto; position: relative; }
+
+/* Hộp visual */
+.tk-check-box {
+  position: relative;
+  flex-shrink: 0;
+  width:  var(--tk-cb-size);
+  height: var(--tk-cb-size);
+  border-radius: var(--tk-cb-radius);
+  background: var(--tk-cb-bg);
+  border: 1.5px solid var(--tk-cb-border);
+  display: inline-flex; align-items: center; justify-content: center;
+  color: #FFFFFF; /* SVG stroke=currentColor → tick trắng khi checked */
+  transition: background 160ms cubic-bezier(0.4, 0, 0.2, 1),
+              border-color 160ms cubic-bezier(0.4, 0, 0.2, 1),
+              box-shadow 200ms ease,
+              transform 120ms cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+/* Hover (unchecked) */
+.tk-check:not(.is-disabled):hover .tk-check-box {
+  border-color: var(--tk-cb-on);
+  box-shadow: 0 0 0 4px var(--tk-cb-glow);
+}
+
+/* Focus-visible (keyboard) — ring rõ */
+.tk-check > input:focus-visible + .tk-check-box {
+  border-color: var(--tk-cb-on);
+  box-shadow: 0 0 0 3px var(--tk-cb-ring);
+}
+
+/* Active (click) — scale nhẹ */
+.tk-check:not(.is-disabled):active .tk-check-box { transform: scale(0.92); }
+
+/* Checked */
+.tk-check.is-checked .tk-check-box,
+.tk-check.is-indeterminate .tk-check-box {
+  background: var(--tk-cb-on);
+  border-color: var(--tk-cb-on);
+}
+.tk-check.is-checked:not(.is-disabled):hover .tk-check-box,
+.tk-check.is-indeterminate:not(.is-disabled):hover .tk-check-box {
+  background: var(--tk-cb-on-dk);
+  border-color: var(--tk-cb-on-dk);
+}
+
+/* Tick — vẽ draw-on bằng stroke-dasharray, scale-in spring overshoot */
+.tk-check-tick {
+  position: absolute;
+  width: 76%; height: 76%;
+  opacity: 0;
+  transform: scale(0.6);
+  transition: opacity 100ms ease, transform 220ms cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+.tk-check-tick path {
+  stroke-dasharray: 16;
+  stroke-dashoffset: 16;
+  transition: stroke-dashoffset 240ms cubic-bezier(0.34, 1.36, 0.64, 1) 40ms;
+}
+.tk-check.is-checked .tk-check-tick { opacity: 1; transform: scale(1); }
+.tk-check.is-checked .tk-check-tick path { stroke-dashoffset: 0; }
+/* Khi indeterminate → ẨN tick (dash hiện ở dưới) */
+.tk-check.is-indeterminate .tk-check-tick { opacity: 0; transform: scale(0.6); }
+
+/* Indeterminate dash — bar ngang trắng */
+.tk-check-dash {
+  position: absolute;
+  width: 56%; height: 2px;
+  background: currentColor;
+  border-radius: 2px;
+  opacity: 0;
+  transform: scaleX(0.5);
+  transition: opacity 140ms ease, transform 200ms cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+.tk-check.is-indeterminate .tk-check-dash { opacity: 1; transform: scaleX(1); }
+
+/* Label (nếu có) */
+.tk-check-label {
+  font-size: 13px;
+  color: var(--text);
+  font-weight: 500;
+}
+.tk-check-sm .tk-check-label { font-size: 12px; }
+
+/* Disabled */
+.tk-check.is-disabled { cursor: not-allowed; opacity: 0.45; }
+.tk-check.is-disabled .tk-check-box { box-shadow: none; }
+

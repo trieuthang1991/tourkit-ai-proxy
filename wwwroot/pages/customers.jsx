@@ -5,10 +5,13 @@
 //   - Progress view: SSE stream từ backend, mỗi KH xong update inline
 // Click row đã review → mở review-card drawer.
 
-const { useState: _uC, useEffect: _uEC, useMemo: _uMc } = React;
+const { useState: _uC, useEffect: _uEC, useMemo: _uMc, useRef: _uRef } = React;
 
 function CustomersPage({ pushToast }) {
   const [items, setItems]         = _uC([]);
+  const [total, setTotal]         = _uC(0);                // Tổng KH toàn DB sau filter (upstream tính)
+  const [page, setPage]           = _uC(1);                // 1-based
+  const [pageSize, setPageSize]   = _uC(50);
   const [loading, setLoading]     = _uC(true);
   const [err, setErr]             = _uC(null);
   const [segFilter, setSegFilter] = _uC('all');
@@ -21,6 +24,17 @@ function CustomersPage({ pushToast }) {
   const [drawerId, setDrawerId]   = _uC(null);            // KH đang xem detail
   const [forceFresh, setForceFresh] = _uC(false);
 
+  const totalPages = Math.max(1, Math.ceil(total / pageSize));
+
+  // ─── Stream lifecycle refs ────────────────────────────────────────────────
+  // Khi user thoát page lúc đang chạy batch:
+  //  - mountedRef = false → handleStreamEvent skip setState (tránh "state update on unmounted")
+  //  - streamAbortRef.abort() → fetch reader.read() reject AbortError → vòng while thoát sạch
+  //  - currentJobRef giữ job để cleanup gọi backend cancel (giải phóng resource server)
+  const mountedRef    = _uRef(true);
+  const streamAbortRef = _uRef(null);
+  const currentJobRef  = _uRef(null);
+
   // Bộ lọc nâng cao (state shared cho AdvancedFilterSheet)
   const EMPTY_FILTER = {
     customerTypeId: 0, customerSourceId: 0, sellerId: 0,
@@ -32,6 +46,91 @@ function CustomersPage({ pushToast }) {
   const [lookups, setLookups] = _uC({ customerTypes: [], customerSources: [], sellers: [] });
   const activeFilterCount = ['customerTypeId','customerSourceId','sellerId','gender','startDate','endDate','sortOrder','careFilter']
     .filter(k => filter[k] && filter[k] !== 0).length + (filter.birthdayThisMonth ? 1 : 0);
+
+  // Cleanup khi unmount (user navigate sang route khác / đóng tab):
+  //  1. mountedRef.current=false → consumeStream + handleStreamEvent skip setState
+  //  2. Abort fetch → reader.read() throw AbortError (đã catch)
+  //  3. Fire-and-forget POST /cancel để backend dừng batch (khỏi đốt token AI cho user đã thoát)
+  _uEC(() => {
+    mountedRef.current = true;
+    return () => {
+      mountedRef.current = false;
+      try { streamAbortRef.current?.abort(); } catch {}
+      const j = currentJobRef.current;
+      if (j?.cancelUrl) {
+        // Fire-and-forget — không await vì cleanup phải sync; backend cancel best-effort.
+        try { window.tourkitAuth.authedFetch(j.cancelUrl, { method: 'POST' }).catch(() => {}); } catch {}
+      }
+    };
+  }, []);
+
+  // ─── Exit-guard khi batch đang chạy ───────────────────────────────────────
+  // Cảnh báo user trước khi rời page (đóng tab, reload, click nav, back button).
+  // Nếu user confirm → unmount cleanup ở trên sẽ tự cancel batch backend.
+  _uEC(() => {
+    const busy = progress.status === 'processing';
+    if (!busy) return;
+
+    const msg = `Đang review ${progress.done}/${progress.total} khách hàng. Rời trang sẽ DỪNG tiến trình.`;
+
+    // (1) Browser-level: đóng tab / reload / typed URL / close window → native dialog
+    // Modern browser KHÔNG hiển thị msg custom (security); chỉ dialog mặc định.
+    const onBeforeUnload = (e) => { e.preventDefault(); e.returnValue = msg; };
+    window.addEventListener('beforeunload', onBeforeUnload);
+
+    // (2) In-app nav qua <Link>: capture-phase click listener trên document, bắt anchor
+    // có href same-origin (bỏ qua tel:/mailto:/external/middle-click/modifier).
+    const onClickCapture = (e) => {
+      let el = e.target;
+      while (el && el !== document && el.tagName !== 'A') el = el.parentElement;
+      if (!el || el.tagName !== 'A') return;
+      const href = el.getAttribute('href');
+      if (!href) return;
+      // Bỏ qua: external, tel/mailto, anchor #, modifier-click (mở tab mới)
+      if (/^(https?:|tel:|mailto:|#)/i.test(href)) return;
+      if (e.metaKey || e.ctrlKey || e.shiftKey || e.altKey || e.button !== 0) return;
+      // Same path → không cần hỏi (vd click tab Khách hàng khi đang ở /customers)
+      if (href === window.location.pathname) return;
+
+      e.preventDefault();
+      e.stopPropagation();
+      window.appConfirm(msg, {
+        title: 'Đang review khách hàng',
+        eyebrow: 'CẢNH BÁO',
+        confirmLabel: 'Rời trang & dừng',
+        cancelLabel:  'Ở lại',
+        danger: true,
+      }).then(ok => { if (ok) window.tourkitRouter.navigate(href); });
+    };
+    document.addEventListener('click', onClickCapture, true);   // capture phase!
+
+    // (3) Browser back/forward: popstate fires SAU khi URL đã đổi → mình push lại path cũ
+    // (URL về như cũ) rồi hỏi. Nếu OK → pushState đến targetPath (KHÔNG dùng history.back vì
+    // sẽ trigger popstate loop). Stack hơi cluttered nhưng UX đúng.
+    const guardedPath = window.location.pathname;
+    const onPopstate = () => {
+      const targetPath = window.location.pathname;
+      if (targetPath === guardedPath) return;   // popstate không đổi path → bỏ qua
+      window.history.pushState({}, '', guardedPath);
+      window.dispatchEvent(new CustomEvent('tourkit:navigate'));
+      window.appConfirm(msg, {
+        title: 'Đang review khách hàng',
+        eyebrow: 'CẢNH BÁO',
+        confirmLabel: 'Rời trang & dừng',
+        cancelLabel:  'Ở lại',
+        danger: true,
+      }).then(ok => {
+        if (ok) window.tourkitRouter.navigate(targetPath);
+      });
+    };
+    window.addEventListener('popstate', onPopstate);
+
+    return () => {
+      window.removeEventListener('beforeunload', onBeforeUnload);
+      document.removeEventListener('click', onClickCapture, true);
+      window.removeEventListener('popstate', onPopstate);
+    };
+  }, [progress.status, progress.done, progress.total]);
 
   // Load lookups 1 lần — best-effort (lỗi thì để rỗng, vẫn render filter rỗng)
   _uEC(() => {
@@ -53,6 +152,25 @@ function CustomersPage({ pushToast }) {
   // Pipeline counts theo stage hiện tại (derived từ rowStatus, nhưng cache để render mượt).
   const [stageCounts, setStageCounts] = _uC({ queue: 0, preparing: 0, calling: 0, parsing: 0, done: 0, error: 0 });
 
+  // ─── Tự động review ──────────────────────────────────────────────────────
+  // Toggle persist localStorage theo tenant. Khi BẬT + page mount + có KH chưa review
+  // → tự pick top 30 (reviewStatus='none') → trigger batch (skip confirm modal).
+  // Mỗi page-mount chỉ chạy 1 lần (autoTriedRef) — tránh loop khi batch xong + list refresh.
+  const _autoKey = 'tourkit_auto_review_' + (window.tourkitAuth?.getUser?.()?.tenantId || '');
+  const [autoReview, setAutoReview] = _uC(() => localStorage.getItem(_autoKey) === 'on');
+  const autoTriedRef = window.React.useRef(false);
+
+  const toggleAuto = () => {
+    setAutoReview(prev => {
+      const next = !prev;
+      try { localStorage.setItem(_autoKey, next ? 'on' : 'off'); } catch {}
+      if (next) pushToast('Tự động review BẬT — sẽ chạy khi có KH chưa review', 'info');
+      else      pushToast('Tự động review TẮT', 'warn');
+      autoTriedRef.current = false;   // reset để bật lại sẽ trigger ngay
+      return next;
+    });
+  };
+
   // Activity log: rolling buffer event stream, capped 200 entries cho perf.
   const [activityLog, setActivityLog] = _uC([]);
   const [logOpen, setLogOpen] = _uC(false);
@@ -64,6 +182,8 @@ function CustomersPage({ pushToast }) {
     setLoading(true); setErr(null);
     try {
       const q = new URLSearchParams();
+      q.set('page', page);
+      q.set('pageSize', pageSize);
       if (segFilter !== 'all') q.set('segment', segFilter);
       if (search.trim()) q.set('search', search.trim());
       if (filter.customerTypeId)   q.set('customerTypeId',   filter.customerTypeId);
@@ -77,7 +197,10 @@ function CustomersPage({ pushToast }) {
       if (filter.careFilter)       q.set('careFilter',       filter.careFilter);
       const resp = await window.tourkitAuth.authedFetch('/api/v1/customers?' + q.toString());
       if (!resp.ok) throw new Error('HTTP ' + resp.status);
-      setItems(await resp.json());
+      const data = await resp.json();
+      // Backend trả {items, total, page, pageSize}. Fallback array cho phòng hờ legacy.
+      if (Array.isArray(data)) { setItems(data); setTotal(data.length); }
+      else { setItems(data.items || []); setTotal(data.total ?? (data.items?.length || 0)); }
     } catch (e) {
       setErr(e.message);
     } finally {
@@ -85,13 +208,16 @@ function CustomersPage({ pushToast }) {
     }
   };
 
-  _uEC(() => { loadList(); }, [segFilter, filter]);
+  // Đổi filter/segment/search/pageSize → reset về page 1 (tránh "ở page 5 nhưng filter mới chỉ có 2 page").
+  // Reset xong, effect load list bên dưới sẽ tự fire vì page đổi (hoặc đã ở page 1 + filter đổi).
+  _uEC(() => { setPage(1); }, [segFilter, filter, pageSize, search]);
 
-  // Debounce search
+  // Load list — debounce 300ms với search (mỗi keystroke), instant với page/filter.
   _uEC(() => {
-    const t = setTimeout(loadList, 300);
+    const delay = 300; // debounce chung — page-click cũng có 300ms nhẹ, chấp nhận được
+    const t = setTimeout(loadList, delay);
     return () => clearTimeout(t);
-  }, [search]);
+  }, [segFilter, filter, page, pageSize, search]);
 
   const toggleOne = (id) => {
     setSelected(s => {
@@ -101,21 +227,33 @@ function CustomersPage({ pushToast }) {
     });
   };
 
+  // Toggle theo PAGE hiện tại — giữ selection cross-page để user có thể batch xuyên trang.
+  // Click header trên page 2 KHÔNG wipe selection của page 1.
   const toggleAll = () => {
-    setSelected(s => s.size === items.length ? new Set() : new Set(items.map(x => x.id)));
+    setSelected(s => {
+      const pageIds = items.map(x => x.id);
+      const allChecked = pageIds.length > 0 && pageIds.every(id => s.has(id));
+      const n = new Set(s);
+      if (allChecked) pageIds.forEach(id => n.delete(id));
+      else            pageIds.forEach(id => n.add(id));
+      return n;
+    });
   };
 
   const selectedItems = _uMc(() => items.filter(i => selected.has(i.id)), [items, selected]);
   const willCacheHit  = _uMc(() => selectedItems.filter(i => i.reviewStatus === 'fresh').length, [selectedItems]);
   const willCallAi    = _uMc(() => selectedItems.length - (forceFresh ? 0 : willCacheHit), [selectedItems, willCacheHit, forceFresh]);
 
-  const startBatch = async () => {
+  const startBatch = async (overrideIds = null) => {
     setConfirm(false);
+    // Auto mode truyền overrideIds (Set) thay vì đợi setSelected re-render
+    const useIds = overrideIds || selected;
+    if (!useIds || useIds.size === 0) return;
     // Reset state cho lượt mới
     const initial = {};
-    [...selected].forEach(id => { initial[id] = { stage: 'queue' }; });
+    [...useIds].forEach(id => { initial[id] = { stage: 'queue' }; });
     setRowStatus(initial);
-    setStageCounts({ queue: selected.size, preparing: 0, calling: 0, parsing: 0, done: 0, error: 0 });
+    setStageCounts({ queue: useIds.size, preparing: 0, calling: 0, parsing: 0, done: 0, error: 0 });
     setActivityLog([]);
     setActiveStream(null);
 
@@ -123,11 +261,12 @@ function CustomersPage({ pushToast }) {
       const resp = await window.tourkitAuth.authedFetch('/api/v1/reviews/batch', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ customerIds: [...selected], forceFresh })
+        body: JSON.stringify({ customerIds: [...useIds], forceFresh })
       });
       if (!resp.ok) throw new Error('HTTP ' + resp.status);
       const j = await resp.json();
       setJob(j);
+      currentJobRef.current = j;   // ref để cleanup-on-unmount biết cancelUrl
       setProgress({ done: 0, errors: 0, cached: 0, total: j.total, status: 'processing' });
       consumeStream(j.streamUrl);
     } catch (e) {
@@ -157,9 +296,13 @@ function CustomersPage({ pushToast }) {
 
   // SSE consumer — đọc events từ backend, update progress + rowStatus.
   // Dùng fetch streaming (browser EventSource không support stop trigger qua POST đã start).
+  // Abort-aware: nếu page unmount giữa chừng → controller.abort() làm reader.read() reject
+  // AbortError; CATCH swallow (không toast vì đó là hành vi mong muốn).
   const consumeStream = async (url) => {
+    const controller = new AbortController();
+    streamAbortRef.current = controller;
     try {
-      const resp = await window.tourkitAuth.authedFetch(url);
+      const resp = await window.tourkitAuth.authedFetch(url, { signal: controller.signal });
       if (!resp.ok || !resp.body) throw new Error('Stream lỗi ' + resp.status);
       const reader = resp.body.getReader();
       const decoder = new TextDecoder('utf-8');
@@ -167,6 +310,7 @@ function CustomersPage({ pushToast }) {
       while (true) {
         const { done, value } = await reader.read();
         if (done) break;
+        if (!mountedRef.current) { try { reader.cancel(); } catch {} break; }
         buf += decoder.decode(value, { stream: true });
         let idx;
         while ((idx = buf.indexOf('\n\n')) >= 0) {
@@ -181,11 +325,18 @@ function CustomersPage({ pushToast }) {
         }
       }
     } catch (e) {
+      // Abort là hành vi mong muốn khi user thoát page — không phải lỗi để toast.
+      if (e?.name === 'AbortError' || controller.signal.aborted || !mountedRef.current) return;
       pushToast('Stream lỗi: ' + e.message, 'warn');
+    } finally {
+      if (streamAbortRef.current === controller) streamAbortRef.current = null;
     }
   };
 
   const handleStreamEvent = (evt) => {
+    // Guard: nếu page đã unmount giữa lúc còn event tới (race giữa abort và buffered data),
+    // skip toàn bộ setState để React không warn "state update on unmounted component".
+    if (!mountedRef.current) return;
     const id = evt.customerId;
 
     if (evt.type === 'start') {
@@ -255,6 +406,7 @@ function CustomersPage({ pushToast }) {
     if (evt.type === 'done' || evt.type === 'cancelled') {
       setProgress(p => ({ ...p, status: evt.type, ...evt.payload }));
       setJob(null);
+      currentJobRef.current = null;   // clear khi batch kết thúc → unmount sau đó không gửi cancel thừa
       setActiveStream(null);
       if (evt.type === 'done') {
         pushLog(null, 'done', `Hoàn tất · ${evt.payload?.done} xong · ${evt.payload?.cached} cache · ${evt.payload?.errors} lỗi`);
@@ -275,6 +427,19 @@ function CustomersPage({ pushToast }) {
 
   const busy = progress.status === 'processing';
 
+  // Auto-trigger sau khi list load + autoReview ON + không busy.
+  // autoTriedRef tránh trigger lặp (batch xong list refresh → loop vô tận).
+  _uEC(() => {
+    if (!autoReview || busy || loading || items.length === 0 || autoTriedRef.current) return;
+    const todo = items.filter(c => !c.reviewStatus || c.reviewStatus === 'none').slice(0, 30);
+    if (todo.length === 0) return;
+    autoTriedRef.current = true;
+    const ids = new Set(todo.map(c => c.id));
+    setSelected(ids);
+    pushToast(`Tự động review ${todo.length} KH chưa có review…`, 'info');
+    setTimeout(() => startBatch(ids), 300);
+  }, [autoReview, busy, loading, items]);
+
   return (
     <main className="page" style={{padding: '18px 28px 60px', width: '100%'}}>
       <window.PageShell.PageHero
@@ -282,9 +447,13 @@ function CustomersPage({ pushToast }) {
         title="Khách hàng"
         badge="AI review"
         sub="Chấm hạng A–D + đề xuất hành động cho từng khách bằng AI."
-        status={{ label: items.length > 0 ? `${items.length} KHÁCH HÀNG` : 'CHƯA CÓ DỮ LIỆU',
+        status={{ label: total > 0 ? `${total} KHÁCH HÀNG` : 'CHƯA CÓ DỮ LIỆU',
           detail: selected.size > 0 ? `${selected.size} đã chọn` : 'Chọn KH để review' }}
         actions={<>
+          <button className={'btn btn-sm autotoggle ' + (autoReview ? 'on' : 'off')}
+            onClick={toggleAuto} title="Tự động review KH chưa có review khi mở page (lưu theo tài khoản)">
+            <Icon name={autoReview ? 'check' : 'close'} size={14} /> Tự động {autoReview ? 'ON' : 'OFF'}
+          </button>
           <button className="btn btn-ghost btn-sm" onClick={loadList} disabled={loading || busy}>
             <Icon name="refresh" size={14} /> Refresh
           </button>
@@ -296,19 +465,19 @@ function CustomersPage({ pushToast }) {
         </>}
       />
 
-      {/* KPI strip — tính client-side từ items hiện tại */}
+      {/* KPI strip — "Tổng" dùng total upstream (full DB sau filter), các KPI còn lại
+          tính client-side trên page hiện tại (kèm hậu tố "/trang" để user biết). */}
       <window.DataControls.KpiStrip items={(() => {
-        const total = items.length;
         const noTour = items.filter(c => !c.totalTours || c.totalTours === 0).length;
         const lastFirst = items.filter(c => c.totalTours === 1).length;
         const repeat = items.filter(c => (c.totalTours || 0) >= 2).length;
         const reviewed = items.filter(c => c.reviewStatus && c.reviewStatus !== 'none').length;
         return [
-          { icon: 'users',  label: 'Tổng',       value: total },
-          { icon: 'user',   label: 'Chưa mua',   value: noTour },
-          { icon: 'star',   label: 'Lần đầu',    value: lastFirst },
-          { icon: 'trend',  label: 'Mua lại',    value: repeat, highlight: repeat > 0 },
-          { icon: 'sparkle', label: 'Đã review', value: reviewed },
+          { icon: 'users',  label: 'Tổng',           value: total },
+          { icon: 'user',   label: 'Chưa mua /trang', value: noTour },
+          { icon: 'star',   label: 'Lần đầu /trang',  value: lastFirst },
+          { icon: 'trend',  label: 'Mua lại /trang',  value: repeat, highlight: repeat > 0 },
+          { icon: 'sparkle', label: 'Đã review /trang', value: reviewed },
         ];
       })()} />
 
@@ -331,7 +500,7 @@ function CustomersPage({ pushToast }) {
         </window.SearchControls.FilterChipRow>
         <window.SearchControls.FilterButton count={activeFilterCount} open={sheetOpen}
           onClick={() => setSheetOpen(o => !o)} />
-        <window.DataControls.StatRow shown={items.length} total={items.length} suffix="khách hàng" />
+        <window.DataControls.StatRow shown={items.length} total={total} suffix="khách hàng" />
       </div>
 
       {/* AdvancedFilterSheet — draft state + footer Apply/Clear auto */}
@@ -500,15 +669,20 @@ function CustomersPage({ pushToast }) {
             <thead style={{background: 'var(--bg)'}}>
               <tr style={{textAlign: 'left'}}>
                 <th style={th(40)}>
-                  <input type="checkbox"
-                    checked={items.length > 0 && selected.size === items.length}
-                    onChange={toggleAll} />
+                  {/* Header: indeterminate khi có chọn nhưng chưa đủ trang */}
+                  <window.TKCheckbox
+                    checked={items.length > 0 && items.every(it => selected.has(it.id))}
+                    indeterminate={items.some(it => selected.has(it.id)) && !items.every(it => selected.has(it.id))}
+                    onChange={toggleAll}
+                    ariaLabel="Chọn tất cả khách hàng trên trang" />
                 </th>
+                <th style={th(100)}>Mã KH</th>
                 <th style={th()}>Khách hàng</th>
+                <th style={th(120)}>SĐT</th>
                 <th style={th(100)}>Phân khúc</th>
                 <th style={th(90)}>Hạng AI</th>
                 <th style={th(120)}>Tổng chi</th>
-                <th style={th(100)}>Đơn cuối</th>
+                <th style={th(120)}>Ngày review</th>
                 <th style={th(200)}>Trạng thái review</th>
                 <th style={th(80)}></th>
               </tr>
@@ -526,18 +700,35 @@ function CustomersPage({ pushToast }) {
                   <tr key={it.id} style={{borderTop: '1px solid var(--border)', cursor: 'pointer'}}
                       onClick={() => effRank && setDrawerId(it.id)}>
                     <td style={td()} onClick={e => e.stopPropagation()}>
-                      <input type="checkbox" checked={selected.has(it.id)} onChange={() => toggleOne(it.id)} />
+                      <window.TKCheckbox
+                        checked={selected.has(it.id)}
+                        onChange={() => toggleOne(it.id)}
+                        ariaLabel={`Chọn khách hàng ${it.name}`} />
+                    </td>
+                    <td style={td()}>
+                      {it.code ? (
+                        <span style={{fontFamily: 'ui-monospace, "SF Mono", monospace', fontSize: 12, color: 'var(--text-2)'}}>
+                          {it.code}
+                        </span>
+                      ) : <span style={{color: 'var(--text-3)'}}>—</span>}
                     </td>
                     <td style={td()}>
                       <div style={{fontWeight: 600}}>{it.name}</div>
-                      <div style={{color: 'var(--text-3)', fontSize: 11}}>{it.id}</div>
+                    </td>
+                    <td style={td()}>
+                      {it.phone ? (
+                        <a href={`tel:${it.phone}`} onClick={e => e.stopPropagation()}
+                           style={{color: 'var(--text-1)', textDecoration: 'none', fontSize: 12}}>
+                          {it.phone}
+                        </a>
+                      ) : <span style={{color: 'var(--text-3)'}}>—</span>}
                     </td>
                     <td style={td()}>
                       <SegBadge segment={it.segment} />
                     </td>
                     <td style={td()}>{effRank ? <RankBadge rank={effRank} /> : <span style={{color: 'var(--text-3)'}}>—</span>}</td>
                     <td style={td()}>{fmtVND(it.totalSpent)}</td>
-                    <td style={td()}>{it.lastPurchaseDaysAgo == null ? '—' : `${it.lastPurchaseDaysAgo}d`}</td>
+                    <td style={td()}>{fmtReviewDate(it.reviewGeneratedAt)}</td>
                     <td style={td()}><StatusCell status={status} summaryLine={effSummary} error={live?.error} ageHours={it.reviewAgeHours} /></td>
                     <td style={td()}>
                       {effRank && (
@@ -552,6 +743,13 @@ function CustomersPage({ pushToast }) {
             </tbody>
           </table>
         </div>
+      )}
+
+      {/* Pagination — chỉ render khi có >1 page. Dùng total thật từ backend. */}
+      {!loading && total > pageSize && (
+        <window.TKPagination page={page} totalPages={totalPages} pageSize={pageSize}
+          total={total} shown={items.length}
+          onPage={setPage} onPageSize={setPageSize} />
       )}
 
       {/* Confirm modal */}
@@ -574,10 +772,12 @@ function CustomersPage({ pushToast }) {
                 <Stat label="Ước tính thời gian" value={`~${Math.max(3, Math.ceil(willCallAi * 4 / 10))} giây`} />
                 <Stat label="Ước tính token" value={`~${(willCallAi * 1.8).toFixed(1)}K tokens`} />
               </div>
-              <label style={{display: 'flex', alignItems: 'center', gap: 8, marginTop: 14, fontSize: 13, cursor: 'pointer'}}>
-                <input type="checkbox" checked={forceFresh} onChange={e => setForceFresh(e.target.checked)} />
-                Bỏ qua cache, gọi AI cho TẤT CẢ
-              </label>
+              <div style={{marginTop: 14}}>
+                <window.TKCheckbox
+                  checked={forceFresh}
+                  onChange={setForceFresh}
+                  label="Bỏ qua cache, gọi AI cho TẤT CẢ" />
+              </div>
             </div>
             <div className="dialog-foot">
               <button className="btn btn-ghost" onClick={() => setConfirm(false)}>Hủy</button>
@@ -604,6 +804,27 @@ function CustomersPage({ pushToast }) {
 // ─── Small helper components ──────────────────────────────────────────────────
 const th = (w) => ({ padding: '10px 12px', fontWeight: 700, fontSize: 11, letterSpacing: '0.05em', textTransform: 'uppercase', color: 'var(--text-3)', width: w, whiteSpace: 'nowrap' });
 const td = () => ({ padding: '12px', verticalAlign: 'middle' });
+
+// Format ngày review: today → "Hôm nay HH:mm", yesterday → "Hôm qua HH:mm",
+// cùng năm → "dd/MM HH:mm", khác năm → "dd/MM/yyyy". Null → "—".
+function fmtReviewDate(iso) {
+  if (!iso) return <span style={{color: 'var(--text-3)'}}>—</span>;
+  const d = new Date(iso);
+  if (isNaN(d.getTime())) return <span style={{color: 'var(--text-3)'}}>—</span>;
+  const now = new Date();
+  const sameDay = d.toDateString() === now.toDateString();
+  const yest = new Date(now); yest.setDate(yest.getDate() - 1);
+  const isYest = d.toDateString() === yest.toDateString();
+  const pad = n => String(n).padStart(2, '0');
+  const hm = `${pad(d.getHours())}:${pad(d.getMinutes())}`;
+  let label;
+  if (sameDay)        label = `Hôm nay ${hm}`;
+  else if (isYest)    label = `Hôm qua ${hm}`;
+  else if (d.getFullYear() === now.getFullYear())
+                      label = `${pad(d.getDate())}/${pad(d.getMonth()+1)} ${hm}`;
+  else                label = `${pad(d.getDate())}/${pad(d.getMonth()+1)}/${d.getFullYear()}`;
+  return <span style={{fontSize: 12, color: 'var(--text-2)'}} title={d.toLocaleString('vi-VN')}>{label}</span>;
+}
 
 function SegBadge({ segment }) {
   const styles = {
@@ -713,5 +934,7 @@ function Stat({ label, value, highlight, muted }) {
     </div>
   );
 }
+
+// Pagination — dùng chung qua window.TKPagination (components/pagination.jsx).
 
 window.CustomersPage = CustomersPage;

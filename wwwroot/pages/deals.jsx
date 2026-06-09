@@ -121,21 +121,24 @@ function DealFilters({ q, setQ, level, setLevel, riskOnly, setRiskOnly, shown, t
 // ─── 1 card (mobile) ──────────────────────────────────────────────────────────
 function DealCard({ item, rank, onClick }) {
   const lv = dealLevel(item.level);
+  const scored = item._hasScore;
   return (
     <div className="deal-card" onClick={onClick}>
       <div className="deal-card-top">
-        <span className="deal-card-rank">#{rank}</span>
+        <span className="deal-card-rank">{rank ? '#' + rank : '·'}</span>
         <div className="deal-card-id">
           <div className="deal-card-cust">{item.customerName}
             {item.riskFlag === 'nguoi' && <span className="deals-risk"><Icon name="warning" size={11} /> nguội</span>}
           </div>
           <div className="deal-card-deal">{item.title || item.code || ('#' + item.id)} · {item.statusName || '—'} · {item.ageDays}d</div>
         </div>
-        <span className="deals-win" style={{ color: lv.color, background: lv.bg }}>{item.winRate}%</span>
+        {scored
+          ? <span className="deals-win" style={{ color: lv.color, background: lv.bg }}>{item.winRate}%</span>
+          : <span style={{fontSize: 11, color: 'var(--text-3)'}}>chưa chấm</span>}
       </div>
       <div className="deal-card-mid">
-        <div className="deal-prio"><i style={{ width: `${Math.round(item.priorityScore)}%` }} /></div>
-        <span className="deal-card-vals">{vndShort(item.totalPrice)} · EV {vndShort(item.expectedValue)}</span>
+        {scored && <div className="deal-prio"><i style={{ width: `${Math.round(item.priorityScore)}%` }} /></div>}
+        <span className="deal-card-vals">{vndShort(item.totalPrice)}{scored ? ' · EV ' + vndShort(item.expectedValue) : ''}</span>
       </div>
       {item.analysis?.nextAction && <div className="deal-card-action"><Icon name="zap" size={13} /> {item.analysis.nextAction}</div>}
     </div>
@@ -144,23 +147,50 @@ function DealCard({ item, rank, onClick }) {
 
 // ─── Page ─────────────────────────────────────────────────────────────────────
 function DealsPage({ pushToast }) {
+  // Board AI (đã chấm) — nguồn winRate/level/priorityScore. Merge vào list theo id.
   const [board, setBoard] = _dS(null);
+  // List paginated từ /api/v1/deals — TẤT CẢ cơ hội (raw upstream), browse được kể cả chưa chấm.
+  const [list, setList]         = _dS([]);
+  const [total, setTotal]       = _dS(0);
+  const [page, setPage]         = _dS(1);
+  const [pageSize, setPageSize] = _dS(50);
+  const [listLoading, setListLoading] = _dS(true);
+
   const [running, setRunning] = _dS(false);
   const [progress, setProgress] = _dS(null);
   const [sel, setSel] = _dS(null);
   const [assignee, setAssignee] = _dS('');
+
+  // ─── Tự động phân tích ───────────────────────────────────────────────────
+  // Toggle persist localStorage theo tenant. Khi BẬT + page mount + có cơ hội + chưa chấm gần đây
+  // → tự run() phân tích. Chỉ trigger 1 lần per page-mount (autoTriedRef).
+  const _autoKey = 'tourkit_auto_deal_' + (window.tourkitAuth?.getUser?.()?.tenantId || '');
+  const [autoAnalyze, setAutoAnalyze] = _dS(() => localStorage.getItem(_autoKey) === 'on');
+  const autoTriedRef = window.React.useRef(false);
+
+  const toggleAutoAnalyze = () => {
+    setAutoAnalyze(prev => {
+      const next = !prev;
+      try { localStorage.setItem(_autoKey, next ? 'on' : 'off'); } catch {}
+      if (next) pushToast('Tự động phân tích BẬT — chạy khi vào page nếu chưa có bảng', 'info');
+      else      pushToast('Tự động phân tích TẮT', 'warn');
+      autoTriedRef.current = false;
+      return next;
+    });
+  };
   // bộ lọc kết quả
   const [q, setQ] = _dS('');
   const [level, setLevel] = _dS('all');
   const [riskOnly, setRiskOnly] = _dS(false);
 
-  // Bộ lọc nâng cao (client-side trên board.items — không gọi lại AI)
+  // Bộ lọc nâng cao (client-side trên merged items — không gọi lại AI)
   const EMPTY_DEAL_FILTER = { status: '', source: '', staff: '', minValue: '', maxValue: '', maxAge: '', sortBy: 'priority' };
   const [adv, setAdv] = _dS(EMPTY_DEAL_FILTER);
   const [advOpen, setAdvOpen] = _dS(false);
   const advCount = ['status','source','staff','minValue','maxValue','maxAge'].filter(k => adv[k] && adv[k] !== '').length + (adv.sortBy && adv.sortBy !== 'priority' ? 1 : 0);
   const cancelUrl = _dR(null);
   const isMobile = useIsMobile();
+  const totalPages = Math.max(1, Math.ceil(total / pageSize));
 
   const loadBoard = async () => {
     try {
@@ -168,7 +198,32 @@ function DealsPage({ pushToast }) {
       if (r.ok) { const b = await r.json(); if (b && b.items) setBoard(b); }
     } catch { /* ignore */ }
   };
+  const loadList = async () => {
+    setListLoading(true);
+    try {
+      const q = new URLSearchParams({ page: String(page), pageSize: String(pageSize) });
+      const r = await window.tourkitAuth.authedFetch('/api/v1/deals?' + q.toString());
+      if (!r.ok) throw new Error('HTTP ' + r.status);
+      const data = await r.json();
+      setList(data.items || []);
+      setTotal(data.total ?? (data.items?.length || 0));
+    } catch (e) {
+      pushToast('Không tải được danh sách cơ hội: ' + e.message, 'error');
+    } finally { setListLoading(false); }
+  };
   _dE(() => { loadBoard(); }, []);
+  _dE(() => { loadList(); }, [page, pageSize]);
+  _dE(() => { setPage(1); }, [pageSize]);   // đổi pageSize → về page 1
+
+  // Auto-trigger: bật ON + đã load list + chưa chạy + board cũ (>30min hoặc rỗng) → chạy phân tích.
+  _dE(() => {
+    if (!autoAnalyze || running || listLoading || list.length === 0 || autoTriedRef.current) return;
+    const recent = board?.generatedAt && (Date.now() - new Date(board.generatedAt).getTime() < 30 * 60 * 1000);
+    if (recent) return;   // skip nếu vừa chấm < 30 phút
+    autoTriedRef.current = true;
+    pushToast(`Tự động phân tích ${list.length} cơ hội…`, 'info');
+    setTimeout(() => run(), 300);
+  }, [autoAnalyze, running, listLoading, list, board]);
 
   async function run() {
     setRunning(true); setProgress({ stage: 'scanning' });
@@ -204,7 +259,18 @@ function DealsPage({ pushToast }) {
     if (cancelUrl.current) { try { await window.tourkitAuth.authedFetch(cancelUrl.current, { method: 'POST' }); } catch {} }
   }
 
-  const items = board?.items || [];
+  // Merge list (real-time API) với board scores (cached AI). Row có score → có winRate/level/priorityScore;
+  // chưa chấm → các field đó null/0 và `_hasScore=false` (UI hiển thị "—" thay vì số).
+  const scoreMap = (() => {
+    const m = new Map();
+    (board?.items || []).forEach(b => m.set(b.id, b));
+    return m;
+  })();
+  const items = list.map(d => {
+    const sc = scoreMap.get(d.id);
+    if (sc) return { ...d, ...sc, _hasScore: true };
+    return { ...d, _hasScore: false, winRate: null, level: null, priorityScore: 0, expectedValue: 0 };
+  });
   const ql = q.trim().toLowerCase();
   // Distinct values từ items để fill dropdown filter (không cần API lookups)
   const dealLookups = (() => {
@@ -222,7 +288,7 @@ function DealsPage({ pushToast }) {
   })();
   let filtered = items.filter(it => {
     if (level !== 'all' && it.level !== level) return false;
-    if (riskOnly && it.riskFlag !== 'nguoi') return false;
+    if (riskOnly && !(it.isCooling || it.riskFlag === 'nguoi')) return false;
     if (ql) {
       const hay = (it.customerName + ' ' + (it.title || '') + ' ' + (it.code || '') + ' ' + (it.assignees || '')).toLowerCase();
       if (!hay.includes(ql)) return false;
@@ -244,13 +310,15 @@ function DealsPage({ pushToast }) {
     return (b.priorityScore || 0) - (a.priorityScore || 0);
   });
 
-  // KPI strip counts
+  // KPI strip counts — "Tổng" = total upstream (full DB); các count còn lại = trên BOARD đã chấm
+  // (vì unscored row không có level/riskFlag). Label kèm "/đã chấm" cho rõ.
+  const boardItems = board?.items || [];
   const c = {
-    total: items.length,
-    cao:   items.filter(it => it.level === 'cao').length,
-    tb:    items.filter(it => it.level === 'trung_binh').length,
-    thap:  items.filter(it => it.level === 'thap').length,
-    nguoi: items.filter(it => it.riskFlag === 'nguoi').length,
+    total: total,
+    cao:   boardItems.filter(it => it.level === 'cao').length,
+    tb:    boardItems.filter(it => it.level === 'trung_binh').length,
+    thap:  boardItems.filter(it => it.level === 'thap').length,
+    nguoi: boardItems.filter(it => (it.isCooling || it.riskFlag === 'nguoi')).length,
   };
 
   return (
@@ -260,10 +328,14 @@ function DealsPage({ pushToast }) {
         title="Ưu tiên Deal AI"
         badge="EV + độ gấp"
         sub="AI chấm khả năng thắng từng cơ hội bán hàng và xếp hạng nên xử lý deal nào trước."
-        status={{ label: items.length > 0 ? `${items.length} CƠ HỘI ĐÃ CHẤM` : (running ? 'ĐANG PHÂN TÍCH' : 'CHƯA PHÂN TÍCH'),
-          detail: board?.generatedAt ? new Date(board.generatedAt).toLocaleTimeString('vi-VN') : 'Bấm "Phân tích AI"',
-          tone: items.length > 0 ? 'live' : 'idle' }}
+        status={{ label: total > 0 ? `${total} CƠ HỘI · ${boardItems.length} ĐÃ CHẤM` : (running ? 'ĐANG PHÂN TÍCH' : (listLoading ? 'ĐANG TẢI' : 'CHƯA CÓ DỮ LIỆU')),
+          detail: board?.generatedAt ? `Chấm lần cuối ${new Date(board.generatedAt).toLocaleTimeString('vi-VN')}` : 'Bấm "Phân tích AI" để chấm điểm',
+          tone: total > 0 ? 'live' : 'idle' }}
         actions={<>
+          <button className={'btn btn-sm autotoggle ' + (autoAnalyze ? 'on' : 'off')}
+            onClick={toggleAutoAnalyze} title="Tự động phân tích cơ hội khi mở page (lưu theo tài khoản, skip nếu vừa chấm < 30 phút)">
+            <Icon name={autoAnalyze ? 'check' : 'close'} size={14} /> Tự động {autoAnalyze ? 'ON' : 'OFF'}
+          </button>
           <input className="deals-filter" placeholder="Phụ trách (phạm vi quét)…" value={assignee}
             onChange={e => setAssignee(e.target.value)} disabled={running} />
           {running
@@ -283,26 +355,29 @@ function DealsPage({ pushToast }) {
         </div>
       )}
 
-      {!running && items.length === 0 && (
+      {!running && listLoading && items.length === 0 && (
+        <div className="deals-empty"><Icon name="trend" size={28} /><div>Đang tải danh sách cơ hội…</div></div>
+      )}
+      {!running && !listLoading && items.length === 0 && (
         <div className="deals-empty">
           <Icon name="trend" size={28} />
-          <div><b>Chưa có phân tích nào</b><br />Bấm "Phân tích AI" để AI quét pipeline và xếp hạng cơ hội nên ưu tiên xử lý.</div>
+          <div><b>Chưa có cơ hội bán hàng</b><br />Khi có booking-ticket trên CRM, danh sách sẽ hiện ở đây.</div>
         </div>
       )}
 
       {items.length > 0 && (<>
-        {board.generatedAt && (
+        {board?.generatedAt && (
           <div className="deals-meta">
             Top {board.deepScored} cơ hội ưu tiên · quét {board.scanned} cơ hội mở · cập nhật {new Date(board.generatedAt).toLocaleString('vi-VN')}
           </div>
         )}
 
         <window.DataControls.KpiStrip items={[
-          { icon: 'trend',   label: 'Tổng',       value: c.total },
-          { icon: 'star',    label: 'Win cao',    value: c.cao, highlight: c.cao > 0 },
-          { icon: 'sparkle', label: 'Win TB',     value: c.tb },
-          { icon: 'warning', label: 'Win thấp',   value: c.thap },
-          { icon: 'warning', label: 'Đang nguội', value: c.nguoi },
+          { icon: 'trend',   label: 'Tổng cơ hội',     value: c.total },
+          { icon: 'star',    label: 'Win cao /đã chấm', value: c.cao, highlight: c.cao > 0 },
+          { icon: 'sparkle', label: 'Win TB /đã chấm', value: c.tb },
+          { icon: 'warning', label: 'Win thấp /đã chấm', value: c.thap },
+          { icon: 'warning', label: 'Nguội /đã chấm',  value: c.nguoi },
         ]} />
 
         <DealFilters q={q} setQ={setQ} level={level} setLevel={setLevel}
@@ -370,7 +445,10 @@ function DealsPage({ pushToast }) {
           <div className="deals-empty sm"><Icon name="search" size={22} /><div>Không có cơ hội nào khớp bộ lọc.</div></div>
         ) : isMobile ? (
           <div className="deals-cards">
-            {filtered.map((it, i) => <DealCard key={it.id} item={it} rank={items.indexOf(it) + 1} onClick={() => setSel(it)} />)}
+            {filtered.map((it) => {
+              const rank = it._hasScore ? (boardItems.findIndex(b => b.id === it.id) + 1) : null;
+              return <DealCard key={it.id} item={it} rank={rank} onClick={() => setSel(it)} />;
+            })}
           </div>
         ) : (
           <div className="deals-tablewrap">
@@ -391,22 +469,30 @@ function DealsPage({ pushToast }) {
               <tbody>
                 {filtered.map((it) => {
                   const lv = dealLevel(it.level);
+                  // Rank chỉ có nghĩa cho deal đã chấm — unscored hiện "—" thay vì index list.
+                  const rank = it._hasScore ? (boardItems.findIndex(b => b.id === it.id) + 1) : null;
                   return (
                     <tr key={it.id} onClick={() => setSel(it)} className="deals-row">
-                      <td className="deals-rank">{items.indexOf(it) + 1}</td>
+                      <td className="deals-rank">{rank || <span style={{color:'var(--text-3)'}}>—</span>}</td>
                       <td>
                         <div className="deals-cust">{it.customerName}
-                          {it.riskFlag === 'nguoi' && <span className="deals-risk" title="Đang nguội"><Icon name="warning" size={11} /> nguội</span>}
+                          {(it.isCooling || it.riskFlag === 'nguoi') && <span className="deals-risk" title="Đang nguội"><Icon name="warning" size={11} /> nguội</span>}
                         </div>
                         <div className="deals-deal">{it.title || it.code || ('#' + it.id)} · {it.statusName || '—'} · {it.ageDays}d</div>
                       </td>
                       <td className="deals-val">{vndShort(it.totalPrice)}</td>
-                      <td><span className="deals-win" style={{ color: lv.color, background: lv.bg }}>{it.winRate}%</span></td>
                       <td>
-                        <div className="deals-prio"><i style={{ width: `${Math.round(it.priorityScore)}%` }} /></div>
-                        <span className="deals-ev">EV {vndShort(it.expectedValue)}</span>
+                        {it._hasScore
+                          ? <span className="deals-win" style={{ color: lv.color, background: lv.bg }}>{it.winRate}%</span>
+                          : <span style={{color:'var(--text-3)', fontSize:12}}>chưa chấm</span>}
                       </td>
-                      <td className="deals-action">{it.analysis?.nextAction || '—'}</td>
+                      <td>
+                        {it._hasScore ? (<>
+                          <div className="deals-prio"><i style={{ width: `${Math.round(it.priorityScore)}%` }} /></div>
+                          <span className="deals-ev">EV {vndShort(it.expectedValue)}</span>
+                        </>) : <span style={{color:'var(--text-3)'}}>—</span>}
+                      </td>
+                      <td className="deals-action">{it.analysis?.nextAction || <span style={{color:'var(--text-3)'}}>—</span>}</td>
                       <td className="deals-go"><Icon name="chevronRight" size={16} /></td>
                     </tr>
                   );
@@ -414,6 +500,13 @@ function DealsPage({ pushToast }) {
               </tbody>
             </table>
           </div>
+        )}
+
+        {/* Pagination — chỉ hiện khi có >1 trang. Dùng total thật từ /api/v1/deals. */}
+        {!listLoading && total > pageSize && (
+          <window.TKPagination page={page} totalPages={totalPages} pageSize={pageSize}
+            total={total} shown={filtered.length}
+            onPage={setPage} onPageSize={setPageSize} />
         )}
       </>)}
 
