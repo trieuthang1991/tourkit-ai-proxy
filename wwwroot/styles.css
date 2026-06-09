@@ -2424,6 +2424,28 @@ body.editorial .ai-bubble .hl { color: #FDBA74; }
 .deals-bar { flex: 1 1 100%; height: 6px; border-radius: 999px; background: var(--bg); overflow: hidden; }
 .deals-bar i { display: block; height: 100%; background: var(--primary); border-radius: 999px; transition: width .4s ease; }
 
+/* Batch panel: hiển thị danh sách deal đang chấm (pattern Khách hàng) */
+.deals-batch-panel { background: var(--surface); border: 1px solid var(--border); border-left: 3px solid var(--primary);
+  border-radius: var(--radius-md); margin-bottom: 16px; overflow: hidden; }
+.deals-batch-head { display: flex; align-items: center; gap: 10px; padding: 12px 18px; font-size: 13px; color: var(--text-1);
+  background: rgba(255,121,39,.05); border-bottom: 1px solid var(--border); }
+.deals-batch-head b { font-weight: 700; color: var(--primary-dark); }
+.deals-batch-progress { color: var(--text-3); font-size: 12px; }
+.deals-batch-list { max-height: 280px; overflow-y: auto; }
+.deals-batch-row { display: grid; grid-template-columns: 28px 1fr 1.5fr 100px; gap: 12px; align-items: center;
+  padding: 9px 18px; font-size: 12.5px; border-bottom: 1px solid var(--bg);
+  color: var(--text-2); transition: background .2s; }
+.deals-batch-row:last-child { border-bottom: none; }
+.deals-batch-row.is-done { color: var(--text-3); }
+.deals-batch-row.is-done .deals-batch-stage { color: #16a34a; font-weight: 700; }
+.deals-batch-row.deals-batch-more { grid-template-columns: 1fr; text-align: center; color: var(--text-3); font-style: italic; }
+.deals-batch-stage { display: inline-flex; justify-content: center; align-items: center; color: var(--primary); font-weight: 600; }
+.deals-batch-cust { font-weight: 600; color: var(--text-1); }
+.deals-batch-cust .deals-batch-row.is-done & { color: var(--text-3); }
+.deals-batch-deal { color: var(--text-2); }
+.deals-batch-val { text-align: right; font-variant-numeric: tabular-nums; color: var(--text-1); font-weight: 600; }
+.deals-spin.sm { width: 12px; height: 12px; border-width: 2px; }
+
 /* Empty */
 .deals-empty { display: flex; flex-direction: column; align-items: center; gap: 12px; text-align: center; color: var(--text-3);
   background: var(--surface); border: 1px dashed var(--border); border-radius: var(--radius-lg); padding: 48px 24px; line-height: 1.6; }

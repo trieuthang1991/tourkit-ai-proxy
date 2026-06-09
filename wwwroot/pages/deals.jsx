@@ -342,12 +342,7 @@ function DealsPage({ pushToast }) {
     return true;
   });
   // Sắp xếp tùy chọn (mặc định = priority desc).
-  // PRIORITY 1: deals đang được tick (selectedIds) lên đầu thành 1 KHỐI — cho user thấy rõ
-  // những deal sẽ được chấm bằng AI (cùng visual highlight is-selected).
   filtered = [...filtered].sort((a, b) => {
-    const aSel = selectedIds.has(a.id) ? 1 : 0;
-    const bSel = selectedIds.has(b.id) ? 1 : 0;
-    if (aSel !== bSel) return bSel - aSel;   // selected lên đầu
     if (adv.sortBy === 'value') return (b.totalPrice || 0) - (a.totalPrice || 0);
     if (adv.sortBy === 'win')   return (b.winRate || 0) - (a.winRate || 0);
     if (adv.sortBy === 'age')   return (b.ageDays || 0) - (a.ageDays || 0);
@@ -394,6 +389,40 @@ function DealsPage({ pushToast }) {
               </button>}
         </>}
       />
+
+      {/* Panel đang review — show danh sách deal đang được chấm (giống pattern Khách hàng).
+          Hiện khi running=true với progress. List = các deal trong selectedIds (chính là batch
+          mà user đã/đang gửi). Mỗi row: tên KH + code + stage badge (chờ/đang chấm/xong). */}
+      {running && selectedIds.size > 0 && (
+        <div className="deals-batch-panel">
+          <div className="deals-batch-head">
+            <Icon name="sparkle" size={14} />
+            <span>Đang chấm AI <b>{selectedIds.size}</b> deal</span>
+            <span className="deals-batch-progress">{progress?.done || 0}/{progress?.total || selectedIds.size} xong</span>
+            <button className="btn btn-ghost btn-sm" onClick={cancel} style={{marginLeft:'auto'}}>
+              <Icon name="close" size={12} /> Dừng
+            </button>
+          </div>
+          <div className="deals-batch-list">
+            {[...selectedIds].slice(0, 30).map((id) => {
+              const it = list.find(d => d.id === id);
+              if (!it) return null;
+              const hasScore = !!it.score;   // đã chấm xong (server refresh score qua loadList giữa batch)
+              return (
+                <div key={id} className={'deals-batch-row' + (hasScore ? ' is-done' : '')}>
+                  <span className="deals-batch-stage">{hasScore ? '✓' : <span className="deals-spin sm" />}</span>
+                  <span className="deals-batch-cust">{it.customerName || '(không tên)'}</span>
+                  <span className="deals-batch-deal">{it.title || it.code || '#' + it.id}</span>
+                  <span className="deals-batch-val">{vndShort(it.totalPrice)}</span>
+                </div>
+              );
+            })}
+            {selectedIds.size > 30 && (
+              <div className="deals-batch-row deals-batch-more">… và {selectedIds.size - 30} deal nữa</div>
+            )}
+          </div>
+        </div>
+      )}
 
       {running && progress && (
         <div className="deals-progress">
