@@ -249,9 +249,11 @@ function DealsPage({ pushToast }) {
     }
     autoTriedRef.current = true;
     dbg(`trigger chấm ${unscored.length} deal scoreStatus=none (trên ${list.length} đang xem)`);
-    const ids = new Set(unscored.map(d => String(d.id)));
+    const ids = new Set(unscored.map(d => d.id));
+    setSelectedIds(ids);   // tick checkbox để user nhìn thấy deal nào sẽ được chấm
     pushToast(`Tự động chấm ${unscored.length} deal chưa chấm…`, 'info');
-    setTimeout(() => run(ids), 300);
+    // Delay 500ms để user kịp thấy tick + highlight trước khi spinner che → UX rõ ràng hơn
+    setTimeout(() => run(new Set([...ids].map(String))), 500);
   }, [autoAnalyze, running, listLoading, list]);
 
   async function run(overrideIds = null) {
@@ -339,8 +341,13 @@ function DealsPage({ pushToast }) {
     if (adv.maxAge && (it.ageDays || 0) > Number(adv.maxAge)) return false;
     return true;
   });
-  // Sắp xếp tùy chọn (mặc định = priority desc)
+  // Sắp xếp tùy chọn (mặc định = priority desc).
+  // PRIORITY 1: deals đang được tick (selectedIds) lên đầu thành 1 KHỐI — cho user thấy rõ
+  // những deal sẽ được chấm bằng AI (cùng visual highlight is-selected).
   filtered = [...filtered].sort((a, b) => {
+    const aSel = selectedIds.has(a.id) ? 1 : 0;
+    const bSel = selectedIds.has(b.id) ? 1 : 0;
+    if (aSel !== bSel) return bSel - aSel;   // selected lên đầu
     if (adv.sortBy === 'value') return (b.totalPrice || 0) - (a.totalPrice || 0);
     if (adv.sortBy === 'win')   return (b.winRate || 0) - (a.winRate || 0);
     if (adv.sortBy === 'age')   return (b.ageDays || 0) - (a.ageDays || 0);
