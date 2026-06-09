@@ -514,16 +514,22 @@ function DealsPage({ pushToast }) {
               </colgroup>
               <thead><tr>
                 <th>
-                  <input type="checkbox" disabled={running}
-                    checked={filtered.length > 0 && filtered.every(it => selectedIds.has(it.id))}
-                    onChange={(e) => {
-                      const checked = e.target.checked;
-                      setSelectedIds(s => {
-                        const n = new Set(s);
-                        filtered.forEach(it => checked ? n.add(it.id) : n.delete(it.id));
-                        return n;
-                      });
-                    }} />
+                  {(() => {
+                    const allOn = filtered.length > 0 && filtered.every(it => selectedIds.has(it.id));
+                    const someOn = !allOn && filtered.some(it => selectedIds.has(it.id));
+                    return (
+                      <window.TKCheckbox
+                        checked={allOn}
+                        indeterminate={someOn}
+                        disabled={running}
+                        ariaLabel="Chọn tất cả deal trên trang"
+                        onChange={(checked) => setSelectedIds(s => {
+                          const n = new Set(s);
+                          filtered.forEach(it => checked ? n.add(it.id) : n.delete(it.id));
+                          return n;
+                        })} />
+                    );
+                  })()}
                 </th>
                 <th>#</th><th>Khách hàng / Cơ hội</th><th>Giá trị</th><th>Win</th>
                 <th>Ưu tiên</th><th>Hành động nên làm</th><th></th>
@@ -537,8 +543,10 @@ function DealsPage({ pushToast }) {
                     <tr key={it.id} onClick={() => setSel(it)}
                         className={'deals-row' + (selectedIds.has(it.id) ? ' is-selected' : '')}>
                       <td onClick={(e) => e.stopPropagation()}>
-                        <input type="checkbox" disabled={running}
+                        <window.TKCheckbox
                           checked={selectedIds.has(it.id)}
+                          disabled={running}
+                          ariaLabel={`Chọn deal ${it.code || it.id}`}
                           onChange={() => toggleDeal(it.id)} />
                       </td>
                       <td className="deals-rank">{rank || <span style={{color:'var(--text-3)'}}>—</span>}</td>
