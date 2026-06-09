@@ -167,6 +167,9 @@ function DealsPage({ pushToast }) {
   const toggleDeal = (id) => setSelectedIds(s => { const n = new Set(s); n.has(id) ? n.delete(id) : n.add(id); return n; });
   const clearSelected = () => setSelectedIds(new Set());
 
+  // Confirm modal: hiện trước khi chấm thủ công (manual). Auto skip modal.
+  const [confirmOpen, setConfirmOpen] = _dS(false);
+
   // ─── Tự động phân tích ───────────────────────────────────────────────────
   // Toggle persist localStorage theo tenant. Khi BẬT + page mount + có cơ hội + chưa chấm gần đây
   // → tự run() phân tích. Chỉ trigger 1 lần per page-mount (autoTriedRef).
@@ -386,7 +389,8 @@ function DealsPage({ pushToast }) {
           )}
           {running
             ? <button className="deals-btn" onClick={cancel}><Icon name="close" size={15} /> Hủy</button>
-            : <button className="deals-btn primary" onClick={() => run()}>
+            : <button className="deals-btn primary"
+                onClick={() => selectedIds.size > 0 ? setConfirmOpen(true) : run()}>
                 <Icon name="sparkle" size={15} />
                 {selectedIds.size > 0 ? `Chấm AI ${selectedIds.size} deal` : 'Phân tích AI (top 20 ưu tiên)'}
               </button>}
@@ -621,6 +625,43 @@ function DealsPage({ pushToast }) {
       </>)}
 
       {sel && <DealDrawer item={sel} onClose={() => setSel(null)} />}
+
+      {/* Confirm modal khi chấm THỦ CÔNG (đã chọn deal) — pattern Khách hàng.
+          Auto mode skip modal (chấm thẳng). */}
+      {confirmOpen && (() => {
+        const selectedItems = items.filter(it => selectedIds.has(it.id));
+        const cacheHit = selectedItems.filter(it => it._hasScore).length;
+        const willCallAi = selectedItems.length - cacheHit;
+        return (
+          <div className="modal-backdrop" onClick={() => setConfirmOpen(false)}>
+            <div className="dialog" onClick={e => e.stopPropagation()} style={{maxWidth: 480}}>
+              <div className="dialog-head">
+                <div className="dialog-head-icon"><Icon name="sparkle" size={16} /></div>
+                <div style={{flex: 1, minWidth: 0}}>
+                  <div className="dialog-eyebrow">XÁC NHẬN BATCH</div>
+                  <h3 className="dialog-title">Chấm {selectedIds.size} cơ hội bằng AI?</h3>
+                </div>
+                <button className="icon-btn" onClick={() => setConfirmOpen(false)}><Icon name="close" size={18} /></button>
+              </div>
+              <div className="dialog-body">
+                <div style={{display: 'grid', gap: 8, fontSize: 13}}>
+                  <div className="deals-stat-row"><span>Tổng deal</span><b>{selectedIds.size}</b></div>
+                  <div className="deals-stat-row"><span>Đã có score (cache hit)</span><b style={{color:'var(--text-3)'}}>{cacheHit}</b></div>
+                  <div className="deals-stat-row"><span>Sẽ gọi AI</span><b style={{color:'var(--primary-dark)'}}>{willCallAi}</b></div>
+                  <div className="deals-stat-row"><span>Ước tính thời gian</span><b>~{Math.max(5, Math.ceil(willCallAi * 6 / 6))} giây</b></div>
+                  <div className="deals-stat-row"><span>Ước tính token</span><b>~{(willCallAi * 2.5).toFixed(1)}K tokens</b></div>
+                </div>
+              </div>
+              <div className="dialog-foot">
+                <button className="btn btn-ghost" onClick={() => setConfirmOpen(false)}>Hủy</button>
+                <button className="btn btn-primary" onClick={() => { setConfirmOpen(false); run(); }}>
+                  <Icon name="sparkle" size={14} /> Bắt đầu chấm
+                </button>
+              </div>
+            </div>
+          </div>
+        );
+      })()}
     </main>
   );
 }
