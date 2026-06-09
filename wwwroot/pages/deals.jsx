@@ -159,7 +159,6 @@ function DealsPage({ pushToast }) {
   const [running, setRunning] = _dS(false);
   const [progress, setProgress] = _dS(null);
   const [sel, setSel] = _dS(null);
-  const [assignee, setAssignee] = _dS('');
 
   // ─── Tự động phân tích ───────────────────────────────────────────────────
   // Toggle persist localStorage theo tenant. Khi BẬT + page mount + có cơ hội + chưa chấm gần đây
@@ -233,7 +232,7 @@ function DealsPage({ pushToast }) {
       const key = window.tourkit.ai.getKey(cfg.provider);
       const r = await window.tourkitAuth.authedFetch('/api/v1/deals/analyze', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ assignee: assignee.trim() || undefined, provider: cfg.provider, model: cfg.model, apiKey: key || undefined }),
+        body: JSON.stringify({ provider: cfg.provider, model: cfg.model, apiKey: key || undefined }),
       });
       const data = await r.json();
       if (!r.ok) { pushToast(data.error || 'Không khởi động được phân tích', 'error'); setRunning(false); setProgress(null); return; }
@@ -336,8 +335,6 @@ function DealsPage({ pushToast }) {
             onClick={toggleAutoAnalyze} title="Tự động phân tích cơ hội khi mở page (lưu theo tài khoản, skip nếu vừa chấm < 30 phút)">
             <Icon name={autoAnalyze ? 'check' : 'close'} size={14} /> Tự động {autoAnalyze ? 'ON' : 'OFF'}
           </button>
-          <input className="deals-filter" placeholder="Phụ trách (phạm vi quét)…" value={assignee}
-            onChange={e => setAssignee(e.target.value)} disabled={running} />
           {running
             ? <button className="deals-btn" onClick={cancel}><Icon name="close" size={15} /> Hủy</button>
             : <button className="deals-btn primary" onClick={run}><Icon name="sparkle" size={15} /> Phân tích AI</button>}
