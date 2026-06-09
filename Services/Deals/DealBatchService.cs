@@ -62,32 +62,46 @@ public class DealBatchService
         try
         {
             await Emit(job, "scanning");
-            var all = await _client.ListOpenAsync(sessionId, req.Assignee, req.Source, ScanPageSize, ct);
 
             // 2 chế độ:
-            //  - Manual: req.DealIds có giá trị → filter chỉ những id được chọn (cap 50, skip heuristic)
-            //  - Auto: bỏ qua DealIds → heuristic quick-score → take top N
+            //  - Manual: req.DealIds có giá trị → fetch ListPagedAsync (KHÔNG filter Hủy) tìm
+            //    đúng deal user chọn — kể cả Hủy, đã xử lý...
+            //  - Auto: ListOpenAsync (bỏ Hủy) + heuristic top N
             List<DealOpportunity> ranked;
+            int scanned;
             if (req.DealIds != null && req.DealIds.Count > 0)
             {
-                // DealOpportunity.Id là int, frontend gửi string → so sánh string
+                // Fetch toàn bộ pipeline (cap 500 để tránh upstream overload)
+                var pageRes = await _client.ListPagedAsync(sessionId, 1, 500, ct);
+                scanned = pageRes.Items.Count;
                 var wanted = req.DealIds.Take(50).ToHashSet();
-                ranked = all.Where(d => wanted.Contains(d.Id.ToString())).ToList();
+                ranked = pageRes.Items.Where(d => wanted.Contains(d.Id.ToString())).ToList();
                 trace?.SetMeta("mode", "manual");
-                trace?.SetMeta("dealIdsSelected", ranked.Count);
+                trace?.SetMeta("requested", req.DealIds.Count);
+                trace?.SetMeta("matched", ranked.Count);
+                if (ranked.Count < req.DealIds.Count)
+                {
+                    var foundIds = ranked.Select(d => d.Id.ToString()).ToHashSet();
+                    var missing  = req.DealIds.Where(id => !foundIds.Contains(id)).ToList();
+                    _log.LogWarning("[deals] manual: {Found}/{Req} deal match, missing: {Missing}",
+                        ranked.Count, req.DealIds.Count, string.Join(",", missing.Take(10)));
+                    trace?.SetMeta("missingIds", missing);
+                }
             }
             else
             {
+                var all = await _client.ListOpenAsync(sessionId, req.Assignee, req.Source, ScanPageSize, ct);
+                scanned = all.Count;
                 ranked = all.OrderByDescending(DealHeuristic.QuickScore).Take(topN).ToList();
                 trace?.SetMeta("mode", "auto");
             }
             job.Total = ranked.Count;
-            await Emit(job, "ranked", new { scanned = all.Count, total = ranked.Count });
+            await Emit(job, "ranked", new { scanned, total = ranked.Count });
 
             if (ranked.Count == 0)
             {
-                await Finish(job, "done", new { scanned = all.Count, board = EmptyBoard(all.Count) });
-                _repo.SaveBoard(tenant, EmptyBoard(all.Count));
+                await Finish(job, "done", new { scanned, board = EmptyBoard(scanned) });
+                _repo.SaveBoard(tenant, EmptyBoard(scanned));
                 return;
             }
 
@@ -128,7 +142,7 @@ public class DealBatchService
                 });
 
             var sorted = items.OrderByDescending(i => i.PriorityScore).ToList();
-            var board = new DealBoard(sorted, DateTime.UtcNow.ToString("o"), all.Count, sorted.Count);
+            var board = new DealBoard(sorted, DateTime.UtcNow.ToString("o"), scanned, sorted.Count);
             _repo.SaveBoard(tenant, board);
             await Finish(job, "done", new { board });
         }
