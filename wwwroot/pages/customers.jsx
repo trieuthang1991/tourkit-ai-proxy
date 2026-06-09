@@ -804,7 +804,7 @@ function CustomersPage({ pushToast }) {
             </div>
             <div className="dialog-foot">
               <button className="btn btn-ghost" onClick={() => setConfirm(false)}>Hủy</button>
-              <button className="btn btn-primary" onClick={startBatch}>
+              <button className="btn btn-primary" onClick={() => startBatch()}>
                 <Icon name="sparkle" size={14} /> Bắt đầu review
               </button>
             </div>
