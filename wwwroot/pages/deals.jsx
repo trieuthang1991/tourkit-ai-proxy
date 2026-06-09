@@ -288,8 +288,20 @@ function DealsPage({ pushToast }) {
         else if (e.type === 'scored') { live.push(e.payload.item); setProgress(p => ({ ...p, stage: 'scoring', done: e.payload.done, total: e.payload.total })); }
         else if (e.type === 'done') {
           const b = e.payload.board || { items: [...live].sort((a, b) => b.priorityScore - a.priorityScore), scanned: 0, deepScored: live.length };
-          setBoard(b);
-          pushToast(`Đã phân tích ${b.deepScored || live.length} cơ hội ưu tiên`);
+          // ACCUMULATE board.items qua nhiều batch trong cùng session — tránh "duplicate chấm":
+          //   batch 1 chấm id 1-50 → board.items = [1..50]
+          //   batch 2 chấm id 51-100 → backend trả board.items = [51..100]
+          //   Nếu setBoard(b) trực tiếp → mất [1..50] → auto coi 1-50 là chưa chấm → chấm lại lần nữa
+          // Merge by id (mới ghi đè cũ nếu re-chấm cùng deal, vd forceFresh)
+          setBoard(prev => {
+            if (!prev?.items?.length) return b;
+            const map = new Map();
+            for (const it of prev.items) map.set(String(it.id), it);
+            for (const it of (b.items || [])) map.set(String(it.id), it);
+            const merged = Array.from(map.values()).sort((a, b) => (b.priorityScore || 0) - (a.priorityScore || 0));
+            return { ...b, items: merged, deepScored: merged.length };
+          });
+          pushToast(`Đã chấm thêm ${b.deepScored || live.length} cơ hội`);
         }
         else if (e.type === 'error' && !e.payload) pushToast(e.error || 'Lỗi phân tích', 'error');
         else if (e.type === 'cancelled') pushToast('Đã hủy phân tích', 'error');
