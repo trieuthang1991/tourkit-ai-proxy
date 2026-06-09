@@ -221,12 +221,13 @@ function DealsPage({ pushToast }) {
   _dE(() => { loadList(); }, [page, pageSize]);
   _dE(() => { setPage(1); }, [pageSize]);   // đổi pageSize → về page 1
 
-  // Reset autoTriedRef khi đổi page/pageSize/filter HOẶC list refresh (sau batch xong loadList()
-  // refresh scoreStatus per item) — auto effect re-run, pick deal mới có scoreStatus=none.
+  // Reset autoTriedRef CHỈ khi user navigate (page/filter/search) — giống Khách hàng.
+  // KHÔNG reset khi list refresh sau batch → tránh chain auto-batch + spam toast.
+  // 1 page = 1 batch auto duy nhất. Muốn batch tiếp → user paginate hoặc bấm "Phân tích AI" tay.
   _dE(() => {
-    console.log('[auto-deal] reset autoTriedRef (list/navigation đổi)');
+    console.log('[auto-deal] reset autoTriedRef (navigation đổi)');
     autoTriedRef.current = false;
-  }, [page, pageSize, adv, q, level, riskOnly, list]);
+  }, [page, pageSize, adv, q, level, riskOnly]);
 
   // Auto-trigger: pick deal có scoreStatus !== 'fresh' từ list (giống Khách hàng).
   // Server đã trả per-item scoreStatus dựa trên cache → frontend KHÔNG cần merge board.
