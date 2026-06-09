@@ -225,7 +225,9 @@ function DealsPage({ pushToast }) {
   // Guard "vừa chấm < 30 phút" trong useEffect dưới sẽ tránh đốt token thừa.
   _dE(() => { autoTriedRef.current = false; }, [page, pageSize, adv, q, level, riskOnly]);
 
-  // Auto-trigger: bật ON + đã load list + chưa chạy + board cũ (>30min hoặc rỗng) → chạy phân tích.
+  // Auto-trigger: pick CHỈ những deal chưa chấm (ngoài board.items) → batch chấm bằng dealIds[].
+  // Khác lần đầu: KHÔNG dùng "30 phút freshness" guard vì auto giờ chấm những bản chưa chấm cụ thể,
+  // không phải chấm lại top 20 mà board đã có.
   _dE(() => {
     const dbg = (m) => console.log('[auto-deal]', m);
     if (!autoAnalyze)            { dbg('skip: autoAnalyze OFF'); return; }
@@ -233,16 +235,22 @@ function DealsPage({ pushToast }) {
     if (listLoading)             { dbg('skip: list đang loading'); return; }
     if (list.length === 0)       { dbg('skip: list rỗng'); return; }
     if (autoTriedRef.current)    { dbg('skip: đã trigger cho state hiện tại'); return; }
-    const recent = board?.generatedAt && (Date.now() - new Date(board.generatedAt).getTime() < 30 * 60 * 1000);
-    if (recent) {
-      dbg(`skip: vừa chấm < 30 phút (lúc ${board.generatedAt})`);
+
+    // Tập id đã chấm (board.items) + list hiện tại → tính những deal CHƯA chấm trên view này
+    const scoredIds = new Set((board?.items || []).map(b => String(b.id)));
+    const unscored  = list.filter(d => !scoredIds.has(String(d.id))).slice(0, 50);
+
+    if (unscored.length === 0) {
+      dbg('skip: tất cả deal trên trang này đã có score');
+      pushToast('Tự động: trang này không có deal nào chưa chấm', 'info');
       autoTriedRef.current = true;
       return;
     }
     autoTriedRef.current = true;
-    dbg(`trigger phân tích ${list.length} cơ hội`);
-    pushToast(`Tự động phân tích ${list.length} cơ hội…`, 'info');
-    setTimeout(() => run(), 300);
+    dbg(`trigger chấm ${unscored.length} deal chưa chấm (trên ${list.length} đang xem, board đã chấm ${scoredIds.size})`);
+    const ids = new Set(unscored.map(d => String(d.id)));
+    pushToast(`Tự động chấm ${unscored.length} deal chưa chấm…`, 'info');
+    setTimeout(() => run(ids), 300);
   }, [autoAnalyze, running, listLoading, list, board]);
 
   async function run(overrideIds = null) {
