@@ -54,15 +54,25 @@ if ($DryRun) {
     }
 }
 
-# Robocopy excludes — TUYỆT ĐỐI không đè data/ chứa PII + appsettings.json prod
-$Exclude = @(
-    "/XD", "data\mails.json", "data\mail-account.json", "data\mail-sync.json",
-           "data\tk-sessions.json", "data\reviews.json", "data\provider-keys.json",
-           "data\visa-assessments.json", "data\visa-files", "data\deal-cache.json",
-           "data\ai-usage.jsonl", "data\deal-cache.json",
-    "/XF", "appsettings.json", "appsettings.Production.json"
+# Robocopy excludes — TUYỆT ĐỐI không đè data/ chứa PII + appsettings.json prod.
+# QUAN TRỌNG: /XF cho FILE, /XD cho FOLDER. Dùng nhầm /XD cho file → exclude KHÔNG hiệu lực,
+# và vì có /MIR ở dưới, robocopy sẽ XÓA file đó ở destination (vd: tk-sessions.json → user mất đăng nhập).
+$ExcludeFiles = @(
+    "appsettings.json", "appsettings.Production.json",
+    # SmartMail / Visa / Deal / Reviews / Provider keys — runtime state, chứa PII/creds
+    "data\mails.json", "data\mail-account.json", "data\mail-sync.json",
+    "data\tk-sessions.json", "data\reviews.json", "data\provider-keys.json",
+    "data\visa-assessments.json", "data\deal-cache.json",
+    # Logs / traces (rotation: *.jsonl.YYYY-MM-DD…)
+    "data\ai-usage.jsonl", "data\chat-unresolved.jsonl", "data\workflow-traces.jsonl",
+    "*.jsonl.*"  # rotated logs — robocopy /XF có hiểu wildcard cho tên file
 )
-if ($KeepData) { $Exclude += "data" }
+$ExcludeDirs = @(
+    "data\visa-files",    # PII (ảnh hồ sơ visa) per-tenant
+    "data\legacy-backup"  # MultiTenantMigration đẩy file JSON cũ vào đây
+)
+if ($KeepData) { $ExcludeDirs += "data" }  # giữ NGUYÊN folder data/ trên server
+$Exclude = @("/XF") + $ExcludeFiles + @("/XD") + $ExcludeDirs
 
 Step "Robocopy → $TargetPath"
 $rcArgs = @($Source, $TargetPath, "/MIR", "/MT:8", "/R:2", "/W:2", "/NP", "/NDL", "/NFL") + $Exclude
