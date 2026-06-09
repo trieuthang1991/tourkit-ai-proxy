@@ -265,7 +265,10 @@ function DealsPage({ pushToast }) {
       // Nếu user chọn cụ thể → gửi dealIds; nếu auto → để trống, backend lấy top 20 ưu tiên.
       const useIds = overrideIds || (selectedIds.size > 0 ? selectedIds : null);
       const body = { provider: cfg.provider, model: cfg.model, apiKey: key || undefined };
-      if (useIds) body.dealIds = [...useIds];
+      // Backend DealAnalyzeRequest.DealIds là List<string> → CONVERT mọi id sang string
+      // (selectedIds chứa number do it.id là number; auto path đã String() nhưng manual click
+      // truyền trực tiếp selectedIds → cần normalize ở đây cho chắc).
+      if (useIds) body.dealIds = [...useIds].map(String);
       const r = await window.tourkitAuth.authedFetch('/api/v1/deals/analyze', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(body),
