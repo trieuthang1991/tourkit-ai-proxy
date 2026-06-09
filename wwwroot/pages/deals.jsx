@@ -221,24 +221,16 @@ function DealsPage({ pushToast }) {
   _dE(() => { loadList(); }, [page, pageSize]);
   _dE(() => { setPage(1); }, [pageSize]);   // đổi pageSize → về page 1
 
-  // Reset autoTriedRef khi đổi page/pageSize/filter — cho auto re-check trên view mới.
+  // Reset autoTriedRef khi đổi page/pageSize/filter HOẶC list refresh (sau batch xong loadList()
+  // refresh scoreStatus per item) — auto effect re-run, pick deal mới có scoreStatus=none.
   _dE(() => {
-    console.log('[auto-deal] reset autoTriedRef do navigation (page/filter)');
+    console.log('[auto-deal] reset autoTriedRef (list/navigation đổi)');
     autoTriedRef.current = false;
-  }, [page, pageSize, adv, q, level, riskOnly]);
+  }, [page, pageSize, adv, q, level, riskOnly, list]);
 
-  // Reset khi board update (vd batch xong, có thêm score) → cho auto trigger tiếp những deal còn lại.
-  // KHÔNG dùng dep `running` để tránh loop (running=true→false sau done sẽ trigger ngay khi chưa kịp setBoard).
-  _dE(() => {
-    if (board?.generatedAt) {
-      console.log('[auto-deal] reset autoTriedRef do board update (đã chấm thêm)');
-      autoTriedRef.current = false;
-    }
-  }, [board]);
-
-  // Auto-trigger: pick CHỈ những deal chưa chấm (ngoài board.items) → batch chấm bằng dealIds[].
-  // Khác lần đầu: KHÔNG dùng "30 phút freshness" guard vì auto giờ chấm những bản chưa chấm cụ thể,
-  // không phải chấm lại top 20 mà board đã có.
+  // Auto-trigger: pick deal có scoreStatus !== 'fresh' từ list (giống Khách hàng).
+  // Server đã trả per-item scoreStatus dựa trên cache → frontend KHÔNG cần merge board.
+  // Sau mỗi batch xong, loadList() refresh list → scoreStatus per item cập nhật → effect re-run.
   _dE(() => {
     const dbg = (m) => console.log('[auto-deal]', m);
     if (!autoAnalyze)            { dbg('skip: autoAnalyze OFF'); return; }
@@ -247,22 +239,19 @@ function DealsPage({ pushToast }) {
     if (list.length === 0)       { dbg('skip: list rỗng'); return; }
     if (autoTriedRef.current)    { dbg('skip: đã trigger cho state hiện tại'); return; }
 
-    // Tập id đã chấm (board.items) + list hiện tại → tính những deal CHƯA chấm trên view này
-    const scoredIds = new Set((board?.items || []).map(b => String(b.id)));
-    const unscored  = list.filter(d => !scoredIds.has(String(d.id))).slice(0, 50);
-
+    const unscored = list.filter(d => !d.scoreStatus || d.scoreStatus === 'none').slice(0, 50);
     if (unscored.length === 0) {
-      dbg('skip: tất cả deal trên trang này đã có score');
+      dbg('skip: trang này không có deal scoreStatus=none');
       pushToast('Tự động: trang này không có deal nào chưa chấm', 'info');
       autoTriedRef.current = true;
       return;
     }
     autoTriedRef.current = true;
-    dbg(`trigger chấm ${unscored.length} deal chưa chấm (trên ${list.length} đang xem, board đã chấm ${scoredIds.size})`);
+    dbg(`trigger chấm ${unscored.length} deal scoreStatus=none (trên ${list.length} đang xem)`);
     const ids = new Set(unscored.map(d => String(d.id)));
     pushToast(`Tự động chấm ${unscored.length} deal chưa chấm…`, 'info');
     setTimeout(() => run(ids), 300);
-  }, [autoAnalyze, running, listLoading, list, board]);
+  }, [autoAnalyze, running, listLoading, list]);
 
   async function run(overrideIds = null) {
     setRunning(true); setProgress({ stage: 'scanning' });
@@ -288,20 +277,12 @@ function DealsPage({ pushToast }) {
         else if (e.type === 'scored') { live.push(e.payload.item); setProgress(p => ({ ...p, stage: 'scoring', done: e.payload.done, total: e.payload.total })); }
         else if (e.type === 'done') {
           const b = e.payload.board || { items: [...live].sort((a, b) => b.priorityScore - a.priorityScore), scanned: 0, deepScored: live.length };
-          // ACCUMULATE board.items qua nhiều batch trong cùng session — tránh "duplicate chấm":
-          //   batch 1 chấm id 1-50 → board.items = [1..50]
-          //   batch 2 chấm id 51-100 → backend trả board.items = [51..100]
-          //   Nếu setBoard(b) trực tiếp → mất [1..50] → auto coi 1-50 là chưa chấm → chấm lại lần nữa
-          // Merge by id (mới ghi đè cũ nếu re-chấm cùng deal, vd forceFresh)
-          setBoard(prev => {
-            if (!prev?.items?.length) return b;
-            const map = new Map();
-            for (const it of prev.items) map.set(String(it.id), it);
-            for (const it of (b.items || [])) map.set(String(it.id), it);
-            const merged = Array.from(map.values()).sort((a, b) => (b.priorityScore || 0) - (a.priorityScore || 0));
-            return { ...b, items: merged, deepScored: merged.length };
-          });
-          pushToast(`Đã chấm thêm ${b.deepScored || live.length} cơ hội`);
+          setBoard(b);
+          pushToast(`Đã chấm ${b.deepScored || live.length} cơ hội`);
+          // QUAN TRỌNG: refresh list để scoreStatus per item cập nhật từ cache backend
+          // (giống pattern /customers: batch xong → loadList → reviewStatus per item refresh).
+          // Auto effect dưới sẽ tự re-run với scoreStatus mới → trigger batch tiếp nếu còn 'none'.
+          loadList();
         }
         else if (e.type === 'error' && !e.payload) pushToast(e.error || 'Lỗi phân tích', 'error');
         else if (e.type === 'cancelled') pushToast('Đã hủy phân tích', 'error');
@@ -314,16 +295,17 @@ function DealsPage({ pushToast }) {
     if (cancelUrl.current) { try { await window.tourkitAuth.authedFetch(cancelUrl.current, { method: 'POST' }); } catch {} }
   }
 
-  // Merge list (real-time API) với board scores (cached AI). Row có score → có winRate/level/priorityScore;
-  // chưa chấm → các field đó null/0 và `_hasScore=false` (UI hiển thị "—" thay vì số).
-  const scoreMap = (() => {
-    const m = new Map();
-    (board?.items || []).forEach(b => m.set(b.id, b));
-    return m;
-  })();
+  // Server đã trả per-item score data (cached) — frontend chỉ cần map ra field phẳng cho UI.
+  // _hasScore = !!d.score (true nếu có cache). KHÔNG cần merge với board.items nữa.
   const items = list.map(d => {
-    const sc = scoreMap.get(d.id);
-    if (sc) return { ...d, ...sc, _hasScore: true };
+    if (d.score) {
+      return {
+        ...d,
+        winRate: d.score.winRate, level: d.score.level,
+        priorityScore: d.score.priorityScore || 0, expectedValue: d.score.expectedValue || 0,
+        analysis: d.score, _hasScore: true
+      };
+    }
     return { ...d, _hasScore: false, winRate: null, level: null, priorityScore: 0, expectedValue: 0 };
   });
   const ql = q.trim().toLowerCase();

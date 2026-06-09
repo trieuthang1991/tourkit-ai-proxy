@@ -51,6 +51,13 @@ public class DealRepository
             return _scores.TryGetValue(Key(tenant, id), out var c) && c.Fingerprint == fingerprint ? c.Score : null;
     }
 
+    /// Đã có cache (KHÔNG check fingerprint) — dùng cho FE tô "đã chấm/chưa chấm" trong list.
+    /// Trả: null = chưa chấm; CachedScore = đã có cache, có thể stale (fingerprint cũ).
+    public CachedScore? PeekCached(string tenant, int id)
+    {
+        lock (_lock) return _scores.TryGetValue(Key(tenant, id), out var c) ? c : null;
+    }
+
     public void SaveScore(string tenant, int id, string fingerprint, DealScore score)
     {
         lock (_lock)
