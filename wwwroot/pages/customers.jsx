@@ -427,9 +427,13 @@ function CustomersPage({ pushToast }) {
 
   const busy = progress.status === 'processing';
 
-  // Reset autoTriedRef MỖI khi đổi page/filter/search/segment → cho auto chạy lại
-  // với items mới (đổi trang xong, đổi VIP/Thường, search, đổi loại KH...).
-  _uEC(() => { autoTriedRef.current = false; }, [page, pageSize, filter, segFilter, search]);
+  // Reset autoTriedRef khi đổi page/filter/search/segment → auto chạy lại trên items mới.
+  // KHÔNG reset khi batch xong (tránh loop trên cùng page nếu có KH lỗi không review được).
+  // Sau batch nếu còn 'none', user paginate sang page khác sẽ tự trigger.
+  _uEC(() => {
+    console.log('[auto-review] reset autoTriedRef do navigation (page/filter/search)');
+    autoTriedRef.current = false;
+  }, [page, pageSize, filter, segFilter, search]);
 
   // Auto-trigger sau khi list load + autoReview ON + không busy.
   // autoTriedRef chỉ chặn LOOP trong cùng items snapshot (vd batch xong list refresh sẽ

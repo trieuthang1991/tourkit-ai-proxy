@@ -222,8 +222,19 @@ function DealsPage({ pushToast }) {
   _dE(() => { setPage(1); }, [pageSize]);   // đổi pageSize → về page 1
 
   // Reset autoTriedRef khi đổi page/pageSize/filter — cho auto re-check trên view mới.
-  // Guard "vừa chấm < 30 phút" trong useEffect dưới sẽ tránh đốt token thừa.
-  _dE(() => { autoTriedRef.current = false; }, [page, pageSize, adv, q, level, riskOnly]);
+  _dE(() => {
+    console.log('[auto-deal] reset autoTriedRef do navigation (page/filter)');
+    autoTriedRef.current = false;
+  }, [page, pageSize, adv, q, level, riskOnly]);
+
+  // Reset khi board update (vd batch xong, có thêm score) → cho auto trigger tiếp những deal còn lại.
+  // KHÔNG dùng dep `running` để tránh loop (running=true→false sau done sẽ trigger ngay khi chưa kịp setBoard).
+  _dE(() => {
+    if (board?.generatedAt) {
+      console.log('[auto-deal] reset autoTriedRef do board update (đã chấm thêm)');
+      autoTriedRef.current = false;
+    }
+  }, [board]);
 
   // Auto-trigger: pick CHỈ những deal chưa chấm (ngoài board.items) → batch chấm bằng dealIds[].
   // Khác lần đầu: KHÔNG dùng "30 phút freshness" guard vì auto giờ chấm những bản chưa chấm cụ thể,
