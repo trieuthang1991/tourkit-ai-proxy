@@ -1622,11 +1622,16 @@ body.editorial .ai-bubble .hl { color: #FDBA74; }
 .asst-suggest-toggle:hover { border-color: var(--primary); color: var(--primary-dark); background: var(--primary-soft); }
 .asst-suggest-toggle svg { color: var(--primary); }
 
-/* Expanded view — grouped suggestions */
-.asst-suggest-all { display: flex; flex-direction: column; gap: 14px; margin-top: 10px; }
+/* Inline row khi chat (collapsed) — chip ngang flex wrap */
+.asst-suggest-row { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 6px; }
+
+/* Expanded view — grouped suggestions, scroll khi quá cao trong chế độ chat */
+.asst-suggest-all { display: flex; flex-direction: column; gap: 12px; margin-top: 10px;
+  max-height: 320px; overflow-y: auto; padding-right: 4px; }
 .asst-suggest-group { display: flex; flex-direction: column; gap: 6px; }
 .asst-suggest-group-title { font-size: 11.5px; font-weight: 700; color: var(--text-2);
-  padding-bottom: 4px; border-bottom: 1px dashed var(--border); }
+  padding-bottom: 4px; border-bottom: 1px dashed var(--border); position: sticky; top: 0;
+  background: var(--surface); z-index: 1; }
 .asst-suggest-group-chips { display: flex; flex-wrap: wrap; gap: 6px; padding-top: 4px; }
 
 /* Input row (v2.5: pill + nút gửi tròn cam) */

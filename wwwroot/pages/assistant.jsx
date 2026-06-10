@@ -700,26 +700,30 @@ function AssistantPage({ pushToast }) {
             ))}
           </div>
 
-          {messages.length > 0 && (
-            <div className="asst-quick">
-              <span className="asst-quick-lbl">GỢI Ý NHANH:</span>
-              {suggestions.slice(0, 3).map(s => (
-                <button key={s.q} className="asst-quick-chip" onClick={() => send(s.q)} disabled={loading}>
-                  <Icon name={s.icon} size={12} /> {s.q}
-                </button>
-              ))}
+          {/* GỢI Ý — luôn hiện (cả khi đã chat lẫn chưa). Toggle expand cho user
+              discover được tất cả 17 tool. Khi chat: collapsed = 3 chips inline để
+              không chiếm chỗ. Khi chưa chat: collapsed = grid 2x2 wide. */}
+          <div className={'asst-quick' + (messages.length === 0 ? ' wide' : '')}>
+            <div className="asst-quick-head">
+              <span className="asst-quick-lbl">
+                {messages.length > 0 ? 'GỢI Ý:' : 'GỢI Ý CÂU HỎI NHANH:'}
+              </span>
+              <button className="asst-suggest-toggle"
+                onClick={() => setExpandedSuggest(v => !v)} disabled={loading}>
+                <Icon name={expandedSuggest ? 'chevronUp' : 'chevronDown'} size={12} />
+                {expandedSuggest ? 'Thu gọn' : 'Xem tất cả gợi ý'}
+              </button>
             </div>
-          )}
-          {messages.length === 0 && (
-            <div className="asst-quick wide">
-              <div className="asst-quick-head">
-                <span className="asst-quick-lbl">GỢI Ý CÂU HỎI NHANH:</span>
-                <button className="asst-suggest-toggle" onClick={() => setExpandedSuggest(v => !v)}>
-                  <Icon name={expandedSuggest ? 'chevronUp' : 'chevronDown'} size={12} />
-                  {expandedSuggest ? 'Thu gọn' : 'Xem tất cả gợi ý'}
-                </button>
-              </div>
-              {!expandedSuggest ? (
+            {!expandedSuggest ? (
+              messages.length > 0 ? (
+                <div className="asst-suggest-row">
+                  {suggestions.slice(0, 3).map(s => (
+                    <button key={s.q} className="asst-quick-chip" onClick={() => send(s.q)} disabled={loading}>
+                      <Icon name={s.icon} size={12} /> {s.q}
+                    </button>
+                  ))}
+                </div>
+              ) : (
                 <div className="asst-quick-grid">
                   {suggestions.map(s => (
                     <button key={s.q} className="asst-quick-chip" onClick={() => send(s.q)}>
@@ -727,24 +731,24 @@ function AssistantPage({ pushToast }) {
                     </button>
                   ))}
                 </div>
-              ) : (
-                <div className="asst-suggest-all">
-                  {allSuggestions.map(grp => (
-                    <div key={grp.group} className="asst-suggest-group">
-                      <div className="asst-suggest-group-title">{grp.group}</div>
-                      <div className="asst-suggest-group-chips">
-                        {grp.items.map(s => (
-                          <button key={s.q} className="asst-quick-chip" onClick={() => send(s.q)}>
-                            <Icon name={s.icon} size={13} /> {s.q}
-                          </button>
-                        ))}
-                      </div>
+              )
+            ) : (
+              <div className="asst-suggest-all">
+                {allSuggestions.map(grp => (
+                  <div key={grp.group} className="asst-suggest-group">
+                    <div className="asst-suggest-group-title">{grp.group}</div>
+                    <div className="asst-suggest-group-chips">
+                      {grp.items.map(s => (
+                        <button key={s.q} className="asst-quick-chip" onClick={() => send(s.q)} disabled={loading}>
+                          <Icon name={s.icon} size={13} /> {s.q}
+                        </button>
+                      ))}
                     </div>
-                  ))}
-                </div>
-              )}
-            </div>
-          )}
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
 
           <div className="asst-input-row">
             <input
