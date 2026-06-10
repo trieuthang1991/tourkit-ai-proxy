@@ -112,6 +112,30 @@ public static class ChatTools
             Array.Empty<string>(),
             "stats", "Thông báo cần xử lý"),
 
+        new("branch_performance",
+            "Hiệu suất theo CHI NHÁNH (doanh thu, thực thu, công nợ, chi, hoa hồng theo chi nhánh). " +
+            "DÙNG cho 'chi nhánh nào doanh số cao nhất', 'so sánh chi nhánh', 'xếp hạng chi nhánh'. " +
+            "Bỏ trống ngày = ALL time. Có thể lọc theo `branch` (1 chi nhánh) hoặc `groupId` (nhóm).",
+            "/api/ai/branch-performance",
+            new[] { "startDate", "endDate", "branch", "groupId" },
+            "branch", "Hiệu suất chi nhánh"),
+
+        new("product_line_revenue",
+            "Hiệu suất theo DÒNG SẢN PHẨM / loại tour (FIT/GIT/LandTour/Visa/Booking…). " +
+            "DÙNG cho 'dòng sản phẩm nào lãi nhất', 'tour FIT vs GIT', 'lợi nhuận theo loại tour'. " +
+            "Bỏ trống ngày = ALL time. Có thể lọc `branch` hoặc `tourType`.",
+            "/api/ai/product-line-revenue",
+            new[] { "startDate", "endDate", "branch", "tourType" },
+            "productline", "Dòng sản phẩm"),
+
+        new("market_analysis",
+            "Hiệu suất theo THỊ TRƯỜNG (Hàn Quốc, Nhật, Nội địa Miền Nam, …). " +
+            "DÙNG cho 'thị trường nào doanh thu cao nhất', 'so sánh thị trường', 'lợi nhuận theo thị trường'. " +
+            "Bỏ trống ngày = ALL time. Có thể lọc `branch` hoặc `marketId`.",
+            "/api/ai/market-analysis",
+            new[] { "startDate", "endDate", "branch", "marketId" },
+            "market", "Phân tích thị trường"),
+
         new("list_markets",
             "Danh sách thị trường tour (Hàn Quốc, Nội địa - Miền Nam…). Dùng khi hỏi 'có những thị trường nào'.",
             "/api/tours/markets",
