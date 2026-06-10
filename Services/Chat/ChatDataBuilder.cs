@@ -84,6 +84,49 @@ public static class ChatDataBuilder
         return stats;
     }
 
+    // ─── Focus detection ──────────────────────────────────────────────────────
+    // User hỏi 1 chỉ số cụ thể ("chi phí tháng này") → Focus=["expense"] để frontend
+    // CHỈ vẽ chart/cột đó thay vì cả 3 metric. Port từ JsonPlannerAgent (trước đây
+    // bị mồ côi — định nghĩa nhưng không được gọi → mọi câu hỏi đều vẽ full metric).
+
+    private static readonly (string Token, string[] Kw)[] FocusTokens =
+    {
+        ("revenue", new[] { "doanh thu", "doanh số", "doanh so", "doanhthu", "revenue", "sales" }),
+        ("expense", new[] { "chi phí", "chi phi", "chiphi", "expense", "cost" }),
+        ("profit",  new[] { "lợi nhuận", "loi nhuan", "loinhuan", "profit", "lãi" }),
+    };
+
+    /// Gắn Focus vào ChatData theo câu hỏi. Trả nguyên data nếu không match / hỏi tổng quan.
+    public static ChatData WithFocus(ChatData cd, string? question)
+    {
+        var q = (question ?? "").ToLowerInvariant();
+        if (q.Length == 0) return cd;
+        // Hỏi tổng quan → không focus (hiện đủ metric)
+        if (q.Contains("dòng tiền") || q.Contains("tổng quan") || q.Contains("tất cả") || q.Contains("toàn bộ"))
+            return cd with { Focus = null };
+        var matched = FocusTokens.Where(t => t.Kw.Any(k => q.Contains(k))).Select(t => t.Token).ToList();
+        // Match ≥2 nhóm (vd "so sánh doanh thu với chi phí") → không focus, hiện cả 2
+        if (matched.Count != 1) return cd with { Focus = null };
+        if (cd.Raw is not { } rawEl) return cd with { Focus = null };
+        var fields = CollectFieldNames(rawEl);
+        var focus = fields.Where(f => f.ToLowerInvariant().Contains(matched[0])).ToList();
+        return cd with { Focus = focus.Count > 0 ? focus : null };
+    }
+
+    private static HashSet<string> CollectFieldNames(JsonElement data)
+    {
+        var set = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        JsonElement rows = default; bool has = false;
+        if (data.ValueKind == JsonValueKind.Array) { rows = data; has = true; }
+        else if (data.ValueKind == JsonValueKind.Object)
+            foreach (var p in data.EnumerateObject())
+                if (p.Value.ValueKind == JsonValueKind.Array && p.Value.GetArrayLength() > 0
+                    && p.Value[0].ValueKind == JsonValueKind.Object) { rows = p.Value; has = true; break; }
+        if (has && rows.GetArrayLength() > 0 && rows[0].ValueKind == JsonValueKind.Object)
+            foreach (var p in rows[0].EnumerateObject()) set.Add(p.Name);
+        return set;
+    }
+
     // ─── Suggestions ──────────────────────────────────────────────────────────
 
     internal static List<string>? SuggestFor(string toolName) => toolName switch

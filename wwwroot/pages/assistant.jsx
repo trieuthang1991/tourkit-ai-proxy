@@ -11,7 +11,10 @@ const TK_USER_KEY = 'tourkit_tk_user';   // {fullName, companyName, tenantId} ch
 // money-ish column → format VND ở bảng (mirror ChatAgentService.IsMoney bên backend).
 const _MONEY_HINTS = ['doanhthu','revenue','tongtien','thanhtien','thanhtoan','amount','money',
   'gia','price','tien','commission','hoahong','loinhuan','profit','congno','debt','paid','total','tong','payment','value',
-  'expense','cost','chiphi'];
+  'expense','cost','chiphi',
+  // key Việt từ 3 SP legacy (branch-performance / product-line / market-analysis):
+  // ThucThu, ThucChi + 'comission' (SP đánh vần thiếu chữ m)
+  'thucthu','thucchi','comission'];
 const _NOT_MONEY = ['count','qty','row','soluong','index','page','year','month','stt'];
 const _isMoneyKey = (k) => {
   const s = String(k).toLowerCase();
@@ -133,10 +136,25 @@ function _chartInfo(rows) {
   return { labelKey, series: numKeys.map(k => ({ key: k })), timeline };
 }
 
+// Donut chỉ hợp lệ khi mọi giá trị ≥ 0 và tổng > 0 — slice âm Chart.js bỏ qua
+// (biểu đồ sai), tổng 0 thì vẽ vòng trống. Cả 2 case → dùng cột.
+function _pieSafe(rows, series) {
+  let sum = 0;
+  for (const r of rows) {
+    for (const s of series) {
+      const v = Number(r[s.key]) || 0;
+      if (v < 0) return false;
+      sum += v;
+    }
+  }
+  return sum > 0;
+}
+
 // Kind gợi ý "cơ cấu" → ưu tiên donut nếu 1 chỉ số (marketing, top theo share…)
 const _COMP_KINDS = new Set(['marketing', 'topcustomers', 'topsellers']);
 function _defaultChartType(info, rows, kind) {
   if (info.timeline) return 'bar-vertical';
+  if (!_pieSafe(rows, info.series)) return 'bar-horizontal';   // số âm / toàn 0 → cột
   const singleMetric = info.series.length === 1;
   const fewRows = rows.length <= 10;
   if (singleMetric && fewRows) return 'doughnut';
@@ -163,8 +181,8 @@ function ChartView({ rows, info, focus, kind }) {
   }, [info.labelKey, rows.length, kind]);
 
   const activeCount = info.series.filter(s => sel.includes(s.key)).length;
-  // Tròn hợp lý: dữ liệu phân loại (không timeline), 2–12 mục (donut chart vẫn đọc được).
-  const canPie = !info.timeline && rows.length >= 2 && rows.length <= 12;
+  // Tròn hợp lý: dữ liệu phân loại (không timeline), 2–12 mục, không số âm, tổng > 0.
+  const canPie = !info.timeline && rows.length >= 2 && rows.length <= 12 && _pieSafe(rows, info.series);
 
   React.useEffect(() => {
     if (!window.Chart || !canvasRef.current) return;
@@ -309,12 +327,18 @@ function TypingDots({ stage }) {
 // Local alias để giữ JSX cũ trong file này.
 const TraceView = (props) => window.TraceView ? <window.TraceView {...props} /> : null;
 
+// Tăng mỗi khi panelData đổi — dùng làm key remount ChartView để câu hỏi mới
+// luôn nhận chartType/metric mặc định mới (trước đây cùng kind+labelKey+số dòng
+// thì giữ nguyên lựa chọn tay của câu TRƯỚC → đồ thị sai kiểu).
+let _panelVer = 0;
+
 function DataPanel({ data, onAsk }) {
   // Memo hóa rows/chart theo `data` (ổn định suốt lúc stream) → KHÔNG dựng lại chart mỗi token
   // (trước đây tính lại mỗi render → ChartView destroy+create liên tục → nhấp nháy khó chịu).
   const rows = React.useMemo(() => _extractRows(data ? data.raw : null), [data]);
   const isKpi = !!data && data.kind === 'kpi';   // financial-summary: items đã thành thẻ → không bảng/chart trùng
   const chart = React.useMemo(() => (data && !isKpi) ? _chartInfo(rows) : null, [data, isKpi, rows]);
+  const dataVer = React.useMemo(() => ++_panelVer, [data]);
   // Map nhanh label → compareStat (để hiện delta vs kỳ đối chiếu khi render).
   // HOOK PHẢI ở đây — trước early return — để React giữ hook order ổn định.
   const compareMap = React.useMemo(() => {
@@ -330,6 +354,31 @@ function DataPanel({ data, onAsk }) {
         <div className="asst-empty-icon"><Icon name="paper" size={26} /></div>
         <p className="asst-empty-title">Số liệu sẽ hiển thị ở đây</p>
         <p className="asst-hint">Ví dụ: “Doanh thu tháng này”, “Top khách hàng”, “Tour sắp khởi hành”.</p>
+      </div>
+    );
+  }
+
+  // Data RỖNG (tool chạy nhưng 0 bản ghi, 0 chỉ số) — hiện empty state rõ ràng
+  // thay vì <details>JSON thô (case: lọc không khớp, kỳ không có số liệu).
+  const rawEmpty = data.raw == null
+    || (Array.isArray(data.raw) && data.raw.length === 0)
+    || (typeof data.raw === 'object' && !Array.isArray(data.raw) && Object.keys(data.raw).length === 0);
+  const noStats = !data.stats || data.stats.length === 0;
+  if (noStats && (!rows || rows.length === 0) && rawEmpty) {
+    return (
+      <div className="asst-panel-empty">
+        <div className="asst-empty-icon"><Icon name="search" size={26} /></div>
+        <p className="asst-empty-title">Không có số liệu khớp với câu hỏi</p>
+        <p className="asst-hint">Thử đổi khoảng thời gian, bỏ bớt điều kiện lọc, hoặc hỏi cách khác.</p>
+        {data.suggestions && data.suggestions.length > 0 && onAsk && (
+          <div className="asst-suggest-grid" style={{ marginTop: 12 }}>
+            {data.suggestions.map(q => (
+              <button key={q} className="asst-chip" onClick={() => onAsk(q)}>
+                <Icon name="sparkle" size={12} /> <span>{q}</span>
+              </button>
+            ))}
+          </div>
+        )}
       </div>
     );
   }
@@ -428,7 +477,8 @@ function DataPanel({ data, onAsk }) {
       {chart && window.Chart && (
         <div className="asst-block">
           <div className="label">Biểu đồ</div>
-          <ChartView rows={rows} info={chart} focus={data.focus} kind={data.kind} />
+          {/* key=dataVer: remount khi panelData đổi → chartType/metric về mặc định đúng cho data MỚI */}
+          <ChartView key={dataVer} rows={rows} info={chart} focus={data.focus} kind={data.kind} />
         </div>
       )}
 
@@ -449,12 +499,14 @@ function DataPanel({ data, onAsk }) {
           </div>
           {rows.length > 50 && <div className="asst-hint">Hiển thị 50/{rows.length} dòng đầu.</div>}
         </div>
-      ) : (
+      ) : (!rawEmpty && (
+        // Raw có nội dung nhưng không tabular (object lạ) → cho xem JSON gốc.
+        // Raw RỖNG → không render gì (stats phía trên là đủ).
         <details className="asst-raw">
           <summary>Xem dữ liệu gốc</summary>
           <pre className="asst-json">{JSON.stringify(data.raw, null, 2)}</pre>
         </details>
-      ))}
+      )))}
 
       {data.suggestions && data.suggestions.length > 0 && onAsk && (
         <div className="asst-suggest-next">

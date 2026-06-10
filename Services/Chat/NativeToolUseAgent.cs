@@ -380,6 +380,14 @@ public class NativeToolUseAgent : IAgentRuntime
                     if (er.Data != null) { lastData = er.Data; lastToolName = er.Tool?.Name; lastParams = er.Params; }
             }
 
+            // Focus theo cau hoi ("chi phi thang nay" → chart chi ve expense).
+            // Phai gan TRUOC khi emit — frontend dung data tu event nay, khong doi done.
+            if (lastData != null)
+            {
+                var userQ = input.History.LastOrDefault(m => m.Role == "user")?.Content;
+                lastData = ChatDataBuilder.WithFocus(lastData, userQ);
+            }
+
             // Emit data ngay sau khi exec xong → frontend hien panel phai som nhat co the.
             if (emit != null && lastData != null && !string.IsNullOrEmpty(lastData.Title))
                 await emit(new { stage = "data", iteration, tool = lastToolName, data = lastData });
@@ -432,7 +440,9 @@ public class NativeToolUseAgent : IAgentRuntime
         {
             _log.LogInformation("[NativeTool] reuse LastChatData ({Title}) — AI khong goi tool turn nay",
                 memory.LastChatData.Title);
-            lastData     = memory.LastChatData;
+            // Re-detect focus theo cau hoi MOI (follow-up "con chi phi thi sao?" → doi focus sang expense)
+            var followQ = input.History.LastOrDefault(m => m.Role == "user")?.Content;
+            lastData     = ChatDataBuilder.WithFocus(memory.LastChatData, followQ);
             lastToolName = memory.LastTool;
             lastParams   = memory.LastParams;
             trace?.Step("memory_data_reuse", "fallback", 0,
