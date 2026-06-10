@@ -170,6 +170,11 @@ function DealsPage({ pushToast }) {
   // Confirm modal: hiện trước khi chấm thủ công (manual). Auto skip modal.
   const [confirmOpen, setConfirmOpen] = _dS(false);
 
+  // Per-deal status (tương tự Customer): { dealId: { stage: 'queue'|'done'|'error' } }
+  // Backend chỉ emit `scored` khi 1 deal chấm xong (không có "starting" per deal) → chỉ track
+  // 2 trạng thái real: queue (chờ + đang chấm song song concurrency=6) → done.
+  const [rowStatus, setRowStatus] = _dS({});
+
   // ─── Tự động phân tích ───────────────────────────────────────────────────
   // Toggle persist localStorage theo tenant. Khi BẬT + page mount + có cơ hội + chưa chấm gần đây
   // → tự run() phân tích. Chỉ trigger 1 lần per page-mount (autoTriedRef).
@@ -261,16 +266,18 @@ function DealsPage({ pushToast }) {
 
   async function run(overrideIds = null) {
     setRunning(true); setProgress({ stage: 'scanning' });
+    const useIds = overrideIds || (selectedIds.size > 0 ? selectedIds : null);
+    // Init rowStatus = queue cho tất cả selected → pipeline hiển thị "Chờ: N"
+    if (useIds) {
+      const initial = {};
+      [...useIds].forEach(id => { initial[id] = { stage: 'queue' }; });
+      setRowStatus(initial);
+    } else { setRowStatus({}); }
     const live = [];
     try {
       const cfg = window.tourkit.ai.getConfig();
       const key = window.tourkit.ai.getKey(cfg.provider);
-      // Nếu user chọn cụ thể → gửi dealIds; nếu auto → để trống, backend lấy top 20 ưu tiên.
-      const useIds = overrideIds || (selectedIds.size > 0 ? selectedIds : null);
       const body = { provider: cfg.provider, model: cfg.model, apiKey: key || undefined };
-      // Backend DealAnalyzeRequest.DealIds là List<string> → CONVERT mọi id sang string
-      // (selectedIds chứa number do it.id là number; auto path đã String() nhưng manual click
-      // truyền trực tiếp selectedIds → cần normalize ở đây cho chắc).
       if (useIds) body.dealIds = [...useIds].map(String);
       const r = await window.tourkitAuth.authedFetch('/api/v1/deals/analyze', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
@@ -282,15 +289,20 @@ function DealsPage({ pushToast }) {
 
       await readDealStream(data.streamUrl, (e) => {
         if (e.type === 'scanning') setProgress({ stage: 'scanning' });
-        else if (e.type === 'ranked') setProgress({ stage: 'scoring', done: 0, total: e.payload.total, scanned: e.payload.scanned });
-        else if (e.type === 'scored') { live.push(e.payload.item); setProgress(p => ({ ...p, stage: 'scoring', done: e.payload.done, total: e.payload.total })); }
+        else if (e.type === 'ranked') {
+          setProgress({ stage: 'scoring', done: 0, total: e.payload.total, scanned: e.payload.scanned });
+        }
+        else if (e.type === 'scored') {
+          live.push(e.payload.item);
+          // Đánh dấu deal vừa chấm xong → pipeline "Xong" tăng, "Chờ" giảm
+          const sid = e.payload.item?.id;
+          if (sid != null) setRowStatus(s => ({ ...s, [sid]: { stage: 'done', score: e.payload.item } }));
+          setProgress(p => ({ ...p, stage: 'scoring', done: e.payload.done, total: e.payload.total }));
+        }
         else if (e.type === 'done') {
           const b = e.payload.board || { items: [...live].sort((a, b) => b.priorityScore - a.priorityScore), scanned: 0, deepScored: live.length };
           setBoard(b);
           pushToast(`Đã chấm ${b.deepScored || live.length} cơ hội`);
-          // QUAN TRỌNG: refresh list để scoreStatus per item cập nhật từ cache backend
-          // (giống pattern /customers: batch xong → loadList → reviewStatus per item refresh).
-          // Auto effect dưới sẽ tự re-run với scoreStatus mới → trigger batch tiếp nếu còn 'none'.
           loadList();
         }
         else if (e.type === 'error' && !e.payload) pushToast(e.error || 'Lỗi phân tích', 'error');
@@ -399,50 +411,60 @@ function DealsPage({ pushToast }) {
         </>}
       />
 
-      {/* Panel đang review — show danh sách deal đang được chấm (giống pattern Khách hàng).
-          Hiện khi running=true với progress. List = các deal trong selectedIds (chính là batch
-          mà user đã/đang gửi). Mỗi row: tên KH + code + stage badge (chờ/đang chấm/xong). */}
-      {running && selectedIds.size > 0 && (
-        <div className="deals-batch-panel">
-          <div className="deals-batch-head">
-            <Icon name="sparkle" size={14} />
-            <span>Đang chấm AI <b>{selectedIds.size}</b> deal</span>
-            <span className="deals-batch-progress">{progress?.done || 0}/{progress?.total || selectedIds.size} xong</span>
-            <button className="btn btn-ghost btn-sm" onClick={cancel} style={{marginLeft:'auto'}}>
-              <Icon name="close" size={12} /> Dừng
-            </button>
-          </div>
-          <div className="deals-batch-list">
-            {[...selectedIds].slice(0, 30).map((id) => {
-              const it = list.find(d => d.id === id);
-              if (!it) return null;
-              const hasScore = !!it.score;   // đã chấm xong (server refresh score qua loadList giữa batch)
-              return (
-                <div key={id} className={'deals-batch-row' + (hasScore ? ' is-done' : '')}>
-                  <span className="deals-batch-stage">{hasScore ? '✓' : <span className="deals-spin sm" />}</span>
-                  <span className="deals-batch-cust">{it.customerName || '(không tên)'}</span>
-                  <span className="deals-batch-deal">{it.title || it.code || '#' + it.id}</span>
-                  <span className="deals-batch-val">{vndShort(it.totalPrice)}</span>
+      {/* Progress panel khi đang chạy: pipeline stages + bar + ĐANG CHẤM box (pattern Khách hàng) */}
+      {running && (() => {
+        const total = progress?.total || selectedIds.size;
+        const done = Object.values(rowStatus).filter(s => s?.stage === 'done').length;
+        const remaining = Math.max(0, total - done);
+        const concurrency = 6;
+        const calling = Math.min(concurrency, remaining);
+        const queue = Math.max(0, remaining - calling);
+        const pct = total ? Math.round(100 * done / total) : 0;
+        // Danh sách deal đang được AI chấm (queue stage nhưng giới hạn theo concurrency)
+        const inFlight = [...selectedIds].filter(id => rowStatus[id]?.stage !== 'done').slice(0, concurrency);
+        return (
+          <div className="deals-batch-panel">
+            <div className="deals-batch-stages">
+              <span className="deals-stage" style={{ color: 'var(--text-3)' }}>
+                <Icon name="users" size={12} /> Chờ <b>{queue}</b>
+              </span>
+              <span className="deals-stage-arrow">→</span>
+              <span className="deals-stage pulse" style={{ color: '#f59e0b' }}>
+                <Icon name="sparkle" size={12} /> AI <b>{calling}</b>
+              </span>
+              <span className="deals-stage-arrow">→</span>
+              <span className="deals-stage" style={{ color: '#16a34a' }}>
+                <Icon name="check" size={12} /> Xong <b>{done}</b>
+              </span>
+              <div style={{ flex: 1 }} />
+              <button className="btn btn-ghost btn-sm" onClick={cancel}>
+                <Icon name="close" size={12} /> Dừng
+              </button>
+            </div>
+            <div className="deals-batch-meta">
+              <span>{done}/{total} cơ hội xong</span>
+              <span>{pct}%</span>
+            </div>
+            <div className="deals-batch-bar"><i style={{ width: pct + '%' }} /></div>
+
+            {inFlight.length > 0 && (
+              <div className="deals-batch-calling">
+                <div className="deals-batch-calling-head">
+                  <Icon name="sparkle" size={12} /> ĐANG GỌI AI
                 </div>
-              );
-            })}
-            {selectedIds.size > 30 && (
-              <div className="deals-batch-row deals-batch-more">… và {selectedIds.size - 30} deal nữa</div>
+                <div className="deals-batch-calling-list">
+                  {inFlight.map(id => {
+                    const it = list.find(d => d.id === id);
+                    if (!it) return <span key={id} className="deals-batch-chip">{id}</span>;
+                    const label = `${it.code || '#' + id} · ${it.customerName || ''}`.trim();
+                    return <span key={id} className="deals-batch-chip" title={it.title || ''}>{label}</span>;
+                  })}
+                </div>
+              </div>
             )}
           </div>
-        </div>
-      )}
-
-      {running && progress && (
-        <div className="deals-progress">
-          <span className="deals-spin" />
-          {progress.stage === 'scanning'
-            ? <span>Đang quét pipeline cơ hội đang mở…</span>
-            : <span>Đang chấm sâu <b>{progress.done || 0}/{progress.total || 0}</b> cơ hội tiềm năng
-                {progress.scanned ? <em> (quét {progress.scanned} cơ hội mở)</em> : null}</span>}
-          {progress.total > 0 && <div className="deals-bar"><i style={{ width: `${Math.round(100 * (progress.done || 0) / progress.total)}%` }} /></div>}
-        </div>
-      )}
+        );
+      })()}
 
       {!running && listLoading && items.length === 0 && (
         <div className="deals-empty"><Icon name="trend" size={28} /><div>Đang tải danh sách cơ hội…</div></div>
