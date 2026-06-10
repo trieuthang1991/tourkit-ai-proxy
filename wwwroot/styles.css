@@ -1921,6 +1921,22 @@ body.editorial .ai-bubble .hl { color: #FDBA74; }
   font-size: 12.5px; font-weight: 600; cursor: pointer; transition: all .15s; }
 .tb-ai:hover { border-color: var(--primary); color: var(--primary); }
 
+/* Quota chip: "AI <used>/<limit>" — màu thay đổi theo warn/exhausted */
+.tb-quota { display: inline-flex; align-items: center; gap: 6px; height: 34px; padding: 0 12px;
+  border: 1px solid var(--chrome-line); border-radius: 999px; background: var(--chrome-2);
+  color: var(--chrome-text-2); font-size: 12px; font-weight: 600; cursor: pointer; transition: all .15s; }
+.tb-quota:hover { border-color: var(--primary); color: var(--primary); }
+.tb-quota b { color: var(--chrome-text); font-weight: 700; }
+.tb-quota.is-warn      { border-color: #d97706; background: rgba(217, 119, 6, 0.12); color: #fbbf24; }
+.tb-quota.is-warn b    { color: #fde68a; }
+.tb-quota.is-exhausted { border-color: #dc2626; background: rgba(220, 38, 38, 0.15); color: #fca5a5;
+  animation: tb-quota-pulse 1.6s ease-in-out infinite; }
+.tb-quota.is-exhausted b { color: #fecaca; }
+@keyframes tb-quota-pulse {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(220, 38, 38, 0.4); }
+  50%      { box-shadow: 0 0 0 6px rgba(220, 38, 38, 0); }
+}
+
 /* User chip + dropdown */
 .tb-userwrap { position: relative; }
 .tb-user { display: inline-flex; align-items: center; gap: 8px; height: 38px; padding: 0 10px 0 6px;
@@ -2720,6 +2736,11 @@ body.editorial .ai-bubble .hl { color: #FDBA74; }
 .sc-search-x { border: none; background: none; color: var(--text-3); cursor: pointer; line-height: 0;
   padding: 4px; border-radius: 999px; display: grid; place-items: center; }
 .sc-search-x:hover { background: var(--bg); color: var(--text); }
+/* Indicator "↵ Enter" — chỉ hiện ở submitOnly khi local !== value (đang chờ commit) */
+.sc-search-enter { font-size: 11px; font-weight: 600; color: var(--primary-dark, #b45309);
+  background: var(--primary-glow, rgba(234, 88, 12, .12)); padding: 3px 8px; border-radius: 999px;
+  white-space: nowrap; user-select: none; letter-spacing: .2px; }
+.sc-search.is-dirty { border-color: var(--primary); }
 
 /* FilterChip — pill toggle */
 .sc-chip-row { display: flex; align-items: center; gap: 6px; flex-wrap: nowrap; overflow-x: auto;
@@ -3170,55 +3191,53 @@ body.editorial .ai-bubble .hl { color: #FDBA74; }
   display: flex; align-items: center; justify-content: flex-end; gap: 12px;
   flex-wrap: nowrap;
 }
-.hp-theme {
+/* ═══ Top-bar pills (đồng nhất 1 hệ: pill trắng, border xám, accent qua icon/text) ═══
+   Trước có 4 style khác nhau (vàng/xanh/trắng/đỏ + radius khác nhau). Giờ:
+   - Cùng .hp-pill base: height 34px, padding 0 14px, radius 999px, bg surface, border, font 12/600
+   - Semantic chỉ qua icon color + accent text (KHÔNG đổi bg/border)
+   - Hover: 1 tier (border-strong + bg subtle)                                       */
+.hp-pill {
   display: inline-flex; align-items: center; gap: 8px;
   height: 34px; padding: 0 14px;
-  background: #FEF3C7; color: #92400E;
-  border: 1px solid #FDE68A;
-  border-radius: 999px; cursor: pointer;
-  font-size: 12px; font-weight: 700;
-  transition: all .12s; font-family: inherit;
-}
-.hp-theme:hover { background: #FDE68A; }
-.hp-theme-ico { font-size: 14px; line-height: 1; }
-
-.hp-logout {
-  display: inline-flex; align-items: center; gap: 6px;
-  height: 34px; padding: 0 14px;
-  background: rgba(220, 38, 38, 0.08); color: #991B1B;
-  border: 1px solid rgba(220, 38, 38, 0.25);
-  border-radius: 999px; cursor: pointer;
-  font-size: 12px; font-weight: 700;
-  transition: all .12s; font-family: inherit;
-}
-.hp-logout:hover { background: rgba(220, 38, 38, 0.15); border-color: #DC2626; color: #DC2626; }
-.hp-logout svg { transform: rotate(0deg); }
-@media (max-width: 740px) {
-  .hp-logout span { display: none; }
-  .hp-logout { padding: 0 10px; }
-}
-
-.hp-status {
-  display: inline-flex; align-items: center; gap: 6px;
-  height: 34px; padding: 0 12px;
-  background: rgba(16,185,129,0.10); color: #047857;
-  border: 1px solid rgba(16,185,129,0.30);
+  background: var(--surface);
+  border: 1px solid var(--border);
   border-radius: 999px;
-  font-size: 11px; font-weight: 800; letter-spacing: .08em;
+  color: var(--text-2);
+  font-size: 12px; font-weight: 600;
+  font-family: inherit; cursor: default;
+  white-space: nowrap;          /* tránh wrap text khi bar hẹp */
+  flex-shrink: 0;               /* giữ kích thước, không co dồn */
+  transition: border-color .15s, background .15s, color .15s;
 }
+button.hp-pill { cursor: pointer; }
+.hp-pill:hover { border-color: var(--border-strong); background: var(--bg); }
+
+/* Variants — đổi MÀU CHỮ + icon, GIỮ shape/bg đồng nhất */
+.hp-pill--theme  { color: #92400E; }
+.hp-pill--theme  .hp-pill-ico { color: #D97706; }
+.hp-pill--status { color: #047857; font-weight: 700; letter-spacing: .04em; }
+.hp-pill--clock  { color: var(--text-2); font-variant-numeric: tabular-nums; }
+.hp-pill--clock  svg { color: var(--text-3); }
+.hp-pill--logout { color: #B91C1C; }
+.hp-pill--logout:hover { border-color: #FCA5A5; background: rgba(220, 38, 38, 0.04); color: #DC2626; }
+.hp-pill--logout svg { color: #DC2626; }
+
+/* Status dot (live indicator) — pulse nhẹ để hint real-time */
 .hp-status-dot {
   width: 7px; height: 7px; border-radius: 50%;
-  background: #10B981; box-shadow: 0 0 0 3px rgba(16,185,129,0.20);
+  background: #10B981; box-shadow: 0 0 0 3px rgba(16,185,129,0.22);
+  animation: hpStatusPulse 2s ease-in-out infinite;
 }
-.hp-clock {
-  display: inline-flex; align-items: center; gap: 7px;
-  height: 34px; padding: 0 12px;
-  background: var(--surface); border: 1px solid var(--border);
-  border-radius: 8px; color: var(--text-2);
-  font-size: 11.5px; font-weight: 600;
-  font-variant-numeric: tabular-nums;
+@keyframes hpStatusPulse {
+  0%, 100% { box-shadow: 0 0 0 3px rgba(16,185,129,0.22); }
+  50%      { box-shadow: 0 0 0 5px rgba(16,185,129,0.08); }
 }
-.hp-clock svg { color: var(--text-3); }
+.hp-pill-ico { font-size: 13px; line-height: 1; }
+
+@media (max-width: 740px) {
+  .hp-pill--logout span:not(.hp-pill-ico) { display: none; }
+  .hp-pill--logout { padding: 0 12px; }
+}
 
 /* Greeting strip */
 .hp-greet {
@@ -3230,7 +3249,38 @@ body.editorial .ai-bubble .hl { color: #FDBA74; }
   box-shadow: 0 1px 0 rgba(15,23,42,0.02);
 }
 .hp-greet b { color: var(--primary-dark); font-weight: 700; }
-.hp-greet-emoji { font-size: 22px; flex-shrink: 0; }
+.hp-greet-emoji { font-size: 22px; flex-shrink: 0; animation: hp-wave 2.4s ease-in-out infinite; transform-origin: 70% 70%; }
+@keyframes hp-wave {
+  0%, 60%, 100% { transform: rotate(0deg); }
+  10%, 30%      { transform: rotate(14deg); }
+  20%           { transform: rotate(-8deg); }
+  40%           { transform: rotate(8deg); }
+}
+@media (prefers-reduced-motion: reduce) { .hp-greet-emoji { animation: none; } }
+
+/* Quota chip inside greeting — right-aligned, same pill family */
+.hp-greet-quota {
+  margin-left: auto; flex-shrink: 0;
+  display: inline-flex; align-items: center; gap: 6px;
+  padding: 5px 12px; border-radius: 999px;
+  background: white; border: 1px solid var(--border);
+  font-size: 12px; color: var(--text-2); font-weight: 600;
+  white-space: nowrap; font-variant-numeric: tabular-nums;
+}
+.hp-greet-quota b { color: var(--primary-dark); font-weight: 700; }
+.hp-greet-quota-sep { color: var(--text-3); margin: 0 2px; font-weight: 400; }
+.hp-greet-quota-left { color: var(--text-3); }
+.hp-greet-quota.is-warn { border-color: #fbbf24; background: #fffbeb; color: #92400e; }
+.hp-greet-quota.is-warn b { color: #b45309; }
+.hp-greet-quota.is-exhausted {
+  border-color: #fca5a5; background: #fef2f2; color: #b91c1c;
+  animation: hp-quota-exhausted 1.6s ease-in-out infinite;
+}
+.hp-greet-quota.is-exhausted b { color: #991b1b; }
+@keyframes hp-quota-exhausted {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(220,38,38,0.0); }
+  50%      { box-shadow: 0 0 0 6px rgba(220,38,38,0.10); }
+}
 
 /* Section head */
 .hp-section-head {
@@ -3317,6 +3367,54 @@ body.editorial .ai-bubble .hl { color: #FDBA74; }
   color: var(--primary-dark); text-transform: uppercase;
 }
 .hp-mascot-sub { font-size: 13px; color: var(--text-2); font-weight: 500; }
+
+/* ── Mascot text animations — pulse + bounce + blink caret cho cảm giác sống ── */
+.hp-mascot-title--anim {
+  background: linear-gradient(90deg, var(--primary) 0%, var(--primary-dark) 35%, #ea580c 50%, var(--primary-dark) 65%, var(--primary) 100%);
+  background-size: 200% 100%;
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+  animation: hp-mascot-shimmer 3.5s ease-in-out infinite;
+}
+@keyframes hp-mascot-shimmer {
+  0%, 100% { background-position: 0% 50%; }
+  50%      { background-position: 100% 50%; }
+}
+
+.hp-mascot-emoji {
+  display: inline-block;
+  animation: hp-mascot-bounce 1.6s ease-in-out infinite;
+  transform-origin: bottom center;
+}
+@keyframes hp-mascot-bounce {
+  0%, 80%, 100% { transform: translateY(0) scale(1); }
+  40%           { transform: translateY(-3px) scale(1.08); }
+}
+
+.hp-mascot-typing {
+  background: linear-gradient(90deg, var(--text-2) 0%, var(--primary) 50%, var(--text-2) 100%);
+  background-size: 200% 100%;
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+  animation: hp-mascot-typing-shimmer 4s linear infinite;
+}
+@keyframes hp-mascot-typing-shimmer {
+  0% { background-position: 100% 50%; }
+  100% { background-position: -100% 50%; }
+}
+
+.hp-mascot-caret {
+  display: inline-block; margin-left: 2px; color: var(--primary);
+  font-weight: 400; animation: hp-mascot-blink 0.9s steps(2) infinite;
+}
+@keyframes hp-mascot-blink { 50% { opacity: 0; } }
+
+@media (prefers-reduced-motion: reduce) {
+  .hp-mascot-title--anim, .hp-mascot-emoji, .hp-mascot-typing, .hp-mascot-caret { animation: none; }
+  .hp-mascot-title--anim, .hp-mascot-typing { background: none; -webkit-text-fill-color: initial; color: var(--text); }
+}
 
 /* ── Mascot idle motion (3 layered animations) ─────────────────────────────
    1. .hp-mascot-orb bobs ±6px → mascot "thở", feels alive
@@ -4218,7 +4316,7 @@ html[data-home-theme="dark"] .hp-theme {
    - Font weight 700 max cho dashboard (không 800 — đỡ shouty)
    - Hero icon: soft tint orange thay vì solid dark
 */
-.wizard-list { max-width: 1320px; margin: 24px auto; padding: 0 24px; }
+.wizard-list {  margin: 24px auto; padding: 0 24px; }
 
 /* Hero — softer, less competing with rest of page */
 .wl-hero { background: white; border: 1px solid var(--border); border-radius: 14px;

@@ -22,6 +22,7 @@ function userInitials(name) {
 
 // Sidebar nav (style TourKit: dọc bên trái, mục active nền cam).
 // '/' giờ là Home Launcher (pages/home.jsx); Wizard tour quote chuyển sang '/wizard'.
+// "Chi phí AI" /ai-usage CHỈ hiện khi debug ON — page giữ accessible qua URL trực tiếp.
 const NAV = [
   { to: '/',          icon: 'sparkle', label: 'Trang chủ' },
   { to: '/assistant', icon: 'sparkle', label: 'Trợ lý số liệu' },
@@ -31,7 +32,9 @@ const NAV = [
   { to: '/mail',      icon: 'paper',   label: 'Hộp thư AI' },
   { to: '/visa',      icon: 'shield',  label: 'Thẩm định Visa' },
   { to: '/tour-builder', icon: 'pin',  label: 'Soạn Tour GIT (AI)' },
-  { to: '/ai-usage',     icon: 'chart',  label: 'Chi phí AI' },
+];
+const NAV_DEBUG = [
+  { to: '/ai-usage',  icon: 'chart',   label: 'Chi phí AI' },
 ];
 
 const TWEAK_DEFAULTS = /*EDITMODE-BEGIN*/{
@@ -94,6 +97,33 @@ function App() {
   }, []);
   const isActive = (p) => p === '/' ? cur === '/' : cur.startsWith(p);
   const activeNav = NAV.find(n => isActive(n.to));
+
+  // ─── Quota AI per-tenant ────────────────────────────────────────────────────
+  // Fetch /api/v1/quota khi đăng nhập + refresh khi có event 'tourkit:quota' (do authedFetch
+  // emit khi gặp 429 hoặc khi gọi AI thành công). Hiển thị chip "AI N/M" + cảnh báo khi >=90%.
+  const [quota, setQuota] = uS(null);
+  uE(() => {
+    if (!authUser) return;
+    let alive = true;
+    const load = async () => {
+      try {
+        const r = await window.tourkitAuth.authedFetch('/api/v1/quota');
+        if (!alive || !r.ok) return;
+        const data = await r.json();
+        setQuota(data);
+      } catch {}
+    };
+    load();
+    // Re-fetch khi event quota fire (sau 429 hoặc poll signal).
+    const onQuota = (e) => {
+      // Nếu event kèm snapshot trong detail → set thẳng, khỏi fetch.
+      if (e.detail) setQuota(e.detail); else load();
+    };
+    window.addEventListener('tourkit:quota', onQuota);
+    // Poll mỗi 60s — cập nhật chip khi user dùng AI mà KHÔNG có 429 (chỉ tăng dần).
+    const t = setInterval(load, 60_000);
+    return () => { alive = false; window.removeEventListener('tourkit:quota', onQuota); clearInterval(t); };
+  }, [authUser]);
 
   // Đồng bộ chip user khi đăng nhập/đăng xuất (auth.jsx phát 'tourkit-auth-changed').
   uE(() => window.tourkitAuth.onChange(() => setAuthUser(window.tourkitAuth.getUser())), []);
@@ -235,7 +265,7 @@ function App() {
         </div>
         <div className="sidebar-navlabel">Tính năng</div>
         <nav className="sidebar-nav">
-          {NAV.map(n => (
+          {[...NAV, ...(debugOn ? NAV_DEBUG : [])].map(n => (
             <a key={n.to} href={n.to}
                className={'sidebar-item' + (isActive(n.to) ? ' active' : '')}
                title={sidebarCollapsed ? n.label : undefined}
@@ -271,6 +301,17 @@ function App() {
             </div>
           </div>
           <div className="topbar-actions">
+            {quota && (
+              <div className={'tb-quota' + (quota.exhausted ? ' is-exhausted' : (quota.warn ? ' is-warn' : ''))}
+                title={`Tenant đã dùng ${quota.used}/${quota.limit} lượt AI (${quota.usedPct}%)${quota.exhausted ? ' — đã hết!' : ''}`}
+                onClick={() => pushToast(quota.exhausted
+                  ? `Hết quota AI: ${quota.used}/${quota.limit}. Liên hệ admin để nạp thêm.`
+                  : `AI: ${quota.used}/${quota.limit} lượt (${quota.usedPct}%) · còn ${quota.remaining} lượt`,
+                  quota.exhausted ? 'error' : (quota.warn ? 'warn' : 'info'))}>
+                <Icon name="sparkle" size={13} />
+                <span><b>{quota.used}</b>/{quota.limit}</span>
+              </div>
+            )}
             <button className="tb-icon" title="Hướng dẫn sử dụng"
               onClick={() => pushToast('Chọn tính năng ở thanh bên trái để bắt đầu')}>
               <Icon name="book" size={18} />

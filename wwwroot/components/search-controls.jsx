@@ -4,7 +4,9 @@
 // một nguồn duy nhất, đổi 1 lần áp tất cả.
 //
 // API:
-//   <SearchInput value, onChange, placeholder, debounceMs?, onClear? />
+//   <SearchInput value, onChange, placeholder, debounceMs?, onClear?, submitOnly? />
+//     submitOnly=true → KHÔNG search khi gõ; chỉ commit onChange khi Enter (hoặc bấm ×).
+//                       Dùng cho Khách hàng / Deals khi search về server.
 //   <FilterChip on, onClick, children />   // bo tròn pill, on = nền cam
 //   <FilterChipRow>{chips}</FilterChipRow> // overflow-x scroll, mobile-first
 //   <FilterButton onClick, count? />       // nút "Bộ lọc" + dot số filter đang bật
@@ -18,21 +20,37 @@
   const { useState: s, useEffect: e, useRef: r, useMemo: m } = React;
 
   // ─── SearchInput: pill có icon search, nút × xóa nhanh, debounce ────────────
-  function SearchInput({ value, onChange, placeholder = 'Tìm…', debounceMs = 0, onClear }) {
+  // submitOnly: chỉ commit khi Enter (hoặc bấm ×) — dùng cho search về server (Deals, Khách hàng)
+  //             để khỏi gọi API mỗi keystroke. Debounce bị bỏ qua khi submitOnly.
+  function SearchInput({ value, onChange, placeholder = 'Tìm…', debounceMs = 0, onClear, submitOnly = false }) {
     const [local, setLocal] = s(value || '');
     e(() => setLocal(value || ''), [value]);
     e(() => {
-      if (debounceMs <= 0) return;
+      if (submitOnly || debounceMs <= 0) return;
       const t = setTimeout(() => { if (local !== value) onChange(local); }, debounceMs);
       return () => clearTimeout(t);
     }, [local]);
-    const fire = (v) => { setLocal(v); if (debounceMs <= 0) onChange(v); };
+    const fire = (v) => {
+      setLocal(v);
+      if (!submitOnly && debounceMs <= 0) onChange(v);
+    };
+    const submit = () => { if (local !== value) onChange(local); };
+    const dirty = submitOnly && local !== value;
     return (
-      <div className="sc-search">
+      <div className={'sc-search' + (dirty ? ' is-dirty' : '')}>
         <Icon name="search" size={14} />
-        <input value={local} onChange={ev => fire(ev.target.value)} placeholder={placeholder} />
+        <input value={local}
+          onChange={ev => fire(ev.target.value)}
+          onKeyDown={ev => { if (submitOnly && ev.key === 'Enter') { ev.preventDefault(); submit(); } }}
+          placeholder={placeholder} />
+        {dirty && <span className="sc-search-enter" title="Nhấn Enter để tìm">↵ Enter</span>}
         {local && (
-          <button className="sc-search-x" onClick={() => { fire(''); onClear?.(); }} aria-label="Xóa">
+          <button className="sc-search-x" onClick={() => {
+            setLocal('');
+            // Clear LUÔN commit ra parent — kể cả submitOnly — để xóa filter ngay.
+            if (value !== '') onChange('');
+            onClear?.();
+          }} aria-label="Xóa">
             <Icon name="close" size={13} />
           </button>
         )}

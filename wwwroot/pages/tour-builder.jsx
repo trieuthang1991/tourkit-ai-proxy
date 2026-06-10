@@ -73,10 +73,32 @@ function MarketSelect({ value, onChange }) {
   return <SearchSelect items={markets} value={value} onChange={onChange} placeholder="— Chọn thị trường —" />;
 }
 
+// Ngưỡng cảnh báo margin thấp (Red Zone) — đồng nhất với pricing model CEO dashboard.
+const RED_ZONE_MARGIN = 15;   // %
+
 function TourBuilderPage({ pushToast }) {
   const [prompt, setPrompt] = _tS('');
   const [form, setForm] = _tS(EMPTY());
   const [busy, setBusy] = _tS(false);
+  const [savedId, setSavedId] = _tS(null);          // id sau khi save (hoặc load từ ?id=)
+  const [saving, setSaving] = _tS(false);
+
+  // Load báo giá đã lưu nếu URL có ?id= (vd điều hướng từ /quotes click row)
+  _tE(() => {
+    const q = new URLSearchParams(window.location.search);
+    const id = q.get('id');
+    if (!id) return;
+    (async () => {
+      try {
+        const r = await window.tourkitAuth.authedFetch('/api/v1/tour-quotes/' + encodeURIComponent(id));
+        if (!r.ok) { pushToast('Không tải được báo giá ' + id, 'error'); return; }
+        const j = await r.json();
+        if (j.data) setForm({ ...EMPTY(), ...j.data, expenses: j.data.expenses || [], services: j.data.services || [] });
+        setSavedId(j.id);
+        pushToast('Đã mở báo giá "' + (j.title || j.id) + '"');
+      } catch (e) { pushToast('Lỗi tải: ' + e.message, 'error'); }
+    })();
+  }, []);
 
   const set = (k, v) => setForm(f => ({ ...f, [k]: v }));
   const setRow = (key, i, k, v) => setForm(f => ({ ...f, [key]: f[key].map((r, idx) => idx === i ? { ...r, [k]: v } : r) }));
@@ -108,10 +130,63 @@ function TourBuilderPage({ pushToast }) {
     finally { setBusy(false); }
   }
 
-  // Tính tổng (live recalc — mẫu mobile)
+  // ── Pricing engine — live recalc.
+  // Quy đổi pax: trẻ em = 0.75 người lớn (Bug A chuẩn nghiệp vụ CEO dashboard).
+  // sumExp = TỔNG THU (sau VAT), sumSrv = TỔNG CHI (sau VAT, FOC nếu có).
   const sumExp = form.expenses.reduce((s, e) => s + (e.unitPrice * e.quantity) * (1 + (e.vatPercent || 0) / 100), 0);
-  const sumSrv = form.services.reduce((s, e) => s + (e.netPrice * e.quantity * Math.max(e.nights, 1)) * (1 + (e.vatPercent || 0) / 100), 0);
+  const sumSrv = form.services.reduce((s, e) => {
+    const effNet = e.focRatio && e.focRatio > 0 ? e.netPrice * e.focRatio / (e.focRatio + 1) : e.netPrice;
+    return s + (effNet * e.quantity * Math.max(e.nights, 1)) * (1 + (e.vatPercent || 0) / 100);
+  }, 0);
   const profit = sumExp - sumSrv;
+  const paxEquiv = (form.adultCount || 0) + (form.childCount || 0) * 0.75 || 1;
+  const revPerPax = sumExp / paxEquiv;
+  const costPerPax = sumSrv / paxEquiv;
+  const profitPerPax = revPerPax - costPerPax;
+  // Margin% derived (gross): profit / revenue. Red Zone < 15%.
+  const marginPct = sumExp > 0 ? (profit / sumExp) * 100 : 0;
+  const isRedZone = sumExp > 0 && marginPct < RED_ZONE_MARGIN;
+
+  // Save báo giá → POST /api/v1/tour-quotes (upsert). id=null → tạo mới; có id → update.
+  async function saveQuote() {
+    if (!form.title && !form.customerName) {
+      pushToast('Cần nhập Tên tour hoặc Tên khách trước khi lưu', 'error');
+      return;
+    }
+    setSaving(true);
+    try {
+      const body = {
+        id: savedId,
+        title: form.title || null,
+        customerName: form.customerName || null,
+        customerPhone: form.customerPhone || null,
+        marketName: form.marketName || null,
+        tourType: form.tourType || null,
+        startDate: form.startDate || null,
+        endDate: form.endDate || null,
+        adultCount: form.adultCount || 0,
+        childCount: form.childCount || 0,
+        totalNet: Math.round(sumSrv),
+        totalRevenue: Math.round(sumExp),
+        profit: Math.round(profit),
+        marginPercent: sumExp > 0 ? Math.round(marginPct * 100) / 100 : null,
+        data: form,
+      };
+      const r = await window.tourkitAuth.authedFetch('/api/v1/tour-quotes', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      });
+      const j = await r.json();
+      if (!r.ok) throw new Error(j.error || 'HTTP ' + r.status);
+      setSavedId(j.id);
+      // Update URL ?id= (replaceState, không thêm history entry — F5 reload sẽ open lại)
+      const url = new URL(window.location.href);
+      url.searchParams.set('id', j.id);
+      window.history.replaceState({}, '', url.toString());
+      pushToast(savedId ? 'Đã cập nhật báo giá' : 'Đã lưu báo giá mới');
+    } catch (e) { pushToast('Lỗi lưu: ' + e.message, 'error'); }
+    finally { setSaving(false); }
+  }
 
   function copyJson() {
     navigator.clipboard.writeText(JSON.stringify(form, null, 2));
@@ -134,8 +209,14 @@ function TourBuilderPage({ pushToast }) {
           detail: hasForm ? `${form.expenses.length} thu · ${form.services.length} dịch vụ` : 'Nhập mô tả & bấm AI',
           tone: hasForm ? 'live' : 'idle' }}
         actions={<>
-          <button className="tb-btn" onClick={reset} disabled={busy}><Icon name="trash" size={14} /> Xóa</button>
-          <button className="tb-btn" onClick={copyJson} disabled={busy}><Icon name="copy" size={14} /> Copy JSON</button>
+          <button className="tb-btn" onClick={() => window.tourkitRouter.navigate('/quotes')} disabled={busy || saving}>
+            <Icon name="list" size={14} /> DS đã lưu
+          </button>
+          <button className="tb-btn" onClick={reset} disabled={busy || saving}><Icon name="trash" size={14} /> Xóa</button>
+          <button className="tb-btn" onClick={copyJson} disabled={busy || saving}><Icon name="copy" size={14} /> Copy JSON</button>
+          <button className="tb-btn tb-btn-primary" onClick={saveQuote} disabled={busy || saving || !hasForm}>
+            <Icon name={saving ? 'refresh' : 'save'} size={14} /> {saving ? 'Đang lưu…' : (savedId ? 'Cập nhật' : 'Lưu báo giá')}
+          </button>
         </>}
       />
 
@@ -263,7 +344,7 @@ function TourBuilderPage({ pushToast }) {
           <div className="tb-card">
             <div className="tb-card-head">
               <span><Icon name="bed" size={15} /> Dịch vụ điều hành (chi)</span>
-              <button type="button" className="tb-card-add" onClick={() => addRow('services', { name: '', providerName: '', quantity: 1, nights: 1, netPrice: 0, vatPercent: 0 })}>
+              <button type="button" className="tb-card-add" onClick={() => addRow('services', { name: '', providerName: '', quantity: 1, nights: 1, netPrice: 0, vatPercent: 0, focRatio: 0 })}>
                 <Icon name="plus" size={13} /> Thêm
               </button>
             </div>
@@ -286,20 +367,51 @@ function TourBuilderPage({ pushToast }) {
                   <div className="tb-row"><label>Số đêm/lượt</label><input type="number" className="tb-field" value={row.nights} min={0} onChange={e => setRow('services', i, 'nights', num(e.target.value))} /></div>
                   <div className="tb-row"><label>Giá NET</label><MoneyInput value={row.netPrice} onChange={v => setRow('services', i, 'netPrice', v)} /></div>
                   <div className="tb-row"><label>VAT %</label><input type="number" className="tb-field" value={row.vatPercent} min={0} onChange={e => setRow('services', i, 'vatPercent', num(e.target.value))} /></div>
+                  <div className="tb-row"><label title="Free-of-charge: 1 miễn phí mỗi N suất. Vd Hotel FOC 16+1 → nhập 16.">FOC N+1</label>
+                    <input type="number" className="tb-field" value={row.focRatio || 0} min={0} placeholder="0"
+                      onChange={e => setRow('services', i, 'focRatio', num(e.target.value))} />
+                  </div>
                   <div className="tb-row tb-row-total"><label>Tổng chi</label>
-                    <div className="tb-amt warn">{vnd((row.netPrice * row.quantity * Math.max(row.nights, 1)) * (1 + (row.vatPercent || 0) / 100))} ₫</div>
+                    {(() => {
+                      const effNet = row.focRatio > 0 ? row.netPrice * row.focRatio / (row.focRatio + 1) : row.netPrice;
+                      const total = (effNet * row.quantity * Math.max(row.nights, 1)) * (1 + (row.vatPercent || 0) / 100);
+                      const savings = row.focRatio > 0 ? (row.netPrice - effNet) * row.quantity * Math.max(row.nights, 1) * (1 + (row.vatPercent || 0) / 100) : 0;
+                      return (<>
+                        <div className="tb-amt warn">{vnd(Math.round(total))} ₫</div>
+                        {savings > 0 && <div style={{fontSize:10,color:'#10B981',fontWeight:600}}>FOC tiết kiệm {vnd(Math.round(savings))}₫</div>}
+                      </>);
+                    })()}
                   </div>
                 </div>
               </div>
             ))}
           </div>
 
-          {/* Tổng kết */}
+          {/* Tổng kết — 2 dòng: tổng cả đoàn + per-pax (quy đổi trẻ em 75%). Margin% có Red Zone. */}
           <div className="tb-summary">
-            <div><span>Tổng thu</span><b className="good">{vnd(sumExp)} ₫</b></div>
-            <div><span>Tổng chi</span><b className="warn">{vnd(sumSrv)} ₫</b></div>
-            <div><span>Lợi nhuận dự kiến</span><b className={profit >= 0 ? 'good' : 'bad'}>{vnd(profit)} ₫</b></div>
+            <div><span>Tổng thu</span><b className="good">{vnd(Math.round(sumExp))} ₫</b></div>
+            <div><span>Tổng chi</span><b className="warn">{vnd(Math.round(sumSrv))} ₫</b></div>
+            <div><span>Lợi nhuận dự kiến</span><b className={profit >= 0 ? 'good' : 'bad'}>{vnd(Math.round(profit))} ₫</b></div>
+            <div>
+              <span>Margin %</span>
+              <b style={{color: isRedZone ? 'var(--danger, #ef4444)' : (marginPct >= 25 ? 'var(--success, #10B981)' : 'var(--warning, #F59E0B)')}}>
+                {sumExp > 0 ? marginPct.toFixed(1) + '%' : '—'}
+              </b>
+            </div>
           </div>
+          {sumExp > 0 && (
+            <div className="tb-summary" style={{marginTop: 8}}>
+              <div><span>Thu / pax (quy đổi)</span><b>{vnd(Math.round(revPerPax))} ₫</b></div>
+              <div><span>Chi / pax</span><b style={{color: 'var(--text-2)'}}>{vnd(Math.round(costPerPax))} ₫</b></div>
+              <div><span>Lãi / pax</span><b className={profitPerPax >= 0 ? 'good' : 'bad'}>{vnd(Math.round(profitPerPax))} ₫</b></div>
+              <div><span>Pax quy đổi</span><b style={{color: 'var(--text-2)'}}>{paxEquiv.toFixed(2)} <small style={{fontSize:10,opacity:.7}}>(trẻ × 0.75)</small></b></div>
+            </div>
+          )}
+          {isRedZone && (
+            <div style={{marginTop:10, padding:'10px 14px', borderRadius:10, background:'#fef2f2', border:'1px solid #fecaca', color:'#b91c1c', fontSize:12, fontWeight:600}}>
+              ⚠ <b>Red Zone</b> — Margin {marginPct.toFixed(1)}% dưới ngưỡng tối thiểu {RED_ZONE_MARGIN}%. Kiểm duyệt trước khi gửi khách.
+            </div>
+          )}
         </section>
       </div>
     </main>

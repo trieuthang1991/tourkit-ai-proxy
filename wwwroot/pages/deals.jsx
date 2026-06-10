@@ -102,7 +102,8 @@ function DealFilters({ q, setQ, level, setLevel, riskOnly, setRiskOnly, shown, t
   return (
     <div className="cust-filter">
       <div className="cust-filter-search">
-        <SC.SearchInput value={q} onChange={setQ} placeholder="Tìm khách / cơ hội / phụ trách…" />
+        <SC.SearchInput value={q} onChange={setQ} submitOnly
+          placeholder="Tìm khách / cơ hội / phụ trách… (Enter để tìm)" />
       </div>
       <SC.FilterChipRow>
         {chips.map(([v, lbl]) => (
@@ -198,10 +199,12 @@ function DealsPage({ pushToast }) {
   const [riskOnly, setRiskOnly] = _dS(false);
 
   // Bộ lọc nâng cao (client-side trên merged items — không gọi lại AI)
-  const EMPTY_DEAL_FILTER = { status: '', source: '', staff: '', minValue: '', maxValue: '', maxAge: '', sortBy: 'priority' };
+  // Default sortBy = 'newest' (id desc) → match bản mobile (TourKit.Api OrderByDescending(Id)).
+  // Muốn xem theo điểm AI, user chọn chip "Ưu tiên AI" trong sheet sort.
+  const EMPTY_DEAL_FILTER = { status: '', source: '', staff: '', minValue: '', maxValue: '', maxAge: '', sortBy: 'newest' };
   const [adv, setAdv] = _dS(EMPTY_DEAL_FILTER);
   const [advOpen, setAdvOpen] = _dS(false);
-  const advCount = ['status','source','staff','minValue','maxValue','maxAge'].filter(k => adv[k] && adv[k] !== '').length + (adv.sortBy && adv.sortBy !== 'priority' ? 1 : 0);
+  const advCount = ['status','source','staff','minValue','maxValue','maxAge'].filter(k => adv[k] && adv[k] !== '').length + (adv.sortBy && adv.sortBy !== 'newest' ? 1 : 0);
   const cancelUrl = _dR(null);
   const isMobile = useIsMobile();
   const totalPages = Math.max(1, Math.ceil(total / pageSize));
@@ -359,13 +362,14 @@ function DealsPage({ pushToast }) {
     if (adv.maxAge && (it.ageDays || 0) > Number(adv.maxAge)) return false;
     return true;
   });
-  // Sắp xếp tùy chọn (mặc định = priority desc).
+  // Sắp xếp tùy chọn (mặc định = newest = id desc, match mobile).
   filtered = [...filtered].sort((a, b) => {
-    if (adv.sortBy === 'value') return (b.totalPrice || 0) - (a.totalPrice || 0);
-    if (adv.sortBy === 'win')   return (b.winRate || 0) - (a.winRate || 0);
-    if (adv.sortBy === 'age')   return (b.ageDays || 0) - (a.ageDays || 0);
-    if (adv.sortBy === 'ev')    return (b.expectedValue || 0) - (a.expectedValue || 0);
-    return (b.priorityScore || 0) - (a.priorityScore || 0);
+    if (adv.sortBy === 'priority') return (b.priorityScore || 0) - (a.priorityScore || 0);
+    if (adv.sortBy === 'value')    return (b.totalPrice || 0) - (a.totalPrice || 0);
+    if (adv.sortBy === 'win')      return (b.winRate || 0) - (a.winRate || 0);
+    if (adv.sortBy === 'age')      return (b.ageDays || 0) - (a.ageDays || 0);
+    if (adv.sortBy === 'ev')       return (b.expectedValue || 0) - (a.expectedValue || 0);
+    return (b.id || 0) - (a.id || 0);
   });
 
   // KPI strip counts — "Tổng" = total upstream (full DB); các count còn lại = trên BOARD đã chấm
@@ -542,7 +546,7 @@ function DealsPage({ pushToast }) {
               <div className="cust-sheet-row full">
                 <label>Sắp xếp</label>
                 <window.SearchControls.FilterChipRow>
-                  {[['priority', 'Ưu tiên (mặc định)'], ['ev', 'Doanh thu kỳ vọng'], ['value', 'Giá trị deal'], ['win', 'Khả năng thắng'], ['age', 'Tuổi cơ hội']].map(([v, l]) => (
+                  {[['newest', 'Mới nhất (mặc định)'], ['priority', 'Ưu tiên AI'], ['ev', 'Doanh thu kỳ vọng'], ['value', 'Giá trị deal'], ['win', 'Khả năng thắng'], ['age', 'Tuổi cơ hội']].map(([v, l]) => (
                     <window.SearchControls.FilterChip key={v} on={draft.sortBy === v}
                       onClick={() => set('sortBy', v)}>{l}</window.SearchControls.FilterChip>
                   ))}

@@ -61,12 +61,22 @@
     } catch { return getUser(); }   // mạng lỗi → giữ session local, không đá ra
   }
 
-  // fetch gắn X-Session-Id; 401 → logout (về LoginGate).
+  // fetch gắn X-Session-Id; 401 → logout (về LoginGate); 429 → emit event để chip quota refresh.
   async function authedFetch(url, opts = {}) {
     const sid = getSessionId();
     const headers = Object.assign({}, opts.headers || {}, sid ? { 'X-Session-Id': sid } : {});
     const r = await fetch(url, Object.assign({}, opts, { headers }));
     if (r.status === 401) logout();
+    if (r.status === 429) {
+      // Clone để consumer phía caller vẫn đọc được body. Best-effort.
+      try {
+        const clone = r.clone();
+        const body = await clone.json();
+        if (body && body.quota) {
+          window.dispatchEvent(new CustomEvent('tourkit:quota', { detail: body.quota }));
+        }
+      } catch { /* ignore parse fail */ }
+    }
     return r;
   }
 
@@ -78,14 +88,20 @@
   // ─── <LoginGate> — màn đăng nhập full-screen ────────────────────────────────
   const { useState } = React;
 
+  // Domain (tenant) lưu rời ra localStorage vì browser password manager chỉ lưu cặp (username,password).
+  // Password do browser quản lý qua autocomplete attrs trên form — KHÔNG lưu vào localStorage.
+  const DOMAIN_KEY = 'tourkit_tk_domain';
+
   function LoginGate({ onAuthed }) {
     const [mode, setMode] = useState('form');   // 'form' | 'token'
-    const [domain, setDomain] = useState('');
+    const [domain, setDomain] = useState(() => localStorage.getItem(DOMAIN_KEY) || '');
     const [username, setUsername] = useState('');
     const [password, setPassword] = useState('');
     const [token, setToken] = useState('');
     const [busy, setBusy] = useState(false);
     const [err, setErr] = useState(null);
+    const [showPwd, setShowPwd] = useState(false);
+    const [remember, setRemember] = useState(() => !!localStorage.getItem(DOMAIN_KEY));
 
     async function go(fn) {
       setBusy(true); setErr(null);
@@ -95,7 +111,13 @@
     }
     const doForm = () => {
       if (!domain.trim() || !username.trim() || !password) { setErr('Nhập đủ domain, tài khoản, mật khẩu'); return; }
-      go(() => login({ username: username.trim(), password, domain: domain.trim() }));
+      go(async () => {
+        const u = await login({ username: username.trim(), password, domain: domain.trim() });
+        // Tick "Ghi nhớ tôi" → lưu domain để prefill lần sau (username/password do browser quản).
+        if (remember) localStorage.setItem(DOMAIN_KEY, domain.trim());
+        else localStorage.removeItem(DOMAIN_KEY);
+        return u;
+      });
     };
     const doToken = () => {
       if (!token.trim()) { setErr('Dán token kết nối'); return; }
@@ -104,25 +126,9 @@
 
     return (
       <div className="login-screen">
-        {/* Panel thương hiệu (trái) */}
-        <aside className="login-brand">
-          <div className="login-brand-rings" aria-hidden="true" />
-          <div className="login-brand-inner">
-            <div className="login-logo">
-              <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round">
-                <path d="M12 2L3 7v6c0 5 4 9 9 9s9-4 9-9V7l-9-5z" /><path d="M12 8v8M8 12h8" />
-              </svg>
-            </div>
-            <h1 className="login-brand-title">TOURKIT <span>AI Operation</span></h1>
-            <p className="login-brand-tag">Vận hành tour thông minh — tạo tour, chăm sóc khách, phân tích số liệu &amp; hộp thư AI, tất cả trên dữ liệu thật của bạn.</p>
-            <ul className="login-brand-feats">
-              <li><span>✦</span> Wizard tạo tour ưu tiên nhà cung cấp của bạn</li>
-              <li><span>✦</span> Chấm hạng &amp; chăm sóc khách hàng bằng AI</li>
-              <li><span>✦</span> Trợ lý số liệu &amp; Hộp thư AI</li>
-            </ul>
-          </div>
-          <div className="login-brand-foot">Tourkit · AI Proxy</div>
-        </aside>
+        {/* Panel trái: chỉ là background image bg-login.png — toàn bộ content
+            (logo/tagline/features/footer) đã chuyển vào ảnh */}
+        <aside className="login-brand" aria-hidden="true" />
 
         {/* Form (phải) */}
         <main className="login-pane">
@@ -136,19 +142,55 @@
             </div>
 
             {mode === 'form' ? (
-              <>
+              // Real <form> + autocomplete attrs → browser tự bật prompt "Lưu mật khẩu" sau submit thành công,
+              // và prefill (username, password) lần truy cập sau. Domain prefill từ localStorage (DOMAIN_KEY).
+              <form onSubmit={e => { e.preventDefault(); doForm(); }} autoComplete="on">
                 <label className="login-label">Domain / Tenant</label>
-                <input className="login-field" placeholder="vd: tourkit-vn-xxxx" value={domain}
+                <input className="login-field" name="domain" autoComplete="organization"
+                  placeholder="vd: tourkit-vn-xxxx" value={domain}
                   onChange={e => setDomain(e.target.value)} />
                 <label className="login-label">Tài khoản</label>
-                <input className="login-field" placeholder="Tên đăng nhập" value={username}
+                <input className="login-field" name="username" autoComplete="username"
+                  placeholder="Tên đăng nhập" value={username}
                   onChange={e => setUsername(e.target.value)} />
                 <label className="login-label">Mật khẩu</label>
-                <input className="login-field" type="password" placeholder="••••••••" value={password}
-                  onChange={e => setPassword(e.target.value)} onKeyDown={e => { if (e.key === 'Enter') doForm(); }} />
+                <div style={{position: 'relative'}}>
+                  <input className="login-field" name="password" autoComplete="current-password"
+                    type={showPwd ? 'text' : 'password'} placeholder="••••••••" value={password}
+                    onChange={e => setPassword(e.target.value)}
+                    style={{paddingRight: 40, width: '100%', boxSizing: 'border-box'}} />
+                  <button type="button" tabIndex={-1}
+                    onClick={() => setShowPwd(s => !s)}
+                    aria-label={showPwd ? 'Ẩn mật khẩu' : 'Hiện mật khẩu'}
+                    title={showPwd ? 'Ẩn mật khẩu' : 'Hiện mật khẩu'}
+                    style={{position: 'absolute', right: 8, top: '50%', transform: 'translateY(-50%)',
+                      background: 'transparent', border: 'none', padding: 6, cursor: 'pointer',
+                      color: showPwd ? 'var(--accent, #2563eb)' : 'var(--text-3, #9ca3af)',
+                      display: 'flex', alignItems: 'center'}}>
+                    {showPwd ? (
+                      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                        strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                        <path d="M2 12s3-7 10-7 10 7 10 7-3 7-10 7-10-7-10-7z"/>
+                        <circle cx="12" cy="12" r="3"/>
+                      </svg>
+                    ) : (
+                      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                        strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                        <path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-10-7-10-7a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 10 7 10 7a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24"/>
+                        <line x1="1" y1="1" x2="23" y2="23"/>
+                      </svg>
+                    )}
+                  </button>
+                </div>
+                <label style={{display: 'flex', alignItems: 'center', gap: 8, fontSize: 13,
+                  color: 'var(--text-2)', marginTop: 14, cursor: 'pointer'}}>
+                  <input type="checkbox" checked={remember}
+                    onChange={e => setRemember(e.target.checked)} />
+                  Ghi nhớ tôi trên thiết bị này
+                </label>
                 {err && <div className="login-err">{err}</div>}
-                <button className="login-btn" disabled={busy} onClick={doForm}>{busy ? 'Đang đăng nhập…' : 'Đăng nhập'}</button>
-              </>
+                <button className="login-btn" type="submit" disabled={busy}>{busy ? 'Đang đăng nhập…' : 'Đăng nhập'}</button>
+              </form>
             ) : (
               <>
                 <label className="login-label">Token kết nối</label>

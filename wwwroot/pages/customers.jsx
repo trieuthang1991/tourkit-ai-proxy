@@ -507,8 +507,8 @@ function CustomersPage({ pushToast }) {
       {/* Filter bar — SearchInput + chip phân khúc + chip sinh nhật + nút Bộ lọc */}
       <div className="cust-filter">
         <div className="cust-filter-search">
-          <window.SearchControls.SearchInput value={search} onChange={setSearch}
-            placeholder="Tìm tên / SĐT / email / ID khách hàng…" />
+          <window.SearchControls.SearchInput value={search} onChange={setSearch} submitOnly
+            placeholder="Tìm tên / SĐT / email / ID khách hàng… (Enter để tìm)" />
         </div>
         <window.SearchControls.FilterChipRow>
           {[{v:'all', l:'Tất cả'}, {v:'VIP', l:'VIP'}, {v:'Thường', l:'Thường'}, {v:'Mới', l:'Mới'}].map(o => (
@@ -701,8 +701,10 @@ function CustomersPage({ pushToast }) {
                 </th>
                 <th style={th(100)}>Mã KH</th>
                 <th style={th()}>Khách hàng</th>
+                <th style={th(180)}>Nhu cầu</th>
                 <th style={th(120)}>SĐT</th>
                 <th style={th(100)}>Phân khúc</th>
+                <th style={th(110)}>Chăm sóc cuối</th>
                 <th style={th(90)}>Hạng AI</th>
                 <th style={th(120)}>Tổng chi</th>
                 <th style={th(120)}>Ngày review</th>
@@ -739,6 +741,15 @@ function CustomersPage({ pushToast }) {
                       <div style={{fontWeight: 600}}>{it.name}</div>
                     </td>
                     <td style={td()}>
+                      {it.note ? (() => {
+                        // Note là HTML từ form tạo KH (xem ai-api-guide.md §7c) — strip tag + entity cơ bản.
+                        const plain = String(it.note).replace(/<[^>]+>/g, ' ').replace(/&nbsp;/g, ' ')
+                          .replace(/&amp;/g, '&').replace(/\s+/g, ' ').trim();
+                        const short = plain.length > 50 ? plain.slice(0, 50) + '…' : plain;
+                        return <span title={plain} style={{color: 'var(--text-2)', fontSize: 12}}>{short}</span>;
+                      })() : <span style={{color: 'var(--text-3)'}}>—</span>}
+                    </td>
+                    <td style={td()}>
                       {it.phone ? (
                         <a href={`tel:${it.phone}`} onClick={e => e.stopPropagation()}
                            style={{color: 'var(--text-1)', textDecoration: 'none', fontSize: 12}}>
@@ -748,6 +759,11 @@ function CustomersPage({ pushToast }) {
                     </td>
                     <td style={td()}>
                       <SegBadge segment={it.segment} />
+                    </td>
+                    <td style={td()}>
+                      {it.lastCareDate
+                        ? <span style={{color: 'var(--text-2)', fontSize: 12}}>{it.lastCareDate}</span>
+                        : <span style={{color: 'var(--text-3)'}}>—</span>}
                     </td>
                     <td style={td()}>{effRank ? <RankBadge rank={effRank} /> : <span style={{color: 'var(--text-3)'}}>—</span>}</td>
                     <td style={td()}>{fmtVND(it.totalSpent)}</td>

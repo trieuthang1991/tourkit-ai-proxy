@@ -701,7 +701,7 @@ function AssistantPage({ pushToast }) {
   const suggestions = [
     { q: 'Doanh thu tháng này',              icon: 'dollar' },
     { q: 'Top khách hàng',                    icon: 'star' },
-    { q: 'Cơ cấu nguồn khách Marketing',     icon: 'chart' },
+    { q: 'Cơ cấu nguồn khách Marketing năm nay', icon: 'chart' },
     { q: 'Tour sắp khởi hành',                icon: 'plane' },
   ];
 
