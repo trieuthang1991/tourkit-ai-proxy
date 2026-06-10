@@ -1,9 +1,39 @@
 // Step 4: Quote preview + actions sidebar
-function Step4Quote({ request, itinerary, rows, onBack, onRestart, marketing, pushToast }) {
+// hotelOptions: { 3?: {providerName, pricePerPaxPerNight, ...}, 4?, 5? } từ Step 1.5 NccTierPicker.
+// Khi có 1+ tier → render 3 báo giá cards thay vì 1 giá đơn → khách chọn tier.
+function Step4Quote({ request, itinerary, rows, hotelOptions, onBack, onRestart, marketing, pushToast }) {
   const totalPax = request.adults + request.children;
+  const nights = request.nights || Math.max((request.days || 1) - 1, 1);
   const [status, setStatus] = React.useState('DRAFT');
   const [shareOpen, setShareOpen] = React.useState(false);
   const [shareLink] = React.useState(`https://quote.tourkit.vn/q/${request.code}-${Math.random().toString(36).slice(2, 7)}`);
+
+  // Tách cost: non-hotel rows (giữ nguyên) + hotel ước lượng theo tier.
+  // priceNet * (1+vat/100) * (1+markup/100) → giá bán mỗi row.
+  const nonHotelRows  = rows.filter(r => r.type !== 'HOTEL');
+  const nonHotelSale  = nonHotelRows.reduce((s, r) =>
+    s + (r.priceNet || 0) * (1 + (r.vat || 0)/100) * (1 + (r.markup || 0)/100), 0);
+  // Markup trung bình áp dụng cho hotel (lấy markup từ row HOTEL đầu tiên, fallback 20%)
+  const avgHotelMarkup = (() => {
+    const hRow = rows.find(r => r.type === 'HOTEL');
+    return hRow ? (hRow.markup || 20) : 20;
+  })();
+
+  // Build tier quote: cho từng tier có hotelOptions → tính giá/khách.
+  const tierQuotes = [3, 4, 5].map(star => {
+    const opt = hotelOptions?.[star];
+    if (!opt) return null;
+    const hotelNetPerPax = (opt.pricePerPaxPerNight || 0) * nights;
+    const hotelSalePerPax = hotelNetPerPax * (1 + avgHotelMarkup/100);
+    const hotelSaleTotal = hotelSalePerPax * totalPax;
+    const tierTotalSale = nonHotelSale + hotelSaleTotal;
+    const pricePerPax = tierTotalSale / Math.max(totalPax, 1);
+    return {
+      star, hotel: opt, hotelNetPerPax, hotelSalePerPax,
+      totalSale: tierTotalSale, pricePerPax
+    };
+  }).filter(Boolean);
+  const hasTiers = tierQuotes.length > 0;
 
   const handlePrintPDF = () => {
     document.body.classList.add('print-quote-only');
@@ -65,18 +95,65 @@ function Step4Quote({ request, itinerary, rows, onBack, onRestart, marketing, pu
             </div>
           ))}
 
-          <div style={{marginTop: 28, padding: 24, background: 'var(--bg)', borderRadius: 12, display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 16}}>
+          <div className="quote-pax-summary">
             <div>
-              <div style={{fontSize: 10, fontWeight: 700, letterSpacing: '0.1em', textTransform: 'uppercase', color: 'var(--text-3)', marginBottom: 4}}>Đoàn khách</div>
-              <div style={{fontSize: 15, fontWeight: 700}}>{request.adults} người lớn + {request.children} trẻ em</div>
-            </div>
-            <div style={{textAlign: 'right'}}>
-              <div style={{fontSize: 10, fontWeight: 700, letterSpacing: '0.1em', textTransform: 'uppercase', color: 'var(--text-3)', marginBottom: 4}}>Giá / Người lớn</div>
-              <div style={{fontSize: 22, fontWeight: 800, color: 'var(--primary)', letterSpacing: '-0.02em'}} className="numeric">
-                {fmtVND((rows.reduce((s,r) => s + r.priceNet*(1+r.vat/100)*(1+r.markup/100), 0)) / Math.max(totalPax, 1))}
+              <div className="quote-eyebrow">Đoàn khách</div>
+              <div className="quote-pax-text">{request.adults} người lớn + {request.children} trẻ em</div>
+              <div style={{fontSize: 11.5, color: 'var(--text-3)', marginTop: 2}}>
+                {request.days} ngày {nights} đêm
               </div>
             </div>
+            {!hasTiers && (
+              <div style={{textAlign: 'right'}}>
+                <div className="quote-eyebrow">Giá / Người lớn</div>
+                <div className="quote-single-price numeric">{fmtVND(totalSale / Math.max(totalPax, 1))}</div>
+              </div>
+            )}
           </div>
+
+          {/* 3 báo giá theo tier — chỉ render khi user đã chọn ≥1 hotel ở Step 1.5 */}
+          {hasTiers && (
+            <div className="quote-tiers">
+              <div className="quote-section-title" style={{marginTop: 22}}>
+                Phương án giá ({tierQuotes.length} hạng)
+              </div>
+              <div className="quote-section-rule"></div>
+              <div className="quote-tier-grid">
+                {tierQuotes.map(q => (
+                  <div key={q.star} className={'quote-tier-card tier-' + q.star}>
+                    <div className="qtc-star-row">
+                      <span className="qtc-star">{q.star}★</span>
+                      <span className="qtc-tier-label">Khách sạn {q.star} sao</span>
+                    </div>
+                    <div className="qtc-price">
+                      <div className="qtc-price-val numeric">{fmtVND(Math.round(q.pricePerPax))}</div>
+                      <div className="qtc-price-unit">đ / khách</div>
+                    </div>
+                    <div className="qtc-hotel">
+                      <div className="qtc-hotel-label">Lưu trú</div>
+                      <div className="qtc-hotel-name">{q.hotel.providerName}</div>
+                      {q.hotel.roomTypeName && (
+                        <div className="qtc-hotel-room">{q.hotel.roomTypeName}</div>
+                      )}
+                    </div>
+                    <div className="qtc-incl">
+                      <div className="qtc-incl-row">✓ {nights} đêm khách sạn {q.star} sao</div>
+                      <div className="qtc-incl-row">✓ Xe đưa đón theo lịch trình</div>
+                      <div className="qtc-incl-row">✓ Ăn uống theo chương trình</div>
+                      <div className="qtc-incl-row">✓ HDV chuyên nghiệp</div>
+                    </div>
+                    <div className="qtc-total">
+                      <div className="qtc-total-label">Tổng đoàn {totalPax} khách</div>
+                      <div className="qtc-total-val numeric">{fmtVND(Math.round(q.totalSale))}</div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+              <div style={{fontSize: 11, color: 'var(--text-3)', marginTop: 10, fontStyle: 'italic'}}>
+                💡 Giá bao gồm hotel theo hợp đồng NCC. Khách chọn hạng → sales chốt phương án.
+              </div>
+            </div>
+          )}
         </div>
       </div>
 

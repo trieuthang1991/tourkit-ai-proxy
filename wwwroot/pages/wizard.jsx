@@ -38,6 +38,19 @@ function WizardPage({ pushToast, tweaks }) {
   const [savedTours, setSavedTours] = _uS([]);
   const [nccCatalog, setNccCatalog] = _uS(null);  // tên NCC thật (TourKit) để ưu tiên khi sinh tour
   const [request, setRequest]       = _uS(window.DEMO_REQUEST);
+  // ── Pricing config (v2 logic, lifted để Step 1 config + Step 3 dùng) ─────────
+  // hotelStars: tier KS user muốn so sánh ở matrix (3*/4*/5*/6*).
+  // paxRanges:  matrix markup theo số pax — đoàn nhỏ markup cao, đoàn lớn thấp.
+  const [hotelStars, setHotelStars] = _uS([3, 4, 5]);
+  // hotelOptions = { 3?: {providerId, providerName, roomTypeId, roomTypeName, pricePerPaxPerNight},
+  //                  4?: {...}, 5?: {...} }
+  // Set qua NccTierPicker (Step 1.5). Dùng cho Step 3 (cost) + Step 4 (3 báo giá).
+  const [hotelOptions, setHotelOptions] = _uS({});
+  const [paxRanges, setPaxRanges]   = _uS([
+    { from: 1,  to: 14,  markup: 28 },
+    { from: 15, to: 30,  markup: 22 },
+    { from: 31, to: 200, markup: 18 },
+  ]);
   const [itinerary, setItinerary]   = _uS(window.DEMO_ITINERARY);
   const [rows, setRows]             = _uS(window.COSTING_ROWS);
   const [generating, setGenerating] = _uS(false);
@@ -373,15 +386,22 @@ Tránh từ "tuyệt vời", "hoàn hảo", "đáng nhớ". Tiếng Việt tự 
           request={request} setRequest={setRequest}
           onGenerate={handleGenerate} generating={generating}
           genStream={genStream} genProgress={genProgress}
-          aiTone={tweaks.aiTone} pushToast={pushToast} />}
+          aiTone={tweaks.aiTone} pushToast={pushToast}
+          hotelStars={hotelStars} setHotelStars={setHotelStars}
+          paxRanges={paxRanges}   setPaxRanges={setPaxRanges}
+          hotelOptions={hotelOptions} setHotelOptions={setHotelOptions} />}
         {step === 2 && <Step2Itinerary
           itinerary={itinerary} setItinerary={setItinerary} request={request}
           onNext={() => setStep(3)} onBack={() => setStep(1)} density={tweaks.density} />}
         {step === 3 && <Step3Costing
           rows={rows} setRows={setRows} request={request}
-          onNext={handleQuoteGen} onBack={() => setStep(2)} pushToast={pushToast} />}
+          onNext={handleQuoteGen} onBack={() => setStep(2)} pushToast={pushToast}
+          hotelStars={hotelStars} setHotelStars={setHotelStars}
+          paxRanges={paxRanges}   setPaxRanges={setPaxRanges}
+          hotelOptions={hotelOptions} />}
         {step === 4 && <Step4Quote
           request={request} itinerary={itinerary} rows={rows} marketing={marketing}
+          hotelOptions={hotelOptions}
           onBack={() => setStep(3)}
           onRestart={() => { setStep(1); pushToast('Bắt đầu tour mới'); }}
           pushToast={pushToast} />}

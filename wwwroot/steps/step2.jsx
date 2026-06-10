@@ -4,6 +4,8 @@ const { useState: useS2 } = React;
 function Step2Itinerary({ itinerary, setItinerary, request, onNext, onBack, density }) {
   const [activeDay, setActiveDay] = useS2(0);
   const [editing, setEditing] = useS2(null); // { dayIdx, actIdx } or { dayIdx, actIdx: 'new' }
+  // Per-activity HotelPicker: { dayIdx, actIdx } | null. Mở khi user bấm "Chọn NCC" trên HOTEL row.
+  const [hotelPicking, setHotelPicking] = useS2(null);
   // Default tĩnh — không call AI cho đến khi user bấm nút.
   const [optimizer, setOptimizer] = useS2({
     advice: 'Bấm nút bên dưới để AI phân tích costing và đề xuất supplier giúp tối ưu margin.',
@@ -81,6 +83,42 @@ Ví dụ giọng: "Tôi thấy Margin đang ở mức tốt. Tuy nhiên, nếu �
 
   return (
     <>
+      {/* Customer / Tour context banner — surface customerName + route + pax từ Step 1 */}
+      <div style={{
+        display: 'flex', alignItems: 'center', gap: 16, flexWrap: 'wrap',
+        padding: '14px 20px', marginBottom: 16,
+        background: 'linear-gradient(135deg, var(--primary-soft), white)',
+        border: '1px solid var(--border)', borderRadius: 12,
+      }}>
+        <div style={{display: 'flex', alignItems: 'center', gap: 10}}>
+          <Icon name="user" size={18} stroke={2} />
+          <div>
+            <div style={{fontSize: 10, fontWeight: 700, color: 'var(--text-3)', textTransform: 'uppercase', letterSpacing: '0.06em'}}>Khách hàng</div>
+            <div style={{fontSize: 14, fontWeight: 700, color: 'var(--text)'}}>
+              {request.customerName || <em style={{color: 'var(--text-3)', fontWeight: 400}}>(chưa nhập tên — về Step 1 bổ sung)</em>}
+            </div>
+          </div>
+        </div>
+        <div style={{height: 28, width: 1, background: 'var(--border-strong)'}} />
+        <div>
+          <div style={{fontSize: 10, fontWeight: 700, color: 'var(--text-3)', textTransform: 'uppercase', letterSpacing: '0.06em'}}>Hành trình</div>
+          <div style={{fontSize: 13, fontWeight: 600, color: 'var(--text)'}}>{request.route || '—'}</div>
+        </div>
+        <div style={{height: 28, width: 1, background: 'var(--border-strong)'}} />
+        <div>
+          <div style={{fontSize: 10, fontWeight: 700, color: 'var(--text-3)', textTransform: 'uppercase', letterSpacing: '0.06em'}}>Pax</div>
+          <div style={{fontSize: 13, fontWeight: 600}}>{request.adults}NL{request.children > 0 ? ` + ${request.children}TE` : ''}</div>
+        </div>
+        <div style={{height: 28, width: 1, background: 'var(--border-strong)'}} />
+        <div>
+          <div style={{fontSize: 10, fontWeight: 700, color: 'var(--text-3)', textTransform: 'uppercase', letterSpacing: '0.06em'}}>Lịch trình</div>
+          <div style={{fontSize: 13, fontWeight: 600}}>{request.days}N{request.nights}Đ · {itinerary.length} ngày sinh</div>
+        </div>
+        <div style={{marginLeft: 'auto', fontSize: 11, color: 'var(--text-3)'}}>
+          MÃ: <strong style={{color: 'var(--text)'}}>{request.code}</strong>
+        </div>
+      </div>
+
       <div className="layout-2col">
         <div className="card">
           <div className="day-tabs">
@@ -110,6 +148,37 @@ Ví dụ giọng: "Tôi thấy Margin đang ở mức tốt. Tuy nhiên, nếu �
                   <div className="activity-type">{(SERVICE_TYPES[a.type] || {}).label || a.type}</div>
                   <h4 className="activity-title">{a.title}</h4>
                   <p className="activity-desc">{a.description}</p>
+                  {/* Supplier + desc (v2 logic — supplierName/supplierDesc từ AI sinh) */}
+                  {(a.supplier || a.supplierName) && (
+                    <div style={{marginTop: 6, padding: '6px 10px', background: 'var(--bg)',
+                      borderRadius: 6, fontSize: 11, color: 'var(--text-2)', borderLeft: '2px solid var(--accent)',
+                      display: 'flex', alignItems: 'center', flexWrap: 'wrap', gap: 6}}>
+                      <strong style={{color: 'var(--text)'}}>NCC:</strong>
+                      <span>{a.supplier || a.supplierName}</span>
+                      {(a.supplierDesc) && (
+                        <span style={{color: 'var(--text-3)', fontStyle: 'italic'}}>
+                          — {a.supplierDesc}
+                        </span>
+                      )}
+                      {a.type === 'HOTEL' && (
+                        <button className="activity-hotel-pick"
+                          onClick={e => { e.stopPropagation(); setHotelPicking({dayIdx: activeDay, actIdx: ai}); }}
+                          title="Chọn khách sạn từ danh mục NCC, giá lấy theo hợp đồng">
+                          <Icon name="bed" size={11} /> Đổi NCC
+                        </button>
+                      )}
+                    </div>
+                  )}
+                  {/* HOTEL không có supplier sẵn → vẫn cho button đổi NCC để pick từ đầu */}
+                  {a.type === 'HOTEL' && !(a.supplier || a.supplierName) && (
+                    <div style={{marginTop: 6}}>
+                      <button className="activity-hotel-pick"
+                        onClick={e => { e.stopPropagation(); setHotelPicking({dayIdx: activeDay, actIdx: ai}); }}
+                        title="Chọn khách sạn từ danh mục NCC, giá lấy theo hợp đồng">
+                        <Icon name="bed" size={11} /> Chọn NCC từ danh sách
+                      </button>
+                    </div>
+                  )}
                   <div className="activity-actions" onClick={e => e.stopPropagation()}>
                     <button onClick={() => setEditing({dayIdx: activeDay, actIdx: ai})}>Sửa dịch vụ</button>
                     <button className="danger" onClick={() => removeAct(activeDay, ai)}>Xóa</button>
@@ -208,6 +277,35 @@ Ví dụ giọng: "Tôi thấy Margin đang ở mức tốt. Tuy nhiên, nếu �
           onClose={() => setEditing(null)}
           onSave={saveAct}
           onDelete={() => { if (editing.actIdx !== 'new') removeAct(editing.dayIdx, editing.actIdx); setEditing(null); }}
+        />
+      )}
+
+      {/* HotelPickerModal: portal-render khi hotelPicking != null. Apply → update activity
+          {title, cost, supplier, description} từ hợp đồng NCC. */}
+      {window.HotelPickerModal && (
+        <window.HotelPickerModal
+          open={!!hotelPicking}
+          pax={totalPax}
+          currentTitle={hotelPicking ? itinerary[hotelPicking.dayIdx]?.activities[hotelPicking.actIdx]?.title : null}
+          onPick={(data) => {
+            const { dayIdx, actIdx } = hotelPicking;
+            setItinerary(it => it.map((d, i) => i === dayIdx ? {
+              ...d,
+              activities: d.activities.map((a, j) => j === actIdx ? {
+                ...a,
+                title:       data.title,
+                supplier:    data.supplier,
+                supplierId:  data.supplierId,
+                roomTypeId:  data.roomTypeId,
+                roomTypeName: data.roomTypeName,
+                pricePerPaxPerNight: data.pricePerPaxPerNight,
+                cost:        data.cost,
+                description: data.description,
+                verified:    true   // NCC thật → flag true để Step 3 hiển thị badge
+              } : a)
+            } : d));
+          }}
+          onClose={() => setHotelPicking(null)}
         />
       )}
     </>

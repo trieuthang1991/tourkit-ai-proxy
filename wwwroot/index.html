@@ -57,6 +57,14 @@
 <script type="text/babel" src="components/data-controls.jsx"></script>
 <!-- "Cách vận hành" — shared trace view + global ?debug toggle via X-Debug header fetch patch -->
 <script type="text/babel" src="components/trace-view.jsx"></script>
+<!-- Custom checkbox (refined B2B, brand orange) — thay <input type=checkbox> mặc định -->
+<script type="text/babel" src="components/tk-checkbox.jsx"></script>
+<!-- Pagination control dùng chung (customers + deals + future lists) -->
+<script type="text/babel" src="components/pagination.jsx"></script>
+<!-- Wizard NCC tier picker (Step 1.5): chọn hotel NCC theo 3 tier để báo giá 3 phương án -->
+<script type="text/babel" src="components/ncc-tier-picker.jsx"></script>
+<!-- Wizard Step 2: modal pick hotel NCC cho từng HOTEL activity (per-night per-pax) -->
+<script type="text/babel" src="components/hotel-picker-modal.jsx"></script>
 <!-- Global dialog API (appAlert/appConfirm/appPrompt) — phải load SAU dialogs.jsx vì dùng window.ConfirmDialog/PromptDialog -->
 <script type="text/babel" src="core/dialog-api.jsx"></script>
 
@@ -75,6 +83,7 @@
 <script type="text/babel" src="pages/visa.jsx"></script>
 <script type="text/babel" src="pages/deals.jsx"></script>
 <script type="text/babel" src="pages/tour-builder.jsx"></script>
+<script type="text/babel" src="pages/quotes.jsx"></script>
 <script type="text/babel" src="pages/ai-usage.jsx"></script>
 
 <!-- Root: App shell + router -->
