@@ -4149,3 +4149,61 @@ html[data-home-theme="dark"] .hp-theme {
 .hpm-scope-text { flex: 1; }
 .hpm-scope-title { font-size: 12.5px; font-weight: 700; color: var(--text); }
 .hpm-scope-sub { font-size: 11px; color: var(--text-3); margin-top: 2px; line-height: 1.4; }
+
+/* ─────────────────────────────────────────────────────────────────────────
+   BẢNG SO SÁNH PHƯƠNG ÁN GIÁ (Step 3) — card-per-tier với ĐANG CHỌN badge.
+   Match design screenshot user gửi: white card, soft purple/violet cho active.
+   ───────────────────────────────────────────────────────────────────────── */
+
+.bsg-panel { background: white; border: 1px solid var(--border);
+  border-radius: 16px; padding: 22px; margin: 20px 28px;
+  box-shadow: 0 1px 3px rgba(0,0,0,0.04); }
+
+.bsg-head { display: flex; justify-content: space-between; align-items: flex-start; gap: 14px; }
+.bsg-title { font-size: 15px; font-weight: 800; color: var(--text);
+  letter-spacing: -0.005em; }
+.bsg-sub { font-size: 12px; color: var(--text-2); margin-top: 4px; font-weight: 500; }
+
+.bsg-quick { padding: 7px 14px; background: var(--bg);
+  border: 1px solid var(--border); border-radius: 10px;
+  font-size: 11px; font-weight: 800; color: var(--text-2);
+  cursor: pointer; transition: all 0.14s; letter-spacing: 0.5px;
+  font-family: inherit; }
+.bsg-quick:hover { background: var(--primary); color: white; border-color: var(--primary); }
+
+.bsg-cards { display: grid; grid-template-columns: 1fr; gap: 12px;
+  margin-top: 16px; }
+@media (min-width: 1080px) { .bsg-cards { grid-template-columns: repeat(2, 1fr); } }
+
+.bsg-card { padding: 14px 18px; background: #fafafa;
+  border: 1.5px solid var(--border); border-radius: 12px;
+  cursor: pointer; transition: all 0.15s; }
+.bsg-card:hover { border-color: var(--primary); background: white; }
+.bsg-card.on { border-color: #9333ea; background: #faf5ff;
+  box-shadow: 0 2px 12px rgba(147, 51, 234, 0.12); }
+
+.bsg-card-head { display: flex; justify-content: space-between; align-items: center;
+  margin-bottom: 10px; }
+.bsg-card-stars { font-size: 14px; color: #fbbf24; letter-spacing: 0.5px; }
+.bsg-card-tier { font-size: 12px; font-weight: 700; color: var(--text);
+  margin-left: 4px; letter-spacing: 0.3px; }
+.bsg-card-dot { color: var(--text-3); margin: 0 6px; font-weight: 700; }
+.bsg-card-pax { font-size: 12px; font-weight: 700; color: var(--text); letter-spacing: 0.3px; }
+
+.bsg-active-badge { padding: 4px 12px; background: #9333ea; color: white;
+  border-radius: 999px; font-size: 10px; font-weight: 800; letter-spacing: 0.5px; }
+
+.bsg-card-row { display: flex; justify-content: space-between; align-items: flex-start; gap: 16px; }
+.bsg-card-price-col { flex: 1; }
+.bsg-card-label { font-size: 10px; font-weight: 700; color: var(--text-3);
+  text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 3px; }
+.bsg-card-price { font-size: 22px; font-weight: 800; color: var(--text);
+  letter-spacing: -0.02em; line-height: 1.15; }
+.bsg-card-warn { font-size: 10.5px; color: #f59e0b; margin-top: 4px; font-weight: 600; }
+
+.bsg-card-stat-col { text-align: right; display: flex; flex-direction: column; gap: 4px;
+  min-width: 140px; }
+.bsg-card-stat-row { display: flex; gap: 8px; justify-content: flex-end; align-items: baseline; }
+.bsg-card-stat-label { font-size: 11px; color: var(--text-3); font-weight: 500; }
+.bsg-card-stat-val { font-size: 12.5px; font-weight: 700; color: var(--text); }
+.bsg-card-stat-val.pos { color: #10b981; }

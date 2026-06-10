@@ -33,7 +33,7 @@ function EditableNum({ value, suffix, onChange, formatter, disabled }) {
 
 function Step3Costing({ rows, setRows, request, onNext, onBack, pushToast,
                        hotelStars, setHotelStars, paxRanges, setPaxRanges,
-                       hotelOptions }) {
+                       hotelOptions, activeTier, setActiveTier }) {
   // ── B3 Hybrid: marginOverride null = per-type, number = global override.
   const [marginOverride, setMarginOverride] = React.useState(null);
   const useGlobal = marginOverride !== null;
@@ -186,42 +186,84 @@ function Step3Costing({ rows, setRows, request, onNext, onBack, pushToast,
         </div>
       </div>
 
-      {/* Tier preview: 3 giá/khách per tier — sales thấy số đổi realtime khi chỉnh markup/cost */}
-      {hotelOptions && Object.keys(hotelOptions).length > 0 && (() => {
+      {/* Bảng so sánh phương án giá (v3.2): cards per tier user đã chọn ở Step 1
+          + đêm hotel tự derive từ itinerary. Click card → setActiveTier → Step 4 dùng. */}
+      {hotelStars && hotelStars.length > 0 && (() => {
         const nights = request.nights || Math.max((request.days || 1) - 1, 1);
         const totalPax_ = request.adults + request.children;
+        const paxRangeLbl = (() => {
+          // Khoảng pax matching hotel pricing matrix (lấy range chứa totalPax)
+          const m = (paxRanges || []).find(r => totalPax_ >= r.from && totalPax_ <= r.to);
+          return m ? `${m.from}-${m.to} PAX` : `${totalPax_} PAX`;
+        })();
         const nonHotelSale_ = rows.filter(r => r.type !== 'HOTEL').reduce((s, r) =>
           s + (r.priceNet || 0) * (1 + (r.vat || 0)/100) * (1 + rowMarkup(r)/100), 0);
+        const nonHotelNet_  = rows.filter(r => r.type !== 'HOTEL').reduce((s, r) =>
+          s + (r.priceNet || 0), 0);
         const hRow_ = rows.find(r => r.type === 'HOTEL');
-        const hMk_ = hRow_ ? rowMarkup(hRow_) : 20;
+        const hMk_  = hRow_ ? rowMarkup(hRow_) : 20;
+        // Hotel price/pax/đêm fallback: nếu chưa pick ở Bước 2 thì dùng giá tham khảo
+        const TIER_FALLBACK_PRICE = { 2: 380000, 3: 650000, 4: 1150000, 5: 2150000, 6: 4250000 };
+        const cards = hotelStars.map(star => {
+          const opt = hotelOptions?.[star];
+          const hotelPerPaxPerNight = opt?.pricePerPaxPerNight || TIER_FALLBACK_PRICE[star] || 1000000;
+          const hotelNetPerPax  = hotelPerPaxPerNight * nights;
+          const hotelSalePerPax = hotelNetPerPax * (1 + hMk_/100);
+          // Per-pax price + per-pax profit
+          const pricePerPax  = (nonHotelSale_ + hotelSalePerPax * totalPax_) / Math.max(totalPax_, 1);
+          const netPerPax    = (nonHotelNet_ + hotelNetPerPax * totalPax_) / Math.max(totalPax_, 1);
+          const profitPerPax = pricePerPax - netPerPax;
+          const markup       = netPerPax > 0 ? Math.round(((pricePerPax - netPerPax) / netPerPax) * 100) : 0;
+          return { star, pricePerPax, profitPerPax, markup, isFallback: !opt };
+        });
+        const active = activeTier || hotelStars[0];
         return (
-          <div style={{padding: '14px 28px', borderBottom: '1px solid var(--border)', background: 'linear-gradient(135deg, #fff7ed, #fffaf5)'}}>
-            <div style={{fontSize: 11, fontWeight: 800, color: 'var(--text-3)', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 10}}>
-              📊 Giá / khách theo tier hotel (preview Step 4)
+          <div className="bsg-panel">
+            <div className="bsg-head">
+              <div>
+                <div className="bsg-title">BẢNG SO SÁNH PHƯƠNG ÁN GIÁ</div>
+                <div className="bsg-sub">Tính theo tổ hợp Option Khách sạn và Khoảng Khách (Pax Range)</div>
+              </div>
+              <button className="bsg-quick" title="Chọn phương án có lợi nhuận cao nhất"
+                onClick={() => {
+                  const best = cards.reduce((a, b) => b.profitPerPax > a.profitPerPax ? b : a);
+                  setActiveTier && setActiveTier(best.star);
+                  pushToast && pushToast(`Chọn nhanh: ${best.star}★ (lợi nhuận cao nhất)`);
+                }}>
+                CHỌN NHANH
+              </button>
             </div>
-            <div style={{display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: 12}}>
-              {[3, 4, 5].map(star => {
-                const opt = hotelOptions[star];
-                if (!opt) return (
-                  <div key={star} style={{padding: '12px 14px', background: 'white', borderRadius: 10, border: '1px dashed var(--border)', opacity: 0.5}}>
-                    <div style={{fontSize: 12, fontWeight: 700, color: 'var(--text-3)'}}>{star}★</div>
-                    <div style={{fontSize: 11, color: 'var(--text-3)', marginTop: 4}}>Chưa cấu hình NCC (Step 1)</div>
-                  </div>
-                );
-                const hotelSalePerPax_ = (opt.pricePerPaxPerNight || 0) * nights * (1 + hMk_/100);
-                const tierTotal_ = nonHotelSale_ + hotelSalePerPax_ * totalPax_;
-                const pricePerPax_ = tierTotal_ / Math.max(totalPax_, 1);
+            <div className="bsg-cards">
+              {cards.map(c => {
+                const isActive = c.star === active;
                 return (
-                  <div key={star} style={{padding: '12px 14px', background: 'white', borderRadius: 10, border: '1px solid var(--border)'}}>
-                    <div style={{display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 6}}>
-                      <span style={{fontSize: 18, fontWeight: 800, color: 'var(--primary)'}}>{star}★</span>
-                      <span style={{fontSize: 10, fontWeight: 700, color: 'var(--text-3)', textTransform: 'uppercase'}}>Tier {star}</span>
+                  <div key={c.star}
+                    className={'bsg-card' + (isActive ? ' on' : '')}
+                    onClick={() => setActiveTier && setActiveTier(c.star)}>
+                    <div className="bsg-card-head">
+                      <div className="bsg-card-stars">
+                        {'★'.repeat(c.star)}<span className="bsg-card-tier"> {c.star} SAO</span>
+                        <span className="bsg-card-dot">·</span>
+                        <span className="bsg-card-pax">{paxRangeLbl}</span>
+                      </div>
+                      {isActive && <span className="bsg-active-badge">ĐANG CHỌN</span>}
                     </div>
-                    <div style={{fontSize: 18, fontWeight: 800, color: 'var(--text)', letterSpacing: '-0.01em'}} className="numeric">
-                      {fmtVND(Math.round(pricePerPax_))}<span style={{fontSize: 11, color: 'var(--text-3)', fontWeight: 600, marginLeft: 3}}>/khách</span>
-                    </div>
-                    <div style={{fontSize: 11, color: 'var(--text-2)', marginTop: 4, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap'}} title={opt.providerName}>
-                      🏨 {opt.providerName}
+                    <div className="bsg-card-row">
+                      <div className="bsg-card-price-col">
+                        <div className="bsg-card-label">GIÁ ĐỀ XUẤT / PAX</div>
+                        <div className="bsg-card-price numeric">{fmtVND(Math.round(c.pricePerPax))}</div>
+                        {c.isFallback && <div className="bsg-card-warn">⚠ Chưa chọn NCC — giá ước lượng</div>}
+                      </div>
+                      <div className="bsg-card-stat-col">
+                        <div className="bsg-card-stat-row">
+                          <span className="bsg-card-stat-label">Markup:</span>
+                          <span className="bsg-card-stat-val pos">+{c.markup}%</span>
+                        </div>
+                        <div className="bsg-card-stat-row">
+                          <span className="bsg-card-stat-label">Lợi nhuận:</span>
+                          <span className="bsg-card-stat-val">{fmtVND(Math.round(c.profitPerPax))}</span>
+                        </div>
+                      </div>
                     </div>
                   </div>
                 );

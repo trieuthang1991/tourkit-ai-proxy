@@ -46,6 +46,9 @@ function WizardPage({ pushToast, tweaks }) {
   //                  4?: {...}, 5?: {...} }
   // Set qua NccTierPicker (Step 1.5). Dùng cho Step 3 (cost) + Step 4 (3 báo giá).
   const [hotelOptions, setHotelOptions] = _uS({});
+  // activeTier: số sao đang được CHỌN NHANH ở Step 3 (highlighted báo giá ở Step 4).
+  // null → Step 4 ghĩa hiển thị mọi tier như thường.
+  const [activeTier, setActiveTier] = _uS(null);
   const [paxRanges, setPaxRanges]   = _uS([
     { from: 1,  to: 14,  markup: 28 },
     { from: 15, to: 30,  markup: 22 },
@@ -399,10 +402,11 @@ Tránh từ "tuyệt vời", "hoàn hảo", "đáng nhớ". Tiếng Việt tự 
           onNext={handleQuoteGen} onBack={() => setStep(2)} pushToast={pushToast}
           hotelStars={hotelStars} setHotelStars={setHotelStars}
           paxRanges={paxRanges}   setPaxRanges={setPaxRanges}
-          hotelOptions={hotelOptions} />}
+          hotelOptions={hotelOptions}
+          activeTier={activeTier} setActiveTier={setActiveTier} />}
         {step === 4 && <Step4Quote
           request={request} itinerary={itinerary} rows={rows} marketing={marketing}
-          hotelOptions={hotelOptions}
+          hotelOptions={hotelOptions} activeTier={activeTier}
           onBack={() => setStep(3)}
           onRestart={() => { setStep(1); pushToast('Bắt đầu tour mới'); }}
           pushToast={pushToast} />}

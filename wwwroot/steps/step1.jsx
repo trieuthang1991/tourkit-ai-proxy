@@ -390,23 +390,36 @@ Gợi ý 5 sở thích / yêu cầu đặc biệt khác phù hợp với điểm
               <Icon name="bed" size={13} /> Hạng khách sạn cần báo giá
             </label>
             <div className="chips">
-              {[3, 4, 5].map(s => {
-                const on = hotelStars.includes(s);
+              {/* 5 tier: tiết kiệm (2★) → tiêu chuẩn (3-4★) → cao cấp (5-6★).
+                  User chọn nhiều hạng → Bước 4 ra nhiều báo giá song song để khách so sánh. */}
+              {[
+                {star: 2, label: '2★', hint: 'Tiết kiệm'},
+                {star: 3, label: '3★', hint: 'Tiêu chuẩn'},
+                {star: 4, label: '4★', hint: 'Cao cấp'},
+                {star: 5, label: '5★', hint: 'Sang trọng'},
+                {star: 6, label: '6★', hint: 'Luxury'},
+              ].map(({star, label, hint}) => {
+                const on = hotelStars.includes(star);
                 return (
-                  <button key={s} type="button"
+                  <button key={star} type="button"
                     className={`chip ${on ? 'active' : ''}`}
                     onClick={() => setHotelStars(stars => on
-                      ? stars.filter(x => x !== s)
-                      : [...stars, s].sort())}
-                    style={{minWidth: 90}}>
-                    <Icon name="star" size={12} /> Hạng {s}★
+                      ? stars.filter(x => x !== star)
+                      : [...stars, star].sort())}
+                    title={hint}
+                    style={{minWidth: 80, flexDirection: 'column', gap: 1, padding: '6px 12px', height: 'auto'}}>
+                    <span style={{display: 'flex', alignItems: 'center', gap: 4}}>
+                      <Icon name="star" size={12} /> {label}
+                    </span>
+                    <span style={{fontSize: 9.5, fontWeight: 500, opacity: 0.8}}>{hint}</span>
                   </button>
                 );
               })}
             </div>
             <div style={{fontSize: 11, color: 'var(--text-3)', marginTop: 6, lineHeight: 1.45}}>
-              💡 Chọn 1-3 hạng — Bước 4 sẽ ra {hotelStars.length} báo giá song song để khách chọn.
-              Hotel cụ thể + giá hợp đồng pick ở Bước 2 (Lập lịch trình) cho từng đêm.
+              💡 Chọn 1-5 hạng — Bước 4 sẽ ra {hotelStars.length} báo giá song song để khách so sánh
+              hoặc bấm <strong>"CHỌN NHANH"</strong> ở Bước 3 để chốt 1 phương án chính.
+              Hotel + giá hợp đồng pick ở Bước 2 cho từng đêm.
             </div>
           </div>
         )}
