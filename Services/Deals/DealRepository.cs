@@ -2,29 +2,31 @@ using System.Text.Json;
 using System.Text.Json.Serialization;
 using Dapper;
 using TourkitAiProxy.Models;
+using TourkitAiProxy.Services.Cache;
 using TourkitAiProxy.Services.Db;
 
 namespace TourkitAiProxy.Services.Deals;
 
 /// <summary>
-/// SQL Server-backed cache cho Deal AI scoring — pattern giống ReviewRepository.
-///   • dbo.DealScores: 1 row per (TenantId, DealId), Fingerprint check stale, IsSync flag cho worker.
-///   • Board snapshot per tenant: lưu file (lightweight, không phổ biến lưu DB).
-/// FALLBACK: DB lỗi → file cũ data/deal-cache.json (dual-mode trong transition).
-/// MIGRATION: file → DB tự chạy 1 lần lúc khởi động nếu DB rỗng.
+/// Cache Deal AI scoring:
+///   • Score cache: SQL Server dbo.DealScores (truth, persistent, has Fingerprint check)
+///   • Board snapshot per tenant: Redis (key tkai:deal-board:{tenant}, no expiry)
+///   • Fallback khi DB lỗi runtime: Redis hash tkai:deal-scores:{tenant}/{dealId}
+///   • Cuối cùng (Redis cũng down): in-memory dict — accept khả năng mất qua restart
+/// KHÔNG còn lưu file data/deal-cache.json (theo yêu cầu).
 /// </summary>
 public class DealRepository
 {
     public record CachedScore(string Fingerprint, DealScore Score, string SavedAt);
 
     private readonly TourkitAiDb _db;
+    private readonly RedisStore _redis;
     private readonly ILogger<DealRepository> _log;
-    private readonly string _legacyPath;
-    private readonly object _legacyLock = new();
-    // Board snapshot vẫn file (mỗi tenant 1 board, đè liên tục — không cần DB)
-    private Dictionary<string, DealBoard> _boards = new();
-    private Dictionary<string, CachedScore> _legacyScoresCache = new();
-    private bool _legacyLoaded;
+
+    // In-memory final fallback (Redis + DB cả 2 down)
+    private readonly Dictionary<string, CachedScore> _memScores = new();
+    private readonly Dictionary<string, DealBoard> _memBoards = new();
+    private readonly object _memLock = new();
 
     private static readonly JsonSerializerOptions _opts = new()
     {
@@ -32,39 +34,22 @@ public class DealRepository
         PropertyNamingPolicy   = JsonNamingPolicy.CamelCase
     };
 
-    private record Snapshot(
-        [property: JsonPropertyName("scores")] Dictionary<string, CachedScore> Scores,
-        [property: JsonPropertyName("boards")] Dictionary<string, DealBoard> Boards);
-
-    public DealRepository(TourkitAiDb db, IWebHostEnvironment env, ILogger<DealRepository> log)
+    public DealRepository(TourkitAiDb db, RedisStore redis, ILogger<DealRepository> log)
     {
-        _db   = db;
-        _log  = log;
-        var dir = Path.Combine(env.ContentRootPath, "data");
-        Directory.CreateDirectory(dir);
-        _legacyPath = Path.Combine(dir, "deal-cache.json");
-
-        // Load boards từ file (boards giữ file — không migrate sang DB).
-        if (File.Exists(_legacyPath))
-        {
-            try
-            {
-                var p = JsonSerializer.Deserialize<Snapshot>(File.ReadAllText(_legacyPath), _opts);
-                if (p?.Boards != null) _boards = p.Boards;
-            }
-            catch (Exception ex) { _log.LogWarning(ex, "Đọc deal-cache.json (boards) lỗi"); }
-        }
+        _db    = db;
+        _redis = redis;
+        _log   = log;
+        _log.LogInformation("DealRepository: scores=DB(dbo.DealScores) + Redis fallback, boards=Redis ({Backend})", redis.Backend);
     }
 
-    /// Khởi động: ensure schema (TourkitAiDb gọi) + migrate scores từ file nếu DB rỗng.
+    /// Khởi động: migrate legacy file (nếu có từ deploy cũ) sang DB + xoá file.
     public async Task InitAsync(CancellationToken ct = default)
     {
-        await TryMigrateScoresFromFileAsync(ct);
+        await TryMigrateLegacyFileAsync(ct);
     }
 
-    // ─── DealScores: DB (PushDb.dbo.DealScores) ──────────────────────────────
+    // ─── DealScores: DB (truth) + Redis (fallback) ───────────────────────────
 
-    /// Lấy điểm cache nếu fingerprint khớp (deal chưa đổi). Null → cần chấm lại.
     public DealScore? GetScore(string tenant, int id, string fingerprint)
     {
         try
@@ -79,13 +64,12 @@ public class DealRepository
         }
         catch (Exception ex)
         {
-            _log.LogWarning(ex, "[DealRepo] DB GetScore lỗi → fallback file");
-            var legacy = LegacyPeek(tenant, id);
-            return (legacy != null && legacy.Fingerprint == fingerprint) ? legacy.Score : null;
+            _log.LogWarning(ex, "[DealRepo] DB GetScore lỗi → fallback Redis");
+            var cached = RedisGetScore(tenant, id);
+            return (cached != null && cached.Fingerprint == fingerprint) ? cached.Score : null;
         }
     }
 
-    /// Đã có cache (KHÔNG check fingerprint) — dùng cho FE tô "đã chấm/chưa chấm".
     public CachedScore? PeekCached(string tenant, int id)
     {
         try
@@ -103,19 +87,18 @@ public class DealRepository
         }
         catch (Exception ex)
         {
-            _log.LogWarning(ex, "[DealRepo] DB PeekCached lỗi → fallback file");
-            return LegacyPeek(tenant, id);
+            _log.LogWarning(ex, "[DealRepo] DB PeekCached lỗi → fallback Redis");
+            return RedisGetScore(tenant, id);
         }
     }
 
-    /// Upsert score.
     public void SaveScore(string tenant, int id, string fingerprint, DealScore score)
     {
+        var dataJson = JsonSerializer.Serialize(score, _opts);
+        var genMs = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
+        bool dbOk = false;
         try
         {
-            var dataJson = JsonSerializer.Serialize(score, _opts);
-            var genMs = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
-
             using var c = _db.Open();
             c.Execute(@"
 MERGE dbo.DealScores AS T
@@ -124,8 +107,7 @@ USING (SELECT @DealId AS DealId, @TenantId AS TenantId) AS S
 WHEN MATCHED THEN UPDATE SET
     WinRate=@WinRate, [Level]=@Level, Fingerprint=@Fingerprint,
     DataJson=@DataJson, AiProvider=@AiProvider, AiModel=@AiModel,
-    TokensIn=NULL, TokensOut=NULL, GeneratedAt=@GeneratedAt,
-    IsSync=0
+    TokensIn=NULL, TokensOut=NULL, GeneratedAt=@GeneratedAt, IsSync=0
 WHEN NOT MATCHED THEN INSERT
     (DealId, TenantId, WinRate, [Level], Fingerprint, DataJson,
      AiProvider, AiModel, TokensIn, TokensOut, GeneratedAt, IsSync)
@@ -136,117 +118,124 @@ VALUES
                 {
                     DealId      = id.ToString(),
                     TenantId    = tenant ?? "",
-                    WinRate     = score.WinRate,
-                    Level       = score.Level,
-                    Fingerprint = fingerprint,
-                    DataJson    = dataJson,
-                    AiProvider  = score.AiProvider,
-                    AiModel     = score.AiModel,
+                    WinRate     = score.WinRate, Level = score.Level,
+                    Fingerprint = fingerprint, DataJson = dataJson,
+                    AiProvider  = score.AiProvider, AiModel = score.AiModel,
                     GeneratedAt = genMs
                 });
+            dbOk = true;
         }
         catch (Exception ex)
         {
-            _log.LogError(ex, "[DealRepo] DB SaveScore lỗi cho deal {Id} → fallback file", id);
-            LegacySave(tenant, id, fingerprint, score);
+            _log.LogError(ex, "[DealRepo] DB SaveScore lỗi cho deal {Id} → ghi Redis", id);
+        }
+
+        // Luôn cập nhật Redis (mirror cho fallback đọc + dùng cross-instance nhanh).
+        // Khi DB lỗi: Redis là chỗ duy nhất giữ score, write-through không có DB.
+        var cached = new CachedScore(fingerprint, score, DateTime.UtcNow.ToString("o"));
+        RedisSaveScore(tenant ?? "", id, cached);
+
+        if (!dbOk)
+        {
+            // In-memory backup nếu Redis cũng down (RedisSaveScore sẽ trả false trong logs)
+            lock (_memLock) _memScores[$"{tenant}:{id}"] = cached;
         }
     }
 
-    // ─── Board snapshot: file (không cần DB) ─────────────────────────────────
+    // ─── Board snapshot: Redis primary, in-memory final fallback ────────────
 
     public DealBoard? GetBoard(string tenant)
     {
-        lock (_legacyLock) return _boards.TryGetValue(tenant, out var b) ? b : null;
+        var json = _redis.Get($"deal-board:{tenant}");
+        if (json != null)
+        {
+            try { return JsonSerializer.Deserialize<DealBoard>(json, _opts); }
+            catch (Exception ex) { _log.LogWarning(ex, "[DealRepo] Parse board JSON lỗi"); }
+        }
+        lock (_memLock) return _memBoards.TryGetValue(tenant, out var b) ? b : null;
     }
 
     public void SaveBoard(string tenant, DealBoard board)
     {
-        lock (_legacyLock) { _boards[tenant] = board; PersistBoards(); }
+        var json = JsonSerializer.Serialize(board, _opts);
+        var ok = _redis.Set($"deal-board:{tenant}", json);   // no expiry
+        if (!ok)
+        {
+            _log.LogWarning("[DealRepo] Lưu board Redis fail (Redis down?) → in-memory");
+            lock (_memLock) _memBoards[tenant] = board;
+        }
     }
 
-    private void PersistBoards()
+    // ─── Redis score helpers (HASH per tenant cho lookup nhanh) ──────────────
+
+    private CachedScore? RedisGetScore(string tenant, int id)
     {
-        try { File.WriteAllText(_legacyPath, JsonSerializer.Serialize(new Snapshot(_legacyScoresCache, _boards), _opts)); }
-        catch (Exception ex) { _log.LogError(ex, "[DealRepo] Ghi boards file lỗi"); }
+        var json = _redis.HashGet($"deal-scores:{tenant}", id.ToString());
+        if (json == null)
+        {
+            lock (_memLock) return _memScores.TryGetValue($"{tenant}:{id}", out var c) ? c : null;
+        }
+        try { return JsonSerializer.Deserialize<CachedScore>(json, _opts); }
+        catch { return null; }
     }
 
-    // ─── Migration JSON → DB (chạy 1 lần lúc khởi động) ──────────────────────
-
-    private async Task TryMigrateScoresFromFileAsync(CancellationToken ct)
+    private void RedisSaveScore(string tenant, int id, CachedScore cached)
     {
-        if (!File.Exists(_legacyPath)) return;
+        var json = JsonSerializer.Serialize(cached, _opts);
+        _redis.HashSet($"deal-scores:{tenant}", id.ToString(), json);
+    }
+
+    // ─── Migration legacy file → DB + Redis board (1 lần) ───────────────────
+
+    private async Task TryMigrateLegacyFileAsync(CancellationToken ct)
+    {
+        var legacyPath = "data/deal-cache.json";
+        if (!File.Exists(legacyPath)) return;
         try
         {
-            await using var c = await _db.OpenAsync(ct);
-            var count = await c.ExecuteScalarAsync<int>("SELECT COUNT(*) FROM dbo.DealScores");
-            if (count > 0)
-            {
-                _log.LogInformation("[DealRepo] DB đã có {N} score, skip migrate", count);
-                return;
-            }
-
-            var json = await File.ReadAllTextAsync(_legacyPath, ct);
+            var json = await File.ReadAllTextAsync(legacyPath, ct);
             var snap = JsonSerializer.Deserialize<Snapshot>(json, _opts);
-            if (snap?.Scores == null || snap.Scores.Count == 0) return;
 
-            _log.LogInformation("[DealRepo] DB rỗng, migrate {N} score từ {Path}", snap.Scores.Count, _legacyPath);
-            int ok = 0;
-            foreach (var (key, cached) in snap.Scores)
+            // Scores → DB
+            if (snap?.Scores != null && snap.Scores.Count > 0)
             {
-                // Key format "tenant:id" — split
-                var idx = key.IndexOf(':');
-                if (idx <= 0) continue;
-                var tenant = key.Substring(0, idx);
-                if (!int.TryParse(key.Substring(idx + 1), out var dealId)) continue;
-                try { SaveScore(tenant, dealId, cached.Fingerprint, cached.Score); ok++; }
-                catch (Exception ex) { _log.LogWarning(ex, "Migrate score key {K} fail", key); }
+                await using var c = await _db.OpenAsync(ct);
+                var count = await c.ExecuteScalarAsync<int>("SELECT COUNT(*) FROM dbo.DealScores");
+                if (count == 0)
+                {
+                    _log.LogInformation("[DealRepo] Migrate {N} score từ file → DB", snap.Scores.Count);
+                    foreach (var (key, cached) in snap.Scores)
+                    {
+                        var idx = key.IndexOf(':');
+                        if (idx <= 0) continue;
+                        var tenant = key.Substring(0, idx);
+                        if (!int.TryParse(key.Substring(idx + 1), out var dealId)) continue;
+                        try { SaveScore(tenant, dealId, cached.Fingerprint, cached.Score); } catch { }
+                    }
+                }
             }
-            _log.LogInformation("[DealRepo] Migrate xong {Ok}/{Total} score", ok, snap.Scores.Count);
+
+            // Boards → Redis
+            if (snap?.Boards != null)
+            {
+                foreach (var (tenant, board) in snap.Boards)
+                    SaveBoard(tenant, board);
+                _log.LogInformation("[DealRepo] Migrate {N} board từ file → Redis", snap.Boards.Count);
+            }
+
+            // Rename file để đánh dấu đã migrate (giữ làm backup, không xóa)
+            File.Move(legacyPath, legacyPath + ".migrated", overwrite: true);
+            _log.LogInformation("[DealRepo] File legacy renamed → deal-cache.json.migrated");
         }
         catch (Exception ex)
         {
-            _log.LogWarning(ex, "[DealRepo] Migrate JSON fail — bỏ qua, giữ file cũ");
+            _log.LogWarning(ex, "[DealRepo] Migrate legacy file fail (skip)");
         }
     }
 
-    // ─── Fallback file (đọc/ghi deal-cache.json khi DB lỗi runtime) ──────────
-
-    private CachedScore? LegacyPeek(string tenant, int id)
-    {
-        EnsureLegacyLoaded();
-        lock (_legacyLock)
-            return _legacyScoresCache.TryGetValue($"{tenant}:{id}", out var c) ? c : null;
-    }
-
-    private void LegacySave(string tenant, int id, string fingerprint, DealScore score)
-    {
-        EnsureLegacyLoaded();
-        lock (_legacyLock)
-        {
-            _legacyScoresCache[$"{tenant}:{id}"] = new CachedScore(fingerprint, score, DateTime.UtcNow.ToString("o"));
-            try { File.WriteAllText(_legacyPath, JsonSerializer.Serialize(new Snapshot(_legacyScoresCache, _boards), _opts)); }
-            catch (Exception ex) { _log.LogError(ex, "Legacy write lỗi"); }
-        }
-    }
-
-    private void EnsureLegacyLoaded()
-    {
-        if (_legacyLoaded) return;
-        lock (_legacyLock)
-        {
-            if (_legacyLoaded) return;
-            try
-            {
-                if (File.Exists(_legacyPath))
-                {
-                    var snap = JsonSerializer.Deserialize<Snapshot>(File.ReadAllText(_legacyPath), _opts);
-                    if (snap?.Scores != null) _legacyScoresCache = snap.Scores;
-                }
-            }
-            catch { _legacyScoresCache = new(); }
-            _legacyLoaded = true;
-        }
-    }
+    private record Snapshot(
+        [property: JsonPropertyName("scores")] Dictionary<string, CachedScore> Scores,
+        [property: JsonPropertyName("boards")] Dictionary<string, DealBoard> Boards);
 
     private sealed class DealScoreRow
     {

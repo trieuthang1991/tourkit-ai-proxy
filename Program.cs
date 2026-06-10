@@ -109,6 +109,7 @@ builder.Services.AddHttpClient("tourkit", c =>
 });
 builder.Services.AddSingleton<TourKitApiClient>();
 builder.Services.AddSingleton<TkSessionStore>();
+builder.Services.AddSingleton<TourkitAiProxy.Services.Cache.RedisStore>();  // generic Redis cho mọi feature
 builder.Services.AddSingleton<TourkitAiProxy.Services.Cache.ChatCache>();   // Redis (nếu có) / in-memory
 // Agent runtimes -- thu tu quan trong: NativeToolUseAgent (Anthropic native tools) chay truoc,
 // JsonPlannerAgent la fallback cho moi provider khac (OpenCode, 9routes...).
