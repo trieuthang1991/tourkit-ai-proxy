@@ -76,16 +76,46 @@ if ($SelfContained) {
 & dotnet @args
 if ($LASTEXITCODE -ne 0) { throw "dotnet publish lỗi" }
 
+# CRITICAL: dotnet publish copy appsettings*.json (chứa key DEV) ra output.
+# Xóa hết — server tự tạo từ template, KHÔNG đè appsettings prod.
+Step "Strip dev appsettings (avoid leak / overwrite prod)"
+$strip = @('appsettings.json', 'appsettings.Development.json', 'appsettings.Production.json')
+foreach ($f in $strip) {
+    $p = Join-Path $OutDir $f
+    if (Test-Path $p) { Remove-Item $p -Force; Write-Host "  removed: $f" -ForegroundColor Yellow }
+}
+
 # Copy file mẫu — server admin đổi tên thành appsettings.json + điền key thật
 Step "Copy appsettings.example.json"
 Copy-Item $Example (Join-Path $OutDir "appsettings.example.json") -Force
 
-# Đảm bảo data/customers.seed.json đi cùng (seed read-only, không phải runtime state)
+# Đảm bảo data/customers.seed.json đi cùng (seed read-only, không phải runtime state).
+# KHÔNG copy bất kỳ data/*.json runtime nào khác (mails/reviews/tk-sessions/tenant-quota...) —
+# deploy-iis.ps1 sẽ /XF excludes nhưng publish/ KHÔNG nên có ngay từ đầu để khỏi rò rỉ.
 $SeedSrc = Join-Path $Root "data\customers.seed.json"
 if (Test-Path $SeedSrc) {
     $DataOut = Join-Path $OutDir "data"
     New-Item -ItemType Directory -Force -Path $DataOut | Out-Null
     Copy-Item $SeedSrc (Join-Path $DataOut "customers.seed.json") -Force
+}
+# Đảm bảo nếu dotnet publish vô tình copy data/ runtime files (cẩn thận double-strip)
+$runtimeDataPatterns = @('mails.json', 'mail-account.json', 'mail-sync.json', 'tk-sessions.json',
+    'reviews.json', 'provider-keys.json', 'visa-assessments.json', 'deal-cache.json',
+    'tenant-quota.json', 'ai-usage.jsonl', 'chat-unresolved.jsonl', 'workflow-traces.jsonl',
+    '*.jsonl.*', '*.migrated')
+$dataOut = Join-Path $OutDir "data"
+if (Test-Path $dataOut) {
+    foreach ($pat in $runtimeDataPatterns) {
+        Get-ChildItem -Path $dataOut -Filter $pat -ErrorAction SilentlyContinue | ForEach-Object {
+            Remove-Item $_.FullName -Force
+            Write-Host "  stripped runtime: data\$($_.Name)" -ForegroundColor Yellow
+        }
+    }
+    # Also strip visa-files / legacy-backup folders if copied
+    foreach ($d in @('visa-files', 'legacy-backup')) {
+        $p = Join-Path $dataOut $d
+        if (Test-Path $p) { Remove-Item $p -Recurse -Force; Write-Host "  stripped folder: data\$d" -ForegroundColor Yellow }
+    }
 }
 
 # Đếm file để xác minh thành công

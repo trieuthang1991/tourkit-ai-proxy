@@ -6,6 +6,12 @@
       "runtimeExecutable": "dotnet",
       "runtimeArgs": ["run", "--project", "TourkitAiProxy.csproj"],
       "port": 5080
+    },
+    {
+      "name": "sample",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": ["--prefix", "tmp/ceo-dashboard-v2", "run", "dev"],
+      "port": 3000
     }
   ]
 }

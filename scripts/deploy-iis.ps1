@@ -58,14 +58,17 @@ if ($DryRun) {
 # QUAN TRỌNG: /XF cho FILE, /XD cho FOLDER. Dùng nhầm /XD cho file → exclude KHÔNG hiệu lực,
 # và vì có /MIR ở dưới, robocopy sẽ XÓA file đó ở destination (vd: tk-sessions.json → user mất đăng nhập).
 $ExcludeFiles = @(
-    "appsettings.json", "appsettings.Production.json",
+    "appsettings.json", "appsettings.Production.json", "appsettings.Development.json",
     # SmartMail / Visa / Deal / Reviews / Provider keys — runtime state, chứa PII/creds
     "data\mails.json", "data\mail-account.json", "data\mail-sync.json",
     "data\tk-sessions.json", "data\reviews.json", "data\provider-keys.json",
     "data\visa-assessments.json", "data\deal-cache.json",
+    # Quota & usage counters per-tenant — đè = mất dữ liệu đếm AI / reset quota đang chạy
+    "data\tenant-quota.json",
     # Logs / traces (rotation: *.jsonl.YYYY-MM-DD…)
     "data\ai-usage.jsonl", "data\chat-unresolved.jsonl", "data\workflow-traces.jsonl",
-    "*.jsonl.*"  # rotated logs — robocopy /XF có hiểu wildcard cho tên file
+    "*.jsonl.*",   # rotated logs — robocopy /XF có hiểu wildcard cho tên file
+    "*.migrated"   # *.json.migrated từ MultiTenantMigration / cache invalidation
 )
 $ExcludeDirs = @(
     "data\visa-files",    # PII (ảnh hồ sơ visa) per-tenant

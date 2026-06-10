@@ -43,3 +43,25 @@ data/chat-unresolved.jsonl.*
 # Workflow debug trace log (runtime state, có thể rotate) — KHÔNG commit
 data/workflow-traces.jsonl
 data/workflow-traces.jsonl.*
+
+# Tenant AI quota state (per-instance counters) — đè = mất counter đang chạy
+data/tenant-quota.json
+
+# AI usage log (rotation jsonl) — runtime state, có thể rotate
+data/ai-usage.jsonl
+data/ai-usage.jsonl.*
+
+# MultiTenantMigration backup folders + .migrated artifacts
+data/legacy-backup/
+data/*.migrated
+
+# Tmp folders (sample extracts, smoke logs)
+tmp/
+*smoketest.log
+
+# E2E test artifacts (screenshots / reports / videos)
+e2e/snap-*.png
+e2e/report/
+e2e/test-results/
+
+.gitnexus
