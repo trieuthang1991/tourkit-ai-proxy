@@ -4208,6 +4208,20 @@ html[data-home-theme="dark"] .hp-theme {
 .bsg-card-stat-val { font-size: 12.5px; font-weight: 700; color: var(--text); }
 .bsg-card-stat-val.pos { color: #10b981; }
 
+/* ── EditServiceModal cost-type picker (v3.4) ─────────────────────────────── */
+.cost-type-picker { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-top: 6px; }
+.ctp-card { display: flex; align-items: flex-start; gap: 10px; padding: 12px 14px;
+  border: 1.5px solid var(--border); border-radius: 10px; background: white;
+  cursor: pointer; transition: all 0.15s; }
+.ctp-card:hover { border-color: var(--text-3); }
+.ctp-card.on { box-shadow: 0 1px 3px rgba(0,0,0,0.04); }
+.ctp-dot { width: 9px; height: 9px; border-radius: 50%; margin-top: 5px; flex-shrink: 0; }
+.ctp-title { font-size: 12px; font-weight: 800; letter-spacing: 0.04em; }
+.ctp-desc { font-size: 11px; color: var(--text-3); margin-top: 3px; line-height: 1.4; }
+.cost-preview { margin-top: 10px; padding: 10px 14px; background: #fff8ec;
+  border: 1px solid #fed7aa; border-radius: 8px;
+  display: flex; align-items: center; gap: 8px; color: #c2410c; }
+
 /* ── Step 3 split sections (v3.3) — A: Chi phí Riêng · B: Chi phí Chung ───── */
 .costing-section { padding: 18px 28px; border-bottom: 1px solid var(--border); }
 .costing-section:last-of-type { border-bottom: none; }
