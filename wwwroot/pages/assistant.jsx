@@ -167,22 +167,25 @@ const _SLICE_COLORS = ['#F97316', '#0EA5E9', '#10B981', '#8B5CF6', '#F59E0B', '#
 
 // Biểu đồ chuyên nghiệp bằng Chart.js (nạp qua CDN ở index.html).
 // chartType: 'doughnut' | 'bar-vertical' | 'bar-horizontal' (mặc định từ _defaultChartType + kind).
-function ChartView({ rows, info, focus, kind }) {
+function ChartView({ rows, info, focus, kind, compare }) {
   const canvasRef = React.useRef(null);
   const chartRef = React.useRef(null);
   const allKeys = info.series.map(s => s.key);
   const focusSel = (focus || []).filter(f => allKeys.includes(f));
   const [sel, setSel] = React.useState(focusSel.length ? focusSel : allKeys.slice(0, info.timeline ? 3 : 1));
-  const [chartType, setChartType] = React.useState(() => _defaultChartType(info, rows, kind));
+  // Compare mode: BẮT BUỘC dạng cột (donut so sánh vô nghĩa). User: "compare lên cột chuẩn hơn".
+  const isCompare = !!(compare && compare.compareRaw);
+  const [chartType, setChartType] = React.useState(() =>
+    isCompare ? 'bar-vertical' : _defaultChartType(info, rows, kind));
   // Khi data đổi (panelData khác câu hỏi khác) → reset chartType + sel theo mặc định mới.
   React.useEffect(() => {
-    setChartType(_defaultChartType(info, rows, kind));
+    setChartType(isCompare ? 'bar-vertical' : _defaultChartType(info, rows, kind));
     setSel(focusSel.length ? focusSel : allKeys.slice(0, info.timeline ? 3 : 1));
-  }, [info.labelKey, rows.length, kind]);
+  }, [info.labelKey, rows.length, kind, isCompare]);
 
   const activeCount = info.series.filter(s => sel.includes(s.key)).length;
-  // Tròn hợp lý: dữ liệu phân loại (không timeline), 2–12 mục, không số âm, tổng > 0.
-  const canPie = !info.timeline && rows.length >= 2 && rows.length <= 12 && _pieSafe(rows, info.series);
+  // Tròn hợp lý: phân loại + ko âm + tổng > 0. Compare KHÔNG cho phép tròn.
+  const canPie = !isCompare && !info.timeline && rows.length >= 2 && rows.length <= 12 && _pieSafe(rows, info.series);
 
   React.useEffect(() => {
     if (!window.Chart || !canvasRef.current) return;
@@ -194,7 +197,37 @@ function ChartView({ rows, info, focus, kind }) {
       const k = active[0].key;
       data = data.sort((a, b) => (Number(b[k]) || 0) - (Number(a[k]) || 0));
     }
-    const labels = data.map(r => String(r[info.labelKey]));
+    // Compare: union labels từ 2 kỳ. Vd T6 có 2 kênh marketing, T5 có 7 → hiện đủ 7
+    // (kênh nào kỳ kia không có sẽ 0). Không union → bỏ sót dữ liệu kỳ đối chiếu.
+    let labels;
+    let cmpMap = null;
+    if (isCompare) {
+      const cmpRows = _extractRows(compare.compareRaw) || [];
+      cmpMap = {};
+      for (const r of cmpRows) cmpMap[String(r[info.labelKey])] = r;
+      const metric = active[0].key;
+      const union = new Map();
+      for (const r of data) union.set(String(r[info.labelKey]), r);
+      for (const r of cmpRows) if (!union.has(String(r[info.labelKey]))) union.set(String(r[info.labelKey]), r);
+      // Sắp theo MAX(primary, compare) giảm dần để cột dài nhất trước
+      const sorted = [...union.entries()].sort((a, b) => {
+        const av = Math.max(Number((data.find(x => String(x[info.labelKey]) === a[0]) || {})[metric]) || 0,
+                            Number((cmpMap[a[0]] || {})[metric]) || 0);
+        const bv = Math.max(Number((data.find(x => String(x[info.labelKey]) === b[0]) || {})[metric]) || 0,
+                            Number((cmpMap[b[0]] || {})[metric]) || 0);
+        return bv - av;
+      });
+      labels = sorted.map(([l]) => l);
+      // primaryByLabel để build dataset
+      const primMap = {};
+      for (const r of data) primMap[String(r[info.labelKey])] = r;
+      data = labels.map(l => primMap[l] || {});   // re-align với union order
+      cmpMap = cmpMap;   // (giữ tên trong scope)
+      // gắn vào closure để dataset dùng
+      data.__cmpMap = cmpMap;
+    } else {
+      labels = data.map(r => String(r[info.labelKey]));
+    }
     const moneyActive = active.some(s => _isMoneyKey(s.key));
     const fmt = (v) => (moneyActive ? window.fmtVND(v) : window.fmtNum(v));
 
@@ -218,13 +251,33 @@ function ChartView({ rows, info, focus, kind }) {
       };
     } else {
       const horizontal = chartType === 'bar-horizontal';
-      const datasets = active.map((s, i) => ({
-        label: _seriesName(s.key),
-        data: data.map(r => Number(r[s.key]) || 0),
-        backgroundColor: _SLICE_COLORS[i % _SLICE_COLORS.length],
-        borderRadius: 5,
-        maxBarThickness: 48
-      }));
+      let datasets;
+      if (isCompare) {
+        // Grouped 2-series: 1 chỉ số × 2 kỳ. cmpMap + data đã reorder theo union labels ở trên.
+        const metric = active[0].key;
+        datasets = [
+          {
+            label: compare.primaryLabel || 'Kỳ chính',
+            data: labels.map((l, i) => Number((data[i] || {})[metric]) || 0),
+            backgroundColor: _SLICE_COLORS[0],
+            borderRadius: 5, maxBarThickness: 36
+          },
+          {
+            label: compare.compareLabel || 'Kỳ đối chiếu',
+            data: labels.map(l => Number((cmpMap[l] || {})[metric]) || 0),
+            backgroundColor: _SLICE_COLORS[1],
+            borderRadius: 5, maxBarThickness: 36
+          }
+        ];
+      } else {
+        datasets = active.map((s, i) => ({
+          label: _seriesName(s.key),
+          data: data.map(r => Number(r[s.key]) || 0),
+          backgroundColor: _SLICE_COLORS[i % _SLICE_COLORS.length],
+          borderRadius: 5,
+          maxBarThickness: 48
+        }));
+      }
       cfg = {
         type: 'bar',
         data: { labels, datasets },
@@ -249,7 +302,7 @@ function ChartView({ rows, info, focus, kind }) {
     chartRef.current = new window.Chart(canvasRef.current, cfg);
 
     return () => { if (chartRef.current) { chartRef.current.destroy(); chartRef.current = null; } };
-  }, [rows, info, sel, chartType, canPie]);
+  }, [rows, info, sel, chartType, canPie, isCompare, compare]);
 
   const toggle = (k) => setSel(prev =>
     prev.includes(k) ? (prev.length > 1 ? prev.filter(x => x !== k) : prev) : [...prev, k]);
@@ -271,9 +324,9 @@ function ChartView({ rows, info, focus, kind }) {
 
   return (
     <div className="asst-chart">
-      {(info.series.length > 1 || canPie) && (
+      {(info.series.length > 1 || canPie || isCompare) && (
         <div className="asst-chart-toolbar">
-          {info.series.length > 1 ? (
+          {info.series.length > 1 && !isCompare ? (
             <div className="asst-metrics">
               {info.series.map(s => (
                 <button key={s.key} className={'asst-mchip' + (sel.includes(s.key) ? ' on' : '')} onClick={() => toggle(s.key)}>
@@ -478,7 +531,7 @@ function DataPanel({ data, onAsk }) {
         <div className="asst-block">
           <div className="label">Biểu đồ</div>
           {/* key=dataVer: remount khi panelData đổi → chartType/metric về mặc định đúng cho data MỚI */}
-          <ChartView key={dataVer} rows={rows} info={chart} focus={data.focus} kind={data.kind} />
+          <ChartView key={dataVer} rows={rows} info={chart} focus={data.focus} kind={data.kind} compare={data.compare} />
         </div>
       )}
 

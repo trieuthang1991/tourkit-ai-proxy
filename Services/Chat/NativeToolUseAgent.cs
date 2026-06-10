@@ -138,6 +138,9 @@ public class NativeToolUseAgent : IAgentRuntime
         object?   lastParams  = null;
         ChatData? lastData    = null;
         string?   warning     = null;
+        // Tich luy MOI tool call thanh cong qua TAT CA iteration — de tong hop compare
+        // sau khi loop xong (Input phai Clone vi JsonDocument dispose cuoi moi vong).
+        var allToolResults = new List<(string ToolName, JsonElement Input, string ResultJson, ChatTool Tool, ChatData Data, object? Params)>();
 
         var trace = input.Trace;
         trace?.Step("session_memory", "ok", 0,
@@ -335,62 +338,16 @@ public class NativeToolUseAgent : IAgentRuntime
                 $" → tổng {toolDetails.Sum(d => d.responseSize):N0} bytes",
                 new() { ["method"] = "GET", ["auth"] = "Bearer JWT (TourKit session)", ["tools"] = toolDetails });
 
-            // Gom ket qua: neu 2+ tool_use cung tool name (vd 2 lan cashflow voi date khac nhau)
-            // → ghep thanh ChatData.Compare (primary = ky gan hien tai nhat, compare = ky con lai).
-            // Neu chi 1 tool / hoac nhieu tool khac nhau → lay tool moi nhat co data nhu cu.
-            var successResults = execResults.Where(e => e.Data != null && e.Tool != null).ToList();
-            if (successResults.Count >= 2)
+            // Tich luy ket qua — KHONG emit data giua chung. Compare + emit tong hop
+            // 1 LAN sau khi loop xong (user: "xong het moi tong hop so lieu" — truoc day
+            // emit moi iteration lam panel ve 2 lan khi AI goi 2 tool so sanh).
+            // Input phai Clone() vi JsonDocument bi dispose cuoi moi vong lap.
+            foreach (var er in execResults)
             {
-                // Group theo ten tool, chon group co >=2 ket qua de build compare
-                var grouped = successResults.GroupBy(e => e.Tool!.Name)
-                    .FirstOrDefault(g => g.Count() >= 2);
-                if (grouped != null)
-                {
-                    var ordered = grouped.OrderByDescending(e => InferDateOrderKey(e.tub.Input)).ToList();
-                    var primary = ordered[0];
-                    var compare = ordered[1];
-                    var primaryLabel = InferPeriodLabel(primary.tub.Input) ?? "Kỳ chính";
-                    var compareLabel = InferPeriodLabel(compare.tub.Input) ?? "Kỳ đối chiếu";
-                    var compareRaw = TryParseRaw(compare.ResultJson);
-                    lastData = primary.Data with
-                    {
-                        Compare = new ChatDataCompare(
-                            PrimaryLabel: primaryLabel,
-                            CompareLabel: compareLabel,
-                            CompareStats: compare.Data!.Stats,
-                            CompareRaw: compareRaw)
-                    };
-                    lastToolName = primary.Tool!.Name;
-                    lastParams   = primary.Params;
-                    _log.LogInformation("[NativeTool] Compare built: primary={P} vs compare={C} ({Tool})",
-                        primaryLabel, compareLabel, grouped.Key);
-                    trace?.Step("compare_built", "ok", 0,
-                        $"Phát hiện 2 tool '{grouped.Key}' cùng turn → ghép thành Compare: {primaryLabel} vs {compareLabel}",
-                        new() { ["primary"] = primaryLabel, ["compare"] = compareLabel });
-                }
-                else
-                {
-                    foreach (var er in execResults)
-                        if (er.Data != null) { lastData = er.Data; lastToolName = er.Tool?.Name; lastParams = er.Params; }
-                }
+                if (er.Data == null || er.Tool == null) continue;
+                allToolResults.Add((er.Tool.Name, er.tub.Input.Clone(), er.ResultJson, er.Tool, er.Data, er.Params));
+                lastData = er.Data; lastToolName = er.Tool.Name; lastParams = er.Params;
             }
-            else
-            {
-                foreach (var er in execResults)
-                    if (er.Data != null) { lastData = er.Data; lastToolName = er.Tool?.Name; lastParams = er.Params; }
-            }
-
-            // Focus theo cau hoi ("chi phi thang nay" → chart chi ve expense).
-            // Phai gan TRUOC khi emit — frontend dung data tu event nay, khong doi done.
-            if (lastData != null)
-            {
-                var userQ = input.History.LastOrDefault(m => m.Role == "user")?.Content;
-                lastData = ChatDataBuilder.WithFocus(lastData, userQ);
-            }
-
-            // Emit data ngay sau khi exec xong → frontend hien panel phai som nhat co the.
-            if (emit != null && lastData != null && !string.IsNullOrEmpty(lastData.Title))
-                await emit(new { stage = "data", iteration, tool = lastToolName, data = lastData });
 
             // ── Xay dung luot tiep: append assistant turn + user turn tool_results ──
             // Clone content truoc khi dispose doc
@@ -408,6 +365,39 @@ public class NativeToolUseAgent : IAgentRuntime
 
             doc.Dispose();
         } // end while
+
+        // ── TONG HOP CROSS-ITERATION: build compare tu allToolResults ─────────
+        // 2+ call cung 1 tool (vd marketing T5 + marketing T6) → ghep thanh Compare.
+        // Truoc day chi group trong 1 iteration → bo sot truong hop AI goi tool nhieu turn.
+        if (allToolResults.Count >= 2)
+        {
+            var grouped = allToolResults.GroupBy(r => r.ToolName)
+                .FirstOrDefault(g => g.Count() >= 2);
+            if (grouped != null)
+            {
+                var ordered = grouped.OrderByDescending(r => InferDateOrderKey(r.Input)).ToList();
+                var primary = ordered[0];
+                var compare = ordered[1];
+                var primaryLabel = InferPeriodLabel(primary.Input) ?? "Kỳ chính";
+                var compareLabel = InferPeriodLabel(compare.Input) ?? "Kỳ đối chiếu";
+                var compareRaw = TryParseRaw(compare.ResultJson);
+                lastData = primary.Data with
+                {
+                    Compare = new ChatDataCompare(
+                        PrimaryLabel: primaryLabel,
+                        CompareLabel: compareLabel,
+                        CompareStats: compare.Data.Stats,
+                        CompareRaw: compareRaw)
+                };
+                lastToolName = primary.ToolName;
+                lastParams   = primary.Params;
+                _log.LogInformation("[NativeTool] Compare built (cross-iter): {P} vs {C} ({Tool})",
+                    primaryLabel, compareLabel, grouped.Key);
+                trace?.Step("compare_built", "ok", 0,
+                    $"Tổng hợp {grouped.Count()} call '{grouped.Key}' qua {iteration} iter → Compare: {primaryLabel} vs {compareLabel}",
+                    new() { ["primary"] = primaryLabel, ["compare"] = compareLabel });
+            }
+        }
 
         // ── Kiem tra co bi hard-stop khong ────────────────────────────────────
         if (iteration >= MaxIterations && warning == null)
@@ -448,6 +438,20 @@ public class NativeToolUseAgent : IAgentRuntime
             trace?.Step("memory_data_reuse", "fallback", 0,
                 $"AI không gọi tool turn này → reuse data cũ từ memory: '{memory.LastDataTitle}'");
         }
+
+        // Focus theo cau hoi USER (chi phi / loi nhuan / doanh thu) — gan TRUOC khi emit.
+        // Truoc day gan trong loop nhung emit ngay → frontend nhan data nhieu lan,
+        // moi lan vo hieu focus cu. Gio tinh 1 lan cuoi cung.
+        if (lastData != null)
+        {
+            var userQ = input.History.LastOrDefault(m => m.Role == "user")?.Content;
+            lastData = ChatDataBuilder.WithFocus(lastData, userQ);
+        }
+
+        // Emit DUY NHAT 1 lan sau khi loop xong + compare built + focus applied.
+        // Frontend chi remount chart 1 lan → khong nhay/ve 2 lan.
+        if (emit != null && lastData != null && !string.IsNullOrEmpty(lastData.Title))
+            await emit(new { stage = "data", tool = lastToolName, data = lastData });
 
         // ── Guardrails ────────────────────────────────────────────────────────
         finalText = AgentGuardrails.StripMarkdown(AgentGuardrails.StripEmDash(finalText.Trim()));
@@ -569,10 +573,8 @@ public class NativeToolUseAgent : IAgentRuntime
             return;
         }
 
-        // Neu co data va chua emit qua emit callback → gui them 1 lan de dam bao panel phai hien.
-        if (result.Data != null && !string.IsNullOrEmpty(result.Data.Title))
-            await emit(new { stage = "analyzing", tool = result.ToolName, data = result.Data });
-
+        // RunCoreAsync da emit {stage="data"} duy nhat sau khi loop xong → KHONG
+        // emit lai o day (truoc day ve chart 2 lan voi compare). Chi emit text delta + done.
         await emit(new { delta = result.Reply });
         await emit(new
         {
