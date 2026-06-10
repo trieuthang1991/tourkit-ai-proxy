@@ -4017,15 +4017,16 @@ html[data-home-theme="dark"] .hp-theme {
 .hpm-room-total-val { font-size: 15px; font-weight: 800; color: var(--primary); }
 .hpm-room-total-label { font-size: 10px; color: var(--text-3); margin-top: 2px; }
 
-/* Trigger button trong activity HOTEL — sit cùng row với supplier label */
-.activity-hotel-pick { display: inline-flex; align-items: center; gap: 5px;
-  margin-left: auto; padding: 3px 10px; background: white;
+/* Trigger button trong activity HOTEL — pill cam đậm để sales nhận ra ngay */
+.activity-hotel-pick { display: inline-flex; align-items: center; gap: 6px;
+  margin-left: auto; padding: 7px 14px; background: var(--primary);
   border: 1px solid var(--primary); border-radius: 999px;
-  font-size: 10.5px; font-weight: 700; color: var(--primary);
-  cursor: pointer; font-family: inherit; transition: all 0.12s;
-  text-transform: uppercase; letter-spacing: 0.3px; }
-.activity-hotel-pick:hover { background: var(--primary); color: white; }
-.activity-hotel-pick svg { width: 11px; height: 11px; }
+  font-size: 12px; font-weight: 700; color: white;
+  cursor: pointer; font-family: inherit; transition: all 0.14s;
+  box-shadow: 0 2px 8px rgba(249, 115, 22, 0.28); }
+.activity-hotel-pick:hover { background: var(--primary-dark); border-color: var(--primary-dark);
+  transform: translateY(-1px); box-shadow: 0 4px 12px rgba(249, 115, 22, 0.4); }
+.activity-hotel-pick svg { width: 13px; height: 13px; }
 
 /* ─────────────────────────────────────────────────────────────────────────
    Step 4 Báo giá — 3 tier cards side-by-side (Phương án theo tier hotel).
