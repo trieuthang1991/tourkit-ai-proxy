@@ -432,16 +432,17 @@ Tránh từ "tuyệt vời", "hoàn hảo", "đáng nhớ". Tiếng Việt tự 
           {/* ── 4 KPI cards ──────────────────────────────────────────────── */}
           <div className="wl-kpi-grid">
             {[
-              {k: 'all',     label: 'TỔNG BÁO GIÁ',  value: kpi.total,   icon: 'paper',  color: 'var(--text)'},
+              {k: 'all',     label: 'TỔNG BÁO GIÁ',  value: kpi.total,   icon: 'paper',       color: '#64748b'},
               {k: 'success', label: 'ĐÃ THÀNH CÔNG', value: kpi.success, icon: 'checkCircle', color: '#10b981'},
-              {k: 'sent',    label: 'ĐÃ GỬI KHÁCH',  value: kpi.sent,    icon: 'share',  color: 'var(--primary)'},
-              {k: 'draft',   label: 'ĐANG NHẬP',     value: kpi.draft,   icon: 'clock',  color: 'var(--text-2)'},
+              {k: 'sent',    label: 'ĐÃ GỬI KHÁCH',  value: kpi.sent,    icon: 'share',       color: 'var(--primary)'},
+              {k: 'draft',   label: 'ĐANG NHẬP',     value: kpi.draft,   icon: 'clock',       color: '#94a3b8'},
             ].map(c => (
-              <button key={c.k} className={'wl-kpi' + (listFilter === c.k ? ' on' : '')}
+              <button key={c.k} data-tone={c.k}
+                className={'wl-kpi' + (listFilter === c.k ? ' on' : '')}
                 onClick={() => setListFilter(c.k)}>
                 <div>
                   <div className="wl-kpi-label">{c.label}</div>
-                  <div className="wl-kpi-value" style={{color: c.color}}>{c.value} đơn</div>
+                  <div className="wl-kpi-value">{c.value}<span className="wl-kpi-value-suffix">đơn</span></div>
                 </div>
                 <div className="wl-kpi-icon" style={{background: c.color + '14', color: c.color}}>
                   <Icon name={c.icon} size={18} />
@@ -517,7 +518,7 @@ Tránh từ "tuyệt vời", "hoàn hảo", "đáng nhớ". Tiếng Việt tự 
                         {req.adults || 0} Người lớn{req.children > 0 ? `, ${req.children} Trẻ em` : ''}
                       </td>
                       <td className="num"><strong>{fmtVND(totalNet)}đ</strong></td>
-                      <td className="num"><strong style={{color: '#10b981'}}>{fmtVND(salePerPax)}đ</strong></td>
+                      <td className="num"><span className="wl-good">{fmtVND(salePerPax)}đ</span></td>
                       <td><span className={'wl-status ' + statusClass[st]}>{statusLabel[st]}</span></td>
                       <td onClick={e => e.stopPropagation()}>
                         <button className="wl-action" title="Xem chi tiết" onClick={() => openSavedTour(t)}>

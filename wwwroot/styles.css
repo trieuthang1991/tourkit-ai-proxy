@@ -4209,81 +4209,125 @@ html[data-home-theme="dark"] .hp-theme {
 .bsg-card-stat-val { font-size: 12.5px; font-weight: 700; color: var(--text); }
 .bsg-card-stat-val.pos { color: #10b981; }
 
-/* ── Wizard Landing Dashboard (v3.5) ──────────────────────────────────────── */
+/* ── Wizard Landing Dashboard (v3.6 design-taste pass) ────────────────────────
+   Discipline áp dụng:
+   - One accent: orange (--primary) — chỉ dùng cho primary CTA, active state, mã đơn
+   - Numbers/values dùng MỘT màu tối (--text) — semantic color chỉ ở icon
+   - Status chip: full saturation background + white text (table dễ scan hơn pastel)
+   - Pill active = solid neutral (giữ neutral, không đua màu với KPI tile)
+   - Font weight 700 max cho dashboard (không 800 — đỡ shouty)
+   - Hero icon: soft tint orange thay vì solid dark
+*/
 .wizard-list { max-width: 1320px; margin: 24px auto; padding: 0 24px; }
-.wl-hero { background: white; border: 1px solid var(--border); border-radius: 16px;
-  padding: 24px 28px; display: flex; align-items: center; justify-content: space-between;
-  gap: 24px; flex-wrap: wrap; margin-bottom: 20px; box-shadow: 0 2px 8px rgba(15,23,42,0.04); }
-.wl-hero-left { display: flex; align-items: center; gap: 16px; min-width: 0; }
-.wl-hero-icon { width: 48px; height: 48px; border-radius: 12px; background: var(--text);
-  color: white; display: inline-flex; align-items: center; justify-content: center; flex-shrink: 0; }
-.wl-hero-title { font-size: 20px; font-weight: 800; color: var(--text); letter-spacing: -0.01em;
-  margin: 0; line-height: 1.2; }
-.wl-hero-sub { font-size: 11.5px; color: var(--text-3); font-weight: 600;
-  letter-spacing: 0.04em; margin-top: 4px; text-transform: uppercase; }
-.wl-hero-actions { display: flex; gap: 10px; flex-wrap: wrap; }
-.wl-btn-outline, .wl-btn-primary { padding: 10px 18px; border-radius: 10px; font-size: 12px;
-  font-weight: 700; letter-spacing: 0.05em; display: inline-flex; align-items: center; gap: 8px;
-  cursor: pointer; transition: all 0.15s; }
-.wl-btn-outline { background: white; border: 1px solid var(--border); color: var(--text); }
-.wl-btn-outline:hover { border-color: var(--text-3); }
-.wl-btn-primary { background: var(--primary); border: 1px solid var(--primary); color: white;
-  box-shadow: 0 4px 12px rgba(249,115,22,0.3); }
-.wl-btn-primary:hover { background: var(--primary-dark); border-color: var(--primary-dark); }
 
-.wl-kpi-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 16px; margin-bottom: 20px; }
+/* Hero — softer, less competing with rest of page */
+.wl-hero { background: white; border: 1px solid var(--border); border-radius: 14px;
+  padding: 22px 26px; display: flex; align-items: center; justify-content: space-between;
+  gap: 24px; flex-wrap: wrap; margin-bottom: 18px; }
+.wl-hero-left { display: flex; align-items: center; gap: 14px; min-width: 0; }
+.wl-hero-icon { width: 44px; height: 44px; border-radius: 11px;
+  background: var(--primary-soft); color: var(--primary);
+  display: inline-flex; align-items: center; justify-content: center; flex-shrink: 0; }
+.wl-hero-title { font-size: 18px; font-weight: 700; color: var(--text); letter-spacing: -0.005em;
+  margin: 0; line-height: 1.25; }
+.wl-hero-sub { font-size: 11px; color: var(--text-3); font-weight: 600;
+  letter-spacing: 0.06em; margin-top: 4px; text-transform: uppercase; }
+.wl-hero-actions { display: flex; gap: 8px; flex-wrap: wrap; }
+.wl-btn-outline, .wl-btn-primary { padding: 9px 16px; border-radius: 9px; font-size: 11.5px;
+  font-weight: 700; letter-spacing: 0.04em; display: inline-flex; align-items: center; gap: 7px;
+  cursor: pointer; transition: all 0.15s; }
+.wl-btn-outline { background: white; border: 1px solid var(--border); color: var(--text-2); }
+.wl-btn-outline:hover { border-color: var(--text-3); color: var(--text); }
+.wl-btn-primary { background: var(--primary); border: 1px solid var(--primary); color: white;
+  box-shadow: 0 2px 6px rgba(249,115,22,0.22); }
+.wl-btn-primary:hover { background: var(--primary-dark); border-color: var(--primary-dark);
+  box-shadow: 0 4px 10px rgba(249,115,22,0.32); }
+
+/* KPI cards — color discipline: number = neutral, icon = semantic
+   Top accent bar carries the semantic color so cards "rhyme" without competing */
+.wl-kpi-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 14px; margin-bottom: 18px; }
 @media (max-width: 980px) { .wl-kpi-grid { grid-template-columns: repeat(2, 1fr); } }
-.wl-kpi { background: white; border: 1.5px solid var(--border); border-radius: 14px;
-  padding: 18px 20px; display: flex; align-items: center; justify-content: space-between;
-  cursor: pointer; transition: all 0.15s; text-align: left; }
-.wl-kpi:hover { border-color: var(--primary); transform: translateY(-1px); }
-.wl-kpi.on { border-color: var(--primary); box-shadow: 0 4px 12px rgba(249,115,22,0.12); }
-.wl-kpi-label { font-size: 10.5px; font-weight: 700; color: var(--text-3);
-  letter-spacing: 0.06em; text-transform: uppercase; }
-.wl-kpi-value { font-size: 24px; font-weight: 800; margin-top: 6px; letter-spacing: -0.02em; }
-.wl-kpi-icon { width: 40px; height: 40px; border-radius: 10px;
+.wl-kpi { position: relative; background: white; border: 1px solid var(--border); border-radius: 12px;
+  padding: 16px 18px; display: flex; align-items: center; justify-content: space-between;
+  cursor: pointer; transition: all 0.15s; text-align: left; overflow: hidden; }
+.wl-kpi::before { content: ''; position: absolute; left: 0; top: 0; bottom: 0; width: 3px;
+  background: var(--accent-bar, transparent); transition: width 0.15s; }
+.wl-kpi[data-tone="all"]     { --accent-bar: var(--text-3); }
+.wl-kpi[data-tone="success"] { --accent-bar: #10b981; }
+.wl-kpi[data-tone="sent"]    { --accent-bar: var(--primary); }
+.wl-kpi[data-tone="draft"]   { --accent-bar: #94a3b8; }
+.wl-kpi:hover { border-color: var(--text-3); }
+.wl-kpi:hover::before { width: 4px; }
+.wl-kpi.on { border-color: var(--accent-bar); background: #fcfcfd; }
+.wl-kpi.on::before { width: 4px; }
+.wl-kpi-label { font-size: 10px; font-weight: 700; color: var(--text-3);
+  letter-spacing: 0.08em; text-transform: uppercase; }
+.wl-kpi-value { font-size: 22px; font-weight: 700; margin-top: 4px; letter-spacing: -0.015em;
+  color: var(--text); font-feature-settings: 'tnum'; }
+.wl-kpi-value-suffix { font-size: 12px; color: var(--text-3); font-weight: 600; margin-left: 4px; }
+.wl-kpi-icon { width: 36px; height: 36px; border-radius: 9px;
   display: inline-flex; align-items: center; justify-content: center; }
 
-.wl-filter-bar { background: white; border: 1px solid var(--border); border-radius: 14px;
-  padding: 14px 18px; display: flex; align-items: center; justify-content: space-between;
-  gap: 16px; flex-wrap: wrap; margin-bottom: 16px; }
+/* Filter bar — search soft, pills neutral when active */
+.wl-filter-bar { background: white; border: 1px solid var(--border); border-radius: 12px;
+  padding: 12px 16px; display: flex; align-items: center; justify-content: space-between;
+  gap: 14px; flex-wrap: wrap; margin-bottom: 14px; }
 .wl-search { flex: 1; min-width: 240px; display: flex; align-items: center; gap: 8px;
-  padding: 8px 14px; background: #f8fafc; border-radius: 10px; }
+  padding: 8px 12px; background: #f8fafc; border-radius: 9px; border: 1px solid transparent;
+  transition: border-color 0.15s; }
+.wl-search:focus-within { border-color: var(--primary); background: white; }
 .wl-search input { flex: 1; border: none; background: transparent; outline: none;
   font-size: 13px; color: var(--text); }
 .wl-search input::placeholder { color: var(--text-3); }
-.wl-pills { display: inline-flex; gap: 6px; flex-wrap: wrap; }
-.wl-pill { padding: 7px 14px; font-size: 11px; font-weight: 700; letter-spacing: 0.04em;
-  border: 1px solid var(--border); background: white; border-radius: 8px; cursor: pointer;
+.wl-pills { display: inline-flex; gap: 6px; flex-wrap: wrap; padding: 3px;
+  background: #f1f5f9; border-radius: 10px; }
+.wl-pill { padding: 6px 12px; font-size: 11px; font-weight: 700; letter-spacing: 0.04em;
+  border: none; background: transparent; border-radius: 7px; cursor: pointer;
   color: var(--text-2); transition: all 0.15s; }
-.wl-pill:hover { border-color: var(--text-3); }
-.wl-pill.on { background: var(--text); color: white; border-color: var(--text); }
+.wl-pill:hover { color: var(--text); }
+.wl-pill.on { background: white; color: var(--text); box-shadow: 0 1px 2px rgba(15,23,42,0.08); }
 
-.wl-table-wrap { background: white; border: 1px solid var(--border); border-radius: 14px;
+/* Table — clean lines, monospace tabular numbers, status chips solid */
+.wl-table-wrap { background: white; border: 1px solid var(--border); border-radius: 12px;
   overflow: hidden; }
 .wl-table { width: 100%; border-collapse: collapse; font-size: 13px; }
-.wl-table thead th { background: #f8fafc; padding: 14px 16px; text-align: left;
-  font-size: 10.5px; font-weight: 700; color: var(--text-3);
-  letter-spacing: 0.05em; text-transform: uppercase; border-bottom: 1px solid var(--border); }
+.wl-table thead th { background: #fafbfc; padding: 12px 16px; text-align: left;
+  font-size: 10px; font-weight: 700; color: var(--text-3);
+  letter-spacing: 0.06em; text-transform: uppercase; border-bottom: 1px solid var(--border);
+  white-space: nowrap; }
 .wl-table thead th.num { text-align: right; }
-.wl-table tbody td { padding: 14px 16px; border-bottom: 1px solid var(--border); vertical-align: top; }
-.wl-table tbody td.num { text-align: right; }
+.wl-table tbody td { padding: 14px 16px; border-bottom: 1px solid var(--border); vertical-align: top;
+  font-size: 13px; color: var(--text-2); }
+.wl-table tbody td.num { text-align: right; font-feature-settings: 'tnum';
+  font-variant-numeric: tabular-nums; }
+.wl-table tbody tr:last-child td { border-bottom: none; }
 .wl-table tbody tr:hover { background: #fafbfc; }
-.wl-code { display: inline-block; padding: 4px 10px; background: var(--primary-soft);
-  color: var(--primary-dark); border-radius: 6px; font-size: 11.5px; font-weight: 700;
-  letter-spacing: 0.03em; }
-.wl-cust { font-weight: 600; color: var(--text); }
-.wl-meta { font-size: 11.5px; color: var(--text-3); margin-top: 2px; }
-.wl-status { display: inline-block; padding: 4px 10px; border-radius: 6px;
-  font-size: 10px; font-weight: 700; letter-spacing: 0.05em; }
-.wl-status.ts-success { background: #d1fae5; color: #065f46; }
-.wl-status.ts-sent    { background: var(--primary-soft); color: var(--primary-dark); }
-.wl-status.ts-draft   { background: #f1f5f9; color: var(--text-2); }
+
+/* Mã đơn — softer chip, không cạnh tranh với primary CTA */
+.wl-code { display: inline-block; padding: 4px 9px; background: var(--primary-soft);
+  color: var(--primary-dark); border-radius: 5px; font-size: 11px; font-weight: 700;
+  letter-spacing: 0.04em; font-feature-settings: 'tnum'; font-variant-numeric: tabular-nums; }
+.wl-cust { font-weight: 600; color: var(--text); line-height: 1.3; }
+.wl-meta { font-size: 11px; color: var(--text-3); margin-top: 3px; }
+
+/* Status chips — solid bg + white text khi gửi/success, neutral khi draft.
+   Cách này dễ scan hơn pastel-on-pastel. */
+.wl-status { display: inline-block; padding: 4px 9px; border-radius: 5px;
+  font-size: 10px; font-weight: 700; letter-spacing: 0.05em; white-space: nowrap; }
+.wl-status.ts-success { background: #10b981; color: white; }
+.wl-status.ts-sent    { background: var(--primary); color: white; }
+.wl-status.ts-draft   { background: #e2e8f0; color: var(--text-2); }
+
+/* Total net column — bold for scan; sale per pax stays accent for "good number" cue */
+.wl-table tbody td.num strong { color: var(--text); font-weight: 700; }
+.wl-table tbody td .wl-good   { color: #059669; font-weight: 700; }
+
 .wl-action { background: transparent; border: none; cursor: pointer; padding: 6px 8px;
-  color: var(--text-3); border-radius: 6px; margin-right: 4px; }
+  color: var(--text-3); border-radius: 6px; margin-right: 2px; transition: all 0.15s; }
 .wl-action:hover { background: var(--bg); color: var(--text); }
 .wl-action.wl-action-del:hover { color: #dc2626; background: #fef2f2; }
-.wl-empty { padding: 40px; text-align: center; color: var(--text-3); font-style: italic; }
+.wl-empty { padding: 48px 24px; text-align: center; color: var(--text-3);
+  font-style: italic; font-size: 13px; }
 
 /* ── EditServiceModal cost-type picker (v3.4) ─────────────────────────────── */
 .cost-type-picker { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-top: 6px; }
