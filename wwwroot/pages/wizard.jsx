@@ -392,7 +392,8 @@ Tránh từ "tuyệt vời", "hoàn hảo", "đáng nhớ". Tiếng Việt tự 
           hotelOptions={hotelOptions} setHotelOptions={setHotelOptions} />}
         {step === 2 && <Step2Itinerary
           itinerary={itinerary} setItinerary={setItinerary} request={request}
-          onNext={() => setStep(3)} onBack={() => setStep(1)} density={tweaks.density} />}
+          onNext={() => setStep(3)} onBack={() => setStep(1)} density={tweaks.density}
+          pushToast={pushToast} />}
         {step === 3 && <Step3Costing
           rows={rows} setRows={setRows} request={request}
           onNext={handleQuoteGen} onBack={() => setStep(2)} pushToast={pushToast}

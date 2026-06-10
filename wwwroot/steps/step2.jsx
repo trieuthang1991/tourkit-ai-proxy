@@ -1,7 +1,7 @@
 // Step 2: Timeline + Costing sidebar + edit modal
 const { useState: useS2 } = React;
 
-function Step2Itinerary({ itinerary, setItinerary, request, onNext, onBack, density }) {
+function Step2Itinerary({ itinerary, setItinerary, request, onNext, onBack, density, pushToast }) {
   const [activeDay, setActiveDay] = useS2(0);
   const [editing, setEditing] = useS2(null); // { dayIdx, actIdx } or { dayIdx, actIdx: 'new' }
   // Per-activity HotelPicker: { dayIdx, actIdx } | null. Mở khi user bấm "Chọn NCC" trên HOTEL row.
@@ -280,34 +280,52 @@ Ví dụ giọng: "Tôi thấy Margin đang ở mức tốt. Tuy nhiên, nếu �
         />
       )}
 
-      {/* HotelPickerModal: portal-render khi hotelPicking != null. Apply → update activity
-          {title, cost, supplier, description} từ hợp đồng NCC. */}
-      {window.HotelPickerModal && (
-        <window.HotelPickerModal
-          open={!!hotelPicking}
-          pax={totalPax}
-          currentTitle={hotelPicking ? itinerary[hotelPicking.dayIdx]?.activities[hotelPicking.actIdx]?.title : null}
-          onPick={(data) => {
-            const { dayIdx, actIdx } = hotelPicking;
-            setItinerary(it => it.map((d, i) => i === dayIdx ? {
-              ...d,
-              activities: d.activities.map((a, j) => j === actIdx ? {
+      {/* HotelPickerModal: portal-render khi hotelPicking != null.
+          Scope='all' → áp pack cho tất cả HOTEL activity trong tour (xuyên ngày).
+          Scope='single' → chỉ áp cho activity hiện tại. */}
+      {window.HotelPickerModal && (() => {
+        const hotelCount = itinerary.reduce((s, d) =>
+          s + (d.activities || []).filter(a => a.type === 'HOTEL').length, 0);
+        return (
+          <window.HotelPickerModal
+            open={!!hotelPicking}
+            pax={totalPax}
+            currentTitle={hotelPicking ? itinerary[hotelPicking.dayIdx]?.activities[hotelPicking.actIdx]?.title : null}
+            hotelCount={hotelCount}
+            currentDayNum={hotelPicking ? (itinerary[hotelPicking.dayIdx]?.day || hotelPicking.dayIdx + 1) : null}
+            onPick={(data, scope) => {
+              const { dayIdx, actIdx } = hotelPicking;
+              const applyPack = (a) => ({
                 ...a,
                 title:       data.title,
                 supplier:    data.supplier,
                 supplierId:  data.supplierId,
-                roomTypeId:  data.roomTypeId,
-                roomTypeName: data.roomTypeName,
+                pack:        data.pack,
+                packDescription: data.packDescription,
                 pricePerPaxPerNight: data.pricePerPaxPerNight,
                 cost:        data.cost,
                 description: data.description,
-                verified:    true   // NCC thật → flag true để Step 3 hiển thị badge
-              } : a)
-            } : d));
-          }}
-          onClose={() => setHotelPicking(null)}
-        />
-      )}
+                verified:    true   // NCC thật → Step 3 badge
+              });
+              if (scope === 'all') {
+                // Áp dụng cho MỌI HOTEL activity trong toàn tour
+                setItinerary(it => it.map(d => ({
+                  ...d,
+                  activities: d.activities.map(a => a.type === 'HOTEL' ? applyPack(a) : a)
+                })));
+                pushToast && pushToast(`Đã áp pack "${data.packDescription}" cho ${hotelCount} đêm HOTEL`);
+              } else {
+                // Chỉ áp cho 1 activity
+                setItinerary(it => it.map((d, i) => i === dayIdx ? {
+                  ...d,
+                  activities: d.activities.map((a, j) => j === actIdx ? applyPack(a) : a)
+                } : d));
+              }
+            }}
+            onClose={() => setHotelPicking(null)}
+          />
+        );
+      })()}
     </>
   );
 }

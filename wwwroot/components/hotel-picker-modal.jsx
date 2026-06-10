@@ -61,16 +61,19 @@ function computeDefaultPack(pricedRooms, pax) {
   return pack;
 }
 
-function HotelPickerModal({ open, pax, currentTitle, onPick, onClose }) {
+function HotelPickerModal({ open, pax, currentTitle, hotelCount, currentDayNum, onPick, onClose }) {
   const [hotels, setHotels]     = _hpS([]);
   const [loadingH, setLoadingH] = _hpS(true);
   const [errorH, setErrorH]     = _hpS(null);
   const [search, setSearch]     = _hpS('');
   const [picked, setPicked]     = _hpS(null);   // {provider, rooms?, pickedRoom?}
+  // Scope: 'single' = chỉ activity này, 'all' = tất cả HOTEL activity trong tour.
+  // Default 'all' vì tour đoàn thường ở 1 hotel xuyên suốt.
+  const [scope, setScope]       = _hpS('all');
 
   // Reset state khi mở/đóng
   _hpE(() => {
-    if (!open) { setPicked(null); setSearch(''); return; }
+    if (!open) { setPicked(null); setSearch(''); setScope('all'); return; }
     setLoadingH(true); setErrorH(null);
     window.tourkitAuth.authedFetch(`/api/v1/ncc/providers?serviceId=${HOTEL_CATEGORY_ID_HP}`)
       .then(r => r.ok ? r.json() : Promise.reject(new Error(`HTTP ${r.status}`)))
@@ -135,7 +138,7 @@ function HotelPickerModal({ open, pax, currentTitle, onPick, onClose }) {
       pricePerPaxPerNight: Math.round(pricePerPax),
       cost: Math.round(totalPerNight),   // tổng / 1 đêm
       description: `${parts.join(' + ')} · ${window.fmtVND(Math.round(totalPerNight))}/đêm`
-    });
+    }, scope);   // ← truyền scope ('single' | 'all') cho parent xử lý
     onClose();
   };
 
@@ -245,11 +248,38 @@ function HotelPickerModal({ open, pax, currentTitle, onPick, onClose }) {
                       <span className="hpm-pack-total-label">Tổng / 1 đêm</span>
                       <span className="hpm-pack-total-val">{window.fmtVND(totalPerNight)}</span>
                     </div>
+
+                    {/* SCOPE: áp dụng cho 1 ngày hay tất cả đêm HOTEL trong tour */}
+                    <div className="hpm-scope">
+                      <div className="hpm-scope-label">PHẠM VI ÁP DỤNG</div>
+                      <label className={'hpm-scope-opt' + (scope === 'all' ? ' on' : '')}>
+                        <input type="radio" name="hpm-scope" checked={scope === 'all'}
+                          onChange={() => setScope('all')} />
+                        <div className="hpm-scope-text">
+                          <div className="hpm-scope-title">Tất cả đêm HOTEL trong tour</div>
+                          <div className="hpm-scope-sub">
+                            Áp pack này cho {hotelCount || 1} HOTEL activity
+                            {hotelCount > 1 ? ` (tổng ${window.fmtVND(totalPerNight * (hotelCount || 1))})` : ''}
+                          </div>
+                        </div>
+                      </label>
+                      <label className={'hpm-scope-opt' + (scope === 'single' ? ' on' : '')}>
+                        <input type="radio" name="hpm-scope" checked={scope === 'single'}
+                          onChange={() => setScope('single')} />
+                        <div className="hpm-scope-text">
+                          <div className="hpm-scope-title">Chỉ ngày này{currentDayNum ? ` (Ngày ${currentDayNum})` : ''}</div>
+                          <div className="hpm-scope-sub">
+                            Chỉ áp pack cho activity hiện tại — đêm khác giữ nguyên
+                          </div>
+                        </div>
+                      </label>
+                    </div>
+
                     <button className="hpm-confirm"
                       onClick={handleConfirm}
                       disabled={totalPerNight === 0 || overflow}
                       title={overflow ? 'Pack thiếu chỗ — thêm phòng đi' : ''}>
-                      ✓ Áp dụng pack vào lịch trình
+                      ✓ Áp dụng {scope === 'all' ? `cho tất cả ${hotelCount || 1} đêm` : 'cho ngày này'}
                     </button>
                   </div>
                 </>
