@@ -88,6 +88,7 @@ public class NativeToolReviewAgent : IReviewAgent
             model:             model,
             maxTokens:         MaxTokens,
             trace:             trace,
+            onIteration:       i => Stage($"calling-iter-{i}"),
             ct:                ct);
 
         if (result.TerminalInput == null)

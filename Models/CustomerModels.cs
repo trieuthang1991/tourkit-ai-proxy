@@ -6,6 +6,7 @@ namespace TourkitAiProxy.Models;
 /// Trong production thay bằng table customer thực + repository theo CRM.
 public record Customer(
     [property: JsonPropertyName("id")]         string Id,
+    [property: JsonPropertyName("code")]       string? Code,           // mã KH hiển thị (vd "KH-001"); khác Id (numeric internal)
     [property: JsonPropertyName("name")]       string Name,
     [property: JsonPropertyName("phone")]      string? Phone,
     [property: JsonPropertyName("email")]      string? Email,
@@ -17,7 +18,8 @@ public record Customer(
     [property: JsonPropertyName("source")]     string? Source,
     [property: JsonPropertyName("metrics")]    CustomerMetrics Metrics,
     [property: JsonPropertyName("purchases")]  List<TourPurchase> Purchases,
-    [property: JsonPropertyName("careLogs")]   List<CareLog> CareLogs
+    [property: JsonPropertyName("careLogs")]   List<CareLog> CareLogs,
+    [property: JsonPropertyName("note")]       string? Note = null     // "Nhu cầu ban đầu" — text/HTML từ form tạo KH (upstream /api/ai/customers.Note)
 );
 
 public record CustomerMetrics(
@@ -30,7 +32,8 @@ public record CustomerMetrics(
     [property: JsonPropertyName("careInteractions")]    int CareInteractions,
     [property: JsonPropertyName("lastCareDaysAgo")]     int? LastCareDaysAgo,
     [property: JsonPropertyName("complaintCount")]      int ComplaintCount,
-    [property: JsonPropertyName("cancelCount")]         int CancelCount
+    [property: JsonPropertyName("cancelCount")]         int CancelCount,
+    [property: JsonPropertyName("lastCareDate")]        string? LastCareDate = null    // dd/MM/yyyy từ upstream LastCareDateFormatted; null nếu KH chưa có comment nào
 );
 
 public record TourPurchase(
@@ -53,6 +56,8 @@ public record CareLog(
 /// List item rút gọn cho /api/v1/customers — kèm trạng thái review hiện tại.
 public record CustomerListItem(
     [property: JsonPropertyName("id")]               string Id,
+    [property: JsonPropertyName("code")]             string? Code,    // mã KH (vd "KH-001"); null nếu upstream chưa gán
+    [property: JsonPropertyName("phone")]            string? Phone,
     [property: JsonPropertyName("name")]             string Name,
     [property: JsonPropertyName("segment")]          string Segment,
     [property: JsonPropertyName("totalSpent")]       long TotalSpent,
@@ -61,5 +66,8 @@ public record CustomerListItem(
     [property: JsonPropertyName("rank")]             string? Rank,           // null = chưa review
     [property: JsonPropertyName("reviewStatus")]     string ReviewStatus,    // none / fresh / stale
     [property: JsonPropertyName("reviewAgeHours")]   int? ReviewAgeHours,
-    [property: JsonPropertyName("summaryLine")]      string? SummaryLine
+    [property: JsonPropertyName("reviewGeneratedAt")] string? ReviewGeneratedAt,  // ISO timestamp; null = chưa review
+    [property: JsonPropertyName("summaryLine")]      string? SummaryLine,
+    [property: JsonPropertyName("note")]             string? Note = null,           // Nhu cầu ban đầu — text/HTML từ TourKit
+    [property: JsonPropertyName("lastCareDate")]     string? LastCareDate = null    // dd/MM/yyyy hiển thị thẳng; null nếu chưa có chăm sóc
 );

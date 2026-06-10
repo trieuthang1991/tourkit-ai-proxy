@@ -1,4 +1,5 @@
 using TourkitAiProxy.Models;
+using TourkitAiProxy.Services;
 using TourkitAiProxy.Services.TourKit;
 using TourkitAiProxy.Services.Workflow;
 
@@ -15,16 +16,17 @@ public class BatchService
     private readonly TkSessionStore _sessions;
     private readonly IWorkflowTraceAccessor _traceAccessor;
     private readonly WorkflowTraceLog _traceLog;
+    private readonly AiCallContext _ctx;
     private readonly ILogger<BatchService> _log;
 
     private const int CONCURRENCY = 10;
 
     public BatchService(TourKitCustomerSource source, ReviewService reviews, BatchJobStore jobs,
         TkSessionStore sessions, IWorkflowTraceAccessor traceAccessor, WorkflowTraceLog traceLog,
-        ILogger<BatchService> log)
+        AiCallContext ctx, ILogger<BatchService> log)
     {
         _source = source; _reviews = reviews; _jobs = jobs; _sessions = sessions;
-        _traceAccessor = traceAccessor; _traceLog = traceLog; _log = log;
+        _traceAccessor = traceAccessor; _traceLog = traceLog; _ctx = ctx; _log = log;
     }
 
     public BatchJob Start(IEnumerable<string> customerIds, bool forceFresh, string sessionId,
@@ -43,6 +45,10 @@ public class BatchService
     {
         var ct = job.Cts.Token;
         var tenantId = _sessions.Get(sessionId)?.TenantId ?? "";
+
+        // AsyncLocal: endpoint return rồi → HttpContext null → providers thấy unknown/null tenant.
+        // Push override để AI usage log đúng "reviews" + quota consume đúng tenant per AI call.
+        using var _ctxScope = _ctx.Push("reviews", tenantId, sessionId);
 
         // Trace cho batch (AsyncLocal flow từ endpoint /reviews/batch). Mỗi review per-KH set
         // SetWorkflow("CustomerReview") sẽ ghi đè — set lần cuối ở đây thành "CustomerReviewBatch"

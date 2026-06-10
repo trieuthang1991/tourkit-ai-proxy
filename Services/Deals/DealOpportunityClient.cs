@@ -22,6 +22,55 @@ public class DealOpportunityClient
         _api = api; _sessions = sessions; _log = log;
     }
 
+    public record DealPage(List<DealOpportunity> Items, int Total);
+
+    /// Danh sách cơ hội phân trang — KHÔNG filter status (raw upstream) cho list-view có pagination.
+    /// Total = upstream count (chưa trừ Hủy/chốt). Frontend tự filter chip nếu cần.
+    public async Task<DealPage> ListPagedAsync(string sessionId, int pageIndex, int pageSize, CancellationToken ct)
+    {
+        if (pageIndex < 1) pageIndex = 1;
+        var path = $"/api/ai/booking-tickets?pageIndex={pageIndex}&pageSize={pageSize}";
+        var data = await GetAsync(sessionId, path, ct);
+
+        var list = new List<DealOpportunity>();
+        if (data.ValueKind == JsonValueKind.Object && data.TryGetProperty("items", out var items) && items.ValueKind == JsonValueKind.Array)
+        {
+            foreach (var it in items.EnumerateArray())
+            {
+                list.Add(Map(it));
+            }
+        }
+        var total = GetInt(data, "total") ?? GetInt(data, "count") ?? list.Count;
+        return new DealPage(list, total);
+    }
+
+    private static DealOpportunity Map(JsonElement it)
+    {
+        var createdAt = GetStr(it, "createdAt");
+        return new DealOpportunity(
+            Id:                 GetInt(it, "id") ?? 0,
+            Code:               GetStr(it, "code"),
+            CustomerName:       GetStr(it, "customerName") ?? "(không tên)",
+            Phone:              GetStr(it, "phone"),
+            Title:              GetStr(it, "title"),
+            TotalPrice:         GetLong(it, "totalPrice") ?? 0,
+            Status:             GetInt(it, "status") ?? 0,
+            StatusName:         GetStr(it, "statusName"),
+            Source:             GetInt(it, "source") ?? 0,
+            SourceName:         GetStr(it, "sourceName"),
+            MarketName:         GetStr(it, "marketName"),
+            Assignees:          GetStr(it, "assignees"),
+            CreatedAt:          createdAt ?? "",
+            AgeDays:            AgeDays(createdAt),
+            // Cooling fields — null/0/false nếu upstream chưa deploy bản có fields này (backward-compat)
+            LatestComment:      GetStr(it, "latestComment"),
+            LatestCommentBy:    GetStr(it, "latestCommentBy"),
+            LatestCommentDate:  GetStr(it, "latestCommentDate"),
+            LastInteractionAt:  GetStr(it, "lastInteractionAt"),
+            CoolingDays:        GetInt(it, "coolingDays") ?? 0,
+            IsCooling:          GetBool(it, "isCooling"));
+    }
+
     /// Danh sách cơ hội ĐANG MỞ (bỏ Hủy). Lọc tùy chọn theo người phụ trách / nguồn (client-side, substring).
     public async Task<List<DealOpportunity>> ListOpenAsync(
         string sessionId, string? assignee, string? source, int pageSize, CancellationToken ct)
@@ -172,4 +221,6 @@ public class DealOpportunityClient
         if (v.TryGetDouble(out var dd)) return (long)dd;
         return null;
     }
+    private static bool GetBool(JsonElement el, string name)
+        => Find(el, name, out var v) && v.ValueKind == JsonValueKind.True;
 }

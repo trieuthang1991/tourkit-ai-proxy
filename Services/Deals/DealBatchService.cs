@@ -1,4 +1,5 @@
 using TourkitAiProxy.Models;
+using TourkitAiProxy.Services;
 using TourkitAiProxy.Services.Workflow;
 
 namespace TourkitAiProxy.Services.Deals;
@@ -18,14 +19,15 @@ public class DealBatchService
     private readonly DealBatchJobStore _jobs;
     private readonly IWorkflowTraceAccessor _traceAccessor;
     private readonly WorkflowTraceLog _traceLog;
+    private readonly AiCallContext _ctx;
     private readonly ILogger<DealBatchService> _log;
 
     public DealBatchService(DealOpportunityClient client, DealScoringService scorer, DealRepository repo,
         DealBatchJobStore jobs, IWorkflowTraceAccessor traceAccessor, WorkflowTraceLog traceLog,
-        ILogger<DealBatchService> log)
+        AiCallContext ctx, ILogger<DealBatchService> log)
     {
         _client = client; _scorer = scorer; _repo = repo; _jobs = jobs;
-        _traceAccessor = traceAccessor; _traceLog = traceLog; _log = log;
+        _traceAccessor = traceAccessor; _traceLog = traceLog; _ctx = ctx; _log = log;
     }
 
     public DealBatchJob Start(string sessionId, string tenant, DealAnalyzeRequest req)
@@ -50,6 +52,11 @@ public class DealBatchService
         var topN = req.TopN is > 0 and <= 50 ? req.TopN.Value : DefaultTopN;
         var items = new List<DealBoardItem>();
         var gate = new object();
+
+        // AsyncLocal: HttpContext gone sau khi endpoint return → providers gọi _ctx.Resolve() sẽ trả
+        // feature=unknown + tenant=null (bypass quota). Push override để mọi AI call trong batch log
+        // "deals" + đếm quota đúng tenant. Flow qua Parallel.ForEachAsync vì AsyncLocal capture.
+        using var _ctxScope = _ctx.Push("deals", tenant, sessionId);
 
         // Trace flow qua AsyncLocal từ endpoint /deals/analyze → batch background work.
         var trace = _traceAccessor.Current;

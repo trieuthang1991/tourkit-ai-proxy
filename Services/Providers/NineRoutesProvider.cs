@@ -1,6 +1,7 @@
 using System.Text;
 using System.Text.Json;
 using TourkitAiProxy.Models;
+using TourkitAiProxy.Services.Quota;
 
 namespace TourkitAiProxy.Services.Providers;
 
@@ -26,17 +27,30 @@ public class NineRoutesProvider : IAiProvider
     private readonly ILogger<NineRoutesProvider> _log;
     private readonly AiUsageLog _usage;
     private readonly AiCallContext _ctx;
+    private readonly TenantQuotaStore _quota;
 
     public NineRoutesProvider(IHttpClientFactory http, IConfiguration cfg, ILogger<NineRoutesProvider> log,
-        AiUsageLog usage, AiCallContext ctx)
+        AiUsageLog usage, AiCallContext ctx, TenantQuotaStore quota)
     {
-        _http = http; _cfg = cfg; _log = log; _usage = usage; _ctx = ctx;
+        _http = http; _cfg = cfg; _log = log; _usage = usage; _ctx = ctx; _quota = quota;
     }
 
     private void LogUsage(string model, int inTok, int outTok, long ms)
     {
         var c = _ctx.Resolve();
         _usage.Append(c.Feature, c.SessionId, c.Tenant, "nine-routes", model, inTok, outTok, ms);
+        if (!string.IsNullOrEmpty(c.Tenant)) _quota.Consume(c.Tenant);
+    }
+
+    private void EnsureQuota()
+    {
+        var t = _ctx.Resolve().Tenant;
+        if (string.IsNullOrEmpty(t)) return;
+        if (!_quota.IsAvailable(t))
+        {
+            var s = _quota.Snapshot(t);
+            throw new QuotaExhaustedException(t, s.Limit, s.Used);
+        }
     }
 
     private string BaseUrl =>
@@ -123,6 +137,7 @@ public class NineRoutesProvider : IAiProvider
 
     public async Task<CompleteResult> CompleteAsync(CompleteRequest req, CancellationToken ct)
     {
+        EnsureQuota();
         var model = string.IsNullOrWhiteSpace(req.Model) ? Models[0].Id : req.Model!;
         var maxTokens = req.MaxTokens is > 0 ? req.MaxTokens.Value : 8192;
         var temperature = req.Temperature ?? 0.3;
@@ -189,6 +204,7 @@ public class NineRoutesProvider : IAiProvider
 
     public async Task<CompleteResult> StreamAsync(CompleteRequest req, Func<string, Task> onDelta, CancellationToken ct)
     {
+        EnsureQuota();
         var model = string.IsNullOrWhiteSpace(req.Model) ? Models[0].Id : req.Model!;
         var maxTokens = req.MaxTokens is > 0 ? req.MaxTokens.Value : 8192;
         var temperature = req.Temperature ?? 0.3;

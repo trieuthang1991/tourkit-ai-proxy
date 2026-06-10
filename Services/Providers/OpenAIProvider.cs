@@ -1,6 +1,7 @@
 using System.Text;
 using System.Text.Json;
 using TourkitAiProxy.Models;
+using TourkitAiProxy.Services.Quota;
 
 namespace TourkitAiProxy.Services.Providers;
 
@@ -30,12 +31,21 @@ public class OpenAIProvider : IAiProvider
     private readonly ProviderKeyStore _keys;
     private readonly AiUsageLog _usage;
     private readonly AiCallContext _ctx;
+    private readonly TenantQuotaStore _quota;
 
-    public OpenAIProvider(IHttpClientFactory http, ProviderKeyStore keys, AiUsageLog usage, AiCallContext ctx)
-    { _http = http; _keys = keys; _usage = usage; _ctx = ctx; }
+    public OpenAIProvider(IHttpClientFactory http, ProviderKeyStore keys, AiUsageLog usage, AiCallContext ctx, TenantQuotaStore quota)
+    { _http = http; _keys = keys; _usage = usage; _ctx = ctx; _quota = quota; }
+
+    private void EnsureQuota()
+    {
+        var t = _ctx.Resolve().Tenant;
+        if (string.IsNullOrEmpty(t)) return;
+        if (!_quota.IsAvailable(t)) { var s = _quota.Snapshot(t); throw new QuotaExhaustedException(t, s.Limit, s.Used); }
+    }
 
     public async Task<CompleteResult> CompleteAsync(CompleteRequest req, CancellationToken ct)
     {
+        EnsureQuota();
         var key = !string.IsNullOrWhiteSpace(req.ApiKey) ? req.ApiKey : _keys.Get(Id);
         if (string.IsNullOrWhiteSpace(key))
             throw new InvalidOperationException("Chưa nhập API key cho ChatGPT (OpenAI). Mở 'Cấu hình AI' để nhập key.");
@@ -81,6 +91,7 @@ public class OpenAIProvider : IAiProvider
         var p = ParseResponsesApi(raw);
         var c = _ctx.Resolve();
         _usage.Append(c.Feature, c.SessionId, c.Tenant, Id, model, p.InputTokens, p.OutputTokens, sw.ElapsedMilliseconds);
+        if (!string.IsNullOrEmpty(c.Tenant)) _quota.Consume(c.Tenant);
         return new CompleteResult(p.Text, model, p.InputTokens, p.OutputTokens, sw.ElapsedMilliseconds, p.FinishReason);
     }
 

@@ -30,6 +30,7 @@ public class AnthropicToolsClient
     private const string AnthropicVersion = "2023-06-01";
     private const int MaxIterations = 5;
     private const int WallClockSec = 60;
+    private const int MaxTransientRetries = 2;
 
     public AnthropicToolsClient(IHttpClientFactory httpFactory, ProviderKeyStore keys, ILogger<AnthropicToolsClient> log)
     {
@@ -50,6 +51,7 @@ public class AnthropicToolsClient
     /// <param name="model">Anthropic model (default claude-sonnet-4-5)</param>
     /// <param name="maxTokens">max_tokens per turn</param>
     /// <param name="trace">Optional trace collector cho debug</param>
+    /// <param name="onIteration">Optional callback bắn trước mỗi /messages call (iter#). Dùng cho UI emit stage "calling-iter-N".</param>
     /// <returns>JSON input của terminal tool call (đã validate qua schema). Null nếu AI không gọi terminal.</returns>
     public async Task<ToolsResult> RunAsync(
         string systemPrompt, string userPrompt,
@@ -58,6 +60,7 @@ public class AnthropicToolsClient
         string apiKey, string model = "claude-sonnet-4-5",
         int maxTokens = 4000,
         TraceCollector? trace = null,
+        Func<int, Task>? onIteration = null,
         CancellationToken ct = default)
     {
         if (string.IsNullOrWhiteSpace(apiKey))
@@ -82,6 +85,7 @@ public class AnthropicToolsClient
         while (iteration < MaxIterations)
         {
             iteration++;
+            if (onIteration != null) await onIteration(iteration);
             var iterTimer = trace?.Begin($"anthropic_iter{iteration}");
 
             var (doc, lat) = await PostAsync(apiKey, model, systemPrompt, tools, messages, maxTokens, linked.Token);
@@ -201,7 +205,7 @@ public class AnthropicToolsClient
             Model:         model);
     }
 
-    // ─── Anthropic /messages POST ────────────────────────────────────────────
+    // ─── Anthropic /messages POST (có retry transient: network + 408/429/5xx) ──
     private async Task<(JsonDocument doc, long latencyMs)> PostAsync(
         string apiKey, string model, string system, JsonElement[] tools,
         List<object> messages, int maxTokens, CancellationToken ct)
@@ -215,23 +219,53 @@ public class AnthropicToolsClient
             tools    = tools
         };
 
-        using var req = new HttpRequestMessage(HttpMethod.Post, Endpoint);
-        req.Headers.Add("x-api-key", apiKey);
-        req.Headers.Add("anthropic-version", AnthropicVersion);
-        req.Content = JsonContent.Create(body);
-
-        var sw = System.Diagnostics.Stopwatch.StartNew();
-        using var resp = await _http.SendAsync(req, ct);
-        sw.Stop();
-        var raw = await resp.Content.ReadAsStringAsync(ct);
-
-        if (!resp.IsSuccessStatusCode)
+        int attempt = 0;
+        while (true)
         {
-            _log.LogWarning("[AnthropicTools] {Status}: {Body}", resp.StatusCode, raw.Length > 500 ? raw[..500] : raw);
-            throw new InvalidOperationException($"Anthropic {(int)resp.StatusCode}: {(raw.Length > 200 ? raw[..200] : raw)}");
-        }
+            using var req = new HttpRequestMessage(HttpMethod.Post, Endpoint);
+            req.Headers.Add("x-api-key", apiKey);
+            req.Headers.Add("anthropic-version", AnthropicVersion);
+            req.Content = JsonContent.Create(body);
 
-        return (JsonDocument.Parse(raw), sw.ElapsedMilliseconds);
+            HttpResponseMessage? resp = null;
+            try
+            {
+                var sw = System.Diagnostics.Stopwatch.StartNew();
+                try { resp = await _http.SendAsync(req, ct); }
+                catch (Exception ex) when (ex is not OperationCanceledException && attempt < MaxTransientRetries)
+                {
+                    var d = TimeSpan.FromMilliseconds(500 * Math.Pow(2, attempt));
+                    _log.LogWarning(ex, "[AnthropicTools] network → retry #{N} sau {Ms}ms",
+                        attempt + 1, d.TotalMilliseconds);
+                    await Task.Delay(d, ct);
+                    attempt++;
+                    continue;
+                }
+                sw.Stop();
+
+                var raw = await resp.Content.ReadAsStringAsync(ct);
+                var status = (int)resp.StatusCode;
+
+                if ((status == 408 || status == 429 || status >= 500) && attempt < MaxTransientRetries)
+                {
+                    var d = TimeSpan.FromMilliseconds(1000 * Math.Pow(2, attempt));
+                    _log.LogWarning("[AnthropicTools] upstream {Status} → retry #{N} sau {Ms}ms",
+                        status, attempt + 1, d.TotalMilliseconds);
+                    await Task.Delay(d, ct);
+                    attempt++;
+                    continue;
+                }
+
+                if (!resp.IsSuccessStatusCode)
+                {
+                    _log.LogWarning("[AnthropicTools] {Status}: {Body}", resp.StatusCode, raw.Length > 500 ? raw[..500] : raw);
+                    throw new InvalidOperationException($"Anthropic {status}: {(raw.Length > 200 ? raw[..200] : raw)}");
+                }
+
+                return (JsonDocument.Parse(raw), sw.ElapsedMilliseconds);
+            }
+            finally { resp?.Dispose(); }
+        }
     }
 }
 

@@ -113,6 +113,7 @@ builder.Services.AddSingleton<TkSessionStore>();
 builder.Services.AddSingleton<TourkitAiProxy.Services.Cache.RedisStore>();  // generic Redis cho mọi feature
 builder.Services.AddSingleton<TourkitAiProxy.Services.Providers.ModelDefaults>();   // Models:Primary + Models:Review từ appsettings
 builder.Services.AddSingleton<TourkitAiProxy.Services.Cache.ChatCache>();   // Redis (nếu có) / in-memory
+builder.Services.AddSingleton<TourkitAiProxy.Services.Quota.TenantQuotaStore>();   // Quota AI per-tenant: file + Redis mirror
 // Agent runtimes -- thu tu quan trong: NativeToolUseAgent (Anthropic native tools) chay truoc,
 // JsonPlannerAgent la fallback cho moi provider khac (OpenCode, 9routes...).
 // ChatAgentService resolve runtime dau tien co Supports(provider)=true.
@@ -141,6 +142,9 @@ builder.Services.AddSingleton<TourkitAiProxy.Services.Deals.DealScoringService>(
 builder.Services.AddSingleton<TourkitAiProxy.Services.Deals.DealRepository>();
 builder.Services.AddSingleton<TourkitAiProxy.Services.Deals.DealBatchJobStore>();
 builder.Services.AddSingleton<TourkitAiProxy.Services.Deals.DealBatchService>();
+
+// Báo giá tour persist (replace flow localStorage cũ). DB-backed, per-tenant scope.
+builder.Services.AddSingleton<TourkitAiProxy.Services.TourQuotes.TourQuoteRepository>();
 
 // Thẩm định Visa AI — upload hồ sơ → AI vision đọc → chấm tỉ lệ đậu/rớt.
 // File gốc lưu tạm data/visa-files/ (tự xóa 7 ngày), kết quả data/visa-assessments.json.
@@ -188,6 +192,8 @@ _ = Task.Run(async () =>
 app.UseCors(CorsSetup.PolicyName);
 // Trace middleware ĐẦU pipeline (trước routing/endpoints) — bất kỳ endpoint nào cũng có thể đọc trace.
 app.UseMiddleware<WorkflowTraceMiddleware>();
+// Quota guard — bắt QuotaExhaustedException provider ném ra → 429 JSON.
+app.UseMiddleware<TourkitAiProxy.Services.Quota.QuotaExceptionMiddleware>();
 app.UseTourkitStaticFiles();
 
 // ─── Routes ──────────────────────────────────────────────────────────────────
@@ -199,8 +205,10 @@ app.MapMailEndpoints();
 app.MapTourEndpoints();
 app.MapVisaEndpoints();
 app.MapDealEndpoints();
+app.MapTourQuoteEndpoints();
 app.MapTourBuilderEndpoints();
 app.MapAiUsageEndpoints();
+app.MapQuotaEndpoints();
 
 // SPA fallback: mọi GET không match API/file (vd /mail, /customers, /assistant) → trả index.html.
 // Cho phép HTML5 history routing thay vì hash (#). F5 trên /mail không còn 404.

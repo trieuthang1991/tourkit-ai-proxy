@@ -21,10 +21,11 @@ public class TourKitCustomerSource
 
     /// Lọc nâng cao — forward đầy đủ params /api/ai/customers theo schema mobile CustomerList.razor:
     /// search, customerTypeId, customerSourceId, sellerId(nv phụ trách), gender, careFilter,
-    /// birthdayThisMonth, startDate, endDate, sortOrder.
-    public async Task<List<Customer>> ListAsync(string sessionId, CustomerFilter f, int pageSize, CancellationToken ct)
+    /// birthdayThisMonth, startDate, endDate, sortOrder. Trả `(items, total)` để FE phân trang đúng.
+    public async Task<CustomerPage> ListAsync(string sessionId, CustomerFilter f, int pageIndex, int pageSize, CancellationToken ct)
     {
-        var qs = new List<string> { "pageIndex=1", $"pageSize={pageSize}" };
+        if (pageIndex < 1) pageIndex = 1;
+        var qs = new List<string> { $"pageIndex={pageIndex}", $"pageSize={pageSize}" };
         if (!string.IsNullOrWhiteSpace(f.Search))         qs.Add("filter=" + Uri.EscapeDataString(f.Search.Trim()));
         if (f.CustomerTypeId   is > 0)                    qs.Add("customerTypeId=" + f.CustomerTypeId);
         if (f.CustomerSourceId is > 0)                    qs.Add("customerSourceId=" + f.CustomerSourceId);
@@ -43,8 +44,15 @@ public class TourKitCustomerSource
         if (data.ValueKind == JsonValueKind.Object && data.TryGetProperty("items", out var items) && items.ValueKind == JsonValueKind.Array)
             foreach (var it in items.EnumerateArray())
                 list.Add(MapLight(it));
-        return list;
+
+        // Upstream AI envelope: {section, title, count, total, summary, items[]}
+        // `total` = full match count (toàn DB), `count` = số rows trong page hiện tại.
+        // Fallback `count` rồi cuối cùng items.Count nếu upstream cũ chưa có total.
+        var total = GetInt(data, "total") ?? GetInt(data, "count") ?? list.Count;
+        return new CustomerPage(list, total);
     }
+
+    public record CustomerPage(List<Customer> Items, int Total);
 
     /// Bộ filter mở rộng — bám CustomerSearchRequest của TourKit.Api.
     public record CustomerFilter(
@@ -86,8 +94,12 @@ public class TourKitCustomerSource
     {
         var tours = GetInt(e, "totalTours") ?? 0;
         var spent = GetLong(e, "totalRevenue") ?? 0;
+        // Upstream /api/ai/customers (AiCustomerItem) trả lastCareDateFormatted (dd/MM/yyyy) + note (HTML).
+        // Note: docs/ai-api-guide.md §7c (2026-06-10).
+        var lastCare = GetStr(e, "lastCareDateFormatted");
         return new Customer(
             Id: (GetInt(e, "id") ?? 0).ToString(),
+            Code: GetStr(e, "code"),
             Name: GetStr(e, "fullName") ?? "(không tên)",
             Phone: GetStr(e, "phone"), Email: GetStr(e, "email"),
             Age: null, Gender: GetStr(e, "genderName") ?? GetStr(e, "gender"),
@@ -95,8 +107,10 @@ public class TourKitCustomerSource
             Segment: Segment(tours, spent),
             CreatedAt: GetStr(e, "createdAt") ?? "",
             Source: GetStr(e, "customerSourceName"),
-            Metrics: new CustomerMetrics(tours, spent, tours > 0 ? spent / tours : 0, null, null, null, 0, null, 0, 0),
-            Purchases: new(), CareLogs: new()
+            Metrics: new CustomerMetrics(tours, spent, tours > 0 ? spent / tours : 0, null, null, null, 0, null, 0, 0,
+                LastCareDate: string.IsNullOrWhiteSpace(lastCare) ? null : lastCare),
+            Purchases: new(), CareLogs: new(),
+            Note: GetStr(e, "note")
         );
     }
 
@@ -128,8 +142,12 @@ public class TourKitCustomerSource
             avgBetween = gaps.Count > 0 ? (int)gaps.Average() : null;
         }
 
+        // CustomerDetailResponse có Note; LastCareDate KHÔNG đảm bảo (xem docs §7c: detail có LinkFB/SellerName/...
+        // không list LastCareDate). Cứ thử GetStr — nếu upstream có thì lấy, không thì null.
+        var lastCare = GetStr(d, "lastCareDateFormatted") ?? GetStr(d, "lastCareDate");
         return new Customer(
             Id: id,
+            Code: GetStr(d, "code") ?? GetStr(d, "customerCode"),
             Name: GetStr(d, "fullName") ?? GetStr(d, "name") ?? "(không tên)",
             Phone: GetStr(d, "phone") ?? GetStr(d, "phoneNumber"),
             Email: GetStr(d, "email"),
@@ -142,9 +160,11 @@ public class TourKitCustomerSource
                 TotalTours: tours, TotalSpent: total, Aov: tours > 0 ? total / tours : 0,
                 LastPurchaseDate: last?.ToString("yyyy-MM-dd"), LastPurchaseDaysAgo: lastDaysAgo,
                 AvgDaysBetweenOrders: avgBetween, CareInteractions: 0, LastCareDaysAgo: null,
-                ComplaintCount: 0, CancelCount: 0),
+                ComplaintCount: 0, CancelCount: 0,
+                LastCareDate: string.IsNullOrWhiteSpace(lastCare) ? null : lastCare),
             Purchases: purchases.OrderByDescending(p => p.Date).ToList(),
-            CareLogs: new()
+            CareLogs: new(),
+            Note: GetStr(d, "note")
         );
     }
 

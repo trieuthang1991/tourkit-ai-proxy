@@ -18,7 +18,10 @@ namespace TourkitAiProxy.Endpoints;
 ///   POST /api/v1/reviews/{customerId}/feedback   — thumbs + note
 public static class ReviewEndpoints
 {
-    private const int ListSize = 100;
+    // Pagination defaults: 50 = "đủ nhìn 1 màn hình + scroll nhẹ" cho review listing;
+    // MaxPageSize 200 = an toàn cho batch (BatchService cap 200 KH/lần).
+    private const int DefaultPageSize = 50;
+    private const int MaxPageSize     = 200;
 
     public static IEndpointRouteBuilder MapReviewEndpoints(this IEndpointRouteBuilder routes)
     {
@@ -41,16 +44,26 @@ public static class ReviewEndpoints
         });
 
         // ─── Customer list (KH thật) ───────────────────────────────────────────
+        // Paging: ?page=1&pageSize=50 (default). Response: {items, total, page, pageSize}.
+        // `total` = full count toàn DB sau filter (upstream tính), `items.Length` = số rows page hiện tại.
+        // LƯU Ý: nếu client còn lọc client-side `segment` (post-fetch) thì `total` KHÔNG phản ánh
+        // segment đó — chỉ phản ánh các filter forward upstream (search, customerType, …). FE đã
+        // chuyển segment chính thành chip "Tất cả/VIP/Thường/Mới" nhưng filter này dùng client-side
+        // vì upstream chưa có; chấp nhận hiển thị "shown/total" hơi lệch khi segment ≠ all.
         v1.MapGet("/customers", async (
             HttpContext ctx, TourKitCustomerSource source, ReviewRepository reviews,
             TkSessionStore sessions, ILogger<Program> log,
             string? segment, string? search,
             int? customerTypeId, int? customerSourceId, int? sellerId,
             string? gender, string? careFilter, bool? birthdayThisMonth,
-            string? startDate, string? endDate, string? sortOrder) =>
+            string? startDate, string? endDate, string? sortOrder,
+            int? page, int? pageSize) =>
         {
             var sid = Sid(ctx);
             if (sessions.Get(sid) == null) return Unauthorized();
+
+            var pIdx  = page is > 0 ? page.Value : 1;
+            var pSize = Math.Clamp(pageSize ?? DefaultPageSize, 1, MaxPageSize);
 
             try
             {
@@ -59,7 +72,8 @@ public static class ReviewEndpoints
                     SellerId: sellerId, Gender: gender, CareFilter: careFilter,
                     BirthdayThisMonth: birthdayThisMonth, StartDate: startDate, EndDate: endDate,
                     SortOrder: sortOrder);
-                var customers = await source.ListAsync(sid!, filter, ListSize, ctx.RequestAborted);
+                var pageRes = await source.ListAsync(sid!, filter, pIdx, pSize, ctx.RequestAborted);
+                var customers = pageRes.Items;
                 if (!string.IsNullOrWhiteSpace(segment) && segment != "all")
                     customers = customers.Where(c => string.Equals(c.Segment, segment, StringComparison.OrdinalIgnoreCase)).ToList();
 
@@ -68,13 +82,18 @@ public static class ReviewEndpoints
                 {
                     var r = reviews.Get(tenant, c.Id);
                     return new CustomerListItem(
-                        Id: c.Id, Name: c.Name, Segment: c.Segment,
+                        Id: c.Id, Code: c.Code, Phone: c.Phone,
+                        Name: c.Name, Segment: c.Segment,
                         TotalSpent: c.Metrics.TotalSpent, TotalTours: c.Metrics.TotalTours,
                         LastPurchaseDaysAgo: c.Metrics.LastPurchaseDaysAgo,
                         Rank: r?.Rank, ReviewStatus: r == null ? "none" : "fresh",
-                        ReviewAgeHours: AgeHours(r), SummaryLine: r?.SummaryLine);
-                });
-                return Results.Json(items);
+                        ReviewAgeHours: AgeHours(r),
+                        ReviewGeneratedAt: r?.GeneratedAt,
+                        SummaryLine: r?.SummaryLine,
+                        Note: c.Note,
+                        LastCareDate: c.Metrics.LastCareDate);
+                }).ToList();
+                return Results.Json(new { items, total = pageRes.Total, page = pIdx, pageSize = pSize });
             }
             catch (TourKitApiException ex) { return Results.Json(new { error = ex.Message }, statusCode: ex.Status); }
             catch (Exception ex) { log.LogError(ex, "List KH lỗi"); return Results.Json(new { error = ex.Message }, statusCode: 500); }
@@ -193,7 +212,14 @@ public static class ReviewEndpoints
                     await Write(new { type = evt.Type, customerId = evt.CustomerId, payload = evt.Payload, error = evt.Error });
                 jobs.Remove(jobId);
             }
-            catch (OperationCanceledException) { log.LogInformation("[batch-stream] client {Id} ngắt", jobId); }
+            catch (OperationCanceledException)
+            {
+                // Client thoát page giữa chừng → cleanup khỏi store (BatchService finally vẫn chạy
+                // cho đến khi nhận POST /cancel; nếu client đã gửi cancel song song thì job sẽ bị
+                // cancel + lưu kết quả phần đã chạy. Không cleanup ở đây = leak entry trong BatchJobStore).
+                log.LogInformation("[batch-stream] client {Id} ngắt giữa chừng", jobId);
+                jobs.Remove(jobId);
+            }
         });
 
         v1.MapPost("/reviews/batch/{jobId}/cancel", (string jobId, BatchService batch) =>

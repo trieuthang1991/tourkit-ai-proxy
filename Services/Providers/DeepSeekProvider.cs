@@ -1,6 +1,7 @@
 using System.Text;
 using System.Text.Json;
 using TourkitAiProxy.Models;
+using TourkitAiProxy.Services.Quota;
 
 namespace TourkitAiProxy.Services.Providers;
 
@@ -31,11 +32,19 @@ public class DeepSeekProvider : IAiProvider
     private readonly AiUsageLog _usage;
     private readonly AiCallContext _ctx;
     private readonly ILogger<DeepSeekProvider> _log;
+    private readonly TenantQuotaStore _quota;
 
     public DeepSeekProvider(IHttpClientFactory http, ProviderKeyStore keys, IConfiguration cfg,
-        AiUsageLog usage, AiCallContext ctx, ILogger<DeepSeekProvider> log)
+        AiUsageLog usage, AiCallContext ctx, ILogger<DeepSeekProvider> log, TenantQuotaStore quota)
     {
-        _http = http; _keys = keys; _cfg = cfg; _usage = usage; _ctx = ctx; _log = log;
+        _http = http; _keys = keys; _cfg = cfg; _usage = usage; _ctx = ctx; _log = log; _quota = quota;
+    }
+
+    private void EnsureQuota()
+    {
+        var t = _ctx.Resolve().Tenant;
+        if (string.IsNullOrEmpty(t)) return;
+        if (!_quota.IsAvailable(t)) { var s = _quota.Snapshot(t); throw new QuotaExhaustedException(t, s.Limit, s.Used); }
     }
 
     /// Default model: Models:Primary:Model nếu provider match deepseek; Models:Review tương tự cho path review.
@@ -53,6 +62,7 @@ public class DeepSeekProvider : IAiProvider
 
     public async Task<CompleteResult> CompleteAsync(CompleteRequest req, CancellationToken ct)
     {
+        EnsureQuota();
         var key = !string.IsNullOrWhiteSpace(req.ApiKey) ? req.ApiKey : _keys.Get(Id);
         if (string.IsNullOrWhiteSpace(key))
             throw new InvalidOperationException(
@@ -120,6 +130,7 @@ public class DeepSeekProvider : IAiProvider
 
         var c = _ctx.Resolve();
         _usage.Append(c.Feature, c.SessionId, c.Tenant, Id, model, inTok, outTok, sw.ElapsedMilliseconds);
+        if (!string.IsNullOrEmpty(c.Tenant)) _quota.Consume(c.Tenant);
         return new CompleteResult(sb.ToString(), model, inTok, outTok, sw.ElapsedMilliseconds, finish);
     }
 

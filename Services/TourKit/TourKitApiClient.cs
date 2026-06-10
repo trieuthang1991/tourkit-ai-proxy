@@ -47,7 +47,8 @@ public class TourKitApiClient
         }
         catch (HttpRequestException ex)
         {
-            throw new TourKitApiException($"Không kết nối được TourKit.Api ({ex.Message})", 502);
+            _log.LogWarning(ex, "[TourKit] login: không kết nối được upstream");
+            throw new TourKitApiException("Không kết nối được hệ thống. Vui lòng thử lại sau.", 502);
         }
 
         var body = await resp.Content.ReadAsStringAsync(ct);
@@ -84,7 +85,8 @@ public class TourKitApiClient
         try { resp = await http.SendAsync(req, ct); }
         catch (HttpRequestException ex)
         {
-            throw new TourKitApiException($"Không kết nối được TourKit.Api ({ex.Message})", 502);
+            _log.LogWarning(ex, "[TourKit] GET {Path}: không kết nối được upstream", pathAndQuery);
+            throw new TourKitApiException("Không kết nối được hệ thống. Vui lòng thử lại sau.", 502);
         }
 
         var body = await resp.Content.ReadAsStringAsync(ct);

@@ -161,6 +161,7 @@ WHERE r.TenantId = ''
 
             using var c = _db.Open();
             // SQL Server MERGE upsert (composite PK TenantId+CustomerId; TenantId='' khi không biết).
+            // IsSync=0 ở CẢ INSERT lẫn UPDATE: review mới hoặc re-review = data đổi → worker phải sync lại.
             c.Execute(@"
 MERGE dbo.Reviews AS T
 USING (SELECT @CustomerId AS CustomerId, @TenantId AS TenantId) AS S
@@ -169,13 +170,13 @@ WHEN MATCHED THEN UPDATE SET
     [Rank]=@Rank, AlertLevel=@AlertLevel, Fingerprint=@Fingerprint,
     DataJson=@DataJson, AiProvider=@AiProvider, AiModel=@AiModel,
     TokensIn=@TokensIn, TokensOut=@TokensOut, GeneratedAt=@GeneratedAt,
-    FeedbackJson=@FeedbackJson
+    FeedbackJson=@FeedbackJson, IsSync=0
 WHEN NOT MATCHED THEN INSERT
     (CustomerId, TenantId, [Rank], AlertLevel, Fingerprint, DataJson,
-     AiProvider, AiModel, TokensIn, TokensOut, GeneratedAt, FeedbackJson)
+     AiProvider, AiModel, TokensIn, TokensOut, GeneratedAt, FeedbackJson, IsSync)
 VALUES
     (@CustomerId, @TenantId, @Rank, @AlertLevel, @Fingerprint, @DataJson,
-     @AiProvider, @AiModel, @TokensIn, @TokensOut, @GeneratedAt, @FeedbackJson);",
+     @AiProvider, @AiModel, @TokensIn, @TokensOut, @GeneratedAt, @FeedbackJson, 0);",
                 new
                 {
                     CustomerId   = review.CustomerId,
@@ -223,8 +224,9 @@ VALUES
             var updated = rev with { Feedback = fb };
             var dataJson = JsonSerializer.Serialize(updated, _jsonOpts);
 
+            // Feedback đổi cũng reset IsSync=0 — worker đồng bộ phiên bản review có feedback mới.
             var rows = c.Execute(
-                @"UPDATE dbo.Reviews SET FeedbackJson = @fb, DataJson = @dj
+                @"UPDATE dbo.Reviews SET FeedbackJson = @fb, DataJson = @dj, IsSync = 0
                   WHERE TenantId = @t AND CustomerId = @id",
                 new { fb = feedbackJson, dj = dataJson, t = existing.MatchedTenant, id = customerId });
             return rows > 0;

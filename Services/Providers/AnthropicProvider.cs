@@ -2,6 +2,7 @@ using System.Text;
 using System.Text.Json;
 using Microsoft.Extensions.Logging;
 using TourkitAiProxy.Models;
+using TourkitAiProxy.Services.Quota;
 
 namespace TourkitAiProxy.Services.Providers;
 
@@ -26,9 +27,17 @@ public class AnthropicProvider : IAiProvider
     private readonly AiCallContext _ctx;
     private readonly IConfiguration _cfg;
     private readonly ILogger<AnthropicProvider> _log;
+    private readonly TenantQuotaStore _quota;
 
-    public AnthropicProvider(IHttpClientFactory http, ProviderKeyStore keys, AiUsageLog usage, AiCallContext ctx, IConfiguration cfg, ILogger<AnthropicProvider> log)
-    { _http = http; _keys = keys; _usage = usage; _ctx = ctx; _cfg = cfg; _log = log; }
+    public AnthropicProvider(IHttpClientFactory http, ProviderKeyStore keys, AiUsageLog usage, AiCallContext ctx, IConfiguration cfg, ILogger<AnthropicProvider> log, TenantQuotaStore quota)
+    { _http = http; _keys = keys; _usage = usage; _ctx = ctx; _cfg = cfg; _log = log; _quota = quota; }
+
+    private void EnsureQuota()
+    {
+        var t = _ctx.Resolve().Tenant;
+        if (string.IsNullOrEmpty(t)) return;
+        if (!_quota.IsAvailable(t)) { var s = _quota.Snapshot(t); throw new QuotaExhaustedException(t, s.Limit, s.Used); }
+    }
 
     /// Default model lookup: ưu tiên Models:Primary:Model nếu provider match anthropic, fallback Models[0].
     private string DefaultModel()
@@ -42,6 +51,7 @@ public class AnthropicProvider : IAiProvider
 
     public async Task<CompleteResult> CompleteAsync(CompleteRequest req, CancellationToken ct)
     {
+        EnsureQuota();
         var key = !string.IsNullOrWhiteSpace(req.ApiKey) ? req.ApiKey : _keys.Get(Id);
         if (string.IsNullOrWhiteSpace(key))
             throw new InvalidOperationException("Chưa nhập API key cho Claude (Anthropic). Mở 'Cấu hình AI' để nhập key.");
@@ -101,6 +111,7 @@ public class AnthropicProvider : IAiProvider
         var p = UpstreamParser.Parse(raw, "anthropic");
         var c = _ctx.Resolve();
         _usage.Append(c.Feature, c.SessionId, c.Tenant, Id, model, p.InputTokens, p.OutputTokens, sw.ElapsedMilliseconds);
+        if (!string.IsNullOrEmpty(c.Tenant)) _quota.Consume(c.Tenant);
         return new CompleteResult(p.Text, model, p.InputTokens, p.OutputTokens, sw.ElapsedMilliseconds, p.FinishReason);
     }
 

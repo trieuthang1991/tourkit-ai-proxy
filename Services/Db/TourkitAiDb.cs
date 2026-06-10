@@ -51,7 +51,7 @@ public class TourkitAiDb
             await using var cmd = c.CreateCommand();
             cmd.CommandText = SchemaSql;
             await cmd.ExecuteNonQueryAsync(ct);
-            _log.LogInformation("TourkitAiDb schema OK (Reviews/DealScores/AiHistory/MailAccounts/Mails/MailSyncState/VisaAssessments đã có/đã tạo)");
+            _log.LogInformation("TourkitAiDb schema OK (Reviews/DealScores/AiHistory/MailAccounts/Mails/MailSyncState/VisaAssessments/TourQuotes đã có/đã tạo)");
         }
         catch (Exception ex)
         {
@@ -76,10 +76,28 @@ BEGIN
         TokensOut      INT             NULL,
         GeneratedAt    BIGINT          NOT NULL,
         FeedbackJson   NVARCHAR(MAX)   NULL,
+        -- IsSync: cờ cho worker đồng bộ sang bảng chính. 0 = mới/đổi (cần sync); 1 = đã sync.
+        -- Mọi INSERT/UPDATE từ Save() đều reset = 0 → worker pick lên lại nếu review thay đổi.
+        IsSync         BIT             NOT NULL CONSTRAINT DF_Reviews_IsSync DEFAULT 0,
         CONSTRAINT PK_Reviews PRIMARY KEY CLUSTERED (TenantId, CustomerId)
     );
     CREATE INDEX IX_Reviews_TenantId_Rank   ON dbo.Reviews(TenantId, [Rank]);
     CREATE INDEX IX_Reviews_GeneratedAt     ON dbo.Reviews(GeneratedAt DESC);
+END;
+
+-- Idempotent ADD cột IsSync cho install cũ (Reviews đã có sẵn từ trước).
+-- Default 0 → mọi row hiện tại nhận giá trị 0 → worker sẽ sync lần đầu toàn bộ history.
+IF NOT EXISTS (SELECT 1 FROM sys.columns WHERE object_id = OBJECT_ID('dbo.Reviews') AND name = 'IsSync')
+BEGIN
+    ALTER TABLE dbo.Reviews ADD IsSync BIT NOT NULL CONSTRAINT DF_Reviews_IsSync DEFAULT 0;
+END;
+
+-- Filtered index cho worker query (chỉ rows chưa sync — index nhỏ, hot path).
+-- Dùng sp_executesql để deferred compile: nếu trong cùng batch vừa ALTER TABLE ADD IsSync,
+-- statement này được parse RUNTIME (sau ALTER) thay vì compile-time → tránh lỗi Invalid column name.
+IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name = 'IX_Reviews_Unsynced' AND object_id = OBJECT_ID('dbo.Reviews'))
+BEGIN
+    EXEC sp_executesql N'CREATE INDEX IX_Reviews_Unsynced ON dbo.Reviews(TenantId, GeneratedAt) WHERE IsSync = 0';
 END;
 
 IF OBJECT_ID('dbo.DealScores', 'U') IS NULL
@@ -96,9 +114,22 @@ BEGIN
         TokensIn       INT             NULL,
         TokensOut      INT             NULL,
         GeneratedAt    BIGINT          NOT NULL,
+        -- IsSync: cùng pattern Reviews — worker đồng bộ điểm deal sang bảng chính. Reset về 0 mỗi lần re-score.
+        IsSync         BIT             NOT NULL CONSTRAINT DF_DealScores_IsSync DEFAULT 0,
         CONSTRAINT PK_DealScores PRIMARY KEY CLUSTERED (TenantId, DealId)
     );
     CREATE INDEX IX_DealScores_TenantId_Level ON dbo.DealScores(TenantId, [Level]);
+END;
+
+-- Idempotent ADD cột IsSync cho DealScores install cũ.
+IF NOT EXISTS (SELECT 1 FROM sys.columns WHERE object_id = OBJECT_ID('dbo.DealScores') AND name = 'IsSync')
+BEGIN
+    ALTER TABLE dbo.DealScores ADD IsSync BIT NOT NULL CONSTRAINT DF_DealScores_IsSync DEFAULT 0;
+END;
+
+IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name = 'IX_DealScores_Unsynced' AND object_id = OBJECT_ID('dbo.DealScores'))
+BEGIN
+    EXEC sp_executesql N'CREATE INDEX IX_DealScores_Unsynced ON dbo.DealScores(TenantId, GeneratedAt) WHERE IsSync = 0';
 END;
 
 IF OBJECT_ID('dbo.AiHistory', 'U') IS NULL
@@ -161,6 +192,41 @@ BEGIN
         UpdatedAt       DATETIME2       NOT NULL,
         CONSTRAINT PK_MailSyncState PRIMARY KEY CLUSTERED (TenantId, Address)
     );
+END;
+
+-- Báo giá tour (Tour GIT/FIT) — user lưu nháp/sửa nhiều lần, cần persist không phải localStorage.
+-- Schema giống Reviews/DealScores: per-tenant composite PK + IsSync cho worker đồng bộ.
+IF OBJECT_ID('dbo.TourQuotes', 'U') IS NULL
+BEGIN
+    CREATE TABLE dbo.TourQuotes (
+        TenantId        NVARCHAR(128)   NOT NULL,
+        Id              NVARCHAR(64)    NOT NULL,
+        Title           NVARCHAR(512)   NULL,
+        CustomerName    NVARCHAR(256)   NULL,
+        CustomerPhone   NVARCHAR(64)    NULL,
+        MarketName      NVARCHAR(128)   NULL,
+        TourType        NVARCHAR(64)    NULL,
+        StartDate       NVARCHAR(32)    NULL,        -- ISO date string (đỡ TZ headache)
+        EndDate         NVARCHAR(32)    NULL,
+        AdultCount      INT             NOT NULL,
+        ChildCount      INT             NOT NULL,
+        TotalNet        BIGINT          NOT NULL,     -- tổng giá vốn (sum services)
+        TotalRevenue    BIGINT          NOT NULL,     -- tổng doanh thu (sum expenses sau VAT + child 75%)
+        Profit          BIGINT          NOT NULL,
+        MarginPercent   DECIMAL(6,2)    NULL,         -- % margin derived/override (Bug B B3-Hybrid)
+        DataJson        NVARCHAR(MAX)   NOT NULL,     -- full form (expenses/services/note/warnings...) — raw passthrough
+        CreatedBy       NVARCHAR(256)   NULL,         -- username từ session
+        CreatedAt       DATETIME2       NOT NULL,
+        UpdatedAt       DATETIME2       NOT NULL,
+        IsSync          BIT             NOT NULL CONSTRAINT DF_TourQuotes_IsSync DEFAULT 0,
+        CONSTRAINT PK_TourQuotes PRIMARY KEY CLUSTERED (TenantId, Id)
+    );
+    CREATE INDEX IX_TourQuotes_Tenant_Created ON dbo.TourQuotes(TenantId, CreatedAt DESC);
+END;
+
+IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name = 'IX_TourQuotes_Unsynced' AND object_id = OBJECT_ID('dbo.TourQuotes'))
+BEGIN
+    EXEC sp_executesql N'CREATE INDEX IX_TourQuotes_Unsynced ON dbo.TourQuotes(TenantId, CreatedAt) WHERE IsSync = 0';
 END;
 
 IF OBJECT_ID('dbo.VisaAssessments', 'U') IS NULL

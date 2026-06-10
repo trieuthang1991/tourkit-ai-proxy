@@ -2,6 +2,7 @@ using System.Net.Http.Headers;
 using System.Text;
 using System.Text.Json;
 using TourkitAiProxy.Models;
+using TourkitAiProxy.Services.Quota;
 
 namespace TourkitAiProxy.Services.Providers;
 
@@ -29,11 +30,12 @@ public class OpenCodeProvider : IAiProvider
     private readonly ILogger<OpenCodeProvider> _log;
     private readonly AiUsageLog _usage;
     private readonly AiCallContext _ctx;
+    private readonly TenantQuotaStore _quota;
 
     public OpenCodeProvider(IHttpClientFactory http, IConfiguration cfg, ILogger<OpenCodeProvider> log,
-        AiUsageLog usage, AiCallContext ctx)
+        AiUsageLog usage, AiCallContext ctx, TenantQuotaStore quota)
     {
-        _http = http; _cfg = cfg; _log = log; _usage = usage; _ctx = ctx;
+        _http = http; _cfg = cfg; _log = log; _usage = usage; _ctx = ctx; _quota = quota;
     }
 
     /// Default model: ưu tiên Models:Primary:Model nếu provider match opencode-go, fallback Models[0].
@@ -50,6 +52,20 @@ public class OpenCodeProvider : IAiProvider
     {
         var c = _ctx.Resolve();
         _usage.Append(c.Feature, c.SessionId, c.Tenant, "opencode-go", model, inTok, outTok, ms, status: status);
+        // Consume 1 lượt quota cho tenant chỉ khi gọi thành công + có tenant (system call không tenant → skip).
+        if (status == "ok" && !string.IsNullOrEmpty(c.Tenant)) _quota.Consume(c.Tenant);
+    }
+
+    /// Throw QuotaExhaustedException nếu tenant đã hết quota. System call (no tenant) → skip.
+    private void EnsureQuota()
+    {
+        var t = _ctx.Resolve().Tenant;
+        if (string.IsNullOrEmpty(t)) return;
+        if (!_quota.IsAvailable(t))
+        {
+            var s = _quota.Snapshot(t);
+            throw new QuotaExhaustedException(t, s.Limit, s.Used);
+        }
     }
 
     private string? ApiKey =>
@@ -112,6 +128,7 @@ public class OpenCodeProvider : IAiProvider
 
     public async Task<CompleteResult> CompleteAsync(CompleteRequest req, CancellationToken ct)
     {
+        EnsureQuota();
         var key = ApiKey ?? throw new InvalidOperationException("OPENCODE_API_KEY chưa cấu hình");
         var model = string.IsNullOrWhiteSpace(req.Model) ? DefaultModel() : req.Model!;
         var temperature = req.Temperature ?? 0.3;
@@ -196,6 +213,7 @@ public class OpenCodeProvider : IAiProvider
 
     public async Task<CompleteResult> StreamAsync(CompleteRequest req, Func<string, Task> onDelta, CancellationToken ct)
     {
+        EnsureQuota();
         var key = ApiKey ?? throw new InvalidOperationException("OPENCODE_API_KEY chưa cấu hình");
         var model = string.IsNullOrWhiteSpace(req.Model) ? DefaultModel() : req.Model!;
         var temperature = req.Temperature ?? 0.3;

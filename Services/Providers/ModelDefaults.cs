@@ -8,8 +8,9 @@ namespace TourkitAiProxy.Services.Providers;
 ///     "Review":  { "Provider": "opencode-go", "Model": "deepseek-v4-flash", "ApiKey": "sk-..." }
 ///   }
 ///
-/// - Primary: dùng cho các tính năng MẠNH (Chat, Wizard, Visa, Deal, Tour, Mail).
-/// - Review: dùng cho Customer Review — model phụ rẻ + nhanh, chạy nhiều, không cần Claude/GPT.
+/// - Primary: dùng cho các tính năng MẠNH (Chat, Wizard, Visa, Deal, Tour, Mail soạn nháp).
+/// - Review: dùng cho task NHẸ chạy NHIỀU (Customer Review + Mail phân loại) — model rẻ + nhanh,
+///           không cần Claude/GPT. Hiện cấu hình deepseek-chat trong appsettings.json.
 ///
 /// User KHÔNG cần cấu hình ở UI nữa — mọi key đọc từ appsettings.
 /// Frontend gửi apiKey rỗng → service tự fallback vào config này.
