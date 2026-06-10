@@ -34,7 +34,9 @@ function WizardPage({ pushToast, tweaks }) {
   const Parsers = window.tourkitParsers;
 
   const [step, setStep] = _uS(1);
-  const [view, setView] = _uS('create');         // 'create' | 'saved' — tab gộp "Tour đã lưu"
+  const [view, setView] = _uS('list');            // 'list' (dashboard mặc định) | 'create' (wizard form)
+  const [listFilter, setListFilter] = _uS('all'); // 'all' | 'success' | 'sent' | 'draft'
+  const [listSearch, setListSearch] = _uS('');
   const [savedTours, setSavedTours] = _uS([]);
   const [nccCatalog, setNccCatalog] = _uS(null);  // tên NCC thật (TourKit) để ưu tiên khi sinh tour
   const [request, setRequest]       = _uS(window.DEMO_REQUEST);
@@ -370,52 +372,178 @@ Tránh từ "tuyệt vời", "hoàn hảo", "đáng nhớ". Tiếng Việt tự 
     setView('create'); setStep(4);
     pushToast('Đã mở nháp tour');
   }
-  _uE(() => { if (view === 'saved') loadSavedTours(); }, [view]);
+  _uE(() => { if (view === 'list' || view === 'saved') loadSavedTours(); }, [view]);
+
+  // ── Status derivation từ saved tour (nghiệp vụ thực tế):
+  //   sent     → tour đã gửi khách (`sentAt` hoặc `status === 'sent'`)
+  //   success  → khách đã chốt/thanh toán (`status === 'success'` hoặc `confirmed`)
+  //   draft    → đang nháp (default)
+  const tourStatus = (t) => {
+    const s = (t.status || '').toLowerCase();
+    if (s === 'success' || s === 'confirmed' || t.confirmedAt) return 'success';
+    if (s === 'sent' || t.sentAt) return 'sent';
+    return 'draft';
+  };
+  const statusLabel = { success: 'THÀNH CÔNG', sent: 'ĐÃ GỬI KHÁCH', draft: 'ĐANG NHẬP' };
+  const statusClass = { success: 'ts-success', sent: 'ts-sent', draft: 'ts-draft' };
+
+  // ── Filter + search list
+  const visibleTours = savedTours.filter(t => {
+    const st = tourStatus(t);
+    if (listFilter !== 'all' && st !== listFilter) return false;
+    if (listSearch) {
+      const q = listSearch.toLowerCase();
+      const hay = [t.id, t.title, t.request?.customerName, t.request?.route,
+        t.marketing?.tourName].filter(Boolean).join(' ').toLowerCase();
+      if (!hay.includes(q)) return false;
+    }
+    return true;
+  });
+  const kpi = {
+    total: savedTours.length,
+    success: savedTours.filter(t => tourStatus(t) === 'success').length,
+    sent: savedTours.filter(t => tourStatus(t) === 'sent').length,
+    draft: savedTours.filter(t => tourStatus(t) === 'draft').length,
+  };
 
   return (
     <>
-      {/* Tab gộp: Tạo tour | Tour đã lưu (server Redis) */}
-      <div className="wizard-tabs">
-        <button className={'wizard-tab' + (view === 'create' ? ' on' : '')} onClick={() => setView('create')}>
-          <Icon name="sparkle" size={14} /> Tạo tour
-        </button>
-        <button className={'wizard-tab' + (view === 'saved' ? ' on' : '')} onClick={() => setView('saved')}>
-          <Icon name="paper" size={14} /> Tour đã lưu
-        </button>
-      </div>
-
-      {view === 'saved' ? (
-        <main className="page">
-          <div className="saved-tours">
-            <div className="saved-tours-head">
-              <h2>Tour đã lưu</h2>
-              <span className="saved-tours-count">{savedTours.length} nháp · lưu trên hệ thống</span>
-            </div>
-            {savedTours.length === 0 ? (
-              <div className="saved-empty">Chưa có nháp tour nào. Sang tab “Tạo tour” để tạo & lưu.</div>
-            ) : (
-              <div className="saved-grid">
-                {savedTours.map(t => (
-                  <div key={t.id} className="saved-card">
-                    <div className="saved-card-body" onClick={() => openSavedTour(t)}>
-                      <div className="saved-card-title">{(t.marketing && t.marketing.tourName) || t.title || 'Tour'}</div>
-                      <div className="saved-card-meta">
-                        {t.request && <span>{t.request.route} · {t.request.days}N{t.request.nights}Đ</span>}
-                        {typeof t.nccCoveragePct === 'number' && <span className="saved-ncc">✓ {t.nccCoveragePct}% NCC nhà</span>}
-                      </div>
-                      <div className="saved-card-date">{t.createdAt ? new Date(t.createdAt).toLocaleString('vi-VN') : ''}{t.createdBy ? ' · ' + t.createdBy : ''}</div>
-                    </div>
-                    <button className="saved-del" title="Xoá" onClick={() => deleteSavedTour(t.id)}>✕</button>
-                  </div>
-                ))}
+      {view === 'list' ? (
+        <main className="page wizard-list">
+          {/* ── Hero header: title + 2 action buttons ─────────────────────── */}
+          <div className="wl-hero">
+            <div className="wl-hero-left">
+              <div className="wl-hero-icon"><Icon name="paper" size={22} /></div>
+              <div>
+                <h1 className="wl-hero-title">BẢNG TÍNH GIÁ &amp; BÁO GIÁ TOUR DU LỊCH</h1>
+                <div className="wl-hero-sub">XÂY DỰNG CHƯƠNG TRÌNH &amp; TÍNH GIÁ TOUR THÔNG MINH TÍCH HỢP AI</div>
               </div>
-            )}
+            </div>
+            <div className="wl-hero-actions">
+              <button className="wl-btn-outline" onClick={() => pushToast('Hướng dẫn sử dụng đang được biên soạn')}>
+                <Icon name="book" size={14} /> HƯỚNG DẪN SỬ DỤNG
+              </button>
+              <button className="wl-btn-primary" onClick={() => { setView('create'); setStep(1); }}>
+                <Icon name="plus" size={14} stroke={2.4} /> TẠO ĐƠN TÍNH GIÁ AI MỚI
+              </button>
+            </div>
+          </div>
+
+          {/* ── 4 KPI cards ──────────────────────────────────────────────── */}
+          <div className="wl-kpi-grid">
+            {[
+              {k: 'all',     label: 'TỔNG BÁO GIÁ',  value: kpi.total,   icon: 'paper',  color: 'var(--text)'},
+              {k: 'success', label: 'ĐÃ THÀNH CÔNG', value: kpi.success, icon: 'checkCircle', color: '#10b981'},
+              {k: 'sent',    label: 'ĐÃ GỬI KHÁCH',  value: kpi.sent,    icon: 'share',  color: 'var(--primary)'},
+              {k: 'draft',   label: 'ĐANG NHẬP',     value: kpi.draft,   icon: 'clock',  color: 'var(--text-2)'},
+            ].map(c => (
+              <button key={c.k} className={'wl-kpi' + (listFilter === c.k ? ' on' : '')}
+                onClick={() => setListFilter(c.k)}>
+                <div>
+                  <div className="wl-kpi-label">{c.label}</div>
+                  <div className="wl-kpi-value" style={{color: c.color}}>{c.value} đơn</div>
+                </div>
+                <div className="wl-kpi-icon" style={{background: c.color + '14', color: c.color}}>
+                  <Icon name={c.icon} size={18} />
+                </div>
+              </button>
+            ))}
+          </div>
+
+          {/* ── Filter bar: search + pill filters ────────────────────────── */}
+          <div className="wl-filter-bar">
+            <div className="wl-search">
+              <Icon name="search" size={14} />
+              <input value={listSearch} onChange={e => setListSearch(e.target.value)}
+                placeholder="Tìm mã đơn, khách hàng, điểm đến…" />
+            </div>
+            <div className="wl-pills">
+              {[
+                {k: 'all',     lbl: 'TẤT CẢ'},
+                {k: 'success', lbl: 'THÀNH CÔNG'},
+                {k: 'sent',    lbl: 'ĐÃ GỬI KHÁCH'},
+                {k: 'draft',   lbl: 'ĐANG NHẬP'},
+              ].map(p => (
+                <button key={p.k} className={'wl-pill' + (listFilter === p.k ? ' on' : '')}
+                  onClick={() => setListFilter(p.k)}>{p.lbl}</button>
+              ))}
+            </div>
+          </div>
+
+          {/* ── Table ────────────────────────────────────────────────────── */}
+          <div className="wl-table-wrap">
+            <table className="wl-table">
+              <thead>
+                <tr>
+                  <th>MÃ ĐƠN</th>
+                  <th>KHÁCH HÀNG</th>
+                  <th>HÀNH TRÌNH</th>
+                  <th>SỐ LƯỢNG</th>
+                  <th className="num">TỔNG NET BÁO GIÁ</th>
+                  <th className="num">GIÁ BÁN / KHÁCH</th>
+                  <th>TRẠNG THÁI</th>
+                  <th>THAO TÁC</th>
+                </tr>
+              </thead>
+              <tbody>
+                {visibleTours.length === 0 ? (
+                  <tr><td colSpan={8} className="wl-empty">
+                    {savedTours.length === 0
+                      ? 'Chưa có đơn báo giá nào. Bấm "TẠO ĐƠN TÍNH GIÁ AI MỚI" để bắt đầu.'
+                      : 'Không có đơn khớp bộ lọc hiện tại.'}
+                  </td></tr>
+                ) : visibleTours.map(t => {
+                  const req = t.request || {};
+                  const totalPax_ = (req.adults || 0) + (req.children || 0);
+                  const totalNet = (t.rows || []).reduce((s, r) => s + (r.priceNet || 0), 0);
+                  const salePerPax = t.salePerPax || (totalPax_ > 0 ? Math.round(totalNet * 1.2 / totalPax_) : 0);
+                  const st = tourStatus(t);
+                  const createdAt = t.createdAt ? new Date(t.createdAt) : null;
+                  return (
+                    <tr key={t.id} onClick={() => openSavedTour(t)} style={{cursor: 'pointer'}}>
+                      <td><span className="wl-code">{t.code || t.id?.slice(-6).toUpperCase()}</span></td>
+                      <td>
+                        <div className="wl-cust">{req.customerName || t.title || '—'}</div>
+                        <div className="wl-meta">
+                          Người tạo: {t.createdBy || 'Hệ thống'}
+                          {createdAt && ' · ' + createdAt.toLocaleDateString('vi-VN')}
+                        </div>
+                      </td>
+                      <td>
+                        <div>{req.route || '—'}</div>
+                        <div className="wl-meta">{req.days}N{req.nights}Đ</div>
+                      </td>
+                      <td>
+                        {req.adults || 0} Người lớn{req.children > 0 ? `, ${req.children} Trẻ em` : ''}
+                      </td>
+                      <td className="num"><strong>{fmtVND(totalNet)}đ</strong></td>
+                      <td className="num"><strong style={{color: '#10b981'}}>{fmtVND(salePerPax)}đ</strong></td>
+                      <td><span className={'wl-status ' + statusClass[st]}>{statusLabel[st]}</span></td>
+                      <td onClick={e => e.stopPropagation()}>
+                        <button className="wl-action" title="Xem chi tiết" onClick={() => openSavedTour(t)}>
+                          <Icon name="paper" size={14} />
+                        </button>
+                        <button className="wl-action wl-action-del" title="Xoá"
+                          onClick={async () => { if (await window.tkConfirm?.('Xoá đơn này?')) deleteSavedTour(t.id); }}>
+                          <Icon name="trash" size={14} />
+                        </button>
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
           </div>
         </main>
       ) : (
       <>
-      {/* Sub-header band: chứa wizard step indicator. Tách khỏi app-header để giữ App shell
-          thuần nav, đồng thời tạo khoảng cách thoáng (padding-top) và center steps trên màn. */}
+      {/* Back button khi đang trong wizard form */}
+      <div className="wizard-tabs">
+        <button className="wizard-tab on" onClick={() => setView('list')}>
+          <Icon name="arrowLeft" size={14} /> Quay lại danh sách báo giá
+        </button>
+      </div>
+      {/* Sub-header band: chứa wizard step indicator. */}
       <div className="wizard-stepbar">
         <div className="steps" data-screen-label={`0${step} ${WIZARD_STEPS[step-1].label}`}>
           {WIZARD_STEPS.map((s, i) => (

@@ -331,6 +331,7 @@ function App() {
         <Route path="/visa"      render={() => <window.VisaPage pushToast={pushToast} />} />
         <Route path="/deals"     render={() => <window.DealsPage pushToast={pushToast} />} />
         <Route path="/tour-builder" render={() => <window.TourBuilderPage pushToast={pushToast} />} />
+        <Route path="/quotes"       render={() => <window.QuotesPage pushToast={pushToast} />} />
         <Route path="/ai-usage"     render={() => <window.AiUsagePage pushToast={pushToast} />} />
         <Route path="*"          render={() => (
           <main className="page" style={{padding: 40, textAlign: 'center', color: 'var(--text-3)'}}>
