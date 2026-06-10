@@ -65,42 +65,63 @@ public static class ChatTools
             "topsellers", "Top Seller"),
 
         new("tours",
-            "Danh sách tour (FIT/GIT/LandTour/DV lẻ/Booking/Visa). Lọc theo loại (tourType), tên, trạng thái, ngày khởi hành, thị trường (điền marketName, vd 'Nội địa miền Nam'), chi nhánh.",
+            "Danh sách tour. tourType: 1=LandTour, 2=FIT, 3=GIT, 100=Booking, 101=DV lẻ, 102=Visa, 104=Vé bay. " +
+            "Mặc định bỏ qua thì lấy tất cả loại. Lọc: tên (tourName), khoảng ngày khởi hành, thị trường (marketName " +
+            "vd 'Nội địa miền Nam'), chi nhánh. DÙNG cho 'tour FIT/GIT/Visa...', 'tour thị trường X'.",
             "/api/ai/tours",
             new[] { "tourType", "tourName", "status", "startDate", "endDate", "marketId", "marketName", "branch", "pageIndex", "pageSize" },
             "tours", "Danh sách tour",
             new() { ["pageIndex"] = "1", ["pageSize"] = "20" }),
 
         new("booking_tickets",
-            "Cơ hội bán hàng / lead khách hàng. DÙNG cho 'khách/lead THUỘC THỊ TRƯỜNG X' (lọc marketName). Lọc: trạng thái (trangThai), nguồn (nguon), nhân viên phụ trách, khoảng ngày.",
+            "Cơ hội bán hàng / lead khách hàng. " +
+            "trangThai (trạng thái): 1=Tạo mới, 2=Chờ xử lý, 3=Đang xử lý, 4=Đã xử lý, 5=Hủy, 6=Chốt đơn. " +
+            "nguon (nguồn): 1=Website, 2=Nội bộ, 3=Đại lý, 4=Pancake. " +
+            "DÙNG cho 'cơ hội/lead chờ xử lý' (trangThai=2), 'lead Pancake' (nguon=4), " +
+            "'khách/lead THUỘC THỊ TRƯỜNG X' (marketName). Cũng lọc theo nhân viên phụ trách + khoảng ngày.",
             "/api/ai/booking-tickets",
             new[] { "keyword", "trangThai", "nguon", "nhanVienPhuTrach", "marketId", "marketName", "startDate", "endDate", "pageIndex", "pageSize" },
             "tickets", "Cơ hội bán hàng",
             new() { ["pageIndex"] = "1", ["pageSize"] = "20" }),
 
         new("tasks",
-            "Công việc (task). Lọc theo tab (tabFilter: 0 tất cả,1 sắp tới,2 trễ hạn,3 hôm nay,4 tuần này,5 tháng này), trạng thái, ưu tiên, khoảng ngày.",
+            "Công việc (task) cần làm. " +
+            "tabFilter: 0=Tất cả, 1=Sắp tới, 2=Trễ hạn, 3=Hôm nay, 4=Tuần này, 5=Tháng này. " +
+            "trangThai: 1=Chưa bắt đầu, 2=Đang thực hiện, 3=Đang kiểm tra, 4=Hoàn thành, 5=Hủy. " +
+            "mucDoUuTien: 1=Cao, 2=Trung bình, 3=Thấp. " +
+            "DÙNG cho 'việc hôm nay' (tabFilter=3), 'việc trễ hạn' (tabFilter=2), 'việc ưu tiên cao' (mucDoUuTien=1).",
             "/api/ai/tasks",
             new[] { "tabFilter", "trangThai", "mucDoUuTien", "workFlowId", "startDate", "endDate", "pageIndex", "pageSize" },
             "tasks", "Công việc",
             new() { ["pageIndex"] = "1", ["pageSize"] = "20" }),
 
         new("customers",
-            "Danh sách khách hàng. Lọc: từ khóa (filter), nhóm KH (customerGroupId), loại (customerTypeId), giới tính, sinh nhật tháng này (birthdayThisMonth=true), chưa chăm sóc (careFilter), khoảng ngày.",
+            "Danh sách khách hàng. " +
+            "customerGroupId (nhóm KH): 1=Cá nhân, 2=Doanh nghiệp, 3=CTV, 4=Đại lý. " +
+            "careFilter (chưa chăm sóc bao lâu): 0=Không lọc, 1=7 ngày, 2=15 ngày, 3=30 ngày, 4=90 ngày chưa chăm sóc. " +
+            "birthdayThisMonth=true → sinh nhật tháng này. " +
+            "DÙNG cho 'KH chưa chăm sóc 30 ngày' (careFilter=3), 'KH sinh nhật tháng này' (birthdayThisMonth=true), " +
+            "'KH doanh nghiệp' (customerGroupId=2). Lọc thêm: từ khóa (filter), loại KH, giới tính, ngày tạo.",
             "/api/ai/customers",
             new[] { "filter", "customerGroupId", "customerTypeId", "gender", "careFilter", "birthdayThisMonth", "startDate", "endDate", "pageIndex", "pageSize" },
             "customers", "Khách hàng",
             new() { ["pageIndex"] = "1", ["pageSize"] = "20" }),
 
         new("appointments",
-            "Lịch hẹn chăm sóc khách hàng (CSKH). Lọc: dateFilter (0 tất cả,1 hôm nay,2 tuần này,3 quá hạn,4 tạo mới,5 thành công), trạng thái, từ khóa, khoảng ngày.",
+            "Lịch hẹn chăm sóc khách hàng (CSKH). " +
+            "dateFilter: 0=Tất cả, 1=Hôm nay, 2=Tuần này, 3=Quá hạn, 4=Tạo mới, 5=Thành công. " +
+            "DÙNG cho 'lịch hẹn tuần này' (dateFilter=2), 'lịch hẹn quá hạn' (dateFilter=3), 'lịch hẹn hôm nay' (dateFilter=1).",
             "/api/ai/appointments",
             new[] { "dateFilter", "status", "keyword", "startDate", "endDate", "pageIndex", "pageSize" },
             "appointments", "Quản lý lịch hẹn",
             new() { ["pageIndex"] = "1", ["pageSize"] = "20" }),
 
         new("vouchers",
-            "Phiếu thu/chi (dòng tiền chi tiết). voucherType = 4 Phiếu Thu | 5 Phiếu Chi. Lọc: trạng thái duyệt (approvalStatus), chỉ chờ duyệt (onlyWaiting=true), từ khóa, khoảng ngày.",
+            "Phiếu thu/chi (dòng tiền chi tiết). " +
+            "voucherType: 4=Phiếu Thu, 5=Phiếu Chi. " +
+            "approvalStatus: -1=Tất cả, 1=Đã duyệt, 0=Từ chối. " +
+            "onlyWaiting=true → CHỈ phiếu CHỜ duyệt (chưa duyệt + chưa từ chối). " +
+            "DÙNG cho 'phiếu chi chờ duyệt' (voucherType=5, onlyWaiting=true), 'phiếu thu đã duyệt' (voucherType=4, approvalStatus=1).",
             "/api/ai/vouchers",
             new[] { "filter", "voucherType", "approvalStatus", "onlyWaiting", "startDate", "endDate", "pageIndex", "pageSize" },
             "vouchers", "Phiếu thu/chi",
