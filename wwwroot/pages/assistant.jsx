@@ -625,7 +625,7 @@ function AssistantPage({ pushToast }) {
     ]},
     { group: '🧳 Sản phẩm Tour', items: [
       { q: 'Tour sắp khởi hành',                                   icon: 'plane' },
-      { q: 'Danh sách tour FIT',                                   icon: 'bus' },
+      { q: 'Danh sách tour FIT sắp chạy',                          icon: 'bus' },
       { q: 'Tour Visa tháng này',                                  icon: 'paper' },
       { q: 'Tour thị trường Nội địa Miền Nam',                     icon: 'pin' },
     ]},
