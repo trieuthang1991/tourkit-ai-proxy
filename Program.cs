@@ -167,11 +167,18 @@ _ = Task.Run(async () =>
 {
     using var scope = app.Services.CreateScope();
     var reviewRepo = scope.ServiceProvider.GetRequiredService<ReviewRepository>();
+    var dealRepo   = scope.ServiceProvider.GetRequiredService<TourkitAiProxy.Services.Deals.DealRepository>();
     try { await reviewRepo.InitAsync(); }
     catch (Exception ex)
     {
         scope.ServiceProvider.GetRequiredService<ILogger<Program>>()
-            .LogError(ex, "DB init/migrate fail — proxy vẫn chạy với fallback file");
+            .LogError(ex, "Review DB init/migrate fail — fallback file");
+    }
+    try { await dealRepo.InitAsync(); }
+    catch (Exception ex)
+    {
+        scope.ServiceProvider.GetRequiredService<ILogger<Program>>()
+            .LogError(ex, "Deal DB init/migrate fail — fallback file");
     }
 });
 
