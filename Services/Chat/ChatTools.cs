@@ -67,12 +67,12 @@ public static class ChatTools
         new("tours",
             "Danh sách tour. " +
             "tourType: 1=LandTour, 2=FIT, 3=GIT, 100=Booking, 101=DV lẻ, 102=Visa, 104=Vé bay. " +
-            "status (trạng thái tour, mặc định -1=tất cả): " +
-            "101=Sắp chạy, 102=Đang chạy, 103=Hoàn thành, 104=Đã hủy, 106=Báo giá, " +
-            "107=Hủy không đi, 108=Chưa quyết toán, 109=Đã quyết toán, 110=Kích hoạt giá. " +
-            "DÙNG cho 'tour FIT đang mở' (status=101 Sắp chạy), 'tour đã hủy' (status=104), " +
-            "'tour đang chạy' (status=102). Cũng lọc: tên (tourName), ngày khởi hành, thị trường " +
-            "(marketName vd 'Nội địa miền Nam'), chi nhánh.",
+            "status (trạng thái tour, mặc định -1=tất cả). Status DYNAMIC per-tenant — danh sách " +
+            "đầy đủ ở /api/ai/reference Lookups.TourStatuses (array {LoaiDonHang, Value, Name}). " +
+            "Default chuẩn: 101=Sắp chạy, 102=Đang chạy, 103=Hoàn thành, 104=Đã hủy, " +
+            "106=Báo giá, 107=Hủy không đi, 108=Chưa quyết toán, 109=Đã quyết toán, 110=Kích hoạt giá. " +
+            "DÙNG cho 'tour FIT đang mở/sắp chạy' (status=101), 'tour đã hủy' (status=104). " +
+            "Cũng lọc: tên (tourName), ngày khởi hành, thị trường (marketName), chi nhánh.",
             "/api/ai/tours",
             new[] { "tourType", "tourName", "status", "startDate", "endDate", "marketId", "marketName", "branch", "pageIndex", "pageSize" },
             "tours", "Danh sách tour",
