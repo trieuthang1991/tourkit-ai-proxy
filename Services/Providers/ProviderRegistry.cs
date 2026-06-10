@@ -12,7 +12,11 @@ public class ProviderRegistry
         if (_byId.Count == 0)
             throw new InvalidOperationException("Chưa đăng ký provider nào — kiểm tra Program.cs DI.");
 
-        var defaultId = cfg["Providers:Default"];
+        // Default provider lookup ưu tiên:
+        //   1. Providers:Default (legacy)
+        //   2. Models:Primary:Provider (mới — admin chỉ cần khai Models:* là đủ)
+        //   3. Provider đầu tiên đăng ký
+        var defaultId = cfg["Providers:Default"] ?? cfg["Models:Primary:Provider"];
         _default = (defaultId != null && _byId.TryGetValue(defaultId, out var d))
             ? d
             : _byId.Values.First();

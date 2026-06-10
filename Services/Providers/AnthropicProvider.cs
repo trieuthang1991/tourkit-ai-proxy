@@ -24,10 +24,21 @@ public class AnthropicProvider : IAiProvider
     private readonly ProviderKeyStore _keys;
     private readonly AiUsageLog _usage;
     private readonly AiCallContext _ctx;
+    private readonly IConfiguration _cfg;
     private readonly ILogger<AnthropicProvider> _log;
 
-    public AnthropicProvider(IHttpClientFactory http, ProviderKeyStore keys, AiUsageLog usage, AiCallContext ctx, ILogger<AnthropicProvider> log)
-    { _http = http; _keys = keys; _usage = usage; _ctx = ctx; _log = log; }
+    public AnthropicProvider(IHttpClientFactory http, ProviderKeyStore keys, AiUsageLog usage, AiCallContext ctx, IConfiguration cfg, ILogger<AnthropicProvider> log)
+    { _http = http; _keys = keys; _usage = usage; _ctx = ctx; _cfg = cfg; _log = log; }
+
+    /// Default model lookup: ưu tiên Models:Primary:Model nếu provider match anthropic, fallback Models[0].
+    private string DefaultModel()
+    {
+        var prov = _cfg["Models:Primary:Provider"];
+        var mod  = _cfg["Models:Primary:Model"];
+        if (!string.IsNullOrWhiteSpace(prov) && prov.Equals(Id, StringComparison.OrdinalIgnoreCase) &&
+            !string.IsNullOrWhiteSpace(mod)) return mod;
+        return Models[0].Id;
+    }
 
     public async Task<CompleteResult> CompleteAsync(CompleteRequest req, CancellationToken ct)
     {
@@ -35,7 +46,7 @@ public class AnthropicProvider : IAiProvider
         if (string.IsNullOrWhiteSpace(key))
             throw new InvalidOperationException("Chưa nhập API key cho Claude (Anthropic). Mở 'Cấu hình AI' để nhập key.");
 
-        var model = string.IsNullOrWhiteSpace(req.Model) ? Models[0].Id : req.Model!;
+        var model = string.IsNullOrWhiteSpace(req.Model) ? DefaultModel() : req.Model!;
         var maxTokens = req.MaxTokens is > 0 ? req.MaxTokens.Value : 4096;
         var temperature = req.Temperature ?? 0.3;
         var system = string.IsNullOrWhiteSpace(req.System) ? OpenCodeClient.DefaultSystem : req.System!;

@@ -36,6 +36,16 @@ public class OpenCodeProvider : IAiProvider
         _http = http; _cfg = cfg; _log = log; _usage = usage; _ctx = ctx;
     }
 
+    /// Default model: ưu tiên Models:Primary:Model nếu provider match opencode-go, fallback Models[0].
+    private string DefaultModel()
+    {
+        var prov = _cfg["Models:Primary:Provider"];
+        var mod  = _cfg["Models:Primary:Model"];
+        if (!string.IsNullOrWhiteSpace(prov) && prov.Equals(Id, StringComparison.OrdinalIgnoreCase) &&
+            !string.IsNullOrWhiteSpace(mod)) return mod;
+        return Models[0].Id;
+    }
+
     private void LogUsage(string model, int inTok, int outTok, long ms, string status = "ok")
     {
         var c = _ctx.Resolve();
@@ -103,7 +113,7 @@ public class OpenCodeProvider : IAiProvider
     public async Task<CompleteResult> CompleteAsync(CompleteRequest req, CancellationToken ct)
     {
         var key = ApiKey ?? throw new InvalidOperationException("OPENCODE_API_KEY chưa cấu hình");
-        var model = string.IsNullOrWhiteSpace(req.Model) ? Models[0].Id : req.Model!;
+        var model = string.IsNullOrWhiteSpace(req.Model) ? DefaultModel() : req.Model!;
         var temperature = req.Temperature ?? 0.3;
         var systemMsg = EffectiveSystem(req.System);
         var (path, fmt) = RouteModel(model);
@@ -187,7 +197,7 @@ public class OpenCodeProvider : IAiProvider
     public async Task<CompleteResult> StreamAsync(CompleteRequest req, Func<string, Task> onDelta, CancellationToken ct)
     {
         var key = ApiKey ?? throw new InvalidOperationException("OPENCODE_API_KEY chưa cấu hình");
-        var model = string.IsNullOrWhiteSpace(req.Model) ? Models[0].Id : req.Model!;
+        var model = string.IsNullOrWhiteSpace(req.Model) ? DefaultModel() : req.Model!;
         var temperature = req.Temperature ?? 0.3;
         var budget = req.MaxTokens is > 0 ? req.MaxTokens.Value : 8192;
         var systemMsg = EffectiveSystem(req.System);
