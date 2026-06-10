@@ -296,6 +296,7 @@ function MailPage({ pushToast }) {
   const [fCategory, setFCategory] = _mS(null);
   const [search, setSearch] = _mS('');
   const [syncing, setSyncing] = _mS(false);
+  const [syncProgress, setSyncProgress] = _mS(null); // {current, total, subject} | null
   const [loading, setLoading] = _mS(true);
 
   const [tone, setTone] = _mS('lich_su');
@@ -334,16 +335,56 @@ function MailPage({ pushToast }) {
 
   _mE(() => { load(); }, [fStatus, fCategory]);
 
+  // Sync qua SSE — hiện progress thay vì spinner mơ hồ.
+  // Backend stream: {stage:"fetching"} → {stage:"fetched", toClassify} →
+  // {stage:"classifying", current, total, subject} (lặp) → {stage:"done", items, counts, classified}
   async function sync() {
     setSyncing(true);
+    setSyncProgress({ stage: 'fetching', message: 'Đang kết nối Gmail...' });
     try {
-      const r = await window.tourkitAuth.authedFetch('/api/v1/mail/sync', { method: 'POST' });
-      const data = await r.json();
-      if (!r.ok) { pushToast(data.error || 'Đồng bộ lỗi', 'error'); if (r.status === 400) setShowConfig(true); return; }
-      applyData(data);
-      pushToast(data.classified > 0 ? `Đã đồng bộ · ${data.classified} email mới` : 'Đã đồng bộ · không có email mới');
+      // Lần đầu sync (chưa có item) → kéo 200; subsequent → default 100
+      const max = items.length === 0 ? 200 : 100;
+      const r = await window.tourkitAuth.authedFetch(`/api/v1/mail/sync/stream?max=${max}`, { method: 'POST' });
+      if (!r.ok) {
+        const data = await r.json().catch(() => ({}));
+        pushToast(data.error || `Đồng bộ lỗi (${r.status})`, 'error');
+        if (r.status === 400) setShowConfig(true);
+        return;
+      }
+      const reader = r.body.getReader();
+      const decoder = new TextDecoder();
+      let buf = '';
+      let finalData = null;
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        buf += decoder.decode(value, { stream: true });
+        let idx;
+        while ((idx = buf.indexOf('\n\n')) >= 0) {
+          const ev = buf.slice(0, idx).trim();
+          buf = buf.slice(idx + 2);
+          if (!ev.startsWith('data:')) continue;
+          try {
+            const obj = JSON.parse(ev.slice(5).trim());
+            setSyncProgress(obj);
+            if (obj.stage === 'done') finalData = obj;
+            if (obj.stage === 'error') {
+              pushToast(obj.message || 'Đồng bộ lỗi', 'error');
+              return;
+            }
+          } catch {}
+        }
+      }
+      if (finalData) {
+        applyData(finalData);
+        pushToast(
+          finalData.classified > 0
+            ? `Đã đồng bộ · ${finalData.classified} email mới (kéo ${finalData.fetched})`
+            : `Đã đồng bộ · không có email mới (kéo ${finalData.fetched})`
+        );
+      }
     } catch (e) { pushToast('Đồng bộ lỗi: ' + e.message, 'error'); }
-    finally { setSyncing(false); }
+    finally { setSyncing(false); setSyncProgress(null); }
   }
 
   function selectMail(id) {
@@ -441,6 +482,26 @@ function MailPage({ pushToast }) {
           </button>
         </>}
       />
+
+      {/* Progress bar khi đang sync — hiện stage hiện tại + % */}
+      {syncing && syncProgress && (
+        <div className="mail-sync-progress">
+          {(() => {
+            const s = syncProgress;
+            if (s.stage === 'fetching') return <div className="msp-text">⟳ Đang kéo email từ Gmail...</div>;
+            if (s.stage === 'fetched') return <div className="msp-text">✓ Kéo về {s.fetched} email · sẽ phân loại {s.toClassify} email mới</div>;
+            if (s.stage === 'classifying') {
+              const pct = s.total > 0 ? Math.round((s.current / s.total) * 100) : 0;
+              return (<>
+                <div className="msp-bar"><div className="msp-bar-fill" style={{width: pct + '%'}} /></div>
+                <div className="msp-text">Đang phân loại {s.current}/{s.total} · {s.subject || ''}</div>
+              </>);
+            }
+            if (s.stage === 'done') return <div className="msp-text">✓ Hoàn tất</div>;
+            return null;
+          })()}
+        </div>
+      )}
 
       <div className="mail-grid">
         {/* TRÁI: filter rail */}

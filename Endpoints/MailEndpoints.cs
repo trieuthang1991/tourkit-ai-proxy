@@ -12,13 +12,18 @@ namespace TourkitAiProxy.Endpoints;
 ///   POST  /api/v1/mail/account              — lưu creds Gmail {address, appPassword} (App Password mã hóa)
 ///   POST  /api/v1/mail/sync                 — IMAP kéo N thư mới nhất, phân loại email MỚI, lưu → {items, counts, classified}
 ///   GET   /api/v1/mail?status=&category=&search= — list đã lọc + counts
+///   POST  /api/v1/mail/sync?max=N            — JSON 1 lần (default max=100, cap 500)
+///   POST  /api/v1/mail/sync/stream?max=N     — SSE progress {stage,current,total,subject}
 ///   GET   /api/v1/mail/{id}                  — chi tiết 1 email
 ///   POST  /api/v1/mail/{id}/reply/draft      — SSE: stream nháp trả lời {tone, instruction, provider?, model?, apiKey?}
 ///   PATCH /api/v1/mail/{id}/status           — đổi trạng thái {status}
 /// </summary>
 public static class MailEndpoints
 {
-    private const int SyncMax = 30;
+    /// Cap mặc định khi không truyền ?max — đủ cover lần đầu sync hộp thư nhỏ.
+    private const int SyncMaxDefault = 100;
+    /// Cap tuyệt đối, tránh user nhập số quá lớn → IMAP timeout.
+    private const int SyncMaxAbsolute = 500;
     private static readonly JsonSerializerOptions SseJson = new(JsonSerializerDefaults.Web);
 
     public static IEndpointRouteBuilder MapMailEndpoints(this IEndpointRouteBuilder routes)
@@ -53,20 +58,22 @@ public static class MailEndpoints
         });
 
         // ─── POST /mail/sync ───────────────────────────────────────────────────
+        // Query: ?max=N (default 100, cap 500). Backward compat trả JSON 1 lần.
         v1.MapPost("/mail/sync", async (
             IMailSource source, MailRepository repo, MailClassifier classifier,
             TourkitAiProxy.Services.Workflow.IWorkflowTraceAccessor trace,
             TkSessionStore sessions,
-            ILogger<Program> log, HttpContext ctx) =>
+            ILogger<Program> log, HttpContext ctx, int? max) =>
         {
             var auth = RequireSession(ctx, sessions);
             if (auth == null) return Unauthorized();
             var (_, tenant) = auth.Value;
+            var fetchCap = Math.Clamp(max ?? SyncMaxDefault, 1, SyncMaxAbsolute);
 
             IReadOnlyList<MailItem> fetched;
             try
             {
-                fetched = await source.FetchRecentAsync(tenant, SyncMax, ctx.RequestAborted);
+                fetched = await source.FetchRecentAsync(tenant, fetchCap, ctx.RequestAborted);
             }
             catch (InvalidOperationException ex)   // chưa cấu hình
             {
@@ -86,10 +93,83 @@ public static class MailEndpoints
                 repo.Upsert(tenant, mail with { Category = cat, AiSummary = sum });
                 classified++;
             }
-            log.LogInformation("[mail] sync: {Fetched} kéo về, {New} phân loại mới", fetched.Count, classified);
+            log.LogInformation("[mail] sync: {Fetched} kéo về (cap {Cap}), {New} phân loại mới", fetched.Count, fetchCap, classified);
 
             var traceObj = trace.Current?.Enabled == true ? trace.Current.Build() : null;
-            return Results.Json(new { items = repo.Filter(tenant, null, null, null), counts = repo.Counts(tenant), classified, _trace = traceObj });
+            return Results.Json(new { items = repo.Filter(tenant, null, null, null), counts = repo.Counts(tenant), classified, fetched = fetched.Count, _trace = traceObj });
+        });
+
+        // ─── POST /mail/sync/stream ────────────────────────────────────────────
+        // SSE — stream progress để frontend hiện thanh tiến độ thay vì spinner mơ hồ.
+        // Events: {stage:"fetching"} → {stage:"classifying", current, total, subject}
+        //         (lặp lại từng mail) → {stage:"done", classified, fetched, counts, items}
+        v1.MapPost("/mail/sync/stream", async (
+            IMailSource source, MailRepository repo, MailClassifier classifier,
+            TkSessionStore sessions, ILogger<Program> log, HttpContext ctx, int? max) =>
+        {
+            var auth = RequireSession(ctx, sessions);
+            if (auth == null) { ctx.Response.StatusCode = 401; return; }
+            var (_, tenant) = auth.Value;
+            var fetchCap = Math.Clamp(max ?? SyncMaxDefault, 1, SyncMaxAbsolute);
+
+            ctx.Response.Headers["Content-Type"] = "text/event-stream";
+            ctx.Response.Headers["Cache-Control"] = "no-cache";
+            ctx.Response.Headers["X-Accel-Buffering"] = "no";
+
+            async Task Emit(object obj)
+            {
+                var json = JsonSerializer.Serialize(obj, SseJson);
+                await ctx.Response.WriteAsync($"data: {json}\n\n", ctx.RequestAborted);
+                await ctx.Response.Body.FlushAsync(ctx.RequestAborted);
+            }
+
+            try
+            {
+                await Emit(new { stage = "fetching", message = $"Đang kéo email từ Gmail (tối đa {fetchCap})..." });
+                IReadOnlyList<MailItem> fetched;
+                try
+                {
+                    fetched = await source.FetchRecentAsync(tenant, fetchCap, ctx.RequestAborted);
+                }
+                catch (InvalidOperationException ex)
+                {
+                    await Emit(new { stage = "error", message = ex.Message }); return;
+                }
+                catch (Exception ex)
+                {
+                    log.LogError(ex, "IMAP sync lỗi");
+                    await Emit(new { stage = "error", message = "Không kết nối được hộp thư: " + ex.Message }); return;
+                }
+
+                // Đếm email mới cần classify (skip đã có)
+                var newMails = fetched.Where(m => !repo.Has(tenant, m.Id)).ToList();
+                await Emit(new { stage = "fetched", fetched = fetched.Count, toClassify = newMails.Count });
+
+                int classified = 0;
+                for (int i = 0; i < newMails.Count; i++)
+                {
+                    var mail = newMails[i];
+                    await Emit(new {
+                        stage = "classifying",
+                        current = i + 1,
+                        total = newMails.Count,
+                        subject = mail.Subject?.Length > 60 ? mail.Subject[..60] + "..." : mail.Subject
+                    });
+                    var (cat, sum) = await classifier.ClassifyAsync(mail, ctx.RequestAborted);
+                    repo.Upsert(tenant, mail with { Category = cat, AiSummary = sum });
+                    classified++;
+                }
+                log.LogInformation("[mail] sync/stream: {Fetched} kéo về (cap {Cap}), {New} phân loại mới", fetched.Count, fetchCap, classified);
+
+                await Emit(new {
+                    stage = "done",
+                    fetched = fetched.Count,
+                    classified,
+                    items = repo.Filter(tenant, null, null, null),
+                    counts = repo.Counts(tenant)
+                });
+            }
+            catch (OperationCanceledException) { /* client disconnect */ }
         });
 
         // ─── GET /mail ─────────────────────────────────────────────────────────

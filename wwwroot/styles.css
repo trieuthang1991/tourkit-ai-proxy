@@ -3057,12 +3057,15 @@ body.editorial .ai-bubble .hl { color: #FDBA74; }
 .sc-sheet-btn.primary:hover { background: var(--primary-dark); border-color: var(--primary-dark); }
 .sc-sheet-btn.ghost { color: var(--text-2); }
 
-/* AdvancedFilterPanel — inline collapsible, COMPACT (taste density-7) */
+/* AdvancedFilterPanel — inline collapsible, COMPACT (taste density-7)
+   FIX: bỏ overflow:hidden → dropdown <select>/popover trong panel không bị clip
+   khi list option dài hơn panel. Animation đơn giản hóa: opacity + translateY
+   (không max-height transition) để vẫn smooth mà không cần overflow:hidden. */
 .sc-panel { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius-md);
-  box-shadow: var(--shadow-sm); margin: -4px 0 12px; overflow: hidden;
-  animation: scPanelIn .2s cubic-bezier(.16,1,.3,1); }
-@keyframes scPanelIn { from { opacity: 0; transform: translateY(-4px); max-height: 0; }
-                      to   { opacity: 1; transform: translateY(0);    max-height: 720px; } }
+  box-shadow: var(--shadow-sm); margin: -4px 0 12px;
+  animation: scPanelIn .18s cubic-bezier(.16,1,.3,1); }
+@keyframes scPanelIn { from { opacity: 0; transform: translateY(-4px); }
+                      to   { opacity: 1; transform: translateY(0); } }
 /* Header phẳng, dot cam mẫu eyebrow */
 .sc-panel-head { display: flex; align-items: center; justify-content: space-between; gap: 8px;
   padding: 10px 14px; border-bottom: 1px solid var(--border); }
@@ -3075,6 +3078,16 @@ body.editorial .ai-bubble .hl { color: #FDBA74; }
 .sc-panel-body { padding: 12px 14px; }
 .sc-panel-foot { display: flex; gap: 6px; padding: 10px 14px; border-top: 1px solid var(--border); background: var(--bg); }
 .sc-panel-foot .sc-sheet-btn { height: 34px; font-size: 12.5px; }
+
+/* Mail sync progress — hiện thanh tiến độ + tên email đang phân loại */
+.mail-sync-progress { background: var(--primary-soft); border: 1px solid rgba(249,115,22,0.25);
+  border-radius: var(--radius-md); padding: 10px 14px; margin: -4px 0 12px;
+  display: flex; flex-direction: column; gap: 6px; }
+.mail-sync-progress .msp-text { font-size: 12px; color: var(--text); font-weight: 600;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.mail-sync-progress .msp-bar { height: 6px; background: rgba(0,0,0,0.06); border-radius: 999px; overflow: hidden; }
+.mail-sync-progress .msp-bar-fill { height: 100%; background: var(--primary);
+  transition: width .25s cubic-bezier(.16,1,.3,1); border-radius: 999px; }
 
 /* ═══════════════════════════════════════════════════════════════════════════
    HomePage Launcher (pages/home.jsx) — FULL-SCREEN, không kế thừa app-shell.
