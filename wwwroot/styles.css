@@ -3158,6 +3158,22 @@ body.editorial .ai-bubble .hl { color: #FDBA74; }
 .hp-theme:hover { background: #FDE68A; }
 .hp-theme-ico { font-size: 14px; line-height: 1; }
 
+.hp-logout {
+  display: inline-flex; align-items: center; gap: 6px;
+  height: 34px; padding: 0 14px;
+  background: rgba(220, 38, 38, 0.08); color: #991B1B;
+  border: 1px solid rgba(220, 38, 38, 0.25);
+  border-radius: 999px; cursor: pointer;
+  font-size: 12px; font-weight: 700;
+  transition: all .12s; font-family: inherit;
+}
+.hp-logout:hover { background: rgba(220, 38, 38, 0.15); border-color: #DC2626; color: #DC2626; }
+.hp-logout svg { transform: rotate(0deg); }
+@media (max-width: 740px) {
+  .hp-logout span { display: none; }
+  .hp-logout { padding: 0 10px; }
+}
+
 .hp-status {
   display: inline-flex; align-items: center; gap: 6px;
   height: 34px; padding: 0 12px;

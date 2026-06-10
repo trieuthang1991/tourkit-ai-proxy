@@ -135,6 +135,17 @@
               <Icon name="clock" size={13} />
               <span className="hp-clock-val">{fmtClock(now)}</span>
             </span>
+            <button className="hp-logout"
+              onClick={async () => {
+                const ok = await window.appConfirm('Đăng xuất khỏi TourKit?', {
+                  title: 'Đăng xuất', confirmLabel: 'Đăng xuất', danger: true
+                });
+                if (ok) window.tourkitAuth.logout();
+              }}
+              title={`Đăng xuất (${user.fullName || user.companyName || 'Tài khoản'})`}>
+              <Icon name="arrowRight" size={14} />
+              <span>Đăng xuất</span>
+            </button>
           </div>
         </header>
 
