@@ -15,6 +15,7 @@ public class ProviderKeyStore
         ["anthropic"]   = ("Anthropic", "ANTHROPIC_API_KEY"),
         ["opencode-go"] = ("OpenCode", "OPENCODE_API_KEY"),
         ["nine-routes"] = ("NineRoutes", "NINE_ROUTES_API_KEY"),
+        ["deepseek"]    = ("DeepSeek", "DEEPSEEK_API_KEY"),
     };
 
     public ProviderKeyStore(IConfiguration cfg) => _cfg = cfg;
