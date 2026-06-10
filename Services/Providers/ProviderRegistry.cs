@@ -13,10 +13,10 @@ public class ProviderRegistry
             throw new InvalidOperationException("Chưa đăng ký provider nào — kiểm tra Program.cs DI.");
 
         // Default provider lookup ưu tiên:
-        //   1. Providers:Default (legacy)
-        //   2. Models:Primary:Provider (mới — admin chỉ cần khai Models:* là đủ)
+        //   1. Models:Primary:Provider (config mới — single source of truth)
+        //   2. Providers:Default (legacy fallback)
         //   3. Provider đầu tiên đăng ký
-        var defaultId = cfg["Providers:Default"] ?? cfg["Models:Primary:Provider"];
+        var defaultId = cfg["Models:Primary:Provider"] ?? cfg["Providers:Default"];
         _default = (defaultId != null && _byId.TryGetValue(defaultId, out var d))
             ? d
             : _byId.Values.First();

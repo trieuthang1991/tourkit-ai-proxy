@@ -64,6 +64,8 @@ public class NativeToolUseAgent : IAgentRuntime
     private const int MaxToolCalls   = 5;
     private const int WallClockSec   = 30;
 
+    private readonly IConfiguration _cfg;
+
     public NativeToolUseAgent(
         TourKitApiClient api,
         TkSessionStore sessions,
@@ -73,7 +75,8 @@ public class NativeToolUseAgent : IAgentRuntime
         IHttpClientFactory http,
         ProviderKeyStore keys,
         AiUsageLog usage,
-        AiCallContext ctx)
+        AiCallContext ctx,
+        IConfiguration cfg)
     {
         _api        = api;
         _sessions   = sessions;
@@ -84,6 +87,7 @@ public class NativeToolUseAgent : IAgentRuntime
         _keys       = keys;
         _usage      = usage;
         _ctx        = ctx;
+        _cfg        = cfg;
     }
 
     /// Chi xu ly khi provider la "anthropic".
@@ -104,7 +108,8 @@ public class NativeToolUseAgent : IAgentRuntime
         if (string.IsNullOrWhiteSpace(apiKey))
             throw new InvalidOperationException("Chưa nhập API key cho Claude (Anthropic).");
 
-        var model  = input.Model ?? "claude-sonnet-4-5";
+        // Default model: ưu tiên input override → Models:Primary:Model (appsettings) → sonnet-4-5
+        var model  = input.Model ?? _cfg["Models:Primary:Model"] ?? "claude-sonnet-4-5";
 
         // Đọc bộ nhớ chat của phiên, bổ sung context hội thoại trước vào system prompt.
         var memory = _sessions.GetMemory(input.SessionId) ?? SessionChatMemory.Empty();

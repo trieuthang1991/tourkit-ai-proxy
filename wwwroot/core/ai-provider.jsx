@@ -20,9 +20,12 @@
   // window.claude tồn tại trong Claude.ai/Artifacts; còn lại đi qua backend proxy.
   const HAS_BUILTIN_CLAUDE = typeof window !== 'undefined' && !!window.claude?.complete;
 
+  // Default: KHÔNG đặt provider/model — backend tự dùng Models:Primary từ appsettings.
+  // (UI Cấu hình AI đã ẩn, key đã chuyển backend, FE không cần biết model nào).
+  // claude-builtin override khi chạy trong Claude.ai/Artifacts.
   const DEFAULT_CONFIG = {
-    provider: HAS_BUILTIN_CLAUDE ? 'claude-builtin' : 'opencode-go',
-    model: 'deepseek-v4-flash',
+    provider: HAS_BUILTIN_CLAUDE ? 'claude-builtin' : null,
+    model: null,
     _v: CONFIG_VERSION
   };
 
