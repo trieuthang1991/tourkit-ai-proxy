@@ -6,38 +6,34 @@ using TourkitAiProxy.Services.Workflow;
 namespace TourkitAiProxy.Services.Reviews;
 
 /// <summary>
-/// Orchestrate 1 lượt review KH: fingerprint cache check → dispatch tới <see cref="IReviewAgent"/> phù hợp → save.
+/// Orchestrate 1 lượt review KH: KHÔNG check cache → luôn gọi AI → save vào DB cho list status badge.
 ///
-/// Strategy pattern (mirror Chat-Agent v2): inject <c>IEnumerable&lt;IReviewAgent&gt;</c>,
-/// pick agent đầu tiên <c>Supports(providerId)</c>. Thứ tự ở DI quan trọng:
-///   1. NativeToolReviewAgent — Anthropic native function-calling (schema-enforced)
-///   2. JsonPromptReviewAgent — fallback cho mọi provider (prompt-JSON + tolerant parse)
+/// Model mặc định đọc TỪ APPSETTINGS (`Models:Review:*`) — user không cấu hình ở UI.
+/// Per-call override (providerOverride/modelOverride/apiKeyOverride) chỉ dùng cho admin debug/AB,
+/// frontend không gửi nữa.
 ///
-/// Prompt + parse logic tách ra <see cref="ReviewPrompt"/> để 2 agent dùng chung,
-/// tránh drift schema giữa 2 path.
+/// Strategy pattern: inject IEnumerable&lt;IReviewAgent&gt;, pick agent đầu tiên Supports(providerId).
 /// </summary>
 public class ReviewService
 {
     private readonly ReviewRepository _reviews;
     private readonly ProviderRegistry _registry;
+    private readonly ModelDefaults _defaults;
     private readonly IEnumerable<IReviewAgent> _agents;
     private readonly IWorkflowTraceAccessor _trace;
     private readonly ILogger<ReviewService> _log;
 
     public ReviewService(
-        ReviewRepository reviews, ProviderRegistry registry,
+        ReviewRepository reviews, ProviderRegistry registry, ModelDefaults defaults,
         IEnumerable<IReviewAgent> agents,
         IWorkflowTraceAccessor trace, ILogger<ReviewService> log)
     {
-        _reviews = reviews; _registry = registry; _agents = agents;
+        _reviews = reviews; _registry = registry; _defaults = defaults; _agents = agents;
         _trace = trace; _log = log;
     }
 
-    /// Return review (cached nếu fingerprint không đổi & không forceFresh; gọi AI nếu cần).
-    /// `onStage` lifecycle: "preparing" → "calling" → "parsing" → null khi done.
-    /// `providerOverride/modelOverride/apiKeyOverride`: per-call A/B test giữa 2 path
-    /// (vd anthropic native-tool vs opencode-go JSON fallback) mà KHÔNG đổi config global.
-    /// Tuple: (review, fromCache).
+    /// Gọi AI mới mỗi lần (KHÔNG check cache). Save vào DB sau khi xong.
+    /// `forceFresh` param giữ cho back-compat API contract, hiện tại no-op (luôn fresh).
     public async Task<(CustomerReview review, bool fromCache)> ReviewAsync(
         Customer customer, string tenantId, bool forceFresh = false,
         Func<string, string?, Task>? onStage = null,
@@ -51,58 +47,46 @@ public class ReviewService
         trace?.SetMeta("customerId", customer.Id);
         trace?.SetMeta("customerName", customer.Name);
         trace?.SetMeta("tenantId", tenantId);
-        trace?.SetMeta("forceFresh", forceFresh);
-        if (providerOverride != null) trace?.SetMeta("providerOverride", providerOverride);
-        if (modelOverride    != null) trace?.SetMeta("modelOverride", modelOverride);
 
         var fingerprint = ReviewRepository.FingerprintFor(customer);
-        var fpTimer = trace?.Begin("fingerprint_check");
 
-        if (!forceFresh)
-        {
-            var existing = _reviews.Get(tenantId, customer.Id);
-            if (existing != null && existing.DataFingerprint == fingerprint)
-            {
-                fpTimer?.Done("ok",
-                    $"Fingerprint khớp ({fingerprint[..8]}…) → trả review cũ, skip AI",
-                    new() { ["fingerprint"] = fingerprint, ["cached"] = true });
-                return (existing, true);
-            }
-        }
-        fpTimer?.Done("skip",
-            forceFresh ? "forceFresh=true → bỏ qua cache, gọi AI mới"
-                       : "Fingerprint mới hoặc chưa có review → gọi AI",
-            new() { ["fingerprint"] = fingerprint });
+        // Resolve provider/model/apiKey từ Models:Review config (override CHO PHÉP nhưng default = appsettings).
+        var review = _defaults.Review;
+        var resolvedProvider = providerOverride ?? review.Provider;
+        var resolvedModel    = modelOverride    ?? review.Model;
+        var resolvedApiKey   = apiKeyOverride   ?? review.ApiKey;
 
-        // ── Dispatch tới agent phù hợp ──────────────────────────────────────
-        // Resolve provider id: ưu tiên override → fallback default registry.
-        // Pick agent đầu tiên Supports(providerId). Thứ tự đăng ký ở DI quyết định
-        // ai chạy trước (NativeToolReviewAgent trước, JsonPromptReviewAgent fallback).
-        var providerId = _registry.Resolve(providerOverride).Id;
+        trace?.Step("config_resolved", "ok", 0,
+            $"Models:Review từ appsettings → provider={resolvedProvider}, model={resolvedModel}, " +
+            $"apiKey={(string.IsNullOrEmpty(resolvedApiKey) ? "(rỗng — fallback ProviderKeyStore)" : "***")}",
+            new() {
+                ["provider"] = resolvedProvider ?? "",
+                ["model"] = resolvedModel ?? "",
+                ["hasApiKey"] = !string.IsNullOrEmpty(resolvedApiKey)
+            });
+
+        var providerId = _registry.Resolve(resolvedProvider).Id;
         var agent = _agents.FirstOrDefault(a => a.Supports(providerId))
             ?? throw new InvalidOperationException(
-                $"Không có IReviewAgent nào hỗ trợ provider '{providerId}' — " +
-                $"đăng ký ít nhất JsonPromptReviewAgent ở Program.cs để fallback.");
+                $"Không có IReviewAgent nào hỗ trợ provider '{providerId}'.");
 
         trace?.Step("agent_dispatch", "ok", 0,
-            providerOverride != null
-                ? $"Provider override '{providerOverride}' → resolved '{providerId}' → pick {agent.GetType().Name}"
-                : $"Provider mặc định '{providerId}' → pick {agent.GetType().Name}",
+            $"Provider '{providerId}' → pick {agent.GetType().Name}",
             new() {
                 ["provider"] = providerId,
-                ["providerSource"] = providerOverride != null ? "override" : "default",
                 ["agent"] = agent.GetType().Name,
                 ["candidates"] = _agents.Select(a => a.GetType().Name).ToArray()
             });
 
         var result = await agent.RunAsync(
             customer, fingerprint, tenantId,
-            providerOverride: providerOverride,
-            modelOverride:    modelOverride,
-            apiKeyOverride:   apiKeyOverride,
+            providerOverride: resolvedProvider,
+            modelOverride:    resolvedModel,
+            apiKeyOverride:   resolvedApiKey,
             onStage: onStage, trace: trace, ct: ct);
 
+        // Save DB cho list status badge ("none" → "fresh") — không skip lần sau, chỉ overwrite.
         _reviews.Save(result.Review, tenantId);
-        return (result.Review, false);
+        return (result.Review, false);   // fromCache luôn false
     }
 }

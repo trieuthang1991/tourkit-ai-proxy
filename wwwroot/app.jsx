@@ -290,9 +290,10 @@ function App() {
               title={debugOn ? 'Đang HIỆN cách vận hành cho mọi feature AI — bấm để tắt' : 'Bật debug để xem cách AI vận hành (workflow trace)'}>
               <Icon name="info" size={17} />
             </button>
-            <button className="tb-ai" onClick={() => setAiSettingsOpen(true)} title={`AI: ${aiCfg.provider} · ${aiCfg.model}`}>
+            {/* AI cấu hình mặc định ở appsettings.json — ẩn nút topbar (key đã chuyển backend) */}
+            {false && <button className="tb-ai" onClick={() => setAiSettingsOpen(true)} title={`AI: ${aiCfg.provider} · ${aiCfg.model}`}>
               <Icon name="sparkle" size={14} /> <span>AI: {aiCfg.model}</span>
-            </button>
+            </button>}
             <div className="tb-userwrap">
               <button className="tb-user" onClick={() => setUserMenu(v => !v)}>
                 <div className="user-avatar">{userInitials(authUser.fullName || authUser.companyName)}</div>
@@ -306,9 +307,10 @@ function App() {
                     <div className="tb-menu-name">{authUser.fullName || 'Tài khoản'}</div>
                     {authUser.tenantId && <div className="tb-menu-sub">{authUser.tenantId}</div>}
                   </div>
-                  <button className="tb-menu-item" onClick={() => { setUserMenu(false); setAiSettingsOpen(true); }}>
+                  {/* Cấu hình AI ẩn — key đã chuyển vào appsettings backend */}
+                  {false && <button className="tb-menu-item" onClick={() => { setUserMenu(false); setAiSettingsOpen(true); }}>
                     <Icon name="sparkle" size={15} /> Cấu hình AI
-                  </button>
+                  </button>}
                   <button className="tb-menu-item danger"
                     onClick={async () => { setUserMenu(false); if (await window.appConfirm('Đăng xuất khỏi TourKit?', { title: 'Đăng xuất', confirmLabel: 'Đăng xuất', danger: true })) window.tourkitAuth.logout(); }}>
                     <Icon name="arrowRight" size={15} /> Đăng xuất
