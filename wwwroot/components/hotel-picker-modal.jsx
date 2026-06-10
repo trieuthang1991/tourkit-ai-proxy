@@ -1,14 +1,65 @@
-// components/hotel-picker-modal.jsx — Modal chọn 1 hotel NCC cho 1 activity Step 2.
-// Khác NccTierPicker: chọn 1 hotel cụ thể (không phân tier), filter theo pax đoàn,
-// tự tính cost theo công thức pricePerPax × pax (1 đêm). User dùng cho dòng HOTEL
-// trong itinerary Step 2 để THAY thế tên/giá AI bịa.
+// components/hotel-picker-modal.jsx — Modal pick hotel + ROOM PACK cho 1 activity Step 2.
+// Flow v3:
+//   1. List NCC hotel → user pick 1 hotel
+//   2. Load room types có giá hợp đồng
+//   3. Auto-suggest pack: qty mỗi loại phòng dựa trên pax
+//      (default: phòng đôi capacity 2, pax lẻ → 1 phòng đơn + còn lại đôi)
+//   4. User chỉnh qty inline → total/đêm update realtime
+//   5. Confirm → activity.cost = total × 1 đêm, supplier = hotel name
 //
-// Mở qua: openHotelPicker({ pax, currentTitle, onPick: (data) => ... })
-// Đóng tự động sau khi user xác nhận pick.
+// Rule pack mặc định (helper computeDefaultPack):
+//   - Phòng "đôi"/"đôi"/"double" → capacity 2
+//   - Phòng "đơn"/"single"      → capacity 1
+//   - Phòng "tam"/"triple"      → capacity 3
+//   - Phòng "tứ"/"family"/"quad"→ capacity 4
+//   - Khác                       → capacity 2 (fallback)
+//   - Algorithm: chọn loại có capacity gần nhất với pax/N, tối ưu chia hết
+//   - Pax lẻ + không có phòng đơn → 1 phòng "đôi" có giường phụ (qty không đổi)
 
 const { useState: _hpS, useEffect: _hpE, useMemo: _hpM } = React;
 
 const HOTEL_CATEGORY_ID_HP = 1;
+
+// ── Helpers ─────────────────────────────────────────────────────────────────
+// Capacity từ tên phòng (heuristic — sales chỉnh sau cũng được).
+function roomCapacity(name) {
+  const s = String(name || '').toLowerCase();
+  if (/đơn|single/.test(s)) return 1;
+  if (/tam|triple|3\s*ng/.test(s)) return 3;
+  if (/(tứ|quad|family|4\s*ng)/.test(s)) return 4;
+  // Default: phòng đôi / double / standard / deluxe → 2
+  return 2;
+}
+function roomPrice(r) {
+  return r.contractPrice > 0 ? r.contractPrice : (r.publicPrice || 0);
+}
+// Auto-pack: chia pax thành room qty tối ưu (ưu tiên phòng đôi).
+function computeDefaultPack(pricedRooms, pax) {
+  if (!pricedRooms.length) return {};
+  // Tìm room "đôi" capacity 2 — primary
+  const double = pricedRooms.find(r => roomCapacity(r.name) === 2);
+  const single = pricedRooms.find(r => roomCapacity(r.name) === 1);
+  const pack = {};
+  pricedRooms.forEach(r => { pack[r.id] = 0; });
+  if (!double && !single) {
+    // Fallback: dùng room đầu tiên
+    pack[pricedRooms[0].id] = Math.ceil(pax / roomCapacity(pricedRooms[0].name));
+    return pack;
+  }
+  if (!double) {
+    // Chỉ có đơn → qty = pax
+    pack[single.id] = pax;
+    return pack;
+  }
+  // Có phòng đôi (và có thể có đơn): pack tối ưu
+  if (pax % 2 === 0 || !single) {
+    pack[double.id] = Math.ceil(pax / 2);
+  } else {
+    pack[single.id] = 1;
+    pack[double.id] = (pax - 1) / 2;
+  }
+  return pack;
+}
 
 function HotelPickerModal({ open, pax, currentTitle, onPick, onClose }) {
   const [hotels, setHotels]     = _hpS([]);
@@ -51,21 +102,39 @@ function HotelPickerModal({ open, pax, currentTitle, onPick, onClose }) {
     ).slice(0, 120);
   }, [hotels, search]);
 
+  // Pack qty state — { roomId: qty } cho phòng có giá > 0 ở picked hotel.
+  const [pack, setPack] = _hpS({});
+  // Khi picked rooms load xong → auto-compute default pack theo pax.
+  _hpE(() => {
+    if (!picked?.rooms) return;
+    const priced = picked.rooms.filter(r => roomPrice(r) > 0);
+    if (priced.length === 0) { setPack({}); return; }
+    setPack(computeDefaultPack(priced, pax || 1));
+  }, [picked?.rooms, pax]);
+
   if (!open) return null;
 
-  const handleConfirm = (room) => {
-    const roomPrice = room.contractPrice > 0 ? room.contractPrice : room.publicPrice;
-    // pricePerPax giả định 2 khách/phòng. Tổng = pricePerPax × pax (1 đêm).
-    const pricePerPax = Math.round(roomPrice / 2);
+  // Tính total/đêm theo pack hiện tại.
+  const pricedRooms = (picked?.rooms || []).filter(r => roomPrice(r) > 0);
+  const totalPerNight = pricedRooms.reduce((s, r) => s + roomPrice(r) * (pack[r.id] || 0), 0);
+  const totalCapacity = pricedRooms.reduce((s, r) => s + roomCapacity(r.name) * (pack[r.id] || 0), 0);
+  const overflow      = totalCapacity < (pax || 1);
+  const surplus       = totalCapacity > (pax || 1);
+  const pricePerPax   = (pax || 1) > 0 ? totalPerNight / (pax || 1) : 0;
+
+  const handleConfirm = () => {
+    // Build description ngắn: "5 phòng đôi + 1 phòng đơn"
+    const parts = pricedRooms.filter(r => (pack[r.id] || 0) > 0)
+      .map(r => `${pack[r.id]} ${(r.name || 'Phòng đôi').toLowerCase()}`);
     onPick({
       title: picked.provider.name,
       supplier: picked.provider.name,
       supplierId: picked.provider.id,
-      roomTypeId: room.id,
-      roomTypeName: room.name || 'Phòng đôi',
-      pricePerPaxPerNight: pricePerPax,
-      cost: pricePerPax * (pax || 1),    // cost cho 1 đêm
-      description: `${room.name || 'Phòng đôi'} · ${window.fmtVND(pricePerPax)}/khách/đêm`
+      pack: pack,   // { roomId: qty }
+      packDescription: parts.join(' + '),
+      pricePerPaxPerNight: Math.round(pricePerPax),
+      cost: Math.round(totalPerNight),   // tổng / 1 đêm
+      description: `${parts.join(' + ')} · ${window.fmtVND(Math.round(totalPerNight))}/đêm`
     });
     onClose();
   };
@@ -116,32 +185,75 @@ function HotelPickerModal({ open, pax, currentTitle, onPick, onClose }) {
               </button>
               <div className="hpm-picked-name">{picked.provider.name}</div>
             </div>
-            <div className="hpm-room-list">
+            <div className="hpm-pack">
               {picked.loadingR ? <div className="hpm-loading">Đang tải bảng giá hợp đồng…</div>
-              : !picked.rooms || picked.rooms.length === 0 ? (
+              : pricedRooms.length === 0 ? (
                 <div className="hpm-empty">
                   NCC chưa có bảng giá hợp đồng cho hạng mục Khách sạn.
                   <button className="hpm-link" onClick={() => setPicked(null)}>Đổi NCC khác</button>
                 </div>
-              ) : picked.rooms.map(r => {
-                const roomPrice = r.contractPrice > 0 ? r.contractPrice : r.publicPrice;
-                const perPax = Math.round(roomPrice / 2);
-                const total = perPax * (pax || 1);
-                return (
-                  <button key={r.id} className="hpm-room" onClick={() => handleConfirm(r)}>
-                    <div className="hpm-room-info">
-                      <div className="hpm-room-name">{r.name || 'Phòng đôi'}</div>
-                      <div className="hpm-room-unit">
-                        {window.fmtVND(perPax)}/khách/đêm · 2 khách/phòng
+              ) : (
+                <>
+                  <div className="hpm-pack-label">
+                    Pack phòng — gợi ý {pax || 1} khách (sửa qty nếu cần):
+                  </div>
+                  {pricedRooms.map(r => {
+                    const price = roomPrice(r);
+                    const cap   = roomCapacity(r.name);
+                    const qty   = pack[r.id] || 0;
+                    const subTotal = price * qty;
+                    return (
+                      <div key={r.id} className="hpm-pack-row">
+                        <div className="hpm-pack-info">
+                          <div className="hpm-pack-name">{r.name || 'Phòng đôi'}</div>
+                          <div className="hpm-pack-meta">
+                            <span>{window.fmtVND(price)}/phòng/đêm</span>
+                            <span>·</span>
+                            <span>{cap} khách/phòng</span>
+                          </div>
+                        </div>
+                        <div className="hpm-pack-qty">
+                          <button className="hpm-qty-btn" disabled={qty <= 0}
+                            onClick={() => setPack(p => ({ ...p, [r.id]: Math.max(0, (p[r.id] || 0) - 1) }))}>
+                            −
+                          </button>
+                          <input className="hpm-qty-num" type="number" min={0} value={qty}
+                            onChange={e => setPack(p => ({ ...p, [r.id]: Math.max(0, parseInt(e.target.value) || 0) }))} />
+                          <button className="hpm-qty-btn"
+                            onClick={() => setPack(p => ({ ...p, [r.id]: (p[r.id] || 0) + 1 }))}>
+                            +
+                          </button>
+                        </div>
+                        <div className="hpm-pack-sub">
+                          {qty > 0 ? window.fmtVND(subTotal) : '—'}
+                        </div>
                       </div>
+                    );
+                  })}
+                  {/* Total bar — sticky bottom */}
+                  <div className="hpm-pack-summary">
+                    <div className="hpm-pack-cap-row">
+                      <span className={'hpm-pack-cap' + (overflow ? ' bad' : surplus ? ' warn' : ' ok')}>
+                        {overflow ? '⚠ Thiếu' : surplus ? 'Dư' : '✓ Khớp'} chỗ:
+                        <strong> {totalCapacity}/{pax || 1} khách</strong>
+                      </span>
+                      <span className="hpm-pack-per-pax">
+                        {window.fmtVND(Math.round(pricePerPax))}<em>/khách/đêm</em>
+                      </span>
                     </div>
-                    <div className="hpm-room-total">
-                      <div className="hpm-room-total-val">{window.fmtVND(total)}</div>
-                      <div className="hpm-room-total-label">cho {pax || 1} khách / 1 đêm</div>
+                    <div className="hpm-pack-total-row">
+                      <span className="hpm-pack-total-label">Tổng / 1 đêm</span>
+                      <span className="hpm-pack-total-val">{window.fmtVND(totalPerNight)}</span>
                     </div>
-                  </button>
-                );
-              })}
+                    <button className="hpm-confirm"
+                      onClick={handleConfirm}
+                      disabled={totalPerNight === 0 || overflow}
+                      title={overflow ? 'Pack thiếu chỗ — thêm phòng đi' : ''}>
+                      ✓ Áp dụng pack vào lịch trình
+                    </button>
+                  </div>
+                </>
+              )}
             </div>
           </>
         )}

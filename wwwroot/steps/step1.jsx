@@ -381,16 +381,34 @@ Gợi ý 5 sở thích / yêu cầu đặc biệt khác phù hợp với điểm
           suggestContext={request}
         />
 
-        {/* NCC Tier Picker (Step 1.5): chọn hotel NCC THẬT cho 3 tier 3,4,5 sao.
-            Bỏ trống tier nào thì báo giá ẩn phương án đó. Component tự load NCC
-            từ endpoint /api/v1/ncc/providers serviceId=1 (Khách sạn). */}
-        {hotelOptions !== undefined && setHotelOptions && window.NccTierPicker && (
-          <window.NccTierPicker
-            hotelOptions={hotelOptions}
-            setHotelOptions={setHotelOptions}
-            marketId={null}
-            pushToast={pushToast}
-          />
+        {/* Tier chip selector (v3): user CHỈ chọn HẠNG SAO muốn báo giá. KHÔNG pick
+            hotel cụ thể ở đây. Bước 2 sẽ cho pick hotel + pack phòng per activity.
+            hotelTiers = mảng số sao [3, 4, 5]. Mỗi tier checked → Bước 4 sinh 1 báo giá. */}
+        {hotelStars !== undefined && setHotelStars && (
+          <div className="field">
+            <label className="label">
+              <Icon name="bed" size={13} /> Hạng khách sạn cần báo giá
+            </label>
+            <div className="chips">
+              {[3, 4, 5].map(s => {
+                const on = hotelStars.includes(s);
+                return (
+                  <button key={s} type="button"
+                    className={`chip ${on ? 'active' : ''}`}
+                    onClick={() => setHotelStars(stars => on
+                      ? stars.filter(x => x !== s)
+                      : [...stars, s].sort())}
+                    style={{minWidth: 90}}>
+                    <Icon name="star" size={12} /> Hạng {s}★
+                  </button>
+                );
+              })}
+            </div>
+            <div style={{fontSize: 11, color: 'var(--text-3)', marginTop: 6, lineHeight: 1.45}}>
+              💡 Chọn 1-3 hạng — Bước 4 sẽ ra {hotelStars.length} báo giá song song để khách chọn.
+              Hotel cụ thể + giá hợp đồng pick ở Bước 2 (Lập lịch trình) cho từng đêm.
+            </div>
+          </div>
         )}
 
         {/* ── PAX RANGE matrix (v2 logic — markup theo nhóm pax) ───────────────

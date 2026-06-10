@@ -4082,3 +4082,53 @@ html[data-home-theme="dark"] .hp-theme {
   display: flex; justify-content: space-between; align-items: flex-end; gap: 8px; }
 .qtc-total-label { font-size: 10.5px; color: var(--text-3); font-weight: 600; }
 .qtc-total-val { font-size: 13px; font-weight: 800; color: var(--text); }
+
+/* ── Hotel pack editor (v3) — qty per room type + sticky total ────────── */
+.hpm-pack { overflow-y: auto; flex: 1; display: flex; flex-direction: column; padding: 10px 4px; }
+.hpm-pack-label { font-size: 11px; font-weight: 700; color: var(--text-3);
+  text-transform: uppercase; letter-spacing: 0.4px; padding: 4px 14px 10px; }
+.hpm-pack-row { display: grid; grid-template-columns: 1fr auto auto; gap: 12px;
+  align-items: center; padding: 10px 14px; border-bottom: 1px solid var(--border); }
+.hpm-pack-row:last-of-type { border-bottom: none; }
+.hpm-pack-info { min-width: 0; }
+.hpm-pack-name { font-size: 13px; font-weight: 700; color: var(--text);
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.hpm-pack-meta { display: flex; gap: 6px; font-size: 11px; color: var(--text-3); margin-top: 2px; }
+.hpm-pack-qty { display: flex; align-items: center; gap: 4px; }
+.hpm-qty-btn { width: 28px; height: 28px; border: 1px solid var(--border);
+  background: white; cursor: pointer; border-radius: 6px; font-size: 15px;
+  font-weight: 700; color: var(--text-2); display: grid; place-items: center;
+  font-family: inherit; transition: all 0.12s; }
+.hpm-qty-btn:hover:not(:disabled) { border-color: var(--primary); color: var(--primary); }
+.hpm-qty-btn:disabled { opacity: 0.4; cursor: not-allowed; }
+.hpm-qty-num { width: 48px; height: 28px; text-align: center; font-size: 13px;
+  font-weight: 700; border: 1px solid var(--border); border-radius: 6px;
+  font-family: inherit; color: var(--text); -moz-appearance: textfield; }
+.hpm-qty-num::-webkit-outer-spin-button,
+.hpm-qty-num::-webkit-inner-spin-button { -webkit-appearance: none; margin: 0; }
+.hpm-pack-sub { min-width: 90px; text-align: right; font-size: 13px;
+  font-weight: 700; color: var(--text-2); }
+
+.hpm-pack-summary { position: sticky; bottom: 0; background: var(--bg);
+  border-top: 1px solid var(--border); padding: 12px 14px;
+  display: flex; flex-direction: column; gap: 10px; }
+.hpm-pack-cap-row { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.hpm-pack-cap { font-size: 11.5px; font-weight: 600; color: var(--text-2); }
+.hpm-pack-cap.ok strong { color: #10b981; }
+.hpm-pack-cap.warn strong { color: #f59e0b; }
+.hpm-pack-cap.bad strong { color: #dc2626; }
+.hpm-pack-per-pax { font-size: 13px; font-weight: 700; color: var(--primary); }
+.hpm-pack-per-pax em { font-size: 10px; color: var(--text-3); font-weight: 500;
+  font-style: normal; margin-left: 2px; }
+.hpm-pack-total-row { display: flex; justify-content: space-between; align-items: baseline;
+  padding: 10px 14px; background: white; border-radius: 8px; }
+.hpm-pack-total-label { font-size: 11px; font-weight: 700; color: var(--text-3);
+  text-transform: uppercase; letter-spacing: 0.4px; }
+.hpm-pack-total-val { font-size: 18px; font-weight: 800; color: var(--text);
+  letter-spacing: -0.02em; }
+.hpm-confirm { width: 100%; padding: 11px 16px; background: var(--primary);
+  color: white; border: none; border-radius: 10px; font-size: 13px; font-weight: 800;
+  cursor: pointer; transition: all 0.14s; text-transform: uppercase;
+  letter-spacing: 0.4px; font-family: inherit; }
+.hpm-confirm:hover:not(:disabled) { background: var(--primary-dark); }
+.hpm-confirm:disabled { background: #d1d5db; color: white; cursor: not-allowed; }
