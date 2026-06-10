@@ -374,25 +374,27 @@ function DealsPage({ pushToast }) {
         title="Ưu tiên Deal AI"
         badge="EV + độ gấp"
         sub="AI chấm khả năng thắng từng cơ hội bán hàng và xếp hạng nên xử lý deal nào trước."
-        status={{ label: total > 0 ? `${total} CƠ HỘI · ${boardItems.length} ĐÃ CHẤM` : (running ? 'ĐANG PHÂN TÍCH' : (listLoading ? 'ĐANG TẢI' : 'CHƯA CÓ DỮ LIỆU')),
-          detail: board?.generatedAt ? `Chấm lần cuối ${new Date(board.generatedAt).toLocaleTimeString('vi-VN')}` : 'Bấm "Phân tích AI" để chấm điểm',
+        status={{ label: total > 0 ? `${total} CƠ HỘI` : (running ? 'ĐANG PHÂN TÍCH' : (listLoading ? 'ĐANG TẢI' : 'CHƯA CÓ DỮ LIỆU')),
+          detail: selectedIds.size > 0 ? `${selectedIds.size} đã chọn` : 'Chọn cơ hội để chấm',
           tone: total > 0 ? 'live' : 'idle' }}
         actions={<>
           <button className={'btn btn-sm autotoggle ' + (autoAnalyze ? 'on' : 'off')}
-            onClick={toggleAutoAnalyze} title="Tự động phân tích cơ hội khi mở page (lưu theo tài khoản, skip nếu vừa chấm < 30 phút)">
+            onClick={toggleAutoAnalyze}
+            title="Tự động chấm cơ hội chưa có score khi mở page (lưu theo tài khoản)">
             <Icon name={autoAnalyze ? 'check' : 'close'} size={14} /> Tự động {autoAnalyze ? 'ON' : 'OFF'}
           </button>
-          {selectedIds.size > 0 && !running && (
-            <button className="btn btn-ghost btn-sm" onClick={clearSelected} title="Bỏ chọn">
-              <Icon name="close" size={14} /> Bỏ chọn {selectedIds.size}
-            </button>
-          )}
+          <button className="btn btn-ghost btn-sm" onClick={loadList} disabled={listLoading || running}>
+            <Icon name="refresh" size={14} /> Refresh
+          </button>
           {running
-            ? <button className="deals-btn" onClick={cancel}><Icon name="close" size={15} /> Hủy</button>
-            : <button className="deals-btn primary"
-                onClick={() => selectedIds.size > 0 ? setConfirmOpen(true) : run()}>
-                <Icon name="sparkle" size={15} />
-                {selectedIds.size > 0 ? `Chấm AI ${selectedIds.size} deal` : 'Phân tích AI (top 20 ưu tiên)'}
+            ? <button className="btn btn-ghost btn-sm" onClick={cancel}>
+                <Icon name="close" size={14} /> Hủy
+              </button>
+            : <button className="btn btn-primary btn-sm"
+                disabled={selectedIds.size === 0}
+                onClick={() => setConfirmOpen(true)}>
+                <Icon name="sparkle" size={14} />
+                Chấm {selectedIds.size > 0 ? `${selectedIds.size} cơ hội` : 'bằng AI'}
               </button>}
         </>}
       />
@@ -455,7 +457,7 @@ function DealsPage({ pushToast }) {
       {items.length > 0 && (<>
         {board?.generatedAt && (
           <div className="deals-meta">
-            Top {board.deepScored} cơ hội ưu tiên · quét {board.scanned} cơ hội mở · cập nhật {new Date(board.generatedAt).toLocaleString('vi-VN')}
+            Lần chấm gần nhất {new Date(board.generatedAt).toLocaleString('vi-VN')} · {board.deepScored} cơ hội đã chấm
           </div>
         )}
 
