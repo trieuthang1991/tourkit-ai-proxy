@@ -31,13 +31,127 @@ function EditableNum({ value, suffix, onChange, formatter, disabled }) {
     style={{width: 90, textAlign: 'right', font: 'inherit'}} />;
 }
 
+// ── Section sub-table (Chi phí Riêng / Chung / By Day) ────────────────────
+// Render 1 sub-bảng với section header (avatar icon + code + title + tag)
+// + table rows (7 cols compact) + subtotal "CỘNG PHỤ MỤC CỦA BẢNG"
+function CostingSection({ code, title, tag, tagIcon, color, bg, sub,
+                          list, subNet, subSale, effNet, rowMarkup, rowSale, rowCostType,
+                          updateRow, useGlobal, totalPax, empty }) {
+  return (
+    <div className="costing-section">
+      <div className="cs-head">
+        <div className="cs-avatar" style={{background: bg, color: color}}>
+          <Icon name={tagIcon} size={14} stroke={2} />
+        </div>
+        <div className="cs-head-text">
+          <div className="cs-title">
+            <strong>{code}. {title}</strong>
+            {tag && <span className="cs-tag" style={{color: color}}>({tag})</span>}
+          </div>
+          {sub && <div className="cs-sub">{sub}</div>}
+        </div>
+      </div>
+
+      {list.length === 0 ? (
+        <div className="cs-empty">{empty || 'Chưa có dịch vụ'}</div>
+      ) : (
+        <div className="cs-table-wrap">
+          <table className="costing-table cs-table">
+            <thead>
+              <tr>
+                <th>DỊCH VỤ</th>
+                <th>NHÀ CUNG CẤP / CHI TIẾT</th>
+                <th>SỐ LƯỢNG</th>
+                <th className="num">GIÁ NET</th>
+                <th className="num">VAT (%)</th>
+                <th className="num">MARKUP</th>
+                <th className="num">THÀNH TIỀN (SALE)</th>
+              </tr>
+            </thead>
+            <tbody>
+              {list.map(({r, i}) => {
+                const en = effNet(r);
+                const hasFoc = r.focRatio && r.focRatio > 0;
+                const sale = rowSale(r);
+                const ct = rowCostType(r);
+                return (
+                  <tr key={i}>
+                    <td>
+                      <div className="svc">
+                        <span className="svc-icon"><Icon name={SERVICE_TYPES[r.type]?.icon || 'star'} size={14} /></span>
+                        <div>
+                          <div style={{fontWeight: 600}}>{r.service}</div>
+                          <div className="cs-row-type" style={{color: color, background: bg}}>
+                            <Icon name={tagIcon} size={9} /> {ct === 'pax' ? 'CHI PHÍ RIÊNG' : 'CHI PHÍ CHUNG'}
+                          </div>
+                        </div>
+                      </div>
+                    </td>
+                    <td>
+                      <div style={{fontSize: 12.5}}>{r.supplier || '—'}</div>
+                      {r.detail && <div style={{fontSize: 11, color: 'var(--text-3)', marginTop: 2}}>{r.detail}</div>}
+                      {r.verified && <span className="verified"><Icon name="checkCircle" size={11} stroke={2.2} /> verified</span>}
+                    </td>
+                    <td style={{color: 'var(--text-2)'}}>
+                      <span style={{color: color, fontWeight: 600}}>{r.qty}</span>
+                      {ct === 'pax' ? ' Pax' : ' Đoàn'}
+                    </td>
+                    <td className="num">
+                      <EditableNum value={r.priceNet} formatter={fmtVND}
+                        onChange={v => updateRow(i, 'priceNet', v)} />
+                      {(ct === 'pax' || hasFoc) && (
+                        <div style={{fontSize: 10, color: hasFoc ? '#10b981' : 'var(--text-3)', fontWeight: 600, marginTop: 2}}>
+                          {ct === 'pax' ? `× ${totalPax} = ` : 'eff: '}{fmtVND(Math.round(en))}{hasFoc && ' (FOC)'}
+                        </div>
+                      )}
+                    </td>
+                    <td className="num">
+                      <EditableNum value={r.vat} suffix="%"
+                        onChange={v => updateRow(i, 'vat', v)} />
+                    </td>
+                    <td className="num markup">
+                      <EditableNum value={rowMarkup(r)} suffix="%"
+                        onChange={v => updateRow(i, 'markup', v)}
+                        formatter={v => '+' + v}
+                        disabled={useGlobal} />
+                    </td>
+                    <td className="num" style={{fontWeight: 700}}>
+                      <span className="numeric">{fmtVND(sale)}</span>
+                    </td>
+                  </tr>
+                );
+              })}
+              <tr className="cs-subtotal">
+                <td colSpan={3} style={{textAlign: 'right', fontWeight: 700, color: 'var(--text-2)',
+                  textTransform: 'uppercase', fontSize: 11.5, letterSpacing: '0.04em'}}>
+                  CỘNG PHỤ MỤC CỦA BẢNG:
+                </td>
+                <td className="num" colSpan={3} style={{textAlign: 'right', color: 'var(--text-2)', fontWeight: 600}}>
+                  Cộng Net: <span className="numeric" style={{color: 'var(--text)', fontWeight: 700, marginLeft: 6}}>{fmtVND(Math.round(subNet))}</span>
+                </td>
+                <td className="num" style={{fontWeight: 800, color: color}}>
+                  <span style={{fontSize: 11, color: 'var(--text-3)', fontWeight: 600, marginRight: 6}}>Cộng Sale:</span>
+                  <span className="numeric">{fmtVND(Math.round(subSale))}</span>
+                </td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      )}
+    </div>
+  );
+}
+window.CostingSection = CostingSection;
+
 function Step3Costing({ rows, setRows, request, onNext, onBack, pushToast,
                        hotelStars, setHotelStars, paxRanges, setPaxRanges,
-                       hotelOptions, activeTier, setActiveTier }) {
+                       hotelOptions, activeTier, setActiveTier, itinerary }) {
   // ── B3 Hybrid: marginOverride null = per-type, number = global override.
   const [marginOverride, setMarginOverride] = React.useState(null);
   const useGlobal = marginOverride !== null;
   const [autoMatchPax, setAutoMatchPax] = React.useState(false);
+  // ── View mode (v3.3): tách Riêng vs Chung (default) · danh sách dẹt · xếp theo ngày
+  const [viewMode, setViewMode] = React.useState('split'); // 'split' | 'flat' | 'by-day'
 
   // ── Hotel star tiers — config từ Step 1 (lifted state). Fallback default nếu Step 1
   // chưa pass (legacy / standalone).
@@ -431,6 +545,108 @@ function Step3Costing({ rows, setRows, request, onNext, onBack, pushToast,
         </div>
       </div>
 
+      {/* ── View Mode Toggle (v3.3) ─────────────────────────────────────────── */}
+      <div style={{padding: '14px 28px', borderBottom: '1px solid var(--border)',
+        display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap'}}>
+        <div>
+          <div style={{fontSize: 11, fontWeight: 700, color: 'var(--text-3)',
+            textTransform: 'uppercase', letterSpacing: '0.05em'}}>CHẾ ĐỘ HIỂN THỊ DỰ TOÁN DỊCH VỤ</div>
+          <div style={{fontSize: 11.5, color: 'var(--text-3)', marginTop: 3}}>
+            Đảm bảo cấu trúc hợp lý để khái niệm dữ liệu kế toán giá kiểm toán trực quan
+          </div>
+        </div>
+        <div style={{display: 'inline-flex', background: '#f1f5f9', border: '1px solid var(--border)',
+          borderRadius: 8, padding: 3, gap: 2}}>
+          {[
+            {k: 'split',  lbl: 'Tách Chi Phí Chung - Riêng (Mặc định)', icon: 'sliders'},
+            {k: 'flat',   lbl: 'Danh sách dẹt (List)', icon: 'list'},
+            {k: 'by-day', lbl: 'Xếp theo ngày đi',      icon: 'calendar'},
+          ].map(m => (
+            <button key={m.k} onClick={() => setViewMode(m.k)}
+              style={{
+                padding: '6px 12px', fontSize: 11.5, fontWeight: 700,
+                background: viewMode === m.k ? 'white' : 'transparent',
+                color: viewMode === m.k ? 'var(--text)' : 'var(--text-3)',
+                border: '1px solid ' + (viewMode === m.k ? 'var(--border)' : 'transparent'),
+                borderRadius: 6, cursor: 'pointer',
+                boxShadow: viewMode === m.k ? '0 1px 2px rgba(0,0,0,0.04)' : 'none',
+                display: 'inline-flex', alignItems: 'center', gap: 6,
+              }}>
+              <Icon name={m.icon} size={12} />{m.lbl}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      {/* ── Render rows by mode ─────────────────────────────────────────────── */}
+      {viewMode === 'split' && (() => {
+        const rowsRieng  = rows.map((r, i) => ({r, i})).filter(({r}) => rowCostType(r) === 'pax');
+        const rowsChung  = rows.map((r, i) => ({r, i})).filter(({r}) => rowCostType(r) === 'shared');
+        const subNet  = list => list.reduce((s, {r}) => s + effNet(r), 0);
+        const subSale = list => list.reduce((s, {r}) => s + rowSale(r), 0);
+        return (
+          <>
+            <CostingSection
+              code="A" title="BẢNG CHI PHÍ RIÊNG"
+              tag="CHI PHÍ RIÊNG LẺ - TÍNH THEO PAX KHÁCH"
+              tagIcon="user" color="#a855f7" bg="#f5f3ff"
+              sub={`Chi phí phát sinh nhân theo trực tiếp theo từng khách hàng (${totalPax} Pax)`}
+              list={rowsRieng} subNet={subNet(rowsRieng)} subSale={subSale(rowsRieng)}
+              effNet={effNet} rowMarkup={rowMarkup} rowSale={rowSale} rowCostType={rowCostType}
+              updateRow={updateRow} useGlobal={useGlobal} totalPax={totalPax}
+              empty="Chưa có dịch vụ tính theo pax — chuyển 'Loại giá' sang × Pax ở section List để chuyển vào đây" />
+
+            <CostingSection
+              code="B" title="BẢNG CHI PHÍ CHUNG"
+              tag="CHI PHÍ CHUNG CẢ ĐOÀN - TRỌN GÓI ĐOÀN"
+              tagIcon="paper" color="#0891b2" bg="#ecfeff"
+              sub="Chi phí cố định không phụ thuộc vào số khách"
+              list={rowsChung} subNet={subNet(rowsChung)} subSale={subSale(rowsChung)}
+              effNet={effNet} rowMarkup={rowMarkup} rowSale={rowSale} rowCostType={rowCostType}
+              updateRow={updateRow} useGlobal={useGlobal} totalPax={totalPax}
+              empty="Chưa có dịch vụ trọn gói đoàn" />
+          </>
+        );
+      })()}
+
+      {viewMode === 'by-day' && (() => {
+        // Group by day-index lưu trong row (r.dayIdx). Nếu chưa có → fallback split mode.
+        const grouped = {};
+        rows.forEach((r, i) => {
+          const d = r.dayIdx != null ? r.dayIdx : -1;
+          (grouped[d] = grouped[d] || []).push({r, i});
+        });
+        const dayKeys = Object.keys(grouped).map(Number).sort((a, b) => a - b);
+        const dayList = (itinerary && itinerary.days) || [];
+        if (dayKeys.length === 1 && dayKeys[0] === -1) {
+          return (
+            <div style={{padding: 28, textAlign: 'center', color: 'var(--text-3)', fontSize: 13}}>
+              Dữ liệu costing chưa được gắn vào ngày cụ thể. Vui lòng quay lại Step 2 để khớp dịch vụ với từng ngày.
+            </div>
+          );
+        }
+        return dayKeys.map(d => {
+          const list = grouped[d];
+          const dayLabel = d === -1
+            ? 'Chưa gắn ngày'
+            : (dayList[d]?.title || `Ngày ${d + 1}`);
+          return (
+            <CostingSection
+              key={d} code={d === -1 ? '—' : `N${d + 1}`}
+              title={dayLabel} tag={`${list.length} dịch vụ`}
+              tagIcon="calendar" color="#f97316" bg="#fff7ed"
+              sub={d === -1 ? '' : `Ngày ${d + 1} của hành trình`}
+              list={list}
+              subNet={list.reduce((s, {r}) => s + effNet(r), 0)}
+              subSale={list.reduce((s, {r}) => s + rowSale(r), 0)}
+              effNet={effNet} rowMarkup={rowMarkup} rowSale={rowSale} rowCostType={rowCostType}
+              updateRow={updateRow} useGlobal={useGlobal} totalPax={totalPax}
+              empty="" />
+          );
+        });
+      })()}
+
+      {viewMode === 'flat' && (
       <div style={{overflowX: 'auto'}}>
         <table className="costing-table">
           <thead>
@@ -544,6 +760,7 @@ function Step3Costing({ rows, setRows, request, onNext, onBack, pushToast,
           </tbody>
         </table>
       </div>
+      )}
 
       <div style={{padding: '0 28px 28px'}}>
         {/* Tổng bán + per-pax breakdown (4 cards) */}

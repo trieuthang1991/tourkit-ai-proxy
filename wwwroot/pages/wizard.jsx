@@ -403,7 +403,8 @@ Tránh từ "tuyệt vời", "hoàn hảo", "đáng nhớ". Tiếng Việt tự 
           hotelStars={hotelStars} setHotelStars={setHotelStars}
           paxRanges={paxRanges}   setPaxRanges={setPaxRanges}
           hotelOptions={hotelOptions}
-          activeTier={activeTier} setActiveTier={setActiveTier} />}
+          activeTier={activeTier} setActiveTier={setActiveTier}
+          itinerary={itinerary} />}
         {step === 4 && <Step4Quote
           request={request} itinerary={itinerary} rows={rows} marketing={marketing}
           hotelOptions={hotelOptions} activeTier={activeTier}

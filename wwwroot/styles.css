@@ -4207,3 +4207,26 @@ html[data-home-theme="dark"] .hp-theme {
 .bsg-card-stat-label { font-size: 11px; color: var(--text-3); font-weight: 500; }
 .bsg-card-stat-val { font-size: 12.5px; font-weight: 700; color: var(--text); }
 .bsg-card-stat-val.pos { color: #10b981; }
+
+/* ── Step 3 split sections (v3.3) — A: Chi phí Riêng · B: Chi phí Chung ───── */
+.costing-section { padding: 18px 28px; border-bottom: 1px solid var(--border); }
+.costing-section:last-of-type { border-bottom: none; }
+.cs-head { display: flex; align-items: flex-start; gap: 12px; margin-bottom: 14px; }
+.cs-avatar { width: 32px; height: 32px; border-radius: 8px;
+  display: inline-flex; align-items: center; justify-content: center; flex-shrink: 0; }
+.cs-head-text { flex: 1; min-width: 0; }
+.cs-title { font-size: 13px; font-weight: 700; color: var(--text); letter-spacing: 0.02em; }
+.cs-title strong { font-weight: 800; margin-right: 6px; }
+.cs-tag { font-size: 12px; font-weight: 700; margin-left: 2px; }
+.cs-sub { font-size: 12px; color: var(--text-3); margin-top: 3px; }
+.cs-table-wrap { overflow-x: auto; border: 1px solid var(--border); border-radius: 10px; }
+.cs-table { margin: 0; }
+.cs-table thead th { background: #fafafa; font-size: 10.5px; padding: 10px 14px;
+  text-transform: uppercase; letter-spacing: 0.05em; color: var(--text-3); font-weight: 700; }
+.cs-table tbody td { padding: 14px; vertical-align: top; }
+.cs-row-type { display: inline-flex; align-items: center; gap: 4px;
+  font-size: 9.5px; font-weight: 700; padding: 2px 6px; border-radius: 4px;
+  text-transform: uppercase; letter-spacing: 0.04em; margin-top: 4px; }
+.cs-subtotal td { background: #fafbfc; border-top: 1px solid var(--border); padding: 12px 14px; }
+.cs-empty { padding: 24px; text-align: center; color: var(--text-3);
+  font-size: 12.5px; font-style: italic; border: 1px dashed var(--border); border-radius: 10px; }
