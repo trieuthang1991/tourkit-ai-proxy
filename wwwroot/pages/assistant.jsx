@@ -591,13 +591,57 @@ function AssistantPage({ pushToast }) {
     }
   }
 
-  // ─── 2 cột (luôn đã đăng nhập nhờ gate toàn cục) ─────────────────────────────
+  // ─── Suggestions: 4 quick + collapsible toàn bộ 17 tool theo nhóm ─────────
+  // Quick chips (luôn hiện) = 4 câu hỏi đại diện cho 4 nhóm phổ biến nhất
   const suggestions = [
     { q: 'Doanh thu tháng này',              icon: 'dollar' },
     { q: 'Top khách hàng',                    icon: 'star' },
     { q: 'Cơ cấu nguồn khách Marketing',     icon: 'chart' },
     { q: 'Tour sắp khởi hành',                icon: 'plane' },
   ];
+
+  // Toàn bộ gợi ý phân theo 7 nhóm — tương ứng 17 tool của AI catalog.
+  // User bấm "Xem tất cả gợi ý" sẽ thấy grid full, cho biết hệ thống có gì.
+  const allSuggestions = [
+    { group: '💰 Tài chính', items: [
+      { q: 'Doanh thu tháng này',                                  icon: 'dollar' },
+      { q: 'So sánh doanh thu tháng này với tháng trước',          icon: 'trend' },
+      { q: 'Chi tiết tài chính tháng 6/2026 (12 chỉ số)',          icon: 'chart' },
+      { q: 'Dòng tiền 30 ngày qua theo ngày',                      icon: 'cashflow' },
+    ]},
+    { group: '👥 Khách hàng', items: [
+      { q: 'Top 10 khách hàng tháng này',                          icon: 'star' },
+      { q: 'Khách hàng chưa chăm sóc 30 ngày',                     icon: 'warning' },
+      { q: 'Khách sinh nhật tháng này',                            icon: 'gift' },
+      { q: 'Lịch hẹn CSKH tuần này',                               icon: 'calendar' },
+    ]},
+    { group: '📊 Marketing', items: [
+      { q: 'Cơ cấu nguồn khách năm 2026',                          icon: 'chart' },
+      { q: 'Nguồn khách marketing tháng 5/2026',                   icon: 'megaphone' },
+    ]},
+    { group: '🧳 Sản phẩm Tour', items: [
+      { q: 'Tour sắp khởi hành',                                   icon: 'plane' },
+      { q: 'Danh sách tour FIT đang mở',                           icon: 'tours' },
+      { q: 'Tour Visa tháng này',                                  icon: 'docs' },
+      { q: 'Tour thị trường Nội địa Miền Nam',                     icon: 'map' },
+    ]},
+    { group: '💼 Bán hàng', items: [
+      { q: 'Cơ hội bán hàng đang chờ xử lý',                       icon: 'inbox' },
+      { q: 'Top seller doanh số cao nhất tháng này',               icon: 'trophy' },
+      { q: 'Lead từ Pancake tuần này',                             icon: 'lead' },
+    ]},
+    { group: '🏢 Hiệu suất', items: [
+      { q: 'Chi nhánh nào doanh số cao nhất quý 2/2026?',          icon: 'building' },
+      { q: 'Dòng sản phẩm nào lãi nhất tháng này?',                icon: 'package' },
+      { q: 'Thị trường nào doanh thu cao nhất năm nay?',           icon: 'world' },
+    ]},
+    { group: '✅ Quản lý', items: [
+      { q: 'Công việc cần làm hôm nay',                            icon: 'check' },
+      { q: 'Phiếu chi chờ duyệt',                                  icon: 'receipt' },
+      { q: 'Thông báo cần xử lý',                                  icon: 'bell' },
+    ]},
+  ];
+  const [expandedSuggest, setExpandedSuggest] = _aS(false);
 
   const panelTitle = panelData ? (panelData.title || 'Cơ cấu số liệu') : null;
 
@@ -668,14 +712,37 @@ function AssistantPage({ pushToast }) {
           )}
           {messages.length === 0 && (
             <div className="asst-quick wide">
-              <span className="asst-quick-lbl">GỢI Ý CÂU HỎI NHANH:</span>
-              <div className="asst-quick-grid">
-                {suggestions.map(s => (
-                  <button key={s.q} className="asst-quick-chip" onClick={() => send(s.q)}>
-                    <Icon name={s.icon} size={13} /> {s.q}
-                  </button>
-                ))}
+              <div className="asst-quick-head">
+                <span className="asst-quick-lbl">GỢI Ý CÂU HỎI NHANH:</span>
+                <button className="asst-suggest-toggle" onClick={() => setExpandedSuggest(v => !v)}>
+                  <Icon name={expandedSuggest ? 'chevronUp' : 'chevronDown'} size={12} />
+                  {expandedSuggest ? 'Thu gọn' : 'Xem tất cả gợi ý'}
+                </button>
               </div>
+              {!expandedSuggest ? (
+                <div className="asst-quick-grid">
+                  {suggestions.map(s => (
+                    <button key={s.q} className="asst-quick-chip" onClick={() => send(s.q)}>
+                      <Icon name={s.icon} size={13} /> {s.q}
+                    </button>
+                  ))}
+                </div>
+              ) : (
+                <div className="asst-suggest-all">
+                  {allSuggestions.map(grp => (
+                    <div key={grp.group} className="asst-suggest-group">
+                      <div className="asst-suggest-group-title">{grp.group}</div>
+                      <div className="asst-suggest-group-chips">
+                        {grp.items.map(s => (
+                          <button key={s.q} className="asst-quick-chip" onClick={() => send(s.q)}>
+                            <Icon name={s.icon} size={13} /> {s.q}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
             </div>
           )}
 
