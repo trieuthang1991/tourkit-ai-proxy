@@ -176,12 +176,16 @@ function Step3Costing({ rows, setRows, request, onNext, onBack, pushToast,
     if (matched) setMarginOverride(matched.markup);
   }, [request.adults, paxRanges, autoMatchPax]);
 
-  // ── costType per row (v2 logic):
-  //   'shared'  → priceNet là tổng toàn đoàn (vd xe 8tr/chuyến)        ← default
+  // ── costType per row:
+  //   'shared'  → priceNet là tổng toàn đoàn (vd xe 8tr/chuyến)
   //   'pax'     → priceNet là đơn giá / pax (vd KS 1.15tr/khách/đêm) → total = priceNet × paxCount
-  // Default 'shared' để khỏi vỡ data demo (priceNet hiện trong COSTING_ROWS đã là toàn đoàn).
-  // User toggle sang 'pax' khi muốn nhập đơn giá theo khách (NCC báo giá / khách / đêm).
-  const rowCostType = (r) => r.costType || 'shared';
+  // Fallback theo TYPE — đồng bộ với badge ở Step 2 activity card + defaultCostType() ở modal:
+  //   HOTEL / MEAL / TICKET → pax (Chi phí Riêng)
+  //   else → shared (Chi phí Chung)
+  // Vì priceNet trong COSTING_ROWS demo ghi theo NGÀY (qty="Ngày X"), khi flip sang pax sẽ × pax →
+  // hiển thị eff lớn hơn. User vẫn có thể nhập lại giá (theo /khách) khi cần.
+  const PAX_TYPES = { HOTEL: 1, MEAL: 1, TICKET: 1 };
+  const rowCostType = (r) => r.costType || (PAX_TYPES[r.type] ? 'pax' : 'shared');
   // Net "toàn đoàn" cho 1 row sau khi áp costType + FOC.
   const effNet = (r) => {
     const base = rowCostType(r) === 'pax' ? (r.priceNet || 0) * totalPax : (r.priceNet || 0);
