@@ -601,43 +601,47 @@ function AssistantPage({ pushToast }) {
   ];
 
   // Toàn bộ gợi ý phân theo 7 nhóm — tương ứng 17 tool của AI catalog.
-  // User bấm "Xem tất cả gợi ý" sẽ thấy grid full, cho biết hệ thống có gì.
+  // Icon CHỈ dùng tên có trong wwwroot/lib/icons.jsx (verified): arrowLeft/arrowRight/
+  // bed/bell/book/bus/calendar/camera/chart/check/checkCircle/chevron*/clock/close/copy/
+  // dollar/download/drag/edit/eye/grip/info/list/mail/maximize/minus/more/paper/phone/
+  // pin/plane/plus/qr/refresh/save/search/share/shield/sliders/sparkle/star/trash/trend/
+  // user/users/utensils/warning/zap. KHÔNG dùng tên ngoài list này → SVG sẽ trống.
   const allSuggestions = [
     { group: '💰 Tài chính', items: [
       { q: 'Doanh thu tháng này',                                  icon: 'dollar' },
       { q: 'So sánh doanh thu tháng này với tháng trước',          icon: 'trend' },
       { q: 'Chi tiết tài chính tháng 6/2026 (12 chỉ số)',          icon: 'chart' },
-      { q: 'Dòng tiền 30 ngày qua theo ngày',                      icon: 'cashflow' },
+      { q: 'Dòng tiền 30 ngày qua theo ngày',                      icon: 'list' },
     ]},
     { group: '👥 Khách hàng', items: [
       { q: 'Top 10 khách hàng tháng này',                          icon: 'star' },
       { q: 'Khách hàng chưa chăm sóc 30 ngày',                     icon: 'warning' },
-      { q: 'Khách sinh nhật tháng này',                            icon: 'gift' },
+      { q: 'Khách sinh nhật tháng này',                            icon: 'sparkle' },
       { q: 'Lịch hẹn CSKH tuần này',                               icon: 'calendar' },
     ]},
     { group: '📊 Marketing', items: [
       { q: 'Cơ cấu nguồn khách năm 2026',                          icon: 'chart' },
-      { q: 'Nguồn khách marketing tháng 5/2026',                   icon: 'megaphone' },
+      { q: 'Nguồn khách marketing tháng 5/2026',                   icon: 'share' },
     ]},
     { group: '🧳 Sản phẩm Tour', items: [
       { q: 'Tour sắp khởi hành',                                   icon: 'plane' },
-      { q: 'Danh sách tour FIT đang mở',                           icon: 'tours' },
-      { q: 'Tour Visa tháng này',                                  icon: 'docs' },
-      { q: 'Tour thị trường Nội địa Miền Nam',                     icon: 'map' },
+      { q: 'Danh sách tour FIT đang mở',                           icon: 'bus' },
+      { q: 'Tour Visa tháng này',                                  icon: 'paper' },
+      { q: 'Tour thị trường Nội địa Miền Nam',                     icon: 'pin' },
     ]},
     { group: '💼 Bán hàng', items: [
-      { q: 'Cơ hội bán hàng đang chờ xử lý',                       icon: 'inbox' },
-      { q: 'Top seller doanh số cao nhất tháng này',               icon: 'trophy' },
-      { q: 'Lead từ Pancake tuần này',                             icon: 'lead' },
+      { q: 'Cơ hội bán hàng đang chờ xử lý',                       icon: 'mail' },
+      { q: 'Top seller doanh số cao nhất tháng này',               icon: 'star' },
+      { q: 'Lead từ Pancake tuần này',                             icon: 'zap' },
     ]},
     { group: '🏢 Hiệu suất', items: [
-      { q: 'Chi nhánh nào doanh số cao nhất quý 2/2026?',          icon: 'building' },
-      { q: 'Dòng sản phẩm nào lãi nhất tháng này?',                icon: 'package' },
-      { q: 'Thị trường nào doanh thu cao nhất năm nay?',           icon: 'world' },
+      { q: 'Chi nhánh nào doanh số cao nhất quý 2/2026?',          icon: 'shield' },
+      { q: 'Dòng sản phẩm nào lãi nhất tháng này?',                icon: 'sparkle' },
+      { q: 'Thị trường nào doanh thu cao nhất năm nay?',           icon: 'pin' },
     ]},
     { group: '✅ Quản lý', items: [
       { q: 'Công việc cần làm hôm nay',                            icon: 'check' },
-      { q: 'Phiếu chi chờ duyệt',                                  icon: 'receipt' },
+      { q: 'Phiếu chi chờ duyệt',                                  icon: 'paper' },
       { q: 'Thông báo cần xử lý',                                  icon: 'bell' },
     ]},
   ];
