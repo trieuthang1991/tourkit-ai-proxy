@@ -139,9 +139,20 @@ Rules:
 - ĐÚNG ${request.days} ngày, mỗi ngày 4-5 activity sắp theo giờ
 - TYPE ∈ TRANSPORT | SIGHTSEEING | MEAL | HOTEL | ACTIVITY (UPPERCASE)
 - Mỗi field tách bằng " | " (space-pipe-space). KHÔNG dùng ký tự "|" trong tên/mô tả.
-- Tên activity ≤50ch. SIGHTSEEING dùng địa danh THỰC ở ${dest}. Còn lại tên loại hình ("Khách sạn 4 sao trung tâm", "Nhà hàng hải sản địa phương")
+- Tên activity ≤50ch. Phải ĐÚNG NGHIỆP VỤ TOUR theo TYPE:
+  · TRANSPORT: "Vé máy bay khứ hồi <route>" HOẶC "Xe limousine 16 chỗ <route>" HOẶC "Vé tàu SE giường nằm" — KHÔNG dùng "Xe máy bay" / "Máy bay xe" / từ ghép vô nghĩa khác
+  · HOTEL: "Khách sạn <số sao> sao <khu vực>" (vd "Khách sạn 4 sao trung tâm biển")
+  · MEAL: "<Loại bữa> tại <địa điểm/loại hình>" (vd "Bữa trưa hải sản địa phương", "Buffet sáng tại khách sạn")
+  · SIGHTSEEING: tên ĐỊA DANH THẬT ở ${dest} (vd "Tháp Nhạn", "Eo Gió"); ĐỪNG bịa địa danh
+  · ACTIVITY: "<Loại hoạt động>" (vd "Team Building bãi biển", "Gala Dinner âm nhạc")
 - giá là số nguyên VND cho cả đoàn ${totalPax}, không dấu phẩy/dot
-- supplier = ĐÚNG tên 1 NCC trong "NCC ƯU TIÊN" nếu khớp loại dịch vụ; KHÔNG khớp thì ghi "NCC"
+- supplier: nếu khớp 1 NCC trong "NCC ƯU TIÊN" → ghi ĐÚNG tên đó; KHÔNG khớp → ghi:
+  · TRANSPORT → "Đối tác vận chuyển"
+  · HOTEL → "Đối tác khách sạn"
+  · MEAL → "Nhà hàng đối tác"
+  · SIGHTSEEING → "Tự túc"
+  · ACTIVITY → "Đơn vị tổ chức"
+  (TUYỆT ĐỐI KHÔNG ghi literal "NCC" hay "TBD" — luôn dùng default tiếng Việt nghĩa hợp)
 - Mô tả 1 câu Việt 15-25 từ, không thêm tên riêng mới
 - TUYỆT ĐỐI KHÔNG bịa tên hotel/nhà hàng (vd "Bö Hing Hotel" = SAI)
 ${nccBlock}
@@ -179,18 +190,54 @@ Bắt đầu output ngay:`;
         dayTitles: parsed.days.map((d, i) => cleanTitle(d.title, 70) || `Ngày ${i+1} - ${dest}`)
       });
 
+      // Default supplier theo type khi AI trả "NCC" / "TBD" / rỗng (đỡ trơ + chuyên nghiệp)
+      const SUPPLIER_DEFAULTS = {
+        TRANSPORT: 'Đối tác vận chuyển',
+        HOTEL:     'Đối tác khách sạn',
+        MEAL:      'Nhà hàng đối tác',
+        SIGHTSEEING: 'Tự túc',
+        ACTIVITY:  'Đơn vị tổ chức',
+        GUIDE:     'Tourkit Internal',
+      };
+      // costType mặc định theo TYPE — đồng bộ với defaultCostType ở Step 2 modal
+      const COST_TYPE_DEFAULTS = {
+        HOTEL: 'pax', MEAL: 'pax', TICKET: 'pax',
+        TRANSPORT: 'shared', GUIDE: 'shared', SIGHTSEEING: 'shared',
+        ACTIVITY: 'shared', ENTERTAINMENT: 'shared', TEAMBUILDING: 'shared',
+      };
+      // Fix title sai nghiệp vụ (model đôi khi vẫn slip qua rules)
+      const fixTitle = (title, type) => {
+        if (!title) return title;
+        let t = title.trim();
+        if (type === 'TRANSPORT') {
+          // "Xe máy bay" → "Vé máy bay"; "Máy bay xe" → "Vé máy bay"
+          t = t.replace(/^xe\s+máy\s+bay/i, 'Vé máy bay').replace(/máy\s+bay\s+xe/i, 'Vé máy bay');
+        }
+        return t;
+      };
+      const cleanSupplier = (s, type) => {
+        const trimmed = String(s || '').trim();
+        if (!trimmed || /^(ncc|tbd|n\/a|none|null|-)$/i.test(trimmed)) {
+          return SUPPLIER_DEFAULTS[type] || 'Đối tác chiến lược';
+        }
+        return trimmed;
+      };
       const itin = parsed.days.map((dayData, i) => ({
         day: i + 1,
         title: dayData.title || `Ngày ${i+1} - ${dest}`,
-        activities: (dayData.activities || []).map((a, j) => ({
-          id: `gen-${i}-${j}-${Date.now()}-${Math.random().toString(36).slice(2,6)}`,
-          time: a.h || '09:00',
-          type: a.y || 'ACTIVITY',
-          title: a.n || 'Hoạt động',
-          description: a.d || '',
-          cost: Number(a.c) || 0,
-          supplier: a.s || ''
-        }))
+        activities: (dayData.activities || []).map((a, j) => {
+          const type = a.y || 'ACTIVITY';
+          return {
+            id: `gen-${i}-${j}-${Date.now()}-${Math.random().toString(36).slice(2,6)}`,
+            time: a.h || '09:00',
+            type,
+            title: fixTitle(a.n, type) || 'Hoạt động',
+            description: a.d || '',
+            cost: Number(a.c) || 0,
+            supplier: cleanSupplier(a.s, type),
+            costType: COST_TYPE_DEFAULTS[type] || 'shared',
+          };
+        })
       }));
       setItinerary(itin);
       setGenProgress(p => ({...p, daysDone: itin.length}));
@@ -207,20 +254,22 @@ Bắt đầu output ngay:`;
         return nccNames.some(n => { const x = n.toLowerCase(); return x.includes(s) || s.includes(x); });
       };
       const derivedRows = [];
-      itin.forEach(d => d.activities.forEach(a => {
+      itin.forEach((d, dIdx) => d.activities.forEach(a => {
         if (!a.cost) return;
         derivedRows.push({
           type: a.type,
           service: a.title.length > 30 ? a.title.slice(0,30)+'…' : a.title,
-          supplier: a.supplier || 'TBD',
+          supplier: a.supplier,
           qty: `Ngày ${d.day}`,
           priceNet: a.cost,
           vat: TYPE_VAT[a.type] || 8,
           markup: TYPE_MARKUP[a.type] || 15,
-          verified: isRealNcc(a.supplier)
+          verified: isRealNcc(a.supplier),
+          costType: a.costType || 'shared',  // ← từ Step 2 → Step 3 split view tự động đúng
+          dayIdx: dIdx,                       // ← Step 3 by-day view
         });
       }));
-      derivedRows.push({type: 'GUIDE', service: 'Hướng dẫn viên', supplier: 'Tourkit Internal', qty: '1 HDV VIP', priceNet: 3000000, vat: 0, markup: 15, verified: true});
+      derivedRows.push({type: 'GUIDE', service: 'Hướng dẫn viên', supplier: 'Tourkit Internal', qty: '1 HDV VIP', priceNet: 3000000, vat: 0, markup: 15, verified: true, costType: 'shared'});
       setRows(derivedRows);
 
       // Lưu nháp tour lên server (Redis theo công ty) — thay localStorage.
