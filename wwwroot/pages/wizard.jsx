@@ -68,6 +68,113 @@ function WizardPage({ pushToast, tweaks }) {
     dayTitles: window.DEMO_ITINERARY.map(d => d.title)
   });
 
+  // ── 2-tier báo giá (Redis draft + SQL commit) — mirror tour-builder pattern.
+  // Autosave debounce 1.5s khi state (request/itinerary/rows/marketing) đổi → POST /draft (Redis).
+  // Step 4 nút "Lưu báo giá" → POST commit (SQL dbo.TourQuotes).
+  const [quoteId, setQuoteId]             = _uS(null);
+  const [draftStatus, setDraftStatus]     = _uS('pristine');  // pristine|dirty|autosaving|draft|committed
+  const [lastDraftAt, setLastDraftAt]     = _uS(null);
+  const [lastCommitAt, setLastCommitAt]   = _uS(null);
+  const autosaveTimerRef                  = React.useRef(null);
+  const skipNextAutosaveRef               = React.useRef(false);
+
+  // Map state → SaveTourQuoteRequest (mapping indexed columns + full data JSON cho fidelity).
+  // QUAN TRỌNG: long/int columns server-side NON-NULL → mọi giá trị NaN/null phải finite fallback 0.
+  const safeInt = (n) => {
+    const x = Number(n);
+    return Number.isFinite(x) ? Math.round(x) : 0;
+  };
+  const buildQuoteBody = () => {
+    // Tổng net + revenue gần đúng (Step 3 có B3 hybrid + costType; ở đây xài approx cho INDEX columns).
+    const totalNet = (rows || []).reduce((s, r) => s + ((Number(r.priceNet) || 0) * (Number(r.qty) || 1)), 0);
+    const totalRev = (rows || []).reduce((s, r) => {
+      const net = (Number(r.priceNet) || 0) * (Number(r.qty) || 1);
+      const vat = (Number(r.vat) || 0) / 100, mk = (Number(r.markup) || 0) / 100;
+      return s + net * (1 + vat) * (1 + mk);
+    }, 0);
+    const profit = totalRev - totalNet;
+    const margin = totalRev > 0 ? (profit / totalRev) * 100 : null;
+    return {
+      id: quoteId,
+      title:         (marketing && marketing.tourName) || (request && request.route) || null,
+      customerName:  (request && request.customerName) || null,
+      customerPhone: null,
+      marketName:    null,
+      tourType:      null,
+      startDate:     null,
+      endDate:       null,
+      adultCount:    safeInt(request && request.adults),
+      childCount:    safeInt(request && request.children),
+      totalNet:      safeInt(totalNet),
+      totalRevenue:  safeInt(totalRev),
+      profit:        safeInt(profit),
+      marginPercent: margin != null ? Math.round(margin * 100) / 100 : null,
+      data: { request, itinerary, marketing, rows, hotelStars, hotelOptions, paxRanges, activeTier, source: 'wizard' },
+    };
+  };
+
+  // Autosave → Redis
+  async function autosaveQuoteDraft() {
+    setDraftStatus('autosaving');
+    try {
+      const r = await window.tourkitAuth.authedFetch('/api/v1/tour-quotes/draft', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(buildQuoteBody()),
+      });
+      const j = await r.json();
+      if (!r.ok) throw new Error(j.error || 'HTTP ' + r.status);
+      if (j.id && !quoteId) setQuoteId(j.id);
+      setLastDraftAt(j.savedAt || new Date().toISOString());
+      setDraftStatus('draft');
+    } catch (e) {
+      setDraftStatus('dirty');
+      console.warn('[wizard autosave] fail:', e.message);
+    }
+  }
+
+  // Watch state → debounce 1.5s
+  _uE(() => {
+    if (skipNextAutosaveRef.current) { skipNextAutosaveRef.current = false; return; }
+    setDraftStatus(prev => (prev === 'committed' || prev === 'pristine') ? 'dirty' : prev);
+    if (autosaveTimerRef.current) clearTimeout(autosaveTimerRef.current);
+    autosaveTimerRef.current = setTimeout(autosaveQuoteDraft, 1500);
+    return () => { if (autosaveTimerRef.current) clearTimeout(autosaveTimerRef.current); };
+  }, [request, itinerary, rows, marketing, hotelStars, hotelOptions, paxRanges, activeTier]);
+
+  // Browser-level guard: warn user nếu đóng tab/reload khi data chưa commit DB
+  // (cover trường hợp Redis chết / TTL 24h hết — lúc đó draft Redis cũng mất → user phải biết để bấm Lưu)
+  _uE(() => {
+    const isUnsaved = draftStatus === 'dirty' || draftStatus === 'draft' || draftStatus === 'autosaving';
+    if (!isUnsaved) return;
+    const onBeforeUnload = (e) => {
+      const msg = 'Báo giá chưa lưu vào hệ thống — sẽ mất nếu Redis tạm hết hạn. Bấm "Lưu ngay vào hệ thống" trước khi đóng.';
+      e.preventDefault();
+      e.returnValue = msg;
+      return msg;
+    };
+    window.addEventListener('beforeunload', onBeforeUnload);
+    return () => window.removeEventListener('beforeunload', onBeforeUnload);
+  }, [draftStatus]);
+
+  // Commit → SQL
+  async function commitQuote() {
+    try {
+      if (autosaveTimerRef.current) { clearTimeout(autosaveTimerRef.current); autosaveTimerRef.current = null; }
+      const r = await window.tourkitAuth.authedFetch('/api/v1/tour-quotes', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(buildQuoteBody()),
+      });
+      const j = await r.json();
+      if (!r.ok) throw new Error(j.error || 'HTTP ' + r.status);
+      setQuoteId(j.id);
+      setDraftStatus('committed');
+      setLastCommitAt(j.item?.updatedAt || new Date().toISOString());
+      setLastDraftAt(null);
+      skipNextAutosaveRef.current = true;
+      pushToast('✓ Đã lưu báo giá vào DB');
+    } catch (e) { pushToast('Lỗi commit báo giá: ' + e.message, 'error'); }
+  }
+
   const handleGenerate = async (opts = {}) => {
     const SKIP_CACHE = true;
     const forceFresh = SKIP_CACHE || opts.forceFresh === true;
@@ -517,8 +624,8 @@ Tránh từ "tuyệt vời", "hoàn hảo", "đáng nhớ". Tiếng Việt tự 
                       <td>
                         {req.adults || 0} Người lớn{req.children > 0 ? `, ${req.children} Trẻ em` : ''}
                       </td>
-                      <td className="num"><strong>{fmtVND(totalNet)}đ</strong></td>
-                      <td className="num"><span className="wl-good">{fmtVND(salePerPax)}đ</span></td>
+                      <td className="num"><strong>{fmtVND(totalNet)}</strong></td>
+                      <td className="num"><span className="wl-good">{fmtVND(salePerPax)}</span></td>
                       <td><span className={'wl-status ' + statusClass[st]}>{statusLabel[st]}</span></td>
                       <td onClick={e => e.stopPropagation()}>
                         <button className="wl-action" title="Xem chi tiết" onClick={() => openSavedTour(t)}>
@@ -560,6 +667,56 @@ Tránh từ "tuyệt vời", "hoàn hảo", "đáng nhớ". Tiếng Việt tự 
             </React.Fragment>
           ))}
         </div>
+        {/* Draft/Commit indicator — visual warning rõ ràng khi unsaved + CTA nổi bật */}
+        {draftStatus !== 'pristine' && (() => {
+          const fmt = (iso) => { try { return new Date(iso).toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' }); } catch { return ''; } };
+          const isUnsaved = draftStatus === 'dirty' || draftStatus === 'draft' || draftStatus === 'autosaving';
+          const isCommitted = draftStatus === 'committed';
+          return (
+            <div className={'wiz-save-bar ' + (isUnsaved ? 'is-unsaved' : 'is-saved')}>
+              {/* Status icon + label */}
+              <div className="wiz-save-status">
+                {draftStatus === 'dirty' && (<>
+                  <span className="wiz-save-dot dot-warn" />
+                  <div>
+                    <div className="wiz-save-label">Đã sửa · đang chờ autosave</div>
+                    <div className="wiz-save-hint">Sẽ tự lưu Redis sau ~1.5s</div>
+                  </div>
+                </>)}
+                {draftStatus === 'autosaving' && (<>
+                  <span className="wiz-save-spin" />
+                  <div>
+                    <div className="wiz-save-label">Đang autosave…</div>
+                    <div className="wiz-save-hint">Lưu nháp vào Redis</div>
+                  </div>
+                </>)}
+                {draftStatus === 'draft' && (<>
+                  <span className="wiz-save-warn-icon">⚠</span>
+                  <div>
+                    <div className="wiz-save-label wiz-save-label-warn">CHƯA LƯU vào HỆ THỐNG</div>
+                    <div className="wiz-save-hint">Đang ở Redis tạm ({fmt(lastDraftAt)}) · sẽ mất nếu hết 24h hoặc Redis restart</div>
+                  </div>
+                </>)}
+                {isCommitted && (<>
+                  <span className="wiz-save-dot dot-ok" />
+                  <div>
+                    <div className="wiz-save-label wiz-save-label-ok">✓ Đã lưu vào DB</div>
+                    <div className="wiz-save-hint">An toàn · {fmt(lastCommitAt)}</div>
+                  </div>
+                </>)}
+              </div>
+
+              {/* Primary CTA — chỉ hiện khi unsaved */}
+              {isUnsaved && (
+                <button onClick={commitQuote} className="wiz-save-btn"
+                  title="Lưu vĩnh viễn vào SQL Server — báo giá xuất hiện ở /quotes">
+                  <Icon name="save" size={14} stroke={2.4} />
+                  <span>LƯU NGAY VÀO HỆ THỐNG</span>
+                </button>
+              )}
+            </div>
+          );
+        })()}
       </div>
 
       <main className="page" data-screen-label={`0${step} ${WIZARD_STEPS[step-1].label}`}>
