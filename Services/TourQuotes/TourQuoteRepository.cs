@@ -1,22 +1,31 @@
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using Dapper;
+using StackExchange.Redis;
 using TourkitAiProxy.Models;
+using TourkitAiProxy.Services.Cache;
 using TourkitAiProxy.Services.Db;
 
 namespace TourkitAiProxy.Services.TourQuotes;
 
 /// <summary>
-/// SQL Server-backed CRUD cho dbo.TourQuotes. Per-tenant scope (composite PK TenantId,Id).
-/// KHÔNG fallback file — DB lỗi → throw (Tour Quote là dữ liệu user nhập, mất là mất luôn).
+/// 2-tier storage cho tour quote:
+///   • DRAFT layer  = Redis hash `tkai:tq-draft:{tenant}:{id}` TTL 24h — autosave từng keystroke
+///     (debounce client) KHÔNG đụng DB. Mất Redis = mất draft → user mất chỉ vài giây edit.
+///   • COMMIT layer = SQL `dbo.TourQuotes` (per-tenant composite PK) — explicit Save từ user
+///     (nút "Lưu báo giá") hoặc auto-commit mỗi N phút từ background task.
 ///
-/// Pattern: mirror ReviewRepository nhưng KHÔNG legacy migrate (table mới, không có JSON cũ).
-/// Worker đồng bộ sang bảng chính sau — IsSync=0 mỗi lần save (DEFAULT + explicit reset trên UPDATE).
+/// Read: SQL primary + check Redis draft mới hơn → merge với flag `isDraft=true` cho FE biết.
+/// Commit: flush Redis → SQL via existing Save (IsSync=0 để worker đồng bộ sang bảng chính).
 /// </summary>
 public class TourQuoteRepository
 {
     private readonly TourkitAiDb _db;
+    private readonly RedisProvider _redis;
     private readonly ILogger<TourQuoteRepository> _log;
+
+    // TTL nháp: 24h — đủ cho user về nhà, hôm sau quay lại edit tiếp; sau đó Redis tự dọn.
+    private static readonly TimeSpan DRAFT_TTL = TimeSpan.FromHours(24);
 
     private static readonly JsonSerializerOptions _jsonOpts = new()
     {
@@ -24,8 +33,83 @@ public class TourQuoteRepository
         PropertyNamingPolicy   = JsonNamingPolicy.CamelCase
     };
 
-    public TourQuoteRepository(TourkitAiDb db, ILogger<TourQuoteRepository> log)
-    { _db = db; _log = log; }
+    public TourQuoteRepository(TourkitAiDb db, RedisProvider redis, ILogger<TourQuoteRepository> log)
+    { _db = db; _redis = redis; _log = log; }
+
+    private static string DraftKey(string tenantId, string id) => $"tkai:tq-draft:{tenantId}:{id}";
+
+    // ─── DRAFT layer (Redis only — không đụng DB) ──────────────────────────────
+
+    /// Lưu nháp vào Redis. Id null/blank → server sinh GUID-N. KHÔNG ghi DB. TTL 24h.
+    /// Fallback: nếu Redis không available → ghi luôn SQL (degraded mode, không có draft).
+    public string SaveDraft(SaveTourQuoteRequest req, string tenantId, string? createdBy)
+    {
+        var id = string.IsNullOrWhiteSpace(req.Id) ? Guid.NewGuid().ToString("N") : req.Id!;
+        if (_redis.Db == null)
+        {
+            // Redis xuống → degraded: commit thẳng SQL (vẫn an toàn nhưng mất ưu điểm batching).
+            _log.LogWarning("[TourQuote] Redis unavailable → SaveDraft fallback commit SQL ngay (id={Id})", id);
+            return Save(req, tenantId, createdBy);
+        }
+        var nowIso = DateTime.UtcNow.ToString("o");
+        var draft = new DraftEnvelope(req, createdBy, nowIso);
+        var json = JsonSerializer.Serialize(draft, _jsonOpts);
+        try
+        {
+            _redis.Db.StringSet(DraftKey(tenantId, id), json, DRAFT_TTL);
+        }
+        catch (Exception ex)
+        {
+            _log.LogWarning(ex, "[TourQuote] Redis SET draft fail id={Id} → fallback SQL", id);
+            return Save(req, tenantId, createdBy);
+        }
+        return id;
+    }
+
+    /// Đọc draft trực tiếp từ Redis (không merge với SQL). Trả null nếu không có hoặc Redis xuống.
+    private DraftEnvelope? ReadDraft(string tenantId, string id)
+    {
+        if (_redis.Db == null) return null;
+        try
+        {
+            var v = _redis.Db.StringGet(DraftKey(tenantId, id));
+            if (v.IsNullOrEmpty) return null;
+            return JsonSerializer.Deserialize<DraftEnvelope>((string)v!, _jsonOpts);
+        }
+        catch (Exception ex) { _log.LogWarning(ex, "[TourQuote] Redis GET draft fail id={Id}", id); return null; }
+    }
+
+    /// Xóa draft khỏi Redis (gọi sau khi Commit thành công).
+    private void DeleteDraft(string tenantId, string id)
+    {
+        if (_redis.Db == null) return;
+        try { _redis.Db.KeyDelete(DraftKey(tenantId, id)); }
+        catch (Exception ex) { _log.LogWarning(ex, "[TourQuote] Redis DEL draft fail id={Id}", id); }
+    }
+
+    /// Commit draft từ Redis → SQL. Returns id và TourQuote đã save.
+    /// Nếu không có draft trong Redis → throw (caller phải Save thẳng qua SQL).
+    public TourQuote? Commit(string tenantId, string id, string? createdBy)
+    {
+        var draft = ReadDraft(tenantId, id);
+        if (draft == null)
+        {
+            // Không có draft Redis → có thể user reload xong commit ngay (draft expired).
+            // Đọc SQL hiện tại → trả về (không phá data).
+            return Get(tenantId, id);
+        }
+        // Đảm bảo req có id (server đã sinh nếu lúc SaveDraft chưa có)
+        var req = draft.Request with { Id = id };
+        Save(req, tenantId, createdBy ?? draft.CreatedBy);
+        DeleteDraft(tenantId, id);
+        return Get(tenantId, id);
+    }
+
+    private record DraftEnvelope(
+        [property: JsonPropertyName("request")]   SaveTourQuoteRequest Request,
+        [property: JsonPropertyName("createdBy")] string? CreatedBy,
+        [property: JsonPropertyName("savedAt")]   string SavedAt
+    );
 
     /// Upsert. Id null/blank → server sinh GUID-N. Returns id thực sự dùng (để FE biết khi tạo mới).
     public string Save(SaveTourQuoteRequest req, string tenantId, string? createdBy)
@@ -92,6 +176,64 @@ SELECT Id, Title, CustomerName, CustomerPhone, MarketName, TourType,
        CreatedBy, CreatedAt, UpdatedAt
 FROM dbo.TourQuotes WHERE TenantId = @t AND Id = @id",
             new { t = tenantId, id });
+        var sqlVer = row == null ? null : Hydrate(row);
+
+        // Check Redis draft — nếu có và mới hơn SQL row (hoặc SQL chưa có) → trả draft với isDraft=true
+        var draft = ReadDraft(tenantId, id);
+        if (draft != null)
+        {
+            var draftTime = DateTime.TryParse(draft.SavedAt, out var d) ? d : DateTime.MinValue;
+            var sqlTime = sqlVer != null && DateTime.TryParse(sqlVer.UpdatedAt, out var s) ? s : DateTime.MinValue;
+            if (draft.Request != null && (sqlVer == null || draftTime > sqlTime))
+            {
+                // Draft mới hơn → build TourQuote từ draft data (giữ field index từ draft, isDraft=true).
+                var req = draft.Request;
+                JsonElement data;
+                try { data = req.Data; }
+                catch { using var doc2 = JsonDocument.Parse("{}"); data = doc2.RootElement.Clone(); }
+                return sqlVer == null
+                    ? new TourQuote(
+                        Id: id, Title: req.Title,
+                        CustomerName: req.CustomerName, CustomerPhone: req.CustomerPhone,
+                        MarketName: req.MarketName, TourType: req.TourType,
+                        StartDate: req.StartDate, EndDate: req.EndDate,
+                        AdultCount: req.AdultCount, ChildCount: req.ChildCount,
+                        TotalNet: req.TotalNet, TotalRevenue: req.TotalRevenue, Profit: req.Profit,
+                        MarginPercent: req.MarginPercent, Data: data,
+                        CreatedBy: draft.CreatedBy,
+                        CreatedAt: draft.SavedAt, UpdatedAt: draft.SavedAt)
+                    : sqlVer with {
+                        Title = req.Title, CustomerName = req.CustomerName, CustomerPhone = req.CustomerPhone,
+                        MarketName = req.MarketName, TourType = req.TourType,
+                        StartDate = req.StartDate, EndDate = req.EndDate,
+                        AdultCount = req.AdultCount, ChildCount = req.ChildCount,
+                        TotalNet = req.TotalNet, TotalRevenue = req.TotalRevenue, Profit = req.Profit,
+                        MarginPercent = req.MarginPercent, Data = data,
+                        UpdatedAt = draft.SavedAt,
+                    };
+            }
+        }
+        return sqlVer;
+    }
+
+    /// FE check trạng thái draft (không phá flow Get cũ). Trả timestamp draft nếu có.
+    public string? GetDraftSavedAt(string tenantId, string id)
+        => ReadDraft(tenantId, id)?.SavedAt;
+
+    /// Public read — KHÔNG scope tenant. Dùng cho link share /q/{id} mà khách không có session.
+    /// Id là Guid 32-hex (Guid.NewGuid().ToString("N")) → đủ khó guess; không có ShareToken riêng.
+    /// CHỈ trả về row SQL đã commit — bỏ qua draft Redis (khách không xem nháp).
+    public TourQuote? GetPublic(string id)
+    {
+        if (string.IsNullOrWhiteSpace(id)) return null;
+        using var c = _db.Open();
+        var row = c.QueryFirstOrDefault<QuoteRow>(@"
+SELECT TOP 1 Id, Title, CustomerName, CustomerPhone, MarketName, TourType,
+       StartDate, EndDate, AdultCount, ChildCount,
+       TotalNet, TotalRevenue, Profit, MarginPercent, DataJson,
+       CreatedBy, CreatedAt, UpdatedAt
+FROM dbo.TourQuotes WHERE Id = @id",
+            new { id });
         return row == null ? null : Hydrate(row);
     }
 

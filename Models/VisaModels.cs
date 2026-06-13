@@ -55,3 +55,21 @@ public record VisaScoreRequest(
     [property: JsonPropertyName("model")]    string? Model,
     [property: JsonPropertyName("apiKey")]   string? ApiKey
 );
+
+// ─── Wizard scoring (9 câu hỏi + upload) ─────────────────────────────────────
+/// Câu trả lời từ wizard /visa — flat object để serialize gọn vào prompt.
+public record VisaWizardAnswers(
+    [property: JsonPropertyName("country")]           string? Country,
+    [property: JsonPropertyName("maritalStatus")]     string? MaritalStatus,
+    [property: JsonPropertyName("highRiskProvince")]  string? HighRiskProvince,
+    [property: JsonPropertyName("travelHistory")]     List<string>? TravelHistory,
+    [property: JsonPropertyName("visaRefusal")]       string? VisaRefusal,
+    [property: JsonPropertyName("occupation")]        string? Occupation,
+    [property: JsonPropertyName("income")]            string? Income,
+    [property: JsonPropertyName("financialAssets")]   List<string>? FinancialAssets,
+    [property: JsonPropertyName("contact")]           VisaWizardContact? Contact);
+public record VisaWizardContact(string? FullName, string? Phone, string? Email);
+
+/// Metadata file đã upload (frontend gửi multipart). NOT đọc content — chỉ list để AI biết
+/// "user đã có giấy tờ X". OCR/vision read phase 2.
+public record VisaWizardFileSlot(string DocKey, string DocLabel, int Count, long TotalBytes);

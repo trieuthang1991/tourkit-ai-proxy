@@ -23,18 +23,47 @@ function userInitials(name) {
 // Sidebar nav (style TourKit: dọc bên trái, mục active nền cam).
 // '/' giờ là Home Launcher (pages/home.jsx); Wizard tour quote chuyển sang '/wizard'.
 // "Chi phí AI" /ai-usage CHỈ hiện khi debug ON — page giữ accessible qua URL trực tiếp.
-const NAV = [
-  { to: '/',          icon: 'sparkle', label: 'Trang chủ' },
-  { to: '/assistant', icon: 'sparkle', label: 'Trợ lý số liệu' },
-  { to: '/wizard',    icon: 'sparkle', label: 'Tính giá Tour' },
-  { to: '/customers', icon: 'users',   label: 'Khách hàng' },
-  { to: '/deals',     icon: 'trend',   label: 'Ưu tiên Deal AI' },
-  { to: '/mail',      icon: 'paper',   label: 'Hộp thư AI' },
-  { to: '/visa',      icon: 'shield',  label: 'Thẩm định Visa' },
-  { to: '/tour-builder', icon: 'pin',  label: 'Soạn Tour GIT (AI)' },
+// Icon mapping: mỗi feature 1 icon RIÊNG (trước: 3 mục cùng 'sparkle' khó phân biệt).
+// Logic: icon phản ánh động từ chính của feature, không trùng lặp.
+// Sidebar nav — gom NHÓM theo phạm vi nghiệp vụ. Mỗi group có `label` (sẽ là nhãn nhỏ uppercase)
+// + `items[]`. Khi sidebar thu gọn → group label ẩn, chỉ còn icon items, các group cách nhau bằng
+// 1 đường mảnh để vẫn nhận biết phân tách trực quan.
+const NAV_GROUPS = [
+  { label: 'Tổng quan', items: [
+    { to: '/',          icon: 'sparkle', label: 'Trang chủ' },        // hub AI launcher
+    { to: '/assistant', icon: 'chart',   label: 'Trợ lý số liệu' },   // data/chart analytics
+  ]},
+  { label: 'Khách hàng & Bán hàng', items: [
+    { to: '/customers', icon: 'users',   label: 'Khách hàng' },       // people
+    { to: '/deals',     icon: 'zap',     label: 'Ưu tiên Deal AI' },  // urgency/lightning
+    { to: '/mail',      icon: 'mail',    label: 'Hộp thư AI' },       // envelope
+  ]},
+  { label: 'Sản phẩm Tour', items: [
+    { to: '/wizard',       icon: 'dollar', label: 'Tính giá Tour' },        // pricing/quote
+    { to: '/tour-builder', icon: 'plane',  label: 'Soạn Tour GIT (AI)' },   // travel/itinerary
+    { to: '/visa',         icon: 'shield', label: 'Thẩm định Visa' },       // compliance
+    { to: '/visa/history', icon: 'chart',  label: 'Lịch sử Visa' },         // history list
+  ]},
+  { label: 'Tích hợp', items: [
+    { to: '/widget-admin', icon: 'sparkle', label: 'Widget Chat' },   // embed JS widget cho site khách
+    { to: '/ncc-import',   icon: 'paper',   label: 'Import NCC (AI)' }, // bóc tách file NCC → Excel chuẩn
+    { to: '/visa-config',  icon: 'sliders', label: 'Câu hỏi Visa' },  // admin tenant chỉnh wizard câu hỏi
+  ]},
 ];
-const NAV_DEBUG = [
-  { to: '/ai-usage',  icon: 'chart',   label: 'Chi phí AI' },
+// Flat list — dùng cho navQuery search ở topbar (giữ logic cũ).
+const NAV = NAV_GROUPS.flatMap(g => g.items);
+const NAV_DEBUG_GROUP = { label: 'Debug', items: [
+  { to: '/ai-usage', icon: 'chart', label: 'Chi phí AI' },
+]};
+
+// Mobile quick-nav: 5 tính năng ƯU TIÊN hiện inline ở topbar (≤900px).
+// Còn lại đầy đủ trong drawer khi click hamburger (style giống sidebar desktop).
+const MOBILE_QUICK = [
+  { to: '/wizard',    icon: 'dollar', label: 'Wizard' },
+  { to: '/assistant', icon: 'chart',  label: 'Trợ lý' },
+  { to: '/customers', icon: 'users',  label: 'Khách' },
+  { to: '/deals',     icon: 'zap',    label: 'Deal' },
+  { to: '/visa',      icon: 'shield', label: 'Visa' },
 ];
 
 const TWEAK_DEFAULTS = /*EDITMODE-BEGIN*/{
@@ -45,6 +74,14 @@ const TWEAK_DEFAULTS = /*EDITMODE-BEGIN*/{
 }/*EDITMODE-END*/;
 
 function App() {
+  // Ẩn boot splash (index.html) NGAY khi App mount lần đầu — chạy SAU paint commit.
+  // Đặt đầu component để chạy bất kể flow nào (login splash / LoginGate / HomePage / app-shell).
+  uE(() => {
+    const s = document.getElementById('boot-splash');
+    if (!s) return;
+    s.classList.add('bs-out');
+    setTimeout(() => s.remove(), 500);
+  }, []);
   const [t, set] = window.useTweaks(TWEAK_DEFAULTS);
   const [aiSettingsOpen, setAiSettingsOpen] = uS(false);
   const [aiCfg, setAiCfg] = uS(() =>
@@ -95,13 +132,18 @@ function App() {
       window.removeEventListener('tourkit:navigate', f);
     };
   }, []);
-  const isActive = (p) => p === '/' ? cur === '/' : cur.startsWith(p);
+  // Exact-match: `/visa` KHÔNG match `/visa/history` (trước dùng startsWith → 2 nav item
+  // cùng active). Chấp nhận đánh đổi: route chi tiết (vd /quote-view/123) sẽ không sáng
+  // nav cha — đúng vì page đó không có nav item riêng.
+  const isActive = (p) => cur === p;
   const activeNav = NAV.find(n => isActive(n.to));
 
   // ─── Quota AI per-tenant ────────────────────────────────────────────────────
   // Fetch /api/v1/quota khi đăng nhập + refresh khi có event 'tourkit:quota' (do authedFetch
   // emit khi gặp 429 hoặc khi gọi AI thành công). Hiển thị chip "AI N/M" + cảnh báo khi >=90%.
   const [quota, setQuota] = uS(null);
+  // Modal nạp quota AI — click chip .tb-quota → mở. Catalog + 3 gói + Tingee VietQR.
+  const [showUpgrade, setShowUpgrade] = uS(false);
   uE(() => {
     if (!authUser) return;
     let alive = true;
@@ -174,6 +216,16 @@ function App() {
   };
 
   // Sidebar collapse — lưu localStorage để giữ trạng thái qua reload.
+  // Mobile drawer (≤900px): open/close + lock body scroll
+  const [mobileNav, setMobileNav] = uS(false);
+  uE(() => {
+    if (mobileNav) document.body.classList.add('app-nav-locked');
+    else document.body.classList.remove('app-nav-locked');
+    return () => document.body.classList.remove('app-nav-locked');
+  }, [mobileNav]);
+  // Đóng drawer khi route đổi (user click 1 mục → navigate → drawer tự đóng)
+  uE(() => { setMobileNav(false); }, [cur]);
+
   const [sidebarCollapsed, setSidebarCollapsed] = uS(() => {
     try { return localStorage.getItem('tourkit_sidebar_collapsed') === '1'; } catch { return false; }
   });
@@ -212,6 +264,22 @@ function App() {
     else document.exitFullscreen?.();
   };
 
+  // ─── PUBLIC route /q/{id} — bypass LoginGate. Khách bấm link Zalo/SMS không có session.
+  // Render full-screen (không nav, không app shell) ngay trước khi gate auth.
+  {
+    const p = window.location.pathname || '/';
+    const m = p.match(/^\/q\/([^\/]+)$/);
+    if (m) {
+      return <window.QuoteViewPage id={m[1]} />;
+    }
+  }
+
+  // ─── PUBLIC landing /landing — marketing page, không cần đăng nhập.
+  // Render full-screen (không sidebar, không app-shell).
+  if (cur === '/landing' && window.LandingPage) {
+    return <window.LandingPage />;
+  }
+
   // ─── Gate toàn cục: chưa đăng nhập TourKit → màn login, không vào feature nào ───
   if (!authUser) {
     if (!authReady) return <div className="login-splash"><div className="login-splash-mark" /></div>;
@@ -233,9 +301,10 @@ function App() {
     }} />;
   }
 
-  // Trang chủ (/) là full-screen launcher — KHÔNG kế thừa sidebar/topbar.
+  // Trang chủ (/ HOẶC /home) là full-screen launcher — KHÔNG kế thừa sidebar/topbar.
+  // /home là alias cho / để landing có route "Vào ứng dụng" tự nhiên (semantics rõ hơn).
   // Click vào agent card sẽ navigate sang route khác → tự vào app-shell bình thường.
-  if (cur === '/' && window.HomePage) {
+  if ((cur === '/' || cur === '/home') && window.HomePage) {
     return (
       <>
         <window.HomePage pushToast={pushToast} />
@@ -261,36 +330,38 @@ function App() {
               <path d="M12 8v8M8 12h8" />
             </svg>
           </div>
-          <div className="sidebar-logo-text">TOURKIT<span>AI Operation</span></div>
+          <div className="sidebar-logo-text">TRAV-AI<span>Trợ lý AI doanh nghiệp</span></div>
         </div>
-        <div className="sidebar-navlabel">Tính năng</div>
         <nav className="sidebar-nav">
-          {[...NAV, ...(debugOn ? NAV_DEBUG : [])].map(n => (
-            <a key={n.to} href={n.to}
-               className={'sidebar-item' + (isActive(n.to) ? ' active' : '')}
-               title={sidebarCollapsed ? n.label : undefined}
-               onClick={e => {
-                 if (e.defaultPrevented || e.button !== 0 || e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return;
-                 e.preventDefault();
-                 window.tourkitRouter.navigate(n.to);
-               }}>
-              <Icon name={n.icon} size={16} /> <span>{n.label}</span>
-            </a>
+          {[...NAV_GROUPS, ...(debugOn ? [NAV_DEBUG_GROUP] : [])].map((g, gi) => (
+            <div key={gi} className="sidebar-group">
+              <div className="sidebar-navlabel">{g.label}</div>
+              {g.items.map(n => (
+                <a key={n.to} href={n.to}
+                   className={'sidebar-item' + (isActive(n.to) ? ' active' : '')}
+                   title={sidebarCollapsed ? n.label : undefined}
+                   onClick={e => {
+                     if (e.defaultPrevented || e.button !== 0 || e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return;
+                     e.preventDefault();
+                     window.tourkitRouter.navigate(n.to);
+                   }}>
+                  <Icon name={n.icon} size={16} /> <span>{n.label}</span>
+                </a>
+              ))}
+            </div>
           ))}
         </nav>
-        {/* Toggle thu/mở ở chân sidebar (Linear/Notion-style) */}
-        <button className="sidebar-toggle" onClick={toggleSidebar}
-          title={sidebarCollapsed ? 'Mở rộng menu (Ctrl+B)' : 'Thu gọn menu (Ctrl+B)'}
-          aria-label={sidebarCollapsed ? 'Mở rộng menu' : 'Thu gọn menu'}
-          aria-pressed={sidebarCollapsed}>
-          <Icon name={sidebarCollapsed ? 'chevronRight' : 'chevronLeft'} size={15} stroke={2.4} />
-          <span>{sidebarCollapsed ? 'Mở rộng' : 'Thu gọn'}</span>
-        </button>
       </aside>
 
       <div className="app-main">
         <header className="topbar">
           <div className="topbar-left">
+            <button className="tb-fs tb-sidebar" onClick={toggleSidebar}
+              title={sidebarCollapsed ? 'Mở rộng menu (Ctrl+B)' : 'Thu gọn menu (Ctrl+B)'}
+              aria-label={sidebarCollapsed ? 'Mở rộng menu' : 'Thu gọn menu'}
+              aria-pressed={sidebarCollapsed}>
+              <Icon name="panelLeft" size={17} stroke={2.2} />
+            </button>
             <button className="tb-fs" onClick={toggleFullscreen} title="Toàn màn hình" aria-label="Toàn màn hình">
               <Icon name="maximize" size={17} stroke={2.2} />
             </button>
@@ -302,15 +373,16 @@ function App() {
           </div>
           <div className="topbar-actions">
             {quota && (
-              <div className={'tb-quota' + (quota.exhausted ? ' is-exhausted' : (quota.warn ? ' is-warn' : ''))}
-                title={`Tenant đã dùng ${quota.used}/${quota.limit} lượt AI (${quota.usedPct}%)${quota.exhausted ? ' — đã hết!' : ''}`}
-                onClick={() => pushToast(quota.exhausted
-                  ? `Hết quota AI: ${quota.used}/${quota.limit}. Liên hệ admin để nạp thêm.`
-                  : `AI: ${quota.used}/${quota.limit} lượt (${quota.usedPct}%) · còn ${quota.remaining} lượt`,
-                  quota.exhausted ? 'error' : (quota.warn ? 'warn' : 'info'))}>
+              <button type="button"
+                className={'tb-quota' + (quota.exhausted ? ' is-exhausted' : (quota.warn ? ' is-warn' : ''))}
+                title={quota.exhausted
+                  ? `Hết quota AI: ${quota.used}/${quota.limit}. Click để nạp thêm.`
+                  : `AI: ${quota.used}/${quota.limit} lượt (${quota.usedPct}%) · còn ${quota.remaining} lượt. Click để nạp thêm.`}
+                onClick={() => setShowUpgrade(true)}>
                 <Icon name="sparkle" size={13} />
                 <span><b>{quota.used}</b>/{quota.limit}</span>
-              </div>
+                <span className="tb-quota-plus" aria-hidden="true">+</span>
+              </button>
             )}
             <button className="tb-icon" title="Hướng dẫn sử dụng"
               onClick={() => pushToast('Chọn tính năng ở thanh bên trái để bắt đầu')}>
@@ -320,17 +392,9 @@ function App() {
               onClick={() => pushToast('Chưa có thông báo mới')}>
               <Icon name="bell" size={18} />
             </button>
-            <button
-              className={'tb-icon tb-debug' + (debugOn ? ' on' : '')}
-              onClick={() => {
-                const next = !debugOn;
-                window.tourkitDebug?.setOn?.(next);
-                setDebugOn(next);
-                pushToast(next ? '🔍 Debug ON — mọi request AI sẽ có "Cách vận hành"' : 'Debug OFF');
-              }}
-              title={debugOn ? 'Đang HIỆN cách vận hành cho mọi feature AI — bấm để tắt' : 'Bật debug để xem cách AI vận hành (workflow trace)'}>
-              <Icon name="info" size={17} />
-            </button>
+            {/* Debug toggle button đã bỏ — debug state vẫn giữ ở localStorage qua window.tourkitDebug
+                (admin power-user set tay: window.tourkitDebug.setOn(true)) → /ai-usage vẫn accessible
+                qua URL trực tiếp, nav "Chi phí AI" hiện khi debug ON. */}
             {/* AI cấu hình mặc định ở appsettings.json — ẩn nút topbar (key đã chuyển backend) */}
             {false && <button className="tb-ai" onClick={() => setAiSettingsOpen(true)} title={`AI: ${aiCfg.provider} · ${aiCfg.model}`}>
               <Icon name="sparkle" size={14} /> <span>AI: {aiCfg.model}</span>
@@ -370,10 +434,14 @@ function App() {
         <Route path="/assistant" render={() => <window.AssistantPage pushToast={pushToast} />} />
         <Route path="/mail"      render={() => <window.MailPage pushToast={pushToast} />} />
         <Route path="/visa"      render={() => <window.VisaPage pushToast={pushToast} />} />
+        <Route path="/visa/history" render={() => <window.VisaHistoryPage pushToast={pushToast} />} />
         <Route path="/deals"     render={() => <window.DealsPage pushToast={pushToast} />} />
         <Route path="/tour-builder" render={() => <window.TourBuilderPage pushToast={pushToast} />} />
         <Route path="/quotes"       render={() => <window.QuotesPage pushToast={pushToast} />} />
         <Route path="/ai-usage"     render={() => <window.AiUsagePage pushToast={pushToast} />} />
+        <Route path="/widget-admin" render={() => <window.WidgetAdminPage pushToast={pushToast} />} />
+        <Route path="/ncc-import"   render={() => <window.NccImportPage pushToast={pushToast} />} />
+        <Route path="/visa-config"  render={() => <window.VisaConfigPage pushToast={pushToast} />} />
         <Route path="*"          render={() => (
           <main className="page" style={{padding: 40, textAlign: 'center', color: 'var(--text-3)'}}>
             Trang không tồn tại. <Link to="/" style={{color: 'var(--accent)'}}>Về trang chính</Link>
@@ -381,6 +449,71 @@ function App() {
         )} />
       </Router>
       </div>{/* /app-main */}
+
+      {/* MOBILE BOTTOM DOCK (≤900px) — 5 quick + 1 Thêm (mở drawer) */}
+      <nav className="app-bottom-dock" aria-label="Tính năng nhanh">
+        {MOBILE_QUICK.map(q => (
+          <a key={q.to} href={q.to}
+             className={'app-dock-item' + (isActive(q.to) ? ' active' : '')}
+             onClick={e => {
+               if (e.defaultPrevented || e.button !== 0 || e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return;
+               e.preventDefault();
+               window.tourkitRouter.navigate(q.to);
+             }}>
+            <Icon name={q.icon} size={18} stroke={2.2} />
+            <span>{q.label}</span>
+          </a>
+        ))}
+        <button
+          className={'app-dock-item app-dock-more' + (mobileNav ? ' active' : '')}
+          onClick={() => setMobileNav(v => !v)}
+          aria-label="Mở menu đầy đủ"
+          aria-expanded={mobileNav}>
+          <Icon name="more" size={18} stroke={2.2} />
+          <span>Thêm</span>
+        </button>
+      </nav>
+
+      {/* MOBILE DRAWER (≤900px) — click "Thêm" → full menu giống sidebar desktop */}
+      {mobileNav && (
+        <div className="app-drawer-overlay" onClick={() => setMobileNav(false)} role="dialog" aria-modal="true">
+          <div className="app-drawer-panel" onClick={e => e.stopPropagation()}>
+            <div className="app-drawer-head">
+              <div className="sidebar-logo">
+                <div className="sidebar-logo-mark">
+                  <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                    <path d="M12 2L3 7v6c0 5 4 9 9 9s9-4 9-9V7l-9-5z" />
+                    <path d="M12 8v8M8 12h8" />
+                  </svg>
+                </div>
+                <div className="sidebar-logo-text">TRAV-AI<span>Trợ lý AI doanh nghiệp</span></div>
+              </div>
+              <button className="app-drawer-close" onClick={() => setMobileNav(false)} aria-label="Đóng">
+                <Icon name="close" size={18} stroke={2.2} />
+              </button>
+            </div>
+            <nav className="app-drawer-nav sidebar-nav">
+              {[...NAV_GROUPS, ...(debugOn ? [NAV_DEBUG_GROUP] : [])].map((g, gi) => (
+                <div key={gi} className="sidebar-group">
+                  <div className="sidebar-navlabel">{g.label}</div>
+                  {g.items.map(n => (
+                    <a key={n.to} href={n.to}
+                       className={'sidebar-item' + (isActive(n.to) ? ' active' : '')}
+                       onClick={e => {
+                         if (e.defaultPrevented || e.button !== 0 || e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return;
+                         e.preventDefault();
+                         window.tourkitRouter.navigate(n.to);
+                         setMobileNav(false);
+                       }}>
+                      <Icon name={n.icon} size={16} /> <span>{n.label}</span>
+                    </a>
+                  ))}
+                </div>
+              ))}
+            </nav>
+          </div>
+        </div>
+      )}
 
       <div className="toast-container">
         {toasts.map(t => (
@@ -396,6 +529,15 @@ function App() {
         onSaved={(cfg) => {
           setAiCfg(cfg);
           pushToast(`AI: ${cfg.provider} · ${cfg.model}`);
+        }}
+      />}
+
+      {window.QuotaUpgradeModal && <window.QuotaUpgradeModal
+        open={showUpgrade}
+        onClose={() => setShowUpgrade(false)}
+        onPaid={(snap) => {
+          // Sync ngay chip quota (event đã được modal phát) + toast confirm.
+          pushToast(`Đã cộng ${snap.addedUnits.toLocaleString('vi-VN')} lượt AI vào tài khoản!`, 'info');
         }}
       />}
 

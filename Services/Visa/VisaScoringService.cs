@@ -22,16 +22,64 @@ public class VisaScoringService
     private readonly IWorkflowTraceAccessor _trace;
     private readonly ILogger<VisaScoringService> _log;
 
+    /// Rubric chi tiết theo từng nước. Dùng chung cho cả 2 path scoring.
+    private const string CountryRubric = @"
+TIÊU CHÍ ĐẶC THÙ THEO QUỐC GIA:
+
+- MỸ (B1/B2): KHẮT KHE NHẤT. Lãnh sự đánh giá 'intent to return' qua section 214(b) INA — mặc định coi user là di dân tiềm năng.
+  * Trọng số: Ràng buộc về nước (40%) + Tài chính (25%) + Lịch sử du lịch (20%) + Nhất quán hồ sơ (15%).
+  * Đỏ: refusal history > 1 lần, vùng nhạy cảm (14 tỉnh), độc thân + ko tài sản, dưới 25 tuổi + ko việc.
+  * Xanh: đã từng đi Châu Âu/Úc/Canada, sổ tiết kiệm phong toả ≥ 200M, hợp đồng lao động + BHXH dài hạn.
+  * Tỉ lệ đậu chung VN: ~70% khách có hồ sơ chuẩn, ~30% case borderline.
+
+- ANH (UK Visit Visa): Chính sách 'point-based', xét sponsor + financial requirement.
+  * Trọng số: Tài chính (30%, ≥ £4000 sao kê 6 tháng) + Sponsor (20%) + Ràng buộc (25%) + Lịch sử (25%).
+  * Đỏ: thu nhập dưới £1000/tháng, ko sponsor + ko savings, vùng nhạy cảm.
+  * Xanh: visa Schengen/US còn hạn, sponsor là người có visa UK/citizen, BHXH dài hạn.
+
+- KHỐI SCHENGEN/EU (visa loại C): Tương đối dễ hơn Mỹ/Anh nếu đủ hồ sơ chuẩn.
+  * Trọng số: Tài chính (25%) + Lịch trình + đặt chỗ (25%) + Bảo hiểm du lịch (10%) + Ràng buộc (20%) + Lịch sử (20%).
+  * Bắt buộc: bảo hiểm du lịch ≥ €30,000, vé máy bay khứ hồi + booking khách sạn, sao kê 3 tháng ≥ €5000.
+  * Đỏ: hồ sơ thiếu bảo hiểm hoặc booking, refusal Schengen lần gần.
+  * Xanh: đã đi Schengen lần trước OK, đã có visa Mỹ/Anh/Úc, family ties strong.
+
+- ÚC/NEW ZEALAND (Subclass 600 visitor): Online ETA cho ai có hồ sơ sạch. Strict về 'genuine temporary entrant'.
+  * Trọng số: Ràng buộc (30%) + Tài chính (25%) + Tuyên bố trung thực (20%) + Lịch sử (25%).
+  * Đỏ: under 30 + độc thân + ko việc, từng overstay nước khác.
+  * Xanh: gia đình ổn định + hồ sơ tài chính minh bạch, đã đi NZ/Châu Á + Châu Âu.
+
+- CANADA (Temporary Resident Visa): Cân bằng giữa Mỹ và Úc. Coi trọng 'dual intent + ties'.
+  * Trọng số: Tài chính (30%) + Ràng buộc (30%) + Lịch sử (25%) + Mục đích chuyến đi (15%).
+  * Bonus: có người bảo lãnh PR/citizen + Letter of Invitation.
+
+- HÀN QUỐC (C-3 short-term): KHÁ DỄ với hồ sơ trung bình. Visa miễn cho ai có visa OECD còn hạn.
+  * Trọng số: Lịch sử du lịch (40%) + Tài chính (25%) + Ràng buộc (20%) + Mục đích (15%).
+  * Xanh: tự do, đã đi Đông Nam Á + Châu Á gần đây, có người mời ở Hàn (visa C-3-9).
+  * Đỏ: chưa từng đi đâu + độc thân + dưới 25 tuổi + không việc.
+
+- ĐÀI LOAN (Visitor visa): Có hệ thống e-visa cho ai đã có visa Mỹ/Anh/EU/Úc/NZ/Canada/Schengen còn hạn (đậu gần 100%).
+  * Không có visa các nước trên: xét tài chính + lịch sử + ràng buộc — dễ hơn Hàn.
+
+- TRUNG QUỐC (L visa): Quy trình giấy tờ, ít chính trị hoá. Quan trọng giấy mời / tour booking.
+  * Cần: invitation từ TQ HOẶC booking tour qua agency có giấy phép outbound.
+  * Đỏ: không có cả 2.
+
+- NHẬT BẢN: Quy trình ổn định, ưu tiên hồ sơ đầy đủ + có lịch sử du lịch.
+  * Bắt buộc: lịch trình chi tiết + booking khách sạn xác nhận, sao kê 3 tháng minh bạch.
+  * Xanh: visa Mỹ/Anh/EU còn hạn → uy tín tăng cao.
+";
+
     private const string SystemJsonPrompt =
         "Bạn là chuyên gia thẩm định hồ sơ xin visa du lịch, nhiều năm kinh nghiệm đánh giá khả năng đậu/rớt. " +
-        "Đánh giá KHÁCH QUAN dựa trên hồ sơ, theo nguyên tắc chung của lãnh sự: chứng minh tài chính, " +
-        "ràng buộc về nước (công việc, tài sản, gia đình), lịch sử du lịch, tính nhất quán hồ sơ. " +
-        "CHỈ trả JSON thuần (bắt đầu '{'), KHÔNG markdown, KHÔNG giải thích ngoài JSON. Tiếng Việt.";
+        "Đánh giá KHÁCH QUAN dựa trên hồ sơ, theo nguyên tắc chung của lãnh sự và RUBRIC dưới đây. " +
+        "CHỈ trả JSON thuần (bắt đầu '{'), KHÔNG markdown, KHÔNG giải thích ngoài JSON. Tiếng Việt." +
+        "\n\n" + CountryRubric;
 
     private const string SystemNativeTool =
         "Bạn là chuyên gia thẩm định hồ sơ xin visa du lịch, nhiều năm kinh nghiệm đánh giá khả năng đậu/rớt. " +
-        "Đánh giá KHÁCH QUAN dựa trên hồ sơ, theo nguyên tắc lãnh sự: chứng minh tài chính, ràng buộc về nước, " +
-        "lịch sử du lịch, tính nhất quán hồ sơ. Gọi tool submit_visa_score với kết quả. Tiếng Việt.";
+        "Đánh giá KHÁCH QUAN dựa trên hồ sơ, theo RUBRIC dưới đây cho từng quốc gia. " +
+        "Gọi tool submit_visa_score với kết quả. Tiếng Việt." +
+        "\n\n" + CountryRubric;
 
     public VisaScoringService(ProviderRegistry registry, AiResponseCache cache,
         NativeToolScorer native,
@@ -85,6 +133,82 @@ public class VisaScoringService
         return result;
     }
 
+    // ─── Wizard scoring (9 câu hỏi + danh sách file đã upload) ─────────────────────
+    /// Wizard /visa frontend — đổi 9 đáp án + file list thành profile text rồi tận dụng
+    /// ScoreAsync hiện có (đã prove tốt). KHÔNG đọc nội dung file (chỉ list filename + count) —
+    /// AI suy đoán "user đã có giấy tờ X". OCR/vision deferred.
+    public Task<VisaResult> ScoreWizardAsync(
+        VisaWizardAnswers answers, List<VisaWizardFileSlot> files,
+        string? provider, string? model, string? apiKey, CancellationToken ct,
+        List<VisaFileExtraction>? extractedFiles = null)
+    {
+        var profile = BuildProfileFromWizard(answers, files, extractedFiles);
+        return ScoreAsync(profile, answers.Country, provider, model, apiKey, ct);
+    }
+
+    private static string BuildProfileFromWizard(VisaWizardAnswers a, List<VisaWizardFileSlot> files,
+        List<VisaFileExtraction>? extractedFiles = null)
+    {
+        var sb = new System.Text.StringBuilder();
+        sb.AppendLine("=== HỒ SƠ XIN VISA (do khách điền qua wizard tự đánh giá) ===");
+        sb.AppendLine();
+        sb.AppendLine("THÔNG TIN CÁ NHÂN");
+        sb.AppendLine($"- Quốc gia muốn xin visa: {a.Country ?? "(chưa chọn)"}");
+        sb.AppendLine($"- Tình trạng hôn nhân: {a.MaritalStatus ?? "(chưa chọn)"}");
+        sb.AppendLine($"- Nơi sinh thuộc 14 tỉnh \"rủi ro cao\" (Thanh Hoá, Hà Tĩnh, Nghệ An, Quảng Bình, Quảng Trị, Quảng Ngãi, Đắk Nông, BR-Vũng Tàu, Tây Ninh, An Giang, Kiên Giang, Hải Dương, Hoà Bình, Lào Cai): {a.HighRiskProvince ?? "(chưa chọn)"}");
+        sb.AppendLine();
+        sb.AppendLine("CÔNG VIỆC & THU NHẬP");
+        sb.AppendLine($"- Công việc: {a.Occupation ?? "(chưa chọn)"}");
+        sb.AppendLine($"- Thu nhập trung bình hàng tháng: {a.Income ?? "(chưa chọn)"}");
+        sb.AppendLine();
+        sb.AppendLine("LỊCH SỬ DU LỊCH QUỐC TẾ");
+        if (a.TravelHistory != null && a.TravelHistory.Count > 0)
+            foreach (var t in a.TravelHistory) sb.AppendLine($"- {t}");
+        else
+            sb.AppendLine("- (chưa khai)");
+        sb.AppendLine($"- Lịch sử bị từ chối visa: {a.VisaRefusal ?? "(chưa khai)"}");
+        sb.AppendLine();
+        sb.AppendLine("TÀI CHÍNH & TÀI SẢN");
+        if (a.FinancialAssets != null && a.FinancialAssets.Count > 0)
+            foreach (var f in a.FinancialAssets) sb.AppendLine($"- {f}");
+        else
+            sb.AppendLine("- (chưa khai)");
+        sb.AppendLine();
+        sb.AppendLine("HỒ SƠ KÈM THEO (slot user đã chọn)");
+        if (files != null && files.Count > 0)
+            foreach (var f in files)
+                sb.AppendLine($"- ✓ {f.DocLabel}: {f.Count} file ({(f.TotalBytes / 1024.0):F0} KB tổng)");
+        else
+            sb.AppendLine("- (không có file kèm — chỉ chấm trên khai báo của khách, điểm sẽ thấp hơn)");
+        sb.AppendLine();
+
+        // PREMIUM: nội dung file đã đọc qua Vision OCR. AI dùng để VERIFY khai báo
+        // (vd: user khai BHXH 84 tháng nhưng file chỉ thấy 12 tháng → flag bất nhất).
+        if (extractedFiles != null && extractedFiles.Count > 0)
+        {
+            sb.AppendLine("NỘI DUNG FILE ĐÃ ĐỌC (Vision OCR) — đối chiếu với khai báo phía trên");
+            foreach (var ef in extractedFiles)
+            {
+                if (!ef.Readable)
+                {
+                    sb.AppendLine($"- ⚠ {ef.FileName}: ẢNH MỜ / KHÔNG ĐỌC ĐƯỢC — cần upload lại bản rõ hơn");
+                    continue;
+                }
+                sb.AppendLine($"- ✓ {ef.FileName} [{ef.DocTypeLabel}]: {ef.Summary}");
+                if (!string.IsNullOrWhiteSpace(ef.Note)) sb.AppendLine($"    Ghi chú: {ef.Note}");
+            }
+            sb.AppendLine();
+        }
+        if (a.Contact != null)
+        {
+            sb.AppendLine("THÔNG TIN LIÊN HỆ");
+            if (!string.IsNullOrWhiteSpace(a.Contact.FullName)) sb.AppendLine($"- Họ tên: {a.Contact.FullName}");
+            if (!string.IsNullOrWhiteSpace(a.Contact.Phone)) sb.AppendLine($"- SĐT: {a.Contact.Phone}");
+            if (!string.IsNullOrWhiteSpace(a.Contact.Email)) sb.AppendLine($"- Email: {a.Contact.Email}");
+        }
+        return sb.ToString();
+    }
+
     // ─── Native function-calling path (Anthropic) ─────────────────────────────────
     private async Task<VisaResult> ScoreWithNativeToolAsync(
         string profile, string? country, string? model, string? apiKey,
@@ -100,7 +224,7 @@ public class VisaScoringService
             terminalToolName: "submit_visa_score",
             parser:           ParseToolInput,
             apiKeyOverride:   apiKey,
-            model:            string.IsNullOrWhiteSpace(model) ? "claude-sonnet-4-5" : model!,
+            model:            string.IsNullOrWhiteSpace(model) ? "claude-haiku-4-5" : model!,
             maxTokens:        3000,
             trace:            trace,
             ct:               ct);

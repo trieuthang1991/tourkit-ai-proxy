@@ -2,9 +2,9 @@ using System.Text.Json.Serialization;
 
 namespace TourkitAiProxy.Models;
 
-/// AI bóc tách 1 đoạn mô tả tự do → form Tour GIT (Type=3). Schema BÁM sát mobile TourCreate.razor
-/// khối: Thông tin tour + Người đặt + Phần thu + Dịch vụ điều hành. Phép null mọi field — AI điền
-/// được gì điền nấy; NV bổ sung phần thiếu trên form bên phải.
+/// AI bóc tách 1 đoạn mô tả tự do → form Tour GIT (Type=3). 3 khối:
+/// Thông tin tour + Khách đại diện + Phần thu (revenue Sale thu khách). Phép null mọi field.
+/// LƯU Ý 2026-06-13: KHỐI "Dịch vụ điều hành (chi)" đã BỎ — phần chi NCC dùng Wizard báo giá riêng.
 public record TourBuilderDraft(
     [property: JsonPropertyName("title")]        string? Title,
     [property: JsonPropertyName("marketName")]   string? MarketName,
@@ -18,7 +18,6 @@ public record TourBuilderDraft(
     [property: JsonPropertyName("customerEmail")] string? CustomerEmail,
     [property: JsonPropertyName("note")]         string? Note,
     [property: JsonPropertyName("expenses")]     List<TourBuilderExpense> Expenses,    // Phần thu
-    [property: JsonPropertyName("services")]     List<TourBuilderServiceItem> Services,    // Dịch vụ điều hành (chi)
     [property: JsonPropertyName("warnings")]     List<string> Warnings                 // AI lưu ý NV (vd: ngày không rõ)
 );
 
@@ -27,15 +26,6 @@ public record TourBuilderExpense(
     [property: JsonPropertyName("unitPrice")] long UnitPrice,
     [property: JsonPropertyName("quantity")]  int Quantity,
     [property: JsonPropertyName("vatPercent")] double VatPercent
-);
-
-public record TourBuilderServiceItem(
-    [property: JsonPropertyName("name")]         string Name,        // vd "Khách sạn ABC 3 đêm"
-    [property: JsonPropertyName("providerName")] string? ProviderName,
-    [property: JsonPropertyName("quantity")]     int Quantity,
-    [property: JsonPropertyName("nights")]       int Nights,
-    [property: JsonPropertyName("netPrice")]     long NetPrice,
-    [property: JsonPropertyName("vatPercent")]   double VatPercent
 );
 
 public record TourBuilderRequest(

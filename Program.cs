@@ -10,6 +10,14 @@ using TourkitAiProxy.Services.Workflow;
 
 var builder = WebApplication.CreateBuilder(args);
 
+// ─── Outbound TLS: ép TLS 1.2/1.3 ─────────────────────────────────────────────
+// Defensive: Windows Server 2012 R2/2016 thường default về TLS 1.0/1.1 → OpenAI/Anthropic/DeepSeek
+// reject → "The SSL connection could not be established". Set sớm trước khi HttpClient nào được tạo.
+// Lý tưởng nên fix qua registry SCHANNEL + SchUseStrongCrypto + reboot, nhưng cờ này là backup
+// để app vẫn chạy được nếu OS chưa kịp patch.
+System.Net.ServicePointManager.SecurityProtocol =
+    System.Net.SecurityProtocolType.Tls12 | System.Net.SecurityProtocolType.Tls13;
+
 // Visa upload có thể tới 25MB × 10 file (PDF nhiều trang). Tăng giới hạn body request global lên 300MB.
 // Đủ cho mọi upload PDF/DOCX/ảnh; route khác không bị ảnh hưởng (chỉ là trần).
 builder.WebHost.ConfigureKestrel(o => o.Limits.MaxRequestBodySize = 300L * 1024 * 1024);
@@ -19,30 +27,70 @@ builder.Services.Configure<Microsoft.AspNetCore.Http.Features.FormOptions>(o =>
     o.ValueLengthLimit = int.MaxValue;
 });
 
+// ─── HTTPS redirect (PRODUCTION only) ───────────────────────────────────────
+// App deploy phía sau reverse proxy (IIS / Nginx) — proxy terminate SSL rồi forward HTTP với
+// header X-Forwarded-Proto: https. Cấu hình ForwardedHeaders để middleware sau biết scheme thật.
+// Skip dev (localhost:5080 chỉ HTTP) để khỏi vỡ flow F5.
+builder.Services.Configure<Microsoft.AspNetCore.Builder.ForwardedHeadersOptions>(o =>
+{
+    o.ForwardedHeaders = Microsoft.AspNetCore.HttpOverrides.ForwardedHeaders.XForwardedFor
+                       | Microsoft.AspNetCore.HttpOverrides.ForwardedHeaders.XForwardedProto;
+    // Clear known networks/proxies để chấp nhận header từ MỌI proxy ngược (an toàn nếu chỉ deploy
+    // sau 1 layer proxy — nếu chain nhiều cấp cần whitelist từng IP).
+    o.KnownNetworks.Clear();
+    o.KnownProxies.Clear();
+});
+// HSTS — bảo trình duyệt "lần sau cứ HTTPS, đừng hỏi". Mặc định 30 ngày (đủ cho rollback an toàn).
+builder.Services.AddHsts(o =>
+{
+    o.Preload = false;
+    o.IncludeSubDomains = false;
+    o.MaxAge = TimeSpan.FromDays(30);
+});
+
 // ─── DI / services ────────────────────────────────────────────────────────────
 builder.Services.AddTourkitCors();
 
-builder.Services.AddHttpClient("opencode", c =>
+// Provider-wide TLS bypass (escape hatch cho Server 2012 R2 / OS không có root CA hiện đại).
+// Bật `Providers:AllowInsecureTls=true` → mọi HttpClient AI bỏ qua cert chain check.
+// Risk: nếu attacker MITM được giữa server và OpenAI/Anthropic/DeepSeek → đọc được API key.
+// Acceptable khi server ở DC tin tưởng + chỉ gọi public endpoint cố định.
+var allowInsecure = builder.Configuration.GetValue<bool>("Providers:AllowInsecureTls");
+Console.WriteLine($"[Startup] Providers:AllowInsecureTls = {allowInsecure}");
+HttpMessageHandler MakeInsecureHandler() => new HttpClientHandler
 {
-    c.BaseAddress = new Uri("https://opencode.ai/");
-    c.Timeout     = TimeSpan.FromSeconds(120);
-});
-var nineRoutes = builder.Services.AddHttpClient("nine-routes", c =>
+    ServerCertificateCustomValidationCallback = HttpClientHandler.DangerousAcceptAnyServerCertificateValidator,
+    SslProtocols = System.Security.Authentication.SslProtocols.Tls12
+                 | System.Security.Authentication.SslProtocols.Tls13,
+};
+
+// Helper: gắn HttpLoggingHandler + (optional) bypass cert cho 1 named client.
+// Mỗi outbound call qua client đó sẽ log: URL, status, duration, full exception chain nếu fail.
+// → Biết NGAY upstream nào đang fail SSL + root cause là gì.
+void AttachLogAndInsecure(IHttpClientBuilder cb, string name, bool insecure)
 {
-    c.Timeout = TimeSpan.FromSeconds(120);
-});
-// 9routes có thể chạy HTTPS với chứng chỉ TỰ KÝ (vd https tới IP). Bật cờ này để chấp nhận
-// cert tự ký CHỈ cho client 9routes (không ảnh hưởng các call khác). Tắt khi đã có cert hợp lệ.
-if (builder.Configuration.GetValue<bool>("Providers:NineRoutes:AllowInsecureTls"))
-{
-    nineRoutes.ConfigurePrimaryHttpMessageHandler(() => new HttpClientHandler
-    {
-        ServerCertificateCustomValidationCallback = HttpClientHandler.DangerousAcceptAnyServerCertificateValidator
-    });
+    cb.AddHttpMessageHandler(sp =>
+        new TourkitAiProxy.Services.Http.HttpLoggingHandler(
+            sp.GetRequiredService<ILogger<TourkitAiProxy.Services.Http.HttpLoggingHandler>>(), name));
+    if (insecure) cb.ConfigurePrimaryHttpMessageHandler(MakeInsecureHandler);
 }
 
-builder.Services.AddHttpClient("openai",    c => c.Timeout = TimeSpan.FromSeconds(120));
-builder.Services.AddHttpClient("anthropic", c => c.Timeout = TimeSpan.FromSeconds(120));
+AttachLogAndInsecure(
+    builder.Services.AddHttpClient("opencode", c =>
+    {
+        c.BaseAddress = new Uri("https://opencode.ai/");
+        c.Timeout     = TimeSpan.FromSeconds(120);
+    }), "opencode", allowInsecure);
+
+// 9routes có thể chạy HTTPS với cert tự ký (vd https tới IP). Override riêng `Providers:NineRoutes:AllowInsecureTls`.
+AttachLogAndInsecure(
+    builder.Services.AddHttpClient("nine-routes", c => c.Timeout = TimeSpan.FromSeconds(120)),
+    "nine-routes",
+    allowInsecure || builder.Configuration.GetValue<bool>("Providers:NineRoutes:AllowInsecureTls"));
+
+AttachLogAndInsecure(builder.Services.AddHttpClient("openai",    c => c.Timeout = TimeSpan.FromSeconds(120)), "openai", allowInsecure);
+AttachLogAndInsecure(builder.Services.AddHttpClient("anthropic", c => c.Timeout = TimeSpan.FromSeconds(120)), "anthropic", allowInsecure);
+AttachLogAndInsecure(builder.Services.AddHttpClient("deepseek",  c => c.Timeout = TimeSpan.FromSeconds(120)), "deepseek", allowInsecure);
 
 builder.Services.AddSingleton<UsageTracker>();
 // AI usage log per-request (data/ai-usage.jsonl) — biết feature/user/tenant nào tiêu bao nhiêu.
@@ -96,24 +144,48 @@ builder.Services.AddSingleton<BatchJobStore>();
 // ReviewService resolve agent đầu tiên Supports(defaultProviderId).
 builder.Services.AddSingleton<IReviewAgent, NativeToolReviewAgent>();
 builder.Services.AddSingleton<IReviewAgent, JsonPromptReviewAgent>();
+builder.Services.AddSingleton<TourkitAiProxy.Services.NccImport.NccImportService>();
 builder.Services.AddSingleton<ReviewService>();
 builder.Services.AddSingleton<BatchService>();
 
 // Chat-Analytics ("Trợ lý số liệu") — gọi TourKit.Api (toutkit-app) qua JWT.
 // BaseUrl: TourKit:BaseUrl (mặc định Production). Auth: client gửi token mã hóa (Crypton) → /login-token.
-builder.Services.AddHttpClient("tourkit", c =>
-{
-    // Staging có đủ surface /api/ai/* (prod chưa). Đổi sang prod khi đã deploy.
-    var baseUrl = builder.Configuration["TourKit:BaseUrl"] ?? "https://mobile-test-api-2.tourkit.vn";
-    c.BaseAddress = new Uri(baseUrl);
-    c.Timeout     = TimeSpan.FromSeconds(60);
-});
+AttachLogAndInsecure(
+    builder.Services.AddHttpClient("tourkit", c =>
+    {
+        // Staging có đủ surface /api/ai/* (prod chưa). Đổi sang prod khi đã deploy.
+        var baseUrl = builder.Configuration["TourKit:BaseUrl"] ?? "https://mobile-test-api-2.tourkit.vn";
+        c.BaseAddress = new Uri(baseUrl);
+        c.Timeout     = TimeSpan.FromSeconds(60);
+    }), "tourkit",
+    allowInsecure || builder.Configuration.GetValue<bool>("TourKit:AllowInsecureTls"));
 builder.Services.AddSingleton<TourKitApiClient>();
 builder.Services.AddSingleton<TkSessionStore>();
 builder.Services.AddSingleton<TourkitAiProxy.Services.Cache.RedisStore>();  // generic Redis cho mọi feature
 builder.Services.AddSingleton<TourkitAiProxy.Services.Providers.ModelDefaults>();   // Models:Primary + Models:Review từ appsettings
 builder.Services.AddSingleton<TourkitAiProxy.Services.Cache.ChatCache>();   // Redis (nếu có) / in-memory
 builder.Services.AddSingleton<TourkitAiProxy.Services.Quota.TenantQuotaStore>();   // Quota AI per-tenant: file + Redis mirror
+
+// Tingee VietQR client cho luồng mua quota. Mock-first: dùng vietqr.io public, simulate-paid endpoint
+// để dev test. Khi có ApiKey thật → set `Tingee:Mock=false` → switch sang TingeeHttpClient.
+AttachLogAndInsecure(
+    builder.Services.AddHttpClient("tingee", c => c.Timeout = TimeSpan.FromSeconds(30)),
+    "tingee", allowInsecure);
+if (builder.Configuration.GetValue<bool?>("Tingee:Mock") != false)
+    builder.Services.AddSingleton<TourkitAiProxy.Services.Quota.ITingeeClient,
+                                  TourkitAiProxy.Services.Quota.MockTingeeClient>();
+else
+    builder.Services.AddSingleton<TourkitAiProxy.Services.Quota.ITingeeClient,
+                                  TourkitAiProxy.Services.Quota.TingeeHttpClient>();
+builder.Services.AddSingleton<TourkitAiProxy.Services.Quota.QuotaOrderRepository>();
+
+// Widget Chat — token per-tenant, embed JS vào site khách.
+//   • FAQ mode (WidgetChatService): chỉ system prompt + LLM kiến thức nền.
+//   • CRM mode (WidgetChatCrmService): plan → call /api/ai/* whitelist → analyze. Cần link CRM.
+builder.Services.AddSingleton<TourkitAiProxy.Services.Widget.WidgetTokenRepository>();
+builder.Services.AddSingleton<TourkitAiProxy.Services.Widget.WidgetChatService>();
+builder.Services.AddSingleton<TourkitAiProxy.Services.Widget.WidgetCrmLinkService>();
+builder.Services.AddSingleton<TourkitAiProxy.Services.Widget.WidgetChatCrmService>();
 // Agent runtimes -- thu tu quan trong: NativeToolUseAgent (Anthropic native tools) chay truoc,
 // JsonPlannerAgent la fallback cho moi provider khac (OpenCode, 9routes...).
 // ChatAgentService resolve runtime dau tien co Supports(provider)=true.
@@ -146,10 +218,14 @@ builder.Services.AddSingleton<TourkitAiProxy.Services.Deals.DealBatchService>();
 // Báo giá tour persist (replace flow localStorage cũ). DB-backed, per-tenant scope.
 builder.Services.AddSingleton<TourkitAiProxy.Services.TourQuotes.TourQuoteRepository>();
 
+// Speech-to-Text (Whisper) — chat assistant ghi âm / upload audio → text.
+builder.Services.AddSingleton<TourkitAiProxy.Services.Speech.SpeechToTextService>();
+
 // Thẩm định Visa AI — upload hồ sơ → AI vision đọc → chấm tỉ lệ đậu/rớt.
 // File gốc lưu tạm data/visa-files/ (tự xóa 7 ngày), kết quả data/visa-assessments.json.
 builder.Services.AddSingleton<TourkitAiProxy.Services.Visa.VisaFileStore>();
 builder.Services.AddSingleton<TourkitAiProxy.Services.Visa.VisaRepository>();
+builder.Services.AddSingleton<TourkitAiProxy.Services.Visa.VisaQuestionRepository>();
 builder.Services.AddSingleton<TourkitAiProxy.Services.Visa.VisaExtractionService>();
 builder.Services.AddSingleton<TourkitAiProxy.Services.Visa.VisaScoringService>();
 
@@ -189,6 +265,32 @@ _ = Task.Run(async () =>
     }
 });
 
+// ─── HTTPS pipeline (phải ở SỚM nhất — trước CORS/routing) ──────────────────
+// UseForwardedHeaders TRƯỚC mọi thứ khác → Request.Scheme/Request.Host correct ngay từ đầu.
+// CRITICAL với reverse proxy: thiếu cái này → ctx.Request.IsHttps luôn false → redirect loop.
+app.UseForwardedHeaders();
+if (!app.Environment.IsDevelopment())
+{
+    app.UseHsts();                    // Strict-Transport-Security header (chỉ prod)
+    // Custom HTTPS redirect: SKIP localhost / 127.0.0.1 / ::1 dù env=Production.
+    // Tránh case: anh chạy `dotnet publish` exe local → env=Production → mặc định UseHttpsRedirection
+    // ép http://localhost → https://localhost → 0 listener HTTPS → "SSL connection could not be established".
+    // Domain thật vẫn redirect HTTPS bình thường.
+    app.Use(async (ctx, next) =>
+    {
+        var host = ctx.Request.Host.Host;
+        var isLocal = host == "localhost" || host == "127.0.0.1" || host == "::1";
+        if (!isLocal && !ctx.Request.IsHttps)
+        {
+            var httpsUrl = $"https://{ctx.Request.Host}{ctx.Request.Path}{ctx.Request.QueryString}";
+            ctx.Response.StatusCode = StatusCodes.Status307TemporaryRedirect;
+            ctx.Response.Headers.Location = httpsUrl;
+            return;
+        }
+        await next();
+    });
+}
+
 app.UseCors(CorsSetup.PolicyName);
 // Trace middleware ĐẦU pipeline (trước routing/endpoints) — bất kỳ endpoint nào cũng có thể đọc trace.
 app.UseMiddleware<WorkflowTraceMiddleware>();
@@ -198,6 +300,8 @@ app.UseTourkitStaticFiles();
 
 // ─── Routes ──────────────────────────────────────────────────────────────────
 app.MapSystemEndpoints();
+app.MapConsultLeadEndpoints();   // POST /api/v1/consult-leads (public, lưu data/consult-leads.jsonl)
+app.MapNccImportEndpoints();     // /api/v1/ncc-import/* — bóc tách NCC từ file/text → Excel chuẩn
 app.MapAiEndpoints();
 app.MapReviewEndpoints();
 app.MapChatEndpoints();
@@ -206,9 +310,12 @@ app.MapTourEndpoints();
 app.MapVisaEndpoints();
 app.MapDealEndpoints();
 app.MapTourQuoteEndpoints();
+app.MapSpeechEndpoints();
 app.MapTourBuilderEndpoints();
 app.MapAiUsageEndpoints();
 app.MapQuotaEndpoints();
+app.MapQuotaOrderEndpoints();
+app.MapWidgetEndpoints();
 
 // SPA fallback: mọi GET không match API/file (vd /mail, /customers, /assistant) → trả index.html.
 // Cho phép HTML5 history routing thay vì hash (#). F5 trên /mail không còn 404.

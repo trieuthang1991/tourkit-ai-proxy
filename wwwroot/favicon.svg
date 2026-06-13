@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">
+  <!-- Brand: cam #F97316 → #EA580C gradient. Hình shield + sparkle (AI mark) — đồng nhất với
+       logo login screen + nav header. Render rõ ở 16×16 favicon size. -->
+  <defs>
+    <linearGradient id="g" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#FB923C"/>
+      <stop offset="55%" stop-color="#F97316"/>
+      <stop offset="100%" stop-color="#EA580C"/>
+    </linearGradient>
+  </defs>
+  <!-- Rounded square chrome -->
+  <rect x="2" y="2" width="60" height="60" rx="14" fill="url(#g)"/>
+  <!-- Inner soft highlight -->
+  <rect x="2" y="2" width="60" height="30" rx="14" fill="white" opacity="0.12"/>
+  <!-- Mark: shield + sparkle (AI tour ops icon family) -->
+  <g fill="none" stroke="white" stroke-width="3.5" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M32 12 L18 18 v12 c0 11 7 18 14 22 7-4 14-11 14-22 V18 z"/>
+    <path d="M32 26 v12 M26 32 h12"/>
+  </g>
+</svg>

@@ -32,13 +32,17 @@ function AiUsagePage({ pushToast }) {
   const [logs, setLogs] = _uS([]);
   const [days, setDays] = _uS(1);
   const [loading, setLoading] = _uS(true);
+  // Filter UI cho bảng "Nhật ký chi tiết" — tìm model / feature trong 500 dòng gần nhất.
+  const [logFilter, setLogFilter] = _uS('');
 
   const load = async () => {
     setLoading(true);
     try {
+      // n=1000: max của endpoint (Clamp 10-1000), cover toàn bộ file rotate ngưỡng 10k dòng.
+      // Filter UI lọc ở client (model/feature/provider).
       const [r1, r2] = await Promise.all([
         fetch(`/api/v1/ai/usage?days=${days}`),
-        fetch('/api/v1/ai/usage/log?n=50'),
+        fetch('/api/v1/ai/usage/log?n=1000'),
       ]);
       if (r1.ok) setData(await r1.json());
       if (r2.ok) setLogs(await r2.json());
@@ -202,27 +206,40 @@ function AiUsagePage({ pushToast }) {
         </section>
       )}
 
-      {/* Nhật ký chi tiết — full-width, không eyebrow */}
+      {/* Nhật ký chi tiết — full-width, không eyebrow. Filter theo model/feature
+          để tìm nhanh model lạ (vd "sonnet", "opus") trong 500 dòng gần nhất. */}
       <section className="aiu-pane">
-        <SectionTitle hint={`${logs.length} lượt gần nhất`}>Nhật ký chi tiết</SectionTitle>
+        <SectionTitle hint={`${logs.length} lượt · ${(() => {
+          const q = logFilter.trim().toLowerCase();
+          if (!q) return 'hiển thị tất cả';
+          const n = logs.filter(e => (e.model||'').toLowerCase().includes(q) || (e.feature||'').toLowerCase().includes(q) || (e.provider||'').toLowerCase().includes(q)).length;
+          return `${n} khớp "${logFilter}"`;
+        })()}`}>Nhật ký chi tiết</SectionTitle>
+        <div className="aiu-log-filter">
+          <input type="text" placeholder='Tìm theo model / tính năng / provider (vd: "sonnet")'
+            value={logFilter} onChange={e => setLogFilter(e.target.value)} />
+          {logFilter && <button onClick={() => setLogFilter('')} className="aiu-log-filter-clear">×</button>}
+        </div>
         <div className="aiu-log-wrap">
           <table className="aiu-table aiu-log">
             <thead><tr><th>Thời gian</th><th>Tính năng</th><th>Model</th><th>IN/OUT</th><th>Latency</th><th>Chi phí</th><th>Status</th></tr></thead>
             <tbody>
-              {logs.length === 0 && (
-                <tr><td colSpan={7} className="aiu-empty">Chưa có log nào</td></tr>
-              )}
-              {logs.map((e, i) => (
-                <tr key={i} className={e.cached ? 'cached' : ''}>
-                  <td>{new Date(e.ts).toLocaleTimeString('vi-VN')}</td>
-                  <td><span className="aiu-dot" style={{ background: FEATURE_COLOR[e.feature] || '#94a3b8' }} /> {FEATURE_LABEL[e.feature] || e.feature}</td>
-                  <td><code>{e.model}</code></td>
-                  <td className="num">{fmtN(e.inTok)}/{fmtN(e.outTok)}</td>
-                  <td className="num">{e.latencyMs}ms</td>
-                  <td className="num strong">{e.cached ? <span className="aiu-cache">cache</span> : fmtVnd(e.costVnd) + ' đ'}</td>
-                  <td><span className={'aiu-status ' + (e.status === 'ok' ? 'ok' : 'warn')}>{e.status}</span></td>
-                </tr>
-              ))}
+              {(() => {
+                const q = logFilter.trim().toLowerCase();
+                const shown = q ? logs.filter(e => (e.model||'').toLowerCase().includes(q) || (e.feature||'').toLowerCase().includes(q) || (e.provider||'').toLowerCase().includes(q)) : logs;
+                if (shown.length === 0) return <tr><td colSpan={7} className="aiu-empty">{logs.length === 0 ? 'Chưa có log nào' : 'Không có dòng nào khớp filter'}</td></tr>;
+                return shown.map((e, i) => (
+                  <tr key={i} className={e.cached ? 'cached' : ''}>
+                    <td>{new Date(e.ts).toLocaleString('vi-VN', { day:'2-digit', month:'2-digit', hour:'2-digit', minute:'2-digit', second:'2-digit' })}</td>
+                    <td><span className="aiu-dot" style={{ background: FEATURE_COLOR[e.feature] || '#94a3b8' }} /> {FEATURE_LABEL[e.feature] || e.feature}</td>
+                    <td><code>{e.model}</code></td>
+                    <td className="num">{fmtN(e.inTok)}/{fmtN(e.outTok)}</td>
+                    <td className="num">{e.latencyMs}ms</td>
+                    <td className="num strong">{e.cached ? <span className="aiu-cache">cache</span> : fmtVnd(e.costVnd) + ' đ'}</td>
+                    <td><span className={'aiu-status ' + (e.status === 'ok' ? 'ok' : 'warn')}>{e.status}</span></td>
+                  </tr>
+                ));
+              })()}
             </tbody>
           </table>
         </div>

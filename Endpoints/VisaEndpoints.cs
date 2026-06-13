@@ -122,6 +122,208 @@ public static class VisaEndpoints
     {
         var v1 = routes.MapGroup("/api/v1");
 
+        // ─── POST /visa/score-wizard ─── 9 câu hỏi + files → AI chấm ─────────────
+        // Multipart form:
+        //   - "answers"  (text JSON) : VisaWizardAnswers
+        //   - "filesMeta" (text JSON) : List<VisaWizardFileSlot> — metadata file (docKey,docLabel,count,bytes)
+        //   - files[]    (binary) : file thực — lưu store, KHÔNG đọc OCR/vision ở phase này
+        //   - "provider", "model", "apiKey" (text optional) : AI prefs override
+        // Output: VisaResult (passRate, level, strengths, weaknesses, missingDocs, suggestions, summary).
+        // ─── POST /visa/lead ─── User bấm "Liên hệ tư vấn" ở result → log lead ───
+        // Phase 1: append vào data/visa-leads.jsonl (sales team đọc thủ công).
+        // Phase 2: wire POST /api/booking-tickets vào TourKit CRM (cần upstream support).
+        v1.MapPost("/visa/lead", async (HttpRequest request, HttpContext ctx, TkSessionStore sessions, IWebHostEnvironment env, ILogger<Program> log) =>
+        {
+            var auth = RequireSession(ctx, sessions);
+            if (auth == null) return Unauthorized();
+            var (_, tenant) = auth.Value;
+            using var reader = new StreamReader(request.Body);
+            var body = await reader.ReadToEndAsync();
+            if (string.IsNullOrWhiteSpace(body)) return Results.BadRequest(new { error = "Body rỗng." });
+            try
+            {
+                using var doc = System.Text.Json.JsonDocument.Parse(body);
+                var dir = Path.Combine(env.ContentRootPath, "data");
+                Directory.CreateDirectory(dir);
+                var path = Path.Combine(dir, "visa-leads.jsonl");
+                var entry = new
+                {
+                    ts = DateTime.UtcNow.ToString("o"),
+                    tenant,
+                    payload = doc.RootElement
+                };
+                await File.AppendAllTextAsync(path, System.Text.Json.JsonSerializer.Serialize(entry) + "\n");
+                return Results.Json(new { saved = true, message = "Đã ghi nhận, bộ phận visa sẽ liên hệ trong 1-2 giờ làm việc." });
+            }
+            catch (Exception ex) { log.LogError(ex, "Visa lead append fail"); return Results.Json(new { error = ex.Message }, statusCode: 500); }
+        });
+
+        // ─── GET /visa/questions ─── per-tenant config (null = dùng default frontend) ───
+        v1.MapGet("/visa/questions", (HttpContext ctx, TkSessionStore sessions, VisaQuestionRepository qrepo) =>
+        {
+            var auth = RequireSession(ctx, sessions);
+            if (auth == null) return Unauthorized();
+            var (_, tenant) = auth.Value;
+            var cfg = qrepo.Get(tenant);
+            return Results.Json(new
+            {
+                hasOverride = cfg != null,
+                questionsJson = cfg?.QuestionsJson,
+                updatedBy = cfg?.UpdatedBy,
+                updatedAt = cfg?.UpdatedAt
+            });
+        });
+
+        // ─── PUT /visa/questions ─── upsert config (body = raw JSON array) ───
+        v1.MapPut("/visa/questions", async (HttpRequest request, HttpContext ctx, TkSessionStore sessions, VisaQuestionRepository qrepo) =>
+        {
+            var auth = RequireSession(ctx, sessions);
+            if (auth == null) return Unauthorized();
+            var (sid, tenant) = auth.Value;
+            using var reader = new StreamReader(request.Body);
+            var body = await reader.ReadToEndAsync();
+            if (string.IsNullOrWhiteSpace(body)) return Results.BadRequest(new { error = "Body rỗng." });
+            // Validate JSON array
+            try
+            {
+                using var doc = System.Text.Json.JsonDocument.Parse(body);
+                if (doc.RootElement.ValueKind != System.Text.Json.JsonValueKind.Array)
+                    return Results.BadRequest(new { error = "Phải là JSON array của câu hỏi." });
+                if (doc.RootElement.GetArrayLength() == 0)
+                    return Results.BadRequest(new { error = "Cần ít nhất 1 câu hỏi." });
+            }
+            catch (Exception ex) { return Results.BadRequest(new { error = "JSON sai cú pháp: " + ex.Message }); }
+
+            var updatedBy = sessions.Get(sid)?.FullName ?? sid;
+            var ok = qrepo.Save(tenant, body, updatedBy);
+            return ok ? Results.Json(new { saved = true }) : Results.Json(new { error = "Lưu lỗi" }, statusCode: 500);
+        });
+
+        // ─── DELETE /visa/questions ─── reset về default ───
+        v1.MapDelete("/visa/questions", (HttpContext ctx, TkSessionStore sessions, VisaQuestionRepository qrepo) =>
+        {
+            var auth = RequireSession(ctx, sessions);
+            if (auth == null) return Unauthorized();
+            var (_, tenant) = auth.Value;
+            qrepo.Delete(tenant);
+            return Results.Json(new { reset = true });
+        });
+
+        v1.MapPost("/visa/score-wizard", async (HttpRequest request, HttpContext ctx, TkSessionStore sessions,
+            VisaScoringService scorer, VisaRepository repo, VisaExtractionService extractor, ILogger<Program> log, CancellationToken ct) =>
+        {
+            var auth = RequireSession(ctx, sessions);
+            if (auth == null) return Unauthorized();
+            var (_, tenant) = auth.Value;
+
+            if (!request.HasFormContentType)
+                return Results.BadRequest(new { error = "Cần multipart/form-data với 'answers' + 'filesMeta'." });
+
+            var form = await request.ReadFormAsync(ct);
+            var answersJson = form["answers"].ToString();
+            var filesMetaJson = form["filesMeta"].ToString();
+            if (string.IsNullOrWhiteSpace(answersJson))
+                return Results.BadRequest(new { error = "Thiếu trường 'answers'." });
+
+            // PropertyNameCaseInsensitive: frontend gửi camelCase (docKey, count) — record PascalCase (DocKey, Count).
+            // System.Text.Json default case-sensitive → properties null/0 → AI tưởng "0 file" dù FE gửi đủ.
+            var jsonOpts = new System.Text.Json.JsonSerializerOptions { PropertyNameCaseInsensitive = true };
+
+            VisaWizardAnswers? answers;
+            try { answers = System.Text.Json.JsonSerializer.Deserialize<VisaWizardAnswers>(answersJson, jsonOpts); }
+            catch (Exception ex) { return Results.BadRequest(new { error = "Lỗi parse 'answers': " + ex.Message }); }
+            if (answers == null) return Results.BadRequest(new { error = "'answers' rỗng." });
+
+            List<VisaWizardFileSlot> filesMeta = new();
+            if (!string.IsNullOrWhiteSpace(filesMetaJson))
+            {
+                try { filesMeta = System.Text.Json.JsonSerializer.Deserialize<List<VisaWizardFileSlot>>(filesMetaJson, jsonOpts) ?? new(); }
+                catch (Exception ex) { return Results.BadRequest(new { error = "Lỗi parse 'filesMeta': " + ex.Message }); }
+            }
+
+            var provider = form["provider"].ToString();
+            var model    = form["model"].ToString();
+            var apiKey   = form["apiKey"].ToString();
+
+            // Vision OCR: nếu có file thật trong form → đọc nội dung qua Anthropic Vision rồi gắn vào prompt.
+            // Mỗi file ~600-1000 token (Haiku rẻ). 6 file × ~30đ + scoring ~30đ = ~210đ/lần (Premium quality).
+            // Lỗi vision (provider chưa support, hết quota) → fail-soft, scoring vẫn chạy với metadata only.
+            List<VisaFileExtraction> extractedFiles = new();
+            try
+            {
+                var uploads = new List<VisaExtractionService.UploadFile>();
+                foreach (var f in form.Files)
+                {
+                    if (f.Length == 0 || f.Length > 25L * 1024 * 1024) continue;   // skip rỗng/quá lớn
+                    var (kind, mime) = ClassifyFile(f.ContentType ?? "", f.FileName);
+                    if (kind == VisaExtractionService.UploadKind.Text) continue;   // skip DOCX (cần extract riêng, deferred)
+                    using var ms = new MemoryStream();
+                    await f.CopyToAsync(ms, ct);
+                    var bytes = ms.ToArray();
+                    var dataUrl = $"data:{mime ?? f.ContentType};base64,{Convert.ToBase64String(bytes)}";
+                    // tên hiển thị: bỏ prefix "{docKey}__" nếu có (frontend gửi vd "passport__01-ho-chieu-mau.pdf")
+                    var displayName = f.FileName;
+                    var sepIdx = displayName.IndexOf("__", StringComparison.Ordinal);
+                    if (sepIdx > 0) displayName = displayName[(sepIdx + 2)..];
+                    uploads.Add(new VisaExtractionService.UploadFile(displayName, dataUrl, kind));
+                }
+                if (uploads.Count > 0)
+                {
+                    var (extraction, _, _) = await extractor.ExtractAsync(uploads,
+                        string.IsNullOrWhiteSpace(provider) ? "anthropic" : provider,
+                        string.IsNullOrWhiteSpace(model) ? null : model,
+                        string.IsNullOrWhiteSpace(apiKey) ? null : apiKey, ct);
+                    extractedFiles = extraction.Files ?? new();
+                }
+            }
+            catch (Exception visionEx)
+            {
+                log.LogWarning(visionEx, "Vision OCR failed, fall back to metadata-only scoring");
+                // không return — vẫn cho score chạy không vision
+            }
+
+            try
+            {
+                var result = await scorer.ScoreWizardAsync(answers, filesMeta,
+                    string.IsNullOrWhiteSpace(provider) ? null : provider,
+                    string.IsNullOrWhiteSpace(model) ? null : model,
+                    string.IsNullOrWhiteSpace(apiKey) ? null : apiKey,
+                    ct, extractedFiles);
+
+                // Lưu lịch sử vào dbo.VisaAssessments — wizard answers → Extraction.Profile,
+                // file metadata → Files. Để analytics + NV xem lại sau.
+                try
+                {
+                    var id = "VW-" + DateTimeOffset.UtcNow.ToUnixTimeSeconds() + "-" + Guid.NewGuid().ToString("N")[..6];
+                    var nowIso = DateTime.UtcNow.ToString("o");
+                    var fileExts = filesMeta.Select(f => new VisaFileExtraction(
+                        FileName: f.DocLabel, DocType: f.DocKey, DocTypeLabel: f.DocLabel,
+                        Summary: $"{f.Count} file ({f.TotalBytes / 1024} KB)", Readable: true, Note: null)).ToList();
+                    var extraction = new VisaExtraction(
+                        Profile: System.Text.Json.JsonSerializer.Serialize(answers,
+                            new System.Text.Json.JsonSerializerOptions { WriteIndented = true }),
+                        Files: fileExts);
+                    var assessment = new VisaAssessment(
+                        Id: id,
+                        ApplicantName: answers.Contact?.FullName ?? "(Wizard)",
+                        Country: answers.Country,
+                        Status: "scored",
+                        Extraction: extraction, Result: result,
+                        FileCount: filesMeta.Sum(f => f.Count),
+                        FilesPurged: true,   // wizard không lưu file binary, chỉ metadata
+                        CreatedAt: nowIso, UpdatedAt: nowIso);
+                    repo.Save(tenant, assessment);
+                }
+                catch { /* fail-soft: không lưu được cũng vẫn trả result cho user */ }
+
+                return Results.Json(result);
+            }
+            catch (Exception ex)
+            {
+                return Results.Json(new { error = ex.Message }, statusCode: 500);
+            }
+        });
+
         // ─── POST /visa/assess ─── upload + AI đọc hồ sơ (bước 1) ────────────────
         v1.MapPost("/visa/assess", async (HttpRequest request, HttpContext ctx, TkSessionStore sessions,
             VisaExtractionService extractor, VisaRepository repo, VisaFileStore store, CancellationToken ct) =>

@@ -6,7 +6,9 @@ function Step4Quote({ request, itinerary, rows, hotelOptions, onBack, onRestart,
   const nights = request.nights || Math.max((request.days || 1) - 1, 1);
   const [status, setStatus] = React.useState('DRAFT');
   const [shareOpen, setShareOpen] = React.useState(false);
-  const [shareLink] = React.useState(`https://quote.tourkit.vn/q/${request.code}-${Math.random().toString(36).slice(2, 7)}`);
+  const [shareLink, setShareLink] = React.useState('');
+  const [savedQuoteId, setSavedQuoteId] = React.useState(null);
+  const [sharePrepping, setSharePrepping] = React.useState(false);
 
   // Tách cost: non-hotel rows (giữ nguyên) + hotel ước lượng theo tier.
   // priceNet * (1+vat/100) * (1+markup/100) → giá bán mỗi row.
@@ -49,111 +51,78 @@ function Step4Quote({ request, itinerary, rows, hotelOptions, onBack, onRestart,
   const totalSale = rows.reduce((s, r) => s + r.priceNet * (1 + r.vat/100) * (1 + r.markup/100), 0);
   const shareSummary = `${request.adults}NL + ${request.children}TE · ${request.days}N${request.nights}Đ · ${fmtVND(totalSale)}`;
 
+  // ── Save báo giá vào DB rồi build share link THẬT (thay vì link fake cũ) ──
+  // Lần đầu user bấm "GỬI LINK CHO KHÁCH": POST /tour-quotes → server sinh id Guid →
+  // shareLink = `${origin}/q/{id}` → khách bấm xem được mà không cần login.
+  // Lần sau: dùng id đã lưu (không tạo bản ghi mới). Nếu fail → fallback link cũ + toast warn.
+  async function prepareShareLink() {
+    if (shareLink) { setShareOpen(true); return; }    // đã lưu rồi
+    setSharePrepping(true);
+    try {
+      const totalNet = Math.round(rows.reduce((s, r) => s + (r.priceNet || 0), 0));
+      const totalRev = Math.round(totalSale);
+      const body = {
+        id: savedQuoteId,                              // null lần đầu, có khi resave
+        title: marketing.tourName || ('Báo giá tour ' + (request.code || '')),
+        customerName: request.customerName || null,
+        customerPhone: request.customerPhone || null,
+        marketName: null,
+        tourType: null,
+        startDate: request.startDate || null,
+        endDate: null,
+        adultCount: request.adults || 0,
+        childCount: request.children || 0,
+        totalNet,
+        totalRevenue: totalRev,
+        profit: totalRev - totalNet,
+        marginPercent: totalRev > 0 ? Math.round(((totalRev - totalNet) / totalRev) * 10000) / 100 : null,
+        // Full wizard state — public viewer parse lại để render
+        data: { request, itinerary, rows, hotelOptions, marketing },
+      };
+      const r = await window.tourkitAuth.authedFetch('/api/v1/tour-quotes', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      });
+      const j = await r.json();
+      if (!r.ok) throw new Error(j.error || 'HTTP ' + r.status);
+      const id = j.id || j.item?.id;
+      if (!id) throw new Error('Server không trả id');
+      setSavedQuoteId(id);
+      setShareLink(`${window.location.origin}/q/${id}`);
+      setShareOpen(true);
+    } catch (e) {
+      pushToast && pushToast('Lưu báo giá lỗi: ' + e.message + ' — dùng link tạm', 'warn');
+      // Fallback link tạm để Sale vẫn share được lúc DB lỗi (link sẽ 404 khi mở nhưng không kẹt flow)
+      setShareLink(`${window.location.origin}/q/temp-${request.code || Date.now()}`);
+      setShareOpen(true);
+    } finally {
+      setSharePrepping(false);
+    }
+  }
+
+  // Dùng CHUNG body với public viewer (/q/:id) — 1 source of truth cho mọi layout báo giá.
+  // window.WizardQuoteBody + window.QuoteStyles được expose từ pages/quote-view.jsx.
+  // Wrap trong .qv-paper để có nền giấy + boxshadow giống public.
+  const QuoteBody = window.WizardQuoteBody;
+  const QStyles   = window.QuoteStyles;
+  const previewQuote = {
+    id: request.code || 'preview',
+    title: marketing.tourName,
+    adultCount: request.adults,
+    childCount: request.children,
+    totalRevenue: Math.round(totalSale),
+    updatedAt: new Date().toISOString(),
+  };
+  const previewData = { request, itinerary, rows, hotelOptions, marketing };
+
   return (
     <div className="layout-2col">
-      <div className="quote-wrap">
-        <div className="quote-hero">
-          <div className="quote-hero-logo">TOURKIT</div>
-          <div className="quote-hero-content">
-            <div className="quote-hero-eyebrow">Báo giá tour đoàn · {request.code}</div>
-            <h1 className="quote-hero-title">{marketing.tourName}</h1>
-            <div className="quote-hero-tagline">{marketing.tagline} | {request.days} NGÀY {request.nights} ĐÊM</div>
-          </div>
-        </div>
-
-        <div className="quote-info-row">
-          <div className="quote-info">
-            <div className="quote-info-label">Thời gian</div>
-            <div className="quote-info-val">{request.days} Ngày {request.nights} Đêm</div>
-          </div>
-          <div className="quote-info">
-            <div className="quote-info-label">Điểm đi</div>
-            <div className="quote-info-val">{request.route.split('-')[0].trim()}</div>
-          </div>
-          <div className="quote-info">
-            <div className="quote-info-label">Phương tiện</div>
-            <div className="quote-info-val">Máy bay / Xe du lịch</div>
-          </div>
-        </div>
-
-        <div className="quote-body">
-          <div className="quote-section-title">Lịch trình tóm tắt</div>
-          <div className="quote-section-rule"></div>
-
-          {itinerary.map((d, i) => (
-            <div key={i} className="quote-day">
-              <div className="quote-day-num">{String(d.day).padStart(2, '0')}</div>
-              <div className="quote-day-content">
-                <h3 className="quote-day-title">{marketing.dayTitles?.[i] || d.title}</h3>
-                {d.activities.map((a, j) => (
-                  <div key={j} className="quote-day-act">
-                    <div className="quote-day-time">{a.time}</div>
-                    <div className="quote-day-name">{a.title}</div>
-                  </div>
-                ))}
-              </div>
-            </div>
-          ))}
-
-          <div className="quote-pax-summary">
-            <div>
-              <div className="quote-eyebrow">Đoàn khách</div>
-              <div className="quote-pax-text">{request.adults} người lớn + {request.children} trẻ em</div>
-              <div style={{fontSize: 11.5, color: 'var(--text-3)', marginTop: 2}}>
-                {request.days} ngày {nights} đêm
-              </div>
-            </div>
-            {!hasTiers && (
-              <div style={{textAlign: 'right'}}>
-                <div className="quote-eyebrow">Giá / Người lớn</div>
-                <div className="quote-single-price numeric">{fmtVND(totalSale / Math.max(totalPax, 1))}</div>
-              </div>
-            )}
-          </div>
-
-          {/* 3 báo giá theo tier — chỉ render khi user đã chọn ≥1 hotel ở Step 1.5 */}
-          {hasTiers && (
-            <div className="quote-tiers">
-              <div className="quote-section-title" style={{marginTop: 22}}>
-                Phương án giá ({tierQuotes.length} hạng)
-              </div>
-              <div className="quote-section-rule"></div>
-              <div className="quote-tier-grid">
-                {tierQuotes.map(q => (
-                  <div key={q.star} className={'quote-tier-card tier-' + q.star}>
-                    <div className="qtc-star-row">
-                      <span className="qtc-star">{q.star}★</span>
-                      <span className="qtc-tier-label">Khách sạn {q.star} sao</span>
-                    </div>
-                    <div className="qtc-price">
-                      <div className="qtc-price-val numeric">{fmtVND(Math.round(q.pricePerPax))}</div>
-                      <div className="qtc-price-unit">đ / khách</div>
-                    </div>
-                    <div className="qtc-hotel">
-                      <div className="qtc-hotel-label">Lưu trú</div>
-                      <div className="qtc-hotel-name">{q.hotel.providerName}</div>
-                      {q.hotel.roomTypeName && (
-                        <div className="qtc-hotel-room">{q.hotel.roomTypeName}</div>
-                      )}
-                    </div>
-                    <div className="qtc-incl">
-                      <div className="qtc-incl-row">✓ {nights} đêm khách sạn {q.star} sao</div>
-                      <div className="qtc-incl-row">✓ Xe đưa đón theo lịch trình</div>
-                      <div className="qtc-incl-row">✓ Ăn uống theo chương trình</div>
-                      <div className="qtc-incl-row">✓ HDV chuyên nghiệp</div>
-                    </div>
-                    <div className="qtc-total">
-                      <div className="qtc-total-label">Tổng đoàn {totalPax} khách</div>
-                      <div className="qtc-total-val numeric">{fmtVND(Math.round(q.totalSale))}</div>
-                    </div>
-                  </div>
-                ))}
-              </div>
-              <div style={{fontSize: 11, color: 'var(--text-3)', marginTop: 10, fontStyle: 'italic'}}>
-                💡 Giá bao gồm hotel theo hợp đồng NCC. Khách chọn hạng → sales chốt phương án.
-              </div>
-            </div>
-          )}
+      <div>
+        {QStyles && <QStyles />}
+        <div className="qv-paper">
+          {QuoteBody
+            ? <QuoteBody quote={previewQuote} d={previewData} fmtVND={fmtVND} />
+            : <div style={{padding: 40, color: '#9ca3af'}}>Đang tải preview…</div>}
         </div>
       </div>
 
@@ -166,9 +135,9 @@ function Step4Quote({ request, itinerary, rows, hotelOptions, onBack, onRestart,
           <Icon name="download" size={16} stroke={2} />
           TẢI PDF CHUYÊN NGHIỆP
         </button>
-        <button className="btn btn-primary btn-lg btn-full" onClick={() => setShareOpen(true)}>
+        <button className="btn btn-primary btn-lg btn-full" onClick={prepareShareLink} disabled={sharePrepping}>
           <Icon name="share" size={16} stroke={2} />
-          GỬI LINK CHO KHÁCH (ZALO)
+          {sharePrepping ? 'ĐANG LƯU BÁO GIÁ...' : 'GỬI LINK CHO KHÁCH (ZALO)'}
         </button>
 
         <window.ShareDialog open={shareOpen} onClose={() => setShareOpen(false)}

@@ -247,5 +247,89 @@ BEGIN
     );
     CREATE INDEX IX_VisaAssessments_Tenant_Created ON dbo.VisaAssessments(TenantId, CreatedAt DESC);
 END;
+
+-- Đơn nạp quota AI: user click chip → chọn gói → tạo order pending + VietQR.
+-- Webhook IPN của Tingee về → match (TingeeRefId hoặc Memo=Id) → UPDATE atomic pending→paid + TopUp tenant.
+-- TenantId không phải PK clustered (Id đủ unique global TKAI-{hash6}-{ts}-{rand4}) — webhook không có TenantId,
+-- tra theo Id qua index. Nhưng giữ TenantId NOT NULL để ownership-check + report doanh thu.
+IF OBJECT_ID('dbo.QuotaOrders', 'U') IS NULL
+BEGIN
+    CREATE TABLE dbo.QuotaOrders (
+        Id              NVARCHAR(64)    NOT NULL,
+        TenantId        NVARCHAR(128)   NOT NULL,
+        TierId          NVARCHAR(32)    NOT NULL,    -- starter | growth | enterprise
+        AmountVnd       BIGINT          NOT NULL,
+        QuotaUnits      INT             NOT NULL,
+        Status          NVARCHAR(16)    NOT NULL,    -- pending | paid | expired | cancelled
+        QrPayload       NVARCHAR(MAX)   NULL,        -- chuỗi EMV VietQR (NAPAS)
+        BankBin         NVARCHAR(16)    NULL,
+        AccountNumber   NVARCHAR(64)    NULL,
+        AccountName     NVARCHAR(256)   NULL,
+        Memo            NVARCHAR(128)   NOT NULL,    -- nội dung CK = Id (cho webhook match)
+        ExpiresAt       DATETIME2       NOT NULL,
+        CreatedAt       DATETIME2       NOT NULL,
+        PaidAt          DATETIME2       NULL,
+        TingeeRefId     NVARCHAR(128)   NULL,        -- ref từ webhook (audit)
+        TingeeRaw       NVARCHAR(MAX)   NULL,        -- payload webhook raw (debug)
+        CreatedBy       NVARCHAR(256)   NULL,
+        CONSTRAINT PK_QuotaOrders PRIMARY KEY CLUSTERED (Id)
+    );
+    CREATE INDEX IX_QuotaOrders_Tenant_Created ON dbo.QuotaOrders(TenantId, CreatedAt DESC);
+    CREATE INDEX IX_QuotaOrders_Status_Expires ON dbo.QuotaOrders(Status, ExpiresAt);
+END;
+
+-- Widget Chat tokens: tenant gen token paste vào <script data-token=""> ở site khách.
+-- Token unique PK; mỗi tenant có thể tạo nhiều token (1 cho mỗi site/môi trường).
+-- Greeting/SystemPrompt/BotName/Color: tham số config bot (custom per token).
+-- AllowedOrigins: JSON array domain whitelist (null = cho phép mọi nơi). Daily/TotalMessages: counter.
+IF OBJECT_ID('dbo.WidgetTokens', 'U') IS NULL
+BEGIN
+    CREATE TABLE dbo.WidgetTokens (
+        Token            NVARCHAR(64)    NOT NULL,
+        TenantId         NVARCHAR(128)   NOT NULL,
+        BotName          NVARCHAR(128)   NOT NULL,
+        Greeting         NVARCHAR(1024)  NOT NULL,
+        SystemPrompt     NVARCHAR(MAX)   NOT NULL,
+        Color            NVARCHAR(16)    NOT NULL,        -- hex #RRGGBB
+        Enabled          BIT             NOT NULL CONSTRAINT DF_WidgetTokens_Enabled DEFAULT 1,
+        AllowedOrigins   NVARCHAR(MAX)   NULL,            -- JSON array (null = wildcard)
+        TotalMessages    INT             NOT NULL CONSTRAINT DF_WidgetTokens_Total DEFAULT 0,
+        CreatedAt        DATETIME2       NOT NULL,
+        UpdatedAt        DATETIME2       NOT NULL,
+        CONSTRAINT PK_WidgetTokens PRIMARY KEY CLUSTERED (Token)
+    );
+    CREATE INDEX IX_WidgetTokens_Tenant ON dbo.WidgetTokens(TenantId, CreatedAt DESC);
+END;
+
+-- Mở rộng widget cho phép cắm CRM TourKit (Phase 2):
+--   TourKitSessionId  → ref TkSessionStore (lưu JWT + Crypton-encrypted password, tự re-login)
+--   AllowedTools      → JSON array, vd ['tours','markets','booking_tickets']. null/empty = chỉ FAQ
+--   CacheTtlSeconds   → cache CRM-data response (default 300 = 5 phút)
+-- Idempotent ADD — install cũ nhận default an toàn (null + 300).
+IF NOT EXISTS (SELECT 1 FROM sys.columns WHERE object_id = OBJECT_ID('dbo.WidgetTokens') AND name = 'TourKitSessionId')
+BEGIN
+    ALTER TABLE dbo.WidgetTokens ADD TourKitSessionId NVARCHAR(64) NULL;
+END;
+IF NOT EXISTS (SELECT 1 FROM sys.columns WHERE object_id = OBJECT_ID('dbo.WidgetTokens') AND name = 'AllowedTools')
+BEGIN
+    ALTER TABLE dbo.WidgetTokens ADD AllowedTools NVARCHAR(MAX) NULL;
+END;
+IF NOT EXISTS (SELECT 1 FROM sys.columns WHERE object_id = OBJECT_ID('dbo.WidgetTokens') AND name = 'CacheTtlSeconds')
+BEGIN
+    ALTER TABLE dbo.WidgetTokens ADD CacheTtlSeconds INT NOT NULL CONSTRAINT DF_WidgetTokens_CacheTtl DEFAULT 300;
+END;
+
+-- Visa wizard: cấu hình câu hỏi per-tenant. Trống = dùng default embedded ở frontend.
+-- Tenant admin có thể PUT JSON khác (vd: bỏ Q3 rủi ro cao, thêm câu mới về visa Schengen cũ).
+IF OBJECT_ID('dbo.VisaQuestionSets', 'U') IS NULL
+BEGIN
+    CREATE TABLE dbo.VisaQuestionSets (
+        TenantId       NVARCHAR(128) NOT NULL,
+        QuestionsJson  NVARCHAR(MAX) NOT NULL,   -- JSON array, schema giống DEFAULT_QUESTIONS frontend
+        UpdatedBy      NVARCHAR(256) NULL,
+        UpdatedAt      DATETIME2     NOT NULL,
+        CONSTRAINT PK_VisaQuestionSets PRIMARY KEY CLUSTERED (TenantId)
+    );
+END;
 ";
 }

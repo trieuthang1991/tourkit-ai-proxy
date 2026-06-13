@@ -34,7 +34,11 @@ public class AnthropicToolsClient
 
     public AnthropicToolsClient(IHttpClientFactory httpFactory, ProviderKeyStore keys, ILogger<AnthropicToolsClient> log)
     {
-        _http = httpFactory.CreateClient();
+        // Dùng named client "anthropic" (đã config timeout 120s + nhận bypass cert handler nếu
+        // Providers:AllowInsecureTls=true). Trước đây dùng CreateClient() default → không có bypass
+        // → fail SSL trên Server 2012 R2 dù flag bật. (Customer Review native tool / Visa / Deal / Tour /
+        // Mail Classifier khi default provider=anthropic đều đi qua đây.)
+        _http = httpFactory.CreateClient("anthropic");
         _keys = keys;
         _log = log;
     }

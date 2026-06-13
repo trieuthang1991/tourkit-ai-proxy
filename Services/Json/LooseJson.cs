@@ -46,4 +46,35 @@ public static class LooseJson
             ?? throw new InvalidOperationException("Output không chứa JSON object hợp lệ");
         return JsonDocument.Parse(json);
     }
+
+    /// <summary>
+    /// Trích top-level array `[...]` HOẶC object `{...}` đầu tiên trong output AI.
+    /// Dùng cho prompt trả list (vd extract danh sách NCC, danh sách KH…).
+    /// </summary>
+    public static string? ExtractFirstArrayOrObject(string raw)
+    {
+        if (string.IsNullOrWhiteSpace(raw)) return null;
+        var cleaned = raw.Replace("```json", "").Replace("```", "").Trim();
+        int iBracket = cleaned.IndexOf('[');
+        int iBrace   = cleaned.IndexOf('{');
+        if (iBracket < 0 && iBrace < 0) return null;
+        char open, close;
+        int start;
+        if (iBracket >= 0 && (iBrace < 0 || iBracket < iBrace)) { open = '['; close = ']'; start = iBracket; }
+        else { open = '{'; close = '}'; start = iBrace; }
+
+        cleaned = cleaned.Substring(start);
+        int depth = 0, end = -1; bool inStr = false, esc = false;
+        for (int i = 0; i < cleaned.Length; i++)
+        {
+            var ch = cleaned[i];
+            if (esc) { esc = false; continue; }
+            if (ch == '\\') { esc = true; continue; }
+            if (ch == '"') { inStr = !inStr; continue; }
+            if (inStr) continue;
+            if (ch == open) depth++;
+            else if (ch == close) { depth--; if (depth == 0) { end = i; break; } }
+        }
+        return end > 0 ? cleaned.Substring(0, end + 1) : cleaned;
+    }
 }

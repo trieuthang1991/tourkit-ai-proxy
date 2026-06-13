@@ -615,6 +615,138 @@ function AssistantPage({ pushToast }) {
   const [messages, setMessages] = _aS([]);          // {role, content, trace?}
   const [input, setInput] = _aS('');
   const [loading, setLoading] = _aS(false);
+
+  // ── Speech-to-Text state (ghi âm / upload audio → transcript) ───────────────
+  // recState: 'idle' | 'recording' | 'uploading'
+  const [recState, setRecState] = _aS('idle');
+  const [recElapsed, setRecElapsed] = _aS(0);   // giây từ khi bắt đầu record
+  const mediaRef = _aR(null);                    // {recorder, stream, chunks}
+  const recTimerRef = _aR(null);
+  const fileInputRef = _aR(null);
+
+  // Helper: upload blob/file → /speech/transcribe → fill input
+  const transcribeBlob = async (blob, fileName) => {
+    if (!blob || blob.size === 0) { pushToast('Audio rỗng', 'warn'); return; }
+    setRecState('uploading');
+    try {
+      const fd = new FormData();
+      fd.append('file', blob, fileName || 'recording.webm');
+      // v9: server đọc OpenAI key từ appsettings — FE không gửi apiKey.
+      const r = await window.tourkitAuth.authedFetch('/api/v1/speech/transcribe', {
+        method: 'POST', body: fd,
+      });
+      const j = await r.json();
+      if (!r.ok || j.error) throw new Error(j.error || 'HTTP ' + r.status);
+      // Append vào input (giữ text cũ user đã gõ + thêm transcript)
+      const t = (j.text || '').trim();
+      if (!t) { pushToast('Không nhận diện được tiếng', 'warn'); return; }
+      setInput(prev => prev ? (prev.trim() + ' ' + t) : t);
+      pushToast(`✓ Nhận diện ${j.durationSec}s · ${t.length}ch (${j.language || 'vi'})`);
+    } catch (e) {
+      pushToast('Lỗi transcribe: ' + e.message, 'error');
+    } finally {
+      setRecState('idle');
+      setRecElapsed(0);
+    }
+  };
+
+  const startRecording = async () => {
+    if (!navigator.mediaDevices?.getUserMedia) {
+      pushToast('Trình duyệt không hỗ trợ ghi âm', 'error'); return;
+    }
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      // Prefer webm/opus (Chrome/Edge/Firefox); fallback default
+      const mime = MediaRecorder.isTypeSupported('audio/webm;codecs=opus')
+        ? 'audio/webm;codecs=opus' : 'audio/webm';
+      const recorder = new MediaRecorder(stream, { mimeType: mime });
+      const chunks = [];
+      recorder.ondataavailable = (e) => { if (e.data?.size > 0) chunks.push(e.data); };
+      recorder.onstop = async () => {
+        stream.getTracks().forEach(t => t.stop());
+        const blob = new Blob(chunks, { type: mime });
+        await transcribeBlob(blob, 'recording.webm');
+      };
+      mediaRef.current = { recorder, stream, chunks };
+      recorder.start(250);    // emit chunks mỗi 250ms để giảm rủi ro mất data nếu lỗi
+      setRecState('recording');
+      setRecElapsed(0);
+      // Timer
+      const t0 = Date.now();
+      recTimerRef.current = setInterval(() => {
+        setRecElapsed(Math.floor((Date.now() - t0) / 1000));
+        // Soft cap 5 phút — tránh user quên dừng → Whisper sẽ reject >25MB
+        if ((Date.now() - t0) > 5 * 60_000) stopRecording();
+      }, 250);
+    } catch (e) {
+      // Phân loại lỗi getUserMedia chuẩn DOMException name (https://w3c.github.io/mediacapture-main/#dom-mediadeviceshandlers)
+      let msg;
+      switch (e.name) {
+        case 'NotFoundError':                 // mic vật lý không tồn tại / OS chặn truy cập app
+        case 'DevicesNotFoundError':
+          msg = 'Không tìm thấy mic. Kiểm tra: (1) Windows Settings > Privacy > Microphone: BẬT, (2) cắm mic / bật mic laptop, (3) đóng Teams/Zoom đang chiếm mic. Hoặc bấm 📎 upload file audio thay vì ghi âm.';
+          break;
+        case 'NotAllowedError':               // user/browser chặn quyền
+        case 'PermissionDeniedError':
+          msg = 'Bị chặn quyền mic. Click 🔒 cạnh URL → Microphone → Allow → reload trang.';
+          break;
+        case 'NotReadableError':              // mic bị app khác chiếm (Windows exclusive mode)
+        case 'TrackStartError':
+          msg = 'Mic đang bị app khác dùng (Teams/Zoom/Discord). Đóng app đó rồi thử lại.';
+          break;
+        case 'OverconstrainedError':
+        case 'ConstraintNotSatisfiedError':
+          msg = 'Mic không hỗ trợ định dạng yêu cầu. Thử mic khác.';
+          break;
+        case 'SecurityError':                 // không phải HTTPS / localhost
+          msg = 'Mic chỉ work trên HTTPS hoặc localhost. URL hiện tại không secure.';
+          break;
+        case 'AbortError':                    // user/system hủy giữa chừng
+          msg = 'Ghi âm bị hủy. Thử lại.';
+          break;
+        default:
+          msg = 'Lỗi mic: ' + (e.message || e.name || 'unknown') + '. Có thể dùng 📎 upload file audio thay thế.';
+      }
+      pushToast(msg, 'error');
+    }
+  };
+
+  const stopRecording = () => {
+    if (recTimerRef.current) { clearInterval(recTimerRef.current); recTimerRef.current = null; }
+    const m = mediaRef.current;
+    if (m?.recorder?.state === 'recording') {
+      try { m.recorder.stop(); } catch {}
+    }
+    mediaRef.current = null;
+  };
+
+  const cancelRecording = () => {
+    if (recTimerRef.current) { clearInterval(recTimerRef.current); recTimerRef.current = null; }
+    const m = mediaRef.current;
+    if (m?.recorder?.state === 'recording') {
+      // Replace onstop để KHÔNG transcribe khi cancel
+      m.recorder.onstop = () => m.stream.getTracks().forEach(t => t.stop());
+      try { m.recorder.stop(); } catch {}
+    }
+    mediaRef.current = null;
+    setRecState('idle');
+    setRecElapsed(0);
+  };
+
+  const handleFileUpload = (e) => {
+    const f = e.target.files?.[0];
+    e.target.value = '';   // reset để chọn cùng file lại được
+    if (!f) return;
+    if (!/^audio\//i.test(f.type) && !/\.(mp3|m4a|wav|webm|ogg|flac|mp4)$/i.test(f.name)) {
+      pushToast('File phải là audio (mp3/m4a/wav/webm/ogg/flac)', 'error'); return;
+    }
+    if (f.size > 25 * 1024 * 1024) {
+      pushToast('File quá 25MB (Whisper max)', 'error'); return;
+    }
+    transcribeBlob(f, f.name);
+  };
+
+  const fmtElapsed = (s) => `${String(Math.floor(s / 60)).padStart(2, '0')}:${String(s % 60).padStart(2, '0')}`;
   const [stage, setStage] = _aS(null);   // 'planning'|'fetching'|'analyzing' khi đang stream
   const [panelData, setPanelData] = _aS(null);
   // Debug toggle: hiện "Cách vận hành" dưới mỗi reply. Persist localStorage để giữ qua reload.
@@ -647,7 +779,6 @@ function AssistantPage({ pushToast }) {
         headers: { 'Content-Type': 'application/json', 'Accept': 'text/event-stream', 'X-Session-Id': sessionId },
         body: JSON.stringify({
           messages: next, provider: cfg.provider, model: cfg.model,
-          apiKey: (window.tourkit.ai.getKey && cfg.provider) ? window.tourkit.ai.getKey(cfg.provider) : undefined,
           debug: debug
         })
       });
@@ -787,8 +918,10 @@ function AssistantPage({ pushToast }) {
           <div className="asst-messages" ref={scrollRef}>
             {messages.length === 0 && (
               <div className="asst-greet">
+                <img className="asst-avatar" src="/lib/trav-ai.png" alt="TRAV-AI"
+                  onError={e => { e.target.src = '/lib/masco-ai.png'; }} />
                 <div className="asst-greet-bubble">
-                  <p><b>Xin chào!</b> Tôi là <b>Trợ lý số liệu</b> của hệ thống TourKit.</p>
+                  <p><b>Xin chào!</b> Tôi là <b>TRAV-AI</b> — Trợ lý số liệu của bạn.</p>
                   <p>Tôi đã nạp toàn bộ dữ liệu vận hành du lịch năm 2026:
                     <b> Tài chính, Hiệu suất chi nhánh, Doanh số theo Sản phẩm, Thị trường</b> và <b>Nguồn khách Marketing</b>.</p>
                   <p>Bạn muốn tôi đọc và trực quan hóa báo cáo nào? Bấm gợi ý hoặc gõ câu hỏi bên dưới.</p>
@@ -797,14 +930,20 @@ function AssistantPage({ pushToast }) {
             )}
             {messages.map((m, i) => (
               <div key={i} className={`asst-msg ${m.role} ${m.error ? 'error' : ''}`}>
-                {m.role === 'assistant' && m.tool && m.tool !== 'none' &&
-                  <span className="asst-tool-tag">{m.tool}</span>}
-                <div className="asst-bubble">
-                  {m.content
-                    ? m.content
-                    : (m.streaming ? <TypingDots stage={stage} /> : '')}
+                {m.role === 'assistant' && (
+                  <img className="asst-avatar" src="/lib/trav-ai.png" alt="TRAV-AI"
+                    onError={e => { e.target.src = '/lib/masco-ai.png'; }} />
+                )}
+                <div className="asst-msg-body">
+                  {m.role === 'assistant' && m.tool && m.tool !== 'none' &&
+                    <span className="asst-tool-tag">{m.tool}</span>}
+                  <div className="asst-bubble">
+                    {m.content
+                      ? m.content
+                      : (m.streaming ? <TypingDots stage={stage} /> : '')}
+                  </div>
+                  {m.trace && <TraceView trace={m.trace} />}
                 </div>
-                {m.trace && <TraceView trace={m.trace} />}
               </div>
             ))}
           </div>
@@ -860,17 +999,55 @@ function AssistantPage({ pushToast }) {
           </div>
 
           <div className="asst-input-row">
-            <input
-              className="asst-input"
-              placeholder="Hỏi AI phân tích báo cáo du lịch… (nhấn Enter để gửi)"
-              value={input}
-              onChange={e => setInput(e.target.value)}
-              onKeyDown={e => { if (e.key === 'Enter') send(); }}
-              disabled={loading}
-            />
-            <button className="asst-send" onClick={send} disabled={loading || !input.trim()}>
-              <Icon name="arrowRight" size={16} stroke={2.4} />
-            </button>
+            {/* Hidden file input — kích bằng paperclip button */}
+            <input ref={fileInputRef} type="file" accept="audio/*,.mp3,.m4a,.wav,.webm,.ogg,.flac,.mp4"
+              style={{display: 'none'}} onChange={handleFileUpload} />
+
+            {recState === 'recording' ? (
+              <>
+                {/* Recording UI: 2 nút Cancel/Stop + timer pill thay thế input */}
+                <button className="asst-rec-cancel" onClick={cancelRecording} title="Hủy ghi âm">
+                  <Icon name="close" size={16} />
+                </button>
+                <div className="asst-rec-bar">
+                  <span className="asst-rec-pulse" />
+                  <span className="asst-rec-time">{fmtElapsed(recElapsed)}</span>
+                  <span className="asst-rec-hint">Đang ghi… nói rõ vào mic</span>
+                </div>
+                <button className="asst-rec-stop" onClick={stopRecording} title="Dừng ghi + transcribe">
+                  <Icon name="check" size={16} stroke={2.4} />
+                </button>
+              </>
+            ) : (
+              <>
+                <button className="asst-icon-btn" onClick={() => fileInputRef.current?.click()}
+                  disabled={loading || recState === 'uploading'}
+                  title="Upload audio file (mp3/wav/m4a... ≤25MB)">
+                  <Icon name="paperclip" size={16} stroke={2.2} />
+                </button>
+                <button className="asst-icon-btn" onClick={startRecording}
+                  disabled={loading || recState === 'uploading'}
+                  title="Ghi âm (mic browser) — bấm để bắt đầu"
+                  aria-label="Ghi âm">
+                  {recState === 'uploading'
+                    ? <span className="asst-spinner" />
+                    : <Icon name="mic" size={16} stroke={2.2} />}
+                </button>
+                <input
+                  className="asst-input"
+                  placeholder={recState === 'uploading'
+                    ? 'Đang nhận diện audio…'
+                    : 'Hỏi AI phân tích báo cáo du lịch… (nhấn Enter để gửi · 🎤 ghi âm · 📎 upload)'}
+                  value={input}
+                  onChange={e => setInput(e.target.value)}
+                  onKeyDown={e => { if (e.key === 'Enter') send(); }}
+                  disabled={loading || recState === 'uploading'}
+                />
+                <button className="asst-send" onClick={send} disabled={loading || recState === 'uploading' || !input.trim()}>
+                  <Icon name="arrowRight" size={16} stroke={2.4} />
+                </button>
+              </>
+            )}
           </div>
         </section>
 

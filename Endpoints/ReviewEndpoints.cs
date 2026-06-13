@@ -137,7 +137,17 @@ public static class ReviewEndpoints
                 var traceObj = trace.Current?.Enabled == true ? trace.Current.Build() : null;
                 return Results.Json(new { review, fromCache, _trace = traceObj });
             }
-            catch (Exception ex) { log.LogError(ex, "Review KH {Id} lỗi", id); return Results.Json(new { error = ex.Message }, statusCode: 500); }
+            catch (Exception ex)
+            {
+                // Log full chain — "see inner exception" giấu root cause. GetBaseException() lấy exception
+                // ở đáy chain (vd SocketException, AuthenticationException) → biết SSL fail kiểu gì.
+                log.LogError(ex, "Review KH {Id} lỗi\nFull chain: {Chain}", id, ex.ToString());
+                return Results.Json(new {
+                    error = ex.Message,
+                    detail = ex.GetBaseException().Message,
+                    type = ex.GetBaseException().GetType().Name
+                }, statusCode: 500);
+            }
         });
 
         // Alias: forceFresh=true. Vẫn nhận provider/model/apiKey override để refresh

@@ -26,10 +26,21 @@ public class DealOpportunityClient
 
     /// Danh sách cơ hội phân trang — KHÔNG filter status (raw upstream) cho list-view có pagination.
     /// Total = upstream count (chưa trừ Hủy/chốt). Frontend tự filter chip nếu cần.
-    public async Task<DealPage> ListPagedAsync(string sessionId, int pageIndex, int pageSize, CancellationToken ct)
+    /// `keyword`: optional - khi user gõ ô tìm trên FE → truyền xuống TourKit upstream filter
+    /// thật (theo tên KH/SĐT/mã đơn) thay vì lọc client-side trên trang hiện tại.
+    /// `trangThai/nguon/nhanVienPhuTrach`: optional int ID → upstream `/api/ai/booking-tickets`
+    /// hỗ trợ filter thật theo enum. 0 = không filter (default upstream behavior).
+    public async Task<DealPage> ListPagedAsync(
+        string sessionId, int pageIndex, int pageSize, CancellationToken ct,
+        string? keyword = null, int? trangThai = null, int? nguon = null, int? nhanVienPhuTrach = null)
     {
         if (pageIndex < 1) pageIndex = 1;
         var path = $"/api/ai/booking-tickets?pageIndex={pageIndex}&pageSize={pageSize}";
+        if (!string.IsNullOrWhiteSpace(keyword))
+            path += "&keyword=" + Uri.EscapeDataString(keyword.Trim());
+        if (trangThai is > 0)        path += $"&trangThai={trangThai}";
+        if (nguon is > 0)            path += $"&nguon={nguon}";
+        if (nhanVienPhuTrach is > 0) path += $"&nhanVienPhuTrach={nhanVienPhuTrach}";
         var data = await GetAsync(sessionId, path, ct);
 
         var list = new List<DealOpportunity>();

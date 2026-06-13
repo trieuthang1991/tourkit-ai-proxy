@@ -7,6 +7,18 @@
 
 const { useState: _uC, useEffect: _uEC, useMemo: _uMc, useRef: _uRef } = React;
 
+// matchMedia-based isMobile hook (≤640px). Cùng pattern với deals.jsx.
+function _uCIsMobile(bp = 640) {
+  const [m, setM] = _uC(() => window.innerWidth <= bp);
+  _uEC(() => {
+    const check = () => setM(window.innerWidth <= bp);
+    window.addEventListener('resize', check);
+    check();
+    return () => window.removeEventListener('resize', check);
+  }, []);
+  return m;
+}
+
 function CustomersPage({ pushToast }) {
   const [items, setItems]         = _uC([]);
   const [total, setTotal]         = _uC(0);                // Tổng KH toàn DB sau filter (upstream tính)
@@ -23,6 +35,7 @@ function CustomersPage({ pushToast }) {
   const [rowStatus, setRowStatus] = _uC({});              // customerId → {stage, rank, summaryLine, streamText, error}
   const [drawerId, setDrawerId]   = _uC(null);            // KH đang xem detail
   const [forceFresh, setForceFresh] = _uC(false);
+  const isMobile = _uCIsMobile();   // <= 640px → render card thay vì bảng (cùng pattern deals)
 
   const totalPages = Math.max(1, Math.ceil(total / pageSize));
 
@@ -686,9 +699,27 @@ function CustomersPage({ pushToast }) {
         <div style={{padding: 60, textAlign: 'center', color: 'var(--text-3)', background: '#fafafa', borderRadius: 12}}>
           Không có khách hàng nào khớp bộ lọc.
         </div>
+      ) : isMobile ? (
+        /* ≤640px: card layout (cùng pattern deals) — bảng 12 cột minWidth 1200 phải
+           scroll ngang rất khó dùng trên điện thoại. */
+        <div className="cust-cards">
+          {items.map(it => {
+            const live = rowStatus[it.id];
+            return (
+              <CustomerCard key={it.id} item={it}
+                rank={live?.rank || it.rank}
+                summaryLine={live?.summaryLine || it.summaryLine}
+                status={live?.stage || it.reviewStatus}
+                error={live?.error}
+                checked={selected.has(it.id)}
+                onToggle={() => toggleOne(it.id)}
+                onOpen={() => (live?.rank || it.rank) && setDrawerId(it.id)} />
+            );
+          })}
+        </div>
       ) : (
-        <div style={{background: 'white', border: '1px solid var(--border)', borderRadius: 10, overflow: 'hidden'}}>
-          <table style={{width: '100%', borderCollapse: 'collapse', fontSize: 13}}>
+        <div style={{background: 'white', border: '1px solid var(--border)', borderRadius: 10, overflowX: 'auto'}}>
+          <table style={{width: '100%', minWidth: 1200, borderCollapse: 'collapse', fontSize: 13}}>
             <thead style={{background: 'var(--bg)'}}>
               <tr style={{textAlign: 'left'}}>
                 <th style={th(40)}>
@@ -784,10 +815,11 @@ function CustomersPage({ pushToast }) {
         </div>
       )}
 
-      {/* Pagination — chỉ render khi có >1 page. Dùng total thật từ backend. */}
-      {!loading && total > pageSize && (
+      {/* Pagination — luôn hiện khi total > 0, kể cả đang loading (mờ + disable thay vì
+          unmount — fetch upstream chậm làm pagination "biến mất" gây hiểu lầm). */}
+      {total > 0 && (
         <window.TKPagination page={page} totalPages={totalPages} pageSize={pageSize}
-          total={total} shown={items.length}
+          total={total} shown={items.length} loading={loading}
           onPage={setPage} onPageSize={setPageSize} />
       )}
 
@@ -873,6 +905,41 @@ function SegBadge({ segment }) {
   };
   const s = styles[segment] || { bg: 'var(--bg)', fg: 'var(--text-2)' };
   return <span style={{fontSize: 11, fontWeight: 700, padding: '3px 8px', borderRadius: 4, background: s.bg, color: s.fg}}>{segment}</span>;
+}
+
+// ─── 1 card KH (mobile ≤640px) — mirror DealCard của deals.jsx ───────────────
+// Bảng 12 cột minWidth 1200 không dùng được trên điện thoại; card gói các field
+// quan trọng: tên + mã, phân khúc, hạng AI, SĐT (tel:), tổng chi, trạng thái review.
+function CustomerCard({ item, rank, summaryLine, status, error, checked, onToggle, onOpen }) {
+  return (
+    <div className={'cust-card' + (checked ? ' is-selected' : '')} onClick={onOpen}>
+      <div className="cust-card-top">
+        <span onClick={e => e.stopPropagation()}>
+          <window.TKCheckbox checked={checked} onChange={onToggle}
+            ariaLabel={`Chọn khách hàng ${item.name}`} />
+        </span>
+        <div className="cust-card-id">
+          <div className="cust-card-name">{item.name}</div>
+          <div className="cust-card-meta">
+            {item.code && <span className="cust-card-code">{item.code}</span>}
+            {item.phone && (
+              <a href={`tel:${item.phone}`} onClick={e => e.stopPropagation()}
+                 className="cust-card-phone">{item.phone}</a>
+            )}
+          </div>
+        </div>
+        {rank ? <RankBadge rank={rank} /> : <SegBadge segment={item.segment} />}
+      </div>
+      <div className="cust-card-mid">
+        {rank && <SegBadge segment={item.segment} />}
+        <span className="cust-card-spent">{fmtVND(item.totalSpent)}</span>
+        {item.lastCareDate && <span className="cust-card-care">CS cuối {item.lastCareDate}</span>}
+      </div>
+      <div className="cust-card-status">
+        <StatusCell status={status} summaryLine={summaryLine} error={error} ageHours={item.reviewAgeHours} />
+      </div>
+    </div>
+  );
 }
 
 function RankBadge({ rank }) {

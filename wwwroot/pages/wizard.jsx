@@ -29,12 +29,65 @@ const WIZARD_STEPS = [
   { id: 4, label: 'Xuất báo giá',        icon: 'paper' }
 ];
 
+// matchMedia-based isMobile hook (≤640px) — cùng pattern deals.jsx / customers.jsx.
+function _wzIsMobile(bp = 640) {
+  const [m, setM] = _uS(() => window.innerWidth <= bp);
+  _uE(() => {
+    const check = () => setM(window.innerWidth <= bp);
+    window.addEventListener('resize', check);
+    check();
+    return () => window.removeEventListener('resize', check);
+  }, []);
+  return m;
+}
+
+// ─── 1 card báo giá (mobile ≤640px) — bảng 8 cột không vừa màn điện thoại ────
+function QuoteCard({ t, statusLabel, statusClass, onOpen, onDelete }) {
+  const req = t.request || {};
+  const totalPax = (req.adults || 0) + (req.children || 0);
+  const totalNet = (t.rows || []).reduce((s, r) => s + (r.priceNet || 0), 0);
+  const salePerPax = t.salePerPax || (totalPax > 0 ? Math.round(totalNet * 1.2 / totalPax) : 0);
+  const createdAt = t.createdAt ? new Date(t.createdAt) : null;
+  return (
+    <div className="wl-qcard" onClick={onOpen}>
+      <div className="wl-qcard-top">
+        <span className="wl-code">{t.code || t.id?.slice(-6).toUpperCase()}</span>
+        <span className={'wl-status ' + statusClass}>{statusLabel}</span>
+      </div>
+      <div className="wl-qcard-cust">{req.customerName || t.title || '—'}</div>
+      <div className="wl-qcard-meta">
+        {req.route || '—'} · {req.days}N{req.nights}Đ
+        {totalPax > 0 && ` · ${totalPax} khách`}
+      </div>
+      <div className="wl-qcard-meta">
+        Người tạo: {t.createdBy || 'Hệ thống'}
+        {createdAt && ' · ' + createdAt.toLocaleDateString('vi-VN')}
+      </div>
+      <div className="wl-qcard-money">
+        <div>
+          <div className="wl-qcard-money-label">TỔNG NET</div>
+          <div className="wl-qcard-money-val">{fmtVND(totalNet)}</div>
+        </div>
+        <div style={{textAlign: 'right'}}>
+          <div className="wl-qcard-money-label">GIÁ BÁN / KHÁCH</div>
+          <div className="wl-qcard-money-val wl-good">{fmtVND(salePerPax)}</div>
+        </div>
+      </div>
+      <div className="wl-qcard-actions" onClick={e => e.stopPropagation()}>
+        <button className="wl-action" onClick={onOpen}><Icon name="paper" size={14} /> Xem chi tiết</button>
+        <button className="wl-action wl-action-del" onClick={onDelete}><Icon name="trash" size={14} /> Xoá</button>
+      </div>
+    </div>
+  );
+}
+
 function WizardPage({ pushToast, tweaks }) {
   const Storage = window.tourkitStorage;
   const Parsers = window.tourkitParsers;
 
   const [step, setStep] = _uS(1);
   const [view, setView] = _uS('list');            // 'list' (dashboard mặc định) | 'create' (wizard form)
+  const isMobile = _wzIsMobile();                 // ≤640px → dashboard render card thay bảng
   const [listFilter, setListFilter] = _uS('all'); // 'all' | 'success' | 'sent' | 'draft'
   const [listSearch, setListSearch] = _uS('');
   const [savedTours, setSavedTours] = _uS([]);
@@ -578,7 +631,26 @@ Tránh từ "tuyệt vời", "hoàn hảo", "đáng nhớ". Tiếng Việt tự 
             </div>
           </div>
 
-          {/* ── Table ────────────────────────────────────────────────────── */}
+          {/* ── List: card (mobile) / bảng (desktop) ─────────────────────── */}
+          {isMobile ? (
+            <div className="wl-cards">
+              {visibleTours.length === 0 ? (
+                <div className="wl-empty" style={{background: 'white', border: '1px solid var(--border)', borderRadius: 12}}>
+                  {savedTours.length === 0
+                    ? 'Chưa có đơn báo giá nào. Bấm "TẠO ĐƠN TÍNH GIÁ AI MỚI" để bắt đầu.'
+                    : 'Không có đơn khớp bộ lọc hiện tại.'}
+                </div>
+              ) : visibleTours.map(t => {
+                const st = tourStatus(t);
+                return (
+                  <QuoteCard key={t.id} t={t}
+                    statusLabel={statusLabel[st]} statusClass={statusClass[st]}
+                    onOpen={() => openSavedTour(t)}
+                    onDelete={async () => { if (await window.appConfirm('Xoá đơn này?', { title: 'Xoá nháp', confirmLabel: 'Xoá', danger: true })) deleteSavedTour(t.id); }} />
+                );
+              })}
+            </div>
+          ) : (
           <div className="wl-table-wrap">
             <table className="wl-table">
               <thead>
@@ -632,7 +704,7 @@ Tránh từ "tuyệt vời", "hoàn hảo", "đáng nhớ". Tiếng Việt tự 
                           <Icon name="paper" size={14} />
                         </button>
                         <button className="wl-action wl-action-del" title="Xoá"
-                          onClick={async () => { if (await window.tkConfirm?.('Xoá đơn này?')) deleteSavedTour(t.id); }}>
+                          onClick={async () => { if (await window.appConfirm('Xoá đơn này?', { title: 'Xoá nháp', confirmLabel: 'Xoá', danger: true })) deleteSavedTour(t.id); }}>
                           <Icon name="trash" size={14} />
                         </button>
                       </td>
@@ -642,6 +714,7 @@ Tránh từ "tuyệt vời", "hoàn hảo", "đáng nhớ". Tiếng Việt tự 
               </tbody>
             </table>
           </div>
+          )}
         </main>
       ) : (
       <>

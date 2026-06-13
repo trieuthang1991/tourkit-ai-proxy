@@ -40,13 +40,11 @@ function _avatarStyle(name) {
   return { background: `linear-gradient(140deg, hsl(${h} 58% 56%), hsl(${(h + 38) % 360} 64% 44%))` };
 }
 
-// AI config (provider/model/apiKey) gửi kèm request soạn.
+// AI config (provider/model) gửi kèm request soạn.
+// v9: server đọc key từ appsettings — FE không gửi apiKey.
 function _aiBody() {
   const c = (window.tourkit && window.tourkit.ai && window.tourkit.ai.getConfig) ? window.tourkit.ai.getConfig() : {};
-  return {
-    provider: c.provider, model: c.model,
-    apiKey: (window.tourkit.ai.getKey && c.provider) ? window.tourkit.ai.getKey(c.provider) : undefined,
-  };
+  return { provider: c.provider, model: c.model };
 }
 
 // Đọc SSE soạn nháp; gọi onText với TOÀN BỘ text tích lũy. Trả text cuối.

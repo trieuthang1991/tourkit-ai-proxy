@@ -13,12 +13,37 @@
     <Compile Remove="TourkitAiProxy.Tests/**/*.cs" />
     <Content Remove="TourkitAiProxy.Tests/**" />
   </ItemGroup>
+  <!-- ── Frontend bundle (esbuild) — auto build khi Release/Publish ───────────
+       Dev (`dotnet run` Debug): skip → wwwroot/dist/ không tồn tại → index.html
+         serve 35 file .jsx + Babel standalone (hot reload Edit-Save-F5).
+       Release/Publish: chạy `npx esbuild` ghi wwwroot/dist/app.bundle.js
+         → StaticFilesSetup.ServeIndex tự switch sang 1-script mode.
+       Incremental: MSBuild so mtime Inputs vs Outputs → skip nếu bundle còn fresh.
+       Cross-platform: gọi npx trực tiếp (Windows + Linux Docker đều cần Node). -->
+  <ItemGroup>
+    <FrontendSources Include="wwwroot/**/*.jsx;wwwroot/bundle-entry.js;wwwroot/lib/data.js" Exclude="wwwroot/dist/**;wwwroot/lib/tinymce/**" />
+  </ItemGroup>
+  <Target Name="BuildFrontendBundle" BeforeTargets="Build" Condition="'$(Configuration)' == 'Release'" Inputs="@(FrontendSources)" Outputs="wwwroot/dist/app.bundle.js">
+    <Message Text="▶ esbuild bundle wwwroot/dist/app.bundle.js (Release config)" Importance="high" />
+    <!-- Safe minify: whitespace + syntax + keep-names (KHONG dung full minify).
+         Full minify rename function/class gay vo React component identification +
+         Chart.js render = chat treo o assistant page. 529KB an toan 100%. -->
+    <Exec Command="npx --yes esbuild wwwroot/bundle-entry.js --bundle --format=iife --outfile=wwwroot/dist/app.bundle.js --loader:.jsx=jsx --loader:.js=jsx --jsx-factory=React.createElement --jsx-fragment=React.Fragment --target=es2019 --platform=browser --minify-whitespace --minify-syntax --keep-names --metafile=wwwroot/dist/meta.json --log-level=warning" ContinueOnError="false" WorkingDirectory="$(MSBuildProjectDirectory)" />
+  </Target>
+  <!-- Clean cũng wipe dist/ → next build tươi 100%. -->
+  <Target Name="CleanFrontendBundle" AfterTargets="Clean">
+    <RemoveDir Directories="wwwroot/dist" Condition="Exists('wwwroot/dist')" />
+  </Target>
+
   <ItemGroup>
     <PackageReference Include="Dapper" Version="2.1.79" />
     <PackageReference Include="DocumentFormat.OpenXml" Version="3.1.0" />
     <PackageReference Include="MailKit" Version="4.17.0" />
     <PackageReference Include="Microsoft.Data.SqlClient" Version="7.0.1" />
+    <PackageReference Include="Mscc.GenerativeAI" Version="3.1.0" />
+    <PackageReference Include="OpenAI" Version="2.4.0" />
     <PackageReference Include="SharpCompress" Version="0.49.1" />
     <PackageReference Include="StackExchange.Redis" Version="2.13.17" />
+    <PackageReference Include="UglyToad.PdfPig" Version="1.7.0-custom-5" />
   </ItemGroup>
 </Project>

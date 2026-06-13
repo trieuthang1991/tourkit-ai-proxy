@@ -1,3 +1,4 @@
+using System.Collections.Concurrent;
 using System.Text.Json;
 using TourkitAiProxy.Models;
 using TourkitAiProxy.Services.Store;
@@ -17,6 +18,10 @@ namespace TourkitAiProxy.Endpoints;
 public static class TourEndpoints
 {
     private const string COLL = "tours";
+
+    // Cache thị trường per-tenant — đổi chậm, TTL 6h là an toàn.
+    private static readonly ConcurrentDictionary<string, (List<string> Names, DateTime Exp)> _marketsCache = new();
+    private static readonly TimeSpan MarketsTtl = TimeSpan.FromHours(6);
 
     public static IEndpointRouteBuilder MapTourEndpoints(this IEndpointRouteBuilder routes)
     {
@@ -86,6 +91,52 @@ public static class TourEndpoints
         {
             var sid = Sid(ctx); if (sessions.Get(sid) == null) return Unauthorized();
             return await Proxy(() => ncc.ProviderServicesAsync(sid!, id, categoryId, ctx.RequestAborted));
+        });
+
+        // ─── Thị trường THẬT (proxy TourKit /api/tours/markets, cache 6h per-tenant) ──
+        // Tour-builder + Wizard dùng để fill dropdown Thị trường thay vì hardcode 12 string.
+        v1.MapGet("/markets", async (HttpContext ctx, TourKitApiClient api, TkSessionStore sessions, ILogger<Program> log) =>
+        {
+            var sid = Sid(ctx);
+            var sess = sessions.Get(sid);
+            if (sess == null) return Unauthorized();
+
+            var key = sess.TenantId;
+            if (_marketsCache.TryGetValue(key, out var entry) && entry.Exp > DateTime.UtcNow)
+                return Results.Json(entry.Names);
+
+            try
+            {
+                var jwt = await sessions.GetValidJwtAsync(sid!, ctx.RequestAborted);
+                var data = await api.GetAsync(jwt, "/api/tours/markets", ctx.RequestAborted);
+
+                var names = new List<string>();
+                if (data.ValueKind == JsonValueKind.Array)
+                {
+                    foreach (var it in data.EnumerateArray())
+                    {
+                        if (it.ValueKind == JsonValueKind.Object &&
+                            it.TryGetProperty("name", out var n) &&
+                            n.ValueKind == JsonValueKind.String)
+                        {
+                            var name = n.GetString();
+                            if (!string.IsNullOrWhiteSpace(name)) names.Add(name);
+                        }
+                    }
+                }
+                _marketsCache[key] = (names, DateTime.UtcNow.Add(MarketsTtl));
+                return Results.Json(names);
+            }
+            catch (TourKitApiException ex)
+            {
+                log.LogWarning("[markets] upstream {Status}: {Msg}", ex.Status, ex.Message);
+                return Results.Json(new { error = ex.Message }, statusCode: ex.Status);
+            }
+            catch (Exception ex)
+            {
+                log.LogError(ex, "[markets] fail");
+                return Results.Json(new { error = "Không lấy được thị trường: " + ex.Message }, statusCode: 502);
+            }
         });
 
         return routes;

@@ -27,8 +27,10 @@ public static class DealEndpoints
         // Response: items = DealOpportunity + scoreStatus: 'none' | 'fresh' (server-computed
         // bằng cách peek deal-cache theo tenant+id). FE chỉ filter scoreStatus === 'none'
         // → tường minh giống /customers (không cần merge client-side với board).
-        v1.MapGet("/deals", async (HttpContext ctx, DealOpportunityClient client, DealRepository repo, TkSessionStore sessions,
-            ILogger<Program> log, int? page, int? pageSize) =>
+        v1.MapGet("/deals", async (HttpContext ctx, DealOpportunityClient client, DealRepository repo,
+            TourKitApiClient api, TkSessionStore sessions,
+            ILogger<Program> log, int? page, int? pageSize, string? q,
+            int? trangThai, int? nguon, int? nhanVienPhuTrach) =>
         {
             var sid = Sid(ctx);
             var sess = sessions.Get(sid);
@@ -37,7 +39,21 @@ public static class DealEndpoints
             var pSize = Math.Clamp(pageSize ?? DefaultPageSize, 1, MaxPageSize);
             try
             {
-                var res = await client.ListPagedAsync(sid!, pIdx, pSize, ctx.RequestAborted);
+                // q + trangThai/nguon/nhanVienPhuTrach đẩy thẳng upstream `/api/ai/booking-tickets`
+                // (upstream support sẵn các param này — không cần fetch-all + post-filter).
+                // `level` (AI rating cao/TB/thấp), `risk` (cooling), `minValue/maxValue/maxAge/sortBy`:
+                // upstream KHÔNG support → FE tạm bỏ chip AI rating (chờ user bổ sung backend param);
+                // min/max/age/sort giữ client-side với label "(trên trang)".
+                //
+                // Lookups (statuses/sources/staffs cho dropdown filter) đính kèm vào response
+                // — fetch upstream `/api/ai/reference` SONG SONG với list để không cộng latency.
+                // Fail-soft: nếu reference lỗi, trả lookups rỗng — FE vẫn render được.
+                var listTask    = client.ListPagedAsync(sid!, pIdx, pSize, ctx.RequestAborted,
+                                      q, trangThai, nguon, nhanVienPhuTrach);
+                var refTask     = api.GetAsync(sid!, "/api/ai/reference", ctx.RequestAborted);
+                await Task.WhenAll(listTask, refTask.ContinueWith(_ => { }, TaskScheduler.Default));
+                var res         = await listTask;
+                var lookups     = BuildDealLookups(refTask.IsCompletedSuccessfully ? refTask.Result : default);
                 // Augment: mỗi item kèm scoreStatus từ cache (none/fresh — KHÔNG check fingerprint
                 // ở đây để khỏi gọi GetContextAsync cho từng deal; "stale" khái niệm chỉ có nghĩa
                 // khi deal đổi profile, xử lý sau).
@@ -71,7 +87,7 @@ public static class DealEndpoints
                         score = scoreObj
                     };
                 });
-                return Results.Json(new { items, total = res.Total, page = pIdx, pageSize = pSize });
+                return Results.Json(new { items, total = res.Total, page = pIdx, pageSize = pSize, lookups });
             }
             catch (TourKitApiException ex) { return Results.Json(new { error = ex.Message }, statusCode: ex.Status); }
             catch (Exception ex) { log.LogError(ex, "List deals lỗi"); return Results.Json(new { error = ex.Message }, statusCode: 500); }
@@ -138,4 +154,32 @@ public static class DealEndpoints
     private static string? Sid(HttpContext ctx)
         => ctx.Request.Headers["X-Session-Id"].FirstOrDefault() ?? ctx.Request.Query["sessionId"].FirstOrDefault();
     private static IResult Unauthorized() => Results.Json(new { error = "Phiên không hợp lệ — đăng nhập lại" }, statusCode: 401);
+
+    /// Trích `statuses + sources + staffs` từ payload `/api/ai/reference` của TourKit.
+    /// Fail-soft: nếu `root` rỗng (ref call lỗi), trả 3 list rỗng — FE vẫn render được dropdown
+    /// (chỉ có option "Tất cả").
+    private static object BuildDealLookups(JsonElement root)
+    {
+        static List<object> Extract(JsonElement r, string path1, string path2)
+        {
+            if (r.ValueKind != JsonValueKind.Object || !r.TryGetProperty(path1, out var p1) ||
+                p1.ValueKind != JsonValueKind.Object || !p1.TryGetProperty(path2, out var arr) ||
+                arr.ValueKind != JsonValueKind.Array) return new();
+            var items = new List<object>();
+            foreach (var e in arr.EnumerateArray())
+            {
+                int id = e.TryGetProperty("value", out var v) ? v.GetInt32() :
+                         e.TryGetProperty("id", out var id2) ? id2.GetInt32() : 0;
+                string name = e.TryGetProperty("name", out var n) ? n.GetString() ?? "" : "";
+                if (id > 0 && !string.IsNullOrWhiteSpace(name)) items.Add(new { id, name });
+            }
+            return items;
+        }
+        return new
+        {
+            statuses = Extract(root, "enums",   "bookingTicketStatuses"),
+            sources  = Extract(root, "enums",   "bookingTicketSources"),
+            staffs   = Extract(root, "lookups", "sellers"),
+        };
+    }
 }

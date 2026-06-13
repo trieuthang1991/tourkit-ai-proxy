@@ -172,7 +172,6 @@ OUTPUT JSON (KHÔNG markdown):
   ""customerEmail"": ""email hoặc null"",
   ""note"": ""ghi chú/yêu cầu đặc biệt hoặc null"",
   ""expenses"": [{{ ""title"": ""Vé tour người lớn"", ""unitPrice"": 5000000, ""quantity"": 18, ""vatPercent"": 8 }}],
-  ""services"": [{{ ""name"": ""Khách sạn 3 sao"", ""providerName"": ""Khách sạn ABC"", ""quantity"": 10, ""nights"": 2, ""netPrice"": 800000, ""vatPercent"": 8 }}],
   ""warnings"": [""điều cần Sale làm rõ thêm""]
 }}
 Bắt đầu trả JSON ngay:";
@@ -192,8 +191,8 @@ Gọi submit_tour_draft NGAY. KHÔNG trả text giải thích ngoài tool.";
 3. Ngày: chuyển về dạng yyyy-MM-dd (vd 'đi 15/7' → '2026-07-15', dùng năm hiện tại 2026 nếu không nói rõ)
 4. Số liệu tiền: bóc nguyên số đồng (vd '5 triệu' → 5000000, '1.2tr' → 1200000)
 5. tourType: 'Nội địa' | 'Inbound' (khách nước ngoài đến VN) | 'Outbound' (VN đi nước ngoài). Suy từ điểm đến.
-6. expenses (Phần thu) = khoản tiền Sale thu của khách: vé tour, phụ thu, bảo hiểm...
-7. services (Dịch vụ điều hành) = chi phí trả NCC: khách sạn, xe, ăn, vé tham quan...";
+6. expenses (Phần thu) = khoản tiền Sale thu của khách: vé tour, phụ thu, bảo hiểm, dịch vụ thêm...
+7. KHÔNG bóc dịch vụ điều hành / chi phí NCC (khách sạn, xe, ăn, vé) — phần này dùng Wizard báo giá riêng.";
 
     // ─── Schema cho native tool ─────────────────────────────────────────────────
     private static JsonElement BuildTourDraftSchema()
@@ -235,32 +234,13 @@ Gọi submit_tour_draft NGAY. KHÔNG trả text giải thích ngoài tool.";
                         required = new[] { "title", "unitPrice", "quantity" }
                     }
                 },
-                services = new
-                {
-                    type = "array",
-                    description = "Dịch vụ điều hành — chi phí trả NCC",
-                    items = new
-                    {
-                        type = "object",
-                        properties = new
-                        {
-                            name = new { type = "string" },
-                            providerName = new { type = new[] { "string", "null" } },
-                            quantity = new { type = "integer", minimum = 0 },
-                            nights = new { type = "integer", minimum = 0 },
-                            netPrice = new { type = "integer", minimum = 0 },
-                            vatPercent = new { type = "number", minimum = 0, maximum = 100 }
-                        },
-                        required = new[] { "name", "quantity", "netPrice" }
-                    }
-                },
                 warnings = new
                 {
                     type = "array", items = new { type = "string" },
                     description = "Điều cần Sale làm rõ thêm"
                 }
             },
-            required: new[] { "expenses", "services", "warnings" });
+            required: new[] { "expenses", "warnings" });
 
     // ─── Parsers ────────────────────────────────────────────────────────────────
     private TourBuilderDraft ParseRawText(string raw)
@@ -294,7 +274,6 @@ Gọi submit_tour_draft NGAY. KHÔNG trả text giải thích ngoài tool.";
             CustomerEmail: Str(root, "customerEmail"),
             Note:          Str(root, "note"),
             Expenses:      ParseExpenses(root),
-            Services:      ParseServices(root),
             Warnings:      StrList(root, "warnings"));
     }
 
@@ -307,22 +286,6 @@ Gọi submit_tour_draft NGAY. KHÔNG trả text giải thích ngoài tool.";
             var title = Str(e, "title");
             if (string.IsNullOrWhiteSpace(title)) continue;
             list.Add(new TourBuilderExpense(title!, Long(e, "unitPrice"), Math.Max(0, Int(e, "quantity")), Dbl(e, "vatPercent")));
-        }
-        return list;
-    }
-
-    private static List<TourBuilderServiceItem> ParseServices(JsonElement root)
-    {
-        var list = new List<TourBuilderServiceItem>();
-        if (!TryGet(root, "services", out var arr) || arr.ValueKind != JsonValueKind.Array) return list;
-        foreach (var e in arr.EnumerateArray())
-        {
-            var name = Str(e, "name");
-            if (string.IsNullOrWhiteSpace(name)) continue;
-            list.Add(new TourBuilderServiceItem(
-                Name: name!, ProviderName: Str(e, "providerName"),
-                Quantity: Math.Max(0, Int(e, "quantity")), Nights: Math.Max(0, Int(e, "nights")),
-                NetPrice: Long(e, "netPrice"), VatPercent: Dbl(e, "vatPercent")));
         }
         return list;
     }

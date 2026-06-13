@@ -95,24 +95,17 @@ function DealDrawer({ item, onClose }) {
 }
 
 // ─── Bộ lọc kết quả ─── (mượn pattern mobile qua window.SearchControls) ───
-function DealFilters({ q, setQ, level, setLevel, riskOnly, setRiskOnly, shown, total,
-                       advCount, advOpen, onAdvToggle }) {
+// Bỏ chip "Win cao/TB/thấp + Đang nguội" — chúng filter theo AI rating (level/cooling)
+// mà upstream `/api/ai/booking-tickets` chưa support param. User sẽ bổ sung backend param sau.
+// Hiện chỉ giữ search + filter button → bộ lọc nâng cao gọi server thật qua trangThai/nguon/nhanVienPhuTrach.
+function DealFilters({ q, setQ, shown, total, advCount, advOpen, onAdvToggle }) {
   const SC = window.SearchControls;
-  const chips = [['all', 'Tất cả'], ['cao', 'Win cao'], ['trung_binh', 'Win TB'], ['thap', 'Win thấp']];
   return (
     <div className="cust-filter">
       <div className="cust-filter-search">
         <SC.SearchInput value={q} onChange={setQ} submitOnly
           placeholder="Tìm khách / cơ hội / phụ trách… (Enter để tìm)" />
       </div>
-      <SC.FilterChipRow>
-        {chips.map(([v, lbl]) => (
-          <SC.FilterChip key={v} on={level === v} onClick={() => setLevel(v)}>{lbl}</SC.FilterChip>
-        ))}
-        <SC.FilterChip on={riskOnly} onClick={() => setRiskOnly(r => !r)} tone="warn">
-          <Icon name="warning" size={12} /> Đang nguội
-        </SC.FilterChip>
-      </SC.FilterChipRow>
       <SC.FilterButton count={advCount} open={advOpen} onClick={onAdvToggle} />
       <window.DataControls.StatRow shown={shown} total={total} suffix="cơ hội" />
     </div>
@@ -195,16 +188,19 @@ function DealsPage({ pushToast }) {
   };
   // bộ lọc kết quả
   const [q, setQ] = _dS('');
-  const [level, setLevel] = _dS('all');
-  const [riskOnly, setRiskOnly] = _dS(false);
+  // Lookups cho dropdown (statuses/sources/staffs từ upstream /api/ai/reference)
+  const [lookups, setLookups] = _dS({ statuses: [], sources: [], staffs: [] });
 
-  // Bộ lọc nâng cao (client-side trên merged items — không gọi lại AI)
-  // Default sortBy = 'newest' (id desc) → match bản mobile (TourKit.Api OrderByDescending(Id)).
-  // Muốn xem theo điểm AI, user chọn chip "Ưu tiên AI" trong sheet sort.
-  const EMPTY_DEAL_FILTER = { status: '', source: '', staff: '', minValue: '', maxValue: '', maxAge: '', sortBy: 'newest' };
+  // Bộ lọc nâng cao:
+  //   • status/source/staff: ID (int) → URL → upstream filter THẬT (qua trangThai/nguon/nhanVienPhuTrach)
+  //   • minValue/maxValue/maxAge/sortBy: vẫn client-side (upstream chưa support) — label "(trên trang)"
+  // Default sortBy = 'newest' (id desc) → match mobile (TourKit.Api OrderByDescending(Id)).
+  const EMPTY_DEAL_FILTER = { status: 0, source: 0, staff: 0, minValue: '', maxValue: '', maxAge: '', sortBy: 'newest' };
   const [adv, setAdv] = _dS(EMPTY_DEAL_FILTER);
   const [advOpen, setAdvOpen] = _dS(false);
-  const advCount = ['status','source','staff','minValue','maxValue','maxAge'].filter(k => adv[k] && adv[k] !== '').length + (adv.sortBy && adv.sortBy !== 'newest' ? 1 : 0);
+  const advCount = (adv.status > 0 ? 1 : 0) + (adv.source > 0 ? 1 : 0) + (adv.staff > 0 ? 1 : 0)
+                 + ['minValue','maxValue','maxAge'].filter(k => adv[k] && adv[k] !== '').length
+                 + (adv.sortBy && adv.sortBy !== 'newest' ? 1 : 0);
   const cancelUrl = _dR(null);
   const isMobile = useIsMobile();
   const totalPages = Math.max(1, Math.ceil(total / pageSize));
@@ -215,15 +211,30 @@ function DealsPage({ pushToast }) {
       if (r.ok) { const b = await r.json(); if (b && b.items) setBoard(b); }
     } catch { /* ignore */ }
   };
-  const loadList = async () => {
+  // loadList nhận trực tiếp page/pageSize/q làm tham số → không lệ thuộc closure stale.
+  // Trước đây dùng `page` từ closure → khi search reset về 1, lần fetch đầu vẫn dùng page CŨ
+  // (ví dụ user ở page 3 → search "abc" → fetch ?page=3&q=abc trả empty → page→1 mới fetch lại).
+  const loadList = async (overrides = {}) => {
     setListLoading(true);
     try {
-      const q = new URLSearchParams({ page: String(page), pageSize: String(pageSize) });
-      const r = await window.tourkitAuth.authedFetch('/api/v1/deals?' + q.toString());
+      const p   = overrides.page     ?? page;
+      const ps  = overrides.pageSize ?? pageSize;
+      const trm = ((overrides.q ?? q) || '').trim();
+      const a   = overrides.adv ?? adv;
+      const params = new URLSearchParams({ page: String(p), pageSize: String(ps) });
+      if (trm) params.set('q', trm);   // server-side keyword search → TourKit upstream
+      // Upstream filter (int ID) → đi thẳng /api/ai/booking-tickets
+      if (a.status > 0) params.set('trangThai',        String(a.status));
+      if (a.source > 0) params.set('nguon',            String(a.source));
+      if (a.staff  > 0) params.set('nhanVienPhuTrach', String(a.staff));
+      const r = await window.tourkitAuth.authedFetch('/api/v1/deals?' + params.toString());
       if (!r.ok) throw new Error('HTTP ' + r.status);
       const data = await r.json();
       setList(data.items || []);
       setTotal(data.total ?? (data.items?.length || 0));
+      // Lookups (statuses/sources/staffs) đính kèm response /deals — nạp 1 lần đầu là đủ
+      // nhưng nạp lại mỗi page-change cũng OK (nhỏ ~2KB) → giữ logic đơn giản, set mọi lần.
+      if (data.lookups) setLookups(data.lookups);
     } catch (e) {
       pushToast('Không tải được danh sách cơ hội: ' + e.message, 'error');
     } finally { setListLoading(false); }
@@ -231,6 +242,19 @@ function DealsPage({ pushToast }) {
   _dE(() => { loadBoard(); }, []);
   _dE(() => { loadList(); }, [page, pageSize]);
   _dE(() => { setPage(1); }, [pageSize]);   // đổi pageSize → về page 1
+  // Search debounce 350ms: user vẫn gõ thì hoãn fetch để khỏi spam API.
+  // Skip mount-fire (q='' lần đầu — vì `[page,pageSize]` effect đã fetch). Ref-guard tránh
+  // race với [page,pageSize] effect khi reset page về 1 (chỉ gọi `setPage(1)` để cho effect
+  // duy nhất đó fetch; nếu page ĐANG = 1 thì gọi loadList trực tiếp với q mới).
+  const qMounted = window.React.useRef(false);
+  _dE(() => {
+    if (!qMounted.current) { qMounted.current = true; return; }
+    const t = setTimeout(() => {
+      if (page !== 1) setPage(1);                  // → [page] effect sẽ fetch với q mới
+      else loadList({ page: 1, q });               // page đã 1 → tự fetch
+    }, 350);
+    return () => clearTimeout(t);
+  }, [q]);
 
   // Reset autoTriedRef CHỈ khi user navigate (page/filter/search) — giống Khách hàng.
   // KHÔNG reset khi list refresh sau batch → tránh chain auto-batch + spam toast.
@@ -238,7 +262,7 @@ function DealsPage({ pushToast }) {
   _dE(() => {
     console.log('[auto-deal] reset autoTriedRef (navigation đổi)');
     autoTriedRef.current = false;
-  }, [page, pageSize, adv, q, level, riskOnly]);
+  }, [page, pageSize, adv, q]);
 
   // Auto-trigger: pick deal có scoreStatus !== 'fresh' từ list (giống Khách hàng).
   // Server đã trả per-item scoreStatus dựa trên cache → frontend KHÔNG cần merge board.
@@ -279,8 +303,8 @@ function DealsPage({ pushToast }) {
     const live = [];
     try {
       const cfg = window.tourkit.ai.getConfig();
-      const key = window.tourkit.ai.getKey(cfg.provider);
-      const body = { provider: cfg.provider, model: cfg.model, apiKey: key || undefined };
+      // v9: FE không hold API key — server đọc từ appsettings (Providers/Models:Primary).
+      const body = { provider: cfg.provider, model: cfg.model };
       if (useIds) body.dealIds = [...useIds].map(String);
       const r = await window.tourkitAuth.authedFetch('/api/v1/deals/analyze', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
@@ -332,31 +356,14 @@ function DealsPage({ pushToast }) {
     }
     return { ...d, _hasScore: false, winRate: null, level: null, priorityScore: 0, expectedValue: 0 };
   });
-  const ql = q.trim().toLowerCase();
-  // Distinct values từ items để fill dropdown filter (không cần API lookups)
-  const dealLookups = (() => {
-    const s = new Set(), src = new Set(), staff = new Set();
-    for (const it of items) {
-      if (it.statusName) s.add(it.statusName);
-      if (it.sourceName) src.add(it.sourceName);
-      if (it.assignees) it.assignees.split(/[,;]/).forEach(a => a.trim() && staff.add(a.trim()));
-    }
-    return {
-      statuses: [...s].sort(),
-      sources:  [...src].sort(),
-      staffs:   [...staff].sort(),
-    };
-  })();
+  // Dropdown statuses/sources/staffs hiện nạp từ `lookups` state (call /api/v1/deals/lookups
+  // → /api/ai/reference upstream). KHÔNG derive client-side từ items nữa — lý do: items chỉ
+  // có 50 dòng/trang, dropdown chỉ ra option có trong page hiện tại, user lọc xong → sang
+  // trang khác lại thấy option khác → confusing.
+  // Filter SERVER-SIDE đã làm: q (search) / status / source / staff → đẩy thẳng upstream.
+  // Client-side CHỈ lọc thêm minValue/maxValue/maxAge (upstream chưa support) — áp lên trang
+  // hiện tại 50 dòng, label rõ "(trên trang)" trong UI.
   let filtered = items.filter(it => {
-    if (level !== 'all' && it.level !== level) return false;
-    if (riskOnly && !(it.isCooling || it.riskFlag === 'nguoi')) return false;
-    if (ql) {
-      const hay = (it.customerName + ' ' + (it.title || '') + ' ' + (it.code || '') + ' ' + (it.assignees || '')).toLowerCase();
-      if (!hay.includes(ql)) return false;
-    }
-    if (adv.status && it.statusName !== adv.status) return false;
-    if (adv.source && it.sourceName !== adv.source) return false;
-    if (adv.staff && !(it.assignees || '').toLowerCase().includes(adv.staff.toLowerCase())) return false;
     if (adv.minValue && (it.totalPrice || 0) < Number(adv.minValue)) return false;
     if (adv.maxValue && (it.totalPrice || 0) > Number(adv.maxValue)) return false;
     if (adv.maxAge && (it.ageDays || 0) > Number(adv.maxAge)) return false;
@@ -495,56 +502,56 @@ function DealsPage({ pushToast }) {
           { icon: 'warning', label: 'Nguội /đã chấm',  value: c.nguoi },
         ]} />
 
-        <DealFilters q={q} setQ={setQ} level={level} setLevel={setLevel}
-          riskOnly={riskOnly} setRiskOnly={setRiskOnly} shown={filtered.length} total={items.length}
+        <DealFilters q={q} setQ={setQ} shown={filtered.length} total={items.length}
           advCount={advCount} advOpen={advOpen} onAdvToggle={() => setAdvOpen(o => !o)} />
 
         <window.SearchControls.AdvancedFilterPanel
           open={advOpen} onClose={() => setAdvOpen(false)}
-          value={adv} defaultValue={EMPTY_DEAL_FILTER} onApply={setAdv}>
+          value={adv} defaultValue={EMPTY_DEAL_FILTER}
+          onApply={(next) => { setAdv(next); setPage(1); loadList({ page: 1, adv: next }); }}>
           {({ draft, set }) => (
             <div className="cust-sheet-grid">
               <div className="cust-sheet-row">
                 <label>Trạng thái</label>
-                <window.SearchControls.SearchSelect
-                  items={['', ...dealLookups.statuses].map(s => s || 'Tất cả trạng thái')}
-                  value={draft.status || 'Tất cả trạng thái'}
-                  onChange={v => set('status', v === 'Tất cả trạng thái' ? '' : v)}
-                  placeholder="Tất cả trạng thái" />
+                <select className="tb-field" value={draft.status || 0}
+                  onChange={e => set('status', parseInt(e.target.value, 10) || 0)}>
+                  <option value={0}>Tất cả trạng thái</option>
+                  {(lookups.statuses || []).map(o => <option key={o.id} value={o.id}>{o.name}</option>)}
+                </select>
               </div>
               <div className="cust-sheet-row">
                 <label>Nguồn</label>
-                <window.SearchControls.SearchSelect
-                  items={['', ...dealLookups.sources].map(s => s || 'Tất cả nguồn')}
-                  value={draft.source || 'Tất cả nguồn'}
-                  onChange={v => set('source', v === 'Tất cả nguồn' ? '' : v)}
-                  placeholder="Tất cả nguồn" />
+                <select className="tb-field" value={draft.source || 0}
+                  onChange={e => set('source', parseInt(e.target.value, 10) || 0)}>
+                  <option value={0}>Tất cả nguồn</option>
+                  {(lookups.sources || []).map(o => <option key={o.id} value={o.id}>{o.name}</option>)}
+                </select>
               </div>
               <div className="cust-sheet-row">
                 <label>NV phụ trách</label>
-                <window.SearchControls.SearchSelect
-                  items={['', ...dealLookups.staffs].map(s => s || 'Tất cả nhân viên')}
-                  value={draft.staff || 'Tất cả nhân viên'}
-                  onChange={v => set('staff', v === 'Tất cả nhân viên' ? '' : v)}
-                  placeholder="Tất cả nhân viên" />
+                <select className="tb-field" value={draft.staff || 0}
+                  onChange={e => set('staff', parseInt(e.target.value, 10) || 0)}>
+                  <option value={0}>Tất cả nhân viên</option>
+                  {(lookups.staffs || []).map(o => <option key={o.id} value={o.id}>{o.name}</option>)}
+                </select>
               </div>
               <div className="cust-sheet-row">
-                <label>Tuổi cơ hội tối đa (ngày)</label>
+                <label>Tuổi cơ hội tối đa (ngày) <span style={{color:'var(--text-3)',fontSize:11}}>· trên trang</span></label>
                 <input type="number" className="tb-field" placeholder="vd 30" value={draft.maxAge}
                   onChange={e => set('maxAge', e.target.value)} min={0} />
               </div>
               <div className="cust-sheet-row">
-                <label>Giá trị tối thiểu (đ)</label>
+                <label>Giá trị tối thiểu (đ) <span style={{color:'var(--text-3)',fontSize:11}}>· trên trang</span></label>
                 <input type="number" className="tb-field" placeholder="vd 10000000" value={draft.minValue}
                   onChange={e => set('minValue', e.target.value)} min={0} />
               </div>
               <div className="cust-sheet-row">
-                <label>Giá trị tối đa (đ)</label>
+                <label>Giá trị tối đa (đ) <span style={{color:'var(--text-3)',fontSize:11}}>· trên trang</span></label>
                 <input type="number" className="tb-field" placeholder="bỏ trống = không giới hạn" value={draft.maxValue}
                   onChange={e => set('maxValue', e.target.value)} min={0} />
               </div>
               <div className="cust-sheet-row full">
-                <label>Sắp xếp</label>
+                <label>Sắp xếp <span style={{color:'var(--text-3)',fontSize:11}}>· trên trang</span></label>
                 <window.SearchControls.FilterChipRow>
                   {[['newest', 'Mới nhất (mặc định)'], ['priority', 'Ưu tiên AI'], ['ev', 'Doanh thu kỳ vọng'], ['value', 'Giá trị deal'], ['win', 'Khả năng thắng'], ['age', 'Tuổi cơ hội']].map(([v, l]) => (
                     <window.SearchControls.FilterChip key={v} on={draft.sortBy === v}
@@ -644,10 +651,12 @@ function DealsPage({ pushToast }) {
           </div>
         )}
 
-        {/* Pagination — chỉ hiện khi có >1 trang. Dùng total thật từ /api/v1/deals. */}
-        {!listLoading && total > pageSize && (
+        {/* Pagination — luôn hiện khi `total > 0`, KỂ CẢ đang loading (mờ + disable thay vì
+            unmount). Trước đây `!listLoading &&` → upstream TourKit chậm 2-4s/trang là pagination
+            biến mất suốt thời gian fetch → user tưởng "sang trang 2 mất phân trang". */}
+        {total > 0 && (
           <window.TKPagination page={page} totalPages={totalPages} pageSize={pageSize}
-            total={total} shown={filtered.length}
+            total={total} shown={filtered.length} loading={listLoading}
             onPage={setPage} onPageSize={setPageSize} />
         )}
       </>)}

@@ -94,8 +94,8 @@ function QuotesPage({ pushToast }) {
           <button className="btn btn-primary btn-sm" onClick={() => navigate('/tour-builder')}>Tạo báo giá đầu tiên</button>
         </div>
       ) : (
-        <div style={{background:'white', border:'1px solid var(--border)', borderRadius:10, overflow:'hidden'}}>
-          <table style={{width:'100%', borderCollapse:'collapse', fontSize:13}}>
+        <div style={{background:'white', border:'1px solid var(--border)', borderRadius:10, overflowX:'auto'}}>
+          <table style={{width:'100%', minWidth: 900, borderCollapse:'collapse', fontSize:13}}>
             <thead style={{background:'var(--bg)'}}>
               <tr style={{textAlign:'left'}}>
                 <th style={th()}>Tour / Khách</th>

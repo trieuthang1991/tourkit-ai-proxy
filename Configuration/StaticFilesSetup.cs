@@ -17,10 +17,17 @@ public static class StaticFilesSetup
         _buildVersion = ComputeBuildVersion(webRoot);
         app.Logger.LogInformation("Frontend BUILD_VERSION: {V} (wwwroot: {Path})", _buildVersion, webRoot);
 
+        // DEV: recompute hash MỖI request /index.html — sửa .jsx + F5 là ?v đổi → browser
+        // bypass cache immutable ngay, không cần restart server. Prod: hash tính 1 lần lúc
+        // startup (deploy mới = restart = hash mới), không tốn mtime-scan mỗi request.
+        var isDev = app.Environment.IsDevelopment();
+
         // Intercept root + index.html → server inject ?v=hash vào local <script src> + <link href>
         // Trình duyệt sẽ thấy URL khác mỗi lần deploy → invalidate cache cũ tự nhiên.
-        app.MapGet("/", () => ServeIndex(webRoot));
-        app.MapGet("/index.html", () => ServeIndex(webRoot));
+        // index.html BẮT BUỘC no-cache: nếu browser heuristic-cache html (kèm ?v cũ) thì
+        // toàn bộ cơ chế versioned-cache vô hiệu — assets immutable cũ được dùng mãi.
+        app.MapGet("/", (HttpContext ctx) => ServeIndex(ctx, webRoot, isDev));
+        app.MapGet("/index.html", (HttpContext ctx) => ServeIndex(ctx, webRoot, isDev));
 
         app.UseStaticFiles(new StaticFileOptions
         {
@@ -55,18 +62,21 @@ public static class StaticFilesSetup
         return app;
     }
 
-    // ── Hash của max(mtime) aggregate wwwroot (cap 200 file để khỏi chậm startup).
-    //     Đổi 1 byte file static = đổi hash. Restart process = re-compute.
+    // ── Hash mtime aggregate wwwroot — đổi 1 byte file static = đổi hash. Restart = re-compute.
+    //     SKIP lib/tinymce/** (3rd-party, ~100 file skin/plugin) — chỉ hash core app code.
+    //     Trước có Take(200) → tinymce skin chiếm slot đầu alphabetically, edits ở /pages/, /steps/
+    //     hoàn toàn không invalidate hash → browser cache 1-năm immutable bị stale.
     private static string ComputeBuildVersion(string webRoot)
     {
         try
         {
             var sb = new StringBuilder();
             foreach (var f in Directory.EnumerateFiles(webRoot, "*", SearchOption.AllDirectories)
-                                       .Where(p => p.EndsWith(".jsx") || p.EndsWith(".js") ||
-                                                   p.EndsWith(".css") || p.EndsWith(".html"))
-                                       .OrderBy(p => p)
-                                       .Take(200))
+                                       .Where(p => (p.EndsWith(".jsx") || p.EndsWith(".js") ||
+                                                    p.EndsWith(".css") || p.EndsWith(".html")) &&
+                                                   !p.Contains("lib" + Path.DirectorySeparatorChar + "tinymce") &&
+                                                   !p.Contains("lib/tinymce"))
+                                       .OrderBy(p => p))
             {
                 sb.Append(File.GetLastWriteTimeUtc(f).Ticks).Append('|');
             }
@@ -85,12 +95,50 @@ public static class StaticFilesSetup
         @"(<(?:script|link)\b[^>]*\b(?:src|href)=[""'])(?!https?://|//|/api/|data:|#)([^""'?]+)([""'])",
         RegexOptions.IgnoreCase | RegexOptions.Compiled);
 
-    private static IResult ServeIndex(string webRoot)
+    // Regex bắt mọi <script type="text/babel" src="...">…</script> để strip ở prod-bundle mode.
+    private static readonly Regex _babelScriptRegex = new(
+        @"<script\s+type\s*=\s*[""']text/babel[""'][^>]*></script>\s*",
+        RegexOptions.IgnoreCase | RegexOptions.Compiled);
+    // Bắt CDN babel-standalone + babel-cache helper — bỏ khi prod bundle (Babel không còn cần).
+    private static readonly Regex _babelStandaloneRegex = new(
+        @"<script\s+src=[""'][^""']*babel(?:-standalone|/standalone|\.min)[^""']*[""'][^>]*></script>\s*",
+        RegexOptions.IgnoreCase | RegexOptions.Compiled);
+    private static readonly Regex _babelCacheRegex = new(
+        @"<script\s+src=[""']core/babel-cache\.js[""'][^>]*></script>\s*",
+        RegexOptions.IgnoreCase | RegexOptions.Compiled);
+    // Strip cả các plain .js file đã được bundle vào (vd lib/data.js).
+    // tinymce-loader giữ ngoài bundle (lazy load TinyMCE ~5MB chỉ khi mở mail).
+    private static readonly Regex _bundledPlainJsRegex = new(
+        @"<script\s+src=[""']lib/data\.js[""'][^>]*></script>\s*",
+        RegexOptions.IgnoreCase | RegexOptions.Compiled);
+
+    private static IResult ServeIndex(HttpContext ctx, string webRoot, bool recomputeVersion = false)
     {
         var path = Path.Combine(webRoot, "index.html");
         if (!File.Exists(path)) return Results.NotFound();
+        ctx.Response.Headers["Cache-Control"] = "no-cache, must-revalidate";
         var html = File.ReadAllText(path);
+        if (recomputeVersion) _buildVersion = ComputeBuildVersion(webRoot);
         var v = _buildVersion;
+
+        // Prod bundle mode: nếu dist/app.bundle.js tồn tại → thay 35 thẻ <script type="text/babel">
+        // + babel-standalone CDN + babel-cache.js bằng 1 thẻ duy nhất <script src="dist/app.bundle.js">.
+        // Bundle là IIFE — không cần defer/async; React/Chart.js/TinyMCE CDN giữ nguyên (vẫn cần).
+        var bundlePath = Path.Combine(webRoot, "dist", "app.bundle.js");
+        if (File.Exists(bundlePath))
+        {
+            html = _babelScriptRegex.Replace(html, string.Empty);
+            html = _babelStandaloneRegex.Replace(html, string.Empty);
+            html = _babelCacheRegex.Replace(html, string.Empty);
+            html = _bundledPlainJsRegex.Replace(html, string.Empty);
+            // Inject 1 thẻ bundle ngay trước </body>. ?v= sẽ được stamp ở bước dưới.
+            var bundleTag = "<script src=\"dist/app.bundle.js\"></script>\n";
+            var bodyClose = html.LastIndexOf("</body>", StringComparison.OrdinalIgnoreCase);
+            html = bodyClose > 0
+                ? html.Insert(bodyClose, bundleTag)
+                : html + bundleTag;
+        }
+
         html = _stampRegex.Replace(html, m => $"{m.Groups[1].Value}{m.Groups[2].Value}?v={v}{m.Groups[3].Value}");
         return Results.Content(html, "text/html; charset=utf-8");
     }

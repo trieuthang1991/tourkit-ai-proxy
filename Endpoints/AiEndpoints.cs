@@ -61,8 +61,13 @@ public static class AiEndpoints
             }
             catch (HttpRequestException ex)
             {
-                log.LogWarning(ex, "List models connect failed: {Provider}", provider.Id);
-                return Results.Json(new { error = $"Không kết nối được {provider.Label}", detail = ex.Message }, statusCode: 502);
+                // Log full chain (outer + inner) — "The SSL connection could not be established" giấu lý do thật
+                // trong InnerException. ToString() trả nguyên chain → dev đọc log biết handshake fail ở đâu.
+                log.LogWarning(ex, "List models connect failed: {Provider}\nFull chain: {Chain}", provider.Id, ex.ToString());
+                return Results.Json(new {
+                    error = $"Không kết nối được {provider.Label}",
+                    detail = ex.GetBaseException().Message
+                }, statusCode: 502);
             }
         });
 

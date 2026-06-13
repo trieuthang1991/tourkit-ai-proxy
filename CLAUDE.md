@@ -25,7 +25,21 @@ dotnet publish TourkitAiProxy.csproj -c Release -o out
 # Docker (exposes :8080 inside container)
 docker build -t tourkit-ai-proxy .
 docker run -p 5080:8080 -e Providers__OpenCode__ApiKey="sk-..." tourkit-ai-proxy
+
+# Frontend bundle (prod mode — speedup ~70× cold start: 3-5s → 50ms)
+# THƯỜNG KHÔNG CẦN CHẠY THỦ CÔNG — MSBuild target tự fire khi `dotnet publish -c Release`
+.\build-frontend.ps1            # (Tùy chọn) bundle thủ công 1 lần
+.\build-frontend.ps1 -Watch     # Watch mode dev — rebuild ~20ms/lần save, F5 thấy ngay
+.\build-frontend.ps1 -Clean     # Xóa dist/ → quay về dev mode (Babel in-browser, hot reload)
 ```
+
+Frontend có **2 mode auto-switch** qua tồn tại của `wwwroot/dist/app.bundle.js`:
+- **Dev mode** (`dotnet run` Debug — DEFAULT): 35 file .jsx + Babel standalone → edit 1 file = F5 thấy ngay; cold start 3-5s. MSBuild target SKIP ở Debug.
+- **Prod-bundle mode** (`dotnet publish -c Release` HOẶC `dotnet build -c Release`): MSBuild target `BuildFrontendBundle` trong [TourkitAiProxy.csproj](TourkitAiProxy.csproj) tự chạy `npx esbuild`, ghi `wwwroot/dist/app.bundle.js` (~470KB minified). `StaticFilesSetup.ServeIndex` detect dist/ → tự strip 35 `<script type="text/babel">` + Babel CDN + `babel-cache.js` + `lib/data.js`, inject 1 thẻ `<script src="dist/app.bundle.js?v=hash">`. Cold start ~50ms.
+- **Incremental**: MSBuild compare mtime `wwwroot/**/*.jsx` vs `dist/app.bundle.js` → skip nếu bundle còn fresh (lần publish thứ 2 không thay đổi → bỏ qua esbuild ~3s).
+- **Docker**: [Dockerfile](Dockerfile) đã install `nodejs` ở stage `build` → `dotnet publish` trong container chạy `npx esbuild` được.
+
+**Khi cần dev nhanh với bundle**: `.\build-frontend.ps1 -Watch` (chạy song song `dotnet run`) — esbuild rebuild ~20ms/lần save, F5 thấy ngay. Hoặc `-Clean` để xóa dist/ về Babel mode (hot reload Babel nhanh hơn nhưng cold start chậm).
 
 There is no test project. `appsettings.json` ở `.gitignore` (chứa API keys); commit `appsettings.example.json` làm template.
 
@@ -156,7 +170,7 @@ data/
 - `provider` blank → falls back to `Providers:Default` in config, then first registered.
 - `system` blank → backend injects anti-reasoning prompt (see `OpenCodeClient.DefaultSystem`).
 - `temperature` default `0.3` (tuned for JSON/structured output).
-- `apiKey` optional: client may send a per-request key for BYO-key providers (OpenAI/Anthropic). `OpenAIProvider`/`AnthropicProvider` use `req.ApiKey ?? ProviderKeyStore.Get(id)` (client key wins, config is fallback). Key is used transiently and **never persisted server-side**. The frontend stores these keys in `localStorage["tourkit_ai_keys"]` (per the project owner's explicit choice — note the XSS tradeoff) and sends them via `apiKey` on `/completions`, `/completions/stream`, and `/chat`.
+- `apiKey` optional: legacy per-request channel (DTO still accepts it for backward compat). **As of v9 (`CONFIG_VERSION` in `ai-provider.jsx`), the frontend NO LONGER stores or sends keys.** All keys come from server: `ProviderKeyStore.Get(id)` resolves `Providers:{X}:ApiKey` → `Models:Primary:ApiKey` (if `Models:Primary:Provider==id`) → `Models:Review:ApiKey` (same) → env var. Old `localStorage["tourkit_ai_keys"]` is auto-cleared on first load by the v8→v9 migration.
 
 **Response shape (`/completions`):**
 ```json
@@ -287,7 +301,7 @@ No bundler, no npm install. `<script type="text/babel">` is transformed in-brows
 
 ## Cross-cutting
 
-**Frontend reaches AI via `window.claude.complete` or `window.tourkit.ai.complete`/`completeStream`.** `core/ai-provider.jsx` shims `window.claude.complete` to delegate to `window.tourkit.ai`, which POSTs to `/api/v1/completions`. **Provider keys for OpenCode/9routes live server-side in `appsettings.json` / env vars.** Exception: OpenAI/Anthropic (BYO-key) keys are entered in the AI Settings UI and stored **client-side** in `localStorage["tourkit_ai_keys"]`, sent per-request via `apiKey`, and used transiently server-side (not persisted) — this was an explicit owner decision overriding the "no keys in client" default; the XSS tradeoff is documented in the AI Settings dialog. `localStorage["tourkit_ai_config"]` only holds `{provider, model, _v}`. Bump `CONFIG_VERSION` in `ai-provider.jsx` when changing the shape.
+**Frontend reaches AI via `window.claude.complete` or `window.tourkit.ai.complete`/`completeStream`.** `core/ai-provider.jsx` shims `window.claude.complete` to delegate to `window.tourkit.ai`, which POSTs to `/api/v1/completions`. **ALL provider keys (OpenCode/9routes/OpenAI/Anthropic) live server-side** in `appsettings.json` (`Providers:{X}:ApiKey` or `Models:Primary/Review:ApiKey`) or env vars. The AI Settings UI lets users pick provider/model only — no key input. `localStorage["tourkit_ai_config"]` only holds `{provider, model, _v}` (v9). Bump `CONFIG_VERSION` in `ai-provider.jsx` when changing the shape. (Pre-v9: had client-side localStorage key store + dialog input — removed because operationally fragile; see v8→v9 migration comment.)
 
 **Static files.** `UseStaticFiles` has `ServeUnknownFileTypes = true` + `DefaultContentType = "text/plain"` so `.jsx` loads without a registered MIME type. `.jsx`/`.js`/`.css`/`.html` are served with `Cache-Control: no-cache` so edits show on a plain reload.
 
@@ -328,7 +342,7 @@ Khi câu hỏi liên quan đến **cấu trúc code** (callers/callees, "X dùng
 <!-- gitnexus:start -->
 # GitNexus — Code Intelligence
 
-This project is indexed by GitNexus as **tourkit-ai-proxy** (6539 symbols, 20325 relationships, 300 execution flows). Use the GitNexus MCP tools to understand code, assess impact, and navigate safely.
+This project is indexed by GitNexus as **tourkit-ai-proxy** (6855 symbols, 21605 relationships, 300 execution flows). Use the GitNexus MCP tools to understand code, assess impact, and navigate safely.
 
 > If any GitNexus tool warns the index is stale, run `npx gitnexus analyze` in terminal first.
 

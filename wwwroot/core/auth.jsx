@@ -126,9 +126,13 @@
 
     return (
       <div className="login-screen">
-        {/* Panel trái: chỉ là background image bg-login.png — toàn bộ content
-            (logo/tagline/features/footer) đã chuyển vào ảnh */}
-        <aside className="login-brand" aria-hidden="true" />
+        {/* Panel trái: <img> poster bg-login.png — đổi từ background-image sang <img>
+            để dễ control responsive + lazy load + alt text. CSS .login-brand-img
+            xử lý object-fit/position. Toàn bộ content đã in trong ảnh. */}
+        <aside className="login-brand" aria-hidden="true">
+          <img className="login-brand-img" src="/lib/bg-login.png" alt=""
+            width="1024" height="1280" loading="eager" decoding="async" />
+        </aside>
 
         {/* Form (phải) */}
         <main className="login-pane">

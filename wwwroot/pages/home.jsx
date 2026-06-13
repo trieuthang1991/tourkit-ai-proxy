@@ -11,11 +11,11 @@
 // KHÔNG có: em-dash, scroll cue, version label, marquee, glow.
 
 (function () {
-  const { useState: s, useMemo: m, useEffect: e } = React;
+  const { useState: s, useMemo: m, useEffect: e, useRef: r } = React;
   const navigate = window.tourkitRouter.navigate;
   const Icon = window.Icon;
 
-  // 7 AI Agent — mỗi cái = 1 tính năng. Sửa ở đây = đổi launcher.
+  // AI Agent — mỗi cái = 1 tính năng. Sửa ở đây = đổi launcher.
   const AGENTS = [
     { id: 'chat',      to: '/assistant',    icon: 'sparkle', title: 'AI Chat',                       desc: 'Đội ngũ kinh doanh ảo đắc lực của bạn',     tags: ['trợ lý','số liệu','chatbot'], featured: true },
     { id: 'quote',     to: '/wizard',       icon: 'sparkle', title: 'AI Tính giá Tour',              desc: 'Tính toán chính xác, tối ưu biên lợi nhuận', tags: ['báo giá','tour','wizard'] },
@@ -24,6 +24,8 @@
     { id: 'mail',      to: '/mail',         icon: 'paper',   title: 'AI Mail',                       desc: 'Gửi thư điện tử thông minh, tự động hóa tương tác', tags: ['email','gmail'] },
     { id: 'visa',      to: '/visa',         icon: 'shield',  title: 'AI Thẩm định Visa',             desc: 'Đánh giá chính xác tỉ lệ đậu Visa',         tags: ['visa','hồ sơ'] },
     { id: 'tour',      to: '/tour-builder', icon: 'pin',     title: 'AI nhập Tour',                  desc: 'Chuyển văn bản thô thành hành trình hoàn mỹ', tags: ['tour','git','nhập liệu'] },
+    { id: 'widget',    to: '/widget-admin', icon: 'sparkle', title: 'Widget Chat AI',                desc: 'Nhúng bot AI vào website khách bằng 1 dòng JS', tags: ['widget','embed','sdk','website'] },
+    { id: 'ncc',       to: '/ncc-import',   icon: 'paper',   title: 'AI Import NCC',                 desc: 'Bóc tách Excel / PDF / Word cũ thành 13 cột chuẩn để upload', tags: ['ncc','import','nhà cung cấp','excel','pdf','word'] },
   ];
 
   function greetingByHour() {
@@ -116,6 +118,8 @@
   function MascotImage() {
     // Ưu tiên /lib/masco-ai.png (robot flying pose, PNG transparent — character ở
      // lower-right canvas, hợp với object-fit:contain + ring halo phía sau).
+    // Mascot lớn ở trang chủ vẫn dùng masco-ai.png (robot flying pose, đẹp ở size lớn).
+    // trav-ai.png chỉ dùng cho icon/avatar nhỏ (vd Chat AI greet bubble).
     const candidates = ['/lib/masco-ai.png', '/lib/mascot.png', '/lib/mascot.jpg', '/lib/mascot.webp'];
     const [idx, setIdx] = s(0);
     if (idx >= candidates.length) {
@@ -133,6 +137,163 @@
     return (
       <img src={candidates[idx]} alt="TourKit AI mascot"
         className="hp-mascot-img" onError={() => setIdx(i => i + 1)} />
+    );
+  }
+
+  // Home Chat: chat THẬT (không phải preview giả) — gọi /api/v1/chat/stream qua SSE.
+  // Dùng X-Session-Id từ tourkitAuth (gắn sẵn bởi authedFetch logic). Khi user muốn xem
+  // bảng/chart trả về, click "Mở rộng →" để chuyển /assistant?q=<câu hỏi cuối>.
+  const QUICK_PROMPTS = [
+    'Doanh thu tháng này',
+    'Top 5 khách hàng',
+    'Tour sắp khởi hành',
+  ];
+  // STAGE label tiếng Việt — đồng bộ với assistant.jsx
+  const STAGE_LABEL = {
+    planning:  'AI đang chọn nguồn dữ liệu…',
+    fetching:  'Đang lấy số liệu từ CRM…',
+    analyzing: 'Đang phân tích…',
+  };
+
+  function HomeChatCard() {
+    const [input, setInput] = s('');
+    const [loading, setLoading] = s(false);
+    const [stage, setStage] = s(null);
+    const [messages, setMessages] = s([
+      { role: 'assistant', content: 'Em là TRAV-AI 👋 Anh/Chị muốn xem báo cáo, danh sách KH hay tra cứu tour ạ?' }
+    ]);
+    const scrollRef = r(null);
+    const lastUserRef = r('');
+
+    e(() => {
+      if (scrollRef.current) scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
+    }, [messages, stage]);
+
+    async function send(textArg) {
+      const text = (typeof textArg === 'string' ? textArg : input).trim();
+      if (!text || loading) return;
+      const sessionId = window.tourkitAuth?.getSessionId?.();
+      if (!sessionId) {
+        setMessages(m => [...m, { role: 'user', content: text }, { role: 'assistant', content: '⚠️ Chưa đăng nhập TourKit — không thể chat.', error: true }]);
+        return;
+      }
+      lastUserRef.current = text;
+      const next = [...messages, { role: 'user', content: text }];
+      const asstIdx = next.length;
+      setMessages([...next, { role: 'assistant', content: '', streaming: true }]);
+      setInput('');
+      setLoading(true);
+      setStage('planning');
+
+      const patch = (fn) => setMessages(m => { const c = [...m]; if (c[asstIdx]) c[asstIdx] = fn(c[asstIdx]); return c; });
+      const cfg = (window.tourkit && window.tourkit.ai && window.tourkit.ai.getConfig)
+        ? window.tourkit.ai.getConfig() : {};
+
+      try {
+        const resp = await fetch('/api/v1/chat/stream', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', 'Accept': 'text/event-stream', 'X-Session-Id': sessionId },
+          body: JSON.stringify({
+            messages: next, provider: cfg.provider, model: cfg.model
+          })
+        });
+        if (resp.status === 401) {
+          patch(a => ({ ...a, content: '⚠️ Phiên hết hạn — đăng nhập lại.', error: true, streaming: false }));
+          return;
+        }
+        if (!resp.ok || !resp.body) {
+          const t = await resp.text().catch(() => '');
+          throw new Error(t.slice(0, 200) || ('HTTP ' + resp.status));
+        }
+        const reader = resp.body.getReader();
+        const dec = new TextDecoder('utf-8');
+        let buf = '';
+        while (true) {
+          const { done, value } = await reader.read();
+          if (done) break;
+          buf += dec.decode(value, { stream: true });
+          let i;
+          while ((i = buf.indexOf('\n\n')) >= 0) {
+            const evt = buf.slice(0, i); buf = buf.slice(i + 2);
+            const line = evt.split('\n').find(l => l.startsWith('data:'));
+            if (!line) continue;
+            const payload = line.slice(5).trim();
+            if (!payload) continue;
+            let o; try { o = JSON.parse(payload); } catch { continue; }
+            if (o.error) { patch(a => ({ ...a, content: '⚠️ ' + o.error, error: true, streaming: false })); setStage(null); continue; }
+            if (o.stage) { setStage(o.stage); continue; }
+            if (o.delta) { setStage(null); patch(a => ({ ...a, content: a.content + o.delta })); continue; }
+            if (o.done) {
+              if (o.reply) patch(a => ({ ...a, content: o.reply }));
+            }
+          }
+        }
+      } catch (e) {
+        patch(a => ({ ...a, content: '⚠️ ' + e.message, error: true }));
+      } finally {
+        patch(a => ({ ...a, streaming: false }));
+        setLoading(false);
+        setStage(null);
+      }
+    }
+
+    const expand = () => {
+      const q = lastUserRef.current || input;
+      navigate(q ? '/assistant?q=' + encodeURIComponent(q) : '/assistant');
+    };
+
+    return (
+      <div className="hp-chat-card" role="region" aria-label="Chat TRAV-AI">
+        <div className="hp-chat-head">
+          <div className="hp-chat-avatar">
+            <img src="/lib/trav-ai.png" alt="" onError={ev => { ev.target.style.display='none'; }} />
+          </div>
+          <div className="hp-chat-head-text">
+            <div className="hp-chat-head-name">
+              TRAV-AI
+              <span className="hp-chat-dot" aria-hidden /> <span className="hp-chat-online">đang trực tuyến</span>
+            </div>
+            <div className="hp-chat-head-sub">Hỏi số liệu, khách, tour — em trả ngay.</div>
+          </div>
+          <button type="button" className="hp-chat-expand" onClick={expand}
+            title="Mở rộng sang Trợ lý số liệu (xem bảng + biểu đồ)">
+            Mở rộng <Icon name="arrowRight" size={11} stroke={2.4} />
+          </button>
+        </div>
+
+        <div className="hp-chat-stream" ref={scrollRef}>
+          {messages.map((msg, idx) => (
+            <div key={idx} className={'hp-chat-bubble hp-chat-bubble--' + msg.role + (msg.error ? ' hp-chat-bubble--error' : '')}>
+              <span className="hp-chat-bubble-text">{msg.content || (msg.streaming ? '…' : '')}</span>
+            </div>
+          ))}
+          {stage && (
+            <div className="hp-chat-bubble hp-chat-bubble--bot hp-chat-stage">
+              <span className="hp-chat-typing-dot" /><span className="hp-chat-typing-dot" /><span className="hp-chat-typing-dot" />
+              <span className="hp-chat-stage-text">{STAGE_LABEL[stage] || stage}</span>
+            </div>
+          )}
+        </div>
+
+        <div className="hp-chat-quick">
+          {QUICK_PROMPTS.map(p => (
+            <button key={p} type="button" className="hp-chat-chip"
+              disabled={loading}
+              onClick={() => send(p)} title={'Hỏi: ' + p}>{p}</button>
+          ))}
+        </div>
+
+        <form className="hp-chat-input" onSubmit={(ev) => { ev.preventDefault(); send(); }}>
+          <input type="text" value={input} onChange={ev => setInput(ev.target.value)}
+            disabled={loading}
+            placeholder={loading ? 'Đang xử lý…' : 'Hỏi gì đó… (vd: doanh thu Q2, tour Đà Nẵng)'}
+            aria-label="Câu hỏi cho TRAV-AI" />
+          <button type="submit" className="hp-chat-send" aria-label="Gửi câu hỏi"
+            disabled={loading || !input.trim()}>
+            <Icon name="send" size={15} stroke={2.2} />
+          </button>
+        </form>
+      </div>
     );
   }
 
@@ -194,7 +355,7 @@
             </div>
             <div className="hp-bar-brand-text">
               <div className="hp-bar-brand-row">
-                <span className="hp-bar-brand-name">TOURKIT</span>
+                <span className="hp-bar-brand-name">TRAV-AI</span>
                 <span className="hp-bar-brand-chip">AI AGENT</span>
               </div>
               <div className="hp-bar-brand-tag">Chuyển đổi số doanh nghiệp du lịch</div>
@@ -204,7 +365,7 @@
           <div className="hp-bar-title">
             <div className="hp-bar-title-row">
               <Icon name="sparkle" size={18} />
-              <span className="hp-bar-title-text">TOURKIT AI-POWERED FUTURE</span>
+              <span className="hp-bar-title-text">TRAV-AI POWERED FUTURE</span>
             </div>
             <div className="hp-bar-title-sub">Thông minh hơn. Vận hành dễ dàng hơn. Tăng trưởng bền vững hơn.</div>
           </div>
@@ -270,7 +431,8 @@
           </div>
         </div>
 
-        {/* ─── Mascot card ─────────────────────────────────────────────── */}
+        {/* ─── Hero 2-cột: mascot trái / chat preview phải ────────────── */}
+        <div className="hp-hero">
         <div className="hp-mascot-card">
           <div className="hp-mascot-ring">
             <div className="hp-mascot-orb">
@@ -297,14 +459,17 @@
             <span className="hp-stat-lbl">Live</span>
           </div>
           <div className="hp-mascot-label">
-            <div className="hp-mascot-title hp-mascot-title--anim">TOURKIT AI</div>
+            <div className="hp-mascot-title hp-mascot-title--anim">TRAV-AI</div>
             <div className="hp-mascot-sub">
-              <span className="hp-mascot-emoji" aria-hidden>🤖</span>
+              <img className="hp-mascot-emoji" src="/lib/trav-ai.png" alt="TRAV-AI"
+                onError={e => { e.target.style.display = 'none'; }} />
               <span className="hp-mascot-typing"> Đang sẵn sàng tư vấn Tour &amp; Telesales!</span>
               <span className="hp-mascot-caret" aria-hidden>|</span>
             </div>
           </div>
         </div>
+        <HomeChatCard />
+        </div>{/* /.hp-hero */}
 
         {/* ─── Grid 7 Agent ────────────────────────────────────────────── */}
         <div className="hp-grid">
