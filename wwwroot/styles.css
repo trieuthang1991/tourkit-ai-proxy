@@ -1719,6 +1719,11 @@ body.editorial .ai-bubble .hl { color: #FDBA74; }
 .asst-send:hover:not(:disabled) { background: var(--primary-dark); transform: translateY(-1px); }
 .asst-send:disabled { background: var(--border-strong); cursor: not-allowed; box-shadow: none; }
 
+/* Chart.js lazy-load: overlay "đang tải" trong lúc chart-loader fetch 201KB */
+.asst-canvas-wrap { position: relative; }
+.asst-chart-loading { position: absolute; inset: 0; display: flex; align-items: center;
+  justify-content: center; gap: 8px; color: var(--text-3); font-size: 12.5px; }
+
 /* ─── Legend dòng (donut, mockup) ──────────────────────────────────────────── */
 .asst-canvas-wrap.donut { height: 280px; }
 .asst-legend { display: flex; flex-direction: column; gap: 1px; margin-top: 12px;

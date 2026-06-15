@@ -58,8 +58,9 @@ _server.log
 # Audio test sample (binary, không phải source)
 test-audio/
 
-# Bundle entry stub (auto-gen từ build-frontend.ps1) — chứa generated content
-wwwroot/bundle-entry.js
+# wwwroot/bundle-entry.js: SOURCE file (esbuild đọc trực tiếp ở MSBuild target + build-frontend.ps1).
+# PHẢI commit — deploy git-clone thiếu file này → esbuild fail / fallback dev mode (chậm).
+# (dist/ vẫn ignore vì là build artifact — Dockerfile `dotnet publish -c Release` tự rebundle.)
 
 # Tmp marker file dùng cho debug bash heredoc trên Windows (CP1252 lỗi)
 _*.json

@@ -170,6 +170,16 @@ const _SLICE_COLORS = ['#F97316', '#0EA5E9', '#10B981', '#8B5CF6', '#F59E0B', '#
 function ChartView({ rows, info, focus, kind, compare }) {
   const canvasRef = React.useRef(null);
   const chartRef = React.useRef(null);
+  // Chart.js lazy-load (chart-loader.js) — chỉ tải 201KB khi trang này mở.
+  // chartReady flip true khi window.Chart sẵn sàng → effect render bên dưới re-run.
+  const [chartReady, setChartReady] = React.useState(!!window.Chart);
+  React.useEffect(() => {
+    if (window.Chart) { setChartReady(true); return; }
+    let alive = true;
+    window.ensureChart?.().then(() => { if (alive) setChartReady(true); })
+      .catch(e => console.warn('[chart] lazy-load fail:', e.message));
+    return () => { alive = false; };
+  }, []);
   const allKeys = info.series.map(s => s.key);
   const focusSel = (focus || []).filter(f => allKeys.includes(f));
   const [sel, setSel] = React.useState(focusSel.length ? focusSel : allKeys.slice(0, info.timeline ? 3 : 1));
@@ -302,7 +312,7 @@ function ChartView({ rows, info, focus, kind, compare }) {
     chartRef.current = new window.Chart(canvasRef.current, cfg);
 
     return () => { if (chartRef.current) { chartRef.current.destroy(); chartRef.current = null; } };
-  }, [rows, info, sel, chartType, canPie, isCompare, compare]);
+  }, [rows, info, sel, chartType, canPie, isCompare, compare, chartReady]);  // chartReady → re-render khi Chart.js lazy-load xong
 
   const toggle = (k) => setSel(prev =>
     prev.includes(k) ? (prev.length > 1 ? prev.filter(x => x !== k) : prev) : [...prev, k]);
@@ -350,7 +360,14 @@ function ChartView({ rows, info, focus, kind, compare }) {
           </div>
         </div>
       )}
-      <div className={'asst-canvas-wrap' + (showRowLegend ? ' donut' : '')}><canvas ref={canvasRef} /></div>
+      <div className={'asst-canvas-wrap' + (showRowLegend ? ' donut' : '')}>
+        <canvas ref={canvasRef} />
+        {!chartReady && (
+          <div className="asst-chart-loading">
+            <span className="asst-dots"><i /><i /><i /></span> Đang tải biểu đồ…
+          </div>
+        )}
+      </div>
       {showRowLegend && legendRows.length > 0 && (
         <div className="asst-legend">
           {legendRows.map((l, i) => (
@@ -527,7 +544,9 @@ function DataPanel({ data, onAsk }) {
         );
       })()}
 
-      {chart && window.Chart && (
+      {/* Gate KHÔNG check window.Chart — ChartView tự lazy-load Chart.js (chart-loader.js)
+          khi mount. Nếu check window.Chart ở đây → component không mount → loader không chạy. */}
+      {chart && (
         <div className="asst-block">
           <div className="label">Biểu đồ</div>
           {/* key=dataVer: remount khi panelData đổi → chartType/metric về mặc định đúng cho data MỚI */}

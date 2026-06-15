@@ -235,6 +235,28 @@ builder.Services.AddSingleton<TourkitAiProxy.Services.Store.TenantStore>();
 builder.Services.AddSingleton<TourkitAiProxy.Services.TourKit.TourKitCustomerSource>();
 builder.Services.AddSingleton<TourkitAiProxy.Services.TourKit.TourKitNccClient>();
 
+// ─── Response compression (Brotli + Gzip) ─────────────────────────────────────
+// Frontend bundle ~596KB + styles.css ~352KB gửi RAW trước đây → public landing/NCC
+// tải dư ~700KB mỗi lần load lạnh. Brotli nén JS/CSS xuống ~20-25% → ~200KB tổng.
+// EnableForHttps=true vì site chạy sau reverse proxy TLS (forwarded headers).
+builder.Services.AddResponseCompression(o =>
+{
+    o.EnableForHttps = true;
+    o.Providers.Add<Microsoft.AspNetCore.ResponseCompression.BrotliCompressionProvider>();
+    o.Providers.Add<Microsoft.AspNetCore.ResponseCompression.GzipCompressionProvider>();
+    // SSE (text/event-stream) KHÔNG nén — buffering phá streaming. Chỉ nén static text.
+    o.MimeTypes = new[]
+    {
+        "text/html", "text/css", "text/plain",
+        "text/javascript", "application/javascript", "application/json",
+        "image/svg+xml", "application/manifest+json"
+    };
+});
+builder.Services.Configure<Microsoft.AspNetCore.ResponseCompression.BrotliCompressionProviderOptions>(
+    o => o.Level = System.IO.Compression.CompressionLevel.Optimal);
+builder.Services.Configure<Microsoft.AspNetCore.ResponseCompression.GzipCompressionProviderOptions>(
+    o => o.Level = System.IO.Compression.CompressionLevel.Optimal);
+
 // ─── Pipeline ────────────────────────────────────────────────────────────────
 var app = builder.Build();
 
@@ -292,6 +314,9 @@ if (!app.Environment.IsDevelopment())
 }
 
 app.UseCors(CorsSetup.PolicyName);
+// Nén RESPONSE — phải TRƯỚC static files để bundle/CSS được Brotli/Gzip.
+// Sau UseForwardedHeaders (đã set IsHttps đúng) → EnableForHttps hoạt động sau TLS proxy.
+app.UseResponseCompression();
 // Trace middleware ĐẦU pipeline (trước routing/endpoints) — bất kỳ endpoint nào cũng có thể đọc trace.
 app.UseMiddleware<WorkflowTraceMiddleware>();
 // Quota guard — bắt QuotaExhaustedException provider ném ra → 429 JSON.

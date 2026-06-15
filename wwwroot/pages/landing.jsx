@@ -297,7 +297,7 @@
               <nav className="lp-mobile-features">
                 {FEATURES.slice(0, 4).map(f => (
                   <button key={f.key} onClick={() => goAndClose(() => onFeatureClick(f))}>
-                    <img src={'/images/robots/' + f.robot} alt="" />
+                    <img src={'/images/robots/' + f.robot} alt="" loading="lazy" decoding="async" />
                     <span>{f.title}</span>
                   </button>
                 ))}
@@ -385,7 +385,8 @@
             <div className="lp-hero-rings">
               <div className="lp-hero-ring" /><div className="lp-hero-ring" /><div className="lp-hero-ring" />
             </div>
-            <img className="lp-hero-bot" src="/images/robots/robot4.PNG" alt="" />
+            <img className="lp-hero-bot" src="/images/robots/robot4.PNG" alt=""
+              fetchpriority="high" decoding="async" />
             <div className="lp-hero-pill lp-pill-1">
               <span className="lp-pill-live" />
               <Icon name="sparkle" size={12} stroke={2.2} />
@@ -428,7 +429,7 @@
               >
                 <button className="lp-feature-card" onClick={() => onFeatureClick(f)}>
                   <div className="lp-feature-bot">
-                    <img src={'/images/robots/' + f.robot} alt="" />
+                    <img src={'/images/robots/' + f.robot} alt="" loading="lazy" decoding="async" />
                   </div>
                   <div className="lp-feature-body">
                     <h3>{f.title}</h3>
@@ -458,7 +459,7 @@
             ].map((s, i) => (
               <Reveal key={s.n} delay={i * 80} className="lp-step">
                 <div className="lp-step-num">{s.n}</div>
-                <div className="lp-step-bot"><img src={'/images/robots/' + s.bot} alt="" /></div>
+                <div className="lp-step-bot"><img src={'/images/robots/' + s.bot} alt="" loading="lazy" decoding="async" /></div>
                 <h3>{s.t}</h3>
                 <p>{s.d}</p>
               </Reveal>
@@ -514,8 +515,8 @@
 
         {/* ── BIG CTA BAND (1 dấu nhấn cuối, không lặp lại intent CTA) */}
         <section className="lp-cta-band">
-          <img className="lp-cta-bot-left" src="/images/robots/robot11.PNG" alt="" aria-hidden="true" />
-          <img className="lp-cta-bot-right" src="/images/robots/robot12.PNG" alt="" aria-hidden="true" />
+          <img className="lp-cta-bot-left" src="/images/robots/robot11.PNG" alt="" aria-hidden="true" loading="lazy" decoding="async" />
+          <img className="lp-cta-bot-right" src="/images/robots/robot12.PNG" alt="" aria-hidden="true" loading="lazy" decoding="async" />
           <div className="lp-cta-inner">
             <h2>Sẵn sàng để AI gánh việc lặp lại?</h2>
             <p>15 phút demo trực tiếp với team Tourkit, không cần thẻ tín dụng.</p>

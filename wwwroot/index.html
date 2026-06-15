@@ -88,16 +88,20 @@
 </svg>
 </template>
 
-<!-- React + Babel standalone (no build step) -->
-<!-- production.min build: -1.5MB so với .development.js. Đổi sang development khi cần warnings/devtools. -->
-<script src="https://unpkg.com/react@18.3.1/umd/react.production.min.js" crossorigin="anonymous"></script>
-<script src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.production.min.js" crossorigin="anonymous"></script>
+<!-- React + ReactDOM — SELF-HOST (bỏ unpkg CDN: hết lỗi "SSL connection could not be
+     established" ở VN + ổn định, không phụ thuộc CDN ngoài reachable). -->
+<script src="lib/vendor/react-18.3.1.min.js"></script>
+<script src="lib/vendor/react-dom-18.3.1.min.js"></script>
+<!-- Babel standalone CHỈ load ở dev mode (bundle mode server strip thẻ này) — giữ CDN
+     vì babel chỉ chạy local dev, không ảnh hưởng public site (đã bundle). -->
 <script src="https://unpkg.com/@babel/standalone@7.29.0/babel.min.js" integrity="sha384-m08KidiNqLdpJqLq95G/LEi8Qvjl/xUYll3QILypMoQ65QorJ9Lvtp2RXYGBFj1y" crossorigin="anonymous"></script>
 <!-- Babel cache (patch Babel.transform) — phải load NGAY SAU babel để patch trước file .jsx đầu tiên -->
 <script src="core/babel-cache.js"></script>
 
-<!-- Chart.js (UMD, no build step) — professional charts cho trang Trợ lý số liệu -->
-<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.6/dist/chart.umd.min.js"></script>
+<!-- Chart.js — KHÔNG eager load (~201KB). Chỉ trang Trợ lý số liệu dùng → lazy qua
+     lib/chart-loader.js (window.ensureChart()) khi ChartView mount. Bỏ khỏi initial
+     load của MỌI trang (landing/NCC/khách hàng… không có chart). -->
+<script src="lib/chart-loader.js"></script>
 
 <!-- TinyMCE: KHÔNG eager load (~5MB runtime). mail.jsx RichEditor tự lazy-load
      qua lib/tinymce-loader.js khi component mount lần đầu. -->
