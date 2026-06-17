@@ -95,6 +95,9 @@ function TourBuilderPage({ pushToast }) {
   const [busy, setBusy] = _tS(false);
   const [savedId, setSavedId] = _tS(null);          // id sau khi save (hoặc load từ ?id=)
   const [saving, setSaving] = _tS(false);
+  // ── Lưu vào CRM (tạo/sửa Tour GIT thật) — tách biệt với "Lưu báo giá" (store riêng của proxy).
+  const [crmTourId, setCrmTourId] = _tS(0);         // >0 sau khi tạo CRM → lần lưu sau = cập nhật tour đó
+  const [crmSaving, setCrmSaving] = _tS(false);
   // ── Draft/Commit state (2-tier Redis+SQL):
   //   draftStatus: 'pristine' (chưa edit), 'dirty' (đã edit, chưa autosave), 'autosaving',
   //                'draft' (Redis có draft, chưa commit DB), 'committed' (DB đã có snapshot mới)
@@ -255,6 +258,32 @@ function TourBuilderPage({ pushToast }) {
     finally { setSaving(false); }
   }
 
+  // Lưu vào CRM thật — tạo Tour GIT (POST) hoặc cập nhật tour đã tạo (crmTourId>0).
+  // Khác saveQuote: ghi vào TourKit CRM (qua proxy /save-crm → /api/ai/tours), KH tìm-hoặc-tạo theo SĐT.
+  async function saveCrm() {
+    if (!form.title) { pushToast('Cần nhập Tên tour', 'error'); return; }
+    if (!form.customerName || !form.customerPhone) {
+      pushToast('Cần Tên + SĐT khách hàng để lưu vào CRM', 'error'); return;
+    }
+    setCrmSaving(true);
+    try {
+      const r = await window.tourkitAuth.authedFetch('/api/v1/tour-builder/save-crm', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ form, crmTourId: crmTourId || 0 }),
+      });
+      const j = await r.json();
+      if (!r.ok || j.error) throw new Error(j.error || ('HTTP ' + r.status));
+      const res = j.result || {};
+      const tid = res.tourId ?? res.TourId;
+      const code = res.tourCode ?? res.TourCode;
+      const created = res.customerCreated ?? res.CustomerCreated;
+      const wasUpdate = crmTourId > 0;
+      if (tid) setCrmTourId(tid);
+      pushToast(`✓ ${wasUpdate ? 'Đã cập nhật' : 'Đã tạo'} tour GIT trong CRM${code ? ' · ' + code : ''}${created ? ' (đã tạo KH mới)' : ''}`);
+    } catch (e) { pushToast('Lưu CRM thất bại: ' + e.message, 'error'); }
+    finally { setCrmSaving(false); }
+  }
+
   function copyJson() {
     navigator.clipboard.writeText(JSON.stringify(form, null, 2));
     pushToast('Đã copy JSON form');
@@ -299,11 +328,17 @@ function TourBuilderPage({ pushToast }) {
           </button>
           <button className="tb-btn" onClick={reset} disabled={busy || saving}><Icon name="trash" size={14} /> Xóa</button>
           <button className="tb-btn" onClick={copyJson} disabled={busy || saving}><Icon name="copy" size={14} /> Copy JSON</button>
-          <button className="tb-btn tb-btn-primary" onClick={saveQuote}
+          <button className="tb-btn" onClick={saveQuote}
             disabled={busy || saving || !hasForm || draftStatus === 'committed'}
-            title={draftStatus === 'committed' ? 'Chưa có thay đổi mới' : 'Commit data Redis → SQL DB'}>
+            title={draftStatus === 'committed' ? 'Chưa có thay đổi mới' : 'Lưu nháp báo giá (store riêng) — Redis → SQL'}>
             <Icon name={saving ? 'refresh' : 'save'} size={14} />
-            {saving ? 'Đang commit…' : (savedId ? 'Commit DB' : 'Lưu báo giá')}
+            {saving ? 'Đang commit…' : (savedId ? 'Commit nháp' : 'Lưu báo giá')}
+          </button>
+          <button className="tb-btn tb-btn-primary" onClick={saveCrm}
+            disabled={busy || crmSaving || !hasForm}
+            title="Tạo/cập nhật Tour GIT THẬT trong CRM TourKit (tìm/tạo khách theo SĐT)">
+            <Icon name={crmSaving ? 'refresh' : 'pin'} size={14} />
+            {crmSaving ? 'Đang lưu CRM…' : (crmTourId ? 'Cập nhật CRM' : 'Lưu vào CRM')}
           </button>
         </>}
       />
