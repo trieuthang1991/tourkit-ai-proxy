@@ -107,6 +107,42 @@ public class TourKitApiClient
         return default;
     }
 
+    /// POST {pathAndQuery} với Bearer JWT + body JSON. Trả `data` (Clone). Throw TourKitApiException
+    /// nếu success=false / non-2xx (message từ MResponse.Fail bên TourKit.Api được surface nguyên văn).
+    public async Task<JsonElement> PostAsync(string jwt, string pathAndQuery, object body, CancellationToken ct)
+    {
+        var http = _factory.CreateClient("tourkit");
+        using var req = new HttpRequestMessage(HttpMethod.Post, pathAndQuery) { Content = JsonContent.Create(body) };
+        req.Headers.Authorization = new AuthenticationHeaderValue("Bearer", jwt);
+        req.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
+
+        HttpResponseMessage resp;
+        try { resp = await http.SendAsync(req, ct); }
+        catch (HttpRequestException ex)
+        {
+            _log.LogWarning(ex, "[TourKit] POST {Path}: không kết nối được upstream", pathAndQuery);
+            throw new TourKitApiException("Không kết nối được hệ thống. Vui lòng thử lại sau.", 502);
+        }
+
+        var respBody = await resp.Content.ReadAsStringAsync(ct);
+
+        if (resp.StatusCode == System.Net.HttpStatusCode.Unauthorized)
+            throw new TourKitApiException("Phiên TourKit hết hạn hoặc không hợp lệ", 401);
+
+        using var doc = SafeParse(respBody)
+            ?? throw new TourKitApiException($"TourKit trả về không phải JSON (HTTP {(int)resp.StatusCode})", 502);
+        var root = doc.RootElement;
+
+        if (!resp.IsSuccessStatusCode || !GetBool(root, "success"))
+            throw new TourKitApiException(
+                GetString(root, "message") ?? $"TourKit lỗi (HTTP {(int)resp.StatusCode})",
+                resp.StatusCode == System.Net.HttpStatusCode.BadRequest ? 400 : 502);
+
+        if (root.TryGetProperty("data", out var data))
+            return data.Clone();
+        return default;
+    }
+
     // ─── helpers ────────────────────────────────────────────────────────────────
     private static JsonDocument? SafeParse(string s)
     {
