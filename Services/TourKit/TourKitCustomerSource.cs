@@ -36,6 +36,7 @@ public class TourKitCustomerSource
         if (!string.IsNullOrWhiteSpace(f.StartDate))      qs.Add("startDate=" + Uri.EscapeDataString(f.StartDate));
         if (!string.IsNullOrWhiteSpace(f.EndDate))        qs.Add("endDate=" + Uri.EscapeDataString(f.EndDate));
         if (!string.IsNullOrWhiteSpace(f.SortOrder))      qs.Add("sortOrder=" + Uri.EscapeDataString(f.SortOrder));
+        if (f.Rank is not null && f.Rank != 0)            qs.Add("rank=" + f.Rank);   // -1=chưa review, 1..6=hạng, >6=đã review bất kỳ
 
         var path = "/api/ai/customers?" + string.Join("&", qs);
         var data = await GetAsync(sessionId, path, ct);
@@ -65,7 +66,8 @@ public class TourKitCustomerSource
         bool? BirthdayThisMonth = null,
         string? StartDate = null,        // yyyy-MM-dd
         string? EndDate = null,
-        string? SortOrder = null         // tên cột (mới nhất/doanh thu...)
+        string? SortOrder = null,        // tên cột (mới nhất/doanh thu...)
+        int? Rank = null                 // upstream customers.[Rank]: -1=chưa review, 1..6=hạng A..F, >6=đã review bất kỳ
     );
 
     /// Lấy lookup data cho bộ lọc (loại KH / nguồn / NV phụ trách) qua /api/ai/reference.

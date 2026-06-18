@@ -1,4 +1,4 @@
-// pages/deals.jsx — Ưu tiên Deal AI. Product UI nội bộ, bám design system warm-orange.
+// pages/deals.jsx — AI phân tích Cơ hội. Product UI nội bộ, bám design system warm-orange.
 // Phân tích pipeline cơ hội bán hàng → AI chấm khả năng thắng → bảng xếp hạng "nên xử lý deal nào trước".
 // Có BỘ LỌC kết quả (tìm/mức win/đang nguội) + layout CARD cho mobile (bảng tràn ở màn nhỏ).
 
@@ -98,14 +98,26 @@ function DealDrawer({ item, onClose }) {
 // Bỏ chip "Win cao/TB/thấp + Đang nguội" — chúng filter theo AI rating (level/cooling)
 // mà upstream `/api/ai/booking-tickets` chưa support param. User sẽ bổ sung backend param sau.
 // Hiện chỉ giữ search + filter button → bộ lọc nâng cao gọi server thật qua trangThai/nguon/nhanVienPhuTrach.
-function DealFilters({ q, setQ, shown, total, advCount, advOpen, onAdvToggle }) {
+function DealFilters({ q, setQ, shown, total, advCount, advOpen, onAdvToggle, rankFilter, setRankFilter }) {
   const SC = window.SearchControls;
+  // Win chip ngưỡng đồng bộ DealScoringService.cs: cao ≥60, TB 35-59, thấp <35.
+  // Token gửi xuống proxy:
+  //   any  → rank=any        (đã chấm bất kỳ)
+  //   none → rank=-1         (chưa chấm)
+  //   high → minRank=60      (Win cao)
+  //   mid  → minRank=35&maxRank=59
+  //   low  → minRank=1&maxRank=34
   return (
     <div className="cust-filter">
       <div className="cust-filter-search">
         <SC.SearchInput value={q} onChange={setQ} submitOnly
           placeholder="Tìm khách / cơ hội / phụ trách… (Enter để tìm)" />
       </div>
+      <SC.FilterChipRow>
+        {[['all','Tất cả'],['any','Đã chấm'],['none','Chưa chấm'],['high','Win cao'],['mid','Win TB'],['low','Win thấp']].map(([v, l]) => (
+          <SC.FilterChip key={v} on={rankFilter === v} onClick={() => setRankFilter(v)}>{l}</SC.FilterChip>
+        ))}
+      </SC.FilterChipRow>
       <SC.FilterButton count={advCount} open={advOpen} onClick={onAdvToggle} />
       <window.DataControls.StatRow shown={shown} total={total} suffix="cơ hội" />
     </div>
@@ -188,6 +200,8 @@ function DealsPage({ pushToast }) {
   };
   // bộ lọc kết quả
   const [q, setQ] = _dS('');
+  // Win-rate filter chip ('all'|'any'|'none'|'high'|'mid'|'low')
+  const [rankFilter, setRankFilter] = _dS('all');
   // Lookups cho dropdown (statuses/sources/staffs từ upstream /api/ai/reference)
   const [lookups, setLookups] = _dS({ statuses: [], sources: [], staffs: [] });
 
@@ -195,11 +209,11 @@ function DealsPage({ pushToast }) {
   //   • status/source/staff: ID (int) → URL → upstream filter THẬT (qua trangThai/nguon/nhanVienPhuTrach)
   //   • minValue/maxValue/maxAge/sortBy: vẫn client-side (upstream chưa support) — label "(trên trang)"
   // Default sortBy = 'newest' (id desc) → match mobile (TourKit.Api OrderByDescending(Id)).
-  const EMPTY_DEAL_FILTER = { status: 0, source: 0, staff: 0, minValue: '', maxValue: '', maxAge: '', sortBy: 'newest' };
+  const EMPTY_DEAL_FILTER = { status: 0, source: 0, staff: 0, minValue: '', maxValue: '', maxAge: '', sortBy: 'newest', customMinRank: '', customMaxRank: '' };
   const [adv, setAdv] = _dS(EMPTY_DEAL_FILTER);
   const [advOpen, setAdvOpen] = _dS(false);
   const advCount = (adv.status > 0 ? 1 : 0) + (adv.source > 0 ? 1 : 0) + (adv.staff > 0 ? 1 : 0)
-                 + ['minValue','maxValue','maxAge'].filter(k => adv[k] && adv[k] !== '').length
+                 + ['minValue','maxValue','maxAge','customMinRank','customMaxRank'].filter(k => adv[k] && adv[k] !== '').length
                  + (adv.sortBy && adv.sortBy !== 'newest' ? 1 : 0);
   const cancelUrl = _dR(null);
   const isMobile = useIsMobile();
@@ -222,11 +236,28 @@ function DealsPage({ pushToast }) {
       const trm = ((overrides.q ?? q) || '').trim();
       const a   = overrides.adv ?? adv;
       const params = new URLSearchParams({ page: String(p), pageSize: String(ps) });
+      // ↑ rankFilter có thể được truyền vào qua overrides để effect "đổi chip → reload" tránh closure stale
       if (trm) params.set('q', trm);   // server-side keyword search → TourKit upstream
       // Upstream filter (int ID) → đi thẳng /api/ai/booking-tickets
       if (a.status > 0) params.set('trangThai',        String(a.status));
       if (a.source > 0) params.set('nguon',            String(a.source));
       if (a.staff  > 0) params.set('nhanVienPhuTrach', String(a.staff));
+      // ── Win-rate filter ──────────────────────────────────────────────────────
+      // Khoảng tùy chỉnh (sheet nâng cao) GHI ĐÈ chip nhanh.
+      // Chip: any/none → param `rank`; high/mid/low → param `minRank`/`maxRank`.
+      const cMin = a.customMinRank, cMax = a.customMaxRank;
+      const hasCustom = (cMin && Number(cMin) > 0) || (cMax && Number(cMax) > 0);
+      if (hasCustom) {
+        if (cMin && Number(cMin) > 0) params.set('minRank', String(cMin));
+        if (cMax && Number(cMax) > 0) params.set('maxRank', String(cMax));
+      } else {
+        const rf = overrides.rankFilter ?? rankFilter;
+        if (rf === 'any')  params.set('rank', 'any');
+        if (rf === 'none') params.set('rank', '-1');
+        if (rf === 'high') params.set('minRank', '60');
+        if (rf === 'mid')  { params.set('minRank', '35'); params.set('maxRank', '59'); }
+        if (rf === 'low')  { params.set('minRank', '1');  params.set('maxRank', '34'); }
+      }
       const r = await window.tourkitAuth.authedFetch('/api/v1/deals?' + params.toString());
       if (!r.ok) throw new Error('HTTP ' + r.status);
       const data = await r.json();
@@ -262,7 +293,16 @@ function DealsPage({ pushToast }) {
   _dE(() => {
     console.log('[auto-deal] reset autoTriedRef (navigation đổi)');
     autoTriedRef.current = false;
-  }, [page, pageSize, adv, q]);
+  }, [page, pageSize, adv, q, rankFilter]);
+
+  // Đổi chip rank → reload list ngay (server-side filter qua param `rank`/`minRank`/`maxRank`).
+  // Skip mount-fire (rankFilter='all' lần đầu); đẩy về page 1 nếu cần.
+  const rkMounted = window.React.useRef(false);
+  _dE(() => {
+    if (!rkMounted.current) { rkMounted.current = true; return; }
+    if (page !== 1) setPage(1);                       // [page] effect sẽ fetch
+    else            loadList({ page: 1, rankFilter }); // page = 1 → tự fetch
+  }, [rankFilter]);
 
   // Auto-trigger: pick deal có scoreStatus !== 'fresh' từ list (giống Khách hàng).
   // Server đã trả per-item scoreStatus dựa trên cache → frontend KHÔNG cần merge board.
@@ -394,7 +434,7 @@ function DealsPage({ pushToast }) {
     <main className="page deals">
       <window.PageShell.PageHero
         icon="trend"
-        title="Ưu tiên Deal AI"
+        title="AI phân tích Cơ hội"
         badge="EV + độ gấp"
         sub="AI chấm khả năng thắng từng cơ hội bán hàng và xếp hạng nên xử lý deal nào trước."
         status={{ label: total > 0 ? `${total} CƠ HỘI` : (running ? 'ĐANG PHÂN TÍCH' : (listLoading ? 'ĐANG TẢI' : 'CHƯA CÓ DỮ LIỆU')),
@@ -503,7 +543,8 @@ function DealsPage({ pushToast }) {
         ]} />
 
         <DealFilters q={q} setQ={setQ} shown={filtered.length} total={items.length}
-          advCount={advCount} advOpen={advOpen} onAdvToggle={() => setAdvOpen(o => !o)} />
+          advCount={advCount} advOpen={advOpen} onAdvToggle={() => setAdvOpen(o => !o)}
+          rankFilter={rankFilter} setRankFilter={setRankFilter} />
 
         <window.SearchControls.AdvancedFilterPanel
           open={advOpen} onClose={() => setAdvOpen(false)}
@@ -534,6 +575,16 @@ function DealsPage({ pushToast }) {
                   <option value={0}>Tất cả nhân viên</option>
                   {(lookups.staffs || []).map(o => <option key={o.id} value={o.id}>{o.name}</option>)}
                 </select>
+              </div>
+              <div className="cust-sheet-row">
+                <label>Khả năng thắng tối thiểu (%) <span style={{color:'var(--text-3)',fontSize:11}}>· upstream</span></label>
+                <input type="number" className="tb-field" placeholder="vd 50 — ghi đè chip Win nhanh" value={draft.customMinRank}
+                  onChange={e => set('customMinRank', e.target.value)} min={1} max={100} />
+              </div>
+              <div className="cust-sheet-row">
+                <label>Khả năng thắng tối đa (%) <span style={{color:'var(--text-3)',fontSize:11}}>· upstream</span></label>
+                <input type="number" className="tb-field" placeholder="vd 80 — bỏ trống = không giới hạn" value={draft.customMaxRank}
+                  onChange={e => set('customMaxRank', e.target.value)} min={1} max={100} />
               </div>
               <div className="cust-sheet-row">
                 <label>Tuổi cơ hội tối đa (ngày) <span style={{color:'var(--text-3)',fontSize:11}}>· trên trang</span></label>

@@ -27,6 +27,7 @@ function CustomersPage({ pushToast }) {
   const [loading, setLoading]     = _uC(true);
   const [err, setErr]             = _uC(null);
   const [segFilter, setSegFilter] = _uC('all');
+  const [rankFilter, setRankFilter] = _uC('all');   // 'all'|'A'|'B'|'C'|'D' — lọc hạng AI (global qua upstream customers.[Rank])
   const [search, setSearch]       = _uC('');
   const [selected, setSelected]   = _uC(new Set());
   const [confirmOpen, setConfirm] = _uC(false);
@@ -50,14 +51,14 @@ function CustomersPage({ pushToast }) {
 
   // Bộ lọc nâng cao (state shared cho AdvancedFilterSheet)
   const EMPTY_FILTER = {
-    customerTypeId: 0, customerSourceId: 0, sellerId: 0,
+    customerSourceId: 0, sellerId: 0,
     gender: '', startDate: '', endDate: '', sortOrder: '',
     birthdayThisMonth: false, careFilter: ''
   };
   const [filter, setFilter] = _uC(EMPTY_FILTER);
   const [sheetOpen, setSheetOpen] = _uC(false);
   const [lookups, setLookups] = _uC({ customerTypes: [], customerSources: [], sellers: [] });
-  const activeFilterCount = ['customerTypeId','customerSourceId','sellerId','gender','startDate','endDate','sortOrder','careFilter']
+  const activeFilterCount = ['customerSourceId','sellerId','gender','startDate','endDate','sortOrder','careFilter']
     .filter(k => filter[k] && filter[k] !== 0).length + (filter.birthdayThisMonth ? 1 : 0);
 
   // Cleanup khi unmount (user navigate sang route khác / đóng tab):
@@ -199,7 +200,7 @@ function CustomersPage({ pushToast }) {
       q.set('pageSize', pageSize);
       if (segFilter !== 'all') q.set('segment', segFilter);
       if (search.trim()) q.set('search', search.trim());
-      if (filter.customerTypeId)   q.set('customerTypeId',   filter.customerTypeId);
+      if (rankFilter !== 'all') q.set('rank', rankFilter);
       if (filter.customerSourceId) q.set('customerSourceId', filter.customerSourceId);
       if (filter.sellerId)         q.set('sellerId',         filter.sellerId);
       if (filter.gender)           q.set('gender',           filter.gender);
@@ -223,14 +224,14 @@ function CustomersPage({ pushToast }) {
 
   // Đổi filter/segment/search/pageSize → reset về page 1 (tránh "ở page 5 nhưng filter mới chỉ có 2 page").
   // Reset xong, effect load list bên dưới sẽ tự fire vì page đổi (hoặc đã ở page 1 + filter đổi).
-  _uEC(() => { setPage(1); }, [segFilter, filter, pageSize, search]);
+  _uEC(() => { setPage(1); }, [segFilter, rankFilter, filter, pageSize, search]);
 
   // Load list — debounce 300ms với search (mỗi keystroke), instant với page/filter.
   _uEC(() => {
     const delay = 300; // debounce chung — page-click cũng có 300ms nhẹ, chấp nhận được
     const t = setTimeout(loadList, delay);
     return () => clearTimeout(t);
-  }, [segFilter, filter, page, pageSize, search]);
+  }, [segFilter, rankFilter, filter, page, pageSize, search]);
 
   const toggleOne = (id) => {
     setSelected(s => {
@@ -534,6 +535,13 @@ function CustomersPage({ pushToast }) {
             🎂 Sinh nhật
           </window.SearchControls.FilterChip>
         </window.SearchControls.FilterChipRow>
+        <window.SearchControls.FilterChipRow>
+          {[['all','Tất cả'],['any','Đã review'],['-1','Chưa review'],['A','Hạng A'],['B','Hạng B'],['C','Hạng C'],['D','Hạng D']].map(([v, l]) => (
+            <window.SearchControls.FilterChip key={v} on={rankFilter === v} onClick={() => setRankFilter(v)}>
+              {l}
+            </window.SearchControls.FilterChip>
+          ))}
+        </window.SearchControls.FilterChipRow>
         <window.SearchControls.FilterButton count={activeFilterCount} open={sheetOpen}
           onClick={() => setSheetOpen(o => !o)} />
         <window.DataControls.StatRow shown={items.length} total={total} suffix="khách hàng" />
@@ -546,15 +554,6 @@ function CustomersPage({ pushToast }) {
         onApply={setFilter}>
         {({ draft, set }) => (
           <div className="cust-sheet-grid">
-            <div className="cust-sheet-row">
-              <label>Loại khách hàng</label>
-              <window.SearchControls.SearchSelect
-                items={[{ id: 0, name: 'Tất cả loại' }, ...lookups.customerTypes]}
-                value={draft.customerTypeId ? lookups.customerTypes.find(t => t.id === draft.customerTypeId)?.name : 'Tất cả loại'}
-                getKey={it => it.name} getLabel={it => it.name}
-                onChange={n => set('customerTypeId', lookups.customerTypes.find(x => x.name === n)?.id || 0)}
-                placeholder="Tất cả loại" />
-            </div>
             <div className="cust-sheet-row">
               <label>Nguồn khách hàng</label>
               <window.SearchControls.SearchSelect

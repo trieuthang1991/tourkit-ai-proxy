@@ -32,7 +32,8 @@ public class DealOpportunityClient
     /// hỗ trợ filter thật theo enum. 0 = không filter (default upstream behavior).
     public async Task<DealPage> ListPagedAsync(
         string sessionId, int pageIndex, int pageSize, CancellationToken ct,
-        string? keyword = null, int? trangThai = null, int? nguon = null, int? nhanVienPhuTrach = null)
+        string? keyword = null, int? trangThai = null, int? nguon = null, int? nhanVienPhuTrach = null,
+        int? rank = null, int? minRank = null, int? maxRank = null)
     {
         if (pageIndex < 1) pageIndex = 1;
         var path = $"/api/ai/booking-tickets?pageIndex={pageIndex}&pageSize={pageSize}";
@@ -41,6 +42,10 @@ public class DealOpportunityClient
         if (trangThai is > 0)        path += $"&trangThai={trangThai}";
         if (nguon is > 0)            path += $"&nguon={nguon}";
         if (nhanVienPhuTrach is > 0) path += $"&nhanVienPhuTrach={nhanVienPhuTrach}";
+        // rank: -1=chưa chấm, >0=đã chấm bất kỳ (sentinel) — 0 bỏ qua
+        if (rank is not null && rank != 0) path += $"&rank={rank}";
+        if (minRank is > 0) path += $"&minRank={minRank}";
+        if (maxRank is > 0) path += $"&maxRank={maxRank}";
         var data = await GetAsync(sessionId, path, ct);
 
         var list = new List<DealOpportunity>();

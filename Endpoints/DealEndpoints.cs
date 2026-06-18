@@ -30,7 +30,8 @@ public static class DealEndpoints
         v1.MapGet("/deals", async (HttpContext ctx, DealOpportunityClient client, DealRepository repo,
             TourKitApiClient api, TkSessionStore sessions,
             ILogger<Program> log, int? page, int? pageSize, string? q,
-            int? trangThai, int? nguon, int? nhanVienPhuTrach) =>
+            int? trangThai, int? nguon, int? nhanVienPhuTrach,
+            string? rank, int? minRank, int? maxRank) =>
         {
             var sid = Sid(ctx);
             var sess = sessions.Get(sid);
@@ -48,8 +49,20 @@ public static class DealEndpoints
                 // Lookups (statuses/sources/staffs cho dropdown filter) đính kèm vào response
                 // — fetch upstream `/api/ai/reference` SONG SONG với list để không cộng latency.
                 // Fail-soft: nếu reference lỗi, trả lookups rỗng — FE vẫn render được.
+                // rank token (FE): "any"=đã chấm bất kỳ · "-1"=chưa chấm · "0"/rỗng=bỏ qua
+                int? rankInt = null;
+                if (!string.IsNullOrWhiteSpace(rank))
+                {
+                    var rt = rank.Trim().ToUpperInvariant();
+                    rankInt = rt switch
+                    {
+                        "ANY"  => 1,    // sentinel > 0 → upstream lọc Rank > 0
+                        _ => int.TryParse(rt, out var rn) ? rn : 0
+                    };
+                    if (rankInt == 0) rankInt = null;
+                }
                 var listTask    = client.ListPagedAsync(sid!, pIdx, pSize, ctx.RequestAborted,
-                                      q, trangThai, nguon, nhanVienPhuTrach);
+                                      q, trangThai, nguon, nhanVienPhuTrach, rankInt, minRank, maxRank);
                 var refTask     = api.GetAsync(sid!, "/api/ai/reference", ctx.RequestAborted);
                 await Task.WhenAll(listTask, refTask.ContinueWith(_ => { }, TaskScheduler.Default));
                 var res         = await listTask;

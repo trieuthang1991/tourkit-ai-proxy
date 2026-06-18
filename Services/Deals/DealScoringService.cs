@@ -251,7 +251,11 @@ Gọi submit_deal_score NGAY. KHÔNG trả text giải thích ngoài tool.";
 
     private static DealScore ParseElement(JsonElement root)
     {
-        var rate = Math.Clamp(Int(root, "winRate"), 0, 100);
+        // Clamp tối thiểu 1 (KHÔNG cho 0): deal Hủy/không có cơ hội thắng → rate=1, vẫn rơi vào
+        // "Đã chấm". Tránh ambig với Rank=NULL (chưa chấm) ở filter customers/deals — không cần fix
+        // search logic đặc biệt, chỉ cần Rank > 0 sau khi sync = đã chấm. UI hiển thị 1% là OK,
+        // dễ tra cứu (ranges Win cao ≥60 / TB 35-59 / thấp 1-34 phủ kín không hở).
+        var rate = Math.Clamp(Int(root, "winRate"), 1, 100);
         var level = (Str(root, "level") ?? "").Trim().ToLowerInvariant();
         if (level is not ("cao" or "trung_binh" or "thap"))
             level = rate >= 60 ? "cao" : rate >= 35 ? "trung_binh" : "thap";

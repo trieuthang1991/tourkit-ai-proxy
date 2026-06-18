@@ -56,7 +56,7 @@ public static class ReviewEndpoints
             string? segment, string? search,
             int? customerTypeId, int? customerSourceId, int? sellerId,
             string? gender, string? careFilter, bool? birthdayThisMonth,
-            string? startDate, string? endDate, string? sortOrder,
+            string? startDate, string? endDate, string? sortOrder, string? rank,
             int? page, int? pageSize) =>
         {
             var sid = Sid(ctx);
@@ -67,11 +67,25 @@ public static class ReviewEndpoints
 
             try
             {
+                // rank / trạng thái review → int cho upstream customers.[Rank]:
+                //   "A".."F" → 1..6 (hạng cụ thể) · "any" → 7 (đã review bất kỳ, Rank>0)
+                //   "-1" → -1 (chưa review, Rank NULL) · 0/rỗng → bỏ qua
+                int rankInt = 0;
+                if (!string.IsNullOrWhiteSpace(rank))
+                {
+                    var rt = rank.Trim().ToUpperInvariant();
+                    rankInt = rt switch
+                    {
+                        "A" => 1, "B" => 2, "C" => 3, "D" => 4, "E" => 5, "F" => 6,
+                        "ANY" => 7,                                  // đã review bất kỳ hạng
+                        _ => int.TryParse(rt, out var rn) ? rn : 0   // "-1" (chưa review) / số khác
+                    };
+                }
                 var filter = new TourKitCustomerSource.CustomerFilter(
                     Search: search, CustomerTypeId: customerTypeId, CustomerSourceId: customerSourceId,
                     SellerId: sellerId, Gender: gender, CareFilter: careFilter,
                     BirthdayThisMonth: birthdayThisMonth, StartDate: startDate, EndDate: endDate,
-                    SortOrder: sortOrder);
+                    SortOrder: sortOrder, Rank: rankInt != 0 ? rankInt : null);
                 var pageRes = await source.ListAsync(sid!, filter, pIdx, pSize, ctx.RequestAborted);
                 var customers = pageRes.Items;
                 if (!string.IsNullOrWhiteSpace(segment) && segment != "all")

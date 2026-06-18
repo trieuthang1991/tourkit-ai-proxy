@@ -1263,6 +1263,30 @@ input:focus, textarea:focus, select:focus { outline: none; }
   flex-shrink: 0;
 }
 
+/* ── Modal 2 cột (EditServiceModal: form trái + NCC picker phải) → 1 cột khi hẹp ──
+   Base .modal là grid 1.2fr 1fr. Dưới 880px (tablet + điện thoại) 2 cột chen nhau,
+   chữ tràn/cắt, modal overflow ngang (responsive lỗi). Gộp về 1 cột, cả modal cuộn
+   dọc 1 lần thay cho scroll riêng từng panel. max-height/overflow của panel set
+   inline trong step2.jsx nên phải override bằng !important. */
+@media (max-width: 880px) {
+  .modal {
+    grid-template-columns: 1fr;
+    overflow-y: auto;          /* base là overflow:hidden → cho cuộn dọc cả modal */
+  }
+  .modal-left,
+  .modal-right {
+    max-height: none !important;
+    overflow-y: visible !important;
+    padding: 20px;
+  }
+  .modal-right {
+    border-left: none;
+    border-top: 1px solid var(--border);   /* phân tách 2 panel khi xếp dọc */
+  }
+  /* Cả modal cuộn chung → footer hết sticky để không đè lên panel NCC bên dưới. */
+  .modal-footer { position: static !important; }
+}
+
 .supplier-card {
   padding: 14px;
   background: var(--surface);
@@ -6388,6 +6412,7 @@ n
   border-bottom: 1px solid rgba(15,23,42,0.06);
 }
 .lp-brand { display: flex; align-items: center; gap: 10px; text-decoration: none; color: inherit; }
+.lp-brand-logo { height: 34px; width: auto; object-fit: contain; display: block; }
 .lp-brand-mark {
   width: 36px; height: 36px; border-radius: 10px;
   background: linear-gradient(135deg, #F97316, #EA580C);
@@ -7009,6 +7034,75 @@ n
 .lp-foot a { color: #F97316; text-decoration: none; font-weight: 600; }
 .lp-foot a:hover { color: #C2410C; }
 
+/* ── Footer 2.0 (LP10) — chuẩn theo tourkitweb: dark 4-col + lưới mờ + glow ── */
+.lpf {
+  position: relative; overflow: hidden;
+  background: #040e1a;
+  padding: 80px 0 40px;
+  border-top: 1px solid rgba(255, 255, 255, 0.05);
+}
+.lpf-grid-bg {
+  position: absolute; inset: 0; pointer-events: none;
+  background-image:
+    linear-gradient(rgba(249, 115, 22, 0.03) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(249, 115, 22, 0.03) 1px, transparent 1px);
+  background-size: 60px 60px;
+}
+.lpf-glow { position: absolute; bottom: 0; height: 200px; border-radius: 9999px; filter: blur(80px); pointer-events: none; }
+.lpf-glow-1 { left: 25%; width: 500px; background: rgba(249, 115, 22, 0.10); }
+.lpf-glow-2 { right: 25%; width: 400px; background: rgba(37, 99, 235, 0.10); }
+.lpf-inner { position: relative; z-index: 1; max-width: 1240px; margin: 0 auto; padding: 0 24px; }
+.lpf-cols { display: grid; grid-template-columns: repeat(4, 1fr); gap: 40px; margin-bottom: 64px; }
+.lpf-logo { margin-bottom: 18px; }
+.lpf-logo-img { display: block; height: 34px; object-fit: contain; margin-bottom: 16px; filter: brightness(0) invert(1); }
+.lpf-logo-text { display: none; flex-direction: column; line-height: 1.05; font-weight: 800; font-size: 22px; letter-spacing: 0.04em; color: #fff; margin-bottom: 16px; }
+.lpf-logo-text em { font-style: normal; font-weight: 500; font-size: 8.5px; letter-spacing: 0.05em; text-transform: uppercase; color: #f97316; margin-top: 3px; }
+.lpf-company { margin: 0; font-size: 11px; font-weight: 600; letter-spacing: 0.14em; text-transform: uppercase; color: rgba(147, 197, 253, 0.55); }
+.lpf-desc { font-size: 14px; line-height: 1.75 !important; color: rgba(191, 219, 254, 0.62); margin: 0 0 22px !important; max-width: 40ch; }
+.lpf-badge {
+  display: inline-flex; align-items: center; gap: 8px;
+  padding: 8px 16px; border-radius: 9999px;
+  border: 1px solid rgba(255, 255, 255, 0.1); background: rgba(255, 255, 255, 0.05);
+  font-size: 12px; font-weight: 500; color: rgba(191, 219, 254, 0.7);
+}
+.lpf-badge-dot { width: 8px; height: 8px; border-radius: 50%; background: #4ade80; animation: lpf-pulse 2s cubic-bezier(0.4, 0, 0.6, 1) infinite; }
+@keyframes lpf-pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.4; } }
+@media (prefers-reduced-motion: reduce) { .lpf-badge-dot { animation: none; } }
+.lpf-col h4 { margin: 0 0 24px; font-size: 14px; font-weight: 700; letter-spacing: 0.04em; text-transform: uppercase; color: #fff; }
+.lpf-col ul { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 12px; }
+.lpf-col ul a { font-size: 14px; color: rgba(191, 219, 254, 0.6); text-decoration: none; transition: color .18s; }
+.lpf-col ul a:hover { color: #f97316; }
+.lpf-contact-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 16px; }
+.lpf-contact { display: flex; align-items: center; gap: 12px; }
+.lpf-contact--top { align-items: flex-start; }
+.lpf-contact--top .lpf-contact-ico { margin-top: 2px; }
+.lpf-contact-ico {
+  flex-shrink: 0; width: 32px; height: 32px; border-radius: 8px;
+  display: flex; align-items: center; justify-content: center;
+  background: rgba(249, 115, 22, 0.10); border: 1px solid rgba(249, 115, 22, 0.2); color: #f97316;
+}
+.lpf-contact-label { display: block; font-size: 12px; letter-spacing: 0.04em; text-transform: uppercase; color: rgba(191, 219, 254, 0.4); margin-bottom: 4px; }
+.lpf-contact-addr { font-size: 14px; line-height: 1.4; color: rgba(191, 219, 254, 0.7); }
+.lpf-contact-link { font-size: 14px; color: rgba(191, 219, 254, 0.7); text-decoration: none; transition: color .18s; }
+.lpf-contact-link:hover { color: #f97316; }
+.lpf-contact-link.is-phone { font-weight: 600; }
+.lpf-bottom {
+  display: flex; justify-content: space-between; align-items: center; gap: 16px; flex-wrap: wrap;
+  padding-top: 32px; border-top: 1px solid rgba(255, 255, 255, 0.05);
+}
+.lpf-copy { margin: 0; font-size: 14px; color: rgba(191, 219, 254, 0.3); }
+.lpf-bottom-links { display: flex; gap: 24px; }
+.lpf-bottom-links a { font-size: 14px; color: rgba(191, 219, 254, 0.3); text-decoration: none; transition: color .18s; }
+.lpf-bottom-links a:hover { color: #fff; }
+@media (max-width: 1024px) {
+  .lpf-cols { grid-template-columns: 1fr 1fr; gap: 40px 32px; }
+}
+@media (max-width: 640px) {
+  .lpf { padding: 56px 0 32px; }
+  .lpf-cols { grid-template-columns: 1fr; gap: 36px; }
+  .lpf-bottom { flex-direction: column; align-items: flex-start; }
+}
+
 /* ── Animations ───────────────────────────────────────────────────── */
 @keyframes lp-float {
   0%, 100% { transform: translateY(0) rotate(-1.5deg); }
@@ -7362,3 +7456,12 @@ n
 }
 
 
+.bg-intro-1 {
+    background: #060a10
+}
+.bg-intro-2 {
+    background: #060329
+}
+.bg-intro-3 {
+    background: #000222
+}

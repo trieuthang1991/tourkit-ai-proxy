@@ -87,6 +87,8 @@ function WizardPage({ pushToast, tweaks }) {
 
   const [step, setStep] = _uS(1);
   const [view, setView] = _uS('list');            // 'list' (dashboard mặc định) | 'create' (wizard form)
+  const [maxStep, setMaxStep] = _uS(1);           // bước cao nhất đã mở khóa — chặn nhảy bước (chỉ tiến qua nút hành động)
+  _uE(() => { if (step > maxStep) setMaxStep(step); }, [step]);   // tiến tới bước nào → mở khóa bước đó
   const isMobile = _wzIsMobile();                 // ≤640px → dashboard render card thay bảng
   const [listFilter, setListFilter] = _uS('all'); // 'all' | 'success' | 'sent' | 'draft'
   const [listSearch, setListSearch] = _uS('');
@@ -121,112 +123,15 @@ function WizardPage({ pushToast, tweaks }) {
     dayTitles: window.DEMO_ITINERARY.map(d => d.title)
   });
 
-  // ── 2-tier báo giá (Redis draft + SQL commit) — mirror tour-builder pattern.
-  // Autosave debounce 1.5s khi state (request/itinerary/rows/marketing) đổi → POST /draft (Redis).
-  // Step 4 nút "Lưu báo giá" → POST commit (SQL dbo.TourQuotes).
-  const [quoteId, setQuoteId]             = _uS(null);
-  const [draftStatus, setDraftStatus]     = _uS('pristine');  // pristine|dirty|autosaving|draft|committed
-  const [lastDraftAt, setLastDraftAt]     = _uS(null);
-  const [lastCommitAt, setLastCommitAt]   = _uS(null);
-  const autosaveTimerRef                  = React.useRef(null);
-  const skipNextAutosaveRef               = React.useRef(false);
-
-  // Map state → SaveTourQuoteRequest (mapping indexed columns + full data JSON cho fidelity).
-  // QUAN TRỌNG: long/int columns server-side NON-NULL → mọi giá trị NaN/null phải finite fallback 0.
-  const safeInt = (n) => {
-    const x = Number(n);
-    return Number.isFinite(x) ? Math.round(x) : 0;
-  };
-  const buildQuoteBody = () => {
-    // Tổng net + revenue gần đúng (Step 3 có B3 hybrid + costType; ở đây xài approx cho INDEX columns).
-    const totalNet = (rows || []).reduce((s, r) => s + ((Number(r.priceNet) || 0) * (Number(r.qty) || 1)), 0);
-    const totalRev = (rows || []).reduce((s, r) => {
-      const net = (Number(r.priceNet) || 0) * (Number(r.qty) || 1);
-      const vat = (Number(r.vat) || 0) / 100, mk = (Number(r.markup) || 0) / 100;
-      return s + net * (1 + vat) * (1 + mk);
-    }, 0);
-    const profit = totalRev - totalNet;
-    const margin = totalRev > 0 ? (profit / totalRev) * 100 : null;
-    return {
-      id: quoteId,
-      title:         (marketing && marketing.tourName) || (request && request.route) || null,
-      customerName:  (request && request.customerName) || null,
-      customerPhone: null,
-      marketName:    null,
-      tourType:      null,
-      startDate:     null,
-      endDate:       null,
-      adultCount:    safeInt(request && request.adults),
-      childCount:    safeInt(request && request.children),
-      totalNet:      safeInt(totalNet),
-      totalRevenue:  safeInt(totalRev),
-      profit:        safeInt(profit),
-      marginPercent: margin != null ? Math.round(margin * 100) / 100 : null,
-      data: { request, itinerary, marketing, rows, hotelStars, hotelOptions, paxRanges, activeTier, source: 'wizard' },
-    };
-  };
-
-  // Autosave → Redis
-  async function autosaveQuoteDraft() {
-    setDraftStatus('autosaving');
-    try {
-      const r = await window.tourkitAuth.authedFetch('/api/v1/tour-quotes/draft', {
-        method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(buildQuoteBody()),
-      });
-      const j = await r.json();
-      if (!r.ok) throw new Error(j.error || 'HTTP ' + r.status);
-      if (j.id && !quoteId) setQuoteId(j.id);
-      setLastDraftAt(j.savedAt || new Date().toISOString());
-      setDraftStatus('draft');
-    } catch (e) {
-      setDraftStatus('dirty');
-      console.warn('[wizard autosave] fail:', e.message);
-    }
-  }
-
-  // Watch state → debounce 1.5s
-  _uE(() => {
-    if (skipNextAutosaveRef.current) { skipNextAutosaveRef.current = false; return; }
-    setDraftStatus(prev => (prev === 'committed' || prev === 'pristine') ? 'dirty' : prev);
-    if (autosaveTimerRef.current) clearTimeout(autosaveTimerRef.current);
-    autosaveTimerRef.current = setTimeout(autosaveQuoteDraft, 1500);
-    return () => { if (autosaveTimerRef.current) clearTimeout(autosaveTimerRef.current); };
-  }, [request, itinerary, rows, marketing, hotelStars, hotelOptions, paxRanges, activeTier]);
-
-  // Browser-level guard: warn user nếu đóng tab/reload khi data chưa commit DB
-  // (cover trường hợp Redis chết / TTL 24h hết — lúc đó draft Redis cũng mất → user phải biết để bấm Lưu)
-  _uE(() => {
-    const isUnsaved = draftStatus === 'dirty' || draftStatus === 'draft' || draftStatus === 'autosaving';
-    if (!isUnsaved) return;
-    const onBeforeUnload = (e) => {
-      const msg = 'Báo giá chưa lưu vào hệ thống — sẽ mất nếu Redis tạm hết hạn. Bấm "Lưu ngay vào hệ thống" trước khi đóng.';
-      e.preventDefault();
-      e.returnValue = msg;
-      return msg;
-    };
-    window.addEventListener('beforeunload', onBeforeUnload);
-    return () => window.removeEventListener('beforeunload', onBeforeUnload);
-  }, [draftStatus]);
-
-  // Commit → SQL
-  async function commitQuote() {
-    try {
-      if (autosaveTimerRef.current) { clearTimeout(autosaveTimerRef.current); autosaveTimerRef.current = null; }
-      const r = await window.tourkitAuth.authedFetch('/api/v1/tour-quotes', {
-        method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(buildQuoteBody()),
-      });
-      const j = await r.json();
-      if (!r.ok) throw new Error(j.error || 'HTTP ' + r.status);
-      setQuoteId(j.id);
-      setDraftStatus('committed');
-      setLastCommitAt(j.item?.updatedAt || new Date().toISOString());
-      setLastDraftAt(null);
-      skipNextAutosaveRef.current = true;
-      pushToast('✓ Đã lưu báo giá vào DB');
-    } catch (e) { pushToast('Lỗi commit báo giá: ' + e.message, 'error'); }
-  }
+  // ── Lưu bản ghi tour DB (/api/v1/tours) — LƯU THỦ CÔNG ở mốc qua bước, KHÔNG auto-save.
+  //   B1 "Sinh tour bằng AI"        → save trong handleGenerate
+  //   B2 "Tiếp tục: Bảng tính giá"  → save trong Step2 onNext (kèm rows mới re-derive)
+  //   B3 "Sinh báo giá đẹp" (B3→B4) → save trong handleQuoteGen (kèm marketing mới)
+  const [currentTour, setCurrentTour]     = _uS(null);   // {id, status} nháp tour đang mở — nguồn status cho Step 4 + Wizard landing
+  const [saveState, setSaveState]         = _uS('idle'); // idle | saving | saved
+  const [lastSavedAt, setLastSavedAt]     = _uS(null);
+  const currentTourRef                    = React.useRef(null);
+  _uE(() => { currentTourRef.current = currentTour; }, [currentTour]);   // closure luôn đọc id mới nhất → không tạo bản ghi trùng
 
   const handleGenerate = async (opts = {}) => {
     const SKIP_CACHE = true;
@@ -276,6 +181,12 @@ function WizardPage({ pushToast, tweaks }) {
         ? `\nNCC ƯU TIÊN (dùng ĐÚNG tên này cho cột supplier khi dịch vụ phù hợp, ưu tiên trước nguồn ngoài):\n${nccNames.slice(0, 40).join(', ')}\n`
         : '';
 
+      // TG1: ghi chú/yêu cầu thêm từ người dùng (ô nhập trong panel AI bên phải) → BẮT BUỘC đưa vào prompt.
+      const userNotes = (request.aiNote || '').trim();
+      const notesBlock = userNotes
+        ? `\nYÊU CẦU / GHI CHÚ THÊM TỪ NGƯỜI DÙNG (ƯU TIÊN CAO — phải bám sát khi sinh lịch trình):\n${userNotes}\n`
+        : '';
+
       const megaSystem = 'Bạn xuất tour Việt Nam theo format text với `|` separator. Không JSON, không markdown, không giải thích. Bắt đầu ngay với "TÊN:".';
 
       const promptAll = `Sinh tour Việt Nam theo format text DƯỚI ĐÂY (không JSON, không markdown, bắt đầu ngay với "TÊN:"):
@@ -317,7 +228,7 @@ Rules:
   (TUYỆT ĐỐI KHÔNG ghi literal "NCC" hay "TBD" — luôn dùng default tiếng Việt nghĩa hợp)
 - Mô tả 1 câu Việt 15-25 từ, không thêm tên riêng mới
 - TUYỆT ĐỐI KHÔNG bịa tên hotel/nhà hàng (vd "Bö Hing Hotel" = SAI)
-${nccBlock}
+${nccBlock}${notesBlock}
 Bắt đầu output ngay:`;
 
       console.log(`[Gen] Step ALL · mega-batch text format (${request.days} ngày)`);
@@ -473,10 +384,12 @@ Bắt đầu output ngay:`;
 
   const handleQuoteGen = async () => {
     setStep(4);
+    let mk = marketing;
     try {
+      const userNotes = (request.aiNote || '').trim();
       const prompt = `Tạo marketing copy cho tour ${request.route}, ${request.days} ngày, focus: ${request.preferences.join(', ')}. Days:
 ${itinerary.map(d => `Day ${d.day}: ${d.activities.map(a => a.title).join(', ')}`).join('\n')}
-
+${userNotes ? `\nGhi chú thêm từ người dùng (cân nhắc khi đặt tên & tagline): ${userNotes}\n` : ''}
 Output JSON THUẦN:
 {
   "tourName": "TÊN TOUR UPPERCASE NGẮN",
@@ -487,10 +400,12 @@ Output JSON THUẦN:
 Tránh từ "tuyệt vời", "hoàn hảo", "đáng nhớ". Tiếng Việt tự nhiên.`;
       const raw = await window.tourkit.ai.complete(prompt, { model: pickModel('marketing'), workflow: 'WizardMarketing' });
       const m = raw.match(/\{[\s\S]*\}/);
-      if (m) setMarketing(JSON.parse(m[0]));
+      if (m) { mk = JSON.parse(m[0]); setMarketing(mk); }
     } catch (e) {
       console.warn('Marketing gen failed', e);
     }
+    // Lưu DB khi sinh báo giá (B3 → B4) — kèm marketing mới sinh (hoặc giữ marketing cũ nếu AI lỗi).
+    saveTourToServer(itinerary, mk, rows);
   };
 
   // ─── NCC thật + nháp tour server (Redis) ─────────────────────────────────────
@@ -508,14 +423,50 @@ Tránh từ "tuyệt vời", "hoàn hảo", "đáng nhớ". Tiếng Việt tự 
   }
 
   async function saveTourToServer(itin, mk, costRows) {
+    setSaveState('saving');
     try {
-      const verified = costRows.filter(r => r.verified).length;
-      const coverage = costRows.length ? Math.round(100 * verified / costRows.length) : 0;
-      await window.tourkitAuth.authedFetch('/api/v1/tours', {
+      const verified = (costRows || []).filter(r => r.verified).length;
+      const coverage = (costRows || []).length ? Math.round(100 * verified / costRows.length) : 0;
+      const r = await window.tourkitAuth.authedFetch('/api/v1/tours', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ title: (mk && mk.tourName) || request.route, request, itinerary: itin, marketing: mk, rows: costRows, nccCoveragePct: coverage }),
+        // currentTourRef → luôn id mới nhất (auto-save lần sau upsert đúng bản ghi, không tạo trùng)
+        body: JSON.stringify({ id: (currentTourRef.current && currentTourRef.current.id) || undefined, title: (mk && mk.tourName) || request.route, request, itinerary: itin, marketing: mk, rows: costRows, nccCoveragePct: coverage }),
       });
-    } catch (e) { console.warn('[Gen] save tour failed', e); }
+      if (!r.ok) throw new Error('HTTP ' + r.status);
+      const j = await r.json();
+      if (j.id) setCurrentTour(c => ({ id: j.id, status: (c && c.status) || (j.tour && j.tour.status) || 'draft' }));   // giữ status đã set ở Step 4
+      setLastSavedAt(new Date().toISOString());
+      setSaveState('saved');
+      return j.id;
+    } catch (e) { setSaveState('idle'); console.warn('[wizard] save tour failed', e); return null; }
+  }
+
+  // Tính lại Bảng tính giá (rows) từ itinerary khi qua Bước 3 — sửa hoạt động/giá/NCC ở B2 phản ánh đúng.
+  // Giữ markup/VAT user đã chỉnh tay ở B3 (merge theo key dayIdx|service); giữ các dòng thủ công (không có dayIdx, vd HDV).
+  function recomputeRowsFromItinerary(itin, prevRows) {
+    const TYPE_MARKUP = { HOTEL: 15, TRANSPORT: 20, MEAL: 10, ACTIVITY: 25, SIGHTSEEING: 20, GUIDE: 15 };
+    const TYPE_VAT    = { HOTEL: 10, TRANSPORT: 8,  MEAL: 8,  ACTIVITY: 10, SIGHTSEEING: 0,  GUIDE: 0 };
+    const prev = prevRows || [];
+    const keyOf = (dayIdx, service) => dayIdx + '|' + service;
+    const prevByKey = {};
+    prev.forEach(r => { if (r.dayIdx != null) prevByKey[keyOf(r.dayIdx, r.service)] = r; });
+    const derived = [];
+    (itin || []).forEach((d, dIdx) => (d.activities || []).forEach(a => {
+      if (!a.cost) return;
+      const service = (a.title || '').length > 30 ? a.title.slice(0, 30) + '…' : (a.title || '');
+      const old = prevByKey[keyOf(dIdx, service)];
+      derived.push({
+        type: a.type, service, supplier: a.supplier, qty: `Ngày ${d.day}`,
+        priceNet: a.cost,                                            // cập nhật giá net từ B2
+        vat:    old ? old.vat    : (TYPE_VAT[a.type] || 8),          // giữ VAT chỉnh tay
+        markup: old ? old.markup : (TYPE_MARKUP[a.type] || 15),      // giữ markup chỉnh tay
+        verified: a.supplierId != null ? true : (old ? old.verified : false),
+        costType: a.costType || (old ? old.costType : 'shared'),
+        dayIdx: dIdx,
+      });
+    }));
+    const extras = prev.filter(r => r.dayIdx == null);              // giữ HDV thủ công / dòng thêm ở B3
+    return [...derived, ...extras];
   }
 
   async function loadSavedTours() {
@@ -529,6 +480,7 @@ Tránh từ "tuyệt vời", "hoàn hảo", "đáng nhớ". Tiếng Việt tự 
     if (t.itinerary) setItinerary(t.itinerary);
     if (t.rows) setRows(t.rows);
     if (t.marketing) setMarketing(t.marketing);
+    setCurrentTour({ id: t.id, status: tourStatus(t) });   // Step 4 PATCH đúng tour này
     setView('create'); setStep(4);
     pushToast('Đã mở nháp tour');
   }
@@ -583,7 +535,7 @@ Tránh từ "tuyệt vời", "hoàn hảo", "đáng nhớ". Tiếng Việt tự 
               <button className="wl-btn-outline" onClick={() => pushToast('Hướng dẫn sử dụng đang được biên soạn')}>
                 <Icon name="book" size={14} /> HƯỚNG DẪN SỬ DỤNG
               </button>
-              <button className="wl-btn-primary" onClick={() => { setView('create'); setStep(1); }}>
+              <button className="wl-btn-primary" onClick={() => { setView('create'); setStep(1); setMaxStep(1); }}>
                 <Icon name="plus" size={14} stroke={2.4} /> TẠO ĐƠN TÍNH GIÁ AI MỚI
               </button>
             </div>
@@ -730,8 +682,11 @@ Tránh từ "tuyệt vời", "hoàn hảo", "đáng nhớ". Tiếng Việt tự 
           {WIZARD_STEPS.map((s, i) => (
             <React.Fragment key={s.id}>
               <button
-                className={`step ${s.id === step ? 'active' : ''} ${s.id < step ? 'done' : ''}`}
-                onClick={() => setStep(s.id)}
+                className={`step ${s.id === step ? 'active' : ''} ${s.id < step ? 'done' : ''} ${s.id > maxStep ? 'locked' : ''}`}
+                onClick={() => { if (s.id <= maxStep) setStep(s.id); }}
+                disabled={s.id > maxStep}
+                title={s.id > maxStep ? 'Hoàn tất bước trước để mở khóa bước này' : ''}
+                style={s.id > maxStep ? {opacity: 0.4, cursor: 'not-allowed'} : undefined}
                 data-screen-label={`Step ${s.id}: ${s.label}`}>
                 <span className="step-num">{s.id < step ? <Icon name="check" size={12} stroke={2.5} /> : s.id}</span>
                 <span>{s.label}</span>
@@ -740,56 +695,25 @@ Tránh từ "tuyệt vời", "hoàn hảo", "đáng nhớ". Tiếng Việt tự 
             </React.Fragment>
           ))}
         </div>
-        {/* Draft/Commit indicator — visual warning rõ ràng khi unsaved + CTA nổi bật */}
-        {draftStatus !== 'pristine' && (() => {
-          const fmt = (iso) => { try { return new Date(iso).toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' }); } catch { return ''; } };
-          const isUnsaved = draftStatus === 'dirty' || draftStatus === 'draft' || draftStatus === 'autosaving';
-          const isCommitted = draftStatus === 'committed';
-          return (
-            <div className={'wiz-save-bar ' + (isUnsaved ? 'is-unsaved' : 'is-saved')}>
-              {/* Status icon + label */}
-              <div className="wiz-save-status">
-                {draftStatus === 'dirty' && (<>
-                  <span className="wiz-save-dot dot-warn" />
-                  <div>
-                    <div className="wiz-save-label">Đã sửa · đang chờ autosave</div>
-                    <div className="wiz-save-hint">Sẽ tự lưu Redis sau ~1.5s</div>
+        {/* Chỉ báo auto-lưu DB — tự lưu mỗi khi sửa, không nút, không banner Redis. */}
+        {saveState !== 'idle' && (
+          <div className={'wiz-save-bar ' + (saveState === 'saved' ? 'is-saved' : '')}>
+            <div className="wiz-save-status">
+              {saveState === 'saving' ? (<>
+                <span className="wiz-save-spin" />
+                <div><div className="wiz-save-label">Đang lưu…</div></div>
+              </>) : (<>
+                <span className="wiz-save-dot dot-ok" />
+                <div>
+                  <div className="wiz-save-label wiz-save-label-ok">✓ Đã lưu</div>
+                  <div className="wiz-save-hint">
+                    {lastSavedAt ? ('Tự lưu lúc ' + (() => { try { return new Date(lastSavedAt).toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' }); } catch { return ''; } })()) : ''}
                   </div>
-                </>)}
-                {draftStatus === 'autosaving' && (<>
-                  <span className="wiz-save-spin" />
-                  <div>
-                    <div className="wiz-save-label">Đang autosave…</div>
-                    <div className="wiz-save-hint">Lưu nháp vào Redis</div>
-                  </div>
-                </>)}
-                {draftStatus === 'draft' && (<>
-                  <span className="wiz-save-warn-icon">⚠</span>
-                  <div>
-                    <div className="wiz-save-label wiz-save-label-warn">CHƯA LƯU vào HỆ THỐNG</div>
-                    <div className="wiz-save-hint">Đang ở Redis tạm ({fmt(lastDraftAt)}) · sẽ mất nếu hết 24h hoặc Redis restart</div>
-                  </div>
-                </>)}
-                {isCommitted && (<>
-                  <span className="wiz-save-dot dot-ok" />
-                  <div>
-                    <div className="wiz-save-label wiz-save-label-ok">✓ Đã lưu vào DB</div>
-                    <div className="wiz-save-hint">An toàn · {fmt(lastCommitAt)}</div>
-                  </div>
-                </>)}
-              </div>
-
-              {/* Primary CTA — chỉ hiện khi unsaved */}
-              {isUnsaved && (
-                <button onClick={commitQuote} className="wiz-save-btn"
-                  title="Lưu vĩnh viễn vào SQL Server — báo giá xuất hiện ở /quotes">
-                  <Icon name="save" size={14} stroke={2.4} />
-                  <span>LƯU NGAY VÀO HỆ THỐNG</span>
-                </button>
-              )}
+                </div>
+              </>)}
             </div>
-          );
-        })()}
+          </div>
+        )}
       </div>
 
       <main className="page" data-screen-label={`0${step} ${WIZARD_STEPS[step-1].label}`}>
@@ -803,7 +727,12 @@ Tránh từ "tuyệt vời", "hoàn hảo", "đáng nhớ". Tiếng Việt tự 
           hotelOptions={hotelOptions} setHotelOptions={setHotelOptions} />}
         {step === 2 && <Step2Itinerary
           itinerary={itinerary} setItinerary={setItinerary} request={request}
-          onNext={() => setStep(3)} onBack={() => setStep(1)} density={tweaks.density}
+          onNext={() => {
+            const newRows = recomputeRowsFromItinerary(itinerary, rows);   // re-derive 1 lần, dùng cho cả setRows + save (rows state async)
+            setRows(newRows);
+            saveTourToServer(itinerary, marketing, newRows);                // lưu DB khi qua B3
+            setStep(3);
+          }} onBack={() => setStep(1)} density={tweaks.density}
           pushToast={pushToast} />}
         {step === 3 && <Step3Costing
           rows={rows} setRows={setRows} request={request}
@@ -816,8 +745,12 @@ Tránh từ "tuyệt vời", "hoàn hảo", "đáng nhớ". Tiếng Việt tự 
         {step === 4 && <Step4Quote
           request={request} itinerary={itinerary} rows={rows} marketing={marketing}
           hotelOptions={hotelOptions} activeTier={activeTier}
+          tourId={currentTour && currentTour.id}
+          initialStatus={(currentTour && currentTour.status) || 'draft'}
+          ensureTourSaved={async () => (currentTour && currentTour.id) ? currentTour.id : await saveTourToServer(itinerary, marketing, rows)}
+          onStatusSaved={(st) => { setCurrentTour(c => c ? {...c, status: st} : c); loadSavedTours(); }}
           onBack={() => setStep(3)}
-          onRestart={() => { setStep(1); pushToast('Bắt đầu tour mới'); }}
+          onRestart={() => { setStep(1); setMaxStep(1); pushToast('Bắt đầu tour mới'); }}
           pushToast={pushToast} />}
       </main>
 
@@ -829,10 +762,11 @@ Tránh từ "tuyệt vời", "hoàn hảo", "đáng nhớ". Tiếng Việt tự 
         cancelLabel="Tiếp tục tour hiện tại"
         onClose={() => setConfirmNew(false)}
         onConfirm={() => {
-          setRequest({...window.DEMO_REQUEST, code: 'GRPS-' + Math.floor(1000 + Math.random() * 9000), route: '', adults: 0, children: 0, preferences: [], notes: ''});
+          setRequest({...window.DEMO_REQUEST, code: 'GRPS-' + Math.floor(1000 + Math.random() * 9000), route: '', adults: 0, children: 0, preferences: [], notes: '', aiNote: ''});
           setItinerary(window.DEMO_ITINERARY);
           setRows(window.COSTING_ROWS);
           setStep(1);
+          setMaxStep(1);
           pushToast('Đã tạo tour mới');
         }} />
       </>
