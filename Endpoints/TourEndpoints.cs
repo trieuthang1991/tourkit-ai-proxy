@@ -52,6 +52,8 @@ public static class TourEndpoints
 
             var id = GetStr(body, "id");
             if (string.IsNullOrWhiteSpace(id)) id = Guid.NewGuid().ToString("N");
+            // Re-save (cùng id) KHÔNG reset status/createdAt — giữ nguyên từ bản cũ.
+            var existing = store.Get<SavedTour>(COLL, s.TenantId, id!);
             var tour = new SavedTour(
                 Id: id!,
                 Title: GetStr(body, "title"),
@@ -60,10 +62,33 @@ public static class TourEndpoints
                 Marketing: Clone(body, "marketing"),
                 Rows: Clone(body, "rows"),
                 NccCoveragePct: GetInt(body, "nccCoveragePct") ?? 0,
-                CreatedAt: DateTime.UtcNow.ToString("o"),
-                CreatedBy: s.FullName ?? s.Username);
+                CreatedAt: existing?.CreatedAt ?? DateTime.UtcNow.ToString("o"),
+                CreatedBy: existing?.CreatedBy ?? (s.FullName ?? s.Username),
+                Status: GetStr(body, "status") ?? existing?.Status ?? "draft");
             store.Set(COLL, s.TenantId, id!, tour);
             return Results.Json(new { ok = true, id, tour });
+        });
+
+        // PATCH /tours/{id}/status — đổi trạng thái nháp tour (draft|sent|success) → badge Wizard landing.
+        v1.MapPatch("/tours/{id}/status", async (string id, HttpContext ctx, TenantStore store, TkSessionStore sessions) =>
+        {
+            var s = sessions.Get(Sid(ctx));
+            if (s == null) return Unauthorized();
+            string? status = null;
+            try
+            {
+                var b = await ctx.Request.ReadFromJsonAsync<JsonElement>(ctx.RequestAborted);
+                if (b.ValueKind == JsonValueKind.Object && b.TryGetProperty("status", out var v) && v.ValueKind == JsonValueKind.String)
+                    status = v.GetString();
+            }
+            catch { }
+            status = (status ?? "").Trim().ToLowerInvariant();
+            if (status != "draft" && status != "sent" && status != "success")
+                return Results.BadRequest(new { error = "status phải là draft|sent|success" });
+            var t = store.Get<SavedTour>(COLL, s.TenantId, id);
+            if (t == null) return Results.NotFound(new { error = "Không tìm thấy nháp tour" });
+            store.Set(COLL, s.TenantId, id, t with { Status = status });
+            return Results.Json(new { ok = true, id, status });
         });
 
         v1.MapDelete("/tours/{id}", (string id, HttpContext ctx, TenantStore store, TkSessionStore sessions) =>
@@ -91,6 +116,13 @@ public static class TourEndpoints
         {
             var sid = Sid(ctx); if (sessions.Get(sid) == null) return Unauthorized();
             return await Proxy(() => ncc.ProviderServicesAsync(sid!, id, categoryId, ctx.RequestAborted));
+        });
+
+        // Danh sách NCC để HIỂN THỊ (search + paging) — proxy /api/providers (endpoint mới). Cho trang "Nhà cung cấp".
+        v1.MapGet("/ncc/list", async (HttpContext ctx, TourKitNccClient ncc, TkSessionStore sessions, string? filter, int? pageIndex, int? pageSize) =>
+        {
+            var sid = Sid(ctx); if (sessions.Get(sid) == null) return Unauthorized();
+            return await Proxy(() => ncc.ProviderListAsync(sid!, filter, pageIndex ?? 1, pageSize ?? 20, ctx.RequestAborted));
         });
 
         // ─── Thị trường THẬT (proxy TourKit /api/tours/markets, cache 6h per-tenant) ──

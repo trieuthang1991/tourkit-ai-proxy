@@ -30,23 +30,22 @@ function userInitials(name) {
 // 1 đường mảnh để vẫn nhận biết phân tách trực quan.
 const NAV_GROUPS = [
   { label: 'Tổng quan', items: [
-    { to: '/',          icon: 'sparkle', label: 'Trang chủ' },        // hub AI launcher
+    { to: '/home',      icon: 'sparkle', label: 'Trang chủ' },        // hub AI launcher (/ là landing public)
     { to: '/assistant', icon: 'chart',   label: 'Trợ lý số liệu' },   // data/chart analytics
   ]},
   { label: 'Khách hàng & Bán hàng', items: [
     { to: '/customers', icon: 'users',   label: 'Khách hàng' },       // people
-    { to: '/deals',     icon: 'zap',     label: 'Ưu tiên Deal AI' },  // urgency/lightning
+    { to: '/deals',     icon: 'trend',   label: 'AI phân tích Cơ hội' },  // opportunity analysis
     { to: '/mail',      icon: 'mail',    label: 'Hộp thư AI' },       // envelope
   ]},
   { label: 'Sản phẩm Tour', items: [
+    { to: '/ncc-list',     icon: 'download', label: 'AI Import NCC' },      // NCC: import + danh sách (đặt trên Tính giá Tour)
     { to: '/wizard',       icon: 'dollar', label: 'Tính giá Tour' },        // pricing/quote
     { to: '/tour-builder', icon: 'plane',  label: 'Soạn Tour GIT (AI)' },   // travel/itinerary
-    { to: '/visa',         icon: 'shield', label: 'Thẩm định Visa' },       // compliance
-    { to: '/visa/history', icon: 'chart',  label: 'Lịch sử Visa' },         // history list
+    { to: '/visa/history', icon: 'shield', label: 'Thẩm định Visa' },       // hub: danh sách hồ sơ đã chấm + nút mở wizard (gộp Lịch sử + Thẩm định)
   ]},
   { label: 'Tích hợp', items: [
     { to: '/widget-admin', icon: 'sparkle', label: 'Widget Chat' },   // embed JS widget cho site khách
-    { to: '/ncc-import',   icon: 'paper',   label: 'Import NCC (AI)' }, // bóc tách file NCC → Excel chuẩn
     { to: '/visa-config',  icon: 'sliders', label: 'Câu hỏi Visa' },  // admin tenant chỉnh wizard câu hỏi
   ]},
 ];
@@ -135,7 +134,8 @@ function App() {
   // Exact-match: `/visa` KHÔNG match `/visa/history` (trước dùng startsWith → 2 nav item
   // cùng active). Chấp nhận đánh đổi: route chi tiết (vd /quote-view/123) sẽ không sáng
   // nav cha — đúng vì page đó không có nav item riêng.
-  const isActive = (p) => cur === p;
+  // Ngoại lệ: wizard /visa thuộc mục "Thẩm định Visa" (/visa/history) → giữ active khi đang chấm hồ sơ.
+  const isActive = (p) => cur === p || (p === '/visa/history' && cur === '/visa');
   const activeNav = NAV.find(n => isActive(n.to));
 
   // ─── Quota AI per-tenant ────────────────────────────────────────────────────
@@ -276,7 +276,7 @@ function App() {
 
   // ─── PUBLIC landing /landing — marketing page, không cần đăng nhập.
   // Render full-screen (không sidebar, không app-shell).
-  if (cur === '/landing' && window.LandingPage) {
+  if ((cur === '/' || cur === '/landing') && window.LandingPage) {
     return <window.LandingPage />;
   }
 
@@ -301,10 +301,10 @@ function App() {
     }} />;
   }
 
-  // Trang chủ (/ HOẶC /home) là full-screen launcher — KHÔNG kế thừa sidebar/topbar.
-  // /home là alias cho / để landing có route "Vào ứng dụng" tự nhiên (semantics rõ hơn).
+  // Trang chủ /home là full-screen launcher — KHÔNG kế thừa sidebar/topbar.
+  // (/ là trang landing public mặc định; /home mới là trang chủ app sau đăng nhập.)
   // Click vào agent card sẽ navigate sang route khác → tự vào app-shell bình thường.
-  if ((cur === '/' || cur === '/home') && window.HomePage) {
+  if (cur === '/home' && window.HomePage) {
     return (
       <>
         <window.HomePage pushToast={pushToast} />
@@ -440,6 +440,7 @@ function App() {
         <Route path="/quotes"       render={() => <window.QuotesPage pushToast={pushToast} />} />
         <Route path="/ai-usage"     render={() => <window.AiUsagePage pushToast={pushToast} />} />
         <Route path="/widget-admin" render={() => <window.WidgetAdminPage pushToast={pushToast} />} />
+        <Route path="/ncc-list"     render={() => <window.NccListPage pushToast={pushToast} />} />
         <Route path="/ncc-import"   render={() => <window.NccImportPage pushToast={pushToast} />} />
         <Route path="/visa-config"  render={() => <window.VisaConfigPage pushToast={pushToast} />} />
         <Route path="*"          render={() => (

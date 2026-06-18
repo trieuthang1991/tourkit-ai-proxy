@@ -22,7 +22,7 @@
   const FEATURES = [
     {
       key: 'wizard',
-      title: 'Wizard tạo tour',
+      title: 'AI Tính giá Tour',
       pitch: 'Vẽ một lộ trình tour mới trong 5 phút. AI gợi ý khách sạn, xe, giá vốn và công thức báo giá. Bạn chỉ duyệt và gửi.',
       route: '/wizard',
       robot: 'robot1.png',
@@ -54,7 +54,7 @@
     },
     {
       key: 'deals',
-      title: 'Chấm điểm cơ hội',
+      title: 'AI phân tích Cơ hội',
       pitch: 'AI quét pipeline, gợi cơ hội nào nên đẩy, cơ hội nào sắp tuột, lý do cụ thể theo lịch sử tương tác và mức chi tiêu khách.',
       route: '/deals',
       robot: 'robot6.png',
@@ -200,11 +200,10 @@
       <div className="lp">
         {/* ── Topbar tối giản ──────────────────────────────────────────────── */}
         <header className="lp-topbar">
-          <a className="lp-brand" href="#/">
-            <span className="lp-brand-mark">
-              <img src="/lib/trav-ai.png" alt="" onError={(e) => { e.target.style.display = 'none'; }} />
-            </span>
-            <span className="lp-brand-name">TRAV-AI<em>cho công ty du lịch</em></span>
+          <a className="lp-brand" href="#/" aria-label="TOURKIT">
+            <img className="lp-brand-logo" src="/images/tourkit-logo.png" alt="TOURKIT" loading="lazy" decoding="async"
+              onError={(e) => { e.target.style.display = 'none'; const t = e.target.nextElementSibling; if (t) t.style.display = 'flex'; }} />
+            <span className="lp-brand-name" style={{ display: 'none' }}>TOURKIT<em>cho công ty du lịch</em></span>
           </a>
           {/* Hamburger — chỉ hiện mobile (CSS gate) */}
           <button
@@ -248,7 +247,7 @@
               </div>
             ) : (
               <>
-                <a className="lp-toplogin" href="/" onClick={(e) => { e.preventDefault(); navigate('/'); }}>Đăng nhập</a>
+                <a className="lp-toplogin" href="/home" onClick={(e) => { e.preventDefault(); navigate('/home'); }}>Đăng nhập</a>
                 <button className="lp-topcta" onClick={() => onCtaClick('Đăng ký tư vấn miễn phí')}>Đăng ký tư vấn</button>
               </>
             )}
@@ -311,7 +310,7 @@
                   </button>
                 ) : (
                   <>
-                    <button className="lp-mobile-cta-secondary" onClick={() => goAndClose(() => navigate('/'))}>
+                    <button className="lp-mobile-cta-secondary" onClick={() => goAndClose(() => navigate('/home'))}>
                       Đăng nhập
                     </button>
                     <button className="lp-mobile-cta-primary" onClick={() => goAndClose(() => onCtaClick('Đăng ký tư vấn miễn phí'))}>
@@ -361,7 +360,7 @@
             </div>
             <div className="lp-hero-trust lp-anim-fade" style={{ animationDelay: '580ms' }}>
               <Icon name="check" size={13} stroke={2.6} />
-              Demo miễn phí 15 phút <span>·</span> Không cần thẻ tín dụng
+              Demo miễn phí 15 phút <span>·</span> Chưa cần thanh toán ngay
             </div>
           </div>
 
@@ -413,11 +412,19 @@
           ))}
         </Reveal>
 
+        {/* ── LP7: Khối "Sẵn sàng Bứt Phá cùng TOURKIT AI" (ảnh mẫu) — dưới banner chính */}
+        <section className="lp-intro-img bg-intro-1">
+          <img src="/images/intro/image2.webp"
+            alt="Sẵn sàng bứt phá cùng TOURKIT AI — Công nghệ lõi + Nhận diện thương hiệu = Chuyển đổi số toàn diện"
+            loading="lazy" decoding="async"
+            style={{ display: 'block', width: '100%', maxWidth: 1180, height: 'auto', margin: '0 auto', borderRadius: 20, boxShadow: '0 14px 44px rgba(15,23,42,0.16)' }} />
+        </section>
+
         {/* ── FEATURES BENTO (eyebrow 1 / 2 cho phép) */}
         <section id="lp-features" className="lp-section">
           <Reveal className="lp-section-head">
             <div className="lp-eyebrow">TÍNH NĂNG NỔI BẬT</div>
-            <h2>Chín tính năng AI gánh việc cho team tour mỗi ngày.</h2>
+            <h2>09 tính năng AI gánh việc cho team tour mỗi ngày.</h2>
           </Reveal>
 
           <div className="lp-features-grid">
@@ -444,74 +451,49 @@
           </div>
         </section>
 
-        {/* ── HOW IT WORKS (eyebrow 2 / 2) */}
-        <section id="lp-how" className="lp-section lp-section-tint">
-          <Reveal className="lp-section-head">
-            <div className="lp-eyebrow">CÁCH BẮT ĐẦU</div>
-            <h2>Ba bước, dưới một tuần.</h2>
-          </Reveal>
-
-          <div className="lp-steps">
-            {[
-              { n: '01', t: 'Đăng ký tư vấn', d: 'Để lại số, đội TRAV-AI gọi tìm hiểu quy mô, thị trường, đặc thù phòng tour của bạn.', bot: 'robot8.PNG' },
-              { n: '02', t: 'Kết nối CRM Tourkit', d: 'Cấp quyền đọc TourKit CRM. AI bắt đầu học cách công ty bạn làm tour, viết mail, chấm khách.', bot: 'robot9.PNG' },
-              { n: '03', t: 'AI bắt đầu phụ trợ', d: 'Sau buổi training ngắn, AI tạo tour, viết mail, phân tích số liệu hàng ngày cho team.', bot: 'robot10.PNG' },
-            ].map((s, i) => (
-              <Reveal key={s.n} delay={i * 80} className="lp-step">
-                <div className="lp-step-num">{s.n}</div>
-                <div className="lp-step-bot"><img src={'/images/robots/' + s.bot} alt="" loading="lazy" decoding="async" /></div>
-                <h3>{s.t}</h3>
-                <p>{s.d}</p>
-              </Reveal>
-            ))}
-          </div>
+        {/* ── LP8: Khối "Tương Lai Vận Hành Bằng AI" (ảnh mẫu) — dưới khối tính năng */}
+            <section className="lp-intro-img bg-intro-2" >
+          <img src="/images/intro/image3.webp"
+            alt="Tương lai vận hành bằng AI — Tiên phong, Tin cậy, Đồng hành, Tăng trưởng"
+            loading="lazy" decoding="async"
+            style={{ display: 'block', width: '100%', maxWidth: 1180, height: 'auto', margin: '0 auto', borderRadius: 20, boxShadow: '0 14px 44px rgba(15,23,42,0.16)' }} />
         </section>
 
-        {/* ── KHÁCH HÀNG NÓI GÌ (testimonials — eyebrow 3 / 3 cap) */}
-        <section className="lp-section lp-testimonials">
-          <Reveal className="lp-section-head">
-            <div className="lp-eyebrow">KHÁCH HÀNG NÓI GÌ</div>
-            <h2>Đội tour đã rút việc xuống vài lần nhờ TRAV-AI.</h2>
-          </Reveal>
 
-          <div className="lp-testi-grid">
-            {[
-              {
-                quote: 'Wizard tạo tour giúp team mình rút thời gian báo giá từ 2 ngày xuống 30 phút. Khách phản hồi nhanh hơn, tỉ lệ chốt tăng rõ rệt.',
-                name: 'Hoàng Mai Anh',
-                role: 'Sales Manager',
-                org: 'Vietnam Discovery Tours',
-                accent: 'warm',
-              },
-              {
-                quote: 'Mail AI phân loại đúng phần lớn ngay tuần đầu. Đêm khách hỏi, sáng mở máy đã có nháp trả lời, chỉ duyệt là gửi.',
-                name: 'Nguyễn Tuấn Khang',
-                role: 'Founder',
-                org: 'Saigon Heritage Travel',
-                accent: 'cool',
-              },
-              {
-                quote: 'Cuối tháng không phải ngồi vẽ Excel nữa. Hỏi "doanh thu thị trường Hàn tháng này?" là có biểu đồ và phân tích trong 10 giây.',
-                name: 'Trần Bích Phượng',
-                role: 'Giám đốc điều hành',
-                org: 'Hanoi Lotus Tours',
-                accent: 'warm',
-              },
-            ].map((t, i) => (
-              <Reveal key={i} delay={i * 90} className={'lp-testi-card lp-testi-' + t.accent}>
-                <div className="lp-testi-quote-mark" aria-hidden="true">"</div>
-                <p className="lp-testi-quote">{t.quote}</p>
-                <div className="lp-testi-author">
-                  <span className="lp-testi-avatar">{initials(t.name)}</span>
-                  <div className="lp-testi-meta">
-                    <span className="lp-testi-name">{t.name}</span>
-                    <span className="lp-testi-role">{t.role} <span className="lp-testi-sep">·</span> {t.org}</span>
-                  </div>
+            {/* ── HOW IT WORKS (eyebrow 2 / 2) */}
+            <section id="lp-how" className="lp-section lp-section-tint">
+                <Reveal className="lp-section-head">
+                    <div className="lp-eyebrow">CÁCH BẮT ĐẦU</div>
+                    <h2>Ba bước, dưới một tuần.</h2>
+                </Reveal>
+
+                <div className="lp-steps">
+                    {[
+                        { n: '01', t: 'Đăng ký tư vấn', d: 'Để lại số, đội TRAV-AI gọi tìm hiểu quy mô, thị trường, đặc thù phòng tour của bạn.', bot: 'robot8.PNG' },
+                        { n: '02', t: 'Kết nối CRM Tourkit', d: 'Cấp quyền đọc TourKit CRM. AI bắt đầu học cách công ty bạn làm tour, viết mail, chấm khách.', bot: 'robot9.PNG' },
+                        { n: '03', t: 'AI bắt đầu phụ trợ', d: 'Sau buổi training ngắn, AI tạo tour, viết mail, phân tích số liệu hàng ngày cho team.', bot: 'robot10.PNG' },
+                    ].map((s, i) => (
+                        <Reveal key={s.n} delay={i * 80} className="lp-step">
+                            <div className="lp-step-num">{s.n}</div>
+                            <div className="lp-step-bot"><img src={'/images/robots/' + s.bot} alt="" loading="lazy" decoding="async" /></div>
+                            <h3>{s.t}</h3>
+                            <p>{s.d}</p>
+                        </Reveal>
+                    ))}
                 </div>
-              </Reveal>
-            ))}
-          </div>
+            </section>
+
+
+        {/* ── LP9: Khối "Nền tảng Công nghệ Đột phá" (ảnh mẫu) — dưới khối Tương lai vận hành */}
+            <section className="lp-intro-img bg-intro-3" >
+          <img src="/images/intro/image1.webp"
+            alt="Nền tảng công nghệ đột phá — Mobile First, Cloud-Based, Tích hợp mở, Bảo mật & an toàn"
+            loading="lazy" decoding="async"
+            style={{ display: 'block', width: '100%', maxWidth: 1180, height: 'auto', margin: '0 auto', borderRadius: 20, boxShadow: '0 14px 44px rgba(15,23,42,0.16)' }} />
         </section>
+
+
+        {/* Khối "KHÁCH HÀNG NÓI GÌ" (testimonials) đã bỏ theo yêu cầu (LP5) */}
 
         {/* ── BIG CTA BAND (1 dấu nhấn cuối, không lặp lại intent CTA) */}
         <section className="lp-cta-band">
@@ -519,7 +501,7 @@
           <img className="lp-cta-bot-right" src="/images/robots/robot12.PNG" alt="" aria-hidden="true" loading="lazy" decoding="async" />
           <div className="lp-cta-inner">
             <h2>Sẵn sàng để AI gánh việc lặp lại?</h2>
-            <p>15 phút demo trực tiếp với team Tourkit, không cần thẻ tín dụng.</p>
+            <p>15 phút demo trực tiếp với team Tourkit, chưa cần thanh toán ngay.</p>
             <button className="lp-btn-primary lp-btn-large" onClick={() => onCtaClick('Đăng ký tư vấn miễn phí')}>
               Đăng ký tư vấn miễn phí
               <Icon name="arrowRight" size={18} stroke={2.4} />
@@ -527,11 +509,76 @@
           </div>
         </section>
 
-        {/* ── FOOTER tối giản */}
-        <footer className="lp-foot">
-          <div className="lp-foot-inner">
-            <div>© {new Date().getFullYear()} Tourkit AI · Made in Vietnam</div>
-            <a href="#/login">Đã có tài khoản? Đăng nhập</a>
+        {/* ── FOOTER (LP10) — chuẩn theo tourkitweb: dark 4-col + lưới mờ + 2 quầng sáng */}
+        <footer className="lpf">
+          <div className="lpf-grid-bg" aria-hidden="true" />
+          <div className="lpf-glow lpf-glow-1" aria-hidden="true" />
+          <div className="lpf-glow lpf-glow-2" aria-hidden="true" />
+          <div className="lpf-inner">
+            <div className="lpf-cols">
+              <div className="lpf-brand-col">
+                <div className="lpf-logo">
+                  <img className="lpf-logo-img" src="/images/tourkit-logo.png" alt="TOURKIT" loading="lazy" decoding="async"
+                    onError={(e) => { e.target.style.display = 'none'; const t = e.target.nextElementSibling; if (t) t.style.display = 'inline-flex'; }} />
+                  <span className="lpf-logo-text" style={{ display: 'none' }}>TOURKIT<em>Chuyển đổi số doanh nghiệp du lịch</em></span>
+                  <p className="lpf-company">Công ty Cổ phần TourKit Việt Nam</p>
+                </div>
+                <p className="lpf-desc">Đơn vị thiết kế website du lịch và hệ thống OTA hàng đầu. Chúng tôi biến traffic thành booking với thiết kế đỉnh cao và trải nghiệm người dùng tối ưu.</p>
+                <div className="lpf-badge"><span className="lpf-badge-dot" /> Hệ thống hoạt động 24/7</div>
+              </div>
+
+              <div className="lpf-col">
+                <h4>Dịch Vụ</h4>
+                <ul>
+                  <li><a href="#">Thiết kế Web Du Lịch</a></li>
+                  <li><a href="#">Xây dựng OTA Platform</a></li>
+                  <li><a href="#">Tối ưu chuyển đổi (CRO)</a></li>
+                  <li><a href="#">Thiết kế Landing Page</a></li>
+                  <li><a href="#">AI Trip Planner</a></li>
+                </ul>
+              </div>
+
+              <div className="lpf-col">
+                <h4>Công Ty</h4>
+                <ul>
+                  <li><a href="#">Về chúng tôi</a></li>
+                  <li><a href="#portfolio">Dự án tiêu biểu</a></li>
+                  <li><a href="#">Bảng giá</a></li>
+                  <li><a href="#">Blog chia sẻ</a></li>
+                  <li><a href="#consultation">Liên hệ tư vấn</a></li>
+                </ul>
+              </div>
+
+              <div className="lpf-col">
+                <h4>Liên Hệ</h4>
+                <ul className="lpf-contact-list">
+                  <li className="lpf-contact lpf-contact--top">
+                    <span className="lpf-contact-ico"><Icon name="pin" size={14} stroke={2} /></span>
+                    <div><span className="lpf-contact-label">Hà Nội</span><span className="lpf-contact-addr">Tầng 4, Tòa nhà 242 Nguyễn Văn Lộc, Hà Đông</span></div>
+                  </li>
+                  <li className="lpf-contact lpf-contact--top">
+                    <span className="lpf-contact-ico"><Icon name="pin" size={14} stroke={2} /></span>
+                    <div><span className="lpf-contact-label">Hồ Chí Minh</span><span className="lpf-contact-addr">Số 1, Đặng Văn Sâm, P.9, Q.Phú Nhuận</span></div>
+                  </li>
+                  <li className="lpf-contact">
+                    <span className="lpf-contact-ico"><Icon name="phone" size={14} stroke={2} /></span>
+                    <a className="lpf-contact-link is-phone" href="tel:0383202404">0383.202.404</a>
+                  </li>
+                  <li className="lpf-contact">
+                    <span className="lpf-contact-ico"><Icon name="mail" size={14} stroke={2} /></span>
+                    <a className="lpf-contact-link" href="mailto:info@tourkit.vn">info@tourkit.vn</a>
+                  </li>
+                </ul>
+              </div>
+            </div>
+
+            <div className="lpf-bottom">
+              <p className="lpf-copy">© {new Date().getFullYear()} Công ty Cổ phần TourKit Việt Nam. All rights reserved.</p>
+              <div className="lpf-bottom-links">
+                <a href="#">Chính sách bảo mật</a>
+                <a href="#">Điều khoản sử dụng</a>
+              </div>
+            </div>
           </div>
         </footer>
 

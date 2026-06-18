@@ -34,3 +34,13 @@ public record NccExtractResult(
     int TokensOut,
     string? Warning
 );
+
+/// Kết quả trích BÁO GIÁ NCC dạng GRID (giữ nguyên cấu trúc bảng gốc).
+/// Quote = JSON { supplier, tables:[{title,columns,rows}], conditions:[] } — shape động, pass-through.
+public record NccQuoteResult(
+    System.Text.Json.JsonElement Quote,
+    long LatencyMs,
+    int TokensIn,
+    int TokensOut,
+    string? Warning
+);

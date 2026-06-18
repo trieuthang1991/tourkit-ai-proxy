@@ -14,5 +14,6 @@ public record SavedTour(
     [property: JsonPropertyName("rows")]           JsonElement Rows,
     [property: JsonPropertyName("nccCoveragePct")] int NccCoveragePct,
     [property: JsonPropertyName("createdAt")]      string CreatedAt,
-    [property: JsonPropertyName("createdBy")]      string? CreatedBy
+    [property: JsonPropertyName("createdBy")]      string? CreatedBy,
+    [property: JsonPropertyName("status")]         string Status = "draft"   // draft | sent | success — badge ở Wizard landing
 );

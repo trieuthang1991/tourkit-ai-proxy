@@ -29,6 +29,15 @@ public class TourKitNccClient
     public Task<JsonElement> ProvidersAsync(string sessionId, int? marketId, CancellationToken ct)
         => GetAsync(sessionId, "/api/tours/providers" + (marketId.HasValue ? $"?marketId={marketId}" : ""), ct);
 
+    /// Danh sách NCC để HIỂN THỊ (search + paging) — surface AI `/api/ai/providers`
+    /// (envelope đồng nhất {section,title,count,total,items[]}, khác lookup picker ở trên).
+    public Task<JsonElement> ProviderListAsync(string sessionId, string? filter, int pageIndex, int pageSize, CancellationToken ct)
+    {
+        var qs = $"?pageIndex={pageIndex}&pageSize={pageSize}";
+        if (!string.IsNullOrWhiteSpace(filter)) qs += $"&filter={Uri.EscapeDataString(filter)}";
+        return GetAsync(sessionId, "/api/ai/providers" + qs, ct);
+    }
+
     private async Task<JsonElement> GetAsync(string sessionId, string path, CancellationToken ct)
     {
         var jwt = await _sessions.GetValidJwtAsync(sessionId, ct);

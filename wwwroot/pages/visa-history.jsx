@@ -143,16 +143,21 @@ function VisaHistoryPage({ pushToast }) {
         <div className="vh-head-left">
           <div className="vh-head-icon"><_vhIcon name="shield" size={18} stroke={2} /></div>
           <div>
-            <h1 className="vh-h1">Lịch sử thẩm định Visa</h1>
+            <h1 className="vh-h1">Thẩm định Visa</h1>
             <div className="vh-sub">
               {loading ? 'Đang tải…' : `${filtered.length} hồ sơ${filtered.length !== list.length ? ` / ${list.length} tổng` : ''}`}
             </div>
           </div>
         </div>
-        <button className="vh-refresh" onClick={loadList} disabled={loading}>
-          <_vhIcon name="refresh" size={13} stroke={2.2} />
-          <span>Tải lại</span>
-        </button>
+        <div className="vh-head-actions" style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
+          <button className="btn btn-primary btn-sm" onClick={() => window.tourkitRouter.navigate('/visa')}>
+            <_vhIcon name="sparkle" size={14} stroke={2.2} /> Thẩm định Visa AI
+          </button>
+          <button className="vh-refresh" onClick={loadList} disabled={loading}>
+            <_vhIcon name="refresh" size={13} stroke={2.2} />
+            <span>Tải lại</span>
+          </button>
+        </div>
       </header>
 
       <div className="vh-filters">

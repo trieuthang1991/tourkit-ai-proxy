@@ -131,6 +131,59 @@ public class NccImportService
             Warning: ai.Warning);
     }
 
+    // ===== GRID QUOTE: trích báo giá NCC GIỮ cấu trúc bảng gốc → JSON {supplier, tables[], conditions[]} =====
+
+    private const string QUOTE_SYSTEM =
+        "Bạn là bộ trích xuất báo giá nhà cung cấp (NCC) du lịch. CHỈ trả JSON hợp lệ đúng schema, KHÔNG markdown/giải thích.";
+
+    private const string QUOTE_PROMPT =
+"""
+Bạn nhận NỘI DUNG file BÁO GIÁ DỊCH VỤ của 1 NCC du lịch. Trích thành JSON ĐÚNG schema, GIỮ NGUYÊN
+cấu trúc BẢNG gốc (dạng GRID: mỗi dòng = 1 mục, cột = tiêu đề bảng gốc):
+{
+  "supplier": { "name", "serviceType":"hotel|restaurant|transport|ticket|combo|other", "address", "city", "phones":[], "email", "website", "contactName", "contactPhone", "validYear" },
+  "tables": [ { "title": "<tên bảng>", "columns": ["<tiêu đề cột>"], "rows": [ ["<ô>"] ] } ],
+  "conditions": [ "<điều kiện/ghi chú chung>" ]
+}
+QUY TẮC:
+- GIỮ DẠNG BẢNG: mỗi loại phòng / dịch vụ = 1 row. KHÔNG flatten mỗi mức giá thành 1 row riêng.
+- Header NHIỀU TẦNG phải GỘP thành 1 nhãn cột rõ ràng (vd "Giá đoàn <7 / không ăn", "Cao điểm - Đầu tuần", "Cao điểm - Cuối tuần", "Trung điểm", "Thấp điểm").
+- Số tiền là number (1450000), KHÔNG phải "1.450.000". Ô trống = null. Mỗi row đủ số phần tử = len(columns). Mỗi bảng riêng = 1 phần tử "tables".
+- Trả VỀ DUY NHẤT JSON, không markdown / giải thích.
+""";
+
+    /// PDF → text (PdfPig) → AI (grid) → JSON báo giá.
+    public Task<NccQuoteResult> ExtractQuoteFromPdfAsync(Stream stream, string? providerId, string? model, CancellationToken ct)
+    {
+        var sb = new StringBuilder();
+        using var ms = new MemoryStream();
+        stream.CopyTo(ms);
+        ms.Position = 0;
+        using (var pdf = PdfDocument.Open(ms))
+            foreach (var p in pdf.GetPages()) { sb.AppendLine(p.Text); sb.AppendLine(); }
+        return ExtractQuoteFromTextAsync(sb.ToString(), providerId, model, ct);
+    }
+
+    public async Task<NccQuoteResult> ExtractQuoteFromTextAsync(string text, string? providerId, string? model, CancellationToken ct)
+    {
+        var provider = _registry.Resolve(providerId);
+        var req = new CompleteRequest(
+            Prompt: QUOTE_PROMPT + "\n\n=== NỘI DUNG FILE ===\n" + text,
+            Provider: provider.Id,
+            Model: model,
+            MaxTokens: 8000,
+            Temperature: 0.2,
+            System: QUOTE_SYSTEM,
+            ApiKey: null);
+        var ai = await provider.CompleteAsync(req, ct);
+        var raw = ai.Text ?? "";
+        int a = raw.IndexOf('{'), b = raw.LastIndexOf('}');
+        if (a < 0 || b < 0 || b < a) throw new InvalidOperationException("AI không trả JSON hợp lệ");
+        using var jd = System.Text.Json.JsonDocument.Parse(raw.Substring(a, b - a + 1));
+        var quote = jd.RootElement.Clone();
+        return new NccQuoteResult(quote, ai.LatencyMs, ai.InputTokens, ai.OutputTokens, ai.Warning);
+    }
+
     // ──────────────────────────────────────────────────────────────────────────
     private NccExtractResult NormalizeRows(List<Dictionary<string, string>> rawRows, string source)
     {

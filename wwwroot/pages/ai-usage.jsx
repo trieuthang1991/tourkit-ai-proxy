@@ -5,7 +5,7 @@ const { useState: _uS, useEffect: _uE, useCallback: _uCb } = React;
 const fmtN = (n) => Number(n || 0).toLocaleString('vi-VN');
 const fmtVnd = (n) => Number(n || 0).toLocaleString('vi-VN');
 const FEATURE_LABEL = {
-  visa: 'Thẩm định Visa', deals: 'Ưu tiên Deal', chat: 'Trợ lý số liệu',
+  visa: 'Thẩm định Visa', deals: 'AI phân tích Cơ hội', chat: 'Trợ lý số liệu',
   mail: 'Hộp thư AI', reviews: 'Customer Review', 'tour-builder': 'Soạn Tour GIT',
   completions: 'Completions (raw)', other: 'Khác',
 };

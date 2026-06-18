@@ -1,14 +1,17 @@
 // Step 4: Quote preview + actions sidebar
 // hotelOptions: { 3?: {providerName, pricePerPaxPerNight, ...}, 4?, 5? } từ Step 1.5 NccTierPicker.
 // Khi có 1+ tier → render 3 báo giá cards thay vì 1 giá đơn → khách chọn tier.
-function Step4Quote({ request, itinerary, rows, hotelOptions, onBack, onRestart, marketing, pushToast }) {
+function Step4Quote({ request, itinerary, rows, hotelOptions, onBack, onRestart, marketing, pushToast, tourId, initialStatus, onStatusSaved, ensureTourSaved }) {
   const totalPax = request.adults + request.children;
   const nights = request.nights || Math.max((request.days || 1) - 1, 1);
-  const [status, setStatus] = React.useState('DRAFT');
+  const [status, setStatus] = React.useState(initialStatus || 'draft');   // draft | sent | success — persist xuống SavedTour (/api/v1/tours) → badge Wizard landing
+  const [statusSaving, setStatusSaving] = React.useState(false);
   const [shareOpen, setShareOpen] = React.useState(false);
   const [shareLink, setShareLink] = React.useState('');
   const [savedQuoteId, setSavedQuoteId] = React.useState(null);
   const [sharePrepping, setSharePrepping] = React.useState(false);
+  const [pdfBusy, setPdfBusy] = React.useState(false);
+  const quoteRef = React.useRef(null);   // element .qv-paper → render ra PDF (html2pdf)
 
   // Tách cost: non-hotel rows (giữ nguyên) + hotel ước lượng theo tier.
   // priceNet * (1+vat/100) * (1+markup/100) → giá bán mỗi row.
@@ -37,15 +40,33 @@ function Step4Quote({ request, itinerary, rows, hotelOptions, onBack, onRestart,
   }).filter(Boolean);
   const hasTiers = tierQuotes.length > 0;
 
-  const handlePrintPDF = () => {
-    document.body.classList.add('print-quote-only');
-    const orig = document.title;
-    document.title = `BaoGia_${request.code}_${(marketing.tourName || 'Tour').replace(/\s+/g, '_')}`;
-    setTimeout(() => {
-      window.print();
-      document.title = orig;
-      setTimeout(() => document.body.classList.remove('print-quote-only'), 500);
-    }, 200);
+  // Tải PDF từ MẪU báo giá (element .qv-paper) bằng html2pdf — KHÔNG dùng window.print.
+  // Thư viện load lazy từ CDN lần đầu bấm (giống Chart.js). Offline → toast lỗi.
+  const ensureHtml2Pdf = () => new Promise((resolve, reject) => {
+    if (window.html2pdf) return resolve(window.html2pdf);
+    const s = document.createElement('script');
+    s.src = 'https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.2/html2pdf.bundle.min.js';
+    s.onload = () => resolve(window.html2pdf);
+    s.onerror = () => reject(new Error('không tải được thư viện PDF (cần mạng)'));
+    document.head.appendChild(s);
+  });
+  const handleDownloadPDF = async () => {
+    const el = quoteRef.current;
+    if (!el) { pushToast && pushToast('Chưa có nội dung báo giá để xuất', 'warn'); return; }
+    setPdfBusy(true);
+    try {
+      const html2pdf = await ensureHtml2Pdf();
+      const fname = `BaoGia_${request.code || 'Tour'}_${(marketing.tourName || 'Tour').replace(/\s+/g, '_')}.pdf`;
+      await html2pdf().set({
+        margin: [8, 8, 8, 8], filename: fname,
+        image: { type: 'jpeg', quality: 0.96 },
+        html2canvas: { scale: 2, useCORS: true, backgroundColor: '#ffffff', logging: false },
+        jsPDF: { unit: 'mm', format: 'a4', orientation: 'portrait' },
+        pagebreak: { mode: ['avoid-all', 'css', 'legacy'] },
+      }).from(el).save();
+    } catch (e) {
+      pushToast && pushToast('Tạo PDF lỗi: ' + (e.message || e), 'error');
+    } finally { setPdfBusy(false); }
   };
 
   const totalSale = rows.reduce((s, r) => s + r.priceNet * (1 + r.vat/100) * (1 + r.markup/100), 0);
@@ -55,39 +76,58 @@ function Step4Quote({ request, itinerary, rows, hotelOptions, onBack, onRestart,
   // Lần đầu user bấm "GỬI LINK CHO KHÁCH": POST /tour-quotes → server sinh id Guid →
   // shareLink = `${origin}/q/{id}` → khách bấm xem được mà không cần login.
   // Lần sau: dùng id đã lưu (không tạo bản ghi mới). Nếu fail → fallback link cũ + toast warn.
+  // Lưu báo giá vào SQL (/tour-quotes) → trả id cho share link công khai (/q/{id}).
+  async function saveQuote() {
+    const totalNet = Math.round(rows.reduce((s, r) => s + (r.priceNet || 0), 0));
+    const totalRev = Math.round(totalSale);
+    const body = {
+      id: savedQuoteId,                              // null lần đầu, có khi resave
+      title: marketing.tourName || ('Báo giá tour ' + (request.code || '')),
+      customerName: request.customerName || null,
+      customerPhone: request.customerPhone || null,
+      marketName: null, tourType: null,
+      startDate: request.startDate || null, endDate: null,
+      adultCount: request.adults || 0, childCount: request.children || 0,
+      totalNet, totalRevenue: totalRev, profit: totalRev - totalNet,
+      marginPercent: totalRev > 0 ? Math.round(((totalRev - totalNet) / totalRev) * 10000) / 100 : null,
+      data: { request, itinerary, rows, hotelOptions, marketing },   // Full wizard state
+    };
+    const r = await window.tourkitAuth.authedFetch('/api/v1/tour-quotes', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body),
+    });
+    const j = await r.json();
+    if (!r.ok) throw new Error(j.error || 'HTTP ' + r.status);
+    const id = j.id || j.item?.id;
+    if (id) setSavedQuoteId(id);
+    return id;
+  }
+
+  // Đổi trạng thái nháp tour + persist (/api/v1/tours/{tourId}/status) → badge cập nhật ở Wizard landing.
+  async function changeStatus(s) {
+    if (s === status) return;
+    setStatusSaving(true);
+    try {
+      let id = tourId;
+      if (!id && ensureTourSaved) id = await ensureTourSaved();   // tour chưa lưu → lưu nháp để có id rồi mới gắn trạng thái
+      if (!id) throw new Error('Chưa lưu được nháp tour để gắn trạng thái');
+      const r = await window.tourkitAuth.authedFetch('/api/v1/tours/' + id + '/status', {
+        method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ status: s }),
+      });
+      const j = await r.json();
+      if (!r.ok || j.error) throw new Error(j.error || 'HTTP ' + r.status);
+      setStatus(s);
+      onStatusSaved && onStatusSaved(s);   // wizard refresh savedTours + currentTour.status
+      pushToast && pushToast('Trạng thái: ' + ({ draft: 'Nháp', sent: 'Đã gửi khách', success: 'Đã chốt' }[s] || s));
+    } catch (e) { pushToast && pushToast('Lỗi đổi trạng thái: ' + e.message, 'error'); }
+    finally { setStatusSaving(false); }
+  }
+
   async function prepareShareLink() {
     if (shareLink) { setShareOpen(true); return; }    // đã lưu rồi
     setSharePrepping(true);
     try {
-      const totalNet = Math.round(rows.reduce((s, r) => s + (r.priceNet || 0), 0));
-      const totalRev = Math.round(totalSale);
-      const body = {
-        id: savedQuoteId,                              // null lần đầu, có khi resave
-        title: marketing.tourName || ('Báo giá tour ' + (request.code || '')),
-        customerName: request.customerName || null,
-        customerPhone: request.customerPhone || null,
-        marketName: null,
-        tourType: null,
-        startDate: request.startDate || null,
-        endDate: null,
-        adultCount: request.adults || 0,
-        childCount: request.children || 0,
-        totalNet,
-        totalRevenue: totalRev,
-        profit: totalRev - totalNet,
-        marginPercent: totalRev > 0 ? Math.round(((totalRev - totalNet) / totalRev) * 10000) / 100 : null,
-        // Full wizard state — public viewer parse lại để render
-        data: { request, itinerary, rows, hotelOptions, marketing },
-      };
-      const r = await window.tourkitAuth.authedFetch('/api/v1/tour-quotes', {
-        method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(body),
-      });
-      const j = await r.json();
-      if (!r.ok) throw new Error(j.error || 'HTTP ' + r.status);
-      const id = j.id || j.item?.id;
+      const id = await saveQuote();
       if (!id) throw new Error('Server không trả id');
-      setSavedQuoteId(id);
       setShareLink(`${window.location.origin}/q/${id}`);
       setShareOpen(true);
     } catch (e) {
@@ -119,7 +159,7 @@ function Step4Quote({ request, itinerary, rows, hotelOptions, onBack, onRestart,
     <div className="layout-2col">
       <div>
         {QStyles && <QStyles />}
-        <div className="qv-paper">
+        <div className="qv-paper" ref={quoteRef}>
           {QuoteBody
             ? <QuoteBody quote={previewQuote} d={previewData} fmtVND={fmtVND} />
             : <div style={{padding: 40, color: '#9ca3af'}}>Đang tải preview…</div>}
@@ -131,9 +171,9 @@ function Step4Quote({ request, itinerary, rows, hotelOptions, onBack, onRestart,
 
         <SalePredictor request={request} />
 
-        <button className="btn btn-dark btn-lg btn-full" onClick={handlePrintPDF}>
+        <button className="btn btn-dark btn-lg btn-full" onClick={handleDownloadPDF} disabled={pdfBusy}>
           <Icon name="download" size={16} stroke={2} />
-          TẢI PDF CHUYÊN NGHIỆP
+          {pdfBusy ? 'ĐANG TẠO PDF…' : 'TẢI PDF CHUYÊN NGHIỆP'}
         </button>
         <button className="btn btn-primary btn-lg btn-full" onClick={prepareShareLink} disabled={sharePrepping}>
           <Icon name="share" size={16} stroke={2} />
@@ -149,7 +189,7 @@ function Step4Quote({ request, itinerary, rows, hotelOptions, onBack, onRestart,
           totalSale={totalSale}
           perPax={totalSale / Math.max(totalPax, 1)}
           onSent={(channel) => {
-            setStatus('SENT');
+            changeStatus('sent');   // persist 'sent' xuống /tour-quotes
             pushToast && pushToast(`Đã gửi báo giá qua ${channel === 'zalo' ? 'Zalo' : channel === 'mail' ? 'Email' : 'SMS'}`);
             setShareOpen(false);
           }}
@@ -163,10 +203,22 @@ function Step4Quote({ request, itinerary, rows, hotelOptions, onBack, onRestart,
         </button>
 
         <div className="card" style={{padding: 16, marginTop: 4}}>
-          <div style={{fontSize: 10, fontWeight: 700, letterSpacing: '0.1em', textTransform: 'uppercase', color: 'var(--text-3)', marginBottom: 8}}>Trạng thái</div>
-          <div style={{display: 'flex', alignItems: 'center', gap: 8, fontSize: 13, fontWeight: 600}}>
-            <span style={{width: 8, height: 8, borderRadius: '50%', background: status === 'SENT' ? 'var(--success)' : 'var(--warning)'}}></span>
-            {status === 'SENT' ? 'SENT — đã gửi khách' : 'DRAFT — chưa gửi khách'}
+          <div style={{fontSize: 10, fontWeight: 700, letterSpacing: '0.1em', textTransform: 'uppercase', color: 'var(--text-3)', marginBottom: 10}}>
+            Trạng thái{statusSaving ? ' · đang lưu…' : ''}
+          </div>
+          <div style={{display: 'flex', gap: 6}}>
+            {[['draft', 'Nháp', 'var(--warning)'], ['sent', 'Đã gửi', 'var(--primary)'], ['success', 'Đã chốt', 'var(--success)']].map(([k, lbl, color]) => {
+              const on = status === k;
+              return (
+                <button key={k} type="button" onClick={() => changeStatus(k)} disabled={statusSaving}
+                  style={{flex: 1, minWidth: 70, padding: '8px 6px', borderRadius: 8, fontSize: 12, fontWeight: 700,
+                    cursor: statusSaving ? 'wait' : 'pointer',
+                    border: '1.5px solid ' + (on ? color : 'var(--border)'),
+                    background: on ? color : 'white', color: on ? 'white' : 'var(--text-2)'}}>
+                  {lbl}
+                </button>
+              );
+            })}
           </div>
         </div>
       </div>

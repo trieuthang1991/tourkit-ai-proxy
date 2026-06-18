@@ -495,15 +495,9 @@ Gợi ý 5 sở thích / yêu cầu đặc biệt khác phù hợp với điểm
           </div>
         )}
 
-        <div className="field">
-          <label className="label">Ghi chú tự do</label>
-          <textarea className="textarea" rows={4} value={request.notes}
-            onChange={e => setRequest(r => ({...r, notes: e.target.value}))}
-            placeholder="VD: Khách muốn có 1 ngày vui chơi tự do. Đề xuất các điểm ăn chơi tự do trong lịch trình..." />
-        </div>
       </div>
 
-      <AIAssistantPanel request={request} onGenerate={onGenerate} generating={generating}
+      <AIAssistantPanel request={request} setRequest={setRequest} onGenerate={onGenerate} generating={generating}
         genStream={genStream} genProgress={genProgress} aiTone={aiTone} />
     </div>
   );
@@ -526,7 +520,7 @@ function NumStepper({ icon, label, value, onChange, min = 0 }) {
   );
 }
 
-function AIAssistantPanel({ request, onGenerate, generating, genStream, genProgress, aiTone }) {
+function AIAssistantPanel({ request, setRequest, onGenerate, generating, genStream, genProgress, aiTone }) {
   // Progress thực tế từ stream: stage 'meta' (đang stream meta) → 'days' (đang gen N ngày song song)
   const stage = genProgress?.stage || 'idle';
   const daysTotal = genProgress?.daysTotal || 0;
@@ -572,7 +566,7 @@ function AIAssistantPanel({ request, onGenerate, generating, genStream, genProgr
         <div className="ai-status">{loading || generating ? 'Đang phân tích' : 'Sẵn sàng'}</div>
       </div>
 
-      <div className="ai-bubble" style={{flex: 1, minHeight: 140}}>
+      <div className="ai-bubble" style={{flex: generating ? 1 : '0 0 auto', minHeight: generating ? 140 : 88}}>
         {generating ? (
           <div>
             <div style={{marginBottom: 12, fontSize: 13, color: 'rgba(255,255,255,0.85)', display: 'flex', alignItems: 'center', gap: 8}}>
@@ -631,6 +625,26 @@ function AIAssistantPanel({ request, onGenerate, generating, genStream, genProgr
           </span>
         )}
       </div>
+
+      {/* TG1: ô nhập thông tin/ghi chú cho AI — ô nhập CHÍNH, chiếm phần lớn panel, đưa vào prompt khi sinh tour */}
+      {!generating && (
+        <div style={{ flex: 1, display: 'flex', flexDirection: 'column', minHeight: 200, marginBottom: 16 }}>
+          <div className="ai-section-label">Thông tin / yêu cầu thêm cho AI</div>
+          <textarea
+            value={request.aiNote || ''}
+            onChange={e => setRequest(r => ({ ...r, aiNote: e.target.value }))}
+            placeholder="VD: Ưu tiên hải sản tươi; đoàn có người lớn tuổi nên tránh đi bộ nhiều; chừa 1 tối tự do; cần xe có wifi; tăng suất ăn tối; có HDV tiếng Anh…"
+            style={{
+              flex: 1, width: '100%', boxSizing: 'border-box', resize: 'vertical', minHeight: 170,
+              background: 'rgba(0,0,0,0.25)', color: 'rgba(255,255,255,0.92)',
+              border: '1px solid rgba(255,255,255,0.14)', borderRadius: 8,
+              padding: '10px 12px', fontSize: 13, fontFamily: 'inherit', outline: 'none', lineHeight: 1.6,
+            }} />
+          <div style={{ fontSize: 11, color: 'rgba(255,255,255,0.5)', marginTop: 6 }}>
+            AI sẽ dùng nội dung này khi sinh lịch trình.
+          </div>
+        </div>
+      )}
 
       {analysis?.chips && !generating && (
         <div style={{marginBottom: 18}}>

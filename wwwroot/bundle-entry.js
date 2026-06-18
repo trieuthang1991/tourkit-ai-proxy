@@ -55,6 +55,7 @@ import "./pages/quote-view.jsx";
 import "./pages/ai-usage.jsx";
 import "./pages/widget-admin.jsx";
 import "./pages/ncc-import.jsx";
+import "./pages/ncc-list.jsx";
 import "./pages/visa-config.jsx";
 
 // Root: App shell + router (PHẢI CUỐI — dùng tất cả window.X định nghĩa ở trên)

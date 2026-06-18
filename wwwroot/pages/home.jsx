@@ -20,7 +20,7 @@
     { id: 'chat',      to: '/assistant',    icon: 'sparkle', title: 'AI Chat',                       desc: 'Đội ngũ kinh doanh ảo đắc lực của bạn',     tags: ['trợ lý','số liệu','chatbot'], featured: true },
     { id: 'quote',     to: '/wizard',       icon: 'sparkle', title: 'AI Tính giá Tour',              desc: 'Tính toán chính xác, tối ưu biên lợi nhuận', tags: ['báo giá','tour','wizard'] },
     { id: 'customers', to: '/customers',    icon: 'users',   title: 'AI phân tích khách hàng',       desc: 'Thấu hiểu hành vi, kiến tạo chân dung khách hàng', tags: ['khách','phân tích'] },
-    { id: 'deals',     to: '/deals',        icon: 'trend',   title: 'AI Phân tích Cơ hội bán hàng',  desc: 'Nhận diện xu thế thị trường du lịch',       tags: ['deal','bán hàng','ưu tiên'] },
+    { id: 'deals',     to: '/deals',        icon: 'trend',   title: 'AI phân tích Cơ hội',           desc: 'Nhận diện xu thế thị trường du lịch',       tags: ['deal','bán hàng','ưu tiên','cơ hội'] },
     { id: 'mail',      to: '/mail',         icon: 'paper',   title: 'AI Mail',                       desc: 'Gửi thư điện tử thông minh, tự động hóa tương tác', tags: ['email','gmail'] },
     { id: 'visa',      to: '/visa',         icon: 'shield',  title: 'AI Thẩm định Visa',             desc: 'Đánh giá chính xác tỉ lệ đậu Visa',         tags: ['visa','hồ sơ'] },
     { id: 'tour',      to: '/tour-builder', icon: 'pin',     title: 'AI nhập Tour',                  desc: 'Chuyển văn bản thô thành hành trình hoàn mỹ', tags: ['tour','git','nhập liệu'] },

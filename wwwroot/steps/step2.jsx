@@ -358,6 +358,65 @@ function defaultCostType(type) {
   })[type] || 'shared';
 }
 
+// ── NCC THẬT theo loại dịch vụ (thay "thư viện NCC mẫu" tĩnh) ──────────────────
+// Map TYPE activity (wizard) → loại dịch vụ (category) NCC trong CRM bằng keyword,
+// rồi lấy NCC thật qua /api/v1/ncc/providers?serviceId=. Cache categories ở module.
+const NCC_TYPE_KEYWORDS = {
+  HOTEL: ['khach san', 'phong', 'luu tru', 'resort', 'quy phong', 'hotel'],
+  TRANSPORT: ['van chuyen', 'xe', 'nha xe', 'van tai', 'may bay', 'hang khong', 'transport'],
+  BUS: ['van chuyen', 'xe', 'nha xe', 'van tai'],
+  MEAL: ['nha hang', 'an uong', 'am thuc', 'nuoc', 'suoi', 'restaurant'],
+  GUIDE: ['huong dan', 'hdv', 'guide'],
+  TICKET: ['ve', 'ticket', 'tham quan'],
+  SIGHTSEEING: ['tham quan', 'tour', 'land', 'diem'],
+  ACTIVITY: ['tour', 'land', 'chi phi khac', 'team', 'gala', 'su kien', 'hoat dong'],
+  TEAMBUILDING: ['team', 'gala', 'su kien'],
+  ENTERTAINMENT: ['gala', 'su kien', 'giai tri'],
+};
+const _nccNormVi = (s) => (s || '').normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/đ/g, 'd').replace(/Đ/g, 'D').toLowerCase();
+let _nccCatCache = null;
+async function _loadNccCats() {
+  if (_nccCatCache) return _nccCatCache;
+  try {
+    const r = await window.tourkitAuth.authedFetch('/api/v1/ncc/categories');
+    if (!r.ok) { _nccCatCache = []; return _nccCatCache; }
+    const data = await r.json();
+    const arr = Array.isArray(data) ? data : (data.items || data.Items || []);
+    _nccCatCache = arr.map(c => ({ id: c.id ?? c.Id, name: c.name ?? c.Name ?? c.service_name }));
+  } catch { _nccCatCache = []; }
+  return _nccCatCache;
+}
+async function fetchNccByType(type) {
+  const cats = await _loadNccCats();
+  if (!cats.length) return { catName: null, items: [] };
+  const kws = NCC_TYPE_KEYWORDS[type] || [];
+  const cat = kws.length ? cats.find(c => { const n = _nccNormVi(c.name); return kws.some(k => n.includes(k)); }) : null;
+  if (!cat) return { catName: null, catId: null, items: [] };
+  return { catName: cat.name, catId: cat.id, items: await fetchNccByCatId(cat.id) };
+}
+
+// Lấy NCC theo 1 category id cụ thể — dùng cho dropdown "Lọc theo loại" (user chủ động đổi loại NCC xem).
+async function fetchNccByCatId(catId) {
+  try {
+    const r = await window.tourkitAuth.authedFetch('/api/v1/ncc/providers?serviceId=' + encodeURIComponent(catId));
+    if (!r.ok) return [];
+    const data = await r.json();
+    const arr = Array.isArray(data) ? data : (data.items || data.Items || []);
+    return arr.map(p => ({ id: p.id ?? p.Id, name: p.name ?? p.Name, code: p.code ?? p.Code, city: p.city ?? p.City, phone: p.phone ?? p.Phone }));
+  } catch { return []; }
+}
+
+// Bảng giá DỊCH VỤ của 1 NCC (theo loại DV đang xem). Mỗi DV: tên + giá hợp đồng (net) + giá công bố.
+async function fetchNccServices(provId, catId) {
+  try {
+    const r = await window.tourkitAuth.authedFetch('/api/v1/ncc/providers/' + provId + '/services?categoryId=' + encodeURIComponent(catId));
+    if (!r.ok) return [];
+    const data = await r.json();
+    const arr = Array.isArray(data) ? data : (data.items || data.Items || []);
+    return arr.map(s => ({ id: s.id ?? s.Id, name: s.name ?? s.Name, contractPrice: s.contractPrice ?? s.ContractPrice ?? 0, publicPrice: s.publicPrice ?? s.PublicPrice ?? 0 }));
+  } catch { return []; }
+}
+
 function EditServiceModal({ data, dayNum, onClose, onSave, onDelete, totalPax }) {
   const [form, setForm] = useS2(data || {
     type: 'SIGHTSEEING', time: '10:00', title: '', description: '', cost: 0, supplier: '',
@@ -373,6 +432,62 @@ function EditServiceModal({ data, dayNum, onClose, onSave, onDelete, totalPax })
   const [advice, setAdvice] = useS2(defaultAdvice);
   const [adviceLoading, setAdviceLoading] = useS2(false);
   const [advicePristine, setAdvicePristine] = useS2(true);
+  // NCC THẬT theo loại dịch vụ (thay "Thư viện gợi ý NCC" mẫu tĩnh). Refetch khi đổi loại DV.
+  const [ncc, setNcc] = useS2({ loading: true, items: [], catName: null, catId: null });
+  const [nccCats, setNccCats] = useS2([]);          // toàn bộ category cho dropdown "Loại NCC"
+  const [nccQ, setNccQ] = useS2('');                // ô tìm kiếm
+  const [nccProvince, setNccProvince] = useS2('');  // lọc theo tỉnh/thành
+  const [nccPage, setNccPage] = useS2(1);
+  const NCC_PAGE_SIZE = 6;
+  // Load category 1 lần cho dropdown lọc theo loại.
+  React.useEffect(() => { _loadNccCats().then(cs => setNccCats(cs || [])); }, []);
+  // Auto map NCC theo loại dịch vụ của activity; refetch + reset filter khi đổi loại.
+  React.useEffect(() => {
+    let alive = true;
+    setNcc(n => ({ ...n, loading: true }));
+    setNccQ(''); setNccProvince(''); setNccPage(1);
+    fetchNccByType(form.type).then(res => { if (alive) setNcc({ loading: false, items: res.items, catName: res.catName, catId: res.catId }); });
+    return () => { alive = false; };
+  }, [form.type]);
+  // User chủ động đổi loại NCC qua dropdown → fetch category đó.
+  const selectNccCat = async (catId) => {
+    if (!catId) return;
+    const cat = nccCats.find(c => String(c.id) === String(catId));
+    setNcc(n => ({ ...n, loading: true }));
+    setNccQ(''); setNccProvince(''); setNccPage(1);
+    const items = await fetchNccByCatId(catId);
+    setNcc({ loading: false, items, catName: cat ? cat.name : null, catId });
+  };
+  const applyNcc = (p) => setForm(f => ({ ...f, supplier: p.name, supplierId: p.id }));
+  // Xem dịch vụ + giá của 1 NCC: lazy-fetch + cache theo provId. Chọn 1 DV → điền NCC + tên DV + giá net.
+  const [expandedNcc, setExpandedNcc] = useS2(null);
+  const [svcCache, setSvcCache] = useS2({});
+  const toggleNccServices = async (p) => {
+    if (expandedNcc === p.id) { setExpandedNcc(null); return; }
+    setExpandedNcc(p.id);
+    if (!svcCache[p.id] && ncc.catId != null) {
+      setSvcCache(c => ({ ...c, [p.id]: { loading: true, items: [] } }));
+      const items = await fetchNccServices(p.id, ncc.catId);
+      setSvcCache(c => ({ ...c, [p.id]: { loading: false, items } }));
+    }
+  };
+  const applyService = (p, svc) => setForm(f => ({ ...f,
+    supplier: p.name, supplierId: p.id,
+    supplierService: svc.name, supplierServiceId: svc.id,
+    cost: (svc.contractPrice || svc.publicPrice || f.cost || 0),   // giữ NGUYÊN giá net NCC (không chia)
+    costType: 'pax',   // mặc định Chi phí riêng (giá net × số khách)
+  }));
+  React.useEffect(() => { setNccPage(1); }, [nccQ, nccProvince]);   // đổi filter → về trang 1
+  // Lọc client-side (search + tỉnh/thành) rồi phân trang — tránh render quá nhiều card 1 lúc.
+  const nccProvinces = [...new Set(ncc.items.map(p => p.city).filter(Boolean))].sort();
+  const nccFiltered = ncc.items.filter(p => {
+    if (nccProvince && p.city !== nccProvince) return false;
+    if (nccQ) { const q = _nccNormVi(nccQ); const hay = _nccNormVi([p.name, p.code, p.phone, p.city].filter(Boolean).join(' ')); if (!hay.includes(q)) return false; }
+    return true;
+  });
+  const nccTotalPages = Math.max(1, Math.ceil(nccFiltered.length / NCC_PAGE_SIZE));
+  const nccSafePage = Math.min(nccPage, nccTotalPages);
+  const nccPageItems = nccFiltered.slice((nccSafePage - 1) * NCC_PAGE_SIZE, nccSafePage * NCC_PAGE_SIZE);
 
   // Reset về mặc định khi đổi loại dịch vụ (không call AI).
   React.useEffect(() => {
@@ -413,9 +528,9 @@ Output JSON: {"advice": "câu khuyên, highlight tên supplier bằng <<...>>"}`
   };
 
   return (
-    <div className="modal-backdrop" onClick={onClose}>
+    <div className="modal-backdrop">
       <div className="modal" onClick={e => e.stopPropagation()}>
-        <div className="modal-left">
+        <div className="modal-left" style={{maxHeight: '88vh', minHeight: 0}}>
           <div className="modal-title-row">
             <div className="card-icon"><Icon name="paper" size={16} /></div>
             <div>
@@ -446,13 +561,19 @@ Output JSON: {"advice": "câu khuyên, highlight tên supplier bằng <<...>>"}`
 
           <div className="field">
             <label className="label">Tên hoạt động / Dịch vụ</label>
-            <input className="input" value={form.title}
+            <input className="input" value={form.title} placeholder="VD: Tham quan Vịnh Hạ Long bằng du thuyền"
               onChange={e => setForm(f => ({...f, title: e.target.value}))} />
           </div>
 
           <div className="field">
+            <label className="label">Nhà cung cấp (NCC)</label>
+            <input className="input" value={form.supplier || ''} placeholder="Chọn NCC bên phải hoặc nhập tay…"
+              onChange={e => setForm(f => ({...f, supplier: e.target.value, supplierId: undefined}))} />
+          </div>
+
+          <div className="field">
             <label className="label">Nội dung chi tiết chương trình</label>
-            <textarea className="textarea" rows={4} value={form.description}
+            <textarea className="textarea" rows={4} value={form.description} placeholder="Mô tả chi tiết: lịch trình, điểm đến, dịch vụ kèm theo, lưu ý cho khách…"
               onChange={e => setForm(f => ({...f, description: e.target.value}))} />
           </div>
 
@@ -519,7 +640,7 @@ Output JSON: {"advice": "câu khuyên, highlight tên supplier bằng <<...>>"}`
             </div>
           </div>
 
-          <div className="modal-footer">
+          <div className="modal-footer" style={{position: 'sticky', bottom: 0, zIndex: 2}}>
             {data && <button className="btn btn-ghost" onClick={onDelete} style={{color: 'var(--danger)'}}><Icon name="trash" size={14} /> Xóa</button>}
             <div style={{marginLeft: 'auto', display: 'flex', gap: 10}}>
               <button className="btn btn-outline" onClick={onClose}>Hủy bỏ</button>
@@ -530,45 +651,103 @@ Output JSON: {"advice": "câu khuyên, highlight tên supplier bằng <<...>>"}`
           </div>
         </div>
 
-        <div className="modal-right">
-          <div style={{display: 'flex', alignItems: 'center', gap: 8, marginBottom: 14}}>
-            <Icon name="search" size={14} />
-            <span style={{fontSize: 11, fontWeight: 700, letterSpacing: '0.1em', textTransform: 'uppercase', color: 'var(--text-3)'}}>
-              Thư viện gợi ý NCC
-            </span>
+        <div className="modal-right" style={{display: 'flex', flexDirection: 'column', maxHeight: '88vh', minHeight: 0, overflowY: 'hidden'}}>
+          <div className="modal-title-row" style={{marginBottom: 12}}>
+            <div className="card-icon"><Icon name="search" size={16} /></div>
+            <div>
+              <h3 className="modal-title" style={{fontSize: 14}}>NCC THEO LOẠI{ncc.catName ? ' · ' + ncc.catName : ''}</h3>
+              <div className="modal-breadcrumb">Chọn dịch vụ NCC cho hoạt động</div>
+            </div>
+            <button className="modal-close icon-btn" onClick={onClose}><Icon name="close" size={18} /></button>
           </div>
 
-          {lib.map((s, i) => (
-            <div key={i} className="supplier-card" onClick={() => applySupplier(s)}>
-              <div className="supplier-card-head">
-                <div className="supplier-card-name">{s.name}</div>
-                <div className="supplier-card-price numeric">{fmtVND(s.price)}</div>
-              </div>
-              <p className="supplier-card-desc">{s.desc}</p>
-              <div className="supplier-card-ncc">NCC: {s.ncc}</div>
-            </div>
-          ))}
-
-          <div className="card-dark" style={{marginTop: 16, padding: 18, borderRadius: 12}}>
-            <div style={{display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10}}>
-              <div className="ai-spark" style={{width: 24, height: 24, borderRadius: 6}}><Icon name="sparkle" size={14} /></div>
-              <span className="ai-title" style={{fontSize: 10}}>AI Expert Advice</span>
-            </div>
-            <div className="ai-bubble" style={{fontSize: 12.5, padding: 12, margin: 0}}>
-              {adviceLoading ? (
-                <>
-                  <div className="sk" style={{height: 10, marginBottom: 6, width: '90%'}} />
-                  <div className="sk" style={{height: 10, width: '65%'}} />
-                </>
-              ) : renderAdvice(advice)}
-            </div>
-            {!adviceLoading && (
-              <button className="btn btn-outline-white btn-full" style={{padding: 10, marginTop: 10, fontSize: 12}}
-                onClick={runAdvice} disabled={adviceLoading}>
-                <Icon name="sparkle" size={12} /> {advicePristine ? 'Hỏi AI gợi ý' : 'Hỏi AI lại'}
-              </button>
-            )}
+          {/* Tìm kiếm + lọc theo loại NCC + tỉnh/thành */}
+          <input className="input" placeholder="Tìm NCC (tên / mã / SĐT)…" value={nccQ}
+            onChange={e => setNccQ(e.target.value)} style={{marginBottom: 8, fontSize: 13}} />
+          <div style={{display: 'flex', gap: 8, marginBottom: 12}}>
+            <select className="select" value={ncc.catId ?? ''} onChange={e => selectNccCat(e.target.value)}
+              style={{flex: 1, fontSize: 12, minWidth: 0}}>
+              <option value="">— Loại NCC —</option>
+              {nccCats.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
+            </select>
+            <select className="select" value={nccProvince} onChange={e => setNccProvince(e.target.value)}
+              style={{flex: 1, fontSize: 12, minWidth: 0}} disabled={nccProvinces.length === 0}>
+              <option value="">— Tỉnh/thành —</option>
+              {nccProvinces.map(c => <option key={c} value={c}>{c}</option>)}
+            </select>
           </div>
+
+          {ncc.loading ? (
+            <>
+              <div className="sk" style={{height: 54, marginBottom: 8, borderRadius: 10}} />
+              <div className="sk" style={{height: 54, borderRadius: 10}} />
+            </>
+          ) : ncc.items.length === 0 ? (
+            <div style={{fontSize: 12, color: 'var(--text-3)', padding: '14px 12px', background: 'var(--bg)', borderRadius: 10, lineHeight: 1.6}}>
+              Chưa có NCC loại <strong>{(SERVICE_TYPES[form.type] || {}).label || form.type}</strong> trong hệ thống.
+              Thêm ở module <strong>Nhà cung cấp</strong> để hiện ở đây.
+            </div>
+          ) : nccFiltered.length === 0 ? (
+            <div style={{fontSize: 12, color: 'var(--text-3)', padding: '14px 12px', background: 'var(--bg)', borderRadius: 10, lineHeight: 1.6}}>
+              Không tìm thấy NCC khớp bộ lọc. Thử xoá ô tìm kiếm hoặc đổi tỉnh/thành.
+            </div>
+          ) : (
+            <div style={{flex: 1, minHeight: 0, overflowY: 'auto', margin: '0 -4px', padding: '0 4px'}}>
+              {nccPageItems.map((p, i) => {
+                const sel = form.supplierId != null && p.id != null && String(form.supplierId) === String(p.id);
+                const open = expandedNcc === p.id;
+                const svc = svcCache[p.id];
+                return (
+                  <div key={p.id || i} className="supplier-card" style={sel ? {borderColor: 'var(--primary)', background: '#fff7ed'} : {}}>
+                    <div className="supplier-card-head">
+                      <div className="supplier-card-name">{p.name}{sel && form.supplierService ? <span style={{color: 'var(--primary)', fontWeight: 600}}> · {form.supplierService}</span> : null}</div>
+                      {p.code && <div className="supplier-card-price">{p.code}</div>}
+                    </div>
+                    <p className="supplier-card-desc">{[p.city, p.phone].filter(Boolean).join(' · ') || 'NCC trong hệ thống'}</p>
+                    <button type="button" className="btn btn-sm btn-outline"
+                      style={{width: '100%', marginTop: 6, padding: '6px 8px', fontSize: 12}}
+                      onClick={() => toggleNccServices(p)}>
+                      {open ? '▴ Ẩn dịch vụ' : '▾ Xem dịch vụ & giá'}
+                    </button>
+                    {open && (
+                      <div style={{marginTop: 8, borderTop: '1px dashed var(--border)', paddingTop: 8}}>
+                        {!svc || svc.loading ? (
+                          <div className="sk" style={{height: 40, borderRadius: 8}} />
+                        ) : svc.items.length === 0 ? (
+                          <div style={{fontSize: 11.5, color: 'var(--text-3)', padding: '4px 2px', lineHeight: 1.5}}>NCC chưa có dịch vụ / bảng giá. Thêm ở module <strong>Nhà cung cấp</strong>.</div>
+                        ) : svc.items.map((s, j) => {
+                          const ssel = sel && form.supplierServiceId != null && String(form.supplierServiceId) === String(s.id);
+                          return (
+                            <div key={s.id || j} style={{display: 'flex', alignItems: 'center', gap: 8, padding: '6px 4px', borderBottom: j < svc.items.length - 1 ? '1px solid var(--bg)' : 'none'}}>
+                              <div style={{flex: 1, minWidth: 0}}>
+                                <div style={{fontSize: 12.5, fontWeight: 600, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis'}}>{s.name || '(DV chưa đặt tên)'}</div>
+                                <div style={{fontSize: 11, color: 'var(--text-3)'}}>Net <strong style={{color: 'var(--primary)'}}>{fmtNum(s.contractPrice)}đ</strong>{s.publicPrice ? ' · CB ' + fmtNum(s.publicPrice) + 'đ' : ''}</div>
+                              </div>
+                              <button type="button" className={'btn btn-sm ' + (ssel ? 'btn-primary' : 'btn-outline')}
+                                style={{padding: '4px 10px', fontSize: 11, flexShrink: 0}}
+                                onClick={() => applyService(p, s)}>
+                                {ssel ? '✓ Đã chọn' : 'Chọn'}
+                              </button>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          )}
+
+          {!ncc.loading && nccFiltered.length > NCC_PAGE_SIZE && (
+            <div style={{display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginTop: 10, fontSize: 12}}>
+              <button type="button" className="btn btn-sm btn-outline" disabled={nccSafePage <= 1}
+                onClick={() => setNccPage(p => Math.max(1, p - 1))} style={{padding: '4px 10px'}}>‹ Trước</button>
+              <span style={{color: 'var(--text-3)'}}>Trang {nccSafePage}/{nccTotalPages} · {nccFiltered.length} NCC</span>
+              <button type="button" className="btn btn-sm btn-outline" disabled={nccSafePage >= nccTotalPages}
+                onClick={() => setNccPage(p => Math.min(nccTotalPages, p + 1))} style={{padding: '4px 10px'}}>Sau ›</button>
+            </div>
+          )}
         </div>
       </div>
     </div>

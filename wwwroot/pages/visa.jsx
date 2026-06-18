@@ -96,8 +96,8 @@
       ] },
 
     { id: 'contact', type: 'contact', required: true,
-      label: 'Thông tin liên hệ',
-      sub: 'AI sẽ gửi báo cáo kết quả qua các kênh này.',
+      label: 'Thông tin khách hàng',
+      sub: 'Lưu thông tin khách hàng để tạo đơn hàng.',
       fields: [
         { id: 'fullName', label: 'Họ tên', required: true, type: 'text', placeholder: 'Nguyễn Văn A' },
         { id: 'phone', label: 'Số điện thoại', required: true, type: 'tel', placeholder: '0xxxxxxxxx' },
@@ -285,6 +285,10 @@
     return (
       <main className="page vw-page">
         <div className="vw-shell">
+          <button onClick={() => window.tourkitRouter.navigate('/visa/history')}
+            style={{ display: 'inline-flex', alignItems: 'center', gap: 6, marginBottom: 14, background: 'none', border: 'none', padding: 0, color: 'var(--text-3, #64748b)', cursor: 'pointer', fontSize: 13, fontWeight: 600, fontFamily: 'inherit' }}>
+            <Icon name="arrowLeft" size={14} stroke={2.2} /> Danh sách hồ sơ Visa
+          </button>
           {draftBanner && (
             <div className="vw-draft-banner" role="status">
               <Icon name="refresh" size={12} stroke={2.4} />
@@ -459,22 +463,7 @@
           </div>
         </div>
 
-        {/* Demo files panel — quick-scan grid, no filename clutter (title attr cho hover xem nếu cần). */}
-        <div className="vw-demo-panel">
-          <div className="vw-demo-head">
-            <div className="vw-demo-title">Bộ hồ sơ mẫu</div>
-            <div className="vw-demo-sub">Tải bộ 6 file PDF có watermark "Mẫu demo" để dùng cho buổi giới thiệu.</div>
-          </div>
-          <div className="vw-demo-grid">
-            {DEMO_FILES.map(d => (
-              <a key={d.name} className="vw-demo-link" href={d.url} target="_blank" rel="noopener" download title={d.name}>
-                <span className="vw-demo-link-ico"><Icon name="download" size={13} stroke={2.4} /></span>
-                <span className="vw-demo-link-label">{d.label}</span>
-                <Icon name="arrowRight" size={11} stroke={2.4} />
-              </a>
-            ))}
-          </div>
-        </div>
+        {/* "Bộ hồ sơ mẫu" đã bỏ theo yêu cầu (VS3) */}
         <div className="vw-docs">
           {suggested.map(doc => {
             const list = files[doc.key] || [];
@@ -511,6 +500,36 @@
               </div>
             );
           })}
+
+          {/* VS3: ô upload tài liệu bổ sung khác — gửi kèm cho AI phân tích (ngoài các mục gợi ý) */}
+          <div className="vw-doc">
+            <div className="vw-doc-row">
+              <div className="vw-doc-info">
+                <div className="vw-doc-title">
+                  Tài liệu bổ sung khác
+                  <span className="vw-doc-tag vw-doc-tag-opt">TUỲ CHỌN</span>
+                </div>
+                <div className="vw-doc-desc">Thêm bất kỳ giấy tờ nào khác (hợp đồng lao động, sao kê lương, thư mời, lịch trình…) để AI phân tích kỹ hơn. Chọn được nhiều file.</div>
+              </div>
+              <label className="vw-doc-upload">
+                <input type="file" multiple accept="image/*,.pdf"
+                  onChange={ev => onFilesChange('extra', Array.from(ev.target.files || []))} />
+                <Icon name="paperclip" size={13} stroke={2.2} />
+                {(files['extra'] || []).length > 0 ? `${(files['extra'] || []).length} file` : 'Chọn file'}
+              </label>
+            </div>
+            {(files['extra'] || []).length > 0 && (
+              <div className="vw-files">
+                {(files['extra'] || []).map((f, i) => (
+                  <div key={i} className="vw-file-pill">
+                    <Icon name="paper" size={11} stroke={2.2} />
+                    <span className="vw-file-name">{f.name}</span>
+                    <span className="vw-file-sz">{(f.size / 1024).toFixed(0)} KB</span>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
         </div>
       </div>
     );
