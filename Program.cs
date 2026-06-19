@@ -121,6 +121,7 @@ builder.Services.AddSingleton<IAiProvider, NineRoutesProvider>();
 builder.Services.AddSingleton<IAiProvider, OpenAIProvider>();
 builder.Services.AddSingleton<IAiProvider, AnthropicProvider>();
 builder.Services.AddSingleton<IAiProvider, DeepSeekProvider>();
+builder.Services.AddSingleton<IAiProvider, GrokProvider>();
 builder.Services.AddSingleton<ProviderRegistry>();
 
 // Legacy OpenCodeClient cho code cũ còn reference (sẽ remove khi clean xong)

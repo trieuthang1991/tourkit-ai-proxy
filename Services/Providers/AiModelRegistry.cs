@@ -42,6 +42,7 @@ public class AiModelRegistry
             ["openai"]      = ("OpenAI",     "OPENAI_API_KEY"),
             ["opencode-go"] = ("OpenCode",   "OPENCODE_API_KEY"),
             ["nine-routes"] = ("NineRoutes", "NINE_ROUTES_API_KEY"),
+            ["grok"]        = ("Grok",       "GROK_API_KEY"),
         };
 
     public AiModelRegistry(IConfiguration cfg, ProviderRegistry providers)

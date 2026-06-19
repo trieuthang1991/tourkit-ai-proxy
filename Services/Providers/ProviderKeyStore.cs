@@ -19,6 +19,7 @@ public class ProviderKeyStore
             ["openai"]      = ("OpenAI",     "OPENAI_API_KEY"),
             ["opencode-go"] = ("OpenCode",   "OPENCODE_API_KEY"),
             ["nine-routes"] = ("NineRoutes", "NINE_ROUTES_API_KEY"),
+            ["grok"]        = ("Grok",       "GROK_API_KEY"),
         };
 
     private readonly IConfiguration _cfg;
