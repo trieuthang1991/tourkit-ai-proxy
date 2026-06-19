@@ -43,6 +43,7 @@ public class NativeToolUseAgent : IAgentRuntime
     private readonly ProviderKeyStore _keys;
     private readonly AiUsageLog _usage;
     private readonly AiCallContext _ctx;
+    private readonly AiModelRegistry _registry;
 
     // System prompt: nhấn mạnh BẮT BUỘC gọi tool cho mọi câu liên quan số liệu kinh doanh,
     // KHUYẾN KHÍCH gọi nhiều tool song song khi cần so sánh, và viết phân tích đầy đủ (không cụt).
@@ -64,8 +65,6 @@ public class NativeToolUseAgent : IAgentRuntime
     private const int MaxToolCalls   = 5;
     private const int WallClockSec   = 30;
 
-    private readonly IConfiguration _cfg;
-
     public NativeToolUseAgent(
         TourKitApiClient api,
         TkSessionStore sessions,
@@ -76,7 +75,7 @@ public class NativeToolUseAgent : IAgentRuntime
         ProviderKeyStore keys,
         AiUsageLog usage,
         AiCallContext ctx,
-        IConfiguration cfg)
+        AiModelRegistry registry)
     {
         _api        = api;
         _sessions   = sessions;
@@ -87,7 +86,7 @@ public class NativeToolUseAgent : IAgentRuntime
         _keys       = keys;
         _usage      = usage;
         _ctx        = ctx;
-        _cfg        = cfg;
+        _registry   = registry;
     }
 
     /// Chi xu ly khi provider la "anthropic".
@@ -108,8 +107,9 @@ public class NativeToolUseAgent : IAgentRuntime
         if (string.IsNullOrWhiteSpace(apiKey))
             throw new InvalidOperationException("Chưa nhập API key cho Claude (Anthropic).");
 
-        // Default model: ưu tiên input override → Models:Primary:Model (appsettings) → sonnet-4-5
-        var model  = input.Model ?? _cfg["Models:Primary:Model"] ?? "claude-sonnet-4-5";
+        // Resolve model qua AiModelRegistry (ChatAnalytics) — ChatAgentService cũng đã resolve, đây là defensive.
+        var resolved = _registry.Resolve(AiFeature.ChatAnalytics, input.Provider.Id, input.Model);
+        var model    = resolved.Model;
 
         // Đọc bộ nhớ chat của phiên, bổ sung context hội thoại trước vào system prompt.
         var memory = _sessions.GetMemory(input.SessionId) ?? SessionChatMemory.Empty();
