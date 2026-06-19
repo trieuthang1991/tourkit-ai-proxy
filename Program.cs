@@ -163,6 +163,9 @@ builder.Services.AddSingleton<TourKitApiClient>();
 builder.Services.AddSingleton<TkSessionStore>();
 builder.Services.AddSingleton<TourkitAiProxy.Services.Cache.RedisStore>();  // generic Redis cho mọi feature
 builder.Services.AddSingleton<TourkitAiProxy.Services.Providers.ModelDefaults>();   // Models:Primary + Models:Review từ appsettings
+// Single source of truth mới cho cấu hình AI model per-feature (replaces ModelDefaults).
+// ModelDefaults vẫn giữ tạm thời cho service chưa migrate xong; sẽ xóa ở task cuối.
+builder.Services.AddSingleton<TourkitAiProxy.Services.Providers.AiModelRegistry>();
 builder.Services.AddSingleton<TourkitAiProxy.Services.Cache.ChatCache>();   // Redis (nếu có) / in-memory
 builder.Services.AddSingleton<TourkitAiProxy.Services.Quota.TenantQuotaStore>();   // Quota AI per-tenant: file + Redis mirror
 
