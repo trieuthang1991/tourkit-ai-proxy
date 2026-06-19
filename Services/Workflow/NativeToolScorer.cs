@@ -43,7 +43,7 @@ public class NativeToolScorer
     /// <param name="terminalToolName">Tên tool (vd "submit_visa_score")</param>
     /// <param name="parser">Parse JsonElement input của terminal tool → T</param>
     /// <param name="apiKeyOverride">apiKey client gửi (BYO key); null → ProviderKeyStore fallback</param>
-    /// <param name="model">Anthropic model (mặc định claude-sonnet-4-5)</param>
+    /// <param name="model">Anthropic model — caller phải resolve qua AiModelRegistry trước khi gọi</param>
     /// <param name="maxTokens">max_tokens (mặc định 3000)</param>
     /// <param name="trace">Trace collector (no-op nếu null)</param>
     public async Task<ScorerResult<T>> RunAsync<T>(
@@ -51,7 +51,7 @@ public class NativeToolScorer
         JsonElement toolSchema, string terminalToolName,
         Func<JsonElement, T> parser,
         string? apiKeyOverride,
-        string model = "claude-sonnet-4-5",
+        string model,
         int maxTokens = 3000,
         TraceCollector? trace = null,
         CancellationToken ct = default)

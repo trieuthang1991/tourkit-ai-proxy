@@ -52,7 +52,7 @@ public class AnthropicToolsClient
     /// <param name="terminalToolName">Tên tool chấm dứt loop (vd "submit_review")</param>
     /// <param name="toolHandler">Async handler: tool name + input JSON → tool_result text. Trả null nếu tool name là terminal.</param>
     /// <param name="apiKey">Anthropic API key (caller resolve từ session/config/header)</param>
-    /// <param name="model">Anthropic model (default claude-sonnet-4-5)</param>
+    /// <param name="model">Anthropic model — caller phải resolve qua AiModelRegistry trước khi gọi</param>
     /// <param name="maxTokens">max_tokens per turn</param>
     /// <param name="trace">Optional trace collector cho debug</param>
     /// <param name="onIteration">Optional callback bắn trước mỗi /messages call (iter#). Dùng cho UI emit stage "calling-iter-N".</param>
@@ -61,7 +61,7 @@ public class AnthropicToolsClient
         string systemPrompt, string userPrompt,
         JsonElement[] tools, string terminalToolName,
         Func<string, JsonElement, CancellationToken, Task<string>> toolHandler,
-        string apiKey, string model = "claude-sonnet-4-5",
+        string apiKey, string model,
         int maxTokens = 4000,
         TraceCollector? trace = null,
         Func<int, Task>? onIteration = null,
