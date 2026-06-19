@@ -18,6 +18,7 @@ public class TourBuilderService
     private readonly ProviderRegistry _registry;
     private readonly AiResponseCache _cache;
     private readonly NativeToolScorer _native;
+    private readonly AiModelRegistry _modelRegistry;
     private readonly IWorkflowTraceAccessor _trace;
     private readonly ILogger<TourBuilderService> _log;
 
@@ -31,10 +32,11 @@ public class TourBuilderService
         "Gọi tool submit_tour_draft với kết quả. KHÔNG bịa — field không rõ để null/0/[]; ghi vào warnings. Tiếng Việt.";
 
     public TourBuilderService(ProviderRegistry registry, AiResponseCache cache,
-        NativeToolScorer native,
+        NativeToolScorer native, AiModelRegistry modelRegistry,
         IWorkflowTraceAccessor trace, ILogger<TourBuilderService> log)
     {
-        _registry = registry; _cache = cache; _native = native; _trace = trace; _log = log;
+        _registry = registry; _cache = cache; _native = native;
+        _modelRegistry = modelRegistry; _trace = trace; _log = log;
     }
 
     public async Task<TourBuilderDraft> ParseAsync(TourBuilderRequest req, CancellationToken ct)
@@ -46,8 +48,17 @@ public class TourBuilderService
         trace?.SetWorkflow("TourBuilder");
         trace?.SetMeta("promptChars", req.Prompt.Length);
 
+        // Resolve qua AiModelRegistry → đảm bảo có provider/model non-empty cho cache key + downstream.
+        var resolved = _modelRegistry.Resolve(AiFeature.TourBuilder, req.Provider, req.Model);
+        req = req with {
+            Provider = resolved.Provider,
+            Model    = resolved.Model,
+            ApiKey   = req.ApiKey ?? resolved.ApiKey
+        };
+
         var p = _registry.Resolve(req.Provider);
         trace?.SetMeta("provider", p.Id);
+        trace?.SetMeta("model", req.Model);
 
         var key = AiResponseCache.Hash("tour-builder", req.Model, req.Prompt);
         var cacheTimer = trace?.Begin("cache_lookup");
@@ -95,7 +106,7 @@ public class TourBuilderService
             terminalToolName: "submit_tour_draft",
             parser:           ParseToolInput,
             apiKeyOverride:   req.ApiKey,
-            model:            string.IsNullOrWhiteSpace(req.Model) ? "claude-sonnet-4-5" : req.Model!,
+            model:            req.Model!,
             maxTokens:        5000,
             trace:            trace,
             ct:               ct);
