@@ -6,17 +6,18 @@ using TourkitAiProxy.Services.Workflow;
 
 namespace TourkitAiProxy.Services.Mail;
 
-/// Phân loại 1 email vào 6 nhóm + tóm tắt 1 câu, qua `Models:Review` (DeepSeek deepseek-chat).
+/// Phân loại 1 email vào 6 nhóm + tóm tắt 1 câu, qua `Models:MailClassify` (mặc định DeepSeek deepseek-chat,
+/// có thể đổi qua appsettings).
 ///
 /// Task nhẹ chạy nhiều mỗi sync → đi đường JSON-prompt + tolerant parse với model rẻ.
 /// KHÔNG dùng Claude/Anthropic (tốn). Đổi provider/model qua appsettings:
-///   "Models:Review": { "Provider": "deepseek", "Model": "deepseek-chat", "ApiKey": "sk-..." }
+///   "Models:MailClassify": { "Provider": "deepseek", "Model": "deepseek-chat", "ApiKey": "sk-..." }
 ///
 /// Lỗi → ("khac", "") để mail vẫn lưu, NV xem bằng tay.
 public class MailClassifier
 {
     private readonly ProviderRegistry _registry;
-    private readonly ModelDefaults _defaults;
+    private readonly AiModelRegistry _modelRegistry;
     private readonly IWorkflowTraceAccessor _trace;
     private readonly ILogger<MailClassifier> _log;
 
@@ -27,10 +28,10 @@ public class MailClassifier
         "Ký tự đầu tiên BẮT BUỘC là '{'.";
 
     public MailClassifier(ProviderRegistry registry,
-        ModelDefaults defaults,
+        AiModelRegistry modelRegistry,
         IWorkflowTraceAccessor trace, ILogger<MailClassifier> log)
     {
-        _registry = registry; _defaults = defaults; _trace = trace; _log = log;
+        _registry = registry; _modelRegistry = modelRegistry; _trace = trace; _log = log;
     }
 
     /// Gọi AI phân loại 1 email → (categoryKey đã chuẩn hóa, summary). Lỗi → (khac, "").
@@ -41,19 +42,20 @@ public class MailClassifier
         trace?.SetMeta("mailId", mail.Id);
         trace?.SetMeta("subject", mail.Subject);
 
-        var provider = _registry.Resolve(_defaults.Review.Provider);
+        var resolved = _modelRegistry.Resolve(AiFeature.MailClassify);
+        var provider = _registry.Resolve(resolved.Provider);
         trace?.SetMeta("provider", provider.Id);
-        trace?.SetMeta("model", _defaults.Review.Model);
+        trace?.SetMeta("model", resolved.Model);
 
         try
         {
             var req = new CompleteRequest(
                 Prompt:      BuildPromptJson(mail),
                 Provider:    provider.Id,
-                Model:       _defaults.Review.Model,
+                Model:       resolved.Model,
                 MaxTokens:   1000, Temperature: 0.1,
                 System:      SystemJsonPrompt,
-                ApiKey:      _defaults.Review.ApiKey);
+                ApiKey:      resolved.ApiKey);
 
             var aiTimer = trace?.Begin("ai_classify");
             var result = await provider.CompleteAsync(req, ct);
