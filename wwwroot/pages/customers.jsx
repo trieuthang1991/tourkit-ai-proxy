@@ -226,6 +226,11 @@ function CustomersPage({ pushToast }) {
   // Reset xong, effect load list bên dưới sẽ tự fire vì page đổi (hoặc đã ở page 1 + filter đổi).
   _uEC(() => { setPage(1); }, [segFilter, rankFilter, filter, pageSize, search]);
 
+  // Sang trang / đổi filter / search → CLEAR selection (page-scoped): chỉ batch KH đang THẤY trên
+  // trang hiện tại. Trước đây giữ tick xuyên trang → sang trang vẫn ôm KH trang cũ (khuất mắt) →
+  // bấm Review = review trùng. Clear theo mọi thay đổi điều hướng cho nhất quán.
+  _uEC(() => { setSelected(new Set()); }, [page, pageSize, segFilter, rankFilter, filter, search]);
+
   // Load list — debounce 300ms với search (mỗi keystroke), instant với page/filter.
   _uEC(() => {
     const delay = 300; // debounce chung — page-click cũng có 300ms nhẹ, chấp nhận được
@@ -241,8 +246,8 @@ function CustomersPage({ pushToast }) {
     });
   };
 
-  // Toggle theo PAGE hiện tại — giữ selection cross-page để user có thể batch xuyên trang.
-  // Click header trên page 2 KHÔNG wipe selection của page 1.
+  // Toggle tất cả trên PAGE hiện tại. Selection là page-scoped: tự clear khi sang trang/đổi filter
+  // (effect ở trên) → chỉ batch những KH đang thấy, tránh tick trang cũ gây review trùng.
   const toggleAll = () => {
     setSelected(s => {
       const pageIds = items.map(x => x.id);
@@ -425,6 +430,7 @@ function CustomersPage({ pushToast }) {
       if (evt.type === 'done') {
         pushLog(null, 'done', `Hoàn tất · ${evt.payload?.done} xong · ${evt.payload?.cached} cache · ${evt.payload?.errors} lỗi`);
         pushToast(`✓ Đã review xong ${evt.payload?.done || 0} KH`);
+        setSelected(new Set());   // clear chọn sau khi xong → bấm Review lại không bị review trùng KH cũ
         loadList();
       } else {
         pushLog(null, 'cancelled', 'Người dùng huỷ batch');

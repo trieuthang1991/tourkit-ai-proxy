@@ -31,7 +31,12 @@ function useIsMobile(bp = 640) {
 
 // Đọc SSE stream → onEvent(obj) mỗi event.
 async function readDealStream(url, onEvent) {
-  const resp = await fetch(url, { headers: { Accept: 'text/event-stream' } });
+  // Gắn X-Session-Id: stream endpoint giờ verify session + tenant (như /reviews/batch stream).
+  // Không gắn → 401. (Dùng header thay query để không lộ sessionId trên URL.)
+  const sid = window.tourkitAuth && window.tourkitAuth.getSessionId ? window.tourkitAuth.getSessionId() : null;
+  const headers = { Accept: 'text/event-stream' };
+  if (sid) headers['X-Session-Id'] = sid;
+  const resp = await fetch(url, { headers });
   if (!resp.ok || !resp.body) throw new Error('Stream không khả dụng (' + resp.status + ')');
   const reader = resp.body.getReader();
   const dec = new TextDecoder('utf-8');
@@ -293,6 +298,7 @@ function DealsPage({ pushToast }) {
   _dE(() => {
     console.log('[auto-deal] reset autoTriedRef (navigation đổi)');
     autoTriedRef.current = false;
+    clearSelected();   // page-scoped: sang trang/đổi filter/search → bỏ tick trang cũ (tránh chấm trùng deal khuất mắt)
   }, [page, pageSize, adv, q, rankFilter]);
 
   // Đổi chip rank → reload list ngay (server-side filter qua param `rank`/`minRank`/`maxRank`).
@@ -342,9 +348,9 @@ function DealsPage({ pushToast }) {
     } else { setRowStatus({}); }
     const live = [];
     try {
-      const cfg = window.tourkit.ai.getConfig();
-      // v9: FE không hold API key — server đọc từ appsettings (Providers/Models:Primary).
-      const body = { provider: cfg.provider, model: cfg.model };
+      // Model do server quyết qua appsettings Models:DealScoring (xem AiModelRegistry).
+      // FE KHÔNG gửi provider/model nữa — DealBatchService ignore override; gửi lên chỉ là noise.
+      const body = {};
       if (useIds) body.dealIds = [...useIds].map(String);
       const r = await window.tourkitAuth.authedFetch('/api/v1/deals/analyze', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
@@ -370,6 +376,7 @@ function DealsPage({ pushToast }) {
           const b = e.payload.board || { items: [...live].sort((a, b) => b.priorityScore - a.priorityScore), scanned: 0, deepScored: live.length };
           setBoard(b);
           pushToast(`Đã chấm ${b.deepScored || live.length} cơ hội`);
+          clearSelected();   // clear chọn sau khi xong → bấm Chấm lại không chấm trùng deal cũ
           loadList();
         }
         else if (e.type === 'error' && !e.payload) pushToast(e.error || 'Lỗi phân tích', 'error');
