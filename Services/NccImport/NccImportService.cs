@@ -20,6 +20,7 @@ namespace TourkitAiProxy.Services.NccImport;
 public class NccImportService
 {
     private readonly ProviderRegistry _registry;
+    private readonly AiModelRegistry _modelRegistry;
     private readonly ILogger<NccImportService> _log;
 
     // 10 enum Loại NCC từ file mẫu — AI bắt buộc snap free-text về 1 trong các giá trị này.
@@ -30,9 +31,9 @@ public class NccImportService
     };
     public static readonly string[] AllowedStatus = new[] { "Hoạt động", "Ngừng" };
 
-    public NccImportService(ProviderRegistry registry, ILogger<NccImportService> log)
+    public NccImportService(ProviderRegistry registry, AiModelRegistry modelRegistry, ILogger<NccImportService> log)
     {
-        _registry = registry; _log = log;
+        _registry = registry; _modelRegistry = modelRegistry; _log = log;
     }
 
     // ──────────────────────────────────────────────────────────────────────────
@@ -108,16 +109,18 @@ public class NccImportService
     /// User dán text tự do (paste từ Word, PDF copy…). AI mới biết tách hàng.
     public async Task<NccExtractResult> ExtractFromTextAsync(string text, string? providerId, string? model, CancellationToken ct)
     {
-        var provider = _registry.Resolve(providerId);
+        // Resolve qua AiModelRegistry → caller có thể omit providerId/model, đọc từ Models:NccImport.
+        var resolved = _modelRegistry.Resolve(AiFeature.NccImport, providerId, model);
+        var provider = _registry.Resolve(resolved.Provider);
         var prompt = BuildAiExtractPrompt(text);
         var req = new CompleteRequest(
             Prompt: prompt,
             Provider: provider.Id,
-            Model: model,
+            Model: resolved.Model,
             MaxTokens: 6000,
             Temperature: 0.1,
             System: AI_SYSTEM,
-            ApiKey: null);
+            ApiKey: resolved.ApiKey);
         var ai = await provider.CompleteAsync(req, ct);
         var rows = ParseAiJson(ai.Text);
         return new NccExtractResult(
