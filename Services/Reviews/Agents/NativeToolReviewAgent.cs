@@ -25,7 +25,6 @@ public class NativeToolReviewAgent : IReviewAgent
     private readonly AiCallContext _ctx;
     private readonly ILogger<NativeToolReviewAgent> _log;
 
-    private const string DefaultModel = "claude-sonnet-4-5";
     private const int MaxTokens = 4000;
 
     public NativeToolReviewAgent(
@@ -55,7 +54,8 @@ public class NativeToolReviewAgent : IReviewAgent
         await Stage("preparing");
         var userPrompt = ReviewPrompt.BuildUserPromptForNative(customer);
         var schema = ReviewPrompt.BuildSubmitReviewToolSchema();
-        var model = !string.IsNullOrWhiteSpace(modelOverride) ? modelOverride! : DefaultModel;
+        // ReviewService đã resolve qua AiModelRegistry(CustomerReview) → modelOverride non-null. Defensive '!'.
+        var model = modelOverride!;
         var apiKey = !string.IsNullOrWhiteSpace(apiKeyOverride) ? apiKeyOverride! : _keys.Get("anthropic");
 
         trace?.SetMeta("agent", "NativeToolReviewAgent");
