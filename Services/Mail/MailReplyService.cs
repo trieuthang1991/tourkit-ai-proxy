@@ -10,6 +10,7 @@ namespace TourkitAiProxy.Services.Mail;
 public class MailReplyService
 {
     private readonly ProviderRegistry _registry;
+    private readonly AiModelRegistry _modelRegistry;
     private readonly MailRepository _repo;
     private readonly MailAccountStore _account;
     private readonly IWorkflowTraceAccessor _trace;
@@ -22,10 +23,11 @@ public class MailReplyService
         "Bám đúng nội dung email khách; KHÔNG bịa thông tin chưa có (giá cụ thể, lịch trình, khuyến mãi) trừ khi có trong chỉ thị nhân viên. " +
         "CHỈ trả nội dung email (lời chào + thân bài + ký tên), KHÔNG markdown, KHÔNG bọc trong dấu nháy.";
 
-    public MailReplyService(ProviderRegistry registry, MailRepository repo, MailAccountStore account,
-        IWorkflowTraceAccessor trace, ILogger<MailReplyService> log)
+    public MailReplyService(ProviderRegistry registry, AiModelRegistry modelRegistry, MailRepository repo,
+        MailAccountStore account, IWorkflowTraceAccessor trace, ILogger<MailReplyService> log)
     {
-        _registry = registry; _repo = repo; _account = account; _trace = trace; _log = log;
+        _registry = registry; _modelRegistry = modelRegistry; _repo = repo;
+        _account = account; _trace = trace; _log = log;
     }
 
     /// Trả lời 1 email. Stream nháp; trả text đầy đủ; lưu nháp + status dang_xu_ly.
@@ -37,6 +39,14 @@ public class MailReplyService
         trace?.SetMeta("mailId", mail.Id);
         trace?.SetMeta("tone", req.Tone);
         trace?.SetMeta("hasInstruction", !string.IsNullOrWhiteSpace(req.Instruction));
+
+        // Resolve qua AiModelRegistry → caller có thể omit provider/model/apiKey, đọc từ Models:MailDraft.
+        var resolved = _modelRegistry.Resolve(AiFeature.MailDraft, req.Provider, req.Model);
+        req = req with {
+            Provider = resolved.Provider,
+            Model    = resolved.Model,
+            ApiKey   = req.ApiKey ?? resolved.ApiKey
+        };
 
         var text = await RunAsync(
             BuildReplyPrompt(tenantId, mail, MailTaxonomy.ToneLabel(req.Tone), req.Instruction),
@@ -59,6 +69,15 @@ public class MailReplyService
         trace?.SetMeta("to", req.To);
         trace?.SetMeta("subject", req.Subject);
         trace?.SetMeta("tone", req.Tone);
+
+        // Resolve qua AiModelRegistry → caller có thể omit provider/model/apiKey, đọc từ Models:MailCompose.
+        var resolved = _modelRegistry.Resolve(AiFeature.MailCompose, req.Provider, req.Model);
+        req = req with {
+            Provider = resolved.Provider,
+            Model    = resolved.Model,
+            ApiKey   = req.ApiKey ?? resolved.ApiKey
+        };
+
         return RunAsync(BuildComposePrompt(tenantId, req, MailTaxonomy.ToneLabel(req.Tone)),
                     req.Provider, req.Model, req.ApiKey, onDelta, ct);
     }
