@@ -15,6 +15,7 @@ public class VisaExtractionService
     private static readonly HashSet<string> VisionProviders = new(StringComparer.OrdinalIgnoreCase) { "openai", "anthropic" };
 
     private readonly ProviderRegistry _registry;
+    private readonly AiModelRegistry _modelRegistry;
     private readonly ILogger<VisaExtractionService> _log;
 
     private const string SYSTEM =
@@ -22,9 +23,9 @@ public class VisaExtractionService
         "CHỈ trả JSON thuần (bắt đầu bằng '{'), KHÔNG markdown, KHÔNG giải thích. " +
         "KHÔNG bịa thông tin không thấy trong ảnh. Nếu ảnh mờ/không đọc được, đặt readable=false.";
 
-    public VisaExtractionService(ProviderRegistry registry, ILogger<VisaExtractionService> log)
+    public VisaExtractionService(ProviderRegistry registry, AiModelRegistry modelRegistry, ILogger<VisaExtractionService> log)
     {
-        _registry = registry; _log = log;
+        _registry = registry; _modelRegistry = modelRegistry; _log = log;
     }
 
     /// Kind = Image (jpg/png/webp/gif), Pdf (gửi vision API), Text (DOCX đã extract text)
@@ -35,6 +36,12 @@ public class VisaExtractionService
     public async Task<(VisaExtraction Extraction, string? Name, string? Country)> ExtractAsync(
         IReadOnlyList<UploadFile> files, string? provider, string? model, string? apiKey, CancellationToken ct)
     {
+        // Resolve qua AiModelRegistry → caller có thể omit provider/model/apiKey, đọc từ Models:VisaExtraction.
+        var resolved = _modelRegistry.Resolve(AiFeature.VisaExtraction, provider, model);
+        provider = resolved.Provider;
+        model    = resolved.Model;
+        apiKey   = apiKey ?? resolved.ApiKey;
+
         var p = _registry.Resolve(provider);
         if (!VisionProviders.Contains(p.Id))
             throw new InvalidOperationException(
