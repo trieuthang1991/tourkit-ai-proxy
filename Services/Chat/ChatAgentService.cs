@@ -20,6 +20,7 @@ public class ChatAgentService
 {
     private readonly IEnumerable<IAgentRuntime> _runtimes;
     private readonly ProviderRegistry _registry;
+    private readonly AiModelRegistry _modelRegistry;
     private readonly TkSessionStore _sessions;
     private readonly Cache.ChatCache _cache;
     private readonly UnresolvedQuestionsLog _unresolved;
@@ -29,6 +30,7 @@ public class ChatAgentService
     public ChatAgentService(
         IEnumerable<IAgentRuntime> runtimes,
         ProviderRegistry registry,
+        AiModelRegistry modelRegistry,
         TkSessionStore sessions,
         Cache.ChatCache cache,
         UnresolvedQuestionsLog unresolved,
@@ -37,6 +39,7 @@ public class ChatAgentService
     {
         _runtimes       = runtimes;
         _registry       = registry;
+        _modelRegistry  = modelRegistry;
         _sessions       = sessions;
         _cache          = cache;
         _unresolved     = unresolved;
@@ -46,6 +49,13 @@ public class ChatAgentService
 
     public async Task<ChatResult> AskAsync(ChatRequest req, string sessionId, CancellationToken ct)
     {
+        // Resolve qua AiModelRegistry → req.Provider/Model có thể null, đọc từ Models:ChatAnalytics.
+        var resolved = _modelRegistry.Resolve(AiFeature.ChatAnalytics, req.Provider, req.Model);
+        req = req with {
+            Provider = resolved.Provider,
+            Model    = resolved.Model,
+            ApiKey   = req.ApiKey ?? resolved.ApiKey
+        };
         var provider = _registry.Resolve(req.Provider);
         var history = req.Messages ?? new();
         var question = history.LastOrDefault(m => m.Role == "user")?.Content ?? "";
@@ -170,6 +180,13 @@ public class ChatAgentService
     /// </summary>
     public async Task AskStreamAsync(ChatRequest req, string sessionId, Func<object, Task> emit, CancellationToken ct)
     {
+        // Resolve qua AiModelRegistry → req.Provider/Model có thể null, đọc từ Models:ChatAnalytics.
+        var resolved = _modelRegistry.Resolve(AiFeature.ChatAnalytics, req.Provider, req.Model);
+        req = req with {
+            Provider = resolved.Provider,
+            Model    = resolved.Model,
+            ApiKey   = req.ApiKey ?? resolved.ApiKey
+        };
         var provider = _registry.Resolve(req.Provider);
         var history = req.Messages ?? new();
         var question = history.LastOrDefault(m => m.Role == "user")?.Content ?? "";

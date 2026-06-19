@@ -35,12 +35,12 @@ public static class MailEndpoints
         {
             var auth = RequireSession(ctx, sessions);
             if (auth == null) return Unauthorized();
-            var (_, tenant) = auth.Value;
+            var (_, tenant, user) = auth.Value;
             return Results.Json(new
             {
-                address = account.CurrentAddress(tenant),
-                configured = account.IsConfigured(tenant),
-                signature = account.Signature(tenant)
+                address = account.CurrentAddress(tenant, user),
+                configured = account.IsConfigured(tenant, user),
+                signature = account.Signature(tenant, user)
             });
         });
 
@@ -49,12 +49,35 @@ public static class MailEndpoints
         {
             var auth = RequireSession(ctx, sessions);
             if (auth == null) return Unauthorized();
-            var (_, tenant) = auth.Value;
+            var (_, tenant, user) = auth.Value;
             if (string.IsNullOrWhiteSpace(req.Address) || string.IsNullOrWhiteSpace(req.AppPassword))
                 return Results.BadRequest(new { error = "Thiếu địa chỉ Gmail hoặc App Password" });
             // App Password Gmail là 16 ký tự (có thể có khoảng trắng) — bỏ khoảng trắng.
-            account.Set(tenant, req.Address.Trim(), req.AppPassword.Replace(" ", "").Trim(), req.Signature);
-            return Results.Json(new { ok = true, address = account.CurrentAddress(tenant), configured = account.IsConfigured(tenant), signature = account.Signature(tenant) });
+            account.Set(tenant, user, req.Address.Trim(), req.AppPassword.Replace(" ", "").Trim(), req.Signature);
+            return Results.Json(new { ok = true, address = account.CurrentAddress(tenant, user), configured = account.IsConfigured(tenant, user), signature = account.Signature(tenant, user) });
+        });
+
+        // ─── DELETE /mail/account ─── ngắt kết nối Gmail của user hiện tại ───────
+        // Mặc định CHỈ xoá credentials (App Password) của user — giữ lịch sử mail đã sync để xem lại.
+        // ?wipeMails=true → xoá luôn dbo.Mails + dbo.MailSyncState của TENANT (lưu ý: chung tenant).
+        v1.MapDelete("/mail/account", (HttpContext ctx, MailAccountStore account,
+            MailRepository repo, MailSyncStore sync, TkSessionStore sessions,
+            ILogger<Program> log, bool? wipeMails) =>
+        {
+            var auth = RequireSession(ctx, sessions);
+            if (auth == null) return Unauthorized();
+            var (_, tenant, user) = auth.Value;
+
+            var acctRows = account.Clear(tenant, user);
+            int mailRows = 0, syncRows = 0;
+            if (wipeMails == true)
+            {
+                mailRows = repo.ClearTenant(tenant);
+                syncRows = sync.Clear(tenant);
+            }
+            log.LogInformation("[mail] disconnect tenant={Tenant} user={User} wipeMails={Wipe} account={A} mails={M} sync={S}",
+                tenant, user, wipeMails == true, acctRows, mailRows, syncRows);
+            return Results.Json(new { ok = true, cleared = new { account = acctRows, mails = mailRows, sync = syncRows } });
         });
 
         // ─── POST /mail/sync ───────────────────────────────────────────────────
@@ -67,13 +90,13 @@ public static class MailEndpoints
         {
             var auth = RequireSession(ctx, sessions);
             if (auth == null) return Unauthorized();
-            var (_, tenant) = auth.Value;
+            var (_, tenant, user) = auth.Value;
             var fetchCap = Math.Clamp(max ?? SyncMaxDefault, 1, SyncMaxAbsolute);
 
             IReadOnlyList<MailItem> fetched;
             try
             {
-                fetched = await source.FetchRecentAsync(tenant, fetchCap, ctx.RequestAborted);
+                fetched = await source.FetchRecentAsync(tenant, user, fetchCap, ctx.RequestAborted);
             }
             catch (InvalidOperationException ex)   // chưa cấu hình
             {
@@ -109,7 +132,7 @@ public static class MailEndpoints
         {
             var auth = RequireSession(ctx, sessions);
             if (auth == null) { ctx.Response.StatusCode = 401; return; }
-            var (_, tenant) = auth.Value;
+            var (_, tenant, user) = auth.Value;
             var fetchCap = Math.Clamp(max ?? SyncMaxDefault, 1, SyncMaxAbsolute);
 
             ctx.Response.Headers["Content-Type"] = "text/event-stream";
@@ -129,7 +152,7 @@ public static class MailEndpoints
                 IReadOnlyList<MailItem> fetched;
                 try
                 {
-                    fetched = await source.FetchRecentAsync(tenant, fetchCap, ctx.RequestAborted);
+                    fetched = await source.FetchRecentAsync(tenant, user, fetchCap, ctx.RequestAborted);
                 }
                 catch (InvalidOperationException ex)
                 {
@@ -177,7 +200,7 @@ public static class MailEndpoints
         {
             var auth = RequireSession(ctx, sessions);
             if (auth == null) return Unauthorized();
-            var (_, tenant) = auth.Value;
+            var (_, tenant, user) = auth.Value;
             return Results.Json(new { items = repo.Filter(tenant, status, category, search), counts = repo.Counts(tenant) });
         });
 
@@ -186,7 +209,7 @@ public static class MailEndpoints
         {
             var auth = RequireSession(ctx, sessions);
             if (auth == null) return Unauthorized();
-            var (_, tenant) = auth.Value;
+            var (_, tenant, user) = auth.Value;
             var m = repo.Get(tenant, id);
             return m == null ? Results.NotFound(new { error = "Không tìm thấy email" }) : Results.Json(m);
         });
@@ -196,7 +219,7 @@ public static class MailEndpoints
         {
             var auth = RequireSession(ctx, sessions);
             if (auth == null) return Unauthorized();
-            var (_, tenant) = auth.Value;
+            var (_, tenant, user) = auth.Value;
             return repo.SetRead(tenant, id, true)
                 ? Results.Json(new { ok = true })
                 : Results.NotFound(new { error = "Không tìm thấy email" });
@@ -216,13 +239,13 @@ public static class MailEndpoints
                 await ctx.Response.WriteAsJsonAsync(new { error = "Phiên không hợp lệ — đăng nhập lại" });
                 return;
             }
-            var (_, tenant) = auth.Value;
+            var (_, tenant, user) = auth.Value;
 
             await StartSseAsync(ctx);
             var emit = Sse(ctx);
             try
             {
-                var text = await replyService.ComposeNewStreamAsync(tenant, req, async d => await emit(new { delta = d }), ctx.RequestAborted);
+                var text = await replyService.ComposeNewStreamAsync(tenant, user, req, async d => await emit(new { delta = d }), ctx.RequestAborted);
                 await emit(new { done = true, text });
                 if (trace.Current?.Enabled == true) await emit(new { trace = trace.Current.Build() });
             }
@@ -240,12 +263,12 @@ public static class MailEndpoints
         {
             var auth = RequireSession(ctx, sessions);
             if (auth == null) return Unauthorized();
-            var (_, tenant) = auth.Value;
+            var (_, tenant, user) = auth.Value;
             if (string.IsNullOrWhiteSpace(req.To)) return Results.BadRequest(new { error = "Thiếu người nhận" });
             if (string.IsNullOrWhiteSpace(req.Text)) return Results.BadRequest(new { error = "Nội dung rỗng" });
             try
             {
-                await sender.SendAsync(tenant, req.To.Trim(), null, req.Subject ?? "", req.Text, null, ctx.RequestAborted);
+                await sender.SendAsync(tenant, user, req.To.Trim(), null, req.Subject ?? "", req.Text, null, ctx.RequestAborted);
                 return Results.Json(new { ok = true });
             }
             catch (InvalidOperationException ex) { return Results.Json(new { error = ex.Message }, statusCode: 400); }
@@ -270,7 +293,7 @@ public static class MailEndpoints
                 await ctx.Response.WriteAsJsonAsync(new { error = "Phiên không hợp lệ — đăng nhập lại" });
                 return;
             }
-            var (_, tenant) = auth.Value;
+            var (_, tenant, user) = auth.Value;
 
             var mail = repo.Get(tenant, id);
             if (mail == null)
@@ -284,7 +307,7 @@ public static class MailEndpoints
             var emit = Sse(ctx);
             try
             {
-                var text = await replyService.DraftStreamAsync(tenant, mail, req,
+                var text = await replyService.DraftStreamAsync(tenant, user, mail, req,
                     async d => await emit(new { delta = d }), ctx.RequestAborted);
                 await emit(new { done = true, text });
                 if (trace.Current?.Enabled == true) await emit(new { trace = trace.Current.Build() });
@@ -305,7 +328,7 @@ public static class MailEndpoints
         {
             var auth = RequireSession(ctx, sessions);
             if (auth == null) return Unauthorized();
-            var (_, tenant) = auth.Value;
+            var (_, tenant, user) = auth.Value;
 
             var mail = repo.Get(tenant, id);
             if (mail == null) return Results.NotFound(new { error = "Không tìm thấy email" });
@@ -313,7 +336,7 @@ public static class MailEndpoints
 
             try
             {
-                await sender.SendReplyAsync(tenant, mail, req.Text, ctx.RequestAborted);
+                await sender.SendReplyAsync(tenant, user, mail, req.Text, ctx.RequestAborted);
                 // Lưu nội dung đã gửi + chuyển trạng thái Đã phản hồi.
                 var draft = new MailDraft(req.Tone ?? mail.Draft?.Tone ?? "lich_su", req.Instruction, req.Text, DateTime.UtcNow.ToString("o"));
                 repo.SetDraft(tenant, id, draft, status: "da_phan_hoi");
@@ -335,7 +358,7 @@ public static class MailEndpoints
         {
             var auth = RequireSession(ctx, sessions);
             if (auth == null) return Unauthorized();
-            var (_, tenant) = auth.Value;
+            var (_, tenant, user) = auth.Value;
             if (!MailTaxonomy.IsStatus(req.Status))
                 return Results.BadRequest(new { error = "status không hợp lệ" });
             return repo.SetStatus(tenant, id, req.Status)
@@ -363,15 +386,16 @@ public static class MailEndpoints
         await ctx.Response.Body.FlushAsync(ctx.RequestAborted);
     };
 
-    /// Extract sessionId + tenantId từ request. Return null nếu missing/invalid session.
-    /// Handler caller trả 401 nếu null.
-    private static (string SessionId, string TenantId)? RequireSession(
+    /// Extract sessionId + tenantId + username từ request. Return null nếu missing/invalid session.
+    /// Handler caller trả 401 nếu null. Username dùng để scope MailAccount per-user
+    /// (cùng tenant nhưng 2 nhân viên = 2 hộp thư riêng).
+    private static (string SessionId, string TenantId, string Username)? RequireSession(
         HttpContext ctx, TourkitAiProxy.Services.TourKit.TkSessionStore sessions)
     {
         var sid = ctx.Request.Headers["X-Session-Id"].FirstOrDefault()
             ?? ctx.Request.Query["sessionId"].FirstOrDefault();
         var s = sessions.Get(sid);
-        return s == null ? null : (sid!, s.TenantId);
+        return s == null ? null : (sid!, s.TenantId, s.Username);
     }
 
     private static IResult Unauthorized()

@@ -20,9 +20,9 @@ public class GmailSmtpClient : IMailSender
         _account = account; _log = log;
     }
 
-    public async Task SendAsync(string tenantId, string toEmail, string? toName, string subject, string body, string? inReplyToMessageId, CancellationToken ct)
+    public async Task SendAsync(string tenantId, string username, string toEmail, string? toName, string subject, string body, string? inReplyToMessageId, CancellationToken ct)
     {
-        var creds = _account.Get(tenantId);
+        var creds = _account.Get(tenantId, username);
         if (creds is not { } c0 || string.IsNullOrWhiteSpace(c0.Address) || string.IsNullOrWhiteSpace(c0.AppPassword))
             throw new InvalidOperationException("Chưa cấu hình hộp thư Gmail.");
         var (address, appPassword) = (c0.Address, c0.AppPassword);

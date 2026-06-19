@@ -10,6 +10,7 @@ namespace TourkitAiProxy.Services.Mail;
 public class MailReplyService
 {
     private readonly ProviderRegistry _registry;
+    private readonly AiModelRegistry _modelRegistry;
     private readonly MailRepository _repo;
     private readonly MailAccountStore _account;
     private readonly IWorkflowTraceAccessor _trace;
@@ -22,15 +23,16 @@ public class MailReplyService
         "Bám đúng nội dung email khách; KHÔNG bịa thông tin chưa có (giá cụ thể, lịch trình, khuyến mãi) trừ khi có trong chỉ thị nhân viên. " +
         "CHỈ trả nội dung email (lời chào + thân bài + ký tên), KHÔNG markdown, KHÔNG bọc trong dấu nháy.";
 
-    public MailReplyService(ProviderRegistry registry, MailRepository repo, MailAccountStore account,
-        IWorkflowTraceAccessor trace, ILogger<MailReplyService> log)
+    public MailReplyService(ProviderRegistry registry, AiModelRegistry modelRegistry, MailRepository repo,
+        MailAccountStore account, IWorkflowTraceAccessor trace, ILogger<MailReplyService> log)
     {
-        _registry = registry; _repo = repo; _account = account; _trace = trace; _log = log;
+        _registry = registry; _modelRegistry = modelRegistry; _repo = repo;
+        _account = account; _trace = trace; _log = log;
     }
 
     /// Trả lời 1 email. Stream nháp; trả text đầy đủ; lưu nháp + status dang_xu_ly.
     public async Task<string> DraftStreamAsync(
-        string tenantId, MailItem mail, DraftReplyRequest req, Func<string, Task> onDelta, CancellationToken ct)
+        string tenantId, string username, MailItem mail, DraftReplyRequest req, Func<string, Task> onDelta, CancellationToken ct)
     {
         var trace = _trace.Current;
         trace?.SetWorkflow("MailReply");
@@ -38,8 +40,16 @@ public class MailReplyService
         trace?.SetMeta("tone", req.Tone);
         trace?.SetMeta("hasInstruction", !string.IsNullOrWhiteSpace(req.Instruction));
 
+        // Resolve qua AiModelRegistry → caller có thể omit provider/model/apiKey, đọc từ Models:MailDraft.
+        var resolved = _modelRegistry.Resolve(AiFeature.MailDraft, req.Provider, req.Model);
+        req = req with {
+            Provider = resolved.Provider,
+            Model    = resolved.Model,
+            ApiKey   = req.ApiKey ?? resolved.ApiKey
+        };
+
         var text = await RunAsync(
-            BuildReplyPrompt(tenantId, mail, MailTaxonomy.ToneLabel(req.Tone), req.Instruction),
+            BuildReplyPrompt(tenantId, username, mail, MailTaxonomy.ToneLabel(req.Tone), req.Instruction),
             req.Provider, req.Model, req.ApiKey, onDelta, ct);
 
         if (text.Length > 0)
@@ -52,14 +62,23 @@ public class MailReplyService
 
     /// Soạn email MỚI từ brief (người nhận + ý chính). Stream; trả text đầy đủ. KHÔNG lưu repo.
     public Task<string> ComposeNewStreamAsync(
-        string tenantId, ComposeDraftRequest req, Func<string, Task> onDelta, CancellationToken ct)
+        string tenantId, string username, ComposeDraftRequest req, Func<string, Task> onDelta, CancellationToken ct)
     {
         var trace = _trace.Current;
         trace?.SetWorkflow("MailCompose");
         trace?.SetMeta("to", req.To);
         trace?.SetMeta("subject", req.Subject);
         trace?.SetMeta("tone", req.Tone);
-        return RunAsync(BuildComposePrompt(tenantId, req, MailTaxonomy.ToneLabel(req.Tone)),
+
+        // Resolve qua AiModelRegistry → caller có thể omit provider/model/apiKey, đọc từ Models:MailCompose.
+        var resolved = _modelRegistry.Resolve(AiFeature.MailCompose, req.Provider, req.Model);
+        req = req with {
+            Provider = resolved.Provider,
+            Model    = resolved.Model,
+            ApiKey   = req.ApiKey ?? resolved.ApiKey
+        };
+
+        return RunAsync(BuildComposePrompt(tenantId, username, req, MailTaxonomy.ToneLabel(req.Tone)),
                     req.Provider, req.Model, req.ApiKey, onDelta, ct);
     }
 
@@ -101,14 +120,14 @@ public class MailReplyService
         return s.Trim();
     }
 
-    // Chỉ thị ký tên: nếu công ty đã đặt chữ ký → ký đúng tên đó; nếu chưa →
+    // Chỉ thị ký tên: nếu user đã đặt chữ ký riêng → ký đúng tên đó; nếu chưa →
     // ký trung tính "Trân trọng," KHÔNG được bịa tên công ty/thương hiệu.
-    private string SignatureLine(string tenantId) =>
-        _account.HasSignature(tenantId)
-            ? $"KÝ TÊN CUỐI EMAIL ĐÚNG BẰNG: {_account.Signature(tenantId)}"
+    private string SignatureLine(string tenantId, string username) =>
+        _account.HasSignature(tenantId, username)
+            ? $"KÝ TÊN CUỐI EMAIL ĐÚNG BẰNG: {_account.Signature(tenantId, username)}"
             : "KẾT THÚC EMAIL bằng lời chào \"Trân trọng,\" rồi xuống dòng — TUYỆT ĐỐI KHÔNG tự bịa tên công ty, thương hiệu hay tên người ký.";
 
-    private string BuildReplyPrompt(string tenantId, MailItem mail, string toneLabel, string? instruction)
+    private string BuildReplyPrompt(string tenantId, string username, MailItem mail, string toneLabel, string? instruction)
     {
         var instr = string.IsNullOrWhiteSpace(instruction) ? "(không có)" : instruction!.Trim();
         return $@"EMAIL CỦA KHÁCH:
@@ -118,12 +137,12 @@ Nội dung: {mail.Body}
 
 NGỮ ĐIỆU YÊU CẦU: {toneLabel}
 CHỈ THỊ THÊM CỦA NHÂN VIÊN: {instr}
-{SignatureLine(tenantId)}
+{SignatureLine(tenantId, username)}
 
 Soạn email trả lời hoàn chỉnh:";
     }
 
-    private string BuildComposePrompt(string tenantId, ComposeDraftRequest req, string toneLabel)
+    private string BuildComposePrompt(string tenantId, string username, ComposeDraftRequest req, string toneLabel)
     {
         var subj = string.IsNullOrWhiteSpace(req.Subject) ? "(tự đề xuất tiêu đề phù hợp trong thân bài nếu cần)" : req.Subject!.Trim();
         return $@"SOẠN EMAIL MỚI gửi khách hàng.
@@ -132,7 +151,7 @@ Tiêu đề dự kiến: {subj}
 Ý CHÍNH CẦN TRUYỀN ĐẠT: {req.Brief}
 
 NGỮ ĐIỆU: {toneLabel}
-{SignatureLine(tenantId)}
+{SignatureLine(tenantId, username)}
 
 Soạn nội dung email hoàn chỉnh:";
     }

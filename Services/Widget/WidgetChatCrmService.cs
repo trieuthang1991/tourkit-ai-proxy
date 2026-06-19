@@ -26,6 +26,7 @@ public class WidgetChatCrmService
     private const double TEMP = 0.4;
 
     private readonly ProviderRegistry _registry;
+    private readonly AiModelRegistry _modelRegistry;
     private readonly WidgetTokenRepository _repo;
     private readonly TkSessionStore _sessions;
     private readonly TourKitApiClient _api;
@@ -34,12 +35,13 @@ public class WidgetChatCrmService
     private readonly ILogger<WidgetChatCrmService> _log;
 
     public WidgetChatCrmService(
-        ProviderRegistry registry, WidgetTokenRepository repo,
+        ProviderRegistry registry, AiModelRegistry modelRegistry,
+        WidgetTokenRepository repo,
         TkSessionStore sessions, TourKitApiClient api,
         WidgetChatService faq, AiCallContext ctx,
         ILogger<WidgetChatCrmService> log)
     {
-        _registry = registry; _repo = repo; _sessions = sessions; _api = api;
+        _registry = registry; _modelRegistry = modelRegistry; _repo = repo; _sessions = sessions; _api = api;
         _faq = faq; _ctx = ctx; _log = log;
     }
 
@@ -106,12 +108,13 @@ public class WidgetChatCrmService
 
         // ── 4. Analyze stream ───────────────────────────────────────────────────
         var (system, prompt) = BuildAnalysisPrompt(token, message, history, tool, data);
-        var provider = _registry.Resolve(null);
+        var resolved = _modelRegistry.Resolve(AiFeature.Widget);
+        var provider = _registry.Resolve(resolved.Provider);
 
         using var tenantScope = _ctx.Push("widget-crm", token.TenantId);
         var req = new CompleteRequest(
-            Prompt: prompt, Provider: provider.Id, Model: null,
-            MaxTokens: MAX_TOKENS, Temperature: TEMP, System: system,
+            Prompt: prompt, Provider: provider.Id, Model: resolved.Model,
+            MaxTokens: MAX_TOKENS, Temperature: TEMP, System: system, ApiKey: resolved.ApiKey,
             Images: images, Documents: documents);
         var res = await provider.StreamAsync(req, onDelta, ct);
 
@@ -162,9 +165,10 @@ public class WidgetChatCrmService
 
         var prompt = $"DANH SÁCH API:\n{catalog}\n\nHỘI THOẠI:\n{convo}\nChọn API phù hợp NHẤT:";
 
-        var provider = _registry.Resolve(null);
+        var resolved = _modelRegistry.Resolve(AiFeature.Widget);
+        var provider = _registry.Resolve(resolved.Provider);
         using var tenantScope = _ctx.Push("widget-crm-plan", token.TenantId);
-        var req = new CompleteRequest(prompt, provider.Id, null, 400, 0.1, sys);
+        var req = new CompleteRequest(prompt, provider.Id, resolved.Model, 400, 0.1, sys, ApiKey: resolved.ApiKey);
         var res = await provider.CompleteAsync(req, ct);
 
         var obj = LooseJson.ExtractFirstObject(res.Text);

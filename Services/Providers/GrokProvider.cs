@@ -6,35 +6,30 @@ using TourkitAiProxy.Services.Quota;
 namespace TourkitAiProxy.Services.Providers;
 
 /// <summary>
-/// DeepSeek trực tiếp (api.deepseek.com) — OpenAI-compatible /chat/completions.
-/// Khác OpenCode (qua gateway zen): gọi DeepSeek HUB nguyên gốc → rẻ + ít hop.
-/// Pricing chính thức (tháng 6/2026): chat $0.27/$1.10 per Mtok in/out.
-///
-/// Auth: Bearer sk-... (đăng ký https://platform.deepseek.com).
-/// Body OpenAI-format: { model, messages: [{role, content}], max_tokens, temperature }.
-/// Response OpenAI-format: choices[0].message.content + usage.prompt_tokens/completion_tokens.
+/// Grok (xAI trực tiếp, api.x.ai) — OpenAI-compatible /chat/completions.
+/// Auth: Bearer xai-... (đăng ký https://console.x.ai).
+/// Body/response: OpenAI-format chuẩn — clone của <see cref="DeepSeekProvider"/>.
 /// </summary>
-public class DeepSeekProvider : IAiProvider
+public class GrokProvider : IAiProvider
 {
-    public string Id => "deepseek";
-    public string Label => "DeepSeek (trực tiếp)";
+    public string Id => "grok";
+    public string Label => "Grok (xAI)";
 
     public IReadOnlyList<ProviderModel> Models { get; } = new[]
     {
-        new ProviderModel("deepseek-chat",     "DeepSeek Chat",     Recommended: true),
-        new ProviderModel("deepseek-reasoner", "DeepSeek Reasoner"),   // có thinking, chậm + đắt hơn
+        new ProviderModel("grok-4.3", "Grok 4.3", Recommended: true),
     };
 
-    private const string BaseUrl = "https://api.deepseek.com";
+    private const string BaseUrl = "https://api.x.ai/v1";
     private readonly IHttpClientFactory _http;
     private readonly ProviderKeyStore _keys;
     private readonly AiUsageLog _usage;
     private readonly AiCallContext _ctx;
-    private readonly ILogger<DeepSeekProvider> _log;
+    private readonly ILogger<GrokProvider> _log;
     private readonly TenantQuotaStore _quota;
 
-    public DeepSeekProvider(IHttpClientFactory http, ProviderKeyStore keys,
-        AiUsageLog usage, AiCallContext ctx, ILogger<DeepSeekProvider> log, TenantQuotaStore quota)
+    public GrokProvider(IHttpClientFactory http, ProviderKeyStore keys,
+        AiUsageLog usage, AiCallContext ctx, ILogger<GrokProvider> log, TenantQuotaStore quota)
     {
         _http = http; _keys = keys; _usage = usage; _ctx = ctx; _log = log; _quota = quota;
     }
@@ -46,7 +41,6 @@ public class DeepSeekProvider : IAiProvider
         if (!_quota.IsAvailable(t)) { var s = _quota.Snapshot(t); throw new QuotaExhaustedException(t, s.Limit, s.Used); }
     }
 
-    // Default model: chọn model có Recommended:true trong catalog local, fallback Models[0].
     private string DefaultModel()
         => Models.FirstOrDefault(m => m.Recommended)?.Id ?? Models[0].Id;
 
@@ -56,15 +50,14 @@ public class DeepSeekProvider : IAiProvider
         var key = !string.IsNullOrWhiteSpace(req.ApiKey) ? req.ApiKey : _keys.Get(Id);
         if (string.IsNullOrWhiteSpace(key))
             throw new InvalidOperationException(
-                "Chưa cấu hình API key cho DeepSeek. Thêm Models:Primary:ApiKey " +
-                "hoặc Providers:DeepSeek:ApiKey trong appsettings.json.");
+                "Chưa cấu hình API key cho Grok. Thêm Providers:Grok:ApiKey trong appsettings.json " +
+                "hoặc env GROK_API_KEY.");
 
         var model = string.IsNullOrWhiteSpace(req.Model) ? DefaultModel() : req.Model!;
         var maxTokens = req.MaxTokens is > 0 ? req.MaxTokens.Value : 4096;
         var temperature = req.Temperature ?? 0.3;
         var system = string.IsNullOrWhiteSpace(req.System) ? OpenCodeClient.DefaultSystem : req.System!;
 
-        // OpenAI-compat chat/completions: messages[] với system + user
         var body = new
         {
             model,
@@ -78,7 +71,7 @@ public class DeepSeekProvider : IAiProvider
             stream = false
         };
 
-        var client = _http.CreateClient("deepseek");
+        var client = _http.CreateClient("grok");
         using var msg = new HttpRequestMessage(HttpMethod.Post, $"{BaseUrl}/chat/completions")
         {
             Content = new StringContent(JsonSerializer.Serialize(body), Encoding.UTF8, "application/json")
@@ -92,11 +85,10 @@ public class DeepSeekProvider : IAiProvider
 
         if (!resp.IsSuccessStatusCode)
         {
-            _log.LogWarning("[deepseek] {Status}: {Body}", resp.StatusCode, raw.Length > 500 ? raw[..500] : raw);
-            throw new UpstreamException((int)resp.StatusCode, "DeepSeek error", raw[..Math.Min(raw.Length, 800)]);
+            _log.LogWarning("[grok] {Status}: {Body}", resp.StatusCode, raw.Length > 500 ? raw[..500] : raw);
+            throw new UpstreamException((int)resp.StatusCode, "Grok error", raw[..Math.Min(raw.Length, 800)]);
         }
 
-        // Parse OpenAI-compat response
         using var doc = JsonDocument.Parse(raw);
         var root = doc.RootElement;
         var sb = new StringBuilder();
@@ -124,7 +116,7 @@ public class DeepSeekProvider : IAiProvider
         return new CompleteResult(sb.ToString(), model, inTok, outTok, sw.ElapsedMilliseconds, finish);
     }
 
-    /// Stream: buffered fallback (DeepSeek hỗ trợ SSE nhưng tính năng hiện tại không cần streaming).
+    /// Stream: buffered fallback (Grok hỗ trợ SSE; bật khi có nhu cầu streaming thật sự).
     public async Task<CompleteResult> StreamAsync(CompleteRequest req, Func<string, Task> onDelta, CancellationToken ct)
     {
         var r = await CompleteAsync(req, ct);

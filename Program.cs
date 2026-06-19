@@ -121,6 +121,7 @@ builder.Services.AddSingleton<IAiProvider, NineRoutesProvider>();
 builder.Services.AddSingleton<IAiProvider, OpenAIProvider>();
 builder.Services.AddSingleton<IAiProvider, AnthropicProvider>();
 builder.Services.AddSingleton<IAiProvider, DeepSeekProvider>();
+builder.Services.AddSingleton<IAiProvider, GrokProvider>();
 builder.Services.AddSingleton<ProviderRegistry>();
 
 // Legacy OpenCodeClient cho code cũ còn reference (sẽ remove khi clean xong)
@@ -162,7 +163,8 @@ AttachLogAndInsecure(
 builder.Services.AddSingleton<TourKitApiClient>();
 builder.Services.AddSingleton<TkSessionStore>();
 builder.Services.AddSingleton<TourkitAiProxy.Services.Cache.RedisStore>();  // generic Redis cho mọi feature
-builder.Services.AddSingleton<TourkitAiProxy.Services.Providers.ModelDefaults>();   // Models:Primary + Models:Review từ appsettings
+// Single source of truth cho cấu hình AI model per-feature.
+builder.Services.AddSingleton<TourkitAiProxy.Services.Providers.AiModelRegistry>();
 builder.Services.AddSingleton<TourkitAiProxy.Services.Cache.ChatCache>();   // Redis (nếu có) / in-memory
 builder.Services.AddSingleton<TourkitAiProxy.Services.Quota.TenantQuotaStore>();   // Quota AI per-tenant: file + Redis mirror
 

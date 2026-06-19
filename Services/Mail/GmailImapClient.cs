@@ -27,10 +27,10 @@ public class GmailImapClient : IMailSource
         _account = account; _sync = sync; _log = log;
     }
 
-    public async Task<IReadOnlyList<MailItem>> FetchRecentAsync(string tenantId, int max, CancellationToken ct)
+    public async Task<IReadOnlyList<MailItem>> FetchRecentAsync(string tenantId, string username, int max, CancellationToken ct)
     {
-        // Creds + sync state scoped theo tenant — không leak cross-tenant.
-        var creds = _account.Get(tenantId);
+        // Creds + sync state scoped theo (tenant, user) — không leak cross-tenant, cũng không leak cross-user.
+        var creds = _account.Get(tenantId, username);
         if (creds is not { } c0 || string.IsNullOrWhiteSpace(c0.Address) || string.IsNullOrWhiteSpace(c0.AppPassword))
             throw new InvalidOperationException(
                 "Chưa cấu hình hộp thư Gmail. Nhập địa chỉ + App Password (16 ký tự) ở phần Cấu hình hộp thư.");
