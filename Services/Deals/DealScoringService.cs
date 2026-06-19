@@ -19,6 +19,7 @@ public class DealScoringService
     private readonly ProviderRegistry _registry;
     private readonly AiResponseCache _cache;
     private readonly NativeToolScorer _native;
+    private readonly AiModelRegistry _modelRegistry;
     private readonly IWorkflowTraceAccessor _trace;
     private readonly ILogger<DealScoringService> _log;
 
@@ -33,10 +34,11 @@ public class DealScoringService
         "Gọi tool submit_deal_score với kết quả. Tiếng Việt.";
 
     public DealScoringService(ProviderRegistry registry, AiResponseCache cache,
-        NativeToolScorer native,
+        NativeToolScorer native, AiModelRegistry modelRegistry,
         IWorkflowTraceAccessor trace, ILogger<DealScoringService> log)
     {
-        _registry = registry; _cache = cache; _native = native; _trace = trace; _log = log;
+        _registry = registry; _cache = cache; _native = native;
+        _modelRegistry = modelRegistry; _trace = trace; _log = log;
     }
 
     public async Task<DealScore> ScoreAsync(string profile, string? provider, string? model, string? apiKey, CancellationToken ct)
@@ -45,8 +47,15 @@ public class DealScoringService
         trace?.SetWorkflow("DealScoring");
         trace?.SetMeta("profileChars", profile.Length);
 
+        // Resolve qua AiModelRegistry → đảm bảo có provider/model non-empty cho cache key + downstream.
+        var resolved = _modelRegistry.Resolve(AiFeature.DealScoring, provider, model);
+        provider = resolved.Provider;
+        model    = resolved.Model;
+        apiKey   = apiKey ?? resolved.ApiKey;
+
         var p = _registry.Resolve(provider);
         trace?.SetMeta("provider", p.Id);
+        trace?.SetMeta("model", model);
 
         var key = AiResponseCache.Hash("deal-score", model, profile);
         var cacheTimer = trace?.Begin("cache_lookup");
@@ -95,7 +104,7 @@ public class DealScoringService
             terminalToolName: "submit_deal_score",
             parser:           ParseToolInput,
             apiKeyOverride:   apiKey,
-            model:            string.IsNullOrWhiteSpace(model) ? "claude-sonnet-4-5" : model!,
+            model:            model!,
             maxTokens:        2500,
             trace:            trace,
             ct:               ct);
