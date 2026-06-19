@@ -8,7 +8,7 @@ namespace TourkitAiProxy.Services.Reviews;
 /// <summary>
 /// Orchestrate 1 lượt review KH: KHÔNG check cache → luôn gọi AI → save vào DB cho list status badge.
 ///
-/// Model mặc định đọc TỪ APPSETTINGS (`Models:Review:*`) — user không cấu hình ở UI.
+/// Model mặc định đọc TỪ APPSETTINGS (`Models:CustomerReview`) qua AiModelRegistry — user không cấu hình ở UI.
 /// Per-call override (providerOverride/modelOverride/apiKeyOverride) chỉ dùng cho admin debug/AB,
 /// frontend không gửi nữa.
 ///
@@ -18,17 +18,17 @@ public class ReviewService
 {
     private readonly ReviewRepository _reviews;
     private readonly ProviderRegistry _registry;
-    private readonly ModelDefaults _defaults;
+    private readonly AiModelRegistry _modelRegistry;
     private readonly IEnumerable<IReviewAgent> _agents;
     private readonly IWorkflowTraceAccessor _trace;
     private readonly ILogger<ReviewService> _log;
 
     public ReviewService(
-        ReviewRepository reviews, ProviderRegistry registry, ModelDefaults defaults,
+        ReviewRepository reviews, ProviderRegistry registry, AiModelRegistry modelRegistry,
         IEnumerable<IReviewAgent> agents,
         IWorkflowTraceAccessor trace, ILogger<ReviewService> log)
     {
-        _reviews = reviews; _registry = registry; _defaults = defaults; _agents = agents;
+        _reviews = reviews; _registry = registry; _modelRegistry = modelRegistry; _agents = agents;
         _trace = trace; _log = log;
     }
 
@@ -50,14 +50,14 @@ public class ReviewService
 
         var fingerprint = ReviewRepository.FingerprintFor(customer);
 
-        // Resolve provider/model/apiKey từ Models:Review config (override CHO PHÉP nhưng default = appsettings).
-        var review = _defaults.Review;
-        var resolvedProvider = providerOverride ?? review.Provider;
-        var resolvedModel    = modelOverride    ?? review.Model;
-        var resolvedApiKey   = apiKeyOverride   ?? review.ApiKey;
+        // Resolve provider/model/apiKey qua AiModelRegistry (Models:CustomerReview).
+        var resolved = _modelRegistry.Resolve(AiFeature.CustomerReview, providerOverride, modelOverride);
+        var resolvedProvider = resolved.Provider;
+        var resolvedModel    = resolved.Model;
+        var resolvedApiKey   = apiKeyOverride ?? resolved.ApiKey;   // admin override vẫn cho phép
 
         trace?.Step("config_resolved", "ok", 0,
-            $"Models:Review từ appsettings → provider={resolvedProvider}, model={resolvedModel}, " +
+            $"Models:CustomerReview qua AiModelRegistry → provider={resolvedProvider}, model={resolvedModel}, " +
             $"apiKey={(string.IsNullOrEmpty(resolvedApiKey) ? "(rỗng — fallback ProviderKeyStore)" : "***")}",
             new() {
                 ["provider"] = resolvedProvider ?? "",
