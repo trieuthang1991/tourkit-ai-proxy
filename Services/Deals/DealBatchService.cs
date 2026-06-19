@@ -33,6 +33,7 @@ public class DealBatchService
     public DealBatchJob Start(string sessionId, string tenant, DealAnalyzeRequest req)
     {
         var job = _jobs.Create();
+        job.TenantId = tenant;   // stream/cancel verify tenant
         job.Status = "processing";
         _ = RunAsync(job, sessionId, tenant, req);
         return job;
@@ -120,12 +121,14 @@ public class DealBatchService
                     try
                     {
                         var ctx = await _client.GetContextAsync(sessionId, deal, innerCt);
-                        var score = _repo.GetScore(tenant, deal.Id, ctx.Fingerprint);
-                        if (score == null)
-                        {
-                            score = await _scorer.ScoreAsync(ctx.Profile, req.Provider, req.Model, req.ApiKey, innerCt);
-                            _repo.SaveScore(tenant, deal.Id, ctx.Fingerprint, score);
-                        }
+                        // Cache đã BỎ (yêu cầu 2026-06-18): luôn chấm lại, KHÔNG check _repo.GetScore.
+                        // DealScoring CHỈ đọc model/key từ appsettings (Models:DealScoring) — bỏ override
+                        // từ frontend (cfg.provider/cfg.model trong localStorage hay làm sai vì FE từng set
+                        // anthropic/haiku, đè qua config server-side grok-4.3 → log toàn haiku).
+                        DealScore score = await _scorer.ScoreAsync(ctx.Profile, null, null, null, innerCt);
+                        // SaveScore VẪN GIỮ: worker DealScoreSyncService đọc dbo.DealScores → sync cột [rank]
+                        // xuống BookingTickets tenant DB → frontend filter rank/Win cao/thấp dùng được.
+                        _repo.SaveScore(tenant, deal.Id, ctx.Fingerprint, score);
 
                         var (priority, ev) = DealHeuristic.FinalPriority(score.WinRate, deal.TotalPrice, deal.AgeDays);
                         var item = new DealBoardItem(

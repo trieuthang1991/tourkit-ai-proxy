@@ -124,10 +124,13 @@ public static class DealEndpoints
         });
 
         // ─── GET /deals/analyze/{jobId}/stream ─── SSE ───────────────────────────
-        v1.MapGet("/deals/analyze/{jobId}/stream", async (string jobId, HttpContext ctx, DealBatchJobStore jobs, ILogger<Program> log) =>
+        v1.MapGet("/deals/analyze/{jobId}/stream", async (string jobId, HttpContext ctx, DealBatchJobStore jobs, TkSessionStore sessions, ILogger<Program> log) =>
         {
+            // Auth + tenant scope: stream lộ deal/KH/winRate → PHẢI verify session + đúng tenant.
+            var sess = sessions.Get(Sid(ctx));
+            if (sess == null) { ctx.Response.StatusCode = 401; await ctx.Response.WriteAsJsonAsync(new { error = "Phiên không hợp lệ — đăng nhập lại" }); return; }
             var job = jobs.Get(jobId);
-            if (job == null) { ctx.Response.StatusCode = 404; await ctx.Response.WriteAsJsonAsync(new { error = $"Không tìm thấy job {jobId}" }); return; }
+            if (job == null || job.TenantId != sess.TenantId) { ctx.Response.StatusCode = 404; await ctx.Response.WriteAsJsonAsync(new { error = $"Không tìm thấy job {jobId}" }); return; }
 
             ctx.Response.Headers["Content-Type"]      = "text/event-stream";
             ctx.Response.Headers["Cache-Control"]     = "no-cache, no-transform";
@@ -147,12 +150,26 @@ public static class DealEndpoints
                     await Write(new { type = evt.Type, payload = evt.Payload, error = evt.Error });
                 jobs.Remove(jobId);
             }
-            catch (OperationCanceledException) { log.LogInformation("[deals-stream] client {Id} ngắt", jobId); }
+            catch (OperationCanceledException)
+            {
+                // Client ngắt → cancel job.Cts để dừng chấm (nếu không, batch chạy hết topN call AI =
+                // đốt token cho người đã thoát) + Remove khỏi store (trước đây chỉ log → vừa đốt token
+                // vừa leak entry). Cancel idempotent. Cancel TRƯỚC Remove.
+                job.Cts.Cancel();
+                log.LogInformation("[deals-stream] client {Id} ngắt → cancel batch", jobId);
+                jobs.Remove(jobId);
+            }
         });
 
         // ─── POST /deals/analyze/{jobId}/cancel ──────────────────────────────────
-        v1.MapPost("/deals/analyze/{jobId}/cancel", (string jobId, DealBatchService batch) =>
-            batch.Cancel(jobId) ? Results.Json(new { ok = true }) : Results.NotFound(new { error = "Job không tồn tại hoặc đã xong" }));
+        v1.MapPost("/deals/analyze/{jobId}/cancel", (string jobId, HttpContext ctx, DealBatchJobStore jobs, DealBatchService batch, TkSessionStore sessions) =>
+        {
+            var sess = sessions.Get(Sid(ctx));
+            if (sess == null) return Unauthorized();
+            var job = jobs.Get(jobId);
+            if (job == null || job.TenantId != sess.TenantId) return Results.NotFound(new { error = "Job không tồn tại hoặc đã xong" });
+            return batch.Cancel(jobId) ? Results.Json(new { ok = true }) : Results.NotFound(new { error = "Job không tồn tại hoặc đã xong" });
+        });
 
         // ─── GET /deals/board ─── bảng đã cache ──────────────────────────────────
         v1.MapGet("/deals/board", (HttpContext ctx, DealRepository repo, TkSessionStore sessions) =>

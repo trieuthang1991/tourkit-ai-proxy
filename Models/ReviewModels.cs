@@ -74,11 +74,14 @@ public record FeedbackRequest(
 public class BatchJob
 {
     public string Id { get; init; } = Guid.NewGuid().ToString("N");
+    public string TenantId { get; set; } = "";   // set ở BatchService.Start — stream/cancel verify đúng tenant
     public List<string> CustomerIds { get; init; } = new();
     public int Total => CustomerIds.Count;
-    public int Done   { get; set; }
-    public int Errors { get; set; }
-    public int Cached { get; set; }
+    // Counter thay đổi từ Parallel.ForEachAsync (CONCURRENCY=10) → dùng FIELD thay vì property
+    // để Interlocked.Increment(ref …) hợp lệ (ref property chỉ hỗ trợ từ C# 12 — giữ field cho an toàn).
+    public int Done;
+    public int Errors;
+    public int Cached;
     public string Status { get; set; } = "queued";                                   // queued/processing/done/cancelled
     public DateTime StartedAt  { get; init; } = DateTime.UtcNow;
     public DateTime? FinishedAt { get; set; }

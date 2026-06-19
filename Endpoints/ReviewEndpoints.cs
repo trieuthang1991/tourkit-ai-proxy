@@ -213,10 +213,14 @@ public static class ReviewEndpoints
             });
         });
 
-        v1.MapGet("/reviews/batch/{jobId}/stream", async (string jobId, HttpContext ctx, BatchJobStore jobs, ILogger<Program> log) =>
+        v1.MapGet("/reviews/batch/{jobId}/stream", async (string jobId, HttpContext ctx, BatchJobStore jobs, TkSessionStore sessions, ILogger<Program> log) =>
         {
+            // Auth + tenant scope: stream lộ tên KH / hạng / summaryLine → PHẢI verify session + đúng tenant.
+            var sess = sessions.Get(Sid(ctx));
+            if (sess == null) { ctx.Response.StatusCode = 401; await ctx.Response.WriteAsJsonAsync(new { error = "Phiên không hợp lệ — đăng nhập lại" }); return; }
             var job = jobs.Get(jobId);
-            if (job == null) { ctx.Response.StatusCode = 404; await ctx.Response.WriteAsJsonAsync(new { error = $"Không tìm thấy job {jobId}" }); return; }
+            // Tenant mismatch → 404 (không lộ job của tenant khác tồn tại).
+            if (job == null || job.TenantId != sess.TenantId) { ctx.Response.StatusCode = 404; await ctx.Response.WriteAsJsonAsync(new { error = $"Không tìm thấy job {jobId}" }); return; }
 
             ctx.Response.Headers["Content-Type"]      = "text/event-stream";
             ctx.Response.Headers["Cache-Control"]     = "no-cache, no-transform";
@@ -238,16 +242,25 @@ public static class ReviewEndpoints
             }
             catch (OperationCanceledException)
             {
-                // Client thoát page giữa chừng → cleanup khỏi store (BatchService finally vẫn chạy
-                // cho đến khi nhận POST /cancel; nếu client đã gửi cancel song song thì job sẽ bị
-                // cancel + lưu kết quả phần đã chạy. Không cleanup ở đây = leak entry trong BatchJobStore).
-                log.LogInformation("[batch-stream] client {Id} ngắt giữa chừng", jobId);
+                // Client thoát page giữa chừng (đóng tab/crash/rớt mạng → KHÔNG có POST /cancel,
+                // HOẶC /cancel tới sau race với Remove này). PHẢI tự cancel job.Cts để dừng
+                // Parallel.ForEachAsync — nếu không, batch chạy hết 200 KH, mỗi KH 1 call AI = đốt
+                // token cho người đã thoát. Cancel idempotent (an toàn nếu /cancel đã chạy trước).
+                // Cancel TRƯỚC Remove (Remove xong thì POST /cancel không Get được job nữa).
+                job.Cts.Cancel();
+                log.LogInformation("[batch-stream] client {Id} ngắt giữa chừng → cancel batch", jobId);
                 jobs.Remove(jobId);
             }
         });
 
-        v1.MapPost("/reviews/batch/{jobId}/cancel", (string jobId, BatchService batch) =>
-            batch.Cancel(jobId) ? Results.Json(new { ok = true }) : Results.BadRequest(new { error = "Job không tồn tại hoặc đã kết thúc" }));
+        v1.MapPost("/reviews/batch/{jobId}/cancel", (string jobId, HttpContext ctx, BatchJobStore jobs, BatchService batch, TkSessionStore sessions) =>
+        {
+            var sess = sessions.Get(Sid(ctx));
+            if (sess == null) return Unauthorized();
+            var job = jobs.Get(jobId);
+            if (job == null || job.TenantId != sess.TenantId) return Results.NotFound(new { error = "Job không tồn tại hoặc đã kết thúc" });
+            return batch.Cancel(jobId) ? Results.Json(new { ok = true }) : Results.NotFound(new { error = "Job không tồn tại hoặc đã kết thúc" });
+        });
 
         // Admin: backfill TenantId cho rows legacy (migrated từ JSON cũ có TenantId="").
         // Cần session hợp lệ — TenantId lấy từ session, dọn rows TenantId='' không xung đột.

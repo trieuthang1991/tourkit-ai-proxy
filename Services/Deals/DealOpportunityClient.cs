@@ -189,6 +189,51 @@ public class DealOpportunityClient
         }
         catch (Exception ex) { _log.LogDebug(ex, "Deal {Id} comments bỏ qua", deal.Id); }
 
+        // ── Enrich: HỒ SƠ KHÁCH HÀNG (lịch sử CRM) — join theo SĐT (cách hệ thống định danh KH,
+        //    giống FindDuplicatePhone lúc tạo tour). Cho AI biết khách là VIP mua lại hay lead lạ
+        //    → chấm sát hơn. Reuse /api/ai/customers (đã có totalTours/totalRevenue/rank/lastCare).
+        //    Best-effort: lỗi/không khớp → bỏ qua, không phá scoring. Block này vào profile →
+        //    fingerprint đổi → chấm lại đúng khi hồ sơ KH xuất hiện/thay đổi.
+        if (!string.IsNullOrWhiteSpace(deal.Phone))
+        {
+            try
+            {
+                var digits = new string(deal.Phone.Where(char.IsDigit).ToArray());
+                if (digits.Length >= 6)
+                {
+                    var env = await GetAsync(sessionId, "/api/ai/customers?pageSize=3&filter=" + Uri.EscapeDataString(digits), ct);
+                    if (env.ValueKind == JsonValueKind.Object && env.TryGetProperty("items", out var citems)
+                        && citems.ValueKind == JsonValueKind.Array && citems.GetArrayLength() > 0)
+                    {
+                        // Khớp ĐÚNG SĐT nếu có nhiều kết quả (tránh nhầm KH trùng tên); else lấy đầu.
+                        var cust = citems[0];
+                        foreach (var it in citems.EnumerateArray())
+                        {
+                            var ph = new string((GetStr(it, "phone") ?? "").Where(char.IsDigit).ToArray());
+                            if (ph == digits) { cust = it; break; }
+                        }
+                        var tours    = GetInt(cust, "totalTours") ?? 0;
+                        var revFmt   = GetStr(cust, "totalRevenueFormatted");
+                        var grp      = GetStr(cust, "groupName");
+                        var rankName = GetStr(cust, "rankName");
+                        var lastCare = GetStr(cust, "lastCareDateFormatted");
+                        var cnote    = StripHtml(GetStr(cust, "note") ?? "");
+
+                        sb.Append("\nHỒ SƠ KHÁCH HÀNG (lịch sử CRM):\n");
+                        if (!string.IsNullOrWhiteSpace(grp)) sb.Append("• Nhóm: ").Append(grp).Append('\n');
+                        sb.Append("• Đã mua: ").Append(tours).Append(" tour");
+                        if (!string.IsNullOrWhiteSpace(revFmt)) sb.Append(" · Tổng chi: ").Append(revFmt);
+                        sb.Append('\n');
+                        if (!string.IsNullOrWhiteSpace(rankName)) sb.Append("• Hạng AI của khách: ").Append(rankName).Append('\n');
+                        if (!string.IsNullOrWhiteSpace(lastCare)) sb.Append("• Chăm sóc cuối: ").Append(lastCare).Append('\n');
+                        if (!string.IsNullOrWhiteSpace(cnote)) sb.Append("• Nhu cầu/ghi chú: ").Append(cnote.Length > 200 ? cnote[..200] : cnote).Append('\n');
+                        if (tours == 0) sb.Append("• (Khách MỚI — chưa có giao dịch nào trong CRM)\n");
+                    }
+                }
+            }
+            catch (Exception ex) { _log.LogDebug(ex, "Deal {Id} enrich hồ sơ KH bỏ qua", deal.Id); }
+        }
+
         var profile = sb.ToString().Trim();
         return new DealContext(profile, Fingerprint(profile), commentCount);
     }

@@ -7,6 +7,7 @@ namespace TourkitAiProxy.Services.Deals;
 public class DealBatchJob
 {
     public string Id { get; } = Guid.NewGuid().ToString("N");
+    public string TenantId { get; set; } = "";       // set ở DealBatchService.Start — stream/cancel verify đúng tenant
     public string Status { get; set; } = "queued";   // queued/processing/done/cancelled/error
     public int Total { get; set; }                    // số deal được chấm sâu (biết sau khi rank)
     public int Done { get; set; }

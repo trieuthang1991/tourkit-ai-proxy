@@ -57,16 +57,9 @@ public class DealScoringService
         trace?.SetMeta("provider", p.Id);
         trace?.SetMeta("model", model);
 
-        var key = AiResponseCache.Hash("deal-score", model, profile);
-        var cacheTimer = trace?.Begin("cache_lookup");
-        var cached = _cache.TryGet<DealScore>(key);
-        if (cached != null)
-        {
-            cacheTimer?.Done("ok", $"Cache HIT (24h) → winRate={cached.WinRate}%, level={cached.Level}",
-                new() { ["winRate"] = cached.WinRate, ["level"] = cached.Level });
-            return cached;
-        }
-        cacheTimer?.Done("skip", "Cache MISS → gọi AI");
+        // Cache đã BỎ (yêu cầu 2026-06-18): luôn gọi AI fresh, không lookup AiResponseCache.
+        // DealRepository.SaveScore vẫn được DealBatchService gọi sau khi nhận kết quả → worker
+        // DealScoreSyncService vẫn đồng bộ Rank xuống tenant DB như cũ.
 
         // ── Dispatch theo provider ────────────────────────────────────────────
         DealScore result;
@@ -85,7 +78,8 @@ public class DealScoringService
             result = await ScoreWithJsonPromptAsync(p, profile, provider, model, apiKey, trace, ct);
         }
 
-        _cache.Save(key, result);
+        // Cache AiResponseCache.Save BỎ (xem note ở đầu method). Persistence chấm sâu vẫn qua
+        // DealRepository.SaveScore (gọi từ DealBatchService) → dbo.DealScores → worker sync Rank.
         return result;
     }
 
@@ -127,8 +121,11 @@ public class DealScoringService
                 ? BuildPromptJson(profile)
                 : BuildPromptJson(profile) + "\n\nLƯU Ý: Lần trước trả SAI định dạng. CHỈ trả ĐÚNG 1 JSON object hợp lệ, không thêm bất kỳ chữ nào ngoài JSON.";
             var req = new CompleteRequest(
+                // Temperature 0 (greedy) cho tác vụ CHẤM ĐIỂM: cùng hồ sơ → cùng winRate. Trước đây 0.3
+                // (sampling ngẫu nhiên) khiến 2 lần chấm ra điểm lệch ±10-20; cache cũ giấu đi bằng cách
+                // trả kết quả lần đầu. Bỏ cache → variance lộ ra → hạ về 0 để chuẩn hóa.
                 Prompt: prompt, Provider: provider, Model: model,
-                MaxTokens: attempt == 1 ? 1800 : 2400, Temperature: 0.3, System: SystemJsonPrompt, ApiKey: apiKey);
+                MaxTokens: attempt == 1 ? 1800 : 2400, Temperature: 0, System: SystemJsonPrompt, ApiKey: apiKey);
             var aiTimer = trace?.Begin($"ai_score_attempt{attempt}");
             try
             {
@@ -197,7 +194,8 @@ Gọi submit_deal_score NGAY. KHÔNG trả text giải thích ngoài tool.";
 5. risks: rủi ro làm tuột deal (lâu không chăm, khách im, cạnh tranh...)
 6. nextAction: 1 hành động CỤ THỂ Sale nên làm tiếp theo NGAY (vd 'Gọi lại trong hôm nay chốt cọc vì khách đã đồng ý giá')
 7. reason: 1 câu vì sao nên ưu tiên (hoặc không)
-8. Tiếng Việt ngắn gọn, thực dụng";
+8. HỒ SƠ KHÁCH HÀNG (nếu có trong hồ sơ): khách mua lại nhiều / tổng chi cao / hạng A → TĂNG khả năng thắng; khách MỚI chưa giao dịch → thận trọng hơn. Nhưng KHÔNG để lịch sử KH lấn át tín hiệu deal hiện tại (trạng thái, độ chăm, phản hồi).
+9. Tiếng Việt ngắn gọn, thực dụng";
 
     // ─── Schema cho native tool ─────────────────────────────────────────────────
     private static JsonElement BuildDealScoreSchema()

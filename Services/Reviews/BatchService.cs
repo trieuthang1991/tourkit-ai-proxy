@@ -33,6 +33,7 @@ public class BatchService
         string? providerOverride = null, string? modelOverride = null, string? apiKeyOverride = null)
     {
         var job = _jobs.Create(customerIds);
+        job.TenantId = _sessions.Get(sessionId)?.TenantId ?? "";   // stream/cancel verify tenant
         job.Status = "processing";
 
         // 3 override apply CHO TẤT CẢ KH trong batch — nhất quán result, dễ so sánh batch.
@@ -74,8 +75,7 @@ public class BatchService
                     var customer = await _source.GetFullAsync(sessionId, id, innerCt);
                     if (customer == null)
                     {
-                        Interlocked.Increment(ref _errors);
-                        job.Errors++;
+                        Interlocked.Increment(ref job.Errors);
                         await job.Events.Writer.WriteAsync(new BatchEvent("error", CustomerId: id, Error: "Không tìm thấy KH"), innerCt);
                         return;
                     }
@@ -100,8 +100,9 @@ public class BatchService
                             apiKeyOverride:   apiKeyOverride,
                             ct:               innerCt);
 
-                        if (fromCache) job.Cached++;
-                        job.Done++;
+                        // Atomic — concurrency=10 threads cùng update; ++ thường mất tick
+                        if (fromCache) Interlocked.Increment(ref job.Cached);
+                        Interlocked.Increment(ref job.Done);
 
                         await job.Events.Writer.WriteAsync(new BatchEvent(
                             Type: fromCache ? "cached" : "progress",
@@ -120,7 +121,7 @@ public class BatchService
                     catch (Exception ex)
                     {
                         _log.LogWarning(ex, "[batch] review KH {Id} failed", id);
-                        job.Errors++;
+                        Interlocked.Increment(ref job.Errors);
                         await job.Events.Writer.WriteAsync(new BatchEvent("error", CustomerId: id, Error: ex.Message), innerCt);
                     }
                 });
@@ -174,8 +175,4 @@ public class BatchService
         return true;
     }
 
-    // Field placeholder cho Interlocked usage (not actually needed since job.Errors is single-writer in this design).
-#pragma warning disable CS0414
-    private int _errors;
-#pragma warning restore CS0414
 }
