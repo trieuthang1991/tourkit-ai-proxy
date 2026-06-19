@@ -19,6 +19,7 @@ public class VisaScoringService
     private readonly ProviderRegistry _registry;
     private readonly AiResponseCache _cache;
     private readonly NativeToolScorer _native;
+    private readonly AiModelRegistry _modelRegistry;
     private readonly IWorkflowTraceAccessor _trace;
     private readonly ILogger<VisaScoringService> _log;
 
@@ -82,10 +83,11 @@ TIÊU CHÍ ĐẶC THÙ THEO QUỐC GIA:
         "\n\n" + CountryRubric;
 
     public VisaScoringService(ProviderRegistry registry, AiResponseCache cache,
-        NativeToolScorer native,
+        NativeToolScorer native, AiModelRegistry modelRegistry,
         IWorkflowTraceAccessor trace, ILogger<VisaScoringService> log)
     {
-        _registry = registry; _cache = cache; _native = native; _trace = trace; _log = log;
+        _registry = registry; _cache = cache; _native = native;
+        _modelRegistry = modelRegistry; _trace = trace; _log = log;
     }
 
     public async Task<VisaResult> ScoreAsync(
@@ -96,8 +98,15 @@ TIÊU CHÍ ĐẶC THÙ THEO QUỐC GIA:
         trace?.SetMeta("country", country);
         trace?.SetMeta("profileChars", profile.Length);
 
+        // Resolve qua AiModelRegistry → đảm bảo có provider/model non-empty cho cache key + downstream.
+        var resolved = _modelRegistry.Resolve(AiFeature.VisaScoring, provider, model);
+        provider = resolved.Provider;
+        model    = resolved.Model;
+        apiKey   = apiKey ?? resolved.ApiKey;
+
         var p = _registry.Resolve(provider);
         trace?.SetMeta("provider", p.Id);
+        trace?.SetMeta("model", model);
 
         // Cache prompt-hash 24h: NV chấm lại cùng hồ sơ trong ngày → KHÔNG gọi AI.
         var key = AiResponseCache.Hash("visa-score", model, $"{country}|{profile}");
@@ -224,7 +233,7 @@ TIÊU CHÍ ĐẶC THÙ THEO QUỐC GIA:
             terminalToolName: "submit_visa_score",
             parser:           ParseToolInput,
             apiKeyOverride:   apiKey,
-            model:            string.IsNullOrWhiteSpace(model) ? "claude-haiku-4-5" : model!,
+            model:            model!,
             maxTokens:        3000,
             trace:            trace,
             ct:               ct);
