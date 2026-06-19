@@ -16,17 +16,19 @@ public class WidgetChatService
     private const double TEMP = 0.5;             // hơi sáng tạo nhưng không lạc đề
 
     private readonly ProviderRegistry _registry;
+    private readonly AiModelRegistry _modelRegistry;
     private readonly WidgetTokenRepository _repo;
     private readonly AiCallContext _ctx;
     private readonly ILogger<WidgetChatService> _log;
 
     public WidgetChatService(
         ProviderRegistry registry,
+        AiModelRegistry modelRegistry,
         WidgetTokenRepository repo,
         AiCallContext ctx,
         ILogger<WidgetChatService> log)
     {
-        _registry = registry; _repo = repo; _ctx = ctx; _log = log;
+        _registry = registry; _modelRegistry = modelRegistry; _repo = repo; _ctx = ctx; _log = log;
     }
 
     public record ChatResult(string Reply, string Provider, string Model, long LatencyMs, int InTok, int OutTok);
@@ -35,12 +37,13 @@ public class WidgetChatService
         List<string>? images, List<string>? documents, CancellationToken ct)
     {
         var (prompt, system) = BuildPrompt(token, message, history);
-        var provider = _registry.Resolve(null);
+        var resolved = _modelRegistry.Resolve(AiFeature.Widget);
+        var provider = _registry.Resolve(resolved.Provider);
 
         using var tenantScope = _ctx.Push("widget", token.TenantId);
         var req = new CompleteRequest(
-            Prompt: prompt, Provider: provider.Id, Model: null,
-            MaxTokens: MAX_TOKENS, Temperature: TEMP, System: system,
+            Prompt: prompt, Provider: provider.Id, Model: resolved.Model,
+            MaxTokens: MAX_TOKENS, Temperature: TEMP, System: system, ApiKey: resolved.ApiKey,
             Images: images, Documents: documents);
         var res = await provider.CompleteAsync(req, ct);
 
@@ -55,12 +58,13 @@ public class WidgetChatService
         Func<string, Task> onDelta, CancellationToken ct)
     {
         var (prompt, system) = BuildPrompt(token, message, history);
-        var provider = _registry.Resolve(null);
+        var resolved = _modelRegistry.Resolve(AiFeature.Widget);
+        var provider = _registry.Resolve(resolved.Provider);
 
         using var tenantScope = _ctx.Push("widget", token.TenantId);
         var req = new CompleteRequest(
-            Prompt: prompt, Provider: provider.Id, Model: null,
-            MaxTokens: MAX_TOKENS, Temperature: TEMP, System: system,
+            Prompt: prompt, Provider: provider.Id, Model: resolved.Model,
+            MaxTokens: MAX_TOKENS, Temperature: TEMP, System: system, ApiKey: resolved.ApiKey,
             Images: images, Documents: documents);
         var res = await provider.StreamAsync(req, onDelta, ct);
 
