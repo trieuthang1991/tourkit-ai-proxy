@@ -1,4 +1,4 @@
-// API direct: 6 AI feature dùng Models:Primary/Review đúng
+// API direct: AI feature dùng Models:Primary + Models:{Feature} (qua AiModelRegistry)
 import { test, expect, request } from '@playwright/test';
 
 const TEST_SESSION = '5294b8ec7d8f4e12bec4b44334946e1b';
