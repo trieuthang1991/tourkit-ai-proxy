@@ -94,11 +94,19 @@ public static class AiEndpoints
     private static async Task<IResult> HandleCompleteAsync(
         CompleteRequest req,
         ProviderRegistry registry,
+        AiModelRegistry modelRegistry,
         UsageTracker usage,
         TourkitAiProxy.Services.Workflow.IWorkflowTraceAccessor traceAccessor,
         ILogger<Program> log,
         HttpContext ctx)
     {
+        // Wizard / raw passthrough: nếu caller không chỉ định provider/model → resolve từ Models:Wizard (kế thừa Primary nếu null).
+        if (string.IsNullOrWhiteSpace(req.Provider) || string.IsNullOrWhiteSpace(req.Model))
+        {
+            var resolved = modelRegistry.Resolve(AiFeature.Wizard, req.Provider, req.Model);
+            req = req with { Provider = resolved.Provider, Model = resolved.Model, ApiKey = req.ApiKey ?? resolved.ApiKey };
+        }
+
         var provider = registry.Resolve(req.Provider);
 
         // Wizard / raw passthrough caller có thể set X-Workflow header để tag trace.
@@ -170,6 +178,7 @@ public static class AiEndpoints
         CompleteRequest req,
         HttpContext ctx,
         ProviderRegistry registry,
+        AiModelRegistry modelRegistry,
         UsageTracker usage,
         ILogger<Program> log)
     {
@@ -186,6 +195,13 @@ public static class AiEndpoints
             var bytes = Encoding.UTF8.GetBytes(line);
             await ctx.Response.Body.WriteAsync(bytes, ctx.RequestAborted);
             await ctx.Response.Body.FlushAsync(ctx.RequestAborted);
+        }
+
+        // Wizard / raw passthrough: nếu caller không chỉ định provider/model → resolve từ Models:Wizard (kế thừa Primary nếu null).
+        if (string.IsNullOrWhiteSpace(req.Provider) || string.IsNullOrWhiteSpace(req.Model))
+        {
+            var resolved = modelRegistry.Resolve(AiFeature.Wizard, req.Provider, req.Model);
+            req = req with { Provider = resolved.Provider, Model = resolved.Model, ApiKey = req.ApiKey ?? resolved.ApiKey };
         }
 
         var provider = registry.Resolve(req.Provider);
