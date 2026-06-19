@@ -38,15 +38,9 @@ public class OpenCodeProvider : IAiProvider
         _http = http; _cfg = cfg; _log = log; _usage = usage; _ctx = ctx; _quota = quota;
     }
 
-    /// Default model: ưu tiên Models:Primary:Model nếu provider match opencode-go, fallback Models[0].
+    // Default model: chọn model có Recommended:true trong catalog local, fallback Models[0].
     private string DefaultModel()
-    {
-        var prov = _cfg["Models:Primary:Provider"];
-        var mod  = _cfg["Models:Primary:Model"];
-        if (!string.IsNullOrWhiteSpace(prov) && prov.Equals(Id, StringComparison.OrdinalIgnoreCase) &&
-            !string.IsNullOrWhiteSpace(mod)) return mod;
-        return Models[0].Id;
-    }
+        => Models.FirstOrDefault(m => m.Recommended)?.Id ?? Models[0].Id;
 
     private void LogUsage(string model, int inTok, int outTok, long ms, string status = "ok")
     {

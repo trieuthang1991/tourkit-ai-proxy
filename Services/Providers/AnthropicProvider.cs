@@ -25,12 +25,11 @@ public class AnthropicProvider : IAiProvider
     private readonly ProviderKeyStore _keys;
     private readonly AiUsageLog _usage;
     private readonly AiCallContext _ctx;
-    private readonly IConfiguration _cfg;
     private readonly ILogger<AnthropicProvider> _log;
     private readonly TenantQuotaStore _quota;
 
-    public AnthropicProvider(IHttpClientFactory http, ProviderKeyStore keys, AiUsageLog usage, AiCallContext ctx, IConfiguration cfg, ILogger<AnthropicProvider> log, TenantQuotaStore quota)
-    { _http = http; _keys = keys; _usage = usage; _ctx = ctx; _cfg = cfg; _log = log; _quota = quota; }
+    public AnthropicProvider(IHttpClientFactory http, ProviderKeyStore keys, AiUsageLog usage, AiCallContext ctx, ILogger<AnthropicProvider> log, TenantQuotaStore quota)
+    { _http = http; _keys = keys; _usage = usage; _ctx = ctx; _log = log; _quota = quota; }
 
     private void EnsureQuota()
     {
@@ -39,15 +38,9 @@ public class AnthropicProvider : IAiProvider
         if (!_quota.IsAvailable(t)) { var s = _quota.Snapshot(t); throw new QuotaExhaustedException(t, s.Limit, s.Used); }
     }
 
-    /// Default model lookup: ưu tiên Models:Primary:Model nếu provider match anthropic, fallback Models[0].
+    // Default model: chọn model có Recommended:true trong catalog local, fallback Models[0].
     private string DefaultModel()
-    {
-        var prov = _cfg["Models:Primary:Provider"];
-        var mod  = _cfg["Models:Primary:Model"];
-        if (!string.IsNullOrWhiteSpace(prov) && prov.Equals(Id, StringComparison.OrdinalIgnoreCase) &&
-            !string.IsNullOrWhiteSpace(mod)) return mod;
-        return Models[0].Id;
-    }
+        => Models.FirstOrDefault(m => m.Recommended)?.Id ?? Models[0].Id;
 
     public async Task<CompleteResult> CompleteAsync(CompleteRequest req, CancellationToken ct)
     {

@@ -28,16 +28,15 @@ public class DeepSeekProvider : IAiProvider
     private const string BaseUrl = "https://api.deepseek.com";
     private readonly IHttpClientFactory _http;
     private readonly ProviderKeyStore _keys;
-    private readonly IConfiguration _cfg;
     private readonly AiUsageLog _usage;
     private readonly AiCallContext _ctx;
     private readonly ILogger<DeepSeekProvider> _log;
     private readonly TenantQuotaStore _quota;
 
-    public DeepSeekProvider(IHttpClientFactory http, ProviderKeyStore keys, IConfiguration cfg,
+    public DeepSeekProvider(IHttpClientFactory http, ProviderKeyStore keys,
         AiUsageLog usage, AiCallContext ctx, ILogger<DeepSeekProvider> log, TenantQuotaStore quota)
     {
-        _http = http; _keys = keys; _cfg = cfg; _usage = usage; _ctx = ctx; _log = log; _quota = quota;
+        _http = http; _keys = keys; _usage = usage; _ctx = ctx; _log = log; _quota = quota;
     }
 
     private void EnsureQuota()
@@ -47,18 +46,9 @@ public class DeepSeekProvider : IAiProvider
         if (!_quota.IsAvailable(t)) { var s = _quota.Snapshot(t); throw new QuotaExhaustedException(t, s.Limit, s.Used); }
     }
 
-    /// Default model: Models:Primary:Model nếu provider match deepseek; Models:Review tương tự cho path review.
+    // Default model: chọn model có Recommended:true trong catalog local, fallback Models[0].
     private string DefaultModel()
-    {
-        foreach (var section in new[] { "Primary", "Review" })
-        {
-            var prov = _cfg[$"Models:{section}:Provider"];
-            var mod  = _cfg[$"Models:{section}:Model"];
-            if (!string.IsNullOrWhiteSpace(prov) && prov.Equals(Id, StringComparison.OrdinalIgnoreCase) &&
-                !string.IsNullOrWhiteSpace(mod)) return mod;
-        }
-        return Models[0].Id;
-    }
+        => Models.FirstOrDefault(m => m.Recommended)?.Id ?? Models[0].Id;
 
     public async Task<CompleteResult> CompleteAsync(CompleteRequest req, CancellationToken ct)
     {
