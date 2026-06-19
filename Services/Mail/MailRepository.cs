@@ -127,6 +127,17 @@ VALUES
         return q.ToList()!;
     }
 
+    /// Xoá TOÀN BỘ mail của tenant. Dùng khi user disconnect + chọn xoá lịch sử.
+    /// Trả số dòng bị xoá. Idempotent.
+    public int ClearTenant(string tenantId)
+    {
+        if (string.IsNullOrWhiteSpace(tenantId)) return 0;
+        using var c = _db.Open();
+        var n = c.Execute(@"DELETE FROM dbo.Mails WHERE TenantId = @t", new { t = tenantId });
+        if (n > 0) _log.LogInformation("[MailRepo] ClearTenant tenant={Tenant} rows={N}", tenantId, n);
+        return n;
+    }
+
     public MailCounts Counts(string tenantId)
     {
         if (string.IsNullOrWhiteSpace(tenantId))

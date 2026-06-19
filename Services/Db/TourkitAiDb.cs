@@ -153,12 +153,40 @@ IF OBJECT_ID('dbo.MailAccounts', 'U') IS NULL
 BEGIN
     CREATE TABLE dbo.MailAccounts (
         TenantId        NVARCHAR(128)   NOT NULL,
+        Username        NVARCHAR(128)   NOT NULL CONSTRAINT DF_MailAccounts_Username DEFAULT '',
         Address         NVARCHAR(256)   NOT NULL,
         AppPasswordEnc  NVARCHAR(512)   NOT NULL,
         Signature       NVARCHAR(MAX)   NULL,
         UpdatedAt       DATETIME2       NOT NULL,
-        CONSTRAINT PK_MailAccounts PRIMARY KEY CLUSTERED (TenantId)
+        CONSTRAINT PK_MailAccounts PRIMARY KEY CLUSTERED (TenantId, Username)
     );
+END;
+
+-- Idempotent ADD cột Username cho install cũ (mô hình cũ: 1 mailbox / tenant share cho mọi NV).
+IF NOT EXISTS (SELECT 1 FROM sys.columns WHERE object_id = OBJECT_ID('dbo.MailAccounts') AND name = 'Username')
+BEGIN
+    ALTER TABLE dbo.MailAccounts ADD Username NVARCHAR(128) NOT NULL CONSTRAINT DF_MailAccounts_Username DEFAULT '';
+END;
+
+-- Idempotent UPGRADE PK_MailAccounts từ (TenantId) → (TenantId, Username) cho install đã chạy bản cũ.
+-- Detect: PK hiện tại chỉ có 1 cột → drop + recreate composite. Legacy row Username='' giữ nguyên
+-- (chỉ 1 row/tenant, không vi phạm composite key); user mới add mailbox sẽ tạo row riêng theo Username.
+IF EXISTS (
+    SELECT 1
+    FROM sys.key_constraints kc
+    WHERE kc.parent_object_id = OBJECT_ID('dbo.MailAccounts')
+      AND kc.[type] = 'PK'
+      AND (SELECT COUNT(*) FROM sys.index_columns ic
+           WHERE ic.object_id = kc.parent_object_id AND ic.index_id = kc.unique_index_id) = 1
+)
+BEGIN
+    DECLARE @pkName SYSNAME = (
+        SELECT name FROM sys.key_constraints
+        WHERE parent_object_id = OBJECT_ID('dbo.MailAccounts') AND [type] = 'PK'
+    );
+    EXEC('ALTER TABLE dbo.MailAccounts DROP CONSTRAINT ' + @pkName);
+    ALTER TABLE dbo.MailAccounts
+        ADD CONSTRAINT PK_MailAccounts PRIMARY KEY CLUSTERED (TenantId, Username);
 END;
 
 IF OBJECT_ID('dbo.Mails', 'U') IS NULL

@@ -45,6 +45,17 @@ WHEN NOT MATCHED THEN INSERT (TenantId, Address, UidValidity, LastUid, UpdatedAt
             new { t = tenantId, a = address, uv = (long)uidValidity, lu = (long)lastUid });
     }
 
+    /// Xoá state đồng bộ của tenant (mọi địa chỉ). Lần sync tới sẽ kéo lại từ đầu.
+    /// Trả số dòng bị xoá. Idempotent.
+    public int Clear(string tenantId)
+    {
+        if (string.IsNullOrWhiteSpace(tenantId)) return 0;
+        using var c = _db.Open();
+        var n = c.Execute(@"DELETE FROM dbo.MailSyncState WHERE TenantId = @t", new { t = tenantId });
+        if (n > 0) _log.LogInformation("[MailSync] Clear tenant={Tenant} rows={N}", tenantId, n);
+        return n;
+    }
+
     /// <summary>Dapper row mapper — bind theo NAME, không phải ordinal.</summary>
     private sealed class MailSyncRow
     {

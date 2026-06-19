@@ -126,11 +126,12 @@ function Avatar({ name, lg }) {
 }
 
 // ─── Cấu hình hộp thư Gmail ──────────────────────────────────────────────────
-function MailAccountForm({ account, onSaved, pushToast }) {
+function MailAccountForm({ account, onSaved, onDisconnected, pushToast }) {
   const [address, setAddress] = _mS(account?.address || '');
   const [appPassword, setAppPassword] = _mS('');
   const [signature, setSignature] = _mS(account?.signature || '');
   const [saving, setSaving] = _mS(false);
+  const [disconnecting, setDisconnecting] = _mS(false);
 
   async function save() {
     if (!address.trim() || !appPassword.trim()) { pushToast('Nhập địa chỉ Gmail + App Password', 'error'); return; }
@@ -147,6 +148,31 @@ function MailAccountForm({ account, onSaved, pushToast }) {
       onSaved(data);
     } catch (e) { pushToast('Lưu cấu hình lỗi: ' + e.message, 'error'); }
     finally { setSaving(false); }
+  }
+
+  async function disconnect(wipeMails) {
+    const msg = wipeMails
+      ? `NGẮT KẾT NỐI ${account?.address || 'hộp thư'} và XOÁ TOÀN BỘ email đã đồng bộ?\n\nThao tác KHÔNG hoàn tác được. Nhớ vào Google · App passwords để revoke App Password cũ cho an toàn.`
+      : `Ngắt kết nối ${account?.address || 'hộp thư'}?\n\nApp Password sẽ bị xoá; lịch sử mail vẫn giữ. Đăng nhập lại sẽ thấy lại.`;
+    const ok = await window.appConfirm(msg, {
+      title: 'Ngắt kết nối Gmail',
+      confirmLabel: wipeMails ? 'Ngắt + xoá lịch sử' : 'Ngắt kết nối',
+      cancelLabel: 'Huỷ',
+      danger: true,
+    });
+    if (!ok) return;
+
+    setDisconnecting(true);
+    try {
+      const url = '/api/v1/mail/account' + (wipeMails ? '?wipeMails=true' : '');
+      const r = await window.tourkitAuth.authedFetch(url, { method: 'DELETE' });
+      const data = await r.json().catch(() => ({}));
+      if (!r.ok) { pushToast(data.error || 'Ngắt kết nối lỗi', 'error'); return; }
+      pushToast(wipeMails ? 'Đã ngắt kết nối + xoá lịch sử mail' : 'Đã ngắt kết nối hộp thư');
+      setAddress(''); setAppPassword(''); setSignature('');
+      onDisconnected?.();
+    } catch (e) { pushToast('Ngắt kết nối lỗi: ' + e.message, 'error'); }
+    finally { setDisconnecting(false); }
   }
 
   return (
@@ -175,6 +201,22 @@ function MailAccountForm({ account, onSaved, pushToast }) {
         <a className="mail-config-link" href="https://myaccount.google.com/apppasswords" target="_blank" rel="noopener noreferrer">
           Tạo App Password ↗
         </a>
+        {account?.configured && (
+          <div className="mail-config-danger">
+            <div className="mail-config-danger-head">Ngắt kết nối hộp thư</div>
+            <p className="mail-config-danger-sub">
+              Xoá App Password đang lưu cho <b>{account.address}</b>. Sau đó cần nhập lại để dùng tiếp.
+              Nhớ vào <a href="https://myaccount.google.com/apppasswords" target="_blank" rel="noopener noreferrer">Google · App passwords</a> để revoke luôn cho an toàn.
+            </p>
+            <button className="mail-btn danger block" disabled={disconnecting} onClick={() => disconnect(false)}>
+              {disconnecting ? 'Đang ngắt…' : 'Ngắt kết nối (giữ lịch sử)'}
+            </button>
+            <button className="mail-btn ghost block" disabled={disconnecting} onClick={() => disconnect(true)}
+              style={{ marginTop: 8, color: '#a4321a', borderColor: '#f3c2b6' }}>
+              Ngắt kết nối + xoá toàn bộ lịch sử mail
+            </button>
+          </div>
+        )}
       </div>
     </div>
   );
@@ -451,7 +493,13 @@ function MailPage({ pushToast }) {
           actions={account?.configured && <button className="mail-btn ghost" onClick={() => setShowConfig(false)}>← Quay lại hộp thư</button>}
         />
         <MailAccountForm account={account} pushToast={pushToast}
-          onSaved={(a) => { setAccount(a); setShowConfig(false); load(); }} />
+          onSaved={(a) => { setAccount(a); setShowConfig(false); load(); }}
+          onDisconnected={() => {
+            // Reset toàn bộ state UI về "chưa cấu hình" — đứng nguyên màn config.
+            setAccount({ configured: false, address: '', signature: '' });
+            setItems([]); setSelId(null);
+            setCounts({ total: 0, unread: 0, byStatus: {}, byCategory: {} });
+          }} />
       </main>
     );
   }
