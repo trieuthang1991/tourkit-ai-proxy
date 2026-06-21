@@ -28,6 +28,7 @@ public class JsonPlannerAgent : IAgentRuntime
     private static readonly TimeSpan CacheTtl = TimeSpan.FromMinutes(30);
     // Danh muc thi truong theo tenant (cho resolver ten -> id) -- giu in-memory, doi cham. TTL dai.
     private readonly ConcurrentDictionary<string, (List<(int Id, string Name)> List, DateTime Exp)> _markets = new();
+    private readonly ConcurrentDictionary<string, (List<(int Id, string Name)> List, DateTime Exp)> _employees = new();
     private static readonly TimeSpan MarketTtl = TimeSpan.FromHours(6);
 
     public JsonPlannerAgent(
@@ -191,6 +192,7 @@ public class JsonPlannerAgent : IAgentRuntime
         var resolverTimer = trace?.Begin("market_resolver");
         var paramsBefore = toolParams?.GetRawText();
         toolParams = await ResolveMarketAsync(input.SessionId, toolParams, ct);
+        toolParams = await ResolveEmployeeAsync(input.SessionId, toolParams, ct);
         var paramsAfter = toolParams?.GetRawText();
         resolverTimer?.Done(paramsBefore != paramsAfter ? "ok" : "skip",
             paramsBefore != paramsAfter
@@ -646,6 +648,7 @@ public class JsonPlannerAgent : IAgentRuntime
         var resolverTimer = trace?.Begin("market_resolver");
         var paramsBefore = toolParams?.GetRawText();
         toolParams = await ResolveMarketAsync(input.SessionId, toolParams, ct);
+        toolParams = await ResolveEmployeeAsync(input.SessionId, toolParams, ct);
         var paramsAfter = toolParams?.GetRawText();
         resolverTimer?.Done(paramsBefore != paramsAfter ? "ok" : "skip",
             paramsBefore != paramsAfter ? "Có marketName → tra /api/tours/markets → đổi sang marketId"
@@ -983,6 +986,7 @@ QUY TẮC:
 - ""doanh thu / lợi nhuận / chi phí (tháng/kỳ này)"" ĐƠN GIẢN → dùng cashflow (gọn: thu/chi/lợi nhuận + biểu đồ). CHỈ dùng financial_summary khi hỏi CHI TIẾT/ĐẦY ĐỦ chỉ số, hoặc hỏi đích danh thực thu / công nợ / thực chi / lợi nhuận ròng.
 - Chỉ dùng key params có trong tool đã chọn.
 - Lọc theo THỊ TRƯỜNG (vd ""Nội địa miền Nam"", ""Hàn Quốc"") → điền marketName = ĐÚNG tên người dùng nói (KHÔNG tự đoán id).
+- Hiệu suất/KPI 1 NHÂN VIÊN cụ thể (vd ""hiệu suất của Nguyễn Văn A"") → tool employee_performance, điền employeeName = ĐÚNG tên người dùng nói (KHÔNG tự đoán id).
 - Câu về ""khách hàng / lead / cơ hội THUỘC thị trường X"" → dùng list_booking_tickets (khách gắn thị trường qua cơ hội), KHÔNG dùng list_customers (không lọc được thị trường).
 - Nếu chào hỏi / không cần số liệu → tool=""none"" kèm ""reply"" trả lời ngắn.
 
@@ -1178,6 +1182,80 @@ Yêu cầu:
             var id = MatchMarket(markets, name);
             if (id.HasValue) { dict["marketId"] = id.Value; _log.LogInformation("[JsonPlanner] thi truong '{Name}' -> marketId={Id}", name, id); }
             else _log.LogInformation("[JsonPlanner] khong khop thi truong '{Name}'", name);
+        }
+
+        return JsonSerializer.SerializeToElement(dict);
+    }
+
+    // ─── Resolver nhân viên: tên -> employeeId (cho employee_performance) ─────────
+    // Nguồn = chính API thống kê hiệu suất /api/ai/employee-performance: nó trả TẤT CẢ nhân viên
+    // (theo quyền) kèm employeeId + fullName → đúng phạm vi report có thể lọc tới, không cần endpoint khác.
+    // Cache theo tenant (MarketTtl 6h) y như markets. Dùng lại MatchMarket (fuzzy (Id,Name)).
+
+    private static bool PropCI(JsonElement obj, string name, out JsonElement val)
+    {
+        if (obj.ValueKind == JsonValueKind.Object)
+            foreach (var p in obj.EnumerateObject())
+                if (p.Name.Equals(name, StringComparison.OrdinalIgnoreCase)) { val = p.Value; return true; }
+        val = default;
+        return false;
+    }
+
+    private async Task<List<(int Id, string Name)>> GetEmployeesAsync(string sessionId, CancellationToken ct)
+    {
+        var tenant = _sessions.Get(sessionId)?.TenantId ?? "";
+        if (_employees.TryGetValue(tenant, out var c) && c.Exp > DateTime.UtcNow) return c.List;
+
+        JsonElement data;
+        var jwt = await _sessions.GetValidJwtAsync(sessionId, ct);
+        try { data = await _api.GetAsync(jwt, "/api/ai/employee-performance", ct); }
+        catch (TourKitApiException ex) when (ex.Status == 401)
+        {
+            jwt = await _sessions.ForceReloginAsync(sessionId, ct);
+            data = await _api.GetAsync(jwt, "/api/ai/employee-performance", ct);
+        }
+
+        // Envelope {section,title,items[...]}; mỗi item có employeeId + fullName.
+        var list = new List<(int, string)>();
+        if (PropCI(data, "items", out var items) && items.ValueKind == JsonValueKind.Array)
+            foreach (var it in items.EnumerateArray())
+                if (it.ValueKind == JsonValueKind.Object
+                    && PropCI(it, "employeeId", out var idp) && idp.TryGetInt32(out var id)
+                    && PropCI(it, "fullName", out var np) && np.ValueKind == JsonValueKind.String
+                    && !string.IsNullOrWhiteSpace(np.GetString()))
+                    list.Add((id, np.GetString()!));
+
+        _employees[tenant] = (list, DateTime.UtcNow.Add(MarketTtl));
+        _log.LogInformation("Loaded {N} nhân viên (từ employee-performance) cho tenant {T}", list.Count, tenant);
+        return list;
+    }
+
+    private async Task<JsonElement?> ResolveEmployeeAsync(string sessionId, JsonElement? prms, CancellationToken ct)
+    {
+        if (prms is not { ValueKind: JsonValueKind.Object } obj) return prms;
+        if (!obj.TryGetProperty("employeeName", out var en) || en.ValueKind != JsonValueKind.String) return prms;
+
+        var name = en.GetString()?.Trim() ?? "";
+        var dict = new Dictionary<string, object?>();
+        foreach (var p in obj.EnumerateObject())
+        {
+            if (p.Name.Equals("employeeName", StringComparison.OrdinalIgnoreCase)) continue;  // bỏ name khỏi query cuối
+            dict[p.Name] = p.Value.ValueKind switch
+            {
+                JsonValueKind.String => p.Value.GetString(),
+                JsonValueKind.Number => p.Value.GetRawText(),
+                JsonValueKind.True => "true",
+                JsonValueKind.False => "false",
+                _ => null
+            };
+        }
+
+        if (name.Length > 0 && !dict.ContainsKey("employeeId"))
+        {
+            var employees = await GetEmployeesAsync(sessionId, ct);
+            var id = MatchMarket(employees, name);   // fuzzy match (Id,Name) — dùng chung với thị trường
+            if (id.HasValue) { dict["employeeId"] = id.Value; _log.LogInformation("[JsonPlanner] nhân viên '{Name}' -> employeeId={Id}", name, id); }
+            else _log.LogInformation("[JsonPlanner] không khớp nhân viên '{Name}'", name);
         }
 
         return JsonSerializer.SerializeToElement(dict);

@@ -64,6 +64,17 @@ public static class ChatTools
             new[] { "startDate", "endDate", "dateType" },
             "topsellers", "Top Seller"),
 
+        new("employee_performance",
+            "Báo cáo HIỆU SUẤT / KPI CHI TIẾT từng nhân viên sale: số Data KH, chăm sóc KH, cơ hội (tổng/mới/chốt), " +
+            "tổng đơn hàng, KH mua 1 lần / mua lại, doanh thu, tỉ lệ chốt đơn, tỉ lệ chuyển đổi cơ hội, giá trị TB đơn — " +
+            "mỗi chỉ số kèm % tăng/giảm so KỲ TRƯỚC. " +
+            "DÙNG cho 'hiệu suất nhân viên', 'KPI nhân viên/sale', 'tỉ lệ chốt đơn của sale', 'nhân viên nào làm hiệu quả', 'so với kỳ trước'. " +
+            "Lọc 1 nhân viên theo TÊN (employeeName — proxy tự đổi sang id) hoặc 1 chi nhánh (branch). " +
+            "KHÁC top_sellers (chỉ xếp hạng doanh số top 10) — đây là BỘ CHỈ SỐ ĐẦY ĐỦ của từng người. Bỏ trống ngày = tháng này.",
+            "/api/ai/employee-performance",
+            new[] { "startDate", "endDate", "employeeId", "employeeName", "branch" },
+            "employees", "Hiệu suất nhân viên"),
+
         new("tours",
             "Danh sách tour. " +
             "tourType: 1=LandTour, 2=FIT, 3=GIT, 100=Booking, 101=DV lẻ, 102=Visa, 104=Vé bay. " +

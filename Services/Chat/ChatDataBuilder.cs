@@ -135,6 +135,7 @@ public static class ChatDataBuilder
         "cashflow"          => new() { "Chi tiết tài chính tháng này", "Top khách hàng", "Top seller doanh số" },
         "top_customers"     => new() { "Doanh thu tháng này", "Khách chưa chăm sóc", "Lịch hẹn CSKH" },
         "top_sellers"       => new() { "Doanh thu tháng này", "Top khách hàng" },
+        "employee_performance" => new() { "Top seller doanh số", "Doanh thu tháng này", "Top khách hàng" },
         "marketing"         => new() { "Top khách hàng", "Doanh thu tháng này" },
         "departures"        => new() { "Tour sắp khởi hành còn chỗ", "Top khách hàng" },
         "tours"             => new() { "Tour sắp khởi hành", "Doanh thu tháng này" },
