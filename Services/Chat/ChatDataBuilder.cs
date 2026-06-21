@@ -33,9 +33,21 @@ public static class ChatDataBuilder
                 summary = sm;
         }
 
+        // Nhãn cột TV có dấu từ envelope (columns) → chuyển nguyên cho frontend render header bảng.
+        Dictionary<string, string>? columns = null;
+        if (data.ValueKind == JsonValueKind.Object
+            && data.TryGetProperty("columns", out var colEl) && colEl.ValueKind == JsonValueKind.Object)
+        {
+            columns = new Dictionary<string, string>();
+            foreach (var p in colEl.EnumerateObject())
+                if (p.Value.ValueKind == JsonValueKind.String)
+                    columns[p.Name] = p.Value.GetString() ?? p.Name;
+            if (columns.Count == 0) columns = null;
+        }
+
         var stats = BuildEnvelopeStats(tool, items, total, summary);
         var raw   = items.ValueKind == JsonValueKind.Undefined ? data : items;
-        return new ChatData(tool.Kind, title, raw.Clone(), stats, null, SuggestFor(tool.Name));
+        return new ChatData(tool.Kind, title, raw.Clone(), stats, null, SuggestFor(tool.Name), Columns: columns);
     }
 
     // ─── Envelope stats ────────────────────────────────────────────────────────

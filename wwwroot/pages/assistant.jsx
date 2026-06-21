@@ -15,7 +15,8 @@ const _MONEY_HINTS = ['doanhthu','revenue','tongtien','thanhtien','thanhtoan','a
   // key Việt từ 3 SP legacy (branch-performance / product-line / market-analysis):
   // ThucThu, ThucChi + 'comission' (SP đánh vần thiếu chữ m)
   'thucthu','thucchi','comission'];
-const _NOT_MONEY = ['count','qty','row','soluong','index','page','year','month','stt'];
+// 'cohoi'/'donhang' = ĐẾM SỐ (cơ hội / đơn hàng) — chặn match nhầm hint 'tong'/'total' → tránh "78đ".
+const _NOT_MONEY = ['count','qty','row','soluong','index','page','year','month','stt','cohoi','donhang'];
 const _isMoneyKey = (k) => {
   const s = String(k).toLowerCase();
   if (_NOT_MONEY.some(n => s.includes(n))) return false;
@@ -88,6 +89,21 @@ const _fmtCell = (key, val) => {
   if (typeof val === 'number') return window.fmtNum(val);
   return String(val);
 };
+
+// Badge tăng/giảm % so KỲ TRƯỚC (giống bảng web /sellers): tìm field anh em "<key>GrowthPct"
+// (vd doanhThuFormatted → doanhThuGrowthPct, soDataKH → soDataKHGrowthPct). Xanh ▲ tăng / đỏ ▼ giảm;
+// 0% hoặc không có → bỏ qua cho gọn. Render dưới giá trị trong cùng ô.
+function _growthBadge(key, row) {
+  if (!row || typeof row !== 'object') return null;
+  const base = String(key).replace(/Formatted$/i, '');
+  let g = row[base + 'GrowthPct'];
+  if (g == null) g = row[key + 'GrowthPct'];
+  if (typeof g !== 'number' || !isFinite(g) || g === 0) return null;
+  const up = g > 0;
+  return React.createElement('span',
+    { className: 'asst-growth ' + (up ? 'up' : 'down'), title: 'So với kỳ trước' },
+    (up ? '▲ ' : '▼ ') + Math.abs(g).toFixed(2) + '%');
+}
 
 // Tìm mảng "rows" để render bảng từ data.raw (array, hoặc object có 1 property mảng).
 function _extractRows(raw) {
@@ -418,6 +434,10 @@ function DataPanel({ data, onAsk }) {
     return m;
   }, [data]);
 
+  // Phân trang bảng: mặc định 50 dòng, "Xem tất cả" để bung hết (scroll trong khung). Reset khi data đổi.
+  const [showAllRows, setShowAllRows] = React.useState(false);
+  React.useEffect(() => { setShowAllRows(false); }, [data]);
+
   if (!data) {
     return (
       <div className="asst-panel-empty">
@@ -453,6 +473,13 @@ function DataPanel({ data, onAsk }) {
     );
   }
 
+  // Nhãn cột do SERVER khai báo (envelope.columns: field→nhãn TV có dấu). Khớp case-insensitive
+  // vì key dữ liệu có thể camelCase còn key columns có thể PascalCase.
+  const serverCols = (data.columns && typeof data.columns === 'object') ? data.columns : null;
+  const serverColLower = {};
+  if (serverCols) for (const k of Object.keys(serverCols)) serverColLower[k.toLowerCase()] = serverCols[k];
+  const labelOf = (c) => serverColLower[String(c).toLowerCase()] || _colLabel(c);
+
   let columns = [];
   if (rows && rows.length) {
     // map lowercased→tên key thật có trong dữ liệu
@@ -461,9 +488,13 @@ function DataPanel({ data, onAsk }) {
       if (r && typeof r === 'object')
         for (const k of Object.keys(r)) if (!(k.toLowerCase() in keyMap)) keyMap[k.toLowerCase()] = k;
 
-    // Ưu tiên cột theo NGỮ CẢNH (loại dữ liệu); chỉ giữ cột thực sự có trong dữ liệu.
+    // 1) ƯU TIÊN cột do SERVER khai báo — đúng thứ tự + nhãn có dấu (mọi section /api/ai/* đều có columns).
+    if (serverCols)
+      columns = Object.keys(serverCols).map(ck => keyMap[ck.toLowerCase()]).filter(Boolean);
+
+    // 2) Chưa có → cột theo NGỮ CẢNH (loại dữ liệu); chỉ giữ cột thực sự có trong dữ liệu.
     const pref = _KIND_COLS[data.kind];
-    if (pref) columns = pref.map(p => keyMap[p.toLowerCase()]).filter(Boolean);
+    if (!columns.length && pref) columns = pref.map(p => keyMap[p.toLowerCase()]).filter(Boolean);
 
     // Fallback (kind lạ): field đầu, bỏ Id + bỏ cột thô nếu có twin hiển thị (*Formatted/*Text/*Label/*Name).
     if (!columns.length)
@@ -560,16 +591,22 @@ function DataPanel({ data, onAsk }) {
           <div className="asst-table-wrap">
             <table className="asst-table">
               <thead>
-                <tr>{columns.map(c => <th key={c}>{_colLabel(c)}</th>)}</tr>
+                <tr>{columns.map(c => <th key={c}>{labelOf(c)}</th>)}</tr>
               </thead>
               <tbody>
-                {rows.slice(0, 50).map((r, ri) => (
-                  <tr key={ri}>{columns.map(c => <td key={c}>{_fmtCell(c, r[c])}</td>)}</tr>
+                {rows.slice(0, showAllRows ? rows.length : 50).map((r, ri) => (
+                  <tr key={ri}>{columns.map(c => (
+                    <td key={c}><span className="asst-cell-val">{_fmtCell(c, r[c])}</span>{_growthBadge(c, r)}</td>
+                  ))}</tr>
                 ))}
               </tbody>
             </table>
           </div>
-          {rows.length > 50 && <div className="asst-hint">Hiển thị 50/{rows.length} dòng đầu.</div>}
+          {rows.length > 50 && (
+            <button type="button" className="asst-rowmore" onClick={() => setShowAllRows(v => !v)}>
+              {showAllRows ? '▲ Thu gọn' : `▼ Xem tất cả ${rows.length} dòng (đang hiện 50)`}
+            </button>
+          )}
         </div>
       ) : (!rawEmpty && (
         // Raw có nội dung nhưng không tabular (object lạ) → cho xem JSON gốc.
@@ -890,6 +927,8 @@ function AssistantPage({ pushToast }) {
       { q: 'Lead từ Pancake tuần này',                             icon: 'zap' },
     ]},
     { group: '🏢 Hiệu suất', items: [
+      { q: 'Hiệu suất nhân viên tháng này',                        icon: 'users' },
+      { q: 'Tỉ lệ chốt đơn theo nhân viên tháng này',              icon: 'trend' },
       { q: 'Chi nhánh nào doanh số cao nhất quý 2/2026?',          icon: 'shield' },
       { q: 'Dòng sản phẩm nào lãi nhất tháng này?',                icon: 'sparkle' },
       { q: 'Thị trường nào doanh thu cao nhất năm nay?',           icon: 'pin' },

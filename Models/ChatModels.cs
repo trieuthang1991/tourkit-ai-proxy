@@ -67,7 +67,10 @@ public record ChatData(
     List<ChatStat> Stats,
     List<string>? Focus,        // chỉ số người dùng muốn (vd ["expense"]) → frontend chỉ vẽ/hiện cột này
     List<string>? Suggestions = null,  // tag gợi ý "xem gì tiếp theo" (chip bấm là hỏi luôn)
-    ChatDataCompare? Compare = null    // kỳ đối chiếu nếu câu hỏi yêu cầu so sánh (vd "so với tháng trước")
+    ChatDataCompare? Compare = null,   // kỳ đối chiếu nếu câu hỏi yêu cầu so sánh (vd "so với tháng trước")
+    // Map field→nhãn tiếng Việt CÓ DẤU lấy thẳng từ envelope /api/ai/* (columns). Frontend dùng để render
+    // header bảng đúng thứ tự + đúng nhãn, KHÔNG tự suy ra từ tên field (tránh "SoDataKH"→"So Data K H").
+    Dictionary<string, string>? Columns = null
 );
 
 /// Kết quả 1 lượt chat. Reply = phân tích (panel trái). Data = số liệu (panel phải).

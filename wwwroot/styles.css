@@ -1906,6 +1906,17 @@ body.editorial .ai-bubble .hl { color: #FDBA74; }
 .asst-json { font-size: 12px; background: var(--bg); padding: 12px; border-radius: var(--radius); overflow-x: auto; max-height: 60vh; margin-top: 8px; }
 .asst-hint { font-size: 12px; color: var(--text-3); }
 
+/* Ô bảng: giá trị + badge tăng/giảm % so kỳ trước (xanh ▲ tăng / đỏ ▼ giảm) — giống bảng web /sellers */
+.asst-cell-val { display: block; }
+.asst-growth { display: block; margin-top: 2px; font-size: 11px; font-weight: 600; line-height: 1.2; white-space: nowrap; }
+.asst-growth.up { color: #16a34a; }
+.asst-growth.down { color: #dc2626; }
+/* Nút "Xem tất cả N dòng" dưới bảng dữ liệu */
+.asst-rowmore { margin-top: 8px; font-size: 12px; font-weight: 600; color: var(--primary-dark);
+  background: var(--primary-soft); border: 1px solid var(--border-strong); border-radius: var(--radius);
+  padding: 6px 12px; cursor: pointer; transition: border-color .15s, background .15s; }
+.asst-rowmore:hover { border-color: var(--primary); }
+
 /* Login token */
 .asst-login { display: flex; align-items: center; justify-content: center; min-height: calc(100vh - 160px); }
 .asst-login-card {
