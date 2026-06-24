@@ -51,7 +51,7 @@ public class TourkitAiDb
             await using var cmd = c.CreateCommand();
             cmd.CommandText = SchemaSql;
             await cmd.ExecuteNonQueryAsync(ct);
-            _log.LogInformation("TourkitAiDb schema OK (Reviews/DealScores/AiHistory/MailAccounts/Mails/MailSyncState/VisaAssessments/TourQuotes đã có/đã tạo)");
+            _log.LogInformation("TourkitAiDb schema OK (Reviews/DealScores/AiHistory/MailAccounts/Mails/MailSyncState/VisaAssessments/TourQuotes/TkSessions/AiUsageCounters đã có/đã tạo)");
         }
         catch (Exception ex)
         {
@@ -358,6 +358,27 @@ BEGIN
         UpdatedAt      DATETIME2     NOT NULL,
         CONSTRAINT PK_VisaQuestionSets PRIMARY KEY CLUSTERED (TenantId)
     );
+END;
+
+-- Phiên đăng nhập TourKit CRM (share cross-process web ↔ Hangfire worker).
+-- KHÔNG lưu JWT (re-login khi cần). PasswordEnc = Crypton AES-256/CBC (chung passphrase với token).
+-- ChatMemoryJson = SessionChatMemory serialize (lịch sử chat /assistant trong phiên).
+IF OBJECT_ID('dbo.TkSessions', 'U') IS NULL
+BEGIN
+    CREATE TABLE dbo.TkSessions (
+        Id                NVARCHAR(64)    NOT NULL,
+        TenantId          NVARCHAR(128)   NOT NULL,
+        Username          NVARCHAR(128)   NOT NULL,
+        PasswordEnc       NVARCHAR(512)   NOT NULL,
+        FullName          NVARCHAR(256)   NULL,
+        CompanyName       NVARCHAR(256)   NULL,
+        ChatMemoryJson    NVARCHAR(MAX)   NULL,
+        LastUsedUtc       DATETIME2       NOT NULL,
+        CreatedUtc        DATETIME2       NOT NULL CONSTRAINT DF_TkSessions_Created DEFAULT SYSUTCDATETIME(),
+        CONSTRAINT PK_TkSessions PRIMARY KEY CLUSTERED (Id)
+    );
+    CREATE INDEX IX_TkSessions_TenantUser ON dbo.TkSessions(TenantId, Username);
+    CREATE INDEX IX_TkSessions_LastUsed   ON dbo.TkSessions(LastUsedUtc);
 END;
 ";
 }
