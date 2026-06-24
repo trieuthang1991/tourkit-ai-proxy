@@ -123,6 +123,8 @@ data/
   #   data/visa-assessments.json → dbo.VisaAssessments (per-tenant)
 ```
 
+**Database schema** — 14 bảng SQL Server (cùng instance với TourKit Push, conn string `ConnectionStrings:PushDb` thường ENC: Crypton). Full inventory + conventions + checklist thêm bảng mới: **[docs/database-schema.md](docs/database-schema.md)**. Schema sống trong [Services/Db/TourkitAiDb.cs](Services/Db/TourkitAiDb.cs) (`SchemaSql` const, idempotent `IF OBJECT_ID(...) IS NULL`). Khi thêm/sửa bảng → update cả file MD đó.
+
 **Adding a new provider** (e.g. OpenAI direct, Anthropic direct, Ollama local):
 1. Implement `IAiProvider` in `Services/Providers/MyProvider.cs`.
 2. `builder.Services.AddSingleton<IAiProvider, MyProvider>();` in `Program.cs`.

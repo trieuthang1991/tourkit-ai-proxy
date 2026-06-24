@@ -51,7 +51,7 @@ public class TourkitAiDb
             await using var cmd = c.CreateCommand();
             cmd.CommandText = SchemaSql;
             await cmd.ExecuteNonQueryAsync(ct);
-            _log.LogInformation("TourkitAiDb schema OK (Reviews/DealScores/AiHistory/MailAccounts/Mails/MailSyncState/VisaAssessments/TourQuotes/TkSessions/AiUsageCounters đã có/đã tạo)");
+            _log.LogInformation("TourkitAiDb schema OK (Reviews/DealScores/MailAccounts/Mails/MailSyncState/TourQuotes/VisaAssessments/QuotaOrders/WidgetTokens/VisaQuestionSets/TkSessions/TenantQuota/AiUsageCounters/AiUsageHistory đã có/đã tạo)");
         }
         catch (Exception ex)
         {
@@ -132,21 +132,14 @@ BEGIN
     EXEC sp_executesql N'CREATE INDEX IX_DealScores_Unsynced ON dbo.DealScores(TenantId, GeneratedAt) WHERE IsSync = 0';
 END;
 
-IF OBJECT_ID('dbo.AiHistory', 'U') IS NULL
+-- 2026-06-24: dbo.AiHistory bị drop — orphan, không repo nào INSERT/SELECT.
+-- Plan ban đầu: lưu audit-trail "ai gen review/deal nào lúc nào". Không bao giờ wire-up
+-- vì AiUsageHistory (granular per-request) đã cover use case này tốt hơn.
+-- Idempotent: chạy DROP nếu còn tồn tại; sau khi drop thì block này là no-op.
+-- TODO: xóa block này sau khi mọi instance prod đã restart (1-2 deploy nữa).
+IF OBJECT_ID('dbo.AiHistory', 'U') IS NOT NULL
 BEGIN
-    CREATE TABLE dbo.AiHistory (
-        Id             BIGINT          IDENTITY(1,1) NOT NULL,
-        Feature        NVARCHAR(32)    NOT NULL,
-        EntityId       NVARCHAR(64)    NOT NULL,
-        TenantId       NVARCHAR(128)   NOT NULL,
-        Fingerprint    NVARCHAR(64)    NOT NULL,
-        DataJson       NVARCHAR(MAX)   NOT NULL,
-        AiProvider     NVARCHAR(64)    NULL,
-        AiModel        NVARCHAR(128)   NULL,
-        GeneratedAt    BIGINT          NOT NULL,
-        CONSTRAINT PK_AiHistory PRIMARY KEY CLUSTERED (Id)
-    );
-    CREATE INDEX IX_AiHistory_FeatureEntity ON dbo.AiHistory(Feature, EntityId, GeneratedAt DESC);
+    DROP TABLE dbo.AiHistory;
 END;
 
 IF OBJECT_ID('dbo.MailAccounts', 'U') IS NULL
