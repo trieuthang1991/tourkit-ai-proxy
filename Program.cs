@@ -92,6 +92,7 @@ AttachLogAndInsecure(builder.Services.AddHttpClient("openai",    c => c.Timeout 
 AttachLogAndInsecure(builder.Services.AddHttpClient("anthropic", c => c.Timeout = TimeSpan.FromSeconds(120)), "anthropic", allowInsecure);
 AttachLogAndInsecure(builder.Services.AddHttpClient("deepseek",  c => c.Timeout = TimeSpan.FromSeconds(120)), "deepseek", allowInsecure);
 
+builder.Services.AddSingleton<UsageRepository>();
 builder.Services.AddSingleton<UsageTracker>();
 // AI usage log per-request (data/ai-usage.jsonl) — biết feature/user/tenant nào tiêu bao nhiêu.
 builder.Services.AddHttpContextAccessor();
@@ -106,6 +107,7 @@ builder.Services.AddScoped<TourkitAiProxy.Services.TourKit.ITenantContext,
 builder.Services.AddSingleton<IWorkflowTraceAccessor, WorkflowTraceAccessor>();
 // Trace nào có data thì lưu data/workflow-traces.jsonl để xem lại sau (audit, post-mortem).
 builder.Services.AddSingleton<WorkflowTraceLog>();
+builder.Services.AddSingleton<TourkitAiProxy.Services.AiUsageHistoryRepository>(); // Dapper repo cho dbo.AiUsageHistory (granular per-request)
 builder.Services.AddSingleton<TourkitAiProxy.Services.AiUsageLog>();
 builder.Services.AddSingleton<TourkitAiProxy.Services.AiCallContext>();
 // Cache prompt-hash 24h cho Visa/Deal/TourBuilder (Redis nếu có, fallback in-memory).
@@ -161,12 +163,15 @@ AttachLogAndInsecure(
     }), "tourkit",
     allowInsecure || builder.Configuration.GetValue<bool>("TourKit:AllowInsecureTls"));
 builder.Services.AddSingleton<TourKitApiClient>();
+builder.Services.AddSingleton<TkSessionRepository>();
 builder.Services.AddSingleton<TkSessionStore>();
 builder.Services.AddSingleton<TourkitAiProxy.Services.Cache.RedisStore>();  // generic Redis cho mọi feature
 // Single source of truth cho cấu hình AI model per-feature.
 builder.Services.AddSingleton<TourkitAiProxy.Services.Providers.AiModelRegistry>();
 builder.Services.AddSingleton<TourkitAiProxy.Services.Cache.ChatCache>();   // Redis (nếu có) / in-memory
-builder.Services.AddSingleton<TourkitAiProxy.Services.Quota.TenantQuotaStore>();   // Quota AI per-tenant: file + Redis mirror
+builder.Services.AddSingleton<TourkitAiProxy.Services.Quota.TenantQuotaRepository>(); // Dapper repo cho dbo.TenantQuota
+builder.Services.AddSingleton<TourkitAiProxy.Services.Quota.TenantQuotaStore>();      // Quota AI per-tenant: SQL nguồn thực + in-mem cache
+builder.Services.AddHostedService<TourkitAiProxy.Services.Quota.QuotaFlushService>(); // Tick 5s: drain pendingDeltas → 1 UPDATE per tenant (batched flush)
 
 // Tingee VietQR client cho luồng mua quota. Mock-first: dùng vietqr.io public, simulate-paid endpoint
 // để dev test. Khi có ApiKey thật → set `Tingee:Mock=false` → switch sang TingeeHttpClient.
@@ -267,6 +272,42 @@ var app = builder.Build();
 TourkitAiProxy.Services.Db.MultiTenantMigration.Run(
     Path.Combine(app.Environment.ContentRootPath, "data"),
     app.Services.GetRequiredService<ILogger<Program>>());
+
+// Schema init ĐỒNG BỘ — TkSessionStore CTOR (load active sessions) + UsageRepository (track) cần bảng sẵn.
+// SchemaSql idempotent (IF OBJECT_ID IS NULL) → ~100-500ms cold, ~ms hot. Block startup là CHẤP NHẬN ĐƯỢC
+// (an toàn hơn race condition fire-and-forget). DB chết → log warning, app vẫn boot — repos fallback theo logic riêng.
+try
+{
+    await app.Services.GetRequiredService<TourkitAiProxy.Services.Db.TourkitAiDb>().InitAsync();
+}
+catch (Exception ex)
+{
+    app.Services.GetRequiredService<ILogger<Program>>()
+        .LogWarning(ex, "Schema init lỗi — TkSessions/AiUsageCounters/Reviews/... có thể chưa sẵn sàng");
+}
+
+// One-shot migrate tk-sessions.json → SQL (idempotent: file → .migrated sau khi xong).
+// Chạy fire-and-forget được vì schema đã ready ở bước trên + TkSessionStore CTOR đã load xong.
+_ = Task.Run(async () =>
+{
+    try
+    {
+        using var scope = app.Services.CreateScope();
+        var store = scope.ServiceProvider.GetRequiredService<TourkitAiProxy.Services.TourKit.TkSessionStore>();
+        await store.MigrateFromLegacyFileAsync(
+            Path.Combine(app.Environment.ContentRootPath, "data"));
+    }
+    catch (Exception ex)
+    {
+        app.Services.GetRequiredService<ILogger<Program>>()
+            .LogWarning(ex, "Migrate tk-sessions file → SQL fail");
+    }
+});
+
+// Force-resolve AiUsageLog singleton ở startup → CTOR tự kick off migrate
+// data/ai-usage.jsonl → dbo.AiUsageHistory (fire-and-forget bên trong). Không có dòng này,
+// singleton chỉ instantiate khi có AI call đầu tiên → migration trễ.
+_ = app.Services.GetRequiredService<TourkitAiProxy.Services.AiUsageLog>();
 
 // DB init: tạo schema dbo.Reviews/DealScores/AiHistory nếu chưa có + migrate JSON cũ vào DB.
 // Chạy async fire-and-forget — không block startup. Nếu DB chưa sẵn sàng → log warning, fallback file.

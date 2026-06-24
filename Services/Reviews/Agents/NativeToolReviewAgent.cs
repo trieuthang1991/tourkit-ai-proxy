@@ -116,11 +116,8 @@ public class NativeToolReviewAgent : IReviewAgent
             aiProvider: "anthropic", aiModel: result.Model,
             tokensIn: result.TokensIn, tokensOut: result.TokensOut);
 
-        // Ghi usage log riêng (provider không gọi qua IAiProvider.CompleteAsync nên _usage không tự track)
-        var callCtx = _ctx.Resolve();
-        _usage.Append(callCtx.Feature, callCtx.SessionId, callCtx.Tenant,
-            "anthropic", result.Model, result.TokensIn, result.TokensOut, result.LatencyMs);
-
+        // KHÔNG _usage.Append ở đây: AnthropicToolsClient đã append PER-ITER (mỗi /messages POST = 1 entry)
+        // → match grain với IAiProvider.CompleteAsync và đếm đúng số lượt vào dashboard / quota.
         return new ReviewAgentResult(
             Review:      review,
             AiProvider:  "anthropic",

@@ -89,11 +89,8 @@ public class NativeToolScorer
                 $"Parse tool input '{terminalToolName}' lỗi: {ex.Message}", ex);
         }
 
-        // Ghi usage log (AnthropicToolsClient.RunAsync không tự track như IAiProvider.CompleteAsync)
-        var callCtx = _ctx.Resolve();
-        _usage.Append(callCtx.Feature, callCtx.SessionId, callCtx.Tenant,
-            "anthropic", result.Model, result.TokensIn, result.TokensOut, result.LatencyMs);
-
+        // KHÔNG _usage.Append ở đây: AnthropicToolsClient đã append PER-ITER (mỗi /messages POST = 1 entry)
+        // → match grain với IAiProvider.CompleteAsync và đếm đúng số lượt vào dashboard / quota.
         return new ScorerResult<T>(
             Value:     parsed,
             Model:     result.Model,

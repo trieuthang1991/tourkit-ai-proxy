@@ -162,8 +162,10 @@ function App() {
       if (e.detail) setQuota(e.detail); else load();
     };
     window.addEventListener('tourkit:quota', onQuota);
-    // Poll mỗi 60s — cập nhật chip khi user dùng AI mà KHÔNG có 429 (chỉ tăng dần).
-    const t = setInterval(load, 60_000);
+    // Poll mỗi 10s — chip update gần realtime mà KHÔNG cần header X-Quota từ backend.
+    // Phần lớn refresh trigger qua event 'tourkit:quota' (authedFetch sau AI call, ai-provider sau complete);
+    // poll chỉ là backstop khi consumer không qua authedFetch (vd built-in claude).
+    const t = setInterval(load, 10_000);
     return () => { alive = false; window.removeEventListener('tourkit:quota', onQuota); clearInterval(t); };
   }, [authUser]);
 

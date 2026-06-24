@@ -51,7 +51,7 @@ public class TourkitAiDb
             await using var cmd = c.CreateCommand();
             cmd.CommandText = SchemaSql;
             await cmd.ExecuteNonQueryAsync(ct);
-            _log.LogInformation("TourkitAiDb schema OK (Reviews/DealScores/AiHistory/MailAccounts/Mails/MailSyncState/VisaAssessments/TourQuotes đã có/đã tạo)");
+            _log.LogInformation("TourkitAiDb schema OK (Reviews/DealScores/MailAccounts/Mails/MailSyncState/TourQuotes/VisaAssessments/QuotaOrders/WidgetTokens/VisaQuestionSets/TkSessions/TenantQuota/AiUsageCounters/AiUsageHistory đã có/đã tạo)");
         }
         catch (Exception ex)
         {
@@ -132,21 +132,14 @@ BEGIN
     EXEC sp_executesql N'CREATE INDEX IX_DealScores_Unsynced ON dbo.DealScores(TenantId, GeneratedAt) WHERE IsSync = 0';
 END;
 
-IF OBJECT_ID('dbo.AiHistory', 'U') IS NULL
+-- 2026-06-24: dbo.AiHistory bị drop — orphan, không repo nào INSERT/SELECT.
+-- Plan ban đầu: lưu audit-trail "ai gen review/deal nào lúc nào". Không bao giờ wire-up
+-- vì AiUsageHistory (granular per-request) đã cover use case này tốt hơn.
+-- Idempotent: chạy DROP nếu còn tồn tại; sau khi drop thì block này là no-op.
+-- TODO: xóa block này sau khi mọi instance prod đã restart (1-2 deploy nữa).
+IF OBJECT_ID('dbo.AiHistory', 'U') IS NOT NULL
 BEGIN
-    CREATE TABLE dbo.AiHistory (
-        Id             BIGINT          IDENTITY(1,1) NOT NULL,
-        Feature        NVARCHAR(32)    NOT NULL,
-        EntityId       NVARCHAR(64)    NOT NULL,
-        TenantId       NVARCHAR(128)   NOT NULL,
-        Fingerprint    NVARCHAR(64)    NOT NULL,
-        DataJson       NVARCHAR(MAX)   NOT NULL,
-        AiProvider     NVARCHAR(64)    NULL,
-        AiModel        NVARCHAR(128)   NULL,
-        GeneratedAt    BIGINT          NOT NULL,
-        CONSTRAINT PK_AiHistory PRIMARY KEY CLUSTERED (Id)
-    );
-    CREATE INDEX IX_AiHistory_FeatureEntity ON dbo.AiHistory(Feature, EntityId, GeneratedAt DESC);
+    DROP TABLE dbo.AiHistory;
 END;
 
 IF OBJECT_ID('dbo.MailAccounts', 'U') IS NULL
@@ -358,6 +351,84 @@ BEGIN
         UpdatedAt      DATETIME2     NOT NULL,
         CONSTRAINT PK_VisaQuestionSets PRIMARY KEY CLUSTERED (TenantId)
     );
+END;
+
+-- Phiên đăng nhập TourKit CRM (share cross-process web ↔ Hangfire worker).
+-- KHÔNG lưu JWT (re-login khi cần). PasswordEnc = Crypton AES-256/CBC (chung passphrase với token).
+-- ChatMemoryJson = SessionChatMemory serialize (lịch sử chat /assistant trong phiên).
+IF OBJECT_ID('dbo.TkSessions', 'U') IS NULL
+BEGIN
+    CREATE TABLE dbo.TkSessions (
+        Id                NVARCHAR(64)    NOT NULL,
+        TenantId          NVARCHAR(128)   NOT NULL,
+        Username          NVARCHAR(128)   NOT NULL,
+        PasswordEnc       NVARCHAR(512)   NOT NULL,
+        FullName          NVARCHAR(256)   NULL,
+        CompanyName       NVARCHAR(256)   NULL,
+        ChatMemoryJson    NVARCHAR(MAX)   NULL,
+        LastUsedUtc       DATETIME2       NOT NULL,
+        CreatedUtc        DATETIME2       NOT NULL CONSTRAINT DF_TkSessions_Created DEFAULT SYSUTCDATETIME(),
+        CONSTRAINT PK_TkSessions PRIMARY KEY CLUSTERED (Id)
+    );
+    CREATE INDEX IX_TkSessions_TenantUser ON dbo.TkSessions(TenantId, Username);
+    CREATE INDEX IX_TkSessions_LastUsed   ON dbo.TkSessions(LastUsedUtc);
+END;
+
+-- Quota AI per-tenant: bao nhiêu lượt được cấp ([Limit]) và đã dùng (Used).
+-- Atomic Consume = UPDATE SET Used = Used + 1 (SQL race-safe cross-instance).
+-- Store giữ in-mem cache cho hot path; SQL = source of truth.
+IF OBJECT_ID('dbo.TenantQuota', 'U') IS NULL
+BEGIN
+    CREATE TABLE dbo.TenantQuota (
+        TenantId       NVARCHAR(128)   NOT NULL,
+        [Limit]        INT             NOT NULL,
+        Used           INT             NOT NULL CONSTRAINT DF_TenantQuota_Used DEFAULT 0,
+        UpdatedAt      DATETIME2       NOT NULL,
+        CONSTRAINT PK_TenantQuota PRIMARY KEY CLUSTERED (TenantId)
+    );
+END;
+
+-- Aggregate AI usage per ngày per model. Snapshot rẻ (SELECT WHERE DateUtc trong N ngày
+-- gần đây), khỏi append-only log. UPSERT atomic: Track gọi MERGE cộng counters.
+IF OBJECT_ID('dbo.AiUsageCounters', 'U') IS NULL
+BEGIN
+    CREATE TABLE dbo.AiUsageCounters (
+        DateUtc        DATE          NOT NULL,
+        Model          NVARCHAR(128) NOT NULL,
+        Calls          BIGINT        NOT NULL CONSTRAINT DF_AiUsage_Calls   DEFAULT 0,
+        InTokens       BIGINT        NOT NULL CONSTRAINT DF_AiUsage_InTok   DEFAULT 0,
+        OutTokens      BIGINT        NOT NULL CONSTRAINT DF_AiUsage_OutTok  DEFAULT 0,
+        TotalLatencyMs BIGINT        NOT NULL CONSTRAINT DF_AiUsage_Lat     DEFAULT 0,
+        UpdatedUtc     DATETIME2     NOT NULL CONSTRAINT DF_AiUsage_Updated DEFAULT SYSUTCDATETIME(),
+        CONSTRAINT PK_AiUsageCounters PRIMARY KEY CLUSTERED (DateUtc, Model)
+    );
+    CREATE INDEX IX_AiUsage_Date ON dbo.AiUsageCounters(DateUtc DESC);
+END;
+
+-- Per-request AI usage history (granular): mỗi AI call = 1 row. Bổ sung cho AiUsageCounters
+-- (chỉ aggregate daily). Cần granular để dashboard /api/v1/ai/usage group theo feature/session/tenant.
+-- Trước đây lưu file data/ai-usage.jsonl → mất khi deploy bản mới. Giờ persist vào SQL.
+-- Indexes: Ts DESC cho ''N rows gần nhất''; (Tenant, Ts DESC) cho per-tenant breakdown.
+IF OBJECT_ID('dbo.AiUsageHistory', 'U') IS NULL
+BEGIN
+    CREATE TABLE dbo.AiUsageHistory (
+        Id          BIGINT          IDENTITY(1,1) NOT NULL,
+        Ts          DATETIME2       NOT NULL,
+        Feature     NVARCHAR(64)    NOT NULL,
+        SessionId   NVARCHAR(32)    NULL,
+        Tenant      NVARCHAR(128)   NULL,
+        Provider    NVARCHAR(64)    NOT NULL,
+        Model       NVARCHAR(128)   NOT NULL,
+        InTok       INT             NOT NULL,
+        OutTok      INT             NOT NULL,
+        LatencyMs   BIGINT          NOT NULL,
+        CostVnd     BIGINT          NOT NULL,
+        Cached      BIT             NOT NULL,
+        Status      NVARCHAR(32)    NOT NULL,
+        CONSTRAINT PK_AiUsageHistory PRIMARY KEY CLUSTERED (Id)
+    );
+    CREATE INDEX IX_AiUsageHistory_Ts        ON dbo.AiUsageHistory(Ts DESC);
+    CREATE INDEX IX_AiUsageHistory_Tenant_Ts ON dbo.AiUsageHistory(Tenant, Ts DESC);
 END;
 ";
 }

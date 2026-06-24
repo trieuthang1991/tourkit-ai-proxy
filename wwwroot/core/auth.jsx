@@ -61,7 +61,19 @@
     } catch { return getUser(); }   // mạng lỗi → giữ session local, không đá ra
   }
 
-  // fetch gắn X-Session-Id; 401 → logout (về LoginGate); 429 → emit event để chip quota refresh.
+  // URL nào "ăn quota" → đáng fire event refresh chip sau khi xong. Liệt kê theo prefix.
+  // Đụng quota: completions/chat/reviews/visa/deals/tour-builder/mail/* (mọi feature AI).
+  const AI_URL_RX = /\/api\/v1\/(completions|chat|reviews|visa|deals|tour-builder|mail)(\b|\/)/;
+  let _quotaRefreshTimer = null;
+  function scheduleQuotaRefresh(delayMs) {
+    clearTimeout(_quotaRefreshTimer);
+    _quotaRefreshTimer = setTimeout(() => {
+      window.dispatchEvent(new CustomEvent('tourkit:quota'));   // không detail → app fetch /quota
+    }, delayMs);
+  }
+
+  // fetch gắn X-Session-Id; 401 → logout (về LoginGate); 429 → emit event với snapshot;
+  // 2xx + URL ăn quota → schedule debounced refresh chip (~2s, đủ cho backend consume xong).
   async function authedFetch(url, opts = {}) {
     const sid = getSessionId();
     const headers = Object.assign({}, opts.headers || {}, sid ? { 'X-Session-Id': sid } : {});
@@ -76,6 +88,10 @@
           window.dispatchEvent(new CustomEvent('tourkit:quota', { detail: body.quota }));
         }
       } catch { /* ignore parse fail */ }
+    } else if (r.ok && typeof url === 'string' && AI_URL_RX.test(url)) {
+      // Stream endpoint: response trả ngay khi headers gửi → quota consume sau. Delay ~2s
+      // đủ cho non-stream (typical <2s) và stream (sẽ poll thêm sau 10s nếu chưa kịp).
+      scheduleQuotaRefresh(2000);
     }
     return r;
   }
