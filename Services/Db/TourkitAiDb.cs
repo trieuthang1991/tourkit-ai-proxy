@@ -380,5 +380,22 @@ BEGIN
     CREATE INDEX IX_TkSessions_TenantUser ON dbo.TkSessions(TenantId, Username);
     CREATE INDEX IX_TkSessions_LastUsed   ON dbo.TkSessions(LastUsedUtc);
 END;
+
+-- Aggregate AI usage per ngày per model. Snapshot rẻ (SELECT WHERE DateUtc trong N ngày
+-- gần đây), khỏi append-only log. UPSERT atomic: Track gọi MERGE cộng counters.
+IF OBJECT_ID('dbo.AiUsageCounters', 'U') IS NULL
+BEGIN
+    CREATE TABLE dbo.AiUsageCounters (
+        DateUtc        DATE          NOT NULL,
+        Model          NVARCHAR(128) NOT NULL,
+        Calls          BIGINT        NOT NULL CONSTRAINT DF_AiUsage_Calls   DEFAULT 0,
+        InTokens       BIGINT        NOT NULL CONSTRAINT DF_AiUsage_InTok   DEFAULT 0,
+        OutTokens      BIGINT        NOT NULL CONSTRAINT DF_AiUsage_OutTok  DEFAULT 0,
+        TotalLatencyMs BIGINT        NOT NULL CONSTRAINT DF_AiUsage_Lat     DEFAULT 0,
+        UpdatedUtc     DATETIME2     NOT NULL CONSTRAINT DF_AiUsage_Updated DEFAULT SYSUTCDATETIME(),
+        CONSTRAINT PK_AiUsageCounters PRIMARY KEY CLUSTERED (DateUtc, Model)
+    );
+    CREATE INDEX IX_AiUsage_Date ON dbo.AiUsageCounters(DateUtc DESC);
+END;
 ";
 }
