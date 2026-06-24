@@ -31,7 +31,8 @@ public static class DealEndpoints
             TourKitApiClient api, TkSessionStore sessions,
             ILogger<Program> log, int? page, int? pageSize, string? q,
             int? trangThai, int? nguon, int? nhanVienPhuTrach,
-            string? rank, int? minRank, int? maxRank) =>
+            string? rank, int? minRank, int? maxRank,
+            int? maxAge, long? minValue, long? maxValue) =>
         {
             var sid = Sid(ctx);
             var sess = sessions.Get(sid);
@@ -61,9 +62,18 @@ public static class DealEndpoints
                     };
                     if (rankInt == 0) rankInt = null;
                 }
+                // BUG fix (dropdown Bộ lọc nâng cao trống): api.GetAsync set Bearer = THAM SỐ ĐẦU = JWT,
+                // KHÔNG phải sessionId. Trước truyền sid → upstream 401 → reference fault → lookups rỗng
+                // → 3 dropdown (Trạng thái/Nguồn/NV) chỉ còn "Tất cả". Resolve JWT thật 1 lần (re-login
+                // nếu hết hạn); listTask gọi lại GetValidJwtAsync bên trong sẽ trúng cache, không re-login lần 2.
+                var jwt         = await sessions.GetValidJwtAsync(sid!, ctx.RequestAborted);
+                // maxAge (tuổi ≤ N ngày) → startDate = hôm nay − N (upstream lọc InsDttm >= startDate).
+                // minValue/maxValue → minPrice/maxPrice (upstream lọc TotalPrice computed). Tất cả server-side toàn DB.
+                string? startDate = maxAge is > 0 ? DateTime.Today.AddDays(-maxAge.Value).ToString("yyyy-MM-dd") : null;
                 var listTask    = client.ListPagedAsync(sid!, pIdx, pSize, ctx.RequestAborted,
-                                      q, trangThai, nguon, nhanVienPhuTrach, rankInt, minRank, maxRank);
-                var refTask     = api.GetAsync(sid!, "/api/ai/reference", ctx.RequestAborted);
+                                      q, trangThai, nguon, nhanVienPhuTrach, rankInt, minRank, maxRank,
+                                      startDate, minValue, maxValue);
+                var refTask     = api.GetAsync(jwt, "/api/ai/reference", ctx.RequestAborted);
                 await Task.WhenAll(listTask, refTask.ContinueWith(_ => { }, TaskScheduler.Default));
                 var res         = await listTask;
                 var lookups     = BuildDealLookups(refTask.IsCompletedSuccessfully ? refTask.Result : default);
@@ -101,6 +111,13 @@ public static class DealEndpoints
                     };
                 });
                 return Results.Json(new { items, total = res.Total, page = pIdx, pageSize = pSize, lookups });
+            }
+            // Client tự hủy request (điều hướng/unmount/đổi filter) → CancellationToken cascade xuống
+            // upstream call (SocketException 995). Benign: không ai chờ response → KHÔNG log error,
+            // KHÔNG 500. Guard IsCancellationRequested để PHÂN BIỆT với upstream-timeout (vẫn log thật).
+            catch (OperationCanceledException) when (ctx.RequestAborted.IsCancellationRequested)
+            {
+                return Results.StatusCode(499);   // 499 Client Closed Request (response bị bỏ, client đã đóng)
             }
             catch (TourKitApiException ex) { return Results.Json(new { error = ex.Message }, statusCode: ex.Status); }
             catch (Exception ex) { log.LogError(ex, "List deals lỗi"); return Results.Json(new { error = ex.Message }, statusCode: 500); }

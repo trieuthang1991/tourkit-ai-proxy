@@ -100,9 +100,9 @@ function DealDrawer({ item, onClose }) {
 }
 
 // ─── Bộ lọc kết quả ─── (mượn pattern mobile qua window.SearchControls) ───
-// Bỏ chip "Win cao/TB/thấp + Đang nguội" — chúng filter theo AI rating (level/cooling)
-// mà upstream `/api/ai/booking-tickets` chưa support param. User sẽ bổ sung backend param sau.
-// Hiện chỉ giữ search + filter button → bộ lọc nâng cao gọi server thật qua trangThai/nguon/nhanVienPhuTrach.
+// Filter bar: search (q) + chip Win (rank/minRank/maxRank) + nút Bộ lọc nâng cao.
+// TẤT CẢ filter (q / trạng thái / nguồn / NV / rank / tuổi / giá trị) đẩy SERVER-SIDE qua
+// /api/ai/booking-tickets. Riêng "Sắp xếp" client-side (priority/EV là heuristic proxy, không phải cột DB).
 function DealFilters({ q, setQ, shown, total, advCount, advOpen, onAdvToggle, rankFilter, setRankFilter }) {
   const SC = window.SearchControls;
   // Win chip ngưỡng đồng bộ DealScoringService.cs: cao ≥60, TB 35-59, thấp <35.
@@ -210,10 +210,11 @@ function DealsPage({ pushToast }) {
   // Lookups cho dropdown (statuses/sources/staffs từ upstream /api/ai/reference)
   const [lookups, setLookups] = _dS({ statuses: [], sources: [], staffs: [] });
 
-  // Bộ lọc nâng cao:
-  //   • status/source/staff: ID (int) → URL → upstream filter THẬT (qua trangThai/nguon/nhanVienPhuTrach)
-  //   • minValue/maxValue/maxAge/sortBy: vẫn client-side (upstream chưa support) — label "(trên trang)"
-  // Default sortBy = 'newest' (id desc) → match mobile (TourKit.Api OrderByDescending(Id)).
+  // Bộ lọc nâng cao — ĐẨY SERVER-SIDE qua loadList → /api/ai/booking-tickets:
+  //   • status/source/staff → trangThai/nguon/nhanVienPhuTrach (int ID)
+  //   • customMinRank/customMaxRank → minRank/maxRank (% khả năng thắng)
+  //   • maxAge → startDate (proxy convert = hôm nay − N) ; minValue/maxValue → minPrice/maxPrice
+  //   • sortBy: client-side (priority/EV proxy-computed, không phải cột DB). Default 'newest' (id desc).
   const EMPTY_DEAL_FILTER = { status: 0, source: 0, staff: 0, minValue: '', maxValue: '', maxAge: '', sortBy: 'newest', customMinRank: '', customMaxRank: '' };
   const [adv, setAdv] = _dS(EMPTY_DEAL_FILTER);
   const [advOpen, setAdvOpen] = _dS(false);
@@ -263,6 +264,10 @@ function DealsPage({ pushToast }) {
         if (rf === 'mid')  { params.set('minRank', '35'); params.set('maxRank', '59'); }
         if (rf === 'low')  { params.set('minRank', '1');  params.set('maxRank', '34'); }
       }
+      // Tuổi + giá trị → server-side toàn DB (upstream: startDate / minPrice / maxPrice).
+      if (a.maxAge   && Number(a.maxAge)   > 0) params.set('maxAge',   String(a.maxAge));
+      if (a.minValue && Number(a.minValue) > 0) params.set('minValue', String(a.minValue));
+      if (a.maxValue && Number(a.maxValue) > 0) params.set('maxValue', String(a.maxValue));
       const r = await window.tourkitAuth.authedFetch('/api/v1/deals?' + params.toString());
       if (!r.ok) throw new Error('HTTP ' + r.status);
       const data = await r.json();
@@ -403,19 +408,11 @@ function DealsPage({ pushToast }) {
     }
     return { ...d, _hasScore: false, winRate: null, level: null, priorityScore: 0, expectedValue: 0 };
   });
-  // Dropdown statuses/sources/staffs hiện nạp từ `lookups` state (call /api/v1/deals/lookups
-  // → /api/ai/reference upstream). KHÔNG derive client-side từ items nữa — lý do: items chỉ
-  // có 50 dòng/trang, dropdown chỉ ra option có trong page hiện tại, user lọc xong → sang
-  // trang khác lại thấy option khác → confusing.
-  // Filter SERVER-SIDE đã làm: q (search) / status / source / staff → đẩy thẳng upstream.
-  // Client-side CHỈ lọc thêm minValue/maxValue/maxAge (upstream chưa support) — áp lên trang
-  // hiện tại 50 dòng, label rõ "(trên trang)" trong UI.
-  let filtered = items.filter(it => {
-    if (adv.minValue && (it.totalPrice || 0) < Number(adv.minValue)) return false;
-    if (adv.maxValue && (it.totalPrice || 0) > Number(adv.maxValue)) return false;
-    if (adv.maxAge && (it.ageDays || 0) > Number(adv.maxAge)) return false;
-    return true;
-  });
+  // Dropdown statuses/sources/staffs nạp từ `lookups` (bundle trong response /api/v1/deals →
+  // backend gọi /api/ai/reference). KHÔNG derive client-side từ items (50 dòng/trang → option lệch trang).
+  // MỌI filter (q/status/source/staff/rank/maxAge/minValue/maxValue) đã đẩy server-side qua loadList.
+  // Client-side CHỈ còn SORT (priority/EV là heuristic proxy tính, không phải cột DB).
+  let filtered = [...items];
   // Sắp xếp tùy chọn (mặc định = newest = id desc, match mobile).
   filtered = [...filtered].sort((a, b) => {
     if (adv.sortBy === 'priority') return (b.priorityScore || 0) - (a.priorityScore || 0);
@@ -594,17 +591,17 @@ function DealsPage({ pushToast }) {
                   onChange={e => set('customMaxRank', e.target.value)} min={1} max={100} />
               </div>
               <div className="cust-sheet-row">
-                <label>Tuổi cơ hội tối đa (ngày) <span style={{color:'var(--text-3)',fontSize:11}}>· trên trang</span></label>
+                <label>Tuổi cơ hội tối đa (ngày) <span style={{color:'var(--text-3)',fontSize:11}}>· toàn DB</span></label>
                 <input type="number" className="tb-field" placeholder="vd 30" value={draft.maxAge}
                   onChange={e => set('maxAge', e.target.value)} min={0} />
               </div>
               <div className="cust-sheet-row">
-                <label>Giá trị tối thiểu (đ) <span style={{color:'var(--text-3)',fontSize:11}}>· trên trang</span></label>
+                <label>Giá trị tối thiểu (đ) <span style={{color:'var(--text-3)',fontSize:11}}>· toàn DB</span></label>
                 <input type="number" className="tb-field" placeholder="vd 10000000" value={draft.minValue}
                   onChange={e => set('minValue', e.target.value)} min={0} />
               </div>
               <div className="cust-sheet-row">
-                <label>Giá trị tối đa (đ) <span style={{color:'var(--text-3)',fontSize:11}}>· trên trang</span></label>
+                <label>Giá trị tối đa (đ) <span style={{color:'var(--text-3)',fontSize:11}}>· toàn DB</span></label>
                 <input type="number" className="tb-field" placeholder="bỏ trống = không giới hạn" value={draft.maxValue}
                   onChange={e => set('maxValue', e.target.value)} min={0} />
               </div>

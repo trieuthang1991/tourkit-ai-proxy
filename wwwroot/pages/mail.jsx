@@ -188,7 +188,7 @@ function MailAccountForm({ account, onSaved, onDisconnected, pushToast }) {
         <input className="mail-field" placeholder="booking@congty.com"
           value={address} onChange={e => setAddress(e.target.value)} />
         <label className="mail-field-label">App Password</label>
-        <input className="mail-field" type="password" placeholder="abcd efgh ijkl mnop"
+        <input className="mail-field" type="password" placeholder="Nhập thông tin app pass email của bạn vào."
           value={appPassword} onChange={e => setAppPassword(e.target.value)}
           onKeyDown={e => { if (e.key === 'Enter') save(); }} />
         <label className="mail-field-label">Chữ ký cuối email <span className="mail-opt">(tên công ty bạn)</span></label>

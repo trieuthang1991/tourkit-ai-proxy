@@ -33,7 +33,8 @@ public class DealOpportunityClient
     public async Task<DealPage> ListPagedAsync(
         string sessionId, int pageIndex, int pageSize, CancellationToken ct,
         string? keyword = null, int? trangThai = null, int? nguon = null, int? nhanVienPhuTrach = null,
-        int? rank = null, int? minRank = null, int? maxRank = null)
+        int? rank = null, int? minRank = null, int? maxRank = null,
+        string? startDate = null, long? minPrice = null, long? maxPrice = null)
     {
         if (pageIndex < 1) pageIndex = 1;
         var path = $"/api/ai/booking-tickets?pageIndex={pageIndex}&pageSize={pageSize}";
@@ -46,6 +47,10 @@ public class DealOpportunityClient
         if (rank is not null && rank != 0) path += $"&rank={rank}";
         if (minRank is > 0) path += $"&minRank={minRank}";
         if (maxRank is > 0) path += $"&maxRank={maxRank}";
+        // tuổi cơ hội (startDate=hôm nay−N) + giá trị (minPrice/maxPrice trên TotalPrice) → server-side toàn DB
+        if (!string.IsNullOrWhiteSpace(startDate)) path += "&startDate=" + Uri.EscapeDataString(startDate);
+        if (minPrice is > 0) path += $"&minPrice={minPrice}";
+        if (maxPrice is > 0) path += $"&maxPrice={maxPrice}";
         var data = await GetAsync(sessionId, path, ct);
 
         var list = new List<DealOpportunity>();
