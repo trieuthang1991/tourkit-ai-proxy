@@ -133,7 +133,7 @@ BEGIN
 END;
 
 -- 2026-06-24: dbo.AiHistory bị drop — orphan, không repo nào INSERT/SELECT.
--- Plan ban đầu: lưu audit-trail "ai gen review/deal nào lúc nào". Không bao giờ wire-up
+-- Plan ban đầu: lưu audit-trail ""ai gen review/deal nào lúc nào"". Không bao giờ wire-up
 -- vì AiUsageHistory (granular per-request) đã cover use case này tốt hơn.
 -- Idempotent: chạy DROP nếu còn tồn tại; sau khi drop thì block này là no-op.
 -- TODO: xóa block này sau khi mọi instance prod đã restart (1-2 deploy nữa).
