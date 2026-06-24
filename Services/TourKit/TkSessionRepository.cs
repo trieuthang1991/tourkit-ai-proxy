@@ -83,6 +83,47 @@ public class TkSessionRepository
         }
     }
 
+    /// Lookup session mới nhất theo (TenantId, Username). Dùng cho de-dup khi user login lại
+    /// → reuse Id thay vì tạo row mới. Trả về row có LastUsedUtc cao nhất nếu có nhiều.
+    public async Task<TkSession?> GetByUserAsync(string tenantId, string username, CancellationToken ct = default)
+    {
+        if (string.IsNullOrEmpty(tenantId) || string.IsNullOrEmpty(username)) return null;
+        try
+        {
+            await using var c = await _db.OpenAsync(ct);
+            var row = await c.QueryFirstOrDefaultAsync<Row>(
+                "SELECT TOP 1 Id, TenantId, Username, PasswordEnc, FullName, CompanyName, ChatMemoryJson, LastUsedUtc " +
+                "FROM dbo.TkSessions WHERE TenantId = @tenantId AND Username = @username " +
+                "ORDER BY LastUsedUtc DESC",
+                new { tenantId, username });
+            return row == null ? null : TryHydrate(row);
+        }
+        catch (Exception ex)
+        {
+            _log.LogWarning(ex, "[TkSessionRepo] GetByUser {Tenant}/{User} lỗi", tenantId, username);
+            return null;
+        }
+    }
+
+    /// Xoá mọi session khác (cùng TenantId+Username) ngoại trừ keepId. Trả số rows xoá.
+    /// Dùng sau khi reuse session: dọn các bản ghi trùng tích lũy từ trước khi có de-dup.
+    public async Task<int> DeleteOtherForUserAsync(string tenantId, string username, string keepId, CancellationToken ct = default)
+    {
+        if (string.IsNullOrEmpty(tenantId) || string.IsNullOrEmpty(username) || string.IsNullOrEmpty(keepId)) return 0;
+        try
+        {
+            await using var c = await _db.OpenAsync(ct);
+            return await c.ExecuteAsync(
+                "DELETE FROM dbo.TkSessions WHERE TenantId = @tenantId AND Username = @username AND Id <> @keepId",
+                new { tenantId, username, keepId });
+        }
+        catch (Exception ex)
+        {
+            _log.LogWarning(ex, "[TkSessionRepo] DeleteOtherForUser {Tenant}/{User} lỗi", tenantId, username);
+            return 0;
+        }
+    }
+
     /// UPSERT session. Crypton-encrypt password, serialize ChatMemory. Không lưu JWT.
     public async Task UpsertAsync(TkSession s, CancellationToken ct = default)
     {

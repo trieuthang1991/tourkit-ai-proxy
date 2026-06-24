@@ -107,6 +107,7 @@ builder.Services.AddScoped<TourkitAiProxy.Services.TourKit.ITenantContext,
 builder.Services.AddSingleton<IWorkflowTraceAccessor, WorkflowTraceAccessor>();
 // Trace nào có data thì lưu data/workflow-traces.jsonl để xem lại sau (audit, post-mortem).
 builder.Services.AddSingleton<WorkflowTraceLog>();
+builder.Services.AddSingleton<TourkitAiProxy.Services.AiUsageHistoryRepository>(); // Dapper repo cho dbo.AiUsageHistory (granular per-request)
 builder.Services.AddSingleton<TourkitAiProxy.Services.AiUsageLog>();
 builder.Services.AddSingleton<TourkitAiProxy.Services.AiCallContext>();
 // Cache prompt-hash 24h cho Visa/Deal/TourBuilder (Redis nếu có, fallback in-memory).
@@ -168,7 +169,9 @@ builder.Services.AddSingleton<TourkitAiProxy.Services.Cache.RedisStore>();  // g
 // Single source of truth cho cấu hình AI model per-feature.
 builder.Services.AddSingleton<TourkitAiProxy.Services.Providers.AiModelRegistry>();
 builder.Services.AddSingleton<TourkitAiProxy.Services.Cache.ChatCache>();   // Redis (nếu có) / in-memory
-builder.Services.AddSingleton<TourkitAiProxy.Services.Quota.TenantQuotaStore>();   // Quota AI per-tenant: file + Redis mirror
+builder.Services.AddSingleton<TourkitAiProxy.Services.Quota.TenantQuotaRepository>(); // Dapper repo cho dbo.TenantQuota
+builder.Services.AddSingleton<TourkitAiProxy.Services.Quota.TenantQuotaStore>();      // Quota AI per-tenant: SQL nguồn thực + in-mem cache
+builder.Services.AddHostedService<TourkitAiProxy.Services.Quota.QuotaFlushService>(); // Tick 5s: drain pendingDeltas → 1 UPDATE per tenant (batched flush)
 
 // Tingee VietQR client cho luồng mua quota. Mock-first: dùng vietqr.io public, simulate-paid endpoint
 // để dev test. Khi có ApiKey thật → set `Tingee:Mock=false` → switch sang TingeeHttpClient.
@@ -300,6 +303,11 @@ _ = Task.Run(async () =>
             .LogWarning(ex, "Migrate tk-sessions file → SQL fail");
     }
 });
+
+// Force-resolve AiUsageLog singleton ở startup → CTOR tự kick off migrate
+// data/ai-usage.jsonl → dbo.AiUsageHistory (fire-and-forget bên trong). Không có dòng này,
+// singleton chỉ instantiate khi có AI call đầu tiên → migration trễ.
+_ = app.Services.GetRequiredService<TourkitAiProxy.Services.AiUsageLog>();
 
 // DB init: tạo schema dbo.Reviews/DealScores/AiHistory nếu chưa có + migrate JSON cũ vào DB.
 // Chạy async fire-and-forget — không block startup. Nếu DB chưa sẵn sàng → log warning, fallback file.

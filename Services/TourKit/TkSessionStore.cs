@@ -9,7 +9,8 @@ public class TkSession
     public required string Id { get; init; }
     public required string TenantId { get; init; }
     public required string Username { get; init; }
-    public required string Password { get; init; }
+    // Password có thể đổi khi user đổi mật khẩu → mutable để CreateAsync (de-dup re-login) refresh.
+    public required string Password { get; set; }
 
     public string Jwt { get; set; } = "";
     public string? FullName { get; set; }
@@ -63,27 +64,64 @@ public class TkSessionStore
         }
     }
 
-    /// Login lần đầu từ credentials đã giải mã → tạo phiên, persist SQL, trả về phiên.
+    /// Login. De-dup theo (TenantId, Username): nếu user đã có session → reuse Id + update
+    /// JWT/credentials/timestamp, giữ nguyên ChatMemory; xóa các session trùng cũ trong SQL.
+    /// Nếu chưa có → tạo mới với Guid.NewGuid().
     public async Task<TkSession> CreateAsync(string tenantId, string username, string password, CancellationToken ct)
     {
         _ = PruneIdleAsync(ct);   // fire-and-forget, không block login
         var login = await _api.LoginAsync(tenantId, username, password, ct);
 
-        var session = new TkSession
+        // Reuse session sẵn có (most recent) cho cùng (tenant, user) → tránh sinh row mới mỗi lần F5.
+        var existing = await _repo.GetByUserAsync(tenantId, username, ct);
+
+        TkSession session;
+        if (existing != null)
         {
-            Id          = Guid.NewGuid().ToString("N"),
-            TenantId    = tenantId,
-            Username    = username,
-            Password    = password,
-            Jwt         = login.Token,
-            FullName    = login.FullName,
-            CompanyName = login.CompanyName,
-            JwtExpiresAt = DateTime.UtcNow.Add(SoftTtl),
-            LastUsed    = DateTime.UtcNow
-        };
-        _cache[session.Id] = session;
-        await _repo.UpsertAsync(session, ct);
-        _log.LogInformation("TourKit session {Id} tạo cho tenant={Tenant} user={User}", session.Id, tenantId, username);
+            // Reuse Id + ChatMemory; refresh JWT + credentials (phòng user đổi password) + LastUsed.
+            existing.Password    = password;
+            existing.Jwt         = login.Token;
+            existing.FullName    = login.FullName;
+            existing.CompanyName = login.CompanyName;
+            existing.JwtExpiresAt = DateTime.UtcNow.Add(SoftTtl);
+            existing.LastUsed     = DateTime.UtcNow;
+            session = existing;
+
+            await _repo.UpsertAsync(session, ct);
+            // Dọn các session dupe cũ (tích lũy trước khi có de-dup).
+            var removed = await _repo.DeleteOtherForUserAsync(tenantId, username, session.Id, ct);
+            // Đồng bộ cache: xóa các sessionId khác cùng (tenant,user) ra khỏi in-mem.
+            foreach (var kv in _cache)
+            {
+                if (kv.Key != session.Id &&
+                    string.Equals(kv.Value.TenantId, tenantId, StringComparison.Ordinal) &&
+                    string.Equals(kv.Value.Username, username, StringComparison.Ordinal))
+                    _cache.TryRemove(kv.Key, out _);
+            }
+            _cache[session.Id] = session;
+            _log.LogInformation("TourKit session {Id} REUSED cho tenant={Tenant} user={User} (dọn {N} dupe)",
+                session.Id, tenantId, username, removed);
+        }
+        else
+        {
+            session = new TkSession
+            {
+                Id          = Guid.NewGuid().ToString("N"),
+                TenantId    = tenantId,
+                Username    = username,
+                Password    = password,
+                Jwt         = login.Token,
+                FullName    = login.FullName,
+                CompanyName = login.CompanyName,
+                JwtExpiresAt = DateTime.UtcNow.Add(SoftTtl),
+                LastUsed    = DateTime.UtcNow
+            };
+            _cache[session.Id] = session;
+            await _repo.UpsertAsync(session, ct);
+            _log.LogInformation("TourKit session {Id} TẠO MỚI cho tenant={Tenant} user={User}",
+                session.Id, tenantId, username);
+        }
+
         return session;
     }
 

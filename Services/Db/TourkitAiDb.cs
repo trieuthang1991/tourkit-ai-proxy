@@ -381,6 +381,20 @@ BEGIN
     CREATE INDEX IX_TkSessions_LastUsed   ON dbo.TkSessions(LastUsedUtc);
 END;
 
+-- Quota AI per-tenant: bao nhiêu lượt được cấp ([Limit]) và đã dùng (Used).
+-- Atomic Consume = UPDATE SET Used = Used + 1 (SQL race-safe cross-instance).
+-- Store giữ in-mem cache cho hot path; SQL = source of truth.
+IF OBJECT_ID('dbo.TenantQuota', 'U') IS NULL
+BEGIN
+    CREATE TABLE dbo.TenantQuota (
+        TenantId       NVARCHAR(128)   NOT NULL,
+        [Limit]        INT             NOT NULL,
+        Used           INT             NOT NULL CONSTRAINT DF_TenantQuota_Used DEFAULT 0,
+        UpdatedAt      DATETIME2       NOT NULL,
+        CONSTRAINT PK_TenantQuota PRIMARY KEY CLUSTERED (TenantId)
+    );
+END;
+
 -- Aggregate AI usage per ngày per model. Snapshot rẻ (SELECT WHERE DateUtc trong N ngày
 -- gần đây), khỏi append-only log. UPSERT atomic: Track gọi MERGE cộng counters.
 IF OBJECT_ID('dbo.AiUsageCounters', 'U') IS NULL
@@ -396,6 +410,32 @@ BEGIN
         CONSTRAINT PK_AiUsageCounters PRIMARY KEY CLUSTERED (DateUtc, Model)
     );
     CREATE INDEX IX_AiUsage_Date ON dbo.AiUsageCounters(DateUtc DESC);
+END;
+
+-- Per-request AI usage history (granular): mỗi AI call = 1 row. Bổ sung cho AiUsageCounters
+-- (chỉ aggregate daily). Cần granular để dashboard /api/v1/ai/usage group theo feature/session/tenant.
+-- Trước đây lưu file data/ai-usage.jsonl → mất khi deploy bản mới. Giờ persist vào SQL.
+-- Indexes: Ts DESC cho ''N rows gần nhất''; (Tenant, Ts DESC) cho per-tenant breakdown.
+IF OBJECT_ID('dbo.AiUsageHistory', 'U') IS NULL
+BEGIN
+    CREATE TABLE dbo.AiUsageHistory (
+        Id          BIGINT          IDENTITY(1,1) NOT NULL,
+        Ts          DATETIME2       NOT NULL,
+        Feature     NVARCHAR(64)    NOT NULL,
+        SessionId   NVARCHAR(32)    NULL,
+        Tenant      NVARCHAR(128)   NULL,
+        Provider    NVARCHAR(64)    NOT NULL,
+        Model       NVARCHAR(128)   NOT NULL,
+        InTok       INT             NOT NULL,
+        OutTok      INT             NOT NULL,
+        LatencyMs   BIGINT          NOT NULL,
+        CostVnd     BIGINT          NOT NULL,
+        Cached      BIT             NOT NULL,
+        Status      NVARCHAR(32)    NOT NULL,
+        CONSTRAINT PK_AiUsageHistory PRIMARY KEY CLUSTERED (Id)
+    );
+    CREATE INDEX IX_AiUsageHistory_Ts        ON dbo.AiUsageHistory(Ts DESC);
+    CREATE INDEX IX_AiUsageHistory_Tenant_Ts ON dbo.AiUsageHistory(Tenant, Ts DESC);
 END;
 ";
 }

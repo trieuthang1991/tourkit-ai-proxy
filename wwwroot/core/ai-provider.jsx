@@ -58,6 +58,18 @@
     localStorage.setItem(STORAGE_KEY, JSON.stringify(clean));
   }
 
+  // ─── Quota refresh ─────────────────────────────────────────────────────────
+  // Mọi AI call (complete/completeStream) qua backend đều ăn quota → fire event
+  // để chip ".tb-quota" ở topbar refresh ngay, đỡ phải chờ poll 10s.
+  // Debounce ~1s: gộp nhiều call song song thành 1 fetch /api/v1/quota.
+  let _aiQuotaTimer = null;
+  function fireQuotaRefresh() {
+    clearTimeout(_aiQuotaTimer);
+    _aiQuotaTimer = setTimeout(() => {
+      window.dispatchEvent(new CustomEvent('tourkit:quota'));
+    }, 1000);
+  }
+
   // ─── Call backend ──────────────────────────────────────────────────────────
   // API key cho mọi provider lấy SERVER-SIDE từ appsettings (Providers:{X}:ApiKey
   // / Models:Primary:ApiKey / Models:Review:ApiKey / env var). Frontend KHÔNG hold key.
@@ -183,6 +195,7 @@
 
       const result = await callBackend(prompt, cfg, options);
       console.log(`[ai] ✓ ${tag} · ${result.provider}:${result.model} · ${result.latencyMs}ms · ${result.text.length}ch · in=${result.inputTokens} out=${result.outputTokens} finish=${result.finishReason}`);
+      fireQuotaRefresh();
       return result.text;
     },
 
@@ -202,6 +215,7 @@
       const ms = Date.now() - t0;
       const m = meta || {};
       console.log(`[ai] ✓ ${tag} (stream) · ${m.provider || '?'}:${m.model || '?'} · ${ms}ms · ${text.length}ch · in=${m.inputTokens || '?'} out=${m.outputTokens || '?'} finish=${m.finishReason || '?'}`);
+      fireQuotaRefresh();
       return text;
     },
 

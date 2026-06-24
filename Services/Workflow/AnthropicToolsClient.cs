@@ -3,6 +3,7 @@ using System.Net.Http.Json;
 using System.Text;
 using System.Text.Json;
 using TourkitAiProxy.Services.Providers;
+using TourkitAiProxy.Services.Quota;
 
 namespace TourkitAiProxy.Services.Workflow;
 
@@ -25,6 +26,10 @@ public class AnthropicToolsClient
     private readonly HttpClient _http;
     private readonly ProviderKeyStore _keys;
     private readonly ILogger<AnthropicToolsClient> _log;
+    private readonly TenantQuotaStore _quota;
+    private readonly AiCallContext _ctx;
+    private readonly AiUsageLog _usage;
+    private const string ProviderId = "anthropic";
 
     private const string Endpoint = "https://api.anthropic.com/v1/messages";
     private const string AnthropicVersion = "2023-06-01";
@@ -32,7 +37,8 @@ public class AnthropicToolsClient
     private const int WallClockSec = 60;
     private const int MaxTransientRetries = 2;
 
-    public AnthropicToolsClient(IHttpClientFactory httpFactory, ProviderKeyStore keys, ILogger<AnthropicToolsClient> log)
+    public AnthropicToolsClient(IHttpClientFactory httpFactory, ProviderKeyStore keys, ILogger<AnthropicToolsClient> log,
+        TenantQuotaStore quota, AiCallContext ctx, AiUsageLog usage)
     {
         // Dùng named client "anthropic" (đã config timeout 120s + nhận bypass cert handler nếu
         // Providers:AllowInsecureTls=true). Trước đây dùng CreateClient() default → không có bypass
@@ -41,6 +47,9 @@ public class AnthropicToolsClient
         _http = httpFactory.CreateClient("anthropic");
         _keys = keys;
         _log = log;
+        _quota = quota;
+        _ctx = ctx;
+        _usage = usage;
     }
 
     /// <summary>
@@ -69,6 +78,15 @@ public class AnthropicToolsClient
     {
         if (string.IsNullOrWhiteSpace(apiKey))
             throw new InvalidOperationException("Anthropic API key trống — cần config Providers:Anthropic:ApiKey hoặc client gửi qua apiKey.");
+
+        // Quota check ĐẦU vòng lặp (giống AnthropicProvider.EnsureQuota). System call (no tenant) → bypass.
+        // Consume xảy ra sau mỗi /messages POST 2xx (mỗi iter = 1 lượt) — match grain với provider khác.
+        var callCtx = _ctx.Resolve();
+        if (!string.IsNullOrEmpty(callCtx.Tenant) && !_quota.IsAvailable(callCtx.Tenant))
+        {
+            var snap = _quota.Snapshot(callCtx.Tenant);
+            throw new QuotaExhaustedException(callCtx.Tenant, snap.Limit, snap.Used);
+        }
 
         using var wallClock = new CancellationTokenSource(TimeSpan.FromSeconds(WallClockSec));
         using var linked    = CancellationTokenSource.CreateLinkedTokenSource(ct, wallClock.Token);
@@ -99,8 +117,15 @@ public class AnthropicToolsClient
             {
                 var root  = doc.RootElement;
                 var usage = root.GetProperty("usage");
-                totalInTok  += usage.GetProperty("input_tokens").GetInt32();
-                totalOutTok += usage.GetProperty("output_tokens").GetInt32();
+                var iterInTok  = usage.GetProperty("input_tokens").GetInt32();
+                var iterOutTok = usage.GetProperty("output_tokens").GetInt32();
+                totalInTok  += iterInTok;
+                totalOutTok += iterOutTok;
+
+                // Ghi nhận usage + tiêu thụ quota cho TỪNG /messages POST thành công (mỗi iter = 1 lượt).
+                // Trước đây path này bypass quota → user gọi N lần nhưng dashboard chỉ tăng từ provider khác.
+                _usage.Append(callCtx.Feature, callCtx.SessionId, callCtx.Tenant, ProviderId, model, iterInTok, iterOutTok, lat, status: "ok");
+                if (!string.IsNullOrEmpty(callCtx.Tenant)) _quota.Consume(callCtx.Tenant);
 
                 var stopReason = root.GetProperty("stop_reason").GetString();
                 var toolUseBlocks = new List<(string Id, string Name, JsonElement Input)>();

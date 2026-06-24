@@ -4,6 +4,7 @@ using System.Text;
 using System.Text.Json;
 using TourkitAiProxy.Models;
 using TourkitAiProxy.Services.Providers;
+using TourkitAiProxy.Services.Quota;
 using TourkitAiProxy.Services.TourKit;
 
 namespace TourkitAiProxy.Services.Chat;
@@ -44,6 +45,7 @@ public class NativeToolUseAgent : IAgentRuntime
     private readonly AiUsageLog _usage;
     private readonly AiCallContext _ctx;
     private readonly AiModelRegistry _registry;
+    private readonly TenantQuotaStore _quota;
 
     // System prompt: nhấn mạnh BẮT BUỘC gọi tool cho mọi câu liên quan số liệu kinh doanh,
     // KHUYẾN KHÍCH gọi nhiều tool song song khi cần so sánh, và viết phân tích đầy đủ (không cụt).
@@ -75,7 +77,8 @@ public class NativeToolUseAgent : IAgentRuntime
         ProviderKeyStore keys,
         AiUsageLog usage,
         AiCallContext ctx,
-        AiModelRegistry registry)
+        AiModelRegistry registry,
+        TenantQuotaStore quota)
     {
         _api        = api;
         _sessions   = sessions;
@@ -87,6 +90,7 @@ public class NativeToolUseAgent : IAgentRuntime
         _usage      = usage;
         _ctx        = ctx;
         _registry   = registry;
+        _quota      = quota;
     }
 
     /// Chi xu ly khi provider la "anthropic".
@@ -106,6 +110,14 @@ public class NativeToolUseAgent : IAgentRuntime
         var apiKey = !string.IsNullOrWhiteSpace(input.ApiKey) ? input.ApiKey : _keys.Get("anthropic");
         if (string.IsNullOrWhiteSpace(apiKey))
             throw new InvalidOperationException("Chưa nhập API key cho Claude (Anthropic).");
+
+        // Quota check ĐẦU vòng lặp — Consume per-iter (mỗi /messages POST = 1 lượt).
+        var callCtx = _ctx.Resolve();
+        if (!string.IsNullOrEmpty(callCtx.Tenant) && !_quota.IsAvailable(callCtx.Tenant))
+        {
+            var snap = _quota.Snapshot(callCtx.Tenant);
+            throw new QuotaExhaustedException(callCtx.Tenant, snap.Limit, snap.Used);
+        }
 
         // Resolve model qua AiModelRegistry (ChatAnalytics) — ChatAgentService cũng đã resolve, đây là defensive.
         var resolved = _registry.Resolve(AiFeature.ChatAnalytics, input.Provider.Id, input.Model);
@@ -164,8 +176,15 @@ public class NativeToolUseAgent : IAgentRuntime
 
             var root    = doc.RootElement;
             var usage   = root.GetProperty("usage");
-            totalInTok  += usage.GetProperty("input_tokens").GetInt32();
-            totalOutTok += usage.GetProperty("output_tokens").GetInt32();
+            var iterInTok  = usage.GetProperty("input_tokens").GetInt32();
+            var iterOutTok = usage.GetProperty("output_tokens").GetInt32();
+            totalInTok  += iterInTok;
+            totalOutTok += iterOutTok;
+
+            // Per-iter Append + Consume (match grain với IAiProvider). Trước đây chỉ Append aggregate
+            // cuối loop nên N iter chỉ tính 1 lượt → user dùng 4 lần hiển thị 2.
+            _usage.Append(callCtx.Feature, callCtx.SessionId, callCtx.Tenant, "anthropic", model, iterInTok, iterOutTok, lat);
+            if (!string.IsNullOrEmpty(callCtx.Tenant)) _quota.Consume(callCtx.Tenant);
 
             var stopReason = root.GetProperty("stop_reason").GetString();
 
@@ -468,8 +487,13 @@ public class NativeToolUseAgent : IAgentRuntime
                     apiKey, model, system, tools, messages, linked.Token, maxTokens: 6000);
                 totalLat += retryLat;
                 var retryUsage = retryDoc.RootElement.GetProperty("usage");
-                totalInTok  += retryUsage.GetProperty("input_tokens").GetInt32();
-                totalOutTok += retryUsage.GetProperty("output_tokens").GetInt32();
+                var retryInTok  = retryUsage.GetProperty("input_tokens").GetInt32();
+                var retryOutTok = retryUsage.GetProperty("output_tokens").GetInt32();
+                totalInTok  += retryInTok;
+                totalOutTok += retryOutTok;
+                // Retry cũng là 1 /messages POST → 1 lượt riêng.
+                _usage.Append(callCtx.Feature, callCtx.SessionId, callCtx.Tenant, "anthropic", model, retryInTok, retryOutTok, retryLat);
+                if (!string.IsNullOrEmpty(callCtx.Tenant)) _quota.Consume(callCtx.Tenant);
                 var retrySb = new StringBuilder();
                 foreach (var block in retryDoc.RootElement.GetProperty("content").EnumerateArray())
                 {
@@ -496,9 +520,8 @@ public class NativeToolUseAgent : IAgentRuntime
         if (numWarning != null && warning == null)
             warning = numWarning;
 
-        // Ghi usage log
-        var c = _ctx.Resolve();
-        _usage.Append(c.Feature, c.SessionId, c.Tenant, "anthropic", model, totalInTok, totalOutTok, totalLat);
+        // KHÔNG _usage.Append aggregate ở đây: đã append PER-ITER trong vòng lặp + retry-on-short.
+        // Aggregate trước đây đếm 1 chat-stream = 1 lượt bất kể N iter → quota bị under-count.
 
         // Lưu bộ nhớ chat sau khi có kết quả thực sự (tool thành công + có data).
         if (lastData != null && lastToolName != null)
