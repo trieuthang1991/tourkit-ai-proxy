@@ -92,6 +92,7 @@ AttachLogAndInsecure(builder.Services.AddHttpClient("openai",    c => c.Timeout 
 AttachLogAndInsecure(builder.Services.AddHttpClient("anthropic", c => c.Timeout = TimeSpan.FromSeconds(120)), "anthropic", allowInsecure);
 AttachLogAndInsecure(builder.Services.AddHttpClient("deepseek",  c => c.Timeout = TimeSpan.FromSeconds(120)), "deepseek", allowInsecure);
 
+builder.Services.AddSingleton<UsageRepository>();
 builder.Services.AddSingleton<UsageTracker>();
 // AI usage log per-request (data/ai-usage.jsonl) — biết feature/user/tenant nào tiêu bao nhiêu.
 builder.Services.AddHttpContextAccessor();
