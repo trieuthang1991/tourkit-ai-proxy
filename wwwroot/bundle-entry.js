@@ -29,6 +29,7 @@ import "./components/data-controls.jsx";
 import "./components/trace-view.jsx";
 import "./components/tk-checkbox.jsx";
 import "./components/pagination.jsx";
+import "./components/table-scroll.jsx";
 import "./components/ncc-tier-picker.jsx";
 import "./components/hotel-picker-modal.jsx";
 import "./core/dialog-api.jsx";

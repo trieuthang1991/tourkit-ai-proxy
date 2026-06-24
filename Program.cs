@@ -385,9 +385,8 @@ app.MapQuotaEndpoints();
 app.MapQuotaOrderEndpoints();
 app.MapWidgetEndpoints();
 
-// SPA fallback: mọi GET không match API/file (vd /mail, /customers, /assistant) → trả index.html.
-// Cho phép HTML5 history routing thay vì hash (#). F5 trên /mail không còn 404.
-// MapFallbackToFile chạy SAU cùng — chỉ catch khi không có route nào match trước đó.
-app.MapFallbackToFile("index.html");
+// SPA fallback (deep-link /mail, /customers, /assistant + F5) ĐÃ CHUYỂN vào UseTourkitStaticFiles
+// → app.MapFallback(ServeIndex): deep-link/F5 nay cũng nhận bundle-injection + ?v=hash thay vì rớt
+// về DEV-babel mode. Trước đây dùng MapFallbackToFile("index.html") serve file THÔ (bỏ qua ServeIndex).
 
 app.Run();

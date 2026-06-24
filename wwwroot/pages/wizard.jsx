@@ -603,7 +603,7 @@ Tránh từ "tuyệt vời", "hoàn hảo", "đáng nhớ". Tiếng Việt tự 
               })}
             </div>
           ) : (
-          <div className="wl-table-wrap">
+          <window.TKTableScroll>
             <table className="wl-table">
               <thead>
                 <tr>
@@ -665,7 +665,7 @@ Tránh từ "tuyệt vời", "hoàn hảo", "đáng nhớ". Tiếng Việt tự 
                 })}
               </tbody>
             </table>
-          </div>
+          </window.TKTableScroll>
           )}
         </main>
       ) : (

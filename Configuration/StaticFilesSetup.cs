@@ -29,6 +29,13 @@ public static class StaticFilesSetup
         app.MapGet("/", (HttpContext ctx) => ServeIndex(ctx, webRoot, isDev));
         app.MapGet("/index.html", (HttpContext ctx) => ServeIndex(ctx, webRoot, isDev));
 
+        // SPA deep-link fallback (/customers, /deals, /assistant…) PHẢI cũng qua ServeIndex để
+        // nhận bundle-injection + ?v=hash. TRƯỚC ĐÂY Program.cs dùng MapFallbackToFile("index.html")
+        // serve file THÔ → deep-link + Ctrl+F5 rớt về DEV-babel mode (44 <script type=text/babel>
+        // + Babel CDN, cold start 3-5s) NGAY CẢ KHI đã có prod bundle. Chỉ "/" mới nhanh.
+        // MapFallback luôn ưu tiên thấp nhất (order=int.MaxValue) → API + static file vẫn match trước.
+        app.MapFallback((HttpContext ctx) => ServeIndex(ctx, webRoot, isDev));
+
         app.UseStaticFiles(new StaticFileOptions
         {
             // .jsx / .babel không có MIME chuẩn → fallback text/plain để browser load

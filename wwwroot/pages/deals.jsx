@@ -628,7 +628,7 @@ function DealsPage({ pushToast }) {
             })}
           </div>
         ) : (
-          <div className="deals-tablewrap">
+          <window.TKTableScroll>
             <table className="deals-table">
               <colgroup>
                 <col className="col-check" />
@@ -703,7 +703,7 @@ function DealsPage({ pushToast }) {
                 })}
               </tbody>
             </table>
-          </div>
+          </window.TKTableScroll>
         )}
 
         {/* Pagination — luôn hiện khi `total > 0`, KỂ CẢ đang loading (mờ + disable thay vì

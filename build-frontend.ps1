@@ -51,12 +51,15 @@ $flags = @(
   ('--metafile=' + (Join-Path $outDir 'meta.json')),
   '--log-level=info'
 )
-# Full --minify (--minify-identifiers) doi ten function/class -> React component identification
-# va Chart.js render bi vo -> chat treo o assistant page. Dung "safe minify" combo:
-#   --minify-whitespace + --minify-syntax + --keep-names  (giam ~25% size, an toan 100%)
+# --minify-identifiers TUNG lam vo React component identification + Chart.js (chat treo o
+# assistant) khi CHUA co --keep-names. --keep-names khoi phuc .name luc runtime (esbuild chen
+# __name()) -> bat lai --minify-identifiers la an toan. Combo full minify duoi day giam them
+# ~10-15% size so voi safe-combo cu.
+# !! Neu assistant/Chart lai vo: bo dong '--minify-identifiers' la quay ve safe combo.
 if (-not $NoMinify) {
   $flags += '--minify-whitespace'
   $flags += '--minify-syntax'
+  $flags += '--minify-identifiers'
   $flags += '--keep-names'
 }
 if ($Watch) { $flags += '--watch' }

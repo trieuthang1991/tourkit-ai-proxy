@@ -21,7 +21,12 @@ function _nccIsMobile(bp = 640) {
 
 // th/td theo đúng style bảng data-list của site (customers.jsx).
 const _nccTh = (w) => ({ padding: '10px 12px', fontWeight: 700, fontSize: 11, letterSpacing: '0.05em', textTransform: 'uppercase', color: 'var(--text-3)', width: w, whiteSpace: 'nowrap' });
-const _nccTd = () => ({ padding: '12px', verticalAlign: 'middle' });
+// table-layout:fixed → cột giữ đúng width của <colgroup>; td truncate 1 dòng (ellipsis) thay vì co/wrap.
+const _nccTd = () => ({ padding: '12px', verticalAlign: 'middle', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' });
+// Ô GỘP nhiều dòng (Nhà cung cấp + Thành phố, SĐT + Email): cho phép 2 dòng xếp dọc, mỗi dòng tự truncate qua _nccLine.
+const _nccTdStack = () => ({ padding: '12px', verticalAlign: 'middle', overflow: 'hidden' });
+const _nccLine = { overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' };
+const _nccSub = { ...{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }, color: 'var(--text-3)', fontSize: 12, marginTop: 2 };
 const _nccMuted = { color: 'var(--text-3)' };
 const _nccMono = { fontFamily: 'ui-monospace, "SF Mono", monospace', fontSize: 12, color: 'var(--text-2)' };
 
@@ -41,7 +46,7 @@ function NccListPage({ pushToast }) {
   const [items, setItems] = _uNcc([]);
   const [total, setTotal] = _uNcc(0);
   const [page, setPage]   = _uNcc(1);
-  const pageSize = 20;
+  const [pageSize, setPageSize] = _uNcc(20);
   const [q, setQ]         = _uNcc('');
   const [loading, setLoad] = _uNcc(true);
   const [err, setErr]      = _uNcc(null);
@@ -65,7 +70,7 @@ function NccListPage({ pushToast }) {
       .catch(e => { if (alive) setErr(String((e && e.message) || e)); })
       .finally(() => { if (alive) setLoad(false); });
     return () => { alive = false; };
-  }, [page, q, reloadKey]);
+  }, [page, pageSize, q, reloadKey]);
 
   const onSearch = (val) => { setPage(1); setQ(val || ''); };
 
@@ -127,52 +132,58 @@ function NccListPage({ pushToast }) {
           ))}
         </div>
       ) : (
-        <div style={{ background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 10, overflowX: 'auto' }}>
-          <table style={{ width: '100%', minWidth: 760, borderCollapse: 'collapse', fontSize: 13 }}>
+        <window.TKTableScroll>
+          {/* 4 cột gọn: Mã · Nhà cung cấp (Thành phố xuống dưới tên) · Liên hệ (SĐT + Email gộp) · Trạng thái.
+              table-layout:fixed + colgroup → cột ổn định; ô gộp truncate từng dòng (ellipsis). */}
+          <table style={{ width: '100%', minWidth: 820, tableLayout: 'fixed', borderCollapse: 'collapse', fontSize: 13 }}>
+            <colgroup>
+              <col style={{ width: 130 }} />{/* Mã */}
+              <col />{/* Nhà cung cấp (+ thành phố) — phần còn lại */}
+              <col style={{ width: 240 }} />{/* Liên hệ */}
+              <col style={{ width: 170 }} />{/* Trạng thái */}
+            </colgroup>
             <thead style={{ background: 'var(--bg)' }}>
               <tr style={{ textAlign: 'left' }}>
-                <th style={_nccTh(120)}>Mã</th>
-                <th style={_nccTh()}>Tên nhà cung cấp</th>
-                <th style={_nccTh(140)}>SĐT</th>
-                <th style={_nccTh(220)}>Email</th>
-                <th style={_nccTh(150)}>Thành phố</th>
-                <th style={_nccTh(120)}>Trạng thái</th>
+                <th style={_nccTh()}>Mã</th>
+                <th style={_nccTh()}>Nhà cung cấp</th>
+                <th style={_nccTh()}>Liên hệ</th>
+                <th style={{ ..._nccTh(), paddingRight: 20 }}>Trạng thái</th>
               </tr>
             </thead>
             <tbody>
               {items.map(p => (
                 <tr key={p.id} style={{ borderTop: '1px solid var(--border)' }}>
-                  <td style={_nccTd()}>
+                  <td style={_nccTd()} title={p.code || ''}>
                     {p.code ? <span style={_nccMono}>{p.code}</span> : <span style={_nccMuted}>-</span>}
                   </td>
-                  <td style={_nccTd()}><div style={{ fontWeight: 600 }}>{p.name || '-'}</div></td>
-                  <td style={_nccTd()}>
-                    {p.phone
-                      ? <a href={`tel:${p.phone}`} style={{ color: 'var(--text)', textDecoration: 'none' }}>{p.phone}</a>
-                      : <span style={_nccMuted}>-</span>}
+                  <td style={_nccTdStack()}>
+                    <div style={{ ..._nccLine, fontWeight: 600 }} title={p.name || ''}>{p.name || '-'}</div>
+                    {p.city && <div style={_nccSub} title={p.city}>{p.city}</div>}
                   </td>
-                  <td style={_nccTd()}>
-                    {p.email ? <span style={{ color: 'var(--text-2)' }}>{p.email}</span> : <span style={_nccMuted}>-</span>}
+                  <td style={_nccTdStack()}>
+                    {p.phone && (
+                      <div style={_nccLine} title={p.phone}>
+                        <a href={`tel:${p.phone}`} style={{ color: 'var(--text)', textDecoration: 'none' }}>{p.phone}</a>
+                      </div>
+                    )}
+                    {p.email && <div style={_nccSub} title={p.email}>{p.email}</div>}
+                    {!p.phone && !p.email && <span style={_nccMuted}>-</span>}
                   </td>
-                  <td style={_nccTd()}>{p.city || <span style={_nccMuted}>-</span>}</td>
-                  <td style={_nccTd()}><NccStatus item={p} /></td>
+                  <td style={{ ..._nccTd(), paddingRight: 20 }}><NccStatus item={p} /></td>
                 </tr>
               ))}
             </tbody>
           </table>
-        </div>
+        </window.TKTableScroll>
       )}
 
-      {!loading && !err && totalPages > 1 && (
-        <div style={{ display: 'flex', gap: 10, alignItems: 'center', justifyContent: 'center', marginTop: 18 }}>
-          <button className="btn btn-ghost btn-sm" disabled={page <= 1} onClick={() => setPage(p => Math.max(1, p - 1))}>
-            ‹ Trước
-          </button>
-          <span style={{ color: 'var(--text-3)', fontSize: 13 }}>Trang {page} / {totalPages}</span>
-          <button className="btn btn-ghost btn-sm" disabled={page >= totalPages} onClick={() => setPage(p => Math.min(totalPages, p + 1))}>
-            Sau ›
-          </button>
-        </div>
+      {/* Pagination dùng chung (components/pagination.jsx) — giữ hiển thị + làm mờ khi đang tải trang mới. */}
+      {!err && total > pageSize && (
+        <window.TKPagination
+          page={page} totalPages={totalPages} pageSize={pageSize}
+          total={total} shown={items.length} loading={loading}
+          onPage={setPage}
+          onPageSize={(s) => { setPage(1); setPageSize(s); }} />
       )}
     </main>
   );

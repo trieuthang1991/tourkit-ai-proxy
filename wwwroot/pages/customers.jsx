@@ -723,7 +723,7 @@ function CustomersPage({ pushToast }) {
           })}
         </div>
       ) : (
-        <div style={{background: 'white', border: '1px solid var(--border)', borderRadius: 10, overflowX: 'auto'}}>
+        <window.TKTableScroll>
           <table style={{width: '100%', minWidth: 1200, borderCollapse: 'collapse', fontSize: 13}}>
             <thead style={{background: 'var(--bg)'}}>
               <tr style={{textAlign: 'left'}}>
@@ -817,7 +817,7 @@ function CustomersPage({ pushToast }) {
               })}
             </tbody>
           </table>
-        </div>
+        </window.TKTableScroll>
       )}
 
       {/* Pagination — luôn hiện khi total > 0, kể cả đang loading (mờ + disable thay vì

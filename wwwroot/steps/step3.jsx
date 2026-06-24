@@ -55,7 +55,7 @@ function CostingSection({ code, title, tag, tagIcon, color, bg, sub,
       {list.length === 0 ? (
         <div className="cs-empty">{empty || 'Chưa có dịch vụ'}</div>
       ) : (
-        <div className="cs-table-wrap">
+        <window.TKTableScroll>
           <table className="costing-table cs-table">
             <thead>
               <tr>
@@ -136,7 +136,7 @@ function CostingSection({ code, title, tag, tagIcon, color, bg, sub,
               </tr>
             </tbody>
           </table>
-        </div>
+        </window.TKTableScroll>
       )}
     </div>
   );
@@ -473,7 +473,7 @@ function Step3Costing({ rows, setRows, request, onNext, onBack, pushToast,
                   Chọn ít nhất 1 hotel tier để xem phương án.
                 </div>
               ) : (
-                <div style={{overflowX: 'auto'}}>
+                <window.TKTableScroll style={{border: 'none', borderRadius: 0, boxShadow: 'none', background: 'transparent'}}>
                   <table style={{width: '100%', borderCollapse: 'collapse', fontSize: 12}}>
                     <thead>
                       <tr style={{background: 'var(--bg)', textAlign: 'left'}}>
@@ -516,7 +516,7 @@ function Step3Costing({ rows, setRows, request, onNext, onBack, pushToast,
                       ))}
                     </tbody>
                   </table>
-                </div>
+                </window.TKTableScroll>
               )}
               <div style={{marginTop: 8, fontSize: 10, color: 'var(--text-3)', fontStyle: 'italic'}}>
                 💡 Apply: ghi đè priceNet HOTEL rows + set margin slider · KHÔNG đổi pax (về Step 1 chỉnh nếu cần).
@@ -651,7 +651,7 @@ function Step3Costing({ rows, setRows, request, onNext, onBack, pushToast,
       })()}
 
       {viewMode === 'flat' && (
-      <div style={{overflowX: 'auto'}}>
+      <window.TKTableScroll style={{border: 'none', borderRadius: 0, boxShadow: 'none', background: 'transparent'}}>
         <table className="costing-table">
           <thead>
             <tr>
@@ -763,7 +763,7 @@ function Step3Costing({ rows, setRows, request, onNext, onBack, pushToast,
             })}
           </tbody>
         </table>
-      </div>
+      </window.TKTableScroll>
       )}
 
       <div style={{padding: '0 28px 28px'}}>

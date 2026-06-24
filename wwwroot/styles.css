@@ -2734,6 +2734,20 @@ body.editorial .ai-bubble .hl { color: #FDBA74; }
 
 /* Table */
 .deals-tablewrap { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius-lg); overflow: hidden; box-shadow: var(--shadow-sm); }
+
+/* ── TKTableScroll (components/table-scroll.jsx): bảng rộng + thanh cuộn ngang DÍNH đáy viewport ──
+   Body ẩn native scrollbar; thanh proxy sticky bottom:0 luôn chạm được dù bảng dài 100+ dòng. */
+.tk-tscroll { position: relative; background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius-lg); box-shadow: var(--shadow-sm); }
+.tk-tscroll-body { overflow-x: auto; overflow-y: visible; scrollbar-width: none; -ms-overflow-style: none; }
+.tk-tscroll-body::-webkit-scrollbar { height: 0; width: 0; }
+.tk-tscroll-bar { position: sticky; bottom: 0; left: 0; z-index: 5; overflow-x: auto; overflow-y: hidden; height: 14px;
+  background: var(--surface); border-top: 1px solid var(--border);
+  border-bottom-left-radius: var(--radius-lg); border-bottom-right-radius: var(--radius-lg); }
+.tk-tscroll-bar::-webkit-scrollbar { height: 10px; }
+.tk-tscroll-bar::-webkit-scrollbar-thumb { background: var(--border-strong); border-radius: 999px; }
+.tk-tscroll-bar { scrollbar-width: thin; }
+/* ≤900px: dock điều hướng dưới (.app-bottom-dock, cao 60px) hiện → đẩy thanh cuộn lên trên dock kẻo bị che. */
+@media (max-width: 900px) { .tk-tscroll-bar { bottom: 60px; } }
 .deals-meta { font-size: 12px; color: var(--text-3); margin: 4px 0 16px; padding: 0; border: 0; line-height: 1.5; }
 .deals-table { width: 100%; border-collapse: collapse; font-size: 13px; }
 .deals-table thead th { text-align: left; font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: .4px;
@@ -4976,7 +4990,9 @@ html[data-home-theme="dark"] .hp-theme {
 /* Table — clean lines, monospace tabular numbers, status chips solid */
 .wl-table-wrap { background: white; border: 1px solid var(--border); border-radius: 12px;
   overflow: hidden; }
-.wl-table { width: 100%; border-collapse: collapse; font-size: 13px; }
+/* min-width → bảng tràn ngang trên màn hẹp thay vì ép cột wrap (row cao 117px);
+   bọc trong window.TKTableScroll (wizard.jsx) nên có thanh cuộn sticky, không bị cắt. */
+.wl-table { width: 100%; min-width: 1040px; border-collapse: collapse; font-size: 13px; }
 .wl-table thead th { background: #fafbfc; padding: 12px 16px; text-align: left;
   font-size: 10px; font-weight: 700; color: var(--text-3);
   letter-spacing: 0.06em; text-transform: uppercase; border-bottom: 1px solid var(--border);
