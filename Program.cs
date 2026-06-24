@@ -270,7 +270,21 @@ TourkitAiProxy.Services.Db.MultiTenantMigration.Run(
     Path.Combine(app.Environment.ContentRootPath, "data"),
     app.Services.GetRequiredService<ILogger<Program>>());
 
-// One-shot migrate tk-sessions.json → SQL (idempotent: file → .migrated sau khi xong)
+// Schema init ĐỒNG BỘ — TkSessionStore CTOR (load active sessions) + UsageRepository (track) cần bảng sẵn.
+// SchemaSql idempotent (IF OBJECT_ID IS NULL) → ~100-500ms cold, ~ms hot. Block startup là CHẤP NHẬN ĐƯỢC
+// (an toàn hơn race condition fire-and-forget). DB chết → log warning, app vẫn boot — repos fallback theo logic riêng.
+try
+{
+    await app.Services.GetRequiredService<TourkitAiProxy.Services.Db.TourkitAiDb>().InitAsync();
+}
+catch (Exception ex)
+{
+    app.Services.GetRequiredService<ILogger<Program>>()
+        .LogWarning(ex, "Schema init lỗi — TkSessions/AiUsageCounters/Reviews/... có thể chưa sẵn sàng");
+}
+
+// One-shot migrate tk-sessions.json → SQL (idempotent: file → .migrated sau khi xong).
+// Chạy fire-and-forget được vì schema đã ready ở bước trên + TkSessionStore CTOR đã load xong.
 _ = Task.Run(async () =>
 {
     try
