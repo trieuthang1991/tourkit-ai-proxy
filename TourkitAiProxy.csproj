@@ -35,6 +35,10 @@
     <RemoveDir Directories="wwwroot/dist" Condition="Exists('wwwroot/dist')" />
   </Target>
 
+  <!-- Cho test assembly truy cập anonymous type / internal members (UsageTracker.FormatSnapshot test). -->
+  <ItemGroup>
+    <InternalsVisibleTo Include="TourkitAiProxy.Tests" />
+  </ItemGroup>
   <ItemGroup>
     <PackageReference Include="Dapper" Version="2.1.79" />
     <PackageReference Include="DocumentFormat.OpenXml" Version="3.1.0" />
