@@ -338,6 +338,7 @@ function MailPage({ pushToast }) {
   const [syncing, setSyncing] = _mS(false);
   const [syncProgress, setSyncProgress] = _mS(null); // {current, total, subject} | null
   const [loading, setLoading] = _mS(true);
+  const [readerBig, setReaderBig] = _mS(false); // mở rộng vùng đọc: ẩn composer cho text dài
 
   const [tone, setTone] = _mS('lich_su');
   const [instruction, setInstruction] = _mS('');
@@ -607,7 +608,7 @@ function MailPage({ pushToast }) {
         </section>
 
         {/* PHẢI: reading pane + composer ghim */}
-        <section className="mail-pane">
+        <section className={'mail-pane' + (readerBig ? ' is-reader-big' : '')}>
           {!sel ? (
             <EmptyState icon="sparkle" title="Chọn một email để đọc & trả lời"
               hint="AI đã phân loại sẵn — chọn ngữ điệu rồi để AI soạn giúp." />
@@ -622,6 +623,10 @@ function MailPage({ pushToast }) {
                   </div>
                   <div className="mail-pane-meta">
                     <span className="mail-when">{_fmtWhen(sel.receivedAt)}</span>
+                    <button type="button" className="mail-reader-toggle" onClick={() => setReaderBig(v => !v)}
+                      title={readerBig ? 'Thu gọn — hiện lại khung soạn trả lời' : 'Mở rộng vùng đọc — ẩn khung soạn để đọc text dài'}>
+                      {readerBig ? '⤡ Thu gọn' : '⤢ Mở rộng đọc'}
+                    </button>
                     <select className="mail-status-sel" value={sel.status} onChange={e => setStatus(sel.id, e.target.value)}>
                       {_STATUS_ORDER.map(k => <option key={k} value={k}>{_STATUS_VI[k]}</option>)}
                     </select>

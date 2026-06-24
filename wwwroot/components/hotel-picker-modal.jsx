@@ -127,8 +127,10 @@ function HotelPickerModal({ open, pax, currentTitle, hotelCount, currentDayNum, 
 
   const handleConfirm = () => {
     // Build description ngắn: "5 phòng đôi + 1 phòng đơn"
-    const parts = pricedRooms.filter(r => (pack[r.id] || 0) > 0)
-      .map(r => `${pack[r.id]} ${(r.name || 'Phòng đôi').toLowerCase()}`);
+    const chosen = pricedRooms.filter(r => (pack[r.id] || 0) > 0);
+    const parts = chosen.map(r => `${pack[r.id]} ${(r.name || 'Phòng đôi').toLowerCase()}`);
+    // Mô tả NCC: gom description (provider_service_pricing.description) của các phòng đã chọn — distinct, bỏ trống
+    const supplierDesc = [...new Set(chosen.map(r => (r.description || '').trim()).filter(Boolean))].join(' · ');
     onPick({
       title: picked.provider.name,
       supplier: picked.provider.name,
@@ -137,7 +139,8 @@ function HotelPickerModal({ open, pax, currentTitle, hotelCount, currentDayNum, 
       packDescription: parts.join(' + '),
       pricePerPaxPerNight: Math.round(pricePerPax),
       cost: Math.round(totalPerNight),   // tổng / 1 đêm
-      description: `${parts.join(' + ')} · ${window.fmtVND(Math.round(totalPerNight))}/đêm`
+      description: `${parts.join(' + ')} · ${window.fmtVND(Math.round(totalPerNight))}/đêm`,
+      supplierDesc   // = provider_service_pricing.description của phòng đã chọn → fill ô "Mô tả NCC"
     }, scope);   // ← truyền scope ('single' | 'all') cho parent xử lý
     onClose();
   };
