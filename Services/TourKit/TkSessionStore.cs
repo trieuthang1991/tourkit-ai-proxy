@@ -1,7 +1,5 @@
 using System.Collections.Concurrent;
-using System.Text.Json;
 using TourkitAiProxy.Services.Chat;
-using TourkitAiProxy.Services.Security;
 
 namespace TourkitAiProxy.Services.TourKit;
 
@@ -19,7 +17,7 @@ public class TkSession
     public DateTime JwtExpiresAt { get; set; }   // soft TTL — re-login khi quá hạn
     public DateTime LastUsed { get; set; }
 
-    // BỘ NHỚ CHAT — load/save cùng session xuống đĩa.
+    // BỘ NHỚ CHAT — persist cùng session xuống SQL (cột ChatMemoryJson).
     public SessionChatMemory ChatMemory { get; set; } = SessionChatMemory.Empty();
 }
 
@@ -27,41 +25,48 @@ public class TkSession
 /// Lưu phiên TourKit. JWT KHÔNG ra client; client chỉ giữ sessionId. Tự re-login bằng credentials
 /// trong phiên khi JWT soft-expire hoặc 401.
 ///
-/// **Persist xuống đĩa** (data/tk-sessions.json, gitignored) để phiên SỐNG SÓT qua restart —
-/// không bắt user đăng nhập lại mỗi lần deploy/khởi động lại. Mật khẩu được mã hóa bằng Crypton
-/// (KHÔNG lưu plaintext); JWT không persist (sẽ tự re-login khi dùng).
+/// Persistence: SQL `dbo.TkSessions` (mật khẩu Crypton-encrypted, JWT KHÔNG lưu).
+/// Cache: in-mem `ConcurrentDictionary` cho hot path Get; Get cache-miss → load từ SQL.
+/// Cross-process: 2 instance cùng SQL share state; write-through đảm bảo nhất quán.
 /// </summary>
 public class TkSessionStore
 {
     private readonly TourKitApiClient _api;
+    private readonly TkSessionRepository _repo;
     private readonly ILogger<TkSessionStore> _log;
-    private readonly ConcurrentDictionary<string, TkSession> _sessions = new();
-    private readonly string _path;
-    private readonly object _ioLock = new();
+    private readonly ConcurrentDictionary<string, TkSession> _cache = new();
 
     // JWT TourKit sống vài giờ; refresh chủ động sau 50 phút cho an toàn (re-login rẻ).
     private static readonly TimeSpan SoftTtl = TimeSpan.FromMinutes(50);
     // Dọn phiên không dùng quá 30 ngày.
     private static readonly TimeSpan IdleTtl = TimeSpan.FromDays(30);
 
-    // ChatMemory nullable để tương thích ngược: session cũ không có trường này → Empty().
-    private record Persisted(string Id, string TenantId, string Username, string EncPassword,
-        string? FullName, string? CompanyName, string LastUsedIso,
-        SessionChatMemory? ChatMemory = null);
-
-    public TkSessionStore(TourKitApiClient api, IWebHostEnvironment env, ILogger<TkSessionStore> log)
+    public TkSessionStore(TourKitApiClient api, TkSessionRepository repo, ILogger<TkSessionStore> log)
     {
-        _api = api; _log = log;
-        var dir = Path.Combine(env.ContentRootPath, "data");
-        Directory.CreateDirectory(dir);
-        _path = Path.Combine(dir, "tk-sessions.json");
-        Load();
+        _api = api; _repo = repo; _log = log;
+        LoadActiveFromSql();
     }
 
-    /// Login lần đầu từ credentials đã giải mã → tạo phiên, persist, trả về phiên.
+    /// Khởi động: load mọi session chưa idle expire vào cache.
+    /// Nếu DB lỗi → cache rỗng, Get sẽ thử lại từ SQL khi cần.
+    private void LoadActiveFromSql()
+    {
+        try
+        {
+            var list = _repo.ListActiveAsync(DateTime.UtcNow - IdleTtl).GetAwaiter().GetResult();
+            foreach (var s in list) _cache[s.Id] = s;
+            _log.LogInformation("Loaded {N} TourKit sessions từ SQL vào cache", list.Count);
+        }
+        catch (Exception ex)
+        {
+            _log.LogWarning(ex, "Load sessions từ SQL fail — cache rỗng, sẽ lazy-load khi Get");
+        }
+    }
+
+    /// Login lần đầu từ credentials đã giải mã → tạo phiên, persist SQL, trả về phiên.
     public async Task<TkSession> CreateAsync(string tenantId, string username, string password, CancellationToken ct)
     {
-        PruneIdle();
+        _ = PruneIdleAsync(ct);   // fire-and-forget, không block login
         var login = await _api.LoginAsync(tenantId, username, password, ct);
 
         var session = new TkSession
@@ -76,14 +81,21 @@ public class TkSessionStore
             JwtExpiresAt = DateTime.UtcNow.Add(SoftTtl),
             LastUsed    = DateTime.UtcNow
         };
-        _sessions[session.Id] = session;
-        Persist();
+        _cache[session.Id] = session;
+        await _repo.UpsertAsync(session, ct);
         _log.LogInformation("TourKit session {Id} tạo cho tenant={Tenant} user={User}", session.Id, tenantId, username);
         return session;
     }
 
+    /// Get cache trước; cache miss → load SQL (đồng bộ — chỉ xảy ra lần đầu hoặc sau restart).
     public TkSession? Get(string? sessionId)
-        => string.IsNullOrEmpty(sessionId) ? null : (_sessions.TryGetValue(sessionId, out var s) ? s : null);
+    {
+        if (string.IsNullOrEmpty(sessionId)) return null;
+        if (_cache.TryGetValue(sessionId, out var s)) return s;
+        var fromDb = _repo.GetAsync(sessionId).GetAwaiter().GetResult();
+        if (fromDb != null) _cache[sessionId] = fromDb;
+        return fromDb;
+    }
 
     /// JWT còn hạn (soft TTL); tự re-login nếu hết. Throw nếu phiên không tồn tại.
     public async Task<string> GetValidJwtAsync(string sessionId, CancellationToken ct)
@@ -92,6 +104,9 @@ public class TkSessionStore
         s.LastUsed = DateTime.UtcNow;
         if (string.IsNullOrEmpty(s.Jwt) || DateTime.UtcNow >= s.JwtExpiresAt)
             await ReloginAsync(s, ct);
+        else
+            // chỉ update LastUsed → write-through cho cross-process biết session đang active
+            await _repo.UpsertAsync(s, ct);
         return s.Jwt;
     }
 
@@ -110,87 +125,51 @@ public class TkSessionStore
         s.FullName = login.FullName;
         s.CompanyName = login.CompanyName;
         s.JwtExpiresAt = DateTime.UtcNow.Add(SoftTtl);
+        s.LastUsed = DateTime.UtcNow;
+        await _repo.UpsertAsync(s, ct);
         _log.LogInformation("TourKit session {Id} re-login (JWT refreshed)", s.Id);
     }
 
-    private void PruneIdle()
-    {
-        var cutoff = DateTime.UtcNow - IdleTtl;
-        var removed = false;
-        foreach (var kv in _sessions)
-            if (kv.Value.LastUsed < cutoff)
-                removed |= _sessions.TryRemove(kv.Key, out _);
-        if (removed) Persist();
-    }
-
-    // ─── Persistence (mật khẩu mã hóa Crypton, KHÔNG lưu JWT) ──────────────────────
-    private void Load()
-    {
-        if (!File.Exists(_path)) return;
-        try
-        {
-            var json = File.ReadAllText(_path);
-            var opts = new JsonSerializerOptions(JsonSerializerDefaults.Web);
-            var list = JsonSerializer.Deserialize<List<Persisted>>(json, opts) ?? new();
-            foreach (var p in list)
-            {
-                var pwd = Crypton.Decrypt(p.EncPassword);
-                if (string.IsNullOrEmpty(pwd)) continue;
-                _sessions[p.Id] = new TkSession
-                {
-                    Id = p.Id, TenantId = p.TenantId, Username = p.Username, Password = pwd,
-                    FullName = p.FullName, CompanyName = p.CompanyName,
-                    Jwt = "", JwtExpiresAt = DateTime.MinValue,    // ép re-login lần dùng đầu
-                    LastUsed = DateTime.TryParse(p.LastUsedIso, out var d) ? d.ToUniversalTime() : DateTime.UtcNow,
-                    // Tương thích ngược: session cũ không có ChatMemory → dùng Empty()
-                    ChatMemory = p.ChatMemory ?? SessionChatMemory.Empty()
-                };
-            }
-            _log.LogInformation("Loaded {N} TourKit sessions từ đĩa", _sessions.Count);
-        }
-        catch (Exception ex) { _log.LogWarning(ex, "Load tk-sessions.json fail — bỏ qua"); }
-    }
-
-    private static readonly JsonSerializerOptions _persistOpts =
-        new(JsonSerializerDefaults.Web) { WriteIndented = true };
-
-    private void Persist()
+    private async Task PruneIdleAsync(CancellationToken ct)
     {
         try
         {
-            var list = _sessions.Values.Select(s => new Persisted(
-                s.Id, s.TenantId, s.Username, Crypton.Encrypt(s.Password),
-                s.FullName, s.CompanyName, s.LastUsed.ToString("o"),
-                s.ChatMemory)).ToList();
-            lock (_ioLock)
-                File.WriteAllText(_path, JsonSerializer.Serialize(list, _persistOpts));
+            var cutoff = DateTime.UtcNow - IdleTtl;
+            foreach (var kv in _cache)
+                if (kv.Value.LastUsed < cutoff) _cache.TryRemove(kv.Key, out _);
+            var removed = await _repo.PruneIdleAsync(cutoff, ct);
+            if (removed > 0)
+                _log.LogInformation("[TkSessionStore] Pruned {N} idle sessions", removed);
         }
-        catch (Exception ex) { _log.LogWarning(ex, "Persist tk-sessions.json fail"); }
+        catch (Exception ex)
+        {
+            _log.LogWarning(ex, "[TkSessionStore] PruneIdle lỗi");
+        }
     }
 
     // ─── Chat memory helpers ────────────────────────────────────────────────────
 
     /// Lấy bộ nhớ chat của phiên. Trả null nếu không tìm thấy phiên.
-    public SessionChatMemory? GetMemory(string sessionId)
-        => _sessions.TryGetValue(sessionId, out var s) ? s.ChatMemory : null;
+    public SessionChatMemory? GetMemory(string sessionId) => Get(sessionId)?.ChatMemory;
 
-    /// Cập nhật bộ nhớ chat, tự gán LastUpdated = UtcNow, persist xuống đĩa.
+    /// Cập nhật bộ nhớ chat, tự gán LastUpdated = UtcNow, write-through SQL.
     public void UpdateMemory(string sessionId, SessionChatMemory memory)
     {
-        if (_sessions.TryGetValue(sessionId, out var s))
-        {
-            s.ChatMemory = memory with { LastUpdated = DateTime.UtcNow };
-            Persist();
-        }
+        var s = Get(sessionId);
+        if (s == null) return;
+        s.ChatMemory = memory with { LastUpdated = DateTime.UtcNow };
+        s.LastUsed = DateTime.UtcNow;
+        // Fire-and-forget: chat memory update là hot path, không block agent loop
+        _ = _repo.UpsertAsync(s);
     }
 
     /// Xóa bộ nhớ chat về Empty (khi user yêu cầu reset hội thoại).
     public void ClearMemory(string sessionId)
     {
-        if (_sessions.TryGetValue(sessionId, out var s))
-        {
-            s.ChatMemory = SessionChatMemory.Empty();
-            Persist();
-        }
+        var s = Get(sessionId);
+        if (s == null) return;
+        s.ChatMemory = SessionChatMemory.Empty();
+        s.LastUsed = DateTime.UtcNow;
+        _ = _repo.UpsertAsync(s);
     }
 }
