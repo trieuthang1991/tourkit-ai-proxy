@@ -161,6 +161,7 @@ AttachLogAndInsecure(
     }), "tourkit",
     allowInsecure || builder.Configuration.GetValue<bool>("TourKit:AllowInsecureTls"));
 builder.Services.AddSingleton<TourKitApiClient>();
+builder.Services.AddSingleton<TkSessionRepository>();
 builder.Services.AddSingleton<TkSessionStore>();
 builder.Services.AddSingleton<TourkitAiProxy.Services.Cache.RedisStore>();  // generic Redis cho mọi feature
 // Single source of truth cho cấu hình AI model per-feature.
