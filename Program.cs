@@ -269,6 +269,23 @@ TourkitAiProxy.Services.Db.MultiTenantMigration.Run(
     Path.Combine(app.Environment.ContentRootPath, "data"),
     app.Services.GetRequiredService<ILogger<Program>>());
 
+// One-shot migrate tk-sessions.json → SQL (idempotent: file → .migrated sau khi xong)
+_ = Task.Run(async () =>
+{
+    try
+    {
+        using var scope = app.Services.CreateScope();
+        var store = scope.ServiceProvider.GetRequiredService<TourkitAiProxy.Services.TourKit.TkSessionStore>();
+        await store.MigrateFromLegacyFileAsync(
+            Path.Combine(app.Environment.ContentRootPath, "data"));
+    }
+    catch (Exception ex)
+    {
+        app.Services.GetRequiredService<ILogger<Program>>()
+            .LogWarning(ex, "Migrate tk-sessions file → SQL fail");
+    }
+});
+
 // DB init: tạo schema dbo.Reviews/DealScores/AiHistory nếu chưa có + migrate JSON cũ vào DB.
 // Chạy async fire-and-forget — không block startup. Nếu DB chưa sẵn sàng → log warning, fallback file.
 _ = Task.Run(async () =>

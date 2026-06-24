@@ -147,6 +147,52 @@ public class TkSessionStore
         }
     }
 
+    /// One-shot migration: đọc file legacy `data/tk-sessions.json` (nếu còn) → import vào SQL.
+    /// Chạy ở startup. Sau khi import xong → rename file thành `.migrated` để khỏi chạy lại.
+    /// Idempotent: nếu file không tồn tại HOẶC đã rename → no-op.
+    public async Task MigrateFromLegacyFileAsync(string dataDir, CancellationToken ct = default)
+    {
+        var path = Path.Combine(dataDir, "tk-sessions.json");
+        if (!File.Exists(path)) return;
+
+        try
+        {
+            var json = await File.ReadAllTextAsync(path, ct);
+            var opts = new System.Text.Json.JsonSerializerOptions(System.Text.Json.JsonSerializerDefaults.Web);
+            var legacyList = System.Text.Json.JsonSerializer.Deserialize<List<LegacyPersisted>>(json, opts) ?? new();
+            int ok = 0, skip = 0;
+            foreach (var p in legacyList)
+            {
+                var pwd = TourkitAiProxy.Services.Security.Crypton.Decrypt(p.EncPassword);
+                if (string.IsNullOrEmpty(pwd)) { skip++; continue; }
+                var existing = await _repo.GetAsync(p.Id, ct);
+                if (existing != null) { skip++; continue; }
+                var s = new TkSession
+                {
+                    Id = p.Id, TenantId = p.TenantId, Username = p.Username, Password = pwd,
+                    FullName = p.FullName, CompanyName = p.CompanyName,
+                    Jwt = "", JwtExpiresAt = DateTime.MinValue,
+                    LastUsed = DateTime.TryParse(p.LastUsedIso, out var d) ? d.ToUniversalTime() : DateTime.UtcNow,
+                    ChatMemory = p.ChatMemory ?? SessionChatMemory.Empty()
+                };
+                await _repo.UpsertAsync(s, ct);
+                _cache[s.Id] = s;
+                ok++;
+            }
+            File.Move(path, path + ".migrated", overwrite: true);
+            _log.LogInformation("[TkSessionStore] Migrated {Ok} sessions từ file legacy (skip {Skip}), file → .migrated", ok, skip);
+        }
+        catch (Exception ex)
+        {
+            _log.LogError(ex, "[TkSessionStore] Migrate file legacy lỗi — giữ file nguyên để retry");
+        }
+    }
+
+    private sealed record LegacyPersisted(
+        string Id, string TenantId, string Username, string EncPassword,
+        string? FullName, string? CompanyName, string LastUsedIso,
+        SessionChatMemory? ChatMemory = null);
+
     // ─── Chat memory helpers ────────────────────────────────────────────────────
 
     /// Lấy bộ nhớ chat của phiên. Trả null nếu không tìm thấy phiên.
