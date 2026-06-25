@@ -140,3 +140,31 @@
 
 .ai-usage-chart { height: 280px; position: relative; }
 .ai-usage-table code { font-size: 12px; color: #4b5563; background: #f9fafb; padding: 2px 6px; border-radius: 4px; }
+
+/* ─── Quota page ─────────────────────────────────────────────────── */
+.quota-section { background:#fff; border:1px solid #e5e7eb; border-radius:8px; overflow:hidden; }
+.quota-table { width:100%; border-collapse:collapse; font-size:14px; }
+.quota-table thead th {
+  background:#f9fafb; color:#6b7280; font-weight:600; font-size:11px;
+  letter-spacing:.04em; text-transform:uppercase; padding:10px 14px; text-align:left;
+  border-bottom:1px solid #e5e7eb;
+}
+.quota-table tbody td { padding:14px; border-bottom:1px solid #f3f4f6; vertical-align:middle; }
+.quota-table tbody tr:last-child td { border-bottom:none; }
+.quota-table tbody tr:hover { background:#fafafa; }
+
+.quota-rank { color:#9ca3af; font-variant-numeric:tabular-nums; width:40px; }
+.quota-name { font-weight:600; color:#111827; }
+.quota-tid  { font-family:ui-monospace,Menlo,monospace; font-size:12px; color:#6b7280; margin-top:2px; }
+.quota-num  { text-align:right; font-variant-numeric:tabular-nums; white-space:nowrap; }
+
+.quota-pct-cell { display:flex; align-items:center; gap:8px; min-width:180px; }
+.quota-pct-bar  { flex:1; height:8px; background:#f3f4f6; border-radius:4px; overflow:hidden; position:relative; }
+.quota-pct-fill { height:100%; transition:width .3s ease; }
+.quota-pct-green .quota-pct-fill { background:#10b981; }
+.quota-pct-amber .quota-pct-fill { background:#f59e0b; }
+.quota-pct-red   .quota-pct-fill { background:#ef4444; }
+.quota-pct-num  { font-variant-numeric:tabular-nums; font-size:13px; color:#374151; min-width:38px; text-align:right; }
+
+.quota-empty { text-align:center; padding:32px; color:#9ca3af; }
+.quota-btn-sm { padding:4px 10px; font-size:12px; }
