@@ -18,6 +18,8 @@ namespace TourkitAiProxy.Endpoints;
 ///   GET  /api/v1/admin/ui/consult-leads?status=                  — danh sách đăng ký tư vấn (landing)
 ///   POST /api/v1/admin/ui/consult-leads/{id}/contacted           — đánh dấu đã liên hệ (toggle)
 ///   GET  /api/v1/admin/ui/chat-unresolved?days=&amp;tag=            — câu hỏi /assistant AI không suy luận được
+///   GET  /api/v1/admin/ui/tk-sessions                            — phiên đăng nhập TourKit đang active
+///   DELETE /api/v1/admin/ui/tk-sessions/{id}                     — kick 1 phiên (force logout)
 /// </summary>
 public static class AdminUiEndpoints
 {
@@ -318,6 +320,43 @@ public static class AdminUiEndpoints
                 }
                 return list;
             }
+        });
+
+        // GET /api/v1/admin/ui/tk-sessions
+        // → list phiên TourKit đang active (đọc từ in-mem cache của TkSessionStore).
+        // ChatMemory size để thấy phiên nào đã chat nhiều — không trả nội dung memory.
+        g.MapGet("/tk-sessions", (TkSessionStore sessions) =>
+        {
+            var now = DateTime.UtcNow;
+            var items = sessions.ListActive()
+                .OrderByDescending(s => s.LastUsed)
+                .Select(s => new
+                {
+                    id           = s.Id,
+                    tenantId     = s.TenantId,
+                    username     = s.Username,
+                    fullName     = s.FullName,
+                    companyName  = s.CompanyName,
+                    lastUsedUtc  = s.LastUsed,
+                    idleSeconds  = (long)(now - s.LastUsed).TotalSeconds,
+                    chatTurns    = s.ChatMemory?.History?.Count ?? 0,
+                    lastTool     = s.ChatMemory?.LastTool,
+                    hasJwt       = !string.IsNullOrEmpty(s.Jwt),
+                })
+                .ToList();
+            return Results.Json(new { items, total = items.Count });
+        });
+
+        // DELETE /api/v1/admin/ui/tk-sessions/{id} → kick session (xóa cache + SQL).
+        g.MapDelete("/tk-sessions/{id}", async (
+            string id,
+            TkSessionStore sessions,
+            HttpContext http,
+            CancellationToken ct) =>
+        {
+            var by = http.Items[RequireAdminSessionExtensions.HttpItemKey] as string ?? "admin";
+            var removed = await sessions.KickAsync(id, ct);
+            return Results.Json(new { ok = removed, kicked = removed, by });
         });
 
         return routes;
