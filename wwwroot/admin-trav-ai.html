@@ -1,0 +1,25 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<base href="/" />
+<title>TRAV-AI · Admin</title>
+<link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+<link rel="stylesheet" href="/admin.css" />
+</head>
+<body>
+<div id="admin-root"></div>
+
+<!-- React + Babel (cùng nguồn user-facing index.html) -->
+<script src="/lib/vendor/react-18.3.1.min.js"></script>
+<script src="/lib/vendor/react-dom-18.3.1.min.js"></script>
+<script src="https://unpkg.com/@babel/standalone@7.29.0/babel.min.js" integrity="sha384-m08KidiNqLdpJqLq95G/LEi8Qvjl/xUYll3QILypMoQ65QorJ9Lvtp2RXYGBFj1y" crossorigin="anonymous"></script>
+
+<!-- Chart.js lazy loader (đã có sẵn — AiUsagePage tự gọi window.ensureChart()) -->
+<script src="/lib/chart-loader.js"></script>
+
+<!-- Admin shell — toàn bộ shell + pages trong 1 file -->
+<script type="text/babel" src="/pages/admin.jsx"></script>
+</body>
+</html>

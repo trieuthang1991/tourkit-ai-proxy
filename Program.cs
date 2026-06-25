@@ -392,6 +392,19 @@ app.MapQuotaEndpoints();
 app.MapQuotaOrderEndpoints();
 app.MapWidgetEndpoints();
 
+// Admin shell — entry HTML riêng /admin-trav-ai.html, KHÔNG share index.html user-facing.
+// MapGet explicit thắng MapFallback (StaticFilesSetup) → /admin-trav-ai/{**path} serve đúng file admin.
+app.MapGet("/admin-trav-ai", (HttpContext ctx) => ServeAdminHtml(ctx, app.Environment.ContentRootPath));
+app.MapGet("/admin-trav-ai/{**path}", (HttpContext ctx) => ServeAdminHtml(ctx, app.Environment.ContentRootPath));
+
+static IResult ServeAdminHtml(HttpContext ctx, string contentRoot)
+{
+    var path = Path.Combine(contentRoot, "wwwroot", "admin-trav-ai.html");
+    if (!File.Exists(path)) return Results.NotFound();
+    ctx.Response.Headers["Cache-Control"] = "no-cache, must-revalidate";
+    return Results.Content(File.ReadAllText(path), "text/html; charset=utf-8");
+}
+
 // SPA fallback (deep-link /mail, /customers, /assistant + F5) ĐÃ CHUYỂN vào UseTourkitStaticFiles
 // → app.MapFallback(ServeIndex): deep-link/F5 nay cũng nhận bundle-injection + ?v=hash thay vì rớt
 // về DEV-babel mode. Trước đây dùng MapFallbackToFile("index.html") serve file THÔ (bỏ qua ServeIndex).

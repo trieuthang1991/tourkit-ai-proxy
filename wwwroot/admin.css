@@ -1,0 +1,7 @@
+/* Admin shell — namespace prefix .admin-* để KHÔNG leak styles.css user-facing. */
+.admin-loading {
+  font-family: system-ui, -apple-system, "Segoe UI", sans-serif;
+  display: grid; place-items: center;
+  min-height: 100vh;
+  color: #4b5563;
+}
