@@ -20,6 +20,10 @@ public class TkSessionRepository
     private static readonly JsonSerializerOptions _jsonOpts =
         new(JsonSerializerDefaults.Web);
 
+    // Circuit breaker cho GetTenantNamesAsync: khi SQL down, mọi call sẽ vượt deadline.
+    // Cache "vừa fail" trong 30s để page admin không stall thêm 2s × N call.
+    private static DateTime _tenantLookupFailedUntil = DateTime.MinValue;
+
     public TkSessionRepository(TourkitAiDb db, ILogger<TkSessionRepository> log)
     {
         _db = db; _log = log;
@@ -110,24 +114,33 @@ public class TkSessionRepository
     /// SELECT TOP 1 CompanyName/FullName per tenant ORDER BY LastUsedUtc DESC.
     /// Display = CompanyName ?? FullName ?? tenantId (caller tự fallback).
     /// Tenant nào không có session → KHÔNG có entry trong dict.
+    ///
+    /// **Best-effort 2s deadline**: tenant name resolution là nice-to-have cho admin UI;
+    /// nếu SQL unreachable (dev offline / network glitch) thì return dict rỗng thay vì
+    /// block page render 15s mặc định Connect Timeout.
     /// </summary>
     public async Task<Dictionary<string, string>> GetTenantNamesAsync(
         IEnumerable<string> tenantIds, CancellationToken ct = default)
     {
         var ids = tenantIds.Where(x => !string.IsNullOrEmpty(x)).Distinct().ToList();
         if (ids.Count == 0) return new();
+        if (DateTime.UtcNow < _tenantLookupFailedUntil) return new(); // SQL vừa fail → skip
+        using var cts = CancellationTokenSource.CreateLinkedTokenSource(ct);
+        cts.CancelAfter(TimeSpan.FromSeconds(2));
         try
         {
-            await using var c = await _db.OpenAsync(ct);
+            await using var c = await _db.OpenAsync(cts.Token);
             // Subquery ROW_NUMBER để lấy row mới nhất per TenantId (idiom SQL Server)
-            var rows = await c.QueryAsync<(string TenantId, string? CompanyName, string? FullName)>(@"
+            var rows = await c.QueryAsync<(string TenantId, string? CompanyName, string? FullName)>(
+                new CommandDefinition(@"
 SELECT TenantId, CompanyName, FullName FROM (
     SELECT TenantId, CompanyName, FullName,
            ROW_NUMBER() OVER (PARTITION BY TenantId ORDER BY LastUsedUtc DESC) AS rn
     FROM dbo.TkSessions
     WHERE TenantId IN @ids
 ) t WHERE rn = 1;",
-                new { ids });
+                    parameters: new { ids },
+                    cancellationToken: cts.Token));
             var dict = new Dictionary<string, string>();
             foreach (var r in rows)
             {
@@ -138,9 +151,16 @@ SELECT TenantId, CompanyName, FullName FROM (
             }
             return dict;
         }
+        catch (OperationCanceledException) when (!ct.IsCancellationRequested)
+        {
+            _tenantLookupFailedUntil = DateTime.UtcNow.AddSeconds(30);
+            _log.LogWarning("[TkSessionRepo] GetTenantNames vượt deadline 2s — SQL không sẵn sàng, circuit-break 30s");
+            return new();
+        }
         catch (Exception ex)
         {
-            _log.LogWarning(ex, "[TkSessionRepo] GetTenantNames lỗi");
+            _tenantLookupFailedUntil = DateTime.UtcNow.AddSeconds(30);
+            _log.LogWarning(ex, "[TkSessionRepo] GetTenantNames lỗi — circuit-break 30s");
             return new();
         }
     }
