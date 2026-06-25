@@ -137,3 +137,6 @@
 
 .tenant-name { font-weight: 600; color: #111827; }
 .tenant-id { font-size: 11px; color: #9ca3af; font-family: ui-monospace, SFMono-Regular, monospace; }
+
+.ai-usage-chart { height: 280px; position: relative; }
+.ai-usage-table code { font-size: 12px; color: #4b5563; background: #f9fafb; padding: 2px 6px; border-radius: 4px; }

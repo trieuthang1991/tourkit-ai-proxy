@@ -242,6 +242,109 @@
     );
   }
 
+  function ModelTable({ rows }) {
+    if (!rows || rows.length === 0)
+      return <div className="ai-usage-placeholder">Không có dữ liệu model.</div>;
+    return (
+      <div className="ai-usage-section">
+        <h3 className="ai-usage-section-title">🤖 By model</h3>
+        <div className="ai-usage-table-wrap">
+          <table className="ai-usage-table">
+            <thead>
+              <tr>
+                <th>Model</th>
+                <th className="num">Số call</th>
+                <th className="num">Input tokens</th>
+                <th className="num">Output tokens</th>
+                <th className="num">Chi phí</th>
+              </tr>
+            </thead>
+            <tbody>
+              {rows.map(m => (
+                <tr key={m.model}>
+                  <td><code>{m.model}</code></td>
+                  <td className="num">{fmtNum(m.calls)}</td>
+                  <td className="num">{fmtNum(m.inTokens)}</td>
+                  <td className="num">{fmtNum(m.outTokens)}</td>
+                  <td className="num">{fmtVnd(m.costVnd)}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    );
+  }
+
+  function DailyChart({ rows }) {
+    const canvasRef = React.useRef(null);
+    const chartRef = React.useRef(null);
+
+    useEffect(() => {
+      let cancelled = false;
+      async function render() {
+        if (!rows || rows.length === 0) return;
+        // chart-loader.js phơi ra window.ensureChart() (lazy load Chart.js).
+        if (!window.ensureChart) { console.warn("ensureChart missing"); return; }
+        await window.ensureChart();
+        if (cancelled || !canvasRef.current) return;
+        if (chartRef.current) { chartRef.current.destroy(); chartRef.current = null; }
+        const ctx = canvasRef.current.getContext("2d");
+        chartRef.current = new window.Chart(ctx, {
+          type: "line",
+          data: {
+            labels: rows.map(r => r.date),
+            datasets: [{
+              label: "Chi phí (VND)",
+              data: rows.map(r => r.costVnd),
+              borderColor: "#F97316",
+              backgroundColor: "rgba(249,115,22,0.12)",
+              fill: true,
+              tension: 0.25,
+              pointRadius: 3
+            }]
+          },
+          options: {
+            responsive: true, maintainAspectRatio: false,
+            plugins: {
+              legend: { display: false },
+              tooltip: {
+                callbacks: {
+                  label: (ctx) => {
+                    const i = ctx.dataIndex;
+                    const r = rows[i];
+                    return ` ${fmtVnd(r.costVnd)} · ${fmtNum(r.calls)} call`;
+                  }
+                }
+              }
+            },
+            scales: {
+              y: {
+                beginAtZero: true,
+                ticks: { callback: (v) => new Intl.NumberFormat("vi-VN").format(v) }
+              }
+            }
+          }
+        });
+      }
+      render();
+      return () => {
+        cancelled = true;
+        if (chartRef.current) { chartRef.current.destroy(); chartRef.current = null; }
+      };
+    }, [rows]);
+
+    if (!rows || rows.length === 0)
+      return <div className="ai-usage-placeholder">Không có dữ liệu daily.</div>;
+
+    return (
+      <div className="ai-usage-section">
+        <h3 className="ai-usage-section-title">📈 Chi phí theo ngày</h3>
+        <div className="ai-usage-chart"><canvas ref={canvasRef} /></div>
+      </div>
+    );
+  }
+
   function AiUsagePage() {
     const [days, setDays] = useState(30);
     const [tenantFilter, setTenantFilter] = useState(null);
@@ -316,10 +419,8 @@
               rows={data.byTenant}
               activeTenant={tenantFilter}
               onPick={setTenantFilter} />
-            {/* Task 10: By model table + daily chart */}
-            <div className="ai-usage-placeholder">
-              <p>📦 Task 10 sẽ thêm By model table + daily chart.</p>
-            </div>
+            <ModelTable rows={data.byModel} />
+            <DailyChart rows={data.byDay} />
           </>
         )}
       </div>
