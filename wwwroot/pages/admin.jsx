@@ -183,9 +183,95 @@
     );
   }
 
-  // ── Page stub (Task 8 implement thật) ─────────────────────────────────────
+  // ── AI Usage page ─────────────────────────────────────────────────────────
+  function fmtVnd(n) {
+    if (n == null) return "—";
+    return new Intl.NumberFormat("vi-VN").format(Math.round(n)) + " ₫";
+  }
+  function fmtNum(n) {
+    if (n == null) return "0";
+    return new Intl.NumberFormat("vi-VN").format(n);
+  }
+
   function AiUsagePage() {
-    return <div>AI Usage page — Task 8 sẽ implement.</div>;
+    const [days, setDays] = useState(30);
+    const [tenantFilter, setTenantFilter] = useState(null);
+    const [data, setData] = useState(null);
+    const [loading, setLoading] = useState(false);
+    const [error, setError] = useState("");
+
+    async function load() {
+      setLoading(true); setError("");
+      try {
+        const qs = new URLSearchParams({ days: String(days) });
+        if (tenantFilter) qs.set("tenantId", tenantFilter);
+        const res = await window.adminFetch("/api/v1/admin/ui/ai-usage?" + qs.toString());
+        if (!res.ok) {
+          const err = await res.json().catch(() => ({}));
+          throw new Error(err.error || "Lỗi tải dữ liệu");
+        }
+        setData(await res.json());
+      } catch (ex) {
+        setError(ex.message || String(ex));
+      } finally {
+        setLoading(false);
+      }
+    }
+
+    useEffect(() => { load(); }, [days, tenantFilter]);
+
+    return (
+      <div className="ai-usage-page">
+        <div className="ai-usage-filters">
+          <div className="ai-usage-range">
+            {[7, 30, 90].map(d => (
+              <button key={d}
+                className={"ai-usage-tab" + (d === days ? " active" : "")}
+                onClick={() => setDays(d)}>
+                {d} ngày
+              </button>
+            ))}
+          </div>
+          {tenantFilter && (
+            <div className="ai-usage-tenant-pill">
+              Đang xem tenant: <b>{tenantFilter}</b>
+              <button onClick={() => setTenantFilter(null)}>Xem tất cả ×</button>
+            </div>
+          )}
+        </div>
+
+        {loading && <div className="ai-usage-loading">Đang tải…</div>}
+        {error && <div className="ai-usage-error">{error} <button onClick={load}>Thử lại</button></div>}
+
+        {data && !loading && (
+          <>
+            <div className="ai-usage-stats">
+              <div className="ai-usage-stat">
+                <div className="ai-usage-stat-label">Số call</div>
+                <div className="ai-usage-stat-value">{fmtNum(data.totals.calls)}</div>
+              </div>
+              <div className="ai-usage-stat">
+                <div className="ai-usage-stat-label">Input tokens</div>
+                <div className="ai-usage-stat-value">{fmtNum(data.totals.inTokens)}</div>
+              </div>
+              <div className="ai-usage-stat">
+                <div className="ai-usage-stat-label">Output tokens</div>
+                <div className="ai-usage-stat-value">{fmtNum(data.totals.outTokens)}</div>
+              </div>
+              <div className="ai-usage-stat">
+                <div className="ai-usage-stat-label">Tổng chi phí</div>
+                <div className="ai-usage-stat-value">{fmtVnd(data.totals.costVnd)}</div>
+              </div>
+            </div>
+            {/* Task 9: tenants table; Task 10: model table + chart */}
+            <div className="ai-usage-placeholder">
+              <p>📦 Task 9 sẽ thêm Top tenants table.</p>
+              <p>📦 Task 10 sẽ thêm By model table + daily chart.</p>
+            </div>
+          </>
+        )}
+      </div>
+    );
   }
 
   // Expose adminFetch để page components dùng (Task 8+)
