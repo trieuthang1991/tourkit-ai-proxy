@@ -105,6 +105,46 @@ public class TkSessionRepository
         }
     }
 
+    /// <summary>
+    /// Resolve display name cho 1 batch tenantId. Trả Dictionary&lt;tenantId, displayName&gt;.
+    /// SELECT TOP 1 CompanyName/FullName per tenant ORDER BY LastUsedUtc DESC.
+    /// Display = CompanyName ?? FullName ?? tenantId (caller tự fallback).
+    /// Tenant nào không có session → KHÔNG có entry trong dict.
+    /// </summary>
+    public async Task<Dictionary<string, string>> GetTenantNamesAsync(
+        IEnumerable<string> tenantIds, CancellationToken ct = default)
+    {
+        var ids = tenantIds.Where(x => !string.IsNullOrEmpty(x)).Distinct().ToList();
+        if (ids.Count == 0) return new();
+        try
+        {
+            await using var c = await _db.OpenAsync(ct);
+            // Subquery ROW_NUMBER để lấy row mới nhất per TenantId (idiom SQL Server)
+            var rows = await c.QueryAsync<(string TenantId, string? CompanyName, string? FullName)>(@"
+SELECT TenantId, CompanyName, FullName FROM (
+    SELECT TenantId, CompanyName, FullName,
+           ROW_NUMBER() OVER (PARTITION BY TenantId ORDER BY LastUsedUtc DESC) AS rn
+    FROM dbo.TkSessions
+    WHERE TenantId IN @ids
+) t WHERE rn = 1;",
+                new { ids });
+            var dict = new Dictionary<string, string>();
+            foreach (var r in rows)
+            {
+                var name = !string.IsNullOrWhiteSpace(r.CompanyName) ? r.CompanyName!
+                         : !string.IsNullOrWhiteSpace(r.FullName)    ? r.FullName!
+                         : r.TenantId;
+                dict[r.TenantId] = name;
+            }
+            return dict;
+        }
+        catch (Exception ex)
+        {
+            _log.LogWarning(ex, "[TkSessionRepo] GetTenantNames lỗi");
+            return new();
+        }
+    }
+
     /// Xoá mọi session khác (cùng TenantId+Username) ngoại trừ keepId. Trả số rows xoá.
     /// Dùng sau khi reuse session: dọn các bản ghi trùng tích lũy từ trước khi có de-dup.
     public async Task<int> DeleteOtherForUserAsync(string tenantId, string username, string keepId, CancellationToken ct = default)

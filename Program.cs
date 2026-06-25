@@ -119,6 +119,7 @@ builder.Services.AddSingleton<ProviderKeyStore>();
 // Admin governance — auth qua Admin:Users (JSON config) + in-mem session.
 builder.Services.AddSingleton<TourkitAiProxy.Services.Admin.AdminUserStore>();
 builder.Services.AddSingleton<TourkitAiProxy.Services.Admin.AdminSessionStore>();
+builder.Services.AddSingleton<TourkitAiProxy.Services.Admin.AdminUsageRepository>();
 
 // AI providers — đăng ký 1 lần ở đây, ProviderRegistry tự pickup qua IEnumerable<IAiProvider>.
 // Thêm provider mới: implement IAiProvider + AddSingleton<IAiProvider, NewProvider>().
