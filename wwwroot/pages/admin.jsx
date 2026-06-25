@@ -111,7 +111,11 @@
       return <div className="admin-loading">Đang kiểm tra phiên…</div>;
     if (state.status === "anonymous")
       return <AdminLogin onLoggedIn={check} />;
-    return <AdminShell username={state.username} onLogout={() => { clearSession(); check(); }} />;
+    return <AdminShell username={state.username} onLogout={async () => {
+      try { await adminFetch("/api/v1/admin/auth/logout", { method: "POST" }); } catch {}
+      clearSession();
+      check();
+    }} />;
   }
 
   // ── Nav config — thêm trang admin mới = push 1 entry vào đây ───────────────
