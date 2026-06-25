@@ -192,6 +192,55 @@
     if (n == null) return "0";
     return new Intl.NumberFormat("vi-VN").format(n);
   }
+  function fmtDate(s) {
+    if (!s) return "—";
+    try {
+      const d = new Date(s);
+      return d.toLocaleString("vi-VN", { dateStyle: "short", timeStyle: "short" });
+    } catch { return s; }
+  }
+
+  function TenantsTable({ rows, activeTenant, onPick }) {
+    if (!rows || rows.length === 0)
+      return <div className="ai-usage-placeholder">Không có dữ liệu tenant.</div>;
+    return (
+      <div className="ai-usage-section">
+        <h3 className="ai-usage-section-title">🏢 Top tenants</h3>
+        <div className="ai-usage-table-wrap">
+          <table className="ai-usage-table">
+            <thead>
+              <tr>
+                <th>#</th>
+                <th>Tenant</th>
+                <th className="num">Số call</th>
+                <th className="num">Chi phí</th>
+                <th className="num">% share</th>
+                <th>Last call</th>
+              </tr>
+            </thead>
+            <tbody>
+              {rows.map((t, i) => (
+                <tr key={t.tenantId}
+                    className={(t.tenantId === activeTenant ? "active " : "") + "clickable"}
+                    onClick={() => onPick(t.tenantId === activeTenant ? null : t.tenantId)}
+                    title={t.tenantId === activeTenant ? "Click để bỏ filter" : "Click để xem chi tiết tenant này"}>
+                  <td>{i + 1}</td>
+                  <td>
+                    <div className="tenant-name">{t.tenantName}</div>
+                    <div className="tenant-id">{t.tenantId}</div>
+                  </td>
+                  <td className="num">{fmtNum(t.calls)}</td>
+                  <td className="num">{fmtVnd(t.costVnd)}</td>
+                  <td className="num">{t.sharePct.toFixed(1)}%</td>
+                  <td>{fmtDate(t.lastCallAt)}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    );
+  }
 
   function AiUsagePage() {
     const [days, setDays] = useState(30);
@@ -263,9 +312,12 @@
                 <div className="ai-usage-stat-value">{fmtVnd(data.totals.costVnd)}</div>
               </div>
             </div>
-            {/* Task 9: tenants table; Task 10: model table + chart */}
+            <TenantsTable
+              rows={data.byTenant}
+              activeTenant={tenantFilter}
+              onPick={setTenantFilter} />
+            {/* Task 10: By model table + daily chart */}
             <div className="ai-usage-placeholder">
-              <p>📦 Task 9 sẽ thêm Top tenants table.</p>
               <p>📦 Task 10 sẽ thêm By model table + daily chart.</p>
             </div>
           </>

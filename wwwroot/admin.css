@@ -117,3 +117,23 @@
 @media (max-width: 900px) {
   .ai-usage-stats { grid-template-columns: repeat(2, 1fr); }
 }
+
+.ai-usage-section { background: #fff; border: 1px solid #e5e7eb; border-radius: 10px; padding: 16px 18px; }
+.ai-usage-section-title { margin: 0 0 12px; font-size: 15px; font-weight: 700; color: #111827; }
+
+.ai-usage-table-wrap { overflow-x: auto; }
+.ai-usage-table {
+  width: 100%; border-collapse: collapse; font-size: 13px;
+}
+.ai-usage-table th, .ai-usage-table td {
+  text-align: left; padding: 10px 12px; border-bottom: 1px solid #f3f4f6;
+}
+.ai-usage-table th { font-weight: 600; color: #6b7280; font-size: 12px; text-transform: uppercase; letter-spacing: 0.3px; }
+.ai-usage-table th.num, .ai-usage-table td.num { text-align: right; font-variant-numeric: tabular-nums; }
+.ai-usage-table tr.clickable { cursor: pointer; }
+.ai-usage-table tr.clickable:hover { background: #fffbeb; }
+.ai-usage-table tr.active { background: #fef3c7; }
+.ai-usage-table tr.active:hover { background: #fef3c7; }
+
+.tenant-name { font-weight: 600; color: #111827; }
+.tenant-id { font-size: 11px; color: #9ca3af; font-family: ui-monospace, SFMono-Regular, monospace; }
