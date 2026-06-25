@@ -111,17 +111,81 @@
       return <div className="admin-loading">Đang kiểm tra phiên…</div>;
     if (state.status === "anonymous")
       return <AdminLogin onLoggedIn={check} />;
-    return <AdminShellPlaceholder username={state.username} onLogout={() => { clearSession(); check(); }} />;
+    return <AdminShell username={state.username} onLogout={() => { clearSession(); check(); }} />;
   }
 
-  // Placeholder — Task 7 thay bằng AdminShell thật
-  function AdminShellPlaceholder({ username, onLogout }) {
+  // ── Nav config — thêm trang admin mới = push 1 entry vào đây ───────────────
+  // (Đầu file vì tham chiếu component declarations bên dưới; nhưng JS hoisting
+  // function declarations → OK đặt trước.)
+  const ADMIN_NAV = [
+    { path: "ai-usage", label: "AI Usage", icon: "📊", component: AiUsagePage },
+  ];
+  const DEFAULT_PATH = "ai-usage";
+
+  // ── Sub-router: đọc location.pathname, push/pop state ──────────────────────
+  function useAdminRoute() {
+    const [path, setPath] = useState(() => extractPath(location.pathname));
+    useEffect(() => {
+      function onPop() { setPath(extractPath(location.pathname)); }
+      window.addEventListener("popstate", onPop);
+      return () => window.removeEventListener("popstate", onPop);
+    }, []);
+    function navigate(p) {
+      const full = "/admin-trav-ai/" + p;
+      if (location.pathname !== full) history.pushState({}, "", full);
+      setPath(p);
+    }
+    return [path, navigate];
+  }
+
+  function extractPath(pathname) {
+    const m = pathname.match(/^\/admin-trav-ai\/?(.*)$/);
+    if (!m) return DEFAULT_PATH;
+    const rest = (m[1] || "").replace(/\/$/, "");
+    return rest || DEFAULT_PATH;
+  }
+
+  // ── Shell: sidebar + topbar + content ─────────────────────────────────────
+  function AdminShell({ username, onLogout }) {
+    const [path, navigate] = useAdminRoute();
+    const current = ADMIN_NAV.find(n => n.path === path) || ADMIN_NAV[0];
+    const Page = current.component;
+
     return (
-      <div className="admin-loading">
-        Logged in as <b>{username}</b><br/>
-        <button onClick={onLogout}>Logout</button>
+      <div className="admin-shell">
+        <aside className="admin-sidebar">
+          <div className="admin-brand">TRAV-AI<br/><small>Admin</small></div>
+          <nav>
+            {ADMIN_NAV.map(item => (
+              <a key={item.path}
+                 href={"/admin-trav-ai/" + item.path}
+                 onClick={e => { e.preventDefault(); navigate(item.path); }}
+                 className={"admin-nav-item" + (item.path === current.path ? " active" : "")}>
+                <span className="admin-nav-icon">{item.icon}</span>
+                <span>{item.label}</span>
+              </a>
+            ))}
+          </nav>
+        </aside>
+        <main className="admin-main">
+          <header className="admin-topbar">
+            <div className="admin-topbar-title">{current.label}</div>
+            <div className="admin-topbar-right">
+              <span className="admin-topbar-user">👤 {username}</span>
+              <button className="admin-topbar-logout" onClick={onLogout}>Đăng xuất</button>
+            </div>
+          </header>
+          <section className="admin-content">
+            <Page />
+          </section>
+        </main>
       </div>
     );
+  }
+
+  // ── Page stub (Task 8 implement thật) ─────────────────────────────────────
+  function AiUsagePage() {
+    return <div>AI Usage page — Task 8 sẽ implement.</div>;
   }
 
   // Expose adminFetch để page components dùng (Task 8+)

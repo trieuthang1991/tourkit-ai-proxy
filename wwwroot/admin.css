@@ -35,3 +35,49 @@
 }
 .admin-login-card button:disabled { opacity: 0.5; cursor: not-allowed; }
 .admin-login-error { color: #b91c1c; font-size: 13px; background: #fef2f2; padding: 8px 10px; border-radius: 6px; }
+
+/* Shell */
+.admin-shell {
+  display: grid;
+  grid-template-columns: 240px 1fr;
+  min-height: 100vh;
+  font-family: 'Be Vietnam Pro', system-ui, -apple-system, 'Segoe UI', sans-serif;
+  background: #f9fafb;
+}
+.admin-sidebar {
+  background: #1f2937; color: #f3f4f6;
+  padding: 20px 14px;
+  display: flex; flex-direction: column; gap: 18px;
+}
+.admin-brand {
+  font-size: 18px; font-weight: 800; letter-spacing: 0.5px; padding: 0 8px;
+  color: #fed7aa;
+}
+.admin-brand small { font-weight: 400; color: #9ca3af; font-size: 11px; letter-spacing: 1px; }
+.admin-sidebar nav { display: flex; flex-direction: column; gap: 4px; }
+.admin-nav-item {
+  display: flex; align-items: center; gap: 10px;
+  padding: 10px 12px; border-radius: 8px;
+  color: #d1d5db; text-decoration: none; font-size: 14px;
+  transition: background 0.15s;
+}
+.admin-nav-item:hover { background: rgba(255,255,255,0.06); color: #fff; }
+.admin-nav-item.active { background: rgba(249,115,22,0.18); color: #fed7aa; }
+.admin-nav-icon { font-size: 16px; width: 20px; text-align: center; }
+
+.admin-main { display: flex; flex-direction: column; min-width: 0; }
+.admin-topbar {
+  background: #fff; border-bottom: 1px solid #e5e7eb;
+  padding: 14px 24px;
+  display: flex; align-items: center; justify-content: space-between;
+}
+.admin-topbar-title { font-size: 18px; font-weight: 700; color: #111827; }
+.admin-topbar-right { display: flex; align-items: center; gap: 12px; }
+.admin-topbar-user { font-size: 13px; color: #6b7280; }
+.admin-topbar-logout {
+  background: transparent; border: 1px solid #d1d5db; color: #374151;
+  padding: 6px 12px; border-radius: 6px; font-size: 13px; cursor: pointer;
+}
+.admin-topbar-logout:hover { background: #f3f4f6; }
+
+.admin-content { padding: 24px; flex: 1; min-width: 0; }
