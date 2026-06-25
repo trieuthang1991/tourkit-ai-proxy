@@ -122,8 +122,9 @@
   // (Đầu file vì tham chiếu component declarations bên dưới; nhưng JS hoisting
   // function declarations → OK đặt trước.)
   const ADMIN_NAV = [
-    { path: "ai-usage", label: "AI Usage", icon: "📊", component: AiUsagePage },
-    { path: "quota",    label: "Quota",    icon: "💎", component: QuotaPage },
+    { path: "ai-usage",      label: "AI Usage",        icon: "📊", component: AiUsagePage },
+    { path: "quota",         label: "Quota",           icon: "💎", component: QuotaPage },
+    { path: "consult-leads", label: "Đăng ký tư vấn",  icon: "📞", component: ConsultLeadsPage },
   ];
   const DEFAULT_PATH = "ai-usage";
 
@@ -522,6 +523,199 @@
               })}
               {items.length === 0 && (
                 <tr><td colSpan={6} className="quota-empty">Chưa có tenant nào dùng AI.</td></tr>
+              )}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    );
+  }
+
+  // ────── Trang Đăng ký tư vấn — đọc data/consult-leads.jsonl + status side-car ─
+  function ConsultLeadsPage() {
+    const [filter, setFilter] = useState("pending");   // pending | contacted | all
+    const [search, setSearch] = useState("");
+    const [resp, setResp] = useState({ items: [], totals: { all: 0, pending: 0, contacted: 0 } });
+    const [loading, setLoading] = useState(false);
+    const [error, setError] = useState("");
+    const [busyId, setBusyId] = useState(null);
+
+    async function load() {
+      setLoading(true); setError("");
+      try {
+        const qs = new URLSearchParams({ status: filter });
+        const r = await window.adminFetch("/api/v1/admin/ui/consult-leads?" + qs.toString());
+        const data = await r.json();
+        if (!r.ok) throw new Error(data.error || `HTTP ${r.status}`);
+        setResp(data);
+      } catch (e) {
+        setError(e.message || "Lỗi tải dữ liệu");
+      } finally {
+        setLoading(false);
+      }
+    }
+
+    useEffect(() => { load(); }, [filter]);
+
+    async function toggleContacted(row) {
+      setBusyId(row.id);
+      try {
+        const r = await window.adminFetch(
+          `/api/v1/admin/ui/consult-leads/${encodeURIComponent(row.id)}/contacted`, {
+            method: "POST",
+            body: JSON.stringify({ contacted: !row.contacted })
+          });
+        const data = await r.json();
+        if (!r.ok) throw new Error(data.error || `HTTP ${r.status}`);
+        await load();
+      } catch (e) {
+        alert(e.message || "Cập nhật thất bại");
+      } finally {
+        setBusyId(null);
+      }
+    }
+
+    async function copyPhone(phone) {
+      try {
+        await navigator.clipboard.writeText(phone);
+      } catch { /* clipboard có thể bị block khi không HTTPS — ignore */ }
+    }
+
+    // Search client-side để khỏi round-trip mỗi keystroke. Dataset nhỏ (vài trăm lead).
+    const q = search.trim().toLowerCase();
+    const rows = q
+      ? resp.items.filter(r =>
+          (r.fullName || "").toLowerCase().includes(q) ||
+          (r.phone    || "").toLowerCase().includes(q) ||
+          (r.email    || "").toLowerCase().includes(q) ||
+          (r.company  || "").toLowerCase().includes(q) ||
+          (r.feature  || "").toLowerCase().includes(q))
+      : resp.items;
+
+    return (
+      <div>
+        <div className="ai-usage-header">
+          <h1 className="ai-usage-title">Đăng ký tư vấn</h1>
+          <button className="ai-usage-range-btn" onClick={load} disabled={loading}>↻ Refresh</button>
+        </div>
+
+        <div className="ai-usage-filters" style={{ marginBottom: 16 }}>
+          <div className="ai-usage-range">
+            {[
+              { key: "pending",   label: `Chưa liên hệ (${resp.totals.pending})` },
+              { key: "contacted", label: `Đã liên hệ (${resp.totals.contacted})` },
+              { key: "all",       label: `Tất cả (${resp.totals.all})` },
+            ].map(t => (
+              <button key={t.key}
+                className={"ai-usage-tab" + (t.key === filter ? " active" : "")}
+                onClick={() => setFilter(t.key)}>
+                {t.label}
+              </button>
+            ))}
+          </div>
+          <input
+            type="search"
+            placeholder="Tìm tên / SĐT / email / công ty / tính năng…"
+            value={search}
+            onChange={e => setSearch(e.target.value)}
+            style={{
+              flex: "1 1 280px", minWidth: 220,
+              padding: "8px 12px", fontSize: 13,
+              border: "1px solid var(--border-warm)", borderRadius: 6,
+              background: "var(--bg-surface)", color: "var(--text-primary)",
+              fontFamily: "var(--sans)"
+            }}
+          />
+        </div>
+
+        {error && <div className="ai-usage-error">⚠️ {error}</div>}
+        {loading && rows.length === 0 && <div className="ai-usage-loading">Đang tải…</div>}
+
+        <div className="quota-section">
+          <table className="quota-table">
+            <thead>
+              <tr>
+                <th>#</th>
+                <th>Khách</th>
+                <th>SĐT</th>
+                <th>Email / Công ty</th>
+                <th>Tính năng quan tâm</th>
+                <th>Ghi chú</th>
+                <th>Đăng ký lúc</th>
+                <th>Trạng thái</th>
+                <th></th>
+              </tr>
+            </thead>
+            <tbody>
+              {rows.map((r, i) => (
+                <tr key={r.id}>
+                  <td className="quota-rank">{i + 1}</td>
+                  <td>
+                    <div className="quota-name">{r.fullName || "(không tên)"}</div>
+                    {r.ip && <div className="quota-tid">IP {r.ip}</div>}
+                  </td>
+                  <td>
+                    <button
+                      onClick={() => copyPhone(r.phone)}
+                      title="Click để copy SĐT"
+                      style={{
+                        background: "none", border: "none", padding: 0,
+                        cursor: "pointer", color: "var(--accent-deep)",
+                        fontFamily: "var(--mono)", fontSize: 13,
+                        textDecoration: "underline dotted"
+                      }}
+                    >{r.phone}</button>
+                  </td>
+                  <td>
+                    {r.email && <div style={{ fontSize: 13 }}>{r.email}</div>}
+                    {r.company && <div className="quota-tid">{r.company}</div>}
+                    {!r.email && !r.company && <span style={{ color: "var(--text-faint)" }}>—</span>}
+                  </td>
+                  <td>
+                    {r.feature
+                      ? <span style={{
+                          fontSize: 12, padding: "3px 8px", borderRadius: 999,
+                          background: "var(--accent-tint)", color: "var(--accent-deep)",
+                          fontWeight: 500
+                        }}>{r.feature}</span>
+                      : <span style={{ color: "var(--text-faint)" }}>—</span>}
+                  </td>
+                  <td style={{ maxWidth: 280, whiteSpace: "normal", lineHeight: 1.4, color: "var(--text-muted)", fontSize: 12 }}>
+                    {r.note || <span style={{ color: "var(--text-faint)" }}>—</span>}
+                  </td>
+                  <td style={{ fontSize: 12, color: "var(--text-muted)", whiteSpace: "nowrap" }}>
+                    {fmtDate(r.createdUtc)}
+                  </td>
+                  <td>
+                    {r.contacted
+                      ? <span title={r.contactedBy ? `bởi ${r.contactedBy} · ${fmtDate(r.contactedUtc)}` : ""}
+                              style={{
+                                fontSize: 11, padding: "3px 8px", borderRadius: 999,
+                                background: "rgba(77,124,92,0.12)", color: "#3F6B4E",
+                                fontWeight: 600, letterSpacing: 0.3, textTransform: "uppercase"
+                              }}>✓ Đã liên hệ</span>
+                      : <span style={{
+                              fontSize: 11, padding: "3px 8px", borderRadius: 999,
+                              background: "rgba(180,83,9,0.12)", color: "#B45309",
+                              fontWeight: 600, letterSpacing: 0.3, textTransform: "uppercase"
+                            }}>● Chưa liên hệ</span>}
+                  </td>
+                  <td>
+                    <button
+                      className="ai-usage-range-btn quota-btn-sm"
+                      onClick={() => toggleContacted(r)}
+                      disabled={busyId === r.id}
+                    >{r.contacted ? "↩ Bỏ đánh dấu" : "✓ Đã liên hệ"}</button>
+                  </td>
+                </tr>
+              ))}
+              {!loading && rows.length === 0 && (
+                <tr><td colSpan={9} className="quota-empty">
+                  {q ? `Không tìm thấy lead khớp "${search}".`
+                     : (filter === "pending"   ? "🎉 Không còn lead chưa liên hệ."
+                     :  filter === "contacted" ? "Chưa có lead nào được đánh dấu đã liên hệ."
+                     : "Chưa có ai đăng ký tư vấn.")}
+                </td></tr>
               )}
             </tbody>
           </table>

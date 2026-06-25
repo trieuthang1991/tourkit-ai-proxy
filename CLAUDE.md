@@ -166,6 +166,8 @@ data/
 | GET    | `/api/v1/admin/ui/ai-usage`       | cross-tenant AI usage `?days=30&tenantId=` (require X-Admin-Session) |
 | GET    | `/api/v1/admin/ui/quota`          | list quota mọi tenant `{items[{tenantId, displayName, limit, used, remaining, usedPct, warn, exhausted, updatedAtUtc}]}` (require X-Admin-Session) |
 | POST   | `/api/v1/admin/ui/quota/{tenant}/topup` | cộng `{amount: 1..100000}` lượt cho tenant → snapshot mới (require X-Admin-Session) |
+| GET    | `/api/v1/admin/ui/consult-leads`  | đăng ký tư vấn từ landing `?status=all|pending|contacted` → `{items[…], totals{all,pending,contacted}}` (require X-Admin-Session) |
+| POST   | `/api/v1/admin/ui/consult-leads/{id}/contacted` | đánh dấu lead đã/chưa liên hệ `{contacted:bool}` — lưu vào side-car `data/consult-leads-status.json`, KHÔNG sửa JSONL gốc (require X-Admin-Session) |
 
 **Tenant scoping** (multi-tenant fix 2026-06-09): tất cả endpoint `/api/v1/mail/*` và `/api/v1/visa/*` YÊU CẦU `X-Session-Id` header (hoặc `sessionId` query/body) — backend resolve `TenantId` qua `ITenantContext`/`HttpTenantContext` từ `TkSessionStore`. KHÔNG session → 401. Cross-tenant access (resource thuộc tenant khác) → null/404.
 
