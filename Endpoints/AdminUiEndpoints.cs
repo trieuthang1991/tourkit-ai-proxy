@@ -1,4 +1,6 @@
+using System.Text.Json;
 using TourkitAiProxy.Services.Admin;
+using TourkitAiProxy.Services.Chat;
 using TourkitAiProxy.Services.Quota;
 using TourkitAiProxy.Services.TourKit;
 
@@ -15,6 +17,7 @@ namespace TourkitAiProxy.Endpoints;
 ///   POST /api/v1/admin/ui/quota/{tenant}/topup                   — cộng quota cho tenant
 ///   GET  /api/v1/admin/ui/consult-leads?status=                  — danh sách đăng ký tư vấn (landing)
 ///   POST /api/v1/admin/ui/consult-leads/{id}/contacted           — đánh dấu đã liên hệ (toggle)
+///   GET  /api/v1/admin/ui/chat-unresolved?days=&amp;tag=            — câu hỏi /assistant AI không suy luận được
 /// </summary>
 public static class AdminUiEndpoints
 {
@@ -209,6 +212,112 @@ public static class AdminUiEndpoints
             else               repo.MarkUncontacted(id);
 
             return Results.Json(new { ok = true, id, contacted = req.Contacted });
+        });
+
+        // GET /api/v1/admin/ui/chat-unresolved?days=7&tag=
+        // → câu hỏi /assistant AI không trả được (9 trigger tag — xem UnresolvedQuestionsLog).
+        g.MapGet("/chat-unresolved", async (
+            int? days, string? tag,
+            UnresolvedQuestionsLog log,
+            TkSessionRepository tkRepo,
+            CancellationToken ct) =>
+        {
+            var d = Math.Clamp(days ?? 7, 1, 90);
+            var t = string.IsNullOrWhiteSpace(tag) ? null : tag.Trim();
+
+            // Read trả entries từ MỚI → CŨ, đã filter theo days + tag (nếu có).
+            var entries = log.Read(days: d, tag: t, maxEntries: 500);
+
+            // Resolve tenant name (tenantId có thể là "host" như "staging.tourkit.vn" — không match TkSessions.
+            // GetTenantNamesAsync best-effort, miss → fallback chính tenantId).
+            var tenantIds = entries
+                .Select(e => GetStr(e, "tenantId"))
+                .Where(s => !string.IsNullOrWhiteSpace(s))
+                .Distinct()
+                .ToList()!;
+            Dictionary<string, string> names;
+            try { names = await tkRepo.GetTenantNamesAsync(tenantIds!, ct); }
+            catch { names = new(); }
+
+            // Đếm tổng theo tag để chip filter hiện count — chạy 1 lần unfiltered.
+            var totalsByTag = new Dictionary<string, int>();
+            if (t != null)
+            {
+                // User đang lọc → cần đếm lại unfiltered để chip "Tất cả" có số.
+                foreach (var e in log.Read(days: d, tag: null, maxEntries: 500))
+                {
+                    var tg = GetStr(e, "tag") ?? "(unknown)";
+                    totalsByTag[tg] = totalsByTag.GetValueOrDefault(tg) + 1;
+                }
+            }
+            else
+            {
+                foreach (var e in entries)
+                {
+                    var tg = GetStr(e, "tag") ?? "(unknown)";
+                    totalsByTag[tg] = totalsByTag.GetValueOrDefault(tg) + 1;
+                }
+            }
+
+            var items = entries.Select(e => new
+            {
+                ts             = GetStr(e, "ts"),
+                tag            = GetStr(e, "tag"),
+                sessionId      = GetStr(e, "sessionId"),
+                tenantId       = GetStr(e, "tenantId"),
+                tenantName     = ResolveName(GetStr(e, "tenantId"), names),
+                question       = GetStr(e, "question"),
+                toolChosen     = GetStr(e, "toolChosen"),
+                plannerRaw     = GetStr(e, "plannerRaw"),
+                aiReplyPreview = GetStr(e, "aiReplyPreview"),
+                provider       = GetStr(e, "provider"),
+                model          = GetStr(e, "model"),
+                iterations     = GetInt(e, "iterations"),
+                latencyMs      = GetLong(e, "latencyMs"),
+                tokensIn       = GetInt(e, "tokensIn"),
+                tokensOut      = GetInt(e, "tokensOut"),
+                history        = GetHistory(e)
+            }).ToList();
+
+            return Results.Json(new
+            {
+                range  = new { days = d },
+                tag    = t,
+                items,
+                totals = totalsByTag
+            });
+
+            static string? ResolveName(string? id, Dictionary<string, string> names)
+                => string.IsNullOrWhiteSpace(id) ? null
+                 : names.TryGetValue(id!, out var n) ? n : id;
+
+            static string? GetStr(JsonElement el, string name)
+                => el.TryGetProperty(name, out var v) && v.ValueKind == JsonValueKind.String
+                   ? v.GetString() : null;
+
+            static int? GetInt(JsonElement el, string name)
+                => el.TryGetProperty(name, out var v) && v.ValueKind == JsonValueKind.Number
+                   ? v.GetInt32() : null;
+
+            static long? GetLong(JsonElement el, string name)
+                => el.TryGetProperty(name, out var v) && v.ValueKind == JsonValueKind.Number
+                   ? v.GetInt64() : null;
+
+            static List<object> GetHistory(JsonElement el)
+            {
+                var list = new List<object>();
+                if (!el.TryGetProperty("history", out var h) || h.ValueKind != JsonValueKind.Array)
+                    return list;
+                foreach (var turn in h.EnumerateArray())
+                {
+                    list.Add(new
+                    {
+                        role    = GetStr(turn, "role"),
+                        content = GetStr(turn, "content")
+                    });
+                }
+                return list;
+            }
         });
 
         return routes;

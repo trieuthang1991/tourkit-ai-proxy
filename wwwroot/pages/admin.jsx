@@ -122,9 +122,10 @@
   // (Đầu file vì tham chiếu component declarations bên dưới; nhưng JS hoisting
   // function declarations → OK đặt trước.)
   const ADMIN_NAV = [
-    { path: "ai-usage",      label: "AI Usage",        icon: "📊", component: AiUsagePage },
-    { path: "quota",         label: "Quota",           icon: "💎", component: QuotaPage },
-    { path: "consult-leads", label: "Đăng ký tư vấn",  icon: "📞", component: ConsultLeadsPage },
+    { path: "ai-usage",         label: "AI Usage",          icon: "📊", component: AiUsagePage },
+    { path: "quota",            label: "Quota",             icon: "💎", component: QuotaPage },
+    { path: "consult-leads",    label: "Đăng ký tư vấn",    icon: "📞", component: ConsultLeadsPage },
+    { path: "chat-unresolved",  label: "AI bí câu hỏi",     icon: "❓", component: ChatUnresolvedPage },
   ];
   const DEFAULT_PATH = "ai-usage";
 
@@ -720,6 +721,233 @@
             </tbody>
           </table>
         </div>
+      </div>
+    );
+  }
+
+  // ────── Trang AI bí câu hỏi — Chat-Analytics unresolved log ────────────────
+  // 9 tag (xem Services/Chat/UnresolvedQuestionsLog.cs) — map sang label tiếng Việt.
+  const UNRESOLVED_TAG_LABEL = {
+    planner_none_but_data_intent:    "Planner trả 'none' nhưng có ý định số liệu",
+    both_planner_and_heuristic_fail: "Planner + Heuristic đều fail",
+    tool_returned_empty:             "Tool trả về rỗng",
+    upstream_persistent_error:       "Upstream lỗi (sau retry)",
+    ai_hallucinated_numbers:         "AI bịa số (validation warning)",
+    iteration_limit_reached:         "Hết iteration cap",
+    response_too_short_after_retry:  "Trả lời quá ngắn (sau retry)",
+    input_truncated:                 "Câu hỏi bị truncate",
+    injection_blocked:               "Chặn prompt injection"
+  };
+
+  function ChatUnresolvedPage() {
+    const [days, setDays] = useState(7);
+    const [tag, setTag] = useState(null);
+    const [data, setData] = useState({ items: [], totals: {} });
+    const [loading, setLoading] = useState(false);
+    const [error, setError] = useState("");
+    const [openIdx, setOpenIdx] = useState(null);
+
+    async function load() {
+      setLoading(true); setError("");
+      try {
+        const qs = new URLSearchParams({ days: String(days) });
+        if (tag) qs.set("tag", tag);
+        const r = await window.adminFetch("/api/v1/admin/ui/chat-unresolved?" + qs.toString());
+        const d = await r.json();
+        if (!r.ok) throw new Error(d.error || `HTTP ${r.status}`);
+        setData(d);
+        setOpenIdx(null);
+      } catch (e) {
+        setError(e.message || "Lỗi tải dữ liệu");
+      } finally {
+        setLoading(false);
+      }
+    }
+
+    useEffect(() => { load(); }, [days, tag]);
+
+    const total = Object.values(data.totals || {}).reduce((a, b) => a + b, 0);
+
+    return (
+      <div>
+        <div className="ai-usage-header">
+          <h1 className="ai-usage-title">AI bí câu hỏi</h1>
+          <button className="ai-usage-range-btn" onClick={load} disabled={loading}>↻ Refresh</button>
+        </div>
+
+        <div className="ai-usage-filters" style={{ marginBottom: 12 }}>
+          <div className="ai-usage-range">
+            {[1, 7, 30, 90].map(d => (
+              <button key={d}
+                className={"ai-usage-tab" + (d === days ? " active" : "")}
+                onClick={() => setDays(d)}>
+                {d === 1 ? "Hôm nay" : `${d} ngày`}
+              </button>
+            ))}
+          </div>
+          <div className="ai-usage-range">
+            <button
+              className={"ai-usage-tab" + (tag === null ? " active" : "")}
+              onClick={() => setTag(null)}>
+              Tất cả ({total})
+            </button>
+            {Object.entries(data.totals || {})
+              .sort((a, b) => b[1] - a[1])
+              .map(([t, count]) => (
+                <button key={t}
+                  className={"ai-usage-tab" + (tag === t ? " active" : "")}
+                  onClick={() => setTag(t)}
+                  title={UNRESOLVED_TAG_LABEL[t] || t}>
+                  {(UNRESOLVED_TAG_LABEL[t] || t).split(" ").slice(0, 3).join(" ")} ({count})
+                </button>
+              ))}
+          </div>
+        </div>
+
+        {error && <div className="ai-usage-error">⚠️ {error}</div>}
+        {loading && data.items.length === 0 && <div className="ai-usage-loading">Đang tải…</div>}
+
+        <div className="quota-section">
+          <table className="quota-table">
+            <thead>
+              <tr>
+                <th style={{ width: 36 }}></th>
+                <th>Câu hỏi</th>
+                <th>Tag / Tool</th>
+                <th>Tenant</th>
+                <th>Model</th>
+                <th>Khi nào</th>
+                <th>Tokens</th>
+              </tr>
+            </thead>
+            <tbody>
+              {data.items.map((r, i) => {
+                const isOpen = openIdx === i;
+                return [
+                  <tr key={`r-${i}`}
+                      onClick={() => setOpenIdx(isOpen ? null : i)}
+                      style={{ cursor: "pointer" }}>
+                    <td style={{ color: "var(--text-faint)", fontFamily: "var(--mono)", fontSize: 12 }}>
+                      {isOpen ? "▾" : "▸"}
+                    </td>
+                    <td style={{ maxWidth: 380 }}>
+                      <div style={{ fontWeight: 500, lineHeight: 1.4 }}>{r.question || <em>(trống)</em>}</div>
+                      {r.aiReplyPreview && !isOpen && (
+                        <div style={{ color: "var(--text-faint)", fontSize: 11, marginTop: 4,
+                                      overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                          → {r.aiReplyPreview}
+                        </div>
+                      )}
+                    </td>
+                    <td>
+                      <div style={{
+                        display: "inline-block", fontSize: 11, padding: "3px 8px", borderRadius: 999,
+                        background: "rgba(180,83,9,0.12)", color: "#B45309",
+                        fontWeight: 600, letterSpacing: 0.3, textTransform: "uppercase",
+                        whiteSpace: "nowrap"
+                      }} title={UNRESOLVED_TAG_LABEL[r.tag] || r.tag}>
+                        {r.tag}
+                      </div>
+                      {r.toolChosen && (
+                        <div style={{ fontFamily: "var(--mono)", fontSize: 11, color: "var(--text-muted)", marginTop: 4 }}>
+                          tool: {r.toolChosen}
+                        </div>
+                      )}
+                    </td>
+                    <td>
+                      <div style={{ fontSize: 13 }}>{r.tenantName || "—"}</div>
+                      {r.tenantId && r.tenantName !== r.tenantId && (
+                        <div className="quota-tid">{r.tenantId}</div>
+                      )}
+                    </td>
+                    <td>
+                      <div style={{ fontFamily: "var(--mono)", fontSize: 11 }}>{r.model || "—"}</div>
+                      <div className="quota-tid">{r.provider}</div>
+                    </td>
+                    <td style={{ fontSize: 12, color: "var(--text-muted)", whiteSpace: "nowrap" }}>
+                      {fmtDate(r.ts)}
+                    </td>
+                    <td style={{ fontSize: 12, color: "var(--text-muted)", whiteSpace: "nowrap" }}>
+                      {fmtNum(r.tokensIn)} → {fmtNum(r.tokensOut)}
+                      <div className="quota-tid">{r.latencyMs}ms · iter {r.iterations ?? "-"}</div>
+                    </td>
+                  </tr>,
+                  isOpen && (
+                    <tr key={`d-${i}`}>
+                      <td colSpan={7} style={{
+                        background: "var(--bg-paper)", padding: "16px 20px",
+                        borderTop: "1px solid var(--border-warm)"
+                      }}>
+                        <UnresolvedDetail row={r} />
+                      </td>
+                    </tr>
+                  )
+                ];
+              })}
+              {!loading && data.items.length === 0 && (
+                <tr><td colSpan={7} className="quota-empty">
+                  🎉 Không có câu hỏi nào AI bí trong {days} ngày qua{tag ? ` (tag: ${tag})` : ""}.
+                </td></tr>
+              )}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    );
+  }
+
+  function UnresolvedDetail({ row }) {
+    const block = {
+      background: "var(--bg-surface)",
+      border: "1px solid var(--border-warm)",
+      borderRadius: 6,
+      padding: "10px 12px",
+      fontFamily: "var(--mono)",
+      fontSize: 12,
+      lineHeight: 1.5,
+      whiteSpace: "pre-wrap",
+      wordBreak: "break-word",
+      maxHeight: 280,
+      overflow: "auto",
+      color: "var(--text-primary)"
+    };
+    const label = {
+      fontSize: 11, fontWeight: 700, letterSpacing: 0.5, textTransform: "uppercase",
+      color: "var(--text-muted)", marginBottom: 6, marginTop: 12
+    };
+    return (
+      <div>
+        <div style={{ ...label, marginTop: 0 }}>Câu hỏi đầy đủ</div>
+        <div style={block}>{row.question || "(trống)"}</div>
+
+        {row.history && row.history.length > 0 && (<>
+          <div style={label}>Lịch sử chat (≤3 turn cuối)</div>
+          <div style={block}>
+            {row.history.map((h, idx) => (
+              <div key={idx} style={{ marginBottom: idx < row.history.length - 1 ? 8 : 0 }}>
+                <b style={{ color: h.role === "user" ? "var(--accent-deep)" : "#3F6B4E" }}>
+                  [{h.role}]
+                </b> {h.content}
+              </div>
+            ))}
+          </div>
+        </>)}
+
+        {row.plannerRaw && (<>
+          <div style={label}>Planner output</div>
+          <div style={block}>{row.plannerRaw}</div>
+        </>)}
+
+        {row.aiReplyPreview && (<>
+          <div style={label}>AI trả lời (preview)</div>
+          <div style={block}>{row.aiReplyPreview}</div>
+        </>)}
+
+        {row.sessionId && (
+          <div style={{ marginTop: 12, fontSize: 11, color: "var(--text-faint)", fontFamily: "var(--mono)" }}>
+            session {row.sessionId}
+          </div>
+        )}
       </div>
     );
   }
