@@ -231,7 +231,7 @@
                   </td>
                   <td className="num">{fmtNum(t.calls)}</td>
                   <td className="num">{fmtVnd(t.costVnd)}</td>
-                  <td className="num">{t.sharePct.toFixed(1)}%</td>
+                  <td className="num">{(t.sharePct ?? 0).toFixed(1)}%</td>
                   <td>{fmtDate(t.lastCallAt)}</td>
                 </tr>
               ))}
