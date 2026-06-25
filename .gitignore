@@ -84,6 +84,13 @@ e2e/snap-*.png
 e2e/report/
 e2e/test-results/
 
+# Playwright MCP runtime artifacts (snapshots .yml + console .log) + admin dev screenshots
+.playwright-mcp/
+admin-*.png
+
+# Claude Code per-session scheduled-task lock
+.claude/scheduled_tasks.lock
+
 # Frontend bundle output (esbuild) — build artifact, run build-frontend.ps1.
 # Co dist/ -> StaticFilesSetup auto switch sang prod-bundle mode (1 file, ~250KB).
 # Khong co dist/ -> dev mode (35 file .jsx + Babel standalone, hot reload).
