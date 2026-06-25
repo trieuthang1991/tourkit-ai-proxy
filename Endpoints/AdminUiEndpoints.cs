@@ -10,9 +10,11 @@ namespace TourkitAiProxy.Endpoints;
 /// Thêm trang admin mới = thêm route ở đây + 1 component trong wwwroot/pages/admin.jsx
 /// + 1 entry vào ADMIN_NAV (xem "Admin governance" trong CLAUDE.md).
 ///
-///   GET  /api/v1/admin/ui/ai-usage?days=30&amp;tenantId=    — aggregate cross-tenant
-///   GET  /api/v1/admin/ui/quota                            — list quota mọi tenant
-///   POST /api/v1/admin/ui/quota/{tenant}/topup             — cộng quota cho tenant
+///   GET  /api/v1/admin/ui/ai-usage?days=30&amp;tenantId=          — aggregate cross-tenant
+///   GET  /api/v1/admin/ui/quota                                  — list quota mọi tenant
+///   POST /api/v1/admin/ui/quota/{tenant}/topup                   — cộng quota cho tenant
+///   GET  /api/v1/admin/ui/consult-leads?status=                  — danh sách đăng ký tư vấn (landing)
+///   POST /api/v1/admin/ui/consult-leads/{id}/contacted           — đánh dấu đã liên hệ (toggle)
 /// </summary>
 public static class AdminUiEndpoints
 {
@@ -150,8 +152,68 @@ public static class AdminUiEndpoints
             });
         });
 
+        // GET /api/v1/admin/ui/consult-leads?status=all|pending|contacted
+        // → đọc data/consult-leads.jsonl + status side-car.
+        g.MapGet("/consult-leads", async (
+            string? status,
+            ConsultLeadRepository repo,
+            CancellationToken ct) =>
+        {
+            var all = await repo.ListAsync(ct);
+            var filter = (status ?? "all").Trim().ToLowerInvariant();
+            var items = filter switch
+            {
+                "pending"   => all.Where(r => !r.Contacted),
+                "contacted" => all.Where(r =>  r.Contacted),
+                _           => all
+            };
+
+            return Results.Json(new
+            {
+                items = items.Select(r => new
+                {
+                    id           = r.Id,
+                    createdUtc   = r.CreatedUtc,
+                    fullName     = r.FullName,
+                    phone        = r.Phone,
+                    email        = r.Email,
+                    company      = r.Company,
+                    feature      = r.Feature,
+                    note         = r.Note,
+                    ip           = r.Ip,
+                    contacted    = r.Contacted,
+                    contactedUtc = r.ContactedUtc,
+                    contactedBy  = r.ContactedBy
+                }).ToList(),
+                totals = new
+                {
+                    all       = all.Count,
+                    pending   = all.Count(r => !r.Contacted),
+                    contacted = all.Count(r =>  r.Contacted)
+                }
+            });
+        });
+
+        // POST /api/v1/admin/ui/consult-leads/{id}/contacted   { contacted: true|false }
+        g.MapPost("/consult-leads/{id}/contacted", (
+            string id,
+            ConsultLeadContactedReq req,
+            HttpContext ctx,
+            ConsultLeadRepository repo) =>
+        {
+            if (string.IsNullOrWhiteSpace(id))
+                return Results.BadRequest(new { error = "id trống" });
+
+            var by = ctx.Items[RequireAdminSessionExtensions.HttpItemKey] as string ?? "admin";
+            if (req.Contacted) repo.MarkContacted(id, by);
+            else               repo.MarkUncontacted(id);
+
+            return Results.Json(new { ok = true, id, contacted = req.Contacted });
+        });
+
         return routes;
     }
 }
 
 public record AdminQuotaTopUpReq(int Amount);
+public record ConsultLeadContactedReq(bool Contacted);

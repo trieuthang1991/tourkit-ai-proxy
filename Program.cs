@@ -120,6 +120,7 @@ builder.Services.AddSingleton<ProviderKeyStore>();
 builder.Services.AddSingleton<TourkitAiProxy.Services.Admin.AdminUserStore>();
 builder.Services.AddSingleton<TourkitAiProxy.Services.Admin.AdminSessionStore>();
 builder.Services.AddSingleton<TourkitAiProxy.Services.Admin.AdminUsageRepository>();
+builder.Services.AddSingleton<TourkitAiProxy.Services.Admin.ConsultLeadRepository>();
 
 // AI providers — đăng ký 1 lần ở đây, ProviderRegistry tự pickup qua IEnumerable<IAiProvider>.
 // Thêm provider mới: implement IAiProvider + AddSingleton<IAiProvider, NewProvider>().
