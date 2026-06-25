@@ -169,6 +169,8 @@ data/
 | GET    | `/api/v1/admin/ui/consult-leads`  | đăng ký tư vấn từ landing `?status=all|pending|contacted` → `{items[…], totals{all,pending,contacted}}` (require X-Admin-Session) |
 | POST   | `/api/v1/admin/ui/consult-leads/{id}/contacted` | đánh dấu lead đã/chưa liên hệ `{contacted:bool}` — lưu vào side-car `data/consult-leads-status.json`, KHÔNG sửa JSONL gốc (require X-Admin-Session) |
 | GET    | `/api/v1/admin/ui/chat-unresolved` | "AI bí câu hỏi" — Chat-Analytics unresolved log `?days=1..90&tag=` → `{items[{ts,tag,tenantId,tenantName,question,toolChosen,plannerRaw,aiReplyPreview,provider,model,iterations,latencyMs,tokensIn,tokensOut,history[]}], totals{<tagName>:count, all}}` (max 500 entries, require X-Admin-Session) |
+| GET    | `/api/v1/admin/ui/tk-sessions`    | "Phiên đăng nhập" — list TourKit sessions in-mem cache `{items[{id,tenantId,username,fullName,companyName,lastUsedUtc,idleSeconds,chatTurns,lastTool,hasJwt}], total}` (KHÔNG hit SQL; require X-Admin-Session) |
+| DELETE | `/api/v1/admin/ui/tk-sessions/{id}` | kick 1 phiên (xóa cache + SQL) → `{ok, kicked, by}` — user sẽ phải đăng nhập lại lần dùng tiếp theo (require X-Admin-Session) |
 
 **Tenant scoping** (multi-tenant fix 2026-06-09): tất cả endpoint `/api/v1/mail/*` và `/api/v1/visa/*` YÊU CẦU `X-Session-Id` header (hoặc `sessionId` query/body) — backend resolve `TenantId` qua `ITenantContext`/`HttpTenantContext` từ `TkSessionStore`. KHÔNG session → 401. Cross-tenant access (resource thuộc tenant khác) → null/404.
 

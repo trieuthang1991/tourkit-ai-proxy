@@ -126,6 +126,7 @@
     { path: "quota",            label: "Quota",             icon: "💎", component: QuotaPage },
     { path: "consult-leads",    label: "Đăng ký tư vấn",    icon: "📞", component: ConsultLeadsPage },
     { path: "chat-unresolved",  label: "AI bí câu hỏi",     icon: "❓", component: ChatUnresolvedPage },
+    { path: "tk-sessions",      label: "Phiên đăng nhập",   icon: "🔐", component: TkSessionsPage },
   ];
   const DEFAULT_PATH = "ai-usage";
 
@@ -948,6 +949,161 @@
             session {row.sessionId}
           </div>
         )}
+      </div>
+    );
+  }
+
+  function TkSessionsPage() {
+    const [items, setItems] = useState([]);
+    const [loading, setLoading] = useState(false);
+    const [error, setError] = useState("");
+    const [search, setSearch] = useState("");
+
+    async function load() {
+      setLoading(true); setError("");
+      try {
+        const r = await window.adminFetch("/api/v1/admin/ui/tk-sessions");
+        const d = await r.json();
+        if (!r.ok) throw new Error(d.error || `HTTP ${r.status}`);
+        setItems(d.items || []);
+      } catch (e) {
+        setError(e.message || "Lỗi tải dữ liệu");
+      } finally {
+        setLoading(false);
+      }
+    }
+
+    useEffect(() => { load(); }, []);
+
+    async function kick(row) {
+      const name = row.companyName || row.fullName || row.username;
+      if (!window.confirm(`Buộc đăng xuất phiên này?\n\n${name} (${row.username})\nTenant: ${row.tenantId}\n\nUser sẽ phải đăng nhập lại lần dùng tiếp theo.`)) return;
+      try {
+        const r = await window.adminFetch(`/api/v1/admin/ui/tk-sessions/${encodeURIComponent(row.id)}`, {
+          method: "DELETE"
+        });
+        const d = await r.json();
+        if (!r.ok) throw new Error(d.error || `HTTP ${r.status}`);
+        load();
+      } catch (e) {
+        alert("Lỗi kick: " + (e.message || e));
+      }
+    }
+
+    function fmtIdle(seconds) {
+      if (seconds < 60) return `${seconds}s`;
+      if (seconds < 3600) return `${Math.floor(seconds / 60)} phút`;
+      if (seconds < 86400) return `${Math.floor(seconds / 3600)} giờ`;
+      return `${Math.floor(seconds / 86400)} ngày`;
+    }
+
+    const q = search.trim().toLowerCase();
+    const filtered = q
+      ? items.filter(r =>
+          (r.username || "").toLowerCase().includes(q) ||
+          (r.fullName || "").toLowerCase().includes(q) ||
+          (r.companyName || "").toLowerCase().includes(q) ||
+          (r.tenantId || "").toLowerCase().includes(q))
+      : items;
+
+    return (
+      <div>
+        <div className="ai-usage-header">
+          <h1 className="ai-usage-title">Phiên đăng nhập TourKit</h1>
+          <button className="ai-usage-range-btn" onClick={load} disabled={loading}>↻ Refresh</button>
+        </div>
+
+        <div className="ai-usage-filters" style={{ marginBottom: 12 }}>
+          <input type="text" placeholder="Tìm theo user / công ty / tenant…"
+            value={search} onChange={e => setSearch(e.target.value)}
+            style={{
+              flex: 1, minWidth: 240, padding: "8px 12px",
+              border: "1px solid var(--border-warm)", borderRadius: 6,
+              background: "var(--bg-paper)", fontSize: 14,
+              fontFamily: "inherit", color: "var(--text-primary)"
+            }} />
+          <div style={{ fontSize: 12, color: "var(--text-faint)", whiteSpace: "nowrap" }}>
+            {filtered.length}/{items.length} phiên
+          </div>
+        </div>
+
+        {error && <div className="ai-usage-error">⚠️ {error}</div>}
+        {loading && items.length === 0 && <div className="ai-usage-loading">Đang tải…</div>}
+
+        <div className="quota-section">
+          <table className="quota-table">
+            <thead>
+              <tr>
+                <th>Người dùng</th>
+                <th>Tenant</th>
+                <th>Hoạt động cuối</th>
+                <th>Chat</th>
+                <th>JWT</th>
+                <th style={{ width: 120, textAlign: "right" }}>Hành động</th>
+              </tr>
+            </thead>
+            <tbody>
+              {filtered.map(r => (
+                <tr key={r.id}>
+                  <td>
+                    <div className="quota-name">{r.fullName || r.username}</div>
+                    {r.companyName && (
+                      <div style={{ fontSize: 11, color: "var(--text-faint)", marginTop: 2 }}>
+                        {r.companyName}
+                      </div>
+                    )}
+                    <div style={{ fontSize: 11, color: "var(--text-faint)", marginTop: 2, fontFamily: "var(--mono)" }}>
+                      @{r.username}
+                    </div>
+                  </td>
+                  <td>
+                    <div className="quota-tid">{r.tenantId}</div>
+                  </td>
+                  <td title={r.lastUsedUtc}>
+                    <span style={{ color: r.idleSeconds < 300 ? "#3F6B4E"
+                                       : r.idleSeconds < 3600 ? "var(--text-primary)"
+                                       : "var(--text-faint)" }}>
+                      {fmtIdle(r.idleSeconds)} trước
+                    </span>
+                  </td>
+                  <td>
+                    {r.chatTurns > 0
+                      ? <span style={{ display: "inline-block", padding: "2px 8px",
+                                       background: "var(--accent-tint)", color: "var(--accent-deep)",
+                                       borderRadius: 4, fontSize: 12, fontWeight: 500 }}
+                              title={r.lastTool ? `Tool cuối: ${r.lastTool}` : null}>
+                          {r.chatTurns} turn
+                        </span>
+                      : <span style={{ color: "var(--text-faint)", fontSize: 12 }}>—</span>}
+                  </td>
+                  <td>
+                    <span style={{ fontSize: 12, color: r.hasJwt ? "#3F6B4E" : "var(--text-faint)" }}>
+                      {r.hasJwt ? "● live" : "○ idle"}
+                    </span>
+                  </td>
+                  <td style={{ textAlign: "right" }}>
+                    <button
+                      onClick={() => kick(r)}
+                      style={{
+                        padding: "4px 10px", fontSize: 12,
+                        border: "1px solid #C9624A", color: "#C9624A",
+                        background: "transparent", borderRadius: 4, cursor: "pointer",
+                        fontFamily: "inherit"
+                      }}
+                      title="Buộc đăng xuất phiên này">
+                      Kick
+                    </button>
+                  </td>
+                </tr>
+              ))}
+              {!loading && filtered.length === 0 && (
+                <tr><td colSpan={6} className="quota-empty">
+                  {items.length === 0 ? "Không có phiên đăng nhập nào." : "Không khớp tìm kiếm."}
+                </td></tr>
+              )}
+            </tbody>
+          </table>
+        </div>
       </div>
     );
   }

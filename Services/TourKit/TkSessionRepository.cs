@@ -222,6 +222,24 @@ VALUES
         }
     }
 
+    /// Xoá 1 session theo id. No-op nếu không tồn tại. Trả số rows xoá (0 hoặc 1).
+    public async Task<int> DeleteAsync(string id, CancellationToken ct = default)
+    {
+        if (string.IsNullOrEmpty(id)) return 0;
+        try
+        {
+            await using var c = await _db.OpenAsync(ct);
+            return await c.ExecuteAsync(
+                "DELETE FROM dbo.TkSessions WHERE Id = @id",
+                new { id });
+        }
+        catch (Exception ex)
+        {
+            _log.LogWarning(ex, "[TkSessionRepo] Delete {Id} lỗi", id);
+            return 0;
+        }
+    }
+
     /// Xoá tất cả session idle quá cutoff. Trả số rows xoá.
     public async Task<int> PruneIdleAsync(DateTime cutoffUtc, CancellationToken ct = default)
     {

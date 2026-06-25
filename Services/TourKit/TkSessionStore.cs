@@ -148,6 +148,31 @@ public class TkSessionStore
         return s.Jwt;
     }
 
+    /// Liệt kê tất cả phiên đang giữ trong cache (in-mem). Dùng cho admin UI.
+    /// KHÔNG hit SQL — cache đã được nạp từ SQL lúc startup + write-through ở mọi mutation,
+    /// nên tin được. Trả snapshot, không enumerate live cache.
+    public IReadOnlyList<TkSession> ListActive() => _cache.Values.ToList();
+
+    /// Kick 1 phiên: xóa khỏi cache + xóa khỏi SQL. Trả true nếu phiên tồn tại trước đó.
+    /// Idempotent (kick lần 2 trả false).
+    public async Task<bool> KickAsync(string sessionId, CancellationToken ct = default)
+    {
+        if (string.IsNullOrEmpty(sessionId)) return false;
+        var removed = _cache.TryRemove(sessionId, out var s);
+        try
+        {
+            await _repo.DeleteAsync(sessionId, ct);
+        }
+        catch (Exception ex)
+        {
+            _log.LogWarning(ex, "[TkSessionStore] Kick {Id} — DB delete lỗi (cache đã xóa)", sessionId);
+        }
+        if (removed && s != null)
+            _log.LogInformation("[TkSessionStore] KICKED session {Id} tenant={Tenant} user={User}",
+                sessionId, s.TenantId, s.Username);
+        return removed;
+    }
+
     /// Buộc re-login (gọi khi TourKit trả 401 giữa chừng).
     public async Task<string> ForceReloginAsync(string sessionId, CancellationToken ct)
     {
