@@ -1,4 +1,5 @@
 using TourkitAiProxy.Services.Admin;
+using TourkitAiProxy.Services.Quota;
 using TourkitAiProxy.Services.TourKit;
 
 namespace TourkitAiProxy.Endpoints;
@@ -9,7 +10,9 @@ namespace TourkitAiProxy.Endpoints;
 /// Thêm trang admin mới = thêm route ở đây + 1 component trong wwwroot/pages/admin.jsx
 /// + 1 entry vào ADMIN_NAV (xem "Admin governance" trong CLAUDE.md).
 ///
-///   GET /api/v1/admin/ui/ai-usage?days=30&amp;tenantId=  — aggregate cross-tenant
+///   GET  /api/v1/admin/ui/ai-usage?days=30&amp;tenantId=    — aggregate cross-tenant
+///   GET  /api/v1/admin/ui/quota                            — list quota mọi tenant
+///   POST /api/v1/admin/ui/quota/{tenant}/topup             — cộng quota cho tenant
 /// </summary>
 public static class AdminUiEndpoints
 {
@@ -89,6 +92,66 @@ public static class AdminUiEndpoints
             });
         });
 
+        // GET /api/v1/admin/ui/quota — list quota mọi tenant + display name
+        g.MapGet("/quota", async (
+            TenantQuotaStore quota,
+            TkSessionRepository sessions,
+            CancellationToken ct) =>
+        {
+            var snapshots = quota.ListAll(); // đã OrderByDescending(Used)
+            var tenantIds = snapshots
+                .Select(s => s.Tenant)
+                .Where(t => !string.IsNullOrWhiteSpace(t))
+                .Distinct()
+                .ToList();
+
+            Dictionary<string, string> names;
+            try { names = await sessions.GetTenantNamesAsync(tenantIds, ct); }
+            catch { names = new Dictionary<string, string>(); }
+
+            var items = snapshots.Select(s => new
+            {
+                tenantId = s.Tenant,
+                displayName = names.TryGetValue(s.Tenant, out var n) ? n : s.Tenant,
+                limit = s.Limit,
+                used = s.Used,
+                remaining = s.Remaining,
+                usedPct = s.UsedPct,
+                warn = s.Warn,
+                exhausted = s.Exhausted,
+                updatedAtUtc = s.UpdatedAt
+            }).ToList();
+
+            return Results.Json(new { items });
+        });
+
+        // POST /api/v1/admin/ui/quota/{tenant}/topup — cộng quota cho tenant
+        g.MapPost("/quota/{tenant}/topup", (
+            string tenant,
+            AdminQuotaTopUpReq req,
+            TenantQuotaStore quota) =>
+        {
+            if (string.IsNullOrWhiteSpace(tenant))
+                return Results.BadRequest(new { error = "tenant trống" });
+            if (req.Amount < 1 || req.Amount > 100_000)
+                return Results.BadRequest(new { error = "amount phải trong [1, 100000]" });
+
+            var snap = quota.TopUp(tenant.Trim(), req.Amount);
+            return Results.Json(new
+            {
+                tenantId = snap.Tenant,
+                limit = snap.Limit,
+                used = snap.Used,
+                remaining = snap.Remaining,
+                usedPct = snap.UsedPct,
+                warn = snap.Warn,
+                exhausted = snap.Exhausted,
+                updatedAtUtc = snap.UpdatedAt
+            });
+        });
+
         return routes;
     }
 }
+
+public record AdminQuotaTopUpReq(int Amount);

@@ -123,6 +123,7 @@
   // function declarations → OK đặt trước.)
   const ADMIN_NAV = [
     { path: "ai-usage", label: "AI Usage", icon: "📊", component: AiUsagePage },
+    { path: "quota",    label: "Quota",    icon: "💎", component: QuotaPage },
   ];
   const DEFAULT_PATH = "ai-usage";
 
@@ -427,6 +428,104 @@
             <DailyChart rows={data.byDay} />
           </>
         )}
+      </div>
+    );
+  }
+
+  // ────── Trang Quota — list tenant + top-up qua prompt() ─────────────────────
+  function QuotaPage() {
+    const [items, setItems] = useState([]);
+    const [loading, setLoading] = useState(false);
+    const [error, setError] = useState("");
+
+    async function load() {
+      setLoading(true); setError("");
+      try {
+        const r = await window.adminFetch("/api/v1/admin/ui/quota");
+        const data = await r.json();
+        if (!r.ok) throw new Error(data.error || `HTTP ${r.status}`);
+        setItems(data.items || []);
+      } catch (e) {
+        setError(e.message || "Lỗi tải dữ liệu");
+      } finally {
+        setLoading(false);
+      }
+    }
+
+    useEffect(() => { load(); }, []);
+
+    async function onTopUp(tenantId, displayName) {
+      const raw = window.prompt(`Cộng bao nhiêu lượt cho "${displayName}"?`, "100");
+      if (raw == null) return;
+      const amount = parseInt(raw, 10);
+      if (!Number.isInteger(amount) || amount < 1) {
+        alert("Số lượt phải là số nguyên ≥ 1");
+        return;
+      }
+      try {
+        const r = await window.adminFetch(`/api/v1/admin/ui/quota/${encodeURIComponent(tenantId)}/topup`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ amount })
+        });
+        const data = await r.json();
+        if (!r.ok) throw new Error(data.error || `HTTP ${r.status}`);
+        await load();
+      } catch (e) {
+        alert(e.message || "Top-up thất bại");
+      }
+    }
+
+    if (loading && items.length === 0) return <div className="ai-usage-loading">Đang tải…</div>;
+    if (error) return <div className="ai-usage-error">⚠️ {error}</div>;
+
+    return (
+      <div>
+        <div className="ai-usage-header">
+          <h1 className="ai-usage-title">Quota AI · Tenant</h1>
+          <button className="ai-usage-range-btn" onClick={load} disabled={loading}>↻ Refresh</button>
+        </div>
+        <div className="quota-section">
+          <table className="quota-table">
+            <thead>
+              <tr>
+                <th>#</th><th>Tenant</th><th>Used / Limit</th><th>% Used</th><th>Remaining</th><th></th>
+              </tr>
+            </thead>
+            <tbody>
+              {items.map((t, i) => {
+                const pct = t.usedPct ?? 0;
+                const color = pct >= 90 ? "red" : pct >= 70 ? "amber" : "green";
+                return (
+                  <tr key={t.tenantId || `(empty-${i})`}>
+                    <td className="quota-rank">{i + 1}</td>
+                    <td>
+                      <div className="quota-name">{t.displayName || "(system)"}</div>
+                      <div className="quota-tid">{t.tenantId}</div>
+                    </td>
+                    <td className="quota-num">{fmtNum(t.used)} / {fmtNum(t.limit)}</td>
+                    <td className="quota-pct-cell">
+                      <div className={`quota-pct-bar quota-pct-${color}`}>
+                        <div className="quota-pct-fill" style={{ width: `${Math.min(100, pct)}%` }} />
+                      </div>
+                      <span className="quota-pct-num">{pct}%</span>
+                    </td>
+                    <td className="quota-num">{fmtNum(t.remaining)}</td>
+                    <td>
+                      <button
+                        className="ai-usage-range-btn quota-btn-sm"
+                        onClick={() => onTopUp(t.tenantId, t.displayName || t.tenantId)}
+                      >+ Top-up</button>
+                    </td>
+                  </tr>
+                );
+              })}
+              {items.length === 0 && (
+                <tr><td colSpan={6} className="quota-empty">Chưa có tenant nào dùng AI.</td></tr>
+              )}
+            </tbody>
+          </table>
+        </div>
       </div>
     );
   }
