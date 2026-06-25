@@ -170,10 +170,17 @@ public static class NccQuoteMapper
     // ─── supplier helpers ───────────────────────────────────────────────────────
     private static string FirstPhone(JsonElement sup)
     {
-        if (sup.TryGetProperty("phones", out var ph) && ph.ValueKind == JsonValueKind.Array)
-            foreach (var x in ph.EnumerateArray())
-                if (x.ValueKind == JsonValueKind.String && !string.IsNullOrWhiteSpace(x.GetString()))
-                    return x.GetString()!.Trim();
+        if (sup.TryGetProperty("phones", out var ph))
+        {
+            // AI trả mảng → lấy số đầu tiên không rỗng
+            if (ph.ValueKind == JsonValueKind.Array)
+                foreach (var x in ph.EnumerateArray())
+                    if (x.ValueKind == JsonValueKind.String && !string.IsNullOrWhiteSpace(x.GetString()))
+                        return x.GetString()!.Trim();
+            // User sửa tay ở form → chuỗi (có thể nhiều số ngăn bởi dấu phẩy) → lấy số đầu
+            if (ph.ValueKind == JsonValueKind.String && !string.IsNullOrWhiteSpace(ph.GetString()))
+                return ph.GetString()!.Split(',')[0].Trim();
+        }
         return Str(sup, "contactPhone") ?? "";
     }
 
