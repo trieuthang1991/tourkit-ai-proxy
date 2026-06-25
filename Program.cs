@@ -386,6 +386,7 @@ app.MapSpeechEndpoints();
 app.MapTourBuilderEndpoints();
 app.MapAiUsageEndpoints();
 app.MapAdminAuthEndpoints();    // /api/v1/admin/auth/{login,logout,me}
+app.MapAdminUiEndpoints();      // /api/v1/admin/ui/* (require X-Admin-Session)
 app.MapQuotaEndpoints();
 app.MapQuotaOrderEndpoints();
 app.MapWidgetEndpoints();
