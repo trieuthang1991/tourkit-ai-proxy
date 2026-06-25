@@ -116,6 +116,9 @@ builder.Services.AddSingleton<TourkitAiProxy.Services.Cache.AiResponseCache>();
 // Lưu API key provider (OpenAI/Anthropic) nhập từ UI — server-side, mã hóa, gitignored.
 builder.Services.AddSingleton<ProviderKeyStore>();
 
+// Admin governance — auth qua Admin:Users (JSON config) + in-mem session.
+builder.Services.AddSingleton<TourkitAiProxy.Services.Admin.AdminUserStore>();
+
 // AI providers — đăng ký 1 lần ở đây, ProviderRegistry tự pickup qua IEnumerable<IAiProvider>.
 // Thêm provider mới: implement IAiProvider + AddSingleton<IAiProvider, NewProvider>().
 builder.Services.AddSingleton<IAiProvider, OpenCodeProvider>();
