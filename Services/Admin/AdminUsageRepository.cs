@@ -16,7 +16,7 @@ public class AdminUsageRepository
 {
     private readonly TourkitAiDb _db;
     private readonly ILogger<AdminUsageRepository> _log;
-    private const string SystemTenantKey = "(system)";
+    public const string SystemTenantKey = "(system)";
 
     public AdminUsageRepository(TourkitAiDb db, ILogger<AdminUsageRepository> log)
     {

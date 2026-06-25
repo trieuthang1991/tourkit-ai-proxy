@@ -40,7 +40,7 @@ public static class AdminUiEndpoints
             var byDay = await byDayTask;
 
             // Resolve tenantName cho từng row (skip "(system)" sentinel).
-            var realTenantIds = byTenant.Where(t => t.TenantId != "(system)").Select(t => t.TenantId);
+            var realTenantIds = byTenant.Where(t => t.TenantId != AdminUsageRepository.SystemTenantKey).Select(t => t.TenantId);
             var names = await tkRepo.GetTenantNamesAsync(realTenantIds, ct);
 
             long totalCost = totals.CostVnd;
@@ -70,7 +70,7 @@ public static class AdminUiEndpoints
                 byTenant = byTenant.Select(t => new
                 {
                     tenantId = t.TenantId,
-                    tenantName = t.TenantId == "(system)" ? "(System tasks)"
+                    tenantName = t.TenantId == AdminUsageRepository.SystemTenantKey ? "(System tasks)"
                               : names.TryGetValue(t.TenantId, out var n) ? n
                               : t.TenantId,
                     calls = t.Calls,
