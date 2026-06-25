@@ -26,7 +26,7 @@
 | 11 | `dbo.TkSessions` | Phiên login TourKit CRM (share cross-process). PasswordEnc Crypton; JWT KHÔNG persist (re-login khi cần). ChatMemoryJson = lịch sử chat /assistant. | [`TkSessionRepository`](../Services/TourKit/TkSessionRepository.cs) | `Id` |
 | 12 | `dbo.TenantQuota` | Quota AI per-tenant (`Limit`/`Used`). Atomic Consume cross-instance qua SQL `UPDATE Used = Used + 1`. In-mem cache + 5s batch flush ([`QuotaFlushService`](../Services/Quota/QuotaFlushService.cs)). | [`TenantQuotaRepository`](../Services/Quota/TenantQuotaRepository.cs) | `TenantId` |
 | 13 | `dbo.AiUsageCounters` | **Aggregate** daily AI usage per model — `(DateUtc, Model)` MERGE upsert. Rẻ cho `/api/v1/usage` (group by Model). | [`UsageRepository`](../Services/UsageRepository.cs) | `(DateUtc, Model)` |
-| 14 | `dbo.AiUsageHistory` | **Granular** per-request AI usage history (mỗi AI call = 1 row). Bổ sung cho `AiUsageCounters` khi cần breakdown theo feature/session/tenant. Trước đây file `data/ai-usage.jsonl` → mất khi deploy → đã migrate sang đây 2026-06-24. | [`AiUsageHistoryRepository`](../Services/AiUsageHistoryRepository.cs) | `Id` IDENTITY |
+| 14 | `dbo.AiUsageHistory` | **Granular** per-request AI usage history (mỗi AI call = 1 row). Bổ sung cho `AiUsageCounters` khi cần breakdown theo feature/session/tenant. Trước đây file `data/ai-usage.jsonl` → mất khi deploy → đã migrate sang đây 2026-06-24. **Source của admin cross-tenant view `/admin-trav-ai/ai-usage`** (xem [AdminUsageRepository](../Services/Admin/AdminUsageRepository.cs)). | [`AiUsageHistoryRepository`](../Services/AiUsageHistoryRepository.cs) | `Id` IDENTITY |
 
 ### Tổng cộng: **14 bảng** owned by proxy.
 
