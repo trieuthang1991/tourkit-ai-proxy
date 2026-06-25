@@ -160,6 +160,10 @@ data/
 | POST   | `/api/v1/mail/compose/draft`      | SSE: AI soạn email MỚI từ `{to, subject, brief, tone}` |
 | POST   | `/api/v1/mail/compose/send`       | gửi email mới qua SMTP `{to, subject, text}`         |
 | PATCH  | `/api/v1/mail/{id}/status`        | đổi trạng thái email (moi/dang_xu_ly/da_phan_hoi/da_dong) |
+| POST   | `/api/v1/admin/auth/login`        | Admin login `{username,password}` → `{token,username,expiresAt}` |
+| POST   | `/api/v1/admin/auth/logout`       | header `X-Admin-Session` → `{ok}` |
+| GET    | `/api/v1/admin/auth/me`           | header `X-Admin-Session` → `{username,expiresAt}` |
+| GET    | `/api/v1/admin/ui/ai-usage`       | cross-tenant AI usage `?days=30&tenantId=` (require X-Admin-Session) |
 
 **Tenant scoping** (multi-tenant fix 2026-06-09): tất cả endpoint `/api/v1/mail/*` và `/api/v1/visa/*` YÊU CẦU `X-Session-Id` header (hoặc `sessionId` query/body) — backend resolve `TenantId` qua `ITenantContext`/`HttpTenantContext` từ `TkSessionStore`. KHÔNG session → 401. Cross-tenant access (resource thuộc tenant khác) → null/404.
 
@@ -264,6 +268,32 @@ Gmail inbox synced on demand, AI-classified, with AI-drafted replies. Flow lives
 - **Frontend:** `wwwroot/pages/mail.jsx` (route `/mail`), 3-column (filters / list / detail+compose). A built-in **config form** (`GET`/`POST /mail/account`) lets staff paste Gmail address + App Password to test without editing JSON. Draft uses the same SSE `{delta}`/`{done}` reader as `assistant.jsx`. Statuses/categories color-coded via CSS.
 - **Phase 2 (deferred):** 2-way sync (write `\Seen` back / mirror deletes), incremental UID fetch (hiện kéo 30 mới nhất/lần), OAuth source, assign-to-staff ("Của tôi"), attachments.
 - **Tests:** `TourkitAiProxy.Tests` (xUnit, project nằm trong thư mục con → main csproj `<Compile Remove="TourkitAiProxy.Tests/**" />`). Covers pure logic only: `MailTaxonomy`, `MailMapper`, `MailClassifier.ParseClassification`, `MailRepository`. Run: `dotnet test TourkitAiProxy.Tests/TourkitAiProxy.Tests.csproj`. IMAP/frontend verified manually. (This is the repo's first test project — the rest of the codebase still has none.)
+
+## Admin governance (`/admin-trav-ai/`)
+
+Hệ quản trị admin riêng biệt với user-facing app. Entry HTML `wwwroot/admin-trav-ai.html` (KHÔNG share `index.html`). Toàn bộ shell + page components nằm trong 1 file `wwwroot/pages/admin.jsx`.
+
+- **Auth**: cấu hình `Admin:Users` JSON trong `appsettings.json` (plain text password — admin pool nhỏ, self-host, file gitignore). `AdminUserStore.Authenticate` string-compare. Session in-mem `AdminSessionStore` (token GUID, 12h idle, KHÔNG persist). Client gửi `X-Admin-Session` header. Endpoint require qua extension `.RequireAdminSession()`.
+- **Compatibility**: `/api/v1/admin/quota/*` (webhook ops) GIỮ NGUYÊN `Admin:Token` cũ — KHÔNG đụng. Mọi endpoint admin UI mới dùng `/api/v1/admin/ui/*` với `RequireAdminSession()`.
+- **Cross-tenant usage**: `Services/Admin/AdminUsageRepository.cs` aggregate trên `dbo.AiUsageHistory` (4 query: totals/byModel/byTenant/byDay). Filter `Status='ok'` để khỏi double-count retry. `Tenant IS NULL` group thành `(system)`. Tenant name resolve qua `TkSessionRepository.GetTenantNamesAsync` (SELECT TOP 1 per tenant ORDER BY LastUsedUtc DESC, fallback `tenantId`).
+
+### Thêm trang admin mới — 3 dòng
+
+1. **Backend** — endpoint mới trong `Endpoints/AdminUiEndpoints.cs`:
+   ```csharp
+   g.MapGet("/orders", async (...) => { ... });
+   // Filter `.RequireAdminSession()` đã apply ở group level — KHÔNG cần lặp.
+   ```
+2. **Frontend** — component mới trong `wwwroot/pages/admin.jsx`:
+   ```jsx
+   function OrdersPage() { /* ... */ }
+   ```
+3. **Nav** — push 1 entry vào `ADMIN_NAV`:
+   ```js
+   { path: "orders", label: "Đơn nạp quota", icon: "💳", component: OrdersPage }
+   ```
+
+Sidebar, sub-router, auth gate tự pick up. KHÔNG cần đụng `Program.cs`, không cần đụng `admin.css` (trừ khi page mới có style riêng → namespace `.admin-orders-*`).
 
 ## Frontend layout
 
