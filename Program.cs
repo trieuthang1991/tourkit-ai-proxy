@@ -10,6 +10,22 @@ using TourkitAiProxy.Services.Workflow;
 
 var builder = WebApplication.CreateBuilder(args);
 
+// ─── DB logging ĐỘNG (dbo.AppLogs) ────────────────────────────────────────────
+// Site workflow sẽ tách riêng → log gom về DB để MỌI instance truy chung 1 nguồn (stdout không share được).
+// Thiết kế động: cột Kind phân loại + DataJson payload tùy ý → thêm loại log mới khỏi đổi schema.
+// ILogSink (đăng ký luôn, dù DB-log tắt) cho code ghi log CÓ CẤU TRÚC loại bất kỳ.
+var dbLogQueue = new TourkitAiProxy.Services.Logging.DbLogQueue();
+builder.Services.AddSingleton(dbLogQueue);
+builder.Services.AddSingleton<TourkitAiProxy.Services.Logging.ILogSink,
+                              TourkitAiProxy.Services.Logging.DbLogSink>();
+if (builder.Configuration.GetValue("Logging:Database:Enabled", false))
+{
+    var dbLogMin = Enum.TryParse<LogLevel>(
+        builder.Configuration["Logging:Database:MinLevel"], out var lv) ? lv : LogLevel.Information;
+    builder.Logging.AddProvider(new TourkitAiProxy.Services.Logging.DbLoggerProvider(dbLogQueue, dbLogMin));
+    builder.Services.AddHostedService<TourkitAiProxy.Services.Logging.DbLogWriter>();
+}
+
 // ─── Outbound TLS: ép TLS 1.2/1.3 ─────────────────────────────────────────────
 // Defensive: Windows Server 2012 R2/2016 thường default về TLS 1.0/1.1 → OpenAI/Anthropic/DeepSeek
 // reject → "The SSL connection could not be established". Set sớm trước khi HttpClient nào được tạo.
@@ -226,8 +242,12 @@ builder.Services.AddSingleton<TourkitAiProxy.Services.Workflows.WorkflowRegistry
 builder.Services.AddSingleton<TourkitAiProxy.Services.Workflows.IScheduledWorkflow,
                               TourkitAiProxy.Services.Workflows.MailAutoSyncWorkflow>();
 builder.Services.AddSingleton<TourkitAiProxy.Services.Workflows.WorkflowSchedulerService>();
-builder.Services.AddHostedService(sp =>
-    sp.GetRequiredService<TourkitAiProxy.Services.Workflows.WorkflowSchedulerService>());
+// CHỈ instance có Workflows:RunScheduler=true mới CHẠY scheduler nền.
+// Tách site: web chính đặt false; site workflow riêng đặt true. Singleton vẫn đăng ký ở mọi
+// instance để endpoint "Chạy ngay" (run-now) dùng được dù không tick nền.
+if (builder.Configuration.GetValue("Workflows:RunScheduler", true))
+    builder.Services.AddHostedService(sp =>
+        sp.GetRequiredService<TourkitAiProxy.Services.Workflows.WorkflowSchedulerService>());
 
 // Soạn Tour GIT bằng AI — bóc mô tả tự do thành form Tour GIT (Type=3) cho NV prefill.
 builder.Services.AddSingleton<TourkitAiProxy.Services.Tour.TourBuilderService>();

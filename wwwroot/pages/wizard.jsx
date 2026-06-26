@@ -29,17 +29,7 @@ const WIZARD_STEPS = [
   { id: 4, label: 'Xuất báo giá',        icon: 'paper' }
 ];
 
-// matchMedia-based isMobile hook (≤640px) — cùng pattern deals.jsx / customers.jsx.
-function _wzIsMobile(bp = 640) {
-  const [m, setM] = _uS(() => window.innerWidth <= bp);
-  _uE(() => {
-    const check = () => setM(window.innerWidth <= bp);
-    window.addEventListener('resize', check);
-    check();
-    return () => window.removeEventListener('resize', check);
-  }, []);
-  return m;
-}
+// isMobile hook (≤640px) → dùng chung window.tourkitHooks.useIsMobile (lib/hooks.jsx)
 
 // ─── 1 card báo giá (mobile ≤640px) — bảng 8 cột không vừa màn điện thoại ────
 function QuoteCard({ t, statusLabel, statusClass, onOpen, onDelete }) {
@@ -89,7 +79,7 @@ function WizardPage({ pushToast, tweaks }) {
   const [view, setView] = _uS('list');            // 'list' (dashboard mặc định) | 'create' (wizard form)
   const [maxStep, setMaxStep] = _uS(1);           // bước cao nhất đã mở khóa — chặn nhảy bước (chỉ tiến qua nút hành động)
   _uE(() => { if (step > maxStep) setMaxStep(step); }, [step]);   // tiến tới bước nào → mở khóa bước đó
-  const isMobile = _wzIsMobile();                 // ≤640px → dashboard render card thay bảng
+  const isMobile = window.tourkitHooks.useIsMobile();   // ≤640px → dashboard render card thay bảng
   const [listFilter, setListFilter] = _uS('all'); // 'all' | 'success' | 'sent' | 'draft'
   const [listSearch, setListSearch] = _uS('');
   const [savedTours, setSavedTours] = _uS([]);

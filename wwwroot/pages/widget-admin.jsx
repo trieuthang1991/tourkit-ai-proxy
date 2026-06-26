@@ -43,7 +43,7 @@ function WidgetAdminPage({ pushToast }) {
     } catch (e) { pushToast('Lỗi xoá: ' + e.message, 'error'); }
   };
   const copySnippet = (snippet) => {
-    navigator.clipboard.writeText(snippet);
+    window.tourkitUtil.copyText(snippet);
     pushToast('Đã copy snippet — paste vào trước </body> của site khách');
   };
   const openDemo = (token) => {

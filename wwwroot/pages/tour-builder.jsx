@@ -285,7 +285,7 @@ function TourBuilderPage({ pushToast }) {
   }
 
   function copyJson() {
-    navigator.clipboard.writeText(JSON.stringify(form, null, 2));
+    window.tourkitUtil.copyText(JSON.stringify(form, null, 2));
     pushToast('Đã copy JSON form');
   }
   async function reset() {

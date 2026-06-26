@@ -7,17 +7,7 @@
 
 const { useState: _uNcc, useEffect: _uENcc } = React;
 
-// matchMedia isMobile (<=640px) — cùng pattern customers.jsx (_uCIsMobile).
-function _nccIsMobile(bp = 640) {
-  const [m, setM] = _uNcc(() => window.innerWidth <= bp);
-  _uENcc(() => {
-    const check = () => setM(window.innerWidth <= bp);
-    window.addEventListener('resize', check);
-    check();
-    return () => window.removeEventListener('resize', check);
-  }, []);
-  return m;
-}
+// isMobile hook (≤640px) → dùng chung window.tourkitHooks.useIsMobile (lib/hooks.jsx)
 
 // th/td theo đúng style bảng data-list của site (customers.jsx).
 const _nccTh = (w) => ({ padding: '10px 12px', fontWeight: 700, fontSize: 11, letterSpacing: '0.05em', textTransform: 'uppercase', color: 'var(--text-3)', width: w, whiteSpace: 'nowrap' });
@@ -51,7 +41,7 @@ function NccListPage({ pushToast }) {
   const [loading, setLoad] = _uNcc(true);
   const [err, setErr]      = _uNcc(null);
   const [reloadKey, setReloadKey] = _uNcc(0);
-  const isMobile = _nccIsMobile();
+  const isMobile = window.tourkitHooks.useIsMobile();
 
   const totalPages = Math.max(1, Math.ceil(total / pageSize));
 

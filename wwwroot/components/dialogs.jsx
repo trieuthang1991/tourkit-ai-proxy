@@ -228,13 +228,8 @@ Output: text thuần, KHÔNG markdown, KHÔNG dấu ngoặc.`);
 
   const qrSrc = `https://api.qrserver.com/v1/create-qr-code/?size=200x200&margin=4&data=${encodeURIComponent(link)}`;
 
-  // Format ngày khởi hành dạng dd/mm/yyyy
-  const fmtDate = (iso) => {
-    if (!iso) return null;
-    const d = new Date(iso);
-    if (isNaN(d)) return iso;
-    return d.toLocaleDateString('vi-VN', { day: '2-digit', month: '2-digit', year: 'numeric' });
-  };
+  // Format ngày khởi hành dd/MM/yyyy → dùng chung window.tourkitUtil.fmtDate (null nếu trống).
+  const fmtDate = (iso) => iso ? window.tourkitUtil.fmtDate(iso) : null;
 
   const totalPax = request ? (request.adults || 0) + (request.children || 0) : 0;
   const startDateFmt = fmtDate(request?.startDate);

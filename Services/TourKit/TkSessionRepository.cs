@@ -67,44 +67,75 @@ public class TkSessionRepository
         }
     }
 
+    /// <summary>
+    /// Retry transient cho thao tác DB session (read/write). KHÔNG nuốt lỗi thành null:
+    /// lỗi DB tạm thời (timeout / deadlock / pool cạn dưới web-garden tải cao) ≠ "session không tồn tại".
+    /// Nuốt → null sẽ làm tầng trên trả 401 → client tự logout OAN. Thay vào đó: retry vài lần,
+    /// cạn thì THROW để thành 500/503 (client KHÔNG logout vì chỉ logout ở 401).
+    /// "Không tìm thấy" thật = query trả null (không exception) → vẫn trả null bình thường.
+    /// </summary>
+    private async Task<T> WithRetryAsync<T>(Func<Task<T>> op, string label, CancellationToken ct)
+    {
+        const int maxAttempts = 3;
+        for (int attempt = 1; ; attempt++)
+        {
+            try { return await op(); }
+            catch (Exception ex) when (attempt < maxAttempts && !ct.IsCancellationRequested)
+            {
+                _log.LogWarning("[TkSessionRepo] {Label} lỗi DB (lần {N}/{Max}) — retry: {Err}",
+                    label, attempt, maxAttempts, ex.Message);
+                await Task.Delay(150 * attempt, ct);   // backoff 150ms, 300ms
+            }
+        }
+    }
+
     /// Lookup 1 session by id (nullable). Dùng khi cache miss.
+    /// RETRY transient để blip DB thoáng qua tự hồi → session vẫn tìm thấy → KHÔNG đá user oan (case thường gặp).
+    /// Cạn retry (DB down kéo dài) → trả null NHƯ CŨ: GIỮ NGUYÊN contract 30+ caller (không đổi hành vi,
+    /// không sinh lỗi mới ở caller best-effort như chat-memory). Lúc đó DB sập nên mọi thứ fail là đúng.
     public async Task<TkSession?> GetAsync(string id, CancellationToken ct = default)
     {
         if (string.IsNullOrEmpty(id)) return null;
         try
         {
-            await using var c = await _db.OpenAsync(ct);
-            var row = await c.QueryFirstOrDefaultAsync<Row>(
-                "SELECT Id, TenantId, Username, PasswordEnc, FullName, CompanyName, ChatMemoryJson, LastUsedUtc " +
-                "FROM dbo.TkSessions WHERE Id = @id",
-                new { id });
-            return row == null ? null : TryHydrate(row);
+            return await WithRetryAsync(async () =>
+            {
+                await using var c = await _db.OpenAsync(ct);
+                var row = await c.QueryFirstOrDefaultAsync<Row>(
+                    "SELECT Id, TenantId, Username, PasswordEnc, FullName, CompanyName, ChatMemoryJson, LastUsedUtc " +
+                    "FROM dbo.TkSessions WHERE Id = @id",
+                    new { id });
+                return row == null ? null : TryHydrate(row);
+            }, $"Get {id}", ct);
         }
         catch (Exception ex)
         {
-            _log.LogWarning(ex, "[TkSessionRepo] Get {Id} lỗi", id);
+            _log.LogWarning(ex, "[TkSessionRepo] Get {Id} cạn retry — trả null", id);
             return null;
         }
     }
 
     /// Lookup session mới nhất theo (TenantId, Username). Dùng cho de-dup khi user login lại
-    /// → reuse Id thay vì tạo row mới. Trả về row có LastUsedUtc cao nhất nếu có nhiều.
+    /// → reuse Id thay vì tạo row mới. Retry transient; cạn → null (đi nhánh tạo mới, an toàn).
     public async Task<TkSession?> GetByUserAsync(string tenantId, string username, CancellationToken ct = default)
     {
         if (string.IsNullOrEmpty(tenantId) || string.IsNullOrEmpty(username)) return null;
         try
         {
-            await using var c = await _db.OpenAsync(ct);
-            var row = await c.QueryFirstOrDefaultAsync<Row>(
-                "SELECT TOP 1 Id, TenantId, Username, PasswordEnc, FullName, CompanyName, ChatMemoryJson, LastUsedUtc " +
-                "FROM dbo.TkSessions WHERE TenantId = @tenantId AND Username = @username " +
-                "ORDER BY LastUsedUtc DESC",
-                new { tenantId, username });
-            return row == null ? null : TryHydrate(row);
+            return await WithRetryAsync(async () =>
+            {
+                await using var c = await _db.OpenAsync(ct);
+                var row = await c.QueryFirstOrDefaultAsync<Row>(
+                    "SELECT TOP 1 Id, TenantId, Username, PasswordEnc, FullName, CompanyName, ChatMemoryJson, LastUsedUtc " +
+                    "FROM dbo.TkSessions WHERE TenantId = @tenantId AND Username = @username " +
+                    "ORDER BY LastUsedUtc DESC",
+                    new { tenantId, username });
+                return row == null ? null : TryHydrate(row);
+            }, $"GetByUser {tenantId}/{username}", ct);
         }
         catch (Exception ex)
         {
-            _log.LogWarning(ex, "[TkSessionRepo] GetByUser {Tenant}/{User} lỗi", tenantId, username);
+            _log.LogWarning(ex, "[TkSessionRepo] GetByUser {Tenant}/{User} cạn retry — trả null", tenantId, username);
             return null;
         }
     }
@@ -191,6 +222,9 @@ SELECT TenantId, CompanyName, FullName FROM (
         var memJson = s.ChatMemory == null ? null : JsonSerializer.Serialize(s.ChatMemory, _jsonOpts);
         try
         {
+            // Retry transient (deadlock/timeout dưới tải web-garden) → write session/login KHÔNG fail oan vì 1 cú lock.
+            await WithRetryAsync<int>(async () =>
+            {
             await using var c = await _db.OpenAsync(ct);
             await c.ExecuteAsync(@"
 MERGE dbo.TkSessions AS T
@@ -214,10 +248,12 @@ VALUES
                     ChatMemoryJson = memJson,
                     LastUsedUtc    = s.LastUsed
                 });
+                return 0;
+            }, $"Upsert {s.Id}", ct);
         }
         catch (Exception ex)
         {
-            _log.LogError(ex, "[TkSessionRepo] Upsert {Id} lỗi", s.Id);
+            _log.LogError(ex, "[TkSessionRepo] Upsert {Id} lỗi (cạn retry)", s.Id);
             throw;
         }
     }

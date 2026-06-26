@@ -18,6 +18,10 @@ public class TkSession
     public DateTime JwtExpiresAt { get; set; }   // soft TTL — re-login khi quá hạn
     public DateTime LastUsed { get; set; }
 
+    // RUNTIME-ONLY (không persist): lần cuối đã GHI LastUsed xuống DB. Dùng để throttle write-through
+    // → KHÔNG ghi DB mỗi request (chỉ ~mỗi vài phút/session) → giảm tải DB mạnh dưới web-garden.
+    public DateTime LastUsedPersistedUtc { get; set; } = DateTime.MinValue;
+
     // BỘ NHỚ CHAT — persist cùng session xuống SQL (cột ChatMemoryJson).
     public SessionChatMemory ChatMemory { get; set; } = SessionChatMemory.Empty();
 }
@@ -41,6 +45,9 @@ public class TkSessionStore
     private static readonly TimeSpan SoftTtl = TimeSpan.FromMinutes(50);
     // Dọn phiên không dùng quá 30 ngày.
     private static readonly TimeSpan IdleTtl = TimeSpan.FromDays(30);
+    // Throttle ghi LastUsed xuống DB: chỉ write-through mỗi N phút/session (IdleTtl=30 ngày → độ trễ
+    // vài phút của LastUsed hoàn toàn vô hại). Giảm từ "1 WRITE/request" xuống "~1 WRITE/3 phút/session".
+    private static readonly TimeSpan LastUsedWriteThrottle = TimeSpan.FromMinutes(3);
 
     public TkSessionStore(TourKitApiClient api, TkSessionRepository repo, ILogger<TkSessionStore> log)
     {
@@ -122,6 +129,7 @@ public class TkSessionStore
                 session.Id, tenantId, username);
         }
 
+        session.LastUsedPersistedUtc = DateTime.UtcNow;   // vừa upsert ở trên → reset throttle
         return session;
     }
 
@@ -139,12 +147,18 @@ public class TkSessionStore
     public async Task<string> GetValidJwtAsync(string sessionId, CancellationToken ct)
     {
         var s = Get(sessionId) ?? throw new TourKitApiException("Phiên không tồn tại — vui lòng đăng nhập lại", 401);
-        s.LastUsed = DateTime.UtcNow;
+        s.LastUsed = DateTime.UtcNow;   // cập nhật CACHE in-mem mỗi request (rẻ)
         if (string.IsNullOrEmpty(s.Jwt) || DateTime.UtcNow >= s.JwtExpiresAt)
-            await ReloginAsync(s, ct);
-        else
-            // chỉ update LastUsed → write-through cho cross-process biết session đang active
+        {
+            await ReloginAsync(s, ct);   // re-login đã write-through (set LastUsedPersistedUtc bên trong)
+        }
+        else if (DateTime.UtcNow - s.LastUsedPersistedUtc > LastUsedWriteThrottle)
+        {
+            // THROTTLE: chỉ write-through LastUsed mỗi vài phút/session (không phải mỗi request)
+            // → giảm tải DB lớn. Cross-process vẫn thấy session active (sai số phút là vô hại với IdleTtl 30 ngày).
+            s.LastUsedPersistedUtc = DateTime.UtcNow;
             await _repo.UpsertAsync(s, ct);
+        }
         return s.Jwt;
     }
 
@@ -190,6 +204,7 @@ public class TkSessionStore
         s.JwtExpiresAt = DateTime.UtcNow.Add(SoftTtl);
         s.LastUsed = DateTime.UtcNow;
         await _repo.UpsertAsync(s, ct);
+        s.LastUsedPersistedUtc = DateTime.UtcNow;   // vừa write-through → reset throttle
         _log.LogInformation("TourKit session {Id} re-login (JWT refreshed)", s.Id);
     }
 
@@ -268,6 +283,7 @@ public class TkSessionStore
         if (s == null) return;
         s.ChatMemory = memory with { LastUpdated = DateTime.UtcNow };
         s.LastUsed = DateTime.UtcNow;
+        s.LastUsedPersistedUtc = DateTime.UtcNow;   // chat memory upsert cũng đẩy LastUsed → reset throttle
         // Fire-and-forget: chat memory update là hot path, không block agent loop
         _ = _repo.UpsertAsync(s);
     }

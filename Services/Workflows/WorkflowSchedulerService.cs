@@ -17,10 +17,10 @@ namespace TourkitAiProxy.Services.Workflows;
 /// </summary>
 public class WorkflowSchedulerService : BackgroundService
 {
-    private static readonly TimeSpan TickInterval    = TimeSpan.FromSeconds(60);
     private static readonly TimeSpan RunTimeout      = TimeSpan.FromMinutes(5);
     private const int AutoPauseThreshold = 5;
 
+    private readonly TimeSpan _tickInterval;
     private readonly WorkflowRepository _repo;
     private readonly WorkflowRegistry _registry;
     private readonly ILogger<WorkflowSchedulerService> _log;
@@ -28,16 +28,19 @@ public class WorkflowSchedulerService : BackgroundService
     public WorkflowSchedulerService(
         WorkflowRepository repo,
         WorkflowRegistry registry,
+        IConfiguration config,
         ILogger<WorkflowSchedulerService> log)
     {
         _repo = repo; _registry = registry; _log = log;
+        var sec = config.GetValue("Workflows:TickSeconds", 60);
+        _tickInterval = TimeSpan.FromSeconds(sec < 5 ? 5 : sec);   // sàn 5s chống cấu hình quá nhỏ
     }
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
-        _log.LogInformation("[Scheduler] Khởi động — tick mỗi {Sec}s", TickInterval.TotalSeconds);
+        _log.LogInformation("[Scheduler] Khởi động — tick mỗi {Sec}s", _tickInterval.TotalSeconds);
 
-        using var timer = new PeriodicTimer(TickInterval);
+        using var timer = new PeriodicTimer(_tickInterval);
         try
         {
             while (await timer.WaitForNextTickAsync(stoppingToken))
@@ -77,10 +80,11 @@ public class WorkflowSchedulerService : BackgroundService
             var user = cfg.Username;
             var type = cfg.WorkflowType;
             var interval = cfg.IntervalMinutes;
+            var options = cfg.OptionsJson;
 
             _ = Task.Run(async () =>
             {
-                await RunOneAsync(wf, tenant, user, type, "scheduled", stoppingToken);
+                await RunOneAsync(wf, tenant, user, type, "scheduled", options, stoppingToken);
             }, stoppingToken);
         }
     }
@@ -90,6 +94,7 @@ public class WorkflowSchedulerService : BackgroundService
         IScheduledWorkflow wf,
         string tenantId, string username, string type,
         string triggerKind,
+        string? optionsJson,
         CancellationToken outerCt)
     {
         var sw = Stopwatch.StartNew();
@@ -100,7 +105,7 @@ public class WorkflowSchedulerService : BackgroundService
         {
             using var cts = CancellationTokenSource.CreateLinkedTokenSource(outerCt);
             cts.CancelAfter(RunTimeout);
-            result = await wf.RunAsync(tenantId, username, cts.Token);
+            result = await wf.RunAsync(tenantId, username, optionsJson, cts.Token);
         }
         catch (OperationCanceledException)
         {

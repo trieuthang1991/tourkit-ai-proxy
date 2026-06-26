@@ -8,7 +8,7 @@
   'use strict';
   const { useState, useEffect, useRef } = React;
 
-  const fmtVND = n => (n || 0).toLocaleString('vi-VN') + 'đ';
+  const fmtVND = window.fmtVND || (n => (n || 0).toLocaleString('vi-VN') + 'đ');   // bản chuẩn ở lib/data.js
   const fmtPerUnit = (amt, units) => Math.round(amt / units).toLocaleString('vi-VN') + 'đ/lượt';
 
   function QuotaUpgradeModal({ open, onClose, onPaid }) {

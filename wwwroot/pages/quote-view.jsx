@@ -314,12 +314,8 @@ function QuoteContact({ quote }) {
 }
 
 // ─── Helpers ────────────────────────────────────────────────────────────────────
-function fmtDateVN(iso) {
-  if (!iso) return '';
-  const d = new Date(iso);
-  if (isNaN(d)) return iso;
-  return d.toLocaleDateString('vi-VN', { day: '2-digit', month: '2-digit', year: 'numeric' });
-}
+// Ngày dd/MM/yyyy → dùng chung window.tourkitUtil.fmtDate.
+const fmtDateVN = (iso) => window.tourkitUtil.fmtDate(iso);
 
 // ─── Styles (inject once, scoped với `.qv-` prefix) ────────────────────────────
 function QuoteStyles() {

@@ -123,43 +123,27 @@
     }
     if (!resp.body) throw new Error('Stream không khả dụng (no ReadableStream)');
 
-    const reader = resp.body.getReader();
-    const decoder = new TextDecoder('utf-8');
-    let buf = '';
+    // Plumbing SSE dùng chung; capture error/meta/full ở đây (semantics riêng: chỉ throw nếu KHÔNG có partial text).
     let full = '';
     let finalMeta = null;
     let errMsg = null;
     let errDetail = null;
     let errStatus = null;
 
-    while (true) {
-      const { done, value } = await reader.read();
-      if (done) break;
-      buf += decoder.decode(value, { stream: true });
-      let idx;
-      while ((idx = buf.indexOf('\n\n')) >= 0) {
-        const evt = buf.slice(0, idx);
-        buf = buf.slice(idx + 2);
-        const line = evt.split('\n').find(l => l.startsWith('data:'));
-        if (!line) continue;
-        const payload = line.slice(5).trimStart();
-        if (!payload) continue;
-        let obj;
-        try { obj = JSON.parse(payload); } catch { continue; }
-        if (obj.error) {
-          errMsg    = obj.error;
-          errDetail = obj.detail || obj.body || null;
-          errStatus = obj.status || null;
-          console.warn('[ai] stream error event:', obj);
-          continue;
-        }
-        if (obj.done) { finalMeta = obj; continue; }
-        if (obj.delta) {
-          full += obj.delta;
-          if (typeof onChunk === 'function') onChunk(obj.delta, full);
-        }
+    await window.tourkitUtil.readSSE(resp, obj => {
+      if (obj.error) {
+        errMsg    = obj.error;
+        errDetail = obj.detail || obj.body || null;
+        errStatus = obj.status || null;
+        console.warn('[ai] stream error event:', obj);
+        return;
       }
-    }
+      if (obj.done) { finalMeta = obj; return; }
+      if (obj.delta) {
+        full += obj.delta;
+        if (typeof onChunk === 'function') onChunk(obj.delta, full);
+      }
+    });
     if (errMsg && !full) {
       const parts = [errMsg];
       if (errStatus) parts.push(`status=${errStatus}`);

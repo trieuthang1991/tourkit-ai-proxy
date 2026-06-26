@@ -32,6 +32,7 @@ public class WorkflowRepository
         public DateTime? LastRunUtc { get; set; }
         public string? LastRunStatus { get; set; }
         public string? LastRunSummary { get; set; }
+        public string? OptionsJson { get; set; }   // điều kiện/option ĐỘNG per-workflow (JSON)
         public string? UpdatedBy { get; set; }
         public DateTime UpdatedAtUtc { get; set; }
     }
@@ -42,6 +43,7 @@ public class WorkflowRepository
         public string Username { get; set; } = "";
         public string WorkflowType { get; set; } = "";
         public int IntervalMinutes { get; set; } = 15;
+        public string? OptionsJson { get; set; }   // truyền xuống workflow.RunAsync
     }
 
     public sealed class WorkflowRunRow
@@ -83,8 +85,9 @@ public class WorkflowRepository
     }
 
     /// Upsert config. Khi enabled=true và có PausedReason → reset failures + xoá PausedReason ("Bật lại").
+    /// optionsJson = null → GIỮ NGUYÊN options cũ (COALESCE); truyền chuỗi để cập nhật.
     public void UpsertConfig(string tenantId, string username, string type,
-        bool enabled, int intervalMinutes, string updatedBy)
+        bool enabled, int intervalMinutes, string updatedBy, string? optionsJson = null)
     {
         using var c = _db.Open();
         c.Execute(@"
@@ -95,15 +98,16 @@ WHEN MATCHED THEN
     UPDATE SET
         Enabled          = @en,
         IntervalMinutes  = @iv,
+        OptionsJson      = COALESCE(@opts, OptionsJson),
         UpdatedBy        = @by,
         UpdatedAtUtc     = SYSUTCDATETIME(),
         -- Khi bật lại (enabled=true) → reset failures + clear PausedReason
         ConsecutiveFailures = CASE WHEN @en=1 THEN 0 ELSE ConsecutiveFailures END,
         PausedReason        = CASE WHEN @en=1 THEN NULL ELSE PausedReason END
 WHEN NOT MATCHED THEN
-    INSERT (TenantId, Username, WorkflowType, Enabled, IntervalMinutes, UpdatedBy, UpdatedAtUtc)
-    VALUES (@t, @u, @wt, @en, @iv, @by, SYSUTCDATETIME());",
-            new { t = tenantId, u = username, wt = type, en = enabled, iv = intervalMinutes, by = updatedBy });
+    INSERT (TenantId, Username, WorkflowType, Enabled, IntervalMinutes, OptionsJson, UpdatedBy, UpdatedAtUtc)
+    VALUES (@t, @u, @wt, @en, @iv, @opts, @by, SYSUTCDATETIME());",
+            new { t = tenantId, u = username, wt = type, en = enabled, iv = intervalMinutes, opts = optionsJson, by = updatedBy });
         _log.LogInformation("[WorkflowRepo] Upsert tenant={T} user={U} type={Wt} enabled={En} interval={Iv}",
             tenantId, username, type, enabled, intervalMinutes);
     }
@@ -115,7 +119,7 @@ WHEN NOT MATCHED THEN
     {
         using var c = _db.Open();
         return c.Query<DueWorkflowRow>(
-            @"SELECT TenantId, Username, WorkflowType, IntervalMinutes
+            @"SELECT TenantId, Username, WorkflowType, IntervalMinutes, OptionsJson
               FROM dbo.UserWorkflows
               WHERE Enabled=1 AND PausedReason IS NULL
                 AND (NextRunUtc IS NULL OR NextRunUtc <= @now)",

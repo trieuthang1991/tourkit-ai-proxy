@@ -844,36 +844,19 @@ function AssistantPage({ pushToast }) {
         throw new Error(t.slice(0, 200) || ('HTTP ' + resp.status));
       }
 
-      const reader = resp.body.getReader();
-      const dec = new TextDecoder('utf-8');
-      let buf = '';
       let dataSet = false;   // panel data set 1 lần (stage analyzing) → done KHÔNG set lại → chart không vẽ lại
-      while (true) {
-        const { done, value } = await reader.read();
-        if (done) break;
-        buf += dec.decode(value, { stream: true });
-        let i;
-        while ((i = buf.indexOf('\n\n')) >= 0) {
-          const evt = buf.slice(0, i); buf = buf.slice(i + 2);
-          const line = evt.split('\n').find(l => l.startsWith('data:'));
-          if (!line) continue;
-          const payload = line.slice(5).trim();
-          if (!payload) continue;
-          let o; try { o = JSON.parse(payload); } catch { continue; }
-
-          if (o.error) { patch(a => ({ ...a, content: '⚠️ ' + o.error, error: true, streaming: false })); setStage(null); continue; }
-          if (o.stage) { setStage(o.stage); if (o.data) { setPanelData(o.data); dataSet = true; } if (o.tool) patch(a => ({ ...a, tool: o.tool })); continue; }
-          if (o.delta) { setStage(null); patch(a => ({ ...a, content: a.content + o.delta })); continue; }
-          if (o.done) {
-            if (o.reply) patch(a => ({ ...a, content: o.reply }));
-            if (o.toolName) patch(a => ({ ...a, tool: o.toolName }));
-            if (o.data && !dataSet) setPanelData(o.data);   // chỉ set nếu chưa có (luồng cache-hit)
-            if (o.trace) patch(a => ({ ...a, trace: o.trace }));   // trace event đính cùng done (cache-hit path)
-          }
-          if (o.trace && !o.done) patch(a => ({ ...a, trace: o.trace }));   // trace event riêng (sau analysis stream)
-
+      await window.tourkitUtil.readSSE(resp, o => {
+        if (o.error) { patch(a => ({ ...a, content: '⚠️ ' + o.error, error: true, streaming: false })); setStage(null); return; }
+        if (o.stage) { setStage(o.stage); if (o.data) { setPanelData(o.data); dataSet = true; } if (o.tool) patch(a => ({ ...a, tool: o.tool })); return; }
+        if (o.delta) { setStage(null); patch(a => ({ ...a, content: a.content + o.delta })); return; }
+        if (o.done) {
+          if (o.reply) patch(a => ({ ...a, content: o.reply }));
+          if (o.toolName) patch(a => ({ ...a, tool: o.toolName }));
+          if (o.data && !dataSet) setPanelData(o.data);   // chỉ set nếu chưa có (luồng cache-hit)
+          if (o.trace) patch(a => ({ ...a, trace: o.trace }));   // trace event đính cùng done (cache-hit path)
         }
-      }
+        if (o.trace && !o.done) patch(a => ({ ...a, trace: o.trace }));   // trace event riêng (sau analysis stream)
+      });
     } catch (e) {
       patch(a => ({ ...a, content: '⚠️ ' + e.message, error: true }));
     } finally {

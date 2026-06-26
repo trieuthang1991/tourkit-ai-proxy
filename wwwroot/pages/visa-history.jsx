@@ -12,20 +12,8 @@ function _vhRankFromLevel(lvl) {
 function _vhToneFromLevel(lvl) {
   return lvl === 'cao' ? 'good' : lvl === 'trung_binh' ? 'fair' : lvl === 'thap' ? 'poor' : 'muted';
 }
-function _vhRelative(iso) {
-  if (!iso) return '';
-  const t = new Date(iso).getTime();
-  if (Number.isNaN(t)) return '';
-  const diff = Date.now() - t;
-  const m = Math.floor(diff / 60000);
-  if (m < 1) return 'vừa xong';
-  if (m < 60) return `${m} phút trước`;
-  const h = Math.floor(m / 60);
-  if (h < 24) return `${h} giờ trước`;
-  const d = Math.floor(h / 24);
-  if (d < 30) return `${d} ngày trước`;
-  return new Date(iso).toLocaleDateString('vi-VN');
-}
+// "time ago" → dùng chung window.tourkitUtil.fmtAgo (giữ tên _vhRelative làm alias).
+const _vhRelative = (iso) => window.tourkitUtil.fmtAgo(iso);
 function _vhAbs(iso) {
   if (!iso) return '';
   const d = new Date(iso);

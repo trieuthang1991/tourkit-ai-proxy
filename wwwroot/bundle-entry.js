@@ -5,9 +5,11 @@
 // Quy tắc: KHÔNG đổi order giữa các block dưới (core trước components,
 // components trước steps + pages, app.jsx CUỐI CÙNG — App() đọc window.HomePage v.v.).
 
-// /lib — third-party-style libs (data, icons)
+// /lib — third-party-style libs (data, icons, hooks)
 import "./lib/data.js";
 import "./lib/icons.jsx";
+import "./lib/util.js";
+import "./lib/hooks.jsx";
 
 // /core — cross-cutting concerns: router, storage, parsers, AI client, auth, page-loader
 import "./core/router.jsx";
@@ -58,6 +60,7 @@ import "./pages/widget-admin.jsx";
 import "./pages/ncc-import.jsx";
 import "./pages/ncc-list.jsx";
 import "./pages/visa-config.jsx";
+import "./pages/workflows.jsx";
 
 // Root: App shell + router (PHẢI CUỐI — dùng tất cả window.X định nghĩa ở trên)
 import "./app.jsx";

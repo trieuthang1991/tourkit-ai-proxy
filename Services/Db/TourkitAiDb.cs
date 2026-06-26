@@ -454,6 +454,11 @@ BEGIN
     );
 END;
 
+-- Migration idempotent: cột điều kiện/option ĐỘNG per-workflow (JSON tùy ý, vd mail: {autoReply:true}).
+-- Mỗi loại workflow tự định nghĩa shape options của mình → thêm option mới khỏi đổi schema.
+IF COL_LENGTH('dbo.UserWorkflows', 'OptionsJson') IS NULL
+    ALTER TABLE dbo.UserWorkflows ADD OptionsJson NVARCHAR(MAX) NULL;
+
 -- Lịch sử các lần chạy workflow: trigger, kết quả, lỗi, thời lượng.
 -- Giữ tối đa 100 run / (Tenant, Username, WorkflowType) — prune sau mỗi INSERT bằng repo.
 IF OBJECT_ID('dbo.WorkflowRuns', 'U') IS NULL
@@ -473,6 +478,29 @@ BEGIN
     );
     CREATE INDEX IX_WorkflowRuns_Scope_Started
       ON dbo.WorkflowRuns(TenantId, Username, WorkflowType, StartedUtc DESC);
+END;
+
+-- Log ỨNG DỤNG tập trung trong DB (thay stdout) — để site workflow tách riêng vẫn truy được log
+-- chung 1 nguồn. Thiết kế ĐỘNG: cột Kind phân loại (app|mail-sync|workflow|audit|...) + DataJson
+-- chứa payload tùy ý → thêm loại log mới KHÔNG cần đổi schema. Index theo thời gian + Kind + Level.
+IF OBJECT_ID('dbo.AppLogs', 'U') IS NULL
+BEGIN
+    CREATE TABLE dbo.AppLogs (
+        Id          BIGINT IDENTITY(1,1) PRIMARY KEY,
+        AtUtc       DATETIME2      NOT NULL CONSTRAINT DF_AppLogs_At   DEFAULT SYSUTCDATETIME(),
+        Kind        NVARCHAR(64)   NOT NULL CONSTRAINT DF_AppLogs_Kind DEFAULT 'app',
+        Level       NVARCHAR(16)   NOT NULL,
+        Category    NVARCHAR(256)  NULL,
+        Message     NVARCHAR(MAX)  NULL,
+        Exception   NVARCHAR(MAX)  NULL,
+        DataJson    NVARCHAR(MAX)  NULL,
+        TenantId    NVARCHAR(64)   NULL,
+        Username    NVARCHAR(120)  NULL,
+        Instance    NVARCHAR(96)   NULL
+    );
+    CREATE INDEX IX_AppLogs_At    ON dbo.AppLogs(AtUtc DESC);
+    CREATE INDEX IX_AppLogs_Kind  ON dbo.AppLogs(Kind, AtUtc DESC);
+    CREATE INDEX IX_AppLogs_Level ON dbo.AppLogs(Level, AtUtc DESC);
 END;
 ";
 }

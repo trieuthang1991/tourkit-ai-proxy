@@ -30,6 +30,7 @@ public interface IScheduledWorkflow
     /// Chạy workflow. Gọi bởi scheduler hoặc manual trigger.
     /// <param name="tenantId">Tenant scope.</param>
     /// <param name="username">Username (rỗng nếu PerTenant).</param>
+    /// <param name="optionsJson">Điều kiện/option ĐỘNG (JSON) do user cấu hình — workflow tự parse. null = mặc định.</param>
     /// <param name="ct">CancellationToken (5 phút wall-clock).</param>
-    Task<WorkflowRunResult> RunAsync(string tenantId, string username, CancellationToken ct);
+    Task<WorkflowRunResult> RunAsync(string tenantId, string username, string? optionsJson, CancellationToken ct);
 }

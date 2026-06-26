@@ -53,6 +53,7 @@ public static class WorkflowEndpoints
                     lastRunUtc = row?.LastRunUtc,
                     lastRunStatus = row?.LastRunStatus,
                     lastRunSummary = row?.LastRunSummary,
+                    options = ParseOptions(row?.OptionsJson),   // điều kiện/option ĐỘNG (object) cho UI
                     updatedBy = row?.UpdatedBy,
                     updatedAtUtc = row?.UpdatedAtUtc
                 };
@@ -82,7 +83,12 @@ public static class WorkflowEndpoints
             var interval = Math.Clamp(req.IntervalMinutes, 1, 1440);
             var scopeUser = wf.Scope == WorkflowScope.PerUser ? user : "";
 
-            repo.UpsertConfig(tenant, scopeUser, type, req.Enabled, interval, updatedBy: user);
+            // Options ĐỘNG: client gửi object → lưu raw JSON. null = giữ nguyên options cũ.
+            var optionsJson = req.Options.HasValue && req.Options.Value.ValueKind != System.Text.Json.JsonValueKind.Null
+                ? req.Options.Value.GetRawText()
+                : null;
+
+            repo.UpsertConfig(tenant, scopeUser, type, req.Enabled, interval, updatedBy: user, optionsJson: optionsJson);
 
             // Trả lại config mới nhất
             var updated = repo.Get(tenant, scopeUser, type);
@@ -94,7 +100,8 @@ public static class WorkflowEndpoints
                 intervalMinutes = updated?.IntervalMinutes ?? interval,
                 consecutiveFailures = updated?.ConsecutiveFailures ?? 0,
                 pausedReason = updated?.PausedReason,
-                nextRunUtc = updated?.NextRunUtc
+                nextRunUtc = updated?.NextRunUtc,
+                options = ParseOptions(updated?.OptionsJson)
             });
         });
 
@@ -123,8 +130,8 @@ public static class WorkflowEndpoints
                 repo.UpsertConfig(tenant, scopeUser, type, enabled: false, intervalMinutes: 15, updatedBy: user);
 
             var sw = Stopwatch.StartNew();
-            // Chạy qua scheduler pipeline (failures tracking + auto-pause + log run)
-            await scheduler.RunOneAsync(wf, tenant, scopeUser, type, "manual", ctx.RequestAborted);
+            // Chạy qua scheduler pipeline (failures tracking + auto-pause + log run) — truyền options đã lưu.
+            await scheduler.RunOneAsync(wf, tenant, scopeUser, type, "manual", existing?.OptionsJson, ctx.RequestAborted);
             sw.Stop();
 
             // Lấy run cuối cùng để trả thông tin
@@ -191,7 +198,15 @@ public static class WorkflowEndpoints
 
     private static IResult Unauthorized()
         => Results.Json(new { error = "Phiên không hợp lệ — đăng nhập lại" }, statusCode: 401);
+
+    /// OptionsJson (string) → object cho JSON response (null nếu rỗng/parse lỗi).
+    private static object? ParseOptions(string? optionsJson)
+    {
+        if (string.IsNullOrWhiteSpace(optionsJson)) return null;
+        try { return System.Text.Json.JsonSerializer.Deserialize<System.Text.Json.JsonElement>(optionsJson); }
+        catch { return null; }
+    }
 }
 
-/// Request body cho PUT /workflows/{type}
-public sealed record WorkflowConfigRequest(bool Enabled, int IntervalMinutes);
+/// Request body cho PUT /workflows/{type}. Options = điều kiện ĐỘNG tùy workflow (object tùy ý).
+public sealed record WorkflowConfigRequest(bool Enabled, int IntervalMinutes, System.Text.Json.JsonElement? Options = null);

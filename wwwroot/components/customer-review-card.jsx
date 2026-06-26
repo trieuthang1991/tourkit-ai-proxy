@@ -331,16 +331,8 @@ function StatCell({ label, value }) {
   );
 }
 
-function fmtRel(iso) {
-  if (!iso) return '';
-  const d = new Date(iso);
-  if (isNaN(d)) return iso;
-  const min = Math.round((Date.now() - d.getTime()) / 60000);
-  if (min < 1) return 'vừa xong';
-  if (min < 60) return `${min} phút trước`;
-  if (min < 1440) return `${Math.floor(min / 60)}h trước`;
-  return `${Math.floor(min / 1440)} ngày trước`;
-}
+// "time ago" → dùng chung window.tourkitUtil.fmtAgo (giữ tên fmtRel làm alias).
+const fmtRel = (iso) => window.tourkitUtil.fmtAgo(iso);
 
 // SegBadge / RankBadge cũng dùng trong customers.jsx — re-define gọn để component standalone.
 // Nếu sau này cần share, tách ra core/badges.jsx.

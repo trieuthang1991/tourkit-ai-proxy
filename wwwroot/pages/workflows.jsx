@@ -1,26 +1,23 @@
-// pages/workflows.jsx — Trang "Tự động" (User Workflows)
+// pages/workflows.jsx — Trang "Tự động hóa" (User Workflows)
 // Cho user cấu hình tác vụ AI chạy tự động theo lịch (interval).
 // V1 built-in: mail-auto-sync (đồng bộ Gmail mỗi N phút).
 // Pattern: X-Session-Id header + authedFetch giống mail.jsx / assistant.jsx.
+// UI tái dùng design system chung của app (wga-* + Icon) — không tạo class/namespace mới.
 'use strict';
 
 const { useState: uS, useEffect: uE, useCallback: uCB } = React;
 
+// span inline-flex dùng cho ô có icon + text (trigger, badge nội bộ)
+const _wfRow = { display: 'inline-flex', alignItems: 'center', gap: 5 };
+
 // ─── Helpers ────────────────────────────────────────────────────────────────────
 
-function sessionId() {
-  try { return localStorage.getItem('tourkit_tk_session') || ''; } catch { return ''; }
-}
-
-function authHeaders() {
-  const sid = sessionId();
-  return sid ? { 'X-Session-Id': sid, 'Content-Type': 'application/json' } : { 'Content-Type': 'application/json' };
-}
-
+// Dùng chung window.tourkitAuth.authedFetch (gắn X-Session-Id + 401→logout + 429→quota event).
+// apiFetch chỉ bọc thêm envelope JSON + throw khi !ok (KHÔNG tự chế lại session/header).
 async function apiFetch(path, opts = {}) {
-  const r = await fetch(path, {
+  const r = await window.tourkitAuth.authedFetch(path, {
     ...opts,
-    headers: { ...authHeaders(), ...(opts.headers || {}) },
+    headers: { 'Content-Type': 'application/json', ...(opts.headers || {}) },
   });
   if (!r.ok) {
     let msg = `HTTP ${r.status}`;
@@ -30,14 +27,8 @@ async function apiFetch(path, opts = {}) {
   return r.json();
 }
 
-function relativeTime(utcStr) {
-  if (!utcStr) return '—';
-  const diff = (Date.now() - new Date(utcStr).getTime()) / 1000;
-  if (diff < 60) return `${Math.round(diff)} giây trước`;
-  if (diff < 3600) return `${Math.round(diff / 60)} phút trước`;
-  if (diff < 86400) return `${Math.round(diff / 3600)} giờ trước`;
-  return `${Math.round(diff / 86400)} ngày trước`;
-}
+// "time ago" → dùng chung window.tourkitUtil.fmtAgo (seconds precision + empty '—').
+const relativeTime = (utcStr) => window.tourkitUtil.fmtAgo(utcStr, { seconds: true, empty: '—' });
 
 function futureTime(utcStr) {
   if (!utcStr) return '—';
@@ -76,6 +67,15 @@ const INTERVAL_OPTIONS = [
   { value: 120, label: 'Mỗi 2 giờ' },
 ];
 
+// Schema option ĐỘNG per-workflow (client). Thêm workflow/option mới = thêm 1 entry — UI tự render.
+// type 'bool' → toggle. Khớp shape OptionsJson backend (vd mail-auto-sync: { autoReply: bool }).
+const WORKFLOW_OPTIONS = {
+  'mail-auto-sync': [
+    { key: 'autoReply', type: 'bool', label: 'Tự động trả lời',
+      hint: 'AI soạn + gửi trả lời tự động cho email mới (đang phát triển — hiện chỉ lưu cấu hình)' },
+  ],
+};
+
 // ─── Run History Table ───────────────────────────────────────────────────────────
 
 function RunHistoryTable({ runs, loading }) {
@@ -84,7 +84,7 @@ function RunHistoryTable({ runs, loading }) {
   if (!runs || runs.length === 0) return <div className="workflows-history-empty">Chưa có lịch sử chạy.</div>;
   return (
     <div className="workflows-history-wrap">
-      <table className="quota-table workflows-history-table">
+      <table className="workflows-history-table">
         <thead>
           <tr>
             <th>Thời gian</th>
@@ -102,11 +102,16 @@ function RunHistoryTable({ runs, loading }) {
                 style={{ cursor: r.status === 'failed' && r.error ? 'pointer' : 'default' }}
                 onClick={() => r.status === 'failed' && r.error && setExpandedError(expandedError === r.id ? null : r.id)}>
                 <td className="workflows-run-ts" title={r.startedUtc}>{relativeTime(r.startedUtc)}</td>
-                <td>{r.triggerKind === 'manual' ? '🖱 Thủ công' : '⏱ Lịch'}</td>
+                <td>
+                  <span style={_wfRow}>
+                    <Icon name={r.triggerKind === 'manual' ? 'user' : 'clock'} size={12} />
+                    {r.triggerKind === 'manual' ? 'Thủ công' : 'Lịch'}
+                  </span>
+                </td>
                 <td>
                   {r.status === 'ok'
-                    ? <span className="workflows-badge workflows-badge-ok">✓ Thành công</span>
-                    : <span className="workflows-badge workflows-badge-fail">✗ Lỗi</span>}
+                    ? <span className="workflows-badge workflows-badge-ok"><Icon name="check" size={11} /> Thành công</span>
+                    : <span className="workflows-badge workflows-badge-fail"><Icon name="close" size={11} /> Lỗi</span>}
                 </td>
                 <td><SummaryText summaryJson={r.summary} /></td>
                 <td>{r.durationMs != null ? `${(r.durationMs / 1000).toFixed(1)}s` : '—'}</td>
@@ -114,7 +119,7 @@ function RunHistoryTable({ runs, loading }) {
               {expandedError === r.id && r.error && (
                 <tr>
                   <td colSpan={5} className="workflows-run-error-row">
-                    <span className="workflows-run-error-text">⚠ {r.error}</span>
+                    <span className="workflows-run-error-text" style={_wfRow}><Icon name="warning" size={12} /> {r.error}</span>
                   </td>
                 </tr>
               )}
@@ -136,12 +141,16 @@ function WorkflowCard({ wf, onUpdate, pushToast }) {
   const [historyOpen, setHistoryOpen] = uS(false);
   const [runs, setRuns] = uS(null);
   const [runsLoading, setRunsLoading] = uS(false);
+  const [options, setOptions] = uS(wf.options || {});   // điều kiện ĐỘNG per-workflow
+
+  const optionSchema = WORKFLOW_OPTIONS[wf.type] || [];
 
   // Sync state khi prop thay đổi (sau reload)
   uE(() => {
     setEnabled(wf.enabled);
     setInterval(wf.intervalMinutes || 15);
-  }, [wf.enabled, wf.intervalMinutes]);
+    setOptions(wf.options || {});
+  }, [wf.enabled, wf.intervalMinutes, wf.options]);
 
   const isPaused = !!wf.pausedReason;
 
@@ -150,7 +159,7 @@ function WorkflowCard({ wf, onUpdate, pushToast }) {
     try {
       await apiFetch(`/api/v1/workflows/${wf.type}`, {
         method: 'PUT',
-        body: JSON.stringify({ enabled, intervalMinutes: interval }),
+        body: JSON.stringify({ enabled, intervalMinutes: interval, options }),
       });
       pushToast(`Đã lưu cấu hình "${wf.label}"`);
       onUpdate();
@@ -217,33 +226,39 @@ function WorkflowCard({ wf, onUpdate, pushToast }) {
     if (next && runs === null) loadRuns();
   }
 
-  // Trạng thái pill
+  // Trạng thái pill — tái dùng wga-pill (crm = xanh có chấm, faq = xám, off = đỏ)
   let statusPill;
   if (isPaused) {
-    statusPill = <span className="workflows-pill workflows-pill-paused">⏸ Tạm dừng</span>;
+    statusPill = <span className="wga-pill off">Tạm dừng</span>;
   } else if (enabled) {
-    statusPill = <span className="workflows-pill workflows-pill-on">● Đang chạy</span>;
+    statusPill = <span className="wga-pill crm">Đang chạy</span>;
   } else {
-    statusPill = <span className="workflows-pill workflows-pill-off">○ Tắt</span>;
+    statusPill = <span className="wga-pill faq">Tắt</span>;
   }
 
   return (
-    <div className={'quota-card workflows-card' + (isPaused ? ' workflows-card-paused' : '')}>
-      <div className="workflows-card-header">
-        <div className="workflows-card-title-row">
-          <span className="workflows-icon">📧</span>
-          <span className="workflows-card-title">{wf.label}</span>
-          {statusPill}
+    <div className={'wga-card' + (isPaused ? ' workflows-card-paused' : '')}>
+      {/* Header: icon tròn + tiêu đề + pill + mô tả (tái dùng wga-card-top) */}
+      <div className="wga-card-top">
+        <div className="wga-card-avatar" style={{ borderColor: 'var(--primary)', color: 'var(--primary)' }}>
+          <Icon name="mail" size={20} />
         </div>
-        <p className="workflows-card-desc">{wf.description}</p>
+        <div className="wga-card-meta">
+          <div className="wga-card-name-row">
+            <span className="wga-card-name">{wf.label}</span>
+            {statusPill}
+          </div>
+          <div className="wga-card-substats">
+            <span>{wf.description}</span>
+          </div>
+        </div>
       </div>
 
       {/* Paused banner */}
       {isPaused && (
         <div className="workflows-paused-banner">
-          <span>⚠ Đã tạm dừng: {wf.pausedReason}</span>
-          <button className="workflows-btn workflows-btn-sm workflows-btn-warn"
-            onClick={handleReEnable} disabled={saving}>
+          <span style={_wfRow}><Icon name="warning" size={14} /> Đã tạm dừng: {wf.pausedReason}</span>
+          <button className="wga-btn" onClick={handleReEnable} disabled={saving}>
             {saving ? 'Đang bật...' : 'Bật lại'}
           </button>
         </div>
@@ -273,41 +288,61 @@ function WorkflowCard({ wf, onUpdate, pushToast }) {
           </select>
         </div>
 
+        {/* Điều kiện/option ĐỘNG per-workflow (render từ WORKFLOW_OPTIONS) */}
+        {optionSchema.map(opt => opt.type === 'bool' ? (
+          <div className="workflows-field-row" key={opt.key} style={{ alignItems: 'flex-start' }}>
+            <label className="workflows-field-label">{opt.label}</label>
+            <div>
+              <div className="workflows-toggle-wrap">
+                <label className="workflows-toggle">
+                  <input type="checkbox" checked={!!options[opt.key]}
+                    onChange={e => setOptions(o => ({ ...o, [opt.key]: e.target.checked }))} />
+                  <span className="workflows-toggle-track" />
+                </label>
+                <span className="workflows-toggle-label">{options[opt.key] ? 'Bật' : 'Tắt'}</span>
+              </div>
+              {opt.hint && <div className="workflows-card-substats" style={{ marginTop: 4 }}>{opt.hint}</div>}
+            </div>
+          </div>
+        ) : null)}
+
         {/* Thống kê lần gần nhất */}
         {(wf.lastRunUtc || wf.nextRunUtc) && (
           <div className="workflows-meta">
             {wf.lastRunUtc && (
               <div className="workflows-meta-item">
-                <span className="workflows-meta-label">Lần chạy cuối:</span>
+                <span className="workflows-meta-label">Lần chạy cuối</span>
                 <span className={'workflows-meta-val' + (wf.lastRunStatus === 'failed' ? ' workflows-meta-fail' : '')}>
                   {relativeTime(wf.lastRunUtc)}
-                  {wf.lastRunStatus === 'ok' ? ' · ✓' : wf.lastRunStatus === 'failed' ? ' · ✗' : ''}
+                  {wf.lastRunStatus === 'ok' && <Icon name="check" size={13} />}
+                  {wf.lastRunStatus === 'failed' && <Icon name="close" size={13} />}
                   {wf.lastRunSummary && <SummaryText summaryJson={wf.lastRunSummary} />}
                 </span>
               </div>
             )}
             {wf.nextRunUtc && enabled && !isPaused && (
               <div className="workflows-meta-item">
-                <span className="workflows-meta-label">Lần kế tiếp:</span>
+                <span className="workflows-meta-label">Lần kế tiếp</span>
                 <span className="workflows-meta-val">{futureTime(wf.nextRunUtc)}</span>
               </div>
             )}
           </div>
         )}
 
-        {/* Actions */}
+        {/* Actions — tái dùng wga-btn */}
         <div className="workflows-actions">
-          <button className="workflows-btn workflows-btn-primary"
+          <button className="wga-btn primary"
             onClick={handleSave} disabled={saving || running}>
-            {saving ? 'Đang lưu...' : 'Lưu cấu hình'}
+            <Icon name="save" size={14} /> {saving ? 'Đang lưu...' : 'Lưu cấu hình'}
           </button>
-          <button className="workflows-btn workflows-btn-secondary"
+          <button className="wga-btn"
             onClick={handleRunNow} disabled={running || saving}>
-            {running ? '⏳ Đang chạy...' : '▶ Chạy ngay'}
+            <Icon name="refresh" size={14} /> {running ? 'Đang chạy...' : 'Chạy ngay'}
           </button>
-          <button className="workflows-btn workflows-btn-ghost"
+          <button className="wga-btn ghost"
             onClick={toggleHistory}>
-            📜 {historyOpen ? 'Ẩn lịch sử' : '20 lần gần nhất'} {historyOpen ? '▲' : '▼'}
+            <Icon name="list" size={14} /> {historyOpen ? 'Ẩn lịch sử' : '20 lần gần nhất'}
+            <Icon name={historyOpen ? 'chevronUp' : 'chevronDown'} size={13} />
           </button>
         </div>
       </div>
@@ -343,30 +378,68 @@ function WorkflowsPage({ pushToast }) {
 
   uE(() => { loadWorkflows(); }, []);
 
+  // KPI — tính từ danh sách hiện tại
+  const running = workflows.filter(w => w.enabled && !w.pausedReason).length;
+  const paused = workflows.filter(w => !!w.pausedReason).length;
+  const lastRunMs = workflows.reduce((acc, w) => {
+    if (!w.lastRunUtc) return acc;
+    const t = new Date(w.lastRunUtc).getTime();
+    return (acc == null || t > acc) ? t : acc;
+  }, null);
+
   return (
-    <main className="page">
-      <div className="page-header">
-        <h1 className="page-title">⚙️ Tự động hóa</h1>
-        <p className="page-subtitle">Cấu hình tác vụ AI chạy tự động theo lịch</p>
+    <main className="page wga">
+      <div className="wga-head">
+        <div>
+          <div className="wga-eyebrow">Tích hợp · Tự động</div>
+          <h1>Tự động hóa</h1>
+          <p className="wga-sub">Tác vụ AI chạy nền theo lịch — kéo &amp; phân loại email, đồng bộ dữ liệu. Bật một lần, hệ thống tự chạy đều, bạn chỉ vào xem kết quả.</p>
+        </div>
       </div>
 
-      {loading && (
-        <div className="workflows-loading">Đang tải...</div>
+      {!loading && !error && workflows.length > 0 && (
+        <div className="wga-kpi-strip">
+          <div className="wga-kpi">
+            <div className="wga-kpi-l">Tác vụ</div>
+            <div className="wga-kpi-v">{workflows.length}</div>
+          </div>
+          <div className="wga-kpi">
+            <div className="wga-kpi-l">Đang chạy</div>
+            <div className="wga-kpi-v">{running}<span className="wga-kpi-s">/{workflows.length}</span></div>
+          </div>
+          <div className="wga-kpi">
+            <div className="wga-kpi-l">Tạm dừng</div>
+            <div className="wga-kpi-v">{paused}</div>
+          </div>
+          <div className="wga-kpi">
+            <div className="wga-kpi-l">Chạy gần nhất</div>
+            <div className="wga-kpi-v" style={{ fontSize: 16, fontWeight: 700 }}>
+              {lastRunMs ? relativeTime(new Date(lastRunMs).toISOString()) : '—'}
+            </div>
+          </div>
+        </div>
       )}
 
+      {loading && <div className="wga-loading">Đang tải…</div>}
+
       {error && (
-        <div className="workflows-error">
-          {error}
-          <button className="workflows-btn workflows-btn-sm" onClick={loadWorkflows}
-            style={{ marginLeft: 12 }}>Thử lại</button>
+        <div className="wga-empty">
+          <p>{error}</p>
+          <button className="wga-btn" onClick={loadWorkflows} style={{ marginTop: 14 }}>
+            <Icon name="refresh" size={14} /> Thử lại
+          </button>
         </div>
       )}
 
       {!loading && !error && workflows.length === 0 && (
-        <div className="workflows-empty">Chưa có workflow nào được cấu hình.</div>
+        <div className="wga-empty">
+          <div className="wga-empty-icon"><Icon name="zap" size={48} /></div>
+          <h3>Chưa có tác vụ tự động</h3>
+          <p>Khi có tác vụ khả dụng, bạn có thể bật lịch chạy nền tại đây.</p>
+        </div>
       )}
 
-      <div className="workflows-list">
+      <div className="wga-list workflows-list">
         {workflows.map(wf => (
           <WorkflowCard
             key={wf.type}

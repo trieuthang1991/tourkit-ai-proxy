@@ -7,17 +7,7 @@
 
 const { useState: _uC, useEffect: _uEC, useMemo: _uMc, useRef: _uRef } = React;
 
-// matchMedia-based isMobile hook (≤640px). Cùng pattern với deals.jsx.
-function _uCIsMobile(bp = 640) {
-  const [m, setM] = _uC(() => window.innerWidth <= bp);
-  _uEC(() => {
-    const check = () => setM(window.innerWidth <= bp);
-    window.addEventListener('resize', check);
-    check();
-    return () => window.removeEventListener('resize', check);
-  }, []);
-  return m;
-}
+// isMobile hook (≤640px) → dùng chung window.tourkitHooks.useIsMobile (lib/hooks.jsx)
 
 function CustomersPage({ pushToast }) {
   const [items, setItems]         = _uC([]);
@@ -36,7 +26,7 @@ function CustomersPage({ pushToast }) {
   const [rowStatus, setRowStatus] = _uC({});              // customerId → {stage, rank, summaryLine, streamText, error}
   const [drawerId, setDrawerId]   = _uC(null);            // KH đang xem detail
   const [forceFresh, setForceFresh] = _uC(false);
-  const isMobile = _uCIsMobile();   // <= 640px → render card thay vì bảng (cùng pattern deals)
+  const isMobile = window.tourkitHooks.useIsMobile();   // <= 640px → render card thay vì bảng
 
   const totalPages = Math.max(1, Math.ceil(total / pageSize));
 
@@ -323,26 +313,11 @@ function CustomersPage({ pushToast }) {
     try {
       const resp = await window.tourkitAuth.authedFetch(url, { signal: controller.signal });
       if (!resp.ok || !resp.body) throw new Error('Stream lỗi ' + resp.status);
-      const reader = resp.body.getReader();
-      const decoder = new TextDecoder('utf-8');
-      let buf = '';
-      while (true) {
-        const { done, value } = await reader.read();
-        if (done) break;
-        if (!mountedRef.current) { try { reader.cancel(); } catch {} break; }
-        buf += decoder.decode(value, { stream: true });
-        let idx;
-        while ((idx = buf.indexOf('\n\n')) >= 0) {
-          const evt = buf.slice(0, idx);
-          buf = buf.slice(idx + 2);
-          const line = evt.split('\n').find(l => l.startsWith('data:'));
-          if (!line) continue;
-          const payload = line.slice(5).trimStart();
-          let obj;
-          try { obj = JSON.parse(payload); } catch { continue; }
-          handleStreamEvent(obj);
-        }
-      }
+      // Plumbing SSE dùng chung; onEvent trả false khi unmount → readSSE dừng + cancel reader.
+      await window.tourkitUtil.readSSE(resp, obj => {
+        if (!mountedRef.current) return false;
+        handleStreamEvent(obj);
+      });
     } catch (e) {
       // Abort là hành vi mong muốn khi user thoát page — không phải lỗi để toast.
       if (e?.name === 'AbortError' || controller.signal.aborted || !mountedRef.current) return;

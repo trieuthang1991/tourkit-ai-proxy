@@ -18,18 +18,9 @@ const vndShort = (n) => {
   return n.toLocaleString('vi-VN');
 };
 
-function useIsMobile(bp = 640) {
-  const [m, setM] = _dS(() => window.innerWidth <= bp);
-  _dE(() => {
-    const check = () => setM(window.innerWidth <= bp);
-    window.addEventListener('resize', check);
-    check();
-    return () => window.removeEventListener('resize', check);
-  }, []);
-  return m;
-}
+// isMobile hook (≤640px) → dùng chung window.tourkitHooks.useIsMobile (lib/hooks.jsx)
 
-// Đọc SSE stream → onEvent(obj) mỗi event.
+// Đọc SSE stream → onEvent(obj) mỗi event. Plumbing dùng chung window.tourkitUtil.readSSE.
 async function readDealStream(url, onEvent) {
   // Gắn X-Session-Id: stream endpoint giờ verify session + tenant (như /reviews/batch stream).
   // Không gắn → 401. (Dùng header thay query để không lộ sessionId trên URL.)
@@ -38,21 +29,7 @@ async function readDealStream(url, onEvent) {
   if (sid) headers['X-Session-Id'] = sid;
   const resp = await fetch(url, { headers });
   if (!resp.ok || !resp.body) throw new Error('Stream không khả dụng (' + resp.status + ')');
-  const reader = resp.body.getReader();
-  const dec = new TextDecoder('utf-8');
-  let buf = '';
-  while (true) {
-    const { done, value } = await reader.read();
-    if (done) break;
-    buf += dec.decode(value, { stream: true });
-    let idx;
-    while ((idx = buf.indexOf('\n\n')) >= 0) {
-      const line = buf.slice(0, idx).split('\n').find(l => l.startsWith('data:'));
-      buf = buf.slice(idx + 2);
-      if (!line) continue;
-      try { onEvent(JSON.parse(line.slice(5).trim())); } catch { /* ignore */ }
-    }
-  }
+  await window.tourkitUtil.readSSE(resp, onEvent);
 }
 
 // ─── Drawer chi tiết 1 deal ───────────────────────────────────────────────────
@@ -222,7 +199,7 @@ function DealsPage({ pushToast }) {
                  + ['minValue','maxValue','maxAge','customMinRank','customMaxRank'].filter(k => adv[k] && adv[k] !== '').length
                  + (adv.sortBy && adv.sortBy !== 'newest' ? 1 : 0);
   const cancelUrl = _dR(null);
-  const isMobile = useIsMobile();
+  const isMobile = window.tourkitHooks.useIsMobile();
   const totalPages = Math.max(1, Math.ceil(total / pageSize));
 
   const loadBoard = async () => {

@@ -205,29 +205,14 @@
           const t = await resp.text().catch(() => '');
           throw new Error(t.slice(0, 200) || ('HTTP ' + resp.status));
         }
-        const reader = resp.body.getReader();
-        const dec = new TextDecoder('utf-8');
-        let buf = '';
-        while (true) {
-          const { done, value } = await reader.read();
-          if (done) break;
-          buf += dec.decode(value, { stream: true });
-          let i;
-          while ((i = buf.indexOf('\n\n')) >= 0) {
-            const evt = buf.slice(0, i); buf = buf.slice(i + 2);
-            const line = evt.split('\n').find(l => l.startsWith('data:'));
-            if (!line) continue;
-            const payload = line.slice(5).trim();
-            if (!payload) continue;
-            let o; try { o = JSON.parse(payload); } catch { continue; }
-            if (o.error) { patch(a => ({ ...a, content: '⚠️ ' + o.error, error: true, streaming: false })); setStage(null); continue; }
-            if (o.stage) { setStage(o.stage); continue; }
-            if (o.delta) { setStage(null); patch(a => ({ ...a, content: a.content + o.delta })); continue; }
-            if (o.done) {
-              if (o.reply) patch(a => ({ ...a, content: o.reply }));
-            }
+        await window.tourkitUtil.readSSE(resp, o => {
+          if (o.error) { patch(a => ({ ...a, content: '⚠️ ' + o.error, error: true, streaming: false })); setStage(null); return; }
+          if (o.stage) { setStage(o.stage); return; }
+          if (o.delta) { setStage(null); patch(a => ({ ...a, content: a.content + o.delta })); return; }
+          if (o.done) {
+            if (o.reply) patch(a => ({ ...a, content: o.reply }));
           }
-        }
+        });
       } catch (e) {
         patch(a => ({ ...a, content: '⚠️ ' + e.message, error: true }));
       } finally {

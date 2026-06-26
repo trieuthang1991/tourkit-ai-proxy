@@ -67,24 +67,13 @@ async function _streamDraft(url, body, onText) {
     body: JSON.stringify(body),
   });
   if (!r.ok || !r.body) { const t = await r.text().catch(() => ''); throw new Error(t.slice(0, 200) || ('HTTP ' + r.status)); }
-  const reader = r.body.getReader();
-  const dec = new TextDecoder('utf-8');
-  let buf = '', full = '';
-  while (true) {
-    const { done, value } = await reader.read();
-    if (done) break;
-    buf += dec.decode(value, { stream: true });
-    let i;
-    while ((i = buf.indexOf('\n\n')) >= 0) {
-      const evt = buf.slice(0, i); buf = buf.slice(i + 2);
-      const line = evt.split('\n').find(l => l.startsWith('data:'));
-      if (!line) continue;
-      let o; try { o = JSON.parse(line.slice(5).trim()); } catch { continue; }
-      if (o.error) throw new Error(o.error);
-      if (o.delta) { full += o.delta; onText(full); }
-      if (o.done && o.text) { full = o.text; onText(full); }
-    }
-  }
+  // Plumbing SSE dùng chung; accumulate text ở đây (semantics riêng của draft).
+  let full = '';
+  await window.tourkitUtil.readSSE(r, o => {
+    if (o.error) throw new Error(o.error);
+    if (o.delta) { full += o.delta; onText(full); }
+    if (o.done && o.text) { full = o.text; onText(full); }
+  });
   return full;
 }
 
@@ -406,30 +395,19 @@ function MailPage({ pushToast }) {
         if (r.status === 400) setShowConfig(true);
         return;
       }
-      const reader = r.body.getReader();
-      const decoder = new TextDecoder();
-      let buf = '';
+      // Plumbing SSE dùng chung; sync stream dùng obj.stage (fetching/done/error).
       let finalData = null;
-      while (true) {
-        const { done, value } = await reader.read();
-        if (done) break;
-        buf += decoder.decode(value, { stream: true });
-        let idx;
-        while ((idx = buf.indexOf('\n\n')) >= 0) {
-          const ev = buf.slice(0, idx).trim();
-          buf = buf.slice(idx + 2);
-          if (!ev.startsWith('data:')) continue;
-          try {
-            const obj = JSON.parse(ev.slice(5).trim());
-            setSyncProgress(obj);
-            if (obj.stage === 'done') finalData = obj;
-            if (obj.stage === 'error') {
-              pushToast(obj.message || 'Đồng bộ lỗi', 'error');
-              return;
-            }
-          } catch {}
+      let errored = false;
+      await window.tourkitUtil.readSSE(r, obj => {
+        setSyncProgress(obj);
+        if (obj.stage === 'done') finalData = obj;
+        if (obj.stage === 'error') {
+          pushToast(obj.message || 'Đồng bộ lỗi', 'error');
+          errored = true;
+          return false;   // dừng đọc + thoát
         }
-      }
+      });
+      if (errored) return;
       if (finalData) {
         applyData(finalData);
         pushToast(
@@ -681,7 +659,7 @@ function MailPage({ pushToast }) {
                       <button className="mail-btn primary sm" onClick={sendReply} disabled={sending || !draft.trim()}>
                         <Icon name="paper" size={13} /> {sending ? 'Đang gửi…' : 'Gửi cho khách'}
                       </button>
-                      <button className="mail-btn ghost sm" onClick={() => { navigator.clipboard?.writeText(draft); pushToast('Đã copy nháp'); }}>Copy</button>
+                      <button className="mail-btn ghost sm" onClick={() => { window.tourkitUtil.copyText(draft); pushToast('Đã copy nháp'); }}>Copy</button>
                     </div>
                   </div>
                 )}
