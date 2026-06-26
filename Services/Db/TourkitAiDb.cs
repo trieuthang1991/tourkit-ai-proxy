@@ -51,7 +51,7 @@ public class TourkitAiDb
             await using var cmd = c.CreateCommand();
             cmd.CommandText = SchemaSql;
             await cmd.ExecuteNonQueryAsync(ct);
-            _log.LogInformation("TourkitAiDb schema OK (Reviews/DealScores/MailAccounts/Mails/MailSyncState/TourQuotes/VisaAssessments/QuotaOrders/WidgetTokens/VisaQuestionSets/TkSessions/TenantQuota/AiUsageCounters/AiUsageHistory đã có/đã tạo)");
+            _log.LogInformation("TourkitAiDb schema OK (Reviews/DealScores/MailAccounts/Mails/MailSyncState/TourQuotes/VisaAssessments/QuotaOrders/WidgetTokens/VisaQuestionSets/TkSessions/TenantQuota/AiUsageCounters/AiUsageHistory/UserWorkflows/WorkflowRuns đã có/đã tạo)");
         }
         catch (Exception ex)
         {
@@ -429,6 +429,50 @@ BEGIN
     );
     CREATE INDEX IX_AiUsageHistory_Ts        ON dbo.AiUsageHistory(Ts DESC);
     CREATE INDEX IX_AiUsageHistory_Tenant_Ts ON dbo.AiUsageHistory(Tenant, Ts DESC);
+END;
+
+-- User Workflows: cấu hình tác vụ AI tự động theo lịch (interval) per-(Tenant, Username, WorkflowType).
+-- Username='' = per-tenant (dùng cho workflow tương lai không gắn user).
+-- PausedReason != NULL → scheduler bỏ qua (auto-pause sau 5 fail liên tiếp).
+IF OBJECT_ID('dbo.UserWorkflows', 'U') IS NULL
+BEGIN
+    CREATE TABLE dbo.UserWorkflows (
+        TenantId            NVARCHAR(64)   NOT NULL,
+        Username            NVARCHAR(120)  NOT NULL,        -- '' = tenant-wide
+        WorkflowType        NVARCHAR(64)   NOT NULL,
+        Enabled             BIT            NOT NULL CONSTRAINT DF_UserWorkflows_Enabled DEFAULT 0,
+        IntervalMinutes     INT            NOT NULL CONSTRAINT DF_UserWorkflows_Interval DEFAULT 15,
+        ConsecutiveFailures INT            NOT NULL CONSTRAINT DF_UserWorkflows_Failures DEFAULT 0,
+        PausedReason        NVARCHAR(500)  NULL,
+        NextRunUtc          DATETIME2      NULL,
+        LastRunUtc          DATETIME2      NULL,
+        LastRunStatus       NVARCHAR(16)   NULL,
+        LastRunSummary      NVARCHAR(MAX)  NULL,
+        UpdatedBy           NVARCHAR(120)  NULL,
+        UpdatedAtUtc        DATETIME2      NOT NULL CONSTRAINT DF_UserWorkflows_Updated DEFAULT SYSUTCDATETIME(),
+        CONSTRAINT PK_UserWorkflows PRIMARY KEY (TenantId, Username, WorkflowType)
+    );
+END;
+
+-- Lịch sử các lần chạy workflow: trigger, kết quả, lỗi, thời lượng.
+-- Giữ tối đa 100 run / (Tenant, Username, WorkflowType) — prune sau mỗi INSERT bằng repo.
+IF OBJECT_ID('dbo.WorkflowRuns', 'U') IS NULL
+BEGIN
+    CREATE TABLE dbo.WorkflowRuns (
+        Id              BIGINT IDENTITY(1,1) PRIMARY KEY,
+        TenantId        NVARCHAR(64)   NOT NULL,
+        Username        NVARCHAR(120)  NOT NULL,
+        WorkflowType    NVARCHAR(64)   NOT NULL,
+        TriggerKind     NVARCHAR(16)   NOT NULL,           -- 'scheduled' | 'manual'
+        StartedUtc      DATETIME2      NOT NULL,
+        FinishedUtc     DATETIME2      NULL,
+        Status          NVARCHAR(16)   NOT NULL,           -- 'ok' | 'failed'
+        Summary         NVARCHAR(MAX)  NULL,               -- JSON {fetched, classified, skipped}
+        Error           NVARCHAR(1000) NULL,
+        DurationMs      INT            NULL
+    );
+    CREATE INDEX IX_WorkflowRuns_Scope_Started
+      ON dbo.WorkflowRuns(TenantId, Username, WorkflowType, StartedUtc DESC);
 END;
 ";
 }
