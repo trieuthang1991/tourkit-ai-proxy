@@ -165,7 +165,8 @@ VALUES
         // CHỈ lấy metadata cho list — KHÔNG kéo Body/BodyHtml/AiSummary/DraftJson (nặng).
         // Body... lấy khi mở từng email qua GET /mail/{id}. → list rất nhẹ, scroll mượt.
         var rows = c.Query<MailRow>(
-            $@"SELECT Id, FromName, FromEmail, Subject, ReceivedAt, IsRead, Category, Status, AutoReplyError
+            $@"SELECT Id, FromName, FromEmail, Subject, ReceivedAt, IsRead, Category, Status, AutoReplyError,
+                      CAST(CASE WHEN DraftJson IS NULL THEN 0 ELSE 1 END AS BIT) AS HasDraft
                FROM dbo.Mails {where}
                ORDER BY ReceivedAt DESC
                OFFSET @off ROWS FETCH NEXT @lim ROWS ONLY", prm).ToList();
@@ -226,7 +227,8 @@ VALUES
                 AiSummary: row.AiSummary,
                 Draft: draft,
                 BodyHtml: row.BodyHtml,
-                AutoReplyError: row.AutoReplyError);
+                AutoReplyError: row.AutoReplyError,
+                HasDraft: row.HasDraft || !string.IsNullOrEmpty(row.DraftJson));
         }
         catch (Exception ex)
         {
@@ -252,6 +254,7 @@ VALUES
         public string? AiSummary { get; set; }
         public string? DraftJson { get; set; }
         public string? AutoReplyError { get; set; }
+        public bool HasDraft { get; set; }   // chỉ set ở list query (CASE) — full SELECT * suy ra từ DraftJson
     }
 
     /// <summary>Compact row mapper cho Counts — chỉ 3 column cần.</summary>

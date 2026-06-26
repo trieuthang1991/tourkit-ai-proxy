@@ -482,12 +482,22 @@ function MailPage({ pushToast }) {
   }
 
   async function setStatus(id, status) {
+    const oldStatus = items.find(m => m.id === id)?.status;
+    if (oldStatus === status) return;
     try {
       const r = await window.tourkitAuth.authedFetch(`/api/v1/mail/${encodeURIComponent(id)}/status`, {
         method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ status }),
       });
-      if (r.ok) { setItems(prev => prev.map(m => m.id === id ? { ...m, status } : m)); load(); }
-      else pushToast('Đổi trạng thái lỗi', 'error');
+      if (!r.ok) { pushToast('Đổi trạng thái lỗi', 'error'); return; }
+      // Cập nhật TẠI CHỖ — KHÔNG reload cả list (giữ scroll + các trang đã nạp + email đang mở).
+      setItems(prev => prev.map(m => m.id === id ? { ...m, status } : m));
+      // Cập nhật counts theo status ngay (không quét lại DB).
+      setCounts(c => {
+        const bs = { ...(c.byStatus || {}) };
+        if (oldStatus) bs[oldStatus] = Math.max(0, (bs[oldStatus] || 0) - 1);
+        bs[status] = (bs[status] || 0) + 1;
+        return { ...c, byStatus: bs };
+      });
     } catch (e) { pushToast(e.message, 'error'); }
   }
 
@@ -639,6 +649,15 @@ function MailPage({ pushToast }) {
                   <div className="mail-row-meta">
                     {m.category && <span className="mail-cat-chip"><i className={'mail-catdot cat-' + m.category} /> {_CAT_VI[m.category]}</span>}
                     <span className={'mail-st-pill st-' + m.status}>{_STATUS_VI[m.status]}</span>
+                    {m.status === 'da_phan_hoi' ? (
+                      <span className="mail-st-pill" style={{ background: '#DCFCE7', color: '#15803D', display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+                        <Icon name="check" size={11} /> Đã gửi
+                      </span>
+                    ) : m.hasDraft ? (
+                      <span className="mail-st-pill" style={{ background: '#FEF3C7', color: '#B45309', display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+                        <Icon name="edit" size={11} /> Nháp
+                      </span>
+                    ) : null}
                     {m.autoReplyError && (
                       <span className="mail-st-pill" title={m.autoReplyError}
                         style={{ background: '#FEE2E2', color: '#B91C1C', display: 'inline-flex', alignItems: 'center', gap: 4 }}>
