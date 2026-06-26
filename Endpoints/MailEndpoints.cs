@@ -3,6 +3,7 @@ using System.Text.Json;
 using TourkitAiProxy.Models;
 using TourkitAiProxy.Services.Mail;
 using TourkitAiProxy.Services.TourKit;
+using MailSyncResult = TourkitAiProxy.Services.Mail.MailSyncResult;
 
 namespace TourkitAiProxy.Endpoints;
 
@@ -83,7 +84,7 @@ public static class MailEndpoints
         // ─── POST /mail/sync ───────────────────────────────────────────────────
         // Query: ?max=N (default 100, cap 500). Backward compat trả JSON 1 lần.
         v1.MapPost("/mail/sync", async (
-            IMailSource source, MailRepository repo, MailClassifier classifier,
+            MailSyncService sync, MailRepository repo,
             TourkitAiProxy.Services.Workflow.IWorkflowTraceAccessor trace,
             TkSessionStore sessions,
             ILogger<Program> log, HttpContext ctx, int? max) =>
@@ -93,10 +94,10 @@ public static class MailEndpoints
             var (_, tenant, user) = auth.Value;
             var fetchCap = Math.Clamp(max ?? SyncMaxDefault, 1, SyncMaxAbsolute);
 
-            IReadOnlyList<MailItem> fetched;
+            MailSyncResult result;
             try
             {
-                fetched = await source.FetchRecentAsync(tenant, user, fetchCap, ctx.RequestAborted);
+                result = await sync.RunAsync(tenant, user, fetchCap, ctx.RequestAborted);
             }
             catch (InvalidOperationException ex)   // chưa cấu hình
             {
@@ -105,21 +106,18 @@ public static class MailEndpoints
             catch (Exception ex)
             {
                 log.LogError(ex, "IMAP sync lỗi");
-                return Results.Json(new { error = "Không kết nối được hộp thư: " + ex.Message }, statusCode: 502);
+                return Results.Json(new { error = ex.Message }, statusCode: 502);
             }
-
-            int classified = 0;
-            foreach (var mail in fetched)
-            {
-                if (repo.Has(tenant, mail.Id)) continue;   // đã có = đã phân loại → bỏ qua (tiết kiệm token)
-                var (cat, sum) = await classifier.ClassifyAsync(mail, ctx.RequestAborted);
-                repo.Upsert(tenant, mail with { Category = cat, AiSummary = sum });
-                classified++;
-            }
-            log.LogInformation("[mail] sync: {Fetched} kéo về (cap {Cap}), {New} phân loại mới", fetched.Count, fetchCap, classified);
 
             var traceObj = trace.Current?.Enabled == true ? trace.Current.Build() : null;
-            return Results.Json(new { items = repo.Filter(tenant, null, null, null), counts = repo.Counts(tenant), classified, fetched = fetched.Count, _trace = traceObj });
+            return Results.Json(new
+            {
+                items = repo.Filter(tenant, null, null, null),
+                counts = repo.Counts(tenant),
+                classified = result.Classified,
+                fetched = result.Fetched,
+                _trace = traceObj
+            });
         });
 
         // ─── POST /mail/sync/stream ────────────────────────────────────────────

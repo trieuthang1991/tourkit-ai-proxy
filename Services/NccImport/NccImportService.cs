@@ -296,8 +296,9 @@ QUY TẮC:
 
     public async Task<NccQuoteResult> ExtractQuoteFromTextAsync(string text, string? providerId, string? model, CancellationToken ct)
     {
-        // Resolve qua AiModelRegistry (giống ExtractFromTextAsync) → tôn trọng config Models:NccImport
-        // thay vì rơi về provider default (anthropic → claude-sonnet-4-5).
+        // Resolve qua AiModelRegistry (giống ExtractFromTextAsync) → đọc Models:NccImport, fallback
+        // Models:Primary → apiKey được resolve ĐÚNG (trước đây truyền ApiKey:null nên key Anthropic ở
+        // Models:Primary:ApiKey không tới được → throw "Chưa nhập API key cho Claude").
         var resolved = _modelRegistry.Resolve(AiFeature.NccImport, providerId, model);
         var provider = _registry.Resolve(resolved.Provider);
         var req = new CompleteRequest(

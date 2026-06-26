@@ -40,6 +40,18 @@ function _avatarStyle(name) {
   return { background: `linear-gradient(140deg, hsl(${h} 58% 56%), hsl(${(h + 38) % 360} 64% 44%))` };
 }
 
+// Link "Tạo App Password": ép Google nhắm ĐÚNG email user nhập, không lấy account đang đăng nhập sẵn.
+// Dùng AccountChooser + continue → nếu email đó CHƯA đăng nhập trên trình duyệt, Google sẽ nhắc
+// thêm/đăng nhập đúng tài khoản đó rồi mới vào trang App Passwords (bắt buộc phải auth bằng chính
+// tài khoản đó — Google không cho tạo App Password hộ account khác).
+function _appPasswordUrl(email) {
+  const target = 'https://myaccount.google.com/apppasswords';
+  const e = (email || '').trim();
+  return e
+    ? 'https://accounts.google.com/AccountChooser?Email=' + encodeURIComponent(e) + '&continue=' + encodeURIComponent(target)
+    : target;
+}
+
 // AI config (provider/model) gửi kèm request soạn.
 // v9: server đọc key từ appsettings — FE không gửi apiKey.
 function _aiBody() {
@@ -198,7 +210,9 @@ function MailAccountForm({ account, onSaved, onDisconnected, pushToast }) {
         <button className="mail-btn primary block" disabled={saving} onClick={save}>
           {saving ? 'Đang lưu…' : 'Lưu & kết nối'}
         </button>
-        <a className="mail-config-link" href="https://myaccount.google.com/apppasswords" target="_blank" rel="noopener noreferrer">
+        <a className="mail-config-link"
+          href={_appPasswordUrl(address)}
+          target="_blank" rel="noopener noreferrer">
           Tạo App Password ↗
         </a>
         {account?.configured && (
@@ -206,7 +220,7 @@ function MailAccountForm({ account, onSaved, onDisconnected, pushToast }) {
             <div className="mail-config-danger-head">Ngắt kết nối hộp thư</div>
             <p className="mail-config-danger-sub">
               Xoá App Password đang lưu cho <b>{account.address}</b>. Sau đó cần nhập lại để dùng tiếp.
-              Nhớ vào <a href="https://myaccount.google.com/apppasswords" target="_blank" rel="noopener noreferrer">Google · App passwords</a> để revoke luôn cho an toàn.
+              Nhớ vào <a href={_appPasswordUrl(account.address)} target="_blank" rel="noopener noreferrer">Google · App passwords</a> để revoke luôn cho an toàn.
             </p>
             <button className="mail-btn danger block" disabled={disconnecting} onClick={() => disconnect(false)}>
               {disconnecting ? 'Đang ngắt…' : 'Ngắt kết nối (giữ lịch sử)'}

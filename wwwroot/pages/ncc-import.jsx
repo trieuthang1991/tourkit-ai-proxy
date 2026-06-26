@@ -102,6 +102,12 @@
       if (!sid()) { pushToast?.('Chưa đăng nhập TourKit — mở trang Trợ lý để đăng nhập.', 'warn'); return; }
       if (!serviceId) { pushToast?.('Hãy chọn Loại dịch vụ trước khi lưu', 'warn'); return; }
       if (!(quote?.supplier?.name || '').trim()) { pushToast?.('Thiếu Tên NCC', 'warn'); return; }
+      // SĐT bắt buộc (CRM yêu cầu) — AI thường không bóc được → nhắc user điền ô SĐT
+      const _ph = quote?.supplier?.phones;
+      const _firstPhone = Array.isArray(_ph) ? (_ph.find(x => (x || '').toString().trim()) || '').toString().trim() : (_ph || '').toString().trim();
+      if (!_firstPhone && !(quote?.supplier?.contactPhone || '').trim()) {
+        pushToast?.('Thiếu SĐT nhà cung cấp — nhập vào ô "SĐT" trước khi lưu (CRM bắt buộc)', 'warn'); return;
+      }
       setSaving(true);
       try {
         const r = await fetch('/api/v1/ncc-import/save', {
@@ -208,8 +214,10 @@
                     const isArr = Array.isArray(val);
                     return (
                       <label key={k} style={{ display: 'grid', gap: 4 }}>
-                        <span style={{ fontSize: 11, color: 'var(--text-3)', fontWeight: 600 }}>{label}</span>
-                        <input value={isArr ? val.join(', ') : (val ?? '')} readOnly={isArr}
+                        <span style={{ fontSize: 11, color: 'var(--text-3)', fontWeight: 600 }}>
+                          {label}{k === 'phones' && <span style={{ color: '#e5484d' }}> *</span>}
+                        </span>
+                        <input value={isArr ? val.join(', ') : (val ?? '')}
                                onChange={e => setSupplier(k, e.target.value)}
                                style={{ padding: '8px 10px', border: '1px solid var(--border)', borderRadius: 8,
                                         fontSize: 13, background: 'var(--bg)', color: 'var(--text)' }} />

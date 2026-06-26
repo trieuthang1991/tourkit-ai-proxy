@@ -116,6 +116,12 @@ builder.Services.AddSingleton<TourkitAiProxy.Services.Cache.AiResponseCache>();
 // Lưu API key provider (OpenAI/Anthropic) nhập từ UI — server-side, mã hóa, gitignored.
 builder.Services.AddSingleton<ProviderKeyStore>();
 
+// Admin governance — auth qua Admin:Users (JSON config) + in-mem session.
+builder.Services.AddSingleton<TourkitAiProxy.Services.Admin.AdminUserStore>();
+builder.Services.AddSingleton<TourkitAiProxy.Services.Admin.AdminSessionStore>();
+builder.Services.AddSingleton<TourkitAiProxy.Services.Admin.AdminUsageRepository>();
+builder.Services.AddSingleton<TourkitAiProxy.Services.Admin.ConsultLeadRepository>();
+
 // AI providers — đăng ký 1 lần ở đây, ProviderRegistry tự pickup qua IEnumerable<IAiProvider>.
 // Thêm provider mới: implement IAiProvider + AddSingleton<IAiProvider, NewProvider>().
 builder.Services.AddSingleton<IAiProvider, OpenCodeProvider>();
@@ -209,7 +215,19 @@ builder.Services.AddSingleton<TourkitAiProxy.Services.Mail.MailRepository>();
 builder.Services.AddSingleton<TourkitAiProxy.Services.Mail.IMailSource, TourkitAiProxy.Services.Mail.GmailImapClient>();
 builder.Services.AddSingleton<TourkitAiProxy.Services.Mail.IMailSender, TourkitAiProxy.Services.Mail.GmailSmtpClient>();
 builder.Services.AddSingleton<TourkitAiProxy.Services.Mail.MailClassifier>();
+builder.Services.AddSingleton<TourkitAiProxy.Services.Mail.MailSyncService>();   // shared sync logic (HTTP endpoint + workflow)
 builder.Services.AddSingleton<TourkitAiProxy.Services.Mail.MailReplyService>();
+
+// User Workflows — tác vụ AI tự động theo lịch per-(tenant, user).
+// Framework: WorkflowRegistry + WorkflowSchedulerService (tick 60s).
+// V1 built-in: MailAutoSyncWorkflow (mail-auto-sync, Scope=PerUser).
+builder.Services.AddSingleton<TourkitAiProxy.Services.Workflows.WorkflowRepository>();
+builder.Services.AddSingleton<TourkitAiProxy.Services.Workflows.WorkflowRegistry>();
+builder.Services.AddSingleton<TourkitAiProxy.Services.Workflows.IScheduledWorkflow,
+                              TourkitAiProxy.Services.Workflows.MailAutoSyncWorkflow>();
+builder.Services.AddSingleton<TourkitAiProxy.Services.Workflows.WorkflowSchedulerService>();
+builder.Services.AddHostedService(sp =>
+    sp.GetRequiredService<TourkitAiProxy.Services.Workflows.WorkflowSchedulerService>());
 
 // Soạn Tour GIT bằng AI — bóc mô tả tự do thành form Tour GIT (Type=3) cho NV prefill.
 builder.Services.AddSingleton<TourkitAiProxy.Services.Tour.TourBuilderService>();
@@ -374,6 +392,7 @@ app.MapAiEndpoints();
 app.MapReviewEndpoints();
 app.MapChatEndpoints();
 app.MapMailEndpoints();
+app.MapWorkflowEndpoints();
 app.MapTourEndpoints();
 app.MapVisaEndpoints();
 app.MapDealEndpoints();
@@ -381,9 +400,24 @@ app.MapTourQuoteEndpoints();
 app.MapSpeechEndpoints();
 app.MapTourBuilderEndpoints();
 app.MapAiUsageEndpoints();
+app.MapAdminAuthEndpoints();    // /api/v1/admin/auth/{login,logout,me}
+app.MapAdminUiEndpoints();      // /api/v1/admin/ui/* (require X-Admin-Session)
 app.MapQuotaEndpoints();
 app.MapQuotaOrderEndpoints();
 app.MapWidgetEndpoints();
+
+// Admin shell — entry HTML riêng /admin-trav-ai.html, KHÔNG share index.html user-facing.
+// MapGet explicit thắng MapFallback (StaticFilesSetup) → /admin-trav-ai/{**path} serve đúng file admin.
+app.MapGet("/admin-trav-ai", (HttpContext ctx) => ServeAdminHtml(ctx, app.Environment.ContentRootPath));
+app.MapGet("/admin-trav-ai/{**path}", (HttpContext ctx) => ServeAdminHtml(ctx, app.Environment.ContentRootPath));
+
+static IResult ServeAdminHtml(HttpContext ctx, string contentRoot)
+{
+    var path = Path.Combine(contentRoot, "wwwroot", "admin-trav-ai.html");
+    if (!File.Exists(path)) return Results.NotFound();
+    ctx.Response.Headers["Cache-Control"] = "no-cache, must-revalidate";
+    return Results.Content(File.ReadAllText(path), "text/html; charset=utf-8");
+}
 
 // SPA fallback (deep-link /mail, /customers, /assistant + F5) ĐÃ CHUYỂN vào UseTourkitStaticFiles
 // → app.MapFallback(ServeIndex): deep-link/F5 nay cũng nhận bundle-injection + ?v=hash thay vì rớt
