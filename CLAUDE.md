@@ -348,10 +348,13 @@ wwwroot/
 **Adding a new page:**
 1. `pages/<name>.jsx`: `function MyPage({ pushToast }) {...} window.MyPage = MyPage;`
 2. `index.html`: add `<script type="text/babel" src="pages/<name>.jsx"></script>` after existing pages.
-3. `app.jsx`: add `<Route path="/<name>" render={() => <window.MyPage pushToast={pushToast} />} />` inside `<Router>`.
-4. `app.jsx`: add `<Link to="/<name>">Tên</Link>` in the nav.
+3. **`bundle-entry.js`: add `import "./pages/<name>.jsx";`** — BẮT BUỘC, dễ quên. Thiếu bước này thì dev (Babel) chạy được nhưng **prod bundle thiếu trang → trắng trang + `React #130`**. `index.html` (dev) và `bundle-entry.js` (prod esbuild) phải LUÔN khớp danh sách.
+4. `app.jsx`: add `<Route path="/<name>" render={() => <window.MyPage pushToast={pushToast} />} />` inside `<Router>`.
+5. `app.jsx`: add `<Link to="/<name>">Tên</Link>` in the nav.
 
 No bundler, no npm install. `<script type="text/babel">` is transformed in-browser by `@babel/standalone`.
+
+**Dùng lại helper, KHÔNG copy-paste:** React hook chung ở [`wwwroot/lib/hooks.jsx`](wwwroot/lib/hooks.jsx) (`window.tourkitHooks` — vd `useIsMobile`); util thuần ở [`wwwroot/lib/util.js`](wwwroot/lib/util.js) (`window.tourkitUtil` — `readSSE`, `fmtAgo`, `fmtDate`, `copyText`); tiền VND ở `window.fmtVND` (lib/data.js); auth/fetch ở `window.tourkitAuth.authedFetch`. Cần thêm helper dùng nhiều nơi → thêm vào các file này thay vì định nghĩa lại trong từng page.
 
 ## Cross-cutting
 
@@ -391,7 +394,8 @@ Khi câu hỏi liên quan đến **cấu trúc code** (callers/callees, "X dùng
 
 - User-facing strings, log messages, comments, and README are in Vietnamese — preserve that when editing.
 - `appsettings.json` currently contains real-looking API keys. Treat them as secrets: don't echo them, and prefer env vars (e.g. `Providers__OpenCode__ApiKey`, `OPENCODE_API_KEY`, `NINE_ROUTES_API_KEY`) for any production-bound change.
-- Frontend exposes singletons via `window.tourkit*` namespaces (`tourkit.ai`, `tourkitStorage`, `tourkitParsers`, `tourkitRouter`, `tourkitHistory`).
+- Frontend exposes singletons via `window.tourkit*` namespaces (`tourkit.ai`, `tourkitStorage`, `tourkitParsers`, `tourkitRouter`, `tourkitHistory`, `tourkitHooks`, `tourkitUtil`).
+- **DateTime = UTC, luôn kèm `Z`** (STRICT — xem [docs/datetime-convention.md](docs/datetime-convention.md)). Lưu DB bằng `DateTime.UtcNow` / SQL `SYSUTCDATETIME()` (KHÔNG `DateTime.Now`/`GETDATE()`). Parse chuỗi ngày để lưu → `DateTimeStyles.AssumeUniversal | AdjustToUniversal` (TryParse trần ra `Kind=Local` → lưu sai). Trả client: field `DateTime` tự có `Z` qua [`UtcDateTimeConverter`](Services/Json/UtcDateTimeConverter.cs) (global); chuỗi `ToString("o")` từ SQL phải `DateTime.SpecifyKind(x, DateTimeKind.Utc)` trước (Dapper đọc DATETIME2 ra `Kind=Unspecified` → thiếu `Z` → frontend lệch +7h). Frontend dùng `window.tourkitUtil.fmtAgo/fmtDate`, không tự cộng/trừ giờ.
 
 <!-- gitnexus:start -->
 # GitNexus — Code Intelligence

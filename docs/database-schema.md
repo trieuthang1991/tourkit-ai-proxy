@@ -27,8 +27,13 @@
 | 12 | `dbo.TenantQuota` | Quota AI per-tenant (`Limit`/`Used`). Atomic Consume cross-instance qua SQL `UPDATE Used = Used + 1`. In-mem cache + 5s batch flush ([`QuotaFlushService`](../Services/Quota/QuotaFlushService.cs)). | [`TenantQuotaRepository`](../Services/Quota/TenantQuotaRepository.cs) | `TenantId` |
 | 13 | `dbo.AiUsageCounters` | **Aggregate** daily AI usage per model — `(DateUtc, Model)` MERGE upsert. Rẻ cho `/api/v1/usage` (group by Model). | [`UsageRepository`](../Services/UsageRepository.cs) | `(DateUtc, Model)` |
 | 14 | `dbo.AiUsageHistory` | **Granular** per-request AI usage history (mỗi AI call = 1 row). Bổ sung cho `AiUsageCounters` khi cần breakdown theo feature/session/tenant. Trước đây file `data/ai-usage.jsonl` → mất khi deploy → đã migrate sang đây 2026-06-24. **Source của admin cross-tenant view `/admin-trav-ai/ai-usage`** (xem [AdminUsageRepository](../Services/Admin/AdminUsageRepository.cs)). | [`AiUsageHistoryRepository`](../Services/AiUsageHistoryRepository.cs) | `Id` IDENTITY |
+| 15 | `dbo.UserWorkflows` | User Workflows: cấu hình lịch chạy AI tự động per-(tenant, user, type) — `Enabled`/`IntervalMinutes`/`NextRunUtc`/`ConsecutiveFailures`/`PausedReason`. **`OptionsJson`** = điều kiện/option ĐỘNG per-workflow (vd mail: `{autoReply, replyMode, replyCategories, replyTone}`). | [`WorkflowRepository`](../Services/Workflows/WorkflowRepository.cs) | `(TenantId, Username, WorkflowType)` |
+| 16 | `dbo.WorkflowRuns` | Lịch sử các lần chạy workflow (trigger/status/summary/error/duration). Prune giữ 100 run/scope. | [`WorkflowRepository`](../Services/Workflows/WorkflowRepository.cs) | `Id` IDENTITY |
+| 17 | `dbo.AppLogs` | Log ứng dụng tập trung (thay stdout, cho site workflow tách riêng truy chung). **Thiết kế ĐỘNG: `Kind` phân loại + `DataJson` payload tùy ý** → thêm loại log mới khỏi đổi schema. `ILogger`→`Kind='app'`; `ILogSink.Write("kind",…,data)` cho log có cấu trúc loại bất kỳ. Bật qua `Logging:Database:Enabled`. | [`DbLogWriter`](../Services/Logging/DbLogWriter.cs) / [`DbLogging`](../Services/Logging/DbLogging.cs) | `Id` IDENTITY |
 
-### Tổng cộng: **14 bảng** owned by proxy.
+> Cột mới đáng chú ý (2026-06-26): `Mails.AutoReplyError` (đánh dấu lỗi auto-reply để hiện ở UI); `UserWorkflows.OptionsJson` (điều kiện động).
+
+### Tổng cộng: **17 bảng** owned by proxy.
 
 ## Bảng đã bỏ
 
@@ -68,7 +73,8 @@ Verify: `Grep "dbo\.(PushLogs|ScheduledTask)" --include="*.cs"` trong repo này 
 
 ### 4. Time columns
 - `BIGINT` ms-epoch UTC cho field bot/AI ghi (vd `Reviews.GeneratedAt`) — gọn, không TZ headache.
-- `DATETIME2` UTC cho field user-facing (vd `CreatedAt`/`UpdatedAt`). Default `SYSUTCDATETIME()` ở phía DB.
+- `DATETIME2` **UTC** cho field user-facing (vd `CreatedAt`/`UpdatedAt`). Lưu bằng `SYSUTCDATETIME()` / `DateTime.UtcNow` (KHÔNG `GETDATE()`/`DateTime.Now`).
+- ⚠️ **Lệch múi giờ**: Dapper đọc `DATETIME2` ra `Kind=Unspecified` → serialize thiếu `Z` → frontend lệch +7h. Đọc client phải có `Z` (global `UtcDateTimeConverter` lo field DateTime; chuỗi `ToString("o")` phải `SpecifyKind(Utc)`). Parse chuỗi để lưu → `AssumeUniversal|AdjustToUniversal`. **1 nguồn quy ước: [datetime-convention.md](datetime-convention.md).**
 
 ### 5. Sync flag pattern (Reviews/DealScores/TourQuotes)
 - `IsSync BIT NOT NULL DEFAULT 0`: cờ cho worker (Hangfire bên TourKit) đồng bộ sang bảng chính của CRM.
