@@ -130,10 +130,14 @@ public class MailReplyService
     private string BuildReplyPrompt(string tenantId, string username, MailItem mail, string toneLabel, string? instruction)
     {
         var instr = string.IsNullOrWhiteSpace(instruction) ? "(không có)" : instruction!.Trim();
+        // Cắt body dài (newsletter/email lắm rác ~chục K ký tự) → AI focus phần đầu + đỡ tốn token.
+        // ~6000 ký tự đủ trọn nội dung email khách thông thường; chỉ rút gọn các email rất dài.
+        var body = (mail.Body ?? "").Trim();
+        if (body.Length > 6000) body = body[..6000] + "\n…(nội dung dài đã rút gọn)";
         return $@"EMAIL CỦA KHÁCH:
 Từ: {mail.From.Name} <{mail.From.Email}>
 Tiêu đề: {mail.Subject}
-Nội dung: {mail.Body}
+Nội dung: {body}
 
 NGỮ ĐIỆU YÊU CẦU: {toneLabel}
 CHỈ THỊ THÊM CỦA NHÂN VIÊN: {instr}
