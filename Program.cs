@@ -215,7 +215,19 @@ builder.Services.AddSingleton<TourkitAiProxy.Services.Mail.MailRepository>();
 builder.Services.AddSingleton<TourkitAiProxy.Services.Mail.IMailSource, TourkitAiProxy.Services.Mail.GmailImapClient>();
 builder.Services.AddSingleton<TourkitAiProxy.Services.Mail.IMailSender, TourkitAiProxy.Services.Mail.GmailSmtpClient>();
 builder.Services.AddSingleton<TourkitAiProxy.Services.Mail.MailClassifier>();
+builder.Services.AddSingleton<TourkitAiProxy.Services.Mail.MailSyncService>();   // shared sync logic (HTTP endpoint + workflow)
 builder.Services.AddSingleton<TourkitAiProxy.Services.Mail.MailReplyService>();
+
+// User Workflows — tác vụ AI tự động theo lịch per-(tenant, user).
+// Framework: WorkflowRegistry + WorkflowSchedulerService (tick 60s).
+// V1 built-in: MailAutoSyncWorkflow (mail-auto-sync, Scope=PerUser).
+builder.Services.AddSingleton<TourkitAiProxy.Services.Workflows.WorkflowRepository>();
+builder.Services.AddSingleton<TourkitAiProxy.Services.Workflows.WorkflowRegistry>();
+builder.Services.AddSingleton<TourkitAiProxy.Services.Workflows.IScheduledWorkflow,
+                              TourkitAiProxy.Services.Workflows.MailAutoSyncWorkflow>();
+builder.Services.AddSingleton<TourkitAiProxy.Services.Workflows.WorkflowSchedulerService>();
+builder.Services.AddHostedService(sp =>
+    sp.GetRequiredService<TourkitAiProxy.Services.Workflows.WorkflowSchedulerService>());
 
 // Soạn Tour GIT bằng AI — bóc mô tả tự do thành form Tour GIT (Type=3) cho NV prefill.
 builder.Services.AddSingleton<TourkitAiProxy.Services.Tour.TourBuilderService>();
@@ -380,6 +392,7 @@ app.MapAiEndpoints();
 app.MapReviewEndpoints();
 app.MapChatEndpoints();
 app.MapMailEndpoints();
+app.MapWorkflowEndpoints();
 app.MapTourEndpoints();
 app.MapVisaEndpoints();
 app.MapDealEndpoints();

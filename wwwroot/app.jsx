@@ -47,6 +47,7 @@ const NAV_GROUPS = [
   { label: 'Tích hợp', items: [
     { to: '/widget-admin', icon: 'sparkle', label: 'Widget Chat' },   // embed JS widget cho site khách
     { to: '/visa-config',  icon: 'sliders', label: 'Câu hỏi Visa' },  // admin tenant chỉnh wizard câu hỏi
+    { to: '/workflows',    icon: 'zap',     label: 'Tự động hóa' },   // tác vụ AI chạy theo lịch
   ]},
 ];
 // Flat list — dùng cho navQuery search ở topbar (giữ logic cũ).
@@ -445,6 +446,7 @@ function App() {
         <Route path="/ncc-list"     render={() => <window.NccListPage pushToast={pushToast} />} />
         <Route path="/ncc-import"   render={() => <window.NccImportPage pushToast={pushToast} />} />
         <Route path="/visa-config"  render={() => <window.VisaConfigPage pushToast={pushToast} />} />
+        <Route path="/workflows"    render={() => <window.WorkflowsPage pushToast={pushToast} />} />
         <Route path="*"          render={() => (
           <main className="page" style={{padding: 40, textAlign: 'center', color: 'var(--text-3)'}}>
             Trang không tồn tại. <Link to="/" style={{color: 'var(--accent)'}}>Về trang chính</Link>
