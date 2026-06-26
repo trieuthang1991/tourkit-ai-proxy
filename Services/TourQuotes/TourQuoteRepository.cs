@@ -274,7 +274,8 @@ OFFSET @off ROWS FETCH NEXT @sz ROWS ONLY",
             AdultCount: r.AdultCount, ChildCount: r.ChildCount,
             TotalNet: r.TotalNet, TotalRevenue: r.TotalRevenue, Profit: r.Profit,
             MarginPercent: r.MarginPercent, CreatedBy: r.CreatedBy,
-            CreatedAt: r.CreatedAt.ToString("o"), UpdatedAt: r.UpdatedAt.ToString("o"))).ToList();
+            CreatedAt: DateTime.SpecifyKind(r.CreatedAt, DateTimeKind.Utc).ToString("o"),
+            UpdatedAt: DateTime.SpecifyKind(r.UpdatedAt, DateTimeKind.Utc).ToString("o"))).ToList();
         return (items, total);
     }
 
@@ -301,7 +302,8 @@ OFFSET @off ROWS FETCH NEXT @sz ROWS ONLY",
             TotalNet: r.TotalNet, TotalRevenue: r.TotalRevenue, Profit: r.Profit,
             MarginPercent: r.MarginPercent, Data: data,
             CreatedBy: r.CreatedBy,
-            CreatedAt: r.CreatedAt.ToString("o"), UpdatedAt: r.UpdatedAt.ToString("o"));
+            CreatedAt: DateTime.SpecifyKind(r.CreatedAt, DateTimeKind.Utc).ToString("o"),
+            UpdatedAt: DateTime.SpecifyKind(r.UpdatedAt, DateTimeKind.Utc).ToString("o"));
     }
 
     private sealed class QuoteRow

@@ -89,7 +89,7 @@ public static class QuotaOrderEndpoints
 
             return Results.Json(new OrderStatusResp(
                 OrderId: row.Id, Status: row.Status,
-                PaidAt: row.PaidAt?.ToString("o"),
+                PaidAt: row.PaidAt.HasValue ? DateTime.SpecifyKind(row.PaidAt.Value, DateTimeKind.Utc).ToString("o") : null,
                 AddedUnits: row.Status == "paid" ? row.QuotaUnits : null,
                 QuotaUsed:      snap?.Used,
                 QuotaLimit:     snap?.Limit,

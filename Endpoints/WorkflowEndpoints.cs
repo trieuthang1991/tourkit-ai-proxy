@@ -49,13 +49,13 @@ public static class WorkflowEndpoints
                     intervalMinutes = row?.IntervalMinutes ?? 15,
                     consecutiveFailures = row?.ConsecutiveFailures ?? 0,
                     pausedReason = row?.PausedReason,
-                    nextRunUtc = row?.NextRunUtc,
-                    lastRunUtc = row?.LastRunUtc,
+                    nextRunUtc = AsUtc(row?.NextRunUtc),
+                    lastRunUtc = AsUtc(row?.LastRunUtc),
                     lastRunStatus = row?.LastRunStatus,
                     lastRunSummary = row?.LastRunSummary,
                     options = ParseOptions(row?.OptionsJson),   // điều kiện/option ĐỘNG (object) cho UI
                     updatedBy = row?.UpdatedBy,
-                    updatedAtUtc = row?.UpdatedAtUtc
+                    updatedAtUtc = AsUtc(row?.UpdatedAtUtc)
                 };
             }).ToList();
 
@@ -100,7 +100,7 @@ public static class WorkflowEndpoints
                 intervalMinutes = updated?.IntervalMinutes ?? interval,
                 consecutiveFailures = updated?.ConsecutiveFailures ?? 0,
                 pausedReason = updated?.PausedReason,
-                nextRunUtc = updated?.NextRunUtc,
+                nextRunUtc = AsUtc(updated?.NextRunUtc),
                 options = ParseOptions(updated?.OptionsJson)
             });
         });
@@ -172,8 +172,8 @@ public static class WorkflowEndpoints
                 {
                     id = r.Id,
                     triggerKind = r.TriggerKind,
-                    startedUtc = r.StartedUtc,
-                    finishedUtc = r.FinishedUtc,
+                    startedUtc = AsUtc(r.StartedUtc),
+                    finishedUtc = AsUtc(r.FinishedUtc),
                     status = r.Status,
                     summary = r.Summary,
                     error = r.Error,
@@ -198,6 +198,11 @@ public static class WorkflowEndpoints
 
     private static IResult Unauthorized()
         => Results.Json(new { error = "Phiên không hợp lệ — đăng nhập lại" }, statusCode: 401);
+
+    /// Đánh dấu DateTime là UTC → System.Text.Json serialize kèm 'Z' → JS parse đúng UTC (không lệch +7h).
+    /// DateTime từ SQL (Dapper) có Kind=Unspecified nên mặc định serialize KHÔNG có 'Z' → client hiểu nhầm local.
+    private static DateTime? AsUtc(DateTime? d)
+        => d.HasValue ? DateTime.SpecifyKind(d.Value, DateTimeKind.Utc) : null;
 
     /// OptionsJson (string) → object cho JSON response (null nếu rỗng/parse lỗi).
     private static object? ParseOptions(string? optionsJson)

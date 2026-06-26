@@ -10,6 +10,13 @@ using TourkitAiProxy.Services.Workflow;
 
 var builder = WebApplication.CreateBuilder(args);
 
+// ─── JSON: serialize MỌI DateTime kèm 'Z' (UTC) ───────────────────────────────
+// DateTime từ SQL (Kind=Unspecified) mặc định serialize KHÔNG có 'Z' → trình duyệt hiểu nhầm giờ local
+// → lệch +7h. App lưu UTC toàn bộ nên gắn 'Z' là đúng. Chỉ tác động field DateTime-typed (an toàn,
+// các entity lưu local đọc dạng string không bị đụng). Xem UtcDateTimeConverter.
+builder.Services.ConfigureHttpJsonOptions(o =>
+    o.SerializerOptions.Converters.Add(new TourkitAiProxy.Services.Json.UtcDateTimeConverter()));
+
 // ─── DB logging ĐỘNG (dbo.AppLogs) ────────────────────────────────────────────
 // Site workflow sẽ tách riêng → log gom về DB để MỌI instance truy chung 1 nguồn (stdout không share được).
 // Thiết kế động: cột Kind phân loại + DataJson payload tùy ý → thêm loại log mới khỏi đổi schema.
