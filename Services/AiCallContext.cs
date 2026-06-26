@@ -64,6 +64,7 @@ public class AiCallContext
         if (p.Contains("/deals/"))        return "deals";
         if (p.Contains("/tour-builder/")) return "tour-builder";
         if (p.Contains("/mail/"))         return "mail";
+        if (p.Contains("/ncc-import/"))   return "ncc-import";
         if (p.Contains("/reviews/"))      return "reviews";
         if (p.Contains("/chat"))          return "chat";
         if (p.Contains("/completions"))   return "completions";

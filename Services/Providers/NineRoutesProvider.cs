@@ -1,6 +1,7 @@
 using System.Text;
 using System.Text.Json;
 using TourkitAiProxy.Models;
+using TourkitAiProxy.Services.Json;
 using TourkitAiProxy.Services.Quota;
 
 namespace TourkitAiProxy.Services.Providers;
@@ -171,9 +172,12 @@ public class NineRoutesProvider : IAiProvider
     private static (string text, int inTok, int outTok, string finishReason) ParseResponse(string raw)
     {
         var trimmed = raw.TrimStart();
-        if (trimmed.StartsWith("data:"))
+
+        // 9routes/route.com đôi khi trả SSE ngay cả khi non-stream. Nhận diện rộng:
+        // bắt đầu bằng "data:" HOẶC có dòng "data:" ở giữa (router chèn keepalive/comment trước).
+        bool looksSse = trimmed.StartsWith("data:") || raw.Contains("\ndata:") || raw.Contains("\rdata:");
+        if (looksSse)
         {
-            // 9routes trả SSE format ngay cả non-stream. Walk chunks, concat text.
             var sb = new StringBuilder();
             int inTok = 0, outTok = 0;
             string finishReason = "";
@@ -185,9 +189,6 @@ public class NineRoutesProvider : IAiProvider
                 if (payload == "[DONE]" || string.IsNullOrEmpty(payload)) continue;
                 try
                 {
-                    using var d = JsonDocument.Parse(payload);
-                    var root = d.RootElement;
-                    if (root.ValueKind != JsonValueKind.Object) continue;
                     var parsed = UpstreamParser.Parse(payload, "openai");
                     if (!string.IsNullOrEmpty(parsed.Text)) sb.Append(parsed.Text);
                     if (parsed.InputTokens > 0) inTok = parsed.InputTokens;
@@ -196,10 +197,29 @@ public class NineRoutesProvider : IAiProvider
                 }
                 catch { continue; }
             }
-            return (sb.ToString(), inTok, outTok, finishReason);
+            if (sb.Length > 0 || inTok > 0 || outTok > 0)
+                return (sb.ToString(), inTok, outTok, finishReason);
+            // SSE walk không ra gì → rơi xuống parse JSON thường bên dưới.
         }
-        var p = UpstreamParser.Parse(raw, "openai");
-        return (p.Text, p.InputTokens, p.OutputTokens, p.FinishReason);
+
+        // Non-SSE: parse JSON. Tolerant với rác đuôi — route.com trả "{json}data:…" dính liền
+        // (không newline) khiến JsonDocument.Parse cả cục ném "invalid after a single JSON value".
+        // → trích object cân bằng ĐẦU TIÊN rồi parse lại.
+        try
+        {
+            var p = UpstreamParser.Parse(raw, "openai");
+            return (p.Text, p.InputTokens, p.OutputTokens, p.FinishReason);
+        }
+        catch (JsonException)
+        {
+            var first = LooseJson.ExtractFirstObject(raw);
+            if (!string.IsNullOrEmpty(first))
+            {
+                var p = UpstreamParser.Parse(first, "openai");
+                return (p.Text, p.InputTokens, p.OutputTokens, p.FinishReason);
+            }
+            throw;
+        }
     }
 
     public async Task<CompleteResult> StreamAsync(CompleteRequest req, Func<string, Task> onDelta, CancellationToken ct)

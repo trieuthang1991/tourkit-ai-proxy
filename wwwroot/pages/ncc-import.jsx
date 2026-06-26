@@ -141,10 +141,10 @@
         <window.PageShell.PageHero
           icon="paper"
           title="AI Import NCC"
-          sub="Upload file báo giá NCC (PDF) hoặc dán text → AI bóc thành bảng giữ nguyên cấu trúc gốc để review."
+          sub="Upload file báo giá NCC (PDF/Word/Excel/PPT/email…) hoặc dán text → AI bóc thành bảng giữ nguyên cấu trúc gốc để review."
           status={quote
             ? { label: `${tableCount} BẢNG`, detail: sup.name || 'Đã bóc xong' }
-            : { label: 'CHƯA CÓ DỮ LIỆU', detail: 'Upload PDF báo giá hoặc dán text' }}
+            : { label: 'CHƯA CÓ DỮ LIỆU', detail: 'Upload file báo giá hoặc dán text' }}
           actions={quote
             ? <button className="btn btn-ghost btn-sm" onClick={reset}><Icon name="refresh" size={14} /> Bóc file khác</button>
             : <button className="btn btn-ghost btn-sm" onClick={() => window.tourkitRouter.navigate('/ncc-list')}><Icon name="list" size={14} /> Danh sách NCC</button>}
@@ -157,7 +157,9 @@
               <div className={'nccim-drop' + (drag ? ' is-drag' : '')}
                    onDragOver={e => { e.preventDefault(); setDrag(true); }} onDragLeave={() => setDrag(false)}
                    onDrop={onDrop} onClick={() => fileRef.current?.click()} role="button" tabIndex={0}>
-                <input ref={fileRef} type="file" accept=".pdf" style={{ display: 'none' }}
+                <input ref={fileRef} type="file"
+                       accept=".pdf,.docx,.pptx,.xlsx,.eml,.html,.htm,.txt,.csv,.tsv,.json,.xml,.md"
+                       style={{ display: 'none' }}
                        onChange={e => extractFile(e.target.files?.[0])} />
                 <div className="nccim-drop-icon">
                   <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor"
@@ -167,7 +169,7 @@
                   </svg>
                 </div>
                 <h3>Kéo thả file báo giá vào đây</h3>
-                <p>hoặc <strong>click để chọn</strong>. Hỗ trợ <code>.pdf</code>.</p>
+                <p>hoặc <strong>click để chọn</strong>. Hỗ trợ <code>.pdf .docx .pptx .xlsx .eml .html .txt .csv</code>…</p>
               </div>
 
               <div className="nccim-or"><span>HOẶC</span></div>

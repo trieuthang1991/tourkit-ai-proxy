@@ -7,11 +7,11 @@ const fmtVnd = (n) => Number(n || 0).toLocaleString('vi-VN');
 const FEATURE_LABEL = {
   visa: 'Thẩm định Visa', deals: 'AI phân tích Cơ hội', chat: 'Trợ lý số liệu',
   mail: 'Hộp thư AI', reviews: 'Customer Review', 'tour-builder': 'Soạn Tour GIT',
-  completions: 'Completions (raw)', other: 'Khác',
+  'ncc-import': 'Bóc tách NCC', completions: 'Completions (raw)', other: 'Khác',
 };
 const FEATURE_COLOR = {
   visa: '#2563eb', deals: '#d97706', chat: '#16a34a', mail: '#8b5cf6',
-  reviews: '#0ea5e9', 'tour-builder': '#f97316', completions: '#64748b', other: '#94a3b8',
+  reviews: '#0ea5e9', 'tour-builder': '#f97316', 'ncc-import': '#0d9488', completions: '#64748b', other: '#94a3b8',
 };
 
 // Eyebrow nhỏ (dot cam + uppercase) — DÙNG TỐI ĐA 3 LẦN/page (taste: max 1 eyebrow / 3 section).

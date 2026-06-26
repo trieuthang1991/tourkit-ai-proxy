@@ -102,11 +102,12 @@ public static class NccImportEndpoints
                     if (file == null || file.Length == 0)
                         return Results.BadRequest(new { error = "Thiếu file. Đính kèm trường 'file'." });
                     var ext = Path.GetExtension(file.FileName).ToLowerInvariant();
-                    if (ext != ".pdf")
-                        return Results.BadRequest(new { error = $"Trích báo giá hiện hỗ trợ .pdf (hoặc dán text). Định dạng .{ext.TrimStart('.')} chưa hỗ trợ." });
+                    string[] supported = { ".pdf", ".docx", ".pptx", ".xlsx", ".eml", ".html", ".htm", ".txt", ".csv", ".tsv", ".json", ".xml", ".md" };
+                    if (!supported.Contains(ext))
+                        return Results.BadRequest(new { error = $"Định dạng .{ext.TrimStart('.')} chưa hỗ trợ. Hỗ trợ: {string.Join(", ", supported)} — hoặc dán text trực tiếp." });
                     await using var s = file.OpenReadStream();
-                    r = await svc.ExtractQuoteFromPdfAsync(s, null, null, ctx.RequestAborted);
-                    log.LogInformation("[ncc-import] quote pdf {F} ({Ms}ms)", file.FileName, r.LatencyMs);
+                    r = await svc.ExtractQuoteFromFileAsync(s, ext, null, null, ctx.RequestAborted);
+                    log.LogInformation("[ncc-import] quote {Ext} {F} ({Ms}ms)", ext, file.FileName, r.LatencyMs);
                 }
                 else
                 {

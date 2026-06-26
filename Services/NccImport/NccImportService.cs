@@ -1,13 +1,16 @@
 using System.Text;
 using System.Text.Json;
+using System.Text.RegularExpressions;
 using DocumentFormat.OpenXml.Packaging;
 using DocumentFormat.OpenXml.Spreadsheet;
+using MimeKit;
 using TourkitAiProxy.Models;
 using TourkitAiProxy.Services.Json;
 using TourkitAiProxy.Services.Providers;
 using UglyToad.PdfPig;
 using UglyToad.PdfPig.Content;
 using WP = DocumentFormat.OpenXml.Wordprocessing;
+using D = DocumentFormat.OpenXml.Drawing;
 
 namespace TourkitAiProxy.Services.NccImport;
 
@@ -157,27 +160,154 @@ QUY TẮC:
 
     /// PDF → text (PdfPig) → AI (grid) → JSON báo giá.
     public Task<NccQuoteResult> ExtractQuoteFromPdfAsync(Stream stream, string? providerId, string? model, CancellationToken ct)
+        => ExtractQuoteFromTextAsync(ReadPdfText(stream), providerId, model, ct);
+
+    /// Bóc tách báo giá NCC (grid) từ FILE — tự chọn reader theo đuôi file.
+    /// Mọi định dạng .NET đọc được (pdf/docx/pptx/xlsx/eml/html/text) → text → ExtractQuoteFromTextAsync.
+    public Task<NccQuoteResult> ExtractQuoteFromFileAsync(Stream stream, string ext, string? providerId, string? model, CancellationToken ct)
+    {
+        var text = ext switch
+        {
+            ".pdf" => ReadPdfText(stream),
+            ".docx" => ReadDocxText(stream),
+            ".pptx" => ReadPptxText(stream),
+            ".xlsx" => ReadExcelText(stream),
+            ".eml" => ReadEmailText(stream, ct),
+            ".html" or ".htm" => StripHtml(ReadAllText(stream)),
+            ".txt" or ".csv" or ".tsv" or ".json" or ".xml" or ".md" => ReadAllText(stream),
+            _ => throw new InvalidOperationException($"Định dạng {ext} chưa hỗ trợ trích báo giá.")
+        };
+        if (string.IsNullOrWhiteSpace(text))
+            throw new InvalidOperationException("Không đọc được nội dung văn bản từ file (file rỗng / lỗi định dạng).");
+        return ExtractQuoteFromTextAsync(text, providerId, model, ct);
+    }
+
+    // ── Text readers dùng chung (pure, KHÔNG gọi AI) ──────────────────────────
+    private static string ReadAllText(Stream stream)
+    {
+        using var sr = new StreamReader(stream, Encoding.UTF8, detectEncodingFromByteOrderMarks: true);
+        return sr.ReadToEnd();
+    }
+
+    private static string ReadPdfText(Stream stream)
     {
         var sb = new StringBuilder();
         using var ms = new MemoryStream();
-        stream.CopyTo(ms);
-        ms.Position = 0;
-        using (var pdf = PdfDocument.Open(ms))
-            foreach (var p in pdf.GetPages()) { sb.AppendLine(p.Text); sb.AppendLine(); }
-        return ExtractQuoteFromTextAsync(sb.ToString(), providerId, model, ct);
+        stream.CopyTo(ms); ms.Position = 0;
+        using var pdf = PdfDocument.Open(ms);
+        foreach (var p in pdf.GetPages()) { sb.AppendLine(p.Text); sb.AppendLine(); }
+        return sb.ToString();
+    }
+
+    private static string ReadDocxText(Stream stream)
+    {
+        var sb = new StringBuilder();
+        using var ms = new MemoryStream();
+        stream.CopyTo(ms); ms.Position = 0;
+        using var doc = WordprocessingDocument.Open(ms, false);
+        var body = doc.MainDocumentPart?.Document.Body
+            ?? throw new InvalidOperationException("Word rỗng / không đọc được");
+        // Walk theo thứ tự document → giữ table rows làm 1 line (cells join bằng " | ")
+        foreach (var node in body.ChildElements)
+        {
+            if (node is WP.Paragraph para) sb.AppendLine(para.InnerText);
+            else if (node is WP.Table tbl)
+            {
+                foreach (var row in tbl.Elements<WP.TableRow>())
+                {
+                    var cells = row.Elements<WP.TableCell>().Select(c => c.InnerText.Trim())
+                        .Where(t => !string.IsNullOrEmpty(t));
+                    var line = string.Join(" | ", cells);
+                    if (!string.IsNullOrWhiteSpace(line)) sb.AppendLine(line);
+                }
+                sb.AppendLine();
+            }
+        }
+        return sb.ToString();
+    }
+
+    /// PowerPoint: lấy mọi text trong slide (gồm cả ô bảng — cell cũng chứa a:t).
+    private static string ReadPptxText(Stream stream)
+    {
+        var sb = new StringBuilder();
+        using var ms = new MemoryStream();
+        stream.CopyTo(ms); ms.Position = 0;
+        using var doc = PresentationDocument.Open(ms, false);
+        var presPart = doc.PresentationPart
+            ?? throw new InvalidOperationException("PowerPoint rỗng / không đọc được");
+        int n = 0;
+        foreach (var slidePart in presPart.SlideParts)
+        {
+            n++;
+            sb.AppendLine($"--- Slide {n} ---");
+            foreach (var t in slidePart.Slide.Descendants<D.Text>())
+                if (!string.IsNullOrWhiteSpace(t.Text)) sb.AppendLine(t.Text);
+            sb.AppendLine();
+        }
+        return sb.ToString();
+    }
+
+    /// Excel báo giá: dump mọi sheet, mỗi row = cells join " | " (giữ dạng grid cho AI).
+    private static string ReadExcelText(Stream stream)
+    {
+        var sb = new StringBuilder();
+        using var doc = SpreadsheetDocument.Open(stream, false);
+        var wbPart = doc.WorkbookPart ?? throw new InvalidOperationException("Excel rỗng");
+        var sst = wbPart.SharedStringTablePart?.SharedStringTable;
+        foreach (var sheet in wbPart.Workbook.Descendants<Sheet>())
+        {
+            var wsPart = (WorksheetPart)wbPart.GetPartById(sheet.Id!);
+            sb.AppendLine($"--- Sheet: {sheet.Name} ---");
+            foreach (var row in wsPart.Worksheet.Descendants<Row>())
+            {
+                var line = string.Join(" | ", row.Elements<Cell>().Select(c => GetCellText(c, sst).Trim()));
+                if (line.Replace("|", "").Trim().Length > 0) sb.AppendLine(line);
+            }
+            sb.AppendLine();
+        }
+        return sb.ToString();
+    }
+
+    /// Email .eml (MIME) → tiêu đề + người gửi + thân (text, fallback HTML strip).
+    private static string ReadEmailText(Stream stream, CancellationToken ct)
+    {
+        var msg = MimeMessage.Load(stream, ct);
+        var sb = new StringBuilder();
+        if (!string.IsNullOrWhiteSpace(msg.Subject)) sb.AppendLine("Tiêu đề: " + msg.Subject);
+        var from = msg.From?.ToString();
+        if (!string.IsNullOrWhiteSpace(from)) sb.AppendLine("Từ: " + from);
+        sb.AppendLine();
+        var body = !string.IsNullOrWhiteSpace(msg.TextBody) ? msg.TextBody
+                 : !string.IsNullOrWhiteSpace(msg.HtmlBody) ? StripHtml(msg.HtmlBody) : "";
+        sb.AppendLine(body);
+        return sb.ToString();
+    }
+
+    /// Strip HTML → text thuần (bỏ script/style, thẻ block → xuống dòng, decode entity).
+    private static string StripHtml(string html)
+    {
+        if (string.IsNullOrEmpty(html)) return "";
+        var s = Regex.Replace(html, @"<(script|style)[^>]*>.*?</\1>", " ",
+            RegexOptions.IgnoreCase | RegexOptions.Singleline);
+        s = Regex.Replace(s, @"<\s*(br|/p|/div|/tr|/li|/h[1-6])[^>]*>", "\n", RegexOptions.IgnoreCase);
+        s = Regex.Replace(s, "<[^>]+>", " ");
+        return System.Net.WebUtility.HtmlDecode(s);
     }
 
     public async Task<NccQuoteResult> ExtractQuoteFromTextAsync(string text, string? providerId, string? model, CancellationToken ct)
     {
-        var provider = _registry.Resolve(providerId);
+        // Resolve qua AiModelRegistry (giống ExtractFromTextAsync) → tôn trọng config Models:NccImport
+        // thay vì rơi về provider default (anthropic → claude-sonnet-4-5).
+        var resolved = _modelRegistry.Resolve(AiFeature.NccImport, providerId, model);
+        var provider = _registry.Resolve(resolved.Provider);
         var req = new CompleteRequest(
             Prompt: QUOTE_PROMPT + "\n\n=== NỘI DUNG FILE ===\n" + text,
             Provider: provider.Id,
-            Model: model,
+            Model: resolved.Model,
             MaxTokens: 8000,
             Temperature: 0.2,
             System: QUOTE_SYSTEM,
-            ApiKey: null);
+            ApiKey: resolved.ApiKey);
         var ai = await provider.CompleteAsync(req, ct);
         var raw = ai.Text ?? "";
         int a = raw.IndexOf('{'), b = raw.LastIndexOf('}');
