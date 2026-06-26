@@ -336,6 +336,8 @@ function MailPage({ pushToast }) {
   const [items, setItems] = _mS([]);
   const [counts, setCounts] = _mS({ total: 0, unread: 0, byStatus: {}, byCategory: {} });
   const [selId, setSelId] = _mS(null);
+  const [selDetail, setSelDetail] = _mS(null);    // chi tiết email đang mở (body/html/summary) — fetch lazy
+  const selReqRef = _mR(0);                        // chống race khi click nhanh A→B
   const [fStatus, setFStatus] = _mS(null);
   const [fCategory, setFCategory] = _mS(null);
   const [search, setSearch] = _mS('');
@@ -456,18 +458,27 @@ function MailPage({ pushToast }) {
     finally { setSyncing(false); setSyncProgress(null); }
   }
 
-  function selectMail(id) {
+  async function selectMail(id) {
+    const token = ++selReqRef.current;
     setSelId(id);
+    setSelDetail(null);                 // reset → hiện "Đang tải nội dung…"
+    setDraft(''); setTone('lich_su'); setInstruction('');
     const m = items.find(x => x.id === id);
-    setDraft(m && m.draft ? m.draft.text : '');
-    setTone(m && m.draft ? m.draft.tone : 'lich_su');
-    setInstruction(m && m.draft ? (m.draft.instruction || '') : '');
     // Đánh dấu đã đọc (local + server) nếu chưa đọc.
     if (m && !m.isRead) {
       setItems(prev => prev.map(x => x.id === id ? { ...x, isRead: true } : x));
       setCounts(c => ({ ...c, unread: Math.max(0, (c.unread || 0) - 1) }));
       window.tourkitAuth.authedFetch(`/api/v1/mail/${encodeURIComponent(id)}/read`, { method: 'POST' }).catch(() => {});
     }
+    // Fetch chi tiết (body/html/summary/draft) — list không còn các field nặng này.
+    try {
+      const r = await window.tourkitAuth.authedFetch(`/api/v1/mail/${encodeURIComponent(id)}`);
+      if (!r.ok || selReqRef.current !== token) return;
+      const d = await r.json();
+      if (selReqRef.current !== token) return;   // user đã chọn email khác → bỏ
+      setSelDetail(d);
+      if (d.draft) { setDraft(d.draft.text || ''); setTone(d.draft.tone || 'lich_su'); setInstruction(d.draft.instruction || ''); }
+    } catch { /* giữ header, body để trống */ }
   }
 
   async function setStatus(id, status) {
@@ -674,13 +685,15 @@ function MailPage({ pushToast }) {
                 </div>
                 <h2 className="mail-pane-subject">{sel.subject}</h2>
                 {sel.category && <span className="mail-cat-chip lg"><i className={'mail-catdot cat-' + sel.category} /> {_CAT_VI[sel.category]}</span>}
-                {sel.aiSummary && <div className="mail-summary"><span className="mail-summary-tag">Tóm tắt AI</span> {sel.aiSummary}</div>}
-                {sel.bodyHtml ? (
+                {selDetail?.aiSummary && <div className="mail-summary"><span className="mail-summary-tag">Tóm tắt AI</span> {selDetail.aiSummary}</div>}
+                {!selDetail ? (
+                  <div className="mail-pane-body" style={{ color: 'var(--text-3,#94A3B8)' }}>Đang tải nội dung…</div>
+                ) : selDetail.bodyHtml ? (
                   <iframe className="mail-html-frame" title="Nội dung email" sandbox="allow-same-origin"
-                    srcDoc={sel.bodyHtml}
+                    srcDoc={selDetail.bodyHtml}
                     onLoad={e => { try { const d = e.target.contentDocument; if (d && d.body) e.target.style.height = (d.body.scrollHeight + 24) + 'px'; } catch (_) {} }} />
                 ) : (
-                  <div className="mail-pane-body">{sel.body || '(không có nội dung)'}</div>
+                  <div className="mail-pane-body">{selDetail.body || '(không có nội dung)'}</div>
                 )}
               </div>
 

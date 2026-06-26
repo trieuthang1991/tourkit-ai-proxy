@@ -139,14 +139,38 @@ VALUES
     }
 
     /// Lọc + PHÂN TRANG (cho infinite-scroll). Trả (items của trang, TỔNG sau lọc) → FE biết còn nữa không.
-    /// limit&lt;=0 → lấy hết từ offset. (Filter status/category/search vẫn in-memory như Filter; chỉ slice trang.)
+    ///
+    /// FAST PATH (không search): phân trang Ở SQL bằng OFFSET/FETCH → CHỈ kéo `limit` row, KHÔNG kéo cả
+    /// bảng (trước đây `Filter` SELECT * toàn bộ kèm Body/BodyHtml nặng → mỗi lần loadMore ~vài chục MB ~28s).
+    /// SEARCH PATH (hiếm): cần Body cho tìm bỏ-dấu → giữ in-memory như cũ.
     public (IReadOnlyList<MailItem> Items, int Total) FilterPaged(
         string tenantId, string? status, string? category, string? search, int limit, int offset)
     {
-        var all = Filter(tenantId, status, category, search);
-        var off = Math.Max(0, offset);
-        var page = all.Skip(off).Take(limit <= 0 ? all.Count : limit).ToList();
-        return (page, all.Count);
+        if (string.IsNullOrWhiteSpace(tenantId)) return (Array.Empty<MailItem>(), 0);
+
+        if (!string.IsNullOrWhiteSpace(search))
+        {
+            var all = Filter(tenantId, status, category, search);
+            var pg = all.Skip(Math.Max(0, offset)).Take(limit <= 0 ? all.Count : limit).ToList();
+            return (pg, all.Count);
+        }
+
+        using var c = _db.Open();
+        var where = "WHERE TenantId=@t"
+                  + (string.IsNullOrWhiteSpace(status)   ? "" : " AND Status=@st")
+                  + (string.IsNullOrWhiteSpace(category) ? "" : " AND Category=@cat");
+        var prm = new { t = tenantId, st = status, cat = category,
+                        off = Math.Max(0, offset), lim = limit <= 0 ? int.MaxValue : limit };
+        var total = c.ExecuteScalar<int>($"SELECT COUNT(1) FROM dbo.Mails {where}", prm);
+        // CHỈ lấy metadata cho list — KHÔNG kéo Body/BodyHtml/AiSummary/DraftJson (nặng).
+        // Body... lấy khi mở từng email qua GET /mail/{id}. → list rất nhẹ, scroll mượt.
+        var rows = c.Query<MailRow>(
+            $@"SELECT Id, FromName, FromEmail, Subject, ReceivedAt, IsRead, Category, Status, AutoReplyError
+               FROM dbo.Mails {where}
+               ORDER BY ReceivedAt DESC
+               OFFSET @off ROWS FETCH NEXT @lim ROWS ONLY", prm).ToList();
+        var items = rows.Select(Hydrate).Where(m => m != null).ToList()!;
+        return (items, total);
     }
 
     /// Xoá TOÀN BỘ mail của tenant. Dùng khi user disconnect + chọn xoá lịch sử.

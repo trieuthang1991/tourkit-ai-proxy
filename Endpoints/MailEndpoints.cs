@@ -208,7 +208,8 @@ public static class MailEndpoints
                 items,
                 total,
                 hasMore = off + items.Count < total,
-                counts = repo.Counts(tenant)
+                // Counts quét cả bảng → chỉ tính ở TRANG ĐẦU (loadMore không cần, counts không đổi giữa các trang).
+                counts = off == 0 ? repo.Counts(tenant) : null
             });
         });
 
