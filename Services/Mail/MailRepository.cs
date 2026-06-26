@@ -107,6 +107,17 @@ VALUES
             new { t = tenantId, id, d = draftJson, s = status }) > 0;
     }
 
+    /// Bỏ nháp: xoá DraftJson + đưa status về 'moi' (khi chưa "Đang xử lý" vì lý do khác). Trả true nếu có đổi.
+    public bool ClearDraft(string tenantId, string id)
+    {
+        if (string.IsNullOrWhiteSpace(tenantId)) return false;
+        using var c = _db.Open();
+        return c.Execute(
+            "UPDATE dbo.Mails SET DraftJson=NULL, Status=CASE WHEN Status='dang_xu_ly' THEN 'moi' ELSE Status END " +
+            "WHERE TenantId=@t AND Id=@id",
+            new { t = tenantId, id }) > 0;
+    }
+
     /// Đánh dấu lỗi auto-reply (soạn/gửi tự động thất bại). error=null → xoá cờ (auto-reply thành công).
     public bool SetAutoReplyError(string tenantId, string id, string? error)
     {

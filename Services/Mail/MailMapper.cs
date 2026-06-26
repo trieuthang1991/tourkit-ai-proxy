@@ -32,8 +32,29 @@ public static class MailMapper
             Status:     "moi",
             AiSummary:  null,
             Draft:      null,
-            BodyHtml:   string.IsNullOrWhiteSpace(html) ? null : html
+            BodyHtml:   string.IsNullOrWhiteSpace(html) ? null : html,
+            IsBulk:     IsBulkMail(msg, from?.Address)
         );
+    }
+
+    /// Mail bulk/newsletter (gửi hàng loạt) → KHÔNG đáng tốn token phân loại AI.
+    /// Tín hiệu chuẩn RFC: header List-Unsubscribe / List-Id, hoặc Precedence: bulk/list;
+    /// fallback: địa chỉ gửi kiểu no-reply / newsletter / notifications / mailer / bounce.
+    private static bool IsBulkMail(MimeMessage msg, string? fromAddress)
+    {
+        if (msg.Headers.Contains(HeaderId.ListUnsubscribe) || msg.Headers.Contains(HeaderId.ListId))
+            return true;
+        var prec = msg.Headers[HeaderId.Precedence];
+        if (!string.IsNullOrEmpty(prec) &&
+            (prec.Contains("bulk", StringComparison.OrdinalIgnoreCase) ||
+             prec.Contains("list", StringComparison.OrdinalIgnoreCase) ||
+             prec.Contains("junk", StringComparison.OrdinalIgnoreCase)))
+            return true;
+        var local = (fromAddress ?? "").Split('@')[0].ToLowerInvariant();
+        string[] bulkLocals = { "no-reply", "noreply", "no_reply", "donotreply", "do-not-reply",
+                                "newsletter", "news", "notifications", "notification", "notify",
+                                "mailer", "mailer-daemon", "bounce", "bounces", "marketing" };
+        return bulkLocals.Any(b => local == b || local.StartsWith(b + "+") || local.StartsWith(b + "."));
     }
 
     /// HTML → text SẠCH: bỏ HẲN nội dung &lt;style&gt;/&lt;script&gt;/&lt;head&gt; + comment (tránh CSS lọt vào text),

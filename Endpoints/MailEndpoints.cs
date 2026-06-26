@@ -329,6 +329,17 @@ public static class MailEndpoints
             }
         });
 
+        // ─── DELETE /mail/{id}/reply/draft ─── bỏ nháp (xoá DraftJson + status về 'moi') ──
+        v1.MapDelete("/mail/{id}/reply/draft", (
+            string id, MailRepository repo, TkSessionStore sessions, HttpContext ctx) =>
+        {
+            var auth = RequireSession(ctx, sessions);
+            if (auth == null) return Unauthorized();
+            var (_, tenant, user) = auth.Value;
+            var ok = repo.ClearDraft(tenant, id);
+            return Results.Json(new { ok });
+        });
+
         // ─── POST /mail/{id}/reply/send ─── gửi nháp (đã sửa) cho khách qua SMTP ──
         v1.MapPost("/mail/{id}/reply/send", async (
             string id, SendReplyRequest req, MailRepository repo, IMailSender sender,

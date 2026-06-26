@@ -62,7 +62,7 @@ public class MailSyncService
             throw new Exception("Không kết nối được hộp thư: " + ex.Message, ex);
         }
 
-        int skipped = 0;
+        int skipped = 0, bulk = 0;
         var newMails = new List<MailItem>();   // email MỚI vừa phân loại → cho auto-reply
         foreach (var mail in fetched)
         {
@@ -72,14 +72,23 @@ public class MailSyncService
                 skipped++;
                 continue;   // đã có = đã phân loại → bỏ qua (tiết kiệm token)
             }
-            var (cat, sum) = await _classifier.ClassifyAsync(mail, ct);
+            string cat, sum;
+            if (mail.IsBulk)
+            {
+                // Bulk/newsletter → gán 'khac', KHÔNG gọi AI (tiết kiệm token cho inbox nhiều rác).
+                cat = "khac"; sum = ""; bulk++;
+            }
+            else
+            {
+                (cat, sum) = await _classifier.ClassifyAsync(mail, ct);
+            }
             var saved = mail with { Category = cat, AiSummary = sum };
             _repo.Upsert(tenantId, saved);
             newMails.Add(saved);
         }
 
-        _log.LogInformation("[MailSync] tenant={T} user={U} — {F} kéo, {C} phân loại, {S} bỏ qua",
-            tenantId, username, fetched.Count, newMails.Count, skipped);
-        return new MailSyncResult(fetched.Count, newMails.Count, skipped, newMails);
+        _log.LogInformation("[MailSync] tenant={T} user={U} — {F} kéo, {C} lưu ({B} bulk skip-AI), {S} đã có",
+            tenantId, username, fetched.Count, newMails.Count, bulk, skipped);
+        return new MailSyncResult(fetched.Count, newMails.Count - bulk, skipped, newMails);
     }
 }

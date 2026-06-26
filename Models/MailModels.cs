@@ -17,7 +17,8 @@ public record MailItem(
     [property: JsonPropertyName("draft")]      MailDraft? Draft,
     [property: JsonPropertyName("bodyHtml")]   string? BodyHtml = null,  // HTML gốc (để render iframe); Body = text sạch
     [property: JsonPropertyName("autoReplyError")] string? AutoReplyError = null,  // != null → auto-reply soạn/gửi LỖI (hiện cảnh báo ở UI)
-    [property: JsonPropertyName("hasDraft")]   bool HasDraft = false   // có nháp chưa gửi (list không kéo nội dung nháp → chỉ cờ)
+    [property: JsonPropertyName("hasDraft")]   bool HasDraft = false,  // có nháp chưa gửi (list không kéo nội dung nháp → chỉ cờ)
+    [property: JsonPropertyName("isBulk")]     bool IsBulk = false      // RUNTIME (không lưu): mail bulk/newsletter → skip AI classify cho đỡ tốn token
 );
 
 public record MailContact(

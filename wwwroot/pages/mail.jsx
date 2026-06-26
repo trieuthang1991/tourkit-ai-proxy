@@ -529,6 +529,20 @@ function MailPage({ pushToast }) {
     finally { setSending(false); }
   }
 
+  async function discardDraft() {
+    if (!sel) return;
+    if (!(await window.appConfirm('Bỏ nháp này? (xoá nội dung AI đã soạn)', { title: 'Bỏ nháp', confirmLabel: 'Bỏ', danger: true }))) return;
+    try {
+      const r = await window.tourkitAuth.authedFetch(`/api/v1/mail/${encodeURIComponent(sel.id)}/reply/draft`, { method: 'DELETE' });
+      if (!r.ok) { pushToast('Bỏ nháp lỗi', 'error'); return; }
+      setDraft(''); setInstruction('');
+      setItems(prev => prev.map(m => m.id === sel.id
+        ? { ...m, hasDraft: false, status: m.status === 'dang_xu_ly' ? 'moi' : m.status } : m));
+      setSelDetail(d => d ? { ...d, draft: null } : d);
+      pushToast('Đã bỏ nháp');
+    } catch (e) { pushToast('Bỏ nháp lỗi: ' + e.message, 'error'); }
+  }
+
   const cStatus = (k) => counts.byStatus?.[k] || 0;
   const cCat = (k) => counts.byCategory?.[k] || 0;
 
@@ -740,6 +754,7 @@ function MailPage({ pushToast }) {
                         <Icon name="paper" size={13} /> {sending ? 'Đang gửi…' : 'Gửi cho khách'}
                       </button>
                       <button className="mail-btn ghost sm" onClick={() => { window.tourkitUtil.copyText(draft); pushToast('Đã copy nháp'); }}>Copy</button>
+                      <button className="mail-btn ghost sm" onClick={discardDraft} style={{ color: '#a4321a' }}>Bỏ nháp</button>
                     </div>
                   </div>
                 )}
