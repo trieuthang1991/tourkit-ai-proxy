@@ -193,13 +193,23 @@ public static class MailEndpoints
             catch (OperationCanceledException) { /* client disconnect */ }
         });
 
-        // ─── GET /mail ─────────────────────────────────────────────────────────
-        v1.MapGet("/mail", (HttpContext ctx, MailRepository repo, TkSessionStore sessions, string? status, string? category, string? search) =>
+        // ─── GET /mail ─── phân trang (infinite-scroll, mặc định 20/lần cho nhẹ) ──
+        v1.MapGet("/mail", (HttpContext ctx, MailRepository repo, TkSessionStore sessions,
+            string? status, string? category, string? search, int? limit, int? offset) =>
         {
             var auth = RequireSession(ctx, sessions);
             if (auth == null) return Unauthorized();
             var (_, tenant, user) = auth.Value;
-            return Results.Json(new { items = repo.Filter(tenant, status, category, search), counts = repo.Counts(tenant) });
+            var lim = Math.Clamp(limit ?? 20, 1, 100);
+            var off = Math.Max(0, offset ?? 0);
+            var (items, total) = repo.FilterPaged(tenant, status, category, search, lim, off);
+            return Results.Json(new
+            {
+                items,
+                total,
+                hasMore = off + items.Count < total,
+                counts = repo.Counts(tenant)
+            });
         });
 
         // ─── GET /mail/{id} ────────────────────────────────────────────────────

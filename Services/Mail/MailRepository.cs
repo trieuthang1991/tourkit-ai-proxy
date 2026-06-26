@@ -138,6 +138,17 @@ VALUES
         return q.ToList()!;
     }
 
+    /// Lọc + PHÂN TRANG (cho infinite-scroll). Trả (items của trang, TỔNG sau lọc) → FE biết còn nữa không.
+    /// limit&lt;=0 → lấy hết từ offset. (Filter status/category/search vẫn in-memory như Filter; chỉ slice trang.)
+    public (IReadOnlyList<MailItem> Items, int Total) FilterPaged(
+        string tenantId, string? status, string? category, string? search, int limit, int offset)
+    {
+        var all = Filter(tenantId, status, category, search);
+        var off = Math.Max(0, offset);
+        var page = all.Skip(off).Take(limit <= 0 ? all.Count : limit).ToList();
+        return (page, all.Count);
+    }
+
     /// Xoá TOÀN BỘ mail của tenant. Dùng khi user disconnect + chọn xoá lịch sử.
     /// Trả số dòng bị xoá. Idempotent.
     public int ClearTenant(string tenantId)

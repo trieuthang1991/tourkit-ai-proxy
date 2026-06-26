@@ -11,6 +11,7 @@ const _CAT_VI = {
 const _STATUS_VI = { moi: 'Mới', dang_xu_ly: 'Đang xử lý', da_phan_hoi: 'Đã phản hồi', da_dong: 'Đã đóng' };
 const _STATUS_ORDER = ['moi', 'dang_xu_ly', 'da_phan_hoi', 'da_dong'];
 const _CAT_ORDER = ['hoi_dat_tour', 'xin_bao_gia', 'khieu_nai', 'xac_nhan', 'spam', 'khac'];
+const _PAGE = 20;   // số mail mỗi lần load (infinite-scroll cho nhẹ)
 const _TONES = [
   { key: 'lich_su', label: 'Lịch sự, trang trọng' },
   { key: 'than_thien', label: 'Thân thiện, cởi mở' },
@@ -341,6 +342,9 @@ function MailPage({ pushToast }) {
   const [syncing, setSyncing] = _mS(false);
   const [syncProgress, setSyncProgress] = _mS(null); // {current, total, subject} | null
   const [loading, setLoading] = _mS(true);
+  const [hasMore, setHasMore] = _mS(false);       // còn trang sau không
+  const [loadingMore, setLoadingMore] = _mS(false);
+  const listScrollRef = _mR(null);                // container cuộn list → reset scroll + detect đáy
   const [readerBig, setReaderBig] = _mS(false); // mở rộng vùng đọc: ẩn composer cho text dài
 
   const [tone, setTone] = _mS('lich_su');
@@ -358,23 +362,54 @@ function MailPage({ pushToast }) {
     }).catch(() => setAccount({ configured: false }));
   }, []);
 
-  function applyData(data) {
-    setItems(data.items || []);
-    if (data.counts) setCounts(data.counts);
+  function _mailQs(offset) {
+    const qs = new URLSearchParams();
+    if (fStatus) qs.set('status', fStatus);
+    if (fCategory) qs.set('category', fCategory);
+    if (search.trim()) qs.set('search', search.trim());
+    qs.set('limit', _PAGE);
+    qs.set('offset', offset);
+    return qs.toString();
   }
 
+  // load() = nạp lại TRANG ĐẦU (reset) — gọi khi đổi filter/search/sync.
   async function load() {
     setLoading(true);
     try {
-      const qs = new URLSearchParams();
-      if (fStatus) qs.set('status', fStatus);
-      if (fCategory) qs.set('category', fCategory);
-      if (search.trim()) qs.set('search', search.trim());
-      const r = await window.tourkitAuth.authedFetch('/api/v1/mail?' + qs.toString());
+      const r = await window.tourkitAuth.authedFetch('/api/v1/mail?' + _mailQs(0));
       const data = await r.json();
-      if (r.ok) applyData(data); else pushToast(data.error || 'Lỗi tải hộp thư', 'error');
+      if (r.ok) {
+        setItems(data.items || []);
+        if (data.counts) setCounts(data.counts);
+        setHasMore(!!data.hasMore);
+        if (listScrollRef.current) listScrollRef.current.scrollTop = 0;
+      } else pushToast(data.error || 'Lỗi tải hộp thư', 'error');
     } catch (e) { pushToast('Lỗi tải hộp thư: ' + e.message, 'error'); }
     finally { setLoading(false); }
+  }
+
+  // loadMore() = nạp tiếp 20 cái kế, APPEND (infinite-scroll). Dedup theo id.
+  async function loadMore() {
+    if (loadingMore || !hasMore || loading) return;
+    setLoadingMore(true);
+    try {
+      const r = await window.tourkitAuth.authedFetch('/api/v1/mail?' + _mailQs(items.length));
+      const data = await r.json();
+      if (r.ok) {
+        setItems(prev => {
+          const seen = new Set(prev.map(x => x.id));
+          return [...prev, ...(data.items || []).filter(x => !seen.has(x.id))];
+        });
+        setHasMore(!!data.hasMore);
+      }
+    } catch { /* giữ list cũ, không toast ồn */ }
+    finally { setLoadingMore(false); }
+  }
+
+  // Cuộn gần đáy list → tự nạp trang kế.
+  function onListScroll(e) {
+    const el = e.currentTarget;
+    if (el.scrollHeight - el.scrollTop - el.clientHeight < 180) loadMore();
   }
 
   _mE(() => { load(); }, [fStatus, fCategory]);
@@ -409,7 +444,8 @@ function MailPage({ pushToast }) {
       });
       if (errored) return;
       if (finalData) {
-        applyData(finalData);
+        if (finalData.counts) setCounts(finalData.counts);
+        load();   // nạp lại trang đầu (paged) thay vì nhồi toàn bộ items từ sync
         pushToast(
           finalData.classified > 0
             ? `Đã đồng bộ · ${finalData.classified} email mới (kéo ${finalData.fetched})`
@@ -575,7 +611,7 @@ function MailPage({ pushToast }) {
             <input className="mail-search-input" placeholder="Tìm theo tên, email, tiêu đề…" value={search}
               onChange={e => setSearch(e.target.value)} onKeyDown={e => { if (e.key === 'Enter') load(); }} />
           </div>
-          <div className="mail-list-scroll">
+          <div className="mail-list-scroll" ref={listScrollRef} onScroll={onListScroll}>
             {loading ? <ListSkeleton /> : items.length === 0 ? (
               <EmptyState icon="paper" title="Hòm thư trống" hint="Bấm “Đồng bộ” để kéo email từ Gmail." />
             ) : items.map((m, idx) => (
@@ -602,6 +638,12 @@ function MailPage({ pushToast }) {
                 </div>
               </button>
             ))}
+            {!loading && items.length > 0 && loadingMore && (
+              <div style={{ textAlign: 'center', padding: '12px', fontSize: 13, color: 'var(--text-3,#94A3B8)' }}>Đang tải thêm…</div>
+            )}
+            {!loading && items.length > 0 && !hasMore && (
+              <div style={{ textAlign: 'center', padding: '12px', fontSize: 12, color: 'var(--text-3,#94A3B8)' }}>· Đã hết ·</div>
+            )}
           </div>
         </section>
 
