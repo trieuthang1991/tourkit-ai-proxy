@@ -68,13 +68,45 @@ const INTERVAL_OPTIONS = [
 ];
 
 // Schema option ĐỘNG per-workflow (client). Thêm workflow/option mới = thêm 1 entry — UI tự render.
-// type 'bool' → toggle. Khớp shape OptionsJson backend (vd mail-auto-sync: { autoReply: bool }).
+// type: 'bool'→toggle | 'select'→dropdown | 'multi'→chip nhiều lựa chọn. showIf: chỉ hiện khi option kia bật.
+// Khớp shape OptionsJson backend (mail-auto-sync: {autoReply, replyMode, replyCategories[], replyTone}).
+const MAIL_CATEGORIES = [
+  { value: 'hoi_dat_tour', label: 'Hỏi/đặt tour' },
+  { value: 'xin_bao_gia',  label: 'Xin báo giá' },
+  { value: 'xac_nhan',     label: 'Xác nhận' },
+  { value: 'khieu_nai',    label: 'Khiếu nại' },
+];
+const MAIL_TONES = [
+  { value: 'lich_su',    label: 'Lịch sự' },
+  { value: 'than_thien', label: 'Thân thiện' },
+  { value: 'dam_phan',   label: 'Đàm phán' },
+  { value: 'xin_loi',    label: 'Xin lỗi' },
+];
 const WORKFLOW_OPTIONS = {
   'mail-auto-sync': [
     { key: 'autoReply', type: 'bool', label: 'Tự động trả lời',
-      hint: 'AI soạn + gửi trả lời tự động cho email mới (đang phát triển — hiện chỉ lưu cấu hình)' },
+      hint: 'AI tự soạn/gửi trả lời cho email mới theo cấu hình dưới đây.' },
+    { key: 'replyMode', type: 'select', label: 'Chế độ', showIf: 'autoReply', default: 'draft',
+      options: [
+        { value: 'draft', label: 'Soạn sẵn (người duyệt rồi gửi)' },
+        { value: 'send',  label: 'Gửi thẳng tự động' },
+      ],
+      hint: 'Soạn sẵn = an toàn (nháp chờ NV duyệt). Gửi thẳng = AI gửi luôn cho khách.' },
+    { key: 'replyCategories', type: 'multi', label: 'Áp dụng nhóm', showIf: 'autoReply',
+      default: ['hoi_dat_tour', 'xin_bao_gia', 'xac_nhan'],
+      options: MAIL_CATEGORIES,
+      hint: 'Chỉ auto-reply email thuộc nhóm đã chọn. Khiếu nại nên để người xử lý.' },
+    { key: 'replyTone', type: 'select', label: 'Giọng văn', showIf: 'autoReply', default: 'lich_su',
+      options: MAIL_TONES },
   ],
 };
+
+// Gom default từ schema → {key: default} để pre-fill options khi user mới bật (tránh gửi mảng rỗng).
+function optionDefaults(type) {
+  const out = {};
+  (WORKFLOW_OPTIONS[type] || []).forEach(o => { if (o.default !== undefined) out[o.key] = o.default; });
+  return out;
+}
 
 // ─── Run History Table ───────────────────────────────────────────────────────────
 
@@ -141,7 +173,8 @@ function WorkflowCard({ wf, onUpdate, pushToast }) {
   const [historyOpen, setHistoryOpen] = uS(false);
   const [runs, setRuns] = uS(null);
   const [runsLoading, setRunsLoading] = uS(false);
-  const [options, setOptions] = uS(wf.options || {});   // điều kiện ĐỘNG per-workflow
+  // Merge default schema + options đã lưu → tránh gửi mảng/giá trị rỗng khi user mới bật.
+  const [options, setOptions] = uS({ ...optionDefaults(wf.type), ...(wf.options || {}) });
 
   const optionSchema = WORKFLOW_OPTIONS[wf.type] || [];
 
@@ -149,7 +182,7 @@ function WorkflowCard({ wf, onUpdate, pushToast }) {
   uE(() => {
     setEnabled(wf.enabled);
     setInterval(wf.intervalMinutes || 15);
-    setOptions(wf.options || {});
+    setOptions({ ...optionDefaults(wf.type), ...(wf.options || {}) });
   }, [wf.enabled, wf.intervalMinutes, wf.options]);
 
   const isPaused = !!wf.pausedReason;
@@ -288,23 +321,55 @@ function WorkflowCard({ wf, onUpdate, pushToast }) {
           </select>
         </div>
 
-        {/* Điều kiện/option ĐỘNG per-workflow (render từ WORKFLOW_OPTIONS) */}
-        {optionSchema.map(opt => opt.type === 'bool' ? (
+        {/* Điều kiện/option ĐỘNG per-workflow (render từ WORKFLOW_OPTIONS; showIf → chỉ hiện khi option kia bật) */}
+        {optionSchema.filter(opt => !opt.showIf || options[opt.showIf]).map(opt => (
           <div className="workflows-field-row" key={opt.key} style={{ alignItems: 'flex-start' }}>
             <label className="workflows-field-label">{opt.label}</label>
-            <div>
-              <div className="workflows-toggle-wrap">
-                <label className="workflows-toggle">
-                  <input type="checkbox" checked={!!options[opt.key]}
-                    onChange={e => setOptions(o => ({ ...o, [opt.key]: e.target.checked }))} />
-                  <span className="workflows-toggle-track" />
-                </label>
-                <span className="workflows-toggle-label">{options[opt.key] ? 'Bật' : 'Tắt'}</span>
-              </div>
+            <div style={{ flex: 1, minWidth: 0 }}>
+              {opt.type === 'bool' && (
+                <div className="workflows-toggle-wrap">
+                  <label className="workflows-toggle">
+                    <input type="checkbox" checked={!!options[opt.key]}
+                      onChange={e => setOptions(o => ({ ...o, [opt.key]: e.target.checked }))} />
+                    <span className="workflows-toggle-track" />
+                  </label>
+                  <span className="workflows-toggle-label">{options[opt.key] ? 'Bật' : 'Tắt'}</span>
+                </div>
+              )}
+              {opt.type === 'select' && (
+                <select className="workflows-select"
+                  value={options[opt.key] || opt.options[0].value}
+                  onChange={e => setOptions(o => ({ ...o, [opt.key]: e.target.value }))}>
+                  {opt.options.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
+                </select>
+              )}
+              {opt.type === 'multi' && (
+                <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+                  {opt.options.map(o => {
+                    const arr = Array.isArray(options[opt.key]) ? options[opt.key] : [];
+                    const on = arr.includes(o.value);
+                    return (
+                      <label key={o.value}
+                        style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '4px 11px',
+                          borderRadius: 999, cursor: 'pointer', fontSize: 13, userSelect: 'none',
+                          border: '1px solid ' + (on ? 'var(--primary)' : 'var(--border)'),
+                          background: on ? 'var(--primary-soft)' : 'transparent',
+                          color: on ? 'var(--primary-dark)' : 'var(--text-2)' }}>
+                        <input type="checkbox" checked={on} style={{ display: 'none' }}
+                          onChange={() => setOptions(prev => {
+                            const cur = Array.isArray(prev[opt.key]) ? prev[opt.key] : [];
+                            return { ...prev, [opt.key]: on ? cur.filter(x => x !== o.value) : [...cur, o.value] };
+                          })} />
+                        {o.label}
+                      </label>
+                    );
+                  })}
+                </div>
+              )}
               {opt.hint && <div className="workflows-card-substats" style={{ marginTop: 4 }}>{opt.hint}</div>}
             </div>
           </div>
-        ) : null)}
+        ))}
 
         {/* Thống kê lần gần nhất */}
         {(wf.lastRunUtc || wf.nextRunUtc) && (

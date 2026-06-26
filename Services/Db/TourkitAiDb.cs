@@ -203,6 +203,10 @@ BEGIN
     CREATE INDEX IX_Mails_Tenant_Received ON dbo.Mails(TenantId, ReceivedAt DESC);
 END;
 
+-- Migration idempotent: đánh dấu lỗi auto-reply (soạn/gửi tự động thất bại) để user thấy ở UI.
+IF COL_LENGTH('dbo.Mails', 'AutoReplyError') IS NULL
+    ALTER TABLE dbo.Mails ADD AutoReplyError NVARCHAR(500) NULL;
+
 IF OBJECT_ID('dbo.MailSyncState', 'U') IS NULL
 BEGIN
     CREATE TABLE dbo.MailSyncState (

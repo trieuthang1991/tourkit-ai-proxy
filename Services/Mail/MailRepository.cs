@@ -107,6 +107,17 @@ VALUES
             new { t = tenantId, id, d = draftJson, s = status }) > 0;
     }
 
+    /// Đánh dấu lỗi auto-reply (soạn/gửi tự động thất bại). error=null → xoá cờ (auto-reply thành công).
+    public bool SetAutoReplyError(string tenantId, string id, string? error)
+    {
+        if (string.IsNullOrWhiteSpace(tenantId)) return false;
+        using var c = _db.Open();
+        var msg = error?.Length > 490 ? error[..490] + "…" : error;
+        return c.Execute(
+            "UPDATE dbo.Mails SET AutoReplyError=@e WHERE TenantId=@t AND Id=@id",
+            new { t = tenantId, id, e = msg }) > 0;
+    }
+
     /// Lọc theo status/category/search (search bỏ dấu, không phân biệt hoa). Mới nhất trước.
     public IReadOnlyList<MailItem> Filter(string tenantId, string? status, string? category, string? search)
     {
@@ -179,7 +190,8 @@ VALUES
                 Status: row.Status,
                 AiSummary: row.AiSummary,
                 Draft: draft,
-                BodyHtml: row.BodyHtml);
+                BodyHtml: row.BodyHtml,
+                AutoReplyError: row.AutoReplyError);
         }
         catch (Exception ex)
         {
@@ -204,6 +216,7 @@ VALUES
         public string Status { get; set; } = "moi";
         public string? AiSummary { get; set; }
         public string? DraftJson { get; set; }
+        public string? AutoReplyError { get; set; }
     }
 
     /// <summary>Compact row mapper cho Counts — chỉ 3 column cần.</summary>

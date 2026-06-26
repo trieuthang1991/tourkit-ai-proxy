@@ -15,7 +15,8 @@ public record MailItem(
     [property: JsonPropertyName("status")]     string Status,        // moi|dang_xu_ly|da_phan_hoi|da_dong
     [property: JsonPropertyName("aiSummary")]  string? AiSummary,
     [property: JsonPropertyName("draft")]      MailDraft? Draft,
-    [property: JsonPropertyName("bodyHtml")]   string? BodyHtml = null   // HTML gốc (để render iframe); Body = text sạch
+    [property: JsonPropertyName("bodyHtml")]   string? BodyHtml = null,  // HTML gốc (để render iframe); Body = text sạch
+    [property: JsonPropertyName("autoReplyError")] string? AutoReplyError = null   // != null → auto-reply soạn/gửi LỖI (hiện cảnh báo ở UI)
 );
 
 public record MailContact(

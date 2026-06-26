@@ -3,8 +3,8 @@ using TourkitAiProxy.Services.Workflow;
 
 namespace TourkitAiProxy.Services.Mail;
 
-/// <summary>Kết quả 1 lần sync.</summary>
-public record MailSyncResult(int Fetched, int Classified, int Skipped);
+/// <summary>Kết quả 1 lần sync. NewMails = các email MỚI vừa phân loại (cho auto-reply); null nếu caller không cần.</summary>
+public record MailSyncResult(int Fetched, int Classified, int Skipped, IReadOnlyList<MailItem>? NewMails = null);
 
 /// <summary>
 /// Service tái sử dụng logic đồng bộ Gmail: IMAP fetch → classify mới → lưu DB.
@@ -62,8 +62,8 @@ public class MailSyncService
             throw new Exception("Không kết nối được hộp thư: " + ex.Message, ex);
         }
 
-        int classified = 0;
         int skipped = 0;
+        var newMails = new List<MailItem>();   // email MỚI vừa phân loại → cho auto-reply
         foreach (var mail in fetched)
         {
             ct.ThrowIfCancellationRequested();
@@ -73,12 +73,13 @@ public class MailSyncService
                 continue;   // đã có = đã phân loại → bỏ qua (tiết kiệm token)
             }
             var (cat, sum) = await _classifier.ClassifyAsync(mail, ct);
-            _repo.Upsert(tenantId, mail with { Category = cat, AiSummary = sum });
-            classified++;
+            var saved = mail with { Category = cat, AiSummary = sum };
+            _repo.Upsert(tenantId, saved);
+            newMails.Add(saved);
         }
 
         _log.LogInformation("[MailSync] tenant={T} user={U} — {F} kéo, {C} phân loại, {S} bỏ qua",
-            tenantId, username, fetched.Count, classified, skipped);
-        return new MailSyncResult(fetched.Count, classified, skipped);
+            tenantId, username, fetched.Count, newMails.Count, skipped);
+        return new MailSyncResult(fetched.Count, newMails.Count, skipped, newMails);
     }
 }

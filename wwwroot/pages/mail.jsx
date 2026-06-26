@@ -592,6 +592,12 @@ function MailPage({ pushToast }) {
                   <div className="mail-row-meta">
                     {m.category && <span className="mail-cat-chip"><i className={'mail-catdot cat-' + m.category} /> {_CAT_VI[m.category]}</span>}
                     <span className={'mail-st-pill st-' + m.status}>{_STATUS_VI[m.status]}</span>
+                    {m.autoReplyError && (
+                      <span className="mail-st-pill" title={m.autoReplyError}
+                        style={{ background: '#FEE2E2', color: '#B91C1C', display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+                        <Icon name="warning" size={11} /> Auto-reply lỗi
+                      </span>
+                    )}
                   </div>
                 </div>
               </button>
