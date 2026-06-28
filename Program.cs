@@ -194,6 +194,7 @@ AttachLogAndInsecure(
 builder.Services.AddSingleton<TourKitApiClient>();
 builder.Services.AddSingleton<TkSessionRepository>();
 builder.Services.AddSingleton<TkSessionStore>();
+builder.Services.AddSingleton<TenantServiceAccountStore>();   // tài khoản dịch vụ per-tenant (workflow nền tự login)
 builder.Services.AddSingleton<TourkitAiProxy.Services.Cache.RedisStore>();  // generic Redis cho mọi feature
 // Single source of truth cho cấu hình AI model per-feature.
 builder.Services.AddSingleton<TourkitAiProxy.Services.Providers.AiModelRegistry>();
@@ -240,6 +241,7 @@ builder.Services.AddSingleton<TourkitAiProxy.Services.Mail.IMailSender, TourkitA
 builder.Services.AddSingleton<TourkitAiProxy.Services.Mail.MailClassifier>();
 builder.Services.AddSingleton<TourkitAiProxy.Services.Mail.MailSyncService>();   // shared sync logic (HTTP endpoint + workflow)
 builder.Services.AddSingleton<TourkitAiProxy.Services.Mail.MailReplyService>();
+builder.Services.AddSingleton<TourkitAiProxy.Services.Mail.MailQueueRepository>();   // hàng đợi mail outbound dùng chung (dbo.OutboundMails)
 
 // User Workflows — tác vụ AI tự động theo lịch per-(tenant, user).
 // Framework: WorkflowRegistry + WorkflowSchedulerService (tick 60s).
