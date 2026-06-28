@@ -47,7 +47,7 @@ function parseSummary(summaryJson) {
 function SummaryText({ summaryJson }) {
   const s = parseSummary(summaryJson);
   if (!s) return <span className="workflows-summary-empty">—</span>;
-  // deal-auto-review summary: { reviewed, rereviewed, cooling, queued, skipped, ... }
+  // deal-auto-review / customer-auto-review summary: { reviewed, rereviewed, cooling, queued, ... }
   if (s.reviewed != null || s.queued != null || s.cooling != null) {
     return (
       <span className="workflows-summary">
@@ -129,7 +129,18 @@ const WORKFLOW_OPTIONS = {
     { key: 'maxNotifications', type: 'number', label: 'Số lần cảnh báo tối đa / deal', default: 3, min: 1, max: 20 },
     { key: 'notifyMinGapHours', type: 'number', label: 'Giãn cách cảnh báo (giờ)', default: 24, min: 1, max: 720 },
   ],
+  'customer-auto-review': [
+    { key: 'createdWithinDays', type: 'number', label: 'KH tạo trong (ngày)', default: 30, min: 1, max: 365,
+      hint: 'CHỈ review KH MỚI tạo trong N ngày (tránh phát sinh quá nhiều). KH cũ hơn → bỏ qua ở lượt review đầu.' },
+    { key: 'reReviewDays', type: 'number', label: 'Review lại sau (ngày)', default: 30, min: 1, max: 365,
+      hint: 'KH đã review: chỉ chấm lại khi đã quá N ngày kể từ lần review cuối (đọc từ bảng review).' },
+    { key: 'reviewMax', type: 'number', label: 'Số KH chấm / lần', default: 20, min: 1, max: 100,
+      hint: 'Giới hạn số lượt AI mỗi chu kỳ (kiểm soát quota).' },
+  ],
 };
+
+// Workflow cần tài khoản dịch vụ (login TourKit nền) → hiện form ServiceAccountConfig.
+const WORKFLOWS_NEED_SERVICE_ACCOUNT = ['deal-auto-review', 'customer-auto-review'];
 
 // Gom default từ schema → {key: default} để pre-fill options khi user mới bật (tránh gửi mảng rỗng).
 function optionDefaults(type) {
@@ -334,6 +345,7 @@ function WorkflowCard({ wf, onUpdate, pushToast }) {
         const s = parseSummary(res.summary);
         let msg = 'Hoàn thành';
         if (s && wf.type === 'deal-auto-review') msg = `Hoàn thành: ${s.reviewed ?? 0} chấm · ${s.queued ?? 0} cảnh báo`;
+        else if (s && wf.type === 'customer-auto-review') msg = `Hoàn thành: ${s.reviewed ?? 0} chấm · ${s.rereviewed ?? 0} chấm lại`;
         else if (s) msg = `Hoàn thành: ${s.classified ?? 0} mail mới phân loại`;
         pushToast(msg, 'success');
       } else {
@@ -382,7 +394,7 @@ function WorkflowCard({ wf, onUpdate, pushToast }) {
       {/* Header: icon tròn + tiêu đề + pill + mô tả (tái dùng wga-card-top) */}
       <div className="wga-card-top">
         <div className="wga-card-avatar" style={{ borderColor: 'var(--primary)', color: 'var(--primary)' }}>
-          <Icon name={wf.type === 'deal-auto-review' ? 'zap' : 'mail'} size={20} />
+          <Icon name={wf.type === 'deal-auto-review' ? 'zap' : (wf.type === 'customer-auto-review' ? 'user' : 'mail')} size={20} />
         </div>
         <div className="wga-card-meta">
           <div className="wga-card-name-row">
@@ -406,8 +418,8 @@ function WorkflowCard({ wf, onUpdate, pushToast }) {
       )}
 
       <div className="workflows-card-body">
-        {/* Tài khoản dịch vụ (chỉ deal-auto-review — workflow nền cần login TourKit) */}
-        {wf.type === 'deal-auto-review' && <ServiceAccountConfig pushToast={pushToast} />}
+        {/* Tài khoản dịch vụ (workflow nền cần login TourKit) */}
+        {WORKFLOWS_NEED_SERVICE_ACCOUNT.includes(wf.type) && <ServiceAccountConfig pushToast={pushToast} />}
 
         {/* Toggle + Interval */}
         <div className="workflows-field-row">

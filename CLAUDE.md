@@ -289,6 +289,7 @@ Gmail inbox synced on demand, AI-classified, with AI-drafted replies. Flow lives
 Tác vụ AI chạy tự động theo lịch (interval), cấu hình per-(Tenant, Username). Framework đủ mở rộng: thêm workflow mới = implement `IScheduledWorkflow` + đăng ký DI + registry tự pickup. Built-in:
 - **`mail-auto-sync`** (PerUser) — kéo Gmail + AI phân loại mỗi N phút (+ tùy chọn auto-reply).
 - **`deal-auto-review`** (PerTenant) — tự AI-chấm cơ hội bán hàng + **cảnh báo deal nguội** (xem section dưới).
+- **`customer-auto-review`** (PerTenant) — tự AI-chấm hạng KH (A–D) chưa review + **review lại định kỳ**. Reuse `ReviewService` (lưu `dbo.Reviews` → worker sync rank về CRM); KH từ `/api/ai/customers` qua `CustomerReviewClient`. Pass 1 = KH chưa review trong `createdWithinDays`; Pass 2 = đọc `GeneratedAt` (ngày review cuối) trong `dbo.Reviews`, re-review khi quá `reReviewDays`. Options `{createdWithinDays, reReviewDays, reviewMax}`. Dùng chung service account + `AiCallContext.Push("customer-auto-review")`.
 
 ⚠️ **Quota + log AI nền (STRICT):** workflow chạy nền KHÔNG có HttpContext → PHẢI `AiCallContext.Push("<feature>", tenantId[, sessionId])` bao quanh AI call, nếu không sẽ **bypass quota tenant + log `feature=unknown,tenant=null`**. Dùng feature riêng cho automation (`mail-auto-sync`/`deal-auto-review`) để tách chi phí AI tự động vs thao tác tay trong `dbo.AiUsageHistory`.
 
