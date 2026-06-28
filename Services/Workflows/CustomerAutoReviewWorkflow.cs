@@ -21,7 +21,9 @@ namespace TourkitAiProxy.Services.Workflows;
 /// </summary>
 public class CustomerAutoReviewWorkflow : IScheduledWorkflow
 {
-    private const int ScanPageSize = 200;
+    private const int PageSize = 50;        // kích thước trang khi phân trang quét KH
+    private const int MaxPerRun = 200;      // GIỚI HẠN tối đa 200 KH xử lý/lượt → run không quá lâu, tránh lỗi timeout.
+    private const int MaxPages = MaxPerRun / PageSize;   // = 4 trang × 50 = 200
 
     private readonly CustomerReviewClient _client;
     private readonly ReviewService _reviewService;
@@ -42,7 +44,7 @@ public class CustomerAutoReviewWorkflow : IScheduledWorkflow
 
     public string Type => "customer-auto-review";
     public string Label => "Tự động review khách hàng";
-    public string Description => "Tự AI-chấm hạng khách hàng (A–D) chưa review + review lại định kỳ theo chu kỳ cấu hình";
+    public string Description => "Tự động chấm hạng khách hàng (A–D) và định kỳ chấm lại.";
     public WorkflowScope Scope => WorkflowScope.PerTenant;
 
     public async Task<WorkflowRunResult> RunAsync(string tenantId, string username, string? optionsJson, CancellationToken ct)
@@ -59,53 +61,61 @@ public class CustomerAutoReviewWorkflow : IScheduledWorkflow
 
         using var _aiScope = _aiCtx.Push("customer-auto-review", tenantId, sessionId);
 
-        int reviewed = 0, rereviewed = 0, skippedFresh = 0, skippedOld = 0;
+        int reviewed = 0, rereviewed = 0, skippedFresh = 0, skippedUnchanged = 0, skippedOld = 0;
+        bool quotaHit = false, timedOut = false;
         var now = DateTime.UtcNow;
         try
         {
-            var customers = await _client.ListAsync(sessionId, ScanPageSize, ct);
-            foreach (var crm in customers)
+            // GIỚI HẠN ~200 KH/lượt (MaxPages × PageSize) → run không quá lâu. Hết → chu kỳ sau quét tiếp.
+            for (int page = 1; page <= MaxPages; page++)
             {
-                ct.ThrowIfCancellationRequested();
-                if (reviewed + rereviewed >= opt.ReviewMax) break;   // cap quota/run
-                try
+                var customers = await _client.ListAsync(sessionId, page, PageSize, ct);
+                if (customers.Count == 0) break;
+                foreach (var crm in customers)
                 {
-                    var existing = _reviewRepo.Get(tenantId, crm.Customer.Id);
-                    if (existing == null)
+                    ct.ThrowIfCancellationRequested();
+                    try
                     {
-                        // Pass 1 — chưa review: chỉ KH tạo trong cửa sổ (tránh lố)
-                        if (AgeDays(crm.CreatedAt) > opt.CreatedWithinDays) { skippedOld++; continue; }
-                        await _reviewService.ReviewAsync(crm.Customer, tenantId, ct: ct);
-                        reviewed++;
-                    }
-                    else
-                    {
-                        // Pass 2 — đã review: re-review khi quá hạn theo ngày review cuối
-                        var lastUtc = ParseUtc(existing.GeneratedAt);
-                        if (lastUtc == null || (now - lastUtc.Value).TotalDays >= opt.ReReviewDays)
+                        var existing = _reviewRepo.Get(tenantId, crm.Customer.Id);
+                        if (existing == null)
                         {
+                            // Pass 1 — chưa review: chỉ KH tạo trong cửa sổ (tránh lố)
+                            if (AgeDays(crm.CreatedAt) > opt.CreatedWithinDays) { skippedOld++; continue; }
+                            await _reviewService.ReviewAsync(crm.Customer, tenantId, ct: ct);
+                            reviewed++;
+                        }
+                        else
+                        {
+                            // Pass 2 — đã review.
+                            if (!opt.ReReview) { skippedFresh++; continue; }            // tắt review lại
+                            var lastUtc = ParseUtc(existing.GeneratedAt);
+                            if (lastUtc != null && (now - lastUtc.Value).TotalDays < opt.ReReviewDays)
+                            { skippedFresh++; continue; }                               // chưa tới hạn ngày
+                            // ĐẾN HẠN → chỉ chấm lại nếu KH có THAY ĐỔI (so vân tay hồ sơ) — tránh review lại KH không đổi.
+                            if (ReviewRepository.FingerprintFor(crm.Customer) == existing.DataFingerprint)
+                            { skippedUnchanged++; continue; }                           // không đổi → bỏ qua
                             await _reviewService.ReviewAsync(crm.Customer, tenantId, ct: ct);
                             rereviewed++;
                         }
-                        else skippedFresh++;
                     }
+                    catch (OperationCanceledException) { throw; }
+                    catch (QuotaExhaustedException) { throw; }
+                    catch (Exception ex) { _log.LogWarning("[CustomerAutoReview] KH {Id} lỗi: {Err}", crm.Customer.Id, ex.Message); }
                 }
-                catch (OperationCanceledException) { throw; }
-                catch (QuotaExhaustedException) { throw; }
-                catch (Exception ex) { _log.LogWarning("[CustomerAutoReview] KH {Id} lỗi: {Err}", crm.Customer.Id, ex.Message); }
+                if (customers.Count < PageSize) break;   // trang cuối
             }
         }
-        catch (OperationCanceledException) { return new WorkflowRunResult(false, null, "Vượt quá thời gian 5 phút"); }
-        catch (QuotaExhaustedException) { return new WorkflowRunResult(false, null, "Hết quota AI"); }
+        catch (OperationCanceledException) { timedOut = true; }   // hết 5 phút → DỪNG ÊM, giữ phần đã review (không fail); chu kỳ sau chạy tiếp
+        catch (QuotaExhaustedException) { quotaHit = true; }      // hết quota → DỪNG êm (không fail/auto-pause)
         catch (Exception ex)
         {
             _log.LogWarning("[CustomerAutoReview] tenant={T} lỗi: {Err}", tenantId, ex.Message);
             return new WorkflowRunResult(false, null, ex.Message);
         }
 
-        var summary = JsonSerializer.Serialize(new { reviewed, rereviewed, skippedFresh, skippedOld });
-        _log.LogInformation("[CustomerAutoReview] tenant={T} → reviewed={R} rereviewed={RR} skippedFresh={SF} skippedOld={SO}",
-            tenantId, reviewed, rereviewed, skippedFresh, skippedOld);
+        var summary = JsonSerializer.Serialize(new { reviewed, rereviewed, skippedFresh, skippedUnchanged, skippedOld, quotaHit, timedOut });
+        _log.LogInformation("[CustomerAutoReview] tenant={T} → reviewed={R} rereviewed={RR} skippedFresh={SF} skippedUnchanged={SU} skippedOld={SO} quotaHit={Q} timedOut={TO}",
+            tenantId, reviewed, rereviewed, skippedFresh, skippedUnchanged, skippedOld, quotaHit, timedOut);
         return new WorkflowRunResult(true, summary, null);
     }
 
@@ -122,11 +132,11 @@ public class CustomerAutoReviewWorkflow : IScheduledWorkflow
 }
 
 /// Option ĐỘNG của customer-auto-review.
-public sealed record CustomerAutoReviewOptions(int CreatedWithinDays, int ReReviewDays, int ReviewMax)
+public sealed record CustomerAutoReviewOptions(int CreatedWithinDays, bool ReReview, int ReReviewDays)
 {
     public static CustomerAutoReviewOptions Parse(string? json)
     {
-        var def = new CustomerAutoReviewOptions(CreatedWithinDays: 30, ReReviewDays: 30, ReviewMax: 20);
+        var def = new CustomerAutoReviewOptions(CreatedWithinDays: 30, ReReview: true, ReReviewDays: 30);
         if (string.IsNullOrWhiteSpace(json)) return def;
         try
         {
@@ -134,8 +144,8 @@ public sealed record CustomerAutoReviewOptions(int CreatedWithinDays, int ReRevi
             var r = d.RootElement;
             return new CustomerAutoReviewOptions(
                 CreatedWithinDays: Clamp(GetInt(r, "createdWithinDays", 30), 1, 365),
-                ReReviewDays:      Clamp(GetInt(r, "reReviewDays", 30), 1, 365),
-                ReviewMax:         Clamp(GetInt(r, "reviewMax", 20), 1, 100));
+                ReReview:          GetBool(r, "reReview", true),
+                ReReviewDays:      Clamp(GetInt(r, "reReviewDays", 30), 1, 365));
         }
         catch { return def; }
     }
@@ -146,6 +156,14 @@ public sealed record CustomerAutoReviewOptions(int CreatedWithinDays, int ReRevi
         if (!r.TryGetProperty(k, out var v)) return def;
         if (v.ValueKind == JsonValueKind.Number && v.TryGetInt32(out var n)) return n;
         if (v.ValueKind == JsonValueKind.String && int.TryParse(v.GetString(), out var s)) return s;
+        return def;
+    }
+    private static bool GetBool(JsonElement r, string k, bool def)
+    {
+        if (!r.TryGetProperty(k, out var v)) return def;
+        if (v.ValueKind == JsonValueKind.True) return true;
+        if (v.ValueKind == JsonValueKind.False) return false;
+        if (v.ValueKind == JsonValueKind.String && bool.TryParse(v.GetString(), out var b)) return b;
         return def;
     }
 }

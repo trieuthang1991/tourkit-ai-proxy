@@ -19,6 +19,7 @@ public record DealOpportunity(
     string? Assignees,
     string CreatedAt,                  // ISO
     int AgeDays,                       // ngày kể từ tạo
+    string? AssigneeEmail = null,      // email NV phụ trách (upstream trả 'assigneeEmail' — để worker gửi cảnh báo; null nếu upstream chưa có)
     // ── Tín hiệu "đang nguội" từ upstream (LastInteractionAt = MAX(create,update,latestComment)) ──
     string? LatestComment = null,      // nội dung comment Sale gần nhất
     string? LatestCommentBy = null,

@@ -25,10 +25,11 @@ public class CustomerReviewClient
     /// 1 KH CRM + metadata workflow cần (đã map sang Customer + giữ Rank/CreatedAt/Assignee raw).
     public record CrmCustomer(Customer Customer, int? Rank, string CreatedAt, string? Assignee);
 
-    /// Kéo trang KH (mới nhất trước theo upstream). pageSize cap volume cho mỗi run.
-    public async Task<List<CrmCustomer>> ListAsync(string sessionId, int pageSize, CancellationToken ct)
+    /// Kéo 1 trang KH (mới nhất trước theo upstream). Caller phân trang (pageIndex tăng dần) để quét hết.
+    public async Task<List<CrmCustomer>> ListAsync(string sessionId, int pageIndex, int pageSize, CancellationToken ct)
     {
-        var path = $"/api/ai/customers?pageIndex=1&pageSize={pageSize}";
+        if (pageIndex < 1) pageIndex = 1;
+        var path = $"/api/ai/customers?pageIndex={pageIndex}&pageSize={pageSize}";
         var data = await GetAsync(sessionId, path, ct);
 
         var list = new List<CrmCustomer>();

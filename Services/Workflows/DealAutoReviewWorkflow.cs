@@ -45,7 +45,7 @@ public class DealAutoReviewWorkflow : IScheduledWorkflow
 
     public string Type => "deal-auto-review";
     public string Label => "Tự động review & cảnh báo deal";
-    public string Description => "Tự AI-chấm deal mới chưa chấm + cảnh báo deal nguội (đẩy mail vào hàng đợi)";
+    public string Description => "Tự động chấm điểm deal và cảnh báo những deal đang nguội.";
     public WorkflowScope Scope => WorkflowScope.PerTenant;
 
     public async Task<WorkflowRunResult> RunAsync(string tenantId, string username, string? optionsJson, CancellationToken ct)
@@ -74,20 +74,33 @@ public class DealAutoReviewWorkflow : IScheduledWorkflow
         bool InStatuses(DealOpportunity d) => opt.Statuses.Count == 0 || opt.Statuses.Contains(d.Status);
         bool Eligible(DealOpportunity d) => InStatuses(d) && d.AgeDays <= opt.CreatedWithinDays;
 
+        // Fetch deals — lọc trạng thái SERVER-SIDE trong 1 REQUEST (upstream `statusesCsv` → IN (...)),
+        // tránh gọi mỗi status 1 lần. statuses rỗng → không truyền (mọi trạng thái).
+        // Lọc client-side InStatuses chỉ là LỚP AN TOÀN (no-op khi upstream đã lọc; cứu khi upstream cũ chưa deploy).
+        var statusesCsv = opt.Statuses.Count > 0 ? string.Join(",", opt.Statuses) : null;
+        async Task<List<DealOpportunity>> FetchAsync(int? rank, string? sd, int pageSize)
+        {
+            var items = (await _client.ListPagedAsync(sessionId, 1, pageSize, ct, rank: rank, startDate: sd, statusesCsv: statusesCsv)).Items;
+            return opt.Statuses.Count == 0 ? items : items.Where(InStatuses).ToList();
+        }
+
         int reviewed = 0, rereviewed = 0, autoFinalized = 0, finalizedSkipped = 0, cappedSkipped = 0;
         int coolingCount = 0, queued = 0, skipped = 0, skippedNoAssignee = 0;
+        bool quotaHit = false, timedOut = false;
 
         try
         {
             // ── Pass 1: REVIEW DEAL MỚI (chưa chấm) ──────────────────────────────
             if (opt.AutoReview)
             {
-                var page = await _client.ListPagedAsync(sessionId, 1, opt.ReviewMax, ct, rank: -1, startDate: startDate);
-                foreach (var deal in page.Items.Where(InStatuses))
+                var newDeals = await FetchAsync(rank: -1, sd: startDate, pageSize: Math.Max(opt.ReviewMax, 50));
+                foreach (var deal in newDeals)
                 {
                     ct.ThrowIfCancellationRequested();
+                    if (reviewed + rereviewed >= opt.ReviewMax) break;   // cap tổng lượt AI/run (quota)
                     try
                     {
+                        if (IsClosedWon(deal.StatusName) || deal.Status == CancelStatus) continue;   // auto: đơn đã chốt/hủy → không chấm
                         var ctx = await _client.GetContextAsync(sessionId, deal, ct);
                         if (_dealRepo.GetScore(tenantId, deal.Id, ctx.Fingerprint) != null) continue;   // đã chấm fingerprint này
                         var score = await _scoring.ScoreAsync(ctx.Profile, null, null, null, ct);
@@ -100,23 +113,40 @@ public class DealAutoReviewWorkflow : IScheduledWorkflow
                     catch (Exception ex) { _log.LogWarning("[DealAutoReview] chấm deal {Id} lỗi: {Err}", deal.Id, ex.Message); }
                 }
 
-                // ── Pass 2: REVIEW LẠI (đọc deal đã chấm) ────────────────────────
-                var scored = await _client.ListPagedAsync(sessionId, 1, 200, ct, rank: 1 /*sentinel: đã chấm bất kỳ*/);
-                foreach (var deal in scored.Items)
+                // ── Pass 2: REVIEW LẠI (đọc deal đã chấm) — chỉ khi BẬT review lại ──
+                var scoredDeals = opt.ReReview
+                    ? await FetchAsync(rank: 1 /*sentinel: đã chấm bất kỳ*/, sd: null, pageSize: 200)
+                    : new List<DealOpportunity>();
+                foreach (var deal in scoredDeals)
                 {
                     ct.ThrowIfCancellationRequested();
+                    if (reviewed + rereviewed >= opt.ReviewMax) break;   // cap tổng lượt AI/run (quota)
                     try
                     {
                         var meta = _dealRepo.GetReviewControl(tenantId, deal.Id);
                         if (meta?.IsFinalized == true) { finalizedSkipped++; continue; }
+                        // AUTO review: đơn đã CHỐT/thành công/đã hủy → không còn cơ hội mở → chốt sổ, NGỪNG tự review lại.
+                        // (Chỉ chặn auto; user chủ động review tay đi path khác, KHÔNG bị ảnh hưởng.)
+                        if (IsClosedWon(deal.StatusName) || deal.Status == CancelStatus)
+                        {
+                            _dealRepo.SetFinalized(tenantId, deal.Id, "closed");
+                            autoFinalized++; continue;
+                        }
                         if (!Eligible(deal))
                         {
                             _dealRepo.SetFinalized(tenantId, deal.Id, InStatuses(deal) ? "aged" : "status-changed");
                             autoFinalized++; continue;
                         }
                         if (meta != null && meta.AutoReviewCount >= opt.MaxAutoReviews) { cappedSkipped++; continue; }
+                        // SO TIMESTAMP (code, không AI, không fetch): deal có hoạt động mới kể từ lần chấm cuối chưa?
+                        // LastInteractionAt = MAX(ngày tạo, sửa, comment mới nhất). ≤ ngày chấm cuối → không đổi → bỏ qua.
+                        var cached = _dealRepo.PeekCached(tenantId, deal.Id);
+                        var lastReviewUtc = ParseUtc(cached?.SavedAt);
+                        var lastInteract = ParseUtc(deal.LastInteractionAt);
+                        if (lastReviewUtc != null && lastInteract != null && lastInteract.Value <= lastReviewUtc.Value)
+                            continue;   // không hoạt động mới → bỏ qua, KHÔNG fetch detail/comment
                         var ctx = await _client.GetContextAsync(sessionId, deal, ct);
-                        if (_dealRepo.GetScore(tenantId, deal.Id, ctx.Fingerprint) != null) continue;   // nội dung chưa đổi
+                        if (_dealRepo.GetScore(tenantId, deal.Id, ctx.Fingerprint) != null) continue;   // lớp dự phòng: fingerprint trùng = nội dung thực sự chưa đổi
                         var score = await _scoring.ScoreAsync(ctx.Profile, null, null, null, ct);
                         _dealRepo.SaveScore(tenantId, deal.Id, ctx.Fingerprint, score);
                         _dealRepo.MarkAutoReviewed(tenantId, deal.Id);
@@ -128,10 +158,10 @@ public class DealAutoReviewWorkflow : IScheduledWorkflow
                 }
             }
 
-            // ── Cảnh báo nguội → enqueue mail ────────────────────────────────────
-            var page2 = await _client.ListPagedAsync(sessionId, 1, 200, ct, startDate: startDate);
-            var cooling = page2.Items
-                .Where(d => d.Status != CancelStatus && !IsClosedWon(d.StatusName) && InStatuses(d))
+            // ── Cảnh báo nguội → enqueue mail (status lọc server-side qua FetchAsync) ──
+            var openDeals = await FetchAsync(rank: null, sd: startDate, pageSize: 200);
+            var cooling = openDeals
+                .Where(d => d.Status != CancelStatus && !IsClosedWon(d.StatusName))
                 .Where(d => d.IsCooling && d.CoolingDays >= opt.CoolingDays)
                 .ToList();
             coolingCount = cooling.Count;
@@ -150,14 +180,19 @@ public class DealAutoReviewWorkflow : IScheduledWorkflow
                 if (recent >= opt.MaxNotifications) { skipped++; continue; }
                 if (last.HasValue && (DateTime.UtcNow - last.Value).TotalHours < opt.NotifyMinGapHours) { skipped++; continue; }
 
+                // NV phụ trách có thể nhiều người → email ĐẦU làm người nhận chính (To), còn lại vào Cc.
+                var (toEmail, ccEmails) = SplitRecipients(deal.AssigneeEmail);
+
                 await _mailQueue.EnqueueAsync(new OutboundMailInput(
                     TenantId: tenantId,
                     Kind: AlertKind,
                     SourceId: $"Deal_{deal.Id}",
                     Username: null,                     // worker chọn hộp thư tenant
                     TemplateCode: AlertKind,
-                    ToEmail: null, ToName: null, ToUserId: null,   // worker resolve NV phụ trách từ DealId
-                    Cc: null,
+                    // Producer CHỦ ĐỘNG truyền sẵn email + tên NV phụ trách → worker chỉ gửi, KHÔNG tra DB.
+                    // toEmail null nếu upstream /api/ai/booking-tickets chưa trả 'assigneeEmail' → worker đánh Skipped (thiếu email).
+                    ToEmail: toEmail, ToName: deal.Assignees, ToUserId: null,
+                    Cc: ccEmails,
                     Subject: null,                      // template tự quyết subject
                     Params: BuildAlertParams(deal, score),
                     Data: JsonSerializer.Serialize(new
@@ -171,11 +206,11 @@ public class DealAutoReviewWorkflow : IScheduledWorkflow
         }
         catch (OperationCanceledException)
         {
-            return new WorkflowRunResult(false, null, "Vượt quá thời gian 5 phút");
+            timedOut = true;   // hết 5 phút → DỪNG ÊM, giữ phần đã chấm/cảnh báo (không fail); chu kỳ sau chạy tiếp
         }
         catch (QuotaExhaustedException)
         {
-            return new WorkflowRunResult(false, null, "Hết quota AI");
+            quotaHit = true;   // hết quota → DỪNG êm (không fail/auto-pause)
         }
         catch (Exception ex)
         {
@@ -186,7 +221,7 @@ public class DealAutoReviewWorkflow : IScheduledWorkflow
         var summary = JsonSerializer.Serialize(new
         {
             reviewed, rereviewed, autoFinalized, finalizedSkipped, cappedSkipped,
-            cooling = coolingCount, queued, skipped, skippedNoAssignee
+            cooling = coolingCount, queued, skipped, skippedNoAssignee, quotaHit, timedOut
         });
         _log.LogInformation("[DealAutoReview] tenant={T} → reviewed={R} rereviewed={RR} autoFinalized={AF} cooling={C} queued={Q} skipped={S}",
             tenantId, reviewed, rereviewed, autoFinalized, coolingCount, queued, skipped);
@@ -207,6 +242,7 @@ public class DealAutoReviewWorkflow : IScheduledWorkflow
             ["statusName"] = deal.StatusName,
             ["sourceName"] = deal.SourceName,
             ["assigneeNames"] = deal.Assignees,
+            ["fullName"] = deal.Assignees,        // tên người nhận để worker/template dùng (producer truyền sẵn)
             ["coolingDays"] = deal.CoolingDays,
             ["lastInteractionAt"] = deal.LastInteractionAt,
             ["hasReview"] = score != null,
@@ -217,26 +253,45 @@ public class DealAutoReviewWorkflow : IScheduledWorkflow
         return JsonSerializer.Serialize(p);
     }
 
+    /// Tách chuỗi nhiều email NV (ngăn bởi , ; /) → (email chính, danh sách Cc dạng "a,b"). Loại trùng,
+    /// giữ thứ tự. Email đầu = To, còn lại = Cc. Rỗng/null → (null, null).
+    private static (string? To, string? Cc) SplitRecipients(string? emails)
+    {
+        if (string.IsNullOrWhiteSpace(emails)) return (null, null);
+        var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        var list = new List<string>();
+        foreach (var e in emails.Split(new[] { ',', ';', '/' }, StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
+            if (seen.Add(e)) list.Add(e);
+        if (list.Count == 0) return (null, null);
+        var cc = list.Count > 1 ? string.Join(",", list.Skip(1)) : null;
+        return (list[0], cc);
+    }
+
     private static string FmtVnd(long v) => v.ToString("#,##0", CultureInfo.InvariantCulture) + " đ";
+
+    private static DateTime? ParseUtc(string? iso)
+        => DateTime.TryParse(iso, CultureInfo.InvariantCulture, DateTimeStyles.AssumeUniversal | DateTimeStyles.AdjustToUniversal, out var d)
+            ? d : (DateTime?)null;
 
     /// Deal đã CHỐT/thành công (không còn là cơ hội mở) — mirror DealOpportunityClient.ListOpenAsync.
     private static bool IsClosedWon(string? statusName)
     {
         var sn = DealHeuristic.Normalize(statusName);
-        return sn.Length > 0 && (sn.Contains("chot don") || sn.Contains("thanh cong")
+        // "da chot" bắt cả "Đã chốt" / "Đã chốt đơn"; KHÔNG match nhầm "chưa chốt"/"sắp chốt" (chua/sap chot ≠ da chot).
+        return sn.Length > 0 && (sn.Contains("chot don") || sn.Contains("da chot") || sn.Contains("thanh cong")
             || sn.Contains("hoan thanh") || sn.Contains("hoan tat") || sn.Contains("da ban"));
     }
 }
 
 /// Option ĐỘNG của deal-auto-review (parse từ OptionsJson, mặc định an toàn).
 public sealed record DealAutoReviewOptions(
-    List<int> Statuses, int CreatedWithinDays, bool AutoReview, int ReviewMax, int MaxAutoReviews,
+    List<int> Statuses, int CreatedWithinDays, bool AutoReview, bool ReReview, int ReviewMax, int MaxAutoReviews,
     int CoolingDays, int MinWinRateToNotify, int MaxNotifications, int NotifyMinGapHours)
 {
     public static DealAutoReviewOptions Parse(string? json)
     {
         var def = new DealAutoReviewOptions(
-            Statuses: new List<int>(), CreatedWithinDays: 30, AutoReview: true, ReviewMax: 20,
+            Statuses: new List<int>(), CreatedWithinDays: 30, AutoReview: true, ReReview: true, ReviewMax: 20,
             MaxAutoReviews: 5, CoolingDays: 7, MinWinRateToNotify: 0, MaxNotifications: 3, NotifyMinGapHours: 24);
         if (string.IsNullOrWhiteSpace(json)) return def;
         try
@@ -251,6 +306,7 @@ public sealed record DealAutoReviewOptions(
                 Statuses: statuses,
                 CreatedWithinDays: Clamp(GetInt(r, "createdWithinDays", 30), 1, 365),
                 AutoReview: GetBool(r, "autoReview", true),
+                ReReview: GetBool(r, "reReview", true),
                 ReviewMax: Clamp(GetInt(r, "reviewMax", 20), 1, 100),
                 MaxAutoReviews: Clamp(GetInt(r, "maxAutoReviews", 5), 1, 50),
                 CoolingDays: Clamp(GetInt(r, "coolingDays", 7), 1, 90),

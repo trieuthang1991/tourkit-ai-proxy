@@ -107,8 +107,12 @@ public static class WorkflowEndpoints
             });
         });
 
-        // ─── POST /workflows/{type}/run-now ─── manual trigger (synchronous) ─────
-        v1.MapPost("/workflows/{type}/run-now", async (
+        // ─── POST /workflows/{type}/run-now ─── manual trigger (CHẠY NỀN, fire-and-forget) ─────
+        // Trả về NGAY ({started:true}); workflow chạy nền qua scheduler pipeline (failures tracking +
+        // auto-pause + log run). KHÔNG gắn ctx.RequestAborted → đóng tab / rời trang KHÔNG hủy run
+        // (trước đây run chậm 100s+ → request trình duyệt timeout → bị hủy → báo "lỗi" giả).
+        // Timeout 5 phút nội bộ của RunOneAsync vẫn áp dụng. Kết quả xem ở "20 lần gần nhất".
+        v1.MapPost("/workflows/{type}/run-now", (
             string type,
             HttpContext ctx,
             WorkflowRegistry registry,
@@ -131,20 +135,9 @@ public static class WorkflowEndpoints
             if (existing == null)
                 repo.UpsertConfig(tenant, scopeUser, type, enabled: false, intervalMinutes: 15, updatedBy: user);
 
-            var sw = Stopwatch.StartNew();
-            // Chạy qua scheduler pipeline (failures tracking + auto-pause + log run) — truyền options đã lưu.
-            await scheduler.RunOneAsync(wf, tenant, scopeUser, type, "manual", existing?.OptionsJson, ctx.RequestAborted);
-            sw.Stop();
-
-            // Lấy run cuối cùng để trả thông tin
-            var lastRun = repo.RecentRuns(tenant, scopeUser, type, 1).FirstOrDefault();
-            return Results.Json(new
-            {
-                ok = lastRun?.Status == "ok",
-                summary = lastRun?.Summary,
-                error = lastRun?.Error,
-                durationMs = lastRun?.DurationMs ?? (int)sw.ElapsedMilliseconds
-            });
+            // Fire-and-forget: chạy nền với CancellationToken.None (không phụ thuộc vòng đời request).
+            _ = scheduler.RunOneAsync(wf, tenant, scopeUser, type, "manual", existing?.OptionsJson, CancellationToken.None);
+            return Results.Json(new { ok = true, started = true });
         });
 
         // ─── GET /workflows/{type}/runs ─── lịch sử run ──────────────────────────
@@ -249,6 +242,37 @@ public static class WorkflowEndpoints
             var (_, tenant, _) = auth.Value;
             var removed = await store.DeleteAsync(tenant, ctx.RequestAborted);
             return Results.Json(new { ok = true, removed });
+        });
+
+        // ─── GET /workflows/deal-statuses ─── danh sách trạng thái deal cho picker ──
+        // Dùng session của user (đang xem trang) gọi upstream filter-sections → [{value, label}].
+        v1.MapGet("/workflows/deal-statuses", async (
+            HttpContext ctx,
+            TkSessionStore sessions,
+            TourKitApiClient api) =>
+        {
+            var auth = RequireSession(ctx, sessions);
+            if (auth == null) return Unauthorized();
+            var (sid, _, _) = auth.Value;
+            try
+            {
+                var jwt = await sessions.GetValidJwtAsync(sid, ctx.RequestAborted);
+                var data = await api.GetAsync(jwt, "/api/booking-tickets/filter-sections", ctx.RequestAborted);
+                var items = new List<object>();
+                if (data.ValueKind == JsonValueKind.Array)
+                    foreach (var s in data.EnumerateArray())
+                    {
+                        if (!s.TryGetProperty("status", out var st) || !st.TryGetInt32(out var val) || val <= 0) continue;
+                        var label = s.TryGetProperty("sectionName", out var sn) && sn.ValueKind == JsonValueKind.String
+                            ? sn.GetString() : null;
+                        items.Add(new { value = val, label = string.IsNullOrWhiteSpace(label) ? $"Trạng thái {val}" : label });
+                    }
+                return Results.Json(new { items });
+            }
+            catch (Exception ex)
+            {
+                return Results.Json(new { items = Array.Empty<object>(), error = ex.Message });
+            }
         });
 
         // ─── GET /workflows/outbound-mails ─── theo dõi hàng đợi mail ────────────

@@ -47,7 +47,19 @@ function parseSummary(summaryJson) {
 function SummaryText({ summaryJson }) {
   const s = parseSummary(summaryJson);
   if (!s) return <span className="workflows-summary-empty">—</span>;
-  // deal-auto-review / customer-auto-review summary: { reviewed, rereviewed, cooling, queued, ... }
+  // customer-auto-review summary: { reviewed, rereviewed, skippedFresh, skippedUnchanged, skippedOld, timedOut }
+  if (s.skippedFresh != null || s.skippedUnchanged != null || s.skippedOld != null) {
+    return (
+      <span className="workflows-summary">
+        <span>{s.reviewed ?? 0} review mới</span>
+        <span> · {s.rereviewed ?? 0} review lại</span>
+        {s.skippedUnchanged ? <span> · {s.skippedUnchanged} không đổi</span> : null}
+        {s.skippedFresh ? <span> · {s.skippedFresh} chưa tới hạn</span> : null}
+        {s.timedOut ? <span className="workflows-summary-warn"> · hết giờ, chạy tiếp lần sau</span> : null}
+      </span>
+    );
+  }
+  // deal-auto-review summary: { reviewed, rereviewed, cooling, queued, ... }
   if (s.reviewed != null || s.queued != null || s.cooling != null) {
     return (
       <span className="workflows-summary">
@@ -56,6 +68,7 @@ function SummaryText({ summaryJson }) {
         {s.queued != null && <span> · {s.queued} cảnh báo</span>}
         {s.cooling != null && <span> · {s.cooling} nguội</span>}
         {s.autoFinalized ? <span> · {s.autoFinalized} đã xong</span> : null}
+        {s.timedOut ? <span className="workflows-summary-warn"> · hết giờ, chạy tiếp lần sau</span> : null}
       </span>
     );
   }
@@ -71,14 +84,25 @@ function SummaryText({ summaryJson }) {
 
 // ─── Interval options ────────────────────────────────────────────────────────────
 
+// 1 danh sách tần suất dùng chung (giá trị = SỐ PHÚT lưu xuống backend). Từ 5 phút → mỗi ngày.
+// Mặc định 15 phút cho mọi workflow.
 const INTERVAL_OPTIONS = [
-  { value: 5,  label: 'Mỗi 5 phút' },
-  { value: 10, label: 'Mỗi 10 phút' },
-  { value: 15, label: 'Mỗi 15 phút' },
-  { value: 30, label: 'Mỗi 30 phút' },
-  { value: 60, label: 'Mỗi 1 giờ' },
-  { value: 120, label: 'Mỗi 2 giờ' },
+  { value: 5,    label: 'Mỗi 5 phút' },
+  { value: 10,   label: 'Mỗi 10 phút' },
+  { value: 15,   label: 'Mỗi 15 phút' },
+  { value: 30,   label: 'Mỗi 30 phút' },
+  { value: 60,   label: 'Mỗi 1 giờ' },
+  { value: 180,  label: 'Mỗi 3 giờ' },
+  { value: 360,  label: 'Mỗi 6 giờ' },
+  { value: 720,  label: 'Mỗi 12 giờ' },
+  { value: 1440, label: 'Mỗi ngày' },
 ];
+// Workflow chạy chậm (review/cảnh báo) — chỉ dùng để hiện hint "quét ≠ review lại mỗi lần".
+const SLOW_WORKFLOWS = ['deal-auto-review', 'customer-auto-review'];
+// Interval khởi tạo: đã cấu hình → giá trị lưu; chưa → mặc định 15 phút.
+function initialInterval(wf) {
+  return wf.intervalMinutes || 15;
+}
 
 // Schema option ĐỘNG per-workflow (client). Thêm workflow/option mới = thêm 1 entry — UI tự render.
 // type: 'bool'→toggle | 'select'→dropdown | 'multi'→chip nhiều lựa chọn. showIf: chỉ hiện khi option kia bật.
@@ -113,34 +137,54 @@ const WORKFLOW_OPTIONS = {
       options: MAIL_TONES },
   ],
   'deal-auto-review': [
-    { key: 'statuses', type: 'numbers', label: 'Trạng thái xử lý', default: [],
-      hint: 'Để trống = mọi trạng thái. Nhập ID trạng thái deal (vd chỉ "Mới") cách nhau dấu phẩy. Deal ngoài danh sách coi như đã xử lý → bỏ qua.' },
-    { key: 'createdWithinDays', type: 'number', label: 'Deal tạo trong (ngày)', default: 30, min: 1, max: 365,
-      hint: 'Chỉ xử lý deal tạo trong N ngày gần đây. Deal cũ hơn → bỏ qua (đỡ review + tránh phát sinh nhiều).' },
-    { key: 'autoReview', type: 'bool', label: 'Tự động chấm điểm AI', default: true,
-      hint: 'AI tự chấm khả năng chốt cho deal mới + chấm lại khi nội dung đổi. Tắt = chỉ cảnh báo nguội.' },
-    { key: 'reviewMax', type: 'number', label: 'Số deal chấm / lần', showIf: 'autoReview', default: 20, min: 1, max: 100 },
-    { key: 'maxAutoReviews', type: 'number', label: 'Số lần chấm tối đa / deal', showIf: 'autoReview', default: 5, min: 1, max: 50,
-      hint: 'Chống chấm lại vô tận. Đạt số lần này → ngừng tự chấm deal đó.' },
-    { key: 'coolingDays', type: 'number', label: 'Ngưỡng nguội (ngày)', default: 7, min: 1, max: 90,
-      hint: 'Deal không được chăm sóc quá N ngày → coi là "nguội" → cảnh báo.' },
-    { key: 'minWinRateToNotify', type: 'number', label: 'Chỉ cảnh báo winRate ≥ (%)', default: 0, min: 0, max: 100,
-      hint: '0 = mọi deal nguội. >0 = chỉ cảnh báo deal đã chấm điểm cao đang nguội (đỡ mail rác).' },
-    { key: 'maxNotifications', type: 'number', label: 'Số lần cảnh báo tối đa / deal', default: 3, min: 1, max: 20 },
-    { key: 'notifyMinGapHours', type: 'number', label: 'Giãn cách cảnh báo (giờ)', default: 24, min: 1, max: 720 },
+    { key: 'statuses', type: 'multi', dynamic: 'dealStatuses', label: 'Trạng thái áp dụng', default: [], required: true,
+      hint: 'Chọn ít nhất 1 trạng thái deal mà workflow sẽ xử lý.' },
+    { key: 'createdWithinDays', type: 'number', label: 'Chỉ deal tạo trong (ngày)', default: 30, min: 1, max: 365,
+      hint: 'Chỉ xử lý deal được tạo trong khoảng ngày gần đây này. Deal cũ hơn được bỏ qua.' },
+    { key: 'autoReview', type: 'bool', label: 'AI tự chấm điểm deal', default: true,
+      hint: 'Bật để AI tự cho điểm khả năng chốt từng deal. Tắt thì chỉ gửi cảnh báo deal nguội, không chấm điểm.' },
+    { key: 'reReview', type: 'bool', label: 'Chấm lại khi deal có thay đổi', showIf: 'autoReview', default: true,
+      hint: 'Khi một deal đã chấm có thay đổi (khách phản hồi, sale thêm ghi chú…), AI sẽ chấm lại để cập nhật điểm. Tắt = chỉ chấm deal mới.' },
+    { key: 'reviewMax', type: 'number', label: 'Tối đa deal chấm mỗi lượt', showIf: 'autoReview', default: 20, min: 1, max: 100,
+      hint: 'Mỗi lượt chạy chấm tối đa bao nhiêu deal.' },
+    { key: 'maxAutoReviews', type: 'number', label: 'Tối đa số lần chấm lại / deal', showIf: 'autoReview', default: 5, min: 1, max: 50,
+      hint: 'Mỗi deal được chấm lại tối đa bao nhiêu lần, tránh chấm đi chấm lại mãi một deal.' },
+    { key: 'coolingDays', type: 'number', label: 'Coi là "nguội" sau (ngày)', default: 7, min: 1, max: 90,
+      hint: 'Deal đang mở mà quá số ngày này không ai chăm sóc thì coi là "nguội" và được đưa vào cảnh báo.' },
+    { key: 'minWinRateToNotify', type: 'number', label: 'Chỉ cảnh báo khi % chốt từ', default: 0, min: 0, max: 100,
+      hint: 'Chỉ cảnh báo những deal có khả năng chốt từ mức % này trở lên. Để 0 = cảnh báo mọi deal nguội.' },
+    { key: 'maxNotifications', type: 'number', label: 'Tối đa số lần cảnh báo / deal', default: 3, min: 1, max: 20,
+      hint: 'Mỗi deal chỉ gửi cảnh báo tối đa bao nhiêu lần, tránh làm phiền nhân viên.' },
+    { key: 'notifyMinGapHours', type: 'number', label: 'Nhắc lại cùng 1 deal sau ít nhất (giờ)', default: 24, min: 1, max: 720,
+      hint: 'Sau khi đã cảnh báo một deal, phải chờ đủ số giờ này mới được nhắc lại chính deal đó. Ví dụ 24 = mỗi deal tối đa 1 lần/ngày.' },
   ],
   'customer-auto-review': [
-    { key: 'createdWithinDays', type: 'number', label: 'KH tạo trong (ngày)', default: 30, min: 1, max: 365,
-      hint: 'CHỈ review KH MỚI tạo trong N ngày (tránh phát sinh quá nhiều). KH cũ hơn → bỏ qua ở lượt review đầu.' },
-    { key: 'reReviewDays', type: 'number', label: 'Review lại sau (ngày)', default: 30, min: 1, max: 365,
-      hint: 'KH đã review: chỉ chấm lại khi đã quá N ngày kể từ lần review cuối (đọc từ bảng review).' },
-    { key: 'reviewMax', type: 'number', label: 'Số KH chấm / lần', default: 20, min: 1, max: 100,
-      hint: 'Giới hạn số lượt AI mỗi chu kỳ (kiểm soát quota).' },
+    { key: 'createdWithinDays', type: 'number', label: 'Chỉ khách tạo trong (ngày)', default: 30, min: 1, max: 365,
+      hint: 'Chỉ review khách được tạo trong khoảng ngày gần đây này. Khách cũ hơn được bỏ qua ở lần review đầu.' },
+    { key: 'reReview', type: 'bool', label: 'Tự động review lại định kỳ', default: true,
+      hint: 'Bật để định kỳ chấm lại những khách đã review (theo chu kỳ bên dưới). Tắt = chỉ review khách mới.' },
+    { key: 'reReviewDays', type: 'number', label: 'Chấm lại sau mỗi (ngày)', showIf: 'reReview', default: 30, min: 1, max: 365,
+      hint: 'Bao lâu thì chấm lại một khách kể từ lần review trước. 30 ngày ≈ mỗi tháng, 90 ≈ mỗi quý, 7 = mỗi tuần.' },
   ],
 };
 
-// Workflow cần tài khoản dịch vụ (login TourKit nền) → hiện form ServiceAccountConfig.
-const WORKFLOWS_NEED_SERVICE_ACCOUNT = ['deal-auto-review', 'customer-auto-review'];
+// Nhóm option theo chức năng (cho tiêu đề mục trong card) — gọn, dễ quét. key option → tên nhóm.
+const OPTION_GROUPS = {
+  'mail-auto-sync': {
+    autoReply: 'Tự động trả lời', replyMode: 'Tự động trả lời',
+    replyCategories: 'Tự động trả lời', replyTone: 'Tự động trả lời',
+  },
+  'deal-auto-review': {
+    statuses: 'Phạm vi xử lý', createdWithinDays: 'Phạm vi xử lý',
+    autoReview: 'Tự động chấm điểm', reReview: 'Tự động chấm điểm', reviewMax: 'Tự động chấm điểm', maxAutoReviews: 'Tự động chấm điểm',
+    coolingDays: 'Cảnh báo deal nguội', minWinRateToNotify: 'Cảnh báo deal nguội',
+    maxNotifications: 'Cảnh báo deal nguội', notifyMinGapHours: 'Cảnh báo deal nguội',
+  },
+  'customer-auto-review': {
+    createdWithinDays: 'Phạm vi',
+    reReview: 'Chu kỳ review lại', reReviewDays: 'Chu kỳ review lại',
+  },
+};
 
 // Gom default từ schema → {key: default} để pre-fill options khi user mới bật (tránh gửi mảng rỗng).
 function optionDefaults(type) {
@@ -208,8 +252,9 @@ function RunHistoryTable({ runs, loading }) {
 // Workflow PerTenant tự đăng nhập TourKit bằng 1 tài khoản dịch vụ (không cần user online).
 // POST validate login + đếm deal trước khi lưu; GET trạng thái (không trả password).
 
-function ServiceAccountConfig({ pushToast }) {
+function ServiceAccountConfig({ pushToast, onChange }) {
   const [status, setStatus] = uS(null);
+  const [editing, setEditing] = uS(false);   // đã cấu hình → panel tóm tắt; bấm Sửa → hiện form nhập lại
   const [username, setUsername] = uS('');
   const [password, setPassword] = uS('');
   const [saving, setSaving] = uS(false);
@@ -231,7 +276,9 @@ function ServiceAccountConfig({ pushToast }) {
         pushToast(`Đã lưu tài khoản — thấy ${res.dealsVisible} deal.` + (res.warning ? ' ⚠ ' + res.warning : ''),
           res.warning ? 'info' : 'success');
         setPassword('');
+        setEditing(false);
         setStatus({ configured: true, username: username.trim() });
+        if (onChange) onChange();
       } else {
         pushToast(res.error || 'Lưu thất bại', 'error');
       }
@@ -248,63 +295,161 @@ function ServiceAccountConfig({ pushToast }) {
       pushToast('Đã xóa tài khoản tự động', 'success');
       setUsername(''); setPassword('');
       setStatus({ configured: false });
+      if (onChange) onChange();
     } catch (e) {
       pushToast('Xóa thất bại: ' + e.message, 'error');
     } finally { setSaving(false); }
   }
 
+  function startEdit() { setUsername(status?.username || ''); setPassword(''); setEditing(true); }
+  function cancelEdit() { setEditing(false); setUsername(''); setPassword(''); }
+
+  const configured = !!(status && status.configured);
+
   return (
     <div className="workflows-field-row" style={{ alignItems: 'flex-start', flexDirection: 'column', gap: 8 }}>
-      <label className="workflows-field-label">Tài khoản tự động</label>
-      <div className="workflows-card-substats" style={{ marginBottom: 2 }}>
-        Workflow đăng nhập TourKit bằng tài khoản này để quét deal (nên cấp quyền xem TẤT CẢ cơ hội).
-        {status && (status.configured
-          ? <span style={{ color: 'var(--primary-dark)' }}> Đang dùng: <b>{status.username}</b>.</span>
-          : <span style={{ color: 'var(--danger, #c0392b)' }}> Chưa cấu hình — workflow chưa chạy được.</span>)}
+      <label className="workflows-field-label">Tài khoản tự động {!configured && <span className="req-star">*</span>}</label>
+
+      {configured && !editing ? (
+        /* Đã đăng nhập → panel tóm tắt + nút Sửa / Xóa */
+        <div className="workflows-sa-panel">
+          <span className="workflows-sa-cur" style={_wfRow}>
+            <Icon name="check" size={14} /> Đang dùng tài khoản <b>{status.username}</b>
+          </span>
+          <div style={{ display: 'flex', gap: 8 }}>
+            <button className="wga-btn" onClick={startEdit} disabled={saving}><Icon name="edit" size={13} /> Sửa</button>
+            <button className="wga-btn ghost" onClick={remove} disabled={saving}><Icon name="close" size={13} /> Xóa</button>
+          </div>
+        </div>
+      ) : (
+        /* Chưa cấu hình / đang sửa → form nhập */
+        <React.Fragment>
+          <div className="workflows-card-substats" style={{ marginBottom: 2 }}>
+            Hệ thống dùng tài khoản này để tự đăng nhập và lấy dữ liệu. Nên là tài khoản xem được toàn bộ dữ liệu công ty.
+            {status && !configured && <span style={{ color: 'var(--danger, #c0392b)' }}> Chưa cấu hình — workflow chưa chạy được.</span>}
+          </div>
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, width: '100%' }}>
+            <input className="workflows-select" placeholder="Tên đăng nhập *" style={{ flex: 1, minWidth: 140 }}
+              value={username} onChange={e => setUsername(e.target.value)} />
+            <input className="workflows-select" type="password" placeholder="Mật khẩu *" style={{ flex: 1, minWidth: 140 }}
+              value={password} onChange={e => setPassword(e.target.value)} />
+            <button className="wga-btn primary" onClick={save} disabled={saving}>
+              {saving ? 'Đang kiểm tra...' : (configured ? 'Cập nhật' : 'Lưu & kiểm tra')}
+            </button>
+            {editing && (
+              <button className="wga-btn ghost" onClick={cancelEdit} disabled={saving}>Hủy</button>
+            )}
+          </div>
+        </React.Fragment>
+      )}
+    </div>
+  );
+}
+
+// ─── MultiSelect (select2-style) — chip + dropdown checklist cho options động ──────
+
+function MultiSelectDropdown({ options, value, onChange, placeholder, loading }) {
+  const [open, setOpen] = uS(false);
+  const ref = React.useRef(null);
+  uE(() => {
+    if (!open) return;
+    const h = e => { if (ref.current && !ref.current.contains(e.target)) setOpen(false); };
+    document.addEventListener('mousedown', h);
+    return () => document.removeEventListener('mousedown', h);
+  }, [open]);
+  const sel = Array.isArray(value) ? value : [];
+  const labelOf = v => { const o = options.find(x => x.value === v); return o ? o.label : v; };
+  const toggle = v => onChange(sel.includes(v) ? sel.filter(x => x !== v) : [...sel, v]);
+  return (
+    <div className="wf-ms" ref={ref}>
+      <div className={'wf-ms-control' + (open ? ' open' : '')} onClick={() => setOpen(o => !o)}>
+        <div className="wf-ms-tags">
+          {sel.length === 0
+            ? <span className="wf-ms-ph">{loading ? 'Đang tải…' : (placeholder || 'Tất cả')}</span>
+            : sel.map(v => (
+              <span className="wf-ms-tag" key={v}>
+                {labelOf(v)}
+                <span className="wf-ms-x" onClick={e => { e.stopPropagation(); toggle(v); }}>×</span>
+              </span>
+            ))}
+        </div>
+        <span className="wf-ms-chev"><Icon name={open ? 'chevronUp' : 'chevronDown'} size={14} /></span>
       </div>
-      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, width: '100%' }}>
-        <input className="workflows-select" placeholder="Tên đăng nhập" style={{ flex: 1, minWidth: 140 }}
-          value={username} onChange={e => setUsername(e.target.value)} />
-        <input className="workflows-select" type="password" placeholder="Mật khẩu" style={{ flex: 1, minWidth: 140 }}
-          value={password} onChange={e => setPassword(e.target.value)} />
-        <button className="wga-btn" onClick={save} disabled={saving}>
-          {saving ? 'Đang kiểm tra...' : (status && status.configured ? 'Cập nhật' : 'Lưu & kiểm tra')}
-        </button>
-        {status && status.configured && (
-          <button className="wga-btn ghost" onClick={remove} disabled={saving} title="Xóa tài khoản tự động">
-            <Icon name="close" size={13} /> Xóa
-          </button>
-        )}
-      </div>
+      {open && (
+        <div className="wf-ms-menu">
+          {options.length === 0
+            ? <div className="wf-ms-empty">{loading ? 'Đang tải…' : 'Chưa lấy được trạng thái — kiểm tra kết nối CRM / tài khoản.'}</div>
+            : options.map(o => (
+              <label key={o.value} className={'wf-ms-item' + (sel.includes(o.value) ? ' on' : '')}>
+                <input type="checkbox" checked={sel.includes(o.value)} onChange={() => toggle(o.value)} />
+                <span>{o.label}</span>
+              </label>
+            ))}
+        </div>
+      )}
     </div>
   );
 }
 
 // ─── WorkflowCard ────────────────────────────────────────────────────────────────
 
-function WorkflowCard({ wf, onUpdate, pushToast }) {
+function WorkflowCard({ wf, onUpdate, pushToast, locked }) {
   const [enabled, setEnabled] = uS(wf.enabled);
-  const [interval, setInterval] = uS(wf.intervalMinutes || 15);
+  const [interval, setInterval] = uS(initialInterval(wf));
   const [saving, setSaving] = uS(false);
   const [running, setRunning] = uS(false);
   const [historyOpen, setHistoryOpen] = uS(false);
   const [runs, setRuns] = uS(null);
   const [runsLoading, setRunsLoading] = uS(false);
+  const [expanded, setExpanded] = uS(false);   // list/accordion: mở cấu hình khi bấm dòng
   // Merge default schema + options đã lưu → tránh gửi mảng/giá trị rỗng khi user mới bật.
   const [options, setOptions] = uS({ ...optionDefaults(wf.type), ...(wf.options || {}) });
+  // Options ĐỘNG (vd trạng thái deal lấy từ CRM cho user tick chọn).
+  const [dynOptions, setDynOptions] = uS({});
+  const [dynLoading, setDynLoading] = uS({});
 
   const optionSchema = WORKFLOW_OPTIONS[wf.type] || [];
+
+  // Tải options động cho card (hiện: trạng thái deal cho deal-auto-review).
+  uE(() => {
+    if (wf.type !== 'deal-auto-review') return;
+    setDynLoading(l => ({ ...l, dealStatuses: true }));
+    apiFetch('/api/v1/workflows/deal-statuses')
+      .then(d => setDynOptions(o => ({ ...o, dealStatuses: d.items || [] })))
+      .catch(() => {})
+      .finally(() => setDynLoading(l => ({ ...l, dealStatuses: false })));
+  }, [wf.type]);
 
   // Sync state khi prop thay đổi (sau reload)
   uE(() => {
     setEnabled(wf.enabled);
-    setInterval(wf.intervalMinutes || 15);
+    setInterval(initialInterval(wf));
     setOptions({ ...optionDefaults(wf.type), ...(wf.options || {}) });
   }, [wf.enabled, wf.intervalMinutes, wf.options]);
 
+  const isSlow = SLOW_WORKFLOWS.includes(wf.type);
+  const intervalOptions = INTERVAL_OPTIONS;
+
   const isPaused = !!wf.pausedReason;
 
+  // Field bắt buộc đang trống? (chỉ tính field đang hiện + có dữ liệu để chọn)
+  function reqEmpty(o) {
+    const v = options[o.key];
+    if (o.type === 'multi') {
+      const opts = o.dynamic ? (dynOptions[o.dynamic] || []) : (o.options || []);
+      return opts.length > 0 && (!Array.isArray(v) || v.length === 0);   // chỉ bắt buộc khi đã có list để chọn
+    }
+    if (o.type === 'numbers') return !Array.isArray(v) || v.length === 0;
+    return v == null || v === '';
+  }
+
   async function handleSave() {
+    // Validate field bắt buộc trước khi lưu.
+    const missing = optionSchema.filter(o => o.required && (!o.showIf || options[o.showIf]) && reqEmpty(o));
+    if (missing.length) {
+      pushToast('Vui lòng chọn/điền: ' + missing.map(o => o.label).join(', '), 'error');
+      return;
+    }
     setSaving(true);
     try {
       await apiFetch(`/api/v1/workflows/${wf.type}`, {
@@ -338,24 +483,25 @@ function WorkflowCard({ wf, onUpdate, pushToast }) {
 
   async function handleRunNow() {
     setRunning(true);
-    pushToast(`Đang chạy "${wf.label}"...`, 'info');
     try {
       const res = await apiFetch(`/api/v1/workflows/${wf.type}/run-now`, { method: 'POST' });
-      if (res.ok) {
-        const s = parseSummary(res.summary);
-        let msg = 'Hoàn thành';
-        if (s && wf.type === 'deal-auto-review') msg = `Hoàn thành: ${s.reviewed ?? 0} chấm · ${s.queued ?? 0} cảnh báo`;
-        else if (s && wf.type === 'customer-auto-review') msg = `Hoàn thành: ${s.reviewed ?? 0} chấm · ${s.rereviewed ?? 0} chấm lại`;
-        else if (s) msg = `Hoàn thành: ${s.classified ?? 0} mail mới phân loại`;
-        pushToast(msg, 'success');
+      if (res.started) {
+        pushToast('Đã bắt đầu chạy nền. Bạn có thể rời trang — kết quả sẽ hiện ở "20 lần gần nhất" khi xong (có thể vài phút).', 'info');
+        setHistoryOpen(true);
+        loadRuns();
+        // Tự cập nhật lịch sử + trạng thái card vài lần (workflow chậm có thể 1–3 phút).
+        let n = 0;
+        const iv = setInterval(() => {
+          n++;
+          loadRuns();
+          onUpdate();
+          if (n >= 10) clearInterval(iv);
+        }, 20000);
       } else {
-        pushToast('Chạy thất bại: ' + (res.error || 'Lỗi không xác định'), 'error');
+        pushToast('Không bắt đầu được: ' + (res.error || 'Lỗi không xác định'), 'error');
       }
-      onUpdate();
-      // Reload runs nếu đang mở
-      if (historyOpen) loadRuns();
     } catch (e) {
-      pushToast('Chạy thất bại: ' + e.message, 'error');
+      pushToast('Không bắt đầu được: ' + e.message, 'error');
     } finally {
       setRunning(false);
     }
@@ -389,25 +535,114 @@ function WorkflowCard({ wf, onUpdate, pushToast }) {
     statusPill = <span className="wga-pill faq">Tắt</span>;
   }
 
-  return (
-    <div className={'wga-card' + (isPaused ? ' workflows-card-paused' : '')}>
-      {/* Header: icon tròn + tiêu đề + pill + mô tả (tái dùng wga-card-top) */}
-      <div className="wga-card-top">
-        <div className="wga-card-avatar" style={{ borderColor: 'var(--primary)', color: 'var(--primary)' }}>
-          <Icon name={wf.type === 'deal-auto-review' ? 'zap' : (wf.type === 'customer-auto-review' ? 'user' : 'mail')} size={20} />
+  // Render control của 1 option theo type (bool/select/multi/number/numbers).
+  function renderControl(opt) {
+    if (opt.type === 'bool') return (
+      <div className="workflows-toggle-wrap">
+        <label className="workflows-toggle">
+          <input type="checkbox" checked={!!options[opt.key]}
+            onChange={e => setOptions(o => ({ ...o, [opt.key]: e.target.checked }))} />
+          <span className="workflows-toggle-track" />
+        </label>
+        <span className="workflows-toggle-label">{options[opt.key] ? 'Bật' : 'Tắt'}</span>
+      </div>
+    );
+    if (opt.type === 'select') return (
+      <select className="workflows-select workflows-opt-input"
+        value={options[opt.key] || opt.options[0].value}
+        onChange={e => setOptions(o => ({ ...o, [opt.key]: e.target.value }))}>
+        {opt.options.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
+      </select>
+    );
+    if (opt.type === 'multi') {
+      // Options ĐỘNG (vd trạng thái deal từ CRM) → multi-select dropdown (select2-style).
+      if (opt.dynamic) return (
+        <MultiSelectDropdown
+          options={dynOptions[opt.dynamic] || []}
+          value={options[opt.key]}
+          loading={!!dynLoading[opt.dynamic]}
+          placeholder="Tất cả trạng thái"
+          onChange={vals => setOptions(o => ({ ...o, [opt.key]: vals }))} />
+      );
+      // Options TĨNH (vd nhóm mail) → chips.
+      return (
+        <div className="workflows-chips">
+          {opt.options.map(o => {
+            const arr = Array.isArray(options[opt.key]) ? options[opt.key] : [];
+            const on = arr.includes(o.value);
+            return (
+              <label key={o.value} className={'workflows-chip' + (on ? ' on' : '')}>
+                <input type="checkbox" checked={on} style={{ display: 'none' }}
+                  onChange={() => setOptions(prev => {
+                    const cur = Array.isArray(prev[opt.key]) ? prev[opt.key] : [];
+                    return { ...prev, [opt.key]: on ? cur.filter(x => x !== o.value) : [...cur, o.value] };
+                  })} />
+                {o.label}
+              </label>
+            );
+          })}
         </div>
-        <div className="wga-card-meta">
-          <div className="wga-card-name-row">
-            <span className="wga-card-name">{wf.label}</span>
+      );
+    }
+    if (opt.type === 'number') return (
+      <input type="number" className="workflows-select workflows-opt-num"
+        min={opt.min} max={opt.max}
+        value={options[opt.key] ?? opt.default ?? 0}
+        onChange={e => setOptions(o => ({ ...o, [opt.key]: e.target.value === '' ? 0 : Number(e.target.value) }))} />
+    );
+    if (opt.type === 'numbers') return (
+      <input type="text" className="workflows-select workflows-opt-input"
+        placeholder="để trống = tất cả"
+        value={(Array.isArray(options[opt.key]) ? options[opt.key] : []).join(', ')}
+        onChange={e => setOptions(o => ({ ...o, [opt.key]: e.target.value.split(',').map(x => parseInt(x.trim(), 10)).filter(n => !isNaN(n) && n > 0) }))} />
+    );
+    return null;
+  }
+
+  // Gom option theo nhóm (opt.group), giữ thứ tự. Option không group → nhóm '' (không tiêu đề).
+  function groupedOptions() {
+    const visible = optionSchema.filter(opt => !opt.showIf || options[opt.showIf]);
+    const gmap = OPTION_GROUPS[wf.type] || {};
+    const groups = [];
+    visible.forEach(opt => {
+      const gname = gmap[opt.key] || opt.group || '';
+      let g = groups.find(x => x.name === gname);
+      if (!g) { g = { name: gname, items: [] }; groups.push(g); }
+      g.items.push(opt);
+    });
+    return groups;
+  }
+  const wideTypes = ['select', 'multi', 'numbers'];
+
+  return (
+    <div className={'workflows-rowitem' + (isPaused ? ' is-paused' : '') + (expanded ? ' is-open' : '')}>
+      {/* Dòng list (bấm để mở/đóng cấu hình) */}
+      <div className="workflows-rowhead" onClick={() => setExpanded(v => !v)}
+        role="button" tabIndex={0}
+        onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setExpanded(v => !v); } }}>
+        <div className="workflows-rowhead-avatar">
+          <Icon name={wf.type === 'deal-auto-review' ? 'zap' : (wf.type === 'customer-auto-review' ? 'user' : 'mail')} size={18} />
+        </div>
+        <div className="workflows-rowhead-main">
+          <div className="workflows-rowhead-name">
+            <span>{wf.label}</span>
             {statusPill}
           </div>
-          <div className="wga-card-substats">
-            <span>{wf.description}</span>
-          </div>
+          <div className="workflows-rowhead-desc">{wf.description}</div>
         </div>
+        <div className="workflows-rowhead-meta">
+          {wf.lastRunUtc
+            ? <span style={_wfRow}>
+                {wf.lastRunStatus === 'failed' && <Icon name="close" size={12} />}
+                {relativeTime(wf.lastRunUtc)}
+                {wf.lastRunSummary && <SummaryText summaryJson={wf.lastRunSummary} />}
+              </span>
+            : <span className="workflows-rowhead-muted">Chưa chạy</span>}
+        </div>
+        <span className="workflows-rowhead-chev"><Icon name={expanded ? 'chevronUp' : 'chevronDown'} size={16} /></span>
       </div>
 
-      {/* Paused banner */}
+      {/* Paused banner — luôn hiện khi tạm dừng (không cần mở) */}
       {isPaused && (
         <div className="workflows-paused-banner">
           <span style={_wfRow}><Icon name="warning" size={14} /> Đã tạm dừng: {wf.pausedReason}</span>
@@ -417,140 +652,111 @@ function WorkflowCard({ wf, onUpdate, pushToast }) {
         </div>
       )}
 
-      <div className="workflows-card-body">
-        {/* Tài khoản dịch vụ (workflow nền cần login TourKit) */}
-        {WORKFLOWS_NEED_SERVICE_ACCOUNT.includes(wf.type) && <ServiceAccountConfig pushToast={pushToast} />}
-
-        {/* Toggle + Interval */}
-        <div className="workflows-field-row">
-          <label className="workflows-field-label">Trạng thái</label>
-          <div className="workflows-toggle-wrap">
-            <label className="workflows-toggle">
-              <input type="checkbox" checked={enabled}
-                onChange={e => setEnabled(e.target.checked)} />
-              <span className="workflows-toggle-track" />
-            </label>
-            <span className="workflows-toggle-label">{enabled ? 'Bật' : 'Tắt'}</span>
-          </div>
-        </div>
-        <div className="workflows-field-row">
-          <label className="workflows-field-label">Tần suất</label>
-          <select className="workflows-select"
-            value={interval}
-            onChange={e => setInterval(Number(e.target.value))}>
-            {INTERVAL_OPTIONS.map(o => (
-              <option key={o.value} value={o.value}>{o.label}</option>
-            ))}
-          </select>
-        </div>
-
-        {/* Điều kiện/option ĐỘNG per-workflow (render từ WORKFLOW_OPTIONS; showIf → chỉ hiện khi option kia bật) */}
-        {optionSchema.filter(opt => !opt.showIf || options[opt.showIf]).map(opt => (
-          <div className="workflows-field-row" key={opt.key} style={{ alignItems: 'flex-start' }}>
-            <label className="workflows-field-label">{opt.label}</label>
-            <div style={{ flex: 1, minWidth: 0 }}>
-              {opt.type === 'bool' && (
-                <div className="workflows-toggle-wrap">
-                  <label className="workflows-toggle">
-                    <input type="checkbox" checked={!!options[opt.key]}
-                      onChange={e => setOptions(o => ({ ...o, [opt.key]: e.target.checked }))} />
-                    <span className="workflows-toggle-track" />
-                  </label>
-                  <span className="workflows-toggle-label">{options[opt.key] ? 'Bật' : 'Tắt'}</span>
-                </div>
-              )}
-              {opt.type === 'select' && (
-                <select className="workflows-select"
-                  value={options[opt.key] || opt.options[0].value}
-                  onChange={e => setOptions(o => ({ ...o, [opt.key]: e.target.value }))}>
-                  {opt.options.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
-                </select>
-              )}
-              {opt.type === 'multi' && (
-                <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
-                  {opt.options.map(o => {
-                    const arr = Array.isArray(options[opt.key]) ? options[opt.key] : [];
-                    const on = arr.includes(o.value);
-                    return (
-                      <label key={o.value}
-                        style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '4px 11px',
-                          borderRadius: 999, cursor: 'pointer', fontSize: 13, userSelect: 'none',
-                          border: '1px solid ' + (on ? 'var(--primary)' : 'var(--border)'),
-                          background: on ? 'var(--primary-soft)' : 'transparent',
-                          color: on ? 'var(--primary-dark)' : 'var(--text-2)' }}>
-                        <input type="checkbox" checked={on} style={{ display: 'none' }}
-                          onChange={() => setOptions(prev => {
-                            const cur = Array.isArray(prev[opt.key]) ? prev[opt.key] : [];
-                            return { ...prev, [opt.key]: on ? cur.filter(x => x !== o.value) : [...cur, o.value] };
-                          })} />
-                        {o.label}
-                      </label>
-                    );
-                  })}
-                </div>
-              )}
-              {opt.type === 'number' && (
-                <input type="number" className="workflows-select" style={{ width: 130 }}
-                  min={opt.min} max={opt.max}
-                  value={options[opt.key] ?? opt.default ?? 0}
-                  onChange={e => setOptions(o => ({ ...o, [opt.key]: e.target.value === '' ? 0 : Number(e.target.value) }))} />
-              )}
-              {opt.type === 'numbers' && (
-                <input type="text" className="workflows-select"
-                  placeholder="vd: 1, 2 (để trống = tất cả)"
-                  value={(Array.isArray(options[opt.key]) ? options[opt.key] : []).join(', ')}
-                  onChange={e => setOptions(o => ({ ...o, [opt.key]: e.target.value.split(',').map(x => parseInt(x.trim(), 10)).filter(n => !isNaN(n) && n > 0) }))} />
-              )}
-              {opt.hint && <div className="workflows-card-substats" style={{ marginTop: 4 }}>{opt.hint}</div>}
+      {/* Body cấu hình — chỉ render khi mở */}
+      {expanded && (
+        <div className="workflows-rowbody">
+          {locked && (
+            <div className="workflows-locked-banner">
+              <Icon name="warning" size={14} /> Cần cấu hình <b>Tài khoản dịch vụ</b> (khối phía trên) trước khi bật workflow này.
             </div>
-          </div>
-        ))}
-
-        {/* Thống kê lần gần nhất */}
-        {(wf.lastRunUtc || wf.nextRunUtc) && (
-          <div className="workflows-meta">
-            {wf.lastRunUtc && (
-              <div className="workflows-meta-item">
-                <span className="workflows-meta-label">Lần chạy cuối</span>
-                <span className={'workflows-meta-val' + (wf.lastRunStatus === 'failed' ? ' workflows-meta-fail' : '')}>
-                  {relativeTime(wf.lastRunUtc)}
-                  {wf.lastRunStatus === 'ok' && <Icon name="check" size={13} />}
-                  {wf.lastRunStatus === 'failed' && <Icon name="close" size={13} />}
-                  {wf.lastRunSummary && <SummaryText summaryJson={wf.lastRunSummary} />}
-                </span>
+          )}
+          <div className="workflows-rowbody-config">
+            {/* Nhóm "Lịch chạy" — bật/tắt + tần suất */}
+            <div className="workflows-optgroup">
+              <div className="workflows-optgroup-title">Lịch chạy</div>
+              <div className="workflows-opt is-toggle">
+                <div className="workflows-opt-row">
+                  <label className="workflows-opt-label">Bật workflow</label>
+                  <div className="workflows-opt-control">
+                    <div className="workflows-toggle-wrap">
+                      <label className="workflows-toggle">
+                        <input type="checkbox" checked={enabled} disabled={locked}
+                          onChange={e => setEnabled(e.target.checked)} />
+                        <span className="workflows-toggle-track" />
+                      </label>
+                      <span className="workflows-toggle-label">{enabled ? 'Bật' : 'Tắt'}</span>
+                    </div>
+                  </div>
+                </div>
               </div>
-            )}
-            {wf.nextRunUtc && enabled && !isPaused && (
-              <div className="workflows-meta-item">
-                <span className="workflows-meta-label">Lần kế tiếp</span>
-                <span className="workflows-meta-val">{futureTime(wf.nextRunUtc)}</span>
+              <div className="workflows-opt is-wide">
+                <div className="workflows-opt-row">
+                  <label className="workflows-opt-label">Tần suất kiểm tra</label>
+                  <div className="workflows-opt-control">
+                    <select className="workflows-select workflows-opt-input" value={interval}
+                      onChange={e => setInterval(Number(e.target.value))}>
+                      {intervalOptions.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
+                    </select>
+                  </div>
+                </div>
+                {isSlow && (
+                  <div className="workflows-opt-hint">
+                    Bao lâu hệ thống tự chạy một lần. Mỗi lần chạy chỉ xử lý phần mới hoặc vừa thay đổi, nên đặt chạy thường xuyên cũng không tốn thêm.
+                  </div>
+                )}
               </div>
-            )}
+            </div>
+
+            {/* Option ĐỘNG theo nhóm */}
+            {groupedOptions().map((g, gi) => (
+              <div className="workflows-optgroup" key={g.name || ('g' + gi)}>
+                {g.name && <div className="workflows-optgroup-title">{g.name}</div>}
+                {g.items.map(opt => (
+                  <div className={'workflows-opt' + (opt.type === 'bool' ? ' is-toggle' : '') + (wideTypes.includes(opt.type) ? ' is-wide' : '')} key={opt.key}>
+                    <div className="workflows-opt-row">
+                      <label className="workflows-opt-label">{opt.label}{opt.required && <span className="req-star">*</span>}</label>
+                      <div className="workflows-opt-control">{renderControl(opt)}</div>
+                    </div>
+                    {opt.hint && <div className="workflows-opt-hint">{opt.hint}</div>}
+                  </div>
+                ))}
+              </div>
+            ))}
           </div>
-        )}
 
-        {/* Actions — tái dùng wga-btn */}
-        <div className="workflows-actions">
-          <button className="wga-btn primary"
-            onClick={handleSave} disabled={saving || running}>
-            <Icon name="save" size={14} /> {saving ? 'Đang lưu...' : 'Lưu cấu hình'}
-          </button>
-          <button className="wga-btn"
-            onClick={handleRunNow} disabled={running || saving}>
-            <Icon name="refresh" size={14} /> {running ? 'Đang chạy...' : 'Chạy ngay'}
-          </button>
-          <button className="wga-btn ghost"
-            onClick={toggleHistory}>
-            <Icon name="list" size={14} /> {historyOpen ? 'Ẩn lịch sử' : '20 lần gần nhất'}
-            <Icon name={historyOpen ? 'chevronUp' : 'chevronDown'} size={13} />
-          </button>
-        </div>
-      </div>
+          {/* Thống kê lần gần nhất */}
+          {(wf.lastRunUtc || wf.nextRunUtc) && (
+            <div className="workflows-meta">
+              {wf.lastRunUtc && (
+                <div className="workflows-meta-item">
+                  <span className="workflows-meta-label">Lần chạy cuối</span>
+                  <span className={'workflows-meta-val' + (wf.lastRunStatus === 'failed' ? ' workflows-meta-fail' : '')}>
+                    {relativeTime(wf.lastRunUtc)}
+                    {wf.lastRunStatus === 'ok' && <Icon name="check" size={13} />}
+                    {wf.lastRunStatus === 'failed' && <Icon name="close" size={13} />}
+                    {wf.lastRunSummary && <SummaryText summaryJson={wf.lastRunSummary} />}
+                  </span>
+                </div>
+              )}
+              {wf.nextRunUtc && enabled && !isPaused && (
+                <div className="workflows-meta-item">
+                  <span className="workflows-meta-label">Lần kế tiếp</span>
+                  <span className="workflows-meta-val">{futureTime(wf.nextRunUtc)}</span>
+                </div>
+              )}
+            </div>
+          )}
 
-      {/* Run history collapsible */}
-      {historyOpen && (
-        <div className="workflows-history">
-          <RunHistoryTable runs={runs} loading={runsLoading} />
+          {/* Actions */}
+          <div className="workflows-actions">
+            <button className="wga-btn primary" onClick={handleSave} disabled={saving || running || locked}>
+              <Icon name="save" size={14} /> {saving ? 'Đang lưu...' : 'Lưu cấu hình'}
+            </button>
+            <button className="wga-btn" onClick={handleRunNow} disabled={running || saving || locked}>
+              <Icon name="refresh" size={14} /> {running ? 'Đang chạy...' : 'Chạy ngay'}
+            </button>
+            <button className="wga-btn ghost" onClick={toggleHistory}>
+              <Icon name="list" size={14} /> {historyOpen ? 'Ẩn lịch sử' : '20 lần gần nhất'}
+              <Icon name={historyOpen ? 'chevronUp' : 'chevronDown'} size={13} />
+            </button>
+          </div>
+
+          {/* Run history */}
+          {historyOpen && (
+            <div className="workflows-history">
+              <RunHistoryTable runs={runs} loading={runsLoading} />
+            </div>
+          )}
         </div>
       )}
     </div>
@@ -563,6 +769,7 @@ function WorkflowsPage({ pushToast }) {
   const [workflows, setWorkflows] = uS([]);
   const [loading, setLoading] = uS(true);
   const [error, setError] = uS(null);
+  const [saConfigured, setSaConfigured] = uS(null);   // null = chưa biết; false = chưa cấu hình tài khoản dịch vụ
 
   async function loadWorkflows() {
     try {
@@ -576,7 +783,12 @@ function WorkflowsPage({ pushToast }) {
     }
   }
 
-  uE(() => { loadWorkflows(); }, []);
+  async function loadSa() {
+    try { const d = await apiFetch('/api/v1/workflows/service-account'); setSaConfigured(!!d.configured); }
+    catch { setSaConfigured(false); }
+  }
+
+  uE(() => { loadWorkflows(); loadSa(); }, []);
 
   // KPI — tính từ danh sách hiện tại
   const running = workflows.filter(w => w.enabled && !w.pausedReason).length;
@@ -588,12 +800,12 @@ function WorkflowsPage({ pushToast }) {
   }, null);
 
   return (
-    <main className="page wga">
+    <main className="page wga workflows-page">
       <div className="wga-head">
         <div>
           <div className="wga-eyebrow">Tích hợp · Tự động</div>
           <h1>Tự động hóa</h1>
-          <p className="wga-sub">Tác vụ AI chạy nền theo lịch — kéo &amp; phân loại email, đồng bộ dữ liệu. Bật một lần, hệ thống tự chạy đều, bạn chỉ vào xem kết quả.</p>
+          <p className="wga-sub">Các tác vụ AI chạy nền theo lịch. Bật một lần, hệ thống tự làm đều đặn, bạn chỉ vào xem kết quả.</p>
         </div>
       </div>
 
@@ -639,16 +851,42 @@ function WorkflowsPage({ pushToast }) {
         </div>
       )}
 
-      <div className="wga-list workflows-list">
-        {workflows.map(wf => (
-          <WorkflowCard
-            key={wf.type}
-            wf={wf}
-            onUpdate={loadWorkflows}
-            pushToast={pushToast}
-          />
-        ))}
-      </div>
+      {!loading && !error && workflows.length > 0 && (() => {
+        const perUser = workflows.filter(w => w.scope === 'PerUser');
+        const perTenant = workflows.filter(w => w.scope === 'PerTenant');
+        const renderCards = (list, locked) => (
+          <div className="workflows-listview">
+            {list.map(wf => (
+              <WorkflowCard key={wf.type} wf={wf} onUpdate={loadWorkflows} pushToast={pushToast} locked={locked} />
+            ))}
+          </div>
+        );
+        return (
+          <React.Fragment>
+            {perUser.length > 0 && (
+              <section className="workflows-group">
+                <div className="workflows-group-head">
+                  <h2 className="workflows-group-title" style={_wfRow}><Icon name="user" size={17} /> Theo người dùng</h2>
+                  <p className="workflows-group-desc">Mỗi nhân viên tự bật cho riêng mình, dùng hộp thư và dữ liệu của chính mình.</p>
+                </div>
+                {renderCards(perUser, false)}
+              </section>
+            )}
+            {perTenant.length > 0 && (
+              <section className="workflows-group" style={{ marginTop: 22 }}>
+                <div className="workflows-group-head">
+                  <h2 className="workflows-group-title" style={_wfRow}><Icon name="users" size={17} /> Theo tổ chức (cả công ty)</h2>
+                  <p className="workflows-group-desc">Cấu hình một lần cho cả công ty. Hệ thống tự chạy bằng <b>tài khoản dịch vụ</b> bên dưới, không cần ai đăng nhập sẵn.</p>
+                </div>
+                <div className={'wga-card' + (saConfigured === false ? ' workflows-sa-needed' : '')} style={{ padding: '14px 18px', marginBottom: 14 }}>
+                  <ServiceAccountConfig pushToast={pushToast} onChange={loadSa} />
+                </div>
+                {renderCards(perTenant, saConfigured === false)}
+              </section>
+            )}
+          </React.Fragment>
+        );
+      })()}
     </main>
   );
 }
