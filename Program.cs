@@ -250,6 +250,8 @@ builder.Services.AddSingleton<TourkitAiProxy.Services.Workflows.WorkflowReposito
 builder.Services.AddSingleton<TourkitAiProxy.Services.Workflows.WorkflowRegistry>();
 builder.Services.AddSingleton<TourkitAiProxy.Services.Workflows.IScheduledWorkflow,
                               TourkitAiProxy.Services.Workflows.MailAutoSyncWorkflow>();
+builder.Services.AddSingleton<TourkitAiProxy.Services.Workflows.IScheduledWorkflow,
+                              TourkitAiProxy.Services.Workflows.DealAutoReviewWorkflow>();   // PerTenant: review + cảnh báo deal nguội
 builder.Services.AddSingleton<TourkitAiProxy.Services.Workflows.WorkflowSchedulerService>();
 // CHỈ instance có Workflows:RunScheduler=true mới CHẠY scheduler nền.
 // Tách site: web chính đặt false; site workflow riêng đặt true. Singleton vẫn đăng ký ở mọi
