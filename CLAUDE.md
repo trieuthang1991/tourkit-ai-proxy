@@ -175,6 +175,9 @@ data/
 | PUT    | `/api/v1/workflows/{type}`        | upsert config `{enabled, intervalMinutes}` — khi `enabled=true` & `pausedReason!=null` → reset failures + clear pausedReason (require X-Session-Id) |
 | POST   | `/api/v1/workflows/{type}/run-now` | chạy ngay 1 lần (synchronous, qua pipeline scheduler) → `{ok, summary, error, durationMs}` (require X-Session-Id) |
 | GET    | `/api/v1/workflows/{type}/runs`   | lịch sử run `?limit=20` → `{items[{id,triggerKind,startedUtc,finishedUtc,status,summary,error,durationMs}]}` (require X-Session-Id) |
+| POST   | `/api/v1/workflows/service-account` | Lưu tài khoản tự động per-tenant `{username,password,domain?}` — **validate login TourKit + đếm deal** trước khi lưu (Crypton-enc) → `{ok, dealsVisible, warning?}`; login fail → `{ok:false,error}` (require X-Session-Id) |
+| GET    | `/api/v1/workflows/service-account` | Trạng thái cấu hình `{configured, username}` (KHÔNG trả password) (require X-Session-Id) |
+| GET    | `/api/v1/workflows/outbound-mails` | Theo dõi hàng đợi mail `?kind=&status=&limit=50` → `{items[{id,kind,sourceId,templateCode,toEmail,subject,status(int),retryCount,errorMessage,scheduledUtc,createdUtc,processedUtc}]}` (require X-Session-Id) |
 
 **Tenant scoping** (multi-tenant fix 2026-06-09): tất cả endpoint `/api/v1/mail/*` và `/api/v1/visa/*` YÊU CẦU `X-Session-Id` header (hoặc `sessionId` query/body) — backend resolve `TenantId` qua `ITenantContext`/`HttpTenantContext` từ `TkSessionStore`. KHÔNG session → 401. Cross-tenant access (resource thuộc tenant khác) → null/404.
 
@@ -282,9 +285,21 @@ Gmail inbox synced on demand, AI-classified, with AI-drafted replies. Flow lives
 
 ## User Workflows ("Tự động hóa")
 
-Tác vụ AI chạy tự động theo lịch (interval), cấu hình per-(Tenant, Username). V1 built-in: `mail-auto-sync` — kéo Gmail + AI phân loại mỗi N phút. Framework đủ mở rộng: thêm workflow mới = implement `IScheduledWorkflow` + đăng ký DI + registry tự pickup.
+Tác vụ AI chạy tự động theo lịch (interval), cấu hình per-(Tenant, Username). Framework đủ mở rộng: thêm workflow mới = implement `IScheduledWorkflow` + đăng ký DI + registry tự pickup. Built-in:
+- **`mail-auto-sync`** (PerUser) — kéo Gmail + AI phân loại mỗi N phút (+ tùy chọn auto-reply).
+- **`deal-auto-review`** (PerTenant) — tự AI-chấm cơ hội bán hàng + **cảnh báo deal nguội** (xem section dưới).
 
-- **Schema:** `dbo.UserWorkflows` (config, PK `TenantId+Username+WorkflowType`) + `dbo.WorkflowRuns` (lịch sử 100 run/scope, prune tự động). `Username=''` = per-tenant (dành cho workflow tương lai).
+⚠️ **Quota + log AI nền (STRICT):** workflow chạy nền KHÔNG có HttpContext → PHẢI `AiCallContext.Push("<feature>", tenantId[, sessionId])` bao quanh AI call, nếu không sẽ **bypass quota tenant + log `feature=unknown,tenant=null`**. Dùng feature riêng cho automation (`mail-auto-sync`/`deal-auto-review`) để tách chi phí AI tự động vs thao tác tay trong `dbo.AiUsageHistory`.
+
+### `deal-auto-review` — tự review & cảnh báo deal nguội (2026-06-28)
+
+PerTenant. Auth = **service account** per-tenant (`dbo.TenantServiceAccounts`, `TenantServiceAccountStore`): workflow tự login TourKit → JWT (qua `TkSessionStore.GetOrCreateServiceSessionAsync`), KHÔNG cần user online. Tài khoản nên có quyền `CH_XEM_ALL` (quyết phạm vi quét deal). Luồng `DealAutoReviewWorkflow.RunAsync`:
+- **Pass 1** — chấm deal MỚI (`rank=-1`) lọc `statuses` (rỗng=mọi) + `createdWithinDays` → `DealScoringService` → `DealRepository.SaveScore` (worker sync `Rank`).
+- **Pass 2** — review LẠI deal đã chấm: còn đủ điều kiện (status ∈ `statuses` + tuổi ≤ `createdWithinDays`) → chấm lại khi nội dung đổi; hết điều kiện → `DealRepository.SetFinalized(reason)` (`status-changed`/`aged`) để lần sau bỏ qua. Chống review vô tận: `AutoReviewCount` + `maxAutoReviews` + `IsFinalized`.
+- **Cảnh báo nguội** — deal đang mở + nguội ≥ `coolingDays` (+ `minWinRateToNotify`, throttle `maxNotifications`/`notifyMinGapHours`, bỏ qua deal chưa giao NV) → **enqueue** vào `dbo.OutboundMails` (`MailQueueRepository`, Kind=`deal-cooling-alert`, `TemplateCode`+`Params`). Proxy KHÔNG gửi — **worker riêng (sẽ viết, bên toutkit-app)** render template HTML + resolve email NV phụ trách từ `Data.dealId` + gửi SMTP + cập nhật `Status`. Template mẫu + hợp đồng worker: [`docs/mail-templates/`](docs/mail-templates/).
+- Options (per-tenant, `OptionsJson`): `{statuses[], createdWithinDays, autoReview, reviewMax, maxAutoReviews, coolingDays, minWinRateToNotify, maxNotifications, notifyMinGapHours}`. Frontend: form service account + options trong card `deal-auto-review` (`workflows.jsx`).
+
+- **Schema:** `dbo.UserWorkflows` (config, PK `TenantId+Username+WorkflowType`) + `dbo.WorkflowRuns` (lịch sử 100 run/scope, prune tự động). `Username=''` = per-tenant (workflow `Scope=PerTenant`, vd `deal-auto-review`).
 - **Scheduler:** `WorkflowSchedulerService` (`BackgroundService`, tick 60s) → `ListDue` → fire-and-forget `Task.Run`. `SetNextRun` chạy ngay trước `Task.Run` để tránh re-fire trong tick kế. Auto-pause sau 5 fail liên tiếp, user "Bật lại" qua PUT endpoint.
 - **MailSyncService (extract):** logic `POST /mail/sync` được extract ra `Services/Mail/MailSyncService.cs` → dùng chung giữa HTTP endpoint và `MailAutoSyncWorkflow`. Response shape `/mail/sync` giữ nguyên (`{items, counts, classified, fetched}`).
 - **Endpoint:** require `X-Session-Id` (pattern giống MailEndpoints). Manual trigger (`/run-now`) đồng bộ (không fire-and-forget), trả kết quả ngay.

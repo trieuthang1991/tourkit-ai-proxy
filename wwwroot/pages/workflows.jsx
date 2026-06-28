@@ -47,6 +47,19 @@ function parseSummary(summaryJson) {
 function SummaryText({ summaryJson }) {
   const s = parseSummary(summaryJson);
   if (!s) return <span className="workflows-summary-empty">—</span>;
+  // deal-auto-review summary: { reviewed, rereviewed, cooling, queued, skipped, ... }
+  if (s.reviewed != null || s.queued != null || s.cooling != null) {
+    return (
+      <span className="workflows-summary">
+        {s.reviewed != null && <span>{s.reviewed} chấm</span>}
+        {s.rereviewed ? <span> · {s.rereviewed} chấm lại</span> : null}
+        {s.queued != null && <span> · {s.queued} cảnh báo</span>}
+        {s.cooling != null && <span> · {s.cooling} nguội</span>}
+        {s.autoFinalized ? <span> · {s.autoFinalized} đã xong</span> : null}
+      </span>
+    );
+  }
+  // mail-auto-sync summary
   return (
     <span className="workflows-summary">
       {s.fetched != null && <span>{s.fetched} mail kéo</span>}
@@ -98,6 +111,23 @@ const WORKFLOW_OPTIONS = {
       hint: 'Chỉ auto-reply email thuộc nhóm đã chọn. Khiếu nại nên để người xử lý.' },
     { key: 'replyTone', type: 'select', label: 'Giọng văn', showIf: 'autoReply', default: 'lich_su',
       options: MAIL_TONES },
+  ],
+  'deal-auto-review': [
+    { key: 'statuses', type: 'numbers', label: 'Trạng thái xử lý', default: [],
+      hint: 'Để trống = mọi trạng thái. Nhập ID trạng thái deal (vd chỉ "Mới") cách nhau dấu phẩy. Deal ngoài danh sách coi như đã xử lý → bỏ qua.' },
+    { key: 'createdWithinDays', type: 'number', label: 'Deal tạo trong (ngày)', default: 30, min: 1, max: 365,
+      hint: 'Chỉ xử lý deal tạo trong N ngày gần đây. Deal cũ hơn → bỏ qua (đỡ review + tránh phát sinh nhiều).' },
+    { key: 'autoReview', type: 'bool', label: 'Tự động chấm điểm AI', default: true,
+      hint: 'AI tự chấm khả năng chốt cho deal mới + chấm lại khi nội dung đổi. Tắt = chỉ cảnh báo nguội.' },
+    { key: 'reviewMax', type: 'number', label: 'Số deal chấm / lần', showIf: 'autoReview', default: 20, min: 1, max: 100 },
+    { key: 'maxAutoReviews', type: 'number', label: 'Số lần chấm tối đa / deal', showIf: 'autoReview', default: 5, min: 1, max: 50,
+      hint: 'Chống chấm lại vô tận. Đạt số lần này → ngừng tự chấm deal đó.' },
+    { key: 'coolingDays', type: 'number', label: 'Ngưỡng nguội (ngày)', default: 7, min: 1, max: 90,
+      hint: 'Deal không được chăm sóc quá N ngày → coi là "nguội" → cảnh báo.' },
+    { key: 'minWinRateToNotify', type: 'number', label: 'Chỉ cảnh báo winRate ≥ (%)', default: 0, min: 0, max: 100,
+      hint: '0 = mọi deal nguội. >0 = chỉ cảnh báo deal đã chấm điểm cao đang nguội (đỡ mail rác).' },
+    { key: 'maxNotifications', type: 'number', label: 'Số lần cảnh báo tối đa / deal', default: 3, min: 1, max: 20 },
+    { key: 'notifyMinGapHours', type: 'number', label: 'Giãn cách cảnh báo (giờ)', default: 24, min: 1, max: 720 },
   ],
 };
 
@@ -159,6 +189,64 @@ function RunHistoryTable({ runs, loading }) {
           ))}
         </tbody>
       </table>
+    </div>
+  );
+}
+
+// ─── ServiceAccountConfig (deal-auto-review) ───────────────────────────────────────
+// Workflow PerTenant tự đăng nhập TourKit bằng 1 tài khoản dịch vụ (không cần user online).
+// POST validate login + đếm deal trước khi lưu; GET trạng thái (không trả password).
+
+function ServiceAccountConfig({ pushToast }) {
+  const [status, setStatus] = uS(null);
+  const [username, setUsername] = uS('');
+  const [password, setPassword] = uS('');
+  const [saving, setSaving] = uS(false);
+
+  uE(() => {
+    apiFetch('/api/v1/workflows/service-account')
+      .then(d => setStatus(d))
+      .catch(() => setStatus({ configured: false }));
+  }, []);
+
+  async function save() {
+    if (!username.trim() || !password) { pushToast('Nhập tên đăng nhập + mật khẩu', 'error'); return; }
+    setSaving(true);
+    try {
+      const res = await apiFetch('/api/v1/workflows/service-account', {
+        method: 'POST', body: JSON.stringify({ username: username.trim(), password }),
+      });
+      if (res.ok) {
+        pushToast(`Đã lưu tài khoản — thấy ${res.dealsVisible} deal.` + (res.warning ? ' ⚠ ' + res.warning : ''),
+          res.warning ? 'info' : 'success');
+        setPassword('');
+        setStatus({ configured: true, username: username.trim() });
+      } else {
+        pushToast(res.error || 'Lưu thất bại', 'error');
+      }
+    } catch (e) {
+      pushToast('Lưu thất bại: ' + e.message, 'error');
+    } finally { setSaving(false); }
+  }
+
+  return (
+    <div className="workflows-field-row" style={{ alignItems: 'flex-start', flexDirection: 'column', gap: 8 }}>
+      <label className="workflows-field-label">Tài khoản tự động</label>
+      <div className="workflows-card-substats" style={{ marginBottom: 2 }}>
+        Workflow đăng nhập TourKit bằng tài khoản này để quét deal (nên cấp quyền xem TẤT CẢ cơ hội).
+        {status && (status.configured
+          ? <span style={{ color: 'var(--primary-dark)' }}> Đang dùng: <b>{status.username}</b>.</span>
+          : <span style={{ color: 'var(--danger, #c0392b)' }}> Chưa cấu hình — workflow chưa chạy được.</span>)}
+      </div>
+      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, width: '100%' }}>
+        <input className="workflows-select" placeholder="Tên đăng nhập" style={{ flex: 1, minWidth: 140 }}
+          value={username} onChange={e => setUsername(e.target.value)} />
+        <input className="workflows-select" type="password" placeholder="Mật khẩu" style={{ flex: 1, minWidth: 140 }}
+          value={password} onChange={e => setPassword(e.target.value)} />
+        <button className="wga-btn" onClick={save} disabled={saving}>
+          {saving ? 'Đang kiểm tra...' : (status && status.configured ? 'Cập nhật' : 'Lưu & kiểm tra')}
+        </button>
+      </div>
     </div>
   );
 }
@@ -226,7 +314,9 @@ function WorkflowCard({ wf, onUpdate, pushToast }) {
       const res = await apiFetch(`/api/v1/workflows/${wf.type}/run-now`, { method: 'POST' });
       if (res.ok) {
         const s = parseSummary(res.summary);
-        const msg = s ? `Hoàn thành: ${s.classified ?? 0} mail mới phân loại` : 'Hoàn thành';
+        let msg = 'Hoàn thành';
+        if (s && wf.type === 'deal-auto-review') msg = `Hoàn thành: ${s.reviewed ?? 0} chấm · ${s.queued ?? 0} cảnh báo`;
+        else if (s) msg = `Hoàn thành: ${s.classified ?? 0} mail mới phân loại`;
         pushToast(msg, 'success');
       } else {
         pushToast('Chạy thất bại: ' + (res.error || 'Lỗi không xác định'), 'error');
@@ -274,7 +364,7 @@ function WorkflowCard({ wf, onUpdate, pushToast }) {
       {/* Header: icon tròn + tiêu đề + pill + mô tả (tái dùng wga-card-top) */}
       <div className="wga-card-top">
         <div className="wga-card-avatar" style={{ borderColor: 'var(--primary)', color: 'var(--primary)' }}>
-          <Icon name="mail" size={20} />
+          <Icon name={wf.type === 'deal-auto-review' ? 'zap' : 'mail'} size={20} />
         </div>
         <div className="wga-card-meta">
           <div className="wga-card-name-row">
@@ -298,6 +388,9 @@ function WorkflowCard({ wf, onUpdate, pushToast }) {
       )}
 
       <div className="workflows-card-body">
+        {/* Tài khoản dịch vụ (chỉ deal-auto-review — workflow nền cần login TourKit) */}
+        {wf.type === 'deal-auto-review' && <ServiceAccountConfig pushToast={pushToast} />}
+
         {/* Toggle + Interval */}
         <div className="workflows-field-row">
           <label className="workflows-field-label">Trạng thái</label>
@@ -365,6 +458,18 @@ function WorkflowCard({ wf, onUpdate, pushToast }) {
                     );
                   })}
                 </div>
+              )}
+              {opt.type === 'number' && (
+                <input type="number" className="workflows-select" style={{ width: 130 }}
+                  min={opt.min} max={opt.max}
+                  value={options[opt.key] ?? opt.default ?? 0}
+                  onChange={e => setOptions(o => ({ ...o, [opt.key]: e.target.value === '' ? 0 : Number(e.target.value) }))} />
+              )}
+              {opt.type === 'numbers' && (
+                <input type="text" className="workflows-select"
+                  placeholder="vd: 1, 2 (để trống = tất cả)"
+                  value={(Array.isArray(options[opt.key]) ? options[opt.key] : []).join(', ')}
+                  onChange={e => setOptions(o => ({ ...o, [opt.key]: e.target.value.split(',').map(x => parseInt(x.trim(), 10)).filter(n => !isNaN(n) && n > 0) }))} />
               )}
               {opt.hint && <div className="workflows-card-substats" style={{ marginTop: 4 }}>{opt.hint}</div>}
             </div>

@@ -30,10 +30,13 @@
 | 15 | `dbo.UserWorkflows` | User Workflows: cấu hình lịch chạy AI tự động per-(tenant, user, type) — `Enabled`/`IntervalMinutes`/`NextRunUtc`/`ConsecutiveFailures`/`PausedReason`. **`OptionsJson`** = điều kiện/option ĐỘNG per-workflow (vd mail: `{autoReply, replyMode, replyCategories, replyTone}`). | [`WorkflowRepository`](../Services/Workflows/WorkflowRepository.cs) | `(TenantId, Username, WorkflowType)` |
 | 16 | `dbo.WorkflowRuns` | Lịch sử các lần chạy workflow (trigger/status/summary/error/duration). Prune giữ 100 run/scope. | [`WorkflowRepository`](../Services/Workflows/WorkflowRepository.cs) | `Id` IDENTITY |
 | 17 | `dbo.AppLogs` | Log ứng dụng tập trung (thay stdout, cho site workflow tách riêng truy chung). **Thiết kế ĐỘNG: `Kind` phân loại + `DataJson` payload tùy ý** → thêm loại log mới khỏi đổi schema. `ILogger`→`Kind='app'`; `ILogSink.Write("kind",…,data)` cho log có cấu trúc loại bất kỳ. Bật qua `Logging:Database:Enabled`. | [`DbLogWriter`](../Services/Logging/DbLogWriter.cs) / [`DbLogging`](../Services/Logging/DbLogging.cs) | `Id` IDENTITY |
+| 18 | `dbo.OutboundMails` | **Hàng đợi mail OUTBOUND dùng chung** (producer enqueue `Status=0`; worker riêng — CEO viết — render template + gửi). Nội dung theo TEMPLATE: `TemplateCode` + `[Params]` JSON (không soạn HTML ở proxy). `Status` TINYINT (0=pending..4=skipped) cho worker dùng enum. Khác `dbo.Mails` (inbox). Producer đầu tiên: workflow `deal-auto-review` (Kind=`deal-cooling-alert`). | [`MailQueueRepository`](../Services/Mail/MailQueueRepository.cs) | `Id` IDENTITY |
+| 19 | `dbo.TenantServiceAccounts` | **Tài khoản dịch vụ per-tenant** cho workflow nền tự login TourKit (KHÔNG cần user online). `PasswordEnc` Crypton. Dùng bởi `deal-auto-review`. | [`TenantServiceAccountStore`](../Services/TourKit/TenantServiceAccountStore.cs) | `TenantId` |
 
 > Cột mới đáng chú ý (2026-06-26): `Mails.AutoReplyError` (đánh dấu lỗi auto-reply để hiện ở UI); `UserWorkflows.OptionsJson` (điều kiện động).
+> Cột mới (2026-06-28): `DealScores.AutoReviewCount` (số lần workflow tự chấm) + `IsFinalized`/`FinalizedReason` (`manual`/`status-changed`/`aged` — workflow đánh cờ để ngừng review/nhắc) + `LastAutoReviewUtc`.
 
-### Tổng cộng: **17 bảng** owned by proxy.
+### Tổng cộng: **19 bảng** owned by proxy.
 
 ## Bảng đã bỏ
 
