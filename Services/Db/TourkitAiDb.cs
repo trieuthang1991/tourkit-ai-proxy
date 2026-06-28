@@ -546,7 +546,6 @@ BEGIN
         TenantId     NVARCHAR(64)   NOT NULL,
         Username     NVARCHAR(128)  NOT NULL,
         PasswordEnc  NVARCHAR(512)  NOT NULL,
-        Domain       NVARCHAR(128)  NULL,
         Enabled      BIT            NOT NULL CONSTRAINT DF_TenantSvcAcc_Enabled DEFAULT 1,
         UpdatedBy    NVARCHAR(120)  NULL,
         UpdatedUtc   DATETIME2      NOT NULL CONSTRAINT DF_TenantSvcAcc_Updated DEFAULT SYSUTCDATETIME(),

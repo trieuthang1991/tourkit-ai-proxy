@@ -177,6 +177,7 @@ data/
 | GET    | `/api/v1/workflows/{type}/runs`   | lịch sử run `?limit=20` → `{items[{id,triggerKind,startedUtc,finishedUtc,status,summary,error,durationMs}]}` (require X-Session-Id) |
 | POST   | `/api/v1/workflows/service-account` | Lưu tài khoản tự động per-tenant `{username,password,domain?}` — **validate login TourKit + đếm deal** trước khi lưu (Crypton-enc) → `{ok, dealsVisible, warning?}`; login fail → `{ok:false,error}` (require X-Session-Id) |
 | GET    | `/api/v1/workflows/service-account` | Trạng thái cấu hình `{configured, username}` (KHÔNG trả password) (require X-Session-Id) |
+| DELETE | `/api/v1/workflows/service-account` | Xóa tài khoản tự động → workflow ngừng tự login → `{ok, removed}` (require X-Session-Id) |
 | GET    | `/api/v1/workflows/outbound-mails` | Theo dõi hàng đợi mail `?kind=&status=&limit=50` → `{items[{id,kind,sourceId,templateCode,toEmail,subject,status(int),retryCount,errorMessage,scheduledUtc,createdUtc,processedUtc}]}` (require X-Session-Id) |
 
 **Tenant scoping** (multi-tenant fix 2026-06-09): tất cả endpoint `/api/v1/mail/*` và `/api/v1/visa/*` YÊU CẦU `X-Session-Id` header (hoặc `sessionId` query/body) — backend resolve `TenantId` qua `ITenantContext`/`HttpTenantContext` từ `TkSessionStore`. KHÔNG session → 401. Cross-tenant access (resource thuộc tenant khác) → null/404.

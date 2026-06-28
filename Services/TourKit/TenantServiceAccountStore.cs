@@ -22,14 +22,13 @@ public class TenantServiceAccountStore
     }
 
     /// Credentials đã giải mã (chỉ dùng nội bộ — KHÔNG serialize ra client).
-    public record ServiceAccount(string TenantId, string Username, string Password, string? Domain, bool Enabled);
+    public record ServiceAccount(string TenantId, string Username, string Password, bool Enabled);
 
     private sealed class Row
     {
         public string TenantId { get; set; } = "";
         public string Username { get; set; } = "";
         public string PasswordEnc { get; set; } = "";
-        public string? Domain { get; set; }
         public bool Enabled { get; set; }
     }
 
@@ -40,7 +39,7 @@ public class TenantServiceAccountStore
         {
             using var c = _db.Open();
             var row = c.QueryFirstOrDefault<Row>(
-                "SELECT TenantId, Username, PasswordEnc, Domain, Enabled FROM dbo.TenantServiceAccounts WHERE TenantId = @t",
+                "SELECT TenantId, Username, PasswordEnc, Enabled FROM dbo.TenantServiceAccounts WHERE TenantId = @t",
                 new { t = tenantId });
             if (row == null) return null;
             var pwd = Crypton.Decrypt(row.PasswordEnc);
@@ -49,7 +48,7 @@ public class TenantServiceAccountStore
                 _log.LogWarning("[TenantSvcAcc] decrypt fail cho tenant {Tenant}", tenantId);
                 return null;
             }
-            return new ServiceAccount(row.TenantId, row.Username, pwd, row.Domain, row.Enabled);
+            return new ServiceAccount(row.TenantId, row.Username, pwd, row.Enabled);
         }
         catch (Exception ex)
         {
@@ -77,7 +76,8 @@ public class TenantServiceAccountStore
     }
 
     /// Lưu/ghi đè service account (password Crypton-encrypt). Caller PHẢI validate login trước.
-    public async Task UpsertAsync(string tenantId, string username, string password, string? domain, string? updatedBy, CancellationToken ct = default)
+    /// Luôn set Enabled=1 (lưu lại = bật lại).
+    public async Task UpsertAsync(string tenantId, string username, string password, string? updatedBy, CancellationToken ct = default)
     {
         var enc = Crypton.Encrypt(password);
         await using var c = await _db.OpenAsync(ct);
@@ -85,12 +85,20 @@ public class TenantServiceAccountStore
 MERGE dbo.TenantServiceAccounts AS T
 USING (SELECT @TenantId AS TenantId) AS S ON T.TenantId = S.TenantId
 WHEN MATCHED THEN UPDATE SET
-    Username = @Username, PasswordEnc = @PasswordEnc, Domain = @Domain,
+    Username = @Username, PasswordEnc = @PasswordEnc,
     Enabled = 1, UpdatedBy = @UpdatedBy, UpdatedUtc = SYSUTCDATETIME()
 WHEN NOT MATCHED THEN INSERT
-    (TenantId, Username, PasswordEnc, Domain, Enabled, UpdatedBy, UpdatedUtc)
+    (TenantId, Username, PasswordEnc, Enabled, UpdatedBy, UpdatedUtc)
 VALUES
-    (@TenantId, @Username, @PasswordEnc, @Domain, 1, @UpdatedBy, SYSUTCDATETIME());",
-            new { TenantId = tenantId, Username = username, PasswordEnc = enc, Domain = domain, UpdatedBy = updatedBy });
+    (@TenantId, @Username, @PasswordEnc, 1, @UpdatedBy, SYSUTCDATETIME());",
+            new { TenantId = tenantId, Username = username, PasswordEnc = enc, UpdatedBy = updatedBy });
+    }
+
+    /// Xóa hẳn service account của tenant (workflow sẽ fail "chưa cấu hình" → ngừng tự login). Trả true nếu có xóa.
+    public async Task<bool> DeleteAsync(string tenantId, CancellationToken ct = default)
+    {
+        await using var c = await _db.OpenAsync(ct);
+        var n = await c.ExecuteAsync("DELETE FROM dbo.TenantServiceAccounts WHERE TenantId = @t", new { t = tenantId });
+        return n > 0;
     }
 }

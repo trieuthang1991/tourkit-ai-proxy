@@ -229,6 +229,19 @@ function ServiceAccountConfig({ pushToast }) {
     } finally { setSaving(false); }
   }
 
+  async function remove() {
+    if (!window.confirm('Xóa tài khoản tự động? Workflow sẽ ngừng tự đăng nhập.')) return;
+    setSaving(true);
+    try {
+      await apiFetch('/api/v1/workflows/service-account', { method: 'DELETE' });
+      pushToast('Đã xóa tài khoản tự động', 'success');
+      setUsername(''); setPassword('');
+      setStatus({ configured: false });
+    } catch (e) {
+      pushToast('Xóa thất bại: ' + e.message, 'error');
+    } finally { setSaving(false); }
+  }
+
   return (
     <div className="workflows-field-row" style={{ alignItems: 'flex-start', flexDirection: 'column', gap: 8 }}>
       <label className="workflows-field-label">Tài khoản tự động</label>
@@ -246,6 +259,11 @@ function ServiceAccountConfig({ pushToast }) {
         <button className="wga-btn" onClick={save} disabled={saving}>
           {saving ? 'Đang kiểm tra...' : (status && status.configured ? 'Cập nhật' : 'Lưu & kiểm tra')}
         </button>
+        {status && status.configured && (
+          <button className="wga-btn ghost" onClick={remove} disabled={saving} title="Xóa tài khoản tự động">
+            <Icon name="close" size={13} /> Xóa
+          </button>
+        )}
       </div>
     </div>
   );

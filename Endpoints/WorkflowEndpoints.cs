@@ -211,7 +211,7 @@ public static class WorkflowEndpoints
                 }
                 catch { /* đếm deal best-effort — không chặn lưu */ }
 
-                await store.UpsertAsync(tenant, req.Username.Trim(), req.Password, req.Domain, updatedBy: user, ctx.RequestAborted);
+                await store.UpsertAsync(tenant, req.Username.Trim(), req.Password, updatedBy: user, ctx.RequestAborted);
                 return Results.Json(new { ok = true, dealsVisible, warning = dealsVisible == 0 ? "Tài khoản đăng nhập OK nhưng thấy 0 deal — có thể thiếu quyền CH_XEM_ALL" : null });
             }
             catch (TourKitApiException ex)
@@ -235,6 +235,20 @@ public static class WorkflowEndpoints
             var (_, tenant, _) = auth.Value;
             var (configured, username) = store.Status(tenant);
             return Results.Json(new { configured, username });
+        });
+
+        // ─── DELETE /workflows/service-account ─── xóa tài khoản tự động ─────────
+        // Xóa hẳn → workflow ngừng tự login (fail "chưa cấu hình"). Dùng khi muốn tắt automation deal.
+        v1.MapDelete("/workflows/service-account", async (
+            HttpContext ctx,
+            TenantServiceAccountStore store,
+            TkSessionStore sessions) =>
+        {
+            var auth = RequireSession(ctx, sessions);
+            if (auth == null) return Unauthorized();
+            var (_, tenant, _) = auth.Value;
+            var removed = await store.DeleteAsync(tenant, ctx.RequestAborted);
+            return Results.Json(new { ok = true, removed });
         });
 
         // ─── GET /workflows/outbound-mails ─── theo dõi hàng đợi mail ────────────
@@ -297,4 +311,4 @@ public static class WorkflowEndpoints
 public sealed record WorkflowConfigRequest(bool Enabled, int IntervalMinutes, System.Text.Json.JsonElement? Options = null);
 
 /// Request body cho POST /workflows/service-account (tài khoản tự động per-tenant).
-public sealed record WorkflowServiceAccountRequest(string Username, string Password, string? Domain = null);
+public sealed record WorkflowServiceAccountRequest(string Username, string Password);
