@@ -143,6 +143,35 @@ public class TkSessionStore
         return fromDb;
     }
 
+    /// Lấy (hoặc tạo) sessionId cho 1 SERVICE ACCOUNT (tenant, username) — dùng cho workflow nền,
+    /// KHÔNG cần user online. Tái dùng session sẵn có (JWT tự re-login lazy khi GetValidJwt);
+    /// chưa có ở cache lẫn SQL → login mới + persist. Trả sessionId để DealOpportunityClient dùng.
+    public async Task<string> GetOrCreateServiceSessionAsync(string tenantId, string username, string password, CancellationToken ct)
+    {
+        // 1) Cache: session sẵn của (tenant, user)?
+        foreach (var kv in _cache)
+        {
+            var s = kv.Value;
+            if (string.Equals(s.TenantId, tenantId, StringComparison.Ordinal) &&
+                string.Equals(s.Username, username, StringComparison.Ordinal))
+            {
+                s.Password = password;   // đồng bộ phòng đổi pass
+                return s.Id;
+            }
+        }
+        // 2) SQL: session sẵn (instance khác tạo / sau restart)?
+        var fromDb = await _repo.GetByUserAsync(tenantId, username, ct);
+        if (fromDb != null)
+        {
+            fromDb.Password = password;
+            _cache[fromDb.Id] = fromDb;
+            return fromDb.Id;
+        }
+        // 3) Chưa có → login mới (persist SQL). CreateAsync de-dup + ghi DB.
+        var created = await CreateAsync(tenantId, username, password, ct);
+        return created.Id;
+    }
+
     /// JWT còn hạn (soft TTL); tự re-login nếu hết. Throw nếu phiên không tồn tại.
     public async Task<string> GetValidJwtAsync(string sessionId, CancellationToken ct)
     {

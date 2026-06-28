@@ -1,4 +1,6 @@
 using System.Diagnostics;
+using System.Text.Json;
+using TourkitAiProxy.Services.Mail;
 using TourkitAiProxy.Services.TourKit;
 using TourkitAiProxy.Services.Workflows;
 
@@ -105,8 +107,12 @@ public static class WorkflowEndpoints
             });
         });
 
-        // ─── POST /workflows/{type}/run-now ─── manual trigger (synchronous) ─────
-        v1.MapPost("/workflows/{type}/run-now", async (
+        // ─── POST /workflows/{type}/run-now ─── manual trigger (CHẠY NỀN, fire-and-forget) ─────
+        // Trả về NGAY ({started:true}); workflow chạy nền qua scheduler pipeline (failures tracking +
+        // auto-pause + log run). KHÔNG gắn ctx.RequestAborted → đóng tab / rời trang KHÔNG hủy run
+        // (trước đây run chậm 100s+ → request trình duyệt timeout → bị hủy → báo "lỗi" giả).
+        // Timeout 5 phút nội bộ của RunOneAsync vẫn áp dụng. Kết quả xem ở "20 lần gần nhất".
+        v1.MapPost("/workflows/{type}/run-now", (
             string type,
             HttpContext ctx,
             WorkflowRegistry registry,
@@ -129,20 +135,9 @@ public static class WorkflowEndpoints
             if (existing == null)
                 repo.UpsertConfig(tenant, scopeUser, type, enabled: false, intervalMinutes: 15, updatedBy: user);
 
-            var sw = Stopwatch.StartNew();
-            // Chạy qua scheduler pipeline (failures tracking + auto-pause + log run) — truyền options đã lưu.
-            await scheduler.RunOneAsync(wf, tenant, scopeUser, type, "manual", existing?.OptionsJson, ctx.RequestAborted);
-            sw.Stop();
-
-            // Lấy run cuối cùng để trả thông tin
-            var lastRun = repo.RecentRuns(tenant, scopeUser, type, 1).FirstOrDefault();
-            return Results.Json(new
-            {
-                ok = lastRun?.Status == "ok",
-                summary = lastRun?.Summary,
-                error = lastRun?.Error,
-                durationMs = lastRun?.DurationMs ?? (int)sw.ElapsedMilliseconds
-            });
+            // Fire-and-forget: chạy nền với CancellationToken.None (không phụ thuộc vòng đời request).
+            _ = scheduler.RunOneAsync(wf, tenant, scopeUser, type, "manual", existing?.OptionsJson, CancellationToken.None);
+            return Results.Json(new { ok = true, started = true });
         });
 
         // ─── GET /workflows/{type}/runs ─── lịch sử run ──────────────────────────
@@ -182,6 +177,129 @@ public static class WorkflowEndpoints
             });
         });
 
+        // ─── POST /workflows/service-account ─── tài khoản tự động per-tenant ─────
+        // Validate login TourKit + đếm deal thấy được TRƯỚC khi lưu (Crypton-enc). KHÔNG trả password.
+        v1.MapPost("/workflows/service-account", async (
+            WorkflowServiceAccountRequest req,
+            HttpContext ctx,
+            TenantServiceAccountStore store,
+            TourKitApiClient api,
+            TkSessionStore sessions) =>
+        {
+            var auth = RequireSession(ctx, sessions);
+            if (auth == null) return Unauthorized();
+            var (_, tenant, user) = auth.Value;
+            if (string.IsNullOrWhiteSpace(req.Username) || string.IsNullOrWhiteSpace(req.Password))
+                return Results.Json(new { ok = false, error = "Thiếu username/password" }, statusCode: 400);
+
+            try
+            {
+                var login = await api.LoginAsync(tenant, req.Username.Trim(), req.Password, ctx.RequestAborted);
+                int dealsVisible = 0;
+                try
+                {
+                    var env = await api.GetAsync(login.Token, "/api/ai/booking-tickets?pageIndex=1&pageSize=1", ctx.RequestAborted);
+                    if (env.ValueKind == JsonValueKind.Object && env.TryGetProperty("total", out var t) && t.TryGetInt32(out var n))
+                        dealsVisible = n;
+                }
+                catch { /* đếm deal best-effort — không chặn lưu */ }
+
+                await store.UpsertAsync(tenant, req.Username.Trim(), req.Password, updatedBy: user, ctx.RequestAborted);
+                return Results.Json(new { ok = true, dealsVisible, warning = dealsVisible == 0 ? "Tài khoản đăng nhập OK nhưng thấy 0 deal — có thể thiếu quyền CH_XEM_ALL" : null });
+            }
+            catch (TourKitApiException ex)
+            {
+                return Results.Json(new { ok = false, error = $"Đăng nhập thất bại: {ex.Message}" }, statusCode: 200);
+            }
+            catch (Exception ex)
+            {
+                return Results.Json(new { ok = false, error = ex.Message }, statusCode: 200);
+            }
+        });
+
+        // ─── GET /workflows/service-account ─── trạng thái cấu hình ──────────────
+        v1.MapGet("/workflows/service-account", (
+            HttpContext ctx,
+            TenantServiceAccountStore store,
+            TkSessionStore sessions) =>
+        {
+            var auth = RequireSession(ctx, sessions);
+            if (auth == null) return Unauthorized();
+            var (_, tenant, _) = auth.Value;
+            var (configured, username) = store.Status(tenant);
+            return Results.Json(new { configured, username });
+        });
+
+        // ─── DELETE /workflows/service-account ─── xóa tài khoản tự động ─────────
+        // Xóa hẳn → workflow ngừng tự login (fail "chưa cấu hình"). Dùng khi muốn tắt automation deal.
+        v1.MapDelete("/workflows/service-account", async (
+            HttpContext ctx,
+            TenantServiceAccountStore store,
+            TkSessionStore sessions) =>
+        {
+            var auth = RequireSession(ctx, sessions);
+            if (auth == null) return Unauthorized();
+            var (_, tenant, _) = auth.Value;
+            var removed = await store.DeleteAsync(tenant, ctx.RequestAborted);
+            return Results.Json(new { ok = true, removed });
+        });
+
+        // ─── GET /workflows/deal-statuses ─── danh sách trạng thái deal cho picker ──
+        // Dùng session của user (đang xem trang) gọi upstream filter-sections → [{value, label}].
+        v1.MapGet("/workflows/deal-statuses", async (
+            HttpContext ctx,
+            TkSessionStore sessions,
+            TourKitApiClient api) =>
+        {
+            var auth = RequireSession(ctx, sessions);
+            if (auth == null) return Unauthorized();
+            var (sid, _, _) = auth.Value;
+            try
+            {
+                var jwt = await sessions.GetValidJwtAsync(sid, ctx.RequestAborted);
+                var data = await api.GetAsync(jwt, "/api/booking-tickets/filter-sections", ctx.RequestAborted);
+                var items = new List<object>();
+                if (data.ValueKind == JsonValueKind.Array)
+                    foreach (var s in data.EnumerateArray())
+                    {
+                        if (!s.TryGetProperty("status", out var st) || !st.TryGetInt32(out var val) || val <= 0) continue;
+                        var label = s.TryGetProperty("sectionName", out var sn) && sn.ValueKind == JsonValueKind.String
+                            ? sn.GetString() : null;
+                        items.Add(new { value = val, label = string.IsNullOrWhiteSpace(label) ? $"Trạng thái {val}" : label });
+                    }
+                return Results.Json(new { items });
+            }
+            catch (Exception ex)
+            {
+                return Results.Json(new { items = Array.Empty<object>(), error = ex.Message });
+            }
+        });
+
+        // ─── GET /workflows/outbound-mails ─── theo dõi hàng đợi mail ────────────
+        v1.MapGet("/workflows/outbound-mails", async (
+            HttpContext ctx,
+            MailQueueRepository queue,
+            TkSessionStore sessions,
+            string? kind,
+            int? status,
+            int? limit) =>
+        {
+            var auth = RequireSession(ctx, sessions);
+            if (auth == null) return Unauthorized();
+            var (_, tenant, _) = auth.Value;
+            var rows = await queue.ListForMonitorAsync(tenant, kind, status, limit ?? 50, ctx.RequestAborted);
+            return Results.Json(new
+            {
+                items = rows.Select(r => new
+                {
+                    id = r.Id, kind = r.Kind, sourceId = r.SourceId, templateCode = r.TemplateCode,
+                    toEmail = r.ToEmail, toName = r.ToName, subject = r.Subject,
+                    status = (int)r.Status, retryCount = r.RetryCount, errorMessage = r.ErrorMessage,
+                    scheduledUtc = AsUtc(r.ScheduledUtc), createdUtc = AsUtc(r.CreatedUtc), processedUtc = AsUtc(r.ProcessedUtc)
+                }).ToList()
+            });
+        });
+
         return routes;
     }
 
@@ -215,3 +333,6 @@ public static class WorkflowEndpoints
 
 /// Request body cho PUT /workflows/{type}. Options = điều kiện ĐỘNG tùy workflow (object tùy ý).
 public sealed record WorkflowConfigRequest(bool Enabled, int IntervalMinutes, System.Text.Json.JsonElement? Options = null);
+
+/// Request body cho POST /workflows/service-account (tài khoản tự động per-tenant).
+public sealed record WorkflowServiceAccountRequest(string Username, string Password);

@@ -5552,6 +5552,132 @@ html[data-home-theme="dark"] .hp-theme {
 .wga-empty p { margin: 0 auto; max-width: 420px; font-size: 14px; line-height: 1.6; }
 
 .wga-list { display: flex; flex-direction: column; gap: 12px; }
+
+/* ── LIST VIEW: mỗi workflow = 1 dòng, bấm mở cấu hình (accordion) ── */
+.page.wga.workflows-page { max-width: 1180px; }
+.workflows-listview {
+  background: #fff; border: 1px solid var(--border, #E2E8F0); border-radius: 12px; overflow: hidden;
+}
+.workflows-rowitem { border-top: 1px solid var(--border, #E2E8F0); }
+.workflows-rowitem:first-child { border-top: none; }
+.workflows-rowhead {
+  display: flex; align-items: center; gap: 14px; padding: 14px 18px; cursor: pointer;
+  transition: background .14s; outline: none;
+}
+.workflows-rowhead:hover { background: var(--surface-2, #f8fafc); }
+.workflows-rowhead:focus-visible { box-shadow: inset 0 0 0 2px var(--primary); }
+.workflows-rowitem.is-open > .workflows-rowhead { background: var(--surface-2, #f8fafc); }
+.workflows-rowitem.is-paused { border-left: 3px solid var(--danger, #c0392b); }
+.workflows-rowhead-avatar {
+  width: 38px; height: 38px; border-radius: 10px; flex-shrink: 0;
+  display: flex; align-items: center; justify-content: center;
+  border: 1px solid var(--primary); color: var(--primary);
+  background: var(--primary-soft, rgba(37,99,235,.06));
+}
+.workflows-rowhead-main { flex: 1; min-width: 0; }
+.workflows-rowhead-name { display: flex; align-items: center; gap: 9px; font-weight: 600; font-size: 14px; color: var(--text-1, #0F172A); }
+.workflows-rowhead-desc { font-size: 12.5px; color: var(--text-3, #94A3B8); margin-top: 2px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.workflows-rowhead-meta { flex-shrink: 0; font-size: 12px; color: var(--text-2, #64748B); text-align: right; max-width: 300px; font-variant-numeric: tabular-nums; }
+.workflows-rowhead-muted { color: var(--text-3, #94A3B8); }
+.workflows-rowhead-chev { color: var(--text-3, #94A3B8); display: inline-flex; flex-shrink: 0; }
+.workflows-rowbody { padding: 6px 18px 18px; }
+/* Cấu hình gom trong 1 panel: các nhóm xếp dọc, cách nhau bằng divider (không box rời) */
+.workflows-rowbody-config {
+  border: 1px solid var(--border, #E2E8F0); border-radius: 10px;
+  padding: 2px 16px; background: var(--surface-2, #fafbfc); margin-bottom: 10px;
+}
+.workflows-rowbody .workflows-optgroup { border: none; border-top: 1px solid var(--border, #E2E8F0); border-radius: 0; padding: 14px 0 4px; background: transparent; }
+.workflows-rowbody .workflows-optgroup:first-of-type { border-top: none; padding-top: 12px; }
+@media (max-width: 720px) {
+  .workflows-rowhead-desc, .workflows-rowhead-meta { display: none; }
+}
+
+/* Multi-select (select2-style) cho options động */
+.wf-ms { position: relative; width: 100%; }
+.wf-ms-control {
+  display: flex; align-items: center; gap: 6px; min-height: 36px; padding: 4px 8px;
+  border: 1px solid var(--border, #E2E8F0); border-radius: 8px; background: #fff; cursor: pointer; transition: border-color .15s, box-shadow .15s;
+}
+.wf-ms-control.open { border-color: var(--primary); box-shadow: 0 0 0 2px var(--primary-soft, rgba(37,99,235,.12)); }
+.wf-ms-tags { display: flex; flex-wrap: wrap; gap: 5px; flex: 1; min-width: 0; }
+.wf-ms-ph { color: var(--text-3, #94A3B8); font-size: 13px; padding: 2px 2px; }
+.wf-ms-tag {
+  display: inline-flex; align-items: center; gap: 5px; padding: 2px 5px 2px 9px; border-radius: 6px;
+  background: var(--primary-soft, rgba(37,99,235,.1)); color: var(--primary-dark, var(--primary)); font-size: 12.5px; font-weight: 500;
+}
+.wf-ms-x { cursor: pointer; font-size: 15px; line-height: 1; opacity: .65; }
+.wf-ms-x:hover { opacity: 1; }
+.wf-ms-chev { color: var(--text-3, #94A3B8); display: inline-flex; flex-shrink: 0; }
+.wf-ms-menu {
+  position: absolute; z-index: 30; top: calc(100% + 4px); left: 0; right: 0; background: #fff;
+  border: 1px solid var(--border, #E2E8F0); border-radius: 8px; box-shadow: 0 10px 28px -10px rgba(15,23,42,.25);
+  padding: 4px; max-height: 250px; overflow: auto;
+}
+.wf-ms-item { display: flex; align-items: center; gap: 8px; padding: 7px 9px; border-radius: 6px; cursor: pointer; font-size: 13px; color: var(--text-1, #0F172A); }
+.wf-ms-item:hover { background: var(--surface-2, #f8fafc); }
+.wf-ms-item.on { color: var(--primary-dark, var(--primary)); font-weight: 500; }
+.wf-ms-item input { accent-color: var(--primary); }
+.wf-ms-empty { padding: 10px; font-size: 12.5px; color: var(--text-3, #94A3B8); line-height: 1.5; }
+
+/* Workflow tenant bị khóa khi chưa cấu hình tài khoản dịch vụ */
+.workflows-locked-banner {
+  display: flex; align-items: center; gap: 8px; padding: 9px 12px; margin-bottom: 12px;
+  border-radius: 8px; background: #fff7ed; border: 1px solid #fed7aa; color: #9a3412; font-size: 12.5px; line-height: 1.4;
+}
+.workflows-locked-banner svg { flex-shrink: 0; }
+.workflows-sa-needed { border-color: var(--danger, #c0392b) !important; box-shadow: 0 0 0 1px var(--danger, #c0392b); }
+.req-star { color: var(--danger, #dc2626); margin-left: 3px; font-weight: 700; }
+/* Panel tóm tắt tài khoản dịch vụ khi đã cấu hình */
+.workflows-sa-panel {
+  display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; width: 100%;
+  padding: 9px 12px; border: 1px solid var(--border, #E2E8F0); border-radius: 8px; background: var(--surface-2, #f8fafc);
+}
+.workflows-sa-cur { font-size: 13px; color: var(--text-1, #0F172A); }
+.workflows-sa-cur svg { color: var(--success, #16a34a); }
+.workflows-group { margin-bottom: 8px; }
+.workflows-group-head { margin: 0 0 12px; }
+.workflows-group-title { font-size: 17px; font-weight: 700; margin: 0 0 4px; color: var(--text-1, #0F172A); }
+.workflows-group-desc { margin: 0; font-size: 13px; color: var(--text-2, #64748B); line-height: 1.55; max-width: 860px; }
+.workflows-group-title svg { color: var(--primary); opacity: .9; }
+
+/* ── Card config: nhóm option có tiêu đề, field gọn (label co giãn + control phải, hint nhỏ) ── */
+.workflows-optgroup { padding: 13px 0 3px; border-top: 1px solid var(--border); }
+.workflows-optgroup:first-of-type { border-top: none; padding-top: 2px; }
+.workflows-optgroup-title {
+  font-size: 10.5px; font-weight: 700; text-transform: uppercase; letter-spacing: .07em;
+  color: var(--text-3, #94A3B8); margin-bottom: 11px;
+}
+.workflows-opt { margin-bottom: 13px; }
+.workflows-opt:last-child { margin-bottom: 4px; }
+.workflows-opt-row { display: flex; align-items: center; gap: 14px; justify-content: space-between; }
+.workflows-opt.is-wide .workflows-opt-row { flex-direction: column; align-items: stretch; gap: 7px; }
+.workflows-opt-label { font-size: 13px; font-weight: 600; color: var(--text-1, #0F172A); line-height: 1.35; }
+.workflows-opt.is-wide .workflows-opt-label { font-weight: 600; }
+.workflows-opt-control { flex-shrink: 0; }
+.workflows-opt.is-wide .workflows-opt-control { width: 100%; }
+.workflows-opt-hint { font-size: 11.5px; color: var(--text-3, #94A3B8); line-height: 1.5; margin-top: 5px; }
+.workflows-opt-num {
+  width: 92px; text-align: right; font-variant-numeric: tabular-nums;
+  font-weight: 600; color: var(--text-1, #0F172A);
+}
+.workflows-opt-input { width: 100%; }
+.workflows-opt .workflows-select { transition: border-color .15s, box-shadow .15s; }
+
+/* Chips chọn nhiều (multi) */
+.workflows-chips { display: flex; flex-wrap: wrap; gap: 6px; }
+.workflows-chip {
+  display: inline-flex; align-items: center; gap: 6px; padding: 5px 12px;
+  border-radius: 8px; cursor: pointer; font-size: 12.5px; font-weight: 500; user-select: none;
+  border: 1px solid var(--border); background: transparent; color: var(--text-2);
+  transition: all .14s;
+}
+.workflows-chip:hover { border-color: var(--primary); color: var(--primary-dark, var(--primary)); }
+.workflows-chip.on { border-color: var(--primary); background: var(--primary-soft, rgba(37,99,235,.08)); color: var(--primary-dark, var(--primary)); }
+
+/* Card hover lift + meta tabular */
+.workflows-page .wga-card { transition: box-shadow .18s, border-color .18s, transform .18s; }
+.workflows-page .wga-card:hover { box-shadow: 0 6px 22px -10px rgba(15,23,42,.18); border-color: var(--border-strong, #cbd5e1); }
+.workflows-meta-val, .workflows-summary span { font-variant-numeric: tabular-nums; }
 .wga-card {
   background: #fff; border: 1px solid var(--border-1, #E2E8F0); border-radius: 12px;
   padding: 16px 18px; transition: box-shadow 0.15s, border-color 0.15s;
@@ -7533,7 +7659,7 @@ n
 
 /* Fields */
 .workflows-field-row { display: flex; align-items: center; gap: 12px; margin-bottom: 10px; }
-.workflows-field-label { font-size: 13px; color: var(--text-2); font-weight: 500; width: 80px; flex-shrink: 0; }
+.workflows-field-label { font-size: 13px; color: var(--text-2); font-weight: 500;  flex-shrink: 0; }
 .workflows-select {
   padding: 6px 10px; border: 1px solid var(--border); border-radius: 6px;
   font-size: 13px; background: var(--surface); color: var(--text); cursor: pointer; }
@@ -7565,6 +7691,7 @@ n
 .workflows-summary span { font-size: 12px; color: var(--text-2); }
 .workflows-summary span + span::before { content: ''; }
 .workflows-summary-empty { color: var(--text-3); font-size: 12px; }
+.workflows-summary span.workflows-summary-warn { color: var(--warn, #b8860b); }
 
 /* Actions row */
 .workflows-actions { display: flex; gap: 8px; flex-wrap: wrap; padding-bottom: 6px; }

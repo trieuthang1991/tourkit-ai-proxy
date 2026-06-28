@@ -142,6 +142,64 @@ VALUES
         }
     }
 
+    // ─── Kiểm soát auto-review (cột AutoReviewCount/IsFinalized/FinalizedReason trên dbo.DealScores) ──
+
+    public record ReviewControl(int AutoReviewCount, bool IsFinalized, string? FinalizedReason);
+
+    /// Đọc trạng thái kiểm soát review của 1 deal. null nếu chưa có row score.
+    public ReviewControl? GetReviewControl(string tenant, int id)
+    {
+        try
+        {
+            using var c = _db.Open();
+            return c.QueryFirstOrDefault<ReviewControl>(
+                @"SELECT AutoReviewCount, IsFinalized, FinalizedReason FROM dbo.DealScores
+                  WHERE TenantId = @t AND DealId = @id",
+                new { t = tenant, id = id.ToString() });
+        }
+        catch (Exception ex)
+        {
+            _log.LogWarning(ex, "[DealRepo] GetReviewControl lỗi deal {Id}", id);
+            return null;
+        }
+    }
+
+    /// Tăng số lần workflow TỰ chấm deal này (+ thời điểm). Chấm tay KHÔNG gọi method này.
+    public void MarkAutoReviewed(string tenant, int id)
+    {
+        try
+        {
+            using var c = _db.Open();
+            c.Execute(
+                @"UPDATE dbo.DealScores
+                  SET AutoReviewCount = AutoReviewCount + 1, LastAutoReviewUtc = SYSUTCDATETIME()
+                  WHERE TenantId = @t AND DealId = @id",
+                new { t = tenant, id = id.ToString() });
+        }
+        catch (Exception ex)
+        {
+            _log.LogWarning(ex, "[DealRepo] MarkAutoReviewed lỗi deal {Id}", id);
+        }
+    }
+
+    /// Đánh cờ "đừng tự chấm/nhắc lại nữa". reason: 'manual' | 'status-changed' | 'aged'.
+    public void SetFinalized(string tenant, int id, string reason)
+    {
+        try
+        {
+            using var c = _db.Open();
+            c.Execute(
+                @"UPDATE dbo.DealScores
+                  SET IsFinalized = 1, FinalizedReason = @reason
+                  WHERE TenantId = @t AND DealId = @id",
+                new { t = tenant, id = id.ToString(), reason });
+        }
+        catch (Exception ex)
+        {
+            _log.LogWarning(ex, "[DealRepo] SetFinalized lỗi deal {Id}", id);
+        }
+    }
+
     // ─── Board snapshot: Redis primary, in-memory final fallback ────────────
 
     public DealBoard? GetBoard(string tenant)

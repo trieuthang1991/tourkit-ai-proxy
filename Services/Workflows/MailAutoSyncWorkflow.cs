@@ -1,5 +1,6 @@
 using System.Text.Json;
 using TourkitAiProxy.Models;
+using TourkitAiProxy.Services;
 using TourkitAiProxy.Services.Mail;
 
 namespace TourkitAiProxy.Services.Workflows;
@@ -20,13 +21,14 @@ public class MailAutoSyncWorkflow : IScheduledWorkflow
     private readonly MailReplyService _reply;
     private readonly IMailSender _sender;
     private readonly MailRepository _repo;
+    private readonly AiCallContext _aiCtx;
     private readonly ILogger<MailAutoSyncWorkflow> _log;
 
     public MailAutoSyncWorkflow(
         MailSyncService sync, MailReplyService reply, IMailSender sender,
-        MailRepository repo, ILogger<MailAutoSyncWorkflow> log)
+        MailRepository repo, AiCallContext aiCtx, ILogger<MailAutoSyncWorkflow> log)
     {
-        _sync = sync; _reply = reply; _sender = sender; _repo = repo; _log = log;
+        _sync = sync; _reply = reply; _sender = sender; _repo = repo; _aiCtx = aiCtx; _log = log;
     }
 
     public string Type => "mail-auto-sync";
@@ -37,6 +39,9 @@ public class MailAutoSyncWorkflow : IScheduledWorkflow
     public async Task<WorkflowRunResult> RunAsync(string tenantId, string username, string? optionsJson, CancellationToken ct)
     {
         var opt = MailAutoSyncOptions.Parse(optionsJson);
+        // QUOTA + LOG: workflow nền KHÔNG có HttpContext → phải Push để AI classify/auto-reply trừ quota
+        // tenant + log đúng feature ("mail-auto-sync"). Thiếu Push = bypass quota + log tenant=null (bug cũ).
+        using var _aiScope = _aiCtx.Push("mail-auto-sync", tenantId);
         try
         {
             // max nhỏ cho mỗi run nền: kết nối nhẹ → ít bị Gmail RST; backlog tự drain dần qua các chu kỳ.

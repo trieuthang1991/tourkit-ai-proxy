@@ -34,13 +34,16 @@ public class DealOpportunityClient
         string sessionId, int pageIndex, int pageSize, CancellationToken ct,
         string? keyword = null, int? trangThai = null, int? nguon = null, int? nhanVienPhuTrach = null,
         int? rank = null, int? minRank = null, int? maxRank = null,
-        string? startDate = null, long? minPrice = null, long? maxPrice = null)
+        string? startDate = null, long? minPrice = null, long? maxPrice = null,
+        string? statusesCsv = null)
     {
         if (pageIndex < 1) pageIndex = 1;
         var path = $"/api/ai/booking-tickets?pageIndex={pageIndex}&pageSize={pageSize}";
         if (!string.IsNullOrWhiteSpace(keyword))
             path += "&keyword=" + Uri.EscapeDataString(keyword.Trim());
         if (trangThai is > 0)        path += $"&trangThai={trangThai}";
+        // Lọc NHIỀU trạng thái 1 request (upstream IN (...)) — tránh gọi mỗi status 1 lần.
+        if (!string.IsNullOrWhiteSpace(statusesCsv)) path += "&statusesCsv=" + Uri.EscapeDataString(statusesCsv);
         if (nguon is > 0)            path += $"&nguon={nguon}";
         if (nhanVienPhuTrach is > 0) path += $"&nhanVienPhuTrach={nhanVienPhuTrach}";
         // rank: -1=chưa chấm, >0=đã chấm bất kỳ (sentinel) — 0 bỏ qua
@@ -81,6 +84,7 @@ public class DealOpportunityClient
             SourceName:         GetStr(it, "sourceName"),
             MarketName:         GetStr(it, "marketName"),
             Assignees:          GetStr(it, "assignees"),
+            AssigneeEmail:      GetStr(it, "assigneeEmail"),
             CreatedAt:          createdAt ?? "",
             AgeDays:            AgeDays(createdAt),
             // Cooling fields — null/0/false nếu upstream chưa deploy bản có fields này (backward-compat)
@@ -127,6 +131,7 @@ public class DealOpportunityClient
                     SourceName:   GetStr(it, "sourceName"),
                     MarketName:   GetStr(it, "marketName"),
                     Assignees:    GetStr(it, "assignees"),
+                    AssigneeEmail: GetStr(it, "assigneeEmail"),
                     CreatedAt:    createdAt ?? "",
                     AgeDays:      age);
 

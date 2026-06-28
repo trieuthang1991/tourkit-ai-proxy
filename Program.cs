@@ -179,6 +179,7 @@ builder.Services.AddSingleton<IReviewAgent, JsonPromptReviewAgent>();
 builder.Services.AddSingleton<TourkitAiProxy.Services.NccImport.NccImportService>();
 builder.Services.AddSingleton<ReviewService>();
 builder.Services.AddSingleton<BatchService>();
+builder.Services.AddSingleton<CustomerReviewClient>();   // KH thật từ CRM cho workflow customer-auto-review
 
 // Chat-Analytics ("Trợ lý số liệu") — gọi TourKit.Api (toutkit-app) qua JWT.
 // BaseUrl: TourKit:BaseUrl (mặc định Production). Auth: client gửi token mã hóa (Crypton) → /login-token.
@@ -194,6 +195,7 @@ AttachLogAndInsecure(
 builder.Services.AddSingleton<TourKitApiClient>();
 builder.Services.AddSingleton<TkSessionRepository>();
 builder.Services.AddSingleton<TkSessionStore>();
+builder.Services.AddSingleton<TenantServiceAccountStore>();   // tài khoản dịch vụ per-tenant (workflow nền tự login)
 builder.Services.AddSingleton<TourkitAiProxy.Services.Cache.RedisStore>();  // generic Redis cho mọi feature
 // Single source of truth cho cấu hình AI model per-feature.
 builder.Services.AddSingleton<TourkitAiProxy.Services.Providers.AiModelRegistry>();
@@ -240,6 +242,7 @@ builder.Services.AddSingleton<TourkitAiProxy.Services.Mail.IMailSender, TourkitA
 builder.Services.AddSingleton<TourkitAiProxy.Services.Mail.MailClassifier>();
 builder.Services.AddSingleton<TourkitAiProxy.Services.Mail.MailSyncService>();   // shared sync logic (HTTP endpoint + workflow)
 builder.Services.AddSingleton<TourkitAiProxy.Services.Mail.MailReplyService>();
+builder.Services.AddSingleton<TourkitAiProxy.Services.Mail.MailQueueRepository>();   // hàng đợi mail outbound dùng chung (dbo.OutboundMails)
 
 // User Workflows — tác vụ AI tự động theo lịch per-(tenant, user).
 // Framework: WorkflowRegistry + WorkflowSchedulerService (tick 60s).
@@ -248,6 +251,10 @@ builder.Services.AddSingleton<TourkitAiProxy.Services.Workflows.WorkflowReposito
 builder.Services.AddSingleton<TourkitAiProxy.Services.Workflows.WorkflowRegistry>();
 builder.Services.AddSingleton<TourkitAiProxy.Services.Workflows.IScheduledWorkflow,
                               TourkitAiProxy.Services.Workflows.MailAutoSyncWorkflow>();
+builder.Services.AddSingleton<TourkitAiProxy.Services.Workflows.IScheduledWorkflow,
+                              TourkitAiProxy.Services.Workflows.DealAutoReviewWorkflow>();   // PerTenant: review + cảnh báo deal nguội
+builder.Services.AddSingleton<TourkitAiProxy.Services.Workflows.IScheduledWorkflow,
+                              TourkitAiProxy.Services.Workflows.CustomerAutoReviewWorkflow>();   // PerTenant: tự review hạng KH + re-review định kỳ
 builder.Services.AddSingleton<TourkitAiProxy.Services.Workflows.WorkflowSchedulerService>();
 // CHỈ instance có Workflows:RunScheduler=true mới CHẠY scheduler nền.
 // Tách site: web chính đặt false; site workflow riêng đặt true. Singleton vẫn đăng ký ở mọi

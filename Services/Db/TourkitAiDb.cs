@@ -51,7 +51,7 @@ public class TourkitAiDb
             await using var cmd = c.CreateCommand();
             cmd.CommandText = SchemaSql;
             await cmd.ExecuteNonQueryAsync(ct);
-            _log.LogInformation("TourkitAiDb schema OK (Reviews/DealScores/MailAccounts/Mails/MailSyncState/TourQuotes/VisaAssessments/QuotaOrders/WidgetTokens/VisaQuestionSets/TkSessions/TenantQuota/AiUsageCounters/AiUsageHistory/UserWorkflows/WorkflowRuns đã có/đã tạo)");
+            _log.LogInformation("TourkitAiDb schema OK (Reviews/DealScores/MailAccounts/Mails/MailSyncState/TourQuotes/VisaAssessments/QuotaOrders/WidgetTokens/VisaQuestionSets/TkSessions/TenantQuota/AiUsageCounters/AiUsageHistory/UserWorkflows/WorkflowRuns/OutboundMails/TenantServiceAccounts đã có/đã tạo)");
         }
         catch (Exception ex)
         {
@@ -506,5 +506,61 @@ BEGIN
     CREATE INDEX IX_AppLogs_Kind  ON dbo.AppLogs(Kind, AtUtc DESC);
     CREATE INDEX IX_AppLogs_Level ON dbo.AppLogs(Level, AtUtc DESC);
 END;
+
+-- Hàng đợi mail OUTBOUND dùng chung (worker gửi đọc từ đây). Khác dbo.Mails (inbox đã nhận).
+-- Nội dung gửi theo TEMPLATE: producer (vd deal-cooling-alert) chỉ truyền TemplateCode + Params(JSON),
+-- worker render template HTML + replace tham số. Status kiểu int (0=pending..4=skipped) cho worker dùng enum.
+-- Mọi cột thời gian UTC; worker (DateTime.Now local) phải so sánh bằng DateTime.UtcNow.
+IF OBJECT_ID('dbo.OutboundMails', 'U') IS NULL
+BEGIN
+    CREATE TABLE dbo.OutboundMails (
+        Id            BIGINT IDENTITY(1,1) NOT NULL,
+        TenantId      NVARCHAR(64)   NOT NULL,
+        Kind          NVARCHAR(64)   NOT NULL,
+        SourceId      NVARCHAR(128)  NULL,
+        Username      NVARCHAR(120)  NULL,
+        TemplateCode  NVARCHAR(64)   NULL,
+        ToEmail       NVARCHAR(256)  NULL,
+        ToName        NVARCHAR(256)  NULL,
+        ToUserId      INT            NULL,
+        Cc            NVARCHAR(512)  NULL,
+        Subject       NVARCHAR(512)  NULL,
+        [Params]      NVARCHAR(MAX)  NULL,
+        Data          NVARCHAR(MAX)  NULL,
+        Status        TINYINT        NOT NULL CONSTRAINT DF_OutboundMails_Status  DEFAULT 0,  -- 0=pending 1=sent 2=failed 3=cancelled 4=skipped
+        RetryCount    INT            NOT NULL CONSTRAINT DF_OutboundMails_Retry   DEFAULT 0,
+        ErrorMessage  NVARCHAR(1000) NULL,
+        ScheduledUtc  DATETIME2      NULL,
+        CreatedUtc    DATETIME2      NOT NULL CONSTRAINT DF_OutboundMails_Created DEFAULT SYSUTCDATETIME(),
+        ProcessedUtc  DATETIME2      NULL,
+        CONSTRAINT PK_OutboundMails PRIMARY KEY CLUSTERED (Id)
+    );
+    CREATE INDEX IX_OutboundMails_Poll   ON dbo.OutboundMails(Status, ScheduledUtc, CreatedUtc);
+    CREATE INDEX IX_OutboundMails_Source ON dbo.OutboundMails(TenantId, Kind, SourceId);
+END;
+
+-- Tài khoản dịch vụ per-tenant: workflow nền tự login (KHÔNG cần user online). Password Crypton-enc.
+IF OBJECT_ID('dbo.TenantServiceAccounts', 'U') IS NULL
+BEGIN
+    CREATE TABLE dbo.TenantServiceAccounts (
+        TenantId     NVARCHAR(64)   NOT NULL,
+        Username     NVARCHAR(128)  NOT NULL,
+        PasswordEnc  NVARCHAR(512)  NOT NULL,
+        Enabled      BIT            NOT NULL CONSTRAINT DF_TenantSvcAcc_Enabled DEFAULT 1,
+        UpdatedBy    NVARCHAR(120)  NULL,
+        UpdatedUtc   DATETIME2      NOT NULL CONSTRAINT DF_TenantSvcAcc_Updated DEFAULT SYSUTCDATETIME(),
+        CONSTRAINT PK_TenantServiceAccounts PRIMARY KEY CLUSTERED (TenantId)
+    );
+END;
+
+-- Kiểm soát auto-review trên DealScores (idempotent ADD cho install cũ).
+IF NOT EXISTS (SELECT 1 FROM sys.columns WHERE object_id = OBJECT_ID('dbo.DealScores') AND name = 'AutoReviewCount')
+    ALTER TABLE dbo.DealScores ADD AutoReviewCount INT NOT NULL CONSTRAINT DF_DealScores_AutoRev DEFAULT 0;
+IF NOT EXISTS (SELECT 1 FROM sys.columns WHERE object_id = OBJECT_ID('dbo.DealScores') AND name = 'IsFinalized')
+    ALTER TABLE dbo.DealScores ADD IsFinalized BIT NOT NULL CONSTRAINT DF_DealScores_Final DEFAULT 0;
+IF NOT EXISTS (SELECT 1 FROM sys.columns WHERE object_id = OBJECT_ID('dbo.DealScores') AND name = 'FinalizedReason')
+    ALTER TABLE dbo.DealScores ADD FinalizedReason NVARCHAR(32) NULL;
+IF NOT EXISTS (SELECT 1 FROM sys.columns WHERE object_id = OBJECT_ID('dbo.DealScores') AND name = 'LastAutoReviewUtc')
+    ALTER TABLE dbo.DealScores ADD LastAutoReviewUtc DATETIME2 NULL;
 ";
 }
