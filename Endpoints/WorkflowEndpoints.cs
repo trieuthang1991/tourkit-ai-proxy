@@ -1,4 +1,6 @@
 using System.Diagnostics;
+using System.Text.Json;
+using TourkitAiProxy.Services.Mail;
 using TourkitAiProxy.Services.TourKit;
 using TourkitAiProxy.Services.Workflows;
 
@@ -182,6 +184,84 @@ public static class WorkflowEndpoints
             });
         });
 
+        // ─── POST /workflows/service-account ─── tài khoản tự động per-tenant ─────
+        // Validate login TourKit + đếm deal thấy được TRƯỚC khi lưu (Crypton-enc). KHÔNG trả password.
+        v1.MapPost("/workflows/service-account", async (
+            WorkflowServiceAccountRequest req,
+            HttpContext ctx,
+            TenantServiceAccountStore store,
+            TourKitApiClient api,
+            TkSessionStore sessions) =>
+        {
+            var auth = RequireSession(ctx, sessions);
+            if (auth == null) return Unauthorized();
+            var (_, tenant, user) = auth.Value;
+            if (string.IsNullOrWhiteSpace(req.Username) || string.IsNullOrWhiteSpace(req.Password))
+                return Results.Json(new { ok = false, error = "Thiếu username/password" }, statusCode: 400);
+
+            try
+            {
+                var login = await api.LoginAsync(tenant, req.Username.Trim(), req.Password, ctx.RequestAborted);
+                int dealsVisible = 0;
+                try
+                {
+                    var env = await api.GetAsync(login.Token, "/api/ai/booking-tickets?pageIndex=1&pageSize=1", ctx.RequestAborted);
+                    if (env.ValueKind == JsonValueKind.Object && env.TryGetProperty("total", out var t) && t.TryGetInt32(out var n))
+                        dealsVisible = n;
+                }
+                catch { /* đếm deal best-effort — không chặn lưu */ }
+
+                await store.UpsertAsync(tenant, req.Username.Trim(), req.Password, req.Domain, updatedBy: user, ctx.RequestAborted);
+                return Results.Json(new { ok = true, dealsVisible, warning = dealsVisible == 0 ? "Tài khoản đăng nhập OK nhưng thấy 0 deal — có thể thiếu quyền CH_XEM_ALL" : null });
+            }
+            catch (TourKitApiException ex)
+            {
+                return Results.Json(new { ok = false, error = $"Đăng nhập thất bại: {ex.Message}" }, statusCode: 200);
+            }
+            catch (Exception ex)
+            {
+                return Results.Json(new { ok = false, error = ex.Message }, statusCode: 200);
+            }
+        });
+
+        // ─── GET /workflows/service-account ─── trạng thái cấu hình ──────────────
+        v1.MapGet("/workflows/service-account", (
+            HttpContext ctx,
+            TenantServiceAccountStore store,
+            TkSessionStore sessions) =>
+        {
+            var auth = RequireSession(ctx, sessions);
+            if (auth == null) return Unauthorized();
+            var (_, tenant, _) = auth.Value;
+            var (configured, username) = store.Status(tenant);
+            return Results.Json(new { configured, username });
+        });
+
+        // ─── GET /workflows/outbound-mails ─── theo dõi hàng đợi mail ────────────
+        v1.MapGet("/workflows/outbound-mails", async (
+            HttpContext ctx,
+            MailQueueRepository queue,
+            TkSessionStore sessions,
+            string? kind,
+            int? status,
+            int? limit) =>
+        {
+            var auth = RequireSession(ctx, sessions);
+            if (auth == null) return Unauthorized();
+            var (_, tenant, _) = auth.Value;
+            var rows = await queue.ListForMonitorAsync(tenant, kind, status, limit ?? 50, ctx.RequestAborted);
+            return Results.Json(new
+            {
+                items = rows.Select(r => new
+                {
+                    id = r.Id, kind = r.Kind, sourceId = r.SourceId, templateCode = r.TemplateCode,
+                    toEmail = r.ToEmail, toName = r.ToName, subject = r.Subject,
+                    status = (int)r.Status, retryCount = r.RetryCount, errorMessage = r.ErrorMessage,
+                    scheduledUtc = AsUtc(r.ScheduledUtc), createdUtc = AsUtc(r.CreatedUtc), processedUtc = AsUtc(r.ProcessedUtc)
+                }).ToList()
+            });
+        });
+
         return routes;
     }
 
@@ -215,3 +295,6 @@ public static class WorkflowEndpoints
 
 /// Request body cho PUT /workflows/{type}. Options = điều kiện ĐỘNG tùy workflow (object tùy ý).
 public sealed record WorkflowConfigRequest(bool Enabled, int IntervalMinutes, System.Text.Json.JsonElement? Options = null);
+
+/// Request body cho POST /workflows/service-account (tài khoản tự động per-tenant).
+public sealed record WorkflowServiceAccountRequest(string Username, string Password, string? Domain = null);
