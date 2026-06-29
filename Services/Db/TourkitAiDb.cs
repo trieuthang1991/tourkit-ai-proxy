@@ -51,7 +51,7 @@ public class TourkitAiDb
             await using var cmd = c.CreateCommand();
             cmd.CommandText = SchemaSql;
             await cmd.ExecuteNonQueryAsync(ct);
-            _log.LogInformation("TourkitAiDb schema OK (Reviews/DealScores/MailAccounts/Mails/MailSyncState/TourQuotes/VisaAssessments/QuotaOrders/WidgetTokens/VisaQuestionSets/TkSessions/TenantQuota/AiUsageCounters/AiUsageHistory/UserWorkflows/WorkflowRuns/OutboundMails/TenantServiceAccounts đã có/đã tạo)");
+            _log.LogInformation("TourkitAiDb schema OK (Reviews/DealScores/MailAccounts/Mails/MailSyncState/TourQuotes/VisaAssessments/QuotaOrders/WidgetTokens/VisaQuestionSets/TkSessions/TenantQuota/AiUsageCounters/AiUsageHistory/UserWorkflows/WorkflowRuns/OutboundMails/MailTemplates/TenantServiceAccounts đã có/đã tạo)");
         }
         catch (Exception ex)
         {
@@ -537,6 +537,26 @@ BEGIN
     );
     CREATE INDEX IX_OutboundMails_Poll   ON dbo.OutboundMails(Status, ScheduledUtc, CreatedUtc);
     CREATE INDEX IX_OutboundMails_Source ON dbo.OutboundMails(TenantId, Kind, SourceId);
+END;
+
+-- Template mail dùng chung (global, PK=Code) cho hàng đợi dbo.OutboundMails.
+-- Worker (toutkit-app) render Subject+BodyHtml theo cú pháp {{key}} + {{#if key}}...{{/if}}
+-- từ [Params] JSON của từng dòng OutboundMails. Admin sửa nội dung KHÔNG cần deploy lại worker.
+-- Mã lạ (không có row) → worker fallback template code cũ. Enabled=0 → cũng fallback.
+IF OBJECT_ID('dbo.MailTemplates', 'U') IS NULL
+BEGIN
+    CREATE TABLE dbo.MailTemplates (
+        Code         NVARCHAR(64)   NOT NULL,
+        Name         NVARCHAR(256)  NOT NULL,
+        Subject      NVARCHAR(512)  NOT NULL,
+        BodyHtml     NVARCHAR(MAX)  NOT NULL,
+        Description  NVARCHAR(1000) NULL,
+        SampleParams NVARCHAR(MAX)  NULL,        -- JSON tham số mẫu (preview ở admin)
+        Enabled      BIT            NOT NULL CONSTRAINT DF_MailTemplates_Enabled DEFAULT 1,
+        UpdatedBy    NVARCHAR(120)  NULL,
+        UpdatedUtc   DATETIME2      NOT NULL CONSTRAINT DF_MailTemplates_Updated DEFAULT SYSUTCDATETIME(),
+        CONSTRAINT PK_MailTemplates PRIMARY KEY CLUSTERED (Code)
+    );
 END;
 
 -- Tài khoản dịch vụ per-tenant: workflow nền tự login (KHÔNG cần user online). Password Crypton-enc.

@@ -243,6 +243,7 @@ builder.Services.AddSingleton<TourkitAiProxy.Services.Mail.MailClassifier>();
 builder.Services.AddSingleton<TourkitAiProxy.Services.Mail.MailSyncService>();   // shared sync logic (HTTP endpoint + workflow)
 builder.Services.AddSingleton<TourkitAiProxy.Services.Mail.MailReplyService>();
 builder.Services.AddSingleton<TourkitAiProxy.Services.Mail.MailQueueRepository>();   // hàng đợi mail outbound dùng chung (dbo.OutboundMails)
+builder.Services.AddSingleton<TourkitAiProxy.Services.Mail.MailTemplateRepository>(); // template mail global (dbo.MailTemplates) — admin CRUD, worker render
 
 // User Workflows — tác vụ AI tự động theo lịch per-(tenant, user).
 // Framework: WorkflowRegistry + WorkflowSchedulerService (tick 60s).
@@ -379,6 +380,13 @@ _ = Task.Run(async () =>
     {
         scope.ServiceProvider.GetRequiredService<ILogger<Program>>()
             .LogError(ex, "Deal DB init/migrate fail — fallback file");
+    }
+    // Seed template mail mặc định (chỉ khi bảng rỗng) — chạy nền, KHÔNG block startup.
+    try { await scope.ServiceProvider.GetRequiredService<TourkitAiProxy.Services.Mail.MailTemplateRepository>().SeedDefaultsAsync(); }
+    catch (Exception ex)
+    {
+        scope.ServiceProvider.GetRequiredService<ILogger<Program>>()
+            .LogWarning(ex, "Seed MailTemplates fail");
     }
 });
 

@@ -75,6 +75,41 @@ ORDER BY Id DESC;",
             new { tenantId, kind, status, take });
         return rows.AsList();
     }
+
+    /// CROSS-TENANT (admin): đọc hàng đợi mọi tenant, lọc tùy chọn theo tenant/kind/status.
+    public async Task<List<OutboundMail>> ListForAdminAsync(
+        string? tenantId, string? kind, int? status, int take, CancellationToken ct = default)
+    {
+        if (take < 1) take = 1; if (take > 500) take = 500;
+        await using var c = await _db.OpenAsync(ct);
+        var rows = await c.QueryAsync<OutboundMail>(@"
+SELECT TOP (@take)
+    Id, TenantId, Kind, SourceId, Username, TemplateCode, ToEmail, ToName, ToUserId, Cc,
+    Subject, [Params] AS [Params], Data, [Status], RetryCount, ErrorMessage,
+    ScheduledUtc, CreatedUtc, ProcessedUtc
+FROM dbo.OutboundMails
+WHERE (@tenantId IS NULL OR TenantId = @tenantId)
+  AND (@kind     IS NULL OR Kind     = @kind)
+  AND (@status   IS NULL OR [Status] = @status)
+ORDER BY Id DESC;",
+            new { tenantId, kind, status, take });
+        return rows.AsList();
+    }
+
+    /// CROSS-TENANT (admin): đếm theo Status (0..4) cho dải filter, áp cùng filter tenant/kind.
+    public async Task<Dictionary<int, int>> CountByStatusForAdminAsync(
+        string? tenantId, string? kind, CancellationToken ct = default)
+    {
+        await using var c = await _db.OpenAsync(ct);
+        var rows = await c.QueryAsync<(int Status, int Cnt)>(@"
+SELECT [Status] AS [Status], COUNT(*) AS Cnt
+FROM dbo.OutboundMails
+WHERE (@tenantId IS NULL OR TenantId = @tenantId)
+  AND (@kind     IS NULL OR Kind     = @kind)
+GROUP BY [Status];",
+            new { tenantId, kind });
+        return rows.ToDictionary(r => r.Status, r => r.Cnt);
+    }
 }
 
 /// Input enqueue 1 mail (Id/Status/CreatedUtc do DB sinh). `Params` = JSON tham số replace vào template.
