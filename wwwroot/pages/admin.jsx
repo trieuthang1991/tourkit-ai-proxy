@@ -127,6 +127,8 @@
     { path: "consult-leads",    label: "Đăng ký tư vấn",    icon: "📞", component: ConsultLeadsPage },
     { path: "chat-unresolved",  label: "AI bí câu hỏi",     icon: "❓", component: ChatUnresolvedPage },
     { path: "tk-sessions",      label: "Phiên đăng nhập",   icon: "🔐", component: TkSessionsPage },
+    { path: "outbound-mails",   label: "Hàng đợi mail",     icon: "📤", component: OutboundMailsPage },
+    { path: "mail-templates",   label: "Template mail",     icon: "📝", component: MailTemplatesPage },
   ];
   const DEFAULT_PATH = "ai-usage";
 
@@ -693,7 +695,7 @@
                       ? <span title={r.contactedBy ? `bởi ${r.contactedBy} · ${fmtDate(r.contactedUtc)}` : ""}
                               style={{
                                 fontSize: 11, padding: "3px 8px", borderRadius: 999,
-                                background: "rgba(77,124,92,0.12)", color: "#3F6B4E",
+                                background: "rgba(77,124,92,0.12)", color: "#047857",
                                 fontWeight: 600, letterSpacing: 0.3, textTransform: "uppercase"
                               }}>✓ Đã liên hệ</span>
                       : <span style={{
@@ -926,7 +928,7 @@
           <div style={block}>
             {row.history.map((h, idx) => (
               <div key={idx} style={{ marginBottom: idx < row.history.length - 1 ? 8 : 0 }}>
-                <b style={{ color: h.role === "user" ? "var(--accent-deep)" : "#3F6B4E" }}>
+                <b style={{ color: h.role === "user" ? "var(--accent-deep)" : "#047857" }}>
                   [{h.role}]
                 </b> {h.content}
               </div>
@@ -1060,7 +1062,7 @@
                     <div className="quota-tid">{r.tenantId}</div>
                   </td>
                   <td title={r.lastUsedUtc}>
-                    <span style={{ color: r.idleSeconds < 300 ? "#3F6B4E"
+                    <span style={{ color: r.idleSeconds < 300 ? "#047857"
                                        : r.idleSeconds < 3600 ? "var(--text-primary)"
                                        : "var(--text-faint)" }}>
                       {fmtIdle(r.idleSeconds)} trước
@@ -1077,7 +1079,7 @@
                       : <span style={{ color: "var(--text-faint)", fontSize: 12 }}>—</span>}
                   </td>
                   <td>
-                    <span style={{ fontSize: 12, color: r.hasJwt ? "#3F6B4E" : "var(--text-faint)" }}>
+                    <span style={{ fontSize: 12, color: r.hasJwt ? "#047857" : "var(--text-faint)" }}>
                       {r.hasJwt ? "● live" : "○ idle"}
                     </span>
                   </td>
@@ -1086,7 +1088,7 @@
                       onClick={() => kick(r)}
                       style={{
                         padding: "4px 10px", fontSize: 12,
-                        border: "1px solid #C9624A", color: "#C9624A",
+                        border: "1px solid #DC2626", color: "#DC2626",
                         background: "transparent", borderRadius: 4, cursor: "pointer",
                         fontFamily: "inherit"
                       }}
@@ -1104,6 +1106,630 @@
             </tbody>
           </table>
         </div>
+      </div>
+    );
+  }
+
+  // ── Hàng đợi mail outbound (cross-tenant) ──────────────────────────────────
+  const MAIL_STATUS = {
+    0: { text: "Chờ gửi",  color: "#B45309", bg: "#FEF3C7" },   // amber (warning)
+    1: { text: "Đã gửi",   color: "#047857", bg: "#D1FAE5" },   // emerald (success)
+    2: { text: "Lỗi",      color: "#B91C1C", bg: "#FEE2E2" },   // red (danger)
+    3: { text: "Đã hủy",   color: "#475569", bg: "#F1F5F9" },   // slate
+    4: { text: "Bỏ qua",   color: "#64748B", bg: "#F1F5F9" },   // slate
+  };
+
+  function fmtTs(iso) {
+    if (!iso) return "—";
+    try {
+      const d = new Date(iso);
+      if (isNaN(d)) return iso;
+      return d.toLocaleString("vi-VN", { day: "2-digit", month: "2-digit", year: "numeric", hour: "2-digit", minute: "2-digit" });
+    } catch { return iso; }
+  }
+
+  function safeObj(json) {
+    if (!json) return {};
+    try { const o = JSON.parse(json); return (o && typeof o === "object") ? o : {}; } catch { return {}; }
+  }
+
+  // Làm đẹp giá trị Params để hiển thị/preview: chuỗi ISO datetime → "dd/MM/yyyy HH:mm" (giữ wall-clock).
+  // Chỉ dùng cho hiển thị (raw JSON vẫn xem nguyên bằng safeObj). Dữ liệu cũ chưa format ở producer vẫn đẹp.
+  function prettyParams(o) {
+    const out = {};
+    for (const k in o) {
+      const v = o[k];
+      if (typeof v === "string" && /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}/.test(v)) {
+        const d = new Date(v);
+        const z = n => String(n).padStart(2, "0");
+        out[k] = isNaN(d) ? v
+          : `${z(d.getDate())}/${z(d.getMonth() + 1)}/${d.getFullYear()} ${z(d.getHours())}:${z(d.getMinutes())}`;
+      } else out[k] = v;
+    }
+    return out;
+  }
+
+  function OutboundMailsPage() {
+    const [items, setItems] = useState([]);
+    const [counts, setCounts] = useState({});
+    const [loading, setLoading] = useState(false);
+    const [error, setError] = useState("");
+    const [status, setStatus] = useState("");   // "" = all
+    const [tenantId, setTenantId] = useState("");
+    const [kind, setKind] = useState("");
+    const [limit, setLimit] = useState(50);
+    const [tplMap, setTplMap] = useState({});    // code → {subject, bodyHtml} (render tiêu đề + preview email)
+    const [selected, setSelected] = useState(null);  // row đang xem chi tiết (modal)
+
+    // Load template 1 lần → render "Tiêu đề" + preview email cho mail chưa gửi (nội dung sinh lúc gửi).
+    useEffect(() => {
+      (async () => {
+        try {
+          const r = await window.adminFetch("/api/v1/admin/ui/mail-templates");
+          const d = await r.json();
+          if (r.ok) {
+            const m = {};
+            (d.items || []).forEach(t => { m[t.code] = { subject: t.subject, bodyHtml: t.bodyHtml }; });
+            setTplMap(m);
+          }
+        } catch { /* không có template → tiêu đề/preview fallback */ }
+      })();
+    }, []);
+
+    async function load() {
+      setLoading(true); setError("");
+      try {
+        const qs = new URLSearchParams();
+        if (status !== "") qs.set("status", status);
+        if (tenantId.trim()) qs.set("tenantId", tenantId.trim());
+        if (kind.trim()) qs.set("kind", kind.trim());
+        qs.set("limit", String(limit));
+        const r = await window.adminFetch("/api/v1/admin/ui/outbound-mails?" + qs.toString());
+        const d = await r.json();
+        if (!r.ok) throw new Error(d.error || `HTTP ${r.status}`);
+        setItems(d.items || []);
+        setCounts(d.counts || {});
+      } catch (e) {
+        setError(e.message || "Lỗi tải dữ liệu");
+      } finally {
+        setLoading(false);
+      }
+    }
+
+    useEffect(() => { load(); }, [status, limit]);
+
+    const chip = (label, val, active, onClick) => (
+      <button onClick={onClick}
+        style={{
+          padding: "4px 10px", fontSize: 12, borderRadius: 6, cursor: "pointer",
+          fontFamily: "inherit", marginRight: 6,
+          border: active ? "1px solid var(--accent-deep)" : "1px solid var(--border-warm)",
+          background: active ? "var(--accent-tint)" : "var(--bg-paper)",
+          color: active ? "var(--accent-deep)" : "var(--text-primary)",
+        }}>
+        {label}{val != null ? ` (${val})` : ""}
+      </button>
+    );
+
+    return (
+      <div>
+        <div className="ai-usage-header">
+          <h1 className="ai-usage-title">Hàng đợi mail</h1>
+          <button className="ai-usage-range-btn" onClick={load} disabled={loading}>↻ Refresh</button>
+        </div>
+
+        <div style={{ marginBottom: 12 }}>
+          {chip("Tất cả", counts.all, status === "", () => setStatus(""))}
+          {chip("Chờ gửi", counts.pending, status === "0", () => setStatus("0"))}
+          {chip("Đã gửi", counts.sent, status === "1", () => setStatus("1"))}
+          {chip("Lỗi", counts.failed, status === "2", () => setStatus("2"))}
+          {chip("Đã hủy", counts.cancelled, status === "3", () => setStatus("3"))}
+          {chip("Bỏ qua", counts.skipped, status === "4", () => setStatus("4"))}
+        </div>
+
+        <div className="ai-usage-filters" style={{ marginBottom: 12, gap: 8, display: "flex", flexWrap: "wrap" }}>
+          <input type="text" placeholder="Lọc tenantId…" value={tenantId}
+            onChange={e => setTenantId(e.target.value)} onKeyDown={e => e.key === "Enter" && load()}
+            style={inp(200)} />
+          <input type="text" placeholder="Lọc kind (vd deal-cooling-alert)…" value={kind}
+            onChange={e => setKind(e.target.value)} onKeyDown={e => e.key === "Enter" && load()}
+            style={inp(240)} />
+          <select value={limit} onChange={e => setLimit(Number(e.target.value))} style={inp(110)}>
+            <option value={50}>50 dòng</option>
+            <option value={100}>100 dòng</option>
+            <option value={200}>200 dòng</option>
+            <option value={500}>500 dòng</option>
+          </select>
+          <button className="ai-usage-range-btn" onClick={load}>Áp dụng</button>
+        </div>
+
+        {error && <div className="ai-usage-error">⚠️ {error}</div>}
+        {loading && items.length === 0 && <div className="ai-usage-loading">Đang tải…</div>}
+
+        <div className="quota-section">
+          <table className="quota-table">
+            <thead>
+              <tr>
+                <th style={{ width: 60 }}>ID</th>
+                <th>Tenant</th>
+                <th>Loại / Template</th>
+                <th>Người nhận</th>
+                <th>Tiêu đề</th>
+                <th style={{ width: 90 }}>Trạng thái</th>
+                <th style={{ width: 130 }}>Tạo lúc</th>
+              </tr>
+            </thead>
+            <tbody>
+              {items.map(r => {
+                const st = MAIL_STATUS[r.status] || { text: r.statusText || "?", color: "#6b7280", bg: "#F3F4F6" };
+                const p = prettyParams(safeObj(r.paramsJson));
+                // Người nhận: ưu tiên ToEmail của row; chưa có (chờ assigneeEmail deploy) → suy từ Params.
+                const toEmail = r.toEmail || p.email || p.toEmail || null;
+                const toName = r.toName || p.fullName || p.assigneeNames || null;
+                // Tiêu đề sinh lúc gửi → row chưa có thì render từ template + Params để xem trước.
+                const tpl = r.templateCode ? tplMap[r.templateCode] : null;
+                const subject = r.subject || (tpl ? renderTemplate(tpl.subject, p, false) : null);
+                const aboutKh = p.customerName || null;   // ngữ cảnh KH (deal-cooling-alert)
+                return (
+                  <tr key={r.id} className="clickable" style={{ cursor: "pointer" }}
+                      onClick={() => setSelected(r)} title="Bấm để xem chi tiết + preview email">
+                    <td style={{ fontFamily: "var(--mono)", fontSize: 12 }}>{r.id}</td>
+                    <td>
+                      <div className="quota-name">{r.tenantName}</div>
+                      {r.tenantName !== r.tenantId && (
+                        <div className="quota-tid" style={{ fontSize: 11 }}>{r.tenantId}</div>
+                      )}
+                    </td>
+                    <td>
+                      <div style={{ fontSize: 13 }}>{r.kind}</div>
+                      {r.templateCode && (
+                        <div style={{ fontSize: 11, color: "var(--text-faint)", fontFamily: "var(--mono)", marginTop: 2 }}>
+                          {r.templateCode}
+                        </div>
+                      )}
+                    </td>
+                    <td>
+                      <div style={{ fontSize: 13 }}>
+                        {toEmail || toName || <span style={{ color: "var(--text-faint)" }}>— chưa có người nhận</span>}
+                      </div>
+                      {toEmail && toName && <div style={{ fontSize: 11, color: "var(--text-faint)" }}>{toName}</div>}
+                      {r.cc && <div style={{ fontSize: 11, color: "var(--text-faint)" }}>Cc: {r.cc}</div>}
+                      {aboutKh && <div style={{ fontSize: 11, color: "var(--text-faint)" }}>KH: {aboutKh}</div>}
+                    </td>
+                    <td style={{ maxWidth: 260 }}>
+                      <div style={{ fontSize: 13, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
+                                    color: r.subject ? "var(--text-primary)" : "var(--text-muted)" }}
+                           title={subject || ""}>{subject || "—"}</div>
+                      {!r.subject && subject && (
+                        <div style={{ fontSize: 11, color: "var(--text-faint)", marginTop: 2 }}>(render khi gửi)</div>
+                      )}
+                      {r.status === 2 && r.errorMessage && (
+                        <div style={{ fontSize: 11, color: "#DC2626", marginTop: 2 }} title={r.errorMessage}>
+                          ⚠️ {r.errorMessage.length > 80 ? r.errorMessage.slice(0, 80) + "…" : r.errorMessage}
+                          {r.retryCount > 0 ? ` (thử ${r.retryCount}×)` : ""}
+                        </div>
+                      )}
+                    </td>
+                    <td>
+                      <span style={{ display: "inline-block", padding: "2px 8px", borderRadius: 4,
+                                     fontSize: 12, fontWeight: 500, color: st.color, background: st.bg }}>
+                        {st.text}
+                      </span>
+                    </td>
+                    <td style={{ fontSize: 12 }} title={r.processedUtc ? "Xử lý: " + fmtTs(r.processedUtc) : ""}>
+                      {fmtTs(r.createdUtc)}
+                    </td>
+                  </tr>
+                );
+              })}
+              {!loading && items.length === 0 && (
+                <tr><td colSpan={7} className="quota-empty">Không có mail nào khớp bộ lọc.</td></tr>
+              )}
+            </tbody>
+          </table>
+        </div>
+
+        {selected && (() => {
+          const r = selected;
+          const p = prettyParams(safeObj(r.paramsJson));
+          const tpl = r.templateCode ? tplMap[r.templateCode] : null;
+          const subject = r.subject || (tpl ? renderTemplate(tpl.subject, p, false) : "(không có)");
+          const body = tpl ? renderTemplate(tpl.bodyHtml, p, true) : "";
+          const st = MAIL_STATUS[r.status] || { text: r.statusText || "?", color: "#6b7280", bg: "#F3F4F6" };
+          const toEmail = r.toEmail || p.email || p.toEmail || null;
+          const toName = r.toName || p.fullName || p.assigneeNames || null;
+          const F = (label, val) => val ? (
+            <div style={{ display: "flex", gap: 8, padding: "4px 0", fontSize: 13 }}>
+              <div style={{ width: 130, color: "var(--text-faint)", flexShrink: 0 }}>{label}</div>
+              <div style={{ color: "var(--text-primary)", wordBreak: "break-word" }}>{val}</div>
+            </div>
+          ) : null;
+          return (
+            <div onClick={() => setSelected(null)}
+                 style={{ position: "fixed", inset: 0, background: "rgba(15,23,42,0.45)", zIndex: 1000, display: "flex", justifyContent: "flex-end" }}>
+              <div onClick={e => e.stopPropagation()}
+                   style={{ width: "min(760px, 96vw)", height: "100%", background: "var(--bg-surface)",
+                            boxShadow: "-8px 0 32px rgba(15,23,42,0.18)", overflowY: "auto", display: "flex", flexDirection: "column" }}>
+                <div style={{ position: "sticky", top: 0, background: "var(--bg-surface)", borderBottom: "1px solid var(--border-warm)",
+                              padding: "16px 20px", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                  <div style={{ fontWeight: 700, fontSize: 16 }}>Chi tiết mail #{r.id}</div>
+                  <button onClick={() => setSelected(null)} className="ai-usage-range-btn">Đóng ✕</button>
+                </div>
+                <div style={{ padding: "16px 20px" }}>
+                  <div style={{ marginBottom: 10 }}>
+                    <span style={{ display: "inline-block", padding: "2px 8px", borderRadius: 4, fontSize: 12, fontWeight: 500, color: st.color, background: st.bg }}>{st.text}</span>
+                    {r.retryCount > 0 && <span style={{ marginLeft: 8, fontSize: 12, color: "var(--text-faint)" }}>thử {r.retryCount}×</span>}
+                  </div>
+                  {F("Tenant", r.tenantName)}
+                  {F("Loại (Kind)", r.kind)}
+                  {F("Template", r.templateCode)}
+                  {F("Người nhận", toEmail || toName || "— chưa có")}
+                  {toEmail && toName && F("Tên NV", toName)}
+                  {F("Cc", r.cc)}
+                  {F("KH liên quan", p.customerName)}
+                  {F("Tạo lúc", fmtTs(r.createdUtc))}
+                  {F("Lên lịch", r.scheduledUtc ? fmtTs(r.scheduledUtc) : null)}
+                  {F("Xử lý lúc", r.processedUtc ? fmtTs(r.processedUtc) : null)}
+                  {r.errorMessage && F("Lỗi", <span style={{ color: "#B91C1C" }}>{r.errorMessage}</span>)}
+
+                  <div style={{ marginTop: 16, paddingTop: 12, borderTop: "1px solid var(--border-hair)" }}>
+                    <div style={{ fontSize: 12, fontWeight: 700, color: "var(--text-muted)", textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: 8 }}>
+                      Preview email{!r.subject ? " (render khi gửi)" : ""}
+                    </div>
+                    <div style={{ border: "1px solid var(--border-warm)", borderRadius: 8, overflow: "hidden" }}>
+                      <div style={{ padding: "8px 12px", background: "var(--bg-cream)", borderBottom: "1px solid var(--border-warm)", fontSize: 13 }}>
+                        <span style={{ color: "var(--text-faint)" }}>Tiêu đề: </span><b>{subject}</b>
+                      </div>
+                      {tpl
+                        ? <iframe title="Preview email" sandbox=""
+                            srcDoc={'<!doctype html><meta charset="utf-8"><body style="margin:0;padding:12px;background:#fff">' + (body || '') + '</body>'}
+                            style={{ width: "100%", height: 420, border: "none", background: "#fff", display: "block" }} />
+                        : <div style={{ padding: 12, fontSize: 13, color: "var(--text-faint)" }}>
+                            Không có template “{r.templateCode}” trong DB → worker dùng template code mặc định; không preview được ở đây.
+                          </div>}
+                    </div>
+                  </div>
+
+                  <details style={{ marginTop: 16 }}>
+                    <summary style={{ cursor: "pointer", fontSize: 12, color: "var(--text-muted)" }}>Params (JSON)</summary>
+                    <pre style={{ whiteSpace: "pre-wrap", wordBreak: "break-word", fontSize: 12, fontFamily: "var(--mono)", background: "var(--bg-paper)", padding: 12, borderRadius: 6, marginTop: 8 }}>
+                      {r.paramsJson ? JSON.stringify(safeObj(r.paramsJson), null, 2) : "(rỗng)"}
+                    </pre>
+                  </details>
+                </div>
+              </div>
+            </div>
+          );
+        })()}
+      </div>
+    );
+
+    function inp(w) {
+      return {
+        minWidth: w, padding: "8px 12px", border: "1px solid var(--border-warm)",
+        borderRadius: 6, background: "var(--bg-paper)", fontSize: 14,
+        fontFamily: "inherit", color: "var(--text-primary)"
+      };
+    }
+  }
+
+  // ── Quản lý template mail (global) ─────────────────────────────────────────
+  // Render preview client-side: cùng cú pháp worker — {{#if key}}…{{/if}} rồi {{key}}.
+  function renderTemplate(tpl, params, escape) {
+    if (!tpl) return "";
+    let out = tpl.replace(/\{\{#if\s+(\w+)\}\}([\s\S]*?)\{\{\/if\}\}/g, (_, key, body) => {
+      const v = params[key];
+      return (v != null && String(v).trim() !== "") ? body : "";
+    });
+    out = out.replace(/\{\{(\w+)\}\}/g, (_, key) => {
+      const v = params[key];
+      if (v == null) return "";
+      const s = String(v);
+      return escape
+        ? s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;")
+        : s;
+    });
+    // Dọn control tag còn sót (template lỗi: {{#if}} thiếu {{/if}}…) → không rò ra email/preview.
+    out = out.replace(/\{\{#if\b[^}]*\}\}/g, "").replace(/\{\{\/if\}\}/g, "");
+    return out;
+  }
+
+  const BLANK_TPL = { code: "", name: "", subject: "", bodyHtml: "", description: "", sampleParams: "{}", enabled: true };
+
+  // WYSIWYG cho BodyHtml — TinyMCE LOCAL (window.loadTinyMCE → lib/tinymce, KHÔNG CDN), license gpl.
+  // Cấu hình GIỮ NGUYÊN HTML thô + inline-style + mustache {{key}}/{{#if}} (valid_elements '*[*]',
+  // verify_html false, entity_encoding raw). Nút "<> Code" để sửa raw khi cần tinh chỉnh block {{#if}}.
+  // Remount theo prop key (editing.code) khi đổi template → init lại với nội dung mới.
+  function HtmlEditor({ value, onChange }) {
+    const ref = React.useRef(null);
+    const edRef = React.useRef(null);
+    const onChangeRef = React.useRef(onChange);
+    onChangeRef.current = onChange;
+    useEffect(() => {
+      if (!ref.current) return;
+      let cancelled = false;
+      const initial = value || "";
+      window.loadTinyMCE().then(() => {
+        if (cancelled || !ref.current) return;
+        window.tinymce.init({
+          target: ref.current,
+          license_key: "gpl",
+          menubar: false, branding: false, promotion: false, statusbar: true,
+          height: 360,
+          plugins: "code link lists table autoresize",
+          toolbar: "bold italic underline forecolor | bullist numlist | link table | removeformat | code",
+          valid_elements: "*[*]",
+          extended_valid_elements: "*[*]",
+          verify_html: false,
+          entity_encoding: "raw",
+          convert_urls: false,
+          content_style: "body{font-family:-apple-system,Segoe UI,Roboto,sans-serif;font-size:14px;line-height:1.6}",
+          setup: (editor) => {
+            edRef.current = editor;
+            editor.on("init", () => editor.setContent(initial));
+            // CHỈ sync khi user thực sự sửa — KHÔNG gồm init/SetContent → mở editor rồi Lưu (không sửa)
+            // sẽ giữ nguyên body gốc trong DB (tránh TinyMCE normalize làm xê dịch marker {{#if}} trong <table>).
+            const sync = () => onChangeRef.current && onChangeRef.current(editor.getContent());
+            editor.on("Change KeyUp ExecCommand Undo Redo blur", sync);
+          },
+        });
+      }).catch((e) => console.error("[HtmlEditor] Load TinyMCE lỗi:", e));
+      return () => {
+        cancelled = true;
+        try { if (window.tinymce && edRef.current) window.tinymce.remove(edRef.current); } catch {}
+        edRef.current = null;
+      };
+    }, []);
+    // Fallback khi TinyMCE KHÔNG load được: textarea thường vẫn hiện nội dung gốc + sửa được
+    // (onChange chỉ fire khi editor chưa thay textarea → không double-sync lúc TinyMCE active).
+    return <textarea ref={ref} defaultValue={value}
+      onChange={e => { if (!edRef.current) onChangeRef.current && onChangeRef.current(e.target.value); }}
+      style={{ width: "100%", minHeight: 360, fontFamily: "var(--mono)", fontSize: 13, boxSizing: "border-box",
+               border: "1px solid var(--border-warm)", borderRadius: 6, padding: "8px 12px" }} />;
+  }
+
+  function MailTemplatesPage() {
+    const [items, setItems] = useState([]);
+    const [loading, setLoading] = useState(false);
+    const [error, setError] = useState("");
+    const [editing, setEditing] = useState(null);   // bản đang sửa (object) hoặc null
+    const [isNew, setIsNew] = useState(false);
+    const [saving, setSaving] = useState(false);
+    const [showPreview, setShowPreview] = useState(true);
+
+    async function load() {
+      setLoading(true); setError("");
+      try {
+        const r = await window.adminFetch("/api/v1/admin/ui/mail-templates");
+        const d = await r.json();
+        if (!r.ok) throw new Error(d.error || `HTTP ${r.status}`);
+        setItems(d.items || []);
+      } catch (e) {
+        setError(e.message || "Lỗi tải dữ liệu");
+      } finally {
+        setLoading(false);
+      }
+    }
+
+    useEffect(() => { load(); }, []);
+
+    function startNew() {
+      setEditing({ ...BLANK_TPL });
+      setIsNew(true);
+    }
+    function startEdit(t) {
+      setEditing({
+        code: t.code, name: t.name || "", subject: t.subject || "",
+        bodyHtml: t.bodyHtml || "", description: t.description || "",
+        sampleParams: t.sampleParams || "{}", enabled: !!t.enabled
+      });
+      setIsNew(false);
+    }
+    function cancelEdit() { setEditing(null); setIsNew(false); }
+
+    function patch(field, val) { setEditing(e => ({ ...e, [field]: val })); }
+
+    async function save() {
+      if (!editing.code.trim()) { alert("Code không được trống"); return; }
+      if (!editing.name.trim()) { alert("Tên template không được trống"); return; }
+      if (!editing.subject.trim()) { alert("Tiêu đề không được trống"); return; }
+      if (!editing.bodyHtml.trim()) { alert("Nội dung không được trống"); return; }
+      if (editing.sampleParams && editing.sampleParams.trim()) {
+        try { JSON.parse(editing.sampleParams); }
+        catch { alert("SampleParams không phải JSON hợp lệ"); return; }
+      }
+      setSaving(true);
+      try {
+        const r = await window.adminFetch(
+          `/api/v1/admin/ui/mail-templates/${encodeURIComponent(editing.code.trim())}`,
+          {
+            method: "PUT",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              name: editing.name.trim(),
+              subject: editing.subject,
+              bodyHtml: editing.bodyHtml,
+              description: editing.description,
+              sampleParams: editing.sampleParams,
+              enabled: editing.enabled
+            })
+          });
+        const d = await r.json();
+        if (!r.ok) throw new Error(d.error || `HTTP ${r.status}`);
+        cancelEdit();
+        load();
+      } catch (e) {
+        alert("Lỗi lưu: " + (e.message || e));
+      } finally {
+        setSaving(false);
+      }
+    }
+
+    async function del(t) {
+      if (!window.confirm(`Xóa template "${t.name}" (${t.code})?\n\nWorker sẽ fallback về template code mặc định cho mã này.`)) return;
+      try {
+        const r = await window.adminFetch(
+          `/api/v1/admin/ui/mail-templates/${encodeURIComponent(t.code)}`, { method: "DELETE" });
+        const d = await r.json();
+        if (!r.ok) throw new Error(d.error || `HTTP ${r.status}`);
+        if (editing && editing.code === t.code) cancelEdit();
+        load();
+      } catch (e) {
+        alert("Lỗi xóa: " + (e.message || e));
+      }
+    }
+
+    // Preview render
+    let previewSubject = "", previewBody = "", previewErr = "";
+    if (editing) {
+      let params = {};
+      try { params = editing.sampleParams && editing.sampleParams.trim() ? JSON.parse(editing.sampleParams) : {}; }
+      catch (e) { previewErr = "SampleParams JSON lỗi: " + e.message; }
+      if (!previewErr) {
+        previewSubject = renderTemplate(editing.subject, params, false);
+        previewBody = renderTemplate(editing.bodyHtml, params, true);
+      }
+    }
+
+    const inp = {
+      width: "100%", padding: "8px 12px", border: "1px solid var(--border-warm)",
+      borderRadius: 6, background: "var(--bg-paper)", fontSize: 14,
+      fontFamily: "inherit", color: "var(--text-primary)", boxSizing: "border-box"
+    };
+    const mono = { ...inp, fontFamily: "var(--mono)", fontSize: 13 };
+    const lbl = { display: "block", fontSize: 12, color: "var(--text-faint)", marginBottom: 4, marginTop: 12, fontWeight: 600 };
+
+    return (
+      <div>
+        <div className="ai-usage-header">
+          <h1 className="ai-usage-title">Template mail</h1>
+          <div style={{ display: "flex", gap: 8 }}>
+            <button className="ai-usage-range-btn" onClick={load} disabled={loading}>↻ Refresh</button>
+            <button className="ai-usage-range-btn" onClick={startNew}>+ Template mới</button>
+          </div>
+        </div>
+
+        {error && <div className="ai-usage-error">⚠️ {error}</div>}
+        {loading && items.length === 0 && <div className="ai-usage-loading">Đang tải…</div>}
+
+        <div className="quota-section" style={{ marginBottom: 16 }}>
+          <table className="quota-table">
+            <thead>
+              <tr>
+                <th>Code</th><th>Tên</th><th>Tiêu đề</th>
+                <th style={{ width: 80 }}>Trạng thái</th>
+                <th style={{ width: 150 }}>Cập nhật</th>
+                <th style={{ width: 130, textAlign: "right" }}>Hành động</th>
+              </tr>
+            </thead>
+            <tbody>
+              {items.map(t => (
+                <tr key={t.code}>
+                  <td style={{ fontFamily: "var(--mono)", fontSize: 12 }}>{t.code}</td>
+                  <td><div className="quota-name">{t.name}</div>
+                    {t.description && <div style={{ fontSize: 11, color: "var(--text-faint)", marginTop: 2 }}>{t.description}</div>}
+                  </td>
+                  <td style={{ fontSize: 12, maxWidth: 220, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}
+                      title={t.subject}>{t.subject}</td>
+                  <td>
+                    <span style={{ fontSize: 12, color: t.enabled ? "#047857" : "var(--text-faint)" }}>
+                      {t.enabled ? "● Bật" : "○ Tắt"}
+                    </span>
+                  </td>
+                  <td style={{ fontSize: 12 }} title={t.updatedBy ? "Bởi: " + t.updatedBy : ""}>{fmtTs(t.updatedUtc)}</td>
+                  <td style={{ textAlign: "right" }}>
+                    <button onClick={() => startEdit(t)}
+                      style={{ padding: "4px 10px", fontSize: 12, border: "1px solid var(--accent-deep)",
+                               color: "var(--accent-deep)", background: "transparent", borderRadius: 4,
+                               cursor: "pointer", fontFamily: "inherit", marginRight: 6 }}>Sửa</button>
+                    <button onClick={() => del(t)}
+                      style={{ padding: "4px 10px", fontSize: 12, border: "1px solid #DC2626",
+                               color: "#DC2626", background: "transparent", borderRadius: 4,
+                               cursor: "pointer", fontFamily: "inherit" }}>Xóa</button>
+                  </td>
+                </tr>
+              ))}
+              {!loading && items.length === 0 && (
+                <tr><td colSpan={6} className="quota-empty">Chưa có template nào.</td></tr>
+              )}
+            </tbody>
+          </table>
+        </div>
+
+        {editing && (
+          <div className="quota-section" style={{ padding: 16 }}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}>
+              <h2 style={{ fontSize: 16, margin: 0 }}>{isNew ? "Tạo template mới" : `Sửa: ${editing.code}`}</h2>
+              <label style={{ fontSize: 13, display: "flex", alignItems: "center", gap: 6, cursor: "pointer" }}>
+                <input type="checkbox" checked={showPreview} onChange={e => setShowPreview(e.target.checked)} />
+                Xem trước
+              </label>
+            </div>
+
+            <div style={{ display: "flex", gap: 16, flexWrap: "wrap" }}>
+              {/* Cột trái: form */}
+              <div style={{ flex: "1 1 420px", minWidth: 320 }}>
+                <label style={{ ...lbl, marginTop: 0 }}>Code (mã, khớp TemplateCode trong hàng đợi)</label>
+                <input style={mono} value={editing.code} disabled={!isNew}
+                  placeholder="vd: deal-cooling-alert"
+                  onChange={e => patch("code", e.target.value.trim())} />
+
+                <label style={lbl}>Tên hiển thị</label>
+                <input style={inp} value={editing.name} onChange={e => patch("name", e.target.value)} />
+
+                <label style={lbl}>Mô tả</label>
+                <input style={inp} value={editing.description} onChange={e => patch("description", e.target.value)} />
+
+                <label style={lbl}>Tiêu đề (Subject) — hỗ trợ {"{{key}}"} và {"{{#if key}}…{{/if}}"}</label>
+                <input style={mono} value={editing.subject} onChange={e => patch("subject", e.target.value)} />
+
+                <label style={lbl}>Nội dung email (BodyHtml) — soạn trực quan; nút “&lt;&gt; Code” để sửa HTML/mustache thô</label>
+                <HtmlEditor key={isNew ? "__new__" : editing.code} value={editing.bodyHtml} onChange={v => patch("bodyHtml", v)} />
+
+                <label style={lbl}>SampleParams (JSON — chỉ dùng để xem trước)</label>
+                <textarea style={{ ...mono, minHeight: 90, resize: "vertical" }} value={editing.sampleParams}
+                  onChange={e => patch("sampleParams", e.target.value)} />
+
+                <label style={{ ...lbl, display: "flex", alignItems: "center", gap: 6, cursor: "pointer" }}>
+                  <input type="checkbox" checked={editing.enabled} onChange={e => patch("enabled", e.target.checked)} />
+                  Bật template (tắt → worker fallback template code)
+                </label>
+
+                <div style={{ marginTop: 16, display: "flex", gap: 8 }}>
+                  <button onClick={save} disabled={saving}
+                    style={{ padding: "8px 18px", fontSize: 14, border: "none", borderRadius: 6,
+                             background: "var(--accent-deep)", color: "#fff", cursor: "pointer", fontFamily: "inherit" }}>
+                    {saving ? "Đang lưu…" : "Lưu"}
+                  </button>
+                  <button onClick={cancelEdit}
+                    style={{ padding: "8px 18px", fontSize: 14, border: "1px solid var(--border-warm)",
+                             borderRadius: 6, background: "transparent", color: "var(--text-primary)",
+                             cursor: "pointer", fontFamily: "inherit" }}>Hủy</button>
+                </div>
+              </div>
+
+              {/* Cột phải: preview */}
+              {showPreview && (
+                <div style={{ flex: "1 1 360px", minWidth: 300 }}>
+                  <label style={{ ...lbl, marginTop: 0 }}>Xem trước</label>
+                  {previewErr
+                    ? <div className="ai-usage-error">⚠️ {previewErr}</div>
+                    : <div style={{ border: "1px solid var(--border-warm)", borderRadius: 8, overflow: "hidden" }}>
+                        <div style={{ padding: "8px 12px", background: "var(--bg-cream, #f1f5f9)",
+                                      borderBottom: "1px solid var(--border-warm)", fontSize: 13 }}>
+                          <span style={{ color: "var(--text-faint)" }}>Tiêu đề: </span>
+                          <b>{previewSubject}</b>
+                        </div>
+                        {/* iframe cách ly → render đúng như email khách nhận (không lẫn CSS trang admin) */}
+                        <iframe title="Xem trước email" sandbox=""
+                          srcDoc={'<!doctype html><html><head><meta charset="utf-8"><style>body{margin:0;padding:12px;background:#fff}</style></head><body>' + (previewBody || '') + '</body></html>'}
+                          style={{ width: "100%", height: 460, border: "none", background: "#fff", display: "block" }} />
+                      </div>}
+                </div>
+              )}
+            </div>
+          </div>
+        )}
       </div>
     );
   }

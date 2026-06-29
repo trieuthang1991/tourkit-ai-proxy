@@ -6,6 +6,11 @@
 <base href="/" />
 <title>TRAV-AI · Admin</title>
 <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+<link rel="apple-touch-icon" href="/favicon.svg" />
+<!-- Font Be Vietnam Pro — đồng nhất với website chính (index.html) -->
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Be+Vietnam+Pro:wght@300;400;500;600;700;800&display=swap" rel="stylesheet" />
 <link rel="stylesheet" href="/admin.css" />
 </head>
 <body>
@@ -18,6 +23,10 @@
 
 <!-- Chart.js lazy loader (đã có sẵn — AiUsagePage tự gọi window.ensureChart()) -->
 <script src="/lib/chart-loader.js"></script>
+
+<!-- TinyMCE LOCAL (lazy) — dùng chung loader với app chính (window.loadTinyMCE → lib/tinymce/tinymce.min.js).
+     KHÔNG dùng CDN. Editor BodyHtml ở trang Template mail gọi window.loadTinyMCE() khi mount. -->
+<script src="/lib/tinymce-loader.js"></script>
 
 <!-- Admin shell — toàn bộ shell + pages trong 1 file -->
 <script type="text/babel" src="/pages/admin.jsx"></script>
