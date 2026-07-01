@@ -23,6 +23,13 @@ public static class WorkflowStackRegistration
 {
     public static IServiceCollection AddWorkflowStack(this IServiceCollection s, IConfiguration cfg)
     {
+        // ─── HttpContextAccessor ─────────────────────────────────────────────
+        // AiCallContext + WorkflowTraceAccessor consume IHttpContextAccessor để đọc HttpContext
+        // (đẩy feature/tenant xuống AI call). Ở worker (generic host) accessor này trả null
+        // context → các Push background dùng AiCallContext.Push() vẫn hoạt động qua AsyncLocal.
+        // AddHttpContextAccessor idempotent — web gọi trước cũng không sao.
+        s.AddHttpContextAccessor();
+
         // ─── HttpClient factory với logging + insecure TLS bypass ────────────
         var allowInsecure = cfg.GetValue<bool>("Providers:AllowInsecureTls");
         HttpMessageHandler MakeInsecureHandler() => new HttpClientHandler

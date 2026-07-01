@@ -82,7 +82,8 @@ Console.WriteLine($"[Startup] Providers:AllowInsecureTls = {builder.Configuratio
 // TẤT CẢ service cho scheduler + 3 workflow built-in gộp vào 1 extension method.
 // Xem Services/Bootstrap/WorkflowStackRegistration.cs. Web + worker gọi CÙNG method
 // này → 1 nguồn wiring, không drift khi thêm workflow mới.
-builder.Services.AddHttpContextAccessor();      // web-only: ITenantContext scoped đọc HttpContext
+// ITenantContext scoped đọc HttpContext (web-only — worker không dùng scope này, resolve
+// tenantId qua parameter). AddHttpContextAccessor() đã nằm trong AddWorkflowStack.
 builder.Services.AddScoped<TourkitAiProxy.Services.TourKit.ITenantContext,
                           TourkitAiProxy.Services.TourKit.HttpTenantContext>();
 builder.Services.AddWorkflowStack(builder.Configuration);

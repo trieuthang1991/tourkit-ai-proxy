@@ -31,6 +31,16 @@ if (builder.Configuration.GetValue("Logging:Database:Enabled", false))
     builder.Services.AddHostedService<TourkitAiProxy.Services.Logging.DbLogWriter>();
 }
 
+// IWebHostEnvironment shim — nhiều service (AiUsageLog, ReviewRepository, TenantStore,
+// TenantQuotaStore, WorkflowTraceLog, CustomerRepository, VisaFileStore, UnresolvedQuestionsLog)
+// nhận IWebHostEnvironment chỉ để lấy ContentRootPath cho thư mục `data/`.
+// Generic Host KHÔNG có IWebHostEnvironment, nhưng có IHostEnvironment → adapt qua.
+builder.Services.AddSingleton<Microsoft.AspNetCore.Hosting.IWebHostEnvironment>(sp =>
+{
+    var host = sp.GetRequiredService<Microsoft.Extensions.Hosting.IHostEnvironment>();
+    return new WorkerWebHostEnvironment(host);
+});
+
 // Share DI stack với web.
 builder.Services.AddWorkflowStack(builder.Configuration);
 
@@ -59,3 +69,29 @@ host.Services.GetRequiredService<ILogger<Program>>()
         builder.Configuration.GetValue("Workflows:TickSeconds", 60));
 
 await host.RunAsync();
+
+/// <summary>
+/// Adapter cho phép Worker (generic host) inject <see cref="Microsoft.AspNetCore.Hosting.IWebHostEnvironment"/>
+/// vào các service dùng chung với web. Chỉ ContentRootPath được dùng thực tế —
+/// WebRootPath/FileProvider trỏ tạm về ContentRoot (không có wwwroot ở worker).
+/// </summary>
+internal sealed class WorkerWebHostEnvironment : Microsoft.AspNetCore.Hosting.IWebHostEnvironment
+{
+    private readonly Microsoft.Extensions.Hosting.IHostEnvironment _host;
+    public WorkerWebHostEnvironment(Microsoft.Extensions.Hosting.IHostEnvironment host)
+    {
+        _host = host;
+        WebRootPath = host.ContentRootPath;
+        WebRootFileProvider = host.ContentRootFileProvider;
+    }
+    public string EnvironmentName { get => _host.EnvironmentName; set => _host.EnvironmentName = value; }
+    public string ApplicationName { get => _host.ApplicationName; set => _host.ApplicationName = value; }
+    public string ContentRootPath { get => _host.ContentRootPath; set => _host.ContentRootPath = value; }
+    public Microsoft.Extensions.FileProviders.IFileProvider ContentRootFileProvider
+    {
+        get => _host.ContentRootFileProvider;
+        set => _host.ContentRootFileProvider = value;
+    }
+    public string WebRootPath { get; set; }
+    public Microsoft.Extensions.FileProviders.IFileProvider WebRootFileProvider { get; set; }
+}
