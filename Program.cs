@@ -151,7 +151,9 @@ builder.Services.AddSingleton<TourkitAiProxy.Services.Visa.VisaScoringService>()
 // CHỈ instance có Workflows:RunScheduler=true mới CHẠY scheduler nền.
 // Mặc định false — sau khi tách TourkitAiProxy.Worker, worker mới chạy scheduler;
 // web deploy KHÔNG tự tick nền. Endpoint "Chạy ngay" (run-now) vẫn dùng được (Singleton).
-if (builder.Configuration.GetValue("Workflows:RunScheduler", false))
+var runScheduler = builder.Configuration.GetValue("Workflows:RunScheduler", false);
+Console.WriteLine($"[Startup] Workflows:RunScheduler = {runScheduler} (mặc định false — worker riêng TourkitAiProxy.Worker sẽ chạy)");
+if (runScheduler)
     builder.Services.AddHostedService(sp =>
         sp.GetRequiredService<TourkitAiProxy.Services.Workflows.WorkflowSchedulerService>());
 
