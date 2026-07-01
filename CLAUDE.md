@@ -307,6 +307,24 @@ PerTenant. Auth = **service account** per-tenant (`dbo.TenantServiceAccounts`, `
 - **Endpoint:** require `X-Session-Id` (pattern giống MailEndpoints). Manual trigger (`/run-now`) đồng bộ (không fire-and-forget), trả kết quả ngay.
 - **Frontend:** `/workflows` page (`wwwroot/pages/workflows.jsx`), card per workflow + toggle + interval dropdown + run history collapsible. Nav entry "Tự động hóa" trong group "Tích hợp".
 
+## Deploy tách site: TourkitAiProxy.Worker
+
+Scheduler workflow (`WorkflowSchedulerService` tick 60s) chạy trên project riêng `TourkitAiProxy.Worker` (Sdk=Microsoft.NET.Sdk.Worker) để ổn định:
+- Web restart / IIS AppPool recycle / crash → automation KHÔNG rớt.
+- Worker fail → UI + API vẫn sống. Deploy độc lập.
+- Share code qua `<ProjectReference Include="../TourkitAiProxy.csproj" />` — worker dùng NGUYÊN `Services/Workflows/*`, `Services/Mail/*`, `Services/Deals/*`... không copy code.
+- DI wiring shared qua [`Services/Bootstrap/WorkflowStackRegistration.cs`](Services/Bootstrap/WorkflowStackRegistration.cs) extension `AddWorkflowStack()` — cả web và worker gọi cùng 1 method → 1 nguồn wiring.
+
+**Cấu hình tách:**
+- Web `appsettings.json`: `"Workflows": { "RunScheduler": false }` (default sau khi split — xem `appsettings.example.json`).
+- Worker `appsettings.json`: `ConnectionStrings:PushDb` + `Redis:ConnectionString` + `Providers:*:ApiKey` + `Models:*:ApiKey` + `TourKit:BaseUrl` TRÙNG web (share `dbo.UserWorkflows` / `dbo.WorkflowRuns` / `dbo.TkSessions` / `dbo.TenantServiceAccounts` / quota / cache). Gitignored.
+
+**Endpoint `/api/v1/workflows/*` giữ nguyên trên WEB** (worker không expose HTTP). "Chạy ngay" (`/run-now`) gọi `WorkflowSchedulerService.RunOneAsync` — Singleton đã đăng ký ở web nên vẫn chạy được dù web không có hosted tick.
+
+Deploy: Windows Service via `sc.exe create` (mặc định), systemd + Docker documented. Xem [`TourkitAiProxy.Worker/README.md`](TourkitAiProxy.Worker/README.md).
+
+**Khi thêm workflow mới:** implement `IScheduledWorkflow` + `AddSingleton<IScheduledWorkflow, X>()` **trong `WorkflowStackRegistration`** (không phải `Program.cs`) → worker + web tự pickup, không cần deploy 2 lần.
+
 ## Admin governance (`/admin-trav-ai/`)
 
 Hệ quản trị admin riêng biệt với user-facing app. Entry HTML `wwwroot/admin-trav-ai.html` (KHÔNG share `index.html`). Toàn bộ shell + page components nằm trong 1 file `wwwroot/pages/admin.jsx`.
