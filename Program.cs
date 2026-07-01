@@ -1,6 +1,7 @@
 using TourkitAiProxy.Configuration;
 using TourkitAiProxy.Endpoints;
 using TourkitAiProxy.Services;
+using TourkitAiProxy.Services.Bootstrap;
 using TourkitAiProxy.Services.Chat;
 using TourkitAiProxy.Services.Providers;
 using TourkitAiProxy.Services.Reviews;
@@ -74,70 +75,17 @@ builder.Services.AddHsts(o =>
 // ─── DI / services ────────────────────────────────────────────────────────────
 builder.Services.AddTourkitCors();
 
-// Provider-wide TLS bypass (escape hatch cho Server 2012 R2 / OS không có root CA hiện đại).
-// Bật `Providers:AllowInsecureTls=true` → mọi HttpClient AI bỏ qua cert chain check.
-// Risk: nếu attacker MITM được giữa server và OpenAI/Anthropic/DeepSeek → đọc được API key.
-// Acceptable khi server ở DC tin tưởng + chỉ gọi public endpoint cố định.
-var allowInsecure = builder.Configuration.GetValue<bool>("Providers:AllowInsecureTls");
-Console.WriteLine($"[Startup] Providers:AllowInsecureTls = {allowInsecure}");
-HttpMessageHandler MakeInsecureHandler() => new HttpClientHandler
-{
-    ServerCertificateCustomValidationCallback = HttpClientHandler.DangerousAcceptAnyServerCertificateValidator,
-    SslProtocols = System.Security.Authentication.SslProtocols.Tls12
-                 | System.Security.Authentication.SslProtocols.Tls13,
-};
+// Log thông tin TLS bypass để debug dễ hơn khi vào startup log.
+Console.WriteLine($"[Startup] Providers:AllowInsecureTls = {builder.Configuration.GetValue<bool>("Providers:AllowInsecureTls")}");
 
-// Helper: gắn HttpLoggingHandler + (optional) bypass cert cho 1 named client.
-// Mỗi outbound call qua client đó sẽ log: URL, status, duration, full exception chain nếu fail.
-// → Biết NGAY upstream nào đang fail SSL + root cause là gì.
-void AttachLogAndInsecure(IHttpClientBuilder cb, string name, bool insecure)
-{
-    cb.AddHttpMessageHandler(sp =>
-        new TourkitAiProxy.Services.Http.HttpLoggingHandler(
-            sp.GetRequiredService<ILogger<TourkitAiProxy.Services.Http.HttpLoggingHandler>>(), name));
-    if (insecure) cb.ConfigurePrimaryHttpMessageHandler(MakeInsecureHandler);
-}
-
-AttachLogAndInsecure(
-    builder.Services.AddHttpClient("opencode", c =>
-    {
-        c.BaseAddress = new Uri("https://opencode.ai/");
-        c.Timeout     = TimeSpan.FromSeconds(120);
-    }), "opencode", allowInsecure);
-
-// 9routes có thể chạy HTTPS với cert tự ký (vd https tới IP). Override riêng `Providers:NineRoutes:AllowInsecureTls`.
-AttachLogAndInsecure(
-    builder.Services.AddHttpClient("nine-routes", c => c.Timeout = TimeSpan.FromSeconds(120)),
-    "nine-routes",
-    allowInsecure || builder.Configuration.GetValue<bool>("Providers:NineRoutes:AllowInsecureTls"));
-
-AttachLogAndInsecure(builder.Services.AddHttpClient("openai",    c => c.Timeout = TimeSpan.FromSeconds(120)), "openai", allowInsecure);
-AttachLogAndInsecure(builder.Services.AddHttpClient("anthropic", c => c.Timeout = TimeSpan.FromSeconds(120)), "anthropic", allowInsecure);
-AttachLogAndInsecure(builder.Services.AddHttpClient("deepseek",  c => c.Timeout = TimeSpan.FromSeconds(120)), "deepseek", allowInsecure);
-
-builder.Services.AddSingleton<UsageRepository>();
-builder.Services.AddSingleton<UsageTracker>();
-// AI usage log per-request (data/ai-usage.jsonl) — biết feature/user/tenant nào tiêu bao nhiêu.
-builder.Services.AddHttpContextAccessor();
-
-// ITenantContext — đọc tenantId từ X-Session-Id header. Phase 1 RESTful sẽ dùng nhiều
-// qua TenantFilter; ở plan này chỉ register, services vẫn nhận tenantId qua parameter.
+// ─── Workflow stack (shared với TourkitAiProxy.Worker) ────────────────────────
+// TẤT CẢ service cho scheduler + 3 workflow built-in gộp vào 1 extension method.
+// Xem Services/Bootstrap/WorkflowStackRegistration.cs. Web + worker gọi CÙNG method
+// này → 1 nguồn wiring, không drift khi thêm workflow mới.
+builder.Services.AddHttpContextAccessor();      // web-only: ITenantContext scoped đọc HttpContext
 builder.Services.AddScoped<TourkitAiProxy.Services.TourKit.ITenantContext,
                           TourkitAiProxy.Services.TourKit.HttpTenantContext>();
-
-// Workflow debug trace: middleware detect ?debug=1 / X-Debug header → tạo TraceCollector per-request.
-// Service nào cần ghi trace inject IWorkflowTraceAccessor.Current?.Step(...). No-op khi debug off.
-builder.Services.AddSingleton<IWorkflowTraceAccessor, WorkflowTraceAccessor>();
-// Trace nào có data thì lưu data/workflow-traces.jsonl để xem lại sau (audit, post-mortem).
-builder.Services.AddSingleton<WorkflowTraceLog>();
-builder.Services.AddSingleton<TourkitAiProxy.Services.AiUsageHistoryRepository>(); // Dapper repo cho dbo.AiUsageHistory (granular per-request)
-builder.Services.AddSingleton<TourkitAiProxy.Services.AiUsageLog>();
-builder.Services.AddSingleton<TourkitAiProxy.Services.AiCallContext>();
-// Cache prompt-hash 24h cho Visa/Deal/TourBuilder (Redis nếu có, fallback in-memory).
-builder.Services.AddSingleton<TourkitAiProxy.Services.Cache.AiResponseCache>();
-
-// Lưu API key provider (OpenAI/Anthropic) nhập từ UI — server-side, mã hóa, gitignored.
-builder.Services.AddSingleton<ProviderKeyStore>();
+builder.Services.AddWorkflowStack(builder.Configuration);
 
 // Admin governance — auth qua Admin:Users (JSON config) + in-mem session.
 builder.Services.AddSingleton<TourkitAiProxy.Services.Admin.AdminUserStore>();
@@ -145,70 +93,21 @@ builder.Services.AddSingleton<TourkitAiProxy.Services.Admin.AdminSessionStore>()
 builder.Services.AddSingleton<TourkitAiProxy.Services.Admin.AdminUsageRepository>();
 builder.Services.AddSingleton<TourkitAiProxy.Services.Admin.ConsultLeadRepository>();
 
-// AI providers — đăng ký 1 lần ở đây, ProviderRegistry tự pickup qua IEnumerable<IAiProvider>.
-// Thêm provider mới: implement IAiProvider + AddSingleton<IAiProvider, NewProvider>().
-builder.Services.AddSingleton<IAiProvider, OpenCodeProvider>();
-builder.Services.AddSingleton<IAiProvider, NineRoutesProvider>();
-builder.Services.AddSingleton<IAiProvider, OpenAIProvider>();
-builder.Services.AddSingleton<IAiProvider, AnthropicProvider>();
-builder.Services.AddSingleton<IAiProvider, DeepSeekProvider>();
-builder.Services.AddSingleton<IAiProvider, GrokProvider>();
-builder.Services.AddSingleton<ProviderRegistry>();
-
-// Legacy OpenCodeClient cho code cũ còn reference (sẽ remove khi clean xong)
-builder.Services.AddScoped<OpenCodeClient>();
-
-// Workflow: connection factory SQL Server (PushDb shared instance, decrypt ENC: tự động).
-builder.Services.AddSingleton<TourkitAiProxy.Services.Db.TourkitAiDb>();
-
-// Reusable Anthropic native-tools client — share giữa các feature single-shot
-// (Review/Visa/Deal/Wizard) qua AnthropicToolsClient.RunAsync(..., terminalToolName).
-builder.Services.AddSingleton<TourkitAiProxy.Services.Workflow.AnthropicToolsClient>();
-// Thin wrapper cho score-like service (Visa/Deal/Tour) — gọi RunAsync<T> với 1 terminal tool + parser.
-builder.Services.AddSingleton<TourkitAiProxy.Services.Workflow.NativeToolScorer>();
-
-// Customer Review feature services. ReviewRepository nay DB-backed (PushDb.dbo.Reviews) với fallback file.
-builder.Services.AddSingleton<CustomerRepository>();
-builder.Services.AddSingleton<ReviewRepository>();
-builder.Services.AddSingleton<BatchJobStore>();
-// Review agent runtimes — thứ tự quan trọng: NativeToolReviewAgent (Anthropic native function-calling)
-// chạy trước, JsonPromptReviewAgent là fallback cho mọi provider khác (OpenCode/9routes/OpenAI).
-// ReviewService resolve agent đầu tiên Supports(defaultProviderId).
-builder.Services.AddSingleton<IReviewAgent, NativeToolReviewAgent>();
-builder.Services.AddSingleton<IReviewAgent, JsonPromptReviewAgent>();
-builder.Services.AddSingleton<TourkitAiProxy.Services.NccImport.NccImportService>();
-builder.Services.AddSingleton<ReviewService>();
-builder.Services.AddSingleton<BatchService>();
-builder.Services.AddSingleton<CustomerReviewClient>();   // KH thật từ CRM cho workflow customer-auto-review
-
-// Chat-Analytics ("Trợ lý số liệu") — gọi TourKit.Api (toutkit-app) qua JWT.
-// BaseUrl: TourKit:BaseUrl (mặc định Production). Auth: client gửi token mã hóa (Crypton) → /login-token.
-AttachLogAndInsecure(
-    builder.Services.AddHttpClient("tourkit", c =>
-    {
-        // Staging có đủ surface /api/ai/* (prod chưa). Đổi sang prod khi đã deploy.
-        var baseUrl = builder.Configuration["TourKit:BaseUrl"] ?? "https://mobile-test-api-2.tourkit.vn";
-        c.BaseAddress = new Uri(baseUrl);
-        c.Timeout     = TimeSpan.FromSeconds(60);
-    }), "tourkit",
-    allowInsecure || builder.Configuration.GetValue<bool>("TourKit:AllowInsecureTls"));
-builder.Services.AddSingleton<TourKitApiClient>();
-builder.Services.AddSingleton<TkSessionRepository>();
-builder.Services.AddSingleton<TkSessionStore>();
-builder.Services.AddSingleton<TenantServiceAccountStore>();   // tài khoản dịch vụ per-tenant (workflow nền tự login)
-builder.Services.AddSingleton<TourkitAiProxy.Services.Cache.RedisStore>();  // generic Redis cho mọi feature
-// Single source of truth cho cấu hình AI model per-feature.
-builder.Services.AddSingleton<TourkitAiProxy.Services.Providers.AiModelRegistry>();
-builder.Services.AddSingleton<TourkitAiProxy.Services.Cache.ChatCache>();   // Redis (nếu có) / in-memory
-builder.Services.AddSingleton<TourkitAiProxy.Services.Quota.TenantQuotaRepository>(); // Dapper repo cho dbo.TenantQuota
-builder.Services.AddSingleton<TourkitAiProxy.Services.Quota.TenantQuotaStore>();      // Quota AI per-tenant: SQL nguồn thực + in-mem cache
-builder.Services.AddHostedService<TourkitAiProxy.Services.Quota.QuotaFlushService>(); // Tick 5s: drain pendingDeltas → 1 UPDATE per tenant (batched flush)
-
 // Tingee VietQR client cho luồng mua quota. Mock-first: dùng vietqr.io public, simulate-paid endpoint
 // để dev test. Khi có ApiKey thật → set `Tingee:Mock=false` → switch sang TingeeHttpClient.
-AttachLogAndInsecure(
-    builder.Services.AddHttpClient("tingee", c => c.Timeout = TimeSpan.FromSeconds(30)),
-    "tingee", allowInsecure);
+{
+    var allowInsecureTingee = builder.Configuration.GetValue<bool>("Providers:AllowInsecureTls");
+    var tingeeBuilder = builder.Services.AddHttpClient("tingee", c => c.Timeout = TimeSpan.FromSeconds(30));
+    tingeeBuilder.AddHttpMessageHandler(sp =>
+        new TourkitAiProxy.Services.Http.HttpLoggingHandler(
+            sp.GetRequiredService<ILogger<TourkitAiProxy.Services.Http.HttpLoggingHandler>>(), "tingee"));
+    if (allowInsecureTingee) tingeeBuilder.ConfigurePrimaryHttpMessageHandler(() => new HttpClientHandler
+    {
+        ServerCertificateCustomValidationCallback = HttpClientHandler.DangerousAcceptAnyServerCertificateValidator,
+        SslProtocols = System.Security.Authentication.SslProtocols.Tls12
+                     | System.Security.Authentication.SslProtocols.Tls13,
+    });
+}
 if (builder.Configuration.GetValue<bool?>("Tingee:Mock") != false)
     builder.Services.AddSingleton<TourkitAiProxy.Services.Quota.ITingeeClient,
                                   TourkitAiProxy.Services.Quota.MockTingeeClient>();
@@ -232,47 +131,8 @@ builder.Services.AddSingleton<IAgentRuntime, JsonPlannerAgent>();
 builder.Services.AddSingleton<TourkitAiProxy.Services.Chat.UnresolvedQuestionsLog>();
 builder.Services.AddSingleton<ChatAgentService>();
 
-// SmartMail AI — hộp thư Gmail (IMAP/MailKit) + phân loại AI + soạn nháp trả lời.
-// Creds Gmail: lưu per-tenant trong DB qua MailAccountStore (App Password Crypton-encrypted), nhập từ UI.
-builder.Services.AddSingleton<TourkitAiProxy.Services.Mail.MailAccountStore>();
-builder.Services.AddSingleton<TourkitAiProxy.Services.Mail.MailSyncStore>();
-builder.Services.AddSingleton<TourkitAiProxy.Services.Mail.MailRepository>();
-builder.Services.AddSingleton<TourkitAiProxy.Services.Mail.IMailSource, TourkitAiProxy.Services.Mail.GmailImapClient>();
-builder.Services.AddSingleton<TourkitAiProxy.Services.Mail.IMailSender, TourkitAiProxy.Services.Mail.GmailSmtpClient>();
-builder.Services.AddSingleton<TourkitAiProxy.Services.Mail.MailClassifier>();
-builder.Services.AddSingleton<TourkitAiProxy.Services.Mail.MailSyncService>();   // shared sync logic (HTTP endpoint + workflow)
-builder.Services.AddSingleton<TourkitAiProxy.Services.Mail.MailReplyService>();
-builder.Services.AddSingleton<TourkitAiProxy.Services.Mail.MailQueueRepository>();   // hàng đợi mail outbound dùng chung (dbo.OutboundMails)
-
-// User Workflows — tác vụ AI tự động theo lịch per-(tenant, user).
-// Framework: WorkflowRegistry + WorkflowSchedulerService (tick 60s).
-// V1 built-in: MailAutoSyncWorkflow (mail-auto-sync, Scope=PerUser).
-builder.Services.AddSingleton<TourkitAiProxy.Services.Workflows.WorkflowRepository>();
-builder.Services.AddSingleton<TourkitAiProxy.Services.Workflows.WorkflowRegistry>();
-builder.Services.AddSingleton<TourkitAiProxy.Services.Workflows.IScheduledWorkflow,
-                              TourkitAiProxy.Services.Workflows.MailAutoSyncWorkflow>();
-builder.Services.AddSingleton<TourkitAiProxy.Services.Workflows.IScheduledWorkflow,
-                              TourkitAiProxy.Services.Workflows.DealAutoReviewWorkflow>();   // PerTenant: review + cảnh báo deal nguội
-builder.Services.AddSingleton<TourkitAiProxy.Services.Workflows.IScheduledWorkflow,
-                              TourkitAiProxy.Services.Workflows.CustomerAutoReviewWorkflow>();   // PerTenant: tự review hạng KH + re-review định kỳ
-builder.Services.AddSingleton<TourkitAiProxy.Services.Workflows.WorkflowSchedulerService>();
-// CHỈ instance có Workflows:RunScheduler=true mới CHẠY scheduler nền.
-// Tách site: web chính đặt false; site workflow riêng đặt true. Singleton vẫn đăng ký ở mọi
-// instance để endpoint "Chạy ngay" (run-now) dùng được dù không tick nền.
-if (builder.Configuration.GetValue("Workflows:RunScheduler", true))
-    builder.Services.AddHostedService(sp =>
-        sp.GetRequiredService<TourkitAiProxy.Services.Workflows.WorkflowSchedulerService>());
-
 // Soạn Tour GIT bằng AI — bóc mô tả tự do thành form Tour GIT (Type=3) cho NV prefill.
 builder.Services.AddSingleton<TourkitAiProxy.Services.Tour.TourBuilderService>();
-
-// Ưu tiên Deal AI — phân tích cơ hội bán hàng (booking-ticket), chấm khả năng thắng, xếp hạng ưu tiên.
-// 2 tầng: heuristic xếp sơ bộ → AI chấm sâu top N (kèm lịch sử hành động Sale). Cần session TourKit.
-builder.Services.AddSingleton<TourkitAiProxy.Services.Deals.DealOpportunityClient>();
-builder.Services.AddSingleton<TourkitAiProxy.Services.Deals.DealScoringService>();
-builder.Services.AddSingleton<TourkitAiProxy.Services.Deals.DealRepository>();
-builder.Services.AddSingleton<TourkitAiProxy.Services.Deals.DealBatchJobStore>();
-builder.Services.AddSingleton<TourkitAiProxy.Services.Deals.DealBatchService>();
 
 // Báo giá tour persist (replace flow localStorage cũ). DB-backed, per-tenant scope.
 builder.Services.AddSingleton<TourkitAiProxy.Services.TourQuotes.TourQuoteRepository>();
@@ -288,11 +148,12 @@ builder.Services.AddSingleton<TourkitAiProxy.Services.Visa.VisaQuestionRepositor
 builder.Services.AddSingleton<TourkitAiProxy.Services.Visa.VisaExtractionService>();
 builder.Services.AddSingleton<TourkitAiProxy.Services.Visa.VisaScoringService>();
 
-// Store bền vững (Redis dùng chung / fallback file) + nguồn dữ liệu THẬT TourKit (KH + NCC).
-builder.Services.AddSingleton<TourkitAiProxy.Services.Cache.RedisProvider>();
-builder.Services.AddSingleton<TourkitAiProxy.Services.Store.TenantStore>();
-builder.Services.AddSingleton<TourkitAiProxy.Services.TourKit.TourKitCustomerSource>();
-builder.Services.AddSingleton<TourkitAiProxy.Services.TourKit.TourKitNccClient>();
+// CHỈ instance có Workflows:RunScheduler=true mới CHẠY scheduler nền.
+// Mặc định false — sau khi tách TourkitAiProxy.Worker, worker mới chạy scheduler;
+// web deploy KHÔNG tự tick nền. Endpoint "Chạy ngay" (run-now) vẫn dùng được (Singleton).
+if (builder.Configuration.GetValue("Workflows:RunScheduler", false))
+    builder.Services.AddHostedService(sp =>
+        sp.GetRequiredService<TourkitAiProxy.Services.Workflows.WorkflowSchedulerService>());
 
 // ─── Response compression (Brotli + Gzip) ─────────────────────────────────────
 // Frontend bundle ~596KB + styles.css ~352KB gửi RAW trước đây → public landing/NCC
