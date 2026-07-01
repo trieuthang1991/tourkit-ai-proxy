@@ -5,6 +5,11 @@ using TourkitAiProxy.Services.Workflows;
 // Chỉ chạy WorkflowSchedulerService (tick 60s) + hỗ trợ deploy Windows Service / systemd.
 var builder = Host.CreateApplicationBuilder(args);
 
+// TLS ép TLS 1.2/1.3 — set sớm TRƯỚC khi HttpClient nào được tạo (giống web).
+// Windows Server 2012 R2/2016 default TLS 1.0 → upstream AI/TourKit reject.
+System.Net.ServicePointManager.SecurityProtocol =
+    System.Net.SecurityProtocolType.Tls12 | System.Net.SecurityProtocolType.Tls13;
+
 // Windows Service integration — nếu tiến trình khởi động qua sc.exe, tự nối vào SCM.
 // No-op ở dev (chạy console).
 builder.Services.AddWindowsService(o => o.ServiceName = "TourkitAiProxyWorker");
@@ -25,10 +30,6 @@ if (builder.Configuration.GetValue("Logging:Database:Enabled", false))
     builder.Logging.AddProvider(new TourkitAiProxy.Services.Logging.DbLoggerProvider(dbLogQueue, dbLogMin));
     builder.Services.AddHostedService<TourkitAiProxy.Services.Logging.DbLogWriter>();
 }
-
-// TLS ép TLS 1.2/1.3 (giống web) — Windows Server 2012 R2/2016 default TLS 1.0.
-System.Net.ServicePointManager.SecurityProtocol =
-    System.Net.SecurityProtocolType.Tls12 | System.Net.SecurityProtocolType.Tls13;
 
 // Share DI stack với web.
 builder.Services.AddWorkflowStack(builder.Configuration);
