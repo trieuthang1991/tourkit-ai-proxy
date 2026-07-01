@@ -8,10 +8,12 @@
   <ItemGroup>
     <Folder Include="Task\" />
   </ItemGroup>
-  <!-- Test project nằm trong thư mục con → loại khỏi glob **/*.cs của project chính. -->
+  <!-- Test + Worker project nằm trong thư mục con → loại khỏi glob **/*.cs của project chính. -->
   <ItemGroup>
     <Compile Remove="TourkitAiProxy.Tests/**/*.cs" />
     <Content Remove="TourkitAiProxy.Tests/**" />
+    <Compile Remove="TourkitAiProxy.Worker/**/*.cs" />
+    <Content Remove="TourkitAiProxy.Worker/**" />
   </ItemGroup>
   <!-- ── Frontend bundle (esbuild) — auto build khi Release/Publish ───────────
        Dev (`dotnet run` Debug): skip → wwwroot/dist/ không tồn tại → index.html
