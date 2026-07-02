@@ -255,13 +255,13 @@ public class CustomerAutoReviewWorkflow : IScheduledWorkflow
 }
 
 /// Option ĐỘNG của customer-auto-review.
-/// <c>ReviewMax</c>: cap tổng AI call/lượt (Pass 1 + Pass 2). Mirror Deal workflow. Default 100 (cao hơn Deal
-/// vì Customer không có Cooling pha). Vượt cap → chờ chu kỳ sau, tránh burst quota + đảm bảo fair share tenant.
+/// <c>ReviewMax</c>: cap tổng AI call/lượt (Pass 1 + Pass 2). Default 200 = MaxPerRun (fetch upstream) →
+/// workflow xử hết KH trong 1 lượt. User có thể chỉnh xuống qua UI nếu muốn tiết kiệm quota AI.
 public sealed record CustomerAutoReviewOptions(int CreatedWithinDays, bool ReReview, int ReReviewDays, int ReviewMax)
 {
     public static CustomerAutoReviewOptions Parse(string? json)
     {
-        var def = new CustomerAutoReviewOptions(CreatedWithinDays: 30, ReReview: true, ReReviewDays: 30, ReviewMax: 100);
+        var def = new CustomerAutoReviewOptions(CreatedWithinDays: 30, ReReview: true, ReReviewDays: 30, ReviewMax: 200);
         if (string.IsNullOrWhiteSpace(json)) return def;
         try
         {
@@ -271,7 +271,7 @@ public sealed record CustomerAutoReviewOptions(int CreatedWithinDays, bool ReRev
                 CreatedWithinDays: Clamp(GetInt(r, "createdWithinDays", 30), 1, 365),
                 ReReview:          GetBool(r, "reReview", true),
                 ReReviewDays:      Clamp(GetInt(r, "reReviewDays", 30), 1, 365),
-                ReviewMax:         Clamp(GetInt(r, "reviewMax", 100), 1, 500));
+                ReviewMax:         Clamp(GetInt(r, "reviewMax", 200), 1, 500));
         }
         catch { return def; }
     }

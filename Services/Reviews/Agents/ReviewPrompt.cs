@@ -50,6 +50,54 @@ QUY TẮC:
 3. Văn phong cụ thể, hành động được, tiếng Việt tự nhiên
 4. Mọi đề xuất phải gắn với data cụ thể (vd 'KH mua Phú Quốc 4 lần → gợi ý tour biển miền Tây')
 
+═══ TUYỆT ĐỐI KHÔNG DÙNG TÊN FIELD TIẾNG ANH TRONG OUTPUT ═══
+Sale/CSKH đọc review này — họ KHÔNG BIẾT tên field code. PHẢI dùng thuật ngữ tự nhiên tiếng Việt.
+
+Bảng dịch BẮT BUỘC (áp dụng cho MỌI text output — rankReason, portrait, strengths, concerns, alert.message, preferences, actionNow.reason, action30Days, productSuggestions, summaryLine):
+  • totalSpent / TotalSpent → 'tổng chi tiêu' (VD: 'tổng chi tiêu 25 triệu')
+  • aov / Aov → 'chi tiêu trung bình mỗi tour' hoặc 'giá tour trung bình'
+  • totalTours / TotalTours → 'số tour đã đi' hoặc 'số lần đi tour'
+  • lastPurchaseDate / LastPurchaseDaysAgo → 'ngày mua gần nhất' hoặc 'lần mua cuối'
+  • lastCareDate / LastCareDaysAgo → 'ngày chăm sóc gần nhất' hoặc 'lần liên hệ cuối'
+  • avgDaysBetweenOrders → 'khoảng cách giữa các lần mua'
+  • cancelCount → 'số lần hủy tour'
+  • complaintCount → 'số lần khiếu nại'
+  • careInteractions → 'lần được chăm sóc'
+  • purchases / Purchases → 'đơn hàng' hoặc 'lịch sử mua tour'
+  • amount / Amount → 'giá trị' hoặc 'số tiền'
+  • pax / Pax → 'số khách' hoặc 'số người đi'
+  • nights / Nights → 'số đêm' hoặc 'số ngày lưu trú'
+  • destination / Destination → 'điểm đến' hoặc 'nơi đi tour'
+  • channel / Channel → 'kênh mua' hoặc 'nguồn khách'
+  • segment / Segment → 'phân khúc khách' hoặc 'nhóm khách'
+  • phone / Phone / phoneNumber → 'số điện thoại'
+  • email / Email → 'email'
+  • gender / Gender → 'giới tính'
+  • age / Age → 'tuổi'
+  • location / Location / address → 'địa chỉ' hoặc 'vùng miền'
+  • source / Source → 'nguồn' hoặc 'kênh tiếp cận'
+  • note / Note → 'ghi chú' hoặc 'nhu cầu ban đầu'
+  • rankName → 'hạng' (VD 'hạng A', 'hạng VIP')
+  • createdAt → 'ngày tạo hồ sơ'
+  • statusName → 'trạng thái'
+  • customerTypeName → 'loại khách'
+  • customerSourceName → 'nguồn khách'
+  • groupName → 'nhóm khách'
+
+Ví dụ SAI (không được dùng):
+  ✗ 'Chưa hoàn tất bất kỳ giao dịch nào (totalSpent=0)'
+  ✗ '8/10 đơn hàng có Amount=0đ'
+  ✗ 'aov thấp 688k'
+  ✗ 'lastPurchaseDaysAgo = null'
+
+Ví dụ ĐÚNG (viết như vậy):
+  ✓ 'Chưa từng mua tour nào'
+  ✓ '8/10 đơn hàng có giá trị 0đ'
+  ✓ 'Chi tiêu trung bình mỗi tour thấp (688 nghìn)'
+  ✓ 'Chưa có lịch sử mua tour'
+
+Số tiền: 'X triệu', 'X nghìn', 'X đồng' (KHÔNG '688000', '20000000'). Ngày: 'X ngày trước', 'Y tháng trước'.
+
 {RankingCriteria}
 
 OUTPUT JSON (KHÔNG markdown fences, KHÔNG giải thích thêm):
@@ -86,6 +134,54 @@ QUY TẮC:
 2. Nếu thiếu data ở mục nào, ghi 'Chưa đủ dữ liệu để đánh giá'
 3. Văn phong cụ thể, hành động được, tiếng Việt tự nhiên
 4. Mọi đề xuất phải gắn với data cụ thể (vd 'KH mua Phú Quốc 4 lần → gợi ý tour biển miền Tây')
+
+═══ TUYỆT ĐỐI KHÔNG DÙNG TÊN FIELD TIẾNG ANH TRONG OUTPUT ═══
+Sale/CSKH đọc review này — họ KHÔNG BIẾT tên field code. PHẢI dùng thuật ngữ tự nhiên tiếng Việt.
+
+Bảng dịch BẮT BUỘC (áp dụng cho MỌI text output — rankReason, portrait, strengths, concerns, alert.message, preferences, actionNow.reason, action30Days, productSuggestions, summaryLine):
+  • totalSpent / TotalSpent → 'tổng chi tiêu' (VD: 'tổng chi tiêu 25 triệu')
+  • aov / Aov → 'chi tiêu trung bình mỗi tour' hoặc 'giá tour trung bình'
+  • totalTours / TotalTours → 'số tour đã đi' hoặc 'số lần đi tour'
+  • lastPurchaseDate / LastPurchaseDaysAgo → 'ngày mua gần nhất' hoặc 'lần mua cuối'
+  • lastCareDate / LastCareDaysAgo → 'ngày chăm sóc gần nhất' hoặc 'lần liên hệ cuối'
+  • avgDaysBetweenOrders → 'khoảng cách giữa các lần mua'
+  • cancelCount → 'số lần hủy tour'
+  • complaintCount → 'số lần khiếu nại'
+  • careInteractions → 'lần được chăm sóc'
+  • purchases / Purchases → 'đơn hàng' hoặc 'lịch sử mua tour'
+  • amount / Amount → 'giá trị' hoặc 'số tiền'
+  • pax / Pax → 'số khách' hoặc 'số người đi'
+  • nights / Nights → 'số đêm' hoặc 'số ngày lưu trú'
+  • destination / Destination → 'điểm đến' hoặc 'nơi đi tour'
+  • channel / Channel → 'kênh mua' hoặc 'nguồn khách'
+  • segment / Segment → 'phân khúc khách' hoặc 'nhóm khách'
+  • phone / Phone / phoneNumber → 'số điện thoại'
+  • email / Email → 'email'
+  • gender / Gender → 'giới tính'
+  • age / Age → 'tuổi'
+  • location / Location / address → 'địa chỉ' hoặc 'vùng miền'
+  • source / Source → 'nguồn' hoặc 'kênh tiếp cận'
+  • note / Note → 'ghi chú' hoặc 'nhu cầu ban đầu'
+  • rankName → 'hạng' (VD 'hạng A', 'hạng VIP')
+  • createdAt → 'ngày tạo hồ sơ'
+  • statusName → 'trạng thái'
+  • customerTypeName → 'loại khách'
+  • customerSourceName → 'nguồn khách'
+  • groupName → 'nhóm khách'
+
+Ví dụ SAI (không được dùng):
+  ✗ 'Chưa hoàn tất bất kỳ giao dịch nào (totalSpent=0)'
+  ✗ '8/10 đơn hàng có Amount=0đ'
+  ✗ 'aov thấp 688k'
+  ✗ 'lastPurchaseDaysAgo = null'
+
+Ví dụ ĐÚNG (viết như vậy):
+  ✓ 'Chưa từng mua tour nào'
+  ✓ '8/10 đơn hàng có giá trị 0đ'
+  ✓ 'Chi tiêu trung bình mỗi tour thấp (688 nghìn)'
+  ✓ 'Chưa có lịch sử mua tour'
+
+Số tiền: 'X triệu', 'X nghìn', 'X đồng' (KHÔNG '688000', '20000000'). Ngày: 'X ngày trước', 'Y tháng trước'.
 
 {RankingCriteria}
 
@@ -179,11 +275,47 @@ Gọi submit_customer_review NGAY với 11 field. KHÔNG trả text giải thíc
         return JsonSerializer.SerializeToElement(schema);
     }
 
-    private const string RankingCriteria = @"TIÊU CHÍ XẾP HẠNG (cho tour operator):
-- A: VIP trung thành, ≥5 tour, AOV ≥20tr, mua đều, không khiếu nại
-- B: Khách tốt, 2-4 tour, có tiềm năng upsell hoặc thị trường cao cấp
-- C: Bình thường, ít tương tác, cần kích hoạt qua promo/newsletter
-- D: Rủi ro rời bỏ (>180 ngày không mua, có khiếu nại chưa giải quyết, hoặc huỷ tour gần)";
+    private const string RankingCriteria = @"═══ QUY TẮC XẾP HẠNG (theo THỨ TỰ ưu tiên — dừng ở luật ĐẦU TIÊN khớp) ═══
+
+BƯỚC 1 — Kiểm tra cấp cứu (Hạng D):
+  • Đã hủy tour ≥ 2 lần HOẶC đã khiếu nại ≥ 2 lần chưa giải quyết → D (nguy cơ khiếu nại/hủy)
+  • Đã mua ít nhất 1 tour NHƯNG lần mua cuối cách đây hơn 180 ngày → D (nguy cơ rời bỏ)
+
+BƯỚC 2 — Khách chưa mua:
+  • Chưa có tour nào → C (khách mới cần kích hoạt)
+
+BƯỚC 3 — VIP (Hạng A):
+  • Đã đi ≥ 5 tour VÀ giá tour trung bình ≥ 20 triệu VÀ mua trong vòng 180 ngày qua VÀ chưa khiếu nại lần nào
+    → A (VIP thân thiết)
+
+BƯỚC 4 — Tiềm năng (Hạng B):
+  • Đã đi 2-4 tour → B (khách tiềm năng)
+  • Đã đi ≥ 5 tour nhưng thiếu 1 điều kiện A (VD giá tour thấp, hoặc im lặng) → B (khách tiềm năng nâng cấp)
+
+BƯỚC 5 — Mặc định → C (khách bình thường)
+
+BƯỚC 6 — CAP CHẤT LƯỢNG DỮ LIỆU (áp SAU cùng, có thể HẠ rank A/B xuống C):
+  Kiểm tra 4 lỗi hồ sơ:
+    (a) Giá tour trung bình dưới 500 nghìn (quá thấp so với tour thật)
+    (b) Trên 50% đơn hàng có giá trị 0đ (đơn không hợp lệ)
+    (c) Số điện thoại có dấu hiệu giả:
+        - Chuỗi lặp bất thường (VD '1111111', '9999999', hoặc >6 số giống nhau liền)
+        - Ngắn quá (dưới 8 chữ số) HOẶC dài quá (trên 15 chữ số)
+        - Toàn số ngẫu nhiên không có prefix (VN: 0/03/05/07/08/09; quốc tế: '+' hoặc '00' đầu)
+        - CHẤP NHẬN: '+1234567890' (US), '00841234567890' (VN quốc tế), '84987654321', '+8412345678'
+    (d) Email không hợp lệ (thiếu '@', domain không có '.', hoặc chuỗi ngẫu nhiên 'asdsad'/'test123'/'a')
+
+  NẾU rank vừa tính (A hoặc B) MÀ có ≥ 2 lỗi trong (a)(b)(c)(d)
+    → DOWNGRADE về C
+    → rankReason BẮT ĐẦU bằng: 'Cap C do dữ liệu đáng ngờ: [liệt kê 2-3 lỗi cụ thể BẰNG NGÔN NGỮ TỰ NHIÊN]'
+
+═══ QUAN TRỌNG ═══
+  • rankReason nêu BƯỚC nào trúng (VD: 'BƯỚC 3 — VIP: đã đi 5 tour, giá trung bình 22 triệu, mua tour cách đây 30 ngày')
+  • Chất lượng dữ liệu đưa vào concerns/alert.message ĐỒNG THỜI cap rank ở BƯỚC 6 — DÙNG TIẾNG VIỆT TỰ NHIÊN
+  • alert.level:
+    - high: có khiếu nại chưa xử, hoặc khách VIP/B tier mà im lặng trên 90 ngày, hoặc dữ liệu lỗi nặng khiến cap xuống C
+    - medium: im lặng 30-90 ngày, hoặc dữ liệu có 1 lỗi
+    - none: bình thường";
 
     // ─── JSON parser tolerant (dùng chung 2 agent — JsonAgent từ raw text, NativeAgent từ tool input) ───
     public record ParsedReview(
