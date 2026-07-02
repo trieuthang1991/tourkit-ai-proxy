@@ -94,6 +94,9 @@ public class DealRepository
 
     public void SaveScore(string tenant, int id, string fingerprint, DealScore score)
     {
+        // GUARD: tenant BẮT BUỘC — chặn insert row TenantId='' làm hỏng data model multi-tenant.
+        if (string.IsNullOrWhiteSpace(tenant))
+            throw new ArgumentException("tenant bắt buộc — không được lưu score với TenantId=''", nameof(tenant));
         var dataJson = JsonSerializer.Serialize(score, _opts);
         var genMs = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
         bool dbOk = false;
@@ -117,7 +120,7 @@ VALUES
                 new
                 {
                     DealId      = id.ToString(),
-                    TenantId    = tenant ?? "",
+                    TenantId    = tenant,
                     WinRate     = score.WinRate, Level = score.Level,
                     Fingerprint = fingerprint, DataJson = dataJson,
                     AiProvider  = score.AiProvider, AiModel = score.AiModel,
@@ -133,13 +136,117 @@ VALUES
         // Luôn cập nhật Redis (mirror cho fallback đọc + dùng cross-instance nhanh).
         // Khi DB lỗi: Redis là chỗ duy nhất giữ score, write-through không có DB.
         var cached = new CachedScore(fingerprint, score, DateTime.UtcNow.ToString("o"));
-        RedisSaveScore(tenant ?? "", id, cached);
+        RedisSaveScore(tenant, id, cached);
 
         if (!dbOk)
         {
             // In-memory backup nếu Redis cũng down (RedisSaveScore sẽ trả false trong logs)
             lock (_memLock) _memScores[$"{tenant}:{id}"] = cached;
         }
+    }
+
+    // ─── Bulk pre-fetch (gộp GetReviewControl + PeekCached + GetScore vào 1 SELECT/dict) ──
+
+    /// 1 row `dbo.DealScores` đầy đủ (chứa cả score + control) — dùng cho bulk pre-fetch trong workflow loop.
+    public record FullRow(
+        string DataJson, string Fingerprint, long GeneratedAt,
+        int AutoReviewCount, bool IsFinalized, string? FinalizedReason)
+    {
+        /// Deserialize DealScore từ DataJson. null nếu JSON hỏng.
+        public DealScore? ToScore()
+        {
+            try { return JsonSerializer.Deserialize<DealScore>(DataJson, _opts); }
+            catch { return null; }
+        }
+
+        /// Convert GeneratedAt (unix ms) → ISO UTC string (matches PeekCached.SavedAt shape).
+        public string SavedAt => DateTimeOffset.FromUnixTimeMilliseconds(GeneratedAt).ToString("o");
+    }
+
+    /// Bulk fetch nhiều row `dbo.DealScores` trong 1 SELECT (thay N lần GetReviewControl+PeekCached+GetScore).
+    /// Trả dict {dealId → FullRow}; deal chưa chấm không có trong dict. ids rỗng → dict rỗng, không query DB.
+    /// DB lỗi → log warning + dict rỗng (loop caller sẽ hành xử như "chưa chấm" — có thể chấm lại, chấp nhận).
+    /// Lấy danh sách DealId ĐẾN HẠN review lại — cho DB-driven Pass 2 của deal-auto-review workflow.
+    /// GeneratedAt &lt; cutoff (cutoff = now - reReviewDays approx) AND NOT IsFinalized → deal đang mở đến hạn re-review.
+    /// ORDER BY GeneratedAt ASC → ưu tiên deal tồn đọng LÂU NHẤT trước.
+    /// take: cap số row. Trả list rỗng nếu tenant rỗng / DB lỗi.
+    public List<int> GetDueForReReview(string tenant, long cutoffMs, int take)
+    {
+        if (string.IsNullOrWhiteSpace(tenant)) return new List<int>();
+        if (take < 1) return new List<int>();
+        var sw = System.Diagnostics.Stopwatch.StartNew();
+        try
+        {
+            using var c = _db.Open();
+            var ids = c.Query<string>(
+                @"SELECT TOP (@take) DealId
+                  FROM dbo.DealScores
+                  WHERE TenantId = @t AND GeneratedAt < @cutoff AND IsFinalized = 0
+                  ORDER BY GeneratedAt ASC",
+                new { t = tenant, cutoff = cutoffMs, take })
+                .Select(s => int.TryParse(s, out var n) ? n : 0)
+                .Where(n => n > 0)
+                .ToList();
+            sw.Stop();
+            _log.LogDebug("[DealRepo] GetDueForReReview tenant={T} cutoff={C} take={K} → {N} ids ({Ms}ms)",
+                tenant, cutoffMs, take, ids.Count, sw.ElapsedMilliseconds);
+            return ids;
+        }
+        catch (Exception ex)
+        {
+            sw.Stop();
+            _log.LogWarning(ex, "[DealRepo] GetDueForReReview tenant={T} ({Ms}ms) lỗi — trả list rỗng",
+                tenant, sw.ElapsedMilliseconds);
+            return new List<int>();
+        }
+    }
+
+    public Dictionary<int, FullRow> GetBulk(string tenant, IEnumerable<int> ids)
+    {
+        // GUARD: tenant rỗng = sai cấu hình → throw sớm thay vì query nhầm row TenantId=''.
+        if (string.IsNullOrWhiteSpace(tenant))
+            throw new ArgumentException("tenant bắt buộc — bulk không hỗ trợ TenantId=''", nameof(tenant));
+        var idList = ids.Select(i => i.ToString()).Distinct().ToList();
+        var map = new Dictionary<int, FullRow>();
+        if (idList.Count == 0) return map;
+        var sw = System.Diagnostics.Stopwatch.StartNew();
+        try
+        {
+            using var c = _db.Open();
+            var rows = c.Query<BulkRow>(
+                @"SELECT DealId, DataJson, Fingerprint, GeneratedAt,
+                         AutoReviewCount, IsFinalized, FinalizedReason
+                  FROM dbo.DealScores
+                  WHERE TenantId = @t AND DealId IN @ids",
+                new { t = tenant, ids = idList });
+            foreach (var r in rows)
+            {
+                if (int.TryParse(r.DealId, out var id))
+                    map[id] = new FullRow(r.DataJson, r.Fingerprint, r.GeneratedAt,
+                        r.AutoReviewCount, r.IsFinalized, r.FinalizedReason);
+            }
+            sw.Stop();
+            _log.LogDebug("[DealRepo] GetBulk tenant={T} ids={N} → rows={M} ({Ms}ms)",
+                tenant, idList.Count, map.Count, sw.ElapsedMilliseconds);
+        }
+        catch (Exception ex)
+        {
+            sw.Stop();
+            _log.LogWarning(ex, "[DealRepo] GetBulk tenant={T} ids={N} ({Ms}ms) lỗi — trả dict rỗng",
+                tenant, idList.Count, sw.ElapsedMilliseconds);
+        }
+        return map;
+    }
+
+    private sealed class BulkRow
+    {
+        public string DealId { get; set; } = "";
+        public string DataJson { get; set; } = "";
+        public string Fingerprint { get; set; } = "";
+        public long GeneratedAt { get; set; }
+        public int AutoReviewCount { get; set; }
+        public bool IsFinalized { get; set; }
+        public string? FinalizedReason { get; set; }
     }
 
     // ─── Kiểm soát auto-review (cột AutoReviewCount/IsFinalized/FinalizedReason trên dbo.DealScores) ──

@@ -120,7 +120,6 @@ public static class WorkflowStackRegistration
         s.AddSingleton<TourkitAiProxy.Services.NccImport.NccImportService>();
         s.AddSingleton<ReviewService>();
         s.AddSingleton<BatchService>();
-        s.AddSingleton<CustomerReviewClient>();
 
         // ─── Mail (auto-sync + reply + queue) ────────────────────────────────
         s.AddSingleton<TourkitAiProxy.Services.Mail.MailAccountStore>();

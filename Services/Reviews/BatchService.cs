@@ -72,7 +72,10 @@ public class BatchService
                 {
                     if (innerCt.IsCancellationRequested) return;
 
-                    var customer = await _source.GetFullAsync(sessionId, id, innerCt);
+                    // DÙNG CONTEXT (base+orders+comments) — đồng nhất với /reviews/customer/{id} + workflow
+                    // → fingerprint match giữa 3 luồng → không re-review nhầm.
+                    var contexts = await _source.GetContextsAsync(sessionId, new[] { id }, innerCt);
+                    var customer = contexts.FirstOrDefault();
                     if (customer == null)
                     {
                         Interlocked.Increment(ref job.Errors);

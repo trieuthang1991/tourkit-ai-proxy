@@ -11,6 +11,17 @@ using TourkitAiProxy.Services.Workflow;
 
 var builder = WebApplication.CreateBuilder(args);
 
+// ─── log4net: sink chính cho ILogger<T> — mọi log của app + ASP.NET Core routing
+// qua log4net → file rolling logs/app-YYYY-MM-DD.log + logs/error-*.log + stdout.
+// Config sống tại log4net.config (copy vào output, hot reload khi sửa).
+// Xem thêm cấu hình middleware trong section RequestLoggingMiddleware bên dưới.
+builder.Logging.ClearProviders();
+builder.Logging.AddLog4Net(new Microsoft.Extensions.Logging.Log4NetProviderOptions
+{
+    Log4NetConfigFileName = "log4net.config",
+    Watch = true,   // hot reload khi sửa log4net.config, không cần restart
+});
+
 // ─── JSON: serialize MỌI DateTime kèm 'Z' (UTC) ───────────────────────────────
 // DateTime từ SQL (Kind=Unspecified) mặc định serialize KHÔNG có 'Z' → trình duyệt hiểu nhầm giờ local
 // → lệch +7h. App lưu UTC toàn bộ nên gắn 'Z' là đúng. Chỉ tác động field DateTime-typed (an toàn,
@@ -180,6 +191,12 @@ builder.Services.Configure<Microsoft.AspNetCore.ResponseCompression.BrotliCompre
 builder.Services.Configure<Microsoft.AspNetCore.ResponseCompression.GzipCompressionProviderOptions>(
     o => o.Level = System.IO.Compression.CompressionLevel.Optimal);
 
+// ─── Global exception handler (IExceptionHandler .NET 8) ──────────────────────
+// Bắt exception KHÔNG được endpoint handle → log ERROR có full stack + trả JSON 500 gọn.
+// Wire vào pipeline qua UseExceptionHandler() (đặt sớm).
+builder.Services.AddExceptionHandler<TourkitAiProxy.Services.Logging.GlobalExceptionHandler>();
+builder.Services.AddProblemDetails();
+
 // ─── Pipeline ────────────────────────────────────────────────────────────────
 var app = builder.Build();
 
@@ -245,6 +262,17 @@ _ = Task.Run(async () =>
             .LogError(ex, "Deal DB init/migrate fail — fallback file");
     }
 });
+
+// ─── Logging pipeline (SỚM NHẤT — trước mọi middleware để tag correlation id) ─
+// CorrelationId → sinh/reuse X-Request-Id, push vào log4net LogicalThreadContext
+// → mọi log trong request có %property{RequestId}. Grep 1 lần ra full request flow.
+app.UseMiddleware<TourkitAiProxy.Services.Logging.CorrelationIdMiddleware>();
+// RequestLogging → wrap toàn pipeline để lấy final status/duration. Resolve tenant
+// từ session (nếu có) → tag vào log4net TenantId. Skip static asset.
+app.UseMiddleware<TourkitAiProxy.Services.Logging.RequestLoggingMiddleware>();
+// UseExceptionHandler → sink cuối cho unhandled exception. Đặt SAU 2 middleware trên
+// để error log kèm RequestId + tenant. GlobalExceptionHandler (IExceptionHandler) đã DI.
+app.UseExceptionHandler();
 
 // ─── HTTPS pipeline (phải ở SỚM nhất — trước CORS/routing) ──────────────────
 // UseForwardedHeaders TRƯỚC mọi thứ khác → Request.Scheme/Request.Host correct ngay từ đầu.

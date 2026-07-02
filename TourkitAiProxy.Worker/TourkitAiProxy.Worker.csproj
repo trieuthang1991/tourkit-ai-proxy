@@ -20,4 +20,12 @@
     <PackageReference Include="Microsoft.Extensions.Hosting" Version="8.0.0" />
     <PackageReference Include="Microsoft.Extensions.Hosting.WindowsServices" Version="8.0.0" />
   </ItemGroup>
+
+  <!-- Share log4net.config với main project (single source of truth). Link để MSBuild
+       treat như file cục bộ của worker → copy vào bin. Sửa config 1 chỗ, worker + web đều nhận. -->
+  <ItemGroup>
+    <None Include="..\log4net.config" Link="log4net.config">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </None>
+  </ItemGroup>
 </Project>

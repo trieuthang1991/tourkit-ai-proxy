@@ -110,4 +110,18 @@ public class RedisStore
         try { return _db.HashDelete(Prefix + hashKey, field); }
         catch (Exception ex) { _log.LogWarning(ex, "[redis] HashDel {K}/{F} lỗi", hashKey, field); return false; }
     }
+
+    /// <summary>
+    /// Atomic SET NX + EX (distributed lock primitive). Trả true nếu KEY vừa được tạo (caller thắng lock).
+    /// Trả false nếu KEY đã tồn tại (instance khác đang giữ) hoặc Redis lỗi/tắt.
+    ///
+    /// <para><b>Fail-closed pattern</b>: khi Redis xuống → trả false → caller SKIP hành động. An toàn cho
+    /// workflow chống double-run cross-instance (chấp nhận bỏ 1-2 chu kỳ khi Redis xuống ngắn hạn).</para>
+    /// </summary>
+    public bool SetIfNotExists(string key, string value, TimeSpan expiry)
+    {
+        if (_db == null) return false;
+        try { return _db.StringSet(Prefix + key, value, expiry, When.NotExists); }
+        catch (Exception ex) { _log.LogWarning(ex, "[redis] SetNX {Key} lỗi", key); return false; }
+    }
 }

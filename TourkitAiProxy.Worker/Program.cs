@@ -5,6 +5,16 @@ using TourkitAiProxy.Services.Workflows;
 // Chỉ chạy WorkflowSchedulerService (tick 60s) + hỗ trợ deploy Windows Service / systemd.
 var builder = Host.CreateApplicationBuilder(args);
 
+// ─── log4net — share config với web (log4net.config nằm ở root main project,
+// worker copy vào output nhờ ItemGroup <None Update="log4net.config"> trong main csproj).
+// Log về logs/app-*.log + logs/error-*.log + stdout. Hot reload khi sửa config.
+builder.Logging.ClearProviders();
+builder.Logging.AddLog4Net(new Microsoft.Extensions.Logging.Log4NetProviderOptions
+{
+    Log4NetConfigFileName = "log4net.config",
+    Watch = true,
+});
+
 // TLS ép TLS 1.2/1.3 — set sớm TRƯỚC khi HttpClient nào được tạo (giống web).
 // Windows Server 2012 R2/2016 default TLS 1.0 → upstream AI/TourKit reject.
 System.Net.ServicePointManager.SecurityProtocol =

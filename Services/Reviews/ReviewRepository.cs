@@ -42,11 +42,10 @@ public class ReviewRepository
         _legacyPath = Path.Combine(dir, "reviews.json");
     }
 
-    /// Khởi động: chạy schema init + migrate file JSON cũ nếu DB rỗng. Gọi từ Program.cs sau khi build.
+    /// Khởi động: chạy schema init. Gọi từ Program.cs sau khi build.
     public async Task InitAsync(CancellationToken ct = default)
     {
         await _db.InitAsync(ct);
-        await TryMigrateFromJsonAsync(ct);
     }
 
     /// Backfill TenantId cho rows legacy (migrated từ JSON cũ có TenantId="").
@@ -116,10 +115,78 @@ WHERE r.TenantId = ''
         }
     }
 
-    /// Overload cũ không có tenantId — giữ cho code cũ chưa thread (vd batch endpoint).
-    /// Tra DB không filter TenantId, lấy bản gần nhất. Khuyến nghị dùng overload có tenantId.
-    [Obsolete("Dùng Get(tenantId, customerId) thay vì — overload này không scope theo tenant")]
-    public CustomerReview? Get(string customerId) => Get("", customerId);
+    /// Slim projection cho bulk pre-fetch (workflow loop): CHỈ 3 cột (không hydrate DataJson nặng).
+    /// Đủ tín hiệu cho customer-auto-review quyết định: skippedFresh (theo GeneratedAt) + skippedUnchanged (theo Fingerprint).
+    public record ReviewSlim(string CustomerId, string Fingerprint, long GeneratedAtMs);
+
+    /// Bulk fetch review dạng slim cho tenant + N customerId (1 SELECT thay N × Get()).
+    /// KHÔNG legacy fallback: query hit thẳng PK (TenantId, CustomerId) → mỗi KH ≤ 1 row, không cần dedup.
+    /// KH có row legacy TenantId='' chưa backfill sẽ bị coi là "chưa review" → workflow review lại 1 lần
+    /// (bounded), rồi từ chu kỳ sau tự nhận ra qua tenant row mới. Nếu cần dọn: POST /reviews/admin/backfill-tenant.
+    /// ids rỗng → dict rỗng, không query DB. DB lỗi → log warning + dict rỗng.
+    /// Lấy danh sách CustomerId ĐẾN HẠN review lại — cho DB-driven Pass 2 của customer-auto-review workflow.
+    /// GeneratedAt < cutoff (cutoff = now - reReviewDays) → review đã quá tuổi cần chấm lại.
+    /// ORDER BY GeneratedAt ASC → ưu tiên review tồn đọng LÂU NHẤT trước.
+    /// take: cap số row (tránh 1 lượt scan quá lâu). Trả list rỗng nếu tenantId rỗng / DB lỗi.
+    public List<string> GetDueForReReview(string tenantId, long cutoffMs, int take)
+    {
+        if (string.IsNullOrWhiteSpace(tenantId)) return new List<string>();
+        if (take < 1) return new List<string>();
+        var sw = System.Diagnostics.Stopwatch.StartNew();
+        try
+        {
+            using var c = _db.Open();
+            var ids = c.Query<string>(
+                @"SELECT TOP (@take) CustomerId
+                  FROM dbo.Reviews
+                  WHERE TenantId = @t AND GeneratedAt < @cutoff
+                  ORDER BY GeneratedAt ASC",
+                new { t = tenantId, cutoff = cutoffMs, take }).AsList();
+            sw.Stop();
+            _log.LogDebug("[ReviewRepo] GetDueForReReview tenant={T} cutoff={C} take={K} → {N} ids ({Ms}ms)",
+                tenantId, cutoffMs, take, ids.Count, sw.ElapsedMilliseconds);
+            return ids;
+        }
+        catch (Exception ex)
+        {
+            sw.Stop();
+            _log.LogWarning(ex, "[ReviewRepo] GetDueForReReview tenant={T} ({Ms}ms) lỗi — trả list rỗng",
+                tenantId, sw.ElapsedMilliseconds);
+            return new List<string>();
+        }
+    }
+
+    public Dictionary<string, ReviewSlim> GetBulkSlim(string tenantId, IEnumerable<string> customerIds)
+    {
+        // GUARD: tenantId rỗng = sai cấu hình → throw sớm thay vì query nhầm row legacy TenantId=''.
+        if (string.IsNullOrWhiteSpace(tenantId))
+            throw new ArgumentException("tenantId bắt buộc — bulk slim không hỗ trợ legacy TenantId=''", nameof(tenantId));
+        var idList = customerIds.Where(id => !string.IsNullOrEmpty(id)).Distinct().ToList();
+        var map = new Dictionary<string, ReviewSlim>();
+        if (idList.Count == 0) return map;
+        var sw = System.Diagnostics.Stopwatch.StartNew();
+        try
+        {
+            using var c = _db.Open();
+            var rows = c.Query<ReviewSlim>(
+                @"SELECT CustomerId, Fingerprint, GeneratedAt AS GeneratedAtMs
+                  FROM dbo.Reviews
+                  WHERE TenantId = @t AND CustomerId IN @ids",
+                new { t = tenantId, ids = idList });
+            foreach (var r in rows)
+                map[r.CustomerId] = r;
+            sw.Stop();
+            _log.LogDebug("[ReviewRepo] GetBulkSlim tenant={T} ids={N} → rows={M} ({Ms}ms)",
+                tenantId, idList.Count, map.Count, sw.ElapsedMilliseconds);
+        }
+        catch (Exception ex)
+        {
+            sw.Stop();
+            _log.LogWarning(ex, "[ReviewRepo] GetBulkSlim tenant={T} ids={N} ({Ms}ms) lỗi — trả dict rỗng",
+                tenantId, idList.Count, sw.ElapsedMilliseconds);
+        }
+        return map;
+    }
 
     /// Trả TẤT CẢ review (limit cứng 5000 — review service dùng list-status cho /customers list).
     public IReadOnlyDictionary<string, CustomerReview> All()
@@ -146,8 +213,11 @@ WHERE r.TenantId = ''
     }
 
     /// Upsert review với TenantId. Lưu cả full DataJson + duplicate column cho index.
+    /// GUARD: tenantId BẮT BUỘC — chặn insert row TenantId='' làm hỏng data model multi-tenant.
     public void Save(CustomerReview review, string tenantId)
     {
+        if (string.IsNullOrWhiteSpace(tenantId))
+            throw new ArgumentException("tenantId bắt buộc — không được lưu review với TenantId=''", nameof(tenantId));
         try
         {
             var dataJson = JsonSerializer.Serialize(review, _jsonOpts);
@@ -160,7 +230,7 @@ WHERE r.TenantId = ''
                 : DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
 
             using var c = _db.Open();
-            // SQL Server MERGE upsert (composite PK TenantId+CustomerId; TenantId='' khi không biết).
+            // SQL Server MERGE upsert (composite PK TenantId+CustomerId).
             // IsSync=0 ở CẢ INSERT lẫn UPDATE: review mới hoặc re-review = data đổi → worker phải sync lại.
             c.Execute(@"
 MERGE dbo.Reviews AS T
@@ -180,7 +250,7 @@ VALUES
                 new
                 {
                     CustomerId   = review.CustomerId,
-                    TenantId     = tenantId ?? "",
+                    TenantId     = tenantId,
                     Rank         = review.Rank,
                     AlertLevel   = alertLevel,
                     Fingerprint  = review.DataFingerprint,
@@ -193,16 +263,13 @@ VALUES
                     FeedbackJson = feedbackJson
                 });
         }
+        catch (ArgumentException) { throw; }   // guard là bug logic, không nuốt vào file fallback
         catch (Exception ex)
         {
             _log.LogError(ex, "[ReviewRepo] DB save lỗi cho KH {Id} → fallback file", review.CustomerId);
             LegacySave(review);
         }
     }
-
-    /// Overload không có tenantId — back-compat cho code cũ. Lưu với TenantId="".
-    [Obsolete("Dùng Save(review, tenantId) thay vì — overload này lưu TenantId='' không scope theo tenant")]
-    public void Save(CustomerReview review) => Save(review, "");
 
     /// Cập nhật feedback của review (TenantId + CustomerId). Trả true nếu KH tồn tại.
     public bool SetFeedback(string tenantId, string customerId, ReviewFeedback fb)
@@ -235,44 +302,6 @@ VALUES
         {
             _log.LogWarning(ex, "[ReviewRepo] DB SetFeedback lỗi → fallback file");
             return LegacySetFeedback(customerId, fb);
-        }
-    }
-
-    /// Overload back-compat — KHÔNG scope theo tenant.
-    [Obsolete("Dùng SetFeedback(tenantId, customerId, fb) — overload này tìm cross-tenant")]
-    public bool SetFeedback(string customerId, ReviewFeedback fb) => SetFeedback("", customerId, fb);
-
-    // ─── Migration JSON → DB (chạy 1 lần lúc khởi động nếu DB rỗng) ──────────────
-
-    private async Task TryMigrateFromJsonAsync(CancellationToken ct)
-    {
-        if (!File.Exists(_legacyPath)) return;
-        try
-        {
-            await using var c = await _db.OpenAsync(ct);
-            var count = await c.ExecuteScalarAsync<int>("SELECT COUNT(*) FROM dbo.Reviews");
-            if (count > 0)
-            {
-                _log.LogInformation("[ReviewRepo] DB đã có {N} review, skip migrate", count);
-                return;
-            }
-
-            var json = await File.ReadAllTextAsync(_legacyPath, ct);
-            var map = JsonSerializer.Deserialize<Dictionary<string, CustomerReview>>(json) ?? new();
-            if (map.Count == 0) return;
-
-            _log.LogInformation("[ReviewRepo] DB rỗng, migrate {N} review từ {Path}", map.Count, _legacyPath);
-            int ok = 0;
-            foreach (var (_, review) in map)
-            {
-                try { Save(review); ok++; }
-                catch (Exception ex) { _log.LogWarning(ex, "Migrate KH {Id} fail", review.CustomerId); }
-            }
-            _log.LogInformation("[ReviewRepo] Migrate xong {Ok}/{Total} review", ok, map.Count);
-        }
-        catch (Exception ex)
-        {
-            _log.LogWarning(ex, "[ReviewRepo] Migrate JSON fail — bỏ qua, giữ file cũ");
         }
     }
 

@@ -134,7 +134,9 @@ public static class ReviewEndpoints
         {
             var sid = Sid(ctx);
             if (sessions.Get(sid) == null) return Unauthorized();
-            var c = await source.GetFullAsync(sid!, id, ctx.RequestAborted);
+            // DÙNG CONTEXT (base+orders+comments) thay GetFullAsync → đồng nhất fingerprint với batch/workflow.
+            var contexts = await source.GetContextsAsync(sid!, new[] { id }, ctx.RequestAborted);
+            var c = contexts.FirstOrDefault();
             if (c == null) return Results.NotFound(new { error = $"Không tìm thấy KH {id}" });
 
             var body = await ReadSyncBodyAsync(ctx);
@@ -172,7 +174,8 @@ public static class ReviewEndpoints
         {
             var sid = Sid(ctx);
             if (sessions.Get(sid) == null) return Unauthorized();
-            var c = await source.GetFullAsync(sid!, id, ctx.RequestAborted);
+            var contexts = await source.GetContextsAsync(sid!, new[] { id }, ctx.RequestAborted);
+            var c = contexts.FirstOrDefault();
             if (c == null) return Results.NotFound(new { error = $"Không tìm thấy KH {id}" });
             var body = await ReadSyncBodyAsync(ctx);
             try

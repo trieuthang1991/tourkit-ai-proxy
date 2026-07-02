@@ -425,6 +425,43 @@ Khi câu hỏi liên quan đến **cấu trúc code** (callers/callees, "X dùng
 
 **Re-index khi stale:** `gitnexus analyze --embeddings` chạy ở root repo. Cross-repo question (proxy ↔ TourKit.Api) → query repo `toutkit-app` cho signature upstream.
 
+## Logging (log4net + middleware)
+
+**Sink chính:** log4net qua bridge `Microsoft.Extensions.Logging.Log4Net.AspNetCore` — mọi `ILogger<T>` của app + ASP.NET Core routing đều chảy qua log4net. Wire ở `Program.cs` (web) và `TourkitAiProxy.Worker/Program.cs`.
+
+**Config**: [`log4net.config`](log4net.config) ở root (worker link vào bin qua csproj), `Watch=true` → hot reload khi sửa level/appender, không cần restart.
+
+**3 appender**:
+- `RollingFileAppender` → `logs/app-YYYY-MM-DD.log` (giữ 30 file/~1 tháng)
+- `ErrorFileAppender` → `logs/error-YYYY-MM-DD.log` (chỉ ERROR/FATAL, giữ 90 file/~3 tháng — tách để audit nhanh)
+- `ConsoleAppender` → stdout (dev + Docker)
+
+**Layout kèm 2 property**: `[req=%property{RequestId}|tenant=%property{TenantId}]` — nghĩa là mọi log trong 1 request có cùng `RequestId` (12-char GUID), grep 1 lần ra full flow.
+
+**3 middleware bọc pipeline** (thứ tự ngoài → trong, đăng ký sớm nhất trong `Program.cs`):
+1. `CorrelationIdMiddleware` ([Services/Logging/CorrelationIdMiddleware.cs](Services/Logging/CorrelationIdMiddleware.cs)) — reuse `X-Request-Id` header hoặc sinh mới, push vào `log4net.LogicalThreadContext`, echo response header
+2. `RequestLoggingMiddleware` ([Services/Logging/RequestLoggingMiddleware.cs](Services/Logging/RequestLoggingMiddleware.cs)) — log 1 line/request `{Method} {Path} → {Status} ({Ms}ms) tenant={T} ip={IP}`. 2xx/3xx=Info · 4xx=Warn · 5xx=Error. Skip static asset (`.js`/`.jsx`/`.css`/`.png`/`/dist/`/`/lib/`/`/pages/`) để tránh spam
+3. `UseExceptionHandler()` với `GlobalExceptionHandler` (`IExceptionHandler`, [Services/Logging/GlobalExceptionHandler.cs](Services/Logging/GlobalExceptionHandler.cs)) — bắt exception KHÔNG được endpoint handle → log ERROR có full stack + trả JSON `{error, detail, type, requestId}` 500
+
+**DB logging** (song song với log4net — độc lập): `dbo.AppLogs` bật qua `Logging:Database:Enabled=true` cho cross-instance search bằng SQL. Đã có sẵn `DbLoggerProvider` + `DbLogWriter`. Web mặc định OFF (log ra file đủ dùng); worker khuyến nghị ON khi scale nhiều instance.
+
+**Level tuning**: đổi `<level value="INFO"/>` trong log4net.config, hot reload trong 60s. Namespace-specific: uncomment block `<logger name="TourkitAiProxy.Services.Workflows">` để bật `DEBUG` cho workflow mà không đụng root.
+
+**Nội dung log workflow** (áp dụng cho `CustomerAutoReviewWorkflow` + `DealAutoReviewWorkflow`):
+- START — kèm option đầy đủ, tenantId
+- Login OK/FAIL + duration
+- Mỗi phase (Pass 1/Pass 2/Cooling) — fetch count + bulk pre-fetch count + duration
+- Per-page (Customer) hoặc per-pass (Deal) — breakdown counter (reviewed/skipped/…)
+- TIMEOUT (`OperationCanceledException`) → Warning (không fail run)
+- QUOTA hit → Warning (không fail run, không auto-pause)
+- FINISH — tổng duration + full counter breakdown
+
+**Upstream call log** ([Services/TourKit/TourKitApiClient.cs](Services/TourKit/TourKitApiClient.cs)):
+- LOGIN OK/FAIL kèm tenantId + username + duration
+- GET/POST duration + status + bytes trên success (Debug); Warning cho 401/non-2xx/network error
+
+**Không log**: JWT (có trong session raw), password, email body, phone number đầy đủ.
+
 ## Conventions
 
 - User-facing strings, log messages, comments, and README are in Vietnamese — preserve that when editing.

@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using System.Net.Http.Headers;
 using System.Net.Http.Json;
 using System.Text.Json;
@@ -39,6 +40,7 @@ public class TourKitApiClient
     public async Task<TkLoginResult> LoginAsync(string tenantId, string username, string password, CancellationToken ct)
     {
         var http = _factory.CreateClient("tourkit");
+        var sw = Stopwatch.StartNew();
         HttpResponseMessage resp;
         try
         {
@@ -47,9 +49,12 @@ public class TourKitApiClient
         }
         catch (HttpRequestException ex)
         {
-            _log.LogWarning(ex, "[TourKit] login: không kết nối được upstream");
+            sw.Stop();
+            _log.LogWarning(ex, "[TourKit] LOGIN tenant={T} user={U} ({Ms}ms) không kết nối được upstream: {Err}",
+                tenantId, username, sw.ElapsedMilliseconds, ex.Message);
             throw new TourKitApiException("Không kết nối được hệ thống. Vui lòng thử lại sau.", 502);
         }
+        sw.Stop();
 
         var body = await resp.Content.ReadAsStringAsync(ct);
         using var doc = SafeParse(body);
@@ -58,6 +63,8 @@ public class TourKitApiClient
         if (!resp.IsSuccessStatusCode || root is null || !GetBool(root.Value, "success"))
         {
             var msg = root is not null ? GetString(root.Value, "message") : null;
+            _log.LogWarning("[TourKit] LOGIN FAIL tenant={T} user={U} HTTP={H} ({Ms}ms): {Msg}",
+                tenantId, username, (int)resp.StatusCode, sw.ElapsedMilliseconds, msg ?? "(no message)");
             throw new TourKitApiException(
                 msg ?? $"Đăng nhập TourKit thất bại (HTTP {(int)resp.StatusCode})",
                 resp.StatusCode == System.Net.HttpStatusCode.Unauthorized ? 401 : 502);
@@ -70,6 +77,8 @@ public class TourKitApiClient
         if (string.IsNullOrEmpty(token))
             throw new TourKitApiException("Login TourKit không trả về token", 502);
 
+        _log.LogInformation("[TourKit] LOGIN OK tenant={T} user={U} ({Ms}ms)",
+            tenantId, username, sw.ElapsedMilliseconds);
         return new TkLoginResult(token, GetString(data, "fullName"), GetString(data, "companyName"));
     }
 
@@ -81,27 +90,41 @@ public class TourKitApiClient
         req.Headers.Authorization = new AuthenticationHeaderValue("Bearer", jwt);
         req.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
 
+        var sw = Stopwatch.StartNew();
         HttpResponseMessage resp;
         try { resp = await http.SendAsync(req, ct); }
         catch (HttpRequestException ex)
         {
-            _log.LogWarning(ex, "[TourKit] GET {Path}: không kết nối được upstream", pathAndQuery);
+            sw.Stop();
+            _log.LogWarning(ex, "[TourKit] GET {Path} ({Ms}ms) không kết nối được upstream: {Err}",
+                pathAndQuery, sw.ElapsedMilliseconds, ex.Message);
             throw new TourKitApiException("Không kết nối được hệ thống. Vui lòng thử lại sau.", 502);
         }
+        sw.Stop();
 
         var body = await resp.Content.ReadAsStringAsync(ct);
 
         if (resp.StatusCode == System.Net.HttpStatusCode.Unauthorized)
+        {
+            _log.LogWarning("[TourKit] GET {Path} → 401 ({Ms}ms) — JWT hết hạn/không hợp lệ",
+                pathAndQuery, sw.ElapsedMilliseconds);
             throw new TourKitApiException("Phiên TourKit hết hạn hoặc không hợp lệ", 401);
+        }
 
         using var doc = SafeParse(body)
             ?? throw new TourKitApiException($"TourKit trả về không phải JSON (HTTP {(int)resp.StatusCode})", 502);
         var root = doc.RootElement;
 
         if (!resp.IsSuccessStatusCode || !GetBool(root, "success"))
-            throw new TourKitApiException(
-                GetString(root, "message") ?? $"TourKit lỗi (HTTP {(int)resp.StatusCode})", 502);
+        {
+            var msg = GetString(root, "message");
+            _log.LogWarning("[TourKit] GET {Path} → HTTP {H} ({Ms}ms) success=false: {Msg}",
+                pathAndQuery, (int)resp.StatusCode, sw.ElapsedMilliseconds, msg ?? "(no message)");
+            throw new TourKitApiException(msg ?? $"TourKit lỗi (HTTP {(int)resp.StatusCode})", 502);
+        }
 
+        _log.LogDebug("[TourKit] GET {Path} → 200 ({Ms}ms) bytes={Len}",
+            pathAndQuery, sw.ElapsedMilliseconds, body.Length);
         if (root.TryGetProperty("data", out var data))
             return data.Clone();
         return default;
@@ -116,28 +139,42 @@ public class TourKitApiClient
         req.Headers.Authorization = new AuthenticationHeaderValue("Bearer", jwt);
         req.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
 
+        var sw = Stopwatch.StartNew();
         HttpResponseMessage resp;
         try { resp = await http.SendAsync(req, ct); }
         catch (HttpRequestException ex)
         {
-            _log.LogWarning(ex, "[TourKit] POST {Path}: không kết nối được upstream", pathAndQuery);
+            sw.Stop();
+            _log.LogWarning(ex, "[TourKit] POST {Path} ({Ms}ms) không kết nối được upstream: {Err}",
+                pathAndQuery, sw.ElapsedMilliseconds, ex.Message);
             throw new TourKitApiException("Không kết nối được hệ thống. Vui lòng thử lại sau.", 502);
         }
+        sw.Stop();
 
         var respBody = await resp.Content.ReadAsStringAsync(ct);
 
         if (resp.StatusCode == System.Net.HttpStatusCode.Unauthorized)
+        {
+            _log.LogWarning("[TourKit] POST {Path} → 401 ({Ms}ms) — JWT hết hạn/không hợp lệ",
+                pathAndQuery, sw.ElapsedMilliseconds);
             throw new TourKitApiException("Phiên TourKit hết hạn hoặc không hợp lệ", 401);
+        }
 
         using var doc = SafeParse(respBody)
             ?? throw new TourKitApiException($"TourKit trả về không phải JSON (HTTP {(int)resp.StatusCode})", 502);
         var root = doc.RootElement;
 
         if (!resp.IsSuccessStatusCode || !GetBool(root, "success"))
-            throw new TourKitApiException(
-                GetString(root, "message") ?? $"TourKit lỗi (HTTP {(int)resp.StatusCode})",
+        {
+            var msg = GetString(root, "message");
+            _log.LogWarning("[TourKit] POST {Path} → HTTP {H} ({Ms}ms) success=false: {Msg}",
+                pathAndQuery, (int)resp.StatusCode, sw.ElapsedMilliseconds, msg ?? "(no message)");
+            throw new TourKitApiException(msg ?? $"TourKit lỗi (HTTP {(int)resp.StatusCode})",
                 resp.StatusCode == System.Net.HttpStatusCode.BadRequest ? 400 : 502);
+        }
 
+        _log.LogDebug("[TourKit] POST {Path} → 200 ({Ms}ms) bytes={Len}",
+            pathAndQuery, sw.ElapsedMilliseconds, respBody.Length);
         if (root.TryGetProperty("data", out var data))
             return data.Clone();
         return default;
