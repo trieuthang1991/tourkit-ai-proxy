@@ -242,9 +242,10 @@ function CustomerReviewDrawer({ customerId, onClose, onRefreshed, pushToast }) {
                 </div>
               )}
 
-              {/* Metadata footer */}
+              {/* Metadata footer — ẩn tên model AI (yêu cầu 2026-07-02) để KH không thấy chi tiết provider.
+                  Chỉ hiển thị timestamp + feedback (nếu có). */}
               <div style={{marginTop: 14, fontSize: 11, color: 'var(--text-3)', textAlign: 'right'}}>
-                {r.aiProvider}:{r.aiModel} · {r.tokensOut} tokens · {fmtRel(r.generatedAt)}
+                {fmtRel(r.generatedAt)}
                 {r.feedback && <> · <span style={{color: r.feedback.rating === 'helpful' ? '#16a34a' : '#dc2626'}}>
                   {r.feedback.rating === 'helpful' ? '👍 helpful' : '👎 not helpful'}
                 </span></>}

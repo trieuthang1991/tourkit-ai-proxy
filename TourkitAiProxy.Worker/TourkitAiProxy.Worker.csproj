@@ -1,0 +1,31 @@
+<Project Sdk="Microsoft.NET.Sdk.Worker">
+  <PropertyGroup>
+    <TargetFramework>net8.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <RootNamespace>TourkitAiProxy.Worker</RootNamespace>
+    <UserSecretsId>tourkit-ai-proxy-worker</UserSecretsId>
+    <!-- KHÔNG serve static → khỏi copy wwwroot. -->
+    <StaticWebAssetsEnabled>false</StaticWebAssetsEnabled>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <!-- Share TOÀN BỘ Services/ + Models/ + Endpoints/ (không dùng) qua ProjectReference.
+         Main dùng Sdk.Web nên assembly Worker sẽ mang theo AspNetCore.Http, Kestrel...
+         Đó là footprint kỹ thuật — chấp nhận, worker vẫn chỉ CHẠY BackgroundService. -->
+    <ProjectReference Include="..\TourkitAiProxy.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.Extensions.Hosting" Version="8.0.0" />
+    <PackageReference Include="Microsoft.Extensions.Hosting.WindowsServices" Version="8.0.0" />
+  </ItemGroup>
+
+  <!-- Share log4net.config với main project (single source of truth). Link để MSBuild
+       treat như file cục bộ của worker → copy vào bin. Sửa config 1 chỗ, worker + web đều nhận. -->
+  <ItemGroup>
+    <None Include="..\log4net.config" Link="log4net.config">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </None>
+  </ItemGroup>
+</Project>

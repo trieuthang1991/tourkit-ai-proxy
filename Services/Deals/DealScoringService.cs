@@ -186,16 +186,56 @@ HỒ SƠ CƠ HỘI:
 
 Gọi submit_deal_score NGAY. KHÔNG trả text giải thích ngoài tool.";
 
-    private const string CommonRules = @"QUY TẮC:
-1. Chỉ dựa trên hồ sơ trên, KHÔNG bịa
-2. winRate = % khả năng chốt thành công (0-100)
-3. level: 'cao' (≥60), 'trung_binh' (35-59), 'thap' (<35)
-4. signals: dấu hiệu TÍCH CỰC (khách quan tâm, Sale chăm đều, đã báo giá...)
-5. risks: rủi ro làm tuột deal (lâu không chăm, khách im, cạnh tranh...)
-6. nextAction: 1 hành động CỤ THỂ Sale nên làm tiếp theo NGAY (vd 'Gọi lại trong hôm nay chốt cọc vì khách đã đồng ý giá')
-7. reason: 1 câu vì sao nên ưu tiên (hoặc không)
-8. HỒ SƠ KHÁCH HÀNG (nếu có trong hồ sơ): khách mua lại nhiều / tổng chi cao / hạng A → TĂNG khả năng thắng; khách MỚI chưa giao dịch → thận trọng hơn. Nhưng KHÔNG để lịch sử KH lấn át tín hiệu deal hiện tại (trạng thái, độ chăm, phản hồi).
-9. Tiếng Việt ngắn gọn, thực dụng";
+    private const string CommonRules = @"═══ QUY TẮC CHẤM WIN RATE (theo THỨ TỰ ưu tiên — dừng ở BƯỚC ĐẦU TIÊN khớp) ═══
+
+BƯỚC 1 — Trạng thái cuối (winRate = ĐỊNH SẴN):
+  • Trạng thái là 'Chốt đơn' / 'Đã chốt' / 'Thành công' / 'Hoàn thành' / 'Đã bán'
+    → winRate = 95, level = cao (deal đã THẮNG)
+  • Trạng thái là 'Hủy' / 'Từ chối' / 'Không thành công' / 'Không mua'
+    → winRate = 5, level = thap (deal đã THUA)
+  ↓ Nếu trạng thái đang triển khai (Mới/Tư vấn/Báo giá/Đàm phán/...), tiếp BƯỚC 2
+
+BƯỚC 2 — Deal quá tuổi (nguy cơ mất khách):
+  • Tuổi > 60 ngày + không có hoạt động Sale trong 30 ngày qua
+    → winRate 5-15 (khách có thể đã đi công ty khác)
+  • Tuổi 30-60 ngày mà chưa báo giá → winRate 15-25
+  ↓ Nếu tuổi bình thường, tiếp BƯỚC 3
+
+BƯỚC 3 — Base score theo hành động Sale (chính):
+  • Sale chăm rất đều (≥3 ghi chú/tháng) + có phản hồi khách tích cực → base 70-85
+  • Sale chăm bình thường (1-2 ghi chú/tháng) + khách còn tương tác → base 45-65
+  • Sale ít chăm (<1 ghi chú/tháng) → base 25-40
+  • Sale CHƯA động vào deal (0 ghi chú Sale) → base 10-25 (dù khách mới)
+
+BƯỚC 4 — Điều chỉnh theo lịch sử khách hàng (nếu có trong hồ sơ):
+  • Khách VIP thân thiết (đã đi ≥5 tour, tổng chi ≥20 triệu) → +10-15 điểm
+  • Khách mua lại (đã đi 2-4 tour) → +5-10 điểm
+  • Khách mới chưa có giao dịch nào → 0 (không cộng/trừ)
+  • Khách có lịch sử khiếu nại/hủy tour trước → −10 tới −15 điểm
+
+BƯỚC 5 — CAP CHẤT LƯỢNG DỮ LIỆU (áp SAU cùng):
+  Nếu giá trị deal = 0đ VÀ trạng thái KHÔNG phải 'Chốt đơn'/'Hủy'
+    → CAP winRate ≤ 30 (chưa xác định được nhu cầu/ngân sách thực của khách)
+  Nếu nội dung phiếu chứa từ 'test'/'demo'/'thử' hoặc dữ liệu bất thường
+    → CAP winRate ≤ 25 (dữ liệu chưa hoàn thiện, khó chấm chuẩn)
+
+═══ LEVEL AUTO-DERIVE ═══
+  cao (winRate ≥ 60) · trung_binh (35-59) · thap (<35)
+
+═══ QUY ƯỚC OUTPUT ═══
+  • reason: 1 câu nêu BƯỚC nào trúng (VD: 'BƯỚC 1 — Trạng thái Chốt đơn: deal đã thắng, cần xác nhận cọc và triển khai')
+  • signals: 1-3 tín hiệu TÍCH CỰC bằng ngôn ngữ tự nhiên (VD 'Khách VIP đã đi 5 tour, có lòng tin', 'Sale phản hồi khách trong 24h')
+  • risks: 1-3 rủi ro làm tuột deal (VD 'Sale chưa liên hệ khách 15 ngày', 'Giá trị deal 0đ, chưa xác định ngân sách')
+  • nextAction: 1 việc CỤ THỂ Sale làm HÔM NAY, không chung chung
+    ĐÚNG: 'Gọi anh Sơn hôm nay xác nhận nhu cầu tour 4N3Đ Đà Nẵng cho gia đình 6 người'
+    SAI:  'Chăm sóc khách hàng'
+
+═══ NGÔN NGỮ TỰ NHIÊN — KHÔNG dùng thuật ngữ tech tiếng Anh ═══
+  Dùng 'giá trị deal' / 'giá trị cơ hội' KHÔNG dùng 'amount', 'totalPrice='
+  Dùng 'khách hàng' / 'khách' KHÔNG dùng 'customer'
+  Dùng 'nhân viên chăm sóc' / 'Sale' KHÔNG dùng 'assignee='
+  Dùng 'trạng thái' KHÔNG dùng 'statusName='
+  Số tiền: '25 triệu' / '500 nghìn' KHÔNG '25000000' hay 'totalPrice=0'";
 
     // ─── Schema cho native tool ─────────────────────────────────────────────────
     private static JsonElement BuildDealScoreSchema()

@@ -113,43 +113,64 @@ public class DealBatchService
                 return;
             }
 
-            // Tầng 2: AI chấm sâu song song
-            await Parallel.ForEachAsync(ranked,
-                new ParallelOptions { MaxDegreeOfParallelism = Concurrency, CancellationToken = ct },
-                async (deal, innerCt) =>
+            // Tầng 2: BATCH fetch context (1 HTTP/50 deal) → parallel score trong chunk.
+            // Trước đây: mỗi deal 3 HTTP call (detail + comments + enrich KH) — 60 HTTP cho 20 deal.
+            // Giờ: 1 HTTP batch cho 50 deal → giảm ~150 lần. Fingerprint đồng nhất với workflow.
+            const int ContextBatchSize = 50;
+            for (int start = 0; start < ranked.Count; start += ContextBatchSize)
+            {
+                var chunk = ranked.GetRange(start, Math.Min(ContextBatchSize, ranked.Count - start));
+                List<DealOpportunityClient.DealWithContext> contexts;
+                try
                 {
-                    try
-                    {
-                        var ctx = await _client.GetContextAsync(sessionId, deal, innerCt);
-                        // Cache đã BỎ (yêu cầu 2026-06-18): luôn chấm lại, KHÔNG check _repo.GetScore.
-                        // DealScoring CHỈ đọc model/key từ appsettings (Models:DealScoring) — bỏ override
-                        // từ frontend (cfg.provider/cfg.model trong localStorage hay làm sai vì FE từng set
-                        // anthropic/haiku, đè qua config server-side grok-4.3 → log toàn haiku).
-                        DealScore score = await _scorer.ScoreAsync(ctx.Profile, null, null, null, innerCt);
-                        // SaveScore VẪN GIỮ: worker DealScoreSyncService đọc dbo.DealScores → sync cột [rank]
-                        // xuống BookingTickets tenant DB → frontend filter rank/Win cao/thấp dùng được.
-                        _repo.SaveScore(tenant, deal.Id, ctx.Fingerprint, score);
+                    contexts = await _client.GetContextsAsync(sessionId, chunk.Select(d => d.Id), ct);
+                }
+                catch (OperationCanceledException) { throw; }
+                catch (Exception ex)
+                {
+                    _log.LogWarning(ex, "[deals] batch context ({N} deal) lỗi", chunk.Count);
+                    lock (gate) { job.Errors += chunk.Count; }
+                    foreach (var d in chunk)
+                        await Emit(job, "error", new { id = d.Id }, ex.Message);
+                    continue;
+                }
 
-                        var (priority, ev) = DealHeuristic.FinalPriority(score.WinRate, deal.TotalPrice, deal.AgeDays);
-                        var item = new DealBoardItem(
-                            Id: deal.Id, Code: deal.Code, CustomerName: deal.CustomerName ?? "(không tên)",
-                            Phone: deal.Phone, Title: deal.Title, TotalPrice: deal.TotalPrice,
-                            StatusName: deal.StatusName, SourceName: deal.SourceName, Assignees: deal.Assignees,
-                            AgeDays: deal.AgeDays, WinRate: score.WinRate, Level: score.Level,
-                            PriorityScore: priority, ExpectedValue: ev, Deep: true,
-                            RiskFlag: DealHeuristic.RiskFlag(deal.AgeDays), Analysis: score);
-
-                        lock (gate) { items.Add(item); job.Done++; }
-                        await Emit(job, "scored", new { done = job.Done, total = job.Total, item });
-                    }
-                    catch (OperationCanceledException) { throw; }
-                    catch (Exception ex)
+                await Parallel.ForEachAsync(contexts,
+                    new ParallelOptions { MaxDegreeOfParallelism = Concurrency, CancellationToken = ct },
+                    async (dwc, innerCt) =>
                     {
-                        _log.LogWarning(ex, "[deals] chấm deal {Id} lỗi", deal.Id);
-                        lock (gate) { job.Errors++; }
-                        await Emit(job, "error", new { id = deal.Id }, ex.Message);
-                    }
-                });
+                        var deal = dwc.Deal;
+                        var ctx = dwc.Context;
+                        try
+                        {
+                            // Cache đã BỎ (yêu cầu 2026-06-18): luôn chấm lại, KHÔNG check _repo.GetScore.
+                            // DealScoring CHỈ đọc model/key từ appsettings (Models:DealScoring).
+                            DealScore score = await _scorer.ScoreAsync(ctx.Profile, null, null, null, innerCt);
+                            // SaveScore VẪN GIỮ: worker DealScoreSyncService đọc dbo.DealScores → sync cột [rank]
+                            // xuống BookingTickets tenant DB → frontend filter rank/Win cao/thấp dùng được.
+                            _repo.SaveScore(tenant, deal.Id, ctx.Fingerprint, score);
+
+                            var (priority, ev) = DealHeuristic.FinalPriority(score.WinRate, deal.TotalPrice, deal.AgeDays);
+                            var item = new DealBoardItem(
+                                Id: deal.Id, Code: deal.Code, CustomerName: deal.CustomerName ?? "(không tên)",
+                                Phone: deal.Phone, Title: deal.Title, TotalPrice: deal.TotalPrice,
+                                StatusName: deal.StatusName, SourceName: deal.SourceName, Assignees: deal.Assignees,
+                                AgeDays: deal.AgeDays, WinRate: score.WinRate, Level: score.Level,
+                                PriorityScore: priority, ExpectedValue: ev, Deep: true,
+                                RiskFlag: DealHeuristic.RiskFlag(deal.AgeDays), Analysis: score);
+
+                            lock (gate) { items.Add(item); job.Done++; }
+                            await Emit(job, "scored", new { done = job.Done, total = job.Total, item });
+                        }
+                        catch (OperationCanceledException) { throw; }
+                        catch (Exception ex)
+                        {
+                            _log.LogWarning(ex, "[deals] chấm deal {Id} lỗi", deal.Id);
+                            lock (gate) { job.Errors++; }
+                            await Emit(job, "error", new { id = deal.Id }, ex.Message);
+                        }
+                    });
+            }
 
             var sorted = items.OrderByDescending(i => i.PriorityScore).ToList();
             var board = new DealBoard(sorted, DateTime.UtcNow.ToString("o"), scanned, sorted.Count);

@@ -8,10 +8,12 @@
   <ItemGroup>
     <Folder Include="Task\" />
   </ItemGroup>
-  <!-- Test project nằm trong thư mục con → loại khỏi glob **/*.cs của project chính. -->
+  <!-- Test + Worker project nằm trong thư mục con → loại khỏi glob **/*.cs của project chính. -->
   <ItemGroup>
     <Compile Remove="TourkitAiProxy.Tests/**/*.cs" />
     <Content Remove="TourkitAiProxy.Tests/**" />
+    <Compile Remove="TourkitAiProxy.Worker/**/*.cs" />
+    <Content Remove="TourkitAiProxy.Worker/**" />
   </ItemGroup>
   <!-- ── Frontend bundle (esbuild) — auto build khi Release/Publish ───────────
        Dev (`dotnet run` Debug): skip → wwwroot/dist/ không tồn tại → index.html
@@ -42,12 +44,21 @@
   <ItemGroup>
     <PackageReference Include="Dapper" Version="2.1.79" />
     <PackageReference Include="DocumentFormat.OpenXml" Version="3.1.0" />
+    <PackageReference Include="log4net" Version="3.3.2" />
     <PackageReference Include="MailKit" Version="4.17.0" />
     <PackageReference Include="Microsoft.Data.SqlClient" Version="7.0.1" />
+    <PackageReference Include="Microsoft.Extensions.Logging.Log4Net.AspNetCore" Version="8.0.0" />
     <PackageReference Include="Mscc.GenerativeAI" Version="3.1.0" />
     <PackageReference Include="OpenAI" Version="2.4.0" />
     <PackageReference Include="SharpCompress" Version="0.49.1" />
     <PackageReference Include="StackExchange.Redis" Version="2.13.17" />
     <PackageReference Include="UglyToad.PdfPig" Version="1.7.0-custom-5" />
+  </ItemGroup>
+
+  <!-- log4net.config: copy vào output cả 2 project (web + worker share). -->
+  <ItemGroup>
+    <None Update="log4net.config">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </None>
   </ItemGroup>
 </Project>

@@ -149,6 +149,122 @@ public class DealOpportunityClient
     /// Hồ sơ 1 deal cho AI chấm: detail + timeline comments (hành động Sale). Fingerprint = hash để cache.
     public record DealContext(string Profile, string Fingerprint, int CommentCount);
 
+    /// Wrapper: deal metadata (từ list) + context text đã compose. Trả từ <see cref="GetContextsAsync"/> batch.
+    public record DealWithContext(DealOpportunity Deal, DealContext Context);
+
+    /// <summary>
+    /// BATCH — call upstream <c>/api/ai/booking-tickets/context?ids=1,2,3</c> → gộp base deal + comments +
+    /// customer profile trong 1 HTTP. DÙNG CHUNG cho MỌI luồng AI deal review (batch analyze + workflow
+    /// Pass 1/Pass 2/Cooling) → fingerprint đồng nhất.
+    ///
+    /// Cap 50 id/call (upstream truncate). Trả empty nếu ids rỗng / upstream 0 rows.
+    /// Profile TEXT compose ở proxy (không upstream) — nếu đổi format prompt sau này chỉ đụng file này.
+    /// </summary>
+    public async Task<List<DealWithContext>> GetContextsAsync(string sessionId, IEnumerable<int> ids, CancellationToken ct)
+    {
+        var idList = ids.Where(i => i > 0).Distinct().Take(50).ToList();
+        if (idList.Count == 0) return new List<DealWithContext>();
+        var csv = string.Join(",", idList);
+        var path = "/api/ai/booking-tickets/context?ids=" + Uri.EscapeDataString(csv);
+        var data = await GetAsync(sessionId, path, ct);
+
+        var result = new List<DealWithContext>();
+        if (data.ValueKind == JsonValueKind.Object && data.TryGetProperty("items", out var items) && items.ValueKind == JsonValueKind.Array)
+            foreach (var it in items.EnumerateArray())
+                result.Add(BuildFromContext(it));
+        return result;
+    }
+
+    /// Chuyển 1 <c>AiBookingTicketContext</c> (JSON) → <see cref="DealWithContext"/>: parse deal metadata +
+    /// compose Profile text (giống <see cref="GetContextAsync"/> per-deal cũ) + fingerprint.
+    private static DealWithContext BuildFromContext(JsonElement e)
+    {
+        var createdAt = GetStr(e, "createdAt");
+        var deal = new DealOpportunity(
+            Id:                 GetInt(e, "id") ?? 0,
+            Code:               GetStr(e, "code"),
+            CustomerName:       GetStr(e, "customerName") ?? "(không tên)",
+            Phone:              GetStr(e, "phone"),
+            Title:              GetStr(e, "title"),
+            TotalPrice:         GetLong(e, "totalPrice") ?? 0,
+            Status:             GetInt(e, "status") ?? 0,
+            StatusName:         GetStr(e, "statusName"),
+            Source:             GetInt(e, "source") ?? 0,
+            SourceName:         GetStr(e, "sourceName"),
+            MarketName:         GetStr(e, "marketName"),
+            Assignees:          GetStr(e, "assignees"),
+            AssigneeEmail:      GetStr(e, "assigneeEmail"),
+            CreatedAt:          createdAt ?? "",
+            AgeDays:            GetInt(e, "ageDays") ?? AgeDays(createdAt),
+            LatestComment:      null,       // list này KHÔNG có latest single, dùng full Comments[] bên dưới
+            LatestCommentBy:    null,
+            LatestCommentDate:  null,
+            LastInteractionAt:  GetStr(e, "lastInteractionAt"),
+            CoolingDays:        GetInt(e, "coolingDays") ?? 0,
+            IsCooling:          GetBool(e, "isCooling"));
+
+        // Compose Profile text (mirror GetContextAsync per-deal, giữ prompt shape ổn định)
+        var sb = new StringBuilder();
+        sb.Append("CƠ HỘI: ").Append(deal.Title ?? deal.Code ?? $"#{deal.Id}").Append('\n');
+        sb.Append("Khách: ").Append(deal.CustomerName);
+        if (!string.IsNullOrWhiteSpace(deal.Phone)) sb.Append(" · ").Append(deal.Phone);
+        sb.Append('\n');
+        sb.Append("Giá trị: ").Append(deal.TotalPrice.ToString("#,##0", CultureInfo.InvariantCulture)).Append(" đ\n");
+        sb.Append("Trạng thái: ").Append(deal.StatusName ?? deal.Status.ToString()).Append('\n');
+        sb.Append("Nguồn: ").Append(deal.SourceName ?? "?");
+        if (!string.IsNullOrWhiteSpace(deal.MarketName)) sb.Append(" · Thị trường: ").Append(deal.MarketName);
+        sb.Append('\n');
+        sb.Append("Người phụ trách: ").Append(string.IsNullOrWhiteSpace(deal.Assignees) ? "(chưa giao)" : deal.Assignees).Append('\n');
+        sb.Append("Tuổi cơ hội: ").Append(deal.AgeDays).Append(" ngày kể từ tạo\n");
+
+        var content = GetStr(e, "content");
+        if (!string.IsNullOrWhiteSpace(content)) sb.Append("Nội dung phiếu: ").Append(content!.Trim()).Append('\n');
+
+        // Comments timeline — upstream đã strip HTML + cap 30
+        int commentCount = 0;
+        if (e.TryGetProperty("comments", out var cArr) && cArr.ValueKind == JsonValueKind.Array && cArr.GetArrayLength() > 0)
+        {
+            sb.Append("\nLỊCH SỬ HÀNH ĐỘNG CỦA SALE (mới→cũ):\n");
+            foreach (var c in cArr.EnumerateArray())
+            {
+                var who = GetStr(c, "userName") ?? "NV";
+                var when = GetStr(c, "date") ?? "";
+                var note = GetStr(c, "content") ?? "";
+                if (string.IsNullOrWhiteSpace(note)) continue;
+                commentCount++;
+                sb.Append("• [").Append(FmtDate(when)).Append("] ").Append(who).Append(": ").Append(note.Trim()).Append('\n');
+            }
+            if (commentCount == 0) sb.Append("(Chưa có ghi chú hành động nào — Sale chưa chăm sóc)\n");
+        }
+        else
+        {
+            sb.Append("\n(Chưa có ghi chú hành động nào — Sale chưa chăm sóc)\n");
+        }
+
+        // Customer profile enrich — upstream đã compose join theo IdKhachHang
+        if (e.TryGetProperty("customer", out var cust) && cust.ValueKind == JsonValueKind.Object)
+        {
+            sb.Append("\nHỒ SƠ KHÁCH HÀNG (lịch sử CRM):\n");
+            var grp = GetStr(cust, "groupName");
+            var tours = GetInt(cust, "totalTours") ?? 0;
+            var revFmt = GetStr(cust, "totalRevenueFormatted");
+            var rankName = GetStr(cust, "rankName");
+            var lastCare = GetStr(cust, "lastCareDateFormatted");
+            var cnote = GetStr(cust, "note") ?? "";
+            if (!string.IsNullOrWhiteSpace(grp)) sb.Append("• Nhóm: ").Append(grp).Append('\n');
+            sb.Append("• Đã mua: ").Append(tours).Append(" tour");
+            if (!string.IsNullOrWhiteSpace(revFmt)) sb.Append(" · Tổng chi: ").Append(revFmt);
+            sb.Append('\n');
+            if (!string.IsNullOrWhiteSpace(rankName)) sb.Append("• Hạng AI của khách: ").Append(rankName).Append('\n');
+            if (!string.IsNullOrWhiteSpace(lastCare)) sb.Append("• Chăm sóc cuối: ").Append(lastCare).Append('\n');
+            if (!string.IsNullOrWhiteSpace(cnote)) sb.Append("• Nhu cầu/ghi chú: ").Append(cnote.Length > 200 ? cnote[..200] : cnote).Append('\n');
+            if (tours == 0) sb.Append("• (Khách MỚI — chưa có giao dịch nào trong CRM)\n");
+        }
+
+        var profile = sb.ToString().Trim();
+        return new DealWithContext(deal, new DealContext(profile, Fingerprint(profile), commentCount));
+    }
+
     public async Task<DealContext> GetContextAsync(string sessionId, DealOpportunity deal, CancellationToken ct)
     {
         var sb = new StringBuilder();

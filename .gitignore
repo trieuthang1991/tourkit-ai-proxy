@@ -55,6 +55,10 @@ data/visa-leads.jsonl
 _server.log
 *.log
 
+# log4net output — rolling file appender ghi vào logs/app-YYYY-MM-DD.log + logs/error-*.log
+# Rotate 30-90 file; append từ nhiều instance nên KHÔNG commit + KHÔNG mount volume chung khi scale.
+logs/
+
 # Audio test sample (binary, không phải source)
 test-audio/
 

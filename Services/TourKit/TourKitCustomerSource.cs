@@ -91,6 +91,103 @@ public class TourKitCustomerSource
         return BuildFull(id, detail, orders);
     }
 
+    /// <summary>
+    /// BATCH — call upstream /api/ai/customers/context?ids=1,2,3 → Customer[] có ĐẦY ĐỦ Purchases + CareLogs.
+    /// **NGUỒN DUY NHẤT** cho MỌI luồng AI review (page endpoint, batch service, workflow auto-review) →
+    /// fingerprint đồng nhất giữa các luồng, không re-review nhầm.
+    ///
+    /// Cap 50 id/call (upstream tự truncate). Caller phân batch nếu &gt;50.
+    /// KH id không tồn tại/không có quyền → im lặng bỏ (dict trả về không có key đó).
+    /// </summary>
+    public async Task<List<Customer>> GetContextsAsync(string sessionId, IEnumerable<string> ids, CancellationToken ct)
+    {
+        var idList = ids.Where(s => !string.IsNullOrWhiteSpace(s)).Distinct().Take(50).ToList();
+        if (idList.Count == 0) return new List<Customer>();
+        var csv = string.Join(",", idList);
+        var path = "/api/ai/customers/context?ids=" + Uri.EscapeDataString(csv);
+        var data = await GetAsync(sessionId, path, ct);
+
+        var list = new List<Customer>();
+        if (data.ValueKind == JsonValueKind.Object && data.TryGetProperty("items", out var items) && items.ValueKind == JsonValueKind.Array)
+            foreach (var it in items.EnumerateArray())
+                list.Add(MapContext(it));
+        return list;
+    }
+
+    /// Map AiCustomerContext (upstream JSON) → Customer đầy đủ. DÙNG CHUNG cho page/batch/workflow.
+    private static Customer MapContext(JsonElement e)
+    {
+        var id = (GetInt(e, "id") ?? 0).ToString();
+        var tours = GetInt(e, "totalTours") ?? 0;
+        var totalRevenue = GetLong(e, "totalRevenue") ?? 0;
+        var lastCareDate = GetStr(e, "lastCareDateFormatted") ?? GetStr(e, "lastCareDate");
+        var lastPurchase = GetStr(e, "lastPurchaseDate");   // upstream trả ISO
+        var lastDaysAgo = GetInt(e, "lastPurchaseDaysAgo");
+        var avgBetween = GetInt(e, "avgDaysBetweenOrders");
+
+        // Purchases — sort desc by DepartureDate (canonical → fingerprint ổn định).
+        var purchases = new List<TourPurchase>();
+        if (e.TryGetProperty("purchases", out var pArr) && pArr.ValueKind == JsonValueKind.Array)
+        {
+            foreach (var p in pArr.EnumerateArray())
+            {
+                var date = GetStr(p, "departureDate") ?? "";
+                purchases.Add(new TourPurchase(
+                    Date: date.Length >= 10 ? date[..10] : date,
+                    Destination: GetStr(p, "tourTitle") ?? GetStr(p, "tourCode") ?? "Tour",
+                    Nights: 0, Pax: 0,
+                    Amount: GetLong(p, "totalAmount") ?? 0,
+                    Channel: null));
+            }
+            purchases = purchases.OrderByDescending(x => x.Date).ToList();
+        }
+
+        // CareLogs — upstream đã StripHtml + top 30 mới nhất. Sort desc by Date.
+        var careLogs = new List<CareLog>();
+        if (e.TryGetProperty("careLogs", out var cArr) && cArr.ValueKind == JsonValueKind.Array)
+        {
+            foreach (var c in cArr.EnumerateArray())
+            {
+                var date = GetStr(c, "date") ?? "";
+                careLogs.Add(new CareLog(
+                    Date: date.Length >= 10 ? date[..10] : date,
+                    Channel: "comment",                                    // upstream comment thuần, không phân kênh
+                    Summary: GetStr(c, "content") ?? "",
+                    Sentiment: "neutral",                                  // KHÔNG chạy sentiment — để default ổn định fingerprint
+                    Outcome: GetStr(c, "userName")));                      // dùng userName làm outcome tag (ai ghi)
+            }
+            careLogs = careLogs.OrderByDescending(x => x.Date).ToList();
+        }
+
+        return new Customer(
+            Id:        id,
+            Code:      GetStr(e, "code"),
+            Name:      GetStr(e, "fullName") ?? "(không tên)",
+            Phone:     GetStr(e, "phone"),
+            Email:     GetStr(e, "email"),
+            Age:       null,
+            Gender:    GetStr(e, "genderName") ?? GetStr(e, "gender"),
+            Location:  GetStr(e, "address"),
+            Segment:   GetStr(e, "groupName") ?? GetStr(e, "customerTypeName") ?? Segment(tours, totalRevenue),
+            CreatedAt: GetStr(e, "createdAt") ?? "",
+            Source:    GetStr(e, "customerSourceName"),
+            Metrics:   new CustomerMetrics(
+                TotalTours: tours,
+                TotalSpent: totalRevenue,
+                Aov: tours > 0 ? totalRevenue / tours : 0,
+                LastPurchaseDate: lastPurchase,
+                LastPurchaseDaysAgo: lastDaysAgo,
+                AvgDaysBetweenOrders: avgBetween,
+                CareInteractions: careLogs.Count,
+                LastCareDaysAgo: null,   // dẫn xuất được từ lastCareDate nhưng để null cho gọn (dùng lastCareDate là đủ)
+                ComplaintCount: 0,       // TODO: đếm từ careLogs sentiment khi bật sentiment analysis
+                CancelCount: 0,
+                LastCareDate: lastCareDate),
+            Purchases: purchases,
+            CareLogs:  careLogs,
+            Note:      GetStr(e, "note"));
+    }
+
     // ─── Mapping ──────────────────────────────────────────────────────────────────
     private static Customer MapLight(JsonElement e)
     {
