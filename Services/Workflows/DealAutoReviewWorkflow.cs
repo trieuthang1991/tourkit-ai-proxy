@@ -19,7 +19,7 @@ namespace TourkitAiProxy.Services.Workflows;
 ///   Cảnh báo nguội: deal đang mở + nguội ≥ ngưỡng → enqueue 1 mail (template + params) vào dbo.OutboundMails.
 ///
 /// Auth: SERVICE ACCOUNT per-tenant (dbo.TenantServiceAccounts) → tự login, KHÔNG cần user online.
-/// Quota+Log: bọc AI call bằng AiCallContext.Push("deal-auto-review") → trừ quota tenant + log đúng tên.
+/// Quota+Log: bọc AI call bằng AiCallContext.Push(AiFeatures.DealAutoReview) → trừ quota tenant + log đúng tên.
 /// KHÔNG gửi email — chỉ enqueue; worker riêng (CEO viết) render template + resolve NV phụ trách + gửi.
 /// </summary>
 public class DealAutoReviewWorkflow : IScheduledWorkflow
@@ -109,7 +109,7 @@ public class DealAutoReviewWorkflow : IScheduledWorkflow
             tenantId, svc.Username, sessionId, swLogin.ElapsedMilliseconds);
 
         // QUOTA + LOG: bọc TOÀN BỘ phần gọi AI để trừ quota tenant + log feature="deal-auto-review".
-        using var _aiScope = _aiCtx.Push("deal-auto-review", tenantId, sessionId);
+        using var _aiScope = _aiCtx.Push(AiFeatures.DealAutoReview, tenantId, sessionId);
 
         var startDate = DateTime.UtcNow.Date.AddDays(-opt.CreatedWithinDays).ToString("yyyy-MM-dd");
         bool InStatuses(DealOpportunity d) => opt.Statuses.Count == 0 || opt.Statuses.Contains(d.Status);

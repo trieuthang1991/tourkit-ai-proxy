@@ -49,7 +49,7 @@ public class BatchService
 
         // AsyncLocal: endpoint return rồi → HttpContext null → providers thấy unknown/null tenant.
         // Push override để AI usage log đúng "reviews" + quota consume đúng tenant per AI call.
-        using var _ctxScope = _ctx.Push("reviews", tenantId, sessionId);
+        using var _ctxScope = _ctx.Push(AiFeatures.Reviews, tenantId, sessionId);
 
         // Trace cho batch (AsyncLocal flow từ endpoint /reviews/batch). Mỗi review per-KH set
         // SetWorkflow("CustomerReview") sẽ ghi đè — set lần cuối ở đây thành "CustomerReviewBatch"

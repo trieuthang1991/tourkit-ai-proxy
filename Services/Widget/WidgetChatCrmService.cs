@@ -111,7 +111,7 @@ public class WidgetChatCrmService
         var resolved = _modelRegistry.Resolve(AiFeature.Widget);
         var provider = _registry.Resolve(resolved.Provider);
 
-        using var tenantScope = _ctx.Push("widget-crm", token.TenantId);
+        using var tenantScope = _ctx.Push(AiFeatures.WidgetCrm, token.TenantId);
         var req = new CompleteRequest(
             Prompt: prompt, Provider: provider.Id, Model: resolved.Model,
             MaxTokens: MAX_TOKENS, Temperature: TEMP, System: system, ApiKey: resolved.ApiKey,
@@ -167,7 +167,7 @@ public class WidgetChatCrmService
 
         var resolved = _modelRegistry.Resolve(AiFeature.Widget);
         var provider = _registry.Resolve(resolved.Provider);
-        using var tenantScope = _ctx.Push("widget-crm-plan", token.TenantId);
+        using var tenantScope = _ctx.Push(AiFeatures.WidgetCrmPlan, token.TenantId);
         var req = new CompleteRequest(prompt, provider.Id, resolved.Model, 400, 0.1, sys, ApiKey: resolved.ApiKey);
         var res = await provider.CompleteAsync(req, ct);
 

@@ -40,7 +40,7 @@ public class WidgetChatService
         var resolved = _modelRegistry.Resolve(AiFeature.Widget);
         var provider = _registry.Resolve(resolved.Provider);
 
-        using var tenantScope = _ctx.Push("widget", token.TenantId);
+        using var tenantScope = _ctx.Push(AiFeatures.Widget, token.TenantId);
         var req = new CompleteRequest(
             Prompt: prompt, Provider: provider.Id, Model: resolved.Model,
             MaxTokens: MAX_TOKENS, Temperature: TEMP, System: system, ApiKey: resolved.ApiKey,
@@ -61,7 +61,7 @@ public class WidgetChatService
         var resolved = _modelRegistry.Resolve(AiFeature.Widget);
         var provider = _registry.Resolve(resolved.Provider);
 
-        using var tenantScope = _ctx.Push("widget", token.TenantId);
+        using var tenantScope = _ctx.Push(AiFeatures.Widget, token.TenantId);
         var req = new CompleteRequest(
             Prompt: prompt, Provider: provider.Id, Model: resolved.Model,
             MaxTokens: MAX_TOKENS, Temperature: TEMP, System: system, ApiKey: resolved.ApiKey,

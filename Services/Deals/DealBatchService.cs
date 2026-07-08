@@ -57,7 +57,7 @@ public class DealBatchService
         // AsyncLocal: HttpContext gone sau khi endpoint return → providers gọi _ctx.Resolve() sẽ trả
         // feature=unknown + tenant=null (bypass quota). Push override để mọi AI call trong batch log
         // "deals" + đếm quota đúng tenant. Flow qua Parallel.ForEachAsync vì AsyncLocal capture.
-        using var _ctxScope = _ctx.Push("deals", tenant, sessionId);
+        using var _ctxScope = _ctx.Push(AiFeatures.Deals, tenant, sessionId);
 
         // Trace flow qua AsyncLocal từ endpoint /deals/analyze → batch background work.
         var trace = _traceAccessor.Current;

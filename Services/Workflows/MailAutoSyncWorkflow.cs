@@ -41,7 +41,7 @@ public class MailAutoSyncWorkflow : IScheduledWorkflow
         var opt = MailAutoSyncOptions.Parse(optionsJson);
         // QUOTA + LOG: workflow nền KHÔNG có HttpContext → phải Push để AI classify/auto-reply trừ quota
         // tenant + log đúng feature ("mail-auto-sync"). Thiếu Push = bypass quota + log tenant=null (bug cũ).
-        using var _aiScope = _aiCtx.Push("mail-auto-sync", tenantId);
+        using var _aiScope = _aiCtx.Push(AiFeatures.MailAutoSync, tenantId);
         try
         {
             // max nhỏ cho mỗi run nền: kết nối nhẹ → ít bị Gmail RST; backlog tự drain dần qua các chu kỳ.

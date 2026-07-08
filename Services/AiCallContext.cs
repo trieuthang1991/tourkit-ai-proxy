@@ -2,6 +2,36 @@ using TourkitAiProxy.Services.TourKit;
 
 namespace TourkitAiProxy.Services;
 
+/// <summary>
+/// Tên feature cho AI usage log + quota tag. Dùng trong <see cref="AiCallContext.Push"/> khi endpoint /
+/// workflow gọi AI. Ghi vào cột <c>dbo.AiUsageHistory.Feature</c>.
+///
+/// <b>NGUYÊN TẮC:</b> Đổi giá trị chuỗi = đổi tag lịch sử → phá query admin dashboard / báo cáo cost.
+/// Chỉ thêm mới, KHÔNG đổi tên chuỗi các key cũ. Nếu cần rename → phải backfill DB.
+/// </summary>
+public static class AiFeatures
+{
+    // ── HTTP endpoint features — auto-detect qua AiCallContext.FeatureFromPath ──
+    public const string Chat            = "chat";
+    public const string Completions     = "completions";
+    public const string Deals           = "deals";              // /deals/analyze + /deals/{id}/rescore
+    public const string Reviews         = "reviews";            // /reviews/batch
+    public const string Mail            = "mail";
+    public const string Visa            = "visa";
+    public const string TourBuilder     = "tour-builder";
+    public const string NccImport       = "ncc-import";
+    public const string Widget          = "widget";
+    public const string WidgetCrm       = "widget-crm";
+    public const string WidgetCrmPlan   = "widget-crm-plan";
+    public const string Other           = "other";
+    public const string Unknown         = "unknown";
+
+    // ── Background workflow features — Push() từ workflow entry ──
+    public const string MailAutoSync        = "mail-auto-sync";
+    public const string DealAutoReview      = "deal-auto-review";
+    public const string CustomerAutoReview  = "customer-auto-review";
+}
+
 /// Trích context từ HttpContext cho AI usage logging:
 ///   • feature từ path (/api/v1/visa/* → visa, /api/v1/deals/* → deals…)
 ///   • sessionId từ header X-Session-Id
@@ -12,7 +42,7 @@ namespace TourkitAiProxy.Services;
 /// AsyncLocal override (`Push`): batch fire-and-forget (DealBatchService, Reviews/BatchService) sau khi
 /// endpoint trả về thì HttpContext đã null → Resolve sẽ trả unknown/null/null, AI usage log sẽ thấy
 /// feature=unknown + tenant=null + bypass quota. Endpoint kick off batch phải gọi
-/// `using var _ = _ctx.Push("deals", tenant, sessionId)` trước khi gọi provider → AsyncLocal flow qua
+/// `using var _ = _ctx.Push(AiFeatures.Deals, tenant, sessionId)` trước khi gọi provider → AsyncLocal flow qua
 /// Task.Run/Parallel.ForEachAsync nên background work vẫn có context đúng.
 public class AiCallContext
 {
@@ -33,7 +63,7 @@ public class AiCallContext
         if (_override.Value != null) return _override.Value;
 
         var http = _accessor.HttpContext;
-        if (http == null) return new Ctx("unknown", null, null);
+        if (http == null) return new Ctx(AiFeatures.Unknown, null, null);
         var path = http.Request.Path.Value ?? "";
         var feature = FeatureFromPath(path);
         var sid = http.Request.Headers["X-Session-Id"].FirstOrDefault();
@@ -60,14 +90,14 @@ public class AiCallContext
     private static string FeatureFromPath(string path)
     {
         var p = path.ToLowerInvariant();
-        if (p.Contains("/visa/"))         return "visa";
-        if (p.Contains("/deals/"))        return "deals";
-        if (p.Contains("/tour-builder/")) return "tour-builder";
-        if (p.Contains("/mail/"))         return "mail";
-        if (p.Contains("/ncc-import/"))   return "ncc-import";
-        if (p.Contains("/reviews/"))      return "reviews";
-        if (p.Contains("/chat"))          return "chat";
-        if (p.Contains("/completions"))   return "completions";
-        return "other";
+        if (p.Contains("/visa/"))         return AiFeatures.Visa;
+        if (p.Contains("/deals/"))        return AiFeatures.Deals;
+        if (p.Contains("/tour-builder/")) return AiFeatures.TourBuilder;
+        if (p.Contains("/mail/"))         return AiFeatures.Mail;
+        if (p.Contains("/ncc-import/"))   return AiFeatures.NccImport;
+        if (p.Contains("/reviews/"))      return AiFeatures.Reviews;
+        if (p.Contains("/chat"))          return AiFeatures.Chat;
+        if (p.Contains("/completions"))   return AiFeatures.Completions;
+        return AiFeatures.Other;
     }
 }

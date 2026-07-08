@@ -1,6 +1,7 @@
 using System.Text;
 using System.Text.Json;
 using TourkitAiProxy.Models;
+using TourkitAiProxy.Services;
 using TourkitAiProxy.Services.Deals;
 using TourkitAiProxy.Services.TourKit;
 
@@ -195,6 +196,51 @@ public static class DealEndpoints
             if (sess == null) return Unauthorized();
             var board = repo.GetBoard(sess.TenantId);
             return Results.Json(board ?? new DealBoard(new(), "", 0, 0));
+        });
+
+        // ─── POST /deals/{id}/rescore ─── chấm lại 1 deal (SYNC, cho nút "Chấm lại" ở drawer) ──
+        // Khác batch analyze: sync/1 deal/không SSE — response trả luôn DealBoardItem đã update
+        // để FE swap vào state. Mirror /reviews/customer/{id}/refresh của Customer.
+        v1.MapPost("/deals/{id:int}/rescore", async (int id, HttpContext ctx,
+            DealOpportunityClient client, DealScoringService scorer, DealRepository repo,
+            TourkitAiProxy.Services.AiCallContext aiCtx,
+            TkSessionStore sessions, ILogger<Program> log) =>
+        {
+            var sid = Sid(ctx);
+            var sess = sessions.Get(sid);
+            if (sess == null) return Unauthorized();
+
+            // Bọc AI call: trừ quota tenant + log feature="deals".
+            using var _ = aiCtx.Push(AiFeatures.Deals, sess.TenantId, sid);
+
+            try
+            {
+                // Fetch context (base + comments + customer profile enrich) — DÙNG CHUNG với batch/workflow.
+                var contexts = await client.GetContextsAsync(sid!, new[] { id }, ctx.RequestAborted);
+                var dwc = contexts.FirstOrDefault();
+                if (dwc == null) return Results.NotFound(new { error = $"Không tìm thấy cơ hội #{id}" });
+
+                var deal = dwc.Deal;
+                var context = dwc.Context;
+                var score = await scorer.ScoreAsync(context.Profile, null, null, null, ctx.RequestAborted);
+                repo.SaveScore(sess.TenantId, deal.Id, context.Fingerprint, score);
+
+                var (priority, ev) = DealHeuristic.FinalPriority(score.WinRate, deal.TotalPrice, deal.AgeDays);
+                var item = new DealBoardItem(
+                    Id: deal.Id, Code: deal.Code, CustomerName: deal.CustomerName ?? "(không tên)",
+                    Phone: deal.Phone, Title: deal.Title, TotalPrice: deal.TotalPrice,
+                    StatusName: deal.StatusName, SourceName: deal.SourceName, Assignees: deal.Assignees,
+                    AgeDays: deal.AgeDays, WinRate: score.WinRate, Level: score.Level,
+                    PriorityScore: priority, ExpectedValue: ev, Deep: true,
+                    RiskFlag: DealHeuristic.RiskFlag(deal.AgeDays), Analysis: score);
+                return Results.Json(new { item });
+            }
+            catch (TourKitApiException ex) { return Results.Json(new { error = ex.Message }, statusCode: ex.Status); }
+            catch (Exception ex)
+            {
+                log.LogError(ex, "Rescore deal {Id} lỗi", id);
+                return Results.Json(new { error = ex.Message }, statusCode: 500);
+            }
         });
     }
 

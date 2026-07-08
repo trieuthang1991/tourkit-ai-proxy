@@ -19,7 +19,7 @@ namespace TourkitAiProxy.Services.Workflows;
 /// `/api/ai/customers/context` mà page endpoint + batch service dùng → fingerprint đồng nhất,
 /// không re-review nhầm do shape lệch.
 ///
-/// Auth = service account per-tenant. Quota+Log: <c>AiCallContext.Push("customer-auto-review")</c>.
+/// Auth = service account per-tenant. Quota+Log: <c>AiCallContext.Push(AiFeatures.CustomerAutoReview)</c>.
 /// </summary>
 public class CustomerAutoReviewWorkflow : IScheduledWorkflow
 {
@@ -99,7 +99,7 @@ public class CustomerAutoReviewWorkflow : IScheduledWorkflow
         _log.LogInformation("[CustomerAutoReview] tenant={T} login OK user={U} sessionId={Sid} ({Ms}ms)",
             tenantId, svc.Username, sessionId, swLogin.ElapsedMilliseconds);
 
-        using var _aiScope = _aiCtx.Push("customer-auto-review", tenantId, sessionId);
+        using var _aiScope = _aiCtx.Push(AiFeatures.CustomerAutoReview, tenantId, sessionId);
 
         int reviewed = 0, rereviewed = 0, skippedUnchanged = 0, skippedAlreadyReviewed = 0;
         bool quotaHit = false, timedOut = false;

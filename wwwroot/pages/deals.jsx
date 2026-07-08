@@ -33,10 +33,31 @@ async function readDealStream(url, onEvent) {
 }
 
 // ─── Drawer chi tiết 1 deal ───────────────────────────────────────────────────
-function DealDrawer({ item, onClose }) {
+function DealDrawer({ item: initialItem, onClose, onRescored, pushToast }) {
+  const [item, setItem] = React.useState(initialItem);
+  const [rescoring, setRescoring] = React.useState(false);
+  React.useEffect(() => { setItem(initialItem); }, [initialItem]);
   if (!item) return null;
   const lv = dealLevel(item.level);
   const a = item.analysis || {};
+
+  // Gọi endpoint sync POST /deals/{id}/rescore → nhận DealBoardItem mới → cập nhật state drawer.
+  const rescore = async () => {
+    setRescoring(true);
+    try {
+      const resp = await window.tourkitAuth.authedFetch(`/api/v1/deals/${item.id}/rescore`, { method: 'POST' });
+      const json = await resp.json();
+      if (!resp.ok) throw new Error(json.error || 'Chấm lại thất bại');
+      setItem(json.item);
+      pushToast?.('✓ Đã chấm lại cơ hội');
+      onRescored?.(json.item);
+    } catch (e) {
+      pushToast?.('Chấm lại lỗi: ' + e.message, 'warn');
+    } finally {
+      setRescoring(false);
+    }
+  };
+
   const Block = ({ title, items, icon, tone }) => items && items.length > 0 ? (
     <div className={'deal-block ' + tone}>
       <div className="deal-block-head"><Icon name={icon} size={15} /> {title}</div>
@@ -72,6 +93,13 @@ function DealDrawer({ item, onClose }) {
       <Block title="Dấu hiệu tích cực" items={a.signals} icon="checkCircle" tone="good" />
       <Block title="Rủi ro" items={a.risks} icon="warning" tone="warn" />
       {a.reason && <div className="deal-reason">{a.reason}</div>}
+
+      {/* Footer: nút Chấm lại (mirror Customer review "Cập nhật review") */}
+      <div style={{marginTop: 16, display: 'flex', justifyContent: 'flex-end'}}>
+        <button className="btn btn-primary" onClick={rescore} disabled={rescoring} style={{gap: 6}}>
+          <Icon name="refresh" size={13} /> {rescoring ? 'Đang chấm...' : 'Chấm lại'}
+        </button>
+      </div>
     </aside>
   </>);
 }
@@ -693,7 +721,22 @@ function DealsPage({ pushToast }) {
         )}
       </>)}
 
-      {sel && <DealDrawer item={sel} onClose={() => setSel(null)} />}
+      {sel && <DealDrawer
+        item={sel}
+        onClose={() => setSel(null)}
+        pushToast={pushToast}
+        onRescored={(updated) => {
+          // Sync board local state (không cần reload full list): update deal item + swap board entry
+          setSel(updated);
+          setBoard(b => b ? { ...b, items: b.items.map(x => x.id === updated.id ? updated : x) } : b);
+          setList(ls => ls.map(x => x.id === updated.id
+            ? { ...x, winRate: updated.winRate, level: updated.level, scoreStatus: 'fresh',
+                score: { winRate: updated.winRate, level: updated.level, signals: updated.analysis?.signals,
+                         risks: updated.analysis?.risks, nextAction: updated.analysis?.nextAction,
+                         reason: updated.analysis?.reason, priorityScore: updated.priorityScore,
+                         expectedValue: updated.expectedValue, riskFlag: updated.riskFlag } }
+            : x));
+        }} />}
 
       {/* Confirm modal khi chấm THỦ CÔNG (đã chọn deal) — pattern Khách hàng.
           Auto mode skip modal (chấm thẳng). */}
