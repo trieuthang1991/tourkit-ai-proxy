@@ -1,0 +1,102 @@
+name: Deploy Website (IIS)
+
+# Build + deploy website TourkitAiProxy lên IIS qua self-hosted runner.
+# Worker (TourkitAiProxy.Worker) KHÔNG deploy ở workflow này.
+
+on:
+  push:
+    branches: [ main ]
+    paths-ignore:
+      - 'TourkitAiProxy.Worker/**'
+      - 'docs/**'
+      - '**/*.md'
+  workflow_dispatch:        # cho phép bấm "Run workflow" thủ công trên GitHub
+
+env:
+  # ⬇️ SỬA cho khớp IIS của bạn. Deploy CÙNG 1 build ra 2 site.
+  #   - Site USER: phục vụ người dùng (appsettings.json để RunScheduler=false)
+  #   - Site WF:   chạy workflow scheduler (appsettings.json để RunScheduler=true
+  #                + App Pool phải AlwaysRunning / Idle=0 — xem README)
+  SITE_USER_PATH: 'C:\inetpub\wwwroot\Tour_AI'           # Physical Path site người dùng (TourkitAI)
+  SITE_WF_PATH:   'C:\inetpub\wwwroot\Tour_AI_Workflows' # Physical Path site workflow (TourkitAIWorkflows)
+  WARMUP_USER_URL: 'https://tourkit-ai.tourkit.vn/healthz'   # site TourkitAI (host header)
+  WARMUP_WF_URL:   'https://workflows.travelai.vn/healthz'   # site TourkitAIWorkflows (host header)
+  PUBLISH_DIR: '${{ github.workspace }}\_publish'
+
+jobs:
+  deploy:
+    runs-on: [self-hosted, windows]   # chạy trên runner cài trên server đích
+    concurrency:
+      group: deploy-web-iis           # không cho 2 lần deploy chồng nhau
+      cancel-in-progress: false
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup .NET 8 SDK
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '8.0.x'
+
+      - name: Setup Node 20 (cho esbuild bundle frontend ở Release)
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Publish (Release — MSBuild tự bundle frontend qua esbuild)
+        run: |
+          dotnet publish TourkitAiProxy.csproj -c Release -o "${{ env.PUBLISH_DIR }}"
+
+      - name: Deploy sang 2 site IIS (app_offline + robocopy)
+        shell: powershell
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $publish = "${{ env.PUBLISH_DIR }}"
+
+          # 2 site cung 1 build. warmup = URL goi sau deploy de ep app khoi dong lai
+          # (quan trong voi site WF: khong co user truy cap nhung van phai spin up scheduler).
+          $targets = @(
+            @{ name = 'USER';     path = "${{ env.SITE_USER_PATH }}"; warmup = "${{ env.WARMUP_USER_URL }}" },
+            @{ name = 'WORKFLOW'; path = "${{ env.SITE_WF_PATH }}";   warmup = "${{ env.WARMUP_WF_URL }}"   }
+          )
+
+          foreach ($t in $targets) {
+            $site = $t.path
+            Write-Host "==== Deploy site $($t.name): $site ===="
+            if (-not (Test-Path $site)) { throw "Path khong ton tai: $site" }
+
+            # 1) app_offline.htm -> IIS nha khoa file + hien trang bao tri
+            Copy-Item ".github\deploy\app_offline.htm" (Join-Path $site "app_offline.htm") -Force
+            Start-Sleep -Seconds 3
+
+            # 2) Copy de. /MIR mirror nhung LOAI TRU cac thu runtime cua server:
+            #    - appsettings.json  (secrets + RunScheduler khac nhau giua 2 site — KHONG de de)
+            #    - logs\ , data\     (log4net + reviews.json/visa-files... runtime state)
+            #    - app_offline.htm   (dang dung, khong de bi purge)
+            robocopy "$publish" "$site" /MIR /NFL /NDL /NP /R:3 /W:5 `
+                     /XF appsettings.json app_offline.htm `
+                     /XD logs data
+            if ($LASTEXITCODE -ge 8) { throw "robocopy that bai ($site): exit=$LASTEXITCODE" }
+
+            # 3) Go app_offline.htm -> ASP.NET Core Module khoi dong lai app
+            Remove-Item (Join-Path $site "app_offline.htm") -Force -ErrorAction SilentlyContinue
+          }
+          Write-Host "Deploy ca 2 site hoan tat."
+
+      - name: Warm-up + Health check
+        shell: powershell
+        run: |
+          Start-Sleep -Seconds 5
+          # Goi tung site 1 lan de ep khoi dong pipeline.
+          # Site WF: buoc nay dam bao WorkflowSchedulerService bat dau tick ngay,
+          #          khong phai cho request dau tien tu user.
+          $urls = @{ USER = "${{ env.WARMUP_USER_URL }}"; WORKFLOW = "${{ env.WARMUP_WF_URL }}" }
+          foreach ($k in $urls.Keys) {
+            try {
+              $r = Invoke-WebRequest -UseBasicParsing $urls[$k] -TimeoutSec 30
+              Write-Host "$k healthz -> $($r.StatusCode)"
+            } catch {
+              Write-Warning "$k warm-up chua pass (kiem tra binding/port): $($_.Exception.Message)"
+            }
+          }

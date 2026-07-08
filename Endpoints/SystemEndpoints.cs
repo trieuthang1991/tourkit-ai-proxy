@@ -8,9 +8,10 @@ public static class SystemEndpoints
     {
         routes.MapGet("/healthz", () => Results.Json(new
         {
-            ok       = true,
-            service  = "Tourkit AI Proxy",
-            version  = "v1",
+            ok        = true,
+            service   = "Tourkit AI Proxy",
+            version   = "v1.0.1",
+            deployedVia = "github-actions",
             endpoints = new[]
             {
                 "GET  /api/v1/providers",
