@@ -76,8 +76,8 @@ public static class SpeechEndpoints
 
         // ── TTS: text → audio. Ưu tiên Piper (open-source, offline, FREE) → fallback OpenAI (nếu có key).
         //    Chỉ gọi khi máy KHÔNG có giọng vi trình duyệt. Cache theo nội dung (câu lặp = free).
-        v1.MapPost("/speech/tts", async (HttpContext ctx, TtsRequest req, PiperTtsService piper, TextToSpeechService openai,
-            TkSessionStore sessions, ILogger<Program> log) =>
+        v1.MapPost("/speech/tts", async (HttpContext ctx, TtsRequest req, EdgeTtsService edge, PiperTtsService piper,
+            TextToSpeechService openai, TkSessionStore sessions, ILogger<Program> log) =>
         {
             var sid = Sid(ctx);
             if (sessions.Get(sid) == null) return Unauthorized();
@@ -85,13 +85,27 @@ public static class SpeechEndpoints
                 return Results.BadRequest(new { error = "Thiếu 'text'" });
             try
             {
-                if (piper.Configured)   // Piper có sẵn → free offline
+                // 1) edge-tts: giọng vi neural CHUẨN, free (cần mạng). MS chặn/lỗi → thử engine sau.
+                if (edge.Enabled)
+                {
+                    try
+                    {
+                        var (mp3e, ce) = await edge.SynthesizeAsync(req.Text, req.Voice, ctx.RequestAborted);
+                        ctx.Response.Headers["X-Tts-Cached"] = ce ? "1" : "0";
+                        ctx.Response.Headers["X-Tts-Engine"] = "edge";
+                        return Results.File(mp3e, "audio/mpeg");
+                    }
+                    catch (Exception ex) { log.LogWarning("edge-tts fail ({Msg}) — thử engine khác", ex.Message); }
+                }
+                // 2) Piper offline (nếu cấu hình)
+                if (piper.Configured)
                 {
                     var (wav, cached) = await piper.SynthesizeAsync(req.Text, ctx.RequestAborted);
                     ctx.Response.Headers["X-Tts-Cached"] = cached ? "1" : "0";
                     ctx.Response.Headers["X-Tts-Engine"] = "piper";
                     return Results.File(wav, "audio/wav");
                 }
+                // 3) OpenAI (nếu có key)
                 var (mp3, cached2) = await openai.SynthesizeAsync(req.Text, req.Voice, ctx.RequestAborted);
                 ctx.Response.Headers["X-Tts-Cached"] = cached2 ? "1" : "0";
                 ctx.Response.Headers["X-Tts-Engine"] = "openai";

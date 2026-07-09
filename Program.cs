@@ -158,9 +158,10 @@ builder.Services.AddSingleton<TourkitAiProxy.Services.TourQuotes.TourQuoteReposi
 // Speech-to-Text (Whisper) — chat assistant ghi âm / upload audio → text.
 builder.Services.AddSingleton<TourkitAiProxy.Services.Speech.SpeechToTextService>();
 // Text-to-Speech — JARVIS đọc reply khi máy không có giọng vi miễn phí.
-// Ưu tiên Piper (open-source, offline, FREE) → fallback OpenAI (nếu có key). Cache chống lặp.
-builder.Services.AddSingleton<TourkitAiProxy.Services.Speech.PiperTtsService>();          // FREE offline (ưu tiên)
-builder.Services.AddSingleton<TourkitAiProxy.Services.Speech.TextToSpeechService>();       // OpenAI (fallback nếu có key)
+// Ưu tiên edge-tts (giọng vi neural CHUẨN, free, cần mạng) → Piper (offline) → OpenAI (nếu có key).
+builder.Services.AddSingleton<TourkitAiProxy.Services.Speech.EdgeTtsService>();            // FREE, giọng vi chuẩn (ưu tiên)
+builder.Services.AddSingleton<TourkitAiProxy.Services.Speech.PiperTtsService>();           // FREE offline (fallback)
+builder.Services.AddSingleton<TourkitAiProxy.Services.Speech.TextToSpeechService>();        // OpenAI (fallback nếu có key)
 
 // Thẩm định Visa AI — upload hồ sơ → AI vision đọc → chấm tỉ lệ đậu/rớt.
 // File gốc lưu tạm data/visa-files/ (tự xóa 7 ngày), kết quả data/visa-assessments.json.
