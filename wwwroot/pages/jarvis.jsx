@@ -289,6 +289,71 @@ function JarvisPage({ pushToast }) {
   // Dừng đọc khi rời trang
   _jE(() => () => { try { window.speechSynthesis?.cancel(); audioRef.current?.pause(); } catch {} }, []);
 
+  // ── Đọc THEO TỪNG CÂU khi đang stream → giọng bắt đầu sớm, đỡ cảm giác chậm ──
+  const spokenIdxRef = _jR(0);      // số ký tự reply đã đưa vào hàng đợi đọc
+  const ttsQueueRef = _jR([]);      // hàng đợi câu chờ đọc (server path — GIỮ THỨ TỰ)
+  const ttsBusyRef = _jR(false);
+  const cleanForSpeech = (t) => String(t).replace(/```[\s\S]*?```/g, ' ').replace(/\[(.*?)\]\(.*?\)/g, '$1')
+    .replace(/[*_`#>|~]/g, '').replace(/\s+/g, ' ').trim();
+
+  function resetSpeech() {
+    spokenIdxRef.current = 0; ttsQueueRef.current = []; ttsBusyRef.current = false;
+    try { window.speechSynthesis?.cancel(); } catch {}
+    try { audioRef.current?.pause(); } catch {}
+  }
+
+  // Tách câu hoàn chỉnh từ full[spokenIdx..] → đọc từng câu. isFinal: đọc nốt phần đuôi.
+  function flushSentences(full, isFinal) {
+    if (!voiceOnRef.current) return;
+    const rest = full.slice(spokenIdxRef.current);
+    const re = /[^.!?…\n]*[.!?…\n]+/g;
+    let m, consumed = 0;
+    while ((m = re.exec(rest)) !== null) { const s = m[0].trim(); if (s) speakChunk(s); consumed = re.lastIndex; }
+    spokenIdxRef.current += consumed;
+    if (isFinal) {
+      const tail = full.slice(spokenIdxRef.current).trim();
+      if (tail) { speakChunk(tail); spokenIdxRef.current = full.length; }
+    }
+  }
+
+  function speakChunk(text) {
+    const v = window.speechSynthesis ? resolveVoice() : null;
+    if (v) {
+      const clean = humanizeForSpeech(cleanForSpeech(text));
+      if (!clean) return;
+      const u = new SpeechSynthesisUtterance(clean);
+      u.voice = v; u.lang = v.lang || 'vi-VN'; u.rate = 1; u.pitch = 1;
+      u.onstart = () => setSpeaking(true);
+      u.onend = () => { if (!window.speechSynthesis.pending && !window.speechSynthesis.speaking) setSpeaking(false); };
+      window.speechSynthesis.speak(u);   // KHÔNG cancel → nối vào hàng đợi native
+    } else {
+      if (ttsDisabledRef.current) return;
+      ttsQueueRef.current.push(text);
+      pumpServerQueue();
+    }
+  }
+
+  async function pumpServerQueue() {
+    if (ttsBusyRef.current) return;
+    const text = ttsQueueRef.current.shift();
+    if (!text) return;
+    ttsBusyRef.current = true;
+    const clean = humanizeForSpeech(cleanForSpeech(text));
+    try {
+      const r = await window.tourkitAuth.authedFetch('/api/v1/speech/tts', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ text: clean })
+      });
+      if (!r.ok) { ttsDisabledRef.current = true; ttsBusyRef.current = false; hintNoVoice(); return; }
+      const url = URL.createObjectURL(await r.blob());
+      const a = new Audio(url); audioRef.current = a; setSpeaking(true);
+      a.onended = a.onerror = () => {
+        URL.revokeObjectURL(url); ttsBusyRef.current = false;
+        if (ttsQueueRef.current.length) pumpServerQueue(); else setSpeaking(false);
+      };
+      await a.play();
+    } catch (e) { ttsBusyRef.current = false; if (ttsQueueRef.current.length) pumpServerQueue(); }
+  }
+
   async function send(textArg) {
     const text = (typeof textArg === 'string' ? textArg : input).trim();
     if (!text || loading || !sessionId) return;
@@ -298,8 +363,7 @@ function JarvisPage({ pushToast }) {
     setInput('');
     setLoading(true);
     setOrbState('thinking');
-    try { window.speechSynthesis?.cancel(); } catch {}
-    try { audioRef.current?.pause(); } catch {}   // ngắt TTS đang đọc khi hỏi câu mới
+    resetSpeech();   // ngắt TTS câu cũ + reset hàng đợi đọc theo câu
 
     const patch = (fn) => setMessages(m => { const c = [...m]; if (c[asstIdx]) c[asstIdx] = fn(c[asstIdx]); return c; });
 
