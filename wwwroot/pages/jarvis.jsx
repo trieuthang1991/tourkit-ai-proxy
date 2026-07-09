@@ -177,7 +177,7 @@ function humanizeForSpeech(text) {
       const n = parseInt(num.replace(/[.,\s]/g, ''), 10);
       if (!isFinite(n) || n < 1_000_000) return m;   // < 1 triệu → giữ nguyên
       const u = unit ? ' ' + unit : ' đồng';
-      const fmt = (x) => (Math.round(x * 10) / 10).toString().replace('.', ' phẩy ');
+      const fmt = (x) => Math.round(x).toString();   // làm tròn số nguyên — bỏ phần lẻ sau dấu phẩy
       return n >= 1e9 ? `khoảng ${fmt(n / 1e9)} tỷ${u}` : `khoảng ${fmt(n / 1e6)} triệu${u}`;
     });
   return speakifyNames(money);
@@ -242,6 +242,13 @@ function JarvisPage({ pushToast }) {
   _jE(() => { listeningRef.current = listening; }, [listening]);
   _jE(() => { loadingRef.current = loading; }, [loading]);
   _jE(() => { speakingRef.current = speaking; }, [speaking]);
+  // Orb bận khi đang ĐỌC/tạo giọng → KHÔNG về "SẴN SÀNG" cho tới khi đọc xong.
+  // (loading=đang gen text → send() tự set thinking/responding; effect này lo giai đoạn TTS sau đó.)
+  _jE(() => {
+    if (loading) return;                 // đang stream text → để send() điều khiển orb
+    if (speaking) setOrbState('responding');
+    else setOrbState(listeningRef.current ? 'listening' : 'idle');
+  }, [speaking, loading]);
 
   const cfg = (window.tourkit && window.tourkit.ai && window.tourkit.ai.getConfig)
     ? window.tourkit.ai.getConfig() : {};
@@ -290,22 +297,27 @@ function JarvisPage({ pushToast }) {
     else speakViaServer(text);
   }
 
-  // Câu chào — bắn khi user TƯƠNG TÁC lần đầu (trình duyệt chặn autoplay âm thanh lúc mới load,
-  // nên phải chờ 1 gesture). Chỉ chào 1 lần, nếu loa đang bật & chưa hỏi câu nào.
+  // Câu chào = PHÁT FILE THU SẴN (wwwroot/audio/jarvis-greeting.mp3, giọng HoaiMy) → tức thì, KHỎI gen.
   const greetedRef = _jR(false);
+  function playGreeting() {
+    if (greetedRef.current || !voiceOnRef.current || loadingRef.current) return;
+    greetedRef.current = true;   // đánh dấu đã thử (tránh phát nhiều lần)
+    const a = new Audio('/audio/jarvis-greeting.mp3?v=2');
+    audioRef.current = a;
+    a.onended = () => setSpeaking(false);
+    a.onerror = () => setSpeaking(false);   // file 404 → thôi (không gen)
+    setSpeaking(true);
+    a.play().catch(() => { greetedRef.current = false; setSpeaking(false); });  // autoplay bị chặn → cho gesture thử lại
+  }
+
+  // Chào NGAY khi vào trang (thử phát luôn). Nếu trình duyệt chặn autoplay → tự phát lại ở
+  // tương tác đầu tiên (playGreeting reset greetedRef khi bị chặn để gesture thử lại).
   _jE(() => {
-    const greet = () => {
-      if (greetedRef.current) return;
-      greetedRef.current = true;
-      window.removeEventListener('pointerdown', greet, true);
-      window.removeEventListener('keydown', greet, true);
-      // chỉ chào nếu bật loa & chưa gửi câu nào (tránh đè lên câu trả lời)
-      if (voiceOnRef.current && !loadingRef.current)
-        setTimeout(() => { if (!loadingRef.current) speakText('Xin chào! Tôi là JARVIS, trợ lý số liệu của bạn. Bạn cần tôi giúp gì?'); }, 150);
-    };
-    window.addEventListener('pointerdown', greet, true);
-    window.addEventListener('keydown', greet, true);
-    return () => { window.removeEventListener('pointerdown', greet, true); window.removeEventListener('keydown', greet, true); };
+    const t = setTimeout(playGreeting, 500);         // thử phát ngay
+    const retry = () => playGreeting();              // fallback nếu bị chặn autoplay
+    window.addEventListener('pointerdown', retry, true);
+    window.addEventListener('keydown', retry, true);
+    return () => { clearTimeout(t); window.removeEventListener('pointerdown', retry, true); window.removeEventListener('keydown', retry, true); };
   }, []);
   // Dừng đọc khi rời trang
   _jE(() => () => { try { window.speechSynthesis?.cancel(); audioRef.current?.pause(); } catch {} }, []);
@@ -359,6 +371,7 @@ function JarvisPage({ pushToast }) {
     const text = ttsQueueRef.current.shift();
     if (!text) return;
     ttsBusyRef.current = true;
+    setSpeaking(true);   // báo bận NGAY khi bắt đầu gen giọng (edge-tts round-trip) → orb không về "SẴN SÀNG"
     const clean = humanizeForSpeech(cleanForSpeech(text));
     try {
       const r = await window.tourkitAuth.authedFetch('/api/v1/speech/tts', {
@@ -372,7 +385,7 @@ function JarvisPage({ pushToast }) {
         if (ttsQueueRef.current.length) pumpServerQueue(); else setSpeaking(false);
       };
       await a.play();
-    } catch (e) { ttsBusyRef.current = false; if (ttsQueueRef.current.length) pumpServerQueue(); }
+    } catch (e) { ttsBusyRef.current = false; if (ttsQueueRef.current.length) pumpServerQueue(); else setSpeaking(false); }
   }
 
   async function send(textArg) {
@@ -408,19 +421,23 @@ function JarvisPage({ pushToast }) {
           if (o.tool) setLastTool(o.tool);
           return;
         }
-        if (o.delta) { setOrbState('responding'); full += o.delta; patch(a => ({ ...a, content: a.content + o.delta })); return; }
+        if (o.delta) {
+          setOrbState('responding'); full += o.delta; patch(a => ({ ...a, content: a.content + o.delta }));
+          flushSentences(full, false);   // đọc từng câu ngay khi stream → giọng bắt đầu sớm
+          return;
+        }
         if (o.done) {
           if (o.reply) { full = o.reply; patch(a => ({ ...a, content: o.reply })); }
           if (o.toolName) setLastTool(o.toolName);
         }
       });
-      if (voiceOn) speakReply(full);
+      flushSentences(full, true);   // đọc nốt phần đuôi
     } catch (e) {
       patch(a => ({ ...a, content: '⚠️ ' + e.message, error: true }));
     } finally {
       patch(a => ({ ...a, streaming: false }));
       setLoading(false);
-      setOrbState(listeningRef.current ? 'listening' : 'idle');
+      // Orb: KHÔNG ép "SẴN SÀNG" ở đây — effect [speaking,loading] tự giữ "ĐANG TRẢ LỜI" tới khi đọc xong.
     }
   }
 
