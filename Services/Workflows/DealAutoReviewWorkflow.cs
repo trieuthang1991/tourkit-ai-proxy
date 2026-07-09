@@ -26,6 +26,8 @@ public class DealAutoReviewWorkflow : IScheduledWorkflow
 {
     private const int CancelStatus = 5;   // TourKit BookingTicketStatus: 5 = Hủy
     private const string AlertKind = "deal-cooling-alert";
+    private const int MaxAlertsPerRun = 200;   // chốt chặn: 1 run enqueue tối đa 200 alert nguội (phòng runaway
+                                               // khi tenant test có hàng nghìn deal nguội). Còn lại chờ run sau.
     private const int ContextBatchSize = 50;   // upstream /api/ai/booking-tickets/context cap 50 id/call
     private const int AiConcurrency = 10;      // song song 10 AI call/chunk (mirror DealBatchService + Customer workflow).
                                                // Serial 30 deal × 8s = 4min → parallel 10 = 24s.
@@ -266,6 +268,11 @@ public class DealAutoReviewWorkflow : IScheduledWorkflow
             foreach (var deal in cooling)
             {
                 ct.ThrowIfCancellationRequested();
+                if (queued >= MaxAlertsPerRun)   // chốt chặn runaway: dừng enqueue khi chạm cap/run
+                {
+                    _log.LogWarning("[DealAutoReview] tenant={T} COOLING chạm cap {Cap} alert/run — dừng enqueue, phần còn lại chờ run sau", tenantId, MaxAlertsPerRun);
+                    break;
+                }
                 if (string.IsNullOrWhiteSpace(deal.Assignees)) { skippedNoAssignee++; continue; }   // chưa giao NV → worker không resolve được người nhận
                 var row = coolingRows.TryGetValue(deal.Id, out var r) ? r : null;
                 if (row?.IsFinalized == true) { skipped++; continue; }                               // đã chốt sổ → không nhắc

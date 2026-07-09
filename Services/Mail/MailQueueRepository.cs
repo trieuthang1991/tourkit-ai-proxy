@@ -39,8 +39,13 @@ SELECT CAST(SCOPE_IDENTITY() AS BIGINT);",
         return id;
     }
 
-    /// Đếm số mail (pending=0 hoặc sent=1) của 1 nghiệp vụ trong N giờ gần nhất + thời điểm mới nhất.
-    /// Dùng cho dedup/throttle (maxNotifications + giãn cách). Chỉ tính status active (không tính cancelled/skipped/failed).
+    /// Đếm số mail đã ENQUEUE của 1 nghiệp vụ trong N giờ gần nhất + thời điểm mới nhất.
+    /// Dùng cho dedup/throttle (maxNotifications + giãn cách).
+    ///
+    /// Tính MỌI status TRỪ Cancelled(3): mỗi dòng đều là 1 lần alert đã sinh ra, nên phải tính cả
+    /// Failed(2)/Skipped(4) — nếu chỉ đếm Pending(0)+Sent(1) thì khi mailer chết (mọi mail rơi vào Failed)
+    /// throttle luôn thấy 0 → re-enqueue mỗi tick → hàng đợi phình vô hạn (sự cố 33k mail 2026-07-09).
+    /// Cancelled(3) KHÔNG tính (admin chủ động hủy → không tiêu quota alert).
     public async Task<(int Total, DateTime? LastUtc)> CountRecentBySourceAsync(
         string tenantId, string kind, string sourceId, int withinHours, CancellationToken ct = default)
     {
@@ -49,7 +54,7 @@ SELECT CAST(SCOPE_IDENTITY() AS BIGINT);",
 SELECT COUNT(*) AS Total, MAX(CreatedUtc) AS LastUtc
 FROM dbo.OutboundMails
 WHERE TenantId = @tenantId AND Kind = @kind AND SourceId = @sourceId
-  AND [Status] IN (0, 1)
+  AND [Status] <> 3
   AND CreatedUtc >= DATEADD(HOUR, -@withinHours, SYSUTCDATETIME());",
             new { tenantId, kind, sourceId, withinHours });
         var last = row.LastUtc.HasValue ? DateTime.SpecifyKind(row.LastUtc.Value, DateTimeKind.Utc) : (DateTime?)null;
