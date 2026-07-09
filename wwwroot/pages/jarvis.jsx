@@ -136,11 +136,23 @@ function JarvisOrb({ state }) {
   );
 }
 
-// Đọc reply qua Web Speech API (miễn phí, chạy trình duyệt). Chọn giọng tiếng Việt nếu có.
+// Chọn giọng tiếng Việt TỐT NHẤT có sẵn (miễn phí). null nếu máy không có giọng vi nào.
+// Ưu tiên giọng neural "Natural/Online" (Edge: HoaiMy/NamMinh) → tự nhiên gần bằng TTS trả phí.
+// KHÔNG fallback giọng tiếng Anh (đọc chữ Việt bằng giọng Anh = ngọng líu lô).
+function getViVoice() {
+  const vs = window.speechSynthesis?.getVoices() || [];
+  const vi = vs.filter(v => /^vi([-_]|$)/i.test(v.lang) || /vietnam/i.test(v.name));
+  if (!vi.length) return null;
+  return vi.find(v => /natural|online/i.test(v.name))     // Edge neural (hay nhất)
+      || vi.find(v => /hoaimy|namminh/i.test(v.name))     // tên giọng vi neural
+      || vi[0];                                           // giọng vi bất kỳ (SAPI cũ)
+}
+
+// Đọc reply qua Web Speech API (MIỄN PHÍ). Chỉ đọc khi có giọng vi thật (tránh ngọng).
 // cb.onstart/onend để caller tạm ngưng "luôn nghe" khi loa đang đọc (chống mic nghe lại chính loa).
-function speak(text, cb) {
+function speak(text, voice, cb) {
   const synth = window.speechSynthesis;
-  if (!synth || !text) return;
+  if (!synth || !text || !voice) return;
   const clean = String(text)
     .replace(/```[\s\S]*?```/g, ' ')
     .replace(/\[(.*?)\]\(.*?\)/g, '$1')
@@ -148,10 +160,7 @@ function speak(text, cb) {
     .replace(/\s+/g, ' ').trim().slice(0, 700);
   if (!clean) return;
   const u = new SpeechSynthesisUtterance(clean);
-  const vs = synth.getVoices();
-  const vi = vs.find(v => /vi/i.test(v.lang)) || vs.find(v => /vietnam/i.test(v.name));
-  u.lang = vi ? vi.lang : 'vi-VN';
-  if (vi) u.voice = vi;
+  u.voice = voice; u.lang = voice.lang || 'vi-VN';
   u.rate = 1; u.pitch = 1;
   if (cb) { u.onstart = cb.onstart || null; u.onend = cb.onend || null; u.onerror = cb.onend || null; }
   synth.cancel();
@@ -195,8 +204,15 @@ function JarvisPage({ pushToast }) {
     if (logRef.current) logRef.current.scrollTop = logRef.current.scrollHeight;
   }, [messages]);
 
-  // Web Speech voices nạp bất đồng bộ — kích 1 lần để danh sách sẵn khi speak.
-  _jE(() => { try { window.speechSynthesis?.getVoices(); } catch {} }, []);
+  // Web Speech voices nạp bất đồng bộ — kích + lắng nghe voiceschanged để danh sách sẵn khi speak.
+  _jE(() => {
+    const synth = window.speechSynthesis;
+    if (!synth) return;
+    try { synth.getVoices(); } catch {}
+    const onVoices = () => { try { synth.getVoices(); } catch {} };
+    synth.addEventListener?.('voiceschanged', onVoices);
+    return () => synth.removeEventListener?.('voiceschanged', onVoices);
+  }, []);
   // Dừng đọc khi rời trang
   _jE(() => () => { try { window.speechSynthesis?.cancel(); } catch {} }, []);
 
@@ -252,7 +268,9 @@ function JarvisPage({ pushToast }) {
   // Đọc reply + báo trạng thái để tạm ngưng nghe trong lúc loa nói (chống vọng âm).
   function speakReply(text) {
     if (!voiceOn || !window.speechSynthesis) return;
-    speak(text, {
+    const v = getViVoice();
+    if (!v) { pushToast('Trình duyệt chưa có giọng tiếng Việt — mở bằng Microsoft Edge để nghe giọng Natural (miễn phí)', 'warn'); return; }
+    speak(text, v, {
       onstart: () => setSpeaking(true),
       onend: () => setSpeaking(false),
     });
@@ -388,8 +406,12 @@ function JarvisPage({ pushToast }) {
               <Icon name="phone" size={14} /> {listening ? 'LUÔN NGHE: BẬT' : 'LUÔN NGHE: TẮT'}
             </button>
             <button className={'jv-toggle' + (voiceOn ? ' on' : '')}
-              onClick={() => { const v = !voiceOn; setVoiceOn(v); if (!v) window.speechSynthesis?.cancel(); }}
-              title={voiceOn ? 'Đang đọc phản hồi (tắt loa)' : 'Bật đọc phản hồi bằng giọng nói'}>
+              onClick={() => {
+                const v = !voiceOn; setVoiceOn(v);
+                if (!v) window.speechSynthesis?.cancel();
+                else if (!getViVoice()) pushToast('Máy chưa có giọng tiếng Việt — mở bằng Microsoft Edge để có giọng Natural (miễn phí)', 'warn');
+              }}
+              title={voiceOn ? 'Đang đọc phản hồi (tắt loa)' : 'Bật đọc phản hồi bằng giọng nói (miễn phí, cần giọng vi — Edge tốt nhất)'}>
               <Icon name="bell" size={14} /> {voiceOn ? 'LOA: BẬT' : 'LOA: TẮT'}
             </button>
             <button className="jv-toggle" onClick={() => { setMessages([]); setLastTool(null); setOrbState('idle'); window.speechSynthesis?.cancel(); }}
