@@ -148,16 +148,30 @@ function getViVoice() {
       || vi[0];                                           // giọng vi bất kỳ (SAPI cũ)
 }
 
+// Số tiền lớn đọc theo TỪNG chữ số nghe buồn cười ("1.500.048.600.000" → "một-năm-không-không...").
+// Đổi sang "tỷ/triệu" cho tự nhiên: "1.500.048.600.000 đồng" → "khoảng 1500 tỷ đồng".
+function humanizeForSpeech(text) {
+  return String(text).replace(
+    /(\d{1,3}(?:[.,]\d{3})+)\s*(đồng|đ|vnđ|₫)?/gi,
+    (m, num, unit) => {
+      const n = parseInt(num.replace(/[.,\s]/g, ''), 10);
+      if (!isFinite(n) || n < 1_000_000) return m;   // < 1 triệu → giữ nguyên
+      const u = unit ? ' ' + unit : ' đồng';
+      const fmt = (x) => (Math.round(x * 10) / 10).toString().replace('.', ' phẩy ');
+      return n >= 1e9 ? `khoảng ${fmt(n / 1e9)} tỷ${u}` : `khoảng ${fmt(n / 1e6)} triệu${u}`;
+    });
+}
+
 // Đọc reply qua Web Speech API (MIỄN PHÍ). Chỉ đọc khi có giọng vi thật (tránh ngọng).
 // cb.onstart/onend để caller tạm ngưng "luôn nghe" khi loa đang đọc (chống mic nghe lại chính loa).
 function speak(text, voice, cb) {
   const synth = window.speechSynthesis;
   if (!synth || !text || !voice) return;
-  const clean = String(text)
+  const clean = humanizeForSpeech(String(text)
     .replace(/```[\s\S]*?```/g, ' ')
     .replace(/\[(.*?)\]\(.*?\)/g, '$1')
     .replace(/[*_`#>|~]/g, '')
-    .replace(/\s+/g, ' ').trim().slice(0, 700);
+    .replace(/\s+/g, ' ').trim().slice(0, 700));
   if (!clean) return;
   const u = new SpeechSynthesisUtterance(clean);
   u.voice = voice; u.lang = voice.lang || 'vi-VN';
@@ -180,7 +194,8 @@ function JarvisPage({ pushToast }) {
   const [loading, setLoading] = _jS(false);
   // Loa đọc reply — MẶC ĐỊNH BẬT; nhớ lựa chọn qua localStorage (khỏi bật lại mỗi lần).
   const [voiceOn, setVoiceOn] = _jS(() => { try { const s = localStorage.getItem('jarvis_voiceOn'); return s === null ? true : s === '1'; } catch { return true; } });
-  _jE(() => { try { localStorage.setItem('jarvis_voiceOn', voiceOn ? '1' : '0'); } catch {} }, [voiceOn]);
+  const voiceOnRef = _jR(true);
+  _jE(() => { voiceOnRef.current = voiceOn; try { localStorage.setItem('jarvis_voiceOn', voiceOn ? '1' : '0'); } catch {} }, [voiceOn]);
   const [viVoices, setViVoices] = _jS([]);           // giọng tiếng Việt khả dụng của trình duyệt (Edge có Natural)
   const [voiceName, setVoiceName] = _jS(() => { try { return localStorage.getItem('jarvis_voice') || ''; } catch { return ''; } });
   const voiceNameRef = _jR('');
@@ -247,19 +262,29 @@ function JarvisPage({ pushToast }) {
       { onstart: () => setSpeaking(true), onend: () => setSpeaking(false) });
   }
 
-  // Câu chào khi vào trang — đọc bằng loa nếu đang bật (chờ ~1s cho voices nạp xong).
+  // Đọc 1 đoạn text: giọng vi trình duyệt (free) → nếu không có thì server Piper. Dùng chung reply + chào.
+  function speakText(text) {
+    const v = window.speechSynthesis ? resolveVoice() : null;
+    if (v) speak(text, v, { onstart: () => setSpeaking(true), onend: () => setSpeaking(false) });
+    else speakViaServer(text);
+  }
+
+  // Câu chào — bắn khi user TƯƠNG TÁC lần đầu (trình duyệt chặn autoplay âm thanh lúc mới load,
+  // nên phải chờ 1 gesture). Chỉ chào 1 lần, nếu loa đang bật & chưa hỏi câu nào.
   const greetedRef = _jR(false);
   _jE(() => {
-    if (greetedRef.current) return;
-    const t = setTimeout(() => {
+    const greet = () => {
+      if (greetedRef.current) return;
       greetedRef.current = true;
-      if (!voiceOn) return;
-      const g = 'Xin chào! Tôi là JARVIS, trợ lý số liệu của bạn. Bạn cần tôi giúp gì?';
-      const v = window.speechSynthesis ? resolveVoice() : null;
-      if (v) speak(g, v, { onstart: () => setSpeaking(true), onend: () => setSpeaking(false) });
-      // không có giọng vi → im (không gọi dịch vụ trả phí)
-    }, 1000);
-    return () => clearTimeout(t);
+      window.removeEventListener('pointerdown', greet, true);
+      window.removeEventListener('keydown', greet, true);
+      // chỉ chào nếu bật loa & chưa gửi câu nào (tránh đè lên câu trả lời)
+      if (voiceOnRef.current && !loadingRef.current)
+        setTimeout(() => { if (!loadingRef.current) speakText('Xin chào! Tôi là JARVIS, trợ lý số liệu của bạn. Bạn cần tôi giúp gì?'); }, 150);
+    };
+    window.addEventListener('pointerdown', greet, true);
+    window.addEventListener('keydown', greet, true);
+    return () => { window.removeEventListener('pointerdown', greet, true); window.removeEventListener('keydown', greet, true); };
   }, []);
   // Dừng đọc khi rời trang
   _jE(() => () => { try { window.speechSynthesis?.cancel(); audioRef.current?.pause(); } catch {} }, []);
@@ -327,8 +352,8 @@ function JarvisPage({ pushToast }) {
   // Server chưa cấu hình engine nào → báo 1 lần rồi ngừng (không spam).
   async function speakViaServer(text) {
     if (ttsDisabledRef.current) { hintNoVoice(); return; }
-    const clean = String(text).replace(/```[\s\S]*?```/g, ' ').replace(/\[(.*?)\]\(.*?\)/g, '$1')
-      .replace(/[*_`#>|~]/g, '').replace(/\s+/g, ' ').trim();
+    const clean = humanizeForSpeech(String(text).replace(/```[\s\S]*?```/g, ' ').replace(/\[(.*?)\]\(.*?\)/g, '$1')
+      .replace(/[*_`#>|~]/g, '').replace(/\s+/g, ' ').trim());
     if (!clean) return;
     try {
       try { audioRef.current?.pause(); } catch {}
