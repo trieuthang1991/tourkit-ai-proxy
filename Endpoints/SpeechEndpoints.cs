@@ -74,9 +74,9 @@ public static class SpeechEndpoints
         })
         .DisableAntiforgery();        // multipart upload từ fetch không gửi anti-forgery token
 
-        // ── TTS: text → mp3 (OpenAI). CHỈ gọi khi máy KHÔNG có giọng vi miễn phí (frontend quyết).
-        //    Cache theo nội dung (câu lặp = free) + cap 600 ký tự → chống đốt tiền.
-        v1.MapPost("/speech/tts", async (HttpContext ctx, TtsRequest req, TextToSpeechService tts,
+        // ── TTS: text → audio. Ưu tiên Piper (open-source, offline, FREE) → fallback OpenAI (nếu có key).
+        //    Chỉ gọi khi máy KHÔNG có giọng vi trình duyệt. Cache theo nội dung (câu lặp = free).
+        v1.MapPost("/speech/tts", async (HttpContext ctx, TtsRequest req, PiperTtsService piper, TextToSpeechService openai,
             TkSessionStore sessions, ILogger<Program> log) =>
         {
             var sid = Sid(ctx);
@@ -85,8 +85,16 @@ public static class SpeechEndpoints
                 return Results.BadRequest(new { error = "Thiếu 'text'" });
             try
             {
-                var (mp3, cached) = await tts.SynthesizeAsync(req.Text, req.Voice, ctx.RequestAborted);
-                ctx.Response.Headers["X-Tts-Cached"] = cached ? "1" : "0";   // debug: có tính phí hay không
+                if (piper.Configured)   // Piper có sẵn → free offline
+                {
+                    var (wav, cached) = await piper.SynthesizeAsync(req.Text, ctx.RequestAborted);
+                    ctx.Response.Headers["X-Tts-Cached"] = cached ? "1" : "0";
+                    ctx.Response.Headers["X-Tts-Engine"] = "piper";
+                    return Results.File(wav, "audio/wav");
+                }
+                var (mp3, cached2) = await openai.SynthesizeAsync(req.Text, req.Voice, ctx.RequestAborted);
+                ctx.Response.Headers["X-Tts-Cached"] = cached2 ? "1" : "0";
+                ctx.Response.Headers["X-Tts-Engine"] = "openai";
                 return Results.File(mp3, "audio/mpeg");
             }
             catch (InvalidOperationException ex)

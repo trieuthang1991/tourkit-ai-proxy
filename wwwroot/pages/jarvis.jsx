@@ -314,21 +314,44 @@ function JarvisPage({ pushToast }) {
     }
   }
 
-  // Đọc reply — 100% MIỄN PHÍ bằng giọng vi của trình duyệt (giọng đang chọn / Edge Natural).
-  // KHÔNG đụng dịch vụ trả phí. Máy không có giọng vi → nhắc nhẹ 1 lần (mở Edge), không đọc.
+  // Đọc reply: ưu tiên giọng vi MIỄN PHÍ của trình duyệt (giọng đang chọn / Edge Natural).
+  // Máy không có giọng vi → server TTS (Piper open-source FREE nếu đã cấu hình; nếu chưa thì nhắc).
   function speakReply(text) {
     if (!voiceOn) return;
     const v = window.speechSynthesis ? resolveVoice() : null;
     if (v) speak(text, v, { onstart: () => setSpeaking(true), onend: () => setSpeaking(false) });
-    else hintNoVoice();
+    else speakViaServer(text);
   }
 
-  // Nhắc 1 lần khi máy chưa có giọng tiếng Việt (không spam, không tốn tiền).
+  // Server TTS: POST /speech/tts → audio (Piper WAV / OpenAI mp3) → phát. Piper = miễn phí.
+  // Server chưa cấu hình engine nào → báo 1 lần rồi ngừng (không spam).
+  async function speakViaServer(text) {
+    if (ttsDisabledRef.current) { hintNoVoice(); return; }
+    const clean = String(text).replace(/```[\s\S]*?```/g, ' ').replace(/\[(.*?)\]\(.*?\)/g, '$1')
+      .replace(/[*_`#>|~]/g, '').replace(/\s+/g, ' ').trim();
+    if (!clean) return;
+    try {
+      try { audioRef.current?.pause(); } catch {}
+      setSpeaking(true);
+      const r = await window.tourkitAuth.authedFetch('/api/v1/speech/tts', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ text: clean })
+      });
+      if (!r.ok) { setSpeaking(false); ttsDisabledRef.current = true; hintNoVoice(); return; }
+      const url = URL.createObjectURL(await r.blob());
+      const audio = new Audio(url);
+      audioRef.current = audio;
+      const done = () => { setSpeaking(false); URL.revokeObjectURL(url); };
+      audio.onended = done; audio.onerror = done;
+      await audio.play();
+    } catch (e) { setSpeaking(false); }
+  }
+
+  // Nhắc 1 lần khi không có giọng đọc nào (không spam).
   const hintedRef = _jR(false);
   function hintNoVoice() {
     if (hintedRef.current) return;
     hintedRef.current = true;
-    pushToast('Máy chưa có giọng tiếng Việt để đọc — mở bằng Microsoft Edge để nghe (miễn phí)', 'warn');
+    pushToast('Chưa có giọng đọc — mở bằng Microsoft Edge (miễn phí), hoặc cấu hình Piper trên server', 'warn');
   }
   _jE(() => { sendRef.current = send; });   // luôn trỏ tới send mới nhất (tránh closure cũ trong recognition)
 
