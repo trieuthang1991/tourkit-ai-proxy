@@ -336,10 +336,12 @@ function JarvisPage({ pushToast }) {
   }
 
   // Tách câu hoàn chỉnh từ full[spokenIdx..] → đọc từng câu. isFinal: đọc nốt phần đuôi.
+  // Hết câu = [!?…\n] HOẶC dấu chấm THEO SAU bởi khoảng trắng — KHÔNG cắt dấu chấm trong số
+  // ("1.500.048.600.000") vì sau chấm là chữ số → số đọc liền mạch, humanize gộp được.
   function flushSentences(full, isFinal) {
     if (!voiceOnRef.current) return;
     const rest = full.slice(spokenIdxRef.current);
-    const re = /[^.!?…\n]*[.!?…\n]+/g;
+    const re = /[\s\S]*?(?:[!?…\n]|\.(?=\s))/g;
     let m, consumed = 0;
     while ((m = re.exec(rest)) !== null) { const s = m[0].trim(); if (s) speakChunk(s); consumed = re.lastIndex; }
     spokenIdxRef.current += consumed;
@@ -421,17 +423,13 @@ function JarvisPage({ pushToast }) {
           if (o.tool) setLastTool(o.tool);
           return;
         }
-        if (o.delta) {
-          setOrbState('responding'); full += o.delta; patch(a => ({ ...a, content: a.content + o.delta }));
-          flushSentences(full, false);   // đọc từng câu ngay khi stream → giọng bắt đầu sớm
-          return;
-        }
+        if (o.delta) { setOrbState('responding'); full += o.delta; patch(a => ({ ...a, content: a.content + o.delta })); return; }
         if (o.done) {
           if (o.reply) { full = o.reply; patch(a => ({ ...a, content: o.reply })); }
           if (o.toolName) setLastTool(o.toolName);
         }
       });
-      flushSentences(full, true);   // đọc nốt phần đuôi
+      if (voiceOn) speakReply(full);   // trả lời XONG mới gen 1 file cho CẢ đoạn → đọc liền mạch
     } catch (e) {
       patch(a => ({ ...a, content: '⚠️ ' + e.message, error: true }));
     } finally {
