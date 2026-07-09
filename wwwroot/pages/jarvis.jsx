@@ -257,7 +257,7 @@ function JarvisPage({ pushToast }) {
       const g = 'Xin chào! Tôi là JARVIS, trợ lý số liệu của bạn. Bạn cần tôi giúp gì?';
       const v = window.speechSynthesis ? resolveVoice() : null;
       if (v) speak(g, v, { onstart: () => setSpeaking(true), onend: () => setSpeaking(false) });
-      else speakViaOpenAI(g);
+      // không có giọng vi → im (không gọi dịch vụ trả phí)
     }, 1000);
     return () => clearTimeout(t);
   }, []);
@@ -314,83 +314,60 @@ function JarvisPage({ pushToast }) {
     }
   }
 
-  // Đọc reply: ưu tiên giọng vi MIỄN PHÍ của trình duyệt (giọng đang chọn / Edge Natural).
-  // Máy KHÔNG có giọng vi nào → OpenAI TTS (fallback trả phí). Báo speaking để chống vọng âm.
+  // Đọc reply — 100% MIỄN PHÍ bằng giọng vi của trình duyệt (giọng đang chọn / Edge Natural).
+  // KHÔNG đụng dịch vụ trả phí. Máy không có giọng vi → nhắc nhẹ 1 lần (mở Edge), không đọc.
   function speakReply(text) {
     if (!voiceOn) return;
     const v = window.speechSynthesis ? resolveVoice() : null;
     if (v) speak(text, v, { onstart: () => setSpeaking(true), onend: () => setSpeaking(false) });
-    else speakViaOpenAI(text);
+    else hintNoVoice();
   }
 
-  // OpenAI TTS: POST /speech/tts → mp3 → phát. Server cache theo nội dung (câu lặp = free).
-  // Thiếu key / lỗi cấu hình → báo 1 lần rồi NGỪNG thử (khỏi spam mỗi câu + khỏi phí vô ích).
-  async function speakViaOpenAI(text) {
-    if (ttsDisabledRef.current) return;
-    const clean = String(text).replace(/```[\s\S]*?```/g, ' ').replace(/\[(.*?)\]\(.*?\)/g, '$1')
-      .replace(/[*_`#>|~]/g, '').replace(/\s+/g, ' ').trim();
-    if (!clean) return;
-    try {
-      try { audioRef.current?.pause(); } catch {}
-      setSpeaking(true);
-      const r = await window.tourkitAuth.authedFetch('/api/v1/speech/tts', {
-        method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ text: clean })
-      });
-      if (!r.ok) {
-        setSpeaking(false);
-        const j = await r.json().catch(() => ({}));
-        ttsDisabledRef.current = true;   // ngừng thử tiếp
-        pushToast((j.error || 'TTS lỗi') + ' — dùng Microsoft Edge để có giọng đọc miễn phí, hoặc thêm key OpenAI.', 'warn');
-        return;
-      }
-      const url = URL.createObjectURL(await r.blob());
-      const audio = new Audio(url);
-      audioRef.current = audio;
-      const done = () => { setSpeaking(false); URL.revokeObjectURL(url); };
-      audio.onended = done; audio.onerror = done;
-      await audio.play();
-    } catch (e) { setSpeaking(false); pushToast('TTS lỗi: ' + e.message, 'error'); }
+  // Nhắc 1 lần khi máy chưa có giọng tiếng Việt (không spam, không tốn tiền).
+  const hintedRef = _jR(false);
+  function hintNoVoice() {
+    if (hintedRef.current) return;
+    hintedRef.current = true;
+    pushToast('Máy chưa có giọng tiếng Việt để đọc — mở bằng Microsoft Edge để nghe (miễn phí)', 'warn');
   }
   _jE(() => { sendRef.current = send; });   // luôn trỏ tới send mới nhất (tránh closure cũ trong recognition)
 
-  // ── Ghi âm → /api/v1/speech/transcribe → tự gửi (reuse endpoint Whisper sẵn có) ──
-  async function toggleMic() {
+  // ── Mic bấm-tay (push-to-talk) — SpeechRecognition trình duyệt, MIỄN PHÍ (không server) ──
+  // Bấm → nghe 1 câu → tự nhận diện → gửi. Bấm lại khi đang nghe = dừng.
+  function toggleMic() {
+    if (loading) return;
     if (rec === 'recording') { stopMic(); return; }
-    if (rec === 'uploading' || loading) return;
-    if (!navigator.mediaDevices?.getUserMedia) { pushToast('Trình duyệt không hỗ trợ ghi âm', 'error'); return; }
+    if (!SpeechRec) { pushToast('Trình duyệt không hỗ trợ nhận diện giọng nói (dùng Chrome/Edge)', 'error'); return; }
     try {
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-      const mime = MediaRecorder.isTypeSupported('audio/webm;codecs=opus') ? 'audio/webm;codecs=opus' : 'audio/webm';
-      const recorder = new MediaRecorder(stream, { mimeType: mime });
-      const chunks = [];
-      recorder.ondataavailable = e => { if (e.data?.size > 0) chunks.push(e.data); };
-      recorder.onstop = async () => {
-        stream.getTracks().forEach(t => t.stop());
-        setRec('uploading');
-        try {
-          const fd = new FormData();
-          fd.append('file', new Blob(chunks, { type: mime }), 'recording.webm');
-          const r = await window.tourkitAuth.authedFetch('/api/v1/speech/transcribe', { method: 'POST', body: fd });
-          const j = await r.json();
-          if (!r.ok || j.error) throw new Error(j.error || 'HTTP ' + r.status);
-          const tr = (j.text || '').trim();
-          if (tr) send(tr); else pushToast('Không nhận diện được tiếng', 'warn');
-        } catch (e) { pushToast('Lỗi nhận diện: ' + e.message, 'error'); }
-        finally { setRec('idle'); }
+      const r = new SpeechRec();
+      r.lang = 'vi-VN'; r.continuous = false; r.interimResults = true;
+      r.onresult = (e) => {
+        let itm = '', fin = '';
+        for (let i = e.resultIndex; i < e.results.length; i++) {
+          const res = e.results[i];
+          if (res.isFinal) fin += res[0].transcript; else itm += res[0].transcript;
+        }
+        setInterim(itm);
+        const f = fin.trim();
+        if (f) { setInterim(''); sendRef.current && sendRef.current(f); }
       };
-      mediaRef.current = { recorder, stream };
-      recorder.start(250);
+      r.onerror = (ev) => {
+        if (ev.error === 'not-allowed' || ev.error === 'service-not-allowed')
+          pushToast('Mic bị chặn — cho phép quyền rồi thử lại', 'error');
+        else if (ev.error === 'no-speech')
+          pushToast('Không nghe thấy tiếng — thử lại', 'warn');
+      };
+      r.onend = () => { mediaRef.current = null; setRec('idle'); setInterim(''); };
+      mediaRef.current = r;
+      r.start();
       setRec('recording');
     } catch (e) {
-      pushToast('Không truy cập được mic: ' + (e.message || e.name), 'error');
+      pushToast('Không bật được mic: ' + (e.message || e.name), 'error');
       setRec('idle');
     }
   }
   function stopMic() {
-    const m = mediaRef.current;
-    if (m?.recorder?.state === 'recording') { try { m.recorder.stop(); } catch {} }
-    mediaRef.current = null;
+    try { mediaRef.current?.stop(); } catch {}
   }
 
   // Tạo SpeechRecognition 1 lần. onresult: chốt câu → auto gửi; interim → hiện realtime.
@@ -559,9 +536,9 @@ function JarvisPage({ pushToast }) {
         {/* Nhập liệu */}
         <div className="jv-input-row">
           <button className={'jv-mic' + (rec === 'recording' ? ' rec' : '')} onClick={toggleMic}
-            disabled={loading || rec === 'uploading'}
-            title={rec === 'recording' ? 'Dừng + nhận diện' : 'Nói với JARVIS'}>
-            {rec === 'uploading' ? <span className="jv-spin" /> : <Icon name="phone" size={18} />}
+            disabled={loading || listening}
+            title={listening ? 'Đang ở chế độ Luôn nghe' : (rec === 'recording' ? 'Đang nghe — bấm để dừng' : 'Bấm để nói (miễn phí)')}>
+            <Icon name="phone" size={18} />
           </button>
           <input className="jv-input"
             placeholder={rec === 'recording' ? 'Đang nghe… nói rõ vào mic' : (rec === 'uploading' ? 'Đang nhận diện giọng nói…' : 'Hỏi JARVIS… (Enter để gửi)')}
