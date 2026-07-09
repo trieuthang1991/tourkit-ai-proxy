@@ -23,8 +23,9 @@ function ensureThree() {
   return window.__jvThreePromise;
 }
 
-// Màu theo trạng thái: idle = cyan tĩnh, thinking = hổ phách gấp gáp, responding = cam TRAV-AI.
-const ORB_COLORS = { idle: 0x38bdf8, thinking: 0xf59e0b, responding: 0xff7a1a };
+// Màu theo trạng thái: idle = cyan tĩnh, listening = cyan sáng nhịp nhanh,
+// thinking = hổ phách gấp gáp, responding = cam TRAV-AI.
+const ORB_COLORS = { idle: 0x38bdf8, listening: 0x22d3ee, thinking: 0xf59e0b, responding: 0xff7a1a };
 
 // ── Orb 3D: icosahedron wireframe + lõi + hào quang additive + hạt quỹ đạo. ──
 // Nhận prop `state` ('idle'|'thinking'|'responding') → đổi tốc độ xoay / nhịp đập / màu (lerp mượt).
@@ -94,14 +95,14 @@ function JarvisOrb({ state }) {
         shell.material.color.copy(cur); core.material.color.copy(cur);
         glow.material.color.copy(cur); pts.material.color.copy(cur);
 
-        const speed = st === 'thinking' ? 1.7 : st === 'responding' ? 0.95 : 0.28;
+        const speed = st === 'thinking' ? 1.7 : st === 'responding' ? 0.95 : st === 'listening' ? 0.5 : 0.28;
         spin += dt * speed;
         shell.rotation.set(spin * 0.4, spin, 0);
         core.rotation.set(0, -spin * 1.4, spin * 0.6);
         pts.rotation.y = -spin * 0.5;
 
-        const amp = st === 'thinking' ? 0.10 : st === 'responding' ? 0.14 : 0.045;
-        const psp = st === 'thinking' ? 7 : st === 'responding' ? 4 : 1.6;
+        const amp = st === 'thinking' ? 0.10 : st === 'responding' ? 0.14 : st === 'listening' ? 0.085 : 0.045;
+        const psp = st === 'thinking' ? 7 : st === 'responding' ? 4 : st === 'listening' ? 3 : 1.6;
         const s = 1 + Math.sin(t * psp) * amp;
         shell.scale.setScalar(s);
         glow.scale.setScalar(s * 1.02);
@@ -136,7 +137,8 @@ function JarvisOrb({ state }) {
 }
 
 // Đọc reply qua Web Speech API (miễn phí, chạy trình duyệt). Chọn giọng tiếng Việt nếu có.
-function speak(text) {
+// cb.onstart/onend để caller tạm ngưng "luôn nghe" khi loa đang đọc (chống mic nghe lại chính loa).
+function speak(text, cb) {
   const synth = window.speechSynthesis;
   if (!synth || !text) return;
   const clean = String(text)
@@ -151,9 +153,13 @@ function speak(text) {
   u.lang = vi ? vi.lang : 'vi-VN';
   if (vi) u.voice = vi;
   u.rate = 1; u.pitch = 1;
+  if (cb) { u.onstart = cb.onstart || null; u.onend = cb.onend || null; u.onerror = cb.onend || null; }
   synth.cancel();
   synth.speak(u);
 }
+
+// Nhận diện giọng nói liên tục (SpeechRecognition) — Chrome/Edge. null nếu không hỗ trợ.
+const SpeechRec = window.SpeechRecognition || window.webkitSpeechRecognition;
 
 function JarvisPage({ pushToast }) {
   const sessionId = window.tourkitAuth.getSessionId();
@@ -164,10 +170,23 @@ function JarvisPage({ pushToast }) {
   const [orbState, setOrbState] = _jS('idle');       // 'idle'|'thinking'|'responding'
   const [loading, setLoading] = _jS(false);
   const [voiceOn, setVoiceOn] = _jS(false);          // đọc reply bằng loa
-  const [rec, setRec] = _jS('idle');                 // 'idle'|'recording'|'uploading'
+  const [rec, setRec] = _jS('idle');                 // 'idle'|'recording'|'uploading' (mic bấm-tay)
   const [lastTool, setLastTool] = _jS(null);
   const mediaRef = _jR(null);
   const logRef = _jR(null);
+
+  // ── Chế độ "luôn nghe" (hands-free) qua SpeechRecognition ──────────────────
+  const [listening, setListening] = _jS(false);      // bật/tắt nghe liên tục
+  const [interim, setInterim] = _jS('');             // chữ đang nhận diện (chưa chốt)
+  const [speaking, setSpeaking] = _jS(false);        // loa đang đọc (TTS)
+  const listeningRef = _jR(false);
+  const loadingRef = _jR(false);
+  const speakingRef = _jR(false);
+  const recogRef = _jR(null);
+  const sendRef = _jR(null);
+  _jE(() => { listeningRef.current = listening; }, [listening]);
+  _jE(() => { loadingRef.current = loading; }, [loading]);
+  _jE(() => { speakingRef.current = speaking; }, [speaking]);
 
   const cfg = (window.tourkit && window.tourkit.ai && window.tourkit.ai.getConfig)
     ? window.tourkit.ai.getConfig() : {};
@@ -220,15 +239,25 @@ function JarvisPage({ pushToast }) {
           if (o.toolName) setLastTool(o.toolName);
         }
       });
-      if (voiceOn) speak(full);
+      if (voiceOn) speakReply(full);
     } catch (e) {
       patch(a => ({ ...a, content: '⚠️ ' + e.message, error: true }));
     } finally {
       patch(a => ({ ...a, streaming: false }));
       setLoading(false);
-      setOrbState('idle');
+      setOrbState(listeningRef.current ? 'listening' : 'idle');
     }
   }
+
+  // Đọc reply + báo trạng thái để tạm ngưng nghe trong lúc loa nói (chống vọng âm).
+  function speakReply(text) {
+    if (!voiceOn || !window.speechSynthesis) return;
+    speak(text, {
+      onstart: () => setSpeaking(true),
+      onend: () => setSpeaking(false),
+    });
+  }
+  _jE(() => { sendRef.current = send; });   // luôn trỏ tới send mới nhất (tránh closure cũ trong recognition)
 
   // ── Ghi âm → /api/v1/speech/transcribe → tự gửi (reuse endpoint Whisper sẵn có) ──
   async function toggleMic() {
@@ -269,11 +298,70 @@ function JarvisPage({ pushToast }) {
     mediaRef.current = null;
   }
 
+  // Tạo SpeechRecognition 1 lần. onresult: chốt câu → auto gửi; interim → hiện realtime.
+  // onend: tự khởi động lại nếu vẫn bật & không bận (browser hay tự dừng sau im lặng/60s).
+  _jE(() => {
+    if (!SpeechRec) return;
+    const r = new SpeechRec();
+    r.lang = 'vi-VN'; r.continuous = true; r.interimResults = true;
+    r.onresult = (e) => {
+      let itm = '', fin = '';
+      for (let i = e.resultIndex; i < e.results.length; i++) {
+        const res = e.results[i];
+        if (res.isFinal) fin += res[0].transcript; else itm += res[0].transcript;
+      }
+      setInterim(itm);
+      const f = fin.trim();
+      if (f) { setInterim(''); sendRef.current && sendRef.current(f); }   // nói xong 1 câu → gửi luôn
+    };
+    r.onend = () => {
+      // Tự bật lại khi vẫn đang ở chế độ nghe & AI rảnh & loa không đọc.
+      if (listeningRef.current && !loadingRef.current && !speakingRef.current) {
+        try { r.start(); } catch {}
+      }
+    };
+    r.onerror = (ev) => {
+      if (ev.error === 'not-allowed' || ev.error === 'service-not-allowed') {
+        pushToast('Mic bị chặn — cho phép quyền rồi bật lại "Luôn nghe"', 'error');
+        setListening(false);
+      }
+      // 'no-speech'/'aborted' → onend sẽ tự restart, bỏ qua
+    };
+    recogRef.current = r;
+    return () => { try { r.onend = null; r.abort(); } catch {} recogRef.current = null; };
+  }, []);
+
+  // Điều phối start/stop theo (listening, loading, speaking): chỉ nghe khi bật + AI rảnh + loa im.
+  _jE(() => {
+    const r = recogRef.current;
+    if (!r) return;
+    if (listening && !loading && !speaking) {
+      try { r.start(); } catch {}   // start() ném nếu đã chạy → nuốt
+      setOrbState(s => (s === 'idle' ? 'listening' : s));
+    } else {
+      try { r.stop(); } catch {}
+      if (!listening) { setInterim(''); setOrbState(s => (s === 'listening' ? 'idle' : s)); }
+    }
+  }, [listening, loading, speaking]);
+
+  function toggleListening() {
+    if (!SpeechRec) { pushToast('Trình duyệt không hỗ trợ nhận diện liên tục (dùng Chrome/Edge)', 'error'); return; }
+    setListening(v => {
+      const nv = !v;
+      if (nv) { window.speechSynthesis?.cancel(); setOrbState(s => (s === 'idle' ? 'listening' : s)); }
+      else { setOrbState(s => (s === 'listening' ? 'idle' : s)); }
+      return nv;
+    });
+  }
+  // Dừng nghe khi rời trang
+  _jE(() => () => { try { recogRef.current?.abort(); } catch {} }, []);
+
   const STATUS = {
     idle: { label: 'SẴN SÀNG', cls: 'idle' },
+    listening: { label: 'ĐANG NGHE…', cls: 'listening' },
     thinking: { label: 'ĐANG SUY NGHĨ', cls: 'thinking' },
     responding: { label: 'ĐANG TRẢ LỜI', cls: 'responding' },
-  }[orbState];
+  }[orbState] || { label: 'SẴN SÀNG', cls: 'idle' };
 
   const suggestions = ['Doanh thu tháng này', 'Top khách hàng', 'Tour sắp khởi hành', 'Cơ hội bán hàng đang chờ'];
 
@@ -294,10 +382,15 @@ function JarvisPage({ pushToast }) {
             <span className="jv-readout">TENANT <b>{sessionInfo?.tenantId || '—'}</b></span>
             <span className="jv-readout">MODEL <b>{cfg.model || 'auto'}</b></span>
             {lastTool && lastTool !== 'none' && <span className="jv-readout">TOOL <b>{lastTool}</b></span>}
+            <button className={'jv-toggle' + (listening ? ' listen-on' : '')}
+              onClick={toggleListening}
+              title={listening ? 'Đang nghe liên tục — bấm để tắt' : 'Bật chế độ luôn lắng nghe (rảnh tay)'}>
+              <Icon name="phone" size={14} /> {listening ? 'LUÔN NGHE: BẬT' : 'LUÔN NGHE: TẮT'}
+            </button>
             <button className={'jv-toggle' + (voiceOn ? ' on' : '')}
               onClick={() => { const v = !voiceOn; setVoiceOn(v); if (!v) window.speechSynthesis?.cancel(); }}
               title={voiceOn ? 'Đang đọc phản hồi (tắt loa)' : 'Bật đọc phản hồi bằng giọng nói'}>
-              <Icon name={voiceOn ? 'bell' : 'bell'} size={14} /> {voiceOn ? 'LOA: BẬT' : 'LOA: TẮT'}
+              <Icon name="bell" size={14} /> {voiceOn ? 'LOA: BẬT' : 'LOA: TẮT'}
             </button>
             <button className="jv-toggle" onClick={() => { setMessages([]); setLastTool(null); setOrbState('idle'); window.speechSynthesis?.cancel(); }}
               title="Xóa hội thoại">
@@ -339,6 +432,14 @@ function JarvisPage({ pushToast }) {
             {suggestions.map(q => (
               <button key={q} className="jv-chip" onClick={() => send(q)} disabled={loading}>{q}</button>
             ))}
+          </div>
+        )}
+
+        {/* Chữ đang nhận diện realtime (chế độ luôn nghe) */}
+        {listening && (
+          <div className="jv-listen-bar">
+            <span className="jv-listen-wave"><i /><i /><i /><i /></span>
+            <span className="jv-listen-text">{interim || (speaking ? 'Tạm dừng nghe khi đang đọc…' : (loading ? 'Đang xử lý…' : 'Mời nói…'))}</span>
           </div>
         )}
 
@@ -397,6 +498,8 @@ const JV_CSS = `
   color:#8fc4ec;cursor:pointer;transition:.15s;}
 .jv-toggle:hover{border-color:rgba(56,189,248,.6);color:#eaf6ff;}
 .jv-toggle.on{background:rgba(255,122,26,.12);border-color:rgba(255,122,26,.5);color:#ffb27a;}
+.jv-toggle.listen-on{background:rgba(34,211,238,.14);border-color:rgba(34,211,238,.6);color:#67e8f9;
+  box-shadow:0 0 14px rgba(34,211,238,.25);animation:jvPulse 1.8s ease-in-out infinite;}
 .jv-stage{position:relative;flex:1 1 auto;min-height:240px;display:flex;align-items:center;justify-content:center;z-index:1;}
 .jv-orb{position:absolute;inset:0;}
 .jv-orb-err{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;
@@ -407,6 +510,14 @@ const JV_CSS = `
 .jv-status.idle{color:#5aa9d8;} .jv-status.idle .jv-status-dot{background:#38bdf8;box-shadow:0 0 10px #38bdf8;}
 .jv-status.thinking{color:#f5b342;} .jv-status.thinking .jv-status-dot{background:#f59e0b;box-shadow:0 0 12px #f59e0b;animation:jvBlink .6s steps(2) infinite;}
 .jv-status.responding{color:#ff9a52;} .jv-status.responding .jv-status-dot{background:#ff7a1a;box-shadow:0 0 14px #ff7a1a;animation:jvBlink .9s steps(2) infinite;}
+.jv-status.listening{color:#67e8f9;} .jv-status.listening .jv-status-dot{background:#22d3ee;box-shadow:0 0 14px #22d3ee;animation:jvBlink .5s steps(2) infinite;}
+.jv-listen-bar{position:relative;z-index:2;display:flex;align-items:center;gap:12px;margin:0 20px 8px;padding:9px 14px;
+  border-radius:10px;background:rgba(34,211,238,.07);border:1px solid rgba(34,211,238,.25);}
+.jv-listen-text{font-size:13px;color:#a5f0fb;font-style:italic;flex:1;min-height:18px;}
+.jv-listen-wave{display:inline-flex;align-items:center;gap:3px;height:18px;}
+.jv-listen-wave i{width:3px;height:6px;border-radius:2px;background:#22d3ee;animation:jvWave 1s ease-in-out infinite;}
+.jv-listen-wave i:nth-child(2){animation-delay:.15s;} .jv-listen-wave i:nth-child(3){animation-delay:.3s;} .jv-listen-wave i:nth-child(4){animation-delay:.45s;}
+@keyframes jvWave{0%,100%{height:5px;opacity:.5;}50%{height:16px;opacity:1;}}
 .jv-log{position:relative;z-index:2;max-height:34vh;overflow-y:auto;padding:12px 20px;display:flex;flex-direction:column;gap:9px;
   border-top:1px solid rgba(56,189,248,.12);}
 .jv-empty{color:#6b93b5;font-size:13px;text-align:center;padding:14px;line-height:1.7;}
