@@ -178,7 +178,13 @@ function JarvisPage({ pushToast }) {
   const [input, setInput] = _jS('');
   const [orbState, setOrbState] = _jS('idle');       // 'idle'|'thinking'|'responding'
   const [loading, setLoading] = _jS(false);
-  const [voiceOn, setVoiceOn] = _jS(false);          // đọc reply bằng loa
+  // Loa đọc reply — MẶC ĐỊNH BẬT; nhớ lựa chọn qua localStorage (khỏi bật lại mỗi lần).
+  const [voiceOn, setVoiceOn] = _jS(() => { try { const s = localStorage.getItem('jarvis_voiceOn'); return s === null ? true : s === '1'; } catch { return true; } });
+  _jE(() => { try { localStorage.setItem('jarvis_voiceOn', voiceOn ? '1' : '0'); } catch {} }, [voiceOn]);
+  const [viVoices, setViVoices] = _jS([]);           // giọng tiếng Việt khả dụng của trình duyệt (Edge có Natural)
+  const [voiceName, setVoiceName] = _jS(() => { try { return localStorage.getItem('jarvis_voice') || ''; } catch { return ''; } });
+  const voiceNameRef = _jR('');
+  _jE(() => { voiceNameRef.current = voiceName; try { localStorage.setItem('jarvis_voice', voiceName); } catch {} }, [voiceName]);
   const [rec, setRec] = _jS('idle');                 // 'idle'|'recording'|'uploading' (mic bấm-tay)
   const [lastTool, setLastTool] = _jS(null);
   const mediaRef = _jR(null);
@@ -187,7 +193,9 @@ function JarvisPage({ pushToast }) {
   const ttsDisabledRef = _jR(false);   // OpenAI TTS lỗi cấu hình (thiếu key) → ngừng thử, khỏi spam
 
   // ── Chế độ "luôn nghe" (hands-free) qua SpeechRecognition ──────────────────
-  const [listening, setListening] = _jS(false);      // bật/tắt nghe liên tục
+  // Nhớ trạng thái qua localStorage → khỏi bật lại mỗi lần vào (mặc định TẮT vì cần quyền mic).
+  const [listening, setListening] = _jS(() => { try { return localStorage.getItem('jarvis_listen') === '1'; } catch { return false; } });
+  _jE(() => { try { localStorage.setItem('jarvis_listen', listening ? '1' : '0'); } catch {} }, [listening]);
   const [interim, setInterim] = _jS('');             // chữ đang nhận diện (chưa chốt)
   const [speaking, setSpeaking] = _jS(false);        // loa đang đọc (TTS)
   const listeningRef = _jR(false);
@@ -206,14 +214,52 @@ function JarvisPage({ pushToast }) {
     if (logRef.current) logRef.current.scrollTop = logRef.current.scrollHeight;
   }, [messages]);
 
-  // Web Speech voices nạp bất đồng bộ — kích + lắng nghe voiceschanged để danh sách sẵn khi speak.
+  // Nạp danh sách giọng tiếng Việt của trình duyệt (async — lắng nghe voiceschanged).
+  // Auto-chọn giọng hay nhất (Edge "Online Natural") nếu user chưa chọn.
   _jE(() => {
     const synth = window.speechSynthesis;
     if (!synth) return;
-    try { synth.getVoices(); } catch {}
-    const onVoices = () => { try { synth.getVoices(); } catch {} };
-    synth.addEventListener?.('voiceschanged', onVoices);
-    return () => synth.removeEventListener?.('voiceschanged', onVoices);
+    const load = () => {
+      const vs = synth.getVoices() || [];
+      const vi = vs.filter(v => /^vi([-_]|$)/i.test(v.lang) || /vietnam/i.test(v.name));
+      setViVoices(vi.map(v => ({ name: v.name, lang: v.lang })));
+      if (!voiceNameRef.current && vi.length) {
+        const best = vi.find(v => /natural|online/i.test(v.name))
+                  || vi.find(v => /hoaimy|namminh/i.test(v.name)) || vi[0];
+        setVoiceName(best.name);
+      }
+    };
+    load();
+    synth.addEventListener?.('voiceschanged', load);
+    return () => synth.removeEventListener?.('voiceschanged', load);
+  }, []);
+
+  // Giọng đang chọn → trả SpeechSynthesisVoice sống (getVoices()); fallback getViVoice best-effort.
+  function resolveVoice() {
+    const vs = window.speechSynthesis?.getVoices() || [];
+    return (voiceNameRef.current && vs.find(v => v.name === voiceNameRef.current)) || getViVoice();
+  }
+  // Nghe thử giọng đang chọn ngay (không cần hỏi câu).
+  function testVoice() {
+    const v = resolveVoice();
+    if (!v) { pushToast('Máy chưa có giọng tiếng Việt — mở bằng Microsoft Edge để có giọng Natural', 'warn'); return; }
+    speak('Xin chào, tôi là JARVIS, trợ lý số liệu của bạn.', v,
+      { onstart: () => setSpeaking(true), onend: () => setSpeaking(false) });
+  }
+
+  // Câu chào khi vào trang — đọc bằng loa nếu đang bật (chờ ~1s cho voices nạp xong).
+  const greetedRef = _jR(false);
+  _jE(() => {
+    if (greetedRef.current) return;
+    const t = setTimeout(() => {
+      greetedRef.current = true;
+      if (!voiceOn) return;
+      const g = 'Xin chào! Tôi là JARVIS, trợ lý số liệu của bạn. Bạn cần tôi giúp gì?';
+      const v = window.speechSynthesis ? resolveVoice() : null;
+      if (v) speak(g, v, { onstart: () => setSpeaking(true), onend: () => setSpeaking(false) });
+      else speakViaOpenAI(g);
+    }, 1000);
+    return () => clearTimeout(t);
   }, []);
   // Dừng đọc khi rời trang
   _jE(() => () => { try { window.speechSynthesis?.cancel(); audioRef.current?.pause(); } catch {} }, []);
@@ -268,16 +314,13 @@ function JarvisPage({ pushToast }) {
     }
   }
 
-  // Đọc reply (hybrid, tiết kiệm): ưu tiên giọng vi MIỄN PHÍ của trình duyệt (Edge Natural);
-  // máy KHÔNG có giọng vi → OpenAI TTS (có phí, server cache câu lặp). Báo speaking để chống vọng âm.
+  // Đọc reply: ưu tiên giọng vi MIỄN PHÍ của trình duyệt (giọng đang chọn / Edge Natural).
+  // Máy KHÔNG có giọng vi nào → OpenAI TTS (fallback trả phí). Báo speaking để chống vọng âm.
   function speakReply(text) {
     if (!voiceOn) return;
-    const v = window.speechSynthesis ? getViVoice() : null;
-    if (v) {
-      speak(text, v, { onstart: () => setSpeaking(true), onend: () => setSpeaking(false) });
-    } else {
-      speakViaOpenAI(text);   // fallback trả phí (chỉ khi không có giọng vi free)
-    }
+    const v = window.speechSynthesis ? resolveVoice() : null;
+    if (v) speak(text, v, { onstart: () => setSpeaking(true), onend: () => setSpeaking(false) });
+    else speakViaOpenAI(text);
   }
 
   // OpenAI TTS: POST /speech/tts → mp3 → phát. Server cache theo nội dung (câu lặp = free).
@@ -447,6 +490,21 @@ function JarvisPage({ pushToast }) {
               title={voiceOn ? 'Đang đọc phản hồi (tắt loa)' : 'Bật đọc phản hồi bằng giọng nói (miễn phí, cần giọng vi — Edge tốt nhất)'}>
               <Icon name="bell" size={14} /> {voiceOn ? 'LOA: BẬT' : 'LOA: TẮT'}
             </button>
+            {voiceOn && viVoices.length > 0 && (
+              <>
+                <select className="jv-voice-sel" value={voiceName} onChange={e => setVoiceName(e.target.value)}
+                  title="Chọn giọng đọc (Edge có giọng Online Natural)">
+                  {viVoices.map(v => (
+                    <option key={v.name} value={v.name}>
+                      {v.name.replace(/^Microsoft\s*/i, '').replace(/\s*-\s*Vietnamese.*/i, '').replace(/\s*\(Natural\)/i, ' ✦')}
+                    </option>
+                  ))}
+                </select>
+                <button className="jv-toggle" onClick={testVoice} title="Nghe thử giọng đang chọn">
+                  <Icon name="bell" size={14} /> THỬ
+                </button>
+              </>
+            )}
             <button className="jv-toggle" onClick={() => { setMessages([]); setLastTool(null); setOrbState('idle'); window.speechSynthesis?.cancel(); }}
               title="Xóa hội thoại">
               <Icon name="refresh" size={14} /> MỚI
@@ -553,6 +611,10 @@ const JV_CSS = `
   color:#8fc4ec;cursor:pointer;transition:.15s;}
 .jv-toggle:hover{border-color:rgba(56,189,248,.6);color:#eaf6ff;}
 .jv-toggle.on{background:rgba(255,122,26,.12);border-color:rgba(255,122,26,.5);color:#ffb27a;}
+.jv-voice-sel{font-family:inherit;font-size:10px;letter-spacing:.5px;max-width:170px;padding:6px 8px;border-radius:6px;
+  border:1px solid rgba(56,189,248,.25);background:#0a1424;color:#9fd4ff;cursor:pointer;outline:none;}
+.jv-voice-sel:hover{border-color:rgba(56,189,248,.6);}
+.jv-voice-sel option{background:#0a1424;color:#cfe8ff;}
 .jv-toggle.listen-on{background:rgba(34,211,238,.14);border-color:rgba(34,211,238,.6);color:#67e8f9;
   box-shadow:0 0 14px rgba(34,211,238,.25);animation:jvPulse 1.8s ease-in-out infinite;}
 .jv-stage{position:relative;flex:1 1 auto;min-height:240px;display:flex;align-items:center;justify-content:center;z-index:1;}
