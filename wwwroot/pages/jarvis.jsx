@@ -176,11 +176,24 @@ function humanizeForSpeech(text) {
     (m, num, unit) => {
       const n = parseInt(num.replace(/[.,\s]/g, ''), 10);
       if (!isFinite(n) || n < 1_000_000) return m;   // < 1 triệu → giữ nguyên
-      const u = unit ? ' ' + unit : ' đồng';
       const fmt = (x) => Math.round(x).toString();   // làm tròn số nguyên — bỏ phần lẻ sau dấu phẩy
-      return n >= 1e9 ? `khoảng ${fmt(n / 1e9)} tỷ${u}` : `khoảng ${fmt(n / 1e6)} triệu${u}`;
+      return n >= 1e9 ? `khoảng ${fmt(n / 1e9)} tỷ đồng` : `khoảng ${fmt(n / 1e6)} triệu đồng`;   // luôn "đồng" (không đọc "đ")
     });
   return speakifyNames(money);
+}
+
+// Chuẩn hóa văn bản cho TTS: bỏ markdown + ĐỔI XUỐNG DÒNG THÀNH DẤU NGẮT (để đọc có nghỉ giữa
+// các dòng, không nối liền "...đồng Chi phí..."). Sau đó gộp khoảng trắng ngang.
+function cleanSpeechText(text) {
+  return String(text)
+    .replace(/```[\s\S]*?```/g, ' ')
+    .replace(/\[(.*?)\]\(.*?\)/g, '$1')
+    .replace(/[*_`#>|~]/g, '')
+    .replace(/\s*\n+\s*/g, '. ')       // xuống dòng → ". " (TTS ngắt nghỉ)
+    .replace(/[ \t\r]+/g, ' ')
+    .replace(/(\.\s*){2,}/g, '. ')     // gộp nhiều dấu chấm liền (dòng vốn kết bằng ".")
+    .replace(/:\s*\./g, ':')           // "Doanh thu: ." → "Doanh thu:" (tránh chấm ngay sau dấu hai chấm)
+    .trim();
 }
 
 // Đọc reply qua Web Speech API (MIỄN PHÍ). Chỉ đọc khi có giọng vi thật (tránh ngọng).
@@ -188,11 +201,7 @@ function humanizeForSpeech(text) {
 function speak(text, voice, cb) {
   const synth = window.speechSynthesis;
   if (!synth || !text || !voice) return;
-  const clean = humanizeForSpeech(String(text)
-    .replace(/```[\s\S]*?```/g, ' ')
-    .replace(/\[(.*?)\]\(.*?\)/g, '$1')
-    .replace(/[*_`#>|~]/g, '')
-    .replace(/\s+/g, ' ').trim().slice(0, 700));
+  const clean = humanizeForSpeech(cleanSpeechText(text)).slice(0, 900);
   if (!clean) return;
   const u = new SpeechSynthesisUtterance(clean);
   u.voice = voice; u.lang = voice.lang || 'vi-VN';
@@ -478,8 +487,7 @@ function JarvisPage({ pushToast }) {
   // Server chưa cấu hình engine nào → báo 1 lần rồi ngừng (không spam).
   async function speakViaServer(text) {
     if (ttsDisabledRef.current) { hintNoVoice(); return; }
-    const clean = humanizeForSpeech(String(text).replace(/```[\s\S]*?```/g, ' ').replace(/\[(.*?)\]\(.*?\)/g, '$1')
-      .replace(/[*_`#>|~]/g, '').replace(/\s+/g, ' ').trim());
+    const clean = humanizeForSpeech(cleanSpeechText(text));
     if (!clean) return;
     try {
       try { audioRef.current?.pause(); } catch {}
