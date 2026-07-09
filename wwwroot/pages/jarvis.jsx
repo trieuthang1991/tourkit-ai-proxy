@@ -333,6 +333,7 @@ function JarvisPage({ pushToast }) {
     spokenIdxRef.current = 0; ttsQueueRef.current = []; ttsBusyRef.current = false;
     try { window.speechSynthesis?.cancel(); } catch {}
     try { audioRef.current?.pause(); } catch {}
+    stopThinking();   // dừng filler "đang suy nghĩ" khi ngắt/hỏi câu mới
   }
 
   // Tách câu hoàn chỉnh từ full[spokenIdx..] → đọc từng câu. isFinal: đọc nốt phần đuôi.
@@ -390,24 +391,36 @@ function JarvisPage({ pushToast }) {
     } catch (e) { ttsBusyRef.current = false; if (ttsQueueRef.current.length) pumpServerQueue(); else setSpeaking(false); }
   }
 
+  const abortRef = _jR(null);
+  const reqSeqRef = _jR(0);
+
   async function send(textArg) {
     const text = (typeof textArg === 'string' ? textArg : input).trim();
-    if (!text || loading || !sessionId) return;
-    const next = [...messages, { role: 'user', content: text }];
+    if (!text || !sessionId) return;
+    // Hỏi câu MỚI → HỦY câu cũ đang chạy (cắt request gen + dừng đọc), KHÔNG chạy chồng.
+    try { abortRef.current?.abort(); } catch {}
+    const ac = new AbortController(); abortRef.current = ac;
+    const myId = ++reqSeqRef.current;
+    const isCur = () => myId === reqSeqRef.current && !ac.signal.aborted;
+
+    resetSpeech();   // dừng TTS câu cũ
+    // Chốt cờ streaming của reply cũ (nếu có) để không còn con trỏ nhấp nháy treo.
+    const next = [...messages.map(x => x.streaming ? { ...x, streaming: false } : x), { role: 'user', content: text }];
     const asstIdx = next.length;
     setMessages([...next, { role: 'assistant', content: '', streaming: true }]);
     setInput('');
     setLoading(true);
     setOrbState('thinking');
-    resetSpeech();   // ngắt TTS câu cũ + reset hàng đợi đọc theo câu
+    if (voiceOn) playThinking();   // audio "đang suy nghĩ" (kịch tính) lúc AI xử lý
 
-    const patch = (fn) => setMessages(m => { const c = [...m]; if (c[asstIdx]) c[asstIdx] = fn(c[asstIdx]); return c; });
+    const patch = (fn) => { if (!isCur()) return; setMessages(m => { const c = [...m]; if (c[asstIdx]) c[asstIdx] = fn(c[asstIdx]); return c; }); };
 
     try {
       const resp = await fetch('/api/v1/chat/stream', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'Accept': 'text/event-stream', 'X-Session-Id': sessionId },
-        body: JSON.stringify({ messages: next, provider: cfg.provider, model: cfg.model })
+        body: JSON.stringify({ messages: next, provider: cfg.provider, model: cfg.model }),
+        signal: ac.signal
       });
       if (resp.status === 401) { pushToast('Phiên hết hạn — đăng nhập lại', 'error'); window.tourkitAuth.logout(); return; }
       if (!resp.ok || !resp.body) {
@@ -417,7 +430,8 @@ function JarvisPage({ pushToast }) {
 
       let full = '';
       await window.tourkitUtil.readSSE(resp, o => {
-        if (o.error) { patch(a => ({ ...a, content: '⚠️ ' + o.error, error: true, streaming: false })); setOrbState('idle'); return; }
+        if (!isCur()) return;   // request đã bị thay bởi câu mới → bỏ qua
+        if (o.error) { patch(a => ({ ...a, content: '⚠️ ' + o.error, error: true, streaming: false })); return; }
         if (o.stage) {
           setOrbState(o.stage === 'analyzing' ? 'responding' : 'thinking');
           if (o.tool) setLastTool(o.tool);
@@ -429,13 +443,12 @@ function JarvisPage({ pushToast }) {
           if (o.toolName) setLastTool(o.toolName);
         }
       });
-      if (voiceOn) speakReply(full);   // trả lời XONG mới gen 1 file cho CẢ đoạn → đọc liền mạch
+      if (isCur() && voiceOn) speakReply(full);   // trả lời XONG mới gen 1 file cho CẢ đoạn → đọc liền mạch
     } catch (e) {
-      patch(a => ({ ...a, content: '⚠️ ' + e.message, error: true }));
+      if (ac.signal.aborted || e.name === 'AbortError') return;   // bị hủy do hỏi câu mới → im lặng
+      if (isCur()) patch(a => ({ ...a, content: '⚠️ ' + e.message, error: true }));
     } finally {
-      patch(a => ({ ...a, streaming: false }));
-      setLoading(false);
-      // Orb: KHÔNG ép "SẴN SÀNG" ở đây — effect [speaking,loading] tự giữ "ĐANG TRẢ LỜI" tới khi đọc xong.
+      if (isCur()) { patch(a => ({ ...a, streaming: false })); setLoading(false); }
     }
   }
 
@@ -443,10 +456,23 @@ function JarvisPage({ pushToast }) {
   // Máy không có giọng vi → server TTS (Piper open-source FREE nếu đã cấu hình; nếu chưa thì nhắc).
   function speakReply(text) {
     if (!voiceOn) return;
+    stopThinking();   // dừng filler "đang suy nghĩ" trước khi đọc câu trả lời
     const v = window.speechSynthesis ? resolveVoice() : null;
     if (v) speak(text, v, { onstart: () => setSpeaking(true), onend: () => setSpeaking(false) });
     else speakViaServer(text);
   }
+
+  // ── Audio "ĐANG SUY NGHĨ" (kịch tính) — phát filler thu sẵn lúc AI xử lý; lặp nếu còn nghĩ ──
+  const thinkAudioRef = _jR(null);
+  function playThinking() {
+    if (!voiceOnRef.current) return;
+    const n = 1 + Math.floor(Math.random() * 3);   // 3 câu filler, chọn ngẫu nhiên đỡ lặp
+    const a = new Audio(`/audio/jarvis-thinking-${n}.mp3?v=1`);
+    thinkAudioRef.current = a;
+    a.onended = () => { if (loadingRef.current) playThinking(); };   // vẫn đang nghĩ → filler tiếp
+    a.play().catch(() => {});
+  }
+  function stopThinking() { try { thinkAudioRef.current?.pause(); thinkAudioRef.current = null; } catch {} }
 
   // Server TTS: POST /speech/tts → audio (Piper WAV / OpenAI mp3) → phát. Piper = miễn phí.
   // Server chưa cấu hình engine nào → báo 1 lần rồi ngừng (không spam).
@@ -483,7 +509,6 @@ function JarvisPage({ pushToast }) {
   // ── Mic bấm-tay (push-to-talk) — SpeechRecognition trình duyệt, MIỄN PHÍ (không server) ──
   // Bấm → nghe 1 câu → tự nhận diện → gửi. Bấm lại khi đang nghe = dừng.
   function toggleMic() {
-    if (loading) return;
     if (rec === 'recording') { stopMic(); return; }
     if (!SpeechRec) { pushToast('Trình duyệt không hỗ trợ nhận diện giọng nói (dùng Chrome/Edge)', 'error'); return; }
     try {
@@ -684,17 +709,17 @@ function JarvisPage({ pushToast }) {
         {/* Nhập liệu */}
         <div className="jv-input-row">
           <button className={'jv-mic' + (rec === 'recording' ? ' rec' : '')} onClick={toggleMic}
-            disabled={loading || listening}
+            disabled={listening}
             title={listening ? 'Đang ở chế độ Luôn nghe' : (rec === 'recording' ? 'Đang nghe — bấm để dừng' : 'Bấm để nói (miễn phí)')}>
             <Icon name="phone" size={18} />
           </button>
           <input className="jv-input"
-            placeholder={rec === 'recording' ? 'Đang nghe… nói rõ vào mic' : (rec === 'uploading' ? 'Đang nhận diện giọng nói…' : 'Hỏi JARVIS… (Enter để gửi)')}
+            placeholder={rec === 'recording' ? 'Đang nghe… nói rõ vào mic' : (loading ? 'Đang trả lời… (hỏi tiếp để ngắt)' : 'Hỏi JARVIS… (Enter để gửi)')}
             value={input}
             onChange={e => setInput(e.target.value)}
             onKeyDown={e => { if (e.key === 'Enter') send(); }}
-            disabled={loading || rec !== 'idle'} />
-          <button className="jv-send" onClick={() => send()} disabled={loading || !input.trim()}>
+            disabled={rec !== 'idle'} />
+          <button className="jv-send" onClick={() => send()} disabled={!input.trim()}>
             <Icon name="arrowRight" size={18} stroke={2.4} />
           </button>
         </div>
