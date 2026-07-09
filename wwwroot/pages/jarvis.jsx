@@ -183,6 +183,8 @@ function JarvisPage({ pushToast }) {
   const [lastTool, setLastTool] = _jS(null);
   const mediaRef = _jR(null);
   const logRef = _jR(null);
+  const audioRef = _jR(null);   // <audio> đang phát TTS OpenAI (để dừng khi hỏi câu mới)
+  const ttsDisabledRef = _jR(false);   // OpenAI TTS lỗi cấu hình (thiếu key) → ngừng thử, khỏi spam
 
   // ── Chế độ "luôn nghe" (hands-free) qua SpeechRecognition ──────────────────
   const [listening, setListening] = _jS(false);      // bật/tắt nghe liên tục
@@ -214,7 +216,7 @@ function JarvisPage({ pushToast }) {
     return () => synth.removeEventListener?.('voiceschanged', onVoices);
   }, []);
   // Dừng đọc khi rời trang
-  _jE(() => () => { try { window.speechSynthesis?.cancel(); } catch {} }, []);
+  _jE(() => () => { try { window.speechSynthesis?.cancel(); audioRef.current?.pause(); } catch {} }, []);
 
   async function send(textArg) {
     const text = (typeof textArg === 'string' ? textArg : input).trim();
@@ -226,6 +228,7 @@ function JarvisPage({ pushToast }) {
     setLoading(true);
     setOrbState('thinking');
     try { window.speechSynthesis?.cancel(); } catch {}
+    try { audioRef.current?.pause(); } catch {}   // ngắt TTS đang đọc khi hỏi câu mới
 
     const patch = (fn) => setMessages(m => { const c = [...m]; if (c[asstIdx]) c[asstIdx] = fn(c[asstIdx]); return c; });
 
@@ -265,15 +268,46 @@ function JarvisPage({ pushToast }) {
     }
   }
 
-  // Đọc reply + báo trạng thái để tạm ngưng nghe trong lúc loa nói (chống vọng âm).
+  // Đọc reply (hybrid, tiết kiệm): ưu tiên giọng vi MIỄN PHÍ của trình duyệt (Edge Natural);
+  // máy KHÔNG có giọng vi → OpenAI TTS (có phí, server cache câu lặp). Báo speaking để chống vọng âm.
   function speakReply(text) {
-    if (!voiceOn || !window.speechSynthesis) return;
-    const v = getViVoice();
-    if (!v) { pushToast('Trình duyệt chưa có giọng tiếng Việt — mở bằng Microsoft Edge để nghe giọng Natural (miễn phí)', 'warn'); return; }
-    speak(text, v, {
-      onstart: () => setSpeaking(true),
-      onend: () => setSpeaking(false),
-    });
+    if (!voiceOn) return;
+    const v = window.speechSynthesis ? getViVoice() : null;
+    if (v) {
+      speak(text, v, { onstart: () => setSpeaking(true), onend: () => setSpeaking(false) });
+    } else {
+      speakViaOpenAI(text);   // fallback trả phí (chỉ khi không có giọng vi free)
+    }
+  }
+
+  // OpenAI TTS: POST /speech/tts → mp3 → phát. Server cache theo nội dung (câu lặp = free).
+  // Thiếu key / lỗi cấu hình → báo 1 lần rồi NGỪNG thử (khỏi spam mỗi câu + khỏi phí vô ích).
+  async function speakViaOpenAI(text) {
+    if (ttsDisabledRef.current) return;
+    const clean = String(text).replace(/```[\s\S]*?```/g, ' ').replace(/\[(.*?)\]\(.*?\)/g, '$1')
+      .replace(/[*_`#>|~]/g, '').replace(/\s+/g, ' ').trim();
+    if (!clean) return;
+    try {
+      try { audioRef.current?.pause(); } catch {}
+      setSpeaking(true);
+      const r = await window.tourkitAuth.authedFetch('/api/v1/speech/tts', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ text: clean })
+      });
+      if (!r.ok) {
+        setSpeaking(false);
+        const j = await r.json().catch(() => ({}));
+        ttsDisabledRef.current = true;   // ngừng thử tiếp
+        pushToast((j.error || 'TTS lỗi') + ' — dùng Microsoft Edge để có giọng đọc miễn phí, hoặc thêm key OpenAI.', 'warn');
+        return;
+      }
+      const url = URL.createObjectURL(await r.blob());
+      const audio = new Audio(url);
+      audioRef.current = audio;
+      const done = () => { setSpeaking(false); URL.revokeObjectURL(url); };
+      audio.onended = done; audio.onerror = done;
+      await audio.play();
+    } catch (e) { setSpeaking(false); pushToast('TTS lỗi: ' + e.message, 'error'); }
   }
   _jE(() => { sendRef.current = send; });   // luôn trỏ tới send mới nhất (tránh closure cũ trong recognition)
 
@@ -408,8 +442,7 @@ function JarvisPage({ pushToast }) {
             <button className={'jv-toggle' + (voiceOn ? ' on' : '')}
               onClick={() => {
                 const v = !voiceOn; setVoiceOn(v);
-                if (!v) window.speechSynthesis?.cancel();
-                else if (!getViVoice()) pushToast('Máy chưa có giọng tiếng Việt — mở bằng Microsoft Edge để có giọng Natural (miễn phí)', 'warn');
+                if (!v) { window.speechSynthesis?.cancel(); try { audioRef.current?.pause(); } catch {} }
               }}
               title={voiceOn ? 'Đang đọc phản hồi (tắt loa)' : 'Bật đọc phản hồi bằng giọng nói (miễn phí, cần giọng vi — Edge tốt nhất)'}>
               <Icon name="bell" size={14} /> {voiceOn ? 'LOA: BẬT' : 'LOA: TẮT'}

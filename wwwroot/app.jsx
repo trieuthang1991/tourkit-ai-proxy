@@ -32,7 +32,7 @@ const NAV_GROUPS = [
   { label: 'Tổng quan', items: [
     { to: '/home',      icon: 'sparkle', label: 'Trang chủ' },        // hub AI launcher (/ là landing public)
     { to: '/assistant', icon: 'chart',   label: 'Trợ lý số liệu' },   // data/chart analytics
-    { to: '/jarvis',    icon: 'eye',     label: 'Trợ lý JARVIS' },    // HUD hội thoại 3D (phô diễn) — cùng backend chat
+    // '/jarvis' (HUD hội thoại 3D, phô diễn) ẩn khỏi nav — vẫn vào được qua URL trực tiếp. Route giữ ở <Router>.
   ]},
   { label: 'Khách hàng & Bán hàng', items: [
     { to: '/customers', icon: 'users',   label: 'Khách hàng' },       // people

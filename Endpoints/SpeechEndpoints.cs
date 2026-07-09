@@ -73,7 +73,36 @@ public static class SpeechEndpoints
             }
         })
         .DisableAntiforgery();        // multipart upload từ fetch không gửi anti-forgery token
+
+        // ── TTS: text → mp3 (OpenAI). CHỈ gọi khi máy KHÔNG có giọng vi miễn phí (frontend quyết).
+        //    Cache theo nội dung (câu lặp = free) + cap 600 ký tự → chống đốt tiền.
+        v1.MapPost("/speech/tts", async (HttpContext ctx, TtsRequest req, TextToSpeechService tts,
+            TkSessionStore sessions, ILogger<Program> log) =>
+        {
+            var sid = Sid(ctx);
+            if (sessions.Get(sid) == null) return Unauthorized();
+            if (string.IsNullOrWhiteSpace(req?.Text))
+                return Results.BadRequest(new { error = "Thiếu 'text'" });
+            try
+            {
+                var (mp3, cached) = await tts.SynthesizeAsync(req.Text, req.Voice, ctx.RequestAborted);
+                ctx.Response.Headers["X-Tts-Cached"] = cached ? "1" : "0";   // debug: có tính phí hay không
+                return Results.File(mp3, "audio/mpeg");
+            }
+            catch (InvalidOperationException ex)
+            {
+                log.LogWarning(ex, "TTS fail");
+                return Results.Json(new { error = ex.Message }, statusCode: 400);
+            }
+            catch (Exception ex)
+            {
+                log.LogError(ex, "TTS crash");
+                return Results.Json(new { error = "Lỗi nội bộ khi TTS: " + ex.Message }, statusCode: 500);
+            }
+        });
     }
+
+    public record TtsRequest(string Text, string? Voice);
 
     private static string? Sid(HttpContext ctx)
         => ctx.Request.Headers["X-Session-Id"].FirstOrDefault() ?? ctx.Request.Query["sessionId"].FirstOrDefault();
