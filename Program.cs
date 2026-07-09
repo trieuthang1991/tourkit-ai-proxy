@@ -143,6 +143,12 @@ builder.Services.AddSingleton<IAgentRuntime, JsonPlannerAgent>();
 builder.Services.AddSingleton<TourkitAiProxy.Services.Chat.UnresolvedQuestionsLog>();
 builder.Services.AddSingleton<ChatAgentService>();
 
+// SmartMail — template mail global (dbo.MailTemplates) cho admin CRUD + seed mặc định.
+// Các Mail/Workflow service khác (MailAccountStore, MailQueueRepository, các workflow…) đã nằm
+// trong AddWorkflowStack ở trên. MailTemplateRepository là UI/admin-specific (không cần cho
+// scheduler worker) nên đăng ký riêng ở đây.
+builder.Services.AddSingleton<TourkitAiProxy.Services.Mail.MailTemplateRepository>();
+
 // Soạn Tour GIT bằng AI — bóc mô tả tự do thành form Tour GIT (Type=3) cho NV prefill.
 builder.Services.AddSingleton<TourkitAiProxy.Services.Tour.TourBuilderService>();
 
@@ -260,6 +266,13 @@ _ = Task.Run(async () =>
     {
         scope.ServiceProvider.GetRequiredService<ILogger<Program>>()
             .LogError(ex, "Deal DB init/migrate fail — fallback file");
+    }
+    // Seed template mail mặc định (chỉ khi bảng rỗng) — chạy nền, KHÔNG block startup.
+    try { await scope.ServiceProvider.GetRequiredService<TourkitAiProxy.Services.Mail.MailTemplateRepository>().SeedDefaultsAsync(); }
+    catch (Exception ex)
+    {
+        scope.ServiceProvider.GetRequiredService<ILogger<Program>>()
+            .LogWarning(ex, "Seed MailTemplates fail");
     }
 });
 

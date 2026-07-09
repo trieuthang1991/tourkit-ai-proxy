@@ -32,11 +32,13 @@
 | 17 | `dbo.AppLogs` | Log ứng dụng tập trung (thay stdout, cho site workflow tách riêng truy chung). **Thiết kế ĐỘNG: `Kind` phân loại + `DataJson` payload tùy ý** → thêm loại log mới khỏi đổi schema. `ILogger`→`Kind='app'`; `ILogSink.Write("kind",…,data)` cho log có cấu trúc loại bất kỳ. Bật qua `Logging:Database:Enabled`. | [`DbLogWriter`](../Services/Logging/DbLogWriter.cs) / [`DbLogging`](../Services/Logging/DbLogging.cs) | `Id` IDENTITY |
 | 18 | `dbo.OutboundMails` | **Hàng đợi mail OUTBOUND dùng chung** (producer enqueue `Status=0`; worker riêng — CEO viết — render template + gửi). Nội dung theo TEMPLATE: `TemplateCode` + `[Params]` JSON (không soạn HTML ở proxy). `Status` TINYINT (0=pending..4=skipped) cho worker dùng enum. Khác `dbo.Mails` (inbox). Producer đầu tiên: workflow `deal-auto-review` (Kind=`deal-cooling-alert`). | [`MailQueueRepository`](../Services/Mail/MailQueueRepository.cs) | `Id` IDENTITY |
 | 19 | `dbo.TenantServiceAccounts` | **Tài khoản dịch vụ per-tenant** cho workflow nền tự login TourKit (KHÔNG cần user online). `PasswordEnc` Crypton. Dùng bởi `deal-auto-review`. | [`TenantServiceAccountStore`](../Services/TourKit/TenantServiceAccountStore.cs) | `TenantId` |
+| 20 | `dbo.MailTemplates` | **Template mail dùng chung (global)** — nguồn nội dung cho `dbo.OutboundMails`. Admin CRUD ở `/admin-trav-ai/mail-templates`; worker (toutkit-app) render `Subject`/`BodyHtml` theo `{{key}}` + `{{#if key}}…{{/if}}` từ `[Params]`, fallback template code nếu thiếu/Disabled. Seed sẵn `deal-cooling-alert` lúc startup. | [`MailTemplateRepository`](../Services/Mail/MailTemplateRepository.cs) | `Code` |
 
 > Cột mới đáng chú ý (2026-06-26): `Mails.AutoReplyError` (đánh dấu lỗi auto-reply để hiện ở UI); `UserWorkflows.OptionsJson` (điều kiện động).
 > Cột mới (2026-06-28): `DealScores.AutoReviewCount` (số lần workflow tự chấm) + `IsFinalized`/`FinalizedReason` (`manual`/`status-changed`/`aged` — workflow đánh cờ để ngừng review/nhắc) + `LastAutoReviewUtc`.
+> Bảng mới (2026-06-29): `dbo.MailTemplates` — template mail global, admin sửa nội dung outbound mail không cần deploy lại worker.
 
-### Tổng cộng: **19 bảng** owned by proxy.
+### Tổng cộng: **20 bảng** owned by proxy.
 
 ## Bảng đã bỏ
 

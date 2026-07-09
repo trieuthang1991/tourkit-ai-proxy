@@ -354,13 +354,23 @@ public class DealAutoReviewWorkflow : IScheduledWorkflow
             ["assigneeNames"] = deal.Assignees,
             ["fullName"] = deal.Assignees,        // tên người nhận để worker/template dùng (producer truyền sẵn)
             ["coolingDays"] = deal.CoolingDays,
-            ["lastInteractionAt"] = deal.LastInteractionAt,
+            ["lastInteractionAt"] = FmtDate(deal.LastInteractionAt),
             ["hasReview"] = score != null,
             ["winRate"] = score?.WinRate,
             ["level"] = score?.Level,
             ["nextAction"] = score?.NextAction,
         };
         return JsonSerializer.Serialize(p);
+    }
+
+    /// Format ngày ISO ("2026-06-12T09:59:50.857") → "dd/MM/yyyy HH:mm" cho dễ đọc trong email.
+    /// Giữ wall-clock (không đổi TZ) vì chỉ để hiển thị; parse fail → trả nguyên chuỗi.
+    private static string? FmtDate(string? iso)
+    {
+        if (string.IsNullOrWhiteSpace(iso)) return iso;
+        return DateTime.TryParse(iso, CultureInfo.InvariantCulture, DateTimeStyles.None, out var d)
+            ? d.ToString("dd/MM/yyyy HH:mm", CultureInfo.InvariantCulture)
+            : iso;
     }
 
     /// Tách chuỗi nhiều email NV (ngăn bởi , ; /) → (email chính, danh sách Cc dạng "a,b"). Loại trùng,

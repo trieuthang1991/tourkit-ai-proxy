@@ -1,6 +1,7 @@
 using System.Text.Json;
 using TourkitAiProxy.Services.Admin;
 using TourkitAiProxy.Services.Chat;
+using TourkitAiProxy.Services.Mail;
 using TourkitAiProxy.Services.Quota;
 using TourkitAiProxy.Services.TourKit;
 
@@ -20,6 +21,10 @@ namespace TourkitAiProxy.Endpoints;
 ///   GET  /api/v1/admin/ui/chat-unresolved?days=&amp;tag=            — câu hỏi /assistant AI không suy luận được
 ///   GET  /api/v1/admin/ui/tk-sessions                            — phiên đăng nhập TourKit đang active
 ///   DELETE /api/v1/admin/ui/tk-sessions/{id}                     — kick 1 phiên (force logout)
+///   GET  /api/v1/admin/ui/outbound-mails?tenantId=&amp;kind=&amp;status= — hàng đợi mail (cross-tenant) + counts
+///   GET  /api/v1/admin/ui/mail-templates                         — list template mail (global)
+///   PUT  /api/v1/admin/ui/mail-templates/{code}                  — tạo/sửa template
+///   DELETE /api/v1/admin/ui/mail-templates/{code}                — xóa template
 /// </summary>
 public static class AdminUiEndpoints
 {
@@ -359,9 +364,135 @@ public static class AdminUiEndpoints
             return Results.Json(new { ok = removed, kicked = removed, by });
         });
 
+        // ── Hàng đợi mail outbound (cross-tenant) ──────────────────────────────────
+        // GET /api/v1/admin/ui/outbound-mails?tenantId=&kind=&status=&limit=50
+        g.MapGet("/outbound-mails", async (
+            string? tenantId, string? kind, int? status, int? limit,
+            MailQueueRepository queue,
+            TkSessionRepository tkRepo,
+            CancellationToken ct) =>
+        {
+            var t  = string.IsNullOrWhiteSpace(tenantId) ? null : tenantId.Trim();
+            var k  = string.IsNullOrWhiteSpace(kind) ? null : kind.Trim();
+            var take = Math.Clamp(limit ?? 50, 1, 500);
+
+            var itemsTask  = queue.ListForAdminAsync(t, k, status, take, ct);
+            var countsTask = queue.CountByStatusForAdminAsync(t, k, ct);
+            await Task.WhenAll(itemsTask, countsTask);
+            var rows   = await itemsTask;
+            var counts = await countsTask;
+
+            var tenantIds = rows.Select(r => r.TenantId).Where(s => !string.IsNullOrWhiteSpace(s)).Distinct().ToList();
+            Dictionary<string, string> names;
+            try { names = await tkRepo.GetTenantNamesAsync(tenantIds, ct); }
+            catch { names = new(); }
+
+            return Results.Json(new
+            {
+                items = rows.Select(r => new
+                {
+                    id           = r.Id,
+                    tenantId     = r.TenantId,
+                    tenantName   = names.TryGetValue(r.TenantId, out var n) ? n : r.TenantId,
+                    kind         = r.Kind,
+                    sourceId     = r.SourceId,
+                    templateCode = r.TemplateCode,
+                    toEmail      = r.ToEmail,
+                    toName       = r.ToName,
+                    cc           = r.Cc,
+                    subject      = r.Subject,
+                    paramsJson   = r.Params,
+                    status       = r.Status,
+                    statusText   = StatusText(r.Status),
+                    retryCount   = r.RetryCount,
+                    errorMessage = r.ErrorMessage,
+                    scheduledUtc = r.ScheduledUtc,
+                    createdUtc   = r.CreatedUtc,
+                    processedUtc = r.ProcessedUtc
+                }).ToList(),
+                counts = new
+                {
+                    pending   = counts.GetValueOrDefault(0),
+                    sent      = counts.GetValueOrDefault(1),
+                    failed    = counts.GetValueOrDefault(2),
+                    cancelled = counts.GetValueOrDefault(3),
+                    skipped   = counts.GetValueOrDefault(4),
+                    all       = counts.Values.Sum()
+                }
+            });
+
+            static string StatusText(byte s) => s switch
+            {
+                0 => "Chờ gửi", 1 => "Đã gửi", 2 => "Lỗi", 3 => "Đã hủy", 4 => "Bỏ qua", _ => "?"
+            };
+        });
+
+        // ── Quản lý template mail (global) ─────────────────────────────────────────
+        // GET /api/v1/admin/ui/mail-templates
+        g.MapGet("/mail-templates", async (MailTemplateRepository repo, CancellationToken ct) =>
+        {
+            var items = await repo.ListAsync(ct);
+            return Results.Json(new { items });
+        });
+
+        // PUT /api/v1/admin/ui/mail-templates/{code} — upsert
+        g.MapPut("/mail-templates/{code}", async (
+            string code,
+            MailTemplateUpsertReq req,
+            HttpContext http,
+            MailTemplateRepository repo,
+            CancellationToken ct) =>
+        {
+            code = (code ?? "").Trim();
+            if (string.IsNullOrWhiteSpace(code))
+                return Results.BadRequest(new { error = "code trống" });
+            if (string.IsNullOrWhiteSpace(req.Name))
+                return Results.BadRequest(new { error = "Tên template không được trống" });
+            if (string.IsNullOrWhiteSpace(req.Subject))
+                return Results.BadRequest(new { error = "Tiêu đề (Subject) không được trống" });
+            if (string.IsNullOrWhiteSpace(req.BodyHtml))
+                return Results.BadRequest(new { error = "Nội dung (BodyHtml) không được trống" });
+
+            // SampleParams nếu có phải là JSON object hợp lệ (preview an toàn).
+            if (!string.IsNullOrWhiteSpace(req.SampleParams))
+            {
+                try { using var _ = JsonDocument.Parse(req.SampleParams); }
+                catch { return Results.BadRequest(new { error = "SampleParams không phải JSON hợp lệ" }); }
+            }
+
+            var by = http.Items[RequireAdminSessionExtensions.HttpItemKey] as string ?? "admin";
+            var saved = await repo.UpsertAsync(new MailTemplate
+            {
+                Code = code,
+                Name = req.Name.Trim(),
+                Subject = req.Subject,
+                BodyHtml = req.BodyHtml,
+                Description = string.IsNullOrWhiteSpace(req.Description) ? null : req.Description.Trim(),
+                SampleParams = string.IsNullOrWhiteSpace(req.SampleParams) ? null : req.SampleParams,
+                Enabled = req.Enabled
+            }, by, ct);
+            return Results.Json(saved);
+        });
+
+        // DELETE /api/v1/admin/ui/mail-templates/{code}
+        g.MapDelete("/mail-templates/{code}", async (
+            string code, MailTemplateRepository repo, CancellationToken ct) =>
+        {
+            var removed = await repo.DeleteAsync((code ?? "").Trim(), ct);
+            return Results.Json(new { ok = removed, removed });
+        });
+
         return routes;
     }
 }
+
+public record MailTemplateUpsertReq(
+    string Name,
+    string Subject,
+    string BodyHtml,
+    string? Description,
+    string? SampleParams,
+    bool Enabled);
 
 public record AdminQuotaTopUpReq(int Amount);
 public record ConsultLeadContactedReq(bool Contacted);

@@ -1,87 +1,98 @@
 /* ───────────────────────────────────────────────────────────────────────────
    Admin shell — namespace prefix .admin-* + .ai-usage-* + .quota-*
-   Aesthetic: Editorial Financial — paper-warm canvas, midnight-ink sidebar,
-   Fraunces serif cho number + title (data có "sức nặng" như báo cáo FT),
-   burnt-sienna accent thay flat orange.
+   Aesthetic: ĐỒNG NHẤT với website chính (wwwroot/styles.css):
+   - Font Be Vietnam Pro (sans, KHÔNG serif) — token --serif trỏ về sans để khỏi sửa từng rule.
+   - Palette slate lạnh: nền #F8FAFC, surface trắng, mực #0F172A, viền #E2E8F0.
+   - Accent cam #F97316 (primary website), chrome off-black #17181D cho sidebar/topbar tối.
+   - Radii 6/8/12px, shadow tint slate (rgba(15,23,42,…)).
+   Giữ NGUYÊN mọi class + biến CSS để admin.jsx không phải đổi.
    ─────────────────────────────────────────────────────────────────────────── */
-@import url('https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,400;9..144,500;9..144,600;9..144,700&display=swap');
 
 :root {
-  --bg-paper:        #FAF7F2;
+  --bg-paper:        #F8FAFC;   /* = website --bg (nền content) */
   --bg-surface:      #FFFFFF;
-  --bg-sidebar:      #0F1B2D;
-  --bg-sidebar-soft: #18283F;
+  --bg-cream:        #F1F5F9;   /* surface phụ (preview header…) */
+  --bg-sidebar:      #17181D;   /* = website --chrome */
+  --bg-sidebar-soft: #21232B;   /* = website --chrome-2 */
 
-  --text-primary: #1A1612;
-  --text-muted:   #6B5D54;
-  --text-faint:   #A89B8C;
+  --text-primary: #0F172A;      /* = website --text */
+  --text-muted:   #475569;      /* = website --text-2 */
+  --text-faint:   #94A3B8;      /* slate-400 */
 
-  --border-warm: #E8DFD4;
-  --border-hair: #F1E9DD;
+  --border-warm: #E2E8F0;       /* = website --border */
+  --border-hair: #EEF2F6;       /* viền mảnh hơn */
 
-  --accent:        #C2410C;
-  --accent-deep:   #9A3412;
-  --accent-tint:   #FFEFE0;
+  --accent:      #F97316;       /* = website --primary */
+  --accent-deep: #EA580C;       /* = website --primary-dark */
+  --accent-tint: #FEF3E7;       /* = website --primary-soft */
 
-  --sidebar-fg:        #E8DCC9;
-  --sidebar-fg-muted:  #8A7E6E;
-  --sidebar-active-bg: rgba(217, 119, 6, 0.16);
-  --sidebar-active-fg: #FBBF77;
+  --sidebar-fg:        #E8E9ED; /* = website --chrome-text */
+  --sidebar-fg-muted:  #9DA0AB; /* = website --chrome-text-2 */
+  --sidebar-active-bg: rgba(249, 115, 22, 0.16);
+  --sidebar-active-fg: #FB923C; /* orange-400 */
 
-  --serif: 'Fraunces', 'Georgia', 'Iowan Old Style', serif;
-  --sans:  'Be Vietnam Pro', system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+  --success: #10B981;
+  --warning: #F59E0B;
+  --danger:  #EF4444;
+
+  /* Đồng nhất font với website: KHÔNG dùng serif — token --serif giữ tên nhưng trỏ về sans. */
+  --sans:  'Be Vietnam Pro', 'Inter', system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+  --serif: var(--sans);
   --mono:  ui-monospace, 'SF Mono', Menlo, 'Cascadia Code', monospace;
+
+  --shadow-sm: 0 1px 2px rgba(15, 23, 42, 0.04);
+  --shadow-md: 0 4px 12px rgba(15, 23, 42, 0.06);
+  --shadow-lg: 0 12px 32px rgba(15, 23, 42, 0.08);
 }
 
 /* ─── Login ─────────────────────────────────────────────────────────────── */
 .admin-loading {
   font-family: var(--sans);
   display: grid; place-items: center;
-  min-height: 100vh; color: var(--text-muted);
+  min-height: 100dvh; color: var(--text-muted);
   background: var(--bg-paper);
-  letter-spacing: 0.02em;
+  letter-spacing: 0.01em;
 }
 
 .admin-login-wrap {
-  min-height: 100vh; display: grid; place-items: center;
+  min-height: 100dvh; display: grid; place-items: center;
   background: var(--bg-paper);
   background-image:
-    radial-gradient(at 18% 22%, rgba(194,65,12,0.10) 0, transparent 42%),
-    radial-gradient(at 82% 78%, rgba(15,27,45,0.06) 0, transparent 45%);
+    radial-gradient(at 18% 22%, rgba(249,115,22,0.10) 0, transparent 42%),
+    radial-gradient(at 82% 78%, rgba(15,23,42,0.05) 0, transparent 45%);
   font-family: var(--sans);
 }
 .admin-login-card {
   width: 380px; max-width: 92vw;
   background: var(--bg-surface);
   border: 1px solid var(--border-warm);
-  border-radius: 4px;
-  box-shadow: 0 24px 60px -20px rgba(26,22,18,0.18), 0 2px 4px rgba(26,22,18,0.04);
+  border-radius: 12px;
+  box-shadow: var(--shadow-lg), var(--shadow-sm);
   padding: 36px 32px 28px;
   display: flex; flex-direction: column; gap: 12px;
-  position: relative;
+  position: relative; overflow: hidden;
 }
 .admin-login-card::before {
   content: ""; position: absolute; top: 0; left: 0; right: 0; height: 3px;
   background: var(--accent);
 }
 .admin-login-card h1 {
-  margin: 0; font-family: var(--serif); font-weight: 600;
-  font-size: 28px; color: var(--text-primary);
-  letter-spacing: -0.01em;
+  margin: 0; font-family: var(--sans); font-weight: 700;
+  font-size: 26px; color: var(--text-primary);
+  letter-spacing: -0.02em;
 }
 .admin-login-sub {
   margin: -4px 0 16px; color: var(--text-muted); font-size: 13px;
-  font-style: italic; font-family: var(--serif); font-weight: 400;
 }
 .admin-login-card label {
   font-size: 11px; font-weight: 600; color: var(--text-muted);
-  margin-top: 6px; text-transform: uppercase; letter-spacing: 0.08em;
+  margin-top: 6px; text-transform: uppercase; letter-spacing: 0.06em;
 }
 .admin-login-card input {
-  border: 1px solid var(--border-warm); border-radius: 3px;
+  border: 1px solid var(--border-warm); border-radius: 6px;
   padding: 11px 13px; font-size: 14px; font: inherit;
   background: var(--bg-paper);
-  transition: border-color .12s, box-shadow .12s;
+  transition: border-color .15s, box-shadow .15s, background .15s;
 }
 .admin-login-card input:focus {
   outline: none; border-color: var(--accent);
@@ -90,60 +101,60 @@
 }
 .admin-login-card button {
   margin-top: 16px; padding: 11px 16px;
-  background: var(--text-primary); color: var(--bg-paper); border: none;
-  border-radius: 3px; font-weight: 600; font-size: 13px; cursor: pointer;
-  letter-spacing: 0.06em; text-transform: uppercase;
-  transition: background .12s;
+  background: var(--accent); color: #fff; border: none;
+  border-radius: 6px; font-weight: 600; font-size: 14px; cursor: pointer;
+  letter-spacing: 0.01em;
+  transition: background .15s, transform .08s;
 }
-.admin-login-card button:not(:disabled):hover { background: var(--accent); }
-.admin-login-card button:disabled { opacity: 0.4; cursor: not-allowed; }
+.admin-login-card button:not(:disabled):hover { background: var(--accent-deep); }
+.admin-login-card button:not(:disabled):active { transform: translateY(1px); }
+.admin-login-card button:disabled { opacity: 0.45; cursor: not-allowed; }
 .admin-login-error {
-  color: var(--accent-deep); font-size: 13px;
-  background: var(--accent-tint); padding: 10px 12px;
-  border-left: 2px solid var(--accent); border-radius: 0;
+  color: var(--danger); font-size: 13px;
+  background: #FEF2F2; padding: 10px 12px;
+  border-left: 2px solid var(--danger); border-radius: 6px;
 }
 
 /* ─── Shell ─────────────────────────────────────────────────────────────── */
 .admin-shell {
   display: grid; grid-template-columns: 240px 1fr;
-  min-height: 100vh; font-family: var(--sans);
+  min-height: 100dvh; font-family: var(--sans);
   background: var(--bg-paper); color: var(--text-primary);
 }
 .admin-sidebar {
   background: var(--bg-sidebar); color: var(--sidebar-fg);
   padding: 24px 14px; display: flex; flex-direction: column; gap: 22px;
-  background-image:
-    linear-gradient(180deg, transparent 0%, rgba(194,65,12,0.04) 100%);
+  border-right: 1px solid rgba(255,255,255,0.06);
 }
 .admin-brand {
-  font-family: var(--serif); font-weight: 700; font-size: 22px;
+  font-family: var(--sans); font-weight: 700; font-size: 20px;
   letter-spacing: -0.01em; padding: 0 10px;
   color: var(--sidebar-active-fg);
-  line-height: 1.1;
+  line-height: 1.15;
 }
 .admin-brand small {
   display: block; margin-top: 4px;
-  font-family: var(--serif); font-style: italic; font-weight: 400;
-  color: var(--sidebar-fg-muted); font-size: 12px; letter-spacing: 0.02em;
+  font-family: var(--sans); font-weight: 400;
+  color: var(--sidebar-fg-muted); font-size: 12px; letter-spacing: 0.01em;
 }
 .admin-sidebar nav { display: flex; flex-direction: column; gap: 2px; }
 .admin-nav-item {
   display: flex; align-items: center; gap: 12px;
-  padding: 10px 12px; border-radius: 3px;
-  color: var(--sidebar-fg); opacity: 0.75;
+  padding: 10px 12px; border-radius: 8px;
+  color: var(--sidebar-fg); opacity: 0.78;
   text-decoration: none; font-size: 13px; font-weight: 500;
   letter-spacing: 0.01em;
-  transition: background .12s, opacity .12s, color .12s;
+  transition: background .15s, opacity .15s, color .15s;
   position: relative;
 }
-.admin-nav-item:hover { background: rgba(255,255,255,0.04); opacity: 1; }
+.admin-nav-item:hover { background: rgba(255,255,255,0.05); opacity: 1; }
 .admin-nav-item.active {
   background: var(--sidebar-active-bg);
   color: var(--sidebar-active-fg); opacity: 1;
 }
 .admin-nav-item.active::before {
   content: ""; position: absolute; left: -14px; top: 8px; bottom: 8px;
-  width: 2px; background: var(--accent);
+  width: 3px; border-radius: 0 2px 2px 0; background: var(--accent);
 }
 .admin-nav-icon { font-size: 15px; width: 18px; text-align: center; opacity: 0.9; }
 
@@ -152,25 +163,25 @@
   background: var(--bg-surface);
   border-bottom: 1px solid var(--border-warm);
   padding: 18px 28px;
-  display: flex; align-items: baseline; justify-content: space-between;
+  display: flex; align-items: center; justify-content: space-between;
 }
 .admin-topbar-title {
-  font-family: var(--serif); font-size: 22px; font-weight: 600;
+  font-family: var(--sans); font-size: 18px; font-weight: 700;
   color: var(--text-primary); letter-spacing: -0.01em;
 }
 .admin-topbar-right { display: flex; align-items: center; gap: 14px; }
 .admin-topbar-user {
-  font-size: 12px; color: var(--text-muted);
-  font-family: var(--serif); font-style: italic;
+  font-size: 13px; color: var(--text-muted);
+  font-family: var(--sans);
 }
 .admin-topbar-logout {
   background: transparent; border: 1px solid var(--border-warm);
-  color: var(--text-primary);
-  padding: 6px 14px; border-radius: 3px; font-size: 12px; cursor: pointer;
-  letter-spacing: 0.04em; text-transform: uppercase; font-weight: 600;
-  transition: background .12s, border-color .12s;
+  color: var(--text-muted);
+  padding: 6px 14px; border-radius: 6px; font-size: 12px; cursor: pointer;
+  letter-spacing: 0.02em; font-weight: 600;
+  transition: background .15s, border-color .15s, color .15s;
 }
-.admin-topbar-logout:hover { background: var(--accent-tint); border-color: var(--accent); }
+.admin-topbar-logout:hover { background: #FEF2F2; border-color: var(--danger); color: var(--danger); }
 
 .admin-content { padding: 28px; flex: 1; min-width: 0; }
 
@@ -179,50 +190,53 @@
 .ai-usage-filters { display: flex; align-items: center; gap: 14px; flex-wrap: wrap; }
 .ai-usage-range {
   display: inline-flex; background: var(--bg-surface);
-  border: 1px solid var(--border-warm); border-radius: 3px; overflow: hidden;
+  border: 1px solid var(--border-warm); border-radius: 8px; overflow: hidden;
 }
 .ai-usage-tab {
   background: transparent; border: none; padding: 7px 18px;
   font-size: 12px; color: var(--text-muted); cursor: pointer; font-weight: 600;
-  letter-spacing: 0.04em; text-transform: uppercase;
+  letter-spacing: 0.02em;
   font-family: var(--sans);
-  transition: background .12s, color .12s;
+  transition: background .15s, color .15s;
 }
 .ai-usage-tab:hover { background: var(--bg-paper); color: var(--text-primary); }
-.ai-usage-tab.active { background: var(--text-primary); color: var(--bg-paper); }
+.ai-usage-tab.active { background: var(--accent); color: #fff; }
 .ai-usage-tenant-pill {
   background: var(--accent-tint); color: var(--accent-deep);
-  border: 1px solid #F8D9C3;
+  border: 1px solid #FBD7B5;
   border-radius: 999px; padding: 5px 14px; font-size: 12px;
   display: inline-flex; align-items: center; gap: 8px;
-  font-family: var(--serif); font-style: italic;
+  font-family: var(--sans); font-weight: 500;
 }
 .ai-usage-tenant-pill button {
   background: transparent; border: none; color: var(--accent-deep);
-  cursor: pointer; font-weight: 700; font-style: normal;
+  cursor: pointer; font-weight: 700;
 }
 
 .ai-usage-loading, .ai-usage-error, .ai-usage-placeholder {
   background: var(--bg-surface); border: 1px solid var(--border-warm);
-  border-radius: 4px; padding: 18px;
+  border-radius: 8px; padding: 18px;
   color: var(--text-muted); font-size: 14px;
-  font-family: var(--serif); font-style: italic;
+  font-family: var(--sans);
 }
-.ai-usage-error { color: var(--accent-deep); background: var(--accent-tint); border-color: #F8D9C3; }
+.ai-usage-error { color: var(--danger); background: #FEF2F2; border-color: #FECACA; }
 .ai-usage-error button {
-  margin-left: 12px; background: var(--accent-deep); color: #fff; border: none;
-  padding: 4px 10px; border-radius: 3px; cursor: pointer;
-  font-family: var(--sans); font-style: normal;
-  text-transform: uppercase; font-size: 11px; letter-spacing: 0.04em;
+  margin-left: 12px; background: var(--danger); color: #fff; border: none;
+  padding: 4px 10px; border-radius: 6px; cursor: pointer;
+  font-family: var(--sans);
+  font-size: 11px; letter-spacing: 0.02em; font-weight: 600;
 }
 
-/* Stat cards — số chính dùng Fraunces serif tabular */
+/* Stat cards */
 .ai-usage-stats { display: grid; grid-template-columns: repeat(4, 1fr); gap: 14px; }
 .ai-usage-stat {
   background: var(--bg-surface); border: 1px solid var(--border-warm);
-  border-radius: 4px; padding: 18px 20px 20px;
+  border-radius: 12px; padding: 18px 20px 20px;
   position: relative; overflow: hidden;
+  box-shadow: var(--shadow-sm);
+  transition: box-shadow .15s, transform .15s;
 }
+.ai-usage-stat:hover { box-shadow: var(--shadow-md); transform: translateY(-1px); }
 .ai-usage-stat::after {
   content: ""; position: absolute; bottom: 0; left: 20px; right: 20px;
   height: 2px; background: var(--accent); opacity: 0;
@@ -231,32 +245,34 @@
 .ai-usage-stat:hover::after { opacity: 1; }
 .ai-usage-stat-label {
   font-size: 10px; color: var(--text-muted); font-weight: 700;
-  text-transform: uppercase; letter-spacing: 0.12em;
+  text-transform: uppercase; letter-spacing: 0.1em;
 }
 .ai-usage-stat-value {
-  font-family: var(--serif); font-weight: 600;
-  font-size: 36px; line-height: 1.1; color: var(--text-primary);
+  font-family: var(--sans); font-weight: 700;
+  font-size: 32px; line-height: 1.1; color: var(--text-primary);
   margin-top: 8px; font-variant-numeric: tabular-nums;
   letter-spacing: -0.02em;
 }
 
 @media (max-width: 900px) {
   .ai-usage-stats { grid-template-columns: repeat(2, 1fr); }
+  .admin-shell { grid-template-columns: 1fr; }
 }
 
 /* Section panels */
 .ai-usage-section {
   background: var(--bg-surface); border: 1px solid var(--border-warm);
-  border-radius: 4px; padding: 20px 22px;
+  border-radius: 12px; padding: 20px 22px;
+  box-shadow: var(--shadow-sm);
 }
 .ai-usage-section-title {
-  margin: 0 0 16px; font-family: var(--serif); font-weight: 600;
-  font-size: 17px; color: var(--text-primary);
-  letter-spacing: -0.005em;
+  margin: 0 0 16px; font-family: var(--sans); font-weight: 700;
+  font-size: 16px; color: var(--text-primary);
+  letter-spacing: -0.01em;
   padding-bottom: 12px; border-bottom: 1px solid var(--border-hair);
 }
 
-/* Tables — hairline rules, tabular nums, warm hover */
+/* Tables */
 .ai-usage-table-wrap { overflow-x: auto; }
 .ai-usage-table { width: 100%; border-collapse: collapse; font-size: 13px; }
 .ai-usage-table th, .ai-usage-table td {
@@ -265,14 +281,14 @@
 }
 .ai-usage-table th {
   font-weight: 700; color: var(--text-muted); font-size: 10px;
-  text-transform: uppercase; letter-spacing: 0.1em;
+  text-transform: uppercase; letter-spacing: 0.08em;
   border-bottom-color: var(--border-warm);
 }
 .ai-usage-table tbody tr:last-child td { border-bottom: none; }
 .ai-usage-table th.num, .ai-usage-table td.num {
   text-align: right;
   font-variant-numeric: tabular-nums;
-  font-family: var(--serif); font-weight: 500;
+  font-family: var(--sans); font-weight: 600;
 }
 .ai-usage-table tr.clickable { cursor: pointer; }
 .ai-usage-table tr.clickable:hover { background: var(--accent-tint); }
@@ -282,7 +298,7 @@
 
 .tenant-name {
   font-weight: 600; color: var(--text-primary);
-  font-family: var(--serif); font-size: 14px;
+  font-family: var(--sans); font-size: 14px;
 }
 .tenant-id {
   font-size: 11px; color: var(--text-faint);
@@ -292,20 +308,21 @@
 .ai-usage-chart { height: 280px; position: relative; }
 .ai-usage-table code {
   font-size: 12px; color: var(--text-primary); background: var(--bg-paper);
-  padding: 2px 6px; border-radius: 2px;
+  padding: 2px 6px; border-radius: 4px;
   font-family: var(--mono);
 }
 
-/* ─── Quota page (reuse ai-usage-* primitives, add only data viz) ───────── */
+/* ─── Quota page (reuse ai-usage-* primitives) ──────────────────────────── */
 .quota-section {
   background: var(--bg-surface); border: 1px solid var(--border-warm);
-  border-radius: 4px; overflow: hidden;
+  border-radius: 12px; overflow: hidden;
+  box-shadow: var(--shadow-sm);
 }
 .quota-table { width: 100%; border-collapse: collapse; font-size: 13px; }
 .quota-table thead th {
   background: var(--bg-paper); color: var(--text-muted);
   font-weight: 700; font-size: 10px;
-  letter-spacing: 0.1em; text-transform: uppercase;
+  letter-spacing: 0.08em; text-transform: uppercase;
   padding: 12px 16px; text-align: left;
   border-bottom: 1px solid var(--border-warm);
 }
@@ -317,12 +334,12 @@
 .quota-table tbody tr:hover { background: var(--accent-tint); }
 
 .quota-rank {
-  color: var(--text-faint); font-family: var(--serif); font-style: italic;
+  color: var(--text-faint); font-family: var(--sans);
   font-variant-numeric: tabular-nums; width: 40px;
 }
 .quota-name {
   font-weight: 600; color: var(--text-primary);
-  font-family: var(--serif); font-size: 14px;
+  font-family: var(--sans); font-size: 14px;
 }
 .quota-tid {
   font-family: var(--mono); font-size: 11px;
@@ -330,58 +347,58 @@
 }
 .quota-num {
   text-align: right; font-variant-numeric: tabular-nums;
-  white-space: nowrap; font-family: var(--serif); font-weight: 500;
+  white-space: nowrap; font-family: var(--sans); font-weight: 600;
   font-size: 14px;
 }
 
 .quota-pct-cell { display: flex; align-items: center; gap: 10px; min-width: 200px; }
 .quota-pct-bar {
   flex: 1; height: 6px; background: var(--border-hair);
-  border-radius: 0; overflow: hidden; position: relative;
+  border-radius: 999px; overflow: hidden; position: relative;
 }
-.quota-pct-fill { height: 100%; transition: width .3s ease; }
-.quota-pct-green .quota-pct-fill { background: #4D7C5C; }   /* deep moss */
-.quota-pct-amber .quota-pct-fill { background: #B45309; }   /* honey */
-.quota-pct-red   .quota-pct-fill { background: var(--accent); }
+.quota-pct-fill { height: 100%; border-radius: 999px; transition: width .3s ease; }
+.quota-pct-green .quota-pct-fill { background: var(--success); }
+.quota-pct-amber .quota-pct-fill { background: var(--warning); }
+.quota-pct-red   .quota-pct-fill { background: var(--danger); }
 .quota-pct-num {
   font-variant-numeric: tabular-nums; font-size: 12px;
   color: var(--text-primary); min-width: 38px; text-align: right;
-  font-family: var(--serif); font-weight: 600;
+  font-family: var(--sans); font-weight: 600;
 }
 
 .quota-empty {
   text-align: center; padding: 36px; color: var(--text-faint);
-  font-family: var(--serif); font-style: italic;
+  font-family: var(--sans);
 }
 .quota-btn-sm {
   padding: 5px 12px; font-size: 11px;
   background: transparent; border: 1px solid var(--border-warm);
-  color: var(--text-primary); cursor: pointer; border-radius: 3px;
-  letter-spacing: 0.04em; text-transform: uppercase; font-weight: 600;
-  transition: background .12s, border-color .12s, color .12s;
+  color: var(--text-muted); cursor: pointer; border-radius: 6px;
+  letter-spacing: 0.02em; font-weight: 600;
+  transition: background .15s, border-color .15s, color .15s;
 }
 .quota-btn-sm:hover {
-  background: var(--text-primary); color: var(--bg-paper);
-  border-color: var(--text-primary);
+  background: var(--accent); color: #fff;
+  border-color: var(--accent);
 }
 
-/* AI Usage page header (reuse trong Quota page) */
-.ai-usage-header { display: flex; align-items: baseline; gap: 16px; }
+/* Page header (reuse Quota/OutboundMails/MailTemplates) */
+.ai-usage-header { display: flex; align-items: center; gap: 16px; justify-content: space-between; flex-wrap: wrap; }
 .ai-usage-title {
-  margin: 0; font-family: var(--serif); font-weight: 600;
-  font-size: 26px; color: var(--text-primary);
-  letter-spacing: -0.015em;
+  margin: 0; font-family: var(--sans); font-weight: 700;
+  font-size: 22px; color: var(--text-primary);
+  letter-spacing: -0.02em;
 }
 .ai-usage-range-btn {
-  background: transparent; border: 1px solid var(--border-warm);
+  background: var(--bg-surface); border: 1px solid var(--border-warm);
   color: var(--text-muted);
-  padding: 6px 12px; border-radius: 3px; font-size: 12px;
+  padding: 7px 14px; border-radius: 6px; font-size: 12px;
   cursor: pointer; font-weight: 600;
-  letter-spacing: 0.04em; text-transform: uppercase;
+  letter-spacing: 0.02em;
   font-family: var(--sans);
-  transition: background .12s, color .12s;
+  transition: background .15s, color .15s, border-color .15s;
 }
 .ai-usage-range-btn:hover:not(:disabled) {
-  background: var(--text-primary); color: var(--bg-paper);
+  background: var(--accent); color: #fff; border-color: var(--accent);
 }
-.ai-usage-range-btn:disabled { opacity: 0.4; cursor: not-allowed; }
+.ai-usage-range-btn:disabled { opacity: 0.45; cursor: not-allowed; }
