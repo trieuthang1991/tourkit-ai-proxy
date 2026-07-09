@@ -26,7 +26,10 @@ public record DealOpportunity(
     string? LatestCommentDate = null,  // ISO
     string? LastInteractionAt = null,  // ISO
     int CoolingDays = 0,               // số ngày từ LastInteractionAt tới hôm nay
-    bool IsCooling = false             // true nếu CoolingDays ≥ ngưỡng (upstream quyết, mặc định 7d)
+    bool IsCooling = false,            // true nếu CoolingDays ≥ ngưỡng (upstream quyết, mặc định 7d)
+    // Upstream `BookingTicket.Rank` (0..100 = winRate% AI, NULL/0 = chưa chấm).
+    // Source of truth cho "đã chấm/chưa chấm" khi filter rank — tránh lệch với proxy cache khi worker sync lag.
+    int Rank = 0
 );
 
 /// Kết quả AI chấm sâu 1 deal (dùng detail + lịch sử hành động Sale).

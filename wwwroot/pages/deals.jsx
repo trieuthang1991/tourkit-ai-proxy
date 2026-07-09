@@ -406,9 +406,14 @@ function DealsPage({ pushToast }) {
   }
 
   // Server đã trả per-item score data (cached) — frontend chỉ cần map ra field phẳng cho UI.
-  // _hasScore = !!d.score (true nếu có cache). KHÔNG cần merge với board.items nữa.
+  // Bug fix (QA sheet 2026-07-09): TRƯỚC dùng `_hasScore = !!d.score` → khi worker sync lag
+  // giữa proxy cache và upstream Rank, filter "Chưa chấm" (rank=-1) trả về deal upstream Rank=NULL
+  // nhưng proxy cache có score → UI hiển thị "Đã chấm" ngược với filter.
+  // GIỜ dùng `_hasScore = scoreStatus === 'fresh'` — server đã compute scoreStatus theo upstream Rank
+  // (source of truth cho filter). Cache proxy chỉ enrich signals/risks/nextAction cho drawer.
   const items = list.map(d => {
-    if (d.score) {
+    const hasScore = d.scoreStatus === 'fresh';
+    if (hasScore && d.score) {
       return {
         ...d,
         winRate: d.score.winRate, level: d.score.level,
@@ -531,17 +536,16 @@ function DealsPage({ pushToast }) {
         );
       })()}
 
-      {!running && listLoading && items.length === 0 && (
+      {/* First-load skeleton — chỉ hiện khi CHƯA từng có data về (mọi condition đều rỗng + đang load). */}
+      {!running && listLoading && items.length === 0 && board == null && (
         <div className="deals-empty"><Icon name="trend" size={28} /><div>Đang tải danh sách cơ hội…</div></div>
       )}
-      {!running && !listLoading && items.length === 0 && (
-        <div className="deals-empty">
-          <Icon name="trend" size={28} />
-          <div><b>Chưa có cơ hội bán hàng</b><br />Khi có booking-ticket trên CRM, danh sách sẽ hiện ở đây.</div>
-        </div>
-      )}
 
-      {items.length > 0 && (<>
+      {/* Bug fix (QA sheet 2026-07-09): TRƯỚC bọc TOÀN BỘ (KPI + filter + table) trong `items.length > 0`
+          → khi user chọn filter làm list rỗng, cả filter bar biến mất → màn trắng, không có nút quay lại.
+          GIỜ: chỉ ẩn wrapper ở first-load skeleton. Sau khi đã có 1 lần load (dù thành công 0 items),
+          KPI + filter + advanced panel LUÔN render → user vẫn có cách reset filter. */}
+      {(items.length > 0 || !listLoading) && (<>
         {board?.generatedAt && (
           <div className="deals-meta">
             Lần chấm gần nhất {new Date(board.generatedAt).toLocaleString('vi-VN')} · {board.deepScored} cơ hội đã chấm
@@ -632,9 +636,30 @@ function DealsPage({ pushToast }) {
           )}
         </window.SearchControls.AdvancedFilterPanel>
 
-        {filtered.length === 0 ? (
-          <div className="deals-empty sm"><Icon name="search" size={22} /><div>Không có cơ hội nào khớp bộ lọc.</div></div>
-        ) : isMobile ? (
+        {filtered.length === 0 ? (() => {
+          // Bug fix (QA sheet 2026-07-09): phân biệt 2 case rỗng — có filter đang bật vs không có data
+          // → hiện nút "Xóa bộ lọc" khi filter active để user thoát về full list nhanh.
+          const hasActiveFilter = (q || '').trim() !== '' || rankFilter !== 'all' || advCount > 0;
+          const clearAll = () => {
+            setQ(''); setRankFilter('all'); setAdv(EMPTY_DEAL_FILTER); setPage(1);
+            loadList({ page: 1, q: '', rankFilter: 'all', adv: EMPTY_DEAL_FILTER });
+          };
+          return hasActiveFilter ? (
+            <div className="deals-empty sm">
+              <Icon name="search" size={22} />
+              <div><b>Không có cơ hội nào khớp bộ lọc.</b><br />
+                <button className="btn btn-ghost btn-sm" style={{marginTop:8}} onClick={clearAll}>
+                  <Icon name="close" size={12} /> Xóa bộ lọc
+                </button>
+              </div>
+            </div>
+          ) : (
+            <div className="deals-empty">
+              <Icon name="trend" size={28} />
+              <div><b>Chưa có cơ hội bán hàng</b><br />Khi có booking-ticket trên CRM, danh sách sẽ hiện ở đây.</div>
+            </div>
+          );
+        })() : isMobile ? (
           <div className="deals-cards">
             {filtered.map((it) => {
               const rank = it._hasScore ? (boardItems.findIndex(b => b.id === it.id) + 1) : null;

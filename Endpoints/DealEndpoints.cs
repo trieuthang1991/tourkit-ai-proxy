@@ -89,19 +89,23 @@ public static class DealEndpoints
                 var refTask     = LoadReferenceAsync();
                 await Task.WhenAll(listTask, refTask.ContinueWith(_ => { }, TaskScheduler.Default));
                 var res         = await listTask;
-                // Không còn nuốt lỗi im lặng: nếu reference vẫn fault sau retry → log để chẩn đoán,
-                // rồi fail-soft (lookups rỗng, FE giữ last-good). Bỏ qua cancel (client tự hủy).
+                // Reference resilience: nếu vẫn fault sau retry → log để chẩn đoán, rồi fail-soft
+                // (lookups rỗng, FE giữ last-good). Bỏ qua cancel (client tự hủy).
                 if (refTask.IsFaulted && !ctx.RequestAborted.IsCancellationRequested)
                     log.LogWarning(refTask.Exception?.GetBaseException(),
                         "[Deals] /api/ai/reference lỗi sau retry → lookups rỗng (FE giữ last-good)");
-                var lookups     = BuildDealLookups(refTask.IsCompletedSuccessfully ? refTask.Result : default);
-                // Augment: mỗi item kèm scoreStatus từ cache (none/fresh — KHÔNG check fingerprint
-                // ở đây để khỏi gọi GetContextAsync cho từng deal; "stale" khái niệm chỉ có nghĩa
-                // khi deal đổi profile, xử lý sau).
+                // Bug fix "Đã chấm/Chưa chấm ngược" (QA sheet 2026-07-09):
+                // TRƯỚC: scoreStatus = (proxy cache hit) → khi worker sync lag, upstream Rank=NULL
+                //        (trả về khi user pick "Chưa chấm") NHƯNG proxy cache có → FE hiển thị "Đã chấm" ✗
+                // GIỜ:   scoreStatus = upstream Rank (source of truth cho filter). Cache proxy chỉ dùng để enrich
+                //        `score` object (winRate/level/signals/risks/nextAction) cho drawer chi tiết.
+                //        Deal có Rank>0 nhưng cache proxy trống → FE fallback dùng chính Rank% + level heuristic.
                 var items = res.Items.Select(it =>
                 {
                     var cached = repo.PeekCached(sess.TenantId, it.Id);
-                    // Compute heuristic priority server-side để FE chỉ render — không lặp logic.
+                    bool hasRank = it.Rank > 0;
+                    // Prefer cached score khi có (đủ signals/risks/nextAction cho drawer). Fallback: dựng score
+                    // tối thiểu từ upstream Rank khi cache trống (worker synced từ tenant khác/proxy cache mất).
                     object? scoreObj = null;
                     if (cached != null)
                     {
@@ -117,6 +121,21 @@ public static class DealEndpoints
                             RiskFlag = DealHeuristic.RiskFlag(it.AgeDays)
                         };
                     }
+                    else if (hasRank)
+                    {
+                        var (priority, ev) = DealHeuristic.FinalPriority(it.Rank, it.TotalPrice, it.AgeDays);
+                        var level = it.Rank >= 60 ? "cao" : it.Rank >= 35 ? "trung_binh" : "thap";
+                        scoreObj = new
+                        {
+                            WinRate = it.Rank, Level = level,
+                            Signals = Array.Empty<string>(), Risks = Array.Empty<string>(),
+                            NextAction = "", Reason = "",
+                            AiModel = (string?)null, AiProvider = (string?)null,
+                            PriorityScore = priority,
+                            ExpectedValue = ev,
+                            RiskFlag = DealHeuristic.RiskFlag(it.AgeDays)
+                        };
+                    }
                     return new
                     {
                         it.Id, it.Code, it.CustomerName, it.Phone, it.Title, it.TotalPrice,
@@ -124,10 +143,16 @@ public static class DealEndpoints
                         it.CreatedAt, it.AgeDays,
                         it.LatestComment, it.LatestCommentBy, it.LatestCommentDate, it.LastInteractionAt,
                         it.CoolingDays, it.IsCooling,
-                        scoreStatus = cached != null ? "fresh" : "none",
+                        rank = it.Rank,
+                        scoreStatus = hasRank ? "fresh" : "none",
                         score = scoreObj
                     };
-                });
+                }).ToList();
+                // Bug fix "Bộ lọc Trạng thái thiếu option" (QA sheet 2026-07-09):
+                // /api/ai/reference chỉ có BookingTicketStatuses hardcoded Range(1,6). Nếu tenant setup
+                // status ID ngoài 1-6 hoặc reference lỗi → dropdown chỉ có "Tất cả" + 1-2 option.
+                // Union thêm distinct (status, statusName) + (source, sourceName) từ items page hiện tại.
+                var lookups     = BuildDealLookups(refTask.IsCompletedSuccessfully ? refTask.Result : default, res.Items);
                 return Results.Json(new { items, total = res.Total, page = pIdx, pageSize = pSize, lookups });
             }
             // Client tự hủy request (điều hướng/unmount/đổi filter) → CancellationToken cascade xuống
@@ -265,31 +290,49 @@ public static class DealEndpoints
         => ctx.Request.Headers["X-Session-Id"].FirstOrDefault() ?? ctx.Request.Query["sessionId"].FirstOrDefault();
     private static IResult Unauthorized() => Results.Json(new { error = "Phiên không hợp lệ — đăng nhập lại" }, statusCode: 401);
 
-    /// Trích `statuses + sources + staffs` từ payload `/api/ai/reference` của TourKit.
-    /// Fail-soft: nếu `root` rỗng (ref call lỗi), trả 3 list rỗng — FE vẫn render được dropdown
-    /// (chỉ có option "Tất cả").
-    private static object BuildDealLookups(JsonElement root)
+    /// Trích `statuses + sources + staffs` từ payload `/api/ai/reference` của TourKit,
+    /// UNION với distinct `(status, statusName)` + `(source, sourceName)` xuất hiện trong items
+    /// của page hiện tại (fallback khi reference thiếu enum của tenant setup ngoài Range(1,6)).
+    /// Fail-soft: reference lỗi + items rỗng → 3 list rỗng, FE vẫn render "Tất cả".
+    private static object BuildDealLookups(JsonElement root, IReadOnlyList<DealOpportunity> items)
     {
-        static List<object> Extract(JsonElement r, string path1, string path2)
+        static List<KeyValuePair<int, string>> Extract(JsonElement r, string path1, string path2)
         {
+            var list = new List<KeyValuePair<int, string>>();
             if (r.ValueKind != JsonValueKind.Object || !r.TryGetProperty(path1, out var p1) ||
                 p1.ValueKind != JsonValueKind.Object || !p1.TryGetProperty(path2, out var arr) ||
-                arr.ValueKind != JsonValueKind.Array) return new();
-            var items = new List<object>();
+                arr.ValueKind != JsonValueKind.Array) return list;
             foreach (var e in arr.EnumerateArray())
             {
-                int id = e.TryGetProperty("value", out var v) ? v.GetInt32() :
-                         e.TryGetProperty("id", out var id2) ? id2.GetInt32() : 0;
-                string name = e.TryGetProperty("name", out var n) ? n.GetString() ?? "" : "";
-                if (id > 0 && !string.IsNullOrWhiteSpace(name)) items.Add(new { id, name });
+                int id = 0;
+                if (e.TryGetProperty("value", out var v) && v.ValueKind == JsonValueKind.Number && v.TryGetInt32(out var vn)) id = vn;
+                else if (e.TryGetProperty("id", out var id2) && id2.ValueKind == JsonValueKind.Number && id2.TryGetInt32(out var idn)) id = idn;
+                string name = e.TryGetProperty("name", out var n) && n.ValueKind == JsonValueKind.String ? n.GetString() ?? "" : "";
+                if (id > 0 && !string.IsNullOrWhiteSpace(name)) list.Add(new(id, name));
             }
-            return items;
+            return list;
         }
+        static object Union(List<KeyValuePair<int, string>> refList, IEnumerable<(int Id, string? Name)> fromItems)
+        {
+            // Dict Id → Name — reference đặt trước (đảm bảo thứ tự ổn định), items chỉ bổ sung Id mới.
+            var dict = new Dictionary<int, string>();
+            foreach (var kv in refList) if (!dict.ContainsKey(kv.Key)) dict[kv.Key] = kv.Value;
+            foreach (var (id, name) in fromItems)
+            {
+                if (id <= 0 || string.IsNullOrWhiteSpace(name)) continue;
+                if (!dict.ContainsKey(id)) dict[id] = name!;
+            }
+            return dict.Select(kv => new { id = kv.Key, name = kv.Value }).ToList();
+        }
+        var refStatuses = Extract(root, "enums", "bookingTicketStatuses");
+        var refSources  = Extract(root, "enums", "bookingTicketSources");
+        var refStaffs   = Extract(root, "lookups", "sellers");
         return new
         {
-            statuses = Extract(root, "enums",   "bookingTicketStatuses"),
-            sources  = Extract(root, "enums",   "bookingTicketSources"),
-            staffs   = Extract(root, "lookups", "sellers"),
+            statuses = Union(refStatuses, items.Select(it => (it.Status, it.StatusName))),
+            sources  = Union(refSources,  items.Select(it => (it.Source,  it.SourceName))),
+            // staffs: giữ nguyên reference (Assignees là CSV tên, không có ID → không union được).
+            staffs   = refStaffs.Select(kv => new { id = kv.Key, name = kv.Value }).ToList(),
         };
     }
 }

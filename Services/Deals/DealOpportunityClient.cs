@@ -93,7 +93,8 @@ public class DealOpportunityClient
             LatestCommentDate:  GetStr(it, "latestCommentDate"),
             LastInteractionAt:  GetStr(it, "lastInteractionAt"),
             CoolingDays:        GetInt(it, "coolingDays") ?? 0,
-            IsCooling:          GetBool(it, "isCooling"));
+            IsCooling:          GetBool(it, "isCooling"),
+            Rank:               GetInt(it, "rank") ?? 0);
     }
 
     /// Danh sách cơ hội ĐANG MỞ (bỏ Hủy). Lọc tùy chọn theo người phụ trách / nguồn (client-side, substring).
