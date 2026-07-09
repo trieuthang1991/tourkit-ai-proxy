@@ -278,9 +278,14 @@ function DealsPage({ pushToast }) {
       const data = await r.json();
       setList(data.items || []);
       setTotal(data.total ?? (data.items?.length || 0));
-      // Lookups (statuses/sources/staffs) đính kèm response /deals — nạp 1 lần đầu là đủ
-      // nhưng nạp lại mỗi page-change cũng OK (nhỏ ~2KB) → giữ logic đơn giản, set mọi lần.
-      if (data.lookups) setLookups(data.lookups);
+      // Lookups (statuses/sources/staffs) đính kèm response /deals. Reference upstream HIẾM khi đổi,
+      // nhưng CÓ THỂ trả rỗng nhất thời (JWT hết hạn giữa chừng / reference blip) → KHÔNG được xóa
+      // dropdown đã có. Keep-last-good: mỗi list chỉ thay khi payload mới có dữ liệu, rỗng thì giữ cũ.
+      if (data.lookups) setLookups(prev => ({
+        statuses: data.lookups.statuses?.length ? data.lookups.statuses : prev.statuses,
+        sources:  data.lookups.sources?.length  ? data.lookups.sources  : prev.sources,
+        staffs:   data.lookups.staffs?.length   ? data.lookups.staffs   : prev.staffs,
+      }));
     } catch (e) {
       pushToast('Không tải được danh sách cơ hội: ' + e.message, 'error');
     } finally { setListLoading(false); }
@@ -563,27 +568,31 @@ function DealsPage({ pushToast }) {
             <div className="cust-sheet-grid">
               <div className="cust-sheet-row">
                 <label>Trạng thái</label>
-                <select className="tb-field" value={draft.status || 0}
-                  onChange={e => set('status', parseInt(e.target.value, 10) || 0)}>
-                  <option value={0}>Tất cả trạng thái</option>
-                  {(lookups.statuses || []).map(o => <option key={o.id} value={o.id}>{o.name}</option>)}
-                </select>
+                <window.SearchControls.SearchSelect
+                  items={[{ id: 0, name: 'Tất cả trạng thái' }, ...(lookups.statuses || [])]}
+                  value={draft.status ? (lookups.statuses || []).find(t => t.id === draft.status)?.name : 'Tất cả trạng thái'}
+                  getKey={it => it.name} getLabel={it => it.name}
+                  onChange={n => set('status', (lookups.statuses || []).find(x => x.name === n)?.id || 0)}
+                  placeholder="Tất cả trạng thái" />
               </div>
               <div className="cust-sheet-row">
                 <label>Nguồn</label>
-                <select className="tb-field" value={draft.source || 0}
-                  onChange={e => set('source', parseInt(e.target.value, 10) || 0)}>
-                  <option value={0}>Tất cả nguồn</option>
-                  {(lookups.sources || []).map(o => <option key={o.id} value={o.id}>{o.name}</option>)}
-                </select>
+                <window.SearchControls.SearchSelect
+                  items={[{ id: 0, name: 'Tất cả nguồn' }, ...(lookups.sources || [])]}
+                  value={draft.source ? (lookups.sources || []).find(t => t.id === draft.source)?.name : 'Tất cả nguồn'}
+                  getKey={it => it.name} getLabel={it => it.name}
+                  onChange={n => set('source', (lookups.sources || []).find(x => x.name === n)?.id || 0)}
+                  placeholder="Tất cả nguồn" />
               </div>
               <div className="cust-sheet-row">
                 <label>NV phụ trách</label>
-                <select className="tb-field" value={draft.staff || 0}
-                  onChange={e => set('staff', parseInt(e.target.value, 10) || 0)}>
-                  <option value={0}>Tất cả nhân viên</option>
-                  {(lookups.staffs || []).map(o => <option key={o.id} value={o.id}>{o.name}</option>)}
-                </select>
+                {/* SearchSelect (có ô tìm) thay <select> thường: NV nhiều → gõ tên tra nhanh, giống Khách hàng. */}
+                <window.SearchControls.SearchSelect
+                  items={[{ id: 0, name: 'Tất cả nhân viên' }, ...(lookups.staffs || [])]}
+                  value={draft.staff ? (lookups.staffs || []).find(t => t.id === draft.staff)?.name : 'Tất cả nhân viên'}
+                  getKey={it => it.name} getLabel={it => it.name}
+                  onChange={n => set('staff', (lookups.staffs || []).find(x => x.name === n)?.id || 0)}
+                  placeholder="Tất cả nhân viên" />
               </div>
               <div className="cust-sheet-row">
                 <label>Khả năng thắng tối thiểu (%) <span style={{color:'var(--text-3)',fontSize:11}}>· upstream</span></label>

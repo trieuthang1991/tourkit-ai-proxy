@@ -63,20 +63,37 @@ public static class DealEndpoints
                     };
                     if (rankInt == 0) rankInt = null;
                 }
-                // BUG fix (dropdown Bộ lọc nâng cao trống): api.GetAsync set Bearer = THAM SỐ ĐẦU = JWT,
-                // KHÔNG phải sessionId. Trước truyền sid → upstream 401 → reference fault → lookups rỗng
-                // → 3 dropdown (Trạng thái/Nguồn/NV) chỉ còn "Tất cả". Resolve JWT thật 1 lần (re-login
-                // nếu hết hạn); listTask gọi lại GetValidJwtAsync bên trong sẽ trúng cache, không re-login lần 2.
-                var jwt         = await sessions.GetValidJwtAsync(sid!, ctx.RequestAborted);
+                // Pre-warm JWT cache 1 lần (re-login nếu soft-expire) → listTask.ListPagedAsync +
+                // LoadReferenceAsync bên dưới đều trúng cache, tránh 2 lần re-login song song đua nhau.
+                await sessions.GetValidJwtAsync(sid!, ctx.RequestAborted);
                 // maxAge (tuổi ≤ N ngày) → startDate = hôm nay − N (upstream lọc InsDttm >= startDate).
                 // minValue/maxValue → minPrice/maxPrice (upstream lọc TotalPrice computed). Tất cả server-side toàn DB.
                 string? startDate = maxAge is > 0 ? DateTime.Today.AddDays(-maxAge.Value).ToString("yyyy-MM-dd") : null;
                 var listTask    = client.ListPagedAsync(sid!, pIdx, pSize, ctx.RequestAborted,
                                       q, trangThai, nguon, nhanVienPhuTrach, rankInt, minRank, maxRank,
                                       startDate, minValue, maxValue);
-                var refTask     = api.GetAsync(jwt, "/api/ai/reference", ctx.RequestAborted);
+                // Reference PHẢI resilient với JWT hết hạn GIỐNG list. Trước đây gọi api.GetAsync THẲNG
+                // (không retry 401): khi JWT soft-expire, listTask tự re-login + retry → list vẫn render OK,
+                // còn refTask fault → lookups rỗng → dropdown NV/Trạng thái/Nguồn trống INTERMITTENT ("nhiều
+                // lúc mất dữ liệu"). Bọc cùng pattern re-login-on-401 như DealOpportunityClient.GetAsync.
+                async Task<JsonElement> LoadReferenceAsync()
+                {
+                    var j = await sessions.GetValidJwtAsync(sid!, ctx.RequestAborted);
+                    try { return await api.GetAsync(j, "/api/ai/reference", ctx.RequestAborted); }
+                    catch (TourKitApiException ex) when (ex.Status == 401)
+                    {
+                        j = await sessions.ForceReloginAsync(sid!, ctx.RequestAborted);
+                        return await api.GetAsync(j, "/api/ai/reference", ctx.RequestAborted);
+                    }
+                }
+                var refTask     = LoadReferenceAsync();
                 await Task.WhenAll(listTask, refTask.ContinueWith(_ => { }, TaskScheduler.Default));
                 var res         = await listTask;
+                // Không còn nuốt lỗi im lặng: nếu reference vẫn fault sau retry → log để chẩn đoán,
+                // rồi fail-soft (lookups rỗng, FE giữ last-good). Bỏ qua cancel (client tự hủy).
+                if (refTask.IsFaulted && !ctx.RequestAborted.IsCancellationRequested)
+                    log.LogWarning(refTask.Exception?.GetBaseException(),
+                        "[Deals] /api/ai/reference lỗi sau retry → lookups rỗng (FE giữ last-good)");
                 var lookups     = BuildDealLookups(refTask.IsCompletedSuccessfully ? refTask.Result : default);
                 // Augment: mỗi item kèm scoreStatus từ cache (none/fresh — KHÔNG check fingerprint
                 // ở đây để khỏi gọi GetContextAsync cho từng deal; "stale" khái niệm chỉ có nghĩa
