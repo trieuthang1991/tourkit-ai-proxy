@@ -23,7 +23,7 @@ public class EdgeTtsService
     private const string GecVersion = "1-143.0.3650.75";   // ⚠️ phải khớp Edge mới nhất (rany2/edge-tts constants.py)
     private const string EdgeVer = "143.0.0.0";
     private const long WinEpoch = 11644473600L;
-    private const int MAX_CHARS = 600;
+    private const int MAX_CHARS = 2000;   // đủ cho reply dài (top-10 list + phân tích)
     private const int CACHE_CAP = 200;
     private static readonly ConcurrentDictionary<string, byte[]> _cache = new();
 

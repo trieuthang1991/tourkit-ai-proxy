@@ -28,7 +28,7 @@ public class PiperTtsService
     private readonly IConfiguration _cfg;
     private readonly ILogger<PiperTtsService> _log;
 
-    private const int MAX_CHARS = 600;
+    private const int MAX_CHARS = 2000;   // đủ cho reply dài (top-10 list + phân tích)
     private const int CACHE_CAP = 200;
     private static readonly ConcurrentDictionary<string, byte[]> _cache = new();
 

@@ -201,7 +201,7 @@ function cleanSpeechText(text) {
 function speak(text, voice, cb) {
   const synth = window.speechSynthesis;
   if (!synth || !text || !voice) return;
-  const clean = humanizeForSpeech(cleanSpeechText(text)).slice(0, 900);
+  const clean = humanizeForSpeech(cleanSpeechText(text)).slice(0, 3000);
   if (!clean) return;
   const u = new SpeechSynthesisUtterance(clean);
   u.voice = voice; u.lang = voice.lang || 'vi-VN';
