@@ -148,10 +148,30 @@ function getViVoice() {
       || vi[0];                                           // giọng vi bất kỳ (SAPI cũ)
 }
 
-// Số tiền lớn đọc theo TỪNG chữ số nghe buồn cười ("1.500.048.600.000" → "một-năm-không-không...").
-// Đổi sang "tỷ/triệu" cho tự nhiên: "1.500.048.600.000 đồng" → "khoảng 1500 tỷ đồng".
+// Bảng PHIÊN ÂM tên riêng / thuật ngữ tiếng Anh → chữ Việt để giọng vi đọc đỡ sai.
+// THÊM TỪ MỚI: chỉ cần thêm 1 dòng [regex, 'phiên âm']. Dùng \b (ranh giới từ) để không đụng chữ khác.
+// Lưu ý: các từ dễ trùng tiếng Việt (vd "ai", "top") để case-nhạy hoặc bỏ qua cho an toàn.
+const _NAME_SAY = [
+  [/\bJARVIS\b/gi, 'Gia-vít'],
+  [/\bTour[\s-]?Kit\b/gi, 'Tua-kít'],
+  [/\bTRAV[\s-]?AI\b/gi, 'Trav ây-ai'],
+  [/\bmarketing\b/gi, 'ma-két-ting'],
+  [/\bPancake\b/gi, 'Pen-kêk'],
+  [/\bvoucher\b/gi, 'vao-chờ'],
+  [/\bseller\b/gi, 'sen-lờ'],
+  [/\blead\b/gi, 'lít'],
+  [/\bemail\b/gi, 'i-meo'],
+  [/\bFIT\b/g, 'phít'],          // tour FIT (case-nhạy: chỉ chữ hoa)
+  [/\bGIT\b/g, 'gít'],           // tour GIT
+  [/\bvisa\b/gi, 'vi-da'],
+  [/\bAI\b/g, 'ây-ai'],          // case-nhạy: KHÔNG đụng "ai" (từ tiếng Việt)
+];
+function speakifyNames(text) { let s = text; for (const [re, rep] of _NAME_SAY) s = s.replace(re, rep); return s; }
+
+// Chuẩn hóa text trước khi đọc: (1) số tiền lớn → "tỷ/triệu"; (2) phiên âm tên riêng tiếng Anh.
+// "1.500.048.600.000 đồng" → "khoảng 1500 tỷ đồng"; "JARVIS" → "Gia-vít".
 function humanizeForSpeech(text) {
-  return String(text).replace(
+  const money = String(text).replace(
     /(\d{1,3}(?:[.,]\d{3})+)\s*(đồng|đ|vnđ|₫)?/gi,
     (m, num, unit) => {
       const n = parseInt(num.replace(/[.,\s]/g, ''), 10);
@@ -160,6 +180,7 @@ function humanizeForSpeech(text) {
       const fmt = (x) => (Math.round(x * 10) / 10).toString().replace('.', ' phẩy ');
       return n >= 1e9 ? `khoảng ${fmt(n / 1e9)} tỷ${u}` : `khoảng ${fmt(n / 1e6)} triệu${u}`;
     });
+  return speakifyNames(money);
 }
 
 // Đọc reply qua Web Speech API (MIỄN PHÍ). Chỉ đọc khi có giọng vi thật (tránh ngọng).
