@@ -76,8 +76,8 @@ public static class SpeechEndpoints
 
         // ── TTS: text → audio. Ưu tiên Piper (open-source, offline, FREE) → fallback OpenAI (nếu có key).
         //    Chỉ gọi khi máy KHÔNG có giọng vi trình duyệt. Cache theo nội dung (câu lặp = free).
-        v1.MapPost("/speech/tts", async (HttpContext ctx, TtsRequest req, EdgeTtsService edge, PiperTtsService piper,
-            TextToSpeechService openai, TkSessionStore sessions, ILogger<Program> log) =>
+        v1.MapPost("/speech/tts", async (HttpContext ctx, TtsRequest req, VbeeTtsService vbee, EdgeTtsService edge,
+            PiperTtsService piper, TextToSpeechService openai, TkSessionStore sessions, ILogger<Program> log) =>
         {
             var sid = Sid(ctx);
             if (sessions.Get(sid) == null) return Unauthorized();
@@ -85,6 +85,19 @@ public static class SpeechEndpoints
                 return Results.BadRequest(new { error = "Thiếu 'text'" });
             try
             {
+                // 0) Vbee: giọng Việt neural chất lượng cao (batch async). Ưu tiên nếu đã cấu hình.
+                //    KHÔNG truyền req.Voice (đó là voice trình duyệt/edge) — Vbee dùng voiceCode ở config.
+                if (vbee.Configured)
+                {
+                    try
+                    {
+                        var (mp3v, cv) = await vbee.SynthesizeAsync(req.Text, null, ctx.RequestAborted);
+                        ctx.Response.Headers["X-Tts-Cached"] = cv ? "1" : "0";
+                        ctx.Response.Headers["X-Tts-Engine"] = "vbee";
+                        return Results.File(mp3v, "audio/mpeg");
+                    }
+                    catch (Exception ex) { log.LogWarning("vbee-tts fail ({Msg}) — thử engine khác", ex.Message); }
+                }
                 // 1) edge-tts: giọng vi neural CHUẨN, free (cần mạng). MS chặn/lỗi → thử engine sau.
                 if (edge.Enabled)
                 {

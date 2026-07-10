@@ -35,11 +35,12 @@ public class SpeechToTextService
     private readonly ProviderKeyStore _keys;
     private readonly IConfiguration _cfg;
     private readonly ILogger<SpeechToTextService> _log;
+    private readonly VbeeSttService _vbee;
 
     private const long MAX_BYTES = 25 * 1024 * 1024;   // hard cap chung (Whisper 25MB; Gemini inline 20MB)
 
-    public SpeechToTextService(ProviderKeyStore keys, IConfiguration cfg, ILogger<SpeechToTextService> log)
-    { _keys = keys; _cfg = cfg; _log = log; }
+    public SpeechToTextService(ProviderKeyStore keys, IConfiguration cfg, ILogger<SpeechToTextService> log, VbeeSttService vbee)
+    { _keys = keys; _cfg = cfg; _log = log; _vbee = vbee; }
 
     public record TranscribeResult(string Text, string Language, double DurationSec, long LatencyMs, string Engine);
 
@@ -60,8 +61,14 @@ public class SpeechToTextService
         }
 
         var primary  = (_cfg["Speech:Provider"] ?? "gemini").ToLowerInvariant();
+        // Vbee STT bật riêng qua Speech:Vbee:SttEnabled — nếu bật thì LÀM PRIMARY (ưu tiên "cùng nền tảng"),
+        // engine cấu hình (openai/gemini) thành fallback. Vbee chỉ nhận WAV → non-WAV tự ném → fallback.
+        if (_vbee.Configured) primary = "vbee";
         var fallback = _cfg.GetValue<bool?>("Speech:Fallback") ?? true;
-        var secondary = primary == "gemini" ? "openai" : "gemini";
+        var secondary = primary == "vbee"
+            ? (_cfg["Speech:Provider"] ?? "openai").ToLowerInvariant()   // engine gốc làm fallback cho Vbee
+            : (primary == "gemini" ? "openai" : "gemini");
+        if (secondary == "vbee") secondary = "openai";                   // tránh fallback lại về vbee
 
         try
         {
@@ -88,10 +95,20 @@ public class SpeechToTextService
         string fileName, string contentType, string? language, string? apiKeyOverride, CancellationToken ct)
         => engine switch
         {
+            "vbee"   => TranscribeVbeeAsync(bytes, fileName, contentType, ct),
             "gemini" => TranscribeGeminiAsync(bytes, fileName, contentType, language, apiKeyOverride, ct),
             "openai" => TranscribeOpenAiAsync(bytes, fileName, contentType, language, apiKeyOverride, ct),
             _ => throw new InvalidOperationException($"Unknown STT engine: {engine}")
         };
+
+    // ─── Vbee STT (batch, cùng nền tảng Vbee TTS) — chỉ WAV, chậm, fallback lo phần còn lại ──
+    private async Task<TranscribeResult> TranscribeVbeeAsync(byte[] bytes, string fileName, string contentType, CancellationToken ct)
+    {
+        var t0 = DateTime.UtcNow;
+        var text = await _vbee.TranscribeAsync(bytes, fileName, contentType, ct);
+        var latencyMs = (long)(DateTime.UtcNow - t0).TotalMilliseconds;
+        return new TranscribeResult(text, "vi", 0, latencyMs, "vbee");
+    }
 
     // ─── Gemini (Mscc.GenerativeAI SDK) ─────────────────────────────────────────
     private async Task<TranscribeResult> TranscribeGeminiAsync(byte[] bytes,

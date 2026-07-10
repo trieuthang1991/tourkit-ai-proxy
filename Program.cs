@@ -159,9 +159,14 @@ builder.Services.AddSingleton<TourkitAiProxy.Services.TourQuotes.TourQuoteReposi
 builder.Services.AddSingleton<TourkitAiProxy.Services.Speech.SpeechToTextService>();
 // Text-to-Speech — JARVIS đọc reply khi máy không có giọng vi miễn phí.
 // Ưu tiên edge-tts (giọng vi neural CHUẨN, free, cần mạng) → Piper (offline) → OpenAI (nếu có key).
-builder.Services.AddSingleton<TourkitAiProxy.Services.Speech.EdgeTtsService>();            // FREE, giọng vi chuẩn (ưu tiên)
+builder.Services.AddSingleton<TourkitAiProxy.Services.Speech.EdgeTtsService>();            // FREE, giọng vi chuẩn
 builder.Services.AddSingleton<TourkitAiProxy.Services.Speech.PiperTtsService>();           // FREE offline (fallback)
 builder.Services.AddSingleton<TourkitAiProxy.Services.Speech.TextToSpeechService>();        // OpenAI (fallback nếu có key)
+// Vbee AIVoice — giọng Việt neural chất lượng cao (batch async). Ưu tiên đầu chuỗi TTS nếu cấu hình
+// Speech:Vbee:AppId/Token. Named HttpClient "vbee" (auto-follow redirect audioLink mặc định).
+builder.Services.AddHttpClient("vbee");
+builder.Services.AddSingleton<TourkitAiProxy.Services.Speech.VbeeTtsService>();             // Vbee TTS (ưu tiên nếu có key)
+builder.Services.AddSingleton<TourkitAiProxy.Services.Speech.VbeeSttService>();             // Vbee STT (primary khi SttEnabled; WAV-only + fallback)
 
 // Thẩm định Visa AI — upload hồ sơ → AI vision đọc → chấm tỉ lệ đậu/rớt.
 // File gốc lưu tạm data/visa-files/ (tự xóa 7 ngày), kết quả data/visa-assessments.json.
