@@ -218,20 +218,44 @@ function humanizeForSpeech(text) {
       };
       return n >= 1e9 ? `khoảng ${fmt(n / 1e9)} tỷ đồng` : `khoảng ${fmt(n / 1e6)} triệu đồng`;   // luôn "đồng" (không đọc "đ")
     });
-  return speakifyNames(money);
+  const pct = money.replace(/(\d(?:[.,]\d+)?)\s*%/g, '$1 phần trăm');   // "50%" → "50 phần trăm"; "12,5%" → "12,5 phần trăm"
+  return speakifyNames(pct);
 }
 
-// Chuẩn hóa văn bản cho TTS: bỏ markdown + ĐỔI XUỐNG DÒNG THÀNH DẤU NGẮT (để đọc có nghỉ giữa
-// các dòng, không nối liền "...đồng Chi phí..."). Sau đó gộp khoảng trắng ngang.
+// Chuẩn hóa văn bản THÀNH VĂN NÓI cho TTS: bỏ markdown + gạch đầu dòng/tiêu đề/đánh số (đọc bị
+// "khựng" từng khúc) → gộp thành câu liền mạch, xuống dòng thành dấu ngắt nghỉ tự nhiên.
 function cleanSpeechText(text) {
   return String(text)
-    .replace(/```[\s\S]*?```/g, ' ')
-    .replace(/\[(.*?)\]\(.*?\)/g, '$1')
-    .replace(/[*_`#>|~]/g, '')
-    .replace(/\s*\n+\s*/g, '. ')       // xuống dòng → ". " (TTS ngắt nghỉ)
-    .replace(/[ \t\r]+/g, ' ')
-    .replace(/(\.\s*){2,}/g, '. ')     // gộp nhiều dấu chấm liền (dòng vốn kết bằng ".")
-    .replace(/:\s*\./g, ':')           // "Doanh thu: ." → "Doanh thu:" (tránh chấm ngay sau dấu hai chấm)
+    .replace(/```[\s\S]*?```/g, ' ')                 // bỏ code block
+    .replace(/`([^`]*)`/g, '$1')                     // inline code → chữ
+    .replace(/\[(.*?)\]\(.*?\)/g, '$1')              // link markdown → chữ
+    .replace(/^\s{0,3}#{1,6}\s*/gm, '')              // tiêu đề "## " → bỏ dấu #
+    .replace(/^\s*[-*•·▪◦–]\s+/gm, '')               // gạch đầu dòng → bỏ marker (khỏi đọc "gạch ngang")
+    .replace(/^\s*\d+[.)]\s+/gm, '')                 // đánh số "1." / "2)" → bỏ marker
+    .replace(/\s*[→➔➜=]+>\s*|\s*[→➔➜]\s*/g, ', ')     // mũi tên → ", "
+    .replace(/[*_>|~#]/g, '')                        // ký hiệu markdown còn sót
+    .replace(/\s*\n+\s*/g, '. ')                     // xuống dòng → ". " (ngắt nghỉ)
+    .replace(/[ \t\r]+/g, ' ')                       // gộp khoảng trắng ngang
+    .replace(/:\s*\./g, ': ')                        // "Doanh thu: ." → "Doanh thu: " (lead-in liền, không khựng)
+    .replace(/(\.\s*){2,}/g, '. ')                   // gộp nhiều dấu chấm liền
+    .replace(/,\s*\./g, '.')                         // ", ." → "." (mũi tên cuối câu)
+    .replace(/\s+([,.;:])/g, '$1')                   // bỏ khoảng trắng thừa trước dấu câu
+    .trim();
+}
+
+// Chuẩn hóa nhẹ để HIỂN THỊ (không phải đọc): bỏ ký hiệu markdown thô (** ## `), đổi gạch đầu dòng
+// thành "• " gọn, gộp dòng trống thừa — giữ xuống dòng (jv-text đã pre-wrap) cho dễ đọc.
+function cleanForDisplay(text) {
+  return String(text)
+    .replace(/```(?:\w+)?\n?([\s\S]*?)```/g, '$1')   // bỏ fence code, giữ nội dung
+    .replace(/`([^`]*)`/g, '$1')                     // inline code
+    .replace(/\[(.*?)\]\(.*?\)/g, '$1')              // link → chữ
+    .replace(/^\s{0,3}#{1,6}\s*/gm, '')              // tiêu đề → bỏ dấu #
+    .replace(/\*\*(.*?)\*\*/g, '$1')                 // **đậm** → chữ (không render markdown)
+    .replace(/(^|[^*])\*(?!\*)([^*]+)\*/g, '$1$2')   // *nghiêng* → chữ
+    .replace(/^\s*[-*]\s+/gm, '• ')                  // gạch đầu dòng → "• "
+    .replace(/[_>|~]/g, '')                          // ký hiệu còn sót
+    .replace(/\n{3,}/g, '\n\n')                      // gộp ≥3 dòng trống → 1 dòng trống
     .trim();
 }
 
@@ -285,6 +309,7 @@ function JarvisPage({ pushToast }) {
   _jE(() => { voiceNameRef.current = voiceName; try { localStorage.setItem('jarvis_voice', voiceName); } catch {} }, [voiceName]);
   const [rec, setRec] = _jS('idle');                 // 'idle'|'recording'|'uploading' (mic bấm-tay)
   const [lastTool, setLastTool] = _jS(null);
+  const [ttsEngine, setTtsEngine] = _jS(null);       // engine đọc THỰC TẾ (vbee|edge|piper|openai) — nhãn chẩn đoán
   const mediaRef = _jR(null);
   const logRef = _jR(null);
   const audioRef = _jR(null);   // <audio> đang phát TTS OpenAI (để dừng khi hỏi câu mới)
@@ -359,6 +384,9 @@ function JarvisPage({ pushToast }) {
 
   // Câu chào = PHÁT FILE THU SẴN (wwwroot/audio/jarvis-greeting.mp3, giọng HoaiMy) → tức thì, KHỎI gen.
   const greetedRef = _jR(false);
+  // Khi trình duyệt CHẶN autoplay (chưa có tương tác) → hiện overlay "Kích để bắt đầu" cho user biết phải click.
+  // Phát được (không bị chặn) → overlay không bao giờ hiện.
+  const [needGesture, setNeedGesture] = _jS(false);
   function playGreeting() {
     if (greetedRef.current || !voiceOnRef.current || loadingRef.current) return;
     greetedRef.current = true;   // đánh dấu đã thử (tránh phát nhiều lần)
@@ -367,7 +395,9 @@ function JarvisPage({ pushToast }) {
     a.onended = () => setSpeaking(false);
     a.onerror = () => setSpeaking(false);   // file 404 → thôi (không gen)
     setSpeaking(true);
-    a.play().catch(() => { greetedRef.current = false; setSpeaking(false); });  // autoplay bị chặn → cho gesture thử lại
+    a.play()
+      .then(() => setNeedGesture(false))                                             // phát được → ẩn overlay
+      .catch(() => { greetedRef.current = false; setSpeaking(false); setNeedGesture(true); });  // bị chặn → hiện overlay
   }
 
   // Chào NGAY khi vào trang (thử phát luôn). Nếu trình duyệt chặn autoplay → tự phát lại ở
@@ -546,6 +576,7 @@ function JarvisPage({ pushToast }) {
         method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ text: clean })
       });
       if (!r.ok) { setSpeaking(false); ttsDisabledRef.current = true; hintNoVoice(); return; }
+      setTtsEngine(r.headers.get('X-Tts-Engine') || 'server');   // nhãn engine THỰC TẾ để chẩn đoán (vbee/edge/openai)
       const url = URL.createObjectURL(await r.blob());
       const audio = new Audio(url);
       audioRef.current = audio;
@@ -702,6 +733,17 @@ function JarvisPage({ pushToast }) {
     <main className="page jv-wrap">
       <JarvisStyle />
       <div className="jv-hud">
+        {/* Overlay "Kích để bắt đầu" — chỉ hiện khi trình duyệt CHẶN autoplay giọng đọc lần đầu.
+            Click bất kỳ đâu trên overlay → phát câu chào + mở khóa âm thanh cho cả phiên → overlay ẩn. */}
+        {needGesture && voiceOn && (
+          <div className="jv-gesture" onClick={() => { setNeedGesture(false); greetedRef.current = false; playGreeting(); }}>
+            <div className="jv-gesture-card">
+              <div className="jv-gesture-ic"><Icon name="bell" size={30} /></div>
+              <div className="jv-gesture-title">Kích để bắt đầu</div>
+              <div className="jv-gesture-sub">Trình duyệt cần một lượt chạm để bật âm thanh — nhấn vào đây để JARVIS chào bạn.</div>
+            </div>
+          </div>
+        )}
         {/* Thanh trên: danh tính + điều khiển */}
         <div className="jv-topbar">
           <div className="jv-brand">
@@ -714,6 +756,7 @@ function JarvisPage({ pushToast }) {
           <div className="jv-controls">
             <span className="jv-readout">TENANT <b>{sessionInfo?.tenantId || '—'}</b></span>
             <span className="jv-readout">MODEL <b>{cfg.model || 'auto'}</b></span>
+            <span className="jv-readout">TTS <b>{ttsEngine || '—'}</b></span>
             {lastTool && lastTool !== 'none' && <span className="jv-readout">TOOL <b>{lastTool}</b></span>}
             <button className={'jv-toggle' + (listening ? ' listen-on' : '')}
               onClick={toggleListening}
@@ -759,7 +802,7 @@ function JarvisPage({ pushToast }) {
               <span className="jv-text">
                 {m.role === 'assistant'
                   ? (m.content
-                      ? <TypeText text={m.content} streaming={m.streaming} />
+                      ? <TypeText text={cleanForDisplay(m.content)} streaming={m.streaming} />
                       : (m.streaming ? <span className="jv-cursor">▊</span> : ''))
                   : m.content}
               </span>
@@ -884,7 +927,7 @@ const JV_CSS = `
 .jv-line{display:flex;gap:10px;align-items:flex-start;font-size:13px;line-height:1.6;animation:jvIn .25s ease;}
 .jv-line .jv-who{flex:0 0 52px;font-size:9px;letter-spacing:1px;font-weight:700;padding-top:3px;}
 .jv-line.user .jv-who{color:#ff9a52;} .jv-line.assistant .jv-who{color:#38bdf8;}
-.jv-line .jv-text{flex:1;color:#d6ebff;white-space:pre-wrap;word-break:break-word;}
+.jv-line .jv-text{flex:1;color:#d6ebff;white-space:pre-wrap;word-break:break-word;line-height:1.75;}
 .jv-line.user .jv-text{color:#f4e3d5;} .jv-line.error .jv-text{color:#fca5a5;}
 .jv-cursor{color:#38bdf8;animation:jvBlink .8s steps(2) infinite;}
 .jv-suggest{position:relative;z-index:2;display:flex;flex-wrap:wrap;gap:8px;justify-content:center;padding:0 20px 8px;}
@@ -911,6 +954,14 @@ const JV_CSS = `
 @keyframes jvRec{0%,100%{box-shadow:0 0 0 0 rgba(255,78,66,.4);}50%{box-shadow:0 0 0 8px rgba(255,78,66,0);}}
 @keyframes jvSpin{to{transform:rotate(360deg);}}
 @keyframes jvIn{from{opacity:0;transform:translateY(4px);}to{opacity:1;transform:none;}}
+.jv-gesture{position:absolute;inset:0;z-index:50;display:flex;align-items:center;justify-content:center;cursor:pointer;
+  background:radial-gradient(120% 90% at 50% 40%,rgba(5,12,24,.82) 0%,rgba(3,6,13,.94) 70%);backdrop-filter:blur(4px);animation:jvIn .25s ease;}
+.jv-gesture-card{display:flex;flex-direction:column;align-items:center;gap:14px;text-align:center;max-width:340px;padding:32px 28px;
+  border:1px solid rgba(56,189,248,.35);border-radius:16px;background:rgba(10,20,36,.6);box-shadow:0 0 40px rgba(56,189,248,.15);}
+.jv-gesture-ic{width:70px;height:70px;border-radius:50%;display:flex;align-items:center;justify-content:center;color:#38bdf8;
+  border:2px solid rgba(56,189,248,.5);box-shadow:0 0 24px rgba(56,189,248,.4);animation:jvPulse 1.6s ease-in-out infinite;}
+.jv-gesture-title{font-size:17px;font-weight:700;letter-spacing:2px;color:#eaf6ff;}
+.jv-gesture-sub{font-size:12px;line-height:1.6;color:#7fb0d6;}
 @media(max-width:900px){.jv-hud{min-height:calc(100vh - 120px);}.jv-log{max-height:28vh;}.jv-readout{display:none;}}
 `;
 
