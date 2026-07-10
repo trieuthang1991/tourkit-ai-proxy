@@ -389,7 +389,10 @@ function App() {
               </button>
             )}
             <button className="tb-icon" title="Hướng dẫn sử dụng"
-              onClick={() => pushToast('Chọn tính năng ở thanh bên trái để bắt đầu')}>
+              onClick={() => {
+                const slug = (window.HELP_SLUG_BY_ROUTE || {})[window.location.pathname];
+                window.tourkitRouter.navigate(slug ? '/help/' + slug : '/help');
+              }}>
               <Icon name="book" size={18} />
             </button>
             <button className="tb-icon" title="Thông báo"
@@ -449,6 +452,8 @@ function App() {
         <Route path="/ncc-import"   render={() => <window.NccImportPage pushToast={pushToast} />} />
         <Route path="/visa-config"  render={() => <window.VisaConfigPage pushToast={pushToast} />} />
         <Route path="/workflows"    render={() => <window.WorkflowsPage pushToast={pushToast} />} />
+        <Route path="/help"         render={() => <window.HelpPage />} />
+        <Route path="/help/:slug"   render={(p) => <window.HelpPage slug={p.slug} />} />
         <Route path="*"          render={() => (
           <main className="page" style={{padding: 40, textAlign: 'center', color: 'var(--text-3)'}}>
             Trang không tồn tại. <Link to="/" style={{color: 'var(--accent)'}}>Về trang chính</Link>

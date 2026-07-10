@@ -522,7 +522,7 @@ Tránh từ "tuyệt vời", "hoàn hảo", "đáng nhớ". Tiếng Việt tự 
               </div>
             </div>
             <div className="wl-hero-actions">
-              <button className="wl-btn-outline" onClick={() => pushToast('Hướng dẫn sử dụng đang được biên soạn')}>
+              <button className="wl-btn-outline" onClick={() => window.tourkitRouter.navigate('/help/bao-gia-tour')}>
                 <Icon name="book" size={14} /> HƯỚNG DẪN SỬ DỤNG
               </button>
               <button className="wl-btn-primary" onClick={() => { setView('create'); setStep(1); setMaxStep(1); }}>

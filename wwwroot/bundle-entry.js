@@ -62,6 +62,7 @@ import "./pages/ncc-import.jsx";
 import "./pages/ncc-list.jsx";
 import "./pages/visa-config.jsx";
 import "./pages/workflows.jsx";
+import "./pages/help.jsx";
 
 // Root: App shell + router (PHẢI CUỐI — dùng tất cả window.X định nghĩa ở trên)
 import "./app.jsx";

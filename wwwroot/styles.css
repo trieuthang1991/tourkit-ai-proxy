@@ -7751,3 +7751,33 @@ n
 .bg-intro-3 {
     background: #000222
 }
+
+/* ── Trang Hướng dẫn sử dụng (/help) — bố cục kiểu tài liệu ─────────────────── */
+.help-wrap { display: flex; align-items: flex-start; background: var(--surface, #fff); min-height: calc(100vh - 64px); }
+.help-side { flex: 0 0 260px; align-self: stretch; border-right: 1px solid var(--border, #ececec); padding: 20px 12px; position: sticky; top: 0; }
+.help-side-title { font-size: 12px; font-weight: 700; text-transform: uppercase; letter-spacing: .06em; color: var(--text-3, #8a8175); padding: 0 10px 10px; }
+.help-side-list { display: flex; flex-direction: column; gap: 2px; }
+.help-side-item { display: block; padding: 9px 12px; border-radius: 8px; color: var(--text-2, #55504a); text-decoration: none; font-size: 14px; font-weight: 500; line-height: 1.35; }
+.help-side-item:hover { background: rgba(226, 98, 14, .07); }
+.help-side-item.active { background: rgba(226, 98, 14, .12); color: var(--accent, #e2620e); font-weight: 700; }
+.help-main { flex: 1 1 auto; min-width: 0; padding: 32px 40px 80px; }
+.help-status { color: var(--text-3, #8a8175); padding: 40px 4px; font-size: 15px; }
+.help-doc { max-width: 800px; margin: 0 auto; color: var(--text-1, #2b2b2b); font-size: 15.5px; line-height: 1.75; }
+.help-doc h1 { font-size: 30px; font-weight: 800; margin: 0 0 18px; line-height: 1.25; }
+.help-doc h2 { font-size: 22px; font-weight: 700; margin: 34px 0 12px; padding-bottom: 8px; border-bottom: 1px solid var(--border, #ececec); }
+.help-doc h3 { font-size: 17.5px; font-weight: 700; margin: 24px 0 8px; }
+.help-doc p { margin: 0 0 14px; }
+.help-doc ul, .help-doc ol { margin: 0 0 16px; padding-left: 24px; }
+.help-doc li { margin: 6px 0; }
+.help-doc a { color: var(--accent, #e2620e); text-decoration: underline; }
+.help-doc strong { font-weight: 700; }
+.help-doc code { background: rgba(0, 0, 0, .05); padding: 2px 6px; border-radius: 5px; font-size: .9em; font-family: ui-monospace, Menlo, Consolas, monospace; }
+.help-doc img { display: block; max-width: 100%; height: auto; margin: 16px 0; border: 1px solid var(--border, #e6e2dc); border-radius: 10px; box-shadow: 0 4px 16px rgba(0, 0, 0, .06); }
+.help-doc blockquote { margin: 14px 0; padding: 10px 16px; background: rgba(226, 98, 14, .06); border-left: 3px solid var(--accent, #e2620e); border-radius: 0 8px 8px 0; color: var(--text-2, #5c554c); font-size: 14px; }
+.help-doc hr { border: 0; border-top: 1px solid var(--border, #ececec); margin: 28px 0; }
+@media (max-width: 900px) {
+  .help-wrap { flex-direction: column; }
+  .help-side { flex: none; width: 100%; position: static; border-right: 0; border-bottom: 1px solid var(--border, #ececec); }
+  .help-side-list { flex-direction: row; flex-wrap: wrap; }
+  .help-main { padding: 20px 16px 90px; }
+}

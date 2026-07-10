@@ -2,6 +2,7 @@ using System.Security.Cryptography;
 using System.Text;
 using System.Text.RegularExpressions;
 using Microsoft.AspNetCore.StaticFiles;
+using Microsoft.Extensions.FileProviders;
 
 namespace TourkitAiProxy.Configuration;
 
@@ -65,6 +66,28 @@ public static class StaticFilesSetup
                 }
             }
         });
+
+        // ── Guide cho trang /help — phục vụ 2 thư mục con của docs/ ──────────────────
+        // CHỈ features (markdown guide) + images (ảnh minh họa) → KHÔNG lộ docs nội bộ khác
+        // (database-schema, superpowers/specs…). Trang /help fetch /docs/features/<slug>.md
+        // rồi render markdown client-side; ảnh trong md rewrite ../images/ → /docs/images/.
+        var docsRoot = Path.Combine(app.Environment.ContentRootPath, "docs");
+        foreach (var (sub, reqPath, defType) in new[]
+        {
+            ("features", "/docs/features", "text/markdown; charset=utf-8"),
+            ("images",   "/docs/images",   "application/octet-stream"),
+        })
+        {
+            var dir = Path.Combine(docsRoot, sub);
+            if (!Directory.Exists(dir)) continue;
+            app.UseStaticFiles(new StaticFileOptions
+            {
+                FileProvider          = new PhysicalFileProvider(dir),
+                RequestPath           = reqPath,
+                ServeUnknownFileTypes = true,   // .md không có MIME chuẩn
+                DefaultContentType    = defType,
+            });
+        }
 
         return app;
     }
