@@ -14,14 +14,17 @@ namespace TourkitAiProxy.Services.Speech;
 ///   • Gemini: Mscc.GenerativeAI (community, .NET-first wrapper cho generativelanguage.googleapis.com)
 ///   • OpenAI: OpenAI 2.x (official .NET SDK)
 ///
-/// Config (appsettings.json):
+/// Config (appsettings.json) — ĐỐI XỨNG với TTS (Speech:Tts:Provider):
 ///   "Speech": {
-///     "Provider": "gemini" | "openai",          // primary engine
-///     "Model": "gemini-2.0-flash",              // model name của primary
-///     "Fallback": true,                         // primary fail → thử secondary
+///     "Stt": {
+///       "Provider": "gemini" | "openai",        // primary engine (key MỚI, ưu tiên)
+///       "Model": "gemini-2.0-flash",            // model name của primary
+///       "Fallback": true                        // primary fail → thử secondary
+///     },
 ///     "Gemini": { "ApiKey": "", "Model": "gemini-2.0-flash" },
 ///     "OpenAI": { "Model": "whisper-1" }        // ApiKey lấy chung Providers:OpenAI:ApiKey
 ///   }
+/// BACKWARD-COMPAT: nếu thiếu Speech:Stt:* thì đọc key cũ Speech:Provider / Speech:Model / Speech:Fallback.
 ///
 /// Catalog model hỗ trợ:
 ///   Gemini:  gemini-2.0-flash | gemini-2.0-flash-lite | gemini-1.5-flash | gemini-1.5-pro
@@ -60,13 +63,14 @@ public class SpeechToTextService
             bytes = ms.ToArray();
         }
 
-        var primary  = (_cfg["Speech:Provider"] ?? "gemini").ToLowerInvariant();
+        // Đối xứng với TTS (Speech:Tts:Provider): đọc Speech:Stt:Provider TRƯỚC, fallback key cũ Speech:Provider.
+        var primary  = (_cfg["Speech:Stt:Provider"] ?? _cfg["Speech:Provider"] ?? "gemini").ToLowerInvariant();
         // Vbee STT bật riêng qua Speech:Vbee:SttEnabled — nếu bật thì LÀM PRIMARY (ưu tiên "cùng nền tảng"),
         // engine cấu hình (openai/gemini) thành fallback. Vbee chỉ nhận WAV → non-WAV tự ném → fallback.
         if (_vbee.Configured) primary = "vbee";
-        var fallback = _cfg.GetValue<bool?>("Speech:Fallback") ?? true;
+        var fallback = _cfg.GetValue<bool?>("Speech:Stt:Fallback") ?? _cfg.GetValue<bool?>("Speech:Fallback") ?? true;
         var secondary = primary == "vbee"
-            ? (_cfg["Speech:Provider"] ?? "openai").ToLowerInvariant()   // engine gốc làm fallback cho Vbee
+            ? (_cfg["Speech:Stt:Provider"] ?? _cfg["Speech:Provider"] ?? "openai").ToLowerInvariant()   // engine gốc làm fallback cho Vbee
             : (primary == "gemini" ? "openai" : "gemini");
         if (secondary == "vbee") secondary = "openai";                   // tránh fallback lại về vbee
 
@@ -120,7 +124,7 @@ public class SpeechToTextService
         if (string.IsNullOrEmpty(apiKey))
             throw new InvalidOperationException("Thiếu Gemini API key (Speech:Gemini:ApiKey hoặc env GOOGLE_API_KEY).");
 
-        var modelId = _cfg["Speech:Gemini:Model"] ?? _cfg["Speech:Model"] ?? "gemini-2.0-flash";
+        var modelId = _cfg["Speech:Gemini:Model"] ?? _cfg["Speech:Stt:Model"] ?? _cfg["Speech:Model"] ?? "gemini-2.0-flash";
         var mime    = NormalizeAudioMime(contentType, fileName, geminiSide: true);
         var t0      = DateTime.UtcNow;
 
@@ -174,8 +178,9 @@ public class SpeechToTextService
         if (string.IsNullOrEmpty(apiKey))
             throw new InvalidOperationException("Thiếu OpenAI API key (Providers:OpenAI:ApiKey hoặc env OPENAI_API_KEY).");
 
+        var sttProvider = (_cfg["Speech:Stt:Provider"] ?? _cfg["Speech:Provider"])?.ToLowerInvariant();
         var modelId = _cfg["Speech:OpenAI:Model"]
-                 ?? (_cfg["Speech:Provider"]?.ToLowerInvariant() == "openai" ? _cfg["Speech:Model"] : null)
+                 ?? (sttProvider == "openai" ? (_cfg["Speech:Stt:Model"] ?? _cfg["Speech:Model"]) : null)
                  ?? "whisper-1";
         var t0 = DateTime.UtcNow;
 

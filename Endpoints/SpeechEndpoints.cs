@@ -74,66 +74,68 @@ public static class SpeechEndpoints
         })
         .DisableAntiforgery();        // multipart upload từ fetch không gửi anti-forgery token
 
-        // ── TTS: text → audio. Ưu tiên Piper (open-source, offline, FREE) → fallback OpenAI (nếu có key).
-        //    Chỉ gọi khi máy KHÔNG có giọng vi trình duyệt. Cache theo nội dung (câu lặp = free).
+        // ── TTS: text → audio. Engine CHỌN THEO CONFIG (giống Models:{Feature}:Provider):
+        //    Speech:Tts:Provider = vbee | edge | piper | openai (mặc định "vbee").
+        //    Speech:Tts:Fallback = true → engine chính lỗi/chưa cấu hình thì thử các engine còn lại theo thứ tự.
+        //    Frontend LUÔN gọi endpoint này (không dùng giọng trình duyệt) → mọi máy nghe cùng 1 giọng.
         v1.MapPost("/speech/tts", async (HttpContext ctx, TtsRequest req, VbeeTtsService vbee, EdgeTtsService edge,
-            PiperTtsService piper, TextToSpeechService openai, TkSessionStore sessions, ILogger<Program> log) =>
+            PiperTtsService piper, TextToSpeechService openai, TkSessionStore sessions, IConfiguration cfg, ILogger<Program> log) =>
         {
             var sid = Sid(ctx);
             if (sessions.Get(sid) == null) return Unauthorized();
             if (string.IsNullOrWhiteSpace(req?.Text))
                 return Results.BadRequest(new { error = "Thiếu 'text'" });
-            try
+
+            var primary = (cfg["Speech:Tts:Provider"] ?? "vbee").Trim().ToLowerInvariant();
+            var fallback = cfg.GetValue("Speech:Tts:Fallback", true);
+            var order = new List<string> { primary };
+            if (fallback)
+                foreach (var e in new[] { "vbee", "edge", "piper", "openai" })
+                    if (!order.Contains(e)) order.Add(e);
+
+            IResult Emit(byte[] bytes, string mime, string engine, bool cached)
             {
-                // 0) Vbee: giọng Việt neural chất lượng cao (batch async). Ưu tiên nếu đã cấu hình.
-                //    KHÔNG truyền req.Voice (đó là voice trình duyệt/edge) — Vbee dùng voiceCode ở config.
-                if (vbee.Configured)
+                ctx.Response.Headers["X-Tts-Cached"] = cached ? "1" : "0";
+                ctx.Response.Headers["X-Tts-Engine"] = engine;
+                return Results.File(bytes, mime);
+            }
+
+            Exception? last = null;
+            foreach (var eng in order)
+            {
+                try
                 {
-                    try
+                    switch (eng)
                     {
-                        var (mp3v, cv) = await vbee.SynthesizeAsync(req.Text, null, ctx.RequestAborted);
-                        ctx.Response.Headers["X-Tts-Cached"] = cv ? "1" : "0";
-                        ctx.Response.Headers["X-Tts-Engine"] = "vbee";
-                        return Results.File(mp3v, "audio/mpeg");
+                        case "vbee":
+                            if (!vbee.Configured) continue;               // KHÔNG truyền req.Voice — Vbee dùng voiceCode ở config
+                            var (mv, cv) = await vbee.SynthesizeAsync(req.Text, null, ctx.RequestAborted);
+                            return Emit(mv, "audio/mpeg", "vbee", cv);
+                        case "edge":
+                            if (!edge.Enabled) continue;
+                            var (me, ce) = await edge.SynthesizeAsync(req.Text, req.Voice, ctx.RequestAborted);
+                            return Emit(me, "audio/mpeg", "edge", ce);
+                        case "piper":
+                            if (!piper.Configured) continue;
+                            var (mw, cw) = await piper.SynthesizeAsync(req.Text, ctx.RequestAborted);
+                            return Emit(mw, "audio/wav", "piper", cw);
+                        case "openai":
+                            var (mo, co) = await openai.SynthesizeAsync(req.Text, req.Voice, ctx.RequestAborted);
+                            return Emit(mo, "audio/mpeg", "openai", co);
+                        default:
+                            continue;   // tên engine lạ trong config → bỏ qua
                     }
-                    catch (Exception ex) { log.LogWarning("vbee-tts fail ({Msg}) — thử engine khác", ex.Message); }
                 }
-                // 1) edge-tts: giọng vi neural CHUẨN, free (cần mạng). MS chặn/lỗi → thử engine sau.
-                if (edge.Enabled)
+                catch (Exception ex)
                 {
-                    try
-                    {
-                        var (mp3e, ce) = await edge.SynthesizeAsync(req.Text, req.Voice, ctx.RequestAborted);
-                        ctx.Response.Headers["X-Tts-Cached"] = ce ? "1" : "0";
-                        ctx.Response.Headers["X-Tts-Engine"] = "edge";
-                        return Results.File(mp3e, "audio/mpeg");
-                    }
-                    catch (Exception ex) { log.LogWarning("edge-tts fail ({Msg}) — thử engine khác", ex.Message); }
+                    last = ex;
+                    log.LogWarning("TTS engine '{Engine}' lỗi ({Msg}) — thử engine kế", eng, ex.Message);
                 }
-                // 2) Piper offline (nếu cấu hình)
-                if (piper.Configured)
-                {
-                    var (wav, cached) = await piper.SynthesizeAsync(req.Text, ctx.RequestAborted);
-                    ctx.Response.Headers["X-Tts-Cached"] = cached ? "1" : "0";
-                    ctx.Response.Headers["X-Tts-Engine"] = "piper";
-                    return Results.File(wav, "audio/wav");
-                }
-                // 3) OpenAI (nếu có key)
-                var (mp3, cached2) = await openai.SynthesizeAsync(req.Text, req.Voice, ctx.RequestAborted);
-                ctx.Response.Headers["X-Tts-Cached"] = cached2 ? "1" : "0";
-                ctx.Response.Headers["X-Tts-Engine"] = "openai";
-                return Results.File(mp3, "audio/mpeg");
             }
-            catch (InvalidOperationException ex)
-            {
-                log.LogWarning(ex, "TTS fail");
-                return Results.Json(new { error = ex.Message }, statusCode: 400);
-            }
-            catch (Exception ex)
-            {
-                log.LogError(ex, "TTS crash");
-                return Results.Json(new { error = "Lỗi nội bộ khi TTS: " + ex.Message }, statusCode: 500);
-            }
+
+            log.LogWarning("TTS: không engine nào chạy được (primary={Primary}, fallback={Fallback})", primary, fallback);
+            return Results.Json(new { error = "Không engine TTS nào khả dụng: " + (last?.Message ?? "chưa cấu hình engine") },
+                statusCode: 400);
         });
     }
 

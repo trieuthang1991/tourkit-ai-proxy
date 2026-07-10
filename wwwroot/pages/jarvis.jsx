@@ -352,11 +352,9 @@ function JarvisPage({ pushToast }) {
       { onstart: () => setSpeaking(true), onend: () => setSpeaking(false) });
   }
 
-  // Đọc 1 đoạn text: giọng vi trình duyệt (free) → nếu không có thì server Piper. Dùng chung reply + chào.
+  // Đọc 1 đoạn text: LUÔN server TTS (engine theo config). Dùng chung reply + chào.
   function speakText(text) {
-    const v = window.speechSynthesis ? resolveVoice() : null;
-    if (v) speak(text, v, { onstart: () => setSpeaking(true), onend: () => setSpeaking(false) });
-    else speakViaServer(text);
+    speakViaServer(text);
   }
 
   // Câu chào = PHÁT FILE THU SẴN (wwwroot/audio/jarvis-greeting.mp3, giọng HoaiMy) → tức thì, KHỎI gen.
@@ -514,14 +512,12 @@ function JarvisPage({ pushToast }) {
     }
   }
 
-  // Đọc reply: ưu tiên giọng vi MIỄN PHÍ của trình duyệt (giọng đang chọn / Edge Natural).
-  // Máy không có giọng vi → server TTS (Piper open-source FREE nếu đã cấu hình; nếu chưa thì nhắc).
+  // Đọc reply: LUÔN dùng server TTS (engine theo config Speech:Tts:Provider — mặc định Vbee).
+  // KHÔNG dùng giọng trình duyệt nữa → mọi máy nghe cùng 1 giọng, đồng nhất & chuẩn (theo yêu cầu).
   function speakReply(text) {
     if (!voiceOn) return;
     stopThinking();   // dừng filler "đang suy nghĩ" trước khi đọc câu trả lời
-    const v = window.speechSynthesis ? resolveVoice() : null;
-    if (v) speak(text, v, { onstart: () => setSpeaking(true), onend: () => setSpeaking(false) });
-    else speakViaServer(text);
+    speakViaServer(text);
   }
 
   // ── Audio "ĐANG SUY NGHĨ" (kịch tính) — phát filler thu sẵn 1 LẦN/lượt lúc AI xử lý ──
@@ -564,7 +560,7 @@ function JarvisPage({ pushToast }) {
   function hintNoVoice() {
     if (hintedRef.current) return;
     hintedRef.current = true;
-    pushToast('Chưa có giọng đọc — mở bằng Microsoft Edge (miễn phí), hoặc cấu hình Piper trên server', 'warn');
+    pushToast('Giọng đọc lỗi — kiểm tra cấu hình engine TTS trên server (Speech:Tts:Provider / Vbee)', 'warn');
   }
   _jE(() => { sendRef.current = send; });   // luôn trỏ tới send mới nhất (tránh closure cũ trong recognition)
 
@@ -732,21 +728,7 @@ function JarvisPage({ pushToast }) {
               title={voiceOn ? 'Đang đọc phản hồi (tắt loa)' : 'Bật đọc phản hồi bằng giọng nói (miễn phí, cần giọng vi — Edge tốt nhất)'}>
               <Icon name="bell" size={14} /> {voiceOn ? 'LOA: BẬT' : 'LOA: TẮT'}
             </button>
-            {voiceOn && viVoices.length > 0 && (
-              <>
-                <select className="jv-voice-sel" value={voiceName} onChange={e => setVoiceName(e.target.value)}
-                  title="Chọn giọng đọc (Edge có giọng Online Natural)">
-                  {viVoices.map(v => (
-                    <option key={v.name} value={v.name}>
-                      {v.name.replace(/^Microsoft\s*/i, '').replace(/\s*-\s*Vietnamese.*/i, '').replace(/\s*\(Natural\)/i, ' ✦')}
-                    </option>
-                  ))}
-                </select>
-                <button className="jv-toggle" onClick={testVoice} title="Nghe thử giọng đang chọn">
-                  <Icon name="bell" size={14} /> THỬ
-                </button>
-              </>
-            )}
+            {/* Giọng đọc lấy từ server (config Speech:Tts:Provider) → bỏ dropdown chọn giọng trình duyệt. */}
             <button className="jv-toggle" onClick={() => { setMessages([]); setLastTool(null); setOrbState('idle'); window.speechSynthesis?.cancel(); }}
               title="Xóa hội thoại">
               <Icon name="refresh" size={14} /> MỚI
