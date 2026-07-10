@@ -189,18 +189,33 @@ function speakifyDates(text) {
       (m, h, mi) => +mi === 0 ? `${+h} giờ` : `${+h} giờ ${+mi}`);
 }
 
-// Chuẩn hóa text trước khi đọc: (1) ngày/giờ; (2) số tiền lớn → "tỷ/triệu"; (3) phiên âm tên riêng.
-// "1.500.048.600.000 đồng" → "khoảng 1500 tỷ đồng"; "07/07/2026" → "ngày 7 tháng 7 năm 2026"; "JARVIS" → "Gia-vít".
+// Viết tắt tháng "T7"/"Th7"/"tháng T7" → "tháng 7" (mọi giọng, kể cả Vbee, đọc "T7" thành "tê bảy").
+// Chỉ nhận chữ T HOA + số 1–12 để tránh nuốt mã phòng/ký hiệu khác ("phòng t7" thường viết thường).
+function speakifyMonths(text) {
+  return String(text)
+    // "tháng T7"/"tháng Th7" → "tháng 7" (bỏ T/Th thừa ngay sau chữ "tháng")
+    .replace(/(tháng)\s+Th?(0?[1-9]|1[0-2])\b/gi, '$1 $2')
+    // "T7"/"Th7" đứng riêng (viết tắt tháng) → "tháng 7"
+    .replace(/\bTh?(0?[1-9]|1[0-2])\b/g, 'tháng $1');
+}
+
+// Chuẩn hóa text trước khi đọc: (1) ngày/giờ; (2) viết tắt tháng T7; (3) số tiền lớn → "tỷ/triệu"; (4) phiên âm tên riêng.
+// "1.500.048.600.000 đồng" → "khoảng 1500 tỷ đồng"; "07/07/2026" → "ngày 7 tháng 7 năm 2026"; "tháng T7" → "tháng 7"; "JARVIS" → "Gia-vít".
 // Phiên âm áp cho CẢ Vbee lẫn trình duyệt (đã kiểm: Vbee đọc "ma-két-ting","Gia-vít" trong câu trả lời
 // vẫn tự nhiên, KHÔNG đánh vần) → tên tiếng Anh nghe kiểu Việt, không bị đọc thô/bỏ qua.
 function humanizeForSpeech(text) {
-  const dated = speakifyDates(String(text));
+  const dated = speakifyMonths(speakifyDates(String(text)));
   const money = dated.replace(
     /(\d{1,3}(?:[.,]\d{3})+)\s*(đồng|đ|vnđ|₫)?/gi,
     (m, num, unit) => {
       const n = parseInt(num.replace(/[.,\s]/g, ''), 10);
       if (!isFinite(n) || n < 1_000_000) return m;   // < 1 triệu → giữ nguyên
-      const fmt = (x) => Math.round(x).toString();   // làm tròn số nguyên — bỏ phần lẻ sau dấu phẩy
+      // Giữ 1 chữ số thập phân (4.532.151 → "4,5 triệu", KHÔNG làm tròn lên "5 triệu").
+      // Nguyên → bỏ ".0" ("1500"); có lẻ → dấu phẩy để Vbee đọc "phẩy" ("4,5").
+      const fmt = (x) => {
+        const r = Math.round(x * 10) / 10;
+        return Number.isInteger(r) ? r.toString() : r.toString().replace('.', ',');
+      };
       return n >= 1e9 ? `khoảng ${fmt(n / 1e9)} tỷ đồng` : `khoảng ${fmt(n / 1e6)} triệu đồng`;   // luôn "đồng" (không đọc "đ")
     });
   return speakifyNames(money);
