@@ -168,10 +168,34 @@ const _NAME_SAY = [
 ];
 function speakifyNames(text) { let s = text; for (const [re, rep] of _NAME_SAY) s = s.replace(re, rep); return s; }
 
-// Chuẩn hóa text trước khi đọc: (1) số tiền lớn → "tỷ/triệu"; (2) phiên âm tên riêng tiếng Anh.
-// "1.500.048.600.000 đồng" → "khoảng 1500 tỷ đồng"; "JARVIS" → "Gia-vít".
+// Đọc NGÀY/GIỜ tự nhiên (giọng TTS đọc "07/07/2026" hay "10:35" rất sai):
+//   "07/07/2026"→"ngày 7 tháng 7 năm 2026" · "08/07"→"ngày 8 tháng 7" ·
+//   "2026-07-10"→"ngày 10 tháng 7 năm 2026" · "10:35"→"10 giờ 35" · "09:00"→"9 giờ".
+// Chạy TRƯỚC money (không đụng nhau: ngày dùng '/ - :', money dùng '. ,'). Có guard hợp lệ
+// ngày (1–31) + tháng (1–12) để tránh nhận nhầm tỉ lệ "3/5".
+function speakifyDates(text) {
+  return String(text)
+    // ISO yyyy-mm-dd (chạy trước để "nuốt" năm 4 chữ số); nuốt luôn "ngày" đứng trước nếu có
+    .replace(/\b(?:ngày\s+)?(\d{4})-(\d{1,2})-(\d{1,2})\b/gi,
+      (m, y, mo, d) => (+mo >= 1 && +mo <= 12 && +d >= 1 && +d <= 31) ? `ngày ${+d} tháng ${+mo} năm ${y}` : m)
+    // dd/mm/yyyy hoặc dd-mm-yyyy
+    .replace(/\b(?:ngày\s+)?(\d{1,2})[\/-](\d{1,2})[\/-](\d{4})\b/gi,
+      (m, d, mo, y) => (+mo >= 1 && +mo <= 12 && +d >= 1 && +d <= 31) ? `ngày ${+d} tháng ${+mo} năm ${y}` : m)
+    // dd/mm (không năm) — chỉ '/' để khỏi đụng dải số "8-16"
+    .replace(/\b(?:ngày\s+)?(\d{1,2})\/(\d{1,2})\b/gi,
+      (m, d, mo) => (+mo >= 1 && +mo <= 12 && +d >= 1 && +d <= 31) ? `ngày ${+d} tháng ${+mo}` : m)
+    // giờ:phút HH:mm → "H giờ M" (M=0 → chỉ "H giờ")
+    .replace(/\b([01]?\d|2[0-3]):([0-5]\d)\b/g,
+      (m, h, mi) => +mi === 0 ? `${+h} giờ` : `${+h} giờ ${+mi}`);
+}
+
+// Chuẩn hóa text trước khi đọc: (1) ngày/giờ; (2) số tiền lớn → "tỷ/triệu"; (3) phiên âm tên riêng.
+// "1.500.048.600.000 đồng" → "khoảng 1500 tỷ đồng"; "07/07/2026" → "ngày 7 tháng 7 năm 2026"; "JARVIS" → "Gia-vít".
+// Phiên âm áp cho CẢ Vbee lẫn trình duyệt (đã kiểm: Vbee đọc "ma-két-ting","Gia-vít" trong câu trả lời
+// vẫn tự nhiên, KHÔNG đánh vần) → tên tiếng Anh nghe kiểu Việt, không bị đọc thô/bỏ qua.
 function humanizeForSpeech(text) {
-  const money = String(text).replace(
+  const dated = speakifyDates(String(text));
+  const money = dated.replace(
     /(\d{1,3}(?:[.,]\d{3})+)\s*(đồng|đ|vnđ|₫)?/gi,
     (m, num, unit) => {
       const n = parseInt(num.replace(/[.,\s]/g, ''), 10);
@@ -209,6 +233,20 @@ function speak(text, voice, cb) {
   if (cb) { u.onstart = cb.onstart || null; u.onend = cb.onend || null; u.onerror = cb.onend || null; }
   synth.cancel();
   synth.speak(u);
+}
+
+// Typewriter: hiện text DẦN như gõ phím (thay vì đổ ra 1 phát). Khi content nhảy lớn (reply set
+// nguyên lúc 'done') vẫn "đuổi kịp" nhưng gõ từng đoạn cho mượt. streaming → giữ con trỏ nhấp nháy.
+function TypeText({ text, streaming }) {
+  const [shown, setShown] = React.useState(0);
+  React.useEffect(() => {
+    if (shown >= text.length) return;
+    const step = Math.max(2, Math.ceil((text.length - shown) / 22));  // xa → đuổi nhanh, gần → gõ chậm
+    const id = setTimeout(() => setShown(s => Math.min(text.length, s + step)), 18);
+    return () => clearTimeout(id);
+  }, [shown, text]);
+  const showCursor = streaming || shown < text.length;
+  return <>{text.slice(0, shown)}{showCursor ? <span className="jv-cursor">▊</span> : null}</>;
 }
 
 // Nhận diện giọng nói liên tục (SpeechRecognition) — Chrome/Edge. null nếu không hỗ trợ.
@@ -311,7 +349,7 @@ function JarvisPage({ pushToast }) {
   function playGreeting() {
     if (greetedRef.current || !voiceOnRef.current || loadingRef.current) return;
     greetedRef.current = true;   // đánh dấu đã thử (tránh phát nhiều lần)
-    const a = new Audio('/audio/jarvis-greeting.mp3?v=2');
+    const a = new Audio('/audio/jarvis-greeting.mp3?v=4');   // v4 = Vbee (24kHz, không đọc tên → hết đánh vần)
     audioRef.current = a;
     a.onended = () => setSpeaking(false);
     a.onerror = () => setSpeaking(false);   // file 404 → thôi (không gen)
@@ -384,7 +422,7 @@ function JarvisPage({ pushToast }) {
     if (!text) return;
     ttsBusyRef.current = true;
     setSpeaking(true);   // báo bận NGAY khi bắt đầu gen giọng (edge-tts round-trip) → orb không về "SẴN SÀNG"
-    const clean = humanizeForSpeech(cleanForSpeech(text));
+    const clean = humanizeForSpeech(cleanForSpeech(text), true);   // native=Vbee: bỏ phiên âm gạch nối (đỡ đánh vần)
     try {
       const r = await window.tourkitAuth.authedFetch('/api/v1/speech/tts', {
         method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ text: clean })
@@ -471,15 +509,16 @@ function JarvisPage({ pushToast }) {
     else speakViaServer(text);
   }
 
-  // ── Audio "ĐANG SUY NGHĨ" (kịch tính) — phát filler thu sẵn lúc AI xử lý; lặp nếu còn nghĩ ──
+  // ── Audio "ĐANG SUY NGHĨ" (kịch tính) — phát filler thu sẵn 1 LẦN/lượt lúc AI xử lý ──
+  // Trước đây tự lặp (onended → playThinking khi còn loading) → nghe lặp lại khó chịu.
+  // Nay CHỈ phát 1 câu filler ngẫu nhiên mỗi lượt hỏi (đủ báo "đang xử lý", không lải nhải).
   const thinkAudioRef = _jR(null);
   function playThinking() {
     if (!voiceOnRef.current) return;
-    const n = 1 + Math.floor(Math.random() * 3);   // 3 câu filler, chọn ngẫu nhiên đỡ lặp
-    const a = new Audio(`/audio/jarvis-thinking-${n}.mp3?v=1`);
+    const n = 1 + Math.floor(Math.random() * 3);   // 3 câu filler, chọn ngẫu nhiên
+    const a = new Audio(`/audio/jarvis-thinking-${n}.mp3?v=4`);   // v4 = Vbee 24kHz, speed 1.0 (speed 1.1 làm méo → đánh vần)
     thinkAudioRef.current = a;
-    a.onended = () => { if (loadingRef.current) playThinking(); };   // vẫn đang nghĩ → filler tiếp
-    a.play().catch(() => {});
+    a.play().catch(() => {});                       // 1 lần thôi — KHÔNG lặp onended
   }
   function stopThinking() { try { thinkAudioRef.current?.pause(); thinkAudioRef.current = null; } catch {} }
 
@@ -691,7 +730,11 @@ function JarvisPage({ pushToast }) {
             <div key={i} className={'jv-line ' + m.role + (m.error ? ' error' : '')}>
               <span className="jv-who">{m.role === 'user' ? 'BẠN' : 'JARVIS'}</span>
               <span className="jv-text">
-                {m.content || (m.streaming ? <span className="jv-cursor">▊</span> : '')}
+                {m.role === 'assistant'
+                  ? (m.content
+                      ? <TypeText text={m.content} streaming={m.streaming} />
+                      : (m.streaming ? <span className="jv-cursor">▊</span> : ''))
+                  : m.content}
               </span>
             </div>
           ))}
