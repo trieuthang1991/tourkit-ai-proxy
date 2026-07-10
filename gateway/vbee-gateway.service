@@ -1,0 +1,20 @@
+# /etc/systemd/system/vbee-gateway.service
+# Sau khi copy:  systemctl daemon-reload && systemctl enable --now vbee-gateway
+[Unit]
+Description=Vbee TTS relay gateway (Node)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+# Chạy dưới user thường (tạo: adduser --system --no-create-home vbeegw)
+User=vbeegw
+WorkingDirectory=/opt/vbee-gateway
+EnvironmentFile=/opt/vbee-gateway/.env
+ExecStart=/usr/bin/node /opt/vbee-gateway/server.js
+Restart=always
+RestartSec=3
+# chỉ bind 127.0.0.1 nên không cần mở firewall cho Node; nginx mới là public
+
+[Install]
+WantedBy=multi-user.target

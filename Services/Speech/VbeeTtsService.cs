@@ -47,15 +47,22 @@ public class VbeeTtsService
     private string? AppId => _cfg["Speech:Vbee:AppId"] ?? Environment.GetEnvironmentVariable("VBEE_APP_ID");
     private string? Token => _cfg["Speech:Vbee:Token"] ?? Environment.GetEnvironmentVariable("VBEE_TOKEN");
 
-    /// <summary>Có đủ cấu hình để dùng (bật + có appId + token).</summary>
+    // GATEWAY MODE: khi server chính KHÔNG gọi được api.vbee.vn (vd Windows Server 2012 R2, Schannel
+    // cũ, thiếu TLS 1.3/x25519) → trỏ sang relay Ubuntu+nginx (gateway/) làm trung gian. Khi có GatewayUrl,
+    // service chỉ POST {text} tới gateway và nhận mp3 (KHÔNG cần AppId/Token ở đây — gateway giữ).
+    private string? GatewayUrl => _cfg["Speech:Vbee:GatewayUrl"] ?? Environment.GetEnvironmentVariable("VBEE_GATEWAY_URL");
+    private string? GatewayKey => _cfg["Speech:Vbee:GatewayKey"] ?? Environment.GetEnvironmentVariable("VBEE_GATEWAY_KEY");
+
+    /// <summary>Có đủ cấu hình để dùng: bật + (có gateway HOẶC có appId+token).</summary>
     public bool Configured =>
         _cfg.GetValue("Speech:Vbee:Enabled", true) &&
-        !string.IsNullOrWhiteSpace(AppId) && !string.IsNullOrWhiteSpace(Token);
+        (!string.IsNullOrWhiteSpace(GatewayUrl) ||
+         (!string.IsNullOrWhiteSpace(AppId) && !string.IsNullOrWhiteSpace(Token)));
 
     public async Task<(byte[] Mp3, bool Cached)> SynthesizeAsync(string text, string? voice, CancellationToken ct)
     {
         if (string.IsNullOrWhiteSpace(text)) throw new InvalidOperationException("Thiếu text để đọc.");
-        if (!Configured) throw new InvalidOperationException("Vbee chưa cấu hình (Speech:Vbee:AppId/Token).");
+        if (!Configured) throw new InvalidOperationException("Vbee chưa cấu hình (Speech:Vbee:GatewayUrl HOẶC AppId/Token).");
 
         text = text.Trim();
         if (text.Length > MAX_CHARS) text = text.Substring(0, MAX_CHARS);
@@ -66,6 +73,15 @@ public class VbeeTtsService
 
         var cacheKey = Hash($"vbee|{voiceCode}|{bitrate}|{text}");
         if (_cache.TryGetValue(cacheKey, out var hit)) return (hit, true);   // câu lặp → free
+
+        // ── GATEWAY MODE: relay qua Ubuntu (khi server chính không gọi được api.vbee.vn) ──
+        if (!string.IsNullOrWhiteSpace(GatewayUrl))
+        {
+            var mp3g = await SynthesizeViaGatewayAsync(text, voiceCode, ct);
+            if (_cache.Count < CACHE_CAP) _cache.TryAdd(cacheKey, mp3g);
+            _log.LogInformation("Vbee TTS OK (gateway): {Chars}ch → {Kb}KB, voice={Voice}", text.Length, mp3g.Length / 1024, voiceCode);
+            return (mp3g, false);
+        }
 
         var http = _httpFactory.CreateClient("vbee");
         http.Timeout = TimeSpan.FromSeconds(_cfg.GetValue("Speech:Vbee:PollTimeoutSeconds", 25) + 10);
@@ -96,6 +112,30 @@ public class VbeeTtsService
         if (_cache.Count < CACHE_CAP) _cache.TryAdd(cacheKey, mp3);
         _log.LogInformation("Vbee TTS OK: {Chars}ch → {Kb}KB, voice={Voice}", text.Length, mp3.Length / 1024, voiceCode);
         return (mp3, false);
+    }
+
+    // Gọi relay Ubuntu: POST {text, voice} + header X-Api-Key → nhận thẳng mp3. Toàn bộ TLS "khó"
+    // với api.vbee.vn do gateway lo → server chính (Schannel cũ) chỉ cần TLS 1.2 tới gateway.
+    private async Task<byte[]> SynthesizeViaGatewayAsync(string text, string voiceCode, CancellationToken ct)
+    {
+        var url = GatewayUrl!.TrimEnd('/') + "/vbee/tts";
+        var http = _httpFactory.CreateClient("vbee-gateway");
+        http.Timeout = TimeSpan.FromSeconds(_cfg.GetValue("Speech:Vbee:PollTimeoutSeconds", 45) + 15);
+
+        using var req = new HttpRequestMessage(HttpMethod.Post, url);
+        if (!string.IsNullOrWhiteSpace(GatewayKey)) req.Headers.TryAddWithoutValidation("X-Api-Key", GatewayKey);
+        req.Content = new StringContent(
+            JsonSerializer.Serialize(new { text, voice = voiceCode }), Encoding.UTF8, "application/json");
+
+        using var res = await http.SendAsync(req, ct);
+        if (!res.IsSuccessStatusCode)
+        {
+            var err = await res.Content.ReadAsStringAsync(ct);
+            throw new InvalidOperationException($"Vbee gateway lỗi {(int)res.StatusCode}: {ExtractError(err)}");
+        }
+        var mp3 = await res.Content.ReadAsByteArrayAsync(ct);
+        if (mp3.Length < 200) throw new InvalidOperationException("Vbee gateway trả audio rỗng.");
+        return mp3;
     }
 
     private async Task<string> SubmitAsync(HttpClient http, object body, CancellationToken ct)
