@@ -349,7 +349,7 @@ function JarvisPage({ pushToast }) {
   function playGreeting() {
     if (greetedRef.current || !voiceOnRef.current || loadingRef.current) return;
     greetedRef.current = true;   // đánh dấu đã thử (tránh phát nhiều lần)
-    const a = new Audio('/audio/jarvis-greeting.mp3?v=4');   // v4 = Vbee (24kHz, không đọc tên → hết đánh vần)
+    const a = new Audio('/audio/jarvis-greeting.mp3?v=5');   // v5 = bản gen lại
     audioRef.current = a;
     a.onended = () => setSpeaking(false);
     a.onerror = () => setSpeaking(false);   // file 404 → thôi (không gen)
@@ -516,7 +516,7 @@ function JarvisPage({ pushToast }) {
   function playThinking() {
     if (!voiceOnRef.current) return;
     const n = 1 + Math.floor(Math.random() * 3);   // 3 câu filler, chọn ngẫu nhiên
-    const a = new Audio(`/audio/jarvis-thinking-${n}.mp3?v=4`);   // v4 = Vbee 24kHz, speed 1.0 (speed 1.1 làm méo → đánh vần)
+    const a = new Audio(`/audio/jarvis-thinking-${n}.mp3?v=5`);   // v5 = bản gen lại
     thinkAudioRef.current = a;
     a.play().catch(() => {});                       // 1 lần thôi — KHÔNG lặp onended
   }
