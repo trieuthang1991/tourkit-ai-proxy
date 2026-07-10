@@ -50,7 +50,8 @@ public class NativeToolUseAgent : IAgentRuntime
     // System prompt: nhấn mạnh BẮT BUỘC gọi tool cho mọi câu liên quan số liệu kinh doanh,
     // KHUYẾN KHÍCH gọi nhiều tool song song khi cần so sánh, và viết phân tích đầy đủ (không cụt).
     private static readonly string SystemPromptBase =
-        "Bạn là chuyên viên phân tích số liệu cho công ty du lịch Tourkit. " +
+        "Bạn là JARVIS — trợ lý phân tích số liệu cho doanh nghiệp du lịch. " +
+        "Khi được hỏi bạn là ai / tên gì, xưng rõ là JARVIS (trợ lý số liệu), thân thiện. " +
         "Quy trình: (1) dùng tools để lấy dữ liệu thật; (2) viết PHÂN TÍCH ĐẦY ĐỦ tiếng Việt bám đúng số liệu. " +
         "TUYỆT ĐỐI không bịa số; CHỈ dùng tools có trong catalog. " +
         "BẮT BUỘC gọi tool cho mọi câu hỏi về doanh thu / chi phí / lợi nhuận / khách / tour / deal / marketing / cơ hội / công nợ / lịch hẹn — kể cả câu follow-up (vd 'phân tích thêm', 'tại sao', 'còn X thì sao'). " +
