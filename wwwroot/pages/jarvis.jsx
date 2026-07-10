@@ -590,7 +590,35 @@ function JarvisPage({ pushToast }) {
     try { mediaRef.current?.stop(); } catch {}
   }
 
-  // Tạo SpeechRecognition 1 lần. onresult: chốt câu → auto gửi; interim → hiện realtime.
+  // ── Debounce gửi cho "Luôn nghe": gom câu, CHỈ gửi khi IM LẶNG đủ lâu (không cắt giữa chừng
+  //    lúc user ngập ngừng / nói lắp). Reset đồng hồ mỗi lần còn nghe thấy tiếng (kể cả interim).
+  //    Câu ngắn → chờ lâu hơn (chống nói lắp). Hiện text chờ + nút "Gửi ngay" để user chủ động. ──
+  const SILENCE_MS = 2000;
+  const sttBufRef = _jR('');          // các đoạn final đã gom, chờ gửi
+  const sttInterimRef = _jR('');      // interim mới nhất (đọc trong timer)
+  const silenceTimerRef = _jR(null);
+  const [pendingText, setPendingText] = _jS('');   // text đang chờ gửi (hiện UI + nút Gửi ngay)
+
+  function clearPendingSend() {
+    clearTimeout(silenceTimerRef.current); silenceTimerRef.current = null;
+    sttBufRef.current = ''; sttInterimRef.current = ''; setPendingText('');
+  }
+  function firePendingSend() {
+    clearTimeout(silenceTimerRef.current); silenceTimerRef.current = null;
+    const t = (sttBufRef.current + ' ' + sttInterimRef.current).trim();
+    sttBufRef.current = ''; sttInterimRef.current = ''; setPendingText(''); setInterim('');
+    if (t && sendRef.current) sendRef.current(t);
+  }
+  function schedulePendingSend() {
+    clearTimeout(silenceTimerRef.current);
+    const buf = sttBufRef.current.trim();
+    const words = buf ? buf.split(/\s+/).length : 0;
+    const wait = words <= 3 ? SILENCE_MS + 1000 : SILENCE_MS;   // câu ngắn/mới bắt đầu → chờ lâu hơn
+    setPendingText((buf + ' ' + sttInterimRef.current).trim());
+    silenceTimerRef.current = setTimeout(firePendingSend, wait);
+  }
+
+  // Tạo SpeechRecognition 1 lần. onresult: gom câu → im lặng đủ lâu mới gửi (debounce); interim → hiện realtime.
   // onend: tự khởi động lại nếu vẫn bật & không bận (browser hay tự dừng sau im lặng/60s).
   _jE(() => {
     if (!SpeechRec) return;
@@ -603,8 +631,10 @@ function JarvisPage({ pushToast }) {
         if (res.isFinal) fin += res[0].transcript; else itm += res[0].transcript;
       }
       setInterim(itm);
+      sttInterimRef.current = itm;
       const f = fin.trim();
-      if (f) { setInterim(''); sendRef.current && sendRef.current(f); }   // nói xong 1 câu → gửi luôn
+      if (f) sttBufRef.current = (sttBufRef.current + ' ' + f).trim();   // gom câu, CHƯA gửi
+      schedulePendingSend();   // còn tiếng → reset đồng hồ; im lặng đủ lâu (fireSend) mới gửi
     };
     r.onend = () => {
       // Tự bật lại khi vẫn đang ở chế độ nghe & AI rảnh & loa không đọc.
@@ -632,7 +662,7 @@ function JarvisPage({ pushToast }) {
       setOrbState(s => (s === 'idle' ? 'listening' : s));
     } else {
       try { r.stop(); } catch {}
-      if (!listening) { setInterim(''); setOrbState(s => (s === 'listening' ? 'idle' : s)); }
+      if (!listening) { setInterim(''); clearPendingSend(); setOrbState(s => (s === 'listening' ? 'idle' : s)); }
     }
   }, [listening, loading, speaking]);
 
@@ -646,7 +676,7 @@ function JarvisPage({ pushToast }) {
     });
   }
   // Dừng nghe khi rời trang
-  _jE(() => () => { try { recogRef.current?.abort(); } catch {} }, []);
+  _jE(() => () => { try { recogRef.current?.abort(); clearTimeout(silenceTimerRef.current); } catch {} }, []);
 
   const STATUS = {
     idle: { label: 'SẴN SÀNG', cls: 'idle' },
@@ -751,9 +781,17 @@ function JarvisPage({ pushToast }) {
 
         {/* Chữ đang nhận diện realtime (chế độ luôn nghe) */}
         {listening && (
-          <div className="jv-listen-bar">
+          <div className={'jv-listen-bar' + (pendingText ? ' pending' : '')}>
             <span className="jv-listen-wave"><i /><i /><i /><i /></span>
-            <span className="jv-listen-text">{interim || (speaking ? 'Tạm dừng nghe khi đang đọc…' : (loading ? 'Đang xử lý…' : 'Mời nói…'))}</span>
+            {pendingText ? (
+              <>
+                <span className="jv-listen-text jv-pending">⏳ {pendingText}</span>
+                <span className="jv-listen-hint">nói tiếp để tiếp tục</span>
+                <button className="jv-send-now" onClick={firePendingSend}>Gửi ngay</button>
+              </>
+            ) : (
+              <span className="jv-listen-text">{interim || (speaking ? 'Tạm dừng nghe khi đang đọc…' : (loading ? 'Đang xử lý…' : 'Mời nói…'))}</span>
+            )}
           </div>
         )}
 
@@ -836,6 +874,12 @@ const JV_CSS = `
 .jv-listen-wave i{width:3px;height:6px;border-radius:2px;background:#22d3ee;animation:jvWave 1s ease-in-out infinite;}
 .jv-listen-wave i:nth-child(2){animation-delay:.15s;} .jv-listen-wave i:nth-child(3){animation-delay:.3s;} .jv-listen-wave i:nth-child(4){animation-delay:.45s;}
 @keyframes jvWave{0%,100%{height:5px;opacity:.5;}50%{height:16px;opacity:1;}}
+.jv-listen-bar.pending{background:rgba(255,122,26,.10);border-color:rgba(255,122,26,.4);}
+.jv-pending{color:#ffcf9e!important;font-style:normal!important;}
+.jv-listen-hint{font-size:11px;color:#8aa;white-space:nowrap;opacity:.75;}
+.jv-send-now{padding:5px 14px;border-radius:999px;border:1px solid #ff7a1a;background:rgba(255,122,26,.2);
+  color:#ffb37a;font-size:12px;font-weight:700;cursor:pointer;white-space:nowrap;font-family:inherit;}
+.jv-send-now:hover{background:rgba(255,122,26,.35);color:#fff;}
 .jv-log{position:relative;z-index:2;max-height:34vh;overflow-y:auto;padding:12px 20px;display:flex;flex-direction:column;gap:9px;
   border-top:1px solid rgba(56,189,248,.12);}
 .jv-empty{color:#6b93b5;font-size:13px;text-align:center;padding:14px;line-height:1.7;}
