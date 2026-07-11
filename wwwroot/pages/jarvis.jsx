@@ -8,6 +8,10 @@
 
 const { useState: _jS, useEffect: _jE, useRef: _jR } = React;
 
+// WAV im lặng cực ngắn để "mồi" mở khoá phần tử Audio ngay trong cú chạm đầu tiên (iOS Safari):
+// play() 1 clip câm trong ngữ cảnh gesture → element được đánh dấu unlocked → câu trả lời sau tự phát.
+const _JV_SILENT_WAV = 'data:audio/wav;base64,UklGRiUAAABXQVZFZm10IBAAAAABAAEAQB8AAEAfAAABAAgAZGF0YQEAAACA';
+
 // ── Lazy-load Three.js (UMD r128 → window.THREE). Chỉ tải khi trang JARVIS mở. ──
 function ensureThree() {
   if (window.THREE) return Promise.resolve(window.THREE);
@@ -152,9 +156,9 @@ function getViVoice() {
 // THÊM TỪ MỚI: chỉ cần thêm 1 dòng [regex, 'phiên âm']. Dùng \b (ranh giới từ) để không đụng chữ khác.
 // Lưu ý: các từ dễ trùng tiếng Việt (vd "ai", "top") để case-nhạy hoặc bỏ qua cho an toàn.
 const _NAME_SAY = [
-  [/\bJARVIS\b/gi, 'Gia-vít'],
+  [/\bTRAV[\s-]?AI\b/gi, 'Trà vải'],   // TRAVAI / TRAV-AI / TRAV AI → đọc "Trà vải"
+  [/\bJARVIS\b/gi, 'Trà vải'],         // tên cũ (nếu backend còn nhắc) → cũng đọc "Trà vải"
   [/\bTour[\s-]?Kit\b/gi, 'Tua-kít'],
-  [/\bTRAV[\s-]?AI\b/gi, 'Trav ây-ai'],
   [/\bmarketing\b/gi, 'ma-két-ting'],
   [/\bPancake\b/gi, 'Pen-kêk'],
   [/\bvoucher\b/gi, 'vao-chờ'],
@@ -314,6 +318,27 @@ function JarvisPage({ pushToast }) {
   const logRef = _jR(null);
   const audioRef = _jR(null);   // <audio> đang phát TTS OpenAI (để dừng khi hỏi câu mới)
   const ttsDisabledRef = _jR(false);   // OpenAI TTS lỗi cấu hình (thiếu key) → ngừng thử, khỏi spam
+  const audioUnlockedRef = _jR(false);  // iOS: phần tử Audio đã được 1 cú chạm mở khoá → play() sau fetch mới chạy
+  const pendingUrlRef = _jR(null);       // url TTS bị iOS chặn tự phát → chờ user chạm nút "NGHE"
+  const [needTap, setNeedTap] = _jS(false);  // hiện nút "NGHE" khi trình duyệt điện thoại chặn tự phát
+  const audioCtxRef = _jR(null);   // AudioContext (Web Audio) — iOS phát qua đây để BỎ QUA nút gạt Im lặng phần cứng
+  const webAudioSrcRef = _jR(null);  // BufferSource đang phát (để dừng khi hỏi câu mới)
+
+  // ── STT trên MOBILE: Web Speech API (SpeechRecognition) hỏng trên điện thoại
+  //    (iOS Safari KHÔNG có webkitSpeechRecognition; Android continuous chập chờn) → nói mãi không ra chữ.
+  //    Giải: điện thoại (hoặc trình duyệt thiếu Web Speech) chuyển sang THU ÂM (MediaRecorder)
+  //    upload /speech/transcribe (Whisper server, chạy mọi máy). Cùng đường assistant.jsx đã chạy tốt.
+  const isMobile = window.tourkitHooks.useIsMobile();
+  const useServerStt = isMobile || !SpeechRec;
+  const srvRecRef = _jR(null);   // {recorder, stream} khi thu âm gửi server
+  const micMeterRef = _jR(null);  // {raf, analyser, src, timer} — đo mức âm sống lúc ghi (báo user "đang nghe được")
+  const [micLevel, setMicLevel] = _jS(0);   // 0..1 độ lớn giọng đang thu → animate cột mức âm
+  const [recSecs, setRecSecs]   = _jS(0);   // số giây đã ghi (đồng hồ)
+  // iOS: thẻ <audio> bị NÚT GẠT IM LẶNG (silent switch) tắt tiếng dù play() chạy — không JS nào đọc được
+  // trạng thái công tắc. Phát hiện iOS (kể cả iPad "giả Mac") để nhắc user 1 lần khi lần đầu đọc thành tiếng.
+  const isIOS = (() => { try { const ua = navigator.userAgent || '';
+    return /iPad|iPhone|iPod/.test(ua) || (/Macintosh/.test(ua) && (navigator.maxTouchPoints || 0) > 1); } catch { return false; } })();
+  const silentHintedRef = _jR(false);
 
   // ── Chế độ "luôn nghe" (hands-free) qua SpeechRecognition ──────────────────
   // Nhớ trạng thái qua localStorage → khỏi bật lại mỗi lần vào (mặc định TẮT vì cần quyền mic).
@@ -373,7 +398,7 @@ function JarvisPage({ pushToast }) {
   function testVoice() {
     const v = resolveVoice();
     if (!v) { pushToast('Máy chưa có giọng tiếng Việt — mở bằng Microsoft Edge để có giọng Natural', 'warn'); return; }
-    speak('Xin chào, tôi là JARVIS, trợ lý số liệu của bạn.', v,
+    speak('Xin chào, tôi là Trà vải, trợ lý số liệu của bạn.', v,
       { onstart: () => setSpeaking(true), onend: () => setSpeaking(false) });
   }
 
@@ -382,7 +407,7 @@ function JarvisPage({ pushToast }) {
     speakViaServer(text);
   }
 
-  // Câu chào = PHÁT FILE THU SẴN (wwwroot/audio/jarvis-greeting.mp3, giọng HoaiMy) → tức thì, KHỎI gen.
+  // Câu chào = PHÁT FILE THU SẴN (wwwroot/audio/travai-greeting.mp3, giọng Vbee ngochuyen) → tức thì, KHỎI gen.
   const greetedRef = _jR(false);
   // Khi trình duyệt CHẶN autoplay (chưa có tương tác) → hiện overlay "Kích để bắt đầu" cho user biết phải click.
   // Phát được (không bị chặn) → overlay không bao giờ hiện.
@@ -390,13 +415,13 @@ function JarvisPage({ pushToast }) {
   function playGreeting() {
     if (greetedRef.current || !voiceOnRef.current || loadingRef.current) return;
     greetedRef.current = true;   // đánh dấu đã thử (tránh phát nhiều lần)
-    const a = new Audio('/audio/jarvis-greeting.mp3?v=5');   // v5 = bản gen lại
-    audioRef.current = a;
+    const a = ttsEl();           // dùng CHUNG phần tử với reply → chạm chào là mở khoá luôn cho câu trả lời (iOS)
+    setTtsSrc(a, '/audio/travai-greeting.mp3?v=1');   // TRAVAI — giọng chào "Trà vải" (Vbee)
     a.onended = () => setSpeaking(false);
     a.onerror = () => setSpeaking(false);   // file 404 → thôi (không gen)
     setSpeaking(true);
     a.play()
-      .then(() => setNeedGesture(false))                                             // phát được → ẩn overlay
+      .then(() => { audioUnlockedRef.current = true; setNeedGesture(false); })       // phát được → mở khoá + ẩn overlay
       .catch(() => { greetedRef.current = false; setSpeaking(false); setNeedGesture(true); });  // bị chặn → hiện overlay
   }
 
@@ -404,13 +429,16 @@ function JarvisPage({ pushToast }) {
   // tương tác đầu tiên (playGreeting reset greetedRef khi bị chặn để gesture thử lại).
   _jE(() => {
     const t = setTimeout(playGreeting, 500);         // thử phát ngay
-    const retry = () => playGreeting();              // fallback nếu bị chặn autoplay
-    window.addEventListener('pointerdown', retry, true);
-    window.addEventListener('keydown', retry, true);
-    return () => { clearTimeout(t); window.removeEventListener('pointerdown', retry, true); window.removeEventListener('keydown', retry, true); };
+    // Nghe NHIỀU loại sự kiện chạm/gõ (như Howler.js) — iOS đôi khi chỉ mở khoá trong touchend/click,
+    // pointerdown không đủ trên vài phiên bản Safari. Mở khoá + thử chào; gỡ listener khi đã mở khoá xong.
+    const EVTS = ['pointerdown', 'touchstart', 'touchend', 'click', 'keydown'];
+    const unbind = () => EVTS.forEach(e => window.removeEventListener(e, retry, true));
+    const retry = () => { unlockAudio(); playGreeting(); if (audioUnlockedRef.current) unbind(); };
+    EVTS.forEach(e => window.addEventListener(e, retry, true));
+    return () => { clearTimeout(t); unbind(); };
   }, []);
   // Dừng đọc khi rời trang
-  _jE(() => () => { try { window.speechSynthesis?.cancel(); audioRef.current?.pause(); } catch {} }, []);
+  _jE(() => () => { try { window.speechSynthesis?.cancel(); const a = audioRef.current; a?.pause(); if (a?.__ourl) URL.revokeObjectURL(a.__ourl); stopWebAudio(); stopMicMeter(); stopServerRec(); audioCtxRef.current?.close?.(); } catch {} }, []);
 
   // ── Đọc THEO TỪNG CÂU khi đang stream → giọng bắt đầu sớm, đỡ cảm giác chậm ──
   const spokenIdxRef = _jR(0);      // số ký tự reply đã đưa vào hàng đợi đọc
@@ -423,6 +451,7 @@ function JarvisPage({ pushToast }) {
     spokenIdxRef.current = 0; ttsQueueRef.current = []; ttsBusyRef.current = false;
     try { window.speechSynthesis?.cancel(); } catch {}
     try { audioRef.current?.pause(); } catch {}
+    stopWebAudio();   // dừng luôn nhánh Web Audio (iOS) nếu đang phát
     stopThinking();   // dừng filler "đang suy nghĩ" khi ngắt/hỏi câu mới
   }
 
@@ -563,6 +592,98 @@ function JarvisPage({ pushToast }) {
   }
   function stopThinking() { try { thinkAudioRef.current?.pause(); thinkAudioRef.current = null; } catch {} }
 
+  // ── 1 phần tử Audio DUY NHẤT cho MỌI lần đọc (chào + trả lời) ──────────────────
+  // Vì sao: iOS Safari chỉ cho play() sau fetch nếu phần tử ĐÃ được 1 cú chạm tay mở khoá trước đó.
+  // Tạo new Audio() mỗi câu → iOS coi như chưa mở khoá → đọc chập chờn. Reuse element: chạm chào (hoặc
+  // chạm nút "NGHE") mở khoá 1 lần → các câu sau tự phát được.
+  function ttsEl() {
+    let a = audioRef.current;
+    if (!a) { a = new Audio(); a.preload = 'auto'; audioRef.current = a; }
+    return a;
+  }
+  function setTtsSrc(a, url) {
+    if (a.__ourl) { try { URL.revokeObjectURL(a.__ourl); } catch {} a.__ourl = null; }
+    if (typeof url === 'string' && url.startsWith('blob:')) a.__ourl = url;
+    a.src = url;
+  }
+  // Phát 1 url qua phần tử dùng chung. iOS chặn tự phát (play() reject) → nhớ url + bật nút "NGHE" cho user chạm.
+  function playUrl(url) {
+    const a = ttsEl();
+    try { a.pause(); } catch {}
+    setTtsSrc(a, url);
+    a.onended = a.onerror = () => setSpeaking(false);
+    setSpeaking(true);
+    const p = a.play();
+    if (p && p.then) {
+      return p.then(() => { audioUnlockedRef.current = true; pendingUrlRef.current = null; setNeedTap(false); hintSilentSwitch(); })
+              .catch(() => { setSpeaking(false); pendingUrlRef.current = url; setNeedTap(true); });
+    }
+    audioUnlockedRef.current = true;
+    return Promise.resolve();
+  }
+  // Mở khoá phần tử Audio NGAY trong cú chạm đầu tiên (bất kể có bật loa / đã chào hay chưa) bằng cách
+  // phát 1 clip câm. Nhờ vậy câu trả lời TTS (phát sau fetch, ngoài gesture) không bị iOS chặn → khỏi phải
+  // bấm nút "NGHE". Chạy 1 lần rồi thôi.
+  function unlockAudio() {
+    if (audioUnlockedRef.current || speakingRef.current) return;   // đang đọc → KHÔNG chèn clip câm đè lên câu trả lời
+    const a = ttsEl();
+    try {
+      setTtsSrc(a, _JV_SILENT_WAV);
+      const p = a.play();
+      const fin = () => { audioUnlockedRef.current = true; try { a.pause(); a.currentTime = 0; } catch {} };
+      if (p && p.then) p.then(fin).catch(() => {}); else fin();
+    } catch {}
+    // Mồi Web Audio (iOS): resume context + phát 1 buffer câm trong gesture → sau này phát giọng qua Web Audio
+    // sẽ KHÔNG bị nút gạt Im lặng tắt tiếng (khác thẻ <audio> HTML bị công tắc cứng làm câm).
+    const ctx = getCtx();
+    if (ctx) {
+      try {
+        if (ctx.state === 'suspended') ctx.resume();
+        const src = ctx.createBufferSource();
+        src.buffer = ctx.createBuffer(1, 1, 22050);
+        src.connect(ctx.destination); src.start(0);
+      } catch {}
+    }
+  }
+  // AudioContext dùng chung (tạo lười trong cú chạm đầu). Safari cũ dùng webkitAudioContext.
+  function getCtx() {
+    if (audioCtxRef.current) return audioCtxRef.current;
+    const AC = window.AudioContext || window.webkitAudioContext;
+    if (!AC) return null;
+    try { audioCtxRef.current = new AC(); } catch { return null; }
+    return audioCtxRef.current;
+  }
+  function stopWebAudio() {
+    const s = webAudioSrcRef.current; webAudioSrcRef.current = null;
+    if (s) { try { s.onended = null; s.stop(); } catch {} }
+  }
+  // Phát giọng qua Web Audio (bypass nút Im lặng iOS). Lỗi decode/không hỗ trợ → ném để caller fallback <audio>.
+  async function playViaWebAudio(arrayBuffer) {
+    const ctx = getCtx();
+    if (!ctx) throw new Error('no-audiocontext');
+    if (ctx.state === 'suspended') { try { await ctx.resume(); } catch {} }
+    const audioBuf = await new Promise((resolve, reject) => {
+      let settled = false;
+      const p = ctx.decodeAudioData(arrayBuffer, b => { settled = true; resolve(b); }, e => { settled = true; reject(e || new Error('decode-fail')); });
+      if (p && p.then) p.then(b => { if (!settled) resolve(b); }).catch(e => { if (!settled) reject(e); });   // Safari mới trả Promise
+    });
+    stopWebAudio();
+    const src = ctx.createBufferSource();
+    src.buffer = audioBuf; src.connect(ctx.destination);
+    webAudioSrcRef.current = src;
+    setSpeaking(true);
+    src.onended = () => { if (webAudioSrcRef.current === src) { webAudioSrcRef.current = null; setSpeaking(false); } };
+    src.start(0);
+    audioUnlockedRef.current = true; pendingUrlRef.current = null; setNeedTap(false);
+    hintSilentSwitch();
+  }
+  // Nhắc NHẸ 1 lần/phiên (chỉ iOS): play() đã chạy mà user vẫn "không nghe gì" → 99% do nút gạt Im lặng.
+  function hintSilentSwitch() {
+    if (!isIOS || silentHintedRef.current) return;
+    silentHintedRef.current = true;
+    pushToast('Không nghe thấy giọng đọc? Gạt tắt nút Im lặng bên hông iPhone và tăng âm lượng.', 'warn');
+  }
+
   // Server TTS: POST /speech/tts → audio (Piper WAV / OpenAI mp3) → phát. Piper = miễn phí.
   // Server chưa cấu hình engine nào → báo 1 lần rồi ngừng (không spam).
   async function speakViaServer(text) {
@@ -577,12 +698,13 @@ function JarvisPage({ pushToast }) {
       });
       if (!r.ok) { setSpeaking(false); ttsDisabledRef.current = true; hintNoVoice(); return; }
       setTtsEngine(r.headers.get('X-Tts-Engine') || 'server');   // nhãn engine THỰC TẾ để chẩn đoán (vbee/edge/openai)
-      const url = URL.createObjectURL(await r.blob());
-      const audio = new Audio(url);
-      audioRef.current = audio;
-      const done = () => { setSpeaking(false); URL.revokeObjectURL(url); };
-      audio.onended = done; audio.onerror = done;
-      await audio.play();
+      const buf = await r.arrayBuffer();
+      // iOS: phát qua Web Audio để BỎ QUA nút gạt Im lặng. Lỗi/không hỗ trợ → fallback thẻ <audio> như cũ.
+      if (isIOS && getCtx()) {
+        try { await playViaWebAudio(buf.slice(0)); return; } catch (e) { /* rơi xuống fallback */ }
+      }
+      const url = URL.createObjectURL(new Blob([buf], { type: 'audio/mpeg' }));
+      await playUrl(url);   // phát qua phần tử dùng chung (iOS: element đã mở khoá → không bị chặn tự phát)
     } catch (e) { setSpeaking(false); }
   }
 
@@ -595,10 +717,111 @@ function JarvisPage({ pushToast }) {
   }
   _jE(() => { sendRef.current = send; });   // luôn trỏ tới send mới nhất (tránh closure cũ trong recognition)
 
+  // ── Thu âm gửi server (Whisper) — cho MOBILE / trình duyệt không có Web Speech ──
+  // Bấm → thu âm → bấm lại (hoặc tự dừng) → upload /speech/transcribe → gửi câu hỏi.
+  async function startServerRec() {
+    if (!navigator.mediaDevices?.getUserMedia) { pushToast('Trình duyệt không hỗ trợ ghi âm', 'error'); return; }
+    // Ngắt mọi giọng đang phát TRƯỚC khi mở mic — iOS đang phát loa mà mở mic thì audio session xung đột → thu lỗi/cụt.
+    try { resetSpeech(); setSpeaking(false); } catch {}
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      // iOS Safari KHÔNG hỗ trợ audio/webm → fallback audio/mp4; để trống cho browser tự chọn nếu cả 2 fail.
+      const mime = MediaRecorder.isTypeSupported('audio/webm;codecs=opus') ? 'audio/webm;codecs=opus'
+                 : MediaRecorder.isTypeSupported('audio/webm') ? 'audio/webm'
+                 : MediaRecorder.isTypeSupported('audio/mp4') ? 'audio/mp4' : '';
+      const recorder = mime ? new MediaRecorder(stream, { mimeType: mime }) : new MediaRecorder(stream);
+      const chunks = [];
+      const startedAt = Date.now();   // đo thời lượng → chặn tap quá nhanh (blob rỗng/hỏng trên iOS)
+      recorder.ondataavailable = (e) => { if (e.data?.size > 0) chunks.push(e.data); };
+      recorder.onstop = async () => {
+        stopMicMeter();   // tắt đo mức âm + đồng hồ
+        stream.getTracks().forEach(t => t.stop());
+        const durMs = Date.now() - startedAt;
+        const type = recorder.mimeType || mime || 'audio/webm';
+        const blob = new Blob(chunks, { type });
+        // Tap quá ngắn (< 0.4s) hoặc gần như không có tiếng → nhắc giữ lâu hơn, KHỎI gửi server (đỡ báo "không nhận diện").
+        if (durMs < 400 || blob.size < 1200) { pushToast('Giữ nút micro và nói lâu hơn một chút nhé', 'warn'); setRec('idle'); setOrbState('idle'); return; }
+        await transcribeAndSend(blob, 'jarvis.' + (/mp4/.test(type) ? 'm4a' : 'webm'));
+      };
+      srvRecRef.current = { recorder };
+      // timeslice 250ms: ép ondataavailable bắn định kỳ → chunk bền hơn trên iOS Safari (không dồn hết vào lúc stop → hay rỗng).
+      recorder.start(250);
+      setRec('recording');
+      setOrbState('listening');   // quả cầu phản ứng → người dùng thấy rõ ĐANG GHI
+      startMicMeter(stream);      // hiện cột mức âm sống + đồng hồ → báo "máy đang nghe được giọng bạn"
+    } catch (e) {
+      const map = {
+        NotAllowedError: 'Bị chặn quyền mic — cho phép rồi thử lại', PermissionDeniedError: 'Bị chặn quyền mic — cho phép rồi thử lại',
+        NotFoundError: 'Không tìm thấy mic trên thiết bị', NotReadableError: 'Mic đang bị app khác dùng',
+        SecurityError: 'Mic chỉ chạy trên HTTPS (hoặc localhost)',
+      };
+      pushToast(map[e.name] || ('Lỗi mic: ' + (e.message || e.name)), 'error');
+      setRec('idle');
+    }
+  }
+  function stopServerRec() {
+    const m = srvRecRef.current; srvRecRef.current = null;
+    if (m?.recorder?.state === 'recording') { try { m.recorder.stop(); } catch {} }
+  }
+  // Đo mức âm sống lúc ghi (AnalyserNode trên chính stream mic; KHÔNG nối tới loa → không vọng/echo).
+  // Cột mức nhảy theo giọng → người dùng biết CHẮC micro đang bắt được tiếng mình, không còn "im ỉm".
+  function startMicMeter(stream) {
+    stopMicMeter();
+    setRecSecs(0); setMicLevel(0);
+    const t0 = Date.now();
+    const timer = setInterval(() => setRecSecs(Math.floor((Date.now() - t0) / 1000)), 250);
+    let raf = 0, analyser = null, src = null;
+    const ctx = getCtx();
+    if (ctx) {
+      try {
+        if (ctx.state === 'suspended') ctx.resume();
+        analyser = ctx.createAnalyser(); analyser.fftSize = 256;
+        src = ctx.createMediaStreamSource(stream); src.connect(analyser);   // chỉ phân tích, KHÔNG connect destination
+        const data = new Uint8Array(analyser.frequencyBinCount);
+        const loop = () => {
+          analyser.getByteTimeDomainData(data);
+          let sum = 0; for (let i = 0; i < data.length; i++) { const v = (data[i] - 128) / 128; sum += v * v; }
+          setMicLevel(Math.min(1, Math.sqrt(sum / data.length) * 3.4));   // RMS → 0..1, scale cho dễ thấy
+          raf = requestAnimationFrame(loop);
+        };
+        loop();
+      } catch {}
+    }
+    micMeterRef.current = { raf, analyser, src, timer };
+  }
+  function stopMicMeter() {
+    const m = micMeterRef.current; micMeterRef.current = null;
+    if (m) {
+      try { cancelAnimationFrame(m.raf); } catch {}
+      try { clearInterval(m.timer); } catch {}
+      try { m.src?.disconnect(); m.analyser?.disconnect(); } catch {}
+    }
+    setMicLevel(0);
+  }
+  async function transcribeAndSend(blob, fileName) {
+    if (!blob || blob.size === 0) { pushToast('Không thu được tiếng — thử lại', 'warn'); setRec('idle'); setOrbState('idle'); return; }
+    setRec('uploading');
+    try {
+      const fd = new FormData(); fd.append('file', blob, fileName);
+      const r = await window.tourkitAuth.authedFetch('/api/v1/speech/transcribe', { method: 'POST', body: fd });
+      const j = await r.json().catch(() => ({}));
+      if (!r.ok || j.error) throw new Error(j.error || 'HTTP ' + r.status);
+      const t = (j.text || '').trim();
+      if (!t) { pushToast('Không nhận diện được tiếng — nói rõ hơn', 'warn'); setRec('idle'); setOrbState('idle'); return; }
+      setRec('idle');
+      sendRef.current && sendRef.current(t);   // gửi luôn câu hỏi (JARVIS hội thoại)
+    } catch (e) {
+      pushToast('Lỗi nhận diện: ' + e.message, 'error');
+      setRec('idle'); setOrbState('idle');
+    }
+  }
+
   // ── Mic bấm-tay (push-to-talk) — SpeechRecognition trình duyệt, MIỄN PHÍ (không server) ──
   // Bấm → nghe 1 câu → tự nhận diện → gửi. Bấm lại khi đang nghe = dừng.
   function toggleMic() {
-    if (rec === 'recording') { stopMic(); return; }
+    if (rec === 'recording') { useServerStt ? stopServerRec() : stopMic(); return; }
+    if (rec === 'uploading') return;                       // đang nhận diện → chờ
+    if (useServerStt) { startServerRec(); return; }        // mobile / thiếu Web Speech → thu âm gửi Whisper
     if (!SpeechRec) { pushToast('Trình duyệt không hỗ trợ nhận diện giọng nói (dùng Chrome/Edge)', 'error'); return; }
     try {
       const r = new SpeechRec();
@@ -639,6 +862,7 @@ function JarvisPage({ pushToast }) {
   const sttBufRef = _jR('');          // các đoạn final đã gom, chờ gửi
   const sttInterimRef = _jR('');      // interim mới nhất (đọc trong timer)
   const silenceTimerRef = _jR(null);
+  const lastSentRef = _jR({ text: '', ts: 0 });    // câu vừa gửi (chống lặp echo)
   const [pendingText, setPendingText] = _jS('');   // text đang chờ gửi (hiện UI + nút Gửi ngay)
 
   function clearPendingSend() {
@@ -649,7 +873,12 @@ function JarvisPage({ pushToast }) {
     clearTimeout(silenceTimerRef.current); silenceTimerRef.current = null;
     const t = (sttBufRef.current + ' ' + sttInterimRef.current).trim();
     sttBufRef.current = ''; sttInterimRef.current = ''; setPendingText(''); setInterim('');
-    if (t && sendRef.current) sendRef.current(t);
+    if (!t || !sendRef.current) return;
+    // Chống lặp: câu y hệt câu vừa gửi trong 8s → bỏ (echo giọng JARVIS hoặc nhận diện trùng).
+    const now = Date.now();
+    if (t === lastSentRef.current.text && now - lastSentRef.current.ts < 8000) return;
+    lastSentRef.current = { text: t, ts: now };
+    sendRef.current(t);
   }
   function schedulePendingSend() {
     clearTimeout(silenceTimerRef.current);
@@ -667,6 +896,9 @@ function JarvisPage({ pushToast }) {
     const r = new SpeechRec();
     r.lang = 'vi-VN'; r.continuous = true; r.interimResults = true;
     r.onresult = (e) => {
+      // CHỐNG LẶP/ECHO: khi loa đang đọc (JARVIS tự nói) hoặc AI đang xử lý → bỏ kết quả,
+      // nếu không mic sẽ nghe lại giọng JARVIS → nhận diện → gửi tiếp → vòng lặp vô tận.
+      if (speakingRef.current || loadingRef.current) return;
       let itm = '', fin = '';
       for (let i = e.resultIndex; i < e.results.length; i++) {
         const res = e.results[i];
@@ -703,8 +935,12 @@ function JarvisPage({ pushToast }) {
       try { r.start(); } catch {}   // start() ném nếu đã chạy → nuốt
       setOrbState(s => (s === 'idle' ? 'listening' : s));
     } else {
-      try { r.stop(); } catch {}
-      if (!listening) { setInterim(''); clearPendingSend(); setOrbState(s => (s === 'listening' ? 'idle' : s)); }
+      // Dừng bằng abort() (KHÔNG stop): stop() sẽ flush audio đang đệm — gồm cả tiếng loa JARVIS
+      // vọng lại — thành 1 kết quả final rồi gửi đi → lặp. abort() vứt bỏ audio đệm.
+      try { r.abort(); } catch {}
+      clearPendingSend();           // xoá buffer + timer chờ gửi → không bắn lại câu cũ khi loa đang đọc
+      setInterim('');
+      if (!listening) setOrbState(s => (s === 'listening' ? 'idle' : s));
     }
   }, [listening, loading, speaking]);
 
@@ -740,7 +976,7 @@ function JarvisPage({ pushToast }) {
             <div className="jv-gesture-card">
               <div className="jv-gesture-ic"><Icon name="bell" size={30} /></div>
               <div className="jv-gesture-title">Kích để bắt đầu</div>
-              <div className="jv-gesture-sub">Trình duyệt cần một lượt chạm để bật âm thanh — nhấn vào đây để JARVIS chào bạn.</div>
+              <div className="jv-gesture-sub">Trình duyệt cần một lượt chạm để bật âm thanh — nhấn vào đây để TRAVAI chào bạn.</div>
             </div>
           </div>
         )}
@@ -749,7 +985,7 @@ function JarvisPage({ pushToast }) {
           <div className="jv-brand">
             <span className="jv-brand-mark">◈</span>
             <div>
-              <div className="jv-brand-name">TRAV-AI · JARVIS</div>
+              <div className="jv-brand-name">TRAVAI</div>
               <div className="jv-brand-sub">GIAO DIỆN HỘI THOẠI · NEURAL HUD</div>
             </div>
           </div>
@@ -760,19 +996,26 @@ function JarvisPage({ pushToast }) {
             {lastTool && lastTool !== 'none' && <span className="jv-readout">TOOL <b>{lastTool}</b></span>}
             <button className={'jv-toggle' + (listening ? ' listen-on' : '')}
               onClick={toggleListening}
-              title={listening ? 'Đang nghe liên tục — bấm để tắt' : 'Bật chế độ luôn lắng nghe (rảnh tay)'}>
+              disabled={useServerStt}
+              title={useServerStt ? 'Chế độ luôn nghe chưa hỗ trợ trên điện thoại — dùng nút 🎤 bấm-để-nói' : (listening ? 'Đang nghe liên tục — bấm để tắt' : 'Bật chế độ luôn lắng nghe (rảnh tay)')}>
               <Icon name="phone" size={14} /> {listening ? 'LUÔN NGHE: BẬT' : 'LUÔN NGHE: TẮT'}
             </button>
             <button className={'jv-toggle' + (voiceOn ? ' on' : '')}
               onClick={() => {
                 const v = !voiceOn; setVoiceOn(v);
-                if (!v) { window.speechSynthesis?.cancel(); try { audioRef.current?.pause(); } catch {} }
+                if (!v) { window.speechSynthesis?.cancel(); try { audioRef.current?.pause(); } catch {} stopWebAudio(); setNeedTap(false); }
               }}
               title={voiceOn ? 'Đang đọc phản hồi (tắt loa)' : 'Bật đọc phản hồi bằng giọng nói (miễn phí, cần giọng vi — Edge tốt nhất)'}>
               <Icon name="bell" size={14} /> {voiceOn ? 'LOA: BẬT' : 'LOA: TẮT'}
             </button>
             {/* Giọng đọc lấy từ server (config Speech:Tts:Provider) → bỏ dropdown chọn giọng trình duyệt. */}
-            <button className="jv-toggle" onClick={() => { setMessages([]); setLastTool(null); setOrbState('idle'); window.speechSynthesis?.cancel(); }}
+            {needTap && (
+              <button className="jv-toggle listen-on" onClick={() => { const u = pendingUrlRef.current; if (u) playUrl(u); }}
+                title="Trình duyệt điện thoại chặn tự phát — chạm để nghe câu trả lời">
+                <Icon name="bell" size={14} /> NGHE
+              </button>
+            )}
+            <button className="jv-toggle" onClick={() => { setMessages([]); setLastTool(null); setOrbState('idle'); window.speechSynthesis?.cancel(); stopWebAudio(); setNeedTap(false); }}
               title="Xóa hội thoại">
               <Icon name="refresh" size={14} /> MỚI
             </button>
@@ -792,13 +1035,13 @@ function JarvisPage({ pushToast }) {
         <div className="jv-log" ref={logRef}>
           {messages.length === 0 && (
             <div className="jv-empty">
-              <p>Xin chào. Tôi là <b>JARVIS</b> — trợ lý số liệu TourKit của bạn.</p>
+              <p>Xin chào. Tôi là <b>TRAVAI</b> — trợ lý số liệu TourKit của bạn.</p>
               <p className="jv-empty-hint">Nhấn 🎤 để nói, hoặc chọn gợi ý bên dưới.</p>
             </div>
           )}
           {messages.map((m, i) => (
             <div key={i} className={'jv-line ' + m.role + (m.error ? ' error' : '')}>
-              <span className="jv-who">{m.role === 'user' ? 'BẠN' : 'JARVIS'}</span>
+              <span className="jv-who">{m.role === 'user' ? 'BẠN' : 'TRAVAI'}</span>
               <span className="jv-text">
                 {m.role === 'assistant'
                   ? (m.content
@@ -835,15 +1078,38 @@ function JarvisPage({ pushToast }) {
           </div>
         )}
 
+        {/* Thanh phản hồi GHI ÂM (luồng bấm-để-nói: điện thoại + trình duyệt không Web Speech) —
+            báo rõ đang ghi + cột mức âm nhảy theo giọng + đồng hồ, tránh cảm giác "im ỉm". */}
+        {!listening && (rec === 'recording' || rec === 'uploading') && (
+          <div className={'jv-listen-bar jv-recbar' + (rec === 'uploading' ? ' uploading' : '')}>
+            {rec === 'recording' ? (
+              <>
+                <span className="jv-rec-dot" />
+                <span className="jv-listen-text">Đang ghi âm… nói xong bấm micro để gửi</span>
+                <span className="jv-level" aria-hidden="true">
+                  {[0.6, 1, 0.75, 1, 0.65].map((f, i) =>
+                    <i key={i} style={{ transform: `scaleY(${Math.max(0.12, Math.min(1, micLevel * f + 0.12))})` }} />)}
+                </span>
+                <span className="jv-listen-hint">{recSecs}s</span>
+              </>
+            ) : (
+              <>
+                <span className="jv-listen-wave"><i /><i /><i /><i /></span>
+                <span className="jv-listen-text">⏳ Đang nhận diện giọng nói…</span>
+              </>
+            )}
+          </div>
+        )}
+
         {/* Nhập liệu */}
         <div className="jv-input-row">
-          <button className={'jv-mic' + (rec === 'recording' ? ' rec' : '')} onClick={toggleMic}
-            disabled={listening}
-            title={listening ? 'Đang ở chế độ Luôn nghe' : (rec === 'recording' ? 'Đang nghe — bấm để dừng' : 'Bấm để nói (miễn phí)')}>
+          <button className={'jv-mic' + (rec === 'recording' ? ' rec' : '') + (rec === 'uploading' ? ' busy' : '')} onClick={toggleMic}
+            disabled={listening || rec === 'uploading'}
+            title={listening ? 'Đang ở chế độ Luôn nghe' : (rec === 'recording' ? 'Đang nghe — bấm để dừng & nhận diện' : (rec === 'uploading' ? 'Đang nhận diện…' : (useServerStt ? 'Bấm để nói (thu âm → nhận diện)' : 'Bấm để nói (miễn phí)')))}>
             <Icon name="phone" size={18} />
           </button>
           <input className="jv-input"
-            placeholder={rec === 'recording' ? 'Đang nghe… nói rõ vào mic' : (loading ? 'Đang trả lời… (hỏi tiếp để ngắt)' : 'Hỏi JARVIS… (Enter để gửi)')}
+            placeholder={rec === 'recording' ? (useServerStt ? 'Đang thu âm… bấm 🎤 lần nữa để gửi' : 'Đang nghe… nói rõ vào mic') : (rec === 'uploading' ? 'Đang nhận diện giọng nói…' : (loading ? 'Đang trả lời… (hỏi tiếp để ngắt)' : 'Hỏi TRAVAI… (Enter để gửi)'))}
             value={input}
             onChange={e => setInput(e.target.value)}
             onKeyDown={e => { if (e.key === 'Enter') send(); }}
@@ -917,6 +1183,16 @@ const JV_CSS = `
 .jv-listen-bar.pending{background:rgba(255,122,26,.10);border-color:rgba(255,122,26,.4);}
 .jv-pending{color:#ffcf9e!important;font-style:normal!important;}
 .jv-listen-hint{font-size:11px;color:#8aa;white-space:nowrap;opacity:.75;}
+/* Thanh GHI ÂM (bấm-để-nói) — đỏ nhẹ, có chấm nhấp nháy + cột mức âm sống + đồng hồ giây */
+.jv-recbar{background:rgba(255,78,66,.10);border-color:rgba(255,78,66,.4);}
+.jv-recbar.uploading{background:rgba(56,189,248,.10);border-color:rgba(56,189,248,.4);}
+.jv-rec-dot{width:11px;height:11px;flex:0 0 11px;border-radius:50%;background:#ff4e42;
+  box-shadow:0 0 10px #ff4e42;animation:jvRecDot 1s ease-in-out infinite;}
+@keyframes jvRecDot{0%,100%{opacity:1;transform:scale(1);}50%{opacity:.35;transform:scale(.75);}}
+.jv-recbar .jv-listen-text{color:#ffb0a8;font-style:normal;}
+.jv-level{display:inline-flex;align-items:center;gap:3px;height:20px;}
+.jv-level i{width:4px;height:18px;border-radius:2px;background:#ff6a5a;transform:scaleY(.12);
+  transform-origin:center;transition:transform .07s linear;box-shadow:0 0 6px rgba(255,78,66,.5);}
 .jv-send-now{padding:5px 14px;border-radius:999px;border:1px solid #ff7a1a;background:rgba(255,122,26,.2);
   color:#ffb37a;font-size:12px;font-weight:700;cursor:pointer;white-space:nowrap;font-family:inherit;}
 .jv-send-now:hover{background:rgba(255,122,26,.35);color:#fff;}
@@ -941,6 +1217,7 @@ const JV_CSS = `
   cursor:pointer;transition:.15s;border:1px solid rgba(56,189,248,.35);background:rgba(56,189,248,.08);color:#9fd4ff;}
 .jv-mic:hover:not(:disabled),.jv-send:hover:not(:disabled){border-color:#38bdf8;color:#eaf6ff;box-shadow:0 0 16px rgba(56,189,248,.3);}
 .jv-mic.rec{border-color:#ff4e42;background:rgba(255,78,66,.15);color:#ff8a80;animation:jvRec 1s ease-in-out infinite;}
+.jv-mic.busy{border-color:#38bdf8;background:rgba(56,189,248,.15);color:#7dd3fc;animation:jvBlink .9s steps(2) infinite;}
 .jv-send{border-color:rgba(255,122,26,.4);background:rgba(255,122,26,.1);color:#ffb27a;}
 .jv-send:hover:not(:disabled){border-color:#ff7a1a;box-shadow:0 0 16px rgba(255,122,26,.35);}
 .jv-mic:disabled,.jv-send:disabled{opacity:.4;cursor:default;}

@@ -32,7 +32,7 @@ const NAV_GROUPS = [
   { label: 'Tổng quan', items: [
     { to: '/home',      icon: 'sparkle', label: 'Trang chủ' },        // hub AI launcher (/ là landing public)
     { to: '/assistant', icon: 'chart',   label: 'Trợ lý số liệu' },   // data/chart analytics
-    { to: '/jarvis',    icon: 'mic',     label: 'JARVIS (giọng nói)' },  // HUD hội thoại 3D + giọng đọc
+    { to: '/travai',    icon: 'mic',     label: 'TRAVAI (giọng nói)' },  // HUD hội thoại 3D + giọng đọc ("Trà vải")
   ]},
   { label: 'Khách hàng & Bán hàng', items: [
     { to: '/customers', icon: 'users',   label: 'Khách hàng' },       // people
@@ -439,7 +439,8 @@ function App() {
         <Route path="/wizard"    render={() => <window.WizardPage pushToast={pushToast} tweaks={t} />} />
         <Route path="/customers" render={() => <window.CustomersPage pushToast={pushToast} />} />
         <Route path="/assistant" render={() => <window.AssistantPage pushToast={pushToast} />} />
-        <Route path="/jarvis"    render={() => <window.JarvisPage pushToast={pushToast} />} />
+        <Route path="/travai"    render={() => <window.JarvisPage pushToast={pushToast} />} />
+        <Route path="/jarvis"    render={() => <window.JarvisPage pushToast={pushToast} />} />{/* alias link cũ */}
         <Route path="/mail"      render={() => <window.MailPage pushToast={pushToast} />} />
         <Route path="/visa"      render={() => <window.VisaPage pushToast={pushToast} />} />
         <Route path="/visa/history" render={() => <window.VisaHistoryPage pushToast={pushToast} />} />

@@ -15,7 +15,7 @@
     { slug: 'uu-tien-deal',        label: 'AI phân tích Cơ hội' },
     { slug: 'tham-dinh-visa',      label: 'Thẩm định Visa' },
     { slug: 'tu-dong-hoa',         label: 'Tự động hóa' },
-    { slug: 'jarvis',              label: 'JARVIS — trợ lý giọng nói' },
+    { slug: 'jarvis',              label: 'TRAVAI — trợ lý giọng nói' },
   ];
   const SLUGS = new Set(GUIDES.map(g => g.slug));
 
@@ -148,6 +148,7 @@
     '/visa/history': 'tham-dinh-visa',
     '/visa-config': 'tham-dinh-visa',
     '/workflows': 'tu-dong-hoa',
+    '/travai': 'jarvis',
     '/jarvis': 'jarvis',
     '/quotes': 'bao-gia-tour',
   };
