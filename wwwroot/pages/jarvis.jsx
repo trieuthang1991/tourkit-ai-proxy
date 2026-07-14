@@ -313,6 +313,10 @@ function JarvisPage({ pushToast }) {
   _jE(() => { voiceNameRef.current = voiceName; try { localStorage.setItem('jarvis_voice', voiceName); } catch {} }, [voiceName]);
   const [rec, setRec] = _jS('idle');                 // 'idle'|'recording'|'uploading' (mic bấm-tay)
   const [lastTool, setLastTool] = _jS(null);
+  // Action tools (Task 12): AI đề xuất 1 hành động ghi (cần user CHẠM Xác nhận — KHÔNG nghe giọng nói
+  // để tự chốt, tránh thực thi nhầm do nghe lộn) hoặc cần làm rõ trước.
+  const [pendingProposal, setPendingProposal] = _jS(null);
+  const [pendingClarify, setPendingClarify] = _jS(null);
   const [ttsEngine, setTtsEngine] = _jS(null);       // engine đọc THỰC TẾ (vbee|edge|piper|openai) — nhãn chẩn đoán
   const mediaRef = _jR(null);
   const logRef = _jR(null);
@@ -367,7 +371,7 @@ function JarvisPage({ pushToast }) {
 
   _jE(() => {
     if (logRef.current) logRef.current.scrollTop = logRef.current.scrollHeight;
-  }, [messages]);
+  }, [messages, pendingProposal, pendingClarify]);
 
   // Nạp danh sách giọng tiếng Việt của trình duyệt (async — lắng nghe voiceschanged).
   // Auto-chọn giọng hay nhất (Edge "Online Natural") nếu user chưa chọn.
@@ -531,6 +535,10 @@ function JarvisPage({ pushToast }) {
     setLoading(true);
     setOrbState('thinking');
     if (voiceOn) playThinking();   // audio "đang suy nghĩ" (kịch tính) lúc AI xử lý
+    // Câu hỏi mới (gõ tay hoặc nói) → bỏ thẻ action còn treo của lượt trước (kể cả khi hands-free
+    // "nghe" ra 1 câu bất kỳ trong lúc đang chờ Xác nhận — KHÔNG tự chốt hành động bằng giọng nói).
+    setPendingProposal(null);
+    setPendingClarify(null);
 
     const patch = (fn) => { if (!isCur()) return; setMessages(m => { const c = [...m]; if (c[asstIdx]) c[asstIdx] = fn(c[asstIdx]); return c; }); };
 
@@ -550,6 +558,32 @@ function JarvisPage({ pushToast }) {
       let full = '';
       await window.tourkitUtil.readSSE(resp, o => {
         if (!isCur()) return;   // request đã bị thay bởi câu mới → bỏ qua
+        // Action tools (Task 12): 3 event này LUÔN kèm theo sau 1 {done:true} trơn (không reply/toolName) —
+        // set `full` ở đây rồi để lệnh speakReply(full) SAU vòng lặp (bên dưới) đọc, không cần gọi riêng.
+        if (o.kind === 'action-result') {
+          const result = o.result || {};
+          full = result.message || '';
+          patch(a => ({ ...a, content: full, streaming: false, data: result.data || null }));
+          setOrbState('responding');
+          return;
+        }
+        if (o.kind === 'action-proposal') {
+          const proposal = o.proposal || {};
+          // Bubble hiện tóm tắt đề xuất; giọng đọc câu NGẮN riêng — mời CHẠM Xác nhận, không mời nói.
+          full = 'Tôi đã chuẩn bị xong, vui lòng kiểm tra và bấm Xác nhận.';
+          patch(a => ({ ...a, content: proposal.summary || `Đề xuất: ${proposal.title || ''}`, streaming: false }));
+          setOrbState('responding');
+          setPendingProposal(proposal);
+          return;
+        }
+        if (o.kind === 'action-clarify') {
+          const clarify = o.clarify || {};
+          full = clarify.question || '';
+          patch(a => ({ ...a, content: full, streaming: false }));
+          setOrbState('responding');
+          setPendingClarify(clarify);
+          return;
+        }
         if (o.error) { patch(a => ({ ...a, content: '⚠️ ' + o.error, error: true, streaming: false })); return; }
         if (o.stage) {
           setOrbState(o.stage === 'analyzing' ? 'responding' : 'thinking');
@@ -569,6 +603,39 @@ function JarvisPage({ pushToast }) {
     } finally {
       if (isCur()) { patch(a => ({ ...a, streaming: false })); setLoading(false); }
     }
+  }
+
+  // Xác nhận 1 action-proposal (Task 12) — CHỈ gọi từ nút bấm (ActionConfirmCard.onConfirm), KHÔNG
+  // từ giọng nói. POST params gốc + field user đã sửa → thực thi thật, rồi đọc kết quả bằng giọng.
+  async function confirmAction(editedVals) {
+    if (!pendingProposal) return;
+    const proposal = pendingProposal;
+    try {
+      const r = await window.tourkitAuth.authedFetch('/api/v1/assistant/action/execute', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          actionId: proposal.actionId,
+          action: proposal.action,
+          params: { ...(proposal.params || {}), ...editedVals }
+        })
+      });
+      const j = await r.json().catch(() => ({}));
+      if (!r.ok) { pushToast(j.error || 'Thực thi hành động lỗi', 'error'); return; }
+      setPendingProposal(null);
+      setMessages(m => [...m, { role: 'assistant', content: j.message || 'Đã thực hiện.', data: j.data || null }]);
+      if (voiceOn) speakReply(j.message || 'Đã thực hiện xong.');
+    } catch (e) {
+      pushToast('Lỗi thực thi: ' + e.message, 'error');
+      // Lỗi mạng/parse → giữ nguyên card để user thử lại, không setPendingProposal(null).
+    }
+  }
+
+  // Chọn 1 lựa chọn làm rõ (Task 12) — CHỈ chạm, KHÔNG voice. Gửi lượt chat MỚI để AI tự re-plan
+  // (không tự dựng id đã chọn ở client).
+  function onClarifyChoose(id, label) {
+    setPendingClarify(null);
+    send('Chọn ' + label);
   }
 
   // Đọc reply: LUÔN dùng server TTS (engine theo config Speech:Tts:Provider — mặc định Vbee).
@@ -1049,8 +1116,22 @@ function JarvisPage({ pushToast }) {
                       : (m.streaming ? <span className="jv-cursor">▊</span> : ''))
                   : m.content}
               </span>
+              {/* action-result (Task 12): dữ liệu KH/deal/mail đính kèm reply — jarvis không có
+                  panel riêng như /assistant nên hiện ngay dưới bubble. */}
+              {m.role === 'assistant' && m.data && <window.ActionDataCard data={m.data} />}
             </div>
           ))}
+          {/* action-proposal/action-clarify (Task 12) — CHỈ xác nhận/chọn bằng CHẠM, không bằng giọng nói. */}
+          {pendingProposal && (
+            <window.ActionConfirmCard
+              proposal={pendingProposal}
+              onConfirm={confirmAction}
+              onCancel={() => setPendingProposal(null)}
+            />
+          )}
+          {pendingClarify && (
+            <window.ActionClarifyList clarify={pendingClarify} onChoose={onClarifyChoose} />
+          )}
         </div>
 
         {/* Gợi ý nhanh */}

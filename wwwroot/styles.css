@@ -7894,6 +7894,110 @@ n
 }
 .jv-clarify-choice small { color: var(--text-3); font-weight: 400; }
 
+/* ---------- Action data card (ActionDataCard: customer-review / deal-score / mail-list) ----------
+   Dùng chung /assistant (DataPanel bên phải) + /travai (Jarvis, dưới bubble AI) cho payload
+   data của action-result (Task 12). */
+.jv-data-card {
+  background: var(--surface, #fff);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md, 12px);
+  padding: 16px;
+  margin: 8px 0;
+  box-shadow: 0 2px 10px rgba(15, 23, 42, 0.06);
+}
+.jv-data-row {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-bottom: 10px;
+}
+.jv-rank-badge {
+  display: inline-block;
+  font-size: 12px;
+  font-weight: 700;
+  padding: 4px 10px;
+  border-radius: 999px;
+  color: #fff;
+  background: var(--text-3);
+}
+.jv-rank-badge.jv-rank-a { background: #16a34a; }
+.jv-rank-badge.jv-rank-b { background: #2563eb; }
+.jv-rank-badge.jv-rank-c { background: #f59e0b; }
+.jv-rank-badge.jv-rank-d { background: #dc2626; }
+.jv-rank-badge.jv-level-cao { background: #16a34a; }
+.jv-rank-badge.jv-level-trung_binh { background: #f59e0b; }
+.jv-rank-badge.jv-level-thap { background: #dc2626; }
+.jv-alert-badge {
+  display: inline-block;
+  font-size: 11.5px;
+  font-weight: 600;
+  padding: 4px 10px;
+  border-radius: 999px;
+}
+.jv-alert-badge.jv-alert-high { background: rgba(220, 38, 38, 0.12); color: #dc2626; }
+.jv-alert-badge.jv-alert-medium { background: rgba(245, 158, 11, 0.14); color: #b45309; }
+.jv-data-winrate {
+  font-size: 15px;
+  font-weight: 700;
+  color: var(--text-1, #1e293b);
+}
+.jv-data-summary {
+  font-size: 13px;
+  color: var(--text-2);
+  line-height: 1.55;
+  margin: 0 0 10px;
+}
+.jv-data-line {
+  font-size: 13px;
+  color: var(--text-2);
+  line-height: 1.55;
+  margin: 0 0 8px;
+}
+.jv-data-line strong { color: var(--text-1, #1e293b); }
+.jv-data-block { margin-bottom: 12px; }
+.jv-data-block:last-child { margin-bottom: 0; }
+.jv-data-block-label {
+  font-size: 10.5px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--text-3);
+  margin-bottom: 6px;
+}
+.jv-data-block ul { margin: 0; padding-left: 18px; }
+.jv-data-block li { font-size: 13px; color: var(--text-2); line-height: 1.5; margin-bottom: 4px; }
+.jv-data-maillist { list-style: none; margin: 0; padding: 0; }
+.jv-data-maillist li {
+  padding: 10px 0;
+  border-bottom: 1px solid var(--border);
+}
+.jv-data-maillist li:last-child { border-bottom: none; }
+.jv-mail-row1 {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  color: var(--text-1, #1e293b);
+}
+.jv-mail-cat {
+  font-size: 11px;
+  font-weight: 600;
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: var(--bg);
+  color: var(--text-3);
+}
+.jv-mail-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--accent, #e2620e);
+  flex: none;
+}
+.jv-mail-subject { font-size: 13px; color: var(--text-2); margin-top: 2px; }
+.jv-mail-summary { font-size: 12px; color: var(--text-3); margin-top: 4px; font-style: italic; }
+
 @media (max-width: 900px) {
   .help-wrap { flex-direction: column; }
   .help-side { flex: none; width: 100%; position: static; border-right: 0; border-bottom: 1px solid var(--border, #ececec); }

@@ -448,6 +448,17 @@ function DataPanel({ data, onAsk }) {
     );
   }
 
+  // action-result (Task 12): customer-review/deal-score/mail-list không phải shape bảng/chart —
+  // render qua ActionDataCard chuyên biệt, bỏ qua toàn bộ logic bảng/chart bên dưới.
+  if (data.kind === 'customer-review' || data.kind === 'deal-score' || data.kind === 'mail-list') {
+    return (
+      <div className="asst-data">
+        {data.title && <div className="asst-block"><div className="label">{data.title}</div></div>}
+        <window.ActionDataCard data={data} />
+      </div>
+    );
+  }
+
   // Data RỖNG (tool chạy nhưng 0 bản ghi, 0 chỉ số) — hiện empty state rõ ràng
   // thay vì <details>JSON thô (case: lọc không khớp, kỳ không có số liệu).
   const rawEmpty = data.raw == null
@@ -805,6 +816,9 @@ function AssistantPage({ pushToast }) {
   const fmtElapsed = (s) => `${String(Math.floor(s / 60)).padStart(2, '0')}:${String(s % 60).padStart(2, '0')}`;
   const [stage, setStage] = _aS(null);   // 'planning'|'fetching'|'analyzing' khi đang stream
   const [panelData, setPanelData] = _aS(null);
+  // Action tools (Task 12): AI đề xuất 1 hành động ghi (cần user Xác nhận) hoặc cần làm rõ trước.
+  const [pendingProposal, setPendingProposal] = _aS(null);
+  const [pendingClarify, setPendingClarify] = _aS(null);
   // Debug toggle: hiện "Cách vận hành" dưới mỗi reply. Persist localStorage để giữ qua reload.
   const [debug, setDebug] = _aS(() => localStorage.getItem('tourkit_chat_debug') === '1');
   _aE(() => { localStorage.setItem('tourkit_chat_debug', debug ? '1' : '0'); }, [debug]);
@@ -812,7 +826,7 @@ function AssistantPage({ pushToast }) {
 
   _aE(() => {
     if (scrollRef.current) scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
-  }, [messages, loading]);
+  }, [messages, loading, pendingProposal, pendingClarify]);
 
   async function send(textArg) {
     const text = (typeof textArg === 'string' ? textArg : input).trim();
@@ -823,6 +837,9 @@ function AssistantPage({ pushToast }) {
     setInput('');
     setLoading(true);
     setStage('planning');
+    // Câu hỏi mới → bỏ thẻ action còn treo của lượt trước (chưa xác nhận/chọn thì coi như bỏ qua).
+    setPendingProposal(null);
+    setPendingClarify(null);
 
     // cập nhật message assistant tại asstIdx
     const patch = (fn) => setMessages(m => { const c = [...m]; if (c[asstIdx]) c[asstIdx] = fn(c[asstIdx]); return c; });
@@ -846,6 +863,29 @@ function AssistantPage({ pushToast }) {
 
       let dataSet = false;   // panel data set 1 lần (stage analyzing) → done KHÔNG set lại → chart không vẽ lại
       await window.tourkitUtil.readSSE(resp, o => {
+        // Action tools (Task 12): 3 event kèm sau LUÔN là {done:true} trơn (không reply/data/toolName) —
+        // tự đóng turn ở đây, không dựa vào nhánh o.done bên dưới.
+        if (o.kind === 'action-result') {
+          const result = o.result || {};
+          patch(a => ({ ...a, content: result.message || '', streaming: false }));
+          if (result.data) { setPanelData(result.data); dataSet = true; }
+          setStage(null);
+          return;
+        }
+        if (o.kind === 'action-proposal') {
+          const proposal = o.proposal || {};
+          patch(a => ({ ...a, content: proposal.summary || `Đề xuất: ${proposal.title || ''}`, streaming: false }));
+          setPendingProposal(proposal);
+          setStage(null);
+          return;
+        }
+        if (o.kind === 'action-clarify') {
+          const clarify = o.clarify || {};
+          patch(a => ({ ...a, content: clarify.question || '', streaming: false }));
+          setPendingClarify(clarify);
+          setStage(null);
+          return;
+        }
         if (o.error) { patch(a => ({ ...a, content: '⚠️ ' + o.error, error: true, streaming: false })); setStage(null); return; }
         if (o.stage) { setStage(o.stage); if (o.data) { setPanelData(o.data); dataSet = true; } if (o.tool) patch(a => ({ ...a, tool: o.tool })); return; }
         if (o.delta) { setStage(null); patch(a => ({ ...a, content: a.content + o.delta })); return; }
@@ -864,6 +904,39 @@ function AssistantPage({ pushToast }) {
       setLoading(false);
       setStage(null);
     }
+  }
+
+  // Xác nhận 1 action-proposal (Task 12): POST params gốc + field user đã sửa → thực thi thật.
+  async function confirmAction(editedVals) {
+    if (!pendingProposal) return;
+    const proposal = pendingProposal;
+    try {
+      const r = await window.tourkitAuth.authedFetch('/api/v1/assistant/action/execute', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          actionId: proposal.actionId,
+          action: proposal.action,
+          params: { ...(proposal.params || {}), ...editedVals }
+        })
+      });
+      const j = await r.json().catch(() => ({}));
+      if (!r.ok) { pushToast(j.error || 'Thực thi hành động lỗi', 'error'); return; }
+      // Giữ card lại KHÔNG cần — thực thi xong thì đóng, thêm message kết quả mới.
+      setPendingProposal(null);
+      setMessages(m => [...m, { role: 'assistant', content: j.message || 'Đã thực hiện.', streaming: false }]);
+      if (j.data) setPanelData(j.data);
+    } catch (e) {
+      pushToast('Lỗi thực thi: ' + e.message, 'error');
+      // Lỗi mạng/parse → giữ nguyên card để user thử lại, không setPendingProposal(null).
+    }
+  }
+
+  // Chọn 1 lựa chọn làm rõ (Task 12): gửi lượt chat MỚI với câu trả lời — để AI tự resolve lại
+  // (KHÔNG tự dựng id đã chọn ở client, backend cần tự re-plan với ngữ cảnh).
+  function onClarifyChoose(id, label) {
+    setPendingClarify(null);
+    send('Chọn ' + label);
   }
 
   // ─── Suggestions: 4 quick + collapsible toàn bộ 17 tool theo nhóm ─────────
@@ -987,6 +1060,16 @@ function AssistantPage({ pushToast }) {
                 </div>
               </div>
             ))}
+            {pendingProposal && (
+              <window.ActionConfirmCard
+                proposal={pendingProposal}
+                onConfirm={confirmAction}
+                onCancel={() => setPendingProposal(null)}
+              />
+            )}
+            {pendingClarify && (
+              <window.ActionClarifyList clarify={pendingClarify} onChoose={onClarifyChoose} />
+            )}
           </div>
 
           {/* GỢI Ý — luôn hiện (cả khi đã chat lẫn chưa). Toggle expand cho user
