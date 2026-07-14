@@ -154,6 +154,10 @@ builder.Services.AddSingleton<TourkitAiProxy.Services.Mail.MailTemplateRepositor
 // TourkitAiDb.OpenAsync mở connection mới mỗi lần gọi, không giữ state).
 builder.Services.AddSingleton<TourkitAiProxy.Services.Crm.CrmActionQueueRepository>();
 
+// Resolver tên→id (khách/nhân viên/deal/workflow) cho các action ghi — dùng ActionExecutor.
+// Stateless (chỉ gọi TourKitApiClient qua jwt truyền vào), singleton như TourKitCustomerSource/DealOpportunityClient.
+builder.Services.AddSingleton<TourkitAiProxy.Services.Chat.ActionResolver>();
+
 // Soạn Tour GIT bằng AI — bóc mô tả tự do thành form Tour GIT (Type=3) cho NV prefill.
 builder.Services.AddSingleton<TourkitAiProxy.Services.Tour.TourBuilderService>();
 
