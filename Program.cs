@@ -158,6 +158,11 @@ builder.Services.AddSingleton<TourkitAiProxy.Services.Crm.CrmActionQueueReposito
 // Stateless (chỉ gọi TourKitApiClient qua jwt truyền vào), singleton như TourKitCustomerSource/DealOpportunityClient.
 builder.Services.AddSingleton<TourkitAiProxy.Services.Chat.ActionResolver>();
 
+// Thực thi hành động đã xác nhận (route theo ActionKind). Task 8a: chỉ nhánh CrmQueue chạy
+// (assign_task/create_appointment) — Internal (review/deal) + Mail throw NotImplementedException("8b"),
+// điền ở task sau. Singleton — chỉ hold CrmActionQueueRepository/ActionResolver (đã singleton) + logger.
+builder.Services.AddSingleton<TourkitAiProxy.Services.Chat.ActionExecutor>();
+
 // Soạn Tour GIT bằng AI — bóc mô tả tự do thành form Tour GIT (Type=3) cho NV prefill.
 builder.Services.AddSingleton<TourkitAiProxy.Services.Tour.TourBuilderService>();
 
