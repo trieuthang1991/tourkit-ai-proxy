@@ -873,15 +873,18 @@ function AssistantPage({ pushToast }) {
           return;
         }
         if (o.kind === 'action-proposal') {
+          // Không patch content bubble — thẻ action-proposal (bên dưới) đã hiện summary/title,
+          // patch nữa sẽ hiện trùng 2 lần. Bỏ bubble assistant placeholder rỗng luôn.
           const proposal = o.proposal || {};
-          patch(a => ({ ...a, content: proposal.summary || `Đề xuất: ${proposal.title || ''}`, streaming: false }));
+          setMessages(m => m.slice(0, asstIdx));
           setPendingProposal(proposal);
           setStage(null);
           return;
         }
         if (o.kind === 'action-clarify') {
+          // Tương tự action-proposal — câu hỏi đã hiện trong thẻ ActionClarifyList, không cần bubble riêng.
           const clarify = o.clarify || {};
-          patch(a => ({ ...a, content: clarify.question || '', streaming: false }));
+          setMessages(m => m.slice(0, asstIdx));
           setPendingClarify(clarify);
           setStage(null);
           return;
@@ -932,11 +935,36 @@ function AssistantPage({ pushToast }) {
     }
   }
 
-  // Chọn 1 lựa chọn làm rõ (Task 12): gửi lượt chat MỚI với câu trả lời — để AI tự resolve lại
-  // (KHÔNG tự dựng id đã chọn ở client, backend cần tự re-plan với ngữ cảnh).
-  function onClarifyChoose(id, label) {
+  // Chọn 1 lựa chọn làm rõ (nhiều bản ghi trùng tên, vd 3 nhân viên "Nguyễn Văn A"): gửi id THẬT đã
+  // chọn tới /assistant/action/resolve — backend inject id vào params gốc rồi rebuild lại proposal/result
+  // KHÔNG re-resolve theo tên (gửi lại label như trước đây sẽ vẫn mơ hồ y hệt → lặp vô hạn khi trùng tên).
+  async function onClarifyChoose(chosenId) {
+    const clarify = pendingClarify;
+    if (!clarify) return;
     setPendingClarify(null);
-    send('Chọn ' + label);
+    try {
+      const r = await window.tourkitAuth.authedFetch('/api/v1/assistant/action/resolve', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          actionId: clarify.actionId, action: clarify.action,
+          params: clarify.params || {}, field: clarify.field, chosenId
+        })
+      });
+      const j = await r.json().catch(() => ({}));
+      if (!r.ok) { pushToast(j.error || 'Không xử lý được lựa chọn', 'error'); return; }
+      if (j.kind === 'action-proposal') {
+        setPendingProposal(j.proposal);
+      } else if (j.kind === 'action-clarify') {
+        setPendingClarify(j.clarify);
+      } else if (j.kind === 'action-result') {
+        const result = j.result || {};
+        setMessages(m => [...m, { role: 'assistant', content: result.message || 'Đã thực hiện.', streaming: false }]);
+        if (result.data) setPanelData(result.data);
+      }
+    } catch (e) {
+      pushToast('Lỗi xử lý lựa chọn: ' + e.message, 'error');
+    }
   }
 
   // ─── Suggestions: 4 quick + collapsible toàn bộ 17 tool theo nhóm ─────────

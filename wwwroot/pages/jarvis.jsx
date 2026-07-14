@@ -568,18 +568,20 @@ function JarvisPage({ pushToast }) {
           return;
         }
         if (o.kind === 'action-proposal') {
+          // Thẻ ActionConfirmCard (bên dưới) đã hiện title/summary — KHÔNG patch bubble nữa (trùng lặp).
+          // Vẫn giữ `full` để giọng đọc câu NGẮN riêng — mời CHẠM Xác nhận, không mời nói.
           const proposal = o.proposal || {};
-          // Bubble hiện tóm tắt đề xuất; giọng đọc câu NGẮN riêng — mời CHẠM Xác nhận, không mời nói.
           full = 'Tôi đã chuẩn bị xong, vui lòng kiểm tra và bấm Xác nhận.';
-          patch(a => ({ ...a, content: proposal.summary || `Đề xuất: ${proposal.title || ''}`, streaming: false }));
+          if (isCur()) setMessages(m => m.slice(0, asstIdx));
           setOrbState('responding');
           setPendingProposal(proposal);
           return;
         }
         if (o.kind === 'action-clarify') {
+          // Tương tự — câu hỏi đã hiện trong ActionClarifyList, không cần bubble riêng. Vẫn đọc bằng giọng.
           const clarify = o.clarify || {};
           full = clarify.question || '';
-          patch(a => ({ ...a, content: full, streaming: false }));
+          if (isCur()) setMessages(m => m.slice(0, asstIdx));
           setOrbState('responding');
           setPendingClarify(clarify);
           return;
@@ -631,11 +633,38 @@ function JarvisPage({ pushToast }) {
     }
   }
 
-  // Chọn 1 lựa chọn làm rõ (Task 12) — CHỈ chạm, KHÔNG voice. Gửi lượt chat MỚI để AI tự re-plan
-  // (không tự dựng id đã chọn ở client).
-  function onClarifyChoose(id, label) {
+  // Chọn 1 lựa chọn làm rõ (nhiều bản ghi trùng tên) — CHỈ chạm, KHÔNG voice cho thao tác chọn.
+  // Gửi id THẬT đã chọn tới /assistant/action/resolve — backend inject id vào params gốc rồi rebuild
+  // proposal/result KHÔNG re-resolve theo tên (gửi lại label như trước đây sẽ vẫn mơ hồ y hệt khi
+  // nhiều bản ghi trùng tên → lặp vô hạn). Kết quả trả về vẫn đọc bằng giọng (voice UX của jarvis).
+  async function onClarifyChoose(chosenId) {
+    const clarify = pendingClarify;
+    if (!clarify) return;
     setPendingClarify(null);
-    send('Chọn ' + label);
+    try {
+      const r = await window.tourkitAuth.authedFetch('/api/v1/assistant/action/resolve', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          actionId: clarify.actionId, action: clarify.action,
+          params: clarify.params || {}, field: clarify.field, chosenId
+        })
+      });
+      const j = await r.json().catch(() => ({}));
+      if (!r.ok) { pushToast(j.error || 'Không xử lý được lựa chọn', 'error'); return; }
+      if (j.kind === 'action-proposal') {
+        setPendingProposal(j.proposal);
+        if (voiceOn) speakReply('Tôi đã chuẩn bị xong, vui lòng kiểm tra và bấm Xác nhận.');
+      } else if (j.kind === 'action-clarify') {
+        setPendingClarify(j.clarify);
+      } else if (j.kind === 'action-result') {
+        const result = j.result || {};
+        setMessages(m => [...m, { role: 'assistant', content: result.message || 'Đã thực hiện.', data: result.data || null }]);
+        if (voiceOn) speakReply(result.message || 'Đã thực hiện xong.');
+      }
+    } catch (e) {
+      pushToast('Lỗi xử lý lựa chọn: ' + e.message, 'error');
+    }
   }
 
   // Đọc reply: LUÔN dùng server TTS (engine theo config Speech:Tts:Provider — mặc định Vbee).

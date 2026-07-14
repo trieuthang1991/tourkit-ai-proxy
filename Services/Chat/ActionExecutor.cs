@@ -150,8 +150,15 @@ public class ActionExecutor
 
         var p = req.Params ?? new Dictionary<string, object?>();
         string customerId;
+        // Forward-compat: nếu path này từng đi qua action-clarify (hiện chưa xảy ra — xem ghi chú dưới),
+        // honor "customerResolvedId" trước customerId/customerName để nhất quán với assign_task/create_appointment.
+        var customerResolvedId = Str(p, "customerResolvedId");
         var customerIdParam = Str(p, "customerId");
-        if (!string.IsNullOrWhiteSpace(customerIdParam))
+        if (!string.IsNullOrWhiteSpace(customerResolvedId))
+        {
+            customerId = customerResolvedId!;
+        }
+        else if (!string.IsNullOrWhiteSpace(customerIdParam))
         {
             customerId = customerIdParam!;
         }
@@ -213,8 +220,14 @@ public class ActionExecutor
 
         var p = req.Params ?? new Dictionary<string, object?>();
         int dealId;
+        // Forward-compat: honor "dealResolvedId" trước dealId/dealQuery — xem ghi chú ở ExecuteReviewCustomerAsync.
+        var dealResolvedId = Int(p, "dealResolvedId");
         var dealIdParam = Int(p, "dealId");
-        if (dealIdParam is { } did)
+        if (dealResolvedId is { } rdid)
+        {
+            dealId = rdid;
+        }
+        else if (dealIdParam is { } did)
         {
             dealId = did;
         }
@@ -466,8 +479,18 @@ public class ActionExecutor
         var reminderMinutes = Int(p, "reminderMinutes") ?? 0;
         var bookingTicketId = Int(p, "bookingTicketId");
 
+        // Nếu proposal phase (ChatAgentService) đã resolve xong (user chọn ở action-clarify), id đã chọn
+        // nằm sẵn trong "staffResolvedIds" (CSV) — dùng THẲNG, KHÔNG re-resolve theo "staffNames" gốc.
+        // Bắt buộc phải mirror check này ở execute-time vì đây là điểm resolve ĐỘC LẬP thứ 2 (không chỉ
+        // dựa vào proposal đã resolve) — thiếu bước này thì dù proposal đã hội tụ, bấm Xác nhận vẫn
+        // re-resolve theo tên gốc và lặp lại đúng sự mơ hồ ban đầu khi nhiều người trùng tên.
+        var staffResolvedIdsRaw = Str(p, "staffResolvedIds");
         var staffIds = new List<string>();
-        if (!string.IsNullOrWhiteSpace(staffNamesRaw))
+        if (!string.IsNullOrWhiteSpace(staffResolvedIdsRaw))
+        {
+            staffIds.AddRange(staffResolvedIdsRaw.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries));
+        }
+        else if (!string.IsNullOrWhiteSpace(staffNamesRaw))
         {
             foreach (var raw in staffNamesRaw.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
             {
@@ -506,8 +529,15 @@ public class ActionExecutor
 
         int customerId;
         var customerName = Str(p, "customerName");
+        // Mirror check của "staffResolvedIds" ở trên — điểm resolve ĐỘC LẬP thứ 2 cho khách hàng, phải
+        // honor "customerResolvedId" (đã chọn ở action-clarify) trước, KHÔNG re-resolve theo customerName gốc.
+        var customerResolvedId = Int(p, "customerResolvedId");
         var customerIdParam = Int(p, "customerId");
-        if (customerIdParam is { } cid)
+        if (customerResolvedId is { } rid)
+        {
+            customerId = rid;
+        }
+        else if (customerIdParam is { } cid)
         {
             customerId = cid;
         }

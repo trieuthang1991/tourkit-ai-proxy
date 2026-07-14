@@ -98,8 +98,15 @@ public record ActionProposal(
     Dictionary<string, object?> Params, List<ActionField> Fields,
     bool NeedsConfirm, string? Estimate = null);
 
-/// Yêu cầu chọn khi resolve mơ hồ (kind=action-clarify).
-public record ActionClarify(string ActionId, string Action, string Question, List<ActionChoice> Choices);
+/// Yêu cầu chọn khi resolve mơ hồ (kind=action-clarify). Params/Field mang NGUYÊN context gốc
+/// (params gốc của action + tên field đang mơ hồ: "staff"|"customer"|"deal") để FE resume qua
+/// POST /assistant/action/resolve — bắt buộc phải có, nếu không choice sẽ vô nghĩa (không có gì
+/// để rebuild proposal) và re-resolve theo TÊN có thể lặp vô hạn khi nhiều bản ghi trùng tên
+/// (xem ActionResolver.Pick — nhiều người trùng tên "Nguyễn Văn A" thì chọn xong vẫn ra lại chính
+/// danh sách đó nếu resume bằng label thay vì id).
+public record ActionClarify(
+    string ActionId, string Action, string Question, List<ActionChoice> Choices,
+    Dictionary<string, object?> Params, string Field);
 public record ActionChoice(string Id, string Label, string? Hint = null);
 
 /// Kết quả sau execute (kind=action-result). Data = ChatData giàu (thẻ review) hoặc null.
@@ -109,3 +116,11 @@ public record ActionResult(string Action, string Message, ChatData? Data = null,
 public record ActionExecuteRequest(
     string ActionId, string Action, Dictionary<string, object?> Params,
     string? Provider = null, string? Model = null);
+
+/// Body POST /assistant/action/resolve — gọi SAU khi user chọn 1 lựa chọn trong action-clarify.
+/// ChosenId được inject vào Params dưới key quy ước theo Field ("staff"→staffResolvedIds CSV,
+/// "customer"→customerResolvedId, "deal"→dealResolvedId) rồi rebuild lại envelope hành động —
+/// KHÔNG re-resolve theo tên (tránh lặp vô hạn khi nhiều bản ghi trùng tên).
+public record ActionResolveRequest(
+    string ActionId, string Action, Dictionary<string, object?> Params,
+    string Field, string ChosenId);

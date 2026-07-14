@@ -433,13 +433,27 @@ public class ChatAgentService
         string sessionId, string tenantId, string jwt, string username,
         string? provider, string? model, CancellationToken ct)
     {
-        var tool = ActionTools.Find(action);
-        if (tool == null) return null;
-
         var paramsDict = new Dictionary<string, object?>();
         if (actionParams is { ValueKind: JsonValueKind.Object } obj)
             foreach (var prop in obj.EnumerateObject())
                 paramsDict[prop.Name] = prop.Value;
+
+        return await BuildActionEnvelopeAsync(
+            action, paramsDict, sessionId, tenantId, jwt, username, provider, model, ct);
+    }
+
+    /// Cung logic voi TryHandleActionAsync nhung nhan thang Dictionary (khong qua JsonElement) -- dung
+    /// chung boi chat (planner tu nhan dien action) VA endpoint POST /assistant/action/resolve (Task
+    /// "clarify mang id"): sau khi user chon 1 lua chon trong action-clarify, endpoint inject id da chon
+    /// vao params (xem AssistantActionEndpoints) roi goi lai method nay de rebuild proposal/result --
+    /// KHONG re-resolve theo ten (tranh lap vo han khi nhieu ban ghi trung ten). Public de endpoint goi.
+    public async Task<object?> BuildActionEnvelopeAsync(
+        string action, Dictionary<string, object?> paramsDict,
+        string sessionId, string tenantId, string jwt, string username,
+        string? provider, string? model, CancellationToken ct)
+    {
+        var tool = ActionTools.Find(action);
+        if (tool == null) return null;
 
         if (tool.NeedsConfirm)
         {
@@ -473,8 +487,11 @@ public class ChatAgentService
     //     action-result (không tìm thấy/thiếu thông tin). KHÔNG thực thi (gửi mail/enqueue CRM) ở đây —
     //     việc đó chỉ xảy ra sau khi user xác nhận, qua POST /assistant/action/execute (ActionExecutor). ──
 
-    private static object ClarifyEnvelope(string actionId, string action, string question, List<ActionChoice> choices)
-        => new ActionClarifyEnvelope("action-clarify", new ActionClarify(actionId, action, question, choices));
+    private static object ClarifyEnvelope(
+        string actionId, string action, string question, List<ActionChoice> choices,
+        Dictionary<string, object?> paramsDict, string field)
+        => new ActionClarifyEnvelope("action-clarify",
+            new ActionClarify(actionId, action, question, choices, paramsDict, field));
 
     private static object NotFoundEnvelope(string action, string message)
         => new ActionResultEnvelope("action-result", new ActionResult(action, message));
@@ -494,15 +511,24 @@ public class ChatAgentService
         var dueDate = ActionExecutor.Str(p, "dueDate");
         var prioritized = ActionExecutor.Str(p, "prioritized");
 
+        // Sau khi user đã chọn 1 lựa chọn ở action-clarify (POST /assistant/action/resolve), id đã chọn
+        // được inject vào "staffResolvedIds" (CSV) — dùng THẲNG, KHÔNG re-resolve theo tên (nếu re-resolve
+        // lại "staffNames" gốc mà nhiều người trùng tên thì sẽ ra lại chính danh sách mơ hồ đó → lặp vô hạn).
+        var staffResolvedIdsRaw = ActionExecutor.Str(p, "staffResolvedIds");
         var staffLabels = new List<string>();
-        if (!string.IsNullOrWhiteSpace(staffNamesRaw))
+        if (!string.IsNullOrWhiteSpace(staffResolvedIdsRaw))
+        {
+            foreach (var id in staffResolvedIdsRaw.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
+                staffLabels.Add($"NV #{id}");
+        }
+        else if (!string.IsNullOrWhiteSpace(staffNamesRaw))
         {
             foreach (var raw in staffNamesRaw.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
             {
                 var outcome = await _resolver.ResolveStaffAsync(jwt, raw, ct);
                 if (outcome.Ambiguous is { Count: > 0 })
                     return ClarifyEnvelope(actionId, "assign_task",
-                        $"Tên nhân viên \"{raw}\" khớp nhiều người, bạn chọn ai?", outcome.Ambiguous);
+                        $"Tên nhân viên \"{raw}\" khớp nhiều người, bạn chọn ai?", outcome.Ambiguous, p, "staff");
                 if (outcome.Id is null)
                     return NotFoundEnvelope("assign_task", $"Không tìm thấy nhân viên tên \"{raw}\".");
                 staffLabels.Add(outcome.Label ?? raw);
@@ -537,9 +563,17 @@ public class ChatAgentService
         var endTime = ActionExecutor.Str(p, "endTime");
 
         string customerLabel;
+        // Đã chọn ở action-clarify trước đó (POST /assistant/action/resolve) → id đã chọn nằm trong
+        // "customerResolvedId", dùng THẲNG, KHÔNG re-resolve theo "customerName" gốc (tránh lặp vô hạn
+        // khi nhiều KH trùng tên).
+        var customerResolvedId = ActionExecutor.Str(p, "customerResolvedId");
         var customerIdParam = ActionExecutor.Str(p, "customerId");
         var customerName = ActionExecutor.Str(p, "customerName");
-        if (!string.IsNullOrWhiteSpace(customerIdParam))
+        if (!string.IsNullOrWhiteSpace(customerResolvedId))
+        {
+            customerLabel = customerName ?? $"KH #{customerResolvedId}";
+        }
+        else if (!string.IsNullOrWhiteSpace(customerIdParam))
         {
             customerLabel = customerName ?? $"KH #{customerIdParam}";
         }
@@ -548,7 +582,7 @@ public class ChatAgentService
             var outcome = await _resolver.ResolveCustomerAsync(jwt, customerName, ct);
             if (outcome.Ambiguous is { Count: > 0 })
                 return ClarifyEnvelope(actionId, "create_appointment",
-                    $"Tên khách hàng \"{customerName}\" khớp nhiều người, bạn chọn ai?", outcome.Ambiguous);
+                    $"Tên khách hàng \"{customerName}\" khớp nhiều người, bạn chọn ai?", outcome.Ambiguous, p, "customer");
             if (outcome.Id is null)
                 return NotFoundEnvelope("create_appointment", $"Không tìm thấy khách hàng tên \"{customerName}\".");
             customerLabel = outcome.Label ?? customerName;
