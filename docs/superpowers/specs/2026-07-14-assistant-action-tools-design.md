@@ -22,7 +22,7 @@
 - Xác nhận bằng giọng nói (nói "xác nhận") cho hành động ghi trên /travai.
 - Sửa/xóa việc/lịch hẹn đã tạo; đính kèm file vào task; đính kèm mail; OAuth mail.
 
-**Lưu ý cập nhật (2026-07-14):** ban đầu định để worker CRM cho team `toutkit-app` viết, nhưng khi soi source thấy `POST /api/tasks` + `POST /api/customer-care` là **API authed thường** → proxy tự ghi được. v1 **tự drain hàng đợi trong proxy** (mục 4.1), không phải chờ worker ngoài. Bảng tạm vẫn giữ (audit/retry/attribution buffer).
+**Ranh giới đồng bộ CRM (user chốt 2026-07-14):** proxy **chỉ enqueue** vào bảng tạm với payload đủ field. Phần drain/POST vào CRM (`/api/tasks`, `/api/customer-care`) **user tự xử lý sau** — ngoài phạm vi v1 (mục 4.1). Đã soi DTO thật nên payload đủ field cho worker map (mục 4).
 
 ---
 
@@ -31,7 +31,7 @@
 | # | Quyết định | Phương án chọn | Lý do |
 |---|---|---|---|
 | D1 | Xác nhận trên /travai (voice) | **Đọc-actions nói, ghi-actions bấm** | Review/deal hands-free bằng giọng; gửi mail & giao việc BẮT BUỘC chạm thẻ → chống nghe nhầm "xác nhận" cho hành động khó undo |
-| D2 | CRM worker chưa có | **Bảng tạm + proxy tự drain** | Đúng chỉ đạo user ("tạo bảng tạm, sau đồng bộ"). Endpoint tạo task/lịch hẹn là API thường → proxy enqueue + tự POST (hybrid: gửi ngay khi execute, drainer nền retry). Không cần worker ngoài (mục 4.1) |
+| D2 | CRM worker chưa có | **Proxy chỉ enqueue bảng tạm** | User chốt: proxy đẩy vào `CrmActionQueue` (payload đủ field theo DTO thật), phần đồng bộ vào CRM user tự xử lý sau — ngoài phạm vi v1 (mục 4.1) |
 | D3 | Nhiều action / 1 câu | **Mỗi lượt 1 hành động** | YAGNI, dễ đoán; gộp nhiều → làm cái đầu + nhắc cái sau |
 
 Quyết định đã chốt trước đó (user duyệt): **confirm-first** cho hành động ghi; **review/deal đơn lẻ chạy thẳng hiện kết quả**, **batch review nhiều KH cần xác nhận** (tốn quota).
@@ -176,13 +176,14 @@ CREATE INDEX IX_CrmActionQueue_Tenant_Status ON dbo.CrmActionQueue(TenantId, Sta
 
 - **Resolver bổ sung cho task:** `workflowName → workflowId` (task PHẢI thuộc 1 workflow). Nếu user không nêu workflow → hỏi/chọn từ list `GET /api/tasks`-workflow (hoặc default workflow tenant). `staffsInCharge` hỗ trợ **nhiều nhân viên** (CSV).
 
-### 4.1 Ai "đồng bộ" — proxy tự drain, KHÔNG cần worker ngoài
+### 4.1 Ranh giới: proxy CHỈ enqueue — đồng bộ do worker (user xử lý sau)
 
-Vì `/api/tasks` + `/api/customer-care` là **API authed thường** (proxy gọi được qua `TourKitApiClient.PostAsync` + JWT session/service-account), **hàng đợi được drain NGAY TRONG proxy** — không phải chờ team `toutkit-app` viết worker:
+Quyết định user (2026-07-14): **proxy chỉ đẩy vào bảng tạm**, phần "đồng bộ vào CRM" (worker) **user tự làm sau**. Proxy KHÔNG tự POST `/api/tasks`.
 
-- **Enqueue + gửi ngay (hybrid):** lúc execute (đã có JWT user live), proxy enqueue `CrmActionQueue` (audit/retry) **và** thử `PostAsync` luôn → thành công: `Status=Done` + `ResultJson={crmTaskId}`, attribute đúng user. Lỗi/timeout → để `Pending`.
-- **Drainer nền:** `BackgroundService` trong `TourkitAiProxy.Worker` (cạnh `WorkflowSchedulerService`) quét item `Pending` → `PostAsync` bằng **service-account tenant** (`TkSessionStore.GetOrCreateServiceSessionAsync`, pattern `DealAutoReviewWorkflow`) → retry + backoff. Bảng tạm vẫn giữ (đúng ý user: audit, retry, buffer xác nhận, cross-instance).
-- Trang xem hàng đợi: `GET /api/v1/workflows/crm-queue?status=&limit=` (đặt trong `/workflows`, cạnh outbound-mails) → item "Pending ⏳ / Done ✅ / Failed ❌".
+- **Execute (CrmQueue action):** enqueue `CrmActionQueue` với `Status=Pending` + PayloadJson **đủ field** (mục 4) → trả "✅ Đã đưa vào hàng đợi". Hết trách nhiệm proxy.
+- **Đồng bộ:** **worker bên app `toutkit-app` (user quản lý)** đọc `Pending` → map PayloadJson → `POST /api/tasks` · `/api/customer-care` → cập nhật `Status=Done` + `ResultJson`. **Ngoài phạm vi proxy v1** — proxy chỉ cung cấp bảng tạm + contract.
+- Vì payload đã khớp DTO thật (mục 4), worker chỉ cần deserialize + POST — không phải đoán field.
+- Trang xem hàng đợi: `GET /api/v1/workflows/crm-queue?status=&limit=` (đặt trong `/workflows`, cạnh outbound-mails) → item "Pending ⏳ / Done ✅ / Failed ❌" (Done/Failed do worker cập nhật sau).
 
 ---
 
@@ -274,12 +275,10 @@ JARVIS: [resolve Minh→staffId, A→customerId] → THẺ XÁC NHẬN {việc, 
 **Mới:**
 - `Services/Chat/ActionTools.cs` — catalog action.
 - `Services/Chat/ActionExecutor.cs` — định tuyến execute theo Kind + re-validate.
-- `Services/Crm/CrmActionQueueRepository.cs` — Dapper CRUD (clone MailQueueRepository).
-- `Services/Crm/CrmActionSender.cs` — map payload → DTO thật + `PostAsync` `/api/tasks` · `/api/customer-care` (dùng chung execute + drainer).
-- `Services/Crm/CrmActionDrainer.cs` — `BackgroundService` (đăng ký trong `WorkflowStackRegistration` → chạy ở `TourkitAiProxy.Worker`) quét `Pending` → gửi bằng service-account + retry.
+- `Services/Crm/CrmActionQueueRepository.cs` — Dapper CRUD enqueue/list (clone MailQueueRepository). CHỈ enqueue + đọc; KHÔNG drain (user làm sau).
 - `Endpoints/AssistantActionEndpoints.cs` — `/action/execute`.
 - Thêm vào `Endpoints/WorkflowEndpoints.cs`: `GET /api/v1/workflows/crm-queue`.
-- `docs/crm-action-contract/*.md` — payload contract (khớp DTO thật).
+- `docs/crm-action-contract/*.md` — payload contract (khớp DTO thật) cho worker user viết sau.
 - Frontend: `components/action-confirm-card.jsx` (+ clarify list).
 
 **Sửa:**
