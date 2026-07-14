@@ -39,6 +39,12 @@ public record AgentInput(
 /// Ket qua tra ve tu 1 luot agent.
 /// ChatAgentService convert sang ChatResult de gui frontend.
 /// </summary>
+/// <param name="Action">
+/// Ten action (tu ActionTools catalog) khi planner nhan dien YEU CAU HANH DONG thay vi cau hoi so lieu
+/// (vd "giao viec cho X", "tra loi mail khach Y"). Null khi day la ket qua tool (doc) binh thuong.
+/// Task 6: chi nhan dien + tra ve -- KHONG thuc thi action (executor la task sau). Khi Action != null,
+/// <see cref="Params"/> chua params cua action do (tai su dung field, khong tao field rieng).
+/// </param>
 public record AgentResult(
     string Reply,
     string ToolName,
@@ -48,4 +54,5 @@ public record AgentResult(
     int InputTokens,
     int OutputTokens,
     string? Warning,
-    int Iterations);
+    int Iterations,
+    string? Action = null);

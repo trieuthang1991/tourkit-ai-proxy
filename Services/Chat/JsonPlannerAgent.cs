@@ -103,19 +103,50 @@ public class JsonPlannerAgent : IAgentRuntime
             });
 
         string toolName = "none"; JsonElement? toolParams = null; string? directReply = null;
+        string? actionName = null; JsonElement? actionParams = null;
         try
         {
             using var doc = LooseJson.ParseFirstObject(plan.Text);
             var root = doc.RootElement;
+            // action ưu tiên hơn tool nếu cả 2 cùng có mặt (hiếm) -- xem ghi chú OUTPUT JSON trong prompt.
+            actionName = GetStr(root, "action");
             toolName = GetStr(root, "tool") ?? "none";
             if (root.TryGetProperty("params", out var pr) && pr.ValueKind == JsonValueKind.Object)
-                toolParams = pr.Clone();
+            {
+                if (!string.IsNullOrWhiteSpace(actionName)) actionParams = pr.Clone();
+                else toolParams = pr.Clone();
+            }
             directReply = GetStr(root, "reply");
         }
         catch (Exception ex)
         {
             _log.LogWarning(ex, "Planner JSON parse fail -- fallback none. Raw: {Raw}",
                 plan.Text[..Math.Min(plan.Text.Length, 200)]);
+        }
+
+        // ─── Action decision: user muốn LÀM việc (giao việc/trả lời mail/đánh giá KH/...),
+        // không phải hỏi số liệu. Task 6: CHỈ nhận diện + trả về -- KHÔNG thực thi (dispatch/executor
+        // là task sau). Giữ panel phải hiện trạng cũ (memory.LastChatData) vì action không fetch số liệu.
+        if (!string.IsNullOrWhiteSpace(actionName))
+        {
+            trace?.Step("action_parse", "ok", 0,
+                $"Planner nhận diện HÀNH ĐỘNG: action='{actionName}'" +
+                (actionParams.HasValue ? $", params={Summarize(actionParams)}" : ""),
+                new() { ["action"] = actionName, ["params"] = actionParams?.GetRawText() });
+
+            object? actionPrmsOut = actionParams.HasValue
+                ? JsonSerializer.Deserialize<object>(actionParams.Value.GetRawText()) : null;
+            return new AgentResult(
+                Reply:        $"Đã nhận diện yêu cầu hành động: {actionName}.",
+                ToolName:     "none",
+                Params:       actionPrmsOut,
+                Data:         memory.LastChatData,
+                LatencyMs:    latency,
+                InputTokens:  tokIn,
+                OutputTokens: tokOut,
+                Warning:      plan.Warning,
+                Iterations:   1,
+                Action:       actionName);
         }
 
         var tool = ChatTools.Find(toolName);
@@ -558,18 +589,46 @@ public class JsonPlannerAgent : IAgentRuntime
             });
 
         string toolName = "none"; JsonElement? toolParams = null; string? directReply = null;
+        string? actionName = null; JsonElement? actionParams = null;
         try
         {
             using var doc = LooseJson.ParseFirstObject(plan.Text);
             var root = doc.RootElement;
+            actionName = GetStr(root, "action");
             toolName = GetStr(root, "tool") ?? "none";
             if (root.TryGetProperty("params", out var pr) && pr.ValueKind == JsonValueKind.Object)
-                toolParams = pr.Clone();
+            {
+                if (!string.IsNullOrWhiteSpace(actionName)) actionParams = pr.Clone();
+                else toolParams = pr.Clone();
+            }
             directReply = GetStr(root, "reply");
         }
         catch (Exception ex)
         {
             _log.LogWarning(ex, "Planner JSON parse fail (stream) -- fallback none");
+        }
+
+        // Action decision (stream path) -- xem ghi chú song song trong RunAsync (buffered).
+        // Task 6: chỉ nhận diện + emit -- KHÔNG thực thi.
+        if (!string.IsNullOrWhiteSpace(actionName))
+        {
+            trace?.Step("action_parse", "ok", 0,
+                $"Planner nhận diện HÀNH ĐỘNG: action='{actionName}'" +
+                (actionParams.HasValue ? $", params={Summarize(actionParams)}" : ""),
+                new() { ["action"] = actionName, ["params"] = actionParams?.GetRawText() });
+
+            object? actionPrmsOut = actionParams.HasValue
+                ? JsonSerializer.Deserialize<object>(actionParams.Value.GetRawText()) : null;
+            await emit(new
+            {
+                done         = true,
+                reply        = $"Đã nhận diện yêu cầu hành động: {actionName}.",
+                toolName     = "none",
+                action       = actionName,
+                actionParams = actionPrmsOut,
+                data         = (object?)memory.LastChatData
+            });
+            return;
         }
 
         var tool = ChatTools.Find(toolName);
@@ -974,6 +1033,10 @@ public class JsonPlannerAgent : IAgentRuntime
 CÁC TOOL CÓ SẴN:
 {ChatTools.CatalogForPrompt()}
 
+== HÀNH ĐỘNG (khi user YÊU CẦU LÀM việc gì đó, không phải hỏi số liệu) ==
+{ActionTools.CatalogForPrompt()}
+Quy tắc: câu hỏi SỐ LIỆU → trả {{""tool"":...}}. Yêu cầu HÀNH ĐỘNG (giao việc, trả lời mail, đánh giá khách, chấm deal, kiểm tra mail) → trả {{""action"":""<name>"",""params"":{{...}}}}. Điền params từ câu nói + NGỮ CẢNH lượt trước (vd 'khách này' → customerName đã nhắc). KHÔNG tự bịa id.
+
 HỘI THOẠI:
 {convo}
 
@@ -991,9 +1054,12 @@ QUY TẮC:
 - Hiệu suất/KPI 1 NHÂN VIÊN cụ thể (vd ""hiệu suất của Nguyễn Văn A"") → tool employee_performance, điền employeeName = ĐÚNG tên người dùng nói (KHÔNG tự đoán id).
 - Câu về ""khách hàng / lead / cơ hội THUỘC thị trường X"" → dùng list_booking_tickets (khách gắn thị trường qua cơ hội), KHÔNG dùng list_customers (không lọc được thị trường).
 - Nếu chào hỏi / không cần số liệu → tool=""none"" kèm ""reply"" trả lời ngắn.
+- Nếu là YÊU CẦU HÀNH ĐỘNG (xem catalog HÀNH ĐỘNG ở trên) → trả ""action"" thay vì ""tool"" (bỏ qua ""tool"").
 
-OUTPUT JSON:
+OUTPUT JSON (chọn 1 trong 2 dạng):
 {{ ""tool"": ""<tên tool hoặc none>"", ""params"": {{ }}, ""reply"": ""(chỉ khi tool=none)"" }}
+HOẶC (khi là yêu cầu hành động):
+{{ ""action"": ""<tên action>"", ""params"": {{ }} }}
 
 Trả JSON ngay:";
     }

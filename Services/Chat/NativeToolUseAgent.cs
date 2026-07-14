@@ -32,6 +32,15 @@ namespace TourkitAiProxy.Services.Chat;
 ///   - Wall-clock        : 30s
 ///
 /// BuildChatData + helper stats duoc tach ra ChatDataBuilder de share voi JsonPlannerAgent.
+///
+/// TODO (Task 6 gap): action catalog (ActionTools — "giao viec"/"tra loi mail"/...) CHUA duoc advertise
+/// trong system prompt/tools[] cua path nay, nen AgentResult.Action luon null qua runtime nay. Path mac
+/// dinh (provider != anthropic) la JsonPlannerAgent, da nhan dien + tra Action. De ho tro native path,
+/// can: (1) build them Anthropic tool schema tu ActionTools (song song ToolSchemaGenerator.BuildAnthropicTools
+/// cho ChatTools), (2) khi AI goi 1 tool_use trung ten ActionTools.Find(...) != null trong vong lap o duoi,
+/// NGUNG dispatch nhu tool doc thuong (ChatTools.BuildPath/_api.GetAsync se fail vi khong phai tool that)
+/// ma short-circuit tra AgentResult voi Action = ten do, Params = input tool_use. Chua lam o task nay vi
+/// can sua ca prompt lan vong lap thuc thi -- de task sau.
 /// </summary>
 public class NativeToolUseAgent : IAgentRuntime
 {
