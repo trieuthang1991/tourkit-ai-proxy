@@ -1,27 +1,47 @@
 using System.Collections.Concurrent;
 using System.Globalization;
 using System.Text.Json;
-using TourkitAiProxy.Models;              // ActionExecuteRequest, ActionResult, ActionChoice
+using TourkitAiProxy.Models;              // ActionExecuteRequest, ActionResult, ActionChoice, ChatData
 using TourkitAiProxy.Services.Crm;        // CrmActionQueueRepository, CrmActionInput, CrmActionKind
+using TourkitAiProxy.Services.Deals;      // DealOpportunityClient, DealScoringService, DealRepository
+using TourkitAiProxy.Services.Reviews;    // ReviewService
+using TourkitAiProxy.Services.TourKit;    // TourKitCustomerSource
 
 namespace TourkitAiProxy.Services.Chat;
 
 /// Thực thi 1 hành động đã xác nhận. Định tuyến theo ActionKind (tra ActionTools.Find).
-/// Task 8a: chỉ implement nhánh CrmQueue (assign_task / create_appointment). Review/deal (Internal)
-/// và mail (Mail) throw NotImplementedException("8b") — sẽ điền ở task sau, giữ file compile + test được.
+/// Task 8a: nhánh CrmQueue (assign_task / create_appointment). Task 8b: nhánh Internal
+/// (review_customer / score_deal) — reuse NGUYÊN ReviewService/DealScoringService, KHÔNG
+/// reimplement prompt/parse. Mail vẫn throw NotImplementedException("8b") — task 8c.
 public class ActionExecutor
 {
     private readonly CrmActionQueueRepository _crmQueue;
     private readonly ActionResolver _resolver;
+    private readonly TourKitCustomerSource _customerSource;
+    private readonly ReviewService _reviewService;
+    private readonly DealOpportunityClient _dealClient;
+    private readonly DealScoringService _dealScoring;
+    private readonly DealRepository _dealRepo;
+    private readonly AiCallContext _aiCtx;
     private readonly ILogger<ActionExecutor> _log;
 
     /// Chống thực thi trùng khi user bấm "Xác nhận" 2 lần / SSE retry gửi lại cùng actionId.
     /// Chỉ cache khi ENQUEUE thành công — kết quả "không tìm thấy/mơ hồ" KHÔNG cache để user
-    /// sửa tên rồi thử lại với cùng actionId vẫn re-resolve được.
+    /// sửa tên rồi thử lại với cùng actionId vẫn re-resolve được. review_customer/score_deal
+    /// KHÔNG dùng cache này — chấm lại luôn cho info tươi, không phải "enqueue" cần dedup.
     private static readonly ConcurrentDictionary<string, ActionResult> _done = new();
 
-    public ActionExecutor(CrmActionQueueRepository crmQueue, ActionResolver resolver, ILogger<ActionExecutor> log)
-    { _crmQueue = crmQueue; _resolver = resolver; _log = log; }
+    public ActionExecutor(
+        CrmActionQueueRepository crmQueue, ActionResolver resolver,
+        TourKitCustomerSource customerSource, ReviewService reviewService,
+        DealOpportunityClient dealClient, DealScoringService dealScoring, DealRepository dealRepo,
+        AiCallContext aiCtx, ILogger<ActionExecutor> log)
+    {
+        _crmQueue = crmQueue; _resolver = resolver;
+        _customerSource = customerSource; _reviewService = reviewService;
+        _dealClient = dealClient; _dealScoring = dealScoring; _dealRepo = dealRepo;
+        _aiCtx = aiCtx; _log = log;
+    }
 
     // ─── Pure payload builders (test được — xem ActionExecutorTests) ─────────────
 
@@ -79,11 +99,153 @@ public class ActionExecutor
             case ActionKind.CrmQueue:
                 return await ExecuteCrmQueueAsync(req, tenantId, username, jwt, ct);
             case ActionKind.Internal:
+                return await ExecuteInternalAsync(req, tenantId, jwt, sessionId, ct);
             case ActionKind.Mail:
-                throw new NotImplementedException("8b"); // review/deal/mail — task 8b
+                throw new NotImplementedException("8b"); // mail — task 8c
             default:
                 throw new InvalidOperationException($"Unhandled kind {tool.Kind}");
         }
+    }
+
+    // ─── Internal (review_customer / score_deal) ──────────────────────────────────
+
+    private async Task<ActionResult> ExecuteInternalAsync(
+        ActionExecuteRequest req, string tenantId, string jwt, string? sessionId, CancellationToken ct)
+        => req.Action.ToLowerInvariant() switch
+        {
+            "review_customer" => await ExecuteReviewCustomerAsync(req, tenantId, jwt, sessionId, ct),
+            "score_deal"      => await ExecuteScoreDealAsync(req, tenantId, jwt, sessionId, ct),
+            _ => throw new InvalidOperationException($"Unhandled Internal action: {req.Action}")
+        };
+
+    /// review_customer: resolve KH (id trực tiếp hoặc tên → id qua ActionResolver) → fetch context
+    /// đầy đủ (Purchases/CareLogs — NGUỒN DUY NHẤT dùng chung page/batch/workflow) → ReviewService
+    /// (dual-path native-tool/json-prompt, tự save DB) → gói CustomerReview vào ChatData.Raw cho FE
+    /// render lại y hệt <see cref="Models.ChatModels"/> customer-review-card.
+    private async Task<ActionResult> ExecuteReviewCustomerAsync(
+        ActionExecuteRequest req, string tenantId, string jwt, string? sessionId, CancellationToken ct)
+    {
+        // TourKitCustomerSource cần sessionId (tự resolve/refresh JWT bên trong) — không có sessionId
+        // (vd action gọi từ path không qua session) thì không chạy được, báo user re-login thay vì crash.
+        if (string.IsNullOrWhiteSpace(sessionId))
+            return new ActionResult(req.Action, "Phiên đăng nhập không hợp lệ — vui lòng đăng nhập lại.");
+
+        var p = req.Params ?? new Dictionary<string, object?>();
+        string customerId;
+        var customerIdParam = Str(p, "customerId");
+        if (!string.IsNullOrWhiteSpace(customerIdParam))
+        {
+            customerId = customerIdParam!;
+        }
+        else
+        {
+            var customerName = Str(p, "customerName");
+            if (string.IsNullOrWhiteSpace(customerName))
+                return new ActionResult(req.Action, "Thiếu thông tin khách hàng để đánh giá.");
+
+            var outcome = await _resolver.ResolveCustomerAsync(jwt, customerName, ct);
+            if (outcome.Ambiguous is { Count: > 0 })
+                return new ActionResult(req.Action,
+                    $"Tên khách hàng \"{customerName}\" khớp nhiều người, vui lòng nói rõ hơn (vd họ tên đầy đủ).");
+            if (outcome.Id is null)
+                return new ActionResult(req.Action, $"Không tìm thấy khách hàng tên \"{customerName}\".");
+            customerId = outcome.Id.Value.ToString(CultureInfo.InvariantCulture);
+        }
+
+        var forceFresh = Bool(p, "forceFresh") ?? false;
+
+        var customers = await _customerSource.GetContextsAsync(sessionId, new[] { customerId }, ct);
+        var customer = customers.FirstOrDefault();
+        if (customer is null)
+            return new ActionResult(req.Action, $"Không tìm thấy dữ liệu khách hàng #{customerId}.");
+
+        CustomerReview review;
+        using (_aiCtx.Push(AiFeatures.AssistantAction, tenantId, sessionId))
+        {
+            (review, _) = await _reviewService.ReviewAsync(
+                customer, tenantId, forceFresh: forceFresh,
+                providerOverride: req.Provider, modelOverride: req.Model, ct: ct);
+        }
+
+        _log.LogInformation(
+            "[ActionExecutor] review_customer tenant={Tenant} customerId={Id} rank={Rank}",
+            tenantId, customerId, review.Rank);
+
+        var summary = $"Khách {customer.Name}: hạng {review.Rank} — {review.SummaryLine}";
+        var data = new ChatData(
+            Kind: "customer-review",
+            Title: $"Đánh giá khách hàng — {customer.Name}",
+            Raw: JsonSerializer.SerializeToElement(review),
+            Stats: new List<ChatStat>(),
+            Focus: null);
+
+        return new ActionResult(req.Action, summary, data);
+    }
+
+    /// score_deal: resolve deal (id trực tiếp hoặc tên khách/tiêu đề → id qua ActionResolver) →
+    /// fetch context (detail + comments + hồ sơ KH — NGUỒN DUY NHẤT dùng chung batch/workflow) →
+    /// DealScoringService (dual-path) → SaveScore vào dbo.DealScores (worker DealScoreSyncService
+    /// đọc bảng này để sync Rank xuống CRM — mirror POST /deals/{id}/rescore) → gói DealScore vào
+    /// ChatData.Raw cho FE.
+    private async Task<ActionResult> ExecuteScoreDealAsync(
+        ActionExecuteRequest req, string tenantId, string jwt, string? sessionId, CancellationToken ct)
+    {
+        if (string.IsNullOrWhiteSpace(sessionId))
+            return new ActionResult(req.Action, "Phiên đăng nhập không hợp lệ — vui lòng đăng nhập lại.");
+
+        var p = req.Params ?? new Dictionary<string, object?>();
+        int dealId;
+        var dealIdParam = Int(p, "dealId");
+        if (dealIdParam is { } did)
+        {
+            dealId = did;
+        }
+        else
+        {
+            var dealQuery = Str(p, "dealQuery");
+            if (string.IsNullOrWhiteSpace(dealQuery))
+                return new ActionResult(req.Action, "Thiếu thông tin cơ hội bán hàng để chấm điểm.");
+
+            var outcome = await _resolver.ResolveDealAsync(jwt, dealQuery, ct);
+            if (outcome.Ambiguous is { Count: > 0 })
+                return new ActionResult(req.Action,
+                    $"\"{dealQuery}\" khớp nhiều cơ hội, vui lòng nói rõ hơn (vd tên khách + mã đơn).");
+            if (outcome.Id is null)
+                return new ActionResult(req.Action, $"Không tìm thấy cơ hội bán hàng khớp \"{dealQuery}\".");
+            dealId = outcome.Id.Value;
+        }
+
+        var contexts = await _dealClient.GetContextsAsync(sessionId, new[] { dealId }, ct);
+        var dwc = contexts.FirstOrDefault();
+        if (dwc is null)
+            return new ActionResult(req.Action, $"Không tìm thấy cơ hội bán hàng #{dealId}.");
+
+        var deal = dwc.Deal;
+        var context = dwc.Context;
+
+        DealScore score;
+        using (_aiCtx.Push(AiFeatures.AssistantAction, tenantId, sessionId))
+        {
+            score = await _dealScoring.ScoreAsync(context.Profile, req.Provider, req.Model, null, ct);
+        }
+        // Persist như /deals/{id}/rescore — worker DealScoreSyncService đọc dbo.DealScores → sync
+        // cột [rank] xuống BookingTickets tenant DB, để list/filter rank trên CRM phản ánh đúng.
+        _dealRepo.SaveScore(tenantId, deal.Id, context.Fingerprint, score);
+
+        _log.LogInformation(
+            "[ActionExecutor] score_deal tenant={Tenant} dealId={Id} winRate={Rate}",
+            tenantId, deal.Id, score.WinRate);
+
+        var label = deal.Title ?? deal.Code ?? $"#{deal.Id}";
+        var summary = $"Deal {deal.CustomerName} — {label}: tỉ lệ thắng {score.WinRate}% ({score.Level}) — {score.NextAction}";
+        var data = new ChatData(
+            Kind: "deal-score",
+            Title: $"Chấm điểm deal — {deal.CustomerName}",
+            Raw: JsonSerializer.SerializeToElement(score),
+            Stats: new List<ChatStat>(),
+            Focus: null);
+
+        return new ActionResult(req.Action, summary, data);
     }
 
     private async Task<ActionResult> ExecuteCrmQueueAsync(
@@ -221,6 +383,12 @@ public class ActionExecutor
         }
         if (v is int i) return i;
         return int.TryParse(v.ToString(), out var n3) ? n3 : null;
+    }
+
+    private static bool? Bool(Dictionary<string, object?> p, string key)
+    {
+        var s = Str(p, key);
+        return !string.IsNullOrWhiteSpace(s) && bool.TryParse(s, out var b) ? b : null;
     }
 
     private static DateTime? ParseUtc(string? s)

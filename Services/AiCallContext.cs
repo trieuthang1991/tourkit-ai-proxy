@@ -30,6 +30,11 @@ public static class AiFeatures
     public const string MailAutoSync        = "mail-auto-sync";
     public const string DealAutoReview      = "deal-auto-review";
     public const string CustomerAutoReview  = "customer-auto-review";
+
+    // ── Assistant action tools — Push() từ ActionExecutor (review_customer/score_deal) ──
+    // Non-HTTP path (chạy sau khi user bấm "Xác nhận") → PHẢI Push để trừ quota tenant +
+    // log đúng feature, tránh rơi vào "unknown" (xem docs class comment ở trên).
+    public const string AssistantAction     = "assistant-action";
 }
 
 /// Trích context từ HttpContext cho AI usage logging:
