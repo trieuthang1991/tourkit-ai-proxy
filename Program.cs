@@ -354,6 +354,7 @@ app.MapNccImportEndpoints();     // /api/v1/ncc-import/* — bóc tách NCC từ
 app.MapAiEndpoints();
 app.MapReviewEndpoints();
 app.MapChatEndpoints();
+app.MapAssistantActionEndpoints();
 app.MapMailEndpoints();
 app.MapWorkflowEndpoints();
 app.MapTourEndpoints();
