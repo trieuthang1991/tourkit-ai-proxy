@@ -489,19 +489,16 @@ public class NativeToolUseAgent : IAgentRuntime
                 tokensOut:      totalOutTok);
         }
 
-        // ── Fallback data tu memory: AI follow-up khong goi tool moi → giu lai panel cu.
-        // Vd user hoi "phan tich them" sau khi da co cashflow → lastData=null nhung memory.LastChatData con.
+        // KHÔNG tái dùng data cũ khi AI không gọi tool trong lượt này: lượt chỉ-text (AI hỏi lại, hoặc câu
+        // không route ra tool) PHẢI để panel TRỰC QUAN HÓA TRỐNG — nếu giữ chart cũ (vd "Dòng tiền & Lợi
+        // nhuận") thì gây hiểu nhầm là số liệu của câu hiện tại. memory.LastChatData vẫn được GIỮ NGUYÊN
+        // (khối cập nhật memory bên dưới chỉ chạy khi lastData!=null) nên các luồng khác không bị ảnh hưởng.
         if (lastData == null && memory.LastChatData != null)
         {
-            _log.LogInformation("[NativeTool] reuse LastChatData ({Title}) — AI khong goi tool turn nay",
+            _log.LogInformation("[NativeTool] AI khong goi tool turn nay → panel de TRONG (khong reuse '{Title}')",
                 memory.LastChatData.Title);
-            // Re-detect focus theo cau hoi MOI (follow-up "con chi phi thi sao?" → doi focus sang expense)
-            var followQ = input.History.LastOrDefault(m => m.Role == "user")?.Content;
-            lastData     = ChatDataBuilder.WithFocus(memory.LastChatData, followQ);
-            lastToolName = memory.LastTool;
-            lastParams   = memory.LastParams;
-            trace?.Step("memory_data_reuse", "fallback", 0,
-                $"AI không gọi tool turn này → reuse data cũ từ memory: '{memory.LastDataTitle}'");
+            trace?.Step("memory_data_skip", "no-tool", 0,
+                "AI không gọi tool turn này → panel để trống, không reuse data cũ");
         }
 
         // Focus theo cau hoi USER (chi phi / loi nhuan / doanh thu) — gan TRUOC khi emit.

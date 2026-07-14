@@ -855,9 +855,11 @@ function AssistantPage({ pushToast }) {
     setInput('');
     setLoading(true);
     setStage('planning');
-    // Câu hỏi mới → bỏ thẻ action còn treo của lượt trước (chưa xác nhận/chọn thì coi như bỏ qua).
+    // Câu hỏi mới → bỏ thẻ action còn treo + XÓA số liệu cũ ở panel để TRỰC QUAN HÓA phản ánh
+    // đúng lượt hiện tại (không giữ chart cũ như "Dòng tiền & Lợi nhuận" khi lượt này chỉ là text/hỏi lại).
     setPendingProposal(null);
     setPendingClarify(null);
+    setPanelData(null);
 
     // cập nhật message assistant tại asstIdx
     const patch = (fn) => setMessages(m => { const c = [...m]; if (c[asstIdx]) c[asstIdx] = fn(c[asstIdx]); return c; });

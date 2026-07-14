@@ -68,7 +68,8 @@ public static class ChatTools
             "Báo cáo HIỆU SUẤT / KPI CHI TIẾT từng nhân viên sale: số Data KH, chăm sóc KH, cơ hội (tổng/mới/chốt), " +
             "tổng đơn hàng, KH mua 1 lần / mua lại, doanh thu, tỉ lệ chốt đơn, tỉ lệ chuyển đổi cơ hội, giá trị TB đơn — " +
             "mỗi chỉ số kèm % tăng/giảm so KỲ TRƯỚC. " +
-            "DÙNG cho 'hiệu suất nhân viên', 'KPI nhân viên/sale', 'tỉ lệ chốt đơn của sale', 'nhân viên nào làm hiệu quả', 'so với kỳ trước'. " +
+            "DÙNG cho 'hiệu suất nhân viên', 'KPI nhân viên/sale', 'tỉ lệ chốt đơn của sale', 'nhân viên nào làm hiệu quả', 'so với kỳ trước', " +
+            "'danh sách nhân viên', 'liệt kê nhân viên', 'nhân viên tôi (đang) quản lý', 'có bao nhiêu nhân viên' (đây cũng là nguồn liệt kê nhân viên đầy đủ nhất). " +
             "Lọc 1 nhân viên theo TÊN (employeeName — proxy tự đổi sang id) hoặc 1 chi nhánh (branch). " +
             "KHÁC top_sellers (chỉ xếp hạng doanh số top 10) — đây là BỘ CHỈ SỐ ĐẦY ĐỦ của từng người. Bỏ trống ngày = tháng này.",
             "/api/ai/employee-performance",
