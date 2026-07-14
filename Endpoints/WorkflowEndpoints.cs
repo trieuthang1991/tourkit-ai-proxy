@@ -1,5 +1,6 @@
 using System.Diagnostics;
 using System.Text.Json;
+using TourkitAiProxy.Services.Crm;
 using TourkitAiProxy.Services.Mail;
 using TourkitAiProxy.Services.TourKit;
 using TourkitAiProxy.Services.Workflows;
@@ -298,6 +299,22 @@ public static class WorkflowEndpoints
                     scheduledUtc = AsUtc(r.ScheduledUtc), createdUtc = AsUtc(r.CreatedUtc), processedUtc = AsUtc(r.ProcessedUtc)
                 }).ToList()
             });
+        });
+
+        // ─── GET /workflows/crm-queue ─── theo dõi hàng đợi hành động CRM ────────
+        v1.MapGet("/workflows/crm-queue", async (
+            HttpContext ctx,
+            CrmActionQueueRepository crmQueue,
+            TkSessionStore sessions,
+            string? kind,
+            int? status,
+            int? limit) =>
+        {
+            var auth = RequireSession(ctx, sessions);
+            if (auth == null) return Unauthorized();
+            var (_, tenant, _) = auth.Value;
+            var items = await crmQueue.ListForMonitorAsync(tenant, kind, status, limit ?? 50, ctx.RequestAborted);
+            return Results.Json(new { items });
         });
 
         return routes;

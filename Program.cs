@@ -149,6 +149,11 @@ builder.Services.AddSingleton<ChatAgentService>();
 // scheduler worker) nên đăng ký riêng ở đây.
 builder.Services.AddSingleton<TourkitAiProxy.Services.Mail.MailTemplateRepository>();
 
+// Hàng đợi hành động CRM (dbo.CrmActionQueue) — trợ lý enqueue (giao việc/tạo lịch hẹn),
+// worker app-side (toutkit-app) drain. Singleton như MailQueueRepository (cùng chỉ dùng
+// TourkitAiDb.OpenAsync mở connection mới mỗi lần gọi, không giữ state).
+builder.Services.AddSingleton<TourkitAiProxy.Services.Crm.CrmActionQueueRepository>();
+
 // Soạn Tour GIT bằng AI — bóc mô tả tự do thành form Tour GIT (Type=3) cho NV prefill.
 builder.Services.AddSingleton<TourkitAiProxy.Services.Tour.TourBuilderService>();
 
