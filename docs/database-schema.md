@@ -33,12 +33,14 @@
 | 18 | `dbo.OutboundMails` | **Hàng đợi mail OUTBOUND dùng chung** (producer enqueue `Status=0`; worker riêng — CEO viết — render template + gửi). Nội dung theo TEMPLATE: `TemplateCode` + `[Params]` JSON (không soạn HTML ở proxy). `Status` TINYINT (0=pending..4=skipped) cho worker dùng enum. Khác `dbo.Mails` (inbox). Producer đầu tiên: workflow `deal-auto-review` (Kind=`deal-cooling-alert`). | [`MailQueueRepository`](../Services/Mail/MailQueueRepository.cs) | `Id` IDENTITY |
 | 19 | `dbo.TenantServiceAccounts` | **Tài khoản dịch vụ per-tenant** cho workflow nền tự login TourKit (KHÔNG cần user online). `PasswordEnc` Crypton. Dùng bởi `deal-auto-review`. | [`TenantServiceAccountStore`](../Services/TourKit/TenantServiceAccountStore.cs) | `TenantId` |
 | 20 | `dbo.MailTemplates` | **Template mail dùng chung (global)** — nguồn nội dung cho `dbo.OutboundMails`. Admin CRUD ở `/admin-trav-ai/mail-templates`; worker (toutkit-app) render `Subject`/`BodyHtml` theo `{{key}}` + `{{#if key}}…{{/if}}` từ `[Params]`, fallback template code nếu thiếu/Disabled. Seed sẵn `deal-cooling-alert` lúc startup. | [`MailTemplateRepository`](../Services/Mail/MailTemplateRepository.cs) | `Code` |
+| 21 | `dbo.CrmActionQueue` | **Hàng đợi HÀNH ĐỘNG CRM từ trợ lý** (giao việc `assign-task` / tạo lịch hẹn `create-appointment`). Producer = proxy `ActionExecutor` (enqueue `Status=0` sau khi user xác nhận thẻ trên `/assistant`/`/travai`); proxy KHÔNG POST thẳng CRM. Consumer = **worker riêng phía `toutkit-app`** (viết sau, ngoài phạm vi proxy) — đọc Pending → `POST /api/tasks` \| `/api/customer-care` → cập nhật `Status`/`ResultJson`/`ErrorMessage`. `PayloadJson` khớp 1:1 `CreateOrUpdateTaskingRequest`/`CreateCustomerCareRequest` — hợp đồng đầy đủ ở [docs/crm-action-contract/README.md](crm-action-contract/README.md). Theo dõi qua `GET /api/v1/workflows/crm-queue`. | [`CrmActionQueueRepository`](../Services/Crm/CrmActionQueueRepository.cs) | `Id` IDENTITY |
 
 > Cột mới đáng chú ý (2026-06-26): `Mails.AutoReplyError` (đánh dấu lỗi auto-reply để hiện ở UI); `UserWorkflows.OptionsJson` (điều kiện động).
 > Cột mới (2026-06-28): `DealScores.AutoReviewCount` (số lần workflow tự chấm) + `IsFinalized`/`FinalizedReason` (`manual`/`status-changed`/`aged` — workflow đánh cờ để ngừng review/nhắc) + `LastAutoReviewUtc`.
 > Bảng mới (2026-06-29): `dbo.MailTemplates` — template mail global, admin sửa nội dung outbound mail không cần deploy lại worker.
+> Bảng mới (2026-07-14): `dbo.CrmActionQueue` — outbox pattern cho trợ lý hành động (assign_task/create_appointment); proxy chỉ enqueue, worker app-side drain + sync CRM.
 
-### Tổng cộng: **20 bảng** owned by proxy.
+### Tổng cộng: **21 bảng** owned by proxy.
 
 ## Bảng đã bỏ
 

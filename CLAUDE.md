@@ -160,6 +160,7 @@ data/
 | POST   | `/api/v1/mail/compose/draft`      | SSE: AI soạn email MỚI từ `{to, subject, brief, tone}` |
 | POST   | `/api/v1/mail/compose/send`       | gửi email mới qua SMTP `{to, subject, text}`         |
 | PATCH  | `/api/v1/mail/{id}/status`        | đổi trạng thái email (moi/dang_xu_ly/da_phan_hoi/da_dong) |
+| POST   | `/api/v1/assistant/action/execute` | Thực thi 1 hành động trợ lý đã xác nhận `{actionId, action, params, provider?, model?}` → `{action, message, data?, warning?}` (require X-Session-Id) — idempotent theo `actionId` (double-confirm không gửi/enqueue trùng); hành động `assign_task`/`create_appointment` chỉ **enqueue** `dbo.CrmActionQueue`, KHÔNG POST thẳng CRM |
 | POST   | `/api/v1/admin/auth/login`        | Admin login `{username,password}` → `{token,username,expiresAt}` |
 | POST   | `/api/v1/admin/auth/logout`       | header `X-Admin-Session` → `{ok}` |
 | GET    | `/api/v1/admin/auth/me`           | header `X-Admin-Session` → `{username,expiresAt}` |
@@ -179,6 +180,7 @@ data/
 | GET    | `/api/v1/workflows/service-account` | Trạng thái cấu hình `{configured, username}` (KHÔNG trả password) (require X-Session-Id) |
 | DELETE | `/api/v1/workflows/service-account` | Xóa tài khoản tự động → workflow ngừng tự login → `{ok, removed}` (require X-Session-Id) |
 | GET    | `/api/v1/workflows/outbound-mails` | Theo dõi hàng đợi mail `?kind=&status=&limit=50` → `{items[{id,kind,sourceId,templateCode,toEmail,subject,status(int),retryCount,errorMessage,scheduledUtc,createdUtc,processedUtc}]}` (require X-Session-Id) |
+| GET    | `/api/v1/workflows/crm-queue`     | Theo dõi hàng đợi hành động CRM (giao việc/lịch hẹn) từ trợ lý `?kind=&status=&limit=50` → `{items[{id,tenantId,username,kind,payloadJson,status(int),resultJson,retryCount,errorMessage,createdUtc,processedUtc}]}` (require X-Session-Id) — chỉ ĐỌC, `Status`/`ResultJson` do worker app-side ghi |
 
 **Tenant scoping** (multi-tenant fix 2026-06-09): tất cả endpoint `/api/v1/mail/*` và `/api/v1/visa/*` YÊU CẦU `X-Session-Id` header (hoặc `sessionId` query/body) — backend resolve `TenantId` qua `ITenantContext`/`HttpTenantContext` từ `TkSessionStore`. KHÔNG session → 401. Cross-tenant access (resource thuộc tenant khác) → null/404.
 
@@ -267,6 +269,26 @@ A chat-left / data-right assistant. The user asks in natural language; the AI de
 - **Endpoints:** `POST /api/v1/login-token` (`{token}` → `{sessionId, tenantId, fullName, companyName, expiresAt}`), `POST /api/v1/chat` + `POST /api/v1/chat/stream` (`{messages, sessionId?, provider?, model?}`; sessionId may also come via `X-Session-Id` header → `{reply, toolName, data:{kind,title,raw,stats[]}, …}`; the `/stream` variant emits the SSE `{stage}`/`{delta}`/`{done}` sequence), `GET /api/v1/session` (validate the current sessionId).
 - **Login UX:** two modes on `/assistant` — a direct form (`POST /api/v1/login {username,password,domain}`, server-side login, no client-side crypto) and the encrypted-token paste (`/login-token`). Both return a `sessionId`.
 - **Frontend:** `wwwroot/pages/assistant.jsx` (route `/assistant`). Stores `sessionId` in `localStorage["tourkit_tk_session"]`, renders chat on the left and on the right: `data.stats` cards + a **Chart.js** chart + a generic table. Chart.js is loaded via CDN `<script>` in `index.html` (no build step); `ChartView` picks horizontal bars for categorical data and vertical grouped bars for time-series, with a metric-toggle (Doanh thu/Chi phí/Lợi nhuận). `ChatData.Focus` (derived in `ChatAgentService.DetectFocus` from question keywords like "chi phí"→`expense`) restricts the chart/table/stats to the requested metric. Money formatted with `fmtVND`.
+
+### Trợ lý hành động (action tools, 2026-07-14)
+
+Ngoài đọc số liệu, `/assistant` và `/travai` (JARVIS voice) giờ có thêm **ACTION tools** (ghi/thao
+tác) song song `ChatTools` (read-only): `check_mail`, `send_mail_reply`, `compose_mail`,
+`review_customer`, `score_deal`, `assign_task`, `create_appointment` — catalog 1 nguồn ở
+[`Services/Chat/ActionTools.cs`](Services/Chat/ActionTools.cs). Hành động hướng ra ngoài/khó undo
+(gửi mail, giao việc, tạo lịch hẹn) là **confirm-first**: planner phát `ActionProposal` (thẻ xác
+nhận, field sửa được) → user bấm "Xác nhận" → FE gọi `POST /api/v1/assistant/action/execute` →
+[`ActionExecutor`](Services/Chat/ActionExecutor.cs) re-resolve + re-check tenant server-side rồi
+thực thi, idempotent theo `actionId`. `review_customer`/`score_deal`/`check_mail` (đọc/non-destructive
+với 1 thực thể) chạy thẳng không cần xác nhận. Tên → id (nhân viên/khách hàng/deal) resolve qua
+[`Services/Chat/ActionResolver.cs`](Services/Chat/ActionResolver.cs) (mơ hồ → hỏi lại, không đoán).
+**Ghi vào CRM (`assign_task`/`create_appointment`) chỉ ENQUEUE** vào
+[`dbo.CrmActionQueue`](Services/Crm/CrmActionQueueRepository.cs) — proxy KHÔNG POST thẳng
+`/api/tasks`/`/api/customer-care`; worker phía `toutkit-app` (viết sau) drain hàng đợi + sync CRM
+theo hợp đồng ở [docs/crm-action-contract/README.md](docs/crm-action-contract/README.md). Endpoint
+routing ở [`Endpoints/AssistantActionEndpoints.cs`](Endpoints/AssistantActionEndpoints.cs); theo
+dõi hàng đợi qua `GET /api/v1/workflows/crm-queue`. Thiết kế đầy đủ:
+[docs/superpowers/specs/2026-07-14-assistant-action-tools-design.md](docs/superpowers/specs/2026-07-14-assistant-action-tools-design.md).
 
 ## SmartMail AI feature ("Hộp thư AI")
 
