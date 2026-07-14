@@ -39,13 +39,18 @@ public static class ActionTools
 
         new("assign_task",
             "GIAO VIỆC cho nhân viên. Dùng khi 'giao việc … cho …', 'tạo task cho nhân viên Y'. " +
-            "params: workflowName, name, content, staffNames (CSV tên), prioritized(cao|tb|thap), dueDate, reminderMinutes.",
+            "params: workflowName, name, content, staffNames (CSV tên), prioritized(cao|tb|thap), startDate, dueDate, reminderMinutes. " +
+            "startDate = ngày/giờ BẮT ĐẦU (nếu user nêu), dueDate = HẠN hoàn thành. " +
+            "QUAN TRỌNG: startDate/dueDate PHẢI theo định dạng ISO CÓ GIỜ 'yyyy-MM-ddTHH:mm' theo GIỜ VIỆT NAM, " +
+            "và phải GIỮ ĐÚNG GIỜ user nói — vd 'trước 20h hôm nay' → dueDate = <hôm nay>T20:00; " +
+            "'9h sáng mai' → <ngày mai>T09:00; 'chiều mai' → T14:00. TUYỆT ĐỐI không bỏ giờ về T00:00 khi user đã nêu giờ.",
             new[] { "workflowName", "name", "content", "staffNames", "prioritized", "startDate", "dueDate", "reminderMinutes", "customerName", "bookingTicketId" },
             ActionKind.CrmQueue, true, "Giao việc"),
 
         new("create_appointment",
             "TẠO LỊCH HẸN CSKH cho khách. Dùng khi 'đặt lịch hẹn với khách X', 'hẹn tư vấn'. " +
-            "params: customerName, careTitle, careDetail, startTime, endTime, reminderMinutes.",
+            "params: customerName, careTitle, careDetail, startTime, endTime, reminderMinutes. " +
+            "startTime/endTime PHẢI theo ISO CÓ GIỜ 'yyyy-MM-ddTHH:mm' giờ VN, GIỮ ĐÚNG giờ user nói (vd '14h30 mai' → <mai>T14:30), không bỏ về T00:00.",
             new[] { "customerName", "customerId", "careTitle", "careDetail", "startTime", "endTime", "reminderMinutes", "bookingTicketId" },
             ActionKind.CrmQueue, true, "Tạo lịch hẹn"),
     };

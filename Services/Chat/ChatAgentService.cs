@@ -534,12 +534,26 @@ public class ChatAgentService
         return local.ToString("yyyy-MM-ddTHH:mm", CultureInfo.InvariantCulture);
     }
 
+    /// Format ngày/giờ để HIỂN THỊ trong summary (giọng người Việt): dd-MM-yyyy, kèm HH:mm nếu có giờ (≠ 00:00).
+    /// Chuỗi UTC → +7h giờ VN. Parse fail → trả nguyên chuỗi gốc.
+    internal static string FormatDtDisplay(string? raw)
+    {
+        if (string.IsNullOrWhiteSpace(raw)) return "";
+        if (!DateTime.TryParse(raw, CultureInfo.InvariantCulture, DateTimeStyles.RoundtripKind, out var dt))
+            return raw;
+        var local = dt.Kind == DateTimeKind.Utc ? dt.AddHours(7) : dt;
+        return local.TimeOfDay == TimeSpan.Zero
+            ? local.ToString("dd-MM-yyyy", CultureInfo.InvariantCulture)
+            : local.ToString("dd-MM-yyyy HH:mm", CultureInfo.InvariantCulture);
+    }
+
     private async Task<object> BuildAssignTaskProposalAsync(
         string actionId, ActionTool tool, Dictionary<string, object?> p, string jwt, CancellationToken ct)
     {
         var name = ActionExecutor.Str(p, "name") ?? "Việc mới";
         var content = ActionExecutor.Str(p, "content");
         var staffNamesRaw = ActionExecutor.Str(p, "staffNames");
+        var startDate = ActionExecutor.Str(p, "startDate");
         var dueDate = ActionExecutor.Str(p, "dueDate");
         var prioritizedRaw = ActionExecutor.Str(p, "prioritized");
 
@@ -592,6 +606,7 @@ public class ChatAgentService
             new("name", "Tên việc", name, "text"),
             new("content", "Nội dung", content, "textarea"),
             new("staffResolvedIds", "Người phụ trách", staffValue, "select", staffOptions),
+            new("startDate", "Ngày bắt đầu", NormalizeDtForInput(startDate), "datetime"),
             new("dueDate", "Hạn hoàn thành", NormalizeDtForInput(dueDate), "datetime"),
             new("prioritized", "Ưu tiên", priority, "select", PriorityOptions),
         };
@@ -603,7 +618,8 @@ public class ChatAgentService
                 .ToList();
         var staffLabel = staffLabels.Count > 0 ? string.Join(", ", staffLabels) : "(chưa rõ người phụ trách)";
         var summary = $"Giao việc \"{name}\" cho {staffLabel}"
-            + (string.IsNullOrWhiteSpace(dueDate) ? "" : $", hạn {dueDate}");
+            + (string.IsNullOrWhiteSpace(startDate) ? "" : $", bắt đầu {FormatDtDisplay(startDate)}")
+            + (string.IsNullOrWhiteSpace(dueDate) ? "" : $", hạn {FormatDtDisplay(dueDate)}");
 
         var proposal = new ActionProposal(actionId, "assign_task", tool.Title, summary, p, fields, true);
         return new ActionProposalEnvelope("action-proposal", proposal);
@@ -657,7 +673,7 @@ public class ChatAgentService
             new("endTime", "Kết thúc", NormalizeDtForInput(endTime), "datetime"),
         };
         var summary = $"Đặt lịch hẹn với {customerLabel}: {careTitle}"
-            + (string.IsNullOrWhiteSpace(startTime) ? "" : $", lúc {startTime}");
+            + (string.IsNullOrWhiteSpace(startTime) ? "" : $", lúc {FormatDtDisplay(startTime)}");
 
         var proposal = new ActionProposal(actionId, "create_appointment", tool.Title, summary, p, fields, true);
         return new ActionProposalEnvelope("action-proposal", proposal);
