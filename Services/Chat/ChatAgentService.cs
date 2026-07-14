@@ -521,6 +521,19 @@ public class ChatAgentService
         _ => "tb",
     };
 
+    /// Chuẩn hóa chuỗi ngày/giờ thô (từ planner — có thể kèm giây/Z/offset hoặc chỉ có ngày) về đúng format
+    /// datetime-local "yyyy-MM-ddTHH:mm" (giờ VN) để &lt;input type="datetime-local"&gt; prefill được. Không
+    /// normalize thì format lệch → input hiện TRỐNG, bấm Xác nhận sẽ MẤT luôn giá trị ngày. Parse fail → rỗng.
+    /// Chuỗi UTC (Z/offset) → +7h để hiển thị giờ VN.
+    internal static string? NormalizeDtForInput(string? raw)
+    {
+        if (string.IsNullOrWhiteSpace(raw)) return raw;
+        if (!DateTime.TryParse(raw, CultureInfo.InvariantCulture, DateTimeStyles.RoundtripKind, out var dt))
+            return "";
+        var local = dt.Kind == DateTimeKind.Utc ? dt.AddHours(7) : dt;
+        return local.ToString("yyyy-MM-ddTHH:mm", CultureInfo.InvariantCulture);
+    }
+
     private async Task<object> BuildAssignTaskProposalAsync(
         string actionId, ActionTool tool, Dictionary<string, object?> p, string jwt, CancellationToken ct)
     {
@@ -579,10 +592,15 @@ public class ChatAgentService
             new("name", "Tên việc", name, "text"),
             new("content", "Nội dung", content, "textarea"),
             new("staffResolvedIds", "Người phụ trách", staffValue, "select", staffOptions),
-            new("dueDate", "Hạn hoàn thành", dueDate, "datetime"),
+            new("dueDate", "Hạn hoàn thành", NormalizeDtForInput(dueDate), "datetime"),
             new("prioritized", "Ưu tiên", priority, "select", PriorityOptions),
         };
 
+        // Nếu label đang là "NV #id" (nhánh staffResolvedIds không mang tên) → tra tên thật từ staffOptions.
+        if (resolvedIds.Count > 0)
+            staffLabels = resolvedIds
+                .Select(id => staffOptions.FirstOrDefault(o => o.Value == id)?.Label ?? $"NV #{id}")
+                .ToList();
         var staffLabel = staffLabels.Count > 0 ? string.Join(", ", staffLabels) : "(chưa rõ người phụ trách)";
         var summary = $"Giao việc \"{name}\" cho {staffLabel}"
             + (string.IsNullOrWhiteSpace(dueDate) ? "" : $", hạn {dueDate}");
@@ -635,8 +653,8 @@ public class ChatAgentService
         {
             new("careTitle", "Tiêu đề", careTitle, "text"),
             new("careDetail", "Chi tiết", careDetail, "textarea"),
-            new("startTime", "Bắt đầu", startTime, "datetime"),
-            new("endTime", "Kết thúc", endTime, "datetime"),
+            new("startTime", "Bắt đầu", NormalizeDtForInput(startTime), "datetime"),
+            new("endTime", "Kết thúc", NormalizeDtForInput(endTime), "datetime"),
         };
         var summary = $"Đặt lịch hẹn với {customerLabel}: {careTitle}"
             + (string.IsNullOrWhiteSpace(startTime) ? "" : $", lúc {startTime}");
