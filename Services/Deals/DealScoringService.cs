@@ -26,11 +26,16 @@ public class DealScoringService
     private const string SystemJsonPrompt =
         "Bạn là trưởng phòng kinh doanh giàu kinh nghiệm, đánh giá khả năng CHỐT (thắng deal) của cơ hội bán hàng tour. " +
         "Căn cứ HÀNH ĐỘNG của Sale: mức độ tương tác, lần chăm sóc gần nhất, tiến triển qua các trạng thái, " +
-        "phản hồi của khách, giá trị deal và độ trễ. CHỈ trả JSON thuần (bắt đầu '{'), KHÔNG markdown, KHÔNG giải thích ngoài JSON. Tiếng Việt.";
+        "phản hồi của khách, giá trị deal và độ trễ. " +
+        "Giọng văn TỰ NHIÊN, thẳng thắn như đang brief nhanh cho Sale — KHÔNG máy móc, KHÔNG liệt kê công thức, " +
+        "KHÔNG lộ quy tắc/nhãn nội bộ (không nhắc 'BƯỚC', 'theo luật', 'CAP'). " +
+        "CHỈ trả JSON thuần (bắt đầu '{'), KHÔNG markdown, KHÔNG giải thích ngoài JSON. Tiếng Việt.";
 
     private const string SystemNativeTool =
         "Bạn là trưởng phòng kinh doanh giàu kinh nghiệm, đánh giá khả năng CHỐT của cơ hội bán tour. " +
         "Căn cứ hành động Sale: tương tác, chăm sóc, tiến triển, phản hồi khách, giá trị deal, độ trễ. " +
+        "Giọng văn TỰ NHIÊN, thẳng thắn như brief nhanh cho Sale — KHÔNG máy móc/liệt kê công thức, " +
+        "KHÔNG lộ quy tắc hay nhãn nội bộ (không nhắc 'BƯỚC', 'theo luật', 'CAP'). " +
         "Gọi tool submit_deal_score với kết quả. Tiếng Việt.";
 
     public DealScoringService(ProviderRegistry registry, AiResponseCache cache,
@@ -222,8 +227,13 @@ BƯỚC 5 — CAP CHẤT LƯỢNG DỮ LIỆU (áp SAU cùng):
 ═══ LEVEL AUTO-DERIVE ═══
   cao (winRate ≥ 60) · trung_binh (35-59) · thap (<35)
 
-═══ QUY ƯỚC OUTPUT ═══
-  • reason: 1 câu nêu BƯỚC nào trúng (VD: 'BƯỚC 1 — Trạng thái Chốt đơn: deal đã thắng, cần xác nhận cọc và triển khai')
+═══ QUY ƯỚC OUTPUT (GIỌNG CHUYÊN GIA, KHÔNG MÁY MÓC) ═══
+  • Các 'BƯỚC 1..5' ở trên CHỈ là logic nội bộ để bạn CHỌN winRate — TUYỆT ĐỐI KHÔNG nhắc 'BƯỚC',
+    'theo luật', 'CAP', 'quy tắc' trong output. Sale đọc cái này, họ chỉ cần nhận định thẳng.
+  • reason: 1 câu TỰ NHIÊN như trưởng phòng sale nói nhanh — nêu đúng lý do cốt lõi, KHÔNG lộ nhãn nội bộ.
+    ĐÚNG: 'Deal đã chốt, giờ chỉ cần xác nhận cọc và lên lịch triển khai.'
+    ĐÚNG: 'Khách im 15 ngày, giá trị lại 0đ — nguội rồi, phải gọi ngay không mất.'
+    SAI (cấm): 'BƯỚC 1 — Trạng thái Chốt đơn: ...', 'CAP winRate do dữ liệu test'
   • signals: 1-3 tín hiệu TÍCH CỰC bằng ngôn ngữ tự nhiên (VD 'Khách VIP đã đi 5 tour, có lòng tin', 'Sale phản hồi khách trong 24h')
   • risks: 1-3 rủi ro làm tuột deal (VD 'Sale chưa liên hệ khách 15 ngày', 'Giá trị deal 0đ, chưa xác định ngân sách')
   • nextAction: 1 việc CỤ THỂ Sale làm HÔM NAY, không chung chung
