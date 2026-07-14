@@ -1,9 +1,10 @@
 using System.Collections.Concurrent;
 using System.Globalization;
 using System.Text.Json;
-using TourkitAiProxy.Models;              // ActionExecuteRequest, ActionResult, ActionChoice, ChatData
+using TourkitAiProxy.Models;              // ActionExecuteRequest, ActionResult, ActionChoice, ChatData, MailItem, MailDraft
 using TourkitAiProxy.Services.Crm;        // CrmActionQueueRepository, CrmActionInput, CrmActionKind
 using TourkitAiProxy.Services.Deals;      // DealOpportunityClient, DealScoringService, DealRepository
+using TourkitAiProxy.Services.Mail;       // MailSyncService, IMailSender, MailRepository, MailAccountStore, MailTaxonomy
 using TourkitAiProxy.Services.Reviews;    // ReviewService
 using TourkitAiProxy.Services.TourKit;    // TourKitCustomerSource
 
@@ -12,7 +13,10 @@ namespace TourkitAiProxy.Services.Chat;
 /// Thực thi 1 hành động đã xác nhận. Định tuyến theo ActionKind (tra ActionTools.Find).
 /// Task 8a: nhánh CrmQueue (assign_task / create_appointment). Task 8b: nhánh Internal
 /// (review_customer / score_deal) — reuse NGUYÊN ReviewService/DealScoringService, KHÔNG
-/// reimplement prompt/parse. Mail vẫn throw NotImplementedException("8b") — task 8c.
+/// reimplement prompt/parse. Task 8c: nhánh Mail (check_mail / send_mail_reply / compose_mail)
+/// — reuse NGUYÊN MailSyncService/IMailSender/MailRepository/MailAccountStore, KHÔNG reimplement
+/// IMAP/SMTP. Soạn nháp reply/compose (AI) là việc của proposal phase (task khác) — ở đây chỉ GỬI
+/// text đã có sẵn trong params.
 public class ActionExecutor
 {
     private readonly CrmActionQueueRepository _crmQueue;
@@ -22,24 +26,38 @@ public class ActionExecutor
     private readonly DealOpportunityClient _dealClient;
     private readonly DealScoringService _dealScoring;
     private readonly DealRepository _dealRepo;
+    private readonly MailSyncService _mailSync;
+    private readonly IMailSender _mailSender;
+    private readonly MailRepository _mailRepo;
+    private readonly MailAccountStore _mailAccount;
     private readonly AiCallContext _aiCtx;
     private readonly ILogger<ActionExecutor> _log;
 
+    /// Message chuẩn khi tenant/user chưa cấu hình hộp thư Gmail — mirror GmailImapClient để UX nhất quán.
+    private const string MailNotConfiguredMessage =
+        "Chưa cấu hình hộp thư Gmail. Nhập địa chỉ + App Password (16 ký tự) ở phần Cấu hình hộp thư.";
+
+    /// Cap mặc định/tối đa khi sync cho check_mail — mirror MailEndpoints.SyncMaxDefault/SyncMaxAbsolute.
+    private const int MailSyncDefaultLimit = 100;
+    private const int MailSyncMaxLimit = 500;
+
     /// Chống thực thi trùng khi user bấm "Xác nhận" 2 lần / SSE retry gửi lại cùng actionId.
-    /// Chỉ cache khi ENQUEUE thành công — kết quả "không tìm thấy/mơ hồ" KHÔNG cache để user
-    /// sửa tên rồi thử lại với cùng actionId vẫn re-resolve được. review_customer/score_deal
-    /// KHÔNG dùng cache này — chấm lại luôn cho info tươi, không phải "enqueue" cần dedup.
+    /// Chỉ cache khi ENQUEUE/GỬI thành công — kết quả "không tìm thấy/mơ hồ" KHÔNG cache để user
+    /// sửa tên rồi thử lại với cùng actionId vẫn re-resolve được. review_customer/score_deal/check_mail
+    /// KHÔNG dùng cache này — chấm/kiểm tra lại luôn cho info tươi, không phải "gửi" cần dedup.
     private static readonly ConcurrentDictionary<string, ActionResult> _done = new();
 
     public ActionExecutor(
         CrmActionQueueRepository crmQueue, ActionResolver resolver,
         TourKitCustomerSource customerSource, ReviewService reviewService,
         DealOpportunityClient dealClient, DealScoringService dealScoring, DealRepository dealRepo,
+        MailSyncService mailSync, IMailSender mailSender, MailRepository mailRepo, MailAccountStore mailAccount,
         AiCallContext aiCtx, ILogger<ActionExecutor> log)
     {
         _crmQueue = crmQueue; _resolver = resolver;
         _customerSource = customerSource; _reviewService = reviewService;
         _dealClient = dealClient; _dealScoring = dealScoring; _dealRepo = dealRepo;
+        _mailSync = mailSync; _mailSender = mailSender; _mailRepo = mailRepo; _mailAccount = mailAccount;
         _aiCtx = aiCtx; _log = log;
     }
 
@@ -101,7 +119,7 @@ public class ActionExecutor
             case ActionKind.Internal:
                 return await ExecuteInternalAsync(req, tenantId, jwt, sessionId, ct);
             case ActionKind.Mail:
-                throw new NotImplementedException("8b"); // mail — task 8c
+                return await ExecuteMailAsync(req, tenantId, username, sessionId, ct);
             default:
                 throw new InvalidOperationException($"Unhandled kind {tool.Kind}");
         }
@@ -246,6 +264,176 @@ public class ActionExecutor
             Focus: null);
 
         return new ActionResult(req.Action, summary, data);
+    }
+
+    // ─── Mail (check_mail / send_mail_reply / compose_mail) ───────────────────────
+
+    private async Task<ActionResult> ExecuteMailAsync(
+        ActionExecuteRequest req, string tenantId, string username, string? sessionId, CancellationToken ct)
+        => req.Action.ToLowerInvariant() switch
+        {
+            "check_mail"      => await ExecuteCheckMailAsync(req, tenantId, username, sessionId, ct),
+            "send_mail_reply" => await ExecuteSendMailReplyAsync(req, tenantId, username, ct),
+            "compose_mail"    => await ExecuteComposeMailAsync(req, tenantId, username, ct),
+            _ => throw new InvalidOperationException($"Unhandled Mail action: {req.Action}")
+        };
+
+    /// check_mail: KHÔNG cache theo ActionId (info tươi mỗi lần hỏi) + KHÔNG NeedsConfirm (xem ActionTools).
+    /// Sync Gmail (MailSyncService — IMAP fetch + classify mail MỚI, dùng chung với endpoint/workflow)
+    /// rồi tóm tắt các mail vừa phân loại theo nhóm. Classifier gọi AI → bọc AiCallContext.Push để
+    /// trừ quota tenant + log đúng feature "assistant-action" (path /assistant/action/execute không
+    /// tự match FeatureFromPath → sẽ rơi "other" nếu không Push, giống review_customer/score_deal).
+    private async Task<ActionResult> ExecuteCheckMailAsync(
+        ActionExecuteRequest req, string tenantId, string username, string? sessionId, CancellationToken ct)
+    {
+        if (!_mailAccount.IsConfigured(tenantId, username))
+            return new ActionResult(req.Action, MailNotConfiguredMessage);
+
+        var p = req.Params ?? new Dictionary<string, object?>();
+        var fetchCap = Math.Clamp(Int(p, "limit") ?? MailSyncDefaultLimit, 1, MailSyncMaxLimit);
+
+        MailSyncResult sync;
+        try
+        {
+            using (_aiCtx.Push(AiFeatures.AssistantAction, tenantId, sessionId))
+            {
+                sync = await _mailSync.RunAsync(tenantId, username, fetchCap, ct);
+            }
+        }
+        catch (InvalidOperationException ex)   // chưa cấu hình (race hiếm — vừa check ở trên vẫn có thể đổi)
+        {
+            return new ActionResult(req.Action, ex.Message);
+        }
+        catch (Exception ex)
+        {
+            _log.LogError(ex, "[ActionExecutor] check_mail tenant={Tenant} user={User} lỗi IMAP", tenantId, username);
+            return new ActionResult(req.Action, "Không kết nối được hộp thư: " + ex.Message);
+        }
+
+        var newMails = sync.NewMails ?? Array.Empty<MailItem>();
+        var counts = _mailRepo.Counts(tenantId);
+
+        _log.LogInformation(
+            "[ActionExecutor] check_mail tenant={Tenant} user={User} fetched={Fetched} new={New} unread={Unread}",
+            tenantId, username, sync.Fetched, newMails.Count, counts.Unread);
+
+        string summary;
+        if (newMails.Count == 0)
+        {
+            summary = counts.Unread > 0
+                ? $"Không có mail mới. Hộp thư hiện còn {counts.Unread} mail chưa đọc."
+                : "Không có mail mới.";
+        }
+        else
+        {
+            var byCat = newMails
+                .GroupBy(m => MailTaxonomy.Categories.TryGetValue(m.Category ?? "khac", out var lbl) ? lbl : "Khác")
+                .OrderByDescending(g => g.Count())
+                .Select(g => $"{g.Count()} {g.Key.ToLowerInvariant()}");
+            summary = $"Có {newMails.Count} mail mới: {string.Join(", ", byCat)}.";
+        }
+
+        var data = new ChatData(
+            Kind: "mail-list",
+            Title: "Mail mới",
+            Raw: JsonSerializer.SerializeToElement(newMails),
+            Stats: new List<ChatStat>(),
+            Focus: null);
+
+        return new ActionResult(req.Action, summary, data);
+    }
+
+    /// send_mail_reply: gửi text ĐÃ SOẠN SẴN (từ proposal phase — task khác) tới người gửi gốc, threading
+    /// qua In-Reply-To (IMailSender.SendReplyAsync — mirror POST /mail/{id}/reply/send). Thành công →
+    /// SetDraft (lưu nội dung đã gửi) + status "da_phan_hoi" + cache theo ActionId (chống gửi trùng khi
+    /// double-confirm). Thất bại SMTP → trả message lỗi, KHÔNG throw, KHÔNG đổi status.
+    private async Task<ActionResult> ExecuteSendMailReplyAsync(
+        ActionExecuteRequest req, string tenantId, string username, CancellationToken ct)
+    {
+        if (_done.TryGetValue(req.ActionId, out var cached)) return cached;
+
+        if (!_mailAccount.IsConfigured(tenantId, username))
+            return new ActionResult(req.Action, MailNotConfiguredMessage);
+
+        var p = req.Params ?? new Dictionary<string, object?>();
+        var mailId = Str(p, "mailId");
+        var replyText = Str(p, "replyText");
+
+        if (string.IsNullOrWhiteSpace(mailId))
+            return new ActionResult(req.Action, "Thiếu mailId để trả lời.");
+        if (string.IsNullOrWhiteSpace(replyText))
+            return new ActionResult(req.Action, "Nội dung trả lời rỗng.");
+
+        var mail = _mailRepo.Get(tenantId, mailId);
+        if (mail is null)
+            return new ActionResult(req.Action, $"Không tìm thấy email #{mailId}.");
+
+        try
+        {
+            await _mailSender.SendReplyAsync(tenantId, username, mail, replyText, ct);
+        }
+        catch (InvalidOperationException ex)
+        {
+            return new ActionResult(req.Action, "Gửi email lỗi: " + ex.Message);
+        }
+        catch (Exception ex)
+        {
+            _log.LogError(ex, "[ActionExecutor] send_mail_reply tenant={Tenant} mailId={Id} lỗi SMTP", tenantId, mailId);
+            return new ActionResult(req.Action, "Gửi email lỗi: " + ex.Message);
+        }
+
+        var draft = new MailDraft(
+            mail.Draft?.Tone ?? "lich_su", mail.Draft?.Instruction, replyText, DateTime.UtcNow.ToString("o"));
+        _mailRepo.SetDraft(tenantId, mailId, draft, status: "da_phan_hoi");
+
+        _log.LogInformation(
+            "[ActionExecutor] send_mail_reply tenant={Tenant} user={User} mailId={Id} OK", tenantId, username, mailId);
+
+        var result = new ActionResult(req.Action, "✅ Đã gửi cho khách.");
+        _done[req.ActionId] = result;
+        return result;
+    }
+
+    /// compose_mail: gửi email MỚI (text đã soạn sẵn từ proposal phase) tới người nhận bất kỳ qua SMTP
+    /// (IMailSender.SendAsync — mirror POST /mail/compose/send). Cache theo ActionId chống gửi trùng.
+    private async Task<ActionResult> ExecuteComposeMailAsync(
+        ActionExecuteRequest req, string tenantId, string username, CancellationToken ct)
+    {
+        if (_done.TryGetValue(req.ActionId, out var cached)) return cached;
+
+        if (!_mailAccount.IsConfigured(tenantId, username))
+            return new ActionResult(req.Action, MailNotConfiguredMessage);
+
+        var p = req.Params ?? new Dictionary<string, object?>();
+        var to = Str(p, "to");
+        var subject = Str(p, "subject") ?? "";
+        var text = Str(p, "text");
+
+        if (string.IsNullOrWhiteSpace(to))
+            return new ActionResult(req.Action, "Thiếu người nhận.");
+        if (string.IsNullOrWhiteSpace(text))
+            return new ActionResult(req.Action, "Nội dung email rỗng.");
+
+        try
+        {
+            await _mailSender.SendAsync(tenantId, username, to.Trim(), null, subject, text, null, ct);
+        }
+        catch (InvalidOperationException ex)
+        {
+            return new ActionResult(req.Action, "Gửi email lỗi: " + ex.Message);
+        }
+        catch (Exception ex)
+        {
+            _log.LogError(ex, "[ActionExecutor] compose_mail tenant={Tenant} to={To} lỗi SMTP", tenantId, to);
+            return new ActionResult(req.Action, "Gửi email lỗi: " + ex.Message);
+        }
+
+        _log.LogInformation(
+            "[ActionExecutor] compose_mail tenant={Tenant} user={User} to={To} OK", tenantId, username, to);
+
+        var result = new ActionResult(req.Action, "✅ Đã gửi email.");
+        _done[req.ActionId] = result;
+        return result;
     }
 
     private async Task<ActionResult> ExecuteCrmQueueAsync(
