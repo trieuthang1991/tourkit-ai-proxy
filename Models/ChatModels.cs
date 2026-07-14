@@ -127,4 +127,4 @@ public record ActionExecuteRequest(
 /// KHÔNG re-resolve theo tên (tránh lặp vô hạn khi nhiều bản ghi trùng tên).
 public record ActionResolveRequest(
     string ActionId, string Action, Dictionary<string, object?> Params,
-    string Field, string ChosenId);
+    string Field, string ChosenId, string? ChosenLabel = null, string? ChosenHint = null);

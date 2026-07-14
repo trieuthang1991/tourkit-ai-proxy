@@ -68,6 +68,8 @@ public class NativeToolUseAgent : IAgentRuntime
         "PHÂN TÍCH phải có: (a) số chính + xu hướng; (b) so sánh nếu có 2 bộ số; (c) 1-2 đề xuất hành động. " +
         "Dùng thuật ngữ tiếng Việt thuần (doanh thu/chi phí/lợi nhuận/khách hàng); KHÔNG dùng tên trường Anh (revenue/expense...) hoặc Id. " +
         "KHÔNG dùng markdown (không **, ##, *, _, ``` — văn bản thuần). Xuống dòng giữa các đoạn bằng dòng trống. " +
+        "TUYỆT ĐỐI KHÔNG viết tiếng Anh và KHÔNG kể lể quá trình suy nghĩ/các bước (vd 'Let me...', 'Step 1', 'First I will', 'I'll check...') — " +
+        "chỉ xuất KẾT QUẢ cuối cùng bằng tiếng Việt, KHÔNG thuật lại việc đang gọi tool nào. " +
         "Chỉ trả lời thẳng KHÔNG gọi tool nếu là lời chào hoặc câu hỏi về cách dùng trợ lý."
         + ChatGlossary.AnalysisBlock;
 

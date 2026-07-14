@@ -76,6 +76,10 @@ public static class AssistantActionEndpoints
                         break;
                     case "customer":
                         p["customerResolvedId"] = req.ChosenId;
+                        // Mang tên thật + SĐT (hint) của khách ĐÃ CHỌN theo — để lịch hẹn có customerPhone
+                        // (app yêu cầu SĐT hợp lệ) mà KHÔNG phải lookup lại theo id.
+                        if (!string.IsNullOrWhiteSpace(req.ChosenLabel)) p["customerName"] = req.ChosenLabel;
+                        if (ChatAgentService.LooksLikePhone(req.ChosenHint)) p["customerPhone"] = req.ChosenHint;
                         break;
                     case "deal":
                         p["dealResolvedId"] = req.ChosenId;

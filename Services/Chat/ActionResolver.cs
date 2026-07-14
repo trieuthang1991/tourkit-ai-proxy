@@ -72,11 +72,34 @@ public class ActionResolver
             {
                 if (!TryGetId(it, "id", out var id)) continue;
                 var full = GetStr(it, "fullName");
-                if (string.IsNullOrWhiteSpace(full) || !TokenSubsetMatch(name, full!)) continue;
-                candidates.Add((id, full!, GetStr(it, "phone") ?? GetStr(it, "email")));
+                // Khớp theo tên (token-subset) HOẶC theo MÃ/định danh khác: user có thể nhập "KH_00041133"
+                // (mã KH) hoặc SĐT — model đưa vào customerName/customerId. Server đã filter, ta match thêm
+                // exact (không dấu, case-insensitive) trên MỌI field chuỗi (code/phone/email…) để bắt đúng.
+                var matches = (!string.IsNullOrWhiteSpace(full) && TokenSubsetMatch(name, full!))
+                    || AnyFieldExactMatch(it, name);
+                if (!matches) continue;
+                candidates.Add((id, string.IsNullOrWhiteSpace(full) ? name : full!,
+                    GetStr(it, "phone") ?? GetStr(it, "email") ?? GetStr(it, "code")));
             }
 
         return Pick(candidates);
+    }
+
+    /// So khớp query với BẤT KỲ field chuỗi nào của item theo exact (chuẩn hóa không dấu, bỏ khoảng
+    /// trắng, case-insensitive) — dùng để bắt mã KH ("KH_00041133"), SĐT, email khi user/model không đưa
+    /// tên. Chỉ exact để tránh false-positive (không dùng contains).
+    private static bool AnyFieldExactMatch(JsonElement it, string query)
+    {
+        if (it.ValueKind != JsonValueKind.Object) return false;
+        var q = Norm(query).Replace(" ", "");
+        if (q.Length == 0) return false;
+        foreach (var p in it.EnumerateObject())
+        {
+            if (p.Value.ValueKind != JsonValueKind.String) continue;
+            var v = Norm(p.Value.GetString() ?? "").Replace(" ", "");
+            if (v.Length > 0 && v == q) return true;
+        }
+        return false;
     }
 
     /// Tên nhân viên → employeeId (staffId). Nguồn: /api/ai/employee-performance?employeeName={name}
@@ -198,7 +221,7 @@ public class ActionResolver
     private static ResolveOutcome Pick(List<(int Id, string Label, string? Hint)> candidates)
     {
         if (candidates.Count == 0) return new ResolveOutcome(null, null);
-        if (candidates.Count == 1) return new ResolveOutcome(candidates[0].Id, candidates[0].Label);
+        if (candidates.Count == 1) return new ResolveOutcome(candidates[0].Id, candidates[0].Label, Hint: candidates[0].Hint);
         var choices = candidates
             .Select(c => new ActionChoice(c.Id.ToString(), c.Label, c.Hint))
             .ToList();
@@ -224,7 +247,7 @@ public class ActionResolver
         => PropCI(el, name, out var v) && v.ValueKind == JsonValueKind.String ? v.GetString() : null;
 }
 
-public record ResolveOutcome(int? Id, string? Label, List<ActionChoice>? Ambiguous = null);
+public record ResolveOutcome(int? Id, string? Label, List<ActionChoice>? Ambiguous = null, string? Hint = null);
 
 /// 1 nhân viên cho dropdown "Người phụ trách" (ActionResolver.ListStaffAsync).
 public record StaffCandidate(int Id, string Name, string? Hint);

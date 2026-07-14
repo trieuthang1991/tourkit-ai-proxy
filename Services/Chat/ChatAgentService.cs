@@ -472,6 +472,13 @@ public class ChatAgentService
             };
         }
 
+        // Run-through action (review_customer/score_deal) cần resolve tên→id: nếu tên mơ hồ (nhiều bản
+        // ghi trùng) thì PHÁT action-clarify (choices mang id ẩn) thay vì để ActionExecutor nuốt vào 1
+        // câu text bế tắc "nói rõ hơn" (user không có mã đơn/họ tên đầy đủ → kẹt). Đơn khớp → inject
+        // *ResolvedId vào params để executor dùng thẳng (khỏi resolve lần 2). Đã có id sẵn → bỏ qua.
+        var clarify = await MaybeClarifyRunThroughAsync(action, paramsDict, jwt, ct);
+        if (clarify != null) return clarify;
+
         var execReq = new ActionExecuteRequest(
             ActionId: Guid.NewGuid().ToString("N"),
             Action:   action,
@@ -481,6 +488,79 @@ public class ChatAgentService
 
         var result = await _exec.ExecuteAsync(execReq, tenantId, jwt, username, sessionId, ct);
         return new ActionResultEnvelope("action-result", result);
+    }
+
+    /// review_customer/score_deal: resolve tên→id TRƯỚC khi execute để phát hiện sớm tên mơ hồ.
+    /// Trả về:
+    ///   - action-clarify envelope (mơ hồ, nhiều bản ghi) → short-circuit, user chọn qua /action/resolve
+    ///     (Field "customer"/"deal" khớp switch endpoint → inject customerResolvedId/dealResolvedId).
+    ///   - action-result "không tìm thấy" envelope → short-circuit.
+    ///   - null → tiếp tục execute (đã có id sẵn, không có tên để resolve, hoặc đơn khớp — id đã được
+    ///     inject vào paramsDict để executor dùng thẳng, khỏi gọi resolver lần 2).
+    private async Task<object?> MaybeClarifyRunThroughAsync(
+        string action, Dictionary<string, object?> p, string jwt, CancellationToken ct)
+    {
+        switch (action.ToLowerInvariant())
+        {
+            case "review_customer":
+            {
+                if (!string.IsNullOrWhiteSpace(ActionExecutor.Str(p, "customerResolvedId")))
+                    return null;
+                // customerId chỉ dùng THẲNG khi là ID nội bộ thật (số nguyên nhỏ). Nếu model nhét MÃ KH
+                // ("KH_00041133"), SĐT ("0982385108") hay tên vào customerId → coi như query cần resolve.
+                var customerIdRaw = ActionExecutor.Str(p, "customerId");
+                if (IsPlainInternalId(customerIdRaw)) return null;
+                var query = !string.IsNullOrWhiteSpace(customerIdRaw) ? customerIdRaw
+                          : ActionExecutor.Str(p, "customerName");
+                if (string.IsNullOrWhiteSpace(query)) return null;   // executor sẽ báo thiếu thông tin
+                var outcome = await _resolver.ResolveCustomerAsync(jwt, query!, ct);
+                return ApplyRunThroughResolve(action, p, "customerResolvedId", "customer", outcome,
+                    ambiguousQ: $"\"{query}\" khớp nhiều khách, bạn muốn đánh giá ai?",
+                    notFound: $"Không tìm thấy khách hàng khớp \"{query}\".");
+            }
+            case "score_deal":
+            {
+                if (!string.IsNullOrWhiteSpace(ActionExecutor.Str(p, "dealResolvedId")))
+                    return null;
+                var dealIdRaw = ActionExecutor.Str(p, "dealId");
+                if (IsPlainInternalId(dealIdRaw)) return null;
+                var query = !string.IsNullOrWhiteSpace(dealIdRaw) ? dealIdRaw
+                          : ActionExecutor.Str(p, "dealQuery");
+                if (string.IsNullOrWhiteSpace(query)) return null;   // executor sẽ báo thiếu thông tin
+                var outcome = await _resolver.ResolveDealAsync(jwt, query!, ct);
+                return ApplyRunThroughResolve(action, p, "dealResolvedId", "deal", outcome,
+                    ambiguousQ: $"\"{query}\" khớp nhiều cơ hội, bạn muốn chấm cơ hội nào?",
+                    notFound: $"Không tìm thấy cơ hội bán hàng khớp \"{query}\".");
+            }
+            default:
+                return null;
+        }
+    }
+
+    /// Chuyển ResolveOutcome → envelope short-circuit (clarify/not-found) HOẶC inject id đơn khớp vào
+    /// params rồi trả null (tiếp tục execute). resolvedKey = key executor honor; field = key /resolve nhận.
+    private object? ApplyRunThroughResolve(
+        string action, Dictionary<string, object?> p, string resolvedKey, string field,
+        ResolveOutcome outcome, string ambiguousQ, string notFound)
+    {
+        if (outcome.Ambiguous is { Count: > 0 } choices)
+            return ClarifyEnvelope(Guid.NewGuid().ToString("N"), action, ambiguousQ, choices, p, field);
+        if (outcome.Id is null)
+            return NotFoundEnvelope(action, notFound);
+        p[resolvedKey] = outcome.Id.Value.ToString(CultureInfo.InvariantCulture);
+        return null;
+    }
+
+    /// "ID nội bộ thật" = số nguyên dương THUẦN, dài ≤ 8 chữ số, KHÔNG dẫn đầu bằng 0. Dùng để phân biệt
+    /// id CRM (vd 15878) với MÃ KH ("KH_00041133"), SĐT ("0982385108", 10 số dẫn đầu 0) hay tên — những
+    /// thứ này model hay nhét nhầm vào customerId/dealId nhưng cần resolve, không dùng thẳng làm id.
+    private static bool IsPlainInternalId(string? s)
+    {
+        s = (s ?? "").Trim();
+        if (s.Length == 0 || s.Length > 8) return false;
+        if (s[0] == '0') return false;
+        foreach (var c in s) if (c < '0' || c > '9') return false;
+        return true;
     }
 
     // ─── Proposal builders (Task 10b) — resolve tên→id qua ActionResolver, (mail) soạn draft AI buffered,
@@ -508,6 +588,25 @@ public class ChatAgentService
         new("cao", "Cao"),
         new("tb", "Trung bình"),
         new("thap", "Thấp"),
+    };
+
+    /// Loại lịch (TypeSchedule bên TourKit.Api) — bỏ 3=Công việc (đó là assign_task).
+    private static readonly List<ActionOption> ScheduleTypeOptions = new()
+    {
+        new("0", "Lịch hẹn"),
+        new("1", "Lịch tour"),
+        new("2", "Nhắc thanh toán"),
+        new("4", "Hạn thanh toán"),
+    };
+
+    /// Nhắc trước (phút) — AppointmentReminder.
+    private static readonly List<ActionOption> ReminderOptions = new()
+    {
+        new("0", "Không nhắc"),
+        new("15", "15 phút trước"),
+        new("30", "30 phút trước"),
+        new("60", "1 giờ trước"),
+        new("1440", "1 ngày trước"),
     };
 
     /// Chuẩn hóa chuỗi ưu tiên thô (từ planner, có thể "cao"/"high"/"trung bình"/rỗng…) về đúng 1 trong
@@ -545,6 +644,23 @@ public class ChatAgentService
         return local.TimeOfDay == TimeSpan.Zero
             ? local.ToString("dd-MM-yyyy", CultureInfo.InvariantCulture)
             : local.ToString("dd-MM-yyyy HH:mm", CultureInfo.InvariantCulture);
+    }
+
+    /// Cộng N giờ vào chuỗi datetime-local "yyyy-MM-ddTHH:mm" → giữ nguyên định dạng local. Parse fail → "".
+    internal static string AddHoursToDtInput(string? input, int hours)
+    {
+        if (string.IsNullOrWhiteSpace(input)) return "";
+        if (!DateTime.TryParse(input, CultureInfo.InvariantCulture, DateTimeStyles.None, out var dt)) return "";
+        return dt.AddHours(hours).ToString("yyyy-MM-ddTHH:mm", CultureInfo.InvariantCulture);
+    }
+
+    /// Heuristic: chuỗi có "dáng" số điện thoại (≥8 chữ số, chỉ chứa số/+/-/space/()) — để lọc Hint resolver
+    /// (phone ?? email) chỉ lấy khi đúng là SĐT, tránh nhét email vào field customerPhone.
+    internal static bool LooksLikePhone(string? s)
+    {
+        if (string.IsNullOrWhiteSpace(s)) return false;
+        var digits = s.Count(char.IsDigit);
+        return digits >= 8 && s.All(c => char.IsDigit(c) || c is '+' or '-' or ' ' or '(' or ')');
     }
 
     private async Task<object> BuildAssignTaskProposalAsync(
@@ -636,9 +752,8 @@ public class ChatAgentService
         var endTime = ActionExecutor.Str(p, "endTime");
 
         string customerLabel;
-        // Đã chọn ở action-clarify trước đó (POST /assistant/action/resolve) → id đã chọn nằm trong
-        // "customerResolvedId", dùng THẲNG, KHÔNG re-resolve theo "customerName" gốc (tránh lặp vô hạn
-        // khi nhiều KH trùng tên).
+        var customerPhone = ActionExecutor.Str(p, "customerPhone");
+        // Đã chọn ở action-clarify trước đó → dùng THẲNG customerResolvedId, KHÔNG re-resolve.
         var customerResolvedId = ActionExecutor.Str(p, "customerResolvedId");
         var customerIdParam = ActionExecutor.Str(p, "customerId");
         var customerName = ActionExecutor.Str(p, "customerName");
@@ -646,36 +761,89 @@ public class ChatAgentService
         {
             customerLabel = customerName ?? $"KH #{customerResolvedId}";
         }
-        else if (!string.IsNullOrWhiteSpace(customerIdParam))
+        else if (IsPlainInternalId(customerIdParam))
         {
             customerLabel = customerName ?? $"KH #{customerIdParam}";
         }
-        else if (!string.IsNullOrWhiteSpace(customerName))
-        {
-            var outcome = await _resolver.ResolveCustomerAsync(jwt, customerName, ct);
-            if (outcome.Ambiguous is { Count: > 0 })
-                return ClarifyEnvelope(actionId, "create_appointment",
-                    $"Tên khách hàng \"{customerName}\" khớp nhiều người, bạn chọn ai?", outcome.Ambiguous, p, "customer");
-            if (outcome.Id is null)
-                return NotFoundEnvelope("create_appointment", $"Không tìm thấy khách hàng tên \"{customerName}\".");
-            customerLabel = outcome.Label ?? customerName;
-        }
         else
         {
-            return NotFoundEnvelope("create_appointment", "Thiếu thông tin khách hàng để tạo lịch hẹn.");
+            // KH cần SĐT hợp lệ (app yêu cầu). query = customerId nếu là SĐT/mã, HOẶC customerName —
+            // resolve qua /api/ai/customers?filter (AnyFieldExactMatch khớp cả SĐT/mã) → lấy id + SĐT thật.
+            var query = !string.IsNullOrWhiteSpace(customerIdParam) ? customerIdParam! : customerName;
+            if (string.IsNullOrWhiteSpace(query))
+                return NotFoundEnvelope("create_appointment", "Thiếu thông tin khách hàng (tên hoặc SĐT) để tạo lịch hẹn.");
+            var outcome = await _resolver.ResolveCustomerAsync(jwt, query!, ct);
+            if (outcome.Ambiguous is { Count: > 0 })
+                return ClarifyEnvelope(actionId, "create_appointment",
+                    $"\"{query}\" khớp nhiều khách, bạn chọn ai để đặt lịch?", outcome.Ambiguous, p, "customer");
+            if (outcome.Id is null)
+                return NotFoundEnvelope("create_appointment", $"Không tìm thấy khách hàng khớp \"{query}\".");
+            customerLabel = outcome.Label ?? query!;
+            // Inject id + tên thật + SĐT (từ Hint) → execute dùng thẳng, và payload có customerPhone.
+            p["customerResolvedId"] = outcome.Id.Value.ToString(CultureInfo.InvariantCulture);
+            p["customerName"] = customerLabel;
+            if (string.IsNullOrWhiteSpace(customerPhone) && LooksLikePhone(outcome.Hint))
+                customerPhone = outcome.Hint;
         }
+        if (!string.IsNullOrWhiteSpace(customerPhone)) p["customerPhone"] = customerPhone;
+
+        // Người phụ trách (InsUid): nếu model nêu tên NV → resolve (mơ hồ = clarify). Dropdown toàn NV để sửa.
+        var staffResolvedIdsRaw = ActionExecutor.Str(p, "staffResolvedIds");
+        var staffNameRaw = ActionExecutor.Str(p, "staffName") ?? ActionExecutor.Str(p, "staffNames");
+        string? assigneeId = null;
+        if (!string.IsNullOrWhiteSpace(staffResolvedIdsRaw))
+            assigneeId = staffResolvedIdsRaw.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries).FirstOrDefault();
+        else if (!string.IsNullOrWhiteSpace(staffNameRaw))
+        {
+            var outcome = await _resolver.ResolveStaffAsync(jwt, staffNameRaw, ct);
+            if (outcome.Ambiguous is { Count: > 0 })
+                return ClarifyEnvelope(actionId, "create_appointment",
+                    $"Tên nhân viên \"{staffNameRaw}\" khớp nhiều người, ai phụ trách lịch hẹn này?", outcome.Ambiguous, p, "staff");
+            if (outcome.Id is { } sid) assigneeId = sid.ToString(CultureInfo.InvariantCulture);
+        }
+        var staffOptions = (await _resolver.ListStaffAsync(jwt, ct))
+            .Select(s => new ActionOption(s.Id.ToString(CultureInfo.InvariantCulture),
+                s.Hint != null ? $"{s.Name} ({s.Hint})" : s.Name))
+            .ToList();
+        var assigneeValue = !string.IsNullOrWhiteSpace(assigneeId) ? assigneeId!
+            : (staffOptions.Count > 0 ? staffOptions[0].Value : "");
+
+        var scheduleType = ActionExecutor.Str(p, "typeSchedule");
+        if (string.IsNullOrWhiteSpace(scheduleType) || ScheduleTypeOptions.All(o => o.Value != scheduleType))
+            scheduleType = "0";
+        var reminder = ActionExecutor.Str(p, "reminderMinutes");
+        if (string.IsNullOrWhiteSpace(reminder) || ReminderOptions.All(o => o.Value != reminder))
+            reminder = "0";
+
+        // Kết thúc RỖNG → mặc định = Bắt đầu + 1 tiếng (khớp thói quen đặt lịch CSKH).
+        var startInput = NormalizeDtForInput(startTime);
+        var endInput = NormalizeDtForInput(endTime);
+        if (string.IsNullOrWhiteSpace(endInput) && !string.IsNullOrWhiteSpace(startInput))
+            endInput = AddHoursToDtInput(startInput, 1);
 
         var fields = new List<ActionField>
         {
             new("careTitle", "Tiêu đề", careTitle, "text"),
             new("careDetail", "Chi tiết", careDetail, "textarea"),
-            new("startTime", "Bắt đầu", NormalizeDtForInput(startTime), "datetime"),
-            new("endTime", "Kết thúc", NormalizeDtForInput(endTime), "datetime"),
+            new("customerName", "Khách hàng", customerLabel, "text"),
+            new("customerPhone", "SĐT khách", customerPhone ?? "", "text"),
+            new("staffResolvedIds", "Người phụ trách", assigneeValue, "select", staffOptions),
+            new("typeSchedule", "Loại lịch", scheduleType, "select", ScheduleTypeOptions),
+            new("startTime", "Bắt đầu", startInput, "datetime"),
+            new("endTime", "Kết thúc", endInput, "datetime"),
+            new("reminderMinutes", "Nhắc trước", reminder, "select", ReminderOptions),
         };
-        var summary = $"Đặt lịch hẹn với {customerLabel}: {careTitle}"
-            + (string.IsNullOrWhiteSpace(startTime) ? "" : $", lúc {FormatDtDisplay(startTime)}");
 
-        var proposal = new ActionProposal(actionId, "create_appointment", tool.Title, summary, p, fields, true);
+        var assigneeLabel = staffOptions.FirstOrDefault(o => o.Value == assigneeValue)?.Label;
+        var typeLabel = ScheduleTypeOptions.FirstOrDefault(o => o.Value == scheduleType)?.Label ?? "Lịch hẹn";
+        var summary = $"{typeLabel} với {customerLabel}: {careTitle}"
+            + (string.IsNullOrWhiteSpace(startTime) ? "" : $", lúc {FormatDtDisplay(startTime)}")
+            + (string.IsNullOrWhiteSpace(assigneeLabel) ? "" : $", phụ trách: {assigneeLabel}");
+        // App yêu cầu SĐT hợp lệ để tạo lịch → cảnh báo sớm nếu khách chưa có SĐT.
+        var estimate = string.IsNullOrWhiteSpace(customerPhone)
+            ? "⚠ Khách chưa có số điện thoại — vui lòng nhập SĐT hợp lệ trước khi lưu (app yêu cầu)." : null;
+
+        var proposal = new ActionProposal(actionId, "create_appointment", tool.Title, summary, p, fields, true) { Estimate = estimate };
         return new ActionProposalEnvelope("action-proposal", proposal);
     }
 

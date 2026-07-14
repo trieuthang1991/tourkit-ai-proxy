@@ -84,12 +84,16 @@ public class ActionExecutor
     public static string BuildAppointmentPayload(
         int customerId, string careTitle, string? careDetail,
         DateTime? startUtc, DateTime? endUtc, int reminderMinutes,
-        string? customerName, string? customerPhone, int? bookingTicketId)
+        string? customerName, string? customerPhone, int? bookingTicketId,
+        int? insUid, int typeSchedule)
         => JsonSerializer.Serialize(new
         {
             customerId, careTitle, careDetail,
             careStartTime = startUtc, careEndTime = endUtc,
-            status = 1, appointmentReminder = reminderMinutes,
+            status = 1,                       // 1 = Tạo mới (CustomerCareStatus) — lịch hẹn mới
+            typeSchedule,                     // 0=Lịch hẹn 1=Lịch tour 2=Nhắc thanh toán 4=Hạn thanh toán
+            appointmentReminder = reminderMinutes,
+            insUid,                           // người phụ trách (InsUid — single user id), null = worker tự đặt
             bookingTicketId, customerName, customerPhone
         });
 
@@ -196,7 +200,10 @@ public class ActionExecutor
             "[ActionExecutor] review_customer tenant={Tenant} customerId={Id} rank={Rank}",
             tenantId, customerId, review.Rank);
 
-        var summary = $"Khách {customer.Name}: hạng {review.Rank} — {review.SummaryLine}";
+        // SummaryLine của AI đôi khi ĐÃ mở đầu bằng chính hạng (vd "C — …" hoặc "Hạng C — …") → tránh
+        // lặp "hạng C — Hạng C —": strip tiền tố ["Hạng "|"hạng "] + rank + dấu (— / - / :) ở đầu SummaryLine.
+        var sumLine = StripLeadingRank((review.SummaryLine ?? "").Trim(), review.Rank);
+        var summary = $"Khách {customer.Name}: hạng {review.Rank} — {sumLine}";
         var data = new ChatData(
             Kind: "customer-review",
             Title: $"Đánh giá khách hàng — {customer.Name}",
@@ -267,8 +274,13 @@ public class ActionExecutor
             "[ActionExecutor] score_deal tenant={Tenant} dealId={Id} winRate={Rate}",
             tenantId, deal.Id, score.WinRate);
 
-        var label = deal.Title ?? deal.Code ?? $"#{deal.Id}";
-        var summary = $"Deal {deal.CustomerName} — {label}: tỉ lệ thắng {score.WinRate}% ({score.Level}) — {score.NextAction}";
+        // Title/Code có thể là chuỗi RỖNG (không null) → dùng IsNullOrWhiteSpace, tránh summary "Deal X — :".
+        var label = !string.IsNullOrWhiteSpace(deal.Title) ? deal.Title!
+                  : !string.IsNullOrWhiteSpace(deal.Code) ? deal.Code!
+                  : $"#{deal.Id}";
+        var labelPart = string.IsNullOrWhiteSpace(deal.Title) && string.IsNullOrWhiteSpace(deal.Code)
+            ? "" : $" — {label}";
+        var summary = $"Deal {deal.CustomerName}{labelPart}: tỉ lệ thắng {score.WinRate}% ({score.Level}) — {score.NextAction}";
         var data = new ChatData(
             Kind: "deal-score",
             Title: $"Chấm điểm deal — {deal.CustomerName}",
@@ -524,6 +536,8 @@ public class ActionExecutor
         var careDetail = Str(p, "careDetail");
         var startUtc = ParseUtc(Str(p, "startTime"));
         var endUtc = ParseUtc(Str(p, "endTime"));
+        // Kết thúc rỗng → mặc định = bắt đầu + 1 tiếng (khớp proposal + thói quen đặt lịch CSKH).
+        if (endUtc is null && startUtc is { } s) endUtc = s.AddHours(1);
         var reminderMinutes = Int(p, "reminderMinutes") ?? 0;
         var bookingTicketId = Int(p, "bookingTicketId");
 
@@ -558,10 +572,15 @@ public class ActionExecutor
         }
 
         var customerPhone = Str(p, "customerPhone");
+        // Người phụ trách (InsUid): id đã chọn ở form/clarify nằm trong staffResolvedIds (lấy id ĐẦU nếu CSV).
+        var insUid = Int(p, "staffResolvedIds")
+            ?? (Str(p, "staffResolvedIds") ?? "").Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+                 .Select(s => int.TryParse(s, out var v) ? (int?)v : null).FirstOrDefault(v => v != null);
+        var typeSchedule = Int(p, "typeSchedule") ?? 0;   // mặc định 0 = Lịch hẹn
 
         var payload = BuildAppointmentPayload(
             customerId, careTitle, careDetail, startUtc, endUtc, reminderMinutes,
-            customerName, customerPhone, bookingTicketId);
+            customerName, customerPhone, bookingTicketId, insUid, typeSchedule);
 
         await _crmQueue.EnqueueAsync(new CrmActionInput(tenantId, username, CrmActionKind.CreateAppointment, payload), ct);
         _log.LogInformation(
@@ -575,6 +594,22 @@ public class ActionExecutor
     //     hoặc string/số thô khi construct trực tiếp trong test). internal (không private) —
     //     ChatAgentService (task 10b, proposal phase) tái dùng để đọc cùng shape Params,
     //     tránh trùng lặp logic parse JsonElement/string ─────────────────────────────
+
+    /// Bỏ tiền tố hạng lặp ở đầu SummaryLine: ["Hạng "|"hạng "]?{rank}[— | - | :] — tránh câu ghép
+    /// "hạng C — Hạng C — …". Không khớp → trả nguyên chuỗi.
+    internal static string StripLeadingRank(string sumLine, string? rank)
+    {
+        var r = (rank ?? "").Trim();
+        if (sumLine.Length == 0 || r.Length == 0) return sumLine;
+        var s = sumLine;
+        foreach (var pre in new[] { "Hạng ", "hạng ", "HẠNG " })
+            if (s.StartsWith(pre, StringComparison.OrdinalIgnoreCase)) { s = s.Substring(pre.Length).TrimStart(); break; }
+        if (!s.StartsWith(r, StringComparison.OrdinalIgnoreCase)) return sumLine;   // không có rank → giữ nguyên
+        var rest = s.Substring(r.Length).TrimStart();
+        if (rest.StartsWith("—") || rest.StartsWith("-") || rest.StartsWith(":"))
+            return rest.Substring(1).TrimStart();
+        return sumLine;   // rank không kèm dấu phân tách → có thể là từ khác, giữ nguyên cho an toàn
+    }
 
     internal static string? Str(Dictionary<string, object?> p, string key)
     {

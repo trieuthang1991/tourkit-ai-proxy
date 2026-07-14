@@ -28,13 +28,18 @@ public static class ActionTools
             new[] { "to", "subject", "brief", "tone" }, ActionKind.Mail, true, "Soạn email mới"),
 
         new("review_customer",
-            "Đánh giá/xếp hạng 1 khách hàng (A–D + gợi ý). Dùng khi 'đánh giá khách X', 'review khách này'. " +
-            "params: customerId (hoặc customerName để resolve), forceFresh.",
+            "Đánh giá/xếp hạng 1 khách hàng (A–D + gợi ý). Dùng khi 'đánh giá khách X', 'review khách này', " +
+            "'đánh giá khách có SĐT …', 'đánh giá khách mã KH_…'. LUÔN gọi tool này khi user muốn đánh giá 1 khách — " +
+            "KHÔNG hỏi lại tên nếu user đã cho ĐỊNH DANH bất kỳ. Điền customerName = đúng cụm định danh user đưa: " +
+            "TÊN, hoặc SỐ ĐIỆN THOẠI (vd '0982385108'), hoặc MÃ KH (vd 'KH_00041133') — hệ thống tự resolve ra khách. " +
+            "customerId CHỈ điền khi biết id nội bộ dạng số nguyên nhỏ (vd 15878); nếu là SĐT/mã thì để vào customerName.",
             new[] { "customerId", "customerName", "forceFresh" }, ActionKind.Internal, false, "Đánh giá khách hàng"),
 
         new("score_deal",
             "Chấm điểm 1 cơ hội bán hàng/deal. Dùng khi 'chấm deal X', 'đánh giá cơ hội của khách B'. " +
-            "params: dealId (hoặc dealQuery để resolve).",
+            "params: dealId (nếu biết id) HOẶC dealQuery. LUÔN điền dealQuery = đúng cụm user nói để nhận diện " +
+            "cơ hội (tên khách hàng, tiêu đề cơ hội, hoặc mã đơn) — vd 'chấm deal của khách em thủy' → dealQuery='em thủy'. " +
+            "TUYỆT ĐỐI không bỏ trống dealQuery khi user đã nêu khách/cơ hội.",
             new[] { "dealId", "dealQuery" }, ActionKind.Internal, false, "Chấm điểm deal"),
 
         new("assign_task",
@@ -49,9 +54,13 @@ public static class ActionTools
 
         new("create_appointment",
             "TẠO LỊCH HẸN CSKH cho khách. Dùng khi 'đặt lịch hẹn với khách X', 'hẹn tư vấn'. " +
-            "params: customerName, careTitle, careDetail, startTime, endTime, reminderMinutes. " +
-            "startTime/endTime PHẢI theo ISO CÓ GIỜ 'yyyy-MM-ddTHH:mm' giờ VN, GIỮ ĐÚNG giờ user nói (vd '14h30 mai' → <mai>T14:30), không bỏ về T00:00.",
-            new[] { "customerName", "customerId", "careTitle", "careDetail", "startTime", "endTime", "reminderMinutes", "bookingTicketId" },
+            "GỌI NGAY với thông tin user ĐÃ cho — TUYỆT ĐỐI KHÔNG hỏi lại thêm chi tiết (kết thúc/nhắc/loại/người phụ trách). " +
+            "CHỈ cần khách + thời điểm bắt đầu là đủ để gọi; thẻ xác nhận sẽ cho user tự chỉnh phần còn lại. " +
+            "Các field còn lại có MẶC ĐỊNH: kết thúc = bắt đầu + 1 tiếng, loại = lịch hẹn, nhắc = không, người phụ trách = người tạo. " +
+            "params: customerName (tên/SĐT/mã khách), careTitle (suy ra từ câu, vd 'Tư vấn tour'), careDetail?, staffName? (chỉ khi user nêu rõ), " +
+            "typeSchedule? (0 mặc định), startTime, endTime?, reminderMinutes?. " +
+            "startTime/endTime theo ISO CÓ GIỜ 'yyyy-MM-ddTHH:mm' giờ VN, GIỮ ĐÚNG giờ user nói (vd '14h30 mai' → <mai>T14:30), không bỏ về T00:00.",
+            new[] { "customerName", "customerId", "careTitle", "careDetail", "staffName", "typeSchedule", "startTime", "endTime", "reminderMinutes", "bookingTicketId" },
             ActionKind.CrmQueue, true, "Tạo lịch hẹn"),
     };
 
