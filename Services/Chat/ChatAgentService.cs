@@ -1,6 +1,7 @@
 // Services/Chat/ChatAgentService.cs
 using System.Text.Json;
 using TourkitAiProxy.Models;
+using TourkitAiProxy.Services.Mail;
 using TourkitAiProxy.Services.Providers;
 using TourkitAiProxy.Services.TourKit;
 using TourkitAiProxy.Services.Workflow;
@@ -27,6 +28,10 @@ public class ChatAgentService
     private readonly UnresolvedQuestionsLog _unresolved;
     private readonly IWorkflowTraceAccessor _traceAccessor;
     private readonly ActionExecutor _exec;
+    private readonly ActionResolver _resolver;
+    private readonly MailReplyService _mailReply;
+    private readonly MailRepository _mailRepo;
+    private readonly AiCallContext _aiCtx;
     private readonly ILogger<ChatAgentService> _log;
 
     public ChatAgentService(
@@ -38,6 +43,10 @@ public class ChatAgentService
         UnresolvedQuestionsLog unresolved,
         IWorkflowTraceAccessor traceAccessor,
         ActionExecutor exec,
+        ActionResolver resolver,
+        MailReplyService mailReply,
+        MailRepository mailRepo,
+        AiCallContext aiCtx,
         ILogger<ChatAgentService> log)
     {
         _runtimes       = runtimes;
@@ -48,6 +57,10 @@ public class ChatAgentService
         _unresolved     = unresolved;
         _traceAccessor  = traceAccessor;
         _exec           = exec;
+        _resolver       = resolver;
+        _mailReply      = mailReply;
+        _mailRepo       = mailRepo;
+        _aiCtx          = aiCtx;
         _log            = log;
     }
 
@@ -167,20 +180,20 @@ public class ChatAgentService
             var payload = await TryHandleActionAsync(
                 agentResult.Action, AsJsonElement(agentResult.Params),
                 sessionId, tenantId, jwt, username, req.Provider, req.Model, ct);
-            var actionResult = payload is ActionResultEnvelope { Result: var r } ? r : null;
+            var (actionReply, actionData, actionWarning) = FoldActionPayload(payload);
             actionTimer.Done("ok",
-                $"Action '{agentResult.Action}' → {actionResult?.Message ?? "(không có kết quả)"}",
+                $"Action '{agentResult.Action}' → {(string.IsNullOrWhiteSpace(actionReply) ? "(không có kết quả)" : actionReply)}",
                 new() { ["action"] = agentResult.Action });
 
             var actionChatResult = new ChatResult(
-                actionResult?.Message ?? "",
+                actionReply,
                 "none",
                 agentResult.Params,
-                actionResult?.Data,
+                actionData,
                 agentResult.LatencyMs,
                 agentResult.InputTokens,
                 agentResult.OutputTokens,
-                actionResult?.Warning ?? agentResult.Warning);
+                actionWarning ?? agentResult.Warning);
 
             return trace.Enabled ? actionChatResult with { Trace = trace.Build() } : actionChatResult;
         }
@@ -369,22 +382,50 @@ public class ChatAgentService
             await emit(new { trace = trace.Build() });
     }
 
-    // ─── Actions (Task 10a: run-through actions) ──────────────────────────────────
+    // ─── Actions (Task 10a: run-through actions; Task 10b: proposal/clarify cho confirm-actions) ──
 
-    /// SSE/return payload cho 1 hành động đã xử lý (dù chạy thẳng hay placeholder chờ xác nhận).
-    /// Property names PascalCase -> serialize camelCase (kind/result) qua JsonSerializerDefaults.Web
-    /// ở endpoint, khớp shape "action-result" phía frontend.
+    /// SSE/return payload cho 1 hành động đã xử lý (dù chạy thẳng hay chờ xác nhận). Property names
+    /// PascalCase -> serialize camelCase (kind/result/proposal/clarify) qua JsonSerializerDefaults.Web
+    /// ở endpoint, khớp shape "action-result"/"action-proposal"/"action-clarify" phía frontend.
     private sealed record ActionResultEnvelope(string Kind, ActionResult Result);
+    private sealed record ActionProposalEnvelope(string Kind, ActionProposal Proposal);
+    private sealed record ActionClarifyEnvelope(string Kind, ActionClarify Clarify);
 
     /// Chuyen 1 gia tri object (thuong la JsonElement boxed sau khi Deserialize&lt;object&gt;, hoac
     /// da la JsonElement qua reflection GetValue) ve JsonElement? -- dung chung cho AskAsync/AskStreamAsync.
     private static JsonElement? AsJsonElement(object? value)
         => value is JsonElement je ? je : null;
 
+    /// Gap 1 payload action (ActionResultEnvelope/ActionProposalEnvelope/ActionClarifyEnvelope/null) ve
+    /// (reply, data, warning) de nhet vao ChatResult (ban buffered AskAsync khong the mang thang object
+    /// proposal/clarify -- ChatResult.Data la ChatData strongly-typed). Dung lai kenh Data.Kind/Raw giong
+    /// cach ActionExecutor da lam cho customer-review/deal-score/mail-list -- frontend doc data.kind de
+    /// biet render gi, chi them 2 kind moi "action-proposal"/"action-clarify".
+    private static (string Reply, ChatData? Data, string? Warning) FoldActionPayload(object? payload)
+        => payload switch
+        {
+            ActionResultEnvelope { Result: var r } =>
+                (r.Message ?? "", r.Data, r.Warning),
+            ActionProposalEnvelope { Proposal: var p } =>
+                (p.Summary, new ChatData(
+                    Kind: "action-proposal", Title: p.Title,
+                    Raw: JsonSerializer.SerializeToElement(p, JsonOpts),
+                    Stats: new List<ChatStat>(), Focus: null), null),
+            ActionClarifyEnvelope { Clarify: var c } =>
+                (c.Question, new ChatData(
+                    Kind: "action-clarify", Title: null,
+                    Raw: JsonSerializer.SerializeToElement(c, JsonOpts),
+                    Stats: new List<ChatStat>(), Focus: null), null),
+            _ => ("", null, null)
+        };
+
+    private static readonly JsonSerializerOptions JsonOpts = new(JsonSerializerDefaults.Web);
+
     /// Nhan 1 "action" da duoc planner nhan dien (JsonPlannerAgent) + thuc thi:
     ///   - NeedsConfirm == false (check_mail/review_customer/score_deal) -> chay thang qua ActionExecutor.
-    ///   - NeedsConfirm == true  (send_mail_reply/compose_mail/assign_task/create_appointment) -> placeholder
-    ///     (proposal/xac nhan la task 10b, chua lam o day).
+    ///   - NeedsConfirm == true  (send_mail_reply/compose_mail/assign_task/create_appointment) -> resolve
+    ///     ten->id (+ soan draft AI cho mail) roi tra action-proposal (san sang xac nhan) hoac
+    ///     action-clarify (ten mo ho, can chon) hoac action-result (khong tim thay/thieu thong tin).
     /// Tra null khi 'action' khong khop entry nao trong ActionTools catalog (khong phai action hop le)
     /// -- caller se fallback forward event/flow nhu binh thuong.
     private async Task<object?> TryHandleActionAsync(
@@ -400,6 +441,22 @@ public class ChatAgentService
             foreach (var prop in obj.EnumerateObject())
                 paramsDict[prop.Name] = prop.Value;
 
+        if (tool.NeedsConfirm)
+        {
+            var actionId = Guid.NewGuid().ToString("N");
+            return action.ToLowerInvariant() switch
+            {
+                "assign_task" => await BuildAssignTaskProposalAsync(actionId, tool, paramsDict, jwt, ct),
+                "create_appointment" => await BuildCreateAppointmentProposalAsync(actionId, tool, paramsDict, jwt, ct),
+                "send_mail_reply" => await BuildSendMailReplyProposalAsync(
+                    actionId, tool, paramsDict, tenantId, username, sessionId, provider, model, ct),
+                "compose_mail" => await BuildComposeMailProposalAsync(
+                    actionId, tool, paramsDict, tenantId, username, sessionId, provider, model, ct),
+                _ => new ActionResultEnvelope("action-result",
+                    new ActionResult(action, "Hành động cần xác nhận nhưng chưa được hỗ trợ.")),
+            };
+        }
+
         var execReq = new ActionExecuteRequest(
             ActionId: Guid.NewGuid().ToString("N"),
             Action:   action,
@@ -407,11 +464,184 @@ public class ChatAgentService
             Provider: provider,
             Model:    model);
 
-        var result = tool.NeedsConfirm
-            ? new ActionResult(action, "Tính năng cần xác nhận đang được hoàn thiện.")
-            : await _exec.ExecuteAsync(execReq, tenantId, jwt, username, sessionId, ct);
-
+        var result = await _exec.ExecuteAsync(execReq, tenantId, jwt, username, sessionId, ct);
         return new ActionResultEnvelope("action-result", result);
+    }
+
+    // ─── Proposal builders (Task 10b) — resolve tên→id qua ActionResolver, (mail) soạn draft AI buffered,
+    //     rồi trả action-proposal (sẵn sàng xác nhận) hoặc action-clarify (tên mơ hồ, cần chọn) hoặc
+    //     action-result (không tìm thấy/thiếu thông tin). KHÔNG thực thi (gửi mail/enqueue CRM) ở đây —
+    //     việc đó chỉ xảy ra sau khi user xác nhận, qua POST /assistant/action/execute (ActionExecutor). ──
+
+    private static object ClarifyEnvelope(string actionId, string action, string question, List<ActionChoice> choices)
+        => new ActionClarifyEnvelope("action-clarify", new ActionClarify(actionId, action, question, choices));
+
+    private static object NotFoundEnvelope(string action, string message)
+        => new ActionResultEnvelope("action-result", new ActionResult(action, message));
+
+    /// assign_task: resolve từng tên trong staffNames (CSV) qua ActionResolver -- tên mơ hồ (nhiều người
+    /// trùng) dừng lại hỏi luôn (không đợi resolve hết CSV rồi mới hỏi tên đầu tiên mơ hồ); tên không thấy
+    /// -> báo lỗi luôn. workflowName giữ nguyên THÔ, KHÔNG resolve (worker app-side tự resolve/đặt default,
+    /// xem ActionResolver.ResolveWorkflowAsync). Params giữ NGUYÊN paramsDict gốc (staffNames vẫn là tên
+    /// người, KHÔNG phải id) vì ActionExecutor.ExecuteAssignTaskAsync đã tự re-resolve tên->id khi execute
+    /// thật -- ở đây chỉ resolve "thăm dò" để phát hiện sớm tên mơ hồ/không thấy cho UX xác nhận.
+    private async Task<object> BuildAssignTaskProposalAsync(
+        string actionId, ActionTool tool, Dictionary<string, object?> p, string jwt, CancellationToken ct)
+    {
+        var name = ActionExecutor.Str(p, "name") ?? "Việc mới";
+        var content = ActionExecutor.Str(p, "content");
+        var staffNamesRaw = ActionExecutor.Str(p, "staffNames");
+        var dueDate = ActionExecutor.Str(p, "dueDate");
+        var prioritized = ActionExecutor.Str(p, "prioritized");
+
+        var staffLabels = new List<string>();
+        if (!string.IsNullOrWhiteSpace(staffNamesRaw))
+        {
+            foreach (var raw in staffNamesRaw.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
+            {
+                var outcome = await _resolver.ResolveStaffAsync(jwt, raw, ct);
+                if (outcome.Ambiguous is { Count: > 0 })
+                    return ClarifyEnvelope(actionId, "assign_task",
+                        $"Tên nhân viên \"{raw}\" khớp nhiều người, bạn chọn ai?", outcome.Ambiguous);
+                if (outcome.Id is null)
+                    return NotFoundEnvelope("assign_task", $"Không tìm thấy nhân viên tên \"{raw}\".");
+                staffLabels.Add(outcome.Label ?? raw);
+            }
+        }
+
+        var fields = new List<ActionField>
+        {
+            new("name", "Tên việc", name, "text"),
+            new("content", "Nội dung", content, "textarea"),
+            new("staffNames", "Người phụ trách", staffNamesRaw, "text"),
+            new("dueDate", "Hạn hoàn thành", dueDate, "datetime"),
+            new("prioritized", "Ưu tiên", prioritized, "text"),
+        };
+
+        var staffLabel = staffLabels.Count > 0 ? string.Join(", ", staffLabels) : "(chưa rõ người phụ trách)";
+        var summary = $"Giao việc \"{name}\" cho {staffLabel}"
+            + (string.IsNullOrWhiteSpace(dueDate) ? "" : $", hạn {dueDate}");
+
+        var proposal = new ActionProposal(actionId, "assign_task", tool.Title, summary, p, fields, true);
+        return new ActionProposalEnvelope("action-proposal", proposal);
+    }
+
+    /// create_appointment: resolve customerName qua ActionResolver (bỏ qua nếu đã có customerId thẳng —
+    /// mirror ActionExecutor.ExecuteCreateAppointmentAsync). Params giữ nguyên paramsDict gốc.
+    private async Task<object> BuildCreateAppointmentProposalAsync(
+        string actionId, ActionTool tool, Dictionary<string, object?> p, string jwt, CancellationToken ct)
+    {
+        var careTitle = ActionExecutor.Str(p, "careTitle") ?? "Lịch hẹn";
+        var careDetail = ActionExecutor.Str(p, "careDetail");
+        var startTime = ActionExecutor.Str(p, "startTime");
+        var endTime = ActionExecutor.Str(p, "endTime");
+
+        string customerLabel;
+        var customerIdParam = ActionExecutor.Str(p, "customerId");
+        var customerName = ActionExecutor.Str(p, "customerName");
+        if (!string.IsNullOrWhiteSpace(customerIdParam))
+        {
+            customerLabel = customerName ?? $"KH #{customerIdParam}";
+        }
+        else if (!string.IsNullOrWhiteSpace(customerName))
+        {
+            var outcome = await _resolver.ResolveCustomerAsync(jwt, customerName, ct);
+            if (outcome.Ambiguous is { Count: > 0 })
+                return ClarifyEnvelope(actionId, "create_appointment",
+                    $"Tên khách hàng \"{customerName}\" khớp nhiều người, bạn chọn ai?", outcome.Ambiguous);
+            if (outcome.Id is null)
+                return NotFoundEnvelope("create_appointment", $"Không tìm thấy khách hàng tên \"{customerName}\".");
+            customerLabel = outcome.Label ?? customerName;
+        }
+        else
+        {
+            return NotFoundEnvelope("create_appointment", "Thiếu thông tin khách hàng để tạo lịch hẹn.");
+        }
+
+        var fields = new List<ActionField>
+        {
+            new("careTitle", "Tiêu đề", careTitle, "text"),
+            new("careDetail", "Chi tiết", careDetail, "textarea"),
+            new("startTime", "Bắt đầu", startTime, "datetime"),
+            new("endTime", "Kết thúc", endTime, "datetime"),
+        };
+        var summary = $"Đặt lịch hẹn với {customerLabel}: {careTitle}"
+            + (string.IsNullOrWhiteSpace(startTime) ? "" : $", lúc {startTime}");
+
+        var proposal = new ActionProposal(actionId, "create_appointment", tool.Title, summary, p, fields, true);
+        return new ActionProposalEnvelope("action-proposal", proposal);
+    }
+
+    /// send_mail_reply: cần mailId (planner tự điền khi user đang xem/vừa hỏi về 1 email cụ thể — resolve
+    /// mailQuery→mailId qua tìm kiếm hộp thư chưa làm ở đây, quá phức tạp cho scope 10b) → load mail →
+    /// soạn draft AI BUFFERED (DraftStreamAsync đã buffered nội bộ — chỉ gọi onDelta 1 lần với full text,
+    /// xem MailReplyService.RunAsync — nên onDelta truyền vào đây là no-op) → gói vào field "replyText"
+    /// editable. Bọc AiCallContext.Push để trừ quota tenant + log đúng feature (mirror ActionExecutor).
+    private async Task<object> BuildSendMailReplyProposalAsync(
+        string actionId, ActionTool tool, Dictionary<string, object?> p,
+        string tenantId, string username, string sessionId, string? provider, string? model, CancellationToken ct)
+    {
+        var mailId = ActionExecutor.Str(p, "mailId");
+        if (string.IsNullOrWhiteSpace(mailId))
+            return NotFoundEnvelope("send_mail_reply",
+                "Vui lòng cho biết trả lời email nào (mở email đó rồi hỏi lại, hoặc nêu rõ tiêu đề/người gửi).");
+
+        var mail = _mailRepo.Get(tenantId, mailId);
+        if (mail is null)
+            return NotFoundEnvelope("send_mail_reply", $"Không tìm thấy email #{mailId}.");
+
+        var tone = ActionExecutor.Str(p, "tone") ?? "lich_su";
+        var instruction = ActionExecutor.Str(p, "instruction");
+
+        string draft;
+        using (_aiCtx.Push(AiFeatures.AssistantAction, tenantId, sessionId))
+        {
+            var draftReq = new DraftReplyRequest(tone, instruction, provider, model, null);
+            draft = await _mailReply.DraftStreamAsync(tenantId, username, mail, draftReq, _ => Task.CompletedTask, ct);
+        }
+
+        var fields = new List<ActionField> { new("replyText", "Nội dung trả lời", draft, "textarea") };
+        var paramsOut = new Dictionary<string, object?>(p) { ["mailId"] = mailId, ["replyText"] = draft };
+        var summary = $"Trả lời {mail.From.Name} — {mail.Subject}";
+
+        var proposal = new ActionProposal(actionId, "send_mail_reply", tool.Title, summary, paramsOut, fields, true);
+        return new ActionProposalEnvelope("action-proposal", proposal);
+    }
+
+    /// compose_mail: soạn draft AI BUFFERED (ComposeNewStreamAsync — cùng cơ chế buffered như
+    /// DraftStreamAsync, xem ghi chú trên) từ brief/tone → gói vào field "text" editable.
+    private async Task<object> BuildComposeMailProposalAsync(
+        string actionId, ActionTool tool, Dictionary<string, object?> p,
+        string tenantId, string username, string sessionId, string? provider, string? model, CancellationToken ct)
+    {
+        var to = ActionExecutor.Str(p, "to");
+        var subject = ActionExecutor.Str(p, "subject");
+        var brief = ActionExecutor.Str(p, "brief");
+        if (string.IsNullOrWhiteSpace(to))
+            return NotFoundEnvelope("compose_mail", "Thiếu người nhận để soạn email.");
+        if (string.IsNullOrWhiteSpace(brief))
+            return NotFoundEnvelope("compose_mail", "Thiếu nội dung chính để soạn email.");
+
+        var tone = ActionExecutor.Str(p, "tone") ?? "lich_su";
+
+        string draft;
+        using (_aiCtx.Push(AiFeatures.AssistantAction, tenantId, sessionId))
+        {
+            var composeReq = new ComposeDraftRequest(to, subject, brief, tone, provider, model, null);
+            draft = await _mailReply.ComposeNewStreamAsync(tenantId, username, composeReq, _ => Task.CompletedTask, ct);
+        }
+
+        var fields = new List<ActionField>
+        {
+            new("to", "Người nhận", to, "text"),
+            new("subject", "Tiêu đề", subject, "text"),
+            new("text", "Nội dung", draft, "textarea"),
+        };
+        var paramsOut = new Dictionary<string, object?>(p) { ["to"] = to, ["subject"] = subject ?? "", ["text"] = draft };
+        var summary = $"Soạn email mới gửi {to}" + (string.IsNullOrWhiteSpace(subject) ? "" : $": {subject}");
+
+        var proposal = new ActionProposal(actionId, "compose_mail", tool.Title, summary, paramsOut, fields, true);
+        return new ActionProposalEnvelope("action-proposal", proposal);
     }
 
     // ─── Helpers ──────────────────────────────────────────────────────────────────

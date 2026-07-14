@@ -542,9 +542,11 @@ public class ActionExecutor
     }
 
     // ─── Loose param readers (Params dict values đến từ JSON deserialize → JsonElement,
-    //     hoặc string/số thô khi construct trực tiếp trong test) ────────────────────
+    //     hoặc string/số thô khi construct trực tiếp trong test). internal (không private) —
+    //     ChatAgentService (task 10b, proposal phase) tái dùng để đọc cùng shape Params,
+    //     tránh trùng lặp logic parse JsonElement/string ─────────────────────────────
 
-    private static string? Str(Dictionary<string, object?> p, string key)
+    internal static string? Str(Dictionary<string, object?> p, string key)
     {
         if (!p.TryGetValue(key, out var v) || v is null) return null;
         if (v is JsonElement je)
@@ -560,7 +562,7 @@ public class ActionExecutor
         return string.IsNullOrWhiteSpace(s) ? null : s;
     }
 
-    private static int? Int(Dictionary<string, object?> p, string key)
+    internal static int? Int(Dictionary<string, object?> p, string key)
     {
         if (!p.TryGetValue(key, out var v) || v is null) return null;
         if (v is JsonElement je)
