@@ -20,8 +20,9 @@
 **Phi mục tiêu (v1 — để phase 2):**
 - Chuỗi nhiều hành động trong 1 câu ("đánh giá A **rồi** giao việc").
 - Xác nhận bằng giọng nói (nói "xác nhận") cho hành động ghi trên /travai.
-- Worker CRM thật (viết bên `toutkit-app`) — v1 chỉ định nghĩa **contract** + enqueue.
-- Sửa/xóa việc đã giao; đính kèm mail; OAuth mail.
+- Sửa/xóa việc/lịch hẹn đã tạo; đính kèm file vào task; đính kèm mail; OAuth mail.
+
+**Lưu ý cập nhật (2026-07-14):** ban đầu định để worker CRM cho team `toutkit-app` viết, nhưng khi soi source thấy `POST /api/tasks` + `POST /api/customer-care` là **API authed thường** → proxy tự ghi được. v1 **tự drain hàng đợi trong proxy** (mục 4.1), không phải chờ worker ngoài. Bảng tạm vẫn giữ (audit/retry/attribution buffer).
 
 ---
 
@@ -30,7 +31,7 @@
 | # | Quyết định | Phương án chọn | Lý do |
 |---|---|---|---|
 | D1 | Xác nhận trên /travai (voice) | **Đọc-actions nói, ghi-actions bấm** | Review/deal hands-free bằng giọng; gửi mail & giao việc BẮT BUỘC chạm thẻ → chống nghe nhầm "xác nhận" cho hành động khó undo |
-| D2 | CRM worker chưa có | **Ship queue + hợp đồng worker** | Đúng chỉ đạo user ("tạo bảng tạm, sau đồng bộ"). Enqueue + trang xem hàng đợi + doc contract; item hiện "chờ đồng bộ" tới khi worker chạy |
+| D2 | CRM worker chưa có | **Bảng tạm + proxy tự drain** | Đúng chỉ đạo user ("tạo bảng tạm, sau đồng bộ"). Endpoint tạo task/lịch hẹn là API thường → proxy enqueue + tự POST (hybrid: gửi ngay khi execute, drainer nền retry). Không cần worker ngoài (mục 4.1) |
 | D3 | Nhiều action / 1 câu | **Mỗi lượt 1 hành động** | YAGNI, dễ đoán; gộp nhiều → làm cái đầu + nhắc cái sau |
 
 Quyết định đã chốt trước đó (user duyệt): **confirm-first** cho hành động ghi; **review/deal đơn lẻ chạy thẳng hiện kết quả**, **batch review nhiều KH cần xác nhận** (tốn quota).
@@ -144,10 +145,44 @@ CREATE INDEX IX_CrmActionQueue_Tenant_Status ON dbo.CrmActionQueue(TenantId, Sta
 
 - Schema idempotent (`IF OBJECT_ID(...) IS NULL`) trong `Services/Db/TourkitAiDb.cs` (`SchemaSql`). Cập nhật `docs/database-schema.md`.
 - DateTime UTC kèm `Z` (convention).
-- **PayloadJson contract** (cho worker) — doc mới `docs/crm-action-contract/` (giống `docs/mail-templates/`):
-  - `assign-task`: `{ staffId, staffName, customerId?, customerName?, title, note?, dueDateUtc?, priority? }`
-  - `create-appointment`: `{ staffId, customerId, title, startUtc, note? }`
-- Trang xem hàng đợi: `GET /api/v1/assistant/crm-queue?status=&limit=` (giống `/workflows/outbound-mails`) → user thấy item "Pending / Done / Failed". Item Pending khi chưa có worker → hiển thị "⏳ chờ đồng bộ".
+- **PayloadJson contract — KHỚP 1:1 DTO thật của TourKit.Api** (đã soi `TourKit.Shared/DTOs/TaskingDtos.cs` + `CustomerCareDtos.cs`). Doc mới `docs/crm-action-contract/`:
+
+  **`assign-task`** → `POST /api/tasks` (`CreateOrUpdateTaskingRequest`):
+  ```json
+  { "workflowId": 12,          // BẮT BUỘC — việc thuộc board/workflow nào
+    "name": "Gọi lại khách A",
+    "content": "…mô tả…",
+    "staffsInCharge": "15,18",  // CSV id nhân viên (nhiều người) — resolver name→id
+    "prioritized": 1,           // 0=— 1=Cao 2=TB 3=Thấp
+    "status": 1,                // mặc định 1=Chưa bắt đầu
+    "startDate": "2026-07-15T…Z",
+    "endDate": "2026-07-16T…Z", // "hạn ngày mai"
+    "appointmentReminder": 30,  // phút nhắc trước hạn (optional, 0=không)
+    "bookingTicketId": 456,     // optional — liên kết cơ hội/lead
+    "parentTaskId": null, "tags": [] }
+  ```
+  **`create-appointment`** → `POST /api/customer-care` (`CreateCustomerCareRequest`):
+  ```json
+  { "customerId": 123,
+    "careTitle": "Hẹn tư vấn tour Hàn",
+    "careDetail": "…",
+    "careStartTime": "2026-07-16T02:00:00Z",
+    "careEndTime":   "2026-07-16T03:00:00Z",
+    "status": 1,
+    "typeSchedule": null, "appointmentReminder": 30,
+    "bookingTicketId": null,
+    "customerName": "Nguyễn Văn A", "customerPhone": "09…" }
+  ```
+
+- **Resolver bổ sung cho task:** `workflowName → workflowId` (task PHẢI thuộc 1 workflow). Nếu user không nêu workflow → hỏi/chọn từ list `GET /api/tasks`-workflow (hoặc default workflow tenant). `staffsInCharge` hỗ trợ **nhiều nhân viên** (CSV).
+
+### 4.1 Ai "đồng bộ" — proxy tự drain, KHÔNG cần worker ngoài
+
+Vì `/api/tasks` + `/api/customer-care` là **API authed thường** (proxy gọi được qua `TourKitApiClient.PostAsync` + JWT session/service-account), **hàng đợi được drain NGAY TRONG proxy** — không phải chờ team `toutkit-app` viết worker:
+
+- **Enqueue + gửi ngay (hybrid):** lúc execute (đã có JWT user live), proxy enqueue `CrmActionQueue` (audit/retry) **và** thử `PostAsync` luôn → thành công: `Status=Done` + `ResultJson={crmTaskId}`, attribute đúng user. Lỗi/timeout → để `Pending`.
+- **Drainer nền:** `BackgroundService` trong `TourkitAiProxy.Worker` (cạnh `WorkflowSchedulerService`) quét item `Pending` → `PostAsync` bằng **service-account tenant** (`TkSessionStore.GetOrCreateServiceSessionAsync`, pattern `DealAutoReviewWorkflow`) → retry + backoff. Bảng tạm vẫn giữ (đúng ý user: audit, retry, buffer xác nhận, cross-instance).
+- Trang xem hàng đợi: `GET /api/v1/workflows/crm-queue?status=&limit=` (đặt trong `/workflows`, cạnh outbound-mails) → item "Pending ⏳ / Done ✅ / Failed ❌".
 
 ---
 
@@ -240,8 +275,11 @@ JARVIS: [resolve Minh→staffId, A→customerId] → THẺ XÁC NHẬN {việc, 
 - `Services/Chat/ActionTools.cs` — catalog action.
 - `Services/Chat/ActionExecutor.cs` — định tuyến execute theo Kind + re-validate.
 - `Services/Crm/CrmActionQueueRepository.cs` — Dapper CRUD (clone MailQueueRepository).
-- `Endpoints/AssistantActionEndpoints.cs` — `/action/execute`, `/crm-queue`.
-- `docs/crm-action-contract/*.md` — payload contract cho worker.
+- `Services/Crm/CrmActionSender.cs` — map payload → DTO thật + `PostAsync` `/api/tasks` · `/api/customer-care` (dùng chung execute + drainer).
+- `Services/Crm/CrmActionDrainer.cs` — `BackgroundService` (đăng ký trong `WorkflowStackRegistration` → chạy ở `TourkitAiProxy.Worker`) quét `Pending` → gửi bằng service-account + retry.
+- `Endpoints/AssistantActionEndpoints.cs` — `/action/execute`.
+- Thêm vào `Endpoints/WorkflowEndpoints.cs`: `GET /api/v1/workflows/crm-queue`.
+- `docs/crm-action-contract/*.md` — payload contract (khớp DTO thật).
 - Frontend: `components/action-confirm-card.jsx` (+ clarify list).
 
 **Sửa:**
