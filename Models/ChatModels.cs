@@ -86,3 +86,26 @@ public record ChatResult(
     string? Warning,
     TourkitAiProxy.Services.Workflow.WorkflowTrace? Trace = null
 );
+
+// ─── Action tools (assistant có thể đề xuất + thực thi hành động) ─────────────
+
+/// Field sửa được hiển thị trên thẻ xác nhận.
+public record ActionField(string Key, string Label, string? Value, string Type = "text"); // type: text|textarea|datetime|select
+
+/// Đề xuất hành động cần user xác nhận (kind=action-proposal).
+public record ActionProposal(
+    string ActionId, string Action, string Title, string Summary,
+    Dictionary<string, object?> Params, List<ActionField> Fields,
+    bool NeedsConfirm, string? Estimate = null);
+
+/// Yêu cầu chọn khi resolve mơ hồ (kind=action-clarify).
+public record ActionClarify(string ActionId, string Action, string Question, List<ActionChoice> Choices);
+public record ActionChoice(string Id, string Label, string? Hint = null);
+
+/// Kết quả sau execute (kind=action-result). Data = ChatData giàu (thẻ review) hoặc null.
+public record ActionResult(string Action, string Message, ChatData? Data = null, string? Warning = null);
+
+/// Body POST /action/execute.
+public record ActionExecuteRequest(
+    string ActionId, string Action, Dictionary<string, object?> Params,
+    string? Provider = null, string? Model = null);
