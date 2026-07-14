@@ -143,7 +143,7 @@ function CustomerReviewDrawer({ customerId, onClose, onRefreshed, pushToast }) {
                 <StatCell label="Tổng chi" value={fmtVND(c.metrics?.totalSpent || 0)} />
                 <StatCell label="Số tour" value={c.metrics?.totalTours || 0} />
                 <StatCell label="AOV" value={fmtVND(c.metrics?.aov || 0)} />
-                <StatCell label="Đơn cuối" value={c.metrics?.lastPurchaseDaysAgo != null ? `${c.metrics.lastPurchaseDaysAgo}d` : '—'} />
+                <StatCell label="Đơn cuối" value={c.metrics?.lastPurchaseDaysAgo != null ? `${c.metrics.lastPurchaseDaysAgo} ngày trước` : '—'} />
               </div>
 
               {/* Action now */}

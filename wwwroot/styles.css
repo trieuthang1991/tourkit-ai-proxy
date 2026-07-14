@@ -7901,6 +7901,26 @@ n
 }
 .jv-clarify-choice small { color: var(--text-3); font-weight: 400; }
 
+/* Loading khi đang gọi /action/resolve (chọn clarify) hoặc /action/execute (xác nhận) */
+.jv-action-busy {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  padding: 32px 16px;
+}
+.jv-action-spinner {
+  width: 30px;
+  height: 30px;
+  border: 3px solid var(--border);
+  border-top-color: var(--primary, #2563eb);
+  border-radius: 50%;
+  animation: jv-action-spin 0.7s linear infinite;
+}
+@keyframes jv-action-spin { to { transform: rotate(360deg); } }
+.jv-action-busy-text { font-size: 13px; color: var(--text-2); font-weight: 600; }
+
 /* ---------- Action data card (ActionDataCard: customer-review / deal-score / mail-list) ----------
    Dùng chung /assistant (DataPanel bên phải) + /travai (Jarvis, dưới bubble AI) cho payload
    data của action-result (Task 12). */
@@ -7940,7 +7960,7 @@ n
   font-size: 11.5px;
   font-weight: 600;
   padding: 4px 10px;
-  border-radius: 999px;
+  border-radius: 6px;
 }
 .jv-alert-badge.jv-alert-high { background: rgba(220, 38, 38, 0.12); color: #dc2626; }
 .jv-alert-badge.jv-alert-medium { background: rgba(245, 158, 11, 0.14); color: #b45309; }
@@ -7962,7 +7982,7 @@ n
   margin: 0 0 8px;
 }
 .jv-data-line strong { color: var(--text-1, #1e293b); }
-.jv-data-block { margin-bottom: 12px; }
+.jv-data-block { margin-bottom: 10px; }
 .jv-data-block:last-child { margin-bottom: 0; }
 .jv-data-block-label {
   font-size: 10.5px;
@@ -7974,6 +7994,46 @@ n
 }
 .jv-data-block ul { margin: 0; padding-left: 18px; }
 .jv-data-block li { font-size: 13px; color: var(--text-2); line-height: 1.5; margin-bottom: 4px; }
+
+/* ── Review card: bố cục rõ ràng hơn, section color-coded (đẹp hơn bản phẳng cũ) ── */
+.jv-review-card { padding: 18px; }
+.jv-review-card .jv-rank-badge { font-size: 12.5px; padding: 5px 12px; box-shadow: 0 1px 4px rgba(15,23,42,.12); }
+.jv-review-card .jv-data-summary {
+  font-size: 13.5px;
+  color: var(--text-1, #1e293b);
+  font-weight: 600;
+  line-height: 1.55;
+  padding: 10px 12px;
+  background: var(--bg, #f8fafc);
+  border-radius: 10px;
+  margin-bottom: 12px;
+}
+.jv-data-meta {
+  border-left: 3px solid var(--border);
+  padding-left: 12px;
+  margin-bottom: 14px;
+}
+.jv-data-meta .jv-data-line:last-child { margin-bottom: 0; }
+/* Section có nền nhạt + thanh màu trái theo ngữ nghĩa */
+.jv-review-card .jv-data-block {
+  border-radius: 10px;
+  padding: 10px 12px 11px;
+  border: 1px solid var(--border);
+  border-left-width: 3px;
+  background: var(--surface, #fff);
+}
+.jv-review-card .jv-data-block li::marker { color: var(--text-3); }
+.jv-block-good  { border-left-color: #16a34a !important; background: rgba(22,163,74,.045) !important; }
+.jv-block-good  .jv-data-block-label { color: #15803d; }
+.jv-block-warn  { border-left-color: #f59e0b !important; background: rgba(245,158,11,.06) !important; }
+.jv-block-warn  .jv-data-block-label { color: #b45309; }
+.jv-block-action{ border-left-color: #2563eb !important; background: rgba(37,99,235,.05) !important; }
+.jv-block-action .jv-data-block-label { color: #1d4ed8; }
+.jv-block-action .jv-data-line { margin: 0; color: var(--text-1, #1e293b); font-weight: 500; }
+.jv-block-plan  { border-left-color: #7c3aed !important; background: rgba(124,58,237,.045) !important; }
+.jv-block-plan  .jv-data-block-label { color: #6d28d9; }
+.jv-block-suggest { border-left-color: #0891b2 !important; background: rgba(8,145,178,.05) !important; }
+.jv-block-suggest .jv-data-block-label { color: #0e7490; }
 .jv-data-maillist { list-style: none; margin: 0; padding: 0; }
 .jv-data-maillist li {
   padding: 10px 0;

@@ -64,7 +64,7 @@ function ActionClarifyList({ clarify, onChoose }) {
           key={c.id}
           type="button"
           className="jv-clarify-choice"
-          onClick={() => onChoose(c.id, c.label)}
+          onClick={() => onChoose(c.id, c.label, c.hint)}
         >
           {c.label}
           {c.hint ? <small> · {c.hint}</small> : null}

@@ -418,7 +418,7 @@ const TraceView = (props) => window.TraceView ? <window.TraceView {...props} /> 
 // thì giữ nguyên lựa chọn tay của câu TRƯỚC → đồ thị sai kiểu).
 let _panelVer = 0;
 
-function DataPanel({ data, onAsk, proposal, clarify, onConfirmProposal, onCancelProposal, onChooseClarify }) {
+function DataPanel({ data, onAsk, proposal, clarify, actionBusy, onConfirmProposal, onCancelProposal, onChooseClarify }) {
   // Memo hóa rows/chart theo `data` (ổn định suốt lúc stream) → KHÔNG dựng lại chart mỗi token
   // (trước đây tính lại mỗi render → ChartView destroy+create liên tục → nhấp nháy khó chịu).
   const rows = React.useMemo(() => _extractRows(data ? data.raw : null), [data]);
@@ -441,6 +441,18 @@ function DataPanel({ data, onAsk, proposal, clarify, onConfirmProposal, onCancel
   // Action tools (Task 12 → UX 2026-07-14): thẻ đề xuất/làm rõ hành động render Ở PANEL PHẢI này,
   // KHÔNG ở luồng chat trái nữa — ưu tiên cao nhất, che luôn số liệu cũ đang hiện cho tới khi
   // user xác nhận/hủy/chọn xong (đóng thẻ → panel quay lại `data` như bình thường).
+  // Đang gọi /action/resolve (sau khi chọn clarify) hoặc /action/execute (sau khi Xác nhận) —
+  // che thẻ + số liệu cũ bằng loading để user biết hệ thống đang xử lý, không tưởng bị treo.
+  if (actionBusy) {
+    return (
+      <div className="asst-data asst-action-panel">
+        <div className="jv-action-card jv-action-busy">
+          <div className="jv-action-spinner" />
+          <div className="jv-action-busy-text">Đang xử lý…</div>
+        </div>
+      </div>
+    );
+  }
   if (proposal) {
     return (
       <div className="asst-data asst-action-panel">
@@ -469,9 +481,9 @@ function DataPanel({ data, onAsk, proposal, clarify, onConfirmProposal, onCancel
   // action-result (Task 12): customer-review/deal-score/mail-list không phải shape bảng/chart —
   // render qua ActionDataCard chuyên biệt, bỏ qua toàn bộ logic bảng/chart bên dưới.
   if (data.kind === 'customer-review' || data.kind === 'deal-score' || data.kind === 'mail-list') {
+    // Tiêu đề đã hiển thị ở slate-head (panelTitle = data.title) — KHÔNG lặp lại trong panel nữa.
     return (
       <div className="asst-data">
-        {data.title && <div className="asst-block"><div className="label">{data.title}</div></div>}
         <window.ActionDataCard data={data} />
       </div>
     );
@@ -837,6 +849,9 @@ function AssistantPage({ pushToast }) {
   // Action tools (Task 12): AI đề xuất 1 hành động ghi (cần user Xác nhận) hoặc cần làm rõ trước.
   const [pendingProposal, setPendingProposal] = _aS(null);
   const [pendingClarify, setPendingClarify] = _aS(null);
+  // Đang gọi /action/resolve (chọn clarify) hoặc /action/execute (xác nhận) — hiện loading ở panel
+  // để user không tưởng bị treo (2 endpoint này có thể mất vài giây: re-resolve + AI chấm/đánh giá).
+  const [actionBusy, setActionBusy] = _aS(false);
   // Debug toggle: hiện "Cách vận hành" dưới mỗi reply. Persist localStorage để giữ qua reload.
   const [debug, setDebug] = _aS(() => localStorage.getItem('tourkit_chat_debug') === '1');
   _aE(() => { localStorage.setItem('tourkit_chat_debug', debug ? '1' : '0'); }, [debug]);
@@ -933,6 +948,7 @@ function AssistantPage({ pushToast }) {
   async function confirmAction(editedVals) {
     if (!pendingProposal) return;
     const proposal = pendingProposal;
+    setActionBusy(true);
     try {
       const r = await window.tourkitAuth.authedFetch('/api/v1/assistant/action/execute', {
         method: 'POST',
@@ -952,23 +968,27 @@ function AssistantPage({ pushToast }) {
     } catch (e) {
       pushToast('Lỗi thực thi: ' + e.message, 'error');
       // Lỗi mạng/parse → giữ nguyên card để user thử lại, không setPendingProposal(null).
+    } finally {
+      setActionBusy(false);
     }
   }
 
   // Chọn 1 lựa chọn làm rõ (nhiều bản ghi trùng tên, vd 3 nhân viên "Nguyễn Văn A"): gửi id THẬT đã
   // chọn tới /assistant/action/resolve — backend inject id vào params gốc rồi rebuild lại proposal/result
   // KHÔNG re-resolve theo tên (gửi lại label như trước đây sẽ vẫn mơ hồ y hệt → lặp vô hạn khi trùng tên).
-  async function onClarifyChoose(chosenId) {
+  async function onClarifyChoose(chosenId, chosenLabel, chosenHint) {
     const clarify = pendingClarify;
     if (!clarify) return;
     setPendingClarify(null);
+    setActionBusy(true);
     try {
       const r = await window.tourkitAuth.authedFetch('/api/v1/assistant/action/resolve', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           actionId: clarify.actionId, action: clarify.action,
-          params: clarify.params || {}, field: clarify.field, chosenId
+          params: clarify.params || {}, field: clarify.field, chosenId,
+          chosenLabel, chosenHint   // mang tên + SĐT của bản ghi đã chọn theo (vd lịch hẹn cần SĐT khách)
         })
       });
       const j = await r.json().catch(() => ({}));
@@ -984,6 +1004,8 @@ function AssistantPage({ pushToast }) {
       }
     } catch (e) {
       pushToast('Lỗi xử lý lựa chọn: ' + e.message, 'error');
+    } finally {
+      setActionBusy(false);
     }
   }
 
@@ -1229,6 +1251,7 @@ function AssistantPage({ pushToast }) {
           <DataPanel
             data={panelData} onAsk={(q) => send(q)}
             proposal={pendingProposal} clarify={pendingClarify}
+            actionBusy={actionBusy}
             onConfirmProposal={confirmAction}
             onCancelProposal={() => setPendingProposal(null)}
             onChooseClarify={onClarifyChoose}

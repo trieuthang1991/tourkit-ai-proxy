@@ -17,44 +17,59 @@ const ADC_CAT_VI = {
 
 function AdcReviewCard({ r }) {
   if (!r) return null;
+  // SummaryLine đôi khi mở đầu bằng chính hạng ("C — …" hoặc "Hạng C — …") → badge đã hiện, bỏ tiền tố.
+  const _rank = String(r.rank || '').trim();
+  let _summary = String(r.summaryLine || '').trim();
+  if (_rank) {
+    let s = _summary.replace(/^h[aạ]ng\s+/i, '');   // bỏ "Hạng "/"hạng " nếu có
+    if (s.toUpperCase().startsWith(_rank.toUpperCase())) {
+      const rest = s.slice(_rank.length).trimStart();
+      if (/^[—\-:]/.test(rest)) _summary = rest.slice(1).trimStart();
+    }
+  }
   return (
-    <div className="jv-data-card">
+    <div className="jv-data-card jv-review-card">
       <div className="jv-data-row">
-        <span className={'jv-rank-badge jv-rank-' + String(r.rank || '').toLowerCase()}>{ADC_RANK_VI[r.rank] || r.rank}</span>
+        <span className={'jv-rank-badge jv-rank-' + _rank.toLowerCase()}>{ADC_RANK_VI[r.rank] || r.rank}</span>
         {r.alert && r.alert.level && r.alert.level !== 'none' && (
           <span className={'jv-alert-badge jv-alert-' + r.alert.level}>
             {ADC_ALERT_VI[r.alert.level] || r.alert.level}{r.alert.message ? ` — ${r.alert.message}` : ''}
           </span>
         )}
       </div>
-      {r.summaryLine && <p className="jv-data-summary">{r.summaryLine}</p>}
-      {r.rankReason && <p className="jv-data-line"><strong>Lý do xếp hạng:</strong> {r.rankReason}</p>}
-      {r.portrait && <p className="jv-data-line"><strong>Chân dung:</strong> {r.portrait}</p>}
+      {_summary && <p className="jv-data-summary">{_summary}</p>}
+      {(r.rankReason || r.portrait) && (
+        <div className="jv-data-meta">
+          {r.rankReason && <p className="jv-data-line"><strong>Lý do xếp hạng:</strong> {r.rankReason}</p>}
+          {r.portrait && <p className="jv-data-line"><strong>Chân dung:</strong> {r.portrait}</p>}
+        </div>
+      )}
       {r.strengths && r.strengths.length > 0 && (
-        <div className="jv-data-block">
+        <div className="jv-data-block jv-block-good">
           <div className="jv-data-block-label">Điểm mạnh</div>
           <ul>{r.strengths.map((s, i) => <li key={i}>{s}</li>)}</ul>
         </div>
       )}
       {r.concerns && r.concerns.length > 0 && (
-        <div className="jv-data-block">
+        <div className="jv-data-block jv-block-warn">
           <div className="jv-data-block-label">Lưu ý</div>
           <ul>{r.concerns.map((s, i) => <li key={i}>{s}</li>)}</ul>
         </div>
       )}
       {r.actionNow && r.actionNow.task && (
-        <p className="jv-data-line">
-          <strong>Hành động ngay:</strong> {r.actionNow.task}{r.actionNow.reason ? ` — ${r.actionNow.reason}` : ''}
-        </p>
+        <div className="jv-data-block jv-block-action">
+          <div className="jv-data-block-label">Hành động ngay</div>
+          <p className="jv-data-line">{r.actionNow.task}{r.actionNow.reason ? ` — ${r.actionNow.reason}` : ''}</p>
+        </div>
       )}
       {r.action30Days && r.action30Days.length > 0 && (
-        <div className="jv-data-block">
+        <div className="jv-data-block jv-block-plan">
           <div className="jv-data-block-label">Trong 30 ngày</div>
           <ul>{r.action30Days.map((s, i) => <li key={i}>{s}</li>)}</ul>
         </div>
       )}
       {r.productSuggestions && r.productSuggestions.length > 0 && (
-        <div className="jv-data-block">
+        <div className="jv-data-block jv-block-suggest">
           <div className="jv-data-block-label">Gợi ý sản phẩm</div>
           <ul>{r.productSuggestions.map((s, i) => <li key={i}>{s}</li>)}</ul>
         </div>
