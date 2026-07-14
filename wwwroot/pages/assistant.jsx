@@ -418,7 +418,7 @@ const TraceView = (props) => window.TraceView ? <window.TraceView {...props} /> 
 // thì giữ nguyên lựa chọn tay của câu TRƯỚC → đồ thị sai kiểu).
 let _panelVer = 0;
 
-function DataPanel({ data, onAsk }) {
+function DataPanel({ data, onAsk, proposal, clarify, onConfirmProposal, onCancelProposal, onChooseClarify }) {
   // Memo hóa rows/chart theo `data` (ổn định suốt lúc stream) → KHÔNG dựng lại chart mỗi token
   // (trước đây tính lại mỗi render → ChartView destroy+create liên tục → nhấp nháy khó chịu).
   const rows = React.useMemo(() => _extractRows(data ? data.raw : null), [data]);
@@ -437,6 +437,24 @@ function DataPanel({ data, onAsk }) {
   // Phân trang bảng: mặc định 50 dòng, "Xem tất cả" để bung hết (scroll trong khung). Reset khi data đổi.
   const [showAllRows, setShowAllRows] = React.useState(false);
   React.useEffect(() => { setShowAllRows(false); }, [data]);
+
+  // Action tools (Task 12 → UX 2026-07-14): thẻ đề xuất/làm rõ hành động render Ở PANEL PHẢI này,
+  // KHÔNG ở luồng chat trái nữa — ưu tiên cao nhất, che luôn số liệu cũ đang hiện cho tới khi
+  // user xác nhận/hủy/chọn xong (đóng thẻ → panel quay lại `data` như bình thường).
+  if (proposal) {
+    return (
+      <div className="asst-data asst-action-panel">
+        <window.ActionConfirmCard proposal={proposal} onConfirm={onConfirmProposal} onCancel={onCancelProposal} />
+      </div>
+    );
+  }
+  if (clarify) {
+    return (
+      <div className="asst-data asst-action-panel">
+        <window.ActionClarifyList clarify={clarify} onChoose={onChooseClarify} />
+      </div>
+    );
+  }
 
   if (!data) {
     return (
@@ -1025,7 +1043,9 @@ function AssistantPage({ pushToast }) {
   ];
   const [expandedSuggest, setExpandedSuggest] = _aS(false);
 
-  const panelTitle = panelData ? (panelData.title || 'Cơ cấu số liệu') : null;
+  const panelTitle = pendingProposal ? pendingProposal.title
+    : pendingClarify ? 'Cần làm rõ trước khi thực hiện'
+    : panelData ? (panelData.title || 'Cơ cấu số liệu') : null;
 
   return (
     <main className="page asst">
@@ -1088,16 +1108,6 @@ function AssistantPage({ pushToast }) {
                 </div>
               </div>
             ))}
-            {pendingProposal && (
-              <window.ActionConfirmCard
-                proposal={pendingProposal}
-                onConfirm={confirmAction}
-                onCancel={() => setPendingProposal(null)}
-              />
-            )}
-            {pendingClarify && (
-              <window.ActionClarifyList clarify={pendingClarify} onChoose={onClarifyChoose} />
-            )}
           </div>
 
           {/* GỢI Ý — luôn hiện (cả khi đã chat lẫn chưa). Toggle expand cho user
@@ -1212,9 +1222,15 @@ function AssistantPage({ pushToast }) {
               </div>
               {panelTitle && <h2 className="asst-slate-title">{panelTitle}</h2>}
             </div>
-            {panelData && <div className="asst-slate-ic"><Icon name="chart" size={18} /></div>}
+            {(panelData || pendingProposal || pendingClarify) && <div className="asst-slate-ic"><Icon name="chart" size={18} /></div>}
           </div>
-          <DataPanel data={panelData} onAsk={(q) => send(q)} />
+          <DataPanel
+            data={panelData} onAsk={(q) => send(q)}
+            proposal={pendingProposal} clarify={pendingClarify}
+            onConfirmProposal={confirmAction}
+            onCancelProposal={() => setPendingProposal(null)}
+            onChooseClarify={onClarifyChoose}
+          />
         </section>
       </div>
     </main>

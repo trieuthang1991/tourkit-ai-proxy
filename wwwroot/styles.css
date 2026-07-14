@@ -7813,7 +7813,8 @@ n
   letter-spacing: 0.01em;
 }
 .jv-action-field input,
-.jv-action-field textarea {
+.jv-action-field textarea,
+.jv-action-field select {
   width: 100%;
   box-sizing: border-box;
   background: var(--bg);
@@ -7830,8 +7831,12 @@ n
   min-height: 64px;
   line-height: 1.5;
 }
+.jv-action-field select {
+  cursor: pointer;
+}
 .jv-action-field input:focus,
-.jv-action-field textarea:focus {
+.jv-action-field textarea:focus,
+.jv-action-field select:focus {
   outline: none;
   border-color: var(--primary);
   box-shadow: 0 0 0 3px var(--primary-glow);

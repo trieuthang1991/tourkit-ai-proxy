@@ -1,4 +1,5 @@
 // Services/Chat/ChatAgentService.cs
+using System.Globalization;
 using System.Text.Json;
 using TourkitAiProxy.Models;
 using TourkitAiProxy.Services.Mail;
@@ -502,6 +503,24 @@ public class ChatAgentService
     /// xem ActionResolver.ResolveWorkflowAsync). Params giữ NGUYÊN paramsDict gốc (staffNames vẫn là tên
     /// người, KHÔNG phải id) vì ActionExecutor.ExecuteAssignTaskAsync đã tự re-resolve tên->id khi execute
     /// thật -- ở đây chỉ resolve "thăm dò" để phát hiện sớm tên mơ hồ/không thấy cho UX xác nhận.
+    private static readonly List<ActionOption> PriorityOptions = new()
+    {
+        new("cao", "Cao"),
+        new("tb", "Trung bình"),
+        new("thap", "Thấp"),
+    };
+
+    /// Chuẩn hóa chuỗi ưu tiên thô (từ planner, có thể "cao"/"high"/"trung bình"/rỗng…) về đúng 1 trong
+    /// 3 key của PriorityOptions để bind vào <select> — mirror ActionExecutor.MapPriority nhưng trả
+    /// string key (không phải int) vì field UI cần value khớp option. Không rõ/rỗng → mặc định "tb".
+    private static string NormalizePriorityKey(string? raw) => (raw ?? "").Trim().ToLowerInvariant() switch
+    {
+        "cao" or "high" => "cao",
+        "thap" or "thấp" or "low" => "thap",
+        "tb" or "trung binh" or "trung bình" or "medium" => "tb",
+        _ => "tb",
+    };
+
     private async Task<object> BuildAssignTaskProposalAsync(
         string actionId, ActionTool tool, Dictionary<string, object?> p, string jwt, CancellationToken ct)
     {
@@ -509,17 +528,21 @@ public class ChatAgentService
         var content = ActionExecutor.Str(p, "content");
         var staffNamesRaw = ActionExecutor.Str(p, "staffNames");
         var dueDate = ActionExecutor.Str(p, "dueDate");
-        var prioritized = ActionExecutor.Str(p, "prioritized");
+        var prioritizedRaw = ActionExecutor.Str(p, "prioritized");
 
         // Sau khi user đã chọn 1 lựa chọn ở action-clarify (POST /assistant/action/resolve), id đã chọn
         // được inject vào "staffResolvedIds" (CSV) — dùng THẲNG, KHÔNG re-resolve theo tên (nếu re-resolve
         // lại "staffNames" gốc mà nhiều người trùng tên thì sẽ ra lại chính danh sách mơ hồ đó → lặp vô hạn).
         var staffResolvedIdsRaw = ActionExecutor.Str(p, "staffResolvedIds");
         var staffLabels = new List<string>();
+        var resolvedIds = new List<string>();
         if (!string.IsNullOrWhiteSpace(staffResolvedIdsRaw))
         {
             foreach (var id in staffResolvedIdsRaw.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
+            {
+                resolvedIds.Add(id);
                 staffLabels.Add($"NV #{id}");
+            }
         }
         else if (!string.IsNullOrWhiteSpace(staffNamesRaw))
         {
@@ -532,16 +555,32 @@ public class ChatAgentService
                 if (outcome.Id is null)
                     return NotFoundEnvelope("assign_task", $"Không tìm thấy nhân viên tên \"{raw}\".");
                 staffLabels.Add(outcome.Label ?? raw);
+                resolvedIds.Add(outcome.Id.Value.ToString(CultureInfo.InvariantCulture));
             }
         }
+
+        // Dropdown "Người phụ trách": lấy toàn bộ NV làm options. key CỐ Ý là "staffResolvedIds"
+        // (không phải "staffNames") — value của select LÀ id nhân viên, nên khi user đổi lựa chọn rồi
+        // Xác nhận, editedVals gộp thẳng vào params.staffResolvedIds (xem confirmAction ở assistant.jsx)
+        // → ActionExecutor dùng ID này TRỰC TIẾP, KHÔNG re-resolve theo tên → hội tụ, tránh mơ hồ trùng
+        // tên (quy ước "staffResolvedIds" từ commit 33744ca).
+        var staffOptions = (await _resolver.ListStaffAsync(jwt, ct))
+            .Select(s => new ActionOption(
+                s.Id.ToString(CultureInfo.InvariantCulture),
+                s.Hint != null ? $"{s.Name} ({s.Hint})" : s.Name))
+            .ToList();
+        var staffValue = resolvedIds.Count > 0 ? resolvedIds[0]
+            : (staffOptions.Count > 0 ? staffOptions[0].Value : "");
+
+        var priority = NormalizePriorityKey(prioritizedRaw);
 
         var fields = new List<ActionField>
         {
             new("name", "Tên việc", name, "text"),
             new("content", "Nội dung", content, "textarea"),
-            new("staffNames", "Người phụ trách", staffNamesRaw, "text"),
+            new("staffResolvedIds", "Người phụ trách", staffValue, "select", staffOptions),
             new("dueDate", "Hạn hoàn thành", dueDate, "datetime"),
-            new("prioritized", "Ưu tiên", prioritized, "text"),
+            new("prioritized", "Ưu tiên", priority, "select", PriorityOptions),
         };
 
         var staffLabel = staffLabels.Count > 0 ? string.Join(", ", staffLabels) : "(chưa rõ người phụ trách)";

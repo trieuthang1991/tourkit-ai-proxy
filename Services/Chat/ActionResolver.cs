@@ -151,6 +151,35 @@ public class ActionResolver
         return Pick(candidates);
     }
 
+    /// Toàn bộ nhân viên (không lọc tên) — nguồn cho dropdown "Người phụ trách" trên thẻ xác nhận UI
+    /// (assign_task). Nguồn: /api/ai/employee-performance KHÔNG filter → trả TẤT CẢ nhân viên theo
+    /// quyền (mirror JsonPlannerAgent.GetEmployeesAsync). Không cache — tần suất gọi thấp (chỉ khi
+    /// build proposal assign_task, không phải hot path đọc số liệu).
+    public async Task<List<StaffCandidate>> ListStaffAsync(string jwt, CancellationToken ct)
+    {
+        JsonElement data;
+        try
+        {
+            data = await _api.GetAsync(jwt, "/api/ai/employee-performance", ct);
+        }
+        catch (TourKitApiException ex)
+        {
+            _log.LogWarning(ex, "[ActionResolver] list staff lỗi gọi TourKit");
+            return new List<StaffCandidate>();
+        }
+
+        var list = new List<StaffCandidate>();
+        if (PropCI(data, "items", out var items) && items.ValueKind == JsonValueKind.Array)
+            foreach (var it in items.EnumerateArray())
+            {
+                if (!TryGetId(it, "employeeId", out var id)) continue;
+                var full = GetStr(it, "fullName");
+                if (string.IsNullOrWhiteSpace(full)) continue;
+                list.Add(new StaffCandidate(id, full!, GetStr(it, "branch") ?? GetStr(it, "email")));
+            }
+        return list;
+    }
+
     /// Tên workflow/board (giao việc) → workflowId. KHÔNG có endpoint đọc danh sách task-workflow
     /// đã xác minh (grep docs/ai-api-guide.md + ChatTools chỉ thấy workFlowId là PARAM lọc của tool
     /// `tasks`, không có tool liệt kê workflow/board). Trả graceful "không thấy" thay vì đoán path —
@@ -196,3 +225,6 @@ public class ActionResolver
 }
 
 public record ResolveOutcome(int? Id, string? Label, List<ActionChoice>? Ambiguous = null);
+
+/// 1 nhân viên cho dropdown "Người phụ trách" (ActionResolver.ListStaffAsync).
+public record StaffCandidate(int Id, string Name, string? Hint);

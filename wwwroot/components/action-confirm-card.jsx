@@ -4,8 +4,9 @@
 // mail, v.v.), user sửa field rồi Xác nhận/Hủy; hoặc AI cần làm rõ trước khi đề xuất.
 //
 // proposal shape (camelCase từ backend, xem ActionField):
-//   { title, summary, fields: [{ key, label, value, type }], estimate }
-//   f.type: "text" (mặc định) | "textarea" | "datetime"
+//   { title, summary, fields: [{ key, label, value, type, options }], estimate }
+//   f.type: "text" (mặc định) | "textarea" | "datetime" | "select"
+//   f.options (chỉ khi type="select"): [{ value, label }]
 // clarify shape (xem ActionChoice):
 //   { question, choices: [{ id, label, hint }] }
 
@@ -26,6 +27,15 @@ function ActionConfirmCard({ proposal, onConfirm, onCancel }) {
                 value={vals[f.key]}
                 onChange={e => setVals({ ...vals, [f.key]: e.target.value })}
               />
+            : f.type === "select"
+            ? <select
+                value={vals[f.key]}
+                onChange={e => setVals({ ...vals, [f.key]: e.target.value })}
+              >
+                {(f.options || []).map(o => (
+                  <option key={o.value} value={o.value}>{o.label}</option>
+                ))}
+              </select>
             : <input
                 type={f.type === "datetime" ? "datetime-local" : "text"}
                 value={vals[f.key]}

@@ -90,7 +90,11 @@ public record ChatResult(
 // ─── Action tools (assistant có thể đề xuất + thực thi hành động) ─────────────
 
 /// Field sửa được hiển thị trên thẻ xác nhận.
-public record ActionField(string Key, string Label, string? Value, string Type = "text"); // type: text|textarea|datetime|select
+/// Options chỉ dùng khi Type="select" — danh sách lựa chọn cố định (vd mức ưu tiên, người phụ trách).
+public record ActionField(string Key, string Label, string? Value, string Type = "text", List<ActionOption>? Options = null); // type: text|textarea|datetime|select
+
+/// 1 lựa chọn trong ActionField.Options (Type="select").
+public record ActionOption(string Value, string Label);
 
 /// Đề xuất hành động cần user xác nhận (kind=action-proposal).
 public record ActionProposal(
