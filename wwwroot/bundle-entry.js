@@ -23,6 +23,7 @@ import "./core/page-loader.jsx";
 import "./components/tweaks-panel.jsx";
 import "./components/dialogs.jsx";
 import "./components/customer-review-card.jsx";
+import "./components/action-confirm-card.jsx";
 import "./components/quota-upgrade-modal.jsx";
 import "./components/consult-popup.jsx";
 import "./components/search-controls.jsx";

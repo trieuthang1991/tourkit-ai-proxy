@@ -7775,6 +7775,125 @@ n
 .help-doc img { display: block; max-width: 100%; height: auto; margin: 16px 0; border: 1px solid var(--border, #e6e2dc); border-radius: 10px; box-shadow: 0 4px 16px rgba(0, 0, 0, .06); }
 .help-doc blockquote { margin: 14px 0; padding: 10px 16px; background: rgba(226, 98, 14, .06); border-left: 3px solid var(--accent, #e2620e); border-radius: 0 8px 8px 0; color: var(--text-2, #5c554c); font-size: 14px; }
 .help-doc hr { border: 0; border-top: 1px solid var(--border, #ececec); margin: 28px 0; }
+/* ---------- Action confirm card + clarify list (ActionConfirmCard/ActionClarifyList) ----------
+   Dùng chung /assistant + /travai (Jarvis) cho luồng action tools: AI đề xuất 1 hành động
+   ghi (tạo lịch hẹn, gửi mail...), user sửa field rồi Xác nhận/Hủy; hoặc chọn làm rõ. */
+.jv-action-card {
+  background: var(--surface, #fff);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md, 12px);
+  padding: 16px;
+  margin: 8px 0;
+  box-shadow: 0 2px 10px rgba(15, 23, 42, 0.06);
+}
+.jv-action-title {
+  font-size: 14.5px;
+  font-weight: 700;
+  color: var(--text-1, #1e293b);
+  margin-bottom: 6px;
+}
+.jv-action-summary {
+  font-size: 13px;
+  color: var(--text-2);
+  line-height: 1.55;
+  margin-bottom: 12px;
+}
+.jv-action-field {
+  display: block;
+  margin-bottom: 10px;
+}
+.jv-action-field > span {
+  display: block;
+  font-size: 11.5px;
+  font-weight: 600;
+  color: var(--text-3);
+  margin-bottom: 4px;
+  letter-spacing: 0.01em;
+}
+.jv-action-field input,
+.jv-action-field textarea {
+  width: 100%;
+  box-sizing: border-box;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: var(--radius, 8px);
+  padding: 10px 12px;
+  font-size: 13.5px;
+  font-family: inherit;
+  color: var(--text-1, #1e293b);
+  transition: border 0.15s, box-shadow 0.15s;
+}
+.jv-action-field textarea {
+  resize: vertical;
+  min-height: 64px;
+  line-height: 1.5;
+}
+.jv-action-field input:focus,
+.jv-action-field textarea:focus {
+  outline: none;
+  border-color: var(--primary);
+  box-shadow: 0 0 0 3px var(--primary-glow);
+}
+.jv-action-estimate {
+  font-size: 12px;
+  color: var(--text-3);
+  font-style: italic;
+  margin-bottom: 12px;
+}
+.jv-action-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 4px;
+}
+.jv-btn-cancel,
+.jv-btn-confirm {
+  border: none;
+  border-radius: var(--radius, 8px);
+  padding: 9px 16px;
+  font-size: 13px;
+  font-weight: 700;
+  cursor: pointer;
+  font-family: inherit;
+  transition: background 0.15s, box-shadow 0.15s;
+}
+.jv-btn-cancel {
+  background: var(--bg);
+  color: var(--text-2);
+  border: 1px solid var(--border);
+}
+.jv-btn-cancel:hover { background: var(--border); }
+.jv-btn-confirm {
+  background: var(--primary);
+  color: #fff;
+}
+.jv-btn-confirm:hover {
+  background: var(--primary-dark);
+  box-shadow: 0 4px 14px var(--primary-glow);
+}
+.jv-clarify-choice {
+  display: block;
+  width: 100%;
+  box-sizing: border-box;
+  text-align: left;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: var(--radius, 8px);
+  padding: 10px 14px;
+  font-size: 13.5px;
+  font-family: inherit;
+  color: var(--text-1, #1e293b);
+  cursor: pointer;
+  margin-bottom: 8px;
+  transition: border 0.15s, background 0.15s;
+}
+.jv-clarify-choice:last-child { margin-bottom: 0; }
+.jv-clarify-choice:hover {
+  border-color: var(--primary);
+  background: var(--primary-soft);
+}
+.jv-clarify-choice small { color: var(--text-3); font-weight: 400; }
+
 @media (max-width: 900px) {
   .help-wrap { flex-direction: column; }
   .help-side { flex: none; width: 100%; position: static; border-right: 0; border-bottom: 1px solid var(--border, #ececec); }
