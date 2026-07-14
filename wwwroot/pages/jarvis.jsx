@@ -317,6 +317,7 @@ function JarvisPage({ pushToast }) {
   // để tự chốt, tránh thực thi nhầm do nghe lộn) hoặc cần làm rõ trước.
   const [pendingProposal, setPendingProposal] = _jS(null);
   const [pendingClarify, setPendingClarify] = _jS(null);
+  const [actionBusy, setActionBusy] = _jS(false);   // đang resolve/execute action → hiện loading
   const [ttsEngine, setTtsEngine] = _jS(null);       // engine đọc THỰC TẾ (vbee|edge|piper|openai) — nhãn chẩn đoán
   const mediaRef = _jR(null);
   const logRef = _jR(null);
@@ -457,6 +458,18 @@ function JarvisPage({ pushToast }) {
     try { audioRef.current?.pause(); } catch {}
     stopWebAudio();   // dừng luôn nhánh Web Audio (iOS) nếu đang phát
     stopThinking();   // dừng filler "đang suy nghĩ" khi ngắt/hỏi câu mới
+  }
+
+  // Dừng MỌI thứ đang chạy: hủy request stream đang gen + dừng mọi giọng đang đọc + reset trạng thái.
+  // Dùng cho nút "DỪNG" (tắt tiếng AI ngay) và nút "MỚI" (xóa hội thoại phải tắt giọng còn đang đọc).
+  function stopEverything() {
+    try { abortRef.current?.abort(); } catch {}
+    reqSeqRef.current++;         // vô hiệu hóa callback stream/TTS còn treo của request cũ (isCur()=false)
+    resetSpeech();
+    setSpeaking(false);
+    setLoading(false);
+    setNeedTap(false);
+    setOrbState('idle');
   }
 
   // Tách câu hoàn chỉnh từ full[spokenIdx..] → đọc từng câu. isFinal: đọc nốt phần đuôi.
@@ -612,6 +625,7 @@ function JarvisPage({ pushToast }) {
   async function confirmAction(editedVals) {
     if (!pendingProposal) return;
     const proposal = pendingProposal;
+    setActionBusy(true);
     try {
       const r = await window.tourkitAuth.authedFetch('/api/v1/assistant/action/execute', {
         method: 'POST',
@@ -630,6 +644,8 @@ function JarvisPage({ pushToast }) {
     } catch (e) {
       pushToast('Lỗi thực thi: ' + e.message, 'error');
       // Lỗi mạng/parse → giữ nguyên card để user thử lại, không setPendingProposal(null).
+    } finally {
+      setActionBusy(false);
     }
   }
 
@@ -637,17 +653,19 @@ function JarvisPage({ pushToast }) {
   // Gửi id THẬT đã chọn tới /assistant/action/resolve — backend inject id vào params gốc rồi rebuild
   // proposal/result KHÔNG re-resolve theo tên (gửi lại label như trước đây sẽ vẫn mơ hồ y hệt khi
   // nhiều bản ghi trùng tên → lặp vô hạn). Kết quả trả về vẫn đọc bằng giọng (voice UX của jarvis).
-  async function onClarifyChoose(chosenId) {
+  async function onClarifyChoose(chosenId, chosenLabel, chosenHint) {
     const clarify = pendingClarify;
     if (!clarify) return;
     setPendingClarify(null);
+    setActionBusy(true);
     try {
       const r = await window.tourkitAuth.authedFetch('/api/v1/assistant/action/resolve', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           actionId: clarify.actionId, action: clarify.action,
-          params: clarify.params || {}, field: clarify.field, chosenId
+          params: clarify.params || {}, field: clarify.field, chosenId,
+          chosenLabel, chosenHint
         })
       });
       const j = await r.json().catch(() => ({}));
@@ -664,6 +682,8 @@ function JarvisPage({ pushToast }) {
       }
     } catch (e) {
       pushToast('Lỗi xử lý lựa chọn: ' + e.message, 'error');
+    } finally {
+      setActionBusy(false);
     }
   }
 
@@ -1111,8 +1131,8 @@ function JarvisPage({ pushToast }) {
                 <Icon name="bell" size={14} /> NGHE
               </button>
             )}
-            <button className="jv-toggle" onClick={() => { setMessages([]); setLastTool(null); setOrbState('idle'); window.speechSynthesis?.cancel(); stopWebAudio(); setNeedTap(false); }}
-              title="Xóa hội thoại">
+            <button className="jv-toggle" onClick={() => { stopEverything(); setMessages([]); setLastTool(null); }}
+              title="Xóa hội thoại + dừng giọng đang đọc">
               <Icon name="refresh" size={14} /> MỚI
             </button>
           </div>
@@ -1151,15 +1171,21 @@ function JarvisPage({ pushToast }) {
             </div>
           ))}
           {/* action-proposal/action-clarify (Task 12) — CHỈ xác nhận/chọn bằng CHẠM, không bằng giọng nói. */}
-          {pendingProposal && (
+          {pendingProposal && !actionBusy && (
             <window.ActionConfirmCard
               proposal={pendingProposal}
               onConfirm={confirmAction}
               onCancel={() => setPendingProposal(null)}
             />
           )}
-          {pendingClarify && (
+          {pendingClarify && !actionBusy && (
             <window.ActionClarifyList clarify={pendingClarify} onChoose={onClarifyChoose} />
+          )}
+          {actionBusy && (
+            <div className="jv-action-card jv-action-busy">
+              <div className="jv-action-spinner" />
+              <div className="jv-action-busy-text">Đang xử lý…</div>
+            </div>
           )}
         </div>
 
@@ -1209,6 +1235,15 @@ function JarvisPage({ pushToast }) {
               </>
             )}
           </div>
+        )}
+
+        {/* Nút DỪNG nổi — đặt ngay trên ô nhập cho dễ chạm bằng ngón cái trên mobile.
+            Chỉ hiện khi AI đang trả lời/đọc; bấm = ngắt stream + tắt mọi giọng. */}
+        {(loading || speaking) && (
+          <button className="jv-stopfab" onClick={stopEverything}
+            title="Dừng AI đang trả lời + tắt giọng đọc">
+            <span className="jv-stopfab-ic" /> Dừng đọc
+          </button>
         )}
 
         {/* Nhập liệu */}
@@ -1266,6 +1301,17 @@ const JV_CSS = `
   color:#8fc4ec;cursor:pointer;transition:.15s;}
 .jv-toggle:hover{border-color:rgba(56,189,248,.6);color:#eaf6ff;}
 .jv-toggle.on{background:rgba(255,122,26,.12);border-color:rgba(255,122,26,.5);color:#ffb27a;}
+/* Nút DỪNG nổi — trên ô nhập, giữa, to & dễ chạm (mobile). */
+.jv-stopfab{position:absolute;left:50%;bottom:84px;transform:translateX(-50%);z-index:6;
+  display:inline-flex;align-items:center;gap:9px;padding:11px 22px;border-radius:999px;cursor:pointer;
+  font-family:inherit;font-size:13.5px;font-weight:700;letter-spacing:.4px;color:#fff;
+  background:linear-gradient(135deg,#ef4444,#dc2626);border:1px solid rgba(255,255,255,.28);
+  box-shadow:0 8px 24px rgba(239,68,68,.5);animation:jvPulse 1.4s ease-in-out infinite;}
+.jv-stopfab:hover{filter:brightness(1.08);}
+.jv-stopfab:active{transform:translateX(-50%) scale(.95);}
+.jv-stopfab-ic{width:12px;height:12px;border-radius:2px;background:#fff;flex:0 0 12px;}
+@media(max-width:900px){.jv-stopfab{bottom:80px;padding:13px 26px;font-size:14.5px;}
+  .jv-stopfab-ic{width:13px;height:13px;}}
 .jv-voice-sel{font-family:inherit;font-size:10px;letter-spacing:.5px;max-width:170px;padding:6px 8px;border-radius:6px;
   border:1px solid rgba(56,189,248,.25);background:#0a1424;color:#9fd4ff;cursor:pointer;outline:none;}
 .jv-voice-sel:hover{border-color:rgba(56,189,248,.6);}

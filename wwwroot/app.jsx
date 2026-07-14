@@ -32,7 +32,7 @@ const NAV_GROUPS = [
   { label: 'Tổng quan', items: [
     { to: '/home',      icon: 'sparkle', label: 'Trang chủ' },        // hub AI launcher (/ là landing public)
     { to: '/assistant', icon: 'chart',   label: 'Trợ lý số liệu' },   // data/chart analytics
-    { to: '/travai',    icon: 'mic',     label: 'TRAVAI (giọng nói)' },  // HUD hội thoại 3D + giọng đọc ("Trà vải")
+    { to: '/travai',    icon: 'mic',     label: 'TRAVAI' },  // HUD hội thoại 3D + giọng đọc ("Trà vải")
   ]},
   { label: 'Khách hàng & Bán hàng', items: [
     { to: '/customers', icon: 'users',   label: 'Khách hàng' },       // people
@@ -301,6 +301,9 @@ function App() {
           url.searchParams.delete('next');
           window.history.replaceState({}, '', url.pathname + (url.search ? '?' + url.searchParams : '') + url.hash);
         }
+        // Trang mặc định sau đăng nhập = /travai (thay launcher /home cũ khó hiểu).
+        const p = window.location.hash ? window.location.hash.replace(/^#/, '') : window.location.pathname;
+        if (p === '/' || p === '' || p === '/home' || p === '/landing') window.tourkitRouter.navigate('/travai');
       }
     }} />;
   }

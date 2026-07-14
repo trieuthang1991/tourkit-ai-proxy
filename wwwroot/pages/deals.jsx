@@ -146,7 +146,7 @@ function DealCard({ item, rank, onClick }) {
           <div className="deal-card-cust">{item.customerName}
             {item.riskFlag === 'nguoi' && <span className="deals-risk"><Icon name="warning" size={11} /> nguội</span>}
           </div>
-          <div className="deal-card-deal">{item.title || item.code || ('#' + item.id)} · {item.statusName || '—'} · {item.ageDays}d</div>
+          <div className="deal-card-deal">{item.title || item.code || ('#' + item.id)} · {item.statusName || '—'} · {item.ageDays} ngày</div>
         </div>
         {scored
           ? <span className="deals-win" style={{ color: lv.color, background: lv.bg }}>{item.winRate}%</span>
@@ -721,7 +721,7 @@ function DealsPage({ pushToast }) {
                         <div className="deals-cust">{it.customerName}
                           {(it.isCooling || it.riskFlag === 'nguoi') && <span className="deals-risk" title="Đang nguội"><Icon name="warning" size={11} /> nguội</span>}
                         </div>
-                        <div className="deals-deal">{it.title || it.code || ('#' + it.id)} · {it.statusName || '—'} · {it.ageDays}d</div>
+                        <div className="deals-deal">{it.title || it.code || ('#' + it.id)} · {it.statusName || '—'} · {it.ageDays} ngày</div>
                       </td>
                       <td className="deals-val">{vndShort(it.totalPrice)}</td>
                       <td>

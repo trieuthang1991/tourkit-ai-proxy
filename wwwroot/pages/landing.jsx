@@ -173,7 +173,7 @@
     };
 
     const onCtaClick = (label) => {
-      if (isAuthed) { navigate('/home'); return; }
+      if (isAuthed) { navigate('/travai'); return; }
       setPopup({ open: true, feature: label || null });
     };
 
@@ -236,7 +236,7 @@
                 </button>
                 {userMenu && (
                   <div className="lp-user-menu" role="menu">
-                    <button className="lp-user-menu-item" onClick={() => { setUserMenu(false); navigate('/home'); }}>
+                    <button className="lp-user-menu-item" onClick={() => { setUserMenu(false); navigate('/travai'); }}>
                       <Icon name="sparkle" size={14} stroke={2.2} /> Vào ứng dụng
                     </button>
                     <button className="lp-user-menu-item" onClick={onLogout}>
@@ -247,7 +247,7 @@
               </div>
             ) : (
               <>
-                <a className="lp-toplogin" href="/home" onClick={(e) => { e.preventDefault(); navigate('/home'); }}>Đăng nhập</a>
+                <a className="lp-toplogin" href="/travai" onClick={(e) => { e.preventDefault(); navigate('/travai'); }}>Đăng nhập</a>
                 <button className="lp-topcta" onClick={() => onCtaClick('Đăng ký tư vấn miễn phí')}>Đăng ký tư vấn</button>
               </>
             )}
@@ -285,7 +285,7 @@
                   <Icon name="check" size={16} stroke={2.2} /> Cách bắt đầu
                 </button>
                 {isAuthed && (
-                  <button onClick={() => goAndClose(() => navigate('/home'))}>
+                  <button onClick={() => goAndClose(() => navigate('/travai'))}>
                     <Icon name="arrowRight" size={16} stroke={2.2} /> Vào ứng dụng
                   </button>
                 )}
@@ -310,7 +310,7 @@
                   </button>
                 ) : (
                   <>
-                    <button className="lp-mobile-cta-secondary" onClick={() => goAndClose(() => navigate('/home'))}>
+                    <button className="lp-mobile-cta-secondary" onClick={() => goAndClose(() => navigate('/travai'))}>
                       Đăng nhập
                     </button>
                     <button className="lp-mobile-cta-primary" onClick={() => goAndClose(() => onCtaClick('Đăng ký tư vấn miễn phí'))}>
