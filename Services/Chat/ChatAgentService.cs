@@ -1,4 +1,5 @@
 // Services/Chat/ChatAgentService.cs
+using System.Text.Json;
 using TourkitAiProxy.Models;
 using TourkitAiProxy.Services.Providers;
 using TourkitAiProxy.Services.TourKit;
@@ -25,6 +26,7 @@ public class ChatAgentService
     private readonly Cache.ChatCache _cache;
     private readonly UnresolvedQuestionsLog _unresolved;
     private readonly IWorkflowTraceAccessor _traceAccessor;
+    private readonly ActionExecutor _exec;
     private readonly ILogger<ChatAgentService> _log;
 
     public ChatAgentService(
@@ -35,6 +37,7 @@ public class ChatAgentService
         Cache.ChatCache cache,
         UnresolvedQuestionsLog unresolved,
         IWorkflowTraceAccessor traceAccessor,
+        ActionExecutor exec,
         ILogger<ChatAgentService> log)
     {
         _runtimes       = runtimes;
@@ -44,6 +47,7 @@ public class ChatAgentService
         _cache          = cache;
         _unresolved     = unresolved;
         _traceAccessor  = traceAccessor;
+        _exec           = exec;
         _log            = log;
     }
 
@@ -152,6 +156,34 @@ public class ChatAgentService
             $"Agent xong sau {agentResult.Iterations} iteration, tool={agentResult.ToolName}, " +
             $"tokens={agentResult.InputTokens}/{agentResult.OutputTokens}",
             new() { ["tool"] = agentResult.ToolName, ["iterations"] = agentResult.Iterations });
+
+        // Planner nhận diện HÀNH ĐỘNG (không phải câu hỏi số liệu) -- thực thi run-through
+        // (check_mail/review_customer/score_deal) hoặc trả placeholder cho action cần xác nhận,
+        // rồi trả ngay -- KHÔNG chạy tiếp path phân tích số liệu bình thường bên dưới.
+        if (!string.IsNullOrWhiteSpace(agentResult.Action))
+        {
+            var actionTimer = trace.Begin("action_execute");
+            var jwt = await _sessions.GetValidJwtAsync(sessionId, ct);
+            var payload = await TryHandleActionAsync(
+                agentResult.Action, AsJsonElement(agentResult.Params),
+                sessionId, tenantId, jwt, username, req.Provider, req.Model, ct);
+            var actionResult = payload is ActionResultEnvelope { Result: var r } ? r : null;
+            actionTimer.Done("ok",
+                $"Action '{agentResult.Action}' → {actionResult?.Message ?? "(không có kết quả)"}",
+                new() { ["action"] = agentResult.Action });
+
+            var actionChatResult = new ChatResult(
+                actionResult?.Message ?? "",
+                "none",
+                agentResult.Params,
+                actionResult?.Data,
+                agentResult.LatencyMs,
+                agentResult.InputTokens,
+                agentResult.OutputTokens,
+                actionResult?.Warning ?? agentResult.Warning);
+
+            return trace.Enabled ? actionChatResult with { Trace = trace.Build() } : actionChatResult;
+        }
 
         var result = new ChatResult(
             agentResult.Reply,
@@ -279,23 +311,45 @@ public class ChatAgentService
 
         await runtime.StreamAsync(input, async evt =>
         {
+            var type = evt.GetType();
+
+            // Planner nhận diện HÀNH ĐỘNG -- JsonPlannerAgent phát 1 event terminal
+            // {done, reply, toolName="none", action, actionParams, data}. Chặn (không forward
+            // event thô này), thực thi run-through hoặc trả placeholder, rồi tự phát
+            // action-result + done thay thế.
+            var actionProp = type.GetProperty("action");
+            var actionVal = actionProp?.GetValue(evt) as string;
+            if (!string.IsNullOrWhiteSpace(actionVal))
+            {
+                var actionParamsProp = type.GetProperty("actionParams");
+                var actionParamsRaw = actionParamsProp?.GetValue(evt);
+                var jwt = await _sessions.GetValidJwtAsync(sessionId, ct);
+                var payload = await TryHandleActionAsync(
+                    actionVal, AsJsonElement(actionParamsRaw),
+                    sessionId, tenantId, jwt, username, req.Provider, req.Model, ct);
+
+                if (payload != null)
+                {
+                    await emit(payload);
+                    await emit(new { done = true });
+                    return;
+                }
+                // payload null (action khong co trong catalog) -> fallback: forward nguyen event.
+            }
+
             await emit(evt);
 
             // Khi agent phat done -> ghi nho de luu L1 sau.
-            if (evt is { } o)
+            var doneProp = type.GetProperty("done");
+            if (doneProp?.GetValue(evt) is true)
             {
-                var type = o.GetType();
-                var doneProp = type.GetProperty("done");
-                if (doneProp?.GetValue(o) is true)
-                {
-                    var replyProp  = type.GetProperty("reply");
-                    var toolProp   = type.GetProperty("toolName");
-                    var dataProp   = type.GetProperty("data");
-                    var replyVal   = replyProp?.GetValue(o) as string ?? "";
-                    var toolVal    = toolProp?.GetValue(o) as string ?? "none";
-                    var dataVal    = dataProp?.GetValue(o) as ChatData;
-                    streamResult = new ChatResult(replyVal, toolVal, null, dataVal, 0, 0, 0, null);
-                }
+                var replyProp  = type.GetProperty("reply");
+                var toolProp   = type.GetProperty("toolName");
+                var dataProp   = type.GetProperty("data");
+                var replyVal   = replyProp?.GetValue(evt) as string ?? "";
+                var toolVal    = toolProp?.GetValue(evt) as string ?? "none";
+                var dataVal    = dataProp?.GetValue(evt) as ChatData;
+                streamResult = new ChatResult(replyVal, toolVal, null, dataVal, 0, 0, 0, null);
             }
         }, ct);
 
@@ -313,6 +367,51 @@ public class ChatAgentService
         // render collapsible "Cach van hanh" duoi reply.
         if (trace.Enabled)
             await emit(new { trace = trace.Build() });
+    }
+
+    // ─── Actions (Task 10a: run-through actions) ──────────────────────────────────
+
+    /// SSE/return payload cho 1 hành động đã xử lý (dù chạy thẳng hay placeholder chờ xác nhận).
+    /// Property names PascalCase -> serialize camelCase (kind/result) qua JsonSerializerDefaults.Web
+    /// ở endpoint, khớp shape "action-result" phía frontend.
+    private sealed record ActionResultEnvelope(string Kind, ActionResult Result);
+
+    /// Chuyen 1 gia tri object (thuong la JsonElement boxed sau khi Deserialize&lt;object&gt;, hoac
+    /// da la JsonElement qua reflection GetValue) ve JsonElement? -- dung chung cho AskAsync/AskStreamAsync.
+    private static JsonElement? AsJsonElement(object? value)
+        => value is JsonElement je ? je : null;
+
+    /// Nhan 1 "action" da duoc planner nhan dien (JsonPlannerAgent) + thuc thi:
+    ///   - NeedsConfirm == false (check_mail/review_customer/score_deal) -> chay thang qua ActionExecutor.
+    ///   - NeedsConfirm == true  (send_mail_reply/compose_mail/assign_task/create_appointment) -> placeholder
+    ///     (proposal/xac nhan la task 10b, chua lam o day).
+    /// Tra null khi 'action' khong khop entry nao trong ActionTools catalog (khong phai action hop le)
+    /// -- caller se fallback forward event/flow nhu binh thuong.
+    private async Task<object?> TryHandleActionAsync(
+        string action, JsonElement? actionParams,
+        string sessionId, string tenantId, string jwt, string username,
+        string? provider, string? model, CancellationToken ct)
+    {
+        var tool = ActionTools.Find(action);
+        if (tool == null) return null;
+
+        var paramsDict = new Dictionary<string, object?>();
+        if (actionParams is { ValueKind: JsonValueKind.Object } obj)
+            foreach (var prop in obj.EnumerateObject())
+                paramsDict[prop.Name] = prop.Value;
+
+        var execReq = new ActionExecuteRequest(
+            ActionId: Guid.NewGuid().ToString("N"),
+            Action:   action,
+            Params:   paramsDict,
+            Provider: provider,
+            Model:    model);
+
+        var result = tool.NeedsConfirm
+            ? new ActionResult(action, "Tính năng cần xác nhận đang được hoàn thiện.")
+            : await _exec.ExecuteAsync(execReq, tenantId, jwt, username, sessionId, ct);
+
+        return new ActionResultEnvelope("action-result", result);
     }
 
     // ─── Helpers ──────────────────────────────────────────────────────────────────
