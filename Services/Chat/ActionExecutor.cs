@@ -581,10 +581,18 @@ public class ActionExecutor
         return !string.IsNullOrWhiteSpace(s) && bool.TryParse(s, out var b) ? b : null;
     }
 
-    private static DateTime? ParseUtc(string? s)
-        => !string.IsNullOrWhiteSpace(s) && DateTime.TryParse(
-               s, CultureInfo.InvariantCulture,
-               DateTimeStyles.AssumeUniversal | DateTimeStyles.AdjustToUniversal, out var dt)
-            ? dt
-            : null;
+    /// Parse chuỗi ngày/giờ → UTC. Chuỗi có Z/offset → tôn trọng; chuỗi TRẦN (từ planner AI
+    /// hoặc <input type="datetime-local"> FE) coi là giờ VN (UTC+7, không DST) → trừ 7h.
+    public static DateTime? ParseUtc(string? s)
+    {
+        if (string.IsNullOrWhiteSpace(s)) return null;
+        if (!DateTime.TryParse(s, CultureInfo.InvariantCulture, DateTimeStyles.RoundtripKind, out var dt))
+            return null;
+        return dt.Kind switch
+        {
+            DateTimeKind.Utc => dt,
+            DateTimeKind.Local => dt.ToUniversalTime(),
+            _ => DateTime.SpecifyKind(dt.AddHours(-7), DateTimeKind.Utc) // bare = giờ VN (UTC+7)
+        };
+    }
 }

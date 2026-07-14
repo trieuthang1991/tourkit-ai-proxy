@@ -35,4 +35,30 @@ public class ActionExecutorTests
         Assert.Equal(123, d.RootElement.GetProperty("customerId").GetInt32());
         Assert.True(d.RootElement.TryGetProperty("careStartTime", out _));
     }
+
+    [Fact]
+    public void ParseUtc_treats_bare_datetime_as_vietnam_local()
+    {
+        var r = ActionExecutor.ParseUtc("2026-07-15T09:00");
+        Assert.NotNull(r);
+        Assert.Equal(new DateTime(2026, 7, 15, 2, 0, 0, DateTimeKind.Utc), r!.Value);
+        Assert.Equal(DateTimeKind.Utc, r.Value.Kind);
+    }
+
+    [Fact]
+    public void ParseUtc_honors_explicit_utc_z()
+    {
+        var r = ActionExecutor.ParseUtc("2026-07-15T09:00:00Z");
+        Assert.Equal(new DateTime(2026, 7, 15, 9, 0, 0, DateTimeKind.Utc), r!.Value);
+    }
+
+    [Fact]
+    public void ParseUtc_honors_explicit_offset()
+    {
+        var r = ActionExecutor.ParseUtc("2026-07-15T09:00:00+07:00");
+        Assert.Equal(new DateTime(2026, 7, 15, 2, 0, 0, DateTimeKind.Utc), r!.Value);
+    }
+
+    [Fact]
+    public void ParseUtc_null_on_garbage() => Assert.Null(ActionExecutor.ParseUtc("khong-phai-ngay"));
 }

@@ -20,8 +20,8 @@ public static class ActionTools
 
         new("send_mail_reply",
             "Soạn & GỬI trả lời cho 1 email của khách. Dùng khi 'trả lời khách X', 'phản hồi mail khiếu nại'. " +
-            "params: mailId (hoặc mô tả để backend resolve), tone (lich_su|than_thien|dam_phan|xin_loi), instruction.",
-            new[] { "mailId", "mailQuery", "tone", "instruction" }, ActionKind.Mail, true, "Trả lời email"),
+            "params: mailId (lấy từ danh sách mail vừa liệt kê/check_mail), tone (lich_su|than_thien|dam_phan|xin_loi), instruction.",
+            new[] { "mailId", "tone", "instruction" }, ActionKind.Mail, true, "Trả lời email"),
 
         new("compose_mail",
             "Soạn & GỬI 1 email MỚI tới người nhận bất kỳ. params: to, subject, brief, tone.",
