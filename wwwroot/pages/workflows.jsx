@@ -248,6 +248,116 @@ function RunHistoryTable({ runs, loading }) {
   );
 }
 
+// ─── CRM Queue Monitor ("Hàng đợi CRM") ────────────────────────────────────────────
+// Theo dõi hành động CRM (giao việc / lịch hẹn) mà trợ lý đã enqueue vào dbo.CrmActionQueue
+// (xem Services/Crm/CrmActionQueueRepository.cs). Worker app-side (toutkit-app) drain Pending
+// → tạo trong CRM thật → cập nhật Status. Pattern fetch/table giống RunHistoryTable ở trên.
+
+const CRM_QUEUE_KIND_LABEL = {
+  'assign-task': 'Giao việc',
+  'create-appointment': 'Lịch hẹn',
+};
+
+const CRM_QUEUE_STATUS = {
+  0: { label: 'Chờ ⏳',        cls: 'workflows-badge-pending' },
+  1: { label: 'Đang xử lý',   cls: 'workflows-badge-processing' },
+  2: { label: 'Xong ✅',       cls: 'workflows-badge-ok' },
+  3: { label: 'Lỗi ❌',        cls: 'workflows-badge-fail' },
+};
+
+// Tóm tắt nội dung từ payloadJson (an toàn, không throw khi JSON hỏng).
+function crmQueuePayloadLabel(item) {
+  let p;
+  try { p = JSON.parse(item.payloadJson || '{}'); } catch { p = {}; }
+  if (item.kind === 'assign-task') return p.name || '—';
+  if (item.kind === 'create-appointment') return p.careTitle || '—';
+  return p.name || p.careTitle || '—';
+}
+
+function CrmQueueTable({ items, loading }) {
+  if (loading) return <div className="workflows-history-loading">Đang tải...</div>;
+  if (!items || items.length === 0) return <div className="workflows-history-empty">Chưa có hành động CRM nào.</div>;
+  return (
+    <div className="workflows-history-wrap">
+      <table className="workflows-history-table">
+        <thead>
+          <tr>
+            <th>Loại</th>
+            <th>Nội dung</th>
+            <th>Trạng thái</th>
+            <th>Thời gian</th>
+            <th>Lỗi</th>
+          </tr>
+        </thead>
+        <tbody>
+          {items.map(it => {
+            const st = CRM_QUEUE_STATUS[it.status] || CRM_QUEUE_STATUS[0];
+            return (
+              <tr key={it.id} className={it.status === 3 ? 'workflows-run-failed' : ''}>
+                <td>{CRM_QUEUE_KIND_LABEL[it.kind] || it.kind}</td>
+                <td>{crmQueuePayloadLabel(it)}</td>
+                <td><span className={'workflows-badge ' + st.cls}>{st.label}</span></td>
+                <td className="workflows-run-ts" title={it.createdUtc}>{relativeTime(it.createdUtc)}</td>
+                <td className="workflows-run-error-text">{it.status === 3 && it.errorMessage ? it.errorMessage : '—'}</td>
+              </tr>
+            );
+          })}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
+function CrmQueueCard() {
+  const [items, setItems] = uS([]);
+  const [loading, setLoading] = uS(true);
+  const [error, setError] = uS(null);
+  const [statusFilter, setStatusFilter] = uS('');   // '' = tất cả
+
+  const load = uCB(async () => {
+    setLoading(true);
+    try {
+      const qs = statusFilter !== '' ? `&status=${statusFilter}` : '';
+      const data = await apiFetch(`/api/v1/workflows/crm-queue?limit=50${qs}`);
+      setItems(data.items || []);
+      setError(null);
+    } catch (e) {
+      setError('Không tải được hàng đợi CRM: ' + e.message);
+    } finally {
+      setLoading(false);
+    }
+  }, [statusFilter]);
+
+  uE(() => { load(); }, [load]);
+
+  return (
+    <section className="workflows-group" style={{ marginTop: 22 }}>
+      <div className="workflows-group-head">
+        <h2 className="workflows-group-title" style={_wfRow}><Icon name="list" size={17} /> Hàng đợi CRM</h2>
+        <p className="workflows-group-desc">
+          Hành động (giao việc, tạo lịch hẹn) mà trợ lý đã ghi nhận — hệ thống sẽ tự đồng bộ sang CRM.
+        </p>
+      </div>
+      <div className="wga-card" style={{ padding: '14px 18px' }}>
+        <div className="workflows-actions" style={{ marginBottom: 10 }}>
+          <select className="workflows-select" value={statusFilter} onChange={e => setStatusFilter(e.target.value)}>
+            <option value="">Tất cả trạng thái</option>
+            <option value="0">Chờ</option>
+            <option value="1">Đang xử lý</option>
+            <option value="2">Xong</option>
+            <option value="3">Lỗi</option>
+          </select>
+          <button className="wga-btn ghost" onClick={load} disabled={loading}>
+            <Icon name="refresh" size={14} /> {loading ? 'Đang tải...' : 'Làm mới'}
+          </button>
+        </div>
+        {error && <div className="workflows-error">{error}</div>}
+        <CrmQueueTable items={items} loading={loading && items.length === 0} />
+      </div>
+    </section>
+  );
+}
+
 // ─── ServiceAccountConfig (deal-auto-review) ───────────────────────────────────────
 // Workflow PerTenant tự đăng nhập TourKit bằng 1 tài khoản dịch vụ (không cần user online).
 // POST validate login + đếm deal trước khi lưu; GET trạng thái (không trả password).
@@ -887,6 +997,8 @@ function WorkflowsPage({ pushToast }) {
           </React.Fragment>
         );
       })()}
+
+      <CrmQueueCard />
     </main>
   );
 }

@@ -7733,6 +7733,8 @@ n
   font-size: 11px; font-weight: 600; }
 .workflows-badge-ok   { background: #DCFCE7; color: #166534; }
 .workflows-badge-fail { background: #FEE2E2; color: #991B1B; }
+.workflows-badge-pending    { background: #FEF3C7; color: #B45309; }
+.workflows-badge-processing { background: #DBEAFE; color: #1D4ED8; }
 
 /* Loading / error states */
 .workflows-loading,
