@@ -51,6 +51,48 @@ public static class ToolSchemaGenerator
     }
 
     /// <summary>
+    /// Tao mang tool schema Anthropic tu ActionTools catalog (giao viec/tra loi mail/danh gia KH/...).
+    /// Params cua action da mostly free-form string (xem ActionTools) nen schema don gian: moi property
+    /// la {type:"string"}, khong required (planner co the omit field chua biet, ActionResolver o
+    /// ChatAgentService se resolve/hoi lai sau). Dung chung voi BuildAnthropicTools trong cung 1 mang
+    /// tools[] cua NativeToolUseAgent -- xem ghi chu "action tool interception" trong file do.
+    /// </summary>
+    public static object[] BuildAnthropicActionTools(bool addCacheControl = true)
+    {
+        var tools = ActionTools.All;
+        var result = new List<object>(tools.Count);
+
+        for (int i = 0; i < tools.Count; i++)
+        {
+            var t = tools[i];
+            var properties = new Dictionary<string, object>();
+            foreach (var p in t.Params)
+                properties[p] = new { type = "string" };
+
+            bool isLast = (i == tools.Count - 1);
+
+            object toolObj = (isLast && addCacheControl)
+                ? new
+                {
+                    name         = t.Name,
+                    description  = t.Description,
+                    input_schema = new { type = "object", properties, required = Array.Empty<string>() },
+                    cache_control = new { type = "ephemeral" }
+                }
+                : (object)new
+                {
+                    name         = t.Name,
+                    description  = t.Description,
+                    input_schema = new { type = "object", properties, required = Array.Empty<string>() }
+                };
+
+            result.Add(toolObj);
+        }
+
+        return result.ToArray();
+    }
+
+    /// <summary>
     /// Suy ra JSON Schema type tu ten param. Quy uoc don gian, khong can attribute.
     /// </summary>
     private static object InferSchema(string paramName)

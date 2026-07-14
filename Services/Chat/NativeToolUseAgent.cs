@@ -33,14 +33,13 @@ namespace TourkitAiProxy.Services.Chat;
 ///
 /// BuildChatData + helper stats duoc tach ra ChatDataBuilder de share voi JsonPlannerAgent.
 ///
-/// TODO (Task 6 gap): action catalog (ActionTools — "giao viec"/"tra loi mail"/...) CHUA duoc advertise
-/// trong system prompt/tools[] cua path nay, nen AgentResult.Action luon null qua runtime nay. Path mac
-/// dinh (provider != anthropic) la JsonPlannerAgent, da nhan dien + tra Action. De ho tro native path,
-/// can: (1) build them Anthropic tool schema tu ActionTools (song song ToolSchemaGenerator.BuildAnthropicTools
-/// cho ChatTools), (2) khi AI goi 1 tool_use trung ten ActionTools.Find(...) != null trong vong lap o duoi,
-/// NGUNG dispatch nhu tool doc thuong (ChatTools.BuildPath/_api.GetAsync se fail vi khong phai tool that)
-/// ma short-circuit tra AgentResult voi Action = ten do, Params = input tool_use. Chua lam o task nay vi
-/// can sua ca prompt lan vong lap thuc thi -- de task sau.
+/// Action tools (ActionTools — "giao viec"/"tra loi mail"/"danh gia KH"/...) duoc dang ky nhu Anthropic
+/// tools[] BO SUNG (ToolSchemaGenerator.BuildAnthropicActionTools), noi tiep sau ChatTools schema trong
+/// cung 1 mang tools truyen cho Anthropic. Trong vong lap, TRUOC khi dispatch bat ky tool_use nao nhu
+/// tool doc thuong, ta kiem tra co block nao trung ten ActionTools.Find(...) != null khong -- neu co,
+/// NGUNG vong lap ngay (khong dispatch/execute tool nao ca luot do), tra AgentResult.Action = ten action
+/// + Params = input tool_use (giong het contract cua JsonPlannerAgent). ChatAgentService da co san logic
+/// resolve/proposal/execute cho Action != null nen khong can sua gi them o do.
 /// </summary>
 public class NativeToolUseAgent : IAgentRuntime
 {
@@ -64,6 +63,7 @@ public class NativeToolUseAgent : IAgentRuntime
         "Quy trình: (1) dùng tools để lấy dữ liệu thật; (2) viết PHÂN TÍCH ĐẦY ĐỦ tiếng Việt bám đúng số liệu. " +
         "TUYỆT ĐỐI không bịa số; CHỈ dùng tools có trong catalog. " +
         "BẮT BUỘC gọi tool cho mọi câu hỏi về doanh thu / chi phí / lợi nhuận / khách / tour / deal / marketing / cơ hội / công nợ / lịch hẹn — kể cả câu follow-up (vd 'phân tích thêm', 'tại sao', 'còn X thì sao'). " +
+        "KHI USER YÊU CẦU LÀM một việc (không phải hỏi số liệu) — vd 'giao việc cho NV X', 'trả lời khách Y', 'soạn mail mới', 'đánh giá/xếp hạng khách hàng Z', 'chấm điểm deal/cơ hội', 'kiểm tra mail mới', 'đặt lịch hẹn với khách' — BẮT BUỘC gọi ĐÚNG action tool tương ứng (check_mail/send_mail_reply/compose_mail/review_customer/score_deal/assign_task/create_appointment), KHÔNG gọi tool đọc số liệu (vd top_customers) để thay thế. Điền params từ câu nói + ngữ cảnh lượt trước (vd 'khách này' → tên đã nhắc), KHÔNG tự bịa id. " +
         "KHI CẦN SO SÁNH (vd 'so với năm ngoái', 'so với tháng trước', 'cùng kỳ'): gọi NHIỀU tool SONG SONG cùng turn với param khác nhau (khoảng date khác, kỳ khác) để có 2 bộ số đối chiếu. " +
         "PHÂN TÍCH phải có: (a) số chính + xu hướng; (b) so sánh nếu có 2 bộ số; (c) 1-2 đề xuất hành động. " +
         "Dùng thuật ngữ tiếng Việt thuần (doanh thu/chi phí/lợi nhuận/khách hàng); KHÔNG dùng tên trường Anh (revenue/expense...) hoặc Id. " +
@@ -141,8 +141,12 @@ public class NativeToolUseAgent : IAgentRuntime
         // Build messages tu history (gioi han 6 luot gan nhat)
         var messages = BuildMessages(input.History);
 
-        // Build tool schema, cache_control o tool cuoi de Anthropic cache phan prompt nay.
-        var tools = ToolSchemaGenerator.BuildAnthropicTools(addCacheControl: true);
+        // Build tool schema: ChatTools (doc) + ActionTools (hanh dong) noi tiep trong 1 mang tools[].
+        // cache_control gan o tool CUOI CUNG cua toan mang (action tool cuoi) de Anthropic cache dung
+        // toan bo prompt tools -- addCacheControl=false o ChatTools de tranh 2 cache_control (loi API).
+        var tools = ToolSchemaGenerator.BuildAnthropicTools(addCacheControl: false)
+            .Concat(ToolSchemaGenerator.BuildAnthropicActionTools(addCacheControl: true))
+            .ToArray();
 
         // Wall-clock timeout 30s chia se qua linked token
         using var wallClock = new CancellationTokenSource(TimeSpan.FromSeconds(WallClockSec));
@@ -241,6 +245,37 @@ public class NativeToolUseAgent : IAgentRuntime
                     ["tokIn"] = usage.GetProperty("input_tokens").GetInt32(),
                     ["tokOut"] = usage.GetProperty("output_tokens").GetInt32()
                 });
+
+            // ── Action detection: uu tien HANH DONG hon tool doc (mirror JsonPlannerAgent). ──────
+            // Neu model goi 1 action tool (ActionTools catalog) trong turn nay -> NGUNG vong lap
+            // NGAY, KHONG dispatch nhu tool doc thuong (ChatTools.Find se tra null / BuildPath se fail
+            // vi day khong phai tool doc that). Chi surface Action + Params -- KHONG thuc thi (giong
+            // Task 6 cua JsonPlannerAgent, executor/resolve/proposal nam o ChatAgentService).
+            var actionBlock = toolUseBlocks.FirstOrDefault(t => ActionTools.Find(t.Name) != null);
+            if (actionBlock.Name != null)
+            {
+                var action = ActionTools.Find(actionBlock.Name)!;
+                object? actionParamsOut = null;
+                try { actionParamsOut = JsonSerializer.Deserialize<object>(actionBlock.Input.GetRawText()); }
+                catch { /* input rong/invalid -> giu null, ChatAgentService tu hoi lai thieu gi */ }
+
+                trace?.Step("action_parse", "ok", 0,
+                    $"Model gọi ACTION tool: action='{action.Name}', params={actionBlock.Input.GetRawText()}",
+                    new() { ["action"] = action.Name, ["params"] = actionBlock.Input.GetRawText() });
+
+                doc.Dispose();
+                return new AgentResult(
+                    Reply:        $"Đã nhận diện yêu cầu hành động: {action.Name}.",
+                    ToolName:     "none",
+                    Params:       actionParamsOut,
+                    Data:         memory.LastChatData,
+                    LatencyMs:    totalLat,
+                    InputTokens:  totalInTok,
+                    OutputTokens: totalOutTok,
+                    Warning:      warning,
+                    Iterations:   iteration,
+                    Action:       action.Name);
+            }
 
             // ── Kiem tra dieu kien ket thuc vong lap ──────────────────────────
             if (stopReason == "end_turn" || toolUseBlocks.Count == 0)
@@ -604,6 +639,24 @@ public class NativeToolUseAgent : IAgentRuntime
             _log.LogError(ex, "[NativeTool-stream] RunCoreAsync loi");
             await emit(new { error = ex.Message });
             await emit(new { done = true });
+            return;
+        }
+
+        // Action nhan dien (khong phai tool doc) -> emit 1 event terminal DUY NHAT, CUNG SHAPE voi
+        // JsonPlannerAgent ({done, reply, toolName="none", action, actionParams, data}) de
+        // ChatAgentService.AskStreamAsync bat duoc qua reflection property "action"/"actionParams".
+        // KHONG emit {delta} truoc do -- action khong co phan phan tich streaming.
+        if (!string.IsNullOrWhiteSpace(result.Action))
+        {
+            await emit(new
+            {
+                done         = true,
+                reply        = result.Reply,
+                toolName     = "none",
+                action       = result.Action,
+                actionParams = result.Params,
+                data         = (object?)result.Data
+            });
             return;
         }
 
