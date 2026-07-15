@@ -40,9 +40,16 @@ public class VbeeTtsService
     private readonly IHttpClientFactory _httpFactory;
     private readonly IConfiguration _cfg;
     private readonly ILogger<VbeeTtsService> _log;
+    // Giới hạn số synth Vbee ĐỒNG THỜI. Bắn quá nhiều call song song (frontend cắt ~10 đoạn) → hàng đợi
+    // async Vbee nghẽn → poll quá hạn 25s → endpoint forward sang edge (trộn giọng + trễ ~33s). Semaphore
+    // giữ ≤N slot → call dư xếp hàng ngắn thay vì đập Vbee cùng lúc. Singleton → 1 gate = trần toàn cục.
+    private readonly SemaphoreSlim _gate;
 
     public VbeeTtsService(IHttpClientFactory httpFactory, IConfiguration cfg, ILogger<VbeeTtsService> log)
-    { _httpFactory = httpFactory; _cfg = cfg; _log = log; }
+    {
+        _httpFactory = httpFactory; _cfg = cfg; _log = log;
+        _gate = new SemaphoreSlim(Math.Max(1, cfg.GetValue("Speech:Vbee:MaxConcurrency", 3)));
+    }
 
     private string? AppId => _cfg["Speech:Vbee:AppId"] ?? Environment.GetEnvironmentVariable("VBEE_APP_ID");
     private string? Token => _cfg["Speech:Vbee:Token"] ?? Environment.GetEnvironmentVariable("VBEE_TOKEN");
@@ -73,6 +80,13 @@ public class VbeeTtsService
 
         var cacheKey = Hash($"vbee|{voiceCode}|{bitrate}|{text}");
         if (_cache.TryGetValue(cacheKey, out var hit)) return (hit, true);   // câu lặp → free
+
+        // Giữ SLOT trước khi gọi Vbee — chống bắn ồ ạt gây poll timeout → forward edge (trộn giọng).
+        await _gate.WaitAsync(ct);
+        try
+        {
+        // Double-check cache: 1 request khác có thể đã synth xong CÙNG text trong lúc mình chờ slot → free.
+        if (_cache.TryGetValue(cacheKey, out var hit2)) return (hit2, true);
 
         // ── GATEWAY MODE: relay qua Ubuntu (khi server chính không gọi được api.vbee.vn) ──
         if (!string.IsNullOrWhiteSpace(GatewayUrl))
@@ -112,6 +126,8 @@ public class VbeeTtsService
         if (_cache.Count < CACHE_CAP) _cache.TryAdd(cacheKey, mp3);
         _log.LogInformation("Vbee TTS OK: {Chars}ch → {Kb}KB, voice={Voice}", text.Length, mp3.Length / 1024, voiceCode);
         return (mp3, false);
+        }
+        finally { _gate.Release(); }
     }
 
     // Gọi relay Ubuntu: POST {text, voice} + header X-Api-Key → nhận thẳng mp3. Toàn bộ TLS "khó"
