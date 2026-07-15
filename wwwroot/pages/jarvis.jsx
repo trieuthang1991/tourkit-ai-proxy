@@ -447,13 +447,19 @@ function JarvisPage({ pushToast }) {
 
   // ── Đọc THEO TỪNG CÂU khi đang stream → giọng bắt đầu sớm, đỡ cảm giác chậm ──
   const spokenIdxRef = _jR(0);      // số ký tự reply đã đưa vào hàng đợi đọc
-  const ttsQueueRef = _jR([]);      // hàng đợi câu chờ đọc (server path — GIỮ THỨ TỰ)
+  const ttsSegsRef = _jR([]);       // promise buffer của các ĐOẠN (fetch SONG SONG, GIỮ THỨ TỰ) → ghép phát 1 lần
   const ttsBusyRef = _jR(false);
-  const cleanForSpeech = (t) => String(t).replace(/```[\s\S]*?```/g, ' ').replace(/\[(.*?)\]\(.*?\)/g, '$1')
-    .replace(/[*_`#>|~]/g, '').replace(/\s+/g, ' ').trim();
+  const ttsGenRef = _jR(0);         // "đời" hàng đợi đọc — tăng mỗi lần reset để bỏ audio/đoạn cũ còn treo
+  const ttsAbortsRef = _jR([]);     // AbortController của các call /speech/tts đang bay → hủy khi reset
+  const SPEAK_MIN = 100;            // ngưỡng gom đoạn: đủ ~100 ký tự + hết câu (dấu . ! ? …) → cắt 1 đoạn = 1 call TTS
+                                    // (100 = cân bằng: ít call song song hơn → Vbee đỡ nghẽn/lỗi, vẫn nghe tiếng đầu sớm)
+  const SPEAK_GAP_SEC = 0.35;      // khoảng lặng chèn GIỮA các đoạn khi ghép → nhịp nghỉ tự nhiên, không dồn
 
   function resetSpeech() {
-    spokenIdxRef.current = 0; ttsQueueRef.current = []; ttsBusyRef.current = false;
+    spokenIdxRef.current = 0; ttsSegsRef.current = []; ttsBusyRef.current = false;
+    ttsGenRef.current++;                                       // vô hiệu hoá phần đọc + audio đoạn cũ còn treo
+    try { ttsAbortsRef.current.forEach(a => a.abort()); } catch {}
+    ttsAbortsRef.current = [];                                 // hủy mọi call /speech/tts đang chờ (khỏi tốn + khỏi phát trễ)
     try { window.speechSynthesis?.cancel(); } catch {}
     try { audioRef.current?.pause(); } catch {}
     stopWebAudio();   // dừng luôn nhánh Web Audio (iOS) nếu đang phát
@@ -472,59 +478,146 @@ function JarvisPage({ pushToast }) {
     setOrbState('idle');
   }
 
-  // Tách câu hoàn chỉnh từ full[spokenIdx..] → đọc từng câu. isFinal: đọc nốt phần đuôi.
-  // Hết câu = [!?…\n] HOẶC dấu chấm THEO SAU bởi khoảng trắng — KHÔNG cắt dấu chấm trong số
-  // ("1.500.048.600.000") vì sau chấm là chữ số → số đọc liền mạch, humanize gộp được.
-  function flushSentences(full, isFinal) {
+  // ── TTS "1 lần liền mạch": cắt reply thành ĐOẠN (~≥100 ký tự + hết câu), fetch TẤT CẢ đoạn SONG SONG
+  //    ngay khi nhận ra (overlap với lúc AI còn generate) → GHÉP thành 1 audio, phát 1 lần → KHÔNG ngắt/giật.
+  //    Hết câu = [!?…\n] HOẶC dấu chấm THEO SAU khoảng trắng — KHÔNG cắt chấm trong số ("1.500.000").
+  function flushSpeech(full, isFinal) {
     if (!voiceOnRef.current) return;
-    const rest = full.slice(spokenIdxRef.current);
-    const re = /[\s\S]*?(?:[!?…\n]|\.(?=\s))/g;
-    let m, consumed = 0;
-    while ((m = re.exec(rest)) !== null) { const s = m[0].trim(); if (s) speakChunk(s); consumed = re.lastIndex; }
-    spokenIdxRef.current += consumed;
-    if (isFinal) {
-      const tail = full.slice(spokenIdxRef.current).trim();
-      if (tail) { speakChunk(tail); spokenIdxRef.current = full.length; }
+    const gen = ttsGenRef.current;
+    const boundary = /[!?…\n]|\.(?=\s)/g;
+    // Gom tới khi phần chưa xử lý có 1 ranh giới câu Ở/SAU mốc SPEAK_MIN → cắt tại đó. Lặp để xả nhiều đoạn 1 lần.
+    while (true) {
+      const rest = full.slice(spokenIdxRef.current);
+      if (!rest.trim()) break;
+      boundary.lastIndex = 0;
+      let cut = -1, m;
+      while ((m = boundary.exec(rest)) !== null) {
+        if (boundary.lastIndex >= SPEAK_MIN) { cut = boundary.lastIndex; break; }
+      }
+      if (cut === -1) {                                  // chưa đủ dài / chưa có hết-câu sau mốc 100
+        if (isFinal) { const t = rest.trim(); if (t && !ttsDisabledRef.current) ttsSegsRef.current.push(fetchTtsBuf(t, gen)); spokenIdxRef.current = full.length; }
+        break;
+      }
+      const chunk = rest.slice(0, cut).trim();
+      if (chunk && !ttsDisabledRef.current) ttsSegsRef.current.push(fetchTtsBuf(chunk, gen));   // fetch SONG SONG NGAY
+      spokenIdxRef.current += cut;
     }
+    if (isFinal) playCombined(gen);   // đã cắt hết → chờ mọi đoạn tổng hợp xong → ghép + phát liền mạch
   }
 
-  function speakChunk(text) {
-    const v = window.speechSynthesis ? resolveVoice() : null;
-    if (v) {
-      const clean = humanizeForSpeech(cleanForSpeech(text));
-      if (!clean) return;
-      const u = new SpeechSynthesisUtterance(clean);
-      u.voice = v; u.lang = v.lang || 'vi-VN'; u.rate = 1; u.pitch = 1;
-      u.onstart = () => setSpeaking(true);
-      u.onend = () => { if (!window.speechSynthesis.pending && !window.speechSynthesis.speaking) setSpeaking(false); };
-      window.speechSynthesis.speak(u);   // KHÔNG cancel → nối vào hàng đợi native
-    } else {
-      if (ttsDisabledRef.current) return;
-      ttsQueueRef.current.push(text);
-      pumpServerQueue();
-    }
-  }
-
-  async function pumpServerQueue() {
-    if (ttsBusyRef.current) return;
-    const text = ttsQueueRef.current.shift();
-    if (!text) return;
-    ttsBusyRef.current = true;
-    setSpeaking(true);   // báo bận NGAY khi bắt đầu gen giọng (edge-tts round-trip) → orb không về "SẴN SÀNG"
-    const clean = humanizeForSpeech(cleanForSpeech(text), true);   // native=Vbee: bỏ phiên âm gạch nối (đỡ đánh vần)
+  // Gọi /speech/tts cho 1 đoạn → ArrayBuffer (null nếu lỗi/đã hủy). Có AbortController để reset cắt ngang.
+  async function fetchTtsBuf(text, gen) {
+    const clean = humanizeForSpeech(cleanSpeechText(text));
+    if (!clean) return null;
+    const ac = new AbortController(); ttsAbortsRef.current.push(ac);
     try {
       const r = await window.tourkitAuth.authedFetch('/api/v1/speech/tts', {
-        method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ text: clean })
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ text: clean }), signal: ac.signal
       });
-      if (!r.ok) { ttsDisabledRef.current = true; ttsBusyRef.current = false; hintNoVoice(); return; }
-      const url = URL.createObjectURL(await r.blob());
-      const a = new Audio(url); audioRef.current = a; setSpeaking(true);
-      a.onended = a.onerror = () => {
-        URL.revokeObjectURL(url); ttsBusyRef.current = false;
-        if (ttsQueueRef.current.length) pumpServerQueue(); else setSpeaking(false);
-      };
-      await a.play();
-    } catch (e) { ttsBusyRef.current = false; if (ttsQueueRef.current.length) pumpServerQueue(); else setSpeaking(false); }
+      if (gen !== ttsGenRef.current) return null;
+      if (!r.ok) { ttsDisabledRef.current = true; hintNoVoice(); return null; }
+      const eng = r.headers.get('X-Tts-Engine'); if (eng) setTtsEngine(eng);
+      return await r.arrayBuffer();
+    } catch { return null; }
+    finally { ttsAbortsRef.current = ttsAbortsRef.current.filter(x => x !== ac); }
+  }
+
+  // Phát 1 buffer, resolve khi phát xong (để nối đoạn). iOS → Web Audio (bỏ qua nút Im lặng); còn lại → <audio> dùng chung.
+  function playBufferAsync(buf, gen) {
+    return new Promise(async (resolve) => {
+      if (!buf || gen !== ttsGenRef.current) return resolve();
+      if (isIOS && getCtx()) {
+        try {
+          const ctx = getCtx();
+          if (ctx.state === 'suspended') { try { await ctx.resume(); } catch {} }
+          const audioBuf = await new Promise((res, rej) => {
+            const p = ctx.decodeAudioData(buf.slice(0), b => res(b), e => rej(e || new Error('decode')));
+            if (p && p.then) p.then(res).catch(rej);
+          });
+          if (gen !== ttsGenRef.current) return resolve();
+          stopWebAudio();
+          const src = ctx.createBufferSource(); src.buffer = audioBuf; src.connect(ctx.destination);
+          webAudioSrcRef.current = src;
+          src.onended = () => { if (webAudioSrcRef.current === src) webAudioSrcRef.current = null; resolve(); };
+          src.start(0); audioUnlockedRef.current = true;
+          return;
+        } catch { /* rơi xuống <audio> */ }
+      }
+      const url = URL.createObjectURL(new Blob([buf], { type: 'audio/mpeg' }));
+      const a = ttsEl();
+      try { a.pause(); } catch {}
+      setTtsSrc(a, url);
+      a.onended = a.onerror = () => resolve();
+      try {
+        const p = a.play();
+        if (p && p.then) p.then(() => { audioUnlockedRef.current = true; }).catch(() => { pendingUrlRef.current = url; setNeedTap(true); resolve(); });
+      } catch { resolve(); }
+    });
+  }
+
+  // Chờ TẤT CẢ đoạn (đã fetch song song) → giải mã + NỐI thành 1 buffer → phát 1 LẦN (liền mạch, không giật).
+  //   Web Audio bắt buộc để nối (không ghép mp3 blob thô được); ctx đã mở khoá qua gesture (unlockAudio).
+  //   Web Audio lỗi/không có → fallback phát tuần tự <audio> (có thể hơi ngắt, nhưng hiếm khi rơi vào).
+  async function playCombined(gen) {
+    if (ttsBusyRef.current) return;
+    const segs = ttsSegsRef.current.slice();
+    if (!segs.length) return;
+    ttsBusyRef.current = true;
+    setSpeaking(true);   // giữ trạng thái "đang đọc" suốt lúc tổng hợp + phát (orb không nhảy về SẴN SÀNG)
+    try {
+      const bufs = (await Promise.all(segs)).filter(Boolean);   // chờ mọi đoạn tổng hợp xong (song song)
+      if (gen !== ttsGenRef.current) return;
+      if (!bufs.length) { setSpeaking(false); return; }
+      const ctx = getCtx();
+      if (ctx) {
+        try {
+          if (ctx.state === 'suspended') { try { await ctx.resume(); } catch {} }
+          const decoded = [];
+          for (const b of bufs) {
+            const ab = await new Promise((res, rej) => {
+              const p = ctx.decodeAudioData(b.slice(0), r => res(r), e => rej(e || new Error('decode')));
+              if (p && p.then) p.then(res).catch(rej);
+            });
+            decoded.push(ab);
+          }
+          if (gen !== ttsGenRef.current) return;
+          stopWebAudio();
+          const src = ctx.createBufferSource();
+          src.buffer = decoded.length === 1 ? decoded[0] : concatAudioBuffers(ctx, decoded);
+          src.connect(ctx.destination);
+          webAudioSrcRef.current = src;
+          await new Promise(resolve => {
+            src.onended = () => { if (webAudioSrcRef.current === src) webAudioSrcRef.current = null; resolve(); };
+            src.start(0); audioUnlockedRef.current = true;
+          });
+          return;
+        } catch { /* Web Audio lỗi → fallback tuần tự */ }
+      }
+      for (const b of bufs) { if (gen !== ttsGenRef.current) break; await playBufferAsync(b, gen); }
+    } finally {
+      ttsBusyRef.current = false;
+      if (gen === ttsGenRef.current) setSpeaking(false);
+    }
+  }
+
+  // Nối nhiều AudioBuffer (cùng sampleRate — Vbee đồng nhất) thành 1 buffer, CHÈN khoảng lặng giữa các đoạn
+  // (SPEAK_GAP_SEC) → có nhịp nghỉ tự nhiên giữa câu, không dồn/đọc nhanh. Vùng lặng = mẫu 0 sẵn (createBuffer).
+  function concatAudioBuffers(ctx, buffers) {
+    const numCh = Math.max(...buffers.map(b => b.numberOfChannels));
+    const rate = buffers[0].sampleRate;
+    const gapLen = Math.round(SPEAK_GAP_SEC * rate);
+    const total = buffers.reduce((s, b) => s + b.length, 0) + gapLen * (buffers.length - 1);
+    const out = ctx.createBuffer(numCh, total, rate);
+    for (let ch = 0; ch < numCh; ch++) {
+      const od = out.getChannelData(ch);
+      let off = 0;
+      buffers.forEach((b, i) => {
+        od.set(b.getChannelData(b.numberOfChannels > ch ? ch : 0), off);
+        off += b.length + (i < buffers.length - 1 ? gapLen : 0);   // bỏ qua vùng lặng (đã là 0) trước đoạn kế
+      });
+    }
+    return out;
   }
 
   const abortRef = _jR(null);
@@ -605,13 +698,13 @@ function JarvisPage({ pushToast }) {
           if (o.tool) setLastTool(o.tool);
           return;
         }
-        if (o.delta) { setOrbState('responding'); full += o.delta; patch(a => ({ ...a, content: a.content + o.delta })); return; }
+        if (o.delta) { setOrbState('responding'); full += o.delta; patch(a => ({ ...a, content: a.content + o.delta })); if (voiceOnRef.current) flushSpeech(full, false); return; }
         if (o.done) {
           if (o.reply) { full = o.reply; patch(a => ({ ...a, content: o.reply })); }
           if (o.toolName) setLastTool(o.toolName);
         }
       });
-      if (isCur() && voiceOn) speakReply(full);   // trả lời XONG mới gen 1 file cho CẢ đoạn → đọc liền mạch
+      if (isCur() && voiceOnRef.current) flushSpeech(full, true);   // xả nốt đuôi (đoạn cuối < 100 ký tự) → đọc hết
     } catch (e) {
       if (ac.signal.aborted || e.name === 'AbortError') return;   // bị hủy do hỏi câu mới → im lặng
       if (isCur()) patch(a => ({ ...a, content: '⚠️ ' + e.message, error: true }));
@@ -1237,15 +1330,6 @@ function JarvisPage({ pushToast }) {
           </div>
         )}
 
-        {/* Nút DỪNG nổi — đặt ngay trên ô nhập cho dễ chạm bằng ngón cái trên mobile.
-            Chỉ hiện khi AI đang trả lời/đọc; bấm = ngắt stream + tắt mọi giọng. */}
-        {(loading || speaking) && (
-          <button className="jv-stopfab" onClick={stopEverything}
-            title="Dừng AI đang trả lời + tắt giọng đọc">
-            <span className="jv-stopfab-ic" /> Dừng đọc
-          </button>
-        )}
-
         {/* Nhập liệu */}
         <div className="jv-input-row">
           <button className={'jv-mic' + (rec === 'recording' ? ' rec' : '') + (rec === 'uploading' ? ' busy' : '')} onClick={toggleMic}
@@ -1253,6 +1337,14 @@ function JarvisPage({ pushToast }) {
             title={listening ? 'Đang ở chế độ Luôn nghe' : (rec === 'recording' ? 'Đang nghe — bấm để dừng & nhận diện' : (rec === 'uploading' ? 'Đang nhận diện…' : (useServerStt ? 'Bấm để nói (thu âm → nhận diện)' : 'Bấm để nói (miễn phí)')))}>
             <Icon name="phone" size={18} />
           </button>
+          {/* Nút DỪNG — icon tròn nhỏ cạnh nút gọi, chỉ hiện khi AI đang đọc/trả lời;
+              bấm = ngắt stream + tắt mọi giọng. Nhẹ nhàng hơn FAB nổi to trước đây. */}
+          {(loading || speaking) && (
+            <button className="jv-stop" onClick={stopEverything}
+              title={speaking ? 'Dừng đọc' : 'Dừng trả lời'} aria-label={speaking ? 'Dừng đọc' : 'Dừng trả lời'}>
+              <span className="jv-stop-ic" />
+            </button>
+          )}
           <input className="jv-input"
             placeholder={rec === 'recording' ? (useServerStt ? 'Đang thu âm… bấm 🎤 lần nữa để gửi' : 'Đang nghe… nói rõ vào mic') : (rec === 'uploading' ? 'Đang nhận diện giọng nói…' : (loading ? 'Đang trả lời… (hỏi tiếp để ngắt)' : 'Hỏi TRAVAI… (Enter để gửi)'))}
             value={input}
@@ -1301,17 +1393,15 @@ const JV_CSS = `
   color:#8fc4ec;cursor:pointer;transition:.15s;}
 .jv-toggle:hover{border-color:rgba(56,189,248,.6);color:#eaf6ff;}
 .jv-toggle.on{background:rgba(255,122,26,.12);border-color:rgba(255,122,26,.5);color:#ffb27a;}
-/* Nút DỪNG nổi — trên ô nhập, giữa, to & dễ chạm (mobile). */
-.jv-stopfab{position:absolute;left:50%;bottom:84px;transform:translateX(-50%);z-index:6;
-  display:inline-flex;align-items:center;gap:9px;padding:11px 22px;border-radius:999px;cursor:pointer;
-  font-family:inherit;font-size:13.5px;font-weight:700;letter-spacing:.4px;color:#fff;
-  background:linear-gradient(135deg,#ef4444,#dc2626);border:1px solid rgba(255,255,255,.28);
-  box-shadow:0 8px 24px rgba(239,68,68,.5);animation:jvPulse 1.4s ease-in-out infinite;}
-.jv-stopfab:hover{filter:brightness(1.08);}
-.jv-stopfab:active{transform:translateX(-50%) scale(.95);}
-.jv-stopfab-ic{width:12px;height:12px;border-radius:2px;background:#fff;flex:0 0 12px;}
-@media(max-width:900px){.jv-stopfab{bottom:80px;padding:13px 26px;font-size:14.5px;}
-  .jv-stopfab-ic{width:13px;height:13px;}}
+/* Nút DỪNG — icon tròn nhỏ cạnh nút gọi (mic), chỉ hiện khi đang đọc/trả lời.
+   Cùng kích thước 44px như mic/send để hàng nút cân, pulse nhẹ để hút mắt mà không chói. */
+.jv-stop{width:44px;height:44px;flex:0 0 44px;border-radius:50%;display:flex;align-items:center;justify-content:center;
+  cursor:pointer;transition:.15s;color:#fff;border:1px solid rgba(239,68,68,.6);
+  background:rgba(239,68,68,.16);box-shadow:0 0 14px rgba(239,68,68,.35);animation:jvPulse 1.4s ease-in-out infinite;}
+.jv-stop:hover{border-color:#ef4444;background:rgba(239,68,68,.3);box-shadow:0 0 18px rgba(239,68,68,.55);}
+.jv-stop:active{transform:scale(.93);}
+.jv-stop-ic{width:13px;height:13px;border-radius:2px;background:#ff6b6b;transition:.15s;}
+.jv-stop:hover .jv-stop-ic{background:#fff;}
 .jv-voice-sel{font-family:inherit;font-size:10px;letter-spacing:.5px;max-width:170px;padding:6px 8px;border-radius:6px;
   border:1px solid rgba(56,189,248,.25);background:#0a1424;color:#9fd4ff;cursor:pointer;outline:none;}
 .jv-voice-sel:hover{border-color:rgba(56,189,248,.6);}
