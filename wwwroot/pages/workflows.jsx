@@ -151,6 +151,8 @@ const WORKFLOW_OPTIONS = {
       hint: 'Mỗi deal được chấm lại tối đa bao nhiêu lần, tránh chấm đi chấm lại mãi một deal.' },
     { key: 'coolingDays', type: 'number', label: 'Coi là "nguội" sau (ngày)', default: 7, min: 1, max: 90,
       hint: 'Deal đang mở mà quá số ngày này không ai chăm sóc thì coi là "nguội" và được đưa vào cảnh báo.' },
+    { key: 'coolingStatuses', type: 'multi', dynamic: 'dealStatuses', label: 'Trạng thái tính "nguội"', default: [],
+      hint: 'Chỉ cảnh báo nguội cho deal ở các trạng thái này. Để trống = mọi trạng thái đang mở (tự loại trừ deal đã chốt/hủy). Cũng áp cho badge "nguội" trên trang Cơ hội.' },
     { key: 'minWinRateToNotify', type: 'number', label: 'Chỉ cảnh báo khi % chốt từ', default: 0, min: 0, max: 100,
       hint: 'Chỉ cảnh báo những deal có khả năng chốt từ mức % này trở lên. Để 0 = cảnh báo mọi deal nguội.' },
     { key: 'maxNotifications', type: 'number', label: 'Tối đa số lần cảnh báo / deal', default: 3, min: 1, max: 20,
@@ -177,7 +179,7 @@ const OPTION_GROUPS = {
   'deal-auto-review': {
     statuses: 'Phạm vi xử lý', createdWithinDays: 'Phạm vi xử lý',
     autoReview: 'Tự động chấm điểm', reReview: 'Tự động chấm điểm', reviewMax: 'Tự động chấm điểm', maxAutoReviews: 'Tự động chấm điểm',
-    coolingDays: 'Cảnh báo deal nguội', minWinRateToNotify: 'Cảnh báo deal nguội',
+    coolingDays: 'Cảnh báo deal nguội', coolingStatuses: 'Cảnh báo deal nguội', minWinRateToNotify: 'Cảnh báo deal nguội',
     maxNotifications: 'Cảnh báo deal nguội', notifyMinGapHours: 'Cảnh báo deal nguội',
   },
   'customer-auto-review': {
