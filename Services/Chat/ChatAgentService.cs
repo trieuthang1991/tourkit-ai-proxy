@@ -30,6 +30,7 @@ public class ChatAgentService
     private readonly IWorkflowTraceAccessor _traceAccessor;
     private readonly ActionExecutor _exec;
     private readonly ActionResolver _resolver;
+    private readonly ActionResolutionMemory _resolMem;
     private readonly MailReplyService _mailReply;
     private readonly MailRepository _mailRepo;
     private readonly AiCallContext _aiCtx;
@@ -45,6 +46,7 @@ public class ChatAgentService
         IWorkflowTraceAccessor traceAccessor,
         ActionExecutor exec,
         ActionResolver resolver,
+        ActionResolutionMemory resolMem,
         MailReplyService mailReply,
         MailRepository mailRepo,
         AiCallContext aiCtx,
@@ -59,6 +61,7 @@ public class ChatAgentService
         _traceAccessor  = traceAccessor;
         _exec           = exec;
         _resolver       = resolver;
+        _resolMem       = resolMem;
         _mailReply      = mailReply;
         _mailRepo       = mailRepo;
         _aiCtx          = aiCtx;
@@ -456,6 +459,11 @@ public class ChatAgentService
         var tool = ActionTools.Find(action);
         if (tool == null) return null;
 
+        // Bộ nhớ resolve theo phiên: nếu user ĐÃ chọn tên này ở 1 clarify trước trong phiên, tái dùng id
+        // đã chọn (pre-fill *ResolvedId) → KHÔNG bắt chọn lại khi lượt sau bổ sung thông tin qua chat
+        // (planner phát lại action với tên gốc mơ hồ, mất staffResolvedIds của proposal cũ).
+        PrefillResolvedFromMemory(sessionId, paramsDict);
+
         if (tool.NeedsConfirm)
         {
             var actionId = Guid.NewGuid().ToString("N");
@@ -488,6 +496,38 @@ public class ChatAgentService
 
         var result = await _exec.ExecuteAsync(execReq, tenantId, jwt, username, sessionId, ct);
         return new ActionResultEnvelope("action-result", result);
+    }
+
+    /// Tra bộ nhớ resolve theo phiên (<see cref="ActionResolutionMemory"/>): nếu tên trong params đã được
+    /// user chọn ở 1 clarify trước, nhét thẳng id đã chọn vào *ResolvedId → builder/executor dùng ngay,
+    /// bỏ qua bước resolve theo tên (vốn sẽ mơ hồ lại). CHỈ pre-fill khi CHƯA có id sẵn (không ghi đè).
+    /// staff CSV (nhiều nhân viên) bỏ qua để tránh nhớ nhầm nguyên cụm "A,B".
+    private void PrefillResolvedFromMemory(string sessionId, Dictionary<string, object?> p)
+    {
+        var staffNames = ActionExecutor.Str(p, "staffNames");
+        if (!string.IsNullOrWhiteSpace(staffNames) && !staffNames.Contains(',')
+            && string.IsNullOrWhiteSpace(ActionExecutor.Str(p, "staffResolvedIds")))
+        {
+            var id = _resolMem.Recall(sessionId, "staff", staffNames);
+            if (id is not null) p["staffResolvedIds"] = id.Value.ToString(CultureInfo.InvariantCulture);
+        }
+
+        var customerName = ActionExecutor.Str(p, "customerName");
+        if (!string.IsNullOrWhiteSpace(customerName)
+            && string.IsNullOrWhiteSpace(ActionExecutor.Str(p, "customerResolvedId"))
+            && string.IsNullOrWhiteSpace(ActionExecutor.Str(p, "customerId")))
+        {
+            var id = _resolMem.Recall(sessionId, "customer", customerName);
+            if (id is not null) p["customerResolvedId"] = id.Value.ToString(CultureInfo.InvariantCulture);
+        }
+
+        var dealQuery = ActionExecutor.Str(p, "dealQuery");
+        if (!string.IsNullOrWhiteSpace(dealQuery)
+            && string.IsNullOrWhiteSpace(ActionExecutor.Str(p, "dealResolvedId")))
+        {
+            var id = _resolMem.Recall(sessionId, "deal", dealQuery);
+            if (id is not null) p["dealResolvedId"] = id.Value.ToString(CultureInfo.InvariantCulture);
+        }
     }
 
     /// review_customer/score_deal: resolve tên→id TRƯỚC khi execute để phát hiện sớm tên mơ hồ.
@@ -670,6 +710,9 @@ public class ChatAgentService
         var content = ActionExecutor.Str(p, "content");
         var staffNamesRaw = ActionExecutor.Str(p, "staffNames");
         var startDate = ActionExecutor.Str(p, "startDate");
+        // Không có ngày bắt đầu → mặc định = thời điểm giao việc (bây giờ, giờ VN = UTC+7) cho input datetime-local.
+        if (string.IsNullOrWhiteSpace(startDate))
+            startDate = DateTime.UtcNow.AddHours(7).ToString("yyyy-MM-ddTHH:mm", CultureInfo.InvariantCulture);
         var dueDate = ActionExecutor.Str(p, "dueDate");
         var prioritizedRaw = ActionExecutor.Str(p, "prioritized");
 

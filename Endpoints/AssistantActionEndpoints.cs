@@ -53,7 +53,8 @@ public static class AssistantActionEndpoints
         // là nguyên nhân lặp vô hạn khi nhiều bản ghi trùng tên: resume bằng label thì vẫn mơ hồ y hệt).
         v1.MapPost("/assistant/action/resolve", async (
             HttpContext ctx, ActionResolveRequest req,
-            TkSessionStore sessions, ChatAgentService chat) =>
+            TkSessionStore sessions, ChatAgentService chat,
+            Services.Chat.ActionResolutionMemory resolMem) =>
         {
             var sid = ctx.Request.Headers["X-Session-Id"].FirstOrDefault()
                 ?? ctx.Request.Query["sessionId"].FirstOrDefault();
@@ -66,23 +67,36 @@ public static class AssistantActionEndpoints
                 var jwt = await sessions.GetValidJwtAsync(sid!, ctx.RequestAborted);
 
                 var p = new Dictionary<string, object?>(req.Params ?? new Dictionary<string, object?>());
+                // id đã chọn (để GHI NHỚ theo phiên → lượt sau bổ sung thông tin khỏi bắt chọn lại).
+                int.TryParse(req.ChosenId, out var chosenIdInt);
                 switch ((req.Field ?? "").ToLowerInvariant())
                 {
                     case "staff":
+                        // Tên gốc mơ hồ (LẤY TRƯỚC khi đụng gì) — để nhớ (chỉ khi đơn, không CSV nhiều người).
+                        var staffNameOrig = ActionExecutor.Str(p, "staffNames");
                         // Tích lũy CSV — 1 action có thể cần chọn nhiều nhân viên tuần tự (staffNames là CSV).
                         var existing = ActionExecutor.Str(p, "staffResolvedIds");
                         p["staffResolvedIds"] = string.IsNullOrWhiteSpace(existing)
                             ? req.ChosenId : existing + "," + req.ChosenId;
+                        if (chosenIdInt != 0 && !string.IsNullOrWhiteSpace(staffNameOrig) && !staffNameOrig.Contains(','))
+                            resolMem.Remember(sid!, "staff", staffNameOrig, chosenIdInt);
                         break;
                     case "customer":
+                        // Tên/SĐT/mã gốc user đã nói (LẤY TRƯỚC khi ghi đè customerName = ChosenLabel bên dưới).
+                        var customerNameOrig = ActionExecutor.Str(p, "customerName");
                         p["customerResolvedId"] = req.ChosenId;
                         // Mang tên thật + SĐT (hint) của khách ĐÃ CHỌN theo — để lịch hẹn có customerPhone
                         // (app yêu cầu SĐT hợp lệ) mà KHÔNG phải lookup lại theo id.
                         if (!string.IsNullOrWhiteSpace(req.ChosenLabel)) p["customerName"] = req.ChosenLabel;
                         if (ChatAgentService.LooksLikePhone(req.ChosenHint)) p["customerPhone"] = req.ChosenHint;
+                        if (chosenIdInt != 0 && !string.IsNullOrWhiteSpace(customerNameOrig))
+                            resolMem.Remember(sid!, "customer", customerNameOrig, chosenIdInt);
                         break;
                     case "deal":
+                        var dealQueryOrig = ActionExecutor.Str(p, "dealQuery");
                         p["dealResolvedId"] = req.ChosenId;
+                        if (chosenIdInt != 0 && !string.IsNullOrWhiteSpace(dealQueryOrig))
+                            resolMem.Remember(sid!, "deal", dealQueryOrig, chosenIdInt);
                         break;
                 }
 

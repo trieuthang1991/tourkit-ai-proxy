@@ -318,6 +318,18 @@ function JarvisPage({ pushToast }) {
   const [pendingProposal, setPendingProposal] = _jS(null);
   const [pendingClarify, setPendingClarify] = _jS(null);
   const [actionBusy, setActionBusy] = _jS(false);   // đang resolve/execute action → hiện loading
+  // Trực quan hóa action (review/deal/mail) → POPUP overlay hiện FULL card. null → ẩn.
+  const [vizData, setVizData] = _jS(null);
+  // Esc để đóng drawer action (trực quan hóa / thẻ xác nhận / clarify) — trừ khi đang xử lý.
+  _jE(() => {
+    if (!vizData && !pendingProposal && !pendingClarify) return;
+    const onKey = (e) => {
+      if (e.key !== 'Escape') return;
+      setVizData(null); setPendingProposal(null); setPendingClarify(null);
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [vizData, pendingProposal, pendingClarify]);
   const [ttsEngine, setTtsEngine] = _jS(null);       // engine đọc THỰC TẾ (vbee|edge|piper|openai) — nhãn chẩn đoán
   const mediaRef = _jR(null);
   const logRef = _jR(null);
@@ -645,6 +657,7 @@ function JarvisPage({ pushToast }) {
     // "nghe" ra 1 câu bất kỳ trong lúc đang chờ Xác nhận — KHÔNG tự chốt hành động bằng giọng nói).
     setPendingProposal(null);
     setPendingClarify(null);
+    setVizData(null);   // câu mới → đóng popup trực quan hóa lượt trước
 
     const patch = (fn) => { if (!isCur()) return; setMessages(m => { const c = [...m]; if (c[asstIdx]) c[asstIdx] = fn(c[asstIdx]); return c; }); };
 
@@ -669,25 +682,26 @@ function JarvisPage({ pushToast }) {
         if (o.kind === 'action-result') {
           const result = o.result || {};
           full = result.message || '';
-          patch(a => ({ ...a, content: full, streaming: false, data: result.data || null }));
+          patch(a => ({ ...a, content: full, streaming: false }));
+          setVizData(result.data || null);   // FULL card → popup
           setOrbState('responding');
           return;
         }
         if (o.kind === 'action-proposal') {
-          // Thẻ ActionConfirmCard (bên dưới) đã hiện title/summary — KHÔNG patch bubble nữa (trùng lặp).
-          // Vẫn giữ `full` để giọng đọc câu NGẮN riêng — mời CHẠM Xác nhận, không mời nói.
+          // Thẻ xác nhận ở DRAWER phải. Chat hiện 1 dòng HƯỚNG DẪN để user biết nhìn sang bảng bên phải.
+          // full='' → KHÔNG đọc đoạn hướng dẫn này (theo yêu cầu: đoạn này không cần đọc).
           const proposal = o.proposal || {};
-          full = 'Tôi đã chuẩn bị xong, vui lòng kiểm tra và bấm Xác nhận.';
-          if (isCur()) setMessages(m => m.slice(0, asstIdx));
+          full = '';
+          patch(a => ({ ...a, content: 'Mình đã chuẩn bị xong thông tin ✅ — bạn vui lòng kiểm tra ở bảng bên phải rồi bấm "Xác nhận" giúp mình nhé.', streaming: false }));
           setOrbState('responding');
           setPendingProposal(proposal);
           return;
         }
         if (o.kind === 'action-clarify') {
-          // Tương tự — câu hỏi đã hiện trong ActionClarifyList, không cần bubble riêng. Vẫn đọc bằng giọng.
+          // Danh sách lựa chọn ở DRAWER phải. Chat hiện dòng hướng dẫn (không đọc).
           const clarify = o.clarify || {};
-          full = clarify.question || '';
-          if (isCur()) setMessages(m => m.slice(0, asstIdx));
+          full = '';
+          patch(a => ({ ...a, content: 'Có nhiều kết quả trùng khớp — bạn vui lòng chọn đúng đối tượng ở bảng bên phải giúp mình nhé.', streaming: false }));
           setOrbState('responding');
           setPendingClarify(clarify);
           return;
@@ -704,7 +718,9 @@ function JarvisPage({ pushToast }) {
           if (o.toolName) setLastTool(o.toolName);
         }
       });
-      if (isCur() && voiceOnRef.current) flushSpeech(full, true);   // xả nốt đuôi (đoạn cuối < 100 ký tự) → đọc hết
+      // Ghép: TTS streaming (flushSpeech) + guard `&& full` — action-proposal/clarify set full=''
+      // (dòng hướng dẫn) nên KHÔNG đọc; câu số liệu bình thường full có nội dung → xả nốt đuôi.
+      if (isCur() && voiceOnRef.current && full) flushSpeech(full, true);
     } catch (e) {
       if (ac.signal.aborted || e.name === 'AbortError') return;   // bị hủy do hỏi câu mới → im lặng
       if (isCur()) patch(a => ({ ...a, content: '⚠️ ' + e.message, error: true }));
@@ -732,7 +748,8 @@ function JarvisPage({ pushToast }) {
       const j = await r.json().catch(() => ({}));
       if (!r.ok) { pushToast(j.error || 'Thực thi hành động lỗi', 'error'); return; }
       setPendingProposal(null);
-      setMessages(m => [...m, { role: 'assistant', content: j.message || 'Đã thực hiện.', data: j.data || null }]);
+      setMessages(m => [...m, { role: 'assistant', content: j.message || 'Đã thực hiện.' }]);
+      setVizData(j.data || null);   // FULL card → popup
       if (voiceOn) speakReply(j.message || 'Đã thực hiện xong.');
     } catch (e) {
       pushToast('Lỗi thực thi: ' + e.message, 'error');
@@ -765,12 +782,15 @@ function JarvisPage({ pushToast }) {
       if (!r.ok) { pushToast(j.error || 'Không xử lý được lựa chọn', 'error'); return; }
       if (j.kind === 'action-proposal') {
         setPendingProposal(j.proposal);
-        if (voiceOn) speakReply('Tôi đã chuẩn bị xong, vui lòng kiểm tra và bấm Xác nhận.');
+        // Dòng hướng dẫn trong chat (KHÔNG đọc) để user biết nhìn sang bảng bên phải.
+        setMessages(m => [...m, { role: 'assistant', content: 'Mình đã chuẩn bị xong thông tin ✅ — bạn vui lòng kiểm tra ở bảng bên phải rồi bấm "Xác nhận" giúp mình nhé.' }]);
       } else if (j.kind === 'action-clarify') {
         setPendingClarify(j.clarify);
+        setMessages(m => [...m, { role: 'assistant', content: 'Có nhiều kết quả trùng khớp — bạn vui lòng chọn đúng đối tượng ở bảng bên phải giúp mình nhé.' }]);
       } else if (j.kind === 'action-result') {
         const result = j.result || {};
-        setMessages(m => [...m, { role: 'assistant', content: result.message || 'Đã thực hiện.', data: result.data || null }]);
+        setMessages(m => [...m, { role: 'assistant', content: result.message || 'Đã thực hiện.' }]);
+        setVizData(result.data || null);   // FULL card → popup
         if (voiceOn) speakReply(result.message || 'Đã thực hiện xong.');
       }
     } catch (e) {
@@ -1224,7 +1244,7 @@ function JarvisPage({ pushToast }) {
                 <Icon name="bell" size={14} /> NGHE
               </button>
             )}
-            <button className="jv-toggle" onClick={() => { stopEverything(); setMessages([]); setLastTool(null); }}
+            <button className="jv-toggle" onClick={() => { stopEverything(); setMessages([]); setLastTool(null); setVizData(null); }}
               title="Xóa hội thoại + dừng giọng đang đọc">
               <Icon name="refresh" size={14} /> MỚI
             </button>
@@ -1239,6 +1259,32 @@ function JarvisPage({ pushToast }) {
             <span className="jv-status-label">{STATUS.label}</span>
           </div>
         </div>
+
+        {/* Cột phải: MỌI action UI (clarify / thẻ xác nhận / đang xử lý / trực quan hóa review·deal·mail)
+            gom vào DRAWER gọn bên PHẢI — không nhồi vào chat. Trái vẫn gõ/nói tiếp được
+            (container pointer-events:none). Đóng bằng ✕ / Esc (khi không đang xử lý). */}
+        {(pendingClarify || pendingProposal || actionBusy || vizData) && (
+          <div className="jv-viz-modal">
+            <div className="jv-viz-dialog">
+              {!actionBusy && (
+                <button className="jv-viz-close" title="Đóng (Esc)"
+                  onClick={() => { setPendingProposal(null); setPendingClarify(null); setVizData(null); }}>✕</button>
+              )}
+              {actionBusy ? (
+                <div className="jv-action-card jv-action-busy">
+                  <div className="jv-action-spinner" />
+                  <div className="jv-action-busy-text">Đang xử lý…</div>
+                </div>
+              ) : pendingClarify ? (
+                <window.ActionClarifyList clarify={pendingClarify} onChoose={onClarifyChoose} />
+              ) : pendingProposal ? (
+                <window.ActionConfirmCard proposal={pendingProposal} onConfirm={confirmAction} onCancel={() => setPendingProposal(null)} />
+              ) : (
+                <window.ActionDataCard data={vizData} />
+              )}
+            </div>
+          </div>
+        )}
 
         {/* Nhật ký hội thoại */}
         <div className="jv-log" ref={logRef}>
@@ -1258,28 +1304,12 @@ function JarvisPage({ pushToast }) {
                       : (m.streaming ? <span className="jv-cursor">▊</span> : ''))
                   : m.content}
               </span>
-              {/* action-result (Task 12): dữ liệu KH/deal/mail đính kèm reply — jarvis không có
-                  panel riêng như /assistant nên hiện ngay dưới bubble. */}
-              {m.role === 'assistant' && m.data && <window.ActionDataCard data={m.data} />}
+              {/* action-result (Task 12): bubble trên chỉ hiện tóm tắt chữ; FULL card trực quan hóa
+                  render ở POPUP overlay (jv-viz-modal, khai báo dưới jv-stage) — không nhồi vào log. */}
             </div>
           ))}
-          {/* action-proposal/action-clarify (Task 12) — CHỈ xác nhận/chọn bằng CHẠM, không bằng giọng nói. */}
-          {pendingProposal && !actionBusy && (
-            <window.ActionConfirmCard
-              proposal={pendingProposal}
-              onConfirm={confirmAction}
-              onCancel={() => setPendingProposal(null)}
-            />
-          )}
-          {pendingClarify && !actionBusy && (
-            <window.ActionClarifyList clarify={pendingClarify} onChoose={onClarifyChoose} />
-          )}
-          {actionBusy && (
-            <div className="jv-action-card jv-action-busy">
-              <div className="jv-action-spinner" />
-              <div className="jv-action-busy-text">Đang xử lý…</div>
-            </div>
-          )}
+          {/* action-proposal / action-clarify / actionBusy render ở DRAWER phải (khai báo dưới jv-stage),
+              KHÔNG nhồi vào log chat nữa. */}
         </div>
 
         {/* Gợi ý nhanh */}
@@ -1409,6 +1439,19 @@ const JV_CSS = `
 .jv-toggle.listen-on{background:rgba(34,211,238,.14);border-color:rgba(34,211,238,.6);color:#67e8f9;
   box-shadow:0 0 14px rgba(34,211,238,.25);animation:jvPulse 1.8s ease-in-out infinite;}
 .jv-stage{position:relative;flex:1 1 auto;min-height:240px;display:flex;align-items:center;justify-content:center;z-index:1;}
+/* Trực quan hóa action → DRAWER cột gọn bên PHẢI (full chiều cao). Container KHÔNG chặn
+   (pointer-events:none) → vẫn gõ/nói tiếp bên trái; chỉ drawer bắt sự kiện. */
+.jv-viz-modal{position:fixed;inset:0;z-index:60;display:flex;justify-content:flex-end;align-items:stretch;
+  pointer-events:none;}
+.jv-viz-dialog{pointer-events:auto;position:relative;width:min(440px,94vw);height:100%;overflow-y:auto;
+  padding:14px;border-left:1px solid rgba(56,189,248,.28);background:#0b1626;
+  box-shadow:-18px 0 50px rgba(0,0,0,.5);animation:jvSlideR .22s ease;}
+@keyframes jvSlideR{from{transform:translateX(28px);opacity:.35;}to{transform:none;opacity:1;}}
+.jv-viz-close{position:absolute;top:10px;right:12px;z-index:4;width:30px;height:30px;border-radius:50%;
+  display:flex;align-items:center;justify-content:center;cursor:pointer;font-size:14px;line-height:1;
+  border:1px solid rgba(56,189,248,.3);background:rgba(10,20,36,.85);color:#9fd4ff;}
+.jv-viz-close:hover{border-color:#38bdf8;color:#eaf6ff;}
+@media(max-width:900px){.jv-viz-dialog{width:100vw;border-left:none;}}
 .jv-orb{position:absolute;inset:0;}
 .jv-orb-err{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;
   gap:8px;color:#f59e0b;font-size:12px;}
@@ -1449,7 +1492,7 @@ const JV_CSS = `
 .jv-line{display:flex;gap:10px;align-items:flex-start;font-size:13px;line-height:1.6;animation:jvIn .25s ease;}
 .jv-line .jv-who{flex:0 0 52px;font-size:9px;letter-spacing:1px;font-weight:700;padding-top:3px;}
 .jv-line.user .jv-who{color:#ff9a52;} .jv-line.assistant .jv-who{color:#38bdf8;}
-.jv-line .jv-text{flex:1;color:#d6ebff;white-space:pre-wrap;word-break:break-word;line-height:1.75;}
+.jv-line .jv-text{flex:1;color:#d6ebff;white-space:pre-wrap;word-break:break-word;line-height:1.5;}
 .jv-line.user .jv-text{color:#f4e3d5;} .jv-line.error .jv-text{color:#fca5a5;}
 .jv-cursor{color:#38bdf8;animation:jvBlink .8s steps(2) infinite;}
 .jv-suggest{position:relative;z-index:2;display:flex;flex-wrap:wrap;gap:8px;justify-content:center;padding:0 20px 8px;}
