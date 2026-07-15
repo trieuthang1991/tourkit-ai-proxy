@@ -21,7 +21,7 @@ function userInitials(name) {
 }
 
 // Sidebar nav (style TourKit: dọc bên trái, mục active nền cam).
-// '/' giờ là Home Launcher (pages/home.jsx); Wizard tour quote chuyển sang '/wizard'.
+// '/' là landing public; /travai là trang mặc định sau đăng nhập. Wizard tour quote ở '/wizard'.
 // "Chi phí AI" /ai-usage CHỈ hiện khi debug ON — page giữ accessible qua URL trực tiếp.
 // Icon mapping: mỗi feature 1 icon RIÊNG (trước: 3 mục cùng 'sparkle' khó phân biệt).
 // Logic: icon phản ánh động từ chính của feature, không trùng lặp.
@@ -30,9 +30,8 @@ function userInitials(name) {
 // 1 đường mảnh để vẫn nhận biết phân tách trực quan.
 const NAV_GROUPS = [
   { label: 'Tổng quan', items: [
-    { to: '/home',      icon: 'sparkle', label: 'Trang chủ' },        // hub AI launcher (/ là landing public)
+    { to: '/travai',    icon: 'mic',     label: 'TRAVAI' },  // HUD hội thoại 3D + giọng đọc ("Trà vải") — trang mặc định sau đăng nhập
     { to: '/assistant', icon: 'chart',   label: 'Trợ lý số liệu' },   // data/chart analytics
-    { to: '/travai',    icon: 'mic',     label: 'TRAVAI' },  // HUD hội thoại 3D + giọng đọc ("Trà vải")
   ]},
   { label: 'Khách hàng & Bán hàng', items: [
     { to: '/customers', icon: 'users',   label: 'Khách hàng' },       // people
@@ -133,6 +132,11 @@ function App() {
       window.removeEventListener('tourkit:navigate', f);
     };
   }, []);
+  // Launcher /home cũ đã bỏ → mọi truy cập điều hướng về trang mặc định /travai
+  // (giữ để link/bookmark cũ không rơi vào "Trang không tồn tại").
+  uE(() => {
+    if (cur === '/home') window.tourkitRouter.navigate('/travai');
+  }, [cur]);
   // Exact-match: `/visa` KHÔNG match `/visa/history` (trước dùng startsWith → 2 nav item
   // cùng active). Chấp nhận đánh đổi: route chi tiết (vd /quote-view/123) sẽ không sáng
   // nav cha — đúng vì page đó không có nav item riêng.
@@ -308,22 +312,10 @@ function App() {
     }} />;
   }
 
-  // Trang chủ /home là full-screen launcher — KHÔNG kế thừa sidebar/topbar.
-  // (/ là trang landing public mặc định; /home mới là trang chủ app sau đăng nhập.)
-  // Click vào agent card sẽ navigate sang route khác → tự vào app-shell bình thường.
-  if (cur === '/home' && window.HomePage) {
-    return (
-      <>
-        <window.HomePage pushToast={pushToast} />
-        <div className="toast-container">
-          {toasts.map(tt => (
-            <div key={tt.id} className={`toast ${tt.kind}`}>
-              <Icon name="check" size={14} stroke={2.5} /> {tt.text}
-            </div>
-          ))}
-        </div>
-      </>
-    );
+  // Launcher /home cũ đã bỏ — hiện splash trong lúc effect ở trên redirect sang /travai
+  // (tránh chớp "Trang không tồn tại" một frame trước khi điều hướng).
+  if (cur === '/home') {
+    return <div className="login-splash"><div className="login-splash-mark" /></div>;
   }
 
   return (
@@ -438,7 +430,7 @@ function App() {
 
       {/* Router: chọn page theo hash. Thêm page = thêm <Route> ở đây. */}
       <Router>
-        <Route path="/"          render={() => <window.HomePage pushToast={pushToast} />} />
+        {/* '/' không có route ở đây: đã xử lý sớm là LandingPage (guest) / redirect /travai (đã login). */}
         <Route path="/wizard"    render={() => <window.WizardPage pushToast={pushToast} tweaks={t} />} />
         <Route path="/customers" render={() => <window.CustomersPage pushToast={pushToast} />} />
         <Route path="/assistant" render={() => <window.AssistantPage pushToast={pushToast} />} />
