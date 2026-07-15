@@ -78,11 +78,11 @@ public class DealAutoReviewWorkflow : IScheduledWorkflow
         {
         var swTotal = Stopwatch.StartNew();
         var opt = DealAutoReviewOptions.Parse(optionsJson);
-        _log.LogInformation("[DealAutoReview] tenant={T} START — statuses=[{Statuses}] createdWithin={CW}d autoReview={AR} reReview={RR} reviewMax={Max} coolingDays={CD} minWinRate={WR} maxNotif={MN}",
+        _log.LogInformation("[DealAutoReview] tenant={T} START — statuses=[{Statuses}] createdWithin={CW}d autoReview={AR} reReview={RR}/{RRD}d reviewMax={Max} alertCooling={AC} coolingDays={CD} minWinRate={WR} maxNotif={MN}",
             tenantId,
             opt.Statuses.Count == 0 ? "any" : string.Join(",", opt.Statuses),
-            opt.CreatedWithinDays, opt.AutoReview, opt.ReReview, opt.ReviewMax,
-            opt.CoolingDays, opt.MinWinRateToNotify, opt.MaxNotifications);
+            opt.CreatedWithinDays, opt.AutoReview, opt.ReReview, opt.ReReviewDays, opt.ReviewMax,
+            opt.AlertCooling, opt.CoolingDays, opt.MinWinRateToNotify, opt.MaxNotifications);
 
         // Service account: bắt buộc cấu hình + bật.
         var svc = _serviceAccounts.Get(tenantId);
@@ -188,9 +188,9 @@ public class DealAutoReviewWorkflow : IScheduledWorkflow
                 if (opt.ReReview)
                 {
                     var swP2 = Stopwatch.StartNew();
-                    // Cutoff: đại khái reReview khi mấy ngày = createdWithinDays / 2 (mượn tương tự Customer reReviewDays).
-                    // Deal option cũ chưa có reReviewDays riêng → dùng createdWithinDays/3 làm mặc định (10 ngày với default 30).
-                    var reReviewDays = Math.Max(1, opt.CreatedWithinDays / 3);
+                    // Chấm lại deal đã qua ĐỦ ReReviewDays kể từ lần chấm trước VÀ nội dung có đổi (fingerprint khác).
+                    // ReReviewDays cấu hình tường minh ở UI (mặc định 10; config cũ vắng key → parse ra createdWithin/3).
+                    var reReviewDays = opt.ReReviewDays;
                     var cutoffMs = new DateTimeOffset(DateTime.UtcNow.AddDays(-reReviewDays)).ToUnixTimeMilliseconds();
                     var remainingBudget = Math.Max(0, opt.ReviewMax - (reviewed + rereviewed));
                     var dueIds = _dealRepo.GetDueForReReview(tenantId, cutoffMs, remainingBudget > 0 ? remainingBudget : 1);
@@ -252,6 +252,13 @@ public class DealAutoReviewWorkflow : IScheduledWorkflow
             }
 
             // ── Cảnh báo nguội → enqueue mail (status lọc server-side qua FetchAsync) ──
+            // Bật/tắt tường minh: tenant tắt "Gửi cảnh báo deal nguội" → bỏ hẳn pass này (không quét, không enqueue).
+            if (!opt.AlertCooling)
+            {
+                _log.LogInformation("[DealAutoReview] tenant={T} COOLING bỏ qua — cảnh báo nguội đang TẮT (alertCooling=false)", tenantId);
+            }
+            else
+            {
             var swCool = Stopwatch.StartNew();
             var openDeals = await FetchAsync(rank: null, sd: startDate, pageSize: 200);
             var cooling = openDeals
@@ -308,6 +315,7 @@ public class DealAutoReviewWorkflow : IScheduledWorkflow
             swCool.Stop();
             _log.LogInformation("[DealAutoReview] tenant={T} COOLING done ({Ms}ms) → queued={Q} skipped={S} skippedNoAssignee={SN}",
                 tenantId, swCool.ElapsedMilliseconds, queued, skipped, skippedNoAssignee);
+            }
         }
         catch (OperationCanceledException)
         {
@@ -407,14 +415,14 @@ public class DealAutoReviewWorkflow : IScheduledWorkflow
 public sealed record DealAutoReviewOptions(
     List<int> Statuses, int CreatedWithinDays, bool AutoReview, bool ReReview, int ReviewMax, int MaxAutoReviews,
     int CoolingDays, int MinWinRateToNotify, int MaxNotifications, int NotifyMinGapHours,
-    List<int> CoolingStatuses)
+    List<int> CoolingStatuses, bool AlertCooling, int ReReviewDays)
 {
     public static DealAutoReviewOptions Parse(string? json)
     {
         var def = new DealAutoReviewOptions(
             Statuses: new List<int>(), CreatedWithinDays: 30, AutoReview: true, ReReview: true, ReviewMax: 20,
             MaxAutoReviews: 5, CoolingDays: 7, MinWinRateToNotify: 0, MaxNotifications: 3, NotifyMinGapHours: 24,
-            CoolingStatuses: new List<int>());
+            CoolingStatuses: new List<int>(), AlertCooling: true, ReReviewDays: 10);
         if (string.IsNullOrWhiteSpace(json)) return def;
         try
         {
@@ -428,9 +436,10 @@ public sealed record DealAutoReviewOptions(
             if (r.TryGetProperty("coolingStatuses", out var carr) && carr.ValueKind == JsonValueKind.Array)
                 foreach (var e in carr.EnumerateArray())
                     if (e.ValueKind == JsonValueKind.Number && e.TryGetInt32(out var cn) && cn > 0) coolingStatuses.Add(cn);
+            var createdWithin = Clamp(GetInt(r, "createdWithinDays", 30), 1, 365);
             return new DealAutoReviewOptions(
                 Statuses: statuses,
-                CreatedWithinDays: Clamp(GetInt(r, "createdWithinDays", 30), 1, 365),
+                CreatedWithinDays: createdWithin,
                 AutoReview: GetBool(r, "autoReview", true),
                 ReReview: GetBool(r, "reReview", true),
                 ReviewMax: Clamp(GetInt(r, "reviewMax", 20), 1, 100),
@@ -439,7 +448,10 @@ public sealed record DealAutoReviewOptions(
                 MinWinRateToNotify: Clamp(GetInt(r, "minWinRateToNotify", 0), 0, 100),
                 MaxNotifications: Clamp(GetInt(r, "maxNotifications", 3), 1, 20),
                 NotifyMinGapHours: Clamp(GetInt(r, "notifyMinGapHours", 24), 1, 720),
-                CoolingStatuses: coolingStatuses);
+                CoolingStatuses: coolingStatuses,
+                AlertCooling: GetBool(r, "alertCooling", true),
+                // "reReviewDays" vắng (config cũ) → giữ hành vi cũ createdWithin/3; có giá trị (UI mới) → dùng.
+                ReReviewDays: Clamp(GetInt(r, "reReviewDays", Math.Max(1, createdWithin / 3)), 1, 365));
         }
         catch { return def; }
     }

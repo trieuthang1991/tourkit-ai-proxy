@@ -64,4 +64,32 @@ public class DealAutoReviewOptionsTests
         var o = DealAutoReviewOptions.Parse("{\"statuses\":[1,0,-2,5]}");
         Assert.Equal(new[] { 1, 5 }, o.Statuses);   // bỏ 0 và -2
     }
+
+    // Mới: cảnh báo nguội mặc định BẬT (không breaking tenant đang chạy).
+    [Fact]
+    public void Parse_Null_AlertCoolingDefaultsOn()
+        => Assert.True(DealAutoReviewOptions.Parse(null).AlertCooling);
+
+    // Mới: tenant tắt cảnh báo nguội tường minh.
+    [Fact]
+    public void Parse_AlertCoolingCanBeDisabled()
+        => Assert.False(DealAutoReviewOptions.Parse("{\"alertCooling\":false}").AlertCooling);
+
+    // Mới: reReviewDays vắng (config CŨ) → giữ hành vi cũ = createdWithin/3.
+    [Fact]
+    public void Parse_ReReviewDays_AbsentFallsBackToCreatedWithinThird()
+    {
+        Assert.Equal(10, DealAutoReviewOptions.Parse("{\"createdWithinDays\":30}").ReReviewDays);   // 30/3
+        Assert.Equal(20, DealAutoReviewOptions.Parse("{\"createdWithinDays\":60}").ReReviewDays);   // 60/3
+        Assert.Equal(1, DealAutoReviewOptions.Parse("{\"createdWithinDays\":2}").ReReviewDays);     // 2/3=0 → min 1
+    }
+
+    // Mới: reReviewDays cấu hình tường minh (UI mới) → dùng đúng giá trị, clamp 1..365.
+    [Fact]
+    public void Parse_ReReviewDays_ExplicitWinsAndClamps()
+    {
+        Assert.Equal(7, DealAutoReviewOptions.Parse("{\"createdWithinDays\":30,\"reReviewDays\":7}").ReReviewDays);
+        Assert.Equal(365, DealAutoReviewOptions.Parse("{\"reReviewDays\":9999}").ReReviewDays);
+        Assert.Equal(1, DealAutoReviewOptions.Parse("{\"reReviewDays\":0}").ReReviewDays);
+    }
 }

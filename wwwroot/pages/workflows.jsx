@@ -141,24 +141,30 @@ const WORKFLOW_OPTIONS = {
       hint: 'Chọn ít nhất 1 trạng thái deal mà workflow sẽ xử lý.' },
     { key: 'createdWithinDays', type: 'number', label: 'Chỉ deal tạo trong (ngày)', default: 30, min: 1, max: 365,
       hint: 'Chỉ xử lý deal được tạo trong khoảng ngày gần đây này. Deal cũ hơn được bỏ qua.' },
-    { key: 'autoReview', type: 'bool', label: 'AI tự chấm điểm deal', default: true,
-      hint: 'Bật để AI tự cho điểm khả năng chốt từng deal. Tắt thì chỉ gửi cảnh báo deal nguội, không chấm điểm.' },
-    { key: 'reReview', type: 'bool', label: 'Chấm lại khi deal có thay đổi', showIf: 'autoReview', default: true,
-      hint: 'Khi một deal đã chấm có thay đổi (khách phản hồi, sale thêm ghi chú…), AI sẽ chấm lại để cập nhật điểm. Tắt = chỉ chấm deal mới.' },
-    { key: 'reviewMax', type: 'number', label: 'Tối đa deal chấm mỗi lượt', showIf: 'autoReview', default: 20, min: 1, max: 100,
-      hint: 'Mỗi lượt chạy chấm tối đa bao nhiêu deal.' },
-    { key: 'maxAutoReviews', type: 'number', label: 'Tối đa số lần chấm lại / deal', showIf: 'autoReview', default: 5, min: 1, max: 50,
-      hint: 'Mỗi deal được chấm lại tối đa bao nhiêu lần, tránh chấm đi chấm lại mãi một deal.' },
-    { key: 'coolingDays', type: 'number', label: 'Coi là "nguội" sau (ngày)', default: 7, min: 1, max: 90,
-      hint: 'Deal đang mở mà quá số ngày này không ai chăm sóc thì coi là "nguội" và được đưa vào cảnh báo.' },
-    { key: 'coolingStatuses', type: 'multi', dynamic: 'dealStatuses', label: 'Trạng thái tính "nguội"', default: [],
-      hint: 'Chỉ cảnh báo nguội cho deal ở các trạng thái này. Để trống = mọi trạng thái đang mở (tự loại trừ deal đã chốt/hủy). Cũng áp cho badge "nguội" trên trang Cơ hội.' },
-    { key: 'minWinRateToNotify', type: 'number', label: 'Chỉ cảnh báo khi % chốt từ', default: 0, min: 0, max: 100,
-      hint: 'Chỉ cảnh báo những deal có khả năng chốt từ mức % này trở lên. Để 0 = cảnh báo mọi deal nguội.' },
-    { key: 'maxNotifications', type: 'number', label: 'Tối đa số lần cảnh báo / deal', default: 3, min: 1, max: 20,
-      hint: 'Mỗi deal chỉ gửi cảnh báo tối đa bao nhiêu lần, tránh làm phiền nhân viên.' },
-    { key: 'notifyMinGapHours', type: 'number', label: 'Nhắc lại cùng 1 deal sau ít nhất (giờ)', default: 24, min: 1, max: 720,
-      hint: 'Sau khi đã cảnh báo một deal, phải chờ đủ số giờ này mới được nhắc lại chính deal đó. Ví dụ 24 = mỗi deal tối đa 1 lần/ngày.' },
+    // ── ② Chấm điểm cơ hội (AI) — công tắc chính autoReview ──
+    { key: 'autoReview', type: 'bool', label: 'AI tự chấm điểm cơ hội mới', default: true,
+      hint: 'Bật để AI tự cho điểm khả năng chốt từng cơ hội mới. Tắt hẳn phần chấm điểm (vẫn có thể bật riêng cảnh báo nguội bên dưới).' },
+    { key: 'reviewMax', type: 'number', label: 'Tối đa cơ hội chấm mỗi lượt', showIf: 'autoReview', default: 20, min: 1, max: 100,
+      hint: 'Mỗi lượt chạy chấm tối đa bao nhiêu cơ hội (gồm cả chấm mới lẫn chấm lại).' },
+    { key: 'reReview', type: 'bool', label: 'Chấm lại cơ hội cũ định kỳ', showIf: 'autoReview', default: true,
+      hint: 'Bật để định kỳ chấm lại cơ hội đã chấm (theo chu kỳ bên dưới) khi nội dung có thay đổi. Tắt = chỉ chấm cơ hội mới, không chấm lại.' },
+    { key: 'reReviewDays', type: 'number', label: 'Chấm lại sau mỗi (ngày)', showIf: ['autoReview', 'reReview'], default: 10, min: 1, max: 365,
+      hint: 'Cơ hội đã chấm được xét chấm lại sau tối thiểu bao nhiêu ngày (và chỉ khi nội dung đổi). 7 ≈ mỗi tuần, 10 = mặc định, 30 ≈ mỗi tháng.' },
+    { key: 'maxAutoReviews', type: 'number', label: 'Tối đa số lần chấm lại / cơ hội', showIf: ['autoReview', 'reReview'], default: 5, min: 1, max: 50,
+      hint: 'Mỗi cơ hội được chấm lại tối đa bao nhiêu lần, tránh chấm đi chấm lại mãi một cơ hội.' },
+    // ── ③ Cảnh báo cơ hội nguội — công tắc chính alertCooling ──
+    { key: 'alertCooling', type: 'bool', label: 'Gửi cảnh báo cơ hội nguội', default: true,
+      hint: 'Bật để tự phát hiện cơ hội đang mở nhưng lâu không chăm sóc ("nguội") và gửi email nhắc nhân viên phụ trách. Tắt = bỏ hẳn phần cảnh báo (không quét, không gửi).' },
+    { key: 'coolingStatuses', type: 'multi', dynamic: 'dealStatuses', label: 'Trạng thái tính "nguội"', showIf: 'alertCooling', default: [],
+      hint: 'Chỉ cảnh báo nguội cho cơ hội ở các trạng thái này. Để trống = mọi trạng thái đang mở (tự loại trừ đã chốt/hủy). Cũng áp cho badge "nguội" trên trang Cơ hội.' },
+    { key: 'coolingDays', type: 'number', label: 'Coi là "nguội" sau (ngày)', showIf: 'alertCooling', default: 7, min: 1, max: 90,
+      hint: 'Cơ hội đang mở mà quá số ngày này không ai chăm sóc thì coi là "nguội" và được đưa vào cảnh báo.' },
+    { key: 'minWinRateToNotify', type: 'number', label: 'Chỉ cảnh báo khi % chốt từ', showIf: 'alertCooling', default: 0, min: 0, max: 100,
+      hint: 'Chỉ cảnh báo những cơ hội có khả năng chốt từ mức % này trở lên. Để 0 = cảnh báo mọi cơ hội nguội.' },
+    { key: 'maxNotifications', type: 'number', label: 'Tối đa số lần cảnh báo / cơ hội', showIf: 'alertCooling', default: 3, min: 1, max: 20,
+      hint: 'Mỗi cơ hội chỉ gửi cảnh báo tối đa bao nhiêu lần, tránh làm phiền nhân viên.' },
+    { key: 'notifyMinGapHours', type: 'number', label: 'Nhắc lại cùng 1 cơ hội sau ít nhất (giờ)', showIf: 'alertCooling', default: 24, min: 1, max: 720,
+      hint: 'Sau khi đã cảnh báo một cơ hội, phải chờ đủ số giờ này mới được nhắc lại. Ví dụ 24 = mỗi cơ hội tối đa 1 lần/ngày.' },
   ],
   'customer-auto-review': [
     { key: 'createdWithinDays', type: 'number', label: 'Chỉ khách tạo trong (ngày)', default: 30, min: 1, max: 365,
@@ -177,16 +183,25 @@ const OPTION_GROUPS = {
     replyCategories: 'Tự động trả lời', replyTone: 'Tự động trả lời',
   },
   'deal-auto-review': {
-    statuses: 'Phạm vi xử lý', createdWithinDays: 'Phạm vi xử lý',
-    autoReview: 'Tự động chấm điểm', reReview: 'Tự động chấm điểm', reviewMax: 'Tự động chấm điểm', maxAutoReviews: 'Tự động chấm điểm',
-    coolingDays: 'Cảnh báo deal nguội', coolingStatuses: 'Cảnh báo deal nguội', minWinRateToNotify: 'Cảnh báo deal nguội',
-    maxNotifications: 'Cảnh báo deal nguội', notifyMinGapHours: 'Cảnh báo deal nguội',
+    statuses: '① Phạm vi xử lý', createdWithinDays: '① Phạm vi xử lý',
+    autoReview: '② Chấm điểm cơ hội (AI)', reviewMax: '② Chấm điểm cơ hội (AI)',
+    reReview: '② Chấm điểm cơ hội (AI)', reReviewDays: '② Chấm điểm cơ hội (AI)', maxAutoReviews: '② Chấm điểm cơ hội (AI)',
+    alertCooling: '③ Cảnh báo cơ hội nguội', coolingStatuses: '③ Cảnh báo cơ hội nguội', coolingDays: '③ Cảnh báo cơ hội nguội',
+    minWinRateToNotify: '③ Cảnh báo cơ hội nguội', maxNotifications: '③ Cảnh báo cơ hội nguội', notifyMinGapHours: '③ Cảnh báo cơ hội nguội',
   },
   'customer-auto-review': {
     createdWithinDays: 'Phạm vi',
     reReview: 'Chu kỳ review lại', reReviewDays: 'Chu kỳ review lại',
   },
 };
+
+// showIf: string (1 key) HOẶC mảng key (AND — chỉ hiện khi TẤT CẢ key bật). Hỗ trợ toggle lồng
+// (vd option con của "chấm lại" chỉ hiện khi vừa bật "chấm điểm" vừa bật "chấm lại").
+function optVisible(opt, options) {
+  if (!opt.showIf) return true;
+  const keys = Array.isArray(opt.showIf) ? opt.showIf : [opt.showIf];
+  return keys.every(k => !!options[k]);
+}
 
 // Gom default từ schema → {key: default} để pre-fill options khi user mới bật (tránh gửi mảng rỗng).
 function optionDefaults(type) {
@@ -557,7 +572,7 @@ function WorkflowCard({ wf, onUpdate, pushToast, locked }) {
 
   async function handleSave() {
     // Validate field bắt buộc trước khi lưu.
-    const missing = optionSchema.filter(o => o.required && (!o.showIf || options[o.showIf]) && reqEmpty(o));
+    const missing = optionSchema.filter(o => o.required && optVisible(o, options) && reqEmpty(o));
     if (missing.length) {
       pushToast('Vui lòng chọn/điền: ' + missing.map(o => o.label).join(', '), 'error');
       return;
@@ -713,7 +728,7 @@ function WorkflowCard({ wf, onUpdate, pushToast, locked }) {
 
   // Gom option theo nhóm (opt.group), giữ thứ tự. Option không group → nhóm '' (không tiêu đề).
   function groupedOptions() {
-    const visible = optionSchema.filter(opt => !opt.showIf || options[opt.showIf]);
+    const visible = optionSchema.filter(opt => optVisible(opt, options));
     const gmap = OPTION_GROUPS[wf.type] || {};
     const groups = [];
     visible.forEach(opt => {
