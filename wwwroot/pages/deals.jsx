@@ -108,7 +108,7 @@ function DealDrawer({ item: initialItem, onClose, onRescored, pushToast }) {
 // Filter bar: search (q) + chip Win (rank/minRank/maxRank) + nút Bộ lọc nâng cao.
 // TẤT CẢ filter (q / trạng thái / nguồn / NV / rank / tuổi / giá trị) đẩy SERVER-SIDE qua
 // /api/ai/booking-tickets. Riêng "Sắp xếp" client-side (priority/EV là heuristic proxy, không phải cột DB).
-function DealFilters({ q, setQ, shown, total, advCount, advOpen, onAdvToggle, rankFilter, setRankFilter }) {
+function DealFilters({ q, setQ, shown, total, advCount, advOpen, onAdvToggle, rankFilter, setRankFilter, coolingOnly, setCoolingOnly }) {
   const SC = window.SearchControls;
   // Win chip ngưỡng đồng bộ DealScoringService.cs: cao ≥60, TB 35-59, thấp <35.
   // Token gửi xuống proxy:
@@ -127,6 +127,7 @@ function DealFilters({ q, setQ, shown, total, advCount, advOpen, onAdvToggle, ra
         {[['all','Tất cả'],['any','Đã chấm'],['none','Chưa chấm'],['high','Win cao'],['mid','Win TB'],['low','Win thấp']].map(([v, l]) => (
           <SC.FilterChip key={v} on={rankFilter === v} onClick={() => setRankFilter(v)}>{l}</SC.FilterChip>
         ))}
+        <SC.FilterChip on={coolingOnly} onClick={() => setCoolingOnly(v => !v)}>🔥 Nguội</SC.FilterChip>
       </SC.FilterChipRow>
       <SC.FilterButton count={advCount} open={advOpen} onClick={onAdvToggle} />
       <window.DataControls.StatRow shown={shown} total={total} suffix="cơ hội" />
@@ -144,7 +145,7 @@ function DealCard({ item, rank, onClick }) {
         <span className="deal-card-rank">{rank ? '#' + rank : '·'}</span>
         <div className="deal-card-id">
           <div className="deal-card-cust">{item.customerName}
-            {item.riskFlag === 'nguoi' && <span className="deals-risk"><Icon name="warning" size={11} /> nguội</span>}
+            {item.isCooling && <span className="deals-risk"><Icon name="warning" size={11} /> nguội</span>}
           </div>
           <div className="deal-card-deal">{item.title || item.code || ('#' + item.id)} · {item.statusName || '—'} · {item.ageDays} ngày</div>
         </div>
@@ -212,6 +213,8 @@ function DealsPage({ pushToast }) {
   const [q, setQ] = _dS('');
   // Win-rate filter chip ('all'|'any'|'none'|'high'|'mid'|'low')
   const [rankFilter, setRankFilter] = _dS('all');
+  // Chip "Nguội" — lọc server-side (cooling=true) chỉ deal đang nguội.
+  const [coolingOnly, setCoolingOnly] = _dS(false);
   // Lookups cho dropdown (statuses/sources/staffs từ upstream /api/ai/reference)
   const [lookups, setLookups] = _dS({ statuses: [], sources: [], staffs: [] });
 
@@ -273,6 +276,9 @@ function DealsPage({ pushToast }) {
       if (a.maxAge   && Number(a.maxAge)   > 0) params.set('maxAge',   String(a.maxAge));
       if (a.minValue && Number(a.minValue) > 0) params.set('minValue', String(a.minValue));
       if (a.maxValue && Number(a.maxValue) > 0) params.set('maxValue', String(a.maxValue));
+      // Chip "Nguội" → cooling=true (server-side, verdict 1 nguồn DealCooling).
+      const co = overrides.coolingOnly ?? coolingOnly;
+      if (co) params.set('cooling', 'true');
       const r = await window.tourkitAuth.authedFetch('/api/v1/deals?' + params.toString());
       if (!r.ok) throw new Error('HTTP ' + r.status);
       const data = await r.json();
@@ -314,7 +320,7 @@ function DealsPage({ pushToast }) {
     console.log('[auto-deal] reset autoTriedRef (navigation đổi)');
     autoTriedRef.current = false;
     clearSelected();   // page-scoped: sang trang/đổi filter/search → bỏ tick trang cũ (tránh chấm trùng deal khuất mắt)
-  }, [page, pageSize, adv, q, rankFilter]);
+  }, [page, pageSize, adv, q, rankFilter, coolingOnly]);
 
   // Đổi chip rank → reload list ngay (server-side filter qua param `rank`/`minRank`/`maxRank`).
   // Skip mount-fire (rankFilter='all' lần đầu); đẩy về page 1 nếu cần.
@@ -324,6 +330,14 @@ function DealsPage({ pushToast }) {
     if (page !== 1) setPage(1);                       // [page] effect sẽ fetch
     else            loadList({ page: 1, rankFilter }); // page = 1 → tự fetch
   }, [rankFilter]);
+
+  // Đổi chip "Nguội" → reload (server-side cooling=true). Skip mount-fire.
+  const coMounted = window.React.useRef(false);
+  _dE(() => {
+    if (!coMounted.current) { coMounted.current = true; return; }
+    if (page !== 1) setPage(1);
+    else            loadList({ page: 1, coolingOnly });
+  }, [coolingOnly]);
 
   // Auto-trigger: pick deal có scoreStatus !== 'fresh' từ list (giống Khách hàng).
   // Server đã trả per-item scoreStatus dựa trên cache → frontend KHÔNG cần merge board.
@@ -446,7 +460,7 @@ function DealsPage({ pushToast }) {
     cao:   boardItems.filter(it => it.level === 'cao').length,
     tb:    boardItems.filter(it => it.level === 'trung_binh').length,
     thap:  boardItems.filter(it => it.level === 'thap').length,
-    nguoi: boardItems.filter(it => (it.isCooling || it.riskFlag === 'nguoi')).length,
+    nguoi: items.filter(it => it.isCooling).length,   // verdict nguội 1 nguồn từ /deals (trên trang hiện tại)
   };
 
   return (
@@ -557,12 +571,13 @@ function DealsPage({ pushToast }) {
           { icon: 'star',    label: 'Win cao /đã chấm', value: c.cao, highlight: c.cao > 0 },
           { icon: 'sparkle', label: 'Win TB /đã chấm', value: c.tb },
           { icon: 'warning', label: 'Win thấp /đã chấm', value: c.thap },
-          { icon: 'warning', label: 'Nguội /đã chấm',  value: c.nguoi },
+          { icon: 'warning', label: 'Nguội (trang)',  value: c.nguoi },
         ]} />
 
         <DealFilters q={q} setQ={setQ} shown={filtered.length} total={items.length}
           advCount={advCount} advOpen={advOpen} onAdvToggle={() => setAdvOpen(o => !o)}
-          rankFilter={rankFilter} setRankFilter={setRankFilter} />
+          rankFilter={rankFilter} setRankFilter={setRankFilter}
+          coolingOnly={coolingOnly} setCoolingOnly={setCoolingOnly} />
 
         <window.SearchControls.AdvancedFilterPanel
           open={advOpen} onClose={() => setAdvOpen(false)}
@@ -639,10 +654,10 @@ function DealsPage({ pushToast }) {
         {filtered.length === 0 ? (() => {
           // Bug fix (QA sheet 2026-07-09): phân biệt 2 case rỗng — có filter đang bật vs không có data
           // → hiện nút "Xóa bộ lọc" khi filter active để user thoát về full list nhanh.
-          const hasActiveFilter = (q || '').trim() !== '' || rankFilter !== 'all' || advCount > 0;
+          const hasActiveFilter = (q || '').trim() !== '' || rankFilter !== 'all' || advCount > 0 || coolingOnly;
           const clearAll = () => {
-            setQ(''); setRankFilter('all'); setAdv(EMPTY_DEAL_FILTER); setPage(1);
-            loadList({ page: 1, q: '', rankFilter: 'all', adv: EMPTY_DEAL_FILTER });
+            setQ(''); setRankFilter('all'); setCoolingOnly(false); setAdv(EMPTY_DEAL_FILTER); setPage(1);
+            loadList({ page: 1, q: '', rankFilter: 'all', coolingOnly: false, adv: EMPTY_DEAL_FILTER });
           };
           return hasActiveFilter ? (
             <div className="deals-empty sm">
@@ -719,7 +734,7 @@ function DealsPage({ pushToast }) {
                       <td className="deals-rank">{rank || <span style={{color:'var(--text-3)'}}>—</span>}</td>
                       <td>
                         <div className="deals-cust">{it.customerName}
-                          {(it.isCooling || it.riskFlag === 'nguoi') && <span className="deals-risk" title="Đang nguội"><Icon name="warning" size={11} /> nguội</span>}
+                          {it.isCooling && <span className="deals-risk" title="Đang nguội (lâu không tương tác)"><Icon name="warning" size={11} /> nguội</span>}
                         </div>
                         <div className="deals-deal">{it.title || it.code || ('#' + it.id)} · {it.statusName || '—'} · {it.ageDays} ngày</div>
                       </td>
