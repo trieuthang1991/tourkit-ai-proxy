@@ -7,6 +7,8 @@ appsettings.Production.json
 # Publish output (do scripts/publish.ps1 tạo)
 publish/
 publish.zip
+# `dotnet publish -o out` (lệnh trong CLAUDE.md) — build output, không commit
+out/
 
 # Local secrets — chứa real API keys cho OpenCode + 9routes. Copy từ
 # appsettings.example.json và điền key thật. KHÔNG commit file này.

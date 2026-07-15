@@ -60,6 +60,14 @@ if (Test-Path $OutDir) {
     Remove-Item $OutDir -Recurse -Force
 }
 
+# Bundle frontend TRƯỚC dotnet publish. Target BuildFrontendBundle (csproj) sinh wwwroot/dist/
+# trong lúc Build — tức SAU khi SDK đã glob wwwroot/** → lần publish đó SÓT dist → prod chạy
+# dev-mode (Babel in-browser, cold start 3-5s + phụ thuộc CDN). Sinh sẵn ở đây để dist có mặt
+# lúc SDK glob → được copy vào output (đã kiểm: dist tồn tại trước publish thì luôn được include).
+Step "Build frontend bundle (esbuild)"
+& (Join-Path $Root "build-frontend.ps1")
+if ($LASTEXITCODE -ne 0) { throw "esbuild bundle lỗi" }
+
 Step "dotnet publish"
 $args = @(
     "publish", $Csproj,
