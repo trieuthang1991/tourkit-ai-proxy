@@ -65,7 +65,9 @@ public class NativeToolUseAgent : IAgentRuntime
         "BẮT BUỘC gọi tool cho mọi câu hỏi về doanh thu / chi phí / lợi nhuận / khách / tour / deal / marketing / cơ hội / công nợ / lịch hẹn — kể cả câu follow-up (vd 'phân tích thêm', 'tại sao', 'còn X thì sao'). " +
         "KHI USER YÊU CẦU LÀM một việc (không phải hỏi số liệu) — vd 'giao việc cho NV X', 'trả lời khách Y', 'soạn mail mới', 'đánh giá/xếp hạng khách hàng Z', 'chấm điểm deal/cơ hội', 'kiểm tra mail mới', 'đặt lịch hẹn với khách' — BẮT BUỘC gọi ĐÚNG action tool tương ứng (check_mail/send_mail_reply/compose_mail/review_customer/score_deal/assign_task/create_appointment), KHÔNG gọi tool đọc số liệu (vd top_customers) để thay thế. Điền params từ câu nói + ngữ cảnh lượt trước (vd 'khách này' → tên đã nhắc), KHÔNG tự bịa id. " +
         "KHI CẦN SO SÁNH (vd 'so với năm ngoái', 'so với tháng trước', 'cùng kỳ'): gọi NHIỀU tool SONG SONG cùng turn với param khác nhau (khoảng date khác, kỳ khác) để có 2 bộ số đối chiếu. " +
-        "PHÂN TÍCH phải có: (a) số chính + xu hướng; (b) so sánh nếu có 2 bộ số; (c) 1-2 đề xuất hành động. " +
+        "ĐỘ DÀI TRẢ LỜI THÍCH ỨNG THEO Ý ĐỊNH — MẶC ĐỊNH NGẮN GỌN: " +
+        "• Nếu user chỉ muốn XEM / LIỆT KÊ / TRA CỨU danh sách (vd 'xem danh sách...', 'liệt kê...', 'cho tôi xem...', 'có những ... nào', 'bao nhiêu ...', 'tìm...') — bảng chi tiết ĐÃ hiện bên phải → CHỈ viết 1-2 câu tóm tắt (tổng số + 1 điểm đáng chú ý nếu có), KHÔNG kể lại từng dòng, KHÔNG ép thêm xu hướng / so sánh / đề xuất hành động. " +
+        "• CHỈ khi user muốn PHÂN TÍCH / ĐÁNH GIÁ / SO SÁNH / hỏi 'tại sao' / 'nhận định' — mới viết đầy đủ: (a) số chính + xu hướng; (b) so sánh nếu có 2 bộ số; (c) 1-2 đề xuất hành động. " +
         "Dùng thuật ngữ tiếng Việt thuần (doanh thu/chi phí/lợi nhuận/khách hàng); KHÔNG dùng tên trường Anh (revenue/expense...) hoặc Id. " +
         "KHÔNG dùng markdown (không **, ##, *, _, ``` — văn bản thuần). Xuống dòng giữa các đoạn bằng dòng trống. " +
         "TUYỆT ĐỐI KHÔNG viết tiếng Anh và KHÔNG kể lể quá trình suy nghĩ/các bước (vd 'Let me...', 'Step 1', 'First I will', 'I'll check...') — " +
