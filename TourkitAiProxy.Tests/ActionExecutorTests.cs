@@ -30,7 +30,8 @@ public class ActionExecutorTests
         var json = ActionExecutor.BuildAppointmentPayload(
             123, "Hẹn tư vấn", "chi tiết",
             new DateTime(2026,7,16,2,0,0,DateTimeKind.Utc),
-            new DateTime(2026,7,16,3,0,0,DateTimeKind.Utc), 30, "A", "09", null);
+            new DateTime(2026,7,16,3,0,0,DateTimeKind.Utc), 30, "A", "09", null,
+            insUid: null, typeSchedule: 0);
         using var d = JsonDocument.Parse(json);
         Assert.Equal(123, d.RootElement.GetProperty("customerId").GetInt32());
         Assert.True(d.RootElement.TryGetProperty("careStartTime", out _));

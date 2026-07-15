@@ -998,13 +998,11 @@ public class JsonPlannerAgent : IAgentRuntime
         "Dùng thuật ngữ tiếng Việt thuần (doanh thu, chi phí, lợi nhuận, khách hàng...); " +
         "KHÔNG dùng tên trường tiếng Anh (revenue, expense, kpiRevenue...) và KHÔNG nhắc tới Id. " +
         "KHÔNG dùng markdown (không **, ##, *, _, ``` — văn bản thuần). Xuống dòng giữa các đoạn bằng dòng trống. " +
-        "ĐỘ DÀI TRẢ LỜI THÍCH ỨNG THEO Ý ĐỊNH — MẶC ĐỊNH NGẮN GỌN: " +
-        "• Nếu user chỉ muốn XEM / LIỆT KÊ / TRA CỨU danh sách (vd 'xem danh sách...', 'liệt kê...', 'cho tôi xem...', 'có những ... nào', 'bao nhiêu ...', 'tìm...') — bảng chi tiết ĐÃ hiện bên phải → CHỈ viết 1-2 câu tóm tắt (tổng số + 1 điểm đáng chú ý nếu có), KHÔNG kể lại từng dòng, KHÔNG ép thêm xu hướng / so sánh / đề xuất hành động. " +
-        "• CHỈ khi user muốn PHÂN TÍCH / ĐÁNH GIÁ / SO SÁNH / hỏi 'tại sao' / 'nhận định' — mới viết đầy đủ theo cấu trúc: " +
+        "Cấu trúc bài phân tích: " +
         "(1) Số chính + nhận định mức độ (tốt/bình thường/đáng lo); " +
         "(2) Xu hướng / phân bổ / so sánh nếu dữ liệu cho phép (vd top đóng góp, chênh lệch kỳ trước nếu có); " +
         "(3) 1-2 đề xuất hành động cụ thể nếu phù hợp. " +
-        "KHÔNG lặp lại nguyên bảng. Câu phân tích đầy đủ: 5-10 câu hoặc 2-3 đoạn ngắn; câu liệt kê: 1-2 câu."
+        "KHÔNG cụt ngủn, KHÔNG lặp lại nguyên bảng. Độ dài hợp lý: 5-10 câu hoặc 2-3 đoạn ngắn."
         + ChatGlossary.AnalysisBlock;
 
     private string BuildPlannerPrompt(List<ChatTurn> history, SessionChatMemory memory)
@@ -1106,14 +1104,13 @@ SỐ LIỆU ĐÃ TÍNH: {statsLine}
 DỮ LIỆU THÔ (JSON):
 {dataJson}
 
-Trả lời câu hỏi HIỆN TẠI, bám đúng số liệu trên. ĐỘ DÀI THÍCH ỨNG THEO Ý ĐỊNH — MẶC ĐỊNH NGẮN GỌN:
-- Nếu câu hỏi chỉ là XEM / LIỆT KÊ / TRA CỨU danh sách (vd 'xem danh sách...', 'liệt kê...', 'cho tôi xem...', 'có những ... nào', 'bao nhiêu...', 'tìm...'): bảng chi tiết ĐÃ hiện bên phải → CHỈ viết 1-2 câu tóm tắt (tổng số + 1 điểm đáng chú ý nếu có). KHÔNG kể lại từng dòng, KHÔNG ép thêm xu hướng / so sánh / đề xuất hành động.
-- CHỈ khi câu hỏi muốn PHÂN TÍCH / ĐÁNH GIÁ / SO SÁNH / hỏi 'tại sao' / 'nhận định' mới viết đầy đủ:
-  · Mở đầu bằng số chính + nhận định (tốt/bình thường/đáng lo).
-  · Nếu items[] có nhiều dòng: chỉ ra top 2-3 đóng góp lớn nhất + chiếm % nào của tổng.
-  · Nếu có dữ liệu kỳ trước trong hội thoại / thấy được trend → so sánh tường minh delta + % chênh.
-  · Kết bằng 1-2 đề xuất hành động cụ thể (vd ""nên ưu tiên CSKH khách X"", ""giảm chi phí Y"").
-  · Độ dài: 5-10 câu hoặc 2-3 đoạn ngắn. KHÔNG dài lê thê copy bảng.
+Viết phân tích ĐẦY ĐỦ trả lời câu hỏi HIỆN TẠI, bám đúng số liệu trên.
+Yêu cầu:
+- Mở đầu bằng số chính + nhận định (tốt/bình thường/đáng lo).
+- Nếu items[] có nhiều dòng: chỉ ra top 2-3 đóng góp lớn nhất + chiếm % nào của tổng.
+- Nếu có dữ liệu kỳ trước trong hội thoại / thấy được trend → so sánh tường minh delta + % chênh.
+- Kết bằng 1-2 đề xuất hành động cụ thể (vd ""nên ưu tiên CSKH khách X"", ""giảm chi phí Y"").
+- Độ dài: 5-10 câu hoặc 2-3 đoạn ngắn. KHÔNG cụt 1-2 câu, KHÔNG dài lê thê copy bảng.
 - Nếu câu hỏi có ý ĐỐI CHIẾU (vd 'so với năm ngoái', 'cao hơn không') → bắt buộc so sánh tường minh với số đã nhắc trước đó trong hội thoại.";
     }
 

@@ -158,6 +158,10 @@ builder.Services.AddSingleton<TourkitAiProxy.Services.Crm.CrmActionQueueReposito
 // Stateless (chỉ gọi TourKitApiClient qua jwt truyền vào), singleton như TourKitCustomerSource/DealOpportunityClient.
 builder.Services.AddSingleton<TourkitAiProxy.Services.Chat.ActionResolver>();
 
+// Bộ nhớ resolve theo phiên (in-mem): nhớ lựa chọn user đã chọn ở action-clarify để lượt sau (bổ sung
+// thông tin qua chat) KHÔNG bắt chọn lại. Singleton (chia sẻ state giữa /chat và /action/resolve).
+builder.Services.AddSingleton<TourkitAiProxy.Services.Chat.ActionResolutionMemory>();
+
 // Thực thi hành động đã xác nhận (route theo ActionKind). Task 8a: nhánh CrmQueue
 // (assign_task/create_appointment). Task 8b: nhánh Internal (review_customer/score_deal) — reuse
 // NGUYÊN ReviewService/DealScoringService (đã singleton qua AddWorkflowStack ở trên). Mail vẫn throw

@@ -44,8 +44,13 @@ public static class ActionTools
 
         new("assign_task",
             "GIAO VIỆC cho nhân viên. Dùng khi 'giao việc … cho …', 'tạo task cho nhân viên Y'. " +
-            "params: workflowName, name, content, staffNames (CSV tên), prioritized(cao|tb|thap), startDate, dueDate, reminderMinutes. " +
-            "startDate = ngày/giờ BẮT ĐẦU (nếu user nêu), dueDate = HẠN hoàn thành. " +
+            "GỌI NGAY với thông tin user ĐÃ cho — TUYỆT ĐỐI KHÔNG hỏi lại thêm chi tiết (ưu tiên/loại/workflow/khách...). " +
+            "CHỈ cần nhân viên + nội dung (hoặc suy từ câu) là đủ để gọi; thẻ xác nhận sẽ cho user tự chỉnh phần còn lại. " +
+            "Các field còn lại có MẶC ĐỊNH: name/content = suy từ câu user nói, ưu tiên = trung bình (tb), " +
+            "không gắn khách/workflow nếu user không nêu. " +
+            "params: workflowName?, name (tiêu đề ngắn, suy từ câu), content (nội dung chi tiết), staffNames (CSV tên), " +
+            "prioritized(cao|tb|thap, mặc định tb), startDate?, dueDate?, reminderMinutes?. " +
+            "startDate = ngày/giờ BẮT ĐẦU (user KHÔNG nêu → BỎ TRỐNG, backend tự mặc định = thời điểm giao việc); dueDate = HẠN hoàn thành. " +
             "QUAN TRỌNG: startDate/dueDate PHẢI theo định dạng ISO CÓ GIỜ 'yyyy-MM-ddTHH:mm' theo GIỜ VIỆT NAM, " +
             "và phải GIỮ ĐÚNG GIỜ user nói — vd 'trước 20h hôm nay' → dueDate = <hôm nay>T20:00; " +
             "'9h sáng mai' → <ngày mai>T09:00; 'chiều mai' → T14:00. TUYỆT ĐỐI không bỏ giờ về T00:00 khi user đã nêu giờ.",
