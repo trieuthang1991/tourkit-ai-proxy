@@ -24,7 +24,6 @@ namespace TourkitAiProxy.Services.Workflows;
 /// </summary>
 public class DealAutoReviewWorkflow : IScheduledWorkflow
 {
-    private const int CancelStatus = 5;   // TourKit BookingTicketStatus: 5 = Hủy
     private const string AlertKind = "deal-cooling-alert";
     private const int MaxAlertsPerRun = 200;   // chốt chặn: 1 run enqueue tối đa 200 alert nguội (phòng runaway
                                                // khi tenant test có hàng nghìn deal nguội). Còn lại chờ run sau.
@@ -141,7 +140,7 @@ public class DealAutoReviewWorkflow : IScheduledWorkflow
                 var newRows = _dealRepo.GetBulk(tenantId, newDeals.Select(d => d.Id));
                 // Lọc: bỏ deal đã chốt/hủy + deal đã có fingerprint trong DB (race)
                 var toReviewIds = newDeals
-                    .Where(d => !IsClosedWon(d.StatusName) && d.Status != CancelStatus)
+                    .Where(d => !DealCooling.IsClosedWon(d.StatusName) && d.Status != DealCooling.CancelStatus)
                     .Where(d => !newRows.ContainsKey(d.Id))   // chưa có row → chưa chấm (fingerprint check sau khi có context)
                     .Take(opt.ReviewMax)
                     .Select(d => d.Id)
@@ -223,7 +222,7 @@ public class DealAutoReviewWorkflow : IScheduledWorkflow
                                     var row = dueRows.TryGetValue(deal.Id, out var r) ? r : null;
                                     if (row?.IsFinalized == true) { Interlocked.Increment(ref finalizedSkipped); return; }
                                     // AUTO review: đơn đã CHỐT/hủy → không còn cơ hội mở → chốt sổ, NGỪNG tự review lại.
-                                    if (IsClosedWon(deal.StatusName) || deal.Status == CancelStatus)
+                                    if (DealCooling.IsClosedWon(deal.StatusName) || deal.Status == DealCooling.CancelStatus)
                                     {
                                         _dealRepo.SetFinalized(tenantId, deal.Id, "closed");
                                         Interlocked.Increment(ref autoFinalized); return;
@@ -256,8 +255,7 @@ public class DealAutoReviewWorkflow : IScheduledWorkflow
             var swCool = Stopwatch.StartNew();
             var openDeals = await FetchAsync(rank: null, sd: startDate, pageSize: 200);
             var cooling = openDeals
-                .Where(d => d.Status != CancelStatus && !IsClosedWon(d.StatusName))
-                .Where(d => d.IsCooling && d.CoolingDays >= opt.CoolingDays)
+                .Where(d => DealCooling.IsCooling(d.Status, d.StatusName, d.CoolingDays, opt.CoolingDays, opt.CoolingStatuses))
                 .ToList();
             coolingCount = cooling.Count;
 
@@ -403,26 +401,20 @@ public class DealAutoReviewWorkflow : IScheduledWorkflow
             yield return source.GetRange(i, Math.Min(size, source.Count - i));
     }
 
-    /// Deal đã CHỐT/thành công (không còn là cơ hội mở) — mirror DealOpportunityClient.ListOpenAsync.
-    private static bool IsClosedWon(string? statusName)
-    {
-        var sn = DealHeuristic.Normalize(statusName);
-        // "da chot" bắt cả "Đã chốt" / "Đã chốt đơn"; KHÔNG match nhầm "chưa chốt"/"sắp chốt" (chua/sap chot ≠ da chot).
-        return sn.Length > 0 && (sn.Contains("chot don") || sn.Contains("da chot") || sn.Contains("thanh cong")
-            || sn.Contains("hoan thanh") || sn.Contains("hoan tat") || sn.Contains("da ban"));
-    }
 }
 
 /// Option ĐỘNG của deal-auto-review (parse từ OptionsJson, mặc định an toàn).
 public sealed record DealAutoReviewOptions(
     List<int> Statuses, int CreatedWithinDays, bool AutoReview, bool ReReview, int ReviewMax, int MaxAutoReviews,
-    int CoolingDays, int MinWinRateToNotify, int MaxNotifications, int NotifyMinGapHours)
+    int CoolingDays, int MinWinRateToNotify, int MaxNotifications, int NotifyMinGapHours,
+    List<int> CoolingStatuses)
 {
     public static DealAutoReviewOptions Parse(string? json)
     {
         var def = new DealAutoReviewOptions(
             Statuses: new List<int>(), CreatedWithinDays: 30, AutoReview: true, ReReview: true, ReviewMax: 20,
-            MaxAutoReviews: 5, CoolingDays: 7, MinWinRateToNotify: 0, MaxNotifications: 3, NotifyMinGapHours: 24);
+            MaxAutoReviews: 5, CoolingDays: 7, MinWinRateToNotify: 0, MaxNotifications: 3, NotifyMinGapHours: 24,
+            CoolingStatuses: new List<int>());
         if (string.IsNullOrWhiteSpace(json)) return def;
         try
         {
@@ -432,6 +424,10 @@ public sealed record DealAutoReviewOptions(
             if (r.TryGetProperty("statuses", out var arr) && arr.ValueKind == JsonValueKind.Array)
                 foreach (var e in arr.EnumerateArray())
                     if (e.ValueKind == JsonValueKind.Number && e.TryGetInt32(out var n) && n > 0) statuses.Add(n);
+            var coolingStatuses = new List<int>();
+            if (r.TryGetProperty("coolingStatuses", out var carr) && carr.ValueKind == JsonValueKind.Array)
+                foreach (var e in carr.EnumerateArray())
+                    if (e.ValueKind == JsonValueKind.Number && e.TryGetInt32(out var cn) && cn > 0) coolingStatuses.Add(cn);
             return new DealAutoReviewOptions(
                 Statuses: statuses,
                 CreatedWithinDays: Clamp(GetInt(r, "createdWithinDays", 30), 1, 365),
@@ -442,7 +438,8 @@ public sealed record DealAutoReviewOptions(
                 CoolingDays: Clamp(GetInt(r, "coolingDays", 7), 1, 90),
                 MinWinRateToNotify: Clamp(GetInt(r, "minWinRateToNotify", 0), 0, 100),
                 MaxNotifications: Clamp(GetInt(r, "maxNotifications", 3), 1, 20),
-                NotifyMinGapHours: Clamp(GetInt(r, "notifyMinGapHours", 24), 1, 720));
+                NotifyMinGapHours: Clamp(GetInt(r, "notifyMinGapHours", 24), 1, 720),
+                CoolingStatuses: coolingStatuses);
         }
         catch { return def; }
     }
