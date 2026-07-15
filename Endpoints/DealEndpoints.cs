@@ -4,6 +4,7 @@ using TourkitAiProxy.Models;
 using TourkitAiProxy.Services;
 using TourkitAiProxy.Services.Deals;
 using TourkitAiProxy.Services.TourKit;
+using TourkitAiProxy.Services.Workflows;
 
 namespace TourkitAiProxy.Endpoints;
 
@@ -29,17 +30,21 @@ public static class DealEndpoints
         // bằng cách peek deal-cache theo tenant+id). FE chỉ filter scoreStatus === 'none'
         // → tường minh giống /customers (không cần merge client-side với board).
         v1.MapGet("/deals", async (HttpContext ctx, DealOpportunityClient client, DealRepository repo,
-            TourKitApiClient api, TkSessionStore sessions,
+            TourKitApiClient api, TkSessionStore sessions, WorkflowRepository workflows,
             ILogger<Program> log, int? page, int? pageSize, string? q,
             int? trangThai, int? nguon, int? nhanVienPhuTrach,
             string? rank, int? minRank, int? maxRank,
-            int? maxAge, long? minValue, long? maxValue) =>
+            int? maxAge, long? minValue, long? maxValue, bool? cooling) =>
         {
             var sid = Sid(ctx);
             var sess = sessions.Get(sid);
             if (sess == null) return Unauthorized();
             var pIdx  = page is > 0 ? page.Value : 1;
             var pSize = Math.Clamp(pageSize ?? DefaultPageSize, 1, MaxPageSize);
+            // Cooling policy per-tenant (deal-auto-review PerTenant → Username=""). Chưa cấu hình → default {coolingDays:7, coolingStatuses:[]}.
+            var coolOpt = DealAutoReviewOptions.Parse(workflows.Get(sess.TenantId, "", "deal-auto-review")?.OptionsJson);
+            // Lọc "chỉ nguội" (server-side): deal nguội là subset nhỏ → fetch rộng (page 1, cap 200) rồi lọc proxy-side.
+            if (cooling == true) { pIdx = 1; pSize = MaxPageSize; }
             try
             {
                 // q + trangThai/nguon/nhanVienPhuTrach đẩy thẳng upstream `/api/ai/booking-tickets`
@@ -100,7 +105,13 @@ public static class DealEndpoints
                 // GIỜ:   scoreStatus = upstream Rank (source of truth cho filter). Cache proxy chỉ dùng để enrich
                 //        `score` object (winRate/level/signals/risks/nextAction) cho drawer chi tiết.
                 //        Deal có Rank>0 nhưng cache proxy trống → FE fallback dùng chính Rank% + level heuristic.
-                var items = res.Items.Select(it =>
+                // Verdict "nguội" 1 nguồn (DealCooling) — override cờ upstream thô để badge/KPI/alert nhất quán.
+                bool CoolVerdict(DealOpportunity d) => DealCooling.IsCooling(
+                    d.Status, d.StatusName, d.CoolingDays, coolOpt.CoolingDays, coolOpt.CoolingStatuses);
+                var sourceItems = cooling == true ? res.Items.Where(CoolVerdict).ToList() : res.Items.ToList();
+                if (cooling == true && sourceItems.Count >= MaxPageSize)
+                    log.LogWarning("[Deals] cooling filter chạm cap {Cap} — có thể còn deal nguội chưa hiện trang này", MaxPageSize);
+                var items = sourceItems.Select(it =>
                 {
                     var cached = repo.PeekCached(sess.TenantId, it.Id);
                     bool hasRank = it.Rank > 0;
@@ -142,7 +153,7 @@ public static class DealEndpoints
                         it.Status, it.StatusName, it.Source, it.SourceName, it.MarketName, it.Assignees,
                         it.CreatedAt, it.AgeDays,
                         it.LatestComment, it.LatestCommentBy, it.LatestCommentDate, it.LastInteractionAt,
-                        it.CoolingDays, it.IsCooling,
+                        it.CoolingDays, IsCooling = CoolVerdict(it),
                         rank = it.Rank,
                         scoreStatus = hasRank ? "fresh" : "none",
                         score = scoreObj
@@ -153,7 +164,7 @@ public static class DealEndpoints
                 // status ID ngoài 1-6 hoặc reference lỗi → dropdown chỉ có "Tất cả" + 1-2 option.
                 // Union thêm distinct (status, statusName) + (source, sourceName) từ items page hiện tại.
                 var lookups     = BuildDealLookups(refTask.IsCompletedSuccessfully ? refTask.Result : default, res.Items);
-                return Results.Json(new { items, total = res.Total, page = pIdx, pageSize = pSize, lookups });
+                return Results.Json(new { items, total = cooling == true ? sourceItems.Count : res.Total, page = pIdx, pageSize = pSize, lookups });
             }
             // Client tự hủy request (điều hướng/unmount/đổi filter) → CancellationToken cascade xuống
             // upstream call (SocketException 995). Benign: không ai chờ response → KHÔNG log error,
