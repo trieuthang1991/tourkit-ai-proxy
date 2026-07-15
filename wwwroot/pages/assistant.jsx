@@ -51,11 +51,11 @@ const _COL_VI = {
   customersource: 'Nguồn KH', customersourcename: 'Nguồn KH', customergroupname: 'Nhóm KH',
   city: 'Tỉnh/TP', dob: 'Ngày sinh', tags: 'Thẻ', voucherno: 'Số phiếu', vouchertype: 'Loại phiếu',
   paymentmethod: 'Hình thức TT', reason: 'Lý do', guests: 'Số khách', departure: 'Khởi hành',
-  status: 'Trạng thái', statustext: 'Trạng thái', available: 'Còn chỗ', booked: 'Đã đặt', slots: 'Tổng chỗ', onhold: 'Giữ chỗ',
-  customerphone: 'SĐT', sellername: 'Phụ trách', mayeucau: 'Mã yêu cầu', actualrevenue: 'Thực thu',
+  statustext: 'Trạng thái', available: 'Còn chỗ', booked: 'Đã đặt', slots: 'Tổng chỗ', onhold: 'Giữ chỗ',
+  sellername: 'Phụ trách', mayeucau: 'Mã yêu cầu', actualrevenue: 'Thực thu',
   totalexpense: 'Tổng chi phí', avgstar: 'Đánh giá', parentid: 'Thuộc nhóm',
-  tourtype: 'Loại', departuredate: 'Khởi hành', enddate: 'Kết thúc', percentage: 'Tỉ lệ', count: 'Số lượng',
-  rank: 'Hạng', fullname: 'Họ tên', phone: 'SĐT', totalrevenue: 'Tổng chi tiêu', totaltours: 'Số tour',
+  tourtype: 'Loại', percentage: 'Tỉ lệ',
+  rank: 'Hạng', totalrevenue: 'Tổng chi tiêu',
 };
 // rút hậu tố twin (revenueFormatted→revenue, statusText→status…) để tra nhãn gốc
 const _COL_SUFFIX = /(formatted|text|label|name)$/;
