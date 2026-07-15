@@ -108,7 +108,7 @@ function DealDrawer({ item: initialItem, onClose, onRescored, pushToast }) {
 // Filter bar: search (q) + chip Win (rank/minRank/maxRank) + nút Bộ lọc nâng cao.
 // TẤT CẢ filter (q / trạng thái / nguồn / NV / rank / tuổi / giá trị) đẩy SERVER-SIDE qua
 // /api/ai/booking-tickets. Riêng "Sắp xếp" client-side (priority/EV là heuristic proxy, không phải cột DB).
-function DealFilters({ q, setQ, shown, total, advCount, advOpen, onAdvToggle, rankFilter, setRankFilter, coolingOnly, setCoolingOnly }) {
+function DealFilters({ q, setQ, shown, total, advCount, advOpen, onAdvToggle, rankFilter, setRankFilter, coolingOnly, setCoolingOnly, coolingConfigured }) {
   const SC = window.SearchControls;
   // Win chip ngưỡng đồng bộ DealScoringService.cs: cao ≥60, TB 35-59, thấp <35.
   // Token gửi xuống proxy:
@@ -127,7 +127,7 @@ function DealFilters({ q, setQ, shown, total, advCount, advOpen, onAdvToggle, ra
         {[['all','Tất cả'],['any','Đã chấm'],['none','Chưa chấm'],['high','Win cao'],['mid','Win TB'],['low','Win thấp']].map(([v, l]) => (
           <SC.FilterChip key={v} on={rankFilter === v} onClick={() => setRankFilter(v)}>{l}</SC.FilterChip>
         ))}
-        <SC.FilterChip on={coolingOnly} onClick={() => setCoolingOnly(v => !v)}>🔥 Nguội</SC.FilterChip>
+        {coolingConfigured && <SC.FilterChip on={coolingOnly} onClick={() => setCoolingOnly(v => !v)}>🔥 Nguội</SC.FilterChip>}
       </SC.FilterChipRow>
       <SC.FilterButton count={advCount} open={advOpen} onClick={onAdvToggle} />
       <window.DataControls.StatRow shown={shown} total={total} suffix="cơ hội" />
@@ -136,7 +136,7 @@ function DealFilters({ q, setQ, shown, total, advCount, advOpen, onAdvToggle, ra
 }
 
 // ─── 1 card (mobile) ──────────────────────────────────────────────────────────
-function DealCard({ item, rank, onClick }) {
+function DealCard({ item, rank, onClick, coolingConfigured }) {
   const lv = dealLevel(item.level);
   const scored = item._hasScore;
   return (
@@ -145,7 +145,7 @@ function DealCard({ item, rank, onClick }) {
         <span className="deal-card-rank">{rank ? '#' + rank : '·'}</span>
         <div className="deal-card-id">
           <div className="deal-card-cust">{item.customerName}
-            {item.isCooling && <span className="deals-risk"><Icon name="warning" size={11} /> nguội</span>}
+            {coolingConfigured && item.isCooling && <span className="deals-risk"><Icon name="warning" size={11} /> nguội</span>}
           </div>
           <div className="deal-card-deal">{item.title || item.code || ('#' + item.id)} · {item.statusName || '—'} · {item.ageDays} ngày</div>
         </div>
@@ -215,6 +215,9 @@ function DealsPage({ pushToast }) {
   const [rankFilter, setRankFilter] = _dS('all');
   // Chip "Nguội" — lọc server-side (cooling=true) chỉ deal đang nguội.
   const [coolingOnly, setCoolingOnly] = _dS(false);
+  // Nguội là feature OPT-IN: chỉ hiện badge/KPI/chip "nguội" khi tenant đã cấu hình
+  // "Trạng thái tính nguội" (workflow deal-auto-review). Backend trả cờ này theo /deals.
+  const [coolingConfigured, setCoolingConfigured] = _dS(false);
   // Lookups cho dropdown (statuses/sources/staffs từ upstream /api/ai/reference)
   const [lookups, setLookups] = _dS({ statuses: [], sources: [], staffs: [] });
 
@@ -284,6 +287,7 @@ function DealsPage({ pushToast }) {
       const data = await r.json();
       setList(data.items || []);
       setTotal(data.total ?? (data.items?.length || 0));
+      setCoolingConfigured(!!data.coolingConfigured);   // chưa cấu hình trạng thái nguội → ẩn UI nguội
       // Lookups (statuses/sources/staffs) đính kèm response /deals. Reference upstream HIẾM khi đổi,
       // nhưng CÓ THỂ trả rỗng nhất thời (JWT hết hạn giữa chừng / reference blip) → KHÔNG được xóa
       // dropdown đã có. Keep-last-good: mỗi list chỉ thay khi payload mới có dữ liệu, rỗng thì giữ cũ.
@@ -571,13 +575,13 @@ function DealsPage({ pushToast }) {
           { icon: 'star',    label: 'Win cao /đã chấm', value: c.cao, highlight: c.cao > 0 },
           { icon: 'sparkle', label: 'Win TB /đã chấm', value: c.tb },
           { icon: 'warning', label: 'Win thấp /đã chấm', value: c.thap },
-          { icon: 'warning', label: 'Nguội (trang)',  value: c.nguoi },
+          ...(coolingConfigured ? [{ icon: 'warning', label: 'Nguội (trang)', value: c.nguoi }] : []),
         ]} />
 
         <DealFilters q={q} setQ={setQ} shown={filtered.length} total={items.length}
           advCount={advCount} advOpen={advOpen} onAdvToggle={() => setAdvOpen(o => !o)}
           rankFilter={rankFilter} setRankFilter={setRankFilter}
-          coolingOnly={coolingOnly} setCoolingOnly={setCoolingOnly} />
+          coolingOnly={coolingOnly} setCoolingOnly={setCoolingOnly} coolingConfigured={coolingConfigured} />
 
         <window.SearchControls.AdvancedFilterPanel
           open={advOpen} onClose={() => setAdvOpen(false)}
@@ -678,7 +682,7 @@ function DealsPage({ pushToast }) {
           <div className="deals-cards">
             {filtered.map((it) => {
               const rank = it._hasScore ? (boardItems.findIndex(b => b.id === it.id) + 1) : null;
-              return <DealCard key={it.id} item={it} rank={rank} onClick={() => setSel(it)} />;
+              return <DealCard key={it.id} item={it} rank={rank} onClick={() => setSel(it)} coolingConfigured={coolingConfigured} />;
             })}
           </div>
         ) : (
@@ -734,7 +738,7 @@ function DealsPage({ pushToast }) {
                       <td className="deals-rank">{rank || <span style={{color:'var(--text-3)'}}>—</span>}</td>
                       <td>
                         <div className="deals-cust">{it.customerName}
-                          {it.isCooling && <span className="deals-risk" title="Đang nguội (lâu không tương tác)"><Icon name="warning" size={11} /> nguội</span>}
+                          {coolingConfigured && it.isCooling && <span className="deals-risk" title="Đang nguội (lâu không tương tác)"><Icon name="warning" size={11} /> nguội</span>}
                         </div>
                         <div className="deals-deal">{it.title || it.code || ('#' + it.id)} · {it.statusName || '—'} · {it.ageDays} ngày</div>
                       </td>

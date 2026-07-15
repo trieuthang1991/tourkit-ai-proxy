@@ -164,7 +164,10 @@ public static class DealEndpoints
                 // status ID ngoài 1-6 hoặc reference lỗi → dropdown chỉ có "Tất cả" + 1-2 option.
                 // Union thêm distinct (status, statusName) + (source, sourceName) từ items page hiện tại.
                 var lookups     = BuildDealLookups(refTask.IsCompletedSuccessfully ? refTask.Result : default, res.Items);
-                return Results.Json(new { items, total = cooling == true ? sourceItems.Count : res.Total, page = pIdx, pageSize = pSize, lookups });
+                // coolingConfigured: tenant ĐÃ chọn trạng thái tính nguội chưa → FE chỉ hiện badge/KPI/chip "nguội"
+                // khi = true (nguội là feature opt-in: chưa khai báo trạng thái thì không show gì trên trang Cơ hội).
+                return Results.Json(new { items, total = cooling == true ? sourceItems.Count : res.Total, page = pIdx, pageSize = pSize, lookups,
+                    coolingConfigured = coolOpt.CoolingStatuses.Count > 0 });
             }
             // Client tự hủy request (điều hướng/unmount/đổi filter) → CancellationToken cascade xuống
             // upstream call (SocketException 995). Benign: không ai chờ response → KHÔNG log error,
