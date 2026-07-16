@@ -31,6 +31,12 @@ test.beforeEach(async ({ page }) => {
   });
   await page.route('**/api/v1/session*', r =>
     r.fulfill({ json: { sessionId: 'mock-session', tenantId: 'mock.tourkit.vn', fullName: 'Test', companyName: 'Test Co' } }));
+  // BẮT BUỘC mock: chip quota gọi endpoint này qua authedFetch, mà authedFetch gặp 401 là
+  // logout() TOÀN CỤC → session bị xóa → màn đăng nhập che mất trang. Phiên giả ở đây
+  // đương nhiên 401 với server thật. (Thiếu mock này test chỉ xanh khi SQL sập — xanh
+  // vì lý do sai.)
+  await page.route('**/api/v1/quota*', r =>
+    r.fulfill({ json: { tenant: 'mock.tourkit.vn', limit: 10000, used: 100, remaining: 9900, usedPct: 1, warn: false, exhausted: false, updatedAt: '2026-07-16T00:00:00Z' } }));
   await page.route('**/api/v1/chat/stream', r =>
     r.fulfill({
       status: 200,
