@@ -22,6 +22,7 @@ import "./core/page-loader.jsx";
 // /components — reusable UI (dialogs PHẢI trước dialog-api để window.ConfirmDialog tồn tại)
 import "./components/tweaks-panel.jsx";
 import "./components/dialogs.jsx";
+import "./components/permission-gate.jsx";
 import "./components/customer-review-card.jsx";
 import "./components/action-confirm-card.jsx";
 import "./components/action-data-card.jsx";
