@@ -159,6 +159,10 @@ public class TourKitApiClient
                     attempt, maxAttempts, ex.Message);
                 await Task.Delay(200 * attempt, ct);   // backoff 200ms, 400ms
             }
+            catch (OperationCanceledException)
+            {
+                throw;
+            }
             catch (Exception ex)
             {
                 _log.LogWarning(ex, "[TourKit] GetPermissions cạn retry — trả null (sẽ lấy lại sau)");
