@@ -130,6 +130,61 @@ public class TourKitApiClient
         return default;
     }
 
+    /// GET /api/auth/permissions (Bearer JWT) → mã Function_Code của phòng ban user.
+    /// Trả:
+    ///   • non-null (kể cả LIST RỖNG) = LẤY THÀNH CÔNG — rỗng nghĩa là user thật sự không có quyền nào.
+    ///   • null = LẤY LỖI (transient/upstream down) sau khi retry — caller PHẢI thử lại lần sau,
+    ///            KHÔNG được cache rỗng như thể authoritative (nếu không sẽ khoá nhầm user vì 1 blip).
+    /// Gate xử lý: rỗng/thiếu quyền → chặn (fail-closed); null → giữ trạng thái "chưa loaded" để tự lấy lại.
+    public async Task<List<string>?> GetPermissionsAsync(string jwt, CancellationToken ct)
+    {
+        const int maxAttempts = 3;
+        for (int attempt = 1; attempt <= maxAttempts; attempt++)
+        {
+            try
+            {
+                var data = await GetAsync(jwt, "/api/auth/permissions", ct);
+                return ParsePermissions(data);   // 200 OK — kể cả mảng rỗng = thành công
+            }
+            catch (TourKitApiException ex) when (ex.Status is 401 or 403)
+            {
+                // 401/403 = câu trả lời DỨT KHOÁT của upstream (token/không quyền truy cập endpoint),
+                // không phải transient → coi như "không có quyền", KHÔNG retry.
+                _log.LogWarning("[TourKit] GetPermissions {Status} — coi như không có quyền", ex.Status);
+                return new List<string>();
+            }
+            catch (Exception ex) when (attempt < maxAttempts && !ct.IsCancellationRequested)
+            {
+                _log.LogWarning("[TourKit] GetPermissions lỗi (lần {N}/{Max}) — retry: {Err}",
+                    attempt, maxAttempts, ex.Message);
+                await Task.Delay(200 * attempt, ct);   // backoff 200ms, 400ms
+            }
+            catch (Exception ex)
+            {
+                _log.LogWarning(ex, "[TourKit] GetPermissions cạn retry — trả null (sẽ lấy lại sau)");
+                return null;
+            }
+        }
+        return null;
+    }
+
+    /// Pure: rút mảng `permissions` (camelCase hoặc PascalCase) từ envelope → List trimmed, bỏ rỗng.
+    public static List<string> ParsePermissions(JsonElement data)
+    {
+        var list = new List<string>();
+        if (data.ValueKind != JsonValueKind.Object) return list;
+        if (!data.TryGetProperty("permissions", out var arr) &&
+            !data.TryGetProperty("Permissions", out arr)) return list;
+        if (arr.ValueKind != JsonValueKind.Array) return list;
+        foreach (var e in arr.EnumerateArray())
+        {
+            if (e.ValueKind != JsonValueKind.String) continue;
+            var s = e.GetString();
+            if (!string.IsNullOrWhiteSpace(s)) list.Add(s!.Trim());
+        }
+        return list;
+    }
+
     /// POST {pathAndQuery} với Bearer JWT + body JSON. Trả `data` (Clone). Throw TourKitApiException
     /// nếu success=false / non-2xx (message từ MResponse.Fail bên TourKit.Api được surface nguyên văn).
     public async Task<JsonElement> PostAsync(string jwt, string pathAndQuery, object body, CancellationToken ct)
