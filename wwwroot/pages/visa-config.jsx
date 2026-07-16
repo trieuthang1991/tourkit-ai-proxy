@@ -156,9 +156,6 @@
       ] },
   ];
 
-  window.VisaConfigPage = function VisaConfigPageGate(props) {
-    if (!window.tourkitAuth.hasPerm('CH_HT_THAOTAC'))
-      return <window.NoPermissionBox feature="Câu hỏi Visa" />;
-    return <VisaConfigPage {...props} />;
-  };
+  // Gate quyền do app.jsx xử lý ở tầng route (gatePerm CH_HT_XEM) — trang chỉ export thường.
+  window.VisaConfigPage = VisaConfigPage;
 })();

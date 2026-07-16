@@ -31,10 +31,12 @@ public class TourKitNccClient
 
     /// Danh sách NCC để HIỂN THỊ (search + paging) — surface AI `/api/ai/providers`
     /// (envelope đồng nhất {section,title,count,total,items[]}, khác lookup picker ở trên).
-    public Task<JsonElement> ProviderListAsync(string sessionId, string? filter, int pageIndex, int pageSize, CancellationToken ct)
+    /// serviceId (optional, > 0): filter theo loại dịch vụ (junction provider_services).
+    public Task<JsonElement> ProviderListAsync(string sessionId, string? filter, int pageIndex, int pageSize, int? serviceId, CancellationToken ct)
     {
         var qs = $"?pageIndex={pageIndex}&pageSize={pageSize}";
         if (!string.IsNullOrWhiteSpace(filter)) qs += $"&filter={Uri.EscapeDataString(filter)}";
+        if (serviceId.HasValue && serviceId.Value > 0) qs += $"&serviceId={serviceId.Value}";
         return GetAsync(sessionId, "/api/ai/providers" + qs, ct);
     }
 

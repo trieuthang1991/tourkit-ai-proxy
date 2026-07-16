@@ -357,7 +357,7 @@ public static class WorkflowEndpoints
     private static IResult Unauthorized()
         => Results.Json(new { error = "Phiên không hợp lệ — đăng nhập lại" }, statusCode: 401);
 
-    /// Ensure quyền (tự lấy lại nếu chưa loaded) rồi kiểm CH_HT_THAOTAC. async vì có thể fetch upstream.
+    /// Ensure quyền (tự lấy lại nếu chưa loaded) rồi kiểm CH_HT_XEM. async vì có thể fetch upstream.
     private static async Task<bool> CanConfigSystemAsync(string sid, TkSessionStore sessions, CancellationToken ct)
     {
         await sessions.EnsurePermissionsAsync(sid, ct);
@@ -365,7 +365,7 @@ public static class WorkflowEndpoints
     }
 
     private static IResult Forbidden()
-        => Results.Json(new { error = "Bạn không có quyền Cấu hình hệ thống (CH_HT_THAOTAC)." }, statusCode: 403);
+        => Results.Json(new { error = "Bạn không có quyền Cấu hình hệ thống (CH_HT_XEM)." }, statusCode: 403);
 
     /// Đánh dấu DateTime là UTC → System.Text.Json serialize kèm 'Z' → JS parse đúng UTC (không lệch +7h).
     /// DateTime từ SQL (Dapper) có Kind=Unspecified nên mặc định serialize KHÔNG có 'Z' → client hiểu nhầm local.

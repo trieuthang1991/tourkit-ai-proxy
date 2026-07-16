@@ -8,6 +8,6 @@ public static class TkPermissionCodes
     public const string TaoViec = "CV_TAOMOI";
     /// Chăm sóc KH — tạo mới nhắc/hẹn (create_appointment). CustomerCareService.cs:595.
     public const string TaoNhacHen = "CS_KH_TAOMOI";
-    /// Cấu hình hệ thống — thao tác (gate trang tích hợp). PermissionCodes.cs:167.
-    public const string CauHinhHeThong = "CH_HT_THAOTAC";
+    /// Cấu hình hệ thống — xem (gate trang tích hợp; đồng bộ FE app.jsx CH_HT_XEM). PermissionCodes.cs:169.
+    public const string CauHinhHeThong = "CH_HT_XEM";
 }

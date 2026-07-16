@@ -897,7 +897,7 @@ function WorkflowsPage({ pushToast }) {
   const [loading, setLoading] = uS(true);
   const [error, setError] = uS(null);
   const [saConfigured, setSaConfigured] = uS(null);   // null = chưa biết; false = chưa cấu hình tài khoản dịch vụ
-  const canConfig = window.tourkitAuth.hasPerm('CH_HT_THAOTAC');
+  const canConfig = window.tourkitAuth.hasPermission('CH_HT_XEM');
 
   async function loadWorkflows() {
     try {

@@ -44,12 +44,20 @@ const NAV_GROUPS = [
     { to: '/tour-builder', icon: 'plane',  label: 'Soạn Tour GIT (AI)' },   // travel/itinerary
     { to: '/visa/history', icon: 'shield', label: 'Thẩm định Visa' },       // hub: danh sách hồ sơ đã chấm + nút mở wizard (gộp Lịch sử + Thẩm định)
   ]},
+  // Khối "Tích hợp": gate theo TỪNG item bằng quyền CH_HT_XEM (Cấu hình hệ thống - Xem). widget-admin +
+  // visa-config thiếu quyền → ẨN khỏi nav VÀ route trả trang "Không có quyền". Riêng /workflows KHÔNG
+  // gate cứng — LUÔN hiện, tự scope "Theo người dùng" bên trong trang (WorkflowsPage).
   { label: 'Tích hợp', items: [
-    { to: '/widget-admin', icon: 'sparkle', label: 'Widget Chat' },   // embed JS widget cho site khách
-    { to: '/visa-config',  icon: 'sliders', label: 'Câu hỏi Visa' },  // admin tenant chỉnh wizard câu hỏi
-    { to: '/workflows',    icon: 'zap',     label: 'Tự động hóa' },   // tác vụ AI chạy theo lịch
+    { to: '/widget-admin', icon: 'sparkle', label: 'Widget Chat', requirePerm: 'CH_HT_XEM' },   // embed JS widget cho site khách
+    { to: '/visa-config',  icon: 'sliders', label: 'Câu hỏi Visa', requirePerm: 'CH_HT_XEM' },  // admin tenant chỉnh wizard câu hỏi
+    { to: '/workflows',    icon: 'zap',     label: 'Tự động hóa' },   // luôn hiện; scope theo người dùng bên trong
   ]},
 ];
+// Route → mã quyền yêu cầu. Derived từ item.requirePerm (PER-ITEM để /workflows không bị gate cứng).
+const ROUTE_REQUIRE_PERM = NAV_GROUPS
+  .flatMap(g => g.items)
+  .filter(it => it.requirePerm)
+  .reduce((m, it) => (m[it.to] = it.requirePerm, m), {});
 // Flat list — dùng cho navQuery search ở topbar (giữ logic cũ).
 const NAV = NAV_GROUPS.flatMap(g => g.items);
 const NAV_DEBUG_GROUP = { label: 'Debug', items: [
@@ -72,6 +80,28 @@ const TWEAK_DEFAULTS = /*EDITMODE-BEGIN*/{
   "density": "comfortable",
   "demoLoaded": true
 }/*EDITMODE-END*/;
+
+// Trang "Không có quyền xem" — mirror text web CRM khi user vào page bị gate perm.
+// Đặt ngoài App vì component nhỏ, không dùng state riêng.
+function AccessDeniedPage({ need }) {
+  return (
+    <main className="page" style={{ padding: 60, textAlign: 'center' }}>
+      <div style={{ maxWidth: 480, margin: '0 auto', color: 'var(--text)' }}>
+        <div style={{ fontSize: 44, marginBottom: 16 }}>🔒</div>
+        <h2 style={{ margin: '0 0 8px', fontSize: 22, fontWeight: 700 }}>Bạn không có quyền xem</h2>
+        <p style={{ color: 'var(--text-3)', fontSize: 14, marginBottom: 20, lineHeight: 1.6 }}>
+          Trang này yêu cầu quyền <strong style={{ color: 'var(--text)' }}>{need || '—'}</strong> (Xem cấu hình hệ thống).
+          Liên hệ quản trị viên tenant để được cấp quyền, hoặc quay về trang chính.
+        </p>
+        <a href="/travai"
+           onClick={e => { e.preventDefault(); window.tourkitRouter.navigate('/travai'); }}
+           className="btn btn-primary" style={{ display: 'inline-flex', gap: 6 }}>
+          <Icon name="arrowLeft" size={14} /> Về trang chính
+        </a>
+      </div>
+    </main>
+  );
+}
 
 function App() {
   // Ẩn boot splash (index.html) NGAY khi App mount lần đầu — chạy SAU paint commit.
@@ -102,6 +132,31 @@ function App() {
   const [toasts, setToasts] = uS([]);
   const [authUser, setAuthUser] = uS(() => window.tourkitAuth.getUser());
   const [authReady, setAuthReady] = uS(false);
+  // Permissions user hiện tại — cache localStorage nạp lại từ /api/v1/permissions sau login/refresh.
+  // Re-render sidebar/routes khi event 'tourkit-perms-changed' fire (lần đầu load xong).
+  const [perms, setPerms] = uS(() => window.tourkitAuth.getPerms());
+  uE(() => {
+    const on = () => setPerms(window.tourkitAuth.getPerms());
+    window.addEventListener('tourkit-perms-changed', on);
+    window.addEventListener('tourkit-auth-changed', on);
+    return () => {
+      window.removeEventListener('tourkit-perms-changed', on);
+      window.removeEventListener('tourkit-auth-changed', on);
+    };
+  }, []);
+  const hasPerm = (code) => !code || (Array.isArray(perms) && perms.includes(code));
+  // Filter NAV_GROUPS theo requirePerm — nhóm không đủ quyền bị ẨN hoàn toàn khỏi sidebar/drawer.
+  // Ẩn theo TỪNG item.requirePerm; group rỗng (mọi item bị ẩn) thì bỏ. Item không có requirePerm
+  // (vd /workflows) luôn hiện.
+  const visibleGroups = NAV_GROUPS
+    .map(g => ({ ...g, items: g.items.filter(it => hasPerm(it.requirePerm)) }))
+    .filter(g => g.items.length > 0);
+  // Gate 1 route theo permission: nếu route yêu cầu quyền mà user không có → render page "Không có quyền".
+  // (URL vẫn giữ để user có thể chia sẻ link/bookmark; nếu được cấp quyền sau này thì reload thấy được.)
+  const gatePerm = (route, node) => {
+    const need = ROUTE_REQUIRE_PERM[route];
+    return hasPerm(need) ? node : <AccessDeniedPage need={need} />;
+  };
   // returnTo: đường dẫn cần đến sau khi đăng nhập.
   //   Ưu tiên: ?next=/path > pathname hiện tại (nếu khác '/').
   //   Lưu state + sessionStorage để giữ qua remount khi auth thay đổi.
@@ -332,7 +387,7 @@ function App() {
           <div className="sidebar-logo-text">TRAV-AI<span>Trợ lý AI doanh nghiệp</span></div>
         </div>
         <nav className="sidebar-nav">
-          {[...NAV_GROUPS, ...(debugOn ? [NAV_DEBUG_GROUP] : [])].map((g, gi) => (
+          {[...visibleGroups, ...(debugOn ? [NAV_DEBUG_GROUP] : [])].map((g, gi) => (
             <div key={gi} className="sidebar-group">
               <div className="sidebar-navlabel">{g.label}</div>
               {g.items.map(n => (
@@ -443,11 +498,11 @@ function App() {
         <Route path="/tour-builder" render={() => <window.TourBuilderPage pushToast={pushToast} />} />
         <Route path="/quotes"       render={() => <window.QuotesPage pushToast={pushToast} />} />
         <Route path="/ai-usage"     render={() => <window.AiUsagePage pushToast={pushToast} />} />
-        <Route path="/widget-admin" render={() => <window.WidgetAdminPage pushToast={pushToast} />} />
+        <Route path="/widget-admin" render={() => gatePerm('/widget-admin', <window.WidgetAdminPage pushToast={pushToast} />)} />
         <Route path="/ncc-list"     render={() => <window.NccListPage pushToast={pushToast} />} />
         <Route path="/ncc-import"   render={() => <window.NccImportPage pushToast={pushToast} />} />
-        <Route path="/visa-config"  render={() => <window.VisaConfigPage pushToast={pushToast} />} />
-        <Route path="/workflows"    render={() => <window.WorkflowsPage pushToast={pushToast} />} />
+        <Route path="/visa-config"  render={() => gatePerm('/visa-config', <window.VisaConfigPage pushToast={pushToast} />)} />
+        <Route path="/workflows"    render={() => gatePerm('/workflows', <window.WorkflowsPage pushToast={pushToast} />)} />
         <Route path="/help"         render={() => <window.HelpPage />} />
         <Route path="/help/:slug"   render={(p) => <window.HelpPage slug={p.slug} />} />
         <Route path="*"          render={() => (
@@ -501,7 +556,7 @@ function App() {
               </button>
             </div>
             <nav className="app-drawer-nav sidebar-nav">
-              {[...NAV_GROUPS, ...(debugOn ? [NAV_DEBUG_GROUP] : [])].map((g, gi) => (
+              {[...visibleGroups, ...(debugOn ? [NAV_DEBUG_GROUP] : [])].map((g, gi) => (
                 <div key={gi} className="sidebar-group">
                   <div className="sidebar-navlabel">{g.label}</div>
                   {g.items.map(n => (

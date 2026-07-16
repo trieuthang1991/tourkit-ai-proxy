@@ -38,7 +38,8 @@ public class ProviderPricePayload
 ///
 /// Bảng giá → dòng giá (LOSSLESS): mỗi Ô GIÁ (cell số) = 1 <see cref="ProviderPricePayload"/>:
 ///   priceName = "{nhãn dòng} — {nhãn cột}" (chỉ thêm nhãn cột khi bảng có >1 cột giá),
-///   publicPrice = số, quantity = 1, description = nhãn cột, note = tên bảng.
+///   contractPrice = số (Giá NET — giá NCC báo cho mình, KHÔNG phải Giá Bán khách),
+///   quantity = 1, description = nhãn cột, note = tên bảng.
 /// Cột number = cột giá; cột text = cột nhãn (ghép làm tên dòng). supplier.* → field NCC;
 /// website/validYear + conditions[] → Note của NCC; contactName/contactPhone → dataServices (JSON).
 /// </summary>
@@ -129,7 +130,7 @@ public static class NccQuoteMapper
                 {
                     PriceName = name,
                     Quantity = 1,
-                    PublicPrice = val,
+                    ContractPrice = val,   // Giá NET — giá NCC báo cho mình
                     Description = string.IsNullOrWhiteSpace(colLabel) ? null : colLabel,
                     Note = string.IsNullOrWhiteSpace(title) ? null : title
                 });

@@ -468,6 +468,15 @@ function CustomersPage({ pushToast }) {
         status={{ label: total > 0 ? `${total} KHÁCH HÀNG` : 'CHƯA CÓ DỮ LIỆU',
           detail: selected.size > 0 ? `${selected.size} đã chọn` : 'Chọn KH để review' }}
         actions={<>
+          {(() => {
+            const url = window.tourkitUtil.crmUrl('/customer-data');
+            return url ? (
+              <a className="btn btn-ghost btn-sm" href={url} target="_blank" rel="noopener noreferrer"
+                 title="Mở trang Khách hàng trên CRM (tab mới)">
+                <Icon name="list" size={14} /> Danh sách Khách hàng CRM
+              </a>
+            ) : null;
+          })()}
           <button className={'btn btn-sm autotoggle ' + (autoReview ? 'on' : 'off')}
             onClick={toggleAuto} title="Tự động review KH chưa có review khi mở page (lưu theo tài khoản)">
             <Icon name={autoReview ? 'check' : 'close'} size={14} /> Tự động {autoReview ? 'ON' : 'OFF'}

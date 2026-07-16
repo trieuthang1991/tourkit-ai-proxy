@@ -119,10 +119,11 @@ public static class TourEndpoints
         });
 
         // Danh sách NCC để HIỂN THỊ (search + paging) — proxy /api/providers (endpoint mới). Cho trang "Nhà cung cấp".
-        v1.MapGet("/ncc/list", async (HttpContext ctx, TourKitNccClient ncc, TkSessionStore sessions, string? filter, int? pageIndex, int? pageSize) =>
+        // Query params: filter (keyword), pageIndex, pageSize, serviceId (optional — filter theo loại DV).
+        v1.MapGet("/ncc/list", async (HttpContext ctx, TourKitNccClient ncc, TkSessionStore sessions, string? filter, int? pageIndex, int? pageSize, int? serviceId) =>
         {
             var sid = Sid(ctx); if (sessions.Get(sid) == null) return Unauthorized();
-            return await Proxy(() => ncc.ProviderListAsync(sid!, filter, pageIndex ?? 1, pageSize ?? 20, ctx.RequestAborted));
+            return await Proxy(() => ncc.ProviderListAsync(sid!, filter, pageIndex ?? 1, pageSize ?? 20, serviceId, ctx.RequestAborted));
         });
 
         // ─── Thị trường THẬT (proxy TourKit /api/tours/markets, cache 6h per-tenant) ──
@@ -168,6 +169,40 @@ public static class TourEndpoints
             {
                 log.LogError(ex, "[markets] fail");
                 return Results.Json(new { error = "Không lấy được thị trường: " + ex.Message }, statusCode: 502);
+            }
+        });
+
+        // ─── Permissions của user hiện tại ──────────────────────────────────────
+        // Proxy `/api/auth/permissions` upstream → trả list mã quyền (CH_HT_XEM, NC_NC_XEM, …).
+        // Frontend cache 1 lần sau login → filter nav "Tích hợp" + gate các page /widget-admin,
+        // /visa-config, /workflows theo CH_HT_XEM (mirror web CRM). Không cache server-side vì
+        // upstream đã cache theo tenant + response nhẹ (~vài KB).
+        v1.MapGet("/permissions", async (HttpContext ctx, TourKitApiClient api, TkSessionStore sessions, ILogger<Program> log) =>
+        {
+            var sid = Sid(ctx);
+            var sess = sessions.Get(sid);
+            if (sess == null) return Unauthorized();
+            try
+            {
+                var jwt = await sessions.GetValidJwtAsync(sid!, ctx.RequestAborted);
+                JsonElement data;
+                try { data = await api.GetAsync(jwt, "/api/auth/permissions", ctx.RequestAborted); }
+                catch (TourKitApiException ex) when (ex.Status == 401)
+                {
+                    jwt = await sessions.ForceReloginAsync(sid!, ctx.RequestAborted);
+                    data = await api.GetAsync(jwt, "/api/auth/permissions", ctx.RequestAborted);
+                }
+                return Results.Json(data);
+            }
+            catch (TourKitApiException ex)
+            {
+                log.LogWarning("[permissions] upstream {Status}: {Msg}", ex.Status, ex.Message);
+                return Results.Json(new { error = ex.Message }, statusCode: ex.Status);
+            }
+            catch (Exception ex)
+            {
+                log.LogError(ex, "[permissions] fail");
+                return Results.Json(new { error = "Không lấy được quyền: " + ex.Message }, statusCode: 502);
             }
         });
 
