@@ -320,8 +320,10 @@ public static class WorkflowEndpoints
         {
             var auth = RequireSession(ctx, sessions);
             if (auth == null) return Unauthorized();
-            var (_, tenant, _) = auth.Value;
-            var items = await crmQueue.ListForMonitorAsync(tenant, kind, status, limit ?? 50, ctx.RequestAborted);
+            var (sid, tenant, user) = auth.Value;
+            // Thiếu quyền Cấu hình hệ thống → chỉ thấy hành động DO CHÍNH MÌNH tạo (enforce server-side).
+            var scopeUser = await CanConfigSystemAsync(sid, sessions, ctx.RequestAborted) ? null : user;
+            var items = await crmQueue.ListForMonitorAsync(tenant, kind, status, limit ?? 50, ctx.RequestAborted, scopeUser);
             return Results.Json(new { items });
         });
 
