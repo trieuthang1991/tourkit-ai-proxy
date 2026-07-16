@@ -212,8 +212,21 @@ public static class WorkflowEndpoints
                 }
                 catch { /* đếm deal best-effort — không chặn lưu */ }
 
+                // Cảnh báo (KHÔNG chặn lưu) nếu tài khoản dịch vụ thiếu quyền ghi CRM mà automation
+                // tương lai có thể cần (giao việc / lịch hẹn). Deal visibility đã cảnh báo qua dealsVisible.
+                var saPerms = await api.GetPermissionsAsync(login.Token, ctx.RequestAborted) ?? new();
+                var missing = new List<string>();
+                if (!saPerms.Any(p => string.Equals(p, TkPermissionCodes.TaoViec, StringComparison.OrdinalIgnoreCase)))
+                    missing.Add("tạo việc (CV_TAOMOI)");
+                if (!saPerms.Any(p => string.Equals(p, TkPermissionCodes.TaoNhacHen, StringComparison.OrdinalIgnoreCase)))
+                    missing.Add("tạo lịch hẹn (CS_KH_TAOMOI)");
+
+                var warnings = new List<string>();
+                if (dealsVisible == 0) warnings.Add("Đăng nhập OK nhưng thấy 0 deal — có thể thiếu quyền CH_XEM_ALL.");
+                if (missing.Count > 0) warnings.Add("Tài khoản thiếu quyền: " + string.Join(", ", missing) + ".");
+
                 await store.UpsertAsync(tenant, req.Username.Trim(), req.Password, updatedBy: user, ctx.RequestAborted);
-                return Results.Json(new { ok = true, dealsVisible, warning = dealsVisible == 0 ? "Tài khoản đăng nhập OK nhưng thấy 0 deal — có thể thiếu quyền CH_XEM_ALL" : null });
+                return Results.Json(new { ok = true, dealsVisible, warning = warnings.Count > 0 ? string.Join(" ", warnings) : (string?)null });
             }
             catch (TourKitApiException ex)
             {
