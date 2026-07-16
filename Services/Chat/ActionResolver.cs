@@ -128,8 +128,18 @@ public class ActionResolver
             {
                 if (!TryGetId(it, "employeeId", out var id)) continue;
                 var full = GetStr(it, "fullName");
-                if (string.IsNullOrWhiteSpace(full) || !TokenSubsetMatch(name, full!)) continue;
-                candidates.Add((id, full!, GetStr(it, "branch") ?? GetStr(it, "email")));
+                // Match theo:
+                //  1) fullName token-subset — user nói tên hiển thị chuẩn ("Nguyễn Văn A")
+                //  2) AnyFieldExactMatch — bắt user_name (login) / mã / email khi tenant chưa cập nhật
+                //     full_name chuẩn (nhiều DB chỉ có user_name = "sale01"). Voice TRAVAI: user
+                //     đọc tên tài khoản của đồng nghiệp vẫn resolve được.
+                var matchesFull = !string.IsNullOrWhiteSpace(full) && TokenSubsetMatch(name, full!);
+                if (!matchesFull && !AnyFieldExactMatch(it, name)) continue;
+                // Label ưu tiên fullName (hiển thị đẹp trên thẻ xác nhận); fallback userName nếu
+                // fullName rỗng để user vẫn nhận diện được ai đang được chọn.
+                var label = !string.IsNullOrWhiteSpace(full) ? full!
+                    : (GetStr(it, "userName") ?? name);
+                candidates.Add((id, label, GetStr(it, "branch") ?? GetStr(it, "email") ?? GetStr(it, "userName")));
             }
 
         return Pick(candidates);
