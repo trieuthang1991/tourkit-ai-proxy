@@ -3,6 +3,7 @@ using System.Collections.Concurrent;
 using System.Globalization;
 using System.Text;
 using System.Text.Json;
+using System.Text.RegularExpressions;
 using TourkitAiProxy.Models;
 using TourkitAiProxy.Services.Json;
 using TourkitAiProxy.Services.Providers;
@@ -1356,7 +1357,15 @@ Yêu cầu:
     private static readonly HashSet<string> PageKeys = new(StringComparer.OrdinalIgnoreCase)
     { "pageIndex", "pageSize", "page", "pageNumber", "totalCount", "totalRow", "totalRows", "totalPage", "totalPages", "totalRecord", "totalRecords" };
 
-    private static string Friendly(string key) => Labels.TryGetValue(key, out var v) ? v : key;
+    // Trượt map → tách camelCase/snake_case cho dễ đọc. KHÔNG trả key thô: người dùng
+    // cuối không nên thấy "totalTours" trên thẻ số liệu.
+    internal static string Friendly(string key)
+    {
+        if (Labels.TryGetValue(key, out var v)) return v;
+        var s = Regex.Replace(key ?? "", "([a-z0-9])([A-Z])", "$1 $2").Replace('_', ' ').Trim();
+        if (s.Length == 0) return key ?? "";
+        return char.ToUpperInvariant(s[0]) + s[1..].ToLowerInvariant();
+    }
 
     private static List<string>? DetectFocus(string question, JsonElement data)
     {
@@ -1465,19 +1474,34 @@ Yêu cầu:
         }
     }
 
+    // Danh từ chỉ TIỀN. Cố ý KHÔNG có "total"/"tong": chúng là từ GỘP, không phải từ chỉ tiền.
+    // totalRevenue là tiền nhờ chữ "revenue"; totalTours là số đếm — để "total" ở đây thì
+    // "Số tour" hiện thành "6đ". Tiền phải đến từ danh từ thật bên dưới.
     private static readonly string[] MoneyHints =
     {
         "doanhthu", "revenue", "tongtien", "thanhtien", "thanhtoan", "amount", "money",
         "gia", "price", "tien", "commission", "hoahong", "loinhuan", "profit",
-        "congno", "debt", "paid", "total", "tong", "payment", "value",
-        "expense", "cost", "chiphi"
+        "congno", "debt", "paid", "payment", "value",
+        "expense", "cost", "chiphi",
+        // key Việt từ 3 SP legacy (branch-performance / product-line / market-analysis):
+        // ThucThu, ThucChi + 'comission' (SP đánh vần thiếu chữ m). Phải khớp _MONEY_HINTS
+        // ở wwwroot/pages/assistant.jsx — hai bên cùng phân loại một tập dòng.
+        "thucthu", "thucchi", "comission"
     };
 
+    // Từ gộp đứng MỘT MÌNH (không kèm danh từ) = tổng tiền, vd thẻ "Tổng" ở financial-summary.
+    // So khớp NGUYÊN key chứ không phải chuỗi con — nếu không thì "totalTours" lại dính.
+    private static readonly HashSet<string> BareTotalKeys =
+        new(StringComparer.OrdinalIgnoreCase) { "total", "tong", "tongcong", "sum" };
+
+    // Chặn đếm. Chỉ để từ KHÔNG BAO GIỜ là tiền — "tour" chẳng hạn KHÔNG được nằm đây,
+    // vì "tourPrice" sẽ bị chặn oan.
     private static readonly string[] NotMoney = { "count", "qty", "row", "soluong", "index", "page", "year", "month", "stt" };
 
-    private static bool IsMoney(string key)
+    internal static bool IsMoney(string key)
     {
         var k = key.ToLowerInvariant();
+        if (BareTotalKeys.Contains(k)) return true;
         if (NotMoney.Any(n => k.Contains(n))) return false;
         return MoneyHints.Any(h => k.Contains(h));
     }

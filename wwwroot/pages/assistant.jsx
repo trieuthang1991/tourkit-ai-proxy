@@ -8,17 +8,26 @@ const { useState: _aS, useEffect: _aE, useRef: _aR } = React;
 const TK_SESSION_KEY = 'tourkit_tk_session';
 const TK_USER_KEY = 'tourkit_tk_user';   // {fullName, companyName, tenantId} cho header app dùng chung
 
-// money-ish column → format VND ở bảng (mirror ChatAgentService.IsMoney bên backend).
+// money-ish column → format VND ở bảng. PHẢI khớp JsonPlannerAgent.IsMoney bên backend —
+// hai bên cùng phân loại một tập dòng; lệch nhau thì bảng và thẻ KPI mâu thuẫn.
+// Cố ý KHÔNG có 'total'/'tong': chúng là từ GỘP, không phải từ chỉ tiền. totalRevenue là
+// tiền nhờ chữ 'revenue'; totalTours là số đếm — để 'total' ở đây thì "Số tour" hiện "6đ".
 const _MONEY_HINTS = ['doanhthu','revenue','tongtien','thanhtien','thanhtoan','amount','money',
-  'gia','price','tien','commission','hoahong','loinhuan','profit','congno','debt','paid','total','tong','payment','value',
+  'gia','price','tien','commission','hoahong','loinhuan','profit','congno','debt','paid','payment','value',
   'expense','cost','chiphi',
   // key Việt từ 3 SP legacy (branch-performance / product-line / market-analysis):
   // ThucThu, ThucChi + 'comission' (SP đánh vần thiếu chữ m)
   'thucthu','thucchi','comission'];
-// 'cohoi'/'donhang' = ĐẾM SỐ (cơ hội / đơn hàng) — chặn match nhầm hint 'tong'/'total' → tránh "78đ".
-const _NOT_MONEY = ['count','qty','row','soluong','index','page','year','month','stt','cohoi','donhang'];
+// Từ gộp đứng MỘT MÌNH = tổng tiền (thẻ "Tổng" ở financial-summary). So khớp NGUYÊN key,
+// không phải chuỗi con — nếu không thì 'totalTours' lại dính.
+const _BARE_TOTAL = new Set(['total','tong','tongcong','sum']);
+// Chặn đếm. Chỉ để từ KHÔNG BAO GIỜ là tiền — vd 'tour' KHÔNG được nằm đây vì 'tourPrice'
+// sẽ bị chặn oan. ('cohoi'/'donhang' đã gỡ: chúng chỉ tồn tại để chặn 'total'/'tong' match
+// nhầm, mà nay hint đó đã bỏ — giữ lại còn chặn oan 'giaTriCoHoi' vốn LÀ tiền.)
+const _NOT_MONEY = ['count','qty','row','soluong','index','page','year','month','stt'];
 const _isMoneyKey = (k) => {
   const s = String(k).toLowerCase();
+  if (_BARE_TOTAL.has(s)) return true;
   if (_NOT_MONEY.some(n => s.includes(n))) return false;
   return _MONEY_HINTS.some(h => s.includes(h));
 };
@@ -119,8 +128,11 @@ function _extractRows(raw) {
 
 // Phát hiện dữ liệu vẽ biểu đồ: mỗi dòng có 1 nhãn (string) + ≥1 cột số.
 const _LABEL_KEYS = ['label','name','thang','month','ngay','day','tuan','week','title','period','ky','nguon','source'];
-const _SERIES_VI = { revenue:'Doanh thu', expense:'Chi phí', profit:'Lợi nhuận', count:'Số lượng', total:'Tổng', amount:'Giá trị', payment:'Thanh toán' };
-const _seriesName = (k) => _SERIES_VI[String(k).toLowerCase()] || k;
+// Nhãn series biểu đồ = nhãn cột (_colLabel), CHỈ đè vài key mang nghĩa khác trong ngữ cảnh
+// biểu đồ. Không nuôi bản đồ nhãn thứ hai: map cũ chỉ có 7 key và khi trượt thì trả key thô
+// → nút chọn chỉ số hiện "totalTours"/"rank" thay vì tiếng Việt.
+const _SERIES_VI = { total: 'Tổng', amount: 'Giá trị', payment: 'Thanh toán' };
+const _seriesName = (k) => _SERIES_VI[String(k).toLowerCase()] || _colLabel(k);
 
 function _looksTimeline(rows, labelKey) {
   const vals = rows.slice(0, 8).map(r => String(r[labelKey] || ''));
