@@ -392,4 +392,8 @@ function WidgetForm({ initial, defaults, isNew, onCancel, onSubmit, onTestCrm })
   );
 }
 
-window.WidgetAdminPage = WidgetAdminPage;
+window.WidgetAdminPage = function WidgetAdminPageGate(props) {
+  if (!window.tourkitAuth.hasPerm('CH_HT_THAOTAC'))
+    return <window.NoPermissionBox feature="Widget Chat" />;
+  return <WidgetAdminPage {...props} />;
+};
