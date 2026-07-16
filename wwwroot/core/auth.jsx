@@ -8,10 +8,37 @@
 
   const SESSION_KEY = 'tourkit_tk_session';
   const USER_KEY = 'tourkit_tk_user';
+  const PERMS_KEY = 'tourkit_tk_perms';   // cache permissions per-session (localStorage) — clear khi logout
 
   const getSessionId = () => localStorage.getItem(SESSION_KEY) || null;
   const getUser = () => { try { return JSON.parse(localStorage.getItem(USER_KEY) || 'null'); } catch { return null; } };
   const isAuthed = () => !!getSessionId();
+
+  // Permissions cache (list string mã quyền, vd ["CH_HT_XEM","NC_NC_XEM",...]).
+  // Cache localStorage → tránh gọi /permissions lại sau reload. Refresh khi login lại.
+  const getPerms = () => { try { return JSON.parse(localStorage.getItem(PERMS_KEY) || '[]'); } catch { return []; } };
+  const hasPermission = (code) => {
+    if (!code) return true;
+    const list = getPerms();
+    return Array.isArray(list) && list.includes(code);
+  };
+  async function loadPermissions() {
+    const sid = getSessionId();
+    if (!sid) { localStorage.removeItem(PERMS_KEY); return []; }
+    try {
+      const r = await fetch('/api/v1/permissions', { headers: { 'X-Session-Id': sid } });
+      if (!r.ok) return getPerms();  // fail-soft: giữ cache cũ (nếu có)
+      const data = await r.json();
+      // Response upstream: { departmentId, departmentName, permissions: [...] } (đã unwrap `data`).
+      // Fallback nhiều shape để tránh vỡ khi API đổi: {permissions} / {Permissions} / thẳng mảng.
+      const list = Array.isArray(data) ? data
+        : (data.permissions || data.Permissions || []);
+      const codes = (list || []).map(x => (typeof x === 'string' ? x : (x.code || x.Code || ''))).filter(Boolean);
+      localStorage.setItem(PERMS_KEY, JSON.stringify(codes));
+      window.dispatchEvent(new Event('tourkit-perms-changed'));
+      return codes;
+    } catch { return getPerms(); }
+  }
 
   function emit() { window.dispatchEvent(new Event('tourkit-auth-changed')); }
 
@@ -19,12 +46,15 @@
     localStorage.setItem(SESSION_KEY, data.sessionId);
     const user = { fullName: data.fullName, companyName: data.companyName, tenantId: data.tenantId };
     localStorage.setItem(USER_KEY, JSON.stringify(user));
+    // Reload permissions bất đồng bộ sau khi login — không block trả về user cho gate.
+    loadPermissions();
     emit();
     return user;
   }
   function logout() {
     localStorage.removeItem(SESSION_KEY);
     localStorage.removeItem(USER_KEY);
+    localStorage.removeItem(PERMS_KEY);
     emit();
   }
   function onChange(cb) {
@@ -56,6 +86,8 @@
       if (info.error) { logout(); return null; }
       const user = { fullName: info.fullName, companyName: info.companyName, tenantId: info.tenantId };
       localStorage.setItem(USER_KEY, JSON.stringify(user));
+      // Reload permissions cùng lúc — cache localStorage sẽ có sẵn khi app-shell render.
+      loadPermissions();
       emit();
       return user;
     } catch { return getUser(); }   // mạng lỗi → giữ session local, không đá ra
@@ -97,8 +129,9 @@
   }
 
   window.tourkitAuth = {
-    SESSION_KEY, USER_KEY,
+    SESSION_KEY, USER_KEY, PERMS_KEY,
     getSessionId, getUser, isAuthed, login, loginToken, logout, onChange, refresh, authedFetch,
+    getPerms, hasPermission, loadPermissions,
   };
 
   // ─── <LoginGate> — màn đăng nhập full-screen ────────────────────────────────

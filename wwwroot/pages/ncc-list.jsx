@@ -6,6 +6,7 @@
 //        responsive (bảng >640px, card <=640px). authedFetch tự gắn X-Session-Id; page chỉ render sau đăng nhập.
 
 const { useState: _uNcc, useEffect: _uENcc } = React;
+const _fmtVNDNcc = (n) => (Number(n || 0)).toLocaleString('vi-VN');
 
 // isMobile hook (≤640px) → dùng chung window.tourkitHooks.useIsMobile (lib/hooks.jsx)
 
@@ -32,24 +33,156 @@ function NccStatus({ item }) {
   );
 }
 
+// ── NCC Preview Modal ──────────────────────────────────────────────────────
+// Click 1 dòng NCC → mở modal hiển thị: (1) info NCC từ row + (2) bảng giá dịch vụ
+// đã lưu (fetch /api/v1/ncc/providers/{id}/services). Đọc chỉ (không sửa) — user
+// muốn sửa thì vào CRM. Format bảng: Tên DV / Số lượng / Giá NET / Giá công bố / Note.
+function NccPreviewModal({ item, onClose }) {
+  const [rows, setRows] = _uNcc(null);
+  const [loading, setLoading] = _uNcc(true);
+  const [err, setErr] = _uNcc(null);
+
+  _uENcc(() => {
+    if (!item?.id) return;
+    let alive = true;
+    setLoading(true); setErr(null);
+    window.tourkitAuth.authedFetch(`/api/v1/ncc/providers/${item.id}/services`)
+      .then(r => r.json().then(d => ({ ok: r.ok, d })))
+      .then(({ ok, d }) => {
+        if (!alive) return;
+        if (!ok) { setErr((d && d.error) || 'Không tải được bảng giá NCC.'); setRows([]); return; }
+        // Response envelope: {items} hoặc mảng thẳng — normalize.
+        const list = Array.isArray(d) ? d : (d.items || d.data?.items || d.data || []);
+        setRows(list);
+      })
+      .catch(e => { if (alive) { setErr(String((e && e.message) || e)); setRows([]); } })
+      .finally(() => { if (alive) setLoading(false); });
+    return () => { alive = false; };
+  }, [item?.id]);
+
+  if (!item) return null;
+  const fieldRow = (label, val) => (
+    <div style={{ display: 'grid', gap: 2 }}>
+      <span style={{ fontSize: 11, color: 'var(--text-3)', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.05em' }}>{label}</span>
+      <span style={{ fontSize: 13, color: 'var(--text)' }}>{val || <em style={{ color: 'var(--text-3)' }}>—</em>}</span>
+    </div>
+  );
+
+  return (
+    <div style={{ position: 'fixed', inset: 0, zIndex: 1000, background: 'rgba(15,23,42,0.55)', display: 'flex', justifyContent: 'flex-end' }}
+         onClick={onClose}>
+      <aside style={{ width: 'min(720px, 96vw)', height: '100vh', background: 'var(--surface)', overflowY: 'auto',
+                      boxShadow: '-12px 0 32px rgba(0,0,0,0.18)' }}
+             onClick={e => e.stopPropagation()}>
+        {/* Header */}
+        <div style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '16px 20px', borderBottom: '1px solid var(--border)' }}>
+          <div style={{ flex: 1, minWidth: 0 }}>
+            <div style={{ fontSize: 16, fontWeight: 700, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+              {item.name || '—'}
+            </div>
+            <div style={{ fontSize: 12, color: 'var(--text-3)' }}>{item.code || 'chưa có mã'} · {item.statusText || ''}</div>
+          </div>
+          <button onClick={onClose} aria-label="Đóng"
+                  style={{ background: 'transparent', border: 'none', fontSize: 22, cursor: 'pointer', color: 'var(--text-3)' }}>×</button>
+        </div>
+
+        {/* Info NCC */}
+        <div style={{ padding: 20 }}>
+          <div style={{ background: 'var(--bg)', border: '1px solid var(--border)', borderRadius: 10, padding: 16, marginBottom: 16 }}>
+            <p style={{ margin: '0 0 12px', fontSize: 11, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.05em', color: 'var(--text-3)' }}>
+              Thông tin nhà cung cấp
+            </p>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: 12 }}>
+              {fieldRow('Tên NCC', item.name)}
+              {fieldRow('Mã NCC', item.code)}
+              {fieldRow('SĐT', item.phone)}
+              {fieldRow('Email', item.email)}
+              {fieldRow('Thành phố', item.city)}
+              {fieldRow('Mã số thuế', item.taxCode)}
+            </div>
+          </div>
+
+          {/* Bảng giá dịch vụ đã lưu */}
+          <p style={{ margin: '0 0 8px', fontSize: 13, fontWeight: 700 }}>
+            Bảng giá dịch vụ {rows && `(${rows.length})`}
+          </p>
+          {loading ? (
+            <div style={{ padding: 24, textAlign: 'center', color: 'var(--text-3)' }}>Đang tải bảng giá…</div>
+          ) : err ? (
+            <div style={{ padding: 12, borderRadius: 8, background: 'rgba(239,68,68,0.08)',
+                          border: '1px solid rgba(239,68,68,0.30)', color: 'var(--danger)' }}>{err}</div>
+          ) : !rows || rows.length === 0 ? (
+            <div style={{ padding: 24, textAlign: 'center', color: 'var(--text-3)', background: 'var(--bg)',
+                          border: '1px solid var(--border)', borderRadius: 10 }}>
+              NCC này chưa có bảng giá dịch vụ nào.
+            </div>
+          ) : (
+            <div style={{ background: 'var(--bg)', border: '1px solid var(--border)', borderRadius: 10, overflowX: 'auto' }}>
+              <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
+                <thead style={{ background: 'var(--surface)' }}>
+                  <tr>
+                    <th style={{ padding: 10, textAlign: 'left', fontWeight: 700, color: 'var(--text-3)', fontSize: 11, textTransform: 'uppercase' }}>Tên dịch vụ</th>
+                    <th style={{ padding: 10, textAlign: 'right', fontWeight: 700, color: 'var(--text-3)', fontSize: 11, textTransform: 'uppercase' }}>SL</th>
+                    <th style={{ padding: 10, textAlign: 'right', fontWeight: 700, color: 'var(--text-3)', fontSize: 11, textTransform: 'uppercase' }}>Giá NET</th>
+                    <th style={{ padding: 10, textAlign: 'right', fontWeight: 700, color: 'var(--text-3)', fontSize: 11, textTransform: 'uppercase' }}>Giá bán</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {rows.map((p, i) => {
+                    // Envelope AI upstream có thể dùng camelCase or PascalCase — normalize.
+                    const name = p.priceName || p.PriceName || p.name || p.Name || '—';
+                    const qty = p.quantity ?? p.Quantity ?? 1;
+                    const contract = p.contractPrice ?? p.ContractPrice ?? p.contract_price ?? 0;
+                    const publicP = p.publicPrice ?? p.PublicPrice ?? p.public_price ?? 0;
+                    return (
+                      <tr key={i} style={{ borderTop: '1px solid var(--border)' }}>
+                        <td style={{ padding: 10 }}>{name}</td>
+                        <td style={{ padding: 10, textAlign: 'right' }}>{qty}</td>
+                        <td style={{ padding: 10, textAlign: 'right' }}>{_fmtVNDNcc(contract)}</td>
+                        <td style={{ padding: 10, textAlign: 'right' }}>{_fmtVNDNcc(publicP)}</td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </div>
+      </aside>
+    </div>
+  );
+}
+
 function NccListPage({ pushToast }) {
   const [items, setItems] = _uNcc([]);
   const [total, setTotal] = _uNcc(0);
   const [page, setPage]   = _uNcc(1);
   const [pageSize, setPageSize] = _uNcc(20);
   const [q, setQ]         = _uNcc('');
+  const [serviceIdFilter, setServiceIdFilter] = _uNcc(0);   // 0 = "Tất cả loại"
+  const [services, setServices] = _uNcc([]);                 // loại DV NCC (cho dropdown filter)
   const [loading, setLoad] = _uNcc(true);
   const [err, setErr]      = _uNcc(null);
   const [reloadKey, setReloadKey] = _uNcc(0);
+  const [previewItem, setPreviewItem] = _uNcc(null);
   const isMobile = window.tourkitHooks.useIsMobile();
 
   const totalPages = Math.max(1, Math.ceil(total / pageSize));
+
+  // Tải danh sách loại DV NCC 1 lần cho dropdown filter (cùng nguồn với ncc-import: /api/v1/ncc-import/services).
+  _uENcc(() => {
+    window.tourkitAuth.authedFetch('/api/v1/ncc-import/services')
+      .then(r => r.json())
+      .then(j => setServices((j.items || []).map(x => ({ id: x.id ?? x.Id, name: x.name ?? x.Name }))))
+      .catch(() => { /* fallback trống — dropdown chỉ có "Tất cả" */ });
+  }, []);
 
   _uENcc(() => {
     let alive = true;
     setLoad(true); setErr(null);
     const qs = new URLSearchParams({ pageIndex: String(page), pageSize: String(pageSize) });
     if (q.trim()) qs.set('filter', q.trim());
+    if (serviceIdFilter > 0) qs.set('serviceId', String(serviceIdFilter));
     window.tourkitAuth.authedFetch('/api/v1/ncc/list?' + qs.toString())
       .then(r => r.json().then(d => ({ ok: r.ok, d })))
       .then(({ ok, d }) => {
@@ -60,9 +193,10 @@ function NccListPage({ pushToast }) {
       .catch(e => { if (alive) setErr(String((e && e.message) || e)); })
       .finally(() => { if (alive) setLoad(false); });
     return () => { alive = false; };
-  }, [page, pageSize, q, reloadKey]);
+  }, [page, pageSize, q, serviceIdFilter, reloadKey]);
 
   const onSearch = (val) => { setPage(1); setQ(val || ''); };
+  const onServiceFilterChange = (v) => { setPage(1); setServiceIdFilter(+v || 0); };
 
   return (
     <main className="page" style={{ padding: '18px 28px 60px', width: '100%' }}>
@@ -84,10 +218,20 @@ function NccListPage({ pushToast }) {
         </>}
       />
 
-      <div style={{ margin: '16px 0', maxWidth: 520 }}>
-        <window.SearchControls.SearchInput
-          value={q} onChange={onSearch} submitOnly
-          placeholder="Tìm tên / mã / SĐT / email / mã số thuế… (Enter để tìm)" />
+      <div style={{ margin: '16px 0', display: 'flex', gap: 12, flexWrap: 'wrap', alignItems: 'center' }}>
+        <div style={{ flex: '1 1 320px', maxWidth: 520 }}>
+          <window.SearchControls.SearchInput
+            value={q} onChange={onSearch} submitOnly
+            placeholder="Tìm tên / mã / SĐT / email / mã số thuế… (Enter để tìm)" />
+        </div>
+        {/* Bộ lọc "Loại nhà cung cấp" — nguồn cùng với dropdown Loại DV bên NCC Import. */}
+        <select value={serviceIdFilter} onChange={e => onServiceFilterChange(e.target.value)}
+                title="Lọc theo loại nhà cung cấp"
+                style={{ padding: '8px 12px', border: '1px solid var(--border)', borderRadius: 8, fontSize: 13,
+                         background: 'var(--surface)', color: 'var(--text)', minWidth: 200 }}>
+          <option value={0}>— Tất cả loại NCC —</option>
+          {services.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
+        </select>
       </div>
 
       {loading ? (
@@ -106,14 +250,23 @@ function NccListPage({ pushToast }) {
         /* <=640px: card layout — bảng 6 cột scroll ngang khó dùng trên điện thoại. */
         <div style={{ display: 'grid', gap: 10 }}>
           {items.map(p => (
-            <div key={p.id} style={{ background: 'var(--surface)', border: '1px solid var(--border)',
-                                     borderRadius: 'var(--radius-md)', padding: 14 }}>
+            <div key={p.id} onClick={() => setPreviewItem(p)}
+                 style={{ background: 'var(--surface)', border: '1px solid var(--border)',
+                          borderRadius: 'var(--radius-md)', padding: 14, cursor: 'pointer' }}>
               <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8, alignItems: 'flex-start' }}>
                 <div style={{ fontWeight: 700 }}>{p.name || '-'}</div>
                 <NccStatus item={p} />
               </div>
               {p.code && <div style={{ ..._nccMono, marginTop: 2 }}>{p.code}</div>}
               <div style={{ marginTop: 8, fontSize: 13, color: 'var(--text-2)', display: 'grid', gap: 3 }}>
+                {p.serviceNames && (
+                  <div style={{ display: 'inline-flex', flexWrap: 'wrap', gap: 4 }}>
+                    {p.serviceNames.split(',').map((s, i) => (
+                      <span key={i} style={{ padding: '1px 8px', borderRadius: 999, fontSize: 11, background: 'var(--bg)',
+                                             border: '1px solid var(--border)', color: 'var(--text-2)' }}>{s.trim()}</span>
+                    ))}
+                  </div>
+                )}
                 {p.phone && <div>{p.phone}</div>}
                 {p.email && <div style={{ wordBreak: 'break-all' }}>{p.email}</div>}
                 {p.city && <div style={_nccMuted}>{p.city}</div>}
@@ -123,12 +276,13 @@ function NccListPage({ pushToast }) {
         </div>
       ) : (
         <window.TKTableScroll>
-          {/* 4 cột gọn: Mã · Nhà cung cấp (Thành phố xuống dưới tên) · Liên hệ (SĐT + Email gộp) · Trạng thái.
+          {/* 5 cột: Mã · Nhà cung cấp (Thành phố xuống dưới tên) · Loại NCC · Liên hệ (SĐT + Email gộp) · Trạng thái.
               table-layout:fixed + colgroup → cột ổn định; ô gộp truncate từng dòng (ellipsis). */}
-          <table style={{ width: '100%', minWidth: 820, tableLayout: 'fixed', borderCollapse: 'collapse', fontSize: 13 }}>
+          <table style={{ width: '100%', minWidth: 960, tableLayout: 'fixed', borderCollapse: 'collapse', fontSize: 13 }}>
             <colgroup>
               <col style={{ width: 130 }} />{/* Mã */}
               <col />{/* Nhà cung cấp (+ thành phố) — phần còn lại */}
+              <col style={{ width: 180 }} />{/* Loại NCC */}
               <col style={{ width: 240 }} />{/* Liên hệ */}
               <col style={{ width: 170 }} />{/* Trạng thái */}
             </colgroup>
@@ -136,19 +290,28 @@ function NccListPage({ pushToast }) {
               <tr style={{ textAlign: 'left' }}>
                 <th style={_nccTh()}>Mã</th>
                 <th style={_nccTh()}>Nhà cung cấp</th>
+                <th style={_nccTh()}>Loại NCC</th>
                 <th style={_nccTh()}>Liên hệ</th>
                 <th style={{ ..._nccTh(), paddingRight: 20 }}>Trạng thái</th>
               </tr>
             </thead>
             <tbody>
               {items.map(p => (
-                <tr key={p.id} style={{ borderTop: '1px solid var(--border)' }}>
+                <tr key={p.id} onClick={() => setPreviewItem(p)}
+                    style={{ borderTop: '1px solid var(--border)', cursor: 'pointer' }}
+                    onMouseEnter={e => e.currentTarget.style.background = 'var(--bg)'}
+                    onMouseLeave={e => e.currentTarget.style.background = ''}>
                   <td style={_nccTd()} title={p.code || ''}>
                     {p.code ? <span style={_nccMono}>{p.code}</span> : <span style={_nccMuted}>-</span>}
                   </td>
                   <td style={_nccTdStack()}>
                     <div style={{ ..._nccLine, fontWeight: 600 }} title={p.name || ''}>{p.name || '-'}</div>
                     {p.city && <div style={_nccSub} title={p.city}>{p.city}</div>}
+                  </td>
+                  <td style={_nccTd()} title={p.serviceNames || ''}>
+                    {p.serviceNames
+                      ? <span style={{ fontSize: 12, color: 'var(--text-2)' }}>{p.serviceNames}</span>
+                      : <span style={_nccMuted}>-</span>}
                   </td>
                   <td style={_nccTdStack()}>
                     {p.phone && (
@@ -175,6 +338,9 @@ function NccListPage({ pushToast }) {
           onPage={setPage}
           onPageSize={(s) => { setPage(1); setPageSize(s); }} />
       )}
+
+      {/* Preview NCC (click row/card) — modal side-drawer, lazy fetch bảng giá. */}
+      {previewItem && <NccPreviewModal item={previewItem} onClose={() => setPreviewItem(null)} />}
     </main>
   );
 }

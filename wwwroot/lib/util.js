@@ -75,5 +75,21 @@
     return false;
   }
 
-  window.tourkitUtil = { readSSE, fmtAgo, fmtDate, copyText };
+  // ── CRM URL builder ───────────────────────────────────────────────────────
+  // Build URL sang CRM web (tourkit) từ tenantId user đang đăng nhập.
+  // - tenantId có dấu '.' → treat as full host (vd 'demo2.tourkit.vn')
+  // - không có '.' → append '.tourkit.vn' (vd 'demo2' → 'demo2.tourkit.vn')
+  // Trả null nếu chưa đăng nhập (không có tenantId). Dùng cho nút "Xem trên CRM".
+  function crmUrl(path) {
+    try {
+      const u = window.tourkitAuth && window.tourkitAuth.getUser && window.tourkitAuth.getUser();
+      const t = (u && u.tenantId ? String(u.tenantId) : '').trim();
+      if (!t) return null;
+      const host = t.includes('.') ? t : (t + '.tourkit.vn');
+      const p = String(path || '').startsWith('/') ? path : '/' + (path || '');
+      return `https://${host}${p}`;
+    } catch { return null; }
+  }
+
+  window.tourkitUtil = { readSSE, fmtAgo, fmtDate, copyText, crmUrl };
 })();

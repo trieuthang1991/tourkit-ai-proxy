@@ -94,8 +94,17 @@ function DealDrawer({ item: initialItem, onClose, onRescored, pushToast }) {
       <Block title="Rủi ro" items={a.risks} icon="warning" tone="warn" />
       {a.reason && <div className="deal-reason">{a.reason}</div>}
 
-      {/* Footer: nút Chấm lại (mirror Customer review "Cập nhật review") */}
-      <div style={{marginTop: 16, display: 'flex', justifyContent: 'flex-end'}}>
+      {/* Footer: nút Xem CRM (mở tab mới) + Chấm lại (mirror Customer review "Cập nhật review") */}
+      <div style={{marginTop: 16, display: 'flex', justifyContent: 'flex-end', gap: 8, flexWrap: 'wrap'}}>
+        {(() => {
+          const url = window.tourkitUtil.crmUrl('/booking-ticket/' + item.id);
+          return url ? (
+            <a className="btn btn-ghost" href={url} target="_blank" rel="noopener noreferrer" style={{gap: 6}}
+               title="Mở cơ hội này trong CRM (tab mới)">
+              <Icon name="eye" size={13} /> Xem cơ hội CRM
+            </a>
+          ) : null;
+        })()}
         <button className="btn btn-primary" onClick={rescore} disabled={rescoring} style={{gap: 6}}>
           <Icon name="refresh" size={13} /> {rescoring ? 'Đang chấm...' : 'Chấm lại'}
         </button>
@@ -478,6 +487,15 @@ function DealsPage({ pushToast }) {
           detail: selectedIds.size > 0 ? `${selectedIds.size} đã chọn` : 'Chọn cơ hội để chấm',
           tone: total > 0 ? 'live' : 'idle' }}
         actions={<>
+          {(() => {
+            const url = window.tourkitUtil.crmUrl('/booking-ticket');
+            return url ? (
+              <a className="btn btn-ghost btn-sm" href={url} target="_blank" rel="noopener noreferrer"
+                 title="Mở trang Cơ hội bán hàng trên CRM (tab mới)">
+                <Icon name="list" size={14} /> Danh sách Cơ hội CRM
+              </a>
+            ) : null;
+          })()}
           <button className={'btn btn-sm autotoggle ' + (autoAnalyze ? 'on' : 'off')}
             onClick={toggleAutoAnalyze}
             title="Tự động chấm cơ hội chưa có score khi mở page (lưu theo tài khoản)">
