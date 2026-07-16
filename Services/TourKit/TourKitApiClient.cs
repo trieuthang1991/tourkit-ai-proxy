@@ -120,7 +120,11 @@ public class TourKitApiClient
             var msg = GetString(root, "message");
             _log.LogWarning("[TourKit] GET {Path} → HTTP {H} ({Ms}ms) success=false: {Msg}",
                 pathAndQuery, (int)resp.StatusCode, sw.ElapsedMilliseconds, msg ?? "(no message)");
-            throw new TourKitApiException(msg ?? $"TourKit lỗi (HTTP {(int)resp.StatusCode})", 502);
+            // Propagate mã HTTP THẬT khi upstream trả non-2xx (vd 403/404) — để caller như
+            // GetPermissionsAsync phân biệt "từ chối dứt khoát" (401/403) vs transient. Riêng
+            // 2xx-nhưng-success=false (envelope lỗi logic) giữ 502 (200 không phải mã lỗi hợp lệ để trả lại).
+            var status = !resp.IsSuccessStatusCode ? (int)resp.StatusCode : 502;
+            throw new TourKitApiException(msg ?? $"TourKit lỗi (HTTP {(int)resp.StatusCode})", status);
         }
 
         _log.LogDebug("[TourKit] GET {Path} → 200 ({Ms}ms) bytes={Len}",
