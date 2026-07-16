@@ -66,7 +66,7 @@ public static class WorkflowEndpoints
         });
 
         // ─── PUT /workflows/{type} ─── upsert config ─────────────────────────────
-        v1.MapPut("/workflows/{type}", (
+        v1.MapPut("/workflows/{type}", async (
             string type,
             WorkflowConfigRequest req,
             HttpContext ctx,
@@ -76,11 +76,14 @@ public static class WorkflowEndpoints
         {
             var auth = RequireSession(ctx, sessions);
             if (auth == null) return Unauthorized();
-            var (_, tenant, user) = auth.Value;
+            var (sid, tenant, user) = auth.Value;
 
             var wf = registry.Resolve(type);
             if (wf == null)
                 return Results.Json(new { error = $"Workflow '{type}' không tồn tại" }, statusCode: 404);
+
+            if (wf.Scope == WorkflowScope.PerTenant && !await CanConfigSystemAsync(sid, sessions, ctx.RequestAborted))
+                return Forbidden();
 
             // Interval hợp lệ: 1..1440 phút (min 1 phút, max 24 giờ)
             var interval = Math.Clamp(req.IntervalMinutes, 1, 1440);
@@ -113,7 +116,7 @@ public static class WorkflowEndpoints
         // auto-pause + log run). KHÔNG gắn ctx.RequestAborted → đóng tab / rời trang KHÔNG hủy run
         // (trước đây run chậm 100s+ → request trình duyệt timeout → bị hủy → báo "lỗi" giả).
         // Timeout 5 phút nội bộ của RunOneAsync vẫn áp dụng. Kết quả xem ở "20 lần gần nhất".
-        v1.MapPost("/workflows/{type}/run-now", (
+        v1.MapPost("/workflows/{type}/run-now", async (
             string type,
             HttpContext ctx,
             WorkflowRegistry registry,
@@ -123,11 +126,14 @@ public static class WorkflowEndpoints
         {
             var auth = RequireSession(ctx, sessions);
             if (auth == null) return Unauthorized();
-            var (_, tenant, user) = auth.Value;
+            var (sid, tenant, user) = auth.Value;
 
             var wf = registry.Resolve(type);
             if (wf == null)
                 return Results.Json(new { error = $"Workflow '{type}' không tồn tại" }, statusCode: 404);
+
+            if (wf.Scope == WorkflowScope.PerTenant && !await CanConfigSystemAsync(sid, sessions, ctx.RequestAborted))
+                return Forbidden();
 
             var scopeUser = wf.Scope == WorkflowScope.PerUser ? user : "";
 
@@ -189,7 +195,8 @@ public static class WorkflowEndpoints
         {
             var auth = RequireSession(ctx, sessions);
             if (auth == null) return Unauthorized();
-            var (_, tenant, user) = auth.Value;
+            var (sid, tenant, user) = auth.Value;
+            if (!await CanConfigSystemAsync(sid, sessions, ctx.RequestAborted)) return Forbidden();
             if (string.IsNullOrWhiteSpace(req.Username) || string.IsNullOrWhiteSpace(req.Password))
                 return Results.Json(new { ok = false, error = "Thiếu username/password" }, statusCode: 400);
 
@@ -240,7 +247,8 @@ public static class WorkflowEndpoints
         {
             var auth = RequireSession(ctx, sessions);
             if (auth == null) return Unauthorized();
-            var (_, tenant, _) = auth.Value;
+            var (sid, tenant, _) = auth.Value;
+            if (!await CanConfigSystemAsync(sid, sessions, ctx.RequestAborted)) return Forbidden();
             var removed = await store.DeleteAsync(tenant, ctx.RequestAborted);
             return Results.Json(new { ok = true, removed });
         });
@@ -333,6 +341,16 @@ public static class WorkflowEndpoints
 
     private static IResult Unauthorized()
         => Results.Json(new { error = "Phiên không hợp lệ — đăng nhập lại" }, statusCode: 401);
+
+    /// Ensure quyền (tự lấy lại nếu chưa loaded) rồi kiểm CH_HT_THAOTAC. async vì có thể fetch upstream.
+    private static async Task<bool> CanConfigSystemAsync(string sid, TkSessionStore sessions, CancellationToken ct)
+    {
+        await sessions.EnsurePermissionsAsync(sid, ct);
+        return sessions.HasPermission(sid, TkPermissionCodes.CauHinhHeThong);
+    }
+
+    private static IResult Forbidden()
+        => Results.Json(new { error = "Bạn không có quyền Cấu hình hệ thống (CH_HT_THAOTAC)." }, statusCode: 403);
 
     /// Đánh dấu DateTime là UTC → System.Text.Json serialize kèm 'Z' → JS parse đúng UTC (không lệch +7h).
     /// DateTime từ SQL (Dapper) có Kind=Unspecified nên mặc định serialize KHÔNG có 'Z' → client hiểu nhầm local.
