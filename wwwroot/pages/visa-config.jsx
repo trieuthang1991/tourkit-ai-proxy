@@ -156,5 +156,9 @@
       ] },
   ];
 
-  window.VisaConfigPage = VisaConfigPage;
+  window.VisaConfigPage = function VisaConfigPageGate(props) {
+    if (!window.tourkitAuth.hasPerm('CH_HT_THAOTAC'))
+      return <window.NoPermissionBox feature="Câu hỏi Visa" />;
+    return <VisaConfigPage {...props} />;
+  };
 })();

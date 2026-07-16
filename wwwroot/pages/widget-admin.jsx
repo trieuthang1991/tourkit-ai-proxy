@@ -392,4 +392,12 @@ function WidgetForm({ initial, defaults, isNew, onCancel, onSubmit, onTestCrm })
   );
 }
 
-window.WidgetAdminPage = WidgetAdminPage;
+// Bọc export bằng gate CH_HT_THAOTAC. Giữ tham chiếu hàm gốc trong 1 const lexical RIÊNG trước khi
+// gán window.WidgetAdminPage — vì file này KHÔNG bọc IIFE, `function WidgetAdminPage` ở global chính là
+// `window.WidgetAdminPage`, gán đè rồi gọi `<WidgetAdminPage/>` sẽ tự gọi wrapper → đệ quy vô hạn (dev mode).
+const WidgetAdminPageInner = WidgetAdminPage;
+window.WidgetAdminPage = function WidgetAdminPageGate(props) {
+  if (!window.tourkitAuth.hasPerm('CH_HT_THAOTAC'))
+    return <window.NoPermissionBox feature="Widget Chat" />;
+  return <WidgetAdminPageInner {...props} />;
+};

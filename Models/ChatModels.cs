@@ -24,7 +24,9 @@ public record LoginTokenResponse(
     string TenantId,
     string? FullName,
     string? CompanyName,
-    long ExpiresAt
+    long ExpiresAt,
+    IReadOnlyList<string> Permissions,
+    bool CanConfigSystem
 );
 
 // ─── /api/v1/chat ─────────────────────────────────────────────────────────────

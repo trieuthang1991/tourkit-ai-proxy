@@ -24,9 +24,11 @@ SELECT CAST(SCOPE_IDENTITY() AS BIGINT);",
             new { a.TenantId, a.Username, a.Kind, a.PayloadJson });
     }
 
-    /// Đọc cho trang theo dõi (lọc Kind/Status, mới nhất trước).
+    /// Đọc cho trang theo dõi (lọc Kind/Status/Username, mới nhất trước).
+    /// username != null → chỉ hành động do user đó tạo (dùng khi user thiếu quyền Cấu hình hệ thống).
     public async Task<List<CrmActionRow>> ListForMonitorAsync(
-        string tenantId, string? kind, int? status, int take, CancellationToken ct = default)
+        string tenantId, string? kind, int? status, int take, CancellationToken ct = default,
+        string? username = null)
     {
         if (take < 1) take = 1; if (take > 500) take = 500;
         await using var c = await _db.OpenAsync(ct);
@@ -38,8 +40,9 @@ FROM dbo.CrmActionQueue
 WHERE TenantId = @tenantId
   AND (@kind IS NULL OR Kind = @kind)
   AND (@status IS NULL OR [Status] = @status)
+  AND (@username IS NULL OR Username = @username)
 ORDER BY Id DESC;",
-            new { tenantId, kind, status, take });
+            new { tenantId, kind, status, take, username });
         return rows.AsList();
     }
 }

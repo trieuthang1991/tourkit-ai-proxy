@@ -24,6 +24,12 @@ public class TkSession
 
     // BỘ NHỚ CHAT — persist cùng session xuống SQL (cột ChatMemoryJson).
     public SessionChatMemory ChatMemory { get; set; } = SessionChatMemory.Empty();
+
+    // Quyền TourKit (Function_Code) của user — lấy lúc login/relogin, persist cột PermissionsJson.
+    public List<string> Permissions { get; set; } = new();
+    // true = ĐÃ lấy quyền thành công (kể cả rỗng). false = chưa lấy được (mới tạo / fetch lỗi) → EnsurePermissions retry.
+    // Persist gián tiếp: PermissionsJson != null ⇔ Loaded (rỗng lưu "[]", chưa loaded lưu NULL).
+    public bool PermissionsLoaded { get; set; }
 }
 
 /// <summary>
@@ -78,6 +84,7 @@ public class TkSessionStore
     {
         _ = PruneIdleAsync(ct);   // fire-and-forget, không block login
         var login = await _api.LoginAsync(tenantId, username, password, ct);
+        var permissions = await _api.GetPermissionsAsync(login.Token, ct);   // null nếu upstream lỗi (retry sau)
 
         // Reuse session sẵn có (most recent) cho cùng (tenant, user) → tránh sinh row mới mỗi lần F5.
         var existing = await _repo.GetByUserAsync(tenantId, username, ct);
@@ -92,6 +99,7 @@ public class TkSessionStore
             existing.CompanyName = login.CompanyName;
             existing.JwtExpiresAt = DateTime.UtcNow.Add(SoftTtl);
             existing.LastUsed     = DateTime.UtcNow;
+            if (permissions != null) { existing.Permissions = permissions; existing.PermissionsLoaded = true; }
             session = existing;
 
             await _repo.UpsertAsync(session, ct);
@@ -123,6 +131,7 @@ public class TkSessionStore
                 JwtExpiresAt = DateTime.UtcNow.Add(SoftTtl),
                 LastUsed    = DateTime.UtcNow
             };
+            if (permissions != null) { session.Permissions = permissions; session.PermissionsLoaded = true; }
             _cache[session.Id] = session;
             await _repo.UpsertAsync(session, ct);
             _log.LogInformation("TourKit session {Id} TẠO MỚI cho tenant={Tenant} user={User}",
@@ -141,6 +150,35 @@ public class TkSessionStore
         var fromDb = _repo.GetAsync(sessionId).GetAwaiter().GetResult();
         if (fromDb != null) _cache[sessionId] = fromDb;
         return fromDb;
+    }
+
+    /// True nếu phiên có mã quyền `code` (case-insensitive). Phiên không tồn tại / chưa nạp quyền → false.
+    public bool HasPermission(string? sessionId, string code)
+    {
+        var s = Get(sessionId);
+        if (s == null || string.IsNullOrWhiteSpace(code)) return false;
+        return s.Permissions.Any(p => string.Equals(p, code, StringComparison.OrdinalIgnoreCase));
+    }
+
+    /// Nạp quyền cho phiên CHƯA loaded (mới tạo lỗi fetch / session cũ trước tính năng / restart mà
+    /// PermissionsJson NULL). Tự lấy LẠI cho tới khi thành công — điều kiện là `!PermissionsLoaded`, nên
+    /// khi đã loaded (kể cả rỗng authoritative) thì NO-OP → bounded, không spam upstream mỗi request.
+    public async Task EnsurePermissionsAsync(string sessionId, CancellationToken ct)
+    {
+        var s = Get(sessionId);
+        if (s == null || s.PermissionsLoaded) return;
+        try
+        {
+            var jwt = await GetValidJwtAsync(sessionId, ct);   // relogin nếu JWT rỗng/hết hạn
+            var perms = await _api.GetPermissionsAsync(jwt, ct);
+            if (perms != null)   // null = vẫn lỗi → giữ Loaded=false, thử lại lần sau
+            {
+                s.Permissions = perms;
+                s.PermissionsLoaded = true;
+                await _repo.UpsertAsync(s, ct);
+            }
+        }
+        catch (Exception ex) { _log.LogWarning(ex, "[TkSessionStore] EnsurePermissions {Id} lỗi", sessionId); }
     }
 
     /// Lấy (hoặc tạo) sessionId cho 1 SERVICE ACCOUNT (tenant, username) — dùng cho workflow nền,
@@ -227,6 +265,8 @@ public class TkSessionStore
     private async Task ReloginAsync(TkSession s, CancellationToken ct)
     {
         var login = await _api.LoginAsync(s.TenantId, s.Username, s.Password, ct);
+        var perms = await _api.GetPermissionsAsync(login.Token, ct);
+        if (perms != null) { s.Permissions = perms; s.PermissionsLoaded = true; }
         s.Jwt = login.Token;
         s.FullName = login.FullName;
         s.CompanyName = login.CompanyName;

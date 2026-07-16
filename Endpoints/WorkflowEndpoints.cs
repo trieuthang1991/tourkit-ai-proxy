@@ -66,7 +66,7 @@ public static class WorkflowEndpoints
         });
 
         // ─── PUT /workflows/{type} ─── upsert config ─────────────────────────────
-        v1.MapPut("/workflows/{type}", (
+        v1.MapPut("/workflows/{type}", async (
             string type,
             WorkflowConfigRequest req,
             HttpContext ctx,
@@ -76,11 +76,14 @@ public static class WorkflowEndpoints
         {
             var auth = RequireSession(ctx, sessions);
             if (auth == null) return Unauthorized();
-            var (_, tenant, user) = auth.Value;
+            var (sid, tenant, user) = auth.Value;
 
             var wf = registry.Resolve(type);
             if (wf == null)
                 return Results.Json(new { error = $"Workflow '{type}' không tồn tại" }, statusCode: 404);
+
+            if (wf.Scope == WorkflowScope.PerTenant && !await CanConfigSystemAsync(sid, sessions, ctx.RequestAborted))
+                return Forbidden();
 
             // Interval hợp lệ: 1..1440 phút (min 1 phút, max 24 giờ)
             var interval = Math.Clamp(req.IntervalMinutes, 1, 1440);
@@ -113,7 +116,7 @@ public static class WorkflowEndpoints
         // auto-pause + log run). KHÔNG gắn ctx.RequestAborted → đóng tab / rời trang KHÔNG hủy run
         // (trước đây run chậm 100s+ → request trình duyệt timeout → bị hủy → báo "lỗi" giả).
         // Timeout 5 phút nội bộ của RunOneAsync vẫn áp dụng. Kết quả xem ở "20 lần gần nhất".
-        v1.MapPost("/workflows/{type}/run-now", (
+        v1.MapPost("/workflows/{type}/run-now", async (
             string type,
             HttpContext ctx,
             WorkflowRegistry registry,
@@ -123,11 +126,14 @@ public static class WorkflowEndpoints
         {
             var auth = RequireSession(ctx, sessions);
             if (auth == null) return Unauthorized();
-            var (_, tenant, user) = auth.Value;
+            var (sid, tenant, user) = auth.Value;
 
             var wf = registry.Resolve(type);
             if (wf == null)
                 return Results.Json(new { error = $"Workflow '{type}' không tồn tại" }, statusCode: 404);
+
+            if (wf.Scope == WorkflowScope.PerTenant && !await CanConfigSystemAsync(sid, sessions, ctx.RequestAborted))
+                return Forbidden();
 
             var scopeUser = wf.Scope == WorkflowScope.PerUser ? user : "";
 
@@ -189,7 +195,8 @@ public static class WorkflowEndpoints
         {
             var auth = RequireSession(ctx, sessions);
             if (auth == null) return Unauthorized();
-            var (_, tenant, user) = auth.Value;
+            var (sid, tenant, user) = auth.Value;
+            if (!await CanConfigSystemAsync(sid, sessions, ctx.RequestAborted)) return Forbidden();
             if (string.IsNullOrWhiteSpace(req.Username) || string.IsNullOrWhiteSpace(req.Password))
                 return Results.Json(new { ok = false, error = "Thiếu username/password" }, statusCode: 400);
 
@@ -205,8 +212,21 @@ public static class WorkflowEndpoints
                 }
                 catch { /* đếm deal best-effort — không chặn lưu */ }
 
+                // Cảnh báo (KHÔNG chặn lưu) nếu tài khoản dịch vụ thiếu quyền ghi CRM mà automation
+                // tương lai có thể cần (giao việc / lịch hẹn). Deal visibility đã cảnh báo qua dealsVisible.
+                var saPerms = await api.GetPermissionsAsync(login.Token, ctx.RequestAborted) ?? new();
+                var missing = new List<string>();
+                if (!saPerms.Any(p => string.Equals(p, TkPermissionCodes.TaoViec, StringComparison.OrdinalIgnoreCase)))
+                    missing.Add("tạo việc (CV_TAOMOI)");
+                if (!saPerms.Any(p => string.Equals(p, TkPermissionCodes.TaoNhacHen, StringComparison.OrdinalIgnoreCase)))
+                    missing.Add("tạo lịch hẹn (CS_KH_TAOMOI)");
+
+                var warnings = new List<string>();
+                if (dealsVisible == 0) warnings.Add("Đăng nhập OK nhưng thấy 0 deal — có thể thiếu quyền CH_XEM_ALL.");
+                if (missing.Count > 0) warnings.Add("Tài khoản thiếu quyền: " + string.Join(", ", missing) + ".");
+
                 await store.UpsertAsync(tenant, req.Username.Trim(), req.Password, updatedBy: user, ctx.RequestAborted);
-                return Results.Json(new { ok = true, dealsVisible, warning = dealsVisible == 0 ? "Tài khoản đăng nhập OK nhưng thấy 0 deal — có thể thiếu quyền CH_XEM_ALL" : null });
+                return Results.Json(new { ok = true, dealsVisible, warning = warnings.Count > 0 ? string.Join(" ", warnings) : (string?)null });
             }
             catch (TourKitApiException ex)
             {
@@ -240,7 +260,8 @@ public static class WorkflowEndpoints
         {
             var auth = RequireSession(ctx, sessions);
             if (auth == null) return Unauthorized();
-            var (_, tenant, _) = auth.Value;
+            var (sid, tenant, _) = auth.Value;
+            if (!await CanConfigSystemAsync(sid, sessions, ctx.RequestAborted)) return Forbidden();
             var removed = await store.DeleteAsync(tenant, ctx.RequestAborted);
             return Results.Json(new { ok = true, removed });
         });
@@ -312,8 +333,10 @@ public static class WorkflowEndpoints
         {
             var auth = RequireSession(ctx, sessions);
             if (auth == null) return Unauthorized();
-            var (_, tenant, _) = auth.Value;
-            var items = await crmQueue.ListForMonitorAsync(tenant, kind, status, limit ?? 50, ctx.RequestAborted);
+            var (sid, tenant, user) = auth.Value;
+            // Thiếu quyền Cấu hình hệ thống → chỉ thấy hành động DO CHÍNH MÌNH tạo (enforce server-side).
+            var scopeUser = await CanConfigSystemAsync(sid, sessions, ctx.RequestAborted) ? null : user;
+            var items = await crmQueue.ListForMonitorAsync(tenant, kind, status, limit ?? 50, ctx.RequestAborted, scopeUser);
             return Results.Json(new { items });
         });
 
@@ -333,6 +356,16 @@ public static class WorkflowEndpoints
 
     private static IResult Unauthorized()
         => Results.Json(new { error = "Phiên không hợp lệ — đăng nhập lại" }, statusCode: 401);
+
+    /// Ensure quyền (tự lấy lại nếu chưa loaded) rồi kiểm CH_HT_THAOTAC. async vì có thể fetch upstream.
+    private static async Task<bool> CanConfigSystemAsync(string sid, TkSessionStore sessions, CancellationToken ct)
+    {
+        await sessions.EnsurePermissionsAsync(sid, ct);
+        return sessions.HasPermission(sid, TkPermissionCodes.CauHinhHeThong);
+    }
+
+    private static IResult Forbidden()
+        => Results.Json(new { error = "Bạn không có quyền Cấu hình hệ thống (CH_HT_THAOTAC)." }, statusCode: 403);
 
     /// Đánh dấu DateTime là UTC → System.Text.Json serialize kèm 'Z' → JS parse đúng UTC (không lệch +7h).
     /// DateTime từ SQL (Dapper) có Kind=Unspecified nên mặc định serialize KHÔNG có 'Z' → client hiểu nhầm local.

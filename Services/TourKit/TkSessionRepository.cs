@@ -38,6 +38,7 @@ public class TkSessionRepository
         public string? FullName { get; set; }
         public string? CompanyName { get; set; }
         public string? ChatMemoryJson { get; set; }
+        public string? PermissionsJson { get; set; }
         public DateTime LastUsedUtc { get; set; }
     }
 
@@ -49,7 +50,7 @@ public class TkSessionRepository
         {
             await using var c = await _db.OpenAsync(ct);
             var rows = await c.QueryAsync<Row>(
-                "SELECT Id, TenantId, Username, PasswordEnc, FullName, CompanyName, ChatMemoryJson, LastUsedUtc " +
+                "SELECT Id, TenantId, Username, PasswordEnc, FullName, CompanyName, ChatMemoryJson, PermissionsJson, LastUsedUtc " +
                 "FROM dbo.TkSessions WHERE LastUsedUtc >= @cut",
                 new { cut = cutoffUtc });
             var list = new List<TkSession>();
@@ -102,7 +103,7 @@ public class TkSessionRepository
             {
                 await using var c = await _db.OpenAsync(ct);
                 var row = await c.QueryFirstOrDefaultAsync<Row>(
-                    "SELECT Id, TenantId, Username, PasswordEnc, FullName, CompanyName, ChatMemoryJson, LastUsedUtc " +
+                    "SELECT Id, TenantId, Username, PasswordEnc, FullName, CompanyName, ChatMemoryJson, PermissionsJson, LastUsedUtc " +
                     "FROM dbo.TkSessions WHERE Id = @id",
                     new { id });
                 return row == null ? null : TryHydrate(row);
@@ -126,7 +127,7 @@ public class TkSessionRepository
             {
                 await using var c = await _db.OpenAsync(ct);
                 var row = await c.QueryFirstOrDefaultAsync<Row>(
-                    "SELECT TOP 1 Id, TenantId, Username, PasswordEnc, FullName, CompanyName, ChatMemoryJson, LastUsedUtc " +
+                    "SELECT TOP 1 Id, TenantId, Username, PasswordEnc, FullName, CompanyName, ChatMemoryJson, PermissionsJson, LastUsedUtc " +
                     "FROM dbo.TkSessions WHERE TenantId = @tenantId AND Username = @username " +
                     "ORDER BY LastUsedUtc DESC",
                     new { tenantId, username });
@@ -220,6 +221,7 @@ SELECT TenantId, CompanyName, FullName FROM (
     {
         var pwdEnc = Crypton.Encrypt(s.Password);
         var memJson = s.ChatMemory == null ? null : JsonSerializer.Serialize(s.ChatMemory, _jsonOpts);
+        var permJson = s.PermissionsLoaded ? JsonSerializer.Serialize(s.Permissions, _jsonOpts) : null;
         try
         {
             // Retry transient (deadlock/timeout dưới tải web-garden) → write session/login KHÔNG fail oan vì 1 cú lock.
@@ -236,16 +238,18 @@ WHEN MATCHED THEN UPDATE SET
     FullName       = @FullName,
     CompanyName    = @CompanyName,
     ChatMemoryJson = @ChatMemoryJson,
+    PermissionsJson = @PermissionsJson,
     LastUsedUtc    = @LastUsedUtc
 WHEN NOT MATCHED THEN INSERT
-    (Id, TenantId, Username, PasswordEnc, FullName, CompanyName, ChatMemoryJson, LastUsedUtc)
+    (Id, TenantId, Username, PasswordEnc, FullName, CompanyName, ChatMemoryJson, PermissionsJson, LastUsedUtc)
 VALUES
-    (@Id, @TenantId, @Username, @PasswordEnc, @FullName, @CompanyName, @ChatMemoryJson, @LastUsedUtc);",
+    (@Id, @TenantId, @Username, @PasswordEnc, @FullName, @CompanyName, @ChatMemoryJson, @PermissionsJson, @LastUsedUtc);",
                 new {
                     s.Id, s.TenantId, s.Username,
                     PasswordEnc    = pwdEnc,
                     s.FullName, s.CompanyName,
                     ChatMemoryJson = memJson,
+                    PermissionsJson = permJson,
                     LastUsedUtc    = s.LastUsed
                 });
                 return 0;
@@ -307,13 +311,21 @@ VALUES
             try { mem = JsonSerializer.Deserialize<SessionChatMemory>(r.ChatMemoryJson, _jsonOpts); }
             catch (Exception ex) { _log.LogWarning(ex, "[TkSessionRepo] ChatMemory parse fail {Id}", r.Id); }
         }
+        List<string> perms = new();
+        bool permsLoaded = r.PermissionsJson != null;
+        if (!string.IsNullOrWhiteSpace(r.PermissionsJson))
+        {
+            try { perms = JsonSerializer.Deserialize<List<string>>(r.PermissionsJson, _jsonOpts) ?? new(); }
+            catch (Exception ex) { _log.LogWarning(ex, "[TkSessionRepo] Permissions parse fail {Id}", r.Id); }
+        }
         return new TkSession
         {
             Id = r.Id, TenantId = r.TenantId, Username = r.Username, Password = pwd,
             FullName = r.FullName, CompanyName = r.CompanyName,
             Jwt = "", JwtExpiresAt = DateTime.MinValue,
             LastUsed = r.LastUsedUtc,
-            ChatMemory = mem ?? SessionChatMemory.Empty()
+            ChatMemory = mem ?? SessionChatMemory.Empty(),
+            Permissions = perms, PermissionsLoaded = permsLoaded,
         };
     }
 }

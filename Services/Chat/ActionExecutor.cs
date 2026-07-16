@@ -30,6 +30,7 @@ public class ActionExecutor
     private readonly IMailSender _mailSender;
     private readonly MailRepository _mailRepo;
     private readonly MailAccountStore _mailAccount;
+    private readonly TkSessionStore _sessions;
     private readonly AiCallContext _aiCtx;
     private readonly ILogger<ActionExecutor> _log;
 
@@ -52,13 +53,13 @@ public class ActionExecutor
         TourKitCustomerSource customerSource, ReviewService reviewService,
         DealOpportunityClient dealClient, DealScoringService dealScoring, DealRepository dealRepo,
         MailSyncService mailSync, IMailSender mailSender, MailRepository mailRepo, MailAccountStore mailAccount,
-        AiCallContext aiCtx, ILogger<ActionExecutor> log)
+        TkSessionStore sessions, AiCallContext aiCtx, ILogger<ActionExecutor> log)
     {
         _crmQueue = crmQueue; _resolver = resolver;
         _customerSource = customerSource; _reviewService = reviewService;
         _dealClient = dealClient; _dealScoring = dealScoring; _dealRepo = dealRepo;
         _mailSync = mailSync; _mailSender = mailSender; _mailRepo = mailRepo; _mailAccount = mailAccount;
-        _aiCtx = aiCtx; _log = log;
+        _sessions = sessions; _aiCtx = aiCtx; _log = log;
     }
 
     // ─── Pure payload builders (test được — xem ActionExecutorTests) ─────────────
@@ -119,7 +120,7 @@ public class ActionExecutor
         switch (tool.Kind)
         {
             case ActionKind.CrmQueue:
-                return await ExecuteCrmQueueAsync(req, tenantId, username, jwt, ct);
+                return await ExecuteCrmQueueAsync(req, tenantId, username, jwt, sessionId, ct);
             case ActionKind.Internal:
                 return await ExecuteInternalAsync(req, tenantId, jwt, sessionId, ct);
             case ActionKind.Mail:
@@ -462,9 +463,28 @@ public class ActionExecutor
     }
 
     private async Task<ActionResult> ExecuteCrmQueueAsync(
-        ActionExecuteRequest req, string tenantId, string username, string jwt, CancellationToken ct)
+        ActionExecuteRequest req, string tenantId, string username, string jwt, string? sessionId, CancellationToken ct)
     {
         if (_done.TryGetValue(req.ActionId, out var cached)) return cached;
+
+        // Tự lấy lại quyền nếu phiên chưa loaded (fetch lỗi lúc login / restart) — no-op khi đã loaded.
+        await _sessions.EnsurePermissionsAsync(sessionId ?? "", ct);
+
+        // Kiểm quyền TRƯỚC khi enqueue — thiếu quyền báo ngay, KHÔNG đưa vào hàng đợi (tránh worker
+        // POST CRM rồi bị TourKit.Api từ chối 403; UX xấu vì user tưởng đã tạo). Mã khớp PermissionCodes.
+        var (needPerm, permLabel) = req.Action.ToLowerInvariant() switch
+        {
+            "assign_task"        => (TkPermissionCodes.TaoViec,    "tạo việc"),
+            "create_appointment" => (TkPermissionCodes.TaoNhacHen, "tạo lịch hẹn"),
+            _ => ("", "")
+        };
+        if (!string.IsNullOrEmpty(needPerm) && !_sessions.HasPermission(sessionId, needPerm))
+        {
+            _log.LogInformation("[ActionExecutor] {Action} DENIED tenant={Tenant} user={User} — thiếu quyền {Perm}",
+                req.Action, tenantId, username, needPerm);
+            return new ActionResult(req.Action,
+                $"Bạn không có quyền {permLabel} trong hệ thống. Vui lòng liên hệ quản trị viên để được cấp quyền.");
+        }
 
         var (result, success) = req.Action.ToLowerInvariant() switch
         {

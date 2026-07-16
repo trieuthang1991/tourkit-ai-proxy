@@ -378,6 +378,9 @@ BEGIN
     CREATE INDEX IX_TkSessions_LastUsed   ON dbo.TkSessions(LastUsedUtc);
 END;
 
+IF COL_LENGTH('dbo.TkSessions', 'PermissionsJson') IS NULL
+    ALTER TABLE dbo.TkSessions ADD PermissionsJson NVARCHAR(MAX) NULL;
+
 -- Quota AI per-tenant: bao nhiêu lượt được cấp ([Limit]) và đã dùng (Used).
 -- Atomic Consume = UPDATE SET Used = Used + 1 (SQL race-safe cross-instance).
 -- Store giữ in-mem cache cho hot path; SQL = source of truth.

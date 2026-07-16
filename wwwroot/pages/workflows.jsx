@@ -897,6 +897,7 @@ function WorkflowsPage({ pushToast }) {
   const [loading, setLoading] = uS(true);
   const [error, setError] = uS(null);
   const [saConfigured, setSaConfigured] = uS(null);   // null = chưa biết; false = chưa cấu hình tài khoản dịch vụ
+  const canConfig = window.tourkitAuth.hasPerm('CH_HT_THAOTAC');
 
   async function loadWorkflows() {
     try {
@@ -915,7 +916,7 @@ function WorkflowsPage({ pushToast }) {
     catch { setSaConfigured(false); }
   }
 
-  uE(() => { loadWorkflows(); loadSa(); }, []);
+  uE(() => { loadWorkflows(); if (canConfig) loadSa(); }, []);
 
   // KPI — tính từ danh sách hiện tại
   const running = workflows.filter(w => w.enabled && !w.pausedReason).length;
@@ -980,7 +981,7 @@ function WorkflowsPage({ pushToast }) {
 
       {!loading && !error && workflows.length > 0 && (() => {
         const perUser = workflows.filter(w => w.scope === 'PerUser');
-        const perTenant = workflows.filter(w => w.scope === 'PerTenant');
+        const perTenant = canConfig ? workflows.filter(w => w.scope === 'PerTenant') : [];
         const renderCards = (list, locked) => (
           <div className="workflows-listview">
             {list.map(wf => (

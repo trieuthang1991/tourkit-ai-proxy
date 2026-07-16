@@ -93,15 +93,17 @@ public static class ChatEndpoints
             }
         });
 
-        // ─── GET /session ─── lấy lại info phiên (tên/công ty) cho header sau reload/restart ──
-        v1.MapGet("/session", (TkSessionStore sessions, HttpContext ctx) =>
+        // ─── GET /session ─── lấy lại info phiên (tên/công ty/quyền) cho header sau reload/restart ──
+        v1.MapGet("/session", async (TkSessionStore sessions, HttpContext ctx) =>
         {
             var sid = ctx.Request.Headers["X-Session-Id"].FirstOrDefault()
                       ?? ctx.Request.Query["sessionId"].FirstOrDefault();
             var s = sessions.Get(sid);
-            return s == null
-                ? Results.Json(new { error = "Phiên không hợp lệ" }, statusCode: 401)
-                : Results.Json(ToLoginResponse(s));
+            if (s == null)
+                return Results.Json(new { error = "Phiên không hợp lệ" }, statusCode: 401);
+            // Session cũ (trước tính năng) hoặc vừa restart → nạp quyền 1 lần rồi trả.
+            await sessions.EnsurePermissionsAsync(sid!, ctx.RequestAborted);
+            return Results.Json(ToLoginResponse(sessions.Get(sid)!));
         });
 
         // ─── POST /chat ───────────────────────────────────────────────────────────
@@ -256,11 +258,13 @@ public static class ChatEndpoints
 
     private static LoginTokenResponse ToLoginResponse(TourkitAiProxy.Services.TourKit.TkSession s)
         => new(
-            SessionId:   s.Id,
-            TenantId:    s.TenantId,
-            FullName:    s.FullName,
-            CompanyName: s.CompanyName,
-            ExpiresAt:   new DateTimeOffset(s.JwtExpiresAt, TimeSpan.Zero).ToUnixTimeMilliseconds());
+            SessionId:       s.Id,
+            TenantId:        s.TenantId,
+            FullName:        s.FullName,
+            CompanyName:     s.CompanyName,
+            ExpiresAt:       new DateTimeOffset(s.JwtExpiresAt, TimeSpan.Zero).ToUnixTimeMilliseconds(),
+            Permissions:     s.Permissions,
+            CanConfigSystem: s.Permissions.Any(p => string.Equals(p, TkPermissionCodes.CauHinhHeThong, StringComparison.OrdinalIgnoreCase)));
 
     private static string? Field(JsonElement el, string name)
     {
