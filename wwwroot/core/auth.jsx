@@ -17,7 +17,10 @@
 
   function setSession(data) {
     localStorage.setItem(SESSION_KEY, data.sessionId);
-    const user = { fullName: data.fullName, companyName: data.companyName, tenantId: data.tenantId };
+    const user = {
+      fullName: data.fullName, companyName: data.companyName, tenantId: data.tenantId,
+      permissions: data.permissions || [], canConfigSystem: !!data.canConfigSystem,
+    };
     localStorage.setItem(USER_KEY, JSON.stringify(user));
     emit();
     return user;
@@ -54,7 +57,10 @@
       if (!r.ok) { logout(); return null; }
       const info = await r.json();
       if (info.error) { logout(); return null; }
-      const user = { fullName: info.fullName, companyName: info.companyName, tenantId: info.tenantId };
+      const user = {
+        fullName: info.fullName, companyName: info.companyName, tenantId: info.tenantId,
+        permissions: info.permissions || [], canConfigSystem: !!info.canConfigSystem,
+      };
       localStorage.setItem(USER_KEY, JSON.stringify(user));
       emit();
       return user;
@@ -96,9 +102,13 @@
     return r;
   }
 
+  const getPermissions = () => { const u = getUser(); return (u && u.permissions) || []; };
+  const hasPerm = (code) => getPermissions().indexOf(code) !== -1;
+
   window.tourkitAuth = {
     SESSION_KEY, USER_KEY,
     getSessionId, getUser, isAuthed, login, loginToken, logout, onChange, refresh, authedFetch,
+    getPermissions, hasPerm,
   };
 
   // ─── <LoginGate> — màn đăng nhập full-screen ────────────────────────────────
