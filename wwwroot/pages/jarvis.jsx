@@ -438,7 +438,7 @@ function JarvisPage({ pushToast }) {
     if (greetedRef.current || !voiceOnRef.current || loadingRef.current) return;
     greetedRef.current = true;   // đánh dấu đã thử (tránh phát nhiều lần)
     const a = ttsEl();           // dùng CHUNG phần tử với reply → chạm chào là mở khoá luôn cho câu trả lời (iOS)
-    setTtsSrc(a, '/audio/travai-greeting.mp3?v=2');   // TRAVAI — giọng chào "Trà vải" (Google Standard-B)
+    setTtsSrc(a, '/audio/travai-greeting.mp3?v=3');   // TRAVAI — giọng chào "Trà vải" (Google Wavenet-B)
     a.onended = () => setSpeaking(false);
     a.onerror = () => setSpeaking(false);   // file 404 → thôi (không gen)
     setSpeaking(true);
@@ -820,7 +820,7 @@ function JarvisPage({ pushToast }) {
   function playThinking() {
     if (!voiceOnRef.current) return;
     const n = 1 + Math.floor(Math.random() * 3);   // 3 câu filler, chọn ngẫu nhiên
-    const a = new Audio(`/audio/jarvis-thinking-${n}.mp3?v=6`);   // v6 = regen giọng Google Standard-B
+    const a = new Audio(`/audio/jarvis-thinking-${n}.mp3?v=7`);   // v7 = regen giọng Google Wavenet-B
     thinkAudioRef.current = a;
     a.play().catch(() => {});                       // 1 lần thôi — KHÔNG lặp onended
   }
