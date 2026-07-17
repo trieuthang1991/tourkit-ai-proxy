@@ -78,7 +78,7 @@ public static class SpeechEndpoints
         //    Speech:Tts:Provider = vbee | edge | piper | openai (mặc định "vbee").
         //    Speech:Tts:Fallback = true → engine chính lỗi/chưa cấu hình thì thử các engine còn lại theo thứ tự.
         //    Frontend LUÔN gọi endpoint này (không dùng giọng trình duyệt) → mọi máy nghe cùng 1 giọng.
-        v1.MapPost("/speech/tts", async (HttpContext ctx, TtsRequest req, VbeeTtsService vbee, EdgeTtsService edge,
+        v1.MapPost("/speech/tts", async (HttpContext ctx, TtsRequest req, GoogleTtsService google, VbeeTtsService vbee, EdgeTtsService edge,
             PiperTtsService piper, TextToSpeechService openai, TkSessionStore sessions, IConfiguration cfg, ILogger<Program> log) =>
         {
             var sid = Sid(ctx);
@@ -90,7 +90,7 @@ public static class SpeechEndpoints
             var fallback = cfg.GetValue("Speech:Tts:Fallback", true);
             var order = new List<string> { primary };
             if (fallback)
-                foreach (var e in new[] { "vbee", "edge", "piper", "openai" })
+                foreach (var e in new[] { "google", "vbee", "edge", "piper", "openai" })
                     if (!order.Contains(e)) order.Add(e);
 
             IResult Emit(byte[] bytes, string mime, string engine, bool cached)
@@ -107,6 +107,10 @@ public static class SpeechEndpoints
                 {
                     switch (eng)
                     {
+                        case "google":
+                            if (!google.Configured) continue;
+                            var (mg, cg) = await google.SynthesizeAsync(req.Text, req.Voice, ctx.RequestAborted);
+                            return Emit(mg, "audio/mpeg", "google", cg);
                         case "vbee":
                             if (!vbee.Configured) continue;               // KHÔNG truyền req.Voice — Vbee dùng voiceCode ở config
                             var (mv, cv) = await vbee.SynthesizeAsync(req.Text, null, ctx.RequestAborted);

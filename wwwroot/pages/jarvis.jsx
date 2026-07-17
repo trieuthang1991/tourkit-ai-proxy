@@ -165,7 +165,9 @@ const _NAME_SAY = [
   [/\bseller\b/gi, 'sen-lờ'],
   [/\blead\b/gi, 'lít'],
   [/\bemail\b/gi, 'i-meo'],
-  [/\bFIT\b/g, 'phít'],          // tour FIT (case-nhạy: chỉ chữ hoa)
+  // Mã tour dạng "TOURFIT002000" → tách "TOUR FIT 002000" (ép FIT/GIT về HOA để rule dưới đánh vần dù mã hoa/thường).
+  [/\bTOUR(FIT|GIT)(\d+)\b/gi, (m, k, n) => `TOUR ${k.toUpperCase()} ${n}`],
+  [/\bFIT\b/g, 'ép-ai-ti'],      // tour FIT → đánh vần F-I-T (case-nhạy: chỉ chữ hoa)
   [/\bGIT\b/g, 'gít'],           // tour GIT
   [/\bvisa\b/gi, 'vi-da'],
   [/\bAI\b/g, 'ây-ai'],          // case-nhạy: KHÔNG đụng "ai" (từ tiếng Việt)
@@ -210,7 +212,9 @@ function speakifyMonths(text) {
 function humanizeForSpeech(text) {
   const dated = speakifyMonths(speakifyDates(String(text)));
   const money = dated.replace(
-    /(\d{1,3}(?:[.,]\d{3})+)\s*(đồng|đ|vnđ|₫)?/gi,
+    // (?:[.,]\d{1,2})? = phần thập phân cuối (vd "…620.4") — nhóm nghìn luôn đúng 3 chữ số nên
+    // 1–2 chữ số sau dấu = số lẻ → NUỐT & BỎ (VND làm tròn số nguyên, khỏi đọc "chấm 4").
+    /(\d{1,3}(?:[.,]\d{3})+)(?:[.,]\d{1,2})?\s*(đồng|đ|vnđ|₫)?/gi,
     (m, num, unit) => {
       const n = parseInt(num.replace(/[.,\s]/g, ''), 10);
       if (!isFinite(n) || n < 1_000_000) return m;   // < 1 triệu → giữ nguyên
@@ -236,6 +240,7 @@ function cleanSpeechText(text) {
     .replace(/^\s{0,3}#{1,6}\s*/gm, '')              // tiêu đề "## " → bỏ dấu #
     .replace(/^\s*[-*•·▪◦–]\s+/gm, '')               // gạch đầu dòng → bỏ marker (khỏi đọc "gạch ngang")
     .replace(/^\s*\d+[.)]\s+/gm, '')                 // đánh số "1." / "2)" → bỏ marker
+    .replace(/\s+[-–—]+\s+/g, ', ')                  // gạch nối giữa 2 khoảng trắng ("Hà Nội - Sapa") → ", " (ngắt nghỉ; KHÔNG đụng "Wi-Fi"/"COVID-19" vì không có space)
     .replace(/\s*[→➔➜=]+>\s*|\s*[→➔➜]\s*/g, ', ')     // mũi tên → ", "
     .replace(/[*_>|~#]/g, '')                        // ký hiệu markdown còn sót
     .replace(/\s*\n+\s*/g, '. ')                     // xuống dòng → ". " (ngắt nghỉ)
@@ -433,7 +438,7 @@ function JarvisPage({ pushToast }) {
     if (greetedRef.current || !voiceOnRef.current || loadingRef.current) return;
     greetedRef.current = true;   // đánh dấu đã thử (tránh phát nhiều lần)
     const a = ttsEl();           // dùng CHUNG phần tử với reply → chạm chào là mở khoá luôn cho câu trả lời (iOS)
-    setTtsSrc(a, '/audio/travai-greeting.mp3?v=1');   // TRAVAI — giọng chào "Trà vải" (Vbee)
+    setTtsSrc(a, '/audio/travai-greeting.mp3?v=2');   // TRAVAI — giọng chào "Trà vải" (Google Standard-B)
     a.onended = () => setSpeaking(false);
     a.onerror = () => setSpeaking(false);   // file 404 → thôi (không gen)
     setSpeaking(true);
@@ -463,7 +468,7 @@ function JarvisPage({ pushToast }) {
   const ttsBusyRef = _jR(false);
   const ttsGenRef = _jR(0);         // "đời" hàng đợi đọc — tăng mỗi lần reset để bỏ audio/đoạn cũ còn treo
   const ttsAbortsRef = _jR([]);     // AbortController của các call /speech/tts đang bay → hủy khi reset
-  const SPEAK_MIN = 100;            // ngưỡng gom đoạn: đủ ~100 ký tự + hết câu (dấu . ! ? …) → cắt 1 đoạn = 1 call TTS
+  const SPEAK_MIN = 300;            // ngưỡng gom đoạn: đủ ~300 ký tự + hết câu (dấu . ! ? …) → cắt 1 đoạn = 1 call TTS
                                     // (100 = cân bằng: ít call song song hơn → Vbee đỡ nghẽn/lỗi, vẫn nghe tiếng đầu sớm)
   const SPEAK_GAP_SEC = 0.35;      // khoảng lặng chèn GIỮA các đoạn khi ghép → nhịp nghỉ tự nhiên, không dồn
 
@@ -490,7 +495,7 @@ function JarvisPage({ pushToast }) {
     setOrbState('idle');
   }
 
-  // ── TTS "1 lần liền mạch": cắt reply thành ĐOẠN (~≥100 ký tự + hết câu), fetch TẤT CẢ đoạn SONG SONG
+  // ── TTS "1 lần liền mạch": cắt reply thành ĐOẠN (~≥300 ký tự + hết câu), fetch TẤT CẢ đoạn SONG SONG
   //    ngay khi nhận ra (overlap với lúc AI còn generate) → GHÉP thành 1 audio, phát 1 lần → KHÔNG ngắt/giật.
   //    Hết câu = [!?…\n] HOẶC dấu chấm THEO SAU khoảng trắng — KHÔNG cắt chấm trong số ("1.500.000").
   function flushSpeech(full, isFinal) {
@@ -506,7 +511,7 @@ function JarvisPage({ pushToast }) {
       while ((m = boundary.exec(rest)) !== null) {
         if (boundary.lastIndex >= SPEAK_MIN) { cut = boundary.lastIndex; break; }
       }
-      if (cut === -1) {                                  // chưa đủ dài / chưa có hết-câu sau mốc 100
+      if (cut === -1) {                                  // chưa đủ dài / chưa có hết-câu sau mốc 300
         if (isFinal) { const t = rest.trim(); if (t && !ttsDisabledRef.current) ttsSegsRef.current.push(fetchTtsBuf(t, gen)); spokenIdxRef.current = full.length; }
         break;
       }
@@ -815,7 +820,7 @@ function JarvisPage({ pushToast }) {
   function playThinking() {
     if (!voiceOnRef.current) return;
     const n = 1 + Math.floor(Math.random() * 3);   // 3 câu filler, chọn ngẫu nhiên
-    const a = new Audio(`/audio/jarvis-thinking-${n}.mp3?v=5`);   // v5 = bản gen lại
+    const a = new Audio(`/audio/jarvis-thinking-${n}.mp3?v=6`);   // v6 = regen giọng Google Standard-B
     thinkAudioRef.current = a;
     a.play().catch(() => {});                       // 1 lần thôi — KHÔNG lặp onended
   }

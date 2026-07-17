@@ -186,6 +186,10 @@ builder.Services.AddSingleton<TourkitAiProxy.Services.Speech.TextToSpeechService
 builder.Services.AddHttpClient("vbee");
 builder.Services.AddSingleton<TourkitAiProxy.Services.Speech.VbeeTtsService>();             // Vbee TTS (ưu tiên nếu có key)
 builder.Services.AddSingleton<TourkitAiProxy.Services.Speech.VbeeSttService>();             // Vbee STT (primary khi SttEnabled; WAV-only + fallback)
+// Google Cloud Text-to-Speech — giọng Việt neural (Wavenet/Neural2/Chirp3-HD). Auth = API key (REST đồng bộ).
+// Khác Vbee: endpoint Google (GFE) backward-compat với Schannel cũ → thường gọi thẳng được từ WinServer 2012 R2.
+builder.Services.AddHttpClient("google-tts");
+builder.Services.AddSingleton<TourkitAiProxy.Services.Speech.GoogleTtsService>();           // Google TTS (ưu tiên nếu có key)
 
 // Thẩm định Visa AI — upload hồ sơ → AI vision đọc → chấm tỉ lệ đậu/rớt.
 // File gốc lưu tạm data/visa-files/ (tự xóa 7 ngày), kết quả data/visa-assessments.json.
