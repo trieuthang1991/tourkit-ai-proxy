@@ -54,7 +54,7 @@ Sau khi bấm sinh tour, ngay dưới ô này sẽ hiện một dòng xác nhậ
 > 💡 **AI giờ dùng giá NCC thật cho MỌI hạng mục — kể cả vé máy bay, vận chuyển, hướng dẫn viên.** Trước đây những mục này hay bị AI ước sai (thường thấp hơn thực tế) vì không có dữ liệu để bám vào; nay AI dựa vào bảng giá nhà cung cấp thật của công ty nên số liệu sát hơn nhiều. Muốn giá thật luôn đầy đủ và cập nhật, hãy bật tác vụ **"Đồng bộ bảng giá nhà cung cấp"** ở trang **Tự động hóa** (xem [Hướng dẫn Tự động hóa](tu-dong-hoa.md)) để hệ thống tự kéo bảng giá mới về đều đặn. Dù vậy, đây vẫn là **giá tham khảo/ước lượng** — bạn nên rà lại trước khi chốt báo giá chính thức.
 
 ![Bấm sinh tour bằng AI](../images/bao-gia-tour-buoc4.png)
-> 📸 Cần chụp: khung AI bên phải Bước 1, đang hiển thị tiến trình sinh lịch trình sau khi bấm "SINH TOUR BẰNG AI".
+> 📸 Cần chụp: khung "AI Assistant" bên phải Bước 1 — ô "Thông tin / yêu cầu thêm cho AI" và các gợi ý nhanh; bấm nút "SINH TOUR BẰNG AI" ở cuối khung để AI bắt đầu dựng lịch trình.
 
 ### Bước 5 — Xem và chỉnh sửa lịch trình (Bước 2: Lịch trình AI)
 
