@@ -148,6 +148,11 @@ public static class WorkflowStackRegistration
         s.AddSingleton<Workflows.IScheduledWorkflow, Workflows.MailAutoSyncWorkflow>();
         s.AddSingleton<Workflows.IScheduledWorkflow, Workflows.DealAutoReviewWorkflow>();
         s.AddSingleton<Workflows.IScheduledWorkflow, Workflows.CustomerAutoReviewWorkflow>();
+
+        // ─── Tour Price Catalog (đồng bộ bảng giá NCC → dbo.TourPriceCatalog) ──
+        s.AddSingleton<TourPrices.TourPriceCatalogRepository>();
+        s.AddSingleton<Workflows.IScheduledWorkflow, TourPrices.TourPriceCatalogSyncWorkflow>();
+
         s.AddSingleton<Workflows.WorkflowSchedulerService>();
 
         return s;
