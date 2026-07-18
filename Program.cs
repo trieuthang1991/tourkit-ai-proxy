@@ -263,7 +263,7 @@ catch (Exception ex)
 // không auto-chạy mỗi lần deploy. Không chặn startup nếu lỗi.
 if (app.Environment.IsDevelopment())
 {
-    try { await app.Services.GetRequiredService<TourkitAiProxy.Services.TourPrices.SampleCatalogSeeder>().SeedIfEmptyAsync(CancellationToken.None); }
+    try { await app.Services.GetRequiredService<TourkitAiProxy.Services.TourPrices.SampleCatalogSeeder>().ReseedAsync(CancellationToken.None); }
     catch (Exception ex)
     {
         app.Services.GetRequiredService<ILogger<Program>>().LogWarning(ex, "[sample-seed] nạp NCC mẫu lỗi (bỏ qua)");

@@ -54,15 +54,18 @@ public class SampleCatalogSeeder
         return rows;
     }
 
-    /// Nạp nếu chưa có dòng mẫu nào. Trả số dòng đã nạp (0 nếu đã có / seed thiếu).
-    public async Task<int> SeedIfEmptyAsync(CancellationToken ct)
+    /// Reseed-on-change: nạp lại __sample__ khi số dòng DB ≠ seed (xử lý stub→full + sửa seed sau này).
+    /// Khớp → bỏ qua (hiệu quả, coi như đã nạp 1 lần). Trả số dòng đã nạp. CHỈ gọi ở Development.
+    public async Task<int> ReseedAsync(CancellationToken ct)
     {
-        if (await _repo.CountAsync(SampleCatalog.TenantId, ct) > 0) { _log.LogDebug("[sample-seed] đã có NCC mẫu — bỏ qua"); return 0; }
         var path = Path.Combine(_env.ContentRootPath, "data", "seed", "tour-price-sample.json");
         if (!File.Exists(path)) { _log.LogWarning("[sample-seed] thiếu file seed {Path}", path); return 0; }
         var rows = ParseSeed(await File.ReadAllTextAsync(path, ct));
+        var current = await _repo.CountAsync(SampleCatalog.TenantId, ct);
+        if (current == rows.Count && current > 0) { _log.LogDebug("[sample-seed] __sample__ đã khớp seed ({N} dòng) — bỏ qua", current); return 0; }
+        await _repo.DeleteSampleAsync(ct);
         var n = await _repo.UpsertBatchAsync(rows, ct);
-        _log.LogInformation("[sample-seed] nạp {N} dòng NCC mẫu vào __sample__", n);
+        _log.LogInformation("[sample-seed] reseed {N} dòng NCC mẫu vào __sample__ (trước: {Old})", n, current);
         return n;
     }
 }

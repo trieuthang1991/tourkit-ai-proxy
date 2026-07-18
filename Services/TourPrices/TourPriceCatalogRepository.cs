@@ -74,6 +74,15 @@ WHERE TenantId = @tenantId AND IsActive = 1 AND SyncedUtc < @from;";
             new { tenantId });
     }
 
+    /// Xóa toàn bộ dòng NCC mẫu (__sample__). Dùng khi reseed ở dev — chỉ đụng tenant reserved.
+    public async Task<int> DeleteSampleAsync(CancellationToken ct)
+    {
+        await using var conn = await _db.OpenAsync(ct);
+        return await conn.ExecuteAsync(
+            "DELETE FROM dbo.TourPriceCatalog WHERE TenantId = @tenantId",
+            new { tenantId = SampleCatalog.TenantId });
+    }
+
     /// Lấy ứng viên giá theo bộ lọc (city/category/khoảng giá). IsActive=1, cap số dòng.
     /// Dùng cho TourPriceRetriever — chỉ ĐỌC. Field null trong PriceQuery = không lọc theo trục đó.
     public async Task<List<CatalogRow>> QueryAsync(string tenantId, PriceQuery q, int cap, CancellationToken ct)
