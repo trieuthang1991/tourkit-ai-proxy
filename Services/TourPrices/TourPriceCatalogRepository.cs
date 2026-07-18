@@ -83,6 +83,40 @@ WHERE TenantId = @tenantId AND IsActive = 1 AND SyncedUtc < @from;";
             new { tenantId = SampleCatalog.TenantId });
     }
 
+    /// Xóa CỨNG toàn bộ dòng của 1 tenant (đồng bộ lại toàn bộ: wipe rồi kéo mới). Trả số dòng đã xóa.
+    /// Khác DeactivateMissing (chỉ tắt cờ) — dùng khi user chủ động "đồng bộ lại toàn bộ".
+    public async Task<int> DeleteAllForTenantAsync(string tenantId, CancellationToken ct)
+    {
+        if (string.IsNullOrWhiteSpace(tenantId) || SampleCatalog.IsSample(tenantId)) return 0;   // chặn xóa nhầm sample/rỗng
+        await using var conn = await _db.OpenAsync(ct);
+        return await conn.ExecuteAsync(
+            "DELETE FROM dbo.TourPriceCatalog WHERE TenantId = @tenantId",
+            new { tenantId });
+    }
+
+    /// Dải giá đại diện theo LOẠI dịch vụ (p25/p50/p75) cho 1 tenant.
+    /// cityNorm != null → lấy dòng ĐÚNG thành phố đó + dòng city-less (vé bay/vận chuyển/HDV… không gắn địa danh).
+    /// cityNorm == null → mọi dòng. Percentile ở SQL nên chống outlier + không sót loại đắt (cap-free).
+    public async Task<List<PriceBand>> CategoryBandsAsync(string tenantId, string? cityNorm, CancellationToken ct)
+    {
+        // PERCENTILE_CONT trả float → CAST về decimal cho khớp record. Source rỗng (retriever tự gắn nhãn).
+        const string sql = @"
+SELECT DISTINCT
+    CategoryId,
+    MAX(CategoryName) OVER (PARTITION BY CategoryId) AS CategoryName,
+    COUNT(*)          OVER (PARTITION BY CategoryId) AS N,
+    CAST(PERCENTILE_CONT(0.25) WITHIN GROUP (ORDER BY ContractPrice) OVER (PARTITION BY CategoryId) AS decimal(18,2)) AS P25,
+    CAST(PERCENTILE_CONT(0.50) WITHIN GROUP (ORDER BY ContractPrice) OVER (PARTITION BY CategoryId) AS decimal(18,2)) AS P50,
+    CAST(PERCENTILE_CONT(0.75) WITHIN GROUP (ORDER BY ContractPrice) OVER (PARTITION BY CategoryId) AS decimal(18,2)) AS P75,
+    CAST('' AS nvarchar(10)) AS Source
+FROM dbo.TourPriceCatalog
+WHERE TenantId = @tenantId AND IsActive = 1 AND ContractPrice > 0
+  AND (@cityNorm IS NULL OR CityNorm = @cityNorm OR CityNorm IS NULL OR CityNorm = N'')";
+        await using var conn = await _db.OpenAsync(ct);
+        var rows = await conn.QueryAsync<PriceBand>(sql, new { tenantId, cityNorm });
+        return rows.ToList();
+    }
+
     /// Lấy ứng viên giá theo bộ lọc (city/category/khoảng giá). IsActive=1, cap số dòng.
     /// Dùng cho TourPriceRetriever — chỉ ĐỌC. Field null trong PriceQuery = không lọc theo trục đó.
     public async Task<List<CatalogRow>> QueryAsync(string tenantId, PriceQuery q, int cap, CancellationToken ct)

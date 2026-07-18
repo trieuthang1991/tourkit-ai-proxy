@@ -634,6 +634,30 @@ function WorkflowCard({ wf, onUpdate, pushToast, locked }) {
     }
   }
 
+  // Đồng bộ lại TOÀN BỘ (chỉ workflow đồng bộ giá NCC): xóa cứng dữ liệu cũ rồi kéo mới hoàn toàn.
+  async function handleFullResync() {
+    if (!(await window.appConfirm(
+      'Xóa TOÀN BỘ bảng giá NCC đã lưu của công ty rồi kéo lại mới hoàn toàn từ TourKit? Dùng khi nghi ngờ dữ liệu bị lệch.',
+      { title: 'Đồng bộ lại toàn bộ', confirmLabel: 'Xóa & kéo lại', danger: true }))) return;
+    setRunning(true);
+    try {
+      const res = await apiFetch('/api/v1/workflows/tour-price-catalog-sync/full-resync', { method: 'POST' });
+      if (res.started) {
+        pushToast(`Đã xóa ${res.deleted || 0} dòng cũ, đang kéo lại toàn bộ. Kết quả hiện ở "20 lần gần nhất" khi xong (có thể vài phút).`, 'info');
+        setHistoryOpen(true);
+        loadRuns();
+        let n = 0;
+        const iv = setInterval(() => { n++; loadRuns(); onUpdate(); if (n >= 10) clearInterval(iv); }, 20000);
+      } else {
+        pushToast('Không bắt đầu được: ' + (res.error || 'Lỗi không xác định'), 'error');
+      }
+    } catch (e) {
+      pushToast('Không bắt đầu được: ' + e.message, 'error');
+    } finally {
+      setRunning(false);
+    }
+  }
+
   async function loadRuns() {
     setRunsLoading(true);
     try {
@@ -872,6 +896,12 @@ function WorkflowCard({ wf, onUpdate, pushToast, locked }) {
             <button className="wga-btn" onClick={handleRunNow} disabled={running || saving || locked}>
               <Icon name="refresh" size={14} /> {running ? 'Đang chạy...' : 'Chạy ngay'}
             </button>
+            {wf.type === 'tour-price-catalog-sync' && (
+              <button className="wga-btn" onClick={handleFullResync} disabled={running || saving || locked}
+                title="Xóa toàn bộ bảng giá đã lưu rồi kéo lại mới hoàn toàn từ TourKit">
+                <Icon name="trash" size={14} /> Đồng bộ lại toàn bộ
+              </button>
+            )}
             <button className="wga-btn ghost" onClick={toggleHistory}>
               <Icon name="list" size={14} /> {historyOpen ? 'Ẩn lịch sử' : '20 lần gần nhất'}
               <Icon name={historyOpen ? 'chevronUp' : 'chevronDown'} size={13} />

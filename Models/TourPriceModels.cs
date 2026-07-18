@@ -34,3 +34,15 @@ public record PriceCandidate(CatalogRow Row, string Source);
 
 /// Điều kiện lọc ứng viên. Field null = không lọc theo trục đó.
 public record PriceQuery(string? CityNorm, int? CategoryId, decimal? MinPrice, decimal? MaxPrice);
+
+/// Dải giá đại diện của 1 LOẠI dịch vụ (p25/p50/p75, tính ở SQL) — dùng bơm mốc giá cho AI.
+/// Tính theo percentile nên chống outlier (vé máy bay charter 65tr không kéo lệch dải).
+/// GỒM cả loại city-less (vé máy bay/vận chuyển/HDV) mà truy vấn theo-city bỏ sót.
+public record PriceBand(
+    int CategoryId,
+    string? CategoryName,
+    int N,
+    decimal P25,
+    decimal P50,
+    decimal P75,
+    string Source = "");

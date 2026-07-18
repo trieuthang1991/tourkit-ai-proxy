@@ -51,6 +51,36 @@ public static class TourPriceEndpoints
 
             return Results.Json(new { source = src.ToString().ToLowerInvariant(), count = items.Count, items });
         });
+
+        // GET /tour-price/hints — dải giá per-LOẠI (p25/p50/p75) cho wizard bơm mốc giá vào prompt AI.
+        // GỒM loại city-less (vé máy bay/vận chuyển/HDV) → AI có mốc cho mọi mục lớn, không bịa số.
+        v1.MapGet("/tour-price/hints", async (HttpContext ctx, TourPriceRetriever retriever, TkSessionStore sessions,
+            string? source, string? city) =>
+        {
+            var sid = Sid(ctx);
+            var sess = sessions.Get(sid);
+            if (sess == null) return Results.Json(new { error = "Phiên không hợp lệ — đăng nhập lại" }, statusCode: 401);
+
+            var src = ParseSource(source);
+            var cityNorm = string.IsNullOrWhiteSpace(city) ? null : VietnameseText.Norm(city);
+            var bands = await retriever.BandsAsync(sess.TenantId, cityNorm, src, ctx.RequestAborted);
+
+            var items = bands
+                .OrderByDescending(b => b.N)
+                .Select(b => new
+                {
+                    source       = b.Source,
+                    categoryId   = b.CategoryId,
+                    categoryName = b.CategoryName,
+                    n            = b.N,
+                    p25          = decimal.Round(b.P25),
+                    p50          = decimal.Round(b.P50),
+                    p75          = decimal.Round(b.P75),
+                })
+                .ToList();
+
+            return Results.Json(new { source = src.ToString().ToLowerInvariant(), city = cityNorm, count = items.Count, items });
+        });
     }
 
     private static PriceSource ParseSource(string? s) => (s ?? "").Trim().ToLowerInvariant() switch

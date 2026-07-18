@@ -426,65 +426,55 @@ Tránh từ "tuyệt vời", "hoàn hảo", "đáng nhớ". Tiếng Việt tự 
 
   // ─── Giá tham chiếu NCC (thật/mẫu) để AI dựng giá sát thực tế, KHÔNG bịa ──────
   // Chỉ LÀM GIÀU prompt sinh tour — lỗi/không có dữ liệu thì bỏ qua, không chặn.
-  // 1 truy vấn theo THÀNH PHỐ: endpoint trả dòng gắn địa danh (KS/nhà hàng/vé tham quan…) +
-  // tự fallback bỏ lọc city khi rỗng. KHÔNG query thêm "no-city" vì nó kéo 60 dòng RẺ NHẤT
-  // toàn cục (ORDER BY ContractPrice ASC) → lệch giá thấp + lọt danh mục phi-tour.
+  // Endpoint /hints trả DẢI GIÁ per-loại (p25/p50/p75 tính ở SQL) — GỒM cả loại city-less
+  // (vé máy bay/vận chuyển/HDV) mà truy vấn theo-city bỏ sót → AI có mốc cho MỌI mục lớn.
   async function loadPriceHints(dest, source) {
     const src = source || 'both';
-    const url = `/api/v1/tour-price/candidates?source=${encodeURIComponent(src)}&city=${encodeURIComponent(dest)}`;
+    const url = `/api/v1/tour-price/hints?source=${encodeURIComponent(src)}&city=${encodeURIComponent(dest)}`;
     try {
       const r = await window.tourkitAuth.authedFetch(url);
       if (!r.ok) return [];
       const res = await r.json();
-      return (res && res.items) ? res.items : [];
+      return (res && res.items) ? res.items : [];   // mỗi item = 1 dải giá loại DV {categoryName,n,p25,p50,p75,source}
     } catch { return []; }
   }
 
   // Danh mục KHÔNG phải chi phí tour (SaaS/hành chính nội bộ trong catalog NCC) → loại khỏi gợi ý giá.
   const NON_TOUR_CAT = ['ocr', 'cloud', 'sever', 'server', 'hosting', 'phần mềm', 'visa',
-    'dịch thuật', 'voucher', 'kho xe', 'chi phí khác', 'sim '];
+    'dịch thuật', 'voucher', 'kho xe', 'chi phí khác', 'sim ', 'bảo hiểm', 'hộ chiếu'];
   function isTourCategory(name) {
     const s = (name || '').toLowerCase().trim();
     if (!s) return false;
     return !NON_TOUR_CAT.some(k => s.includes(k));
   }
 
-  // Gom ứng viên theo loại DV → 1 khối "bảng giá tham khảo" (giá xấp xỉ, làm tròn) cho prompt.
+  // Dải giá per-loại → 1 khối "bảng giá tham khảo" (làm tròn xấp xỉ) cho prompt.
   // Trả {source,total,real,sample,block}. block rỗng nếu không đủ dữ liệu.
-  function buildPriceHintBlock(rows, source) {
+  function buildPriceHintBlock(bands, source) {
     const meta = { source: source || 'both', total: 0, real: 0, sample: 0, block: '' };
-    if (!rows || !rows.length) return meta;
+    if (!bands || !bands.length) return meta;
     const roundNice = (n) => {   // làm tròn xấp xỉ ~2 chữ số có nghĩa (giá tham khảo, không cần chính xác)
       if (!n || n <= 0) return 0;
       const mag = Math.pow(10, Math.max(0, Math.floor(Math.log10(n)) - 1));
       return Math.round(n / mag) * mag;
     };
-    const pctl = (arr, p) => { const s = [...arr].sort((a, b) => a - b); return s[Math.min(s.length - 1, Math.floor(p * s.length))] || 0; };
-    const byCat = {};
-    for (const it of rows) {
-      if (!isTourCategory(it.categoryName)) continue;   // bỏ danh mục phi-tour (OCR/Cloud/Visa/Voucher…)
-      meta.total++;
-      if (it.source === 'real') meta.real++; else meta.sample++;
-      const cat = it.categoryName || 'Khác';
-      (byCat[cat] || (byCat[cat] = [])).push(it.contractPrice || 0);
-    }
-    const lines = Object.entries(byCat)
-      .filter(([, ps]) => ps.some(x => x > 0))
-      .sort((a, b) => b[1].length - a[1].length)
-      .slice(0, 12)                                   // cap 12 loại để prompt gọn
-      .map(([cat, ps]) => {
-        const pos = ps.filter(x => x > 0);
-        const lo = roundNice(pctl(pos, 0.25));
-        const mid = roundNice(pctl(pos, 0.5));
-        const hi = roundNice(pctl(pos, 0.75));
-        return `- ${cat}: ~${fmtVND(lo)} – ${fmtVND(hi)} VND (điển hình ${fmtVND(mid)})`;
+    const usable = bands.filter(b => isTourCategory(b.categoryName) && ((b.p50 || 0) > 0 || (b.p25 || 0) > 0));
+    if (!usable.length) return meta;
+    usable.forEach(b => { meta.total++; if (b.source === 'real') meta.real++; else meta.sample++; });
+    const lines = usable
+      .sort((a, b) => (b.n || 0) - (a.n || 0))
+      .slice(0, 14)                                   // cap 14 loại để prompt gọn
+      .map(b => {
+        const lo = roundNice(b.p25 || b.p50);
+        const mid = roundNice(b.p50 || b.p25);
+        const hi = roundNice(b.p75 || b.p50);
+        return `- ${b.categoryName || 'Khác'}: ~${fmtVND(lo)} – ${fmtVND(hi)} VND (điển hình ${fmtVND(mid)})`;
       });
-    if (!lines.length) return meta;
     const srcLabel = source === 'real' ? 'NCC thật của công ty'
       : source === 'sample' ? 'NCC mẫu hệ thống'
       : 'NCC thật + mẫu (ưu tiên thật)';
     meta.block = `
-BẢNG GIÁ THAM KHẢO THỰC TẾ (nguồn: ${srcLabel}) — đơn giá theo ĐƠN VỊ (mỗi đêm phòng / mỗi khách / mỗi vé / mỗi chặng). Dùng làm MỐC để ước cột giá_VND; nhân theo số khách & số đêm cho hợp lý. KHÔNG bịa giá lệch xa các mốc này:
+BẢNG GIÁ THAM KHẢO THỰC TẾ (nguồn: ${srcLabel}) — ĐƠN GIÁ theo ĐƠN VỊ: khách sạn = /đêm phòng · nhà hàng/vé/tham quan = /khách · vé máy bay = /khách/chặng · vận chuyển/HDV = /ngày hoặc /đoàn. Dùng làm MỐC để ước cột giá_VND (nhớ nhân theo số khách & số đêm). ĐẶC BIỆT vé máy bay & vận chuyển phải bám mốc này, KHÔNG được ước thấp hơn:
 ${lines.join('\n')}
 `;
     return meta;

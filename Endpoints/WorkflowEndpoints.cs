@@ -3,6 +3,7 @@ using System.Text.Json;
 using TourkitAiProxy.Services.Crm;
 using TourkitAiProxy.Services.Mail;
 using TourkitAiProxy.Services.TourKit;
+using TourkitAiProxy.Services.TourPrices;
 using TourkitAiProxy.Services.Workflows;
 
 namespace TourkitAiProxy.Endpoints;
@@ -49,7 +50,7 @@ public static class WorkflowEndpoints
                     description = wf.Description,
                     scope = wf.Scope.ToString(),
                     enabled = row?.Enabled ?? false,
-                    intervalMinutes = row?.IntervalMinutes ?? 15,
+                    intervalMinutes = row?.IntervalMinutes ?? DefaultInterval(wf.Type),
                     consecutiveFailures = row?.ConsecutiveFailures ?? 0,
                     pausedReason = row?.PausedReason,
                     nextRunUtc = AsUtc(row?.NextRunUtc),
@@ -266,6 +267,36 @@ public static class WorkflowEndpoints
             return Results.Json(new { ok = true, removed });
         });
 
+        // ─── POST /workflows/tour-price-catalog-sync/full-resync ─── xóa toàn bộ + kéo mới ──
+        // Xóa CỨNG mọi dòng giá của tenant rồi kéo lại toàn bộ từ TourKit (chạy nền qua scheduler,
+        // tracking trong "20 lần gần nhất"). Dùng khi nghi ngờ dữ liệu lệch / muốn làm sạch tuyệt đối.
+        v1.MapPost("/workflows/tour-price-catalog-sync/full-resync", async (
+            HttpContext ctx,
+            WorkflowRegistry registry,
+            WorkflowRepository repo,
+            WorkflowSchedulerService scheduler,
+            TourPriceCatalogRepository priceRepo,
+            TkSessionStore sessions) =>
+        {
+            var auth = RequireSession(ctx, sessions);
+            if (auth == null) return Unauthorized();
+            var (sid, tenant, user) = auth.Value;
+            if (!await CanConfigSystemAsync(sid, sessions, ctx.RequestAborted)) return Forbidden();
+
+            const string type = "tour-price-catalog-sync";
+            var wf = registry.Resolve(type);
+            if (wf == null) return Results.Json(new { error = $"Workflow '{type}' không tồn tại" }, statusCode: 404);
+
+            // 1) Xóa cứng toàn bộ dòng của tenant (đồng bộ với CancellationToken.None — không phụ thuộc request).
+            var deleted = await priceRepo.DeleteAllForTenantAsync(tenant, CancellationToken.None);
+            // 2) Đảm bảo có config row rồi kéo lại toàn bộ (fire-and-forget như run-now).
+            var existing = repo.Get(tenant, "", type);
+            if (existing == null)
+                repo.UpsertConfig(tenant, "", type, enabled: false, intervalMinutes: DefaultInterval(type), updatedBy: user);
+            _ = scheduler.RunOneAsync(wf, tenant, "", type, "full-resync", existing?.OptionsJson, CancellationToken.None);
+            return Results.Json(new { ok = true, deleted, started = true });
+        });
+
         // ─── GET /workflows/deal-statuses ─── danh sách trạng thái deal cho picker ──
         // Dùng session của user (đang xem trang) gọi upstream filter-sections → [{value, label}].
         v1.MapGet("/workflows/deal-statuses", async (
@@ -356,6 +387,11 @@ public static class WorkflowEndpoints
 
     private static IResult Unauthorized()
         => Results.Json(new { error = "Phiên không hợp lệ — đăng nhập lại" }, statusCode: 401);
+
+    /// Interval mặc định (phút) khi workflow chưa có config. Đồng bộ giá NCC = hàng ngày (1440);
+    /// còn lại 15 phút. Đổi ở đây → cả API GET lẫn UI (dropdown khởi tạo) đều nhận default mới.
+    private static int DefaultInterval(string type)
+        => type == "tour-price-catalog-sync" ? 1440 : 15;
 
     /// Ensure quyền (tự lấy lại nếu chưa loaded) rồi kiểm CH_HT_XEM. async vì có thể fetch upstream.
     private static async Task<bool> CanConfigSystemAsync(string sid, TkSessionStore sessions, CancellationToken ct)
