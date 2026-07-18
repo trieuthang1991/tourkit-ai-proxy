@@ -73,4 +73,28 @@ WHERE TenantId = @tenantId AND IsActive = 1 AND SyncedUtc < @from;";
             "SELECT COUNT(1) FROM dbo.TourPriceCatalog WHERE TenantId = @tenantId AND IsActive = 1",
             new { tenantId });
     }
+
+    /// Lấy ứng viên giá theo bộ lọc (city/category/khoảng giá). IsActive=1, cap số dòng.
+    /// Dùng cho TourPriceRetriever — chỉ ĐỌC. Field null trong PriceQuery = không lọc theo trục đó.
+    public async Task<List<CatalogRow>> QueryAsync(string tenantId, PriceQuery q, int cap, CancellationToken ct)
+    {
+        if (cap <= 0 || cap > 500) cap = 60;
+        var where = new List<string> { "TenantId = @tenantId", "IsActive = 1" };
+        if (!string.IsNullOrWhiteSpace(q.CityNorm)) where.Add("CityNorm = @cityNorm");
+        if (q.CategoryId is not null)               where.Add("CategoryId = @categoryId");
+        if (q.MinPrice is not null)                 where.Add("ContractPrice >= @minPrice");
+        if (q.MaxPrice is not null)                 where.Add("ContractPrice <= @maxPrice");
+        var sql = $@"SELECT TOP (@cap)
+            TenantId, PricingId, ProviderServiceId, ProviderId, ProviderName, ProviderCode,
+            City, CityNorm, CategoryId, CategoryName, PriceName, Description,
+            ContractPrice, PublicPrice, Stars
+            FROM dbo.TourPriceCatalog WHERE {string.Join(" AND ", where)}
+            ORDER BY ContractPrice";
+        await using var conn = await _db.OpenAsync(ct);
+        var rows = await conn.QueryAsync<CatalogRow>(sql, new
+        {
+            tenantId, cap, q.CityNorm, q.CategoryId, q.MinPrice, q.MaxPrice
+        });
+        return rows.ToList();
+    }
 }
