@@ -19,7 +19,7 @@ Bạn không cần túc trực để dùng — vào xem kết quả bất cứ l
 Vào menu bên trái, nhóm **"Tích hợp"**, chọn **"Tự động hóa"** (địa chỉ `/workflows`). Trang sẽ hiện một dải số liệu nhanh ở đầu trang (tổng số tác vụ, số đang chạy, số đang tạm dừng, lần chạy gần nhất), và bên dưới là danh sách các tác vụ được chia làm 2 nhóm:
 
 - **Theo người dùng** — mỗi nhân viên tự bật riêng cho mình (hiện có: đồng bộ Gmail).
-- **Theo tổ chức (cả công ty)** — cấu hình một lần, áp dụng chung cho cả công ty (hiện có: review deal + review khách hàng).
+- **Theo tổ chức (cả công ty)** — cấu hình một lần, áp dụng chung cho cả công ty (hiện có: review deal + review khách hàng + đồng bộ bảng giá nhà cung cấp).
 
 ![Trang Tự động hóa với 2 nhóm tác vụ](../images/tu-dong-hoa-buoc1.png)
 > 📸 Cần chụp: toàn trang `/workflows` gồm dải số liệu đầu trang + 2 nhóm "Theo người dùng" và "Theo tổ chức" với các thẻ tác vụ.
@@ -62,8 +62,22 @@ Mỗi tác vụ có thêm các tùy chọn riêng ngay bên dưới mục "Lịc
 - **Tự động đồng bộ Gmail** (cần đã cấu hình hộp thư ở trang "Hộp thư AI" trước): bật/tắt **tự động trả lời** email mới, chọn **chế độ** (soạn sẵn để bạn duyệt rồi gửi, hoặc gửi thẳng luôn), chọn **nhóm email** nào được áp dụng tự động trả lời (nên bỏ nhóm "Khiếu nại" để người thật xử lý), và **giọng văn** trả lời.
 - **Tự động review & cảnh báo deal**: chọn những **trạng thái deal** cần xử lý, chỉ xét deal **tạo trong bao nhiêu ngày** gần đây, bật/tắt **AI tự chấm điểm**, có **chấm lại khi deal có thay đổi** hay không, số deal tối đa chấm mỗi lượt, và phần **cảnh báo deal nguội**: sau bao nhiêu ngày không ai chăm sóc thì coi là "nguội", chỉ cảnh báo deal có khả năng chốt từ bao nhiêu %, và giới hạn số lần nhắc cho một deal để tránh làm phiền.
 - **Tự động review khách hàng**: chỉ xét khách **tạo trong bao nhiêu ngày** gần đây, bật/tắt **review lại định kỳ**, và chu kỳ chấm lại (ví dụ 30 ngày = mỗi tháng chấm lại một lần).
+- **Đồng bộ bảng giá nhà cung cấp**: kéo bảng giá nhà cung cấp (NCC) từ TourKit về hệ thống để **AI dựng giá tour bằng số thật thay vì ước lượng** (dùng ở trang **Tính giá Tour** — xem [Hướng dẫn Báo giá tour](bao-gia-tour.md)). Tác vụ này **mặc định chạy 1 lần/ngày** (khác các tác vụ khác thường mặc định 15 phút), bạn vẫn có thể đổi tần suất như bình thường. Riêng tác vụ này có thêm nút **"Đồng bộ lại toàn bộ"** — xem mục ngay bên dưới.
 
 Sau khi chỉnh xong, nhớ bấm **"Lưu cấu hình"**.
+
+#### Nút "Đồng bộ lại toàn bộ" (chỉ có ở tác vụ đồng bộ bảng giá)
+
+Bình thường mỗi lần chạy, tác vụ chỉ cập nhật thêm/sửa phần bảng giá thay đổi. Nếu bạn **nghi ngờ bảng giá đã lưu bị lệch hoặc cũ**, bấm nút **"Đồng bộ lại toàn bộ"** trong thẻ tác vụ để làm sạch và kéo lại từ đầu:
+
+1. Bấm **"Đồng bộ lại toàn bộ"**. Vì thao tác này sẽ **xóa sạch toàn bộ bảng giá NCC đã lưu của công ty** rồi mới kéo lại, hệ thống sẽ hỏi xác nhận trước — hãy đọc kỹ và cân nhắc.
+2. Bấm xác nhận (**"Xóa & kéo lại"**). Hệ thống xóa dữ liệu cũ xong sẽ tự kéo lại toàn bộ ở phía sau, có thể mất vài phút.
+3. Xem kết quả ở mục **"20 lần gần nhất"** khi chạy xong.
+
+> ⚠️ Cân nhắc kỹ trước khi dùng: nút này **xóa dữ liệu bảng giá đã lưu trong hệ thống**. Tuy nhiên nó **không đụng tới dữ liệu gốc bên TourKit** — sau khi xóa, hệ thống kéo lại chính bảng giá đó từ TourKit, nên bạn không mất giá thật, chỉ là làm mới lại từ đầu.
+
+![Nút Đồng bộ lại toàn bộ trong thẻ đồng bộ bảng giá](../images/tu-dong-hoa-dong-bo-gia.png)
+> 📸 Cần chụp: thẻ "Đồng bộ bảng giá nhà cung cấp" đang mở, thấy nút "Đồng bộ lại toàn bộ" và ô chọn tần suất đang để mặc định "Hàng ngày".
 
 ![Các tùy chọn riêng của tác vụ review deal](../images/tu-dong-hoa-buoc4.png)
 > 📸 Cần chụp: thẻ "Tự động review & cảnh báo deal" đang mở, thấy các nhóm tùy chọn "Phạm vi xử lý", "Tự động chấm điểm", "Cảnh báo deal nguội".
@@ -98,6 +112,7 @@ Nếu một tác vụ chạy lỗi liên tiếp nhiều lần, hệ thống sẽ
 - **"Chấm lại khi có thay đổi" có giới hạn số lần** cho mỗi deal/khách hàng — tránh AI cứ chấm đi chấm lại mãi một hồ sơ không có gì mới.
 - Với tác vụ chấm điểm/review, mỗi lượt chạy chỉ xử lý một số lượng giới hạn hồ sơ (để không chạy quá lâu) — nếu công ty có nhiều dữ liệu mới cùng lúc, phần còn lại sẽ được xử lý tiếp ở (các) lượt chạy sau, không bị bỏ sót.
 - Bấm **"Chạy ngay"** không cần ngồi chờ trên trang — rời trang hay đóng tab không làm hủy lượt chạy đó, cứ quay lại xem mục lịch sử sau.
+- **Tác vụ "Đồng bộ bảng giá nhà cung cấp" mặc định chạy 1 lần/ngày** (không phải 15 phút như một số tác vụ khác), và cũng thuộc nhóm "Theo tổ chức" nên cần cấu hình **Tài khoản tự động** trước. Nút **"Đồng bộ lại toàn bộ"** sẽ **xóa sạch bảng giá đã lưu rồi kéo lại từ đầu** — chỉ dùng khi nghi ngờ dữ liệu bị lệch, và luôn có bước hỏi xác nhận trước khi chạy.
 
 ## 5. Câu hỏi thường gặp (FAQ)
 
@@ -127,3 +142,12 @@ A: Bật riêng cho từng người — nằm trong nhóm "Theo người dùng".
 
 **Q: "Tự động trả lời" trong tác vụ đồng bộ Gmail có gửi thẳng cho khách không cần tôi duyệt không?**
 A: Tùy bạn chọn ở "Chế độ": chọn **"Soạn sẵn"** thì AI chỉ soạn nháp, chờ bạn xem và bấm gửi; chọn **"Gửi thẳng tự động"** thì AI tự soạn và gửi luôn cho khách không cần duyệt. Nên cân nhắc kỹ trước khi bật "Gửi thẳng tự động", đặc biệt với các nhóm email nhạy cảm như khiếu nại.
+
+**Q: Tác vụ "Đồng bộ bảng giá nhà cung cấp" dùng để làm gì?**
+A: Nó tự kéo bảng giá nhà cung cấp (NCC) từ TourKit về hệ thống, để khi bạn tạo báo giá ở trang **Tính giá Tour**, AI dựng giá bằng **số thật của công ty thay vì ước lượng** (kể cả vé máy bay, vận chuyển, hướng dẫn viên). Xem thêm [Hướng dẫn Báo giá tour](bao-gia-tour.md).
+
+**Q: Vì sao tác vụ đồng bộ bảng giá lại mặc định chạy 1 lần/ngày mà không phải mỗi 15 phút?**
+A: Bảng giá nhà cung cấp không thay đổi liên tục, nên chạy mỗi ngày một lần là đủ để giữ số liệu tươi mới mà không tốn tài nguyên. Nếu công ty bạn cập nhật giá thường xuyên hơn, cứ đổi tần suất trong thẻ tác vụ như bình thường.
+
+**Q: Bấm "Đồng bộ lại toàn bộ" có mất dữ liệu không?**
+A: Nút này **xóa sạch bảng giá NCC đã lưu trong hệ thống rồi kéo lại mới hoàn toàn từ TourKit**. Nó **không ảnh hưởng dữ liệu gốc bên TourKit** — sau khi xóa, hệ thống lấy lại chính bảng giá đó từ TourKit, nên bạn không mất giá thật, chỉ là làm mới lại từ đầu. Chỉ nên dùng khi nghi ngờ dữ liệu đã lưu bị lệch hoặc cũ; thao tác luôn có bước hỏi xác nhận trước khi chạy.
