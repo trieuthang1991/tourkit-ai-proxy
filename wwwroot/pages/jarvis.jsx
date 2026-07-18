@@ -1154,39 +1154,42 @@ function JarvisPage({ pushToast }) {
   function hfRecordUtterance() {
     return new Promise((resolve) => {
       const h = hfRef.current;
-      const SPEECH_ON = 0.15, SPEECH_OFF = 0.10, SILENCE_MS = 900, MIN_MS = 500, MAX_MS = 15000;
+      const SPEECH_ON = 0.15, SPEECH_OFF = 0.10, SILENCE_MS = 900, MIN_MS = 400, MAX_MS = 15000, ONSET_WAIT_MS = 15000;
+      // GHI NGAY từ đầu (pre-roll) — KHÔNG chờ VAD rồi mới bật recorder (sẽ rớt chữ đầu như "Top").
+      // VAD chỉ dùng để: (a) biết ĐÃ có tiếng thật chưa, (b) chốt lúc DỪNG khi im lặng đủ lâu.
+      const mime = MediaRecorder.isTypeSupported('audio/webm;codecs=opus') ? 'audio/webm;codecs=opus'
+                 : MediaRecorder.isTypeSupported('audio/webm') ? 'audio/webm'
+                 : MediaRecorder.isTypeSupported('audio/mp4') ? 'audio/mp4' : '';
+      let recorder;
+      try { recorder = mime ? new MediaRecorder(h.stream, { mimeType: mime }) : new MediaRecorder(h.stream); }
+      catch { resolve(null); return; }
+      const chunks = []; const startedAt = Date.now();
+      let silenceStart = 0, sawSpeech = false, speechAt = 0, aborted = false;
+      recorder.ondataavailable = (e) => { if (e.data?.size > 0) chunks.push(e.data); };
+      recorder.onstop = () => {
+        const type = recorder.mimeType || mime || 'audio/webm';
+        const blob = new Blob(chunks, { type });
+        setMicLevel(0);
+        const speechMs = speechAt ? Date.now() - speechAt : 0;   // đo TỪ lúc có tiếng (không tính im lặng đầu)
+        if (aborted || !sawSpeech || speechMs < MIN_MS || blob.size < 1200) { resolve(null); return; }
+        resolve({ blob, ext: /mp4/.test(type) ? 'm4a' : 'webm' });
+      };
       (async () => {
-        // 1) chờ có tiếng nói (thoát nếu bị tắt / TRAVAI bận)
-        while (h.active && !hfBusy()) { if (hfLevel() > SPEECH_ON) break; await hfSleep(60); }
-        if (!h.active || hfBusy()) { resolve(null); return; }
-        // 2) ghi cho tới khi im lặng đủ lâu (hoặc chạm trần thời lượng)
-        const mime = MediaRecorder.isTypeSupported('audio/webm;codecs=opus') ? 'audio/webm;codecs=opus'
-                   : MediaRecorder.isTypeSupported('audio/webm') ? 'audio/webm'
-                   : MediaRecorder.isTypeSupported('audio/mp4') ? 'audio/mp4' : '';
-        let recorder;
-        try { recorder = mime ? new MediaRecorder(h.stream, { mimeType: mime }) : new MediaRecorder(h.stream); }
-        catch { resolve(null); return; }
-        const chunks = []; const startedAt = Date.now();
-        let silenceStart = 0, sawSpeech = true, aborted = false;
-        recorder.ondataavailable = (e) => { if (e.data?.size > 0) chunks.push(e.data); };
-        recorder.onstop = () => {
-          const durMs = Date.now() - startedAt;
-          const type = recorder.mimeType || mime || 'audio/webm';
-          const blob = new Blob(chunks, { type });
-          setMicLevel(0);
-          if (aborted || durMs < MIN_MS || blob.size < 1200 || !sawSpeech) { resolve(null); return; }
-          resolve({ blob, ext: /mp4/.test(type) ? 'm4a' : 'webm' });
-        };
-        recorder.start(250);   // timeslice → chunk bền hơn trên iOS
-        setRec('recording'); setOrbState('listening');
+        recorder.start(250);   // timeslice → chunk bền hơn trên iOS; ghi TRƯỚC khi có tiếng → bắt trọn chữ đầu
+        setOrbState('listening');
         while (h.active) {
-          await hfSleep(60);
+          await hfSleep(50);
           if (hfBusy()) { aborted = true; break; }             // TRAVAI bắt đầu đọc → bỏ đoạn (chống lặp)
           const lv = hfLevel(); setMicLevel(lv); const now = Date.now();
-          if (lv > SPEECH_OFF) { sawSpeech = true; silenceStart = 0; }
-          else if (!silenceStart) silenceStart = now;
-          else if (now - silenceStart > SILENCE_MS) break;     // im lặng đủ lâu → chốt đoạn
-          if (now - startedAt > MAX_MS) break;                 // cắt đoạn quá dài
+          if (lv > SPEECH_ON) {                                 // có tiếng nói
+            if (!sawSpeech) { sawSpeech = true; speechAt = now; setRec('recording'); }
+            silenceStart = 0;
+          } else if (sawSpeech && lv < SPEECH_OFF) {            // đã nói rồi → đang im lặng
+            if (!silenceStart) silenceStart = now;
+            else if (now - silenceStart > SILENCE_MS) break;    // im đủ lâu → chốt câu
+          }
+          if (!sawSpeech && now - startedAt > ONSET_WAIT_MS) { aborted = true; break; }  // im mãi → bỏ, vòng sau tạo recorder mới (reset buffer)
+          if (sawSpeech && now - speechAt > MAX_MS) break;      // câu quá dài → cắt
         }
         if (!h.active) aborted = true;
         try { if (recorder.state === 'recording') recorder.stop(); else resolve(null); } catch { resolve(null); }
@@ -1224,11 +1227,12 @@ function JarvisPage({ pushToast }) {
     hfRef.current = { active: true, stream, ctx, analyser, src, data };
     setOrbState('listening');
     (async () => {
-      const COOLDOWN_MS = 500;   // đọc xong chờ chút cho hết đuôi tiếng loa rồi mới nghe (chống lặp)
+      const COOLDOWN_MS = 500;   // chỉ chờ nuốt đuôi tiếng loa SAU khi TRAVAI đọc (chống lặp) — KHÔNG áp câu đầu
       while (hfRef.current && hfRef.current.active) {
-        while (hfRef.current.active && hfBusy()) await hfSleep(120);   // đợi TRAVAI đọc/nghĩ xong
+        let wasBusy = false;
+        while (hfRef.current.active && hfBusy()) { wasBusy = true; await hfSleep(120); }   // đợi TRAVAI đọc/nghĩ xong
         if (!hfRef.current.active) break;
-        await hfSleep(COOLDOWN_MS);
+        if (wasBusy) await hfSleep(COOLDOWN_MS);   // vừa đọc xong → nuốt đuôi; còn lại nghe NGAY (không trễ, không rớt chữ đầu)
         if (!hfRef.current.active || hfBusy()) continue;
         const seg = await hfRecordUtterance();
         if (!hfRef.current.active) break;
