@@ -7,6 +7,7 @@ namespace TourkitAiProxy.Services.TourKit;
 ///   • ProvidersByServiceAsync — `/api/tours/providers-by-service?serviceId=`  (NCC theo loại DV)
 ///   • ProviderServicesAsync — `/api/tours/providers/{id}/services`  (giá hợp đồng dịch vụ con của 1 NCC)
 ///   • ProvidersAsync        — `/api/tours/providers?marketId=`  (full NCC / HDV)
+///   • ProviderPricesAsync   — `/api/ai/provider-prices?pageIndex=&pageSize=`  (bảng giá phân trang, có City — cho catalog sync)
 public class TourKitNccClient
 {
     private readonly TourKitApiClient _api;
@@ -39,6 +40,11 @@ public class TourKitNccClient
         if (serviceId.HasValue && serviceId.Value > 0) qs += $"&serviceId={serviceId.Value}";
         return GetAsync(sessionId, "/api/ai/providers" + qs, ct);
     }
+
+    /// Bảng giá NCC phân trang — nguồn cho TourPriceCatalogSyncWorkflow.
+    /// Trả envelope `data` = { items[], total, pageIndex, pageSize }. Dùng lại GetAsync (tự re-login khi 401).
+    public Task<JsonElement> ProviderPricesAsync(string sessionId, int pageIndex, int pageSize, CancellationToken ct)
+        => GetAsync(sessionId, $"/api/ai/provider-prices?pageIndex={pageIndex}&pageSize={pageSize}", ct);
 
     private async Task<JsonElement> GetAsync(string sessionId, string path, CancellationToken ct)
     {
