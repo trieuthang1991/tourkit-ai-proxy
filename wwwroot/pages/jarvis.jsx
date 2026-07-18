@@ -351,8 +351,17 @@ function JarvisPage({ pushToast }) {
   //    Giải: điện thoại (hoặc trình duyệt thiếu Web Speech) chuyển sang THU ÂM (MediaRecorder)
   //    upload /speech/transcribe (Whisper server, chạy mọi máy). Cùng đường assistant.jsx đã chạy tốt.
   const isMobile = window.tourkitHooks.useIsMobile();
+  const canRecord = !!(navigator.mediaDevices && navigator.mediaDevices.getUserMedia);
+  // NÚT 🎤 bấm-để-nói: trên mobile → thu âm gửi Whisper server (ổn định cho từng câu đơn lẻ).
   const useServerStt = isMobile || !SpeechRec;
+  // "Luôn nghe" (hands-free):
+  //  • Desktop → webkitSpeechRecognition continuous (ổn định trên desktop).
+  //  • Mobile  → server Whisper + VAD (tự cắt đoạn theo im lặng). KHÔNG dùng webkit continuous vì
+  //    (1) Android Chrome chập chờn (Chromium #40324711), (2) mic để HỞ trong lúc loa đọc → nghe
+  //    lại giọng TRAVAI → NHẬN DIỆN LẶP. Server-STT half-duplex (đóng mic khi đọc) chống lặp tận gốc.
+  const supportsAlwaysListen = useServerStt ? canRecord : !!SpeechRec;
   const srvRecRef = _jR(null);   // {recorder, stream} khi thu âm gửi server
+  const hfRef = _jR({ active: false, stream: null, ctx: null, analyser: null, src: null, data: null });   // "Luôn nghe" server-VAD (mobile)
   const micMeterRef = _jR(null);  // {raf, analyser, src, timer} — đo mức âm sống lúc ghi (báo user "đang nghe được")
   const [micLevel, setMicLevel] = _jS(0);   // 0..1 độ lớn giọng đang thu → animate cột mức âm
   const [recSecs, setRecSecs]   = _jS(0);   // số giây đã ghi (đồng hồ)
@@ -366,6 +375,10 @@ function JarvisPage({ pushToast }) {
   // Nhớ trạng thái qua localStorage → khỏi bật lại mỗi lần vào (mặc định TẮT vì cần quyền mic).
   const [listening, setListening] = _jS(() => { try { return localStorage.getItem('jarvis_listen') === '1'; } catch { return false; } });
   _jE(() => { try { localStorage.setItem('jarvis_listen', listening ? '1' : '0'); } catch {} }, [listening]);
+  // Trình duyệt thiếu Web Speech (iOS Safari cũ, Firefox mobile…) → ép tắt "Luôn nghe" cho nút +
+  // trạng thái nhất quán (engine vốn đã tự no-op khi thiếu SpeechRec, nhưng cờ listening có thể
+  // còn true từ localStorage phiên Chrome trước → tránh hiển thị "BẬT" mà không nghe được).
+  _jE(() => { if (!supportsAlwaysListen && listening) setListening(false); }, [supportsAlwaysListen, listening]);
   const [interim, setInterim] = _jS('');             // chữ đang nhận diện (chưa chốt)
   const [speaking, setSpeaking] = _jS(false);        // loa đang đọc (TTS)
   const listeningRef = _jR(false);
@@ -958,7 +971,8 @@ function JarvisPage({ pushToast }) {
     // Ngắt mọi giọng đang phát TRƯỚC khi mở mic — iOS đang phát loa mà mở mic thì audio session xung đột → thu lỗi/cụt.
     try { resetSpeech(); setSpeaking(false); } catch {}
     try {
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      // Bật khử vọng + lọc ồn → mic đỡ nghe lại giọng loa (chống lặp), giọng vào rõ hơn.
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true } });
       // iOS Safari KHÔNG hỗ trợ audio/webm → fallback audio/mp4; để trống cho browser tự chọn nếu cả 2 fail.
       const mime = MediaRecorder.isTypeSupported('audio/webm;codecs=opus') ? 'audio/webm;codecs=opus'
                  : MediaRecorder.isTypeSupported('audio/webm') ? 'audio/webm'
@@ -1123,10 +1137,123 @@ function JarvisPage({ pushToast }) {
     silenceTimerRef.current = setTimeout(firePendingSend, wait);
   }
 
+  // ── "Luôn nghe" trên MOBILE = server Whisper + VAD (tự cắt đoạn theo im lặng) ──────────────
+  // CHỐNG LẶP tận gốc: chỉ mở ghi âm KHI người dùng nói, ĐÓNG HẲN mic lúc TRAVAI đọc (half-duplex)
+  // → mic không nghe lại giọng loa. Nhận diện ở server (Whisper) nên ổn định, không rớt chữ như
+  // webkitSpeechRecognition continuous trên Android Chrome.
+  function hfLevel() {
+    const h = hfRef.current; if (!h || !h.analyser || !h.data) return 0;
+    h.analyser.getByteTimeDomainData(h.data);
+    let sum = 0; for (let i = 0; i < h.data.length; i++) { const v = (h.data[i] - 128) / 128; sum += v * v; }
+    return Math.min(1, Math.sqrt(sum / h.data.length) * 3.4);   // RMS → 0..1 (cùng công thức cột mức âm)
+  }
+  const hfSleep = (ms) => new Promise(r => setTimeout(r, ms));
+  function hfBusy() { return speakingRef.current || loadingRef.current; }   // TRAVAI đang đọc/nghĩ → ngưng nghe
+
+  // Ghi 1 lượt nói trên stream sẵn có → {blob, ext} (hoặc null nếu quá ngắn / không có tiếng / bị ngắt).
+  function hfRecordUtterance() {
+    return new Promise((resolve) => {
+      const h = hfRef.current;
+      const SPEECH_ON = 0.15, SPEECH_OFF = 0.10, SILENCE_MS = 900, MIN_MS = 500, MAX_MS = 15000;
+      (async () => {
+        // 1) chờ có tiếng nói (thoát nếu bị tắt / TRAVAI bận)
+        while (h.active && !hfBusy()) { if (hfLevel() > SPEECH_ON) break; await hfSleep(60); }
+        if (!h.active || hfBusy()) { resolve(null); return; }
+        // 2) ghi cho tới khi im lặng đủ lâu (hoặc chạm trần thời lượng)
+        const mime = MediaRecorder.isTypeSupported('audio/webm;codecs=opus') ? 'audio/webm;codecs=opus'
+                   : MediaRecorder.isTypeSupported('audio/webm') ? 'audio/webm'
+                   : MediaRecorder.isTypeSupported('audio/mp4') ? 'audio/mp4' : '';
+        let recorder;
+        try { recorder = mime ? new MediaRecorder(h.stream, { mimeType: mime }) : new MediaRecorder(h.stream); }
+        catch { resolve(null); return; }
+        const chunks = []; const startedAt = Date.now();
+        let silenceStart = 0, sawSpeech = true, aborted = false;
+        recorder.ondataavailable = (e) => { if (e.data?.size > 0) chunks.push(e.data); };
+        recorder.onstop = () => {
+          const durMs = Date.now() - startedAt;
+          const type = recorder.mimeType || mime || 'audio/webm';
+          const blob = new Blob(chunks, { type });
+          setMicLevel(0);
+          if (aborted || durMs < MIN_MS || blob.size < 1200 || !sawSpeech) { resolve(null); return; }
+          resolve({ blob, ext: /mp4/.test(type) ? 'm4a' : 'webm' });
+        };
+        recorder.start(250);   // timeslice → chunk bền hơn trên iOS
+        setRec('recording'); setOrbState('listening');
+        while (h.active) {
+          await hfSleep(60);
+          if (hfBusy()) { aborted = true; break; }             // TRAVAI bắt đầu đọc → bỏ đoạn (chống lặp)
+          const lv = hfLevel(); setMicLevel(lv); const now = Date.now();
+          if (lv > SPEECH_OFF) { sawSpeech = true; silenceStart = 0; }
+          else if (!silenceStart) silenceStart = now;
+          else if (now - silenceStart > SILENCE_MS) break;     // im lặng đủ lâu → chốt đoạn
+          if (now - startedAt > MAX_MS) break;                 // cắt đoạn quá dài
+        }
+        if (!h.active) aborted = true;
+        try { if (recorder.state === 'recording') recorder.stop(); else resolve(null); } catch { resolve(null); }
+      })();
+    });
+  }
+
+  async function hfStart() {
+    if (hfRef.current && hfRef.current.active) return;
+    if (!navigator.mediaDevices?.getUserMedia) { pushToast('Trình duyệt không hỗ trợ ghi âm', 'error'); setListening(false); return; }
+    let stream;
+    try {
+      // Khử vọng + lọc ồn: giảm mic nghe lại giọng loa (chống lặp) + tiếng ồn nền.
+      stream = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true } });
+    } catch (e) {
+      const map = {
+        NotAllowedError: 'Bị chặn quyền mic — cho phép rồi bật lại "Luôn nghe"', PermissionDeniedError: 'Bị chặn quyền mic — cho phép rồi bật lại "Luôn nghe"',
+        NotFoundError: 'Không tìm thấy mic trên thiết bị', NotReadableError: 'Mic đang bị app khác dùng',
+        SecurityError: 'Mic chỉ chạy trên HTTPS (hoặc localhost)',
+      };
+      pushToast(map[e.name] || ('Lỗi mic: ' + (e.message || e.name)), 'error');
+      setListening(false); return;
+    }
+    const ctx = getCtx(); let analyser = null, src = null, data = null;
+    try {
+      if (ctx) { if (ctx.state === 'suspended') await ctx.resume(); analyser = ctx.createAnalyser(); analyser.fftSize = 256;
+        src = ctx.createMediaStreamSource(stream); src.connect(analyser); data = new Uint8Array(analyser.frequencyBinCount); }
+    } catch {}
+    if (!analyser || !data) {
+      // Không có analyser → VAD đo mức âm = 0 mãi → sẽ KẸT CÂM (bật mà không bao giờ ghi). Báo rõ thay vì im ỉm.
+      try { stream.getTracks().forEach(t => t.stop()); } catch {}
+      pushToast('Trình duyệt không mở được bộ phân tích âm thanh — "Luôn nghe" cần trình duyệt hỗ trợ Web Audio', 'error');
+      setListening(false); return;
+    }
+    hfRef.current = { active: true, stream, ctx, analyser, src, data };
+    setOrbState('listening');
+    (async () => {
+      const COOLDOWN_MS = 500;   // đọc xong chờ chút cho hết đuôi tiếng loa rồi mới nghe (chống lặp)
+      while (hfRef.current && hfRef.current.active) {
+        while (hfRef.current.active && hfBusy()) await hfSleep(120);   // đợi TRAVAI đọc/nghĩ xong
+        if (!hfRef.current.active) break;
+        await hfSleep(COOLDOWN_MS);
+        if (!hfRef.current.active || hfBusy()) continue;
+        const seg = await hfRecordUtterance();
+        if (!hfRef.current.active) break;
+        if (seg) await transcribeAndSend(seg.blob, 'jarvis.' + seg.ext);   // upload Whisper → gửi câu hỏi
+        else setRec(r => (r === 'recording' ? 'idle' : r));
+      }
+    })();
+  }
+  function hfStop() {
+    const h = hfRef.current;
+    if (h) {
+      h.active = false;
+      try { h.src?.disconnect(); h.analyser?.disconnect(); } catch {}
+      try { h.stream?.getTracks().forEach(t => t.stop()); } catch {}
+    }
+    hfRef.current = { active: false, stream: null, ctx: null, analyser: null, src: null, data: null };
+    setMicLevel(0);
+    setRec(r => (r === 'recording' ? 'idle' : r));
+    setOrbState(s => (s === 'listening' ? 'idle' : s));
+  }
+
   // Tạo SpeechRecognition 1 lần. onresult: gom câu → im lặng đủ lâu mới gửi (debounce); interim → hiện realtime.
   // onend: tự khởi động lại nếu vẫn bật & không bận (browser hay tự dừng sau im lặng/60s).
   _jE(() => {
-    if (!SpeechRec) return;
+    if (useServerStt || !SpeechRec) return;   // MOBILE dùng server-VAD (hfStart) — KHÔNG tạo webkit recognition
     const r = new SpeechRec();
     r.lang = 'vi-VN'; r.continuous = true; r.interimResults = true;
     r.onresult = (e) => {
@@ -1161,8 +1288,9 @@ function JarvisPage({ pushToast }) {
     return () => { try { r.onend = null; r.abort(); } catch {} recogRef.current = null; };
   }, []);
 
-  // Điều phối start/stop theo (listening, loading, speaking): chỉ nghe khi bật + AI rảnh + loa im.
+  // DESKTOP: điều phối webkit start/stop theo (listening, loading, speaking): chỉ nghe khi bật + AI rảnh + loa im.
   _jE(() => {
+    if (useServerStt) return;   // mobile dùng server-VAD ở effect dưới
     const r = recogRef.current;
     if (!r) return;
     if (listening && !loading && !speaking) {
@@ -1176,10 +1304,21 @@ function JarvisPage({ pushToast }) {
       setInterim('');
       if (!listening) setOrbState(s => (s === 'listening' ? 'idle' : s));
     }
-  }, [listening, loading, speaking]);
+  }, [listening, loading, speaking, useServerStt]);
+
+  // MOBILE: điều phối "Luôn nghe" qua server Whisper. Mở stream 1 lần khi bật, đóng khi tắt.
+  // KHÔNG để loading/speaking vào deps — vòng lặp hfStart tự ngưng nghe khi TRAVAI bận (chống lặp).
+  _jE(() => {
+    if (!useServerStt) return;   // desktop dùng webkitSpeechRecognition ở effect trên
+    if (listening) hfStart(); else hfStop();
+    return () => hfStop();
+  }, [listening, useServerStt]);
 
   function toggleListening() {
-    if (!SpeechRec) { pushToast('Trình duyệt không hỗ trợ nhận diện liên tục (dùng Chrome/Edge)', 'error'); return; }
+    if (!supportsAlwaysListen) {
+      pushToast(useServerStt ? 'Không mở được micro trên trình duyệt này' : 'Trình duyệt không hỗ trợ nhận diện liên tục (dùng Chrome/Edge)', 'error');
+      return;
+    }
     setListening(v => {
       const nv = !v;
       if (nv) { window.speechSynthesis?.cancel(); setOrbState(s => (s === 'idle' ? 'listening' : s)); }
@@ -1188,7 +1327,7 @@ function JarvisPage({ pushToast }) {
     });
   }
   // Dừng nghe khi rời trang
-  _jE(() => () => { try { recogRef.current?.abort(); clearTimeout(silenceTimerRef.current); } catch {} }, []);
+  _jE(() => () => { try { recogRef.current?.abort(); clearTimeout(silenceTimerRef.current); hfStop(); } catch {} }, []);
 
   const STATUS = {
     idle: { label: 'SẴN SÀNG', cls: 'idle' },
@@ -1230,8 +1369,8 @@ function JarvisPage({ pushToast }) {
             {lastTool && lastTool !== 'none' && <span className="jv-readout">TOOL <b>{lastTool}</b></span>}
             <button className={'jv-toggle' + (listening ? ' listen-on' : '')}
               onClick={toggleListening}
-              disabled={useServerStt}
-              title={useServerStt ? 'Chế độ luôn nghe chưa hỗ trợ trên điện thoại — dùng nút 🎤 bấm-để-nói' : (listening ? 'Đang nghe liên tục — bấm để tắt' : 'Bật chế độ luôn lắng nghe (rảnh tay)')}>
+              disabled={!supportsAlwaysListen}
+              title={!supportsAlwaysListen ? 'Trình duyệt không hỗ trợ luôn nghe — dùng Chrome/Edge, hoặc nút 🎤 bấm-để-nói' : (listening ? 'Đang nghe liên tục — bấm để tắt' : 'Bật chế độ luôn lắng nghe (rảnh tay)')}>
               <Icon name="phone" size={14} /> {listening ? 'LUÔN NGHE: BẬT' : 'LUÔN NGHE: TẮT'}
             </button>
             <button className={'jv-toggle' + (voiceOn ? ' on' : '')}
