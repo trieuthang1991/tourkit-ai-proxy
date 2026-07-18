@@ -25,3 +25,12 @@ public record CatalogRow(
     decimal PublicPrice,
     int? Stars
 );
+
+/// Nguồn giá khi retriever lấy ứng viên. Both = ưu tiên thật, lấp mẫu vào cặp (điểm đến+loại) còn thiếu.
+public enum PriceSource { Sample, Real, Both }
+
+/// 1 dòng ứng viên + nhãn nguồn ("real" hoặc "sample") để UI/AI biết dòng nào là mẫu.
+public record PriceCandidate(CatalogRow Row, string Source);
+
+/// Điều kiện lọc ứng viên. Field null = không lọc theo trục đó.
+public record PriceQuery(string? CityNorm, int? CategoryId, decimal? MinPrice, decimal? MaxPrice);
