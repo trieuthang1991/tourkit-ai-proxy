@@ -390,8 +390,11 @@ Now transcribe the audio:";
         // Whisper sẽ "ngại" output filler/sai chính tả terminology vì context biased theo đoạn này.
         // Giới hạn 244 token Whisper — nén ngắn gọn.
         if (language == "vi" || string.IsNullOrEmpty(language))
-            return "Đây là cuộc hội thoại tư vấn tour du lịch bằng tiếng Việt. Hãy phiên âm chính xác từng từ, " +
-                   "giữ nguyên dấu thanh điệu, KHÔNG dịch sang tiếng Anh. " +
+            // LƯU Ý: KHÔNG viết "không dịch sang tiếng Anh" — model dễ hiểu nhầm rồi BỎ LUÔN từ tiếng Anh
+            // ngắn đứng đầu (vd "Top tháng này" → "tháng này"). Thay bằng chỉ thị GIỮ NGUYÊN từ tiếng Anh.
+            return "Đây là cuộc hội thoại tư vấn tour du lịch bằng tiếng Việt. Hãy phiên âm chính xác TỪNG TỪ, " +
+                   "giữ nguyên dấu thanh điệu. GIỮ NGUYÊN mọi từ tiếng Anh xen kẽ (vd: Top, seller, voucher, lead, " +
+                   "deal, tour, email) — KHÔNG được bỏ, KHÔNG dịch, kể cả khi từ đó đứng đầu câu. " +
                    "Thuật ngữ hay gặp: tour Châu Âu, Nhật Bản, Hàn Quốc, nội địa, visa, vé máy bay, khách sạn, " +
                    "hướng dẫn viên, lịch khởi hành, bảng giá, đặt tour, hoàn tiền. Bỏ tiếng đệm \"ờ\", \"ừm\", \"à\".";
         return "Professional travel consultation call. Customer asks about tour pricing, " +
