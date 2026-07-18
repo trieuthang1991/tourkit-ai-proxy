@@ -379,6 +379,7 @@ app.MapAssistantActionEndpoints();
 app.MapMailEndpoints();
 app.MapWorkflowEndpoints();
 app.MapTourEndpoints();
+app.MapTourPriceEndpoints();      // GET /api/v1/tour-price/candidates — ứng viên giá NCC (mẫu/thật/cả 2) cho wizard
 app.MapVisaEndpoints();
 app.MapDealEndpoints();
 app.MapTourQuoteEndpoints();
