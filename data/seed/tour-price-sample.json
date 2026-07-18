@@ -1,0 +1,4 @@
+[
+  {"pricingId":900001,"providerServiceId":900001,"providerId":90001,"providerName":"Khách sạn 4* Mẫu Đà Nẵng","providerCode":null,"city":"Đà Nẵng","categoryId":1,"categoryName":"Khách sạn","priceName":"Phòng đôi","description":"Mùa thấp điểm (5,6,9)","contractPrice":1200000,"publicPrice":1500000},
+  {"pricingId":900002,"providerServiceId":900002,"providerId":90002,"providerName":"Nhà hàng Mẫu Nha Trang","providerCode":null,"city":"Khánh Hòa","categoryId":3,"categoryName":"Nhà Hàng","priceName":"Set 6 người","description":null,"contractPrice":450000,"publicPrice":600000}
+]

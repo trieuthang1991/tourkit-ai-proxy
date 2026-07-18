@@ -152,6 +152,8 @@ public static class WorkflowStackRegistration
         // ─── Tour Price Catalog (đồng bộ bảng giá NCC → dbo.TourPriceCatalog) ──
         s.AddSingleton<TourPrices.TourPriceCatalogRepository>();
         s.AddSingleton<Workflows.IScheduledWorkflow, TourPrices.TourPriceCatalogSyncWorkflow>();
+        s.AddSingleton<TourPrices.TourPriceRetriever>();       // chọn nguồn giá (mẫu/thật/cả 2)
+        s.AddSingleton<TourPrices.SampleCatalogSeeder>();      // nạp NCC mẫu từ seed lúc startup
 
         s.AddSingleton<Workflows.WorkflowSchedulerService>();
 

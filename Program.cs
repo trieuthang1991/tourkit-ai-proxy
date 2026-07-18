@@ -258,6 +258,18 @@ catch (Exception ex)
         .LogWarning(ex, "Schema init lỗi — TkSessions/AiUsageCounters/Reviews/... có thể chưa sẵn sàng");
 }
 
+// Nạp NCC mẫu (__sample__) từ seed — CHỈ ở Development, idempotent (làm 1 lần khi __sample__ rỗng).
+// Public/prod KHÔNG tự seed: dữ liệu mẫu nằm sẵn trong DB dùng chung (đưa lên 1 lần qua vận hành),
+// không auto-chạy mỗi lần deploy. Không chặn startup nếu lỗi.
+if (app.Environment.IsDevelopment())
+{
+    try { await app.Services.GetRequiredService<TourkitAiProxy.Services.TourPrices.SampleCatalogSeeder>().SeedIfEmptyAsync(CancellationToken.None); }
+    catch (Exception ex)
+    {
+        app.Services.GetRequiredService<ILogger<Program>>().LogWarning(ex, "[sample-seed] nạp NCC mẫu lỗi (bỏ qua)");
+    }
+}
+
 // One-shot migrate tk-sessions.json → SQL (idempotent: file → .migrated sau khi xong).
 // Chạy fire-and-forget được vì schema đã ready ở bước trên + TkSessionStore CTOR đã load xong.
 _ = Task.Run(async () =>

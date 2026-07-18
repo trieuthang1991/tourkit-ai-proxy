@@ -61,4 +61,6 @@
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
     </None>
   </ItemGroup>
+  <!-- Seed NCC mẫu (data/seed/**) KHÔNG copy vào publish: seed CHỈ chạy ở Development (đọc từ
+       thư mục project). Public/prod không auto-seed — dữ liệu mẫu đã nằm trong DB dùng chung. -->
 </Project>
