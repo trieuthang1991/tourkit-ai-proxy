@@ -51,7 +51,7 @@ public class TourkitAiDb
             await using var cmd = c.CreateCommand();
             cmd.CommandText = SchemaSql;
             await cmd.ExecuteNonQueryAsync(ct);
-            _log.LogInformation("TourkitAiDb schema OK (Reviews/DealScores/MailAccounts/Mails/MailSyncState/TourQuotes/VisaAssessments/QuotaOrders/WidgetTokens/VisaQuestionSets/TkSessions/TenantQuota/AiUsageCounters/AiUsageHistory/UserWorkflows/WorkflowRuns/OutboundMails/CrmActionQueue/MailTemplates/TenantServiceAccounts đã có/đã tạo)");
+            _log.LogInformation("TourkitAiDb schema OK (Reviews/DealScores/MailAccounts/Mails/MailSyncState/TourQuotes/TourPriceCatalog/VisaAssessments/QuotaOrders/WidgetTokens/VisaQuestionSets/TkSessions/TenantQuota/AiUsageCounters/AiUsageHistory/UserWorkflows/WorkflowRuns/OutboundMails/CrmActionQueue/MailTemplates/TenantServiceAccounts đã có/đã tạo)");
         }
         catch (Exception ex)
         {
@@ -252,6 +252,39 @@ END;
 IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name = 'IX_TourQuotes_Unsynced' AND object_id = OBJECT_ID('dbo.TourQuotes'))
 BEGIN
     EXEC sp_executesql N'CREATE INDEX IX_TourQuotes_Unsynced ON dbo.TourQuotes(TenantId, CreatedAt) WHERE IsSync = 0';
+END;
+
+-- Bảng giá NCC đồng bộ từ TourKit — nguồn để AI CHỌN dòng giá có thật thay vì bịa số.
+-- Chỉ đọc (không ghi ngược TourKit). Đơn vị truy xuất là NHÀ CUNG CẤP, không phải dòng giá:
+-- 1.013 dòng ""Khách sạn/Khánh Hòa"" thực chất là 57 khách sạn × ~18 loại phòng (spec §2.3).
+IF OBJECT_ID('dbo.TourPriceCatalog', 'U') IS NULL
+BEGIN
+    CREATE TABLE dbo.TourPriceCatalog (
+        TenantId          NVARCHAR(128)   NOT NULL,
+        PricingId         INT             NOT NULL,   -- provider_service_pricing.id (bên TourKit)
+        ProviderServiceId INT             NOT NULL,
+        ProviderId        INT             NOT NULL,
+        ProviderName      NVARCHAR(512)   NOT NULL,   -- mang phần lớn ngữ nghĩa: hạng sao + địa danh
+        ProviderCode      NVARCHAR(64)    NULL,
+        City              NVARCHAR(128)   NULL,       -- tên TỈNH thô (sale nói điểm đến → cần DestinationMap ở mảng 2)
+        CityNorm          NVARCHAR(128)   NULL,       -- bỏ dấu + thường hóa, để lọc
+        CategoryId        INT             NOT NULL,
+        CategoryName      NVARCHAR(256)   NULL,
+        PriceName         NVARCHAR(512)   NULL,       -- chỉ 63,5% có nội dung → không đủ tin làm khóa
+        Description       NVARCHAR(MAX)   NULL,       -- ĐIỀU KIỆN ÁP GIÁ viết tay (""Mùa thấp điểm (5,6,9)"",
+                                                      -- ""T6-T7"", ""Lễ 2/9""). ngay_di chỉ 9,3% dùng → đây là
+                                                      -- NGUỒN DUY NHẤT về mùa vụ. TUYỆT ĐỐI không bỏ cột này.
+        ContractPrice     DECIMAL(18,2)   NOT NULL,   -- trục lọc CHÍNH (sạch 99,7%)
+        PublicPrice       DECIMAL(18,2)   NOT NULL,
+        Stars             INT             NULL,       -- bóc từ ProviderName, chỉ 59% → LỌC PHỤ, không lọc cứng
+        IsActive          BIT             NOT NULL CONSTRAINT DF_TourPriceCatalog_IsActive DEFAULT 1,
+        SyncedUtc         DATETIME2       NOT NULL,
+        CONSTRAINT PK_TourPriceCatalog PRIMARY KEY CLUSTERED (TenantId, PricingId)
+    );
+    CREATE INDEX IX_TourPriceCatalog_Tenant_Cat_City
+        ON dbo.TourPriceCatalog(TenantId, CategoryId, CityNorm) INCLUDE (ProviderId, ContractPrice);
+    CREATE INDEX IX_TourPriceCatalog_Tenant_Cat_Price
+        ON dbo.TourPriceCatalog(TenantId, CategoryId, ContractPrice);
 END;
 
 IF OBJECT_ID('dbo.VisaAssessments', 'U') IS NULL

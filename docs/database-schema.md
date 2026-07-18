@@ -34,13 +34,15 @@
 | 19 | `dbo.TenantServiceAccounts` | **Tài khoản dịch vụ per-tenant** cho workflow nền tự login TourKit (KHÔNG cần user online). `PasswordEnc` Crypton. Dùng bởi `deal-auto-review`. | [`TenantServiceAccountStore`](../Services/TourKit/TenantServiceAccountStore.cs) | `TenantId` |
 | 20 | `dbo.MailTemplates` | **Template mail dùng chung (global)** — nguồn nội dung cho `dbo.OutboundMails`. Admin CRUD ở `/admin-trav-ai/mail-templates`; worker (toutkit-app) render `Subject`/`BodyHtml` theo `{{key}}` + `{{#if key}}…{{/if}}` từ `[Params]`, fallback template code nếu thiếu/Disabled. Seed sẵn `deal-cooling-alert` lúc startup. | [`MailTemplateRepository`](../Services/Mail/MailTemplateRepository.cs) | `Code` |
 | 21 | `dbo.CrmActionQueue` | **Hàng đợi HÀNH ĐỘNG CRM từ trợ lý** (giao việc `assign-task` / tạo lịch hẹn `create-appointment`). Producer = proxy `ActionExecutor` (enqueue `Status=0` sau khi user xác nhận thẻ trên `/assistant`/`/travai`); proxy KHÔNG POST thẳng CRM. Consumer = **worker riêng phía `toutkit-app`** (viết sau, ngoài phạm vi proxy) — đọc Pending → `POST /api/tasks` \| `/api/customer-care` → cập nhật `Status`/`ResultJson`/`ErrorMessage`. `PayloadJson` khớp 1:1 `CreateOrUpdateTaskingRequest`/`CreateCustomerCareRequest` — hợp đồng đầy đủ ở [docs/crm-action-contract/README.md](crm-action-contract/README.md). Theo dõi qua `GET /api/v1/workflows/crm-queue`. | [`CrmActionQueueRepository`](../Services/Crm/CrmActionQueueRepository.cs) | `Id` IDENTITY |
+| 22 | `dbo.TourPriceCatalog` | **Bảng giá NCC đồng bộ từ TourKit** (per-tenant) — nguồn để AI CHỌN dòng giá THẬT thay vì bịa số. Chỉ đọc, KHÔNG ghi ngược TourKit. Cột `Description` = điều kiện áp giá viết tay (`Mùa thấp điểm`, `T6-T7`, `Lễ 2/9`) — **nguồn duy nhất về mùa vụ, không bỏ**. `Stars` bóc từ tên NCC chỉ ~59% → lọc phụ, không lọc cứng. Sync qua workflow `tour-price-catalog-sync`. | [`TourPriceCatalogRepository`](../Services/TourPrices/TourPriceCatalogRepository.cs) | `(TenantId, PricingId)` |
 
 > Cột mới đáng chú ý (2026-06-26): `Mails.AutoReplyError` (đánh dấu lỗi auto-reply để hiện ở UI); `UserWorkflows.OptionsJson` (điều kiện động).
 > Cột mới (2026-06-28): `DealScores.AutoReviewCount` (số lần workflow tự chấm) + `IsFinalized`/`FinalizedReason` (`manual`/`status-changed`/`aged` — workflow đánh cờ để ngừng review/nhắc) + `LastAutoReviewUtc`.
 > Bảng mới (2026-06-29): `dbo.MailTemplates` — template mail global, admin sửa nội dung outbound mail không cần deploy lại worker.
 > Bảng mới (2026-07-14): `dbo.CrmActionQueue` — outbox pattern cho trợ lý hành động (assign_task/create_appointment); proxy chỉ enqueue, worker app-side drain + sync CRM.
+> Bảng mới (2026-07-18): `dbo.TourPriceCatalog` — bảng giá NCC đồng bộ từ TourKit để AI dựng giá bằng số thật (mảng 1: catalog + sync).
 
-### Tổng cộng: **21 bảng** owned by proxy.
+### Tổng cộng: **22 bảng** owned by proxy.
 
 ## Bảng đã bỏ
 
