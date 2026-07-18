@@ -85,7 +85,7 @@ const HOTEL_TIER_PRICE_S1 = { 3: 650000, 4: 1150000, 5: 2150000, 6: 4250000 };
 
 function Step1Form({ request, setRequest, onGenerate, generating, genStream, genProgress, aiTone, pushToast,
                     hotelStars, setHotelStars, paxRanges, setPaxRanges,
-                    hotelOptions, setHotelOptions }) {
+                    hotelOptions, setHotelOptions, priceHintMeta }) {
   const [showAddPref, setShowAddPref] = React.useState(false);
   const [historyOpen, setHistoryOpen] = React.useState(false);
   const [history, setHistory] = React.useState(() => window.tourkitHistory?.load() || []);
@@ -423,6 +423,39 @@ Gợi ý 5 sở thích / yêu cầu đặc biệt khác phù hợp với điểm
             </div>
           </div>
         )}
+
+        {/* ── Nguồn giá tham khảo cho AI (NCC thật / mẫu / cả 2) ──────────────
+            CHỈ ảnh hưởng giá AI tham chiếu khi sinh tour (handleGenerate) — KHÔNG
+            đụng picker chọn NCC ở Bước 2. Lưu vào request.priceSource. */}
+        <div className="field">
+          <label className="label">
+            <Icon name="dollar" size={13} /> Nguồn giá tham khảo cho AI
+          </label>
+          <div className="chips">
+            {[
+              {v: 'both',   label: 'Cả 2 (ưu tiên NCC thật)'},
+              {v: 'real',   label: 'Chỉ NCC thật'},
+              {v: 'sample', label: 'Chỉ NCC mẫu'},
+            ].map(o => {
+              const on = (request.priceSource || 'both') === o.v;
+              return (
+                <button key={o.v} type="button"
+                  className={`chip ${on ? 'active' : ''}`}
+                  onClick={() => setRequest(r => ({...r, priceSource: o.v}))}>
+                  {o.label}
+                </button>
+              );
+            })}
+          </div>
+          <div style={{fontSize: 11, color: 'var(--text-3)', marginTop: 6, lineHeight: 1.45}}>
+            💡 AI tham chiếu giá NCC (thật của công ty và/hoặc mẫu hệ thống) để dựng giá sát thực tế thay vì tự bịa.
+            {priceHintMeta && priceHintMeta.total > 0 && (
+              <span style={{display: 'block', marginTop: 4, color: 'var(--accent)', fontWeight: 600}}>
+                ✓ Lần sinh gần nhất: nạp {priceHintMeta.total} mốc giá ({priceHintMeta.real} thật · {priceHintMeta.sample} mẫu)
+              </span>
+            )}
+          </div>
+        </div>
 
         {/* ── PAX RANGE matrix (v2 logic — markup theo nhóm pax) ───────────────
             Đoàn nhỏ markup cao (chi phí cố định nặng / pax), đoàn lớn markup thấp.

@@ -84,6 +84,7 @@ function WizardPage({ pushToast, tweaks }) {
   const [listSearch, setListSearch] = _uS('');
   const [savedTours, setSavedTours] = _uS([]);
   const [nccCatalog, setNccCatalog] = _uS(null);  // tên NCC thật (TourKit) để ưu tiên khi sinh tour
+  const [priceHint, setPriceHint]   = _uS(null);  // {source,total,real,sample} — badge nguồn giá tham khảo lần sinh gần nhất
   const [request, setRequest]       = _uS(window.DEMO_REQUEST);
   // ── Pricing config (v2 logic, lifted để Step 1 config + Step 3 dùng) ─────────
   // hotelStars: tier KS user muốn so sánh ở matrix (3*/4*/5*/6*).
@@ -131,6 +132,7 @@ function WizardPage({ pushToast, tweaks }) {
     setGenProgress({stage: 'meta', daysTotal: request.days, daysDone: 0});
     const dest = request.route.split('-').pop().trim() || request.route;
     let success = false;
+    let priceHintCount = 0;   // số mốc giá NCC đã nạp → thông báo ở toast kết thúc
     const tGen0 = Date.now();
     console.log(`[Gen] ▶ START · ${request.route} · ${request.days}N${request.nights}Đ · ${request.adults}+${request.children} khách · ${fmtVND(request.budgetPerPax)}/pax · prefs=[${request.preferences.join(', ')}]`);
 
@@ -165,11 +167,21 @@ function WizardPage({ pushToast, tweaks }) {
 
       setItinerary([]);
 
-      // Ưu tiên NCC THẬT của công ty (TourKit). Nạp tên NCC → nhét vào prompt.
-      const nccNames = await loadNcc();
+      // Ưu tiên NCC THẬT của công ty (TourKit). Nạp tên NCC + giá tham khảo song song → nhét vào prompt.
+      const [nccNames, priceRows] = await Promise.all([
+        loadNcc(),
+        loadPriceHints(dest, request.priceSource),
+      ]);
       const nccBlock = nccNames.length
         ? `\nNCC ƯU TIÊN (dùng ĐÚNG tên này cho cột supplier khi dịch vụ phù hợp, ưu tiên trước nguồn ngoài):\n${nccNames.slice(0, 40).join(', ')}\n`
         : '';
+
+      // Giá tham khảo thật/mẫu → AI dựng cột giá sát thực tế thay vì bịa.
+      const priceMeta = buildPriceHintBlock(priceRows, request.priceSource || 'both');
+      const priceBlock = priceMeta.block;
+      priceHintCount = priceMeta.total;
+      setPriceHint({ source: priceMeta.source, total: priceMeta.total, real: priceMeta.real, sample: priceMeta.sample });
+      if (priceMeta.total) console.log(`[Gen] Giá tham khảo: ${priceMeta.total} mốc (${priceMeta.real} thật · ${priceMeta.sample} mẫu · nguồn=${priceMeta.source})`);
 
       // TG1: ghi chú/yêu cầu thêm từ người dùng (ô nhập trong panel AI bên phải) → BẮT BUỘC đưa vào prompt.
       const userNotes = (request.aiNote || '').trim();
@@ -218,7 +230,7 @@ Rules:
   (TUYỆT ĐỐI KHÔNG ghi literal "NCC" hay "TBD" — luôn dùng default tiếng Việt nghĩa hợp)
 - Mô tả 1 câu Việt 15-25 từ, không thêm tên riêng mới
 - TUYỆT ĐỐI KHÔNG bịa tên hotel/nhà hàng (vd "Bö Hing Hotel" = SAI)
-${nccBlock}${notesBlock}
+${nccBlock}${priceBlock}${notesBlock}
 Bắt đầu output ngay:`;
 
       console.log(`[Gen] Step ALL · mega-batch text format (${request.days} ngày)`);
@@ -367,7 +379,7 @@ Bắt đầu output ngay:`;
       if (success) {
         console.log(`[Gen] ✓ END · total ${Date.now() - tGen0}ms`);
         setStep(2);
-        pushToast('✨ Đã tạo tour ' + dest);
+        pushToast('✨ Đã tạo tour ' + dest + (priceHintCount ? ` · ${priceHintCount} mốc giá NCC` : ''));
       }
     }
   };
@@ -410,6 +422,72 @@ Tránh từ "tuyệt vời", "hoàn hảo", "đáng nhớ". Tiếng Việt tự 
       setNccCatalog(names);
       return names;
     } catch { setNccCatalog([]); return []; }
+  }
+
+  // ─── Giá tham chiếu NCC (thật/mẫu) để AI dựng giá sát thực tế, KHÔNG bịa ──────
+  // Chỉ LÀM GIÀU prompt sinh tour — lỗi/không có dữ liệu thì bỏ qua, không chặn.
+  // 1 truy vấn theo THÀNH PHỐ: endpoint trả dòng gắn địa danh (KS/nhà hàng/vé tham quan…) +
+  // tự fallback bỏ lọc city khi rỗng. KHÔNG query thêm "no-city" vì nó kéo 60 dòng RẺ NHẤT
+  // toàn cục (ORDER BY ContractPrice ASC) → lệch giá thấp + lọt danh mục phi-tour.
+  async function loadPriceHints(dest, source) {
+    const src = source || 'both';
+    const url = `/api/v1/tour-price/candidates?source=${encodeURIComponent(src)}&city=${encodeURIComponent(dest)}`;
+    try {
+      const r = await window.tourkitAuth.authedFetch(url);
+      if (!r.ok) return [];
+      const res = await r.json();
+      return (res && res.items) ? res.items : [];
+    } catch { return []; }
+  }
+
+  // Danh mục KHÔNG phải chi phí tour (SaaS/hành chính nội bộ trong catalog NCC) → loại khỏi gợi ý giá.
+  const NON_TOUR_CAT = ['ocr', 'cloud', 'sever', 'server', 'hosting', 'phần mềm', 'visa',
+    'dịch thuật', 'voucher', 'kho xe', 'chi phí khác', 'sim '];
+  function isTourCategory(name) {
+    const s = (name || '').toLowerCase().trim();
+    if (!s) return false;
+    return !NON_TOUR_CAT.some(k => s.includes(k));
+  }
+
+  // Gom ứng viên theo loại DV → 1 khối "bảng giá tham khảo" (giá xấp xỉ, làm tròn) cho prompt.
+  // Trả {source,total,real,sample,block}. block rỗng nếu không đủ dữ liệu.
+  function buildPriceHintBlock(rows, source) {
+    const meta = { source: source || 'both', total: 0, real: 0, sample: 0, block: '' };
+    if (!rows || !rows.length) return meta;
+    const roundNice = (n) => {   // làm tròn xấp xỉ ~2 chữ số có nghĩa (giá tham khảo, không cần chính xác)
+      if (!n || n <= 0) return 0;
+      const mag = Math.pow(10, Math.max(0, Math.floor(Math.log10(n)) - 1));
+      return Math.round(n / mag) * mag;
+    };
+    const pctl = (arr, p) => { const s = [...arr].sort((a, b) => a - b); return s[Math.min(s.length - 1, Math.floor(p * s.length))] || 0; };
+    const byCat = {};
+    for (const it of rows) {
+      if (!isTourCategory(it.categoryName)) continue;   // bỏ danh mục phi-tour (OCR/Cloud/Visa/Voucher…)
+      meta.total++;
+      if (it.source === 'real') meta.real++; else meta.sample++;
+      const cat = it.categoryName || 'Khác';
+      (byCat[cat] || (byCat[cat] = [])).push(it.contractPrice || 0);
+    }
+    const lines = Object.entries(byCat)
+      .filter(([, ps]) => ps.some(x => x > 0))
+      .sort((a, b) => b[1].length - a[1].length)
+      .slice(0, 12)                                   // cap 12 loại để prompt gọn
+      .map(([cat, ps]) => {
+        const pos = ps.filter(x => x > 0);
+        const lo = roundNice(pctl(pos, 0.25));
+        const mid = roundNice(pctl(pos, 0.5));
+        const hi = roundNice(pctl(pos, 0.75));
+        return `- ${cat}: ~${fmtVND(lo)} – ${fmtVND(hi)} VND (điển hình ${fmtVND(mid)})`;
+      });
+    if (!lines.length) return meta;
+    const srcLabel = source === 'real' ? 'NCC thật của công ty'
+      : source === 'sample' ? 'NCC mẫu hệ thống'
+      : 'NCC thật + mẫu (ưu tiên thật)';
+    meta.block = `
+BẢNG GIÁ THAM KHẢO THỰC TẾ (nguồn: ${srcLabel}) — đơn giá theo ĐƠN VỊ (mỗi đêm phòng / mỗi khách / mỗi vé / mỗi chặng). Dùng làm MỐC để ước cột giá_VND; nhân theo số khách & số đêm cho hợp lý. KHÔNG bịa giá lệch xa các mốc này:
+${lines.join('\n')}
+`;
+    return meta;
   }
 
   async function saveTourToServer(itin, mk, costRows) {
@@ -714,7 +792,8 @@ Tránh từ "tuyệt vời", "hoàn hảo", "đáng nhớ". Tiếng Việt tự 
           aiTone={tweaks.aiTone} pushToast={pushToast}
           hotelStars={hotelStars} setHotelStars={setHotelStars}
           paxRanges={paxRanges}   setPaxRanges={setPaxRanges}
-          hotelOptions={hotelOptions} setHotelOptions={setHotelOptions} />}
+          hotelOptions={hotelOptions} setHotelOptions={setHotelOptions}
+          priceHintMeta={priceHint} />}
         {step === 2 && <Step2Itinerary
           itinerary={itinerary} setItinerary={setItinerary} request={request}
           onNext={() => {
