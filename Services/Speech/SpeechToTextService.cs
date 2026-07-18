@@ -1,4 +1,6 @@
 using System.ClientModel;
+using System.Text;
+using System.Text.Json;
 using Mscc.GenerativeAI;
 using Mscc.GenerativeAI.Types;
 using OpenAI;
@@ -39,11 +41,12 @@ public class SpeechToTextService
     private readonly IConfiguration _cfg;
     private readonly ILogger<SpeechToTextService> _log;
     private readonly VbeeSttService _vbee;
+    private readonly IHttpClientFactory _httpFactory;
 
     private const long MAX_BYTES = 25 * 1024 * 1024;   // hard cap chung (Whisper 25MB; Gemini inline 20MB)
 
-    public SpeechToTextService(ProviderKeyStore keys, IConfiguration cfg, ILogger<SpeechToTextService> log, VbeeSttService vbee)
-    { _keys = keys; _cfg = cfg; _log = log; _vbee = vbee; }
+    public SpeechToTextService(ProviderKeyStore keys, IConfiguration cfg, ILogger<SpeechToTextService> log, VbeeSttService vbee, IHttpClientFactory httpFactory)
+    { _keys = keys; _cfg = cfg; _log = log; _vbee = vbee; _httpFactory = httpFactory; }
 
     public record TranscribeResult(string Text, string Language, double DurationSec, long LatencyMs, string Engine);
 
@@ -71,8 +74,9 @@ public class SpeechToTextService
         var fallback = _cfg.GetValue<bool?>("Speech:Stt:Fallback") ?? _cfg.GetValue<bool?>("Speech:Fallback") ?? true;
         var secondary = primary == "vbee"
             ? (_cfg["Speech:Stt:Provider"] ?? _cfg["Speech:Provider"] ?? "openai").ToLowerInvariant()   // engine gốc làm fallback cho Vbee
-            : (primary == "gemini" ? "openai" : "gemini");
+            : (primary == "openai" ? "gemini" : "openai");               // google/gemini/… lỗi → Whisper làm phao (chỉ chạy khi primary fail)
         if (secondary == "vbee") secondary = "openai";                   // tránh fallback lại về vbee
+        if (secondary == primary) secondary = "openai";
 
         try
         {
@@ -100,6 +104,7 @@ public class SpeechToTextService
         => engine switch
         {
             "vbee"   => TranscribeVbeeAsync(bytes, fileName, contentType, ct),
+            "google" or "googlecloud" or "gcp" => TranscribeGoogleCloudAsync(bytes, fileName, contentType, language, apiKeyOverride, ct),
             "gemini" => TranscribeGeminiAsync(bytes, fileName, contentType, language, apiKeyOverride, ct),
             "openai" => TranscribeOpenAiAsync(bytes, fileName, contentType, language, apiKeyOverride, ct),
             _ => throw new InvalidOperationException($"Unknown STT engine: {engine}")
@@ -113,6 +118,93 @@ public class SpeechToTextService
         var latencyMs = (long)(DateTime.UtcNow - t0).TotalMilliseconds;
         return new TranscribeResult(text, "vi", 0, latencyMs, "vbee");
     }
+
+    // ─── Google Cloud Speech-to-Text (dịch vụ ASR chuyên dụng — KHÔNG phải Gemini/LLM) ──────────
+    // REST v1 speech:recognize + API key (?key=). Bật "Cloud Speech-to-Text API" trong Google Cloud
+    // Console + có billing. Key riêng Speech:GoogleCloud:ApiKey (KHÔNG dùng chung key Gemini AI Studio
+    // vì khác project/endpoint speech.googleapis.com). Sync recognize: audio ≤ 60s / ≤ 10MB base64 —
+    // vừa khít đoạn VAD của "Luôn nghe". Encoding suy từ mime: webm/opus (Chrome) → WEBM_OPUS.
+    private async Task<TranscribeResult> TranscribeGoogleCloudAsync(byte[] bytes,
+        string fileName, string contentType, string? language, string? apiKeyOverride, CancellationToken ct)
+    {
+        var apiKey = !string.IsNullOrWhiteSpace(apiKeyOverride)
+            ? apiKeyOverride
+            : (_cfg["Speech:GoogleCloud:ApiKey"] ?? Environment.GetEnvironmentVariable("GOOGLE_CLOUD_STT_KEY"));
+        if (string.IsNullOrWhiteSpace(apiKey) || apiKey.StartsWith("REPLACE", StringComparison.OrdinalIgnoreCase))
+            throw new InvalidOperationException(
+                "Thiếu Google Cloud API key (Speech:GoogleCloud:ApiKey hoặc env GOOGLE_CLOUD_STT_KEY). " +
+                "Tạo API key trong Google Cloud Console → bật 'Cloud Speech-to-Text API' + billing.");
+
+        // Đoạn ghi từ trình duyệt → chọn encoding Cloud STT hỗ trợ. mp4/aac (iOS) KHÔNG hỗ trợ → ném để fallback.
+        var mime = (contentType ?? "").Split(';')[0].Trim().ToLowerInvariant();
+        var ext  = Path.GetExtension(fileName ?? "").ToLowerInvariant();
+        string encoding; int? sampleRate = null;
+        if (mime.Contains("webm") || ext == ".webm") { encoding = "WEBM_OPUS"; sampleRate = 48000; }
+        else if (mime.Contains("ogg") || ext == ".ogg") { encoding = "OGG_OPUS"; sampleRate = 48000; }
+        else if (mime.Contains("wav") || ext == ".wav") { encoding = "LINEAR16"; sampleRate = 16000; }
+        else if (mime.Contains("flac") || ext == ".flac") { encoding = "FLAC"; }
+        else throw new InvalidOperationException(
+            $"Google Cloud STT không hỗ trợ định dạng '{mime}{ext}' (chỉ webm/ogg-opus, wav, flac). iOS mp4/aac → fallback.");
+
+        var langCode = string.IsNullOrWhiteSpace(language)
+            ? (_cfg["Speech:GoogleCloud:LanguageCode"] ?? "vi-VN")
+            : (language == "vi" ? "vi-VN" : language == "en" ? "en-US" : language!);
+        var model = _cfg["Speech:GoogleCloud:Model"];   // optional: latest_long | latest_short | default
+
+        var recognitionConfig = new Dictionary<string, object?>
+        {
+            ["encoding"] = encoding,
+            ["languageCode"] = langCode,
+            ["enableAutomaticPunctuation"] = true,
+        };
+        if (sampleRate is int sr) recognitionConfig["sampleRateHertz"] = sr;
+        if (!string.IsNullOrWhiteSpace(model)) recognitionConfig["model"] = model;
+
+        var payload = new Dictionary<string, object?>
+        {
+            ["config"] = recognitionConfig,
+            ["audio"]  = new Dictionary<string, object?> { ["content"] = Convert.ToBase64String(bytes) },
+        };
+
+        var t0 = DateTime.UtcNow;
+        var http = _httpFactory.CreateClient();
+        http.Timeout = TimeSpan.FromSeconds(60);
+        var url = $"https://speech.googleapis.com/v1/speech:recognize?key={Uri.EscapeDataString(apiKey)}";
+        using var httpReq = new HttpRequestMessage(HttpMethod.Post, url)
+        {
+            Content = new StringContent(JsonSerializer.Serialize(payload), Encoding.UTF8, "application/json")
+        };
+
+        HttpResponseMessage resp;
+        try { resp = await http.SendAsync(httpReq, ct); }
+        catch (Exception ex) { throw new InvalidOperationException($"Google Cloud STT network lỗi: {ex.Message}"); }
+
+        var body = await resp.Content.ReadAsStringAsync(ct);
+        if (!resp.IsSuccessStatusCode)
+        {
+            _log.LogWarning("Google Cloud STT HTTP {Code}: {Body}", (int)resp.StatusCode, Trunc(body, 300));
+            throw new InvalidOperationException($"Google Cloud STT HTTP {(int)resp.StatusCode}: {Trunc(body, 200)}");
+        }
+
+        var sb = new StringBuilder();
+        try
+        {
+            using var jdoc = JsonDocument.Parse(body);
+            if (jdoc.RootElement.TryGetProperty("results", out var results) && results.ValueKind == JsonValueKind.Array)
+                foreach (var r in results.EnumerateArray())
+                    if (r.TryGetProperty("alternatives", out var alts) && alts.ValueKind == JsonValueKind.Array && alts.GetArrayLength() > 0
+                        && alts[0].TryGetProperty("transcript", out var tr))
+                        sb.Append(tr.GetString()).Append(' ');
+        }
+        catch (Exception ex) { throw new InvalidOperationException($"Google Cloud STT parse lỗi: {ex.Message}"); }
+
+        var text = sb.ToString().Trim();
+        var latencyMs = (long)(DateTime.UtcNow - t0).TotalMilliseconds;
+        _log.LogInformation("Google Cloud STT OK: {Chars}ch, {Lat}ms, enc={Enc}, lang={Lang}", text.Length, latencyMs, encoding, langCode);
+        return new TranscribeResult(text, langCode.Split('-')[0], 0, latencyMs, $"google:{encoding.ToLowerInvariant()}");
+    }
+
+    private static string Trunc(string? s, int n) => string.IsNullOrEmpty(s) ? "" : (s.Length <= n ? s : s.Substring(0, n) + "…");
 
     // ─── Gemini (Mscc.GenerativeAI SDK) ─────────────────────────────────────────
     private async Task<TranscribeResult> TranscribeGeminiAsync(byte[] bytes,
@@ -292,14 +384,16 @@ Now transcribe the audio:";
 
     private static string BuildWhisperPrompt(string language)
     {
-        // Whisper KHÔNG đọc rule/instruction — chỉ dùng prompt như context để bias vocabulary.
+        // gpt-4o-transcribe/mini ĐỌC được instruction → câu chỉ thị "phiên âm chính xác, giữ dấu, không dịch"
+        // bên dưới có tác dụng thật (giúp model rẻ vẫn đúng). whisper-1 chỉ dùng đoạn này như context bias vocab.
         // Strategy: viết 1 đoạn ví dụ "tự nhiên" có chứa terminology du lịch + chuẩn punctuation.
         // Whisper sẽ "ngại" output filler/sai chính tả terminology vì context biased theo đoạn này.
         // Giới hạn 244 token Whisper — nén ngắn gọn.
         if (language == "vi" || string.IsNullOrEmpty(language))
-            return "Cuộc gọi tư vấn tour du lịch. Khách hỏi giá tour Châu Âu, Nhật Bản, Hàn Quốc, " +
-                   "nội địa. Trao đổi về lịch khởi hành, visa, vé máy bay, khách sạn, hướng dẫn viên, " +
-                   "bảng giá, đặt tour, hoàn tiền. Ngôn ngữ chuẩn, không có \"ờ\", \"ừm\", \"à\".";
+            return "Đây là cuộc hội thoại tư vấn tour du lịch bằng tiếng Việt. Hãy phiên âm chính xác từng từ, " +
+                   "giữ nguyên dấu thanh điệu, KHÔNG dịch sang tiếng Anh. " +
+                   "Thuật ngữ hay gặp: tour Châu Âu, Nhật Bản, Hàn Quốc, nội địa, visa, vé máy bay, khách sạn, " +
+                   "hướng dẫn viên, lịch khởi hành, bảng giá, đặt tour, hoàn tiền. Bỏ tiếng đệm \"ờ\", \"ừm\", \"à\".";
         return "Professional travel consultation call. Customer asks about tour pricing, " +
                "destinations, departure dates, visa, flights, hotels, tour guides. Clean speech.";
     }
