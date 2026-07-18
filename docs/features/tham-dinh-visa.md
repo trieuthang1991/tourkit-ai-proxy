@@ -58,6 +58,8 @@ Trước khi tư vấn khách làm hồ sơ xin visa, bạn có thể để AI "
 
 10. Vào menu nhóm **"Tích hợp"** → bấm **"Câu hỏi Visa"**. Tại đây bạn xem/sửa toàn bộ nội dung câu hỏi của wizard (dạng văn bản có cấu trúc). Sửa xong bấm **"Lưu cấu hình"** — thay đổi áp dụng ngay cho toàn bộ nhân viên công ty khi họ mở trang Thẩm định Visa lần tiếp theo. Muốn quay về bộ câu hỏi gốc của hệ thống, bấm **"Reset về mặc định"**.
 
+    > **Lưu ý về quyền:** mục **"Câu hỏi Visa"** chỉ hiện trong menu với tài khoản có quyền **cấu hình hệ thống**. Nếu bạn không thấy mục này (hoặc mở trực tiếp thì gặp trang "Bạn không có quyền xem"), nghĩa là tài khoản của bạn chưa được cấp quyền đó — hãy nhờ người quản trị của công ty chỉnh giúp, hoặc xin cấp quyền.
+
     ![Trang cấu hình bộ câu hỏi Visa](../images/tham-dinh-visa-buoc10.png)
     > 📸 Cần chụp: trang `/visa-config` với nội dung câu hỏi và nút Lưu/Reset.
 
@@ -71,6 +73,7 @@ Trước khi tư vấn khách làm hồ sơ xin visa, bạn có thể để AI "
 - Kết quả AI đưa ra chỉ mang tính **tham khảo, hỗ trợ tư vấn** — không phải là cam kết đậu/rớt visa. Quyết định cuối cùng luôn thuộc về lãnh sự quán/cơ quan cấp visa.
 - Cần đăng nhập với phiên làm việc hợp lệ mới dùng được tính năng này; nếu phiên hết hạn, hệ thống sẽ yêu cầu đăng nhập lại.
 - Việc chỉnh sửa bộ câu hỏi ở trang "Câu hỏi Visa" ảnh hưởng đến **tất cả nhân viên trong công ty** ngay khi lưu — nên cân nhắc kỹ trước khi thay đổi.
+- **Trang "Câu hỏi Visa" cần quyền "cấu hình hệ thống".** Tài khoản không có quyền này sẽ không thấy mục "Câu hỏi Visa" trong menu nhóm "Tích hợp"; nếu mở thẳng địa chỉ trang thì gặp thông báo "Bạn không có quyền xem". Quyền được đọc lúc đăng nhập — vừa được cấp quyền thì đăng xuất/đăng nhập lại (hoặc tải lại trang) để cập nhật. Riêng phần **chấm điểm hồ sơ Visa** (dùng hằng ngày) thì không cần quyền này, mọi nhân viên tư vấn đều dùng được.
 
 ## 5. Câu hỏi thường gặp (FAQ)
 
@@ -90,7 +93,7 @@ Có. Vào trang "Thẩm định Visa" (danh sách), dùng ô tìm kiếm hoặc 
 Không. Thao tác xoá không thể hoàn tác, nên cân nhắc kỹ trước khi bấm xoá.
 
 **Hỏi: Ai được phép sửa bộ câu hỏi trong wizard?**
-Trang "Câu hỏi Visa" (nhóm Tích hợp) dùng để tùy chỉnh bộ câu hỏi cho cả công ty — nên chỉ người quản lý/phụ trách nghiệp vụ visa của công ty nên thực hiện thay đổi này, vì nó ảnh hưởng tới tất cả nhân viên.
+Chỉ tài khoản có quyền **cấu hình hệ thống** mới thấy và mở được trang "Câu hỏi Visa" (nhóm Tích hợp). Trang này tùy chỉnh bộ câu hỏi cho cả công ty nên thường chỉ dành cho người quản lý/phụ trách nghiệp vụ visa — thay đổi ở đây ảnh hưởng tới tất cả nhân viên. Nếu không thấy mục này trong menu, tài khoản của bạn chưa được cấp quyền; hãy liên hệ người quản trị của công ty.
 
 **Hỏi: Bấm "Để bộ phận visa liên hệ tư vấn" thì điều gì xảy ra?**
 Thông tin khách và kết quả chấm điểm sẽ được gửi cho đội ngũ visa của công ty để họ chủ động liên hệ tư vấn thêm cho khách, thường trong vòng 1-2 giờ làm việc.

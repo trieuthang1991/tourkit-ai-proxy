@@ -6,6 +6,8 @@
 
 TRAVAI là một trợ lý ảo bạn có thể **nói chuyện bằng giọng nói** hoặc gõ chữ để hỏi về số liệu công việc — doanh thu, khách hàng, tour sắp khởi hành, cơ hội bán hàng đang chờ... TRAVAI sẽ tìm số liệu thật trong hệ thống, trả lời bạn bằng chữ **và đọc to câu trả lời** để bạn không cần nhìn màn hình liên tục.
 
+Không chỉ hỏi đáp, TRAVAI còn **làm được một số việc ngay bằng giọng nói**: chấm hạng khách hàng, chấm điểm cơ hội bán hàng (deal), kiểm tra hộp thư, trả lời/soạn email, giao việc cho nhân viên, tạo lịch hẹn chăm sóc khách. Các việc hướng ra ngoài (gửi email, giao việc, tạo lịch hẹn) luôn cần bạn bấm "Xác nhận" trước khi thực hiện — xem [Bước 3B](#bước-3b--nhờ-travai-làm-việc-không-chỉ-hỏi-số-liệu).
+
 Bạn có thể tưởng tượng TRAVAI giống hệt "trợ lý số liệu" đang có (trang Trợ lý số liệu), chỉ khác là giao diện đẹp mắt hơn (có quả cầu ánh sáng phản ứng theo trạng thái) và trả lời có kèm giọng đọc, giúp bạn vừa nghe vừa làm việc khác — rảnh tay hơn, hỏi nhanh hơn khi cần con số gấp.
 
 ## 2. Ai nên dùng
@@ -53,6 +55,27 @@ Nếu chưa biết hỏi gì, bạn có thể bấm vào các gợi ý có sẵn
 ![Đặt câu hỏi cho TRAVAI](../images/jarvis-buoc3.png)
 > 📸 Cần chụp: ô nhập câu hỏi có sẵn văn bản + nút micro đang sáng (trạng thái đang nghe), kèm vài gợi ý câu hỏi bên dưới khung chat.
 
+### Bước 3B — Nhờ TRAVAI làm việc, không chỉ hỏi số liệu
+
+Ngoài tra cứu số liệu, bạn có thể **ra lệnh cho TRAVAI thực hiện một số việc** ngay bằng giọng nói (hoặc gõ chữ). Cụ thể:
+
+- **Chấm hạng khách hàng** — ví dụ nói *"Chấm hạng khách Nguyễn Văn A"*. TRAVAI sẽ đánh giá và đọc/hiện kết quả hạng (A–D) kèm gợi ý hành động.
+- **Chấm điểm cơ hội bán hàng (deal)** — ví dụ *"Chấm điểm cơ hội của khách B"* để TRAVAI phân tích khả năng chốt và gợi ý bước tiếp theo.
+- **Kiểm tra hộp thư** — ví dụ *"Có email nào mới không?"* để nghe nhanh các email cần xử lý.
+- **Trả lời / soạn email** — ví dụ *"Trả lời email của khách C"* hoặc *"Soạn email báo giá gửi khách D"*. TRAVAI soạn sẵn nội dung để bạn duyệt.
+- **Giao việc cho nhân viên** — ví dụ *"Giao việc gọi lại khách E cho bạn Lan"*.
+- **Tạo lịch hẹn chăm sóc khách** — ví dụ *"Đặt lịch hẹn tư vấn khách F chiều mai"*.
+
+Có hai kiểu hành động, khác nhau ở chỗ có phải xác nhận hay không:
+
+- **Chạy ngay** (chỉ xem/không thay đổi ra ngoài): chấm hạng khách hàng, chấm điểm deal, kiểm tra hộp thư — TRAVAI làm luôn và trả kết quả.
+- **Phải bấm "Xác nhận" trước** (việc hướng ra ngoài, khó thu hồi): gửi/soạn email, giao việc, tạo lịch hẹn. TRAVAI luôn **hiện một thẻ xác nhận** với đầy đủ thông tin (bạn có thể sửa lại nội dung/người nhận) — chỉ khi bạn chạm "Xác nhận" việc mới thực sự được gửi đi. Nếu TRAVAI chưa rõ bạn muốn chấm/giao cho ai (trùng tên, thiếu thông tin), nó sẽ **hỏi lại** chứ không tự đoán.
+
+> **Lưu ý về quyền:** giao việc và tạo lịch hẹn cần tài khoản của bạn có **quyền tạo công việc / tạo nhắc hẹn** tương ứng (xem mục Lưu ý bên dưới). Các việc chấm điểm và xem mail thì mọi người dùng đều thực hiện được.
+
+![TRAVAI đề xuất một hành động chờ xác nhận](../images/jarvis-buoc3b.png)
+> 📸 Cần chụp: thẻ xác nhận hành động (ví dụ "Giao việc cho…" hoặc "Gửi email cho…") với các ô thông tin sửa được + nút "Xác nhận".
+
 ### Bước 4 — Nghe TRAVAI trả lời
 
 Khi bạn gửi câu hỏi, quả cầu chuyển sang trạng thái "ĐANG SUY NGHĨ" (có thể phát vài câu nói ngắn kiểu "đang xử lý..." trong lúc chờ), sau đó TRAVAI trả lời bằng chữ hiện dần trên màn hình **và đọc to câu trả lời** (nếu loa đang bật). Bạn có thể hỏi tiếp câu khác ngay cả khi TRAVAI đang đọc — TRAVAI sẽ tự ngắt câu đang đọc để trả lời câu mới.
@@ -92,6 +115,7 @@ Muốn xóa hết câu hỏi/trả lời cũ để hỏi chủ đề khác, bấ
 - **Lần đầu vào trang có thể không tự đọc lời chào ngay.** Một số trình duyệt chặn tự phát âm thanh khi trang vừa mở — bạn chỉ cần bấm hoặc gõ bất kỳ đâu trên trang một lần, câu chào (và các câu trả lời sau đó) sẽ đọc bình thường.
 - **Câu trả lời quá dài sẽ chỉ đọc một phần.** Nếu câu trả lời rất dài (khoảng hơn 2000 ký tự — tương đương vài đoạn văn dài), phần đọc to có thể bị cắt bớt ở cuối; tuy nhiên chữ hiển thị trên màn hình vẫn hiện đầy đủ, không bị mất nội dung.
 - **Hỏi câu mới sẽ ngắt câu đang đọc/đang trả lời trước đó** — đây là chủ ý để bạn không phải chờ, không phải lỗi.
+- **Các thao tác giao việc / tạo lịch hẹn cần quyền tương ứng.** Khi bạn nhờ TRAVAI giao việc cho nhân viên hoặc đặt lịch hẹn chăm sóc khách hàng, hệ thống luôn hiện thẻ xác nhận để bạn duyệt trước; và các thao tác này chỉ chạy được nếu tài khoản của bạn có **quyền tạo công việc / tạo nhắc hẹn**. Thiếu quyền thì khi xác nhận sẽ báo không đủ quyền — hãy liên hệ người quản trị để được cấp. Các việc chỉ xem (hỏi số liệu, xem mail, chấm điểm) thì không cần quyền này.
 
 ## 5. Câu hỏi thường gặp (FAQ)
 
@@ -100,6 +124,12 @@ A: Đọc là "Trà vải" (giống tên quả trà vải). Khi trả lời bằ
 
 **Q: Micro không nhận giọng nói của tôi thì sao?**
 A: Nếu dùng máy tính, hãy kiểm tra bạn đang dùng Chrome hoặc Microsoft Edge. Sau đó kiểm tra trình duyệt đã được cấp quyền micro chưa — nếu trước đó bạn chọn "Chặn", cần vào cài đặt trang web để bật lại quyền micro rồi tải lại trang. Trên điện thoại, nhớ bấm micro lần nữa để dừng thu âm thì máy mới gửi bản ghi đi nhận diện.
+
+**Q: TRAVAI có làm được việc gì ngoài trả lời số liệu không?**
+A: Có. Bạn có thể nhờ TRAVAI **chấm hạng khách hàng**, **chấm điểm cơ hội bán hàng (deal)**, **kiểm tra hộp thư**, **trả lời/soạn email**, **giao việc cho nhân viên** và **tạo lịch hẹn chăm sóc khách** — ngay bằng giọng nói. Việc chấm điểm và xem mail chạy luôn; còn gửi email, giao việc, tạo lịch hẹn thì TRAVAI hiện thẻ xác nhận để bạn duyệt (và sửa lại nếu cần) trước khi thực hiện. Xem chi tiết ở Bước 3B.
+
+**Q: Nhờ TRAVAI giao việc / tạo lịch hẹn nhưng nó báo không đủ quyền?**
+A: Hai thao tác này cần tài khoản của bạn có **quyền tạo công việc / tạo nhắc hẹn** trong hệ thống. Nếu chưa có, hãy liên hệ người quản trị của công ty để được cấp. Các việc chấm điểm khách/deal và xem mail thì không cần quyền này.
 
 **Q: Trên điện thoại nói mãi mà không thấy gửi câu hỏi?**
 A: Trên điện thoại, TRAVAI thu âm cho tới khi bạn **bấm micro lần thứ hai để dừng**. Sau khi dừng, máy sẽ hiện "Đang nhận diện…" một chút rồi tự gửi câu hỏi. Nếu bạn chỉ bấm một lần rồi để đó, máy sẽ vẫn đang thu âm chứ chưa gửi.

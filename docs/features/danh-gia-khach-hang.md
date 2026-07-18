@@ -96,6 +96,16 @@ Bấm nút **"Tự động"** ở góc trên cùng của trang để bật/tắt
 ![Nút bật/tắt Tự động review](../images/danh-gia-khach-hang-buoc9.png)
 > 📸 Cần chụp: nút "Tự động ON/OFF" ở góc trên cùng của trang, cạnh nút "Review bằng AI".
 
+### Bước 10 — Mở khách hàng bên CRM để thao tác tiếp
+
+Sau khi xem đánh giá, nếu bạn muốn cập nhật thông tin khách, xem lịch sử đơn hàng hay ghi chú chăm sóc thì đó là việc bên CRM TourKit. Có 2 lối tắt nhảy thẳng sang, đều **mở ra tab (thẻ) mới** nên vẫn giữ nguyên màn hình đánh giá đang xem:
+
+- **Mở cả danh sách:** bấm nút **"Danh sách Khách hàng CRM"** ở góc trên bên phải trang — mở thẳng trang Khách hàng trên CRM.
+- **Mở đúng khách đang xem:** khi đã mở bảng chi tiết đánh giá của một khách, bấm nút **"Xem khách hàng"** ở cuối bảng — CRM sẽ mở đúng hồ sơ khách đó để bạn thao tác ngay.
+
+![Nút mở khách hàng trên CRM](../images/danh-gia-khach-hang-buoc10.png)
+> 📸 Cần chụp: nút "Danh sách Khách hàng CRM" ở góc trên trang + nút "Xem khách hàng" trong bảng chi tiết đánh giá.
+
 ## 4. Lưu ý quan trọng / giới hạn
 
 - **Cần đăng nhập trước.** Trang này lấy dữ liệu khách hàng thật từ hệ thống CRM — nếu phiên đăng nhập hết hạn, bạn cần đăng nhập lại mới xem/dùng tiếp được.
@@ -106,6 +116,7 @@ Bấm nút **"Tự động"** ở góc trên cùng của trang để bật/tắt
 - **Kết quả AI mang tính tham khảo, hỗ trợ ra quyết định** — không thay thế đánh giá và nghiệp vụ thực tế của nhân viên/quản lý.
 - **Mỗi khách chỉ gửi phản hồi hữu ích/chưa chính xác được một lần** cho mỗi lần review — muốn gửi phản hồi mới, cần bấm "Cập nhật review" trước.
 - Nếu công ty đã dùng hết lượt sử dụng AI trong kỳ, thao tác review có thể báo lỗi — liên hệ bộ phận quản trị/IT để được bổ sung thêm lượt dùng.
+- **Nút "Danh sách Khách hàng CRM" / "Xem khách hàng" chỉ hiện khi bạn đã đăng nhập** — vì hệ thống dựa vào tài khoản đang đăng nhập để mở đúng CRM của công ty bạn. Nút mở CRM trong tab mới; nếu trình duyệt chặn cửa sổ bật lên (pop-up), hãy cho phép mở tab từ trang này.
 
 ## 5. Câu hỏi thường gặp (FAQ)
 
@@ -129,6 +140,12 @@ A: Khi bật, mỗi lần bạn mở trang Khách hàng, hệ thống tự tìm 
 
 **Q: Mức cảnh báo trong bảng chi tiết là gì?**
 A: Đây là lưu ý AI đưa ra khi phát hiện dấu hiệu cần chú ý đặc biệt ở khách hàng đó (ví dụ lâu chưa mua lại, có dấu hiệu không hài lòng...), giúp bạn ưu tiên chăm sóc khách đó trước.
+
+**Q: Làm sao mở hồ sơ khách này bên CRM để cập nhật/chăm sóc tiếp?**
+A: Bấm vào dòng khách (hoặc nút "Xem") để mở bảng chi tiết bên phải, rồi bấm nút **"Xem khách hàng"** ở cuối bảng — CRM TourKit sẽ mở đúng hồ sơ khách đó trong một tab mới. Nếu chỉ muốn xem cả danh sách khách bên CRM, bấm **"Danh sách Khách hàng CRM"** ở góc trên bên phải trang.
+
+**Q: Tôi không thấy nút mở CRM đâu cả?**
+A: Nút chỉ hiện khi bạn đã đăng nhập (hệ thống cần biết bạn thuộc công ty nào để mở đúng CRM). Nếu vẫn không thấy sau khi đăng nhập, kiểm tra xem trình duyệt có đang chặn mở tab mới từ trang này không.
 
 **Q: Nếu tôi thấy đánh giá của AI không đúng thì làm gì?**
 A: Bấm "👎 Chưa chính xác" ở cuối bảng chi tiết, ghi lý do (không bắt buộc) rồi gửi. Phản hồi của bạn giúp cải thiện chất lượng đánh giá về sau.
