@@ -50,7 +50,9 @@ const NAV_GROUPS = [
   { label: 'Tích hợp', items: [
     { to: '/widget-admin', icon: 'sparkle', label: 'Widget Chat', requirePerm: 'CH_HT_XEM' },   // embed JS widget cho site khách
     { to: '/visa-config',  icon: 'sliders', label: 'Câu hỏi Visa', requirePerm: 'CH_HT_XEM' },  // admin tenant chỉnh wizard câu hỏi
-    { to: '/workflows',    icon: 'zap',     label: 'Tự động hóa' },   // luôn hiện; scope theo người dùng bên trong
+    // R2 (BugTRAV-AI Re-Open): gate CẢ "Tự động hóa" theo CH_HT_XEM — trước để trống nên user thiếu
+    // quyền (vd trang01) VẪN thấy khối "Tích hợp". Cả khối cấu hình phải yêu cầu quyền Xem cấu hình hệ thống (mirror CRM).
+    { to: '/workflows',    icon: 'zap',     label: 'Tự động hóa', requirePerm: 'CH_HT_XEM' },
   ]},
 ];
 // Route → mã quyền yêu cầu. Derived từ item.requirePerm (PER-ITEM để /workflows không bị gate cứng).
