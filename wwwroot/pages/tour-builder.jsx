@@ -483,6 +483,27 @@ function TourBuilderPage({ pushToast }) {
           </div>
         </section>
       </div>
+
+      {/* O5 (BugTRAV-AI): thanh Lưu GHIM ở đáy — cuộn form dài vẫn thấy nút, khỏi kéo lên header tìm. */}
+      {hasForm && (
+        <div style={{ position: 'sticky', bottom: 0, zIndex: 30, marginTop: 16,
+                      display: 'flex', justifyContent: 'flex-end', gap: 10, flexWrap: 'wrap',
+                      padding: '12px 16px', background: 'var(--surface)', borderTop: '1px solid var(--border)',
+                      boxShadow: '0 -6px 20px rgba(0,0,0,0.08)' }}>
+          <button className="tb-btn" onClick={saveQuote}
+            disabled={busy || saving || !hasForm || draftStatus === 'committed'}
+            title="Lưu nháp báo giá (store riêng) — Redis → SQL">
+            <Icon name={saving ? 'refresh' : 'save'} size={14} />
+            {saving ? 'Đang commit…' : (savedId ? 'Commit nháp' : 'Lưu báo giá')}
+          </button>
+          <button className="tb-btn tb-btn-primary" onClick={saveCrm}
+            disabled={busy || crmSaving || !hasForm}
+            title="Tạo/cập nhật Tour GIT THẬT trong CRM TourKit">
+            <Icon name={crmSaving ? 'refresh' : 'pin'} size={14} />
+            {crmSaving ? 'Đang lưu CRM…' : (crmTourId ? 'Cập nhật CRM' : 'Lưu vào CRM')}
+          </button>
+        </div>
+      )}
     </main>
   );
 }
