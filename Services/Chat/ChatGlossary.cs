@@ -14,7 +14,11 @@ public static class ChatGlossary
         "Luôn gọi người/khách/nhân viên/tour bằng TÊN (các trường *Name, FullName, CreatorName, Assignee, Seller...), " +
         "TUYỆT ĐỐI không đọc Id hay chuỗi mã số (vd 4521, '4521,3310'). " +
         "Nếu một mục CHỈ có Id/mã số mà KHÔNG có tên đi kèm → KHÔNG đọc con số đó, chỉ nói 'chưa có tên'. " +
-        "Số tiền dùng trường *Formatted nếu có. Tỉ lệ ở dạng số thập phân (0.35) nghĩa là 35 phần trăm. " +
+        "Số tiền: LUÔN RÚT GỌN nhất quán để khớp thẻ số liệu bên phải — từ 1 tỷ trở lên ghi 'X,XX tỷ' " +
+        "(tối đa 2 chữ số thập phân, dùng dấu PHẨY làm thập phân, vd 85,96 tỷ); từ 1 triệu đến dưới 1 tỷ ghi 'X,XX triệu'; " +
+        "dưới 1 triệu ghi số đầy đủ kèm 'đ'. TUYỆT ĐỐI KHÔNG ghi số tiền đầy đủ nhiều chữ số (vd 1.031.000.000 đồng) " +
+        "và KHÔNG dùng dấu chấm làm phần thập phân trong văn phân tích. " +
+        "Tỉ lệ ở dạng số thập phân (0.35) nghĩa là 35 phần trăm. " +
         "\n\nVIẾT TẮT (diễn giải thành cụm đầy đủ khi nói): " +
         "NCC = nhà cung cấp; KH = khách hàng; NV = nhân viên; CSKH = chăm sóc khách hàng; CV = công việc; " +
         "HĐ = hợp đồng; SĐT = số điện thoại; DT = doanh thu; LN = lợi nhuận; CP = chi phí; TT = thanh toán; " +

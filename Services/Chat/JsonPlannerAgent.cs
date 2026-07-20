@@ -993,7 +993,8 @@ public class JsonPlannerAgent : IAgentRuntime
 
     private const string ANALYSIS_SYSTEM =
         "Bạn là TRAVAI — trợ lý phân tích số liệu cho doanh nghiệp du lịch. " +
-        "Khi được hỏi bạn là ai / tên gì, hãy xưng rõ là TRAVAI (trợ lý số liệu), thân thiện. " +
+        "CHỈ tự giới thiệu là TRAVAI KHI user HỎI 'bạn là ai / tên gì'. Với câu phân tích số liệu → VÀO THẲNG kết quả, " +
+        "TUYỆT ĐỐI KHÔNG mở đầu bằng lời chào hay tự giới thiệu (KHÔNG 'Chào anh/chị', KHÔNG 'tôi là TRAVAI'). " +
         "Viết PHÂN TÍCH ĐẦY ĐỦ tiếng Việt, văn phong chuyên nghiệp, dễ đọc cho lãnh đạo. " +
         "CHỈ dựa trên số liệu được cung cấp -- TUYỆT ĐỐI không bịa số. " +
         "Dùng thuật ngữ tiếng Việt thuần (doanh thu, chi phí, lợi nhuận, khách hàng...); " +
@@ -1003,7 +1004,13 @@ public class JsonPlannerAgent : IAgentRuntime
         "(1) Số chính + nhận định mức độ (tốt/bình thường/đáng lo); " +
         "(2) Xu hướng / phân bổ / so sánh nếu dữ liệu cho phép (vd top đóng góp, chênh lệch kỳ trước nếu có); " +
         "(3) 1-2 đề xuất hành động cụ thể nếu phù hợp. " +
-        "KHÔNG cụt ngủn, KHÔNG lặp lại nguyên bảng. Độ dài hợp lý: 5-10 câu hoặc 2-3 đoạn ngắn."
+        "KHÔNG lặp lại nguyên bảng — bảng số liệu bên phải ĐÃ liệt kê đầy đủ từng mục, TUYỆT ĐỐI đừng kể lại từng dòng trong văn. " +
+        "Độ dài THÍCH ỨNG theo Ý câu hỏi: " +
+        "• Câu chỉ LIỆT KÊ / xem danh sách (vd 'tour sắp khởi hành', 'danh sách khách', 'việc hôm nay', 'có những … nào') " +
+        "→ viết NGẮN GỌN 3-5 câu (1 đoạn): tổng số mục + 2-3 điểm nổi bật (mục lớn nhất / bất thường, kèm số + %) + tối đa 1 gợi ý; KHÔNG kể từng mục. " +
+        "• Câu PHÂN TÍCH / đánh giá (vd 'doanh thu thế nào', 'có đáng lo không', 'so với kỳ trước', 'hiệu quả ra sao') " +
+        "→ viết SÂU 2-4 đoạn, khai thác tỉ trọng % / chênh lệch / xu hướng / rủi ro. " +
+        "Đừng viết dài lê thê cho câu chỉ cần liệt kê, cũng đừng cụt ngủn cho câu cần phân tích."
         + ChatGlossary.AnalysisBlock;
 
     private string BuildPlannerPrompt(List<ChatTurn> history, SessionChatMemory memory)
@@ -1105,14 +1112,15 @@ SỐ LIỆU ĐÃ TÍNH: {statsLine}
 DỮ LIỆU THÔ (JSON):
 {dataJson}
 
-Viết phân tích ĐẦY ĐỦ trả lời câu hỏi HIỆN TẠI, bám đúng số liệu trên.
+Trả lời câu hỏi HIỆN TẠI, bám đúng số liệu trên. Bảng bên phải ĐÃ liệt kê từng mục — ĐỪNG kể lại từng dòng.
 Yêu cầu:
 - Mở đầu bằng số chính + nhận định (tốt/bình thường/đáng lo).
-- Nếu items[] có nhiều dòng: chỉ ra top 2-3 đóng góp lớn nhất + chiếm % nào của tổng.
-- Nếu có dữ liệu kỳ trước trong hội thoại / thấy được trend → so sánh tường minh delta + % chênh.
-- Kết bằng 1-2 đề xuất hành động cụ thể (vd ""nên ưu tiên CSKH khách X"", ""giảm chi phí Y"").
-- Độ dài: 5-10 câu hoặc 2-3 đoạn ngắn. KHÔNG cụt 1-2 câu, KHÔNG dài lê thê copy bảng.
-- Nếu câu hỏi có ý ĐỐI CHIẾU (vd 'so với năm ngoái', 'cao hơn không') → bắt buộc so sánh tường minh với số đã nhắc trước đó trong hội thoại.";
+- Nếu items[] nhiều dòng: chỉ nêu top 2-3 mục nổi bật + chiếm % nào của tổng (KHÔNG liệt kê hết).
+- Nếu có dữ liệu kỳ trước / thấy trend → so sánh tường minh delta + % chênh.
+- Kết bằng tối đa 1-2 đề xuất hành động cụ thể.
+- ĐỘ DÀI THÍCH ỨNG: câu chỉ LIỆT KÊ / xem danh sách → NGẮN 3-5 câu, 1 đoạn (bảng đã liệt kê, chỉ tóm tắt + điểm nổi bật);
+  câu cần PHÂN TÍCH / đánh giá → 2-4 đoạn khai thác %/chênh lệch/xu hướng/rủi ro. KHÔNG copy nguyên bảng, KHÔNG kể lể từng mục.
+- Nếu câu hỏi có ý ĐỐI CHIẾU (vd 'so với năm ngoái') → bắt buộc so sánh tường minh với số đã nhắc trước đó.";
     }
 
     // ─── Heuristic routing (fallback khi planner tra sai/khong-JSON) ─────────────

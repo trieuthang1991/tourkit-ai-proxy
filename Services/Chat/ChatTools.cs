@@ -28,7 +28,9 @@ public static class ChatTools
             "CHỈ dùng khi người dùng hỏi CHI TIẾT/ĐẦY ĐỦ chỉ số, hoặc hỏi đích danh thực thu/công nợ/thực chi/lợi nhuận ròng. " +
             "KHÔNG dùng cho câu doanh thu/lợi nhuận/chi phí ĐƠN GIẢN ('doanh thu tháng này') → dùng cashflow.",
             "/api/ai/financial-summary",
-            new[] { "startDate", "endDate", "month", "year", "dateType", "branch" },
+            // BỎ "dateType" (+ month/year): upstream trả 400 khi có dateType=month kèm range ngày.
+            // Chỉ giữ range ngày + branch — đúng chế độ hoạt động ổn định của endpoint.
+            new[] { "startDate", "endDate", "branch" },
             "kpi", "Chi tiết tài chính"),
 
         new("cashflow",
@@ -61,7 +63,8 @@ public static class ChatTools
         new("top_sellers",
             "Top nhân viên/seller doanh số cao nhất. Bỏ trống ngày = tháng này.",
             "/api/ai/top-sellers",
-            new[] { "startDate", "endDate", "dateType" },
+            // BỎ "dateType": upstream trả 400 khi có dateType (vd dateType=orderDate). Chỉ giữ range ngày.
+            new[] { "startDate", "endDate" },
             "topsellers", "Top Seller"),
 
         new("employee_performance",
