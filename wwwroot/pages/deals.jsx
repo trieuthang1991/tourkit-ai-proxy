@@ -70,7 +70,7 @@ function DealDrawer({ item: initialItem, onClose, onRescored, pushToast }) {
       <div className="deal-drawer-head">
         <div>
           <div className="deal-drawer-title">{item.customerName}</div>
-          <div className="deal-drawer-sub">{item.title || item.code || ('#' + item.id)}</div>
+          <div className="deal-drawer-sub">{item.code || ('#' + item.id)}</div>
         </div>
         <button className="deal-x" onClick={onClose}><Icon name="close" size={16} /></button>
       </div>
@@ -156,7 +156,7 @@ function DealCard({ item, rank, onClick, coolingConfigured }) {
           <div className="deal-card-cust">{item.customerName}
             {coolingConfigured && item.isCooling && <span className="deals-risk"><Icon name="warning" size={11} /> nguội</span>}
           </div>
-          <div className="deal-card-deal">{item.title || item.code || ('#' + item.id)} · {item.statusName || '—'} · {item.ageDays} ngày</div>
+          <div className="deal-card-deal">{item.code || ('#' + item.id)} · {item.statusName || '—'} · {item.ageDays} ngày</div>
         </div>
         {scored
           ? <span className="deals-win" style={{ color: lv.color, background: lv.bg }}>{item.winRate}%</span>
@@ -735,7 +735,7 @@ function DealsPage({ pushToast }) {
                     );
                   })()}
                 </th>
-                <th>#</th><th>Khách hàng / Cơ hội</th><th>Giá trị</th><th>Win</th>
+                <th title="Thứ hạng ưu tiên do AI chấm (sắp theo % thắng × giá trị) — deal chưa chấm hiện —">Hạng AI</th><th>Khách hàng / Cơ hội</th><th>Giá trị</th><th>Win</th>
                 <th>Ưu tiên</th><th>Hành động nên làm</th><th></th>
               </tr></thead>
               <tbody>
@@ -758,7 +758,7 @@ function DealsPage({ pushToast }) {
                         <div className="deals-cust">{it.customerName}
                           {coolingConfigured && it.isCooling && <span className="deals-risk" title="Đang nguội (lâu không tương tác)"><Icon name="warning" size={11} /> nguội</span>}
                         </div>
-                        <div className="deals-deal">{it.title || it.code || ('#' + it.id)} · {it.statusName || '—'} · {it.ageDays} ngày</div>
+                        <div className="deals-deal">{it.code || ('#' + it.id)} · {it.statusName || '—'} · {it.ageDays} ngày</div>
                       </td>
                       <td className="deals-val">{vndShort(it.totalPrice)}</td>
                       <td>
