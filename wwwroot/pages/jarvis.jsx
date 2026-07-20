@@ -1340,7 +1340,16 @@ function JarvisPage({ pushToast }) {
     responding: { label: 'ĐANG TRẢ LỜI', cls: 'responding' },
   }[orbState] || { label: 'SẴN SÀNG', cls: 'idle' };
 
-  const suggestions = ['Doanh thu tháng này', 'Top khách hàng', 'Tour sắp khởi hành', 'Cơ hội bán hàng đang chờ'];
+  // O2 (Sheet BugTRAV-AI): mở rộng danh sách gợi ý + "Xem thêm" — trước chỉ 4 gợi ý, người dùng bí không biết hỏi gì.
+  const ALL_SUGGESTIONS = [
+    'Doanh thu tháng này', 'Chi phí tháng này', 'Lợi nhuận tháng này',
+    'Top khách hàng', 'Top nhân viên bán hàng',
+    'Tour sắp khởi hành', 'Cơ hội bán hàng đang chờ',
+    'Công việc hôm nay', 'Lịch hẹn sắp tới',
+    'Dòng tiền tháng này', 'Nguồn khách marketing', 'Phiếu thu chi gần đây',
+  ];
+  const [showAllSug, setShowAllSug] = React.useState(false);
+  const suggestions = showAllSug ? ALL_SUGGESTIONS : ALL_SUGGESTIONS.slice(0, 6);
 
   return (
     <main className="page jv-wrap">
@@ -1466,6 +1475,11 @@ function JarvisPage({ pushToast }) {
             {suggestions.map(q => (
               <button key={q} className="jv-chip" onClick={() => send(q)} disabled={loading}>{q}</button>
             ))}
+            {ALL_SUGGESTIONS.length > 6 && (
+              <button className="jv-chip" onClick={() => setShowAllSug(v => !v)} disabled={loading} style={{ fontWeight: 700 }}>
+                {showAllSug ? '− Thu gọn' : '+ Xem thêm gợi ý'}
+              </button>
+            )}
           </div>
         )}
 
