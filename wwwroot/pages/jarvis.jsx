@@ -1351,6 +1351,23 @@ function JarvisPage({ pushToast }) {
   const [showAllSug, setShowAllSug] = React.useState(false);
   const suggestions = showAllSug ? ALL_SUGGESTIONS : ALL_SUGGESTIONS.slice(0, 6);
 
+  // O3 (BugTRAV-AI): drawer "Yêu cầu (Hàng đợi CRM)" mở từ nút 3 gạch ngay tại màn AI Talk —
+  // trước phải vào /workflows (Tích hợp/cấu hình) mới xem được, bất tiện.
+  const [queueOpen, setQueueOpen] = React.useState(false);
+  const [queueItems, setQueueItems] = React.useState(null);
+  const [queueLoading, setQueueLoading] = React.useState(false);
+  React.useEffect(() => {
+    if (!queueOpen) return;
+    let alive = true;
+    setQueueLoading(true);
+    window.tourkitAuth.authedFetch('/api/v1/workflows/crm-queue?limit=50')
+      .then(r => r.ok ? r.json() : { items: [] })
+      .then(j => { if (alive) setQueueItems(j.items || []); })
+      .catch(() => { if (alive) setQueueItems([]); })
+      .finally(() => { if (alive) setQueueLoading(false); });
+    return () => { alive = false; };
+  }, [queueOpen]);
+
   return (
     <main className="page jv-wrap">
       <JarvisStyle />
@@ -1401,12 +1418,58 @@ function JarvisPage({ pushToast }) {
                 <Icon name="bell" size={14} /> NGHE
               </button>
             )}
+            {/* O3: nút 3 gạch mở danh sách Yêu cầu (Hàng đợi CRM) ngay tại màn AI Talk. */}
+            <button className="jv-toggle" onClick={() => setQueueOpen(true)} title="Danh sách Yêu cầu (Hàng đợi CRM)">
+              <Icon name="list" size={14} /> YÊU CẦU
+            </button>
             <button className="jv-toggle" onClick={() => { stopEverything(); setMessages([]); setLastTool(null); setVizData(null); }}
               title="Xóa hội thoại + dừng giọng đang đọc">
               <Icon name="refresh" size={14} /> MỚI
             </button>
           </div>
         </div>
+
+        {/* O3: Drawer "Yêu cầu — Hàng đợi CRM" (giao việc / lịch hẹn trợ lý đã enqueue). */}
+        {queueOpen && (
+          <div style={{ position: 'fixed', inset: 0, zIndex: 1200, background: 'rgba(2,6,23,0.6)', display: 'flex', justifyContent: 'flex-end' }}
+               onClick={() => setQueueOpen(false)}>
+            <aside style={{ width: 'min(460px, 96vw)', height: '100vh', background: '#0b1220', color: '#e2e8f0', overflowY: 'auto',
+                            borderLeft: '1px solid rgba(56,189,248,0.25)', boxShadow: '-12px 0 32px rgba(0,0,0,0.5)' }}
+                   onClick={e => e.stopPropagation()}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '14px 18px', borderBottom: '1px solid rgba(148,163,184,0.2)' }}>
+                <Icon name="list" size={16} />
+                <div style={{ flex: 1, fontWeight: 700, fontSize: 14 }}>Yêu cầu — Hàng đợi CRM</div>
+                <button onClick={() => setQueueOpen(false)} aria-label="Đóng"
+                        style={{ background: 'transparent', border: 'none', color: '#94a3b8', fontSize: 20, cursor: 'pointer' }}>×</button>
+              </div>
+              <div style={{ padding: 14 }}>
+                {queueLoading ? (
+                  <div style={{ padding: 20, textAlign: 'center', color: '#64748b' }}>Đang tải…</div>
+                ) : !queueItems || queueItems.length === 0 ? (
+                  <div style={{ padding: 20, textAlign: 'center', color: '#64748b' }}>Chưa có yêu cầu nào trong hàng đợi.</div>
+                ) : (
+                  <div style={{ display: 'grid', gap: 8 }}>
+                    {queueItems.map(it => {
+                      const kind = it.kind === 'assign_task' ? 'Giao việc' : it.kind === 'create_appointment' ? 'Lịch hẹn' : (it.kind || 'Yêu cầu');
+                      const st = it.errorMessage ? { t: 'Lỗi', c: '#f87171' } : (it.processedUtc ? { t: 'Đã xử lý', c: '#4ade80' } : { t: 'Chờ xử lý', c: '#fbbf24' });
+                      const when = window.tourkitUtil?.fmtAgo ? window.tourkitUtil.fmtAgo(it.createdUtc) : (it.createdUtc || '');
+                      return (
+                        <div key={it.id} style={{ border: '1px solid rgba(148,163,184,0.2)', borderRadius: 10, padding: '10px 12px', background: 'rgba(15,23,42,0.6)' }}>
+                          <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8 }}>
+                            <span style={{ fontWeight: 600, fontSize: 13 }}>{kind}</span>
+                            <span style={{ fontSize: 11, fontWeight: 700, color: st.c }}>{st.t}</span>
+                          </div>
+                          {it.payloadJson && <div style={{ fontSize: 12, color: '#94a3b8', marginTop: 4, wordBreak: 'break-word', maxHeight: 60, overflow: 'hidden' }}>{it.payloadJson}</div>}
+                          <div style={{ fontSize: 11, color: '#64748b', marginTop: 4 }}>{when}{it.username ? ' · ' + it.username : ''}</div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
+            </aside>
+          </div>
+        )}
 
         {/* Sân khấu orb */}
         <div className="jv-stage">
