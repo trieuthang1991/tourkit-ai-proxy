@@ -124,10 +124,10 @@ public static class TourEndpoints
 
         // Danh sách NCC để HIỂN THỊ (search + paging) — proxy /api/providers (endpoint mới). Cho trang "Nhà cung cấp".
         // Query params: filter (keyword), pageIndex, pageSize, serviceId (optional — filter theo loại DV).
-        v1.MapGet("/ncc/list", async (HttpContext ctx, TourKitNccClient ncc, TkSessionStore sessions, string? filter, int? pageIndex, int? pageSize, int? serviceId) =>
+        v1.MapGet("/ncc/list", async (HttpContext ctx, TourKitNccClient ncc, TkSessionStore sessions, string? filter, int? pageIndex, int? pageSize, int? serviceId, int? sortOrder) =>
         {
             var sid = Sid(ctx); if (sessions.Get(sid) == null) return Unauthorized();
-            return await Proxy(() => ncc.ProviderListAsync(sid!, filter, pageIndex ?? 1, pageSize ?? 20, serviceId, ctx.RequestAborted));
+            return await Proxy(() => ncc.ProviderListAsync(sid!, filter, pageIndex ?? 1, pageSize ?? 20, serviceId, ctx.RequestAborted, sortOrder ?? 0));
         });
 
         // R1 (Sheet BugTRAV-AI): thống kê "nâng cao chất lượng dữ liệu" cho banner màn NCC list.

@@ -170,6 +170,7 @@ function NccListPage({ pushToast }) {
   const [pageSize, setPageSize] = _uNcc(20);
   const [q, setQ]         = _uNcc('');
   const [serviceIdFilter, setServiceIdFilter] = _uNcc(0);   // 0 = "Tất cả loại"
+  const [sortOrder, setSortOrder] = _uNcc(0);               // O1: 0=Mới→Cũ (mặc định), 1=A-Z, 2=Cũ→Mới
   const [services, setServices] = _uNcc([]);                 // loại DV NCC (cho dropdown filter)
   const [loading, setLoad] = _uNcc(true);
   const [err, setErr]      = _uNcc(null);
@@ -203,6 +204,7 @@ function NccListPage({ pushToast }) {
     const qs = new URLSearchParams({ pageIndex: String(page), pageSize: String(pageSize) });
     if (q.trim()) qs.set('filter', q.trim());
     if (serviceIdFilter > 0) qs.set('serviceId', String(serviceIdFilter));
+    if (sortOrder) qs.set('sortOrder', String(sortOrder));
     window.tourkitAuth.authedFetch('/api/v1/ncc/list?' + qs.toString())
       .then(r => r.json().then(d => ({ ok: r.ok, d })))
       .then(({ ok, d }) => {
@@ -213,7 +215,7 @@ function NccListPage({ pushToast }) {
       .catch(e => { if (alive) setErr(String((e && e.message) || e)); })
       .finally(() => { if (alive) setLoad(false); });
     return () => { alive = false; };
-  }, [page, pageSize, q, serviceIdFilter, reloadKey]);
+  }, [page, pageSize, q, serviceIdFilter, sortOrder, reloadKey]);
 
   const onSearch = (val) => { setPage(1); setQ(val || ''); };
   const onServiceFilterChange = (v) => { setPage(1); setServiceIdFilter(+v || 0); };
@@ -269,6 +271,15 @@ function NccListPage({ pushToast }) {
                          background: 'var(--surface)', color: 'var(--text)', minWidth: 200 }}>
           <option value={0}>— Tất cả loại NCC —</option>
           {services.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
+        </select>
+        {/* O1: sắp xếp — mặc định Mới→Cũ (NCC import sau lên đầu, hết cảnh bị đẩy xuống cuối). */}
+        <select value={sortOrder} onChange={e => { setPage(1); setSortOrder(+e.target.value || 0); }}
+                title="Sắp xếp"
+                style={{ padding: '8px 12px', border: '1px solid var(--border)', borderRadius: 8, fontSize: 13,
+                         background: 'var(--surface)', color: 'var(--text)', minWidth: 150 }}>
+          <option value={0}>Mới → Cũ</option>
+          <option value={1}>Tên A → Z</option>
+          <option value={2}>Cũ → Mới</option>
         </select>
       </div>
 
