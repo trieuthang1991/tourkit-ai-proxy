@@ -23,6 +23,10 @@ public static class TourEndpoints
     private static readonly ConcurrentDictionary<string, (List<string> Names, DateTime Exp)> _marketsCache = new();
     private static readonly TimeSpan MarketsTtl = TimeSpan.FromHours(6);
 
+    // Cache thống kê chất lượng dữ liệu NCC per-tenant (R1) — quét toàn bộ NCC nên nặng → TTL 10 phút.
+    private static readonly ConcurrentDictionary<string, (object Stats, DateTime Exp)> _nccStatsCache = new();
+    private static readonly TimeSpan NccStatsTtl = TimeSpan.FromMinutes(10);
+
     public static IEndpointRouteBuilder MapTourEndpoints(this IEndpointRouteBuilder routes)
     {
         var v1 = routes.MapGroup("/api/v1");
@@ -126,6 +130,62 @@ public static class TourEndpoints
             return await Proxy(() => ncc.ProviderListAsync(sid!, filter, pageIndex ?? 1, pageSize ?? 20, serviceId, ctx.RequestAborted));
         });
 
+        // R1 (Sheet BugTRAV-AI): thống kê "nâng cao chất lượng dữ liệu" cho banner màn NCC list.
+        // Đếm TỔNG toàn bộ NCC → thiếu email / thiếu SĐT (quét /api/ai/providers) + NCC chưa có bảng giá
+        // (distinct providerId từ /api/ai/provider-prices → thiếu = total - có). Nặng nên cache 10 phút/tenant.
+        v1.MapGet("/ncc/stats", async (HttpContext ctx, TourKitNccClient ncc, TkSessionStore sessions, ILogger<Program> log) =>
+        {
+            var sid = Sid(ctx); var sess = sessions.Get(sid);
+            if (sess == null) return Unauthorized();
+            if (_nccStatsCache.TryGetValue(sess.TenantId, out var c) && c.Exp > DateTime.UtcNow)
+                return Results.Json(c.Stats);
+            try
+            {
+                const int PS = 500, MAXPAGES = 60;  // trần an toàn ~30k NCC
+                int total = 0, missingEmail = 0, missingPhone = 0;
+                for (int page = 1; page <= MAXPAGES; page++)
+                {
+                    var d = await ncc.ProviderListAsync(sid!, null, page, PS, null, ctx.RequestAborted);
+                    if (page == 1) total = GetIntProp(d, "total");
+                    var items = GetArrayItems(d, "items");
+                    if (items.Count == 0) break;
+                    foreach (var it in items)
+                    {
+                        if (IsBlankProp(it, "email")) missingEmail++;
+                        if (IsBlankProp(it, "phone")) missingPhone++;
+                    }
+                    if ((long)page * PS >= total) break;
+                }
+
+                var withPrice = new HashSet<int>();
+                for (int page = 0; page < MAXPAGES; page++)  // provider-prices dùng pageIndex 0-based
+                {
+                    var d = await ncc.ProviderPricesAsync(sid!, page, PS, ctx.RequestAborted);
+                    var items = GetArrayItems(d, "items");
+                    if (items.Count == 0) break;
+                    foreach (var it in items)
+                    {
+                        var pid = GetIntProp(it, "providerId");
+                        if (pid > 0) withPrice.Add(pid);
+                    }
+                    if ((long)(page + 1) * PS >= GetIntProp(d, "total")) break;
+                }
+
+                var stats = new
+                {
+                    total,
+                    missingEmail,
+                    missingPhone,
+                    missingPrice = Math.Max(0, total - withPrice.Count),
+                    withPrice = withPrice.Count
+                };
+                _nccStatsCache[sess.TenantId] = (stats, DateTime.UtcNow.Add(NccStatsTtl));
+                return Results.Json(stats);
+            }
+            catch (TourKitApiException ex) { return Results.Json(new { error = ex.Message }, statusCode: ex.Status); }
+            catch (Exception ex) { log.LogError(ex, "[ncc/stats] fail"); return Results.Json(new { error = "Không tính được thống kê NCC: " + ex.Message }, statusCode: 502); }
+        });
+
         // ─── Thị trường THẬT (proxy TourKit /api/tours/markets, cache 6h per-tenant) ──
         // Tour-builder + Wizard dùng để fill dropdown Thị trường thay vì hardcode 12 string.
         v1.MapGet("/markets", async (HttpContext ctx, TourKitApiClient api, TkSessionStore sessions, ILogger<Program> log) =>
@@ -226,4 +286,23 @@ public static class TourEndpoints
         => e.ValueKind == JsonValueKind.Object && e.TryGetProperty(name, out var v) && v.ValueKind == JsonValueKind.Number && v.TryGetInt32(out var n) ? n : null;
     private static JsonElement Clone(JsonElement e, string name)
         => e.ValueKind == JsonValueKind.Object && e.TryGetProperty(name, out var v) ? v.Clone() : default;
+
+    // Helpers cho /ncc/stats — envelope AI surface camelCase (total/items/email/phone/providerId).
+    private static int GetIntProp(JsonElement e, string name)
+    {
+        if (e.ValueKind != JsonValueKind.Object || !e.TryGetProperty(name, out var v)) return 0;
+        if (v.ValueKind == JsonValueKind.Number && v.TryGetInt32(out var n)) return n;
+        if (v.ValueKind == JsonValueKind.String && int.TryParse(v.GetString(), out var s)) return s;
+        return 0;
+    }
+    private static List<JsonElement> GetArrayItems(JsonElement e, string name)
+    {
+        var list = new List<JsonElement>();
+        if (e.ValueKind == JsonValueKind.Object && e.TryGetProperty(name, out var a) && a.ValueKind == JsonValueKind.Array)
+            foreach (var it in a.EnumerateArray()) list.Add(it);
+        return list;
+    }
+    private static bool IsBlankProp(JsonElement e, string name)
+        => !(e.ValueKind == JsonValueKind.Object && e.TryGetProperty(name, out var v)
+             && v.ValueKind == JsonValueKind.String && !string.IsNullOrWhiteSpace(v.GetString()));
 }

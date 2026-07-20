@@ -21,6 +21,16 @@ const _nccSub = { ...{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace:
 const _nccMuted = { color: 'var(--text-3)' };
 const _nccMono = { fontFamily: 'ui-monospace, "SF Mono", monospace', fontSize: 12, color: 'var(--text-2)' };
 
+// R1 (Sheet BugTRAV-AI): chip cảnh báo trong banner "Gợi ý nâng cao chất lượng dữ liệu".
+function NccWarnChip({ n, label }) {
+  return (
+    <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5, padding: '3px 10px', borderRadius: 999,
+                   background: 'var(--surface)', border: '1px solid rgba(245,158,11,0.40)', fontSize: 12, fontWeight: 600, color: '#b45309' }}>
+      <span style={{ fontSize: 12 }}>⚠</span>{(n || 0).toLocaleString('vi-VN')} {label}
+    </span>
+  );
+}
+
 // statusText do server (AI surface) format sẵn TV; tô accent khi đang hoạt động (status=2).
 function NccStatus({ item }) {
   const active = item.status === 2;
@@ -165,7 +175,17 @@ function NccListPage({ pushToast }) {
   const [err, setErr]      = _uNcc(null);
   const [reloadKey, setReloadKey] = _uNcc(0);
   const [previewItem, setPreviewItem] = _uNcc(null);
+  // R1: thống kê chất lượng dữ liệu (thiếu email/SĐT/bảng giá) cho banner — fetch 1 lần, backend cache 10p.
+  const [stats, setStats] = _uNcc(null);
+  const [statsDismissed, setStatsDismissed] = _uNcc(false);
   const isMobile = window.tourkitHooks.useIsMobile();
+
+  _uENcc(() => {
+    window.tourkitAuth.authedFetch('/api/v1/ncc/stats')
+      .then(r => r.ok ? r.json() : null)
+      .then(j => { if (j && !j.error) setStats(j); })
+      .catch(() => { /* banner optional — lỗi thì ẩn */ });
+  }, []);
 
   const totalPages = Math.max(1, Math.ceil(total / pageSize));
 
@@ -217,6 +237,24 @@ function NccListPage({ pushToast }) {
           </button>
         </>}
       />
+
+      {/* R1: Banner "Gợi ý nâng cao chất lượng dữ liệu" — đếm NCC thiếu email/SĐT/bảng giá trên TOÀN BỘ NCC. */}
+      {stats && !statsDismissed && (stats.missingEmail > 0 || stats.missingPhone > 0 || stats.missingPrice > 0) && (
+        <div style={{ marginTop: 16, display: 'flex', alignItems: 'flex-start', gap: 12, padding: '12px 16px',
+                      background: 'rgba(245,158,11,0.08)', border: '1px solid rgba(245,158,11,0.35)', borderRadius: 'var(--radius)' }}>
+          <span style={{ fontSize: 18, lineHeight: '20px' }}>💡</span>
+          <div style={{ flex: 1, minWidth: 0 }}>
+            <div style={{ fontWeight: 700, fontSize: 13, color: '#b45309', marginBottom: 8 }}>Gợi ý nâng cao chất lượng dữ liệu</div>
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
+              {stats.missingEmail > 0 && <NccWarnChip n={stats.missingEmail} label="NCC thiếu email" />}
+              {stats.missingPhone > 0 && <NccWarnChip n={stats.missingPhone} label="thiếu SĐT" />}
+              {stats.missingPrice > 0 && <NccWarnChip n={stats.missingPrice} label="chưa có bảng giá" />}
+            </div>
+          </div>
+          <button onClick={() => setStatsDismissed(true)} aria-label="Đóng"
+                  style={{ background: 'transparent', border: 'none', fontSize: 18, cursor: 'pointer', color: 'var(--text-3)', lineHeight: 1 }}>×</button>
+        </div>
+      )}
 
       <div style={{ margin: '16px 0', display: 'flex', gap: 12, flexWrap: 'wrap', alignItems: 'center' }}>
         <div style={{ flex: '1 1 320px', maxWidth: 520 }}>
@@ -314,13 +352,15 @@ function NccListPage({ pushToast }) {
                       : <span style={_nccMuted}>-</span>}
                   </td>
                   <td style={_nccTdStack()}>
-                    {p.phone && (
-                      <div style={_nccLine} title={p.phone}>
-                        <a href={`tel:${p.phone}`} style={{ color: 'var(--text)', textDecoration: 'none' }}>{p.phone}</a>
-                      </div>
-                    )}
-                    {p.email && <div style={_nccSub} title={p.email}>{p.email}</div>}
-                    {!p.phone && !p.email && <span style={_nccMuted}>-</span>}
+                    {/* R1: thiếu SĐT/email → hiện "Chưa có" (thay vì để trống) để lộ NCC cần bổ sung dữ liệu. */}
+                    <div style={_nccLine} title={p.phone || ''}>
+                      {p.phone
+                        ? <a href={`tel:${p.phone}`} style={{ color: 'var(--text)', textDecoration: 'none' }}>{p.phone}</a>
+                        : <em style={_nccMuted}>Chưa có</em>}
+                    </div>
+                    <div style={_nccSub} title={p.email || ''}>
+                      {p.email || <em style={{ fontStyle: 'italic' }}>Chưa có</em>}
+                    </div>
                   </td>
                   <td style={{ ..._nccTd(), paddingRight: 20 }}><NccStatus item={p} /></td>
                 </tr>
