@@ -16,6 +16,12 @@ namespace TourkitAiProxy.Endpoints;
 /// Request body shape: {prompt, provider?, model?, maxTokens?, temperature?, system?}.
 /// Provider/model routing là server-side; API keys không bao giờ leak ra client.
 ///
+/// AUTH: 2 route sinh chi phí AI (/completions + /completions/stream, kèm alias legacy)
+/// BẮT BUỘC `X-Session-Id` hợp lệ. Lý do: quota per-tenant chỉ chặn khi resolve được
+/// tenant (xem EnsureQuota — tenant rỗng thì return sớm), nên nếu để anonymous đi qua
+/// thì bất kỳ ai cũng POST được prompt và tiêu key AI không giới hạn lượt.
+/// Route chỉ đọc metadata (/providers, /models, /usage) vẫn mở.
+///
 /// Legacy aliases (giữ tương thích frontend chưa migrate):
 ///   POST /api/ai/complete  → /api/v1/completions
 ///   POST /api/ai/stream    → /api/v1/completions/stream
@@ -97,9 +103,12 @@ public static class AiEndpoints
         AiModelRegistry modelRegistry,
         UsageTracker usage,
         TourkitAiProxy.Services.Workflow.IWorkflowTraceAccessor traceAccessor,
+        TourkitAiProxy.Services.TourKit.TkSessionStore sessions,
         ILogger<Program> log,
         HttpContext ctx)
     {
+        if (RequireSession(ctx, sessions) == null) return Unauthorized(ctx, log, "completions");
+
         // Wizard / raw passthrough: nếu caller không chỉ định provider/model → resolve từ Models:Wizard (kế thừa Primary nếu null).
         if (string.IsNullOrWhiteSpace(req.Provider) || string.IsNullOrWhiteSpace(req.Model))
         {
@@ -180,8 +189,18 @@ public static class AiEndpoints
         ProviderRegistry registry,
         AiModelRegistry modelRegistry,
         UsageTracker usage,
+        TourkitAiProxy.Services.TourKit.TkSessionStore sessions,
         ILogger<Program> log)
     {
+        // Chặn TRƯỚC khi mở SSE — mở rồi thì không trả được status code sạch nữa.
+        if (RequireSession(ctx, sessions) == null)
+        {
+            LogDenied(ctx, log, "completions/stream");
+            ctx.Response.StatusCode = 401;
+            await ctx.Response.WriteAsJsonAsync(new { error = "Phiên không hợp lệ — đăng nhập lại" });
+            return;
+        }
+
         ctx.Response.Headers["Content-Type"]      = "text/event-stream";
         ctx.Response.Headers["Cache-Control"]     = "no-cache, no-transform";
         ctx.Response.Headers["X-Accel-Buffering"] = "no";
@@ -276,5 +295,31 @@ public static class AiEndpoints
             }
             catch { }
         }
+    }
+
+    // ─── Auth helpers ─────────────────────────────────────────────────────────
+    // Cùng khuôn với MailEndpoints/VisaEndpoints/WorkflowEndpoints: đọc X-Session-Id
+    // (hoặc ?sessionId=) → tra TkSessionStore. Null = anonymous/hết hạn → 401.
+    private static (string SessionId, string TenantId, string Username)? RequireSession(
+        HttpContext ctx, TourkitAiProxy.Services.TourKit.TkSessionStore sessions)
+    {
+        var sid = ctx.Request.Headers["X-Session-Id"].FirstOrDefault()
+            ?? ctx.Request.Query["sessionId"].FirstOrDefault();
+        var s = sessions.Get(sid);
+        return s == null ? null : (sid!, s.TenantId, s.Username);
+    }
+
+    // Log riêng cho lượt bị từ chối — endpoint này là mục tiêu quét của bot săn
+    // "open AI proxy", cần thấy được IP/UA để chặn ở tầng reverse proxy khi cần.
+    private static void LogDenied(HttpContext ctx, ILogger<Program> log, string route)
+        => log.LogWarning("[{Route}] TỪ CHỐI request thiếu/sai phiên — ip={Ip} ua={Ua}",
+            route,
+            ctx.Connection.RemoteIpAddress?.ToString() ?? "?",
+            ctx.Request.Headers.UserAgent.FirstOrDefault() ?? "?");
+
+    private static IResult Unauthorized(HttpContext ctx, ILogger<Program> log, string route)
+    {
+        LogDenied(ctx, log, route);
+        return Results.Json(new { error = "Phiên không hợp lệ — đăng nhập lại" }, statusCode: 401);
     }
 }

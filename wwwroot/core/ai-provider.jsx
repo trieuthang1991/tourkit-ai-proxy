@@ -73,6 +73,16 @@
   // ─── Call backend ──────────────────────────────────────────────────────────
   // API key cho mọi provider lấy SERVER-SIDE từ appsettings (Providers:{X}:ApiKey
   // / Models:Primary:ApiKey / Models:Review:ApiKey / env var). Frontend KHÔNG hold key.
+  //
+  // /completions BẮT BUỘC kèm X-Session-Id (backend chặn anonymous để quota per-tenant
+  // có hiệu lực). Đọc thẳng localStorage thay vì dùng authedFetch: authedFetch coi MỌI
+  // 401 là hết phiên → logout toàn cục, mà call AI còn 401 vì lý do khác thì đá user ra oan.
+  function sessionHeader() {
+    try {
+      const sid = localStorage.getItem('tourkit_tk_session');
+      return sid ? { 'X-Session-Id': sid } : {};
+    } catch { return {}; }
+  }
   async function callBackend(prompt, cfg, options) {
     const provider = options.provider || cfg.provider;
     const model    = options.model    || cfg.model;
@@ -83,7 +93,7 @@
       temperature: options.temperature,
       system: options.system
     };
-    const headers = { 'Content-Type': 'application/json' };
+    const headers = { 'Content-Type': 'application/json', ...sessionHeader() };
     // X-Workflow tag để backend gắn workflow name vào trace (vd 'WizardTour', 'WizardMarketing').
     // Trống → trace để tên rỗng (chỉ thấy step ai_complete).
     if (options.workflow) headers['X-Workflow'] = options.workflow;
@@ -110,7 +120,7 @@
       temperature: options.temperature,
       system: options.system
     };
-    const headers = { 'Content-Type': 'application/json', 'Accept': 'text/event-stream' };
+    const headers = { 'Content-Type': 'application/json', 'Accept': 'text/event-stream', ...sessionHeader() };
     if (options.workflow) headers['X-Workflow'] = options.workflow;
     const resp = await fetch(`${API_BASE}/completions/stream`, {
       method: 'POST',
