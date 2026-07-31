@@ -1,6 +1,7 @@
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
+using TourkitAiProxy.Services.Security;
 using TourkitAiProxy.Services.TourKit;
 
 namespace TourkitAiProxy.Endpoints;
@@ -26,6 +27,9 @@ public static class CrmSsoEndpoints
             if (s == null) return Results.Json(new { error = "Phiên không hợp lệ — đăng nhập lại" }, statusCode: 401);
 
             var secret = cfg["CrmSso:Secret"];
+            // Hỗ trợ ENC: (config chứa ciphertext Crypton → giải ra secret thật). Giống Redis conn string.
+            if (!string.IsNullOrEmpty(secret) && secret.StartsWith("ENC:", StringComparison.Ordinal))
+                secret = Crypton.Decrypt(secret.Substring(4));
             if (string.IsNullOrWhiteSpace(secret) || secret.Length < 16)
                 return Results.Json(new { error = "SSO CRM chưa cấu hình (CrmSso:Secret)" }, statusCode: 500);
 
