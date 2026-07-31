@@ -278,8 +278,13 @@ function TourBuilderPage({ pushToast }) {
       const code = res.tourCode ?? res.TourCode;
       const created = res.customerCreated ?? res.CustomerCreated;
       const wasUpdate = crmTourId > 0;
-      if (tid) setCrmTourId(tid);
       pushToast(`✓ ${wasUpdate ? 'Đã cập nhật' : 'Đã tạo'} tour GIT trong CRM${code ? ' · ' + code : ''}${created ? ' (đã tạo KH mới)' : ''}`);
+      if (wasUpdate) {
+        if (tid) setCrmTourId(tid);
+      } else {
+        // B4: tạo MỚI thành công → tự làm mới form cho lần soạn kế (khỏi phải bấm "Xóa" thủ công).
+        setForm(EMPTY()); setPrompt(''); setCrmTourId(0);
+      }
     } catch (e) { pushToast('Lưu CRM thất bại: ' + e.message, 'error'); }
     finally { setCrmSaving(false); }
   }
@@ -419,7 +424,8 @@ function TourBuilderPage({ pushToast }) {
             <div className="tb-grid2">
               <div className="tb-row">
                 <label>SĐT</label>
-                <input className="tb-field" value={form.customerPhone} onChange={e => set('customerPhone', e.target.value)} placeholder="0xxx…" />
+                <input className="tb-field" value={form.customerPhone} inputMode="numeric"
+                  onChange={e => set('customerPhone', e.target.value.replace(/\D/g, ''))} placeholder="0xxx…" />
               </div>
               <div className="tb-row">
                 <label>Email</label>
