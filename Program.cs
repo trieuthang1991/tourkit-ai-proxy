@@ -391,6 +391,7 @@ app.MapAdminUiEndpoints();      // /api/v1/admin/ui/* (require X-Admin-Session)
 app.MapQuotaEndpoints();
 app.MapQuotaOrderEndpoints();
 app.MapWidgetEndpoints();
+app.MapCrmSsoEndpoints();        // POST /api/v1/crm-sso-ticket — JWT ngắn hạn để SSO sang CRM (tourkit web)
 
 // Admin shell — entry HTML riêng /admin-trav-ai.html, KHÔNG share index.html user-facing.
 // MapGet explicit thắng MapFallback (StaticFilesSetup) → /admin-trav-ai/{**path} serve đúng file admin.
