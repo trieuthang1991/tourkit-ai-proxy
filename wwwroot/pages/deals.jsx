@@ -97,12 +97,14 @@ function DealDrawer({ item: initialItem, onClose, onRescored, pushToast }) {
       {/* Footer: nút Xem CRM (mở tab mới) + Chấm lại (mirror Customer review "Cập nhật review") */}
       <div style={{marginTop: 16, display: 'flex', justifyContent: 'flex-end', gap: 8, flexWrap: 'wrap'}}>
         {(() => {
-          const url = window.tourkitUtil.crmUrl('/booking-ticket/' + item.id);
-          return url ? (
-            <a className="btn btn-ghost" href={url} target="_blank" rel="noopener noreferrer" style={{gap: 6}}
-               title="Mở cơ hội này trong CRM (tab mới)">
+          // crmUrl chỉ để kiểm tra đã đăng nhập (có tenant). Điều hướng qua openCrm (SSO) → vào CRM login sẵn.
+          const canOpen = !!window.tourkitUtil.crmUrl('/booking-ticket/' + item.id);
+          return canOpen ? (
+            <button className="btn btn-ghost" style={{gap: 6}}
+               onClick={() => window.tourkitUtil.openCrm('/booking-ticket/' + item.id, pushToast)}
+               title="Mở cơ hội này trong CRM, tự đăng nhập đúng tài khoản (tab mới)">
               <Icon name="eye" size={13} /> Xem cơ hội CRM
-            </a>
+            </button>
           ) : null;
         })()}
         <button className="btn btn-primary" onClick={rescore} disabled={rescoring} style={{gap: 6}}>
@@ -488,12 +490,13 @@ function DealsPage({ pushToast }) {
           tone: total > 0 ? 'live' : 'idle' }}
         actions={<>
           {(() => {
-            const url = window.tourkitUtil.crmUrl('/booking-ticket');
-            return url ? (
-              <a className="btn btn-ghost btn-sm" href={url} target="_blank" rel="noopener noreferrer"
-                 title="Mở trang Cơ hội bán hàng trên CRM (tab mới)">
+            const canOpen = !!window.tourkitUtil.crmUrl('/booking-ticket');
+            return canOpen ? (
+              <button className="btn btn-ghost btn-sm"
+                 onClick={() => window.tourkitUtil.openCrm('/booking-ticket', pushToast)}
+                 title="Mở trang Cơ hội bán hàng trên CRM, tự đăng nhập đúng tài khoản (tab mới)">
                 <Icon name="list" size={14} /> Danh sách Cơ hội CRM
-              </a>
+              </button>
             ) : null;
           })()}
           <button className={'btn btn-sm autotoggle ' + (autoAnalyze ? 'on' : 'off')}

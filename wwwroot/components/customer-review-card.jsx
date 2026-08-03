@@ -224,12 +224,14 @@ function CustomerReviewDrawer({ customerId, onClose, onRefreshed, pushToast }) {
                 </button>
                 <div style={{flex: 1}} />
                 {(() => {
-                  const url = window.tourkitUtil.crmUrl('/customer-data/' + encodeURIComponent(customerId));
-                  return url ? (
-                    <a className="btn btn-ghost btn-sm" href={url} target="_blank" rel="noopener noreferrer"
-                       title="Mở hồ sơ khách hàng này trên CRM (tab mới)">
+                  const path = '/customer-data/' + encodeURIComponent(customerId);
+                  const canOpen = !!window.tourkitUtil.crmUrl(path);
+                  return canOpen ? (
+                    <button className="btn btn-ghost btn-sm"
+                       onClick={() => window.tourkitUtil.openCrm(path, pushToast)}
+                       title="Mở hồ sơ khách hàng này trên CRM, tự đăng nhập đúng tài khoản (tab mới)">
                       <Icon name="eye" size={13} /> Xem khách hàng
-                    </a>
+                    </button>
                   ) : null;
                 })()}
                 <button className="btn btn-primary btn-sm" onClick={refreshReview} disabled={refreshing}>

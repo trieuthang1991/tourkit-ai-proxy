@@ -91,5 +91,28 @@
     } catch { return null; }
   }
 
-  window.tourkitUtil = { readSSE, fmtAgo, fmtDate, copyText, crmUrl };
+  // ── Mở CRM đăng nhập SẴN (SSO) ────────────────────────────────────────────
+  // Mở deep-link CRM và ĐĂNG NHẬP đúng account đang dùng ở Trav-ai (KHÔNG rơi vào trang login,
+  // KHÔNG dùng lại cookie CRM cũ = account khác). Đi qua ticket SSO: POST /api/v1/crm-sso-ticket
+  // (proxy ký HMAC danh tính, KHÔNG password → CRM sinh code 1-lần → set Forms-auth cookie).
+  // - path: deep-link nội bộ CRM ('/customer-data', '/booking-ticket/123'…). Không có '/' đầu → tự thêm.
+  // - onError(msg): callback báo lỗi (thường là pushToast). Không truyền → fallback alert.
+  // Mở tab trống SYNC ngay đầu (trong click handler) để KHỎI bị popup-blocker chặn.
+  async function openCrm(path, onError) {
+    const win = window.open('', '_blank');
+    try {
+      const redirect = String(path || '/').startsWith('/') ? path : '/' + path;
+      const r = await window.tourkitAuth.authedFetch(
+        '/api/v1/crm-sso-ticket?redirect=' + encodeURIComponent(redirect), { method: 'POST' });
+      const j = await r.json();
+      if (!r.ok || j.error) throw new Error(j.error || ('HTTP ' + r.status));
+      if (win) win.location = j.url; else window.location = j.url;
+    } catch (e) {
+      if (win) win.close();
+      const msg = 'Không mở được CRM: ' + e.message;
+      if (onError) onError(msg, 'error'); else alert(msg);
+    }
+  }
+
+  window.tourkitUtil = { readSSE, fmtAgo, fmtDate, copyText, crmUrl, openCrm };
 })();

@@ -38,17 +38,33 @@ public static class CrmSsoEndpoints
             if (string.IsNullOrWhiteSpace(redirect) || !redirect.StartsWith('/') || redirect.StartsWith("//"))
                 redirect = "/customer-data";
 
-            // Host CRM từ tenant (khớp crmUrl phía JS): có '.' = host đầy đủ; không thì + ".tourkit.vn".
             var t = (s.TenantId ?? "").Trim();
             if (string.IsNullOrEmpty(t)) return Results.Json(new { error = "Phiên thiếu tenant" }, statusCode: 400);
-            var host = t.Contains('.') ? t : $"{t}.tourkit.vn";
+
+            // Host CRM: mặc định {tenant}.tourkit.vn (prod, khớp crmUrl phía JS — có '.' = host đầy đủ).
+            // LOCAL DEV: override qua CrmSso:BaseUrl (vd "https://localhost:44300" hoặc "http://localhost:5001")
+            // để proxy trỏ CRM chạy tại máy thay vì domain thật. Trống ở prod = giữ nguyên hành vi cũ.
+            string scheme = "https";
+            string host;
+            var baseUrl = cfg["CrmSso:BaseUrl"];
+            if (!string.IsNullOrWhiteSpace(baseUrl) && Uri.TryCreate(baseUrl.Trim(), UriKind.Absolute, out var bu))
+            {
+                scheme = bu.Scheme;
+                host = bu.Authority;              // gồm cả :port nếu có
+            }
+            else
+            {
+                host = t.Contains('.') ? t : $"{t}.tourkit.vn";
+            }
 
             // Body danh tính (KHÔNG password/hash). CRM verify X-Sign trên ĐÚNG chuỗi bytes này.
+            // `scheme` để CRM dựng exchangeUrl đúng http/https khi test local (prod bỏ qua = https).
             var body = JsonSerializer.Serialize(new
             {
                 tenant = t,
                 username = s.Username,
                 host,
+                scheme,
                 redirect,
                 iat = DateTimeOffset.UtcNow.ToUnixTimeSeconds(),
             });
@@ -56,7 +72,7 @@ public static class CrmSsoEndpoints
 
             try
             {
-                using var msg = new HttpRequestMessage(HttpMethod.Post, $"https://{host}/api/sso/register-code")
+                using var msg = new HttpRequestMessage(HttpMethod.Post, $"{scheme}://{host}/api/sso/register-code")
                 {
                     Content = new StringContent(body, Encoding.UTF8, "application/json"),
                 };
@@ -64,7 +80,12 @@ public static class CrmSsoEndpoints
                 using var resp = await Http.SendAsync(msg, ctx.RequestAborted);
                 var respBody = await resp.Content.ReadAsStringAsync(ctx.RequestAborted);
                 if (!resp.IsSuccessStatusCode)
-                    return Results.Json(new { error = $"CRM từ chối SSO (HTTP {(int)resp.StatusCode})" }, statusCode: 502);
+                {
+                    // Lộ message lỗi thật của CRM (body { error } từ SsoController) để chẩn đoán, không nuốt.
+                    var snippet = (respBody ?? "").Trim();
+                    if (snippet.Length > 400) snippet = snippet.Substring(0, 400);
+                    return Results.Json(new { error = $"CRM từ chối SSO (HTTP {(int)resp.StatusCode}) @ {scheme}://{host} — {snippet}" }, statusCode: 502);
+                }
                 using var doc = JsonDocument.Parse(respBody);
                 if (!doc.RootElement.TryGetProperty("exchangeUrl", out var ex) || ex.ValueKind != JsonValueKind.String)
                     return Results.Json(new { error = "CRM trả response không hợp lệ" }, statusCode: 502);

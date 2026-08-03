@@ -471,23 +471,11 @@ function CustomersPage({ pushToast }) {
           {(() => {
             const u = window.tourkitAuth.getUser && window.tourkitAuth.getUser();
             if (!u || !u.tenantId) return null;
-            // SSO: lấy JWT ngắn hạn từ proxy → mở CRM đăng nhập ĐÚNG account đang dùng ở Trav-ai
-            // (không dùng lại cookie CRM cũ = account khác). Mở tab trống SYNC trước để không bị chặn popup.
-            async function openCrm() {
-              const win = window.open('', '_blank');
-              try {
-                const r = await window.tourkitAuth.authedFetch(
-                  '/api/v1/crm-sso-ticket?redirect=' + encodeURIComponent('/customer-data'), { method: 'POST' });
-                const j = await r.json();
-                if (!r.ok || j.error) throw new Error(j.error || ('HTTP ' + r.status));
-                if (win) win.location = j.url; else window.location = j.url;
-              } catch (e) {
-                if (win) win.close();
-                pushToast('Không mở được CRM: ' + e.message, 'error');
-              }
-            }
+            // SSO qua helper chung (window.tourkitUtil.openCrm): mở CRM đăng nhập ĐÚNG account đang
+            // dùng ở Trav-ai (không dùng lại cookie CRM cũ = account khác), KHÔNG truyền password.
             return (
-              <button className="btn btn-ghost btn-sm" onClick={openCrm}
+              <button className="btn btn-ghost btn-sm"
+                 onClick={() => window.tourkitUtil.openCrm('/customer-data', pushToast)}
                  title="Mở trang Khách hàng trên CRM, tự đăng nhập đúng tài khoản (tab mới)">
                 <Icon name="list" size={14} /> Danh sách Khách hàng CRM
               </button>
