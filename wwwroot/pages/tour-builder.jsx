@@ -185,9 +185,9 @@ function TourBuilderPage({ pushToast }) {
     adultCount: form.adultCount || 0,
     childCount: form.childCount || 0,
     totalNet: 0,                                  // cost side đã bỏ — Wizard quote cost riêng
-    totalRevenue: Math.round(sumExp),
-    profit: null,                                 // không tính margin ở đây nữa
-    marginPercent: null,
+    totalRevenue: Math.round(sumExp) || 0,        // guard NaN → 0 (tránh gửi null vào long)
+    profit: 0,                                    // backend `long` KHÔNG nullable — gửi 0, KHÔNG gửi null
+    marginPercent: null,                          // backend `double?` — null OK
     data: form,
   });
 
@@ -243,7 +243,9 @@ function TourBuilderPage({ pushToast }) {
         body: JSON.stringify(buildSaveBody()),
       });
       const j = await r.json();
-      if (!r.ok) throw new Error(j.error || 'HTTP ' + r.status);
+      // j.detail = message thật khi lỗi thoát ra GlobalExceptionHandler (error='Internal server error');
+      // j.error = message thân thiện từ endpoint. Ưu tiên detail để không hiện chuỗi generic vô nghĩa.
+      if (!r.ok) throw new Error(j.detail || j.error || 'HTTP ' + r.status);
       setSavedId(j.id);
       // Update URL ?id= (replaceState, không thêm history entry — F5 reload sẽ open lại)
       const url = new URL(window.location.href);
@@ -254,7 +256,7 @@ function TourBuilderPage({ pushToast }) {
       setLastDraftAt(null);     // Redis draft đã được dọn server-side
       skipNextAutosave.current = true;
       pushToast(savedId ? '✓ Đã commit DB' : '✓ Đã lưu báo giá mới vào DB');
-    } catch (e) { pushToast('Lỗi commit: ' + e.message, 'error'); }
+    } catch (e) { pushToast(e.message || 'Không lưu được báo giá', 'error'); }
     finally { setSaving(false); }
   }
 
@@ -337,7 +339,7 @@ function TourBuilderPage({ pushToast }) {
             disabled={busy || saving || !hasForm || draftStatus === 'committed'}
             title={draftStatus === 'committed' ? 'Chưa có thay đổi mới' : 'Lưu nháp báo giá (store riêng) — Redis → SQL'}>
             <Icon name={saving ? 'refresh' : 'save'} size={14} />
-            {saving ? 'Đang commit…' : (savedId ? 'Commit nháp' : 'Lưu báo giá')}
+            {saving ? 'Đang lưu…' : 'Lưu báo giá'}
           </button>
           <button className="tb-btn tb-btn-primary" onClick={saveCrm}
             disabled={busy || crmSaving || !hasForm}
@@ -500,7 +502,7 @@ function TourBuilderPage({ pushToast }) {
             disabled={busy || saving || !hasForm || draftStatus === 'committed'}
             title="Lưu nháp báo giá (store riêng) — Redis → SQL">
             <Icon name={saving ? 'refresh' : 'save'} size={14} />
-            {saving ? 'Đang commit…' : (savedId ? 'Commit nháp' : 'Lưu báo giá')}
+            {saving ? 'Đang lưu…' : 'Lưu báo giá'}
           </button>
           <button className="tb-btn tb-btn-primary" onClick={saveCrm}
             disabled={busy || crmSaving || !hasForm}

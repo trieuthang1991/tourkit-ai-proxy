@@ -116,7 +116,25 @@ public class TourQuoteRepository
     {
         var id = string.IsNullOrWhiteSpace(req.Id) ? Guid.NewGuid().ToString("N") : req.Id!;
         var nowIso = DateTime.UtcNow.ToString("o");
-        var dataJson = JsonSerializer.Serialize(req.Data, _jsonOpts);
+
+        // DataJson là cột NOT NULL — Data undefined/null (client không gửi field `data`) → "{}".
+        string dataJson;
+        try
+        {
+            dataJson = req.Data.ValueKind is JsonValueKind.Undefined or JsonValueKind.Null
+                ? "{}" : JsonSerializer.Serialize(req.Data, _jsonOpts);
+        }
+        catch { dataJson = "{}"; }
+        if (string.IsNullOrWhiteSpace(dataJson)) dataJson = "{}";
+
+        // Guard chống lỗi SQL khiến "không lưu được báo giá" (bug sheet dòng 91):
+        //  - Truncate chuỗi về đúng giới hạn cột → tránh "String or binary data would be truncated".
+        //  - Clamp MarginPercent về khoảng DECIMAL(6,2) + loại NaN/Infinity → tránh "Arithmetic overflow"
+        //    (báo giá chưa nhập giá vốn → margin% = ∞ hoặc số khổng lồ).
+        static string? Trunc(string? s, int max) => s == null || s.Length <= max ? s : s.Substring(0, max);
+        var margin = req.MarginPercent;
+        if (margin is double mv && (double.IsNaN(mv) || double.IsInfinity(mv))) margin = null;
+        else if (margin is double mv2) margin = Math.Clamp(mv2, -9999.99, 9999.99);
 
         using var c = _db.Open();
         // MERGE upsert — TenantId + Id composite PK. IsSync=0 ở cả 2 branch (re-edit → worker sync lại).
@@ -145,21 +163,21 @@ VALUES
             {
                 TenantId      = tenantId,
                 Id            = id,
-                Title         = req.Title,
-                CustomerName  = req.CustomerName,
-                CustomerPhone = req.CustomerPhone,
-                MarketName    = req.MarketName,
-                TourType      = req.TourType,
-                StartDate     = req.StartDate,
-                EndDate       = req.EndDate,
-                AdultCount    = req.AdultCount,
-                ChildCount    = req.ChildCount,
-                TotalNet      = req.TotalNet,
-                TotalRevenue  = req.TotalRevenue,
-                Profit        = req.Profit,
-                MarginPercent = req.MarginPercent,
+                Title         = Trunc(req.Title, 512),
+                CustomerName  = Trunc(req.CustomerName, 256),
+                CustomerPhone = Trunc(req.CustomerPhone, 64),
+                MarketName    = Trunc(req.MarketName, 128),
+                TourType      = Trunc(req.TourType, 64),
+                StartDate     = Trunc(req.StartDate, 32),
+                EndDate       = Trunc(req.EndDate, 32),
+                AdultCount    = req.AdultCount ?? 0,
+                ChildCount    = req.ChildCount ?? 0,
+                TotalNet      = req.TotalNet ?? 0,
+                TotalRevenue  = req.TotalRevenue ?? 0,
+                Profit        = req.Profit ?? 0,
+                MarginPercent = margin,
                 DataJson      = dataJson,
-                CreatedBy     = createdBy,
+                CreatedBy     = Trunc(createdBy, 256),
                 Now           = nowIso
             });
         return id;
@@ -197,8 +215,8 @@ FROM dbo.TourQuotes WHERE TenantId = @t AND Id = @id",
                         CustomerName: req.CustomerName, CustomerPhone: req.CustomerPhone,
                         MarketName: req.MarketName, TourType: req.TourType,
                         StartDate: req.StartDate, EndDate: req.EndDate,
-                        AdultCount: req.AdultCount, ChildCount: req.ChildCount,
-                        TotalNet: req.TotalNet, TotalRevenue: req.TotalRevenue, Profit: req.Profit,
+                        AdultCount: req.AdultCount ?? 0, ChildCount: req.ChildCount ?? 0,
+                        TotalNet: req.TotalNet ?? 0, TotalRevenue: req.TotalRevenue ?? 0, Profit: req.Profit ?? 0,
                         MarginPercent: req.MarginPercent, Data: data,
                         CreatedBy: draft.CreatedBy,
                         CreatedAt: draft.SavedAt, UpdatedAt: draft.SavedAt)
@@ -206,8 +224,8 @@ FROM dbo.TourQuotes WHERE TenantId = @t AND Id = @id",
                         Title = req.Title, CustomerName = req.CustomerName, CustomerPhone = req.CustomerPhone,
                         MarketName = req.MarketName, TourType = req.TourType,
                         StartDate = req.StartDate, EndDate = req.EndDate,
-                        AdultCount = req.AdultCount, ChildCount = req.ChildCount,
-                        TotalNet = req.TotalNet, TotalRevenue = req.TotalRevenue, Profit = req.Profit,
+                        AdultCount = req.AdultCount ?? 0, ChildCount = req.ChildCount ?? 0,
+                        TotalNet = req.TotalNet ?? 0, TotalRevenue = req.TotalRevenue ?? 0, Profit = req.Profit ?? 0,
                         MarginPercent = req.MarginPercent, Data = data,
                         UpdatedAt = draft.SavedAt,
                     };

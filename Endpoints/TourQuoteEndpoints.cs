@@ -34,7 +34,7 @@ public static class TourQuoteEndpoints
                 var saved = repo.Commit(sess.TenantId, id, sess.Username);
                 return Results.Json(new { ok = true, id, item = saved, committed = true });
             }
-            catch (Exception ex) { log.LogError(ex, "Save TourQuote lỗi"); return Results.Json(new { error = ex.Message }, statusCode: 500); }
+            catch (Exception ex) { log.LogError(ex, "Save TourQuote lỗi"); return Results.Json(new { error = Friendly(ex) }, statusCode: 500); }
         });
 
         // POST /tour-quotes/draft — AUTO-SAVE vào Redis (TTL 24h), KHÔNG đụng DB.
@@ -67,7 +67,7 @@ public static class TourQuoteEndpoints
                 if (item == null) return Results.NotFound(new { error = "Không tìm thấy draft + SQL row" });
                 return Results.Json(new { ok = true, id, item, committed = true });
             }
-            catch (Exception ex) { log.LogError(ex, "Commit TourQuote lỗi"); return Results.Json(new { error = ex.Message }, statusCode: 500); }
+            catch (Exception ex) { log.LogError(ex, "Commit TourQuote lỗi"); return Results.Json(new { error = Friendly(ex) }, statusCode: 500); }
         });
 
         v1.MapGet("/tour-quotes", (HttpContext ctx, TourQuoteRepository repo,
@@ -126,4 +126,18 @@ public static class TourQuoteEndpoints
         => ctx.Request.Headers["X-Session-Id"].FirstOrDefault() ?? ctx.Request.Query["sessionId"].FirstOrDefault();
     private static IResult Unauthorized()
         => Results.Json(new { error = "Phiên không hợp lệ — đăng nhập lại" }, statusCode: 401);
+
+    // Map lỗi SQL kỹ thuật → thông báo tiếng Việt rõ ràng cho user (bug sheet dòng 90).
+    // Save đã guard các nguyên nhân này (Trunc/clamp) — đây là lưới an toàn cho case còn lại.
+    private static string Friendly(Exception ex)
+    {
+        var m = ex.Message ?? "";
+        bool Has(string s) => m.Contains(s, StringComparison.OrdinalIgnoreCase);
+        if (Has("truncated"))                 return "Một số nội dung quá dài để lưu (tên tour/khách/thị trường). Vui lòng rút gọn rồi thử lại.";
+        if (Has("overflow") || Has("numeric")) return "Giá trị số vượt giới hạn (margin/giá vốn/doanh thu). Kiểm tra lại số liệu báo giá.";
+        if (Has("NULL"))                      return "Thiếu dữ liệu bắt buộc của báo giá. Vui lòng nhập lại rồi thử.";
+        if (Has("timeout") || Has("transport") || Has("network"))
+            return "Hệ thống phản hồi chậm hoặc mất kết nối. Vui lòng thử lại.";
+        return "Không lưu được báo giá do lỗi hệ thống. Vui lòng thử lại; nếu vẫn lỗi, báo IT kèm nội dung: " + m;
+    }
 }

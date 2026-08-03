@@ -59,11 +59,14 @@ public record SaveTourQuoteRequest(
     [property: JsonPropertyName("tourType")]       string? TourType,
     [property: JsonPropertyName("startDate")]      string? StartDate,
     [property: JsonPropertyName("endDate")]        string? EndDate,
-    [property: JsonPropertyName("adultCount")]     int AdultCount,
-    [property: JsonPropertyName("childCount")]     int ChildCount,
-    [property: JsonPropertyName("totalNet")]       long TotalNet,
-    [property: JsonPropertyName("totalRevenue")]   long TotalRevenue,
-    [property: JsonPropertyName("profit")]         long Profit,
+    // Các field số để NULLABLE: client có thể gửi null (vd profit=null) → nếu non-nullable thì
+    // System.Text.Json THROW ngay ở model-binding (trước try/catch) → 500 "Internal server error".
+    // Save() tự default ?? 0. (Bug sheet dòng 91.)
+    [property: JsonPropertyName("adultCount")]     int? AdultCount,
+    [property: JsonPropertyName("childCount")]     int? ChildCount,
+    [property: JsonPropertyName("totalNet")]       long? TotalNet,
+    [property: JsonPropertyName("totalRevenue")]   long? TotalRevenue,
+    [property: JsonPropertyName("profit")]         long? Profit,
     [property: JsonPropertyName("marginPercent")]  double? MarginPercent,
     [property: JsonPropertyName("data")]           JsonElement Data
 );
