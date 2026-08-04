@@ -71,6 +71,28 @@ public class JsonPlannerAgent : IAgentRuntime
                 : "Hội thoại mới (chưa có context)",
             new() { ["lastTool"] = memory.LastTool, ["lastMarket"] = memory.LastMarketName });
 
+        // Câu hỏi VỀ nguồn gốc/cách tính số liệu vừa hiển thị ("số liệu này lấy từ đâu", "nguồn nào",
+        // "tính thế nào") — KHÔNG phải câu hỏi số liệu mới. Nếu để planner xử lý, nó hay hiểu nhầm thành
+        // follow-up → chọn LẠI tool cũ (cùng params) → L2 cache trả NGUYÊN VĂN câu trả lời trước → bug
+        // "lặp câu trả lời". Chặn tất định ở đây: trả thẳng câu nêu nguồn (lấy từ memory), giữ panel cũ,
+        // KHÔNG gọi planner/dispatch/cache. Chỉ áp dụng khi đã có số liệu lượt trước (LastTool != null).
+        if (ProvenanceShortCircuit(question, memory) is { } prov)
+        {
+            trace?.Step("provenance_shortcut", "ok", 0,
+                "Câu hỏi về NGUỒN số liệu → trả thẳng nguồn (không gọi lại tool → tránh lặp câu trả lời)");
+            return new AgentResult(
+                Reply:        prov.Reply,
+                ToolName:     prov.ToolName,
+                Params:       null,
+                Data:         prov.Data,
+                LatencyMs:    0,
+                InputTokens:  0,
+                OutputTokens: 0,
+                Warning:      null,
+                Iterations:   0,
+                Action:       null);
+        }
+
         int tokIn = 0, tokOut = 0;
         long latency = 0;
 
@@ -212,9 +234,9 @@ public class JsonPlannerAgent : IAgentRuntime
                     tokensOut:      tokOut);
             }
 
-            var directText = !string.IsNullOrWhiteSpace(directReply)
+            var directText = ScrubToolNames(!string.IsNullOrWhiteSpace(directReply)
                 ? directReply!
-                : "Mình là TRAVAI, trợ lý số liệu của bạn. Anh/Chị có thể hỏi: doanh thu tháng này, top khách hàng, danh sách tour sắp đi, nguồn marketing...";
+                : "Mình là TRAVAI, trợ lý số liệu của bạn. Anh/Chị có thể hỏi: doanh thu tháng này, top khách hàng, danh sách tour sắp đi, nguồn marketing...");
             // Giữ panel phải nếu hội thoại trước đã có data (vd user chỉ chat thêm về cùng số liệu).
             return new AgentResult(directText, memory.LastTool ?? "none", null, memory.LastChatData,
                 latency, tokIn, tokOut, plan.Warning, 1);
@@ -473,7 +495,7 @@ public class JsonPlannerAgent : IAgentRuntime
         var beforeStrip = rawReply ?? "";
         var finalReply = string.IsNullOrWhiteSpace(rawReply)
             ? "Đã lấy được số liệu (xem bảng bên phải) nhưng chưa tạo được phần phân tích."
-            : AgentGuardrails.StripMarkdown(AgentGuardrails.StripEmDash(rawReply.Trim()));
+            : ScrubToolNames(AgentGuardrails.StripMarkdown(AgentGuardrails.StripEmDash(rawReply.Trim())));
         if (beforeStrip != finalReply)
             trace?.Step("guardrail_strip", "ok", 0,
                 "Gỡ markdown (**, ##, _, ```) và em-dash thành text thuần để frontend render đúng");
@@ -566,6 +588,16 @@ public class JsonPlannerAgent : IAgentRuntime
             memory.LastTool != null
                 ? $"Có context hội thoại trước: tool={memory.LastTool}, market={memory.LastMarketName ?? "-"}"
                 : "Hội thoại mới (chưa có context)");
+
+        // Câu hỏi VỀ nguồn gốc số liệu → trả thẳng nguồn (xem ghi chú chi tiết trong RunAsync).
+        // Tất định, không gọi planner → tránh planner hiểu nhầm thành follow-up + L2 cache lặp câu trả lời.
+        if (ProvenanceShortCircuit(question, memory) is { } prov)
+        {
+            trace?.Step("provenance_shortcut", "ok", 0,
+                "Câu hỏi về NGUỒN số liệu → trả thẳng nguồn (không gọi lại tool → tránh lặp câu trả lời)");
+            await emit(new { done = true, reply = prov.Reply, toolName = prov.ToolName, data = (object?)prov.Data });
+            return;
+        }
 
         await emit(new { stage = "planning" });
 
@@ -691,8 +723,8 @@ public class JsonPlannerAgent : IAgentRuntime
                     tokensOut:      0);
             }
 
-            var reply = !string.IsNullOrWhiteSpace(directReply) ? directReply!
-                : "Mình là TRAVAI, trợ lý số liệu của bạn. Anh/Chị có thể hỏi: doanh thu tháng này, top khách hàng, tour sắp khởi hành, nguồn marketing...";
+            var reply = ScrubToolNames(!string.IsNullOrWhiteSpace(directReply) ? directReply!
+                : "Mình là TRAVAI, trợ lý số liệu của bạn. Anh/Chị có thể hỏi: doanh thu tháng này, top khách hàng, tour sắp khởi hành, nguồn marketing...");
             // Giữ panel phải nếu hội thoại trước đã có data (vd user chỉ chat thêm về cùng số liệu).
             await emit(new
             {
@@ -887,7 +919,7 @@ public class JsonPlannerAgent : IAgentRuntime
         var beforeStrip = rawStreamReply ?? "";
         var finalReply = string.IsNullOrWhiteSpace(rawStreamReply)
             ? "Đã lấy được số liệu (xem bảng bên phải)."
-            : AgentGuardrails.StripMarkdown(AgentGuardrails.StripEmDash(rawStreamReply.Trim()));
+            : ScrubToolNames(AgentGuardrails.StripMarkdown(AgentGuardrails.StripEmDash(rawStreamReply.Trim())));
         if (beforeStrip != finalReply)
             trace?.Step("guardrail_strip", "ok", 0, "Gỡ markdown + em-dash thành text thuần");
 
@@ -1564,6 +1596,91 @@ Yêu cầu:
         };
         var norm = question.ToLowerInvariant();
         return keywords.Any(k => norm.Contains(k));
+    }
+
+    /// Câu hỏi VỀ nguồn gốc / cách tính của số liệu ĐANG hiển thị (vd "số liệu này lấy từ đâu",
+    /// "nguồn nào", "tính thế nào", "ở đâu ra") — KHÔNG phải yêu cầu số liệu mới. Nhận diện TẤT ĐỊNH
+    /// (chuẩn hóa bỏ dấu qua Norm) để short-circuit trước planner, tránh bug "lặp câu trả lời"
+    /// (planner hiểu nhầm thành follow-up → chọn lại tool cũ → L2 cache trả nguyên văn câu trước).
+    /// CHỈ true khi câu vừa TRỎ về số liệu ("này"/"số liệu"/"con số"/"báo cáo"...) VỪA hỏi nguồn/cách
+    /// tính, và KHÔNG phải câu phân bổ/xếp hạng (vd "đến từ thị trường nào nhiều nhất" là số liệu thật).
+    internal static bool IsProvenanceQuestion(string question)
+    {
+        if (string.IsNullOrWhiteSpace(question)) return false;
+        var n = Norm(question);   // vd "so lieu nay lay tu dau"
+        if (n.Length == 0) return false;
+
+        // Loại trừ câu phân bổ/xếp hạng (breakdown) — đó là câu SỐ LIỆU thật, không phải hỏi nguồn.
+        string[] breakdown =
+        {
+            "nhieu nhat", "cao nhat", "thap nhat", "chu yeu", "chiem", "phan bo", "ty trong",
+            "thi truong nao", "tour nao", "khach nao", "khach hang nao", "nhan vien nao", "kenh nao", "top"
+        };
+        if (breakdown.Any(b => n.Contains(b))) return false;
+
+        // Trỏ về số liệu đang xem (demonstrative "này" hoặc danh từ chỉ dữ liệu).
+        bool refersData = n.Contains("so lieu") || n.Contains("con so") || n.Contains("du lieu")
+            || n.Contains("data") || n.Contains("bang nay") || n.Contains("bao cao") || n.Contains("thong ke")
+            || n.Contains(" nay") || n.StartsWith("nay ");
+
+        // Hỏi NGUỒN gốc / nơi lấy.
+        bool asksOrigin = n.Contains("tu dau") || n.Contains("o dau ra") || n.Contains("lay o dau")
+            || n.Contains("lay tu dau") || n.Contains("dua vao dau") || n.Contains("dua tren dau")
+            || n.Contains("nguon");
+        // Hỏi CÁCH tính.
+        bool asksHow = n.Contains("tinh the nao") || n.Contains("tinh nhu the nao")
+            || n.Contains("tinh ra sao") || n.Contains("tinh kieu gi") || n.Contains("tinh toan the nao");
+
+        return refersData && (asksOrigin || asksHow);
+    }
+
+    /// Soạn câu trả lời cho câu hỏi nguồn gốc số liệu — nêu đúng nguồn (báo cáo của lượt trước, tra tên
+    /// người-đọc-được từ memory) + khẳng định là số liệu THẬT trong TourKit CRM. Tất định, không gọi AI.
+    private static string BuildProvenanceReply(SessionChatMemory memory)
+    {
+        var src = memory.LastTool != null ? ChatTools.Find(memory.LastTool)?.Title : null;
+        if (string.IsNullOrWhiteSpace(src)) src = memory.LastDataTitle;
+        var srcClause = string.IsNullOrWhiteSpace(src) ? "" : $", qua báo cáo \"{src}\"";
+        return $"Số liệu này được lấy trực tiếp từ hệ thống TourKit CRM của bạn{srcClause}. "
+            + "Đây là dữ liệu thật đang lưu trong CRM (không phải ước tính hay bịa số), tính tại thời điểm bạn hỏi. "
+            + "Bảng bên phải là chi tiết tương ứng để bạn đối chiếu.";
+    }
+
+    /// Seam dùng CHUNG cho RunAsync (buffered) + StreamAsync (SSE): nếu câu hỏi VỀ nguồn gốc số liệu VÀ
+    /// đã có số liệu lượt trước (LastTool != null) → trả (reply nêu nguồn, tên tool, data panel cũ) để
+    /// short-circuit; ngược lại null (chạy planner bình thường). Tách seam để unit-test được quyết định +
+    /// việc GIỮ data cũ mà không cần dựng cả agent (DB/HTTP) — và để 2 path không drift logic.
+    internal static (string Reply, string ToolName, ChatData? Data)? ProvenanceShortCircuit(
+        string question, SessionChatMemory memory)
+    {
+        if (memory.LastTool == null || !IsProvenanceQuestion(question)) return null;
+        return (BuildProvenanceReply(memory), memory.LastTool, memory.LastChatData);
+    }
+
+    /// Tên tool đứng TRẦN được phép thay (không có "_" nhưng vẫn là từ kỹ thuật, không phải từ thường).
+    /// "cashflow" là ca duy nhất hiện tại — các tên 1 từ khác (marketing/tours/tasks/customers/vouchers…)
+    /// là từ thường tiếng Việt/quen dùng nên KHÔNG thay khi đứng trần (tránh phá "chi phí marketing").
+    private static readonly HashSet<string> BareScrubNames = new(StringComparer.OrdinalIgnoreCase) { "cashflow" };
+
+    /// Quét TÊN TOOL NỘI BỘ khỏi câu trả lời AI trước khi trả cho user (planner đôi khi nhét "tool cashflow"
+    /// vào reply → lộ tên kỹ thuật). Thay bằng Title tiếng Việt. TẤT ĐỊNH + an toàn: luôn thay khi tên đứng
+    /// sau "tool/báo cáo/report" (nuốt cả gloss "(...)" nếu có); thay TRẦN chỉ với tên kỹ thuật (chứa "_")
+    /// hoặc trong BareScrubNames — bỏ qua từ thường để không phá văn bản.
+    internal static string ScrubToolNames(string? reply)
+    {
+        if (string.IsNullOrWhiteSpace(reply)) return reply ?? "";
+        var s = reply!;
+        foreach (var t in ChatTools.All)
+        {
+            if (string.IsNullOrWhiteSpace(t.Name)) continue;
+            var title = string.IsNullOrWhiteSpace(t.Title) ? "hệ thống" : t.Title;
+            var nm = Regex.Escape(t.Name);
+            s = Regex.Replace(s, $@"\b(?:tool|báo cáo|report)\s+{nm}\b\s*(?:\([^)]*\))?",
+                title, RegexOptions.IgnoreCase);
+            if (t.Name.Contains('_') || BareScrubNames.Contains(t.Name))
+                s = Regex.Replace(s, $@"\b{nm}\b", title, RegexOptions.IgnoreCase);
+        }
+        return s;
     }
 
     /// Endpoint AI provider (display-only, dùng trong trace để hiện "đã gọi đâu").
