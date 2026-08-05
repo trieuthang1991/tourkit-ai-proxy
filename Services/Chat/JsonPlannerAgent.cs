@@ -215,8 +215,11 @@ public class JsonPlannerAgent : IAgentRuntime
             var directText = !string.IsNullOrWhiteSpace(directReply)
                 ? directReply!
                 : "Mình là TRAVAI, trợ lý số liệu của bạn. Anh/Chị có thể hỏi: doanh thu tháng này, top khách hàng, danh sách tour sắp đi, nguồn marketing...";
-            // Giữ panel phải nếu hội thoại trước đã có data (vd user chỉ chat thêm về cùng số liệu).
-            return new AgentResult(directText, memory.LastTool ?? "none", null, memory.LastChatData,
+            // Chỉ GIỮ panel phải cho follow-up KHÔNG phải câu hỏi số liệu mới (vd "giải thích thêm câu trên").
+            // Nếu là câu hỏi số liệu MỚI mà không định tuyến được → KHÔNG copy panel/câu trả lời cũ xuống.
+            var keepPanel = !HasDataKeyword(question);
+            return new AgentResult(directText, keepPanel ? (memory.LastTool ?? "none") : "none", null,
+                keepPanel ? memory.LastChatData : null,
                 latency, tokIn, tokOut, plan.Warning, 1);
         }
 
@@ -693,13 +696,15 @@ public class JsonPlannerAgent : IAgentRuntime
 
             var reply = !string.IsNullOrWhiteSpace(directReply) ? directReply!
                 : "Mình là TRAVAI, trợ lý số liệu của bạn. Anh/Chị có thể hỏi: doanh thu tháng này, top khách hàng, tour sắp khởi hành, nguồn marketing...";
-            // Giữ panel phải nếu hội thoại trước đã có data (vd user chỉ chat thêm về cùng số liệu).
+            // Chỉ GIỮ panel phải cho follow-up KHÔNG phải câu hỏi số liệu mới (vd "giải thích thêm câu trên").
+            // Nếu là câu hỏi số liệu MỚI mà không định tuyến được → KHÔNG copy panel/câu trả lời cũ xuống.
+            var keepPanel = !HasDataKeyword(question);
             await emit(new
             {
                 done     = true,
                 reply,
-                toolName = memory.LastTool ?? "none",
-                data     = (object?)memory.LastChatData
+                toolName = keepPanel ? (memory.LastTool ?? "none") : "none",
+                data     = keepPanel ? (object?)memory.LastChatData : null
             });
             return;
         }
