@@ -74,6 +74,54 @@ public static class SpeechEndpoints
         })
         .DisableAntiforgery();        // multipart upload từ fetch không gửi anti-forgery token
 
+        // ── SO SÁNH ĐỘ CHUẨN 2 ENGINE trên CÙNG 1 đoạn audio (dùng để chốt đổi mobile STT) ──
+        //    POST /api/v1/speech/compare (multipart) — field 'file' + optional 'engines' (csv, default "openai,deepgram")
+        //    Chạy các engine SONG SONG trên cùng bytes → trả từng kết quả + độ trễ để người dùng tự chấm.
+        v1.MapPost("/speech/compare", async (HttpContext ctx, SpeechToTextService stt,
+            TkSessionStore sessions, ILogger<Program> log) =>
+        {
+            var sid = Sid(ctx);
+            if (sessions.Get(sid) == null) return Unauthorized();
+            if (!ctx.Request.HasFormContentType)
+                return Results.BadRequest(new { error = "Cần multipart/form-data với field 'file'" });
+
+            var form = await ctx.Request.ReadFormAsync(ctx.RequestAborted);
+            var file = form.Files["file"] ?? form.Files.FirstOrDefault();
+            if (file == null || file.Length == 0)
+                return Results.BadRequest(new { error = "Thiếu file audio (field 'file')" });
+            if (file.Length > MAX_BYTES)
+                return Results.BadRequest(new { error = $"File {file.Length / 1024 / 1024}MB > 25MB" });
+
+            var lang = form["language"].FirstOrDefault() ?? "vi";
+            if (string.IsNullOrWhiteSpace(lang)) lang = null;
+            var engines = (form["engines"].FirstOrDefault() ?? "openai,deepgram")
+                .Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+
+            // Đọc audio 1 lần → byte[] để chạy song song nhiều engine.
+            byte[] bytes;
+            await using (var s = file.OpenReadStream())
+            await using (var ms = new MemoryStream())
+            { await s.CopyToAsync(ms, ctx.RequestAborted); bytes = ms.ToArray(); }
+
+            var tasks = engines.Select(async eng =>
+            {
+                try
+                {
+                    var r = await stt.TranscribeWithEngineAsync(
+                        eng, bytes, file.FileName, file.ContentType, lang, null, ctx.RequestAborted);
+                    return new { engine = eng, ok = true, text = r.Text, latencyMs = r.LatencyMs, actualEngine = r.Engine, error = (string?)null };
+                }
+                catch (Exception ex)
+                {
+                    log.LogWarning("STT compare engine {Engine} lỗi: {Msg}", eng, ex.Message);
+                    return new { engine = eng, ok = false, text = "", latencyMs = 0L, actualEngine = eng, error = (string?)ex.Message };
+                }
+            });
+            var results = await Task.WhenAll(tasks);
+            return Results.Json(new { fileSizeBytes = file.Length, results });
+        })
+        .DisableAntiforgery();
+
         // ── TTS: text → audio. Engine CHỌN THEO CONFIG (giống Models:{Feature}:Provider):
         //    Speech:Tts:Provider = vbee | edge | piper | openai (mặc định "vbee").
         //    Speech:Tts:Fallback = true → engine chính lỗi/chưa cấu hình thì thử các engine còn lại theo thứ tự.

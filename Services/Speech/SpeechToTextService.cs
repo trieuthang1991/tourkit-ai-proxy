@@ -107,8 +107,14 @@ public class SpeechToTextService
             "google" or "googlecloud" or "gcp" => TranscribeGoogleCloudAsync(bytes, fileName, contentType, language, apiKeyOverride, ct),
             "gemini" => TranscribeGeminiAsync(bytes, fileName, contentType, language, apiKeyOverride, ct),
             "openai" => TranscribeOpenAiAsync(bytes, fileName, contentType, language, apiKeyOverride, ct),
+            "deepgram" => TranscribeDeepgramAsync(bytes, fileName, contentType, language, apiKeyOverride, ct),
             _ => throw new InvalidOperationException($"Unknown STT engine: {engine}")
         };
+
+    /// <summary>Cho phép gọi 1 engine cụ thể (dùng cho endpoint so sánh /speech/compare).</summary>
+    public Task<TranscribeResult> TranscribeWithEngineAsync(string engine, byte[] bytes,
+        string fileName, string contentType, string? language, string? apiKeyOverride, CancellationToken ct)
+        => DispatchAsync(engine.ToLowerInvariant(), bytes, fileName, contentType, language, apiKeyOverride, ct);
 
     // ─── Vbee STT (batch, cùng nền tảng Vbee TTS) — chỉ WAV, chậm, fallback lo phần còn lại ──
     private async Task<TranscribeResult> TranscribeVbeeAsync(byte[] bytes, string fileName, string contentType, CancellationToken ct)
@@ -320,6 +326,77 @@ public class SpeechToTextService
             _log.LogWarning(ex, "OpenAI SDK STT fail: {Msg}", ex.Message);
             throw new InvalidOperationException($"OpenAI SDK lỗi: {ex.Message}");
         }
+    }
+
+    // ─── Deepgram (ASR chuyên dụng, streaming-grade — REST prerecorded /v1/listen) ──────────────
+    // POST audio thô (KHÔNG multipart) vào https://api.deepgram.com/v1/listen với query params.
+    // Auth header: "Authorization: Token <key>". Deepgram tự nhận container từ bytes; ta vẫn set
+    // Content-Type theo mime để chắc. Model mặc định nova-3 (hỗ trợ tiếng Việt + thanh điệu + keyterm
+    // prompting). smart_format=true → tự chấm câu + format số/ngày (hợp call-center du lịch VN).
+    // keyterm (nova-3) bias lexicon ngành — tương đương BuildWhisperPrompt bên Whisper.
+    private async Task<TranscribeResult> TranscribeDeepgramAsync(byte[] bytes,
+        string fileName, string contentType, string? language, string? apiKeyOverride, CancellationToken ct)
+    {
+        var apiKey = !string.IsNullOrWhiteSpace(apiKeyOverride)
+            ? apiKeyOverride
+            : (_cfg["Speech:Deepgram:ApiKey"] ?? Environment.GetEnvironmentVariable("DEEPGRAM_API_KEY"));
+        if (string.IsNullOrWhiteSpace(apiKey) || apiKey.StartsWith("REPLACE", StringComparison.OrdinalIgnoreCase))
+            throw new InvalidOperationException(
+                "Thiếu Deepgram API key (Speech:Deepgram:ApiKey hoặc env DEEPGRAM_API_KEY).");
+
+        var model = _cfg["Speech:Deepgram:Model"] ?? "nova-3";
+        var lang  = string.IsNullOrWhiteSpace(language) ? "vi" : language!;
+        var mime  = NormalizeAudioMime(contentType, fileName, geminiSide: false);
+
+        // Query params. smart_format gộp punctuate + số/ngày; language chốt vi để khỏi auto-detect sai.
+        var qs = new StringBuilder();
+        qs.Append("?model=").Append(Uri.EscapeDataString(model));
+        qs.Append("&language=").Append(Uri.EscapeDataString(lang));
+        qs.Append("&smart_format=true&punctuate=true");
+        // keyterm: chỉ nova-3 hỗ trợ tham số 'keyterm'; nova-2 dùng 'keywords'. Bias thuật ngữ ngành.
+        var isNova3 = model.StartsWith("nova-3", StringComparison.OrdinalIgnoreCase);
+        var termParam = isNova3 ? "keyterm" : "keywords";
+        var terms = (_cfg["Speech:Deepgram:Keyterms"] ?? "tour,visa,vé máy bay,khách sạn,hướng dẫn viên,lịch khởi hành,đặt tour,hoàn tiền,Nhật Bản,Hàn Quốc,Châu Âu,nội địa")
+            .Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+        foreach (var term in terms)
+            qs.Append('&').Append(termParam).Append('=').Append(Uri.EscapeDataString(term));
+
+        var t0 = DateTime.UtcNow;
+        var http = _httpFactory.CreateClient();
+        http.Timeout = TimeSpan.FromSeconds(60);
+        using var req = new HttpRequestMessage(HttpMethod.Post, "https://api.deepgram.com/v1/listen" + qs);
+        req.Headers.TryAddWithoutValidation("Authorization", "Token " + apiKey);
+        var content = new ByteArrayContent(bytes);
+        content.Headers.TryAddWithoutValidation("Content-Type", mime);
+        req.Content = content;
+
+        HttpResponseMessage resp;
+        try { resp = await http.SendAsync(req, ct); }
+        catch (Exception ex) { throw new InvalidOperationException($"Deepgram network lỗi: {ex.Message}"); }
+
+        var body = await resp.Content.ReadAsStringAsync(ct);
+        if (!resp.IsSuccessStatusCode)
+        {
+            _log.LogWarning("Deepgram STT HTTP {Code}: {Body}", (int)resp.StatusCode, Trunc(body, 300));
+            throw new InvalidOperationException($"Deepgram HTTP {(int)resp.StatusCode}: {Trunc(body, 200)}");
+        }
+
+        string text;
+        try
+        {
+            using var jdoc = JsonDocument.Parse(body);
+            // results.channels[0].alternatives[0].transcript
+            text = jdoc.RootElement
+                .GetProperty("results").GetProperty("channels")[0]
+                .GetProperty("alternatives")[0]
+                .GetProperty("transcript").GetString() ?? "";
+        }
+        catch (Exception ex) { throw new InvalidOperationException($"Deepgram parse lỗi: {ex.Message}"); }
+
+        text = text.Trim();
+        var latencyMs = (long)(DateTime.UtcNow - t0).TotalMilliseconds;
+        _log.LogInformation("Deepgram STT OK: {Chars}ch, {Lat}ms, model={Model}, lang={Lang}", text.Length, latencyMs, model, lang);
+        return new TranscribeResult(text, lang, 0, latencyMs, $"deepgram:{model}");
     }
 
     private static string BuildGeminiPrompt(string? language)

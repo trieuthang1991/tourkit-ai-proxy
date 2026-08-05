@@ -495,7 +495,7 @@ Khi câu hỏi liên quan đến **cấu trúc code** (callers/callees, "X dùng
 <!-- gitnexus:start -->
 # GitNexus — Code Intelligence
 
-This project is indexed by GitNexus as **tourkit-ai-proxy** (7978 symbols, 25464 relationships, 300 execution flows). Use the GitNexus MCP tools to understand code, assess impact, and navigate safely.
+This project is indexed by GitNexus as **tourkit-ai-proxy** (8511 symbols, 27505 relationships, 300 execution flows). Use the GitNexus MCP tools to understand code, assess impact, and navigate safely.
 
 > If any GitNexus tool warns the index is stale, run `npx gitnexus analyze` in terminal first.
 
