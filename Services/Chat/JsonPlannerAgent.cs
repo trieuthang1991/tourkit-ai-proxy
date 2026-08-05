@@ -1639,15 +1639,14 @@ Yêu cầu:
     }
 
     /// Soạn câu trả lời cho câu hỏi nguồn gốc số liệu — nêu đúng nguồn (báo cáo của lượt trước, tra tên
-    /// người-đọc-được từ memory) + khẳng định là số liệu THẬT trong TourKit CRM. Tất định, không gọi AI.
+    /// người-đọc-được từ memory) + khẳng định là số liệu THẬT trong hệ thống ERP. Tất định, không gọi AI.
     private static string BuildProvenanceReply(SessionChatMemory memory)
     {
         var src = memory.LastTool != null ? ChatTools.Find(memory.LastTool)?.Title : null;
         if (string.IsNullOrWhiteSpace(src)) src = memory.LastDataTitle;
         var srcClause = string.IsNullOrWhiteSpace(src) ? "" : $", qua báo cáo \"{src}\"";
-        return $"Số liệu này được lấy trực tiếp từ hệ thống TourKit CRM của bạn{srcClause}. "
-            + "Đây là dữ liệu thật đang lưu trong CRM (không phải ước tính hay bịa số), tính tại thời điểm bạn hỏi. "
-            + "Bảng bên phải là chi tiết tương ứng để bạn đối chiếu.";
+        return $"Số liệu này được lấy trực tiếp từ hệ thống ERP của bạn{srcClause}. "
+            + "Đây là dữ liệu thật đang lưu trong ERP (không phải ước tính hay bịa số), tính tại thời điểm bạn hỏi.";
     }
 
     /// Seam dùng CHUNG cho RunAsync (buffered) + StreamAsync (SSE): nếu câu hỏi VỀ nguồn gốc số liệu VÀ

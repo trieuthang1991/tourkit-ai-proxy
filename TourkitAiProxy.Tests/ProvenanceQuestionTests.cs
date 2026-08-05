@@ -63,7 +63,7 @@ public class ProvenanceQuestionTests
         Assert.NotNull(r);
         Assert.Equal("cashflow", r!.Value.ToolName);
         Assert.Same(data, r.Value.Data);                              // GIỮ panel cũ (không mất chart)
-        Assert.Contains("TourKit CRM", r.Value.Reply);
+        Assert.Contains("hệ thống ERP", r.Value.Reply);
         Assert.Contains("Doanh thu & Lợi nhuận", r.Value.Reply);      // tên nguồn thật từ ChatTools.Find("cashflow").Title
     }
 
