@@ -254,8 +254,11 @@ public class JsonPlannerAgent : IAgentRuntime
                 : "Không có marketName cần resolve",
             new() { ["before"] = paramsBefore, ["after"] = paramsAfter });
 
-        // L2 cache (post-planner): tool + canonical params giong -> tra ngay, skip dispatch + analysis.
-        var l2Key = AgentCacheKeys.L2Key(input.TenantId, input.Username, tool.Name, toolParams);
+        // L2 cache (post-planner): tool + canonical params + Y SO SANH giong -> tra ngay, skip dispatch + analysis.
+        // compareShift PHAI vao key: cau "so voi thang truoc" va cau thuong tuy cung tool+params van phai
+        // roi 2 o cache khac nhau — neu khong L2 tra nguyen van cau truoc + nuot mat cot so sanh (bug so sanh 2026-08).
+        var compareShift = DetectCompareIntent(question);
+        var l2Key = L2CacheKey(input.TenantId, input.Username, tool.Name, toolParams, compareShift);
         var l2Timer = trace?.Begin("l2_cache_lookup");
         if (useCache && _cache.TryGet<ChatResult>("r2|" + l2Key, out var l2Hit) && l2Hit != null)
         {
@@ -349,7 +352,7 @@ public class JsonPlannerAgent : IAgentRuntime
 
         // ─── 3b. Compare intent: cau hoi co "so voi / cung ky / nam ngoai" → dispatch 2nd ──
         // Chi ap dung cho tool co params date (cashflow, financial_summary, marketing...).
-        var compareShift = DetectCompareIntent(question);
+        // compareShift da tinh o tren (dung chung cho L2 key) → khong goi lai DetectCompareIntent.
         if (compareShift != CompareShift.None && HasDateParams(toolParams))
         {
             trace?.Step("compare_detected", "ok", 0,
@@ -747,8 +750,9 @@ public class JsonPlannerAgent : IAgentRuntime
                                         : "Không có marketName cần resolve",
             new() { ["before"] = paramsBefore, ["after"] = paramsAfter });
 
-        // L2 cache (post-planner)
-        var l2Key = AgentCacheKeys.L2Key(input.TenantId, input.Username, tool.Name, toolParams);
+        // L2 cache (post-planner) — Y SO SANH vao key (xem RunAsync cho ly do: tranh bug so sanh).
+        var compareShiftS = DetectCompareIntent(question);
+        var l2Key = L2CacheKey(input.TenantId, input.Username, tool.Name, toolParams, compareShiftS);
         var l2Timer = trace?.Begin("l2_cache_lookup");
         if (useCache && _cache.TryGet<ChatResult>("r2|" + l2Key, out var l2Hit) && l2Hit != null)
         {
@@ -829,7 +833,7 @@ public class JsonPlannerAgent : IAgentRuntime
             new() { ["statCount"] = chatData.Stats.Count, ["title"] = chatData.Title });
 
         // Compare intent (stream): cau hoi co "so voi / cung ky / nam ngoai" → dispatch 2nd
-        var compareShiftS = DetectCompareIntent(question);
+        // compareShiftS da tinh o tren (dung chung cho L2 key) → khong goi lai.
         if (compareShiftS != CompareShift.None && HasDateParams(toolParams))
         {
             var (comparePrmsS, compareLabelS) = ShiftDateParams(toolParams!.Value, compareShiftS);
@@ -1718,10 +1722,18 @@ Yêu cầu:
     // ─── Compare intent + date-shift helpers ────────────────────────────────────
 
     /// Hướng dịch chuyển kỳ đối chiếu (kỳ trước / cùng kỳ năm ngoái...).
-    private enum CompareShift { None, PrevMonth, PrevYear, PrevQuarter }
+    /// internal để test khóa: giá trị này đi vào L2 key ("|cmp=") → câu có/không so sánh không đè cache nhau.
+    internal enum CompareShift { None, PrevMonth, PrevYear, PrevQuarter }
+
+    /// L2 cache key CÓ kèm ý so sánh — dùng chung cho cả RunAsync lẫn StreamAsync (1 nguồn, không drift).
+    /// compareShift PHẢI vào key: câu so sánh và câu thường dù cùng tool+params vẫn rơi 2 ô cache khác nhau,
+    /// nếu không L2 trả nguyên văn câu trước + nuốt mất cột so sánh (bug so sánh 2026-08).
+    internal static string L2CacheKey(string tenantId, string username, string toolName,
+                                      JsonElement? prms, CompareShift compareShift)
+        => AgentCacheKeys.L2Key(tenantId, username, toolName, prms) + "|cmp=" + compareShift;
 
     /// Phát hiện câu hỏi có yêu cầu so sánh với kỳ trước/năm ngoái.
-    private static CompareShift DetectCompareIntent(string question)
+    internal static CompareShift DetectCompareIntent(string question)
     {
         if (string.IsNullOrWhiteSpace(question)) return CompareShift.None;
         var q = question.ToLowerInvariant();
