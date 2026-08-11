@@ -106,3 +106,6 @@ wwwroot/dist/
 gateway/.env
 .claude-memory/.venv/
 .claude-memory/scripts/state.json
+
+# CodeGraph local index (per-project SQLite graph)
+.codegraph/
