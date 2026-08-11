@@ -31,7 +31,8 @@ param(
     [string] $Feature   = '',      # loc theo ten tinh nang, vd chat-analytics
     [string] $CaseId    = '',
     [int]    $DelayMs   = 800,
-    [switch] $ListOnly
+    [switch] $ListOnly,
+    [switch] $ShowReply     # in NGUYEN VAN cau tra loi (de nguoi doc tu danh gia chat luong / an toan)
 )
 
 $ErrorActionPreference = 'Stop'
@@ -213,6 +214,12 @@ foreach ($item in $sel) {
         $hasD    = Test-HasData -Data $resp.data
         $snippet = [string]$resp.reply
         if ($snippet.Length -gt 90) { $snippet = $snippet.Substring(0, 90) + '...' }
+
+        if ($ShowReply) {
+            Write-Host ("     --- TRA LOI DAY DU ({0} ky tu) ---" -f ([string]$resp.reply).Length) -ForegroundColor DarkCyan
+            Write-Host ([string]$resp.reply) -ForegroundColor Cyan
+            Write-Host '     --------------------------------' -ForegroundColor DarkCyan
+        }
 
         if ($errs.Count -eq 0) {
             Write-Host ("     PASS  tool={0} data={1} | {2}" -f $tool, $hasD, $snippet) -ForegroundColor Green

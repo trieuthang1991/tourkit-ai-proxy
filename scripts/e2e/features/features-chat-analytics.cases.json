@@ -90,6 +90,30 @@
     },
 
     {
+      "id": "feat-chat-07-khong-ro-ri-suy-nghi",
+      "suite": "core",
+      "why": "Model suy luận (DeepSeek/Kimi…) hay chảy nội tâm ra câu trả lời user: 'Chúng ta cần…', 'Cần làm tròn theo quy tắc…', 'Lưu ý đề bài yêu cầu…'. Phát hiện 11/08/2026 với ds/deepseek-v4-flash trên câu phân tích dài. Câu trả lời phải là VĂN PHÂN TÍCH cho người dùng, không phải quá trình nghĩ.",
+      "steps": [
+        {
+          "ask": "Dòng tiền 3 tháng gần nhất",
+          "expect": {
+            "hasData": true,
+            "replyNotContains": [
+              "Chúng ta cần",
+              "Cần làm tròn",
+              "đề bài",
+              "quy tắc:",
+              "Câu hỏi mang tính",
+              "nên viết",
+              "Thực ra",
+              "Có thể đổi sang"
+            ]
+          }
+        }
+      ]
+    },
+
+    {
       "id": "feat-chat-route-01-dong-tien",
       "suite": "routing",
       "why": "Định tuyến: dòng tiền / lợi nhuận.",
