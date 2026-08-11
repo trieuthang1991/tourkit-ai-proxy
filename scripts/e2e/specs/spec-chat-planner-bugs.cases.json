@@ -1,0 +1,92 @@
+{
+  "kind": "spec",
+  "spec": "chat-planner-bugs",
+  "title": "Bug đã sửa trong JsonPlannerAgent (cache so sánh / nguồn gốc / lộ tên tool / keepPanel / gõ không dấu)",
+  "_doc": "E2E SPEC — mỗi ca khóa ĐÚNG 1 bug đã sửa, kèm hash commit. Chạy khi đụng vào JsonPlannerAgent / ChatTools / cache. Khác features/ (chạy thường xuyên).",
+
+  "cases": [
+
+    {
+      "id": "spec-ca2d68f-so-sanh-khong-de-cache",
+      "suite": "regression",
+      "why": "Bug ca2d68f: L2 cache key thiếu ý so sánh → câu 'so sánh' bị trả nguyên văn câu thường trước đó.",
+      "steps": [
+        { "ask": "Doanh thu tháng này", "expect": { "hasData": true } },
+        {
+          "ask": "So sánh doanh thu tháng này với tháng trước",
+          "expect": { "hasData": true, "replyDiffersFromPrevious": true }
+        }
+      ]
+    },
+
+    {
+      "id": "spec-cb85862-hoi-nguon-goc-khong-lap",
+      "suite": "regression",
+      "why": "Bug cb85862: hỏi nguồn gốc bị lặp nguyên câu trả lời cũ. Nay short-circuit, GIỮ panel, nói nguồn ERP. Kèm 59a3824: bỏ 'Bảng bên phải…', CRM→ERP.",
+      "steps": [
+        { "ask": "Doanh thu tháng này", "expect": { "hasData": true } },
+        {
+          "ask": "Số liệu này lấy từ đâu?",
+          "expect": {
+            "hasData": true,
+            "replyDiffersFromPrevious": true,
+            "replyContains": ["ERP"],
+            "replyNotContains": ["Bảng bên phải", "TourKit CRM", "cashflow"]
+          }
+        }
+      ]
+    },
+
+    {
+      "id": "spec-cb85862-khong-lo-ten-tool",
+      "suite": "regression",
+      "why": "Bug cb85862 (phần 2) — ScrubToolNames: tên tool nội bộ không được lọt ra câu trả lời user.",
+      "steps": [
+        {
+          "ask": "Chi phí và lợi nhuận tháng này ra sao?",
+          "expect": {
+            "replyNotContains": ["cashflow", "financial_summary", "top_sellers", "booking_tickets", "list_markets"]
+          }
+        }
+      ]
+    },
+
+    {
+      "id": "spec-2731df2-go-khong-dau",
+      "suite": "regression",
+      "why": "Fix 2731df2: HasDataKeyword dùng chung Norm — gõ không dấu ('loi nhuan') trước đây lọt lưới → panel cũ bị copy xuống.",
+      "steps": [
+        { "ask": "loi nhuan thang nay bao nhieu", "expect": { "hasData": true } }
+      ]
+    },
+
+    {
+      "id": "spec-6ddcf65-follow-up-thuong-giu-panel",
+      "suite": "regression",
+      "why": "Fix 6ddcf65 (keepPanel): follow-up KHÔNG phải câu hỏi số liệu thì GIỮ panel lượt trước để user đối chiếu.",
+      "steps": [
+        { "ask": "Doanh thu tháng này", "expect": { "hasData": true } },
+        {
+          "ask": "Giải thích thêm giúp tôi",
+          "soft": true,
+          "expect": { "hasData": true, "replyDiffersFromPrevious": true }
+        }
+      ]
+    },
+
+    {
+      "id": "spec-6ddcf65-so-lieu-la-khong-copy-cau-cu",
+      "suite": "regression",
+      "why": "Fix 6ddcf65 (keepPanel): câu hỏi SỐ LIỆU MỚI mà AI bí → KHÔNG copy panel/câu trả lời cũ xuống.",
+      "steps": [
+        { "ask": "Doanh thu tháng này", "expect": { "hasData": true } },
+        {
+          "ask": "Cho tôi chỉ số NPS trung bình theo cohort khách quý này",
+          "soft": true,
+          "expect": { "replyDiffersFromPrevious": true }
+        }
+      ]
+    }
+
+  ]
+}
