@@ -1,5 +1,7 @@
 # Tenant AI Profile — Implementation Plan
 
+> ⏸️ **KHÔNG ƯU TIÊN** (user chốt 2026-08-11) — **CHƯA triển khai**. Kế hoạch còn nguyên giá trị, cất chờ. KHÔNG tự chạy plan này nếu user không yêu cầu rõ. Spec: [P2 design](../specs/2026-08-05-tenant-ai-profile-design.md).
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Cho mỗi tenant nạp hồ sơ doanh nghiệp (giới thiệu/chỉ thị/giọng/kiến thức) để trợ lý `/assistant` + `/travai` vừa nhuộm ngữ cảnh khi phân tích số liệu, vừa trả lời câu hỏi về doanh nghiệp.

@@ -1,6 +1,10 @@
 # Spec — BYO AI key per-tenant ("chỉ bán nền tảng, không bán key AI")
 
-**Ngày:** 2026-08-05 · **Phạm vi:** TẤT CẢ lệnh AI của tenant (chat/travai, review, mail, deal, tour, visa) · **Trạng thái:** đã chốt thiết kế, chờ kế hoạch.
+**Ngày:** 2026-08-05 · **Phạm vi:** TẤT CẢ lệnh AI của tenant (chat/travai, review, mail, deal, tour, visa)
+
+> ⏸️ **KHÔNG ƯU TIÊN** (user chốt 2026-08-11). Thiết kế + kế hoạch đã xong, cất chờ — xem [kế hoạch P4](../plans/2026-08-05-tenant-byo-key.md) khi quay lại. Đừng tự khởi động lại nếu không được yêu cầu.
+>
+> Lưu ý khi mở lại: quyết định về ripple "nạp quota AI qua VietQR" (§8) **vẫn còn để ngỏ**.
 
 ## 1. Mô hình kinh doanh & mục tiêu
 

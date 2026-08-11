@@ -1,5 +1,7 @@
 # BYO AI Key per-tenant — Implementation Plan
 
+> ⏸️ **KHÔNG ƯU TIÊN** (user chốt 2026-08-11) — **CHƯA triển khai**. Cất chờ; KHÔNG tự chạy plan này nếu user không yêu cầu rõ. Spec: [P4 design](../specs/2026-08-05-tenant-byo-key-design.md).
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Mỗi tenant tự mang key AI (`{provider, model, apiKey}`) — bật thì MỌI lệnh AI của tenant chạy bằng key đó và không trừ quota; chưa bật thì dùng key hệ thống + trừ quota như "trial".

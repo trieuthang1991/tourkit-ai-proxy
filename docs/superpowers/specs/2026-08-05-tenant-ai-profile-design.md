@@ -1,6 +1,8 @@
 # Spec — Custom AI per-tenant (Tenant AI Profile)
 
-**Ngày:** 2026-08-05 · **Phạm vi:** `/assistant` + `/travai` (Chat-Analytics + TRAVAI voice) · **Trạng thái:** đã chốt thiết kế, chờ kế hoạch triển khai.
+**Ngày:** 2026-08-05 · **Phạm vi:** `/assistant` + `/travai` (Chat-Analytics + TRAVAI voice)
+
+> ⏸️ **KHÔNG ƯU TIÊN** (user chốt 2026-08-11). Thiết kế + kế hoạch đã xong và còn dùng được — cất đây, khi nào quay lại thì đọc tiếp [kế hoạch P2](../plans/2026-08-05-tenant-ai-profile.md). Đừng tự khởi động lại nếu không được yêu cầu.
 
 ## 1. Vấn đề & mục tiêu
 
