@@ -427,25 +427,25 @@ No bundler, no npm install. `<script type="text/babel">` is transformed in-brows
 
 **CORS is wide open in dev.** `CorsSetup.cs` lists allowed origins but calls `SetIsOriginAllowed(_ => true)`, which overrides the allowlist. Remove that line before production.
 
-## Code lookup (GitNexus MCP)
+## Code lookup (CodeGraph MCP)
 
-Khi câu hỏi liên quan đến **cấu trúc code** (callers/callees, "X dùng ở đâu", flow nghiệp vụ, blast-radius trước khi đổi tên), **PHẢI dùng `mcp__gitnexus__*` trước** `Grep`/`Glob`. GitNexus chạy trên knowledge graph đã build sẵn → nhanh hơn nhiều lần so với re-scan file, và bắt đúng symbol thay vì khớp text mù.
+Khi câu hỏi liên quan đến **cấu trúc code** (callers/callees, "X dùng ở đâu", flow nghiệp vụ, blast-radius trước khi đổi tên), **PHẢI dùng CodeGraph trước** `Grep`/`Glob`. CodeGraph chạy trên knowledge graph SQLite build sẵn (auto-sync khi sửa file) → nhanh hơn nhiều lần so với re-scan file, bắt đúng symbol thay vì khớp text mù, và trả luôn source code kèm số dòng.
 
-**3 repo đã index** (vì có nhiều repo, MỌI gitnexus call PHẢI truyền `repo`):
+**3 repo đều đã index bằng CodeGraph** — mỗi repo 1 `.codegraph/` RIÊNG (CodeGraph là per-project, KHÔNG gộp nhiều repo trong 1 query như GitNexus cũ):
 - `tourkit-ai-proxy` — project này (proxy + `wwwroot/`).
-- `toutkit-app` — TourKit.Api mobile (upstream CRM mà proxy gọi qua `/api/ai/*`).
+- `toutkit-app` — TourKit.Api mobile (upstream CRM mà proxy gọi qua `/api/ai/*`). Hỏi bằng cách chạy `codegraph` trong thư mục đó, hoặc truyền `projectPath` cho `codegraph_explore`.
 - `tourkit` — CMS Web KojiCRM (ASP.NET WebForms; nghiệp vụ gốc TourKit).
 
-**Chọn tool:**
-- `query` — concept search ("deal scoring flow?", "mail classification owner?"). Trả ranked execution flows.
-- `context` — 360° view 1 symbol (callers/callees/overrides). Dùng sau khi `query` thu hẹp.
-- `impact` — blast-radius TRƯỚC khi rename/sửa method/field. Liệt kê mọi caller + dependent.
-- `cypher` — Cypher trực tiếp khi muốn shape custom (vd "tất cả handler trả `IResult` trong Endpoints/").
-- `route_map` / `api_impact` — HTTP routes + cross-repo contract (proxy → TourKit.Api).
+**Chọn lệnh:**
+- `codegraph explore "<concept>"` — concept search ("deal scoring flow?", "mail classification owner?"). Trả symbols liên quan + source + call paths + blast-radius trong 1 lần. Lệnh dùng nhiều nhất.
+- `codegraph node <Symbol>` — 360° view 1 symbol (source + callers/callees). Dùng sau khi `explore` thu hẹp.
+- `codegraph impact <Symbol>` — blast-radius TRƯỚC khi rename/sửa method/field. Liệt kê mọi caller + dependent (symbol-level, kèm số dòng).
+- `codegraph callers <Symbol>` / `codegraph callees <Symbol>` — đi call graph 2 chiều.
+- MCP: `mcp__codegraph__codegraph_explore` (tương đương `codegraph explore`; dùng `projectPath` để hỏi repo khác).
 
-**KHI vẫn dùng Grep/Glob:** tìm chuỗi text trong comment / config / JSON / Markdown (graph chỉ index code symbol); list file theo glob; khi repo đang sửa nhiều mà chưa re-index (`gitnexus status` cảnh báo stale).
+**KHI vẫn dùng Grep/Glob:** tìm chuỗi text trong comment / config / JSON / Markdown (graph chỉ index code symbol); list file theo glob.
 
-**Re-index khi stale:** `gitnexus analyze --embeddings` chạy ở root repo. Cross-repo question (proxy ↔ TourKit.Api) → query repo `toutkit-app` cho signature upstream.
+**Re-index:** CodeGraph auto-sync khi sửa file — thường KHÔNG cần làm gì. Ép khi cần: `codegraph sync` (incremental) / `codegraph index` (full). Cross-repo question (proxy ↔ TourKit.Api) → chạy `codegraph` trong `toutkit-app/` cho signature upstream.
 
 ## Logging (log4net + middleware)
 
@@ -490,106 +490,52 @@ Khi câu hỏi liên quan đến **cấu trúc code** (callers/callees, "X dùng
 - `appsettings.json` currently contains real-looking API keys. Treat them as secrets: don't echo them, and prefer env vars (e.g. `Providers__OpenCode__ApiKey`, `OPENCODE_API_KEY`, `NINE_ROUTES_API_KEY`) for any production-bound change.
 - Frontend exposes singletons via `window.tourkit*` namespaces (`tourkit.ai`, `tourkitStorage`, `tourkitParsers`, `tourkitRouter`, `tourkitHistory`, `tourkitHooks`, `tourkitUtil`).
 - **DateTime = UTC, luôn kèm `Z`** (STRICT — xem [docs/datetime-convention.md](docs/datetime-convention.md)). Lưu DB bằng `DateTime.UtcNow` / SQL `SYSUTCDATETIME()` (KHÔNG `DateTime.Now`/`GETDATE()`). Parse chuỗi ngày để lưu → `DateTimeStyles.AssumeUniversal | AdjustToUniversal` (TryParse trần ra `Kind=Local` → lưu sai). Trả client: field `DateTime` tự có `Z` qua [`UtcDateTimeConverter`](Services/Json/UtcDateTimeConverter.cs) (global); chuỗi `ToString("o")` từ SQL phải `DateTime.SpecifyKind(x, DateTimeKind.Utc)` trước (Dapper đọc DATETIME2 ra `Kind=Unspecified` → thiếu `Z` → frontend lệch +7h). Frontend dùng `window.tourkitUtil.fmtAgo/fmtDate`, không tự cộng/trừ giờ.
-- **Viết tài liệu hướng dẫn người dùng** (`docs/features/*.md`): dùng agent [`tourkit-doc-writer`](.claude/agents/tourkit-doc-writer.md). Quy tắc: ưu tiên sự rõ ràng, dễ hiểu hơn chi tiết kỹ thuật; dùng GitNexus kiểm flow THẬT trước khi viết + tham khảo internal knowledge base (claude-memory-compiler, nếu có) để giải thích ngắn gọn "tại sao"; mỗi trang tối thiểu có **Mô tả / Hướng dẫn từng bước / Lưu ý / FAQ**; luôn viết tiếng Việt, giọng thân thiện; viết xong **đề xuất các ảnh chụp màn hình cần bổ sung**.
+- **Viết tài liệu hướng dẫn người dùng** (`docs/features/*.md`): dùng agent [`tourkit-doc-writer`](.claude/agents/tourkit-doc-writer.md). Quy tắc: ưu tiên sự rõ ràng, dễ hiểu hơn chi tiết kỹ thuật; dùng CodeGraph kiểm flow THẬT trước khi viết + tham khảo internal knowledge base (claude-memory-compiler, nếu có) để giải thích ngắn gọn "tại sao"; mỗi trang tối thiểu có **Mô tả / Hướng dẫn từng bước / Lưu ý / FAQ**; luôn viết tiếng Việt, giọng thân thiện; viết xong **đề xuất các ảnh chụp màn hình cần bổ sung**.
 
-<!-- gitnexus:start -->
-# GitNexus — Code Intelligence
+<!-- codegraph:start -->
+# CodeGraph — Code Intelligence
 
-This project is indexed by GitNexus as **tourkit-ai-proxy** (7978 symbols, 25464 relationships, 300 execution flows). Use the GitNexus MCP tools to understand code, assess impact, and navigate safely.
+This project is indexed by **CodeGraph** (`@colbymchenry/codegraph`) — a local SQLite knowledge graph in `.codegraph/` (no embeddings, no API key, fully offline). The index **auto-syncs as you edit**, so it's normally fresh with no manual re-index step. Use it to understand code, assess impact, and navigate safely before editing.
 
-> If any GitNexus tool warns the index is stale, run `npx gitnexus analyze` in terminal first.
+Two ways in:
+- **MCP tool** `mcp__codegraph__codegraph_explore` — one call returns the relevant symbols' verbatim, line-numbered source **plus** their call paths **plus** a blast-radius summary (replaces a grep + Read loop).
+- **CLI** `codegraph <cmd>` — `explore` / `query` / `node` / `callers` / `callees` / `impact` / `status`.
 
 ## Always Do
 
-- **MUST run impact analysis before editing any symbol.** Before modifying a function, class, or method, run `gitnexus_impact({target: "symbolName", direction: "upstream"})` and report the blast radius (direct callers, affected processes, risk level) to the user.
-- **MUST run `gitnexus_detect_changes()` before committing** to verify your changes only affect expected symbols and execution flows.
-- **MUST warn the user** if impact analysis returns HIGH or CRITICAL risk before proceeding with edits.
-- When exploring unfamiliar code, use `gitnexus_query({query: "concept"})` to find execution flows instead of grepping. It returns process-grouped results ranked by relevance.
-- When you need full context on a specific symbol — callers, callees, which execution flows it participates in — use `gitnexus_context({name: "symbolName"})`.
+- **Assess blast radius before editing any symbol.** Run `codegraph impact <Symbol>` (or `codegraph_explore`) and report the direct callers + affected symbols before modifying a function/class/method. Warn the user when the radius is wide.
+- When exploring unfamiliar code, use `codegraph explore "<concept>"` (or the `codegraph_explore` MCP tool) instead of grepping — it returns the relevant symbols' source + call paths in one shot.
+- For a single symbol's 360° view (source + callers/callees), use `codegraph node <Symbol>`.
 
 ## When Debugging
 
-1. `gitnexus_query({query: "<error or symptom>"})` — find execution flows related to the issue
-2. `gitnexus_context({name: "<suspect function>"})` — see all callers, callees, and process participation
-3. `READ gitnexus://repo/tourkit-ai-proxy/process/{processName}` — trace the full execution flow step by step
-4. For regressions: `gitnexus_detect_changes({scope: "compare", base_ref: "main"})` — see what your branch changed
+1. `codegraph explore "<error or symptom>"` — surface the relevant symbols + call paths.
+2. `codegraph node <suspect function>` — its source, callers, and callees.
+3. `codegraph callers <Symbol>` / `codegraph callees <Symbol>` — walk the call graph in either direction.
 
 ## When Refactoring
 
-- **Renaming**: MUST use `gitnexus_rename({symbol_name: "old", new_name: "new", dry_run: true})` first. Review the preview — graph edits are safe, text_search edits need manual review. Then run with `dry_run: false`.
-- **Extracting/Splitting**: MUST run `gitnexus_context({name: "target"})` to see all incoming/outgoing refs, then `gitnexus_impact({target: "target", direction: "upstream"})` to find all external callers before moving code.
-- After any refactor: run `gitnexus_detect_changes({scope: "all"})` to verify only expected files changed.
+- **Before moving/renaming**: `codegraph impact <Symbol>` to list every caller. CodeGraph has **no automatic safe-rename** — update the callers it reports by hand, then re-check.
+- The index auto-syncs; if a result looks stale right after a large change, force it with `codegraph sync` (incremental) or `codegraph index` (full rebuild).
 
 ## Never Do
 
-- NEVER edit a function, class, or method without first running `gitnexus_impact` on it.
-- NEVER ignore HIGH or CRITICAL risk warnings from impact analysis.
-- NEVER rename symbols with find-and-replace — use `gitnexus_rename` which understands the call graph.
-- NEVER commit changes without running `gitnexus_detect_changes()` to check affected scope.
+- NEVER edit a function/class/method without first checking `codegraph impact` (or `codegraph_explore`) on it.
+- NEVER rename symbols with blind find-and-replace — list callers with `codegraph impact` first, then update each.
 
 ## Tools Quick Reference
 
-| Tool | When to use | Command |
-|------|-------------|---------|
-| `query` | Find code by concept | `gitnexus_query({query: "auth validation"})` |
-| `context` | 360-degree view of one symbol | `gitnexus_context({name: "validateUser"})` |
-| `impact` | Blast radius before editing | `gitnexus_impact({target: "X", direction: "upstream"})` |
-| `detect_changes` | Pre-commit scope check | `gitnexus_detect_changes({scope: "staged"})` |
-| `rename` | Safe multi-file rename | `gitnexus_rename({symbol_name: "old", new_name: "new", dry_run: true})` |
-| `cypher` | Custom graph queries | `gitnexus_cypher({query: "MATCH ..."})` |
-
-## Impact Risk Levels
-
-| Depth | Meaning | Action |
-|-------|---------|--------|
-| d=1 | WILL BREAK — direct callers/importers | MUST update these |
-| d=2 | LIKELY AFFECTED — indirect deps | Should test |
-| d=3 | MAY NEED TESTING — transitive | Test if critical path |
-
-## Resources
-
-| Resource | Use for |
-|----------|---------|
-| `gitnexus://repo/tourkit-ai-proxy/context` | Codebase overview, check index freshness |
-| `gitnexus://repo/tourkit-ai-proxy/clusters` | All functional areas |
-| `gitnexus://repo/tourkit-ai-proxy/processes` | All execution flows |
-| `gitnexus://repo/tourkit-ai-proxy/process/{name}` | Step-by-step execution trace |
-
-## Self-Check Before Finishing
-
-Before completing any code modification task, verify:
-1. `gitnexus_impact` was run for all modified symbols
-2. No HIGH/CRITICAL risk warnings were ignored
-3. `gitnexus_detect_changes()` confirms changes match expected scope
-4. All d=1 (WILL BREAK) dependents were updated
+| Command | When to use |
+|---------|-------------|
+| `codegraph explore "<q>"` | Answer almost any code question in one call (source + call paths + blast radius) |
+| `codegraph query <name>` | Find a symbol by name |
+| `codegraph node <sym\|file>` | One symbol's source + callers/callees, or a file with its dependents |
+| `codegraph callers <sym>` | Who calls this |
+| `codegraph callees <sym>` | What this calls |
+| `codegraph impact <sym>` | Blast radius before editing |
+| `codegraph status` | Index stats / freshness |
 
 ## Keeping the Index Fresh
 
-After committing code changes, the GitNexus index becomes stale. Re-run analyze to update it:
-
-```bash
-npx gitnexus analyze
-```
-
-If the index previously included embeddings, preserve them by adding `--embeddings`:
-
-```bash
-npx gitnexus analyze --embeddings
-```
-
-To check whether embeddings exist, inspect `.gitnexus/meta.json` — the `stats.embeddings` field shows the count (0 means no embeddings). **Running analyze without `--embeddings` will delete any previously generated embeddings.**
-
-> Claude Code users: A PostToolUse hook handles this automatically after `git commit` and `git merge`.
-
-## CLI
-
-| Task | Read this skill file |
-|------|---------------------|
-| Understand architecture / "How does X work?" | `.claude/skills/gitnexus/gitnexus-exploring/SKILL.md` |
-| Blast radius / "What breaks if I change X?" | `.claude/skills/gitnexus/gitnexus-impact-analysis/SKILL.md` |
-| Trace bugs / "Why is X failing?" | `.claude/skills/gitnexus/gitnexus-debugging/SKILL.md` |
-| Rename / extract / split / refactor | `.claude/skills/gitnexus/gitnexus-refactoring/SKILL.md` |
-| Tools, resources, schema reference | `.claude/skills/gitnexus/gitnexus-guide/SKILL.md` |
-| Index, status, clean, wiki CLI commands | `.claude/skills/gitnexus/gitnexus-cli/SKILL.md` |
-
-<!-- gitnexus:end -->
+CodeGraph auto-syncs via its background daemon as files change — there is **no** PostToolUse re-index hook and none is needed. To force it: `codegraph sync` (incremental) or `codegraph index` (full rebuild). Inspect state with `codegraph status`.
+<!-- codegraph:end -->

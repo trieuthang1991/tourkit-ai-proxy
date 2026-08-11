@@ -1,0 +1,188 @@
+<!doctype html>
+<html lang="vi">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1" />
+  <title>So sánh STT: OpenAI vs Deepgram</title>
+  <style>
+    :root { --bg:#0f1115; --card:#181b22; --line:#2a2f3a; --txt:#e7eaf0; --txt2:#9aa3b2; --acc:#3b82f6; --ok:#22c55e; --err:#ef4444; }
+    * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+    body { margin:0; font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif; background:var(--bg); color:var(--txt); padding:16px; max-width:720px; margin:0 auto; }
+    h1 { font-size:18px; margin:4px 0 2px; }
+    .sub { color:var(--txt2); font-size:13px; margin:0 0 16px; line-height:1.5; }
+    .rec-wrap { text-align:center; margin:24px 0; }
+    #recBtn { width:120px; height:120px; border-radius:50%; border:none; font-size:15px; font-weight:600; color:#fff; background:var(--acc); cursor:pointer; transition:transform .1s, background .2s; box-shadow:0 6px 24px rgba(59,130,246,.35); }
+    #recBtn:active { transform:scale(.96); }
+    #recBtn.recording { background:var(--err); animation:pulse 1.2s infinite; box-shadow:0 6px 30px rgba(239,68,68,.5); }
+    #recBtn:disabled { opacity:.5; cursor:not-allowed; }
+    @keyframes pulse { 0%,100%{transform:scale(1)} 50%{transform:scale(1.06)} }
+    .hint { color:var(--txt2); font-size:13px; margin-top:12px; min-height:18px; }
+    .cards { display:grid; gap:12px; margin-top:8px; }
+    @media (min-width:560px){ .cards { grid-template-columns:1fr 1fr; } }
+    .card { background:var(--card); border:1px solid var(--line); border-radius:12px; padding:14px; }
+    .card h2 { font-size:14px; margin:0 0 8px; display:flex; align-items:center; justify-content:space-between; }
+    .badge { font-size:11px; font-weight:600; padding:2px 8px; border-radius:20px; background:#232733; color:var(--txt2); }
+    .card .text { font-size:15px; line-height:1.55; white-space:pre-wrap; min-height:48px; }
+    .card.err .text { color:var(--err); font-size:13px; }
+    .meta { color:var(--txt2); font-size:12px; margin-top:10px; border-top:1px solid var(--line); padding-top:8px; display:flex; gap:14px; }
+    .meta b { color:var(--txt); font-weight:600; }
+    .fast { color:var(--ok); }
+    .warn-box { background:#2a1e10; border:1px solid #5a3a12; color:#f0c78a; padding:10px 12px; border-radius:10px; font-size:13px; margin-bottom:14px; line-height:1.5; display:none; }
+    .log { margin-top:18px; color:var(--txt2); font-size:12px; }
+    .log .row { padding:6px 0; border-bottom:1px solid var(--line); }
+  </style>
+</head>
+<body>
+  <h1>🎙️ So sánh độ chuẩn STT</h1>
+  <p class="sub">Nói 1 câu tiếng Việt (tên tour, giá, ngày khởi hành…). Cùng đoạn ghi âm chạy qua <b>OpenAI</b> (gpt-4o-mini-transcribe, đang dùng) và <b>Deepgram</b> (nova-3) để bạn tự chấm bên nào chuẩn hơn.</p>
+  <div id="warnBox" class="warn-box"></div>
+
+  <div class="rec-wrap">
+    <button id="recBtn">Bấm để nói</button>
+    <div class="hint" id="hint">Cần đăng nhập trước ở trang chính (cùng trình duyệt).</div>
+  </div>
+
+  <div class="cards">
+    <div class="card" id="card-openai">
+      <h2>OpenAI <span class="badge" id="badge-openai">chờ</span></h2>
+      <div class="text" id="text-openai">—</div>
+      <div class="meta" id="meta-openai" style="display:none"></div>
+    </div>
+    <div class="card" id="card-deepgram">
+      <h2>Deepgram <span class="badge" id="badge-deepgram">chờ</span></h2>
+      <div class="text" id="text-deepgram">—</div>
+      <div class="meta" id="meta-deepgram" style="display:none"></div>
+    </div>
+  </div>
+
+  <div class="log" id="log"></div>
+
+<script>
+(function () {
+  'use strict';
+  var SID = localStorage.getItem('tourkit_tk_session');
+  var btn = document.getElementById('recBtn');
+  var hint = document.getElementById('hint');
+  var warnBox = document.getElementById('warnBox');
+  var logEl = document.getElementById('log');
+  var ENGINES = ['openai', 'deepgram'];
+
+  if (!SID) {
+    warnBox.style.display = 'block';
+    warnBox.textContent = '⚠️ Chưa đăng nhập. Mở /travai hoặc /assistant đăng nhập trước, rồi quay lại trang này (cùng trình duyệt).';
+    btn.disabled = true;
+    hint.textContent = 'Thiếu phiên đăng nhập.';
+    return;
+  }
+  hint.textContent = 'Bấm nút để bắt đầu ghi âm.';
+
+  var rec = null, chunks = [], stream = null, recording = false, startedAt = 0;
+
+  function pickMime() {
+    var cands = ['audio/webm;codecs=opus', 'audio/webm', 'audio/mp4', 'audio/ogg'];
+    for (var i = 0; i < cands.length; i++) {
+      if (window.MediaRecorder && MediaRecorder.isTypeSupported(cands[i])) return cands[i];
+    }
+    return '';
+  }
+
+  btn.addEventListener('click', function () {
+    if (recording) { stopRec(); } else { startRec(); }
+  });
+
+  async function startRec() {
+    if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+      hint.textContent = 'Trình duyệt không hỗ trợ ghi âm.'; return;
+    }
+    try {
+      stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+    } catch (e) {
+      hint.textContent = 'Không truy cập được micro: ' + e.message; return;
+    }
+    var mime = pickMime();
+    try {
+      rec = mime ? new MediaRecorder(stream, { mimeType: mime }) : new MediaRecorder(stream);
+    } catch (e) {
+      rec = new MediaRecorder(stream);
+    }
+    chunks = [];
+    rec.ondataavailable = function (ev) { if (ev.data && ev.data.size > 0) chunks.push(ev.data); };
+    rec.onstop = onStop;
+    rec.start(250);
+    recording = true; startedAt = Date.now();
+    btn.classList.add('recording'); btn.textContent = 'Đang nghe… bấm dừng';
+    hint.textContent = 'Nói rõ ràng rồi bấm lại để dừng.';
+  }
+
+  function stopRec() {
+    if (!rec) return;
+    recording = false;
+    btn.classList.remove('recording'); btn.textContent = 'Đang xử lý…'; btn.disabled = true;
+    try { rec.stop(); } catch (e) {}
+    if (stream) { stream.getTracks().forEach(function (t) { t.stop(); }); }
+  }
+
+  async function onStop() {
+    var durMs = Date.now() - startedAt;
+    var type = (rec && rec.mimeType) || 'audio/webm';
+    var blob = new Blob(chunks, { type: type });
+    if (durMs < 400 || blob.size < 1200) {
+      hint.textContent = 'Đoạn quá ngắn — giữ và nói lâu hơn chút nhé.';
+      resetBtn(); return;
+    }
+    var ext = /mp4/.test(type) ? 'm4a' : (/ogg/.test(type) ? 'ogg' : 'webm');
+    setBadge('openai', 'đang chạy…'); setBadge('deepgram', 'đang chạy…');
+    setText('openai', '…'); setText('deepgram', '…');
+    hint.textContent = 'Đang gửi cả 2 engine…';
+
+    try {
+      var fd = new FormData();
+      fd.append('file', blob, 'compare.' + ext);
+      fd.append('language', 'vi');
+      fd.append('engines', ENGINES.join(','));
+      var r = await fetch('/api/v1/speech/compare', {
+        method: 'POST', headers: { 'X-Session-Id': SID }, body: fd
+      });
+      var j = await r.json().catch(function () { return {}; });
+      if (!r.ok) throw new Error(j.error || ('HTTP ' + r.status));
+      render(j, durMs, blob.size);
+      hint.textContent = 'Xong. Bấm để thử câu khác.';
+    } catch (e) {
+      hint.textContent = 'Lỗi: ' + e.message;
+      setBadge('openai', 'lỗi'); setBadge('deepgram', 'lỗi');
+    }
+    resetBtn();
+  }
+
+  function render(j, durMs, size) {
+    var results = j.results || [];
+    var fastest = Math.min.apply(null, results.filter(function (x) { return x.ok; }).map(function (x) { return x.latencyMs; }).concat([1e12]));
+    results.forEach(function (res) {
+      var eng = res.engine;
+      if (!res.ok) {
+        document.getElementById('card-' + eng).classList.add('err');
+        setBadge(eng, 'lỗi'); setText(eng, res.error || 'lỗi không rõ');
+        hideMeta(eng); return;
+      }
+      document.getElementById('card-' + eng).classList.remove('err');
+      setBadge(eng, (res.actualEngine || eng));
+      setText(eng, res.text || '(rỗng)');
+      var fast = res.latencyMs <= fastest;
+      setMeta(eng, '<span class="' + (fast ? 'fast' : '') + '">⏱ <b>' + res.latencyMs + 'ms</b></span>' +
+        '<span>📝 <b>' + (res.text || '').length + '</b> ký tự</span>');
+    });
+    var line = document.createElement('div');
+    line.className = 'row';
+    line.textContent = new Date().toLocaleTimeString('vi-VN') + ' · thu ' + (durMs / 1000).toFixed(1) + 's · ' + Math.round(size / 1024) + 'KB';
+    logEl.insertBefore(line, logEl.firstChild);
+  }
+
+  function setBadge(eng, t) { document.getElementById('badge-' + eng).textContent = t; }
+  function setText(eng, t) { document.getElementById('text-' + eng).textContent = t; }
+  function setMeta(eng, html) { var m = document.getElementById('meta-' + eng); m.style.display = 'flex'; m.innerHTML = html; }
+  function hideMeta(eng) { document.getElementById('meta-' + eng).style.display = 'none'; }
+  function resetBtn() { btn.disabled = false; btn.textContent = 'Bấm để nói'; }
+})();
+</script>
+</body>
+</html>
