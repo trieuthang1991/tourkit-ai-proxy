@@ -112,7 +112,18 @@ Giải pháp **F5 — Digest Subscriptions**:
 - ~~Gap #4 báo giá client-side~~ **SAI, sửa lại**: `dbo.TourQuotes` đã persist server (bảng #6, có `CreatedBy/UpdatedAt/IsSync`); chỉ thiếu cột trạng thái gửi/phản hồi.
 - Còn mở thật sự: NCC confirm (#2), email user không expose (#7), mail chưa gán per-sale (#9), chỗ nhập target doanh thu (#6).
 
-> Số liệu volume thật (bao nhiêu deal/mail/quote per tenant) chạy bằng script read-only `digest-feasibility-stats.ps1` (scratchpad) — cần người có quyền chạy vì script giải mã connection string.
+### 5. Số liệu volume THẬT (production DB, chạy `digest-feasibility-stats.ps1` 11/08/2026)
+
+| Nguồn | Số thật | Kết luận |
+|---|---|---|
+| `dbo.TkSessions` | 11 phiên / 7 tenant; **10/11 phiên có `PermissionsJson`** | Gate quyền `ceo-brief` khả thi ngay |
+| `dbo.TenantServiceAccounts` | **5/7 tenant** đã cấu hình | `ceo-brief` chạy được ngay cho 5 tenant |
+| `dbo.DealScores` / `dbo.Reviews` | **1.751 / 2.978** bản ghi | Bản tin sáng CÓ nội dung ngay ngày đầu (deal nguội + KH hạng A dày) |
+| `dbo.UserWorkflows` | 13 config, **11 enabled** (4 loại workflow đang chạy thật) | F2 cắm vào scheduler là chạy, user đã quen bật workflow |
+| `dbo.TourQuotes` | **28** quote, admin chiếm 26, mới nhất 03/08 | ⚠️ **S3 hạ ưu tiên**: wizard báo giá chưa được sale dùng thật → "đeo bám báo giá" hiện không có gì để nhắc. Điều kiện tiên quyết: tăng adoption wizard trước |
+| `dbo.Mails` | 1.127 mail: `khac` 551 + `spam` 520 = **95%**; `xin_bao_gia` 6, `hoi_dat_tour` **0** | ⚠️ **S2 hạ ưu tiên + thêm việc mới**: hiện KHÔNG có input thật cho "mail → cơ hội"; 551 mail `khac` đáng ngờ → **audit MailClassifier** (có thể phân loại kém chứ không phải không có mail hỏi tour) trước khi xây S2 |
+
+**Điều chỉnh lộ trình theo số thật:** S1 + C1 + O2 (Đợt 1) càng được củng cố — data dày sẵn. S2/S3 (Đợt 2/3) bị số thật hạ ưu tiên: S2 chờ audit classifier, S3 chờ adoption wizard. Việc mới chèn vào backlog: **audit chất lượng MailClassifier trên 551 mail `khac`**.
 
 ---
 
@@ -135,8 +146,8 @@ Thứ tự phụ thuộc: **F1 trước tiên** → F2 → F3/F4 song song khi c
 | Đợt | Gồm | Vì sao |
 |-----|-----|--------|
 | **Đợt 1 — "Bản tin + cảnh báo"** | F1 + F2 → **S1 + C1 + O2** | 1 engine ra 3 tính năng thấy được ngay cho 3 vai trò — demo/bán mạnh nhất trên mỗi đồng effort. Data sẵn 100%, không chờ upstream. O2 không tốn quota AI |
-| **Đợt 2 — "Hành động"** | **S2 + S4 + C5 + O1** | Đứng trên đợt 1. S2 cần kind `create_deal` cho CrmActionQueue |
-| **Đợt 3 — "Tự chủ + thông minh"** | F4 → **S6 + S3**; F3 → **C2 + C4**; **O5** (capacity đã xác minh có sẵn) | Giá trị lớn nhưng cần nền F3/F4; S3 chỉ còn thêm 2 cột vào TourQuotes |
+| **Đợt 2 — "Hành động"** | **S4 + C5 + O1**; S2 **có điều kiện** | Đứng trên đợt 1. S2 cần kind `create_deal` cho CrmActionQueue **và** phải qua audit MailClassifier trước (số thật 11/08: `hoi_dat_tour`=0, `khac`=551 — không có input thì xây vô nghĩa) |
+| **Đợt 3 — "Tự chủ + thông minh"** | F4 → **S6**; F3 → **C2 + C4**; **O5** (capacity đã xác minh có sẵn); S3 **có điều kiện** | Giá trị lớn nhưng cần nền F3/F4. S3 kỹ thuật chỉ còn thêm 2 cột TourQuotes, nhưng số thật (28 quote, 26 của admin) cho thấy phải **tăng adoption wizard trước** thì mới có gì để đeo bám |
 | **Chờ xác minh gap** | **O3, C3** | O3: trạng thái NCC confirm per dịch vụ; C3: nâng cấp planner riêng. Kiểm trước khi hứa |
 
 **3 quick-win = Đợt 1: S1 + C1 + O2 trên nền F1+F2.**
