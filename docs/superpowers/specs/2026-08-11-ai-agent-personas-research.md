@@ -36,7 +36,7 @@ Upstream `/api/ai/*` (toutkit-app, đã kiểm bằng codegraph 2026-08-11): fin
 |---|-----------|---------|--------------|--------|------------|
 | S1 | **Bản tin sáng "Hôm nay làm gì trước"** | Mỗi sáng gom per-sale: deal nguội cần gọi, báo giá chưa phản hồi, mail hỏi tour chưa trả lời, lịch hẹn hôm nay, KH hạng A lâu không chăm → 1 card xếp ưu tiên | Deal cooling + Reviews + SmartMail + `/api/ai/appointments`; chạy trên F2 (Digest Engine), hiển thị qua F1 (Insight Feed) | **M** | Data sẵn 100% |
 | S2 | **Mail hỏi tour → tự tạo cơ hội** | Mail phân loại `hoi_dat_tour`/`xin_bao_gia` → trích tên/SĐT/nhu cầu → đề xuất tạo booking-ticket (confirm-first, enqueue) | MailClassifier + ActionResolver + CrmActionQueue | **M** | Cần thêm kind `create_deal` vào CrmActionQueue + worker app-side xử lý |
-| S3 | **Đeo bám báo giá** | Báo giá gửi N ngày chưa hồi âm → soạn sẵn mail nhắc theo tone, sale duyệt gửi | MailReplyService + OutboundMails; có thể auto-send template (F4) | **M-L** | Trạng thái báo giá hiện lưu client-side (TourCache) — **cần bảng server-side theo dõi báo giá** |
+| S3 | **Đeo bám báo giá** | Báo giá gửi N ngày chưa hồi âm → soạn sẵn mail nhắc theo tone, sale duyệt gửi | MailReplyService + OutboundMails + **`dbo.TourQuotes` đã server-side** (`CreatedBy/UpdatedAt`); có thể auto-send template (F4) | **M** | Thêm 2 cột `SentAt`/`ReplyStatus` vào TourQuotes (idempotent migration — việc nhỏ). Xem mục "Phân tích sâu" |
 | S4 | **Thẻ chuẩn bị gặp khách** | Trước lịch hẹn X giờ: gom review KH, lịch sử deal, mail gần nhất → talking points | Reviews + Mails + booking-context batch endpoint (upstream có sẵn) | **S-M** | — |
 | S5 | **Vệ sinh pipeline** | Quét deal thiếu ngày hẹn tiếp / kẹt 1 trạng thái quá lâu / thiếu giá trị → dòng nhắc trong S1 | Deal repo sẵn — rule thêm vào S1, không phải feature độc lập | **S** | — |
 | S6 | **Tự chăm sóc khách (Auto-Care)** — MỨC 2 đã duyệt | Kịch bản: sinh nhật, hỏi thăm sau tour + xin đánh giá, đánh thức KH ngủ quên (hạng A/B im lặng X tháng), chúc Tết/lễ theo lô. Template duyệt sẵn → auto-send có hạn mức; kịch bản khác → hàng đợi duyệt (duyệt từng cái hoặc cả lô) | SMTP Gmail sẵn (SmartMail) + F4 (Template Store + guard) + EndDate departures | **M-L** | Field ngày sinh KH trong `/api/ai/customers` — cần kiểm; Zalo ZNS chỉ có stack cũ — muốn chăm qua Zalo phải mở kênh (gap) |
@@ -67,9 +67,52 @@ Chuyển CEO từ *pull* (phải hỏi) sang *push* (được báo). **C1 dùng 
 | O2 | **Watchdog thanh toán trước khởi hành** | Khách sắp đi còn nợ → nhắc sale phụ trách + kế toán (feed F1 + giao việc `CrmActionQueue`) | `Revenue/ActualRevenue/DepartureDate` sẵn 100%. **Rule thuần — không tốn quota AI** (AI chỉ khi soạn lời nhắc) | **S** | — |
 | O3 | **Nhắc NCC (supplier chasing)** | Dịch vụ gần khởi hành NCC chưa xác nhận → soạn mail nhắc, ops duyệt (hoặc template auto-send F4) | MailReplyService + OutboundMails | **M-L** | **Gap phải kiểm:** CRM có lưu trạng thái "NCC đã xác nhận" per dịch vụ không — chưa có thì upstream phải mở field/endpoint trước |
 | O4 | **Tổng kết sau tour** | Tour kết thúc → so lãi/lỗ thực tế vs dự kiến, nhắc đóng tour (`StatusCloseTour`), kích hoạt kịch bản "hỏi thăm sau tour" của S6 | Field close-tour + expense/revenue sẵn; nối vòng đời sang Auto-Care | **M** | — |
-| O5 | **Canh slot GIT (đầy/vắng)** | Tour ghép gần khởi hành quá vắng (cân nhắc hủy/dồn) hoặc sắp đầy (đẩy bán nốt) → cảnh báo ops + gợi ý sale | `AmountAdults` + slot tour | **S-M** | **Gap phải kiểm:** `/api/ai/tours` có trả capacity không |
+| O5 | **Canh slot GIT (đầy/vắng)** | Tour ghép gần khởi hành quá vắng (cân nhắc hủy/dồn) hoặc sắp đầy (đẩy bán nốt) → cảnh báo ops + gợi ý sale | **`TourDtos.Slots/Booked/OnHold/Available` có sẵn** (đã kiểm code 11/08) | **S-M** | ~~Gap capacity~~ ĐÓNG — đưa vào Đợt 3 |
 
 Lõi chương: **O1+O2** — chạy ngay bằng data sẵn. O4 nối sang S6 thành chu trình khép kín: bán → vận hành → chăm sóc lại.
+
+---
+
+## Phân tích sâu: "Bản tin sáng" — và bài toán "gửi cho ai" (kiểm chứng bằng code + DB thật, 2026-08-11)
+
+Hai câu hỏi kiểm chứng roadmap (từ review nội bộ): *bản tin sáng có chạy được thật không, và hệ thống lấy đâu ra khái niệm "ai là giám đốc, ai là sale" để gửi?* Mọi khẳng định dưới đây đã **đối chiếu code thật** (codegraph trên cả proxy lẫn toutkit-app, 11/08/2026) — không suy đoán.
+
+### 1. Nhận diện vai trò — hạ tầng quyền ĐÃ CHẠY, chỉ thiếu "sổ người nhận"
+
+Đã kiểm chứng: `TkSession.Permissions` lưu SQL (`dbo.TkSessions.PermissionsJson`, lấy lúc login qua `GetPermissionsAsync`), `TkSessionStore.HasPermission(sessionId, code)` + `EnsurePermissionsAsync` **đang được ActionExecutor/WorkflowEndpoints dùng production**. `TkPermissionCodes` hiện khai 3 mã (`CV_TAOMOI`, `CS_KH_TAOMOI`, `CH_HT_XEM`). Upstream `PermissionCodes.cs:242-244`: `CH_XEM_ALL` = thấy toàn bộ, `CH_XEM` (không ALL) = chỉ thấy của mình.
+
+Giải pháp **F5 — Digest Subscriptions**:
+- User **tự đăng ký bản tin** trên `/workflows` (pattern per-user config y hệt `mail-auto-sync`): chọn `sale-brief` / `ceo-brief` / `ops-brief`.
+- **Gate `ceo-brief` = `HasPermission(CH_XEM_ALL)`** — đúng semantics "người được thấy toàn bộ" của CRM, chỉ cần thêm 1 const vào `TkPermissionCodes`. KHÔNG hardcode vai trò, không cần CRM thêm gì.
+- **Kênh nhận user tự khai**: email (nhập + xác minh mã), Telegram (link bot → `/start` → lưu chat id), Zalo khi có OA. Bắt buộc tự khai vì `/api/ai/reference` sellers chỉ trả `{id, name}` — CRM không expose email/SĐT user (gap #7).
+- Tùy chọn: admin tenant đăng ký hộ/gán cho nhân viên.
+
+### 2. Data chạy bản tin — ai fetch, bằng quyền gì
+
+- **`ceo-brief` (C1): đáp ứng NGAY.** Service account per-tenant (`CH_XEM_ALL`) — pattern deal-auto-review sẵn; so cùng kỳ = gọi 2 kỳ (compare logic đã có).
+- **`sale-brief` (S1):** mặc định service account kéo toàn bộ rồi **lọc theo người nhận** — `BookingTicketSearchRequest.SellerId` có sẵn ✅; lịch hẹn: `GetAiAppointmentsAsync` có `DateFilter=1` ("Hôm nay") + mỗi item mang `Assignee` ✅ → lọc phía proxy. Không phụ thuộc user từng login proxy. Fallback: session user trong `TkSessionStore` (tự re-login).
+
+### 3. Soi từng dòng bản tin sáng Sale — mức đáp ứng Đợt 1 (đã đối chiếu schema thật)
+
+| Dòng bản tin | Bằng chứng code/DB | Đợt 1? |
+|---|---|---|
+| Deal nguội cần gọi | `dbo.DealScores` + cooling logic sẵn (có assignee) | ✅ |
+| Lịch hẹn hôm nay | `GetAiAppointmentsAsync` `DateFilter=1` + `Assignee` per item | ✅ |
+| KH hạng A lâu không chăm | `dbo.Reviews` + lần mua cuối | ⚠️ mức thô: "không có booking mới X ngày" |
+| Báo giá cần đeo bám | **`dbo.TourQuotes` ĐÃ server-side** (`CreatedBy`, `UpdatedAt`) — khác nhận định ban đầu "client-side" | ⚠️ Đợt 1 mức thô: "báo giá tạo N ngày chưa cập nhật"; "khách chưa phản hồi" đúng nghĩa cần thêm 2 cột `SentAt`/`ReplyStatus` (S3 — nhỏ hơn dự tính, hạ effort M-L → **M**) |
+| Mail hỏi tour chưa trả lời | `dbo.Mails` per-tenant (hộp thư chung, chưa gán per-sale) | ⚠️ mức "công ty còn N mail chờ"; gán người cần assign-to-staff (Phase 2 SmartMail, gap #9) |
+
+**Kết luận:** Đợt 1 phát hành `sale-brief` với 2 dòng chuẩn + 3 dòng mức thô — đủ giá trị dùng hằng ngày. `ceo-brief` (C1) và O2 đáp ứng đầy đủ ngay. Trước khi code S1 phải làm F5 (không có sổ người nhận thì không có "gửi cho ai").
+
+### 4. Gap đóng được nhờ kiểm chứng code thật (11/08/2026)
+
+- ~~Gap #1 ngày sinh KH~~ **ĐÓNG**: `AiCustomerDtos.Birthday` + filter `CustomerDtos.BirthdayThisMonth` có sẵn upstream → kịch bản sinh nhật S6 chạy ngay.
+- ~~Gap #3 capacity tour~~ **ĐÓNG**: `TourDtos` có `Slots/Booked/OnHold/Available` → **O5 chuyển từ "Chờ xác minh" sang Đợt 3**.
+- ~~Gap #8 filter lịch hẹn theo seller~~ **ĐÓNG**: `DateFilter=1` + `Assignee` per item.
+- ~~Gap #4 báo giá client-side~~ **SAI, sửa lại**: `dbo.TourQuotes` đã persist server (bảng #6, có `CreatedBy/UpdatedAt/IsSync`); chỉ thiếu cột trạng thái gửi/phản hồi.
+- Còn mở thật sự: NCC confirm (#2), email user không expose (#7), mail chưa gán per-sale (#9), chỗ nhập target doanh thu (#6).
+
+> Số liệu volume thật (bao nhiêu deal/mail/quote per tenant) chạy bằng script read-only `digest-feasibility-stats.ps1` (scratchpad) — cần người có quyền chạy vì script giải mã connection string.
 
 ---
 
@@ -81,6 +124,7 @@ Lõi chương: **O1+O2** — chạy ngay bằng data sẵn. O4 nối sang S6 th�
 | F2 | **Digest Engine** — `IScheduledWorkflow` mới | Khung "gom nhiều nguồn → AI viết prose → phát đa kênh": F1 / mail / TRAVAI đọc / **chat ngoài (Telegram Bot, Zalo)**. Config per-user (Sale) hoặc per-tenant (CEO). Đăng ký trong `WorkflowStackRegistration` (web + worker cùng pickup). Kênh chat: **Telegram Bot API = quick-win** (miễn phí, chỉ cần bot token + chat id per user/tenant); **Zalo OA/ZNS = có điều kiện** (đăng ký OA, template duyệt, phí ZNS) — thiết kế `IDigestChannel` để cắm dần từng kênh | S1, C1, C5, O1 |
 | F3 | **Metric Baseline** — `dbo.MetricSnapshots` | Job chụp metric ngày (doanh thu, chi phí, deal mới…) → lịch sử để so lệch | C2, C4, O5 |
 | F4 | **Template Store + Auto-Send Guard** — `dbo.CareTemplates` | Template tenant duyệt 1 lần + hạn mức/ngày + log gửi + kill-switch per kịch bản — thi hành "mức 2" có kiểm soát | S6, S3, O3 |
+| F5 | **Digest Subscriptions** — `dbo.DigestSubscriptions` | Sổ người nhận: user đăng ký loại bản tin (`sale-brief`/`ceo-brief`/`ops-brief`) + kênh tự khai (email xác minh / Telegram chat id / Zalo). **Gate bằng quyền CRM thật** khi đăng ký (ceo-brief đòi quyền xem tài chính) — trả lời bài toán "ai là giám đốc, ai là sale". Xem mục "Phân tích sâu" ở trên | S1, C1, C5, O1 (mọi digest) |
 
 Thứ tự phụ thuộc: **F1 trước tiên** → F2 → F3/F4 song song khi cần. Ràng buộc STRICT giữ nguyên cho mọi workflow nền: `AiCallContext.Push("<feature>", tenantId[, sessionId])` bao quanh AI call (quota + log đúng feature); DateTime UTC+Z; schema mới khai trong `TourkitAiDb.SchemaSql` + cập nhật `docs/database-schema.md`.
 
@@ -92,19 +136,22 @@ Thứ tự phụ thuộc: **F1 trước tiên** → F2 → F3/F4 song song khi c
 |-----|-----|--------|
 | **Đợt 1 — "Bản tin + cảnh báo"** | F1 + F2 → **S1 + C1 + O2** | 1 engine ra 3 tính năng thấy được ngay cho 3 vai trò — demo/bán mạnh nhất trên mỗi đồng effort. Data sẵn 100%, không chờ upstream. O2 không tốn quota AI |
 | **Đợt 2 — "Hành động"** | **S2 + S4 + C5 + O1** | Đứng trên đợt 1. S2 cần kind `create_deal` cho CrmActionQueue |
-| **Đợt 3 — "Tự chủ + thông minh"** | F4 → **S6 + S3**; F3 → **C2 + C4** | Giá trị lớn nhưng cần nền F3/F4 + bảng trạng thái báo giá (S3) |
-| **Chờ xác minh gap** | **O3, O5, C3** | O3: trạng thái NCC confirm; O5: capacity trong `/api/ai/tours`; C3: nâng cấp planner riêng. Kiểm trước khi hứa |
+| **Đợt 3 — "Tự chủ + thông minh"** | F4 → **S6 + S3**; F3 → **C2 + C4**; **O5** (capacity đã xác minh có sẵn) | Giá trị lớn nhưng cần nền F3/F4; S3 chỉ còn thêm 2 cột vào TourQuotes |
+| **Chờ xác minh gap** | **O3, C3** | O3: trạng thái NCC confirm per dịch vụ; C3: nâng cấp planner riêng. Kiểm trước khi hứa |
 
 **3 quick-win = Đợt 1: S1 + C1 + O2 trên nền F1+F2.**
 
-## Danh sách gap cần xác minh trước khi cam kết (tổng hợp)
+## Danh sách gap (cập nhật sau kiểm chứng code 11/08/2026)
 
-1. Field **ngày sinh KH** trong `/api/ai/customers` (S6).
-2. Trạng thái **NCC đã xác nhận** per dịch vụ trong CRM (O3).
-3. **Capacity/slot** trong `/api/ai/tours` (O5).
-4. Bảng **trạng thái báo giá server-side** — hiện wizard lưu client (S3).
-5. Kênh chat ngoài: **Telegram Bot** (quick-win — chỉ cần lưu bot token + chat id) vs **Zalo OA/ZNS** (cần đăng ký OA + duyệt template + phí; ZNS hiện chỉ có stack cũ) — cho bản tin F2 lẫn Auto-Care S6.
-6. Chỗ nhập **kế hoạch/target doanh thu** per tenant (C4).
+1. ~~Field **ngày sinh KH**~~ **ĐÓNG** — `AiCustomerDtos.Birthday` + `BirthdayThisMonth` filter có sẵn (S6).
+2. Trạng thái **NCC đã xác nhận** per dịch vụ trong CRM (O3) — **còn mở**, phải kiểm upstream/legacy trước khi hứa.
+3. ~~**Capacity/slot**~~ **ĐÓNG** — `TourDtos.Slots/Booked/OnHold/Available` (O5 → Đợt 3).
+4. ~~Bảng trạng thái báo giá~~ **SỬA NHẬN ĐỊNH** — `dbo.TourQuotes` đã server-side; chỉ cần thêm 2 cột `SentAt`/`ReplyStatus` (S3).
+5. Kênh chat ngoài: **Telegram Bot** (quick-win — chỉ cần lưu bot token + chat id) vs **Zalo OA/ZNS** (cần đăng ký OA + duyệt template + phí; ZNS hiện chỉ có stack cũ) — cho bản tin F2 lẫn Auto-Care S6. **Còn mở** (quyết định kênh).
+6. Chỗ nhập **kế hoạch/target doanh thu** per tenant (C4) — **còn mở** (bảng nhỏ mới).
+7. CRM **không expose email/SĐT user** (`/api/ai/reference` sellers chỉ `{id,name}`) → kênh nhận bản tin phải user tự khai trong F5 — **còn mở** (chấp nhận tự khai, hoặc đề xuất upstream thêm field).
+8. ~~Filter lịch hẹn theo seller~~ **ĐÓNG** — `GetAiAppointmentsAsync` `DateFilter=1` + `Assignee` per item.
+9. **Mail chưa gán per-sale** (`dbo.Mails` là hộp thư chung tenant) → dòng "mail chờ trả lời" trong sale-brief chỉ ở mức toàn công ty; gán người cần assign-to-staff (Phase 2 SmartMail) — **còn mở**.
 
 ## Nguồn tham khảo
 
