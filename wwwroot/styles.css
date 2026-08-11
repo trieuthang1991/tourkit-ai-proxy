@@ -5551,7 +5551,6 @@ html[data-home-theme="dark"] .hp-theme {
 .wga-empty h3 { margin: 0 0 6px; color: var(--text-1, #0F172A); font-size: 18px; }
 .wga-empty p { margin: 0 auto; max-width: 420px; font-size: 14px; line-height: 1.6; }
 
-.wga-list { display: flex; flex-direction: column; gap: 12px; }
 
 /* ── LIST VIEW: mỗi workflow = 1 dòng, bấm mở cấu hình (accordion) ── */
 .page.wga.workflows-page { max-width: 1180px; }
@@ -5683,20 +5682,6 @@ html[data-home-theme="dark"] .hp-theme {
   padding: 16px 18px; transition: box-shadow 0.15s, border-color 0.15s;
 }
 .wga-card:hover { border-color: #CBD5E1; box-shadow: 0 1px 3px rgba(0,0,0,0.03); }
-.wga-card-top { display: flex; align-items: center; gap: 14px; margin-bottom: 12px; }
-.wga-card-avatar {
-  width: 44px; height: 44px; border-radius: 50%; flex-shrink: 0;
-  display: grid; place-items: center; background: #fff;
-  border: 2px solid; overflow: hidden;     /* borderColor inline theo màu widget */
-}
-.wga-card-avatar img { width: 100%; height: 100%; object-fit: cover; }
-.wga-card-meta { flex: 1; min-width: 0; }
-.wga-card-name-row {
-  display: flex; align-items: center; gap: 8px; margin-bottom: 4px;
-}
-.wga-card-name {
-  font-weight: 700; font-size: 15.5px; color: var(--text-1, #0F172A); letter-spacing: -0.2px;
-}
 .wga-pill {
   font-size: 10.5px; font-weight: 700; letter-spacing: 0.5px; text-transform: uppercase;
   padding: 2px 8px; border-radius: 4px;
@@ -5705,34 +5690,6 @@ html[data-home-theme="dark"] .hp-theme {
 .wga-pill.crm  { background: #DCFCE7; color: #15803D; }
 .wga-pill.crm::before { content: '●'; margin-right: 4px; font-size: 9px; vertical-align: 1px; }
 .wga-pill.off  { background: #FEE2E2; color: #B91C1C; }
-.wga-card-substats {
-  display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
-  font-size: 12.5px; color: var(--text-3, #94A3B8);
-}
-.wga-mono {
-  font-family: 'JetBrains Mono', Menlo, Consolas, monospace; font-size: 12px;
-  color: #475569; background: #F8FAFC; padding: 2px 8px; border-radius: 4px;
-}
-.wga-sep { color: #CBD5E1; }
-.wga-card-substats b { color: var(--text-1, #0F172A); font-weight: 600; font-variant-numeric: tabular-nums; }
-.wga-card-actions { display: flex; gap: 4px; flex-shrink: 0; }
-.wga-icon-btn {
-  background: transparent; border: 1px solid transparent;
-  width: 32px; height: 32px; border-radius: 8px; cursor: pointer;
-  display: grid; place-items: center; color: var(--text-3, #64748B);
-  transition: all 0.12s;
-}
-.wga-icon-btn:hover {
-  background: var(--primary-soft, #FEF3E7); color: var(--primary); border-color: var(--primary);
-}
-.wga-icon-btn.danger:hover {
-  background: #FEE2E2; color: #DC2626; border-color: #DC2626;
-}
-.wga-card-greeting {
-  padding: 10px 14px; border-radius: 8px; margin-bottom: 10px;
-  background: #FAFAFA; border-left: 3px solid #CBD5E1;
-  font-size: 13px; color: var(--text-2, #475569); line-height: 1.5; font-style: italic;
-}
 .wga-snippet {
   background: #0F172A; border-radius: 8px; padding: 10px 14px;
   overflow-x: auto;
@@ -5740,6 +5697,199 @@ html[data-home-theme="dark"] .hp-theme {
 .wga-snippet pre {
   margin: 0; color: #E2E8F0; font-family: 'JetBrains Mono', Menlo, Consolas, monospace;
   font-size: 12px; line-height: 1.55; white-space: pre;
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   Widget Admin — TRANG CẤU HÌNH 1 WIDGET (chuẩn hoá 2026-08-11)
+   Trước đây dựng theo kiểu "danh sách nhiều widget" nhưng backend chỉ cho
+   1 widget/công ty → UI nói sai sự thật. Nay: 1 trang, 5 khối theo thứ tự
+   người dùng cần biết: đang chạy? → bot là ai → lấy dữ liệu ở đâu → ai gắn
+   được → mã nhúng.
+   Dùng nguyên hệ token sẵn có (--primary cam, slate, --radius-*), KHÔNG thêm
+   màu mới. Cảnh báo dùng --warning/--danger đã có.
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+/* Trang hẹp hơn danh sách: form đọc dễ hơn khi dòng không quá dài */
+.page.wga:not(.workflows-page) { max-width: 880px; }
+.wga-head h1 { text-wrap: balance; }
+
+/* ── Khung xương lúc tải ─────────────────────────────────────────────────── */
+@keyframes wga-sk-pulse { 0%,100% { opacity: .55 } 50% { opacity: .9 } }
+.wga-sk {
+  background: linear-gradient(90deg, #EEF2F6 0%, #F6F8FA 50%, #EEF2F6 100%);
+  border-radius: var(--radius-md, 12px); animation: wga-sk-pulse 1.4s ease-in-out infinite;
+}
+.wga-sk-title { height: 30px; width: 320px; max-width: 70%; margin-bottom: 12px; }
+.wga-sk-sub   { height: 15px; width: 520px; max-width: 90%; margin-bottom: 28px; }
+.wga-sk-hero  { height: 132px; margin-bottom: 20px; }
+.wga-sk-card  { height: 200px; margin-bottom: 20px; }
+@media (prefers-reduced-motion: reduce) { .wga-sk { animation: none } }
+
+/* ── 1. Trạng thái ──────────────────────────────────────────────────────────
+   Trả lời 3 câu người dùng hỏi đầu tiên: đang chạy chưa, có số liệu thật
+   không, và HỆ QUẢ nếu chưa nối dữ liệu. */
+.wga-status {
+  display: flex; gap: 28px; justify-content: space-between; align-items: flex-start;
+  background: #fff; border: 1px solid var(--border, #E2E8F0);
+  border-left: 3px solid var(--success, #10B981);
+  border-radius: var(--radius-md, 12px); padding: 20px 22px 22px; margin-bottom: 20px;
+}
+.wga-status.is-off { border-left-color: var(--text-3, #94A3B8); background: #FBFCFD; }
+.wga-status-main { min-width: 0; }
+.wga-status-state {
+  display: flex; align-items: center; gap: 9px; margin: 0 0 6px;
+  font-size: 15px; font-weight: 600; color: var(--text, #0F172A);
+}
+.wga-dot {
+  width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0;
+  background: var(--text-3, #94A3B8);
+}
+.wga-dot.on { background: var(--success, #10B981); box-shadow: 0 0 0 3px rgba(16,185,129,.16); }
+.wga-status-mode {
+  margin: 0 0 14px; font-size: 13.5px; line-height: 1.6;
+  color: var(--text-2, #475569); max-width: 62ch;
+}
+.wga-status-facts { display: flex; gap: 28px; margin: 0; flex-wrap: wrap; }
+.wga-status-facts div { margin: 0; }
+.wga-status-facts dt {
+  font-size: 11px; font-weight: 600; letter-spacing: .04em; text-transform: uppercase;
+  color: var(--text-3, #94A3B8); margin-bottom: 2px;
+}
+.wga-status-facts dd {
+  margin: 0; font-size: 20px; font-weight: 700; color: var(--text, #0F172A);
+  font-variant-numeric: tabular-nums; letter-spacing: -.02em;
+}
+.wga-status-side { display: flex; flex-direction: column; gap: 10px; align-items: flex-end; flex-shrink: 0; }
+
+/* Công tắc — thay checkbox trần cho rõ đây là bật/tắt cả widget */
+.wga-switch {
+  display: inline-flex; align-items: center; gap: 9px; cursor: pointer;
+  font-size: 13px; color: var(--text-2, #475569); user-select: none;
+}
+.wga-switch input { width: 15px; height: 15px; accent-color: var(--primary, #F97316); cursor: pointer; }
+.wga-switch.danger { color: var(--danger, #EF4444); margin-top: 14px; }
+.wga-switch.danger input { accent-color: var(--danger, #EF4444); }
+
+/* ── Khối cấu hình ─────────────────────────────────────────────────────────── */
+.wga-sec {
+  background: #fff; border: 1px solid var(--border, #E2E8F0);
+  border-radius: var(--radius-md, 12px); padding: 22px 24px 24px; margin-bottom: 20px;
+}
+.wga-sec-head { margin-bottom: 18px; }
+.wga-sec-head h2 {
+  margin: 0 0 4px; font-size: 16px; font-weight: 700; letter-spacing: -.01em;
+  color: var(--text, #0F172A); text-wrap: balance;
+}
+.wga-sec-head p { margin: 0; font-size: 13px; color: var(--text-2, #475569); max-width: 62ch; line-height: 1.55; }
+.wga-sec-head code { font-size: 12px; }
+
+.wga-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px 18px; }
+.wga-col-2 { grid-column: 1 / -1; }
+.wga-field { display: flex; flex-direction: column; gap: 6px; min-width: 0; }
+.wga-label { font-size: 12.5px; font-weight: 600; color: var(--text-2, #475569); }
+.wga-field input[type=text], .wga-field textarea {
+  width: 100%; padding: 9px 11px; font: inherit; font-size: 13.5px;
+  border: 1px solid var(--border, #E2E8F0); border-radius: var(--radius, 8px);
+  background: #fff; color: var(--text, #0F172A); transition: border-color .16s, box-shadow .16s;
+}
+.wga-field textarea { resize: vertical; line-height: 1.55; }
+.wga-field input[type=text]:hover, .wga-field textarea:hover { border-color: var(--border-strong, #CBD5E1); }
+.wga-field input[type=text]:focus, .wga-field textarea:focus {
+  outline: none; border-color: var(--primary, #F97316);
+  box-shadow: 0 0 0 3px var(--primary-glow, rgba(249,115,22,.12));
+}
+.wga-hint { font-size: 12px; color: var(--text-3, #94A3B8); line-height: 1.55; }
+.wga-hint code, .wga-sec-head code {
+  background: #F1F5F9; padding: 1px 5px; border-radius: 4px;
+  font-family: ui-monospace, 'SF Mono', Menlo, monospace; font-size: .92em;
+}
+.wga-color { display: flex; gap: 8px; align-items: center; }
+.wga-color input[type=color] {
+  width: 40px; height: 36px; padding: 2px; border: 1px solid var(--border, #E2E8F0);
+  border-radius: var(--radius, 8px); background: #fff; cursor: pointer; flex-shrink: 0;
+}
+
+/* ── Kết nối dữ liệu ───────────────────────────────────────────────────────── */
+.wga-conn {
+  display: flex; align-items: center; justify-content: space-between; gap: 20px;
+  padding: 14px 16px; border-radius: var(--radius, 8px); margin-bottom: 18px;
+  background: #FFF7ED; border: 1px solid #FED7AA;
+}
+.wga-conn.is-linked { background: #F0FDF4; border-color: #BBF7D0; }
+.wga-conn-text { display: flex; flex-direction: column; gap: 3px; min-width: 0; }
+.wga-conn-text strong { font-size: 13.5px; color: var(--text, #0F172A); }
+.wga-conn-text span { font-size: 12.5px; color: var(--text-2, #475569); line-height: 1.5; }
+
+/* Dòng nhắc — dùng cho cả tốt / cảnh báo / nguy hiểm, 1 kiểu duy nhất */
+.wga-note {
+  display: flex; align-items: flex-start; gap: 8px; margin: 14px 0 0;
+  padding: 11px 13px; border-radius: var(--radius, 8px);
+  font-size: 12.5px; line-height: 1.55;
+}
+.wga-note svg { flex-shrink: 0; margin-top: 1px; }
+.wga-note.ok   { background: #F0FDF4; color: #166534; border: 1px solid #BBF7D0; }
+.wga-note.warn { background: #FFFBEB; color: #92400E; border: 1px solid #FDE68A; }
+.wga-note.bad  { background: #FEF2F2; color: #991B1B; border: 1px solid #FECACA; }
+
+/* ── Chọn nguồn dữ liệu: tách AN TOÀN vs NỘI BỘ ────────────────────────────
+   Trước đây mọi nguồn nằm chung 1 lưới, cảnh báo giấu trong chú thích cuối
+   khối → dễ bật nhầm nguồn lộ doanh thu/khách hàng ra web công khai. */
+.wga-tools { display: grid; grid-template-columns: 1fr; gap: 18px; }
+.wga-tools-group { border: 1px solid var(--border, #E2E8F0); border-radius: var(--radius, 8px); padding: 14px 16px 16px; }
+.wga-tools-group.risky { border-color: #FECACA; background: #FFFCFC; }
+.wga-tools-group h3 {
+  margin: 0 0 3px; font-size: 13.5px; font-weight: 700; color: var(--text, #0F172A);
+}
+.wga-tools-group.risky h3 { color: #991B1B; }
+.wga-tools-desc { margin: 0 0 12px; font-size: 12.5px; color: var(--text-2, #475569); line-height: 1.55; }
+.wga-tool-list { display: grid; grid-template-columns: repeat(auto-fill, minmax(230px, 1fr)); gap: 8px; }
+.wga-tool {
+  display: flex; align-items: center; gap: 9px; flex-wrap: wrap;
+  padding: 9px 11px; border: 1px solid var(--border, #E2E8F0); border-radius: var(--radius, 8px);
+  background: #fff; cursor: pointer; transition: border-color .16s, background .16s;
+}
+.wga-tool:hover { border-color: var(--border-strong, #CBD5E1); background: #FAFBFC; }
+.wga-tool:focus-within { border-color: var(--primary, #F97316); box-shadow: 0 0 0 3px var(--primary-glow, rgba(249,115,22,.12)); }
+.wga-tool input { width: 15px; height: 15px; accent-color: var(--primary, #F97316); cursor: pointer; flex-shrink: 0; }
+.wga-tool.on { border-color: var(--primary, #F97316); background: var(--primary-soft, #FEF3E7); }
+.wga-tool-name { font-size: 13px; font-weight: 500; color: var(--text, #0F172A); }
+.wga-tool.risky input { accent-color: var(--danger, #EF4444); }
+.wga-tool.risky.on { border-color: #FCA5A5; background: #FEF2F2; }
+.wga-tool-risk { flex-basis: 100%; font-size: 11.5px; color: #B91C1C; line-height: 1.4; }
+
+/* ── Mã nhúng ──────────────────────────────────────────────────────────────── */
+.wga-snippet { display: flex; align-items: flex-start; gap: 12px; }
+.wga-snippet pre { flex: 1; min-width: 0; margin: 0; }
+.wga-snippet > .wga-btn { flex-shrink: 0; }
+
+/* ── Vùng nguy hiểm ────────────────────────────────────────────────────────── */
+.wga-danger {
+  display: flex; align-items: center; justify-content: space-between; gap: 20px;
+  border: 1px solid #FECACA; background: #FFFCFC;
+  border-radius: var(--radius-md, 12px); padding: 16px 20px; margin-bottom: 96px;
+}
+.wga-danger div { display: flex; flex-direction: column; gap: 3px; }
+.wga-danger strong { font-size: 13.5px; color: #991B1B; }
+.wga-danger span { font-size: 12.5px; color: var(--text-2, #475569); }
+
+/* ── Thanh lưu — chỉ hiện khi có thay đổi, tránh sửa xong quên bấm lưu ────── */
+.wga-savebar {
+  position: sticky; bottom: 16px; z-index: 20;
+  display: flex; align-items: center; gap: 16px; justify-content: flex-end;
+  background: var(--text, #0F172A); color: #fff;
+  border-radius: var(--radius-md, 12px); padding: 12px 16px;
+  box-shadow: 0 10px 30px -8px rgba(15,23,42,.45);
+}
+.wga-savebar-text { display: flex; align-items: center; gap: 8px; font-size: 13px; margin-right: auto; }
+.wga-savebar-err { font-size: 12.5px; color: #FCA5A5; }
+.wga-savebar .wga-btn.primary { border-color: transparent; }
+
+@media (max-width: 720px) {
+  .wga-grid { grid-template-columns: 1fr; }
+  .wga-status { flex-direction: column; gap: 16px; }
+  .wga-status-side { align-items: flex-start; flex-direction: row; }
+  .wga-conn, .wga-danger { flex-direction: column; align-items: flex-start; }
+  .wga-snippet { flex-direction: column; }
 }
 
 .wga-btn {
@@ -5761,20 +5911,7 @@ html[data-home-theme="dark"] .hp-theme {
 .wga-btn.danger:hover { border-color: #DC2626; color: #DC2626; }
 .wga-btn:disabled { opacity: 0.5; cursor: not-allowed; }
 
-.wga-form {
-  background: #fff; border: 1px solid var(--border-1, #E2E8F0); border-radius: 12px;
-  padding: 24px 28px; margin-bottom: 20px;
-}
-.wga-form-head {
-  display: flex; align-items: center; justify-content: space-between;
-  margin-bottom: 20px; padding-bottom: 16px; border-bottom: 1px solid #F1F5F9;
-}
-.wga-form-head h2 { font-size: 17px; margin: 0; font-weight: 700; letter-spacing: -0.2px; }
-.wga-form-grid {
-  display: grid; gap: 16px; grid-template-columns: 1fr 1fr;
-}
 .wga-field { display: flex; flex-direction: column; gap: 6px; }
-.wga-field-full { grid-column: 1 / -1; }
 .wga-field span { font-size: 13px; font-weight: 600; color: var(--text-1, #0F172A); }
 .wga-field input[type="text"], .wga-field textarea {
   padding: 9px 13px; border: 1px solid var(--border-1, #E2E8F0); border-radius: 8px;
@@ -5789,9 +5926,6 @@ html[data-home-theme="dark"] .hp-theme {
 .wga-color { display: flex; gap: 8px; align-items: center; }
 .wga-color input[type="color"] { width: 42px; height: 38px; padding: 2px; border: 1px solid var(--border-1, #E2E8F0); border-radius: 8px; cursor: pointer; }
 .wga-color input[type="text"] { flex: 1; }
-.wga-toggle { flex-direction: row; align-items: center; gap: 10px; }
-.wga-toggle input[type="checkbox"] { width: 18px; height: 18px; accent-color: var(--primary); }
-.wga-form-actions { display: flex; justify-content: flex-end; gap: 10px; margin-top: 20px; }
 
 .wga-crm-tag {
   display: inline-block; padding: 2px 8px; border-radius: 999px;
@@ -5800,63 +5934,13 @@ html[data-home-theme="dark"] .hp-theme {
 }
 .wga-crm-tag.linked { background: #DCFCE7; color: #15803D; }
 
-.wga-crm-section {
-  margin-top: 16px; padding: 20px 22px; border-radius: 10px;
-  background: #FAFAFA; border: 1px solid #E2E8F0;
-}
-.wga-crm-head {
-  display: flex; align-items: center; justify-content: space-between;
-  margin-bottom: 8px;
-}
-.wga-crm-head h3 {
-  margin: 0; font-size: 14px; color: #0F172A; font-weight: 700;
-  display: inline-flex; align-items: center; gap: 8px;
-}
-.wga-crm-head h3::before {
-  content: ''; width: 4px; height: 14px; border-radius: 2px; background: var(--primary);
-}
-.wga-crm-state {
-  font-size: 10.5px; font-weight: 700; padding: 3px 10px; border-radius: 4px;
-  background: #F1F5F9; color: #64748B; letter-spacing: 0.4px; text-transform: uppercase;
-}
-.wga-crm-state.linked { background: #DCFCE7; color: #15803D; }
-.wga-crm-state.linked::before { content: '●'; margin-right: 4px; font-size: 9px; vertical-align: 1px; }
-.wga-crm-desc { font-size: 13px; color: #475569; line-height: 1.55; margin: 6px 0 16px; }
-.wga-crm-desc code { background: #fff; padding: 1px 6px; border-radius: 4px; font-size: 11.5px; border: 1px solid #E2E8F0; }
 
-.wga-tools-grid {
-  display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
-  gap: 8px; margin-top: 4px;
-}
-.wga-tool-chip {
-  display: flex; align-items: center; gap: 8px;
-  padding: 8px 12px; background: #fff;
-  border: 1px solid #E2E8F0; border-radius: 8px;
-  cursor: pointer; transition: all 0.15s;
-}
-.wga-tool-chip:hover { border-color: #94A3B8; }
-.wga-tool-chip.on { background: #ECFCCB; border-color: #84CC16; }
-.wga-tool-chip input { accent-color: #84CC16; }
 .wga-tool-name { font-size: 13px; font-weight: 600; color: #1F2937; flex: 1; }
-.wga-tool-key {
-  font-family: 'JetBrains Mono', Menlo, Consolas, monospace; font-size: 10.5px;
-  color: #64748B; background: #F8FAFC; padding: 1px 6px; border-radius: 4px;
-}
-.wga-tool-chip.on .wga-tool-key { background: rgba(255,255,255,0.6); color: #166534; }
 
-.wga-crm-actions { display: flex; gap: 16px; align-items: center; margin-top: 10px; flex-wrap: wrap; }
-.wga-test-result {
-  margin-top: 12px; padding: 12px 14px; border-radius: 8px; font-size: 13px;
-}
-.wga-test-result.ok   { background: #ECFCCB; color: #365314; border: 1px solid #BEF264; }
-.wga-test-result.fail { background: #FEE2E2; color: #7F1D1D; border: 1px solid #FCA5A5; }
-.wga-test-result ul { margin: 8px 0 0; padding-left: 20px; }
-.wga-test-result li { font-size: 12.5px; margin: 2px 0; }
 
 @media (max-width: 760px) {
   .page.wga { padding: 20px 16px; }
   .wga-head { flex-direction: column; align-items: stretch; }
-  .wga-form-grid { grid-template-columns: 1fr; }
 }
 
 

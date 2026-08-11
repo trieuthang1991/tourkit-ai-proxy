@@ -1,14 +1,39 @@
-// pages/widget-admin.jsx — Quản lý token Widget Chat. List + tạo mới + sửa + xoá + copy embed snippet.
-// Tenant nhập vào /widget-admin sẽ chỉ thấy token của tenant mình (backend filter theo X-Session-Id).
+// pages/widget-admin.jsx — Cấu hình Widget Chat nhúng website.
+//
+// BỐ CỤC: mỗi công ty chỉ có ĐÚNG 1 widget (backend idempotent: 1 tenant = 1 widget, tạo lần 2 sẽ
+// ghi đè cái cũ). Nên trang này là TRANG CẤU HÌNH, không phải danh sách — trước đây UI dựng theo kiểu
+// "quản lý nhiều widget" (nút Tạo mới + danh sách + KPI đếm) nên nói sai sự thật với người dùng.
 
-const { useState: _wUS, useEffect: _wUE } = React;
+const { useState: _wUS, useEffect: _wUE, useMemo: _wUM } = React;
+
+// Nguồn dữ liệu AN TOÀN để khách vãng lai trên website xem (thông tin bán hàng).
+// Mọi nguồn khác đều là dữ liệu NỘI BỘ — bật là khách lạ hỏi được.
+const WGA_SAFE_TOOLS = ['tours', 'list_markets', 'departures'];
+
+// Vì sao nguồn này nhạy cảm — hiện ngay cạnh ô tick, không giấu trong chú thích cuối khối.
+const WGA_RISK_NOTE = {
+  financial_summary: 'Lộ doanh thu, công nợ, lợi nhuận',
+  cashflow: 'Lộ doanh thu, chi phí, lợi nhuận',
+  booking_tickets: 'Lộ tên và số điện thoại khách hàng khác',
+  customers: 'Lộ danh sách khách hàng',
+  top_customers: 'Lộ khách hàng lớn nhất của công ty',
+  top_sellers: 'Lộ doanh số từng nhân viên',
+  employee_performance: 'Lộ hiệu suất từng nhân viên',
+  marketing: 'Lộ nguồn khách và hiệu quả quảng cáo',
+  vouchers: 'Lộ phiếu thu chi',
+  branch_performance: 'Lộ doanh số từng chi nhánh',
+  product_line_revenue: 'Lộ doanh thu từng dòng sản phẩm',
+  market_analysis: 'Lộ doanh thu từng thị trường',
+  tasks: 'Lộ công việc nội bộ',
+  appointments: 'Lộ lịch hẹn với khách',
+  notifications: 'Lộ thông báo nội bộ',
+};
 
 function WidgetAdminPage({ pushToast }) {
-  const [items, setItems] = _wUS([]);
+  const [widget, setWidget] = _wUS(null);        // null = chưa có widget nào
   const [defaults, setDefaults] = _wUS(null);
   const [loading, setLoading] = _wUS(true);
-  const [editing, setEditing] = _wUS(null);   // null | {token, ...} hoặc 'new' cho form tạo mới
-  const [demoUrl, setDemoUrl] = _wUS('');
+  const [creating, setCreating] = _wUS(false);
 
   const load = async () => {
     setLoading(true);
@@ -16,215 +41,138 @@ function WidgetAdminPage({ pushToast }) {
       const r = await window.tourkitAuth.authedFetch('/api/v1/admin/widget/tokens');
       if (!r.ok) throw new Error('HTTP ' + r.status);
       const data = await r.json();
-      setItems(data.items || []);
+      // Backend đảm bảo tối đa 1 widget/công ty — lấy cái đầu tiên.
+      setWidget((data.items || [])[0] || null);
       setDefaults(data.defaults || null);
-    } catch (e) { pushToast('Lỗi tải danh sách: ' + e.message, 'error'); }
-    finally { setLoading(false); }
+    } catch (e) {
+      pushToast('Không tải được cấu hình: ' + e.message, 'error');
+    } finally { setLoading(false); }
   };
   _wUE(() => { load(); }, []);
 
-  const onCreated = (item) => {
-    setItems([item, ...items]);
-    setEditing(null);
-    pushToast('Đã tạo widget mới — copy snippet để embed', 'success');
-  };
-  const onUpdated = (item) => {
-    setItems(items.map(x => x.token === item.token ? { ...x, ...item } : x));
-    setEditing(null);
-    pushToast('Đã lưu thay đổi', 'success');
-  };
-  const onDeleted = async (token) => {
-    if (!await window.appConfirm('Xoá widget này? Token sẽ ngừng hoạt động ngay.', { danger: true, confirmLabel: 'Xoá' })) return;
+  const createWidget = async () => {
+    if (!defaults) return;
+    setCreating(true);
     try {
-      const r = await window.tourkitAuth.authedFetch('/api/v1/admin/widget/tokens/' + token, { method: 'DELETE' });
+      const r = await window.tourkitAuth.authedFetch('/api/v1/admin/widget/tokens', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          botName: defaults.botName, greeting: defaults.greeting,
+          systemPrompt: defaults.systemPrompt, color: defaults.color,
+          allowedOrigins: [], allowedTools: defaults.allowedTools,
+        }),
+      });
       if (!r.ok) throw new Error('HTTP ' + r.status);
-      setItems(items.filter(x => x.token !== token));
-      pushToast('Đã xoá widget');
-    } catch (e) { pushToast('Lỗi xoá: ' + e.message, 'error'); }
-  };
-  const copySnippet = (snippet) => {
-    window.tourkitUtil.copyText(snippet);
-    pushToast('Đã copy snippet — paste vào trước </body> của site khách');
-  };
-  const openDemo = (token) => {
-    window.open(`/widget-demo.html?token=${encodeURIComponent(token)}`, '_blank');
+      setWidget(await r.json());
+      pushToast('Đã tạo widget. Sao chép mã nhúng ở cuối trang để gắn vào website.');
+    } catch (e) {
+      pushToast('Không tạo được widget: ' + e.message, 'error');
+    } finally { setCreating(false); }
   };
 
-  // Stats KPI strip — compute từ items hiện tại
-  const stats = {
-    total: items.length,
-    enabled: items.filter(x => x.enabled).length,
-    crmLinked: items.filter(x => x.crmLinked).length,
-    totalMessages: items.reduce((s, x) => s + (x.totalMessages || 0), 0),
-  };
+  if (loading) return <WidgetSkeleton />;
 
   return (
     <main className="page wga">
-      <div className="wga-head">
+      <header className="wga-head">
         <div>
-          <div className="wga-eyebrow">Tích hợp · Chat AI</div>
-          <h1>Widget Chat</h1>
-          <p className="wga-sub">Token nhúng JS vào website / landing page khách. 1 dòng script là chạy, không phụ thuộc framework.</p>
+          <p className="wga-eyebrow">Tích hợp</p>
+          <h1>Widget chat trên website</h1>
+          <p className="wga-sub">
+            Hộp chat AI gắn vào website hoặc trang đích của công ty. Mỗi công ty dùng chung một widget —
+            sửa ở đây là mọi trang đã gắn đều đổi theo.
+          </p>
         </div>
-        {editing == null && (
-          <button className="wga-btn primary lg" onClick={() => setEditing('new')}>
-            <Icon name="plus" size={14} /> Tạo widget mới
+      </header>
+
+      {!widget ? (
+        <section className="wga-empty">
+          <h2>Chưa có widget</h2>
+          <p>
+            Tạo widget để lấy đoạn mã nhúng vào website. Sau khi tạo, bạn có thể đổi tên bot, câu chào,
+            cách trả lời và chọn nguồn dữ liệu mà bot được phép dùng.
+          </p>
+          <button className="wga-btn primary lg" onClick={createWidget} disabled={creating}>
+            <Icon name="plus" size={15} /> {creating ? 'Đang tạo…' : 'Tạo widget'}
           </button>
-        )}
-      </div>
-
-      {!loading && items.length > 0 && (
-        <div className="wga-kpi-strip">
-          <div className="wga-kpi">
-            <div className="wga-kpi-l">Widget</div>
-            <div className="wga-kpi-v">{stats.total}</div>
-          </div>
-          <div className="wga-kpi">
-            <div className="wga-kpi-l">Đang hoạt động</div>
-            <div className="wga-kpi-v">{stats.enabled}<span className="wga-kpi-s">/{stats.total}</span></div>
-          </div>
-          <div className="wga-kpi">
-            <div className="wga-kpi-l">Kết nối CRM</div>
-            <div className="wga-kpi-v">{stats.crmLinked}<span className="wga-kpi-s">/{stats.total}</span></div>
-          </div>
-          <div className="wga-kpi">
-            <div className="wga-kpi-l">Tổng tin nhắn</div>
-            <div className="wga-kpi-v">{stats.totalMessages.toLocaleString('vi-VN')}</div>
-          </div>
-        </div>
-      )}
-
-      {editing === 'new' && defaults && (
-        <WidgetForm
-          initial={{ botName: defaults.botName, greeting: defaults.greeting,
-                     systemPrompt: defaults.systemPrompt, color: defaults.color,
-                     allowedOrigins: [], allowedTools: defaults.allowedTools, crmLinked: false }}
-          defaults={defaults}
-          isNew
-          onCancel={() => setEditing(null)}
-          onSubmit={async (payload) => {
-            const r = await window.tourkitAuth.authedFetch('/api/v1/admin/widget/tokens', {
-              method: 'POST', headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify(payload),
-            });
-            if (!r.ok) {
-              const er = await r.json().catch(() => ({ error: 'HTTP ' + r.status }));
-              throw new Error(er.error || ('HTTP ' + r.status));
-            }
-            onCreated(await r.json());
-          }}
-        />
-      )}
-
-      {editing && editing !== 'new' && (
-        <WidgetForm
-          initial={editing}
-          defaults={defaults}
-          onCancel={() => setEditing(null)}
-          onTestCrm={async () => {
-            const r = await window.tourkitAuth.authedFetch('/api/v1/admin/widget/tokens/' + editing.token + '/test-crm', { method: 'POST' });
-            return r.json();
-          }}
-          onSubmit={async (payload) => {
-            const r = await window.tourkitAuth.authedFetch('/api/v1/admin/widget/tokens/' + editing.token, {
-              method: 'PATCH', headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify(payload),
-            });
-            if (!r.ok) {
-              const er = await r.json().catch(() => ({ error: 'HTTP ' + r.status }));
-              throw new Error(er.error || ('HTTP ' + r.status));
-            }
-            onUpdated(await r.json());
-          }}
-        />
-      )}
-
-      {loading ? (
-        <div className="wga-loading">Đang tải…</div>
-      ) : items.length === 0 ? (
-        <div className="wga-empty">
-          <div className="wga-empty-icon">
-            <img src="/lib/trav-ai.png" alt="TRAV-AI"
-                 onError={e => { e.target.style.display = 'none'; }} />
-          </div>
-          <h3>Chưa có widget nào</h3>
-          <p>Tạo widget đầu tiên để dán vào website du lịch, landing page chiến dịch, hay portal khách hàng.</p>
-        </div>
+        </section>
       ) : (
-        <div className="wga-list">
-          {items.map(it => (
-            <div key={it.token} className="wga-card">
-              <div className="wga-card-top">
-                <div className="wga-card-avatar" style={{ borderColor: it.color }}>
-                  <img src="/lib/trav-ai.png" alt="TRAV-AI"
-                       onError={e => { e.target.style.display = 'none'; }} />
-                </div>
-                <div className="wga-card-meta">
-                  <div className="wga-card-name-row">
-                    <span className="wga-card-name">{it.botName}</span>
-                    <span className={'wga-pill ' + (it.crmLinked ? 'crm' : 'faq')}>
-                      {it.crmLinked ? 'CRM realtime' : 'FAQ'}
-                    </span>
-                    {!it.enabled && <span className="wga-pill off">Vô hiệu</span>}
-                  </div>
-                  <div className="wga-card-substats">
-                    <span className="wga-mono">{it.token}</span>
-                    <span className="wga-sep">·</span>
-                    <span><b>{(it.totalMessages || 0).toLocaleString('vi-VN')}</b> tin nhắn</span>
-                    <span className="wga-sep">·</span>
-                    <span><b>{(it.allowedTools || []).length}</b> CRM tool</span>
-                  </div>
-                </div>
-                <div className="wga-card-actions">
-                  <button className="wga-icon-btn" onClick={() => copySnippet(it.embedSnippet)} title="Copy snippet">
-                    <Icon name="copy" size={14} />
-                  </button>
-                  <button className="wga-icon-btn" onClick={() => openDemo(it.token)} title="Thử ngay">
-                    <Icon name="arrowRight" size={14} />
-                  </button>
-                  <button className="wga-icon-btn" onClick={() => setEditing(it)} title="Sửa">
-                    <Icon name="edit" size={14} />
-                  </button>
-                  <button className="wga-icon-btn danger" onClick={() => onDeleted(it.token)} title="Xoá">
-                    <Icon name="trash" size={14} />
-                  </button>
-                </div>
-              </div>
-              <div className="wga-card-greeting">"{it.greeting}"</div>
-              <div className="wga-snippet">
-                <pre>{it.embedSnippet}</pre>
-              </div>
-            </div>
-          ))}
-        </div>
+        <WidgetConfig
+          widget={widget}
+          defaults={defaults}
+          pushToast={pushToast}
+          onSaved={(w) => setWidget(prev => ({ ...prev, ...w }))}
+          onDeleted={() => setWidget(null)}
+        />
       )}
     </main>
   );
 }
 
-// Form tạo / sửa — dùng chung cho cả create + edit.
-function WidgetForm({ initial, defaults, isNew, onCancel, onSubmit, onTestCrm }) {
-  const [botName, setBotName] = _wUS(initial.botName || '');
-  const [greeting, setGreeting] = _wUS(initial.greeting || '');
-  const [systemPrompt, setSystemPrompt] = _wUS(initial.systemPrompt || '');
-  const [color, setColor] = _wUS(initial.color || '#F97316');
-  const [enabled, setEnabled] = _wUS(initial.enabled !== false);
+// ─── Khung xương lúc tải (thay cho chữ "Đang tải…") ──────────────────────────
+function WidgetSkeleton() {
+  return (
+    <main className="page wga" aria-busy="true" aria-label="Đang tải cấu hình widget">
+      <div className="wga-sk wga-sk-title" />
+      <div className="wga-sk wga-sk-sub" />
+      <div className="wga-sk wga-sk-hero" />
+      <div className="wga-sk wga-sk-card" />
+      <div className="wga-sk wga-sk-card" />
+    </main>
+  );
+}
+
+function WidgetConfig({ widget, defaults, pushToast, onSaved, onDeleted }) {
+  const [botName, setBotName] = _wUS(widget.botName || '');
+  const [greeting, setGreeting] = _wUS(widget.greeting || '');
+  const [systemPrompt, setSystemPrompt] = _wUS(widget.systemPrompt || '');
+  const [color, setColor] = _wUS(widget.color || '#F97316');
+  const [enabled, setEnabled] = _wUS(widget.enabled !== false);
   const [origins, setOrigins] = _wUS(() => {
     try {
-      if (Array.isArray(initial.allowedOrigins)) return initial.allowedOrigins.join('\n');
-      if (typeof initial.allowedOrigins === 'string' && initial.allowedOrigins.startsWith('['))
-        return JSON.parse(initial.allowedOrigins).join('\n');
-    } catch {}
+      if (Array.isArray(widget.allowedOrigins)) return widget.allowedOrigins.join('\n');
+      if (typeof widget.allowedOrigins === 'string' && widget.allowedOrigins.startsWith('['))
+        return JSON.parse(widget.allowedOrigins).join('\n');
+    } catch { /* cấu hình cũ sai định dạng — coi như để trống */ }
     return '';
   });
-  // CRM section
+  const [tools, setTools] = _wUS(() => new Set(
+    Array.isArray(widget.allowedTools) ? widget.allowedTools : (defaults?.allowedTools || [])));
   const [tourKitToken, setTourKitToken] = _wUS('');
   const [unlinkCrm, setUnlinkCrm] = _wUS(false);
-  const [tools, setTools] = _wUS(() => new Set(Array.isArray(initial.allowedTools)
-    ? initial.allowedTools : (defaults?.allowedTools || [])));
-  const [testRes, setTestRes] = _wUS(null);   // {ok, message, sampleCount, sampleTitles}
-  const [testing, setTesting] = _wUS(false);
+
   const [saving, setSaving] = _wUS(false);
+  const [saveError, setSaveError] = _wUS(null);
+  const [testing, setTesting] = _wUS(false);
+  const [testRes, setTestRes] = _wUS(null);
+
+  const catalog = defaults?.crmToolCatalog || [];
+  const safeTools = catalog.filter(t => WGA_SAFE_TOOLS.includes(t.name));
+  const riskyTools = catalog.filter(t => !WGA_SAFE_TOOLS.includes(t.name));
+  const riskyOn = riskyTools.filter(t => tools.has(t.name));
+
+  // Có thay đổi chưa lưu? — quyết định hiện thanh lưu dưới đáy.
+  const dirty = _wUM(() => {
+    const origOrigins = (() => {
+      try {
+        if (Array.isArray(widget.allowedOrigins)) return widget.allowedOrigins.join('\n');
+        if (typeof widget.allowedOrigins === 'string' && widget.allowedOrigins.startsWith('['))
+          return JSON.parse(widget.allowedOrigins).join('\n');
+      } catch { /* bỏ qua */ }
+      return '';
+    })();
+    const origTools = new Set(Array.isArray(widget.allowedTools) ? widget.allowedTools : []);
+    const sameTools = origTools.size === tools.size && [...tools].every(t => origTools.has(t));
+    return botName !== (widget.botName || '')
+      || greeting !== (widget.greeting || '')
+      || systemPrompt !== (widget.systemPrompt || '')
+      || color !== (widget.color || '#F97316')
+      || enabled !== (widget.enabled !== false)
+      || origins !== origOrigins
+      || !sameTools
+      || !!tourKitToken.trim()
+      || unlinkCrm;
+  }, [botName, greeting, systemPrompt, color, enabled, origins, tools, tourKitToken, unlinkCrm, widget]);
 
   const toggleTool = (name) => {
     const s = new Set(tools);
@@ -232,163 +180,289 @@ function WidgetForm({ initial, defaults, isNew, onCancel, onSubmit, onTestCrm })
     setTools(s);
   };
 
-  const submit = async () => {
-    setSaving(true);
+  const save = async () => {
+    setSaving(true); setSaveError(null);
     try {
       const payload = {
         botName: botName.trim(), greeting: greeting.trim(), systemPrompt: systemPrompt.trim(),
-        color: color.trim(),
+        color: color.trim(), enabled,
         allowedOrigins: origins.split('\n').map(s => s.trim()).filter(Boolean),
         allowedTools: Array.from(tools),
       };
       if (tourKitToken.trim()) payload.tourKitToken = tourKitToken.trim();
-      if (!isNew) {
-        payload.enabled = enabled;
-        if (unlinkCrm) payload.unlinkCrm = true;
+      if (unlinkCrm) payload.unlinkCrm = true;
+
+      const r = await window.tourkitAuth.authedFetch('/api/v1/admin/widget/tokens/' + widget.token, {
+        method: 'PATCH', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      });
+      if (!r.ok) {
+        const er = await r.json().catch(() => ({}));
+        throw new Error(er.error || ('Máy chủ trả lỗi ' + r.status));
       }
-      await onSubmit(payload);
+      onSaved(await r.json());
+      setTourKitToken(''); setUnlinkCrm(false);
+      pushToast('Đã lưu cấu hình');
     } catch (e) {
-      window.appAlert('Lỗi lưu: ' + e.message);
+      setSaveError(e.message);
     } finally { setSaving(false); }
   };
 
   const testCrm = async () => {
-    if (!onTestCrm) return;
     setTesting(true); setTestRes(null);
-    try { setTestRes(await onTestCrm()); }
-    catch (e) { setTestRes({ ok: false, message: e.message }); }
-    finally { setTesting(false); }
+    try {
+      const r = await window.tourkitAuth.authedFetch(
+        '/api/v1/admin/widget/tokens/' + widget.token + '/test-crm', { method: 'POST' });
+      setTestRes(await r.json());
+    } catch (e) {
+      setTestRes({ ok: false, message: e.message });
+    } finally { setTesting(false); }
+  };
+
+  const linkCurrentSession = async () => {
+    if (!await window.appConfirm(
+      'Cho widget dùng tài khoản TourKit bạn đang đăng nhập để lấy dữ liệu?')) return;
+    try {
+      const r = await window.tourkitAuth.authedFetch(
+        '/api/v1/admin/widget/tokens/' + widget.token + '/link-current-session', { method: 'POST' });
+      if (!r.ok) throw new Error('Máy chủ trả lỗi ' + r.status);
+      onSaved(await r.json());
+      pushToast('Đã kết nối dữ liệu. Bot sẽ trả lời bằng số liệu thật.');
+    } catch (e) { pushToast('Không kết nối được: ' + e.message, 'error'); }
+  };
+
+  const remove = async () => {
+    if (!await window.appConfirm(
+      'Xoá widget này? Hộp chat trên website sẽ ngừng hoạt động ngay lập tức.',
+      { danger: true, confirmLabel: 'Xoá widget' })) return;
+    try {
+      const r = await window.tourkitAuth.authedFetch(
+        '/api/v1/admin/widget/tokens/' + widget.token, { method: 'DELETE' });
+      if (!r.ok) throw new Error('Máy chủ trả lỗi ' + r.status);
+      onDeleted();
+      pushToast('Đã xoá widget');
+    } catch (e) { pushToast('Không xoá được: ' + e.message, 'error'); }
   };
 
   return (
-    <div className="wga-form">
-      <div className="wga-form-head">
-        <h2>{isNew ? 'Tạo widget mới' : 'Sửa widget'}</h2>
-        <button className="wga-btn ghost" onClick={onCancel}><Icon name="close" size={13} /> Huỷ</button>
-      </div>
-      <div className="wga-form-grid">
-        <label className="wga-field">
-          <span>Tên bot hiển thị</span>
-          <input type="text" value={botName} onChange={e => setBotName(e.target.value)}
-                 placeholder="VD: Trợ lý Công ty ABC" maxLength={128} />
-        </label>
-        <label className="wga-field">
-          <span>Màu chủ đạo</span>
-          <div className="wga-color">
-            <input type="color" value={color} onChange={e => setColor(e.target.value)} />
-            <input type="text" value={color} onChange={e => setColor(e.target.value)} placeholder="#F97316" />
-          </div>
-        </label>
-        <label className="wga-field wga-field-full">
-          <span>Câu chào đầu (greeting)</span>
-          <textarea rows={2} value={greeting} onChange={e => setGreeting(e.target.value)}
-                    placeholder="Bot sẽ tự gửi câu này khi khách mở chat lần đầu" maxLength={1024} />
-        </label>
-        <label className="wga-field wga-field-full">
-          <span>System Prompt (định nghĩa bot)</span>
-          <textarea rows={6} value={systemPrompt} onChange={e => setSystemPrompt(e.target.value)}
-                    placeholder="Bot là ai? Bán dịch vụ gì? Phong cách trả lời thế nào?" maxLength={8000} />
-          <small className="wga-hint">Càng chi tiết bot càng tư vấn đúng. Ghi rõ: tên công ty, dịch vụ chính, đối tượng khách, phong cách giao tiếp.</small>
-        </label>
-        <label className="wga-field wga-field-full">
-          <span>Domain được phép embed (mỗi dòng 1 domain — để trống = cho phép mọi nơi)</span>
-          <textarea rows={3} value={origins} onChange={e => setOrigins(e.target.value)}
-                    placeholder="https://example.com&#10;*.partner.com" />
-          <small className="wga-hint">Hỗ trợ wildcard: <code>*.example.com</code> khớp mọi subdomain.</small>
-        </label>
-        {!isNew && (
-          <label className="wga-field wga-toggle">
+    <>
+      {/* ── 1. Trạng thái: đang chạy? lấy dữ liệu từ đâu? hệ quả là gì? ── */}
+      <section className={'wga-status' + (enabled ? '' : ' is-off')}>
+        <div className="wga-status-main">
+          <p className="wga-status-state">
+            <span className={'wga-dot' + (enabled ? ' on' : '')} />
+            {enabled ? 'Đang hoạt động trên website' : 'Đang tắt — hộp chat không hiện'}
+          </p>
+          <p className="wga-status-mode">
+            {widget.crmLinked
+              ? 'Bot trả lời bằng số liệu thật lấy từ hệ thống ERP của công ty.'
+              : 'Bot chỉ tư vấn chung, chưa đọc được số liệu thật — nên khi khách hỏi cụ thể, bot sẽ mời khách để lại liên hệ.'}
+          </p>
+          <dl className="wga-status-facts">
+            <div><dt>Tin nhắn đã trả lời</dt><dd>{(widget.totalMessages || 0).toLocaleString('vi-VN')}</dd></div>
+            <div><dt>Nguồn dữ liệu đang bật</dt><dd>{tools.size}</dd></div>
+          </dl>
+        </div>
+        <div className="wga-status-side">
+          <button className="wga-btn" onClick={() => window.open(
+            `/widget-demo.html?token=${encodeURIComponent(widget.token)}`, '_blank')}>
+            <Icon name="arrowRight" size={14} /> Thử hộp chat
+          </button>
+          <label className="wga-switch">
             <input type="checkbox" checked={enabled} onChange={e => setEnabled(e.target.checked)} />
-            <span>Đang kích hoạt</span>
+            <span>Bật hộp chat</span>
           </label>
-        )}
+        </div>
+      </section>
 
-        {/* ──── CRM section ──── */}
-        <div className="wga-field-full wga-crm-section">
-          <div className="wga-crm-head">
-            <h3>Kết nối CRM TourKit</h3>
-            <span className={'wga-crm-state' + (initial.crmLinked ? ' linked' : '')}>
-              {initial.crmLinked ? '✓ Đã kết nối' : 'Chưa kết nối'}
+      {/* ── 2. Danh tính bot ── */}
+      <section className="wga-sec">
+        <div className="wga-sec-head">
+          <h2>Bot của bạn</h2>
+          <p>Những gì khách nhìn thấy và cách bot xưng hô, trả lời.</p>
+        </div>
+        <div className="wga-grid">
+          <label className="wga-field">
+            <span className="wga-label">Tên hiển thị</span>
+            <input type="text" value={botName} maxLength={128}
+                   onChange={e => setBotName(e.target.value)} placeholder="Trợ lý Công ty ABC" />
+          </label>
+          <label className="wga-field">
+            <span className="wga-label">Màu hộp chat</span>
+            <div className="wga-color">
+              <input type="color" value={color} onChange={e => setColor(e.target.value)}
+                     aria-label="Chọn màu hộp chat" />
+              <input type="text" value={color} onChange={e => setColor(e.target.value)} />
+            </div>
+          </label>
+          <label className="wga-field wga-col-2">
+            <span className="wga-label">Câu chào khi khách mở hộp chat</span>
+            <textarea rows={2} value={greeting} maxLength={1024}
+                      onChange={e => setGreeting(e.target.value)} />
+          </label>
+          <label className="wga-field wga-col-2">
+            <span className="wga-label">Cách bot trả lời</span>
+            <textarea rows={6} value={systemPrompt} maxLength={8000}
+                      onChange={e => setSystemPrompt(e.target.value)}
+                      placeholder="Bot là ai, công ty bán gì, giọng điệu ra sao, khi nào thì hỏi thêm thông tin khách…" />
+            <small className="wga-hint">
+              Viết càng cụ thể bot tư vấn càng đúng. Nên ghi rõ tên công ty, dịch vụ chính,
+              và bạn muốn bot hỏi thêm gì trước khi tư vấn.
+            </small>
+          </label>
+        </div>
+      </section>
+
+      {/* ── 3. Nguồn dữ liệu ── */}
+      <section className="wga-sec">
+        <div className="wga-sec-head">
+          <h2>Dữ liệu bot được dùng</h2>
+          <p>Quyết định bot trả lời bằng số liệu thật hay chỉ tư vấn chung.</p>
+        </div>
+
+        <div className={'wga-conn' + (widget.crmLinked ? ' is-linked' : '')}>
+          <div className="wga-conn-text">
+            <strong>{widget.crmLinked ? 'Đã kết nối dữ liệu công ty' : 'Chưa kết nối dữ liệu công ty'}</strong>
+            <span>
+              {widget.crmLinked
+                ? 'Bot đọc được tour, thị trường và các nguồn bạn bật bên dưới.'
+                : 'Chưa kết nối thì bot không biết công ty có tour nào, giá bao nhiêu.'}
             </span>
           </div>
-          <p className="wga-crm-desc">
-            Bot sẽ trả lời <b>dữ liệu THẬT</b> (giá tour, ngày khởi hành, lead chờ xử lý…) thay vì tư vấn chung.
-            Paste <b>Crypton token TourKit</b> của bạn (cùng định dạng <code>/login-token</code>) để liên kết.
-          </p>
-          <label className="wga-field wga-field-full">
-            <span>Token TourKit (chỉ paste để rotate / link lần đầu — để trống = giữ nguyên)</span>
-            <textarea rows={2} value={tourKitToken} onChange={e => setTourKitToken(e.target.value)}
-                      placeholder="VD: ZGV1Z3IzNzM5MzU... (chuỗi Crypton dài)"
-                      style={{fontFamily: 'monospace', fontSize: '12px'}} />
-            <small className="wga-hint">Backend decrypt → login TourKit → lưu sessionId. KHÔNG lưu password plaintext.</small>
-            {!isNew && (
-              <button type="button" className="wga-btn" style={{marginTop: 8, alignSelf: 'flex-start'}}
-                onClick={async () => {
-                  if (!await window.appConfirm('Liên kết widget với tài khoản TourKit anh đang đăng nhập?'))
-                    return;
-                  try {
-                    const r = await window.tourkitAuth.authedFetch(
-                      '/api/v1/admin/widget/tokens/' + initial.token + '/link-current-session',
-                      { method: 'POST' });
-                    if (!r.ok) throw new Error('HTTP ' + r.status);
-                    window.location.reload();
-                  } catch (e) { window.appAlert('Lỗi: ' + e.message); }
-                }}>
-                ⚡ Dùng tài khoản đang đăng nhập
-              </button>
-            )}
-          </label>
+          {!widget.crmLinked && (
+            <button className="wga-btn primary" onClick={linkCurrentSession}>
+              <Icon name="zap" size={14} /> Dùng tài khoản đang đăng nhập
+            </button>
+          )}
+          {widget.crmLinked && (
+            <button className="wga-btn" onClick={testCrm} disabled={testing}>
+              <Icon name="refresh" size={14} /> {testing ? 'Đang kiểm tra…' : 'Kiểm tra kết nối'}
+            </button>
+          )}
+        </div>
 
-          <label className="wga-field wga-field-full">
-            <span>Tool CRM bot được phép gọi (tick để bật)</span>
-            <div className="wga-tools-grid">
-              {(defaults?.crmToolCatalog || []).map(t => (
-                <label key={t.name} className={'wga-tool-chip' + (tools.has(t.name) ? ' on' : '')}>
-                  <input type="checkbox" checked={tools.has(t.name)}
-                         onChange={() => toggleTool(t.name)} />
+        {testRes && (
+          <p className={'wga-note ' + (testRes.ok ? 'ok' : 'bad')} role="status">
+            <Icon name={testRes.ok ? 'checkCircle' : 'warning'} size={15} />
+            <span>{testRes.ok
+              ? `Kết nối tốt — đọc được ${testRes.sampleCount || 0} tour.`
+              : `Kết nối lỗi: ${testRes.message}`}</span>
+          </p>
+        )}
+
+        <div className="wga-tools">
+          <div className="wga-tools-group">
+            <h3>Khách xem được — an toàn</h3>
+            <p className="wga-tools-desc">Thông tin bán hàng, để khách tự tra cứu.</p>
+            <div className="wga-tool-list">
+              {safeTools.map(t => (
+                <label key={t.name} className={'wga-tool' + (tools.has(t.name) ? ' on' : '')}>
+                  <input type="checkbox" checked={tools.has(t.name)} onChange={() => toggleTool(t.name)} />
                   <span className="wga-tool-name">{t.label}</span>
-                  <span className="wga-tool-key">{t.name}</span>
                 </label>
               ))}
             </div>
-            <small className="wga-hint">Mặc định an toàn: <code>tours</code>, <code>list_markets</code>, <code>booking_tickets</code>. Bật thêm với cẩn trọng (vd <code>financial_summary</code> lộ doanh thu).</small>
-          </label>
+          </div>
 
-          {!isNew && initial.crmLinked && (
-            <div className="wga-crm-actions">
-              <button type="button" className="wga-btn" onClick={testCrm} disabled={testing}>
-                {testing ? 'Đang test…' : '🔌 Test kết nối CRM'}
-              </button>
-              <label className="wga-field wga-toggle" style={{flexDirection: 'row'}}>
-                <input type="checkbox" checked={unlinkCrm} onChange={e => setUnlinkCrm(e.target.checked)} />
-                <span>Bỏ liên kết CRM (bot quay về FAQ)</span>
-              </label>
-            </div>
-          )}
-
-          {testRes && (
-            <div className={'wga-test-result ' + (testRes.ok ? 'ok' : 'fail')}>
-              {testRes.ok ? (
-                <>
-                  <b>✓ Kết nối OK</b> — tìm thấy {testRes.sampleCount || 0} tour.
-                  {testRes.sampleTitles?.length > 0 && (
-                    <ul>{testRes.sampleTitles.map((t, i) => <li key={i}>{t}</li>)}</ul>
+          <div className="wga-tools-group risky">
+            <h3>Dữ liệu nội bộ — cân nhắc kỹ</h3>
+            <p className="wga-tools-desc">
+              Bật là <b>bất kỳ ai vào website</b> cũng hỏi được, kể cả đối thủ. Chỉ bật khi thật sự cần.
+            </p>
+            <div className="wga-tool-list">
+              {riskyTools.map(t => (
+                <label key={t.name} className={'wga-tool risky' + (tools.has(t.name) ? ' on' : '')}>
+                  <input type="checkbox" checked={tools.has(t.name)} onChange={() => toggleTool(t.name)} />
+                  <span className="wga-tool-name">{t.label}</span>
+                  {WGA_RISK_NOTE[t.name] && (
+                    <span className="wga-tool-risk">{WGA_RISK_NOTE[t.name]}</span>
                   )}
-                </>
-              ) : (
-                <><b>✗ Lỗi:</b> {testRes.message}</>
-              )}
+                </label>
+              ))}
             </div>
-          )}
+          </div>
         </div>
-      </div>
-      <div className="wga-form-actions">
-        <button className="wga-btn ghost" onClick={onCancel} disabled={saving}>Huỷ</button>
-        <button className="wga-btn primary" onClick={submit} disabled={saving || !botName.trim() || !greeting.trim() || !systemPrompt.trim()}>
-          {saving ? 'Đang lưu…' : (isNew ? 'Tạo widget' : 'Lưu thay đổi')}
+
+        {riskyOn.length > 0 && (
+          <p className="wga-note bad" role="alert">
+            <Icon name="warning" size={15} />
+            <span>
+              Đang mở {riskyOn.length} nguồn dữ liệu nội bộ cho khách vãng lai:{' '}
+              <b>{riskyOn.map(t => t.label).join(', ')}</b>. Hãy chắc chắn bạn muốn điều này.
+            </span>
+          </p>
+        )}
+
+        {widget.crmLinked && (
+          <label className="wga-switch danger">
+            <input type="checkbox" checked={unlinkCrm} onChange={e => setUnlinkCrm(e.target.checked)} />
+            <span>Ngắt kết nối dữ liệu — bot quay lại chỉ tư vấn chung</span>
+          </label>
+        )}
+      </section>
+
+      {/* ── 4. Bảo mật ── */}
+      <section className="wga-sec">
+        <div className="wga-sec-head">
+          <h2>Website được phép gắn</h2>
+          <p>Chặn người khác lấy mã nhúng của bạn dán sang trang của họ.</p>
+        </div>
+        <label className="wga-field">
+          <span className="wga-label">Danh sách tên miền — mỗi dòng một cái</span>
+          <textarea rows={3} value={origins} onChange={e => setOrigins(e.target.value)}
+                    placeholder={'https://congty.com\n*.congty.com'} />
+          <small className="wga-hint">
+            Dùng <code>*.congty.com</code> để cho phép mọi trang con.
+          </small>
+        </label>
+        {origins.trim() === '' && (
+          <p className="wga-note warn">
+            <Icon name="warning" size={15} />
+            <span>Đang để trống nên <b>mọi website đều gắn được</b> widget này. Nên điền tên miền công ty bạn.</span>
+          </p>
+        )}
+      </section>
+
+      {/* ── 5. Mã nhúng ── */}
+      <section className="wga-sec">
+        <div className="wga-sec-head">
+          <h2>Mã nhúng</h2>
+          <p>Dán đoạn này vào website, ngay trước thẻ đóng <code>&lt;/body&gt;</code>.</p>
+        </div>
+        <div className="wga-snippet">
+          <pre><code>{widget.embedSnippet}</code></pre>
+          <button className="wga-btn" onClick={() => {
+            window.tourkitUtil.copyText(widget.embedSnippet);
+            pushToast('Đã sao chép mã nhúng');
+          }}>
+            <Icon name="copy" size={14} /> Sao chép
+          </button>
+        </div>
+      </section>
+
+      <section className="wga-danger">
+        <div>
+          <strong>Xoá widget</strong>
+          <span>Hộp chat trên website ngừng hoạt động ngay. Không khôi phục được.</span>
+        </div>
+        <button className="wga-btn danger" onClick={remove}>
+          <Icon name="trash" size={14} /> Xoá widget
         </button>
-      </div>
-    </div>
+      </section>
+
+      {/* Thanh lưu — chỉ hiện khi có thay đổi, để người dùng không quên bấm lưu */}
+      {dirty && (
+        <div className="wga-savebar" role="region" aria-label="Thay đổi chưa lưu">
+          <span className="wga-savebar-text">
+            <Icon name="info" size={15} /> Có thay đổi chưa lưu
+          </span>
+          {saveError && <span className="wga-savebar-err">{saveError}</span>}
+          <button className="wga-btn primary" onClick={save} disabled={saving || !botName.trim()}>
+            {saving ? 'Đang lưu…' : 'Lưu thay đổi'}
+          </button>
+        </div>
+      )}
+    </>
   );
 }
 
