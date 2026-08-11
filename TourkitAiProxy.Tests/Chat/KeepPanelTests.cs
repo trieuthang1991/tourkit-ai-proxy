@@ -63,23 +63,44 @@ public class KeepPanelTests
         Assert.True(JsonPlannerAgent.IsProvenanceQuestion("Số liệu này lấy từ đâu?"));
     }
 
-    // ── GIỚI HẠN ĐÃ BIẾT: nhận diện từ khóa KHÔNG bỏ dấu tiếng Việt ──
-    // HasDataKeyword so khớp chuỗi có dấu ("lợi nhuận", "khách", "cơ hội"), KHÁC IsProvenanceQuestion
-    // (đã chuẩn hóa bỏ dấu qua Norm). Nên user gõ KHÔNG DẤU sẽ bị coi là "không phải câu hỏi số liệu"
-    // → panel cũ vẫn bị giữ (bug gốc lọt lưới). Test này KHÓA hiện trạng để nếu sau này ai sửa
-    // HasDataKeyword thành chuẩn hóa bỏ dấu thì test đỏ → nhớ cập nhật cả 2 nơi cho khớp.
+    // ── Gõ KHÔNG DẤU vẫn nhận diện đúng (HasDataKeyword dùng chung Norm với IsProvenanceQuestion) ──
+    // Người Việt gõ không dấu rất phổ biến; trước đây so khớp chuỗi CÓ DẤU nên "loi nhuan" lọt lưới
+    // → panel cũ bị copy xuống (đúng bug 6ddcf65 định vá).
     [Theory]
-    [InlineData("loi nhuan thang nay")]     // "lợi nhuận" không dấu → KHÔNG khớp
-    [InlineData("khach hang moi")]          // "khách" không dấu → KHÔNG khớp
-    [InlineData("co hoi ban hang")]         // "cơ hội" không dấu → KHÔNG khớp
-    public void GIOI_HAN_go_khong_dau_van_bi_coi_la_khong_phai_so_lieu(string q)
+    [InlineData("loi nhuan thang nay")]     // lợi nhuận
+    [InlineData("khach hang moi")]          // khách
+    [InlineData("co hoi ban hang")]         // cơ hội
+    [InlineData("chi phi marketing")]       // chi phí
+    [InlineData("cong no con lai")]         // công nợ
+    [InlineData("ngan sach quy nay")]       // ngân sách
+    [InlineData("doanh thu thang nay")]     // vốn không dấu
+    [InlineData("tour sap khoi hanh")]
+    [InlineData("deal dang mo")]
+    public void Go_khong_dau_van_nhan_dien_la_cau_hoi_so_lieu(string q)
+        => Assert.False(JsonPlannerAgent.ShouldKeepPanel(q));
+
+    // ── Chống nhận nhầm do bỏ dấu: đặt / đạt / đất đều thành "dat" ──
+    // Vì vậy từ khóa "đặt" đứng một mình bị bỏ, thay bằng cụm rõ nghĩa (đặt tour / đặt chỗ / đặt phòng).
+    [Theory]
+    [InlineData("Kết quả đạt được thế nào?")]     // "đạt" — KHÔNG phải hỏi số liệu
+    [InlineData("ket qua dat duoc the nao")]
+    [InlineData("Giá đất khu đó ra sao?")]        // "đất"
+    public void Khong_nham_dat_dat_thanh_cau_hoi_so_lieu(string q)
         => Assert.True(JsonPlannerAgent.ShouldKeepPanel(q));
 
     [Theory]
-    // Ngược lại, từ khóa vốn KHÔNG có dấu vẫn nhận diện đúng dù user gõ không dấu.
-    [InlineData("doanh thu thang nay")]
-    [InlineData("tour sap khoi hanh")]
-    [InlineData("deal dang mo")]
-    public void Tu_khoa_khong_dau_san_thi_van_nhan_dien_duoc(string q)
+    // Nhưng cụm "đặt tour/chỗ/phòng" vẫn phải nhận ra là câu hỏi số liệu.
+    [InlineData("Khách đặt tour tháng này")]
+    [InlineData("khach dat cho chua")]
+    [InlineData("Ai đặt phòng hôm nay?")]
+    public void Cum_dat_tour_cho_phong_van_nhan_dien_duoc(string q)
+        => Assert.False(JsonPlannerAgent.ShouldKeepPanel(q));
+
+    [Theory]
+    // Từ khóa tiếng Anh dạng số nhiều vẫn khớp (giữ hành vi cũ — so khớp chuỗi con).
+    [InlineData("show me customers list")]
+    [InlineData("all bookings today")]
+    [InlineData("open opportunities")]
+    public void Tieng_anh_so_nhieu_van_khop(string q)
         => Assert.False(JsonPlannerAgent.ShouldKeepPanel(q));
 }

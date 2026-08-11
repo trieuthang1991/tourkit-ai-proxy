@@ -1597,21 +1597,30 @@ Yêu cầu:
     internal static bool ShouldKeepPanel(string question) => !HasDataKeyword(question);
 
     /// Kiem tra cau hoi co tu khoa so lieu ro rang de phat hien planner_none_but_data_intent.
-    /// (Cũng là input của ShouldKeepPanel — xem ghi chú giới hạn "gõ không dấu" ở KeepPanelTests.)
+    /// (Cũng là input của ShouldKeepPanel — xem KeepPanelTests.)
+    ///
+    /// Chuẩn hóa qua <see cref="Norm"/> (bỏ dấu, đ→d) — DÙNG CHUNG với IsProvenanceQuestion để user
+    /// gõ KHÔNG DẤU ("loi nhuan", "khach hang") vẫn nhận ra là câu hỏi số liệu (trước đây lọt lưới).
+    /// Hệ quả của bỏ dấu: đặt/đạt/đất đều thành "dat" → KHÔNG để "dat" đứng một mình trong danh sách,
+    /// phải dùng cụm rõ nghĩa ("dat tour"/"dat cho"/"dat phong"), nếu không "kết quả đạt được" sẽ bị
+    /// nhận nhầm là hỏi số liệu.
     private static bool HasDataKeyword(string question)
     {
         if (string.IsNullOrWhiteSpace(question)) return false;
+        // Từ khóa viết sẵn ở dạng ĐÃ chuẩn hóa (không dấu) để so khớp trực tiếp với Norm(question).
         string[] keywords =
         {
             // VN
-            "doanh thu", "lợi nhuận", "chi phí", "khách", "tour", "đặt",
-            "marketing", "deal", "cơ hội", "visa", "thu nhập", "ngân sách", "công nợ",
+            "doanh thu", "loi nhuan", "chi phi", "khach", "tour",
+            "dat tour", "dat cho", "dat phong",
+            "marketing", "deal", "co hoi", "visa", "thu nhap", "ngan sach", "cong no",
             // EN
             "revenue", "profit", "income", "expense", "cost", "sales",
             "customer", "client", "booking", "departure", "source", "channel",
-            "opportunity", "task", "voucher", "appointment"
+            // "opportunit" = gốc từ để bắt cả opportunity/opportunities (đuôi -y/-ies không khớp chuỗi con).
+            "opportunit", "task", "voucher", "appointment"
         };
-        var norm = question.ToLowerInvariant();
+        var norm = Norm(question);
         return keywords.Any(k => norm.Contains(k));
     }
 
