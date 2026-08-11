@@ -78,7 +78,7 @@ Lõi chương: **O1+O2** — chạy ngay bằng data sẵn. O4 nối sang S6 th�
 | # | Mảnh nền | Là gì | Ai dùng |
 |---|----------|-------|---------|
 | F1 | **Insight Feed** — `dbo.AgentInsights` + UI feed | Bảng per-tenant/per-user `{kind, severity, title, body, actions[], đọc/chưa}` + badge chuông + trang feed. **Mọi agent ghi cảnh báo/bản tin vào đây** — không feature nào tự chế chỗ hiển thị riêng | Tất cả S/C/O |
-| F2 | **Digest Engine** — `IScheduledWorkflow` mới | Khung "gom nhiều nguồn → AI viết prose → phát đa kênh (F1 / mail / TRAVAI đọc)". Config per-user (Sale) hoặc per-tenant (CEO). Đăng ký trong `WorkflowStackRegistration` (web + worker cùng pickup) | S1, C1, C5, O1 |
+| F2 | **Digest Engine** — `IScheduledWorkflow` mới | Khung "gom nhiều nguồn → AI viết prose → phát đa kênh": F1 / mail / TRAVAI đọc / **chat ngoài (Telegram Bot, Zalo)**. Config per-user (Sale) hoặc per-tenant (CEO). Đăng ký trong `WorkflowStackRegistration` (web + worker cùng pickup). Kênh chat: **Telegram Bot API = quick-win** (miễn phí, chỉ cần bot token + chat id per user/tenant); **Zalo OA/ZNS = có điều kiện** (đăng ký OA, template duyệt, phí ZNS) — thiết kế `IDigestChannel` để cắm dần từng kênh | S1, C1, C5, O1 |
 | F3 | **Metric Baseline** — `dbo.MetricSnapshots` | Job chụp metric ngày (doanh thu, chi phí, deal mới…) → lịch sử để so lệch | C2, C4, O5 |
 | F4 | **Template Store + Auto-Send Guard** — `dbo.CareTemplates` | Template tenant duyệt 1 lần + hạn mức/ngày + log gửi + kill-switch per kịch bản — thi hành "mức 2" có kiểm soát | S6, S3, O3 |
 
@@ -103,7 +103,7 @@ Thứ tự phụ thuộc: **F1 trước tiên** → F2 → F3/F4 song song khi c
 2. Trạng thái **NCC đã xác nhận** per dịch vụ trong CRM (O3).
 3. **Capacity/slot** trong `/api/ai/tours` (O5).
 4. Bảng **trạng thái báo giá server-side** — hiện wizard lưu client (S3).
-5. Kênh **Zalo ZNS** cho Auto-Care — mới chỉ có stack cũ (S6, tùy chọn).
+5. Kênh chat ngoài: **Telegram Bot** (quick-win — chỉ cần lưu bot token + chat id) vs **Zalo OA/ZNS** (cần đăng ký OA + duyệt template + phí; ZNS hiện chỉ có stack cũ) — cho bản tin F2 lẫn Auto-Care S6.
 6. Chỗ nhập **kế hoạch/target doanh thu** per tenant (C4).
 
 ## Nguồn tham khảo
