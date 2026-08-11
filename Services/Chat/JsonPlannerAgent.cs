@@ -257,24 +257,11 @@ public class JsonPlannerAgent : IAgentRuntime
                 : "Không có marketName cần resolve",
             new() { ["before"] = paramsBefore, ["after"] = paramsAfter });
 
-        // L2 cache (post-planner): tool + canonical params + Y SO SANH giong -> tra ngay, skip dispatch + analysis.
-        // compareShift PHAI vao key: cau "so voi thang truoc" va cau thuong tuy cung tool+params van phai
-        // roi 2 o cache khac nhau — neu khong L2 tra nguyen van cau truoc + nuot mat cot so sanh (bug so sanh 2026-08).
+        // KHÔNG cache câu trả lời AI (bỏ 2026-08-11) — chỉ cache DỮ LIỆU CRM ("d|" bên dưới).
+        // Lý do: key của "d|" (tenant + đường dẫn API) xác định trọn vẹn kết quả, còn câu trả lời AI
+        // phụ thuộc thêm câu chữ + focus + ngữ cảnh + model → mọi key đều thiếu chiều, đã gây 3 bug
+        // "trả lời cũ" liên tiếp. compareShift vẫn cần cho LOGIC so sánh bên dưới (không phải cho cache).
         var compareShift = DetectCompareIntent(question);
-        var l2Key = L2CacheKey(input.TenantId, input.Username, tool.Name, toolParams, compareShift);
-        var l2Timer = trace?.Begin("l2_cache_lookup");
-        if (useCache && _cache.TryGet<ChatResult>("r2|" + l2Key, out var l2Hit) && l2Hit != null)
-        {
-            _log.LogInformation("[JsonPlanner] L2 cache hit ({Tool})", tool.Name);
-            l2Timer?.Done("ok",
-                $"L2 HIT — tool '{tool.Name}' + params này đã chạy gần đây → trả ngay, skip dispatch + analysis",
-                new() { ["cacheKey"] = l2Key });
-            object? l2Prms = toolParams.HasValue ? JsonSerializer.Deserialize<object>(toolParams.Value.GetRawText()) : null;
-            return new AgentResult(l2Hit.Reply, l2Hit.ToolName, l2Prms, l2Hit.Data,
-                latency, tokIn, tokOut, l2Hit.Warning, 1);
-        }
-        l2Timer?.Done("skip", "L2 MISS — chạy tiếp dispatch",
-            new() { ["cacheKey"] = l2Key });
 
         // ─── 2. Dispatch sang TourKit.Api ───────────────────────────────────────
         var path = ChatTools.BuildPath(tool, toolParams);
@@ -542,12 +529,7 @@ public class JsonPlannerAgent : IAgentRuntime
         var result = new AgentResult(finalReply, tool.Name, prmsOut, chatData,
             latency, tokIn, tokOut, combinedWarning, 1);
 
-        // Luu L2 cache (chi khi co noi dung that su).
-        if (useCache && HasContent(chatData))
-        {
-            var ttl = ChooseTtl(toolParams);
-            _cache.Set("r2|" + l2Key, ToChatResult(result, question), ttl);
-        }
+        // KHÔNG lưu cache câu trả lời (xem ghi chú ở phần dispatch).
 
         // Lưu bộ nhớ chat sau khi có kết quả thực sự (tool thành công + có data).
         if (HasContent(chatData))
@@ -755,20 +737,9 @@ public class JsonPlannerAgent : IAgentRuntime
                                         : "Không có marketName cần resolve",
             new() { ["before"] = paramsBefore, ["after"] = paramsAfter });
 
-        // L2 cache (post-planner) — Y SO SANH vao key (xem RunAsync cho ly do: tranh bug so sanh).
+        // KHÔNG cache câu trả lời AI (bỏ 2026-08-11) — xem ghi chú trong RunAsync.
+        // compareShiftS vẫn cần cho LOGIC so sánh bên dưới.
         var compareShiftS = DetectCompareIntent(question);
-        var l2Key = L2CacheKey(input.TenantId, input.Username, tool.Name, toolParams, compareShiftS);
-        var l2Timer = trace?.Begin("l2_cache_lookup");
-        if (useCache && _cache.TryGet<ChatResult>("r2|" + l2Key, out var l2Hit) && l2Hit != null)
-        {
-            _log.LogInformation("[JsonPlanner-stream] L2 cache hit ({Tool})", tool.Name);
-            l2Timer?.Done("ok",
-                $"L2 HIT — tool '{tool.Name}' + params này đã chạy gần đây → trả ngay",
-                new() { ["cacheKey"] = l2Key });
-            await emit(new { done = true, reply = l2Hit.Reply, toolName = l2Hit.ToolName, data = l2Hit.Data, cached = true });
-            return;
-        }
-        l2Timer?.Done("skip", "L2 MISS — chạy tiếp dispatch", new() { ["cacheKey"] = l2Key });
 
         var path = ChatTools.BuildPath(tool, toolParams);
         _log.LogInformation("[JsonPlanner-stream] tool={Tool} path={Path}", tool.Name, path);
@@ -961,14 +932,7 @@ public class JsonPlannerAgent : IAgentRuntime
 
         object? prmsOut = toolParams.HasValue ? JsonSerializer.Deserialize<object>(toolParams.Value.GetRawText()) : null;
 
-        // Luu L2 cache (chi khi co noi dung that su).
-        if (useCache && HasContent(chatData))
-        {
-            var ttl = ChooseTtl(toolParams);
-            var streamResult = new ChatResult(finalReply, tool.Name, prmsOut, chatData,
-                analysis.LatencyMs, analysis.InputTokens, analysis.OutputTokens, combinedWarning);
-            _cache.Set("r2|" + l2Key, streamResult, ttl);
-        }
+        // KHÔNG lưu cache câu trả lời (xem ghi chú trong RunAsync).
 
         // Lưu bộ nhớ chat sau khi có kết quả thực sự (tool thành công + có data).
         if (HasContent(chatData))
@@ -1745,13 +1709,6 @@ Yêu cầu:
     /// Hướng dịch chuyển kỳ đối chiếu (kỳ trước / cùng kỳ năm ngoái...).
     /// internal để test khóa: giá trị này đi vào L2 key ("|cmp=") → câu có/không so sánh không đè cache nhau.
     internal enum CompareShift { None, PrevMonth, PrevYear, PrevQuarter }
-
-    /// L2 cache key CÓ kèm ý so sánh — dùng chung cho cả RunAsync lẫn StreamAsync (1 nguồn, không drift).
-    /// compareShift PHẢI vào key: câu so sánh và câu thường dù cùng tool+params vẫn rơi 2 ô cache khác nhau,
-    /// nếu không L2 trả nguyên văn câu trước + nuốt mất cột so sánh (bug so sánh 2026-08).
-    internal static string L2CacheKey(string tenantId, string username, string toolName,
-                                      JsonElement? prms, CompareShift compareShift)
-        => AgentCacheKeys.L2Key(tenantId, username, toolName, prms) + "|cmp=" + compareShift;
 
     /// Phát hiện câu hỏi có yêu cầu so sánh với kỳ trước/năm ngoái.
     internal static CompareShift DetectCompareIntent(string question)

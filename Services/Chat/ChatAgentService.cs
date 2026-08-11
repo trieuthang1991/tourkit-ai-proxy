@@ -131,22 +131,11 @@ public class ChatAgentService
         // Cache PHAI scope theo user (phan quyen data co the khac giua cac user cung tenant).
         bool useCache = !string.IsNullOrWhiteSpace(tenantId) && !string.IsNullOrWhiteSpace(username);
 
-        // L1 cache (pre-planner): cau hoi y het sau khi normalize -> tra ngay, skip toan bo AI.
-        var l1Key = AgentCacheKeys.L1Key(tenantId, username, truncQuestion);
-        var l1Timer = trace.Begin("l1_cache_lookup");
-        if (useCache && !string.IsNullOrWhiteSpace(truncQuestion)
-            && _cache.TryGet<ChatResult>("r1|" + l1Key, out var l1Hit) && l1Hit != null)
-        {
-            _log.LogInformation("[chat] L1 cache hit");
-            l1Timer.Done("ok", "L1 HIT — câu hỏi giống y hệt trong cache → trả ngay, skip toàn bộ AI",
-                new() { ["cacheKey"] = l1Key });
-            // Tra ket qua cache + dinh trace (chi co 1 step l1_cache_lookup) khi debug.
-            return trace.Enabled
-                ? l1Hit with { Trace = trace.Build() }
-                : l1Hit;
-        }
-        l1Timer.Done("skip", useCache ? "L1 MISS — chưa có cache, chạy tiếp planner" : "L1 SKIP — chưa có session, không cache",
-            new() { ["cacheKey"] = l1Key });
+        // KHÔNG cache câu trả lời AI (bỏ 2026-08-11). Chỉ cache DỮ LIỆU CRM ("d|" trong JsonPlannerAgent),
+        // vì key của nó (tenant + đường dẫn API) xác định TRỌN VẸN kết quả. Ngược lại câu trả lời AI phụ
+        // thuộc câu chữ + ngữ cảnh hội thoại + focus + ý so sánh + model… — key nào cũng chỉ bắt được một
+        // phần, đã gây 3 bug "trả lời cũ" liên tiếp (so sánh / hỏi nguồn gốc / chi phí ăn đáp án doanh thu).
+        // Xem docs/test-plans/2026-08-11-chat-e2e-question-bank.md.
 
         // Resolve runtime: runtime dau tien Supports(provider), fallback JsonPlannerAgent.
         var runtime = _runtimes.FirstOrDefault(r => r.Supports(provider))
@@ -212,15 +201,7 @@ public class ChatAgentService
             agentResult.OutputTokens,
             agentResult.Warning);
 
-        // Luu L1 cache (chi khi co noi dung thuc su va co tenantId hop le).
-        if (useCache && HasContent(agentResult.Data) && !string.IsNullOrWhiteSpace(truncQuestion))
-        {
-            var ttl = ChooseTtlFromResult(result);
-            _cache.Set("r1|" + l1Key, result, ttl);
-            trace.Step("l1_cache_save", "ok", 0,
-                $"Lưu L1 cache TTL {ttl.TotalMinutes:0}phút (câu hỏi này hỏi lại sẽ trả ngay)");
-        }
-
+        // KHÔNG lưu cache câu trả lời (xem ghi chú ở đầu hàm).
         return trace.Enabled ? result with { Trace = trace.Build() } : result;
     }
 
@@ -284,26 +265,7 @@ public class ChatAgentService
         var username = session?.Username ?? "";
         bool useCache = !string.IsNullOrWhiteSpace(tenantId) && !string.IsNullOrWhiteSpace(username);
 
-        // L1 cache (pre-planner)
-        var l1Key = AgentCacheKeys.L1Key(tenantId, username, truncQuestion);
-        var l1Timer = trace.Begin("l1_cache_lookup");
-        if (useCache && !string.IsNullOrWhiteSpace(truncQuestion)
-            && _cache.TryGet<ChatResult>("r1|" + l1Key, out var l1Hit) && l1Hit != null)
-        {
-            _log.LogInformation("[chat-stream] L1 cache hit");
-            l1Timer.Done("ok", "L1 HIT — trả ngay từ cache",
-                new() { ["cacheKey"] = l1Key });
-            await emit(new
-            {
-                done = true, reply = l1Hit.Reply, toolName = l1Hit.ToolName,
-                data = l1Hit.Data, cached = true,
-                trace = trace.Enabled ? trace.Build() : null
-            });
-            return;
-        }
-        l1Timer.Done("skip", "L1 MISS — chạy planner",
-            new() { ["cacheKey"] = l1Key });
-
+        // KHÔNG cache câu trả lời AI (bỏ 2026-08-11) — xem ghi chú trong AskAsync.
         var runtime = _runtimes.FirstOrDefault(r => r.Supports(provider))
             ?? _runtimes.OfType<JsonPlannerAgent>().Single();
         var agentName = runtime.GetType().Name;
@@ -370,15 +332,7 @@ public class ChatAgentService
             }
         }, ct);
 
-        // Luu L1 cache neu co noi dung.
-        if (useCache && streamResult != null && HasContent(streamResult.Data)
-            && !string.IsNullOrWhiteSpace(truncQuestion))
-        {
-            var ttl = ChooseTtlByData(streamResult.Data);
-            _cache.Set("r1|" + l1Key, streamResult, ttl);
-            trace.Step("l1_cache_save", "ok", 0,
-                $"Lưu L1 cache TTL {ttl.TotalMinutes:0}phút");
-        }
+        // KHÔNG lưu cache câu trả lời (xem ghi chú trong AskAsync).
 
         // Emit trace event cuoi cung khi debug=true. Frontend nhan {trace:...} co the
         // render collapsible "Cach van hanh" duoi reply.
