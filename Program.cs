@@ -105,27 +105,10 @@ builder.Services.AddSingleton<TourkitAiProxy.Services.Admin.AdminSessionStore>()
 builder.Services.AddSingleton<TourkitAiProxy.Services.Admin.AdminUsageRepository>();
 builder.Services.AddSingleton<TourkitAiProxy.Services.Admin.ConsultLeadRepository>();
 
-// Tingee VietQR client cho luồng mua quota. Mock-first: dùng vietqr.io public, simulate-paid endpoint
-// để dev test. Khi có ApiKey thật → set `Tingee:Mock=false` → switch sang TingeeHttpClient.
-{
-    var allowInsecureTingee = builder.Configuration.GetValue<bool>("Providers:AllowInsecureTls");
-    var tingeeBuilder = builder.Services.AddHttpClient("tingee", c => c.Timeout = TimeSpan.FromSeconds(30));
-    tingeeBuilder.AddHttpMessageHandler(sp =>
-        new TourkitAiProxy.Services.Http.HttpLoggingHandler(
-            sp.GetRequiredService<ILogger<TourkitAiProxy.Services.Http.HttpLoggingHandler>>(), "tingee"));
-    if (allowInsecureTingee) tingeeBuilder.ConfigurePrimaryHttpMessageHandler(() => new HttpClientHandler
-    {
-        ServerCertificateCustomValidationCallback = HttpClientHandler.DangerousAcceptAnyServerCertificateValidator,
-        SslProtocols = System.Security.Authentication.SslProtocols.Tls12
-                     | System.Security.Authentication.SslProtocols.Tls13,
-    });
-}
-if (builder.Configuration.GetValue<bool?>("Tingee:Mock") != false)
-    builder.Services.AddSingleton<TourkitAiProxy.Services.Quota.ITingeeClient,
-                                  TourkitAiProxy.Services.Quota.MockTingeeClient>();
-else
-    builder.Services.AddSingleton<TourkitAiProxy.Services.Quota.ITingeeClient,
-                                  TourkitAiProxy.Services.Quota.TingeeHttpClient>();
+// Tingee client cho luồng mua quota. Tingee = webhook IPN-only (bắn về tourkit-web); QR = VietQR
+// img.vietqr.io. Chỉ 1 client THẬT, không mock.
+builder.Services.AddSingleton<TourkitAiProxy.Services.Quota.ITingeeClient,
+                              TourkitAiProxy.Services.Quota.TingeeClient>();
 builder.Services.AddSingleton<TourkitAiProxy.Services.Quota.QuotaOrderRepository>();
 
 // Widget Chat — token per-tenant, embed JS vào site khách.

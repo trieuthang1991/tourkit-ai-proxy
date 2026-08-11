@@ -11,9 +11,9 @@ namespace TourkitAiProxy.Endpoints;
 ///   POST /api/v1/quota/order                       — tạo order pending + QR (auth)
 ///   GET  /api/v1/quota/order/{id}/status           — poll status (auth + ownership)
 ///   POST /api/v1/quota/order/{id}/cancel           — hủy order pending (auth + ownership)
+///   POST /api/v1/quota/order/{id}/confirm-paid     — xác nhận đã CK (auth + ownership) → cộng lượt
 ///   GET  /api/v1/quota/orders                      — lịch sử của tenant (auth)
 ///   POST /api/v1/quota/webhook/tingee              — IPN từ Tingee (no auth, HMAC verify)
-///   POST /api/v1/quota/dev/simulate-paid/{id}      — DEV only (Tingee:Mock=true) simulate IPN
 ///   GET  /api/v1/admin/quota/orders                — admin list all (admin gate)
 /// </summary>
 public static class QuotaOrderEndpoints
@@ -28,7 +28,6 @@ public static class QuotaOrderEndpoints
             return Results.Json(new
             {
                 tiers = QuotaTierCatalog.All,
-                mock  = tingee.IsMock,
                 account = tingee.Account,        // FE hiện STK + tên khi user CK tay (fallback)
             });
         });
@@ -108,6 +107,31 @@ public static class QuotaOrderEndpoints
             if (row.TenantId != sess.TenantId)
                 return Results.Json(new { error = "Không có quyền" }, statusCode: 403);
             await orders.CancelAsync(id);
+            return Results.Ok(new { ok = true });
+        });
+
+        // ─── Xác nhận đã thanh toán (thủ công) → cộng lượt ───────────────────────
+        // Người dùng bấm "Tôi đã thanh toán" sau khi chuyển khoản. Auth phiên + ownership tenant.
+        // ⚠️ TIN TƯỞNG người dùng — KHÔNG kiểm chứng tiền thật đã vào tài khoản. Cộng lượt ngay theo yêu cầu
+        //    nghiệp vụ. Idempotent theo trạng thái đơn (atomic mark-paid) → bấm nhiều lần không cộng trùng.
+        v1.MapPost("/order/{id}/confirm-paid", async (string id, HttpContext ctx,
+            QuotaOrderRepository orders, TenantQuotaStore quota, TkSessionStore sessions, ILogger<Program> log) =>
+        {
+            var sid = Sid(ctx);
+            var sess = sessions.Get(sid);
+            if (sess == null) return Results.Json(new { error = "Phiên không hợp lệ" }, statusCode: 401);
+            var row = await orders.GetByIdAsync(id);
+            if (row == null) return Results.NotFound(new { error = "Không tìm thấy đơn" });
+            if (row.TenantId != sess.TenantId)
+                return Results.Json(new { error = "Không có quyền" }, statusCode: 403);
+            if (row.Status == "paid") return Results.Ok(new { ok = true, idempotent = true });
+
+            // Atomic mark-paid (WHERE Status='pending') → chỉ 1 lần cộng lượt dù bấm/gọi song song nhiều lần.
+            var paid = await orders.TryMarkPaidAsync(id, $"MANUAL-{Guid.NewGuid().ToString("N")[..8]}", "{\"manual\":true}");
+            if (paid == null) return Results.Ok(new { ok = true, idempotent = true });
+            quota.TopUp(row.TenantId, row.QuotaUnits);
+            log.LogInformation("[Quota] order {Id} xác nhận thủ công (user {U}) → tenant {T} +{N} lượt",
+                id, sess.Username, row.TenantId, row.QuotaUnits);
             return Results.Ok(new { ok = true });
         });
 
@@ -195,22 +219,6 @@ public static class QuotaOrderEndpoints
                 return Results.Json(new { ok = false, error = "topup fail" }, statusCode: 500);
             }
 
-            return Results.Ok(new { ok = true });
-        });
-
-        // ─── DEV simulate-paid (chỉ bật khi Tingee:Mock=true) ────────────────────
-        v1.MapPost("/dev/simulate-paid/{id}", async (string id, HttpContext ctx,
-            QuotaOrderRepository orders, TenantQuotaStore quota, ITingeeClient tingee,
-            IConfiguration cfg, ILogger<Program> log) =>
-        {
-            if (!tingee.IsMock) return Results.Json(new { error = "Endpoint chỉ bật ở Tingee:Mock=true" }, statusCode: 403);
-            var row = await orders.GetByIdAsync(id);
-            if (row == null) return Results.NotFound(new { error = "không tìm thấy đơn" });
-            if (row.Status == "paid") return Results.Ok(new { ok = true, idempotent = true });
-            var paid = await orders.TryMarkPaidAsync(id, $"MOCK-{Guid.NewGuid().ToString("N")[..8]}", "{\"mock\":true}");
-            if (paid == null) return Results.Ok(new { ok = true, idempotent = true });
-            quota.TopUp(row.TenantId, row.QuotaUnits);
-            log.LogInformation("[Tingee MOCK] simulate paid order {Id} → tenant {T} +{N} lượt", id, row.TenantId, row.QuotaUnits);
             return Results.Ok(new { ok = true });
         });
 

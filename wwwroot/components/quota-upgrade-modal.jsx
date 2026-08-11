@@ -38,7 +38,7 @@
         const d = await r.json();
         if (!alive) return;
         setTiers(d.tiers || []);
-        setBank({ ...d.account, mock: d.mock });
+        setBank(d.account);
         setLoading(false);
       }).catch(e => { if (alive) { setErr('Không tải được danh sách gói'); setLoading(false); } });
       return () => { alive = false; };
@@ -90,11 +90,6 @@
         <div className="qu-head">
           <h2 className="qu-title">Nạp thêm lượt AI</h2>
           <p className="qu-sub">Chọn gói phù hợp với nhu cầu của doanh nghiệp. Mua 1 lần, dùng đến hết — không thời hạn.</p>
-          {bank?.mock && (
-            <div className="qu-banner-dev">
-              ⚙️ Chế độ thử nghiệm — bấm "Tôi đã thanh toán" ở bước QR để cộng lượt ngay (chưa kiểm tra tiền thật).
-            </div>
-          )}
         </div>
         {err && <div className="qu-err">{err}</div>}
         {loading ? (
@@ -192,16 +187,17 @@
       catch { /* old browser */ }
     }
 
-    // "Tôi đã thanh toán" — xác nhận đã chuyển khoản → cộng lượt ngay.
-    // TODO(prod): hiện gọi /quota/dev/simulate-paid (cộng lượt KHÔNG kiểm tra tiền thật — chỉ dùng khi Tingee:Mock=true).
-    // Khi go-live phải thay bằng đường xác nhận có kiểm chứng (webhook Tingee → cộng lượt), nếu không sẽ bị lạm dụng.
+    // "Tôi đã thanh toán" — người dùng xác nhận đã chuyển khoản → gọi BE cộng lượt ngay.
+    // BE atomic mark-paid → bấm nhiều lần không cộng trùng. Poll (≤3s) sẽ chuyển sang màn "thành công".
     async function iHavePaid(){
       if (confirming) return;
       setConfirming(true);
       setErr(null);
       try {
-        await window.tourkitAuth.authedFetch(`/api/v1/quota/dev/simulate-paid/${order.orderId}`, { method: 'POST' });
-        // Server đã cộng lượt; poll (≤3s) sẽ tự chuyển sang màn "thành công".
+        const r = await window.tourkitAuth.authedFetch(`/api/v1/quota/order/${order.orderId}/confirm-paid`, { method: 'POST' });
+        const d = await r.json().catch(() => ({}));
+        if (!r.ok) throw new Error(d.error || 'Xác nhận thất bại');
+        // Server đã cộng lượt; poll sẽ tự chuyển sang màn "thành công".
       } catch(e){ setErr(e.message); setConfirming(false); }
     }
 
