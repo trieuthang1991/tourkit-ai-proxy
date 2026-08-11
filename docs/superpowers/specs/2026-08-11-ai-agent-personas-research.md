@@ -152,6 +152,48 @@ Thứ tự phụ thuộc: **F1 trước tiên** → F2 → F3/F4 song song khi c
 
 **3 quick-win = Đợt 1: S1 + C1 + O2 trên nền F1+F2.**
 
+## Đánh giá khả thi & mức ảnh hưởng (11/08/2026 — dựa trên code kiểm chứng + DB thật)
+
+Định nghĩa: **Khả thi %** = xác suất giao được ĐÚNG GIÁ TRỊ như spec (build xong + có giá trị thật với data hiện có). **Ảnh hưởng** = giá trị sử dụng ↔ rủi ro/blast radius.
+
+### Nền tảng F1–F5
+
+| Mảnh | Khả thi | Căn cứ | Ảnh hưởng |
+|------|--------:|--------|-----------|
+| F1 Insight Feed | **95%** | Bảng + trang mới, pattern sẵn; zero phụ thuộc ngoài | Nền cho tất cả; additive, rủi ro thấp |
+| F2 Digest Engine | **85%** | Scheduler chạy production (11 config enabled thật); trừ điểm: kênh email phụ thuộc worker OutboundMails app-side, Telegram là hạ tầng mới | Trung tâm giá trị; lỗi = bản tin sai giờ/trùng, không phá flow cũ |
+| F3 Metric Baseline | **75%** | Build dễ (~90%) nhưng ngưỡng "bất thường" ngành du lịch CÓ MÙA VỤ — trung bình trượt dễ báo nhầm cao/thấp điểm | Báo nhầm nhiều → alert fatigue, mất niềm tin |
+| F4 Template + Guard | **90%** | `dbo.MailTemplates` + admin CRUD đã có tiền lệ | **Rủi ro vận hành cao nhất hệ** — cổng gửi tự động ra ngoài |
+| F5 Digest Subscriptions | **90%** | `HasPermission` chạy production, 10/11 phiên có PermissionsJson | Thiếu nó thì mọi digest bất khả thi ("gửi cho ai") |
+
+### Theo tính năng
+
+| Đợt | Tính năng | Khả thi | Ảnh hưởng (giá trị / rủi ro) |
+|-----|-----------|--------:|------------------------------|
+| 1 | S1 bản tin Sale | **85%** | Cao — chạm sale mỗi sáng / thấp (read-only). 2 dòng chuẩn + 3 dòng thô như mục "Phân tích sâu" |
+| 1 | C1 bản tin CEO | **90%** | **Cao nhất về giá trị bán hàng** — 5/7 tenant chạy ngay / thấp (số server-side, AI chỉ diễn giải) |
+| 1 | O2 canh thanh toán | **95%** | Cao — đụng thẳng dòng tiền / thấp nhất (rule thuần, 0 quota AI) |
+| 1 | S5 vệ sinh pipeline | 95% | Nhẹ nhưng gần như miễn phí (rule trong S1) |
+| 2 | S4 thẻ gặp khách | 85% | Khá / thấp (on-demand, batch context sẵn) |
+| 2 | C5 TRAVAI đọc bản tin | 90% | Demo-value cao / thấp (reuse C1 + TTS) |
+| 2 | O1 readiness D-7 | 78% | Cao cho điều hành / thấp; checklist visa cần kiểm field sâu hơn |
+| 2* | S2 mail → cơ hội | **40% hiện trạng** | Điều kiện chưa thỏa (`hoi_dat_tour`=0, 551 mail `khac`); sau audit classifier tốt → ~75% |
+| 3 | S6 auto-care mức 2 | 70% | **Giá trị cao / rủi ro nghiệp vụ cao nhất** — mail sai tên/ngữ cảnh tới khách thật = mất mặt tenant; sống chết ở F4 guard |
+| 3 | C2 watchdog bất thường | 65% | Cao nếu đúng / phản tác dụng nếu báo nhầm (phụ thuộc F3 + mùa vụ) |
+| 3 | C4 dự phóng | 75% | Trung bình; cần bảng target (gap #6) |
+| 3 | O4 tổng kết sau tour | 80% | Trung bình + mở khóa S6 |
+| 3 | O5 canh slot | 85% | Khá / thấp (Slots/Booked/Available đã verify) |
+| 3* | S3 đeo bám báo giá | **35% hiện trạng** | Build dễ (~90%) nhưng 28 quote (26 của admin) = không có gì để nhắc — chờ adoption wizard |
+| Chờ | O3 nhắc NCC | **30%** | Gap NCC-confirm chưa xác minh; nếu CRM không có data gốc → KHÔNG làm được (legacy đã khóa tham khảo tuyệt đối) |
+| Chờ | C3 hỏi "tại sao" | 55% | Planner đa bước — khó nhất về AI engineering |
+
+### Kết luận tổng
+
+- **Đợt 1 (F1+F2+F5 → S1+C1+O2+S5): khả thi ~85–90%** — cao bất thường cho một đợt AI vì đứng trọn trên hạ tầng production + data đã đếm được. Cam kết được với lãnh đạo.
+- **Blast radius kỹ thuật toàn roadmap: THẤP** — gần như 100% additive (bảng mới, workflow mới qua `WorkflowStackRegistration`, endpoint mới). Chỉ 2 điểm chạm code cũ: thêm 2 cột `TourQuotes` + thêm const `TkPermissionCodes` (đều additive/idempotent).
+- **Rủi ro thật nằm ở 3 chỗ (không phải "code khó")**: (1) chi phí quota AI tăng đều — digest × user × ngày (riêng O2 miễn phí); (2) chất lượng ngưỡng cảnh báo C2/F3 với mùa vụ du lịch; (3) cổng auto-send S6/F4 — rủi ro thương hiệu tenant, bắt buộc hạn mức + log + kill-switch.
+- **2 tính năng KHÔNG hứa với lãnh đạo ở thời điểm này**: O3 (30%) và S2 (40% hiện trạng) — đúng nhãn "có điều kiện/chờ xác minh" đã gắn.
+
 ## Danh sách gap (cập nhật sau kiểm chứng code 11/08/2026)
 
 1. ~~Field **ngày sinh KH**~~ **ĐÓNG** — `AiCustomerDtos.Birthday` + `BirthdayThisMonth` filter có sẵn (S6).
