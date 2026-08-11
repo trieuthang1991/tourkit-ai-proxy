@@ -239,7 +239,7 @@ public class JsonPlannerAgent : IAgentRuntime
                 : "Mình là TRAVAI, trợ lý số liệu của bạn. Anh/Chị có thể hỏi: doanh thu tháng này, top khách hàng, danh sách tour sắp đi, nguồn marketing...");
             // Chỉ GIỮ panel phải cho follow-up KHÔNG phải câu hỏi số liệu mới (vd "giải thích thêm câu trên").
             // Nếu là câu hỏi số liệu MỚI mà không định tuyến được → KHÔNG copy panel/câu trả lời cũ xuống.
-            var keepPanel = !HasDataKeyword(question);
+            var keepPanel = ShouldKeepPanel(question);
             return new AgentResult(directText, keepPanel ? (memory.LastTool ?? "none") : "none", null,
                 keepPanel ? memory.LastChatData : null,
                 latency, tokIn, tokOut, plan.Warning, 1);
@@ -733,7 +733,7 @@ public class JsonPlannerAgent : IAgentRuntime
                 : "Mình là TRAVAI, trợ lý số liệu của bạn. Anh/Chị có thể hỏi: doanh thu tháng này, top khách hàng, tour sắp khởi hành, nguồn marketing...");
             // Chỉ GIỮ panel phải cho follow-up KHÔNG phải câu hỏi số liệu mới (vd "giải thích thêm câu trên").
             // Nếu là câu hỏi số liệu MỚI mà không định tuyến được → KHÔNG copy panel/câu trả lời cũ xuống.
-            var keepPanel = !HasDataKeyword(question);
+            var keepPanel = ShouldKeepPanel(question);
             await emit(new
             {
                 done     = true,
@@ -1589,7 +1589,15 @@ Yêu cầu:
 
     // ─── Trigger helper ─────────────────────────────────────────────────────────
 
+    /// Nhánh planner KHÔNG định tuyến được (tool == null): có GIỮ panel + câu trả lời lượt trước không?
+    ///   • Câu hỏi SỐ LIỆU MỚI mà AI bí  → false (BỎ panel; nếu giữ, user tưởng AI trả lời câu mới — bug 6ddcf65).
+    ///   • Follow-up không phải số liệu ("giải thích thêm") → true (GIỮ để user còn đối chiếu).
+    /// internal + 1 nguồn dùng chung cho CẢ buffered lẫn stream → test khóa được, 2 nhánh không drift.
+    /// LƯU Ý: câu hỏi VỀ NGUỒN GỐC đã thoát sớm ở <see cref="ProvenanceShortCircuit"/> nên không tới đây.
+    internal static bool ShouldKeepPanel(string question) => !HasDataKeyword(question);
+
     /// Kiem tra cau hoi co tu khoa so lieu ro rang de phat hien planner_none_but_data_intent.
+    /// (Cũng là input của ShouldKeepPanel — xem ghi chú giới hạn "gõ không dấu" ở KeepPanelTests.)
     private static bool HasDataKeyword(string question)
     {
         if (string.IsNullOrWhiteSpace(question)) return false;
