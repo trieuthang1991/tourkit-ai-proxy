@@ -210,6 +210,28 @@ public class TkSessionStore
         return created.Id;
     }
 
+    /// Tìm phiên SẴN CÓ của (tenant, username) — KHÔNG tạo mới, KHÔNG cần password.
+    /// Dùng cho SSO từ CRM: CRM chỉ ký danh tính (zero-password) nên không thể gọi CreateAsync.
+    /// null = user chưa từng đăng nhập TRAV-AI → caller đưa về màn login.
+    /// So khớp KHÔNG phân biệt hoa thường: username gõ ở CRM và ở TRAV-AI có thể khác case,
+    /// mà cột SQL vốn dùng collation CI nên nhánh cache phải khớp hành vi nhánh DB.
+    public async Task<TkSession?> FindByUserAsync(string tenantId, string username, CancellationToken ct = default)
+    {
+        if (string.IsNullOrWhiteSpace(tenantId) || string.IsNullOrWhiteSpace(username)) return null;
+
+        foreach (var kv in _cache)
+        {
+            var s = kv.Value;
+            if (string.Equals(s.TenantId, tenantId, StringComparison.OrdinalIgnoreCase) &&
+                string.Equals(s.Username, username, StringComparison.OrdinalIgnoreCase))
+                return s;
+        }
+
+        var fromDb = await _repo.GetByUserAsync(tenantId, username, ct);
+        if (fromDb != null) _cache[fromDb.Id] = fromDb;
+        return fromDb;
+    }
+
     /// JWT còn hạn (soft TTL); tự re-login nếu hết. Throw nếu phiên không tồn tại.
     public async Task<string> GetValidJwtAsync(string sessionId, CancellationToken ct)
     {

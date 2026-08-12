@@ -6,19 +6,23 @@ using TourkitAiProxy.Services.TourKit;
 
 namespace TourkitAiProxy.Endpoints;
 
-/// SSO Trav-ai → CRM (tourkit web) — MIRROR luồng SSO tourkit-web → HRM (HMAC + code 1-lần, ZERO password).
-/// Proxy = bên PHÁT: ký HMAC-SHA256 body danh tính (không password) → POST {crm}/api/sso/register-code
-/// (header X-Sign) → CRM verify, sinh code 1-lần lưu Redis TTL 60s, trả exchangeUrl → browser mở
-/// /api/sso/exchange?code=X → CRM đổi code (one-time GETDEL) → set Forms-auth cookie ĐÚNG account →
-/// redirect. Mật khẩu KHÔNG rời
-/// server; trên URL chỉ có 1 code random dùng-một-lần. Khớp TourKitHrm.Common.Security.HmacHelper.
+/// SSO HAI CHIỀU giữa Trav-ai và CRM (tourkit web) — HMAC-SHA256, ZERO password.
+/// Chung secret "CrmSso:Secret" (⇔ AppSettings "CrmSsoSecret" bên CRM) và chung hàm HmacHex.
+///
+/// CHIỀU 1 — Trav-ai → CRM (proxy PHÁT, CRM NHẬN ở PublicAPI/SsoController.cs):
+///   POST /api/v1/crm-sso-ticket → ký danh tính phiên hiện tại → CRM /api/sso/register-code → { url }.
+///
+/// CHIỀU 2 — CRM → Trav-ai (CRM PHÁT ở SsoController.TravAiGo, proxy NHẬN):
+///   CRM 302 tới {proxy}/sso?t=&lt;vé&gt; — KHÔNG có vòng server-to-server nào.
+///   GET /sso — verify vé → tra phiên → Set-Cookie tk_sso (30s) → 302 tiếp về đích.
+///
 public static class CrmSsoEndpoints
 {
     private static readonly HttpClient Http = new() { Timeout = TimeSpan.FromSeconds(10) };
 
     public static void MapCrmSsoEndpoints(this IEndpointRouteBuilder routes)
     {
-        // POST /api/v1/crm-sso-ticket → { url }  (require X-Session-Id). Frontend mở url ở tab mới.
+        // ─── CHIỀU 1: POST /api/v1/crm-sso-ticket → { url }  (require X-Session-Id). Frontend mở url ở tab mới.
         routes.MapPost("/api/v1/crm-sso-ticket", async (HttpContext ctx, TkSessionStore sessions, IConfiguration cfg) =>
         {
             var sid = ctx.Request.Headers["X-Session-Id"].FirstOrDefault()
@@ -58,7 +62,6 @@ public static class CrmSsoEndpoints
             }
 
             // Body danh tính (KHÔNG password/hash). CRM verify X-Sign trên ĐÚNG chuỗi bytes này.
-            // `scheme` để CRM dựng exchangeUrl đúng http/https khi test local (prod bỏ qua = https).
             var body = JsonSerializer.Serialize(new
             {
                 tenant = t,
@@ -68,7 +71,6 @@ public static class CrmSsoEndpoints
                 redirect,
                 iat = DateTimeOffset.UtcNow.ToUnixTimeSeconds(),
             });
-            var sign = HmacHex(body, secret!);
 
             try
             {
@@ -76,7 +78,7 @@ public static class CrmSsoEndpoints
                 {
                     Content = new StringContent(body, Encoding.UTF8, "application/json"),
                 };
-                msg.Headers.Add("X-Sign", sign);
+                msg.Headers.Add("X-Sign", HmacHex(body, secret));
                 using var resp = await Http.SendAsync(msg, ctx.RequestAborted);
                 var respBody = await resp.Content.ReadAsStringAsync(ctx.RequestAborted);
                 if (!resp.IsSuccessStatusCode)
@@ -96,12 +98,102 @@ public static class CrmSsoEndpoints
                 return Results.Json(new { error = "Không kết nối được CRM: " + e.Message }, statusCode: 502);
             }
         }).DisableAntiforgery();
+
+        // ─── CHIỀU 2: GET /sso?t=<vé> — CRM 302 tới đây, ta 302 tiếp về đích ───
+        // Vé tự chứng minh danh tính (payload + HMAC) nên KHÔNG cần đăng ký trước: bỏ được cả vòng
+        // server-to-server lẫn kho code 1-lần (thứ vốn không chạy đúng khi proxy scale nhiều instance).
+        // Hạn dùng nằm trong chính vé qua `iat`.
+        //
+        // Trao phiên bằng COOKIE ngắn hạn rồi 302, KHÔNG nhét lên URL đích: vé và sessionId chỉ tồn tại
+        // trong các nhịp 302 → không thành URL của trang được render, không vào history/access log.
+        // SPA nhặt cookie lúc boot (core/auth.jsx adoptSso) rồi để refresh() lấy tên + quyền.
+        // MapGet tường minh thắng app.MapFallback(ServeIndex) nên không bị SPA nuốt.
+        routes.MapGet("/sso", async (HttpContext ctx, TkSessionStore sessions, IConfiguration cfg, string? t) =>
+        {
+            var secret = cfg["CrmSso:Secret"];
+            if (!string.IsNullOrEmpty(secret) && secret.StartsWith("ENC:", StringComparison.Ordinal))
+                secret = Crypton.Decrypt(secret.Substring(4));
+            if (string.IsNullOrWhiteSpace(secret) || secret.Length < 16)
+                return Results.Json(new { error = "SSO chưa cấu hình (CrmSso:Secret)" }, statusCode: 500);
+
+            // Vé = "<payload-base64url>.<hmac>". CRM ký trên CHÍNH chuỗi base64url nên verify đúng thứ
+            // nhận được, không phụ thuộc hai bên serialize JSON giống nhau tới từng dấu cách.
+            var dot = t?.LastIndexOf('.') ?? -1;
+            if (dot <= 0 || !VerifyHmac(t!.Substring(0, dot), t.Substring(dot + 1), secret))
+                return Results.Redirect("/");
+
+            string tenant, username, next;
+            long iat;
+            try
+            {
+                var root = JsonDocument.Parse(FromBase64Url(t.Substring(0, dot))).RootElement;
+                tenant = root.GetProperty("tenant").GetString() ?? "";
+                username = root.GetProperty("username").GetString() ?? "";
+                next = root.TryGetProperty("redirect", out var r) ? r.GetString() ?? "" : "";
+                iat = root.TryGetProperty("iat", out var i) && i.TryGetInt64(out var n) ? n : 0;
+            }
+            catch { return Results.Redirect("/"); }
+
+            if (tenant.Length == 0 || username.Length == 0) return Results.Redirect("/");
+
+            // Chữ ký HMAC không tự hết hạn — `iat` chính là hạn dùng của vé. 60s đủ rộng cho lệch giờ
+            // nhẹ giữa 2 máy mà vẫn rất hẹp so với thời gian một URL nằm lại đâu đó.
+            if (iat <= 0 || (DateTimeOffset.UtcNow - DateTimeOffset.FromUnixTimeSeconds(iat)).Duration() > TimeSpan.FromSeconds(60))
+                return Results.Redirect("/");
+
+            // `redirect` nằm trong payload ĐÃ KÝ nên client không sửa được; vẫn chặn lần nữa phòng CRM
+            // bị sửa. "//host" là URL tuyệt đối protocol-relative.
+            if (next.Length == 0 || !next.StartsWith('/') || next.StartsWith("//")) next = "/";
+
+            var s = await sessions.FindByUserAsync(tenant, username, ctx.RequestAborted);
+            if (s == null)
+            {
+                // Chưa có phiên Trav-ai cho người vừa SSO → gửi danh tính qua cookie để LoginGate prefill.
+                // Vẫn 302 về ĐÍCH chứ KHÔNG về "/": app.jsx render LandingPage cho "/" TRƯỚC cả cổng
+                // đăng nhập, nên về "/" thì người dùng chỉ thấy trang giới thiệu, không hề được hỏi
+                // đăng nhập. Về đúng đích thì cổng bật lên, gõ mật khẩu xong là vào thẳng trang cần tới.
+                SetShortCookie(ctx, "tk_sso_hint", JsonSerializer.Serialize(new { tenantId = tenant, username }));
+                return Results.Redirect(next);
+            }
+
+            // Phiên cũ có thể chưa nạp Permissions → nạp trước khi vào app, tránh ẩn oan nút/sidebar.
+            await sessions.EnsurePermissionsAsync(s.Id, ctx.RequestAborted);
+            SetShortCookie(ctx, "tk_sso", s.Id);
+            return Results.Redirect(next);
+        });
     }
 
-    // HMAC-SHA256 hex lowercase — KHỚP TourKitHrm.Common.Security.HmacHelper.Sign (chuẩn SSO của bản web).
+    /// Cookie bàn giao SSO: sống 30 giây, SPA đọc xong là xoá ngay. KHÔNG HttpOnly vì JS phải đọc được
+    /// (SPA giữ phiên ở localStorage, không dùng cookie để gọi API) — nhưng cũng không mở thêm rủi ro
+    /// nào so với hiện trạng, vì sessionId vốn đã nằm sẵn trong localStorage.
+    private static void SetShortCookie(HttpContext ctx, string name, string value)
+    {
+        // Response mang Set-Cookie thì TUYỆT ĐỐI không được cache lại, nếu không lần điều hướng sau
+        ctx.Response.Cookies.Append(name, value, new CookieOptions
+        {
+            Path = "/",
+            MaxAge = TimeSpan.FromSeconds(30),
+            HttpOnly = false,
+            SameSite = SameSiteMode.Lax,
+            Secure = ctx.Request.IsHttps,
+        });
+    }
+
+    /// Base64url ("-_" thay "+/", bỏ '=' đệm) → chuỗi gốc. Khớp SsoController.Base64Url bên CRM.
+    private static string FromBase64Url(string s)
+    {
+        var b = s.Replace('-', '+').Replace('_', '/');
+        return Encoding.UTF8.GetString(Convert.FromBase64String(b.PadRight(b.Length + (4 - b.Length % 4) % 4, '=')));
+    }
+
+    // HMAC-SHA256 hex lowercase — KHỚP TourKitHrm.Common.Security.HmacHelper.Sign và CRM SsoController.
     private static string HmacHex(string body, string secret)
     {
         using var h = new HMACSHA256(Encoding.UTF8.GetBytes(secret));
-        return Convert.ToHexString(h.ComputeHash(Encoding.UTF8.GetBytes(body))).ToLowerInvariant();
+        return Convert.ToHexString(h.ComputeHash(Encoding.UTF8.GetBytes(body ?? ""))).ToLowerInvariant();
     }
+
+    private static bool VerifyHmac(string body, string sign, string secret) =>
+        CryptographicOperations.FixedTimeEquals(
+            Encoding.ASCII.GetBytes(HmacHex(body, secret)), Encoding.ASCII.GetBytes(sign));
 }
