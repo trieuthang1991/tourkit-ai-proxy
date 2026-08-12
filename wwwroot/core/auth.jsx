@@ -83,25 +83,21 @@
     try { return decodeURIComponent(m[1]); } catch { return m[1]; }
   }
 
-  // SSO từ CRM: GET /sso đặt tk_sso=<sessionId> nếu tra ra phiên, ngược lại đặt tk_sso_hint={...}.
-  // Có phiên thì GHI ĐÈ chứ KHÔNG logout() — localStorage dùng chung mọi tab, logout() bắn 'storage'
-  // sẽ đá hết tab đang mở về màn đăng nhập. Không có phiên thì NGƯỢC LẠI, phải logout(): tab có thể
-  // đang giữ phiên người khác, để nguyên là người vừa sang thao tác dưới danh tính đó.
+  // SSO từ CRM: /api/v1/sso/exchange đặt cookie tk_sso rồi 302 về đích — có giá trị = sessionId của
+  // người vừa sang, RỖNG = họ chưa từng đăng nhập Trav-ai. Không có cookie = không phải luồng SSO.
+  //   có sid  → ghi đè, KHÔNG logout(): localStorage dùng chung mọi tab, logout() bắn 'storage' sẽ đá
+  //             hết tab đang mở về màn đăng nhập dù chẳng ai đụng vào.
+  //   rỗng    → PHẢI logout(): tab có thể đang giữ phiên người khác, để nguyên là người vừa sang
+  //             thao tác dưới danh tính đó mà không hay biết.
   function adoptSso() {
     const sid = takeCookie('tk_sso');
+    if (sid === null) return;
     if (sid) {
       localStorage.setItem(SESSION_KEY, sid);
       localStorage.removeItem(PERMS_KEY);   // quyền là cache của NGƯỜI TRƯỚC
-    } else if (/(?:^|;\s*)tk_sso_hint=/.test(document.cookie)) {
+    } else {
       logout();
     }
-  }
-
-  /// Tenant + tài khoản của người vừa SSO, cho LoginGate điền sẵn. Điền sẵn không chỉ để tiện: nó bảo
-  /// đảm username trùng đúng chuỗi CRM đã ký, lệch một ký tự là SSO lần sau tra không ra phiên.
-  function takeSsoHint() {
-    const raw = takeCookie('tk_sso_hint');
-    try { return raw ? JSON.parse(raw) : null; } catch { return null; }
   }
 
   // Xác thực lại session với server (sau reload/restart). Trả user | null.
@@ -159,7 +155,7 @@
 
   window.tourkitAuth = {
     SESSION_KEY, USER_KEY, PERMS_KEY,
-    getSessionId, getUser, isAuthed, login, loginToken, adoptSso, takeSsoHint, logout, onChange, refresh, authedFetch,
+    getSessionId, getUser, isAuthed, login, loginToken, adoptSso, logout, onChange, refresh, authedFetch,
     getPerms, hasPermission, loadPermissions,
   };
 
@@ -171,13 +167,9 @@
   const DOMAIN_KEY = 'tourkit_tk_domain';
 
   function LoginGate({ onAuthed }) {
-    // SSO từ CRM rơi về đây khi user CHƯA từng đăng nhập Trav-ai — proxy không có mật khẩu nên không
-    // tạo phiên hộ được. Điền sẵn tenant + tài khoản (GET /sso gửi qua cookie) để chỉ còn gõ mật khẩu.
-    const ssoHint = window.tourkitAuth.takeSsoHint() || {};
-
     const [mode, setMode] = useState('form');   // 'form' | 'token'
-    const [domain, setDomain] = useState(() => ssoHint.tenantId || localStorage.getItem(DOMAIN_KEY) || '');
-    const [username, setUsername] = useState(() => ssoHint.username || '');
+    const [domain, setDomain] = useState(() => localStorage.getItem(DOMAIN_KEY) || '');
+    const [username, setUsername] = useState('');
     const [password, setPassword] = useState('');
     const [token, setToken] = useState('');
     const [busy, setBusy] = useState(false);
