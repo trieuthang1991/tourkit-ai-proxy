@@ -24,6 +24,17 @@ import "./components/tweaks-panel.jsx";
 import "./components/dialogs.jsx";
 import "./components/customer-review-card.jsx";
 import "./components/action-confirm-card.jsx";
+// /flows — sơ đồ luồng, _registry.js đứng đầu (các file sau gọi window.tourkitFlows.register)
+import "./flows/_registry.js";
+import "./flows/_demo-sale-brief.js";
+import "./flows/_demo-ceo-brief.js";
+import "./flows/mail-auto-sync.js";
+import "./flows/deal-auto-review.js";
+import "./flows/customer-auto-review.js";
+import "./flows/tour-price-catalog-sync.js";
+
+// Phải đứng TRƯỚC pages/workflows.jsx + pages/flow-preview.jsx (2 file đó đọc window.tourkitWorkflowOptions lúc khởi tạo)
+import "./components/workflow-options.jsx";
 import "./components/action-data-card.jsx";
 import "./components/quota-upgrade-modal.jsx";
 import "./components/consult-popup.jsx";
@@ -64,6 +75,7 @@ import "./pages/ncc-import.jsx";
 import "./pages/ncc-list.jsx";
 import "./pages/visa-config.jsx";
 import "./pages/workflows.jsx";
+import "./pages/flow-preview.jsx";
 import "./pages/help.jsx";
 
 // Root: App shell + router (PHẢI CUỐI — dùng tất cả window.X định nghĩa ở trên)

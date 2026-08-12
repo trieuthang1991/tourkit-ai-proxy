@@ -103,6 +103,10 @@
      load của MỌI trang (landing/NCC/khách hàng… không có chart). -->
 <script src="lib/chart-loader.js"></script>
 
+  <!-- React Flow (183KB JS + 18KB CSS): CHỈ trang "Sơ đồ luồng" dùng → cũng lazy,
+       window.ensureReactFlow() tự chèn <script>+<link> khi trang đó mount. -->
+  <script src="lib/flow-loader.js"></script>
+
 <!-- TinyMCE: KHÔNG eager load (~5MB runtime). mail.jsx RichEditor tự lazy-load
      qua lib/tinymce-loader.js khi component mount lần đầu. -->
 <script src="lib/tinymce-loader.js"></script>
@@ -127,6 +131,18 @@
 <script type="text/babel" src="components/customer-review-card.jsx"></script>
 <!-- Action confirm card + clarify list — dùng chung assistant/travai cho luồng action tools -->
 <script type="text/babel" src="components/action-confirm-card.jsx"></script>
+  <!-- /flows — mỗi sơ đồ luồng 1 file, tự đăng ký vào window.tourkitFlows.
+       _registry.js PHẢI đứng đầu. Thêm sơ đồ mới = thêm 1 dòng ở đây + bundle-entry.js. -->
+  <script src="flows/_registry.js"></script>
+  <script src="flows/_demo-sale-brief.js"></script>
+  <script src="flows/_demo-ceo-brief.js"></script>
+  <script src="flows/mail-auto-sync.js"></script>
+  <script src="flows/deal-auto-review.js"></script>
+  <script src="flows/customer-auto-review.js"></script>
+  <script src="flows/tour-price-catalog-sync.js"></script>
+
+  <!-- Schema + ô nhập cấu hình workflow — NGUỒN CHUNG, phải nạp TRƯỚC pages/workflows.jsx và pages/flow-preview.jsx -->
+  <script type="text/babel" src="components/workflow-options.jsx"></script>
 <script type="text/babel" src="components/action-data-card.jsx"></script>
 <script type="text/babel" src="components/quota-upgrade-modal.jsx"></script>
 <script type="text/babel" src="components/consult-popup.jsx"></script>
@@ -174,6 +190,7 @@
 <script type="text/babel" src="pages/ncc-list.jsx"></script>
 <script type="text/babel" src="pages/visa-config.jsx"></script>
 <script type="text/babel" src="pages/workflows.jsx"></script>
+    <script type="text/babel" src="pages/flow-preview.jsx"></script>
 <script type="text/babel" src="pages/help.jsx"></script>
 
 <!-- Root: App shell + router -->

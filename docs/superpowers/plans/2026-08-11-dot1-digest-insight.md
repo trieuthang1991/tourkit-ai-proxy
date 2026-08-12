@@ -17,7 +17,24 @@
 - AI call nền PHẢI bọc `AiCallContext.Push(AiFeatures.Digest, tenantId)` (STRICT — bypass = sai quota + log `unknown`).
 - DI workflow đăng ký trong `Services/Bootstrap/WorkflowStackRegistration.cs` (KHÔNG phải `Program.cs`) → web + worker cùng pickup. Endpoint chỉ map ở web `Program.cs`.
 - Frontend thêm trang = sửa đủ 3 chỗ: `index.html` + `bundle-entry.js` + `app.jsx` (thiếu `bundle-entry.js` → prod trắng trang React #130).
-- Secrets: Telegram bot token = `Telegram:BotToken` appsettings (gitignored; cập nhật `appsettings.example.json`); Zalo token Crypton-enc trong DB; KHÔNG log token.
+- Secrets: Zalo token Crypton-enc trong DB; KHÔNG log token.
+- **NGUYÊN TẮC CHUNG (12/08/2026): thứ gì KHÓ hoặc TỐN TIỀN thì để tenant tự cấu hình.** Hạn mức,
+  phí, rủi ro bị nhà cung cấp khoá — đẩy về đúng công ty hưởng lợi, đừng gom vào tài khoản dùng
+  chung của hệ thống. Dự án đã theo lối này ở `MailAccountStore` (Gmail App Password per-tenant,
+  KHÔNG fallback config/env) và `TenantServiceAccountStore`. Áp cho mọi kênh gửi mới.
+- **[SỬA 12/08/2026] Kênh gửi là cấu hình CỦA TỪNG CÔNG TY, không phải của hệ thống.** Bản đầu để
+  Telegram bot token ở `Telegram:BotToken` trong `appsettings` — dùng chung cho mọi tenant. Sai, vì:
+  (a) hạn mức Zalo OA tính **theo từng OA** ([bảng giá Zalo](https://zalo.solutions/oa/pricing): gói
+  mua chỉ dùng cho 1 OA, không chuyển nhượng) → mỗi công ty tự trả hạn mức của mình; (b) OA/bot dùng
+  chung mà một tenant spam thì **cả hệ thống bị khoá**; (c) bản tin phải gửi từ danh tính của chính
+  công ty đó. Nên tách **hai tầng cấu hình**:
+  - **Tầng công ty (per-tenant, quản trị khai 1 lần)** — OA Zalo/ZNS + bot Telegram dùng để GỬI ĐI.
+    Lưu DB, Crypton-enc, theo mẫu `MailAccountStore` (per-tenant, KHÔNG fallback config/env).
+  - **Tầng cá nhân (per-user, trong `DigestSubscriptions`)** — địa chỉ NHẬN: email, Zalo user id,
+    Telegram chat id; bật/tắt từng kênh độc lập. Kênh trong-app luôn có, không cần khai gì.
+  Sơ đồ thiết kế đã vẽ đúng 2 tầng này: `wwwroot/flows/_demo-sale-brief.js` và `_demo-ceo-brief.js`.
+  Ghi chú kỹ thuật: `ZaloUserId` **không nhập tay được** — phải để người dùng follow OA rồi bắt
+  `user_id` từ sự kiện `follow` qua webhook; token OA hết hạn nên cần vòng refresh.
 - Test: `dotnet test TourkitAiProxy.Tests/TourkitAiProxy.Tests.csproj` — pure logic only (không test DB thật).
 - Interface sẵn có (VERBATIM — không đổi):
   - `IScheduledWorkflow { string Type; string Label; string Description; WorkflowScope Scope; Task<WorkflowRunResult> RunAsync(string tenantId, string username, string? optionsJson, CancellationToken ct); }` · `WorkflowScope.PerTenant` · `WorkflowRunResult(bool Ok, string? Summary, string? Error)`

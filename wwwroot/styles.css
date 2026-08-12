@@ -5582,7 +5582,7 @@ html[data-home-theme="dark"] .hp-theme {
 .workflows-rowhead-main { flex: 1; min-width: 0; }
 .workflows-rowhead-name { display: flex; align-items: center; gap: 9px; font-weight: 600; font-size: 14px; color: var(--text-1, #0F172A); }
 .workflows-rowhead-desc { font-size: 12.5px; color: var(--text-3, #94A3B8); margin-top: 2px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.workflows-rowhead-meta { flex-shrink: 0; font-size: 12px; color: var(--text-2, #64748B); text-align: right; max-width: 300px; font-variant-numeric: tabular-nums; }
+.workflows-rowhead-meta { font-size: 12px; color: var(--text-2, #64748B); margin-top: 4px; font-variant-numeric: tabular-nums; }
 .workflows-rowhead-muted { color: var(--text-3, #94A3B8); }
 .workflows-rowhead-chev { color: var(--text-3, #94A3B8); display: inline-flex; flex-shrink: 0; }
 .workflows-rowbody { padding: 6px 18px 18px; }
@@ -8192,3 +8192,156 @@ n
   .help-side-list { flex-direction: row; flex-wrap: wrap; }
   .help-main { padding: 20px 16px 90px; }
 }
+/* ─── Xem thử sơ đồ luồng (/flow-preview) ────────────────────────────────────
+   Node tự vẽ bằng token của app để sơ đồ trông là SẢN PHẨM CỦA MÌNH,
+   không phải React Flow mặc định. React Flow chỉ lo canvas/kéo/thu phóng. */
+/* Tràn hết chiều ngang: .page.wga:not(.workflows-page) bó ở 880px làm canvas hẹp,
+   fitView phải thu nhỏ → chữ trong node không đọc nổi. Cùng độ đặc hiệu (3 class)
+   nhưng khai báo SAU nên thắng. */
+.page.wga.fp-page { max-width: none; padding-left: 28px; padding-right: 28px; }
+.fp-page { display: flex; flex-direction: column; gap: 16px; }
+
+.fp-warn {
+  display: flex; gap: 10px; align-items: flex-start;
+  border: 1px solid var(--warning); background: #FFFBEB;
+  border-radius: var(--radius); padding: 12px 14px;
+  font-size: 13px; line-height: 1.6; color: var(--text-2);
+}
+.fp-warn::before { content: '⚠️'; flex: 0 0 auto; }
+
+.fp-canvas {
+  height: 620px; border: 1px solid var(--border-strong); border-radius: var(--radius-lg);
+  background: var(--surface); overflow: hidden; box-shadow: var(--shadow-sm);
+}
+@media (max-width: 720px) { .fp-canvas { height: 480px; } }
+
+.fp-state {
+  height: 100%; display: flex; align-items: center; justify-content: center;
+  color: var(--text-3); font-size: 13px;
+}
+.fp-state-err { color: #B91C1C; padding: 0 20px; text-align: center; }
+
+/* Node — nền trắng, viền trái đậm màu theo loại */
+.fp-node {
+  display: flex; align-items: center; gap: 10px;
+  width: 210px; padding: 11px 13px;
+  background: var(--surface); border: 1px solid var(--border-strong);
+  border-left-width: 4px; border-radius: var(--radius);
+  box-shadow: var(--shadow-sm); cursor: grab;
+}
+.fp-node:active { cursor: grabbing; }
+.fp-node-ic {
+  flex: 0 0 auto; width: 28px; height: 28px; border-radius: 8px;
+  display: flex; align-items: center; justify-content: center;
+}
+.fp-node-txt { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.fp-node-txt b { font-size: 12.5px; font-weight: 650; color: var(--text); line-height: 1.35; }
+.fp-node-txt i { font-style: normal; font-size: 10.5px; color: var(--text-3); line-height: 1.4; }
+
+.fp-trigger { border-left-color: var(--primary); }
+.fp-trigger .fp-node-ic { background: var(--primary-soft); color: var(--primary-dark); }
+.fp-step    { border-left-color: #64748B; }
+.fp-step .fp-node-ic { background: #F1F5F9; color: #475569; }
+.fp-branch  { border-left-color: var(--warning); }
+.fp-branch .fp-node-ic { background: #FEF3C7; color: #B45309; }
+.fp-send    { border-left-color: var(--success); }
+.fp-send .fp-node-ic { background: #D1FAE5; color: #047857; }
+
+/* Chấm nối của React Flow — thu nhỏ cho hợp với node của mình */
+.fp-node .react-flow__handle { width: 7px; height: 7px; background: var(--border-strong); border: none; }
+
+/* Chú giải */
+.fp-legend { display: grid; grid-template-columns: repeat(auto-fit, minmax(215px, 1fr)); gap: 10px; }
+.fp-legend-item {
+  display: flex; gap: 9px; align-items: flex-start;
+  border: 1px solid var(--border); border-radius: var(--radius);
+  background: var(--surface); padding: 10px 12px;
+}
+.fp-legend-item span { display: flex; flex-direction: column; gap: 2px; }
+.fp-legend-item b { font-size: 12.5px; color: var(--text); }
+.fp-legend-item i { font-style: normal; font-size: 11px; color: var(--text-3); line-height: 1.5; }
+.fp-legend-dot { flex: 0 0 auto; width: 4px; align-self: stretch; border-radius: 2px; min-height: 30px; }
+.fp-legend-dot.fp-trigger { background: var(--primary); }
+.fp-legend-dot.fp-step    { background: #64748B; }
+.fp-legend-dot.fp-branch  { background: var(--warning); }
+.fp-legend-dot.fp-send    { background: var(--success); }
+
+/* Nút "Xem sơ đồ" trên từng dòng workflow (trang Tự động hoá) */
+.workflows-rowhead-flow {
+  display: inline-flex; align-items: center; gap: 6px; flex: 0 0 auto;
+  padding: 6px 11px; border-radius: 999px;
+  border: 1px solid var(--border-strong); background: var(--surface);
+  font-size: 11.5px; font-weight: 600; color: var(--text-2);
+  text-decoration: none; transition: .15s; white-space: nowrap;
+}
+.workflows-rowhead-flow:hover {
+  border-color: var(--primary); color: var(--primary-dark); background: var(--primary-soft);
+}
+/* Màn hẹp: chỉ còn icon — dòng workflow đã chật vì tên + trạng thái + lần chạy cuối */
+@media (max-width: 860px) { .workflows-rowhead-flow span { display: none; } }
+
+/* Băng thông tin (sơ đồ workflow THẬT) — khác băng cảnh báo của bản xem thử */
+.fp-warn-info { border-color: var(--primary); background: var(--primary-soft); }
+.fp-warn-info::before { content: 'ℹ️'; }
+
+/* Sơ đồ + bảng cấu hình node (khi mở 1 workflow cụ thể) */
+.fp-work { display: grid; grid-template-columns: 1fr; gap: 14px; }
+.fp-work.with-panel { grid-template-columns: minmax(0, 1fr) 380px; }
+@media (max-width: 1080px) { .fp-work.with-panel { grid-template-columns: 1fr; } }
+
+.fp-node.has-cfg { cursor: pointer; }
+.fp-node.has-cfg:hover { border-color: var(--primary); box-shadow: var(--shadow-md); }
+.fp-node-cfg {
+  flex: 0 0 auto; margin-left: auto; width: 20px; height: 20px; border-radius: 6px;
+  display: flex; align-items: center; justify-content: center;
+  background: var(--primary-soft); color: var(--primary-dark);
+}
+
+.fp-panel {
+  display: flex; flex-direction: column; min-width: 0; max-height: 620px; overflow: hidden;
+  border: 1px solid var(--border-strong); border-radius: var(--radius-lg);
+  background: var(--surface); box-shadow: var(--shadow-sm);
+}
+.fp-panel-head {
+  display: flex; align-items: center; gap: 10px; padding: 12px 14px;
+  border-bottom: 1px solid var(--border);
+}
+.fp-panel-ic {
+  flex: 0 0 auto; width: 26px; height: 26px; border-radius: 7px;
+  display: flex; align-items: center; justify-content: center;
+  background: var(--primary-soft); color: var(--primary-dark);
+}
+.fp-panel-title { display: flex; flex-direction: column; gap: 2px; min-width: 0; flex: 1; }
+.fp-panel-title b { font-size: 13px; color: var(--text); }
+.fp-panel-title i { font-style: normal; font-size: 11px; color: var(--text-3); }
+.fp-panel-x {
+  background: transparent; border: none; color: var(--text-3);
+  font-size: 20px; line-height: 1; cursor: pointer;
+}
+.fp-panel-x:hover { color: var(--text); }
+.fp-panel-body { flex: 1; overflow-y: auto; padding: 6px 14px 16px; }
+.fp-panel-empty { padding: 22px 16px; font-size: 12.5px; color: var(--text-3); line-height: 1.6; }
+
+
+/* Thanh lưu — chỉ hiện khi có thay đổi */
+.fp-savebar {
+  position: sticky; bottom: 0; z-index: 5;
+  display: flex; align-items: center; gap: 10px; justify-content: flex-end;
+  padding: 12px 16px; border: 1px solid var(--primary);
+  border-radius: var(--radius); background: var(--primary-soft);
+  box-shadow: var(--shadow-md);
+}
+.fp-savebar span { margin-right: auto; font-size: 12.5px; font-weight: 600; color: var(--primary-dark); }
+
+/* Nút "Xem sơ đồ" ở dòng workflow — cột phải, không co lại */
+.workflows-rowhead-flow { align-self: center; }
+
+/* Nhắc "chưa từng bật" trong bảng cấu hình node */
+.fp-panel-new {
+  margin: 8px 0 4px; padding: 10px 12px; border-radius: var(--radius);
+  border: 1px solid var(--warning); background: #FFFBEB;
+  font-size: 12px; line-height: 1.6; color: var(--text-2);
+}
+
+/* Chuyển giữa các sơ đồ thiết kế (giám đốc / nhân viên bán hàng) */
+.fp-demo-switch { display: flex; gap: 8px; flex-wrap: wrap; }

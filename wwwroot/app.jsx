@@ -60,6 +60,10 @@ const ROUTE_REQUIRE_PERM = NAV_GROUPS
   .flatMap(g => g.items)
   .filter(it => it.requirePerm)
   .reduce((m, it) => (m[it.to] = it.requirePerm, m), {});
+// Route KHÔNG có mục menu nhưng VẪN phải chặn quyền. Bắt buộc khai ở đây: gatePerm tra
+// ROUTE_REQUIRE_PERM, thiếu key → hasPerm(undefined) = true → trang mở cho mọi người.
+// /flow-preview: vào từ nút "Xem sơ đồ" ở trang Tự động hoá → cùng quyền với Tự động hoá.
+ROUTE_REQUIRE_PERM['/flow-preview'] = 'CH_HT_XEM';
 // Flat list — dùng cho navQuery search ở topbar (giữ logic cũ).
 const NAV = NAV_GROUPS.flatMap(g => g.items);
 const NAV_DEBUG_GROUP = { label: 'Debug', items: [
@@ -505,6 +509,9 @@ function App() {
         <Route path="/ncc-import"   render={() => <window.NccImportPage pushToast={pushToast} />} />
         <Route path="/visa-config"  render={() => gatePerm('/visa-config', <window.VisaConfigPage pushToast={pushToast} />)} />
         <Route path="/workflows"    render={() => gatePerm('/workflows', <window.WorkflowsPage pushToast={pushToast} />)} />
+        <Route path="/flow-preview" render={() => gatePerm('/flow-preview', <window.FlowPreviewPage pushToast={pushToast} />)} />
+        {/* /flow-preview/:type — sơ đồ của 1 workflow cụ thể (nút "Xem sơ đồ" ở trang Tự động hoá) */}
+        <Route path="/flow-preview/:type" render={(p) => gatePerm('/flow-preview', <window.FlowPreviewPage pushToast={pushToast} type={p.type} />)} />
         <Route path="/help"         render={() => <window.HelpPage />} />
         <Route path="/help/:slug"   render={(p) => <window.HelpPage slug={p.slug} />} />
         <Route path="*"          render={() => (
