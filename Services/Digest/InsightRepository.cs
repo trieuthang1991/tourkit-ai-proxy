@@ -1,0 +1,92 @@
+using Dapper;
+using TourkitAiProxy.Services.Db;
+
+namespace TourkitAiProxy.Services.Digest;
+
+/// <summary>
+/// dbo.AgentInsights — bảng tin việc cần biết. <c>Username=''</c> = tenant-wide (cả công ty thấy).
+/// Mọi truy vấn đều lọc TenantId — không có đường nào đọc chéo công ty khác.
+/// </summary>
+public class InsightRepository
+{
+    private readonly TourkitAiDb _db;
+    private readonly ILogger<InsightRepository> _log;
+
+    public InsightRepository(TourkitAiDb db, ILogger<InsightRepository> log) { _db = db; _log = log; }
+
+    /// <summary>
+    /// Thêm 1 dòng. Có <c>AlertKey</c> mà key đó đã xuất hiện trong 24h (cùng tenant) → BỎ QUA, trả null.
+    /// Chống nhắc đi nhắc lại cùng một việc mỗi lần workflow chạy (mỗi giờ một lần).
+    /// </summary>
+    public async Task<long?> InsertAsync(AgentInsight i, CancellationToken ct = default)
+    {
+        await using var c = await _db.OpenAsync(ct);
+        if (!string.IsNullOrEmpty(i.AlertKey))
+        {
+            var dup = await c.ExecuteScalarAsync<int>(@"
+SELECT COUNT(1) FROM dbo.AgentInsights
+WHERE TenantId = @TenantId AND AlertKey = @AlertKey
+  AND CreatedUtc > DATEADD(HOUR, -24, SYSUTCDATETIME())",
+                new { i.TenantId, i.AlertKey });
+            if (dup > 0) return null;
+        }
+        return await c.ExecuteScalarAsync<long>(@"
+INSERT INTO dbo.AgentInsights (TenantId, Username, Kind, Severity, Title, Body, DataJson, AlertKey, IsRead, CreatedUtc)
+VALUES (@TenantId, @Username, @Kind, @Severity, @Title, @Body, @DataJson, @AlertKey, 0, SYSUTCDATETIME());
+SELECT CAST(SCOPE_IDENTITY() AS BIGINT);",
+            new { i.TenantId, i.Username, i.Kind, i.Severity, i.Title, i.Body, i.DataJson, i.AlertKey });
+    }
+
+    /// Feed của 1 người: dòng của chính họ + dòng tenant-wide (Username='').
+    public async Task<List<AgentInsight>> ListAsync(string tenant, string username, string? kind,
+        bool unreadOnly, int offset, int limit, CancellationToken ct = default)
+    {
+        await using var c = await _db.OpenAsync(ct);
+        var rows = await c.QueryAsync<AgentInsight>(@"
+SELECT Id, TenantId, Username, Kind, Severity, Title, Body, DataJson, AlertKey, IsRead, CreatedUtc
+FROM dbo.AgentInsights
+WHERE TenantId = @tenant AND (Username = @username OR Username = '')
+  AND (@kind IS NULL OR Kind = @kind)
+  AND (@unreadOnly = 0 OR IsRead = 0)
+ORDER BY CreatedUtc DESC
+OFFSET @offset ROWS FETCH NEXT @limit ROWS ONLY",
+            new { tenant, username, kind, unreadOnly = unreadOnly ? 1 : 0, offset, limit = Math.Clamp(limit, 1, 100) });
+        return rows.ToList();
+    }
+
+    public async Task<int> UnreadCountAsync(string tenant, string username, CancellationToken ct = default)
+    {
+        await using var c = await _db.OpenAsync(ct);
+        return await c.ExecuteScalarAsync<int>(@"
+SELECT COUNT(1) FROM dbo.AgentInsights
+WHERE TenantId = @tenant AND (Username = @username OR Username = '') AND IsRead = 0",
+            new { tenant, username });
+    }
+
+    public async Task MarkReadAsync(string tenant, string username, long id, CancellationToken ct = default)
+    {
+        await using var c = await _db.OpenAsync(ct);
+        await c.ExecuteAsync(@"
+UPDATE dbo.AgentInsights SET IsRead = 1
+WHERE Id = @id AND TenantId = @tenant AND (Username = @username OR Username = '')",
+            new { id, tenant, username });
+    }
+
+    public async Task MarkAllReadAsync(string tenant, string username, CancellationToken ct = default)
+    {
+        await using var c = await _db.OpenAsync(ct);
+        await c.ExecuteAsync(@"
+UPDATE dbo.AgentInsights SET IsRead = 1
+WHERE TenantId = @tenant AND (Username = @username OR Username = '') AND IsRead = 0",
+            new { tenant, username });
+    }
+
+    /// Xoá dòng cũ hơn keepDays. Gọi cuối mỗi lượt workflow để bảng không phình mãi.
+    public async Task<int> PruneAsync(int keepDays, CancellationToken ct = default)
+    {
+        await using var c = await _db.OpenAsync(ct);
+        return await c.ExecuteAsync(
+            "DELETE FROM dbo.AgentInsights WHERE CreatedUtc < DATEADD(DAY, -@keepDays, SYSUTCDATETIME())",
+            new { keepDays });
+    }
+}

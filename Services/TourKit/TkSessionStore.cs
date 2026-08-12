@@ -238,6 +238,50 @@ public class TkSessionStore
         return s.Jwt;
     }
 
+    /// <summary>
+    /// Lấy <c>CrmUserId</c> của phiên, TỰ LẤP nếu chưa có — KHÔNG bao giờ bắt người dùng đăng nhập lại.
+    ///
+    /// <para>Phiên tạo trước khi có cột này (hoặc load từ SQL sau restart) sẽ null. Ba mức, dừng ở
+    /// mức rẻ nhất còn dùng được:</para>
+    /// <list type="number">
+    /// <item>Đã có → trả luôn.</item>
+    /// <item>Còn JWT trong bộ nhớ → decode tại chỗ, không gọi mạng.</item>
+    /// <item>Hết JWT → <see cref="GetValidJwtAsync"/> tự đăng nhập lại NGẦM bằng mật khẩu đã lưu.</item>
+    /// </list>
+    ///
+    /// <para>Lấy được thì ghi xuống DB ngay để lần sau khỏi làm lại. Không lấy được (JWT thiếu claim,
+    /// upstream lỗi) thì trả null — bên gọi phải chịu được null, TUYỆT ĐỐI không đá người dùng ra
+    /// màn hình đăng nhập chỉ vì thiếu một id phụ.</para>
+    /// </summary>
+    public async Task<int?> EnsureCrmUserIdAsync(string sessionId, CancellationToken ct)
+    {
+        var s = Get(sessionId);
+        if (s == null) return null;
+        if (s.CrmUserId != null) return s.CrmUserId;
+
+        try
+        {
+            var jwt = !string.IsNullOrEmpty(s.Jwt) && DateTime.UtcNow < s.JwtExpiresAt
+                ? s.Jwt
+                : await GetValidJwtAsync(sessionId, ct);   // tự re-login ngầm, user không thấy gì
+
+            var id = JwtClaims.TryGetUserId(jwt);
+            if (id == null) return null;
+
+            s.CrmUserId = id;
+            await _repo.UpsertAsync(s, ct);
+            _log.LogInformation("TourKit session {Id} bổ sung CrmUserId={Uid} (phiên cũ chưa có)", sessionId, id);
+            return id;
+        }
+        catch (Exception ex)
+        {
+            // Nuốt lỗi có chủ đích: thiếu CrmUserId chỉ làm bản tin lọc rộng hơn, KHÔNG đáng để
+            // ném lỗi ra ngoài rồi kéo theo 401 → đăng xuất toàn cục ở frontend.
+            _log.LogWarning("TourKit session {Id} chưa lấy được CrmUserId: {Err}", sessionId, ex.Message);
+            return null;
+        }
+    }
+
     /// Liệt kê tất cả phiên đang giữ trong cache (in-mem). Dùng cho admin UI.
     /// KHÔNG hit SQL — cache đã được nạp từ SQL lúc startup + write-through ở mọi mutation,
     /// nên tin được. Trả snapshot, không enumerate live cache.
