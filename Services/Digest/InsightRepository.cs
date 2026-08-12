@@ -37,12 +37,41 @@ SELECT CAST(SCOPE_IDENTITY() AS BIGINT);",
             new { i.TenantId, i.Username, i.Kind, i.Severity, i.Title, i.Body, i.DataJson, i.AlertKey });
     }
 
+    /// <summary>
+    /// DTO trung gian có setter, KHÔNG đọc thẳng vào record <see cref="AgentInsight"/>.
+    /// Lý do (lỗi thật gặp 12/08, đúng cái đã cắn ở <see cref="DigestSubscriptionRepository"/>):
+    /// Dapper khớp constructor theo ĐÚNG kiểu cột — <c>Severity</c> là TINYINT nên nó tìm
+    /// constructor nhận <c>byte</c>, mà record khai <c>int</c> → ném "A parameterless default
+    /// constructor or one matching signature ... is required".
+    /// <para>Lỗi này nằm im từ lúc tạo bảng vì workflow chỉ INSERT; chỉ nổ khi có chỗ ĐỌC đầu tiên.
+    /// Thêm cột TINYINT vào record dùng <c>int</c> là phải kèm DTO như đây.</para>
+    /// </summary>
+    private sealed class InsightRow
+    {
+        public long Id { get; set; }
+        public string TenantId { get; set; } = "";
+        public string Username { get; set; } = "";
+        public string Kind { get; set; } = "";
+        public int Severity { get; set; }
+        public string Title { get; set; } = "";
+        public string Body { get; set; } = "";
+        public string? DataJson { get; set; }
+        public string? AlertKey { get; set; }
+        public bool IsRead { get; set; }
+        public DateTime CreatedUtc { get; set; }
+
+        public AgentInsight ToModel() => new(
+            Id, TenantId, Username, Kind, Severity, Title, Body, DataJson, AlertKey, IsRead,
+            // Dapper đọc DATETIME2 ra Kind=Unspecified → thiếu 'Z' khi trả client → frontend lệch 7h.
+            DateTime.SpecifyKind(CreatedUtc, DateTimeKind.Utc));
+    }
+
     /// Feed của 1 người: dòng của chính họ + dòng tenant-wide (Username='').
     public async Task<List<AgentInsight>> ListAsync(string tenant, string username, string? kind,
         bool unreadOnly, int offset, int limit, CancellationToken ct = default)
     {
         await using var c = await _db.OpenAsync(ct);
-        var rows = await c.QueryAsync<AgentInsight>(@"
+        var rows = await c.QueryAsync<InsightRow>(@"
 SELECT Id, TenantId, Username, Kind, Severity, Title, Body, DataJson, AlertKey, IsRead, CreatedUtc
 FROM dbo.AgentInsights
 WHERE TenantId = @tenant AND (Username = @username OR Username = '')
@@ -51,7 +80,7 @@ WHERE TenantId = @tenant AND (Username = @username OR Username = '')
 ORDER BY CreatedUtc DESC
 OFFSET @offset ROWS FETCH NEXT @limit ROWS ONLY",
             new { tenant, username, kind, unreadOnly = unreadOnly ? 1 : 0, offset, limit = Math.Clamp(limit, 1, 100) });
-        return rows.ToList();
+        return rows.Select(r => r.ToModel()).ToList();
     }
 
     /// <param name="kind">Lọc theo loại (vd "payment-alert"). null = đếm mọi loại (badge chuông).</param>

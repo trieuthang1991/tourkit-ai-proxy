@@ -1,0 +1,242 @@
+using System.Text.Json;
+using TourkitAiProxy.Services.Digest;
+using TourkitAiProxy.Services.TourKit;
+
+namespace TourkitAiProxy.Endpoints;
+
+/// <summary>
+/// Đăng ký nhận bản tin: ai nhận loại nào, mấy giờ, qua kênh nào — cộng gửi thử và cấu hình Zalo OA.
+///
+/// <para><b>KHÔNG kiểm quyền để quyết ai được đăng ký bản tin điều hành.</b> Bản kế hoạch định gác
+/// bằng <c>CH_XEM_ALL</c>, nhưng TourKit.Api đã tự lo: <c>DashboardService.ResolveSpUserIdAsync</c>
+/// chỉ truyền "xem tất cả" cho tài khoản có <c>BC_NV_XEM</c>, còn lại truyền chính user id nên thủ
+/// tục lưu trữ tự lọc về số của riêng người đó. Proxy chỉ cần gửi kèm tài khoản. Tự gác thêm bằng
+/// <c>CH_XEM_ALL</c> còn CHẶN OAN người có <c>BC_NV_XEM</c> mà không có <c>CH_XEM_ALL</c> — hỏng đúng
+/// việc nó định bảo vệ, lại thêm một chỗ phải đồng bộ tay với mã quyền upstream.</para>
+///
+/// <para>Vẫn gác quyền ở <b>cấu hình Zalo OA</b> (<c>CH_HT_XEM</c>): đó là token cấp công ty do proxy
+/// tự giữ, TourKit không biết gì để lọc giúp.</para>
+///
+/// <para>Mọi endpoint yêu cầu <c>X-Session-Id</c>; tenant + user lấy từ phiên, KHÔNG nhận từ client.</para>
+/// </summary>
+public static class DigestEndpoints
+{
+    private static readonly JsonSerializerOptions Web = new(JsonSerializerDefaults.Web);
+
+    /// Body PUT đăng ký (camelCase từ frontend).
+    public record SubBody(bool Enabled, int SendHourLocal, bool ChannelInApp,
+        bool ChannelEmail, string? Email, bool ChannelTelegram, string? TelegramChatId,
+        bool ChannelZalo, string? ZaloUserId);
+
+    public record ZaloConfigBody(string? OaId, string? AccessToken);
+
+    public static IEndpointRouteBuilder MapDigestEndpoints(this IEndpointRouteBuilder routes)
+    {
+        var g = routes.MapGroup("/api/v1/digest");
+
+        // ─── Danh sách đăng ký của chính mình ────────────────────────────────────
+        g.MapGet("/subscriptions", async (HttpContext ctx, TkSessionStore sessions,
+            DigestSubscriptionRepository repo, CancellationToken ct) =>
+        {
+            var a = SessionAuth.Read(ctx, sessions);
+            if (a == null) return SessionAuth.Unauthorized();
+
+            var items = await repo.ListForUserAsync(a.TenantId, a.Username, ct);
+            return Results.Json(new
+            {
+                items,
+                briefTypes = new[]
+                {
+                    new { type = BriefTypes.Sale, label = "Bản tin sáng cho nhân viên bán hàng" },
+                    new { type = BriefTypes.Ceo,  label = "Bản tin điều hành (giám đốc)" },
+                },
+                // Nhắc UI nói rõ với người dùng: số trong bản tin điều hành co theo quyền của họ
+                // (TourKit lọc), chứ không phải "đăng ký được là thấy hết công ty".
+                scopeNote = "Số liệu trong bản tin theo đúng phạm vi quyền của tài khoản bạn.",
+            }, Web);
+        });
+
+        // ─── Lưu / cập nhật đăng ký ──────────────────────────────────────────────
+        g.MapPut("/subscriptions/{briefType}", async (string briefType, SubBody body,
+            HttpContext ctx, TkSessionStore sessions, DigestSubscriptionRepository repo,
+            CancellationToken ct) =>
+        {
+            var a = SessionAuth.Read(ctx, sessions);
+            if (a == null) return SessionAuth.Unauthorized();
+
+            // Loại lạ phải chặn: lưu được sẽ tạo bản ghi mà KHÔNG workflow nào đọc → người dùng
+            // thấy "đã lưu" rồi ngồi đợi bản tin không bao giờ tới, không dấu hiệu nào để lần ra.
+            if (!BriefTypes.IsValid(briefType))
+                return Results.BadRequest(new { error = "Loại bản tin không hợp lệ." });
+
+            var enabledChannels = (body.ChannelInApp ? 1 : 0) + (body.ChannelEmail ? 1 : 0)
+                                + (body.ChannelTelegram ? 1 : 0) + (body.ChannelZalo ? 1 : 0);
+            if (body.Enabled && enabledChannels == 0)
+                return Results.BadRequest(new { error = "Bật bản tin thì phải chọn ít nhất 1 kênh nhận." });
+
+            // Bật kênh mà bỏ trống nơi nhận thì kênh đó im lặng không gửi được — nói ngay lúc lưu
+            // còn hơn để người dùng chờ tới sáng mới biết. Kiểm ở đây, không phải lúc gửi.
+            var missing = new List<string>();
+            if (body.ChannelEmail && string.IsNullOrWhiteSpace(body.Email)) missing.Add("email nhận");
+            if (body.ChannelTelegram && string.IsNullOrWhiteSpace(body.TelegramChatId)) missing.Add("chat id Telegram");
+            if (body.ChannelZalo && string.IsNullOrWhiteSpace(body.ZaloUserId)) missing.Add("user id Zalo");
+            if (body.Enabled && missing.Count > 0)
+                return Results.BadRequest(new { error = $"Còn thiếu {string.Join(", ", missing)}." });
+
+            await repo.UpsertAsync(new DigestSubscription(
+                a.TenantId, a.Username, briefType,
+                body.Enabled, DigestSubscription.ClampHour(body.SendHourLocal),
+                body.ChannelInApp, body.ChannelEmail, body.Email?.Trim(),
+                body.ChannelTelegram, body.TelegramChatId?.Trim(),
+                body.ChannelZalo, body.ZaloUserId?.Trim(),
+                // Upsert CỐ Ý không đụng 2 mốc này (xem repo): sửa cấu hình giữa ngày KHÔNG được
+                // làm bản tin gửi lại lần nữa.
+                LastSentUtc: null, LastSentLocalDate: null), ct);
+
+            return Results.Json(new { ok = true }, Web);
+        });
+
+        // ─── Gửi thử ngay, qua đúng đường gửi thật ───────────────────────────────
+        g.MapPost("/subscriptions/{briefType}/test", async (string briefType, HttpContext ctx,
+            TkSessionStore sessions, DigestSubscriptionRepository repo, DigestDispatcher dispatcher,
+            CancellationToken ct) =>
+        {
+            var a = SessionAuth.Read(ctx, sessions);
+            if (a == null) return SessionAuth.Unauthorized();
+            if (!BriefTypes.IsValid(briefType))
+                return Results.BadRequest(new { error = "Loại bản tin không hợp lệ." });
+
+            var sub = (await repo.ListForUserAsync(a.TenantId, a.Username, ct))
+                .FirstOrDefault(s => s.BriefType == briefType);
+            if (sub == null)
+                return Results.BadRequest(new { error = "Chưa lưu đăng ký — bấm Lưu trước khi Gửi thử." });
+
+            var nowVn = DigestDue.NowVn(DateTime.UtcNow);
+            var body = "Đây là bản tin **THỬ** để kiểm tra kênh nhận. "
+                     + "Đọc được tin này nghĩa là kênh đó hoạt động tốt.";
+            var msg = new DigestMessage($"[Gửi thử] Bản tin {nowVn:dd/MM HH:mm}",
+                body, SaleBriefBuilder.ToHtml(body), briefType);
+
+            // Gửi mọi kênh đã cấu hình (mask 0 = không giới hạn) và CỐ Ý không gọi MarkSent:
+            // gửi thử không được tính là "đã gửi hôm nay", nếu không bản tin thật sáng mai bị bỏ.
+            var res = await dispatcher.SendAsync(sub, msg, ct);
+            return Results.Json(new
+            {
+                ok = res.SentMask != ChannelMask.None,
+                summary = res.Summary,
+                sentChannels = ChannelMask.Describe(res.SentMask),
+            }, Web);
+        });
+
+        // ─── Tự tìm chat id Telegram ─────────────────────────────────────────────
+        // Telegram không cho tra chat id theo tên; chỉ hiện ra khi người dùng nhắn cho bot trước.
+        // Nên cách duy nhất là: đưa họ một mã, họ nhắn mã đó, mình quét getUpdates tìm mã.
+        g.MapPost("/telegram/detect", async (HttpContext ctx, TkSessionStore sessions,
+            IHttpClientFactory http, IConfiguration cfg, CancellationToken ct) =>
+        {
+            var a = SessionAuth.Read(ctx, sessions);
+            if (a == null) return SessionAuth.Unauthorized();
+
+            var token = cfg["Telegram:BotToken"];
+            if (string.IsNullOrWhiteSpace(token))
+                return Results.Json(new { error = "Hệ thống chưa cấu hình bot Telegram." }, statusCode: 503);
+
+            // Mã gắn với PHIÊN, không phải tên đăng nhập: đoán được mã của người khác là gán được
+            // chat id của mình vào đăng ký của họ.
+            var code = "TK-" + a.SessionId[..6].ToUpperInvariant();
+            var botName = cfg["Telegram:BotUsername"];
+
+            try
+            {
+                var client = http.CreateClient();
+                var resp = await client.GetStringAsync(
+                    $"https://api.telegram.org/bot{token}/getUpdates?limit=100", ct);
+
+                using var doc = JsonDocument.Parse(resp);
+                string? chatId = null;
+                if (doc.RootElement.TryGetProperty("result", out var updates)
+                    && updates.ValueKind == JsonValueKind.Array)
+                {
+                    // Quét từ mới nhất về cũ: người dùng nhắn lại thì lấy lần gần nhất.
+                    foreach (var u in updates.EnumerateArray().Reverse())
+                    {
+                        if (!u.TryGetProperty("message", out var m)) continue;
+                        var text = m.TryGetProperty("text", out var t) ? t.GetString() ?? "" : "";
+                        if (!text.Contains(code, StringComparison.OrdinalIgnoreCase)) continue;
+                        if (m.TryGetProperty("chat", out var chat) && chat.TryGetProperty("id", out var idEl))
+                        {
+                            chatId = idEl.GetRawText();
+                            break;
+                        }
+                    }
+                }
+
+                return chatId != null
+                    ? Results.Json(new { chatId, code }, Web)
+                    : Results.Json(new
+                    {
+                        chatId = (string?)null, code, botUsername = botName,
+                        hint = $"Nhắn đúng \"{code}\" cho bot{(string.IsNullOrWhiteSpace(botName) ? "" : " @" + botName)} rồi bấm lại nút này.",
+                    }, Web);
+            }
+            catch (OperationCanceledException) { throw; }
+            catch (Exception ex)
+            {
+                // Không để lỗi mạng Telegram thành 500 — đây là tiện ích phụ, người dùng vẫn có thể
+                // tự dán chat id vào ô nhập.
+                return Results.Json(new
+                {
+                    chatId = (string?)null, code,
+                    hint = "Không hỏi được Telegram lúc này — bạn có thể tự dán chat id vào ô bên cạnh.",
+                    detail = ex.Message,
+                }, statusCode: 502);
+            }
+        });
+
+        // ─── Cấu hình Zalo OA của công ty ────────────────────────────────────────
+        // Gác quyền THẬT ở đây: token cấp công ty do proxy tự giữ, TourKit không biết để lọc giúp.
+        g.MapGet("/zalo-config", async (HttpContext ctx, TkSessionStore sessions,
+            TenantChannelSettingsStore store, CancellationToken ct) =>
+        {
+            var a = SessionAuth.Read(ctx, sessions);
+            if (a == null) return SessionAuth.Unauthorized();
+
+            var cfg = await store.GetZaloConfigAsync(a.TenantId, ct);
+            // KHÔNG trả access token về client, kể cả cho người có quyền — chỉ cần biết đã cấu hình chưa.
+            return Results.Json(new { configured = cfg != null, oaId = cfg?.OaId }, Web);
+        });
+
+        g.MapPut("/zalo-config", async (ZaloConfigBody body, HttpContext ctx, TkSessionStore sessions,
+            TenantChannelSettingsStore store, CancellationToken ct) =>
+        {
+            var a = SessionAuth.Read(ctx, sessions);
+            if (a == null) return SessionAuth.Unauthorized();
+
+            await sessions.EnsurePermissionsAsync(a.SessionId, ct);
+            if (!sessions.HasPermission(a.SessionId, TkPermissionCodes.CauHinhHeThong))
+                return Results.Json(new { error = "Cần quyền cấu hình hệ thống (CH_HT_XEM)." }, statusCode: 403);
+
+            if (string.IsNullOrWhiteSpace(body.OaId) || string.IsNullOrWhiteSpace(body.AccessToken))
+                return Results.BadRequest(new { error = "Cần đủ OA Id + Access Token." });
+
+            await store.SaveZaloConfigAsync(a.TenantId, body.OaId.Trim(), body.AccessToken.Trim(), ct);
+            return Results.Json(new { ok = true }, Web);
+        });
+
+        g.MapDelete("/zalo-config", async (HttpContext ctx, TkSessionStore sessions,
+            TenantChannelSettingsStore store, CancellationToken ct) =>
+        {
+            var a = SessionAuth.Read(ctx, sessions);
+            if (a == null) return SessionAuth.Unauthorized();
+
+            await sessions.EnsurePermissionsAsync(a.SessionId, ct);
+            if (!sessions.HasPermission(a.SessionId, TkPermissionCodes.CauHinhHeThong))
+                return Results.Json(new { error = "Cần quyền cấu hình hệ thống (CH_HT_XEM)." }, statusCode: 403);
+
+            var removed = await store.RemoveZaloConfigAsync(a.TenantId, ct);
+            return Results.Json(new { ok = true, removed }, Web);
+        });
+
+        return routes;
+    }
+}

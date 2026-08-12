@@ -160,6 +160,17 @@ data/
 | POST   | `/api/v1/mail/compose/draft`      | SSE: AI soạn email MỚI từ `{to, subject, brief, tone}` |
 | POST   | `/api/v1/mail/compose/send`       | gửi email mới qua SMTP `{to, subject, text}`         |
 | PATCH  | `/api/v1/mail/{id}/status`        | đổi trạng thái email (moi/dang_xu_ly/da_phan_hoi/da_dong) |
+| GET    | `/api/v1/insights`                | Bảng tin trong app `?kind=&unread=&offset=&limit=` → `{items[…]}` (require X-Session-Id) |
+| GET    | `/api/v1/insights/unread-count`   | Số chưa đọc cho badge chuông `?kind=` → `{count}` (require X-Session-Id) |
+| POST   | `/api/v1/insights/{id}/read`      | Đánh dấu 1 dòng đã đọc — repo kẹp theo tenant/user nên id của công ty khác không đánh dấu được |
+| POST   | `/api/v1/insights/read-all`       | Đánh dấu đã đọc tất cả |
+| GET    | `/api/v1/digest/subscriptions`    | Đăng ký nhận bản tin của chính mình → `{items[…], briefTypes[…], scopeNote}` (require X-Session-Id) |
+| PUT    | `/api/v1/digest/subscriptions/{briefType}` | Lưu đăng ký (`sale-brief`\|`ceo-brief`) — validate: loại lạ → 400, bật mà 0 kênh → 400, bật kênh mà trống nơi nhận → 400; giờ rác kẹp về 7h; CỐ Ý không đụng mốc "đã gửi hôm nay" |
+| POST   | `/api/v1/digest/subscriptions/{briefType}/test` | Gửi thử NGAY qua đúng đường gửi thật → `{ok, summary, sentChannels}`; CỐ Ý không cập nhật mốc "đã gửi" (không thì bản tin thật sáng mai bị bỏ) |
+| POST   | `/api/v1/digest/telegram/detect`   | Tự tìm chat id: trả mã `TK-xxxxxx` (gắn theo PHIÊN) → user nhắn mã cho bot → gọi lại để lấy `chatId`. Lỗi mạng Telegram → 502 kèm gợi ý tự dán, KHÔNG 500 |
+| GET    | `/api/v1/digest/zalo-config`      | Trạng thái Zalo OA của công ty `{configured, oaId}` — KHÔNG trả access token |
+| PUT    | `/api/v1/digest/zalo-config`      | Lưu OA Id + Access Token (Crypton-enc) — gate `CH_HT_XEM` |
+| DELETE | `/api/v1/digest/zalo-config`      | Xoá cấu hình Zalo OA — gate `CH_HT_XEM` |
 | POST   | `/api/v1/assistant/action/execute` | Thực thi 1 hành động trợ lý đã xác nhận `{actionId, action, params, provider?, model?}` → `{action, message, data?, warning?}` (require X-Session-Id) — idempotent theo `actionId` (double-confirm không gửi/enqueue trùng); hành động `assign_task`/`create_appointment` chỉ **enqueue** `dbo.CrmActionQueue`, KHÔNG POST thẳng CRM |
 | POST   | `/api/v1/admin/auth/login`        | Admin login `{username,password}` → `{token,username,expiresAt}` |
 | POST   | `/api/v1/admin/auth/logout`       | header `X-Admin-Session` → `{ok}` |

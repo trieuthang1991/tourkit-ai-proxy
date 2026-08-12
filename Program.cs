@@ -361,6 +361,8 @@ app.MapChatEndpoints();
 app.MapAssistantActionEndpoints();
 app.MapMailEndpoints();
 app.MapWorkflowEndpoints();
+app.MapInsightEndpoints();      // /api/v1/insights/*  — bảng tin trong app (bản tin + cảnh báo)
+app.MapDigestEndpoints();       // /api/v1/digest/*    — đăng ký nhận bản tin + gửi thử + Zalo OA
 app.MapTourEndpoints();
 app.MapTourPriceEndpoints();      // GET /api/v1/tour-price/candidates — ứng viên giá NCC (mẫu/thật/cả 2) cho wizard
 app.MapVisaEndpoints();

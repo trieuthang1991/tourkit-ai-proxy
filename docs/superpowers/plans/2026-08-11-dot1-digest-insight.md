@@ -1800,7 +1800,30 @@ public const string XemToanBoCoHoi = "CH_XEM_ALL";
 
 ---
 
-### Task 10: Endpoints — insights + digest subscriptions
+### Task 10: Endpoints — insights + digest subscriptions — ✅ XONG 12/08/2026
+
+> **[SỬA khi làm thật] BỎ HẲN cửa quyền `DigestGate`/`CH_XEM_ALL` mà plan yêu cầu.**
+> Người dùng nhắc: "phần quyền API nó lo rồi, chỉ cần truyền tài khoản lên". Kiểm lại đúng vậy —
+> `DashboardService.ResolveSpUserIdAsync` (TourKit.Api) chỉ truyền "xem tất cả" cho tài khoản có
+> **`BC_NV_XEM`**, còn lại truyền chính user id nên SP tự lọc về số của riêng họ. Và proxy không hề
+> truyền `userId`: `AiController.GetClaims()` bóc `userId`+`tenantId` từ JWT.
+> Quan trọng hơn: quyền API thật sự kiểm là `BC_NV_XEM`, **không phải `CH_XEM_ALL`** như plan ghi —
+> tự gác bằng `CH_XEM_ALL` sẽ **chặn oan** người có quyền báo cáo mà không có quyền xem mọi cơ hội,
+> tức hỏng đúng việc nó định bảo vệ, lại thêm một chỗ phải đồng bộ tay với mã quyền upstream.
+> Còn giữ gate `CH_HT_XEM` cho **cấu hình Zalo OA** — token cấp công ty do proxy tự giữ, TourKit
+> không biết gì để lọc giúp.
+>
+> **Thêm ngoài plan:** validate lúc lưu (bật bản tin mà 0 kênh → 400; bật kênh mà trống nơi nhận →
+> 400) — nói ngay lúc lưu còn hơn để người dùng chờ tới sáng mới biết không nhận được gì.
+> `GET /zalo-config` KHÔNG trả access token về client kể cả cho người có quyền.
+> Tách `Endpoints/SessionAuth.cs` dùng chung thay vì copy `RequireSession` lần thứ 5.
+>
+> **Lỗi bắt được nhờ E2E:** `GET /insights` ném 500 — `AgentInsights.Severity` là TINYINT nhưng
+> record khai `int` → Dapper không dựng được đối tượng (đúng cái đã cắn ở `DigestSubscriptions`).
+> Lỗi nằm im từ lúc tạo bảng vì workflow chỉ INSERT, chỉ nổ ở chỗ ĐỌC đầu tiên. Đã thêm DTO có setter
+> + rà toàn bộ repo còn lại theo mọi cột TINYINT/SMALLINT: không còn chỗ nào cùng bẫy.
+>
+> E2E chính thức: `scripts/e2e/features-digest.ps1` (26 PASS) — tự sao lưu + khôi phục đăng ký thật.
 
 **Files:**
 - Create: `Endpoints/InsightEndpoints.cs`
