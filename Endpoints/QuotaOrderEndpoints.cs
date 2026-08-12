@@ -11,7 +11,7 @@ namespace TourkitAiProxy.Endpoints;
 ///   POST /api/v1/quota/order                       — tạo order pending + QR (auth)
 ///   GET  /api/v1/quota/order/{id}/status           — poll status (auth + ownership)
 ///   POST /api/v1/quota/order/{id}/cancel           — hủy order pending (auth + ownership)
-///   POST /api/v1/quota/order/{id}/confirm-paid     — xác nhận đã CK (auth + ownership) → cộng lượt
+///   POST /api/v1/quota/internal/tingee-credit      — RELAY từ tourkit-web (X-Admin-Token) → cộng lượt theo mã TKAI
 ///   GET  /api/v1/quota/orders                      — lịch sử của tenant (auth)
 ///   POST /api/v1/quota/webhook/tingee              — IPN từ Tingee (no auth, HMAC verify)
 ///   GET  /api/v1/admin/quota/orders                — admin list all (admin gate)
@@ -110,28 +110,60 @@ public static class QuotaOrderEndpoints
             return Results.Ok(new { ok = true });
         });
 
-        // ─── Xác nhận đã thanh toán (thủ công) → cộng lượt ───────────────────────
-        // Người dùng bấm "Tôi đã thanh toán" sau khi chuyển khoản. Auth phiên + ownership tenant.
-        // ⚠️ TIN TƯỞNG người dùng — KHÔNG kiểm chứng tiền thật đã vào tài khoản. Cộng lượt ngay theo yêu cầu
-        //    nghiệp vụ. Idempotent theo trạng thái đơn (atomic mark-paid) → bấm nhiều lần không cộng trùng.
-        v1.MapPost("/order/{id}/confirm-paid", async (string id, HttpContext ctx,
-            QuotaOrderRepository orders, TenantQuotaStore quota, TkSessionStore sessions, ILogger<Program> log) =>
+        // ─── Cộng lượt từ webhook Tingee (RELAY từ tourkit-web) ──────────────────
+        // tourkit-web nhận webhook Tingee, thấy nội dung CK có mã TKAI → gọi endpoint này để cộng lượt.
+        // Auth server-to-server = header X-Admin-Token (== Admin:Token, dùng chung). KHÔNG có session người dùng.
+        // Idempotent theo trạng thái đơn (atomic mark-paid) → gọi lại / Tingee retry không cộng trùng.
+        v1.MapPost("/internal/tingee-credit", async (TingeeCreditReq req, HttpContext ctx,
+            QuotaOrderRepository orders, TenantQuotaStore quota, IConfiguration cfg, ILogger<Program> log) =>
         {
-            var sid = Sid(ctx);
-            var sess = sessions.Get(sid);
-            if (sess == null) return Results.Json(new { error = "Phiên không hợp lệ" }, statusCode: 401);
-            var row = await orders.GetByIdAsync(id);
-            if (row == null) return Results.NotFound(new { error = "Không tìm thấy đơn" });
-            if (row.TenantId != sess.TenantId)
-                return Results.Json(new { error = "Không có quyền" }, statusCode: 403);
-            if (row.Status == "paid") return Results.Ok(new { ok = true, idempotent = true });
+            // FAIL-CLOSED (endpoint cộng tiền): Tingee:RelayToken PHẢI cấu hình + header X-Relay-Token khớp.
+            // Trống → chặn hẳn. Token hỗ trợ ENC: (Crypton) — giải trước khi so.
+            var expectedToken = ResolveSecret(cfg["Tingee:RelayToken"]);
+            var gotToken = ctx.Request.Headers["X-Relay-Token"].FirstOrDefault();
+            if (string.IsNullOrWhiteSpace(expectedToken) || !string.Equals(expectedToken, gotToken, StringComparison.Ordinal))
+            {
+                log.LogWarning("[Tingee credit] unauthorized — Quota:RelayToken trống hoặc header sai");
+                return Results.Json(new { ok = false, error = "unauthorized" }, statusCode: 403);
+            }
+            if (req == null || string.IsNullOrWhiteSpace(req.Content))
+                return Results.BadRequest(new { ok = false, error = "thiếu content" });
 
-            // Atomic mark-paid (WHERE Status='pending') → chỉ 1 lần cộng lượt dù bấm/gọi song song nhiều lần.
-            var paid = await orders.TryMarkPaidAsync(id, $"MANUAL-{Guid.NewGuid().ToString("N")[..8]}", "{\"manual\":true}");
+            var orderId = ExtractOrderId(req.Content);
+            if (orderId == null)
+            {
+                log.LogWarning("[Tingee credit] content '{C}' không có mã TKAI — skip", req.Content);
+                return Results.Ok(new { ok = false, reason = "no TKAI order id" });
+            }
+
+            var row = await orders.GetByIdAsync(orderId);
+            if (row == null)
+            {
+                // Tiền đã vào nhưng không tìm thấy đơn (hết hạn?) → log ERROR để đối soát tay.
+                log.LogError("[Tingee credit] order {Id} không tồn tại nhưng đã nhận tiền — ĐỐI SOÁT TAY. content={C}", orderId, req.Content);
+                return Results.Ok(new { ok = false, reason = "order not found" });
+            }
+            if (row.Status == "paid")
+                return Results.Ok(new { ok = true, idempotent = true });
+
+            // CHẶN nếu chuyển THIẾU tiền → KHÔNG cộng lượt (đơn giữ nguyên 'pending', log để đối soát/hoàn tay).
+            if (req.Amount.HasValue && req.Amount.Value < row.AmountVnd)
+            {
+                log.LogWarning("[Tingee credit] order {Id} THIẾU tiền: nhận {P} < cần {E} — KHÔNG cộng lượt",
+                    orderId, req.Amount, row.AmountVnd);
+                return Results.Ok(new { ok = false, reason = "insufficient amount", paid = req.Amount, required = row.AmountVnd });
+            }
+            // Chuyển DƯ → vẫn cộng đủ lượt của gói (khách chịu phần dư), chỉ ghi log.
+            if (req.Amount.HasValue && req.Amount.Value > row.AmountVnd)
+                log.LogWarning("[Tingee credit] order {Id} chuyển DƯ: nhận {P} > cần {E} — vẫn cộng đủ gói",
+                    orderId, req.Amount, row.AmountVnd);
+
+            // Atomic mark-paid → chỉ cộng 1 lần dù gọi song song / Tingee retry.
+            var paid = await orders.TryMarkPaidAsync(orderId, req.TransactionCode ?? "WEB-RELAY", "{\"via\":\"web-relay\"}");
             if (paid == null) return Results.Ok(new { ok = true, idempotent = true });
             quota.TopUp(row.TenantId, row.QuotaUnits);
-            log.LogInformation("[Quota] order {Id} xác nhận thủ công (user {U}) → tenant {T} +{N} lượt",
-                id, sess.Username, row.TenantId, row.QuotaUnits);
+            log.LogInformation("[Tingee credit] order {Id} → tenant {T} +{N} lượt (tx={Tx})",
+                orderId, row.TenantId, row.QuotaUnits, req.TransactionCode);
             return Results.Ok(new { ok = true });
         });
 
@@ -237,6 +269,12 @@ public static class QuotaOrderEndpoints
         => ctx.Request.Headers["X-Session-Id"].FirstOrDefault()
         ?? ctx.Request.Query["sessionId"].FirstOrDefault()
         ?? "";
+
+    /// <summary>Giải secret dạng ENC: (Crypton) — mirror SecureHelper.DecryptIfEncrypted bản web.</summary>
+    private static string? ResolveSecret(string? v)
+        => !string.IsNullOrEmpty(v) && v.StartsWith("ENC:", StringComparison.Ordinal)
+            ? TourkitAiProxy.Services.Security.Crypton.Decrypt(v.Substring(4))
+            : v;
 
     private static bool AdminOk(HttpContext ctx, IConfiguration cfg)
     {

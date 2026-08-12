@@ -66,6 +66,12 @@ public record TiersResp(QuotaTier[] Tiers);
 /// <summary>Body POST /quota/order — FE gửi tierId, BE tạo order + Tingee QR.</summary>
 public record CreateOrderReq(string TierId);
 
+/// <summary>
+/// Body POST /quota/internal/tingee-credit — tourkit-web relay sang khi webhook Tingee có mã TKAI.
+/// `Content` = nội dung CK (chứa OrderId TKAI-...). `Amount`/`TransactionCode` để đối soát + audit.
+/// </summary>
+public record TingeeCreditReq(string Content, decimal? Amount, string? TransactionCode);
+
 /// <summary>Response sau khi tạo order — đủ cho FE vẽ QR + countdown + bắt đầu poll status.</summary>
 public record CreateOrderResp(
     string OrderId,

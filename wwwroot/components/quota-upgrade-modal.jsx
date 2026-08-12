@@ -134,7 +134,6 @@
     const [polling, setPolling] = useState(true);
     const [err, setErr] = useState(null);
     const [copied, setCopied] = useState('');
-    const [confirming, setConfirming] = useState(false);
     const timerRef = useRef(null);
     const pollRef  = useRef(null);
 
@@ -185,20 +184,6 @@
     async function copy(text, label){
       try { await navigator.clipboard.writeText(text); setCopied(label); setTimeout(()=>setCopied(''), 1800); }
       catch { /* old browser */ }
-    }
-
-    // "Tôi đã thanh toán" — người dùng xác nhận đã chuyển khoản → gọi BE cộng lượt ngay.
-    // BE atomic mark-paid → bấm nhiều lần không cộng trùng. Poll (≤3s) sẽ chuyển sang màn "thành công".
-    async function iHavePaid(){
-      if (confirming) return;
-      setConfirming(true);
-      setErr(null);
-      try {
-        const r = await window.tourkitAuth.authedFetch(`/api/v1/quota/order/${order.orderId}/confirm-paid`, { method: 'POST' });
-        const d = await r.json().catch(() => ({}));
-        if (!r.ok) throw new Error(d.error || 'Xác nhận thất bại');
-        // Server đã cộng lượt; poll sẽ tự chuyển sang màn "thành công".
-      } catch(e){ setErr(e.message); setConfirming(false); }
     }
 
     const mm = String(Math.floor(remaining/60)).padStart(2,'0');
@@ -265,12 +250,9 @@
                   <span className="qu-copy-ico">{copied==='MEMO' ? '✓' : '📋'}</span>
                 </button>
               </div>
-              <p className="qu-warn-memo">⚠️ Giữ nguyên nội dung CK — hệ thống match tự động qua mã này.</p>
+              <p className="qu-warn-memo">⚠️ Giữ nguyên nội dung CK — hệ thống tự cộng lượt khi nhận được tiền.</p>
+              <p className="qu-warn-memo">⚠️ Chuyển <b>ĐÚNG/ĐỦ số tiền</b> — nếu chuyển <b>thiếu</b> sẽ <b>KHÔNG</b> được cộng lượt.</p>
             </div>
-
-            <button className="qu-sim-btn" onClick={iHavePaid} disabled={confirming}>
-              {confirming ? 'Đang xác nhận…' : '✅ Tôi đã thanh toán'}
-            </button>
           </div>
         </div>
       </div>
