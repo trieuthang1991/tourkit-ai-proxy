@@ -75,10 +75,11 @@ import "./pages/widget-admin.jsx";
 import "./pages/ncc-import.jsx";
 import "./pages/ncc-list.jsx";
 import "./pages/visa-config.jsx";
-import "./pages/workflows.jsx";
-import "./pages/flow-preview.jsx";
+// Nạp TRƯỚC workflows.jsx: trang đó nhúng window.DigestSubBlock + window.InsightsFeed.
 import "./pages/insights.jsx";
 import "./pages/digest.jsx";
+import "./pages/workflows.jsx";
+import "./pages/flow-preview.jsx";
 import "./pages/help.jsx";
 
 // Root: App shell + router (PHẢI CUỐI — dùng tất cả window.X định nghĩa ở trên)

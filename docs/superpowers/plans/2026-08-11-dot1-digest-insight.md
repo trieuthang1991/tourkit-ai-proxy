@@ -2061,7 +2061,45 @@ public static class DigestEndpoints
 
 ---
 
-### Task 11: Frontend — `/insights` + `/digest` + badge chuông — ✅ XONG 12/08/2026
+### Task 11: Frontend — GỘP vào trang Tự động hoá (2 tab) — ✅ XONG 12/08/2026
+
+> **[SỬA 12/08 theo yêu cầu người dùng] KHÔNG làm 2 trang riêng.** Nhận xét của người dùng:
+> *"2 page mới nên tích hợp cùng chỗ với bên Tự động hóa. Thực tế tạo page mới không tác dụng lắm."*
+> Đúng: đăng ký nhận bản tin CHÍNH LÀ cấu hình của tác vụ `sale-brief`/`ceo-brief`, mà trang Tự động
+> hoá vốn đã là chỗ cấu hình tác vụ (`deal-auto-review` cũng có form tài khoản ngay trong thẻ).
+> Tách ra trang riêng bắt người dùng nhớ 2 nơi cho cùng một việc.
+>
+> **Cấu trúc chốt lại:** trang `/workflows` có **2 tab** — "Tác vụ" (thẻ tác vụ, mỗi thẻ bản tin chứa
+> khối "Bản tin của tôi") và "Bảng tin" (kèm số chưa đọc). Zalo OA đặt **cạnh tài khoản dịch vụ** trong
+> nhóm "Theo tổ chức" (mỗi tenant khai 1 lần). Bỏ 2 mục menu mới; `/insights` + `/digest` trỏ về đúng
+> tab của trang này nên chuông và mọi link đã phát ra vẫn hoạt động.
+>
+> **Phân vai quyền (người dùng chốt: "chỉ phần tài khoản cần quyền … tác vụ bản tin đi theo tài khoản
+> nên không cần quan tâm đến quyền"):** giống hệt hộp thư cá nhân —
+> • "Bản tin của tôi" (nơi nhận của chính mình) → KHÔNG cần quyền.
+> • Lịch chạy + tài khoản dịch vụ + Zalo OA → cần `CH_HT_XEM`.
+> Kéo theo: **bỏ gate cứng `CH_HT_XEM` trên `/workflows`** và chuyển mục menu ra khỏi khối "Tích hợp"
+> (sang khối "Bản tin & Tự động"). Khối "Tích hợp" vẫn thuần cấu hình nên KHÔNG tái diễn lỗi R2.
+> Đã kiểm bằng cách chặn `hasPermission` trong trình duyệt: người không có quyền thấy Gmail + 2 thẻ bản
+> tin, có "Bản tin của tôi" + "Gửi thử", KHÔNG có nhóm Theo tổ chức / Zalo OA / Lịch chạy / Lưu cấu hình.
+>
+> **Full width** (`.page.wga.workflows-page { max-width: none }`) theo yêu cầu — bó 1180px làm bảng
+> lịch sử và nội dung bản tin bị bóp trong khi hai bên còn trống.
+>
+> **Sơ đồ:** chuyển 2 sơ đồ `_demo-*` thành sơ đồ THẬT và vẽ lại theo code (bản demo thiếu 2 nguồn của
+> sale-brief và có node "dòng tiền & lợi nhuận" không tồn tại). Cả **7 tác vụ** đều có sơ đồ, mỗi thẻ có
+> nút "Xem sơ đồ" — E2E hết cảnh báo.
+>
+> **E2E sơ đồ nay kiểm luôn `pages/`**: mỗi file phải khai ở CẢ `index.html` và `bundle-entry.js` —
+> thiếu import thì dev mode chạy bình thường còn bản prod TRẮNG TRANG. Đã thử bỏ 1 import để chắc bộ
+> kiểm bắt được thật; trang thuộc HTML entry riêng (`admin-trav-ai.html`) đọc từ chính file HTML đó.
+>
+> **3 lỗi giao diện tự tìm ra khi xem bằng mắt (test không bắt được):**
+> 1. **Ô chọn giờ NÓI SAI giờ đã lưu:** danh sách chỉ 5h–20h nên đăng ký lưu 21:00 hiện thành 05:00
+>    (không mục nào khớp → trình duyệt lấy mục đầu). Nay đủ 0–23.
+> 2. **Mobile: ô tick tách khỏi tên kênh** thành dòng riêng canh giữa → không biết tick cho kênh nào.
+> 3. **"Bạn nhận lúc 21:00" cạnh nhãn "TẮT":** đăng ký rồi mà công ty chưa bật lịch thì bản tin KHÔNG
+>    bao giờ tới, im lặng. Nay có cảnh báo rõ ở cả dòng thu gọn và trong khối.
 
 > **Thêm ngoài plan:**
 > - Chuyển 2 sơ đồ `_demo-*` thành sơ đồ THẬT (`flows/sale-brief.js`, `flows/ceo-brief.js`): bỏ

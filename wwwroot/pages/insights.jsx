@@ -1,7 +1,9 @@
-// pages/insights.jsx — Trang "Bảng tin" (Insight Feed)
+// pages/insights.jsx — Khối "Bảng tin" (Insight Feed)
 //
-// Chỗ đọc lại mọi bản tin + cảnh báo do tác vụ tự động sinh ra. Đây là kênh CHẮC CHẮN nhất
-// (không phụ thuộc email/Telegram/Zalo) nên cũng là nơi tra khi các kênh ngoài hỏng.
+// KHÔNG phải một trang riêng: khối này là tab "Bảng tin" của trang Tự động hoá (chốt 12/08 —
+// gộp một chỗ, không thêm mục menu). Chỗ đọc lại mọi bản tin + cảnh báo do tác vụ tự động sinh ra.
+// Đây là kênh CHẮC CHẮN nhất (không phụ thuộc email/Telegram/Zalo) nên cũng là nơi tra khi các
+// kênh ngoài hỏng.
 //
 // Dùng lại design system chung (wga-* + Icon) + helper chung (authedFetch, fmtAgo) — không tự chế.
 'use strict';
@@ -49,7 +51,7 @@ async function iApi(path, opts = {}) {
   return r.json();
 }
 
-function InsightsPage({ pushToast }) {
+function InsightsFeed({ pushToast }) {
   const Icon = window.Icon;
   const [items, setItems] = iS([]);
   const [kind, setKind] = iS('');
@@ -100,16 +102,12 @@ function InsightsPage({ pushToast }) {
   const unreadCount = items.filter(x => !x.isRead).length;
 
   return (
-    <main className="page wga insights-page">
-      <div className="wga-head">
-        <div>
-          <div className="wga-eyebrow">Bản tin · Thông báo</div>
-          <h1>Bảng tin</h1>
-          <p className="wga-sub">
-            Bản tin và cảnh báo do tác vụ tự động gửi. Đây là bản lưu trong app —
-            luôn còn ở đây dù email hay Telegram có hỏng.
-          </p>
-        </div>
+    <div className="insights-feed">
+      <div className="insights-bar">
+        <p className="insights-lead">
+          Bản tin và cảnh báo do tác vụ tự động gửi. Đây là bản lưu trong app —
+          luôn còn ở đây dù email hay Telegram có hỏng.
+        </p>
         <div className="insights-head-actions">
           <button className="wga-btn ghost" onClick={load} disabled={loading}>
             <Icon name="refresh" size={14} /> Tải lại
@@ -144,13 +142,9 @@ function InsightsPage({ pushToast }) {
           <Icon name="bell" size={22} />
           <p><b>Chưa có gì ở đây.</b></p>
           <p>
-            Bản tin sáng chỉ tới sau khi bạn đăng ký ở trang <b>Bản tin AI</b> và chọn giờ nhận.
-            Muốn thử ngay thì bấm <b>Gửi thử</b> ở trang đó.
+            Bản tin sáng chỉ tới sau khi bạn bật <b>"Nhận bản tin này"</b> trong tab <b>Tác vụ</b> và
+            chọn giờ nhận. Muốn thử ngay thì bấm <b>Gửi thử</b> ở đó.
           </p>
-          <button className="wga-btn primary"
-            onClick={() => window.tourkitRouter.navigate('/digest')}>
-            <Icon name="sliders" size={14} /> Mở trang Bản tin AI
-          </button>
         </div>
       )}
 
@@ -180,8 +174,8 @@ function InsightsPage({ pushToast }) {
           );
         })}
       </div>
-    </main>
+    </div>
   );
 }
 
-window.InsightsPage = InsightsPage;
+window.InsightsFeed = InsightsFeed;

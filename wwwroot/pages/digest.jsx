@@ -1,9 +1,12 @@
-// pages/digest.jsx — Trang "Bản tin AI": đăng ký nhận bản tin sáng.
+// pages/digest.jsx — Khối "Bản tin của tôi" + cấu hình OA Zalo.
 //
-// Mỗi người TỰ khai nơi nhận của mình (email/Telegram/Zalo) và giờ muốn nhận. Phần tài khoản GỬI
-// ĐI của công ty (OA Zalo) nằm riêng ở cuối trang vì đó là cấu hình cấp công ty, cần quyền.
+// KHÔNG phải một trang riêng: 2 khối này nhúng vào thẻ tác vụ ở trang Tự động hoá. Lý do (chốt
+// 12/08): đăng ký nhận bản tin CHÍNH LÀ cấu hình của tác vụ sale-brief/ceo-brief — tách ra trang
+// riêng thì người dùng phải nhớ 2 nơi cho cùng một việc.
 //
-// Dùng lại design system chung (wga-* + Icon) + helper chung (authedFetch) — không tự chế.
+// Phân vai quyền, giống hệt cách hộp thư (mail-auto-sync) đang làm:
+//   • "Bản tin của tôi" — nơi nhận của CHÍNH mình → KHÔNG cần quyền gì.
+//   • Lịch chạy (bật/tắt, tần suất) + OA Zalo — cấp công ty → cần quyền xem cấu hình.
 'use strict';
 
 const { useState: dS, useEffect: dE, useCallback: dCB } = React;
@@ -16,21 +19,6 @@ const { useState: dS, useEffect: dE, useCallback: dCB } = React;
 // vả lại 21h là lựa chọn hợp lý (đọc bản tin tối trước cho sáng mai).
 const HOURS = Array.from({ length: 24 }, (_, i) => i);
 
-const BRIEF_INFO = {
-  'sale-brief': {
-    icon: 'phone',
-    title: 'Bản tin sáng cho nhân viên bán hàng',
-    desc: 'Trả lời đúng một câu: sáng nay gọi ai trước. Gồm cơ hội cần gọi, lịch hẹn, việc cần làm, báo giá khách chưa phản hồi.',
-    cost: 'Không tốn lượt AI',
-  },
-  'ceo-brief': {
-    icon: 'trend',
-    title: 'Bản tin điều hành (giám đốc)',
-    desc: 'Doanh thu – chi phí – lợi nhuận so cùng kỳ tháng trước, kèm biến động chính và top nhân viên bán hàng.',
-    cost: 'Khoảng 1 lượt AI mỗi lần gửi',
-  },
-};
-
 const EMPTY_SUB = {
   enabled: false, sendHourLocal: 7,
   channelInApp: true,
@@ -38,6 +26,8 @@ const EMPTY_SUB = {
   channelTelegram: false, telegramChatId: '',
   channelZalo: false, zaloUserId: '',
 };
+
+const BRIEF_TYPES = ['sale-brief', 'ceo-brief'];
 
 async function dApi(path, opts = {}) {
   const r = await window.tourkitAuth.authedFetch(path, {
@@ -50,20 +40,33 @@ async function dApi(path, opts = {}) {
   return body;
 }
 
-// ─── Một thẻ đăng ký ────────────────────────────────────────────────────────────
-function BriefCard({ briefType, initial, onSaved, pushToast }) {
+// Tóm tắt 1 dòng cho dòng list thu gọn của thẻ tác vụ — để không phải mở ra mới biết mình có nhận không.
+function digestSummary(sub) {
+  if (!sub || !sub.enabled) return 'Bạn chưa bật nhận bản tin này';
+  const ch = [];
+  if (sub.channelInApp) ch.push('trong app');
+  if (sub.channelEmail) ch.push('email');
+  if (sub.channelTelegram) ch.push('telegram');
+  if (sub.channelZalo) ch.push('zalo');
+  return `Bạn nhận lúc ${String(sub.sendHourLocal).padStart(2, '0')}:00 · ${ch.join(', ') || 'chưa chọn kênh'}`;
+}
+
+// ─── Khối đăng ký của một loại bản tin ──────────────────────────────────────────
+// scheduleOn: công ty đã bật LỊCH gửi của tác vụ này chưa. Cần biết vì đăng ký của một người và
+// lịch của công ty là hai công tắc khác nhau — bật một cái mà thiếu cái kia thì bản tin KHÔNG tới,
+// và không có gì trên màn hình nói cho họ hay (đã thấy đúng ca này khi xem thật).
+function DigestSubBlock({ briefType, sub, onSaved, pushToast, scheduleOn = true }) {
   const Icon = window.Icon;
-  const info = BRIEF_INFO[briefType];
-  const [f, setF] = dS({ ...EMPTY_SUB, ...(initial || {}) });
+  const [f, setF] = dS({ ...EMPTY_SUB, ...(sub || {}) });
   const [saving, setSaving] = dS(false);
   const [testing, setTesting] = dS(false);
   const [testResult, setTestResult] = dS(null);
   const [tgCode, setTgCode] = dS(null);
   const [dirty, setDirty] = dS(false);
 
-  // Server là nguồn đúng: sau khi tải lại danh sách thì đồng bộ về, TRỪ khi người dùng đang sửa
-  // dở — ghi đè lúc đó là xoá mất thao tác của họ ngay trước mắt.
-  dE(() => { if (!dirty) setF({ ...EMPTY_SUB, ...(initial || {}) }); }, [initial]);
+  // Server là nguồn đúng: sau khi tải lại thì đồng bộ về, TRỪ khi người dùng đang sửa dở —
+  // ghi đè lúc đó là xoá mất thao tác của họ ngay trước mắt.
+  dE(() => { if (!dirty) setF({ ...EMPTY_SUB, ...(sub || {}) }); }, [sub]);
 
   const set = (patch) => { setF(prev => ({ ...prev, ...patch })); setDirty(true); };
 
@@ -84,7 +87,7 @@ function BriefCard({ briefType, initial, onSaved, pushToast }) {
     try {
       await dApi(`/api/v1/digest/subscriptions/${briefType}`, { method: 'PUT', body: JSON.stringify(f) });
       setDirty(false);
-      pushToast && pushToast('Đã lưu đăng ký');
+      pushToast && pushToast('Đã lưu: ' + digestSummary(f));
       onSaved && onSaved();
     } catch (e) { pushToast && pushToast('Lỗi: ' + e.message); }
     finally { setSaving(false); }
@@ -96,7 +99,7 @@ function BriefCard({ briefType, initial, onSaved, pushToast }) {
     try {
       const d = await dApi(`/api/v1/digest/subscriptions/${briefType}/test`, { method: 'POST' });
       setTestResult(d);
-      // Bản tin thử vào Bảng tin ngay → nhắc chuông cập nhật, khỏi đợi hết chu kỳ.
+      // Bản tin thử vào Bảng tin ngay → nhắc chuông + tab Bảng tin cập nhật, khỏi đợi hết chu kỳ.
       window.dispatchEvent(new CustomEvent('tourkit:insights'));
     } catch (e) { setTestResult({ ok: false, summary: e.message }); }
     finally { setTesting(false); }
@@ -114,19 +117,15 @@ function BriefCard({ briefType, initial, onSaved, pushToast }) {
   };
 
   return (
-    <section className={'digest-card' + (f.enabled ? ' is-on' : '')}>
-      <header className="digest-card-head">
-        <div className="digest-card-ico"><Icon name={info.icon} size={17} /></div>
-        <div className="digest-card-titles">
-          <h2>{info.title}</h2>
-          <p>{info.desc}</p>
-          <span className="digest-cost"><Icon name="sparkle" size={11} /> {info.cost}</span>
-        </div>
-        <label className="digest-switch" title={f.enabled ? 'Đang bật' : 'Đang tắt'}>
-          <input type="checkbox" checked={!!f.enabled} onChange={e => set({ enabled: e.target.checked })} />
-          <span>{f.enabled ? 'Bật' : 'Tắt'}</span>
-        </label>
-      </header>
+    <div className="workflows-optgroup digest-block">
+      <div className="workflows-optgroup-title">Bản tin của tôi</div>
+
+      <div className="digest-ch">
+        <input type="checkbox" checked={!!f.enabled} onChange={e => set({ enabled: e.target.checked })}
+          id={'dg-on-' + briefType} />
+        <label className="digest-ch-name" htmlFor={'dg-on-' + briefType}>Nhận bản tin này</label>
+        <span className="digest-ch-note">Chỉ áp dụng cho riêng bạn, không ảnh hưởng người khác</span>
+      </div>
 
       <div className="digest-row">
         <div className="digest-label">Giờ nhận <span className="digest-hint">(giờ Việt Nam)</span></div>
@@ -136,89 +135,95 @@ function BriefCard({ briefType, initial, onSaved, pushToast }) {
         </select>
       </div>
 
-      <div className="digest-channels">
-        <div className="digest-label">Nơi nhận</div>
+      <div className="digest-label" style={{ marginBottom: 2 }}>Nơi nhận</div>
 
-        <label className="digest-ch">
-          <input type="checkbox" checked={!!f.channelInApp} onChange={e => set({ channelInApp: e.target.checked })} />
-          <span className="digest-ch-name"><Icon name="bell" size={13} /> Trong app</span>
-          <span className="digest-ch-note">Luôn xem lại được ở trang Bảng tin — nên để bật</span>
-        </label>
+      <label className="digest-ch">
+        <input type="checkbox" checked={!!f.channelInApp} onChange={e => set({ channelInApp: e.target.checked })} />
+        <span className="digest-ch-name"><Icon name="bell" size={13} /> Trong app</span>
+        <span className="digest-ch-note">Luôn xem lại được ở tab Bảng tin — nên để bật</span>
+      </label>
 
-        <label className="digest-ch">
-          <input type="checkbox" checked={!!f.channelEmail} onChange={e => set({ channelEmail: e.target.checked })} />
-          <span className="digest-ch-name"><Icon name="mail" size={13} /> Email</span>
-          <input className="digest-input" type="email" placeholder="ban@congty.vn"
-            value={f.email || ''} onChange={e => set({ email: e.target.value })}
-            disabled={!f.channelEmail} />
-        </label>
+      <label className="digest-ch">
+        <input type="checkbox" checked={!!f.channelEmail} onChange={e => set({ channelEmail: e.target.checked })} />
+        <span className="digest-ch-name"><Icon name="mail" size={13} /> Email</span>
+        <input className="digest-input" type="email" placeholder="ban@congty.vn"
+          value={f.email || ''} onChange={e => set({ email: e.target.value })} disabled={!f.channelEmail} />
+      </label>
 
-        <label className="digest-ch">
-          <input type="checkbox" checked={!!f.channelTelegram} onChange={e => set({ channelTelegram: e.target.checked })} />
-          <span className="digest-ch-name"><Icon name="send" size={13} /> Telegram</span>
-          <input className="digest-input" placeholder="chat id"
-            value={f.telegramChatId || ''} onChange={e => set({ telegramChatId: e.target.value })}
-            disabled={!f.channelTelegram} />
-          <button type="button" className="wga-btn ghost digest-detect"
-            onClick={(e) => { e.preventDefault(); detectTelegram(); }} disabled={!f.channelTelegram}>
-            Tự phát hiện
-          </button>
-        </label>
-        {tgCode && (
-          <div className="digest-tg-hint">
-            {tgCode.code && <>Nhắn đúng dòng <b>{tgCode.code}</b> cho bot{tgCode.botUsername ? <> <b>@{tgCode.botUsername}</b></> : null}, rồi bấm lại “Tự phát hiện”.</>}
-            {!tgCode.code && <>{tgCode.hint}</>}
-          </div>
-        )}
+      <label className="digest-ch">
+        <input type="checkbox" checked={!!f.channelTelegram} onChange={e => set({ channelTelegram: e.target.checked })} />
+        <span className="digest-ch-name"><Icon name="send" size={13} /> Telegram</span>
+        <input className="digest-input" placeholder="chat id"
+          value={f.telegramChatId || ''} onChange={e => set({ telegramChatId: e.target.value })}
+          disabled={!f.channelTelegram} />
+        <button type="button" className="wga-btn ghost digest-detect"
+          onClick={(e) => { e.preventDefault(); detectTelegram(); }} disabled={!f.channelTelegram}>
+          Tự phát hiện
+        </button>
+      </label>
+      {tgCode && (
+        <div className="digest-tg-hint">
+          {tgCode.code
+            ? <>Nhắn đúng dòng <b>{tgCode.code}</b> cho bot{tgCode.botUsername ? <> <b>@{tgCode.botUsername}</b></> : null}, rồi bấm lại “Tự phát hiện”.</>
+            : <>{tgCode.hint}</>}
+        </div>
+      )}
 
-        <label className="digest-ch">
-          <input type="checkbox" checked={!!f.channelZalo} onChange={e => set({ channelZalo: e.target.checked })} />
-          <span className="digest-ch-name"><Icon name="user" size={13} /> Zalo</span>
-          <input className="digest-input" placeholder="user id Zalo"
-            value={f.zaloUserId || ''} onChange={e => set({ zaloUserId: e.target.value })}
-            disabled={!f.channelZalo} />
-        </label>
-        {f.channelZalo && (
-          // Giới hạn của Zalo OA, không phải lỗi hệ thống: chỉ nhắn được cho người đã nhắn OA
-          // trong 48 giờ. Không nói trước thì người dùng tưởng kênh hỏng.
-          <div className="digest-ch-warn">
-            <Icon name="info" size={12} /> Zalo chỉ nhận được nếu bạn đã nhắn cho OA của công ty trong 48 giờ gần nhất.
-          </div>
-        )}
-      </div>
+      <label className="digest-ch">
+        <input type="checkbox" checked={!!f.channelZalo} onChange={e => set({ channelZalo: e.target.checked })} />
+        <span className="digest-ch-name"><Icon name="user" size={13} /> Zalo</span>
+        <input className="digest-input" placeholder="user id Zalo"
+          value={f.zaloUserId || ''} onChange={e => set({ zaloUserId: e.target.value })} disabled={!f.channelZalo} />
+      </label>
+      {f.channelZalo && (
+        // Giới hạn của Zalo OA, không phải lỗi hệ thống: chỉ nhắn được cho người đã nhắn OA trong
+        // 48 giờ. Không nói trước thì người dùng tưởng kênh hỏng.
+        <div className="digest-ch-warn">
+          <Icon name="info" size={12} /> Zalo chỉ nhận được nếu bạn đã nhắn cho OA của công ty trong 48 giờ gần nhất.
+        </div>
+      )}
 
       {problem && <div className="digest-problem"><Icon name="warning" size={13} /> {problem}</div>}
 
-      <footer className="digest-card-foot">
+      {f.enabled && !scheduleOn && (
+        <div className="digest-ch-warn digest-warn-sched">
+          <Icon name="warning" size={12} />
+          <span>
+            Bạn đã bật nhận, nhưng <b>công ty chưa bật lịch gửi</b> bản tin này nên sẽ chưa có gì được
+            gửi. Nhờ người quản trị bật ở mục <b>Lịch chạy</b> (cần quyền xem cấu hình).
+          </span>
+        </div>
+      )}
+
+      <div className="workflows-actions digest-actions">
         <button className="wga-btn primary" onClick={save} disabled={saving || !!problem}>
-          <Icon name="save" size={14} /> {saving ? 'Đang lưu…' : 'Lưu'}
+          <Icon name="save" size={14} /> {saving ? 'Đang lưu…' : 'Lưu bản tin của tôi'}
         </button>
-        <button className="wga-btn ghost" onClick={sendTest} disabled={testing || dirty}>
+        <button className="wga-btn ghost" onClick={sendTest} disabled={testing || dirty || !sub}>
           <Icon name="send" size={14} /> {testing ? 'Đang gửi…' : 'Gửi thử'}
         </button>
         {dirty && <span className="digest-dirty">Có thay đổi chưa lưu</span>}
         {testResult && (
           <span className={'digest-test' + (testResult.ok ? ' is-ok' : ' is-bad')}>
-            {testResult.ok
-              ? <>Đã gửi qua: {testResult.sentChannels}</>
-              : <>Không gửi được — {testResult.summary}</>}
+            {testResult.ok ? <>Đã gửi qua: {testResult.sentChannels}</> : <>Không gửi được — {testResult.summary}</>}
           </span>
         )}
-      </footer>
-      {testResult && testResult.summary && testResult.ok && (
+      </div>
+      {testResult && testResult.ok && testResult.summary && (
         <div className="digest-test-detail">Chi tiết từng kênh: {testResult.summary}</div>
       )}
-    </section>
+    </div>
   );
 }
 
-// ─── Cấu hình OA Zalo của công ty ───────────────────────────────────────────────
-function ZaloOaBox({ pushToast }) {
+// ─── Cấu hình OA Zalo của công ty (cần quyền xem cấu hình) ──────────────────────
+function DigestZaloBox({ pushToast }) {
   const Icon = window.Icon;
   const [state, setState] = dS(null);
   const [oaId, setOaId] = dS('');
   const [token, setToken] = dS('');
   const [busy, setBusy] = dS(false);
+  const [open, setOpen] = dS(false);
 
   const load = dCB(async () => {
     try { setState(await dApi('/api/v1/digest/zalo-config')); } catch { setState({ configured: false }); }
@@ -242,106 +247,57 @@ function ZaloOaBox({ pushToast }) {
   };
 
   return (
-    <section className="digest-card digest-oa">
-      <header className="digest-card-head">
-        <div className="digest-card-ico"><Icon name="shield" size={17} /></div>
-        <div className="digest-card-titles">
-          <h2>OA Zalo của công ty</h2>
-          {/* Vì sao chỉ Zalo phải tự khai: nó tốn tiền và hạn mức tính theo từng OA nên không thể
-              dùng tài khoản chung. Telegram và email miễn phí → hệ thống cấp sẵn. */}
-          <p>
-            Chỉ cần khai nếu công ty muốn gửi bản tin qua Zalo. Zalo tốn tiền và hạn mức tính riêng
-            theo từng OA nên không dùng chung được. Telegram và email thì hệ thống lo, bạn không phải khai gì.
-          </p>
-          <span className="digest-cost"><Icon name="info" size={11} /> Cấu hình dùng cho cả công ty</span>
-        </div>
+    <div className="digest-oa">
+      <div className="digest-oa-head" onClick={() => setOpen(v => !v)} role="button" tabIndex={0}
+        onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setOpen(v => !v); } }}>
+        <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+          <Icon name="shield" size={15} /> <b>OA Zalo của công ty</b>
+        </span>
         <span className={'digest-oa-state' + (state && state.configured ? ' is-on' : '')}>
           {state == null ? '…' : (state.configured ? 'Đã cấu hình' : 'Chưa cấu hình')}
         </span>
-      </header>
-
-      {state && state.configured && (
-        <div className="digest-row"><div className="digest-label">OA Id hiện tại</div><code>{state.oaId}</code></div>
-      )}
-
-      <div className="digest-row">
-        <div className="digest-label">OA Id</div>
-        <input className="digest-input" value={oaId} onChange={e => setOaId(e.target.value)} placeholder="vd 1234567890" />
-      </div>
-      <div className="digest-row">
-        <div className="digest-label">Access Token</div>
-        {/* Không bao giờ hiện lại token đã lưu (server cũng không trả) — nhập là ghi đè. */}
-        <input className="digest-input" type="password" value={token} onChange={e => setToken(e.target.value)}
-          placeholder={state && state.configured ? 'Nhập token mới để thay' : 'dán access token OA'} />
+        <Icon name={open ? 'chevronUp' : 'chevronDown'} size={15} />
       </div>
 
-      <footer className="digest-card-foot">
-        <button className="wga-btn primary" onClick={save} disabled={busy || !oaId.trim() || !token.trim()}>
-          <Icon name="save" size={14} /> Lưu
-        </button>
-        {state && state.configured && (
-          <button className="wga-btn ghost" onClick={remove} disabled={busy}>
-            <Icon name="trash" size={14} /> Xoá cấu hình
-          </button>
-        )}
-      </footer>
-    </section>
-  );
-}
-
-// ─── Trang ──────────────────────────────────────────────────────────────────────
-function DigestPage({ pushToast }) {
-  const Icon = window.Icon;
-  const [subs, setSubs] = dS(null);
-  const [note, setNote] = dS('');
-  const [err, setErr] = dS('');
-  const canConfig = window.tourkitAuth.hasPermission('CH_HT_XEM');
-
-  const load = dCB(async () => {
-    setErr('');
-    try {
-      const d = await dApi('/api/v1/digest/subscriptions');
-      setSubs(d.items || []);
-      setNote(d.scopeNote || '');
-    } catch (e) { setErr(e.message); setSubs([]); }
-  }, []);
-  dE(() => { load(); }, [load]);
-
-  const subOf = (t) => (subs || []).find(s => s.briefType === t) || null;
-
-  return (
-    <main className="page wga digest-page">
-      <div className="wga-head">
-        <div>
-          <div className="wga-eyebrow">Bản tin · Đăng ký</div>
-          <h1>Bản tin AI</h1>
-          <p className="wga-sub">
-            Chọn bản tin muốn nhận, giờ nhận và nơi nhận. Hệ thống tự gửi mỗi ngày, đúng giờ bạn chọn.
+      {open && (
+        <div className="digest-oa-body">
+          {/* Vì sao CHỈ Zalo phải tự khai: nó tốn tiền và hạn mức tính theo từng OA nên không thể
+              dùng tài khoản chung. Telegram và email miễn phí → hệ thống cấp sẵn. */}
+          <p className="workflows-opt-hint" style={{ marginTop: 0 }}>
+            Chỉ cần khai nếu công ty muốn gửi bản tin qua Zalo. Zalo tốn tiền và hạn mức tính riêng theo
+            từng OA nên không dùng chung được. Telegram và email thì hệ thống lo, bạn không phải khai gì.
           </p>
-        </div>
-        <button className="wga-btn ghost" onClick={() => window.tourkitRouter.navigate('/insights')}>
-          <Icon name="bell" size={14} /> Xem Bảng tin
-        </button>
-      </div>
 
-      {/* Nói thẳng phạm vi số liệu: đăng ký bản tin điều hành KHÔNG có nghĩa là thấy hết công ty —
-          TourKit vẫn cắt theo quyền của tài khoản. Không nói trước thì người dùng nghi số bị thiếu. */}
-      {note && <div className="digest-note"><Icon name="info" size={13} /> {note}</div>}
-
-      {err && <div className="insights-err"><Icon name="warning" size={14} /> {err}</div>}
-
-      {subs == null && <div className="insights-empty">Đang tải…</div>}
-
-      {subs != null && (
-        <div className="digest-cards">
-          {Object.keys(BRIEF_INFO).map(t => (
-            <BriefCard key={t} briefType={t} initial={subOf(t)} onSaved={load} pushToast={pushToast} />
-          ))}
-          {canConfig && <ZaloOaBox pushToast={pushToast} />}
+          {state && state.configured && (
+            <div className="digest-row"><div className="digest-label">OA Id hiện tại</div><code>{state.oaId}</code></div>
+          )}
+          <div className="digest-row">
+            <div className="digest-label">OA Id</div>
+            <input className="digest-input" value={oaId} onChange={e => setOaId(e.target.value)} placeholder="vd 1234567890" />
+          </div>
+          <div className="digest-row">
+            <div className="digest-label">Access Token</div>
+            {/* Không bao giờ hiện lại token đã lưu (server cũng không trả) — nhập là ghi đè. */}
+            <input className="digest-input" type="password" value={token} onChange={e => setToken(e.target.value)}
+              placeholder={state && state.configured ? 'Nhập token mới để thay' : 'dán access token OA'} />
+          </div>
+          <div className="workflows-actions">
+            <button className="wga-btn primary" onClick={save} disabled={busy || !oaId.trim() || !token.trim()}>
+              <Icon name="save" size={14} /> Lưu
+            </button>
+            {state && state.configured && (
+              <button className="wga-btn ghost" onClick={remove} disabled={busy}>
+                <Icon name="trash" size={14} /> Xoá cấu hình
+              </button>
+            )}
+          </div>
         </div>
       )}
-    </main>
+    </div>
   );
 }
 
-window.DigestPage = DigestPage;
+window.DigestSubBlock = DigestSubBlock;
+window.DigestZaloBox = DigestZaloBox;
+window.digestSummary = digestSummary;
+window.DIGEST_BRIEF_TYPES = BRIEF_TYPES;

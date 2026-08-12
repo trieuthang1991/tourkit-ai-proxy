@@ -33,9 +33,13 @@ const NAV_GROUPS = [
     { to: '/travai',    icon: 'mic',     label: 'TRAVAI' },  // HUD hội thoại 3D + giọng đọc ("Trà vải") — trang mặc định sau đăng nhập
     { to: '/assistant', icon: 'chart',   label: 'Trợ lý số liệu' },   // data/chart analytics
   ]},
-  { label: 'Bản tin', items: [
-    { to: '/insights', icon: 'bell',    label: 'Bảng tin' },        // nơi đọc lại bản tin + cảnh báo
-    { to: '/digest',   icon: 'sliders', label: 'Bản tin AI' },      // đăng ký: nhận gì, mấy giờ, ở đâu
+  // "Tự động hóa" nằm ở đây (không phải trong "Tích hợp") và KHÔNG gate cứng: trang này nay có
+  // phần CỦA RIÊNG người dùng — bản tin của tôi + bảng tin — nên nhân viên bán hàng phải vào được.
+  // Lịch chạy cấp công ty + tài khoản dịch vụ + OA Zalo vẫn chỉ hiện cho người có CH_HT_XEM
+  // (WorkflowsPage tự lọc bên trong). Vì vậy khối "Tích hợp" vẫn thuần cấu hình và vẫn ẩn với
+  // người thiếu quyền — không tái diễn lỗi R2 trước đây.
+  { label: 'Bản tin & Tự động', items: [
+    { to: '/workflows', icon: 'zap', label: 'Tự động hóa' },
   ]},
   { label: 'Khách hàng & Bán hàng', items: [
     { to: '/customers', icon: 'users',   label: 'Khách hàng' },       // people
@@ -54,9 +58,6 @@ const NAV_GROUPS = [
   { label: 'Tích hợp', items: [
     { to: '/widget-admin', icon: 'sparkle', label: 'Widget Chat', requirePerm: 'CH_HT_XEM' },   // embed JS widget cho site khách
     { to: '/visa-config',  icon: 'sliders', label: 'Câu hỏi Visa', requirePerm: 'CH_HT_XEM' },  // admin tenant chỉnh wizard câu hỏi
-    // R2 (BugTRAV-AI Re-Open): gate CẢ "Tự động hóa" theo CH_HT_XEM — trước để trống nên user thiếu
-    // quyền (vd trang01) VẪN thấy khối "Tích hợp". Cả khối cấu hình phải yêu cầu quyền Xem cấu hình hệ thống (mirror CRM).
-    { to: '/workflows',    icon: 'zap',     label: 'Tự động hóa', requirePerm: 'CH_HT_XEM' },
   ]},
 ];
 // Route → mã quyền yêu cầu. Derived từ item.requirePerm (PER-ITEM để /workflows không bị gate cứng).
@@ -540,12 +541,14 @@ function App() {
         <Route path="/ncc-list"     render={() => <window.NccListPage pushToast={pushToast} />} />
         <Route path="/ncc-import"   render={() => <window.NccImportPage pushToast={pushToast} />} />
         <Route path="/visa-config"  render={() => gatePerm('/visa-config', <window.VisaConfigPage pushToast={pushToast} />)} />
-        <Route path="/workflows"    render={() => gatePerm('/workflows', <window.WorkflowsPage pushToast={pushToast} />)} />
+        <Route path="/workflows"    render={() => <window.WorkflowsPage pushToast={pushToast} />} />
         <Route path="/flow-preview" render={() => gatePerm('/flow-preview', <window.FlowPreviewPage pushToast={pushToast} />)} />
         {/* /flow-preview/:type — sơ đồ của 1 workflow cụ thể (nút "Xem sơ đồ" ở trang Tự động hoá) */}
         <Route path="/flow-preview/:type" render={(p) => gatePerm('/flow-preview', <window.FlowPreviewPage pushToast={pushToast} type={p.type} />)} />
-        <Route path="/insights"     render={() => <window.InsightsPage pushToast={pushToast} />} />
-        <Route path="/digest"       render={() => <window.DigestPage pushToast={pushToast} />} />
+        {/* 2 đường cũ trỏ về đúng tab của trang Tự động hóa — chuông ở thanh trên và mọi link
+            đã phát ra vẫn hoạt động, mà không có trang trùng chức năng. */}
+        <Route path="/insights"     render={() => <window.WorkflowsPage pushToast={pushToast} initialTab="insights" />} />
+        <Route path="/digest"       render={() => <window.WorkflowsPage pushToast={pushToast} initialTab="tasks" />} />
         <Route path="/help"         render={() => <window.HelpPage />} />
         <Route path="/help/:slug"   render={(p) => <window.HelpPage slug={p.slug} />} />
         <Route path="*"          render={() => (

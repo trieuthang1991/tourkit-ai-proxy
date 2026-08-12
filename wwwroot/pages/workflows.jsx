@@ -365,7 +365,14 @@ function ServiceAccountConfig({ pushToast, onChange }) {
 
 // ─── WorkflowCard ────────────────────────────────────────────────────────────────
 
-function WorkflowCard({ wf, onUpdate, pushToast, locked }) {
+// Tac vu ban tin: phan nguoi dung quan tam (nhan gi, may gio, o dau) la CUA RIENG HO, giong het
+// hop thu (mail-auto-sync). Con lich chay + tan suat la cap cong ty nen can quyen xem cau hinh.
+const BRIEF_WORKFLOWS = ['sale-brief', 'ceo-brief'];
+
+function WorkflowCard({ wf, onUpdate, pushToast, locked, canConfig = true, digestSub, onDigestSaved }) {
+  const isBrief = BRIEF_WORKFLOWS.includes(wf.type);
+  // Chi an phan LICH CHAY khi thieu quyen. Voi the ban tin thi van con khoi "Ban tin cua toi".
+  const showSchedule = canConfig;
   const [enabled, setEnabled] = uS(wf.enabled);
   const [interval, setInterval] = uS(initialInterval(wf));
   const [saving, setSaving] = uS(false);
@@ -553,7 +560,8 @@ function WorkflowCard({ wf, onUpdate, pushToast, locked }) {
         role="button" tabIndex={0}
         onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setExpanded(v => !v); } }}>
         <div className="workflows-rowhead-avatar">
-          <Icon name={wf.type === 'deal-auto-review' ? 'zap' : (wf.type === 'customer-auto-review' ? 'user' : 'mail')} size={18} />
+          <Icon name={wf.type === 'sale-brief' ? 'phone' : (wf.type === 'ceo-brief' ? 'trend'
+            : (wf.type === 'deal-auto-review' ? 'zap' : (wf.type === 'customer-auto-review' ? 'user' : 'mail')))} size={18} />
         </div>
         <div className="workflows-rowhead-main">
           <div className="workflows-rowhead-name">
@@ -564,6 +572,18 @@ function WorkflowCard({ wf, onUpdate, pushToast, locked }) {
           {/* Thông tin lần chạy cuối nằm BÊN TRÁI, dưới mô tả. Trước để ở cột phải thì
               tóm tắt dài (vd "0 review mới · 0 review lại · 104 không đổi") bị bóp lại,
               xuống dòng lộn xộn. Bên trái có nguyên chiều rộng nên thoáng. */}
+          {/* The ban tin: dong dau tien nguoi dung can biet la "TOI co nhan khong, may gio" —
+              khong phai lan chay cuoi cua he thong. */}
+          {isBrief && (
+            <div className="workflows-rowhead-meta">
+              <span className={'workflows-digest-sum' + (digestSub && digestSub.enabled ? ' is-on' : '')}>
+                {window.digestSummary ? window.digestSummary(digestSub) : ''}
+              </span>
+              {digestSub && digestSub.enabled && !enabled && (
+                <span className="workflows-digest-warn">· công ty chưa bật lịch gửi</span>
+              )}
+            </div>
+          )}
           <div className="workflows-rowhead-meta">
             {wf.lastRunUtc
               ? <span style={_wfRow}>
@@ -603,7 +623,14 @@ function WorkflowCard({ wf, onUpdate, pushToast, locked }) {
             </div>
           )}
           <div className="workflows-rowbody-config">
-            {/* Nhóm "Lịch chạy" — bật/tắt + tần suất */}
+            {/* Khoi rieng cua nguoi dung — dat TRUOC lich chay vi day la thu ho vao de lam. */}
+            {isBrief && window.DigestSubBlock && (
+              <window.DigestSubBlock briefType={wf.type} sub={digestSub}
+                onSaved={onDigestSaved} pushToast={pushToast}
+                scheduleOn={enabled && !isPaused} />
+            )}
+            {/* Nhóm "Lịch chạy" — bật/tắt + tần suất. Can quyen xem cau hinh (cap cong ty). */}
+            {showSchedule && (
             <div className="workflows-optgroup">
               <div className="workflows-optgroup-title">Lịch chạy</div>
               <div className="workflows-opt is-toggle">
@@ -636,11 +663,18 @@ function WorkflowCard({ wf, onUpdate, pushToast, locked }) {
                     Bao lâu hệ thống tự chạy một lần. Mỗi lần chạy chỉ xử lý phần mới hoặc vừa thay đổi, nên đặt chạy thường xuyên cũng không tốn thêm.
                   </div>
                 )}
+                {isBrief && (
+                  <div className="workflows-opt-hint">
+                    Lịch này của CẢ CÔNG TY: hệ thống chạy mỗi N phút rồi tự gửi cho ai đến giờ họ chọn.
+                    Giờ nhận riêng của bạn đặt ở khối “Bản tin của tôi” phía trên.
+                  </div>
+                )}
               </div>
             </div>
+            )}
 
             {/* Option ĐỘNG theo nhóm */}
-            {groupedOptions().map((g, gi) => (
+            {showSchedule && groupedOptions().map((g, gi) => (
               <div className="workflows-optgroup" key={g.name || ('g' + gi)}>
                 {g.name && <div className="workflows-optgroup-title">{g.name}</div>}
                 {g.items.map(opt => (
@@ -660,7 +694,7 @@ function WorkflowCard({ wf, onUpdate, pushToast, locked }) {
           </div>
 
           {/* Thống kê lần gần nhất */}
-          {(wf.lastRunUtc || wf.nextRunUtc) && (
+          {showSchedule && (wf.lastRunUtc || wf.nextRunUtc) && (
             <div className="workflows-meta">
               {wf.lastRunUtc && (
                 <div className="workflows-meta-item">
@@ -682,7 +716,8 @@ function WorkflowCard({ wf, onUpdate, pushToast, locked }) {
             </div>
           )}
 
-          {/* Actions */}
+          {/* Actions — thao tac cap cong ty */}
+          {showSchedule && (
           <div className="workflows-actions">
             <button className="wga-btn primary" onClick={handleSave} disabled={saving || running || locked}>
               <Icon name="save" size={14} /> {saving ? 'Đang lưu...' : 'Lưu cấu hình'}
@@ -701,9 +736,10 @@ function WorkflowCard({ wf, onUpdate, pushToast, locked }) {
               <Icon name={historyOpen ? 'chevronUp' : 'chevronDown'} size={13} />
             </button>
           </div>
+          )}
 
           {/* Run history */}
-          {historyOpen && (
+          {showSchedule && historyOpen && (
             <div className="workflows-history">
               <RunHistoryTable runs={runs} loading={runsLoading} />
             </div>
@@ -716,7 +752,13 @@ function WorkflowCard({ wf, onUpdate, pushToast, locked }) {
 
 // ─── WorkflowsPage ────────────────────────────────────────────────────────────────
 
-function WorkflowsPage({ pushToast }) {
+function WorkflowsPage({ pushToast, initialTab }) {
+  // 2 tab thay vi 2 trang rieng (chot 12/08): dang ky nhan ban tin CHINH LA cau hinh cua tac vu
+  // sale-brief/ceo-brief, con bang tin la ket qua cua chinh cac tac vu do. Tach ra trang rieng thi
+  // nguoi dung phai nho 2 noi cho cung mot viec.
+  const [tab, setTab] = uS(initialTab === 'insights' ? 'insights' : 'tasks');
+  const [unread, setUnread] = uS(0);
+  const [digestSubs, setDigestSubs] = uS([]);
   const [workflows, setWorkflows] = uS([]);
   const [loading, setLoading] = uS(true);
   const [error, setError] = uS(null);
@@ -740,7 +782,28 @@ function WorkflowsPage({ pushToast }) {
     catch { setSaConfigured(false); }
   }
 
-  uE(() => { loadWorkflows(); if (canConfig) loadSa(); }, []);
+  // Dang ky ban tin cua CHINH minh — khong can quyen gi (giong hop thu ca nhan).
+  async function loadDigest() {
+    try {
+      const d = await apiFetch('/api/v1/digest/subscriptions');
+      setDigestSubs(d.items || []);
+    } catch { /* thieu thi the ban tin coi nhu chua dang ky, khong lam vo trang */ }
+  }
+  async function loadUnread() {
+    try {
+      const d = await apiFetch('/api/v1/insights/unread-count');
+      setUnread(d.count || 0);
+    } catch {}
+  }
+
+  uE(() => { loadWorkflows(); loadDigest(); loadUnread(); if (canConfig) loadSa(); }, []);
+
+  // So chua doc doi ngay khi doc tin hoac bam Gui thu (khoi doi chu ky cua chuong).
+  uE(() => {
+    const onPing = () => loadUnread();
+    window.addEventListener('tourkit:insights', onPing);
+    return () => window.removeEventListener('tourkit:insights', onPing);
+  }, []);
 
   // KPI — tính từ danh sách hiện tại
   const running = workflows.filter(w => w.enabled && !w.pausedReason).length;
@@ -755,13 +818,32 @@ function WorkflowsPage({ pushToast }) {
     <main className="page wga workflows-page">
       <div className="wga-head">
         <div>
-          <div className="wga-eyebrow">Tích hợp · Tự động</div>
+          <div className="wga-eyebrow">Tự động · Bản tin</div>
           <h1>Tự động hóa</h1>
           <p className="wga-sub">Các tác vụ AI chạy nền theo lịch. Bật một lần, hệ thống tự làm đều đặn, bạn chỉ vào xem kết quả.</p>
         </div>
       </div>
 
-      {!loading && !error && workflows.length > 0 && (
+      {/* 2 tab: cấu hình ở "Tác vụ", kết quả ở "Bảng tin" — cùng một trang để không phải nhớ 2 nơi. */}
+      <div className="workflows-tabs" role="tablist">
+        <button role="tab" aria-selected={tab === 'tasks'}
+          className={'workflows-tab' + (tab === 'tasks' ? ' is-on' : '')}
+          onClick={() => setTab('tasks')}>
+          <Icon name="zap" size={14} /> Tác vụ
+        </button>
+        <button role="tab" aria-selected={tab === 'insights'}
+          className={'workflows-tab' + (tab === 'insights' ? ' is-on' : '')}
+          onClick={() => setTab('insights')}>
+          <Icon name="bell" size={14} /> Bảng tin
+          {unread > 0 && <span className="workflows-tab-badge">{unread > 99 ? '99+' : unread}</span>}
+        </button>
+      </div>
+
+      {tab === 'insights' && (window.InsightsFeed
+        ? <window.InsightsFeed pushToast={pushToast} />
+        : <div className="wga-empty"><p>Chưa nạp được Bảng tin.</p></div>)}
+
+      {tab === 'tasks' && !loading && !error && workflows.length > 0 && (
         <div className="wga-kpi-strip">
           <div className="wga-kpi">
             <div className="wga-kpi-l">Tác vụ</div>
@@ -784,9 +866,9 @@ function WorkflowsPage({ pushToast }) {
         </div>
       )}
 
-      {loading && <div className="wga-loading">Đang tải…</div>}
+      {tab === 'tasks' && loading && <div className="wga-loading">Đang tải…</div>}
 
-      {error && (
+      {tab === 'tasks' && error && (
         <div className="wga-empty">
           <p>{error}</p>
           <button className="wga-btn" onClick={loadWorkflows} style={{ marginTop: 14 }}>
@@ -795,7 +877,7 @@ function WorkflowsPage({ pushToast }) {
         </div>
       )}
 
-      {!loading && !error && workflows.length === 0 && (
+      {tab === 'tasks' && !loading && !error && workflows.length === 0 && (
         <div className="wga-empty">
           <div className="wga-empty-icon"><Icon name="zap" size={48} /></div>
           <h3>Chưa có tác vụ tự động</h3>
@@ -803,13 +885,22 @@ function WorkflowsPage({ pushToast }) {
         </div>
       )}
 
-      {!loading && !error && workflows.length > 0 && (() => {
-        const perUser = workflows.filter(w => w.scope === 'PerUser');
-        const perTenant = canConfig ? workflows.filter(w => w.scope === 'PerTenant') : [];
+      {tab === 'tasks' && !loading && !error && workflows.length > 0 && (() => {
+        // The ban tin xep vao nhom "Theo nguoi dung" du scope o backend la PerTenant: cai nguoi
+        // dung dat o day la NOI NHAN CUA RIENG HO. Lich chay cap cong ty van o trong the, chi hien
+        // cho nguoi co quyen xem cau hinh.
+        const isBriefWf = w => BRIEF_WORKFLOWS.includes(w.type);
+        const perUser = workflows.filter(w => w.scope === 'PerUser' || isBriefWf(w));
+        const perTenant = canConfig
+          ? workflows.filter(w => w.scope === 'PerTenant' && !isBriefWf(w))
+          : [];
+        const subOf = t => digestSubs.find(x => x.briefType === t) || null;
         const renderCards = (list, locked) => (
           <div className="workflows-listview">
             {list.map(wf => (
-              <WorkflowCard key={wf.type} wf={wf} onUpdate={loadWorkflows} pushToast={pushToast} locked={locked} />
+              <WorkflowCard key={wf.type} wf={wf} onUpdate={loadWorkflows} pushToast={pushToast}
+                locked={locked} canConfig={canConfig}
+                digestSub={subOf(wf.type)} onDigestSaved={loadDigest} />
             ))}
           </div>
         );
@@ -832,6 +923,9 @@ function WorkflowsPage({ pushToast }) {
                 </div>
                 <div className={'wga-card' + (saConfigured === false ? ' workflows-sa-needed' : '')} style={{ padding: '14px 18px', marginBottom: 14 }}>
                   <ServiceAccountConfig pushToast={pushToast} onChange={loadSa} />
+                  {/* Zalo OA: cung la "tai khoan cua cong ty", moi tenant khai 1 lan -> dat ngay
+                      canh tai khoan dich vu thay vi mot trang rieng. */}
+                  {window.DigestZaloBox && <window.DigestZaloBox pushToast={pushToast} />}
                 </div>
                 {renderCards(perTenant, saConfigured === false)}
               </section>
@@ -840,7 +934,7 @@ function WorkflowsPage({ pushToast }) {
         );
       })()}
 
-      <CrmQueueCard />
+      {tab === 'tasks' && <CrmQueueCard />}
     </main>
   );
 }
