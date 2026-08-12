@@ -97,4 +97,95 @@ public class DigestDueTests
         var utc = new DateTime(2026, 8, 11, 0, 5, 0, DateTimeKind.Utc);
         Assert.False(DigestDue.IsDue(Sub(7, lastLocalDate: new DateTime(2026, 8, 11, 15, 42, 0)), utc));
     }
+
+    // ── Thử lại theo từng kênh (cờ bit) ─────────────────────────────────────────
+    //
+    // Trước khi có SentMask, cả 4 kênh dùng chung 1 mốc ngày: telegram hỏng lúc 7h thì bị đánh dấu
+    // "đã gửi hôm nay" và im lặng mất tin luôn. Đây là bộ test khoá hành vi thay thế.
+
+    /// 3 kênh (app + email + telegram), đủ thông tin nhận.
+    private static DigestSubscription Sub3(int hour, DateTime? lastLocalDate = null,
+        int sentMask = 0, int attempts = 0)
+        => new("t", "u", BriefTypes.Sale, true, hour, true, true, "a@b.c", true, "123", false, null,
+               null, lastLocalDate, sentMask, attempts);
+
+    [Fact]
+    public void Lan_dau_trong_ngay_thi_gui_MOI_kenh_dang_bat()
+    {
+        var utc = new DateTime(2026, 8, 11, 0, 5, 0, DateTimeKind.Utc);   // 07h VN
+        Assert.Equal(ChannelMask.InApp | ChannelMask.Email | ChannelMask.Telegram,
+                     DigestDue.PendingFor(Sub3(7), utc));
+    }
+
+    [Fact]
+    public void Kenh_hong_thi_gio_sau_thu_lai_DUNG_kenh_do()
+    {
+        // 7h: app+email ok, telegram hỏng. 8h VN (01:05 UTC) → chỉ còn telegram.
+        var utc = new DateTime(2026, 8, 11, 1, 5, 0, DateTimeKind.Utc);
+        var sub = Sub3(7, new DateTime(2026, 8, 11),
+                       ChannelMask.InApp | ChannelMask.Email, attempts: 1);
+        Assert.Equal(ChannelMask.Telegram, DigestDue.PendingFor(sub, utc));
+    }
+
+    [Fact]
+    public void Gui_du_het_thi_gio_sau_khong_gui_lai()
+    {
+        var utc = new DateTime(2026, 8, 11, 1, 5, 0, DateTimeKind.Utc);
+        var sub = Sub3(7, new DateTime(2026, 8, 11),
+                       ChannelMask.InApp | ChannelMask.Email | ChannelMask.Telegram, attempts: 1);
+        Assert.Equal(ChannelMask.None, DigestDue.PendingFor(sub, utc));
+    }
+
+    [Fact]
+    public void Het_tran_so_lan_thu_thi_dung_han_trong_ngay()
+    {
+        // Kênh hỏng suốt (vd token Zalo hết hạn) không được thử lại mỗi giờ cả ngày.
+        var utc = new DateTime(2026, 8, 11, 5, 5, 0, DateTimeKind.Utc);   // 12h VN
+        var sub = Sub3(7, new DateTime(2026, 8, 11), ChannelMask.InApp,
+                       attempts: ChannelMask.MaxAttemptsPerDay);
+        Assert.Equal(ChannelMask.None, DigestDue.PendingFor(sub, utc));
+    }
+
+    [Fact]
+    public void Sang_ngay_moi_thi_lam_lai_tu_dau_du_hom_qua_con_thieu()
+    {
+        // Hôm qua telegram hỏng và đã hết trần lượt thử → hôm nay vẫn phải gửi đủ 3 kênh,
+        // chứ không phải "nợ" telegram của hôm qua.
+        var utc = new DateTime(2026, 8, 11, 0, 5, 0, DateTimeKind.Utc);
+        var sub = Sub3(7, new DateTime(2026, 8, 10), ChannelMask.InApp,
+                       attempts: ChannelMask.MaxAttemptsPerDay);
+        Assert.Equal(ChannelMask.InApp | ChannelMask.Email | ChannelMask.Telegram,
+                     DigestDue.PendingFor(sub, utc));
+    }
+
+    [Fact]
+    public void Chua_gui_lan_nao_va_SAI_gio_thi_khong_thu_lai_som()
+    {
+        // Thử lại chỉ áp dụng cho ngày ĐÃ gửi. Chưa gửi mà không đúng giờ thì phải im,
+        // nếu không bản tin sáng 7h sẽ bị bắn ngay lúc 0h khi workflow vừa bật.
+        var utc = new DateTime(2026, 8, 11, 3, 5, 0, DateTimeKind.Utc);   // 10h VN
+        Assert.Equal(ChannelMask.None, DigestDue.PendingFor(Sub3(7), utc));
+    }
+
+    [Fact]
+    public void Ban_ghi_cu_da_gui_hom_nay_thi_KHONG_gui_trung_sau_khi_nang_cap()
+    {
+        // Bản ghi có từ trước khi thêm SentMask: mask=0, attempts=0. Nếu tính là "còn thiếu cả 3"
+        // thì đúng ngày nâng cấp mọi người nhận tin 2 lần.
+        var utc = new DateTime(2026, 8, 11, 1, 5, 0, DateTimeKind.Utc);
+        Assert.Equal(ChannelMask.None,
+            DigestDue.PendingFor(Sub3(7, new DateTime(2026, 8, 11)), utc));
+    }
+
+    [Fact]
+    public void Bat_ban_tin_nhung_khong_co_noi_nhan_thi_khong_gui()
+    {
+        // Bật email/telegram mà bỏ trống địa chỉ → không có gì để gửi. Nếu vẫn tính là "đang bật"
+        // thì nó nằm mãi trong danh sách còn-thiếu và bị thử lại vô ích.
+        var utc = new DateTime(2026, 8, 11, 0, 5, 0, DateTimeKind.Utc);
+        var sub = new DigestSubscription("t", "u", BriefTypes.Sale, true, 7,
+            false, true, null, true, "", false, null, null, null);
+        Assert.Equal(ChannelMask.None, DigestDue.PendingFor(sub, utc));
+        Assert.False(DigestDue.IsDue(sub, utc));
+    }
 }

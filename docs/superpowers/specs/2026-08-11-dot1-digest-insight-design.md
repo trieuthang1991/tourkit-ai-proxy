@@ -94,6 +94,33 @@ public record DigestRecipient(string TenantId, string Username, DigestSubscripti
 - **ZaloOaChannel (best-effort, có điều kiện)**: gửi qua OA API tin tư vấn tới `ZaloUserId`. **Ràng buộc Zalo ghi thẳng vào UI**: tin miễn phí chỉ gửi được trong cửa sổ 48h sau khi user nhắn OA → digest hằng ngày có thể fail ngoài cửa sổ (log Warning, không fail run); nâng cấp ZNS (phí + duyệt template) là việc Đợt sau. Tenant chưa cấu hình OA → channel ẩn trên UI.
 
 ### 4.3 Ba workflow mới (`IScheduledWorkflow`, PerTenant, đăng ký trong `WorkflowStackRegistration`)
+
+> **[SỬA 12/08/2026 — QUAN TRỌNG] Bản tin lấy dữ liệu bằng phiên CỦA CHÍNH NGƯỜI NHẬN, không phải
+> tài khoản tự động.** Bản đầu ghi *"fetch 1 lần/tenant rồi filter per-recipient bằng CrmUserId"* —
+> tức dùng token có `CH_XEM_ALL` (thấy deal của mọi người) rồi tự lọc. Cái duy nhất ngăn sale A đọc
+> được deal của sale B khi đó là **đoạn code lọc của mình**; lọc sai một dòng là rò rỉ nội bộ, CRM
+> không chặn giúp vì token vốn có quyền xem tất.
+>
+> Nay theo đúng quy tắc: **luồng theo người dùng thì chạy bằng tài khoản người dùng; luồng theo tổ
+> chức mới dùng tài khoản hệ thống.** Bản tin là nội dung của từng người → fetch bằng
+> `TkSessionStore.GetValidJwtAsync(sessionId của người nhận)`. **CRM tự áp quyền** — lọc sai cũng chỉ
+> thiếu chứ không lộ. `ceo-brief` nhờ vậy KHÔNG cần re-check `CH_XEM_ALL` mỗi lần gửi nữa (CRM tự từ
+> chối nếu quyền bị thu); vẫn giữ gate lúc ĐĂNG KÝ để chặn sớm.
+>
+> **Digest KHÔNG cần `TenantServiceAccounts`.** Điều kiện thay thế: người nhận phải từng đăng nhập ít
+> nhất 1 lần. Nhẹ hơn tưởng — `TkSessions` giữ mật khẩu (Crypton-enc) và **tự đăng nhập lại** khi JWT
+> hết hạn, giữ tới 30 ngày không dùng; không cần họ đang mở máy. Không tìm thấy phiên → bỏ qua người
+> đó, ghi lý do vào summary ("chưa đăng nhập lần nào").
+>
+> **Chi tiết thi hành:** scheduler vẫn giữ **1 bản ghi PerTenant** (quản trị bật tính năng một lần),
+> workflow tự duyệt `DigestSubscriptions` rồi **đổi sang phiên của từng người** để fetch. Nếu để
+> `Scope = PerUser` thì mỗi người phải bật thêm một lần nữa ở trang Tự động hoá — hai chỗ cấu hình
+> cho một việc, dễ nhầm. Cái "theo người dùng" nằm ở **tài khoản đi lấy dữ liệu**, không phải ở chỗ
+> ai bấm nút bật.
+>
+> Đánh đổi đã chấp nhận: 20 người = ~100 lượt gọi CRM mỗi sáng thay vì ~5, rải trong khung giờ.
+> `CrmUserId` VẪN cần: người có `CH_XEM_ALL` dùng token của chính mình vẫn thấy hết, phải lọc thêm
+> để bản tin chỉ nêu việc của họ.
 | Type | Interval | Điều kiện chạy nội dung |
 |---|---|---|
 | `sale-brief` | 60' cố định | subs due theo `SendHourLocal`/`LastSentLocalDate` |

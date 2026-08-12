@@ -702,6 +702,15 @@ BEGIN
     );
 END;
 
+-- Cờ bit các kênh ĐÃ GỬI ĐƯỢC trong ngày (1=trong app, 2=email, 4=telegram, 8=zalo).
+-- Trước đây chỉ có LastSentLocalDate cho cả 4 kênh → telegram lỗi vẫn bị đánh dấu ""đã gửi""
+-- và không bao giờ thử lại. Có mask thì lượt sau chỉ gửi phần còn thiếu.
+-- SentAttempts: chặn thử lại vô tận khi 1 kênh hỏng suốt (vd token Zalo hết hạn).
+IF NOT EXISTS (SELECT 1 FROM sys.columns WHERE object_id = OBJECT_ID('dbo.DigestSubscriptions') AND name = 'SentMask')
+    ALTER TABLE dbo.DigestSubscriptions ADD SentMask TINYINT NOT NULL CONSTRAINT DF_DigestSubs_SentMask DEFAULT 0;
+IF NOT EXISTS (SELECT 1 FROM sys.columns WHERE object_id = OBJECT_ID('dbo.DigestSubscriptions') AND name = 'SentAttempts')
+    ALTER TABLE dbo.DigestSubscriptions ADD SentAttempts TINYINT NOT NULL CONSTRAINT DF_DigestSubs_Attempts DEFAULT 0;
+
 -- user_id CRM lấy từ JWT lúc login → lọc dữ liệu ""của riêng người này"" khi dựng bản tin.
 IF NOT EXISTS (SELECT 1 FROM sys.columns WHERE object_id = OBJECT_ID('dbo.TkSessions') AND name = 'CrmUserId')
     ALTER TABLE dbo.TkSessions ADD CrmUserId INT NULL;

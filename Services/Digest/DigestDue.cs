@@ -20,11 +20,43 @@ public static class DigestDue
         => TimeZoneInfo.ConvertTimeFromUtc(DateTime.SpecifyKind(utcNow, DateTimeKind.Utc), VnTz);
 
     public static bool IsDue(DigestSubscription sub, DateTime utcNow)
+        => PendingFor(sub, utcNow) != ChannelMask.None;
+
+    /// <summary>
+    /// Cần gửi những kênh nào NGAY BÂY GIỜ. Trả 0 = không phải lúc, hoặc không còn gì để gửi.
+    ///
+    /// <para>Hai tình huống cho ra việc:</para>
+    /// <list type="number">
+    /// <item><b>Gửi lần đầu trong ngày</b> — đúng giờ VN người dùng chọn.</item>
+    /// <item><b>Thử lại phần còn thiếu</b> — đã gửi hôm nay nhưng có kênh hỏng (vd Telegram sập lúc
+    /// 7h) thì các giờ sau trong CÙNG NGÀY thử lại, và chỉ thử đúng kênh còn thiếu — không gửi lại
+    /// email cho người đã nhận. Trước khi có mask, cả 4 kênh dùng chung một mốc ngày nên kênh hỏng
+    /// im lặng mất tin luôn.</item>
+    /// </list>
+    ///
+    /// <para>Chặn bằng <see cref="ChannelMask.MaxAttemptsPerDay"/>: kênh hỏng suốt cả ngày (token
+    /// Zalo hết hạn) không được thử lại mỗi giờ, vừa vô ích vừa tăng rủi ro gửi trùng.</para>
+    /// </summary>
+    public static int PendingFor(DigestSubscription sub, DateTime utcNow)
     {
-        if (!sub.Enabled) return false;
+        if (!sub.Enabled) return ChannelMask.None;
+
+        var enabled = ChannelMask.EnabledOf(sub);
+        if (enabled == ChannelMask.None) return ChannelMask.None;   // bật bản tin nhưng chưa có nơi nhận
+
         var vn = NowVn(utcNow);
-        if (vn.Hour != DigestSubscription.ClampHour(sub.SendHourLocal)) return false;
         // .Date cả 2 vế: cột DB là DATE nhưng nếu chỗ nào lỡ nhét kèm giờ thì vẫn so đúng theo ngày.
-        return sub.LastSentLocalDate?.Date != vn.Date;
+        var sentToday = sub.LastSentLocalDate?.Date == vn.Date;
+
+        if (!sentToday)
+            return vn.Hour == DigestSubscription.ClampHour(sub.SendHourLocal) ? enabled : ChannelMask.None;
+
+        // Bản ghi CŨ (có từ trước khi thêm SentMask): đã gửi hôm nay mà mask=0 & attempts=0.
+        // Coi như đã gửi đủ — nếu tính là "còn thiếu cả 4" thì ngày nâng cấp ai cũng nhận tin 2 lần.
+        if (sub.SentMask == ChannelMask.None && sub.SentAttempts == 0) return ChannelMask.None;
+
+        if (sub.SentAttempts >= ChannelMask.MaxAttemptsPerDay) return ChannelMask.None;
+
+        return ChannelMask.Pending(enabled, sub.SentMask);
     }
 }

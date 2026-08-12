@@ -6,6 +6,19 @@
 
 **Architecture:** 3 workflow `IScheduledWorkflow` PerTenant cắm vào `WorkflowSchedulerService` sẵn có (KHÔNG sửa scheduler — brief chạy interval 60', tự chọn subscription "đến giờ"); nội dung build bằng pure builders (test được); phát qua `DigestDispatcher` → 4 `IDigestChannel`. Insight feed là bảng + endpoint + trang mới, 100% additive.
 
+> **[SỬA 12/08/2026] Bản tin fetch bằng phiên CỦA NGƯỜI NHẬN, KHÔNG dùng tài khoản tự động.**
+> Quy tắc: *luồng theo người dùng thì chạy bằng tài khoản người dùng; luồng theo tổ chức mới dùng
+> tài khoản hệ thống* (4 workflow cũ đã đúng: `mail-auto-sync` PerUser dùng hộp thư của chính người
+> đó; deal/customer/tour-price PerTenant dùng tài khoản tự động).
+> Bản đầu cho bản tin fetch bằng tài khoản tự động (`CH_XEM_ALL` — thấy deal mọi người) rồi tự lọc →
+> **lọc sai là rò rỉ chéo giữa các sale, CRM không chặn giúp**. Nay mỗi người fetch bằng token của
+> chính mình, CRM tự áp quyền.
+> Kéo theo: **digest KHÔNG cần `TenantServiceAccounts`**; `ceo-brief` không phải re-check
+> `CH_XEM_ALL` mỗi lần gửi (giữ gate lúc đăng ký); điều kiện mới là người nhận đã từng đăng nhập
+> (`TkSessions` tự re-login, giữ 30 ngày) — chưa có phiên thì bỏ qua + ghi lý do.
+> Scheduler vẫn 1 bản ghi PerTenant (bật 1 lần), workflow tự đổi phiên theo từng người — tránh bắt
+> mỗi user cấu hình ở hai nơi. Chi tiết + đánh đổi: xem spec §4.3.
+
 **Tech Stack:** ASP.NET Core 8 Minimal API, Dapper + SQL Server (`TourkitAiDb`), xUnit (`TourkitAiProxy.Tests`), frontend React no-build (`wwwroot/pages/*.jsx`).
 
 **Spec:** [docs/superpowers/specs/2026-08-11-dot1-digest-insight-design.md](../specs/2026-08-11-dot1-digest-insight-design.md)
@@ -18,21 +31,33 @@
 - DI workflow đăng ký trong `Services/Bootstrap/WorkflowStackRegistration.cs` (KHÔNG phải `Program.cs`) → web + worker cùng pickup. Endpoint chỉ map ở web `Program.cs`.
 - Frontend thêm trang = sửa đủ 3 chỗ: `index.html` + `bundle-entry.js` + `app.jsx` (thiếu `bundle-entry.js` → prod trắng trang React #130).
 - Secrets: Zalo token Crypton-enc trong DB; KHÔNG log token.
-- **NGUYÊN TẮC CHUNG (12/08/2026): thứ gì KHÓ hoặc TỐN TIỀN thì để tenant tự cấu hình.** Hạn mức,
-  phí, rủi ro bị nhà cung cấp khoá — đẩy về đúng công ty hưởng lợi, đừng gom vào tài khoản dùng
-  chung của hệ thống. Dự án đã theo lối này ở `MailAccountStore` (Gmail App Password per-tenant,
-  KHÔNG fallback config/env) và `TenantServiceAccountStore`. Áp cho mọi kênh gửi mới.
-- **[SỬA 12/08/2026] Kênh gửi là cấu hình CỦA TỪNG CÔNG TY, không phải của hệ thống.** Bản đầu để
-  Telegram bot token ở `Telegram:BotToken` trong `appsettings` — dùng chung cho mọi tenant. Sai, vì:
-  (a) hạn mức Zalo OA tính **theo từng OA** ([bảng giá Zalo](https://zalo.solutions/oa/pricing): gói
-  mua chỉ dùng cho 1 OA, không chuyển nhượng) → mỗi công ty tự trả hạn mức của mình; (b) OA/bot dùng
-  chung mà một tenant spam thì **cả hệ thống bị khoá**; (c) bản tin phải gửi từ danh tính của chính
-  công ty đó. Nên tách **hai tầng cấu hình**:
-  - **Tầng công ty (per-tenant, quản trị khai 1 lần)** — OA Zalo/ZNS + bot Telegram dùng để GỬI ĐI.
-    Lưu DB, Crypton-enc, theo mẫu `MailAccountStore` (per-tenant, KHÔNG fallback config/env).
-  - **Tầng cá nhân (per-user, trong `DigestSubscriptions`)** — địa chỉ NHẬN: email, Zalo user id,
-    Telegram chat id; bật/tắt từng kênh độc lập. Kênh trong-app luôn có, không cần khai gì.
-  Sơ đồ thiết kế đã vẽ đúng 2 tầng này: `wwwroot/flows/_demo-sale-brief.js` và `_demo-ceo-brief.js`.
+- **NGUYÊN TẮC CHỌN NƠI CẤU HÌNH (chốt 12/08/2026): chia theo CHI PHÍ, không chia đều.**
+  - **Tốn tiền / có hạn mức / có rủi ro bị nhà cung cấp khoá → TENANT TỰ CẤU HÌNH.** Đẩy chi phí về
+    đúng công ty hưởng lợi. Dự án đã theo lối này ở `MailAccountStore` và `TenantServiceAccountStore`.
+  - **Rẻ hoặc miễn phí → DỊCH VỤ MÌNH LO, người dùng KHÔNG phải khai gì.** Bắt khai thêm một bước
+    chỉ để tiết kiệm thứ gần như không tốn là đánh đổi sai: mất người dùng nhiều hơn được.
+
+  Áp vào 4 kênh của Đợt 1:
+
+  | Kênh | Chi phí thật | Cấu hình ở đâu |
+  |---|---|---|
+  | Trong app | 0 | Không phải khai gì |
+  | **Telegram** | **0 — bot miễn phí, không hạn mức** | **Server-level, 1 bot dùng chung** (`Telegram:BotToken`) |
+  | **Email** | Rất rẻ, và **hộp thư tenant đã cấu hình sẵn cho SmartMail** | Dùng lại hộp thư đó — **không khai thêm** |
+  | **Zalo OA / ZNS** | **Tốn tiền thật**: gói 1–6 triệu/năm, hạn mức tính **theo từng OA** ([bảng giá](https://zalo.solutions/oa/pricing): gói mua chỉ dùng cho 1 OA, không chuyển nhượng) | **Per-tenant**, `dbo.TenantChannelSettings`, Crypton-enc |
+
+  **Ghi nhận sai sót:** bản sửa đầu trong ngày đã đẩy CẢ Telegram sang per-tenant — áp nguyên tắc
+  quá tay. Telegram miễn phí nên bắt mỗi công ty tự tạo bot chỉ thêm ma sát. Riêng với Telegram,
+  bot dùng chung còn **đơn giản hơn về kỹ thuật**: endpoint `POST /digest/telegram/detect` dò
+  `chatId` bằng `getUpdates` chỉ chạy được khi biết trước MỘT token — nhiều bot thì phải dò từng cái.
+  Rủi ro bot chung bị khoá do một tenant spam là có, nhưng bản tin gửi vài người/ngày, còn xa giới
+  hạn Telegram (~30 tin/giây).
+
+  Hai tầng cấu hình còn lại giữ nguyên:
+  - **Tầng công ty (quản trị khai 1 lần)** — CHỈ OA Zalo/ZNS.
+  - **Tầng cá nhân (trong `DigestSubscriptions`)** — nơi NHẬN: email, Zalo user id, Telegram chat id;
+    bật/tắt từng kênh độc lập.
+
   Ghi chú kỹ thuật: `ZaloUserId` **không nhập tay được** — phải để người dùng follow OA rồi bắt
   `user_id` từ sự kiện `follow` qua webhook; token OA hết hạn nên cần vòng refresh.
 - Test: `dotnet test TourkitAiProxy.Tests/TourkitAiProxy.Tests.csproj` — pure logic only (không test DB thật).

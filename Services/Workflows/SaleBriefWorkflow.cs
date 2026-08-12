@@ -60,8 +60,11 @@ public class SaleBriefWorkflow : IScheduledWorkflow
         var utcNow = DateTime.UtcNow;
         var todayVn = DigestDue.NowVn(utcNow).Date;
 
+        // Kèm luôn mask "còn thiếu kênh nào": lần đầu trong ngày là đủ kênh đang bật, còn lượt
+        // sau chỉ là phần hỏng lần trước (vd chỉ Telegram) — không gửi lại kênh đã tới tay.
         var due = (await _subs.ListEnabledAsync(tenantId, BriefTypes.Sale, ct))
-            .Where(s => DigestDue.IsDue(s, utcNow)).ToList();
+            .Select(s => (Sub: s, Pending: DigestDue.PendingFor(s, utcNow)))
+            .Where(x => x.Pending != ChannelMask.None).ToList();
         if (due.Count == 0)
             return new(true, "Chưa tới giờ gửi của ai (0 đăng ký đến hạn).", null);
 
@@ -83,7 +86,7 @@ public class SaleBriefWorkflow : IScheduledWorkflow
         int sent = 0, noSession = 0, failed = 0;
         var parts = new List<string>();
 
-        foreach (var sub in due)
+        foreach (var (sub, pending) in due)
         {
             ct.ThrowIfCancellationRequested();
             try
@@ -105,10 +108,18 @@ public class SaleBriefWorkflow : IScheduledWorkflow
                     crmUserId, jwt, todayVn, mailPending, mailQuote, mailOk, ct);
 
                 var msg = SaleBriefBuilder.Build(input, todayVn);
-                var chSummary = await _dispatcher.SendAsync(sub, msg, ct);
-                await _subs.MarkSentAsync(tenantId, sub.Username, BriefTypes.Sale, utcNow, todayVn, ct);
-                sent++;
-                parts.Add($"{sub.Username}[{chSummary}]");
+                var res = await _dispatcher.SendAsync(sub, msg, ct, pending);
+
+                // Ghi mask NGAY cả khi không kênh nào thành công: MarkSent cũng là chỗ tăng số lượt
+                // thử, thiếu nó thì kênh hỏng vĩnh viễn sẽ được thử lại mỗi giờ suốt cả ngày.
+                await _subs.MarkSentAsync(tenantId, sub.Username, BriefTypes.Sale, utcNow, todayVn,
+                    res.SentMask, ct);
+
+                if (res.SentMask != ChannelMask.None) sent++; else failed++;
+                var miss = ChannelMask.Pending(pending, res.SentMask);
+                parts.Add($"{sub.Username}[{res.Summary}"
+                        + (miss != ChannelMask.None ? $" · còn thiếu {ChannelMask.Describe(miss)}" : "")
+                        + "]");
             }
             catch (OperationCanceledException) { throw; }
             catch (Exception ex)
@@ -119,9 +130,9 @@ public class SaleBriefWorkflow : IScheduledWorkflow
             }
         }
 
-        var summary = $"{due.Count} đăng ký đến giờ → gửi {sent}"
+        var summary = $"{due.Count} đăng ký cần gửi → xong {sent}"
                     + (noSession > 0 ? $", bỏ qua {noSession} (chưa đăng nhập lần nào)" : "")
-                    + (failed > 0 ? $", lỗi {failed}" : "")
+                    + (failed > 0 ? $", lỗi/chưa gửi được {failed}" : "")
                     + (parts.Count > 0 ? ". " + string.Join(" · ", parts) : "");
         _log.LogInformation("[sale-brief] tenant={T} {Sum}", tenantId, summary);
         return new(true, summary, null);

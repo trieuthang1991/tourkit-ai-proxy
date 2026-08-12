@@ -27,7 +27,9 @@ public record DigestSubscription(
     bool ChannelInApp, bool ChannelEmail, string? Email,
     bool ChannelTelegram, string? TelegramChatId,
     bool ChannelZalo, string? ZaloUserId,
-    DateTime? LastSentUtc, DateTime? LastSentLocalDate)
+    DateTime? LastSentUtc, DateTime? LastSentLocalDate,
+    // Cờ bit kênh ĐÃ gửi được trong ngày + số lần đã thử. Xem ChannelMask.
+    int SentMask = 0, int SentAttempts = 0)
 {
     /// Giờ gửi hợp lệ 0–23; giá trị rác → 7h sáng (default an toàn).
     public static int ClampHour(int h) => h is >= 0 and <= 23 ? h : 7;
