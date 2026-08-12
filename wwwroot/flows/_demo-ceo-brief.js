@@ -18,8 +18,8 @@
     nodes: [
       F.node('e1', 'trigger', F.MID, 0, { icon: 'clock', title: 'Đến giờ đã hẹn',
         sub: 'Mỗi người tự chọn giờ nhận' }),
-      F.node('e2', 'branch', F.MID, 1, { icon: 'shield', title: 'Có quyền xem toàn công ty?',
-        sub: 'Kiểm lại mỗi lần gửi — mất quyền là ngừng' }),
+      F.node('e2', 'step', F.MID, 1, { icon: 'user', title: 'Đăng nhập bằng TÀI KHOẢN BẠN',
+        sub: 'CRM tự áp quyền — bị thu quyền xem toàn công ty là số liệu tự hết' }),
 
       F.node('e3', 'step', F.LEFT, 2.3, { icon: 'dollar', title: 'Tài chính 2 kỳ',
         sub: 'Tháng này so cùng kỳ tháng trước' }),
@@ -42,10 +42,10 @@
       F.node('e11', 'step', F.RIGHT, 7, { icon: 'checkCircle', title: 'Bản số liệu thuần',
         sub: 'AI lỗi hoặc hết lượt → bản tin KHÔNG bao giờ mất' }),
       // Hai TẦNG cấu hình (giống bản tin của nhân viên bán hàng):
-      //   - Công ty khai MỘT LẦN: OA Zalo (ZNS) + bot Telegram dùng để gửi đi
+      //   - Công ty khai MỘT LẦN: CHỈ OA Zalo (tốn tiền, hạn mức theo từng OA)
       //   - Từng người tự khai: địa chỉ nhận của mình
-      F.node('e12', 'step', F.LEFT, 8.2, { icon: 'shield', title: 'Kênh gửi của công ty',
-        sub: 'OA Zalo (ZNS) · bot Telegram — quản trị khai 1 lần' }),
+      F.node('e12', 'step', F.LEFT, 8.2, { icon: 'shield', title: 'OA Zalo của công ty',
+        sub: 'Tốn tiền + hạn mức riêng nên công ty tự khai · Telegram và email hệ thống lo' }),
       F.node('e13', 'step', F.RIGHT, 8.2, { icon: 'user', title: 'Nơi nhận của bạn',
         sub: 'Email · Zalo · Telegram — tự khai, muốn tắt kênh nào cũng được' }),
       F.node('e14', 'send', F.MID, 9.4, { icon: 'send', title: 'Gửi tới giám đốc',
@@ -53,7 +53,7 @@
     ],
     edges: [
       F.edge('e1', 'e2'),
-      F.edge('e2', 'e3', 'Có'), F.edge('e2', 'e4'), F.edge('e2', 'e5'),
+      F.edge('e2', 'e3'), F.edge('e2', 'e4'), F.edge('e2', 'e5'),
       F.edge('e3', 'e6'), F.edge('e5', 'e7'),
       F.edge('e4', 'e8'), F.edge('e6', 'e8'), F.edge('e7', 'e8'),
       F.edge('e8', 'e9'),

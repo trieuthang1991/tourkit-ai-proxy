@@ -16,8 +16,8 @@
     nodes: [
       F.node('s1', 'trigger', F.MID, 0, { icon: 'clock', title: 'Đến giờ đã hẹn',
         sub: 'Mỗi người tự chọn giờ nhận' }),
-      F.node('s2', 'step', F.MID, 1, { icon: 'users', title: 'Lấy việc CỦA RIÊNG bạn',
-        sub: 'Lọc theo người phụ trách' }),
+      F.node('s2', 'step', F.MID, 1, { icon: 'user', title: 'Đăng nhập bằng TÀI KHOẢN BẠN',
+        sub: 'CRM tự chặn phần không thuộc bạn — không dùng tài khoản chung' }),
 
       F.node('s3', 'step', F.LEFT, 2.3, { icon: 'phone', title: 'Cơ hội cần gọi hôm nay',
         sub: 'Top 5 · kèm % chốt và số ngày im lặng' }),
@@ -40,10 +40,10 @@
       F.node('s11', 'step', F.RIGHT, 6, { icon: 'checkCircle', title: 'Bản tin ngắn',
         sub: '"Hôm nay chưa có việc gấp" — vẫn gửi để giữ thói quen' }),
       // Hai TẦNG cấu hình khác nhau, cố ý tách thành 2 node để không lẫn:
-      //   - Công ty khai MỘT LẦN: OA Zalo (ZNS) + bot Telegram dùng để gửi đi
+      //   - Công ty khai MỘT LẦN: CHỈ OA Zalo (tốn tiền, hạn mức theo từng OA)
       //   - Từng người tự khai: địa chỉ nhận của mình
-      F.node('s12', 'step', F.LEFT, 7.2, { icon: 'shield', title: 'Kênh gửi của công ty',
-        sub: 'OA Zalo (ZNS) · bot Telegram — quản trị khai 1 lần' }),
+      F.node('s12', 'step', F.LEFT, 7.2, { icon: 'shield', title: 'OA Zalo của công ty',
+        sub: 'Tốn tiền + hạn mức riêng nên công ty tự khai · Telegram và email hệ thống lo' }),
       F.node('s13', 'step', F.RIGHT, 7.2, { icon: 'user', title: 'Nơi nhận của bạn',
         sub: 'Email · Zalo · Telegram — bạn tự khai, muốn tắt kênh nào cũng được' }),
       F.node('s14', 'send', F.MID, 8.4, { icon: 'send', title: 'Gửi tới bạn',

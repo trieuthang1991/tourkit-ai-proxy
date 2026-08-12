@@ -168,6 +168,9 @@ public static class WorkflowStackRegistration
         s.AddSingleton<Digest.Channels.IDigestChannel, Digest.Channels.TelegramChannel>();
         s.AddSingleton<Digest.Channels.IDigestChannel, Digest.Channels.ZaloOaChannel>();
         s.AddSingleton<Digest.DigestDispatcher>();
+        // Canh thanh toán: luồng THEO TỔ CHỨC (cảnh báo tenant-wide) nên dùng tài khoản tự động,
+        // khác bản tin cá nhân chạy bằng tài khoản của chính người nhận.
+        s.AddSingleton<Workflows.IScheduledWorkflow, Workflows.PaymentWatchdogWorkflow>();
 
         s.AddSingleton<Workflows.WorkflowSchedulerService>();
 
