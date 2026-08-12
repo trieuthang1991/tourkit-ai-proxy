@@ -51,7 +51,7 @@ public class TourkitAiDb
             await using var cmd = c.CreateCommand();
             cmd.CommandText = SchemaSql;
             await cmd.ExecuteNonQueryAsync(ct);
-            _log.LogInformation("TourkitAiDb schema OK (Reviews/DealScores/MailAccounts/Mails/MailSyncState/TourQuotes/TourPriceCatalog/VisaAssessments/QuotaOrders/WidgetTokens/VisaQuestionSets/TkSessions/TenantQuota/AiUsageCounters/AiUsageHistory/UserWorkflows/WorkflowRuns/OutboundMails/CrmActionQueue/MailTemplates/TenantServiceAccounts đã có/đã tạo)");
+            _log.LogInformation("TourkitAiDb schema OK (Reviews/DealScores/MailAccounts/Mails/MailSyncState/TourQuotes/TourPriceCatalog/VisaAssessments/QuotaOrders/WidgetTokens/VisaQuestionSets/TkSessions/TenantQuota/AiUsageCounters/AiUsageHistory/UserWorkflows/WorkflowRuns/OutboundMails/CrmActionQueue/MailTemplates/TenantServiceAccounts/AgentInsights/DigestSubscriptions/TenantChannelSettings đã có/đã tạo)");
         }
         catch (Exception ex)
         {
@@ -641,5 +641,69 @@ IF NOT EXISTS (SELECT 1 FROM sys.columns WHERE object_id = OBJECT_ID('dbo.DealSc
     ALTER TABLE dbo.DealScores ADD FinalizedReason NVARCHAR(32) NULL;
 IF NOT EXISTS (SELECT 1 FROM sys.columns WHERE object_id = OBJECT_ID('dbo.DealScores') AND name = 'LastAutoReviewUtc')
     ALTER TABLE dbo.DealScores ADD LastAutoReviewUtc DATETIME2 NULL;
+
+-- ─── Bản tin sáng (Đợt 1) ────────────────────────────────────────────────────
+-- Bảng tin việc cần biết. Username='' = tenant-wide (cả công ty thấy).
+IF OBJECT_ID('dbo.AgentInsights', 'U') IS NULL
+BEGIN
+    CREATE TABLE dbo.AgentInsights (
+        Id          BIGINT IDENTITY PRIMARY KEY,
+        TenantId    NVARCHAR(128)  NOT NULL,
+        Username    NVARCHAR(256)  NOT NULL CONSTRAINT DF_AgentInsights_User DEFAULT '',
+        Kind        NVARCHAR(64)   NOT NULL,
+        Severity    TINYINT        NOT NULL CONSTRAINT DF_AgentInsights_Sev DEFAULT 0,
+        Title       NVARCHAR(512)  NULL,
+        Body        NVARCHAR(MAX)  NULL,
+        DataJson    NVARCHAR(MAX)  NULL,
+        AlertKey    NVARCHAR(128)  NULL,
+        IsRead      BIT            NOT NULL CONSTRAINT DF_AgentInsights_Read DEFAULT 0,
+        CreatedUtc  DATETIME2      NOT NULL
+    );
+    CREATE INDEX IX_AgentInsights_Tenant_User_Created ON dbo.AgentInsights(TenantId, Username, CreatedUtc DESC);
+    -- Lọc AlertKey IS NOT NULL: chỉ dòng có khoá chống trùng mới cần tra, index gọn hơn nhiều.
+    CREATE INDEX IX_AgentInsights_AlertKey ON dbo.AgentInsights(TenantId, AlertKey) WHERE AlertKey IS NOT NULL;
+END;
+
+-- Ai nhận bản tin gì, lúc mấy giờ, qua kênh nào. NƠI NHẬN của từng người.
+IF OBJECT_ID('dbo.DigestSubscriptions', 'U') IS NULL
+BEGIN
+    CREATE TABLE dbo.DigestSubscriptions (
+        TenantId          NVARCHAR(128) NOT NULL,
+        Username          NVARCHAR(256) NOT NULL,
+        BriefType         NVARCHAR(32)  NOT NULL,
+        Enabled           BIT           NOT NULL CONSTRAINT DF_DigestSubs_Enabled DEFAULT 1,
+        SendHourLocal     TINYINT       NOT NULL CONSTRAINT DF_DigestSubs_Hour DEFAULT 7,
+        ChannelInApp      BIT           NOT NULL CONSTRAINT DF_DigestSubs_InApp DEFAULT 1,
+        ChannelEmail      BIT           NOT NULL CONSTRAINT DF_DigestSubs_Email DEFAULT 0,
+        Email             NVARCHAR(256) NULL,
+        ChannelTelegram   BIT           NOT NULL CONSTRAINT DF_DigestSubs_Tele DEFAULT 0,
+        TelegramChatId    NVARCHAR(64)  NULL,
+        ChannelZalo       BIT           NOT NULL CONSTRAINT DF_DigestSubs_Zalo DEFAULT 0,
+        ZaloUserId        NVARCHAR(64)  NULL,
+        LastSentUtc       DATETIME2     NULL,
+        LastSentLocalDate DATE          NULL,
+        CreatedUtc        DATETIME2     NOT NULL,
+        UpdatedUtc        DATETIME2     NOT NULL,
+        CONSTRAINT PK_DigestSubscriptions PRIMARY KEY (TenantId, Username, BriefType)
+    );
+END;
+
+-- TÀI KHOẢN GỬI ĐI của từng công ty (OA Zalo/ZNS, bot Telegram). Tách khỏi bảng trên vì
+-- đây là cấu hình chung của công ty, quản trị khai 1 lần — không phải của từng người.
+-- Thứ gì tốn tiền/có hạn mức thì để tenant tự cấu hình (xem plan Đợt 1).
+IF OBJECT_ID('dbo.TenantChannelSettings', 'U') IS NULL
+BEGIN
+    CREATE TABLE dbo.TenantChannelSettings (
+        TenantId   NVARCHAR(128) NOT NULL,
+        Channel    NVARCHAR(32)  NOT NULL,
+        ConfigJson NVARCHAR(MAX) NOT NULL,
+        UpdatedUtc DATETIME2     NOT NULL,
+        CONSTRAINT PK_TenantChannelSettings PRIMARY KEY (TenantId, Channel)
+    );
+END;
+
+-- user_id CRM lấy từ JWT lúc login → lọc dữ liệu ""của riêng người này"" khi dựng bản tin.
+IF NOT EXISTS (SELECT 1 FROM sys.columns WHERE object_id = OBJECT_ID('dbo.TkSessions') AND name = 'CrmUserId')
+    ALTER TABLE dbo.TkSessions ADD CrmUserId INT NULL;
 ";
 }
