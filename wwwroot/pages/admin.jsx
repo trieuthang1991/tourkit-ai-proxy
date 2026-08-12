@@ -127,6 +127,7 @@
     { path: "consult-leads",    label: "Đăng ký tư vấn",    icon: "📞", component: ConsultLeadsPage },
     { path: "chat-unresolved",  label: "AI bí câu hỏi",     icon: "❓", component: ChatUnresolvedPage },
     { path: "tk-sessions",      label: "Phiên đăng nhập",   icon: "🔐", component: TkSessionsPage },
+    { path: "digest",           label: "Bản tin",           icon: "📰", component: DigestPage },
     { path: "outbound-mails",   label: "Hàng đợi mail",     icon: "📤", component: OutboundMailsPage },
     { path: "mail-templates",   label: "Template mail",     icon: "📝", component: MailTemplatesPage },
   ];
@@ -1411,6 +1412,149 @@
         fontFamily: "inherit", color: "var(--text-primary)"
       };
     }
+  }
+
+  // ── Theo dõi bản tin (xuyên tenant) ──────────────────────────────────────────
+  // Trang này KHÔNG phải để ngắm số cho vui: 3 kiểu hỏng của tính năng bản tin đều IM LẶNG với
+  // người dùng (họ chỉ thấy sáng ra không có gì). Cột "Vấn đề" do server tính, nói thẳng nguyên
+  // nhân gốc — xem AdminDigestRepository.DetectProblem.
+  function DigestPage() {
+    const [items, setItems] = useState([]);
+    const [totals, setTotals] = useState({});
+    const [loading, setLoading] = useState(false);
+    const [error, setError] = useState("");
+    const [tenantId, setTenantId] = useState("");
+    const [briefType, setBriefType] = useState("");
+    const [problemsOnly, setProblemsOnly] = useState(false);
+
+    async function load() {
+      setLoading(true); setError("");
+      try {
+        const qs = new URLSearchParams();
+        if (tenantId.trim()) qs.set("tenantId", tenantId.trim());
+        if (briefType) qs.set("briefType", briefType);
+        if (problemsOnly) qs.set("problemsOnly", "true");
+        const r = await window.adminFetch("/api/v1/admin/ui/digest?" + qs.toString());
+        const d = await r.json();
+        if (!r.ok) throw new Error(d.error || `HTTP ${r.status}`);
+        setItems(d.items || []);
+        setTotals(d.totals || {});
+      } catch (e) {
+        setError(e.message || "Lỗi tải dữ liệu");
+      } finally {
+        setLoading(false);
+      }
+    }
+
+    useEffect(() => { load(); }, [briefType, problemsOnly]);
+
+    const BRIEF_LABEL = { "sale-brief": "NV bán hàng", "ceo-brief": "Giám đốc" };
+
+    const chip = (label, val, active, onClick) => (
+      <button onClick={onClick}
+        style={{
+          padding: "4px 10px", fontSize: 12, borderRadius: 6, cursor: "pointer",
+          fontFamily: "inherit", marginRight: 6,
+          border: active ? "1px solid var(--accent-deep)" : "1px solid var(--border-warm)",
+          background: active ? "var(--accent-tint)" : "var(--bg-paper)",
+          color: active ? "var(--accent-deep)" : "var(--text-primary)",
+        }}>
+        {label}{val != null ? ` (${val})` : ""}
+      </button>
+    );
+
+    function inp(w) {
+      return {
+        minWidth: w, padding: "8px 12px", border: "1px solid var(--border-warm)",
+        borderRadius: 6, background: "var(--bg-paper)", fontSize: 14,
+        fontFamily: "inherit", color: "var(--text-primary)"
+      };
+    }
+
+    return (
+      <div>
+        <div className="ai-usage-header">
+          <h1 className="ai-usage-title">Bản tin</h1>
+          <button className="ai-usage-range-btn" onClick={load} disabled={loading}>↻ Refresh</button>
+        </div>
+
+        <div style={{ marginBottom: 12 }}>
+          {chip("Tất cả", totals.all, briefType === "" && !problemsOnly, () => { setBriefType(""); setProblemsOnly(false); })}
+          {chip("NV bán hàng", null, briefType === "sale-brief", () => setBriefType("sale-brief"))}
+          {chip("Giám đốc", null, briefType === "ceo-brief", () => setBriefType("ceo-brief"))}
+          {chip("⚠ Đang có vấn đề", totals.problems, problemsOnly, () => setProblemsOnly(v => !v))}
+        </div>
+
+        <div style={{ marginBottom: 12, fontSize: 13, color: "var(--text-secondary)" }}>
+          {totals.all != null && (
+            <>
+              <b>{totals.enabled}</b>/{totals.all} đăng ký đang bật · <b>{totals.tenants}</b> công ty
+              {totals.scheduleOff > 0 && (
+                <> · <b style={{ color: "#B45309" }}>{totals.scheduleOff}</b> người đã đăng ký nhưng công ty chưa bật lịch</>
+              )}
+            </>
+          )}
+        </div>
+
+        <div className="ai-usage-filters" style={{ marginBottom: 12, gap: 8, display: "flex", flexWrap: "wrap" }}>
+          <input type="text" placeholder="Lọc tenantId…" value={tenantId}
+            onChange={e => setTenantId(e.target.value)} onKeyDown={e => e.key === "Enter" && load()}
+            style={inp(220)} />
+          <button className="ai-usage-range-btn" onClick={load}>Áp dụng</button>
+        </div>
+
+        {error && <div className="ai-usage-error">⚠️ {error}</div>}
+        {loading && items.length === 0 && <div className="ai-usage-loading">Đang tải…</div>}
+        {!loading && items.length === 0 && !error && (
+          <div className="ai-usage-loading">
+            {problemsOnly ? "Không có đăng ký nào đang gặp vấn đề." : "Chưa có ai đăng ký nhận bản tin."}
+          </div>
+        )}
+
+        {items.length > 0 && (
+          <div className="quota-section">
+            <table className="quota-table">
+              <thead>
+                <tr>
+                  <th>Công ty</th>
+                  <th>Người nhận</th>
+                  <th>Loại</th>
+                  <th style={{ width: 70 }}>Giờ</th>
+                  <th>Kênh đã bật</th>
+                  <th>Hôm nay gửi được</th>
+                  <th>Gửi lần cuối</th>
+                  <th>Vấn đề</th>
+                </tr>
+              </thead>
+              <tbody>
+                {items.map((r, i) => (
+                  <tr key={r.tenantId + "|" + r.username + "|" + r.briefType + i}
+                      style={r.problem ? { background: "#FFFBEB" } : undefined}>
+                    <td title={r.tenantId}>{r.tenantName}</td>
+                    <td>{r.username}</td>
+                    <td>{BRIEF_LABEL[r.briefType] || r.briefType}</td>
+                    <td>{String(r.sendHourLocal).padStart(2, "0")}:00</td>
+                    <td style={{ fontSize: 12 }}>
+                      {r.enabled ? r.channelsEnabled : <span style={{ color: "var(--text-secondary)" }}>đã tắt nhận</span>}
+                    </td>
+                    <td style={{ fontSize: 12 }}>
+                      {r.channelsSentToday}
+                      {r.sentAttempts > 0 && (
+                        <span style={{ color: "var(--text-secondary)" }}> · {r.sentAttempts} lượt thử</span>
+                      )}
+                    </td>
+                    <td style={{ fontSize: 12 }}>{fmtTs(r.lastSentUtc)}</td>
+                    <td style={{ fontSize: 12, color: r.problem ? "#B45309" : "var(--text-secondary)" }}>
+                      {r.problem || "—"}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </div>
+    );
   }
 
   // ── Quản lý template mail (global) ─────────────────────────────────────────

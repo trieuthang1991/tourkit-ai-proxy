@@ -22,6 +22,7 @@ namespace TourkitAiProxy.Endpoints;
 ///   GET  /api/v1/admin/ui/tk-sessions                            — phiên đăng nhập TourKit đang active
 ///   DELETE /api/v1/admin/ui/tk-sessions/{id}                     — kick 1 phiên (force logout)
 ///   GET  /api/v1/admin/ui/outbound-mails?tenantId=&amp;kind=&amp;status= — hàng đợi mail (cross-tenant) + counts
+///   GET  /api/v1/admin/ui/digest                                 — theo dõi bản tin xuyên tenant
 ///   GET  /api/v1/admin/ui/mail-templates                         — list template mail (global)
 ///   PUT  /api/v1/admin/ui/mail-templates/{code}                  — tạo/sửa template
 ///   DELETE /api/v1/admin/ui/mail-templates/{code}                — xóa template
@@ -429,6 +430,61 @@ public static class AdminUiEndpoints
 
         // ── Quản lý template mail (global) ─────────────────────────────────────────
         // GET /api/v1/admin/ui/mail-templates
+        // ── Theo dõi bản tin xuyên tenant ──────────────────────────────────────────
+        // GET /api/v1/admin/ui/digest?tenantId=&briefType=&problemsOnly=
+        // Câu hỏi chính nó trả lời: "có ai đăng ký rồi mà bản tin chưa từng tới không?" — 3 kiểu
+        // hỏng của tính năng này đều IM LẶNG với người dùng (xem AdminDigestRepository).
+        g.MapGet("/digest", async (
+            string? tenantId, string? briefType, bool? problemsOnly,
+            AdminDigestRepository repo,
+            TkSessionRepository tkRepo,
+            CancellationToken ct) =>
+        {
+            var t = string.IsNullOrWhiteSpace(tenantId) ? null : tenantId.Trim();
+            var b = string.IsNullOrWhiteSpace(briefType) ? null : briefType.Trim();
+
+            // Lấy TOÀN BỘ rồi mới lọc, để phần tổng luôn là tổng thật — lọc ở SQL thì
+            // "3/12 đang có vấn đề" biến thành "3/3", đọc xong tưởng cả hệ thống hỏng.
+            var all = await repo.ListAsync(t, b, problemsOnly: false, ct);
+
+            Dictionary<string, string> names;
+            try { names = await tkRepo.GetTenantNamesAsync(all.Select(r => r.TenantId).Distinct(), ct); }
+            catch { names = new(); }
+
+            var shown = problemsOnly == true ? all.Where(r => r.Problem != null).ToList() : all;
+
+            return Results.Json(new
+            {
+                items = shown.Select(r => new
+                {
+                    tenantId          = r.TenantId,
+                    tenantName        = names.TryGetValue(r.TenantId, out var n) ? n : r.TenantId,
+                    username          = r.Username,
+                    briefType         = r.BriefType,
+                    enabled           = r.Enabled,
+                    sendHourLocal     = r.SendHourLocal,
+                    channelsEnabled   = r.ChannelsEnabled,
+                    channelsSentToday = r.ChannelsSentToday,
+                    channelsMissing   = r.ChannelsMissingToday,
+                    sentAttempts      = r.SentAttempts,
+                    lastSentUtc       = r.LastSentUtc,
+                    lastSentLocalDate = r.LastSentLocalDate,
+                    scheduleEnabled   = r.ScheduleEnabled,
+                    pausedReason      = r.PausedReason,
+                    problem           = r.Problem,
+                    updatedUtc        = r.UpdatedUtc,
+                }).ToList(),
+                totals = new
+                {
+                    all         = all.Count,
+                    enabled     = all.Count(r => r.Enabled),
+                    problems    = all.Count(r => r.Problem != null),
+                    scheduleOff = all.Count(r => r.Enabled && !r.ScheduleEnabled),
+                    tenants     = all.Select(r => r.TenantId).Distinct().Count(),
+                }
+            });
+        });
+
         g.MapGet("/mail-templates", async (MailTemplateRepository repo, CancellationToken ct) =>
         {
             var items = await repo.ListAsync(ct);

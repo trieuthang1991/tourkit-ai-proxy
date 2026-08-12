@@ -178,6 +178,7 @@ data/
 | GET    | `/api/v1/admin/ui/ai-usage`       | cross-tenant AI usage `?days=30&tenantId=` (require X-Admin-Session) |
 | GET    | `/api/v1/admin/ui/quota`          | list quota mọi tenant `{items[{tenantId, displayName, limit, used, remaining, usedPct, warn, exhausted, updatedAtUtc}]}` (require X-Admin-Session) |
 | POST   | `/api/v1/admin/ui/quota/{tenant}/topup` | cộng `{amount: 1..100000}` lượt cho tenant → snapshot mới (require X-Admin-Session) |
+| GET    | `/api/v1/admin/ui/digest`         | Theo dõi bản tin xuyên tenant `?tenantId=&briefType=&problemsOnly=` → `{items[{tenantId,tenantName,username,briefType,enabled,sendHourLocal,channelsEnabled,channelsSentToday,channelsMissing,sentAttempts,lastSentUtc,scheduleEnabled,pausedReason,problem}], totals{all,enabled,problems,scheduleOff,tenants}}` — `problem` do server tính, nói thẳng nguyên nhân gốc (require X-Admin-Session) |
 | GET    | `/api/v1/admin/ui/consult-leads`  | đăng ký tư vấn từ landing `?status=all|pending|contacted` → `{items[…], totals{all,pending,contacted}}` (require X-Admin-Session) |
 | POST   | `/api/v1/admin/ui/consult-leads/{id}/contacted` | đánh dấu lead đã/chưa liên hệ `{contacted:bool}` — lưu vào side-car `data/consult-leads-status.json`, KHÔNG sửa JSONL gốc (require X-Admin-Session) |
 | GET    | `/api/v1/admin/ui/chat-unresolved` | "AI bí câu hỏi" — Chat-Analytics unresolved log `?days=1..90&tag=` → `{items[{ts,tag,tenantId,tenantName,question,toolChosen,plannerRaw,aiReplyPreview,provider,model,iterations,latencyMs,tokensIn,tokensOut,history[]}], totals{<tagName>:count, all}}` (max 500 entries, require X-Admin-Session) |
@@ -387,6 +388,13 @@ về đúng tab (chuông ở thanh trên dùng `/insights`).
 Lịch chạy + tài khoản dịch vụ + Zalo OA → cần `CH_HT_XEM`. Vì trang này nay có phần cá nhân nên mục menu
 nằm ở khối **"Bản tin & Tự động"** (không phải "Tích hợp") và route KHÔNG gate cứng.
 
+**Theo dõi (admin):** `/admin-trav-ai` → **Bản tin**. Cần trang này vì **cả 3 kiểu hỏng của tính năng
+đều IM LẶNG** — người dùng chỉ thấy sáng ra không có gì, không lỗi nào hiện lên: (1) đã đăng ký nhưng
+công ty chưa bật lịch chạy, (2) bật kênh mà bỏ trống nơi nhận, (3) kênh gửi hỏng (mask thiếu bit / hết
+lượt thử). Cột "Vấn đề" tính ở server ([`AdminDigestRepository.DetectProblem`](Services/Admin/AdminDigestRepository.cs))
+theo thứ tự nguyên nhân GỐC trước. Bộ đếm luôn là tổng THẬT kể cả khi đang lọc "chỉ lỗi" — lọc ở SQL thì
+"3/12 có vấn đề" biến thành "3/3", đọc xong tưởng cả hệ thống hỏng.
+
 **Cấu hình cần có:** `Telegram:BotToken` (rỗng = kênh Telegram tự tắt) · `Models:Digest` (thiếu → kế thừa
 `Models:Primary`) · template mail `daily-brief` trong `/admin-trav-ai` → Mail Templates (thiếu thì worker
 vẫn render từ `Params`).
@@ -418,6 +426,7 @@ Hệ quản trị admin riêng biệt với user-facing app. Entry HTML `wwwroot
 
 - **Auth**: cấu hình `Admin:Users` JSON trong `appsettings.json` (plain text password — admin pool nhỏ, self-host, file gitignore). `AdminUserStore.Authenticate` string-compare. Session in-mem `AdminSessionStore` (token GUID, 12h idle, KHÔNG persist). Client gửi `X-Admin-Session` header. Endpoint require qua extension `.RequireAdminSession()`.
 - **Compatibility**: `/api/v1/admin/quota/*` (webhook ops) GIỮ NGUYÊN `Admin:Token` cũ — KHÔNG đụng. Mọi endpoint admin UI mới dùng `/api/v1/admin/ui/*` với `RequireAdminSession()`.
+- **Cross-tenant digest**: `Services/Admin/AdminDigestRepository.cs` — JOIN `dbo.DigestSubscriptions` với `dbo.UserWorkflows` (`Username=''` vì 2 tác vụ bản tin đều PerTenant) để biết đăng ký nào đang "chết lặng". Mask chỉ đọc khi `LastSentLocalDate` ĐÚNG là hôm nay — sang ngày mới mask chưa reset tới lượt gửi đầu, đọc nhầm sẽ báo "đã gửi" cho hôm nay.
 - **Cross-tenant usage**: `Services/Admin/AdminUsageRepository.cs` aggregate trên `dbo.AiUsageHistory` (4 query: totals/byModel/byTenant/byDay). Filter `Status='ok'` để khỏi double-count retry. `Tenant IS NULL` group thành `(system)`. Tenant name resolve qua `TkSessionRepository.GetTenantNamesAsync` (SELECT TOP 1 per tenant ORDER BY LastUsedUtc DESC, fallback `tenantId`).
 
 ### Thêm trang admin mới — 3 dòng

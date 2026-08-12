@@ -103,6 +103,7 @@ builder.Services.AddWorkflowStack(builder.Configuration);
 builder.Services.AddSingleton<TourkitAiProxy.Services.Admin.AdminUserStore>();
 builder.Services.AddSingleton<TourkitAiProxy.Services.Admin.AdminSessionStore>();
 builder.Services.AddSingleton<TourkitAiProxy.Services.Admin.AdminUsageRepository>();
+builder.Services.AddSingleton<TourkitAiProxy.Services.Admin.AdminDigestRepository>();
 builder.Services.AddSingleton<TourkitAiProxy.Services.Admin.ConsultLeadRepository>();
 
 // Tingee client cho luồng mua quota. Tingee = webhook IPN-only (bắn về tourkit-web); QR = VietQR
