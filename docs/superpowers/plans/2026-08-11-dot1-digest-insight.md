@@ -2139,7 +2139,25 @@ public static class DigestEndpoints
 
 ---
 
-### Task 12: Docs + config + verify tổng
+### Task 12: Docs + config + verify tổng — ✅ XONG 12/08/2026
+
+> **Đã làm:** `docs/database-schema.md` (3 bảng mới + 3 cột mới, 22 → 25 bảng — làm sớm ở Task 9b) ·
+> `CLAUDE.md` (bảng API surface + section "Bản tin AI" đầy đủ + 3 workflow mới trong danh sách built-in +
+> 2 file jsx trong sơ đồ thư mục) · `appsettings.example.json` (`Telegram:BotToken` + `BotUsername`, kèm
+> ghi chú vì sao Telegram dùng bot chung còn Zalo phải per-tenant; `Models:Digest` thêm ở Task 9b).
+>
+> **Thêm ngoài plan:** mẫu [`docs/mail-templates/daily-brief.sample.html`](../../mail-templates/daily-brief.sample.html)
+> + hợp đồng tham số trong README templates. Plan chỉ ghi "tạo template tay ở /admin-trav-ai" nhưng không
+> nói tham số là gì — người vận hành sẽ phải tự mò. Ghi rõ luôn 2 cái dễ sai: `bodyHtml` ĐÃ escape sẵn
+> (escape lần nữa là người đọc thấy `&lt;b&gt;`), và `daily-brief` lấy thẳng `ToEmail` chứ KHÔNG tra CRM
+> như `deal-cooling-alert`.
+>
+> **Verify tổng:** build web + worker 0 lỗi · 501 test 0 fail · E2E sơ đồ 11 ok/0 lỗi · E2E digest
+> 26 PASS/0 FAIL · `dotnet run` log `AgentInsights/DigestSubscriptions/TenantChannelSettings đã có/đã tạo` ·
+> `GET /api/v1/workflows` trả đủ **7 tác vụ** (thêm `payment-watchdog`, `sale-brief`, `ceo-brief`).
+>
+> **Dọn dữ liệu test:** xoá 6 bản tin "[Gửi thử]" sinh ra khi kiểm (giữ nguyên bản tin thật + mọi đăng ký).
+> Còn 3 đăng ký thật đang bật do quá trình kiểm tạo ra — đã báo người dùng để tự quyết giữ hay tắt.
 
 **Files:**
 - Modify: `docs/database-schema.md` — thêm 3 bảng mới (#23 AgentInsights, #24 DigestSubscriptions, #25 TenantChannelSettings) + cột `TkSessions.CrmUserId` theo format bảng sẵn có

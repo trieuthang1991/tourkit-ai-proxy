@@ -1,0 +1,44 @@
+<!--
+  Mẫu email BẢN TIN SÁNG (TemplateCode = "daily-brief").
+  Dùng cho cả 2 loại: sale-brief (nhân viên bán hàng) và ceo-brief (giám đốc) — phân biệt qua {{briefType}}.
+
+  Tham số proxy luôn cung cấp trong [Params]:
+    {{title}}     — tiêu đề bản tin, vd "Bản tin sáng 12/08 — Nguyễn Văn A"
+    {{bodyHtml}}  — TOÀN BỘ nội dung đã render sẵn thành HTML (đã escape). Chỉ cần chèn nguyên vào.
+    {{briefType}} — "sale-brief" | "ceo-brief"
+    {{date}}      — ngày VIỆT NAM dạng dd/MM/yyyy (khớp ngày người đọc thấy trên lịch của họ)
+
+  LƯU Ý QUAN TRỌNG:
+  • {{bodyHtml}} ĐÃ được escape ở proxy (SaleBriefBuilder.ToHtml) — worker chèn NGUYÊN, KHÔNG escape lần
+    nữa, nếu không người đọc sẽ thấy "&lt;b&gt;" thay vì chữ in đậm.
+  • Thiếu template này worker vẫn gửi được (tự render từ Params) — file này chỉ để mail đẹp và có chữ ký.
+  • Inline CSS: Gmail/Outlook bỏ phần lớn <style> trong <head>, nên mọi màu/khoảng cách đặt thẳng vào
+    thuộc tính style của từng thẻ.
+  • Không dùng ảnh nền / webfont: nhiều client chặn, bản tin đọc buổi sáng cần hiện ngay.
+-->
+<div style="margin:0;padding:24px 12px;background:#F1F5F9;font-family:'Segoe UI',Roboto,Arial,sans-serif;">
+  <div style="max-width:640px;margin:0 auto;background:#FFFFFF;border-radius:12px;overflow:hidden;border:1px solid #E2E8F0;">
+
+    <!-- Đầu thư -->
+    <div style="padding:18px 24px;background:#0F172A;">
+      <div style="font-size:11px;letter-spacing:.08em;text-transform:uppercase;color:#94A3B8;">
+        TRAV-AI · Bản tin tự động
+      </div>
+      <div style="margin-top:4px;font-size:19px;font-weight:700;color:#FFFFFF;">
+        {{title}}
+      </div>
+    </div>
+
+    <!-- Nội dung: chèn NGUYÊN, không escape lại -->
+    <div style="padding:22px 24px;font-size:14px;line-height:1.75;color:#334155;">
+      {{bodyHtml}}
+    </div>
+
+    <!-- Chân thư -->
+    <div style="padding:14px 24px;background:#F8FAFC;border-top:1px solid #E2E8F0;font-size:12px;color:#64748B;line-height:1.6;">
+      Bản tin ngày {{date}}, do hệ thống tự gửi theo giờ bạn đã chọn.<br>
+      Muốn đổi giờ nhận, thêm/bớt kênh nhận, hoặc dừng nhận: mở
+      <b>Tự động hóa</b> → thẻ bản tin → <b>Bản tin của tôi</b>.
+    </div>
+  </div>
+</div>

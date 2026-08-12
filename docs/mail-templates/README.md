@@ -1,6 +1,6 @@
 # Mail templates cho hàng đợi `dbo.OutboundMails`
 
-Proxy (workflow `deal-auto-review`) **không** soạn HTML — chỉ enqueue 1 dòng vào `dbo.OutboundMails` với
+Proxy (workflow `deal-auto-review`, `sale-brief`, `ceo-brief`) **không** soạn HTML — chỉ enqueue 1 dòng vào `dbo.OutboundMails` với
 `TemplateCode` + `[Params]` (JSON). **Worker (CEO viết)** đọc dòng `Status=0`, load template HTML theo
 `TemplateCode`, replace tham số, resolve người nhận, gửi SMTP, cập nhật `Status`.
 
@@ -30,11 +30,35 @@ File mẫu: [`deal-cooling-alert.sample.html`](deal-cooling-alert.sample.html).
 | `level` | string? | `cao`/`trung_binh`/`thap` |
 | `nextAction` | string? | Hành động AI gợi ý làm tiếp |
 
+## `daily-brief` (bản tin sáng — Đợt 1)
+
+File mẫu: [`daily-brief.sample.html`](daily-brief.sample.html). Dùng cho CẢ `sale-brief` (nhân viên bán
+hàng) và `ceo-brief` (giám đốc) — phân biệt qua `briefType`.
+
+| Key | Kiểu | Mô tả |
+|---|---|---|
+| `title` | string | Tiêu đề bản tin, vd `"Bản tin sáng 12/08 — Nguyễn Văn A"` |
+| `bodyHtml` | string | **TOÀN BỘ nội dung đã render sẵn thành HTML** — chèn nguyên vào thân mail |
+| `briefType` | string | `sale-brief` \| `ceo-brief` |
+| `date` | string | Ngày **Việt Nam** `dd/MM/yyyy` (khớp ngày người đọc thấy trên lịch của họ) |
+
+⚠️ **`bodyHtml` ĐÃ escape ở proxy** ([`SaleBriefBuilder.ToHtml`](../../Services/Digest/SaleBriefBuilder.cs)) —
+worker chèn NGUYÊN, **không escape lần nữa**, nếu không người đọc thấy `&lt;b&gt;` thay vì chữ in đậm.
+
+Người nhận: đọc thẳng cột `ToEmail` (chính người dùng tự khai ở "Bản tin của tôi") — **không** phải resolve
+từ CRM như `deal-cooling-alert`. `Username` để `null` nghĩa là gửi bằng hộp thư của công ty.
+`SourceId` dạng `{briefType}:{username}:{yyyy-MM-dd}` → mỗi người mỗi ngày đúng 1 dòng, dễ đối soát khi có
+người báo "hôm nay không nhận được mail".
+
+Thiếu template này worker **vẫn gửi được** (tự render từ `Params`) — mẫu chỉ để mail đẹp + có chữ ký.
+
 ## Hợp đồng worker (tóm tắt)
 
 1. Poll: `SELECT TOP N * FROM dbo.OutboundMails WHERE Status=0 AND (ScheduledUtc IS NULL OR ScheduledUtc <= SYSUTCDATETIME()) ORDER BY CreatedUtc` — **giờ UTC** (so sánh bằng `DateTime.UtcNow`).
 2. Render: load template theo `TemplateCode` → replace `{{key}}` từ `[Params]`. `Subject` lấy từ template hoặc cột `Subject`.
-3. `Kind='deal-cooling-alert'`: đọc `Data.dealId` → tenant DB `BookingTickets.NguoiPhuTrachs` → `Users.email` (1 deal nhiều NV → gửi nhiều / Cc).
+3. Người nhận:
+   - `Kind='deal-cooling-alert'`: đọc `Data.dealId` → tenant DB `BookingTickets.NguoiPhuTrachs` → `Users.email` (1 deal nhiều NV → gửi nhiều / Cc).
+   - `Kind='daily-brief'`: dùng thẳng `ToEmail` (người dùng tự khai) — KHÔNG tra CRM.
 4. Gửi xong → `Status=1 (Sent)`, `ProcessedUtc=SYSUTCDATETIME()`. Lỗi → `Status=2 (Failed)`, `ErrorMessage`, `RetryCount++`.
 5. Cancel khi deal hết nguội (tùy chọn, phase sau) → `Status=3 (Cancelled)` theo `SourceId`.
 

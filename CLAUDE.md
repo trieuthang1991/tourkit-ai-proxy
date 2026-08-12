@@ -322,9 +322,11 @@ Gmail inbox synced on demand, AI-classified, with AI-drafted replies. Flow lives
 Tác vụ AI chạy tự động theo lịch (interval), cấu hình per-(Tenant, Username). Framework đủ mở rộng: thêm workflow mới = implement `IScheduledWorkflow` + đăng ký DI + registry tự pickup. Built-in:
 - **`mail-auto-sync`** (PerUser) — kéo Gmail + AI phân loại mỗi N phút (+ tùy chọn auto-reply).
 - **`deal-auto-review`** (PerTenant) — tự AI-chấm cơ hội bán hàng + **cảnh báo deal nguội** (xem section dưới).
+- **`payment-watchdog`** (PerTenant) — tour khởi hành ≤7 ngày mà khách chưa trả đủ → ghi cảnh báo vào `dbo.AgentInsights`. Rule thuần, 0 AI. Dùng service account.
+- **`sale-brief`** / **`ceo-brief`** (PerTenant, xem section "Bản tin AI" dưới) — bản tin sáng, gửi theo phiên CỦA TỪNG NGƯỜI NHẬN.
 - **`customer-auto-review`** (PerTenant) — tự AI-chấm hạng KH (A–D) chưa review + **review lại định kỳ**. Reuse `ReviewService` (lưu `dbo.Reviews` → worker sync rank về CRM); KH từ `/api/ai/customers` qua `CustomerReviewClient`. Pass 1 = KH chưa review trong `createdWithinDays`; Pass 2 = đọc `GeneratedAt` (ngày review cuối) trong `dbo.Reviews`, re-review khi quá `reReviewDays`. Options `{createdWithinDays, reReviewDays, reviewMax}`. Dùng chung service account + `AiCallContext.Push("customer-auto-review")`.
 
-⚠️ **Quota + log AI nền (STRICT):** workflow chạy nền KHÔNG có HttpContext → PHẢI `AiCallContext.Push("<feature>", tenantId[, sessionId])` bao quanh AI call, nếu không sẽ **bypass quota tenant + log `feature=unknown,tenant=null`**. Dùng feature riêng cho automation (`mail-auto-sync`/`deal-auto-review`) để tách chi phí AI tự động vs thao tác tay trong `dbo.AiUsageHistory`.
+⚠️ **Quota + log AI nền (STRICT):** workflow chạy nền KHÔNG có HttpContext → PHẢI `AiCallContext.Push("<feature>", tenantId[, sessionId])` bao quanh AI call, nếu không sẽ **bypass quota tenant + log `feature=unknown,tenant=null`**. Dùng feature riêng cho automation (`mail-auto-sync`/`deal-auto-review`/`digest`) để tách chi phí AI tự động vs thao tác tay trong `dbo.AiUsageHistory`.
 
 ### `deal-auto-review` — tự review & cảnh báo deal nguội (2026-06-28)
 
@@ -338,7 +340,59 @@ PerTenant. Auth = **service account** per-tenant (`dbo.TenantServiceAccounts`, `
 - **Scheduler:** `WorkflowSchedulerService` (`BackgroundService`, tick 60s) → `ListDue` → fire-and-forget `Task.Run`. `SetNextRun` chạy ngay trước `Task.Run` để tránh re-fire trong tick kế. Auto-pause sau 5 fail liên tiếp, user "Bật lại" qua PUT endpoint.
 - **MailSyncService (extract):** logic `POST /mail/sync` được extract ra `Services/Mail/MailSyncService.cs` → dùng chung giữa HTTP endpoint và `MailAutoSyncWorkflow`. Response shape `/mail/sync` giữ nguyên (`{items, counts, classified, fetched}`).
 - **Endpoint:** require `X-Session-Id` (pattern giống MailEndpoints). Manual trigger (`/run-now`) đồng bộ (không fire-and-forget), trả kết quả ngay.
-- **Frontend:** `/workflows` page (`wwwroot/pages/workflows.jsx`), card per workflow + toggle + interval dropdown + run history collapsible. Nav entry "Tự động hóa" trong group "Tích hợp".
+- **Frontend:** `/workflows` page (`wwwroot/pages/workflows.jsx`), card per workflow + toggle + interval dropdown + run history collapsible. Nav entry "Tự động hóa" trong group "Bản tin & Tự động" (chuyển khỏi "Tích hợp" 12/08 vì trang có thêm phần cá nhân — xem section "Bản tin AI").
+
+## Bản tin AI ("Đợt 1" — bản tin sáng + Bảng tin)
+
+Bản tin chủ động gửi mỗi sáng, thay vì bắt người dùng tự vào hỏi. Spec + plan đầy đủ:
+[specs/2026-08-11-dot1-digest-insight-design.md](docs/superpowers/specs/2026-08-11-dot1-digest-insight-design.md) ·
+[plans/2026-08-11-dot1-digest-insight.md](docs/superpowers/plans/2026-08-11-dot1-digest-insight.md).
+
+**2 loại bản tin** (`BriefTypes`): `sale-brief` — việc cần làm của từng nhân viên bán hàng (cơ hội cần
+gọi, lịch hẹn, việc, báo giá, tour còn thiếu tiền), **rule thuần 0 AI**; `ceo-brief` — doanh thu/chi
+phí/lợi nhuận so cùng kỳ, **AI chỉ viết lời còn số do máy chủ tính**, AI lỗi → in bảng số
+([`CeoBriefBuilder.RenderFallback`](Services/Digest/CeoBriefBuilder.cs)).
+
+**Cách chạy:** cả 2 là `PerTenant` (1 bản ghi scheduler, bật 1 lần) nhưng workflow **tự đổi phiên theo
+từng người nhận** — `SendHourLocal` (giờ VN mỗi người chọn) + `LastSentLocalDate` (ngày VN) để workflow
+chạy mỗi 60' rồi tự lọc ai "đến giờ" (xem [`DigestDue`](Services/Digest/DigestDue.cs)). Điều kiện: người
+đó đã từng đăng nhập (`dbo.TkSessions` giữ mật khẩu mã hoá + tự re-login, 30 ngày).
+
+⚠️ **Fetch bằng phiên CỦA NGƯỜI NHẬN, KHÔNG dùng service account** — đây là quyết định có chủ đích:
+service account có quyền xem toàn công ty, lọc sai 1 dòng là nhân viên A đọc được cơ hội của nhân viên B.
+Dùng token của chính họ thì **CRM tự chặn** → lọc sai chỉ thiếu, không lộ. Vì thế proxy cũng **KHÔNG tự
+gác quyền** khi đăng ký: `DashboardService.ResolveSpUserIdAsync` (TourKit.Api) chỉ cho "xem tất cả" khi
+tài khoản có `BC_NV_XEM`, còn lại SP tự lọc về số của riêng họ; và proxy không truyền `userId` —
+`AiController.GetClaims()` bóc từ JWT.
+
+**4 kênh gửi** ([`Services/Digest/Channels/`](Services/Digest/Channels/)): trong app (`dbo.AgentInsights`)
+· email (enqueue `dbo.OutboundMails`, `TemplateCode=daily-brief`) · Telegram (bot DÙNG CHUNG
+`Telegram:BotToken` — miễn phí nên hệ thống cấp) · Zalo OA (**per-tenant**, `dbo.TenantChannelSettings` —
+tốn tiền + hạn mức riêng từng OA nên công ty tự khai; Zalo chỉ nhắn được cho người đã nhắn OA trong 48h).
+Một kênh hỏng KHÔNG làm chết kênh còn lại.
+
+**Cờ bit theo từng kênh** ([`ChannelMask`](Services/Digest/ChannelMask.cs)): `SentMask`/`SentAttempts`
+trên `dbo.DigestSubscriptions`. Trước đây cả 4 kênh dùng chung 1 mốc ngày → Telegram lỗi lúc 7h vẫn bị
+đánh dấu "đã gửi" và **không bao giờ thử lại**. Nay mỗi lượt chỉ gửi phần `đang bật & chưa gửi`, trần
+3 lượt/ngày. Enum `DigestChannel` đánh **số thứ tự** cho người tra (0 = chưa chọn gì, kênh thật 1..4);
+cờ bit riêng cho máy lưu (1/2/4/8, đủ 4 = 15) — 2 vai TÁCH nhau vì từ kênh thứ 3 số thứ tự khác cờ bit.
+
+**Giao diện — GỘP trong trang Tự động hoá, KHÔNG có trang riêng** (chốt 12/08: đăng ký bản tin chính là
+cấu hình của 2 tác vụ đó). `/workflows` có 2 tab: "Tác vụ" (thẻ bản tin chứa khối **"Bản tin của tôi"** —
+[`digest.jsx`](wwwroot/pages/digest.jsx)) và "Bảng tin" ([`insights.jsx`](wwwroot/pages/insights.jsx)).
+Zalo OA nằm cạnh tài khoản dịch vụ trong nhóm "Theo tổ chức". `/insights` + `/digest` là 2 đường cũ trỏ
+về đúng tab (chuông ở thanh trên dùng `/insights`).
+
+**Phân vai quyền:** "Bản tin của tôi" (nơi nhận của chính mình) → KHÔNG cần quyền, giống hộp thư cá nhân.
+Lịch chạy + tài khoản dịch vụ + Zalo OA → cần `CH_HT_XEM`. Vì trang này nay có phần cá nhân nên mục menu
+nằm ở khối **"Bản tin & Tự động"** (không phải "Tích hợp") và route KHÔNG gate cứng.
+
+**Cấu hình cần có:** `Telegram:BotToken` (rỗng = kênh Telegram tự tắt) · `Models:Digest` (thiếu → kế thừa
+`Models:Primary`) · template mail `daily-brief` trong `/admin-trav-ai` → Mail Templates (thiếu thì worker
+vẫn render từ `Params`).
+
+**E2E:** [`scripts/e2e/features-digest.ps1`](scripts/e2e/features-digest.ps1) (tự sao lưu + khôi phục đăng
+ký thật) · sơ đồ luồng: `node scripts/e2e/features-flow-diagram.check.js`.
 
 ## Deploy tách site: TourkitAiProxy.Worker
 
@@ -410,6 +464,8 @@ wwwroot/
     customers.jsx                           ← Customer Review page: list + batch confirm + SSE progress + review drawer
     assistant.jsx                           ← Chat-Analytics page: token login + chat-left + data-right (stats + table)
     mail.jsx                                ← SmartMail AI page: Gmail config form + 3-col (filters/list/detail) + AI compose (SSE)
+    digest.jsx                              ← KHỐI (không phải trang): "Bản tin của tôi" + cấu hình OA Zalo, nhúng vào thẻ tác vụ
+    insights.jsx                            ← KHỐI: "Bảng tin" — tab thứ 2 của trang Tự động hoá
   app.jsx                                   ← App shell: header + nav + <Router> + global state
 ```
 
