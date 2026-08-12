@@ -80,7 +80,9 @@
         hint: 'Bật để tự phát hiện cơ hội đang mở nhưng lâu không chăm sóc ("nguội") và gửi email nhắc nhân viên phụ trách. Tắt = bỏ hẳn phần cảnh báo (không quét, không gửi).' },
       { key: 'coolingStatuses', type: 'multi', dynamic: 'dealStatuses', label: 'Trạng thái tính "nguội"', showIf: 'alertCooling', default: [],
         hint: 'Chỉ cảnh báo nguội cho cơ hội ở các trạng thái này. Để trống = mọi trạng thái đang mở (tự loại trừ đã chốt/hủy). Cũng áp cho badge "nguội" trên trang Cơ hội.' },
-      { key: 'coolingDays', type: 'number', label: 'Coi là "nguội" sau (ngày)', showIf: 'alertCooling', default: 7, min: 1, max: 90,
+      // Mặc định 3 ngày (trước là 7) — PHẢI khớp DealAutoReviewOptions.Parse bên C#,
+      // lệch nhau thì giao diện hiện một đằng, hệ thống chạy một nẻo.
+      { key: 'coolingDays', type: 'number', label: 'Coi là "nguội" sau (ngày)', showIf: 'alertCooling', default: 3, min: 1, max: 90,
         hint: 'Cơ hội đang mở mà quá số ngày này không ai chăm sóc thì coi là "nguội" và được đưa vào cảnh báo.' },
       { key: 'minWinRateToNotify', type: 'number', label: 'Chỉ cảnh báo khi % chốt từ', showIf: 'alertCooling', default: 0, min: 0, max: 100,
         hint: 'Chỉ cảnh báo những cơ hội có khả năng chốt từ mức % này trở lên. Để 0 = cảnh báo mọi cơ hội nguội.' },

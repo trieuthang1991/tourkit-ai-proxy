@@ -421,7 +421,9 @@ public sealed record DealAutoReviewOptions(
     {
         var def = new DealAutoReviewOptions(
             Statuses: new List<int>(), CreatedWithinDays: 30, AutoReview: true, ReReview: true, ReviewMax: 20,
-            MaxAutoReviews: 5, CoolingDays: 7, MinWinRateToNotify: 0, MaxNotifications: 3, NotifyMinGapHours: 24,
+            // CoolingDays mặc định 3 (trước là 7): 7 ngày mới nhắc thì khách đã nguội thật rồi.
+            // Tenant đã lưu OptionsJson thì GIỮ giá trị của họ — mặc định chỉ áp cho ai chưa cấu hình.
+            MaxAutoReviews: 5, CoolingDays: 3, MinWinRateToNotify: 0, MaxNotifications: 3, NotifyMinGapHours: 24,
             CoolingStatuses: new List<int>(), AlertCooling: true, ReReviewDays: 10);
         if (string.IsNullOrWhiteSpace(json)) return def;
         try
@@ -444,7 +446,7 @@ public sealed record DealAutoReviewOptions(
                 ReReview: GetBool(r, "reReview", true),
                 ReviewMax: Clamp(GetInt(r, "reviewMax", 20), 1, 100),
                 MaxAutoReviews: Clamp(GetInt(r, "maxAutoReviews", 5), 1, 50),
-                CoolingDays: Clamp(GetInt(r, "coolingDays", 7), 1, 90),
+                CoolingDays: Clamp(GetInt(r, "coolingDays", 3), 1, 90),
                 MinWinRateToNotify: Clamp(GetInt(r, "minWinRateToNotify", 0), 0, 100),
                 MaxNotifications: Clamp(GetInt(r, "maxNotifications", 3), 1, 20),
                 NotifyMinGapHours: Clamp(GetInt(r, "notifyMinGapHours", 24), 1, 720),

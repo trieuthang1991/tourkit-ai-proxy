@@ -14,7 +14,7 @@ public class DealAutoReviewOptionsTests
         Assert.Equal(30, o.CreatedWithinDays);
         Assert.Equal(20, o.ReviewMax);
         Assert.Equal(5, o.MaxAutoReviews);
-        Assert.Equal(7, o.CoolingDays);
+        Assert.Equal(3, o.CoolingDays);   // hạ 7 → 3 (12/08/2026): 7 ngày mới nhắc thì đã muộn
         Assert.Equal(0, o.MinWinRateToNotify);
         Assert.Equal(3, o.MaxNotifications);
         Assert.Equal(24, o.NotifyMinGapHours);
