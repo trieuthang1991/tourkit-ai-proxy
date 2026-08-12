@@ -36,13 +36,19 @@
 | 21 | `dbo.CrmActionQueue` | **Hàng đợi HÀNH ĐỘNG CRM từ trợ lý** (giao việc `assign-task` / tạo lịch hẹn `create-appointment`). Producer = proxy `ActionExecutor` (enqueue `Status=0` sau khi user xác nhận thẻ trên `/assistant`/`/travai`); proxy KHÔNG POST thẳng CRM. Consumer = **worker riêng phía `toutkit-app`** (viết sau, ngoài phạm vi proxy) — đọc Pending → `POST /api/tasks` \| `/api/customer-care` → cập nhật `Status`/`ResultJson`/`ErrorMessage`. `PayloadJson` khớp 1:1 `CreateOrUpdateTaskingRequest`/`CreateCustomerCareRequest` — hợp đồng đầy đủ ở [docs/crm-action-contract/README.md](crm-action-contract/README.md). Theo dõi qua `GET /api/v1/workflows/crm-queue`. | [`CrmActionQueueRepository`](../Services/Crm/CrmActionQueueRepository.cs) | `Id` IDENTITY |
 | 22 | `dbo.TourPriceCatalog` | **Bảng giá NCC đồng bộ từ TourKit** (per-tenant) — nguồn để AI CHỌN dòng giá THẬT thay vì bịa số. Chỉ đọc, KHÔNG ghi ngược TourKit. Cột `Description` = điều kiện áp giá viết tay (`Mùa thấp điểm`, `T6-T7`, `Lễ 2/9`) — **nguồn duy nhất về mùa vụ, không bỏ**. `Stars` bóc từ tên NCC chỉ ~59% → lọc phụ, không lọc cứng. Sync qua workflow `tour-price-catalog-sync`. | [`TourPriceCatalogRepository`](../Services/TourPrices/TourPriceCatalogRepository.cs) | `(TenantId, PricingId)` |
 
+| 23 | `dbo.AgentInsights` | **Insight Feed** — cảnh báo/việc do workflow AI sinh ra (vd `payment-alert`: tour sắp đi còn thiếu tiền). `Username=''` = cả công ty cùng thấy. `AlertKey` + filtered index chống nhắc lại cùng một việc trong ngày; bản tin hằng ngày CỐ Ý không có `AlertKey` (mỗi ngày phải là 1 dòng mới). | [`InsightRepository`](../Services/Digest/InsightRepository.cs) | `Id` IDENTITY |
+| 24 | `dbo.DigestSubscriptions` | **Sổ người nhận bản tin** (`sale-brief` / `ceo-brief`): ai nhận loại nào, mấy giờ (giờ VN), qua kênh nào + nơi nhận (email/Telegram/Zalo). `LastSentLocalDate` (NGÀY VN) chống gửi trùng trong ngày; `SentMask`/`SentAttempts` theo dõi từng kênh để kênh hỏng được thử lại mà kênh đã tới tay thì không gửi lại (xem [`ChannelMask`](../Services/Digest/ChannelMask.cs)). | [`DigestSubscriptionRepository`](../Services/Digest/DigestSubscriptionRepository.cs) | `(TenantId, Username, BriefType)` |
+| 25 | `dbo.TenantChannelSettings` | **Tài khoản GỬI ĐI của công ty** cho kênh tốn tiền/có quota riêng (Zalo OA). Tách khỏi `DigestSubscriptions` (nơi NHẬN của từng người) vì đây là cấu hình cấp công ty. Telegram/email KHÔNG ở đây — miễn phí nên hệ thống cấp bot/hộp thư dùng chung. Secret mã hoá Crypton. | [`TenantChannelSettingsStore`](../Services/Digest/TenantChannelSettingsStore.cs) | `(TenantId, Channel)` |
+
 > Cột mới đáng chú ý (2026-06-26): `Mails.AutoReplyError` (đánh dấu lỗi auto-reply để hiện ở UI); `UserWorkflows.OptionsJson` (điều kiện động).
 > Cột mới (2026-06-28): `DealScores.AutoReviewCount` (số lần workflow tự chấm) + `IsFinalized`/`FinalizedReason` (`manual`/`status-changed`/`aged` — workflow đánh cờ để ngừng review/nhắc) + `LastAutoReviewUtc`.
 > Bảng mới (2026-06-29): `dbo.MailTemplates` — template mail global, admin sửa nội dung outbound mail không cần deploy lại worker.
 > Bảng mới (2026-07-14): `dbo.CrmActionQueue` — outbox pattern cho trợ lý hành động (assign_task/create_appointment); proxy chỉ enqueue, worker app-side drain + sync CRM.
 > Bảng mới (2026-07-18): `dbo.TourPriceCatalog` — bảng giá NCC đồng bộ từ TourKit để AI dựng giá bằng số thật (mảng 1: catalog + sync).
+> Bảng mới (2026-08-12, Đợt 1 bản tin): `dbo.AgentInsights`, `dbo.DigestSubscriptions`, `dbo.TenantChannelSettings`.
+> Cột mới (2026-08-12): `TkSessions.CrmUserId` (id user CRM lấy từ JWT — lọc "việc của riêng người này" khi dựng bản tin); `DigestSubscriptions.SentMask` + `SentAttempts` (cờ bit từng kênh đã gửi được + trần 3 lượt thử/ngày).
 
-### Tổng cộng: **22 bảng** owned by proxy.
+### Tổng cộng: **25 bảng** owned by proxy.
 
 ## Bảng đã bỏ
 

@@ -174,6 +174,9 @@ public static class WorkflowStackRegistration
         // Bản tin sáng: fetch bằng phiên CỦA TỪNG NGƯỜI NHẬN (không phải tài khoản tự động)
         // → CRM tự áp quyền, lọc sai cũng chỉ thiếu chứ không lộ dữ liệu người khác.
         s.AddSingleton<Workflows.IScheduledWorkflow, Workflows.SaleBriefWorkflow>();
+        // Bản tin điều hành: cùng nguyên tắc phiên riêng; khác ở chỗ có gọi AI viết lời (tốn lượt),
+        // và AI lỗi thì rơi về bảng số chứ không bỏ gửi.
+        s.AddSingleton<Workflows.IScheduledWorkflow, Workflows.CeoBriefWorkflow>();
 
         s.AddSingleton<Workflows.WorkflowSchedulerService>();
 

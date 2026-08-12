@@ -1,9 +1,11 @@
 namespace TourkitAiProxy.Services.Providers;
 
-/// 12 feature dùng AI trong proxy. Mỗi enum value 1-1 với key `Models:{Name}` trong appsettings.
+/// 13 feature dùng AI trong proxy. Mỗi enum value 1-1 với key `Models:{Name}` trong appsettings.
 /// "Primary" KHÔNG có ở đây — nó chỉ là root fallback internal Registry.
 public enum AiFeature
 {
+    /// Bản tin điều hành (ceo-brief). Chỉ viết lời từ số đã tính sẵn → model rẻ là đủ.
+    Digest,
     ChatAnalytics,
     Wizard,
     TourBuilder,

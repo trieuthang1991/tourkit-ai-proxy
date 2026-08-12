@@ -1480,7 +1480,29 @@ public class SaleBriefWorkflow : IScheduledWorkflow
 
 ---
 
-### Task 9: CeoBriefBuilder + CeoBriefWorkflow (+ `AiFeatures.Digest`)
+### Task 9: CeoBriefBuilder + CeoBriefWorkflow (+ `AiFeatures.Digest`) — ✅ XONG 12/08/2026
+
+> **[SỬA khi làm thật] 4 điểm khác bản kế hoạch:**
+> 1. **Tên field financial-summary trong plan là ĐOÁN SAI.** Plan ghi `revenue/expense/profit`; tên
+>    thật (đối chiếu `DashboardService.GetAiFinancialSummaryAsync` bên TourKit.Api) là
+>    `kpiRevenue` / `kpiTotalExpense` / `kpiGrossProfit`. Đoán sai thì không khớp field nào, bản tin
+>    vẫn gửi nhưng báo 0đ khắp nơi — sai mà trông như chạy tốt. Đã khoá bằng test.
+>    Tương tự: booking-tickets KHÔNG có `CreatedFrom/CreatedTo`, dùng `StartDate/EndDate` (lọc theo
+>    `InsDttm` = ngày tạo).
+> 2. **Không dùng `TenantServiceAccounts`** (theo sửa 12/08 ở đầu plan): fetch bằng phiên của chính
+>    người nhận. Kéo theo: bỏ luôn phần re-check `CH_XEM_ALL` mỗi lần gửi.
+> 3. **"1 lượt AI/tenant/ngày" đổi thành "1 lượt AI/BỘ SỐ".** Gộp theo tenant chỉ đúng khi mọi người
+>    thấy cùng bộ số — không còn đúng khi mỗi người fetch bằng token riêng. Nay cache theo dấu vân
+>    tay bộ số: thường vẫn 1 lượt, ai thấy số khác thì được viết riêng cho đúng số của mình.
+> 4. **Model phải qua `AiModelRegistry.Resolve(AiFeature.Digest)`**, không gọi `ProviderRegistry`
+>    trần. Bản đầu gọi trần → provider tự lấy model "Recommended" của nó (Sonnet) và bỏ qua
+>    `Models:Primary` (Haiku) trong cấu hình → hoá đơn tính giá Sonnet. Người dùng phát hiện khi soi
+>    `dbo.AiUsageHistory`. Đã thêm `AiFeature.Digest` + mục `Models:Digest` trong appsettings.example.
+>
+> **Đã sửa thêm sau khi đọc bản tin thật:** con số "quá hạn" (2.338 cuộc) là TỒN ĐỌNG tích luỹ nhiều
+> năm, AI viết thành "cần xử lý ngay lập tức" → đọc như công ty đang cháy. Nay gọi đúng tên "tồn đọng
+> (tích luỹ từ trước)" + dặn prompt đừng coi là khẩn cấp trong ngày; và dặn thêm: chi phí 0đ nghĩa là
+> CHƯA GHI NHẬN, không được kết luận "lãi trọn doanh thu".
 
 **Files:**
 - Create: `Services/Digest/CeoBriefBuilder.cs`

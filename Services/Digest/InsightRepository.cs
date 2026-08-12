@@ -54,13 +54,16 @@ OFFSET @offset ROWS FETCH NEXT @limit ROWS ONLY",
         return rows.ToList();
     }
 
-    public async Task<int> UnreadCountAsync(string tenant, string username, CancellationToken ct = default)
+    /// <param name="kind">Lọc theo loại (vd "payment-alert"). null = đếm mọi loại (badge chuông).</param>
+    public async Task<int> UnreadCountAsync(string tenant, string username, CancellationToken ct = default,
+        string? kind = null)
     {
         await using var c = await _db.OpenAsync(ct);
         return await c.ExecuteScalarAsync<int>(@"
 SELECT COUNT(1) FROM dbo.AgentInsights
-WHERE TenantId = @tenant AND (Username = @username OR Username = '') AND IsRead = 0",
-            new { tenant, username });
+WHERE TenantId = @tenant AND (Username = @username OR Username = '') AND IsRead = 0
+  AND (@kind IS NULL OR Kind = @kind)",
+            new { tenant, username, kind });
     }
 
     public async Task MarkReadAsync(string tenant, string username, long id, CancellationToken ct = default)

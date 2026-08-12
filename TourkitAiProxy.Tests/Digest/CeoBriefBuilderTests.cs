@@ -100,7 +100,10 @@ public class CeoBriefBuilderTests
     {
         var md = CeoBriefBuilder.RenderFallback(Data(), Today).BodyMarkdown;
         Assert.Contains("Lịch hẹn hôm nay: 8 cuộc", md);
-        Assert.Contains("3 cuộc QUÁ HẠN", md);
+        // "tồn đọng ... tích luỹ" chứ không phải "cần xử lý ngay": nguồn trả MỌI cuộc quá hạn
+        // từ trước tới nay (thực tế đã thấy 2.338 cuộc), gọi là khẩn cấp trong ngày là báo động sai.
+        Assert.Contains("tồn đọng 3 cuộc quá hạn", md);
+        Assert.Contains("tích luỹ", md);
     }
 
     [Fact]
@@ -116,7 +119,25 @@ public class CeoBriefBuilderTests
         var d = Data() with { TodayAppointments = 5, OverdueAppointments = 0 };
         var md = CeoBriefBuilder.RenderFallback(d, Today).BodyMarkdown;
         Assert.Contains("5 cuộc", md);
-        Assert.DoesNotContain("QUÁ HẠN", md);
+        Assert.DoesNotContain("quá hạn", md);
+    }
+
+    [Fact]
+    public void Prompt_dan_AI_khong_coi_ton_dong_la_khan_cap_trong_ngay()
+    {
+        // Thiếu chỉ dẫn này thì AI lấy con số tồn đọng lớn nhất làm tiêu điểm và viết
+        // "cần xử lý ngay lập tức" — đã xảy ra ở lần chạy thật đầu tiên.
+        var p = CeoBriefBuilder.BuildPrompt(Data(), Today);
+        Assert.Contains("tích luỹ từ trước", p);
+        Assert.Contains("đừng gọi là khẩn cấp trong ngày", p);
+    }
+
+    [Fact]
+    public void Prompt_dan_AI_khong_ket_luan_sai_khi_chi_phi_bang_0()
+    {
+        // Chi phí 0 = công ty chưa ghi chi phí vào CRM, KHÔNG phải "lãi trọn doanh thu".
+        var p = CeoBriefBuilder.BuildPrompt(Data() with { ThisMtd = new CeoNumbers(100, 0, 100) }, Today);
+        Assert.Contains("CHƯA GHI NHẬN", p);
     }
 
     [Fact]

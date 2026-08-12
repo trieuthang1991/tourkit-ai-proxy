@@ -30,6 +30,9 @@ public static class AiFeatures
     public const string MailAutoSync        = "mail-auto-sync";
     public const string DealAutoReview      = "deal-auto-review";
     public const string CustomerAutoReview  = "customer-auto-review";
+    // Bản tin chủ động (ceo-brief). Feature riêng để tách chi phí AI của bản tin tự động khỏi
+    // thao tác tay trong dbo.AiUsageHistory. Bản tin sales không gọi AI nên không xuất hiện ở đây.
+    public const string Digest              = "digest";
 
     // ── Assistant action tools — Push() từ ActionExecutor (review_customer/score_deal) ──
     // Non-HTTP path (chạy sau khi user bấm "Xác nhận") → PHẢI Push để trừ quota tenant +
