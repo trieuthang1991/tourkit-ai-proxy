@@ -25,6 +25,12 @@ public class TkSession
     // BỘ NHỚ CHAT — persist cùng session xuống SQL (cột ChatMemoryJson).
     public SessionChatMemory ChatMemory { get; set; } = SessionChatMemory.Empty();
 
+    // user_id của user bên CRM, decode từ claim JWT lúc login/relogin (persist cột CrmUserId).
+    // Dùng để lọc "việc của riêng người này" khi dựng bản tin sáng: người có quyền CH_XEM_ALL
+    // dùng token của chính mình VẪN thấy hết, nên phải lọc thêm theo id này.
+    // null = JWT không có claim hoặc chưa relogin sau khi nâng cấp → bên dùng phải chịu được null.
+    public int? CrmUserId { get; set; }
+
     // Quyền TourKit (Function_Code) của user — lấy lúc login/relogin, persist cột PermissionsJson.
     public List<string> Permissions { get; set; } = new();
     // true = ĐÃ lấy quyền thành công (kể cả rỗng). false = chưa lấy được (mới tạo / fetch lỗi) → EnsurePermissions retry.
@@ -95,6 +101,8 @@ public class TkSessionStore
             // Reuse Id + ChatMemory; refresh JWT + credentials (phòng user đổi password) + LastUsed.
             existing.Password    = password;
             existing.Jwt         = login.Token;
+            // ?? giữ giá trị cũ: JWT lần này thiếu claim thì đừng xoá cái đã có.
+            existing.CrmUserId   = JwtClaims.TryGetUserId(login.Token) ?? existing.CrmUserId;
             existing.FullName    = login.FullName;
             existing.CompanyName = login.CompanyName;
             existing.JwtExpiresAt = DateTime.UtcNow.Add(SoftTtl);
@@ -129,7 +137,8 @@ public class TkSessionStore
                 FullName    = login.FullName,
                 CompanyName = login.CompanyName,
                 JwtExpiresAt = DateTime.UtcNow.Add(SoftTtl),
-                LastUsed    = DateTime.UtcNow
+                LastUsed    = DateTime.UtcNow,
+                CrmUserId   = JwtClaims.TryGetUserId(login.Token)
             };
             if (permissions != null) { session.Permissions = permissions; session.PermissionsLoaded = true; }
             _cache[session.Id] = session;
@@ -268,6 +277,7 @@ public class TkSessionStore
         var perms = await _api.GetPermissionsAsync(login.Token, ct);
         if (perms != null) { s.Permissions = perms; s.PermissionsLoaded = true; }
         s.Jwt = login.Token;
+        s.CrmUserId = JwtClaims.TryGetUserId(login.Token) ?? s.CrmUserId;
         s.FullName = login.FullName;
         s.CompanyName = login.CompanyName;
         s.JwtExpiresAt = DateTime.UtcNow.Add(SoftTtl);

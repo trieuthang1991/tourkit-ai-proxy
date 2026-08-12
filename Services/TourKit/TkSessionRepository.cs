@@ -39,6 +39,7 @@ public class TkSessionRepository
         public string? CompanyName { get; set; }
         public string? ChatMemoryJson { get; set; }
         public string? PermissionsJson { get; set; }
+    public int? CrmUserId { get; set; }
         public DateTime LastUsedUtc { get; set; }
     }
 
@@ -50,7 +51,7 @@ public class TkSessionRepository
         {
             await using var c = await _db.OpenAsync(ct);
             var rows = await c.QueryAsync<Row>(
-                "SELECT Id, TenantId, Username, PasswordEnc, FullName, CompanyName, ChatMemoryJson, PermissionsJson, LastUsedUtc " +
+                "SELECT Id, TenantId, Username, PasswordEnc, FullName, CompanyName, ChatMemoryJson, PermissionsJson, CrmUserId, LastUsedUtc " +
                 "FROM dbo.TkSessions WHERE LastUsedUtc >= @cut",
                 new { cut = cutoffUtc });
             var list = new List<TkSession>();
@@ -103,7 +104,7 @@ public class TkSessionRepository
             {
                 await using var c = await _db.OpenAsync(ct);
                 var row = await c.QueryFirstOrDefaultAsync<Row>(
-                    "SELECT Id, TenantId, Username, PasswordEnc, FullName, CompanyName, ChatMemoryJson, PermissionsJson, LastUsedUtc " +
+                    "SELECT Id, TenantId, Username, PasswordEnc, FullName, CompanyName, ChatMemoryJson, PermissionsJson, CrmUserId, LastUsedUtc " +
                     "FROM dbo.TkSessions WHERE Id = @id",
                     new { id });
                 return row == null ? null : TryHydrate(row);
@@ -127,7 +128,7 @@ public class TkSessionRepository
             {
                 await using var c = await _db.OpenAsync(ct);
                 var row = await c.QueryFirstOrDefaultAsync<Row>(
-                    "SELECT TOP 1 Id, TenantId, Username, PasswordEnc, FullName, CompanyName, ChatMemoryJson, PermissionsJson, LastUsedUtc " +
+                    "SELECT TOP 1 Id, TenantId, Username, PasswordEnc, FullName, CompanyName, ChatMemoryJson, PermissionsJson, CrmUserId, LastUsedUtc " +
                     "FROM dbo.TkSessions WHERE TenantId = @tenantId AND Username = @username " +
                     "ORDER BY LastUsedUtc DESC",
                     new { tenantId, username });
@@ -239,17 +240,19 @@ WHEN MATCHED THEN UPDATE SET
     CompanyName    = @CompanyName,
     ChatMemoryJson = @ChatMemoryJson,
     PermissionsJson = @PermissionsJson,
+    CrmUserId      = @CrmUserId,
     LastUsedUtc    = @LastUsedUtc
 WHEN NOT MATCHED THEN INSERT
-    (Id, TenantId, Username, PasswordEnc, FullName, CompanyName, ChatMemoryJson, PermissionsJson, LastUsedUtc)
+    (Id, TenantId, Username, PasswordEnc, FullName, CompanyName, ChatMemoryJson, PermissionsJson, CrmUserId, LastUsedUtc)
 VALUES
-    (@Id, @TenantId, @Username, @PasswordEnc, @FullName, @CompanyName, @ChatMemoryJson, @PermissionsJson, @LastUsedUtc);",
+    (@Id, @TenantId, @Username, @PasswordEnc, @FullName, @CompanyName, @ChatMemoryJson, @PermissionsJson, @CrmUserId, @LastUsedUtc);",
                 new {
                     s.Id, s.TenantId, s.Username,
                     PasswordEnc    = pwdEnc,
                     s.FullName, s.CompanyName,
                     ChatMemoryJson = memJson,
                     PermissionsJson = permJson,
+                    s.CrmUserId,
                     LastUsedUtc    = s.LastUsed
                 });
                 return 0;
@@ -326,6 +329,9 @@ VALUES
             LastUsed = r.LastUsedUtc,
             ChatMemory = mem ?? SessionChatMemory.Empty(),
             Permissions = perms, PermissionsLoaded = permsLoaded,
+            // Đọc lại từ DB: phiên load từ SQL chưa có JWT (không persist) nên KHÔNG decode lại được
+            // — phải lấy giá trị đã lưu, nếu không thì mỗi lần restart là mất id, bản tin lọc hụt.
+            CrmUserId = r.CrmUserId,
         };
     }
 }
