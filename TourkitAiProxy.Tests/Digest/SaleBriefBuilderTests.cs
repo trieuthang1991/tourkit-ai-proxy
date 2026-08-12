@@ -174,6 +174,45 @@ public class SaleBriefBuilderTests
         Assert.DoesNotContain("chưa có việc gấp", SaleBriefBuilder.Build(input, Today).BodyMarkdown);
     }
 
+    // 4 ca them sau khi chay THAT va doc ban tin: so lieu dung nhung kho dung
+
+    [Fact]
+    public void Chua_AI_cham_thi_KHONG_in_kha_nang_chot_0()
+    {
+        // 0% nghia la CHUA AI cham, khong phai "vo vong". In ra lam nguoi doc hieu nguoc.
+        var input = Empty() with { CoolingDeals = new() { new DealLine(1, "Tour X", "Anh A", 0, 9, null) } };
+        var md = SaleBriefBuilder.Build(input, Today).BodyMarkdown;
+        Assert.DoesNotContain("khả năng chốt", md);
+        Assert.Contains("im lặng 9 ngày", md);
+    }
+
+    [Fact]
+    public void Tieu_de_rong_thi_roi_ve_ten_khach()
+    {
+        // Du lieu that co co hoi khong dat tieu de -> truoc in ra "**** - Ten khach".
+        var input = Empty() with { CoolingDeals = new() { new DealLine(1, "", "Nguyễn Hạnh", 60, 5, null) } };
+        var md = SaleBriefBuilder.Build(input, Today).BodyMarkdown;
+        Assert.Contains("**Nguyễn Hạnh**", md);
+        Assert.DoesNotContain("****", md);
+    }
+
+    [Fact]
+    public void Uu_tien_la_dau_gach_thi_bo_han()
+    {
+        var input = Empty() with { TodayTasks = new() { new TaskLine("Việc A", "—", false) } };
+        Assert.DoesNotContain("ưu tiên", SaleBriefBuilder.Build(input, Today).BodyMarkdown);
+    }
+
+    [Fact]
+    public void Tat_ca_deu_tre_thi_noi_thang_thay_vi_dem_so()
+    {
+        var tasks = Enumerable.Range(1, 4).Select(i => new TaskLine($"V{i}", null, true)).ToList();
+        var input = Empty() with { TodayTasks = tasks, OverdueTaskCount = 4 };
+        var md = SaleBriefBuilder.Build(input, Today).BodyMarkdown;
+        Assert.Contains("TẤT CẢ đều trễ hạn", md);
+        Assert.DoesNotContain("4 trễ hạn", md);
+    }
+
     [Fact]
     public void Ten_rong_thi_dung_username()
     {

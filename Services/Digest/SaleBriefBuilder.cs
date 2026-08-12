@@ -44,6 +44,24 @@ public static class SaleBriefBuilder
     private static readonly CultureInfo Vi = CultureInfo.GetCultureInfo("vi-VN");
     private static string Vnd(decimal v) => v.ToString("N0", Vi) + "đ";
 
+    /// Nhãn hiển thị: tiêu đề rỗng thì rơi về tên khách, cùng lắm mới ghi chung chung.
+    /// Dữ liệu thật có cơ hội không đặt tiêu đề → trước đây in ra dòng '**** — Tên khách' vô nghĩa.
+    private static string Label(string? title, string? customerName)
+        => HasText(title) ? title!.Trim()
+         : HasText(customerName) ? customerName!.Trim()
+         : "(chưa đặt tên)";
+
+    /// Chuỗi có nội dung thật? Loại cả trường hợp CRM trả dấu gạch thay cho giá trị rỗng —
+    /// in ra 'ưu tiên —' thì vô nghĩa mà còn làm dòng dài thêm.
+    private static bool HasText(string? s)
+        => !string.IsNullOrWhiteSpace(s) && s!.Trim() is not ("-" or "—" or "–" or "n/a");
+
+    /// Mọi việc đều trễ thì nói thẳng — con số '50/50 trễ hạn' không cho thêm thông tin gì.
+    private static string OverdueTag(int overdue, int total)
+        => overdue <= 0 ? ""
+         : overdue >= total ? " · TẤT CẢ đều trễ hạn"
+         : $" · {overdue} trễ hạn";
+
     public static DigestMessage Build(SaleBriefInput input, DateTime todayLocal)
     {
         var md = new StringBuilder();
@@ -62,8 +80,12 @@ public static class SaleBriefBuilder
 
         Section($"📞 Cơ hội cần gọi lại ({input.CoolingDeals.Count})",
             input.CoolingDeals.Take(TopN).Select(d =>
-                $"**{d.Title}**{(d.CustomerName != null ? $" — {d.CustomerName}" : "")}"
-                + $" · im lặng {d.SilentDays} ngày · khả năng chốt {d.WinRate}%").ToList(),
+                $"**{Label(d.Title, d.CustomerName)}**"
+                + (d.CustomerName != null && !string.IsNullOrWhiteSpace(d.Title) ? $" — {d.CustomerName}" : "")
+                + $" · im lặng {d.SilentDays} ngày"
+                // WinRate = 0 nghĩa là CHƯA AI chấm, KHÔNG phải "khả năng chốt bằng 0" — hai điều
+                // khác nhau hoàn toàn. In "0%" làm người đọc tưởng cơ hội vô vọng nên bỏ luôn.
+                + (d.WinRate > 0 ? $" · khả năng chốt {d.WinRate}%" : "")).ToList(),
             input.CoolingDeals.Count, "cơ hội");
 
         // Quá hạn ghi ngay trên TIÊU ĐỀ mục để thấy trước khi đọc từng dòng.
@@ -74,11 +96,10 @@ public static class SaleBriefBuilder
             input.TodayAppointments.Count, "lịch hẹn");
 
         var tasks = input.TodayTasks ?? new List<TaskLine>();
-        Section($"✅ Việc cần làm hôm nay ({tasks.Count})"
-                + (input.OverdueTaskCount > 0 ? $" · {input.OverdueTaskCount} trễ hạn" : ""),
+        Section($"✅ Việc cần làm hôm nay ({tasks.Count})" + OverdueTag(input.OverdueTaskCount, tasks.Count),
             tasks.Take(TopN).Select(t =>
                 (t.IsOverdue ? "⚠️ " : "") + t.Title
-                + (t.Priority != null ? $" · ưu tiên {t.Priority.ToLowerInvariant()}" : "")).ToList(),
+                + (HasText(t.Priority) ? $" · ưu tiên {t.Priority!.ToLowerInvariant()}" : "")).ToList(),
             tasks.Count, "việc");
 
         Section($"💰 Khách sắp đi còn thiếu tiền ({input.MyPaymentAlerts.Count})",
@@ -93,13 +114,14 @@ public static class SaleBriefBuilder
 
         Section($"📄 Báo giá chưa ai động ({input.StaleQuotes.Count})",
             input.StaleQuotes.Take(TopN).Select(q =>
-                $"{q.Title}{(q.CustomerName != null ? $" — {q.CustomerName}" : "")}"
+                $"{Label(q.Title, q.CustomerName)}"
+                + (HasText(q.CustomerName) && HasText(q.Title) ? $" — {q.CustomerName}" : "")
                 + $" · {q.DaysSinceUpdate} ngày chưa cập nhật").ToList(),
             input.StaleQuotes.Count, "báo giá");
 
         Section($"🧹 Cơ hội cần dọn ({input.HygieneDeals.Count})",
             input.HygieneDeals.Take(TopHygiene).Select(d =>
-                $"{d.Title} — kẹt \"{d.StatusText ?? "?"}\" {d.SilentDays} ngày, chưa có bước tiếp theo").ToList(),
+                $"{Label(d.Title, d.CustomerName)} — kẹt \"{(HasText(d.StatusText) ? d.StatusText : "không rõ trạng thái")}\" {d.SilentDays} ngày, chưa có bước tiếp theo").ToList(),
             input.HygieneDeals.Count, "cơ hội");
 
         // Hộp thư (của cả công ty) — LUÔN có 1 dòng, và CỐ Ý không tính vào `sections`:
