@@ -11,6 +11,14 @@
   const fmtVND = window.fmtVND || (n => (n || 0).toLocaleString('vi-VN') + 'đ');   // bản chuẩn ở lib/data.js
   const fmtPerUnit = (amt, units) => Math.round(amt / units).toLocaleString('vi-VN') + 'đ/lượt';
 
+  // Map mã BIN NAPAS → tên ngân hàng hiển thị. Thiếu trong map → hiện luôn mã BIN.
+  const BANK_NAMES = {
+    '970432': 'VPBank', '970422': 'MB Bank', '970436': 'Vietcombank', '970415': 'VietinBank',
+    '970418': 'BIDV', '970407': 'Techcombank', '970416': 'ACB', '970405': 'Agribank',
+    '970403': 'Sacombank', '970423': 'TPBank', '970441': 'VIB', '970431': 'Eximbank',
+  };
+  const bankName = bin => BANK_NAMES[bin] || bin;
+
   function QuotaUpgradeModal({ open, onClose, onPaid }) {
     // Tránh mount sub-component khi chưa mở — đỡ tốn render.
     if (!open) return null;
@@ -30,7 +38,7 @@
         const d = await r.json();
         if (!alive) return;
         setTiers(d.tiers || []);
-        setBank({ ...d.account, mock: d.mock });
+        setBank(d.account);
         setLoading(false);
       }).catch(e => { if (alive) { setErr('Không tải được danh sách gói'); setLoading(false); } });
       return () => { alive = false; };
@@ -82,11 +90,6 @@
         <div className="qu-head">
           <h2 className="qu-title">Nạp thêm lượt AI</h2>
           <p className="qu-sub">Chọn gói phù hợp với nhu cầu của doanh nghiệp. Mua 1 lần, dùng đến hết — không thời hạn.</p>
-          {bank?.mock && (
-            <div className="qu-banner-dev">
-              ⚙️ Chế độ DEV — chưa kết nối Tingee thật. Có nút "Simulate paid" ở bước QR để test luồng.
-            </div>
-          )}
         </div>
         {err && <div className="qu-err">{err}</div>}
         {loading ? (
@@ -131,6 +134,7 @@
     const [polling, setPolling] = useState(true);
     const [err, setErr] = useState(null);
     const [copied, setCopied] = useState('');
+    const [confirming, setConfirming] = useState(false);
     const timerRef = useRef(null);
     const pollRef  = useRef(null);
 
@@ -183,12 +187,18 @@
       catch { /* old browser */ }
     }
 
-    // DEV: simulate paid endpoint (chỉ mock mode).
-    async function simulatePaid(){
+    // "Tôi đã thanh toán" — người dùng xác nhận đã chuyển khoản → gọi BE cộng lượt ngay.
+    // BE atomic mark-paid → bấm nhiều lần không cộng trùng. Poll (≤3s) sẽ chuyển sang màn "thành công".
+    async function iHavePaid(){
+      if (confirming) return;
+      setConfirming(true);
+      setErr(null);
       try {
-        await window.tourkitAuth.authedFetch(`/api/v1/quota/dev/simulate-paid/${order.orderId}`, { method: 'POST' });
-        // Để poll detect tự nhiên cho realistic.
-      } catch(e){ setErr(e.message); }
+        const r = await window.tourkitAuth.authedFetch(`/api/v1/quota/order/${order.orderId}/confirm-paid`, { method: 'POST' });
+        const d = await r.json().catch(() => ({}));
+        if (!r.ok) throw new Error(d.error || 'Xác nhận thất bại');
+        // Server đã cộng lượt; poll sẽ tự chuyển sang màn "thành công".
+      } catch(e){ setErr(e.message); setConfirming(false); }
     }
 
     const mm = String(Math.floor(remaining/60)).padStart(2,'0');
@@ -228,7 +238,7 @@
             <div className="qu-bank">
               <div className="qu-row">
                 <span>Ngân hàng</span>
-                <b>{order.bankBin === '970422' ? 'MB Bank' : order.bankBin}</b>
+                <b>{bankName(order.bankBin)}</b>
               </div>
               <div className="qu-row">
                 <span>Số tài khoản</span>
@@ -258,11 +268,9 @@
               <p className="qu-warn-memo">⚠️ Giữ nguyên nội dung CK — hệ thống match tự động qua mã này.</p>
             </div>
 
-            {window.tourkitDebug && (
-              <button className="qu-sim-btn" onClick={simulatePaid}>
-                🧪 [DEV] Simulate paid (mock Tingee)
-              </button>
-            )}
+            <button className="qu-sim-btn" onClick={iHavePaid} disabled={confirming}>
+              {confirming ? 'Đang xác nhận…' : '✅ Tôi đã thanh toán'}
+            </button>
           </div>
         </div>
       </div>
