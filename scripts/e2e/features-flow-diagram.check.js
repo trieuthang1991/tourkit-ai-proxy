@@ -27,6 +27,7 @@ const P_ICONS  = path.join(ROOT, 'wwwroot', 'lib', 'icons.jsx');
 const P_INDEX  = path.join(ROOT, 'wwwroot', 'index.html');
 const P_ENTRY  = path.join(ROOT, 'wwwroot', 'bundle-entry.js');
 const D_SERVICES = path.join(ROOT, 'Services');
+const WWWROOT  = path.join(ROOT, 'wwwroot');
 
 const fail = [], warn = [], ok = [];
 const read = p => fs.readFileSync(p, 'utf8');
@@ -112,6 +113,31 @@ for (const m of entrySrc.matchAll(/\.\/flows\/([\w.-]+\.js)/g)) {
   if (!FLOW_FILES.includes(m[1])) fail.push(`bundle-entry.js tro toi flows/${m[1]} nhung file khong ton tai`);
 }
 if (regMiss === 0) ok.push(`Ca ${FLOW_FILES.length} file flows/ deu da khai o index.html VA bundle-entry.js`);
+
+// ── 1b. Moi file pages/ cung phai khai o CA HAI cho ───────────────────────────
+// Cung mot bay nhu flows/ nhung hau qua nang hon: thieu import o bundle-entry.js thi ban prod
+// KHONG co trang do -> nguoi dung bam vao menu la TRANG TRANG (React #130), ma dev mode van chay
+// binh thuong nen rat de len that. Kiem ca 2 chieu de bat luon file da xoa ma con khai.
+const PAGES_DIR = path.join(ROOT, 'wwwroot', 'pages');
+const PAGE_FILES = fs.readdirSync(PAGES_DIR).filter(f => f.endsWith('.jsx')).sort();
+// Trang cua HTML entry KHAC (admin-trav-ai.html co shell rieng, KHONG dung index.html) — cố ý
+// không nằm trong index.html/bundle-entry.js. Đọc từ chính file HTML đó chứ không hard-code tên,
+// để thêm trang admin mới không phải sửa bộ kiểm này.
+const OTHER_ENTRIES = ['admin-trav-ai.html', 'widget-demo.html', 'stt-compare.html']
+  .map(f => path.join(WWWROOT, f)).filter(fs.existsSync).map(read);
+const pagesInOtherEntries = new Set(
+  OTHER_ENTRIES.flatMap(src => Array.from(src.matchAll(/src="\/?pages\/([\w.-]+\.jsx)"/g)).map(m => m[1])));
+const inIndexPages = new Set(Array.from(indexSrc.matchAll(/src="pages\/([\w.-]+\.jsx)"/g)).map(m => m[1]));
+const inEntryPages = new Set(Array.from(entrySrc.matchAll(/\.\/pages\/([\w.-]+\.jsx)/g)).map(m => m[1]));
+let pageMiss = 0;
+for (const f of PAGE_FILES) {
+  if (pagesInOtherEntries.has(f)) continue;   // thuoc HTML entry khac
+  if (!inIndexPages.has(f)) { fail.push(`[pages/${f}] CHUA khai trong index.html -> dev mode thieu trang nay`); pageMiss++; }
+  if (!inEntryPages.has(f)) { fail.push(`[pages/${f}] CHUA khai trong bundle-entry.js -> BAN PROD TRANG TRANG khi mo trang nay`); pageMiss++; }
+}
+for (const f of inIndexPages) if (!PAGE_FILES.includes(f)) { fail.push(`index.html tro toi pages/${f} nhung file khong ton tai`); pageMiss++; }
+for (const f of inEntryPages) if (!PAGE_FILES.includes(f)) { fail.push(`bundle-entry.js tro toi pages/${f} nhung file khong ton tai`); pageMiss++; }
+if (pageMiss === 0) ok.push(`Ca ${PAGE_FILES.length - pagesInOtherEntries.size} file pages/ cua app deu da khai o index.html VA bundle-entry.js` + (pagesInOtherEntries.size ? ` (bo qua ${pagesInOtherEntries.size} trang thuoc HTML entry rieng)` : ''));
 
 // ── Workflow that su ton tai trong backend (quet CA cay Services/) ────────────
 const backendTypes = new Set();

@@ -2061,7 +2061,25 @@ public static class DigestEndpoints
 
 ---
 
-### Task 11: Frontend — `/insights` + `/digest` + badge chuông
+### Task 11: Frontend — `/insights` + `/digest` + badge chuông — ✅ XONG 12/08/2026
+
+> **Thêm ngoài plan:**
+> - Chuyển 2 sơ đồ `_demo-*` thành sơ đồ THẬT (`flows/sale-brief.js`, `flows/ceo-brief.js`): bỏ
+>   `demo:true`, đổi `type` đúng mã workflow, gắn `cfg:['@interval']` vào node kích hoạt, và **vẽ lại
+>   theo code thật** (bản demo thiếu 2 nguồn của sale-brief: việc cần làm hôm nay + tour của mình còn
+>   thiếu tiền; ceo-brief thì "dòng tiền & lợi nhuận" không tồn tại, thật ra là lịch hẹn). E2E sơ đồ
+>   hết 2 cảnh báo "backend có workflow nhưng chưa vẽ sơ đồ".
+> - **Bộ E2E sơ đồ nay kiểm luôn `pages/`**: mỗi file phải khai ở CẢ `index.html` và `bundle-entry.js`.
+>   Đây là bẫy nặng hơn `flows/` — thiếu import thì dev mode chạy bình thường còn bản prod TRẮNG TRANG
+>   (React #130). Đã thử bỏ 1 import để chắc bộ kiểm bắt được thật (bắt được), và cho ngoại lệ những
+>   trang thuộc HTML entry riêng (`admin-trav-ai.html`) đọc từ chính file HTML đó, không hard-code tên.
+>
+> **2 lỗi giao diện tự tìm ra khi xem bằng mắt (test không bắt được):**
+> 1. **Ô chọn giờ nói SAI giờ đã lưu.** Bản đầu chỉ cho 5h–20h "cho gọn"; một đăng ký đã lưu 21:00 làm
+>    ô chọn không có mục nào khớp → trình duyệt hiện mục đầu (05:00). Người dùng không có cách nào biết
+>    giờ thật. Nay đủ 0–23 (backend vốn nhận 0–23, và 21h là lựa chọn hợp lý: đọc tối trước cho sáng mai).
+> 2. **Mobile: ô tick tách khỏi tên kênh** thành một dòng riêng canh giữa → không biết đang tick cho
+>    kênh nào. Nay ô tick + tên luôn cùng dòng, chỉ ô nhập và ghi chú xuống dòng dưới.
 
 **Files:**
 - Create: `wwwroot/pages/insights.jsx`

@@ -26,8 +26,8 @@ import "./components/customer-review-card.jsx";
 import "./components/action-confirm-card.jsx";
 // /flows — sơ đồ luồng, _registry.js đứng đầu (các file sau gọi window.tourkitFlows.register)
 import "./flows/_registry.js";
-import "./flows/_demo-sale-brief.js";
-import "./flows/_demo-ceo-brief.js";
+import "./flows/sale-brief.js";
+import "./flows/ceo-brief.js";
 import "./flows/mail-auto-sync.js";
 import "./flows/deal-auto-review.js";
 import "./flows/customer-auto-review.js";
@@ -77,6 +77,8 @@ import "./pages/ncc-list.jsx";
 import "./pages/visa-config.jsx";
 import "./pages/workflows.jsx";
 import "./pages/flow-preview.jsx";
+import "./pages/insights.jsx";
+import "./pages/digest.jsx";
 import "./pages/help.jsx";
 
 // Root: App shell + router (PHẢI CUỐI — dùng tất cả window.X định nghĩa ở trên)

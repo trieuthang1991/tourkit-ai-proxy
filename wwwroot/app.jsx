@@ -33,6 +33,10 @@ const NAV_GROUPS = [
     { to: '/travai',    icon: 'mic',     label: 'TRAVAI' },  // HUD hội thoại 3D + giọng đọc ("Trà vải") — trang mặc định sau đăng nhập
     { to: '/assistant', icon: 'chart',   label: 'Trợ lý số liệu' },   // data/chart analytics
   ]},
+  { label: 'Bản tin', items: [
+    { to: '/insights', icon: 'bell',    label: 'Bảng tin' },        // nơi đọc lại bản tin + cảnh báo
+    { to: '/digest',   icon: 'sliders', label: 'Bản tin AI' },      // đăng ký: nhận gì, mấy giờ, ở đâu
+  ]},
   { label: 'Khách hàng & Bán hàng', items: [
     { to: '/customers', icon: 'users',   label: 'Khách hàng' },       // people
     { to: '/deals',     icon: 'trend',   label: 'AI phân tích Cơ hội' },  // opportunity analysis
@@ -234,6 +238,29 @@ function App() {
     // poll chỉ là backstop khi consumer không qua authedFetch (vd built-in claude).
     const t = setInterval(load, 10_000);
     return () => { alive = false; window.removeEventListener('tourkit:quota', onQuota); clearInterval(t); };
+  }, [authUser]);
+
+  // ─── Số thông báo chưa đọc (badge chuông) ───────────────────────────────────
+  // Chu kỳ 60s: bản tin là việc theo NGÀY, không phải chat — hỏi dày hơn chỉ tốn request mà
+  // không ai nhận ra khác biệt. Trang /insights và nút "Gửi thử" phát 'tourkit:insights' để
+  // badge đổi NGAY, nên không cần chu kỳ ngắn.
+  const [unread, setUnread] = uS(0);
+  uE(() => {
+    if (!authUser) { setUnread(0); return; }
+    let alive = true;
+    const load = async () => {
+      try {
+        const r = await window.tourkitAuth.authedFetch('/api/v1/insights/unread-count');
+        if (!alive || !r.ok) return;
+        const d = await r.json();
+        setUnread(d.count || 0);
+      } catch {}
+    };
+    load();
+    const onPing = () => load();
+    window.addEventListener('tourkit:insights', onPing);
+    const t = setInterval(load, 60_000);
+    return () => { alive = false; window.removeEventListener('tourkit:insights', onPing); clearInterval(t); };
   }, [authUser]);
 
   // Đồng bộ chip user khi đăng nhập/đăng xuất (auth.jsx phát 'tourkit-auth-changed').
@@ -451,10 +478,15 @@ function App() {
               }}>
               <Icon name="book" size={18} />
             </button>
-            <button className="tb-icon" title="Thông báo"
-              onClick={() => pushToast('Chưa có thông báo mới')}>
-              <Icon name="bell" size={18} />
-            </button>
+            <span className="tb-bellwrap">
+              <button className="tb-icon"
+                title={unread > 0 ? `${unread} thông báo chưa đọc` : 'Bảng tin (chưa có tin mới)'}
+                onClick={() => window.tourkitRouter.navigate('/insights')}>
+                <Icon name="bell" size={18} />
+              </button>
+              {/* Quá 99 thì hiện "99+" — số 4 chữ số phá vỡ hình tròn của badge. */}
+              {unread > 0 && <span className="tb-bell-badge">{unread > 99 ? '99+' : unread}</span>}
+            </span>
             {/* Debug toggle button đã bỏ — debug state vẫn giữ ở localStorage qua window.tourkitDebug
                 (admin power-user set tay: window.tourkitDebug.setOn(true)) → /ai-usage vẫn accessible
                 qua URL trực tiếp, nav "Chi phí AI" hiện khi debug ON. */}
@@ -512,6 +544,8 @@ function App() {
         <Route path="/flow-preview" render={() => gatePerm('/flow-preview', <window.FlowPreviewPage pushToast={pushToast} />)} />
         {/* /flow-preview/:type — sơ đồ của 1 workflow cụ thể (nút "Xem sơ đồ" ở trang Tự động hoá) */}
         <Route path="/flow-preview/:type" render={(p) => gatePerm('/flow-preview', <window.FlowPreviewPage pushToast={pushToast} type={p.type} />)} />
+        <Route path="/insights"     render={() => <window.InsightsPage pushToast={pushToast} />} />
+        <Route path="/digest"       render={() => <window.DigestPage pushToast={pushToast} />} />
         <Route path="/help"         render={() => <window.HelpPage />} />
         <Route path="/help/:slug"   render={(p) => <window.HelpPage slug={p.slug} />} />
         <Route path="*"          render={() => (
