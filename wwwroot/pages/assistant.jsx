@@ -937,11 +937,13 @@ function AssistantPage({ pushToast }) {
           return;
         }
         if (o.error) { patch(a => ({ ...a, content: '⚠️ ' + o.error, error: true, streaming: false })); setStage(null); return; }
-        if (o.stage) { setStage(o.stage); if (o.data) { setPanelData(o.data); dataSet = true; } if (o.tool) patch(a => ({ ...a, tool: o.tool })); return; }
+        // CHỈ đọc toolTitle (nhãn nguồn tiếng Việt do backend gửi) — KHÔNG đọc o.tool/o.toolName
+        // (tên tool kỹ thuật, không được để lộ ra giao diện).
+        if (o.stage) { setStage(o.stage); if (o.data) { setPanelData(o.data); dataSet = true; } if (o.toolTitle) patch(a => ({ ...a, tool: o.toolTitle })); return; }
         if (o.delta) { setStage(null); patch(a => ({ ...a, content: a.content + o.delta })); return; }
         if (o.done) {
           if (o.reply) patch(a => ({ ...a, content: o.reply }));
-          if (o.toolName) patch(a => ({ ...a, tool: o.toolName }));
+          patch(a => ({ ...a, tool: o.toolTitle || null }));   // null = ẩn chip (câu không lấy số liệu)
           if (o.data && !dataSet) setPanelData(o.data);   // chỉ set nếu chưa có (luồng cache-hit)
           if (o.trace) patch(a => ({ ...a, trace: o.trace }));   // trace event đính cùng done (cache-hit path)
         }
@@ -1134,7 +1136,9 @@ function AssistantPage({ pushToast }) {
                 )}
                 <div className="asst-msg-body">
                   {m.role === 'assistant' && m.tool && m.tool !== 'none' &&
-                    <span className="asst-tool-tag">{m.tool}</span>}
+                    <span className="asst-tool-tag" title="Báo cáo mà số liệu này được lấy ra">
+                      <span className="asst-tool-tag-lbl">Nguồn</span>{m.tool}
+                    </span>}
                   <div className="asst-bubble">
                     {m.content
                       ? m.content

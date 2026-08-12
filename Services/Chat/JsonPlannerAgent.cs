@@ -587,7 +587,8 @@ public class JsonPlannerAgent : IAgentRuntime
         {
             trace?.Step("provenance_shortcut", "ok", 0,
                 "Câu hỏi về NGUỒN số liệu → trả thẳng nguồn (không gọi lại tool → tránh lặp câu trả lời)");
-            await emit(new { done = true, reply = prov.Reply, toolName = prov.ToolName, data = (object?)prov.Data });
+            await emit(new { done = true, reply = prov.Reply, toolName = prov.ToolName,
+                             toolTitle = ChatTools.TitleOf(prov.ToolName), data = (object?)prov.Data });
             return;
         }
 
@@ -722,15 +723,16 @@ public class JsonPlannerAgent : IAgentRuntime
             var keepPanel = ShouldKeepPanel(question);
             await emit(new
             {
-                done     = true,
+                done      = true,
                 reply,
-                toolName = keepPanel ? (memory.LastTool ?? "none") : "none",
-                data     = keepPanel ? (object?)memory.LastChatData : null
+                toolName  = keepPanel ? (memory.LastTool ?? "none") : "none",
+                toolTitle = keepPanel ? ChatTools.TitleOf(memory.LastTool) : null,
+                data      = keepPanel ? (object?)memory.LastChatData : null
             });
             return;
         }
 
-        await emit(new { stage = "fetching", tool = tool.Name, title = tool.Title });
+        await emit(new { stage = "fetching", tool = tool.Name, title = tool.Title, toolTitle = tool.Title });
         var resolverTimer = trace?.Begin("market_resolver");
         var paramsBefore = toolParams?.GetRawText();
         toolParams = await ResolveMarketAsync(input.SessionId, toolParams, ct);
@@ -872,7 +874,7 @@ public class JsonPlannerAgent : IAgentRuntime
         }
 
         // Gui DATA SOM -> panel phai hien so lieu/bieu do ngay, trong khi chu phan tich chay dan.
-        await emit(new { stage = "analyzing", tool = tool.Name, data = chatData });
+        await emit(new { stage = "analyzing", tool = tool.Name, toolTitle = tool.Title, data = chatData });
 
         var analysisReq = new CompleteRequest(
             Prompt:      BuildAnalysisPrompt(history, tool, chatData.Raw ?? data, chatData.Stats),
@@ -965,7 +967,8 @@ public class JsonPlannerAgent : IAgentRuntime
             _sessions.UpdateMemory(input.SessionId, newMemory);
         }
 
-        await emit(new { done = true, reply = finalReply, toolName = tool.Name, data = chatData });
+        await emit(new { done = true, reply = finalReply, toolName = tool.Name,
+                         toolTitle = tool.Title, data = chatData });
     }
 
     // ─── Fallback helpers ────────────────────────────────────────────────────────

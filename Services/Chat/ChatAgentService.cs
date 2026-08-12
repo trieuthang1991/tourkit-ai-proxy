@@ -199,7 +199,8 @@ public class ChatAgentService
             agentResult.LatencyMs,
             agentResult.InputTokens,
             agentResult.OutputTokens,
-            agentResult.Warning);
+            agentResult.Warning,
+            ToolTitle: ChatTools.TitleOf(agentResult.ToolName));
 
         // KHÔNG lưu cache câu trả lời (xem ghi chú ở đầu hàm).
         return trace.Enabled ? result with { Trace = trace.Build() } : result;
@@ -328,7 +329,8 @@ public class ChatAgentService
                 var replyVal   = replyProp?.GetValue(evt) as string ?? "";
                 var toolVal    = toolProp?.GetValue(evt) as string ?? "none";
                 var dataVal    = dataProp?.GetValue(evt) as ChatData;
-                streamResult = new ChatResult(replyVal, toolVal, null, dataVal, 0, 0, 0, null);
+                streamResult = new ChatResult(replyVal, toolVal, null, dataVal, 0, 0, 0, null,
+                    ToolTitle: ChatTools.TitleOf(toolVal));
             }
         }, ct);
 

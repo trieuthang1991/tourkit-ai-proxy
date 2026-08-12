@@ -516,7 +516,8 @@ public class NativeToolUseAgent : IAgentRuntime
         // Emit DUY NHAT 1 lan sau khi loop xong + compare built + focus applied.
         // Frontend chi remount chart 1 lan → khong nhay/ve 2 lan.
         if (emit != null && lastData != null && !string.IsNullOrEmpty(lastData.Title))
-            await emit(new { stage = "data", tool = lastToolName, data = lastData });
+            await emit(new { stage = "data", tool = lastToolName,
+                             toolTitle = ChatTools.TitleOf(lastToolName), data = lastData });
 
         // ── Guardrails ────────────────────────────────────────────────────────
         finalText = AgentGuardrails.StripMarkdown(AgentGuardrails.StripEmDash(finalText.Trim()));
@@ -665,10 +666,11 @@ public class NativeToolUseAgent : IAgentRuntime
         await emit(new { delta = result.Reply });
         await emit(new
         {
-            done     = true,
-            reply    = result.Reply,
-            toolName = result.ToolName,
-            data     = result.Data
+            done      = true,
+            reply     = result.Reply,
+            toolName  = result.ToolName,
+            toolTitle = ChatTools.TitleOf(result.ToolName),
+            data      = result.Data
         });
     }
 

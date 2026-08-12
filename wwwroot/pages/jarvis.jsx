@@ -727,13 +727,14 @@ function JarvisPage({ pushToast }) {
         if (o.error) { patch(a => ({ ...a, content: '⚠️ ' + o.error, error: true, streaming: false })); return; }
         if (o.stage) {
           setOrbState(o.stage === 'analyzing' ? 'responding' : 'thinking');
-          if (o.tool) setLastTool(o.tool);
+          // Nhãn NGUỒN tiếng Việt (toolTitle) — KHÔNG dùng o.tool/o.toolName (tên kỹ thuật).
+          if (o.toolTitle) setLastTool(o.toolTitle);
           return;
         }
         if (o.delta) { setOrbState('responding'); full += o.delta; patch(a => ({ ...a, content: a.content + o.delta })); if (voiceOnRef.current) flushSpeech(full, false); return; }
         if (o.done) {
           if (o.reply) { full = o.reply; patch(a => ({ ...a, content: o.reply })); }
-          if (o.toolName) setLastTool(o.toolName);
+          setLastTool(o.toolTitle || null);   // null = ẩn dòng (câu không lấy số liệu)
         }
       });
       // Ghép: TTS streaming (flushSpeech) + guard `&& full` — action-proposal/clarify set full=''
@@ -1351,6 +1352,37 @@ function JarvisPage({ pushToast }) {
   const [showAllSug, setShowAllSug] = React.useState(false);
   const suggestions = showAllSug ? ALL_SUGGESTIONS : ALL_SUGGESTIONS.slice(0, 6);
 
+  // Ngăn kéo "Gợi ý câu hỏi" (nút 3 gạch bên trái) — dải chip trên kia CHỈ hiện khi chưa hỏi câu nào,
+  // nên hỏi xong là mất; ngăn kéo này mở được BẤT CỨ LÚC NÀO. Giữ nguyên dải chip cũ, không đụng.
+  const [sugOpen, setSugOpen] = React.useState(false);
+  // Nhãn nhóm để dễ dò. Map phụ — câu hỏi mới thêm vào ALL_SUGGESTIONS mà chưa gắn nhãn thì rơi
+  // vào "Khác" (vẫn hiện đủ), nên không có chuyện thêm câu hỏi rồi nó biến mất khỏi ngăn kéo.
+  const SUG_GROUP = {
+    'Doanh thu tháng này': 'Tài chính', 'Chi phí tháng này': 'Tài chính',
+    'Lợi nhuận tháng này': 'Tài chính', 'Dòng tiền tháng này': 'Tài chính',
+    'Phiếu thu chi gần đây': 'Tài chính',
+    'Top khách hàng': 'Khách hàng & bán hàng', 'Top nhân viên bán hàng': 'Khách hàng & bán hàng',
+    'Cơ hội bán hàng đang chờ': 'Khách hàng & bán hàng', 'Nguồn khách marketing': 'Khách hàng & bán hàng',
+    'Tour sắp khởi hành': 'Điều hành', 'Công việc hôm nay': 'Điều hành', 'Lịch hẹn sắp tới': 'Điều hành',
+  };
+  const sugGroups = React.useMemo(() => {
+    const order = [];
+    const byGroup = {};
+    ALL_SUGGESTIONS.forEach(q => {
+      const g = SUG_GROUP[q] || 'Khác';
+      if (!byGroup[g]) { byGroup[g] = []; order.push(g); }
+      byGroup[g].push(q);
+    });
+    return order.map(g => ({ group: g, items: byGroup[g] }));
+  }, []);
+  // Esc để đóng — bàn phím dùng được, không phải rê chuột ra ngoài mới đóng được.
+  React.useEffect(() => {
+    if (!sugOpen) return;
+    const onKey = e => { if (e.key === 'Escape') setSugOpen(false); };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [sugOpen]);
+
   // O3 (BugTRAV-AI): drawer "Yêu cầu (Hàng đợi CRM)" mở từ nút 3 gạch ngay tại màn AI Talk —
   // trước phải vào /workflows (Tích hợp/cấu hình) mới xem được, bất tiện.
   const [queueOpen, setQueueOpen] = React.useState(false);
@@ -1386,6 +1418,14 @@ function JarvisPage({ pushToast }) {
         {/* Thanh trên: danh tính + điều khiển */}
         <div className="jv-topbar">
           <div className="jv-brand">
+            {/* Nút 3 gạch bên TRÁI — mở ngăn kéo gợi ý câu hỏi. Cùng kiểu nút với "YÊU CẦU"
+                để người dùng nhận ra ngay đây là nút mở danh sách. Đặt TRONG .jv-brand để
+                topbar giữ đúng 2 nhánh (trái | phải) của space-between, không xô lệch. */}
+            <button className="jv-toggle jv-burger" onClick={() => setSugOpen(true)}
+                    title="Không biết hỏi gì? Mở danh sách câu hỏi gợi ý"
+                    aria-label="Mở gợi ý câu hỏi">
+              <Icon name="menu" size={14} /> <span className="jv-burger-lbl">GỢI Ý CÂU HỎI</span>
+            </button>
             <span className="jv-brand-mark">◈</span>
             <div>
               <div className="jv-brand-name">TRAVAI</div>
@@ -1396,7 +1436,7 @@ function JarvisPage({ pushToast }) {
             <span className="jv-readout">TENANT <b>{sessionInfo?.tenantId || '—'}</b></span>
             <span className="jv-readout">MODEL <b>{cfg.model || 'auto'}</b></span>
             <span className="jv-readout">TTS <b>{ttsEngine || '—'}</b></span>
-            {lastTool && lastTool !== 'none' && <span className="jv-readout">TOOL <b>{lastTool}</b></span>}
+            {lastTool && lastTool !== 'none' && <span className="jv-readout">NGUỒN <b>{lastTool}</b></span>}
             <button className={'jv-toggle' + (listening ? ' listen-on' : '')}
               onClick={toggleListening}
               disabled={!supportsAlwaysListen}
@@ -1428,6 +1468,35 @@ function JarvisPage({ pushToast }) {
             </button>
           </div>
         </div>
+
+        {/* Ngăn kéo "Gợi ý câu hỏi" — mở từ TRÁI (nút 3 gạch), dùng được cả khi đang có hội thoại.
+            Bấm 1 câu = hỏi luôn rồi tự đóng. Cùng bảng màu với ngăn kéo Yêu cầu bên phải. */}
+        {sugOpen && (
+          <div className="jv-draw-scrim jv-draw-left" onClick={() => setSugOpen(false)}>
+            <aside className="jv-draw" onClick={e => e.stopPropagation()}>
+              <div className="jv-draw-head">
+                <Icon name="menu" size={16} />
+                <div className="jv-draw-title">Gợi ý câu hỏi</div>
+                <button className="jv-draw-x" onClick={() => setSugOpen(false)} aria-label="Đóng">×</button>
+              </div>
+              <p className="jv-draw-sub">Bấm một câu để hỏi ngay. Bạn cũng có thể tự gõ câu khác.</p>
+              <div className="jv-draw-body">
+                {sugGroups.map(g => (
+                  <div key={g.group} className="jv-sug-group">
+                    <div className="jv-sug-glbl">{g.group}</div>
+                    {g.items.map(q => (
+                      <button key={q} className="jv-sug-item" disabled={loading}
+                              onClick={() => { setSugOpen(false); send(q); }}>
+                        <span>{q}</span>
+                        <Icon name="arrowRight" size={13} />
+                      </button>
+                    ))}
+                  </div>
+                ))}
+              </div>
+            </aside>
+          </div>
+        )}
 
         {/* O3: Drawer "Yêu cầu — Hàng đợi CRM" (giao việc / lịch hẹn trợ lý đã enqueue). */}
         {queueOpen && (
@@ -1725,6 +1794,31 @@ const JV_CSS = `
   border:1px solid rgba(56,189,248,.28);background:rgba(56,189,248,.06);color:#8fc4ec;}
 .jv-chip:hover:not(:disabled){border-color:#38bdf8;color:#eaf6ff;box-shadow:0 0 14px rgba(56,189,248,.25);}
 .jv-chip:disabled{opacity:.4;cursor:default;}
+/* Nút 3 gạch mở gợi ý — đứng đầu nhánh trái topbar (gap 12px của .jv-brand lo khoảng cách). */
+.jv-burger{flex:0 0 auto;}
+/* Ngăn kéo trái (gợi ý câu hỏi). Dùng chung bảng màu với ngăn kéo phải (Yêu cầu). */
+.jv-draw-scrim{position:fixed;inset:0;z-index:1200;background:rgba(2,6,23,.6);display:flex;}
+.jv-draw-scrim.jv-draw-left{justify-content:flex-start;}
+.jv-draw{width:min(360px,92vw);height:100vh;display:flex;flex-direction:column;overflow:hidden;
+  background:#0b1220;color:#e2e8f0;border-right:1px solid rgba(56,189,248,.25);box-shadow:12px 0 32px rgba(0,0,0,.5);}
+.jv-draw-head{display:flex;align-items:center;gap:10px;padding:14px 18px;border-bottom:1px solid rgba(148,163,184,.2);}
+.jv-draw-title{flex:1;font-weight:700;font-size:14px;}
+.jv-draw-x{background:transparent;border:none;color:#94a3b8;font-size:20px;cursor:pointer;line-height:1;}
+.jv-draw-x:hover{color:#e2e8f0;}
+.jv-draw-sub{margin:0;padding:10px 18px 4px;font-size:11px;color:#64748b;line-height:1.5;}
+.jv-draw-body{flex:1;overflow-y:auto;padding:8px 14px 18px;}
+.jv-sug-group{margin-top:12px;}
+.jv-sug-glbl{font-size:10px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:#38bdf8;
+  opacity:.75;padding:0 4px 6px;}
+.jv-sug-item{width:100%;display:flex;align-items:center;justify-content:space-between;gap:10px;text-align:left;
+  font-family:inherit;font-size:12.5px;line-height:1.45;padding:10px 12px;margin-bottom:6px;border-radius:10px;cursor:pointer;
+  transition:.15s;border:1px solid rgba(148,163,184,.2);background:rgba(15,23,42,.6);color:#cbd8e8;}
+.jv-sug-item svg{flex:0 0 auto;opacity:.45;}
+.jv-sug-item:hover:not(:disabled){border-color:#38bdf8;color:#eaf6ff;background:rgba(56,189,248,.08);}
+.jv-sug-item:hover:not(:disabled) svg{opacity:1;}
+.jv-sug-item:disabled{opacity:.4;cursor:default;}
+/* Màn hẹp: giấu chữ, chỉ còn 3 gạch — topbar đã chật vì các nút LUÔN NGHE/LOA/YÊU CẦU. */
+@media (max-width:720px){ .jv-burger-lbl{display:none;} }
 .jv-input-row{position:relative;z-index:2;display:flex;gap:10px;align-items:center;padding:14px 20px 18px;
   border-top:1px solid rgba(56,189,248,.15);}
 .jv-mic,.jv-send{width:44px;height:44px;flex:0 0 44px;border-radius:50%;display:flex;align-items:center;justify-content:center;

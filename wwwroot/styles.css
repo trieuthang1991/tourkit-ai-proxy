@@ -1584,9 +1584,15 @@ body.editorial .ai-bubble .hl { color: #FDBA74; }
 .asst-dots i:nth-child(3) { animation-delay: 0.30s; }
 @keyframes asstBounce { 0%, 80%, 100% { transform: scale(0.5); opacity: 0.35; } 40% { transform: scale(1); opacity: 1; } }
 @media (prefers-reduced-motion: reduce) { .asst-dots i { animation: none; opacity: 0.7; } }
+/* Chip NGUỒN dữ liệu — nói rõ số liệu lấy từ báo cáo nào (KHÔNG hiện tên tool kỹ thuật).
+   Để inline (không flex) để nhãn + tên nguồn nằm cùng dòng. */
 .asst-tool-tag {
   font-size: 11px; color: var(--primary-dark); background: var(--primary-soft);
   padding: 1px 8px; border-radius: 999px; margin-bottom: 4px; font-weight: 600;
+}
+.asst-tool-tag-lbl {
+  font-size: 10px; font-weight: 700; letter-spacing: .04em; text-transform: uppercase;
+  opacity: .65; margin-right: 5px;
 }
 .asst-suggest { padding: 4px 0; }
 .asst-suggest .label { margin-bottom: 10px; }

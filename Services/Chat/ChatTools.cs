@@ -188,6 +188,18 @@ public static class ChatTools
         => string.IsNullOrEmpty(name) ? null
            : All.FirstOrDefault(t => string.Equals(t.Name, name, StringComparison.OrdinalIgnoreCase));
 
+    /// Nhãn NGUỒN tiếng Việt để hiện cho người dùng ("Chi tiết tài chính") thay cho tên tool kỹ thuật
+    /// ("financial_summary"). NGUỒN DUY NHẤT của map này — frontend KHÔNG tự chép lại catalog.
+    /// Trả null khi không có nguồn (tool "none"/rỗng/không có trong catalog) → UI ẩn hẳn chip,
+    /// KHÔNG bao giờ rơi về hiện tên thô.
+    public static string? TitleOf(string? name)
+    {
+        if (string.IsNullOrWhiteSpace(name) || string.Equals(name, "none", StringComparison.OrdinalIgnoreCase))
+            return null;
+        var t = Find(name);
+        return string.IsNullOrWhiteSpace(t?.Title) ? null : t!.Title;
+    }
+
     /// Catalog JSON gọn để nhúng vào prompt planner.
     public static string CatalogForPrompt()
     {
