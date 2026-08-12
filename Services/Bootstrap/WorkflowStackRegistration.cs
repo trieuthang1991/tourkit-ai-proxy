@@ -155,6 +155,20 @@ public static class WorkflowStackRegistration
         s.AddSingleton<TourPrices.TourPriceRetriever>();       // chọn nguồn giá (mẫu/thật/cả 2)
         s.AddSingleton<TourPrices.SampleCatalogSeeder>();      // nạp NCC mẫu từ seed lúc startup
 
+        // ─── Bản tin sáng (Đợt 1) ────────────────────────────────────────────
+        // Đăng ký ở ĐÂY (không phải Program.cs) để worker chạy nền cũng có — workflow gửi bản tin
+        // sống bên worker, endpoint cấu hình sống bên web, cả hai cùng cần bộ này.
+        s.AddSingleton<Digest.InsightRepository>();
+        s.AddSingleton<Digest.DigestSubscriptionRepository>();
+        s.AddSingleton<Digest.TenantChannelSettingsStore>();
+        // Thứ tự đăng ký = thứ tự gửi. Đặt inapp ĐẦU TIÊN: kênh chắc chắn nhất, không phụ thuộc
+        // mạng ngoài — mấy kênh sau hỏng hết thì bản tin vẫn còn chỗ xem lại.
+        s.AddSingleton<Digest.Channels.IDigestChannel, Digest.Channels.InAppChannel>();
+        s.AddSingleton<Digest.Channels.IDigestChannel, Digest.Channels.EmailChannel>();
+        s.AddSingleton<Digest.Channels.IDigestChannel, Digest.Channels.TelegramChannel>();
+        s.AddSingleton<Digest.Channels.IDigestChannel, Digest.Channels.ZaloOaChannel>();
+        s.AddSingleton<Digest.DigestDispatcher>();
+
         s.AddSingleton<Workflows.WorkflowSchedulerService>();
 
         return s;
