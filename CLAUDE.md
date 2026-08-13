@@ -160,7 +160,7 @@ data/
 | POST   | `/api/v1/mail/compose/draft`      | SSE: AI soạn email MỚI từ `{to, subject, brief, tone}` |
 | POST   | `/api/v1/mail/compose/send`       | gửi email mới qua SMTP `{to, subject, text}`         |
 | PATCH  | `/api/v1/mail/{id}/status`        | đổi trạng thái email (moi/dang_xu_ly/da_phan_hoi/da_dong) |
-| GET    | `/api/v1/insights`                | Bảng tin trong app `?kind=&unread=&offset=&limit=` → `{items[…]}` (require X-Session-Id) |
+| GET    | `/api/v1/insights`                | Bảng tin trong app `?kind=&unread=&offset=&limit=` → `{items[…]}`; item bản tin (sale/ceo) kèm `speakText` (đã bỏ markdown/emoji để đọc TTS) (require X-Session-Id) |
 | GET    | `/api/v1/insights/unread-count`   | Số chưa đọc cho badge chuông `?kind=` → `{count}` (require X-Session-Id) |
 | POST   | `/api/v1/insights/{id}/read`      | Đánh dấu 1 dòng đã đọc — repo kẹp theo tenant/user nên id của công ty khác không đánh dấu được |
 | POST   | `/api/v1/insights/read-all`       | Đánh dấu đã đọc tất cả |
@@ -382,7 +382,9 @@ cờ bit riêng cho máy lưu (1/2/4/8, đủ 4 = 15) — 2 vai TÁCH nhau vì t
 cấu hình của 2 tác vụ đó). `/workflows` có 2 tab: "Tác vụ" (thẻ bản tin chứa khối **"Bản tin của tôi"** —
 [`digest.jsx`](wwwroot/pages/digest.jsx)) và "Bảng tin" ([`insights.jsx`](wwwroot/pages/insights.jsx)).
 Zalo OA nằm cạnh tài khoản dịch vụ trong nhóm "Theo tổ chức". `/insights` + `/digest` là 2 đường cũ trỏ
-về đúng tab (chuông ở thanh trên dùng `/insights`).
+về đúng tab (chuông ở thanh trên dùng `/insights`). Item bản tin trong Bảng tin có nút **Nghe** (đọc qua
+`/api/v1/speech/tts`, giọng server đồng nhất) — lời đọc do `BriefNarration.ToSpeakable` làm sạch từ
+markdown; và mỗi người chỉ nhận **1 loại** bản tin theo vai trò (bật loại này tự tắt loại kia).
 
 **Phân vai quyền:** "Bản tin của tôi" (nơi nhận của chính mình) → KHÔNG cần quyền, giống hộp thư cá nhân.
 Lịch chạy + tài khoản dịch vụ + Zalo OA → cần `CH_HT_XEM`. Vì trang này nay có phần cá nhân nên mục menu
