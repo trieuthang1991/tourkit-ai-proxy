@@ -103,6 +103,12 @@ NGỪNG DÙNG:       SentMask · SentAttempts · LastSentUtc · LastSentLocalDat
                   (giữ cột trong DB — không xoá để không phá gì; code không đọc/ghi nữa)
 ```
 
+**[CẬP NHẬT 13/08 — Q11] PK đổi `(TenantId, Username, BriefType)` → `(TenantId, Username)`:**
+mỗi người đúng 1 dòng; `BriefType` là cột thường (đổi loại = UPDATE, giờ+kênh giữ nguyên theo
+người). Luật "1 loại/người" thành bất biến cấu trúc — `DeactivateOthersAsync` xoá. Migration
+idempotent trong SchemaSql: nếu PK còn 3 cột → dedupe (ưu tiên Enabled=1, rồi UpdatedUtc mới
+nhất) → drop PK cũ → add PK 2 cột.
+
 - Chống gửi trùng KHÔNG cần cột ngày ở đây nữa: "hôm nay đã chuẩn bị chưa" = **đã tồn tại dòng
   `AgentInsights` của (tenant, user, kind) trong ngày VN hôm nay chưa** (query theo index sẵn có
   `IX_AgentInsights_Tenant_User_Created`).

@@ -83,6 +83,38 @@ IF NOT EXISTS (SELECT 1 FROM sys.columns WHERE object_id = OBJECT_ID('dbo.Outbou
 
 ---
 
+### Task 1b: PK `DigestSubscriptions` → `(TenantId, Username)` — mỗi người 1 dòng (Q11)
+
+**Files:** Modify `Services/Db/TourkitAiDb.cs` (migration idempotent) · `Services/Digest/DigestSubscriptionRepository.cs` · `Endpoints/DigestEndpoints.cs` · `Services/Workflows/SaleBriefWorkflow.cs`+`CeoBriefWorkflow.cs` (nếu Task 5 chưa chạy thì gộp lúc đó)
+
+- [ ] **Step 1: Migration** — append vào `SchemaSql` (SAU block Channel của Task 1):
+```sql
+--
+-- [Q11] Mỗi người đúng 1 dòng đăng ký: BriefType ra khỏi khoá chính. Đổi loại = UPDATE cột,
+-- giờ + kênh đi theo người; luật "1 người 1 loại" thành bất biến cấu trúc.
+IF EXISTS (
+    SELECT 1 FROM sys.index_columns ic
+    JOIN sys.indexes i ON i.object_id = ic.object_id AND i.index_id = ic.index_id
+    WHERE i.object_id = OBJECT_ID('dbo.DigestSubscriptions') AND i.is_primary_key = 1
+    GROUP BY i.index_id HAVING COUNT(*) = 3)
+BEGIN
+    -- Dedupe: giữ dòng ĐANG BẬT (ưu tiên), rồi dòng sửa gần nhất — không mất đăng ký đang chạy.
+    ;WITH ranked AS (
+        SELECT *, ROW_NUMBER() OVER (PARTITION BY TenantId, Username
+                 ORDER BY Enabled DESC, UpdatedUtc DESC) AS rn
+        FROM dbo.DigestSubscriptions)
+    DELETE FROM ranked WHERE rn > 1;
+    ALTER TABLE dbo.DigestSubscriptions DROP CONSTRAINT PK_DigestSubscriptions;
+    ALTER TABLE dbo.DigestSubscriptions ADD CONSTRAINT PK_DigestSubscriptions PRIMARY KEY (TenantId, Username);
+END;
+```
+- [ ] **Step 2: Repo** — `DigestSubscriptionRepository`: `UpsertAsync` MERGE ON 2 cột `(TenantId, Username)`, UPDATE SET thêm `BriefType = @BriefType`; XOÁ `DeactivateOthersAsync` + `MarkSentAsync` (Task 5/7 không dùng nữa); `ListForUserAsync` giữ (giờ trả ≤1 dòng); `ListEnabledAsync(tenant, briefType)` giữ nguyên WHERE (BriefType giờ là cột lọc).
+- [ ] **Step 3: Endpoint** — `PUT /digest/subscriptions/{briefType}`: nghĩa mới = "đặt loại của TÔI thành {briefType} + lưu cấu hình" (upsert 1 dòng, BriefType=route param); XOÁ lời gọi `DeactivateOthersAsync` + comment luật (thay bằng comment "1 dòng/người — cấu trúc tự bảo đảm 1 loại"). `GET /subscriptions` trả items như cũ (≤1 phần tử — frontend đọc theo briefType vẫn chạy).
+- [ ] **Step 4: Frontend** — `digest.jsx`/`workflows.jsx`: `subOf(type)` giờ chỉ khớp khi `sub.briefType === type` — card loại kia tự hiện "chưa bật" sau khi đổi loại (hành vi cũ giữ nguyên nhờ reload). Kiểm + chỉnh hint 1-loại: "Đổi loại sẽ chuyển đăng ký của bạn sang loại này (giờ và kênh nhận giữ nguyên)."
+- [ ] **Step 5:** Build + suite xanh + E2E mục luật-1-loại vẫn PASS (bật ceo → GET thấy sale không còn enabled — giờ vì CHÍNH dòng đó đổi type). **Commit** — `feat(digest): mỗi người 1 dòng đăng ký — BriefType ra khỏi PK, xoá DeactivateOthers (Q11)`
+
+---
+
 ### Task 2: `DigestDue.ShouldPrepare` — so PHÚT + cửa sổ lead (TDD)
 
 **Files:** Modify `Services/Digest/DigestDue.cs` · Rewrite `TourkitAiProxy.Tests/Digest/DigestDueTests.cs`

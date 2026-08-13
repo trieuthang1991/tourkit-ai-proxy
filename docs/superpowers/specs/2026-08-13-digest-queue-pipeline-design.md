@@ -30,6 +30,7 @@
 | Q8 | **Mọi ngưỡng vào config** `appsettings.json` mục `Digest` — không hardcode | user chốt |
 | Q9 | Tới giờ mà chưa dựng sẵn → **dựng-tại-chỗ rồi gửi** (không bao giờ âm thầm mất tin, kể cả gửi muộn) | user chốt |
 | Q10 | Dữ liệu dựng sớm 5–10 phút: chấp nhận (số tổng hợp) | user chốt |
+| Q11 | **PK `DigestSubscriptions` đổi thành `(TenantId, Username)`** — mỗi người đúng 1 DÒNG; `BriefType` thành cột thường. Đổi loại = UPDATE cột, giờ+kênh đi theo người, không còn 2 bản ghi; luật "1 loại/người" thành bất biến CẤU TRÚC → xoá `DeactivateOthersAsync`. Migration idempotent: 2 dòng/người cũ → giữ dòng đang bật (tie-break UpdatedUtc mới nhất). Đây là thay đổi PK duy nhất — làm TRƯỚC public, đúng cửa sổ | user chốt 13/08 |
 
 ## 3. Kiến trúc
 
@@ -103,6 +104,13 @@ ALTER TABLE dbo.OutboundMails ADD Channel TINYINT NOT NULL DEFAULT 0;  -- IF NOT
 ```
 Không xoá cột nào (SentMask/SentAttempts/LastSent* giữ nguyên trong DB, code ngừng dùng).
 Cập nhật `docs/database-schema.md` + hợp đồng worker `docs/mail-templates/README.md`.
+
+C# khai báo enum CÓ KIỂU, số tường minh (user chốt 13/08 — "thêm gì thêm cả 2 bên cho dễ"):
+```csharp
+public enum OutboundChannel : byte { Email = 0, Telegram = 1, Zalo = 2 }
+```
+Bảng số này ghi vào hợp đồng worker để toutkit-app khai enum MIRROR y hệt. Thêm kênh mới =
+thêm 1 member ở CẢ 2 repo (+1 case trong drainer) — số không bao giờ lệch nhau giữa 2 bên.
 
 ## 4. Vết dầu loang phải sửa cùng (ripple)
 
