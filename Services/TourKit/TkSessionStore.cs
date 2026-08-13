@@ -91,7 +91,24 @@ public class TkSessionStore
         _ = PruneIdleAsync(ct);   // fire-and-forget, không block login
         var login = await _api.LoginAsync(tenantId, username, password, ct);
         var permissions = await _api.GetPermissionsAsync(login.Token, ct);   // null nếu upstream lỗi (retry sau)
+        return await PersistLoginAsync(tenantId, username, password, login, permissions, ct);
+    }
 
+    /// SSO web→AI: tạo phiên từ JWT sso-token (KHÔNG password). Password="" đánh dấu phiên SSO →
+    /// ReloginAsync re-mint qua sso-token khi JWT hết hạn. Dùng cho luồng bấm từ CRM sang tự đăng nhập
+    /// kể cả lần đầu (user chưa từng login TravAi).
+    public async Task<TkSession> CreateFromSsoAsync(string tenantId, string username, CancellationToken ct)
+    {
+        _ = PruneIdleAsync(ct);
+        var login = await _api.IssueSsoTokenAsync(tenantId, username, ct);
+        var permissions = await _api.GetPermissionsAsync(login.Token, ct);
+        return await PersistLoginAsync(tenantId, username, "", login, permissions, ct);
+    }
+
+    /// Upsert phiên sau khi đã có JWT (dùng chung cho login-password lẫn SSO): reuse row cũ nếu có, else tạo mới.
+    private async Task<TkSession> PersistLoginAsync(string tenantId, string username, string password,
+        TkLoginResult login, List<string>? permissions, CancellationToken ct)
+    {
         // Reuse session sẵn có (most recent) cho cùng (tenant, user) → tránh sinh row mới mỗi lần F5.
         var existing = await _repo.GetByUserAsync(tenantId, username, ct);
 
@@ -219,6 +236,28 @@ public class TkSessionStore
         return created.Id;
     }
 
+    /// Tìm phiên SẴN CÓ của (tenant, username) — KHÔNG tạo mới, KHÔNG cần password.
+    /// Dùng cho SSO từ CRM: CRM chỉ ký danh tính (zero-password) nên không thể gọi CreateAsync.
+    /// null = user chưa từng đăng nhập TRAV-AI → caller đưa về màn login.
+    /// So khớp KHÔNG phân biệt hoa thường: username gõ ở CRM và ở TRAV-AI có thể khác case,
+    /// mà cột SQL vốn dùng collation CI nên nhánh cache phải khớp hành vi nhánh DB.
+    public async Task<TkSession?> FindByUserAsync(string tenantId, string username, CancellationToken ct = default)
+    {
+        if (string.IsNullOrWhiteSpace(tenantId) || string.IsNullOrWhiteSpace(username)) return null;
+
+        foreach (var kv in _cache)
+        {
+            var s = kv.Value;
+            if (string.Equals(s.TenantId, tenantId, StringComparison.OrdinalIgnoreCase) &&
+                string.Equals(s.Username, username, StringComparison.OrdinalIgnoreCase))
+                return s;
+        }
+
+        var fromDb = await _repo.GetByUserAsync(tenantId, username, ct);
+        if (fromDb != null) _cache[fromDb.Id] = fromDb;
+        return fromDb;
+    }
+
     /// JWT còn hạn (soft TTL); tự re-login nếu hết. Throw nếu phiên không tồn tại.
     public async Task<string> GetValidJwtAsync(string sessionId, CancellationToken ct)
     {
@@ -317,7 +356,11 @@ public class TkSessionStore
 
     private async Task ReloginAsync(TkSession s, CancellationToken ct)
     {
-        var login = await _api.LoginAsync(s.TenantId, s.Username, s.Password, ct);
+        // Phiên SSO (Password rỗng — tạo qua CreateFromSsoAsync) → re-mint JWT qua sso-token (không có
+        // password để login lại). Phiên thường → login bằng password như cũ.
+        var login = string.IsNullOrEmpty(s.Password)
+            ? await _api.IssueSsoTokenAsync(s.TenantId, s.Username, ct)
+            : await _api.LoginAsync(s.TenantId, s.Username, s.Password, ct);
         var perms = await _api.GetPermissionsAsync(login.Token, ct);
         if (perms != null) { s.Permissions = perms; s.PermissionsLoaded = true; }
         s.Jwt = login.Token;
