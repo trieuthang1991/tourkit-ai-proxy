@@ -507,7 +507,7 @@ function CustomersPage({ pushToast }) {
           { icon: 'users',  label: 'Tổng',           value: total },
           { icon: 'user',   label: 'Chưa mua /trang', value: noTour },
           { icon: 'star',   label: 'Lần đầu /trang',  value: lastFirst },
-          { icon: 'trend',  label: 'Mua lại /trang',  value: repeat, highlight: repeat > 0 },
+          { icon: 'trend',  label: 'Mua lại /trang',  value: repeat },
           { icon: 'sparkle', label: 'Đã review /trang', value: reviewed },
         ];
       })()} />
