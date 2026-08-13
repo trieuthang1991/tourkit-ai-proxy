@@ -83,6 +83,36 @@ OFFSET @offset ROWS FETCH NEXT @limit ROWS ONLY",
         return rows.Select(r => r.ToModel()).ToList();
     }
 
+    /// <summary>
+    /// Hôm nay (theo ngày VN, đổi sang khoảng UTC) đã có bản tin loại này cho người này chưa —
+    /// chốt chống dựng/gửi trùng của pipeline queue (thay LastSentLocalDate cũ).
+    /// </summary>
+    public async Task<bool> ExistsTodayAsync(string tenant, string username, string kind,
+        DateTime todayVn, CancellationToken ct = default)
+    {
+        var fromUtc = TimeZoneInfo.ConvertTimeToUtc(
+            DateTime.SpecifyKind(todayVn.Date, DateTimeKind.Unspecified),
+            TimeZoneInfo.FindSystemTimeZoneById("SE Asia Standard Time"));
+        await using var c = await _db.OpenAsync(ct);
+        return await c.ExecuteScalarAsync<int>(@"
+SELECT COUNT(1) FROM dbo.AgentInsights
+WHERE TenantId = @tenant AND Username = @username AND Kind = @kind
+  AND CreatedUtc >= @fromUtc AND CreatedUtc < DATEADD(DAY, 1, @fromUtc)",
+            new { tenant, username, kind, fromUtc }) > 0;
+    }
+
+    /// <summary>
+    /// Đọc 1 dòng theo Id (kẹp tenant) — drainer lấy nội dung gửi telegram/zalo qua SourceId.
+    /// </summary>
+    public async Task<AgentInsight?> GetAsync(string tenant, long id, CancellationToken ct = default)
+    {
+        await using var c = await _db.OpenAsync(ct);
+        var row = await c.QueryFirstOrDefaultAsync<InsightRow>(@"
+SELECT Id, TenantId, Username, Kind, Severity, Title, Body, DataJson, AlertKey, IsRead, CreatedUtc
+FROM dbo.AgentInsights WHERE Id = @id AND TenantId = @tenant", new { id, tenant });
+        return row?.ToModel();
+    }
+
     /// <param name="kind">Lọc theo loại (vd "payment-alert"). null = đếm mọi loại (badge chuông).</param>
     public async Task<int> UnreadCountAsync(string tenant, string username, CancellationToken ct = default,
         string? kind = null)
