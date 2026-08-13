@@ -51,6 +51,36 @@ async function iApi(path, opts = {}) {
   return r.json();
 }
 
+// Nút đọc bản tin bằng giọng máy (server TTS, dùng chung window.tourkitTts). Chỉ dùng cho item
+// có speakText (bản tin sale/ceo). Bấm lần nữa khi đang đọc = dừng.
+function SpeakButton({ text, pushToast }) {
+  const Icon = window.Icon;
+  const [st, setSt] = iS('idle');           // idle | loading | playing
+  const ctrl = React.useRef(null);
+
+  iE(() => () => { if (ctrl.current) ctrl.current.stop(); }, []);   // rời trang → dừng đọc
+
+  const toggle = (e) => {
+    e.stopPropagation();                      // đừng để bấm nút bị hiểu là "đánh dấu đã đọc"
+    if (st !== 'idle') { if (ctrl.current) ctrl.current.stop(); setSt('idle'); return; }
+    setSt('loading');
+    ctrl.current = window.tourkitTts.speak(text, {
+      onStart: () => setSt('playing'),
+      onEnd: () => setSt('idle'),
+      onError: (msg) => { setSt('idle'); pushToast && pushToast(msg || 'Không đọc được bản tin'); },
+    });
+  };
+
+  const icon = st === 'idle' ? 'volume' : (st === 'loading' ? 'refresh' : 'stop');
+  const label = st === 'idle' ? 'Nghe' : (st === 'loading' ? 'Đang tải…' : 'Dừng');
+  return (
+    <button type="button" className={'wga-btn ghost insights-speak' + (st === 'playing' ? ' is-on' : '')}
+      onClick={toggle} title="Nghe bản tin bằng giọng đọc">
+      <Icon name={icon} size={13} /> {label}
+    </button>
+  );
+}
+
 function InsightsFeed({ pushToast }) {
   const Icon = window.Icon;
   const [items, setItems] = iS([]);
@@ -167,6 +197,11 @@ function InsightsFeed({ pushToast }) {
               <h3 className="insights-card-title">{it.title}</h3>
               <div className="insights-card-body"
                 dangerouslySetInnerHTML={{ __html: mdLite(it.body) }} />
+              {it.speakText && (
+                <div className="insights-card-actions" onClick={e => e.stopPropagation()}>
+                  <SpeakButton text={it.speakText} pushToast={pushToast} />
+                </div>
+              )}
               {/* Dòng tenant-wide (Username rỗng) là việc của CẢ công ty — nói rõ để người đọc
                   biết đồng nghiệp cũng thấy, tránh cảnh 5 người cùng gọi một khách. */}
               {!it.username && <div className="insights-scope">Cả công ty đều thấy tin này</div>}
