@@ -89,8 +89,11 @@
 ```
 (`MaxAttemptsPerDay` / `AlertOnGiveUp` CỐ Ý chưa có — thuộc phương án retry sẽ thiết kế sau;
 thêm lúc đó, tránh config chết không ai dùng.)
-Data-migration 1 lần: `UPDATE dbo.UserWorkflows SET IntervalMinutes=5 WHERE WorkflowType IN
-('sale-brief','ceo-brief') AND IntervalMinutes=15` (chỉ dòng còn nguyên mặc định cũ).
+
+KHÔNG migrate `dbo.UserWorkflows` (user chốt 13/08): tenant hiện có giữ nguyên interval họ đã đặt;
+`CheckIntervalMinutes` chỉ là default cho config TẠO MỚI. Hệ quả chấp nhận: tenant để interval >
+LeadMinutes (vd 15' > 10') có thể lỡ cửa sổ PREPARE → rơi về dựng-tại-chỗ lúc gửi (vẫn đúng, chỉ
+không được lợi "chuẩn bị trước") — muốn tận dụng thì tự hạ interval trong UI Tự động hoá.
 
 ### 3.4 Schema (idempotent trong `TourkitAiDb.SchemaSql`)
 ```sql
