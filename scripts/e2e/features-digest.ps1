@@ -120,6 +120,15 @@ try {
   # Proxy tu gac them se chan oan nguoi co quyen bao cao ma khong co CH_XEM_ALL.
   Check 'Luu ceo-brief = 200' ((Req PUT '/digest/subscriptions/ceo-brief' @{ enabled=$true; sendHourLocal=7; channelInApp=$true } $H).Code -eq 200) 'khac 200'
 
+  Write-Host "6b. C5: moi nguoi chi 1 loai theo vai tro (bat loai nay -> tu tat loai kia)" -ForegroundColor Cyan
+  # Vua bat ceo-brief o tren, ma sale-brief da bat o muc 4/5 -> luat server phai TU TAT sale-brief.
+  # Server enforce (khong tin client): du goi API tay cung khong the bat ca 2 loai.
+  $c5subs = (Req GET '/digest/subscriptions' $null $H).Data.items
+  $c5sale = $c5subs | Where-Object { $_.briefType -eq 'sale-brief' }
+  $c5ceo  = $c5subs | Where-Object { $_.briefType -eq 'ceo-brief' }
+  Check 'ceo-brief dang bat' ($c5ceo.enabled -eq $true) "ceo.enabled=$($c5ceo.enabled)"
+  Check 'sale-brief TU TAT khi bat ceo (luat 1 loai)' ($c5sale.enabled -eq $false) "sale.enabled=$($c5sale.enabled)"
+
   Write-Host "7. Gui thu (khong dung toi moc 'da gui hom nay')" -ForegroundColor Cyan
   $before = (Req GET '/insights/unread-count' $null $H).Data.count
   $t0 = (Get-Date).ToUniversalTime().AddMinutes(-2)
@@ -140,6 +149,10 @@ try {
   Check 'Thay ban tin thu vua gui' ($null -ne $fresh) 'khong thay dong sale-brief moi'
   if ($fresh) {
     Check 'createdUtc co hau to Z (UTC)' ("$($list.Data.items[0].createdUtc)" -match 'Z$|\+00:00$') "$($list.Data.items[0].createdUtc)"
+    # C5: item ban tin (sale/ceo) phai kem speakText - loi doc TTS da bo markdown/emoji.
+    # Ban tin THU chua chuoi in dam '**THU**' -> speakText phai bo cap dau '**'.
+    Check 'C5: ban tin co speakText' (-not [string]::IsNullOrWhiteSpace($fresh.speakText)) "speakText='$($fresh.speakText)'"
+    Check 'C5: speakText da bo dau ** (markdown)' (-not ("$($fresh.speakText)" -match '\*\*')) "$($fresh.speakText)"
   }
 
   Write-Host "9. Danh dau da doc" -ForegroundColor Cyan
