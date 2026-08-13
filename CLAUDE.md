@@ -160,6 +160,7 @@ data/
 | POST   | `/api/v1/mail/compose/draft`      | SSE: AI soạn email MỚI từ `{to, subject, brief, tone}` |
 | POST   | `/api/v1/mail/compose/send`       | gửi email mới qua SMTP `{to, subject, text}`         |
 | PATCH  | `/api/v1/mail/{id}/status`        | đổi trạng thái email (moi/dang_xu_ly/da_phan_hoi/da_dong) |
+| GET    | `/api/v1/features`                | Tính năng nào đang mở → `{digest}` (KHÔNG cần đăng nhập; giao diện đọc để ẩn phần chưa ra mắt) |
 | GET    | `/api/v1/insights`                | Bảng tin trong app `?kind=&unread=&offset=&limit=` → `{items[…]}`; item bản tin (sale/ceo) kèm `speakText` (đã bỏ markdown/emoji để đọc TTS) (require X-Session-Id) |
 | GET    | `/api/v1/insights/unread-count`   | Số chưa đọc cho badge chuông `?kind=` → `{count}` (require X-Session-Id) |
 | POST   | `/api/v1/insights/{id}/read`      | Đánh dấu 1 dòng đã đọc — repo kẹp theo tenant/user nên id của công ty khác không đánh dấu được |
@@ -349,6 +350,22 @@ Bản tin chủ động gửi mỗi sáng, thay vì bắt người dùng tự v�
 [specs/2026-08-11-dot1-digest-insight-design.md](docs/superpowers/specs/2026-08-11-dot1-digest-insight-design.md) ·
 [plans/2026-08-11-dot1-digest-insight.md](docs/superpowers/plans/2026-08-11-dot1-digest-insight.md).
 
+⚠️ **CẢ CỤM NÀY NẰM SAU CỜ `Features:Digest` — mặc định TẮT** (chưa ra mắt; thiếu key = tắt, cố ý sai
+theo hướng an toàn). Một cờ cho cả 3 tác vụ `sale-brief` · `ceo-brief` · `payment-watchdog` + Bảng tin,
+vì với người dùng chúng là MỘT tính năng: cả 3 đều ghi vào Bảng tin và Bảng tin là chỗ đọc lại.
+Bật: `appsettings.json` → `"Features": { "Digest": true }` **ở CẢ web lẫn worker** (worker mới là nơi
+thật sự chạy tác vụ nền — web tắt mà worker bật thì bản tin vẫn gửi cho khách dù giao diện đã ẩn sạch),
+rồi restart. Tắt thì: 3 workflow không đăng ký DI ([`WorkflowStackRegistration`](Services/Bootstrap/WorkflowStackRegistration.cs))
+→ biến mất khỏi scheduler + `GET /api/v1/workflows` → thẻ tự mất khỏi trang; `/api/v1/insights|digest/*`
+trả 404 tường minh; chuông + tab Bảng tin + khối Zalo OA + mục admin "Bản tin" bị ẩn qua
+[`GET /api/v1/features`](Endpoints/SystemEndpoints.cs) → [`window.tourkitFeatures`](wwwroot/core/features.js).
+**Không xoá dữ liệu** — `dbo.DigestSubscriptions`/`dbo.UserWorkflows` giữ nguyên, bật lại là còn đủ.
+Cờ này KHÁC phân quyền: tắt là tắt cho tất cả, kể cả admin.
+
+> **Bẫy đã dính 1 lần:** không map endpoint ≠ 404. `app.MapFallback` (SPA deep-link) nuốt mọi đường dẫn
+> không khớp kể cả `/api/**` và trả `index.html` **status 200** → client gọi API nhận HTML thay vì lỗi.
+> Vì thế nhánh `else` trong [Program.cs](Program.cs) phải map tay 2 tiền tố về 404 JSON.
+
 **2 loại bản tin** (`BriefTypes`): `sale-brief` — việc cần làm của từng nhân viên bán hàng (cơ hội cần
 gọi, lịch hẹn, việc, báo giá, tour còn thiếu tiền), **rule thuần 0 AI**; `ceo-brief` — doanh thu/chi
 phí/lợi nhuận so cùng kỳ, **AI chỉ viết lời còn số do máy chủ tính**, AI lỗi → in bảng số
@@ -463,6 +480,7 @@ wwwroot/
     storage.js                              ← TourCache + RequestHistory + tour stats
     parsers.js                              ← parseLooseJSON + parseTourText
     ai-provider.jsx                         ← thin client → /api/v1/completions; AISettingsDialog
+    features.js                             ← window.tourkitFeatures — cờ tính năng chưa ra mắt (đọc /api/v1/features 1 lần); plain .js vì CẢ index.html lẫn admin-trav-ai.html dùng
   components/
     dialogs.jsx                             ← ConfirmDialog, ShareDialog, AIAssistantPanel
     tweaks-panel.jsx                        ← editorial Tweaks UI
@@ -488,6 +506,11 @@ wwwroot/
 5. `app.jsx`: add `<Link to="/<name>">Tên</Link>` in the nav.
 
 No bundler, no npm install. `<script type="text/babel">` is transformed in-browser by `@babel/standalone`.
+
+**Thêm một file `.js` THƯỜNG (không phải `text/babel`)** — vd `core/features.js`, `lib/data.js`: khai thẻ
+`<script src>` trong `index.html` VÀ `import` trong `bundle-entry.js` thì phải thêm tên nó vào
+`_bundledPlainJsRegex` ([StaticFilesSetup.cs](Configuration/StaticFilesSetup.cs)). Quên thì ở prod file
+chạy **hai lần** (thẻ script + bản trong bundle) — dev không bao giờ lộ ra vì dev không có bundle.
 
 **Dùng lại helper, KHÔNG copy-paste:** React hook chung ở [`wwwroot/lib/hooks.jsx`](wwwroot/lib/hooks.jsx) (`window.tourkitHooks` — vd `useIsMobile`); util thuần ở [`wwwroot/lib/util.js`](wwwroot/lib/util.js) (`window.tourkitUtil` — `readSSE`, `fmtAgo`, `fmtDate`, `copyText`); tiền VND ở `window.fmtVND` (lib/data.js); auth/fetch ở `window.tourkitAuth.authedFetch`. Cần thêm helper dùng nhiều nơi → thêm vào các file này thay vì định nghĩa lại trong từng page.
 

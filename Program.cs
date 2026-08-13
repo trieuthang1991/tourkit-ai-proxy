@@ -362,8 +362,26 @@ app.MapChatEndpoints();
 app.MapAssistantActionEndpoints();
 app.MapMailEndpoints();
 app.MapWorkflowEndpoints();
-app.MapInsightEndpoints();      // /api/v1/insights/*  — bảng tin trong app (bản tin + cảnh báo)
-app.MapDigestEndpoints();       // /api/v1/digest/*    — đăng ký nhận bản tin + gửi thử + Zalo OA
+// Cụm bản tin nằm sau cờ Features:Digest — TẮT thì không map, nên không gọi được kể cả gõ tay
+// hay curl (ẩn ở giao diện thôi thì API vẫn đăng ký + gửi thật được).
+if (TourkitAiProxy.Services.Bootstrap.FeatureFlags.Digest(builder.Configuration))
+{
+    app.MapInsightEndpoints();  // /api/v1/insights/*  — bảng tin trong app (bản tin + cảnh báo)
+    app.MapDigestEndpoints();   // /api/v1/digest/*    — đăng ký nhận bản tin + gửi thử + Zalo OA
+}
+else
+{
+    // BẪY: không map KHÔNG có nghĩa là 404. app.MapFallback (StaticFilesSetup) nhận mọi đường
+    // dẫn không khớp, kể cả /api/**, và trả index.html kèm status 200 — client gọi API sẽ nhận
+    // một trang HTML thay vì lỗi, lần ra nguyên nhân rất mất công. Chặn tường minh ở đây.
+    IResult Off() => Results.Json(
+        new { error = "Tính năng bản tin đang tắt (Features:Digest=false)." }, statusCode: 404);
+    foreach (var p in new[] { "/api/v1/insights", "/api/v1/digest" })
+    {
+        app.Map(p, Off);
+        app.Map(p + "/{**rest}", Off);
+    }
+}
 app.MapTourEndpoints();
 app.MapTourPriceEndpoints();      // GET /api/v1/tour-price/candidates — ứng viên giá NCC (mẫu/thật/cả 2) cho wizard
 app.MapVisaEndpoints();

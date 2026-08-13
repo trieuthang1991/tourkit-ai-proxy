@@ -127,7 +127,11 @@
     { path: "consult-leads",    label: "Đăng ký tư vấn",    icon: "📞", component: ConsultLeadsPage },
     { path: "chat-unresolved",  label: "AI bí câu hỏi",     icon: "❓", component: ChatUnresolvedPage },
     { path: "tk-sessions",      label: "Phiên đăng nhập",   icon: "🔐", component: TkSessionsPage },
-    { path: "digest",           label: "Bản tin",           icon: "📰", component: DigestPage },
+    // Bản tin nằm sau cờ Features:Digest — tắt tính năng thì trang này chỉ hiện bảng rỗng,
+    // admin mở ra không phân biệt được "chưa ai đăng ký" với "đã tắt".
+    // Lọc ở AdminShell lúc render, KHÔNG lọc tại đây: mảng này dựng ngay khi nạp file, lúc đó
+    // /api/v1/features còn chưa trả về nên cờ nào cũng đọc ra false.
+    { path: "digest", label: "Bản tin", icon: "📰", component: DigestPage, feature: "digest" },
     { path: "outbound-mails",   label: "Hàng đợi mail",     icon: "📤", component: OutboundMailsPage },
     { path: "mail-templates",   label: "Template mail",     icon: "📝", component: MailTemplatesPage },
   ];
@@ -159,7 +163,11 @@
   // ── Shell: sidebar + topbar + content ─────────────────────────────────────
   function AdminShell({ username, onLogout }) {
     const [path, navigate] = useAdminRoute();
-    const current = ADMIN_NAV.find(n => n.path === path) || ADMIN_NAV[0];
+    // Bỏ mục của tính năng chưa ra mắt. Entry không có `feature` thì luôn hiện.
+    const digestOn = window.tourkitFeatures.useFeature("digest");
+    const nav = ADMIN_NAV.filter(n => !n.feature || (n.feature === "digest" && digestOn));
+    // Gõ thẳng /admin-trav-ai/digest lúc đang tắt cũng rơi về trang đầu, không trắng màn.
+    const current = nav.find(n => n.path === path) || nav[0];
     const Page = current.component;
 
     return (
@@ -167,7 +175,7 @@
         <aside className="admin-sidebar">
           <div className="admin-brand">TRAV-AI<br/><small>Admin</small></div>
           <nav>
-            {ADMIN_NAV.map(item => (
+            {nav.map(item => (
               <a key={item.path}
                  href={"/admin-trav-ai/" + item.path}
                  onClick={e => { e.preventDefault(); navigate(item.path); }}

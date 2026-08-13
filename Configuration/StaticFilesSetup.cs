@@ -136,10 +136,14 @@ public static class StaticFilesSetup
     private static readonly Regex _babelCacheRegex = new(
         @"<script\s+src=[""']core/babel-cache\.js[""'][^>]*></script>\s*",
         RegexOptions.IgnoreCase | RegexOptions.Compiled);
-    // Strip cả các plain .js file đã được bundle vào (vd lib/data.js).
+    // Strip cả các plain .js file đã được bundle vào (lib/data.js, core/features.js).
     // tinymce-loader giữ ngoài bundle (lazy load TinyMCE ~5MB chỉ khi mở mail).
+    // THÊM FILE MỚI VÀO ĐÂY mỗi khi khai một plain .js ở index.html VÀ import nó trong
+    // bundle-entry.js — quên thì ở prod file chạy HAI lần (bản thẻ script + bản trong bundle),
+    // và dev không bao giờ lộ ra vì dev không có bundle. core/features.js gọi /api/v1/features
+    // lúc nạp, chạy đôi là hỏi server 2 lần rồi thay luôn window.tourkitFeatures.
     private static readonly Regex _bundledPlainJsRegex = new(
-        @"<script\s+src=[""']lib/data\.js[""'][^>]*></script>\s*",
+        @"<script\s+src=[""'](?:lib/data|core/features)\.js[""'][^>]*></script>\s*",
         RegexOptions.IgnoreCase | RegexOptions.Compiled);
 
     private static IResult ServeIndex(HttpContext ctx, string webRoot, bool recomputeVersion = false)

@@ -27,6 +27,21 @@ param(
 
 $ErrorActionPreference = 'Stop'
 
+# Cum ban tin nam sau co Features:Digest. Tat co thi /api/v1/digest|insights/* KHONG duoc map ->
+# moi assertion do 404. Do la dung y do, khong phai loi -> bo qua va thoat 0, de lan chay E2E toi
+# khong ai tuong tinh nang hong that. Hoi server that thay vi doc appsettings: web va worker co the
+# khac file, ma cai quyet dinh la cai web dang chay.
+try {
+  $feat = Invoke-RestMethod -Uri "$BaseUrl/api/v1/features" -Method GET -TimeoutSec 10
+  if (-not $feat.digest) {
+    Write-Host "BO QUA - tinh nang ban tin dang TAT (Features:Digest=false)." -ForegroundColor Yellow
+    Write-Host "  Bat lai: sua appsettings.json -> Features:Digest = true, roi restart." -ForegroundColor DarkGray
+    exit 0
+  }
+} catch {
+  Write-Host "Khong hoi duoc /api/v1/features ($($_.Exception.Message)) - chay tiep nhu cu." -ForegroundColor DarkYellow
+}
+
 if (-not $SessionId -and $SidFile -and (Test-Path $SidFile)) {
   $SessionId = (Get-Content $SidFile -Raw).Trim()
 }

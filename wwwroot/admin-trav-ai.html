@@ -24,6 +24,10 @@
 <!-- Chart.js lazy loader (đã có sẵn — AiUsagePage tự gọi window.ensureChart()) -->
 <script src="/lib/chart-loader.js"></script>
 
+<!-- Cờ tính năng đang mở (window.tourkitFeatures) — ẩn mục nav của phần chưa ra mắt.
+     Phải nạp TRƯỚC pages/admin.jsx vì ADMIN_NAV đọc cờ lúc dựng danh sách. -->
+<script src="/core/features.js"></script>
+
 <!-- TinyMCE LOCAL (lazy) — dùng chung loader với app chính (window.loadTinyMCE → lib/tinymce/tinymce.min.js).
      KHÔNG dùng CDN. Editor BodyHtml ở trang Template mail gọi window.loadTinyMCE() khi mount. -->
 <script src="/lib/tinymce-loader.js"></script>

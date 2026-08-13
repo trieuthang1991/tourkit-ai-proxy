@@ -756,7 +756,13 @@ function WorkflowsPage({ pushToast, initialTab }) {
   // 2 tab thay vi 2 trang rieng (chot 12/08): dang ky nhan ban tin CHINH LA cau hinh cua tac vu
   // sale-brief/ceo-brief, con bang tin la ket qua cua chinh cac tac vu do. Tach ra trang rieng thi
   // nguoi dung phai nho 2 noi cho cung mot viec.
-  const [tab, setTab] = uS(initialTab === 'insights' ? 'insights' : 'tasks');
+  // Cum ban tin nam sau co Features:Digest. Tat thi trang chi con 1 tab "Tac vu", va 3 the ban
+  // tin/canh bao tu bien mat vi backend khong dang ky workflow nua (khong loc gi o day).
+  const digestOn = window.tourkitFeatures.useFeature('digest');
+  const [tabState, setTab] = uS(initialTab === 'insights' ? 'insights' : 'tasks');
+  // Duong /insights cu van tro vao day. Tat co thi ep ve tab "Tac vu" thay vi hien tab rong —
+  // dan xuat chu khong setState, de khi co bat len lai thi lua chon cua nguoi dung con nguyen.
+  const tab = digestOn ? tabState : 'tasks';
   const [unread, setUnread] = uS(0);
   const [digestSubs, setDigestSubs] = uS([]);
   const [workflows, setWorkflows] = uS([]);
@@ -796,14 +802,17 @@ function WorkflowsPage({ pushToast, initialTab }) {
     } catch {}
   }
 
-  uE(() => { loadWorkflows(); loadDigest(); loadUnread(); if (canConfig) loadSa(); }, []);
+  uE(() => { loadWorkflows(); if (canConfig) loadSa(); }, []);
+  // Tach rieng khoi lan tai dau: 2 endpoint nay 404 khi tat co, goi la console day loi vo ich.
+  uE(() => { if (digestOn) { loadDigest(); loadUnread(); } }, [digestOn]);
 
   // So chua doc doi ngay khi doc tin hoac bam Gui thu (khoi doi chu ky cua chuong).
   uE(() => {
+    if (!digestOn) return;
     const onPing = () => loadUnread();
     window.addEventListener('tourkit:insights', onPing);
     return () => window.removeEventListener('tourkit:insights', onPing);
-  }, []);
+  }, [digestOn]);
 
   // KPI — tính từ danh sách hiện tại
   const running = workflows.filter(w => w.enabled && !w.pausedReason).length;
@@ -818,26 +827,29 @@ function WorkflowsPage({ pushToast, initialTab }) {
     <main className="page wga workflows-page">
       <div className="wga-head">
         <div>
-          <div className="wga-eyebrow">Tự động · Bản tin</div>
+          <div className="wga-eyebrow">{digestOn ? 'Tự động · Bản tin' : 'Tự động'}</div>
           <h1>Tự động hóa</h1>
           <p className="wga-sub">Các tác vụ AI chạy nền theo lịch. Bật một lần, hệ thống tự làm đều đặn, bạn chỉ vào xem kết quả.</p>
         </div>
       </div>
 
-      {/* 2 tab: cấu hình ở "Tác vụ", kết quả ở "Bảng tin" — cùng một trang để không phải nhớ 2 nơi. */}
-      <div className="workflows-tabs" role="tablist">
-        <button role="tab" aria-selected={tab === 'tasks'}
-          className={'workflows-tab' + (tab === 'tasks' ? ' is-on' : '')}
-          onClick={() => setTab('tasks')}>
-          <Icon name="zap" size={14} /> Tác vụ
-        </button>
-        <button role="tab" aria-selected={tab === 'insights'}
-          className={'workflows-tab' + (tab === 'insights' ? ' is-on' : '')}
-          onClick={() => setTab('insights')}>
-          <Icon name="bell" size={14} /> Bảng tin
-          {unread > 0 && <span className="workflows-tab-badge">{unread > 99 ? '99+' : unread}</span>}
-        </button>
-      </div>
+      {/* 2 tab: cấu hình ở "Tác vụ", kết quả ở "Bảng tin" — cùng một trang để không phải nhớ 2 nơi.
+          Tắt cờ bản tin thì còn đúng 1 tab → ẩn luôn thanh tab, chứ 1 tab đứng trơ trọi nhìn như lỗi. */}
+      {digestOn && (
+        <div className="workflows-tabs" role="tablist">
+          <button role="tab" aria-selected={tab === 'tasks'}
+            className={'workflows-tab' + (tab === 'tasks' ? ' is-on' : '')}
+            onClick={() => setTab('tasks')}>
+            <Icon name="zap" size={14} /> Tác vụ
+          </button>
+          <button role="tab" aria-selected={tab === 'insights'}
+            className={'workflows-tab' + (tab === 'insights' ? ' is-on' : '')}
+            onClick={() => setTab('insights')}>
+            <Icon name="bell" size={14} /> Bảng tin
+            {unread > 0 && <span className="workflows-tab-badge">{unread > 99 ? '99+' : unread}</span>}
+          </button>
+        </div>
+      )}
 
       {tab === 'insights' && (window.InsightsFeed
         ? <window.InsightsFeed pushToast={pushToast} />
@@ -924,8 +936,12 @@ function WorkflowsPage({ pushToast, initialTab }) {
                 <div className={'wga-card' + (saConfigured === false ? ' workflows-sa-needed' : '')} style={{ padding: '14px 18px', marginBottom: 14 }}>
                   <ServiceAccountConfig pushToast={pushToast} onChange={loadSa} />
                   {/* Zalo OA: cung la "tai khoan cua cong ty", moi tenant khai 1 lan -> dat ngay
-                      canh tai khoan dich vu thay vi mot trang rieng. */}
-                  {window.DigestZaloBox && <window.DigestZaloBox pushToast={pushToast} />}
+                      canh tai khoan dich vu thay vi mot trang rieng.
+                      Theo co Features:Digest: khoi nay nam trong the "Theo to chuc" chu khong phai
+                      the ban tin, nen KHONG tu bien mat theo 3 workflow bi go dang ky. Ma Zalo OA
+                      chi dung de gui ban tin -> tat ban tin ma de lai thi no goi /digest/zalo-config
+                      va an 404. */}
+                  {digestOn && window.DigestZaloBox && <window.DigestZaloBox pushToast={pushToast} />}
                 </div>
                 {renderCards(perTenant, saConfigured === false)}
               </section>

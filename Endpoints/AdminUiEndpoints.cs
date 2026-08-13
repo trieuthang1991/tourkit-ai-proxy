@@ -434,6 +434,11 @@ public static class AdminUiEndpoints
         // GET /api/v1/admin/ui/digest?tenantId=&briefType=&problemsOnly=
         // Câu hỏi chính nó trả lời: "có ai đăng ký rồi mà bản tin chưa từng tới không?" — 3 kiểu
         // hỏng của tính năng này đều IM LẶNG với người dùng (xem AdminDigestRepository).
+        // Nằm sau cờ Features:Digest như phần còn lại của cụm: tắt tính năng mà vẫn để trang theo dõi
+        // thì admin mở ra chỉ thấy bảng rỗng, không hiểu là "không ai đăng ký" hay "đã tắt".
+        if (TourkitAiProxy.Services.Bootstrap.FeatureFlags.Digest(
+                routes.ServiceProvider.GetRequiredService<IConfiguration>()))
+        {
         g.MapGet("/digest", async (
             string? tenantId, string? briefType, bool? problemsOnly,
             AdminDigestRepository repo,
@@ -484,6 +489,7 @@ public static class AdminUiEndpoints
                 }
             });
         });
+        }
 
         g.MapGet("/mail-templates", async (MailTemplateRepository repo, CancellationToken ct) =>
         {

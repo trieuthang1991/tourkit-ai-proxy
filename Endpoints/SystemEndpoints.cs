@@ -26,6 +26,14 @@ public static class SystemEndpoints
         // Xem lại workflow traces đã log (data/workflow-traces.jsonl).
         // Query: ?days=7 ?workflow=CustomerReview ?limit=100
         var v1 = routes.MapGroup("/api/v1");
+
+        // Tính năng nào đang mở — để giao diện biết mà ẩn menu/nút của phần chưa ra mắt.
+        // KHÔNG cần đăng nhập: chỉ nói tính năng nào bật, không lộ cấu hình hay dữ liệu nào.
+        // Đây là cờ RA MẮT, khác phân quyền (/api/v1/permissions): tắt là tắt cho tất cả.
+        v1.MapGet("/features", (IConfiguration cfg) => Results.Json(new
+        {
+            digest = Services.Bootstrap.FeatureFlags.Digest(cfg),
+        }));
         v1.MapGet("/workflow-traces", (WorkflowTraceLog log, int? days, string? workflow, int? limit) =>
         {
             var entries = log.Read(days ?? 7, workflow, limit ?? 100);

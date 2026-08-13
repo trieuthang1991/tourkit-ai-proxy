@@ -245,9 +245,12 @@ function App() {
   // Chu kỳ 60s: bản tin là việc theo NGÀY, không phải chat — hỏi dày hơn chỉ tốn request mà
   // không ai nhận ra khác biệt. Trang /insights và nút "Gửi thử" phát 'tourkit:insights' để
   // badge đổi NGAY, nên không cần chu kỳ ngắn.
+  // Cụm bản tin nằm sau cờ Features:Digest. Tắt thì KHÔNG hỏi /insights/unread-count nữa —
+  // endpoint đã không được map, cứ hỏi là console đầy 404 mỗi 60 giây.
+  const digestOn = window.tourkitFeatures.useFeature('digest');
   const [unread, setUnread] = uS(0);
   uE(() => {
-    if (!authUser) { setUnread(0); return; }
+    if (!authUser || !digestOn) { setUnread(0); return; }
     let alive = true;
     const load = async () => {
       try {
@@ -262,7 +265,7 @@ function App() {
     window.addEventListener('tourkit:insights', onPing);
     const t = setInterval(load, 60_000);
     return () => { alive = false; window.removeEventListener('tourkit:insights', onPing); clearInterval(t); };
-  }, [authUser]);
+  }, [authUser, digestOn]);
 
   // Đồng bộ chip user khi đăng nhập/đăng xuất (auth.jsx phát 'tourkit-auth-changed').
   uE(() => window.tourkitAuth.onChange(() => setAuthUser(window.tourkitAuth.getUser())), []);
@@ -479,15 +482,17 @@ function App() {
               }}>
               <Icon name="book" size={18} />
             </button>
-            <span className="tb-bellwrap">
-              <button className="tb-icon"
-                title={unread > 0 ? `${unread} thông báo chưa đọc` : 'Bảng tin (chưa có tin mới)'}
-                onClick={() => window.tourkitRouter.navigate('/insights')}>
-                <Icon name="bell" size={18} />
-              </button>
-              {/* Quá 99 thì hiện "99+" — số 4 chữ số phá vỡ hình tròn của badge. */}
-              {unread > 0 && <span className="tb-bell-badge">{unread > 99 ? '99+' : unread}</span>}
-            </span>
+            {digestOn && (
+              <span className="tb-bellwrap">
+                <button className="tb-icon"
+                  title={unread > 0 ? `${unread} thông báo chưa đọc` : 'Bảng tin (chưa có tin mới)'}
+                  onClick={() => window.tourkitRouter.navigate('/insights')}>
+                  <Icon name="bell" size={18} />
+                </button>
+                {/* Quá 99 thì hiện "99+" — số 4 chữ số phá vỡ hình tròn của badge. */}
+                {unread > 0 && <span className="tb-bell-badge">{unread > 99 ? '99+' : unread}</span>}
+              </span>
+            )}
             {/* Debug toggle button đã bỏ — debug state vẫn giữ ở localStorage qua window.tourkitDebug
                 (admin power-user set tay: window.tourkitDebug.setOn(true)) → /ai-usage vẫn accessible
                 qua URL trực tiếp, nav "Chi phí AI" hiện khi debug ON. */}

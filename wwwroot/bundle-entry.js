@@ -18,6 +18,7 @@ import "./core/storage.js";
 import "./core/parsers.js";
 import "./core/ai-provider.jsx";
 import "./core/auth.jsx";
+import "./core/features.js";
 import "./core/page-loader.jsx";
 
 // /components — reusable UI (dialogs PHẢI trước dialog-api để window.ConfirmDialog tồn tại)

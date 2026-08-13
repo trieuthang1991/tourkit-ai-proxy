@@ -168,15 +168,29 @@ public static class WorkflowStackRegistration
         s.AddSingleton<Digest.Channels.IDigestChannel, Digest.Channels.TelegramChannel>();
         s.AddSingleton<Digest.Channels.IDigestChannel, Digest.Channels.ZaloOaChannel>();
         s.AddSingleton<Digest.DigestDispatcher>();
-        // Canh thanh toán: luồng THEO TỔ CHỨC (cảnh báo tenant-wide) nên dùng tài khoản tự động,
-        // khác bản tin cá nhân chạy bằng tài khoản của chính người nhận.
-        s.AddSingleton<Workflows.IScheduledWorkflow, Workflows.PaymentWatchdogWorkflow>();
-        // Bản tin sáng: fetch bằng phiên CỦA TỪNG NGƯỜI NHẬN (không phải tài khoản tự động)
-        // → CRM tự áp quyền, lọc sai cũng chỉ thiếu chứ không lộ dữ liệu người khác.
-        s.AddSingleton<Workflows.IScheduledWorkflow, Workflows.SaleBriefWorkflow>();
-        // Bản tin điều hành: cùng nguyên tắc phiên riêng; khác ở chỗ có gọi AI viết lời (tốn lượt),
-        // và AI lỗi thì rơi về bảng số chứ không bỏ gửi.
-        s.AddSingleton<Workflows.IScheduledWorkflow, Workflows.CeoBriefWorkflow>();
+
+        // 3 tác vụ dưới đây nằm sau cờ Features:Digest (xem FeatureFlags.Digest).
+        // Gỡ đăng ký là đủ để TẮT HẲN: WorkflowRegistry dựng từ IEnumerable<IScheduledWorkflow>
+        // nên scheduler không có gì để chạy, GET /api/v1/workflows không liệt kê → thẻ tự biến mất
+        // khỏi trang Tự động hoá, /run-now không resolve được. Không cần sửa gì ở frontend.
+        //
+        // Các service phụ trợ ở TRÊN vẫn đăng ký kể cả khi tắt: chúng vô hại lúc không ai resolve,
+        // mà gỡ thì dễ vỡ chỗ khác (DealAutoReviewWorkflow — vẫn bật — dùng chung MailQueueRepository).
+        //
+        // Dữ liệu cũ trong dbo.UserWorkflows/dbo.DigestSubscriptions KHÔNG bị đụng tới. Scheduler gặp
+        // loại không resolve được thì bỏ qua kèm cảnh báo → bật lại lúc nào cũng còn nguyên.
+        if (FeatureFlags.Digest(cfg))
+        {
+            // Canh thanh toán: luồng THEO TỔ CHỨC (cảnh báo tenant-wide) nên dùng tài khoản tự động,
+            // khác bản tin cá nhân chạy bằng tài khoản của chính người nhận.
+            s.AddSingleton<Workflows.IScheduledWorkflow, Workflows.PaymentWatchdogWorkflow>();
+            // Bản tin sáng: fetch bằng phiên CỦA TỪNG NGƯỜI NHẬN (không phải tài khoản tự động)
+            // → CRM tự áp quyền, lọc sai cũng chỉ thiếu chứ không lộ dữ liệu người khác.
+            s.AddSingleton<Workflows.IScheduledWorkflow, Workflows.SaleBriefWorkflow>();
+            // Bản tin điều hành: cùng nguyên tắc phiên riêng; khác ở chỗ có gọi AI viết lời (tốn lượt),
+            // và AI lỗi thì rơi về bảng số chứ không bỏ gửi.
+            s.AddSingleton<Workflows.IScheduledWorkflow, Workflows.CeoBriefWorkflow>();
+        }
 
         s.AddSingleton<Workflows.WorkflowSchedulerService>();
 
