@@ -37,7 +37,7 @@
 |---|---|---|---|
 | `DigestSubscriptions` | Cấu hình đăng ký thuần | Dòng sống lâu dài | **Ngừng dùng** SentMask/SentAttempts/LastSent* (giữ cột, không ghi nữa) |
 | `AgentInsights` | Nội dung + archive + cảnh báo | 1 dòng/bản tin/ngày, prune N ngày | Không đổi schema; in-app → luôn-ghi |
-| `OutboundMails` | Hàng đợi gửi đa kênh | Theo Status, dòng là bản ghi lịch sử giao | **+1 cột `Channel`** (default `'email'`) |
+| `OutboundMails` | Hàng đợi gửi đa kênh | Theo Status, dòng là bản ghi lịch sử giao | **+1 cột `Channel`** (TINYINT, default `0`=email) |
 
 ## 2. `dbo.OutboundMails` — trung tâm của thiết kế
 
@@ -47,15 +47,19 @@ Schema hiện tại đã có sẵn gần đủ: `Status (0=Pending 1=Sent 2=Fail
 
 ```sql
 IF NOT EXISTS (... 'Channel')
-    ALTER TABLE dbo.OutboundMails ADD Channel NVARCHAR(16) NOT NULL
-        CONSTRAINT DF_OutboundMails_Channel DEFAULT 'email';   -- dòng cũ tự thành 'email'
+    ALTER TABLE dbo.OutboundMails ADD Channel TINYINT NOT NULL
+        CONSTRAINT DF_OutboundMails_Channel DEFAULT 0;   -- 0=email 1=telegram 2=zalo; dòng cũ tự thành 0 (email)
 ```
+(User chốt 13/08: Channel là SỐ để tránh lỗi gõ chuỗi, default 0 = email. Toàn hệ chỉ còn MỘT
+enum kênh gửi: `OutboundChannel {Email=0, Telegram=1, Zalo=2}` — enum cũ `DigestChannel` +
+`ChannelMask` (cờ bit) GỠ BỎ trong đợt này (thuộc đám state khai tử), để KHÔNG tồn tại hai bộ số
+chồng nhau. In-app không nằm trong enum vì không còn là kênh — nó là kho lưu luôn-bật.)
 
 Cách dùng cho bản tin (Kind = `daily-brief`, SourceId = Id dòng AgentInsights):
 
 | Cột | email | telegram | zalo |
 |---|---|---|---|
-| `Channel` | `'email'` | `'telegram'` | `'zalo'` |
+| `Channel` | `0` (email) | `1` (telegram) | `2` (zalo) |
 | `ToEmail` | địa chỉ nhận | NULL | NULL |
 | `Data` (JSON) | — | `{"chatId":"..."}` | `{"zaloUserId":"..."}` |
 | `Params` | title/bodyHtml/briefType/date (hợp đồng worker giữ NGUYÊN) | NULL — nội dung đọc từ AgentInsights qua `SourceId` | như telegram |
@@ -134,8 +138,8 @@ Worker toutkit-app poll: `WHERE Status=0 AND (ScheduledUtc IS NULL OR ScheduledU
 **không lọc Kind/Channel** → nếu enqueue telegram/zalo trước khi worker biết `Channel`, worker sẽ
 nhặt nhầm. Bắt buộc:
 
-1. **Deploy TRƯỚC:** sửa worker (toutkit-app) thêm `AND Channel='email'` vào poll (cột default
-   `'email'` nên deploy sớm vô hại) + cập nhật hợp đồng `docs/mail-templates/README.md`.
+1. **Deploy TRƯỚC:** sửa worker (toutkit-app) thêm `AND Channel=0` vào poll (cột default
+   `0`=email nên deploy sớm vô hại) + cập nhật hợp đồng `docs/mail-templates/README.md`.
 2. **Deploy SAU:** proxy bắt đầu enqueue telegram/zalo.
 
 Điểm cộng có sẵn: worker đã tôn trọng `ScheduledUtc` → "email hẹn giờ" chạy được ngay, không sửa

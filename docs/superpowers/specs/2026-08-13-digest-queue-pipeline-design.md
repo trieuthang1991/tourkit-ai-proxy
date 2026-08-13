@@ -50,7 +50,7 @@
 ┌ GỬI ──────────────────────────────────────────────────────────────────────────────────┐
 │ email:          worker toutkit-app sẵn có (poll Status=0 & ScheduledUtc≤now) — không đổi│
 │ telegram/zalo:  OutboundChannelDrainer (BackgroundService MỚI, tick ~60s, cùng cờ       │
-│                 Workflows:RunScheduler): poll Status=0 & Channel≠email & Sched≤now      │
+│                 Workflows:RunScheduler): poll Status=0 & Channel<>0 & Sched≤now         │
 │                 → gửi qua TelegramChannel/ZaloOaChannel sẵn có → Status=1/2             │
 └────────────────────────────────────────────────────────────────────────────────────────┘
                           │
@@ -74,7 +74,7 @@
 ### 3.2 Kênh gửi (tái dùng, đổi chỗ gọi)
 - `TelegramChannel`/`ZaloOaChannel` giữ nguyên logic HTTP; drainer gọi chúng theo dòng queue
   (đọc nội dung từ `AgentInsights` qua `SourceId`, format như hiện tại).
-- `EmailChannel` (enqueue) đổi thành enqueue kèm `Channel='email'`, `ScheduledUtc=T`.
+- `EmailChannel` (enqueue) đổi thành enqueue kèm `Channel=0` (email), `ScheduledUtc=T`.
 - `InAppChannel` KHÔNG còn là kênh — PREPARE ghi thẳng insight (xoá class hoặc để trống vai).
 - `DigestDispatcher` teo vai: đường gửi THẬT không dùng nữa (fan-out = insert N dòng queue);
   GIỮ LẠI chỉ để phục vụ `POST /subscriptions/{type}/test` (Gửi thử cần kết quả ngay, đi thẳng).
@@ -97,7 +97,9 @@ không được lợi "chuẩn bị trước") — muốn tận dụng thì tự
 
 ### 3.4 Schema (idempotent trong `TourkitAiDb.SchemaSql`)
 ```sql
-ALTER TABLE dbo.OutboundMails ADD Channel NVARCHAR(16) NOT NULL DEFAULT 'email';  -- IF NOT EXISTS
+ALTER TABLE dbo.OutboundMails ADD Channel TINYINT NOT NULL DEFAULT 0;  -- IF NOT EXISTS; 0=email 1=telegram 2=zalo
+-- enum OutboundChannel {Email=0, Telegram=1, Zalo=2} — enum kênh DUY NHẤT toàn hệ (SỐ để tránh lỗi gõ chuỗi);
+-- DigestChannel + ChannelMask cũ GỠ BỎ cùng đợt → không có hai bộ số chồng nhau
 ```
 Không xoá cột nào (SentMask/SentAttempts/LastSent* giữ nguyên trong DB, code ngừng dùng).
 Cập nhật `docs/database-schema.md` + hợp đồng worker `docs/mail-templates/README.md`.
@@ -112,12 +114,12 @@ Cập nhật `docs/database-schema.md` + hợp đồng worker `docs/mail-templat
 | `GET /workflows/outbound-mails` | thêm lọc `channel`; hiện cột Channel |
 | E2E `features-digest.ps1` | assertion "0 kênh = 400" đổi theo validate mới; giữ các assertion C5 |
 | `DigestDueTests` | viết lại theo `ShouldPrepare` (phút + lead) |
-| `ChannelMask` | teo vai: giữ `EnabledOf` (liệt kê kênh ngoài đang bật khi enqueue); bỏ dần mask machinery |
+| `ChannelMask` + `DigestChannel` | GỠ BỎ hẳn — thay bằng enum duy nhất `OutboundChannel` + helper `EnabledChannelsOf(sub)` → `List<OutboundChannel>` (liệt kê kênh ngoài đang bật khi enqueue) |
 | Test-send (`POST /subscriptions/{type}/test`) | gửi thử vẫn ĐI THẲNG (không qua queue) để trả kết quả ngay — ghi chú rõ khác đường thật ở 1 điểm: đường thật giờ là queue |
 | File nháp `Services/Digest/DigestAlert.cs` (chưa commit) | đã xoá — cảnh báo bỏ cuộc dời sang phương án retry (sau) |
 
 ## 5. Thứ tự deploy (BẮT BUỘC — cross-repo)
-1. toutkit-app worker: poll thêm `AND Channel='email'` (deploy trước, vô hại vì cột default email).
+1. toutkit-app worker: poll thêm `AND Channel=0` (deploy trước, vô hại vì cột default 0=email).
 2. Proxy: schema + PREPARE + drainer + UI (deploy sau).
 
 ## 6. Kiểm thử
