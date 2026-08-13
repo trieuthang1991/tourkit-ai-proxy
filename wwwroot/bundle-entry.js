@@ -9,6 +9,7 @@
 import "./lib/data.js";
 import "./lib/icons.jsx";
 import "./lib/util.js";
+import "./lib/tts.js";
 import "./lib/hooks.jsx";
 
 // /core — cross-cutting concerns: router, storage, parsers, AI client, auth, page-loader

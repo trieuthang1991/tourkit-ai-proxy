@@ -30,6 +30,8 @@ const Icon = ({ name, size = 16, stroke = 1.75 }) => {
     paper: <><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" /><path d="M14 2v6h6M16 13H8M16 17H8M10 9H8" /></>,
     chart: <><path d="M3 3v18h18" /><path d="M7 14l4-4 4 4 5-5" /></>,
     refresh: <path d="M3 12a9 9 0 0 1 15-6.7L21 8M21 3v5h-5M21 12a9 9 0 0 1-15 6.7L3 16M3 21v-5h5" />,
+    volume: <><path d="M11 5L6 9H2v6h4l5 4V5z" /><path d="M15.5 8.5a5 5 0 0 1 0 7M19 5a9 9 0 0 1 0 14" /></>,
+    stop: <rect x="6" y="6" width="12" height="12" rx="2" />,
     plane: <path d="M22 12l-3-2-7 2-5-8H5l3 8-5 1v2l5-1 4 7h2l-2-7 8-2 2 0z" />,
     bus: <><rect x="4" y="3" width="16" height="14" rx="2" /><path d="M4 11h16M9 17v3M15 17v3M8 7h8" /><circle cx="8" cy="14" r="1" /><circle cx="16" cy="14" r="1" /></>,
     camera: <><path d="M4 7h3l2-3h6l2 3h3v13H4z" /><circle cx="12" cy="13" r="4" /></>,
