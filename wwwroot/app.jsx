@@ -33,14 +33,6 @@ const NAV_GROUPS = [
     { to: '/travai',    icon: 'mic',     label: 'TRAVAI' },  // HUD hội thoại 3D + giọng đọc ("Trà vải") — trang mặc định sau đăng nhập
     { to: '/assistant', icon: 'chart',   label: 'Trợ lý số liệu' },   // data/chart analytics
   ]},
-  // "Tự động hóa" nằm ở đây (không phải trong "Tích hợp") và KHÔNG gate cứng: trang này nay có
-  // phần CỦA RIÊNG người dùng — bản tin của tôi + bảng tin — nên nhân viên bán hàng phải vào được.
-  // Lịch chạy cấp công ty + tài khoản dịch vụ + OA Zalo vẫn chỉ hiện cho người có CH_HT_XEM
-  // (WorkflowsPage tự lọc bên trong). Vì vậy khối "Tích hợp" vẫn thuần cấu hình và vẫn ẩn với
-  // người thiếu quyền — không tái diễn lỗi R2 trước đây.
-  { label: 'Bản tin & Tự động', items: [
-    { to: '/workflows', icon: 'zap', label: 'Tự động hóa' },
-  ]},
   { label: 'Khách hàng & Bán hàng', items: [
     { to: '/customers', icon: 'users',   label: 'Khách hàng' },       // people
     { to: '/deals',     icon: 'trend',   label: 'AI phân tích Cơ hội' },  // opportunity analysis
@@ -58,6 +50,12 @@ const NAV_GROUPS = [
   { label: 'Tích hợp', items: [
     { to: '/widget-admin', icon: 'sparkle', label: 'Widget Chat', requirePerm: 'CH_HT_XEM' },   // embed JS widget cho site khách
     { to: '/visa-config',  icon: 'sliders', label: 'Câu hỏi Visa', requirePerm: 'CH_HT_XEM' },  // admin tenant chỉnh wizard câu hỏi
+    // "Tự động hóa" ở CUỐI khối này (vị trí quen thuộc, đáy sidebar) nhưng KHÔNG có requirePerm:
+    // trang có phần của RIÊNG người dùng (đồng bộ Gmail của tôi, bản tin của tôi khi bật cờ) nên
+    // nhân viên không có quyền cấu hình vẫn phải vào được. Lịch chạy cấp công ty + tài khoản dịch
+    // vụ + OA Zalo do WorkflowsPage tự lọc bằng CH_HT_XEM bên trong trang.
+    // Đánh đổi đã biết: người thiếu quyền sẽ thấy khối "Tích hợp" chỉ còn đúng mục này.
+    { to: '/workflows',    icon: 'zap',     label: 'Tự động hóa' },
   ]},
 ];
 // Route → mã quyền yêu cầu. Derived từ item.requirePerm (PER-ITEM để /workflows không bị gate cứng).
