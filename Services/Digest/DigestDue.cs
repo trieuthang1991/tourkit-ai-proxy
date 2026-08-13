@@ -59,4 +59,30 @@ public static class DigestDue
 
         return ChannelMask.Pending(enabled, sub.SentMask);
     }
+
+    /// <summary>
+    /// Đã tới lúc CHUẨN BỊ bản tin hôm nay chưa: từ mốc (giờ gửi − leadMinutes) trở đi, cho tới hết
+    /// ngày VN. So theo PHÚT (bản cũ so Hour == làm MẤT bản tin nếu server sập trọn khung giờ).
+    /// "Hôm nay đã chuẩn bị chưa" do caller kiểm (InsightRepository.ExistsTodayAsync) — hàm này thuần.
+    /// </summary>
+    public static bool ShouldPrepare(DigestSubscription sub, DateTime utcNow, int leadMinutes)
+    {
+        if (!sub.Enabled) return false;
+        var vn = NowVn(utcNow);
+        var openToday = vn.Date.AddHours(DigestSubscription.ClampHour(sub.SendHourLocal))
+                              .AddMinutes(-Math.Max(0, leadMinutes));
+        return vn >= openToday;
+    }
+
+    /// <summary>
+    /// Mốc UTC để đặt ScheduledUtc: đúng giờ người chọn (giờ VN đổi ra UTC); đã QUA giờ (dựng muộn
+    /// do sập/lỡ cửa sổ) → gửi ngay (trả utcNow). Trả Kind=Unspecified để ghi thẳng DATETIME2.
+    /// </summary>
+    public static DateTime SendMomentUtc(DigestSubscription sub, DateTime utcNow)
+    {
+        var vn = NowVn(utcNow);
+        var sendAtVn = vn.Date.AddHours(DigestSubscription.ClampHour(sub.SendHourLocal));
+        if (vn >= sendAtVn) return DateTime.SpecifyKind(utcNow, DateTimeKind.Unspecified);
+        return TimeZoneInfo.ConvertTimeToUtc(DateTime.SpecifyKind(sendAtVn, DateTimeKind.Unspecified), VnTz);
+    }
 }
