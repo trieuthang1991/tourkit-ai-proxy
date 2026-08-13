@@ -3,6 +3,7 @@ using System.Text.Json;
 using TourkitAiProxy.Models;
 using TourkitAiProxy.Services;
 using TourkitAiProxy.Services.Digest;
+using TourkitAiProxy.Services.Mail;
 using TourkitAiProxy.Services.Providers;
 using TourkitAiProxy.Services.TourKit;
 
@@ -33,7 +34,8 @@ public class CeoBriefWorkflow : IScheduledWorkflow
     private readonly TkSessionRepository _sessionRepo;
     private readonly TourKitApiClient _api;
     private readonly InsightRepository _insights;
-    private readonly DigestDispatcher _dispatcher;
+    private readonly MailQueueRepository _queue;
+    private readonly IConfiguration _cfg;
     private readonly ProviderRegistry _providers;
     private readonly AiModelRegistry _models;
     private readonly AiCallContext _ctx;
@@ -41,11 +43,11 @@ public class CeoBriefWorkflow : IScheduledWorkflow
 
     public CeoBriefWorkflow(DigestSubscriptionRepository subs, TkSessionStore sessions,
         TkSessionRepository sessionRepo, TourKitApiClient api, InsightRepository insights,
-        DigestDispatcher dispatcher, ProviderRegistry providers, AiModelRegistry models,
+        MailQueueRepository queue, IConfiguration cfg, ProviderRegistry providers, AiModelRegistry models,
         AiCallContext ctx, ILogger<CeoBriefWorkflow> log)
     {
         _subs = subs; _sessions = sessions; _sessionRepo = sessionRepo; _api = api;
-        _insights = insights; _dispatcher = dispatcher; _providers = providers; _models = models; _ctx = ctx; _log = log;
+        _insights = insights; _queue = queue; _cfg = cfg; _providers = providers; _models = models; _ctx = ctx; _log = log;
     }
 
     public string Type => "ceo-brief";
@@ -61,18 +63,22 @@ public class CeoBriefWorkflow : IScheduledWorkflow
         var utcNow = DateTime.UtcNow;
         var todayVn = DigestDue.NowVn(utcNow).Date;
 
-        var due = (await _subs.ListEnabledAsync(tenantId, BriefTypes.Ceo, ct))
-            .Select(s => (Sub: s, Pending: DigestDue.PendingFor(s, utcNow)))
-            .Where(x => x.Pending != ChannelMask.None).ToList();
+        var lead = _cfg.GetValue("Digest:LeadMinutes", 10);
+        var subs = await _subs.ListEnabledAsync(tenantId, BriefTypes.Ceo, ct);
+        var due = new List<DigestSubscription>();
+        foreach (var s in subs)
+            if (DigestDue.ShouldPrepare(s, utcNow, lead)
+                && !await _insights.ExistsTodayAsync(tenantId, s.Username, BriefTypes.Ceo, todayVn, ct))
+                due.Add(s);
         if (due.Count == 0)
-            return new(true, "Chưa tới giờ gửi của ai (0 đăng ký đến hạn).", null);
+            return new(true, "Chưa tới giờ chuẩn bị của ai (0 đăng ký đến hạn).", null);
 
         // Khoá theo BỘ SỐ (không theo tenant): xem ghi chú class. Chỉ sống trong 1 lượt chạy.
         var byNumbers = new Dictionary<string, DigestMessage>();
-        int sent = 0, noSession = 0, failed = 0, aiCalls = 0, aiFailed = 0;
+        int prepared = 0, noSession = 0, failed = 0, skipped = 0, aiCalls = 0, aiFailed = 0;
         var parts = new List<string>();
 
-        foreach (var (sub, pending) in due)
+        foreach (var sub in due)
         {
             ct.ThrowIfCancellationRequested();
             try
@@ -97,15 +103,34 @@ public class CeoBriefWorkflow : IScheduledWorkflow
                     byNumbers[key] = msg;
                 }
 
-                var res = await _dispatcher.SendAsync(sub, msg, ct, pending);
-                await _subs.MarkSentAsync(tenantId, sub.Username, BriefTypes.Ceo, utcNow, todayVn,
-                    res.SentMask, ct);
+                // NỘI DUNG + KHO LƯU: bản tin ghi vào Bảng tin (in-app luôn-bật — kho lưu để
+                // xem/nghe lại), Id của dòng này là nguồn nội dung cho các kênh ngoài.
+                var insightId = await _insights.InsertAsync(new AgentInsight(
+                    0, tenantId, sub.Username, BriefTypes.Ceo, 0,
+                    msg.Title, msg.BodyMarkdown, null, null, false, DateTime.UtcNow), ct);
+                // insightId null chỉ khi AlertKey trùng trong 24h — bản tin dùng AlertKey=null nên không xảy ra;
+                // giữ guard phòng sau này ai thêm AlertKey.
+                if (insightId == null) { skipped++; continue; }
 
-                if (res.SentMask != ChannelMask.None) sent++; else failed++;
-                var miss = ChannelMask.Pending(pending, res.SentMask);
-                parts.Add($"{sub.Username}[{res.Summary}"
-                        + (miss != ChannelMask.None ? $" · còn thiếu {ChannelMask.Describe(miss)}" : "")
-                        + "]");
+                var schedUtc = DigestDue.SendMomentUtc(sub, utcNow);
+                var rows = DigestEnqueuePlanner.BuildRows(sub, insightId.Value, msg, schedUtc,
+                    todayVn.ToString("dd/MM/yyyy"));
+                int qOk = 0, qFail = 0;
+                foreach (var r in rows)
+                {
+                    // Enqueue từng kênh CÔ LẬP: 1 dòng lỗi (blip DB) KHÔNG được cướp mất các kênh còn lại
+                    // của người này — insight đã ghi nên lượt sau ExistsToday=true sẽ bỏ qua, không có cơ hội bù.
+                    try { await _queue.EnqueueAsync(r, ct); qOk++; }
+                    catch (OperationCanceledException) { throw; }
+                    catch (Exception ex)
+                    {
+                        qFail++;
+                        _log.LogWarning(ex, "[ceo-brief] enqueue kênh {Ch} lỗi tenant={T} user={U}",
+                            r.Channel, tenantId, sub.Username);
+                    }
+                }
+                prepared++;
+                parts.Add($"{sub.Username}[inapp+{qOk} kênh queue{(qFail > 0 ? $", {qFail} kênh lỗi" : "")}]");
             }
             catch (OperationCanceledException) { throw; }
             catch (Exception ex)
@@ -116,13 +141,19 @@ public class CeoBriefWorkflow : IScheduledWorkflow
             }
         }
 
-        var summary = $"{due.Count} đăng ký cần gửi → xong {sent}"
-                    + (noSession > 0 ? $", bỏ qua {noSession} (chưa đăng nhập lần nào)" : "")
-                    + (failed > 0 ? $", lỗi/chưa gửi được {failed}" : "")
+        var summary = $"{due.Count} đăng ký đến hạn → chuẩn bị {prepared}"
+                    + (noSession > 0 ? $", bỏ qua {noSession} (chưa đăng nhập)" : "")
+                    + (skipped > 0 ? $", trùng {skipped}" : "")
+                    + (failed > 0 ? $", lỗi {failed}" : "")
                     + $". Lượt AI: {aiCalls}"
                     + (aiFailed > 0 ? $" ({aiFailed} lỗi → dùng bảng số)" : "")
                     + (parts.Count > 0 ? ". " + string.Join(" · ", parts) : "");
         _log.LogInformation("[ceo-brief] tenant={T} {Sum}", tenantId, summary);
+
+        try { await _insights.PruneAsync(_cfg.GetValue("Digest:InsightKeepDays", 30), ct); }
+        catch (OperationCanceledException) { throw; }
+        catch { /* prune lỗi không làm hỏng lượt chạy */ }
+
         return new(true, summary, null);
     }
 

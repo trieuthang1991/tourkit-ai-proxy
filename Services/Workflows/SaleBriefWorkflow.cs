@@ -36,15 +36,18 @@ public class SaleBriefWorkflow : IScheduledWorkflow
     private readonly TourKitApiClient _api;
     private readonly TourkitAiDb _db;
     private readonly MailRepository _mails;
-    private readonly DigestDispatcher _dispatcher;
+    private readonly InsightRepository _insights;
+    private readonly MailQueueRepository _queue;
+    private readonly IConfiguration _cfg;
     private readonly ILogger<SaleBriefWorkflow> _log;
 
     public SaleBriefWorkflow(DigestSubscriptionRepository subs, TkSessionStore sessions,
         TkSessionRepository sessionRepo, TourKitApiClient api, TourkitAiDb db,
-        MailRepository mails, DigestDispatcher dispatcher, ILogger<SaleBriefWorkflow> log)
+        MailRepository mails, InsightRepository insights, MailQueueRepository queue,
+        IConfiguration cfg, ILogger<SaleBriefWorkflow> log)
     {
         _subs = subs; _sessions = sessions; _sessionRepo = sessionRepo; _api = api;
-        _db = db; _mails = mails; _dispatcher = dispatcher; _log = log;
+        _db = db; _mails = mails; _insights = insights; _queue = queue; _cfg = cfg; _log = log;
     }
 
     public string Type => "sale-brief";
@@ -60,13 +63,16 @@ public class SaleBriefWorkflow : IScheduledWorkflow
         var utcNow = DateTime.UtcNow;
         var todayVn = DigestDue.NowVn(utcNow).Date;
 
-        // Kèm luôn mask "còn thiếu kênh nào": lần đầu trong ngày là đủ kênh đang bật, còn lượt
-        // sau chỉ là phần hỏng lần trước (vd chỉ Telegram) — không gửi lại kênh đã tới tay.
-        var due = (await _subs.ListEnabledAsync(tenantId, BriefTypes.Sale, ct))
-            .Select(s => (Sub: s, Pending: DigestDue.PendingFor(s, utcNow)))
-            .Where(x => x.Pending != ChannelMask.None).ToList();
+        // Chỉ CHUẨN BỊ: đến cửa sổ (giờ chọn − lead) và hôm nay chưa có bản tin loại này cho người đó.
+        var lead = _cfg.GetValue("Digest:LeadMinutes", 10);
+        var subs = await _subs.ListEnabledAsync(tenantId, BriefTypes.Sale, ct);
+        var due = new List<DigestSubscription>();
+        foreach (var s in subs)
+            if (DigestDue.ShouldPrepare(s, utcNow, lead)
+                && !await _insights.ExistsTodayAsync(tenantId, s.Username, BriefTypes.Sale, todayVn, ct))
+                due.Add(s);
         if (due.Count == 0)
-            return new(true, "Chưa tới giờ gửi của ai (0 đăng ký đến hạn).", null);
+            return new(true, "Chưa tới giờ chuẩn bị của ai (0 đăng ký đến hạn).", null);
 
         // Hộp thư là số của CẢ CÔNG TY nên đọc 1 lần, dùng cho mọi người nhận.
         int mailPending = 0, mailQuote = 0;
@@ -83,10 +89,10 @@ public class SaleBriefWorkflow : IScheduledWorkflow
             _log.LogWarning("[sale-brief] tenant={T} đọc hộp thư lỗi: {Err}", tenantId, ex.Message);
         }
 
-        int sent = 0, noSession = 0, failed = 0;
+        int prepared = 0, noSession = 0, failed = 0, skipped = 0;
         var parts = new List<string>();
 
-        foreach (var (sub, pending) in due)
+        foreach (var sub in due)
         {
             ct.ThrowIfCancellationRequested();
             try
@@ -108,18 +114,35 @@ public class SaleBriefWorkflow : IScheduledWorkflow
                     crmUserId, jwt, todayVn, mailPending, mailQuote, mailOk, ct);
 
                 var msg = SaleBriefBuilder.Build(input, todayVn);
-                var res = await _dispatcher.SendAsync(sub, msg, ct, pending);
 
-                // Ghi mask NGAY cả khi không kênh nào thành công: MarkSent cũng là chỗ tăng số lượt
-                // thử, thiếu nó thì kênh hỏng vĩnh viễn sẽ được thử lại mỗi giờ suốt cả ngày.
-                await _subs.MarkSentAsync(tenantId, sub.Username, BriefTypes.Sale, utcNow, todayVn,
-                    res.SentMask, ct);
+                // NỘI DUNG + KHO LƯU: bản tin ghi vào Bảng tin (in-app luôn-bật — kho lưu để
+                // xem/nghe lại), Id của dòng này là nguồn nội dung cho các kênh ngoài.
+                var insightId = await _insights.InsertAsync(new AgentInsight(
+                    0, tenantId, sub.Username, BriefTypes.Sale, 0,
+                    msg.Title, msg.BodyMarkdown, null, null, false, DateTime.UtcNow), ct);
+                // insightId null chỉ khi AlertKey trùng trong 24h — bản tin dùng AlertKey=null nên không xảy ra;
+                // giữ guard phòng sau này ai thêm AlertKey.
+                if (insightId == null) { skipped++; continue; }
 
-                if (res.SentMask != ChannelMask.None) sent++; else failed++;
-                var miss = ChannelMask.Pending(pending, res.SentMask);
-                parts.Add($"{sub.Username}[{res.Summary}"
-                        + (miss != ChannelMask.None ? $" · còn thiếu {ChannelMask.Describe(miss)}" : "")
-                        + "]");
+                var schedUtc = DigestDue.SendMomentUtc(sub, utcNow);
+                var rows = DigestEnqueuePlanner.BuildRows(sub, insightId.Value, msg, schedUtc,
+                    todayVn.ToString("dd/MM/yyyy"));
+                int qOk = 0, qFail = 0;
+                foreach (var r in rows)
+                {
+                    // Enqueue từng kênh CÔ LẬP: 1 dòng lỗi (blip DB) KHÔNG được cướp mất các kênh còn lại
+                    // của người này — insight đã ghi nên lượt sau ExistsToday=true sẽ bỏ qua, không có cơ hội bù.
+                    try { await _queue.EnqueueAsync(r, ct); qOk++; }
+                    catch (OperationCanceledException) { throw; }
+                    catch (Exception ex)
+                    {
+                        qFail++;
+                        _log.LogWarning(ex, "[sale-brief] enqueue kênh {Ch} lỗi tenant={T} user={U}",
+                            r.Channel, tenantId, sub.Username);
+                    }
+                }
+                prepared++;
+                parts.Add($"{sub.Username}[inapp+{qOk} kênh queue{(qFail > 0 ? $", {qFail} kênh lỗi" : "")}]");
             }
             catch (OperationCanceledException) { throw; }
             catch (Exception ex)
@@ -130,11 +153,17 @@ public class SaleBriefWorkflow : IScheduledWorkflow
             }
         }
 
-        var summary = $"{due.Count} đăng ký cần gửi → xong {sent}"
-                    + (noSession > 0 ? $", bỏ qua {noSession} (chưa đăng nhập lần nào)" : "")
-                    + (failed > 0 ? $", lỗi/chưa gửi được {failed}" : "")
+        var summary = $"{due.Count} đăng ký đến hạn → chuẩn bị {prepared}"
+                    + (noSession > 0 ? $", bỏ qua {noSession} (chưa đăng nhập)" : "")
+                    + (skipped > 0 ? $", trùng {skipped}" : "")
+                    + (failed > 0 ? $", lỗi {failed}" : "")
                     + (parts.Count > 0 ? ". " + string.Join(" · ", parts) : "");
         _log.LogInformation("[sale-brief] tenant={T} {Sum}", tenantId, summary);
+
+        try { await _insights.PruneAsync(_cfg.GetValue("Digest:InsightKeepDays", 30), ct); }
+        catch (OperationCanceledException) { throw; }
+        catch { /* prune lỗi không làm hỏng lượt chạy */ }
+
         return new(true, summary, null);
     }
 
