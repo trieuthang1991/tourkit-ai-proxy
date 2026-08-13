@@ -1,54 +1,79 @@
 using System.Collections.Concurrent;
 using System.Security.Cryptography;
+using TourkitAiProxy.Services.Cache;
 
 namespace TourkitAiProxy.Services.Security;
 
 /// <summary>
 /// Kho "code 1-lần" cho SSO CRM → Trav-ai: register-code GHI → exchange ĐỌC+XOÁ.
-/// MIRROR KojiCRM/Auth/SsoCodeStore.cs bên CRM (chiều ngược lại), giữ nguyên hợp đồng Save/TakeOnce.
+/// MIRROR KojiCRM/Auth/SsoCodeStore.cs bên CRM — 2 chế độ chọn bằng cờ "Sso:ForceInMemory"
+/// (giống hệt web "SsoForceInMemory"):
+///   - true / thiếu (MẶC ĐỊNH) → InMemory (ConcurrentDictionary + TTL). An toàn khi proxy chạy 1 process.
+///   - false → Redis (RedisStore), chia sẻ giữa nhiều instance sau load-balancer.
+///             Redis chưa cấu hình / lỗi → tự fallback InMemory (kèm cảnh báo).
 ///
-/// Vì sao cần: code sinh ở register-code (request A, do CRM gọi server-to-server) nhưng dùng ở
-/// exchange (request B, do browser mở) — 2 request khác nhau nên phải có chỗ gửi tạm.
-///
-/// GIỚI HẠN: bản này CHỈ có chế độ InMemory (ConcurrentDictionary + TTL), an toàn khi proxy chạy
-/// 1 process. Nếu sau này scale ra nhiều instance sau load-balancer thì PHẢI chuyển sang Redis —
-/// request exchange rơi vào instance khác sẽ không tra ra code và SSO hỏng ngẫu nhiên (~50%).
-/// CRM đã có sẵn 2 chế độ, chọn bằng cờ CrmSsoForceInMemory; đây là chỗ cần bổ sung tương tự.
+/// Vì sao cần chọn: code sinh ở register-code (request A, server-to-server) nhưng dùng ở exchange
+/// (request B, browser mở). Nhiều instance mà InMemory → B rơi instance khác → không tra ra code →
+/// SSO hỏng ngẫu nhiên. 1 process thì InMemory chạy tốt, khỏi cần Redis.
 /// </summary>
-internal static class SsoCodeStore
+public sealed class SsoCodeStore
 {
+    private const string KeyPrefix = "sso:code:";
+
+    private readonly RedisStore _redis;
+    private readonly ILogger<SsoCodeStore> _log;
+    private readonly bool _useRedis;
+
     private sealed class Entry
     {
         public required string Payload { get; init; }
         public DateTime ExpiresUtc { get; init; }
     }
+    private readonly ConcurrentDictionary<string, Entry> _mem = new();
 
-    private static readonly ConcurrentDictionary<string, Entry> Mem = new();
-
-    /// <summary>Lưu code kèm TTL. Trả false nếu store thất bại (hiện luôn true — InMemory không lỗi).</summary>
-    public static bool Save(string code, string payload, TimeSpan ttl)
+    public SsoCodeStore(RedisStore redis, IConfiguration cfg, ILogger<SsoCodeStore> log)
     {
+        _redis = redis;
+        _log = log;
+        // Thiếu / không parse được → true (InMemory) — mặc định an toàn cho proxy 1 process.
+        var forceInMemory = !bool.TryParse(cfg["Sso:ForceInMemory"], out var f) || f;
+        _useRedis = !forceInMemory && redis.Available;
+        if (!forceInMemory && !redis.Available)
+            _log.LogWarning("Sso:ForceInMemory=false nhưng Redis không sẵn sàng → SsoCodeStore fallback InMemory.");
+        _log.LogInformation("SsoCodeStore backend: {Backend}", _useRedis ? "Redis" : "InMemory");
+    }
+
+    /// <summary>Lưu code kèm TTL. Trả false nếu store thất bại (Redis down).</summary>
+    public bool Save(string code, string payload, TimeSpan ttl)
+    {
+        if (_useRedis) return _redis.Set(KeyPrefix + code, payload, ttl);
         PruneExpired();
-        Mem[code] = new Entry { Payload = payload, ExpiresUtc = DateTime.UtcNow.Add(ttl) };
+        _mem[code] = new Entry { Payload = payload, ExpiresUtc = DateTime.UtcNow.Add(ttl) };
         return true;
     }
 
     /// <summary>Đọc + XOÁ (one-time, chống replay). Trả null nếu không có / hết hạn / đã dùng.</summary>
-    public static string? TakeOnce(string code)
+    public string? TakeOnce(string code)
     {
-        if (!Mem.TryRemove(code, out var e)) return null;          // không có / đã dùng
-        return DateTime.UtcNow > e.ExpiresUtc ? null : e.Payload;  // hết hạn
+        if (_useRedis)
+        {
+            var v = _redis.Get(KeyPrefix + code);
+            if (!string.IsNullOrEmpty(v)) _redis.Delete(KeyPrefix + code);   // one-time (mirror web: Get rồi Remove)
+            return string.IsNullOrEmpty(v) ? null : v;
+        }
+        if (!_mem.TryRemove(code, out var e)) return null;          // không có / đã dùng
+        return DateTime.UtcNow > e.ExpiresUtc ? null : e.Payload;   // hết hạn
     }
 
-    /// <summary>Code random 256-bit, hex lowercase — khớp SsoController.GenCode bên CRM.</summary>
-    public static string GenCode() =>
+    /// <summary>Code random 256-bit hex lowercase — khớp SsoController.GenCode bên CRM.</summary>
+    public string GenCode() =>
         Convert.ToHexString(RandomNumberGenerator.GetBytes(32)).ToLowerInvariant();
 
-    /// Dọn code quá hạn mà không ai dùng tới. Code đã dùng thì TakeOnce gỡ rồi, chỗ này chỉ lo phần rơi rớt.
-    private static void PruneExpired()
+    /// Dọn code quá hạn không ai dùng tới (chỉ InMemory). Code đã dùng thì TakeOnce gỡ rồi.
+    private void PruneExpired()
     {
         var now = DateTime.UtcNow;
-        foreach (var kv in Mem)
-            if (now > kv.Value.ExpiresUtc) Mem.TryRemove(kv.Key, out _);
+        foreach (var kv in _mem)
+            if (now > kv.Value.ExpiresUtc) _mem.TryRemove(kv.Key, out _);
     }
 }

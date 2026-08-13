@@ -85,7 +85,24 @@ public class TkSessionStore
         _ = PruneIdleAsync(ct);   // fire-and-forget, không block login
         var login = await _api.LoginAsync(tenantId, username, password, ct);
         var permissions = await _api.GetPermissionsAsync(login.Token, ct);   // null nếu upstream lỗi (retry sau)
+        return await PersistLoginAsync(tenantId, username, password, login, permissions, ct);
+    }
 
+    /// SSO web→AI: tạo phiên từ JWT sso-token (KHÔNG password). Password="" đánh dấu phiên SSO →
+    /// ReloginAsync re-mint qua sso-token khi JWT hết hạn. Dùng cho luồng bấm từ CRM sang tự đăng nhập
+    /// kể cả lần đầu (user chưa từng login TravAi).
+    public async Task<TkSession> CreateFromSsoAsync(string tenantId, string username, CancellationToken ct)
+    {
+        _ = PruneIdleAsync(ct);
+        var login = await _api.IssueSsoTokenAsync(tenantId, username, ct);
+        var permissions = await _api.GetPermissionsAsync(login.Token, ct);
+        return await PersistLoginAsync(tenantId, username, "", login, permissions, ct);
+    }
+
+    /// Upsert phiên sau khi đã có JWT (dùng chung cho login-password lẫn SSO): reuse row cũ nếu có, else tạo mới.
+    private async Task<TkSession> PersistLoginAsync(string tenantId, string username, string password,
+        TkLoginResult login, List<string>? permissions, CancellationToken ct)
+    {
         // Reuse session sẵn có (most recent) cho cùng (tenant, user) → tránh sinh row mới mỗi lần F5.
         var existing = await _repo.GetByUserAsync(tenantId, username, ct);
 
@@ -286,7 +303,11 @@ public class TkSessionStore
 
     private async Task ReloginAsync(TkSession s, CancellationToken ct)
     {
-        var login = await _api.LoginAsync(s.TenantId, s.Username, s.Password, ct);
+        // Phiên SSO (Password rỗng — tạo qua CreateFromSsoAsync) → re-mint JWT qua sso-token (không có
+        // password để login lại). Phiên thường → login bằng password như cũ.
+        var login = string.IsNullOrEmpty(s.Password)
+            ? await _api.IssueSsoTokenAsync(s.TenantId, s.Username, ct)
+            : await _api.LoginAsync(s.TenantId, s.Username, s.Password, ct);
         var perms = await _api.GetPermissionsAsync(login.Token, ct);
         if (perms != null) { s.Permissions = perms; s.PermissionsLoaded = true; }
         s.Jwt = login.Token;
