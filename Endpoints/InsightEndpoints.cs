@@ -29,7 +29,14 @@ public static class InsightEndpoints
 
             var items = await repo.ListAsync(a.TenantId, a.Username, kind,
                 unread == true, Math.Max(0, offset ?? 0), limit ?? 30, ct);
-            return Results.Json(new { items }, Web);
+            // Chỉ bản tin (sale/ceo) mới có nút "Nghe" → tính speakText tại chỗ; loại khác để null.
+            var shaped = items.Select(it => new
+            {
+                it.Id, it.TenantId, it.Username, it.Kind, it.Severity, it.Title, it.Body,
+                it.DataJson, it.AlertKey, it.IsRead, it.CreatedUtc,
+                speakText = BriefTypes.IsValid(it.Kind) ? BriefNarration.ToSpeakable(it.Body) : null,
+            });
+            return Results.Json(new { items = shaped }, Web);
         });
 
         // Số chưa đọc cho badge chuông — tách riêng vì frontend gọi định kỳ, không cần kéo cả danh sách.
