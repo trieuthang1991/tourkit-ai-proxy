@@ -29,7 +29,8 @@
     • ScheduledUtc = giờ người chọn (đã có sẵn cột + worker email đã tôn trọng)
     • email  → worker toutkit-app drain như hiện tại (hợp đồng giữ nguyên)
     • telegram/zalo → proxy tự drain (drainer mới)
-    • RETRY = lật Status 2→0 (đến trần) — quyết định retry nhìn thẳng vào bảng này
+    • gửi 1 lần/kênh/ngày; lỗi → Status=2 nằm lại để theo dõi (retry HOÃN — phương án riêng sau,
+      khi làm chỉ thêm chính sách "lật 2→0" dựa trên chính bảng này)
 ```
 
 | Bảng | Vai trò | Vòng đời | Thay đổi đợt này |
@@ -65,24 +66,20 @@ Cách dùng cho bản tin (Kind = `daily-brief`, SourceId = Id dòng AgentInsigh
 `SourceId`), dòng queue nhẹ. Riêng email phải mang `Params` vì hợp đồng worker hiện tại render từ
 `Params` — giữ nguyên để không sửa worker ngoài 1 chỗ (xem §5).
 
-### Retry — nhìn thẳng vào dòng queue, không còn cờ bit
+### Trạng thái dòng — gửi 1 lần, lỗi nằm lại làm bằng chứng (retry HOÃN — thiết kế riêng sau)
 
 ```
  Status=0 Pending ──gửi ok──▶ Status=1 Sent (ProcessedUtc)
-     ▲                │
-     │                └─gửi lỗi─▶ Status=2 Failed (ErrorMessage, RetryCount++)
-     │                                │
-     └── proxy drainer LẬT 2→0 ◀──────┤ nếu RetryCount < Digest:MaxAttemptsPerDay
-        (backoff = chu kỳ drainer)     │ và còn trong NGÀY (giờ VN)
-                                       └─ chạm trần / hết ngày ─▶ để nguyên Status=2
-                                          + 1 dòng digest-alert vào AgentInsights
-                                            (AlertKey "digest-fail:{kind}:{channel}:{yyyyMMdd}" → 1 cảnh báo/kênh/ngày)
+                      │
+                      └─gửi lỗi─▶ Status=2 Failed (ErrorMessage, RetryCount=1) + log ERROR
+                                   ── ĐỢT NÀY DỪNG Ở ĐÂY: không lật lại, không cảnh báo thêm ──
 ```
 
-- Email cũng retry theo đúng cơ chế này: worker không tự retry (chỉ poll Status=0) → proxy lật
-  2→0 là worker gửi lại. Worker không cần biết gì.
-- "Gửi gì lỗi?" = `SELECT ... WHERE Status=2` — thấy ngay kênh, người, lỗi gì, mấy lần.
+- "Gửi gì lỗi?" = `SELECT ... WHERE Status=2` — thấy ngay kênh, người, lỗi gì, lúc nào.
 - Theo dõi: endpoint `GET /api/v1/workflows/outbound-mails` sẵn có, thêm lọc `channel`.
+- **Nền cho retry sau này (đã kiểm hợp đồng):** worker email không tự retry (chỉ poll Status=0)
+  → mai kia muốn retry chỉ cần chính sách "lật 2→0" trong drainer — không đổi schema, không sửa
+  worker. Cột `RetryCount` sẵn sàng cho việc đó.
 
 ## 3. `dbo.DigestSubscriptions` — về đúng vai "chỉ cấu hình"
 
@@ -114,9 +111,7 @@ NGỪNG DÙNG:       SentMask · SentAttempts · LastSentUtc · LastSentLocalDat
  07:00  SEND (queue tự chạy — workflow không làm gì)
         worker toutkit-app:  email  Status 0→1 ✓
         proxy drainer:       zalo   Status 0→2 ✗ (RetryCount=1, ErrorMessage="token hết hạn")
- ~07:05 drainer lật zalo 2→0 → gửi ✗ → 2 (RetryCount=2)
- ~07:10 lật 2→0 → ✗ → 2 (RetryCount=3 = trần)
- 07:10+ DỪNG — giữ Status=2 + INSERT AgentInsights digest-alert (dedup theo AlertKey/ngày)
+                             + log ERROR — dòng Failed nằm lại để theo dõi (ĐỢT NÀY KHÔNG RETRY)
  ─── sang ngày mới: PREPARE thấy chưa có insight của ngày mới → chu kỳ lặp lại ───
 ```
 

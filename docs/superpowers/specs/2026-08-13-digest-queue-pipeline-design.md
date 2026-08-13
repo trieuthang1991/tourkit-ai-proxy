@@ -24,9 +24,9 @@
 | Q2 | **Nội dung ở `AgentInsights`**: PREPARE ghi bản tin vào đây (1 dòng/người/ngày, có Id) — vừa nguồn nội dung vừa archive | đề xuất của user |
 | Q3 | **`DigestSubscriptions` = chỉ cấu hình**, không giữ state xử lý (ngừng dùng SentMask/SentAttempts/LastSent*) | đề xuất của user |
 | Q4 | **KHÔNG gộp** `DigestSubscriptions` vào `UserWorkflows` | 3 lý do trong tài liệu lưu trữ §3 |
-| Q5 | **Retry quyết theo dòng queue** (Status/RetryCount/ErrorMessage riêng từng kênh), trần theo config | user chốt "dựa vào outboundmail dễ xử lý hơn" |
+| Q5 | **Retry: HOÃN — đợt này KHÔNG retry.** Gửi 1 lần/kênh/ngày; lỗi → `Status=2` + `ErrorMessage` + log ERROR để theo dõi. Nền queue (Status/RetryCount/ErrorMessage riêng từng dòng) chuẩn hoá sẵn; phương án retry user sẽ thiết kế riêng sau (khi đó chỉ thêm chính sách "lật 2→0", không đổi schema) | user chốt 13/08: "tạm bỏ qua retry, chuẩn hoá trước" |
 | Q6 | **In-app = kho lưu luôn-bật**; email/telegram/zalo = kênh đẩy tuỳ chọn | giải "mai muốn nghe lại" |
-| Q7 | Kênh hỏng hết trần → **log ERROR + 1 dòng `digest-alert` vào Bảng tin** (dedup 1/kênh/loại/ngày) | user chọn "giữ retry + cảnh báo chủ động" |
+| Q7 | Cảnh báo chủ động (digest-alert khi kênh hỏng dai) → **dời sang phương án retry** (đi cùng khái niệm "bỏ cuộc"). Đợt này: theo dõi qua log ERROR + dòng queue Status=2 trên endpoint outbound-mails | gắn với Q5 |
 | Q8 | **Mọi ngưỡng vào config** `appsettings.json` mục `Digest` — không hardcode | user chốt |
 | Q9 | Tới giờ mà chưa dựng sẵn → **dựng-tại-chỗ rồi gửi** (không bao giờ âm thầm mất tin, kể cả gửi muộn) | user chốt |
 | Q10 | Dữ liệu dựng sớm 5–10 phút: chấp nhận (số tổng hợp) | user chốt |
@@ -55,11 +55,11 @@
 └────────────────────────────────────────────────────────────────────────────────────────┘
                           │
                           ▼
-┌ RETRY + CẢNH BÁO (trong drainer, chạy cho MỌI kênh kể cả email) ──────────────────────┐
-│ dòng Status=2 & Kind=daily-brief & RetryCount < Digest:MaxAttemptsPerDay & còn trong    │
-│ ngày VN → lật Status 2→0 (backoff = chu kỳ drainer) → được gửi lại                      │
-│ chạm trần / hết ngày → giữ Status=2 + LogError + INSERT AgentInsights                   │
-│ {Kind=digest-alert, Severity=2, tenant-wide, AlertKey=digest-fail:{kind}:{ch}:{ngày}}   │
+┌ LỖI & THEO DÕI (đợt này KHÔNG retry — xem Q5) ────────────────────────────────────────┐
+│ gửi lỗi → Status=2 + ErrorMessage + RetryCount=1 + LogError (đủ ngữ cảnh tenant/user/   │
+│ kênh/lý do) — dòng nằm lại làm bằng chứng, soi qua GET /workflows/outbound-mails        │
+│ (lọc channel/status). Phương án retry (lật 2→0 + cảnh báo bỏ cuộc) thiết kế riêng sau — │
+│ khi đó CHỈ thêm chính sách vào drainer, không đổi schema.                               │
 └────────────────────────────────────────────────────────────────────────────────────────┘
 ```
 
@@ -83,12 +83,12 @@
 ```json
 "Digest": {
   "LeadMinutes": 10,          // dựng trước giờ gửi bao lâu
-  "MaxAttemptsPerDay": 3,     // trần gửi/kênh/ngày (RetryCount so với số này)
   "CheckIntervalMinutes": 5,  // default IntervalMinutes khi tạo config workflow bản tin mới
-  "AlertOnGiveUp": true,      // bật cảnh báo digest-alert khi kênh bỏ cuộc
   "InsightKeepDays": 30       // giữ bản tin trong Bảng tin bao lâu (nghe/xem lại)
 }
 ```
+(`MaxAttemptsPerDay` / `AlertOnGiveUp` CỐ Ý chưa có — thuộc phương án retry sẽ thiết kế sau;
+thêm lúc đó, tránh config chết không ai dùng.)
 Data-migration 1 lần: `UPDATE dbo.UserWorkflows SET IntervalMinutes=5 WHERE WorkflowType IN
 ('sale-brief','ceo-brief') AND IntervalMinutes=15` (chỉ dòng còn nguyên mặc định cũ).
 
@@ -111,16 +111,15 @@ Cập nhật `docs/database-schema.md` + hợp đồng worker `docs/mail-templat
 | `DigestDueTests` | viết lại theo `ShouldPrepare` (phút + lead) |
 | `ChannelMask` | teo vai: giữ `EnabledOf` (liệt kê kênh ngoài đang bật khi enqueue); bỏ dần mask machinery |
 | Test-send (`POST /subscriptions/{type}/test`) | gửi thử vẫn ĐI THẲNG (không qua queue) để trả kết quả ngay — ghi chú rõ khác đường thật ở 1 điểm: đường thật giờ là queue |
-| File nháp `Services/Digest/DigestAlert.cs` (chưa commit) | xoá — thay bằng logic give-up trong drainer |
+| File nháp `Services/Digest/DigestAlert.cs` (chưa commit) | đã xoá — cảnh báo bỏ cuộc dời sang phương án retry (sau) |
 
 ## 5. Thứ tự deploy (BẮT BUỘC — cross-repo)
 1. toutkit-app worker: poll thêm `AND Channel='email'` (deploy trước, vô hại vì cột default email).
 2. Proxy: schema + PREPARE + drainer + UI (deploy sau).
 
 ## 6. Kiểm thử
-- **Thuần (xUnit):** `DigestDue.ShouldPrepare` (biên lead/phút/ngày VN) · chính sách requeue
-  (được lật 2→0 khi nào: trần, hết ngày, AlertOnGiveUp) tách thành hàm thuần · build queue-row
-  (đủ Channel/Sched/Data theo cấu hình kênh).
+- **Thuần (xUnit):** `DigestDue.ShouldPrepare` (biên lead/phút/ngày VN) · build queue-row
+  (đủ Channel/Sched/Data theo cấu hình kênh; đổi giờ VN→UTC đúng).
 - **Giữ xanh:** SaleBriefBuilder/CeoBriefBuilder/BriefNarration/TelegramFormat (không đổi).
 - **E2E:** cập nhật `features-digest.ps1` (mục 4) — gửi thử, luật 1-loại, speakText giữ nguyên.
 - **Tay:** 1 lượt thật với 1 đăng ký telegram: thấy dòng queue Pending lúc T−10, Sent lúc T;
