@@ -66,6 +66,15 @@ Cách dùng cho bản tin (Kind = `daily-brief`, SourceId = Id dòng AgentInsigh
 `SourceId`), dòng queue nhẹ. Riêng email phải mang `Params` vì hợp đồng worker hiện tại render từ
 `Params` — giữ nguyên để không sửa worker ngoài 1 chỗ (xem §5).
 
+**Tài khoản GỬI ĐI (OA token, bot token) cũng KHÔNG nằm trong queue — resolve LÚC GỬI:**
+- Zalo: `TenantId` trên dòng → `dbo.TenantChannelSettings` (OaId + AccessToken Crypton-enc,
+  per-tenant — chính cấu hình "OA Zalo của công ty" Đợt 1). Đúng cách `ZaloOaChannel.SendAsync`
+  đang làm (`GetZaloConfigAsync(tenantId)`), drainer tái dùng nguyên.
+- Telegram: `Telegram:BotToken` appsettings (bot chung hệ thống).
+- Email: worker toutkit-app tự có SMTP.
+Lý do: token là secret (không rải bản sao vào bảng lịch sử) + token đổi giữa lúc enqueue và lúc
+gửi thì bản mới nhất được dùng ngay.
+
 ### Trạng thái dòng — gửi 1 lần, lỗi nằm lại làm bằng chứng (retry HOÃN — thiết kế riêng sau)
 
 ```
