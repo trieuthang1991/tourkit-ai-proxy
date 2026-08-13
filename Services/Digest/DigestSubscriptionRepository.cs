@@ -96,6 +96,18 @@ VALUES
             });
     }
 
+    /// Tắt mọi loại bản tin KHÁC của cùng người — dùng khi bật 1 loại để giữ luật "1 người 1 loại".
+    /// CHỈ đổi Enabled (giữ nguyên nơi nhận đã khai), và chỉ chạm dòng đang bật → không tạo dòng thừa.
+    public async Task DeactivateOthersAsync(string tenant, string username, string keepBriefType,
+        CancellationToken ct = default)
+    {
+        await using var c = await _db.OpenAsync(ct);
+        await c.ExecuteAsync(@"
+UPDATE dbo.DigestSubscriptions SET Enabled = 0, UpdatedUtc = SYSUTCDATETIME()
+WHERE TenantId = @tenant AND Username = @username AND BriefType <> @keepBriefType AND Enabled = 1",
+            new { tenant, username, keepBriefType });
+    }
+
     /// <summary>
     /// Ghi lại kết quả 1 lượt phát. localDate là NGÀY VIỆT NAM (không phải UTC) — xem DigestDue.
     ///

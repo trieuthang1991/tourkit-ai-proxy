@@ -127,6 +127,11 @@ function DigestSubBlock({ briefType, sub, onSaved, pushToast, scheduleOn = true 
         <span className="digest-ch-note">Chỉ áp dụng cho riêng bạn, không ảnh hưởng người khác</span>
       </div>
 
+      <div className="digest-role-note">
+        <Icon name="info" size={12} /> Mỗi người chỉ nhận <b>một</b> loại bản tin theo vai trò — bật loại
+        này sẽ tự tắt loại kia.
+      </div>
+
       <div className="digest-row">
         <div className="digest-label">Giờ nhận <span className="digest-hint">(giờ Việt Nam)</span></div>
         <select className="workflows-select" value={f.sendHourLocal}
