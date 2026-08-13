@@ -31,6 +31,7 @@
 | Q9 | Tới giờ mà chưa dựng sẵn → **dựng-tại-chỗ rồi gửi** (không bao giờ âm thầm mất tin, kể cả gửi muộn) | user chốt |
 | Q10 | Dữ liệu dựng sớm 5–10 phút: chấp nhận (số tổng hợp) | user chốt |
 | Q11 | **PK `DigestSubscriptions` đổi thành `(TenantId, Username)`** — mỗi người đúng 1 DÒNG; `BriefType` thành cột thường. Đổi loại = UPDATE cột, giờ+kênh đi theo người, không còn 2 bản ghi; luật "1 loại/người" thành bất biến CẤU TRÚC → xoá `DeactivateOthersAsync`. Migration idempotent: 2 dòng/người cũ → giữ dòng đang bật (tie-break UpdatedUtc mới nhất). Đây là thay đổi PK duy nhất — làm TRƯỚC public, đúng cửa sổ | user chốt 13/08 |
+| Q12 | **Định hướng cảnh báo (chưa làm):** dòng duy nhất của mỗi người = HỒ SƠ NGƯỜI NHẬN — nơi nhận khai 1 lần dùng chung mọi loại tin; sau này mỗi loại cảnh báo = thêm 1 cột BIT opt-in (additive, không đụng PK); đường gửi tái dùng nguyên pipeline (AgentInsights → queue theo kênh đang bật, `Kind` riêng). Đánh đổi chấp nhận: kênh chung cho mọi loại, chưa có override per-loại (thêm sau được nếu cần) | trả lời câu hỏi user 13/08 |
 
 ## 3. Kiến trúc
 
