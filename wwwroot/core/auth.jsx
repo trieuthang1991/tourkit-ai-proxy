@@ -75,6 +75,31 @@
   const login = ({ username, password, domain }) => postLogin('/api/v1/login', { username, password, domain });
   const loginToken = (token) => postLogin('/api/v1/login-token', { token });
 
+  // Đọc + XOÁ ngay một cookie bàn giao SSO (server đặt 30s). Dùng 1 lần, không dính lại lần sau.
+  function takeCookie(name) {
+    const m = document.cookie.match(new RegExp('(?:^|;\\s*)' + name + '=([^;]*)'));
+    if (!m) return null;
+    document.cookie = name + '=; Path=/; Max-Age=0';
+    try { return decodeURIComponent(m[1]); } catch { return m[1]; }
+  }
+
+  // SSO từ CRM: /api/v1/sso/exchange đặt cookie tk_sso rồi 302 về đích — có giá trị = sessionId của
+  // người vừa sang, RỖNG = họ chưa từng đăng nhập Trav-ai. Không có cookie = không phải luồng SSO.
+  //   có sid  → ghi đè, KHÔNG logout(): localStorage dùng chung mọi tab, logout() bắn 'storage' sẽ đá
+  //             hết tab đang mở về màn đăng nhập dù chẳng ai đụng vào.
+  //   rỗng    → PHẢI logout(): tab có thể đang giữ phiên người khác, để nguyên là người vừa sang
+  //             thao tác dưới danh tính đó mà không hay biết.
+  function adoptSso() {
+    const sid = takeCookie('tk_sso');
+    if (sid === null) return;
+    if (sid) {
+      localStorage.setItem(SESSION_KEY, sid);
+      localStorage.removeItem(PERMS_KEY);   // quyền là cache của NGƯỜI TRƯỚC
+    } else {
+      logout();
+    }
+  }
+
   // Xác thực lại session với server (sau reload/restart). Trả user | null.
   async function refresh() {
     const sid = getSessionId();
@@ -130,7 +155,7 @@
 
   window.tourkitAuth = {
     SESSION_KEY, USER_KEY, PERMS_KEY,
-    getSessionId, getUser, isAuthed, login, loginToken, logout, onChange, refresh, authedFetch,
+    getSessionId, getUser, isAuthed, login, loginToken, adoptSso, logout, onChange, refresh, authedFetch,
     getPerms, hasPermission, loadPermissions,
   };
 

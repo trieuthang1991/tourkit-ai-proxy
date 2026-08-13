@@ -26,11 +26,65 @@ public class TourKitApiClient
 {
     private readonly IHttpClientFactory _factory;
     private readonly ILogger<TourKitApiClient> _log;
+    private readonly IConfiguration _cfg;
     private static readonly JsonSerializerOptions _json = new() { PropertyNameCaseInsensitive = true };
 
-    public TourKitApiClient(IHttpClientFactory factory, ILogger<TourKitApiClient> log)
+    public TourKitApiClient(IHttpClientFactory factory, ILogger<TourKitApiClient> log, IConfiguration cfg)
     {
-        _factory = factory; _log = log;
+        _factory = factory; _log = log; _cfg = cfg;
+    }
+
+    /// POST /api/auth/sso-token — body {tenantId, username} + HMAC X-Sign (Sso:Secret). Lấy JWT
+    /// KHÔNG cần password (SSO web→AI: tự đăng nhập kể cả lần đầu). Parse response giống LoginAsync.
+    public async Task<TkLoginResult> IssueSsoTokenAsync(string tenantId, string username, CancellationToken ct)
+    {
+        var secret = _cfg["Sso:Secret"];
+        if (!string.IsNullOrEmpty(secret) && secret.StartsWith("ENC:", StringComparison.Ordinal))
+            secret = TourkitAiProxy.Services.Security.Crypton.Decrypt(secret.Substring(4));
+        if (string.IsNullOrWhiteSpace(secret) || secret.Length < 16)
+            throw new TourKitApiException("SSO chưa cấu hình (Sso:Secret)", 500);
+
+        var http = _factory.CreateClient("tourkit");
+        var body = JsonSerializer.Serialize(new { tenantId, username });
+        HttpResponseMessage resp;
+        try
+        {
+            using var msg = new HttpRequestMessage(HttpMethod.Post, "/api/auth/sso-token")
+            { Content = new StringContent(body, System.Text.Encoding.UTF8, "application/json") };
+            msg.Headers.Add("X-Sign", HmacHex(body, secret));
+            resp = await http.SendAsync(msg, ct);
+        }
+        catch (HttpRequestException ex)
+        {
+            _log.LogWarning(ex, "[TourKit] SSO-TOKEN tenant={T} user={U} không kết nối được upstream", tenantId, username);
+            throw new TourKitApiException("Không kết nối được hệ thống. Vui lòng thử lại sau.", 502);
+        }
+
+        var respBody = await resp.Content.ReadAsStringAsync(ct);
+        using var doc = SafeParse(respBody);
+        var root = doc?.RootElement;
+        if (!resp.IsSuccessStatusCode || root is null || !GetBool(root.Value, "success"))
+        {
+            var msg2 = root is not null ? GetString(root.Value, "message") : null;
+            _log.LogWarning("[TourKit] SSO-TOKEN FAIL tenant={T} user={U} HTTP={H}: {Msg}",
+                tenantId, username, (int)resp.StatusCode, msg2 ?? "(no message)");
+            throw new TourKitApiException(msg2 ?? $"SSO-token TourKit thất bại (HTTP {(int)resp.StatusCode})",
+                resp.StatusCode == System.Net.HttpStatusCode.Unauthorized ? 401 : 502);
+        }
+        if (!root.Value.TryGetProperty("data", out var data) || data.ValueKind != JsonValueKind.Object)
+            throw new TourKitApiException("SSO-token TourKit trả về thiếu data", 502);
+        var token = GetString(data, "token");
+        if (string.IsNullOrEmpty(token))
+            throw new TourKitApiException("SSO-token TourKit không trả về token", 502);
+        _log.LogInformation("[TourKit] SSO-TOKEN OK tenant={T} user={U}", tenantId, username);
+        return new TkLoginResult(token, GetString(data, "fullName"), GetString(data, "companyName"));
+    }
+
+    // HMAC-SHA256 hex lowercase — khớp AuthController.VerifyHmac bên TourKit.Api + CRM SsoController.
+    private static string HmacHex(string body, string secret)
+    {
+        using var h = new System.Security.Cryptography.HMACSHA256(System.Text.Encoding.UTF8.GetBytes(secret));
+        return Convert.ToHexString(h.ComputeHash(System.Text.Encoding.UTF8.GetBytes(body))).ToLowerInvariant();
     }
 
     /// BaseUrl đang dùng (vd "https://mobile-test-api-2.tourkit.vn"). Phục vụ trace/debug, KHÔNG có JWT.

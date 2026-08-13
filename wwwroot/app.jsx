@@ -275,6 +275,11 @@ function App() {
     let alive = true;
     (async () => {
       const sp = new URLSearchParams(window.location.search);
+
+      // SSO từ CRM: GET /sso đã verify vé, đặt cookie rồi 302 về đây với URL SẠCH. Nhận phiên (hoặc bỏ
+      // phiên người khác nếu người vừa SSO chưa có phiên), phần còn lại refresh() bên dưới lo.
+      window.tourkitAuth.adoptSso();
+
       const urlToken = sp.get('token');
       if (urlToken) {
         // Strip token khỏi URL trước khi login (an toàn nếu user F5 sau lỗi)

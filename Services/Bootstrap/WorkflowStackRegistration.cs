@@ -101,6 +101,7 @@ public static class WorkflowStackRegistration
         s.AddSingleton<TourkitAiProxy.Services.Db.TourkitAiDb>();
         s.AddSingleton<TourkitAiProxy.Services.Cache.RedisStore>();
         s.AddSingleton<TourkitAiProxy.Services.Cache.RedisProvider>();
+        s.AddSingleton<TourkitAiProxy.Services.Security.SsoCodeStore>();   // kho code 1-lần SSO (RAM/Redis theo Sso:ForceInMemory)
         s.AddSingleton<TourkitAiProxy.Services.Cache.ChatCache>();
 
         // ─── TourKit (session + service account) ─────────────────────────────
