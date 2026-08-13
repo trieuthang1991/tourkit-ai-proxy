@@ -93,13 +93,8 @@ public static class DigestEndpoints
                 // làm bản tin gửi lại lần nữa.
                 LastSentUtc: null, LastSentLocalDate: null), ct);
 
-            // Luật: mỗi người theo vai trò chỉ nhận 1 loại. Bật loại này → tắt loại kia (server tự lo,
-            // không tin mình client). Chỉ khi bật; disable thì để yên loại còn lại.
-            // 2 câu lệnh riêng (không transaction — dự án không có tiền lệ dùng): rủi ro hiếm là 2 PUT
-            // bật 2 loại khác nhau cùng lúc chèn nhau làm cả hai về tắt. Chấp nhận: mâu thuẫn chính UX
-            // "1 người 1 vai trò" nên gần như không xảy ra; lần lưu sau tự sửa.
-            if (body.Enabled)
-                await repo.DeactivateOthersAsync(a.TenantId, a.Username, briefType, ct);
+            // 1 dòng/người (PK TenantId+Username) — cấu trúc tự bảo đảm mỗi người 1 loại; đổi loại =
+            // UPDATE cột BriefType trên chính dòng đó (giờ + kênh giữ nguyên).
 
             return Results.Json(new { ok = true }, Web);
         });

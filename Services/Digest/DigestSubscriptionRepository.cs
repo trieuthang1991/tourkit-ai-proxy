@@ -67,17 +67,19 @@ LastSentUtc, LastSentLocalDate, SentMask, SentAttempts";
         return rows.Select(r => r.ToModel()).ToList();
     }
 
-    /// Upsert. CỐ Ý không đụng LastSentUtc/LastSentLocalDate — người dùng sửa cấu hình
-    /// (đổi giờ, bật kênh) KHÔNG được làm bản tin gửi lại lần nữa trong ngày.
+    /// Upsert. Mỗi người CHỈ 1 dòng (PK TenantId+Username) — khớp theo 2 cột này, KHÔNG còn
+    /// BriefType trong ON: đổi loại bản tin là UPDATE ngay cột BriefType trên chính dòng đó,
+    /// giờ + kênh đã khai giữ nguyên. CỐ Ý không đụng LastSentUtc/LastSentLocalDate — người dùng
+    /// sửa cấu hình (đổi giờ, bật kênh, đổi loại) KHÔNG được làm bản tin gửi lại lần nữa trong ngày.
     public async Task UpsertAsync(DigestSubscription s, CancellationToken ct = default)
     {
         await using var c = await _db.OpenAsync(ct);
         await c.ExecuteAsync(@"
 MERGE dbo.DigestSubscriptions AS T
-USING (SELECT @TenantId AS TenantId, @Username AS Username, @BriefType AS BriefType) AS S
-    ON T.TenantId = S.TenantId AND T.Username = S.Username AND T.BriefType = S.BriefType
+USING (SELECT @TenantId AS TenantId, @Username AS Username) AS S
+    ON T.TenantId = S.TenantId AND T.Username = S.Username
 WHEN MATCHED THEN UPDATE SET
-    Enabled = @Enabled, SendHourLocal = @SendHourLocal,
+    BriefType = @BriefType, Enabled = @Enabled, SendHourLocal = @SendHourLocal,
     ChannelInApp = @ChannelInApp, ChannelEmail = @ChannelEmail, Email = @Email,
     ChannelTelegram = @ChannelTelegram, TelegramChatId = @TelegramChatId,
     ChannelZalo = @ChannelZalo, ZaloUserId = @ZaloUserId, UpdatedUtc = SYSUTCDATETIME()
@@ -94,18 +96,6 @@ VALUES
                 s.ChannelInApp, s.ChannelEmail, s.Email,
                 s.ChannelTelegram, s.TelegramChatId, s.ChannelZalo, s.ZaloUserId
             });
-    }
-
-    /// Tắt mọi loại bản tin KHÁC của cùng người — dùng khi bật 1 loại để giữ luật "1 người 1 loại".
-    /// CHỈ đổi Enabled (giữ nguyên nơi nhận đã khai), và chỉ chạm dòng đang bật → không tạo dòng thừa.
-    public async Task DeactivateOthersAsync(string tenant, string username, string keepBriefType,
-        CancellationToken ct = default)
-    {
-        await using var c = await _db.OpenAsync(ct);
-        await c.ExecuteAsync(@"
-UPDATE dbo.DigestSubscriptions SET Enabled = 0, UpdatedUtc = SYSUTCDATETIME()
-WHERE TenantId = @tenant AND Username = @username AND BriefType <> @keepBriefType AND Enabled = 1",
-            new { tenant, username, keepBriefType });
     }
 
     /// <summary>

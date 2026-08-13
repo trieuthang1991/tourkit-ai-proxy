@@ -684,7 +684,7 @@ BEGIN
         LastSentLocalDate DATE          NULL,
         CreatedUtc        DATETIME2     NOT NULL,
         UpdatedUtc        DATETIME2     NOT NULL,
-        CONSTRAINT PK_DigestSubscriptions PRIMARY KEY (TenantId, Username, BriefType)
+        CONSTRAINT PK_DigestSubscriptions PRIMARY KEY (TenantId, Username)
     );
 END;
 
@@ -720,5 +720,23 @@ IF NOT EXISTS (SELECT 1 FROM sys.columns WHERE object_id = OBJECT_ID('dbo.TkSess
 -- Default 0: mọi dòng cũ tự thành email, không cần migrate data.
 IF NOT EXISTS (SELECT 1 FROM sys.columns WHERE object_id = OBJECT_ID('dbo.OutboundMails') AND name = 'Channel')
     ALTER TABLE dbo.OutboundMails ADD Channel TINYINT NOT NULL CONSTRAINT DF_OutboundMails_Channel DEFAULT 0;
+
+--
+-- [Q11] Mỗi người đúng 1 dòng đăng ký: BriefType ra khỏi khoá chính. Đổi loại = UPDATE cột,
+-- giờ + kênh đi theo người; luật ""1 người 1 loại"" thành bất biến cấu trúc.
+IF EXISTS (
+    SELECT 1 FROM sys.index_columns ic
+    JOIN sys.indexes i ON i.object_id = ic.object_id AND i.index_id = ic.index_id
+    WHERE i.object_id = OBJECT_ID('dbo.DigestSubscriptions') AND i.is_primary_key = 1
+    GROUP BY i.index_id HAVING COUNT(*) = 3)
+BEGIN
+    ;WITH ranked AS (
+        SELECT *, ROW_NUMBER() OVER (PARTITION BY TenantId, Username
+                 ORDER BY Enabled DESC, UpdatedUtc DESC) AS rn
+        FROM dbo.DigestSubscriptions)
+    DELETE FROM ranked WHERE rn > 1;
+    ALTER TABLE dbo.DigestSubscriptions DROP CONSTRAINT PK_DigestSubscriptions;
+    ALTER TABLE dbo.DigestSubscriptions ADD CONSTRAINT PK_DigestSubscriptions PRIMARY KEY (TenantId, Username);
+END;
 ";
 }
