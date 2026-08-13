@@ -714,5 +714,11 @@ IF NOT EXISTS (SELECT 1 FROM sys.columns WHERE object_id = OBJECT_ID('dbo.Digest
 -- user_id CRM lấy từ JWT lúc login → lọc dữ liệu ""của riêng người này"" khi dựng bản tin.
 IF NOT EXISTS (SELECT 1 FROM sys.columns WHERE object_id = OBJECT_ID('dbo.TkSessions') AND name = 'CrmUserId')
     ALTER TABLE dbo.TkSessions ADD CrmUserId INT NULL;
+
+--
+-- Kênh gửi cho hàng đợi đa kênh (0=email 1=telegram 2=zalo — enum OutboundChannel).
+-- Default 0: mọi dòng cũ tự thành email, không cần migrate data.
+IF NOT EXISTS (SELECT 1 FROM sys.columns WHERE object_id = OBJECT_ID('dbo.OutboundMails') AND name = 'Channel')
+    ALTER TABLE dbo.OutboundMails ADD Channel TINYINT NOT NULL CONSTRAINT DF_OutboundMails_Channel DEFAULT 0;
 ";
 }

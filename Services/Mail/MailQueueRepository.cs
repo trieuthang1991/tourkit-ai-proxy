@@ -1,5 +1,6 @@
 using Dapper;
 using TourkitAiProxy.Services.Db;
+using TourkitAiProxy.Services.Digest;
 
 namespace TourkitAiProxy.Services.Mail;
 
@@ -26,15 +27,15 @@ public class MailQueueRepository
         await using var c = await _db.OpenAsync(ct);
         var id = await c.ExecuteScalarAsync<long>(@"
 INSERT INTO dbo.OutboundMails
-    (TenantId, Kind, SourceId, Username, TemplateCode, ToEmail, ToName, ToUserId, Cc, Subject, [Params], Data, ScheduledUtc, Status, CreatedUtc)
+    (TenantId, Kind, SourceId, Username, TemplateCode, ToEmail, ToName, ToUserId, Cc, Subject, [Params], Data, Channel, ScheduledUtc, Status, CreatedUtc)
 VALUES
-    (@TenantId, @Kind, @SourceId, @Username, @TemplateCode, @ToEmail, @ToName, @ToUserId, @Cc, @Subject, @ParamsJson, @Data, @ScheduledUtc, 0, SYSUTCDATETIME());
+    (@TenantId, @Kind, @SourceId, @Username, @TemplateCode, @ToEmail, @ToName, @ToUserId, @Cc, @Subject, @ParamsJson, @Data, @Channel, @ScheduledUtc, 0, SYSUTCDATETIME());
 SELECT CAST(SCOPE_IDENTITY() AS BIGINT);",
             new
             {
                 m.TenantId, m.Kind, m.SourceId, m.Username, m.TemplateCode,
                 m.ToEmail, m.ToName, m.ToUserId, m.Cc, m.Subject,
-                ParamsJson = m.Params, m.Data, m.ScheduledUtc
+                ParamsJson = m.Params, m.Data, Channel = (byte)m.Channel, m.ScheduledUtc
             });
         return id;
     }
@@ -61,43 +62,45 @@ WHERE TenantId = @tenantId AND Kind = @kind AND SourceId = @sourceId
         return (row.Total, last);
     }
 
-    /// Đọc cho trang theo dõi (lọc Kind/Status, mới nhất trước).
+    /// Đọc cho trang theo dõi (lọc Kind/Status/Channel, mới nhất trước).
     public async Task<List<OutboundMail>> ListForMonitorAsync(
-        string tenantId, string? kind, int? status, int take, CancellationToken ct = default)
+        string tenantId, string? kind, int? status, int? channel, int take, CancellationToken ct = default)
     {
         if (take < 1) take = 1; if (take > 500) take = 500;
         await using var c = await _db.OpenAsync(ct);
         var rows = await c.QueryAsync<OutboundMail>(@"
 SELECT TOP (@take)
     Id, TenantId, Kind, SourceId, Username, TemplateCode, ToEmail, ToName, ToUserId, Cc,
-    Subject, [Params] AS [Params], Data, [Status], RetryCount, ErrorMessage,
+    Subject, [Params] AS [Params], Data, Channel, [Status], RetryCount, ErrorMessage,
     ScheduledUtc, CreatedUtc, ProcessedUtc
 FROM dbo.OutboundMails
 WHERE TenantId = @tenantId
   AND (@kind IS NULL OR Kind = @kind)
   AND (@status IS NULL OR [Status] = @status)
+  AND (@channel IS NULL OR Channel = @channel)
 ORDER BY Id DESC;",
-            new { tenantId, kind, status, take });
+            new { tenantId, kind, status, channel, take });
         return rows.AsList();
     }
 
-    /// CROSS-TENANT (admin): đọc hàng đợi mọi tenant, lọc tùy chọn theo tenant/kind/status.
+    /// CROSS-TENANT (admin): đọc hàng đợi mọi tenant, lọc tùy chọn theo tenant/kind/status/channel.
     public async Task<List<OutboundMail>> ListForAdminAsync(
-        string? tenantId, string? kind, int? status, int take, CancellationToken ct = default)
+        string? tenantId, string? kind, int? status, int? channel, int take, CancellationToken ct = default)
     {
         if (take < 1) take = 1; if (take > 500) take = 500;
         await using var c = await _db.OpenAsync(ct);
         var rows = await c.QueryAsync<OutboundMail>(@"
 SELECT TOP (@take)
     Id, TenantId, Kind, SourceId, Username, TemplateCode, ToEmail, ToName, ToUserId, Cc,
-    Subject, [Params] AS [Params], Data, [Status], RetryCount, ErrorMessage,
+    Subject, [Params] AS [Params], Data, Channel, [Status], RetryCount, ErrorMessage,
     ScheduledUtc, CreatedUtc, ProcessedUtc
 FROM dbo.OutboundMails
 WHERE (@tenantId IS NULL OR TenantId = @tenantId)
   AND (@kind     IS NULL OR Kind     = @kind)
   AND (@status   IS NULL OR [Status] = @status)
+  AND (@channel  IS NULL OR Channel  = @channel)
 ORDER BY Id DESC;",
-            new { tenantId, kind, status, take });
+            new { tenantId, kind, status, channel, take });
         return rows.AsList();
     }
 
@@ -131,7 +134,8 @@ public record OutboundMailInput(
     string? Subject = null,
     string? Params = null,
     string? Data = null,
-    DateTime? ScheduledUtc = null);
+    DateTime? ScheduledUtc = null,
+    OutboundChannel Channel = OutboundChannel.Email);
 
 /// Read-model 1 dòng hàng đợi (cho monitor).
 public record OutboundMail(
@@ -148,6 +152,7 @@ public record OutboundMail(
     string? Subject,
     string? Params,
     string? Data,
+    byte Channel,
     byte Status,
     int RetryCount,
     string? ErrorMessage,

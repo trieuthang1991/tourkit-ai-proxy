@@ -340,7 +340,7 @@ public static class WorkflowEndpoints
             var auth = RequireSession(ctx, sessions);
             if (auth == null) return Unauthorized();
             var (_, tenant, _) = auth.Value;
-            var rows = await queue.ListForMonitorAsync(tenant, kind, status, limit ?? 50, ctx.RequestAborted);
+            var rows = await queue.ListForMonitorAsync(tenant, kind, status, null, limit ?? 50, ctx.RequestAborted);
             return Results.Json(new
             {
                 items = rows.Select(r => new

@@ -377,7 +377,7 @@ public static class AdminUiEndpoints
             var k  = string.IsNullOrWhiteSpace(kind) ? null : kind.Trim();
             var take = Math.Clamp(limit ?? 50, 1, 500);
 
-            var itemsTask  = queue.ListForAdminAsync(t, k, status, take, ct);
+            var itemsTask  = queue.ListForAdminAsync(t, k, status, null, take, ct);
             var countsTask = queue.CountByStatusForAdminAsync(t, k, ct);
             await Task.WhenAll(itemsTask, countsTask);
             var rows   = await itemsTask;

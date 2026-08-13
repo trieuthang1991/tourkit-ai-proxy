@@ -52,9 +52,28 @@ người báo "hôm nay không nhận được mail".
 
 Thiếu template này worker **vẫn gửi được** (tự render từ `Params`) — mẫu chỉ để mail đẹp + có chữ ký.
 
+## Kênh gửi (`Channel`, TINYINT)
+
+Từ 2026-08 hàng đợi này thành đa kênh (email/Telegram/Zalo) cho bản tin sáng, không chỉ email. Cột
+`Channel` phân biệt dòng nào worker này (SMTP) được nhặt — enum
+[`OutboundChannel`](../../Services/Digest/OutboundChannel.cs), **worker toutkit-app phải MIRROR đúng
+bảng số** này:
+
+| Số | Tên | Ai xử lý |
+|---|---|---|
+| 0 | `Email` (default) | Worker này (SMTP) |
+| 1 | `Telegram` | Kênh khác (proxy tự gửi qua bot Telegram, KHÔNG qua hàng đợi này giai đoạn đầu / hoặc drainer riêng — xem plan) |
+| 2 | `Zalo` | Kênh khác (Zalo OA) |
+
+Dòng cũ (trước khi có cột `Channel`) tự mang giá trị mặc định `0` (email) — không cần migrate data.
+
+⚠️ **BẮT BUỘC deploy filter `AND Channel=0` TRƯỚC khi proxy bắt đầu enqueue Telegram/Zalo vào bảng
+này**, nếu không worker sẽ nhặt nhầm dòng kênh khác đem đi gửi SMTP (địa chỉ đích sai định dạng, gửi
+lỗi hàng loạt).
+
 ## Hợp đồng worker (tóm tắt)
 
-1. Poll: `SELECT TOP N * FROM dbo.OutboundMails WHERE Status=0 AND (ScheduledUtc IS NULL OR ScheduledUtc <= SYSUTCDATETIME()) ORDER BY CreatedUtc` — **giờ UTC** (so sánh bằng `DateTime.UtcNow`).
+1. Poll: `SELECT TOP N * FROM dbo.OutboundMails WHERE Status=0 AND Channel=0 AND (ScheduledUtc IS NULL OR ScheduledUtc <= SYSUTCDATETIME()) ORDER BY CreatedUtc` — **giờ UTC** (so sánh bằng `DateTime.UtcNow`). **Lọc `Channel=0`** để chỉ nhặt dòng email — dòng kênh khác (Telegram/Zalo) không phải việc của worker SMTP này.
 2. Render: load template theo `TemplateCode` → replace `{{key}}` từ `[Params]`. `Subject` lấy từ template hoặc cột `Subject`.
 3. Người nhận:
    - `Kind='deal-cooling-alert'`: đọc `Data.dealId` → tenant DB `BookingTickets.NguoiPhuTrachs` → `Users.email` (1 deal nhiều NV → gửi nhiều / Cc).
