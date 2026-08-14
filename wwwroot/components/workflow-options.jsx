@@ -196,6 +196,28 @@
       { key: 'showNumbers', type: 'bool', label: 'Đính bảng số dưới bài viết', default: true, showIf: 'useAi',
         hint: 'Giữ bật thì đọc xong lời văn còn đối chiếu được ngay với số gốc. Tắt thì bản tin gọn hơn nhưng phải tin AI suông.' },
     ],
+    // Kiểm tra sẵn sàng khởi hành (O1). Ba nhóm kiểm tách riêng vì ĐỘ TIN của dữ liệu khác nhau:
+    // tiền có số thật, chỗ ngồi chỉ đúng khi công ty khai ngưỡng, visa thì CRM không lưu trạng thái
+    // hồ sơ nên chỉ nhắc được là "tour có visa, tự kiểm".
+    // ⚠️ default PHẢI khớp TourReadinessWorkflow.ParseOptions bên C#.
+    'tour-readiness': [
+      { key: 'milestones', type: 'numbers', label: 'Nhắc ở các mốc (ngày trước khi đi)', default: [7, 3, 1],
+        hint: 'Nhập các mốc cách nhau dấu phẩy, ví dụ 7, 3, 1. Mỗi mốc nhắc đúng một lần: một lần còn kịp xoay, một lần cảnh báo, một lần chốt cuối. Nhắc mỗi ngày suốt tuần thì tới ngày thứ ba là không ai đọc nữa.' },
+
+      { key: 'checkPayment', type: 'bool', label: 'Kiểm tiền đã thu', default: true,
+        hint: 'Khách đã trả đủ chưa. Tour chưa chốt giá thì bỏ qua — "còn thiếu" lúc đó là khái niệm vô nghĩa.' },
+
+      { key: 'checkSeats', type: 'bool', label: 'Kiểm số khách tối thiểu', default: true,
+        hint: 'Tour ghép chưa đủ khách thì càng gần ngày đi càng khó xoay: dồn chuyến, đổi lịch hay huỷ đều cần thời gian.' },
+      { key: 'minSeats', type: 'number', label: 'Số khách tối thiểu để tour chạy', showIf: 'checkSeats',
+        default: 0, min: 0, max: 200,
+        hint: 'Để 0 = KHÔNG kiểm phần này. Cố ý không đoán hộ: công ty chạy tour lẻ 2 khách mà bị áp ngưỡng 10 thì tour nào cũng bị báo thiếu khách. Chỉ tour có khai số chỗ mới được xét.' },
+
+      { key: 'checkVisa', type: 'bool', label: 'Nhắc hồ sơ visa', default: true,
+        hint: 'CRM không lưu trạng thái từng bộ hồ sơ, nên đây chỉ là lời nhắc "tour này có visa, kiểm lại hồ sơ khách" — không phải kết luận là đang thiếu.' },
+      { key: 'visaTourTypes', type: 'numbers', label: 'Mã loại tour cần visa', showIf: 'checkVisa', default: [102],
+        hint: 'Mã loại tour trong CRM của công ty bạn. Mặc định 102. Nhập nhiều mã thì cách nhau dấu phẩy.' },
+    ],
     'customer-auto-review': [
       { key: 'createdWithinDays', type: 'number', label: 'Chỉ khách tạo trong (ngày)', default: 30, min: 1, max: 365,
         hint: 'Chỉ review khách được tạo trong khoảng ngày gần đây này. Khách cũ hơn được bỏ qua ở lần review đầu.' },
@@ -235,6 +257,11 @@
       secAlerts: '② Đưa thêm vào bản tin', secTasks: '② Đưa thêm vào bản tin',
       taskStatuses: '② Đưa thêm vào bản tin',
       useAi: '③ Cách trình bày', showNumbers: '③ Cách trình bày',
+    },
+    'tour-readiness': {
+      milestones: '① Nhắc khi nào',
+      checkPayment: '② Kiểm những gì', checkSeats: '② Kiểm những gì', minSeats: '② Kiểm những gì',
+      checkVisa: '② Kiểm những gì', visaTourTypes: '② Kiểm những gì',
     },
     'customer-auto-review': {
       createdWithinDays: 'Phạm vi',

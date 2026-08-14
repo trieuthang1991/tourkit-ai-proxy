@@ -186,6 +186,10 @@ public static class WorkflowStackRegistration
             // Canh thanh toán: luồng THEO TỔ CHỨC (cảnh báo tenant-wide) nên dùng tài khoản tự động,
             // khác bản tin cá nhân chạy bằng tài khoản của chính người nhận.
             s.AddSingleton<Workflows.IScheduledWorkflow, Workflows.PaymentWatchdogWorkflow>();
+            // Kiểm tra sẵn sàng khởi hành: cùng họ với canh thanh toán (tenant-wide, tài khoản tự
+            // động, không AI). Nằm SAU cờ Digest vì nó ghi vào Bảng tin — tắt cờ thì
+            // /api/v1/insights trả 404, thẻ ghi ra sẽ không ai xem được.
+            s.AddSingleton<Workflows.IScheduledWorkflow, Workflows.TourReadinessWorkflow>();
             // Bản tin sáng: fetch bằng phiên CỦA TỪNG NGƯỜI NHẬN (không phải tài khoản tự động)
             // → CRM tự áp quyền, lọc sai cũng chỉ thiếu chứ không lộ dữ liệu người khác.
             s.AddSingleton<Workflows.IScheduledWorkflow, Workflows.SaleBriefWorkflow>();
