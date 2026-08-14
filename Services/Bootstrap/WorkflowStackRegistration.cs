@@ -166,9 +166,15 @@ public static class WorkflowStackRegistration
         // mạng ngoài — mấy kênh sau hỏng hết thì bản tin vẫn còn chỗ xem lại.
         s.AddSingleton<Digest.Channels.IDigestChannel, Digest.Channels.InAppChannel>();
         s.AddSingleton<Digest.Channels.IDigestChannel, Digest.Channels.EmailChannel>();
-        s.AddSingleton<Digest.Channels.IDigestChannel, Digest.Channels.TelegramChannel>();
-        s.AddSingleton<Digest.Channels.IDigestChannel, Digest.Channels.ZaloOaChannel>();
+        // Telegram/Zalo đăng ký lớp CỤ THỂ rồi mới bắc cầu sang interface: bộ rút hàng đợi
+        // (OutboundChannelDrainer) gọi thẳng method gửi lõi nên cần chính lớp đó, không phải
+        // interface. Bắc cầu bằng lambda để cả hai đường cùng dùng MỘT instance.
+        s.AddSingleton<Digest.Channels.TelegramChannel>();
+        s.AddSingleton<Digest.Channels.IDigestChannel>(sp => sp.GetRequiredService<Digest.Channels.TelegramChannel>());
+        s.AddSingleton<Digest.Channels.ZaloOaChannel>();
+        s.AddSingleton<Digest.Channels.IDigestChannel>(sp => sp.GetRequiredService<Digest.Channels.ZaloOaChannel>());
         s.AddSingleton<Digest.DigestDispatcher>();
+        s.AddSingleton<Digest.OutboundChannelDrainer>();
 
         // 3 tác vụ dưới đây nằm sau cờ Features:Digest (xem FeatureFlags.Digest).
         // Gỡ đăng ký là đủ để TẮT HẲN: WorkflowRegistry dựng từ IEnumerable<IScheduledWorkflow>

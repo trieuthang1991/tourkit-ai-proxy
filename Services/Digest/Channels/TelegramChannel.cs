@@ -40,14 +40,35 @@ public class TelegramChannel : IDigestChannel
         return true;
     }
 
-    public async Task<bool> SendAsync(DigestSubscription sub, DigestMessage m, CancellationToken ct)
+    public Task<bool> SendAsync(DigestSubscription sub, DigestMessage m, CancellationToken ct)
+        => SendToChatAsync(sub.TelegramChatId ?? "", m.Title, m.BodyMarkdown, sub.TenantId, sub.Username, ct);
+
+    /// <summary>
+    /// Gửi lõi — chỉ cần nơi nhận + nội dung, KHÔNG cần bản đăng ký. Tách ra để hàng đợi
+    /// (<see cref="OutboundChannelDrainer"/>) gửi được: lúc đó bản tin đã dựng xong từ trước,
+    /// trong tay chỉ còn chat id lưu trong dòng hàng đợi.
+    /// </summary>
+    public async Task<bool> SendToChatAsync(string chatId, string title, string? bodyMd,
+        string tenantId, string username, CancellationToken ct)
     {
+        if (string.IsNullOrWhiteSpace(_token))
+        {
+            if (Interlocked.Exchange(ref _warnedNoToken, 1) == 0)
+                _log.LogWarning("[digest/telegram] chưa cấu hình Telegram:BotToken — kênh Telegram TẮT cho mọi tenant");
+            return false;
+        }
+        if (string.IsNullOrWhiteSpace(chatId))
+        {
+            _log.LogWarning("[digest/telegram] thiếu chat id tenant={T} user={U} — bỏ qua", tenantId, username);
+            return false;
+        }
+
         try
         {
-            var text = TelegramFormat.ToTelegramHtml(m.Title, m.BodyMarkdown);
+            var text = TelegramFormat.ToTelegramHtml(title, bodyMd ?? "");
             var body = JsonSerializer.Serialize(new
             {
-                chat_id = sub.TelegramChatId,
+                chat_id = chatId,
                 text,
                 parse_mode = "HTML",
                 disable_web_page_preview = true,
@@ -65,13 +86,13 @@ public class TelegramChannel : IDigestChannel
             // by the user") — không đọc thì chỉ thấy 400 trơ trọi, không biết bảo người dùng làm gì.
             var err = await resp.Content.ReadAsStringAsync(ct);
             _log.LogWarning("[digest/telegram] gửi hỏng {Status} tenant={T} user={U}: {Err}",
-                (int)resp.StatusCode, sub.TenantId, sub.Username, err.Length > 300 ? err[..300] : err);
+                (int)resp.StatusCode, tenantId, username, err.Length > 300 ? err[..300] : err);
             return false;
         }
         catch (OperationCanceledException) when (ct.IsCancellationRequested) { throw; }
         catch (Exception ex)
         {
-            _log.LogWarning(ex, "[digest/telegram] lỗi mạng tenant={T} user={U}", sub.TenantId, sub.Username);
+            _log.LogWarning(ex, "[digest/telegram] lỗi mạng tenant={T} user={U}", tenantId, username);
             return false;
         }
     }

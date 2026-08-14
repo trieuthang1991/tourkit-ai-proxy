@@ -62,6 +62,45 @@ WHERE TenantId = @tenantId AND Kind = @kind AND SourceId = @sourceId
         return (row.Total, last);
     }
 
+    /// <summary>
+    /// Dòng kênh NGOÀI-EMAIL đã đến hạn (drainer của proxy xử lý). Email là việc của worker
+    /// toutkit-app — nó lọc <c>Channel=0</c>, nên hai bên không giẫm chân nhau.
+    /// </summary>
+    public async Task<List<OutboundMail>> ListDueNonEmailAsync(int take, CancellationToken ct = default)
+    {
+        if (take < 1) take = 1; if (take > 200) take = 200;
+        await using var c = await _db.OpenAsync(ct);
+        var rows = await c.QueryAsync<OutboundMail>(@"
+SELECT TOP (@take)
+    Id, TenantId, Kind, SourceId, Username, TemplateCode, ToEmail, ToName, ToUserId, Cc,
+    Subject, [Params] AS [Params], Data, Channel, [Status], RetryCount, ErrorMessage,
+    ScheduledUtc, CreatedUtc, ProcessedUtc
+FROM dbo.OutboundMails
+WHERE [Status] = 0 AND Channel <> 0
+  AND (ScheduledUtc IS NULL OR ScheduledUtc <= SYSUTCDATETIME())
+ORDER BY Id;",
+            new { take });
+        return rows.AsList();
+    }
+
+    /// <summary>
+    /// Ghi kết quả 1 lượt gửi của drainer. Điều kiện <c>Status=0</c> chống hai tiến trình cùng xử
+    /// một dòng: dòng đã bị bên kia chốt thì UPDATE không trúng → trả false, caller bỏ qua.
+    /// </summary>
+    public async Task<bool> MarkProcessedAsync(long id, bool ok, string? error, CancellationToken ct = default)
+    {
+        await using var c = await _db.OpenAsync(ct);
+        var n = await c.ExecuteAsync(@"
+UPDATE dbo.OutboundMails SET
+    [Status] = @st,
+    ErrorMessage = @error,
+    RetryCount = RetryCount + CASE WHEN @st = 2 THEN 1 ELSE 0 END,
+    ProcessedUtc = SYSUTCDATETIME()
+WHERE Id = @id AND [Status] = 0;",
+            new { id, st = ok ? 1 : 2, error = error is { Length: > 1000 } ? error[..1000] : error });
+        return n > 0;
+    }
+
     /// Đọc cho trang theo dõi (lọc Kind/Status/Channel, mới nhất trước).
     public async Task<List<OutboundMail>> ListForMonitorAsync(
         string tenantId, string? kind, int? status, int? channel, int take, CancellationToken ct = default)

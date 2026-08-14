@@ -33,24 +33,39 @@ public class ZaloOaChannel : IDigestChannel
     public bool IsConfigured(DigestSubscription sub)
         => sub.ChannelZalo && !string.IsNullOrWhiteSpace(sub.ZaloUserId);
 
-    public async Task<bool> SendAsync(DigestSubscription sub, DigestMessage m, CancellationToken ct)
+    public Task<bool> SendAsync(DigestSubscription sub, DigestMessage m, CancellationToken ct)
+        => SendToUserAsync(sub.TenantId, sub.ZaloUserId ?? "", m.Title, m.BodyMarkdown, sub.Username, ct);
+
+    /// <summary>
+    /// Gửi lõi — chỉ cần nơi nhận + nội dung, KHÔNG cần bản đăng ký. Tách ra để hàng đợi
+    /// (<see cref="OutboundChannelDrainer"/>) gửi được. Token OA vẫn resolve NGAY LÚC GỬI
+    /// (không lưu vào dòng hàng đợi) — token có hạn và công ty đổi được bất cứ lúc nào.
+    /// </summary>
+    public async Task<bool> SendToUserAsync(string tenantId, string zaloUserId, string title,
+        string? bodyMd, string username, CancellationToken ct)
     {
+        if (string.IsNullOrWhiteSpace(zaloUserId))
+        {
+            _log.LogWarning("[digest/zalo] thiếu Zalo user id tenant={T} user={U} — bỏ qua", tenantId, username);
+            return false;
+        }
+
         try
         {
-            var cfg = await _settings.GetZaloConfigAsync(sub.TenantId, ct);
+            var cfg = await _settings.GetZaloConfigAsync(tenantId, ct);
             if (cfg == null)
             {
-                _log.LogWarning("[digest/zalo] tenant={T} chưa khai OA Zalo — bỏ qua kênh này", sub.TenantId);
+                _log.LogWarning("[digest/zalo] tenant={T} chưa khai OA Zalo — bỏ qua kênh này", tenantId);
                 return false;
             }
 
             // Zalo không nhận HTML; gửi text thuần, bỏ ** ** của markdown.
-            var text = $"{m.Title}\n\n{m.BodyMarkdown?.Replace("**", "")}";
+            var text = $"{title}\n\n{bodyMd?.Replace("**", "")}";
             if (text.Length > 2000) text = text[..1997] + "…";
 
             var body = JsonSerializer.Serialize(new
             {
-                recipient = new { user_id = sub.ZaloUserId },
+                recipient = new { user_id = zaloUserId },
                 message = new { text },
             });
 
@@ -78,13 +93,13 @@ public class ZaloOaChannel : IDigestChannel
             if (resp.IsSuccessStatusCode && errCode == 0) return true;
 
             _log.LogWarning("[digest/zalo] gửi hỏng http={Status} error={Err} tenant={T} user={U}: {Body}",
-                (int)resp.StatusCode, errCode, sub.TenantId, sub.Username, raw.Length > 300 ? raw[..300] : raw);
+                (int)resp.StatusCode, errCode, tenantId, username, raw.Length > 300 ? raw[..300] : raw);
             return false;
         }
         catch (OperationCanceledException) when (ct.IsCancellationRequested) { throw; }
         catch (Exception ex)
         {
-            _log.LogWarning(ex, "[digest/zalo] lỗi mạng tenant={T} user={U}", sub.TenantId, sub.Username);
+            _log.LogWarning(ex, "[digest/zalo] lỗi mạng tenant={T} user={U}", tenantId, username);
             return false;
         }
     }
