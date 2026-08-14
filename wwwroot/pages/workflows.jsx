@@ -987,6 +987,115 @@ function StatusMapPanel({ list, chosen, loading, source, onRefresh }) {
   );
 }
 
+// ─── StatusMappingCard ───────────────────────────────────────────────────────────
+//
+// "Máy đang hiểu trạng thái của công ty tôi thế nào" — đặt ở CẤP TRANG, không chôn trong từng ô
+// cấu hình. Bảng nhỏ dưới mỗi ô vẫn còn (nó nói cái ĐANG được chọn), nhưng muốn xem cách hiểu tổng
+// thể hoặc bắt phân loại lại thì phải mở đúng thẻ, cuộn tới đúng nhóm ① hoặc ④ mới thấy — gần như
+// không ai tìm ra. Một phán đoán của AI đang quyết định nội dung bản tin thì phải có chỗ xem và
+// chạy lại mà không cần biết nó nằm ở ô nào.
+function StatusMappingCard({ pushToast }) {
+  const Icon = window.Icon;
+  const [open, setOpen] = uS(false);
+  const [data, setData] = uS(null);       // { deal: {...}, task: {...} }
+  const [loading, setLoading] = uS(false);
+
+  const KINDS = [
+    { key: 'deal', label: 'Trạng thái cơ hội bán hàng', url: '/api/v1/workflows/deal-statuses' },
+    { key: 'task', label: 'Trạng thái công việc', url: '/api/v1/workflows/task-statuses' },
+  ];
+
+  async function load(refresh) {
+    setLoading(true);
+    try {
+      const out = {};
+      for (const k of KINDS) {
+        const d = await apiFetch(k.url + (refresh ? '?refresh=1' : ''));
+        out[k.key] = {
+          items: d.items || [],
+          open: Array.isArray(d.openSuggested) ? d.openSuggested : null,
+          src: d.hintSource,
+          error: d.error,
+        };
+      }
+      setData(out);
+      if (refresh) pushToast('Đã phân loại lại. Mở lại thẻ cấu hình và bấm Lưu nếu muốn áp dụng.');
+    } catch (e) {
+      pushToast('Không đọc được danh sách trạng thái: ' + e.message, 'error');
+    } finally { setLoading(false); }
+  }
+
+  function toggle() {
+    const next = !open;
+    setOpen(next);
+    if (next && !data) load(false);
+  }
+
+  return (
+    <div className="wga-card workflows-statusmap-card">
+      <div className="workflows-statusmap-head">
+        <div>
+          <h4>Cách hiểu trạng thái của công ty bạn</h4>
+          <p>
+            Mỗi công ty đặt tên trạng thái một kiểu, mà hệ thống cần biết cái nào là “còn phải làm”
+            để nhắc đúng việc. AI đọc tên trạng thái trong CRM của bạn rồi phân loại sẵn — xem lại ở
+            đây, thấy sai thì sửa trong từng mục cấu hình bên dưới.
+          </p>
+        </div>
+        <div className="workflows-statusmap-actions">
+          <button className="wga-btn ghost" onClick={toggle}>
+            <Icon name={open ? 'chevronUp' : 'chevronDown'} size={13} />
+            {open ? 'Ẩn' : 'Xem cách hiểu'}
+          </button>
+          <button className="wga-btn" onClick={() => load(true)} disabled={loading}>
+            <Icon name="refresh" size={13} /> {loading ? 'Đang đọc…' : 'Phân loại lại'}
+          </button>
+        </div>
+      </div>
+
+      {open && (
+        loading && !data
+          ? <div className="wf-statusmap is-loading">
+              <span className="wf-statusmap-spin" />
+              Đang nhờ AI đọc tên trạng thái trong CRM của bạn — chờ vài giây…
+            </div>
+          : <div className="workflows-statusmap-cols">
+              {KINDS.map(k => {
+                const d = (data || {})[k.key];
+                if (!d) return null;
+                const sel = d.open;
+                return (
+                  <div className="workflows-statusmap-col" key={k.key}>
+                    <div className="workflows-statusmap-coltitle">
+                      {k.label}
+                      {sel
+                        ? <span className="wf-statusmap-src">AI phân loại theo tên</span>
+                        : <span className="wf-statusmap-src is-weak">chưa có gợi ý — đoán theo từ khoá</span>}
+                    </div>
+                    {d.error && <div className="workflows-opt-hint">Lỗi đọc từ CRM: {d.error}</div>}
+                    {d.items.length === 0
+                      ? <div className="workflows-opt-hint">CRM chưa trả về trạng thái nào.</div>
+                      : <ul className="wf-statusmap-list">
+                          {d.items.map(o => {
+                            const on = sel ? sel.includes(o.value) : true;
+                            return (
+                              <li key={o.value} className={on ? 'is-open' : 'is-closed'}>
+                                <span className="wf-statusmap-dot" />
+                                <span className="wf-statusmap-name">{o.label}</span>
+                                <span className="wf-statusmap-verdict">{on ? 'còn phải làm' : 'đã xong'}</span>
+                              </li>
+                            );
+                          })}
+                        </ul>}
+                  </div>
+                );
+              })}
+            </div>
+      )}
+    </div>
+  );
+}
+
 // ─── BriefPicker ─────────────────────────────────────────────────────────────────
 
 // Hai loại bản tin GỘP vào MỘT thẻ, chọn loại bằng ô chọn ở trên.
@@ -1238,6 +1347,7 @@ function WorkflowsPage({ pushToast, initialTab }) {
                       <p>Đưa mục nào vào bản tin, ngưỡng bao nhiêu ngày, trạng thái nào còn phải chăm —
                         khai một lần, áp cho mọi người nhận. Chưa khai thì chưa ai đăng ký nhận được.</p>
                     </div>
+                    <StatusMappingCard pushToast={pushToast} />
                     {renderCards(briefRules, false, 'company')}
                   </div>
                 )}

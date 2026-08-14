@@ -5608,6 +5608,27 @@ html[data-home-theme="dark"] .hp-theme {
 @keyframes wf-spin { to { transform: rotate(360deg); } }
 @media (prefers-reduced-motion: reduce) { .wf-statusmap-spin { animation-duration: 2.4s; } }
 
+/* Khối "Cách hiểu trạng thái" — đặt ở cấp trang để tìm thấy được, không chôn trong từng ô cấu hình. */
+.workflows-statusmap-card { padding: 14px 18px; margin-bottom: 12px; }
+.workflows-statusmap-head { display: flex; align-items: flex-start; gap: 16px; flex-wrap: wrap; }
+.workflows-statusmap-head h4 {
+  margin: 0 0 3px; font-size: 13px; font-weight: 700; color: var(--text-1, #0F172A);
+}
+.workflows-statusmap-head p {
+  margin: 0; font-size: 11.5px; line-height: 1.55; color: var(--text-3, #94A3B8); max-width: 68ch;
+}
+.workflows-statusmap-actions { display: flex; gap: 8px; margin-left: auto; flex-shrink: 0; }
+/* Hai cột cạnh nhau trên màn rộng, xuống dòng khi hẹp — mỗi cột là một loại trạng thái. */
+.workflows-statusmap-cols {
+  display: flex; gap: 22px; flex-wrap: wrap; margin-top: 12px;
+  padding-top: 12px; border-top: 1px solid var(--border, #E2E8F0);
+}
+.workflows-statusmap-col { flex: 1 1 300px; min-width: 260px; }
+.workflows-statusmap-coltitle {
+  display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
+  font-size: 12px; font-weight: 700; color: var(--text-2, #475569); margin-bottom: 4px;
+}
+
 /* Khối con trong mục "Theo tổ chức" — tách luật chung của bản tin khỏi các tác vụ khác. */
 .workflows-subsection { margin-bottom: 18px; }
 .workflows-subsection-head { margin-bottom: 9px; }
