@@ -220,4 +220,66 @@ public class SaleBriefBuilderTests
             new(), new(), new(), new(), 0, 0, new(), new(), true), Today);
         Assert.Contains("sale9", m.Title);
     }
+
+    // ── Lưới an toàn: AI được chọn lọc, người đọc KHÔNG được mất dấu một nhóm ──────────
+    //
+    // Đã gặp thật: 61 việc cần làm (có dòng "ưu tiên cao") bị AI lược sạch khỏi bản tin, mà dòng
+    // tổng kết khi đó chỉ phủ 4/7 nhóm — thiếu đúng lịch hẹn và tour thiếu tiền, hai nhóm "trễ một
+    // ngày là mất". Bị lược mà tổng kết cũng câm thì người đọc tưởng hôm nay không có gì.
+
+    private static SaleBriefInput DuMoiNhom() => Empty() with
+    {
+        CoolingDeals = new() { new DealLine(1, "Tour Huế", "Chị Lan", 60, 4, "Đang tư vấn") },
+        TodayAppointments = new() { new ApptLine("09:00", "Gặp khách", "Anh Nam") },
+        SleepingVips = new() { new CustomerLine("Chị Mai", "A", 90) },
+        StaleQuotes = new() { new QuoteLine("Báo giá Phú Quốc", "Anh Hùng", 7) },
+        HygieneDeals = new() { new DealLine(2, "Tour Sapa", "Chị Hoa", 30, 20, "Kẹt") },
+        MyPaymentAlerts = new() { new PaymentAlert(5, "Tour Nhật", "Anh Sơn", "sale1",
+            12_000_000m, Today.AddDays(3), 3, 2, "k5") },
+        TodayTasks = new() { new TaskLine("Hotfix 14/8", "Cao", true) },
+        OverdueTaskCount = 61,
+    };
+
+    [Fact]
+    public void AI_luoc_het_thi_dong_tong_ket_van_giu_dau_MOI_nhom()
+    {
+        // AI trả về một câu chẳng nhắc nhóm nào — trường hợp xấu nhất.
+        var m = SaleBriefBuilder.WrapAiReply("Sáng nay tập trung chăm khách.", DuMoiNhom(), Today);
+        var md = m.BodyMarkdown;
+
+        Assert.Contains("1 lịch hẹn", md);
+        Assert.Contains("1 tour thiếu tiền", md);
+        Assert.Contains("1 cơ hội cần gọi", md);
+        Assert.Contains("1 việc (61 trễ)", md);
+        Assert.Contains("1 báo giá bỏ dở", md);
+        Assert.Contains("1 cơ hội cần dọn", md);
+        Assert.Contains("1 khách quen lâu chưa mua", md);
+    }
+
+    /// Hai nhóm "trễ một ngày là mất" phải đứng ĐẦU dòng tổng kết — người đọc lướt chỉ thấy vài chữ
+    /// đầu, để cơ hội/khách quen lên trước thì phần khẩn bị đẩy xuống cuối.
+    [Fact]
+    public void Nhom_khan_dung_dau_dong_tong_ket()
+    {
+        var md = SaleBriefBuilder.WrapAiReply("x", DuMoiNhom(), Today).BodyMarkdown;
+        var i = md.IndexOf("Đang có tổng cộng", StringComparison.Ordinal);
+        var dong = md[i..];
+        Assert.True(dong.IndexOf("lịch hẹn", StringComparison.Ordinal)
+                  < dong.IndexOf("cơ hội cần gọi", StringComparison.Ordinal));
+        Assert.True(dong.IndexOf("tour thiếu tiền", StringComparison.Ordinal)
+                  < dong.IndexOf("cơ hội cần gọi", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public void Khong_co_gi_thi_khong_in_dong_tong_ket_rong()
+        => Assert.DoesNotContain("Đang có tổng cộng",
+            SaleBriefBuilder.WrapAiReply("Hôm nay nhẹ nhàng.", Empty(), Today).BodyMarkdown);
+
+    [Fact]
+    public void Prompt_cam_bo_han_mot_nhom_va_ghim_2_nhom_khan()
+    {
+        var p = SaleBriefBuilder.BuildPrompt(DuMoiNhom(), Today, maxItems: 7);
+        Assert.Contains("không bỏ hẳn một nhóm", p);
+        Assert.Contains("BẮT BUỘC đưa vào danh sách việc", p);
+    }
 }

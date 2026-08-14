@@ -198,6 +198,14 @@ public static class SaleBriefBuilder
              + "đúng một câu hỏi: SÁNG NAY LÀM GÌ TRƯỚC.\n\n"
              + "Quy tắc:\n"
              + $"- Chọn TỐI ĐA {maxItems} việc đáng làm nhất. Bỏ phần còn lại, đừng liệt kê cho đủ.\n"
+             // "Chọn tối đa N" một mình nó cho phép AI lược sạch một nhóm. Đã gặp thật: 61 việc cần
+             // làm biến mất khỏi bản tin, trong đó có dòng ưu tiên cao. Nhóm nào cũng có thể bị cắt
+             // bớt, nhưng KHÔNG nhóm nào được biến mất không dấu vết.
+             + "- Nhóm nào có dữ kiện thì bản tin PHẢI nhắc tới nhóm đó ít nhất một lần — nếu không "
+             + "đủ chỗ liệt kê chi tiết thì gộp thành một câu ngắn kiểu \"còn N việc cần làm\". "
+             + "TUYỆT ĐỐI không bỏ hẳn một nhóm mà không nói gì.\n"
+             + "- Riêng LỊCH HẸN HÔM NAY và TOUR SẮP ĐI MÀ KHÁCH CHƯA TRẢ ĐỦ: có dòng nào thì BẮT "
+             + "BUỘC đưa vào danh sách việc, không được gộp hay bỏ — đó là loại trễ một ngày là mất.\n"
              + "- Giữ NGUYÊN VĂN tên khách và tiêu đề cơ hội để người đọc tra được trong CRM.\n"
              + "- TUYỆT ĐỐI không bịa thêm số nào ngoài dữ kiện. Không suy ra số mới.\n"
              // Trạng thái là chữ TỰ DO mỗi công ty tự đặt. Dữ liệu thật gặp đủ kiểu:
@@ -225,12 +233,23 @@ public static class SaleBriefBuilder
     /// </summary>
     public static DigestMessage WrapAiReply(string aiProse, SaleBriefInput input, DateTime todayLocal)
     {
-        var totals = new List<string>(4);
+        // LƯỚI AN TOÀN CUỐI: AI được phép chọn lọc, nhưng người đọc không được MẤT DẤU một nhóm.
+        //
+        // Đã gặp thật: 61 việc cần làm (có cả dòng "Hotfix 14/8 · ưu tiên cao") bị AI lược sạch
+        // khỏi bản tin. Trước đây dòng tổng kết này chỉ phủ 4/7 nhóm — thiếu đúng LỊCH HẸN và TOUR
+        // THIẾU TIỀN, tức hai nhóm "trễ một ngày là mất". Bị lược mà tổng kết cũng không nhắc thì
+        // người đọc tưởng hôm nay không có gì.
+        //
+        // Thứ tự theo mức khẩn, không theo thứ tự lấy dữ liệu.
+        var totals = new List<string>(7);
+        if (input.TodayAppointments.Count > 0) totals.Add($"{input.TodayAppointments.Count} lịch hẹn");
+        if (input.MyPaymentAlerts.Count > 0) totals.Add($"{input.MyPaymentAlerts.Count} tour thiếu tiền");
         if (input.CoolingDeals.Count > 0) totals.Add($"{input.CoolingDeals.Count} cơ hội cần gọi");
         if ((input.TodayTasks?.Count ?? 0) > 0 || input.OverdueTaskCount > 0)
             totals.Add($"{input.TodayTasks?.Count ?? 0} việc ({input.OverdueTaskCount} trễ)");
-        if (input.HygieneDeals.Count > 0) totals.Add($"{input.HygieneDeals.Count} cơ hội cần dọn");
         if (input.StaleQuotes.Count > 0) totals.Add($"{input.StaleQuotes.Count} báo giá bỏ dở");
+        if (input.HygieneDeals.Count > 0) totals.Add($"{input.HygieneDeals.Count} cơ hội cần dọn");
+        if (input.SleepingVips.Count > 0) totals.Add($"{input.SleepingVips.Count} khách quen lâu chưa mua");
 
         var body = aiProse.Trim();
         if (totals.Count > 0)
