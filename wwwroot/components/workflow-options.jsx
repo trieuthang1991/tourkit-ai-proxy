@@ -175,7 +175,8 @@
       { key: 'secSellers', type: 'bool', label: 'Top nhân viên bán hàng', default: true,
         hint: 'Xếp hạng doanh số từ đầu tháng tới hôm nay.' },
       { key: 'sellerCount', type: 'number', label: 'Lấy mấy người đầu bảng', showIf: 'secSellers',
-        default: 3, min: 1, max: 10 },
+        default: 3, min: 1, max: 10,
+        hint: 'Tối đa 10 — CRM chỉ trả về 10 người đầu bảng, đặt cao hơn cũng không có thêm.' },
       { key: 'secNewDeals', type: 'bool', label: 'Cơ hội mới hôm qua', default: true,
         hint: 'Số cơ hội bán hàng được tạo trong ngày hôm qua — nhịp vào của đầu phễu.' },
       { key: 'secAppointments', type: 'bool', label: 'Lịch hẹn hôm nay', default: true,
@@ -187,7 +188,7 @@
       { key: 'taskStatuses', type: 'multi', dynamic: 'taskStatuses', showIf: 'secTasks', required: true,
         dynamicDefault: 'openTaskStatuses',
         label: 'Việc coi là CHƯA xong khi ở trạng thái',
-        hint: 'Quyết định con số "còn treo" đếm những việc nào. Tên trạng thái do công ty bạn đặt nên chỉ bạn biết chắc — ví dụ có nơi "Đang kiểm tra" nghĩa là đã làm xong, chờ duyệt.' },
+        hint: 'Quyết định con số "còn treo" đếm những việc nào. Tên trạng thái do công ty bạn đặt nên chỉ bạn biết chắc — ví dụ có nơi "Đang kiểm tra" nghĩa là đã làm xong, chờ duyệt. Chọn càng nhiều trạng thái thì mỗi lần gửi càng phải hỏi CRM nhiều lượt, nên chỉ tick những trạng thái thật sự còn phải làm.' },
 
       // ── Cách trình bày ──
       { key: 'useAi', type: 'bool', label: 'AI viết lời', default: true,

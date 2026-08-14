@@ -349,6 +349,14 @@ public class CeoBriefWorkflow : IScheduledWorkflow
         // nhau. Bản đầu lấy trễ hạn bằng tabFilter=2 trần — CRM ở đó chỉ loại mã 4/5 nên gom cả
         // những trạng thái công ty tự thêm ngoài 1/2/3. Kết quả trên erp.tourkit.vn: "335 việc chưa
         // hoàn thành, TRONG ĐÓ 591 việc đã quá hạn" — số con lớn hơn số tổng, nhìn là biết sai.
+        //
+        // CHI PHÍ: 2 lời gọi cho MỖI trạng thái được chọn (mặc định 3 → 6 lời gọi/người/ngày).
+        // Mỗi lời gọi chạy SP uspSearchTasking, và SP đó tính COUNT bằng CTE cross-join nên vẫn
+        // quét trọn tập đã lọc dù mình xin pageSize=1 — pageSize chỉ tiết kiệm phần truyền dữ liệu.
+        // CRM KHÔNG có endpoint đếm việc theo nhóm trạng thái trong một lần gọi (đã dò: /api/tasks
+        // chỉ có tab-counts theo MỐC THỜI GIAN, và bản thân nó cũng chạy 6 lần SearchAsync), nên
+        // chưa gộp được. Nếu sau này upstream thêm group-by-status thì thay cả vòng lặp này bằng
+        // một lời gọi.
         int openTasks = 0, lateTasks = 0;
         var openSt = opt.TaskStatuses.Count > 0 ? opt.TaskStatuses : new List<int> { 1, 2, 3 };
         if (opt.SecTasks)
