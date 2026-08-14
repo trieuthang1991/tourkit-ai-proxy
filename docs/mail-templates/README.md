@@ -55,25 +55,32 @@ Thiếu template này worker **vẫn gửi được** (tự render từ `Params`
 ## Kênh gửi (`Channel`, TINYINT)
 
 Từ 2026-08 hàng đợi này thành đa kênh (email/Telegram/Zalo) cho bản tin sáng, không chỉ email. Cột
-`Channel` phân biệt dòng nào worker này (SMTP) được nhặt — enum
+`Channel` cho worker biết dòng đó gửi bằng đường nào — enum
 [`OutboundChannel`](../../Services/Digest/OutboundChannel.cs), **worker toutkit-app phải MIRROR đúng
 bảng số** này:
 
-| Số | Tên | Ai xử lý |
-|---|---|---|
-| 0 | `Email` (default) | Worker này (SMTP) |
-| 1 | `Telegram` | Kênh khác (proxy tự gửi qua bot Telegram, KHÔNG qua hàng đợi này giai đoạn đầu / hoặc drainer riêng — xem plan) |
-| 2 | `Zalo` | Kênh khác (Zalo OA) |
+| Số | Tên | Nơi nhận + nội dung nằm ở | Adapter bên worker |
+|---|---|---|---|
+| 0 | `Email` (default) | `ToEmail` + `Params` (mẫu HTML) | `EmailChannelSender` |
+| 1 | `Telegram` | `Data`: `{chatId, title, body}` | `TelegramChannelSender` |
+| 2 | `Zalo` | `Data`: `{zaloUserId, title, body}` | `ZaloChannelSender` |
 
 Dòng cũ (trước khi có cột `Channel`) tự mang giá trị mặc định `0` (email) — không cần migrate data.
 
-⚠️ **BẮT BUỘC deploy filter `AND Channel=0` TRƯỚC khi proxy bắt đầu enqueue Telegram/Zalo vào bảng
-này**, nếu không worker sẽ nhặt nhầm dòng kênh khác đem đi gửi SMTP (địa chỉ đích sai định dạng, gửi
-lỗi hàng loạt).
+⚠️ **MỘT hàng đợi, MỘT nơi tiêu thụ:** `TourKit.PushWorker` rút **cả 3 kênh** và KHÔNG lọc `Channel`;
+proxy chỉ XẾP vào, không rút. Đừng thêm bộ rút thứ hai ở bất kỳ đâu — hai tiến trình cùng poll thì cái
+nhanh hơn nuốt mất dòng của cái kia (đã dính đúng lỗi này 14/08: worker mail vớ dòng telegram → ghi
+`Status=4` "thiếu email người nhận" → bộ rút proxy chỉ tìm `Status=0` nên không bao giờ thấy nữa).
+
+⚠️ **BẮT BUỘC deploy worker (bản có adapter kênh) TRƯỚC khi proxy bật `Features:Digest`** — worker cũ
+không biết cột `Channel`, sẽ vớ dòng telegram/zalo rồi đánh dấu "thiếu email người nhận" là mất tin.
+
+Thêm kênh mới = 1 member enum ở **cả hai repo** + 1 lớp `IOutboundChannelSender` bên worker + 1 dòng DI.
+KHÔNG đụng vòng lặp, KHÔNG đụng lớp của kênh cũ.
 
 ## Hợp đồng worker (tóm tắt)
 
-1. Poll: `SELECT TOP N * FROM dbo.OutboundMails WHERE Status=0 AND Channel=0 AND (ScheduledUtc IS NULL OR ScheduledUtc <= SYSUTCDATETIME()) ORDER BY CreatedUtc` — **giờ UTC** (so sánh bằng `DateTime.UtcNow`). **Lọc `Channel=0`** để chỉ nhặt dòng email — dòng kênh khác (Telegram/Zalo) không phải việc của worker SMTP này.
+1. Poll: `SELECT TOP N * FROM dbo.OutboundMails WHERE Status=0 AND RetryCount < @max AND (ScheduledUtc IS NULL OR ScheduledUtc <= SYSUTCDATETIME()) ORDER BY Id` — **giờ UTC** (so sánh bằng `DateTime.UtcNow`). **KHÔNG lọc `Channel`**: worker là nơi tiêu thụ duy nhất, lấy hết rồi giao cho adapter của từng kênh. Lọc ở đây sẽ để lại dòng không ai rút, nằm mãi `Status=0` mà chẳng có lỗi nào nổi lên.
 2. Render: load template theo `TemplateCode` → replace `{{key}}` từ `[Params]`. `Subject` lấy từ template hoặc cột `Subject`.
 3. Người nhận:
    - `Kind='deal-cooling-alert'`: đọc `Data.dealId` → tenant DB `BookingTickets.NguoiPhuTrachs` → `Users.email` (1 deal nhiều NV → gửi nhiều / Cc).

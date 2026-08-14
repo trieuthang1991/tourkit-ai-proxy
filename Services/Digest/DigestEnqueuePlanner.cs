@@ -6,8 +6,12 @@ namespace TourkitAiProxy.Services.Digest;
 /// <summary>
 /// Dựng danh sách dòng hàng đợi cho 1 bản tin đã chuẩn bị xong: mỗi kênh NGOÀI đang bật = 1 dòng,
 /// ScheduledUtc = giờ người chọn, SourceId = Id bản tin trong AgentInsights. THUẦN → test được.
-/// Email mang Params (hợp đồng worker toutkit-app giữ NGUYÊN); telegram/zalo chỉ mang nơi nhận
-/// trong Data — nội dung drainer đọc lại từ AgentInsights qua SourceId (1 nguồn).
+///
+/// <para><b>Dòng mang theo ĐỦ thứ cần để gửi</b> — email mang <c>Params</c> (hợp đồng worker
+/// toutkit-app giữ NGUYÊN); telegram/zalo mang nơi nhận + tiêu đề + nội dung trong <c>Data</c>.
+/// Cố ý KHÔNG bắt worker đọc lại <c>dbo.AgentInsights</c> qua <c>SourceId</c>: worker bên
+/// toutkit-app đã phải với sang bảng của proxy để lấy token OA Zalo rồi, thêm một bảng nữa là
+/// thêm một chỗ hai repo phải khớp lược đồ với nhau. <c>SourceId</c> vẫn ghi để đối soát.</para>
 /// </summary>
 public static class DigestEnqueuePlanner
 {
@@ -28,11 +32,23 @@ public static class DigestEnqueuePlanner
                     ScheduledUtc: scheduledUtc, Channel: OutboundChannel.Email),
                 OutboundChannel.Telegram => new OutboundMailInput(
                     sub.TenantId, Kind, SourceId: insightId.ToString(), Username: sub.Username,
-                    Subject: m.Title, Data: JsonSerializer.Serialize(new { chatId = sub.TelegramChatId!.Trim() }),
+                    Subject: m.Title,
+                    Data: JsonSerializer.Serialize(new
+                    {
+                        chatId = sub.TelegramChatId!.Trim(),
+                        title = m.Title,
+                        body = m.BodyMarkdown,
+                    }),
                     ScheduledUtc: scheduledUtc, Channel: OutboundChannel.Telegram),
                 _ => new OutboundMailInput(
                     sub.TenantId, Kind, SourceId: insightId.ToString(), Username: sub.Username,
-                    Subject: m.Title, Data: JsonSerializer.Serialize(new { zaloUserId = sub.ZaloUserId!.Trim() }),
+                    Subject: m.Title,
+                    Data: JsonSerializer.Serialize(new
+                    {
+                        zaloUserId = sub.ZaloUserId!.Trim(),
+                        title = m.Title,
+                        body = m.BodyMarkdown,
+                    }),
                     ScheduledUtc: scheduledUtc, Channel: OutboundChannel.Zalo),
             });
         }

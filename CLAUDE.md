@@ -377,23 +377,36 @@ scheduler, bật 1 lần) nhưng workflow **tự đổi phiên theo từng ngư�
 
 1. **PREPARE** — từ mốc `giờ người chọn − Digest:LeadMinutes` (mặc định 10') trở đi, workflow dựng nội
    dung ([`DigestDue.ShouldPrepare`](Services/Digest/DigestDue.cs) — so theo **phút**, mở tới hết ngày VN).
-2. **GHI Bảng tin** — `dbo.AgentInsights`. Đây vừa là kênh "trong app" **luôn bật**, vừa là **nguồn nội
-   dung duy nhất** cho các kênh ngoài (chúng đọc lại qua `SourceId`, không nhân bản nội dung).
+2. **GHI Bảng tin** — `dbo.AgentInsights`. Đây là kênh "trong app" **luôn bật** (kho lưu để xem/nghe lại).
 3. **ENQUEUE** — mỗi kênh ngoài đang bật = 1 dòng `dbo.OutboundMails` với `ScheduledUtc`
    ([`DigestEnqueuePlanner`](Services/Digest/DigestEnqueuePlanner.cs) + [`DigestDue.SendMomentUtc`](Services/Digest/DigestDue.cs)).
-4. **GỬI** — `Channel=0` (email) do worker bên **toutkit-app** rút; `Channel=1|2` (telegram/zalo) do
-   [`OutboundChannelDrainer`](Services/Digest/OutboundChannelDrainer.cs) của proxy rút, nhịp 60s.
+   Dòng mang theo **đủ thứ cần để gửi**: email → `Params`; telegram/zalo → `Data` chứa nơi nhận +
+   `title` + `body`.
+4. **GỬI** — **KHÔNG phải việc của proxy.** Cả 3 kênh do **`TourKit.PushWorker` bên toutkit-app** rút
+   (`PushNotification.Worker/OutboundQueueWorker.cs`, nhịp 30s).
+
+⚠️ **MỘT hàng đợi, MỘT nơi tiêu thụ** (sửa 14/08). Trước đó proxy có bộ rút riêng cho telegram/zalo →
+hai tiến trình cùng poll một bảng, và cái nhanh hơn nuốt mất dòng của cái kia: worker mail (30s) vớ dòng
+telegram, không thấy email nên đánh dấu `Status=4` "thiếu người nhận"; bộ rút proxy chỉ tìm `Status=0`
+nên **không bao giờ thấy nữa** → bản tin Telegram biến mất im lặng. Nay proxy chỉ XẾP hàng đợi.
+Đừng thêm bộ rút thứ hai ở đây.
 
 Chống dựng trùng trong ngày = `InsightRepository.ExistsTodayAsync` (không còn `LastSentLocalDate`).
 Vì "đã dựng" đọc từ Bảng tin và mốc gửi nằm trên dòng hàng đợi, **máy chủ sập đúng khung giờ không còn
 làm mất bản tin của ngày** — bật lại là dựng/gửi bù. Điều kiện: người đó đã từng đăng nhập
 (`dbo.TkSessions` giữ mật khẩu mã hoá + tự re-login, 30 ngày).
 
-⚠️ **KHÔNG thử lại đợt này** (quyết định 13/08): gửi hỏng → `Status=2` + `ErrorMessage` + log ERROR, dòng
-nằm lại để tra. Chính sách thử lại thiết kế riêng sau (chỉ cần thêm chỗ lật 2→0 trong drainer).
+**Ba trạng thái kết thúc** (worker quyết, xem `IOutboundChannelSender`): gửi được → `Status=1`; hỏng mà
+thử lại vô ích (thiếu nơi nhận, công ty chưa khai OA, Zalo hết cửa sổ 48h) → `Status=4` + lý do; hỏng
+tạm thời (mạng, nhà cung cấp 5xx) → tăng `RetryCount`, hết lượt (`OutboundMail:MaxRetries`, mặc định 3)
+mới thành `Status=2`.
 
-⚠️ **Thứ tự deploy:** worker toutkit-app phải lọc `Channel=0` **TRƯỚC**, proxy enqueue kênh khác **SAU** —
-không thì worker mail vớ phải dòng telegram/zalo và gửi nhầm thành email.
+⚠️ **`Telegram:BotToken` phải khai ở CẢ HAI** — proxy dùng cho nút "Gửi thử" (gửi ngay, không qua hàng
+đợi), worker dùng cho bản tin thật. Khai một bên thôi thì bên kia im lặng không gửi được.
+
+⚠️ **Thứ tự deploy:** `TourKit.PushWorker` (bản có adapter kênh) phải lên **TRƯỚC**, proxy bật
+`Features:Digest` **SAU** — worker cũ không biết cột `Channel`, vớ dòng telegram/zalo rồi đánh dấu
+"thiếu email người nhận" là mất tin.
 
 ⚠️ **Fetch bằng phiên CỦA NGƯỜI NHẬN, KHÔNG dùng service account** — đây là quyết định có chủ đích:
 service account có quyền xem toàn công ty, lọc sai 1 dòng là nhân viên A đọc được cơ hội của nhân viên B.
@@ -414,7 +427,8 @@ khai; Zalo chỉ nhắn được cho người đã nhắn OA trong 48h). Một k
 `1=Telegram`, `2=Zalo`, lưu thẳng cột `dbo.OutboundMails.Channel` (TINYINT). Default 0 nên dòng cũ trong
 DB tự đúng nghĩa. Worker toutkit-app **mirror đúng bảng số này**
 ([docs/mail-templates/README.md](docs/mail-templates/README.md)) — thêm kênh mới = thêm 1 member ở CẢ 2
-repo + 1 nhánh trong `OutboundChannelDrainer`. `ChannelMask`/`DigestChannel`/`InAppChannel` **đã gỡ hẳn**
+repo + 1 lớp `IOutboundChannelSender` bên worker (KHÔNG đụng vòng lặp, KHÔNG đụng kênh cũ).
+`ChannelMask`/`DigestChannel`/`InAppChannel` **đã gỡ hẳn**
 (13/08): cờ bit "đã gửi kênh nào hôm nay" hết lý do tồn tại khi mỗi kênh đã là một dòng có `Status` riêng.
 Cột `SentMask`/`SentAttempts` còn trong DB nhưng **code không ghi nữa**.
 

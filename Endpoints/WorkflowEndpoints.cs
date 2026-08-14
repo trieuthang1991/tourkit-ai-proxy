@@ -348,7 +348,7 @@ public static class WorkflowEndpoints
                 {
                     id = r.Id, kind = r.Kind, sourceId = r.SourceId, templateCode = r.TemplateCode,
                     toEmail = r.ToEmail, toName = r.ToName, subject = r.Subject,
-                    // channel: 0=email (worker toutkit-app gửi), 1=telegram, 2=zalo (drainer proxy gửi)
+                    // channel: 0=email, 1=telegram, 2=zalo — cả 3 do worker bên toutkit-app gửi
                     channel = (int)r.Channel,
                     status = (int)r.Status, retryCount = r.RetryCount, errorMessage = r.ErrorMessage,
                     scheduledUtc = AsUtc(r.ScheduledUtc), createdUtc = AsUtc(r.CreatedUtc), processedUtc = AsUtc(r.ProcessedUtc)

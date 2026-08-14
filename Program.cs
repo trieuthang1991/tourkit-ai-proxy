@@ -189,16 +189,8 @@ builder.Services.AddSingleton<TourkitAiProxy.Services.Visa.VisaScoringService>()
 var runScheduler = builder.Configuration.GetValue("Workflows:RunScheduler", false);
 Console.WriteLine($"[Startup] Workflows:RunScheduler = {runScheduler} (mặc định false — worker riêng TourkitAiProxy.Worker sẽ chạy)");
 if (runScheduler)
-{
     builder.Services.AddHostedService(sp =>
         sp.GetRequiredService<TourkitAiProxy.Services.Workflows.WorkflowSchedulerService>());
-    // Bộ rút hàng đợi kênh ngoài (telegram/zalo) sống cùng chỗ với scheduler: chỗ nào chuẩn bị
-    // bản tin thì chỗ đó gửi. Nằm sau cờ Features:Digest vì tắt cờ là không ai enqueue nữa —
-    // để nó chạy chỉ tổ hỏi DB mỗi phút cho một hàng đợi vĩnh viễn rỗng.
-    if (TourkitAiProxy.Services.Bootstrap.FeatureFlags.Digest(builder.Configuration))
-        builder.Services.AddHostedService(sp =>
-            sp.GetRequiredService<TourkitAiProxy.Services.Digest.OutboundChannelDrainer>());
-}
 
 // ─── Response compression (Brotli + Gzip) ─────────────────────────────────────
 // Frontend bundle ~596KB + styles.css ~352KB gửi RAW trước đây → public landing/NCC

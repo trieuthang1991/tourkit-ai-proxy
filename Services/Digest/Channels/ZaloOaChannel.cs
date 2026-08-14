@@ -38,7 +38,7 @@ public class ZaloOaChannel : IDigestChannel
 
     /// <summary>
     /// Gửi lõi — chỉ cần nơi nhận + nội dung, KHÔNG cần bản đăng ký. Tách ra để hàng đợi
-    /// (<see cref="OutboundChannelDrainer"/>) gửi được. Token OA vẫn resolve NGAY LÚC GỬI
+    /// hàng đợi gửi được (worker bên toutkit-app). Token OA vẫn resolve NGAY LÚC GỬI
     /// (không lưu vào dòng hàng đợi) — token có hạn và công ty đổi được bất cứ lúc nào.
     /// </summary>
     public async Task<bool> SendToUserAsync(string tenantId, string zaloUserId, string title,

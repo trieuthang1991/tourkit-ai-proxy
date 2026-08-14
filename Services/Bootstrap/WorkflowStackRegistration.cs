@@ -166,15 +166,11 @@ public static class WorkflowStackRegistration
         // gửi mà là KHO LƯU luôn-bật — bản tin ghi thẳng vào Bảng tin lúc dựng, trước khi nghĩ tới
         // chuyện gửi đi đâu. Nhờ vậy mọi kênh ngoài hỏng hết thì vẫn còn chỗ xem/nghe lại.
         s.AddSingleton<Digest.Channels.IDigestChannel, Digest.Channels.EmailChannel>();
-        // Telegram/Zalo đăng ký lớp CỤ THỂ rồi mới bắc cầu sang interface: bộ rút hàng đợi
-        // (OutboundChannelDrainer) gọi thẳng method gửi lõi nên cần chính lớp đó, không phải
-        // interface. Bắc cầu bằng lambda để cả hai đường cùng dùng MỘT instance.
-        s.AddSingleton<Digest.Channels.TelegramChannel>();
-        s.AddSingleton<Digest.Channels.IDigestChannel>(sp => sp.GetRequiredService<Digest.Channels.TelegramChannel>());
-        s.AddSingleton<Digest.Channels.ZaloOaChannel>();
-        s.AddSingleton<Digest.Channels.IDigestChannel>(sp => sp.GetRequiredService<Digest.Channels.ZaloOaChannel>());
+        s.AddSingleton<Digest.Channels.IDigestChannel, Digest.Channels.TelegramChannel>();
+        s.AddSingleton<Digest.Channels.IDigestChannel, Digest.Channels.ZaloOaChannel>();
+        // Bộ phát này CHỈ phục vụ "Gửi thử" (bấm nút là gửi ngay). Bản tin hằng ngày KHÔNG đi
+        // đường này — nó chỉ được xếp vào hàng đợi, còn gửi là việc của worker bên toutkit-app.
         s.AddSingleton<Digest.DigestDispatcher>();
-        s.AddSingleton<Digest.OutboundChannelDrainer>();
 
         // 3 tác vụ dưới đây nằm sau cờ Features:Digest (xem FeatureFlags.Digest).
         // Gỡ đăng ký là đủ để TẮT HẲN: WorkflowRegistry dựng từ IEnumerable<IScheduledWorkflow>

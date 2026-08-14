@@ -45,7 +45,7 @@ public class TelegramChannel : IDigestChannel
 
     /// <summary>
     /// Gửi lõi — chỉ cần nơi nhận + nội dung, KHÔNG cần bản đăng ký. Tách ra để hàng đợi
-    /// (<see cref="OutboundChannelDrainer"/>) gửi được: lúc đó bản tin đã dựng xong từ trước,
+    /// hàng đợi gửi được (worker bên toutkit-app): lúc đó bản tin đã dựng xong từ trước,
     /// trong tay chỉ còn chat id lưu trong dòng hàng đợi.
     /// </summary>
     public async Task<bool> SendToChatAsync(string chatId, string title, string? bodyMd,

@@ -102,7 +102,8 @@ WHERE TenantId = @tenant AND Username = @username AND Kind = @kind
     }
 
     /// <summary>
-    /// Đọc 1 dòng theo Id (kẹp tenant) — drainer lấy nội dung gửi telegram/zalo qua SourceId.
+    /// Đọc 1 dòng theo Id (kẹp tenant) — dùng để đối soát bản tin đã dựng theo SourceId của dòng
+    /// hàng đợi. (Worker gửi KHÔNG gọi cái này: nội dung đã nằm sẵn trong dòng hàng đợi.)
     /// </summary>
     public async Task<AgentInsight?> GetAsync(string tenant, long id, CancellationToken ct = default)
     {

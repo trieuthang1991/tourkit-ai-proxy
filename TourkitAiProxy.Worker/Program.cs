@@ -58,12 +58,10 @@ builder.Services.AddWorkflowStack(builder.Configuration);
 // Bỏ qua config Workflows:RunScheduler (đó là knob riêng của web).
 builder.Services.AddHostedService(sp => sp.GetRequiredService<WorkflowSchedulerService>());
 
-// Bộ rút hàng đợi kênh ngoài (telegram/zalo) — cùng nơi với scheduler, vì chỗ nào chuẩn bị bản
-// tin thì chỗ đó gửi. Email KHÔNG phải việc của nó (worker bên toutkit-app lo, lọc Channel=0).
-// Nằm sau cờ Features:Digest: tắt cờ là không ai enqueue, chạy chỉ tổ hỏi DB mỗi phút vô ích.
-if (TourkitAiProxy.Services.Bootstrap.FeatureFlags.Digest(builder.Configuration))
-    builder.Services.AddHostedService(sp =>
-        sp.GetRequiredService<TourkitAiProxy.Services.Digest.OutboundChannelDrainer>());
+// KHÔNG có bộ gửi ở đây. Worker này chỉ CHUẨN BỊ bản tin rồi xếp vào dbo.OutboundMails; gửi đi
+// (email + telegram + zalo) là việc của MỘT nơi duy nhất: TourKit.PushWorker bên toutkit-app.
+// Một hàng đợi một người tiêu thụ — hai bên cùng rút thì bên nào nhanh hơn sẽ nuốt mất dòng của
+// bên kia (đã dính đúng lỗi này: worker mail vớ dòng telegram → đánh dấu "thiếu email" → mất tin).
 
 var host = builder.Build();
 

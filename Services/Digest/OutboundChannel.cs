@@ -5,8 +5,9 @@ namespace TourkitAiProxy.Services.Digest;
 /// SỐ tường minh, lưu thẳng cột dbo.OutboundMails.Channel (TINYINT): số để tránh lỗi gõ chuỗi,
 /// default 0 = email nên dòng cũ trong DB tự đúng nghĩa. In-app KHÔNG nằm đây — nó là kho lưu
 /// luôn-bật (AgentInsights), không phải kênh gửi.
-/// Worker toutkit-app MIRROR đúng bảng số này (xem docs/mail-templates/README.md) —
-/// thêm kênh mới = thêm 1 member ở CẢ 2 repo + 1 case trong OutboundChannelDrainer.
+/// Worker toutkit-app MIRROR đúng bảng số này (xem docs/mail-templates/README.md) — nó là nơi RÚT
+/// hàng đợi và gửi cả 3 kênh; proxy chỉ XẾP vào. Thêm kênh mới = thêm 1 member ở CẢ 2 repo + 1 lớp
+/// IOutboundChannelSender bên worker.
 /// </summary>
 public enum OutboundChannel : byte
 {

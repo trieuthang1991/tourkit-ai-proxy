@@ -35,13 +35,29 @@ public class DigestEnqueuePlannerTests
         Assert.Equal("<p>html</p>", p.GetProperty("bodyHtml").GetString());
         Assert.Equal("13/08/2026", p.GetProperty("date").GetString());
     }
-    [Fact] public void Dong_telegram_zalo_nhe_khong_mang_body()
+    // Hợp đồng với worker bên toutkit-app: dòng telegram/zalo phải MANG ĐỦ nơi nhận + tiêu đề +
+    // nội dung, vì worker gửi thẳng từ dòng này chứ KHÔNG đọc lại bảng Bảng tin của proxy.
+    // Thiếu 'body' thì worker gửi ra tin rỗng mà không có lỗi nào nổi lên — nên khoá lại ở đây.
+    [Fact] public void Dong_telegram_zalo_mang_du_noi_nhan_va_noi_dung()
     {
         var rows = DigestEnqueuePlanner.BuildRows(Sub(tele: true, zalo: true), 42, Msg, Sched, "13/08/2026");
-        var tg = rows.Single(r => r.Channel == OutboundChannel.Telegram);
-        var za = rows.Single(r => r.Channel == OutboundChannel.Zalo);
-        Assert.Null(tg.Params);  Assert.Null(za.Params);
-        Assert.Equal("123", JsonDocument.Parse(tg.Data!).RootElement.GetProperty("chatId").GetString());
-        Assert.Equal("z9", JsonDocument.Parse(za.Data!).RootElement.GetProperty("zaloUserId").GetString());
+        var tg = JsonDocument.Parse(rows.Single(r => r.Channel == OutboundChannel.Telegram).Data!).RootElement;
+        var za = JsonDocument.Parse(rows.Single(r => r.Channel == OutboundChannel.Zalo).Data!).RootElement;
+
+        Assert.Equal("123", tg.GetProperty("chatId").GetString());
+        Assert.Equal("Tiêu đề", tg.GetProperty("title").GetString());
+        Assert.Equal("body md", tg.GetProperty("body").GetString());
+
+        Assert.Equal("z9", za.GetProperty("zaloUserId").GetString());
+        Assert.Equal("Tiêu đề", za.GetProperty("title").GetString());
+        Assert.Equal("body md", za.GetProperty("body").GetString());
+    }
+
+    // Params là hợp đồng RIÊNG của kênh email (worker render mẫu HTML từ đó). Kênh khác mà cũng
+    // nhét Params vào thì worker email dễ bị dụ xử nhầm dòng không phải của nó.
+    [Fact] public void Dong_telegram_zalo_KHONG_mang_Params()
+    {
+        var rows = DigestEnqueuePlanner.BuildRows(Sub(tele: true, zalo: true), 42, Msg, Sched, "13/08/2026");
+        Assert.All(rows, r => Assert.Null(r.Params));
     }
 }
