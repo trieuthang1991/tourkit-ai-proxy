@@ -194,6 +194,42 @@ Thứ tự phụ thuộc: **F1 trước tiên** → F2 → F3/F4 song song khi c
 - **Rủi ro thật nằm ở 3 chỗ (không phải "code khó")**: (1) chi phí quota AI tăng đều — digest × user × ngày (riêng O2 miễn phí); (2) chất lượng ngưỡng cảnh báo C2/F3 với mùa vụ du lịch; (3) cổng auto-send S6/F4 — rủi ro thương hiệu tenant, bắt buộc hạn mức + log + kill-switch.
 - **2 tính năng KHÔNG hứa với lãnh đạo ở thời điểm này**: O3 (30%) và S2 (40% hiện trạng) — đúng nhãn "có điều kiện/chờ xác minh" đã gắn.
 
+## Kết quả audit MailClassifier (14/08/2026) — điều kiện tiên quyết của S2
+
+Audit đã chạy trên toàn bộ `dbo.Mails` (1.215 thư / 2 tenant). **Kết luận: S2 vẫn KHÔNG làm được, nhưng
+vì lý do KHÁC với phỏng đoán ở trên.** Spec đoán "classifier phân loại kém → audit xong sửa → S2 lên
+~75%". Số thật nói ngược lại ở phần quan trọng nhất.
+
+**1. Không có input thật, và sửa classifier cũng không tạo ra input.** Hai hộp thư đang kết nối là hộp
+thư **cá nhân/dev**, không phải hộp thư kinh doanh. Nhóm `khac` (626 thư) gồm: thông báo tài khoản
+Google, mã xác minh LINE Games, GitHub, thông báo API Gemini/DeepSeek, quảng cáo tuyển dụng LinkedIn,
+biên nhận Grab. Đây **đúng là** `khac` — classifier không sai ở đây. `hoi_dat_tour = 0` vì **thật sự
+không có khách nào gửi thư hỏi tour vào hai hộp này**. Điều kiện tiên quyết thật của S2 là **kết nối một
+hộp thư bán hàng thật**, không phải sửa model.
+
+**2. Nhưng classifier CÓ một lỗi thật, đo được: nó không nhất quán.** Cùng một tiêu đề, thư khác nhau
+lại rơi vào nhóm khác nhau — `Thông báo có công việc mới được giao` **121 thư** chia đôi `khac`/`spam`;
+`Your Grab E-Receipt` **60 thư** chia đôi; `Thông báo có phiếu thu mới` **12 thư** rải **3 nhóm**. Tổng
+cộng >470 thư ở các dòng đầu bảng. Nguyên nhân: prompt chỉ liệt kê **tên** nhóm (`- spam: Spam`) chứ
+không định nghĩa nhóm cũng không có luật gỡ hoà, nên với thư máy-gửi (không phải khách, cũng không phải
+quảng cáo) model bị kẹt giữa `spam` và `khac` và mỗi lần chọn một kiểu. `Temperature: 0.1` chỉ khuếch
+đại chứ không phải gốc.
+
+**3. Bộ nhóm hiện tại thiếu chỗ cho ~96% thư thật.** Cả 6 nhóm đều hướng bán hàng. Thông báo nội bộ CRM,
+newsletter, biên nhận không có nhà → dồn hết vào `spam`/`khac`, và đó chính là chỗ sinh ra lỗi (2).
+
+**4. Hai hệ quả đã thấy, đáng sửa bất kể S2:**
+- **Bản tin sáng của chính TRAV-AI bị chấm là `spam`** (`Bản tin sáng 14/08 — Admin Tourkit` nằm ở cả
+  `khac` lẫn `spam`).
+- **20 thư có từ khoá tour rơi vào `spam`** — `spam` là ngõ cụt trong luồng bán hàng, nên nếu sau này
+  cắm hộp thư thật thì đúng những thư đáng giá nhất sẽ biến mất im lặng. Đây mới là rủi ro thật của S2.
+
+**Chốt:** S2 **hoãn** — chờ (a) hộp thư bán hàng thật, và (b) sửa nhóm + prompt classifier theo (2)(3).
+Sửa classifier là việc **độc lập, nên làm trước** vì nó đang làm hỏng cả tính năng Hộp thư AI hiện tại,
+nhưng nó **không** tự mở khoá S2.
+
+---
+
 ## Danh sách gap (cập nhật sau kiểm chứng code 11/08/2026)
 
 1. ~~Field **ngày sinh KH**~~ **ĐÓNG** — `AiCustomerDtos.Birthday` + `BirthdayThisMonth` filter có sẵn (S6).
