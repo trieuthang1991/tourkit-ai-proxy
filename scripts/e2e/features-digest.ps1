@@ -91,7 +91,7 @@ function RestoreOriginal {
       channelTelegram = $s.channelTelegram
       telegramChatId  = $s.telegramChatId
       channelZalo     = $s.channelZalo
-      zaloUserId      = $s.zaloUserId
+      zaloPhone       = $s.zaloPhone
     }
     $r = Req PUT "/digest/subscriptions/$($s.briefType)" $body $H
     if ($r.Code -ne 200) { Write-Host "  !! Khoi phuc $($s.briefType) that bai (code=$($r.Code)) - dung file $backupPath" -ForegroundColor Red }
@@ -188,19 +188,31 @@ try {
   Check 'telegram tat -> skip chu khong FAIL' ("$($t.Data.summary)" -match 'telegram:skip') "summary=$($t.Data.summary)"
   Check 'email tat -> skip chu khong FAIL' ("$($t.Data.summary)" -match 'email:skip') "summary=$($t.Data.summary)"
 
-  Write-Host "7d. Bat zalo khi cong ty CHUA cau hinh OA (hoac user id sai)" -ForegroundColor Cyan
-  # Ca nay phai hong RIENG kenh zalo, KHONG duoc keo do ca luot gui. Dung user id ro rang la gia
-  # nen khong the gui nham cho nguoi that.
-  $zcfg = (Req GET '/digest/zalo-config' $null $H).Data
-  Info "OA zalo cua cong ty: configured=$($zcfg.configured)"
-  $null = Req PUT '/digest/subscriptions/sale-brief' @{
-    enabled=$true; sendHourLocal=7; channelInApp=$true
-    channelZalo=$true; zaloUserId='e2e-khong-ton-tai' } $H
+  Write-Host "7d. Zalo: so dien thoai sai bi chan NGAY luc luu" -ForegroundColor Cyan
+  # Zalo gui bang ZNS (nhan theo SO DIEN THOAI). So sai thi ZNS tu choi luc gui, ma loi do chi
+  # admin nhin thay -> phai chan tu luc luu, luc nguoi dung con dang nhin man hinh.
+  Check 'Bat zalo ma bo trong so = 400' `
+    ((Req PUT '/digest/subscriptions/sale-brief' @{ enabled=$true; sendHourLocal=7; channelInApp=$true
+      channelZalo=$true; zaloPhone='' } $H).Code -eq 400) 'khac 400'
+  Check 'So co dinh (khong dung Zalo) = 400' `
+    ((Req PUT '/digest/subscriptions/sale-brief' @{ enabled=$true; sendHourLocal=7; channelInApp=$true
+      channelZalo=$true; zaloPhone='02812345678' } $H).Code -eq 400) 'khac 400'
+  Check 'Chuoi khong phai so = 400' `
+    ((Req PUT '/digest/subscriptions/sale-brief' @{ enabled=$true; sendHourLocal=7; channelInApp=$true
+      channelZalo=$true; zaloPhone='khong-phai-so' } $H).Code -eq 400) 'khac 400'
+  Check 'So di dong hop le = 200' `
+    ((Req PUT '/digest/subscriptions/sale-brief' @{ enabled=$true; sendHourLocal=7; channelInApp=$true
+      channelZalo=$true; zaloPhone='+84 912 345 678' } $H).Code -eq 200) 'khac 200'
+  $zsub = (Req GET '/digest/subscriptions' $null $H).Data.items | Where-Object { $_.briefType -eq 'sale-brief' }
+  Check 'Server chuan hoa ve dang 0xxxxxxxxx' ($zsub.zaloPhone -eq '0912345678') "zaloPhone=$($zsub.zaloPhone)"
+
+  Write-Host "7d-2. Gui thu Zalo di QUA HANG DOI (khong gui thang)" -ForegroundColor Cyan
+  # Khoa Zalo nam o worker, khong o proxy -> proxy chi xep dong roi de worker gui.
   $t = Req POST '/digest/subscriptions/sale-brief/test' $null $H
-  Check 'Zalo hong: endpoint van 200 (khong 500)' ($t.Code -eq 200) "code=$($t.Code)"
-  Check 'Zalo hong: van ok nho kenh trong app' ($t.Data.ok -eq $true) "$($t.Data | ConvertTo-Json -Compress)"
-  Check 'Zalo bao FAIL trong summary' ("$($t.Data.summary)" -match 'zalo:FAIL') "summary=$($t.Data.summary)"
-  Check 'Zalo hong KHONG lot vao sentChannels' (-not ("$($t.Data.sentChannels)" -match 'zalo')) "sentChannels=$($t.Data.sentChannels)"
+  Check 'Gui thu co Zalo: van 200' ($t.Code -eq 200) "code=$($t.Code)"
+  Check 'Zalo bao ok (da xep hang doi)' ("$($t.Data.sentChannels)" -match 'zalo') "sentChannels=$($t.Data.sentChannels)"
+  $q = Req GET '/workflows/outbound-mails?kind=daily-brief&channel=2&limit=5' $null $H
+  Check 'Thay dong Zalo trong hang doi' (@($q.Data.items).Count -gt 0) "items=$(@($q.Data.items).Count)"
 
   Write-Host "7e. Bat telegram voi chat id sai / bot chua cau hinh" -ForegroundColor Cyan
   # Chua khai Telegram:BotToken -> kenh tu tat (skip). Da khai ma chat id sai -> FAIL.
@@ -248,14 +260,7 @@ try {
     Check "Badge giam ($after -> $c2)" ($c2 -lt $after) "$after -> $c2"
   }
 
-  Write-Host "10. Zalo config" -ForegroundColor Cyan
-  $z = Req GET '/digest/zalo-config' $null $H
-  Check 'GET zalo-config = 200' ($z.Code -eq 200) "code=$($z.Code)"
-  Check 'KHONG tra access token ve client' (-not (@($z.Data.PSObject.Properties.Name) -contains 'accessToken')) 'co tra token!'
-  $z = Req PUT '/digest/zalo-config' @{ oaId=''; accessToken='' } $H
-  Check 'Zalo thieu thong tin = 400/403' (($z.Code -eq 400) -or ($z.Code -eq 403)) "code=$($z.Code)"
-
-  Write-Host "11. Telegram detect (tien ich phu - khong duoc thanh 500)" -ForegroundColor Cyan
+  Write-Host "10. Telegram detect (tien ich phu - khong duoc thanh 500)" -ForegroundColor Cyan
   $tg = Req POST '/digest/telegram/detect' $null $H
   Check 'Telegram detect tra 200/502/503' (@(200,502,503) -contains $tg.Code) "code=$($tg.Code)"
   if ($tg.Code -eq 200) { Info "ma: $($tg.Data.code) | chatId: $($tg.Data.chatId)" }

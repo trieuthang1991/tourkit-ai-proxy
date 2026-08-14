@@ -1,4 +1,4 @@
-// pages/digest.jsx — Khối "Bản tin của tôi" + cấu hình OA Zalo.
+// pages/digest.jsx — Khối "Bản tin của tôi".
 //
 // KHÔNG phải một trang riêng: 2 khối này nhúng vào thẻ tác vụ ở trang Tự động hoá. Lý do (chốt
 // 12/08): đăng ký nhận bản tin CHÍNH LÀ cấu hình của tác vụ sale-brief/ceo-brief — tách ra trang
@@ -6,7 +6,7 @@
 //
 // Phân vai quyền, giống hệt cách hộp thư (mail-auto-sync) đang làm:
 //   • "Bản tin của tôi" — nơi nhận của CHÍNH mình → KHÔNG cần quyền gì.
-//   • Lịch chạy (bật/tắt, tần suất) + OA Zalo — cấp công ty → cần quyền xem cấu hình.
+//   • Lịch chạy (bật/tắt, tần suất) — cấp công ty → cần quyền xem cấu hình.
 'use strict';
 
 const { useState: dS, useEffect: dE, useCallback: dCB } = React;
@@ -24,7 +24,7 @@ const EMPTY_SUB = {
   channelInApp: true,
   channelEmail: false, email: '',
   channelTelegram: false, telegramChatId: '',
-  channelZalo: false, zaloUserId: '',
+  channelZalo: false, zaloPhone: '',
 };
 
 const BRIEF_TYPES = ['sale-brief', 'ceo-brief'];
@@ -38,6 +38,15 @@ async function dApi(path, opts = {}) {
   try { body = await r.json(); } catch {}
   if (!r.ok) throw new Error((body && body.error) || `HTTP ${r.status}`);
   return body;
+}
+
+// Zalo gửi bằng ZNS — nhắn theo SỐ ĐIỆN THOẠI, không phải theo Zalo user id. Chặn ngay tại đây vì
+// số sai thì Zalo mới từ chối lúc gửi, mà lúc đó chỉ admin nhìn thấy còn người đăng ký thì không.
+// Chỉ nhận số di động: Zalo là ứng dụng di động, gõ số bàn vào chỉ tổ gửi hỏng mà không hiểu vì sao.
+function isVnMobile(raw) {
+  let d = String(raw || '').replace(/\D/g, '');
+  if (d.startsWith('84') && d.length >= 11) d = '0' + d.slice(2);
+  return /^0[35789]\d{8}$/.test(d);
 }
 
 // Tóm tắt 1 dòng cho dòng list thu gọn của thẻ tác vụ — để không phải mở ra mới biết mình có nhận không.
@@ -76,7 +85,7 @@ function DigestSubBlock({ briefType, sub, onSaved, pushToast, scheduleOn = true 
     // KHÔNG còn đòi "ít nhất 1 kênh": trong app luôn bật, nên không chọn kênh ngoài nào vẫn nhận được.
     if (f.channelEmail && !String(f.email || '').trim()) return 'Nhập email nhận.';
     if (f.channelTelegram && !String(f.telegramChatId || '').trim()) return 'Nhập chat id Telegram (hoặc bấm Tự phát hiện).';
-    if (f.channelZalo && !String(f.zaloUserId || '').trim()) return 'Nhập user id Zalo.';
+    if (f.channelZalo && !isVnMobile(f.zaloPhone)) return 'Nhập số điện thoại Zalo (10 số, bắt đầu bằng 0).';
     return null;
   })();
 
@@ -178,14 +187,16 @@ function DigestSubBlock({ briefType, sub, onSaved, pushToast, scheduleOn = true 
       <label className="digest-ch">
         <input type="checkbox" checked={!!f.channelZalo} onChange={e => set({ channelZalo: e.target.checked })} />
         <span className="digest-ch-name"><Icon name="user" size={13} /> Zalo</span>
-        <input className="digest-input" placeholder="user id Zalo"
-          value={f.zaloUserId || ''} onChange={e => set({ zaloUserId: e.target.value })} disabled={!f.channelZalo} />
+        <input className="digest-input" placeholder="Số điện thoại Zalo, vd 0912345678"
+          value={f.zaloPhone || ''} onChange={e => set({ zaloPhone: e.target.value })} disabled={!f.channelZalo} />
       </label>
       {f.channelZalo && (
-        // Giới hạn của Zalo OA, không phải lỗi hệ thống: chỉ nhắn được cho người đã nhắn OA trong
-        // 48 giờ. Không nói trước thì người dùng tưởng kênh hỏng.
+        // Đặc điểm của ZNS, nói trước để khỏi tưởng kênh hỏng: tin Zalo chỉ là lời nhắc ngắn kèm
+        // đường dẫn — nội dung đầy đủ nằm ở tab Bảng tin. ZNS gửi theo mẫu đã đăng ký với Zalo nên
+        // không chở được cả bản tin dài.
         <div className="digest-ch-warn">
-          <Icon name="info" size={12} /> Zalo chỉ nhận được nếu bạn đã nhắn cho OA của công ty trong 48 giờ gần nhất.
+          <Icon name="info" size={12} /> Tin Zalo là lời nhắc ngắn; bản tin đầy đủ đọc ở tab Bảng tin.
+          Số phải là số đang dùng Zalo.
         </div>
       )}
 
@@ -222,88 +233,9 @@ function DigestSubBlock({ briefType, sub, onSaved, pushToast, scheduleOn = true 
   );
 }
 
-// ─── Cấu hình OA Zalo của công ty (cần quyền xem cấu hình) ──────────────────────
-function DigestZaloBox({ pushToast }) {
-  const Icon = window.Icon;
-  const [state, setState] = dS(null);
-  const [oaId, setOaId] = dS('');
-  const [token, setToken] = dS('');
-  const [busy, setBusy] = dS(false);
-  const [open, setOpen] = dS(false);
+// Khối khai OA Zalo của từng công ty đã GỠ (14/08): Zalo nay gửi bằng ZNS qua OA của bên cung
+// cấp dịch vụ, khai một lần ở config hệ thống. Trước đây bắt mỗi công ty tự khai vì tin Zalo tính
+// tiền theo từng OA; nay bên mình chịu chi phí nên gom về một mối, công ty không phải khai gì.
 
-  const load = dCB(async () => {
-    try { setState(await dApi('/api/v1/digest/zalo-config')); } catch { setState({ configured: false }); }
-  }, []);
-  dE(() => { load(); }, [load]);
-
-  const save = async () => {
-    setBusy(true);
-    try {
-      await dApi('/api/v1/digest/zalo-config', { method: 'PUT', body: JSON.stringify({ oaId, accessToken: token }) });
-      setToken(''); pushToast && pushToast('Đã lưu cấu hình OA Zalo'); load();
-    } catch (e) { pushToast && pushToast('Lỗi: ' + e.message); }
-    finally { setBusy(false); }
-  };
-
-  const remove = async () => {
-    setBusy(true);
-    try { await dApi('/api/v1/digest/zalo-config', { method: 'DELETE' }); pushToast && pushToast('Đã xoá cấu hình'); load(); }
-    catch (e) { pushToast && pushToast('Lỗi: ' + e.message); }
-    finally { setBusy(false); }
-  };
-
-  return (
-    <div className="digest-oa">
-      <div className="digest-oa-head" onClick={() => setOpen(v => !v)} role="button" tabIndex={0}
-        onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setOpen(v => !v); } }}>
-        <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
-          <Icon name="shield" size={15} /> <b>OA Zalo của công ty</b>
-        </span>
-        <span className={'digest-oa-state' + (state && state.configured ? ' is-on' : '')}>
-          {state == null ? '…' : (state.configured ? 'Đã cấu hình' : 'Chưa cấu hình')}
-        </span>
-        <Icon name={open ? 'chevronUp' : 'chevronDown'} size={15} />
-      </div>
-
-      {open && (
-        <div className="digest-oa-body">
-          {/* Vì sao CHỈ Zalo phải tự khai: nó tốn tiền và hạn mức tính theo từng OA nên không thể
-              dùng tài khoản chung. Telegram và email miễn phí → hệ thống cấp sẵn. */}
-          <p className="workflows-opt-hint" style={{ marginTop: 0 }}>
-            Chỉ cần khai nếu công ty muốn gửi bản tin qua Zalo. Zalo tốn tiền và hạn mức tính riêng theo
-            từng OA nên không dùng chung được. Telegram và email thì hệ thống lo, bạn không phải khai gì.
-          </p>
-
-          {state && state.configured && (
-            <div className="digest-row"><div className="digest-label">OA Id hiện tại</div><code>{state.oaId}</code></div>
-          )}
-          <div className="digest-row">
-            <div className="digest-label">OA Id</div>
-            <input className="digest-input" value={oaId} onChange={e => setOaId(e.target.value)} placeholder="vd 1234567890" />
-          </div>
-          <div className="digest-row">
-            <div className="digest-label">Access Token</div>
-            {/* Không bao giờ hiện lại token đã lưu (server cũng không trả) — nhập là ghi đè. */}
-            <input className="digest-input" type="password" value={token} onChange={e => setToken(e.target.value)}
-              placeholder={state && state.configured ? 'Nhập token mới để thay' : 'dán access token OA'} />
-          </div>
-          <div className="workflows-actions">
-            <button className="wga-btn primary" onClick={save} disabled={busy || !oaId.trim() || !token.trim()}>
-              <Icon name="save" size={14} /> Lưu
-            </button>
-            {state && state.configured && (
-              <button className="wga-btn ghost" onClick={remove} disabled={busy}>
-                <Icon name="trash" size={14} /> Xoá cấu hình
-              </button>
-            )}
-          </div>
-        </div>
-      )}
-    </div>
-  );
-}
-
-window.DigestSubBlock = DigestSubBlock;
-window.DigestZaloBox = DigestZaloBox;
 window.digestSummary = digestSummary;
 window.DIGEST_BRIEF_TYPES = BRIEF_TYPES;

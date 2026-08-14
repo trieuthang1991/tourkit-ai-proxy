@@ -8,7 +8,7 @@ public class DigestEnqueuePlannerTests
 {
     private static DigestSubscription Sub(bool email = false, bool tele = false, bool zalo = false)
         => new("t", "u", BriefTypes.Sale, true, 7, true,
-               email, email ? "a@b.vn" : null, tele, tele ? "123" : null, zalo, zalo ? "z9" : null, null, null);
+               email, email ? "a@b.vn" : null, tele, tele ? "123" : null, zalo, zalo ? "0912345678" : null, null, null);
     private static readonly DigestMessage Msg = new("Tiêu đề", "body md", "<p>html</p>", BriefTypes.Sale);
     private static readonly DateTime Sched = new(2026, 8, 13, 0, 0, 0);
 
@@ -48,7 +48,7 @@ public class DigestEnqueuePlannerTests
         Assert.Equal("Tiêu đề", tg.GetProperty("title").GetString());
         Assert.Equal("body md", tg.GetProperty("body").GetString());
 
-        Assert.Equal("z9", za.GetProperty("zaloUserId").GetString());
+        Assert.Equal("0912345678", za.GetProperty("phone").GetString());
         Assert.Equal("Tiêu đề", za.GetProperty("title").GetString());
         Assert.Equal("body md", za.GetProperty("body").GetString());
     }

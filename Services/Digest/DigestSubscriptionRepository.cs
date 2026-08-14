@@ -10,8 +10,14 @@ public class DigestSubscriptionRepository
 
     public DigestSubscriptionRepository(TourkitAiDb db) { _db = db; }
 
+    /// <summary>
+    /// ⚠️ <c>ZaloUserId AS ZaloPhone</c> — cột trong DB còn tên cũ, nội dung nay là SỐ ĐIỆN THOẠI.
+    /// Zalo gửi bằng ZNS (nhắn theo số) nên không còn dùng tới Zalo user id nữa. Giữ tên cột để
+    /// khỏi phải sửa lược đồ một bảng đã có; tính năng chưa ra mắt nên cột chưa mang dữ liệu thật.
+    /// Đổi tên cột cho khớp là việc nên làm, nhưng phải hỏi trước vì đụng bảng cũ.
+    /// </summary>
     private const string Cols = @"TenantId, Username, BriefType, Enabled, SendHourLocal,
-ChannelInApp, ChannelEmail, Email, ChannelTelegram, TelegramChatId, ChannelZalo, ZaloUserId,
+ChannelInApp, ChannelEmail, Email, ChannelTelegram, TelegramChatId, ChannelZalo, ZaloUserId AS ZaloPhone,
 LastSentUtc, LastSentLocalDate";
 
     /// <summary>
@@ -34,14 +40,14 @@ LastSentUtc, LastSentLocalDate";
         public bool ChannelTelegram { get; set; }
         public string? TelegramChatId { get; set; }
         public bool ChannelZalo { get; set; }
-        public string? ZaloUserId { get; set; }
+        public string? ZaloPhone { get; set; }
         public DateTime? LastSentUtc { get; set; }
         public DateTime? LastSentLocalDate { get; set; }
 
         public DigestSubscription ToModel() => new(
             TenantId, Username, BriefType, Enabled, SendHourLocal,
             ChannelInApp, ChannelEmail, Email,
-            ChannelTelegram, TelegramChatId, ChannelZalo, ZaloUserId,
+            ChannelTelegram, TelegramChatId, ChannelZalo, ZaloPhone,
             LastSentUtc, LastSentLocalDate);
     }
 
@@ -80,19 +86,19 @@ WHEN MATCHED THEN UPDATE SET
     BriefType = @BriefType, Enabled = @Enabled, SendHourLocal = @SendHourLocal,
     ChannelInApp = @ChannelInApp, ChannelEmail = @ChannelEmail, Email = @Email,
     ChannelTelegram = @ChannelTelegram, TelegramChatId = @TelegramChatId,
-    ChannelZalo = @ChannelZalo, ZaloUserId = @ZaloUserId, UpdatedUtc = SYSUTCDATETIME()
+    ChannelZalo = @ChannelZalo, ZaloUserId = @ZaloPhone, UpdatedUtc = SYSUTCDATETIME()
 WHEN NOT MATCHED THEN INSERT
     (TenantId, Username, BriefType, Enabled, SendHourLocal, ChannelInApp, ChannelEmail, Email,
      ChannelTelegram, TelegramChatId, ChannelZalo, ZaloUserId, CreatedUtc, UpdatedUtc)
 VALUES
     (@TenantId, @Username, @BriefType, @Enabled, @SendHourLocal, @ChannelInApp, @ChannelEmail, @Email,
-     @ChannelTelegram, @TelegramChatId, @ChannelZalo, @ZaloUserId, SYSUTCDATETIME(), SYSUTCDATETIME());",
+     @ChannelTelegram, @TelegramChatId, @ChannelZalo, @ZaloPhone, SYSUTCDATETIME(), SYSUTCDATETIME());",
             new
             {
                 s.TenantId, s.Username, s.BriefType, s.Enabled,
                 SendHourLocal = DigestSubscription.ClampHour(s.SendHourLocal),
                 s.ChannelInApp, s.ChannelEmail, s.Email,
-                s.ChannelTelegram, s.TelegramChatId, s.ChannelZalo, s.ZaloUserId
+                s.ChannelTelegram, s.TelegramChatId, s.ChannelZalo, s.ZaloPhone
             });
     }
 

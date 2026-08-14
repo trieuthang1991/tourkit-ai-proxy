@@ -63,7 +63,7 @@ bảng số** này:
 |---|---|---|---|
 | 0 | `Email` (default) | `ToEmail` + `Params` (mẫu HTML) | `EmailChannelSender` |
 | 1 | `Telegram` | `Data`: `{chatId, title, body}` | `TelegramChannelSender` |
-| 2 | `Zalo` | `Data`: `{zaloUserId, title, body}` | `ZaloChannelSender` |
+| 2 | `Zalo` (ZNS) | `Data`: `{phone, title, body}` — SỐ ĐIỆN THOẠI | `ZaloZnsSender` |
 
 Dòng cũ (trước khi có cột `Channel`) tự mang giá trị mặc định `0` (email) — không cần migrate data.
 

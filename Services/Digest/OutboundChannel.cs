@@ -26,7 +26,7 @@ public static class OutboundChannels
         var list = new List<OutboundChannel>(3);
         if (s.ChannelEmail    && !string.IsNullOrWhiteSpace(s.Email))          list.Add(OutboundChannel.Email);
         if (s.ChannelTelegram && !string.IsNullOrWhiteSpace(s.TelegramChatId)) list.Add(OutboundChannel.Telegram);
-        if (s.ChannelZalo     && !string.IsNullOrWhiteSpace(s.ZaloUserId))     list.Add(OutboundChannel.Zalo);
+        if (s.ChannelZalo     && !string.IsNullOrWhiteSpace(s.ZaloPhone))      list.Add(OutboundChannel.Zalo);
         return list;
     }
 

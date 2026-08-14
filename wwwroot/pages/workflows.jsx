@@ -935,13 +935,10 @@ function WorkflowsPage({ pushToast, initialTab }) {
                 </div>
                 <div className={'wga-card' + (saConfigured === false ? ' workflows-sa-needed' : '')} style={{ padding: '14px 18px', marginBottom: 14 }}>
                   <ServiceAccountConfig pushToast={pushToast} onChange={loadSa} />
-                  {/* Zalo OA: cung la "tai khoan cua cong ty", moi tenant khai 1 lan -> dat ngay
-                      canh tai khoan dich vu thay vi mot trang rieng.
-                      Theo co Features:Digest: khoi nay nam trong the "Theo to chuc" chu khong phai
-                      the ban tin, nen KHONG tu bien mat theo 3 workflow bi go dang ky. Ma Zalo OA
-                      chi dung de gui ban tin -> tat ban tin ma de lai thi no goi /digest/zalo-config
-                      va an 404. */}
-                  {digestOn && window.DigestZaloBox && <window.DigestZaloBox pushToast={pushToast} />}
+                  {/* Khoi khai OA Zalo da GO (14/08): Zalo gui bang ZNS qua OA cua ben cung cap
+                      dich vu, khai o config he thong -> tung cong ty khong con phai khai gi.
+                      Truoc day moi cong ty phai tu khai OA vi tin Zalo tinh tien theo tung OA;
+                      nay ben minh chiu chi phi nen gop ve mot moi. */}
                 </div>
                 {renderCards(perTenant, saConfigured === false)}
               </section>

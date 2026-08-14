@@ -167,7 +167,7 @@ public static class WorkflowStackRegistration
         // chuyện gửi đi đâu. Nhờ vậy mọi kênh ngoài hỏng hết thì vẫn còn chỗ xem/nghe lại.
         s.AddSingleton<Digest.Channels.IDigestChannel, Digest.Channels.EmailChannel>();
         s.AddSingleton<Digest.Channels.IDigestChannel, Digest.Channels.TelegramChannel>();
-        s.AddSingleton<Digest.Channels.IDigestChannel, Digest.Channels.ZaloOaChannel>();
+        s.AddSingleton<Digest.Channels.IDigestChannel, Digest.Channels.ZaloZnsChannel>();
         // Bộ phát này CHỈ phục vụ "Gửi thử" (bấm nút là gửi ngay). Bản tin hằng ngày KHÔNG đi
         // đường này — nó chỉ được xếp vào hàng đợi, còn gửi là việc của worker bên toutkit-app.
         s.AddSingleton<Digest.DigestDispatcher>();

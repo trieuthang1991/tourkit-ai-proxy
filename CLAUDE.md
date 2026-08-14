@@ -169,9 +169,6 @@ data/
 | PUT    | `/api/v1/digest/subscriptions/{briefType}` | Lưu đăng ký (`sale-brief`\|`ceo-brief`) — validate: loại lạ → 400, bật mà 0 kênh → 400, bật kênh mà trống nơi nhận → 400; giờ rác kẹp về 7h; CỐ Ý không đụng mốc "đã gửi hôm nay" |
 | POST   | `/api/v1/digest/subscriptions/{briefType}/test` | Gửi thử NGAY qua đúng đường gửi thật → `{ok, summary, sentChannels}`; CỐ Ý không cập nhật mốc "đã gửi" (không thì bản tin thật sáng mai bị bỏ) |
 | POST   | `/api/v1/digest/telegram/detect`   | Tự tìm chat id: trả mã `TK-xxxxxx` (gắn theo PHIÊN) → user nhắn mã cho bot → gọi lại để lấy `chatId`. Lỗi mạng Telegram → 502 kèm gợi ý tự dán, KHÔNG 500 |
-| GET    | `/api/v1/digest/zalo-config`      | Trạng thái Zalo OA của công ty `{configured, oaId}` — KHÔNG trả access token |
-| PUT    | `/api/v1/digest/zalo-config`      | Lưu OA Id + Access Token (Crypton-enc) — gate `CH_HT_XEM` |
-| DELETE | `/api/v1/digest/zalo-config`      | Xoá cấu hình Zalo OA — gate `CH_HT_XEM` |
 | POST   | `/api/v1/assistant/action/execute` | Thực thi 1 hành động trợ lý đã xác nhận `{actionId, action, params, provider?, model?}` → `{action, message, data?, warning?}` (require X-Session-Id) — idempotent theo `actionId` (double-confirm không gửi/enqueue trùng); hành động `assign_task`/`create_appointment` chỉ **enqueue** `dbo.CrmActionQueue`, KHÔNG POST thẳng CRM |
 | POST   | `/api/v1/admin/auth/login`        | Admin login `{username,password}` → `{token,username,expiresAt}` |
 | POST   | `/api/v1/admin/auth/logout`       | header `X-Admin-Session` → `{ok}` |
@@ -420,8 +417,25 @@ tài khoản có `BC_NV_XEM`, còn lại SP tự lọc về số của riêng h�
 ngoài hỏng hết thì vẫn còn chỗ xem/nghe lại. Server ép `ChannelInApp=true` khi lưu đăng ký; UI khoá ô
 tick. 3 kênh gửi thật ([`Services/Digest/Channels/`](Services/Digest/Channels/)): email (`TemplateCode=daily-brief`,
 worker toutkit-app gửi) · Telegram (bot DÙNG CHUNG `Telegram:BotToken` — miễn phí nên hệ thống cấp) ·
-Zalo OA (**per-tenant**, `dbo.TenantChannelSettings` — tốn tiền + hạn mức riêng từng OA nên công ty tự
-khai; Zalo chỉ nhắn được cho người đã nhắn OA trong 48h). Một kênh hỏng KHÔNG làm chết kênh còn lại.
+Zalo (**ZNS — nhắn theo SỐ ĐIỆN THOẠI**, qua OA **dùng chung của bên
+cung cấp dịch vụ**, khai ở `Zalo:*` trong config worker). Một kênh hỏng KHÔNG làm chết kênh còn lại.
+
+⚠️ **Zalo: 3 điều dễ hiểu sai** (đổi 14/08 — trước đó code dùng API `message/cs` theo Zalo user id):
+1. **Nơi nhận là SỐ ĐIỆN THOẠI**, không phải Zalo user id. Người dùng chỉ nhập số của mình; server
+   chuẩn hoá về `0xxxxxxxxx` ngay lúc lưu ([`DigestPhone`](Services/Digest/DigestPhone.cs)), worker đổi
+   sang `84…` lúc gọi API. Cột DB vẫn tên cũ `ZaloUserId` (alias `AS ZaloPhone`) — chưa đổi tên vì đụng
+   bảng cũ, mà tính năng chưa ra mắt nên cột chưa có dữ liệu thật.
+2. **ZNS KHÔNG gửi được chữ tự do** — chỉ điền tham số vào mẫu đã được Zalo duyệt. Nên tin Zalo là
+   **lời nhắc ngắn**; bản tin đầy đủ đọc ở Bảng tin (kênh trong app luôn bật nên chắc chắn có).
+3. **OA dùng chung, không per-tenant.** Mẫu ZNS đăng ký dưới OA nào thì chỉ OA đó dùng được → OA riêng
+   từng công ty nghĩa là mỗi công ty phải tự đăng ký mẫu + chờ duyệt + khai 4 thứ, gần như chắc chắn bỏ
+   dở. Vì vậy 3 endpoint `/digest/zalo-config` per-tenant **đã gỡ**; `dbo.TenantChannelSettings` giữ lại
+   với `TenantId='(system)'` để worker lưu cặp token ZNS — **`refresh_token` đổi mỗi lần làm mới** nên
+   bắt buộc phải lưu, để yên trong file config là hỏng ngay sau lần làm mới đầu tiên.
+
+**"Gửi thử" Zalo đi QUA hàng đợi** (giống email), không gửi thẳng như Telegram: khoá OA chỉ nằm ở worker.
+Nhét bộ khoá sang cả proxy thì hai nơi cùng làm mới token, mà token Zalo xoay vòng — bên chậm chân giữ
+token đã chết.
 
 **Một enum kênh duy nhất** — [`OutboundChannel`](Services/Digest/OutboundChannel.cs): `0=Email`,
 `1=Telegram`, `2=Zalo`, lưu thẳng cột `dbo.OutboundMails.Channel` (TINYINT). Default 0 nên dòng cũ trong

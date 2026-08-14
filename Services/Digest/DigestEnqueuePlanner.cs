@@ -40,12 +40,15 @@ public static class DigestEnqueuePlanner
                         body = m.BodyMarkdown,
                     }),
                     ScheduledUtc: scheduledUtc, Channel: OutboundChannel.Telegram),
+                // Zalo đi bằng ZNS → nơi nhận là SỐ ĐIỆN THOẠI. Vẫn mang theo title/body dù mẫu ZNS
+                // chỉ hiện được vài tham số: worker quyết lấy gì nhét vào mẫu, và nếu sau này đổi
+                // mẫu (thêm tham số) thì không phải sửa lại chỗ xếp hàng đợi.
                 _ => new OutboundMailInput(
                     sub.TenantId, Kind, SourceId: insightId.ToString(), Username: sub.Username,
                     Subject: m.Title,
                     Data: JsonSerializer.Serialize(new
                     {
-                        zaloUserId = sub.ZaloUserId!.Trim(),
+                        phone = sub.ZaloPhone!.Trim(),
                         title = m.Title,
                         body = m.BodyMarkdown,
                     }),

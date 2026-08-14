@@ -26,9 +26,7 @@ public static class DigestEndpoints
     /// Body PUT đăng ký (camelCase từ frontend).
     public record SubBody(bool Enabled, int SendHourLocal, bool ChannelInApp,
         bool ChannelEmail, string? Email, bool ChannelTelegram, string? TelegramChatId,
-        bool ChannelZalo, string? ZaloUserId);
-
-    public record ZaloConfigBody(string? OaId, string? AccessToken);
+        bool ChannelZalo, string? ZaloPhone);
 
     public static IEndpointRouteBuilder MapDigestEndpoints(this IEndpointRouteBuilder routes)
     {
@@ -78,9 +76,17 @@ public static class DigestEndpoints
             var missing = new List<string>();
             if (body.ChannelEmail && string.IsNullOrWhiteSpace(body.Email)) missing.Add("email nhận");
             if (body.ChannelTelegram && string.IsNullOrWhiteSpace(body.TelegramChatId)) missing.Add("chat id Telegram");
-            if (body.ChannelZalo && string.IsNullOrWhiteSpace(body.ZaloUserId)) missing.Add("user id Zalo");
+            if (body.ChannelZalo && string.IsNullOrWhiteSpace(body.ZaloPhone)) missing.Add("số điện thoại Zalo");
             if (body.Enabled && missing.Count > 0)
                 return Results.BadRequest(new { error = $"Còn thiếu {string.Join(", ", missing)}." });
+
+            // Số sai định dạng thì ZNS từ chối, mà lỗi đó chỉ hiện ở trang theo dõi của admin — người
+            // đăng ký không thấy gì và cứ ngồi đợi. Chặn ngay lúc lưu, lúc họ còn đang nhìn màn hình.
+            if (body.Enabled && body.ChannelZalo && !DigestPhone.IsValid(body.ZaloPhone))
+                return Results.BadRequest(new
+                {
+                    error = "Số điện thoại Zalo không hợp lệ — nhập số Việt Nam 10 chữ số bắt đầu bằng 0 (vd 0912345678).",
+                });
 
             await repo.UpsertAsync(new DigestSubscription(
                 a.TenantId, a.Username, briefType,
@@ -89,7 +95,7 @@ public static class DigestEndpoints
                 // true, bỏ qua body.ChannelInApp. Client cũ gửi false cũng không tắt được.
                 ChannelInApp: true, body.ChannelEmail, body.Email?.Trim(),
                 body.ChannelTelegram, body.TelegramChatId?.Trim(),
-                body.ChannelZalo, body.ZaloUserId?.Trim(),
+                body.ChannelZalo, DigestPhone.Normalize(body.ZaloPhone),
                 // Upsert CỐ Ý không đụng 2 mốc này (xem repo): sửa cấu hình giữa ngày KHÔNG được
                 // làm bản tin gửi lại lần nữa.
                 LastSentUtc: null, LastSentLocalDate: null), ct);
@@ -207,49 +213,9 @@ public static class DigestEndpoints
             }
         });
 
-        // ─── Cấu hình Zalo OA của công ty ────────────────────────────────────────
-        // Gác quyền THẬT ở đây: token cấp công ty do proxy tự giữ, TourKit không biết để lọc giúp.
-        g.MapGet("/zalo-config", async (HttpContext ctx, TkSessionStore sessions,
-            TenantChannelSettingsStore store, CancellationToken ct) =>
-        {
-            var a = SessionAuth.Read(ctx, sessions);
-            if (a == null) return SessionAuth.Unauthorized();
-
-            var cfg = await store.GetZaloConfigAsync(a.TenantId, ct);
-            // KHÔNG trả access token về client, kể cả cho người có quyền — chỉ cần biết đã cấu hình chưa.
-            return Results.Json(new { configured = cfg != null, oaId = cfg?.OaId }, Web);
-        });
-
-        g.MapPut("/zalo-config", async (ZaloConfigBody body, HttpContext ctx, TkSessionStore sessions,
-            TenantChannelSettingsStore store, CancellationToken ct) =>
-        {
-            var a = SessionAuth.Read(ctx, sessions);
-            if (a == null) return SessionAuth.Unauthorized();
-
-            await sessions.EnsurePermissionsAsync(a.SessionId, ct);
-            if (!sessions.HasPermission(a.SessionId, TkPermissionCodes.CauHinhHeThong))
-                return Results.Json(new { error = "Cần quyền cấu hình hệ thống (CH_HT_XEM)." }, statusCode: 403);
-
-            if (string.IsNullOrWhiteSpace(body.OaId) || string.IsNullOrWhiteSpace(body.AccessToken))
-                return Results.BadRequest(new { error = "Cần đủ OA Id + Access Token." });
-
-            await store.SaveZaloConfigAsync(a.TenantId, body.OaId.Trim(), body.AccessToken.Trim(), ct);
-            return Results.Json(new { ok = true }, Web);
-        });
-
-        g.MapDelete("/zalo-config", async (HttpContext ctx, TkSessionStore sessions,
-            TenantChannelSettingsStore store, CancellationToken ct) =>
-        {
-            var a = SessionAuth.Read(ctx, sessions);
-            if (a == null) return SessionAuth.Unauthorized();
-
-            await sessions.EnsurePermissionsAsync(a.SessionId, ct);
-            if (!sessions.HasPermission(a.SessionId, TkPermissionCodes.CauHinhHeThong))
-                return Results.Json(new { error = "Cần quyền cấu hình hệ thống (CH_HT_XEM)." }, statusCode: 403);
-
-            var removed = await store.RemoveZaloConfigAsync(a.TenantId, ct);
-            return Results.Json(new { ok = true, removed }, Web);
-        });
+        // 3 endpoint /zalo-config đã GỠ (14/08): Zalo nay gửi bằng ZNS qua OA của bên cung cấp
+        // dịch vụ, khai một lần ở config hệ thống — không công ty nào phải khai OA riêng nữa.
+        // Bảng dbo.TenantChannelSettings vẫn giữ (worker dùng để lưu token ZNS xoay vòng).
 
         return routes;
     }

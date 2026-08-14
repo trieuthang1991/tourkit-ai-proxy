@@ -46,7 +46,7 @@ public class AdminDigestRepository
         public bool ChannelTelegram { get; set; }
         public string? TelegramChatId { get; set; }
         public bool ChannelZalo { get; set; }
-        public string? ZaloUserId { get; set; }
+        public string? ZaloPhone { get; set; }
         public DateTime? LastSentUtc { get; set; }
         public bool? ScheduleEnabled { get; set; }
         public string? PausedReason { get; set; }
@@ -84,7 +84,7 @@ public class AdminDigestRepository
         var rows = await c.QueryAsync<Row>(@"
 SELECT s.TenantId, s.Username, s.BriefType, s.Enabled, s.SendHourLocal,
        s.ChannelInApp, s.ChannelEmail, s.Email,
-       s.ChannelTelegram, s.TelegramChatId, s.ChannelZalo, s.ZaloUserId,
+       s.ChannelTelegram, s.TelegramChatId, s.ChannelZalo, s.ZaloUserId AS ZaloPhone,
        s.LastSentUtc, s.UpdatedUtc,
        w.Enabled AS ScheduleEnabled, w.PausedReason
 FROM dbo.DigestSubscriptions s
@@ -121,7 +121,7 @@ GROUP BY TenantId, Username, Channel, [Status]",
             var sub = new DigestSubscription(
                 r.TenantId, r.Username, r.BriefType, r.Enabled, r.SendHourLocal,
                 r.ChannelInApp, r.ChannelEmail, r.Email,
-                r.ChannelTelegram, r.TelegramChatId, r.ChannelZalo, r.ZaloUserId,
+                r.ChannelTelegram, r.TelegramChatId, r.ChannelZalo, r.ZaloPhone,
                 r.LastSentUtc, LastSentLocalDate: null);
 
             var enabled = OutboundChannels.EnabledOf(sub);
