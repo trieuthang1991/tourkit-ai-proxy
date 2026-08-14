@@ -32,19 +32,6 @@
     { value: 'xac_nhan',     label: 'Xác nhận' },
     { value: 'khieu_nai',    label: 'Khiếu nại' },
   ];
-  // Các mục của bản tin sáng. value PHẢI khớp SaleBriefSections bên C# — lệch một chữ thì mục đó
-  // âm thầm không bao giờ hiện, mà giao diện vẫn tick xanh như đã bật.
-  const BRIEF_SECTIONS = [
-    { value: 'cooling',      label: 'Cơ hội cần gọi lại' },
-    { value: 'appointments', label: 'Lịch hẹn hôm nay' },
-    { value: 'tasks',        label: 'Việc cần làm' },
-    { value: 'payments',     label: 'Tour sắp đi còn thiếu tiền' },
-    { value: 'vips',         label: 'Khách quen lâu không chăm' },
-    { value: 'quotes',       label: 'Báo giá bỏ dở' },
-    { value: 'hygiene',      label: 'Cơ hội cần dọn hồ sơ' },
-    { value: 'mailbox',      label: 'Hộp thư công ty' },
-  ];
-
   const MAIL_TONES = [
     { value: 'lich_su',    label: 'Lịch sự' },
     { value: 'than_thien', label: 'Thân thiện' },
@@ -108,28 +95,54 @@
     // công ty. Ngưỡng "im bao lâu thì cần gọi" ở bên bán tour đoàn khác hẳn bên bán vé lẻ.
     // ⚠️ default PHẢI khớp SaleBriefWorkflow.ParseOptions bên C#: lệch nhau thì giao diện hiện một
     // đằng, hệ thống chạy một nẻo — mà người dùng không có cách nào biết.
+    // Bản tin sáng. NHÓM THEO MỤC, không theo loại cấu hình: người dùng nghĩ "tôi muốn được nhắc
+    // cơ hội cần gọi" rồi mới tới "nhắc khi nào". Bản đầu tách tick / trạng thái / ngưỡng ra 3 nhóm
+    // riêng nên chỉnh một mục phải đụng 3 chỗ — không ai mò ra.
+    //
+    // Trạng thái hỏi theo hướng KHẲNG ĐỊNH ("chỉ nhắc khi ở trạng thái…") chứ không phải phủ định
+    // ("coi là đã đóng"): bắt người dùng suy ngược "cái nào là đóng để loại ra" là bắt họ làm việc
+    // của mình. deal-auto-review ngay cạnh cũng hỏi "Trạng thái áp dụng" — giữ cho giống nhau.
+    //
+    // ⚠️ default PHẢI khớp SaleBriefWorkflow.ParseOptions bên C#.
     'sale-brief': [
-      // Không phải nhân viên nào cũng cần mọi mục: người chỉ chạy tour đoàn không quan tâm báo giá
-      // lẻ, người không giữ hồ sơ thì mục "cần dọn" chỉ là tiếng ồn. Mục đã tắt thì hệ thống KHÔNG
-      // gọi CRM lấy dữ liệu mục đó → bản tin gọn hơn và chạy nhanh hơn.
-      { key: 'sections', type: 'multi', label: 'Nội dung muốn nhận', default: BRIEF_SECTIONS.map(s => s.value),
-        options: BRIEF_SECTIONS, required: true,
-        hint: 'Bỏ tick mục nào thì mục đó không xuất hiện trong bản tin, và hệ thống cũng không đi lấy dữ liệu của nó nữa.' },
+      // ── Cơ hội cần gọi lại ──
+      { key: 'secCooling', type: 'bool', label: 'Đưa vào bản tin', default: true,
+        hint: 'Cơ hội đang theo đuổi mà lâu không ai liên hệ.' },
+      { key: 'callStatuses', type: 'multi', dynamic: 'dealStatuses', showIf: 'secCooling', default: [],
+        label: 'Chỉ nhắc khi cơ hội đang ở trạng thái',
+        hint: 'Chọn đúng những trạng thái mà nhân viên CÒN phải chăm (vd "Đang tư vấn", "Đã báo giá"). Để trống = mọi trạng thái đang mở, hệ thống tự bỏ Hủy/Đã chốt bằng cách đoán theo tên — nên chọn tay nếu công ty đặt tên trạng thái riêng. Danh sách này cũng áp cho mục "cần dọn hồ sơ" bên dưới.' },
+      { key: 'silentDaysMin', type: 'number', showIf: 'secCooling', default: 3, min: 1, max: 90,
+        label: 'Nhắc khi im lặng quá (ngày)',
+        hint: 'Đặt thấp thì bản tin đầy; đặt cao thì phát hiện muộn. 3 ngày là mặc định.' },
 
+      // ── Cơ hội cần dọn hồ sơ ──
+      { key: 'secHygiene', type: 'bool', label: 'Đưa vào bản tin', default: true,
+        hint: 'Cơ hội nằm lì một trạng thái quá lâu, chưa có bước tiếp theo — cần vào cập nhật cho đúng thực tế.' },
+      { key: 'hygieneStuckDays', type: 'number', showIf: 'secHygiene', default: 14, min: 3, max: 365,
+        label: 'Nhắc khi kẹt quá (ngày)',
+        hint: 'Phải lớn hơn ngưỡng im lặng ở trên. Cơ hội vượt mốc này chuyển sang mục "cần dọn" thay vì "cần gọi" — mỗi cơ hội chỉ nằm ở MỘT mục.' },
+
+      // ── Báo giá bỏ dở ──
+      { key: 'secQuotes', type: 'bool', label: 'Đưa vào bản tin', default: true,
+        hint: 'Báo giá tour đã dựng nhưng lâu không ai cập nhật. LƯU Ý: hiện chưa phân biệt được báo giá đã gửi khách hay đã chốt, nên có thể nhắc cả cái đã xong — tắt nếu thấy phiền.' },
+      { key: 'staleQuoteDays', type: 'number', showIf: 'secQuotes', default: 5, min: 1, max: 365,
+        label: 'Nhắc khi quá (ngày) không cập nhật' },
+
+      // ── Các mục còn lại: chỉ bật/tắt, không có gì để chỉnh ──
+      { key: 'secAppointments', type: 'bool', label: 'Lịch hẹn hôm nay', default: true,
+        hint: 'Cuộc hẹn có giờ trong ngày — thường là việc gấp nhất của bản tin.' },
+      { key: 'secTasks', type: 'bool', label: 'Việc cần làm hôm nay', default: true },
+      { key: 'secPayments', type: 'bool', label: 'Tour sắp đi còn thiếu tiền', default: true,
+        hint: 'Tour sắp khởi hành mà khách chưa thanh toán đủ — trễ một ngày là mất tiền thật.' },
+      { key: 'secVips', type: 'bool', label: 'Khách quen lâu không chăm', default: true },
+      { key: 'secMailbox', type: 'bool', label: 'Hộp thư công ty', default: true,
+        hint: 'Một dòng tổng số thư chờ xử lý của cả công ty (không phải của riêng bạn).' },
+
+      // ── Cách trình bày ──
       { key: 'useAi', type: 'bool', label: 'AI sắp xếp lại bản tin', default: true,
         hint: 'Bật: AI đọc dữ liệu rồi chọn ra việc đáng làm nhất, bản tin gọn và có thứ tự ưu tiên (tốn 1 lượt AI mỗi người mỗi ngày). Tắt: in đủ mọi mục theo ngưỡng — dài hơn nhưng không tốn lượt. AI lỗi thì tự rơi về bản đủ, không mất bản tin.' },
       { key: 'maxItems', type: 'number', label: 'Tối đa số việc trong bản tin', showIf: 'useAi', default: 7, min: 3, max: 20,
         hint: 'Bản tin dài thì không ai đọc hết, mà đọc không hết thì mục quan trọng cũng bị bỏ qua. 5–7 việc là vừa một buổi sáng.' },
-
-      { key: 'closedStatuses', type: 'multi', dynamic: 'dealStatuses', label: 'Trạng thái coi là ĐÃ ĐÓNG', default: [],
-        hint: 'Cơ hội ở các trạng thái này bị loại khỏi bản tin (không nhắc gọi lại, không nhắc dọn). Để trống = hệ thống tự đoán (trạng thái Hủy + tên có "đã chốt"/"hoàn thành"…) — đúng phần lớn trường hợp nhưng KHÔNG chắc, vì mỗi công ty tự đặt tên trạng thái. Công ty nào đặt tên riêng thì nên tự tick vào đây.' },
-
-      { key: 'silentDaysMin', type: 'number', label: 'Cần gọi lại khi im lặng quá (ngày)', default: 3, min: 1, max: 90,
-        hint: 'Cơ hội đang mở mà quá số ngày này không ai chăm thì đưa vào mục "cần gọi lại". Đặt thấp thì bản tin đầy; đặt cao thì phát hiện muộn.' },
-      { key: 'hygieneStuckDays', type: 'number', label: 'Cần dọn hồ sơ khi kẹt quá (ngày)', default: 14, min: 3, max: 365,
-        hint: 'Cơ hội kẹt một trạng thái quá lâu thì chuyển sang mục "cần dọn" thay vì "cần gọi" — mỗi cơ hội chỉ nằm ở MỘT mục. Phải lớn hơn ngưỡng gọi lại ở trên.' },
-      { key: 'staleQuoteDays', type: 'number', label: 'Nhắc báo giá bỏ dở sau (ngày)', default: 5, min: 1, max: 365,
-        hint: 'Báo giá tour lâu không ai cập nhật thì nhắc. Lưu ý: hiện chưa phân biệt được báo giá đã gửi khách hay đã chốt, nên mục này có thể nhắc cả cái đã xong.' },
     ],
     'customer-auto-review': [
       { key: 'createdWithinDays', type: 'number', label: 'Chỉ khách tạo trong (ngày)', default: 30, min: 1, max: 365,
@@ -155,10 +168,12 @@
       minWinRateToNotify: '③ Cảnh báo cơ hội nguội', maxNotifications: '③ Cảnh báo cơ hội nguội', notifyMinGapHours: '③ Cảnh báo cơ hội nguội',
     },
     'sale-brief': {
-      sections: '① Nội dung bản tin',
-      useAi: '② Cách trình bày', maxItems: '② Cách trình bày',
-      closedStatuses: '③ Cơ hội nào được tính',
-      silentDaysMin: '④ Ngưỡng nhắc', hygieneStuckDays: '④ Ngưỡng nhắc', staleQuoteDays: '④ Ngưỡng nhắc',
+      secCooling: '① Cơ hội cần gọi lại', callStatuses: '① Cơ hội cần gọi lại', silentDaysMin: '① Cơ hội cần gọi lại',
+      secHygiene: '② Cơ hội cần dọn hồ sơ', hygieneStuckDays: '② Cơ hội cần dọn hồ sơ',
+      secQuotes: '③ Báo giá bỏ dở', staleQuoteDays: '③ Báo giá bỏ dở',
+      secAppointments: '④ Các mục chỉ bật/tắt', secTasks: '④ Các mục chỉ bật/tắt',
+      secPayments: '④ Các mục chỉ bật/tắt', secVips: '④ Các mục chỉ bật/tắt', secMailbox: '④ Các mục chỉ bật/tắt',
+      useAi: '⑤ Cách trình bày', maxItems: '⑤ Cách trình bày',
     },
     'customer-auto-review': {
       createdWithinDays: 'Phạm vi',

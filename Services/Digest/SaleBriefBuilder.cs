@@ -13,26 +13,6 @@ public record TaskLine(string Title, string? Priority, bool IsOverdue);
 public record CustomerLine(string Name, string Rank, int DaysSinceLastBooking);
 public record QuoteLine(string Title, string? CustomerName, int DaysSinceUpdate);
 
-/// <summary>
-/// Tên các mục của bản tin sáng — người dùng tick chọn mục muốn nhận.
-/// ⚠️ PHẢI khớp <c>BRIEF_SECTIONS</c> trong <c>wwwroot/components/workflow-options.jsx</c>: lệch một
-/// chữ thì mục đó âm thầm không bao giờ hiện, mà giao diện vẫn tick xanh như đã bật.
-/// </summary>
-public static class SaleBriefSections
-{
-    public const string Cooling = "cooling";
-    public const string Appointments = "appointments";
-    public const string Tasks = "tasks";
-    public const string Payments = "payments";
-    public const string Vips = "vips";
-    public const string Quotes = "quotes";
-    public const string Hygiene = "hygiene";
-    public const string Mailbox = "mailbox";
-
-    public static readonly string[] All =
-        { Cooling, Appointments, Tasks, Payments, Vips, Quotes, Hygiene, Mailbox };
-}
-
 public record SaleBriefInput(
     string Username, string? FullName,
     List<DealLine> CoolingDeals, List<ApptLine> TodayAppointments,
