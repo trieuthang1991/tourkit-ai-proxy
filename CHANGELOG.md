@@ -89,6 +89,23 @@ Những cập nhật gần đây của TRAV-AI, viết cho người dùng. Mới
   định bản tin có thể lệch giờ tối đa bao nhiêu.
 - **Nút bật/tắt nơi nhận trông khác phần còn lại của trang.** Phần *Nơi nhận* dùng ô tick mặc định của
   trình duyệt trong khi cả trang dùng công tắc — nay đã thống nhất.
+- **Bản tin điều hành ghi sai đơn vị tiền.** Có lúc bản tin viết "lỗ 644 tỷ" trong khi con số thật là
+  644 triệu — lệch đúng một bậc. Nguyên nhân: phần viết lời tự quy đổi sang tỷ/triệu. Nay mọi cách đọc
+  đều do hệ thống tính sẵn, phần viết lời không được tự đổi đơn vị nữa.
+- **Bản tin điều hành nói "hôm nay" cho số của cả nửa tháng.** Ba con số doanh thu – chi phí – lợi nhuận
+  là luỹ kế từ đầu tháng, nhưng bản tin mở đầu bằng "tình hình hôm nay…". Nay nêu rõ khoảng ngày.
+- **Lãi chuyển thành lỗ chỉ hiện ra một con số phần trăm khó hiểu.** Trước đây ghi "-101%" — vừa vô
+  nghĩa vừa đọc nhẹ hơn thực tế, trong khi đó mới là điều đáng lưu ý nhất. Nay ghi thẳng *chuyển từ lãi
+  sang lỗ*; lỗ nặng thêm cũng ghi rõ là *lỗ nặng thêm bao nhiêu %* thay vì một dấu cộng gây hiểu ngược.
+- **Số lỗ dễ bị đọc nhầm thành lãi.** Dòng "Lợi nhuận: -644.211.149đ" bắt người đọc tự để ý dấu trừ giữa
+  một dãy chữ số. Nay ghi thẳng **Lỗ: 644.211.149đ**.
+- **Bản tin đem doanh số nhân viên so với doanh thu công ty.** Hai con số này đo theo hai cách khác nhau
+  nên cộng lại không khớp, đọc xong tưởng số liệu mâu thuẫn. Nay bản tin không đặt chúng cạnh nhau nữa.
+- **Bản tin kết luận "kinh doanh khó khăn" từ số liệu chưa kiểm.** Khi một chỉ số biến động quá mạnh
+  (thường là do dữ liệu chưa nhập đủ), bản tin nay nhắc *cần kiểm tra lại số liệu* thay vì khẳng định
+  công ty đang tốt hay xấu.
+- **Bản tin điều hành chỉ đọc lại bảng số bằng lời.** Nay luôn kết bằng 1–2 câu khuyến nghị nên làm gì
+  tiếp, bám đúng số đang có.
 
 ### 📌 Lưu ý
 - Ô **"Trong app"** trong phần *Bản tin của tôi* nay luôn bật và không tắt được — đó là nơi lưu bản tin
