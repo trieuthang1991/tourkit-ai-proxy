@@ -202,7 +202,7 @@ public class NativeToolUseAgent : IAgentRuntime
             // Per-iter Append + Consume (match grain với IAiProvider). Trước đây chỉ Append aggregate
             // cuối loop nên N iter chỉ tính 1 lượt → user dùng 4 lần hiển thị 2.
             _usage.Append(callCtx.Feature, callCtx.SessionId, callCtx.Tenant, "anthropic", model, iterInTok, iterOutTok, lat);
-            if (!string.IsNullOrEmpty(callCtx.Tenant)) _quota.Consume(callCtx.Tenant);
+            if (!callCtx.FreeOfQuota && !string.IsNullOrEmpty(callCtx.Tenant)) _quota.Consume(callCtx.Tenant);
 
             var stopReason = root.GetProperty("stop_reason").GetString();
 
@@ -540,7 +540,7 @@ public class NativeToolUseAgent : IAgentRuntime
                 totalOutTok += retryOutTok;
                 // Retry cũng là 1 /messages POST → 1 lượt riêng.
                 _usage.Append(callCtx.Feature, callCtx.SessionId, callCtx.Tenant, "anthropic", model, retryInTok, retryOutTok, retryLat);
-                if (!string.IsNullOrEmpty(callCtx.Tenant)) _quota.Consume(callCtx.Tenant);
+                if (!callCtx.FreeOfQuota && !string.IsNullOrEmpty(callCtx.Tenant)) _quota.Consume(callCtx.Tenant);
                 var retrySb = new StringBuilder();
                 foreach (var block in retryDoc.RootElement.GetProperty("content").EnumerateArray())
                 {

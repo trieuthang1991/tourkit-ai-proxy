@@ -125,7 +125,7 @@ public class AnthropicToolsClient
                 // Ghi nhận usage + tiêu thụ quota cho TỪNG /messages POST thành công (mỗi iter = 1 lượt).
                 // Trước đây path này bypass quota → user gọi N lần nhưng dashboard chỉ tăng từ provider khác.
                 _usage.Append(callCtx.Feature, callCtx.SessionId, callCtx.Tenant, ProviderId, model, iterInTok, iterOutTok, lat, status: "ok");
-                if (!string.IsNullOrEmpty(callCtx.Tenant)) _quota.Consume(callCtx.Tenant);
+                if (!callCtx.FreeOfQuota && !string.IsNullOrEmpty(callCtx.Tenant)) _quota.Consume(callCtx.Tenant);
 
                 var stopReason = root.GetProperty("stop_reason").GetString();
                 var toolUseBlocks = new List<(string Id, string Name, JsonElement Input)>();

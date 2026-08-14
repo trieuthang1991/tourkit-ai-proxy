@@ -40,12 +40,16 @@ public class NineRoutesProvider : IAiProvider
     {
         var c = _ctx.Resolve();
         _usage.Append(c.Feature, c.SessionId, c.Tenant, "nine-routes", model, inTok, outTok, ms);
-        if (!string.IsNullOrEmpty(c.Tenant)) _quota.Consume(c.Tenant);
+        if (!c.FreeOfQuota && !string.IsNullOrEmpty(c.Tenant)) _quota.Consume(c.Tenant);
     }
 
     private void EnsureQuota()
     {
-        var t = _ctx.Resolve().Tenant;
+        // Lời gọi THIẾT LẬP (hệ thống tự dựng cấu hình mặc định) không chặn theo quota —
+        // xem AiCallContext.Ctx.FreeOfQuota. Vẫn ghi log usage, chỉ không tính tiền.
+        var c = _ctx.Resolve();
+        if (c.FreeOfQuota) return;
+        var t = c.Tenant;
         if (string.IsNullOrEmpty(t)) return;
         if (!_quota.IsAvailable(t))
         {

@@ -47,13 +47,17 @@ public class OpenCodeProvider : IAiProvider
         var c = _ctx.Resolve();
         _usage.Append(c.Feature, c.SessionId, c.Tenant, "opencode-go", model, inTok, outTok, ms, status: status);
         // Consume 1 lượt quota cho tenant chỉ khi gọi thành công + có tenant (system call không tenant → skip).
-        if (status == "ok" && !string.IsNullOrEmpty(c.Tenant)) _quota.Consume(c.Tenant);
+        if (!c.FreeOfQuota && status == "ok" && !string.IsNullOrEmpty(c.Tenant)) _quota.Consume(c.Tenant);
     }
 
     /// Throw QuotaExhaustedException nếu tenant đã hết quota. System call (no tenant) → skip.
     private void EnsureQuota()
     {
-        var t = _ctx.Resolve().Tenant;
+        // Lời gọi THIẾT LẬP (hệ thống tự dựng cấu hình mặc định) không chặn theo quota —
+        // xem AiCallContext.Ctx.FreeOfQuota. Vẫn ghi log usage, chỉ không tính tiền.
+        var c = _ctx.Resolve();
+        if (c.FreeOfQuota) return;
+        var t = c.Tenant;
         if (string.IsNullOrEmpty(t)) return;
         if (!_quota.IsAvailable(t))
         {

@@ -38,7 +38,11 @@ public class OpenAIProvider : IAiProvider
 
     private void EnsureQuota()
     {
-        var t = _ctx.Resolve().Tenant;
+        // Lời gọi THIẾT LẬP (hệ thống tự dựng cấu hình mặc định) không chặn theo quota —
+        // xem AiCallContext.Ctx.FreeOfQuota. Vẫn ghi log usage, chỉ không tính tiền.
+        var c = _ctx.Resolve();
+        if (c.FreeOfQuota) return;
+        var t = c.Tenant;
         if (string.IsNullOrEmpty(t)) return;
         if (!_quota.IsAvailable(t)) { var s = _quota.Snapshot(t); throw new QuotaExhaustedException(t, s.Limit, s.Used); }
     }
@@ -91,7 +95,7 @@ public class OpenAIProvider : IAiProvider
         var p = ParseResponsesApi(raw);
         var c = _ctx.Resolve();
         _usage.Append(c.Feature, c.SessionId, c.Tenant, Id, model, p.InputTokens, p.OutputTokens, sw.ElapsedMilliseconds);
-        if (!string.IsNullOrEmpty(c.Tenant)) _quota.Consume(c.Tenant);
+        if (!c.FreeOfQuota && !string.IsNullOrEmpty(c.Tenant)) _quota.Consume(c.Tenant);
         return new CompleteResult(p.Text, model, p.InputTokens, p.OutputTokens, sw.ElapsedMilliseconds, p.FinishReason);
     }
 

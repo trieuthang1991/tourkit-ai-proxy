@@ -38,6 +38,10 @@ public static class AiFeatures
     // Non-HTTP path (chạy sau khi user bấm "Xác nhận") → PHẢI Push để trừ quota tenant +
     // log đúng feature, tránh rơi vào "unknown" (xem docs class comment ở trên).
     public const string AssistantAction     = "assistant-action";
+
+    /// Đọc tên trạng thái của công ty để chọn sẵn cấu hình. KHÔNG trừ quota — xem ghi chú
+    /// <see cref="AiCallContext.Ctx.FreeOfQuota"/>.
+    public const string StatusSemantics     = "status-semantics";
 }
 
 /// Trích context từ HttpContext cho AI usage logging:
@@ -63,7 +67,21 @@ public class AiCallContext
         _accessor = accessor; _sessions = sessions;
     }
 
-    public record Ctx(string Feature, string? SessionId, string? Tenant);
+    /// <param name="FreeOfQuota">
+    /// Lời gọi THIẾT LẬP, không phải việc người dùng làm → không chặn và không trừ lượt.
+    ///
+    /// <para>Dành cho đúng một loại: hệ thống tự hỏi AI để dựng cấu hình mặc định (đọc tên trạng
+    /// thái của công ty). Chặn nó lại thì hậu quả lệch hẳn so với cái tiết kiệm được: mất một lượt
+    /// AI rẻ, đổi lấy một bộ lọc trạng thái vô tác dụng — bản tin nhắc cả cơ hội đã đóng, và người
+    /// dùng không hiểu vì sao (gặp thật ở một tenant hết quota: 14 trạng thái đặt tên riêng, lưới
+    /// đỡ từ khoá không loại được cái nào).</para>
+    ///
+    /// <para>VẪN ghi vào AiUsageHistory — miễn tính tiền không có nghĩa là giấu chi phí.</para>
+    ///
+    /// <para>Chống lạm dụng: chỉ miễn cho lần hỏi TỰ ĐỘNG (cache trống). Người bấm "Phân loại lại"
+    /// là thao tác chủ động → tính quota như mọi lời gọi khác.</para>
+    /// </param>
+    public record Ctx(string Feature, string? SessionId, string? Tenant, bool FreeOfQuota = false);
 
     public Ctx Resolve()
     {
@@ -81,10 +99,11 @@ public class AiCallContext
 
     /// Set override AsyncLocal cho khối using. Background task (Task.Run / Parallel.ForEachAsync) ở trong
     /// using sẽ thấy context này khi gọi Resolve(). Restore khi Dispose.
-    public IDisposable Push(string feature, string? tenant, string? sessionId = null)
+    public IDisposable Push(string feature, string? tenant, string? sessionId = null,
+        bool freeOfQuota = false)
     {
         var prev = _override.Value;
-        _override.Value = new Ctx(feature, sessionId, tenant);
+        _override.Value = new Ctx(feature, sessionId, tenant, freeOfQuota);
         return new Pop(prev);
     }
 

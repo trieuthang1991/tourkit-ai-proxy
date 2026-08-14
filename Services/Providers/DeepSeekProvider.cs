@@ -41,7 +41,11 @@ public class DeepSeekProvider : IAiProvider
 
     private void EnsureQuota()
     {
-        var t = _ctx.Resolve().Tenant;
+        // Lời gọi THIẾT LẬP (hệ thống tự dựng cấu hình mặc định) không chặn theo quota —
+        // xem AiCallContext.Ctx.FreeOfQuota. Vẫn ghi log usage, chỉ không tính tiền.
+        var c = _ctx.Resolve();
+        if (c.FreeOfQuota) return;
+        var t = c.Tenant;
         if (string.IsNullOrEmpty(t)) return;
         if (!_quota.IsAvailable(t)) { var s = _quota.Snapshot(t); throw new QuotaExhaustedException(t, s.Limit, s.Used); }
     }
@@ -120,7 +124,7 @@ public class DeepSeekProvider : IAiProvider
 
         var c = _ctx.Resolve();
         _usage.Append(c.Feature, c.SessionId, c.Tenant, Id, model, inTok, outTok, sw.ElapsedMilliseconds);
-        if (!string.IsNullOrEmpty(c.Tenant)) _quota.Consume(c.Tenant);
+        if (!c.FreeOfQuota && !string.IsNullOrEmpty(c.Tenant)) _quota.Consume(c.Tenant);
         return new CompleteResult(sb.ToString(), model, inTok, outTok, sw.ElapsedMilliseconds, finish);
     }
 

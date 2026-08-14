@@ -31,15 +31,16 @@ public class StatusSemanticsService
     private readonly ChatCache _cache;
     private readonly ProviderRegistry _registry;
     private readonly AiModelRegistry _models;
+    private readonly AiCallContext _ctx;
     private readonly ILogger<StatusSemanticsService> _log;
 
     /// Giữ lâu vì danh sách trạng thái gần như không đổi; đổi thì vân tay trong khoá tự khác.
     private static readonly TimeSpan Ttl = TimeSpan.FromDays(30);
 
     public StatusSemanticsService(ChatCache cache, ProviderRegistry registry,
-        AiModelRegistry models, ILogger<StatusSemanticsService> log)
+        AiModelRegistry models, AiCallContext ctx, ILogger<StatusSemanticsService> log)
     {
-        _cache = cache; _registry = registry; _models = models; _log = log;
+        _cache = cache; _registry = registry; _models = models; _ctx = ctx; _log = log;
     }
 
     public record StatusOption(int Value, string Label);
@@ -65,6 +66,10 @@ public class StatusSemanticsService
         if (!forceRefresh && _cache.TryGet<StatusHint>(key, out var cached) && cached is { Open.Count: > 0 })
             return (cached, "cache", null);
 
+        // Lần hỏi TỰ ĐỘNG (cache trống) không tính quota: đây là bước thiết lập, chặn nó lại chỉ
+        // đổi lấy một bộ lọc trạng thái vô tác dụng. Còn "Phân loại lại" là thao tác chủ động của
+        // người dùng nên tính bình thường — đó là chốt chặn chống bấm liên tục.
+        using var _ = _ctx.Push(AiFeatures.StatusSemantics, tenantId, freeOfQuota: !forceRefresh);
         var (hint, reason) = await AskAsync(kind, options, ct);
         if (hint == null) return (null, "none", reason);
         _cache.Set(key, hint, Ttl);
