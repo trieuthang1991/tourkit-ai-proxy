@@ -34,6 +34,9 @@ Những cập nhật gần đây của TRAV-AI, viết cho người dùng. Mới
 - **🏷️ Chọn đúng trạng thái cơ hội cần chăm.** Mỗi công ty đặt tên trạng thái một kiểu, nên thay vì để
   hệ thống đoán, bạn chọn thẳng những trạng thái mà nhân viên CÒN phải chăm (ví dụ "Đang tư vấn", "Đã
   báo giá"). Để trống thì hệ thống vẫn tự bỏ qua các cơ hội đã hủy / đã chốt như trước.
+- **📋 Bản tin điều hành cho biết còn bao nhiêu việc chưa xong.** Thêm mục *Công việc chưa hoàn thành*:
+  tổng số việc của cả công ty còn treo, kèm số việc đã quá hạn. Trạng thái nào tính là "chưa xong" thì
+  bạn tự chọn — mỗi công ty đặt tên khác nhau, có nơi "Đang kiểm tra" nghĩa là đã làm xong chờ duyệt.
 - **🤖 AI viết lại bản tin cho dễ đọc.** Số liệu vẫn do hệ thống tính, AI chỉ sắp xếp và diễn đạt lại
   cho mạch lạc, nêu rõ nên làm gì trước. Có thể tắt trong cấu hình nếu bạn thích bản liệt kê thuần.
 - **🧠 Hệ thống tự hiểu tên trạng thái của công ty bạn.** Mỗi nơi đặt tên một kiểu — "Kết thúc", "Đã
@@ -113,6 +116,9 @@ Những cập nhật gần đây của TRAV-AI, viết cho người dùng. Mới
   "+21%" chỉ là vài triệu. Nay bản tin nói con số tuyệt đối thay vì nhấn vào phần trăm.
 - **Số đếm không có dấu phân cách nghìn.** "2345 cuộc hẹn quá hạn" nay là "2.345 cuộc", khớp với cách
   hiển thị của mọi số tiền quanh nó.
+- **Số việc quá hạn lớn hơn cả tổng số việc chưa xong.** Bản tin có lúc ghi "335 việc chưa hoàn thành,
+  trong đó 591 việc đã quá hạn" — hai con số đếm theo hai cách khác nhau nên đặt cạnh nhau thành vô lý.
+  Nay cả hai đếm trên đúng những trạng thái bạn đã chọn.
 
 ### 📌 Lưu ý
 - Ô **"Trong app"** trong phần *Bản tin của tôi* nay luôn bật và không tắt được — đó là nơi lưu bản tin
