@@ -73,8 +73,7 @@ function DigestSubBlock({ briefType, sub, onSaved, pushToast, scheduleOn = true 
   // Kiểm ngay trên máy để nói sớm; server vẫn kiểm lại (không tin client).
   const problem = (() => {
     if (!f.enabled) return null;
-    const on = [f.channelInApp, f.channelEmail, f.channelTelegram, f.channelZalo].filter(Boolean).length;
-    if (on === 0) return 'Chọn ít nhất 1 kênh nhận.';
+    // KHÔNG còn đòi "ít nhất 1 kênh": trong app luôn bật, nên không chọn kênh ngoài nào vẫn nhận được.
     if (f.channelEmail && !String(f.email || '').trim()) return 'Nhập email nhận.';
     if (f.channelTelegram && !String(f.telegramChatId || '').trim()) return 'Nhập chat id Telegram (hoặc bấm Tự phát hiện).';
     if (f.channelZalo && !String(f.zaloUserId || '').trim()) return 'Nhập user id Zalo.';
@@ -142,10 +141,12 @@ function DigestSubBlock({ briefType, sub, onSaved, pushToast, scheduleOn = true 
 
       <div className="digest-label" style={{ marginBottom: 2 }}>Nơi nhận</div>
 
+      {/* Khoá bật: "trong app" không phải kênh gửi mà là KHO LƯU — bản tin luôn được ghi vào Bảng
+          tin lúc dựng, để còn xem/nghe lại kể cả khi mọi kênh ngoài hỏng. Server cũng ép bật. */}
       <label className="digest-ch">
-        <input type="checkbox" checked={!!f.channelInApp} onChange={e => set({ channelInApp: e.target.checked })} />
+        <input type="checkbox" checked readOnly disabled />
         <span className="digest-ch-name"><Icon name="bell" size={13} /> Trong app</span>
-        <span className="digest-ch-note">Luôn xem lại được ở tab Bảng tin — nên để bật</span>
+        <span className="digest-ch-note">Luôn bật — bản tin luôn được lưu ở tab Bảng tin để xem/nghe lại</span>
       </label>
 
       <label className="digest-ch">
