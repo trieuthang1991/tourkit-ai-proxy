@@ -423,8 +423,8 @@ cung cấp dịch vụ**, khai ở `Zalo:*` trong config worker). Một kênh h�
 ⚠️ **Zalo: 3 điều dễ hiểu sai** (đổi 14/08 — trước đó code dùng API `message/cs` theo Zalo user id):
 1. **Nơi nhận là SỐ ĐIỆN THOẠI**, không phải Zalo user id. Người dùng chỉ nhập số của mình; server
    chuẩn hoá về `0xxxxxxxxx` ngay lúc lưu ([`DigestPhone`](Services/Digest/DigestPhone.cs)), worker đổi
-   sang `84…` lúc gọi API. Cột DB vẫn tên cũ `ZaloUserId` (alias `AS ZaloPhone`) — chưa đổi tên vì đụng
-   bảng cũ, mà tính năng chưa ra mắt nên cột chưa có dữ liệu thật.
+   sang `84…` lúc gọi API. Cột DB tên `ZaloPhone` (đổi từ `ZaloUserId`
+   ngày 14/08 bằng `sp_rename` trong `SchemaSql` — tên cột nói sai nội dung là bẫy cho người sau).
 2. **ZNS KHÔNG gửi được chữ tự do** — chỉ điền tham số vào mẫu đã được Zalo duyệt. Nên tin Zalo là
    **lời nhắc ngắn**; bản tin đầy đủ đọc ở Bảng tin (kênh trong app luôn bật nên chắc chắn có).
 3. **OA dùng chung, không per-tenant.** Mẫu ZNS đăng ký dưới OA nào thì chỉ OA đó dùng được → OA riêng

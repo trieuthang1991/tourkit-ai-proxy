@@ -10,14 +10,8 @@ public class DigestSubscriptionRepository
 
     public DigestSubscriptionRepository(TourkitAiDb db) { _db = db; }
 
-    /// <summary>
-    /// ⚠️ <c>ZaloUserId AS ZaloPhone</c> — cột trong DB còn tên cũ, nội dung nay là SỐ ĐIỆN THOẠI.
-    /// Zalo gửi bằng ZNS (nhắn theo số) nên không còn dùng tới Zalo user id nữa. Giữ tên cột để
-    /// khỏi phải sửa lược đồ một bảng đã có; tính năng chưa ra mắt nên cột chưa mang dữ liệu thật.
-    /// Đổi tên cột cho khớp là việc nên làm, nhưng phải hỏi trước vì đụng bảng cũ.
-    /// </summary>
     private const string Cols = @"TenantId, Username, BriefType, Enabled, SendHourLocal,
-ChannelInApp, ChannelEmail, Email, ChannelTelegram, TelegramChatId, ChannelZalo, ZaloUserId AS ZaloPhone,
+ChannelInApp, ChannelEmail, Email, ChannelTelegram, TelegramChatId, ChannelZalo, ZaloPhone,
 LastSentUtc, LastSentLocalDate";
 
     /// <summary>
@@ -86,10 +80,10 @@ WHEN MATCHED THEN UPDATE SET
     BriefType = @BriefType, Enabled = @Enabled, SendHourLocal = @SendHourLocal,
     ChannelInApp = @ChannelInApp, ChannelEmail = @ChannelEmail, Email = @Email,
     ChannelTelegram = @ChannelTelegram, TelegramChatId = @TelegramChatId,
-    ChannelZalo = @ChannelZalo, ZaloUserId = @ZaloPhone, UpdatedUtc = SYSUTCDATETIME()
+    ChannelZalo = @ChannelZalo, ZaloPhone = @ZaloPhone, UpdatedUtc = SYSUTCDATETIME()
 WHEN NOT MATCHED THEN INSERT
     (TenantId, Username, BriefType, Enabled, SendHourLocal, ChannelInApp, ChannelEmail, Email,
-     ChannelTelegram, TelegramChatId, ChannelZalo, ZaloUserId, CreatedUtc, UpdatedUtc)
+     ChannelTelegram, TelegramChatId, ChannelZalo, ZaloPhone, CreatedUtc, UpdatedUtc)
 VALUES
     (@TenantId, @Username, @BriefType, @Enabled, @SendHourLocal, @ChannelInApp, @ChannelEmail, @Email,
      @ChannelTelegram, @TelegramChatId, @ChannelZalo, @ZaloPhone, SYSUTCDATETIME(), SYSUTCDATETIME());",

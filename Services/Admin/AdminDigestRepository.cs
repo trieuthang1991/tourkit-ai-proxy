@@ -84,7 +84,7 @@ public class AdminDigestRepository
         var rows = await c.QueryAsync<Row>(@"
 SELECT s.TenantId, s.Username, s.BriefType, s.Enabled, s.SendHourLocal,
        s.ChannelInApp, s.ChannelEmail, s.Email,
-       s.ChannelTelegram, s.TelegramChatId, s.ChannelZalo, s.ZaloUserId AS ZaloPhone,
+       s.ChannelTelegram, s.TelegramChatId, s.ChannelZalo, s.ZaloPhone,
        s.LastSentUtc, s.UpdatedUtc,
        w.Enabled AS ScheduleEnabled, w.PausedReason
 FROM dbo.DigestSubscriptions s

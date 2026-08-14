@@ -679,7 +679,8 @@ BEGIN
         ChannelTelegram   BIT           NOT NULL CONSTRAINT DF_DigestSubs_Tele DEFAULT 0,
         TelegramChatId    NVARCHAR(64)  NULL,
         ChannelZalo       BIT           NOT NULL CONSTRAINT DF_DigestSubs_Zalo DEFAULT 0,
-        ZaloUserId        NVARCHAR(64)  NULL,
+        -- SỐ ĐIỆN THOẠI (Zalo gửi bằng ZNS, nhắn theo số) — KHÔNG phải Zalo user id.
+        ZaloPhone         NVARCHAR(20)  NULL,
         LastSentUtc       DATETIME2     NULL,
         LastSentLocalDate DATE          NULL,
         CreatedUtc        DATETIME2     NOT NULL,
@@ -701,6 +702,15 @@ BEGIN
         CONSTRAINT PK_TenantChannelSettings PRIMARY KEY (TenantId, Channel)
     );
 END;
+
+-- ZaloUserId → ZaloPhone: Zalo gửi bằng ZNS (nhắn theo SỐ ĐIỆN THOẠI) nên cột không còn chứa
+-- Zalo user id nữa. Đổi tên cho khớp nội dung — tên cột nói sai là cái bẫy cho người sau.
+-- An toàn vì tính năng bản tin chưa ra mắt (Features:Digest mặc định tắt) → cột chưa có dữ liệu
+-- thật; sp_rename giữ nguyên dữ liệu nếu có. Bọc IF nên chạy lại nhiều lần không sao.
+-- ⚠️ Thứ tự deploy: bản proxy CŨ đọc cột tên cũ, nên đừng để hai bản chạy song song lâu.
+IF EXISTS (SELECT 1 FROM sys.columns WHERE object_id = OBJECT_ID('dbo.DigestSubscriptions') AND name = 'ZaloUserId')
+   AND NOT EXISTS (SELECT 1 FROM sys.columns WHERE object_id = OBJECT_ID('dbo.DigestSubscriptions') AND name = 'ZaloPhone')
+    EXEC sp_rename 'dbo.DigestSubscriptions.ZaloUserId', 'ZaloPhone', 'COLUMN';
 
 -- SentMask/SentAttempts: CODE ĐÃ NGỪNG DÙNG (13/08) — trạng thái giao từng kênh nay nằm ở
 -- dbo.OutboundMails (mỗi kênh 1 dòng, có Status riêng), chính xác hơn cờ bit vì biết cả

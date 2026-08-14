@@ -29,8 +29,6 @@ public record DigestSubscription(
     bool ChannelTelegram, string? TelegramChatId,
     // ZaloPhone: SỐ ĐIỆN THOẠI, không phải Zalo user id. Zalo gửi bằng ZNS (nhắn theo số), nên
     // người dùng chỉ cần nhập số của mình — khỏi đi đào user id vốn khác nhau theo từng OA.
-    // ⚠️ Vẫn lưu ở CỘT CŨ tên `ZaloUserId` (alias trong câu SQL của repo): tính năng chưa ra mắt,
-    // cột chưa có dữ liệu thật, nên đổi tên cột chỉ tổ thêm một bước sửa lược đồ bảng cũ.
     bool ChannelZalo, string? ZaloPhone,
     DateTime? LastSentUtc, DateTime? LastSentLocalDate)
 {
