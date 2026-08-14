@@ -120,7 +120,7 @@ function NodeConfigPanel({ node, type, onClose, enabled, setEnabled, interval, s
             <div key={opt.key} className={'workflows-opt'
               + (opt.type === 'bool' ? ' is-toggle' : '')
               + (FP_WIDE_TYPES.includes(opt.type) ? ' is-wide' : '')
-              + ((opt.type === 'numbers' || (opt.type === 'multi' && !opt.dynamic)) ? ' is-multi' : '')}>
+              + (['multi', 'numbers'].includes(opt.type) ? ' is-multi' : '')}>
               <div className="workflows-opt-row">
                 <label className="workflows-opt-label">
                   {opt.label}{opt.required && <span className="req-star">*</span>}

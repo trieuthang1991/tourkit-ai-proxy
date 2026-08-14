@@ -1,4 +1,4 @@
-// components/workflow-options.jsx — NGUỒN DUY NHẤT cho schema + ô nhập cấu hình workflow.
+﻿// components/workflow-options.jsx — NGUỒN DUY NHẤT cho schema + ô nhập cấu hình workflow.
 //
 // Trước đây toàn bộ nằm trong pages/workflows.jsx. Tách ra để trang sơ đồ
 // (pages/flow-preview.jsx) sửa được ĐÚNG bộ cấu hình đó, thay vì dựng bộ ô nhập thứ hai —
@@ -108,9 +108,10 @@
       // ── Cơ hội cần gọi lại ──
       { key: 'secCooling', type: 'bool', label: 'Đưa vào bản tin', default: true,
         hint: 'Cơ hội đang theo đuổi mà lâu không ai liên hệ.' },
-      { key: 'callStatuses', type: 'multi', dynamic: 'dealStatuses', showIf: 'secCooling', default: [],
+      { key: 'callStatuses', type: 'multi', dynamic: 'dealStatuses', showIf: 'secCooling',
+        dynamicDefault: 'openDealStatuses',
         label: 'Chỉ nhắc khi cơ hội đang ở trạng thái',
-        hint: 'Chọn đúng những trạng thái mà nhân viên CÒN phải chăm (vd "Đang tư vấn", "Đã báo giá"). Để trống = mọi trạng thái đang mở, hệ thống tự bỏ Hủy/Đã chốt bằng cách đoán theo tên — nên chọn tay nếu công ty đặt tên trạng thái riêng. Danh sách này cũng áp cho mục "cần dọn hồ sơ" bên dưới.' },
+        hint: 'Mặc định đã chọn sẵn mọi trạng thái CÒN phải chăm (bỏ Hủy / Đã chốt / Thất bại) — sửa lại nếu công ty đặt tên trạng thái riêng. Bỏ chọn hết = để hệ thống tự đoán theo tên. Danh sách này cũng áp cho mục "cần dọn hồ sơ" bên dưới.' },
       { key: 'silentDaysMin', type: 'number', showIf: 'secCooling', default: 3, min: 1, max: 90,
         label: 'Nhắc khi im lặng quá (ngày)',
         hint: 'Đặt thấp thì bản tin đầy; đặt cao thì phát hiện muộn. 3 ngày là mặc định.' },
@@ -194,6 +195,58 @@
     const out = {};
     (WORKFLOW_OPTIONS[type] || []).forEach(o => { if (o.default !== undefined) out[o.key] = o.default; });
     return out;
+  }
+
+  // ─── Default ĐỘNG: tính từ danh sách lấy về từ CRM ────────────────────────────────
+  //
+  // Có những option không thể khai default tĩnh vì lựa chọn là dữ liệu của từng công ty (id trạng
+  // thái cơ hội mỗi nơi một khác). Để trống thì người dùng mở ra thấy "Tất cả trạng thái" và phải tự
+  // đoán nên tick gì — mà tick sai thì bản tin nhắc gọi lại đơn đã hủy (đúng lỗi đã gặp thật).
+  // Nên: khi danh sách về mà option CHƯA từng được khai, chọn sẵn các trạng thái còn phải chăm.
+
+  // Bỏ dấu + gộp khoảng trắng để so tên trạng thái do công ty tự đặt.
+  function viNorm(s) {
+    return String(s || '').toLowerCase()
+      // Viết dải dấu bằng \u… thay vì ký tự thật: dấu tổ hợp dán thẳng vào regex là thứ vô hình,
+      // một lần lưu sai bảng mã là im lặng hỏng mà nhìn code không thấy gì bất thường.
+      .normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/\u0111/g, 'd')
+      .replace(/[^a-z0-9]+/g, ' ').trim();
+  }
+
+  // Trạng thái coi là ĐÃ ĐÓNG (không nhắc gọi nữa). Bám theo DealCooling.IsClosedWon bên C#, thêm
+  // "hủy" và nhánh thua ("thất bại", "từ chối", "không thành công") — server bỏ đơn hủy theo MÃ
+  // trạng thái nên danh sách theo TÊN của nó không có mấy từ này; ở đây chọn theo tên thì phải có,
+  // nếu không mặc định lại tick nhầm đúng những đơn mà bản tin không nên nhắc.
+  const CLOSED_STATUS_WORDS = [
+    'huy', 'chot don', 'da chot', 'thanh cong', 'hoan thanh', 'hoan tat', 'da ban',
+    'that bai', 'tu choi', 'khong thanh cong', 'da dong',
+  ];
+
+  function isClosedStatusName(label) {
+    const s = viNorm(label);
+    if (!s) return false;
+    // "không thành công" chứa "thành công" → xét nhánh thua trước.
+    if (s.includes('khong thanh cong') || s.includes('that bai') || s.includes('tu choi')) return true;
+    return CLOSED_STATUS_WORDS.some(w => s.includes(w));
+  }
+
+  const DYNAMIC_DEFAULTS = {
+    openDealStatuses: list => (list || []).filter(o => !isClosedStatusName(o.label)).map(o => o.value),
+  };
+
+  /// Trả về patch {key: value} cho những option có dynamicDefault mà người dùng CHƯA từng khai.
+  /// CHƯA khai = `undefined`. Mảng rỗng KHÔNG tính là chưa khai — bỏ chọn hết rồi lưu là một lựa
+  /// chọn có chủ đích ("để hệ thống tự đoán"), điền lại giúp là ghi đè ý người dùng.
+  function dynamicDefaults(type, options, dynOptions) {
+    const patch = {};
+    (WORKFLOW_OPTIONS[type] || []).forEach(o => {
+      if (!o.dynamicDefault || options[o.key] !== undefined) return;
+      const list = (dynOptions || {})[o.dynamic] || [];
+      if (!list.length) return;                       // chưa tải xong → để lần sau
+      const fn = DYNAMIC_DEFAULTS[o.dynamicDefault];
+      if (fn) patch[o.key] = fn(list);
+    });
+    return patch;
   }
 
   // Field bắt buộc đang trống? (chỉ tính field đang hiện + có dữ liệu để chọn)
@@ -325,7 +378,7 @@
   window.tourkitWorkflowOptions = {
     INTERVAL_OPTIONS, MAIL_CATEGORIES, MAIL_TONES,
     WORKFLOW_OPTIONS, OPTION_GROUPS,
-    optVisible, optionDefaults, optEmpty,
+    optVisible, optionDefaults, optEmpty, dynamicDefaults, isClosedStatusName,
     MultiSelectDropdown, OptionControl,
   };
 })();

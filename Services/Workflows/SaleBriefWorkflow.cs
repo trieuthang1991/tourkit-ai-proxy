@@ -381,6 +381,12 @@ public class SaleBriefWorkflow : IScheduledWorkflow
         });
 
         // ── Lịch hẹn hôm nay + quá hạn ────────────────────────────────────────
+        // ⚠️ CRM KHÔNG tự bỏ lịch đã xong: /api/ai/appointments?dateFilter=1|3 lọc THUẦN theo ngày
+        // (CustomerCareService chỉ loại Status=4 "đã xoá"). Không lọc ở đây thì bản tin nhắc đi gặp
+        // khách mà cuộc hẹn đã diễn ra xong, và số "quá hạn" phồng lên vì đếm cả lịch đã hoàn thành —
+        // cùng loại lỗi với "bảo gọi lại cơ hội đã hủy". Trạng thái lịch hẹn là enum HỆ THỐNG
+        // (1=Tạo mới, 2=Thành công, 3=Không thành công, 4=Đã xoá), công ty KHÔNG tự thêm được →
+        // lọc bằng mã là chắc chắn đúng, không phải đoán theo tên như trạng thái cơ hội.
         if (opt.SecAppointments)
         await Safe("appointments", async () =>
         {
@@ -388,23 +394,31 @@ public class SaleBriefWorkflow : IScheduledWorkflow
             foreach (var it in Items(d))
             {
                 if (!Mine(it, user, fullName, crmUserId)) continue;
+                if (!ApptStillOpen(it)) continue;
                 appts.Add(new ApptLine(
                     Str(it, "scheduleTimeFormatted") ?? "",
                     Str(it, "title") ?? "Lịch hẹn",
                     Str(it, "customerName")));
             }
             var od = await _api.GetAsync(jwt, "/api/ai/appointments?dateFilter=3&pageIndex=1&pageSize=50", ct);
-            overdueAppt = Items(od).Count(it => Mine(it, user, fullName, crmUserId));
+            overdueAppt = Items(od).Count(it => Mine(it, user, fullName, crmUserId) && ApptStillOpen(it));
         });
 
         // ── Việc cần làm hôm nay + trễ hạn ────────────────────────────────────
+        // ⚠️ tabFilter=3 (hôm nay) KHÔNG loại việc đã Hoàn thành/Hủy — chỉ tabFilter=2 (trễ hạn) mới
+        // loại (điều kiện nằm trong SP uspSearchTasking). Nên chỉ danh sách "hôm nay" cần lọc tay.
+        // Mã trạng thái task cũng là enum hệ thống 1..5; công ty chỉ ĐỔI TÊN được (SectionWork),
+        // không thêm mã mới → lọc theo mã vẫn đúng dù tên hiển thị là gì.
         if (opt.SecTasks)
         await Safe("tasks", async () =>
         {
             var d = await _api.GetAsync(jwt, "/api/ai/tasks?tabFilter=3&pageIndex=1&pageSize=50", ct);
             foreach (var it in Items(d))
+            {
+                if (!TaskStillOpen(it)) continue;
                 tasks.Add(new TaskLine(Str(it, "name") ?? Str(it, "code") ?? "Công việc",
                                        Str(it, "priorityName"), IsOverdue: false));
+            }
             var od = await _api.GetAsync(jwt, "/api/ai/tasks?tabFilter=2&pageIndex=1&pageSize=50", ct);
             var late = Items(od).ToList();
             overdueTask = late.Count;
@@ -539,6 +553,25 @@ ORDER BY UpdatedAt ASC", new { tenantId, user, days = opt.StaleQuoteDays });
 
     private static bool Bool(JsonElement e, string n)
         => e.TryGetProperty(n, out var v) && v.ValueKind == JsonValueKind.True;
+
+    // ── Việc còn phải làm hay đã xong ─────────────────────────────────────────
+    // Mã trạng thái ở đây là enum HỆ THỐNG của CRM (công ty chỉ đổi tên hiển thị, không thêm mã),
+    // nên lọc theo mã là chắc chắn — khác hẳn trạng thái cơ hội vốn do từng công ty tự tạo.
+    // Thiếu mã (0) thì coi như CÒN mở: bỏ sót một việc đã xong đỡ tệ hơn nuốt mất việc chưa làm.
+
+    /// Lịch hẹn: 1=Tạo mới · 2=Thành công · 3=Không thành công · 4=Đã xoá.
+    private static bool ApptStillOpen(JsonElement e)
+    {
+        var s = Int(e, "status");
+        return s is not (2 or 3 or 4);
+    }
+
+    /// Công việc: 1=Chưa bắt đầu · 2=Đang thực hiện · 3=Đang kiểm tra · 4=Hoàn thành · 5=Hủy.
+    private static bool TaskStillOpen(JsonElement e)
+    {
+        var s = Int(e, "status");
+        return s is not (4 or 5);
+    }
 
     private static decimal Dec(JsonElement e, string n)
         => e.TryGetProperty(n, out var v) && v.ValueKind == JsonValueKind.Number ? v.GetDecimal() : 0m;

@@ -5567,6 +5567,22 @@ html[data-home-theme="dark"] .hp-theme {
 }
 .workflows-rowitem { border-top: 1px solid var(--border, #E2E8F0); }
 .workflows-rowitem:first-child { border-top: none; }
+/* Ô chọn loại bản tin — nằm trên đầu thẻ bản tin gộp. Nền xám nhạt để đọc ra ngay đây là
+   thanh chọn, không phải một tác vụ nữa. */
+.workflows-briefpick {
+  display: flex; align-items: center; gap: 10px 14px; flex-wrap: wrap;
+  padding: 11px 18px; background: var(--surface-2, #f8fafc);
+  border-bottom: 1px solid var(--border, #E2E8F0);
+}
+.workflows-briefpick-label {
+  display: inline-flex; align-items: center; gap: 6px;
+  font-size: 12px; font-weight: 700; letter-spacing: .03em; text-transform: uppercase;
+  color: var(--text-3, #94A3B8);
+}
+.workflows-briefpick-select { flex: 0 1 320px; min-width: 200px; }
+.workflows-briefpick-note { font-size: 11.5px; color: var(--text-3, #94A3B8); line-height: 1.5; }
+/* Thẻ nằm ngay dưới thanh chọn thì bỏ đường kẻ trên, tránh 2 nét sát nhau. */
+.workflows-briefpick + .workflows-rowitem { border-top: none; }
 .workflows-rowhead {
   display: flex; align-items: center; gap: 14px; padding: 14px 18px; cursor: pointer;
   transition: background .14s; outline: none;
@@ -5665,13 +5681,22 @@ html[data-home-theme="dark"] .hp-theme {
 }
 .workflows-opt-label { font-size: 13px; font-weight: 600; color: var(--text-1, #0F172A); line-height: 1.35; }
 .workflows-opt-control { flex-shrink: 0; }
-/* Ô rộng (chọn/số): co giãn theo chỗ trống, còn ≥240px thì ở lại cùng dòng với nhãn. */
+/* Ô rộng (chọn/số): rộng vừa đủ đọc nội dung, KHÔNG kéo dài hết hàng. Ô chọn dài cả hàng
+   để chứa mỗi chữ "Mỗi 15 phút" nhìn trống huơ, mà mắt cũng phải chạy hết hàng mới tới nó.
+   Không cho grow (flex-grow: 0), chỉ cho co lại khi hàng hẹp; hết chỗ thì tự xuống dòng. */
 .workflows-opt.is-wide .workflows-opt-label { flex: 0 1 auto; }
-.workflows-opt.is-wide .workflows-opt-control { flex: 1 1 300px; min-width: 240px; width: auto; }
-/* Dải chip tĩnh và cụm nhiều ô số tự xuống dòng bên trong → cho hẳn một dòng riêng.
-   Multi ĐỘNG là dropdown một dòng nên không dính rule này, vẫn nằm cạnh nhãn khi còn chỗ. */
+.workflows-opt.is-wide .workflows-opt-control { flex: 0 1 320px; min-width: 200px; width: auto; }
+/* Ô chọn-nhiều và cụm nhiều ô số đựng cả danh sách đã chọn nên cao dần → cho hẳn một dòng
+   riêng, nhãn ở trên. Nhét cạnh nhãn thì chật, mà nhãn cũng trôi giữa một khối mấy dòng. */
 .workflows-opt.is-wide.is-multi .workflows-opt-control { flex-basis: 100%; min-width: 0; }
 .workflows-opt-hint { font-size: 11.5px; color: var(--text-3, #94A3B8); line-height: 1.5; margin-top: 5px; }
+/* Lời nhắc "đây là phỏng đoán" — vàng nhạt, chỉ hiện tới khi người dùng Lưu lần đầu. */
+.workflows-opt-guess {
+  display: flex; align-items: flex-start; gap: 6px; margin-top: 6px;
+  padding: 7px 10px; border-radius: 8px; line-height: 1.5; font-size: 11.5px;
+  background: #FFFBEB; border: 1px solid #FDE68A; color: #92400E;
+}
+.workflows-opt-guess svg { flex-shrink: 0; margin-top: 2px; }
 .workflows-opt-num {
   width: 92px; text-align: right; font-variant-numeric: tabular-nums;
   font-weight: 600; color: var(--text-1, #0F172A);

@@ -88,7 +88,7 @@ function SummaryText({ summaryJson }) {
 // ⚠️ File đó PHẢI được nạp TRƯỚC file này (index.html + bundle-entry.js).
 const {
   INTERVAL_OPTIONS, WORKFLOW_OPTIONS, OPTION_GROUPS,
-  optVisible, optionDefaults, OptionControl,
+  optVisible, optionDefaults, dynamicDefaults, OptionControl,
 } = window.tourkitWorkflowOptions;
 
 // Workflow chạy chậm (review/cảnh báo) — chỉ dùng để hiện hint "quét ≠ review lại mỗi lần".
@@ -412,6 +412,16 @@ function WorkflowCard({ wf, onUpdate, pushToast, locked, canConfig = true, diges
     setOptions({ ...optionDefaults(wf.type), ...(wf.options || {}) });
   }, [wf.enabled, wf.intervalMinutes, wf.options]);
 
+  // Default ĐỘNG: option nào chọn từ danh sách của CRM (vd trạng thái cơ hội) thì chỉ điền mặc
+  // định được SAU khi danh sách về. Chạy lại cả khi wf.options đổi vì effect đồng bộ ở trên vừa
+  // đặt lại options về bản đã lưu — thiếu thì mặc định bị xoá ngay sau khi Lưu.
+  uE(() => {
+    setOptions(o => {
+      const patch = dynamicDefaults(wf.type, o, dynOptions);
+      return Object.keys(patch).length ? { ...o, ...patch } : o;
+    });
+  }, [dynOptions, wf.options]);
+
   const isSlow = SLOW_WORKFLOWS.includes(wf.type);
   const intervalOptions = INTERVAL_OPTIONS;
 
@@ -558,10 +568,10 @@ function WorkflowCard({ wf, onUpdate, pushToast, locked, canConfig = true, diges
     return groups;
   }
   const wideTypes = ['select', 'multi', 'numbers'];
-  // Ô nào BUỘC phải chiếm trọn một dòng riêng: dải chip tĩnh và cụm nhiều ô số —
-  // chúng tự xuống dòng bên trong nên chen cạnh nhãn sẽ vỡ. Multi ĐỘNG là dropdown
-  // một dòng (giống select) → cứ để nằm cùng dòng với nhãn khi còn chỗ.
-  const needsOwnLine = opt => opt.type === 'numbers' || (opt.type === 'multi' && !opt.dynamic);
+  // Ô nào BUỘC phải chiếm trọn một dòng riêng: mọi ô chọn-NHIỀU và cụm nhiều ô số.
+  // Chúng đựng danh sách đã chọn nên cao dần theo số mục — nhét cạnh nhãn thì vừa chật
+  // vừa đẩy nhãn trôi lơ lửng giữa một khối mấy dòng.
+  const needsOwnLine = opt => opt.type === 'numbers' || opt.type === 'multi';
 
   return (
     <div className={'workflows-rowitem' + (isPaused ? ' is-paused' : '') + (expanded ? ' is-open' : '')}>
@@ -698,6 +708,18 @@ function WorkflowCard({ wf, onUpdate, pushToast, locked, canConfig = true, diges
                   </div>
                     </div>
                     {opt.hint && <div className="workflows-opt-hint">{opt.hint}</div>}
+                    {/* Danh sách chọn sẵn là ĐOÁN THEO TÊN, và CRM không có cờ nào nói trạng thái
+                        nào là "đã đóng" — công ty đặt tên kiểu khác (Win/Lost/Kết thúc) là đoán
+                        trượt. Nói thẳng ra và mời xác nhận, thay vì để một phỏng đoán im lặng
+                        quyết định bản tin. Lời nhắc tự mất sau lần Lưu đầu tiên. */}
+                    {opt.dynamicDefault && (wf.options || {})[opt.key] === undefined
+                      && (dynOptions[opt.dynamic] || []).length > 0 && (
+                      <div className="workflows-opt-guess">
+                        <Icon name="warning" size={12} />
+                        <span>Danh sách chọn sẵn này là <b>phỏng đoán theo tên trạng thái</b> — xem lại
+                          cho đúng cách công ty bạn đặt tên, rồi bấm <b>Lưu cấu hình</b> để chốt.</span>
+                      </div>
+                    )}
                   </div>
                 ))}
               </div>
@@ -757,6 +779,45 @@ function WorkflowCard({ wf, onUpdate, pushToast, locked, canConfig = true, diges
           )}
         </div>
       )}
+    </div>
+  );
+}
+
+// ─── BriefPicker ─────────────────────────────────────────────────────────────────
+
+// Hai loại bản tin GỘP vào MỘT thẻ, chọn loại bằng ô chọn ở trên.
+//
+// Lý do: mỗi người chỉ nhận MỘT loại theo vai trò (bật loại này tự tắt loại kia). Bày cả hai
+// thẻ cạnh nhau khiến người dùng tưởng phải khai cả hai, và phải đọc hết hai khối cấu hình gần
+// giống nhau mới biết cái nào là của mình. Ô chọn chỉ đổi loại ĐANG XEM — không đụng đăng ký,
+// muốn đổi loại nhận thì vẫn phải tick "Nhận bản tin này" rồi Lưu như cũ.
+function BriefPicker({ items, subOf, onUpdate, pushToast, canConfig, onDigestSaved }) {
+  const Icon = window.Icon;
+  // Mở ra là thấy đúng loại mình đang nhận, khỏi phải đi tìm.
+  const enabledType = items.map(w => w.type).find(t => { const s = subOf(t); return s && s.enabled; });
+  const [type, setType] = uS(enabledType || items[0].type);
+  // Vừa bật loại kia rồi Lưu → danh sách tải lại → chuyển theo cho khớp thực tế.
+  uE(() => { if (enabledType && enabledType !== type) setType(enabledType); }, [enabledType]);
+  const wf = items.find(w => w.type === type) || items[0];
+  const sub = subOf(wf.type);
+
+  return (
+    <div className="workflows-listview">
+      <div className="workflows-briefpick">
+        <label className="workflows-briefpick-label" htmlFor="wf-brief-pick">
+          <Icon name="mail" size={14} /> Loại bản tin
+        </label>
+        <select id="wf-brief-pick" className="workflows-select workflows-briefpick-select"
+          value={type} onChange={e => setType(e.target.value)}>
+          {items.map(w => <option key={w.type} value={w.type}>{w.label}</option>)}
+        </select>
+        <span className="workflows-briefpick-note">
+          Mỗi người chỉ nhận một loại theo vai trò. Đổi ở đây chỉ để xem cấu hình loại khác.
+        </span>
+      </div>
+      <WorkflowCard key={wf.type} wf={wf} onUpdate={onUpdate} pushToast={pushToast}
+        locked={false} canConfig={canConfig}
+        digestSub={sub} onDigestSaved={onDigestSaved} />
     </div>
   );
 }
@@ -935,7 +996,13 @@ function WorkflowsPage({ pushToast, initialTab }) {
                   <h2 className="workflows-group-title" style={_wfRow}><Icon name="user" size={17} /> Theo người dùng</h2>
                   <p className="workflows-group-desc">Mỗi nhân viên tự bật cho riêng mình, dùng hộp thư và dữ liệu của chính mình.</p>
                 </div>
-                {renderCards(perUser, false)}
+                {renderCards(perUser.filter(w => !isBriefWf(w)), false)}
+                {/* 2 loại bản tin gộp thành 1 thẻ + ô chọn loại — xem BriefPicker. */}
+                {perUser.some(isBriefWf) && (
+                  <BriefPicker items={perUser.filter(isBriefWf)} subOf={subOf}
+                    onUpdate={loadWorkflows} pushToast={pushToast}
+                    canConfig={canConfig} onDigestSaved={loadDigest} />
+                )}
               </section>
             )}
             {perTenant.length > 0 && (
