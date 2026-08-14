@@ -39,6 +39,10 @@ Những cập nhật gần đây của TRAV-AI, viết cho người dùng. Mới
   bạn tự chọn — mỗi công ty đặt tên khác nhau, có nơi "Đang kiểm tra" nghĩa là đã làm xong chờ duyệt.
 - **🤖 AI viết lại bản tin cho dễ đọc.** Số liệu vẫn do hệ thống tính, AI chỉ sắp xếp và diễn đạt lại
   cho mạch lạc, nêu rõ nên làm gì trước. Có thể tắt trong cấu hình nếu bạn thích bản liệt kê thuần.
+- **🔎 Xem ngay hệ thống đang hiểu trạng thái của bạn thế nào.** Trong *Tự động hoá* → **Theo tổ chức**
+  → *Luật chung của bản tin* có khối **“Cách hiểu trạng thái của công ty bạn”**: bấm **Xem cách hiểu** để
+  thấy từng trạng thái đang được xếp là *còn phải làm* hay *đã xong*, và **Phân loại lại** để nhờ AI đọc
+  lại — không cần mở từng mục cấu hình đi tìm.
 - **🧠 Hệ thống tự hiểu tên trạng thái của công ty bạn.** Mỗi nơi đặt tên một kiểu — "Kết thúc", "Đã
   bàn giao", "Chốt đơn" — nên lần đầu mở phần cấu hình, hệ thống tự đọc danh sách trạng thái của chính
   công ty bạn và chọn sẵn những trạng thái *còn phải chăm*. Bạn xem được nó đang hiểu từng trạng thái
@@ -116,6 +120,12 @@ Những cập nhật gần đây của TRAV-AI, viết cho người dùng. Mới
   "+21%" chỉ là vài triệu. Nay bản tin nói con số tuyệt đối thay vì nhấn vào phần trăm.
 - **Số đếm không có dấu phân cách nghìn.** "2345 cuộc hẹn quá hạn" nay là "2.345 cuộc", khớp với cách
   hiển thị của mọi số tiền quanh nó.
+- **Hết lượt AI làm hỏng cả phần chọn sẵn trạng thái, mà không nói vì sao.** Công ty hết lượt AI sẽ
+  không được phân loại trạng thái, hệ thống lặng lẽ quay về cách đoán theo từ khoá quen thuộc (Hủy, Đã
+  chốt…) — với công ty đặt tên trạng thái theo quy trình riêng thì cách đoán đó gần như không lọc được
+  gì, dẫn tới bản tin nhắc cả cơ hội đã đóng. Nay: **việc chọn sẵn trạng thái không còn tính vào số lượt
+  AI** (đây là bước cài đặt, không phải bạn dùng AI), nên công ty nào cũng chạy được ngay. Nếu vì lý do
+  khác mà chưa có kết quả, màn hình nói rõ nguyên nhân thay vì im lặng.
 - **Số việc quá hạn lớn hơn cả tổng số việc chưa xong.** Bản tin có lúc ghi "335 việc chưa hoàn thành,
   trong đó 591 việc đã quá hạn" — hai con số đếm theo hai cách khác nhau nên đặt cạnh nhau thành vô lý.
   Nay cả hai đếm trên đúng những trạng thái bạn đã chọn.
