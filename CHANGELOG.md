@@ -43,6 +43,10 @@ Những cập nhật gần đây của TRAV-AI, viết cho người dùng. Mới
   thường là trống — nên nhìn như email lỗi. Nay nội dung thư gốc được hiện đầy đủ bên dưới một dòng
   phân cách ghi rõ ai gửi, ngày nào, tiêu đề gì; thư chuyển tiếp qua nhiều người vẫn đọc được tới thư
   trong cùng.
+- **📎 Biết được email có tệp đính kèm và tên tệp là gì.** Trước đây email mà toàn bộ nội dung nằm
+  trong tệp Excel/PDF (báo cáo, hợp đồng, bảng giá) mở lên chỉ thấy mấy dòng chữ ký — không có dấu
+  hiệu nào cho biết là có tệp, nên trông như email lỗi. Nay cuối thư có dòng liệt kê tên các tệp, tính
+  cả tệp nằm trong thư được chuyển tiếp. Logo trong chữ ký không bị tính là tệp đính kèm.
 
 ### 📌 Lưu ý
 - Nếu trợ lý chưa viết được phần gợi ý (mạng lỗi, hết lượt AI), bạn vẫn thấy đầy đủ dữ liệu thô về
@@ -51,8 +55,8 @@ Những cập nhật gần đây của TRAV-AI, viết cho người dùng. Mới
   cố ý không tự chạy lại toàn bộ hộp thư vì mỗi email tốn một lượt AI.
 - Việc đọc được email chuyển tiếp chỉ áp dụng cho **email tải về từ nay trở đi**. Những email chuyển
   tiếp đã nằm sẵn trong hộp thư vẫn hiện như cũ, vì nội dung của chúng đã được lưu từ lần tải trước.
-- Hộp thư AI vẫn **chưa hiển thị tệp đính kèm**. Nếu người gửi để nội dung trong tệp Excel/PDF, bạn sẽ
-  chỉ đọc được phần chữ trong thư.
+- Hộp thư AI **chưa mở/tải được tệp đính kèm** — mới chỉ cho biết là có tệp và tên tệp. Nội dung nằm
+  trong tệp Excel/PDF thì bạn vẫn phải mở bằng Gmail.
 
 ---
 

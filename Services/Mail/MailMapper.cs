@@ -22,7 +22,9 @@ public static class MailMapper
         // thường rỗng — `msg.HtmlBody`/`msg.TextBody` chỉ trả phần vỏ nên mở lên thấy TRẮNG.
         // (Gmail bấm "Chuyển tiếp" thì chèn nội tuyến, không dính; Outlook và nhiều app doanh nghiệp
         // thì đính kèm.) Ghép nội dung bên trong vào để đọc được.
-        foreach (var inner in NestedMessages(msg))
+        var nested = NestedMessages(msg);
+
+        foreach (var inner in nested)
         {
             var iHtml = inner.HtmlBody;
             var iText = inner.TextBody;
@@ -37,6 +39,21 @@ public static class MailMapper
                 // Vỏ có HTML mà thư trong chỉ có text → vẫn phải nối vào, không thì khung HTML hiển
                 // thị thiếu đúng phần nội dung.
                 html = Join(html, ForwardHeaderHtml(inner), "<pre>" + Escape(iText) + "</pre>");
+        }
+
+        // Tệp đính kèm: Hộp thư AI CHƯA tải/mở được tệp, nhưng ít nhất phải cho biết là CÓ tệp và tên
+        // nó là gì — thư kiểu "Fwd: BCTC tháng 05.26" chỉ có mấy dòng chữ ký, toàn bộ báo cáo nằm
+        // trong file Excel; không nói gì thì người dùng kết luận email hỏng.
+        // Gom cả tệp của thư bên trong (thư chuyển tiếp thường đính kèm ở lớp trong).
+        var files = AttachmentNames(msg, nested);
+        if (files.Count > 0)
+        {
+            var line = "📎 Tệp đính kèm: " + string.Join(", ", files);
+            body = Join(body, line);
+            if (!string.IsNullOrWhiteSpace(html))
+                html = Join(html,
+                    "<div style=\"margin-top:12px;padding-top:10px;border-top:1px solid #ddd;color:#666;font-size:13px\">"
+                    + Escape(line) + "</div>");
         }
 
         var received = msg.Date == default ? DateTimeOffset.UtcNow : msg.Date;
@@ -84,6 +101,30 @@ public static class MailMapper
                     break;
             }
         }
+    }
+
+    /// <summary>
+    /// Tên các tệp NGƯỜI TA GỬI KÈM, của cả thư ngoài lẫn thư được chuyển tiếp bên trong.
+    ///
+    /// <para>CỐ Ý bỏ qua phần <c>inline</c> (logo trong chữ ký, ảnh nhúng qua <c>cid:</c>) và phần
+    /// <c>message/rfc822</c> (chính là thư chuyển tiếp — nội dung của nó đã được ghép vào ở trên).
+    /// Nếu liệt kê cả logo thì gần như mọi email công ty đều hiện "Tệp đính kèm: image001.png", nhiễu
+    /// tới mức lúc có tệp thật thì không ai để ý nữa.</para>
+    /// </summary>
+    private static List<string> AttachmentNames(MimeMessage msg, List<MimeMessage> nested)
+    {
+        var names = new List<string>();
+        foreach (var m in new[] { msg }.Concat(nested))
+        {
+            foreach (var part in m.Attachments.OfType<MimePart>())
+            {
+                if (part.ContentDisposition?.IsAttachment == false) continue;   // inline → bỏ
+                var name = part.FileName ?? part.ContentDisposition?.FileName ?? part.ContentType?.Name;
+                if (string.IsNullOrWhiteSpace(name)) continue;
+                if (!names.Contains(name)) names.Add(name);   // thư lồng nhau dễ lặp lại cùng một tệp
+            }
+        }
+        return names;
     }
 
     /// Dòng phân cách cho phần chuyển tiếp — người đọc phải biết đoạn dưới là thư của người khác,

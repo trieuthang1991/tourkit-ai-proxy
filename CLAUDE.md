@@ -326,8 +326,12 @@ Gmail inbox synced on demand, AI-classified, with AI-drafted replies. Flow lives
   nay duyệt đệ quy `MessagePart` (chặn 5 lớp / 10 thư) và ghép nội dung bên trong kèm dòng phân cách.
   ⚠️ Chỉ áp dụng cho thư kéo về TỪ NAY — thư cũ đã lưu Body/BodyHtml theo bản cũ, `reclassify` KHÔNG
   chữa được (nó chỉ chạy lại AI trên body đã lưu); muốn chữa phải kéo lại từ IMAP.
-- **Đính kèm vẫn CHƯA hỗ trợ** — `MailMapper` không đọc `Attachments`, `MailItem` không có field nào
-  cho nó. Thư mà nội dung nằm trong Excel/PDF thì người dùng không thấy gì, cũng không biết là có tệp.
+- **Đính kèm: BÁO TÊN, chưa tải được file.** `MailMapper` ghép dòng `📎 Tệp đính kèm: …` vào CHÍNH
+  thân thư (cả text lẫn HTML) — cố ý KHÔNG thêm cột vào `dbo.Mails` (bảng cũ). Gom cả tệp của thư
+  lồng bên trong, vì thư chuyển tiếp thường đính kèm ở lớp trong. **Bỏ qua phần `inline`** (logo chữ
+  ký, ảnh `cid:`) — liệt kê cả logo thì gần như mọi email công ty đều hiện "image001.png", nhiễu tới
+  mức lúc có tệp thật không ai để ý. Tên tệp do người ngoài đặt nên **phải escape** trước khi nhét
+  vào HTML. Tải/mở file vẫn là Phase 2.
 - **Phân loại: định nghĩa + luật gỡ hoà, KHÔNG chỉ tên nhóm** (sửa 14/08). Prompt cũ liệt kê trần
   `- spam: Spam` → thư máy-gửi (không phải khách, cũng không phải quảng cáo) kẹt giữa `spam`/`khac`,
   mỗi lần chọn một kiểu: soát 1.215 thư thật thấy `Thông báo có công việc mới được giao` rải **143
