@@ -161,7 +161,9 @@ public static class WorkflowStackRegistration
         // sống bên worker, endpoint cấu hình sống bên web, cả hai cùng cần bộ này.
         s.AddSingleton<Digest.InsightRepository>();
         s.AddSingleton<Digest.DigestSubscriptionRepository>();
-        s.AddSingleton<Digest.TenantChannelSettingsStore>();
+        // TenantChannelSettingsStore đã GỠ (14/08): proxy không còn đọc/ghi cấu hình kênh của
+        // công ty — Zalo nay dùng OA chung khai ở config worker. Bảng dbo.TenantChannelSettings vẫn
+        // còn, nhưng chủ của nó giờ là worker (lưu cặp token ZNS ở scope hệ thống).
         // Chỉ còn 3 kênh GỬI RA NGOÀI. Kênh "trong app" đã bỏ khỏi danh sách này: nó không phải kênh
         // gửi mà là KHO LƯU luôn-bật — bản tin ghi thẳng vào Bảng tin lúc dựng, trước khi nghĩ tới
         // chuyện gửi đi đâu. Nhờ vậy mọi kênh ngoài hỏng hết thì vẫn còn chỗ xem/nghe lại.

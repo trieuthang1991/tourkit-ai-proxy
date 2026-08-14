@@ -1,10 +1,10 @@
 # Mail templates cho hàng đợi `dbo.OutboundMails`
 
 Proxy (workflow `deal-auto-review`, `sale-brief`, `ceo-brief`) **không** soạn HTML — chỉ enqueue 1 dòng vào `dbo.OutboundMails` với
-`TemplateCode` + `[Params]` (JSON). **Worker (CEO viết)** đọc dòng `Status=0`, load template HTML theo
+`TemplateCode` + `[Params]` (JSON). **`TourKit.PushWorker` bên toutkit-app** đọc dòng `Status=0`, load template HTML theo
 `TemplateCode`, replace tham số, resolve người nhận, gửi SMTP, cập nhật `Status`.
 
-Template lưu/quản lý ở đâu là tùy worker (file, DB, embedded resource...). Thư mục này chỉ chứa **mẫu khởi đầu**.
+Template lưu ở `dbo.MailTemplates` (admin sửa được ở `/admin-trav-ai`), thiếu thì worker rơi về mẫu trong code. Thư mục này chứa **mẫu khởi đầu**.
 
 ## `deal-cooling-alert`
 
