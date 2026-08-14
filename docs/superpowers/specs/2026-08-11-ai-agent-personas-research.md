@@ -208,25 +208,58 @@ không có khách nào gửi thư hỏi tour vào hai hộp này**. Điều ki�
 hộp thư bán hàng thật**, không phải sửa model.
 
 **2. Nhưng classifier CÓ một lỗi thật, đo được: nó không nhất quán.** Cùng một tiêu đề, thư khác nhau
-lại rơi vào nhóm khác nhau — `Thông báo có công việc mới được giao` **121 thư** chia đôi `khac`/`spam`;
-`Your Grab E-Receipt` **60 thư** chia đôi; `Thông báo có phiếu thu mới` **12 thư** rải **3 nhóm**. Tổng
-cộng >470 thư ở các dòng đầu bảng. Nguyên nhân: prompt chỉ liệt kê **tên** nhóm (`- spam: Spam`) chứ
-không định nghĩa nhóm cũng không có luật gỡ hoà, nên với thư máy-gửi (không phải khách, cũng không phải
-quảng cáo) model bị kẹt giữa `spam` và `khac` và mỗi lần chọn một kiểu. `Temperature: 0.1` chỉ khuếch
-đại chứ không phải gốc.
+lại rơi vào nhóm khác nhau — `Thông báo có công việc mới được giao` từ `hotro.tourkit@gmail.com`:
+**143 `spam` / 52 `khac` / 41 `xac_nhan`**, cả ba nhóm vẫn đang được sinh ra **đến tận hôm nay**;
+`Thông báo có phiếu thu mới` rải **3 nhóm**. Nguyên nhân: prompt chỉ liệt kê **tên** nhóm
+(`- spam: Spam`) chứ không định nghĩa nhóm cũng không có luật gỡ hoà, nên với thư máy-gửi (không phải
+khách, cũng không phải quảng cáo) model bị kẹt giữa `spam` và `khac` và mỗi lần chọn một kiểu.
+`Temperature: 0.1` chỉ khuếch đại chứ không phải gốc.
+
+> **Đính chính hai điều trong bản audit đầu tiên** (viết trước khi soi mốc thời gian):
+> - `Your Grab E-Receipt` 60 thư chia đôi **KHÔNG phải** dấu hiệu không nhất quán. Mốc rất sạch:
+>   `spam` dừng ở 09/07, `khac` bắt đầu 10/07 — đó là ngày bộ lọc bulk (commit 26/06) lên production.
+>   **Bộ lọc bulk đang chạy đúng**: mọi thư từ `no-reply@…` chuẩn đều đi thẳng vào `khac`, không tốn
+>   token AI. Lỗi không nhất quán chỉ còn ở người gửi là **địa chỉ thật** (`hotro.tourkit@gmail.com`,
+>   `hotro@tourkit.vn`) — bộ lọc bulk không bắt, nên mọi thư đều qua AI.
+> - "20 thư có từ khoá tour bị xếp `spam`" là **báo động nhầm của chính tôi**: từ khoá khớp chữ
+>   *"Tourkit"* (tên công ty) trong yêu cầu chia sẻ Google Drive và thư nhân sự nội bộ, **không có**
+>   thư khách hỏi tour nào. Rủi ro "thư đáng giá bị chôn trong spam" **chưa xảy ra**.
 
 **3. Bộ nhóm hiện tại thiếu chỗ cho ~96% thư thật.** Cả 6 nhóm đều hướng bán hàng. Thông báo nội bộ CRM,
 newsletter, biên nhận không có nhà → dồn hết vào `spam`/`khac`, và đó chính là chỗ sinh ra lỗi (2).
 
-**4. Hai hệ quả đã thấy, đáng sửa bất kể S2:**
-- **Bản tin sáng của chính TRAV-AI bị chấm là `spam`** (`Bản tin sáng 14/08 — Admin Tourkit` nằm ở cả
-  `khac` lẫn `spam`).
-- **20 thư có từ khoá tour rơi vào `spam`** — `spam` là ngõ cụt trong luồng bán hàng, nên nếu sau này
-  cắm hộp thư thật thì đúng những thư đáng giá nhất sẽ biến mất im lặng. Đây mới là rủi ro thật của S2.
+**4. Hệ quả đã thấy, đáng sửa bất kể S2:** **bản tin sáng của chính TRAV-AI bị chấm là `spam`**
+(`Bản tin sáng 14/08 — Admin Tourkit` nằm ở cả `khac` lẫn `spam`).
 
 **Chốt:** S2 **hoãn** — chờ (a) hộp thư bán hàng thật, và (b) sửa nhóm + prompt classifier theo (2)(3).
 Sửa classifier là việc **độc lập, nên làm trước** vì nó đang làm hỏng cả tính năng Hộp thư AI hiện tại,
 nhưng nó **không** tự mở khoá S2.
+
+### Đã sửa (14/08) + đo lại trên dữ liệu thật
+
+Đưa **định nghĩa từng nhóm** + **luật gỡ hoà** vào `MailTaxonomy` (1 nguồn) rồi nhúng vào prompt;
+`Temperature` 0.1 → **0** (bài toán chọn nhãn, không phải viết văn). Thêm
+`POST /api/v1/mail/{id}/reclassify` — trước đây phân loại chỉ chạy đúng một lần lúc kéo thư về, nên sửa
+bộ phân loại xong thì thư cũ vẫn giữ nhãn sai vĩnh viễn và không có cách nào chữa.
+
+**Bản luật ĐẦU TIÊN sai, và nhóm đối chứng bắt được.** Luật viết "thư máy gửi từ dịch vụ đang dùng →
+không bao giờ `spam`"; chạy thử thì **quảng cáo Grab cũng thoát khỏi `spam`** — vì quảng cáo Grab đúng
+là máy gửi từ dịch vụ đang dùng. Nếu chỉ đo nhóm "thông báo nội bộ" thì đã kết luận thành công trong
+khi thực chất nhóm `spam` đang bị rỗng dần. Luật sửa lại: phân biệt theo **MỤC ĐÍCH thư** (ghi
+nhận/thông báo vs chào mời/khuyến mãi), **không theo người gửi**.
+
+Đo lại hai chiều trên thư thật (tenant `erp.tourkit.vn`):
+
+| Nhóm thử | Kỳ vọng | Kết quả |
+|---|---|---|
+| Quảng cáo Grab ×2 | vẫn `spam` | `spam` ✅ |
+| `Thông báo có công việc mới được giao` ×3 | rời `spam` | `khac` ✅ |
+| `Your Grab E-Receipt` (biên nhận) | `khac` | `khac` ✅ |
+| Cùng 1 thư chạy lại 3 lần | ra cùng nhóm | ổn định ✅ |
+| 2 thư cùng tiêu đề đang lưu lệch nhau (`khac` vs `spam`) | hội tụ | cùng `khac` ✅ |
+
+**Còn lại:** 1.215 thư cũ vẫn giữ nhãn cũ — phân loại lại hàng loạt tốn 1 lượt AI/thư nên **chưa làm**,
+để người dùng tự bấm lại khi cần.
 
 ---
 

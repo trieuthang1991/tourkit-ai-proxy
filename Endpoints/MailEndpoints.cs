@@ -234,6 +234,29 @@ public static class MailEndpoints
                 : Results.NotFound(new { error = "Không tìm thấy email" });
         });
 
+        // ─── POST /mail/{id}/reclassify ─── phân loại lại 1 email đã lưu ────────
+        // Cần đường này vì phân loại chỉ chạy MỘT LẦN lúc kéo thư về: sửa bộ phân loại xong thì thư
+        // cũ vẫn giữ nguyên nhãn sai mãi mãi (soát 14/08: bản tin của chính TRAV-AI bị chấm 'spam').
+        // Cũng là lối thoát khi AI xếp nhầm một thư quan trọng — trước đây không có cách nào sửa.
+        v1.MapPost("/mail/{id}/reclassify", async (
+            HttpContext ctx, string id, MailRepository repo, MailClassifier classifier,
+            TkSessionStore sessions, CancellationToken ct) =>
+        {
+            var auth = RequireSession(ctx, sessions);
+            if (auth == null) return Unauthorized();
+            var (_, tenant, _) = auth.Value;
+
+            var mail = repo.Get(tenant, id);
+            if (mail == null) return Results.NotFound(new { error = "Không tìm thấy email" });
+
+            var before = mail.Category;
+            var (cat, sum) = await classifier.ClassifyAsync(mail, ct);
+            // Giữ nguyên Status/Draft/IsRead — phân loại lại KHÔNG được đụng tới tiến trình xử lý
+            // của nhân viên (thư đang 'đang xử lý' mà bị đẩy về 'mới' là mất việc đang làm dở).
+            repo.Upsert(tenant, mail with { Category = cat, AiSummary = sum });
+            return Results.Json(new { ok = true, before, after = cat, summary = sum, changed = before != cat });
+        });
+
         // ─── POST /mail/compose/draft (SSE) ─── AI soạn email MỚI từ brief ──────
         v1.MapPost("/mail/compose/draft", async (
             ComposeDraftRequest req, MailReplyService replyService,

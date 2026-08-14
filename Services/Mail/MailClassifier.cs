@@ -53,7 +53,10 @@ public class MailClassifier
                 Prompt:      BuildPromptJson(mail),
                 Provider:    provider.Id,
                 Model:       resolved.Model,
-                MaxTokens:   1000, Temperature: 0.1,
+                // Temperature 0 (trước là 0.1): đây là bài toán CHỌN NHÃN, không phải viết văn —
+                // cùng một thư phải ra cùng một nhóm. 0.1 nghe như "gần bằng 0" nhưng đủ để lật
+                // quyết định mỗi khi model đang phân vân, mà phân vân chính là ca hỏng nhiều nhất.
+                MaxTokens:   1000, Temperature: 0,
                 System:      SystemJsonPrompt,
                 ApiKey:      resolved.ApiKey);
 
@@ -79,14 +82,24 @@ public class MailClassifier
     }
 
     // ─── Prompt builder ──────────────────────────────────────────────────────────
-    private static string BuildPromptJson(MailItem mail)
+    /// <summary>
+    /// Prompt phân loại. Trước 14/08 chỉ liệt kê TÊN nhóm ("- spam: Spam") — thiếu định nghĩa và
+    /// thiếu luật gỡ hoà, nên với thư máy-gửi (không phải khách, cũng không phải quảng cáo) model bị
+    /// kẹt giữa 'spam' và 'khac' và mỗi lần chọn một kiểu. Nay đưa cả định nghĩa lẫn luật gỡ hoà từ
+    /// <see cref="MailTaxonomy"/> vào — 1 nguồn, sửa một chỗ là cả hệ đổi theo.
+    /// </summary>
+    internal static string BuildPromptJson(MailItem mail)
     {
-        var cats = string.Join("\n", MailTaxonomy.Categories.Select(kv => $"- {kv.Key}: {kv.Value}"));
+        var cats = string.Join("\n", MailTaxonomy.Categories.Select(kv =>
+            $"- {kv.Key} ({kv.Value}): {MailTaxonomy.CategoryHints[kv.Key]}"));
         var body = mail.Body.Length > 2000 ? mail.Body[..2000] + " …(cắt)" : mail.Body;
         return $@"PHÂN LOẠI EMAIL SAU vào ĐÚNG 1 nhóm:
 
 CÁC NHÓM:
 {cats}
+
+LUẬT GỠ HOÀ (áp dụng THEO THỨ TỰ, luật trên thắng luật dưới):
+{MailTaxonomy.TieBreakRules}
 
 EMAIL:
 Từ: {mail.From.Name} <{mail.From.Email}>

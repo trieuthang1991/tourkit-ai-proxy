@@ -28,9 +28,22 @@ Những cập nhật gần đây của TRAV-AI, viết cho người dùng. Mới
   những dữ liệu đã dùng, để bạn tra lại con số nào lấy từ đâu.
   Chỉ chạy khi bạn hỏi, nên không tốn lượt cho những cuộc gặp bạn không cần chuẩn bị.
 
+### 🔧 Đã khắc phục
+- **📬 Thư giống hệt nhau không còn bị xếp vào các nhóm khác nhau.** Trước đây cùng một loại thông báo
+  gửi đi gửi lại có lần bị coi là *Spam*, có lần *Khác*, có lần *Xác nhận* — mở Hộp thư AI ra thấy lộn
+  xộn không hiểu vì sao. Nay hệ thống được chỉ rõ từng nhóm nghĩa là gì và xử lý thế nào khi phân vân,
+  nên cùng một thư sẽ luôn vào cùng một nhóm.
+- **📥 Thông báo của hệ thống không còn bị coi là spam.** Thư nội bộ, biên nhận, cảnh báo bảo mật — kể
+  cả **bản tin sáng của chính TRAV-AI** — từng bị xếp vào *Spam* và nằm im ở đó. Nay chúng vào *Khác*
+  để bạn vẫn nhìn thấy. Ngược lại, thư quảng cáo vẫn nằm đúng chỗ trong *Spam*.
+- **🔁 Sửa được nhóm của một email đã phân loại sai.** Trước đây mỗi email chỉ được phân loại đúng một
+  lần lúc tải về, xếp nhầm là chịu. Nay bạn có thể cho phân loại lại email đó.
+
 ### 📌 Lưu ý
 - Nếu trợ lý chưa viết được phần gợi ý (mạng lỗi, hết lượt AI), bạn vẫn thấy đầy đủ dữ liệu thô về
   khách — sắp bước vào gặp mà báo lỗi trắng thì không giúp được gì.
+- Những email đã tải về từ trước vẫn giữ nhóm cũ. Muốn sửa thì cho phân loại lại từng email — hệ thống
+  cố ý không tự chạy lại toàn bộ hộp thư vì mỗi email tốn một lượt AI.
 
 ---
 

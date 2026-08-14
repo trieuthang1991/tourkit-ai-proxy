@@ -103,7 +103,7 @@ Services/
     MailSyncStore.cs                       ← state đồng bộ dbo.MailSyncState per-tenant (per-address uidValidity+lastUid)
     IMailSender.cs + GmailSmtpClient.cs    ← gửi (trả lời + soạn mới) qua SMTP Gmail (587, App Password), thread qua In-Reply-To
     MailRepository.cs                      ← DB-backed dbo.Mails per-tenant (PK TenantId,Id) + Filter/Counts (diacritics-insensitive)
-    MailClassifier.cs                      ← classify qua `Models:MailClassify` (DeepSeek qua nine-routes) — chỉ JSON-prompt, không native tool
+    MailClassifier.cs                      ← classify qua `Models:MailClassify` (DeepSeek qua nine-routes) — chỉ JSON-prompt, không native tool; prompt lấy ĐỊNH NGHĨA nhóm + LUẬT GỠ HOÀ từ MailTaxonomy, Temperature=0
     MailReplyService.cs                    ← soạn nháp theo tone + chỉ thị NV (stream)
 Endpoints/
   SystemEndpoints.cs                       ← GET /healthz
@@ -155,6 +155,7 @@ data/
 | GET    | `/api/v1/mail`                    | list + filter (`status`, `category`, `search`) + counts |
 | GET    | `/api/v1/mail/{id}`               | chi tiết 1 email                                     |
 | POST   | `/api/v1/mail/{id}/read`          | đánh dấu đã đọc (khi mở email)                        |
+| POST   | `/api/v1/mail/{id}/reclassify`    | phân loại lại 1 email đã lưu → `{ok, before, after, summary, changed}`; giữ nguyên trạng thái xử lý/nháp |
 | POST   | `/api/v1/mail/{id}/reply/draft`   | SSE: stream nháp trả lời theo `{tone, instruction}`  |
 | POST   | `/api/v1/mail/{id}/reply/send`    | gửi nháp (đã sửa) cho khách qua SMTP Gmail → status `da_phan_hoi` |
 | POST   | `/api/v1/mail/compose/draft`      | SSE: AI soạn email MỚI từ `{to, subject, brief, tone}` |
@@ -319,6 +320,18 @@ Gmail inbox synced on demand, AI-classified, with AI-drafted replies. Flow lives
 - **Source = Gmail IMAP via MailKit, NOT OAuth.** `GmailImapClient` (implements `IMailSource`) connects `imap.gmail.com:993` read-only with an **App Password** (requires Gmail 2-Step Verification + IMAP enabled). The interface keeps OAuth swappable later. Creds resolved by `MailAccountStore`: DB-backed `dbo.MailAccounts` per-tenant (App Password Crypton-encrypted, never plaintext, never returned to client) entered via UI per tenant. KHÔNG còn fallback config/env (đã drop từ commit multi-tenant fix 2026-06-09).
 - **Sync is on-demand (Refresh button), not a background poller.** `POST /mail/sync` is **incremental theo UID** (`MailSyncStore` lưu `dbo.MailSyncState` per-tenant per-address `{uidValidity, lastUid}`): chỉ kéo email có UID > lần trước → KHÔNG sót dù >N email mới giữa 2 lần sync. Lần đầu/khi UidValidity đổi → kéo `max` (30) mới nhất. Cờ `\Seen` của Gmail map sang `IsRead` lúc kéo. Vẫn **classify chỉ email MỚI** (`repo.Has(id)` skip → tiết kiệm token). Email id = Message-Id (MimeKit chuẩn hóa/tự sinh), fallback `{address}:{uid}`.
 - **Đọc/chưa đọc:** `POST /mail/{id}/read` đánh dấu đã đọc khi mở; `MailCounts.Unread` cho badge. Frontend in đậm + chấm cam dòng chưa đọc.
+- **Phân loại: định nghĩa + luật gỡ hoà, KHÔNG chỉ tên nhóm** (sửa 14/08). Prompt cũ liệt kê trần
+  `- spam: Spam` → thư máy-gửi (không phải khách, cũng không phải quảng cáo) kẹt giữa `spam`/`khac`,
+  mỗi lần chọn một kiểu: soát 1.215 thư thật thấy `Thông báo có công việc mới được giao` rải **143
+  `spam` / 52 `khac` / 41 `xac_nhan`**. Nay `MailTaxonomy.CategoryHints` + `MailTaxonomy.TieBreakRules`
+  là 1 nguồn, nhúng vào prompt; `Temperature` = **0**. ⚠️ **Luật phải phân biệt theo MỤC ĐÍCH thư, KHÔNG
+  theo người gửi** — bản đầu viết "máy gửi từ dịch vụ đang dùng → không bao giờ spam" thì **quảng cáo
+  Grab cũng thoát khỏi spam**, tức là nhóm `spam` rỗng dần trong im lặng. Sửa lớp này thì phải đo **cả
+  hai chiều** (thông báo rời spam VÀ quảng cáo ở lại spam), đo một chiều sẽ kết luận sai.
+- **`POST /mail/{id}/reclassify`** — phân loại chỉ chạy MỘT LẦN lúc kéo thư về, nên sửa classifier xong
+  thư cũ vẫn giữ nhãn sai vĩnh viễn. Endpoint này chạy lại cho 1 thư, **giữ nguyên** `Status`/`Draft`/
+  `IsRead` (đẩy thư đang xử lý về "mới" là mất việc đang làm dở). CỐ Ý không có bản chạy hàng loạt —
+  mỗi thư tốn 1 lượt AI.
 - **Soạn thư MỚI:** `POST /mail/compose/draft` (SSE, AI viết từ `brief`) + `/mail/compose/send` (gửi tới người nhận bất kỳ) — `MailReplyService.ComposeNewStreamAsync` + `IMailSender.SendAsync`. Chữ ký công ty (`MailAccountStore.Signature()`, cấu hình ở UI per-tenant, lưu trong `dbo.MailAccounts`) được dệt vào prompt soạn.
 - **Classification + reply reuse `ProviderRegistry`.** `MailClassifier.ClassifyAsync` (buffered, dual-path — xem "Native function-calling" section: Anthropic → `submit_mail_classification` tool với Haiku; else → JSON-prompt) → `{category, summary}`; 6 categories normalized to a known set (lạ → `khac`); lỗi cả 2 path → `("khac", "")` để mail vẫn lưu. `MailReplyService.DraftStreamAsync` streams a tone-aware draft (4 tones) + staff instruction via `provider.StreamAsync`, saves the draft + flips status → `dang_xu_ly`. Both client AI prefs (`provider`/`model`/`apiKey`) flow through like the other features.
 - **Sending = SMTP Gmail (`IMailSender`/`GmailSmtpClient`).** `POST /mail/{id}/reply/send` gửi nội dung (đã sửa) tới người gửi gốc qua `smtp.gmail.com:587` STARTTLS bằng chính App Password — gửi AS the company Gmail, nên KHÔNG dính SPF/DKIM/spam như giả mạo domain. Gắn `In-Reply-To`/`References` để vào đúng luồng. Gửi xong → lưu nội dung + status `da_phan_hoi`. Frontend confirm trước khi gửi.
