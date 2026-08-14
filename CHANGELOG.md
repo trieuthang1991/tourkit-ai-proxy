@@ -13,7 +13,7 @@ Những cập nhật gần đây của TRAV-AI, viết cho người dùng. Mới
 
 ---
 
-## Phiên bản 14/08/2026 — Bản tin đến đúng giờ hơn
+## Phiên bản 14/08/2026 — Bản tin đến đúng giờ và tự cấu hình được
 
 ### ✨ Tính năng mới
 - **⏰ Bản tin được chuẩn bị sẵn từ trước.** Hệ thống soạn bản tin của bạn trước giờ nhận một chút, đến
@@ -36,6 +36,25 @@ Những cập nhật gần đây của TRAV-AI, viết cho người dùng. Mới
   báo giá"). Để trống thì hệ thống vẫn tự bỏ qua các cơ hội đã hủy / đã chốt như trước.
 - **🤖 AI viết lại bản tin cho dễ đọc.** Số liệu vẫn do hệ thống tính, AI chỉ sắp xếp và diễn đạt lại
   cho mạch lạc, nêu rõ nên làm gì trước. Có thể tắt trong cấu hình nếu bạn thích bản liệt kê thuần.
+- **🧠 Hệ thống tự hiểu tên trạng thái của công ty bạn.** Mỗi nơi đặt tên một kiểu — "Kết thúc", "Đã
+  bàn giao", "Chốt đơn" — nên lần đầu mở phần cấu hình, hệ thống tự đọc danh sách trạng thái của chính
+  công ty bạn và chọn sẵn những trạng thái *còn phải chăm*. Bạn xem được nó đang hiểu từng trạng thái
+  ra sao, sửa lại nếu chưa đúng, hoặc bấm **Phân loại lại**. Chỉ chạy một lần rồi nhớ, đổi tên trạng
+  thái trong CRM thì tự nhận ra và làm lại.
+- **✅ Chọn thế nào là việc "chưa xong".** Mục *Việc cần làm hôm nay* nay cho bạn chỉ định những trạng
+  thái còn phải làm — ví dụ có công ty coi "Đang kiểm tra" là đã xong, chờ duyệt.
+- **📊 Bản tin điều hành cũng cấu hình được.** Trước đây bản tin cho giám đốc cố định một khuôn. Nay
+  chọn được **kỳ so sánh** (cùng kỳ tháng trước / cùng kỳ **năm** trước / không so sánh — du lịch theo
+  mùa nên so tháng trước dễ đánh lừa), bật/tắt từng mục (top nhân viên và lấy mấy người, cơ hội mới,
+  lịch hẹn, cảnh báo thanh toán), và chọn có để AI viết lời hay in thẳng bảng số.
+- **🔀 Chọn loại bản tin bằng một ô chọn.** Trước đây hai loại bản tin bày thành hai thẻ cạnh nhau,
+  dễ tưởng phải khai cả hai. Nay chỉ còn một thẻ, chọn loại ở ô trên cùng.
+- **🧭 Tách rõ phần của bạn và phần của công ty.** Trong *Tự động hoá*: mục **Theo người dùng** chỉ còn
+  đăng ký nhận của riêng bạn (nhận hay không, mấy giờ, ở đâu); còn các luật áp cho mọi người — đưa mục
+  nào vào bản tin, ngưỡng bao nhiêu ngày, trạng thái nào còn phải chăm — chuyển xuống khối **Luật chung
+  của bản tin** trong mục *Theo tổ chức*, một người khai một lần.
+- **🔘 Bật nhận là đủ.** Trước đây phải bật hai chỗ mới nhận được tin: đăng ký của bạn và lịch gửi của
+  công ty. Nay bạn bật nhận là hệ thống tự lo phần còn lại.
 
 ### 🔧 Đã khắc phục
 - **Mất bản tin của cả ngày khi hệ thống bận đúng khung giờ gửi.** Trước đây nếu hệ thống khởi động lại
@@ -57,12 +76,31 @@ Những cập nhật gần đây của TRAV-AI, viết cho người dùng. Mới
 - **Form cấu hình khó đọc, chỉnh một mục phải tìm ở ba chỗ.** Trước đây các ô được xếp theo kiểu dữ liệu
   nên công tắc một chỗ, ngưỡng ngày một chỗ khác. Nay mọi thứ của cùng một mục nằm liền nhau, và nhãn
   với ô nhập đứng cùng một dòng thay vì mỗi ô một dòng như cũ — nhìn hết cấu hình mà không phải cuộn dài.
+- **Không tìm thấy chỗ đặt giờ nhận bản tin.** Khối *Bản tin của tôi* — nơi chọn giờ nhận và nơi nhận —
+  bị mất khỏi màn hình từ một bản cập nhật trước đó trong ngày, không báo lỗi gì cả nên chỉ đơn giản là
+  không còn chỗ nào để đặt. Nay đã trở lại, và nếu vì lý do nào đó không nạp được thì màn hình sẽ nói rõ
+  thay vì im lặng bỏ trống.
+- **Bản tin nhắc đi gặp khách mà cuộc hẹn đã xong.** Mục *Lịch hẹn hôm nay* và *Việc cần làm* trước đây
+  gom cả cuộc hẹn đã đánh dấu xong và việc đã hoàn thành/đã huỷ. Nay chỉ còn thứ thật sự phải làm.
+- **Bản tin nhắc lại cuộc hẹn đã trôi qua.** Hẹn quá ngày thì không làm bù được nữa, nhắc chỉ làm bản
+  tin dài thêm — nay bỏ hẳn. Việc quá hạn thì vẫn nhắc, vì vẫn làm được.
+- **Không hiểu ô "tần suất kiểm tra" để làm gì.** Nay ô này đổi tên thành *Kiểm tra ai đến giờ, mỗi…* và
+  nói rõ: bản tin không gửi theo giờ đặt ở đó, mỗi người tự chọn giờ nhận riêng; con số này chỉ quyết
+  định bản tin có thể lệch giờ tối đa bao nhiêu.
+- **Nút bật/tắt nơi nhận trông khác phần còn lại của trang.** Phần *Nơi nhận* dùng ô tick mặc định của
+  trình duyệt trong khi cả trang dùng công tắc — nay đã thống nhất.
 
 ### 📌 Lưu ý
 - Ô **"Trong app"** trong phần *Bản tin của tôi* nay luôn bật và không tắt được — đó là nơi lưu bản tin
   để bạn xem/nghe lại, không phải một kênh gửi.
 - Tin nhắn Zalo là **lời nhắc ngắn** kèm ngày, không phải toàn bộ bản tin — đây là giới hạn của Zalo.
   Nội dung đầy đủ bạn đọc ở tab **Bảng tin**.
+- **Công ty phải khai luật chung trước thì mọi người mới đăng ký nhận được.** Chưa khai mà cho bật thì
+  bản tin sẽ chạy bằng thiết lập mặc định chưa ai xem qua, nhắc theo ngưỡng phỏng đoán — thà chặn lại và
+  chỉ đúng chỗ cần khai. Nếu bạn thấy ô *Nhận bản tin này* bị mờ, nhờ người phụ trách vào *Tự động hoá*
+  → **Theo tổ chức** → *Luật chung của bản tin* khai rồi bấm **Lưu cấu hình**.
+- Danh sách trạng thái chọn sẵn là **phỏng đoán theo tên** — hệ thống không có cách nào biết chắc trạng
+  thái nào của công ty bạn nghĩa là "đã xong". Xem lại một lượt rồi bấm Lưu; sau đó lời nhắc sẽ tự mất.
 
 ---
 
