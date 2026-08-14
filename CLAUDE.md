@@ -632,7 +632,17 @@ Khi câu hỏi liên quan đến **cấu trúc code** (callers/callees, "X dùng
 
 **KHI vẫn dùng Grep/Glob:** tìm chuỗi text trong comment / config / JSON / Markdown (graph chỉ index code symbol); list file theo glob.
 
-**Re-index:** CodeGraph auto-sync khi sửa file — thường KHÔNG cần làm gì. Ép khi cần: `codegraph sync` (incremental) / `codegraph index` (full). Cross-repo question (proxy ↔ TourKit.Api) → chạy `codegraph` trong `toutkit-app/` cho signature upstream.
+**Re-index:** CodeGraph có watcher tự đồng bộ, NHƯNG ⚠️ **daemon của nó tự tắt sau 5 phút không có
+truy vấn nào** (`inactivity backstop`, xem `.codegraph/daemon.log`). Nghĩa là một đợt sửa code dài mà
+không tra cứu gì thì watcher đã chết từ lâu và index lạc hậu **trong im lặng** — `codegraph node X` vẫn
+trả kết quả trông bình thường, chỉ thiếu đúng phần vừa sửa. Đã dính thật 14/08: lệch 21 file, chỉ phát
+hiện khi tra một symbol mới thêm.
+
+Vì thế repo này cài 3 git hook (`.git/hooks/post-commit|post-merge|post-checkout`) chạy `codegraph sync -q`.
+Hook nằm trong `.git/` nên KHÔNG theo repo — máy mới phải tự cài lại (3 file, mỗi file gọi
+`codegraph sync -q` rồi `exit 0`). Ép tay khi cần: `codegraph sync` (incremental) / `codegraph index`
+(full). Cross-repo question (proxy ↔ TourKit.Api) → chạy `codegraph` trong `toutkit-app/` cho signature
+upstream.
 
 ## Logging (log4net + middleware)
 
