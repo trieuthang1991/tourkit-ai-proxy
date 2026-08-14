@@ -398,8 +398,10 @@ thử lại vô ích (thiếu nơi nhận, công ty chưa khai OA, Zalo hết c�
 tạm thời (mạng, nhà cung cấp 5xx) → tăng `RetryCount`, hết lượt (`OutboundMail:MaxRetries`, mặc định 3)
 mới thành `Status=2`.
 
-⚠️ **`Telegram:BotToken` phải khai ở CẢ HAI** — proxy dùng cho nút "Gửi thử" (gửi ngay, không qua hàng
-đợi), worker dùng cho bản tin thật. Khai một bên thôi thì bên kia im lặng không gửi được.
+**`Telegram:BotToken` — BẮT BUỘC ở worker, TUỲ CHỌN ở proxy.** Worker cần để gửi bản tin thật. Proxy chỉ
+dùng cho hai tiện ích phụ: nút "Gửi thử" qua Telegram (gửi ngay, không qua hàng đợi) và
+`POST /digest/telegram/detect` (quét `getUpdates` tìm chat id). Thiếu ở proxy thì hai cái đó tự tắt êm —
+`telegram:skip` và 503 kèm gợi ý tự dán chat id — chứ KHÔNG ảnh hưởng bản tin.
 
 ⚠️ **Thứ tự deploy:** `TourKit.PushWorker` (bản có adapter kênh) phải lên **TRƯỚC**, proxy bật
 `Features:Digest` **SAU** — worker cũ không biết cột `Channel`, vớ dòng telegram/zalo rồi đánh dấu
