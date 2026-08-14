@@ -22,6 +22,10 @@ Những cập nhật gần đây của TRAV-AI, viết cho người dùng. Mới
   nằm ở tab **Bảng tin** để đọc lại hoặc bấm **Nghe** — không sợ lỡ một buổi sáng là mất luôn.
 - **✅ Không cần chọn kênh nào cũng được.** Trước đây bật nhận bản tin là bắt buộc phải tick ít nhất một
   nơi nhận. Nay bạn có thể chỉ đọc trong app, không cần email/Zalo/Telegram.
+- **📱 Nhận bản tin qua Zalo chỉ cần nhập số điện thoại.** Trước đây ô này đòi một mã người dùng Zalo —
+  thứ mà hầu như không ai biết lấy ở đâu. Nay bạn điền số của mình là xong, nhập kiểu nào cũng được
+  (`0912345678`, `+84 912 345 678`, có dấu chấm hay khoảng trắng), hệ thống tự chỉnh về đúng dạng.
+  Công ty cũng **không phải khai gì thêm** để bật kênh này.
 
 ### 🔧 Đã khắc phục
 - **Mất bản tin của cả ngày khi hệ thống bận đúng khung giờ gửi.** Trước đây nếu hệ thống khởi động lại
@@ -33,9 +37,14 @@ Những cập nhật gần đây của TRAV-AI, viết cho người dùng. Mới
 - **Trang theo dõi bản tin (quản trị) nói đúng hơn.** Cột "Hôm nay" nay tách rõ *đã gửi* / *gửi hỏng* /
   *đang chờ tới giờ*, thay vì gộp chung khiến bản tin chưa tới giờ trông như đang lỗi.
 
+- **Nhập sai số Zalo nay báo ngay lúc lưu.** Trước đây điền nhầm (số bàn, thiếu số) vẫn lưu được, rồi
+  sáng hôm sau không thấy tin mà chẳng biết vì sao. Nay hệ thống báo ngay khi bạn còn đang nhìn màn hình.
+
 ### 📌 Lưu ý
 - Ô **"Trong app"** trong phần *Bản tin của tôi* nay luôn bật và không tắt được — đó là nơi lưu bản tin
   để bạn xem/nghe lại, không phải một kênh gửi.
+- Tin nhắn Zalo là **lời nhắc ngắn** kèm ngày, không phải toàn bộ bản tin — đây là giới hạn của Zalo.
+  Nội dung đầy đủ bạn đọc ở tab **Bảng tin**.
 
 ---
 
