@@ -11,7 +11,7 @@
 | Auth Gmail | **App Password** (cần bật 2-Step Verification) | Google đã bỏ "less secure apps"; đây là cách duy nhất cho IMAP |
 | Hộp thư | **1 hộp thư chung công ty** (vd `booking@congty.com`) | Per-staff sẽ cần mỗi người 1 app-password → quá phiền |
 | Đồng bộ | **Bấm Refresh kéo về (on-demand)**, 1 chiều | Mockup đã có nút Refresh → không cần background poller; ghi ngược trạng thái để sau |
-| Trả lời | **Phase 1: chỉ soạn nháp** (người tự gửi); Phase 2: tự gửi SMTP | Né hoàn toàn SMTP + spam/SPF/DKIM ở MVP |
+| Trả lời | Phase 1: chỉ soạn nháp — **Phase 2 (gửi SMTP) ĐÃ LÀM**, xem [`GmailSmtpClient`](../Services/Mail/GmailSmtpClient.cs) | Gửi bằng chính Gmail công ty nên không dính SPF/DKIM như giả mạo domain |
 | Lưu trữ | **File-backed `data/mails.json`** | Đúng nếp `reviews.json` — lên DB sau |
 | Phân loại AI | **Chỉ phân loại email MỚI**, cache theo fingerprint | Tiết kiệm token; Refresh lần sau không gọi lại AI |
 
@@ -44,7 +44,7 @@ data/mail-account.json      ← creds hộp thư, mã hóa Crypton (gitignore) �
 | GET | `/api/v1/mail/{id}` | 1 email + phân loại + nháp (nếu có) |
 | POST | `/api/v1/mail/{id}/reply/draft` | body `{tone, instruction}` → AI soạn nháp (SSE stream giống `/completions/stream`) |
 | PATCH | `/api/v1/mail/{id}/status` | đổi trạng thái (moi/dang_xu_ly/da_phan_hoi/da_dong) |
-| POST | `/api/v1/mail/{id}/reply/send` | **Phase 2**: gửi qua SMTP |
+| POST | `/api/v1/mail/{id}/reply/send` | gửi qua SMTP Gmail (**đã làm**) |
 
 ### Data model (camelCase — khớp frontend JS)
 
