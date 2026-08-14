@@ -106,6 +106,13 @@ Những cập nhật gần đây của TRAV-AI, viết cho người dùng. Mới
   công ty đang tốt hay xấu.
 - **Bản tin điều hành chỉ đọc lại bảng số bằng lời.** Nay luôn kết bằng 1–2 câu khuyến nghị nên làm gì
   tiếp, bám đúng số đang có.
+- **Chưa nhập chi phí thì bản tin trông như đang lãi trọn doanh thu.** Công ty chưa ghi chi phí vào hệ
+  thống sẽ thấy "Chi phí: 0đ" và dòng lợi nhuận bằng đúng doanh thu — đọc lướt là tưởng lãi hết. Nay ghi
+  rõ *Chi phí: chưa ghi nhận trong hệ thống* và *Lợi nhuận (CHƯA trừ chi phí)*.
+- **Kết luận "kinh doanh khả quan" từ mức tăng phần trăm trên nền doanh thu nhỏ.** Vài chục triệu thì
+  "+21%" chỉ là vài triệu. Nay bản tin nói con số tuyệt đối thay vì nhấn vào phần trăm.
+- **Số đếm không có dấu phân cách nghìn.** "2345 cuộc hẹn quá hạn" nay là "2.345 cuộc", khớp với cách
+  hiển thị của mọi số tiền quanh nó.
 
 ### 📌 Lưu ý
 - Ô **"Trong app"** trong phần *Bản tin của tôi* nay luôn bật và không tắt được — đó là nơi lưu bản tin
