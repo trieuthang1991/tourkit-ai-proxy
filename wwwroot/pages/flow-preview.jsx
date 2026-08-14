@@ -113,13 +113,14 @@ function NodeConfigPanel({ node, type, onClose, enabled, setEnabled, interval, s
             </>
           )}
 
-          {/* is-wide cho select/multi/numbers — giống trang Tự động hoá: nhãn lên trên,
-              ô nhập chiếm trọn hàng. Thiếu class này thì multi-select (vd "Trạng thái tính
-              nguội") bị ép chung hàng với nhãn, chật và khó bấm. */}
+          {/* is-wide cho select/multi/numbers — giống trang Tự động hoá: nhãn và ô nhập nằm
+              cùng một dòng, chỉ rớt xuống khi hết chỗ. is-multi dành cho dải chip tĩnh và
+              cụm nhiều ô số: chúng tự xuống dòng bên trong nên luôn chiếm trọn một dòng. */}
           {opts.map(opt => (
             <div key={opt.key} className={'workflows-opt'
               + (opt.type === 'bool' ? ' is-toggle' : '')
-              + (FP_WIDE_TYPES.includes(opt.type) ? ' is-wide' : '')}>
+              + (FP_WIDE_TYPES.includes(opt.type) ? ' is-wide' : '')
+              + ((opt.type === 'numbers' || (opt.type === 'multi' && !opt.dynamic)) ? ' is-multi' : '')}>
               <div className="workflows-opt-row">
                 <label className="workflows-opt-label">
                   {opt.label}{opt.required && <span className="req-star">*</span>}

@@ -558,6 +558,10 @@ function WorkflowCard({ wf, onUpdate, pushToast, locked, canConfig = true, diges
     return groups;
   }
   const wideTypes = ['select', 'multi', 'numbers'];
+  // Ô nào BUỘC phải chiếm trọn một dòng riêng: dải chip tĩnh và cụm nhiều ô số —
+  // chúng tự xuống dòng bên trong nên chen cạnh nhãn sẽ vỡ. Multi ĐỘNG là dropdown
+  // một dòng (giống select) → cứ để nằm cùng dòng với nhãn khi còn chỗ.
+  const needsOwnLine = opt => opt.type === 'numbers' || (opt.type === 'multi' && !opt.dynamic);
 
   return (
     <div className={'workflows-rowitem' + (isPaused ? ' is-paused' : '') + (expanded ? ' is-open' : '')}>
@@ -684,7 +688,8 @@ function WorkflowCard({ wf, onUpdate, pushToast, locked, canConfig = true, diges
               <div className="workflows-optgroup" key={g.name || ('g' + gi)}>
                 {g.name && <div className="workflows-optgroup-title">{g.name}</div>}
                 {g.items.map(opt => (
-                  <div className={'workflows-opt' + (opt.type === 'bool' ? ' is-toggle' : '') + (wideTypes.includes(opt.type) ? ' is-wide' : '')} key={opt.key}>
+                  <div className={'workflows-opt' + (opt.type === 'bool' ? ' is-toggle' : '') + (wideTypes.includes(opt.type) ? ' is-wide' : '')
+                    + (needsOwnLine(opt) ? ' is-multi' : '')} key={opt.key}>
                     <div className="workflows-opt-row">
                       <label className="workflows-opt-label">{opt.label}{opt.required && <span className="req-star">*</span>}</label>
                       <div className="workflows-opt-control">
