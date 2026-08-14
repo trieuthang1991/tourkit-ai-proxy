@@ -197,12 +197,30 @@ public class SaleBriefWorkflow : IScheduledWorkflow
                 var code = Str(it, "code") ?? "";
                 var title = Str(it, "title") ?? Str(it, "customerName") ?? code;
                 var silent = Int(it, "coolingDays");
-                var status = Str(it, "statusName");
-                var wr = winRates.TryGetValue(code, out var w) ? w : 0;
-                var line = new DealLine(0, title, Str(it, "customerName"), wr, silent, status);
+                var statusId = Int(it, "status");
+                var statusName = Str(it, "statusName");
 
-                if (Bool(it, "isCooling") || silent >= SilentDaysMin) cooling.Add(line);
+                // ĐƠN ĐÃ ĐÓNG THÌ BỎ HẲN — không còn là cơ hội, không gọi lại cũng không dọn.
+                // Thiếu điều kiện này, bản tin bảo nhân viên "gọi lại" cả đơn đã HỦY: trên dữ liệu
+                // thật erp.tourkit.vn ngày 14/08 có 63 cơ hội cần gọi mà phần lớn trạng thái "Hủy".
+                // Dùng DealCooling — NGUỒN DUY NHẤT của khái niệm này, đã dùng ở deals.jsx và
+                // deal-auto-review; bản tin sáng là chỗ duy nhất còn tự tính nên mới lệch.
+                if (statusId == Deals.DealCooling.CancelStatus
+                    || Deals.DealCooling.IsClosedWon(statusName)) continue;
+
+                var wr = winRates.TryGetValue(code, out var w) ? w : 0;
+                var line = new DealLine(0, title, Str(it, "customerName"), wr, silent, statusName);
+
+                // MỖI CƠ HỘI CHỈ VÀO ĐÚNG MỘT MỤC. Trước đây hai điều kiện độc lập nên cơ hội im
+                // lâu thoả cả hai, bị đếm và in hai lần ở "cần gọi lại" lẫn "cần dọn" — người đọc
+                // thấy trùng và không biết phải làm gì.
+                //
+                // Kẹt lâu hơn thì ưu tiên DỌN, vì hai mục là hai HÀNH ĐỘNG khác nhau: "gọi lại" là
+                // còn cơ hội bán, còn "dọn" là hồ sơ kẹt cần cập nhật cho đúng. Cơ hội kẹt quá
+                // HygieneStuckDays ngày mà chưa có bước tiếp theo thì gọi khách chưa phải việc đầu
+                // tiên — phải biết nó đang ở đâu đã.
                 if (silent >= HygieneStuckDays) hygiene.Add(line);
+                else if (Bool(it, "isCooling") || silent >= SilentDaysMin) cooling.Add(line);
             }
             // Nguội lâu nhất lên đầu — đó là cái dễ mất nhất.
             cooling.Sort((a, b) => b.SilentDays.CompareTo(a.SilentDays));
