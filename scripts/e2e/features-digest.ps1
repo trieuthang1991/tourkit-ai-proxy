@@ -174,19 +174,18 @@ try {
     Info "dong moi nhat: channel=$($qrow.channel) status=$($qrow.status) scheduledUtc=$($qrow.scheduledUtc)"
   } else { Info "hang doi rong (chua co workflow nao chuan bi ban tin) - binh thuong" }
 
-  Write-Host "7c. Tat tung kenh: kenh da tat phai bi BO QUA, khong duoc bao loi" -ForegroundColor Cyan
-  # Nguoi dung khong muon nhan qua zalo/telegram/email -> bo tick. Kenh tat phai ra 'skip',
-  # KHONG duoc thanh 'FAIL' (FAIL nghia la co gang gui roi hong -> admin doc nham la he thong loi).
+  Write-Host "7c. Tat het kenh ngoai: chi luu Bang tin, khong xep hang doi" -ForegroundColor Cyan
+  # Nguoi dung khong muon nhan qua kenh ngoai nao -> bo tick het. Van phai "ok" vi kenh trong app
+  # luon bat, nhung KHONG duoc sinh dong hang doi nao.
   $null = Req PUT '/digest/subscriptions/sale-brief' @{
     enabled=$true; sendHourLocal=7; channelInApp=$true
     channelEmail=$false; channelTelegram=$false; channelZalo=$false } $H
   $t = Req POST '/digest/subscriptions/sale-brief/test' $null $H
   Check 'Tat het kenh ngoai: van 200' ($t.Code -eq 200) "code=$($t.Code)"
-  Check 'Tat het kenh ngoai: van bao ok (trong app luon nhan)' ($t.Data.ok -eq $true) "$($t.Data | ConvertTo-Json -Compress)"
-  Check 'sentChannels co inapp' ("$($t.Data.sentChannels)" -match 'inapp') "sentChannels=$($t.Data.sentChannels)"
-  Check 'zalo tat -> skip chu khong FAIL' ("$($t.Data.summary)" -match 'zalo:skip') "summary=$($t.Data.summary)"
-  Check 'telegram tat -> skip chu khong FAIL' ("$($t.Data.summary)" -match 'telegram:skip') "summary=$($t.Data.summary)"
-  Check 'email tat -> skip chu khong FAIL' ("$($t.Data.summary)" -match 'email:skip') "summary=$($t.Data.summary)"
+  Check 'Van bao ok (trong app luon nhan)' ($t.Data.ok -eq $true) "$($t.Data | ConvertTo-Json -Compress)"
+  Check 'sentChannels chi co trong app' ("$($t.Data.sentChannels)" -eq 'trong app') "sentChannels=$($t.Data.sentChannels)"
+  Check 'KHONG xep dong hang doi nao' ($t.Data.queued -eq 0) "queued=$($t.Data.queued)"
+  Info "summary: $($t.Data.summary)"
 
   Write-Host "7d. Zalo: so dien thoai sai bi chan NGAY luc luu" -ForegroundColor Cyan
   # Zalo gui bang ZNS (nhan theo SO DIEN THOAI). So sai thi ZNS tu choi luc gui, ma loi do chi
@@ -206,26 +205,31 @@ try {
   $zsub = (Req GET '/digest/subscriptions' $null $H).Data.items | Where-Object { $_.briefType -eq 'sale-brief' }
   Check 'Server chuan hoa ve dang 0xxxxxxxxx' ($zsub.zaloPhone -eq '0912345678') "zaloPhone=$($zsub.zaloPhone)"
 
-  Write-Host "7d-2. Gui thu Zalo di QUA HANG DOI (khong gui thang)" -ForegroundColor Cyan
-  # Khoa Zalo nam o worker, khong o proxy -> proxy chi xep dong roi de worker gui.
+  Write-Host "7d-2. Gui thu di ĐÚNG duong cua ban tin that: xep hang doi" -ForegroundColor Cyan
+  # Proxy KHONG con lop gui nao -> gui thu dung chinh bo dung dong cua workflow. Nho vay "thu OK"
+  # la bang chung ban tin that gui duoc, chu khong phai chung minh cho mot duong code rieng.
+  $null = Req PUT '/digest/subscriptions/sale-brief' @{
+    enabled=$true; sendHourLocal=7; channelInApp=$true
+    channelZalo=$true; zaloPhone='0912345678' } $H
   $t = Req POST '/digest/subscriptions/sale-brief/test' $null $H
-  Check 'Gui thu co Zalo: van 200' ($t.Code -eq 200) "code=$($t.Code)"
-  Check 'Zalo bao ok (da xep hang doi)' ("$($t.Data.sentChannels)" -match 'zalo') "sentChannels=$($t.Data.sentChannels)"
+  Check 'Gui thu = 200' ($t.Code -eq 200) "code=$($t.Code)"
+  Check 'Bao xep 1 kenh vao hang doi' ($t.Data.queued -eq 1) "queued=$($t.Data.queued)"
+  Check 'sentChannels co trong app + zalo' ("$($t.Data.sentChannels)" -eq 'trong app+zalo') "sentChannels=$($t.Data.sentChannels)"
+  Info "summary: $($t.Data.summary)"
   $q = Req GET '/workflows/outbound-mails?kind=daily-brief&channel=2&limit=5' $null $H
   Check 'Thay dong Zalo trong hang doi' (@($q.Data.items).Count -gt 0) "items=$(@($q.Data.items).Count)"
 
-  Write-Host "7e. Bat telegram voi chat id sai / bot chua cau hinh" -ForegroundColor Cyan
-  # Chua khai Telegram:BotToken -> kenh tu tat (skip). Da khai ma chat id sai -> FAIL.
-  # Ca hai deu chap nhan duoc; cai KHONG chap nhan duoc la 500 hoac keo do kenh khac.
+  Write-Host "7e. Telegram: xep hang doi, khong gui thang tu proxy" -ForegroundColor Cyan
+  # Truoc day proxy tu goi api.telegram.org cho nut Gui thu -> phai khai bot token o CA HAI noi.
+  # Nay xep hang doi nhu moi kenh khac; proxy chi con can token cho tien ich tu tim chat id.
   $null = Req PUT '/digest/subscriptions/sale-brief' @{
     enabled=$true; sendHourLocal=7; channelInApp=$true
     channelTelegram=$true; telegramChatId='-100000000000000' } $H
   $t = Req POST '/digest/subscriptions/sale-brief/test' $null $H
-  Check 'Telegram sai: endpoint van 200' ($t.Code -eq 200) "code=$($t.Code)"
-  Check 'Telegram sai: van ok nho kenh trong app' ($t.Data.ok -eq $true) "$($t.Data | ConvertTo-Json -Compress)"
-  Check 'Telegram ra skip hoac FAIL (khong am tham ok)' `
-    ("$($t.Data.summary)" -match 'telegram:(skip|FAIL)') "summary=$($t.Data.summary)"
-  Check 'Telegram hong KHONG lot vao sentChannels' (-not ("$($t.Data.sentChannels)" -match 'telegram')) "sentChannels=$($t.Data.sentChannels)"
+  Check 'Telegram: 200' ($t.Code -eq 200) "code=$($t.Code)"
+  Check 'Telegram: xep 1 dong hang doi' ($t.Data.queued -eq 1) "queued=$($t.Data.queued)"
+  $q = Req GET '/workflows/outbound-mails?kind=daily-brief&channel=1&limit=5' $null $H
+  Check 'Thay dong Telegram trong hang doi' (@($q.Data.items).Count -gt 0) "items=$(@($q.Data.items).Count)"
 
   Write-Host "7f. Gui thu khi CHUA co ban tin nao duoc dung san" -ForegroundColor Cyan
   # 'Gui thu' co y KHONG doi bat ky ban tin nao da duoc chuan bi - no tu dung noi dung thu tai cho.

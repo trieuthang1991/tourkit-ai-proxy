@@ -107,7 +107,8 @@ function DigestSubBlock({ briefType, sub, onSaved, pushToast, scheduleOn = true 
     try {
       const d = await dApi(`/api/v1/digest/subscriptions/${briefType}/test`, { method: 'POST' });
       setTestResult(d);
-      // Bản tin thử vào Bảng tin ngay → nhắc chuông + tab Bảng tin cập nhật, khỏi đợi hết chu kỳ.
+      // Bản tin thử vào Bảng tin NGAY (kênh ngoài thì qua hàng đợi, ~1 phút) → nhắc chuông + tab
+      // Bảng tin cập nhật liền, khỏi đợi hết chu kỳ.
       window.dispatchEvent(new CustomEvent('tourkit:insights'));
     } catch (e) { setTestResult({ ok: false, summary: e.message }); }
     finally { setTesting(false); }
@@ -222,12 +223,12 @@ function DigestSubBlock({ briefType, sub, onSaved, pushToast, scheduleOn = true 
         {dirty && <span className="digest-dirty">Có thay đổi chưa lưu</span>}
         {testResult && (
           <span className={'digest-test' + (testResult.ok ? ' is-ok' : ' is-bad')}>
-            {testResult.ok ? <>Đã gửi qua: {testResult.sentChannels}</> : <>Không gửi được — {testResult.summary}</>}
+            {testResult.ok ? <>Đã xếp gửi: {testResult.sentChannels}</> : <>Không gửi được — {testResult.summary}</>}
           </span>
         )}
       </div>
       {testResult && testResult.ok && testResult.summary && (
-        <div className="digest-test-detail">Chi tiết từng kênh: {testResult.summary}</div>
+        <div className="digest-test-detail">{testResult.summary}</div>
       )}
     </div>
   );

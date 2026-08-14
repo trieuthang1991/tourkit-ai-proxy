@@ -398,10 +398,10 @@ thử lại vô ích (thiếu nơi nhận, công ty chưa khai OA, Zalo hết c�
 tạm thời (mạng, nhà cung cấp 5xx) → tăng `RetryCount`, hết lượt (`OutboundMail:MaxRetries`, mặc định 3)
 mới thành `Status=2`.
 
-**`Telegram:BotToken` — BẮT BUỘC ở worker, TUỲ CHỌN ở proxy.** Worker cần để gửi bản tin thật. Proxy chỉ
-dùng cho hai tiện ích phụ: nút "Gửi thử" qua Telegram (gửi ngay, không qua hàng đợi) và
-`POST /digest/telegram/detect` (quét `getUpdates` tìm chat id). Thiếu ở proxy thì hai cái đó tự tắt êm —
-`telegram:skip` và 503 kèm gợi ý tự dán chat id — chứ KHÔNG ảnh hưởng bản tin.
+**`Telegram:BotToken` — BẮT BUỘC ở worker, gần như không cần ở proxy.** Worker cần để gửi bản tin thật.
+Proxy chỉ còn dùng cho MỘT tiện ích: `POST /digest/telegram/detect` (quét `getUpdates` để tìm chat id
+giúp người dùng). Thiếu ở proxy thì endpoint đó trả 503 kèm gợi ý tự dán chat id — không ảnh hưởng gì
+tới bản tin.
 
 ⚠️ **Thứ tự deploy:** `TourKit.PushWorker` (bản có adapter kênh) phải lên **TRƯỚC**, proxy bật
 `Features:Digest` **SAU** — worker cũ không biết cột `Channel`, vớ dòng telegram/zalo rồi đánh dấu
@@ -435,9 +435,12 @@ cung cấp dịch vụ**, khai ở `Zalo:*` trong config worker). Một kênh h�
    với `TenantId='(system)'` để worker lưu cặp token ZNS — **`refresh_token` đổi mỗi lần làm mới** nên
    bắt buộc phải lưu, để yên trong file config là hỏng ngay sau lần làm mới đầu tiên.
 
-**"Gửi thử" Zalo đi QUA hàng đợi** (giống email), không gửi thẳng như Telegram: khoá OA chỉ nằm ở worker.
-Nhét bộ khoá sang cả proxy thì hai nơi cùng làm mới token, mà token Zalo xoay vòng — bên chậm chân giữ
-token đã chết.
+⚠️ **Proxy KHÔNG có lớp gửi nào** (gỡ 14/08: `IDigestChannel`, `DigestDispatcher`, 3 lớp kênh,
+`TelegramFormat`). Kể cả nút **"Gửi thử"** cũng chỉ **xếp hàng đợi** bằng CHÍNH `DigestEnqueuePlanner`
+mà workflow dùng mỗi sáng. Trước đó gửi thử có đường riêng, nghĩa là "Gửi thử OK" **không chứng minh
+được** bản tin thật gửi được — hai đường khác nhau. Nay chung một đường: thử thành công là bằng chứng
+thật, và khoá OA/bot không phải nhân đôi sang proxy. Đổi lại kết quả không tức thì (tới nhịp rút kế,
+~1 phút) — endpoint nói rõ điều đó trong `summary`.
 
 **Một enum kênh duy nhất** — [`OutboundChannel`](Services/Digest/OutboundChannel.cs): `0=Email`,
 `1=Telegram`, `2=Zalo`, lưu thẳng cột `dbo.OutboundMails.Channel` (TINYINT). Default 0 nên dòng cũ trong

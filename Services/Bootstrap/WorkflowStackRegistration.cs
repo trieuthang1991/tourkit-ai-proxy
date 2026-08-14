@@ -164,15 +164,10 @@ public static class WorkflowStackRegistration
         // TenantChannelSettingsStore đã GỠ (14/08): proxy không còn đọc/ghi cấu hình kênh của
         // công ty — Zalo nay dùng OA chung khai ở config worker. Bảng dbo.TenantChannelSettings vẫn
         // còn, nhưng chủ của nó giờ là worker (lưu cặp token ZNS ở scope hệ thống).
-        // Chỉ còn 3 kênh GỬI RA NGOÀI. Kênh "trong app" đã bỏ khỏi danh sách này: nó không phải kênh
-        // gửi mà là KHO LƯU luôn-bật — bản tin ghi thẳng vào Bảng tin lúc dựng, trước khi nghĩ tới
-        // chuyện gửi đi đâu. Nhờ vậy mọi kênh ngoài hỏng hết thì vẫn còn chỗ xem/nghe lại.
-        s.AddSingleton<Digest.Channels.IDigestChannel, Digest.Channels.EmailChannel>();
-        s.AddSingleton<Digest.Channels.IDigestChannel, Digest.Channels.TelegramChannel>();
-        s.AddSingleton<Digest.Channels.IDigestChannel, Digest.Channels.ZaloZnsChannel>();
-        // Bộ phát này CHỈ phục vụ "Gửi thử" (bấm nút là gửi ngay). Bản tin hằng ngày KHÔNG đi
-        // đường này — nó chỉ được xếp vào hàng đợi, còn gửi là việc của worker bên toutkit-app.
-        s.AddSingleton<Digest.DigestDispatcher>();
+        // KHÔNG có lớp gửi nào ở proxy nữa (gỡ 14/08). Proxy chỉ XẾP dòng vào dbo.OutboundMails;
+        // gửi đi là việc của TourKit.PushWorker bên toutkit-app. Kể cả nút "Gửi thử" cũng xếp hàng
+        // đợi — nhờ vậy thử thành công là bằng chứng bản tin thật gửi được, chứ không phải chứng
+        // minh cho một đường code riêng chỉ tồn tại vì cái nút đó.
 
         // 3 tác vụ dưới đây nằm sau cờ Features:Digest (xem FeatureFlags.Digest).
         // Gỡ đăng ký là đủ để TẮT HẲN: WorkflowRegistry dựng từ IEnumerable<IScheduledWorkflow>

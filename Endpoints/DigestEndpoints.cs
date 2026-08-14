@@ -1,5 +1,6 @@
 using System.Text.Json;
 using TourkitAiProxy.Services.Digest;
+using TourkitAiProxy.Services.Mail;
 using TourkitAiProxy.Services.TourKit;
 
 namespace TourkitAiProxy.Endpoints;
@@ -106,9 +107,17 @@ public static class DigestEndpoints
             return Results.Json(new { ok = true }, Web);
         });
 
-        // ─── Gửi thử ngay, qua đúng đường gửi thật ───────────────────────────────
+        // ─── Gửi thử — đi ĐÚNG đường của bản tin thật ────────────────────────────
+        // Dựng dòng bằng CHÍNH DigestEnqueuePlanner rồi bỏ vào hàng đợi, y như workflow làm mỗi
+        // sáng. Trước đây gửi thử có đường riêng (bộ phát + 3 lớp kênh trong proxy) — nghĩa là
+        // "Gửi thử OK" KHÔNG chứng minh được bản tin thật gửi được, vì hai đường khác nhau. Nay
+        // chung một đường: thử thành công là bằng chứng thật.
+        //
+        // Đổi lại, kết quả không còn tức thì: dòng nằm hàng đợi tới nhịp rút kế (~1 phút). Chấp
+        // nhận, vì cái người dùng cần biết là "kênh của tôi có nhận được không", chứ không phải
+        // "nhận được trong 2 giây".
         g.MapPost("/subscriptions/{briefType}/test", async (string briefType, HttpContext ctx,
-            TkSessionStore sessions, DigestSubscriptionRepository repo, DigestDispatcher dispatcher,
+            TkSessionStore sessions, DigestSubscriptionRepository repo, MailQueueRepository queue,
             InsightRepository insights, CancellationToken ct) =>
         {
             var a = SessionAuth.Read(ctx, sessions);
@@ -127,24 +136,35 @@ public static class DigestEndpoints
             var msg = new DigestMessage($"[Gửi thử] Bản tin {nowVn:dd/MM HH:mm}",
                 body, SaleBriefBuilder.ToHtml(body), briefType);
 
-            // Ghi vào Bảng tin TRƯỚC: in-app là kho lưu luôn-bật nên bản thử cũng phải thấy được ở
-            // đó (người dùng kiểm tra "nghe lại" ngay trên bản thử). Ghi thẳng chứ không qua
-            // dispatcher — dispatcher giờ chỉ còn 3 kênh gửi ra ngoài.
-            var inApp = await insights.InsertAsync(new AgentInsight(
+            // Bước 1 — ghi Bảng tin: in-app là kho lưu luôn-bật nên bản thử cũng phải thấy được ở
+            // đó (người dùng kiểm tra cả nút "Nghe" ngay trên bản thử).
+            var insightId = await insights.InsertAsync(new AgentInsight(
                 Id: 0, TenantId: sub.TenantId, Username: sub.Username,
                 Kind: briefType, Severity: 0, Title: msg.Title, Body: msg.BodyMarkdown,
                 DataJson: null, AlertKey: null, IsRead: false, CreatedUtc: DateTime.UtcNow), ct);
 
-            // Gửi mọi kênh ngoài đã cấu hình. CỐ Ý không đụng mốc "đã chuẩn bị hôm nay" của bản tin
-            // thật — gửi thử mà tính là đã gửi thì sáng mai bản tin thật bị bỏ.
-            var res = await dispatcher.SendAsync(sub, msg, ct);
-            var sent = new List<string>(res.SentChannels);
-            if (inApp != null) sent.Insert(0, "inapp");
+            // Bước 2 — xếp hàng đợi từng kênh ngoài đang bật. ScheduledUtc = NGAY (khác bản tin
+            // thật hẹn theo giờ người chọn) để rút ở nhịp kế thay vì đợi tới sáng.
+            // CỐ Ý không đụng mốc "đã chuẩn bị hôm nay": gửi thử mà tính là đã gửi thì sáng mai
+            // bản tin thật bị bỏ.
+            var rows = DigestEnqueuePlanner.BuildRows(
+                sub, insightId ?? 0, msg, DateTime.UtcNow, DigestDue.NowVn(DateTime.UtcNow).ToString("dd/MM/yyyy"));
+            foreach (var r in rows) await queue.EnqueueAsync(r, ct);
+
+            var channels = new List<string>(rows.Count + 1);
+            if (insightId != null) channels.Add("trong app");
+            channels.AddRange(rows.Select(r => OutboundChannels.Describe(r.Channel)));
+
             return Results.Json(new
             {
-                ok = sent.Count > 0,
-                summary = res.Summary,
-                sentChannels = string.Join("+", sent),
+                ok = channels.Count > 0,
+                queued = rows.Count,
+                sentChannels = string.Join("+", channels),
+                // Nói thẳng là chưa tới ngay, kẻo người dùng mở Zalo không thấy gì rồi tưởng hỏng.
+                summary = rows.Count == 0
+                    ? "Đã lưu vào Bảng tin. Bạn chưa bật kênh ngoài nào nên không có gì được gửi đi."
+                    : $"Đã xếp {rows.Count} kênh vào hàng đợi — tin sẽ tới trong khoảng 1 phút. "
+                    + "Kênh nào hỏng sẽ hiện lý do ở trang theo dõi hàng đợi.",
             }, Web);
         });
 
