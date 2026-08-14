@@ -120,6 +120,11 @@ Những cập nhật gần đây của TRAV-AI, viết cho người dùng. Mới
   "+21%" chỉ là vài triệu. Nay bản tin nói con số tuyệt đối thay vì nhấn vào phần trăm.
 - **Số đếm không có dấu phân cách nghìn.** "2345 cuộc hẹn quá hạn" nay là "2.345 cuộc", khớp với cách
   hiển thị của mọi số tiền quanh nó.
+- **Bản tin sáng có lúc bỏ sót nguyên một mục.** Đã gặp: 47–61 việc cần làm — trong đó có việc ưu
+  tiên cao — biến mất khỏi bản tin, mà dòng tổng kết cuối thư cũng không nhắc, nên đọc xong tưởng hôm
+  nay không có việc gì. Nay mục nào có dữ liệu thì bản tin luôn nhắc tới ít nhất một lần; riêng *lịch
+  hẹn hôm nay* và *tour sắp đi còn thiếu tiền* thì bắt buộc liệt kê — đó là loại trễ một ngày là mất.
+  Dòng tổng kết cuối thư cũng đã phủ đủ mọi mục thay vì chỉ một nửa.
 - **Hết lượt AI làm hỏng cả phần chọn sẵn trạng thái, mà không nói vì sao.** Công ty hết lượt AI sẽ
   không được phân loại trạng thái, hệ thống lặng lẽ quay về cách đoán theo từ khoá quen thuộc (Hủy, Đã
   chốt…) — với công ty đặt tên trạng thái theo quy trình riêng thì cách đoán đó gần như không lọc được
