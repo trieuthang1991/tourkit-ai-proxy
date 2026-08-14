@@ -103,7 +103,7 @@ Services/
     MailSyncStore.cs                       ← state đồng bộ dbo.MailSyncState per-tenant (per-address uidValidity+lastUid)
     IMailSender.cs + GmailSmtpClient.cs    ← gửi (trả lời + soạn mới) qua SMTP Gmail (587, App Password), thread qua In-Reply-To
     MailRepository.cs                      ← DB-backed dbo.Mails per-tenant (PK TenantId,Id) + Filter/Counts (diacritics-insensitive)
-    MailClassifier.cs                      ← classify qua Models:Review (DeepSeek deepseek-chat) — chỉ JSON-prompt, không native tool
+    MailClassifier.cs                      ← classify qua `Models:MailClassify` (DeepSeek qua nine-routes) — chỉ JSON-prompt, không native tool
     MailReplyService.cs                    ← soạn nháp theo tone + chỉ thị NV (stream)
 Endpoints/
   SystemEndpoints.cs                       ← GET /healthz
@@ -204,7 +204,7 @@ data/
 - `provider` blank → falls back to `Providers:Default` in config, then first registered.
 - `system` blank → backend injects anti-reasoning prompt (see `OpenCodeClient.DefaultSystem`).
 - `temperature` default `0.3` (tuned for JSON/structured output).
-- `apiKey` optional: legacy per-request channel (DTO still accepts it for backward compat). **As of v9 (`CONFIG_VERSION` in `ai-provider.jsx`), the frontend NO LONGER stores or sends keys.** All keys come from server: `ProviderKeyStore.Get(id)` resolves `Providers:{X}:ApiKey` → `Models:Primary:ApiKey` (if `Models:Primary:Provider==id`) → `Models:Review:ApiKey` (same) → env var. Old `localStorage["tourkit_ai_keys"]` is auto-cleared on first load by the v8→v9 migration.
+- `apiKey` optional: legacy per-request channel (DTO still accepts it for backward compat). **As of v9 (`CONFIG_VERSION` in `ai-provider.jsx`), the frontend NO LONGER stores or sends keys.** All keys come from server: `ProviderKeyStore.Get(id)` resolves `Providers:{X}:ApiKey` → `Models:Primary:ApiKey` (if `Models:Primary:Provider==id`) → env var. Old `localStorage["tourkit_ai_keys"]` is auto-cleared on first load by the v8→v9 migration.
 
 **Response shape (`/completions`):**
 ```json
@@ -583,6 +583,21 @@ chạy **hai lần** (thẻ script + bản trong bundle) — dev không bao gi�
 **Frontend reaches AI via `window.claude.complete` or `window.tourkit.ai.complete`/`completeStream`.** `core/ai-provider.jsx` shims `window.claude.complete` to delegate to `window.tourkit.ai`, which POSTs to `/api/v1/completions`. **ALL provider keys (OpenCode/9routes/OpenAI/Anthropic) live server-side** in `appsettings.json` (`Providers:{X}:ApiKey` or `Models:Primary/Review:ApiKey`) or env vars. The AI Settings UI lets users pick provider/model only — no key input. `localStorage["tourkit_ai_config"]` only holds `{provider, model, _v}` (v9). Bump `CONFIG_VERSION` in `ai-provider.jsx` when changing the shape. (Pre-v9: had client-side localStorage key store + dialog input — removed because operationally fragile; see v8→v9 migration comment.)
 
 **Static files.** `UseStaticFiles` has `ServeUnknownFileTypes = true` + `DefaultContentType = "text/plain"` so `.jsx` loads without a registered MIME type. `.jsx`/`.js`/`.css`/`.html` are served with `Cache-Control: no-cache` so edits show on a plain reload.
+
+**Cấu hình model AI — khai ĐỦ 13 feature, đừng để rơi ngầm.** `AiModelRegistry.Resolve` đi theo
+`Models:{Feature}` → `Models:Primary` → default của provider. Nghĩa là **thiếu một khoá thì tính năng đó
+âm thầm chạy bằng `Models:Primary`** — không log, không cảnh báo, chỉ hoá đơn cuối tháng biết. Đã dính
+thật (14/08): appsettings prod thiếu `Models:MailClassify` nên phân loại mail chạy bằng `claude-haiku`
+suốt, mà đó là task chạy **hàng trăm lần mỗi lần đồng bộ hộp thư**; `Models:Digest` cũng thiếu tương tự.
+Danh sách 13 = enum `AiFeature` ([AiModelRegistry.cs](Services/Providers/AiModelRegistry.cs)) — khai đủ
+ở **CẢ** `appsettings.json` của web **VÀ** của worker (worker mới là nơi chạy `mail-auto-sync`,
+`deal-auto-review`, `customer-auto-review`, `ceo-brief`).
+
+⚠️ Đổi provider cho một feature thì phải có khoá provider đó trong `Providers:*`. Thiếu khoá, provider
+ném lỗi — mà vài chỗ **bắt lỗi rồi đi tiếp** (vd `MailClassifier` ghi Warning rồi trả nhóm `khac` cho
+mọi thư, giao diện nhìn vẫn bình thường). Nên thiếu khoá còn tệ hơn chọn sai model. DeepSeek đi **qua
+`nine-routes`** (`ds/deepseek-v4-flash`) chứ không gọi `api.deepseek.com` trực tiếp — khoá nine-routes
+đã có sẵn và đã chạy thật cho Chat, `Providers:DeepSeek:ApiKey` thường để rỗng.
 
 **Usage tracking trong SQL** `dbo.AiUsageCounters` (daily aggregate per-model, MERGE upsert). `UsageTracker.Track` fire-and-forget UPSERT (không block AI call); `Snapshot()` đọc cache in-mem 10s, miss → `UsageRepository.ReadAggregateAsync(30 ngày)` → SUM GROUP BY Model. Cross-process: 2 instance cùng SQL share counter tự động. Cost estimate hardcode DeepSeek V4 Pro retail ($0.27/$1.10 per Mtok) bất kể model. Streaming chỉ Track khi `outTok > 0`. Key dạng `"{providerId}:{model}"`.
 
