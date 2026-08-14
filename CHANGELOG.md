@@ -26,6 +26,16 @@ Những cập nhật gần đây của TRAV-AI, viết cho người dùng. Mới
   thứ mà hầu như không ai biết lấy ở đâu. Nay bạn điền số của mình là xong, nhập kiểu nào cũng được
   (`0912345678`, `+84 912 345 678`, có dấu chấm hay khoảng trắng), hệ thống tự chỉnh về đúng dạng.
   Công ty cũng **không phải khai gì thêm** để bật kênh này.
+- **🎛️ Tự chọn bản tin sáng gồm những mục nào.** Trong *Tự động hoá* → thẻ **Bản tin sáng cho nhân viên
+  bán hàng**, mỗi mục (cơ hội cần gọi lại, cơ hội cần dọn hồ sơ, báo giá bỏ dở, lịch hẹn, việc cần làm,
+  tour thiếu tiền, khách quen, hộp thư) nay có công tắc riêng — không cần thì tắt, bản tin gọn lại đúng
+  thứ bạn quan tâm. Mục nào có ngưỡng riêng (bao nhiêu ngày thì coi là "im lặng", "kẹt", "bỏ dở") thì
+  ô chỉnh nằm ngay dưới công tắc của mục đó.
+- **🏷️ Chọn đúng trạng thái cơ hội cần chăm.** Mỗi công ty đặt tên trạng thái một kiểu, nên thay vì để
+  hệ thống đoán, bạn chọn thẳng những trạng thái mà nhân viên CÒN phải chăm (ví dụ "Đang tư vấn", "Đã
+  báo giá"). Để trống thì hệ thống vẫn tự bỏ qua các cơ hội đã hủy / đã chốt như trước.
+- **🤖 AI viết lại bản tin cho dễ đọc.** Số liệu vẫn do hệ thống tính, AI chỉ sắp xếp và diễn đạt lại
+  cho mạch lạc, nêu rõ nên làm gì trước. Có thể tắt trong cấu hình nếu bạn thích bản liệt kê thuần.
 
 ### 🔧 Đã khắc phục
 - **Mất bản tin của cả ngày khi hệ thống bận đúng khung giờ gửi.** Trước đây nếu hệ thống khởi động lại
@@ -39,6 +49,14 @@ Những cập nhật gần đây của TRAV-AI, viết cho người dùng. Mới
 
 - **Nhập sai số Zalo nay báo ngay lúc lưu.** Trước đây điền nhầm (số bàn, thiếu số) vẫn lưu được, rồi
   sáng hôm sau không thấy tin mà chẳng biết vì sao. Nay hệ thống báo ngay khi bạn còn đang nhìn màn hình.
+- **Bản tin sáng bảo gọi lại cơ hội đã hủy.** Trước đây mục "cơ hội cần gọi lại" gom cả những cơ hội đã
+  hủy hoặc đã chốt xong — nhân viên mở ra thấy một danh sách dài toàn việc không cần làm. Nay chỉ còn
+  cơ hội đang thực sự theo đuổi.
+- **Một cơ hội xuất hiện ở hai mục cùng lúc.** Cùng một cơ hội vừa nằm ở "cần gọi lại" vừa ở "cần dọn hồ
+  sơ", đọc xong tưởng có hai việc. Nay mỗi cơ hội chỉ nằm ở đúng một mục.
+- **Form cấu hình khó đọc, chỉnh một mục phải tìm ở ba chỗ.** Trước đây các ô được xếp theo kiểu dữ liệu
+  nên công tắc một chỗ, ngưỡng ngày một chỗ khác. Nay mọi thứ của cùng một mục nằm liền nhau, và nhãn
+  với ô nhập đứng cùng một dòng thay vì mỗi ô một dòng như cũ — nhìn hết cấu hình mà không phải cuộn dài.
 
 ### 📌 Lưu ý
 - Ô **"Trong app"** trong phần *Bản tin của tôi* nay luôn bật và không tắt được — đó là nơi lưu bản tin
