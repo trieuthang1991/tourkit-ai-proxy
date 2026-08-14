@@ -69,8 +69,11 @@ function extractSchema(src) {
     return src.slice(s, e + 4);
   };
   // eslint-disable-next-line no-new-func
+  // Mọi mảng hằng mà WORKFLOW_OPTIONS tham chiếu đều phải nạp TRƯỚC, không thì new Function ném
+  // "X is not defined" và cả bộ kiểm chết ở bước đọc nguồn (đã dính khi thêm BRIEF_SECTIONS).
   return new Function(
-    `${grabArr('MAIL_CATEGORIES')}\n${grabArr('MAIL_TONES')}\n${grabObj('WORKFLOW_OPTIONS')}\nreturn WORKFLOW_OPTIONS;`
+    `${grabArr('MAIL_CATEGORIES')}\n${grabArr('MAIL_TONES')}\n${grabArr('BRIEF_SECTIONS')}\n`
+    + `${grabObj('WORKFLOW_OPTIONS')}\nreturn WORKFLOW_OPTIONS;`
   )();
 }
 

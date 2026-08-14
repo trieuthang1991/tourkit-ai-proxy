@@ -93,6 +93,11 @@ const {
 
 // Workflow chạy chậm (review/cảnh báo) — chỉ dùng để hiện hint "quét ≠ review lại mỗi lần".
 const SLOW_WORKFLOWS = ['deal-auto-review', 'customer-auto-review'];
+
+// Workflow có option kiểu "chọn trạng thái cơ hội" → cần tải danh sách trạng thái TỪ CRM của chính
+// công ty để người dùng tick. Đây là cách tránh đoán: mỗi CRM tự đặt tên trạng thái, hardcode từ
+// khoá tiếng Việt thì kiểu gì cũng có công ty sai.
+const DEAL_STATUS_WORKFLOWS = ['deal-auto-review', 'sale-brief'];
 // Interval khởi tạo: đã cấu hình → giá trị lưu; chưa → mặc định 15 phút.
 function initialInterval(wf) {
   return wf.intervalMinutes || 15;
@@ -389,9 +394,10 @@ function WorkflowCard({ wf, onUpdate, pushToast, locked, canConfig = true, diges
 
   const optionSchema = WORKFLOW_OPTIONS[wf.type] || [];
 
-  // Tải options động cho card (hiện: trạng thái deal cho deal-auto-review).
+  // Tải options động cho card: danh sách trạng thái cơ hội LẤY TỪ CRM của chính công ty, để người
+  // dùng TICK CHỌN thay vì mình đoán hộ bằng từ khoá tiếng Việt (mỗi CRM tự đặt tên trạng thái).
   uE(() => {
-    if (wf.type !== 'deal-auto-review') return;
+    if (!DEAL_STATUS_WORKFLOWS.includes(wf.type)) return;
     setDynLoading(l => ({ ...l, dealStatuses: true }));
     apiFetch('/api/v1/workflows/deal-statuses')
       .then(d => setDynOptions(o => ({ ...o, dealStatuses: d.items || [] })))

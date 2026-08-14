@@ -13,6 +13,26 @@ public record TaskLine(string Title, string? Priority, bool IsOverdue);
 public record CustomerLine(string Name, string Rank, int DaysSinceLastBooking);
 public record QuoteLine(string Title, string? CustomerName, int DaysSinceUpdate);
 
+/// <summary>
+/// Tên các mục của bản tin sáng — người dùng tick chọn mục muốn nhận.
+/// ⚠️ PHẢI khớp <c>BRIEF_SECTIONS</c> trong <c>wwwroot/components/workflow-options.jsx</c>: lệch một
+/// chữ thì mục đó âm thầm không bao giờ hiện, mà giao diện vẫn tick xanh như đã bật.
+/// </summary>
+public static class SaleBriefSections
+{
+    public const string Cooling = "cooling";
+    public const string Appointments = "appointments";
+    public const string Tasks = "tasks";
+    public const string Payments = "payments";
+    public const string Vips = "vips";
+    public const string Quotes = "quotes";
+    public const string Hygiene = "hygiene";
+    public const string Mailbox = "mailbox";
+
+    public static readonly string[] All =
+        { Cooling, Appointments, Tasks, Payments, Vips, Quotes, Hygiene, Mailbox };
+}
+
 public record SaleBriefInput(
     string Username, string? FullName,
     List<DealLine> CoolingDeals, List<ApptLine> TodayAppointments,
@@ -23,7 +43,11 @@ public record SaleBriefInput(
     // Việc cần làm hôm nay + số lịch hẹn đã quá hạn. Mặc định rỗng/0 để chỗ gọi cũ không vỡ.
     List<TaskLine>? TodayTasks = null,
     int OverdueTaskCount = 0,
-    int OverdueAppointments = 0);
+    int OverdueAppointments = 0,
+    // Hộp thư cần cờ RIÊNG vì nó luôn in một dòng, không như các mục khác (danh sách rỗng thì tự
+    // ẩn). Tắt mục này mà truyền số 0 thì bản tin ghi "0 thư chờ xử lý" — nói sai, vì thực tế là
+    // KHÔNG KIỂM, không phải không có thư.
+    bool ShowMailbox = true);
 
 /// <summary>
 /// Dựng nội dung bản tin cho nhân viên bán hàng — RULE THUẦN, KHÔNG gọi AI (không tốn lượt).
@@ -126,9 +150,10 @@ public static class SaleBriefBuilder
 
         // Hộp thư (của cả công ty) — LUÔN có 1 dòng, và CỐ Ý không tính vào `sections`:
         // nếu tính thì lời chúc "hôm nay rảnh" không bao giờ xuất hiện, người dùng mất tín hiệu đó.
-        md.AppendLine(input.MailSourceOk
-            ? $"📬 Hộp thư công ty: {input.TenantMailPending} thư chờ xử lý ({input.TenantMailQuoteRequests} hỏi giá)."
-            : "📬 Hộp thư: n/a (không đọc được).");
+        if (input.ShowMailbox)
+            md.AppendLine(input.MailSourceOk
+                ? $"📬 Hộp thư công ty: {input.TenantMailPending} thư chờ xử lý ({input.TenantMailQuoteRequests} hỏi giá)."
+                : "📬 Hộp thư: n/a (không đọc được).");
 
         if (sections == 0)
             md.Insert(0, "Hôm nay chưa có việc gấp 🎉 — dành thời gian chăm khách cũ nhé.\n\n");
@@ -182,9 +207,10 @@ public static class SaleBriefBuilder
 
         if (input.OverdueTaskCount > 0) f.AppendLine($"Số việc đã trễ hạn (tích luỹ): {input.OverdueTaskCount}");
         if (input.OverdueAppointments > 0) f.AppendLine($"Số lịch hẹn quá hạn (tích luỹ): {input.OverdueAppointments}");
-        f.AppendLine(input.MailSourceOk
-            ? $"Hộp thư công ty: {input.TenantMailPending} thư chờ xử lý, {input.TenantMailQuoteRequests} thư hỏi giá"
-            : "Hộp thư công ty: không đọc được");
+        if (input.ShowMailbox)
+            f.AppendLine(input.MailSourceOk
+                ? $"Hộp thư công ty: {input.TenantMailPending} thư chờ xử lý, {input.TenantMailQuoteRequests} thư hỏi giá"
+                : "Hộp thư công ty: không đọc được");
 
         return $"Bạn là trợ lý của nhân viên bán hàng tour, tên {input.FullName ?? input.Username}. "
              + $"Hôm nay {todayLocal:dd/MM/yyyy}.\n"

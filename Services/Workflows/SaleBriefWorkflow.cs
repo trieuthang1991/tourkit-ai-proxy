@@ -74,13 +74,18 @@ public class SaleBriefWorkflow : IScheduledWorkflow
     private record SaleBriefOptions(
         bool UseAi, int MaxItems,
         int SilentDaysMin, int HygieneStuckDays, int StaleQuoteDays,
-        List<int> ClosedStatuses);
+        List<int> ClosedStatuses,
+        HashSet<string> Sections)
+    {
+        public bool Has(string section) => Sections.Contains(section);
+    }
 
     private SaleBriefOptions ParseOptions(string? json)
     {
         var def = new SaleBriefOptions(UseAi: true, MaxItems: 7,
             SilentDaysMin: SilentDaysMinDefault, HygieneStuckDays: HygieneStuckDaysDefault,
-            StaleQuoteDays: StaleQuoteDaysDefault, ClosedStatuses: new List<int>());
+            StaleQuoteDays: StaleQuoteDaysDefault, ClosedStatuses: new List<int>(),
+            Sections: new HashSet<string>(SaleBriefSections.All, StringComparer.OrdinalIgnoreCase));
         if (string.IsNullOrWhiteSpace(json)) return def;
         try
         {
@@ -104,6 +109,14 @@ public class SaleBriefWorkflow : IScheduledWorkflow
                 HygieneStuckDays = Get("hygieneStuckDays", def.HygieneStuckDays, 3, 365),
                 StaleQuoteDays = Get("staleQuoteDays", def.StaleQuoteDays, 1, 365),
                 ClosedStatuses = closed,
+                // Chưa khai (tenant cũ) → BẬT HẾT, giữ đúng hành vi trước đây. Khai mảng RỖNG là ý
+                // "không nhận gì" — cố ý phân biệt với "chưa khai", nếu không thì người tắt hết mục
+                // lại nhận đủ như cũ mà không hiểu vì sao.
+                Sections = r.TryGetProperty("sections", out var secArr) && secArr.ValueKind == JsonValueKind.Array
+                    ? new HashSet<string>(
+                        secArr.EnumerateArray().Where(e => e.ValueKind == JsonValueKind.String)
+                              .Select(e => e.GetString()!), StringComparer.OrdinalIgnoreCase)
+                    : def.Sections,
             };
         }
         catch (JsonException)
@@ -308,6 +321,7 @@ public class SaleBriefWorkflow : IScheduledWorkflow
         var winRates = await LoadWinRatesAsync(tenantId, ct);
 
         // ── Cơ hội bán hàng: cần gọi lại + cần dọn ────────────────────────────
+        if (opt.Has(SaleBriefSections.Cooling) || opt.Has(SaleBriefSections.Hygiene))
         await Safe("booking-tickets", async () =>
         {
             var d = await _api.GetAsync(jwt, "/api/ai/booking-tickets?pageIndex=1&pageSize=100", ct);
@@ -343,8 +357,12 @@ public class SaleBriefWorkflow : IScheduledWorkflow
                 // còn cơ hội bán, còn "dọn" là hồ sơ kẹt cần cập nhật cho đúng. Cơ hội kẹt quá
                 // HygieneStuckDays ngày mà chưa có bước tiếp theo thì gọi khách chưa phải việc đầu
                 // tiên — phải biết nó đang ở đâu đã.
-                if (silent >= opt.HygieneStuckDays) hygiene.Add(line);
-                else if (Bool(it, "isCooling") || silent >= opt.SilentDaysMin) cooling.Add(line);
+                if (silent >= opt.HygieneStuckDays)
+                {
+                    if (opt.Has(SaleBriefSections.Hygiene)) hygiene.Add(line);
+                }
+                else if (opt.Has(SaleBriefSections.Cooling)
+                         && (Bool(it, "isCooling") || silent >= opt.SilentDaysMin)) cooling.Add(line);
             }
             // Nguội lâu nhất lên đầu — đó là cái dễ mất nhất.
             cooling.Sort((a, b) => b.SilentDays.CompareTo(a.SilentDays));
@@ -352,6 +370,7 @@ public class SaleBriefWorkflow : IScheduledWorkflow
         });
 
         // ── Lịch hẹn hôm nay + quá hạn ────────────────────────────────────────
+        if (opt.Has(SaleBriefSections.Appointments))
         await Safe("appointments", async () =>
         {
             var d = await _api.GetAsync(jwt, "/api/ai/appointments?dateFilter=1&pageIndex=1&pageSize=50", ct);
@@ -368,6 +387,7 @@ public class SaleBriefWorkflow : IScheduledWorkflow
         });
 
         // ── Việc cần làm hôm nay + trễ hạn ────────────────────────────────────
+        if (opt.Has(SaleBriefSections.Tasks))
         await Safe("tasks", async () =>
         {
             var d = await _api.GetAsync(jwt, "/api/ai/tasks?tabFilter=3&pageIndex=1&pageSize=50", ct);
@@ -384,6 +404,7 @@ public class SaleBriefWorkflow : IScheduledWorkflow
         });
 
         // ── Tour sắp đi còn thiếu tiền (của mình) ─────────────────────────────
+        if (opt.Has(SaleBriefSections.Payments))
         await Safe("tours", async () =>
         {
             var to = todayVn.AddDays(7);
@@ -402,6 +423,7 @@ public class SaleBriefWorkflow : IScheduledWorkflow
         });
 
         // ── Khách hạng A/B lâu không mua lại (bảng Reviews của proxy) ─────────
+        if (opt.Has(SaleBriefSections.Vips))
         await Safe("reviews", async () =>
         {
             await using var c = await _db.OpenAsync(ct);
@@ -417,6 +439,7 @@ WHERE TenantId = @tenantId AND [Rank] IN ('A','B')", new { tenantId });
         });
 
         // ── Báo giá của mình lâu chưa cập nhật ────────────────────────────────
+        if (opt.Has(SaleBriefSections.Quotes))
         await Safe("quotes", async () =>
         {
             await using var c = await _db.OpenAsync(ct);
@@ -432,7 +455,8 @@ ORDER BY UpdatedAt ASC", new { tenantId, user, days = opt.StaleQuoteDays });
 
         return new SaleBriefInput(user, fullName, cooling, appts, vips, quotes,
             mailPending, mailQuote, hygiene, payments, mailOk,
-            TodayTasks: tasks, OverdueTaskCount: overdueTask, OverdueAppointments: overdueAppt);
+            TodayTasks: tasks, OverdueTaskCount: overdueTask, OverdueAppointments: overdueAppt,
+            ShowMailbox: opt.Has(SaleBriefSections.Mailbox));
 
         // Bọc từng nguồn: lỗi 1 nguồn KHÔNG được làm mất cả bản tin.
         async Task Safe(string name, Func<Task> f)

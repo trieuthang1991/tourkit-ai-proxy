@@ -32,6 +32,19 @@
     { value: 'xac_nhan',     label: 'Xác nhận' },
     { value: 'khieu_nai',    label: 'Khiếu nại' },
   ];
+  // Các mục của bản tin sáng. value PHẢI khớp SaleBriefSections bên C# — lệch một chữ thì mục đó
+  // âm thầm không bao giờ hiện, mà giao diện vẫn tick xanh như đã bật.
+  const BRIEF_SECTIONS = [
+    { value: 'cooling',      label: 'Cơ hội cần gọi lại' },
+    { value: 'appointments', label: 'Lịch hẹn hôm nay' },
+    { value: 'tasks',        label: 'Việc cần làm' },
+    { value: 'payments',     label: 'Tour sắp đi còn thiếu tiền' },
+    { value: 'vips',         label: 'Khách quen lâu không chăm' },
+    { value: 'quotes',       label: 'Báo giá bỏ dở' },
+    { value: 'hygiene',      label: 'Cơ hội cần dọn hồ sơ' },
+    { value: 'mailbox',      label: 'Hộp thư công ty' },
+  ];
+
   const MAIL_TONES = [
     { value: 'lich_su',    label: 'Lịch sự' },
     { value: 'than_thien', label: 'Thân thiện' },
@@ -91,6 +104,33 @@
       { key: 'notifyMinGapHours', type: 'number', label: 'Nhắc lại cùng 1 cơ hội sau ít nhất (giờ)', showIf: 'alertCooling', default: 24, min: 1, max: 720,
         hint: 'Sau khi đã cảnh báo một cơ hội, phải chờ đủ số giờ này mới được nhắc lại. Ví dụ 24 = mỗi cơ hội tối đa 1 lần/ngày.' },
     ],
+    // Bản tin sáng. Mấy giá trị này TRƯỚC ĐÂY LÀ HẰNG SỐ TRONG CODE — hằng số nghĩa là mình đoán hộ
+    // công ty. Ngưỡng "im bao lâu thì cần gọi" ở bên bán tour đoàn khác hẳn bên bán vé lẻ.
+    // ⚠️ default PHẢI khớp SaleBriefWorkflow.ParseOptions bên C#: lệch nhau thì giao diện hiện một
+    // đằng, hệ thống chạy một nẻo — mà người dùng không có cách nào biết.
+    'sale-brief': [
+      // Không phải nhân viên nào cũng cần mọi mục: người chỉ chạy tour đoàn không quan tâm báo giá
+      // lẻ, người không giữ hồ sơ thì mục "cần dọn" chỉ là tiếng ồn. Mục đã tắt thì hệ thống KHÔNG
+      // gọi CRM lấy dữ liệu mục đó → bản tin gọn hơn và chạy nhanh hơn.
+      { key: 'sections', type: 'multi', label: 'Nội dung muốn nhận', default: BRIEF_SECTIONS.map(s => s.value),
+        options: BRIEF_SECTIONS, required: true,
+        hint: 'Bỏ tick mục nào thì mục đó không xuất hiện trong bản tin, và hệ thống cũng không đi lấy dữ liệu của nó nữa.' },
+
+      { key: 'useAi', type: 'bool', label: 'AI sắp xếp lại bản tin', default: true,
+        hint: 'Bật: AI đọc dữ liệu rồi chọn ra việc đáng làm nhất, bản tin gọn và có thứ tự ưu tiên (tốn 1 lượt AI mỗi người mỗi ngày). Tắt: in đủ mọi mục theo ngưỡng — dài hơn nhưng không tốn lượt. AI lỗi thì tự rơi về bản đủ, không mất bản tin.' },
+      { key: 'maxItems', type: 'number', label: 'Tối đa số việc trong bản tin', showIf: 'useAi', default: 7, min: 3, max: 20,
+        hint: 'Bản tin dài thì không ai đọc hết, mà đọc không hết thì mục quan trọng cũng bị bỏ qua. 5–7 việc là vừa một buổi sáng.' },
+
+      { key: 'closedStatuses', type: 'multi', dynamic: 'dealStatuses', label: 'Trạng thái coi là ĐÃ ĐÓNG', default: [],
+        hint: 'Cơ hội ở các trạng thái này bị loại khỏi bản tin (không nhắc gọi lại, không nhắc dọn). Để trống = hệ thống tự đoán (trạng thái Hủy + tên có "đã chốt"/"hoàn thành"…) — đúng phần lớn trường hợp nhưng KHÔNG chắc, vì mỗi công ty tự đặt tên trạng thái. Công ty nào đặt tên riêng thì nên tự tick vào đây.' },
+
+      { key: 'silentDaysMin', type: 'number', label: 'Cần gọi lại khi im lặng quá (ngày)', default: 3, min: 1, max: 90,
+        hint: 'Cơ hội đang mở mà quá số ngày này không ai chăm thì đưa vào mục "cần gọi lại". Đặt thấp thì bản tin đầy; đặt cao thì phát hiện muộn.' },
+      { key: 'hygieneStuckDays', type: 'number', label: 'Cần dọn hồ sơ khi kẹt quá (ngày)', default: 14, min: 3, max: 365,
+        hint: 'Cơ hội kẹt một trạng thái quá lâu thì chuyển sang mục "cần dọn" thay vì "cần gọi" — mỗi cơ hội chỉ nằm ở MỘT mục. Phải lớn hơn ngưỡng gọi lại ở trên.' },
+      { key: 'staleQuoteDays', type: 'number', label: 'Nhắc báo giá bỏ dở sau (ngày)', default: 5, min: 1, max: 365,
+        hint: 'Báo giá tour lâu không ai cập nhật thì nhắc. Lưu ý: hiện chưa phân biệt được báo giá đã gửi khách hay đã chốt, nên mục này có thể nhắc cả cái đã xong.' },
+    ],
     'customer-auto-review': [
       { key: 'createdWithinDays', type: 'number', label: 'Chỉ khách tạo trong (ngày)', default: 30, min: 1, max: 365,
         hint: 'Chỉ review khách được tạo trong khoảng ngày gần đây này. Khách cũ hơn được bỏ qua ở lần review đầu.' },
@@ -113,6 +153,12 @@
       reReview: '② Chấm điểm cơ hội (AI)', reReviewDays: '② Chấm điểm cơ hội (AI)', maxAutoReviews: '② Chấm điểm cơ hội (AI)',
       alertCooling: '③ Cảnh báo cơ hội nguội', coolingStatuses: '③ Cảnh báo cơ hội nguội', coolingDays: '③ Cảnh báo cơ hội nguội',
       minWinRateToNotify: '③ Cảnh báo cơ hội nguội', maxNotifications: '③ Cảnh báo cơ hội nguội', notifyMinGapHours: '③ Cảnh báo cơ hội nguội',
+    },
+    'sale-brief': {
+      sections: '① Nội dung bản tin',
+      useAi: '② Cách trình bày', maxItems: '② Cách trình bày',
+      closedStatuses: '③ Cơ hội nào được tính',
+      silentDaysMin: '④ Ngưỡng nhắc', hygieneStuckDays: '④ Ngưỡng nhắc', staleQuoteDays: '④ Ngưỡng nhắc',
     },
     'customer-auto-review': {
       createdWithinDays: 'Phạm vi',
