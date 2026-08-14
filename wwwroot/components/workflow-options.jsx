@@ -182,6 +182,12 @@
         hint: 'Số cuộc hẹn trong ngày, kèm số tồn đọng quá hạn. LƯU Ý: số tồn đọng là tích luỹ từ trước tới nay nên ở CRM dùng lâu có thể lên hàng nghìn — tắt nếu thấy gây nhiễu.' },
       { key: 'secAlerts', type: 'bool', label: 'Cảnh báo thanh toán đang mở', default: true,
         hint: 'Số cảnh báo tour sắp khởi hành mà khách chưa trả đủ. Cần bật tác vụ "Canh thanh toán trước khởi hành" thì mới có số.' },
+      { key: 'secTasks', type: 'bool', label: 'Công việc chưa hoàn thành', default: true,
+        hint: 'Tổng số việc của cả công ty còn đang treo, kèm số việc đã quá hạn — để biết khối lượng còn nợ và phần nào cần can thiệp.' },
+      { key: 'taskStatuses', type: 'multi', dynamic: 'taskStatuses', showIf: 'secTasks', required: true,
+        dynamicDefault: 'openTaskStatuses',
+        label: 'Việc coi là CHƯA xong khi ở trạng thái',
+        hint: 'Quyết định con số "còn treo" đếm những việc nào. Tên trạng thái do công ty bạn đặt nên chỉ bạn biết chắc — ví dụ có nơi "Đang kiểm tra" nghĩa là đã làm xong, chờ duyệt.' },
 
       // ── Cách trình bày ──
       { key: 'useAi', type: 'bool', label: 'AI viết lời', default: true,
@@ -225,7 +231,8 @@
       comparePeriod: '① Kỳ so sánh',
       secSellers: '② Đưa thêm vào bản tin', sellerCount: '② Đưa thêm vào bản tin',
       secNewDeals: '② Đưa thêm vào bản tin', secAppointments: '② Đưa thêm vào bản tin',
-      secAlerts: '② Đưa thêm vào bản tin',
+      secAlerts: '② Đưa thêm vào bản tin', secTasks: '② Đưa thêm vào bản tin',
+      taskStatuses: '② Đưa thêm vào bản tin',
       useAi: '③ Cách trình bày', showNumbers: '③ Cách trình bày',
     },
     'customer-auto-review': {

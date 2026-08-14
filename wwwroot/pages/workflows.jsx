@@ -98,7 +98,7 @@ const SLOW_WORKFLOWS = ['deal-auto-review', 'customer-auto-review'];
 // công ty để người dùng tick. Đây là cách tránh đoán: mỗi CRM tự đặt tên trạng thái, hardcode từ
 // khoá tiếng Việt thì kiểu gì cũng có công ty sai.
 const DEAL_STATUS_WORKFLOWS = ['deal-auto-review', 'sale-brief'];
-const TASK_STATUS_WORKFLOWS = ['sale-brief'];
+const TASK_STATUS_WORKFLOWS = ['sale-brief', 'ceo-brief'];
 // Interval khởi tạo: đã cấu hình → giá trị lưu; chưa → mặc định 15 phút.
 function initialInterval(wf) {
   return wf.intervalMinutes || 15;

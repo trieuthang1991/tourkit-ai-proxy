@@ -70,6 +70,7 @@ public class CeoBriefWorkflow : IScheduledWorkflow
         string ComparePeriod,      // prev-month | prev-year | none
         bool SecSellers, int SellerCount,
         bool SecNewDeals, bool SecAppointments, bool SecAlerts,
+        bool SecTasks, List<int> TaskStatuses,
         bool UseAi, bool ShowNumbers);
 
     private static CeoBriefOptions ParseOptions(string? json)
@@ -77,6 +78,9 @@ public class CeoBriefWorkflow : IScheduledWorkflow
         // Mặc định = hành vi cũ y nguyên: tenant chưa khai gì thì bản tin không đổi.
         var def = new CeoBriefOptions("prev-month", SecSellers: true, SellerCount: 3,
             SecNewDeals: true, SecAppointments: true, SecAlerts: true,
+            // Rỗng = rơi về enum hệ thống (1/2/3 đang mở). Công ty khai rồi thì danh sách của họ
+            // quyết định — có nơi coi "Đang kiểm tra" là đã xong, chờ duyệt.
+            SecTasks: true, TaskStatuses: new List<int>(),
             UseAi: true, ShowNumbers: true);
         if (string.IsNullOrWhiteSpace(json)) return def;
         try
@@ -97,14 +101,21 @@ public class CeoBriefWorkflow : IScheduledWorkflow
             // bản tin của cả công ty.
             if (cmp is not ("prev-month" or "prev-year" or "none")) cmp = def.ComparePeriod;
 
+            var taskSt = new List<int>();
+            if (r.TryGetProperty("taskStatuses", out var ts) && ts.ValueKind == JsonValueKind.Array)
+                foreach (var e in ts.EnumerateArray())
+                    if (e.ValueKind == JsonValueKind.Number && e.TryGetInt32(out var n) && n > 0) taskSt.Add(n);
+
             return def with
             {
                 ComparePeriod = cmp!,
+                TaskStatuses = taskSt,
                 SecSellers = Bit("secSellers", def.SecSellers),
                 SellerCount = Num("sellerCount", def.SellerCount, 1, 10),
                 SecNewDeals = Bit("secNewDeals", def.SecNewDeals),
                 SecAppointments = Bit("secAppointments", def.SecAppointments),
                 SecAlerts = Bit("secAlerts", def.SecAlerts),
+                SecTasks = Bit("secTasks", def.SecTasks),
                 UseAi = Bit("useAi", def.UseAi),
                 ShowNumbers = Bit("showNumbers", def.ShowNumbers),
             };
@@ -325,6 +336,36 @@ public class CeoBriefWorkflow : IScheduledWorkflow
             overdueAppt = Int(od, "total");
         });
 
+        // ── Việc còn treo của cả công ty ─────────────────────────────────────────
+        // CRM không có endpoint "đếm việc chưa xong", và tabFilter=0 thì gộp cả việc đã hoàn thành
+        // lẫn đã hủy. Nên đếm từng trạng thái ĐANG MỞ rồi cộng lại. PageSize=1 vì chỉ cần 'total'.
+        //
+        // Trạng thái nào là "chưa xong" do CÔNG TY khai (mỗi nơi đặt tên một kiểu, có nơi coi
+        // "Đang kiểm tra" là đã làm xong chờ duyệt). Chưa khai thì rơi về enum hệ thống 1/2/3
+        // (4=Hoàn thành, 5=Hủy là đã đóng) — cùng cách CRM tự hiểu.
+        //
+        // Riêng "trễ hạn" đã có sẵn tabFilter=2 — SP tự loại 4/5 nên khỏi lọc tay.
+        // ⚠️ Trễ hạn phải đếm trên CÙNG tập trạng thái với "chưa xong", nếu không hai số không lồng
+        // nhau. Bản đầu lấy trễ hạn bằng tabFilter=2 trần — CRM ở đó chỉ loại mã 4/5 nên gom cả
+        // những trạng thái công ty tự thêm ngoài 1/2/3. Kết quả trên erp.tourkit.vn: "335 việc chưa
+        // hoàn thành, TRONG ĐÓ 591 việc đã quá hạn" — số con lớn hơn số tổng, nhìn là biết sai.
+        int openTasks = 0, lateTasks = 0;
+        var openSt = opt.TaskStatuses.Count > 0 ? opt.TaskStatuses : new List<int> { 1, 2, 3 };
+        if (opt.SecTasks)
+        await Safe("tasks", async () =>
+        {
+            foreach (var st in openSt)
+            {
+                var d = await _api.GetAsync(jwt,
+                    $"/api/ai/tasks?tabFilter=0&trangThai={st}&pageIndex=1&pageSize=1", ct);
+                openTasks += Int(d, "total");
+
+                var late = await _api.GetAsync(jwt,
+                    $"/api/ai/tasks?tabFilter=2&trangThai={st}&pageIndex=1&pageSize=1", ct);
+                lateTasks += Int(late, "total");
+            }
+        });
+
         int openAlerts = 0;
         if (opt.SecAlerts)
         await Safe("payment-alerts", async () =>
@@ -334,9 +375,10 @@ public class CeoBriefWorkflow : IScheduledWorkflow
 
         return new CeoBriefData(thisMtd, prevMtd, sellers, newDeals, openAlerts,
             TodayAppointments: todayAppt, OverdueAppointments: overdueAppt,
+            OpenTasks: openTasks, LateTasks: lateTasks,
             ShowSellers: opt.SecSellers, ShowNewDeals: opt.SecNewDeals,
             ShowAppointments: opt.SecAppointments, ShowAlerts: opt.SecAlerts,
-            ShowNumbers: opt.ShowNumbers,
+            ShowTasks: opt.SecTasks, ShowNumbers: opt.ShowNumbers,
             ShowCompare: compare, CompareLabel: CompareLabelOf(opt.ComparePeriod));
 
         async Task<CeoNumbers> Fin(DateTime s, DateTime e, string label)
@@ -441,6 +483,7 @@ public class CeoBriefWorkflow : IScheduledWorkflow
         d.ThisMtd.Revenue, d.ThisMtd.Expense, d.ThisMtd.Profit,
         d.PrevMtd.Revenue, d.PrevMtd.Expense, d.PrevMtd.Profit,
         d.NewDealsYesterday, d.OpenPaymentAlerts, d.TodayAppointments, d.OverdueAppointments,
+        d.OpenTasks, d.LateTasks,
         string.Join(";", d.TopSellers));
 
     // ── Đọc JSON (envelope /api/ai/* camelCase) ───────────────────────────────

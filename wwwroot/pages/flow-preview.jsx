@@ -261,7 +261,7 @@ function FlowPreviewPage({ pushToast, type }) {
   _fpE(() => {
     const wanted = [];
     if (['deal-auto-review', 'sale-brief'].includes(type)) wanted.push(['dealStatuses', '/api/v1/workflows/deal-statuses']);
-    if (type === 'sale-brief') wanted.push(['taskStatuses', '/api/v1/workflows/task-statuses']);
+    if (['sale-brief', 'ceo-brief'].includes(type)) wanted.push(['taskStatuses', '/api/v1/workflows/task-statuses']);
     if (!wanted.length) return;
     let alive = true;
     wanted.forEach(([key, url]) => {

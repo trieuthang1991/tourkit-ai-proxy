@@ -14,11 +14,15 @@ public record CeoNumbers(decimal Revenue, decimal Expense, decimal Profit);
 /// năm trước"). Nhãn cứng sẽ NÓI SAI ngay khi công ty đổi kỳ so sánh.</param>
 /// <param name="ShowNumbers">Đính bảng số dưới bài AI viết. Tắt thì bản tin chỉ còn lời văn —
 /// gọn hơn nhưng mất chỗ đối chiếu, nên mặc định bật.</param>
+/// <param name="OpenTasks">Việc CHƯA hoàn thành của cả công ty (chưa bắt đầu + đang làm + đang
+/// kiểm tra). Giám đốc cần biết khối lượng còn treo, không chỉ việc trễ.</param>
+/// <param name="LateTasks">Trong số đó, bao nhiêu việc đã quá hạn — đây mới là phần cần can thiệp.</param>
 public record CeoBriefData(CeoNumbers ThisMtd, CeoNumbers PrevMtd, List<string> TopSellers,
     int NewDealsYesterday, int OpenPaymentAlerts,
     int TodayAppointments = 0, int OverdueAppointments = 0,
+    int OpenTasks = 0, int LateTasks = 0,
     bool ShowSellers = true, bool ShowNewDeals = true, bool ShowAppointments = true,
-    bool ShowAlerts = true, bool ShowNumbers = true,
+    bool ShowAlerts = true, bool ShowTasks = true, bool ShowNumbers = true,
     bool ShowCompare = true, string CompareLabel = "so cùng kỳ tháng trước");
 
 /// <summary>
@@ -115,6 +119,24 @@ public static class CeoBriefBuilder
     /// mọi số tiền quanh nó đều đã có dấu chấm — nhìn như hai nguồn khác nhau.
     private static string Num(int v) => v.ToString("N0", Vi);
 
+    /// <summary>
+    /// Việc còn treo của cả công ty. LUÔN nói kèm phần "trong đó trễ hạn": tổng việc chưa xong một
+    /// mình nó không nói được gì (công ty nào chả có việc đang làm) — phần trễ hạn mới là chỗ giám
+    /// đốc cần can thiệp.
+    /// </summary>
+    private static string TaskLine(CeoBriefData d)
+    {
+        if (d.OpenTasks == 0 && d.LateTasks == 0) return "không còn việc nào";
+        var s = $"{Num(d.OpenTasks)} việc";
+        // Chốt chặn cuối: "trong đó" mà số con lớn hơn số tổng thì bản tin tự mâu thuẫn ngay trên
+        // mặt giấy (đã xảy ra: 335 việc, "trong đó" 591 quá hạn). Hai số phải lấy trên cùng tập
+        // trạng thái — nếu vì lý do gì đó vẫn lệch, KHÔNG in cụm "trong đó" nữa.
+        if (d.LateTasks > d.OpenTasks) s += $" · {Num(d.LateTasks)} việc quá hạn";
+        else if (d.LateTasks > 0)      s += $" · trong đó {Num(d.LateTasks)} việc đã quá hạn";
+        else                           s += " · không có việc nào quá hạn";
+        return s;
+    }
+
     /// Bảng số — chỉ in những mục công ty chọn đưa vào bản tin. Mục bị tắt thì KHÔNG lấy số nên
     /// cũng không được in: in "0" cho một mục không lấy là nói dối, người đọc tưởng thật sự bằng 0.
     ///
@@ -151,6 +173,7 @@ public static class CeoBriefBuilder
         if (d.ShowNewDeals) sb.AppendLine($"- Cơ hội mới hôm qua: {d.NewDealsYesterday}");
         if (d.ShowAlerts) sb.AppendLine($"- Cảnh báo thanh toán đang mở: {d.OpenPaymentAlerts}");
         if (d.ShowAppointments) sb.AppendLine($"- Lịch hẹn hôm nay: {AppointmentLine(d)}");
+        if (d.ShowTasks) sb.AppendLine($"- Công việc chưa hoàn thành: {TaskLine(d)}");
         if (d.ShowSellers)
             sb.AppendLine($"- Top nhân viên bán hàng từ đầu tháng: {(d.TopSellers.Count > 0 ? string.Join("; ", d.TopSellers) : "n/a")}");
 
@@ -192,7 +215,9 @@ public static class CeoBriefBuilder
         // Chi phí 0đ là chuyện thật ở công ty chưa ghi nhận chi phí vào CRM (đã gặp lần chạy thật) —
         // AI mà tự suy "không phát sinh chi phí" thì thành kết luận sai về hoạt động kinh doanh.
         "Nếu chi phí bằng 0, hiểu là CHƯA GHI NHẬN trong hệ thống, không được kết luận là công ty " +
-        "không phát sinh chi phí hay lãi trọn doanh thu.\n" +
+        "không phát sinh chi phí hay lãi trọn doanh thu. Khi đó TUYỆT ĐỐI không nêu một con số lợi " +
+        "nhuận nào — kể cả gọi là \"tạm tính\" — mà nói thẳng là chưa đánh giá được lợi nhuận. " +
+        "Nêu ra con số dù có gắn chữ tạm tính thì người đọc vẫn nhớ con số đó.\n" +
         // Nền vài chục triệu thì "+21%" chỉ là vài triệu — gọi đó là "xu hướng tích cực" nghe như
         // công ty đang bứt tốc. Đã gặp thật ở erp: 25tr → 31tr.
         "Nếu doanh thu kỳ này dưới 100 triệu đồng, đây là quy mô nhỏ nên phần trăm biến động ít ý " +

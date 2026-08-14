@@ -31,6 +31,9 @@
         sub: 'Đếm theo ngày tạo', cfg: ['secNewDeals'] }),
       F.node('e8', 'step', F.RIGHT, 4.4, { icon: 'warning', title: 'Cảnh báo còn treo',
         sub: 'Tour sắp đi mà khách chưa trả đủ', cfg: ['secAlerts'] }),
+      F.node('e8b', 'step', F.MID, 4.4, { icon: 'checkCircle', title: 'Việc còn treo của công ty',
+        sub: 'Đếm từng trạng thái đang mở rồi cộng · kèm số việc đã quá hạn',
+        cfg: ['secTasks', 'taskStatuses'] }),
 
       F.node('e9', 'step', F.MID, 5.6, { icon: 'chart', title: 'Máy chủ tính sẵn mọi con số',
         sub: 'KHÔNG để AI tự tính — sai số trong báo cáo tai hại hơn diễn đạt kém' }),
@@ -57,7 +60,7 @@
       F.edge('e1', 'e2'), F.edge('e2', 'e3', 'Rồi'),
       F.edge('e3', 'e4'), F.edge('e3', 'e5'), F.edge('e3', 'e6'),
       F.edge('e4', 'e7'), F.edge('e6', 'e8'),
-      F.edge('e5', 'e9'), F.edge('e7', 'e9'), F.edge('e8', 'e9'),
+      F.edge('e5', 'e8b'), F.edge('e8b', 'e9'), F.edge('e7', 'e9'), F.edge('e8', 'e9'),
       F.edge('e9', 'e10'),
       F.edge('e10', 'e11', 'Được'), F.edge('e10', 'e12', 'Lỗi / hết lượt'),
       F.edge('e11', 'e13'), F.edge('e12', 'e14'),

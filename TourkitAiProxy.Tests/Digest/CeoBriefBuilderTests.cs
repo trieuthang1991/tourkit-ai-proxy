@@ -106,6 +106,13 @@ public class CeoBriefBuilderTests
     public void Quy_mo_nho_thi_prompt_nhac_dung_ket_luan_xu_huong_tu_phan_tram()
         => Assert.Contains("quy mô nhỏ", CeoBriefBuilder.BuildPrompt(Data(), Today));
 
+    /// Bảng số gắn nhãn "(CHƯA trừ chi phí)" là chưa đủ: bản chạy thật vẫn viết "lợi nhuận tạm
+    /// tính bằng doanh thu là 31,2 triệu". Gắn chữ "tạm tính" không cứu được — người đọc vẫn nhớ
+    /// đúng con số đó và tưởng là lãi.
+    [Fact]
+    public void Prompt_cam_neu_con_so_loi_nhuan_khi_chua_ghi_nhan_chi_phi()
+        => Assert.Contains("không nêu một con số lợi nhuận nào", CeoBriefBuilder.BuildPrompt(Data(), Today));
+
     [Fact]
     public void So_am_goi_thang_la_LO()
     {
@@ -135,13 +142,38 @@ public class CeoBriefBuilderTests
         Assert.Contains("; E", md);
     }
 
+    /// Tổng việc treo một mình nó không nói được gì (công ty nào chả có việc đang làm) — phần
+    /// "trong đó quá hạn" mới là chỗ giám đốc cần can thiệp, nên luôn đi kèm.
+    [Fact]
+    public void Viec_con_treo_luon_kem_phan_qua_han()
+    {
+        var d = Data() with { OpenTasks = 1234, LateTasks = 56 };
+        var md = CeoBriefBuilder.RenderFallback(d, Today).BodyMarkdown;
+        Assert.Contains("Công việc chưa hoàn thành: 1.234 việc · trong đó 56 việc đã quá hạn", md);
+    }
+
+    /// "Trong đó" mà số con lớn hơn số tổng thì bản tin tự mâu thuẫn ngay trên mặt giấy
+    /// (đã xảy ra thật trên erp: 335 việc, "trong đó" 591 quá hạn).
+    [Fact]
+    public void Khong_noi_trong_do_khi_so_qua_han_lon_hon_tong()
+    {
+        var md = CeoBriefBuilder.RenderFallback(Data() with { OpenTasks = 335, LateTasks = 591 }, Today).BodyMarkdown;
+        Assert.Contains("335 việc · 591 việc quá hạn", md);
+        Assert.DoesNotContain("trong đó 591", md);
+    }
+
+    [Fact]
+    public void Khong_con_viec_nao_thi_noi_thang()
+        => Assert.Contains("Công việc chưa hoàn thành: không còn việc nào",
+            CeoBriefBuilder.RenderFallback(Data() with { OpenTasks = 0, LateTasks = 0 }, Today).BodyMarkdown);
+
     [Fact]
     public void Muc_bi_tat_thi_KHONG_in_ra()
     {
         var d = Data() with
         {
             ShowSellers = false, ShowNewDeals = false,
-            ShowAppointments = false, ShowAlerts = false,
+            ShowAppointments = false, ShowAlerts = false, ShowTasks = false,
         };
         var md = CeoBriefBuilder.RenderFallback(d, Today).BodyMarkdown;
         // 3 số tài chính là phần lõi, luôn còn
@@ -152,6 +184,7 @@ public class CeoBriefBuilderTests
         Assert.DoesNotContain("Cơ hội mới", md);
         Assert.DoesNotContain("Lịch hẹn", md);
         Assert.DoesNotContain("Cảnh báo thanh toán", md);
+        Assert.DoesNotContain("Công việc chưa hoàn thành", md);
     }
 
     [Fact]
