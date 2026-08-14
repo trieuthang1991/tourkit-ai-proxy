@@ -18,6 +18,8 @@
 #     nen khong lam mat ban tin thuc sang mai.
 #   - Kenh email/telegram/zalo: chi bat khi da co san thong tin nhan trong ban goc; script
 #     KHONG tu dien dia chi nguoi khac vao.
+#   - Neu ceo-brief CHUA duoc cau hinh: script khai luat chung bang dung bo MAC DINH de test tiep,
+#     roi tra ve "chua khai" o cuoi (options = {}). Lich chay giu nguyen trang thai ban dau.
 
 param(
   [string] $BaseUrl   = 'http://localhost:5080',
@@ -134,9 +136,38 @@ try {
   $sale = (Req GET '/digest/subscriptions' $null $H).Data.items | Where-Object { $_.briefType -eq 'sale-brief' }
   Check 'Gio 99 -> kep ve 7' ($sale.sendHourLocal -eq 7) "$($sale.sendHourLocal)"
 
+  Write-Host "5b. Chua khai luat chung -> KHONG cho dang ky (va khong duoc luu len)" -ForegroundColor Cyan
+  # Ban tin chay bang mac dinh ma chua ai xem qua = nhac theo nguong doan mo. Chan o day, chan
+  # TRUOC khi luu. Bug that da gap: kiem dat SAU lenh luu -> tra 409 ma dong dang ky VAN duoc ghi.
+  $ceoCfg0 = (Req GET '/workflows' $null $H).Data.items | Where-Object { $_.type -eq 'ceo-brief' }
+  $ceoHadOptions = ($null -ne $ceoCfg0.options) -and (@($ceoCfg0.options.PSObject.Properties).Count -gt 0)
+  if (-not $ceoHadOptions) {
+    $subsBefore = @((Req GET '/digest/subscriptions' $null $H).Data.items)
+    $blocked = Req PUT '/digest/subscriptions/ceo-brief' @{ enabled=$true; sendHourLocal=7; channelInApp=$true } $H
+    Check 'Chua cau hinh -> tu choi dang ky (409)' ($blocked.Code -eq 409) "code=$($blocked.Code)"
+    # Req tra than loi vao .Error (chuoi tho) chu khong parse .Data khi status != 2xx.
+    Check 'Tu choi co co needsCompanySetup' ($blocked.Error -match 'needsCompanySetup') 'thieu co - client khong biet chi dan di dau'
+    Check 'Tu choi noi ro phai khai o dau' ($blocked.Error -match 'Theo t') 'than loi khong chi duong'
+    $subsAfter = @((Req GET '/digest/subscriptions' $null $H).Data.items)
+    $sameType = ($subsBefore.Count -eq 0 -and $subsAfter.Count -eq 0) -or
+                ($subsAfter.Count -gt 0 -and $subsBefore.Count -gt 0 -and $subsAfter[0].briefType -eq $subsBefore[0].briefType)
+    Check 'Tu choi thi KHONG duoc ghi dong dang ky' $sameType 'dong dang ky da bi doi du server tra loi'
+  } else {
+    Info 'ceo-brief da co cau hinh san - bo qua phan kiem "chua khai luat chung"'
+  }
+
   Write-Host "6. Ban tin dieu hanh KHONG bi proxy chan quyen" -ForegroundColor Cyan
   # TourKit.Api tu co pham vi so theo tai khoan (DashboardService.ResolveSpUserIdAsync).
   # Proxy tu gac them se chan oan nguoi co quyen bao cao ma khong co CH_XEM_ALL.
+  # Khai luat chung truoc (khoi phuc o cuoi + trong finally) roi moi dang ky duoc.
+  if (-not $ceoHadOptions) {
+    $null = Req PUT '/workflows/ceo-brief' @{
+      enabled = [bool]$ceoCfg0.enabled; intervalMinutes = [int]$ceoCfg0.intervalMinutes
+      options = @{ comparePeriod='prev-month'; secSellers=$true; sellerCount=3; secNewDeals=$true
+                   secAppointments=$true; secAlerts=$true; useAi=$true; showNumbers=$true }
+    } $H
+    $script:ceoCfgTouched = $true
+  }
   Check 'Luu ceo-brief = 200' ((Req PUT '/digest/subscriptions/ceo-brief' @{ enabled=$true; sendHourLocal=7; channelInApp=$true } $H).Code -eq 200) 'khac 200'
 
   Write-Host "6b. C5: moi nguoi chi 1 loai theo vai tro (doi loai = doi tren chinh dong cu)" -ForegroundColor Cyan
@@ -275,6 +306,17 @@ finally {
   Write-Host ""
   Write-Host "Khoi phuc dang ky goc..." -ForegroundColor Cyan
   RestoreOriginal
+  # Lich chay cua ceo-brief: tra ve dung trang thai ban dau. Bat/tat lich la thay doi CAP CONG TY,
+  # de nguyen thi lan chay E2E vo tinh bat ban tin cho ca cong ty.
+  if ($script:ceoCfgTouched -and $ceoCfg0) {
+    # options = {} dua ceo-brief ve dung trang thai "chua khai luat chung" (server coi {} la chua
+    # cau hinh), nen lan chay E2E sau van kiem duoc cai chan o buoc 5b.
+    $null = Req PUT '/workflows/ceo-brief' @{
+      enabled = [bool]$ceoCfg0.enabled; intervalMinutes = [int]$ceoCfg0.intervalMinutes
+      options = @{}
+    } $H
+    Info 'Da tra ceo-brief ve trang thai ban dau (chua khai luat chung + lich nhu cu).'
+  }
   Info "Xong. Ban goc: $backupPath"
 }
 

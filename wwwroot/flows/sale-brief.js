@@ -26,7 +26,7 @@
       F.node('s5', 'step', F.MID, 3.2, { icon: 'calendar', title: 'Lịch hẹn hôm nay + quá hạn',
         sub: 'Giờ và tên khách', cfg: ['secAppointments'] }),
       F.node('s6', 'step', F.RIGHT, 3.2, { icon: 'checkCircle', title: 'Việc cần làm hôm nay',
-        sub: 'Việc trễ hạn chèn lên đầu', cfg: ['secTasks'] }),
+        sub: 'Việc trễ hạn chèn lên đầu', cfg: ['secTasks', 'taskStatuses'] }),
 
       F.node('s7', 'step', F.LEFT, 4.4, { icon: 'dollar', title: 'Tour của mình còn thiếu tiền',
         sub: 'Sắp khởi hành mà khách chưa trả đủ', cfg: ['secPayments'] }),

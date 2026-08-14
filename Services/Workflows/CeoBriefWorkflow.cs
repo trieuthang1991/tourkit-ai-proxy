@@ -54,6 +54,66 @@ public class CeoBriefWorkflow : IScheduledWorkflow
     public string Label => "Bản tin điều hành (giám đốc)";
     public string Description => "Mỗi sáng gửi doanh thu – chi phí – lợi nhuận so cùng kỳ tháng trước, kèm biến động chính. Tốn khoảng 1 lượt AI mỗi lần gửi.";
     public WorkflowScope Scope => WorkflowScope.PerTenant;
+    // Có luật chung (mục nào vào bản tin, kỳ so sánh) → công ty phải khai trước khi ai đăng ký nhận.
+    public bool HasCompanyRules => true;
+
+    // ── Tuỳ chọn per-tenant ──────────────────────────────────────────────────────
+    //
+    // Mấy giá trị này TRƯỚC ĐÂY là hằng số trong code: luôn so cùng kỳ tháng trước, luôn in đủ 6
+    // dòng, luôn gọi AI. Hằng số nghĩa là mình đoán hộ mọi công ty — mà một công ty theo mùa vụ thì
+    // "so tháng trước" gần như vô nghĩa, còn công ty chưa ghi nhận chi phí vào CRM thì dòng lợi
+    // nhuận chỉ tổ gây hiểu lầm.
+    //
+    // ⚠️ default ở đây PHẢI khớp WORKFLOW_OPTIONS['ceo-brief'] bên wwwroot/components/workflow-options.jsx,
+    // lệch nhau thì giao diện hiện một đằng, hệ thống chạy một nẻo.
+    private record CeoBriefOptions(
+        string ComparePeriod,      // prev-month | prev-year | none
+        bool SecSellers, int SellerCount,
+        bool SecNewDeals, bool SecAppointments, bool SecAlerts,
+        bool UseAi, bool ShowNumbers);
+
+    private static CeoBriefOptions ParseOptions(string? json)
+    {
+        // Mặc định = hành vi cũ y nguyên: tenant chưa khai gì thì bản tin không đổi.
+        var def = new CeoBriefOptions("prev-month", SecSellers: true, SellerCount: 3,
+            SecNewDeals: true, SecAppointments: true, SecAlerts: true,
+            UseAi: true, ShowNumbers: true);
+        if (string.IsNullOrWhiteSpace(json)) return def;
+        try
+        {
+            using var d = JsonDocument.Parse(json);
+            var r = d.RootElement;
+
+            bool Bit(string k, bool dv)
+                => r.TryGetProperty(k, out var v) && v.ValueKind is JsonValueKind.True or JsonValueKind.False
+                    ? v.GetBoolean() : dv;
+            int Num(string k, int dv, int lo, int hi)
+                => r.TryGetProperty(k, out var v) && v.ValueKind == JsonValueKind.Number && v.TryGetInt32(out var n)
+                    ? Math.Clamp(n, lo, hi) : dv;
+
+            var cmp = r.TryGetProperty("comparePeriod", out var cp) && cp.ValueKind == JsonValueKind.String
+                ? cp.GetString() : null;
+            // Giá trị lạ → về mặc định, KHÔNG ném: một chuỗi rác trong cấu hình không đáng làm mất
+            // bản tin của cả công ty.
+            if (cmp is not ("prev-month" or "prev-year" or "none")) cmp = def.ComparePeriod;
+
+            return def with
+            {
+                ComparePeriod = cmp!,
+                SecSellers = Bit("secSellers", def.SecSellers),
+                SellerCount = Num("sellerCount", def.SellerCount, 1, 10),
+                SecNewDeals = Bit("secNewDeals", def.SecNewDeals),
+                SecAppointments = Bit("secAppointments", def.SecAppointments),
+                SecAlerts = Bit("secAlerts", def.SecAlerts),
+                UseAi = Bit("useAi", def.UseAi),
+                ShowNumbers = Bit("showNumbers", def.ShowNumbers),
+            };
+        }
+        catch (JsonException)
+        {
+            return def;
+        }
+    }
 
     public async Task<WorkflowRunResult> RunAsync(string tenantId, string username, string? optionsJson, CancellationToken ct)
     {
@@ -62,6 +122,7 @@ public class CeoBriefWorkflow : IScheduledWorkflow
 
         var utcNow = DateTime.UtcNow;
         var todayVn = DigestDue.NowVn(utcNow).Date;
+        var opt = ParseOptions(optionsJson);
 
         var lead = _cfg.GetValue("Digest:LeadMinutes", 10);
         var subs = await _subs.ListEnabledAsync(tenantId, BriefTypes.Ceo, ct);
@@ -93,12 +154,12 @@ public class CeoBriefWorkflow : IScheduledWorkflow
                 }
 
                 var jwt = await _sessions.GetValidJwtAsync(session.Id, ct);
-                var data = await FetchDataAsync(tenantId, sub.Username, jwt, todayVn, ct);
+                var data = await FetchDataAsync(tenantId, sub.Username, jwt, todayVn, opt, ct);
 
                 var key = Fingerprint(data);
                 if (!byNumbers.TryGetValue(key, out var msg))
                 {
-                    msg = await ComposeAsync(tenantId, session.Id, data, todayVn, ct,
+                    msg = await ComposeAsync(tenantId, session.Id, data, todayVn, opt, ct,
                                              onAiCall: () => aiCalls++, onAiFail: () => aiFailed++);
                     byNumbers[key] = msg;
                 }
@@ -162,8 +223,11 @@ public class CeoBriefWorkflow : IScheduledWorkflow
     /// không có bản tin nào — nên hàm này CỐ Ý không bao giờ ném.
     /// </summary>
     private async Task<DigestMessage> ComposeAsync(string tenantId, string sessionId,
-        CeoBriefData data, DateTime todayVn, CancellationToken ct, Action onAiCall, Action onAiFail)
+        CeoBriefData data, DateTime todayVn, CeoBriefOptions opt, CancellationToken ct,
+        Action onAiCall, Action onAiFail)
     {
+        // Công ty tắt "AI viết lời" → in thẳng bảng số, không gọi AI (không tốn lượt nào).
+        if (!opt.UseAi) return CeoBriefBuilder.RenderFallback(data, todayVn);
         try
         {
             // STRICT: workflow nền không có HttpContext → thiếu Push là bypass quota tenant
@@ -209,20 +273,24 @@ public class CeoBriefWorkflow : IScheduledWorkflow
     /// Bảng số luôn đính kèm dưới bài viết nên người đọc thấy ngay chỗ nào bằng 0 mà đối chiếu.</para>
     /// </summary>
     private async Task<CeoBriefData> FetchDataAsync(string tenantId, string user, string jwt,
-        DateTime todayVn, CancellationToken ct)
+        DateTime todayVn, CeoBriefOptions opt, CancellationToken ct)
     {
         var mtdStart = new DateTime(todayVn.Year, todayVn.Month, 1);
-        var (prevStart, prevEnd) = PrevPeriod(todayVn);
+        bool compare = opt.ComparePeriod != "none";
+        var (prevStart, prevEnd) = ComparePeriodRange(todayVn, opt.ComparePeriod);
 
         var thisMtd = await Fin(mtdStart, todayVn, "kỳ này");
-        var prevMtd = await Fin(prevStart, prevEnd, "kỳ trước");
+        // Không so sánh thì KHÔNG gọi — mỗi mục tắt là bớt một lượt gọi CRM, đây là lý do chính
+        // khiến các công tắc này đáng có chứ không chỉ để bản tin ngắn lại.
+        var prevMtd = compare ? await Fin(prevStart, prevEnd, "kỳ trước") : new CeoNumbers(0, 0, 0);
 
         var sellers = new List<string>();
+        if (opt.SecSellers)
         await Safe("top-sellers", async () =>
         {
             var d = await _api.GetAsync(jwt,
                 $"/api/ai/top-sellers?StartDate={mtdStart:yyyy-MM-dd}&EndDate={todayVn:yyyy-MM-dd}", ct);
-            foreach (var it in Items(d).Take(3))
+            foreach (var it in Items(d).Take(opt.SellerCount))
             {
                 var name = Str(it, "fullName");
                 if (string.IsNullOrWhiteSpace(name)) continue;
@@ -231,6 +299,7 @@ public class CeoBriefWorkflow : IScheduledWorkflow
         });
 
         int newDeals = 0;
+        if (opt.SecNewDeals)
         await Safe("booking-tickets", async () =>
         {
             // StartDate/EndDate của booking-tickets lọc theo NGÀY TẠO (InsDttm) — đã đối chiếu
@@ -242,6 +311,7 @@ public class CeoBriefWorkflow : IScheduledWorkflow
         });
 
         int todayAppt = 0, overdueAppt = 0;
+        if (opt.SecAppointments)
         await Safe("appointments", async () =>
         {
             // dateFilter: 1=hôm nay, 3=quá hạn (đối chiếu CustomerCareService).
@@ -252,13 +322,18 @@ public class CeoBriefWorkflow : IScheduledWorkflow
         });
 
         int openAlerts = 0;
+        if (opt.SecAlerts)
         await Safe("payment-alerts", async () =>
         {
             openAlerts = await _insights.UnreadCountAsync(tenantId, user, ct, kind: "payment-alert");
         });
 
         return new CeoBriefData(thisMtd, prevMtd, sellers, newDeals, openAlerts,
-            TodayAppointments: todayAppt, OverdueAppointments: overdueAppt);
+            TodayAppointments: todayAppt, OverdueAppointments: overdueAppt,
+            ShowSellers: opt.SecSellers, ShowNewDeals: opt.SecNewDeals,
+            ShowAppointments: opt.SecAppointments, ShowAlerts: opt.SecAlerts,
+            ShowNumbers: opt.ShowNumbers,
+            ShowCompare: compare, CompareLabel: CompareLabelOf(opt.ComparePeriod));
 
         async Task<CeoNumbers> Fin(DateTime s, DateTime e, string label)
         {
@@ -294,11 +369,34 @@ public class CeoBriefWorkflow : IScheduledWorkflow
     /// phải 01/02 + 30 ngày = 03/03 (tràn sang tháng 3, ăn trùng cả kỳ này).</para>
     /// </summary>
     internal static (DateTime Start, DateTime End) PrevPeriod(DateTime todayLocal)
+        => ShiftPeriod(todayLocal, months: -1);
+
+    /// <summary>
+    /// Khoảng CÙNG KỲ theo lựa chọn của công ty. "none" trả về khoảng tháng trước cho có giá trị,
+    /// nhưng nơi gọi sẽ không lấy số của nó.
+    ///
+    /// <para>Vì sao cho chọn năm trước: công ty du lịch theo mùa. So tháng 6 với tháng 5 thì mùa hè
+    /// nào cũng "tăng mạnh", còn tháng 9 với tháng 8 thì năm nào cũng "giảm sâu" — đọc lên không
+    /// biết được gì. So cùng kỳ năm trước mới thấy thật sự hơn hay kém.</para>
+    /// </summary>
+    internal static (DateTime Start, DateTime End) ComparePeriodRange(DateTime todayLocal, string mode)
+        => mode == "prev-year" ? ShiftPeriod(todayLocal, months: -12) : ShiftPeriod(todayLocal, months: -1);
+
+    /// Dời kỳ đi N tháng, giữ nguyên "từ mùng 1 tới ngày tương ứng".
+    /// Ngày bị KẸP vào cuối tháng đích: hôm nay 31/03 thì kỳ trước là 01/02–28/02, không phải
+    /// 01/02 + 30 ngày = 03/03 (tràn sang tháng 3, ăn trùng cả kỳ này).
+    private static (DateTime Start, DateTime End) ShiftPeriod(DateTime todayLocal, int months)
     {
-        var prevStart = new DateTime(todayLocal.Year, todayLocal.Month, 1).AddMonths(-1);
-        var day = Math.Min(todayLocal.Day, DateTime.DaysInMonth(prevStart.Year, prevStart.Month));
-        return (prevStart, prevStart.AddDays(day - 1));
+        var start = new DateTime(todayLocal.Year, todayLocal.Month, 1).AddMonths(months);
+        var day = Math.Min(todayLocal.Day, DateTime.DaysInMonth(start.Year, start.Month));
+        return (start, start.AddDays(day - 1));
     }
+
+    internal static string CompareLabelOf(string mode) => mode switch
+    {
+        "prev-year" => "so cùng kỳ năm trước",
+        _ => "so cùng kỳ tháng trước",
+    };
 
     /// <summary>
     /// Đọc 3 số chính từ envelope financial-summary.

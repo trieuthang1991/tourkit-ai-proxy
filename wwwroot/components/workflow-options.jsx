@@ -158,6 +158,37 @@
       { key: 'maxItems', type: 'number', label: 'Tối đa số việc trong bản tin', showIf: 'useAi', default: 7, min: 3, max: 20,
         hint: 'Bản tin dài thì không ai đọc hết, mà đọc không hết thì mục quan trọng cũng bị bỏ qua. 5–7 việc là vừa một buổi sáng.' },
     ],
+    // Bản tin điều hành. Trước 14/08 tác vụ này KHÔNG đọc tuỳ chọn nào — luôn so cùng kỳ tháng
+    // trước, luôn in đủ 6 dòng, luôn gọi AI. Hằng số nghĩa là đoán hộ mọi công ty.
+    // ⚠️ default PHẢI khớp CeoBriefWorkflow.ParseOptions bên C#.
+    'ceo-brief': [
+      // ── Kỳ so sánh ──
+      { key: 'comparePeriod', type: 'select', label: 'So sánh với', default: 'prev-month',
+        options: [
+          { value: 'prev-month', label: 'Cùng kỳ tháng trước' },
+          { value: 'prev-year',  label: 'Cùng kỳ năm trước' },
+          { value: 'none',       label: 'Không so sánh' },
+        ],
+        hint: 'Du lịch theo mùa nên "so tháng trước" dễ đánh lừa: hè thì tháng nào cũng tăng mạnh, tháng 9 thì năm nào cũng giảm sâu. So cùng kỳ NĂM trước mới thấy thật sự hơn hay kém. Chọn "không so sánh" nếu chỉ cần con số tuyệt đối.' },
+
+      // ── Đưa thêm mục nào vào bản tin ──
+      { key: 'secSellers', type: 'bool', label: 'Top nhân viên bán hàng', default: true,
+        hint: 'Xếp hạng doanh số từ đầu tháng tới hôm nay.' },
+      { key: 'sellerCount', type: 'number', label: 'Lấy mấy người đầu bảng', showIf: 'secSellers',
+        default: 3, min: 1, max: 10 },
+      { key: 'secNewDeals', type: 'bool', label: 'Cơ hội mới hôm qua', default: true,
+        hint: 'Số cơ hội bán hàng được tạo trong ngày hôm qua — nhịp vào của đầu phễu.' },
+      { key: 'secAppointments', type: 'bool', label: 'Lịch hẹn hôm nay', default: true,
+        hint: 'Số cuộc hẹn trong ngày, kèm số tồn đọng quá hạn. LƯU Ý: số tồn đọng là tích luỹ từ trước tới nay nên ở CRM dùng lâu có thể lên hàng nghìn — tắt nếu thấy gây nhiễu.' },
+      { key: 'secAlerts', type: 'bool', label: 'Cảnh báo thanh toán đang mở', default: true,
+        hint: 'Số cảnh báo tour sắp khởi hành mà khách chưa trả đủ. Cần bật tác vụ "Canh thanh toán trước khởi hành" thì mới có số.' },
+
+      // ── Cách trình bày ──
+      { key: 'useAi', type: 'bool', label: 'AI viết lời', default: true,
+        hint: 'Bật: AI đọc số rồi viết 5–8 câu tổng kết (tốn khoảng 1 lượt AI mỗi lần gửi). Tắt: in thẳng bảng số, không tốn lượt nào. Số luôn do máy chủ tính — AI không bao giờ tự tính, nên bật hay tắt cũng không đổi con số.' },
+      { key: 'showNumbers', type: 'bool', label: 'Đính bảng số dưới bài viết', default: true, showIf: 'useAi',
+        hint: 'Giữ bật thì đọc xong lời văn còn đối chiếu được ngay với số gốc. Tắt thì bản tin gọn hơn nhưng phải tin AI suông.' },
+    ],
     'customer-auto-review': [
       { key: 'createdWithinDays', type: 'number', label: 'Chỉ khách tạo trong (ngày)', default: 30, min: 1, max: 365,
         hint: 'Chỉ review khách được tạo trong khoảng ngày gần đây này. Khách cũ hơn được bỏ qua ở lần review đầu.' },
@@ -189,6 +220,13 @@
       secAppointments: '⑤ Các mục chỉ bật/tắt',
       secPayments: '⑤ Các mục chỉ bật/tắt', secVips: '⑤ Các mục chỉ bật/tắt', secMailbox: '⑤ Các mục chỉ bật/tắt',
       useAi: '⑥ Cách trình bày', maxItems: '⑥ Cách trình bày',
+    },
+    'ceo-brief': {
+      comparePeriod: '① Kỳ so sánh',
+      secSellers: '② Đưa thêm vào bản tin', sellerCount: '② Đưa thêm vào bản tin',
+      secNewDeals: '② Đưa thêm vào bản tin', secAppointments: '② Đưa thêm vào bản tin',
+      secAlerts: '② Đưa thêm vào bản tin',
+      useAi: '③ Cách trình bày', showNumbers: '③ Cách trình bày',
     },
     'customer-auto-review': {
       createdWithinDays: 'Phạm vi',

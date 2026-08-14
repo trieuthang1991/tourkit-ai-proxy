@@ -8,9 +8,18 @@ public record CeoNumbers(decimal Revenue, decimal Expense, decimal Profit);
 /// <param name="TodayAppointments">Lịch hẹn CSKH hôm nay của cả công ty.</param>
 /// <param name="OverdueAppointments">Lịch hẹn đã quá hạn mà chưa xử lý — con số này mới là
 /// thứ giám đốc cần thấy: hẹn nhiều mà quá hạn nhiều nghĩa là đội đang không theo kịp.</param>
+/// <param name="ShowCompare">Có in phần trăm so kỳ trước không. Tắt khi công ty chọn "không so sánh"
+/// — kỳ trước lúc đó không được lấy, in "n/a" khắp nơi thì đọc như hệ thống hỏng.</param>
+/// <param name="CompareLabel">Gọi tên kỳ so sánh cho đúng ("so cùng kỳ tháng trước" / "so cùng kỳ
+/// năm trước"). Nhãn cứng sẽ NÓI SAI ngay khi công ty đổi kỳ so sánh.</param>
+/// <param name="ShowNumbers">Đính bảng số dưới bài AI viết. Tắt thì bản tin chỉ còn lời văn —
+/// gọn hơn nhưng mất chỗ đối chiếu, nên mặc định bật.</param>
 public record CeoBriefData(CeoNumbers ThisMtd, CeoNumbers PrevMtd, List<string> TopSellers,
     int NewDealsYesterday, int OpenPaymentAlerts,
-    int TodayAppointments = 0, int OverdueAppointments = 0);
+    int TodayAppointments = 0, int OverdueAppointments = 0,
+    bool ShowSellers = true, bool ShowNewDeals = true, bool ShowAppointments = true,
+    bool ShowAlerts = true, bool ShowNumbers = true,
+    bool ShowCompare = true, string CompareLabel = "so cùng kỳ tháng trước");
 
 /// <summary>
 /// Dựng bản tin điều hành cho giám đốc.
@@ -55,14 +64,28 @@ public static class CeoBriefBuilder
         return s;
     }
 
-    private static string NumbersBlock(CeoBriefData d) => new StringBuilder()
-        .AppendLine($"- Doanh thu: {Vnd(d.ThisMtd.Revenue)} ({PctChange(d.ThisMtd.Revenue, d.PrevMtd.Revenue)} so cùng kỳ tháng trước)")
-        .AppendLine($"- Chi phí: {Vnd(d.ThisMtd.Expense)} ({PctChange(d.ThisMtd.Expense, d.PrevMtd.Expense)})")
-        .AppendLine($"- Lợi nhuận: {Vnd(d.ThisMtd.Profit)} ({PctChange(d.ThisMtd.Profit, d.PrevMtd.Profit)})")
-        .AppendLine($"- Cơ hội mới hôm qua: {d.NewDealsYesterday} · Cảnh báo thanh toán đang mở: {d.OpenPaymentAlerts}")
-        .AppendLine($"- Lịch hẹn hôm nay: {AppointmentLine(d)}")
-        .AppendLine($"- Top nhân viên bán hàng từ đầu tháng: {(d.TopSellers.Count > 0 ? string.Join("; ", d.TopSellers.Take(3)) : "n/a")}")
-        .ToString().TrimEnd();
+    /// Bảng số — chỉ in những mục công ty chọn đưa vào bản tin. Mục bị tắt thì KHÔNG lấy số nên
+    /// cũng không được in: in "0" cho một mục không lấy là nói dối, người đọc tưởng thật sự bằng 0.
+    private static string NumbersBlock(CeoBriefData d)
+    {
+        var sb = new StringBuilder();
+        string Cmp(decimal cur, decimal prev, bool withLabel = false)
+            => d.ShowCompare ? $" ({PctChange(cur, prev)}{(withLabel ? " " + d.CompareLabel : "")})" : "";
+
+        sb.AppendLine($"- Doanh thu: {Vnd(d.ThisMtd.Revenue)}{Cmp(d.ThisMtd.Revenue, d.PrevMtd.Revenue, true)}");
+        sb.AppendLine($"- Chi phí: {Vnd(d.ThisMtd.Expense)}{Cmp(d.ThisMtd.Expense, d.PrevMtd.Expense)}");
+        sb.AppendLine($"- Lợi nhuận: {Vnd(d.ThisMtd.Profit)}{Cmp(d.ThisMtd.Profit, d.PrevMtd.Profit)}");
+
+        // Hai số này trước nằm chung một dòng; tách ra để tắt riêng từng cái mà dòng không bị cụt
+        // kiểu "Cơ hội mới hôm qua: 3 · " .
+        if (d.ShowNewDeals) sb.AppendLine($"- Cơ hội mới hôm qua: {d.NewDealsYesterday}");
+        if (d.ShowAlerts) sb.AppendLine($"- Cảnh báo thanh toán đang mở: {d.OpenPaymentAlerts}");
+        if (d.ShowAppointments) sb.AppendLine($"- Lịch hẹn hôm nay: {AppointmentLine(d)}");
+        if (d.ShowSellers)
+            sb.AppendLine($"- Top nhân viên bán hàng từ đầu tháng: {(d.TopSellers.Count > 0 ? string.Join("; ", d.TopSellers) : "n/a")}");
+
+        return sb.ToString().TrimEnd();
+    }
 
     public static string BuildPrompt(CeoBriefData d, DateTime todayLocal) =>
         $"Bạn là trợ lý điều hành cho giám đốc công ty du lịch. Hôm nay {todayLocal:dd/MM/yyyy}.\n" +
@@ -76,14 +99,20 @@ public static class CeoBriefBuilder
         // Chi phí 0đ là chuyện thật ở công ty chưa ghi nhận chi phí vào CRM (đã gặp lần chạy thật) —
         // AI mà tự suy "không phát sinh chi phí" thì thành kết luận sai về hoạt động kinh doanh.
         "Nếu chi phí bằng 0, hiểu là CHƯA GHI NHẬN trong hệ thống, không được kết luận là công ty " +
-        "không phát sinh chi phí hay lãi trọn doanh thu.\n\n" +
-        NumbersBlock(d);
+        "không phát sinh chi phí hay lãi trọn doanh thu.\n" +
+        // Công ty tắt so sánh kỳ trước → prompt không có phần trăm nào. Không dặn thì AI vẫn viết
+        // "tăng so với tháng trước" theo thói quen, tức là bịa ra một so sánh không có số.
+        (d.ShowCompare ? "" : "Bộ số này KHÔNG có kỳ so sánh — tuyệt đối không viết tăng/giảm so với kỳ trước.\n") +
+        "\n" + NumbersBlock(d);
 
     public static DigestMessage RenderFallback(CeoBriefData d, DateTime todayLocal)
         => Wrap(NumbersBlock(d), todayLocal);
 
     public static DigestMessage WrapAiReply(string aiProse, CeoBriefData d, DateTime todayLocal)
-        => Wrap(aiProse.Trim() + "\n\n**Số liệu:**\n" + NumbersBlock(d), todayLocal);
+        => Wrap(d.ShowNumbers
+                    ? aiProse.Trim() + "\n\n**Số liệu:**\n" + NumbersBlock(d)
+                    : aiProse.Trim(),
+                todayLocal);
 
     private static DigestMessage Wrap(string bodyMd, DateTime todayLocal)
         => new($"Bản tin điều hành {todayLocal:dd/MM}", bodyMd,

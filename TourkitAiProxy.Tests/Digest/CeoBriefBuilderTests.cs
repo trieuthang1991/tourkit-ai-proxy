@@ -65,13 +65,72 @@ public class CeoBriefBuilderTests
         Assert.Contains("n/a", CeoBriefBuilder.RenderFallback(d, Today).BodyMarkdown);
     }
 
+    /// Mức trần số nhân viên nay là CẤU HÌNH (sellerCount), cắt ở lúc lấy số trong
+    /// CeoBriefWorkflow — builder in đủ những gì được đưa. Cắt ở cả hai nơi thì công ty
+    /// đặt 5 người vẫn chỉ thấy 3, mà nhìn cấu hình không hiểu vì sao.
     [Fact]
-    public void Chi_lay_toi_da_3_top_seller()
+    public void In_du_danh_sach_nhan_vien_duoc_dua_vao()
     {
         var d = Data() with { TopSellers = new() { "A", "B", "C", "D", "E" } };
         var md = CeoBriefBuilder.RenderFallback(d, Today).BodyMarkdown;
-        Assert.Contains("C", md);
-        Assert.DoesNotContain("; D", md);
+        Assert.Contains("; D", md);
+        Assert.Contains("; E", md);
+    }
+
+    [Fact]
+    public void Muc_bi_tat_thi_KHONG_in_ra()
+    {
+        var d = Data() with
+        {
+            ShowSellers = false, ShowNewDeals = false,
+            ShowAppointments = false, ShowAlerts = false,
+        };
+        var md = CeoBriefBuilder.RenderFallback(d, Today).BodyMarkdown;
+        // 3 số tài chính là phần lõi, luôn còn
+        Assert.Contains("Doanh thu", md);
+        Assert.Contains("Lợi nhuận", md);
+        // Mục tắt thì biến mất hẳn — in "0" cho một mục không lấy số là nói dối
+        Assert.DoesNotContain("Top nhân viên", md);
+        Assert.DoesNotContain("Cơ hội mới", md);
+        Assert.DoesNotContain("Lịch hẹn", md);
+        Assert.DoesNotContain("Cảnh báo thanh toán", md);
+    }
+
+    [Fact]
+    public void Tat_so_sanh_thi_khong_con_phan_tram_nao()
+    {
+        var d = Data() with { ShowCompare = false };
+        var md = CeoBriefBuilder.RenderFallback(d, Today).BodyMarkdown;
+        Assert.DoesNotContain("%", md);
+        Assert.DoesNotContain("so cùng kỳ", md);
+        Assert.Contains("Doanh thu", md);
+    }
+
+    /// Tắt so sánh mà không dặn thì AI vẫn viết "tăng so với tháng trước" theo thói quen —
+    /// tức là bịa ra một so sánh không hề có số.
+    [Fact]
+    public void Tat_so_sanh_thi_prompt_cam_AI_noi_tang_giam()
+    {
+        var p = CeoBriefBuilder.BuildPrompt(Data() with { ShowCompare = false }, Today);
+        Assert.Contains("KHÔNG có kỳ so sánh", p);
+    }
+
+    [Fact]
+    public void Doi_ky_so_sanh_thi_nhan_doi_theo()
+    {
+        var d = Data() with { CompareLabel = "so cùng kỳ năm trước" };
+        var md = CeoBriefBuilder.RenderFallback(d, Today).BodyMarkdown;
+        Assert.Contains("so cùng kỳ năm trước", md);
+        Assert.DoesNotContain("so cùng kỳ tháng trước", md);
+    }
+
+    [Fact]
+    public void Tat_bang_so_thi_bai_AI_dung_mot_minh()
+    {
+        var m = CeoBriefBuilder.WrapAiReply("Doanh thu tháng này khả quan.",
+            Data() with { ShowNumbers = false }, Today);
+        Assert.Contains("khả quan", m.BodyMarkdown);
+        Assert.DoesNotContain("Số liệu:", m.BodyMarkdown);
     }
 
     [Fact]
