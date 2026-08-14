@@ -120,6 +120,44 @@ public static class MailEndpoints
             });
         });
 
+        // ─── POST /mail/refresh-content ─── đọc lại nội dung thư ĐÃ CÓ ──────────
+        // Bản sửa bóc thư (thư chuyển tiếp dạng đính kèm, tên tệp đính kèm) chỉ áp dụng LÚC KÉO VỀ,
+        // nên thư đã nằm trong hộp vẫn giữ nội dung hỏng — mà đó đúng là những thư người dùng đang
+        // nhìn. Đường này kéo lại N thư mới nhất từ IMAP và ghi đè phần thân thư.
+        // KHÔNG gọi AI (giữ nguyên nhóm đã phân loại) → không tốn lượt.
+        v1.MapPost("/mail/refresh-content", async (
+            MailSyncService sync, MailRepository repo, TkSessionStore sessions,
+            ILogger<Program> log, HttpContext ctx, int? max) =>
+        {
+            var auth = RequireSession(ctx, sessions);
+            if (auth == null) return Unauthorized();
+            var (_, tenant, user) = auth.Value;
+            var fetchCap = Math.Clamp(max ?? SyncMaxDefault, 1, SyncMaxAbsolute);
+
+            MailSyncResult result;
+            try
+            {
+                result = await sync.RunAsync(tenant, user, fetchCap, ctx.RequestAborted, refreshContent: true);
+            }
+            catch (InvalidOperationException ex)   // chưa cấu hình
+            {
+                return Results.Json(new { error = ex.Message }, statusCode: 400);
+            }
+            catch (Exception ex)
+            {
+                log.LogError(ex, "IMAP đọc lại nội dung lỗi");
+                return Results.Json(new { error = ex.Message }, statusCode: 502);
+            }
+
+            return Results.Json(new
+            {
+                items = repo.Filter(tenant, null, null, null),
+                counts = repo.Counts(tenant),
+                refreshed = result.Refreshed,
+                fetched = result.Fetched,
+            });
+        });
+
         // ─── POST /mail/sync/stream ────────────────────────────────────────────
         // SSE — stream progress để frontend hiện thanh tiến độ thay vì spinner mơ hồ.
         // Events: {stage:"fetching"} → {stage:"classifying", current, total, subject}

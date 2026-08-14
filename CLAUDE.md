@@ -155,6 +155,7 @@ data/
 | GET    | `/api/v1/mail`                    | list + filter (`status`, `category`, `search`) + counts |
 | GET    | `/api/v1/mail/{id}`               | chi tiết 1 email                                     |
 | POST   | `/api/v1/mail/{id}/read`          | đánh dấu đã đọc (khi mở email)                        |
+| POST   | `/api/v1/mail/refresh-content`    | đọc lại nội dung thư ĐÃ CÓ từ IMAP `?max=` → `{items, counts, refreshed, fetched}`; giữ nhóm/trạng thái/nháp, KHÔNG tốn lượt AI |
 | POST   | `/api/v1/mail/{id}/reclassify`    | phân loại lại 1 email đã lưu → `{ok, before, after, summary, changed}`; giữ nguyên trạng thái xử lý/nháp |
 | POST   | `/api/v1/mail/{id}/reply/draft`   | SSE: stream nháp trả lời theo `{tone, instruction}`  |
 | POST   | `/api/v1/mail/{id}/reply/send`    | gửi nháp (đã sửa) cho khách qua SMTP Gmail → status `da_phan_hoi` |
@@ -324,8 +325,8 @@ Gmail inbox synced on demand, AI-classified, with AI-drafted replies. Flow lives
   phần VỎ ngoài. Gmail bấm "Chuyển tiếp" thì chèn nội tuyến (không sao), nhưng Outlook + nhiều app
   doanh nghiệp đính kèm thư gốc dạng `message/rfc822` → vỏ rỗng → **mở lên trắng trơn**. `MailMapper`
   nay duyệt đệ quy `MessagePart` (chặn 5 lớp / 10 thư) và ghép nội dung bên trong kèm dòng phân cách.
-  ⚠️ Chỉ áp dụng cho thư kéo về TỪ NAY — thư cũ đã lưu Body/BodyHtml theo bản cũ, `reclassify` KHÔNG
-  chữa được (nó chỉ chạy lại AI trên body đã lưu); muốn chữa phải kéo lại từ IMAP.
+  ⚠️ Chỉ áp dụng LÚC BÓC thư — thư cũ đã lưu Body/BodyHtml theo bản cũ, `reclassify` KHÔNG chữa được
+  (nó chỉ chạy lại AI trên body đã lưu). Chữa bằng `POST /api/v1/mail/refresh-content` (dưới).
 - **Đính kèm: BÁO TÊN, chưa tải được file.** `MailMapper` ghép dòng `📎 Tệp đính kèm: …` vào CHÍNH
   thân thư (cả text lẫn HTML) — cố ý KHÔNG thêm cột vào `dbo.Mails` (bảng cũ). Gom cả tệp của thư
   lồng bên trong, vì thư chuyển tiếp thường đính kèm ở lớp trong. **Bỏ qua phần `inline`** (logo chữ
@@ -340,6 +341,13 @@ Gmail inbox synced on demand, AI-classified, with AI-drafted replies. Flow lives
   theo người gửi** — bản đầu viết "máy gửi từ dịch vụ đang dùng → không bao giờ spam" thì **quảng cáo
   Grab cũng thoát khỏi spam**, tức là nhóm `spam` rỗng dần trong im lặng. Sửa lớp này thì phải đo **cả
   hai chiều** (thông báo rời spam VÀ quảng cáo ở lại spam), đo một chiều sẽ kết luận sai.
+- **`POST /mail/refresh-content`** — kéo lại N thư mới nhất từ IMAP (`ignoreCursor: true` → bỏ mốc
+  UID) và **ghi đè Body/BodyHtml** cho thư ĐÃ có. Cần vì phần bóc thư chỉ chạy lúc kéo về, nên mọi bản
+  sửa `MailMapper` đều không tự áp dụng cho thư đang nằm trong hộp — mà đó đúng là thư người dùng đang
+  nhìn. `MailSyncService.MergeForContentRefresh` (pure, có test) **giữ nguyên** `Category`/`AiSummary`/
+  `Status`/`Draft`/`IsRead`/`AutoReplyError`: đè chúng đi là nhân viên mất nháp viết dở và thư đang xử
+  lý bị đẩy về "mới" — tệ hơn cái đang định chữa. KHÔNG gọi AI → **0 lượt**. Chạy thật trên staging:
+  30 thư, nhóm/trạng thái không đổi một dòng nào.
 - **`POST /mail/{id}/reclassify`** — phân loại chỉ chạy MỘT LẦN lúc kéo thư về, nên sửa classifier xong
   thư cũ vẫn giữ nhãn sai vĩnh viễn. Endpoint này chạy lại cho 1 thư, **giữ nguyên** `Status`/`Draft`/
   `IsRead` (đẩy thư đang xử lý về "mới" là mất việc đang làm dở). CỐ Ý không có bản chạy hàng loạt —

@@ -355,6 +355,7 @@ function MailPage({ pushToast }) {
   const [drafting, setDrafting] = _mS(false);
   const [sending, setSending] = _mS(false);
   const [reclassifying, setReclassifying] = _mS(false);
+  const [refreshingContent, setRefreshingContent] = _mS(false);
 
   const sel = items.find(m => m.id === selId) || null;
 
@@ -502,6 +503,27 @@ function MailPage({ pushToast }) {
     } catch (e) { pushToast(e.message, 'error'); }
   }
 
+  // Đọc lại nội dung các email ĐÃ CÓ. Cần vì phần bóc thư chỉ chạy lúc kéo về: bản sửa cho thư
+  // chuyển tiếp / tệp đính kèm không tự áp dụng cho thư đã nằm trong hộp.
+  // KHÔNG gọi AI (giữ nguyên nhóm đã phân loại) nên không tốn lượt.
+  async function refreshContent() {
+    if (refreshingContent || syncing) return;
+    setRefreshingContent(true);
+    try {
+      const r = await window.tourkitAuth.authedFetch('/api/v1/mail/refresh-content', { method: 'POST' });
+      const d = await r.json().catch(() => ({}));
+      if (!r.ok) { pushToast(d.error || `Tải lại nội dung lỗi (${r.status})`, 'error'); return; }
+      if (Array.isArray(d.items)) setItems(d.items);
+      if (d.counts) setCounts(d.counts);
+      // Email đang mở phải nạp lại chi tiết, không thì vẫn hiện nội dung cũ.
+      if (selId) selectMail(selId);
+      pushToast(d.refreshed > 0
+        ? `Đã đọc lại nội dung ${d.refreshed} email`
+        : 'Không có email nào cần đọc lại', d.refreshed > 0 ? 'success' : 'info');
+    } catch (e) { pushToast('Tải lại nội dung lỗi: ' + e.message, 'error'); }
+    finally { setRefreshingContent(false); }
+  }
+
   // Phân loại lại 1 email. Cần vì phân loại chỉ chạy MỘT LẦN lúc kéo thư về — xếp nhầm là chịu,
   // và bộ phân loại có được cải thiện thì thư cũ vẫn giữ nguyên nhãn sai.
   async function reclassify(id) {
@@ -617,7 +639,13 @@ function MailPage({ pushToast }) {
           <button className="mail-btn outline" onClick={() => setShowCompose(true)}>
             <Icon name="sparkle" size={14} /> Soạn thư mới
           </button>
-          <button className="mail-btn primary" onClick={sync} disabled={syncing}>
+          {/* Đọc lại nội dung: dành cho thư CŨ bị lưu thiếu nội dung (thư chuyển tiếp, tệp đính kèm).
+              Để ghost vì đây là việc chữa cháy một lần, không phải thao tác hằng ngày như Đồng bộ. */}
+          <button className="mail-btn ghost" onClick={refreshContent} disabled={syncing || refreshingContent}
+            title="Tải lại nội dung các email đã có (dùng khi email chuyển tiếp hiện thiếu nội dung). Không tốn lượt AI.">
+            {refreshingContent ? 'Đang tải lại…' : '↻ Đọc lại nội dung'}
+          </button>
+          <button className="mail-btn primary" onClick={sync} disabled={syncing || refreshingContent}>
             <Icon name="paper" size={14} /> {syncing ? 'Đang đồng bộ…' : 'Đồng bộ'}
           </button>
         </>}

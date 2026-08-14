@@ -53,8 +53,9 @@ Những cập nhật gần đây của TRAV-AI, viết cho người dùng. Mới
   khách — sắp bước vào gặp mà báo lỗi trắng thì không giúp được gì.
 - Những email đã tải về từ trước vẫn giữ nhóm cũ. Muốn sửa thì cho phân loại lại từng email — hệ thống
   cố ý không tự chạy lại toàn bộ hộp thư vì mỗi email tốn một lượt AI.
-- Việc đọc được email chuyển tiếp chỉ áp dụng cho **email tải về từ nay trở đi**. Những email chuyển
-  tiếp đã nằm sẵn trong hộp thư vẫn hiện như cũ, vì nội dung của chúng đã được lưu từ lần tải trước.
+- Email chuyển tiếp **đã nằm sẵn trong hộp thư** thì bấm **↻ Đọc lại nội dung** ở đầu trang một lần —
+  hệ thống tải lại nội dung từ Gmail cho các email cũ. Nhóm phân loại, trạng thái xử lý và nháp bạn
+  đang soạn được giữ nguyên, và thao tác này **không tốn lượt AI** nào.
 - Hộp thư AI **chưa mở/tải được tệp đính kèm** — mới chỉ cho biết là có tệp và tên tệp. Nội dung nằm
   trong tệp Excel/PDF thì bạn vẫn phải mở bằng Gmail.
 

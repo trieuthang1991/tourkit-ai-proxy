@@ -39,7 +39,8 @@ public class GmailImapClient : IMailSource
         _account = account; _sync = sync; _log = log;
     }
 
-    public async Task<IReadOnlyList<MailItem>> FetchRecentAsync(string tenantId, string username, int max, CancellationToken ct)
+    public async Task<IReadOnlyList<MailItem>> FetchRecentAsync(
+        string tenantId, string username, int max, CancellationToken ct, bool ignoreCursor = false)
     {
         // Creds + sync state scoped theo (tenant, user) — không leak cross-tenant, cũng không leak cross-user.
         var creds = _account.Get(tenantId, username);
@@ -57,7 +58,7 @@ public class GmailImapClient : IMailSource
                 await Task.Delay(TimeSpan.FromSeconds(2 * attempt), ct);   // backoff: 2s, 4s
             try
             {
-                return await FetchOnceAsync(tenantId, address, appPassword, max, ct);
+                return await FetchOnceAsync(tenantId, address, appPassword, max, ct, ignoreCursor);
             }
             catch (Exception ex) when (IsTransient(ex) && !ct.IsCancellationRequested)
             {
@@ -71,7 +72,8 @@ public class GmailImapClient : IMailSource
 
     /// 1 lần kết nối + kéo. Tách riêng để retry wrapper gọi lại sạch.
     private async Task<IReadOnlyList<MailItem>> FetchOnceAsync(
-        string tenantId, string address, string appPassword, int max, CancellationToken ct)
+        string tenantId, string address, string appPassword, int max, CancellationToken ct,
+        bool ignoreCursor = false)
     {
         using var client = new ImapClient { Timeout = 60_000 };   // 60s — tránh treo vô hạn
         var items = new List<MailItem>();
@@ -95,7 +97,8 @@ public class GmailImapClient : IMailSource
             }
             var globalMax = allUids.Max(u => u.Id);
 
-            bool incremental = state != null && state.UidValidity == uidValidity && state.LastUid > 0;
+            // ignoreCursor → đi nhánh "newest max" y như lần đầu, tức kéo lại chính những thư đã có.
+            bool incremental = !ignoreCursor && state != null && state.UidValidity == uidValidity && state.LastUid > 0;
             List<UniqueId> toFetch = incremental
                 // CŨ→MỚI, CAP max → drain backlog dần; resume đúng nhờ checkpoint tăng dần.
                 ? allUids.Where(u => u.Id > state!.LastUid).OrderBy(u => u.Id).Take(max).ToList()
