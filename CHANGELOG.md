@@ -37,13 +37,22 @@ Những cập nhật gần đây của TRAV-AI, viết cho người dùng. Mới
   cả **bản tin sáng của chính TRAV-AI** — từng bị xếp vào *Spam* và nằm im ở đó. Nay chúng vào *Khác*
   để bạn vẫn nhìn thấy. Ngược lại, thư quảng cáo vẫn nằm đúng chỗ trong *Spam*.
 - **🔁 Sửa được nhóm của một email đã phân loại sai.** Trước đây mỗi email chỉ được phân loại đúng một
-  lần lúc tải về, xếp nhầm là chịu. Nay bạn có thể cho phân loại lại email đó.
+  lần lúc tải về, xếp nhầm là chịu. Nay mở email lên, bấm **↻ Phân loại lại** ngay cạnh tên nhóm.
+- **📨 Email chuyển tiếp không còn mở ra trắng trơn.** Khi ai đó chuyển tiếp thư cho bạn theo kiểu
+  *đính kèm nguyên thư gốc* (Outlook và nhiều phần mềm công ty làm vậy), Hộp thư AI chỉ hiện phần vỏ —
+  thường là trống — nên nhìn như email lỗi. Nay nội dung thư gốc được hiện đầy đủ bên dưới một dòng
+  phân cách ghi rõ ai gửi, ngày nào, tiêu đề gì; thư chuyển tiếp qua nhiều người vẫn đọc được tới thư
+  trong cùng.
 
 ### 📌 Lưu ý
 - Nếu trợ lý chưa viết được phần gợi ý (mạng lỗi, hết lượt AI), bạn vẫn thấy đầy đủ dữ liệu thô về
   khách — sắp bước vào gặp mà báo lỗi trắng thì không giúp được gì.
 - Những email đã tải về từ trước vẫn giữ nhóm cũ. Muốn sửa thì cho phân loại lại từng email — hệ thống
   cố ý không tự chạy lại toàn bộ hộp thư vì mỗi email tốn một lượt AI.
+- Việc đọc được email chuyển tiếp chỉ áp dụng cho **email tải về từ nay trở đi**. Những email chuyển
+  tiếp đã nằm sẵn trong hộp thư vẫn hiện như cũ, vì nội dung của chúng đã được lưu từ lần tải trước.
+- Hộp thư AI vẫn **chưa hiển thị tệp đính kèm**. Nếu người gửi để nội dung trong tệp Excel/PDF, bạn sẽ
+  chỉ đọc được phần chữ trong thư.
 
 ---
 

@@ -1,3 +1,4 @@
+using System.Text;
 using System.Text.RegularExpressions;
 using MimeKit;
 using TourkitAiProxy.Models;
@@ -16,6 +17,27 @@ public static class MailMapper
         var body = msg.TextBody;
         if (string.IsNullOrWhiteSpace(body) && !string.IsNullOrWhiteSpace(html))
             body = HtmlToText(html);   // text sạch (cho AI phân loại/soạn + tìm kiếm + fallback hiển thị)
+
+        // Thư CHUYỂN TIẾP DẠNG ĐÍNH KÈM: thư gốc nằm trong một phần `message/rfc822`, còn vỏ ngoài
+        // thường rỗng — `msg.HtmlBody`/`msg.TextBody` chỉ trả phần vỏ nên mở lên thấy TRẮNG.
+        // (Gmail bấm "Chuyển tiếp" thì chèn nội tuyến, không dính; Outlook và nhiều app doanh nghiệp
+        // thì đính kèm.) Ghép nội dung bên trong vào để đọc được.
+        foreach (var inner in NestedMessages(msg))
+        {
+            var iHtml = inner.HtmlBody;
+            var iText = inner.TextBody;
+            if (string.IsNullOrWhiteSpace(iText) && !string.IsNullOrWhiteSpace(iHtml))
+                iText = HtmlToText(iHtml);
+            if (string.IsNullOrWhiteSpace(iText) && string.IsNullOrWhiteSpace(iHtml)) continue;
+
+            body = Join(body, ForwardHeaderText(inner), iText);
+            if (!string.IsNullOrWhiteSpace(iHtml))
+                html = Join(html, ForwardHeaderHtml(inner), iHtml);
+            else if (!string.IsNullOrWhiteSpace(html))
+                // Vỏ có HTML mà thư trong chỉ có text → vẫn phải nối vào, không thì khung HTML hiển
+                // thị thiếu đúng phần nội dung.
+                html = Join(html, ForwardHeaderHtml(inner), "<pre>" + Escape(iText) + "</pre>");
+        }
 
         var received = msg.Date == default ? DateTimeOffset.UtcNow : msg.Date;
 
@@ -36,6 +58,61 @@ public static class MailMapper
             IsBulk:     IsBulkMail(msg, from?.Address)
         );
     }
+
+    /// <summary>
+    /// Mọi thư nằm lồng bên trong (phần `message/rfc822`), duyệt theo chiều sâu.
+    /// Chặn ở 5 lớp: thư chuyển tiếp qua tay 5 người đã là hiếm, còn thư cố tình lồng vô hạn thì
+    /// đây là chỗ duy nhất chặn được trước khi nó ăn hết bộ nhớ lúc đồng bộ.
+    /// </summary>
+    private static List<MimeMessage> NestedMessages(MimeMessage msg)
+    {
+        var found = new List<MimeMessage>();
+        if (msg.Body != null) Walk(msg.Body, 0);
+        return found;
+
+        void Walk(MimeEntity entity, int depth)
+        {
+            if (depth > 5 || found.Count >= 10) return;
+            switch (entity)
+            {
+                case MessagePart mp when mp.Message != null:
+                    found.Add(mp.Message);
+                    if (mp.Message.Body != null) Walk(mp.Message.Body, depth + 1);
+                    break;
+                case Multipart multi:
+                    foreach (var child in multi) Walk(child, depth + 1);
+                    break;
+            }
+        }
+    }
+
+    /// Dòng phân cách cho phần chuyển tiếp — người đọc phải biết đoạn dưới là thư của người khác,
+    /// không phải lời của người gửi cho mình.
+    private static string ForwardHeaderText(MimeMessage inner)
+    {
+        var from = inner.From.Mailboxes.FirstOrDefault();
+        var sb = new StringBuilder("---------- Thư được chuyển tiếp ----------\n");
+        if (from != null) sb.Append("Từ: ").Append(from.Name ?? from.Address).Append(" <").Append(from.Address).Append(">\n");
+        if (inner.Date != default) sb.Append("Ngày: ").Append(inner.Date.ToString("dd/MM/yyyy HH:mm")).Append('\n');
+        if (!string.IsNullOrWhiteSpace(inner.Subject)) sb.Append("Tiêu đề: ").Append(inner.Subject).Append('\n');
+        return sb.ToString();
+    }
+
+    private static string ForwardHeaderHtml(MimeMessage inner)
+        => "<div style=\"margin:16px 0 8px;padding-top:12px;border-top:1px solid #ddd;color:#666;font-size:13px\">"
+           + Escape(ForwardHeaderText(inner)).Replace("\n", "<br>") + "</div>";
+
+    /// Nối các mảnh, bỏ mảnh rỗng — tránh đẻ ra một rừng dòng trống khi vỏ ngoài không có gì.
+    private static string Join(string? existing, params string[] parts)
+    {
+        var all = new List<string>();
+        if (!string.IsNullOrWhiteSpace(existing)) all.Add(existing!.TrimEnd());
+        all.AddRange(parts.Where(p => !string.IsNullOrWhiteSpace(p)));
+        return string.Join("\n\n", all);
+    }
+
+    private static string Escape(string s)
+        => s.Replace("&", "&amp;").Replace("<", "&lt;").Replace(">", "&gt;");
 
     /// Mail bulk/newsletter (gửi hàng loạt) → KHÔNG đáng tốn token phân loại AI.
     /// Tín hiệu chuẩn RFC: header List-Unsubscribe / List-Id, hoặc Precedence: bulk/list;

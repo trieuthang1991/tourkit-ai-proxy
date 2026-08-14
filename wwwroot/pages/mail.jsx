@@ -354,6 +354,7 @@ function MailPage({ pushToast }) {
   const [draft, setDraft] = _mS('');
   const [drafting, setDrafting] = _mS(false);
   const [sending, setSending] = _mS(false);
+  const [reclassifying, setReclassifying] = _mS(false);
 
   const sel = items.find(m => m.id === selId) || null;
 
@@ -499,6 +500,35 @@ function MailPage({ pushToast }) {
         return { ...c, byStatus: bs };
       });
     } catch (e) { pushToast(e.message, 'error'); }
+  }
+
+  // Phân loại lại 1 email. Cần vì phân loại chỉ chạy MỘT LẦN lúc kéo thư về — xếp nhầm là chịu,
+  // và bộ phân loại có được cải thiện thì thư cũ vẫn giữ nguyên nhãn sai.
+  async function reclassify(id) {
+    if (reclassifying) return;
+    setReclassifying(true);
+    try {
+      const r = await window.tourkitAuth.authedFetch(
+        `/api/v1/mail/${encodeURIComponent(id)}/reclassify`, { method: 'POST' });
+      if (!r.ok) { pushToast('Phân loại lại không thành công', 'error'); return; }
+      const d = await r.json();
+      // Cập nhật TẠI CHỖ như setStatus — giữ scroll + các trang đã nạp + email đang mở.
+      setItems(prev => prev.map(m => m.id === id ? { ...m, category: d.after } : m));
+      setSelDetail(prev => prev && prev.id === id ? { ...prev, category: d.after, aiSummary: d.summary } : prev);
+      // Bộ đếm theo nhóm ở thanh trái sẽ lệch nếu không dời 1 đơn vị sang nhóm mới.
+      if (d.changed) {
+        setCounts(c => {
+          const bc = { ...(c.byCategory || {}) };
+          if (d.before) bc[d.before] = Math.max(0, (bc[d.before] || 0) - 1);
+          bc[d.after] = (bc[d.after] || 0) + 1;
+          return { ...c, byCategory: bc };
+        });
+      }
+      pushToast(d.changed
+        ? `Đã chuyển sang nhóm "${_CAT_VI[d.after] || d.after}"`
+        : 'AI vẫn xếp email này vào nhóm cũ', d.changed ? 'success' : 'info');
+    } catch (e) { pushToast(e.message, 'error'); }
+    finally { setReclassifying(false); }
   }
 
   async function composeDraft() {
@@ -717,7 +747,15 @@ function MailPage({ pushToast }) {
                   </div>
                 </div>
                 <h2 className="mail-pane-subject">{sel.subject}</h2>
-                {sel.category && <span className="mail-cat-chip lg"><i className={'mail-catdot cat-' + sel.category} /> {_CAT_VI[sel.category]}</span>}
+                <div className="mail-cat-row">
+                  {sel.category && <span className="mail-cat-chip lg"><i className={'mail-catdot cat-' + sel.category} /> {_CAT_VI[sel.category]}</span>}
+                  {/* Lối thoát khi AI xếp nhầm nhóm — trước đây phân loại chỉ chạy 1 lần lúc tải thư về. */}
+                  <button type="button" className="mail-recat" disabled={reclassifying}
+                    onClick={() => reclassify(sel.id)}
+                    title="Cho AI xem lại và xếp nhóm cho email này (tốn 1 lượt AI)">
+                    {reclassifying ? 'Đang xem lại…' : '↻ Phân loại lại'}
+                  </button>
+                </div>
                 {selDetail?.aiSummary && <div className="mail-summary"><span className="mail-summary-tag">Tóm tắt AI</span> {selDetail.aiSummary}</div>}
                 {!selDetail ? (
                   <div className="mail-pane-body" style={{ color: 'var(--text-3,#94A3B8)' }}>Đang tải nội dung…</div>

@@ -320,6 +320,14 @@ Gmail inbox synced on demand, AI-classified, with AI-drafted replies. Flow lives
 - **Source = Gmail IMAP via MailKit, NOT OAuth.** `GmailImapClient` (implements `IMailSource`) connects `imap.gmail.com:993` read-only with an **App Password** (requires Gmail 2-Step Verification + IMAP enabled). The interface keeps OAuth swappable later. Creds resolved by `MailAccountStore`: DB-backed `dbo.MailAccounts` per-tenant (App Password Crypton-encrypted, never plaintext, never returned to client) entered via UI per tenant. KHÔNG còn fallback config/env (đã drop từ commit multi-tenant fix 2026-06-09).
 - **Sync is on-demand (Refresh button), not a background poller.** `POST /mail/sync` is **incremental theo UID** (`MailSyncStore` lưu `dbo.MailSyncState` per-tenant per-address `{uidValidity, lastUid}`): chỉ kéo email có UID > lần trước → KHÔNG sót dù >N email mới giữa 2 lần sync. Lần đầu/khi UidValidity đổi → kéo `max` (30) mới nhất. Cờ `\Seen` của Gmail map sang `IsRead` lúc kéo. Vẫn **classify chỉ email MỚI** (`repo.Has(id)` skip → tiết kiệm token). Email id = Message-Id (MimeKit chuẩn hóa/tự sinh), fallback `{address}:{uid}`.
 - **Đọc/chưa đọc:** `POST /mail/{id}/read` đánh dấu đã đọc khi mở; `MailCounts.Unread` cho badge. Frontend in đậm + chấm cam dòng chưa đọc.
+- **Thư CHUYỂN TIẾP DẠNG ĐÍNH KÈM** (sửa 14/08): `msg.HtmlBody`/`msg.TextBody` của MimeKit chỉ trả
+  phần VỎ ngoài. Gmail bấm "Chuyển tiếp" thì chèn nội tuyến (không sao), nhưng Outlook + nhiều app
+  doanh nghiệp đính kèm thư gốc dạng `message/rfc822` → vỏ rỗng → **mở lên trắng trơn**. `MailMapper`
+  nay duyệt đệ quy `MessagePart` (chặn 5 lớp / 10 thư) và ghép nội dung bên trong kèm dòng phân cách.
+  ⚠️ Chỉ áp dụng cho thư kéo về TỪ NAY — thư cũ đã lưu Body/BodyHtml theo bản cũ, `reclassify` KHÔNG
+  chữa được (nó chỉ chạy lại AI trên body đã lưu); muốn chữa phải kéo lại từ IMAP.
+- **Đính kèm vẫn CHƯA hỗ trợ** — `MailMapper` không đọc `Attachments`, `MailItem` không có field nào
+  cho nó. Thư mà nội dung nằm trong Excel/PDF thì người dùng không thấy gì, cũng không biết là có tệp.
 - **Phân loại: định nghĩa + luật gỡ hoà, KHÔNG chỉ tên nhóm** (sửa 14/08). Prompt cũ liệt kê trần
   `- spam: Spam` → thư máy-gửi (không phải khách, cũng không phải quảng cáo) kẹt giữa `spam`/`khac`,
   mỗi lần chọn một kiểu: soát 1.215 thư thật thấy `Thông báo có công việc mới được giao` rải **143
