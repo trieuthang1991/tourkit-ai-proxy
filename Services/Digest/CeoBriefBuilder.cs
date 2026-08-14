@@ -106,10 +106,14 @@ public static class CeoBriefBuilder
     private static string AppointmentLine(CeoBriefData d)
     {
         if (d.TodayAppointments == 0 && d.OverdueAppointments == 0) return "không có cuộc nào";
-        var s = $"{d.TodayAppointments} cuộc";
-        if (d.OverdueAppointments > 0) s += $" · tồn đọng {d.OverdueAppointments} cuộc quá hạn (tích luỹ từ trước)";
+        var s = $"{Num(d.TodayAppointments)} cuộc";
+        if (d.OverdueAppointments > 0) s += $" · tồn đọng {Num(d.OverdueAppointments)} cuộc quá hạn (tích luỹ từ trước)";
         return s;
     }
+
+    /// Số đếm cũng cần dấu phân cách nghìn: "2345 cuộc" đọc phải dừng lại đếm chữ số, trong khi
+    /// mọi số tiền quanh nó đều đã có dấu chấm — nhìn như hai nguồn khác nhau.
+    private static string Num(int v) => v.ToString("N0", Vi);
 
     /// Bảng số — chỉ in những mục công ty chọn đưa vào bản tin. Mục bị tắt thì KHÔNG lấy số nên
     /// cũng không được in: in "0" cho một mục không lấy là nói dối, người đọc tưởng thật sự bằng 0.
@@ -124,8 +128,23 @@ public static class CeoBriefBuilder
         string Say(decimal v) => forPrompt ? $" [đọc gọn: {Short(v)}]" : "";
 
         sb.AppendLine($"- Doanh thu: {Vnd(d.ThisMtd.Revenue)}{Say(d.ThisMtd.Revenue)}{Cmp(d.ThisMtd.Revenue, d.PrevMtd.Revenue, true)}");
-        sb.AppendLine($"- Chi phí: {Vnd(d.ThisMtd.Expense)}{Say(d.ThisMtd.Expense)}{Cmp(d.ThisMtd.Expense, d.PrevMtd.Expense)}");
-        sb.AppendLine($"- {ProfitLine(d.ThisMtd.Profit)}{Say(Math.Abs(d.ThisMtd.Profit))}{Cmp(d.ThisMtd.Profit, d.PrevMtd.Profit)}");
+
+        // Chi phí 0đ ở một CRM đang chạy nghĩa là CHƯA GHI NHẬN, không phải "không tốn đồng nào"
+        // (đã gặp thật ở erp.tourkit.vn). In "0đ (n/a)" thì vừa trông như lỗi hệ thống, vừa kéo theo
+        // dòng lợi nhuận bằng đúng doanh thu — đọc lướt là tưởng lãi trọn, mà đó là kết luận tài
+        // chính sai. Nói thẳng ra và gắn nhãn cho dòng lợi nhuận.
+        var noExpense = d.ThisMtd.Expense == 0;
+        if (noExpense)
+        {
+            sb.AppendLine("- Chi phí: chưa ghi nhận trong hệ thống");
+            var p = d.ThisMtd.Profit;
+            sb.AppendLine($"- Lợi nhuận (CHƯA trừ chi phí): {Vnd(p)}{Say(Math.Abs(p))}");
+        }
+        else
+        {
+            sb.AppendLine($"- Chi phí: {Vnd(d.ThisMtd.Expense)}{Say(d.ThisMtd.Expense)}{Cmp(d.ThisMtd.Expense, d.PrevMtd.Expense)}");
+            sb.AppendLine($"- {ProfitLine(d.ThisMtd.Profit)}{Say(Math.Abs(d.ThisMtd.Profit))}{Cmp(d.ThisMtd.Profit, d.PrevMtd.Profit)}");
+        }
 
         // Hai số này trước nằm chung một dòng; tách ra để tắt riêng từng cái mà dòng không bị cụt
         // kiểu "Cơ hội mới hôm qua: 3 · " .
@@ -174,6 +193,10 @@ public static class CeoBriefBuilder
         // AI mà tự suy "không phát sinh chi phí" thì thành kết luận sai về hoạt động kinh doanh.
         "Nếu chi phí bằng 0, hiểu là CHƯA GHI NHẬN trong hệ thống, không được kết luận là công ty " +
         "không phát sinh chi phí hay lãi trọn doanh thu.\n" +
+        // Nền vài chục triệu thì "+21%" chỉ là vài triệu — gọi đó là "xu hướng tích cực" nghe như
+        // công ty đang bứt tốc. Đã gặp thật ở erp: 25tr → 31tr.
+        "Nếu doanh thu kỳ này dưới 100 triệu đồng, đây là quy mô nhỏ nên phần trăm biến động ít ý " +
+        "nghĩa — nói con số tuyệt đối, đừng kết luận xu hướng mạnh chỉ dựa vào phần trăm.\n" +
         // Công ty tắt so sánh kỳ trước → prompt không có phần trăm nào. Không dặn thì AI vẫn viết
         // "tăng so với tháng trước" theo thói quen, tức là bịa ra một so sánh không có số.
         (d.ShowCompare ? "" : "Bộ số này KHÔNG có kỳ so sánh — tuyệt đối không viết tăng/giảm so với kỳ trước.\n") +

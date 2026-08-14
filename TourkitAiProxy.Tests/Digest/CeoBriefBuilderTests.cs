@@ -90,6 +90,22 @@ public class CeoBriefBuilderTests
     public void Bang_so_cho_nguoi_doc_khong_kem_doc_gon()
         => Assert.DoesNotContain("đọc gọn", CeoBriefBuilder.RenderFallback(Data(), Today).BodyMarkdown);
 
+    /// Chi phí 0đ ở CRM đang chạy = CHƯA GHI NHẬN. In "0đ (n/a)" rồi để dòng lợi nhuận bằng đúng
+    /// doanh thu khiến người đọc lướt tưởng lãi trọn — kết luận tài chính sai (gặp thật ở erp).
+    [Fact]
+    public void Chua_ghi_nhan_chi_phi_thi_noi_thang_va_gan_nhan_loi_nhuan()
+    {
+        var d = Data() with { ThisMtd = new(31_190_000m, 0m, 31_190_000m) };
+        var md = CeoBriefBuilder.RenderFallback(d, Today).BodyMarkdown;
+        Assert.Contains("Chi phí: chưa ghi nhận trong hệ thống", md);
+        Assert.Contains("Lợi nhuận (CHƯA trừ chi phí): 31.190.000đ", md);
+        Assert.DoesNotContain("Chi phí: 0đ", md);
+    }
+
+    [Fact]
+    public void Quy_mo_nho_thi_prompt_nhac_dung_ket_luan_xu_huong_tu_phan_tram()
+        => Assert.Contains("quy mô nhỏ", CeoBriefBuilder.BuildPrompt(Data(), Today));
+
     [Fact]
     public void So_am_goi_thang_la_LO()
     {
