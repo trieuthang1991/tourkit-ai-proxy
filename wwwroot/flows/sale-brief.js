@@ -12,8 +12,8 @@
     label: 'Bản tin sáng cho nhân viên bán hàng',
     note: 'Vẽ theo SaleBriefWorkflow.cs. Trả lời đúng một câu: "sáng nay tôi gọi ai trước?". Tác vụ chạy mỗi N phút rồi tự chọn ai đến giờ — giờ nhận của từng người khai ở trang Bản tin AI.',
     nodes: [
-      F.node('s1', 'trigger', F.MID, 0, { icon: 'clock', title: 'Mỗi N phút, tự chọn ai đến giờ',
-        sub: 'Giờ nhận của từng người khai ở trang Bản tin AI', cfg: ['@interval'] }),
+      F.node('s1', 'trigger', F.MID, 0, { icon: 'clock', title: 'Trước giờ nhận một chút, chuẩn bị bản tin',
+        sub: 'Chuẩn bị sớm rồi hẹn giờ gửi — đến giờ khỏi phụ thuộc lúc đó máy có rảnh không', cfg: ['@interval'] }),
       F.node('s2', 'branch', F.MID, 1, { icon: 'user', title: 'Người này từng đăng nhập chưa?',
         sub: 'Chưa từng đăng nhập thì bỏ qua và ghi rõ lý do — không làm hỏng cả lượt' }),
       F.node('s3', 'step', F.MID, 2, { icon: 'shield', title: 'Dùng TÀI KHOẢN CỦA HỌ',
@@ -53,8 +53,10 @@
       F.node('s16', 'step', F.RIGHT, 9.2, { icon: 'user', title: 'Nơi nhận của bạn',
         sub: 'Email · Zalo · Telegram — bạn tự khai, muốn tắt kênh nào cũng được' }),
 
-      F.node('s17', 'send', F.MID, 10.4, { icon: 'send', title: 'Gửi từng kênh, ghi lại kênh nào xong',
-        sub: 'Kênh hỏng được thử lại lượt sau · kênh đã tới tay KHÔNG gửi lại' }),
+      F.node('s17', 'step', F.MID, 10.4, { icon: 'bell', title: 'Lưu vào Bảng tin (luôn luôn)',
+        sub: 'Kho lưu để xem/nghe lại · mọi kênh ngoài hỏng hết thì vẫn còn chỗ này' }),
+      F.node('s18', 'send', F.MID, 11.6, { icon: 'send', title: 'Xếp hàng đợi — đến giờ mới gửi',
+        sub: 'Mỗi kênh một dòng riêng · máy bận hay khởi động lại thì gửi bù, không mất bản tin' }),
     ],
     edges: [
       F.edge('s1', 's2'), F.edge('s2', 's3', 'Rồi'),
@@ -64,7 +66,7 @@
       F.edge('s8', 's12'), F.edge('s10', 's12'), F.edge('s11', 's12'),
       F.edge('s12', 's13', 'Có'), F.edge('s12', 's14', 'Không'),
       F.edge('s13', 's15'), F.edge('s14', 's16'),
-      F.edge('s15', 's17'), F.edge('s16', 's17'),
+      F.edge('s15', 's17'), F.edge('s16', 's17'), F.edge('s17', 's18'),
     ],
   });
 })();

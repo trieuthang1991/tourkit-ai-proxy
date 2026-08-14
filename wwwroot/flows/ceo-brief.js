@@ -13,8 +13,8 @@
     label: 'Bản tin điều hành (giám đốc)',
     note: 'Vẽ theo CeoBriefWorkflow.cs. Tốn khoảng 1 lượt AI mỗi lần gửi. Số do máy chủ tính, AI chỉ viết lời — và AI lỗi thì vẫn có bảng số.',
     nodes: [
-      F.node('e1', 'trigger', F.MID, 0, { icon: 'clock', title: 'Mỗi N phút, tự chọn ai đến giờ',
-        sub: 'Giờ nhận của từng người khai ở trang Bản tin AI', cfg: ['@interval'] }),
+      F.node('e1', 'trigger', F.MID, 0, { icon: 'clock', title: 'Trước giờ nhận một chút, chuẩn bị bản tin',
+        sub: 'Chuẩn bị sớm rồi hẹn giờ gửi — đến giờ khỏi phụ thuộc lúc đó máy có rảnh không', cfg: ['@interval'] }),
       F.node('e2', 'branch', F.MID, 1, { icon: 'user', title: 'Người này từng đăng nhập chưa?',
         sub: 'Chưa từng đăng nhập thì bỏ qua và ghi rõ lý do' }),
       F.node('e3', 'step', F.MID, 2, { icon: 'shield', title: 'Dùng TÀI KHOẢN CỦA HỌ',
@@ -47,8 +47,10 @@
       F.node('e14', 'step', F.RIGHT, 9, { icon: 'user', title: 'Nơi nhận của bạn',
         sub: 'Email · Zalo · Telegram — tự khai, muốn tắt kênh nào cũng được' }),
 
-      F.node('e15', 'send', F.MID, 10.2, { icon: 'send', title: 'Gửi từng kênh, ghi lại kênh nào xong',
-        sub: 'Bảng số luôn đính kèm dưới bài viết để đối chiếu ngay' }),
+      F.node('e15', 'step', F.MID, 10.2, { icon: 'bell', title: 'Lưu vào Bảng tin (luôn luôn)',
+        sub: 'Kho lưu để xem/nghe lại · bảng số luôn đính kèm dưới bài viết để đối chiếu' }),
+      F.node('e16', 'send', F.MID, 11.4, { icon: 'send', title: 'Xếp hàng đợi — đến giờ mới gửi',
+        sub: 'Mỗi kênh một dòng riêng · máy bận hay khởi động lại thì gửi bù, không mất bản tin' }),
     ],
     edges: [
       F.edge('e1', 'e2'), F.edge('e2', 'e3', 'Rồi'),
@@ -58,7 +60,7 @@
       F.edge('e9', 'e10'),
       F.edge('e10', 'e11', 'Được'), F.edge('e10', 'e12', 'Lỗi / hết lượt'),
       F.edge('e11', 'e13'), F.edge('e12', 'e14'),
-      F.edge('e13', 'e15'), F.edge('e14', 'e15'),
+      F.edge('e13', 'e15'), F.edge('e14', 'e15'), F.edge('e15', 'e16'),
     ],
   });
 })();
