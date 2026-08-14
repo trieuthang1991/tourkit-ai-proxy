@@ -12,7 +12,7 @@ public class DigestSubscriptionRepository
 
     private const string Cols = @"TenantId, Username, BriefType, Enabled, SendHourLocal,
 ChannelInApp, ChannelEmail, Email, ChannelTelegram, TelegramChatId, ChannelZalo, ZaloUserId,
-LastSentUtc, LastSentLocalDate, SentMask, SentAttempts";
+LastSentUtc, LastSentLocalDate";
 
     /// <summary>
     /// DTO trung gian có setter, KHÔNG đọc thẳng vào record <see cref="DigestSubscription"/>.
@@ -37,14 +37,12 @@ LastSentUtc, LastSentLocalDate, SentMask, SentAttempts";
         public string? ZaloUserId { get; set; }
         public DateTime? LastSentUtc { get; set; }
         public DateTime? LastSentLocalDate { get; set; }
-        public int SentMask { get; set; }
-        public int SentAttempts { get; set; }
 
         public DigestSubscription ToModel() => new(
             TenantId, Username, BriefType, Enabled, SendHourLocal,
             ChannelInApp, ChannelEmail, Email,
             ChannelTelegram, TelegramChatId, ChannelZalo, ZaloUserId,
-            LastSentUtc, LastSentLocalDate, SentMask, SentAttempts);
+            LastSentUtc, LastSentLocalDate);
     }
 
     public async Task<List<DigestSubscription>> ListForUserAsync(string tenant, string username, CancellationToken ct = default)
@@ -98,32 +96,7 @@ VALUES
             });
     }
 
-    /// <summary>
-    /// Ghi lại kết quả 1 lượt phát. localDate là NGÀY VIỆT NAM (không phải UTC) — xem DigestDue.
-    ///
-    /// <para><b>Mask cộng dồn trong ngày, tự reset khi sang ngày mới:</b> nếu ngày trong DB khác
-    /// <paramref name="localDate"/> thì bắt đầu lại từ <paramref name="sentMask"/> và lượt thử = 1;
-    /// cùng ngày thì <c>OR</c> thêm bit mới và tăng lượt thử. Làm bằng 1 câu UPDATE (CASE) để hai
-    /// tiến trình web/worker chạy song song không đọc-rồi-ghi đè lẫn nhau.</para>
-    ///
-    /// <para>Cố ý luôn tăng SentAttempts kể cả khi không gửi được kênh nào — trần
-    /// <see cref="ChannelMask.MaxAttemptsPerDay"/> là để chặn thử lại vô tận, mà thử thất bại mới
-    /// chính là cái cần đếm.</para>
-    /// </summary>
-    public async Task MarkSentAsync(string tenant, string username, string briefType,
-        DateTime utcNow, DateTime localDate, int sentMask, CancellationToken ct = default)
-    {
-        await using var c = await _db.OpenAsync(ct);
-        await c.ExecuteAsync(@"
-UPDATE dbo.DigestSubscriptions SET
-    LastSentUtc = @utcNow,
-    SentMask = CASE WHEN LastSentLocalDate = @localDate THEN SentMask | @sentMask ELSE @sentMask END,
-    SentAttempts = CASE WHEN LastSentLocalDate = @localDate
-                        THEN CASE WHEN SentAttempts >= 255 THEN 255 ELSE SentAttempts + 1 END
-                        ELSE 1 END,
-    LastSentLocalDate = @localDate,
-    UpdatedUtc = SYSUTCDATETIME()
-WHERE TenantId = @tenant AND Username = @username AND BriefType = @briefType",
-            new { tenant, username, briefType, utcNow, localDate = localDate.Date, sentMask });
-    }
+    // MarkSentAsync đã GỠ (13/08). Bản tin không còn "gửi xong thì đánh dấu lên bản đăng ký":
+    // workflow chỉ chuẩn bị nội dung, việc gửi giao cho hàng đợi nên trạng thái giao nằm ở đó.
+    // Chống dựng trùng trong ngày đọc thẳng Bảng tin (InsightRepository.ExistsTodayAsync).
 }

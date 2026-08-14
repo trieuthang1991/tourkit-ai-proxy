@@ -469,11 +469,12 @@ public static class AdminUiEndpoints
                     enabled           = r.Enabled,
                     sendHourLocal     = r.SendHourLocal,
                     channelsEnabled   = r.ChannelsEnabled,
+                    // 3 cột dưới đọc từ HÀNG ĐỢI hôm nay (đã gửi / hỏng / còn chờ tới giờ) thay cho
+                    // cờ bit cũ trên bản đăng ký — xem AdminDigestRepository.
                     channelsSentToday = r.ChannelsSentToday,
-                    channelsMissing   = r.ChannelsMissingToday,
-                    sentAttempts      = r.SentAttempts,
+                    channelsFailed    = r.ChannelsFailedToday,
+                    channelsPending   = r.ChannelsPendingToday,
                     lastSentUtc       = r.LastSentUtc,
-                    lastSentLocalDate = r.LastSentLocalDate,
                     scheduleEnabled   = r.ScheduleEnabled,
                     pausedReason      = r.PausedReason,
                     problem           = r.Problem,

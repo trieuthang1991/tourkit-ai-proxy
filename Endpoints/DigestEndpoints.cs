@@ -69,10 +69,9 @@ public static class DigestEndpoints
             if (!BriefTypes.IsValid(briefType))
                 return Results.BadRequest(new { error = "Loại bản tin không hợp lệ." });
 
-            var enabledChannels = (body.ChannelInApp ? 1 : 0) + (body.ChannelEmail ? 1 : 0)
-                                + (body.ChannelTelegram ? 1 : 0) + (body.ChannelZalo ? 1 : 0);
-            if (body.Enabled && enabledChannels == 0)
-                return Results.BadRequest(new { error = "Bật bản tin thì phải chọn ít nhất 1 kênh nhận." });
+            // KHÔNG còn chặn "bật mà 0 kênh": kênh trong app giờ LUÔN BẬT — bản tin luôn được lưu ở
+            // Bảng tin để xem/nghe lại, kể cả khi người dùng không muốn nhận qua email/Telegram/Zalo.
+            // Nên "0 kênh" là trạng thái hợp lệ (chỉ nhận trong app), không phải lỗi cấu hình nữa.
 
             // Bật kênh mà bỏ trống nơi nhận thì kênh đó im lặng không gửi được — nói ngay lúc lưu
             // còn hơn để người dùng chờ tới sáng mới biết. Kiểm ở đây, không phải lúc gửi.
@@ -86,7 +85,9 @@ public static class DigestEndpoints
             await repo.UpsertAsync(new DigestSubscription(
                 a.TenantId, a.Username, briefType,
                 body.Enabled, DigestSubscription.ClampHour(body.SendHourLocal),
-                body.ChannelInApp, body.ChannelEmail, body.Email?.Trim(),
+                // In-app là KHO LƯU luôn-bật (xem/nghe lại), không phải kênh tắt được → server ép
+                // true, bỏ qua body.ChannelInApp. Client cũ gửi false cũng không tắt được.
+                ChannelInApp: true, body.ChannelEmail, body.Email?.Trim(),
                 body.ChannelTelegram, body.TelegramChatId?.Trim(),
                 body.ChannelZalo, body.ZaloUserId?.Trim(),
                 // Upsert CỐ Ý không đụng 2 mốc này (xem repo): sửa cấu hình giữa ngày KHÔNG được
@@ -102,7 +103,7 @@ public static class DigestEndpoints
         // ─── Gửi thử ngay, qua đúng đường gửi thật ───────────────────────────────
         g.MapPost("/subscriptions/{briefType}/test", async (string briefType, HttpContext ctx,
             TkSessionStore sessions, DigestSubscriptionRepository repo, DigestDispatcher dispatcher,
-            CancellationToken ct) =>
+            InsightRepository insights, CancellationToken ct) =>
         {
             var a = SessionAuth.Read(ctx, sessions);
             if (a == null) return SessionAuth.Unauthorized();
@@ -120,14 +121,24 @@ public static class DigestEndpoints
             var msg = new DigestMessage($"[Gửi thử] Bản tin {nowVn:dd/MM HH:mm}",
                 body, SaleBriefBuilder.ToHtml(body), briefType);
 
-            // Gửi mọi kênh đã cấu hình (mask 0 = không giới hạn) và CỐ Ý không gọi MarkSent:
-            // gửi thử không được tính là "đã gửi hôm nay", nếu không bản tin thật sáng mai bị bỏ.
+            // Ghi vào Bảng tin TRƯỚC: in-app là kho lưu luôn-bật nên bản thử cũng phải thấy được ở
+            // đó (người dùng kiểm tra "nghe lại" ngay trên bản thử). Ghi thẳng chứ không qua
+            // dispatcher — dispatcher giờ chỉ còn 3 kênh gửi ra ngoài.
+            var inApp = await insights.InsertAsync(new AgentInsight(
+                Id: 0, TenantId: sub.TenantId, Username: sub.Username,
+                Kind: briefType, Severity: 0, Title: msg.Title, Body: msg.BodyMarkdown,
+                DataJson: null, AlertKey: null, IsRead: false, CreatedUtc: DateTime.UtcNow), ct);
+
+            // Gửi mọi kênh ngoài đã cấu hình. CỐ Ý không đụng mốc "đã chuẩn bị hôm nay" của bản tin
+            // thật — gửi thử mà tính là đã gửi thì sáng mai bản tin thật bị bỏ.
             var res = await dispatcher.SendAsync(sub, msg, ct);
+            var sent = new List<string>(res.SentChannels);
+            if (inApp != null) sent.Insert(0, "inapp");
             return Results.Json(new
             {
-                ok = res.SentMask != ChannelMask.None,
+                ok = sent.Count > 0,
                 summary = res.Summary,
-                sentChannels = ChannelMask.Describe(res.SentMask),
+                sentChannels = string.Join("+", sent),
             }, Web);
         });
 

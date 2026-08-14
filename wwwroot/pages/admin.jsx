@@ -1529,7 +1529,7 @@
                   <th>Loại</th>
                   <th style={{ width: 70 }}>Giờ</th>
                   <th>Kênh đã bật</th>
-                  <th>Hôm nay gửi được</th>
+                  <th>Hôm nay</th>
                   <th>Gửi lần cuối</th>
                   <th>Vấn đề</th>
                 </tr>
@@ -1545,10 +1545,15 @@
                     <td style={{ fontSize: 12 }}>
                       {r.enabled ? r.channelsEnabled : <span style={{ color: "var(--text-secondary)" }}>đã tắt nhận</span>}
                     </td>
+                    {/* Đọc từ hàng đợi: đã gửi / hỏng / còn chờ tới giờ. "Chờ" là bình thường
+                        nếu chưa tới giờ nhận — không phải sự cố, nên để màu xám. */}
                     <td style={{ fontSize: 12 }}>
-                      {r.channelsSentToday}
-                      {r.sentAttempts > 0 && (
-                        <span style={{ color: "var(--text-secondary)" }}> · {r.sentAttempts} lượt thử</span>
+                      <span>{r.channelsSentToday}</span>
+                      {r.channelsFailed && r.channelsFailed !== "(không kênh nào)" && (
+                        <span style={{ color: "#B91C1C" }}> · hỏng: {r.channelsFailed}</span>
+                      )}
+                      {r.channelsPending && r.channelsPending !== "(không kênh nào)" && (
+                        <span style={{ color: "var(--text-secondary)" }}> · chờ: {r.channelsPending}</span>
                       )}
                     </td>
                     <td style={{ fontSize: 12 }}>{fmtTs(r.lastSentUtc)}</td>

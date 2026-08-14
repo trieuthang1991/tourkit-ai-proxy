@@ -702,10 +702,10 @@ BEGIN
     );
 END;
 
--- Cờ bit các kênh ĐÃ GỬI ĐƯỢC trong ngày (1=trong app, 2=email, 4=telegram, 8=zalo).
--- Trước đây chỉ có LastSentLocalDate cho cả 4 kênh → telegram lỗi vẫn bị đánh dấu ""đã gửi""
--- và không bao giờ thử lại. Có mask thì lượt sau chỉ gửi phần còn thiếu.
--- SentAttempts: chặn thử lại vô tận khi 1 kênh hỏng suốt (vd token Zalo hết hạn).
+-- SentMask/SentAttempts: CODE ĐÃ NGỪNG DÙNG (13/08) — trạng thái giao từng kênh nay nằm ở
+-- dbo.OutboundMails (mỗi kênh 1 dòng, có Status riêng), chính xác hơn cờ bit vì biết cả
+-- ""đang chờ tới giờ"". Giữ cột lại để không phá dữ liệu cũ và để tra lại lịch sử; KHÔNG ghi nữa.
+-- Vẫn giữ câu ALTER cho DB mới dựng chạy trơn tru (idempotent, không tốn gì).
 IF NOT EXISTS (SELECT 1 FROM sys.columns WHERE object_id = OBJECT_ID('dbo.DigestSubscriptions') AND name = 'SentMask')
     ALTER TABLE dbo.DigestSubscriptions ADD SentMask TINYINT NOT NULL CONSTRAINT DF_DigestSubs_SentMask DEFAULT 0;
 IF NOT EXISTS (SELECT 1 FROM sys.columns WHERE object_id = OBJECT_ID('dbo.DigestSubscriptions') AND name = 'SentAttempts')

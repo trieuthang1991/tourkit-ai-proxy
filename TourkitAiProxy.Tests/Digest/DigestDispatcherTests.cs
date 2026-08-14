@@ -99,62 +99,48 @@ public class DigestDispatcherTests
         Assert.Contains("email:FAIL", summary);
         Assert.Contains("telegram:skip", summary);
     }
-    // ── Cờ bit kênh đã gửi được ───────────────────────────────────────────────
+    // ── Danh sách kênh gửi được ───────────────────────────────────────────────
 
     [Fact]
-    public async Task Mask_chi_bat_bit_cua_kenh_gui_DUOC()
+    public async Task Chi_liet_ke_kenh_gui_DUOC()
     {
-        var a = new FakeChannel { Id = "inapp" };
-        var b = new FakeChannel { Id = "email", Result = false };
-        var c = new FakeChannel { Id = "telegram" };
-        var res = await Make(a, b, c).SendAsync(Sub(), Msg(), CancellationToken.None);
+        var a = new FakeChannel { Id = "email", Result = false };
+        var b = new FakeChannel { Id = "telegram" };
+        var res = await Make(a, b).SendAsync(Sub(), Msg(), CancellationToken.None);
 
-        // email hỏng thì KHÔNG được bật bit — bật bừa là lượt sau không thử lại nữa, mất tin.
-        Assert.Equal(ChannelMask.InApp | ChannelMask.Telegram, res.SentMask);
+        // email hỏng thì KHÔNG được kể vào — kể bừa là người dùng tưởng đã nhận rồi.
+        Assert.Equal(new[] { "telegram" }, res.SentChannels);
     }
 
     [Fact]
-    public async Task Kenh_la_khong_lam_bat_bit_nao()
+    public async Task Kenh_la_van_duoc_ghi_nhan_theo_dung_id_cua_no()
     {
-        // Id không nằm trong danh sách kênh đã biết → mask 0. Nếu quy về "tất cả" thì một id
-        // viết sai sẽ đánh dấu đã-gửi cho mọi kênh.
+        // Không còn bảng tra id→cờ bit, nên id lạ không còn bị nuốt mất như trước.
         var a = new FakeChannel { Id = "kenh-moi-chua-khai-bao" };
         var res = await Make(a).SendAsync(Sub(), Msg(), CancellationToken.None);
-        Assert.Equal(ChannelMask.None, res.SentMask);
-        Assert.Contains("kenh-moi-chua-khai-bao:ok", res.Summary);   // vẫn gửi và vẫn ghi lại
+        Assert.Equal(new[] { "kenh-moi-chua-khai-bao" }, res.SentChannels);
+        Assert.Contains("kenh-moi-chua-khai-bao:ok", res.Summary);
     }
 
     [Fact]
-    public async Task onlyMask_gioi_han_dung_kenh_can_thu_lai()
+    public async Task Khong_gui_duoc_kenh_nao_thi_danh_sach_rong()
     {
-        var a = new FakeChannel { Id = "inapp" };
-        var b = new FakeChannel { Id = "email" };
-        var c = new FakeChannel { Id = "telegram" };
-        var res = await Make(a, b, c).SendAsync(Sub(), Msg(), CancellationToken.None, ChannelMask.Telegram);
-
-        Assert.Equal(0, a.Calls);            // app đã nhận lượt trước → không gửi lại
-        Assert.Equal(0, b.Calls);
-        Assert.Equal(1, c.Calls);
-        Assert.Equal(ChannelMask.Telegram, res.SentMask);
+        var a = new FakeChannel { Id = "email", Result = false };
+        var b = new FakeChannel { Id = "telegram", Throws = true };
+        var res = await Make(a, b).SendAsync(Sub(), Msg(), CancellationToken.None);
+        Assert.Empty(res.SentChannels);
     }
 
     [Fact]
-    public async Task onlyMask_bang_0_nghia_la_KHONG_GIOI_HAN_chu_khong_phai_khong_kenh_nao()
+    public async Task Moi_kenh_da_cau_hinh_deu_duoc_gui_khong_con_gioi_han_nao()
     {
-        var a = new FakeChannel { Id = "inapp" };
-        var b = new FakeChannel { Id = "email" };
-        var res = await Make(a, b).SendAsync(Sub(), Msg(), CancellationToken.None, ChannelMask.None);
+        // Bản cũ có tham số onlyMask để "chỉ thử lại kênh còn thiếu". Đã bỏ: bộ phát nay chỉ phục vụ
+        // Gửi thử — người dùng bấm nút là muốn thử HẾT các kênh mình đã khai.
+        var a = new FakeChannel { Id = "email" };
+        var b = new FakeChannel { Id = "telegram" };
+        var res = await Make(a, b).SendAsync(Sub(), Msg(), CancellationToken.None);
         Assert.Equal(1, a.Calls);
         Assert.Equal(1, b.Calls);
-        Assert.Equal(ChannelMask.InApp | ChannelMask.Email, res.SentMask);
-    }
-
-    [Fact]
-    public async Task Khong_gui_duoc_kenh_nao_thi_mask_bang_0()
-    {
-        var a = new FakeChannel { Id = "inapp", Result = false };
-        var b = new FakeChannel { Id = "email", Throws = true };
-        var res = await Make(a, b).SendAsync(Sub(), Msg(), CancellationToken.None);
-        Assert.Equal(ChannelMask.None, res.SentMask);
+        Assert.Equal(new[] { "email", "telegram" }, res.SentChannels);
     }
 }

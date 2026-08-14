@@ -1,7 +1,7 @@
 namespace TourkitAiProxy.Services.Digest;
 
 /// <summary>
-/// Kênh gửi ra ngoài — enum kênh DUY NHẤT toàn hệ (thay DigestChannel/ChannelMask cũ sẽ gỡ ở task sau).
+/// Kênh gửi ra ngoài — enum kênh DUY NHẤT toàn hệ (đã thay hẳn DigestChannel/ChannelMask cũ).
 /// SỐ tường minh, lưu thẳng cột dbo.OutboundMails.Channel (TINYINT): số để tránh lỗi gõ chuỗi,
 /// default 0 = email nên dòng cũ trong DB tự đúng nghĩa. In-app KHÔNG nằm đây — nó là kho lưu
 /// luôn-bật (AgentInsights), không phải kênh gửi.

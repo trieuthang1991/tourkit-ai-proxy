@@ -3,7 +3,12 @@ using TourkitAiProxy.Services.Digest.Channels;
 namespace TourkitAiProxy.Services.Digest;
 
 /// <summary>
-/// Phát 1 bản tin qua mọi kênh mà người nhận đã bật.
+/// Phát 1 bản tin NGAY LẬP TỨC qua mọi kênh mà người nhận đã bật.
+///
+/// <para><b>Chỉ còn phục vụ "Gửi thử".</b> Bản tin hằng ngày KHÔNG đi đường này nữa: workflow chỉ
+/// chuẩn bị nội dung rồi bỏ vào hàng đợi, gửi là việc của hàng đợi (đúng giờ, gửi bù được nếu máy
+/// chủ bận). Gửi thử thì ngược lại — người dùng bấm nút và muốn thấy kết quả ngay, chờ hàng đợi
+/// thì mất luôn ý nghĩa của việc thử.</para>
 ///
 /// <para><b>Bất biến quan trọng nhất: một kênh hỏng KHÔNG được làm chết các kênh còn lại.</b>
 /// Telegram sập thì bản tin vẫn phải vào được app và email. Vì vậy mỗi kênh chạy trong try riêng,
@@ -17,9 +22,9 @@ namespace TourkitAiProxy.Services.Digest;
 /// </summary>
 public class DigestDispatcher
 {
-    /// Kết quả 1 lượt phát: chuỗi cho người đọc + cờ bit các kênh GỬI ĐƯỢC cho máy lưu.
-    /// Có mask thì lượt sau biết chính xác còn thiếu kênh nào để thử lại (xem <see cref="ChannelMask"/>).
-    public readonly record struct SendResult(string Summary, int SentMask);
+    /// Kết quả 1 lượt phát: chuỗi cho người đọc + danh sách id kênh GỬI ĐƯỢC.
+    /// Không còn cờ bit "đã gửi" nào phải lưu — lượt thử là chuyện một lần, xong là xong.
+    public readonly record struct SendResult(string Summary, List<string> SentChannels);
 
     private readonly IReadOnlyList<IDigestChannel> _channels;
     private readonly ILogger<DigestDispatcher> _log;
@@ -30,29 +35,21 @@ public class DigestDispatcher
         _log = log;
     }
 
-    /// <param name="onlyMask">Chỉ gửi những kênh có bit trong mask này (dùng để thử lại phần còn
-    /// thiếu). Truyền 0 = chưa giới hạn gì ⇒ gửi mọi kênh đã cấu hình.</param>
     public async Task<SendResult> SendAsync(DigestSubscription sub, DigestMessage m,
-        CancellationToken ct, int onlyMask = ChannelMask.None)
+        CancellationToken ct)
     {
         var parts = new List<string>(_channels.Count);
-        var sent = ChannelMask.None;
+        var sent = new List<string>(_channels.Count);
 
         foreach (var ch in _channels)
         {
-            var bit = ChannelMask.MaskOfId(ch.Id);
-
-            // onlyMask = 0 nghĩa là "không giới hạn", không phải "không kênh nào" — đây là lý do
-            // phải phân biệt rõ 0 với 15 (xem ChannelMask).
-            if (onlyMask != ChannelMask.None && !ChannelMask.Has(onlyMask, bit)) continue;
-
             if (!ch.IsConfigured(sub)) { parts.Add($"{ch.Id}:skip"); continue; }
 
             try
             {
                 var ok = await ch.SendAsync(sub, m, ct);
                 parts.Add($"{ch.Id}:{(ok ? "ok" : "FAIL")}");
-                if (ok) sent |= bit;
+                if (ok) sent.Add(ch.Id);
                 else
                     _log.LogWarning("[digest] kênh {Ch} gửi hỏng cho tenant={T} user={U} loại={Kind}",
                         ch.Id, sub.TenantId, sub.Username, m.Kind);

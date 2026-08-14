@@ -13,9 +13,10 @@ public static class BriefTypes
 /// <para><b>SendHourLocal</b> = giờ theo GIỜ VIỆT NAM người dùng muốn nhận. Workflow chạy mỗi 60'
 /// rồi tự chọn ai "đến giờ" — KHÔNG cần scheduler biết giờ trong ngày.</para>
 ///
-/// <para><b>LastSentLocalDate</b> (ngày VN, không phải UTC) chống gửi trùng trong ngày: đã gửi
-/// hôm nay rồi thì các tick sau trong cùng ngày bỏ qua. Dùng ngày VN vì mốc "hôm nay" của người
-/// dùng là theo giờ VN; lấy ngày UTC sẽ sai lệch 7 tiếng ở khoảng 0h–7h sáng.</para>
+/// <para><b>LastSentUtc / LastSentLocalDate ĐÃ NGỪNG DÙNG.</b> Chống gửi trùng trong ngày giờ hỏi
+/// thẳng Bảng tin (<c>InsightRepository.ExistsTodayAsync</c>): bản tin đã dựng thì có dòng ở đó, đó
+/// mới là sự thật. Hai cột cũ còn nằm trong DB (không xoá cột) nhưng code không ghi nữa — giữ trong
+/// record để đọc lại dữ liệu cũ mà không phải sửa câu SELECT.</para>
 ///
 /// <para><b>Kênh gửi tách 2 tầng</b>: bản ghi này giữ NƠI NHẬN của từng người (email/Zalo/Telegram).
 /// Còn TÀI KHOẢN GỬI ĐI (OA Zalo, bot Telegram) là cấu hình của công ty, nằm ở
@@ -27,9 +28,7 @@ public record DigestSubscription(
     bool ChannelInApp, bool ChannelEmail, string? Email,
     bool ChannelTelegram, string? TelegramChatId,
     bool ChannelZalo, string? ZaloUserId,
-    DateTime? LastSentUtc, DateTime? LastSentLocalDate,
-    // Cờ bit kênh ĐÃ gửi được trong ngày + số lần đã thử. Xem ChannelMask.
-    int SentMask = 0, int SentAttempts = 0)
+    DateTime? LastSentUtc, DateTime? LastSentLocalDate)
 {
     /// Giờ gửi hợp lệ 0–23; giá trị rác → 7h sáng (default an toàn).
     public static int ClampHour(int h) => h is >= 0 and <= 23 ? h : 7;

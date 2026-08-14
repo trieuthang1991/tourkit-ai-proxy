@@ -162,9 +162,9 @@ public static class WorkflowStackRegistration
         s.AddSingleton<Digest.InsightRepository>();
         s.AddSingleton<Digest.DigestSubscriptionRepository>();
         s.AddSingleton<Digest.TenantChannelSettingsStore>();
-        // Thứ tự đăng ký = thứ tự gửi. Đặt inapp ĐẦU TIÊN: kênh chắc chắn nhất, không phụ thuộc
-        // mạng ngoài — mấy kênh sau hỏng hết thì bản tin vẫn còn chỗ xem lại.
-        s.AddSingleton<Digest.Channels.IDigestChannel, Digest.Channels.InAppChannel>();
+        // Chỉ còn 3 kênh GỬI RA NGOÀI. Kênh "trong app" đã bỏ khỏi danh sách này: nó không phải kênh
+        // gửi mà là KHO LƯU luôn-bật — bản tin ghi thẳng vào Bảng tin lúc dựng, trước khi nghĩ tới
+        // chuyện gửi đi đâu. Nhờ vậy mọi kênh ngoài hỏng hết thì vẫn còn chỗ xem/nghe lại.
         s.AddSingleton<Digest.Channels.IDigestChannel, Digest.Channels.EmailChannel>();
         // Telegram/Zalo đăng ký lớp CỤ THỂ rồi mới bắc cầu sang interface: bộ rút hàng đợi
         // (OutboundChannelDrainer) gọi thẳng method gửi lõi nên cần chính lớp đó, không phải

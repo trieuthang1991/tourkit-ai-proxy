@@ -335,18 +335,21 @@ public static class WorkflowEndpoints
             TkSessionStore sessions,
             string? kind,
             int? status,
+            int? channel,
             int? limit) =>
         {
             var auth = RequireSession(ctx, sessions);
             if (auth == null) return Unauthorized();
             var (_, tenant, _) = auth.Value;
-            var rows = await queue.ListForMonitorAsync(tenant, kind, status, null, limit ?? 50, ctx.RequestAborted);
+            var rows = await queue.ListForMonitorAsync(tenant, kind, status, channel, limit ?? 50, ctx.RequestAborted);
             return Results.Json(new
             {
                 items = rows.Select(r => new
                 {
                     id = r.Id, kind = r.Kind, sourceId = r.SourceId, templateCode = r.TemplateCode,
                     toEmail = r.ToEmail, toName = r.ToName, subject = r.Subject,
+                    // channel: 0=email (worker toutkit-app gửi), 1=telegram, 2=zalo (drainer proxy gửi)
+                    channel = (int)r.Channel,
                     status = (int)r.Status, retryCount = r.RetryCount, errorMessage = r.ErrorMessage,
                     scheduledUtc = AsUtc(r.ScheduledUtc), createdUtc = AsUtc(r.CreatedUtc), processedUtc = AsUtc(r.ProcessedUtc)
                 }).ToList()
