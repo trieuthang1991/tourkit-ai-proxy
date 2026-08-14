@@ -192,7 +192,7 @@ data/
 | POST   | `/api/v1/workflows/service-account` | Lưu tài khoản tự động per-tenant `{username,password,domain?}` — **validate login TourKit + đếm deal** trước khi lưu (Crypton-enc) → `{ok, dealsVisible, warning?}`; login fail → `{ok:false,error}` (require X-Session-Id) |
 | GET    | `/api/v1/workflows/service-account` | Trạng thái cấu hình `{configured, username}` (KHÔNG trả password) (require X-Session-Id) |
 | DELETE | `/api/v1/workflows/service-account` | Xóa tài khoản tự động → workflow ngừng tự login → `{ok, removed}` (require X-Session-Id) |
-| GET    | `/api/v1/workflows/outbound-mails` | Theo dõi hàng đợi mail `?kind=&status=&limit=50` → `{items[{id,kind,sourceId,templateCode,toEmail,subject,status(int),retryCount,errorMessage,scheduledUtc,createdUtc,processedUtc}]}` (require X-Session-Id) |
+| GET    | `/api/v1/workflows/outbound-mails` | Theo dõi hàng đợi gửi `?kind=&status=&channel=&limit=50` → `{items[{id,kind,sourceId,templateCode,toEmail,subject,channel(0=email/1=telegram/2=zalo),status(int),retryCount,errorMessage,scheduledUtc,createdUtc,processedUtc}]}` (require X-Session-Id) |
 | GET    | `/api/v1/workflows/crm-queue`     | Theo dõi hàng đợi hành động CRM (giao việc/lịch hẹn) từ trợ lý `?kind=&status=&limit=50` → `{items[{id,tenantId,username,kind,payloadJson,status(int),resultJson,retryCount,errorMessage,createdUtc,processedUtc}]}` (require X-Session-Id) — chỉ ĐỌC, `Status`/`ResultJson` do worker app-side ghi |
 
 **Tenant scoping** (multi-tenant fix 2026-06-09): tất cả endpoint `/api/v1/mail/*` và `/api/v1/visa/*` YÊU CẦU `X-Session-Id` header (hoặc `sessionId` query/body) — backend resolve `TenantId` qua `ITenantContext`/`HttpTenantContext` từ `TkSessionStore`. KHÔNG session → 401. Cross-tenant access (resource thuộc tenant khác) → null/404.
@@ -371,10 +371,29 @@ gọi, lịch hẹn, việc, báo giá, tour còn thiếu tiền), **rule thuầ
 phí/lợi nhuận so cùng kỳ, **AI chỉ viết lời còn số do máy chủ tính**, AI lỗi → in bảng số
 ([`CeoBriefBuilder.RenderFallback`](Services/Digest/CeoBriefBuilder.cs)).
 
-**Cách chạy:** cả 2 là `PerTenant` (1 bản ghi scheduler, bật 1 lần) nhưng workflow **tự đổi phiên theo
-từng người nhận** — `SendHourLocal` (giờ VN mỗi người chọn) + `LastSentLocalDate` (ngày VN) để workflow
-chạy mỗi 60' rồi tự lọc ai "đến giờ" (xem [`DigestDue`](Services/Digest/DigestDue.cs)). Điều kiện: người
-đó đã từng đăng nhập (`dbo.TkSessions` giữ mật khẩu mã hoá + tự re-login, 30 ngày).
+**Cách chạy — CHUẨN BỊ TRƯỚC, GỬI QUA HÀNG ĐỢI** (đổi 13/08, xem
+[plan](docs/superpowers/plans/2026-08-13-digest-queue-pipeline.md)). Cả 2 là `PerTenant` (1 bản ghi
+scheduler, bật 1 lần) nhưng workflow **tự đổi phiên theo từng người nhận**; workflow KHÔNG gửi gì cả:
+
+1. **PREPARE** — từ mốc `giờ người chọn − Digest:LeadMinutes` (mặc định 10') trở đi, workflow dựng nội
+   dung ([`DigestDue.ShouldPrepare`](Services/Digest/DigestDue.cs) — so theo **phút**, mở tới hết ngày VN).
+2. **GHI Bảng tin** — `dbo.AgentInsights`. Đây vừa là kênh "trong app" **luôn bật**, vừa là **nguồn nội
+   dung duy nhất** cho các kênh ngoài (chúng đọc lại qua `SourceId`, không nhân bản nội dung).
+3. **ENQUEUE** — mỗi kênh ngoài đang bật = 1 dòng `dbo.OutboundMails` với `ScheduledUtc`
+   ([`DigestEnqueuePlanner`](Services/Digest/DigestEnqueuePlanner.cs) + [`DigestDue.SendMomentUtc`](Services/Digest/DigestDue.cs)).
+4. **GỬI** — `Channel=0` (email) do worker bên **toutkit-app** rút; `Channel=1|2` (telegram/zalo) do
+   [`OutboundChannelDrainer`](Services/Digest/OutboundChannelDrainer.cs) của proxy rút, nhịp 60s.
+
+Chống dựng trùng trong ngày = `InsightRepository.ExistsTodayAsync` (không còn `LastSentLocalDate`).
+Vì "đã dựng" đọc từ Bảng tin và mốc gửi nằm trên dòng hàng đợi, **máy chủ sập đúng khung giờ không còn
+làm mất bản tin của ngày** — bật lại là dựng/gửi bù. Điều kiện: người đó đã từng đăng nhập
+(`dbo.TkSessions` giữ mật khẩu mã hoá + tự re-login, 30 ngày).
+
+⚠️ **KHÔNG thử lại đợt này** (quyết định 13/08): gửi hỏng → `Status=2` + `ErrorMessage` + log ERROR, dòng
+nằm lại để tra. Chính sách thử lại thiết kế riêng sau (chỉ cần thêm chỗ lật 2→0 trong drainer).
+
+⚠️ **Thứ tự deploy:** worker toutkit-app phải lọc `Channel=0` **TRƯỚC**, proxy enqueue kênh khác **SAU** —
+không thì worker mail vớ phải dòng telegram/zalo và gửi nhầm thành email.
 
 ⚠️ **Fetch bằng phiên CỦA NGƯỜI NHẬN, KHÔNG dùng service account** — đây là quyết định có chủ đích:
 service account có quyền xem toàn công ty, lọc sai 1 dòng là nhân viên A đọc được cơ hội của nhân viên B.
@@ -383,17 +402,21 @@ gác quyền** khi đăng ký: `DashboardService.ResolveSpUserIdAsync` (TourKit.
 tài khoản có `BC_NV_XEM`, còn lại SP tự lọc về số của riêng họ; và proxy không truyền `userId` —
 `AiController.GetClaims()` bóc từ JWT.
 
-**4 kênh gửi** ([`Services/Digest/Channels/`](Services/Digest/Channels/)): trong app (`dbo.AgentInsights`)
-· email (enqueue `dbo.OutboundMails`, `TemplateCode=daily-brief`) · Telegram (bot DÙNG CHUNG
-`Telegram:BotToken` — miễn phí nên hệ thống cấp) · Zalo OA (**per-tenant**, `dbo.TenantChannelSettings` —
-tốn tiền + hạn mức riêng từng OA nên công ty tự khai; Zalo chỉ nhắn được cho người đã nhắn OA trong 48h).
-Một kênh hỏng KHÔNG làm chết kênh còn lại.
+**Nơi nhận — 1 kho lưu + 3 kênh gửi.** "Trong app" (`dbo.AgentInsights`) **KHÔNG phải kênh gửi** mà là
+**kho lưu luôn bật**: bản tin ghi vào đó lúc dựng, trước khi nghĩ tới chuyện gửi đi đâu — nên mọi kênh
+ngoài hỏng hết thì vẫn còn chỗ xem/nghe lại. Server ép `ChannelInApp=true` khi lưu đăng ký; UI khoá ô
+tick. 3 kênh gửi thật ([`Services/Digest/Channels/`](Services/Digest/Channels/)): email (`TemplateCode=daily-brief`,
+worker toutkit-app gửi) · Telegram (bot DÙNG CHUNG `Telegram:BotToken` — miễn phí nên hệ thống cấp) ·
+Zalo OA (**per-tenant**, `dbo.TenantChannelSettings` — tốn tiền + hạn mức riêng từng OA nên công ty tự
+khai; Zalo chỉ nhắn được cho người đã nhắn OA trong 48h). Một kênh hỏng KHÔNG làm chết kênh còn lại.
 
-**Cờ bit theo từng kênh** ([`ChannelMask`](Services/Digest/ChannelMask.cs)): `SentMask`/`SentAttempts`
-trên `dbo.DigestSubscriptions`. Trước đây cả 4 kênh dùng chung 1 mốc ngày → Telegram lỗi lúc 7h vẫn bị
-đánh dấu "đã gửi" và **không bao giờ thử lại**. Nay mỗi lượt chỉ gửi phần `đang bật & chưa gửi`, trần
-3 lượt/ngày. Enum `DigestChannel` đánh **số thứ tự** cho người tra (0 = chưa chọn gì, kênh thật 1..4);
-cờ bit riêng cho máy lưu (1/2/4/8, đủ 4 = 15) — 2 vai TÁCH nhau vì từ kênh thứ 3 số thứ tự khác cờ bit.
+**Một enum kênh duy nhất** — [`OutboundChannel`](Services/Digest/OutboundChannel.cs): `0=Email`,
+`1=Telegram`, `2=Zalo`, lưu thẳng cột `dbo.OutboundMails.Channel` (TINYINT). Default 0 nên dòng cũ trong
+DB tự đúng nghĩa. Worker toutkit-app **mirror đúng bảng số này**
+([docs/mail-templates/README.md](docs/mail-templates/README.md)) — thêm kênh mới = thêm 1 member ở CẢ 2
+repo + 1 nhánh trong `OutboundChannelDrainer`. `ChannelMask`/`DigestChannel`/`InAppChannel` **đã gỡ hẳn**
+(13/08): cờ bit "đã gửi kênh nào hôm nay" hết lý do tồn tại khi mỗi kênh đã là một dòng có `Status` riêng.
+Cột `SentMask`/`SentAttempts` còn trong DB nhưng **code không ghi nữa**.
 
 **Giao diện — GỘP trong trang Tự động hoá, KHÔNG có trang riêng** (chốt 12/08: đăng ký bản tin chính là
 cấu hình của 2 tác vụ đó). `/workflows` có 2 tab: "Tác vụ" (thẻ bản tin chứa khối **"Bản tin của tôi"** —
@@ -409,14 +432,15 @@ nằm ở khối **"Bản tin & Tự động"** (không phải "Tích hợp") v�
 
 **Theo dõi (admin):** `/admin-trav-ai` → **Bản tin**. Cần trang này vì **cả 3 kiểu hỏng của tính năng
 đều IM LẶNG** — người dùng chỉ thấy sáng ra không có gì, không lỗi nào hiện lên: (1) đã đăng ký nhưng
-công ty chưa bật lịch chạy, (2) bật kênh mà bỏ trống nơi nhận, (3) kênh gửi hỏng (mask thiếu bit / hết
-lượt thử). Cột "Vấn đề" tính ở server ([`AdminDigestRepository.DetectProblem`](Services/Admin/AdminDigestRepository.cs))
+công ty chưa bật lịch chạy, (2) bật kênh mà bỏ trống nơi nhận, (3) kênh gửi hỏng. Cột "Hôm nay" đọc từ
+**hàng đợi** (đã gửi / hỏng / còn chờ tới giờ) thay cờ bit cũ; "Gửi lần cuối" = `MAX(ProcessedUtc)` của
+dòng đã gửi. Cột "Vấn đề" tính ở server ([`AdminDigestRepository.DetectProblem`](Services/Admin/AdminDigestRepository.cs))
 theo thứ tự nguyên nhân GỐC trước. Bộ đếm luôn là tổng THẬT kể cả khi đang lọc "chỉ lỗi" — lọc ở SQL thì
 "3/12 có vấn đề" biến thành "3/3", đọc xong tưởng cả hệ thống hỏng.
 
 **Cấu hình cần có:** `Telegram:BotToken` (rỗng = kênh Telegram tự tắt) · `Models:Digest` (thiếu → kế thừa
 `Models:Primary`) · template mail `daily-brief` trong `/admin-trav-ai` → Mail Templates (thiếu thì worker
-vẫn render từ `Params`).
+vẫn render từ `Params`) · `Digest:LeadMinutes|CheckIntervalMinutes|InsightKeepDays` (thiếu → 10/5/30).
 
 **E2E:** [`scripts/e2e/features-digest.ps1`](scripts/e2e/features-digest.ps1) (tự sao lưu + khôi phục đăng
 ký thật) · sơ đồ luồng: `node scripts/e2e/features-flow-diagram.check.js`.

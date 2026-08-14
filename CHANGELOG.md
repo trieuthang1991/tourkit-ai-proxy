@@ -13,6 +13,32 @@ Những cập nhật gần đây của TRAV-AI, viết cho người dùng. Mới
 
 ---
 
+## Phiên bản 14/08/2026 — Bản tin đến đúng giờ hơn
+
+### ✨ Tính năng mới
+- **⏰ Bản tin được chuẩn bị sẵn từ trước.** Hệ thống soạn bản tin của bạn trước giờ nhận một chút, đến
+  giờ chỉ việc gửi đi. Nhờ vậy bản tin tới đúng giờ hơn, kể cả lúc hệ thống đang bận.
+- **📥 Bản tin luôn được lưu trong app.** Dù bạn chỉ chọn nhận qua Zalo hay Telegram, bản tin vẫn luôn
+  nằm ở tab **Bảng tin** để đọc lại hoặc bấm **Nghe** — không sợ lỡ một buổi sáng là mất luôn.
+- **✅ Không cần chọn kênh nào cũng được.** Trước đây bật nhận bản tin là bắt buộc phải tick ít nhất một
+  nơi nhận. Nay bạn có thể chỉ đọc trong app, không cần email/Zalo/Telegram.
+
+### 🔧 Đã khắc phục
+- **Mất bản tin của cả ngày khi hệ thống bận đúng khung giờ gửi.** Trước đây nếu hệ thống khởi động lại
+  hoặc bận đúng giờ bạn chọn, bản tin hôm đó im lặng không tới và cũng không gửi bù. Nay hệ thống nhớ
+  việc còn dang dở và gửi bù ngay khi hoạt động lại.
+- **Một kênh hỏng làm mất bản tin ở kênh đó cả ngày.** Trước đây nếu Zalo hoặc Telegram lỗi lúc gửi, hệ
+  thống vẫn coi như "đã gửi xong" và không đụng tới nữa. Nay mỗi nơi nhận được theo dõi riêng, hỏng ở
+  đâu thì thấy rõ ở đó — quản trị viên mở trang theo dõi là biết ngay kênh nào chưa tới tay.
+- **Trang theo dõi bản tin (quản trị) nói đúng hơn.** Cột "Hôm nay" nay tách rõ *đã gửi* / *gửi hỏng* /
+  *đang chờ tới giờ*, thay vì gộp chung khiến bản tin chưa tới giờ trông như đang lỗi.
+
+### 📌 Lưu ý
+- Ô **"Trong app"** trong phần *Bản tin của tôi* nay luôn bật và không tắt được — đó là nơi lưu bản tin
+  để bạn xem/nghe lại, không phải một kênh gửi.
+
+---
+
 ## Phiên bản 13/08/2026 — Nghe bản tin sáng + chọn bản tin theo vai trò
 
 ### ✨ Tính năng mới

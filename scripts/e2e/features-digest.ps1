@@ -114,8 +114,12 @@ try {
   # Loai la phai bi chan: luu duoc se tao ban ghi ma KHONG workflow nao doc -> user cho mai khong thay tin.
   Check 'Loai ban tin la = 400' `
     ((Req PUT '/digest/subscriptions/hacker-brief' @{ enabled=$true; sendHourLocal=7; channelInApp=$true } $H).Code -eq 400) 'khac 400'
-  Check 'Bat ban tin ma 0 kenh = 400' `
-    ((Req PUT '/digest/subscriptions/sale-brief' @{ enabled=$true; sendHourLocal=7; channelInApp=$false } $H).Code -eq 400) 'khac 400'
+  # Khong con chan "0 kenh": kenh trong app luon bat (kho luu de xem/nghe lai), nen chi nhan
+  # trong app la lua chon hop le. Gui channelInApp=false cung khong tat duoc - server ep bat.
+  Check 'Bat ban tin khong kenh ngoai = 200 (trong app luon co)' `
+    ((Req PUT '/digest/subscriptions/sale-brief' @{ enabled=$true; sendHourLocal=7; channelInApp=$false } $H).Code -eq 200) 'khac 200'
+  $inapp = (Req GET '/digest/subscriptions' $null $H).Data.items | Where-Object { $_.briefType -eq 'sale-brief' }
+  Check 'Server ep channelInApp = true' ($inapp.channelInApp -eq $true) "channelInApp=$($inapp.channelInApp)"
   Check 'Bat email ma trong dia chi = 400' `
     ((Req PUT '/digest/subscriptions/sale-brief' @{ enabled=$true; sendHourLocal=7; channelInApp=$true; channelEmail=$true; email='' } $H).Code -eq 400) 'khac 400'
 
@@ -135,14 +139,19 @@ try {
   # Proxy tu gac them se chan oan nguoi co quyen bao cao ma khong co CH_XEM_ALL.
   Check 'Luu ceo-brief = 200' ((Req PUT '/digest/subscriptions/ceo-brief' @{ enabled=$true; sendHourLocal=7; channelInApp=$true } $H).Code -eq 200) 'khac 200'
 
-  Write-Host "6b. C5: moi nguoi chi 1 loai theo vai tro (bat loai nay -> tu tat loai kia)" -ForegroundColor Cyan
-  # Vua bat ceo-brief o tren, ma sale-brief da bat o muc 4/5 -> luat server phai TU TAT sale-brief.
-  # Server enforce (khong tin client): du goi API tay cung khong the bat ca 2 loai.
-  $c5subs = (Req GET '/digest/subscriptions' $null $H).Data.items
-  $c5sale = $c5subs | Where-Object { $_.briefType -eq 'sale-brief' }
-  $c5ceo  = $c5subs | Where-Object { $_.briefType -eq 'ceo-brief' }
-  Check 'ceo-brief dang bat' ($c5ceo.enabled -eq $true) "ceo.enabled=$($c5ceo.enabled)"
-  Check 'sale-brief TU TAT khi bat ceo (luat 1 loai)' ($c5sale.enabled -eq $false) "sale.enabled=$($c5sale.enabled)"
+  Write-Host "6b. C5: moi nguoi chi 1 loai theo vai tro (doi loai = doi tren chinh dong cu)" -ForegroundColor Cyan
+  # Khoa chinh (TenantId, Username) -> moi nguoi DUNG 1 dong: luat "1 nguoi 1 loai" la bat bien
+  # cua cau truc, khong phai luat phai nho enforce. Doi loai = UPDATE cot BriefType.
+  $c5subs = @((Req GET '/digest/subscriptions' $null $H).Data.items)
+  Check 'Chi co DUNG 1 dong dang ky' ($c5subs.Count -eq 1) "co $($c5subs.Count) dong"
+  Check 'Dong do la ceo-brief (vua luu)' ($c5subs[0].briefType -eq 'ceo-brief') "briefType=$($c5subs[0].briefType)"
+  Check 'ceo-brief dang bat' ($c5subs[0].enabled -eq $true) "enabled=$($c5subs[0].enabled)"
+
+  Write-Host "6c. Doi nguoc lai ve sale-brief" -ForegroundColor Cyan
+  Check 'Luu lai sale-brief = 200' ((Req PUT '/digest/subscriptions/sale-brief' @{ enabled=$true; sendHourLocal=7; channelInApp=$true } $H).Code -eq 200) 'khac 200'
+  $c5subs = @((Req GET '/digest/subscriptions' $null $H).Data.items)
+  Check 'Van chi 1 dong sau khi doi nguoc' ($c5subs.Count -eq 1) "co $($c5subs.Count) dong"
+  Check 'Da ve sale-brief' ($c5subs[0].briefType -eq 'sale-brief') "briefType=$($c5subs[0].briefType)"
 
   Write-Host "7. Gui thu (khong dung toi moc 'da gui hom nay')" -ForegroundColor Cyan
   $before = (Req GET '/insights/unread-count' $null $H).Data.count
@@ -152,6 +161,68 @@ try {
   Check 'Gui thu bao ok' ($r.Data.ok -eq $true) "$($r.Data | ConvertTo-Json -Compress)"
   Info "summary: $($r.Data.summary)"
   Check 'Gui thu loai la = 400' ((Req POST '/digest/subscriptions/hacker-brief/test' $null $H).Code -eq 400) 'khac 400'
+
+  Write-Host "7b. Hang doi ban tin doc duoc" -ForegroundColor Cyan
+  # Gui thu di THANG (khong qua hang doi) nen items co the rong - kiem endpoint doc duoc la du.
+  # Dong hang doi that chi sinh ra khi workflow chuan bi ban tin (co kenh ngoai duoc bat).
+  $q = Req GET '/workflows/outbound-mails?kind=daily-brief&limit=5' $null $H
+  Check 'GET outbound-mails = 200' ($q.Code -eq 200) "code=$($q.Code) $($q.Error)"
+  Check 'Tra ve mang items' ($null -ne $q.Data.items) 'khong co items'
+  $qrow = @($q.Data.items) | Select-Object -First 1
+  if ($qrow) {
+    Check 'Dong hang doi co field channel' ($null -ne $qrow.channel) "channel=$($qrow.channel)"
+    Info "dong moi nhat: channel=$($qrow.channel) status=$($qrow.status) scheduledUtc=$($qrow.scheduledUtc)"
+  } else { Info "hang doi rong (chua co workflow nao chuan bi ban tin) - binh thuong" }
+
+  Write-Host "7c. Tat tung kenh: kenh da tat phai bi BO QUA, khong duoc bao loi" -ForegroundColor Cyan
+  # Nguoi dung khong muon nhan qua zalo/telegram/email -> bo tick. Kenh tat phai ra 'skip',
+  # KHONG duoc thanh 'FAIL' (FAIL nghia la co gang gui roi hong -> admin doc nham la he thong loi).
+  $null = Req PUT '/digest/subscriptions/sale-brief' @{
+    enabled=$true; sendHourLocal=7; channelInApp=$true
+    channelEmail=$false; channelTelegram=$false; channelZalo=$false } $H
+  $t = Req POST '/digest/subscriptions/sale-brief/test' $null $H
+  Check 'Tat het kenh ngoai: van 200' ($t.Code -eq 200) "code=$($t.Code)"
+  Check 'Tat het kenh ngoai: van bao ok (trong app luon nhan)' ($t.Data.ok -eq $true) "$($t.Data | ConvertTo-Json -Compress)"
+  Check 'sentChannels co inapp' ("$($t.Data.sentChannels)" -match 'inapp') "sentChannels=$($t.Data.sentChannels)"
+  Check 'zalo tat -> skip chu khong FAIL' ("$($t.Data.summary)" -match 'zalo:skip') "summary=$($t.Data.summary)"
+  Check 'telegram tat -> skip chu khong FAIL' ("$($t.Data.summary)" -match 'telegram:skip') "summary=$($t.Data.summary)"
+  Check 'email tat -> skip chu khong FAIL' ("$($t.Data.summary)" -match 'email:skip') "summary=$($t.Data.summary)"
+
+  Write-Host "7d. Bat zalo khi cong ty CHUA cau hinh OA (hoac user id sai)" -ForegroundColor Cyan
+  # Ca nay phai hong RIENG kenh zalo, KHONG duoc keo do ca luot gui. Dung user id ro rang la gia
+  # nen khong the gui nham cho nguoi that.
+  $zcfg = (Req GET '/digest/zalo-config' $null $H).Data
+  Info "OA zalo cua cong ty: configured=$($zcfg.configured)"
+  $null = Req PUT '/digest/subscriptions/sale-brief' @{
+    enabled=$true; sendHourLocal=7; channelInApp=$true
+    channelZalo=$true; zaloUserId='e2e-khong-ton-tai' } $H
+  $t = Req POST '/digest/subscriptions/sale-brief/test' $null $H
+  Check 'Zalo hong: endpoint van 200 (khong 500)' ($t.Code -eq 200) "code=$($t.Code)"
+  Check 'Zalo hong: van ok nho kenh trong app' ($t.Data.ok -eq $true) "$($t.Data | ConvertTo-Json -Compress)"
+  Check 'Zalo bao FAIL trong summary' ("$($t.Data.summary)" -match 'zalo:FAIL') "summary=$($t.Data.summary)"
+  Check 'Zalo hong KHONG lot vao sentChannels' (-not ("$($t.Data.sentChannels)" -match 'zalo')) "sentChannels=$($t.Data.sentChannels)"
+
+  Write-Host "7e. Bat telegram voi chat id sai / bot chua cau hinh" -ForegroundColor Cyan
+  # Chua khai Telegram:BotToken -> kenh tu tat (skip). Da khai ma chat id sai -> FAIL.
+  # Ca hai deu chap nhan duoc; cai KHONG chap nhan duoc la 500 hoac keo do kenh khac.
+  $null = Req PUT '/digest/subscriptions/sale-brief' @{
+    enabled=$true; sendHourLocal=7; channelInApp=$true
+    channelTelegram=$true; telegramChatId='-100000000000000' } $H
+  $t = Req POST '/digest/subscriptions/sale-brief/test' $null $H
+  Check 'Telegram sai: endpoint van 200' ($t.Code -eq 200) "code=$($t.Code)"
+  Check 'Telegram sai: van ok nho kenh trong app' ($t.Data.ok -eq $true) "$($t.Data | ConvertTo-Json -Compress)"
+  Check 'Telegram ra skip hoac FAIL (khong am tham ok)' `
+    ("$($t.Data.summary)" -match 'telegram:(skip|FAIL)') "summary=$($t.Data.summary)"
+  Check 'Telegram hong KHONG lot vao sentChannels' (-not ("$($t.Data.sentChannels)" -match 'telegram')) "sentChannels=$($t.Data.sentChannels)"
+
+  Write-Host "7f. Gui thu khi CHUA co ban tin nao duoc dung san" -ForegroundColor Cyan
+  # 'Gui thu' co y KHONG doi bat ky ban tin nao da duoc chuan bi - no tu dung noi dung thu tai cho.
+  # Nho vay nguoi dung kiem tra duoc kenh nhan ngay sau khi luu, khong phai doi den sang hom sau.
+  $t = Req POST '/digest/subscriptions/ceo-brief/test' $null $H
+  Check 'Gui thu loai CHUA dang ky = 400 (bao ro, khong im lang)' ($t.Code -eq 400) "code=$($t.Code)"
+  Info 'Doi lai loai da dang ky roi gui thu -> phai chay duoc ngay, khong can doi workflow'
+  $t = Req POST '/digest/subscriptions/sale-brief/test' $null $H
+  Check 'Gui thu chay duoc du chua co ban tin dung san' ($t.Code -eq 200 -and $t.Data.ok -eq $true) "code=$($t.Code)"
 
   Write-Host "8. Bang tin trong app nhan duoc" -ForegroundColor Cyan
   $after = (Req GET '/insights/unread-count' $null $H).Data.count
