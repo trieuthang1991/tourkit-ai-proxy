@@ -294,7 +294,11 @@ public class CeoBriefWorkflow : IScheduledWorkflow
             {
                 var name = Str(it, "fullName");
                 if (string.IsNullOrWhiteSpace(name)) continue;
-                sellers.Add($"{name} — {Str(it, "totalRevenueFormatted") ?? "?"}");
+                // Tự định dạng từ số THÔ thay vì lấy chuỗi *Formatted của CRM: CRM trả
+                // "4,346,775,776 đ" (dấu phẩy, có khoảng trắng) còn cả bản tin dùng "4.346.775.776đ".
+                // Hai kiểu số cạnh nhau trong một bảng đọc như hai nguồn khác nhau.
+                var rev = Dec(it, "totalRevenue");
+                sellers.Add($"{name} — {(rev > 0 ? CeoBriefBuilder.Vnd(rev) : Str(it, "totalRevenueFormatted") ?? "?")}");
             }
         });
 

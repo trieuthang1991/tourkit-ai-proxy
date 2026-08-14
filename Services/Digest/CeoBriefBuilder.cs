@@ -37,14 +37,61 @@ public record CeoBriefData(CeoNumbers ThisMtd, CeoNumbers PrevMtd, List<string> 
 public static class CeoBriefBuilder
 {
     private static readonly CultureInfo Vi = CultureInfo.GetCultureInfo("vi-VN");
-    private static string Vnd(decimal v) => v.ToString("N0", Vi) + "đ";
+    /// Public để nơi lấy số (CeoBriefWorkflow) định dạng CÙNG một kiểu — bản tin trộn hai kiểu số
+    /// đọc như ghép từ hai nguồn khác nhau.
+    public static string Vnd(decimal v) => v.ToString("N0", Vi) + "đ";
 
     /// So sánh kỳ này với kỳ trước. Kỳ trước = 0 → "n/a" chứ không phải "+∞%" hay chia cho 0.
+    ///
+    /// <para><b>Đổi DẤU thì không in phần trăm.</b> Lãi 200tr thành lỗ 644tr ra "-101%" — con số đó
+    /// vô nghĩa (giảm 101% là giảm quá cả số ban đầu) và đọc lên còn nhẹ hơn thực tế, trong khi đây
+    /// mới là điều đáng báo động nhất của bản tin. Nói thẳng "chuyển từ lãi sang lỗ".</para>
     public static string PctChange(decimal cur, decimal prev)
     {
         if (prev == 0) return "n/a";
+        if (prev > 0 && cur < 0) return "chuyển từ lãi sang lỗ";
+        if (prev < 0 && cur > 0) return "chuyển từ lỗ sang lãi";
+
+        // Cả hai kỳ đều ÂM: công thức phần trăm cho dấu NGƯỢC với ý nghĩa. Lỗ 100tr thành lỗ 150tr
+        // ra "+50%" — đọc như đang khá lên, trong khi thực tế lỗ nặng thêm. Nói bằng chữ.
+        if (prev < 0 && cur < 0)
+        {
+            var m = Math.Round(Math.Abs((cur - prev) / prev * 100));
+            if (m == 0) return "lỗ gần như không đổi";
+            return cur < prev ? $"lỗ nặng thêm {m}%" : $"lỗ giảm {m}%";
+        }
+
         var pct = Math.Round((cur - prev) / prev * 100);
         return (pct >= 0 ? "+" : "") + pct + "%";
+    }
+
+    /// Số âm gọi thẳng là LỖ. "Lợi nhuận: -644.211.149đ" bắt người đọc tự nhận ra dấu trừ —
+    /// mà dấu trừ là thứ dễ lướt qua nhất trong một dòng toàn chữ số.
+    private static string ProfitLine(decimal v)
+        => v < 0 ? $"Lỗ: {Vnd(-v)}" : $"Lợi nhuận: {Vnd(v)}";
+
+    /// <summary>
+    /// Cách đọc gọn ("4,53 tỷ đồng", "644 triệu đồng") — MÁY CHỦ tính, không để AI tự quy đổi.
+    ///
+    /// <para>Vì sao phải làm: đọc "4.531.460.000đ" giữa câu văn thì nặng, nên AI tự rút gọn cho
+    /// tự nhiên. Nhưng quy đổi đơn vị CŨNG LÀ MỘT PHÉP TÍNH, mà đây là chỗ đã có luật "số do máy
+    /// chủ tính, AI chỉ viết lời". Lần chạy thật: AI viết "lỗ 644 tỷ đồng" trong khi số thật là
+    /// 644.211.149đ — sai đúng một bậc, mà trong báo cáo cho giám đốc thì sai một bậc là hỏng cả
+    /// bản tin. Nay đưa sẵn chuỗi rút gọn vào prompt để AI chỉ việc chép.</para>
+    /// </summary>
+    public static string Short(decimal v)
+    {
+        var a = Math.Abs(v);
+        var (num, unit) = a switch
+        {
+            >= 1_000_000_000m => (v / 1_000_000_000m, "tỷ"),
+            >= 1_000_000m     => (v / 1_000_000m,     "triệu"),
+            >= 1_000m         => (v / 1_000m,         "nghìn"),
+            _                 => (v,                  ""),
+        };
+        // 1 chữ số thập phân là đủ để giữ ý nghĩa mà không dài dòng; bỏ ",0" cho tròn số.
+        var s = Math.Round(num, 1).ToString("0.#", Vi);
+        return unit.Length == 0 ? $"{s} đồng" : $"{s} {unit} đồng";
     }
 
     /// <summary>
@@ -66,15 +113,19 @@ public static class CeoBriefBuilder
 
     /// Bảng số — chỉ in những mục công ty chọn đưa vào bản tin. Mục bị tắt thì KHÔNG lấy số nên
     /// cũng không được in: in "0" cho một mục không lấy là nói dối, người đọc tưởng thật sự bằng 0.
-    private static string NumbersBlock(CeoBriefData d)
+    ///
+    /// <param name="forPrompt">Bản đưa cho AI thì kèm cách đọc gọn của từng số (xem <see cref="Short"/>).
+    /// Bản in cho người đọc thì không — đọc "4.531.460.000đ (4,53 tỷ đồng)" là thừa.</param>
+    private static string NumbersBlock(CeoBriefData d, bool forPrompt = false)
     {
         var sb = new StringBuilder();
         string Cmp(decimal cur, decimal prev, bool withLabel = false)
             => d.ShowCompare ? $" ({PctChange(cur, prev)}{(withLabel ? " " + d.CompareLabel : "")})" : "";
+        string Say(decimal v) => forPrompt ? $" [đọc gọn: {Short(v)}]" : "";
 
-        sb.AppendLine($"- Doanh thu: {Vnd(d.ThisMtd.Revenue)}{Cmp(d.ThisMtd.Revenue, d.PrevMtd.Revenue, true)}");
-        sb.AppendLine($"- Chi phí: {Vnd(d.ThisMtd.Expense)}{Cmp(d.ThisMtd.Expense, d.PrevMtd.Expense)}");
-        sb.AppendLine($"- Lợi nhuận: {Vnd(d.ThisMtd.Profit)}{Cmp(d.ThisMtd.Profit, d.PrevMtd.Profit)}");
+        sb.AppendLine($"- Doanh thu: {Vnd(d.ThisMtd.Revenue)}{Say(d.ThisMtd.Revenue)}{Cmp(d.ThisMtd.Revenue, d.PrevMtd.Revenue, true)}");
+        sb.AppendLine($"- Chi phí: {Vnd(d.ThisMtd.Expense)}{Say(d.ThisMtd.Expense)}{Cmp(d.ThisMtd.Expense, d.PrevMtd.Expense)}");
+        sb.AppendLine($"- {ProfitLine(d.ThisMtd.Profit)}{Say(Math.Abs(d.ThisMtd.Profit))}{Cmp(d.ThisMtd.Profit, d.PrevMtd.Profit)}");
 
         // Hai số này trước nằm chung một dòng; tách ra để tắt riêng từng cái mà dòng không bị cụt
         // kiểu "Cơ hội mới hôm qua: 3 · " .
@@ -88,10 +139,33 @@ public static class CeoBriefBuilder
     }
 
     public static string BuildPrompt(CeoBriefData d, DateTime todayLocal) =>
-        $"Bạn là trợ lý điều hành cho giám đốc công ty du lịch. Hôm nay {todayLocal:dd/MM/yyyy}.\n" +
+        $"Bạn là giám đốc tài chính đang tóm tắt tình hình cho giám đốc công ty du lịch. " +
+        $"Hôm nay {todayLocal:dd/MM/yyyy}.\n" +
+        // MỐC THỜI GIAN: số là LUỸ KẾ từ đầu tháng, không phải của riêng hôm nay. Thiếu dòng này
+        // AI mở bài bằng "Tình hình kinh doanh HÔM NAY khá khó khăn" trong khi đang nói về 14 ngày.
+        $"Các số tài chính dưới đây là LUỸ KẾ từ 01/{todayLocal:MM} đến hết {todayLocal:dd/MM}, " +
+        "KHÔNG phải số của riêng hôm nay — đừng viết \"hôm nay doanh thu…\".\n" +
         "Viết 5-8 câu tiếng Việt tổng kết tình hình từ CHÍNH XÁC các số dưới đây. " +
         "TUYỆT ĐỐI không bịa thêm số nào ngoài input, không dùng tiêu đề markdown, " +
         "giọng tự nhiên, đi thẳng vào ý chính, nêu rõ điều đáng lưu ý nhất.\n" +
+        // Đây là phần khiến bản tin đáng đọc: một dòng "nên làm gì". Không dặn thì AI chỉ đọc lại
+        // bảng số bằng lời — giám đốc đã nhìn thấy bảng số ngay bên dưới rồi.
+        "Kết bằng 1-2 câu KHUYẾN NGHỊ cụ thể nên làm gì tiếp, bám đúng số đang có.\n" +
+        // Doanh số nhân viên đến từ nguồn khác (giá trị phiếu đặt) nên KHÔNG cộng khớp doanh thu ghi
+        // nhận. Lần chạy thật: top 3 cộng lại 9,1 tỷ trong khi doanh thu toàn công ty 4,5 tỷ — AI đặt
+        // hai số cạnh nhau tỉnh bơ. Cấm so chéo là cách duy nhất tránh kết luận sai.
+        "Doanh số của nhân viên đo theo giá trị phiếu đặt, KHÔNG cùng thước đo với doanh thu ghi " +
+        "nhận — tuyệt đối không cộng chúng lại, không so hai nhóm số này với nhau, không suy ra " +
+        "mâu thuẫn từ chúng.\n" +
+        // Biến động cỡ này ở CRM thường là dữ liệu chưa nhập/nhập sót, không phải kinh doanh sụp đổ.
+        // Kết luận "khó khăn" từ một con số chưa kiểm là kiểu sai mất lòng tin ngay lần đọc đầu.
+        "Nếu một chỉ số biến động quá 80%, coi đó là dấu hiệu cần KIỂM TRA LẠI SỐ LIỆU trước khi " +
+        "kết luận về kinh doanh — nói rõ điều đó thay vì khẳng định công ty đang tốt hay xấu.\n" +
+        // Quy đổi đơn vị cũng là một PHÉP TÍNH. Lần chạy thật: AI viết "lỗ 644 tỷ đồng" cho số
+        // 644.211.149đ — lệch đúng một bậc. Đưa sẵn cách đọc gọn, cấm tự tính lại.
+        "Mỗi số tiền đã kèm sẵn cách đọc gọn trong ngoặc vuông. Khi nhắc trong câu văn, dùng ĐÚNG " +
+        "cách đọc gọn đó (hoặc chép nguyên số đầy đủ). TUYỆT ĐỐI không tự quy đổi sang tỷ/triệu/" +
+        "nghìn theo cách của bạn, không làm tròn khác đi.\n" +
         // Không có dòng này thì AI lấy con số tồn đọng lớn nhất làm tiêu điểm và viết "cần xử lý
         // ngay lập tức" — báo động sai về việc đã nằm đó nhiều năm (xem AppointmentLine).
         "Lưu ý: số 'tồn đọng ... quá hạn' là tích luỹ từ trước, KHÔNG phải việc phát sinh hôm nay — " +
@@ -103,7 +177,7 @@ public static class CeoBriefBuilder
         // Công ty tắt so sánh kỳ trước → prompt không có phần trăm nào. Không dặn thì AI vẫn viết
         // "tăng so với tháng trước" theo thói quen, tức là bịa ra một so sánh không có số.
         (d.ShowCompare ? "" : "Bộ số này KHÔNG có kỳ so sánh — tuyệt đối không viết tăng/giảm so với kỳ trước.\n") +
-        "\n" + NumbersBlock(d);
+        "\n" + NumbersBlock(d, forPrompt: true);
 
     public static DigestMessage RenderFallback(CeoBriefData d, DateTime todayLocal)
         => Wrap(NumbersBlock(d), todayLocal);

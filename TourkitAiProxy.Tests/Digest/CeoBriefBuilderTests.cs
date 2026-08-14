@@ -54,9 +54,51 @@ public class CeoBriefBuilderTests
     [InlineData(0, 100, "-100%")]     // sạch doanh thu
     [InlineData(100, 100, "+0%")]     // đứng yên — không được ra "0%" trơ hay "n/a"
     [InlineData(0, 0, "n/a")]         // cả hai kỳ đều 0
-    [InlineData(-50, 100, "-150%")]   // âm (hoàn tiền nhiều hơn thu)
+    // Đổi DẤU thì không in phần trăm: "-150%" vừa vô nghĩa (giảm quá cả số ban đầu) vừa đọc nhẹ
+    // hơn thực tế, trong khi lãi hoá lỗ mới là điều đáng báo động nhất của bản tin.
+    [InlineData(-50, 100, "chuyển từ lãi sang lỗ")]
+    [InlineData(50, -100, "chuyển từ lỗ sang lãi")]
+    // Âm sang âm: công thức % cho dấu NGƯỢC với ý nghĩa (lỗ 100 → lỗ 150 ra "+50%", đọc như
+    // đang khá lên). Nói bằng chữ mới đúng chiều.
+    [InlineData(-150, -100, "lỗ nặng thêm 50%")]
+    [InlineData(-50, -100, "lỗ giảm 50%")]
     public void PctChange_cac_ca_bien(decimal cur, decimal prev, string expected)
         => Assert.Equal(expected, CeoBriefBuilder.PctChange(cur, prev));
+
+    /// Quy đổi đơn vị là một PHÉP TÍNH nên phải do máy chủ làm. Lần chạy thật: AI viết
+    /// "lỗ 644 tỷ đồng" cho số 644.211.149đ — lệch đúng một bậc, trong báo cáo cho giám đốc
+    /// thì sai một bậc là hỏng cả bản tin.
+    [Theory]
+    [InlineData(4_531_460_000, "4,5 tỷ đồng")]
+    [InlineData(644_211_149, "644,2 triệu đồng")]
+    [InlineData(12_500, "12,5 nghìn đồng")]
+    [InlineData(2_000_000_000, "2 tỷ đồng")]
+    [InlineData(900, "900 đồng")]
+    public void Doc_gon_dung_bac_don_vi(decimal v, string expected)
+        => Assert.Equal(expected, CeoBriefBuilder.Short(v));
+
+    [Fact]
+    public void Prompt_dua_san_cach_doc_gon_va_cam_tu_quy_doi()
+    {
+        var p = CeoBriefBuilder.BuildPrompt(Data(), Today);
+        Assert.Contains("đọc gọn:", p);
+        Assert.Contains("không tự quy đổi", p);
+    }
+
+    /// Bảng số in cho NGƯỜI ĐỌC thì không kèm cách đọc gọn — "4.531.460.000đ (4,5 tỷ đồng)" là thừa.
+    [Fact]
+    public void Bang_so_cho_nguoi_doc_khong_kem_doc_gon()
+        => Assert.DoesNotContain("đọc gọn", CeoBriefBuilder.RenderFallback(Data(), Today).BodyMarkdown);
+
+    [Fact]
+    public void So_am_goi_thang_la_LO()
+    {
+        var d = Data() with { ThisMtd = new(1_000_000_000m, 1_600_000_000m, -600_000_000m) };
+        var md = CeoBriefBuilder.RenderFallback(d, Today).BodyMarkdown;
+        Assert.Contains("Lỗ: 600.000.000đ", md);
+        // Dấu trừ lẫn giữa một dòng toàn chữ số là thứ dễ lướt qua nhất
+        Assert.DoesNotContain("Lợi nhuận: -", md);
+    }
 
     [Fact]
     public void Khong_co_top_seller_thi_ghi_na_chu_khong_de_trong()
