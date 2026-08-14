@@ -480,7 +480,14 @@ theo thứ tự nguyên nhân GỐC trước. Bộ đếm luôn là tổng THẬ
 
 **Cấu hình cần có:** `Telegram:BotToken` (rỗng = kênh Telegram tự tắt) · `Models:Digest` (thiếu → kế thừa
 `Models:Primary`) · template mail `daily-brief` trong `/admin-trav-ai` → Mail Templates (thiếu thì worker
-vẫn render từ `Params`) · `Digest:LeadMinutes|CheckIntervalMinutes|InsightKeepDays` (thiếu → 10/5/30).
+vẫn render từ `Params`) · `Digest:LeadMinutes|InsightKeepDays` (thiếu → 10/30).
+
+⚠️ **Nhịp quét KHÔNG nằm trong config.** `Digest:CheckIntervalMinutes` từng có trong appsettings nhưng
+**không dòng code nào đọc** — đã gỡ 14/08. Nhịp thật là `dbo.UserWorkflows.IntervalMinutes` của chính 2
+tác vụ bản tin (ô "Kiểm tra ai đến giờ, mỗi" trên trang Tự động hoá; mặc định 15' do
+`WorkflowEndpoints.DefaultInterval`). Quan hệ với `LeadMinutes`: workflow dựng nội dung từ mốc
+`giờ chọn − Lead` và **hẹn `ScheduledUtc` đúng giờ người chọn**, nên trễ tối đa = `max(0, Interval − Lead)`
+— đặt Interval ≤ Lead thì luôn đúng giờ. Sàn cứng là tick 60s của `WorkflowSchedulerService`.
 
 **E2E:** [`scripts/e2e/features-digest.ps1`](scripts/e2e/features-digest.ps1) (tự sao lưu + khôi phục đăng
 ký thật) · sơ đồ luồng: `node scripts/e2e/features-flow-diagram.check.js`.

@@ -2,6 +2,7 @@ using System.Text.Json;
 using TourkitAiProxy.Services.Digest;
 using TourkitAiProxy.Services.Mail;
 using TourkitAiProxy.Services.TourKit;
+using TourkitAiProxy.Services.Workflows;
 
 namespace TourkitAiProxy.Endpoints;
 
@@ -58,6 +59,7 @@ public static class DigestEndpoints
         // ─── Lưu / cập nhật đăng ký ──────────────────────────────────────────────
         g.MapPut("/subscriptions/{briefType}", async (string briefType, SubBody body,
             HttpContext ctx, TkSessionStore sessions, DigestSubscriptionRepository repo,
+            WorkflowRepository workflows, WorkflowRegistry registry, ILoggerFactory logs,
             CancellationToken ct) =>
         {
             var a = SessionAuth.Read(ctx, sessions);
@@ -89,6 +91,31 @@ public static class DigestEndpoints
                     error = "Số điện thoại Zalo không hợp lệ — nhập số Việt Nam 10 chữ số bắt đầu bằng 0 (vd 0912345678).",
                 });
 
+            // ── Chưa ai khai luật chung → KHÔNG cho bật nhận ────────────────────────
+            //
+            // Cho bật lúc này thì bản tin sẽ chạy bằng mặc định mà không ai từng xem qua: nhắc theo
+            // trạng thái đoán mò, ngưỡng đoán mò. Thà chặn ngay và chỉ đúng chỗ cần khai, còn hơn
+            // gửi một bản tin sai rồi mất lòng tin ngay buổi sáng đầu tiên.
+            //
+            // ⚠️ Kiểm TRƯỚC khi lưu. Bản đầu đặt sau Upsert nên trả 409 mà dòng đăng ký VẪN được ghi
+            // — người dùng thấy báo lỗi nhưng thực tế đã đăng ký rồi (E2E bắt được: bước 6 FAIL còn
+            // 6b lại PASS vì dòng đã đổi loại). Từ chối thì phải từ chối trọn vẹn.
+            //
+            // Workflow không có luật nào để khai (HasCompanyRules=false, vd ceo-brief) thì bỏ qua
+            // kiểm này — chặn người dùng vì một thứ không tồn tại là chặn vào hư không.
+            var wfDef = registry.Resolve(briefType);
+            if (body.Enabled && wfDef is { HasCompanyRules: true })
+            {
+                var cfg0 = workflows.Get(a.TenantId, "", briefType);
+                if (cfg0 is null || string.IsNullOrWhiteSpace(cfg0.OptionsJson) || cfg0.OptionsJson == "{}")
+                    return Results.Json(new
+                    {
+                        error = "Công ty chưa cấu hình bản tin này. Nhờ người phụ trách vào Tự động hoá → "
+                              + "mục \"Theo tổ chức\" khai các mục cần đưa vào bản tin rồi bấm Lưu cấu hình.",
+                        needsCompanySetup = true,
+                    }, Web, statusCode: 409);
+            }
+
             await repo.UpsertAsync(new DigestSubscription(
                 a.TenantId, a.Username, briefType,
                 body.Enabled, DigestSubscription.ClampHour(body.SendHourLocal),
@@ -104,7 +131,33 @@ public static class DigestEndpoints
             // 1 dòng/người (PK TenantId+Username) — cấu trúc tự bảo đảm mỗi người 1 loại; đổi loại =
             // UPDATE cột BriefType trên chính dòng đó (giờ + kênh giữ nguyên).
 
-            return Results.Json(new { ok = true }, Web);
+            // ── Bật nhận là ĐỦ: tự bật luôn lịch chạy của công ty ────────────────────
+            //
+            // Bản tin cần hai công tắc — đăng ký của người dùng VÀ lịch chạy cấp công ty (vì tác vụ
+            // này là PerTenant: một lượt chạy phục vụ mọi người đăng ký). Bắt người dùng bật cả hai
+            // là một cái bẫy: họ tick "Nhận bản tin này", thấy "Đã lưu", rồi sáng mai không có gì
+            // tới — không lỗi nào hiện lên. Mà cũng không ai tỉnh táo lại muốn "có người đăng ký
+            // nhưng lịch tắt": lượt chạy không có người đăng ký nào thì không tốn gì cả.
+            //
+            // Nên quy tắc là: công ty khai luật chung một lần, ai muốn nhận thì bật nhận — thế thôi.
+            //
+            // KHÔNG tự bật khi workflow đang bị tạm dừng do lỗi (PausedReason): dừng đó là dấu hiệu
+            // hệ thống đang hỏng, một người bấm đăng ký không phải lý do để xoá dấu hiệu ấy đi.
+            bool autoStarted = false;
+            if (body.Enabled)
+            {
+                var cfg = workflows.Get(a.TenantId, "", briefType);
+                if (cfg is null || (!cfg.Enabled && string.IsNullOrEmpty(cfg.PausedReason)))
+                {
+                    workflows.UpsertConfig(a.TenantId, "", briefType, enabled: true,
+                        intervalMinutes: cfg?.IntervalMinutes ?? 15, updatedBy: a.Username);
+                    autoStarted = true;
+                    logs.CreateLogger("Digest").LogInformation(
+                        "Tự bật lịch {Brief} cho tenant {Tenant} vì {User} đăng ký nhận", briefType, a.TenantId, a.Username);
+                }
+            }
+
+            return Results.Json(new { ok = true, autoStarted }, Web);
         });
 
         // ─── Gửi thử — đi ĐÚNG đường của bản tin thật ────────────────────────────

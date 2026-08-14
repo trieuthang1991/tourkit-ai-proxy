@@ -375,10 +375,28 @@ function ServiceAccountConfig({ pushToast, onChange }) {
 // hop thu (mail-auto-sync). Con lich chay + tan suat la cap cong ty nen can quyen xem cau hinh.
 const BRIEF_WORKFLOWS = ['sale-brief', 'ceo-brief'];
 
-function WorkflowCard({ wf, onUpdate, pushToast, locked, canConfig = true, digestSub, onDigestSaved }) {
+// briefPart: thẻ bản tin bị TÁCH LÀM ĐÔI theo đúng ranh giới ai-quyết-cái-gì —
+//   'personal' → chỉ "Bản tin của tôi" (tôi có nhận không, mấy giờ, ở đâu). Nằm mục Theo người dùng.
+//   'company'  → luật chung: lịch chạy + đưa mục nào vào bản tin + ngưỡng + trạng thái. Một người
+//                khai một lần cho cả công ty, nằm mục Theo tổ chức.
+// Trước đây nhồi cả hai vào một thẻ nên người đọc phải tự tách "cái này của tôi hay của công ty",
+// và nhân viên thường xuyên nhìn thấy cả đống ngưỡng mà họ không có quyền lẫn nhu cầu đụng vào.
+function WorkflowCard({ wf, onUpdate, pushToast, locked, canConfig = true, digestSub, onDigestSaved,
+                        briefPart = 'all' }) {
   const isBrief = BRIEF_WORKFLOWS.includes(wf.type);
+  const showPersonal = !isBrief || briefPart !== 'company';
+  const showRules = !isBrief || briefPart !== 'personal';
+  // "Công ty đã khai luật chung chưa" = đã có ai bấm Lưu cấu hình cho tác vụ này chưa.
+  // Chưa khai thì server từ chối bật nhận (409) — giao diện phải nói trước, đừng để bấm rồi mới báo.
+  // Tác vụ KHÔNG có luật nào để khai (vd bản tin điều hành) thì luôn coi là sẵn sàng: bắt khai một
+  // thứ không tồn tại thì người dùng không bao giờ bật nhận được. Điều kiện này phải khớp
+  // IScheduledWorkflow.HasCompanyRules bên C# — lệch nhau là giao diện chặn còn server cho, hoặc ngược lại.
+  // Đọc thẳng WORKFLOW_OPTIONS chứ KHÔNG dùng biến optionSchema: biến đó khai bằng const ở dưới,
+  // dùng trước là "Cannot access before initialization" — trắng nguyên trang (đã dính một lần).
+  const companyReady = ((WORKFLOW_OPTIONS[wf.type] || []).length === 0)
+    || !!(wf.options && Object.keys(wf.options).length > 0);
   // Chi an phan LICH CHAY khi thieu quyen. Voi the ban tin thi van con khoi "Ban tin cua toi".
-  const showSchedule = canConfig;
+  const showSchedule = canConfig && showRules;
   const [enabled, setEnabled] = uS(wf.enabled);
   const [interval, setInterval] = uS(initialInterval(wf));
   const [saving, setSaving] = uS(false);
@@ -399,25 +417,44 @@ function WorkflowCard({ wf, onUpdate, pushToast, locked, canConfig = true, diges
 
   // Tải options động cho card: danh sách trạng thái cơ hội LẤY TỪ CRM của chính công ty, để người
   // dùng TICK CHỌN thay vì mình đoán hộ bằng từ khoá tiếng Việt (mỗi CRM tự đặt tên trạng thái).
-  uE(() => {
-    // Mỗi danh sách là một lời gọi riêng: trạng thái cơ hội và trạng thái công việc nằm ở hai
-    // nơi khác nhau trong CRM, và không phải tác vụ nào cũng cần cả hai.
-    const wanted = [];
-    if (DEAL_STATUS_WORKFLOWS.includes(wf.type)) wanted.push(['dealStatuses', '/api/v1/workflows/deal-statuses']);
-    if (TASK_STATUS_WORKFLOWS.includes(wf.type)) wanted.push(['taskStatuses', '/api/v1/workflows/task-statuses']);
-    wanted.forEach(([key, url]) => {
+  // Mỗi danh sách là một lời gọi riêng: trạng thái cơ hội và trạng thái công việc nằm ở hai
+  // nơi khác nhau trong CRM, và không phải tác vụ nào cũng cần cả hai.
+  function dynSources() {
+    const out = [];
+    if (DEAL_STATUS_WORKFLOWS.includes(wf.type)) out.push(['dealStatuses', '/api/v1/workflows/deal-statuses']);
+    if (TASK_STATUS_WORKFLOWS.includes(wf.type)) out.push(['taskStatuses', '/api/v1/workflows/task-statuses']);
+    return out;
+  }
+
+  // refresh=true → bỏ bản đã lưu, nhờ AI đọc lại tên trạng thái VÀ áp kết quả mới vào ô chọn
+  // (người dùng bấm "Phân loại lại" là đang muốn lấy kết quả mới, không phải chỉ xem).
+  function loadDynStatuses(refresh) {
+    dynSources().forEach(([key, url]) => {
       setDynLoading(l => ({ ...l, [key]: true }));
-      apiFetch(url)
+      apiFetch(url + (refresh ? '?refresh=1' : ''))
         .then(d => {
           setDynOptions(o => ({ ...o, [key]: d.items || [] }));
           // openSuggested có thể vắng (AI lỗi / chưa khai khoá model) → client tự đoán theo tên.
-          if (Array.isArray(d.openSuggested) && d.openSuggested.length)
-            setDynSuggested(s => ({ ...s, [key]: d.openSuggested }));
+          if (Array.isArray(d.openSuggested) && d.openSuggested.length) {
+            setDynSuggested(s => ({ ...s, [key]: d.openSuggested, [key + ':src']: d.hintSource }));
+            if (refresh) {
+              const keys = (WORKFLOW_OPTIONS[wf.type] || [])
+                .filter(o => o.dynamic === key && o.dynamicDefault).map(o => o.key);
+              setOptions(o => {
+                const next = { ...o };
+                keys.forEach(k => { next[k] = d.openSuggested; });
+                return next;
+              });
+              pushToast('Đã phân loại lại — nhớ bấm "Lưu cấu hình" nếu thấy đúng');
+            }
+          }
         })
         .catch(() => {})
         .finally(() => setDynLoading(l => ({ ...l, [key]: false })));
     });
-  }, [wf.type]);
+  }
+
+  uE(() => { loadDynStatuses(false); }, [wf.type]);
 
   // Sync state khi prop thay đổi (sau reload)
   uE(() => {
@@ -563,9 +600,94 @@ function WorkflowCard({ wf, onUpdate, pushToast, locked, canConfig = true, diges
   if (isPaused) {
     statusPill = <span className="wga-pill off">Tạm dừng</span>;
   } else if (enabled) {
-    statusPill = <span className="wga-pill crm">Đang chạy</span>;
+    statusPill = <span className="wga-pill crm">{isBrief ? 'Đang gửi' : 'Đang chạy'}</span>;
   } else {
-    statusPill = <span className="wga-pill faq">Tắt</span>;
+    statusPill = <span className="wga-pill faq">{isBrief ? 'Chưa gửi' : 'Tắt'}</span>;
+  }
+
+  // Bật lịch gửi ngay từ dòng phán quyết — KHÔNG bắt cuộn xuống tìm công tắc khác rồi bấm một
+  // nút Lưu khác. Chỗ báo thiếu và chỗ sửa được thiếu đó phải là một.
+  async function handleEnableSchedule() {
+    setSaving(true);
+    try {
+      await apiFetch(`/api/v1/workflows/${wf.type}`, {
+        method: 'PUT',
+        body: JSON.stringify({ enabled: true, intervalMinutes: interval, options }),
+      });
+      setEnabled(true);
+      pushToast('Đã bật lịch gửi cho cả công ty');
+      onUpdate();
+    } catch (e) {
+      pushToast('Bật lịch gửi thất bại: ' + e.message, 'error');
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  // ── Dòng phán quyết của thẻ bản tin ────────────────────────────────────────────
+  //
+  // Bản tin cần ĐỒNG THỜI hai công tắc: đăng ký của riêng bạn VÀ lịch gửi của công ty. Trước đây
+  // hai thứ đó hiện thành hai dòng rời nhau — huy hiệu "TẮT" (nói về công ty) nằm ngay trên
+  // "Bạn nhận lúc 21:00" (nói về bạn) — nên không dòng nào trả lời được câu hỏi duy nhất người
+  // đọc có: SÁNG MAI TÔI CÓ NHẬN ĐƯỢC KHÔNG. Nay gộp thành một câu trả lời thẳng, và nếu thiếu
+  // vế nào thì đặt ngay nút sửa vế đó vào cạnh câu.
+  function briefVerdict() {
+    const me = !!(digestSub && digestSub.enabled);
+    const co = enabled && !isPaused;
+    const hh = String((digestSub && digestSub.sendHourLocal) ?? 7).padStart(2, '0');
+    const chans = [];
+    if (digestSub) {
+      chans.push('trong app');
+      if (digestSub.channelEmail) chans.push('email');
+      if (digestSub.channelTelegram) chans.push('telegram');
+      if (digestSub.channelZalo) chans.push('zalo');
+    }
+    const stop = e => e.stopPropagation();
+
+    // Chưa ai khai luật chung → nói thẳng, và chỉ đúng chỗ khai. Đây là điều kiện đứng TRƯỚC mọi
+    // thứ khác: chưa có luật thì bật nhận cũng vô nghĩa.
+    if (!companyReady) return (
+      <div className="wf-verdict is-idle">
+        <Icon name="info" size={13} />
+        <span>Công ty <b>chưa cấu hình</b> bản tin này nên chưa đăng ký nhận được.
+          {canConfig
+            ? <> Khai ở mục <b>Theo tổ chức (cả công ty)</b> phía dưới rồi bấm Lưu cấu hình.</>
+            : <> Nhờ người phụ trách khai giúp ở mục “Theo tổ chức”.</>}
+        </span>
+      </div>
+    );
+
+    // KHÔNG viết "sáng mai": giờ nhận do người dùng chọn trong cả 24 giờ, và 21:00 là lựa chọn
+    // hợp lý (đọc tối trước cho sáng hôm sau) — "Sáng mai 21:00" đọc lên là vô nghĩa.
+    if (me && co) return (
+      <div className="wf-verdict is-ok">
+        <Icon name="check" size={13} />
+        <span>Mỗi ngày lúc <b>{hh}:00</b> bạn sẽ nhận — qua {chans.join(', ')}.</span>
+      </div>
+    );
+    if (me && !co) return (
+      <div className="wf-verdict is-bad" onClick={stop}>
+        <Icon name="warning" size={13} />
+        <span>Bạn đã đăng ký, nhưng <b>công ty chưa bật lịch gửi</b> nên sẽ không có gì tới.</span>
+        {canConfig
+          ? <button className="wga-btn primary wf-verdict-btn" onClick={handleEnableSchedule} disabled={saving}>
+              {saving ? 'Đang bật…' : 'Bật lịch gửi'}
+            </button>
+          : <span className="wf-verdict-note">Nhờ người quản trị bật giúp.</span>}
+      </div>
+    );
+    if (!me && co) return (
+      <div className="wf-verdict is-idle">
+        <Icon name="info" size={13} />
+        <span>Công ty đang gửi bản tin này, nhưng <b>bạn chưa đăng ký nhận</b>. Mở thẻ để chọn giờ và nơi nhận.</span>
+      </div>
+    );
+    return (
+      <div className="wf-verdict is-idle">
+        <Icon name="info" size={13} />
+        <span>Chưa ai nhận bản tin này. Mở thẻ để đăng ký cho riêng bạn.</span>
+      </div>
+    );
   }
 
   // Gom option theo nhóm (opt.group), giữ thứ tự. Option không group → nhóm '' (không tiêu đề).
@@ -608,16 +730,7 @@ function WorkflowCard({ wf, onUpdate, pushToast, locked, canConfig = true, diges
               xuống dòng lộn xộn. Bên trái có nguyên chiều rộng nên thoáng. */}
           {/* The ban tin: dong dau tien nguoi dung can biet la "TOI co nhan khong, may gio" —
               khong phai lan chay cuoi cua he thong. */}
-          {isBrief && (
-            <div className="workflows-rowhead-meta">
-              <span className={'workflows-digest-sum' + (digestSub && digestSub.enabled ? ' is-on' : '')}>
-                {window.digestSummary ? window.digestSummary(digestSub) : ''}
-              </span>
-              {digestSub && digestSub.enabled && !enabled && (
-                <span className="workflows-digest-warn">· công ty chưa bật lịch gửi</span>
-              )}
-            </div>
-          )}
+          {isBrief && showPersonal && briefVerdict()}
           <div className="workflows-rowhead-meta">
             {wf.lastRunUtc
               ? <span style={_wfRow}>
@@ -657,12 +770,18 @@ function WorkflowCard({ wf, onUpdate, pushToast, locked, canConfig = true, diges
             </div>
           )}
           <div className="workflows-rowbody-config">
-            {/* Khoi rieng cua nguoi dung — dat TRUOC lich chay vi day la thu ho vao de lam. */}
-            {isBrief && window.DigestSubBlock && (
-              <window.DigestSubBlock briefType={wf.type} sub={digestSub}
-                onSaved={onDigestSaved} pushToast={pushToast}
-                scheduleOn={enabled && !isPaused} />
-            )}
+            {/* Khoi rieng cua nguoi dung — dat TRUOC lich chay vi day la thu ho vao de lam.
+                Thiếu component thì NÓI RA, đừng lặng lẽ bỏ qua: `&& window.DigestSubBlock` từng
+                nuốt trọn khối này suốt nửa ngày khi digest.jsx quên xuất ra window — giao diện
+                trông vẫn bình thường, chỉ là không còn chỗ đặt giờ nhận. */}
+            {isBrief && showPersonal && (window.DigestSubBlock
+              ? <window.DigestSubBlock briefType={wf.type} sub={digestSub}
+                  onSaved={onDigestSaved} pushToast={pushToast}
+                  companyReady={companyReady} />
+              : <div className="workflows-locked-banner">
+                  <Icon name="warning" size={14} /> Không nạp được khối <b>Bản tin của tôi</b> —
+                  tải lại trang, còn nếu vẫn vậy thì báo kỹ thuật (thiếu pages/digest.jsx).
+                </div>)}
             {/* Nhóm "Lịch chạy" — bật/tắt + tần suất. Can quyen xem cau hinh (cap cong ty). */}
             {showSchedule && (
             <div className="workflows-optgroup">
@@ -684,7 +803,12 @@ function WorkflowCard({ wf, onUpdate, pushToast, locked, canConfig = true, diges
               </div>
               <div className="workflows-opt is-wide">
                 <div className="workflows-opt-row">
-                  <label className="workflows-opt-label">Tần suất kiểm tra</label>
+                  {/* Với bản tin, con số này KHÔNG phải "mấy giờ gửi" — giờ gửi là của từng người.
+                      Nó là khoảng cách giữa 2 lần hệ thống ngó xem "ai tới giờ chưa", tức là mức
+                      chênh giờ tối đa. Gọi thẳng tên đó thay vì "tần suất kiểm tra" chung chung. */}
+                  <label className="workflows-opt-label">
+                    {isBrief ? 'Kiểm tra ai đến giờ, mỗi' : 'Tần suất kiểm tra'}
+                  </label>
                   <div className="workflows-opt-control">
                     <select className="workflows-select workflows-opt-input" value={interval}
                       onChange={e => setInterval(Number(e.target.value))}>
@@ -699,8 +823,13 @@ function WorkflowCard({ wf, onUpdate, pushToast, locked, canConfig = true, diges
                 )}
                 {isBrief && (
                   <div className="workflows-opt-hint">
-                    Lịch này của CẢ CÔNG TY: hệ thống chạy mỗi N phút rồi tự gửi cho ai đến giờ họ chọn.
-                    Giờ nhận riêng của bạn đặt ở khối “Bản tin của tôi” phía trên.
+                    Bản tin KHÔNG gửi theo giờ đặt ở đây — mỗi người tự chọn giờ nhận ở khối “Bản tin
+                    của tôi” phía trên. Cứ sau chừng này phút, hệ thống ngó một lượt xem <b>ai sắp tới
+                    giờ</b>, dựng sẵn bản tin trước giờ đó <b>10 phút</b> rồi hẹn đúng giờ mới gửi.
+                    Nên bản tin vẫn đến đúng giờ, miễn là có một lượt ngó rơi vào 10 phút chờ đó — đặt
+                    <b> 10 phút trở xuống</b> thì luôn đúng giờ; đặt thưa hơn thì trễ nhiều nhất bằng
+                    phần dôi ra (ví dụ 15 phút → trễ tối đa 5 phút, 1 giờ → trễ tối đa 50 phút).
+                    Ô này của cả công ty, đặt một lần là xong.
                   </div>
                 )}
               </div>
@@ -717,13 +846,10 @@ function WorkflowCard({ wf, onUpdate, pushToast, locked, canConfig = true, diges
                     <div className="workflows-opt-row">
                       <label className="workflows-opt-label">
                         {opt.label}{opt.required && <span className="req-star">*</span>}
-                        {/* Lời giải thích nằm trong dấu ? chứ không in thẳng ra: mỗi ô 1–3 dòng chữ
-                            xám cộng lại chiếm quá nửa chiều cao form, mà phần lớn chỉ đọc một lần. */}
-                        <OptHelp text={opt.hint} />
-                        {/* Danh sách chọn sẵn là ĐOÁN THEO TÊN, và CRM không có cờ nào nói trạng thái
-                            nào là "đã đóng" — công ty đặt tên kiểu khác (Win/Lost/Kết thúc) là đoán
-                            trượt. Nói thẳng thay vì để một phỏng đoán im lặng quyết định bản tin.
-                            Dấu ! tự mất sau lần Lưu đầu tiên. */}
+                        {/* CHỈ cảnh báo mới thu vào icon. Lời giải thích thường vẫn in thẳng ra
+                            (xem hint bên dưới): người dùng lần đầu cần đọc lướt một lượt là hiểu,
+                            bắt họ rê chuột từng ô mới biết ô đó làm gì thì khó theo dõi hơn nhiều.
+                            Cảnh báo thì khác — nó chỉ xuất hiện tạm, và biến mất sau lần Lưu đầu. */}
                         {opt.dynamicDefault && (wf.options || {})[opt.key] === undefined
                           && (dynOptions[opt.dynamic] || []).length > 0 && (
                           <OptHelp tone="warn" text={'Danh sách chọn sẵn này là phỏng đoán theo tên trạng thái. Xem lại cho đúng cách công ty bạn đặt tên, rồi bấm "Lưu cấu hình" để chốt.'} />
@@ -734,6 +860,15 @@ function WorkflowCard({ wf, onUpdate, pushToast, locked, canConfig = true, diges
                       dynOptions={dynOptions} dynLoading={dynLoading} />
                   </div>
                     </div>
+                    {opt.hint && <div className="workflows-opt-hint">{opt.hint}</div>}
+                    {opt.dynamicDefault && (
+                      <StatusMapPanel
+                        list={dynOptions[opt.dynamic] || []}
+                        chosen={options[opt.key]}
+                        loading={!!dynLoading[opt.dynamic]}
+                        source={dynSuggested[opt.dynamic + ':src']}
+                        onRefresh={() => loadDynStatuses(true)} />
+                    )}
                   </div>
                 ))}
               </div>
@@ -797,6 +932,61 @@ function WorkflowCard({ wf, onUpdate, pushToast, locked, canConfig = true, diges
   );
 }
 
+// ─── StatusMapPanel ──────────────────────────────────────────────────────────────
+//
+// Cho người dùng NHÌN THẤY máy đang hiểu từng trạng thái của họ là "còn phải làm" hay "đã xong",
+// thay vì chỉ đưa một danh sách đã tick sẵn rồi mong họ tin. Một phán đoán của AI đang quyết định
+// nội dung bản tin — thứ đó phải mở ra xem được, và phải chạy lại được.
+//
+// Bảng này đọc từ ô chọn ở trên (chosen), KHÔNG đọc riêng gợi ý của AI: sau khi người dùng tự sửa
+// thì bảng phải nói đúng cái ĐANG có hiệu lực, chứ không phải cái AI từng đề xuất.
+function StatusMapPanel({ list, chosen, loading, source, onRefresh }) {
+  const Icon = window.Icon;
+  const [open, setOpen] = uS(false);
+
+  if (loading) return (
+    <div className="wf-statusmap is-loading">
+      <span className="wf-statusmap-spin" />
+      Đang nhờ AI đọc tên trạng thái của công ty bạn để chọn sẵn — chờ vài giây…
+    </div>
+  );
+  if (!list.length) return null;
+
+  const sel = Array.isArray(chosen) ? chosen : [];
+  const openCount = list.filter(o => sel.includes(o.value)).length;
+
+  return (
+    <div className="wf-statusmap">
+      <div className="wf-statusmap-bar">
+        <button type="button" className="wf-statusmap-toggle" onClick={() => setOpen(v => !v)}>
+          <Icon name={open ? 'chevronUp' : 'chevronDown'} size={12} />
+          Đang hiểu {openCount}/{list.length} trạng thái là “còn phải làm”
+        </button>
+        {source === 'ai' || source === 'cache'
+          ? <span className="wf-statusmap-src">AI phân loại theo tên</span>
+          : <span className="wf-statusmap-src is-weak">đoán theo từ khoá</span>}
+        <button type="button" className="wga-btn ghost wf-statusmap-redo" onClick={onRefresh}>
+          <Icon name="refresh" size={12} /> Phân loại lại
+        </button>
+      </div>
+      {open && (
+        <ul className="wf-statusmap-list">
+          {list.map(o => {
+            const on = sel.includes(o.value);
+            return (
+              <li key={o.value} className={on ? 'is-open' : 'is-closed'}>
+                <span className="wf-statusmap-dot" />
+                <span className="wf-statusmap-name">{o.label}</span>
+                <span className="wf-statusmap-verdict">{on ? 'còn phải làm' : 'đã xong'}</span>
+              </li>
+            );
+          })}
+        </ul>
+      )}
+    </div>
+  );
+}
+
 // ─── BriefPicker ─────────────────────────────────────────────────────────────────
 
 // Hai loại bản tin GỘP vào MỘT thẻ, chọn loại bằng ô chọn ở trên.
@@ -805,7 +995,7 @@ function WorkflowCard({ wf, onUpdate, pushToast, locked, canConfig = true, diges
 // thẻ cạnh nhau khiến người dùng tưởng phải khai cả hai, và phải đọc hết hai khối cấu hình gần
 // giống nhau mới biết cái nào là của mình. Ô chọn chỉ đổi loại ĐANG XEM — không đụng đăng ký,
 // muốn đổi loại nhận thì vẫn phải tick "Nhận bản tin này" rồi Lưu như cũ.
-function BriefPicker({ items, subOf, onUpdate, pushToast, canConfig, onDigestSaved }) {
+function BriefPicker({ items, subOf, onUpdate, pushToast, canConfig, onDigestSaved, briefPart }) {
   const Icon = window.Icon;
   // Mở ra là thấy đúng loại mình đang nhận, khỏi phải đi tìm.
   const enabledType = items.map(w => w.type).find(t => { const s = subOf(t); return s && s.enabled; });
@@ -830,7 +1020,7 @@ function BriefPicker({ items, subOf, onUpdate, pushToast, canConfig, onDigestSav
         </span>
       </div>
       <WorkflowCard key={wf.type} wf={wf} onUpdate={onUpdate} pushToast={pushToast}
-        locked={false} canConfig={canConfig}
+        locked={false} canConfig={canConfig} briefPart={briefPart}
         digestSub={sub} onDigestSaved={onDigestSaved} />
     </div>
   );
@@ -987,17 +1177,23 @@ function WorkflowsPage({ pushToast, initialTab }) {
         // The ban tin xep vao nhom "Theo nguoi dung" du scope o backend la PerTenant: cai nguoi
         // dung dat o day la NOI NHAN CUA RIENG HO. Lich chay cap cong ty van o trong the, chi hien
         // cho nguoi co quyen xem cau hinh.
+        // Thẻ bản tin xuất hiện ở CẢ HAI mục, nhưng mỗi nơi một nửa:
+        //   Theo người dùng  → chỉ đăng ký nhận của chính mình (briefPart='personal')
+        //   Theo tổ chức     → luật chung: lịch chạy + mục nào vào bản tin + ngưỡng (briefPart='company')
+        // Chia theo đúng ranh giới ai-quyết-cái-gì, thay vì nhồi cả hai vào một thẻ rồi để người
+        // đọc tự đoán phần nào là của họ.
         const isBriefWf = w => BRIEF_WORKFLOWS.includes(w.type);
         const perUser = workflows.filter(w => w.scope === 'PerUser' || isBriefWf(w));
         const perTenant = canConfig
           ? workflows.filter(w => w.scope === 'PerTenant' && !isBriefWf(w))
           : [];
+        const briefRules = canConfig ? workflows.filter(isBriefWf) : [];
         const subOf = t => digestSubs.find(x => x.briefType === t) || null;
-        const renderCards = (list, locked) => (
+        const renderCards = (list, locked, briefPart) => (
           <div className="workflows-listview">
             {list.map(wf => (
               <WorkflowCard key={wf.type} wf={wf} onUpdate={loadWorkflows} pushToast={pushToast}
-                locked={locked} canConfig={canConfig}
+                locked={locked} canConfig={canConfig} briefPart={briefPart}
                 digestSub={subOf(wf.type)} onDigestSaved={loadDigest} />
             ))}
           </div>
@@ -1015,7 +1211,7 @@ function WorkflowsPage({ pushToast, initialTab }) {
                 {perUser.some(isBriefWf) && (
                   <BriefPicker items={perUser.filter(isBriefWf)} subOf={subOf}
                     onUpdate={loadWorkflows} pushToast={pushToast}
-                    canConfig={canConfig} onDigestSaved={loadDigest} />
+                    canConfig={canConfig} onDigestSaved={loadDigest} briefPart="personal" />
                 )}
               </section>
             )}
@@ -1032,6 +1228,19 @@ function WorkflowsPage({ pushToast, initialTab }) {
                       Truoc day moi cong ty phai tu khai OA vi tin Zalo tinh tien theo tung OA;
                       nay ben minh chiu chi phi nen gop ve mot moi. */}
                 </div>
+                {/* Luật chung của bản tin: khai một lần cho cả công ty, ai muốn nhận thì tự bật
+                    ở mục Theo người dùng phía trên. Đặt TRƯỚC các tác vụ khác vì chưa khai xong
+                    ở đây thì không ai đăng ký nhận được. */}
+                {briefRules.length > 0 && (
+                  <div className="workflows-subsection">
+                    <div className="workflows-subsection-head">
+                      <h3>Luật chung của bản tin</h3>
+                      <p>Đưa mục nào vào bản tin, ngưỡng bao nhiêu ngày, trạng thái nào còn phải chăm —
+                        khai một lần, áp cho mọi người nhận. Chưa khai thì chưa ai đăng ký nhận được.</p>
+                    </div>
+                    {renderCards(briefRules, false, 'company')}
+                  </div>
+                )}
                 {renderCards(perTenant, saConfigured === false)}
               </section>
             )}

@@ -53,19 +53,21 @@ public class StatusSemanticsService
         "CHỈ trả JSON thô, KHÔNG markdown, KHÔNG giải thích. Ký tự đầu tiên BẮT BUỘC là '{'.";
 
     /// Gợi ý cho 1 công ty. Đã hỏi rồi và danh sách chưa đổi → trả ngay, không gọi AI.
-    public async Task<StatusHint?> GetAsync(string tenantId, string kind,
-        IReadOnlyList<StatusOption> options, CancellationToken ct = default)
+    /// <param name="forceRefresh">Người dùng bấm "Phân loại lại" → bỏ qua bản đã lưu, hỏi AI lại.</param>
+    /// Trả kèm nguồn ("cache" / "ai") để giao diện nói thật cho người dùng biết con số đến từ đâu.
+    public async Task<(StatusHint? Hint, string Source)> GetAsync(string tenantId, string kind,
+        IReadOnlyList<StatusOption> options, bool forceRefresh = false, CancellationToken ct = default)
     {
-        if (string.IsNullOrWhiteSpace(tenantId) || options.Count == 0) return null;
+        if (string.IsNullOrWhiteSpace(tenantId) || options.Count == 0) return (null, "none");
 
         var key = $"sth|{tenantId}|{kind}|{HashOf(options)}";
-        if (_cache.TryGet<StatusHint>(key, out var cached) && cached is { Open.Count: > 0 })
-            return cached;
+        if (!forceRefresh && _cache.TryGet<StatusHint>(key, out var cached) && cached is { Open.Count: > 0 })
+            return (cached, "cache");
 
         var hint = await AskAsync(kind, options, ct);
-        if (hint == null) return null;
+        if (hint == null) return (null, "none");
         _cache.Set(key, hint, Ttl);
-        return hint;
+        return (hint, "ai");
     }
 
     // ─── Hỏi AI ──────────────────────────────────────────────────────────────────

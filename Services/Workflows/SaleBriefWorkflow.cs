@@ -151,6 +151,8 @@ public class SaleBriefWorkflow : IScheduledWorkflow
     public string Label => "Bản tin sáng cho nhân viên bán hàng";
     public string Description => "Mỗi sáng gom việc cần làm (cơ hội cần gọi, lịch hẹn, việc, báo giá) gửi từng người đã đăng ký. AI sắp xếp lại cho gọn — tốn 1 lượt/người/ngày, tắt được ở tuỳ chọn.";
     public WorkflowScope Scope => WorkflowScope.PerTenant;
+    // Có luật chung (mục nào vào bản tin, ngưỡng, trạng thái) → công ty phải khai trước khi ai đăng ký.
+    public bool HasCompanyRules => true;
 
     public async Task<WorkflowRunResult> RunAsync(string tenantId, string username, string? optionsJson, CancellationToken ct)
     {

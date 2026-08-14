@@ -29,6 +29,19 @@ const EMPTY_SUB = {
 
 const BRIEF_TYPES = ['sale-brief', 'ceo-brief'];
 
+// Công tắc DÙNG CHUNG với trang Tự động hoá (.workflows-toggle), không phải ô tick mặc định của
+// trình duyệt. Trước đây khối này dùng <input type="checkbox"> trần nên cùng một màn hình có hai
+// kiểu bật/tắt khác hẳn nhau — bên trên là công tắc cam, bên dưới là ô vuông xanh của hệ điều hành.
+function Sw({ checked, disabled, onChange }) {
+  return (
+    <label className={'workflows-toggle' + (disabled ? ' is-disabled' : '')}>
+      <input type="checkbox" checked={!!checked} disabled={disabled}
+        onChange={e => onChange(e.target.checked)} />
+      <span className="workflows-toggle-track" />
+    </label>
+  );
+}
+
 async function dApi(path, opts = {}) {
   const r = await window.tourkitAuth.authedFetch(path, {
     ...opts,
@@ -61,10 +74,13 @@ function digestSummary(sub) {
 }
 
 // ─── Khối đăng ký của một loại bản tin ──────────────────────────────────────────
-// scheduleOn: công ty đã bật LỊCH gửi của tác vụ này chưa. Cần biết vì đăng ký của một người và
-// lịch của công ty là hai công tắc khác nhau — bật một cái mà thiếu cái kia thì bản tin KHÔNG tới,
-// và không có gì trên màn hình nói cho họ hay (đã thấy đúng ca này khi xem thật).
-function DigestSubBlock({ briefType, sub, onSaved, pushToast, scheduleOn = true }) {
+// companyReady: công ty đã khai luật chung của loại bản tin này chưa (đã có ai bấm Lưu cấu hình
+// ở mục "Theo tổ chức"). Chưa khai thì server từ chối bật nhận (409) — nên khoá ngay ô tick,
+// đừng để người dùng bấm xong mới nhận lỗi.
+//
+// Chuyện "công ty đã bật lịch gửi chưa" KHÔNG còn hỏi ở đây: bật nhận là hệ thống tự bật lịch,
+// và nếu vì lý do nào đó lịch vẫn tắt thì dòng phán quyết ở đầu thẻ nói + có sẵn nút bật.
+function DigestSubBlock({ briefType, sub, onSaved, pushToast, companyReady = true }) {
   const Icon = window.Icon;
   const [f, setF] = dS({ ...EMPTY_SUB, ...(sub || {}) });
   const [saving, setSaving] = dS(false);
@@ -130,10 +146,14 @@ function DigestSubBlock({ briefType, sub, onSaved, pushToast, scheduleOn = true 
       <div className="workflows-optgroup-title">Bản tin của tôi</div>
 
       <div className="digest-ch">
-        <input type="checkbox" checked={!!f.enabled} onChange={e => set({ enabled: e.target.checked })}
-          id={'dg-on-' + briefType} />
-        <label className="digest-ch-name" htmlFor={'dg-on-' + briefType}>Nhận bản tin này</label>
-        <span className="digest-ch-note">Chỉ áp dụng cho riêng bạn, không ảnh hưởng người khác</span>
+        <Sw checked={!!f.enabled} disabled={!companyReady}
+          onChange={v => set({ enabled: v })} />
+        <span className="digest-ch-name">Nhận bản tin này</span>
+        <span className="digest-ch-note">
+          {companyReady
+            ? 'Chỉ áp dụng cho riêng bạn, không ảnh hưởng người khác'
+            : 'Chưa bật được — công ty chưa cấu hình bản tin này'}
+        </span>
       </div>
 
       <div className="digest-role-note">
@@ -153,21 +173,21 @@ function DigestSubBlock({ briefType, sub, onSaved, pushToast, scheduleOn = true 
 
       {/* Khoá bật: "trong app" không phải kênh gửi mà là KHO LƯU — bản tin luôn được ghi vào Bảng
           tin lúc dựng, để còn xem/nghe lại kể cả khi mọi kênh ngoài hỏng. Server cũng ép bật. */}
-      <label className="digest-ch">
-        <input type="checkbox" checked readOnly disabled />
+      <div className="digest-ch">
+        <Sw checked disabled onChange={() => {}} />
         <span className="digest-ch-name"><Icon name="bell" size={13} /> Trong app</span>
         <span className="digest-ch-note">Luôn bật — bản tin luôn được lưu ở tab Bảng tin để xem/nghe lại</span>
-      </label>
+      </div>
 
-      <label className="digest-ch">
-        <input type="checkbox" checked={!!f.channelEmail} onChange={e => set({ channelEmail: e.target.checked })} />
+      <div className="digest-ch">
+        <Sw checked={!!f.channelEmail} onChange={v => set({ channelEmail: v })} />
         <span className="digest-ch-name"><Icon name="mail" size={13} /> Email</span>
         <input className="digest-input" type="email" placeholder="ban@congty.vn"
           value={f.email || ''} onChange={e => set({ email: e.target.value })} disabled={!f.channelEmail} />
-      </label>
+      </div>
 
-      <label className="digest-ch">
-        <input type="checkbox" checked={!!f.channelTelegram} onChange={e => set({ channelTelegram: e.target.checked })} />
+      <div className="digest-ch">
+        <Sw checked={!!f.channelTelegram} onChange={v => set({ channelTelegram: v })} />
         <span className="digest-ch-name"><Icon name="send" size={13} /> Telegram</span>
         <input className="digest-input" placeholder="chat id"
           value={f.telegramChatId || ''} onChange={e => set({ telegramChatId: e.target.value })}
@@ -176,7 +196,7 @@ function DigestSubBlock({ briefType, sub, onSaved, pushToast, scheduleOn = true 
           onClick={(e) => { e.preventDefault(); detectTelegram(); }} disabled={!f.channelTelegram}>
           Tự phát hiện
         </button>
-      </label>
+      </div>
       {tgCode && (
         <div className="digest-tg-hint">
           {tgCode.code
@@ -185,12 +205,12 @@ function DigestSubBlock({ briefType, sub, onSaved, pushToast, scheduleOn = true 
         </div>
       )}
 
-      <label className="digest-ch">
-        <input type="checkbox" checked={!!f.channelZalo} onChange={e => set({ channelZalo: e.target.checked })} />
+      <div className="digest-ch">
+        <Sw checked={!!f.channelZalo} onChange={v => set({ channelZalo: v })} />
         <span className="digest-ch-name"><Icon name="user" size={13} /> Zalo</span>
         <input className="digest-input" placeholder="Số điện thoại Zalo, vd 0912345678"
           value={f.zaloPhone || ''} onChange={e => set({ zaloPhone: e.target.value })} disabled={!f.channelZalo} />
-      </label>
+      </div>
       {f.channelZalo && (
         // Đặc điểm của ZNS, nói trước để khỏi tưởng kênh hỏng: tin Zalo chỉ là lời nhắc ngắn kèm
         // đường dẫn — nội dung đầy đủ nằm ở tab Bảng tin. ZNS gửi theo mẫu đã đăng ký với Zalo nên
@@ -203,15 +223,10 @@ function DigestSubBlock({ briefType, sub, onSaved, pushToast, scheduleOn = true 
 
       {problem && <div className="digest-problem"><Icon name="warning" size={13} /> {problem}</div>}
 
-      {f.enabled && !scheduleOn && (
-        <div className="digest-ch-warn digest-warn-sched">
-          <Icon name="warning" size={12} />
-          <span>
-            Bạn đã bật nhận, nhưng <b>công ty chưa bật lịch gửi</b> bản tin này nên sẽ chưa có gì được
-            gửi. Nhờ người quản trị bật ở mục <b>Lịch chạy</b> (cần quyền xem cấu hình).
-          </span>
-        </div>
-      )}
+      {/* Cảnh báo "công ty chưa bật lịch gửi" ĐÃ CHUYỂN LÊN dòng phán quyết ở đầu thẻ (workflows.jsx):
+          ở đó nó nằm ngay cạnh nút bật, và nhìn thấy được cả khi thẻ đang đóng. Để lại bản thứ hai ở
+          đây thì cùng một chuyện nói hai lần trên một màn hình, mà bản này còn chỉ sai đường —
+          mục "Lịch chạy" nay nằm ở phần Theo tổ chức, không còn trong thẻ này. */}
 
       <div className="workflows-actions digest-actions">
         <button className="wga-btn primary" onClick={save} disabled={saving || !!problem}>
@@ -238,5 +253,11 @@ function DigestSubBlock({ briefType, sub, onSaved, pushToast, scheduleOn = true 
 // cấp dịch vụ, khai một lần ở config hệ thống. Trước đây bắt mỗi công ty tự khai vì tin Zalo tính
 // tiền theo từng OA; nay bên mình chịu chi phí nên gom về một mối, công ty không phải khai gì.
 
+// ⚠️ Xuất ra window là BẮT BUỘC — workflows.jsx nhúng khối này qua `window.DigestSubBlock`.
+// Dòng này từng bị xoá nhầm (14/08) khi gỡ khối khai OA Zalo ngay bên dưới, và hậu quả im
+// lặng tuyệt đối: khối "Bản tin của tôi" biến mất khỏi thẻ tác vụ — không lỗi, không cảnh báo,
+// chỉ là không còn chỗ nào đặt giờ nhận và kênh nhận. Thêm/đổi component ở file này thì kiểm
+// lại danh sách xuất bên dưới.
+window.DigestSubBlock = DigestSubBlock;
 window.digestSummary = digestSummary;
 window.DIGEST_BRIEF_TYPES = BRIEF_TYPES;

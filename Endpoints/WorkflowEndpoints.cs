@@ -303,7 +303,8 @@ public static class WorkflowEndpoints
             HttpContext ctx,
             TkSessionStore sessions,
             TourKitApiClient api,
-            StatusSemanticsService semantics) =>
+            StatusSemanticsService semantics,
+            bool? refresh) =>
         {
             var auth = RequireSession(ctx, sessions);
             if (auth == null) return Unauthorized();
@@ -321,8 +322,8 @@ public static class WorkflowEndpoints
                             ? sn.GetString() : null;
                         items.Add(new(val, string.IsNullOrWhiteSpace(label) ? $"Trạng thái {val}" : label));
                     }
-                var hint = await semantics.GetAsync(tenant, "deal", items, ctx.RequestAborted);
-                return Results.Json(new { items, openSuggested = hint?.Open });
+                var (hint, source) = await semantics.GetAsync(tenant, "deal", items, refresh == true, ctx.RequestAborted);
+                return Results.Json(new { items, openSuggested = hint?.Open, closedSuggested = hint?.Closed, hintSource = source });
             }
             catch (Exception ex)
             {
@@ -338,7 +339,8 @@ public static class WorkflowEndpoints
             HttpContext ctx,
             TkSessionStore sessions,
             TourKitApiClient api,
-            StatusSemanticsService semantics) =>
+            StatusSemanticsService semantics,
+            bool? refresh) =>
         {
             var auth = RequireSession(ctx, sessions);
             if (auth == null) return Unauthorized();
@@ -358,8 +360,8 @@ public static class WorkflowEndpoints
                             ? sn.GetString() : null;
                         items.Add(new(val, string.IsNullOrWhiteSpace(label) ? $"Trạng thái {val}" : label));
                     }
-                var hint = await semantics.GetAsync(tenant, "task", items, ctx.RequestAborted);
-                return Results.Json(new { items, openSuggested = hint?.Open });
+                var (hint, source) = await semantics.GetAsync(tenant, "task", items, refresh == true, ctx.RequestAborted);
+                return Results.Json(new { items, openSuggested = hint?.Open, closedSuggested = hint?.Closed, hintSource = source });
             }
             catch (Exception ex)
             {

@@ -124,13 +124,13 @@ function NodeConfigPanel({ node, type, onClose, enabled, setEnabled, interval, s
               <div className="workflows-opt-row">
                 <label className="workflows-opt-label">
                   {opt.label}{opt.required && <span className="req-star">*</span>}
-                  <WO.OptHelp text={opt.hint} />
                 </label>
                 <div className="workflows-opt-control">
                   <WO.OptionControl opt={opt} options={options} setOptions={setOptions}
                     dynOptions={dynOptions} dynLoading={dynLoading} />
                 </div>
               </div>
+              {opt.hint && <div className="workflows-opt-hint">{opt.hint}</div>}
             </div>
           ))}
 
