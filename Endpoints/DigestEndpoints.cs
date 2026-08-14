@@ -118,7 +118,7 @@ public static class DigestEndpoints
         // "nhận được trong 2 giây".
         g.MapPost("/subscriptions/{briefType}/test", async (string briefType, HttpContext ctx,
             TkSessionStore sessions, DigestSubscriptionRepository repo, MailQueueRepository queue,
-            InsightRepository insights, CancellationToken ct) =>
+            CancellationToken ct) =>
         {
             var a = SessionAuth.Read(ctx, sessions);
             if (a == null) return SessionAuth.Unauthorized();
@@ -136,35 +136,39 @@ public static class DigestEndpoints
             var msg = new DigestMessage($"[Gửi thử] Bản tin {nowVn:dd/MM HH:mm}",
                 body, SaleBriefBuilder.ToHtml(body), briefType);
 
-            // Bước 1 — ghi Bảng tin: in-app là kho lưu luôn-bật nên bản thử cũng phải thấy được ở
-            // đó (người dùng kiểm tra cả nút "Nghe" ngay trên bản thử).
-            var insightId = await insights.InsertAsync(new AgentInsight(
-                Id: 0, TenantId: sub.TenantId, Username: sub.Username,
-                Kind: briefType, Severity: 0, Title: msg.Title, Body: msg.BodyMarkdown,
-                DataJson: null, AlertKey: null, IsRead: false, CreatedUtc: DateTime.UtcNow), ct);
-
-            // Bước 2 — xếp hàng đợi từng kênh ngoài đang bật. ScheduledUtc = NGAY (khác bản tin
-            // thật hẹn theo giờ người chọn) để rút ở nhịp kế thay vì đợi tới sáng.
-            // CỐ Ý không đụng mốc "đã chuẩn bị hôm nay": gửi thử mà tính là đã gửi thì sáng mai
-            // bản tin thật bị bỏ.
+            // ⚠️ CỐ Ý KHÔNG ghi vào Bảng tin. Hai lý do, cái đầu là lỗi thật đã suýt lọt:
+            //   1. Mốc chống trùng của bản tin thật đếm dòng trong dbo.AgentInsights
+            //      (InsightRepository.ExistsTodayAsync). Bản thử mà ghi vào đó thì ai bấm "Gửi thử"
+            //      buổi trưa sẽ MẤT bản tin thật sáng mai — workflow tưởng hôm nay chuẩn bị rồi.
+            //   2. Bảng tin là nơi xem/nghe LẠI bản tin thật. Nhét bản thử vào làm bẩn lịch sử,
+            //      người dùng phải bới giữa một đống "[Gửi thử]" mới thấy cái cần đọc.
+            // Gửi thử là để thử KÊNH NGOÀI. Kênh trong app không cần thử — nó luôn bật và người
+            // dùng thấy bản tin thật ở đó mỗi ngày.
             var rows = DigestEnqueuePlanner.BuildRows(
-                sub, insightId ?? 0, msg, DateTime.UtcNow, DigestDue.NowVn(DateTime.UtcNow).ToString("dd/MM/yyyy"));
-            foreach (var r in rows) await queue.EnqueueAsync(r, ct);
+                sub, insightId: 0, msg, DateTime.UtcNow,
+                DigestDue.NowVn(DateTime.UtcNow).ToString("dd/MM/yyyy"));
 
-            var channels = new List<string>(rows.Count + 1);
-            if (insightId != null) channels.Add("trong app");
-            channels.AddRange(rows.Select(r => OutboundChannels.Describe(r.Channel)));
+            if (rows.Count == 0)
+                return Results.Json(new
+                {
+                    ok = false,
+                    queued = 0,
+                    sentChannels = "",
+                    summary = "Bạn chưa bật kênh ngoài nào (email/Telegram/Zalo) nên không có gì để thử. "
+                            + "Bản tin trong app thì luôn bật, không cần thử.",
+                }, Web);
+
+            // ScheduledUtc = NGAY (khác bản tin thật hẹn theo giờ người chọn) để rút ở nhịp kế.
+            foreach (var r in rows) await queue.EnqueueAsync(r, ct);
 
             return Results.Json(new
             {
-                ok = channels.Count > 0,
+                ok = true,
                 queued = rows.Count,
-                sentChannels = string.Join("+", channels),
+                sentChannels = string.Join("+", rows.Select(r => OutboundChannels.Describe(r.Channel))),
                 // Nói thẳng là chưa tới ngay, kẻo người dùng mở Zalo không thấy gì rồi tưởng hỏng.
-                summary = rows.Count == 0
-                    ? "Đã lưu vào Bảng tin. Bạn chưa bật kênh ngoài nào nên không có gì được gửi đi."
-                    : $"Đã xếp {rows.Count} kênh vào hàng đợi — tin sẽ tới trong khoảng 1 phút. "
-                    + "Kênh nào hỏng sẽ hiện lý do ở trang theo dõi hàng đợi.",
+                summary = $"Đã xếp {rows.Count} kênh vào hàng đợi — tin sẽ tới trong khoảng 1 phút. "
+                        + "Kênh nào hỏng sẽ hiện lý do ở trang theo dõi hàng đợi.",
             }, Web);
         });
 

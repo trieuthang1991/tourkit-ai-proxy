@@ -94,6 +94,10 @@ OFFSET @offset ROWS FETCH NEXT @limit ROWS ONLY",
             DateTime.SpecifyKind(todayVn.Date, DateTimeKind.Unspecified),
             TimeZoneInfo.FindSystemTimeZoneById("SE Asia Standard Time"));
         await using var c = await _db.OpenAsync(ct);
+        // Mọi dòng ở đây đều là bản tin THẬT: "Gửi thử" CỐ Ý không ghi vào bảng này (xem
+        // DigestEndpoints) nên không có gì phải lọc ra. Nếu sau này có chỗ nào ghi bản nháp/thử vào
+        // đây thì PHẢI loại nó khỏi câu đếm này — không thì người bấm thử buổi trưa sẽ mất bản tin
+        // thật sáng mai, vì mốc chống trùng tưởng đã chuẩn bị xong rồi.
         return await c.ExecuteScalarAsync<int>(@"
 SELECT COUNT(1) FROM dbo.AgentInsights
 WHERE TenantId = @tenant AND Username = @username AND Kind = @kind

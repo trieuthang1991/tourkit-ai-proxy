@@ -442,6 +442,13 @@ mà workflow dùng mỗi sáng. Trước đó gửi thử có đường riêng, 
 thật, và khoá OA/bot không phải nhân đôi sang proxy. Đổi lại kết quả không tức thì (tới nhịp rút kế,
 ~1 phút) — endpoint nói rõ điều đó trong `summary`.
 
+⚠️ **"Gửi thử" CỐ Ý không ghi vào `dbo.AgentInsights`.** Hai lý do, cái đầu là lỗi thật đã suýt lọt:
+(1) mốc chống trùng của bản tin thật (`InsightRepository.ExistsTodayAsync`) đếm dòng trong bảng đó —
+bản thử ghi vào thì ai bấm "Gửi thử" buổi trưa sẽ **mất bản tin thật sáng mai**, vì workflow tưởng hôm
+nay chuẩn bị rồi; (2) Bảng tin là nơi xem/nghe **lại bản tin thật**, nhét bản thử vào làm bẩn lịch sử.
+Gửi thử là để thử **kênh ngoài** — kênh trong app luôn bật, không cần thử. Không bật kênh ngoài nào thì
+endpoint trả `ok:false` nói thẳng là không có gì để thử.
+
 **Một enum kênh duy nhất** — [`OutboundChannel`](Services/Digest/OutboundChannel.cs): `0=Email`,
 `1=Telegram`, `2=Zalo`, lưu thẳng cột `dbo.OutboundMails.Channel` (TINYINT). Default 0 nên dòng cũ trong
 DB tự đúng nghĩa. Worker toutkit-app **mirror đúng bảng số này**

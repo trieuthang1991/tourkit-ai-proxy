@@ -154,11 +154,9 @@ try {
   Check 'Da ve sale-brief' ($c5subs[0].briefType -eq 'sale-brief') "briefType=$($c5subs[0].briefType)"
 
   Write-Host "7. Gui thu (khong dung toi moc 'da gui hom nay')" -ForegroundColor Cyan
-  $before = (Req GET '/insights/unread-count' $null $H).Data.count
-  $t0 = (Get-Date).ToUniversalTime().AddMinutes(-2)
   $r = Req POST '/digest/subscriptions/sale-brief/test' $null $H
   Check 'Gui thu = 200' ($r.Code -eq 200) "code=$($r.Code)"
-  Check 'Gui thu bao ok' ($r.Data.ok -eq $true) "$($r.Data | ConvertTo-Json -Compress)"
+  Check 'Gui thu tra ve co cau tra loi ro rang' ($null -ne $r.Data.summary) "$($r.Data | ConvertTo-Json -Compress)"
   Info "summary: $($r.Data.summary)"
   Check 'Gui thu loai la = 400' ((Req POST '/digest/subscriptions/hacker-brief/test' $null $H).Code -eq 400) 'khac 400'
 
@@ -174,17 +172,16 @@ try {
     Info "dong moi nhat: channel=$($qrow.channel) status=$($qrow.status) scheduledUtc=$($qrow.scheduledUtc)"
   } else { Info "hang doi rong (chua co workflow nao chuan bi ban tin) - binh thuong" }
 
-  Write-Host "7c. Tat het kenh ngoai: chi luu Bang tin, khong xep hang doi" -ForegroundColor Cyan
-  # Nguoi dung khong muon nhan qua kenh ngoai nao -> bo tick het. Van phai "ok" vi kenh trong app
-  # luon bat, nhung KHONG duoc sinh dong hang doi nao.
+  Write-Host "7c. Khong bat kenh ngoai nao -> khong co gi de thu" -ForegroundColor Cyan
+  # Gui thu la de thu KENH NGOAI. Kenh trong app luon bat va nguoi dung thay ban tin that o do moi
+  # ngay -> khong can thu. Khong bat kenh ngoai nao thi phai noi thang, dung bao "da gui".
   $null = Req PUT '/digest/subscriptions/sale-brief' @{
     enabled=$true; sendHourLocal=7; channelInApp=$true
     channelEmail=$false; channelTelegram=$false; channelZalo=$false } $H
   $t = Req POST '/digest/subscriptions/sale-brief/test' $null $H
-  Check 'Tat het kenh ngoai: van 200' ($t.Code -eq 200) "code=$($t.Code)"
-  Check 'Van bao ok (trong app luon nhan)' ($t.Data.ok -eq $true) "$($t.Data | ConvertTo-Json -Compress)"
-  Check 'sentChannels chi co trong app' ("$($t.Data.sentChannels)" -eq 'trong app') "sentChannels=$($t.Data.sentChannels)"
-  Check 'KHONG xep dong hang doi nao' ($t.Data.queued -eq 0) "queued=$($t.Data.queued)"
+  Check 'Van tra 200 (khong phai loi he thong)' ($t.Code -eq 200) "code=$($t.Code)"
+  Check 'Bao ok=false vi khong co gi de thu' ($t.Data.ok -eq $false) "$($t.Data | ConvertTo-Json -Compress)"
+  Check 'queued = 0' ($t.Data.queued -eq 0) "queued=$($t.Data.queued)"
   Info "summary: $($t.Data.summary)"
 
   Write-Host "7d. Zalo: so dien thoai sai bi chan NGAY luc luu" -ForegroundColor Cyan
@@ -214,7 +211,7 @@ try {
   $t = Req POST '/digest/subscriptions/sale-brief/test' $null $H
   Check 'Gui thu = 200' ($t.Code -eq 200) "code=$($t.Code)"
   Check 'Bao xep 1 kenh vao hang doi' ($t.Data.queued -eq 1) "queued=$($t.Data.queued)"
-  Check 'sentChannels co trong app + zalo' ("$($t.Data.sentChannels)" -eq 'trong app+zalo') "sentChannels=$($t.Data.sentChannels)"
+  Check 'sentChannels = zalo (KHONG co trong app)' ("$($t.Data.sentChannels)" -eq 'zalo') "sentChannels=$($t.Data.sentChannels)"
   Info "summary: $($t.Data.summary)"
   $q = Req GET '/workflows/outbound-mails?kind=daily-brief&channel=2&limit=5' $null $H
   Check 'Thay dong Zalo trong hang doi' (@($q.Data.items).Count -gt 0) "items=$(@($q.Data.items).Count)"
@@ -240,29 +237,33 @@ try {
   $t = Req POST '/digest/subscriptions/sale-brief/test' $null $H
   Check 'Gui thu chay duoc du chua co ban tin dung san' ($t.Code -eq 200 -and $t.Data.ok -eq $true) "code=$($t.Code)"
 
-  Write-Host "8. Bang tin trong app nhan duoc" -ForegroundColor Cyan
-  $after = (Req GET '/insights/unread-count' $null $H).Data.count
-  Check "Badge tang ($before -> $after)" ($after -gt $before) "$before -> $after"
+  Write-Host "8. Bang tin doc duoc + dinh dang dung" -ForegroundColor Cyan
+  # Gui thu KHONG con ghi vao Bang tin (co y - xem DigestEndpoints), nen muc nay khong tao du lieu
+  # moi ma kiem tren dong dang co. Doc duoc danh sach la phan de vo nhat: cot Severity la TINYINT
+  # con record khai int -> Dapper nem loi materialization; loi nay nam im tu luc tao bang vi
+  # workflow chi INSERT, chi no khi co cho DOC dau tien.
   $list = Req GET '/insights?limit=10' $null $H
-  # Doc duoc danh sach la phan de vo nhat: cot Severity la TINYINT, record khai int -> Dapper
-  # nem loi materialization. Loi nam im tu luc tao bang vi workflow chi INSERT.
   Check 'GET insights = 200' ($list.Code -eq 200) "code=$($list.Code) $($list.Error)"
-  $fresh = @($list.Data.items) | Where-Object { $_.kind -eq 'sale-brief' -and ([datetime]$_.createdUtc) -gt $t0 } | Select-Object -First 1
-  Check 'Thay ban tin thu vua gui' ($null -ne $fresh) 'khong thay dong sale-brief moi'
-  if ($fresh) {
-    Check 'createdUtc co hau to Z (UTC)' ("$($list.Data.items[0].createdUtc)" -match 'Z$|\+00:00$') "$($list.Data.items[0].createdUtc)"
-    # C5: item ban tin (sale/ceo) phai kem speakText - loi doc TTS da bo markdown/emoji.
-    # Ban tin THU chua chuoi in dam '**THU**' -> speakText phai bo cap dau '**'.
-    Check 'C5: ban tin co speakText' (-not [string]::IsNullOrWhiteSpace($fresh.speakText)) "speakText='$($fresh.speakText)'"
-    Check 'C5: speakText da bo dau ** (markdown)' (-not ("$($fresh.speakText)" -match '\*\*')) "$($fresh.speakText)"
-  }
+  $items = @($list.Data.items)
+  Info "Bang tin dang co $($items.Count) dong"
+  if ($items.Count -gt 0) {
+    Check 'createdUtc co hau to Z (UTC)' ("$($items[0].createdUtc)" -match 'Z$|\+00:00$') "$($items[0].createdUtc)"
+    $brief = $items | Where-Object { $_.kind -in @('sale-brief','ceo-brief') } | Select-Object -First 1
+    if ($brief) {
+      # C5: item ban tin phai kem speakText - loi doc TTS da bo markdown/emoji.
+      Check 'C5: ban tin co speakText' (-not [string]::IsNullOrWhiteSpace($brief.speakText)) "speakText='$($brief.speakText)'"
+      Check 'C5: speakText da bo dau ** (markdown)' (-not ("$($brief.speakText)" -match '\*\*')) "$($brief.speakText)"
+    } else { Info 'chua co dong ban tin nao de kiem speakText' }
+  } else { Info 'Bang tin rong - bo qua phan dinh dang' }
 
   Write-Host "9. Danh dau da doc" -ForegroundColor Cyan
-  if ($fresh) {
-    Check 'Danh dau da doc = 200' ((Req POST "/insights/$($fresh.id)/read" $null $H).Code -eq 200) 'khac 200'
-    $c2 = (Req GET '/insights/unread-count' $null $H).Data.count
-    Check "Badge giam ($after -> $c2)" ($c2 -lt $after) "$after -> $c2"
-  }
+  $before = (Req GET '/insights/unread-count' $null $H).Data.count
+  $unread = $items | Where-Object { -not $_.isRead } | Select-Object -First 1
+  if ($unread) {
+    Check 'Danh dau da doc = 200' ((Req POST "/insights/$($unread.id)/read" $null $H).Code -eq 200) 'khac 200'
+    $after = (Req GET '/insights/unread-count' $null $H).Data.count
+    Check "Badge giam ($before -> $after)" ($after -lt $before) "$before -> $after"
+  } else { Info 'khong con dong chua doc - bo qua' }
 
   Write-Host "10. Telegram detect (tien ich phu - khong duoc thanh 500)" -ForegroundColor Cyan
   $tg = Req POST '/digest/telegram/detect' $null $H
