@@ -364,7 +364,7 @@ Cờ này KHÁC phân quyền: tắt là tắt cho tất cả, kể cả admin.
 > Vì thế nhánh `else` trong [Program.cs](Program.cs) phải map tay 2 tiền tố về 404 JSON.
 
 **2 loại bản tin** (`BriefTypes`): `sale-brief` — việc cần làm của từng nhân viên bán hàng (cơ hội cần
-gọi, lịch hẹn, việc, báo giá, tour còn thiếu tiền), **rule thuần 0 AI**; `ceo-brief` — doanh thu/chi
+gọi, lịch hẹn, việc, báo giá, tour còn thiếu tiền) — **số do máy chủ lấy, AI sắp xếp lại cho gọn** (tốn 1 lượt/người/ngày, tắt bằng tuỳ chọn `useAi=false`; AI lỗi → rơi về bản rule); `ceo-brief` — doanh thu/chi
 phí/lợi nhuận so cùng kỳ, **AI chỉ viết lời còn số do máy chủ tính**, AI lỗi → in bảng số
 ([`CeoBriefBuilder.RenderFallback`](Services/Digest/CeoBriefBuilder.cs)).
 

@@ -20,15 +20,20 @@ namespace TourkitAiProxy.Services.Workflows;
 /// <see cref="TkSessionStore"/> giữ mật khẩu (mã hoá) và tự đăng nhập lại khi token hết hạn,
 /// lưu tới 30 ngày. Không có phiên → bỏ qua người đó và ghi rõ lý do, KHÔNG fail cả lượt.</para>
 ///
-/// <para><b>Không gọi AI</b> → không tốn lượt. Nguồn nào lỗi thì mục đó rỗng, bản tin vẫn gửi:
-/// thà thiếu một mục còn hơn sáng ra không có bản tin nào.</para>
+/// <para><b>Số do máy chủ lấy, AI chỉ sắp xếp lại.</b> Bản rule in đủ mọi mục vượt ngưỡng nên gặp
+/// CRM dùng lâu thì thành bảng tồn kho (chạy thật erp.tourkit.vn: "61 việc · 50 trễ hạn"). AI đọc
+/// cùng bộ dữ kiện rồi chọn ra việc đáng làm sáng nay. AI lỗi/hết lượt → rơi về bản rule, bản tin
+/// KHÔNG bao giờ mất. Tắt AI bằng tuỳ chọn <c>useAi=false</c>.</para>
+///
+/// <para>Nguồn nào lỗi thì mục đó rỗng, bản tin vẫn gửi: thà thiếu một mục còn hơn sáng ra không
+/// có bản tin nào.</para>
 /// </summary>
 public class SaleBriefWorkflow : IScheduledWorkflow
 {
-    private const int SilentDaysMin = 3;      // im lặng bao nhiêu ngày thì đưa vào "cần gọi lại"
+    private const int SilentDaysMinDefault = 3;      // im lặng bao nhiêu ngày thì đưa vào "cần gọi lại"
     private const int VipSleepDays = 60;      // khách hạng A/B bao lâu không mua lại thì nhắc
-    private const int StaleQuoteDays = 5;     // báo giá bao lâu không ai sửa thì nhắc
-    private const int HygieneStuckDays = 14;  // cơ hội kẹt 1 trạng thái bao lâu thì coi là cần dọn
+    private const int StaleQuoteDaysDefault = 5;     // báo giá bao lâu không ai sửa thì nhắc
+    private const int HygieneStuckDaysDefault = 14;  // cơ hội kẹt 1 trạng thái bao lâu thì coi là cần dọn
 
     private readonly DigestSubscriptionRepository _subs;
     private readonly TkSessionStore _sessions;
@@ -39,20 +44,81 @@ public class SaleBriefWorkflow : IScheduledWorkflow
     private readonly InsightRepository _insights;
     private readonly MailQueueRepository _queue;
     private readonly IConfiguration _cfg;
+    private readonly Providers.ProviderRegistry _providers;
+    private readonly Providers.AiModelRegistry _models;
+    private readonly AiCallContext _ctx;
     private readonly ILogger<SaleBriefWorkflow> _log;
 
     public SaleBriefWorkflow(DigestSubscriptionRepository subs, TkSessionStore sessions,
         TkSessionRepository sessionRepo, TourKitApiClient api, TourkitAiDb db,
         MailRepository mails, InsightRepository insights, MailQueueRepository queue,
-        IConfiguration cfg, ILogger<SaleBriefWorkflow> log)
+        IConfiguration cfg, Providers.ProviderRegistry providers, Providers.AiModelRegistry models,
+        AiCallContext ctx, ILogger<SaleBriefWorkflow> log)
     {
         _subs = subs; _sessions = sessions; _sessionRepo = sessionRepo; _api = api;
-        _db = db; _mails = mails; _insights = insights; _queue = queue; _cfg = cfg; _log = log;
+        _db = db; _mails = mails; _insights = insights; _queue = queue; _cfg = cfg;
+        _providers = providers; _models = models; _ctx = ctx; _log = log;
     }
+
+    /// <summary>
+    /// Cấu hình per-tenant. Mọi thứ ở đây TRƯỚC ĐÂY LÀ HẰNG SỐ TRONG CODE — mà hằng số nghĩa là
+    /// mình đoán hộ công ty. Ngưỡng "im lặng bao lâu thì cần gọi" ở công ty bán tour đoàn khác hẳn
+    /// công ty bán vé lẻ; tệ hơn nữa là <see cref="ClosedStatuses"/>: mỗi CRM tự đặt tên trạng thái
+    /// nên đoán bằng từ khoá tiếng Việt kiểu gì cũng có tenant sai.
+    /// </summary>
+    /// <param name="UseAi">AI tinh chỉnh lại bản tin (tốn 1 lượt/người/ngày). Tắt = dùng bản rule.</param>
+    /// <param name="MaxItems">Trần số việc AI được chọn — bản tin dài thì không ai đọc.</param>
+    /// <param name="ClosedStatuses">Mã trạng thái coi là ĐÃ ĐÓNG (bỏ khỏi bản tin). RỖNG = tự nhận
+    /// diện bằng <c>DealCooling</c> (Hủy=5 + từ khoá "đã chốt"/"hoàn thành"…) — đúng cho phần lớn
+    /// tenant nhưng KHÔNG chắc; công ty nào đặt tên trạng thái riêng thì khai mã vào đây.</param>
+    private record SaleBriefOptions(
+        bool UseAi, int MaxItems,
+        int SilentDaysMin, int HygieneStuckDays, int StaleQuoteDays,
+        List<int> ClosedStatuses);
+
+    private SaleBriefOptions ParseOptions(string? json)
+    {
+        var def = new SaleBriefOptions(UseAi: true, MaxItems: 7,
+            SilentDaysMin: SilentDaysMinDefault, HygieneStuckDays: HygieneStuckDaysDefault,
+            StaleQuoteDays: StaleQuoteDaysDefault, ClosedStatuses: new List<int>());
+        if (string.IsNullOrWhiteSpace(json)) return def;
+        try
+        {
+            using var d = JsonDocument.Parse(json);
+            var r = d.RootElement;
+            var closed = new List<int>();
+            if (r.TryGetProperty("closedStatuses", out var arr) && arr.ValueKind == JsonValueKind.Array)
+                foreach (var e in arr.EnumerateArray())
+                    if (e.ValueKind == JsonValueKind.Number && e.TryGetInt32(out var n) && n > 0) closed.Add(n);
+
+            int Get(string k, int dv, int lo, int hi)
+                => r.TryGetProperty(k, out var v) && v.ValueKind == JsonValueKind.Number && v.TryGetInt32(out var n)
+                    ? Math.Clamp(n, lo, hi) : dv;
+
+            return def with
+            {
+                UseAi = r.TryGetProperty("useAi", out var ua) && ua.ValueKind is JsonValueKind.True or JsonValueKind.False
+                    ? ua.GetBoolean() : def.UseAi,
+                MaxItems = Get("maxItems", def.MaxItems, 3, 20),
+                SilentDaysMin = Get("silentDaysMin", def.SilentDaysMin, 1, 90),
+                HygieneStuckDays = Get("hygieneStuckDays", def.HygieneStuckDays, 3, 365),
+                StaleQuoteDays = Get("staleQuoteDays", def.StaleQuoteDays, 1, 365),
+                ClosedStatuses = closed,
+            };
+        }
+        catch (JsonException)
+        {
+            // OptionsJson hỏng → chạy bằng mặc định. Ném ở đây là mất bản tin của cả công ty vì
+            // một dấu phẩy sai trong cấu hình.
+            _log.LogWarning("[sale-brief] OptionsJson không đọc được — dùng mặc định");
+            return def;
+        }
+    }
+
 
     public string Type => "sale-brief";
     public string Label => "Bản tin sáng cho nhân viên bán hàng";
-    public string Description => "Mỗi sáng gom việc cần làm (cơ hội cần gọi, lịch hẹn, việc, báo giá) gửi từng người đã đăng ký. Không tốn lượt AI.";
+    public string Description => "Mỗi sáng gom việc cần làm (cơ hội cần gọi, lịch hẹn, việc, báo giá) gửi từng người đã đăng ký. AI sắp xếp lại cho gọn — tốn 1 lượt/người/ngày, tắt được ở tuỳ chọn.";
     public WorkflowScope Scope => WorkflowScope.PerTenant;
 
     public async Task<WorkflowRunResult> RunAsync(string tenantId, string username, string? optionsJson, CancellationToken ct)
@@ -60,6 +126,7 @@ public class SaleBriefWorkflow : IScheduledWorkflow
         if (string.IsNullOrWhiteSpace(tenantId))
             return new(false, null, "TenantId rỗng — kiểm tra dbo.UserWorkflows");
 
+        var opt = ParseOptions(optionsJson);
         var utcNow = DateTime.UtcNow;
         var todayVn = DigestDue.NowVn(utcNow).Date;
 
@@ -89,7 +156,7 @@ public class SaleBriefWorkflow : IScheduledWorkflow
             _log.LogWarning("[sale-brief] tenant={T} đọc hộp thư lỗi: {Err}", tenantId, ex.Message);
         }
 
-        int prepared = 0, noSession = 0, failed = 0, skipped = 0;
+        int prepared = 0, noSession = 0, failed = 0, skipped = 0, aiCalls = 0, aiFails = 0;
         var parts = new List<string>();
 
         foreach (var sub in due)
@@ -111,9 +178,12 @@ public class SaleBriefWorkflow : IScheduledWorkflow
                 var crmUserId = await _sessions.EnsureCrmUserIdAsync(session.Id, ct);
 
                 var input = await BuildInputAsync(tenantId, sub.Username, session.FullName,
-                    crmUserId, jwt, todayVn, mailPending, mailQuote, mailOk, ct);
+                    crmUserId, jwt, todayVn, mailPending, mailQuote, mailOk, opt, ct);
 
-                var msg = SaleBriefBuilder.Build(input, todayVn);
+                var msg = opt.UseAi
+                    ? await ComposeAsync(tenantId, session.Id, input, todayVn, opt, ct,
+                        () => aiCalls++, () => aiFails++)
+                    : SaleBriefBuilder.Build(input, todayVn);
 
                 // NỘI DUNG + KHO LƯU: bản tin ghi vào Bảng tin (in-app luôn-bật — kho lưu để
                 // xem/nghe lại), Id của dòng này là nguồn nội dung cho các kênh ngoài.
@@ -157,6 +227,9 @@ public class SaleBriefWorkflow : IScheduledWorkflow
                     + (noSession > 0 ? $", bỏ qua {noSession} (chưa đăng nhập)" : "")
                     + (skipped > 0 ? $", trùng {skipped}" : "")
                     + (failed > 0 ? $", lỗi {failed}" : "")
+            // Ghi rõ số lượt AI vào tóm tắt: nhìn lịch sử chạy là biết ngay tốn bao nhiêu lượt và
+            // có bao nhiêu lần phải rơi về bản rule — khỏi phải mò log.
+                    + (aiCalls > 0 ? $" · AI {aiCalls} lượt" + (aiFails > 0 ? $" ({aiFails} lỗi → dùng bản rule)" : "") : "")
                     + (parts.Count > 0 ? ". " + string.Join(" · ", parts) : "");
         _log.LogInformation("[sale-brief] tenant={T} {Sum}", tenantId, summary);
 
@@ -171,9 +244,56 @@ public class SaleBriefWorkflow : IScheduledWorkflow
     /// Gom dữ liệu cho 1 người. MỖI nguồn bọc try riêng: nguồn nào lỗi thì mục đó rỗng,
     /// các mục còn lại vẫn có. Bản tin thiếu một mục vẫn hơn không có bản tin.
     /// </summary>
+    /// <summary>
+    /// AI sắp xếp lại bản tin từ dữ kiện máy chủ đã lấy. Lỗi / hết lượt / trả rỗng → rơi về bản
+    /// rule. Hàm này CỐ Ý không bao giờ ném: thà đọc bản rule dài dòng còn hơn sáng ra không có
+    /// bản tin nào.
+    /// </summary>
+    private async Task<DigestMessage> ComposeAsync(string tenantId, string sessionId,
+        SaleBriefInput input, DateTime todayVn, SaleBriefOptions opt, CancellationToken ct,
+        Action onAiCall, Action onAiFail)
+    {
+        try
+        {
+            // STRICT: workflow nền không có HttpContext → thiếu Push là bypass quota tenant và log
+            // feature=unknown/tenant=null (xem AiCallContext).
+            using var _ = _ctx.Push(AiFeatures.Digest, tenantId, sessionId);
+            onAiCall();
+
+            // Qua AiModelRegistry, không gọi thẳng provider mặc định — để provider tự chọn thì nó
+            // lấy model "Recommended" của chính nó và bỏ qua cấu hình Models:* của người vận hành.
+            var resolved = _models.Resolve(Providers.AiFeature.Digest);
+            var provider = _providers.Resolve(resolved.Provider);
+            var r = await provider.CompleteAsync(new Models.CompleteRequest(
+                Prompt: SaleBriefBuilder.BuildPrompt(input, todayVn, opt.MaxItems),
+                Provider: resolved.Provider, Model: resolved.Model,
+                MaxTokens: 1400,
+                Temperature: 0.3,   // sát dữ kiện; cao hơn là bắt đầu "văn hoa" thêm ý không có
+                System: null,
+                ApiKey: resolved.ApiKey), ct);
+
+            if (string.IsNullOrWhiteSpace(r.Text))
+            {
+                onAiFail();
+                _log.LogWarning("[sale-brief] tenant={T} user={U} AI trả rỗng → dùng bản rule",
+                    tenantId, input.Username);
+                return SaleBriefBuilder.Build(input, todayVn);
+            }
+            return SaleBriefBuilder.WrapAiReply(r.Text, input, todayVn);
+        }
+        catch (OperationCanceledException) when (ct.IsCancellationRequested) { throw; }
+        catch (Exception ex)
+        {
+            onAiFail();
+            _log.LogWarning(ex, "[sale-brief] tenant={T} user={U} AI lỗi → dùng bản rule",
+                tenantId, input.Username);
+            return SaleBriefBuilder.Build(input, todayVn);
+        }
+    }
+
     private async Task<SaleBriefInput> BuildInputAsync(string tenantId, string user, string? fullName,
         int? crmUserId, string jwt, DateTime todayVn,
-        int mailPending, int mailQuote, bool mailOk, CancellationToken ct)
+        int mailPending, int mailQuote, bool mailOk, SaleBriefOptions opt, CancellationToken ct)
     {
         var cooling = new List<DealLine>();
         var hygiene = new List<DealLine>();
@@ -205,8 +325,12 @@ public class SaleBriefWorkflow : IScheduledWorkflow
                 // thật erp.tourkit.vn ngày 14/08 có 63 cơ hội cần gọi mà phần lớn trạng thái "Hủy".
                 // Dùng DealCooling — NGUỒN DUY NHẤT của khái niệm này, đã dùng ở deals.jsx và
                 // deal-auto-review; bản tin sáng là chỗ duy nhất còn tự tính nên mới lệch.
-                if (statusId == Deals.DealCooling.CancelStatus
-                    || Deals.DealCooling.IsClosedWon(statusName)) continue;
+                // Tenant khai mã trạng thái đóng thì TIN HỌ TUYỆT ĐỐI (họ biết CRM của mình);
+                // không khai thì mới rơi về nhận diện tự động của DealCooling.
+                var isClosed = opt.ClosedStatuses.Count > 0
+                    ? opt.ClosedStatuses.Contains(statusId)
+                    : statusId == Deals.DealCooling.CancelStatus || Deals.DealCooling.IsClosedWon(statusName);
+                if (isClosed) continue;
 
                 var wr = winRates.TryGetValue(code, out var w) ? w : 0;
                 var line = new DealLine(0, title, Str(it, "customerName"), wr, silent, statusName);
@@ -219,8 +343,8 @@ public class SaleBriefWorkflow : IScheduledWorkflow
                 // còn cơ hội bán, còn "dọn" là hồ sơ kẹt cần cập nhật cho đúng. Cơ hội kẹt quá
                 // HygieneStuckDays ngày mà chưa có bước tiếp theo thì gọi khách chưa phải việc đầu
                 // tiên — phải biết nó đang ở đâu đã.
-                if (silent >= HygieneStuckDays) hygiene.Add(line);
-                else if (Bool(it, "isCooling") || silent >= SilentDaysMin) cooling.Add(line);
+                if (silent >= opt.HygieneStuckDays) hygiene.Add(line);
+                else if (Bool(it, "isCooling") || silent >= opt.SilentDaysMin) cooling.Add(line);
             }
             // Nguội lâu nhất lên đầu — đó là cái dễ mất nhất.
             cooling.Sort((a, b) => b.SilentDays.CompareTo(a.SilentDays));
@@ -300,7 +424,7 @@ WHERE TenantId = @tenantId AND [Rank] IN ('A','B')", new { tenantId });
 SELECT Title, CustomerName, UpdatedAt FROM dbo.TourQuotes
 WHERE TenantId = @tenantId AND CreatedBy = @user
   AND UpdatedAt < DATEADD(DAY, -@days, SYSUTCDATETIME())
-ORDER BY UpdatedAt ASC", new { tenantId, user, days = StaleQuoteDays });
+ORDER BY UpdatedAt ASC", new { tenantId, user, days = opt.StaleQuoteDays });
             foreach (var r in rows)
                 quotes.Add(new QuoteLine(r.Title ?? "Báo giá", r.CustomerName,
                     (int)(DateTime.UtcNow - r.UpdatedAt).TotalDays));
