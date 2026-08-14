@@ -322,8 +322,8 @@ public static class WorkflowEndpoints
                             ? sn.GetString() : null;
                         items.Add(new(val, string.IsNullOrWhiteSpace(label) ? $"Trạng thái {val}" : label));
                     }
-                var (hint, source) = await semantics.GetAsync(tenant, "deal", items, refresh == true, ctx.RequestAborted);
-                return Results.Json(new { items, openSuggested = hint?.Open, closedSuggested = hint?.Closed, hintSource = source });
+                var (hint, source, reason) = await semantics.GetAsync(tenant, "deal", items, refresh == true, ctx.RequestAborted);
+                return Results.Json(new { items, openSuggested = hint?.Open, closedSuggested = hint?.Closed, hintSource = source, hintReason = reason });
             }
             catch (Exception ex)
             {
@@ -360,8 +360,8 @@ public static class WorkflowEndpoints
                             ? sn.GetString() : null;
                         items.Add(new(val, string.IsNullOrWhiteSpace(label) ? $"Trạng thái {val}" : label));
                     }
-                var (hint, source) = await semantics.GetAsync(tenant, "task", items, refresh == true, ctx.RequestAborted);
-                return Results.Json(new { items, openSuggested = hint?.Open, closedSuggested = hint?.Closed, hintSource = source });
+                var (hint, source, reason) = await semantics.GetAsync(tenant, "task", items, refresh == true, ctx.RequestAborted);
+                return Results.Json(new { items, openSuggested = hint?.Open, closedSuggested = hint?.Closed, hintSource = source, hintReason = reason });
             }
             catch (Exception ex)
             {

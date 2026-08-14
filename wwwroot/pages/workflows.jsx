@@ -1015,6 +1015,7 @@ function StatusMappingCard({ pushToast }) {
           items: d.items || [],
           open: Array.isArray(d.openSuggested) ? d.openSuggested : null,
           src: d.hintSource,
+          reason: d.hintReason,
           error: d.error,
         };
       }
@@ -1070,9 +1071,27 @@ function StatusMappingCard({ pushToast }) {
                       {k.label}
                       {sel
                         ? <span className="wf-statusmap-src">AI phân loại theo tên</span>
-                        : <span className="wf-statusmap-src is-weak">chưa có gợi ý — đoán theo từ khoá</span>}
+                        : <span className="wf-statusmap-src is-weak">đoán theo từ khoá</span>}
                     </div>
                     {d.error && <div className="workflows-opt-hint">Lỗi đọc từ CRM: {d.error}</div>}
+                    {/* Không có gợi ý thì phải nói VÌ SAO. Hết lượt AI là lý do phổ biến nhất và
+                        người dùng tự xử được — gộp chung vào "đoán theo từ khoá" thì họ bấm Phân
+                        loại lại mãi mà không hiểu tại sao chẳng có gì đổi. */}
+                    {!sel && (
+                      <div className="workflows-statusmap-warn">
+                        <Icon name="warning" size={12} />
+                        <span>
+                          {d.reason === 'quota'
+                            ? <><b>Công ty đã hết lượt AI</b> nên chưa phân loại được. Nạp thêm lượt rồi bấm “Phân loại lại”.</>
+                            : d.reason === 'ai-error' || d.reason === 'ai-empty'
+                              ? <>AI chưa trả lời được. Bấm “Phân loại lại” để thử lần nữa.</>
+                              : <>Chưa có gợi ý của AI cho danh sách này.</>}
+                          {' '}Trong lúc chờ, hệ thống chỉ đoán theo từ khoá quen thuộc (Hủy, Đã chốt…)
+                          — với tên trạng thái đặt riêng thì kiểu đoán này gần như không lọc được gì,
+                          nên <b>hãy tự tick lại</b> trong từng mục cấu hình bên dưới.
+                        </span>
+                      </div>
+                    )}
                     {d.items.length === 0
                       ? <div className="workflows-opt-hint">CRM chưa trả về trạng thái nào.</div>
                       : <ul className="wf-statusmap-list">

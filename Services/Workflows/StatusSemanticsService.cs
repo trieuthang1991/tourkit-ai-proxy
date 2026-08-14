@@ -54,25 +54,26 @@ public class StatusSemanticsService
 
     /// Gợi ý cho 1 công ty. Đã hỏi rồi và danh sách chưa đổi → trả ngay, không gọi AI.
     /// <param name="forceRefresh">Người dùng bấm "Phân loại lại" → bỏ qua bản đã lưu, hỏi AI lại.</param>
-    /// Trả kèm nguồn ("cache" / "ai") để giao diện nói thật cho người dùng biết con số đến từ đâu.
-    public async Task<(StatusHint? Hint, string Source)> GetAsync(string tenantId, string kind,
+    /// Trả kèm nguồn ("cache" / "ai") và LÝ DO khi không có gợi ý — giao diện phải nói được vì sao,
+    /// không thì người dùng bấm "Phân loại lại" mãi mà không hiểu tại sao chẳng có gì đổi.
+    public async Task<(StatusHint? Hint, string Source, string? Reason)> GetAsync(string tenantId, string kind,
         IReadOnlyList<StatusOption> options, bool forceRefresh = false, CancellationToken ct = default)
     {
-        if (string.IsNullOrWhiteSpace(tenantId) || options.Count == 0) return (null, "none");
+        if (string.IsNullOrWhiteSpace(tenantId) || options.Count == 0) return (null, "none", "no-data");
 
         var key = $"sth|{tenantId}|{kind}|{HashOf(options)}";
         if (!forceRefresh && _cache.TryGet<StatusHint>(key, out var cached) && cached is { Open.Count: > 0 })
-            return (cached, "cache");
+            return (cached, "cache", null);
 
-        var hint = await AskAsync(kind, options, ct);
-        if (hint == null) return (null, "none");
+        var (hint, reason) = await AskAsync(kind, options, ct);
+        if (hint == null) return (null, "none", reason);
         _cache.Set(key, hint, Ttl);
-        return (hint, "ai");
+        return (hint, "ai", null);
     }
 
     // ─── Hỏi AI ──────────────────────────────────────────────────────────────────
-    private async Task<StatusHint?> AskAsync(string kind, IReadOnlyList<StatusOption> options,
-        CancellationToken ct)
+    private async Task<(StatusHint? Hint, string? Reason)> AskAsync(string kind,
+        IReadOnlyList<StatusOption> options, CancellationToken ct)
     {
         var what = kind == "task" ? "công việc" : "cơ hội bán hàng";
         var list = string.Join("\n", options.Select(o => $"- {o.Value}: {o.Label}"));
@@ -96,11 +97,11 @@ Quy tắc:
                 MaxTokens: 600, Temperature: 0.0, System: SystemPrompt, ApiKey: resolved.ApiKey), ct);
 
             var json = LooseJson.ExtractFirstObject(res.Text);
-            if (string.IsNullOrWhiteSpace(json)) return null;
+            if (string.IsNullOrWhiteSpace(json)) return (null, "ai-empty");
             using var doc = JsonDocument.Parse(json);
             var open = ReadIds(doc.RootElement, "open");
             var closed = ReadIds(doc.RootElement, "closed");
-            if (open.Count == 0 && closed.Count == 0) return null;
+            if (open.Count == 0 && closed.Count == 0) return (null, "ai-empty");
 
             // Mã lạ (AI bịa) bị loại; mã bị bỏ quên coi như còn phải làm — an toàn theo hướng
             // "nhắc thừa" chứ không "nuốt mất việc".
@@ -112,12 +113,20 @@ Quy tắc:
 
             _log.LogInformation("Gợi ý trạng thái {Kind}: {Open} còn làm / {Closed} đã xong (model {Model})",
                 kind, open.Count, closed.Count, res.Model);
-            return new StatusHint(open, closed);
+            return (new StatusHint(open, closed), null);
+        }
+        // Hết lượt AI là lý do PHỔ BIẾN NHẤT khiến gợi ý vắng mặt, và nó khác hẳn "AI lỗi": người
+        // dùng nạp thêm lượt là xong. Gộp chung vào một câu "đoán theo từ khoá" thì họ bấm Phân
+        // loại lại mãi mà không hiểu vì sao chẳng có gì đổi (gặp thật ở vnexpresstour: 1005/1000).
+        catch (Quota.QuotaExhaustedException)
+        {
+            _log.LogWarning("Gợi ý trạng thái {Kind}: hết lượt AI của công ty → client dùng lưới đỡ từ khoá", kind);
+            return (null, "quota");
         }
         catch (Exception ex)
         {
             _log.LogWarning(ex, "Hỏi AI gợi ý trạng thái {Kind} lỗi → để client tự đoán theo tên", kind);
-            return null;
+            return (null, "ai-error");
         }
     }
 
