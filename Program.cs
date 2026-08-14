@@ -152,6 +152,11 @@ builder.Services.AddSingleton<TourkitAiProxy.Services.Chat.ActionResolutionMemor
 // NotImplementedException("8b") — task 8c. Singleton — mọi dependency đều singleton, không captive.
 builder.Services.AddSingleton<TourkitAiProxy.Services.Chat.ActionExecutor>();
 
+// Thẻ chuẩn bị gặp khách (S4) — gom hồ sơ + hạng đã chấm + thư gần nhất rồi để AI gợi ý nên nói gì.
+// Chạy theo yêu cầu (qua action prepare_meeting), KHÔNG phải tác vụ nền: dựng sẵn cho mọi cuộc hẹn
+// thì tốn một lượt AI cho cả những cuộc chẳng ai cần chuẩn bị.
+builder.Services.AddSingleton<TourkitAiProxy.Services.Chat.MeetingBriefService>();
+
 // Soạn Tour GIT bằng AI — bóc mô tả tự do thành form Tour GIT (Type=3) cho NV prefill.
 builder.Services.AddSingleton<TourkitAiProxy.Services.Tour.TourBuilderService>();
 

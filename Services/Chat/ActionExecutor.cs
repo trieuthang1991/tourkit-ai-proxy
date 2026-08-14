@@ -23,6 +23,7 @@ public class ActionExecutor
     private readonly ActionResolver _resolver;
     private readonly TourKitCustomerSource _customerSource;
     private readonly ReviewService _reviewService;
+    private readonly MeetingBriefService _meetingBrief;
     private readonly DealOpportunityClient _dealClient;
     private readonly DealScoringService _dealScoring;
     private readonly DealRepository _dealRepo;
@@ -50,13 +51,13 @@ public class ActionExecutor
 
     public ActionExecutor(
         CrmActionQueueRepository crmQueue, ActionResolver resolver,
-        TourKitCustomerSource customerSource, ReviewService reviewService,
+        TourKitCustomerSource customerSource, ReviewService reviewService, MeetingBriefService meetingBrief,
         DealOpportunityClient dealClient, DealScoringService dealScoring, DealRepository dealRepo,
         MailSyncService mailSync, IMailSender mailSender, MailRepository mailRepo, MailAccountStore mailAccount,
         TkSessionStore sessions, AiCallContext aiCtx, ILogger<ActionExecutor> log)
     {
         _crmQueue = crmQueue; _resolver = resolver;
-        _customerSource = customerSource; _reviewService = reviewService;
+        _customerSource = customerSource; _reviewService = reviewService; _meetingBrief = meetingBrief;
         _dealClient = dealClient; _dealScoring = dealScoring; _dealRepo = dealRepo;
         _mailSync = mailSync; _mailSender = mailSender; _mailRepo = mailRepo; _mailAccount = mailAccount;
         _sessions = sessions; _aiCtx = aiCtx; _log = log;
@@ -137,26 +138,25 @@ public class ActionExecutor
         => req.Action.ToLowerInvariant() switch
         {
             "review_customer" => await ExecuteReviewCustomerAsync(req, tenantId, jwt, sessionId, ct),
+            "prepare_meeting" => await ExecuteMeetingBriefAsync(req, tenantId, jwt, sessionId, ct),
             "score_deal"      => await ExecuteScoreDealAsync(req, tenantId, jwt, sessionId, ct),
             _ => throw new InvalidOperationException($"Unhandled Internal action: {req.Action}")
         };
 
-    /// review_customer: resolve KH (id trực tiếp hoặc tên → id qua ActionResolver) → fetch context
-    /// đầy đủ (Purchases/CareLogs — NGUỒN DUY NHẤT dùng chung page/batch/workflow) → ReviewService
-    /// (dual-path native-tool/json-prompt, tự save DB) → gói CustomerReview vào ChatData.Raw cho FE
-    /// render lại y hệt <see cref="Models.ChatModels"/> customer-review-card.
-    private async Task<ActionResult> ExecuteReviewCustomerAsync(
-        ActionExecuteRequest req, string tenantId, string jwt, string? sessionId, CancellationToken ct)
+    /// <summary>
+    /// Resolve khách từ params rồi nạp context đầy đủ (Purchases/CareLogs). Dùng chung
+    /// review_customer + prepare_meeting — hai hành động nhận cùng bộ params định danh khách, chép
+    /// lại đoạn resolve này là chắc chắn sẽ lệch nhau sau vài lần sửa.
+    /// </summary>
+    /// <param name="verb">Động từ chèn vào câu báo thiếu thông tin ("đánh giá" / "chuẩn bị gặp").</param>
+    /// <returns>(khách, null) khi OK; (null, kết quả lỗi để trả thẳng cho user) khi không resolve được.</returns>
+    private async Task<(Customer? Customer, ActionResult? Failure)> LoadCustomerAsync(
+        ActionExecuteRequest req, Dictionary<string, object?> p, string jwt, string sessionId,
+        string verb, CancellationToken ct)
     {
-        // TourKitCustomerSource cần sessionId (tự resolve/refresh JWT bên trong) — không có sessionId
-        // (vd action gọi từ path không qua session) thì không chạy được, báo user re-login thay vì crash.
-        if (string.IsNullOrWhiteSpace(sessionId))
-            return new ActionResult(req.Action, "Phiên đăng nhập không hợp lệ — vui lòng đăng nhập lại.");
-
-        var p = req.Params ?? new Dictionary<string, object?>();
         string customerId;
-        // Forward-compat: nếu path này từng đi qua action-clarify (hiện chưa xảy ra — xem ghi chú dưới),
-        // honor "customerResolvedId" trước customerId/customerName để nhất quán với assign_task/create_appointment.
+        // Forward-compat: nếu path này từng đi qua action-clarify (hiện chưa xảy ra), honor
+        // "customerResolvedId" trước customerId/customerName để nhất quán với assign_task/create_appointment.
         var customerResolvedId = Str(p, "customerResolvedId");
         var customerIdParam = Str(p, "customerId");
         if (!string.IsNullOrWhiteSpace(customerResolvedId))
@@ -171,23 +171,41 @@ public class ActionExecutor
         {
             var customerName = Str(p, "customerName");
             if (string.IsNullOrWhiteSpace(customerName))
-                return new ActionResult(req.Action, "Thiếu thông tin khách hàng để đánh giá.");
+                return (null, new ActionResult(req.Action, $"Thiếu thông tin khách hàng để {verb}."));
 
             var outcome = await _resolver.ResolveCustomerAsync(jwt, customerName, ct);
             if (outcome.Ambiguous is { Count: > 0 })
-                return new ActionResult(req.Action,
-                    $"Tên khách hàng \"{customerName}\" khớp nhiều người, vui lòng nói rõ hơn (vd họ tên đầy đủ).");
+                return (null, new ActionResult(req.Action,
+                    $"Tên khách hàng \"{customerName}\" khớp nhiều người, vui lòng nói rõ hơn (vd họ tên đầy đủ)."));
             if (outcome.Id is null)
-                return new ActionResult(req.Action, $"Không tìm thấy khách hàng tên \"{customerName}\".");
+                return (null, new ActionResult(req.Action, $"Không tìm thấy khách hàng tên \"{customerName}\"."));
             customerId = outcome.Id.Value.ToString(CultureInfo.InvariantCulture);
         }
 
-        var forceFresh = Bool(p, "forceFresh") ?? false;
-
         var customers = await _customerSource.GetContextsAsync(sessionId, new[] { customerId }, ct);
         var customer = customers.FirstOrDefault();
-        if (customer is null)
-            return new ActionResult(req.Action, $"Không tìm thấy dữ liệu khách hàng #{customerId}.");
+        return customer is null
+            ? (null, new ActionResult(req.Action, $"Không tìm thấy dữ liệu khách hàng #{customerId}."))
+            : (customer, null);
+    }
+
+    /// review_customer: resolve KH (id trực tiếp hoặc tên → id qua ActionResolver) → fetch context
+    /// đầy đủ (Purchases/CareLogs — NGUỒN DUY NHẤT dùng chung page/batch/workflow) → ReviewService
+    /// (dual-path native-tool/json-prompt, tự save DB) → gói CustomerReview vào ChatData.Raw cho FE
+    /// render lại y hệt <see cref="Models.ChatModels"/> customer-review-card.
+    private async Task<ActionResult> ExecuteReviewCustomerAsync(
+        ActionExecuteRequest req, string tenantId, string jwt, string? sessionId, CancellationToken ct)
+    {
+        // TourKitCustomerSource cần sessionId (tự resolve/refresh JWT bên trong) — không có sessionId
+        // (vd action gọi từ path không qua session) thì không chạy được, báo user re-login thay vì crash.
+        if (string.IsNullOrWhiteSpace(sessionId))
+            return new ActionResult(req.Action, "Phiên đăng nhập không hợp lệ — vui lòng đăng nhập lại.");
+
+        var p = req.Params ?? new Dictionary<string, object?>();
+        var (customer, failure) = await LoadCustomerAsync(req, p, jwt, sessionId!, "đánh giá", ct);
+        if (failure is not null) return failure;
+        var customerId = customer!.Id;
+        var forceFresh = Bool(p, "forceFresh") ?? false;
 
         CustomerReview review;
         using (_aiCtx.Push(AiFeatures.AssistantAction, tenantId, sessionId))
@@ -212,6 +230,53 @@ public class ActionExecutor
             Stats: new List<ChatStat>(),
             Focus: null);
 
+        return new ActionResult(req.Action, summary, data);
+    }
+
+    /// <summary>
+    /// prepare_meeting (S4): resolve KH → gom hồ sơ + hạng đã chấm + thư gần nhất → MeetingBriefService
+    /// dựng "thẻ chuẩn bị gặp khách".
+    ///
+    /// <para>KHÔNG cần xác nhận: chỉ đọc, không ghi gì ra ngoài. Cũng KHÔNG dedup theo actionId như
+    /// nhánh gửi mail — hỏi lại là muốn bản mới nhất.</para>
+    ///
+    /// <para>Khác review_customer ở chỗ KHÔNG lưu kết quả: bản chấm hạng là dữ liệu dùng lại
+    /// (worker sync xuống CRM), còn thẻ chuẩn bị chỉ đúng cho cuộc gặp sắp tới — lưu lại thì lần sau
+    /// đọc phải bản cũ mà tưởng là mới.</para>
+    /// </summary>
+    private async Task<ActionResult> ExecuteMeetingBriefAsync(
+        ActionExecuteRequest req, string tenantId, string jwt, string? sessionId, CancellationToken ct)
+    {
+        if (string.IsNullOrWhiteSpace(sessionId))
+            return new ActionResult(req.Action, "Phiên đăng nhập không hợp lệ — vui lòng đăng nhập lại.");
+
+        var p = req.Params ?? new Dictionary<string, object?>();
+        var (customer, failure) = await LoadCustomerAsync(req, p, jwt, sessionId!, "chuẩn bị gặp", ct);
+        if (failure is not null) return failure;
+
+        MeetingBriefService.MeetingBrief brief;
+        using (_aiCtx.Push(AiFeatures.AssistantAction, tenantId, sessionId))
+        {
+            brief = await _meetingBrief.BuildAsync(
+                customer!, tenantId, providerOverride: req.Provider, modelOverride: req.Model, ct: ct);
+        }
+
+        _log.LogInformation(
+            "[ActionExecutor] prepare_meeting tenant={Tenant} customerId={Id} dùngAi={UsedAi}",
+            tenantId, customer!.Id, brief.UsedAi);
+
+        var data = new ChatData(
+            Kind: "meeting-brief",
+            Title: $"Chuẩn bị gặp — {customer.Name}",
+            Raw: JsonSerializer.SerializeToElement(brief),
+            Stats: new List<ChatStat>(),
+            Focus: null);
+
+        // Dữ kiện thô nằm ở panel phải (ChatData) nên chat chỉ đọc phần lời. AI hỏng thì nói thẳng,
+        // không để user tưởng đây là bản đã phân tích.
+        var summary = brief.UsedAi
+            ? brief.Text
+            : $"Chưa dựng được phần gợi ý cho khách {customer.Name} — xem dữ liệu thô ở bảng bên phải.";
         return new ActionResult(req.Action, summary, data);
     }
 

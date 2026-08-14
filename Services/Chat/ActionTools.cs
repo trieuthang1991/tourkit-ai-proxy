@@ -35,6 +35,15 @@ public static class ActionTools
             "customerId CHỈ điền khi biết id nội bộ dạng số nguyên nhỏ (vd 15878); nếu là SĐT/mã thì để vào customerName.",
             new[] { "customerId", "customerName", "forceFresh" }, ActionKind.Internal, false, "Đánh giá khách hàng"),
 
+        new("prepare_meeting",
+            "Chuẩn bị TRƯỚC KHI GẶP/GỌI 1 khách: tóm tắt khách là ai + nên nói gì + cần tránh gì. " +
+            "Dùng khi 'sắp gặp khách X, chuẩn bị giúp', 'lát nữa gọi cho anh Y nói gì', 'brief khách Z trước khi họp'. " +
+            "KHÁC review_customer: review CHẤM HẠNG khách (A–D, để phân loại); tool này dựng GỢI Ý HỘI THOẠI cho " +
+            "cuộc gặp sắp tới. User nói 'đánh giá/xếp hạng' → review_customer; nói 'sắp gặp/sắp gọi/chuẩn bị' → tool này. " +
+            "Điền customerName = đúng cụm định danh user đưa (TÊN, SỐ ĐIỆN THOẠI, hoặc MÃ KH) — hệ thống tự resolve. " +
+            "customerId CHỈ điền khi biết id nội bộ dạng số nguyên nhỏ.",
+            new[] { "customerId", "customerName" }, ActionKind.Internal, false, "Chuẩn bị gặp khách"),
+
         new("score_deal",
             "Chấm điểm 1 cơ hội bán hàng/deal. Dùng khi 'chấm deal X', 'đánh giá cơ hội của khách B'. " +
             "params: dealId (nếu biết id) HOẶC dealQuery. LUÔN điền dealQuery = đúng cụm user nói để nhận diện " +

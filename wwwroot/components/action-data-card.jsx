@@ -4,6 +4,7 @@
 //   "customer-review" → data.raw = CustomerReview (Models/ReviewModels.cs)
 //   "deal-score"       → data.raw = DealScore (Models/DealModels.cs)
 //   "mail-list"        → data.raw = MailItem[] (Models/MailModels.cs)
+//   "meeting-brief"    → data.raw = MeetingBrief (Services/Chat/MeetingBriefService.cs)
 // Kind khác (kpi/tours/cashflow/...) KHÔNG đi qua file này — vẫn render ở DataPanel như cũ.
 
 const ADC_RANK_VI = { A: 'Hạng A', B: 'Hạng B', C: 'Hạng C', D: 'Hạng D' };
@@ -127,12 +128,40 @@ function AdcMailList({ items }) {
   );
 }
 
+// Thẻ chuẩn bị gặp khách (S4): lời gợi ý của AI đã nằm ở khung chat, nên panel này CHỈ hiện dữ kiện
+// thô — để nhân viên tra lại "số này ở đâu ra" mà không phải cuộn chat.
+function AdcMeetingBrief({ b }) {
+  if (!b) return null;
+  const lines = String(b.facts || '').split('\n').filter((l) => l.trim());
+  return (
+    <div className="jv-data-card">
+      {!b.usedAi && (
+        <p className="jv-data-summary">
+          Chưa dựng được phần gợi ý — dưới đây là những gì hệ thống biết về khách.
+        </p>
+      )}
+      <ul className="jv-brief-facts">
+        {lines.map((l, i) => {
+          // Dòng con (mỗi tour/lần chăm sóc) thụt vào bằng "  · " ở backend — giữ nguyên cấp bậc đó.
+          const sub = /^\s{2}·/.test(l);
+          return (
+            <li key={i} className={sub ? 'jv-brief-sub' : undefined}>
+              {l.replace(/^\s*[-·]\s*/, '')}
+            </li>
+          );
+        })}
+      </ul>
+    </div>
+  );
+}
+
 // Dispatch theo data.kind. Kind lạ/không nhận diện → không render gì (caller tự fallback nếu cần).
 function ActionDataCard({ data }) {
   if (!data || data.raw == null) return null;
   if (data.kind === 'customer-review') return <AdcReviewCard r={data.raw} />;
   if (data.kind === 'deal-score') return <AdcDealCard d={data.raw} />;
   if (data.kind === 'mail-list') return <AdcMailList items={Array.isArray(data.raw) ? data.raw : []} />;
+  if (data.kind === 'meeting-brief') return <AdcMeetingBrief b={data.raw} />;
   return null;
 }
 window.ActionDataCard = ActionDataCard;

@@ -8317,6 +8317,35 @@ n
 .jv-block-plan  .jv-data-block-label { color: #6d28d9; }
 .jv-block-suggest { border-left-color: #0891b2 !important; background: rgba(8,145,178,.05) !important; }
 .jv-block-suggest .jv-data-block-label { color: #0e7490; }
+/* Thẻ chuẩn bị gặp khách (S4) — dữ kiện thô, đọc lướt trước khi vào gặp nên ưu tiên dễ quét mắt. */
+.jv-brief-facts { list-style: none; margin: 0; padding: 0; }
+.jv-brief-facts li {
+  padding: 7px 0 7px 14px;
+  position: relative;
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--text-1, #1e293b);
+  border-bottom: 1px solid var(--border);
+}
+.jv-brief-facts li::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  top: 14px;
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: var(--accent, #e2620e);
+}
+.jv-brief-facts li:last-child { border-bottom: none; }
+/* Dòng con (từng tour / từng lần chăm sóc) — nhạt hơn, không có chấm, để cấp bậc tự hiện ra. */
+.jv-brief-facts li.jv-brief-sub {
+  padding-left: 28px;
+  color: var(--text-2, #475569);
+  border-bottom: none;
+}
+.jv-brief-facts li.jv-brief-sub::before { display: none; }
+
 .jv-data-maillist { list-style: none; margin: 0; padding: 0; }
 .jv-data-maillist li {
   padding: 10px 0;

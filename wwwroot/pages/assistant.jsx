@@ -492,7 +492,8 @@ function DataPanel({ data, onAsk, proposal, clarify, actionBusy, onConfirmPropos
 
   // action-result (Task 12): customer-review/deal-score/mail-list không phải shape bảng/chart —
   // render qua ActionDataCard chuyên biệt, bỏ qua toàn bộ logic bảng/chart bên dưới.
-  if (data.kind === 'customer-review' || data.kind === 'deal-score' || data.kind === 'mail-list') {
+  if (data.kind === 'customer-review' || data.kind === 'deal-score' || data.kind === 'mail-list'
+      || data.kind === 'meeting-brief') {
     // Tiêu đề đã hiển thị ở slate-head (panelTitle = data.title) — KHÔNG lặp lại trong panel nữa.
     return (
       <div className="asst-data">

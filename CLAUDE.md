@@ -284,14 +284,26 @@ A chat-left / data-right assistant. The user asks in natural language; the AI de
 
 Ngoài đọc số liệu, `/assistant` và `/travai` (JARVIS voice) giờ có thêm **ACTION tools** (ghi/thao
 tác) song song `ChatTools` (read-only): `check_mail`, `send_mail_reply`, `compose_mail`,
-`review_customer`, `score_deal`, `assign_task`, `create_appointment` — catalog 1 nguồn ở
+`review_customer`, `prepare_meeting`, `score_deal`, `assign_task`, `create_appointment` — catalog 1 nguồn ở
 [`Services/Chat/ActionTools.cs`](Services/Chat/ActionTools.cs). Hành động hướng ra ngoài/khó undo
 (gửi mail, giao việc, tạo lịch hẹn) là **confirm-first**: planner phát `ActionProposal` (thẻ xác
 nhận, field sửa được) → user bấm "Xác nhận" → FE gọi `POST /api/v1/assistant/action/execute` →
 [`ActionExecutor`](Services/Chat/ActionExecutor.cs) re-resolve + re-check tenant server-side rồi
-thực thi, idempotent theo `actionId`. `review_customer`/`score_deal`/`check_mail` (đọc/non-destructive
-với 1 thực thể) chạy thẳng không cần xác nhận. Tên → id (nhân viên/khách hàng/deal) resolve qua
-[`Services/Chat/ActionResolver.cs`](Services/Chat/ActionResolver.cs) (mơ hồ → hỏi lại, không đoán).
+thực thi, idempotent theo `actionId`. `review_customer`/`prepare_meeting`/`score_deal`/`check_mail`
+(đọc/non-destructive với 1 thực thể) chạy thẳng không cần xác nhận. Tên → id (nhân viên/khách hàng/deal)
+resolve qua [`Services/Chat/ActionResolver.cs`](Services/Chat/ActionResolver.cs) (mơ hồ → hỏi lại, không đoán).
+
+**`prepare_meeting` — "thẻ chuẩn bị gặp khách" (S4, 2026-08-14).** Gom hồ sơ + lịch sử mua + nhật ký
+chăm sóc + hạng đã chấm (`dbo.Reviews`) + thư gần nhất CỦA CHÍNH khách đó → AI viết "khách này là ai /
+nên nói gì / cần tránh gì" ([`MeetingBriefService`](Services/Chat/MeetingBriefService.cs)). Bốn quyết
+định cố ý, đừng "sửa": (1) **theo yêu cầu, KHÔNG phải workflow nền** — spec gợi ý "trước lịch hẹn X giờ"
+nhưng làm nền thì tốn 1 lượt AI cho MỌI cuộc hẹn, kể cả cuộc chẳng ai cần chuẩn bị; (2) **không lưu kết
+quả** — khác `review_customer` (bản chấm hạng là dữ liệu dùng lại, worker sync xuống CRM), thẻ chuẩn bị
+chỉ đúng cho cuộc gặp sắp tới, lưu lại thì lần sau đọc phải bản cũ mà tưởng mới; (3) **thư khớp theo
+EMAIL, không theo tên** — trùng tên là chuyện thường, đưa nhầm thư của người khác vào thẻ thì nhân viên
+nói sai chuyện ngay trước mặt khách; (4) **lời AI về khung chat, dữ kiện thô về panel phải** (`ChatData.Kind
+= "meeting-brief"`) — in cả hai chỗ là đọc hai lần cùng một thứ. AI hỏng → vẫn trả dữ kiện thô kèm câu
+nói rõ là chưa có gợi ý.
 **Ghi vào CRM (`assign_task`/`create_appointment`) chỉ ENQUEUE** vào
 [`dbo.CrmActionQueue`](Services/Crm/CrmActionQueueRepository.cs) — proxy KHÔNG POST thẳng
 `/api/tasks`/`/api/customer-care`; worker phía `toutkit-app` (viết sau) drain hàng đợi + sync CRM

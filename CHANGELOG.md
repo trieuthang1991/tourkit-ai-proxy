@@ -13,6 +13,27 @@ Những cập nhật gần đây của TRAV-AI, viết cho người dùng. Mới
 
 ---
 
+## Phiên bản 14/08/2026 — Nhắc trước ngày đi và chuẩn bị trước khi gặp khách
+
+### ✨ Tính năng mới
+- **🛫 Nhắc kiểm tra tour trước ngày khởi hành.** Bật **Kiểm tra sẵn sàng khởi hành** trong *Tự động hoá*,
+  hệ thống sẽ soát các tour sắp đi và báo vào **Bảng tin** những tour còn thiếu điều kiện: chưa thu đủ
+  tiền, chưa đủ khách tối thiểu, hoặc là tour cần visa nên nhớ soát lại hồ sơ. Mỗi tour chỉ nhắc **ba
+  lần** — còn 7 ngày (còn kịp xoay), còn 3 ngày (cảnh báo) và ngày cuối — thay vì nhắc lại mỗi sáng cho
+  tới lúc bạn không buồn đọc nữa. Tour nào đủ điều kiện thì im lặng, không làm phiền.
+  Bạn tự chọn mốc nhắc, mục nào cần soát, và mức khách tối thiểu của công ty mình.
+- **🤝 Hỏi trợ lý trước khi đi gặp khách.** Nói với trợ lý *"chiều nay tôi gặp khách A, chuẩn bị giúp
+  tôi"* — trợ lý gom lại khách đó là ai, đã đi những tour nào, từng phàn nàn gì, thư gần nhất đã được
+  trả lời chưa, rồi gợi ý **nên nói gì** và **cần tránh gì** trong một phút. Bảng bên phải hiện đúng
+  những dữ liệu đã dùng, để bạn tra lại con số nào lấy từ đâu.
+  Chỉ chạy khi bạn hỏi, nên không tốn lượt cho những cuộc gặp bạn không cần chuẩn bị.
+
+### 📌 Lưu ý
+- Nếu trợ lý chưa viết được phần gợi ý (mạng lỗi, hết lượt AI), bạn vẫn thấy đầy đủ dữ liệu thô về
+  khách — sắp bước vào gặp mà báo lỗi trắng thì không giúp được gì.
+
+---
+
 ## Phiên bản 14/08/2026 — Bản tin đến đúng giờ và tự cấu hình được
 
 ### ✨ Tính năng mới

@@ -164,7 +164,7 @@ public class ChatAgentService
             new() { ["tool"] = agentResult.ToolName, ["iterations"] = agentResult.Iterations });
 
         // Planner nhận diện HÀNH ĐỘNG (không phải câu hỏi số liệu) -- thực thi run-through
-        // (check_mail/review_customer/score_deal) hoặc trả placeholder cho action cần xác nhận,
+        // (check_mail/review_customer/prepare_meeting/score_deal) hoặc trả placeholder cho action cần xác nhận,
         // rồi trả ngay -- KHÔNG chạy tiếp path phân tích số liệu bình thường bên dưới.
         if (!string.IsNullOrWhiteSpace(agentResult.Action))
         {
@@ -382,7 +382,7 @@ public class ChatAgentService
     private static readonly JsonSerializerOptions JsonOpts = new(JsonSerializerDefaults.Web);
 
     /// Nhan 1 "action" da duoc planner nhan dien (JsonPlannerAgent) + thuc thi:
-    ///   - NeedsConfirm == false (check_mail/review_customer/score_deal) -> chay thang qua ActionExecutor.
+    ///   - NeedsConfirm == false (check_mail/review_customer/prepare_meeting/score_deal) -> chay thang qua ActionExecutor.
     ///   - NeedsConfirm == true  (send_mail_reply/compose_mail/assign_task/create_appointment) -> resolve
     ///     ten->id (+ soan draft AI cho mail) roi tra action-proposal (san sang xac nhan) hoac
     ///     action-clarify (ten mo ho, can chon) hoac action-result (khong tim thay/thieu thong tin).
@@ -436,7 +436,7 @@ public class ChatAgentService
             };
         }
 
-        // Run-through action (review_customer/score_deal) cần resolve tên→id: nếu tên mơ hồ (nhiều bản
+        // Run-through action (review_customer/prepare_meeting/score_deal) cần resolve tên→id: nếu tên mơ hồ (nhiều bản
         // ghi trùng) thì PHÁT action-clarify (choices mang id ẩn) thay vì để ActionExecutor nuốt vào 1
         // câu text bế tắc "nói rõ hơn" (user không có mã đơn/họ tên đầy đủ → kẹt). Đơn khớp → inject
         // *ResolvedId vào params để executor dùng thẳng (khỏi resolve lần 2). Đã có id sẵn → bỏ qua.
@@ -486,7 +486,7 @@ public class ChatAgentService
         }
     }
 
-    /// review_customer/score_deal: resolve tên→id TRƯỚC khi execute để phát hiện sớm tên mơ hồ.
+    /// review_customer/prepare_meeting/score_deal: resolve tên→id TRƯỚC khi execute để phát hiện sớm tên mơ hồ.
     /// Trả về:
     ///   - action-clarify envelope (mơ hồ, nhiều bản ghi) → short-circuit, user chọn qua /action/resolve
     ///     (Field "customer"/"deal" khớp switch endpoint → inject customerResolvedId/dealResolvedId).
@@ -498,10 +498,15 @@ public class ChatAgentService
     {
         switch (action.ToLowerInvariant())
         {
+            // Hai action cùng nhận định danh khách nên dùng chung phép tra; chỉ khác câu hỏi lại
+            // khi tên khớp nhiều người ("đánh giá ai?" vs "chuẩn bị gặp ai?").
             case "review_customer":
+            case "prepare_meeting":
             {
                 if (!string.IsNullOrWhiteSpace(ActionExecutor.Str(p, "customerResolvedId")))
                     return null;
+                var verb = action.Equals("prepare_meeting", StringComparison.OrdinalIgnoreCase)
+                    ? "chuẩn bị gặp" : "đánh giá";
                 // customerId chỉ dùng THẲNG khi là ID nội bộ thật (số nguyên nhỏ). Nếu model nhét MÃ KH
                 // ("KH_00041133"), SĐT ("0982385108") hay tên vào customerId → coi như query cần resolve.
                 var customerIdRaw = ActionExecutor.Str(p, "customerId");
@@ -511,7 +516,7 @@ public class ChatAgentService
                 if (string.IsNullOrWhiteSpace(query)) return null;   // executor sẽ báo thiếu thông tin
                 var outcome = await _resolver.ResolveCustomerAsync(jwt, query!, ct);
                 return ApplyRunThroughResolve(action, p, "customerResolvedId", "customer", outcome,
-                    ambiguousQ: $"\"{query}\" khớp nhiều khách, bạn muốn đánh giá ai?",
+                    ambiguousQ: $"\"{query}\" khớp nhiều khách, bạn muốn {verb} ai?",
                     notFound: $"Không tìm thấy khách hàng khớp \"{query}\".");
             }
             case "score_deal":

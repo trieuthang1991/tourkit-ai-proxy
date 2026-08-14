@@ -34,7 +34,7 @@ public static class AiFeatures
     // thao tác tay trong dbo.AiUsageHistory. Bản tin sales không gọi AI nên không xuất hiện ở đây.
     public const string Digest              = "digest";
 
-    // ── Assistant action tools — Push() từ ActionExecutor (review_customer/score_deal) ──
+    // ── Assistant action tools — Push() từ ActionExecutor (review_customer/prepare_meeting/score_deal) ──
     // Non-HTTP path (chạy sau khi user bấm "Xác nhận") → PHẢI Push để trừ quota tenant +
     // log đúng feature, tránh rơi vào "unknown" (xem docs class comment ở trên).
     public const string AssistantAction     = "assistant-action";
