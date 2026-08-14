@@ -52,7 +52,9 @@
           { value: 'send',  label: 'Gửi thẳng tự động' },
         ],
         hint: 'Soạn sẵn = an toàn (nháp chờ NV duyệt). Gửi thẳng = AI gửi luôn cho khách.' },
-      { key: 'replyCategories', type: 'multi', label: 'Áp dụng nhóm', showIf: 'autoReply',
+      // Bắt buộc: rỗng thì KHÔNG email nào được trả lời (backend so `ReplyCategories.Contains`),
+      // tức bật "tự động trả lời" xong chẳng có gì xảy ra mà không báo lỗi gì.
+      { key: 'replyCategories', type: 'multi', label: 'Áp dụng nhóm', showIf: 'autoReply', required: true,
         default: ['hoi_dat_tour', 'xin_bao_gia', 'xac_nhan'],
         options: MAIL_CATEGORIES,
         hint: 'Chỉ auto-reply email thuộc nhóm đã chọn. Khiếu nại nên để người xử lý.' },
@@ -60,8 +62,9 @@
         options: MAIL_TONES },
     ],
     'deal-auto-review': [
-      { key: 'statuses', type: 'multi', dynamic: 'dealStatuses', label: 'Trạng thái áp dụng', default: [], required: true,
-        hint: 'Chọn ít nhất 1 trạng thái deal mà workflow sẽ xử lý.' },
+      { key: 'statuses', type: 'multi', dynamic: 'dealStatuses', label: 'Trạng thái áp dụng', required: true,
+        dynamicDefault: 'openDealStatuses',
+        hint: 'Những trạng thái cơ hội mà workflow được phép xử lý. Chọn sẵn các trạng thái còn đang mở — xem lại cho khớp cách công ty bạn đặt tên.' },
       { key: 'createdWithinDays', type: 'number', label: 'Chỉ deal tạo trong (ngày)', default: 30, min: 1, max: 365,
         hint: 'Chỉ xử lý deal được tạo trong khoảng ngày gần đây này. Deal cũ hơn được bỏ qua.' },
       // ── ② Chấm điểm cơ hội (AI) — công tắc chính autoReview ──
@@ -78,8 +81,9 @@
       // ── ③ Cảnh báo cơ hội nguội — công tắc chính alertCooling ──
       { key: 'alertCooling', type: 'bool', label: 'Gửi cảnh báo cơ hội nguội', default: true,
         hint: 'Bật để tự phát hiện cơ hội đang mở nhưng lâu không chăm sóc ("nguội") và gửi email nhắc nhân viên phụ trách. Tắt = bỏ hẳn phần cảnh báo (không quét, không gửi).' },
-      { key: 'coolingStatuses', type: 'multi', dynamic: 'dealStatuses', label: 'Trạng thái tính "nguội"', showIf: 'alertCooling', default: [],
-        hint: 'Chỉ cảnh báo nguội cho cơ hội ở các trạng thái này. Để trống = mọi trạng thái đang mở (tự loại trừ đã chốt/hủy). Cũng áp cho badge "nguội" trên trang Cơ hội.' },
+      { key: 'coolingStatuses', type: 'multi', dynamic: 'dealStatuses', label: 'Trạng thái tính "nguội"',
+        showIf: 'alertCooling', required: true, dynamicDefault: 'openDealStatuses',
+        hint: 'Chỉ cảnh báo nguội cho cơ hội ở các trạng thái này. Chọn sẵn các trạng thái còn đang mở — xem lại cho khớp cách công ty bạn đặt tên. Cũng áp cho badge "nguội" trên trang Cơ hội.' },
       // Mặc định 3 ngày (trước là 7) — PHẢI khớp DealAutoReviewOptions.Parse bên C#,
       // lệch nhau thì giao diện hiện một đằng, hệ thống chạy một nẻo.
       { key: 'coolingDays', type: 'number', label: 'Coi là "nguội" sau (ngày)', showIf: 'alertCooling', default: 3, min: 1, max: 90,
@@ -108,10 +112,12 @@
       // ── Cơ hội cần gọi lại ──
       { key: 'secCooling', type: 'bool', label: 'Đưa vào bản tin', default: true,
         hint: 'Cơ hội đang theo đuổi mà lâu không ai liên hệ.' },
-      { key: 'callStatuses', type: 'multi', dynamic: 'dealStatuses', showIf: 'secCooling',
+      // BẮT BUỘC chọn: bỏ trống thì hệ thống phải tự đoán trạng thái nào là "đã đóng" theo TÊN, mà
+      // CRM không có cờ nào nói điều đó — đoán trượt là bản tin bảo gọi lại đơn đã hủy (đã xảy ra).
+      { key: 'callStatuses', type: 'multi', dynamic: 'dealStatuses', showIf: 'secCooling', required: true,
         dynamicDefault: 'openDealStatuses',
         label: 'Chỉ nhắc khi cơ hội đang ở trạng thái',
-        hint: 'Mặc định đã chọn sẵn mọi trạng thái CÒN phải chăm (bỏ Hủy / Đã chốt / Thất bại) — sửa lại nếu công ty đặt tên trạng thái riêng. Bỏ chọn hết = để hệ thống tự đoán theo tên. Danh sách này cũng áp cho mục "cần dọn hồ sơ" bên dưới.' },
+        hint: 'Chọn sẵn mọi trạng thái CÒN phải chăm (bỏ Hủy / Đã chốt / Thất bại) — xem lại cho khớp cách công ty bạn đặt tên. Danh sách này cũng áp cho mục "cần dọn hồ sơ" bên dưới.' },
       { key: 'silentDaysMin', type: 'number', showIf: 'secCooling', default: 3, min: 1, max: 90,
         label: 'Nhắc khi im lặng quá (ngày)',
         hint: 'Đặt thấp thì bản tin đầy; đặt cao thì phát hiện muộn. 3 ngày là mặc định.' },
@@ -129,10 +135,17 @@
       { key: 'staleQuoteDays', type: 'number', showIf: 'secQuotes', default: 5, min: 1, max: 365,
         label: 'Nhắc khi quá (ngày) không cập nhật' },
 
+      // ── Việc cần làm ──
+      { key: 'secTasks', type: 'bool', label: 'Việc cần làm hôm nay', default: true,
+        hint: 'Nhắc việc đến hạn trong hôm nay VÀ việc đã quá hạn mà chưa xong (việc quá hạn xếp lên đầu, có dấu riêng). Việc quá hạn vẫn làm được nên vẫn nhắc — khác lịch hẹn, đã trôi qua thì thôi.' },
+      { key: 'taskStatuses', type: 'multi', dynamic: 'taskStatuses', showIf: 'secTasks', required: true,
+        dynamicDefault: 'openTaskStatuses',
+        label: 'Việc coi là CHƯA xong khi ở trạng thái',
+        hint: 'Quyết định thế nào là "còn phải làm". Tên trạng thái do công ty bạn đặt nên chỉ bạn biết chắc — ví dụ có nơi "Đang kiểm tra" nghĩa là đã làm xong, chờ duyệt. Chọn sẵn theo cách hiểu thông thường, xem lại cho khớp.' },
+
       // ── Các mục còn lại: chỉ bật/tắt, không có gì để chỉnh ──
       { key: 'secAppointments', type: 'bool', label: 'Lịch hẹn hôm nay', default: true,
-        hint: 'Cuộc hẹn có giờ trong ngày — thường là việc gấp nhất của bản tin.' },
-      { key: 'secTasks', type: 'bool', label: 'Việc cần làm hôm nay', default: true },
+        hint: 'Chỉ nhắc cuộc hẹn có giờ TRONG HÔM NAY; hẹn đã trôi qua thì bỏ qua vì không làm bù được. Lịch đã đánh dấu thành công/không thành công cũng không nhắc nữa.' },
       { key: 'secPayments', type: 'bool', label: 'Tour sắp đi còn thiếu tiền', default: true,
         hint: 'Tour sắp khởi hành mà khách chưa thanh toán đủ — trễ một ngày là mất tiền thật.' },
       { key: 'secVips', type: 'bool', label: 'Khách quen lâu không chăm', default: true },
@@ -172,9 +185,10 @@
       secCooling: '① Cơ hội cần gọi lại', callStatuses: '① Cơ hội cần gọi lại', silentDaysMin: '① Cơ hội cần gọi lại',
       secHygiene: '② Cơ hội cần dọn hồ sơ', hygieneStuckDays: '② Cơ hội cần dọn hồ sơ',
       secQuotes: '③ Báo giá bỏ dở', staleQuoteDays: '③ Báo giá bỏ dở',
-      secAppointments: '④ Các mục chỉ bật/tắt', secTasks: '④ Các mục chỉ bật/tắt',
-      secPayments: '④ Các mục chỉ bật/tắt', secVips: '④ Các mục chỉ bật/tắt', secMailbox: '④ Các mục chỉ bật/tắt',
-      useAi: '⑤ Cách trình bày', maxItems: '⑤ Cách trình bày',
+      secTasks: '④ Việc cần làm', taskStatuses: '④ Việc cần làm',
+      secAppointments: '⑤ Các mục chỉ bật/tắt',
+      secPayments: '⑤ Các mục chỉ bật/tắt', secVips: '⑤ Các mục chỉ bật/tắt', secMailbox: '⑤ Các mục chỉ bật/tắt',
+      useAi: '⑥ Cách trình bày', maxItems: '⑥ Cách trình bày',
     },
     'customer-auto-review': {
       createdWithinDays: 'Phạm vi',
@@ -232,17 +246,29 @@
 
   const DYNAMIC_DEFAULTS = {
     openDealStatuses: list => (list || []).filter(o => !isClosedStatusName(o.label)).map(o => o.value),
+    // Công việc có THÊM một tín hiệu chắc hơn tên: mã 4/5 là "hoàn thành"/"hủy" trong chính CRM
+    // (cả tab "trễ hạn" lẫn cờ IsLate của CRM đều loại đúng 2 mã này). Dùng cả hai — mã bắt được
+    // trường hợp đổi tên lạ, tên bắt được trường hợp công ty dùng mã 3 làm trạng thái kết thúc.
+    openTaskStatuses: list => (list || [])
+      .filter(o => o.value !== 4 && o.value !== 5 && !isClosedStatusName(o.label))
+      .map(o => o.value),
   };
 
   /// Trả về patch {key: value} cho những option có dynamicDefault mà người dùng CHƯA từng khai.
   /// CHƯA khai = `undefined`. Mảng rỗng KHÔNG tính là chưa khai — bỏ chọn hết rồi lưu là một lựa
-  /// chọn có chủ đích ("để hệ thống tự đoán"), điền lại giúp là ghi đè ý người dùng.
-  function dynamicDefaults(type, options, dynOptions) {
+  /// chọn có chủ đích, điền lại giúp là ghi đè ý người dùng.
+  ///
+  /// `suggested` là gợi ý do MÁY CHỦ tính (AI đọc tên trạng thái của chính công ty đó). Ưu tiên nó
+  /// vì AI hiểu được "Kết thúc", "Win", "Đã bàn giao" — thứ mà bảng từ khoá dưới đây chịu. Bảng từ
+  /// khoá chỉ là lưới đỡ khi máy chủ không trả gợi ý (AI lỗi, chưa khai khoá model…).
+  function dynamicDefaults(type, options, dynOptions, suggested) {
     const patch = {};
     (WORKFLOW_OPTIONS[type] || []).forEach(o => {
       if (!o.dynamicDefault || options[o.key] !== undefined) return;
       const list = (dynOptions || {})[o.dynamic] || [];
       if (!list.length) return;                       // chưa tải xong → để lần sau
+      const fromServer = (suggested || {})[o.dynamic];
+      if (Array.isArray(fromServer) && fromServer.length) { patch[o.key] = fromServer; return; }
       const fn = DYNAMIC_DEFAULTS[o.dynamicDefault];
       if (fn) patch[o.key] = fn(list);
     });
@@ -258,6 +284,30 @@
     }
     if (opt.type === 'numbers') return !Array.isArray(v) || v.length === 0;
     return v == null || v === '';
+  }
+
+  // ─── OptHelp — dấu ? cạnh nhãn, rê chuột mới hiện lời giải thích ──────────────────
+  //
+  // Trước đây mỗi ô có 1–3 dòng chữ xám nằm dưới, cộng lại chiếm quá nửa chiều cao form: mở thẻ ra
+  // là một bức tường chữ, mà phần lớn chỉ cần đọc một lần. Đưa vào tooltip thì form nhìn hết được
+  // trong một màn, chữ vẫn còn nguyên cho ai cần.
+  //
+  // Dùng <button> chứ không phải <span>: bàn phím tab tới được và Enter/Space mở ra — rê chuột là
+  // thao tác mà điện thoại và người dùng bàn phím không có, tooltip chỉ-hover là mất chữ với họ.
+  function OptHelp({ text, tone }) {
+    const [open, setOpen] = uS(false);
+    if (!text) return null;
+    return (
+      <button type="button"
+        className={'wf-help' + (tone === 'warn' ? ' is-warn' : '') + (open ? ' is-open' : '')}
+        aria-label={tone === 'warn' ? 'Cảnh báo' : 'Giải thích'}
+        title=""
+        onClick={e => { e.preventDefault(); setOpen(v => !v); }}
+        onBlur={() => setOpen(false)}>
+        {tone === 'warn' ? '!' : '?'}
+        <span className="wf-help-bubble" role="tooltip">{text}</span>
+      </button>
+    );
   }
 
   // ─── MultiSelect (select2-style) — chip + dropdown checklist cho options động ──────
@@ -379,6 +429,6 @@
     INTERVAL_OPTIONS, MAIL_CATEGORIES, MAIL_TONES,
     WORKFLOW_OPTIONS, OPTION_GROUPS,
     optVisible, optionDefaults, optEmpty, dynamicDefaults, isClosedStatusName,
-    MultiSelectDropdown, OptionControl,
+    MultiSelectDropdown, OptionControl, OptHelp,
   };
 })();

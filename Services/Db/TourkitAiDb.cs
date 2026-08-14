@@ -689,6 +689,10 @@ BEGIN
     );
 END;
 
+-- (Gợi ý trạng thái do AI đọc tên: CỐ Ý không có bảng — xem StatusSemanticsService. Đó là gợi ý
+--  cho lần mở form đầu tiên, lựa chọn thật của người dùng nằm ở UserWorkflows.OptionsJson. Mất
+--  gợi ý chỉ tốn thêm một lượt AI rẻ, không mất dữ liệu nào → để trong cache là đủ.)
+
 -- TÀI KHOẢN GỬI ĐI của từng công ty (OA Zalo/ZNS, bot Telegram). Tách khỏi bảng trên vì
 -- đây là cấu hình chung của công ty, quản trị khai 1 lần — không phải của từng người.
 -- Thứ gì tốn tiền/có hạn mức thì để tenant tự cấu hình (xem plan Đợt 1).

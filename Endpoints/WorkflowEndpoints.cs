@@ -302,25 +302,64 @@ public static class WorkflowEndpoints
         v1.MapGet("/workflows/deal-statuses", async (
             HttpContext ctx,
             TkSessionStore sessions,
-            TourKitApiClient api) =>
+            TourKitApiClient api,
+            StatusSemanticsService semantics) =>
         {
             var auth = RequireSession(ctx, sessions);
             if (auth == null) return Unauthorized();
-            var (sid, _, _) = auth.Value;
+            var (sid, tenant, _) = auth.Value;
             try
             {
                 var jwt = await sessions.GetValidJwtAsync(sid, ctx.RequestAborted);
                 var data = await api.GetAsync(jwt, "/api/booking-tickets/filter-sections", ctx.RequestAborted);
-                var items = new List<object>();
+                var items = new List<StatusSemanticsService.StatusOption>();
                 if (data.ValueKind == JsonValueKind.Array)
                     foreach (var s in data.EnumerateArray())
                     {
                         if (!s.TryGetProperty("status", out var st) || !st.TryGetInt32(out var val) || val <= 0) continue;
                         var label = s.TryGetProperty("sectionName", out var sn) && sn.ValueKind == JsonValueKind.String
                             ? sn.GetString() : null;
-                        items.Add(new { value = val, label = string.IsNullOrWhiteSpace(label) ? $"Trạng thái {val}" : label });
+                        items.Add(new(val, string.IsNullOrWhiteSpace(label) ? $"Trạng thái {val}" : label));
                     }
-                return Results.Json(new { items });
+                var hint = await semantics.GetAsync(tenant, "deal", items, ctx.RequestAborted);
+                return Results.Json(new { items, openSuggested = hint?.Open });
+            }
+            catch (Exception ex)
+            {
+                return Results.Json(new { items = Array.Empty<object>(), error = ex.Message });
+            }
+        });
+
+        // ─── GET /workflows/task-statuses ─── danh sách trạng thái công việc ─────
+        // Khác trạng thái cơ hội ở một điểm quan trọng: MÃ trạng thái công việc là enum hệ thống
+        // (1..5), công ty chỉ ĐỔI TÊN được qua SectionWork chứ không thêm mã mới. Lấy tên về đây
+        // để người dùng nhìn thấy đúng chữ họ đang dùng trong CRM, còn lọc thì vẫn theo mã.
+        v1.MapGet("/workflows/task-statuses", async (
+            HttpContext ctx,
+            TkSessionStore sessions,
+            TourKitApiClient api,
+            StatusSemanticsService semantics) =>
+        {
+            var auth = RequireSession(ctx, sessions);
+            if (auth == null) return Unauthorized();
+            var (sid, tenant, _) = auth.Value;
+            try
+            {
+                var jwt = await sessions.GetValidJwtAsync(sid, ctx.RequestAborted);
+                var data = await api.GetAsync(jwt, "/api/tasks/sections", ctx.RequestAborted);
+                var items = new List<StatusSemanticsService.StatusOption>();
+                var seen = new HashSet<int>();
+                if (data.ValueKind == JsonValueKind.Array)
+                    foreach (var s in data.EnumerateArray())
+                    {
+                        if (!s.TryGetProperty("status", out var st) || !st.TryGetInt32(out var val) || val <= 0) continue;
+                        if (!seen.Add(val)) continue;   // nhiều dự án cùng mã → chỉ giữ tên gặp đầu tiên
+                        var label = s.TryGetProperty("sectionName", out var sn) && sn.ValueKind == JsonValueKind.String
+                            ? sn.GetString() : null;
+                        items.Add(new(val, string.IsNullOrWhiteSpace(label) ? $"Trạng thái {val}" : label));
+                    }
+                var hint = await semantics.GetAsync(tenant, "task", items, ctx.RequestAborted);
+                return Results.Json(new { items, openSuggested = hint?.Open });
             }
             catch (Exception ex)
             {

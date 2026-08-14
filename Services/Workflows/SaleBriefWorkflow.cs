@@ -79,7 +79,7 @@ public class SaleBriefWorkflow : IScheduledWorkflow
     private record SaleBriefOptions(
         bool UseAi, int MaxItems,
         int SilentDaysMin, int HygieneStuckDays, int StaleQuoteDays,
-        List<int> CallStatuses,
+        List<int> CallStatuses, List<int> TaskStatuses,
         bool SecCooling, bool SecHygiene, bool SecQuotes,
         bool SecAppointments, bool SecTasks, bool SecPayments, bool SecVips, bool SecMailbox);
 
@@ -89,7 +89,8 @@ public class SaleBriefWorkflow : IScheduledWorkflow
         // vì một đợt nâng cấp.
         var def = new SaleBriefOptions(UseAi: true, MaxItems: 7,
             SilentDaysMin: SilentDaysMinDefault, HygieneStuckDays: HygieneStuckDaysDefault,
-            StaleQuoteDays: StaleQuoteDaysDefault, CallStatuses: new List<int>(),
+            StaleQuoteDays: StaleQuoteDaysDefault,
+            CallStatuses: new List<int>(), TaskStatuses: new List<int>(),
             SecCooling: true, SecHygiene: true, SecQuotes: true,
             SecAppointments: true, SecTasks: true, SecPayments: true, SecVips: true, SecMailbox: true);
         if (string.IsNullOrWhiteSpace(json)) return def;
@@ -97,10 +98,16 @@ public class SaleBriefWorkflow : IScheduledWorkflow
         {
             using var d = JsonDocument.Parse(json);
             var r = d.RootElement;
-            var call = new List<int>();
-            if (r.TryGetProperty("callStatuses", out var arr) && arr.ValueKind == JsonValueKind.Array)
-                foreach (var e in arr.EnumerateArray())
-                    if (e.ValueKind == JsonValueKind.Number && e.TryGetInt32(out var n) && n > 0) call.Add(n);
+            List<int> Ints(string key)
+            {
+                var outp = new List<int>();
+                if (r.TryGetProperty(key, out var arr) && arr.ValueKind == JsonValueKind.Array)
+                    foreach (var e in arr.EnumerateArray())
+                        if (e.ValueKind == JsonValueKind.Number && e.TryGetInt32(out var n) && n > 0) outp.Add(n);
+                return outp;
+            }
+            var call = Ints("callStatuses");
+            var taskSt = Ints("taskStatuses");
 
             bool Bit(string k, bool dv)
                 => r.TryGetProperty(k, out var v) && v.ValueKind is JsonValueKind.True or JsonValueKind.False
@@ -119,6 +126,7 @@ public class SaleBriefWorkflow : IScheduledWorkflow
                 HygieneStuckDays = Get("hygieneStuckDays", def.HygieneStuckDays, 3, 365),
                 StaleQuoteDays = Get("staleQuoteDays", def.StaleQuoteDays, 1, 365),
                 CallStatuses = call,
+                TaskStatuses = taskSt,
                 SecCooling = Bit("secCooling", def.SecCooling),
                 SecHygiene = Bit("secHygiene", def.SecHygiene),
                 SecQuotes = Bit("secQuotes", def.SecQuotes),
@@ -380,13 +388,16 @@ public class SaleBriefWorkflow : IScheduledWorkflow
             hygiene.Sort((a, b) => b.SilentDays.CompareTo(a.SilentDays));
         });
 
-        // ── Lịch hẹn hôm nay + quá hạn ────────────────────────────────────────
-        // ⚠️ CRM KHÔNG tự bỏ lịch đã xong: /api/ai/appointments?dateFilter=1|3 lọc THUẦN theo ngày
-        // (CustomerCareService chỉ loại Status=4 "đã xoá"). Không lọc ở đây thì bản tin nhắc đi gặp
-        // khách mà cuộc hẹn đã diễn ra xong, và số "quá hạn" phồng lên vì đếm cả lịch đã hoàn thành —
-        // cùng loại lỗi với "bảo gọi lại cơ hội đã hủy". Trạng thái lịch hẹn là enum HỆ THỐNG
-        // (1=Tạo mới, 2=Thành công, 3=Không thành công, 4=Đã xoá), công ty KHÔNG tự thêm được →
-        // lọc bằng mã là chắc chắn đúng, không phải đoán theo tên như trạng thái cơ hội.
+        // ── Lịch hẹn: CHỈ HÔM NAY ─────────────────────────────────────────────
+        // Cố ý KHÔNG kéo lịch quá hạn (bỏ hẳn lệnh gọi dateFilter=3). Một cuộc hẹn đã trôi qua thì
+        // không "làm bù" được — nhắc lại chỉ làm bản tin dài thêm mà không đổi việc gì phải làm hôm
+        // nay. Việc quá hạn thì khác: vẫn làm được nên vẫn nhắc (xem mục dưới).
+        //
+        // ⚠️ CRM KHÔNG tự bỏ lịch đã xong: dateFilter=1 lọc THUẦN theo ngày (CustomerCareService chỉ
+        // loại Status=4 "đã xoá"). Không lọc ở đây thì bản tin bảo đi gặp khách mà cuộc hẹn đã diễn
+        // ra xong. Trạng thái lịch hẹn là enum HỆ THỐNG (1=Tạo mới, 2=Thành công, 3=Không thành
+        // công, 4=Đã xoá), công ty KHÔNG tự thêm được → lọc bằng mã là chắc chắn đúng, không phải
+        // đoán theo tên như trạng thái cơ hội.
         if (opt.SecAppointments)
         await Safe("appointments", async () =>
         {
@@ -400,8 +411,6 @@ public class SaleBriefWorkflow : IScheduledWorkflow
                     Str(it, "title") ?? "Lịch hẹn",
                     Str(it, "customerName")));
             }
-            var od = await _api.GetAsync(jwt, "/api/ai/appointments?dateFilter=3&pageIndex=1&pageSize=50", ct);
-            overdueAppt = Items(od).Count(it => Mine(it, user, fullName, crmUserId) && ApptStillOpen(it));
         });
 
         // ── Việc cần làm hôm nay + trễ hạn ────────────────────────────────────
@@ -415,12 +424,12 @@ public class SaleBriefWorkflow : IScheduledWorkflow
             var d = await _api.GetAsync(jwt, "/api/ai/tasks?tabFilter=3&pageIndex=1&pageSize=50", ct);
             foreach (var it in Items(d))
             {
-                if (!TaskStillOpen(it)) continue;
+                if (!TaskStillOpen(it, opt.TaskStatuses)) continue;
                 tasks.Add(new TaskLine(Str(it, "name") ?? Str(it, "code") ?? "Công việc",
                                        Str(it, "priorityName"), IsOverdue: false));
             }
             var od = await _api.GetAsync(jwt, "/api/ai/tasks?tabFilter=2&pageIndex=1&pageSize=50", ct);
-            var late = Items(od).ToList();
+            var late = Items(od).Where(it => TaskStillOpen(it, opt.TaskStatuses)).ToList();
             overdueTask = late.Count;
             // Việc trễ chèn LÊN ĐẦU và đánh dấu — đó là thứ cần làm trước.
             for (int i = late.Count - 1; i >= 0; i--)
@@ -567,9 +576,12 @@ ORDER BY UpdatedAt ASC", new { tenantId, user, days = opt.StaleQuoteDays });
     }
 
     /// Công việc: 1=Chưa bắt đầu · 2=Đang thực hiện · 3=Đang kiểm tra · 4=Hoàn thành · 5=Hủy.
-    private static bool TaskStillOpen(JsonElement e)
+    /// Công ty chọn danh sách riêng thì danh sách ĐÓ quyết định (tôn trọng cách họ dùng trạng thái —
+    /// có nơi coi "Đang kiểm tra" là xong rồi); chưa chọn thì rơi về enum hệ thống.
+    private static bool TaskStillOpen(JsonElement e, IReadOnlyCollection<int> openStatuses)
     {
         var s = Int(e, "status");
+        if (openStatuses is { Count: > 0 }) return openStatuses.Contains(s);
         return s is not (4 or 5);
     }
 

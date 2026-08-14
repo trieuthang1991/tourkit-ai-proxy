@@ -103,6 +103,8 @@ public static class WorkflowStackRegistration
         s.AddSingleton<TourkitAiProxy.Services.Cache.RedisProvider>();
         s.AddSingleton<TourkitAiProxy.Services.Security.SsoCodeStore>();   // kho code 1-lần SSO (RAM/Redis theo Sso:ForceInMemory)
         s.AddSingleton<TourkitAiProxy.Services.Cache.ChatCache>();
+        // Gợi ý "trạng thái nào còn phải làm" do AI đọc tên trạng thái của từng công ty.
+        s.AddSingleton<TourkitAiProxy.Services.Workflows.StatusSemanticsService>();
 
         // ─── TourKit (session + service account) ─────────────────────────────
         s.AddSingleton<TourKitApiClient>();

@@ -17,7 +17,11 @@ public enum AiFeature
     MailClassify,
     CustomerReview,
     Widget,
-    NccImport
+    NccImport,
+    /// Đọc TÊN trạng thái do từng công ty tự đặt → suy ra cái nào còn phải làm, cái nào đã xong.
+    /// Chạy 1 lần cho mỗi công ty rồi lưu lại, chỉ chạy lại khi danh sách trạng thái đổi → model
+    /// rẻ là đủ và chi phí gần như bằng 0.
+    StatusSemantics
 }
 
 public record ResolvedModel(string Provider, string Model, string? ApiKey);

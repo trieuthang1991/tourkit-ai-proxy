@@ -88,7 +88,7 @@ function SummaryText({ summaryJson }) {
 // ⚠️ File đó PHẢI được nạp TRƯỚC file này (index.html + bundle-entry.js).
 const {
   INTERVAL_OPTIONS, WORKFLOW_OPTIONS, OPTION_GROUPS,
-  optVisible, optionDefaults, dynamicDefaults, OptionControl,
+  optVisible, optionDefaults, dynamicDefaults, OptionControl, OptHelp,
 } = window.tourkitWorkflowOptions;
 
 // Workflow chạy chậm (review/cảnh báo) — chỉ dùng để hiện hint "quét ≠ review lại mỗi lần".
@@ -98,6 +98,7 @@ const SLOW_WORKFLOWS = ['deal-auto-review', 'customer-auto-review'];
 // công ty để người dùng tick. Đây là cách tránh đoán: mỗi CRM tự đặt tên trạng thái, hardcode từ
 // khoá tiếng Việt thì kiểu gì cũng có công ty sai.
 const DEAL_STATUS_WORKFLOWS = ['deal-auto-review', 'sale-brief'];
+const TASK_STATUS_WORKFLOWS = ['sale-brief'];
 // Interval khởi tạo: đã cấu hình → giá trị lưu; chưa → mặc định 15 phút.
 function initialInterval(wf) {
   return wf.intervalMinutes || 15;
@@ -391,18 +392,31 @@ function WorkflowCard({ wf, onUpdate, pushToast, locked, canConfig = true, diges
   // Options ĐỘNG (vd trạng thái deal lấy từ CRM cho user tick chọn).
   const [dynOptions, setDynOptions] = uS({});
   const [dynLoading, setDynLoading] = uS({});
+  // Gợi ý "trạng thái nào còn phải làm" do MÁY CHỦ tính (AI đọc tên trạng thái của công ty này).
+  const [dynSuggested, setDynSuggested] = uS({});
 
   const optionSchema = WORKFLOW_OPTIONS[wf.type] || [];
 
   // Tải options động cho card: danh sách trạng thái cơ hội LẤY TỪ CRM của chính công ty, để người
   // dùng TICK CHỌN thay vì mình đoán hộ bằng từ khoá tiếng Việt (mỗi CRM tự đặt tên trạng thái).
   uE(() => {
-    if (!DEAL_STATUS_WORKFLOWS.includes(wf.type)) return;
-    setDynLoading(l => ({ ...l, dealStatuses: true }));
-    apiFetch('/api/v1/workflows/deal-statuses')
-      .then(d => setDynOptions(o => ({ ...o, dealStatuses: d.items || [] })))
-      .catch(() => {})
-      .finally(() => setDynLoading(l => ({ ...l, dealStatuses: false })));
+    // Mỗi danh sách là một lời gọi riêng: trạng thái cơ hội và trạng thái công việc nằm ở hai
+    // nơi khác nhau trong CRM, và không phải tác vụ nào cũng cần cả hai.
+    const wanted = [];
+    if (DEAL_STATUS_WORKFLOWS.includes(wf.type)) wanted.push(['dealStatuses', '/api/v1/workflows/deal-statuses']);
+    if (TASK_STATUS_WORKFLOWS.includes(wf.type)) wanted.push(['taskStatuses', '/api/v1/workflows/task-statuses']);
+    wanted.forEach(([key, url]) => {
+      setDynLoading(l => ({ ...l, [key]: true }));
+      apiFetch(url)
+        .then(d => {
+          setDynOptions(o => ({ ...o, [key]: d.items || [] }));
+          // openSuggested có thể vắng (AI lỗi / chưa khai khoá model) → client tự đoán theo tên.
+          if (Array.isArray(d.openSuggested) && d.openSuggested.length)
+            setDynSuggested(s => ({ ...s, [key]: d.openSuggested }));
+        })
+        .catch(() => {})
+        .finally(() => setDynLoading(l => ({ ...l, [key]: false })));
+    });
   }, [wf.type]);
 
   // Sync state khi prop thay đổi (sau reload)
@@ -417,10 +431,10 @@ function WorkflowCard({ wf, onUpdate, pushToast, locked, canConfig = true, diges
   // đặt lại options về bản đã lưu — thiếu thì mặc định bị xoá ngay sau khi Lưu.
   uE(() => {
     setOptions(o => {
-      const patch = dynamicDefaults(wf.type, o, dynOptions);
+      const patch = dynamicDefaults(wf.type, o, dynOptions, dynSuggested);
       return Object.keys(patch).length ? { ...o, ...patch } : o;
     });
-  }, [dynOptions, wf.options]);
+  }, [dynOptions, dynSuggested, wf.options]);
 
   const isSlow = SLOW_WORKFLOWS.includes(wf.type);
   const intervalOptions = INTERVAL_OPTIONS;
@@ -701,25 +715,25 @@ function WorkflowCard({ wf, onUpdate, pushToast, locked, canConfig = true, diges
                   <div className={'workflows-opt' + (opt.type === 'bool' ? ' is-toggle' : '') + (wideTypes.includes(opt.type) ? ' is-wide' : '')
                     + (needsOwnLine(opt) ? ' is-multi' : '')} key={opt.key}>
                     <div className="workflows-opt-row">
-                      <label className="workflows-opt-label">{opt.label}{opt.required && <span className="req-star">*</span>}</label>
+                      <label className="workflows-opt-label">
+                        {opt.label}{opt.required && <span className="req-star">*</span>}
+                        {/* Lời giải thích nằm trong dấu ? chứ không in thẳng ra: mỗi ô 1–3 dòng chữ
+                            xám cộng lại chiếm quá nửa chiều cao form, mà phần lớn chỉ đọc một lần. */}
+                        <OptHelp text={opt.hint} />
+                        {/* Danh sách chọn sẵn là ĐOÁN THEO TÊN, và CRM không có cờ nào nói trạng thái
+                            nào là "đã đóng" — công ty đặt tên kiểu khác (Win/Lost/Kết thúc) là đoán
+                            trượt. Nói thẳng thay vì để một phỏng đoán im lặng quyết định bản tin.
+                            Dấu ! tự mất sau lần Lưu đầu tiên. */}
+                        {opt.dynamicDefault && (wf.options || {})[opt.key] === undefined
+                          && (dynOptions[opt.dynamic] || []).length > 0 && (
+                          <OptHelp tone="warn" text={'Danh sách chọn sẵn này là phỏng đoán theo tên trạng thái. Xem lại cho đúng cách công ty bạn đặt tên, rồi bấm "Lưu cấu hình" để chốt.'} />
+                        )}
+                      </label>
                       <div className="workflows-opt-control">
                     <OptionControl opt={opt} options={options} setOptions={setOptions}
                       dynOptions={dynOptions} dynLoading={dynLoading} />
                   </div>
                     </div>
-                    {opt.hint && <div className="workflows-opt-hint">{opt.hint}</div>}
-                    {/* Danh sách chọn sẵn là ĐOÁN THEO TÊN, và CRM không có cờ nào nói trạng thái
-                        nào là "đã đóng" — công ty đặt tên kiểu khác (Win/Lost/Kết thúc) là đoán
-                        trượt. Nói thẳng ra và mời xác nhận, thay vì để một phỏng đoán im lặng
-                        quyết định bản tin. Lời nhắc tự mất sau lần Lưu đầu tiên. */}
-                    {opt.dynamicDefault && (wf.options || {})[opt.key] === undefined
-                      && (dynOptions[opt.dynamic] || []).length > 0 && (
-                      <div className="workflows-opt-guess">
-                        <Icon name="warning" size={12} />
-                        <span>Danh sách chọn sẵn này là <b>phỏng đoán theo tên trạng thái</b> — xem lại
-                          cho đúng cách công ty bạn đặt tên, rồi bấm <b>Lưu cấu hình</b> để chốt.</span>
-                      </div>
-                    )}
                   </div>
                 ))}
               </div>

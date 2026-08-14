@@ -124,13 +124,13 @@ function NodeConfigPanel({ node, type, onClose, enabled, setEnabled, interval, s
               <div className="workflows-opt-row">
                 <label className="workflows-opt-label">
                   {opt.label}{opt.required && <span className="req-star">*</span>}
+                  <WO.OptHelp text={opt.hint} />
                 </label>
                 <div className="workflows-opt-control">
                   <WO.OptionControl opt={opt} options={options} setOptions={setOptions}
                     dynOptions={dynOptions} dynLoading={dynLoading} />
                 </div>
               </div>
-              {opt.hint && <div className="workflows-opt-hint">{opt.hint}</div>}
             </div>
           ))}
 
@@ -171,6 +171,7 @@ function FlowPreviewPage({ pushToast, type }) {
   const [interval, setIntervalMin] = _fpS(15);
   const [options, setOptions] = _fpS({});
   const [dynOptions, setDynOptions] = _fpS({});
+  const [dynSuggested, setDynSuggested] = _fpS({});
   const [dynLoading, setDynLoading] = _fpS({});
   const [saving, setSaving] = _fpS(false);
   const [pick, setPick] = _fpS(null);        // node đang chọn để cấu hình
@@ -246,15 +247,35 @@ function FlowPreviewPage({ pushToast, type }) {
     loadConfig();
   }
 
-  // Danh sách trạng thái deal (options động) — giống trang Tự động hoá.
+  // Default ĐỘNG (vd chọn sẵn các trạng thái cơ hội còn mở) — chỉ tính được SAU khi danh sách
+  // trạng thái về. Phải có ở ĐÂY nữa, không chỉ trang Tự động hoá: đây cũng là một chỗ sửa
+  // cùng bộ cấu hình, thiếu thì mở từ sơ đồ ra thấy trống trong khi trang kia có sẵn.
   _fpE(() => {
-    if (type !== 'deal-auto-review') return;
+    setOptions(o => {
+      const patch = _fpWO().dynamicDefaults(type, o, dynOptions, dynSuggested);
+      return Object.keys(patch).length ? { ...o, ...patch } : o;
+    });
+  }, [dynOptions, dynSuggested, type]);
+
+  // Danh sách trạng thái (options động) — giống trang Tự động hoá, kèm gợi ý của máy chủ.
+  _fpE(() => {
+    const wanted = [];
+    if (['deal-auto-review', 'sale-brief'].includes(type)) wanted.push(['dealStatuses', '/api/v1/workflows/deal-statuses']);
+    if (type === 'sale-brief') wanted.push(['taskStatuses', '/api/v1/workflows/task-statuses']);
+    if (!wanted.length) return;
     let alive = true;
-    setDynLoading(l => ({ ...l, dealStatuses: true }));
-    _fpApi('/api/v1/workflows/deal-statuses')
-      .then(d => { if (alive) setDynOptions(o => ({ ...o, dealStatuses: d.items || [] })); })
-      .catch(() => {})
-      .finally(() => { if (alive) setDynLoading(l => ({ ...l, dealStatuses: false })); });
+    wanted.forEach(([key, url]) => {
+      setDynLoading(l => ({ ...l, [key]: true }));
+      _fpApi(url)
+        .then(d => {
+          if (!alive) return;
+          setDynOptions(o => ({ ...o, [key]: d.items || [] }));
+          if (Array.isArray(d.openSuggested) && d.openSuggested.length)
+            setDynSuggested(s => ({ ...s, [key]: d.openSuggested }));
+        })
+        .catch(() => {})
+        .finally(() => { if (alive) setDynLoading(l => ({ ...l, [key]: false })); });
+    });
     return () => { alive = false; };
   }, [type]);
 
