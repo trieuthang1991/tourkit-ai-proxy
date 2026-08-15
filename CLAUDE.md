@@ -636,14 +636,23 @@ chạy **hai lần** (thẻ script + bản trong bundle) — dev không bao gi�
 
 **Static files.** `UseStaticFiles` has `ServeUnknownFileTypes = true` + `DefaultContentType = "text/plain"` so `.jsx` loads without a registered MIME type. `.jsx`/`.js`/`.css`/`.html` are served with `Cache-Control: no-cache` so edits show on a plain reload.
 
-**Cấu hình model AI — khai ĐỦ 13 feature, đừng để rơi ngầm.** `AiModelRegistry.Resolve` đi theo
+**Cấu hình model AI — khai ĐỦ 14 feature, đừng để rơi ngầm.** `AiModelRegistry.Resolve` đi theo
 `Models:{Feature}` → `Models:Primary` → default của provider. Nghĩa là **thiếu một khoá thì tính năng đó
 âm thầm chạy bằng `Models:Primary`** — không log, không cảnh báo, chỉ hoá đơn cuối tháng biết. Đã dính
 thật (14/08): appsettings prod thiếu `Models:MailClassify` nên phân loại mail chạy bằng `claude-haiku`
 suốt, mà đó là task chạy **hàng trăm lần mỗi lần đồng bộ hộp thư**; `Models:Digest` cũng thiếu tương tự.
-Danh sách 13 = enum `AiFeature` ([AiModelRegistry.cs](Services/Providers/AiModelRegistry.cs)) — khai đủ
+Danh sách 14 = enum `AiFeature` ([AiModelRegistry.cs](Services/Providers/AiModelRegistry.cs)) — khai đủ
 ở **CẢ** `appsettings.json` của web **VÀ** của worker (worker mới là nơi chạy `mail-auto-sync`,
 `deal-auto-review`, `customer-auto-review`, `ceo-brief`).
+
+⚠️ **Cấu hình đúng KHÔNG chứng minh được là nó đang chạy đúng.** Hai file appsettings nằm trên 2 máy,
+đều gitignore, nên bản trên server có thể là bản cũ mà không chỗ nào lộ ra. Cách duy nhất biết chắc là
+**đọc ngược từ log dùng thật**: [`scripts/check-model-drift.ps1`](scripts/check-model-drift.ps1) gom
+`dbo.AiUsageHistory` theo (feature, provider, model) rồi so với cấu hình web tại chỗ. Read-only, chạy
+được mọi lúc. Đã bắt được thật (15/08): worker chạy `mail-auto-sync` bằng `claude-haiku-4-5` và 2 tác vụ
+tự chấm bằng `ds/deepseek-chat` — model KHÔNG có trong cấu hình hiện tại, tức worker cầm bản cũ.
+Lưu ý khi đọc kết quả: feature nào **trùng đúng `Models:Primary`** thì không phân biệt được là khai đúng
+hay đang rơi ngầm về Primary — script đánh dấu riêng, đừng coi là đã xác nhận.
 
 ⚠️ Đổi provider cho một feature thì phải có khoá provider đó trong `Providers:*`. Thiếu khoá, provider
 ném lỗi — mà vài chỗ **bắt lỗi rồi đi tiếp** (vd `MailClassifier` ghi Warning rồi trả nhóm `khac` cho

@@ -1,6 +1,8 @@
 namespace TourkitAiProxy.Services.Providers;
 
-/// 13 feature dùng AI trong proxy. Mỗi enum value 1-1 với key `Models:{Name}` trong appsettings.
+/// 14 feature dùng AI trong proxy. Mỗi enum value 1-1 với key `Models:{Name}` trong appsettings.
+/// THÊM member ở đây thì phải khai luôn khoá `Models:{Name}` trong appsettings của CẢ web LẪN worker —
+/// thiếu thì feature mới âm thầm chạy bằng `Models:Primary`, không log, không cảnh báo.
 /// "Primary" KHÔNG có ở đây — nó chỉ là root fallback internal Registry.
 public enum AiFeature
 {
