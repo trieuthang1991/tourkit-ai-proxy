@@ -9,8 +9,13 @@
 #
 # ⚠️ GIỚI HẠN: cột "CauHinh" đọc từ appsettings.json TRÊN MÁY NÀY. Log thì do mọi máy cùng ghi vào
 #    một DB. Nên một dòng LỆCH nghĩa là "khác cấu hình ở đây", chưa nói được là máy nào lệch — với
-#    tính năng nền thì gần như chắc là worker, với tính năng bấm tay thì có thể là web prod đang
-#    cầm appsettings khác bản local. Đối chiếu file trên đúng máy chạy tính năng đó rồi mới kết luận.
+#    tính năng nền thì gần như chắc là máy chạy lịch, với tính năng bấm tay thì có thể là web prod
+#    đang cầm appsettings khác bản local. Đối chiếu file trên đúng máy đó rồi mới kết luận.
+#
+# ⚠️ GIỚI HẠN 2: máy dev DÙNG CHUNG DB với prod, mà script chỉ chấm LẦN CHẠY GẦN NHẤT — nên bạn
+#    vừa gọi thử một tính năng ở local là dòng đó thành OK, CHE mất chỗ prod đang lệch. Muốn soi
+#    prod thì chạy script TRƯỚC khi test tay, hoặc nới -Days rồi đọc cột LanCuoi để biết dòng đó
+#    đến từ lúc nào.
 #
 #   .\scripts\check-model-drift.ps1              # 7 ngày gần nhất
 #   .\scripts\check-model-drift.ps1 -Days 30
@@ -18,7 +23,8 @@
 # ĐỌC KẾT QUẢ:
 #   OK      — model chạy thật khớp khoá cấu hình.
 #   LỆCH    — chạy thật KHÁC cấu hình. Feature nền (mail-auto-sync / *-auto-review / digest) lệch
-#             gần như chắc chắn là worker cầm appsettings cũ → sửa trên máy worker rồi restart.
+#             thì đối chiếu appsettings của MÁY ĐANG CHẠY LỊCH — là site web có
+#             `Workflows:RunScheduler=true` (deploy hiện tại KHÔNG dùng TourkitAiProxy.Worker).
 #   ?       — model chạy thật TRÙNG Models:Primary, nên không phân biệt được "khai đúng" với "thiếu
 #             khoá nên rơi ngầm về Primary". KHÔNG phải bằng chứng là đúng.
 #   (bỏ qua) — tag log không map sang khoá cấu hình nào (completions/other/unknown: client tự chọn model).
@@ -155,7 +161,8 @@ if ($lech.Count -eq 0) {
     Write-Host ("  {0}: chay {1} nhung cau hinh la {2}" -f $x.TinhNang, $x.ChayThat, $x.CauHinh)
   }
   Write-Host ""
-  Write-Host "mail-auto-sync / deal-auto-review / customer-auto-review / digest chay o WORKER" -ForegroundColor Yellow
-  Write-Host "-> sua C:\Services\TourkitAiWorker\appsettings.json roi: sc.exe stop/start TourkitAiProxyWorker"
+  Write-Host "Tinh nang nen (mail-auto-sync / *-auto-review / digest) chay o MAY DANG BAT LICH" -ForegroundColor Yellow
+  Write-Host "-> mo appsettings.json cua site web co Workflows:RunScheduler=true, sua khoi Models roi restart site"
+  Write-Host "   (deploy hien tai KHONG dung TourkitAiProxy.Worker)"
 }
 Write-Host ""
