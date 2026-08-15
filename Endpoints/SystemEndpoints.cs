@@ -32,7 +32,9 @@ public static class SystemEndpoints
         // Đây là cờ RA MẮT, khác phân quyền (/api/v1/permissions): tắt là tắt cho tất cả.
         v1.MapGet("/features", (IConfiguration cfg) => Results.Json(new
         {
-            digest = Services.Bootstrap.FeatureFlags.Digest(cfg),
+            digest        = Services.Bootstrap.FeatureFlags.Digest(cfg),
+            tourReadiness = Services.Bootstrap.FeatureFlags.TourReadiness(cfg),
+            meetingBrief  = Services.Bootstrap.FeatureFlags.MeetingBrief(cfg),
         }));
         v1.MapGet("/workflow-traces", (WorkflowTraceLog log, int? days, string? workflow, int? limit) =>
         {

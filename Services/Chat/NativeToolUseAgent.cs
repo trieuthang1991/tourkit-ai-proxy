@@ -1,4 +1,4 @@
-// Services/Chat/NativeToolUseAgent.cs
+﻿// Services/Chat/NativeToolUseAgent.cs
 using System.Diagnostics;
 using System.Text;
 using System.Text.Json;
@@ -54,6 +54,7 @@ public class NativeToolUseAgent : IAgentRuntime
     private readonly AiCallContext _ctx;
     private readonly AiModelRegistry _registry;
     private readonly TenantQuotaStore _quota;
+    private readonly IConfiguration _cfg;   // doc co tinh nang -> loc danh muc action gui cho AI
 
     // System prompt: nhấn mạnh BẮT BUỘC gọi tool cho mọi câu liên quan số liệu kinh doanh,
     // KHUYẾN KHÍCH gọi nhiều tool song song khi cần so sánh, và viết phân tích đầy đủ (không cụt).
@@ -92,7 +93,8 @@ public class NativeToolUseAgent : IAgentRuntime
         AiUsageLog usage,
         AiCallContext ctx,
         AiModelRegistry registry,
-        TenantQuotaStore quota)
+        TenantQuotaStore quota,
+        IConfiguration cfg)
     {
         _api        = api;
         _sessions   = sessions;
@@ -105,6 +107,7 @@ public class NativeToolUseAgent : IAgentRuntime
         _ctx        = ctx;
         _registry   = registry;
         _quota      = quota;
+        _cfg        = cfg;
     }
 
     /// Chi xu ly khi provider la "anthropic".
@@ -148,7 +151,7 @@ public class NativeToolUseAgent : IAgentRuntime
         // cache_control gan o tool CUOI CUNG cua toan mang (action tool cuoi) de Anthropic cache dung
         // toan bo prompt tools -- addCacheControl=false o ChatTools de tranh 2 cache_control (loi API).
         var tools = ToolSchemaGenerator.BuildAnthropicTools(addCacheControl: false)
-            .Concat(ToolSchemaGenerator.BuildAnthropicActionTools(addCacheControl: true))
+            .Concat(ToolSchemaGenerator.BuildAnthropicActionTools(ActionTools.Enabled(_cfg), addCacheControl: true))
             .ToArray();
 
         // Wall-clock timeout 30s chia se qua linked token

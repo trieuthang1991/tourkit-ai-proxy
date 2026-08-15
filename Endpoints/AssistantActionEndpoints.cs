@@ -40,6 +40,13 @@ public static class AssistantActionEndpoints
             {
                 return Results.Json(new { error = "Hành động này chưa được hỗ trợ." }, SseJson, statusCode: 501);
             }
+            // Tính năng bị tắt bằng cờ — LỖI CỦA YÊU CẦU, không phải máy chủ hỏng. Không bắt riêng
+            // ở đây thì nó rơi vào bộ bắt lỗi chung và trả 500: người dùng đọc thành "hệ thống lỗi",
+            // còn log lỗi thật bị trộn cảnh báo giả.
+            catch (Services.Bootstrap.FeatureDisabledException ex)
+            {
+                return Results.Json(new { error = ex.Message }, SseJson, statusCode: 403);
+            }
             catch (TourKitApiException ex)
             {
                 return Results.Json(new { error = ex.Message }, SseJson, statusCode: ex.Status is >= 400 and < 600 ? ex.Status : 502);

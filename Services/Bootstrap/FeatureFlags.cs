@@ -21,4 +21,28 @@ public static class FeatureFlags
     /// mà không có chỗ nào xem nó.</para>
     /// </summary>
     public static bool Digest(IConfiguration cfg) => cfg.GetValue("Features:Digest", false);
+
+    /// <summary>
+    /// Kiểm tra sẵn sàng khởi hành (tác vụ <c>tour-readiness</c>): quét tour sắp đi, tour nào còn
+    /// thiếu thì ghi cảnh báo vào Bảng tin.
+    ///
+    /// <para>PHỤ THUỘC <see cref="Digest"/>: nó ghi vào Bảng tin, mà Bảng tin nằm sau cờ Digest —
+    /// bật riêng cái này trong khi Digest tắt thì thẻ vẫn được ghi ra nhưng
+    /// <c>/api/v1/insights</c> trả 404, tức là cảnh báo nằm đó không ai đọc được. Nên điều kiện
+    /// chạy là CẢ HAI cùng bật.</para>
+    /// </summary>
+    public static bool TourReadiness(IConfiguration cfg)
+        => Digest(cfg) && cfg.GetValue("Features:TourReadiness", false);
+
+    /// <summary>
+    /// Thẻ chuẩn bị gặp khách (action <c>prepare_meeting</c> của trợ lý).
+    ///
+    /// <para>Cờ RIÊNG, không dựa vào cờ nào khác: nó chạy theo yêu cầu trong khung chat và không
+    /// ghi vào đâu cả, nên bật/tắt độc lập được.</para>
+    ///
+    /// <para>Tắt thì tool BIẾN MẤT khỏi danh mục gửi cho AI (AI không biết là có nó để mà gọi),
+    /// và đường thực thi vẫn chặn thêm một lần — vì client cũ có thể gửi thẳng tên action.</para>
+    /// </summary>
+    public static bool MeetingBrief(IConfiguration cfg)
+        => cfg.GetValue("Features:MeetingBrief", false);
 }

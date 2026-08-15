@@ -189,7 +189,10 @@ public static class WorkflowStackRegistration
             // Kiểm tra sẵn sàng khởi hành: cùng họ với canh thanh toán (tenant-wide, tài khoản tự
             // động, không AI). Nằm SAU cờ Digest vì nó ghi vào Bảng tin — tắt cờ thì
             // /api/v1/insights trả 404, thẻ ghi ra sẽ không ai xem được.
-            s.AddSingleton<Workflows.IScheduledWorkflow, Workflows.TourReadinessWorkflow>();
+            // THÊM cờ RIÊNG Features:TourReadiness để ra mắt lệch nhịp với cụm bản tin: bản tin có
+            // thể mở trước, tác vụ này giữ lại. FeatureFlags.TourReadiness đã gộp cả 2 điều kiện.
+            if (FeatureFlags.TourReadiness(cfg))
+                s.AddSingleton<Workflows.IScheduledWorkflow, Workflows.TourReadinessWorkflow>();
             // Bản tin sáng: fetch bằng phiên CỦA TỪNG NGƯỜI NHẬN (không phải tài khoản tự động)
             // → CRM tự áp quyền, lọc sai cũng chỉ thiếu chứ không lộ dữ liệu người khác.
             s.AddSingleton<Workflows.IScheduledWorkflow, Workflows.SaleBriefWorkflow>();

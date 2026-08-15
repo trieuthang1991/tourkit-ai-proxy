@@ -1,4 +1,4 @@
-using System.Collections.Concurrent;
+﻿using System.Collections.Concurrent;
 using System.Globalization;
 using System.Text.Json;
 using TourkitAiProxy.Models;              // ActionExecuteRequest, ActionResult, ActionChoice, ChatData, MailItem, MailDraft
@@ -34,6 +34,7 @@ public class ActionExecutor
     private readonly TkSessionStore _sessions;
     private readonly AiCallContext _aiCtx;
     private readonly ILogger<ActionExecutor> _log;
+    private readonly IConfiguration _cfg;   // co tinh nang -> chan hanh dong dang tat
 
     /// Message chuẩn khi tenant/user chưa cấu hình hộp thư Gmail — mirror GmailImapClient để UX nhất quán.
     private const string MailNotConfiguredMessage =
@@ -54,13 +55,14 @@ public class ActionExecutor
         TourKitCustomerSource customerSource, ReviewService reviewService, MeetingBriefService meetingBrief,
         DealOpportunityClient dealClient, DealScoringService dealScoring, DealRepository dealRepo,
         MailSyncService mailSync, IMailSender mailSender, MailRepository mailRepo, MailAccountStore mailAccount,
-        TkSessionStore sessions, AiCallContext aiCtx, ILogger<ActionExecutor> log)
+        TkSessionStore sessions, AiCallContext aiCtx, ILogger<ActionExecutor> log,
+        IConfiguration cfg)
     {
         _crmQueue = crmQueue; _resolver = resolver;
         _customerSource = customerSource; _reviewService = reviewService; _meetingBrief = meetingBrief;
         _dealClient = dealClient; _dealScoring = dealScoring; _dealRepo = dealRepo;
         _mailSync = mailSync; _mailSender = mailSender; _mailRepo = mailRepo; _mailAccount = mailAccount;
-        _sessions = sessions; _aiCtx = aiCtx; _log = log;
+        _sessions = sessions; _aiCtx = aiCtx; _log = log; _cfg = cfg;
     }
 
     // ─── Pure payload builders (test được — xem ActionExecutorTests) ─────────────
@@ -117,6 +119,19 @@ public class ActionExecutor
     {
         var tool = ActionTools.Find(req.Action)
             ?? throw new InvalidOperationException($"Unknown action: {req.Action}");
+
+        // Chốt chặn THỨ HAI. Chặn chính là ở danh mục gửi cho AI (ActionTools.Enabled) — AI không
+        // biết tool đang tắt thì không gọi. Nhưng endpoint execute nhận TÊN action từ client, nên
+        // một tab mở từ trước lúc tắt cờ vẫn bấm "Xác nhận" được. Báo lỗi rõ, đừng chạy lén.
+        if (!ActionTools.IsEnabled(_cfg, tool.Name))
+        {
+            // Câu cho NGƯỜI DÙNG: họ là nhân viên bán hàng, không sửa được cấu hình — nói tên cờ ở
+            // đây chỉ làm họ hoang mang. Tên cờ để trong log, chỗ người vận hành thật sự đọc.
+            _log.LogInformation("[ActionExecutor] chặn '{Action}' — Features:{Flag} đang tắt",
+                tool.Name, tool.Name == "prepare_meeting" ? "MeetingBrief" : tool.Name);
+            throw new Bootstrap.FeatureDisabledException(
+                $"Tính năng '{tool.Title}' hiện chưa mở. Bạn tải lại trang giúp mình nhé.");
+        }
 
         switch (tool.Kind)
         {

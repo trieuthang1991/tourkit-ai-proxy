@@ -82,11 +82,32 @@ public static class ActionTools
         => string.IsNullOrEmpty(name) ? null
            : All.FirstOrDefault(a => string.Equals(a.Name, name, StringComparison.OrdinalIgnoreCase));
 
-    /// Catalog gọn nhúng vào prompt planner.
-    public static string CatalogForPrompt()
+    /// Tên action nằm sau cờ tính năng. Không có trong bảng này = luôn bật.
+    private static readonly Dictionary<string, Func<IConfiguration, bool>> Gated =
+        new(StringComparer.OrdinalIgnoreCase)
+        {
+            ["prepare_meeting"] = Bootstrap.FeatureFlags.MeetingBrief,
+        };
+
+    /// <summary>
+    /// Danh mục action ĐANG MỞ. Đây là thứ được gửi cho AI — tool bị tắt thì AI không hề biết là
+    /// có nó, nên không bao giờ gọi. Chặn ở đây đúng hơn là chặn lúc thực thi: chặn lúc thực thi
+    /// nghĩa là AI vẫn hứa với người dùng rồi mới báo lỗi.
+    /// </summary>
+    public static IReadOnlyList<ActionTool> Enabled(IConfiguration cfg)
+        => All.Where(a => !Gated.TryGetValue(a.Name, out var on) || on(cfg)).ToList();
+
+    /// Đang mở không? Dùng cho chốt chặn thứ hai ở ActionExecutor (client cũ gửi thẳng tên action).
+    public static bool IsEnabled(IConfiguration cfg, string? name)
+        => !string.IsNullOrEmpty(name)
+           && (!Gated.TryGetValue(name, out var on) || on(cfg));
+
+    /// Catalog gọn nhúng vào prompt planner. Nhận list vào để chỗ gọi tự quyết định lấy
+    /// <see cref="All"/> hay <see cref="Enabled"/> — tránh nhét IConfiguration vào lớp này.
+    public static string CatalogForPrompt(IReadOnlyList<ActionTool> tools)
     {
         var sb = new StringBuilder();
-        foreach (var a in All)
+        foreach (var a in tools)
         {
             var ps = a.Params.Length == 0 ? "(không tham số)" : string.Join(", ", a.Params);
             sb.Append("- ").Append(a.Name).Append(": ").Append(a.Description)

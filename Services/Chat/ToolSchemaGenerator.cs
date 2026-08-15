@@ -57,9 +57,13 @@ public static class ToolSchemaGenerator
     /// ChatAgentService se resolve/hoi lai sau). Dung chung voi BuildAnthropicTools trong cung 1 mang
     /// tools[] cua NativeToolUseAgent -- xem ghi chu "action tool interception" trong file do.
     /// </summary>
-    public static object[] BuildAnthropicActionTools(bool addCacheControl = true)
+    /// <param name="tools">
+    /// Danh muc action GUI CHO AI. Cho chỗ gọi truyền vào (thường là <c>ActionTools.Enabled(cfg)</c>)
+    /// thay vì tự lấy <c>ActionTools.All</c>: tool nam sau co tinh nang dang tat thi phai KHONG co
+    /// trong mang nay, de AI khong biet ma goi.
+    /// </param>
+    public static object[] BuildAnthropicActionTools(IReadOnlyList<ActionTool> tools, bool addCacheControl = true)
     {
-        var tools = ActionTools.All;
         var result = new List<object>(tools.Count);
 
         for (int i = 0; i < tools.Count; i++)

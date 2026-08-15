@@ -25,6 +25,7 @@ public class JsonPlannerAgent : IAgentRuntime
     private readonly Cache.ChatCache _cache;
     private readonly UnresolvedQuestionsLog _unresolved;
     private readonly ILogger<JsonPlannerAgent> _log;
+    private readonly IConfiguration _cfg;   // doc co tinh nang -> loc danh muc action gui cho AI
 
     private static readonly TimeSpan CacheTtl = TimeSpan.FromMinutes(30);
     // Danh muc thi truong theo tenant (cho resolver ten -> id) -- giu in-memory, doi cham. TTL dai.
@@ -38,7 +39,8 @@ public class JsonPlannerAgent : IAgentRuntime
         TkSessionStore sessions,
         Cache.ChatCache cache,
         UnresolvedQuestionsLog unresolved,
-        ILogger<JsonPlannerAgent> log)
+        ILogger<JsonPlannerAgent> log,
+        IConfiguration cfg)
     {
         _registry   = registry;
         _api        = api;
@@ -46,6 +48,7 @@ public class JsonPlannerAgent : IAgentRuntime
         _cache      = cache;
         _unresolved = unresolved;
         _log        = log;
+        _cfg        = cfg;
     }
 
     /// JsonPlannerAgent la fallback cho moi provider.
@@ -1076,7 +1079,7 @@ CÁC TOOL CÓ SẴN:
 {ChatTools.CatalogForPrompt()}
 
 == HÀNH ĐỘNG (khi user YÊU CẦU LÀM việc gì đó, không phải hỏi số liệu) ==
-{ActionTools.CatalogForPrompt()}
+{ActionTools.CatalogForPrompt(ActionTools.Enabled(_cfg))}
 Quy tắc: câu hỏi SỐ LIỆU → trả {{""tool"":...}}. Yêu cầu HÀNH ĐỘNG (giao việc, trả lời mail, đánh giá khách, chấm deal, kiểm tra mail) → trả {{""action"":""<name>"",""params"":{{...}}}}. Điền params từ câu nói + NGỮ CẢNH lượt trước (vd 'khách này' → customerName đã nhắc). KHÔNG tự bịa id.
 
 HỘI THOẠI:

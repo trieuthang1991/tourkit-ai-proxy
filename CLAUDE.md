@@ -632,6 +632,30 @@ chạy **hai lần** (thẻ script + bản trong bundle) — dev không bao gi�
 
 ## Cross-cutting
 
+**Cờ tính năng chưa ra mắt — `Features:*`, 1 nguồn ở [`FeatureFlags`](Services/Bootstrap/FeatureFlags.cs).**
+KHÁC phân quyền: quyền trả lời "người này được xem gì", cờ trả lời "tính năng đã ra mắt chưa" — tắt là
+tắt cho tất cả, kể cả admin. **Thiếu key = TẮT** (cố ý sai theo hướng an toàn: quên khai lúc deploy thì
+tính năng bị ẩn — phiền nhưng sửa 1 dòng; mặc định bật thì thứ chưa ra mắt lọt thẳng ra bản public).
+
+| Cờ | Che cái gì | Phụ thuộc |
+|---|---|---|
+| `Features:Digest` | Cụm bản tin: `sale-brief` · `ceo-brief` · `payment-watchdog` + Bảng tin | — |
+| `Features:TourReadiness` | Tác vụ `tour-readiness` (kiểm tra sẵn sàng khởi hành) | **CẦN `Digest`** — nó ghi vào Bảng tin; bật riêng thì cảnh báo nằm đó không ai đọc được |
+| `Features:MeetingBrief` | Action `prepare_meeting` (thẻ chuẩn bị gặp khách) | — |
+
+**Tắt một tính năng phải chặn ở chỗ nó SINH RA, không phải chỗ nó chạy.** Workflow → không đăng ký DI
+([`WorkflowStackRegistration`](Services/Bootstrap/WorkflowStackRegistration.cs)) nên scheduler + `GET
+/api/v1/workflows` không thấy → thẻ tự mất khỏi giao diện. Action tool → gỡ khỏi danh mục gửi cho AI
+(`ActionTools.Enabled(cfg)`) nên **AI không biết là có nó để mà gọi**; chặn lúc thực thi thôi là muộn,
+AI đã hứa với người dùng rồi mới báo lỗi. Vẫn giữ chốt chặn thứ hai ở `ActionExecutor` cho tab mở từ
+trước lúc tắt cờ — ném [`FeatureDisabledException`](Services/Bootstrap/FeatureDisabledException.cs) →
+**403**, KHÔNG để rơi vào bộ bắt lỗi chung thành 500 (nói sai với người dùng, và trộn cảnh báo giả vào
+log lỗi thật).
+
+Thêm cờ mới: thêm 1 method vào `FeatureFlags` → gate chỗ sinh ra → thêm 1 field vào `GET
+/api/v1/features` (giao diện đọc qua [`window.tourkitFeatures`](wwwroot/core/features.js)) → khai key ở
+**CẢ** `appsettings.example.json` lẫn bản của worker. Action tool thì thêm 1 dòng vào `ActionTools.Gated`.
+
 **Frontend reaches AI via `window.claude.complete` or `window.tourkit.ai.complete`/`completeStream`.** `core/ai-provider.jsx` shims `window.claude.complete` to delegate to `window.tourkit.ai`, which POSTs to `/api/v1/completions`. **ALL provider keys (OpenCode/9routes/OpenAI/Anthropic) live server-side** in `appsettings.json` (`Providers:{X}:ApiKey` or `Models:Primary/Review:ApiKey`) or env vars. The AI Settings UI lets users pick provider/model only — no key input. `localStorage["tourkit_ai_config"]` only holds `{provider, model, _v}` (v9). Bump `CONFIG_VERSION` in `ai-provider.jsx` when changing the shape. (Pre-v9: had client-side localStorage key store + dialog input — removed because operationally fragile; see v8→v9 migration comment.)
 
 **Static files.** `UseStaticFiles` has `ServeUnknownFileTypes = true` + `DefaultContentType = "text/plain"` so `.jsx` loads without a registered MIME type. `.jsx`/`.js`/`.css`/`.html` are served with `Cache-Control: no-cache` so edits show on a plain reload.
