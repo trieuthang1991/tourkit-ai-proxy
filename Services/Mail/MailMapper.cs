@@ -1,4 +1,4 @@
-using System.Text;
+﻿using System.Text;
 using System.Text.RegularExpressions;
 using MimeKit;
 using TourkitAiProxy.Models;
@@ -175,20 +175,8 @@ public static class MailMapper
         return bulkLocals.Any(b => local == b || local.StartsWith(b + "+") || local.StartsWith(b + "."));
     }
 
-    /// HTML → text SẠCH: bỏ HẲN nội dung &lt;style&gt;/&lt;script&gt;/&lt;head&gt; + comment (tránh CSS lọt vào text),
-    /// đổi &lt;br&gt;/&lt;/p&gt;/&lt;/div&gt;/&lt;/tr&gt;/&lt;/li&gt; thành xuống dòng, gỡ thẻ còn lại, decode entity, gộp khoảng trắng.
-    private static string HtmlToText(string html)
-    {
-        if (string.IsNullOrEmpty(html)) return "";
-        var s = html;
-        s = Regex.Replace(s, "<!--.*?-->", " ", RegexOptions.Singleline);
-        s = Regex.Replace(s, "<(style|script|head)[^>]*>.*?</\\1>", " ", RegexOptions.Singleline | RegexOptions.IgnoreCase);
-        s = Regex.Replace(s, "<\\s*(br|/p|/div|/tr|/li|/h[1-6])\\s*/?>", "\n", RegexOptions.IgnoreCase);
-        s = Regex.Replace(s, "<[^>]+>", " ");
-        s = System.Net.WebUtility.HtmlDecode(s);
-        s = Regex.Replace(s, "[ \\t\\r\\f]+", " ");
-        s = Regex.Replace(s, " *\\n *", "\n");
-        s = Regex.Replace(s, "\\n{3,}", "\n\n");
-        return s.Trim();
-    }
+    /// HTML → text SẠCH. Bản gốc của hàm này nay nằm ở <see cref="Services.Html.PlainText.FromHtml"/>
+    /// — cùng một việc còn cần cho ghi chú khách hàng và cơ hội bán hàng, giữ ba bản chép tay thì
+    /// chúng lệch nhau (đã xảy ra: bản của khách hàng quên giải mã ký tự suốt nhiều tháng).
+    private static string HtmlToText(string html) => Services.Html.PlainText.FromHtml(html);
 }

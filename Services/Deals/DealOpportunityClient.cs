@@ -1,4 +1,4 @@
-using System.Globalization;
+﻿using System.Globalization;
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
@@ -385,8 +385,9 @@ public class DealOpportunityClient
     }
     private static string FmtDate(string iso)
         => DateTime.TryParse(iso, CultureInfo.InvariantCulture, DateTimeStyles.None, out var d) ? d.ToString("dd/MM HH:mm") : iso;
-    private static string StripHtml(string s)
-        => string.IsNullOrEmpty(s) ? "" : System.Text.RegularExpressions.Regex.Replace(s, "<[^>]+>", " ").Trim();
+    /// Ghi chú cơ hội do người nhập qua ô soạn thảo CRM. Bản cũ chỉ gỡ THẺ, để nguyên ký tự đã mã
+    /// hoá → tiếng Việt tới AI ở dạng "kh&aacute;ch muốn đi Đ&agrave; Nẵng". Nay dùng chung PlainText.
+    internal static string StripHtml(string s) => Services.Html.PlainText.FromHtml(s);
     private static string Fingerprint(string s)
         => Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(s)))[..16].ToLowerInvariant();
 

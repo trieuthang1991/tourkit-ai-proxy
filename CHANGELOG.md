@@ -13,6 +13,23 @@ Những cập nhật gần đây của TRAV-AI, viết cho người dùng. Mới
 
 ---
 
+## Phiên bản 15/08/2026 — Ghi chú khách hàng hiện đúng tiếng Việt
+
+### 🔧 Đã khắc phục
+- **📝 Ghi chú chăm sóc không còn hiện thành chữ lạ.** Ghi chú bạn gõ trong CRM có dấu tiếng Việt —
+  ví dụ *"không có nhu cầu"* — khi hiện lại trong TRAV-AI bị biến thành `khong c&oacute; nhu cầu`,
+  đọc không ra. Nay hiện đúng như lúc bạn gõ.
+  Chỗ nào cũng được sửa: **thẻ chuẩn bị gặp khách**, **bản chấm hạng khách hàng** và **chấm điểm cơ
+  hội bán hàng**. Đáng nói hơn phần nhìn: trước đây trợ lý cũng phải đọc bản chữ méo đó, nên có lúc
+  hiểu sai ý ghi chú và khuyên lệch — nay nó đọc đúng thứ bạn viết.
+
+### 📌 Lưu ý
+- Vì nội dung ghi chú nay khác trước, những khách đã chấm hạng sẽ được **chấm lại một lượt** cho khớp
+  với chữ đã sửa. Lượt này có tốn lượt AI; xong đợt là mọi thứ trở lại bình thường. Nếu công ty bạn
+  muốn giãn ra, tạm tắt **Tự chấm hạng khách hàng** trong *Tự động hoá* rồi bật lại sau.
+
+---
+
 ## Phiên bản 14/08/2026 — Nhắc trước ngày đi và chuẩn bị trước khi gặp khách
 
 ### ✨ Tính năng mới

@@ -1,6 +1,7 @@
-using System.Globalization;
+﻿using System.Globalization;
 using System.Text.Json;
 using TourkitAiProxy.Models;
+using TourkitAiProxy.Services.Html;
 
 namespace TourkitAiProxy.Services.TourKit;
 
@@ -115,7 +116,7 @@ public class TourKitCustomerSource
     }
 
     /// Map AiCustomerContext (upstream JSON) → Customer đầy đủ. DÙNG CHUNG cho page/batch/workflow.
-    private static Customer MapContext(JsonElement e)
+    internal static Customer MapContext(JsonElement e)
     {
         var id = (GetInt(e, "id") ?? 0).ToString();
         var tours = GetInt(e, "totalTours") ?? 0;
@@ -142,7 +143,9 @@ public class TourKitCustomerSource
             purchases = purchases.OrderByDescending(x => x.Date).ToList();
         }
 
-        // CareLogs — upstream đã StripHtml + top 30 mới nhất. Sort desc by Date.
+        // CareLogs — upstream gỡ THẺ html nhưng KHÔNG giải mã ký tự, nên tiếng Việt về tới đây còn ở
+        // dạng "khong c&oacute; nhu cầu" (thấy thật trên staging 15/08). Phải qua PlainText.
+        // Top 30 mới nhất. Sort desc by Date.
         var careLogs = new List<CareLog>();
         if (e.TryGetProperty("careLogs", out var cArr) && cArr.ValueKind == JsonValueKind.Array)
         {
@@ -152,7 +155,7 @@ public class TourKitCustomerSource
                 careLogs.Add(new CareLog(
                     Date: date.Length >= 10 ? date[..10] : date,
                     Channel: "comment",                                    // upstream comment thuần, không phân kênh
-                    Summary: GetStr(c, "content") ?? "",
+                    Summary: PlainText.FromHtml(GetStr(c, "content")),
                     Sentiment: "neutral",                                  // KHÔNG chạy sentiment — để default ổn định fingerprint
                     Outcome: GetStr(c, "userName")));                      // dùng userName làm outcome tag (ai ghi)
             }
@@ -185,7 +188,7 @@ public class TourKitCustomerSource
                 LastCareDate: lastCareDate),
             Purchases: purchases,
             CareLogs:  careLogs,
-            Note:      GetStr(e, "note"));
+            Note:      PlainText.FromHtml(GetStr(e, "note")));
     }
 
     // ─── Mapping ──────────────────────────────────────────────────────────────────
@@ -209,7 +212,7 @@ public class TourKitCustomerSource
             Metrics: new CustomerMetrics(tours, spent, tours > 0 ? spent / tours : 0, null, null, null, 0, null, 0, 0,
                 LastCareDate: string.IsNullOrWhiteSpace(lastCare) ? null : lastCare),
             Purchases: new(), CareLogs: new(),
-            Note: GetStr(e, "note")
+            Note: PlainText.FromHtml(GetStr(e, "note"))
         );
     }
 
@@ -263,7 +266,7 @@ public class TourKitCustomerSource
                 LastCareDate: string.IsNullOrWhiteSpace(lastCare) ? null : lastCare),
             Purchases: purchases.OrderByDescending(p => p.Date).ToList(),
             CareLogs: new(),
-            Note: GetStr(d, "note")
+            Note: PlainText.FromHtml(GetStr(d, "note"))
         );
     }
 
