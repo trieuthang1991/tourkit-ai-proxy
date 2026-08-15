@@ -12,10 +12,12 @@ public class TourReadinessRuleTests
     private static readonly DateTime Today = new(2026, 8, 14);
 
     private static TourReadinessRow Tour(int daysLeft, decimal revenue = 10_000_000m,
-        decimal actual = 10_000_000m, int slots = 0, int booked = 0, int tourType = 101)
+        decimal actual = 10_000_000m, int slots = 0, int booked = 0, int tourType = 101,
+        int onHold = 0)
         => new(TourId: 1, Title: "Tour Đà Nẵng", CustomerName: "Anh Nam", SellerName: "Sale1",
                DepartureDate: Today.AddDays(daysLeft), Revenue: revenue, ActualRevenue: actual,
-               Slots: slots, Booked: booked, TourType: tourType, TourTypeLabel: "Tour visa");
+               Slots: slots, Booked: booked, TourType: tourType, TourTypeLabel: "Tour visa",
+               OnHold: onHold);
 
     // ── Phạm vi thời gian ─────────────────────────────────────────────────────────
 
@@ -154,4 +156,109 @@ public class TourReadinessRuleTests
         => Assert.Empty(TourReadinessRule.Evaluate(
             new[] { Tour(1, actual: 0, slots: 20, booked: 1, tourType: 102) }, Today,
             checkPayment: false, checkSeats: false, checkVisa: false, minSeats: 10));
+
+    // ── Chỗ ngồi: GIỮ CHỖ CŨNG CHIẾM CHỖ (lỗi thật của bản đầu) ──────────────────
+
+    /// Đo trên dữ liệu thật: slots=20, booked=6, onHold=1 → upstream nói còn 13 chỗ, tức đã kín 7.
+    /// Bản đầu chỉ đếm booked nên tính là 6 → công ty khai ngưỡng 7 nhận cảnh báo "chưa đủ khách"
+    /// cho một tour ĐÃ đủ. Báo động giả làm người ta bỏ qua luôn cảnh báo thật.
+    [Fact]
+    public void Giu_cho_duoc_tinh_la_da_chiem_cho()
+    {
+        var cards = TourReadinessRule.Evaluate(
+            new[] { Tour(3, slots: 20, booked: 6, onHold: 1) }, Today, minSeats: 7);
+        Assert.Empty(cards);
+    }
+
+    /// Chiều ngược lại phải vẫn báo: 6 đã đặt + 0 giữ chỗ, ngưỡng 7 → thiếu thật.
+    [Fact]
+    public void Thieu_khach_that_thi_van_bao()
+    {
+        var cards = TourReadinessRule.Evaluate(
+            new[] { Tour(3, slots: 20, booked: 6) }, Today, minSeats: 7);
+        var seats = cards.Single().Issues.Single(i => i.Code == "seats");
+        // Tách rõ phần giữ chỗ: điều hành cần biết phần đó có thể rơi.
+        Assert.Contains("6", seats.Text);
+        Assert.Contains("20", seats.Text);
+    }
+
+    // ── Tour sắp đầy → đẩy bán nốt ───────────────────────────────────────────────
+
+    [Fact]
+    public void Sap_day_thi_nhac_ban_not()
+    {
+        var cards = TourReadinessRule.Evaluate(
+            new[] { Tour(7, slots: 20, booked: 16, onHold: 1) }, Today, nearlyFullPercent: 80);
+        var issue = cards.Single().Issues.Single(i => i.Code == "nearly_full");
+        Assert.Contains("3", issue.Text);      // còn 3 chỗ
+    }
+
+    /// Đầy hẳn thì KHÔNG nhắc — không còn gì để bán, nhắc là nhiễu.
+    [Fact]
+    public void Day_han_thi_im()
+        => Assert.Empty(TourReadinessRule.Evaluate(
+            new[] { Tour(7, slots: 20, booked: 20) }, Today, nearlyFullPercent: 80));
+
+    /// Tour lẻ (không khai số chỗ) không có khái niệm "sắp đầy".
+    [Fact]
+    public void Tour_khong_khai_cho_thi_im()
+        => Assert.Empty(TourReadinessRule.Evaluate(
+            new[] { Tour(7, slots: 0, booked: 5) }, Today, nearlyFullPercent: 80));
+
+    /// Dùng TỈ LỆ chứ không phải số chỗ tuyệt đối: còn 3/100 là gần đầy từ lâu, còn 3/20 mới đáng
+    /// nhắc. Một ngưỡng "còn ≤3 chỗ" sẽ đúng với tour nhỏ và vô nghĩa với tour lớn.
+    [Fact]
+    public void Nguong_tinh_theo_ti_le_khong_theo_so_cho()
+    {
+        var tourLon = TourReadinessRule.Evaluate(
+            new[] { Tour(7, slots: 100, booked: 50) }, Today, nearlyFullPercent: 80);
+        Assert.Empty(tourLon);   // kín 50% — còn 50 chỗ, chưa phải lúc hối bán nốt
+    }
+
+    [Fact]
+    public void Tat_canh_bao_sap_day_thi_im()
+        => Assert.Empty(TourReadinessRule.Evaluate(
+            new[] { Tour(7, slots: 20, booked: 17) }, Today, checkNearlyFull: false));
+
+    // ── Mốc RIÊNG cho phần chỗ ngồi ──────────────────────────────────────────────
+
+    /// Tour còn 10 ngày: ngoài tầm mốc tiền/visa {7,3,1} nhưng trong tầm mốc chỗ {21,14,7}.
+    /// Chỉ được soi phần chỗ — báo "chưa thu đủ tiền" ở D-10 là bình thường, nói ra là nhiễu.
+    [Fact]
+    public void Ngoai_moc_tien_nhung_trong_moc_cho_thi_chi_bao_cho()
+    {
+        var cards = TourReadinessRule.Evaluate(
+            new[] { Tour(10, actual: 0, slots: 20, booked: 17) }, Today,
+            nearlyFullPercent: 80);
+        var card = cards.Single();
+        Assert.All(card.Issues, i => Assert.Equal("nearly_full", i.Code));
+        Assert.DoesNotContain(card.Issues, i => i.Code == "payment");
+    }
+
+    /// Mốc trùng nhau (D-7 có ở cả hai tập) → vẫn chỉ MỘT thẻ, gộp cả hai loại việc.
+    /// Hai thẻ về cùng một tour trong cùng buổi sáng là bắt người đọc tự ghép lại trong đầu.
+    [Fact]
+    public void Moc_trung_van_chi_ra_mot_the()
+    {
+        var cards = TourReadinessRule.Evaluate(
+            new[] { Tour(7, actual: 0, slots: 20, booked: 17) }, Today, nearlyFullPercent: 80);
+        var card = Assert.Single(cards);
+        Assert.Contains(card.Issues, i => i.Code == "payment");
+        Assert.Contains(card.Issues, i => i.Code == "nearly_full");
+    }
+
+    /// Thẻ CHỈ có tin vui thì không được tô mức gấp — severity tính theo nhóm vấn đề.
+    [Fact]
+    public void The_chi_co_tin_vui_thi_khong_gap()
+    {
+        var card = TourReadinessRule.Evaluate(
+            new[] { Tour(1, slots: 20, booked: 17) }, Today, nearlyFullPercent: 80).Single();
+        Assert.Equal(0, card.Severity);
+    }
+
+    /// Tour xa hơn mốc chỗ lớn nhất thì chưa tới lượt bất kỳ nhóm nào.
+    [Fact]
+    public void Xa_hon_moc_cho_lon_nhat_thi_bo_qua()
+        => Assert.Empty(TourReadinessRule.Evaluate(
+            new[] { Tour(30, actual: 0, slots: 20, booked: 17) }, Today));
 }

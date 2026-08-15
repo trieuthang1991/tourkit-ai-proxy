@@ -15,6 +15,16 @@ Những cập nhật gần đây của TRAV-AI, viết cho người dùng. Mới
 
 ## Phiên bản 15/08/2026 — Ghi chú khách hàng hiện đúng tiếng Việt
 
+### ✨ Tính năng mới
+- **🎟️ Biết tour nào sắp đầy để đẩy bán nốt.** *Kiểm tra sẵn sàng khởi hành* trước đây chỉ báo cái
+  còn thiếu. Nay tour ghép gần kín chỗ cũng được nhắc — *"đã kín 17/20 chỗ, còn 3 chỗ"* — để bạn dồn
+  sức bán nốt vài chỗ cuối thay vì để trống. Đây là tin vui nên thẻ hiện ở mức thông tin, không tô đỏ
+  như cảnh báo. Tour đã đầy hẳn thì không nhắc, vì chẳng còn gì để bán.
+- **📅 Chuyện chỗ ngồi được soát sớm hơn hẳn.** Phần tiền và hồ sơ visa vẫn nhắc ở mốc 7 / 3 / 1 ngày
+  trước khi đi. Riêng chuyện chỗ ngồi nay soát từ **3 tuần trước** (21 / 14 / 7 ngày) — vì bán nốt
+  chỗ cuối hay quyết định dồn chuyến mà tới sát ngày mới biết thì đã hết đường xoay. Bạn tự đổi được
+  các mốc này trong phần cài đặt của tác vụ.
+
 ### 🔧 Đã khắc phục
 - **📝 Ghi chú chăm sóc không còn hiện thành chữ lạ.** Ghi chú bạn gõ trong CRM có dấu tiếng Việt —
   ví dụ *"không có nhu cầu"* — khi hiện lại trong TRAV-AI bị biến thành `khong c&oacute; nhu cầu`,
@@ -22,6 +32,11 @@ Những cập nhật gần đây của TRAV-AI, viết cho người dùng. Mới
   Chỗ nào cũng được sửa: **thẻ chuẩn bị gặp khách**, **bản chấm hạng khách hàng** và **chấm điểm cơ
   hội bán hàng**. Đáng nói hơn phần nhìn: trước đây trợ lý cũng phải đọc bản chữ méo đó, nên có lúc
   hiểu sai ý ghi chú và khuyên lệch — nay nó đọc đúng thứ bạn viết.
+
+- **👥 Hết báo nhầm "chưa đủ khách" cho tour đã đủ.** Khi đếm khách của một tour, hệ thống bỏ sót
+  những chỗ đang **giữ**. Tour đã kín 7 trên 20 chỗ bị tính thành 6, nên công ty đặt mức tối thiểu 7
+  vẫn nhận cảnh báo "chưa đủ khách" — trong khi tour đã đủ. Nay chỗ đang giữ được tính là đã chiếm,
+  và thẻ nói rõ *"7/20 chỗ (6 đã đặt + 1 giữ chỗ)"* để bạn biết phần nào còn có thể rơi.
 
 - **🔊 Nghe bản tin dài không còn bị cụt giữa chừng mà không biết.** Nút **Nghe** đọc được một độ dài
   nhất định. Trước đây bản tin vượt quá thì tiếng nói dừng giữa từ, không báo gì — bạn nghe xong tưởng

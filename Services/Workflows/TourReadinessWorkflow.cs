@@ -1,4 +1,4 @@
-using System.Globalization;
+﻿using System.Globalization;
 using System.Text.Json;
 using TourkitAiProxy.Services.Digest;
 using TourkitAiProxy.Services.TourKit;
@@ -37,7 +37,7 @@ public class TourReadinessWorkflow : IScheduledWorkflow
 
     public string Type => "tour-readiness";
     public string Label => "Kiểm tra sẵn sàng khởi hành";
-    public string Description => "Tour sắp đi chạm mốc D-7 / D-3 / D-1 mà còn thiếu tiền, thiếu khách hoặc cần hồ sơ visa → nhắc điều hành. Không tốn lượt AI.";
+    public string Description => "Tour sắp đi mà còn thiếu tiền, thiếu khách hoặc cần hồ sơ visa → nhắc điều hành ở mốc D-7 / D-3 / D-1. Phần chỗ ngồi soát sớm hơn (D-21 / D-14 / D-7) và báo cả tour sắp đầy để đẩy bán nốt. Không tốn lượt AI.";
     public WorkflowScope Scope => WorkflowScope.PerTenant;
     // Có luật chung (mốc kiểm, ngưỡng khách tối thiểu, loại tour cần visa) → công ty phải khai trước.
     public bool HasCompanyRules => true;
@@ -47,7 +47,8 @@ public class TourReadinessWorkflow : IScheduledWorkflow
     private record Options(
         List<int> Milestones,
         bool CheckPayment, bool CheckSeats, bool CheckVisa,
-        int MinSeats, List<int> VisaTourTypes);
+        int MinSeats, List<int> VisaTourTypes,
+        bool CheckNearlyFull, int NearlyFullPercent, List<int> CapacityMilestones);
 
     private static Options ParseOptions(string? json)
     {
@@ -57,7 +58,11 @@ public class TourReadinessWorkflow : IScheduledWorkflow
             // 0 = CHƯA khai → không kiểm chỗ ngồi. Đoán hộ một ngưỡng ở đây là báo nhầm hàng loạt:
             // công ty chạy tour lẻ 2 khách sẽ thấy mọi tour đều "thiếu khách".
             MinSeats: 0,
-            VisaTourTypes: new() { 102 });
+            VisaTourTypes: new() { 102 },
+            CheckNearlyFull: true,
+            NearlyFullPercent: 80,
+            // Xa hơn mốc tiền/visa: bán nốt chỗ cuối mà tới D-7 mới nói thì đã hết đường xoay.
+            CapacityMilestones: new() { 21, 14, 7 });
         if (string.IsNullOrWhiteSpace(json)) return def;
         try
         {
@@ -87,6 +92,10 @@ public class TourReadinessWorkflow : IScheduledWorkflow
                 CheckVisa = Bit("checkVisa", def.CheckVisa),
                 MinSeats = Num("minSeats", def.MinSeats, 0, 200),
                 VisaTourTypes = Ints("visaTourTypes", def.VisaTourTypes),
+                CheckNearlyFull = Bit("checkNearlyFull", def.CheckNearlyFull),
+                // Sàn 50%: dưới mức đó thì "sắp đầy" mất nghĩa, tour nào cũng bị nhắc.
+                NearlyFullPercent = Num("nearlyFullPercent", def.NearlyFullPercent, 50, 100),
+                CapacityMilestones = Ints("capacityMilestones", def.CapacityMilestones),
             };
         }
         catch (JsonException) { return def; }
@@ -119,7 +128,12 @@ public class TourReadinessWorkflow : IScheduledWorkflow
 
         // Ngày VIỆT NAM: "7 ngày tới" phải tính theo lịch người dùng nhìn, không phải lịch UTC.
         var todayVn = DigestDue.NowVn(DateTime.UtcNow).Date;
-        var window = opt.Milestones.Count > 0 ? opt.Milestones.Max() : 7;
+        // Cửa sổ LẤY dữ liệu phải phủ mốc XA NHẤT của CẢ HAI nhóm. Lấy mỗi mốc tiền/visa (7 ngày)
+        // thì tour ở D-14/D-21 không bao giờ được kéo về, và phần canh chỗ ngồi im lặng không báo
+        // gì — hỏng kiểu tệ nhất: nhìn như đang chạy bình thường.
+        var window = Math.Max(
+            opt.Milestones.Count > 0 ? opt.Milestones.Max() : 7,
+            opt.CapacityMilestones.Count > 0 ? opt.CapacityMilestones.Max() : 0);
         var to = todayVn.AddDays(window);
 
         JsonElement data;
@@ -155,27 +169,30 @@ public class TourReadinessWorkflow : IScheduledWorkflow
                     GetStr(it, "customerName"), GetStr(it, "sellerName"),
                     dep, revenue, actual,
                     GetInt(it, "slots"), GetInt(it, "booked"),
-                    GetInt(it, "tourType"), GetStr(it, "tourTypeLabel")));
+                    GetInt(it, "tourType"), GetStr(it, "tourTypeLabel"),
+                    GetInt(it, "onHold")));
             }
         }
 
         var cards = TourReadinessRule.Evaluate(rows, todayVn, opt.Milestones,
-            opt.CheckPayment, opt.CheckSeats, opt.CheckVisa, opt.MinSeats, opt.VisaTourTypes);
+            opt.CheckPayment, opt.CheckSeats, opt.CheckVisa, opt.MinSeats, opt.VisaTourTypes,
+            opt.CheckNearlyFull, opt.NearlyFullPercent, opt.CapacityMilestones);
 
         int created = 0, deduped = 0;
         foreach (var c in cards)
         {
             ct.ThrowIfCancellationRequested();
-            var lines = string.Join("\n", c.Issues.Select(i => $"- {i.Text}"));
-            var body = $"**{c.Title}** — khách {c.CustomerName ?? "?"}, khởi hành {c.DepartureDate:dd/MM} "
-                     + $"(còn {c.DaysLeft} ngày). Phụ trách: {c.SellerName ?? "?"}.\n\nCòn thiếu:\n{lines}";
+            // Chữ trên thẻ tách sang TourReadinessCardText — phần đó KHÔNG kiểm được bằng chạy
+            // thật (tenant thử nghiệm không có tour nào khai số chỗ), nên phải test riêng.
+            var text = TourReadinessCardText.Build(c);
+            var problems = c.Issues.Where(i => !TourReadinessRule.OpportunityCodes.Contains(i.Code)).ToList();
 
             var id = await _insights.InsertAsync(new AgentInsight(
                 Id: 0, TenantId: tenantId,
                 Username: "",                       // tenant-wide: cả công ty cùng thấy
                 Kind: "tour-readiness", Severity: c.Severity,
-                Title: $"Tour đi trong {c.DaysLeft} ngày — còn {c.Issues.Count} việc chưa xong",
-                Body: body,
+                Title: text.Title,
+                Body: text.Body,
                 DataJson: JsonSerializer.Serialize(new
                 {
                     c.TourId, c.DaysLeft, c.Milestone,
@@ -189,7 +206,8 @@ public class TourReadinessWorkflow : IScheduledWorkflow
 
         await _insights.PruneAsync(KeepInsightDays, ct);
 
-        var summary = $"Quét {rows.Count} tour trong {window} ngày tới → {cards.Count} tour còn thiếu điều kiện "
+        // "còn thiếu điều kiện" nay không còn đúng: thẻ có thể chỉ mang tin vui (tour sắp đầy).
+        var summary = $"Quét {rows.Count} tour trong {window} ngày tới → {cards.Count} tour cần chú ý "
                     + $"({created} thẻ mới, {deduped} đã nhắc ở mốc này)"
                     + (skipped > 0 ? $", bỏ qua {skipped} dòng thiếu dữ liệu" : "")
                     + (missingPaid > 0 ? $". Lưu ý: {missingPaid} tour không có số thực thu nên bỏ phần kiểm tiền cho những tour đó" : "")

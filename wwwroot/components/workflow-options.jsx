@@ -217,6 +217,14 @@
         hint: 'CRM không lưu trạng thái từng bộ hồ sơ, nên đây chỉ là lời nhắc "tour này có visa, kiểm lại hồ sơ khách" — không phải kết luận là đang thiếu.' },
       { key: 'visaTourTypes', type: 'numbers', label: 'Mã loại tour cần visa', showIf: 'checkVisa', default: [102],
         hint: 'Mã loại tour trong CRM của công ty bạn. Mặc định 102. Nhập nhiều mã thì cách nhau dấu phẩy.' },
+
+      { key: 'checkNearlyFull', type: 'bool', label: 'Nhắc tour sắp đầy chỗ', default: true,
+        hint: 'Tour ghép gần kín chỗ thì báo để đẩy bán nốt vài chỗ cuối. Đây là tin vui, không phải cảnh báo — thẻ hiện ở mức thông tin. Tour đã đầy hẳn thì không nhắc, vì chẳng còn gì để bán.' },
+      { key: 'nearlyFullPercent', type: 'number', label: 'Kín từ bao nhiêu % thì nhắc', showIf: 'checkNearlyFull',
+        default: 80, min: 50, max: 100,
+        hint: 'Tính theo TỈ LỆ chứ không theo số chỗ còn lại: "còn 3 chỗ" đáng nhắc với tour 20 chỗ nhưng vô nghĩa với tour 100 chỗ. Chỗ đang GIỮ cũng tính là đã chiếm.' },
+      { key: 'capacityMilestones', type: 'numbers', label: 'Mốc nhắc riêng cho phần chỗ ngồi', default: [21, 14, 7],
+        hint: 'Xa hơn mốc ở trên là cố ý: "chưa thu đủ tiền" chỉ gấp khi sát ngày đi, còn "bán nốt chỗ cuối" hay "vắng quá, cân nhắc dồn chuyến" mà tới sát ngày mới nói thì đã hết đường xoay.' },
     ],
     'customer-auto-review': [
       { key: 'createdWithinDays', type: 'number', label: 'Chỉ khách tạo trong (ngày)', default: 30, min: 1, max: 365,
@@ -262,6 +270,8 @@
       milestones: '① Nhắc khi nào',
       checkPayment: '② Kiểm những gì', checkSeats: '② Kiểm những gì', minSeats: '② Kiểm những gì',
       checkVisa: '② Kiểm những gì', visaTourTypes: '② Kiểm những gì',
+      checkNearlyFull: '③ Canh chỗ ngồi', nearlyFullPercent: '③ Canh chỗ ngồi',
+      capacityMilestones: '③ Canh chỗ ngồi',
     },
     'customer-auto-review': {
       createdWithinDays: 'Phạm vi',
