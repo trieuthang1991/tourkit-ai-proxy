@@ -32,6 +32,12 @@ Những cập nhật gần đây của TRAV-AI, viết cho người dùng. Mới
 - Vì nội dung ghi chú nay khác trước, những khách đã chấm hạng sẽ được **chấm lại một lượt** cho khớp
   với chữ đã sửa — mỗi công ty khoảng một, hai trăm khách, xong là thôi. Bạn không cần làm gì cả.
 
+- **Hai tính năng mới mở dần theo từng công ty.** *Kiểm tra sẵn sàng khởi hành* và *Hỏi trợ lý trước
+  khi đi gặp khách* (giới thiệu ở bản 14/08) được bật riêng cho từng công ty, không mở đại trà ngay.
+  Nên nếu bạn vào *Tự động hoá* mà chưa thấy thẻ **Kiểm tra sẵn sàng khởi hành**, hoặc hỏi trợ lý
+  *"chuẩn bị giúp tôi gặp khách A"* mà nó trả lời như tra cứu khách thường — **không phải hỏng**, chỉ
+  là công ty bạn chưa được mở. Nhắn cho bên hỗ trợ là bật được ngay, không mất dữ liệu gì.
+
 ---
 
 ## Phiên bản 14/08/2026 — Nhắc trước ngày đi và chuẩn bị trước khi gặp khách
