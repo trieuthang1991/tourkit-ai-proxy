@@ -25,8 +25,7 @@ Những cập nhật gần đây của TRAV-AI, viết cho người dùng. Mới
 
 ### 📌 Lưu ý
 - Vì nội dung ghi chú nay khác trước, những khách đã chấm hạng sẽ được **chấm lại một lượt** cho khớp
-  với chữ đã sửa. Lượt này có tốn lượt AI; xong đợt là mọi thứ trở lại bình thường. Nếu công ty bạn
-  muốn giãn ra, tạm tắt **Tự chấm hạng khách hàng** trong *Tự động hoá* rồi bật lại sau.
+  với chữ đã sửa — mỗi công ty khoảng một, hai trăm khách, xong là thôi. Bạn không cần làm gì cả.
 
 ---
 
