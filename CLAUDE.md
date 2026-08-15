@@ -642,6 +642,14 @@ tính năng bị ẩn — phiền nhưng sửa 1 dòng; mặc định bật thì
 | `Features:Digest` | Cụm bản tin: `sale-brief` · `ceo-brief` · `payment-watchdog` + Bảng tin | — |
 | `Features:TourReadiness` | Tác vụ `tour-readiness` (kiểm tra sẵn sàng khởi hành) | **CẦN `Digest`** — nó ghi vào Bảng tin; bật riêng thì cảnh báo nằm đó không ai đọc được |
 | `Features:MeetingBrief` | Action `prepare_meeting` (thẻ chuẩn bị gặp khách) | — |
+| `Features:AnomalyWatchdog` | Tác vụ `anomaly-watchdog` (canh doanh thu bất thường) | **CẦN `Digest`** — ghi vào Bảng tin |
+| `Features:AutoCare` | Tác vụ `customer-auto-care` (nhắc chăm lại khách ngủ quên) | **CẦN `Digest`** — ghi vào Bảng tin |
+
+⚠️ `AutoCare` là cờ **quan trọng nhất**: tính năng duy nhất của cả hệ đụng tới KHÁCH HÀNG THẬT. Mọi
+thứ khác chỉ ghi vào Bảng tin cho người trong công ty đọc. Bản hiện tại **KHÔNG gửi gì cho khách** —
+xem ghi chú trong [`CustomerAutoCareWorkflow`](Services/Workflows/CustomerAutoCareWorkflow.cs): đo
+thật thấy số điện thoại có ở 100/100 khách còn email chỉ 14/100, nên việc đúng với dữ liệu là **nhắc
+nhân viên gọi**. Nếu sau này thêm khâu gửi, cờ này là chỗ chặn.
 
 **Tắt một tính năng phải chặn ở chỗ nó SINH RA, không phải chỗ nó chạy.** Workflow → không đăng ký DI
 ([`WorkflowStackRegistration`](Services/Bootstrap/WorkflowStackRegistration.cs)) nên scheduler + `GET

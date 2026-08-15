@@ -1,4 +1,4 @@
-using TourkitAiProxy.Services.Workflow;
+﻿using TourkitAiProxy.Services.Workflow;
 
 namespace TourkitAiProxy.Endpoints;
 
@@ -35,6 +35,8 @@ public static class SystemEndpoints
             digest        = Services.Bootstrap.FeatureFlags.Digest(cfg),
             tourReadiness = Services.Bootstrap.FeatureFlags.TourReadiness(cfg),
             meetingBrief  = Services.Bootstrap.FeatureFlags.MeetingBrief(cfg),
+            anomalyWatchdog = Services.Bootstrap.FeatureFlags.AnomalyWatchdog(cfg),
+            autoCare        = Services.Bootstrap.FeatureFlags.AutoCare(cfg),
         }));
         v1.MapGet("/workflow-traces", (WorkflowTraceLog log, int? days, string? workflow, int? limit) =>
         {

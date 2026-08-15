@@ -1,4 +1,4 @@
-using TourkitAiProxy.Services;
+﻿using TourkitAiProxy.Services;
 using TourkitAiProxy.Services.Chat;
 using TourkitAiProxy.Services.Providers;
 using TourkitAiProxy.Services.Reviews;
@@ -193,6 +193,12 @@ public static class WorkflowStackRegistration
             // thể mở trước, tác vụ này giữ lại. FeatureFlags.TourReadiness đã gộp cả 2 điều kiện.
             if (FeatureFlags.TourReadiness(cfg))
                 s.AddSingleton<Workflows.IScheduledWorkflow, Workflows.TourReadinessWorkflow>();
+            // Canh doanh thu bất thường: cùng họ (tenant-wide, tài khoản tự động, không AI).
+            if (FeatureFlags.AnomalyWatchdog(cfg))
+                s.AddSingleton<Workflows.IScheduledWorkflow, Workflows.AnomalyWatchdogWorkflow>();
+            // Nhắc chăm lại khách ngủ quên. KHÔNG gửi gì cho khách — chỉ dựng danh sách để gọi.
+            if (FeatureFlags.AutoCare(cfg))
+                s.AddSingleton<Workflows.IScheduledWorkflow, Workflows.CustomerAutoCareWorkflow>();
             // Bản tin sáng: fetch bằng phiên CỦA TỪNG NGƯỜI NHẬN (không phải tài khoản tự động)
             // → CRM tự áp quyền, lọc sai cũng chỉ thiếu chứ không lộ dữ liệu người khác.
             s.AddSingleton<Workflows.IScheduledWorkflow, Workflows.SaleBriefWorkflow>();

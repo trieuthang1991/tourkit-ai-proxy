@@ -1,4 +1,4 @@
-namespace TourkitAiProxy.Services.Bootstrap;
+﻿namespace TourkitAiProxy.Services.Bootstrap;
 
 /// <summary>
 /// Cờ bật/tắt tính năng CHƯA RA MẮT, đọc từ <c>appsettings.json</c> mục <c>Features</c>.
@@ -45,4 +45,25 @@ public static class FeatureFlags
     /// </summary>
     public static bool MeetingBrief(IConfiguration cfg)
         => cfg.GetValue("Features:MeetingBrief", false);
+
+    /// <summary>
+    /// Canh doanh thu bất thường (tác vụ <c>anomaly-watchdog</c>).
+    ///
+    /// <para>PHỤ THUỘC <see cref="Digest"/> vì nó ghi cảnh báo vào Bảng tin — bật riêng khi Digest
+    /// tắt thì cảnh báo nằm đó mà <c>/api/v1/insights</c> trả 404, không ai đọc được.</para>
+    /// </summary>
+    public static bool AnomalyWatchdog(IConfiguration cfg)
+        => Digest(cfg) && cfg.GetValue("Features:AnomalyWatchdog", false);
+
+    /// <summary>
+    /// Tự chăm sóc khách (tác vụ <c>customer-auto-care</c>).
+    ///
+    /// <para>Cờ này QUAN TRỌNG hơn các cờ khác: tính năng duy nhất chạm tới KHÁCH HÀNG THẬT. Mọi
+    /// thứ khác chỉ ghi vào Bảng tin cho người trong công ty đọc; cái này soạn thư gửi ra ngoài.
+    /// Vì vậy nó vẫn nằm sau cờ kể cả khi đã ra mắt các phần khác.</para>
+    ///
+    /// <para>PHỤ THUỘC <see cref="Digest"/>: danh sách thư chờ duyệt hiện trong Bảng tin.</para>
+    /// </summary>
+    public static bool AutoCare(IConfiguration cfg)
+        => Digest(cfg) && cfg.GetValue("Features:AutoCare", false);
 }

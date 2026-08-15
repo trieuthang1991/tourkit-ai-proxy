@@ -233,6 +233,32 @@
       { key: 'capacityMilestones', type: 'numbers', label: 'Mốc nhắc riêng cho phần chỗ ngồi', default: [21, 14, 7],
         hint: 'Xa hơn mốc ở trên là cố ý: "chưa thu đủ tiền" chỉ gấp khi sát ngày đi, còn "bán nốt chỗ cuối" hay "vắng quá, cân nhắc dồn chuyến" mà tới sát ngày mới nói thì đã hết đường xoay.' },
     ],
+    // Canh doanh thu bất thường (C2). Ngành tour lên xuống theo mùa nên NGƯỠNG là thứ mỗi công ty
+    // phải tự đặt — để mặc định thấp thì tuần nào cũng báo, ba lần là người ta tắt tính năng.
+    'anomaly-watchdog': [
+      { key: 'baselineWeeks', type: 'number', label: 'Lấy mấy tuần trước làm mức thường', default: 4, min: 2, max: 12,
+        hint: 'Càng nhiều tuần thì mức "bình thường" càng ổn định nhưng phản ứng càng chậm với thay đổi thật. 4 tuần ≈ một tháng. Tối thiểu 2 — một tuần làm nền thì đó chỉ là ngẫu nhiên của đúng tuần đó.' },
+      { key: 'thresholdPercent', type: 'number', label: 'Lệch từ bao nhiêu % thì báo', default: 30, min: 10, max: 200,
+        hint: 'Lệch ít hơn mức này coi như dao động bình thường và KHÔNG báo. Đặt thấp quá thì tuần nào cũng có cảnh báo, mà cảnh báo tuần nào cũng có thì không còn là cảnh báo.' },
+      { key: 'alertOnIncrease', type: 'bool', label: 'Báo cả khi tăng vọt', default: true,
+        hint: 'Tăng mạnh cũng đáng biết — để kịp giữ nhịp hoặc phát hiện số liệu nhập sai. Thẻ tăng hiện ở mức thông tin, không tô đỏ như cảnh báo giảm. Tắt nếu bạn chỉ muốn nghe tin xấu.' },
+    ],
+    // Nhắc chăm lại khách ngủ quên (S6). KHÔNG có tuỳ chọn nào về gửi thư — tác vụ này cố ý không
+    // gửi gì cho khách, xem ghi chú trong CustomerAutoCareWorkflow.cs.
+    'customer-auto-care': [
+      { key: 'quietDays', type: 'number', label: 'Bao lâu không chăm thì coi là ngủ quên (ngày)', default: 90, min: 7, max: 3650,
+        hint: 'Tính từ ngày chăm sóc gần nhất ghi trong CRM. Bên bán tour đoàn quen chu kỳ dài có thể để 180; bên bán vé lẻ thì 30–60 hợp hơn.' },
+      { key: 'ranks', type: 'multi', label: 'Chỉ nhắc khách hạng (không chọn = mọi hạng)', default: [],
+        options: [
+          { value: 'A', label: 'Hạng A' }, { value: 'B', label: 'Hạng B' },
+          { value: 'C', label: 'Hạng C' }, { value: 'D', label: 'Hạng D' },
+        ],
+        hint: 'Hạng do phần chấm hạng khách hàng sinh ra. Không chọn gì = nhắc mọi hạng. Chọn A và B để chỉ tập trung vào khách sộp — cố ý KHÔNG bắt buộc chọn, vì "mọi hạng" là một lựa chọn hợp lệ chứ không phải chưa khai.' },
+      { key: 'requireBought', type: 'bool', label: 'Chỉ khách đã từng mua', default: true,
+        hint: 'Nên bật. Tắt đi thì danh sách sẽ kéo theo cả những hồ sơ chưa mua bao giờ và cũng lâu không ai đụng — phần lớn là dữ liệu rác trong CRM, và nó chôn vùi mấy khách thật sự đáng gọi.' },
+      { key: 'maxLeads', type: 'number', label: 'Mỗi lần nhắc tối đa mấy khách', default: 20, min: 1, max: 50,
+        hint: 'Danh sách phải ngắn thì mới có người gọi. Hai trăm dòng mỗi sáng thì không ai gọi dòng nào. Khách đã chi nhiều được xếp lên trước.' },
+    ],
     'customer-auto-review': [
       { key: 'createdWithinDays', type: 'number', label: 'Chỉ khách tạo trong (ngày)', default: 30, min: 1, max: 365,
         hint: 'Chỉ review khách được tạo trong khoảng ngày gần đây này. Khách cũ hơn được bỏ qua ở lần review đầu.' },
@@ -280,6 +306,14 @@
       checkVisa: '② Kiểm những gì', visaTourTypes: '② Kiểm những gì',
       checkNearlyFull: '③ Canh chỗ ngồi', nearlyFullPercent: '③ Canh chỗ ngồi',
       capacityMilestones: '③ Canh chỗ ngồi',
+    },
+    'customer-auto-care': {
+      quietDays: '① Thế nào là ngủ quên', ranks: '② Nhắc về ai',
+      requireBought: '② Nhắc về ai', maxLeads: '② Nhắc về ai',
+    },
+    'anomaly-watchdog': {
+      baselineWeeks: '① Mức thường tính thế nào', thresholdPercent: '② Khi nào thì báo',
+      alertOnIncrease: '② Khi nào thì báo',
     },
     'customer-auto-review': {
       createdWithinDays: 'Phạm vi',

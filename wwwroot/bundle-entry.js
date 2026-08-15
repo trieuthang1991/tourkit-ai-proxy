@@ -36,6 +36,8 @@ import "./flows/customer-auto-review.js";
 import "./flows/tour-price-catalog-sync.js";
 import "./flows/payment-watchdog.js";
 import "./flows/tour-readiness.js";
+import "./flows/anomaly-watchdog.js";
+import "./flows/customer-auto-care.js";
 
 // Phải đứng TRƯỚC pages/workflows.jsx + pages/flow-preview.jsx (2 file đó đọc window.tourkitWorkflowOptions lúc khởi tạo)
 import "./components/workflow-options.jsx";

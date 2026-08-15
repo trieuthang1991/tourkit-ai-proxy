@@ -16,6 +16,20 @@ Những cập nhật gần đây của TRAV-AI, viết cho người dùng. Mới
 ## Phiên bản 15/08/2026 — Ghi chú khách hàng hiện đúng tiếng Việt
 
 ### ✨ Tính năng mới
+- **📉 Tự canh doanh thu bất thường.** Bật **Canh doanh thu bất thường** trong *Tự động hoá*: mỗi lần
+  chạy, hệ thống so doanh thu tuần vừa rồi với mức thường của mấy tuần trước. Lệch quá ngưỡng bạn đặt
+  thì báo vào **Bảng tin** — *"tuần vừa rồi giảm 42% so với mức thường 820 triệu/tuần của 4 tuần trước"*.
+  Bạn tự chọn lấy mấy tuần làm mức thường và lệch bao nhiêu phần trăm thì báo, vì ngành tour lên xuống
+  theo mùa — đặt thấp quá thì tuần nào cũng có cảnh báo, mà cảnh báo tuần nào cũng có thì không còn là
+  cảnh báo. Tăng vọt cũng được báo (ở mức thông tin, không tô đỏ) và tắt riêng được nếu bạn chỉ muốn
+  nghe tin xấu. **Không tốn lượt AI.**
+- **📞 Nhắc gọi lại khách cũ đã lâu không ai liên hệ.** Bật **Nhắc chăm lại khách ngủ quên**: hệ thống
+  tìm những khách đã từng mua nhưng lâu rồi không ai chăm, gom thành **một** danh sách trong Bảng tin —
+  kèm hạng khách, số tiền họ đã chi, số ngày im lặng và **số điện thoại để gọi ngay**. Khách chi nhiều
+  xếp lên trước, vì người gọi chỉ đọc mấy dòng đầu.
+  Bạn đặt bao lâu thì coi là "ngủ quên", chỉ nhắc hạng nào, và mỗi lần tối đa mấy khách.
+  **Hệ thống KHÔNG gửi gì cho khách hàng** — chỉ nhắc bạn, còn gọi ai và nói gì là bạn quyết.
+  **Không tốn lượt AI.**
 - **📈 Bản tin điều hành nói luôn "đà này có kịp kế hoạch không".** Khai chỉ tiêu doanh thu tháng
   trong phần cài đặt của *Bản tin điều hành*, mỗi sáng bạn sẽ thấy thêm một dòng: theo tốc độ bán từ
   đầu tháng tới nay thì cả tháng ước đạt bao nhiêu, bằng bao nhiêu phần trăm kế hoạch, và một câu
