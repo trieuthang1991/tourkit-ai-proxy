@@ -23,6 +23,11 @@ Những cập nhật gần đây của TRAV-AI, viết cho người dùng. Mới
   hội bán hàng**. Đáng nói hơn phần nhìn: trước đây trợ lý cũng phải đọc bản chữ méo đó, nên có lúc
   hiểu sai ý ghi chú và khuyên lệch — nay nó đọc đúng thứ bạn viết.
 
+- **🔊 Nghe bản tin dài không còn bị cụt giữa chừng mà không biết.** Nút **Nghe** đọc được một độ dài
+  nhất định. Trước đây bản tin vượt quá thì tiếng nói dừng giữa từ, không báo gì — bạn nghe xong tưởng
+  bản tin chỉ có thế. Nay chỗ dừng rơi vào cuối câu, và có dòng nhắc *"bản tin dài, chỉ đọc được phần
+  đầu"* để bạn biết phần còn lại cần đọc bằng mắt. Bản tin dài bình thường vẫn đọc trọn như cũ.
+
 ### 📌 Lưu ý
 - Vì nội dung ghi chú nay khác trước, những khách đã chấm hạng sẽ được **chấm lại một lượt** cho khớp
   với chữ đã sửa — mỗi công ty khoảng một, hai trăm khách, xong là thôi. Bạn không cần làm gì cả.

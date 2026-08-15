@@ -68,6 +68,9 @@ function SpeakButton({ text, pushToast }) {
       onStart: () => setSt('playing'),
       onEnd: () => setSt('idle'),
       onError: (msg) => { setSt('idle'); pushToast && pushToast(msg || 'Không đọc được bản tin'); },
+      // Bản tin dài quá mức đọc được một lần → nói trước, để người nghe biết phần cuối phải đọc
+      // bằng mắt. Im lặng thì họ nghe tới chỗ dừng rồi tưởng đã hết.
+      onTruncated: () => pushToast && pushToast('Bản tin dài, chỉ đọc được phần đầu — phần còn lại mời bạn đọc bên dưới'),
     });
   };
 

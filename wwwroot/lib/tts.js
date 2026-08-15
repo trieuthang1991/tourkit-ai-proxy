@@ -51,6 +51,9 @@
         try { const j = await r.json(); msg = j.error || msg; } catch {}
         throw new Error(msg);
       }
+      // Quá dài thì server đọc rút gọn. Không báo ra thì người nghe tưởng nội dung hết ở chỗ
+      // tiếng nói dừng — đúng kiểu hỏng im lặng, nghe xong không biết là mình đang thiếu thông tin.
+      if (r.headers.get('X-Tts-Truncated') === '1') cbs.onTruncated && cbs.onTruncated();
       const buf = await r.arrayBuffer();
       if (my !== gen) return;
       cleanupUrl();

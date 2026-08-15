@@ -1,4 +1,4 @@
-using System.Collections.Concurrent;
+﻿using System.Collections.Concurrent;
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
@@ -63,13 +63,25 @@ public class GoogleTtsService
         _cfg.GetValue("Speech:Google:Enabled", true) &&
         (!string.IsNullOrWhiteSpace(GatewayUrl) || !string.IsNullOrWhiteSpace(ApiKey));
 
-    public async Task<(byte[] Mp3, bool Cached)> SynthesizeAsync(string text, string? voice, CancellationToken ct)
+    /// <summary>
+    /// Trả thêm <c>Truncated</c> so với 4 engine còn lại — CỐ Ý: chỉ engine này có giới hạn độ dài,
+    /// và cờ phải đi theo TỪNG lời gọi. Để nó thành thuộc tính của service thì hỏng, vì service đăng
+    /// ký singleton: hai người cùng bấm "Nghe" sẽ đọc nhầm cờ của nhau.
+    /// </summary>
+    public async Task<(byte[] Mp3, bool Cached, bool Truncated)> SynthesizeAsync(string text, string? voice, CancellationToken ct)
     {
         if (string.IsNullOrWhiteSpace(text)) throw new InvalidOperationException("Thiếu text để đọc.");
         if (!Configured) throw new InvalidOperationException("Google TTS chưa cấu hình (Speech:Google:ApiKey HOẶC GatewayUrl).");
 
-        text = text.Trim();
-        if (text.Length > MAX_CHARS) text = text.Substring(0, MAX_CHARS);
+        // Cắt vào chỗ nghỉ tự nhiên + BÁO RA. Bản cũ cắt thẳng giữa từ và im lặng, nên người bấm
+        // "Nghe" một bản tin dài nghe hết nửa câu rồi im, tưởng bản tin chỉ có thế.
+        var original = text.Trim().Length;
+        var capped = TtsText.Cap(text, MAX_CHARS);
+        text = capped.Text;
+        var truncated = capped.Truncated;
+        if (truncated)
+            _log.LogWarning("[GoogleTTS] Chữ dài {N} ký tự > giới hạn {Max} → đọc rút gọn còn {M}",
+                original, MAX_CHARS, text.Length);
 
         var lang = _cfg["Speech:Google:LanguageCode"] ?? DefaultLang;
         var voiceName = string.IsNullOrWhiteSpace(voice) ? (_cfg["Speech:Google:Voice"] ?? DefaultVoice) : voice;
@@ -77,7 +89,7 @@ public class GoogleTtsService
         var pitch = _cfg.GetValue("Speech:Google:Pitch", 0.0);
 
         var cacheKey = Hash($"google|{voiceName}|{rate}|{pitch}|{text}");
-        if (_cache.TryGetValue(cacheKey, out var hit)) return (hit, true);   // câu lặp → free
+        if (_cache.TryGetValue(cacheKey, out var hit)) return (hit, true, truncated);   // câu lặp → free
 
         // ── GATEWAY MODE: relay khi server chính không gọi được googleapis.com ──
         if (!string.IsNullOrWhiteSpace(GatewayUrl))
@@ -85,7 +97,7 @@ public class GoogleTtsService
             var mp3g = await SynthesizeViaGatewayAsync(text, voiceName, ct);
             if (_cache.Count < CACHE_CAP) _cache.TryAdd(cacheKey, mp3g);
             _log.LogInformation("Google TTS OK (gateway): {Chars}ch → {Kb}KB, voice={Voice}", text.Length, mp3g.Length / 1024, voiceName);
-            return (mp3g, false);
+            return (mp3g, false, truncated);
         }
 
         var http = _httpFactory.CreateClient("google-tts");
@@ -112,7 +124,7 @@ public class GoogleTtsService
 
         if (_cache.Count < CACHE_CAP) _cache.TryAdd(cacheKey, mp3);
         _log.LogInformation("Google TTS OK: {Chars}ch → {Kb}KB, voice={Voice}", text.Length, mp3.Length / 1024, voiceName);
-        return (mp3, false);
+        return (mp3, false, truncated);
     }
 
     // Relay: POST {text, voice} + header X-Api-Key → gateway trả thẳng mp3 (gateway giữ key + lo TLS "khó").

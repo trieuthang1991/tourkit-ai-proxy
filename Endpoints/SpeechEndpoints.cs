@@ -157,7 +157,10 @@ public static class SpeechEndpoints
                     {
                         case "google":
                             if (!google.Configured) continue;
-                            var (mg, cg) = await google.SynthesizeAsync(req.Text, req.Voice, ctx.RequestAborted);
+                            var (mg, cg, tg) = await google.SynthesizeAsync(req.Text, req.Voice, ctx.RequestAborted);
+                            // Quá dài thì engine đọc rút gọn — nói ra để giao diện còn báo được,
+                            // thay vì để người nghe tưởng bản tin hết ở chỗ tiếng nói dừng.
+                            if (tg) ctx.Response.Headers["X-Tts-Truncated"] = "1";
                             return Emit(mg, "audio/mpeg", "google", cg);
                         case "vbee":
                             if (!vbee.Configured) continue;               // KHÔNG truyền req.Voice — Vbee dùng voiceCode ở config
