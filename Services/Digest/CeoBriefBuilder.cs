@@ -1,4 +1,4 @@
-using System.Globalization;
+﻿using System.Globalization;
 using System.Text;
 
 namespace TourkitAiProxy.Services.Digest;
@@ -23,7 +23,9 @@ public record CeoBriefData(CeoNumbers ThisMtd, CeoNumbers PrevMtd, List<string> 
     int OpenTasks = 0, int LateTasks = 0,
     bool ShowSellers = true, bool ShowNewDeals = true, bool ShowAppointments = true,
     bool ShowAlerts = true, bool ShowTasks = true, bool ShowNumbers = true,
-    bool ShowCompare = true, string CompareLabel = "so cùng kỳ tháng trước");
+    bool ShowCompare = true, string CompareLabel = "so cùng kỳ tháng trước",
+    /// Dự phóng cuối tháng (C4). null = không hiện: công ty chưa khai chỉ tiêu, hoặc mục đã tắt.
+    CeoForecast.Result? Forecast = null);
 
 /// <summary>
 /// Dựng bản tin điều hành cho giám đốc.
@@ -176,6 +178,10 @@ public static class CeoBriefBuilder
         if (d.ShowTasks) sb.AppendLine($"- Công việc chưa hoàn thành: {TaskLine(d)}");
         if (d.ShowSellers)
             sb.AppendLine($"- Top nhân viên bán hàng từ đầu tháng: {(d.TopSellers.Count > 0 ? string.Join("; ", d.TopSellers) : "n/a")}");
+
+        // Dự phóng đứng CUỐI: nó là suy luận từ các số ở trên, đọc sau khi đã thấy số gốc thì mới
+        // kiểm được. Đưa lên đầu là bắt người ta tin một ước lượng trước khi thấy căn cứ.
+        if (d.Forecast != null) sb.AppendLine($"- Dự phóng cuối tháng: {d.Forecast.Text}");
 
         return sb.ToString().TrimEnd();
     }

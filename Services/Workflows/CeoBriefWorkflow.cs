@@ -1,4 +1,4 @@
-using System.Globalization;
+﻿using System.Globalization;
 using System.Text.Json;
 using TourkitAiProxy.Models;
 using TourkitAiProxy.Services;
@@ -71,7 +71,8 @@ public class CeoBriefWorkflow : IScheduledWorkflow
         bool SecSellers, int SellerCount,
         bool SecNewDeals, bool SecAppointments, bool SecAlerts,
         bool SecTasks, List<int> TaskStatuses,
-        bool UseAi, bool ShowNumbers);
+        bool UseAi, bool ShowNumbers,
+        bool SecForecast, decimal RevenueTarget);
 
     private static CeoBriefOptions ParseOptions(string? json)
     {
@@ -81,13 +82,21 @@ public class CeoBriefWorkflow : IScheduledWorkflow
             // Rỗng = rơi về enum hệ thống (1/2/3 đang mở). Công ty khai rồi thì danh sách của họ
             // quyết định — có nơi coi "Đang kiểm tra" là đã xong, chờ duyệt.
             SecTasks: true, TaskStatuses: new List<int>(),
-            UseAi: true, ShowNumbers: true);
+            UseAi: true, ShowNumbers: true,
+            // 0 = CHƯA khai chỉ tiêu → mục dự phóng tự tắt. Không đoán hộ: một con số bịa ra sẽ
+            // khiến mọi công ty đọc một dự phóng vô nghĩa rồi mất tin vào cả bản tin.
+            SecForecast: true, RevenueTarget: 0m);
         if (string.IsNullOrWhiteSpace(json)) return def;
         try
         {
             using var d = JsonDocument.Parse(json);
             var r = d.RootElement;
 
+            // Chỉ tiêu là số TIỀN nên có thể vượt int (3 tỷ vẫn lọt, nhưng 3.000 tỷ thì không).
+            // Kẹp âm về 0 = coi như chưa khai, thay vì đẻ ra phần trăm âm.
+            decimal Money(string k, decimal dv)
+                => r.TryGetProperty(k, out var v) && v.ValueKind == JsonValueKind.Number
+                   && v.TryGetDecimal(out var m) && m > 0 ? m : dv;
             bool Bit(string k, bool dv)
                 => r.TryGetProperty(k, out var v) && v.ValueKind is JsonValueKind.True or JsonValueKind.False
                     ? v.GetBoolean() : dv;
@@ -118,6 +127,8 @@ public class CeoBriefWorkflow : IScheduledWorkflow
                 SecTasks = Bit("secTasks", def.SecTasks),
                 UseAi = Bit("useAi", def.UseAi),
                 ShowNumbers = Bit("showNumbers", def.ShowNumbers),
+                SecForecast = Bit("secForecast", def.SecForecast),
+                RevenueTarget = Money("revenueTarget", def.RevenueTarget),
             };
         }
         catch (JsonException)
@@ -387,7 +398,12 @@ public class CeoBriefWorkflow : IScheduledWorkflow
             ShowSellers: opt.SecSellers, ShowNewDeals: opt.SecNewDeals,
             ShowAppointments: opt.SecAppointments, ShowAlerts: opt.SecAlerts,
             ShowTasks: opt.SecTasks, ShowNumbers: opt.ShowNumbers,
-            ShowCompare: compare, CompareLabel: CompareLabelOf(opt.ComparePeriod));
+            ShowCompare: compare, CompareLabel: CompareLabelOf(opt.ComparePeriod),
+            // Dự phóng dựa trên doanh thu TỪ ĐẦU THÁNG TỚI HÔM NAY (thisMtd) — đúng thứ phép tính
+            // cần. Tắt mục hoặc chưa khai chỉ tiêu → Estimate trả null → dòng này không hiện.
+            Forecast: opt.SecForecast
+                ? CeoForecast.Estimate(thisMtd.Revenue, opt.RevenueTarget, todayVn)
+                : null);
 
         async Task<CeoNumbers> Fin(DateTime s, DateTime e, string label)
         {

@@ -1,4 +1,4 @@
-using TourkitAiProxy.Services.Digest;
+﻿using TourkitAiProxy.Services.Digest;
 using Xunit;
 
 namespace TourkitAiProxy.Tests.Digest;
@@ -293,4 +293,38 @@ public class CeoBriefBuilderTests
     [Fact]
     public void Tieu_de_co_ngay()
         => Assert.Contains("11/08", CeoBriefBuilder.RenderFallback(Data(), Today).Title);
+
+    // ── Dự phóng cuối tháng (C4) ─────────────────────────────────────────────────
+
+    /// Chưa khai chỉ tiêu → mục dự phóng KHÔNG được hiện. Bản tin của công ty chưa đặt kế hoạch
+    /// phải giống hệt như trước khi có tính năng này.
+    [Fact]
+    public void Chua_khai_chi_tieu_thi_ban_tin_khong_co_dong_du_phong()
+    {
+        var text = CeoBriefBuilder.RenderFallback(Data(), Today).BodyMarkdown;
+        Assert.DoesNotContain("Dự phóng", text);
+    }
+
+    /// Có chỉ tiêu → dòng dự phóng vào CẢ bảng số LẪN prompt gửi AI (dùng chung một khối số),
+    /// nhờ vậy AI viết lời cũng nhắc được chuyện có kịp kế hoạch hay không.
+    [Fact]
+    public void Co_chi_tieu_thi_dong_du_phong_vao_ca_bang_so_lan_prompt()
+    {
+        var d = Data() with { Forecast = CeoForecast.Estimate(1_000_000_000m, 3_000_000_000m, Today) };
+
+        Assert.Contains("Dự phóng cuối tháng", CeoBriefBuilder.RenderFallback(d, Today).BodyMarkdown);
+        Assert.Contains("Dự phóng cuối tháng", CeoBriefBuilder.BuildPrompt(d, Today));
+    }
+
+    /// Dự phóng phải đứng CUỐI bảng số: nó là suy luận từ các số ở trên. Đưa lên đầu là bắt người
+    /// đọc tin một ước lượng trước khi thấy căn cứ.
+    [Fact]
+    public void Du_phong_dung_cuoi_bang_so()
+    {
+        var d = Data() with { Forecast = CeoForecast.Estimate(1_000_000_000m, 3_000_000_000m, Today) };
+        var body = CeoBriefBuilder.RenderFallback(d, Today).BodyMarkdown;
+
+        Assert.True(body.IndexOf("Doanh thu", StringComparison.Ordinal)
+                  < body.IndexOf("Dự phóng", StringComparison.Ordinal));
+    }
 }

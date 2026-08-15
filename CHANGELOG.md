@@ -16,6 +16,14 @@ Những cập nhật gần đây của TRAV-AI, viết cho người dùng. Mới
 ## Phiên bản 15/08/2026 — Ghi chú khách hàng hiện đúng tiếng Việt
 
 ### ✨ Tính năng mới
+- **📈 Bản tin điều hành nói luôn "đà này có kịp kế hoạch không".** Khai chỉ tiêu doanh thu tháng
+  trong phần cài đặt của *Bản tin điều hành*, mỗi sáng bạn sẽ thấy thêm một dòng: theo tốc độ bán từ
+  đầu tháng tới nay thì cả tháng ước đạt bao nhiêu, bằng bao nhiêu phần trăm kế hoạch, và một câu
+  nhận định — *vượt kế hoạch* / *hụt nhẹ, còn kịp bù* / *khó đạt*.
+  Số thực đạt và chỉ tiêu luôn in kèm để bạn tự đối chiếu.
+  **Bốn ngày đầu tháng hệ thống chỉ báo số thực đạt chứ không ước** — sớm quá thì một hợp đồng lớn
+  cũng đủ làm con số sai lệch nhiều lần, mà đây là bản tin gửi giám đốc.
+  Chưa khai chỉ tiêu thì bản tin giữ nguyên như cũ, không hiện gì thêm.
 - **🎟️ Biết tour nào sắp đầy để đẩy bán nốt.** *Kiểm tra sẵn sàng khởi hành* trước đây chỉ báo cái
   còn thiếu. Nay tour ghép gần kín chỗ cũng được nhắc — *"đã kín 17/20 chỗ, còn 3 chỗ"* — để bạn dồn
   sức bán nốt vài chỗ cuối thay vì để trống. Đây là tin vui nên thẻ hiện ở mức thông tin, không tô đỏ

@@ -190,6 +190,13 @@
         label: 'Việc coi là CHƯA xong khi ở trạng thái',
         hint: 'Quyết định con số "còn treo" đếm những việc nào. Tên trạng thái do công ty bạn đặt nên chỉ bạn biết chắc — ví dụ có nơi "Đang kiểm tra" nghĩa là đã làm xong, chờ duyệt. Chọn càng nhiều trạng thái thì mỗi lần gửi càng phải hỏi CRM nhiều lượt, nên chỉ tick những trạng thái thật sự còn phải làm.' },
 
+      // ── Dự phóng cuối tháng ──
+      { key: 'secForecast', type: 'bool', label: 'Dự phóng cuối tháng', default: true,
+        hint: 'Theo tốc độ bán từ đầu tháng tới hôm nay, ước cả tháng sẽ đạt bao nhiêu và bằng bao nhiêu phần trăm kế hoạch. Phép tính thẳng, không phải dự báo bằng máy học — và số gốc luôn in kèm để bạn tự kiểm.' },
+      { key: 'revenueTarget', type: 'number', label: 'Chỉ tiêu doanh thu tháng (đồng)', showIf: 'secForecast',
+        default: 0, min: 0, max: 1000000000000,
+        hint: 'Để 0 = KHÔNG hiện phần dự phóng. Cố ý không đoán hộ: một chỉ tiêu bịa ra sẽ khiến bản tin nào cũng kèm một dự phóng vô nghĩa. Nhập số tiền, ví dụ 3000000000 cho 3 tỷ. Bốn ngày đầu tháng hệ thống chỉ báo số thực đạt chứ không ước — quá sớm thì một hợp đồng lớn cũng đủ làm con số sai lệch nhiều lần.' },
+
       // ── Cách trình bày ──
       { key: 'useAi', type: 'bool', label: 'AI viết lời', default: true,
         hint: 'Bật: AI đọc số rồi viết 5–8 câu tổng kết (tốn khoảng 1 lượt AI mỗi lần gửi). Tắt: in thẳng bảng số, không tốn lượt nào. Số luôn do máy chủ tính — AI không bao giờ tự tính, nên bật hay tắt cũng không đổi con số.' },
@@ -264,6 +271,7 @@
       secNewDeals: '② Đưa thêm vào bản tin', secAppointments: '② Đưa thêm vào bản tin',
       secAlerts: '② Đưa thêm vào bản tin', secTasks: '② Đưa thêm vào bản tin',
       taskStatuses: '② Đưa thêm vào bản tin',
+      secForecast: '③ Dự phóng cuối tháng', revenueTarget: '③ Dự phóng cuối tháng',
       useAi: '③ Cách trình bày', showNumbers: '③ Cách trình bày',
     },
     'tour-readiness': {
