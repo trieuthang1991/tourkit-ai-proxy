@@ -186,7 +186,7 @@ data/
 | DELETE | `/api/v1/admin/ui/tk-sessions/{id}` | kick 1 phiên (xóa cache + SQL) → `{ok, kicked, by}` — user sẽ phải đăng nhập lại lần dùng tiếp theo (require X-Admin-Session) |
 | GET    | `/api/v1/workflows`               | list workflow catalog + config hiện tại `{items[{type,label,description,scope,enabled,intervalMinutes,consecutiveFailures,pausedReason,nextRunUtc,lastRunUtc,lastRunStatus,lastRunSummary}]}` (require X-Session-Id) |
 | PUT    | `/api/v1/workflows/{type}`        | upsert config `{enabled, intervalMinutes}` — khi `enabled=true` & `pausedReason!=null` → reset failures + clear pausedReason (require X-Session-Id) |
-| POST   | `/api/v1/workflows/{type}/run-now` | chạy ngay 1 lần (synchronous, qua pipeline scheduler) → `{ok, summary, error, durationMs}` (require X-Session-Id) |
+| POST   | `/api/v1/workflows/{type}/run-now` | chạy ngay 1 lần — **CHẠY NỀN**, trả về ngay khi đã khởi động; `summary` LUÔN rỗng ở response này, kết quả xem ở `/runs` (require X-Session-Id) |
 | GET    | `/api/v1/workflows/{type}/runs`   | lịch sử run `?limit=20` → `{items[{id,triggerKind,startedUtc,finishedUtc,status,summary,error,durationMs}]}` (require X-Session-Id) |
 | POST   | `/api/v1/workflows/service-account` | Lưu tài khoản tự động per-tenant `{username,password,domain?}` — **validate login TourKit + đếm deal** trước khi lưu (Crypton-enc) → `{ok, dealsVisible, warning?}`; login fail → `{ok:false,error}` (require X-Session-Id) |
 | GET    | `/api/v1/workflows/service-account` | Trạng thái cấu hình `{configured, username}` (KHÔNG trả password) (require X-Session-Id) |
@@ -383,7 +383,7 @@ PerTenant. Auth = **service account** per-tenant (`dbo.TenantServiceAccounts`, `
 - **Schema:** `dbo.UserWorkflows` (config, PK `TenantId+Username+WorkflowType`) + `dbo.WorkflowRuns` (lịch sử 100 run/scope, prune tự động). `Username=''` = per-tenant (workflow `Scope=PerTenant`, vd `deal-auto-review`).
 - **Scheduler:** `WorkflowSchedulerService` (`BackgroundService`, tick 60s) → `ListDue` → fire-and-forget `Task.Run`. `SetNextRun` chạy ngay trước `Task.Run` để tránh re-fire trong tick kế. Auto-pause sau 5 fail liên tiếp, user "Bật lại" qua PUT endpoint.
 - **MailSyncService (extract):** logic `POST /mail/sync` được extract ra `Services/Mail/MailSyncService.cs` → dùng chung giữa HTTP endpoint và `MailAutoSyncWorkflow`. Response shape `/mail/sync` giữ nguyên (`{items, counts, classified, fetched}`).
-- **Endpoint:** require `X-Session-Id` (pattern giống MailEndpoints). Manual trigger (`/run-now`) đồng bộ (không fire-and-forget), trả kết quả ngay.
+- **Endpoint:** require `X-Session-Id` (pattern giống MailEndpoints). Manual trigger (`/run-now`) **fire-and-forget, KHÔNG đồng bộ** — trả về sau ~100ms với `summary` rỗng, workflow chạy tiếp ở nền qua pipeline scheduler (vẫn đếm failure + auto-pause + ghi `WorkflowRuns`). ⚠️ Đừng "sửa" lại thành đồng bộ: đã từng đồng bộ và run dài 100s+ làm request trình duyệt timeout → user thấy báo **lỗi giả** dù workflow chạy xong bình thường. Kết quả đọc ở `GET /workflows/{type}/runs`, không đọc ở response của `/run-now`.
 - **Frontend:** `/workflows` page (`wwwroot/pages/workflows.jsx`), card per workflow + toggle + interval dropdown + run history collapsible. Nav entry "Tự động hóa" trong group "Bản tin & Tự động" (chuyển khỏi "Tích hợp" 12/08 vì trang có thêm phần cá nhân — xem section "Bản tin AI").
 
 ## Bản tin AI ("Đợt 1" — bản tin sáng + Bảng tin)
