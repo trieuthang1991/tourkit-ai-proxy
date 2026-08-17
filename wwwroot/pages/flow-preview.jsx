@@ -14,7 +14,13 @@ const { useState: _fpS, useEffect: _fpE, useMemo: _fpM } = React;
 // Mỗi sơ đồ nằm ở 1 file riêng trong wwwroot/flows/ và tự đăng ký vào window.tourkitFlows.
 // Trang này KHÔNG giữ dữ liệu sơ đồ nữa — thêm luồng mới không phải sửa file này.
 // Xem hướng dẫn thêm sơ đồ ở đầu wwwroot/flows/_registry.js.
-const FP_DEMO_TYPE = '_demo-sale-brief';
+// Sơ đồ hiện khi mở /flow-preview mà KHÔNG kèm tên tác vụ.
+//
+// ⚠️ PHẢI là một mã đã đăng ký thật trong wwwroot/flows/. Trước đây để '_demo-sale-brief' — mã của
+// bản xem thử hồi bản tin sáng chưa xây. Khi bản tin sáng thành tác vụ thật, file sơ đồ đăng ký mã
+// 'sale-brief' còn hằng số này không ai sửa → FL.get() trả null → trang VỠ TRẮNG ở `flow.note`
+// (bắt được bằng e2e 17/08). Đổi mã ở flows/ thì phải soát lại đây.
+const FP_DEMO_TYPE = 'sale-brief';
 
 const FP_LEGEND = [
   { cls: 'trigger', label: 'Điểm bắt đầu', desc: 'Cái gì kích hoạt luồng — lịch, sự kiện, thao tác tay' },
@@ -156,7 +162,10 @@ function FlowPreviewPage({ pushToast, type }) {
   // mà hiện ra sơ đồ bản tin sáng thì đó là giao diện nói dối.
   const FL = window.tourkitFlows;
   const flow = type ? FL.get(type) : FL.get(FP_DEMO_TYPE);
-  const missingDiagram = !!type && !flow;
+  // KHÔNG còn `!!type &&`: sơ đồ mặc định cũng có thể mất (đổi mã ở flows/ mà quên sửa
+  // FP_DEMO_TYPE). Thiếu chốt này thì mã sai làm trang trắng trơn không một chữ giải thích —
+  // đúng cái đã xảy ra. Thà hiện "chưa có sơ đồ" còn hơn hiện gì cũng không.
+  const missingDiagram = !flow;
   const isDemo = !!(flow && flow.demo);
   const nodes = flow ? flow.nodes : [];
   const edges = flow ? flow.edges : [];
@@ -347,8 +356,14 @@ function FlowPreviewPage({ pushToast, type }) {
         <div>
           <div className="wga-eyebrow">Tự động hoá · Sơ đồ hoạt động</div>
           <h1>Chưa có sơ đồ cho tác vụ này</h1>
+          {/* Không có `type` = mã sơ đồ mặc định (FP_DEMO_TYPE) trỏ sai. Nói đúng chuyện đó thay vì
+              in "Tác vụ  đang chạy thật" với chỗ trống — người đọc không hiểu gì mà người sửa cũng
+              không lần ra được nguyên nhân. */}
           <p className="wga-sub">
-            Tác vụ <b>{type}</b> đang chạy thật, nhưng sơ đồ các bước của nó chưa được vẽ.
+            {type
+              ? <>Tác vụ <b>{type}</b> đang chạy thật, nhưng sơ đồ các bước của nó chưa được vẽ.</>
+              : <>Không mở được sơ đồ mặc định — hãy vào <b>Tự động hoá</b> rồi bấm “Xem sơ đồ” ở
+                 đúng tác vụ bạn muốn xem.</>}
           </p>
         </div>
         <a className="wga-btn" href="#/workflows">← Về Tự động hoá</a>
