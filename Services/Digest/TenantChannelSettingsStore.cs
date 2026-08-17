@@ -45,13 +45,19 @@ public class TenantChannelSettingsStore
     public TenantChannelSettingsStore(TourkitAiDb db, ILogger<TenantChannelSettingsStore> log)
     { _db = db; _log = log; }
 
-    /// Hai cách dùng Zalo, KHÔNG có cách thứ ba (không có "để trống cho hệ thống tự lo").
-    public const string ModeOwnOa = "own";        // OA riêng của công ty
-    public const string ModeProvided = "provided"; // dùng OA của bên cung cấp, bằng khoá được cấp
+    /// <summary>
+    /// Hai cách dùng Zalo. Cả hai khai CÙNG một bộ thông tin — khác nhau ở chỗ giá trị từ đâu ra:
+    /// <c>own</c> công ty tự đăng ký OA; <c>provided</c> bên cung cấp dịch vụ đưa sẵn thông tin OA
+    /// của hệ thống để công ty khỏi phải đi đăng ký. Nhãn này chỉ đổi lời hướng dẫn trên màn hình và
+    /// cho biết công ty đang gửi bằng OA của ai — phần gửi KHÔNG phân biệt.
+    /// <para>KHÔNG có cách thứ ba: không có "để trống rồi hệ thống tự lo".</para>
+    /// </summary>
+    public const string ModeOwnOa = "own";
+    public const string ModeProvided = "provided";
 
     /// Cấu hình Zalo của công ty. Bí mật đã giải mã — CHỈ dùng nội bộ, KHÔNG trả ra client.
     public record ZaloConfig(string Mode, string? OaId, string? AppId, string? SecretKey,
-        string? RefreshTokenSeed, string? ProvisionKey, IReadOnlyDictionary<string, string> Templates)
+        string? RefreshTokenSeed, IReadOnlyDictionary<string, string> Templates)
     {
         /// <summary>
         /// Đã khai đủ để gửi được chưa. Thiếu thì kênh Zalo KHÔNG bật được — và phải nói ra,
@@ -61,10 +67,9 @@ public class TenantChannelSettingsStore
         /// bước cấp quyền OA trên trang Zalo. Bỏ sót ô này thì công ty khai xong tưởng đã chạy, mà
         /// worker không bao giờ lấy nổi token.</para>
         /// </summary>
-        public bool IsUsable => Mode == ModeOwnOa
-            ? !string.IsNullOrWhiteSpace(OaId) && !string.IsNullOrWhiteSpace(AppId)
-              && !string.IsNullOrWhiteSpace(SecretKey) && !string.IsNullOrWhiteSpace(RefreshTokenSeed)
-            : !string.IsNullOrWhiteSpace(ProvisionKey);
+        public bool IsUsable =>
+            !string.IsNullOrWhiteSpace(OaId) && !string.IsNullOrWhiteSpace(AppId)
+            && !string.IsNullOrWhiteSpace(SecretKey) && !string.IsNullOrWhiteSpace(RefreshTokenSeed);
 
         /// Mã mẫu ZNS cho một chức năng (vd "sale-brief"). Chưa khai → null.
         public string? TemplateFor(string feature)
@@ -91,7 +96,6 @@ public class TenantChannelSettingsStore
                 Crypton.Decrypt(Str(o, "secretKeyEnc") ?? ""),
                 // Hạt giống refresh token: worker chỉ đọc khi trong DB chưa có token nào.
                 Crypton.Decrypt(Str(o, "refreshTokenSeedEnc") ?? ""),
-                Crypton.Decrypt(Str(o, "provisionKeyEnc") ?? ""),
                 templates);
         }
         catch (Exception ex)
@@ -106,7 +110,7 @@ public class TenantChannelSettingsStore
     /// không đổi bí mật đang lưu (giao diện không đọc lại được bí mật nên không thể gửi lại).
     /// </summary>
     public async Task SaveZaloAsync(string tenantId, string mode, string? oaId, string? appId,
-        string? secretKey, string? refreshTokenSeed, string? provisionKey,
+        string? secretKey, string? refreshTokenSeed,
         IReadOnlyDictionary<string, string> templates, CancellationToken ct = default)
     {
         var existing = await ReadRawAsync(tenantId, ChannelZalo, ct);
@@ -119,8 +123,6 @@ public class TenantChannelSettingsStore
             o["secretKeyEnc"] = Crypton.Encrypt(secretKey.Trim());
         if (!string.IsNullOrWhiteSpace(refreshTokenSeed))
             o["refreshTokenSeedEnc"] = Crypton.Encrypt(refreshTokenSeed.Trim());
-        if (!string.IsNullOrWhiteSpace(provisionKey))
-            o["provisionKeyEnc"] = Crypton.Encrypt(provisionKey.Trim());
 
         var t = new JsonObject();
         foreach (var kv in templates)

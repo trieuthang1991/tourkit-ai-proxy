@@ -82,16 +82,20 @@ Worker cần đọc thêm:
     "oaId": "...", "appId": "...",
     "secretKeyEnc": "<Crypton>",
     "refreshTokenSeedEnc": "<Crypton>",     // hạt giống: quản trị dán 1 lần
-    "provisionKeyEnc": "<Crypton>",
     "templates": { "sale-brief": "...", "ceo-brief": "...", "payment-alert": "..." },
 
     "accessTokenEnc": "<Crypton>",          // ─┐ CỦA WORKER
     "refreshTokenEnc": "<Crypton>",         //  │ xoay vòng mỗi lần làm mới
     "refreshedUtc": "2026-08-17T02:00:00Z" } // ─┘
   ```
-  `mode=own` → dùng `oaId/appId/secretKey` của công ty. `mode=provided` → công ty dùng OA của bên
-  cung cấp bằng `provisionKey` được cấp. **Không có trường hợp thứ ba**: thiếu cấu hình thì đánh dấu
-  `Status=4` (không thử lại) kèm lý do "chưa khai OA Zalo", **KHÔNG** mượn OA khác gửi thay.
+  **`mode` KHÔNG đổi cách gửi** — nó chỉ nói OA đó của ai, để giao diện hướng dẫn đúng và để biết
+  công ty đang gửi dưới tên nào. Cả hai chế độ khai cùng một bộ `oaId/appId/secretKey/refreshTokenSeed`:
+  - `own` — công ty tự đăng ký OA, tự lấy 4 giá trị đó.
+  - `provided` — công ty **không phải đi đăng ký OA**; bên cung cấp dịch vụ đưa sẵn 4 giá trị của OA
+    hệ thống để họ dán vào đúng những ô đó (kèm mã mẫu đã đăng ký dưới OA ấy).
+
+  Thiếu cấu hình → `Status=4` (không thử lại) kèm lý do "chưa khai OA Zalo", **KHÔNG** mượn OA khác
+  gửi thay.
 
   ⚠️ **`refreshTokenSeedEnc` là bắt buộc với `mode=own`.** App ID + Secret KHÔNG đủ để lấy token:
   Zalo cấp access token bằng cách đổi refresh token, mà refresh token đầu tiên chỉ có sau bước cấp

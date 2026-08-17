@@ -37,7 +37,7 @@ public static class DigestEndpoints
 
     /// Body PUT cấu hình Zalo của công ty. Bí mật để trống = giữ nguyên bản đang lưu.
     public record ZaloConfigBody(string? Mode, string? OaId, string? AppId,
-        string? SecretKey, string? RefreshTokenSeed, string? ProvisionKey,
+        string? SecretKey, string? RefreshTokenSeed,
         Dictionary<string, string>? Templates);
 
     /// <summary>
@@ -372,7 +372,6 @@ public static class DigestEndpoints
                 appId = cfg?.AppId,
                 hasSecret = !string.IsNullOrWhiteSpace(cfg?.SecretKey),
                 hasRefreshToken = !string.IsNullOrWhiteSpace(cfg?.RefreshTokenSeed),
-                hasProvisionKey = !string.IsNullOrWhiteSpace(cfg?.ProvisionKey),
                 templates = cfg?.Templates ?? new Dictionary<string, string>(),
                 // Danh sách chức năng cần mẫu ZNS riêng — giao diện vẽ ô theo cái này, khỏi hard-code.
                 features = ZaloTemplateFeatures,
@@ -397,21 +396,17 @@ public static class DigestEndpoints
                               || !string.IsNullOrWhiteSpace(current?.SecretKey);
             var willHaveRefresh = !string.IsNullOrWhiteSpace(body.RefreshTokenSeed)
                               || !string.IsNullOrWhiteSpace(current?.RefreshTokenSeed);
-            var willHaveProvision = !string.IsNullOrWhiteSpace(body.ProvisionKey)
-                                 || !string.IsNullOrWhiteSpace(current?.ProvisionKey);
 
+            // CẢ HAI chế độ đòi cùng một bộ: dùng OA của bên cung cấp thì họ đưa sẵn giá trị để
+            // công ty dán vào đúng những ô này, chứ không phải "khỏi nhập gì".
             var missing = new List<string>();
-            if (mode == TenantChannelSettingsStore.ModeOwnOa)
-            {
-                if (string.IsNullOrWhiteSpace(body.OaId)) missing.Add("OA ID");
-                if (string.IsNullOrWhiteSpace(body.AppId)) missing.Add("App ID");
-                if (!willHaveSecret) missing.Add("Secret key");
-                // App ID + Secret KHÔNG đủ để lấy token: Zalo đổi refresh token lấy access token,
-                // và refresh token đầu tiên chỉ có sau bước cấp quyền OA trên trang Zalo. Thiếu ô
-                // này thì công ty khai xong tưởng chạy được, mà worker không bao giờ lấy nổi token.
-                if (!willHaveRefresh) missing.Add("Refresh token lần đầu");
-            }
-            else if (!willHaveProvision) missing.Add("khoá được cấp");
+            if (string.IsNullOrWhiteSpace(body.OaId)) missing.Add("OA ID");
+            if (string.IsNullOrWhiteSpace(body.AppId)) missing.Add("App ID");
+            if (!willHaveSecret) missing.Add("Secret key");
+            // App ID + Secret KHÔNG đủ để lấy token: Zalo đổi refresh token lấy access token, và
+            // refresh token đầu tiên chỉ có sau bước cấp quyền OA. Thiếu ô này thì công ty khai
+            // xong tưởng chạy được, mà worker không bao giờ lấy nổi token.
+            if (!willHaveRefresh) missing.Add("Refresh token lần đầu");
 
             if (missing.Count > 0)
                 return Results.BadRequest(new
@@ -429,7 +424,7 @@ public static class DigestEndpoints
                         templates[kv.Key] = kv.Value ?? "";
 
             await store.SaveZaloAsync(a.TenantId, mode, body.OaId, body.AppId,
-                body.SecretKey, body.RefreshTokenSeed, body.ProvisionKey, templates, ct);
+                body.SecretKey, body.RefreshTokenSeed, templates, ct);
 
             return Results.Json(new { ok = true }, Web);
         });

@@ -337,7 +337,7 @@ const ZALO_FEATURE_LABELS = {
 function ZaloOaConfig({ pushToast }) {
   const Icon = window.Icon;
   const [st, setSt] = dS(null);          // trạng thái từ server
-  const [f, setF] = dS({ mode: 'own', oaId: '', appId: '', secretKey: '', refreshTokenSeed: '', provisionKey: '', templates: {} });
+  const [f, setF] = dS({ mode: 'own', oaId: '', appId: '', secretKey: '', refreshTokenSeed: '', templates: {} });
   const [saving, setSaving] = dS(false);
   const [dirty, setDirty] = dS(false);
   const [err, setErr] = dS(null);
@@ -348,7 +348,7 @@ function ZaloOaConfig({ pushToast }) {
       setSt(d);
       if (!dirty) setF({
         mode: d.mode || 'own', oaId: d.oaId || '', appId: d.appId || '',
-        secretKey: '', refreshTokenSeed: '', provisionKey: '', templates: d.templates || {},
+        secretKey: '', refreshTokenSeed: '', templates: d.templates || {},
       });
       setErr(null);
     } catch (e) {
@@ -365,15 +365,13 @@ function ZaloOaConfig({ pushToast }) {
   if (err && /quyền/i.test(err)) return null;
 
   const own = f.mode === 'own';
+  // Cả hai chế độ đòi CÙNG một bộ — dùng OA nhà cung cấp thì bên đó đưa sẵn giá trị để dán vào,
+  // chứ không phải khỏi nhập gì.
   const problem = (() => {
-    if (own) {
-      if (!String(f.oaId || '').trim()) return 'Nhập OA ID.';
-      if (!String(f.appId || '').trim()) return 'Nhập App ID.';
-      if (!String(f.secretKey || '').trim() && !(st && st.hasSecret)) return 'Nhập Secret key.';
-      if (!String(f.refreshTokenSeed || '').trim() && !(st && st.hasRefreshToken)) return 'Nhập Refresh token lần đầu.';
-    } else if (!String(f.provisionKey || '').trim() && !(st && st.hasProvisionKey)) {
-      return 'Nhập khoá được cấp.';
-    }
+    if (!String(f.oaId || '').trim()) return 'Nhập OA ID.';
+    if (!String(f.appId || '').trim()) return 'Nhập App ID.';
+    if (!String(f.secretKey || '').trim() && !(st && st.hasSecret)) return 'Nhập Secret key.';
+    if (!String(f.refreshTokenSeed || '').trim() && !(st && st.hasRefreshToken)) return 'Nhập Refresh token lần đầu.';
     return null;
   })();
 
@@ -384,7 +382,7 @@ function ZaloOaConfig({ pushToast }) {
       await dApi('/api/v1/digest/zalo-config', { method: 'PUT', body: JSON.stringify(f) });
       setDirty(false);
       // Xoá bí mật khỏi bộ nhớ giao diện ngay sau khi lưu — không giữ lại trong state.
-      setF(prev => ({ ...prev, secretKey: '', refreshTokenSeed: '', provisionKey: '' }));
+      setF(prev => ({ ...prev, secretKey: '', refreshTokenSeed: '' }));
       pushToast && pushToast('Đã lưu cấu hình Zalo của công ty');
       load();
     } catch (e) { pushToast && pushToast('Lỗi: ' + e.message); }
@@ -413,55 +411,56 @@ function ZaloOaConfig({ pushToast }) {
           : <span className="digest-zalo-badge">Chưa khai</span>)}
       </div>
       <div className="digest-role-note">
-        <Icon name="info" size={12} /> Tin Zalo hiện <b>tên OA người gửi</b>, nên phải gửi bằng OA của
-        chính công ty bạn — khách nhận tin mới thấy đúng tên. Chưa khai xong thì kênh Zalo không gửi,
-        hệ thống <b>không</b> tự gửi thay bằng OA của đơn vị khác.
+        <Icon name="info" size={12} /> Tin Zalo hiện <b>tên OA người gửi</b>. Chưa khai xong thì kênh
+        Zalo không gửi — hệ thống <b>không</b> tự gửi thay bằng OA của đơn vị khác.
       </div>
 
       <div className="digest-row">
         <div className="digest-label">Dùng OA nào</div>
         <select className="workflows-select" value={f.mode} onChange={e => set({ mode: e.target.value })}>
           <option value="own">OA riêng của công ty</option>
-          <option value="provided">Dùng OA của nhà cung cấp (có khoá được cấp)</option>
+          <option value="provided">Dùng OA của nhà cung cấp</option>
         </select>
       </div>
 
-      {own ? (
-        <React.Fragment>
-          <div className="digest-row">
-            <div className="digest-label">OA ID</div>
-            <input className="digest-input" value={f.oaId}
-              onChange={e => set({ oaId: e.target.value })} placeholder="vd 1234567890123456789" />
-          </div>
-          <div className="digest-row">
-            <div className="digest-label">App ID</div>
-            <input className="digest-input" value={f.appId}
-              onChange={e => set({ appId: e.target.value })} placeholder="vd 987654321098765432" />
-          </div>
-          <div className="digest-row">
-            <div className="digest-label">Secret key</div>
-            <input className="digest-input" type="password" value={f.secretKey}
-              onChange={e => set({ secretKey: e.target.value })}
-              placeholder={st && st.hasSecret ? '•••••• (để trống nếu không đổi)' : 'dán secret key'} />
-          </div>
-          <div className="digest-row">
-            <div className="digest-label">Refresh token lần đầu</div>
-            <input className="digest-input" type="password" value={f.refreshTokenSeed}
-              onChange={e => set({ refreshTokenSeed: e.target.value })}
-              placeholder={st && st.hasRefreshToken ? '•••••• (để trống nếu không đổi)' : 'lấy ở bước cấp quyền OA trên trang Zalo'} />
-          </div>
-          <div className="digest-ch-warn">
-            <Icon name="info" size={12} /> App ID và Secret chưa đủ để gửi — Zalo cấp mã truy cập bằng
-            cách đổi refresh token, mà refresh token đầu tiên chỉ lấy được sau khi bạn cấp quyền cho
-            ứng dụng trên trang quản lý OA. Sau lần đầu, hệ thống tự xoay vòng, bạn không phải nhập lại.
-          </div>
-        </React.Fragment>
-      ) : (
-        <div className="digest-row">
-          <div className="digest-label">Khoá được cấp</div>
-          <input className="digest-input" type="password" value={f.provisionKey}
-            onChange={e => set({ provisionKey: e.target.value })}
-            placeholder={st && st.hasProvisionKey ? '•••••• (để trống nếu không đổi)' : 'khoá do bên cung cấp gửi cho bạn'} />
+      {/* Cả hai chế độ khai CÙNG một bộ ô — khác nhau ở chỗ giá trị từ đâu ra: tự đăng ký, hay bên
+          cung cấp đưa sẵn. Tách thành hai form khác nhau chỉ làm người khai tưởng là hai việc khác
+          nhau, trong khi thứ cần dán vào y hệt. */}
+      <div className="digest-ch-warn">
+        <Icon name="info" size={12} /> {own
+          ? <>Bốn thông tin dưới đây lấy trên trang quản lý OA của công ty bạn.</>
+          : <>Bạn <b>không phải đi đăng ký OA</b> — bên cung cấp dịch vụ sẽ gửi cho bạn bốn thông tin
+             dưới đây, chỉ việc dán vào.</>}
+      </div>
+
+      <div className="digest-row">
+        <div className="digest-label">OA ID</div>
+        <input className="digest-input" value={f.oaId}
+          onChange={e => set({ oaId: e.target.value })} placeholder="vd 1234567890123456789" />
+      </div>
+      <div className="digest-row">
+        <div className="digest-label">App ID</div>
+        <input className="digest-input" value={f.appId}
+          onChange={e => set({ appId: e.target.value })} placeholder="vd 987654321098765432" />
+      </div>
+      <div className="digest-row">
+        <div className="digest-label">Secret key</div>
+        <input className="digest-input" type="password" value={f.secretKey}
+          onChange={e => set({ secretKey: e.target.value })}
+          placeholder={st && st.hasSecret ? '•••••• (để trống nếu không đổi)' : 'dán secret key'} />
+      </div>
+      <div className="digest-row">
+        <div className="digest-label">Refresh token lần đầu</div>
+        <input className="digest-input" type="password" value={f.refreshTokenSeed}
+          onChange={e => set({ refreshTokenSeed: e.target.value })}
+          placeholder={st && st.hasRefreshToken ? '•••••• (để trống nếu không đổi)'
+            : (own ? 'lấy ở bước cấp quyền OA trên trang Zalo' : 'bên cung cấp gửi kèm')} />
+      </div>
+      {own && (
+        <div className="digest-ch-warn">
+          <Icon name="info" size={12} /> App ID và Secret chưa đủ để gửi — Zalo cấp mã truy cập bằng
+          cách đổi refresh token, mà refresh token đầu tiên chỉ lấy được sau khi bạn cấp quyền cho
+          ứng dụng trên trang quản lý OA. Sau lần đầu, hệ thống tự xoay vòng, bạn không phải nhập lại.
         </div>
       )}
 

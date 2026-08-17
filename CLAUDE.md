@@ -495,10 +495,17 @@ KHÔNG thêm bảng mới cho việc này.
      [`TenantChannelSettingsStore`](Services/Digest/TenantChannelSettingsStore.cs). Giao diện nằm
      **cùng thẻ với tài khoản dịch vụ** trong mục "Theo tổ chức" — cả hai đều là thông tin đăng
      nhập cấp công ty, khai một lần.
-   - **KHÔNG có đường rơi ngầm về OA chung.** Hai chế độ, cả hai đều phải khai: `own` (OA riêng —
-     OA ID + App ID + Secret) hoặc `provided` (dùng OA của bên cung cấp bằng **khoá được cấp**).
-     Chưa khai đủ → kênh Zalo không gửi và nói thẳng, tuyệt đối không lặng lẽ gửi bằng danh nghĩa
-     đơn vị khác.
+   - **Hai chế độ, MỘT đường code — `mode` chỉ là nhãn.** Cả `own` lẫn `provided` khai CÙNG bộ
+     `oaId` + `appId` + `secretKey` + `refreshTokenSeed`; khác nhau duy nhất ở chỗ giá trị từ đâu ra:
+     `own` công ty tự đăng ký OA, `provided` bên cung cấp dịch vụ **đưa sẵn thông tin OA hệ thống**
+     để công ty khỏi phải đi đăng ký — họ vẫn dán vào đúng những ô đó, không phải "khỏi nhập gì".
+     Vì thế phần gửi không tách nhánh theo `mode`; nhãn chỉ đổi lời hướng dẫn trên màn hình và cho
+     biết đang gửi dưới tên OA của ai.
+     ⚠️ `refreshTokenSeed` **bắt buộc**: App ID + Secret không lấy được token — Zalo đổi refresh
+     token lấy access token, mà refresh token đầu chỉ có sau bước cấp quyền OA. Thiếu nó thì công ty
+     khai xong tưởng chạy được, worker không bao giờ lấy nổi token.
+     **KHÔNG có đường rơi ngầm**: chưa khai đủ → kênh Zalo không gửi và nói thẳng, tuyệt đối không
+     lặng lẽ gửi bằng danh nghĩa đơn vị khác.
    - **Mã mẫu ZNS khai theo TỪNG CHỨC NĂNG** (`sale-brief` · `ceo-brief` · `payment-alert`): Zalo
      duyệt mẫu theo nội dung nên bản tin sáng và nhắc thu tiền là hai mẫu khác nhau. Danh sách 1
      nguồn ở `DigestEndpoints.ZaloTemplateFeatures` — thêm chức năng gửi Zalo mới = thêm 1 dòng,
