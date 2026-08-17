@@ -620,6 +620,38 @@ Hệ quản trị admin riêng biệt với user-facing app. Entry HTML `wwwroot
 
 Sidebar, sub-router, auth gate tự pick up. KHÔNG cần đụng `Program.cs`, không cần đụng `admin.css` (trừ khi page mới có style riêng → namespace `.admin-orders-*`).
 
+## SEO cho trang public
+
+Toàn bộ ở **server** ([`Configuration/SeoSetup.cs`](Configuration/SeoSetup.cs), nối vào
+`ServeIndex` của [`StaticFilesSetup`](Configuration/StaticFilesSetup.cs)) — vì trang vẽ bằng JS nên
+HTML gốc **không có một chữ nào** của nội dung; máy tìm kiếm và bộ xem trước link (Zalo/Facebook/
+LinkedIn/Bing — phần lớn KHÔNG chạy JS) nhìn vào chỉ thấy trang trắng.
+
+- **Nội dung dựng sẵn** (`SeoSetup.LandingBody()`) nhét vào `#root` **chỉ cho `/` và `/landing`**.
+  `ReactDOM.createRoot().render()` xoá sạch container khi khởi động nên người dùng thấy đúng trang
+  thật — không phải hydrate, không có chuyện lệch markup.
+  ⚠️ **Chữ ở đây phải TRÙNG nguyên văn với `wwwroot/pages/landing.jsx`.** Trùng thì đó chỉ là "gửi
+  sớm hơn"; lệch thì Google coi là gian lận nội dung (cloaking) và phạt. Cố ý chỉ lấy phần chữ ỔN
+  ĐỊNH (tiêu đề, tên tính năng, tên các bước), KHÔNG lấy đoạn giới thiệu dài của từng tính năng —
+  chữ càng dài càng hay sửa, sửa một bên quên bên kia là lệch.
+- **`SeoSetup.Routes` là 1 nguồn cho 3 việc**: tiêu đề từng trang · `noindex` cho trang nội bộ ·
+  **danh sách đường hợp lệ để trả 404**. Thêm trang mới mà quên khai ở đây thì mở link trực tiếp vào
+  trang đó ra **404** (trong app bấm qua vẫn chạy vì router client không hỏi server — hỏng kiểu khó lần).
+- **Không hardcode tên miền.** `canonical`/`sitemap` dựng từ request, đọc `X-Forwarded-Host`/`-Proto`
+  trước (sau IIS/nginx thì `Request.Host` là host nội bộ → canonical thành `http://localhost/`, tức
+  khai với Google rằng bản chính nằm ở localhost).
+- `/landing` **canonical về `/`** — hai đường cùng nội dung, không khai thì tự chia điểm.
+- `robots.txt` + `sitemap.xml` map **TRƯỚC `MapFallback`**, không thì fallback nuốt và trả
+  `index.html` kèm 200 (đúng cái bẫy đã ghi ở mục `Features:Digest`). Sitemap **chỉ có trang chủ**:
+  khai trang nội bộ vào sitemap là tự mời Google index đúng những trang vừa gắn `noindex` — hai tín
+  hiệu chỏi nhau, Search Console báo lỗi.
+- **Escape tối thiểu** (`SeoSetup.EscapeText`, chỉ `& < > "`), KHÔNG dùng `WebUtility.HtmlEncode`:
+  nó mã hoá cả chữ có dấu thành `&#7897;` nên "Hộp thư AI" thành một dãy số — meta phình gấp mấy
+  lần, mô tả vượt giới hạn ký tự của Google, và xem mã nguồn không đọc được gì.
+- **Bộ kiểm chống lệch**: `node scripts/e2e/seo-prerender.check.js` — đối chiếu từng câu dựng sẵn với
+  `landing.jsx`, đối chiếu `SeoSetup.Routes` với các `<Route path>` trong `app.jsx`, và chặn việc mở
+  `Index: true` cho trang nội bộ.
+
 ## Frontend layout
 
 ```

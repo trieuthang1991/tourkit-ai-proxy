@@ -13,6 +13,32 @@ Những cập nhật gần đây của TRAV-AI, viết cho người dùng. Mới
 
 ---
 
+## Phiên bản 17/08/2026 (bản 2) — Trang giới thiệu để Google và Zalo đọc được
+
+### ✨ Tính năng mới
+- **🔍 Trang giới thiệu giờ tìm thấy được trên Google.** Trước đây nội dung trang chỉ hiện ra sau khi
+  trình duyệt chạy xong, nên máy tìm kiếm nhìn vào thấy trang trắng. Nay chữ được gửi kèm ngay từ
+  đầu: tiêu đề, giới thiệu, tên 9 tính năng, ba bước bắt đầu.
+- **🔗 Dán link ra Zalo, Facebook, LinkedIn giờ hiện ảnh và tiêu đề.** Trước đây chia sẻ link ra chỉ
+  được một dòng trống, vì các nền tảng đó không chạy được trang. Nay có tiêu đề, mô tả và ảnh xem trước.
+- **📄 Tiêu đề riêng cho từng trang.** Trước đây mọi trang đều mang một tiêu đề tiếng Anh chung. Nay
+  mỗi trang một tiêu đề tiếng Việt đúng nội dung — nhìn tab trình duyệt là biết đang mở gì.
+
+### 🔧 Đã khắc phục
+- **Màn hình làm việc nội bộ có thể lọt vào kết quả tìm kiếm.** Hộp thư, Tự động hoá, Trợ lý… đều
+  đang mở cho máy tìm kiếm thu thập. Nay chúng được đánh dấu không đưa vào kết quả — người ngoài tìm
+  Google sẽ ra trang giới thiệu, không phải một màn hình đăng nhập.
+- **Địa chỉ không tồn tại vẫn trả về như trang bình thường.** Gõ một đường dẫn sai thì hệ thống báo
+  "vẫn ổn", nên máy tìm kiếm lưu lại cả những địa chỉ rác. Nay báo đúng là không tìm thấy.
+- **Hai địa chỉ khác nhau cùng dẫn tới trang giới thiệu** khiến điểm đánh giá bị chia đôi. Nay đã
+  khai rõ đâu là địa chỉ chính.
+
+### 📌 Lưu ý
+- Sau khi lên bản này, nên khai địa chỉ trang trong Google Search Console và gửi sơ đồ trang
+  (`/sitemap.xml`) để Google đọc lại sớm hơn.
+
+---
+
 ## Phiên bản 17/08/2026 — Khai nơi nhận một lần, và tin Zalo mang tên công ty bạn
 
 ### ✨ Tính năng mới

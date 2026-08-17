@@ -30,12 +30,26 @@ public static class StaticFilesSetup
         app.MapGet("/", (HttpContext ctx) => ServeIndex(ctx, webRoot, isDev));
         app.MapGet("/index.html", (HttpContext ctx) => ServeIndex(ctx, webRoot, isDev));
 
+        // robots.txt + sitemap.xml — phải đăng ký TRƯỚC MapFallback, không thì fallback nuốt và trả
+        // index.html kèm status 200 (đúng cái bẫy đã ghi trong Program.cs cho /api/**).
+        app.MapSeoEndpoints();
+
         // SPA deep-link fallback (/customers, /deals, /assistant…) PHẢI cũng qua ServeIndex để
         // nhận bundle-injection + ?v=hash. TRƯỚC ĐÂY Program.cs dùng MapFallbackToFile("index.html")
         // serve file THÔ → deep-link + Ctrl+F5 rớt về DEV-babel mode (44 <script type=text/babel>
         // + Babel CDN, cold start 3-5s) NGAY CẢ KHI đã có prod bundle. Chỉ "/" mới nhanh.
         // MapFallback luôn ưu tiên thấp nhất (order=int.MaxValue) → API + static file vẫn match trước.
-        app.MapFallback((HttpContext ctx) => ServeIndex(ctx, webRoot, isDev));
+        //
+        // Đường dẫn LẠ trả 404 THẬT (kèm chính trang này để người dùng còn thấy giao diện). Trước đây
+        // mọi đường đều 200 — kể cả /khong-ton-tai-abcxyz — nên máy tìm kiếm index cả URL rác và coi
+        // đó là "soft 404". Danh sách đường hợp lệ ở SeoSetup.Routes; bộ kiểm seo-prerender.check.js
+        // đối chiếu với các <Route path> trong app.jsx để không lệch.
+        app.MapFallback((HttpContext ctx) =>
+        {
+            var known = SeoSetup.IsKnownRoute(ctx.Request.Path.Value ?? "/");
+            if (!known) ctx.Response.StatusCode = StatusCodes.Status404NotFound;
+            return ServeIndex(ctx, webRoot, isDev, known);
+        });
 
         app.UseStaticFiles(new StaticFileOptions
         {
@@ -146,12 +160,40 @@ public static class StaticFilesSetup
         @"<script\s+src=[""'](?:lib/data|core/features)\.js[""'][^>]*></script>\s*",
         RegexOptions.IgnoreCase | RegexOptions.Compiled);
 
-    private static IResult ServeIndex(HttpContext ctx, string webRoot, bool recomputeVersion = false)
+    // Thẻ <title> gốc trong index.html — thay bằng tiêu đề theo từng trang.
+    private static readonly Regex _titleRegex = new(
+        @"<title>.*?</title>", RegexOptions.IgnoreCase | RegexOptions.Singleline | RegexOptions.Compiled);
+
+    private static IResult ServeIndex(HttpContext ctx, string webRoot, bool recomputeVersion = false,
+        bool knownRoute = true)
     {
         var path = Path.Combine(webRoot, "index.html");
         if (!File.Exists(path)) return Results.NotFound();
         ctx.Response.Headers["Cache-Control"] = "no-cache, must-revalidate";
         var html = File.ReadAllText(path);
+
+        // ── SEO: tiêu đề + thẻ meta theo từng trang, và nội dung chữ dựng sẵn cho trang chủ ──
+        //
+        // Làm ở server vì trang vẽ bằng JS: HTML gốc không có chữ nào của nội dung, nên bộ xem trước
+        // link (Zalo/Facebook/LinkedIn) và các máy tìm kiếm không chạy JS chỉ thấy trang trắng.
+        var reqPath = ctx.Request.Path.Value ?? "/";
+        var seo = SeoSetup.For(reqPath);
+        // Escape tối thiểu (xem SeoSetup.Esc) — HtmlEncode sẽ biến chữ có dấu thành &#7897; nên
+        // tiêu đề tab và kết quả tìm kiếm thành một dãy số trong mã nguồn.
+        html = _titleRegex.Replace(html, $"<title>{SeoSetup.EscapeText(seo.Title)}</title>", 1);
+
+        var headTags = knownRoute
+            ? SeoSetup.Head(ctx, reqPath)
+            // Đường lạ (đang trả 404): chỉ cần chặn index, không cần canonical/OG cho một URL không
+            // tồn tại — khai canonical cho nó là nói với Google rằng URL đó có thật.
+            : "<meta name=\"robots\" content=\"noindex\" />\n";
+        var headClose = html.IndexOf("</head>", StringComparison.OrdinalIgnoreCase);
+        if (headClose > 0) html = html.Insert(headClose, headTags);
+
+        // Nội dung dựng sẵn CHỈ cho trang chủ, nhét vào #root. React thay toàn bộ khi khởi động nên
+        // người dùng thấy đúng trang thật; chữ y hệt nhau nên không phải chuyện che mắt máy tìm kiếm.
+        if (seo.Index)
+            html = html.Replace("<div id=\"root\"></div>", $"<div id=\"root\">{SeoSetup.LandingBody()}</div>");
         if (recomputeVersion) _buildVersion = ComputeBuildVersion(webRoot);
         var v = _buildVersion;
 
