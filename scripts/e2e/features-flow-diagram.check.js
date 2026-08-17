@@ -73,6 +73,7 @@ function extractSchema(src) {
   // "X is not defined" và cả bộ kiểm chết ở bước đọc nguồn (đã dính khi thêm BRIEF_SECTIONS).
   return new Function(
     `${grabArr('MAIL_CATEGORIES')}\n${grabArr('MAIL_TONES')}\n${grabArr('BRIEF_SECTIONS')}\n`
+    + `${grabArr('TOUR_TYPES')}\n`
     + `${grabObj('WORKFLOW_OPTIONS')}\nreturn WORKFLOW_OPTIONS;`
   )();
 }

@@ -17,8 +17,12 @@ public static class DigestEnqueuePlanner
 {
     public const string Kind = "daily-brief";
 
+    /// <param name="zaloTemplateId">Mã mẫu ZNS của công ty cho ĐÚNG loại bản tin này (null = chưa
+    /// khai). Đính kèm ngay trên dòng hàng đợi thay vì bắt worker tự tra: worker bên toutkit-app
+    /// đọc bảng của proxy càng ít càng tốt, và lúc gửi mới đi tra thì mẫu có thể đã bị đổi so với
+    /// lúc dựng nội dung.</param>
     public static List<OutboundMailInput> BuildRows(DigestSubscription sub, long insightId,
-        DigestMessage m, DateTime scheduledUtc, string dateVn)
+        DigestMessage m, DateTime scheduledUtc, string dateVn, string? zaloTemplateId = null)
     {
         var rows = new List<OutboundMailInput>(3);
         foreach (var ch in OutboundChannels.EnabledOf(sub))
@@ -51,6 +55,13 @@ public static class DigestEnqueuePlanner
                         phone = sub.ZaloPhone!.Trim(),
                         title = m.Title,
                         body = m.BodyMarkdown,
+                        // Mẫu ZNS của CHÍNH công ty đó. null = chưa khai → worker không đoán mẫu
+                        // khác thay thế, mà đánh dấu "thiếu cấu hình" để trang theo dõi nói ra.
+                        templateId = zaloTemplateId,
+                        // Loại bản tin: worker cần để tra đúng mẫu khi gặp dòng CŨ (do bản proxy
+                        // trước xếp vào, chưa có templateId). Thiếu nó thì bản dự phòng phải đoán,
+                        // và đoán trượt là gửi bản tin điều hành bằng mẫu của bản tin bán hàng.
+                        briefType = m.Kind,
                     }),
                     ScheduledUtc: scheduledUtc, Channel: OutboundChannel.Zalo),
             });

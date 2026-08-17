@@ -43,6 +43,7 @@ public class SaleBriefWorkflow : IScheduledWorkflow
     private readonly MailRepository _mails;
     private readonly InsightRepository _insights;
     private readonly MailQueueRepository _queue;
+    private readonly TenantChannelSettingsStore _channels;
     private readonly IConfiguration _cfg;
     private readonly Providers.ProviderRegistry _providers;
     private readonly Providers.AiModelRegistry _models;
@@ -51,12 +52,12 @@ public class SaleBriefWorkflow : IScheduledWorkflow
 
     public SaleBriefWorkflow(DigestSubscriptionRepository subs, TkSessionStore sessions,
         TkSessionRepository sessionRepo, TourKitApiClient api, TourkitAiDb db,
-        MailRepository mails, InsightRepository insights, MailQueueRepository queue,
+        MailRepository mails, InsightRepository insights, MailQueueRepository queue, TenantChannelSettingsStore channels,
         IConfiguration cfg, Providers.ProviderRegistry providers, Providers.AiModelRegistry models,
         AiCallContext ctx, ILogger<SaleBriefWorkflow> log)
     {
         _subs = subs; _sessions = sessions; _sessionRepo = sessionRepo; _api = api;
-        _db = db; _mails = mails; _insights = insights; _queue = queue; _cfg = cfg;
+        _db = db; _mails = mails; _insights = insights; _queue = queue; _channels = channels; _cfg = cfg;
         _providers = providers; _models = models; _ctx = ctx; _log = log;
     }
 
@@ -192,6 +193,15 @@ public class SaleBriefWorkflow : IScheduledWorkflow
         int prepared = 0, noSession = 0, failed = 0, skipped = 0, aiCalls = 0, aiFails = 0;
         var parts = new List<string>();
 
+        // Mẫu ZNS của công ty: tra MỘT LẦN cho cả lượt, không tra lại theo từng người.
+        // Chưa khai thì để null — worker sẽ đánh dấu "thiếu cấu hình" chứ KHÔNG mượn mẫu khác.
+        string? zaloTemplateId = null;
+        if (due.Any(x => x.ChannelZalo))
+        {
+            var zcfg = await _channels.GetZaloAsync(tenantId, ct);
+            zaloTemplateId = zcfg?.TemplateFor(BriefTypes.Sale);
+        }
+
         foreach (var sub in due)
         {
             ct.ThrowIfCancellationRequested();
@@ -229,7 +239,7 @@ public class SaleBriefWorkflow : IScheduledWorkflow
 
                 var schedUtc = DigestDue.SendMomentUtc(sub, utcNow);
                 var rows = DigestEnqueuePlanner.BuildRows(sub, insightId.Value, msg, schedUtc,
-                    todayVn.ToString("dd/MM/yyyy"));
+                    todayVn.ToString("dd/MM/yyyy"), zaloTemplateId);
                 int qOk = 0, qFail = 0;
                 foreach (var r in rows)
                 {

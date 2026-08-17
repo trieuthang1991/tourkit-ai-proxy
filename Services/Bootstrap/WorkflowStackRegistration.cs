@@ -163,6 +163,10 @@ public static class WorkflowStackRegistration
         // sống bên worker, endpoint cấu hình sống bên web, cả hai cùng cần bộ này.
         s.AddSingleton<Digest.InsightRepository>();
         s.AddSingleton<Digest.DigestSubscriptionRepository>();
+        // Cấu hình kênh gửi CỦA CÔNG TY — quay lại per-tenant 17/08 (xem TenantChannelSettingsStore):
+        // đi gặp khách hàng thì không công ty nào chịu gửi ZNS bằng OA của bên cung cấp dịch vụ.
+        s.AddSingleton<Digest.TenantChannelSettingsStore>();
+        // Ghi chú cũ, giữ lại để hiểu vì sao từng có giai đoạn không có lớp này:
         // TenantChannelSettingsStore đã GỠ (14/08): proxy không còn đọc/ghi cấu hình kênh của
         // công ty — Zalo nay dùng OA chung khai ở config worker. Bảng dbo.TenantChannelSettings vẫn
         // còn, nhưng chủ của nó giờ là worker (lưu cặp token ZNS ở scope hệ thống).

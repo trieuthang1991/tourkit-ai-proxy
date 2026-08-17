@@ -13,6 +13,54 @@ Những cập nhật gần đây của TRAV-AI, viết cho người dùng. Mới
 
 ---
 
+## Phiên bản 17/08/2026 — Khai nơi nhận một lần, và tin Zalo mang tên công ty bạn
+
+### ✨ Tính năng mới
+- **📬 "Nơi nhận của tôi" — khai một lần, dùng cho tất cả.** Email, Telegram và số Zalo của bạn nay
+  nằm ở một khối riêng ngay đầu mục *Theo người dùng* trong *Tự động hoá*. Trước đây chúng nằm lẫn
+  trong thẻ bản tin sáng, nên mỗi khi có thêm loại thông báo mới là bạn lại phải khai địa chỉ thêm
+  một lần nữa. Nay khai một lần, mọi thông báo đều dùng — bản tin sáng, cảnh báo, và những thứ ra sau.
+- **💬 Tin Zalo gửi bằng tài khoản OA của chính công ty bạn.** Trước đây tin nhắn Zalo đi qua tài
+  khoản chung của bên cung cấp dịch vụ, nghĩa là khách của bạn nhận tin mang tên một công ty khác.
+  Nay công ty tự khai OA riêng trong *Tự động hoá → Theo tổ chức*, ngay dưới tài khoản tự động.
+  Mỗi loại thông báo khai một mẫu tin riêng, vì Zalo duyệt mẫu theo nội dung. Chưa khai xong thì
+  Zalo không gửi và nói rõ còn thiếu gì — hệ thống **không** tự gửi thay bằng tài khoản của bên khác.
+- **📧 Cảnh báo thu tiền gửi được qua email.** Bật trong thẻ *Canh thanh toán trước khởi hành*: mỗi
+  lần quét gửi **một thư gộp** mọi tour còn nợ tới những người đã khai email ở "Nơi nhận của tôi",
+  chứ không phải mỗi tour một thư. Cần thêm hộp thư chung của kế toán thì điền riêng.
+- **🔁 Giới hạn số lần nhắc.** Cũng trong thẻ đó: mỗi tour nhắc nhiều nhất một lần mỗi ngày, và dừng
+  hẳn sau số lần bạn đặt (mặc định 3). Trước đây tour còn nợ bị nhắc lại **mỗi ngày cho tới lúc khởi
+  hành** — nới cửa sổ lên 30 ngày là 30 lần cho cùng một tour.
+- **⚙️ Chọn được loại tour cần quét, số ngày và mức nợ đáng nhắc.** Thẻ *Canh thanh toán* trước đây
+  không có tuỳ chọn nào, mọi thứ cố định sẵn.
+
+### 🔧 Đã khắc phục
+- **Hai tác vụ về tour chỉ nhìn thấy một loại tour.** *Kiểm tra sẵn sàng khởi hành* và *Canh thanh
+  toán* thực ra chỉ đọc được tour lẻ (FIT). Hậu quả: phần nhắc hồ sơ visa **chưa từng chạy lần nào**,
+  phần canh chỗ ngồi không thấy tour ghép nào, và nợ của tour ghép không ai canh. Tệ nhất là nó
+  **trông vẫn bình thường** — vẫn báo "đã quét N tour". Nay bạn tự chọn loại tour cần quét (mặc định
+  tour lẻ + tour ghép), và nếu bật kiểm visa mà chưa chọn loại phù hợp thì hệ thống nói thẳng là
+  phần đó không chạy.
+- **Ô "loại tour cần visa" bắt gõ mã số khó hiểu.** Trước đây ô này yêu cầu nhập con số như `102` mà
+  không ai ngoài người viết phần mềm biết nghĩa. Nay là danh sách chọn có tên thật, kèm giải thích
+  rõ đây là "loại đơn nào được coi là hồ sơ visa" chứ không phải "tour nào đi nước ngoài".
+- **"Còn nợ" nay tính đúng như bộ lọc trên màn hình tìm kiếm tour.** Trước đây tác vụ tự lấy doanh
+  thu trừ đã thu, có thể khác con số bạn thấy khi bấm lọc *Chưa thu hết*. Nay dùng chính bộ lọc đó,
+  nên cảnh báo và màn hình luôn nói cùng một con số.
+- **Số tiền trên bảng tin hiện không thống nhất.** Hai thẻ cạnh nhau có thể hiện `7.350.000đ` và
+  `7,350,000đ`, tuỳ máy chủ nào chạy. Nay thống nhất theo cách viết Việt Nam.
+- **Sửa email trong bản tin có thể vô tình tắt đăng ký của bạn.** Nay chỗ khai địa chỉ tách riêng nên
+  không còn đụng tới loại bản tin và giờ nhận.
+
+### 📌 Lưu ý
+- Cụm bản tin và cảnh báo vẫn nằm sau công tắc bật/tắt riêng, mặc định **chưa mở**. Chưa thấy trên
+  máy bạn thì không phải hỏng.
+- Muốn dùng Zalo, công ty cần chuẩn bị: OA riêng, mã ứng dụng, khoá bí mật, **mã làm mới lần đầu**
+  (lấy khi cấp quyền cho ứng dụng trên trang quản lý OA), và mẫu tin đã được Zalo duyệt cho từng
+  loại thông báo.
+
+---
+
 ## Phiên bản 15/08/2026 — Ghi chú khách hàng hiện đúng tiếng Việt
 
 ### ✨ Tính năng mới

@@ -96,6 +96,61 @@ VALUES
             });
     }
 
+    /// <summary>
+    /// Lưu RIÊNG "nơi nhận của tôi" (kênh + địa chỉ), KHÔNG đụng phần đăng ký bản tin
+    /// (<c>BriefType</c>/<c>Enabled</c>/<c>SendHourLocal</c>).
+    ///
+    /// <para>Tách ra vì địa chỉ nhận là thứ mỗi người khai MỘT LẦN rồi dùng cho mọi loại thông báo
+    /// — bản tin sáng, cảnh báo thanh toán, sau này thêm gì nữa cũng vậy. Nếu vẫn dùng chung
+    /// <see cref="UpsertAsync"/> thì mỗi lần sửa email lại phải gửi kèm cả loại bản tin và giờ
+    /// nhận; client nào quên là <b>âm thầm tắt đăng ký của chính người đó</b>.</para>
+    ///
+    /// <para>Chưa có dòng thì tạo mới với <c>Enabled = 0</c>: người ta mới chỉ khai chỗ nhận, chưa
+    /// đăng ký nhận gì cả. Tạo sẵn ở trạng thái bật là tự ý ghi danh hộ.</para>
+    /// </summary>
+    public async Task UpdateChannelsAsync(string tenant, string username,
+        bool channelEmail, string? email,
+        bool channelTelegram, string? telegramChatId,
+        bool channelZalo, string? zaloPhone,
+        CancellationToken ct = default)
+    {
+        await using var c = await _db.OpenAsync(ct);
+        await c.ExecuteAsync(@"
+MERGE dbo.DigestSubscriptions AS T
+USING (SELECT @tenant AS TenantId, @username AS Username) AS S
+    ON T.TenantId = S.TenantId AND T.Username = S.Username
+WHEN MATCHED THEN UPDATE SET
+    ChannelEmail = @channelEmail, Email = @email,
+    ChannelTelegram = @channelTelegram, TelegramChatId = @telegramChatId,
+    ChannelZalo = @channelZalo, ZaloPhone = @zaloPhone, UpdatedUtc = SYSUTCDATETIME()
+WHEN NOT MATCHED THEN INSERT
+    (TenantId, Username, BriefType, Enabled, SendHourLocal, ChannelInApp, ChannelEmail, Email,
+     ChannelTelegram, TelegramChatId, ChannelZalo, ZaloPhone, CreatedUtc, UpdatedUtc)
+VALUES
+    (@tenant, @username, @defaultBrief, 0, 7, 1, @channelEmail, @email,
+     @channelTelegram, @telegramChatId, @channelZalo, @zaloPhone, SYSUTCDATETIME(), SYSUTCDATETIME());",
+            new
+            {
+                tenant, username,
+                defaultBrief = BriefTypes.Sale,   // chỗ giữ chỗ; Enabled=0 nên chưa nhận gì
+                channelEmail, email, channelTelegram, telegramChatId, channelZalo, zaloPhone
+            });
+    }
+
+    /// Mọi người trong công ty đã khai ít nhất một kênh ngoài — dùng cho cảnh báo cấp CÔNG TY
+    /// (vd tour sắp đi còn nợ tiền): không có "chủ sở hữu" nào để gửi riêng, nên gửi cho những ai
+    /// đã tự khai chỗ nhận. Lọc `Enabled` ở đây là SAI: `Enabled` nói về bản tin sáng, một người
+    /// có thể không nhận bản tin nhưng vẫn muốn nhận cảnh báo.
+    public async Task<List<DigestSubscription>> ListWithChannelsAsync(string tenant, CancellationToken ct = default)
+    {
+        await using var c = await _db.OpenAsync(ct);
+        var rows = await c.QueryAsync<SubRow>(
+            $"SELECT {Cols} FROM dbo.DigestSubscriptions WHERE TenantId = @tenant "
+            + "AND (ChannelEmail = 1 OR ChannelTelegram = 1 OR ChannelZalo = 1)",
+            new { tenant });
+        return rows.Select(r => r.ToModel()).ToList();
+    }
+
     // MarkSentAsync đã GỠ (13/08). Bản tin không còn "gửi xong thì đánh dấu lên bản đăng ký":
     // workflow chỉ chuẩn bị nội dung, việc gửi giao cho hàng đợi nên trạng thái giao nằm ở đó.
     // Chống dựng trùng trong ngày đọc thẳng Bảng tin (InsightRepository.ExistsTodayAsync).

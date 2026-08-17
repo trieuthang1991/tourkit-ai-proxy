@@ -1334,6 +1334,13 @@ function WorkflowsPage({ pushToast, initialTab }) {
                   <h2 className="workflows-group-title" style={_wfRow}><Icon name="user" size={17} /> Theo người dùng</h2>
                   <p className="workflows-group-desc">Mỗi nhân viên tự bật cho riêng mình, dùng hộp thư và dữ liệu của chính mình.</p>
                 </div>
+                {/* Nơi nhận khai MỘT LẦN cho mọi thông báo — đặt ngay đầu mục, trước các thẻ, vì
+                    nó là điều kiện dùng chung chứ không thuộc riêng tác vụ nào. Chỉ hiện khi cụm
+                    bản tin đang bật: tắt cờ thì không có gì gửi qua các kênh này. */}
+                {digestOn && window.MyChannelsBlock && (
+                  <window.MyChannelsBlock sub={subOf('sale-brief') || subOf('ceo-brief')}
+                    onSaved={loadDigest} pushToast={pushToast} />
+                )}
                 {renderCards(perUser.filter(w => !isBriefWf(w)), false)}
                 {/* 2 loại bản tin gộp thành 1 thẻ + ô chọn loại — xem BriefPicker. */}
                 {perUser.some(isBriefWf) && (
@@ -1351,10 +1358,16 @@ function WorkflowsPage({ pushToast, initialTab }) {
                 </div>
                 <div className={'wga-card' + (saConfigured === false ? ' workflows-sa-needed' : '')} style={{ padding: '14px 18px', marginBottom: 14 }}>
                   <ServiceAccountConfig pushToast={pushToast} onChange={loadSa} />
-                  {/* Khoi khai OA Zalo da GO (14/08): Zalo gui bang ZNS qua OA cua ben cung cap
-                      dich vu, khai o config he thong -> tung cong ty khong con phai khai gi.
-                      Truoc day moi cong ty phai tu khai OA vi tin Zalo tinh tien theo tung OA;
-                      nay ben minh chiu chi phi nen gop ve mot moi. */}
+                  {/* OA Zalo của công ty — nằm ngay dưới tài khoản dịch vụ, trong CÙNG thẻ: cả hai
+                      đều là "thông tin đăng nhập cấp công ty, khai một lần". Tách ra thẻ riêng thì
+                      người khai phải đi tìm ở hai chỗ cho cùng một loại việc.
+                      (Khối này từng bị gỡ 14/08 khi chuyển sang OA chung — khôi phục 17/08 vì đi
+                      gặp khách hàng thì không công ty nào chịu gửi bằng OA của đơn vị khác.) */}
+                  {digestOn && window.ZaloOaConfig && (
+                    <div className="workflows-sa-divider">
+                      <window.ZaloOaConfig pushToast={pushToast} />
+                    </div>
+                  )}
                 </div>
                 {/* Luật chung của bản tin: khai một lần cho cả công ty, ai muốn nhận thì tự bật
                     ở mục Theo người dùng phía trên. Đặt TRƯỚC các tác vụ khác vì chưa khai xong

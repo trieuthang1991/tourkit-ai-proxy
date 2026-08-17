@@ -30,6 +30,27 @@ public static class DigestEndpoints
         bool ChannelEmail, string? Email, bool ChannelTelegram, string? TelegramChatId,
         bool ChannelZalo, string? ZaloPhone);
 
+    /// Body PUT "nơi nhận của tôi" — CHỈ kênh + địa chỉ, không kèm loại bản tin hay giờ nhận.
+    public record ChannelsBody(bool ChannelEmail, string? Email,
+        bool ChannelTelegram, string? TelegramChatId,
+        bool ChannelZalo, string? ZaloPhone);
+
+    /// Body PUT cấu hình Zalo của công ty. Bí mật để trống = giữ nguyên bản đang lưu.
+    public record ZaloConfigBody(string? Mode, string? OaId, string? AppId,
+        string? SecretKey, string? RefreshTokenSeed, string? ProvisionKey,
+        Dictionary<string, string>? Templates);
+
+    /// <summary>
+    /// Những chức năng cần MẪU ZNS RIÊNG. Zalo duyệt mẫu theo nội dung, nên "bản tin sáng" và
+    /// "nhắc thu tiền" là hai mẫu khác nhau — dùng chung một mã thì Zalo từ chối, hoặc gửi được
+    /// nhưng nội dung nói sai chuyện.
+    /// <para>Thêm chức năng gửi Zalo mới = thêm 1 dòng ở đây; giao diện tự mọc thêm ô nhập.</para>
+    /// </summary>
+    public static readonly string[] ZaloTemplateFeatures =
+    {
+        BriefTypes.Sale, BriefTypes.Ceo, "payment-alert",
+    };
+
     public static IEndpointRouteBuilder MapDigestEndpoints(this IEndpointRouteBuilder routes)
     {
         var g = routes.MapGroup("/api/v1/digest");
@@ -54,6 +75,41 @@ public static class DigestEndpoints
                 // (TourKit lọc), chứ không phải "đăng ký được là thấy hết công ty".
                 scopeNote = "Số liệu trong bản tin theo đúng phạm vi quyền của tài khoản bạn.",
             }, Web);
+        });
+
+        // ─── Nơi nhận của tôi (dùng chung cho MỌI loại thông báo) ────────────────
+        //
+        // Tách khỏi PUT /subscriptions/{briefType} có chủ đích: địa chỉ nhận là hồ sơ CỦA NGƯỜI,
+        // khai một lần rồi bản tin sáng lẫn cảnh báo đều dùng. Gộp vào endpoint đăng ký thì mỗi
+        // lần đổi email lại phải gửi kèm loại bản tin + giờ nhận — client quên một trường là tự
+        // tay tắt đăng ký của chính người đó mà không báo gì.
+        g.MapPut("/my-channels", async (ChannelsBody body, HttpContext ctx, TkSessionStore sessions,
+            DigestSubscriptionRepository repo, CancellationToken ct) =>
+        {
+            var a = SessionAuth.Read(ctx, sessions);
+            if (a == null) return SessionAuth.Unauthorized();
+
+            // Bật kênh mà bỏ trống nơi nhận → kênh đó im lặng không gửi được. Nói ngay lúc lưu,
+            // lúc người dùng còn đang nhìn màn hình, chứ không để tới sáng mai mới lộ.
+            var missing = new List<string>();
+            if (body.ChannelEmail && string.IsNullOrWhiteSpace(body.Email)) missing.Add("email nhận");
+            if (body.ChannelTelegram && string.IsNullOrWhiteSpace(body.TelegramChatId)) missing.Add("chat id Telegram");
+            if (body.ChannelZalo && string.IsNullOrWhiteSpace(body.ZaloPhone)) missing.Add("số điện thoại Zalo");
+            if (missing.Count > 0)
+                return Results.BadRequest(new { error = $"Còn thiếu {string.Join(", ", missing)}." });
+
+            if (body.ChannelZalo && !DigestPhone.IsValid(body.ZaloPhone))
+                return Results.BadRequest(new
+                {
+                    error = "Số điện thoại Zalo không hợp lệ — nhập số Việt Nam 10 chữ số bắt đầu bằng 0 (vd 0912345678).",
+                });
+
+            await repo.UpdateChannelsAsync(a.TenantId, a.Username,
+                body.ChannelEmail, body.Email?.Trim(),
+                body.ChannelTelegram, body.TelegramChatId?.Trim(),
+                body.ChannelZalo, DigestPhone.Normalize(body.ZaloPhone), ct);
+
+            return Results.Json(new { ok = true }, Web);
         });
 
         // ─── Lưu / cập nhật đăng ký ──────────────────────────────────────────────
@@ -290,10 +346,115 @@ public static class DigestEndpoints
             }
         });
 
-        // 3 endpoint /zalo-config đã GỠ (14/08): Zalo nay gửi bằng ZNS qua OA của bên cung cấp
-        // dịch vụ, khai một lần ở config hệ thống — không công ty nào phải khai OA riêng nữa.
-        // Bảng dbo.TenantChannelSettings vẫn giữ (worker dùng để lưu token ZNS xoay vòng).
+        // ─── Zalo OA của công ty (17/08 — khôi phục lại per-tenant) ──────────────
+        //
+        // Bản 14/08 gỡ nhóm endpoint này để dùng OA chung. Đi gặp khách hàng 17/08 thì KHÔNG công ty
+        // nào chịu: tin ZNS hiện tên OA người gửi, dùng OA của bên cung cấp dịch vụ nghĩa là khách
+        // của họ thấy tên một công ty khác. Nên OA riêng là đường CHÍNH; ai dùng OA của bên cung cấp
+        // thì nhập khoá được cấp — không có trạng thái "bỏ trống rồi hệ thống tự lo".
+        //
+        // Gác CH_HT_XEM: đây là bí mật cấp công ty do proxy tự giữ, TourKit không biết gì để lọc hộ.
+
+        g.MapGet("/zalo-config", async (HttpContext ctx, TkSessionStore sessions,
+            TenantChannelSettingsStore store, CancellationToken ct) =>
+        {
+            var a = SessionAuth.Read(ctx, sessions);
+            if (a == null) return SessionAuth.Unauthorized();
+            if (!await CanConfigSystemAsync(a.SessionId, sessions, ct)) return Forbidden();
+
+            var cfg = await store.GetZaloAsync(a.TenantId, ct);
+            // KHÔNG trả bí mật ra client — chỉ nói đã khai hay chưa, giống cách tài khoản dịch vụ làm.
+            return Results.Json(new
+            {
+                configured = cfg is { IsUsable: true },
+                mode = cfg?.Mode ?? TenantChannelSettingsStore.ModeOwnOa,
+                oaId = cfg?.OaId,
+                appId = cfg?.AppId,
+                hasSecret = !string.IsNullOrWhiteSpace(cfg?.SecretKey),
+                hasRefreshToken = !string.IsNullOrWhiteSpace(cfg?.RefreshTokenSeed),
+                hasProvisionKey = !string.IsNullOrWhiteSpace(cfg?.ProvisionKey),
+                templates = cfg?.Templates ?? new Dictionary<string, string>(),
+                // Danh sách chức năng cần mẫu ZNS riêng — giao diện vẽ ô theo cái này, khỏi hard-code.
+                features = ZaloTemplateFeatures,
+            }, Web);
+        });
+
+        g.MapPut("/zalo-config", async (ZaloConfigBody body, HttpContext ctx, TkSessionStore sessions,
+            TenantChannelSettingsStore store, CancellationToken ct) =>
+        {
+            var a = SessionAuth.Read(ctx, sessions);
+            if (a == null) return SessionAuth.Unauthorized();
+            if (!await CanConfigSystemAsync(a.SessionId, sessions, ct)) return Forbidden();
+
+            var mode = body.Mode == TenantChannelSettingsStore.ModeProvided
+                ? TenantChannelSettingsStore.ModeProvided
+                : TenantChannelSettingsStore.ModeOwnOa;
+
+            // Bí mật để trống = GIỮ NGUYÊN bản đang lưu (giao diện không đọc lại được nên không gửi
+            // lại được). Vì thế phải kiểm trên trạng thái SAU khi hợp nhất, không kiểm trên body.
+            var current = await store.GetZaloAsync(a.TenantId, ct);
+            var willHaveSecret = !string.IsNullOrWhiteSpace(body.SecretKey)
+                              || !string.IsNullOrWhiteSpace(current?.SecretKey);
+            var willHaveRefresh = !string.IsNullOrWhiteSpace(body.RefreshTokenSeed)
+                              || !string.IsNullOrWhiteSpace(current?.RefreshTokenSeed);
+            var willHaveProvision = !string.IsNullOrWhiteSpace(body.ProvisionKey)
+                                 || !string.IsNullOrWhiteSpace(current?.ProvisionKey);
+
+            var missing = new List<string>();
+            if (mode == TenantChannelSettingsStore.ModeOwnOa)
+            {
+                if (string.IsNullOrWhiteSpace(body.OaId)) missing.Add("OA ID");
+                if (string.IsNullOrWhiteSpace(body.AppId)) missing.Add("App ID");
+                if (!willHaveSecret) missing.Add("Secret key");
+                // App ID + Secret KHÔNG đủ để lấy token: Zalo đổi refresh token lấy access token,
+                // và refresh token đầu tiên chỉ có sau bước cấp quyền OA trên trang Zalo. Thiếu ô
+                // này thì công ty khai xong tưởng chạy được, mà worker không bao giờ lấy nổi token.
+                if (!willHaveRefresh) missing.Add("Refresh token lần đầu");
+            }
+            else if (!willHaveProvision) missing.Add("khoá được cấp");
+
+            if (missing.Count > 0)
+                return Results.BadRequest(new
+                {
+                    error = $"Còn thiếu {string.Join(", ", missing)}. Chưa khai đủ thì tin Zalo không gửi được — "
+                          + "hệ thống KHÔNG tự gửi bằng OA của đơn vị khác.",
+                });
+
+            var templates = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+            if (body.Templates != null)
+                foreach (var kv in body.Templates)
+                    // Chỉ nhận chức năng có trong danh sách: khoá lạ lưu vào thì không worker nào đọc,
+                    // người khai tưởng đã xong mà thực ra mẫu đó không bao giờ được dùng.
+                    if (ZaloTemplateFeatures.Contains(kv.Key, StringComparer.OrdinalIgnoreCase))
+                        templates[kv.Key] = kv.Value ?? "";
+
+            await store.SaveZaloAsync(a.TenantId, mode, body.OaId, body.AppId,
+                body.SecretKey, body.RefreshTokenSeed, body.ProvisionKey, templates, ct);
+
+            return Results.Json(new { ok = true }, Web);
+        });
+
+        g.MapDelete("/zalo-config", async (HttpContext ctx, TkSessionStore sessions,
+            TenantChannelSettingsStore store, CancellationToken ct) =>
+        {
+            var a = SessionAuth.Read(ctx, sessions);
+            if (a == null) return SessionAuth.Unauthorized();
+            if (!await CanConfigSystemAsync(a.SessionId, sessions, ct)) return Forbidden();
+
+            var removed = await store.DeleteZaloAsync(a.TenantId, ct);
+            return Results.Json(new { ok = true, removed }, Web);
+        });
 
         return routes;
     }
+
+    /// Gác quyền cấu hình hệ thống — cùng luật với trang Tự động hoá (WorkflowEndpoints).
+    private static async Task<bool> CanConfigSystemAsync(string sid, TkSessionStore sessions, CancellationToken ct)
+    {
+        await sessions.EnsurePermissionsAsync(sid, ct);
+        return sessions.HasPermission(sid, TkPermissionCodes.CauHinhHeThong);
+    }
+
+    private static IResult Forbidden()
+        => Results.Json(new { error = "Bạn không có quyền Cấu hình hệ thống (CH_HT_XEM)." }, statusCode: 403);
 }

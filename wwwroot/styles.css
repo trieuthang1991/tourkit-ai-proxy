@@ -8670,6 +8670,30 @@ n
   margin: 0 0 8px; font-size: 12px; color: var(--text-3);
 }
 
+/* Dòng trỏ ngược trong thẻ bản tin: "gửi tới …, đổi ở khối Nơi nhận của tôi phía trên".
+   Nhạt hơn cảnh báo vì đây là thông tin, không phải chuyện cần sửa. */
+.digest-ch-ref {
+  display: flex; align-items: center; gap: 6px; flex-wrap: wrap;
+  margin: 8px 0 2px; padding: 8px 11px; border-radius: var(--radius-sm);
+  border: 1px dashed var(--border); background: var(--bg);
+  font-size: 12px; line-height: 1.6; color: var(--text-2);
+}
+
+/* Khối "Nơi nhận của tôi" đứng riêng ở đầu mục, không nằm trong thẻ tác vụ nào → cần margin
+   dưới để không dính vào thẻ đầu tiên. */
+.digest-channels { margin-bottom: 14px; }
+
+/* OA Zalo nằm CÙNG thẻ với tài khoản dịch vụ → cần đường kẻ ngăn, không thì hai cụm thông tin
+   đăng nhập khác nhau dính liền thành một khối khó đọc. */
+.workflows-sa-divider { margin-top: 14px; padding-top: 14px; border-top: 1px solid var(--border); }
+.digest-zalo { background: transparent; padding: 0; }
+.digest-zalo-badge {
+  margin-left: 8px; padding: 1px 8px; border-radius: 999px;
+  font-size: 11px; font-weight: 600; vertical-align: middle;
+  background: var(--bg); color: var(--text-3); border: 1px solid var(--border);
+}
+.digest-zalo-badge.is-ok { background: #ECFDF5; color: #047857; border-color: #A7F3D0; }
+
 .digest-input {
   flex: 1 1 200px; min-width: 0; max-width: 320px;
   padding: 7px 10px; border-radius: var(--radius-sm);

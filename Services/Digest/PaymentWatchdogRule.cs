@@ -27,7 +27,11 @@ public static class PaymentWatchdogRule
     /// Còn ≤ số ngày này thì coi là gấp.
     private const int CriticalDays = 3;
 
-    public static List<PaymentAlert> Evaluate(IEnumerable<TourPaymentRow> rows, DateTime todayLocal, int windowDays = 7)
+    /// <param name="minOutstanding">Nợ dưới mức này thì không nhắc. 0 = nhắc mọi khoản còn thiếu.
+    /// Có ngưỡng vì chênh vài nghìn do làm tròn cũng là "còn nợ" theo đúng phép trừ, mà mỗi dòng
+    /// như thế lại chiếm một thẻ trong Bảng tin.</param>
+    public static List<PaymentAlert> Evaluate(IEnumerable<TourPaymentRow> rows, DateTime todayLocal,
+        int windowDays = 7, decimal minOutstanding = 0m)
     {
         var result = new List<PaymentAlert>();
         // .Date cả 2 vế: DepartureDate hay todayLocal lỡ kèm giờ thì số ngày còn lại vẫn đúng,
@@ -41,6 +45,7 @@ public static class PaymentWatchdogRule
 
             var outstanding = r.Revenue - r.ActualRevenue;
             if (outstanding <= 0) continue;   // đủ hoặc trả dư
+            if (minOutstanding > 0 && outstanding < minOutstanding) continue;
 
             var daysLeft = (r.DepartureDate.Date - today).Days;
             if (daysLeft < 0 || daysLeft > windowDays) continue;   // đã đi rồi, hoặc còn xa

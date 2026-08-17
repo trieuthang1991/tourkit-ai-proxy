@@ -73,32 +73,34 @@ function digestSummary(sub) {
   return `Bạn nhận lúc ${String(sub.sendHourLocal).padStart(2, '0')}:00 · ${ch.join(', ') || 'chưa chọn kênh'}`;
 }
 
-// ─── Khối đăng ký của một loại bản tin ──────────────────────────────────────────
-// companyReady: công ty đã khai luật chung của loại bản tin này chưa (đã có ai bấm Lưu cấu hình
-// ở mục "Theo tổ chức"). Chưa khai thì server từ chối bật nhận (409) — nên khoá ngay ô tick,
-// đừng để người dùng bấm xong mới nhận lỗi.
+// Liệt kê kênh đang bật, cho dòng trỏ ngược trong thẻ bản tin. "Trong app" luôn có nên luôn kể.
+function channelSummary(sub) {
+  const ch = ['trong app'];
+  if (sub && sub.channelEmail) ch.push('email');
+  if (sub && sub.channelTelegram) ch.push('Telegram');
+  if (sub && sub.channelZalo) ch.push('Zalo');
+  return ch.join(', ');
+}
+
+// ─── "Nơi nhận của tôi" — khai MỘT LẦN, mọi thông báo dùng chung ────────────────
 //
-// Chuyện "công ty đã bật lịch gửi chưa" KHÔNG còn hỏi ở đây: bật nhận là hệ thống tự bật lịch,
-// và nếu vì lý do nào đó lịch vẫn tắt thì dòng phán quyết ở đầu thẻ nói + có sẵn nút bật.
-function DigestSubBlock({ briefType, sub, onSaved, pushToast, companyReady = true }) {
+// Trước đây ô email/Telegram/Zalo nằm bên trong thẻ bản tin, nên nó trông như "nơi nhận của riêng
+// bản tin sáng". Thực tế dữ liệu vốn đã dùng chung: mỗi người CHỈ MỘT dòng trong DigestSubscriptions
+// (khoá chính TenantId+Username), địa chỉ nằm trên chính dòng đó. Đưa khối này lên đầu mục "Theo
+// người dùng" là nói đúng bản chất, và tránh chuyện thêm mỗi loại cảnh báo lại thêm một ô email nữa.
+//
+// Lưu qua endpoint RIÊNG (PUT /digest/my-channels) — không đụng loại bản tin và giờ nhận.
+function MyChannelsBlock({ sub, onSaved, pushToast }) {
   const Icon = window.Icon;
   const [f, setF] = dS({ ...EMPTY_SUB, ...(sub || {}) });
   const [saving, setSaving] = dS(false);
-  const [testing, setTesting] = dS(false);
-  const [testResult, setTestResult] = dS(null);
-  const [tgCode, setTgCode] = dS(null);
   const [dirty, setDirty] = dS(false);
+  const [tgCode, setTgCode] = dS(null);
 
-  // Server là nguồn đúng: sau khi tải lại thì đồng bộ về, TRỪ khi người dùng đang sửa dở —
-  // ghi đè lúc đó là xoá mất thao tác của họ ngay trước mắt.
   dE(() => { if (!dirty) setF({ ...EMPTY_SUB, ...(sub || {}) }); }, [sub]);
-
   const set = (patch) => { setF(prev => ({ ...prev, ...patch })); setDirty(true); };
 
-  // Kiểm ngay trên máy để nói sớm; server vẫn kiểm lại (không tin client).
   const problem = (() => {
-    if (!f.enabled) return null;
-    // KHÔNG còn đòi "ít nhất 1 kênh": trong app luôn bật, nên không chọn kênh ngoài nào vẫn nhận được.
     if (f.channelEmail && !String(f.email || '').trim()) return 'Nhập email nhận.';
     if (f.channelTelegram && !String(f.telegramChatId || '').trim()) return 'Nhập chat id Telegram (hoặc bấm Tự phát hiện).';
     if (f.channelZalo && !isVnMobile(f.zaloPhone)) return 'Nhập số điện thoại Zalo (10 số, bắt đầu bằng 0).';
@@ -109,25 +111,19 @@ function DigestSubBlock({ briefType, sub, onSaved, pushToast, companyReady = tru
     if (problem) { pushToast && pushToast(problem); return; }
     setSaving(true);
     try {
-      await dApi(`/api/v1/digest/subscriptions/${briefType}`, { method: 'PUT', body: JSON.stringify(f) });
+      await dApi('/api/v1/digest/my-channels', {
+        method: 'PUT',
+        body: JSON.stringify({
+          channelEmail: !!f.channelEmail, email: f.email,
+          channelTelegram: !!f.channelTelegram, telegramChatId: f.telegramChatId,
+          channelZalo: !!f.channelZalo, zaloPhone: f.zaloPhone,
+        }),
+      });
       setDirty(false);
-      pushToast && pushToast('Đã lưu: ' + digestSummary(f));
+      pushToast && pushToast('Đã lưu nơi nhận của bạn');
       onSaved && onSaved();
     } catch (e) { pushToast && pushToast('Lỗi: ' + e.message); }
     finally { setSaving(false); }
-  };
-
-  const sendTest = async () => {
-    if (dirty) { pushToast && pushToast('Bấm Lưu trước khi Gửi thử — server gửi theo bản đã lưu.'); return; }
-    setTesting(true); setTestResult(null);
-    try {
-      const d = await dApi(`/api/v1/digest/subscriptions/${briefType}/test`, { method: 'POST' });
-      setTestResult(d);
-      // Bản tin thử vào Bảng tin NGAY (kênh ngoài thì qua hàng đợi, ~1 phút) → nhắc chuông + tab
-      // Bảng tin cập nhật liền, khỏi đợi hết chu kỳ.
-      window.dispatchEvent(new CustomEvent('tourkit:insights'));
-    } catch (e) { setTestResult({ ok: false, summary: e.message }); }
-    finally { setTesting(false); }
   };
 
   const detectTelegram = async () => {
@@ -136,47 +132,24 @@ function DigestSubBlock({ briefType, sub, onSaved, pushToast, companyReady = tru
       setTgCode(d);
       if (d.chatId) { set({ telegramChatId: String(d.chatId).replace(/"/g, '') }); pushToast && pushToast('Đã tìm ra chat id'); }
     } catch (e) {
-      // Endpoint trả 502/503 kèm gợi ý khi chưa cấu hình bot — vẫn hiện hướng dẫn, không chỉ báo lỗi.
       setTgCode({ hint: e.message });
     }
   };
 
   return (
-    <div className="workflows-optgroup digest-block">
-      <div className="workflows-optgroup-title">Bản tin của tôi</div>
-
-      <div className="digest-ch">
-        <Sw checked={!!f.enabled} disabled={!companyReady}
-          onChange={v => set({ enabled: v })} />
-        <span className="digest-ch-name">Nhận bản tin này</span>
-        <span className="digest-ch-note">
-          {companyReady
-            ? 'Chỉ áp dụng cho riêng bạn, không ảnh hưởng người khác'
-            : 'Chưa bật được — công ty chưa cấu hình bản tin này'}
-        </span>
-      </div>
-
+    <div className="workflows-optgroup digest-block digest-channels">
+      <div className="workflows-optgroup-title">Nơi nhận của tôi</div>
       <div className="digest-role-note">
-        <Icon name="info" size={12} /> Mỗi người chỉ nhận <b>một</b> loại bản tin theo vai trò — bật loại
-        này sẽ tự tắt loại kia.
+        <Icon name="info" size={12} /> Khai <b>một lần</b> ở đây, dùng cho <b>tất cả</b> thông báo bạn
+        bật bên dưới — bản tin sáng, cảnh báo, và những thứ thêm sau này.
       </div>
 
-      <div className="digest-row">
-        <div className="digest-label">Giờ nhận <span className="digest-hint">(giờ Việt Nam)</span></div>
-        <select className="workflows-select" value={f.sendHourLocal}
-          onChange={e => set({ sendHourLocal: parseInt(e.target.value, 10) })}>
-          {HOURS.map(h => <option key={h} value={h}>{String(h).padStart(2, '0')}:00</option>)}
-        </select>
-      </div>
-
-      <div className="digest-label" style={{ marginBottom: 2 }}>Nơi nhận</div>
-
-      {/* Khoá bật: "trong app" không phải kênh gửi mà là KHO LƯU — bản tin luôn được ghi vào Bảng
-          tin lúc dựng, để còn xem/nghe lại kể cả khi mọi kênh ngoài hỏng. Server cũng ép bật. */}
+      {/* Khoá bật: "trong app" không phải kênh gửi mà là KHO LƯU — thông báo luôn được ghi vào Bảng
+          tin, để còn xem/nghe lại kể cả khi mọi kênh ngoài hỏng. Server cũng ép bật. */}
       <div className="digest-ch">
         <Sw checked disabled onChange={() => {}} />
         <span className="digest-ch-name"><Icon name="bell" size={13} /> Trong app</span>
-        <span className="digest-ch-note">Luôn bật — bản tin luôn được lưu ở tab Bảng tin để xem/nghe lại</span>
+        <span className="digest-ch-note">Luôn bật — luôn lưu ở tab Bảng tin để xem/nghe lại</span>
       </div>
 
       <div className="digest-ch">
@@ -212,14 +185,111 @@ function DigestSubBlock({ briefType, sub, onSaved, pushToast, companyReady = tru
           value={f.zaloPhone || ''} onChange={e => set({ zaloPhone: e.target.value })} disabled={!f.channelZalo} />
       </div>
       {f.channelZalo && (
-        // Đặc điểm của ZNS, nói trước để khỏi tưởng kênh hỏng: tin Zalo chỉ là lời nhắc ngắn kèm
-        // đường dẫn — nội dung đầy đủ nằm ở tab Bảng tin. ZNS gửi theo mẫu đã đăng ký với Zalo nên
-        // không chở được cả bản tin dài.
         <div className="digest-ch-warn">
-          <Icon name="info" size={12} /> Tin Zalo là lời nhắc ngắn; bản tin đầy đủ đọc ở tab Bảng tin.
+          <Icon name="info" size={12} /> Tin Zalo là lời nhắc ngắn; nội dung đầy đủ đọc ở tab Bảng tin.
           Số phải là số đang dùng Zalo.
         </div>
       )}
+
+      {problem && <div className="digest-problem"><Icon name="warning" size={13} /> {problem}</div>}
+
+      <div className="workflows-actions digest-actions">
+        <button className="wga-btn primary" onClick={save} disabled={saving || !!problem}>
+          <Icon name="save" size={14} /> {saving ? 'Đang lưu…' : 'Lưu nơi nhận'}
+        </button>
+        {dirty && <span className="digest-dirty">Có thay đổi chưa lưu</span>}
+      </div>
+    </div>
+  );
+}
+
+// ─── Khối đăng ký của một loại bản tin ──────────────────────────────────────────
+// companyReady: công ty đã khai luật chung của loại bản tin này chưa (đã có ai bấm Lưu cấu hình
+// ở mục "Theo tổ chức"). Chưa khai thì server từ chối bật nhận (409) — nên khoá ngay ô tick,
+// đừng để người dùng bấm xong mới nhận lỗi.
+//
+// Chuyện "công ty đã bật lịch gửi chưa" KHÔNG còn hỏi ở đây: bật nhận là hệ thống tự bật lịch,
+// và nếu vì lý do nào đó lịch vẫn tắt thì dòng phán quyết ở đầu thẻ nói + có sẵn nút bật.
+function DigestSubBlock({ briefType, sub, onSaved, pushToast, companyReady = true }) {
+  const Icon = window.Icon;
+  const [f, setF] = dS({ ...EMPTY_SUB, ...(sub || {}) });
+  const [saving, setSaving] = dS(false);
+  const [testing, setTesting] = dS(false);
+  const [testResult, setTestResult] = dS(null);
+  const [dirty, setDirty] = dS(false);
+
+  // Server là nguồn đúng: sau khi tải lại thì đồng bộ về, TRỪ khi người dùng đang sửa dở —
+  // ghi đè lúc đó là xoá mất thao tác của họ ngay trước mắt.
+  dE(() => { if (!dirty) setF({ ...EMPTY_SUB, ...(sub || {}) }); }, [sub]);
+
+  const set = (patch) => { setF(prev => ({ ...prev, ...patch })); setDirty(true); };
+
+  // Kênh nhận nay khai ở khối "Nơi nhận của tôi" nên thẻ này không kiểm chúng nữa — kiểm ở đây
+  // sẽ khoá nút Lưu vì một ô nằm ở màn hình khác, người dùng không hiểu phải sửa gì.
+  const problem = null;
+
+  const save = async () => {
+    if (problem) { pushToast && pushToast(problem); return; }
+    setSaving(true);
+    try {
+      await dApi(`/api/v1/digest/subscriptions/${briefType}`, { method: 'PUT', body: JSON.stringify(f) });
+      setDirty(false);
+      pushToast && pushToast('Đã lưu: ' + digestSummary(f));
+      onSaved && onSaved();
+    } catch (e) { pushToast && pushToast('Lỗi: ' + e.message); }
+    finally { setSaving(false); }
+  };
+
+  const sendTest = async () => {
+    if (dirty) { pushToast && pushToast('Bấm Lưu trước khi Gửi thử — server gửi theo bản đã lưu.'); return; }
+    setTesting(true); setTestResult(null);
+    try {
+      const d = await dApi(`/api/v1/digest/subscriptions/${briefType}/test`, { method: 'POST' });
+      setTestResult(d);
+      // Bản tin thử vào Bảng tin NGAY (kênh ngoài thì qua hàng đợi, ~1 phút) → nhắc chuông + tab
+      // Bảng tin cập nhật liền, khỏi đợi hết chu kỳ.
+      window.dispatchEvent(new CustomEvent('tourkit:insights'));
+    } catch (e) { setTestResult({ ok: false, summary: e.message }); }
+    finally { setTesting(false); }
+  };
+
+  // detectTelegram đã chuyển sang MyChannelsBlock cùng với ô nhập chat id.
+
+  return (
+    <div className="workflows-optgroup digest-block">
+      <div className="workflows-optgroup-title">Bản tin của tôi</div>
+
+      <div className="digest-ch">
+        <Sw checked={!!f.enabled} disabled={!companyReady}
+          onChange={v => set({ enabled: v })} />
+        <span className="digest-ch-name">Nhận bản tin này</span>
+        <span className="digest-ch-note">
+          {companyReady
+            ? 'Chỉ áp dụng cho riêng bạn, không ảnh hưởng người khác'
+            : 'Chưa bật được — công ty chưa cấu hình bản tin này'}
+        </span>
+      </div>
+
+      <div className="digest-role-note">
+        <Icon name="info" size={12} /> Mỗi người chỉ nhận <b>một</b> loại bản tin theo vai trò — bật loại
+        này sẽ tự tắt loại kia.
+      </div>
+
+      <div className="digest-row">
+        <div className="digest-label">Giờ nhận <span className="digest-hint">(giờ Việt Nam)</span></div>
+        <select className="workflows-select" value={f.sendHourLocal}
+          onChange={e => set({ sendHourLocal: parseInt(e.target.value, 10) })}>
+          {HOURS.map(h => <option key={h} value={h}>{String(h).padStart(2, '0')}:00</option>)}
+        </select>
+      </div>
+
+      {/* Kênh nhận ĐÃ CHUYỂN LÊN khối "Nơi nhận của tôi" ở đầu mục Theo người dùng (17/08): địa
+          chỉ nhận là hồ sơ của NGƯỜI, dùng chung cho mọi thông báo — để trong thẻ này thì mỗi loại
+          cảnh báo thêm sau lại phải khai email thêm một lần nữa. */}
+      <div className="digest-ch-ref">
+        <Icon name="info" size={12} /> Gửi tới: {channelSummary(f)}.
+        Đổi ở khối <b>Nơi nhận của tôi</b> phía trên.
+      </div>
 
       {problem && <div className="digest-problem"><Icon name="warning" size={13} /> {problem}</div>}
 
@@ -249,9 +319,179 @@ function DigestSubBlock({ briefType, sub, onSaved, pushToast, companyReady = tru
   );
 }
 
-// Khối khai OA Zalo của từng công ty đã GỠ (14/08): Zalo nay gửi bằng ZNS qua OA của bên cung
-// cấp dịch vụ, khai một lần ở config hệ thống. Trước đây bắt mỗi công ty tự khai vì tin Zalo tính
-// tiền theo từng OA; nay bên mình chịu chi phí nên gom về một mối, công ty không phải khai gì.
+// ─── Zalo OA của công ty (khôi phục 17/08) ──────────────────────────────────────
+//
+// Bản 14/08 gỡ khối này để dùng OA chung. Đi gặp khách hàng 17/08 thì KHÔNG công ty nào chịu: tin
+// ZNS hiện tên OA người gửi, dùng OA của bên cung cấp dịch vụ nghĩa là khách của họ nhận tin mang
+// tên một công ty khác. Nên OA riêng là đường chính; ai dùng OA của bên cung cấp thì nhập khoá
+// được cấp. KHÔNG có lựa chọn "để trống cho hệ thống tự lo".
+//
+// Mã mẫu ZNS khai theo TỪNG chức năng vì Zalo duyệt mẫu theo nội dung — bản tin sáng và nhắc thu
+// tiền là hai mẫu khác nhau.
+const ZALO_FEATURE_LABELS = {
+  'sale-brief': 'Bản tin sáng (nhân viên bán hàng)',
+  'ceo-brief': 'Bản tin điều hành (giám đốc)',
+  'payment-alert': 'Nhắc thu tiền trước khởi hành',
+};
+
+function ZaloOaConfig({ pushToast }) {
+  const Icon = window.Icon;
+  const [st, setSt] = dS(null);          // trạng thái từ server
+  const [f, setF] = dS({ mode: 'own', oaId: '', appId: '', secretKey: '', refreshTokenSeed: '', provisionKey: '', templates: {} });
+  const [saving, setSaving] = dS(false);
+  const [dirty, setDirty] = dS(false);
+  const [err, setErr] = dS(null);
+
+  const load = dCB(async () => {
+    try {
+      const d = await dApi('/api/v1/digest/zalo-config');
+      setSt(d);
+      if (!dirty) setF({
+        mode: d.mode || 'own', oaId: d.oaId || '', appId: d.appId || '',
+        secretKey: '', refreshTokenSeed: '', provisionKey: '', templates: d.templates || {},
+      });
+      setErr(null);
+    } catch (e) {
+      // 403 = không có quyền cấu hình hệ thống → ẩn hẳn khối, đừng trưng ô nhập rồi báo lỗi lúc lưu.
+      setErr(e.message);
+    }
+  }, [dirty]);
+
+  dE(() => { load(); }, []);
+
+  const set = (patch) => { setF(prev => ({ ...prev, ...patch })); setDirty(true); };
+  const setTpl = (k, v) => setF(prev => { const t = { ...prev.templates, [k]: v }; setDirty(true); return { ...prev, templates: t }; });
+
+  if (err && /quyền/i.test(err)) return null;
+
+  const own = f.mode === 'own';
+  const problem = (() => {
+    if (own) {
+      if (!String(f.oaId || '').trim()) return 'Nhập OA ID.';
+      if (!String(f.appId || '').trim()) return 'Nhập App ID.';
+      if (!String(f.secretKey || '').trim() && !(st && st.hasSecret)) return 'Nhập Secret key.';
+      if (!String(f.refreshTokenSeed || '').trim() && !(st && st.hasRefreshToken)) return 'Nhập Refresh token lần đầu.';
+    } else if (!String(f.provisionKey || '').trim() && !(st && st.hasProvisionKey)) {
+      return 'Nhập khoá được cấp.';
+    }
+    return null;
+  })();
+
+  const save = async () => {
+    if (problem) { pushToast && pushToast(problem); return; }
+    setSaving(true);
+    try {
+      await dApi('/api/v1/digest/zalo-config', { method: 'PUT', body: JSON.stringify(f) });
+      setDirty(false);
+      // Xoá bí mật khỏi bộ nhớ giao diện ngay sau khi lưu — không giữ lại trong state.
+      setF(prev => ({ ...prev, secretKey: '', refreshTokenSeed: '', provisionKey: '' }));
+      pushToast && pushToast('Đã lưu cấu hình Zalo của công ty');
+      load();
+    } catch (e) { pushToast && pushToast('Lỗi: ' + e.message); }
+    finally { setSaving(false); }
+  };
+
+  const remove = async () => {
+    setSaving(true);
+    try {
+      await dApi('/api/v1/digest/zalo-config', { method: 'DELETE' });
+      setDirty(false);
+      pushToast && pushToast('Đã xoá cấu hình Zalo — kênh Zalo sẽ ngừng gửi');
+      load();
+    } catch (e) { pushToast && pushToast('Lỗi: ' + e.message); }
+    finally { setSaving(false); }
+  };
+
+  const features = (st && st.features) || ['sale-brief', 'ceo-brief', 'payment-alert'];
+
+  return (
+    <div className="digest-block digest-zalo">
+      <div className="workflows-optgroup-title">
+        Zalo OA của công ty
+        {st && (st.configured
+          ? <span className="digest-zalo-badge is-ok">Đã khai</span>
+          : <span className="digest-zalo-badge">Chưa khai</span>)}
+      </div>
+      <div className="digest-role-note">
+        <Icon name="info" size={12} /> Tin Zalo hiện <b>tên OA người gửi</b>, nên phải gửi bằng OA của
+        chính công ty bạn — khách nhận tin mới thấy đúng tên. Chưa khai xong thì kênh Zalo không gửi,
+        hệ thống <b>không</b> tự gửi thay bằng OA của đơn vị khác.
+      </div>
+
+      <div className="digest-row">
+        <div className="digest-label">Dùng OA nào</div>
+        <select className="workflows-select" value={f.mode} onChange={e => set({ mode: e.target.value })}>
+          <option value="own">OA riêng của công ty</option>
+          <option value="provided">Dùng OA của nhà cung cấp (có khoá được cấp)</option>
+        </select>
+      </div>
+
+      {own ? (
+        <React.Fragment>
+          <div className="digest-row">
+            <div className="digest-label">OA ID</div>
+            <input className="digest-input" value={f.oaId}
+              onChange={e => set({ oaId: e.target.value })} placeholder="vd 1234567890123456789" />
+          </div>
+          <div className="digest-row">
+            <div className="digest-label">App ID</div>
+            <input className="digest-input" value={f.appId}
+              onChange={e => set({ appId: e.target.value })} placeholder="vd 987654321098765432" />
+          </div>
+          <div className="digest-row">
+            <div className="digest-label">Secret key</div>
+            <input className="digest-input" type="password" value={f.secretKey}
+              onChange={e => set({ secretKey: e.target.value })}
+              placeholder={st && st.hasSecret ? '•••••• (để trống nếu không đổi)' : 'dán secret key'} />
+          </div>
+          <div className="digest-row">
+            <div className="digest-label">Refresh token lần đầu</div>
+            <input className="digest-input" type="password" value={f.refreshTokenSeed}
+              onChange={e => set({ refreshTokenSeed: e.target.value })}
+              placeholder={st && st.hasRefreshToken ? '•••••• (để trống nếu không đổi)' : 'lấy ở bước cấp quyền OA trên trang Zalo'} />
+          </div>
+          <div className="digest-ch-warn">
+            <Icon name="info" size={12} /> App ID và Secret chưa đủ để gửi — Zalo cấp mã truy cập bằng
+            cách đổi refresh token, mà refresh token đầu tiên chỉ lấy được sau khi bạn cấp quyền cho
+            ứng dụng trên trang quản lý OA. Sau lần đầu, hệ thống tự xoay vòng, bạn không phải nhập lại.
+          </div>
+        </React.Fragment>
+      ) : (
+        <div className="digest-row">
+          <div className="digest-label">Khoá được cấp</div>
+          <input className="digest-input" type="password" value={f.provisionKey}
+            onChange={e => set({ provisionKey: e.target.value })}
+            placeholder={st && st.hasProvisionKey ? '•••••• (để trống nếu không đổi)' : 'khoá do bên cung cấp gửi cho bạn'} />
+        </div>
+      )}
+
+      <div className="digest-label" style={{ margin: '10px 0 2px' }}>Mã mẫu ZNS theo từng chức năng</div>
+      <div className="digest-role-note">
+        <Icon name="info" size={12} /> Zalo duyệt mẫu theo nội dung nên mỗi chức năng một mẫu riêng.
+        Chức năng nào bỏ trống thì Zalo của chức năng đó không gửi được.
+      </div>
+      {features.map(k => (
+        <div className="digest-row" key={k}>
+          <div className="digest-label">{ZALO_FEATURE_LABELS[k] || k}</div>
+          <input className="digest-input" value={(f.templates && f.templates[k]) || ''}
+            onChange={e => setTpl(k, e.target.value)} placeholder="mã mẫu ZNS" />
+        </div>
+      ))}
+
+      {problem && <div className="digest-problem"><Icon name="warning" size={13} /> {problem}</div>}
+
+      <div className="workflows-actions digest-actions">
+        <button className="wga-btn primary" onClick={save} disabled={saving || !!problem}>
+          <Icon name="save" size={14} /> {saving ? 'Đang lưu…' : 'Lưu cấu hình Zalo'}
+        </button>
+        {st && st.configured && (
+          <button className="wga-btn ghost" onClick={remove} disabled={saving}>Xoá cấu hình</button>
+        )}
+        {dirty && <span className="digest-dirty">Có thay đổi chưa lưu</span>}
+      </div>
+    </div>
+  );
+}
 
 // ⚠️ Xuất ra window là BẮT BUỘC — workflows.jsx nhúng khối này qua `window.DigestSubBlock`.
 // Dòng này từng bị xoá nhầm (14/08) khi gỡ khối khai OA Zalo ngay bên dưới, và hậu quả im
@@ -259,5 +499,7 @@ function DigestSubBlock({ briefType, sub, onSaved, pushToast, companyReady = tru
 // chỉ là không còn chỗ nào đặt giờ nhận và kênh nhận. Thêm/đổi component ở file này thì kiểm
 // lại danh sách xuất bên dưới.
 window.DigestSubBlock = DigestSubBlock;
+window.MyChannelsBlock = MyChannelsBlock;
+window.ZaloOaConfig = ZaloOaConfig;
 window.digestSummary = digestSummary;
 window.DIGEST_BRIEF_TYPES = BRIEF_TYPES;

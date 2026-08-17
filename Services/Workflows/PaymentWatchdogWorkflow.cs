@@ -1,6 +1,7 @@
 using System.Globalization;
 using System.Text.Json;
 using TourkitAiProxy.Services.Digest;
+using TourkitAiProxy.Services.Mail;
 using TourkitAiProxy.Services.TourKit;
 
 namespace TourkitAiProxy.Services.Workflows;
@@ -17,30 +18,117 @@ namespace TourkitAiProxy.Services.Workflows;
 /// </summary>
 public class PaymentWatchdogWorkflow : IScheduledWorkflow
 {
-    /// Cửa sổ quét: tour khởi hành trong bao nhiêu ngày tới.
-    private const int WindowDays = 7;
     /// Giữ Bảng tin bao nhiêu ngày (dọn cuối mỗi lượt để bảng không phình mãi).
     private const int KeepInsightDays = 90;
+
+    /// Tiền trên thẻ: ghim vi-VN như mọi chỗ khác của Bảng tin, không theo ngôn ngữ máy chủ.
+    private static readonly CultureInfo Vi = CultureInfo.GetCultureInfo("vi-VN");
+    private static string Vnd(decimal v) => v.ToString("N0", Vi);
+
+    // ── Tuỳ chọn per-tenant ──────────────────────────────────────────────────────
+    // ⚠️ default PHẢI khớp WORKFLOW_OPTIONS['payment-watchdog'] bên workflow-options.jsx.
+    private record Options(List<int> ScanTourTypes, int WindowDays, decimal MinOutstanding, int PaymentStatus,
+        int MaxReminders, bool EmailEnabled, List<string> AlertEmails);
+
+    private static Options ParseOptions(string? json)
+    {
+        var def = new Options(
+            // Không khai loại thì upstream chỉ trả FIT — xem TourTypes. Trước đây tác vụ này không
+            // truyền loại, nên nợ của tour GIT/LandTour/Visa chưa bao giờ được canh.
+            ScanTourTypes: TourTypes.DefaultScan.ToList(),
+            WindowDays: 7,
+            // 0 = báo mọi khoản còn thiếu, kể cả lẻ vài nghìn do làm tròn. Để 0 làm mặc định là cố
+            // ý: đây là tiền của công ty, thà thừa một dòng còn hơn tự bỏ qua hộ. Công ty nào thấy
+            // nhiễu thì tự nâng lên.
+            MinOutstanding: 0m,
+            // 1 = dùng ĐÚNG bộ lọc "Chưa thu hết" của màn hình tìm kiếm tour (PaymentStatusSearch).
+            // Quan trọng vì định nghĩa của phần mềm CHẶT hơn phép trừ doanh thu − đã thu: nó chỉ
+            // tính đơn đã ghi nhận dòng tiền, phía KHÁCH (không phải phía nhà cung cấp), và bỏ
+            // khách đã huỷ. Lấy theo phần mềm thì cảnh báo khớp với cái nhân viên thấy khi bấm lọc;
+            // tự trừ thì có ngày lệch mà không ai biết bên nào đúng.
+            PaymentStatus: 1,
+            // Nhịp là 1 lần/ngày/tour (khoá chống trùng 24h), TRẦN này chặn tổng số lần. Không có
+            // trần thì cửa sổ 30 ngày = 30 lần nhắc cùng một tour; tới lần thứ tư người ta không
+            // đọc nữa, và cảnh báo thật lẫn vào đó.
+            MaxReminders: 3,
+            EmailEnabled: false,
+            AlertEmails: new());
+        if (string.IsNullOrWhiteSpace(json)) return def;
+        try
+        {
+            using var d = JsonDocument.Parse(json);
+            var r = d.RootElement;
+
+            int Num(string k, int dv, int lo, int hi)
+                => r.TryGetProperty(k, out var v) && v.ValueKind == JsonValueKind.Number && v.TryGetInt32(out var n)
+                    ? Math.Clamp(n, lo, hi) : dv;
+            List<int> Ints(string k, List<int> dv)
+            {
+                if (!r.TryGetProperty(k, out var arr) || arr.ValueKind != JsonValueKind.Array) return dv;
+                var outp = new List<int>();
+                foreach (var e in arr.EnumerateArray())
+                    if (e.ValueKind == JsonValueKind.Number && e.TryGetInt32(out var n) && n > 0) outp.Add(n);
+                return outp.Count > 0 ? outp : dv;
+            }
+
+            return def with
+            {
+                ScanTourTypes = Ints("scanTourTypes", def.ScanTourTypes),
+                WindowDays = Num("windowDays", def.WindowDays, 1, 60),
+                MinOutstanding = Num("minOutstanding", 0, 0, 1_000_000_000),
+                // Chỉ nhận 0 (tự tính) hoặc 1 (theo bộ lọc phần mềm). 2 = "đã thu hết" và 3 =
+                // "chưa CHI hết" (tiền trả nhà cung cấp) đều không phải việc của tác vụ này —
+                // nhận bừa thì thẻ vẫn ghi "khách còn thiếu" trong khi số là tiền mình nợ NCC.
+                PaymentStatus = Num("paymentStatus", def.PaymentStatus, 0, 1),
+                MaxReminders = Num("maxReminders", def.MaxReminders, 0, 30),
+                EmailEnabled = r.TryGetProperty("emailEnabled", out var ev)
+                    && ev.ValueKind is JsonValueKind.True or JsonValueKind.False && ev.GetBoolean(),
+                AlertEmails = r.TryGetProperty("alertEmails", out var em) && em.ValueKind == JsonValueKind.String
+                    ? ParseEmails(em.GetString())
+                    : def.AlertEmails,
+            };
+        }
+        catch (JsonException) { return def; }
+    }
+
+    /// Tách danh sách email người dùng gõ. Chấp cả dấu phẩy, chấm phẩy và xuống dòng — người ta
+    /// hay dán từ chỗ khác sang. Bỏ chuỗi không có '@' thay vì cố sửa: xếp một địa chỉ sai vào
+    /// hàng đợi chỉ tạo ra một dòng lỗi mà không ai biết là do gõ nhầm.
+    internal static List<string> ParseEmails(string? raw)
+        => string.IsNullOrWhiteSpace(raw)
+            ? new()
+            : raw.Split(new[] { ',', ';', '\n', '\r' }, StringSplitOptions.RemoveEmptyEntries)
+                 .Select(x => x.Trim())
+                 .Where(x => x.Length > 0 && x.Contains('@'))
+                 .Distinct(StringComparer.OrdinalIgnoreCase)
+                 .ToList();
 
     private readonly TenantServiceAccountStore _accounts;
     private readonly TkSessionStore _sessions;
     private readonly TourKitApiClient _api;
     private readonly InsightRepository _insights;
+    private readonly Mail.MailQueueRepository _mailQueue;
+    private readonly DigestSubscriptionRepository _subs;
     private readonly ILogger<PaymentWatchdogWorkflow> _log;
 
     public PaymentWatchdogWorkflow(TenantServiceAccountStore accounts, TkSessionStore sessions,
-        TourKitApiClient api, InsightRepository insights, ILogger<PaymentWatchdogWorkflow> log)
-    { _accounts = accounts; _sessions = sessions; _api = api; _insights = insights; _log = log; }
+        TourKitApiClient api, InsightRepository insights, Mail.MailQueueRepository mailQueue,
+        DigestSubscriptionRepository subs, ILogger<PaymentWatchdogWorkflow> log)
+    { _accounts = accounts; _sessions = sessions; _api = api; _insights = insights; _mailQueue = mailQueue; _subs = subs; _log = log; }
 
     public string Type => "payment-watchdog";
     public string Label => "Canh thanh toán trước khởi hành";
-    public string Description => "Tour sắp khởi hành (7 ngày) mà khách còn nợ → cảnh báo vào Bảng tin. Không tốn lượt AI.";
+    public string Description => "Tour sắp khởi hành mà khách còn nợ → cảnh báo vào Bảng tin. Chọn được loại tour cần quét, số ngày trước khi đi và mức nợ đáng nhắc. Không tốn lượt AI.";
     public WorkflowScope Scope => WorkflowScope.PerTenant;
+    // Loại tour cần quét là thứ mỗi công ty bán mỗi khác → phải khai, không đoán hộ.
+    public bool HasCompanyRules => true;
 
     public async Task<WorkflowRunResult> RunAsync(string tenantId, string username, string? optionsJson, CancellationToken ct)
     {
         if (string.IsNullOrWhiteSpace(tenantId))
             return new(false, null, "TenantId rỗng — kiểm tra dbo.UserWorkflows");
+
+        var opt = ParseOptions(optionsJson);
 
         var acc = _accounts.Get(tenantId);
         if (acc == null || !acc.Enabled)
@@ -60,50 +148,59 @@ public class PaymentWatchdogWorkflow : IScheduledWorkflow
 
         // Ngày VIỆT NAM: "7 ngày tới" phải tính theo lịch người dùng nhìn, không phải lịch UTC.
         var todayVn = DigestDue.NowVn(DateTime.UtcNow).Date;
-        var to = todayVn.AddDays(WindowDays);
+        var to = todayVn.AddDays(opt.WindowDays);
 
-        JsonElement data;
-        try
+        // MỘT LƯỢT GỌI CHO MỖI LOẠI: upstream chỉ lọc được 1 loại/lần và mặc định là FIT.
+        var failedTypes = new List<string>();
+        // Lọc "chưa thu hết" NGAY Ở NGUỒN (nếu chọn) — vừa đúng định nghĩa phần mềm, vừa kéo ít
+        // dòng hơn hẳn: đo trên staging 17/08, 55 tour FIT trong một năm rút còn 4.
+        var items = await TourTypes.FetchByTypesAsync(_api, jwt, opt.ScanTourTypes,
+            todayVn, to, 200, failedTypes, ct,
+            opt.PaymentStatus == 1 ? "PaymentStatusSearch=1" : null);
+        if (items.Count == 0 && failedTypes.Count == opt.ScanTourTypes.Count && failedTypes.Count > 0)
         {
-            data = await _api.GetAsync(jwt,
-                $"/api/ai/tours?StartDate={todayVn:yyyy-MM-dd}&EndDate={to:yyyy-MM-dd}&PageSize=200", ct);
-        }
-        catch (Exception ex)
-        {
-            _log.LogWarning(ex, "[payment-watchdog] tenant={T} đọc danh sách tour lỗi", tenantId);
-            return new(false, null, $"Không đọc được danh sách tour: {ex.Message}");
+            _log.LogWarning("[payment-watchdog] tenant={T} đọc danh sách tour lỗi ở mọi loại", tenantId);
+            return new(false, null, "Không đọc được danh sách tour (" + string.Join(", ", failedTypes) + ").");
         }
 
         var rows = new List<TourPaymentRow>();
         int skipped = 0, missingPaid = 0;
-        if (data.TryGetProperty("items", out var items) && items.ValueKind == JsonValueKind.Array)
+        foreach (var it in items)
         {
-            foreach (var it in items.EnumerateArray())
-            {
-                // Thiếu id hoặc ngày khởi hành thì không xét được — bỏ dòng đó, KHÔNG ném,
-                // vì một dòng dữ liệu bẩn không đáng làm hỏng cả lượt quét.
-                if (!TryGetInt(it, "id", out var id)) { skipped++; continue; }
-                if (!TryGetDate(it, "departureDate", out var dep)) { skipped++; continue; }
+            // Thiếu id hoặc ngày khởi hành thì không xét được — bỏ dòng đó, KHÔNG ném,
+            // vì một dòng dữ liệu bẩn không đáng làm hỏng cả lượt quét.
+            if (!TryGetInt(it, "id", out var id)) { skipped++; continue; }
+            if (!TryGetDate(it, "departureDate", out var dep)) { skipped++; continue; }
 
-                // BẮT BUỘC có actualRevenue. Bản /api/ai/tours cũ KHÔNG trả field này → nếu cứ
-                // coi thiếu = 0 thì "còn nợ" = trọn doanh thu, tức mọi tour đều bị báo nợ toàn bộ
-                // (đã xảy ra thật 12/08). Thà bỏ qua và nói rõ trong summary còn hơn báo số sai.
-                if (!TryGetDec(it, "actualRevenue", out var actual)) { missingPaid++; continue; }
+            // BẮT BUỘC có actualRevenue. Bản /api/ai/tours cũ KHÔNG trả field này → nếu cứ
+            // coi thiếu = 0 thì "còn nợ" = trọn doanh thu, tức mọi tour đều bị báo nợ toàn bộ
+            // (đã xảy ra thật 12/08). Thà bỏ qua và nói rõ trong summary còn hơn báo số sai.
+            if (!TryGetDec(it, "actualRevenue", out var actual)) { missingPaid++; continue; }
 
-                rows.Add(new TourPaymentRow(id,
-                    GetStr(it, "title") ?? GetStr(it, "tourCode") ?? $"Tour #{id}",
-                    GetStr(it, "customerName"), GetStr(it, "sellerName"),
-                    dep, GetDec(it, "revenue"), actual));
-            }
+            rows.Add(new TourPaymentRow(id,
+                GetStr(it, "title") ?? GetStr(it, "tourCode") ?? $"Tour #{id}",
+                GetStr(it, "customerName"), GetStr(it, "sellerName"),
+                dep, GetDec(it, "revenue"), actual));
         }
 
-        var alerts = PaymentWatchdogRule.Evaluate(rows, todayVn, WindowDays);
-        int created = 0, deduped = 0;
+        var alerts = PaymentWatchdogRule.Evaluate(rows, todayVn, opt.WindowDays, opt.MinOutstanding);
+        int created = 0, deduped = 0, capped = 0;
 
+        // Đã nhắc mấy lần rồi? Hỏi MỘT LƯỢT cho cả danh sách, không hỏi từng tour.
+        var counts = opt.MaxReminders > 0
+            ? await _insights.CountByAlertKeysAsync(tenantId, alerts.Select(a => a.AlertKey).ToList(), ct)
+            : new Dictionary<string, int>();
+
+        var sentNow = new List<PaymentAlert>();
         foreach (var a in alerts)
         {
             ct.ThrowIfCancellationRequested();
-            var body = $"**{a.Title}** — khách {a.CustomerName ?? "?"} còn thiếu **{a.Outstanding:N0}đ**, "
+
+            if (opt.MaxReminders > 0 && counts.TryGetValue(a.AlertKey, out var already)
+                && already >= opt.MaxReminders) { capped++; continue; }
+            // Vnd() chứ không phải {:N0} trần: máy chạy en-US in "7,350,000đ" trong khi thẻ ngay
+            // bên cạnh (tour-readiness) in "7.350.000đ" — hai kiểu số cạnh nhau trong cùng Bảng tin.
+            var body = $"**{a.Title}** — khách {a.CustomerName ?? "?"} còn thiếu **{Vnd(a.Outstanding)}đ**, "
                      + $"khởi hành {a.DepartureDate:dd/MM} (còn {a.DaysLeft} ngày). Phụ trách: {a.SellerName ?? "?"}.";
 
             var id = await _insights.InsertAsync(new AgentInsight(
@@ -116,14 +213,75 @@ public class PaymentWatchdogWorkflow : IScheduledWorkflow
                 AlertKey: a.AlertKey,               // dedup 24h — chạy mỗi giờ nhưng chỉ nhắc 1 lần/ngày
                 IsRead: false, CreatedUtc: DateTime.UtcNow), ct);
 
-            if (id == null) deduped++; else created++;
+            if (id == null) deduped++; else { created++; sentNow.Add(a); }
         }
 
         await _insights.PruneAsync(KeepInsightDays, ct);
 
-        var summary = $"Quét {rows.Count} tour sắp khởi hành → {alerts.Count} còn nợ "
-                    + $"({created} cảnh báo mới, {deduped} đã báo trước đó)"
+        // ── Email: MỘT thư gộp cho cả lượt quét ────────────────────────────────────────
+        // Cố ý không gửi mỗi tour một thư: hộp thư kế toán sáng ra 20 thư cùng tiêu đề thì đọc
+        // được đúng cái đầu. Chỉ gửi những tour VỪA sinh cảnh báo mới (sentNow) — tour đã bị chặn
+        // vì trùng ngày hoặc đủ số lần nhắc thì thư cũng không được nhắc lại.
+        int queued = 0;
+        string? mailNote = null;
+        if (opt.EmailEnabled && sentNow.Count > 0)
+        {
+            // Người nhận = ai đã khai "Nơi nhận của tôi" có bật email, CỘNG các địa chỉ khai thêm
+            // ở tuỳ chọn. Lấy từ hồ sơ dùng chung để nhân viên chỉ phải khai email MỘT LẦN cho mọi
+            // thông báo — bắt khai lại ở từng tác vụ thì sớm muộn có chỗ khai sai mà không ai biết.
+            // KHÔNG lọc theo `Enabled` của bản tin: đó là đăng ký bản tin sáng, một người có thể
+            // không nhận bản tin nhưng vẫn muốn nhận cảnh báo tiền.
+            var recipients = new List<string>(opt.AlertEmails);
+            try
+            {
+                var profiles = await _subs.ListWithChannelsAsync(tenantId, ct);
+                foreach (var p in profiles)
+                    if (p.ChannelEmail && !string.IsNullOrWhiteSpace(p.Email)) recipients.Add(p.Email.Trim());
+            }
+            catch (Exception ex)
+            {
+                _log.LogWarning(ex, "[payment-watchdog] tenant={T} đọc nơi nhận dùng chung lỗi", tenantId);
+            }
+            recipients = recipients.Distinct(StringComparer.OrdinalIgnoreCase).ToList();
+
+            if (recipients.Count == 0)
+                mailNote = "Đã bật gửi email nhưng chưa ai khai nơi nhận (khối \"Nơi nhận của tôi\") và cũng chưa khai địa chỉ nào ở đây";
+            else
+            {
+                var mail = PaymentAlertMail.Build(sentNow, todayVn);
+                foreach (var addr in recipients)
+                {
+                    try
+                    {
+                        await _mailQueue.EnqueueAsync(new OutboundMailInput(
+                            TenantId: tenantId,
+                            Kind: "payment-alert",
+                            // Một dòng cho mỗi địa chỉ mỗi ngày → dễ đối soát khi ai đó bảo
+                            // "hôm nay tôi không nhận được thư".
+                            SourceId: $"payment-alert:{todayVn:yyyy-MM-dd}:{addr}",
+                            TemplateCode: "payment-alert",
+                            ToEmail: addr,
+                            Subject: mail.Subject,
+                            Params: mail.ParamsJson), ct);
+                        queued++;
+                    }
+                    catch (Exception ex)
+                    {
+                        _log.LogWarning(ex, "[payment-watchdog] tenant={T} xếp thư cho {Addr} lỗi", tenantId, addr);
+                    }
+                }
+            }
+        }
+
+        var scanned = string.Join(" + ", opt.ScanTourTypes.Select(TourTypes.Name));
+        var nguon = opt.PaymentStatus == 1 ? "theo bộ lọc phần mềm" : "tự tính";
+        var summary = $"Quét {rows.Count} tour ({scanned}) khởi hành trong {opt.WindowDays} ngày tới → {alerts.Count} còn nợ ({nguon}) "
+                    + $"({created} cảnh báo mới, {deduped} đã báo hôm nay"
+                    + (capped > 0 ? $", {capped} đã đủ {opt.MaxReminders} lần nhắc nên dừng" : "") + ")"
+                    + (queued > 0 ? $", xếp {queued} thư chờ gửi" : "")
+                    + (mailNote != null ? $". {mailNote}" : "")
                     + (skipped > 0 ? $", bỏ qua {skipped} dòng thiếu dữ liệu" : "")
+                    + (failedTypes.Count > 0 ? $". Không đọc được loại: {string.Join(", ", failedTypes)}" : "")
                     + (missingPaid > 0 ? $". CẢNH BÁO: {missingPaid} tour không có số thực thu — TourKit.Api cần bản có field actualRevenue, tạm bỏ qua để không báo sai" : "") + ".";
         _log.LogInformation("[payment-watchdog] tenant={T} {Sum}", tenantId, summary);
         return new(true, summary, null);

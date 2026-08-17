@@ -464,8 +464,19 @@ tài khoản có `BC_NV_XEM`, còn lại SP tự lọc về số của riêng h�
 ngoài hỏng hết thì vẫn còn chỗ xem/nghe lại. Server ép `ChannelInApp=true` khi lưu đăng ký; UI khoá ô
 tick. 3 kênh gửi thật ([`Services/Digest/Channels/`](Services/Digest/Channels/)): email (`TemplateCode=daily-brief`,
 worker toutkit-app gửi) · Telegram (bot DÙNG CHUNG `Telegram:BotToken` — miễn phí nên hệ thống cấp) ·
-Zalo (**ZNS — nhắn theo SỐ ĐIỆN THOẠI**, qua OA **dùng chung của bên
-cung cấp dịch vụ**, khai ở `Zalo:*` trong config worker). Một kênh hỏng KHÔNG làm chết kênh còn lại.
+Zalo (**ZNS — nhắn theo SỐ ĐIỆN THOẠI**, qua **OA RIÊNG của từng công ty**, khai ở mục "Theo tổ
+chức" — xem 3 điều dễ hiểu sai bên dưới). Một kênh hỏng KHÔNG làm chết kênh còn lại.
+
+**Nơi nhận khai MỘT LẦN cho mọi thông báo** (17/08). `dbo.DigestSubscriptions` vốn đã là *một dòng
+mỗi người* (PK `TenantId+Username`) và giữ sẵn email/chat id/số Zalo — nên nó **là** hồ sơ nơi nhận
+dùng chung, chỉ từng bị đặt tên và đặt vị trí như thể của riêng bản tin sáng. Nay tách rõ: khối
+**"Nơi nhận của tôi"** ([`MyChannelsBlock`](wwwroot/pages/digest.jsx)) đứng đầu mục "Theo người dùng",
+lưu qua endpoint RIÊNG `PUT /api/v1/digest/my-channels` — **không đụng** `BriefType`/`Enabled`/
+`SendHourLocal`. Gộp vào endpoint đăng ký thì mỗi lần đổi email lại phải gửi kèm loại bản tin + giờ
+nhận, client quên một trường là **âm thầm tắt đăng ký của chính người đó**. Cảnh báo cấp công ty
+(vd `payment-watchdog`) đọc cùng hồ sơ này qua `ListWithChannelsAsync` — **không** lọc theo `Enabled`
+(cờ đó nói về bản tin sáng; một người có thể không nhận bản tin nhưng vẫn muốn nhận cảnh báo).
+KHÔNG thêm bảng mới cho việc này.
 
 ⚠️ **Zalo: 3 điều dễ hiểu sai** (đổi 14/08 — trước đó code dùng API `message/cs` theo Zalo user id):
 1. **Nơi nhận là SỐ ĐIỆN THOẠI**, không phải Zalo user id. Người dùng chỉ nhập số của mình; server
@@ -474,11 +485,31 @@ cung cấp dịch vụ**, khai ở `Zalo:*` trong config worker). Một kênh h�
    ngày 14/08 bằng `sp_rename` trong `SchemaSql` — tên cột nói sai nội dung là bẫy cho người sau).
 2. **ZNS KHÔNG gửi được chữ tự do** — chỉ điền tham số vào mẫu đã được Zalo duyệt. Nên tin Zalo là
    **lời nhắc ngắn**; bản tin đầy đủ đọc ở Bảng tin (kênh trong app luôn bật nên chắc chắn có).
-3. **OA dùng chung, không per-tenant.** Mẫu ZNS đăng ký dưới OA nào thì chỉ OA đó dùng được → OA riêng
-   từng công ty nghĩa là mỗi công ty phải tự đăng ký mẫu + chờ duyệt + khai 4 thứ, gần như chắc chắn bỏ
-   dở. Vì vậy 3 endpoint `/digest/zalo-config` per-tenant **đã gỡ**; `dbo.TenantChannelSettings` giữ lại
-   với `TenantId='(system)'` để worker lưu cặp token ZNS — **`refresh_token` đổi mỗi lần làm mới** nên
-   bắt buộc phải lưu, để yên trong file config là hỏng ngay sau lần làm mới đầu tiên.
+3. **OA RIÊNG từng công ty** (quay lại per-tenant 17/08 — bản 14/08 từng gỡ để dùng OA chung).
+   Lý do đảo quyết định: đi gặp khách hàng thì **không công ty nào chịu dùng OA chung** — tin ZNS
+   hiện **tên OA người gửi**, nên gửi bằng OA của bên cung cấp dịch vụ nghĩa là khách của họ nhận
+   tin mang tên một công ty khác. Lập luận cũ ("bắt mỗi công ty tự đăng ký mẫu thì họ bỏ dở") tính
+   đúng chi phí khai báo nhưng bỏ qua chuyện thương hiệu, mà đó mới là thứ quyết định.
+   - 3 endpoint `/api/v1/digest/zalo-config` (GET/PUT/DELETE) **khôi phục**, gác `CH_HT_XEM`;
+     lưu ở `dbo.TenantChannelSettings` (`Channel='zalo'`) qua
+     [`TenantChannelSettingsStore`](Services/Digest/TenantChannelSettingsStore.cs). Giao diện nằm
+     **cùng thẻ với tài khoản dịch vụ** trong mục "Theo tổ chức" — cả hai đều là thông tin đăng
+     nhập cấp công ty, khai một lần.
+   - **KHÔNG có đường rơi ngầm về OA chung.** Hai chế độ, cả hai đều phải khai: `own` (OA riêng —
+     OA ID + App ID + Secret) hoặc `provided` (dùng OA của bên cung cấp bằng **khoá được cấp**).
+     Chưa khai đủ → kênh Zalo không gửi và nói thẳng, tuyệt đối không lặng lẽ gửi bằng danh nghĩa
+     đơn vị khác.
+   - **Mã mẫu ZNS khai theo TỪNG CHỨC NĂNG** (`sale-brief` · `ceo-brief` · `payment-alert`): Zalo
+     duyệt mẫu theo nội dung nên bản tin sáng và nhắc thu tiền là hai mẫu khác nhau. Danh sách 1
+     nguồn ở `DigestEndpoints.ZaloTemplateFeatures` — thêm chức năng gửi Zalo mới = thêm 1 dòng,
+     giao diện tự mọc ô nhập. Mã mẫu được **đính kèm ngay trên dòng hàng đợi** (`Data.templateId`)
+     chứ không bắt worker tự tra: worker đọc bảng của proxy càng ít càng tốt, và lúc gửi mới tra
+     thì mẫu có thể đã đổi so với lúc dựng nội dung.
+   - ⚠️ **Lưu là HỢP NHẤT, không ghi đè cả cục.** `ConfigJson` có hai chủ: phần khai tay (giao diện)
+     và `refreshToken`/`accessToken` do **worker xoay vòng** ghi lại. Ghi đè trọn gói từ giao diện
+     sẽ xoá token worker vừa làm mới → kênh Zalo chết ngay sau lần lưu cấu hình kế tiếp mà không
+     lỗi nào hiện lên. Bí mật gửi lên rỗng = **giữ nguyên** bản đang lưu (giao diện không đọc lại
+     được bí mật nên không thể gửi lại).
 
 ⚠️ **Proxy KHÔNG có lớp gửi nào** (gỡ 14/08: `IDigestChannel`, `DigestDispatcher`, 3 lớp kênh,
 `TelegramFormat`). Kể cả nút **"Gửi thử"** cũng chỉ **xếp hàng đợi** bằng CHÍNH `DigestEnqueuePlanner`

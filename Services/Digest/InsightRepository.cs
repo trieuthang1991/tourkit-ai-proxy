@@ -38,6 +38,27 @@ SELECT CAST(SCOPE_IDENTITY() AS BIGINT);",
     }
 
     /// <summary>
+    /// Đếm xem mỗi <c>AlertKey</c> đã được ghi bao nhiêu lần (trong phạm vi bảng còn giữ).
+    /// Dùng để CHẶN NHẮC MÃI: khoá chống trùng chỉ chặn trong 24h, nên một việc chưa xong sẽ sinh
+    /// một dòng MỖI NGÀY cho tới khi hết hạn — nhắc 30 ngày liên tiếp thì người ta tắt tính năng
+    /// chứ không phải đi làm việc đó.
+    /// <para>Hỏi theo LÔ, không hỏi từng khoá: một lượt quét có thể có hàng trăm tour.</para>
+    /// </summary>
+    public async Task<Dictionary<string, int>> CountByAlertKeysAsync(
+        string tenant, IReadOnlyCollection<string> keys, CancellationToken ct = default)
+    {
+        var result = new Dictionary<string, int>(StringComparer.Ordinal);
+        if (keys.Count == 0) return result;
+        await using var c = await _db.OpenAsync(ct);
+        var rows = await c.QueryAsync<(string AlertKey, int N)>(@"
+SELECT AlertKey, COUNT(1) AS N FROM dbo.AgentInsights
+WHERE TenantId = @tenant AND AlertKey IN @keys
+GROUP BY AlertKey", new { tenant, keys });
+        foreach (var r in rows) result[r.AlertKey] = r.N;
+        return result;
+    }
+
+    /// <summary>
     /// DTO trung gian có setter, KHÔNG đọc thẳng vào record <see cref="AgentInsight"/>.
     /// Lý do (lỗi thật gặp 12/08, đúng cái đã cắn ở <see cref="DigestSubscriptionRepository"/>):
     /// Dapper khớp constructor theo ĐÚNG kiểu cột — <c>Severity</c> là TINYINT nên nó tìm

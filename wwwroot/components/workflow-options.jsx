@@ -38,6 +38,18 @@
     { value: 'dam_phan',   label: 'Đàm phán' },
     { value: 'xin_loi',    label: 'Xin lỗi' },
   ];
+  // Loại tour — danh sách CỐ ĐỊNH của hệ thống, giống nhau ở mọi công ty (không phải mã tự đặt).
+  // Trước đây ô này bắt người dùng gõ số ("102"), mà con số đó chỉ người viết code mới biết nghĩa.
+  // Giữ nguyên GIÁ TRỊ SỐ khi lưu để cấu hình cũ vẫn đúng, chỉ đổi phần người dùng nhìn thấy.
+  const TOUR_TYPES = [
+    { value: 2,   label: 'FIT (khách lẻ)' },
+    { value: 3,   label: 'GIT (đoàn ghép)' },
+    { value: 1,   label: 'LandTour' },
+    { value: 102, label: 'Visa' },
+    { value: 100, label: 'Booking' },
+    { value: 101, label: 'Dịch vụ lẻ' },
+    { value: 104, label: 'Vé máy bay' },
+  ];
 
   // Schema option ĐỘNG per-workflow (client). Thêm workflow/option mới = thêm 1 entry — UI tự render.
   // type: 'bool'→toggle | 'select'→dropdown | 'multi'→chip nhiều lựa chọn. showIf: chỉ hiện khi option kia bật.
@@ -203,11 +215,38 @@
       { key: 'showNumbers', type: 'bool', label: 'Đính bảng số dưới bài viết', default: true, showIf: 'useAi',
         hint: 'Giữ bật thì đọc xong lời văn còn đối chiếu được ngay với số gốc. Tắt thì bản tin gọn hơn nhưng phải tin AI suông.' },
     ],
+    // Canh thanh toán trước khởi hành (O2). Luật thuần, không AI.
+    // ⚠️ default PHẢI khớp PaymentWatchdogWorkflow.ParseOptions bên C#.
+    'payment-watchdog': [
+      { key: 'scanTourTypes', type: 'multi', label: 'Loại tour cần quét', default: [2, 3], required: true,
+        options: TOUR_TYPES,
+        hint: 'Quyết định tác vụ NHÌN THẤY những đơn nào — không phải bộ lọc phụ. Không chọn gì thì hệ thống chỉ đọc được tour FIT, nợ của tour GIT hay đơn lẻ sẽ không ai canh mà cũng không báo lỗi. Mặc định FIT + GIT.' },
+      { key: 'windowDays', type: 'number', label: 'Canh trong bao nhiêu ngày trước khi đi', default: 7, min: 1, max: 60,
+        hint: 'Nới rộng thì biết sớm hơn nhưng nhắc dai hơn, vì mỗi tour còn nợ được nhắc lại mỗi ngày cho tới lúc khởi hành. Bên đòi cọc sớm hay để 14–30; bên chỉ chốt sát ngày thì 7 là đủ.' },
+      { key: 'minOutstanding', type: 'number', label: 'Nợ từ bao nhiêu đồng thì mới nhắc', default: 0, min: 0, max: 1000000000,
+        hint: 'Để 0 = nhắc mọi khoản còn thiếu, kể cả chênh vài nghìn do làm tròn — mà mỗi khoản như thế vẫn chiếm một thẻ riêng trong Bảng tin. Thấy nhiễu thì nâng lên, ví dụ 1.000.000.' },
+      { key: 'paymentStatus', type: 'select', label: 'Lấy "còn nợ" theo đâu', default: 1,
+        options: [
+          { value: 1, label: 'Bộ lọc "Chưa thu hết" của phần mềm' },
+          { value: 0, label: 'Tự tính: doanh thu trừ đã thu' },
+        ],
+        hint: 'Nên để theo phần mềm — đó đúng là bộ lọc bạn bấm ở màn hình tìm kiếm tour, nên cảnh báo và màn hình luôn nói cùng một con số. Cách này chặt hơn: chỉ tính đơn đã ghi nhận dòng tiền, phía khách hàng, và bỏ khách đã huỷ. Chọn "tự tính" nếu công ty bạn không dùng bước ghi nhận dòng tiền, vì khi đó bộ lọc kia sẽ không thấy khoản nào.' },
+      { key: 'maxReminders', type: 'number', label: 'Mỗi tour nhắc tối đa bao nhiêu lần', default: 3, min: 0, max: 30,
+        hint: 'Mỗi ngày nhiều nhất một lần cho mỗi tour, và dừng hẳn khi đủ số lần này. Để 0 = nhắc mãi tới ngày khởi hành — cửa sổ 30 ngày nghĩa là 30 lần cho cùng một tour, tới lần thứ tư là không ai đọc nữa.' },
+      { key: 'emailEnabled', type: 'bool', label: 'Gửi thêm qua email', default: false,
+        hint: 'Bảng tin trong ứng dụng thì luôn có. Bật thêm cái này nếu muốn nhận được thư kể cả hôm không mở phần mềm. Thư gửi cho MỌI người đã bật email ở khối "Nơi nhận của tôi" — họ khai một lần, dùng cho cả bản tin lẫn cảnh báo. Mỗi lượt quét một thư gộp, không phải mỗi tour một thư.' },
+      { key: 'alertEmails', type: 'text', label: 'Gửi thêm tới (không bắt buộc)', showIf: 'emailEnabled', default: '',
+        placeholder: 'ketoan@congty.vn, giamdoc@congty.vn',
+        hint: 'Chỉ dùng cho địa chỉ KHÔNG phải tài khoản trong phần mềm — ví dụ hộp thư chung của kế toán. Người có tài khoản thì tự khai ở "Nơi nhận của tôi", đừng gõ lại vào đây kẻo sau này họ đổi email mà chỗ này vẫn giữ địa chỉ cũ. Nhiều địa chỉ thì cách nhau dấu phẩy.' },
+    ],
     // Kiểm tra sẵn sàng khởi hành (O1). Ba nhóm kiểm tách riêng vì ĐỘ TIN của dữ liệu khác nhau:
     // tiền có số thật, chỗ ngồi chỉ đúng khi công ty khai ngưỡng, visa thì CRM không lưu trạng thái
     // hồ sơ nên chỉ nhắc được là "tour có visa, tự kiểm".
     // ⚠️ default PHẢI khớp TourReadinessWorkflow.ParseOptions bên C#.
     'tour-readiness': [
+      { key: 'scanTourTypes', type: 'multi', label: 'Loại tour cần quét', default: [2, 3], required: true,
+        options: TOUR_TYPES,
+        hint: 'Quyết định tác vụ NHÌN THẤY những đơn nào — không phải bộ lọc phụ. Không chọn gì thì hệ thống chỉ đọc được tour FIT, mọi phần kiểm khác vẫn chạy nhưng chỉ trên FIT mà không báo lỗi. Mặc định FIT + GIT. Mỗi loại tick thêm là thêm một lượt đọc dữ liệu.' },
       { key: 'milestones', type: 'numbers', label: 'Nhắc ở các mốc (ngày trước khi đi)', default: [7, 3, 1],
         hint: 'Nhập các mốc cách nhau dấu phẩy, ví dụ 7, 3, 1. Mỗi mốc nhắc đúng một lần: một lần còn kịp xoay, một lần cảnh báo, một lần chốt cuối. Nhắc mỗi ngày suốt tuần thì tới ngày thứ ba là không ai đọc nữa.' },
 
@@ -222,8 +261,9 @@
 
       { key: 'checkVisa', type: 'bool', label: 'Nhắc hồ sơ visa', default: true,
         hint: 'CRM không lưu trạng thái từng bộ hồ sơ, nên đây chỉ là lời nhắc "tour này có visa, kiểm lại hồ sơ khách" — không phải kết luận là đang thiếu.' },
-      { key: 'visaTourTypes', type: 'numbers', label: 'Mã loại tour cần visa', showIf: 'checkVisa', default: [102],
-        hint: 'Mã loại tour trong CRM của công ty bạn. Mặc định 102. Nhập nhiều mã thì cách nhau dấu phẩy.' },
+      { key: 'visaTourTypes', type: 'multi', label: 'Loại nào được tính là hồ sơ visa', showIf: 'checkVisa', default: [102],
+        options: TOUR_TYPES,
+        hint: '⚠️ Đây KHÔNG phải "tour đi nước ngoài" — hệ thống không có chỗ nào ghi tour nào cần visa. Ô này chỉ chọn loại đơn nào được coi là hồ sơ visa, mặc định là đơn Visa. Tick FIT hay GIT vào đây thì MỌI tour loại đó đều bị nhắc, kể cả tour trong nước. Loại chọn ở đây cũng phải nằm trong "Loại tour cần quét" ở trên, không thì phần này không chạy.' },
 
       { key: 'checkNearlyFull', type: 'bool', label: 'Nhắc tour sắp đầy chỗ', default: true,
         hint: 'Tour ghép gần kín chỗ thì báo để đẩy bán nốt vài chỗ cuối. Đây là tin vui, không phải cảnh báo — thẻ hiện ở mức thông tin. Tour đã đầy hẳn thì không nhắc, vì chẳng còn gì để bán.' },
@@ -300,12 +340,19 @@
       secForecast: '③ Dự phóng cuối tháng', revenueTarget: '③ Dự phóng cuối tháng',
       useAi: '③ Cách trình bày', showNumbers: '③ Cách trình bày',
     },
+    'payment-watchdog': {
+      scanTourTypes: '① Quét những đơn nào',
+      windowDays: '② Khi nào thì nhắc', minOutstanding: '② Khi nào thì nhắc',
+      paymentStatus: '② Khi nào thì nhắc', maxReminders: '② Khi nào thì nhắc',
+      emailEnabled: '③ Báo cho ai', alertEmails: '③ Báo cho ai',
+    },
     'tour-readiness': {
-      milestones: '① Nhắc khi nào',
-      checkPayment: '② Kiểm những gì', checkSeats: '② Kiểm những gì', minSeats: '② Kiểm những gì',
-      checkVisa: '② Kiểm những gì', visaTourTypes: '② Kiểm những gì',
-      checkNearlyFull: '③ Canh chỗ ngồi', nearlyFullPercent: '③ Canh chỗ ngồi',
-      capacityMilestones: '③ Canh chỗ ngồi',
+      scanTourTypes: '① Quét những đơn nào',
+      milestones: '② Nhắc khi nào',
+      checkPayment: '③ Kiểm những gì', checkSeats: '③ Kiểm những gì', minSeats: '③ Kiểm những gì',
+      checkVisa: '③ Kiểm những gì', visaTourTypes: '③ Kiểm những gì',
+      checkNearlyFull: '④ Canh chỗ ngồi', nearlyFullPercent: '④ Canh chỗ ngồi',
+      capacityMilestones: '④ Canh chỗ ngồi',
     },
     'customer-auto-care': {
       quietDays: '① Thế nào là ngủ quên', ranks: '② Nhắc về ai',
@@ -547,7 +594,18 @@
         value={(Array.isArray(options[opt.key]) ? options[opt.key] : []).join(', ')}
         onChange={e => setOptions(o => ({ ...o, [opt.key]: e.target.value.split(',').map(x => parseInt(x.trim(), 10)).filter(n => !isNaN(n) && n > 0) }))} />
     );
-    return null;
+    // Chữ tự do (vd danh sách email nhận cảnh báo). Lưu NGUYÊN chuỗi người dùng gõ, cắt/lọc ở
+    // máy chủ — cắt ngay trong ô nhập thì đang gõ dở dấu phẩy là chữ nhảy lung tung dưới tay.
+    if (opt.type === 'text') return (
+      <input type="text" className="workflows-select workflows-opt-input"
+        placeholder={opt.placeholder || ''}
+        value={options[opt.key] ?? opt.default ?? ''}
+        onChange={e => setOptions(o => ({ ...o, [opt.key]: e.target.value }))} />
+    );
+    // Kiểu lạ thì KÊU LÊN, đừng trả null im lặng: ô biến mất khỏi form mà không lỗi gì là bẫy đã
+    // dính một lần — cấu hình trông như đã lưu nhưng thực ra chưa bao giờ nhập được.
+    console.error('[workflow-options] type không hỗ trợ:', opt.type, '— option', opt.key);
+    return <div className="workflows-opt-hint">⚠️ Không hiển thị được ô này (kiểu "{opt.type}").</div>;
   }
 
   window.tourkitWorkflowOptions = {

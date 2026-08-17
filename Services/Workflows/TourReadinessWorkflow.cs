@@ -45,6 +45,7 @@ public class TourReadinessWorkflow : IScheduledWorkflow
     // ── Tuỳ chọn per-tenant ──────────────────────────────────────────────────────
     // ⚠️ default PHẢI khớp WORKFLOW_OPTIONS['tour-readiness'] bên workflow-options.jsx.
     private record Options(
+        List<int> ScanTourTypes,
         List<int> Milestones,
         bool CheckPayment, bool CheckSeats, bool CheckVisa,
         int MinSeats, List<int> VisaTourTypes,
@@ -53,6 +54,9 @@ public class TourReadinessWorkflow : IScheduledWorkflow
     private static Options ParseOptions(string? json)
     {
         var def = new Options(
+            // Không khai loại thì upstream chỉ trả FIT — xem TourTypes. Vì thế đây là tuỳ chọn
+            // quyết định tác vụ NHÌN THẤY GÌ, không phải một bộ lọc phụ.
+            ScanTourTypes: TourTypes.DefaultScan.ToList(),
             Milestones: new() { 7, 3, 1 },
             CheckPayment: true, CheckSeats: true, CheckVisa: true,
             // 0 = CHƯA khai → không kiểm chỗ ngồi. Đoán hộ một ngưỡng ở đây là báo nhầm hàng loạt:
@@ -86,6 +90,7 @@ public class TourReadinessWorkflow : IScheduledWorkflow
 
             return def with
             {
+                ScanTourTypes = Ints("scanTourTypes", def.ScanTourTypes),
                 Milestones = Ints("milestones", def.Milestones),
                 CheckPayment = Bit("checkPayment", def.CheckPayment),
                 CheckSeats = Bit("checkSeats", def.CheckSeats),
@@ -136,42 +141,37 @@ public class TourReadinessWorkflow : IScheduledWorkflow
             opt.CapacityMilestones.Count > 0 ? opt.CapacityMilestones.Max() : 0);
         var to = todayVn.AddDays(window);
 
-        JsonElement data;
-        try
+        // MỘT LƯỢT GỌI CHO MỖI LOẠI: upstream chỉ lọc được 1 loại/lần và mặc định là FIT.
+        var failedTypes = new List<string>();
+        var items = await TourTypes.FetchByTypesAsync(_api, jwt, opt.ScanTourTypes,
+            todayVn, to, 200, failedTypes, ct);
+        if (items.Count == 0 && failedTypes.Count == opt.ScanTourTypes.Count && failedTypes.Count > 0)
         {
-            data = await _api.GetAsync(jwt,
-                $"/api/ai/tours?StartDate={todayVn:yyyy-MM-dd}&EndDate={to:yyyy-MM-dd}&PageSize=200", ct);
-        }
-        catch (Exception ex)
-        {
-            _log.LogWarning(ex, "[tour-readiness] tenant={T} đọc danh sách tour lỗi", tenantId);
-            return new(false, null, $"Không đọc được danh sách tour: {ex.Message}");
+            _log.LogWarning("[tour-readiness] tenant={T} đọc danh sách tour lỗi ở mọi loại", tenantId);
+            return new(false, null, "Không đọc được danh sách tour (" + string.Join(", ", failedTypes) + ").");
         }
 
         var rows = new List<TourReadinessRow>();
         int skipped = 0, missingPaid = 0;
-        if (data.TryGetProperty("items", out var items) && items.ValueKind == JsonValueKind.Array)
+        foreach (var it in items)
         {
-            foreach (var it in items.EnumerateArray())
-            {
-                if (!TryGetInt(it, "id", out var id)) { skipped++; continue; }
-                if (!TryGetDate(it, "departureDate", out var dep)) { skipped++; continue; }
+            if (!TryGetInt(it, "id", out var id)) { skipped++; continue; }
+            if (!TryGetDate(it, "departureDate", out var dep)) { skipped++; continue; }
 
-                // Thiếu actualRevenue mà coi là 0 thì mọi tour thành "nợ trọn doanh thu" (lỗi thật
-                // 12/08 của O2). Ở đây nhẹ hơn: vẫn giữ dòng để còn kiểm khách/visa, chỉ TẮT phần
-                // tiền cho riêng dòng đó bằng cách cho ActualRevenue = Revenue.
-                var hasPaid = TryGetDec(it, "actualRevenue", out var actual);
-                var revenue = GetDec(it, "revenue");
-                if (!hasPaid) { missingPaid++; actual = revenue; }
+            // Thiếu actualRevenue mà coi là 0 thì mọi tour thành "nợ trọn doanh thu" (lỗi thật
+            // 12/08 của O2). Ở đây nhẹ hơn: vẫn giữ dòng để còn kiểm khách/visa, chỉ TẮT phần
+            // tiền cho riêng dòng đó bằng cách cho ActualRevenue = Revenue.
+            var hasPaid = TryGetDec(it, "actualRevenue", out var actual);
+            var revenue = GetDec(it, "revenue");
+            if (!hasPaid) { missingPaid++; actual = revenue; }
 
-                rows.Add(new TourReadinessRow(id,
-                    GetStr(it, "title") ?? GetStr(it, "tourCode") ?? $"Tour #{id}",
-                    GetStr(it, "customerName"), GetStr(it, "sellerName"),
-                    dep, revenue, actual,
-                    GetInt(it, "slots"), GetInt(it, "booked"),
-                    GetInt(it, "tourType"), GetStr(it, "tourTypeLabel"),
-                    GetInt(it, "onHold")));
-            }
+            rows.Add(new TourReadinessRow(id,
+                GetStr(it, "title") ?? GetStr(it, "tourCode") ?? $"Tour #{id}",
+                GetStr(it, "customerName"), GetStr(it, "sellerName"),
+                dep, revenue, actual,
+                GetInt(it, "slots"), GetInt(it, "booked"),
+                GetInt(it, "tourType"), GetStr(it, "tourTypeLabel"),
+                GetInt(it, "onHold")));
         }
 
         var cards = TourReadinessRule.Evaluate(rows, todayVn, opt.Milestones,
@@ -207,11 +207,19 @@ public class TourReadinessWorkflow : IScheduledWorkflow
         await _insights.PruneAsync(KeepInsightDays, ct);
 
         // "còn thiếu điều kiện" nay không còn đúng: thẻ có thể chỉ mang tin vui (tour sắp đầy).
-        var summary = $"Quét {rows.Count} tour trong {window} ngày tới → {cards.Count} tour cần chú ý "
+        var scanned = string.Join(" + ", opt.ScanTourTypes.Select(TourTypes.Name));
+        var summary = $"Quét {rows.Count} tour ({scanned}) trong {window} ngày tới → {cards.Count} tour cần chú ý "
                     + $"({created} thẻ mới, {deduped} đã nhắc ở mốc này)"
                     + (skipped > 0 ? $", bỏ qua {skipped} dòng thiếu dữ liệu" : "")
+                    + (failedTypes.Count > 0 ? $". Không đọc được loại: {string.Join(", ", failedTypes)}" : "")
                     + (missingPaid > 0 ? $". Lưu ý: {missingPaid} tour không có số thực thu nên bỏ phần kiểm tiền cho những tour đó" : "")
                     + (opt.CheckSeats && opt.MinSeats == 0 ? ". Chưa khai số khách tối thiểu nên chưa kiểm phần khách" : "")
+                    // Cấu hình tự mâu thuẫn thì phải NÓI RA: bật kiểm visa mà không quét loại nào
+                    // được coi là hồ sơ visa thì phần đó im lặng không chạy — đúng lỗi đã tồn tại
+                    // suốt vì tác vụ chỉ kéo FIT.
+                    + (opt.CheckVisa && !opt.VisaTourTypes.Any(v => opt.ScanTourTypes.Contains(v))
+                        ? $". CẢNH BÁO: đang bật kiểm visa nhưng không quét loại nào tính là hồ sơ visa ({string.Join(", ", opt.VisaTourTypes.Select(TourTypes.Name))}) — phần visa không chạy"
+                        : "")
                     + ".";
         _log.LogInformation("[tour-readiness] tenant={T} {Sum}", tenantId, summary);
         return new(true, summary, null);

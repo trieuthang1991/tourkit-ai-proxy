@@ -63,9 +63,54 @@ bảng số** này:
 |---|---|---|---|
 | 0 | `Email` (default) | `ToEmail` + `Params` (mẫu HTML) | `EmailChannelSender` |
 | 1 | `Telegram` | `Data`: `{chatId, title, body}` | `TelegramChannelSender` |
-| 2 | `Zalo` (ZNS) | `Data`: `{phone, title, body}` — SỐ ĐIỆN THOẠI | `ZaloZnsSender` |
+| 2 | `Zalo` (ZNS) | `Data`: `{phone, title, body, templateId}` — SỐ ĐIỆN THOẠI | `ZaloZnsSender` |
 
 Dòng cũ (trước khi có cột `Channel`) tự mang giá trị mặc định `0` (email) — không cần migrate data.
+
+### Zalo: OA riêng từng công ty + mẫu theo chức năng (17/08)
+
+Bản trước gửi ZNS bằng **OA chung** khai ở config worker. Đổi lại thành **OA riêng từng công ty**:
+tin ZNS hiện tên OA người gửi, nên gửi bằng OA của bên cung cấp dịch vụ thì khách của công ty A nhận
+tin mang tên công ty B. Đi gặp khách hàng 17/08: không bên nào chấp nhận.
+
+Worker cần đọc thêm:
+
+- **Tài khoản OA**: `dbo.TenantChannelSettings` với `TenantId = <tenant của dòng hàng đợi>` và
+  `Channel = 'zalo'`. `ConfigJson`:
+  ```json
+  { "mode": "own|provided",
+    "oaId": "...", "appId": "...",
+    "secretKeyEnc": "<Crypton>",
+    "refreshTokenSeedEnc": "<Crypton>",     // hạt giống: quản trị dán 1 lần
+    "provisionKeyEnc": "<Crypton>",
+    "templates": { "sale-brief": "...", "ceo-brief": "...", "payment-alert": "..." },
+
+    "accessTokenEnc": "<Crypton>",          // ─┐ CỦA WORKER
+    "refreshTokenEnc": "<Crypton>",         //  │ xoay vòng mỗi lần làm mới
+    "refreshedUtc": "2026-08-17T02:00:00Z" } // ─┘
+  ```
+  `mode=own` → dùng `oaId/appId/secretKey` của công ty. `mode=provided` → công ty dùng OA của bên
+  cung cấp bằng `provisionKey` được cấp. **Không có trường hợp thứ ba**: thiếu cấu hình thì đánh dấu
+  `Status=4` (không thử lại) kèm lý do "chưa khai OA Zalo", **KHÔNG** mượn OA khác gửi thay.
+
+  ⚠️ **`refreshTokenSeedEnc` là bắt buộc với `mode=own`.** App ID + Secret KHÔNG đủ để lấy token:
+  Zalo cấp access token bằng cách đổi refresh token, mà refresh token đầu tiên chỉ có sau bước cấp
+  quyền OA trên trang Zalo. Worker chỉ đọc hạt giống khi `refreshTokenEnc` còn trống; từ lần làm
+  mới đầu tiên trở đi DB là nguồn đúng.
+
+- **Mã mẫu**: đọc `Data.templateId` **trên chính dòng hàng đợi** — proxy đã tra sẵn theo đúng loại
+  bản tin lúc dựng nội dung. Trống (dòng cũ do bản proxy trước xếp vào) → tra lại theo
+  `Kind`/`Data.briefType`; vẫn không có → `Status=4` + lý do, **đừng lấy mẫu của chức năng khác**.
+
+⚠️ **Ba khoá token là của WORKER, phần còn lại là của proxy — CẢ HAI BÊN ĐỀU GHI HỢP NHẤT.** Đọc
+`ConfigJson` hiện có → sửa đúng khoá của mình → ghi lại. Bên nào ghi đè cả cục là xoá mất phần của
+bên kia, và hỏng hóc chỉ lộ ra ở lần gửi sau đó chứ không báo gì lúc lưu. Bên worker:
+[`TenantZaloConfigStore`](../../../toutkit-app/PushNotification.Worker/Channels/TenantZaloConfigStore.cs);
+bên proxy: [`TenantChannelSettingsStore`](../../Services/Digest/TenantChannelSettingsStore.cs).
+
+⚠️ **`ZaloTokenStore` cũ (OA dùng chung, `TenantId='(system)'`, `Channel='zalo-zns'`) vẫn còn trong
+worker nhưng KHÔNG lớp nào gọi tới** — giữ lại cho chế độ `provided` khi bên cung cấp mở đường đó.
+Đừng nhầm hai lớp: `zalo` là cấu hình per-tenant, `zalo-zns` là token của OA hệ thống.
 
 ⚠️ **MỘT hàng đợi, MỘT nơi tiêu thụ:** `TourKit.PushWorker` rút **cả 3 kênh** và KHÔNG lọc `Channel`;
 proxy chỉ XẾP vào, không rút. Đừng thêm bộ rút thứ hai ở bất kỳ đâu — hai tiến trình cùng poll thì cái

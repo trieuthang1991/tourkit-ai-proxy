@@ -120,4 +120,31 @@ public class PaymentWatchdogRuleTests
         var row = new TourPaymentRow(1, "T", "K", "S", Today.AddDays(2), 0m, -100m);
         Assert.Empty(PaymentWatchdogRule.Evaluate(new[] { row }, Today));
     }
+
+    // ── Cửa sổ ngày do công ty khai ─────────────────────────────────────────────
+    [Fact]
+    public void Cua_so_noi_rong_thi_tour_xa_hon_cung_duoc_bao()
+        => Assert.Single(PaymentWatchdogRule.Evaluate(new[] { Row(1, 20, 100m, 0m) }, Today, windowDays: 30));
+
+    // ── Ngưỡng nợ tối thiểu ─────────────────────────────────────────────────────
+    [Fact]
+    public void Mac_dinh_khong_nguong_thi_no_le_van_bao()
+        => Assert.Single(PaymentWatchdogRule.Evaluate(new[] { Row(1, 5, 100_000_000m, 99_999_000m) }, Today));
+
+    [Fact]
+    public void No_nho_hon_nguong_thi_bo_qua()
+    {
+        // Chênh 1.000đ do làm tròn vẫn là "còn nợ" theo phép trừ, nhưng chiếm nguyên một thẻ
+        // trong Bảng tin. Công ty khai ngưỡng 1 triệu thì dòng này phải im.
+        var rows = new[] { Row(1, 5, 100_000_000m, 99_999_000m) };
+        Assert.Empty(PaymentWatchdogRule.Evaluate(rows, Today, minOutstanding: 1_000_000m));
+    }
+
+    [Fact]
+    public void No_bang_dung_nguong_thi_van_bao()
+    {
+        // Ranh giới: "từ 1 triệu trở lên thì nhắc" — bằng đúng ngưỡng là CÓ nhắc, không phải bỏ.
+        var rows = new[] { Row(1, 5, 100_000_000m, 99_000_000m) };
+        Assert.Single(PaymentWatchdogRule.Evaluate(rows, Today, minOutstanding: 1_000_000m));
+    }
 }

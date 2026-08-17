@@ -20,8 +20,8 @@
       F.node('r3', 'step', F.MID, 2, { icon: 'user', title: 'Đăng nhập TourKit',
         sub: 'Việc của cả công ty nên dùng tài khoản hệ thống' }),
       F.node('r4', 'step', F.MID, 3, { icon: 'calendar', title: 'Lấy tour sắp khởi hành',
-        sub: 'Cửa sổ = mốc xa nhất của CẢ HAI nhóm · tính theo lịch Việt Nam',
-        cfg: ['milestones', 'capacityMilestones'] }),
+        sub: 'Mỗi loại tour một lượt đọc riêng · cửa sổ = mốc xa nhất của CẢ HAI nhóm',
+        cfg: ['scanTourTypes', 'milestones', 'capacityMilestones'] }),
 
       F.node('r5', 'branch', F.MID, 4.2, { icon: 'sliders', title: 'Tour đã chạm mốc nào?',
         sub: 'Còn 5 ngày thì thuộc mốc 7 — nhắc theo mốc gần nhất ĐÃ đi qua', cfg: ['milestones'] }),
