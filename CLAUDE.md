@@ -495,12 +495,14 @@ KHÔNG thêm bảng mới cho việc này.
      [`TenantChannelSettingsStore`](Services/Digest/TenantChannelSettingsStore.cs). Giao diện nằm
      **cùng thẻ với tài khoản dịch vụ** trong mục "Theo tổ chức" — cả hai đều là thông tin đăng
      nhập cấp công ty, khai một lần.
-   - **Hai chế độ, MỘT đường code — `mode` chỉ là nhãn.** Cả `own` lẫn `provided` khai CÙNG bộ
-     `oaId` + `appId` + `secretKey` + `refreshTokenSeed`; khác nhau duy nhất ở chỗ giá trị từ đâu ra:
-     `own` công ty tự đăng ký OA, `provided` bên cung cấp dịch vụ **đưa sẵn thông tin OA hệ thống**
-     để công ty khỏi phải đi đăng ký — họ vẫn dán vào đúng những ô đó, không phải "khỏi nhập gì".
-     Vì thế phần gửi không tách nhánh theo `mode`; nhãn chỉ đổi lời hướng dẫn trên màn hình và cho
-     biết đang gửi dưới tên OA của ai.
+   - **MỘT bộ ô, MỘT đường code — `mode` đã gỡ khỏi giao diện (18/08).** Dù OA do công ty tự đăng ký
+     hay do bên cung cấp dịch vụ đưa sẵn, thứ phải dán vào vẫn đúng CÙNG bộ `oaId` + `appId` +
+     `secretKey` + `refreshTokenSeed` — khác nhau duy nhất ở chỗ giá trị lấy từ đâu, mà đó không phải
+     việc hệ thống cần biết. Trước đây có ô chọn "Dùng OA nào"; nó **không đổi hành vi gì** (không
+     dòng nào ở proxy lẫn worker rẽ nhánh theo nó) nên chỉ tổ bắt người khai dừng lại phân vân chọn
+     sai thì sao. Trường `Mode` giữ lại ở DTO/DB cho client cũ, mặc định `own`, **không ai đọc** —
+     đừng dựng lại logic dựa trên nó. Chuyện "OA của bên cung cấp" nay nói bằng một câu trong khối
+     hướng dẫn "Lấy bốn thông tin này ở đâu?".
      ⚠️ `refreshTokenSeed` **bắt buộc**: App ID + Secret không lấy được token — Zalo đổi refresh
      token lấy access token, mà refresh token đầu chỉ có sau bước cấp quyền OA. Thiếu nó thì công ty
      khai xong tưởng chạy được, worker không bao giờ lấy nổi token.

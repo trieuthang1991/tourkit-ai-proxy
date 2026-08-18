@@ -13,6 +13,31 @@ Những cập nhật gần đây của TRAV-AI, viết cho người dùng. Mới
 
 ---
 
+## Phiên bản 18/08/2026 — Trang Tự động hoá gọn lại, phần khai Zalo dễ hiểu hơn
+
+### ✨ Tính năng mới
+- **📥 "Nơi nhận của tôi" và "Zalo OA của công ty" nay gấp gọn lại.** Hai khối này chỉ khai một lần
+  rồi gần như không đụng nữa, nhưng trước đây luôn mở toang ở đầu trang — mỗi lần vào bạn phải cuộn
+  qua cả chục ô đã điền xong từ lâu. Nay chúng nằm gọn một dòng, bấm vào mới mở ra.
+- **👀 Đóng lại vẫn biết mình đã khai xong chưa.** Ngay trên dòng tiêu đề có một dấu nhỏ nói rõ tình
+  trạng: đang nhận qua đâu, hay *"Thiếu nơi nhận: Email"*, hay *"Chưa khai — kênh Zalo chưa gửi
+  được"*. Bật một kênh mà bỏ trống địa chỉ là lỗi trước giờ không hề báo — sáng hôm sau không thấy
+  bản tin tới thì mới biết. Nay nhìn một cái là thấy.
+
+### 🔧 Đã khắc phục
+- **Không còn phải chọn "dùng OA nào".** Ô chọn giữa OA riêng và OA của nhà cung cấp gây phân vân
+  không cần thiết: hai kiểu đều khai đúng bốn thông tin như nhau, chỉ khác chỗ lấy giá trị ở đâu.
+  Nay bỏ hẳn ô chọn, chỉ còn bốn ô nhập.
+- **"Refresh token lần đầu" không ai hiểu là gì.** Nay ô đó ghi đúng tên Zalo in trên màn hình của
+  họ — *Refresh Token* — kèm hướng dẫn bốn bước "lấy ở đâu", và một dòng giải thích vì sao hệ thống
+  cần chuỗi này chứ không phải chuỗi còn lại, cùng việc bạn chỉ phải dán đúng một lần.
+- **Mở phần khai Zalo ra là thấy ngay dòng báo lỗi đỏ** dù bạn chưa làm gì sai. Nay chỉ báo khi bạn
+  đã điền dở, còn ô trống thì không bị coi là lỗi.
+- **Trên điện thoại, các ô nhập phình cao gấp mấy lần bình thường** và những dòng ghi chú bị xé thành
+  các cột chữ chồng lên nhau, đọc không ra nghĩa. Nay hiển thị đúng.
+
+---
+
 ## Phiên bản 17/08/2026 (bản 2) — Trang giới thiệu để Google và Zalo đọc được
 
 ### ✨ Tính năng mới

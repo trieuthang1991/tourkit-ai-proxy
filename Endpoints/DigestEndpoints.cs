@@ -385,6 +385,10 @@ public static class DigestEndpoints
             if (a == null) return SessionAuth.Unauthorized();
             if (!await CanConfigSystemAsync(a.SessionId, sessions, ct)) return Forbidden();
 
+            // `Mode` là DI SẢN — giao diện KHÔNG còn hỏi nữa (bỏ 18/08). Cả hai chế độ luôn đòi
+            // đúng bộ oaId+appId+secretKey+refreshTokenSeed như nhau, và không dòng code nào ở
+            // proxy lẫn worker rẽ nhánh theo nó — nó chỉ được lưu rồi đọc ra để in chữ hướng dẫn.
+            // Giữ lại tham số cho client cũ; body không gửi thì rơi về 'own', vô hại vì không ai đọc.
             var mode = body.Mode == TenantChannelSettingsStore.ModeProvided
                 ? TenantChannelSettingsStore.ModeProvided
                 : TenantChannelSettingsStore.ModeOwnOa;

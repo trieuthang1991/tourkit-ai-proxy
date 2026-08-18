@@ -8651,7 +8651,6 @@ n
 .digest-label { font-size: 12.5px; font-weight: 600; color: var(--text-2); min-width: 110px; }
 .digest-hint { font-weight: 400; color: var(--text-3); }
 
-.digest-channels { margin-top: 6px; padding-top: 12px; border-top: 1px solid var(--border); }
 /* Dòng nơi nhận: công tắc + tên kênh + ô nhập. Bỏ cursor:pointer trên cả dòng — dòng không còn là
    <label> bọc ô tick nữa, chỉ bấm đúng công tắc mới đổi được, con trỏ bàn tay trên cả dòng là hứa sai. */
 .digest-ch {
@@ -8664,16 +8663,21 @@ n
 }
 .digest-ch-note { font-size: 11.5px; color: var(--text-3); }
 
-/* Hint "mỗi người chỉ nhận 1 loại bản tin" — dưới ô tick "Nhận bản tin này" */
+/* Hint "mỗi người chỉ nhận 1 loại bản tin" — dưới ô tick "Nhận bản tin này".
+   CÂU CHỮ, nên chảy theo dòng như văn bản (display:block), KHÔNG phải flex.
+   Trước đây để display:flex: mỗi <b> trong câu thành một ô flex riêng, màn hình rộng còn đủ chỗ
+   nên nhìn vẫn như một dòng, nhưng xuống điện thoại thì câu bị xé thành các CỘT chữ chồng lên
+   nhau — đọc ra vô nghĩa. Cùng lỗi đó ở .digest-ch-warn / .digest-tg-hint / .digest-ch-ref. */
 .digest-role-note {
-  display: flex; align-items: center; gap: 6px;
-  margin: 0 0 8px; font-size: 12px; color: var(--text-3);
+  margin: 0 0 8px; font-size: 12px; line-height: 1.6; color: var(--text-3);
+}
+.digest-role-note > svg, .digest-ch-warn > svg, .digest-ch-ref > svg, .digest-problem > svg {
+  vertical-align: -2px; margin-right: 6px;
 }
 
 /* Dòng trỏ ngược trong thẻ bản tin: "gửi tới …, đổi ở khối Nơi nhận của tôi phía trên".
    Nhạt hơn cảnh báo vì đây là thông tin, không phải chuyện cần sửa. */
 .digest-ch-ref {
-  display: flex; align-items: center; gap: 6px; flex-wrap: wrap;
   margin: 8px 0 2px; padding: 8px 11px; border-radius: var(--radius-sm);
   border: 1px dashed var(--border); background: var(--bg);
   font-size: 12px; line-height: 1.6; color: var(--text-2);
@@ -8683,16 +8687,58 @@ n
    dưới để không dính vào thẻ đầu tiên. */
 .digest-channels { margin-bottom: 14px; }
 
-/* OA Zalo nằm CÙNG thẻ với tài khoản dịch vụ → cần đường kẻ ngăn, không thì hai cụm thông tin
-   đăng nhập khác nhau dính liền thành một khối khó đọc. */
-.workflows-sa-divider { margin-top: 14px; padding-top: 14px; border-top: 1px solid var(--border); }
-.digest-zalo { background: transparent; padding: 0; }
-.digest-zalo-badge {
-  margin-left: 8px; padding: 1px 8px; border-radius: 999px;
-  font-size: 11px; font-weight: 600; vertical-align: middle;
+/* OA Zalo nằm CÙNG thẻ với tài khoản dịch vụ → cần tách hai cụm thông tin đăng nhập ra.
+   CHỈ khoảng trống, KHÔNG kẻ đường: khối OA giờ là panel có viền riêng, thêm một đường kẻ ngay
+   sát viền của nó thành hai vạch song song cách nhau vài pixel — trông như lỗi vẽ. */
+.workflows-sa-divider { margin-top: 14px; }
+
+/* ── Khối gập ──────────────────────────────────────────────────────────────────
+   Đóng sẵn. Dòng tiêu đề mang luôn tình trạng, nên lúc đóng vẫn đọc được "xong chưa" mà không
+   phải mở. Đây là cái duy nhất trong khối được phép đổi màu — mọi thứ khác giữ im. */
+.digest-fold {
+  border: 1px solid var(--border); border-radius: var(--radius-sm);
+  background: var(--surface); overflow: hidden;
+}
+.digest-fold-head {
+  display: flex; align-items: center; gap: 9px; flex-wrap: wrap;
+  width: 100%; padding: 11px 13px;
+  border: 0; background: none; cursor: pointer; text-align: left;
+  font-family: inherit; color: var(--text);
+}
+.digest-fold-head:hover { background: var(--bg); }
+.digest-fold-head:focus-visible { outline: 2px solid var(--primary); outline-offset: -2px; }
+.digest-fold-head > svg { color: var(--primary); opacity: .85; flex: 0 0 auto; }
+.digest-fold-title { font-size: 13.5px; font-weight: 700; }
+.digest-fold-chev { margin-left: auto; display: inline-flex; color: var(--text-3); }
+.digest-fold.is-open .digest-fold-head { background: var(--bg); }
+
+/* Ba tình trạng, ba câu — không có trạng thái nào để trống, vì "không nói gì" đọc ra là "chắc ổn". */
+.digest-fold-state {
+  padding: 2px 9px; border-radius: 999px;
+  font-size: 11px; font-weight: 600; line-height: 1.7;
   background: var(--bg); color: var(--text-3); border: 1px solid var(--border);
 }
-.digest-zalo-badge.is-ok { background: #ECFDF5; color: #047857; border-color: #A7F3D0; }
+.digest-fold-state.is-ok { background: #ECFDF5; color: #047857; border-color: #A7F3D0; }
+.digest-fold-state.is-warn { background: #FFFBEB; color: #92400E; border-color: #FDE68A; }
+.digest-fold-body { padding: 12px 13px 13px; border-top: 1px solid var(--border); }
+.digest-fold-body > .digest-role-note:first-child { margin-top: 0; }
+/* Trong khối gập, khung đã có viền riêng → bỏ viền/đệm trên của nếp cũ, không thì hai đường kẻ. */
+.digest-fold.digest-channels, .digest-fold.digest-zalo { padding: 0; background: var(--surface); }
+
+/* "Lấy ở đâu?" — hướng dẫn thật sự là một chuỗi thao tác, nên để <details> gập riêng:
+   người đã khai xong không phải nhìn lại, người đang khai mở ra một lần là đủ. */
+.digest-guide { margin: 0 0 12px; font-size: 12px; color: var(--text-2); }
+.digest-guide > summary {
+  cursor: pointer; font-weight: 600; color: var(--primary);
+  padding: 5px 0; list-style: none; width: fit-content;
+}
+.digest-guide > summary::-webkit-details-marker { display: none; }
+.digest-guide > summary::before { content: '+ '; font-weight: 700; }
+.digest-guide[open] > summary::before { content: '\2212  '; font-weight: 700; }
+.digest-guide > summary:focus-visible { outline: 2px solid var(--primary); outline-offset: 2px; }
+.digest-guide ol { margin: 4px 0 0; padding-left: 20px; }
+.digest-guide li { margin-bottom: 5px; line-height: 1.65; }
+.digest-guide p { margin: 8px 0 0; color: var(--text-3); line-height: 1.65; }
 
 .digest-input {
   flex: 1 1 200px; min-width: 0; max-width: 320px;
@@ -8704,13 +8750,12 @@ n
 .digest-detect { flex: 0 0 auto; }
 
 .digest-tg-hint, .digest-ch-warn {
-  display: flex; align-items: center; gap: 6px;
   margin: 2px 0 8px 114px; padding: 8px 11px; border-radius: var(--radius-sm);
   border: 1px solid var(--warning); background: #FFFBEB;
   font-size: 12px; line-height: 1.6; color: var(--text-2);
 }
 .digest-problem {
-  display: flex; align-items: center; gap: 6px; margin-top: 10px;
+  margin-top: 10px;
   padding: 8px 11px; border-radius: var(--radius-sm);
   border: 1px solid var(--danger); background: #FEF2F2;
   font-size: 12px; color: #991B1B;
@@ -8741,6 +8786,10 @@ n
 /* Mobile: nhãn 110px làm ô nhập bị bóp — cho xuống dòng và bỏ thụt lề của dòng ghi chú. */
 @media (max-width: 720px) {
   .digest-row { flex-direction: column; align-items: stretch; }
+  /* Dòng xoay sang cột thì `flex: 1 1 200px` của .digest-input trở thành 200px CHIỀU CAO — mỗi ô
+     nhập phình thành một khối vuông to tướng, cuộn mãi không hết form. Trục chính đổi thì
+     flex-basis đổi nghĩa theo; phải khai lại ở đây. */
+  .digest-row > .digest-input { flex: 0 0 auto; width: 100%; max-width: none; }
   .digest-label, .digest-ch-name { min-width: 0; }
   .digest-tg-hint, .digest-ch-warn { margin-left: 0; }
   .insights-toggle { margin-left: 0; }

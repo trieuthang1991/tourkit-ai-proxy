@@ -82,6 +82,50 @@ function channelSummary(sub) {
   return ch.join(', ');
 }
 
+// ─── Khối gập: đóng sẵn, và lúc đóng vẫn PHẢI trả lời được "tôi xong chưa?" ─────
+//
+// Hai khối cấu hình này chỉ khai một lần rồi gần như không đụng lại, nhưng trước đây luôn mở toang
+// ở đầu trang — nghĩa là mọi người, mọi lần vào, đều phải cuộn qua 10 ô nhập đã điền xong từ lâu.
+//
+// Điều kiện để được phép đóng sẵn: dòng tiêu đề phải NÓI RA tình trạng, không chỉ là cái tên. Vì
+// cả 3 kiểu hỏng của cụm bản tin đều IM LẶNG (chưa khai / bật kênh mà bỏ trống nơi nhận / gửi
+// hỏng) — đóng một khối chưa khai xong mà ngoài chỉ ghi mỗi cái tên thì đúng là đem giấu lỗi đi.
+// Nên `state` ở đây không phải huy hiệu trang trí: nó là lý do khối này được phép đóng.
+//
+// Dùng <button> thật cho dòng tiêu đề → có Tab/Enter/Space và viền focus sẵn, không phải tự chế.
+function Fold({ icon, title, state, defaultOpen = false, className, children }) {
+  const Icon = window.Icon;
+  const [open, setOpen] = dS(!!defaultOpen);
+  return (
+    <div className={'digest-fold' + (open ? ' is-open' : '') + (className ? ' ' + className : '')}>
+      <button type="button" className="digest-fold-head" aria-expanded={open}
+        onClick={() => setOpen(v => !v)}>
+        <Icon name={icon} size={15} />
+        <span className="digest-fold-title">{title}</span>
+        {state && <span className={'digest-fold-state is-' + state.tone}>{state.text}</span>}
+        <span className="digest-fold-chev"><Icon name={open ? 'chevronUp' : 'chevronDown'} size={15} /></span>
+      </button>
+      {open && <div className="digest-fold-body">{children}</div>}
+    </div>
+  );
+}
+
+// Tình trạng nơi nhận, đọc được khi khối đang đóng.
+// "Chưa khai" là SAI ở đây — trong app luôn bật nên không bao giờ có chuyện không nhận được gì.
+// Trạng thái đáng giá nhất là cái ở giữa: bật một kênh nhưng bỏ trống địa chỉ. Đó chính là kiểu
+// hỏng lặng lẽ mà người dùng chỉ phát hiện ra khi sáng hôm sau không thấy gì tới.
+function channelState(sub) {
+  const s = sub || {};
+  const on = [];
+  if (s.channelEmail) on.push({ n: 'Email', ok: !!String(s.email || '').trim() });
+  if (s.channelTelegram) on.push({ n: 'Telegram', ok: !!String(s.telegramChatId || '').trim() });
+  if (s.channelZalo) on.push({ n: 'Zalo', ok: isVnMobile(s.zaloPhone) });
+  if (!on.length) return { tone: 'none', text: 'Chỉ nhận trong app' };
+  const missing = on.filter(x => !x.ok).map(x => x.n);
+  if (missing.length) return { tone: 'warn', text: 'Thiếu nơi nhận: ' + missing.join(', ') };
+  return { tone: 'ok', text: on.map(x => x.n).join(' · ') };
+}
+
 // ─── "Nơi nhận của tôi" — khai MỘT LẦN, mọi thông báo dùng chung ────────────────
 //
 // Trước đây ô email/Telegram/Zalo nằm bên trong thẻ bản tin, nên nó trông như "nơi nhận của riêng
@@ -137,8 +181,8 @@ function MyChannelsBlock({ sub, onSaved, pushToast }) {
   };
 
   return (
-    <div className="workflows-optgroup digest-block digest-channels">
-      <div className="workflows-optgroup-title">Nơi nhận của tôi</div>
+    <Fold icon="send" title="Nơi nhận của tôi" state={channelState(sub)}
+      className="digest-block digest-channels">
       <div className="digest-role-note">
         <Icon name="info" size={12} /> Khai <b>một lần</b> ở đây, dùng cho <b>tất cả</b> thông báo bạn
         bật bên dưới — bản tin sáng, cảnh báo, và những thứ thêm sau này.
@@ -162,7 +206,7 @@ function MyChannelsBlock({ sub, onSaved, pushToast }) {
       <div className="digest-ch">
         <Sw checked={!!f.channelTelegram} onChange={v => set({ channelTelegram: v })} />
         <span className="digest-ch-name"><Icon name="send" size={13} /> Telegram</span>
-        <input className="digest-input" placeholder="chat id"
+        <input className="digest-input" placeholder="vd 6234567890"
           value={f.telegramChatId || ''} onChange={e => set({ telegramChatId: e.target.value })}
           disabled={!f.channelTelegram} />
         <button type="button" className="wga-btn ghost digest-detect"
@@ -170,6 +214,17 @@ function MyChannelsBlock({ sub, onSaved, pushToast }) {
           Tự phát hiện
         </button>
       </div>
+      {/* Ô này từng chỉ ghi "chat id" và người dùng hỏi thẳng "điền gì vào đây" — đúng là không đủ:
+          không nói đó là CON SỐ, không nói lấy ở đâu, và không nói bước Start (thiếu Start thì
+          Telegram trả "chat not found" và dòng bị bỏ qua IM LẶNG, không lỗi nào hiện ra). */}
+      {f.channelTelegram && (
+        <div className="digest-ch-warn">
+          <Icon name="info" size={12} /> Đây là <b>một dãy số</b> Telegram cấp cho cuộc trò chuyện
+          giữa bạn và bot — không phải <i>@tên</i> hay số điện thoại. Trước tiên hãy mở bot và bấm
+          <b> Bắt đầu</b> (bot không được phép nhắn trước cho người chưa mở hội thoại), rồi bấm
+          <b> Tự phát hiện</b>. Muốn tự điền thì nhắn cho <b>@userinfobot</b> để lấy số của bạn.
+        </div>
+      )}
       {tgCode && (
         <div className="digest-tg-hint">
           {tgCode.code
@@ -199,7 +254,7 @@ function MyChannelsBlock({ sub, onSaved, pushToast }) {
         </button>
         {dirty && <span className="digest-dirty">Có thay đổi chưa lưu</span>}
       </div>
-    </div>
+    </Fold>
   );
 }
 
@@ -334,10 +389,27 @@ const ZALO_FEATURE_LABELS = {
   'payment-alert': 'Nhắc thu tiền trước khởi hành',
 };
 
+// Tình trạng OA, đọc được khi khối đang đóng.
+// Trạng thái giữa ("khai xong khoá nhưng thiếu mã mẫu") là trạng thái đáng nói nhất: nó trông y hệt
+// đã xong — khoá đủ, không lỗi nào hiện — mà chức năng thiếu mã mẫu thì im lặng không gửi.
+// Đếm chứ không liệt kê: nhãn chức năng dài tới 30 ký tự, kể ra ba cái là tràn cả dòng tiêu đề.
+function zaloState(st, features) {
+  if (!st) return null;
+  if (!st.configured) return { tone: 'none', text: 'Chưa khai — kênh Zalo chưa gửi được' };
+  const miss = (features || []).filter(k => !String((st.templates || {})[k] || '').trim()).length;
+  if (miss) return { tone: 'warn', text: `Thiếu ${miss} mã mẫu ZNS` };
+  return { tone: 'ok', text: 'Đã khai xong' };
+}
+
 function ZaloOaConfig({ pushToast }) {
   const Icon = window.Icon;
   const [st, setSt] = dS(null);          // trạng thái từ server
-  const [f, setF] = dS({ mode: 'own', oaId: '', appId: '', secretKey: '', refreshTokenSeed: '', templates: {} });
+  // KHÔNG còn `mode`. Trước đây có ô chọn "OA riêng / OA nhà cung cấp", nhưng cả hai đòi ĐÚNG bộ
+  // bốn thông tin như nhau — khác nhau duy nhất ở chỗ giá trị do công ty tự đăng ký hay do bên cung
+  // cấp đưa sẵn. Không dòng code nào ở proxy lẫn worker rẽ nhánh theo nó (đã tra: chỉ lưu rồi đọc
+  // ra để in chữ). Bắt người khai chọn một thứ không đổi hành vi gì chỉ tổ làm họ dừng lại phân vân
+  // "chọn sai thì sao". Cột `mode` giữ nguyên trong DB cho dòng cũ, server tự mặc định 'own'.
+  const [f, setF] = dS({ oaId: '', appId: '', secretKey: '', refreshTokenSeed: '', templates: {} });
   const [saving, setSaving] = dS(false);
   const [dirty, setDirty] = dS(false);
   const [err, setErr] = dS(null);
@@ -347,7 +419,7 @@ function ZaloOaConfig({ pushToast }) {
       const d = await dApi('/api/v1/digest/zalo-config');
       setSt(d);
       if (!dirty) setF({
-        mode: d.mode || 'own', oaId: d.oaId || '', appId: d.appId || '',
+        oaId: d.oaId || '', appId: d.appId || '',
         secretKey: '', refreshTokenSeed: '', templates: d.templates || {},
       });
       setErr(null);
@@ -364,14 +436,11 @@ function ZaloOaConfig({ pushToast }) {
 
   if (err && /quyền/i.test(err)) return null;
 
-  const own = f.mode === 'own';
-  // Cả hai chế độ đòi CÙNG một bộ — dùng OA nhà cung cấp thì bên đó đưa sẵn giá trị để dán vào,
-  // chứ không phải khỏi nhập gì.
   const problem = (() => {
     if (!String(f.oaId || '').trim()) return 'Nhập OA ID.';
     if (!String(f.appId || '').trim()) return 'Nhập App ID.';
-    if (!String(f.secretKey || '').trim() && !(st && st.hasSecret)) return 'Nhập Secret key.';
-    if (!String(f.refreshTokenSeed || '').trim() && !(st && st.hasRefreshToken)) return 'Nhập Refresh token lần đầu.';
+    if (!String(f.secretKey || '').trim() && !(st && st.hasSecret)) return 'Nhập Secret Key.';
+    if (!String(f.refreshTokenSeed || '').trim() && !(st && st.hasRefreshToken)) return 'Nhập Refresh Token.';
     return null;
   })();
 
@@ -403,35 +472,30 @@ function ZaloOaConfig({ pushToast }) {
   const features = (st && st.features) || ['sale-brief', 'ceo-brief', 'payment-alert'];
 
   return (
-    <div className="digest-block digest-zalo">
-      <div className="workflows-optgroup-title">
-        Zalo OA của công ty
-        {st && (st.configured
-          ? <span className="digest-zalo-badge is-ok">Đã khai</span>
-          : <span className="digest-zalo-badge">Chưa khai</span>)}
-      </div>
+    <Fold icon="shield" title="Zalo OA của công ty" state={zaloState(st, features)}
+      className="digest-block digest-zalo">
       <div className="digest-role-note">
         <Icon name="info" size={12} /> Tin Zalo hiện <b>tên OA người gửi</b>. Chưa khai xong thì kênh
         Zalo không gửi — hệ thống <b>không</b> tự gửi thay bằng OA của đơn vị khác.
       </div>
 
-      <div className="digest-row">
-        <div className="digest-label">Dùng OA nào</div>
-        <select className="workflows-select" value={f.mode} onChange={e => set({ mode: e.target.value })}>
-          <option value="own">OA riêng của công ty</option>
-          <option value="provided">Dùng OA của nhà cung cấp</option>
-        </select>
-      </div>
-
-      {/* Cả hai chế độ khai CÙNG một bộ ô — khác nhau ở chỗ giá trị từ đâu ra: tự đăng ký, hay bên
-          cung cấp đưa sẵn. Tách thành hai form khác nhau chỉ làm người khai tưởng là hai việc khác
-          nhau, trong khi thứ cần dán vào y hệt. */}
-      <div className="digest-ch-warn">
-        <Icon name="info" size={12} /> {own
-          ? <>Bốn thông tin dưới đây lấy trên trang quản lý OA của công ty bạn.</>
-          : <>Bạn <b>không phải đi đăng ký OA</b> — bên cung cấp dịch vụ sẽ gửi cho bạn bốn thông tin
-             dưới đây, chỉ việc dán vào.</>}
-      </div>
+      {/* Bốn thông tin dưới đây lấy cùng một chỗ nên hướng dẫn để chung một khối, ngay TRƯỚC các ô
+          nhập. Đánh số là đúng ở đây: đây thật sự là một chuỗi thao tác, làm sai thứ tự thì bước
+          sau không có gì để lấy — chứ không phải đánh số cho ra vẻ có trình tự. */}
+      <details className="digest-guide">
+        <summary>Lấy bốn thông tin này ở đâu?</summary>
+        <ol>
+          <li>Mở <b>developers.zalo.me</b> → <b>Ứng dụng</b> → chọn (hoặc tạo mới) ứng dụng của công ty.</li>
+          <li>Vào <b>Official Account</b> → liên kết OA của công ty. <b>OA ID</b> hiện ở đây.</li>
+          <li>Sang <b>Thông tin ứng dụng</b> → chép <b>App ID</b> và <b>Secret Key</b>.</li>
+          <li>Vào <b>Công cụ</b> → <b>Official Account Access Token</b> → bấm cấp quyền cho OA.
+            Zalo trả về hai chuỗi; chép chuỗi <b>Refresh Token</b>.</li>
+        </ol>
+        <p>
+          Dùng OA do bên cung cấp dịch vụ đưa sẵn thì bỏ qua bốn bước trên — họ gửi cho bạn đúng bốn
+          giá trị này, dán vào là xong.
+        </p>
+      </details>
 
       <div className="digest-row">
         <div className="digest-label">OA ID</div>
@@ -444,25 +508,28 @@ function ZaloOaConfig({ pushToast }) {
           onChange={e => set({ appId: e.target.value })} placeholder="vd 987654321098765432" />
       </div>
       <div className="digest-row">
-        <div className="digest-label">Secret key</div>
+        <div className="digest-label">Secret Key</div>
         <input className="digest-input" type="password" value={f.secretKey}
           onChange={e => set({ secretKey: e.target.value })}
-          placeholder={st && st.hasSecret ? '•••••• (để trống nếu không đổi)' : 'dán secret key'} />
+          placeholder={st && st.hasSecret ? '•••••• (để trống nếu không đổi)' : 'dán Secret Key'} />
       </div>
+
+      {/* Nhãn để ĐÚNG chữ Zalo in trên màn hình của họ ("Refresh Token"), không dịch, không thêm
+          chữ "lần đầu". Người khai đang cầm một trang Zalo mở sẵn và tìm bằng mắt — đặt tên khác
+          đi là bắt họ tự đoán xem hai thứ có phải một không. Chuyện "chỉ nhập một lần" là hành vi
+          của hệ thống, nói ở dòng giải thích bên dưới, không nhét vào nhãn. */}
       <div className="digest-row">
-        <div className="digest-label">Refresh token lần đầu</div>
+        <div className="digest-label">Refresh Token</div>
         <input className="digest-input" type="password" value={f.refreshTokenSeed}
           onChange={e => set({ refreshTokenSeed: e.target.value })}
           placeholder={st && st.hasRefreshToken ? '•••••• (để trống nếu không đổi)'
-            : (own ? 'lấy ở bước cấp quyền OA trên trang Zalo' : 'bên cung cấp gửi kèm')} />
+            : 'dán Refresh Token lấy ở bước 4'} />
       </div>
-      {own && (
-        <div className="digest-ch-warn">
-          <Icon name="info" size={12} /> App ID và Secret chưa đủ để gửi — Zalo cấp mã truy cập bằng
-          cách đổi refresh token, mà refresh token đầu tiên chỉ lấy được sau khi bạn cấp quyền cho
-          ứng dụng trên trang quản lý OA. Sau lần đầu, hệ thống tự xoay vòng, bạn không phải nhập lại.
-        </div>
-      )}
+      <div className="digest-ch-warn">
+        <Icon name="info" size={12} /> Zalo cấp <b>hai</b> chuỗi. Chuỗi Access Token chỉ sống vài giờ
+        nên hệ thống không nhận; nó nhận <b>Refresh Token</b> để tự đổi lấy Access Token mới trước mỗi
+        lần gửi. Bạn dán <b>một lần duy nhất</b> — từ đó hệ thống tự xoay vòng.
+      </div>
 
       <div className="digest-label" style={{ margin: '10px 0 2px' }}>Mã mẫu ZNS theo từng chức năng</div>
       <div className="digest-role-note">
@@ -477,7 +544,11 @@ function ZaloOaConfig({ pushToast }) {
         </div>
       ))}
 
-      {problem && <div className="digest-problem"><Icon name="warning" size={13} /> {problem}</div>}
+      {/* Chỉ báo lỗi khi người dùng đã ĐỘNG vào form. Trước đây `problem` hiện ngay lúc mở khối
+          chưa khai — mở ra là thấy ngay vạch đỏ "Nhập OA ID." trong khi chưa ai làm gì sai cả.
+          Ô trống chưa phải lỗi; lỗi là khi đã điền mà còn thiếu. Tình trạng "chưa khai" đã nói ở
+          dòng tiêu đề rồi, không cần nhắc lại bằng màu đỏ. */}
+      {dirty && problem && <div className="digest-problem"><Icon name="warning" size={13} /> {problem}</div>}
 
       <div className="workflows-actions digest-actions">
         <button className="wga-btn primary" onClick={save} disabled={saving || !!problem}>
@@ -488,7 +559,7 @@ function ZaloOaConfig({ pushToast }) {
         )}
         {dirty && <span className="digest-dirty">Có thay đổi chưa lưu</span>}
       </div>
-    </div>
+    </Fold>
   );
 }
 
