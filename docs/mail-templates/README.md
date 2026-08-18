@@ -52,6 +52,33 @@ người báo "hôm nay không nhận được mail".
 
 Thiếu template này worker **vẫn gửi được** (tự render từ `Params`) — mẫu chỉ để mail đẹp + có chữ ký.
 
+## Hợp đồng CHUNG cho thư thông báo — `title` + `bodyHtml`
+
+**Đây là bộ tham số mặc định cho MỌI loại thư mới.** Dòng nào mang đúng bộ này thì worker dựng được
+thành thư hoàn chỉnh (tiêu đề · ngày · thân bài · chân thư) **mà không cần mẫu riêng và không cần
+khai gì trong `dbo.MailTemplates`**.
+
+| Key | Kiểu | Mô tả |
+|---|---|---|
+| `title` | string | Tiêu đề thư, cũng là dòng chủ đề nếu cột `Subject` để trống |
+| `bodyHtml` | string | Thân thư đã render sẵn HTML — worker chèn NGUYÊN, không escape lần nữa |
+| `date` | string? | Ngày hiển thị dưới tiêu đề. Bỏ trống thì không hiện dòng ngày |
+
+Đang dùng bộ này: `daily-brief` · `payment-alert` · `auto-care` · `anomaly-alert`.
+
+⚠️ **Trước 18/08 chỉ `deal-cooling-alert` có mẫu riêng, mọi mã khác rơi xuống bảng tham số thô** —
+người nhận mở thư ra thấy đúng ba dòng `title / bodyHtml / date` kèm một đống HTML, tưởng hệ thống
+hỏng. Mà gửi vẫn báo THÀNH CÔNG nên không lỗi nào nổi lên. Đã xảy ra thật với thư nhắc chăm khách.
+
+⚠️ **Escape `bodyHtml` phải TỐI THIỂU — chỉ `& < > "`** ([`MailHtml.Esc`](../../Services/Digest/MailHtml.cs)).
+KHÔNG dùng `WebUtility.HtmlEncode`: nó mã hoá cả chữ có dấu, "Những khách này" thành
+`Những kh&#225;ch n&#224;y`. Đã dính hai lần (chữ dựng sẵn cho máy tìm kiếm 17/08, thư nhắc chăm
+khách 18/08) nên hàm escape để hẳn cạnh chỗ dựng thư, có test khoá lại.
+
+**Thêm loại thư mới thì KHÔNG phải sửa worker** — chỉ cần đặt đúng `title` + `bodyHtml`. Đó là điểm
+của việc chuẩn hoá: mã mới không kéo theo mẫu mới. Muốn thư đẹp riêng thì mới khai mẫu trong
+`dbo.MailTemplates` (mẫu DB luôn được ưu tiên hơn bản dựng sẵn trong code).
+
 ## Kênh gửi (`Channel`, TINYINT)
 
 Từ 2026-08 hàng đợi này thành đa kênh (email/Telegram/Zalo) cho bản tin sáng, không chỉ email. Cột
