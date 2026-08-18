@@ -314,6 +314,13 @@
         hint: 'Nên bật. Tắt đi thì danh sách sẽ kéo theo cả những hồ sơ chưa mua bao giờ và cũng lâu không ai đụng — phần lớn là dữ liệu rác trong CRM, và nó chôn vùi mấy khách thật sự đáng gọi.' },
       { key: 'maxLeads', type: 'number', label: 'Mỗi lần nhắc tối đa mấy khách', default: 20, min: 1, max: 50,
         hint: 'Danh sách phải ngắn thì mới có người gọi. Hai trăm dòng mỗi sáng thì không ai gọi dòng nào. Khách đã chi nhiều được xếp lên trước.' },
+
+      // Không có hai ô này thì khách đã nhắc hôm nay sẽ nằm lại danh sách MỖI SÁNG cho tới khi có
+      // người gọi — đo thật trên staging: 9/10 khách của lượt trước lặp lại nguyên vẹn ở lượt sau.
+      { key: 'remindGapDays', type: 'number', label: 'Nhắc lại sau bao nhiêu ngày', default: 7, min: 0, max: 365,
+        hint: 'Đã đưa vào danh sách rồi thì im bấy nhiêu ngày, không nhắc lại mỗi sáng. Để 0 = không giới hạn (nhắc lại ngay lượt sau) — chỉ nên dùng khi bạn chạy tác vụ rất thưa.' },
+      { key: 'maxReminders', type: 'number', label: 'Mỗi khách nhắc tối đa mấy lần', default: 3, min: 0, max: 20,
+        hint: 'Nhắc đủ số lần này mà vẫn chưa ai gọi thì thôi — nhắc mãi chỉ làm người ta bỏ qua cả danh sách. Bộ đếm TỰ VỀ 0 khi khách được chăm sóc thật (ngày chăm sóc trong CRM đổi), nên khách đã gọi rồi mà sau này ngủ quên lại vẫn được nhắc tiếp. Để 0 = không giới hạn số lần.' },
     ],
     'customer-auto-review': [
       { key: 'createdWithinDays', type: 'number', label: 'Chỉ khách tạo trong (ngày)', default: 30, min: 1, max: 365,
@@ -373,6 +380,7 @@
     'customer-auto-care': {
       quietDays: '① Thế nào là ngủ quên', ranks: '② Nhắc về ai',
       requireBought: '② Nhắc về ai', maxLeads: '② Nhắc về ai',
+      remindGapDays: '③ Nhắc bao nhiêu lần', maxReminders: '③ Nhắc bao nhiêu lần',
     },
     'anomaly-watchdog': {
       baselineWeeks: '① Mức thường tính thế nào', thresholdPercent: '② Khi nào thì báo',

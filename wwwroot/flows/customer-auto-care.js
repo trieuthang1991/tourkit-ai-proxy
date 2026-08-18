@@ -25,18 +25,21 @@
       F.node('c6', 'branch', F.RIGHT, 4.2, { icon: 'checkCircle', title: 'Có đáng gọi không?',
         sub: 'Đã từng mua · đúng hạng công ty chọn', cfg: ['requireBought', 'ranks'] }),
 
-      F.node('c7', 'step', F.MID, 5.4, { icon: 'trend', title: 'Xếp khách chi nhiều lên trước',
-        sub: 'Sắp theo "im lâu nhất" sẽ đẩy khách mua một lần từ đời nào lên đầu', cfg: ['maxLeads'] }),
-      F.node('c8', 'send', F.MID, 6.6, { icon: 'bell', title: 'MỘT danh sách vào Bảng tin',
-        sub: 'Không phải mỗi khách một thẻ · khoá theo ngày, chạy lại không nhắc lại' }),
-      F.node('c9', 'step', F.MID, 7.8, { icon: 'phone', title: 'Nhân viên gọi',
+      F.node('c7', 'branch', F.MID, 5.4, { icon: 'refresh', title: 'Đã nhắc khách này chưa?',
+        sub: 'Khách được chăm sóc THẬT thì bộ đếm về 0 — vòng đời mới, lại nhắc được',
+        cfg: ['remindGapDays', 'maxReminders'] }),
+      F.node('c8', 'step', F.MID, 6.6, { icon: 'trend', title: 'Xếp khách chi nhiều lên trước',
+        sub: 'CẮT SAU khi lọc đã nhắc — cắt trước thì khách thứ 21 không bao giờ đến lượt', cfg: ['maxLeads'] }),
+      F.node('c9', 'send', F.MID, 7.8, { icon: 'bell', title: 'Mỗi NHÂN VIÊN một thẻ',
+        sub: 'Khách chưa gán người phụ trách thì bỏ qua, không đổ vào thẻ chung' }),
+      F.node('c10', 'step', F.MID, 9, { icon: 'phone', title: 'Nhân viên gọi',
         sub: 'Hệ thống KHÔNG gửi gì cho khách — người quyết định gọi ai, nói gì' }),
     ],
     edges: [
       F.edge('c1', 'c2'), F.edge('c2', 'c3', 'Rồi'), F.edge('c3', 'c4'),
       F.edge('c4', 'c5'), F.edge('c4', 'c6'),
       F.edge('c5', 'c7', 'Rồi'), F.edge('c6', 'c7', 'Có'),
-      F.edge('c7', 'c8'), F.edge('c8', 'c9'),
+      F.edge('c7', 'c8', 'Chưa'), F.edge('c8', 'c9'), F.edge('c9', 'c10'),
     ],
   });
 })();
