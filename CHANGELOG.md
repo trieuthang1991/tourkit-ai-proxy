@@ -13,6 +13,49 @@ Những cập nhật gần đây của TRAV-AI, viết cho người dùng. Mới
 
 ---
 
+## Phiên bản 18/08/2026 (bản 5) — Trang Hướng dẫn: đủ ảnh, mở được mọi bài
+
+### ✨ Tính năng mới
+- **Bài hướng dẫn "Trợ lý số liệu" nay có ảnh minh hoạ.** Trước đây bài này **không có một ảnh nào**
+  — đọc toàn chữ, khó hình dung nút nào ở đâu. Nay đủ 9 ảnh cho cả 8 bước: màn đăng nhập, giao diện
+  2 cột, danh sách gợi ý câu hỏi, kết quả số liệu, nút đổi kiểu biểu đồ, chế độ so sánh 2 kỳ, ghi âm
+  bằng giọng nói, và bảng "Cách vận hành".
+- **Bổ sung ảnh cho các bước còn thiếu** ở *Chấm điểm khách hàng*, *AI phân tích Cơ hội* và *Hộp thư
+  AI* — đều là những bước đang chạy dở (thanh tiến trình chấm hàng loạt, đồng bộ hộp thư, hộp xác
+  nhận trước khi gửi thư cho khách), tức đúng lúc người dùng hay phân vân "thế này là đúng chưa".
+
+### 🔧 Đã khắc phục
+- **Bài "Nhắc chăm lại khách ngủ quên" không mở được.** Bài đã viết xong nhưng chưa được khai vào
+  danh mục, nên không có trong cột bên trái và bấm link từ bài *Tự động hóa* sang cũng chỉ quay về
+  trang mục lục. Nay bài đã nằm trong danh mục và mở bình thường.
+- **Bấm link dẫn sang hướng dẫn khác thì bị quăng về trang mục lục.** Mọi liên kết giữa các bài đều
+  hỏng theo cùng một kiểu. Nay bấm là sang đúng bài, ngay trong trang Hướng dẫn.
+- **Hướng dẫn TRAVAI chỉ đường tới những nút không còn tồn tại.** Bài bảo bạn "chọn giọng đọc và
+  bấm Nghe thử" — hai nút đó đã bỏ từ khi giọng đọc chuyển sang chạy ở máy chủ, nên ai làm theo
+  cũng không tìm thấy. Bài cũng nói chế độ "Luôn nghe" **chỉ dùng được trên máy tính** trong khi
+  điện thoại đã dùng được, và nói cần trình duyệt Edge mới có giọng tiếng Việt — nay không còn phụ
+  thuộc trình duyệt nào. Đã sửa lại toàn bộ theo đúng màn hình hiện tại.
+- **Trang hướng dẫn hiện lẫn ghi chú nội bộ.** Dưới nhiều ảnh có dòng *"📸 Cần chụp: …"* — lời dặn
+  cho người đi chụp màn hình, không phải nội dung để bạn đọc. Có bài hiện tới 12 dòng như vậy. Nay
+  chỗ nào đã có ảnh thì dòng đó tự ẩn; chỗ nào ảnh chưa chụp mới giữ lại làm chỗ trống.
+
+---
+
+## Phiên bản 18/08/2026 (bản 4) — Đọc được nguyên văn kết quả mỗi lần chạy
+
+### 🔧 Đã khắc phục
+- **Bảng "20 lần gần nhất" cắt cụt mất phần đáng đọc nhất.** Mỗi dòng chỉ hiện được một hàng chữ,
+  phần còn lại thay bằng dấu ba chấm — mà đúng những thứ bạn cần lại nằm ở **cuối câu**: bao nhiêu
+  khách bị bỏ vì vừa nhắc rồi, bao nhiêu tour bỏ qua vì chưa gán người phụ trách, và tỉ lệ khách
+  được gọi lại sau khi nhắc. Muốn đọc phải rê chuột vào chờ dòng chú thích hiện ra, mà gần như
+  không ai biết để rê. Nay tóm tắt tự xuống dòng, đọc thẳng trong bảng.
+- **Trên điện thoại thì còn khó đọc hơn nữa.** Hai cột phụ (chạy tay hay theo lịch, mất mấy giây)
+  chiếm gần hết bề ngang, chừa cho phần tóm tắt vài chữ mỗi hàng. Nay xem trên điện thoại sẽ ẩn hai
+  cột đó đi và hiện trọn nội dung — vì trên màn cảm ứng không có cách nào rê chuột để đọc phần
+  bị giấu.
+
+---
+
 ## Phiên bản 18/08/2026 (bản 3) — Nhắc chăm khách: hết nhắc trùng, và đo được là có ai gọi không
 
 ### ✨ Tính năng mới

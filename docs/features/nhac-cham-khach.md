@@ -24,7 +24,7 @@ Vào menu bên trái, nhóm **"Tích hợp"**, chọn **"Tự động hóa"**. �
 
 Ngay trên thẻ bạn đọc được 2 dòng: dòng mô tả tác vụ làm gì, và dòng **tóm tắt lần chạy gần nhất** (ví dụ: *"9 phút trước · Quét 131 khách → 131 khách tới hạn → lấy 20 khách chi nhiều nh…"*). Bấm vào thẻ để mở phần cấu hình.
 
-![Danh sách tác vụ trong trang Tự động hóa, thẻ "Nhắc chăm lại khách ngủ quên" ở cuối cùng](images/nhac-cham-khach-00-danh-sach-tac-vu.png)
+![Danh sách tác vụ trong trang Tự động hóa, thẻ "Nhắc chăm lại khách ngủ quên" ở cuối cùng](../images/nhac-cham-khach-buoc1.png)
 
 > 💡 Tác vụ này chạy chung cho cả công ty nên **cần khai "Tài khoản tự động"** ở đầu mục "Theo tổ chức" trước (xem [Hướng dẫn Tự động hóa](tu-dong-hoa.md)). Chưa khai thì các nút Bật/Lưu/Chạy ngay đều bị khóa.
 
@@ -45,7 +45,7 @@ Trong mục **"Lịch chạy"** ở đầu thẻ:
 
 > 💡 **Mẹo đối chiếu:** để đúng **7, 15, 30 hoặc 90** thì bạn kiểm tra lại được bằng tay — mở màn **Khách hàng** trong phần mềm, lọc "chưa chăm sóc" đúng mốc đó sẽ ra cùng một danh sách. Số lẻ (ví dụ 45) vẫn chạy chính xác, chỉ là phần mềm không có bộ lọc tương ứng để bạn so tay.
 
-![Thẻ tác vụ mở ra với đủ 4 nhóm cấu hình](images/nhac-cham-khach-01-cau-hinh.png)
+![Thẻ tác vụ mở ra với đủ 4 nhóm cấu hình](../images/nhac-cham-khach-buoc3.png)
 
 ### Bước 4 — Khai ② Nhắc về ai
 
@@ -74,7 +74,7 @@ Mặc định, danh sách chỉ nằm trong **Bảng tin** (kênh trong app, lu�
    - **Bật** thì hiện thêm 3 ô: **"Gửi email tới"** (nhiều địa chỉ cách nhau bằng dấu phẩy hoặc xuống dòng), **"Gửi Telegram tới"** (là dãy **số** chat id, không phải @tên; người nhận phải bấm "Bắt đầu" với bot trước), **"Gửi Zalo tới"** (số điện thoại đang dùng Zalo; cần khai OA Zalo của công ty ở mục "Theo tổ chức" thì mới gửi được).
    - Tin gửi tới đó nói thẳng vấn đề gốc: **việc cần làm là GÁN người phụ trách** cho những khách này, chứ không phải gọi hộ một lần rồi đâu lại vào đấy.
 
-![Nhóm ④ Báo cho ai khi đã bật công tắc "Báo riêng khách chưa có người phụ trách"](images/nhac-cham-khach-02-bao-cho-ai.png)
+![Nhóm ④ Báo cho ai khi đã bật công tắc "Báo riêng khách chưa có người phụ trách"](../images/nhac-cham-khach-buoc6.png)
 
 Khai xong nhớ bấm **"Lưu cấu hình"**.
 
@@ -84,13 +84,15 @@ Bấm **"Chạy ngay"** để không phải chờ tới lịch. Tác vụ chạy
 
 > *Quét 131 khách → 51 khách tới hạn (bỏ 31 đã nhắc rồi: 28 vừa nhắc 2 ngày trước · 3 đã nhắc đủ 3 lần) → lấy 20 khách chi nhiều nhất (còn 0 để lượt sau) → 4 thẻ cho 4 nhân viên, BỎ QUA 6 khách chưa gán người phụ trách. **Trong 25 khách đã nhắc 30 ngày qua, 9 người đã được liên hệ sau đó (36%)**.*
 
+![Bảng "20 lần gần nhất" — mỗi dòng đọc được nguyên văn tóm tắt, kèm câu đo hiệu quả ở cuối](../images/nhac-cham-khach-buoc7.png)
+
 Câu in đậm ở cuối là **con số đo hiệu quả** — tác vụ này chỉ *nhắc*, giá trị của nó bằng 0 nếu không ai nhấc máy. Đây chính là con số cho bạn biết có nên tiếp tục bật tính năng hay không: tỉ lệ cao nghĩa là danh sách đang được dùng thật; tỉ lệ gần 0 kéo dài nghĩa là nên xem lại ngưỡng, hoặc nhắc lại đội ngũ.
 
 ### Bước 8 — Xem danh sách khách cần gọi trong Bảng tin
 
 Chuyển sang tab **"Bảng tin"** ngay trên trang, bấm bộ lọc **"Nhắc chăm khách"**. Mỗi thẻ là danh sách của **một nhân viên**, tiêu đề dạng *"6 khách cũ lâu chưa ai gọi lại"*, bên trong mỗi dòng ghi rõ: **tên khách — hạng — bao nhiêu ngày chưa chăm — đã mua bao nhiêu tiền — số điện thoại**. Cứ gọi từ trên xuống, vì khách chi nhiều đã được xếp trước.
 
-![Tab Bảng tin lọc "Nhắc chăm khách", thấy thẻ danh sách khách cần gọi lại](images/nhac-cham-khach-04-bang-tin.png)
+![Tab Bảng tin lọc "Nhắc chăm khách", thấy thẻ danh sách khách cần gọi lại](../images/nhac-cham-khach-buoc8.png)
 
 ## 4. Lưu ý quan trọng / giới hạn
 
@@ -103,7 +105,7 @@ Chuyển sang tab **"Bảng tin"** ngay trên trang, bấm bộ lọc **"Nhắc 
 - **Mỗi lượt quét có giới hạn khối lượng.** Nếu tệp khách quá lớn và chạm trần, tóm tắt sẽ **nói thẳng** (*"CHẠM TRẦN … còn khách chưa quét tới"*) và gợi ý hạ ngưỡng "bao lâu không chăm" xuống, chứ không im lặng cắt bớt.
 - **Cần bật "Tài khoản tự động"** ở mục "Theo tổ chức" — tác vụ chạy ở phía sau, không có ai đăng nhập sẵn nên phải mượn tài khoản này để đọc danh sách khách. Sai mật khẩu tài khoản đó thì tác vụ báo lỗi ngay ở lịch sử chạy.
 - **Nếu bạn không thấy thẻ tác vụ này**, có thể tính năng chưa được mở cho công ty bạn (nó đi kèm cụm **Bảng tin**) — hãy liên hệ người quản trị hệ thống.
-- Nếu tác vụ **chạy lỗi 5 lần liên tiếp**, hệ thống tự tạm dừng và hiện dải cảnh báo vàng trên thẻ; khắc phục xong bấm **"Bật lại"**.
+- Nếu tác vụ **chạy lỗi 5 lần liên tiếp**, hệ thống tự tạm dừng và hiện dải cảnh báo đỏ trên thẻ; khắc phục xong bấm **"Bật lại"**.
 
 ## 5. Câu hỏi thường gặp (FAQ)
 
@@ -144,11 +146,12 @@ A: Bật công tắc **"Gửi thêm tới kênh riêng của nhân viên"** ở 
 
 ## 📸 Ảnh nên bổ sung thêm
 
-Ngoài 4 ảnh đã có ở trên, các ảnh sau sẽ giúp trang này dễ theo hơn:
+Trang này đã có 5 ảnh chụp thật. Các khối dùng chung với những tác vụ khác (Nơi nhận của tôi,
+Tài khoản tự động, thẻ đang tạm dừng) đã có ảnh trong [Hướng dẫn Tự động hóa](tu-dong-hoa.md) —
+xem ở đó thay vì chụp lại.
 
-1. **Mục "Lịch chạy"** của thẻ — công tắc "Bật tác vụ" đang **Bật** và ô "Tần suất kiểm tra" chọn **"Mỗi ngày"** (minh hoạ Bước 2; ảnh hiện có đang ở trạng thái Tắt).
-2. **Bảng "20 lần gần nhất"** đang mở, có một dòng tóm tắt đầy đủ **kèm câu đo hiệu quả** *"Trong N khách đã nhắc 30 ngày qua, M người đã được liên hệ sau đó (X%)"* (minh hoạ Bước 7 — đây là điểm bán hàng chính của tính năng).
-3. **Khối "Nơi nhận của tôi"** ở mục "Theo người dùng" — để người đọc biết công tắc "Gửi thêm tới kênh riêng của nhân viên" lấy email/Telegram/Zalo từ đâu.
-4. **Khối "Tài khoản tự động"** ở đầu mục "Theo tổ chức", ở trạng thái đã cấu hình — điều kiện bắt buộc trước khi bật tác vụ.
-5. **Thẻ tác vụ ở trạng thái tạm dừng** (dải cảnh báo vàng + nút "Bật lại") — minh hoạ mục Lưu ý.
-6. **Màn Khách hàng trong phần mềm với bộ lọc "chưa chăm sóc" 90 ngày** — minh hoạ mẹo đối chiếu ở Bước 3.
+Còn 2 ảnh chưa có:
+
+1. **Mục "Lịch chạy"** của chính thẻ này khi đã **Bật** — ảnh Bước 3 hiện đang ở trạng thái Tắt.
+2. **Màn Khách hàng trong phần mềm, lọc "chưa chăm sóc" 90 ngày** — minh hoạ mẹo đối chiếu ở
+   Bước 3. Ảnh này nằm trong phần mềm CRM, không phải trang Tự động hóa.

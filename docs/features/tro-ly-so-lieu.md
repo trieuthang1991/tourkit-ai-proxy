@@ -22,6 +22,8 @@ Khi mở hệ thống lần đầu (hoặc phiên đã hết hạn), bạn sẽ 
 - **Tab "Tài khoản"**: nhập Domain/Tenant, Tên đăng nhập, Mật khẩu — giống tài khoản TourKit bạn vẫn dùng. Tick "Ghi nhớ tôi trên thiết bị này" để lần sau khỏi gõ lại tên miền công ty.
 - **Tab "Token"**: nếu được cấp một mã kết nối (do quản trị viên gửi), dán vào ô rồi bấm "Kết nối".
 
+![Màn hình đăng nhập với 2 tab "Tài khoản" và "Token"](../images/tro-ly-so-lieu-buoc1.png)
+
 > 📸 Cần chụp: màn hình đăng nhập full-screen (2 tab "Tài khoản" / "Token")
 
 Sau khi đăng nhập thành công, hệ thống ghi nhớ phiên làm việc của bạn — lần sau mở lại không cần đăng nhập lại (trừ khi phiên hết hạn hoặc bạn bấm Đăng xuất).
@@ -30,15 +32,21 @@ Sau khi đăng nhập thành công, hệ thống ghi nhớ phiên làm việc c�
 
 Vào mục **"Trợ lý số liệu"** (biểu tượng biểu đồ) trên thanh điều hướng bên trái. Trang chia làm 2 cột: **bên trái là khung chat**, **bên phải là khu vực hiển thị số liệu/biểu đồ**.
 
+![Trang Trợ lý số liệu khi chưa hỏi gì — chat bên trái, khu số liệu bên phải](../images/tro-ly-so-lieu-buoc2.png)
+
 > 📸 Cần chụp: toàn bộ giao diện trang Trợ lý số liệu (2 cột trái-phải), khi chưa có tin nhắn nào
 
 ### Bước 3 — Đặt câu hỏi
 
 Gõ câu hỏi vào ô chat phía dưới cùng bên trái (ví dụ: *"Doanh thu tháng này"*, *"Top khách hàng"*, *"Tour sắp khởi hành"*) rồi bấm **Enter** hoặc nút gửi. Bạn cũng có thể bấm luôn vào các **gợi ý câu hỏi nhanh** hiện sẵn phía trên ô nhập — bấm **"Xem tất cả gợi ý"** để thấy đầy đủ các nhóm câu hỏi mẫu (Tài chính, Khách hàng, Marketing, Sản phẩm Tour, Bán hàng, Hiệu suất, Quản lý).
 
+![Ô nhập câu hỏi và danh sách gợi ý đầy đủ chia theo nhóm](../images/tro-ly-so-lieu-buoc3.png)
+
 > 📸 Cần chụp: ô nhập câu hỏi + dãy gợi ý nhanh, và màn hình mở rộng "Xem tất cả gợi ý" theo nhóm
 
 Trong lúc trợ lý xử lý, bạn sẽ thấy các trạng thái lần lượt: "Đang hiểu câu hỏi" → "Đang lấy số liệu" → "Đang phân tích", sau đó câu trả lời bằng chữ hiện dần lên, đồng thời **số liệu bên phải cũng tự cập nhật**: thẻ số liệu tổng quan, biểu đồ, và bảng chi tiết.
+
+![Kết quả bên phải: thẻ số liệu và bảng dữ liệu](../images/tro-ly-so-lieu-buoc3b.png)
 
 > 📸 Cần chụp: khu vực bên phải sau khi có kết quả — thẻ số liệu + biểu đồ + bảng dữ liệu
 
@@ -49,11 +57,15 @@ Trong lúc trợ lý xử lý, bạn sẽ thấy các trạng thái lần lượ
 - **Bảng dữ liệu**: mặc định hiện 50 dòng đầu, bấm "Xem tất cả X dòng" để xem hết.
 - Cuối mỗi câu trả lời thường có thêm gợi ý **"Xem tiếp"** — các câu hỏi liên quan bạn có thể bấm để hỏi tiếp ngay.
 
+![Nút chọn chỉ số và nút đổi kiểu biểu đồ (Tròn / Cột dọc / Cột ngang)](../images/tro-ly-so-lieu-buoc4.png)
+
 > 📸 Cần chụp: nút chọn chỉ số + nút đổi kiểu biểu đồ (Tròn/Cột dọc/Cột ngang) trên biểu đồ
 
 ### Bước 5 — So sánh giữa 2 kỳ (nếu cần)
 
 Bạn có thể hỏi kiểu **"So sánh doanh thu tháng này với tháng trước"** — trợ lý sẽ hiện dải băng "Đang so sánh: [kỳ này] vs [kỳ trước]" phía trên, các thẻ số liệu sẽ có thêm phần trăm tăng/giảm, biểu đồ chuyển sang dạng cột để so sánh trực quan 2 kỳ.
+
+![Dải "Đang so sánh" cùng biểu đồ cột so 2 kỳ](../images/tro-ly-so-lieu-buoc5.png)
 
 > 📸 Cần chụp: dải băng "Đang so sánh" + biểu đồ cột so sánh 2 kỳ
 
@@ -65,6 +77,8 @@ Thay vì gõ chữ, bạn có thể:
 
 Sau khi nhận diện xong, nội dung sẽ tự điền vào ô nhập để bạn kiểm tra lại trước khi gửi.
 
+![Đang ghi âm: đồng hồ đếm giờ, nút hủy và nút gửi](../images/tro-ly-so-lieu-buoc6.png)
+
 > 📸 Cần chụp: nút micro đang ghi âm (đồng hồ đếm giờ) và nút kẹp giấy tải file
 
 ### Bước 7 — Bắt đầu đoạn chat mới / xoá số liệu cũ
@@ -72,11 +86,15 @@ Sau khi nhận diện xong, nội dung sẽ tự điền vào ô nhập để b�
 - Bấm **"Đoạn mới"** ở góc trên bên phải nếu muốn xoá toàn bộ lịch sử chat hiện tại và bắt đầu lại từ đầu.
 - Bấm nút **làm mới (biểu tượng vòng tròn xoay)** nếu bạn nghi ngờ số liệu đang hiển thị chưa cập nhật (ví dụ vừa có đơn hàng mới) — nút này buộc trợ lý lấy số liệu mới nhất cho các câu hỏi tiếp theo, thay vì dùng số đã lưu tạm trước đó.
 
+![Nút "Đoạn mới" và nút làm mới ở đầu trang](../images/tro-ly-so-lieu-buoc7.png)
+
 > 📸 Cần chụp: 2 nút "Đoạn mới" và nút làm mới ở góc trên phải trang
 
 ### Bước 8 (tuỳ chọn) — Xem "Cách vận hành"
 
 Nếu bạn muốn hiểu trợ lý đã dùng nguồn số liệu nào để trả lời, bấm nút **"Cách vận hành"** ở góc trên phải để bật chế độ hiển thị chi tiết bên dưới mỗi câu trả lời (tuỳ chọn dành cho người muốn kiểm tra/gỡ rối, có thể tắt lại bất cứ lúc nào).
+
+![Bảng "Cách vận hành" mở ra, liệt kê các bước AI đã làm](../images/tro-ly-so-lieu-buoc8.png)
 
 > 📸 Cần chụp: nút "Cách vận hành" và phần chi tiết hiện ra dưới 1 câu trả lời khi bật
 

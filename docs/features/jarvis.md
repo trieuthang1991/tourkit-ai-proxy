@@ -34,7 +34,8 @@ Bạn cần **đã đăng nhập** vào hệ thống trước đó (đăng nhậ
 Khi vào trang, bạn sẽ thấy:
 - Một **quả cầu ánh sáng** ở giữa màn hình — đổi màu và chuyển động theo trạng thái của TRAVAI (đang chờ, đang nghe, đang suy nghĩ, đang trả lời).
 - Dòng chữ trạng thái ngay dưới quả cầu: SẴN SÀNG / ĐANG NGHE / ĐANG SUY NGHĨ / ĐANG TRẢ LỜI.
-- Thanh điều khiển phía trên cùng: nút bật/tắt "Luôn nghe", nút bật/tắt loa, nút chọn giọng đọc, nút "Nghe thử", nút "Mới" (xóa hội thoại đang có).
+- Thanh điều khiển phía trên cùng, **bên trái** là nút **"GỢI Ý CÂU HỎI"** — mở ngăn kéo các câu hỏi mẫu, bấm một câu là hỏi luôn.
+- Cũng trên thanh đó, **bên phải** là vài dòng thông tin nhanh — **TENANT** (công ty bạn đang đăng nhập), **MODEL** (bộ não AI đang dùng), **TTS** (bộ đọc đang dùng) — rồi 4 nút: **"LUÔN NGHE"** (bật/tắt chế độ rảnh tay), **"LOA"** (bật/tắt đọc to), **"YÊU CẦU"** (mở Hàng đợi CRM — những việc và lịch hẹn TRAVAI đã tạo giúp bạn), **"MỚI"** (xóa hội thoại đang có).
 - Ô nhập câu hỏi và nút micro ở phía dưới cùng.
 
 TRAVAI sẽ tự cất tiếng **chào bạn** ngay khi trang vừa mở xong (nếu loa đang bật).
@@ -80,24 +81,22 @@ Có hai kiểu hành động, khác nhau ở chỗ có phải xác nhận hay kh
 
 Khi bạn gửi câu hỏi, quả cầu chuyển sang trạng thái "ĐANG SUY NGHĨ" (có thể phát vài câu nói ngắn kiểu "đang xử lý..." trong lúc chờ), sau đó TRAVAI trả lời bằng chữ hiện dần trên màn hình **và đọc to câu trả lời** (nếu loa đang bật). Bạn có thể hỏi tiếp câu khác ngay cả khi TRAVAI đang đọc — TRAVAI sẽ tự ngắt câu đang đọc để trả lời câu mới.
 
-### Bước 5 — Chọn giọng đọc bạn thích
+### Bước 5 — Giọng đọc: bạn không cần chọn gì cả
 
-Ở thanh điều khiển trên cùng, nếu máy bạn có giọng đọc tiếng Việt, sẽ hiện thêm một ô chọn giọng và nút "Thử". Bạn có thể chọn giọng nam/nữ mình thích, rồi bấm "Thử" để nghe thử ngay mà không cần hỏi câu nào.
+Bạn **không phải chọn giọng đọc**. Hệ thống dùng **một giọng thống nhất** phát từ máy chủ, nên ai mở trang cũng nghe giống nhau, không phụ thuộc vào máy hay trình duyệt bạn đang dùng.
 
-![Chọn và nghe thử giọng đọc](../images/jarvis-buoc4.png)
-> 📸 Cần chụp: thanh điều khiển trên cùng có ô chọn giọng đọc đang mở danh sách + nút "Thử" được khoanh vùng.
+Trên thanh điều khiển trên cùng có ô **TTS** cho biết đang dùng bộ đọc nào. Khi mới vào trang mà TRAVAI chưa đọc câu nào, ô này hiện dấu **—**; sau câu trả lời có tiếng đầu tiên, nó sẽ hiện tên bộ đọc đang phục vụ bạn. Đây chỉ là thông tin để tham khảo — bạn không cần chỉnh gì ở đây, và cũng chỉ cần nhìn tới nó khi báo lỗi âm thanh cho bộ phận kỹ thuật.
 
 ### Bước 6 — Bật/tắt loa đọc
 
 Nếu không muốn nghe đọc (ví dụ đang ở nơi cần yên tĩnh), bấm nút **LOA** trên thanh điều khiển để tắt — TRAVAI vẫn trả lời bằng chữ như bình thường, chỉ là không đọc to nữa. Bấm lại để bật lại bất cứ lúc nào. Trạng thái này được nhớ lại cho lần sau vào trang.
 
-### Bước 7 — Bật chế độ "Luôn nghe" (rảnh tay hoàn toàn — chỉ trên máy tính)
+### Bước 7 — Bật chế độ "Luôn nghe" (rảnh tay hoàn toàn)
 
 Nếu muốn hỏi liên tục mà không cần bấm nút mỗi lần, bấm nút **"LUÔN NGHE: TẮT"** trên thanh điều khiển để bật lên "LUÔN NGHE: BẬT". Trình duyệt sẽ xin quyền dùng micro (chỉ hỏi lần đầu) — bạn cần bấm "Cho phép". Từ đó, cứ nói là TRAVAI tự nghe và trả lời, không cần bấm micro mỗi câu. TRAVAI sẽ tự tạm ngưng nghe trong lúc đang đọc trả lời (để không tự nghe nhầm giọng đọc của chính mình), rồi tự nghe lại khi đọc xong.
 
-Lưu ý: chế độ "Luôn nghe" chỉ dùng được trên **máy tính** (Chrome/Edge). Trên **điện thoại**, nút này sẽ bị mờ và không bấm được — trên điện thoại bạn dùng cách bấm-để-nói ở Bước 3.
+Chế độ này dùng được **cả trên máy tính lẫn điện thoại**. Trên điện thoại, TRAVAI tự chuyển sang cách nghe khác (gửi tiếng nói lên máy chủ để nhận diện) nên bạn không phải làm gì thêm. Nút chỉ bị **mờ khi trình duyệt không mở được micro** (trình duyệt quá cũ hoặc không hỗ trợ ghi âm) — khi đó bạn vẫn hỏi được bằng cách bấm micro từng câu ở Bước 3, hoặc gõ chữ.
 
-![Bật chế độ Luôn nghe](../images/jarvis-buoc5.png)
 > 📸 Cần chụp: thanh điều khiển với nút "LUÔN NGHE: BẬT" đang sáng + thanh sóng âm hiển thị "Mời nói…" phía trên ô nhập.
 
 ### Bước 8 — Bắt đầu hội thoại mới
@@ -108,11 +107,12 @@ Muốn xóa hết câu hỏi/trả lời cũ để hỏi chủ đề khác, bấ
 
 - **Cần đăng nhập trước.** TRAVAI dùng chung tài khoản đăng nhập với toàn bộ hệ thống — nếu phiên đăng nhập hết hạn, bạn sẽ được yêu cầu đăng nhập lại.
 - **Nói để hỏi trên máy tính chỉ mượt nhất với Chrome hoặc Microsoft Edge.** Đây là các trình duyệt hỗ trợ nhận diện giọng nói tức thời (nói tới đâu nhận tới đó). Nếu máy tính dùng trình duyệt khác không hỗ trợ, bạn vẫn gõ chữ để hỏi được bình thường.
-- **Trên điện thoại dùng cách bấm-để-nói (thu âm gửi máy chủ).** Trình duyệt điện thoại — nhất là iPhone — không hỗ trợ nhận diện giọng nói tức thời, nên TRAVAI chuyển sang cách thu âm rồi gửi lên hệ thống nhận diện cho ổn định: bấm micro để bắt đầu thu, bấm lần nữa để dừng và gửi. Vì vậy trên điện thoại **không có chế độ "Luôn nghe"** (nút bị mờ).
+- **Trên điện thoại dùng cách bấm-để-nói (thu âm gửi máy chủ).** Trình duyệt điện thoại — nhất là iPhone — không hỗ trợ nhận diện giọng nói tức thời, nên TRAVAI chuyển sang cách thu âm rồi gửi lên hệ thống nhận diện cho ổn định: bấm micro để bắt đầu thu, bấm lần nữa để dừng và gửi. Chế độ **"Luôn nghe" vẫn dùng được trên điện thoại** — bật lên là TRAVAI tự nghe và tự gửi giúp bạn, không cần bấm micro từng câu.
 - **Cần cho phép quyền micro.** Lần đầu bấm micro hoặc bật "Luôn nghe", trình duyệt sẽ hỏi xin quyền dùng micro — bạn cần bấm "Cho phép" (Allow) thì mới nói được. Nếu lỡ chọn "Chặn" (Block), bạn cần vào phần cài đặt trang web của trình duyệt để bật lại quyền micro.
-- **Giọng đọc tốt nhất khi dùng Microsoft Edge.** Edge có sẵn giọng đọc tiếng Việt tự nhiên (nghe gần giống người thật). Trình duyệt khác có thể không có giọng tiếng Việt cài sẵn trên máy — khi đó hệ thống sẽ tự chuyển sang đọc bằng dịch vụ đọc thành tiếng dự phòng ở máy chủ; nếu tất cả dịch vụ dự phòng đều chưa sẵn sàng, TRAVAI sẽ vẫn trả lời bằng chữ nhưng không đọc to được, và có thông báo nhắc bạn nên mở bằng Edge.
+- **Giọng đọc không phụ thuộc trình duyệt.** Câu trả lời được đọc bằng một giọng thống nhất phát từ máy chủ, nên bạn mở bằng trình duyệt nào cũng nghe giống nhau và không cần cài thêm giọng cho máy. Nếu phần đọc bên máy chủ gặp trục trặc, TRAVAI vẫn trả lời đầy đủ bằng chữ và hiện một thông báo ngắn — khi đó bạn báo bộ phận kỹ thuật kiểm tra giúp.
 - **Cần bật loa/tai nghe** để nghe được câu trả lời.
 - **Lần đầu vào trang có thể không tự đọc lời chào ngay.** Một số trình duyệt chặn tự phát âm thanh khi trang vừa mở — bạn chỉ cần bấm hoặc gõ bất kỳ đâu trên trang một lần, câu chào (và các câu trả lời sau đó) sẽ đọc bình thường.
+- **Trên điện thoại đôi khi hiện thêm nút "NGHE".** Khi trình duyệt điện thoại chặn phát âm thanh tự động, thanh điều khiển sẽ hiện tạm nút **"NGHE"** — chạm vào đó để nghe câu trả lời vừa rồi.
 - **Câu trả lời quá dài sẽ chỉ đọc một phần.** Nếu câu trả lời rất dài (khoảng hơn 2000 ký tự — tương đương vài đoạn văn dài), phần đọc to có thể bị cắt bớt ở cuối; tuy nhiên chữ hiển thị trên màn hình vẫn hiện đầy đủ, không bị mất nội dung.
 - **Hỏi câu mới sẽ ngắt câu đang đọc/đang trả lời trước đó** — đây là chủ ý để bạn không phải chờ, không phải lỗi.
 - **Các thao tác giao việc / tạo lịch hẹn cần quyền tương ứng.** Khi bạn nhờ TRAVAI giao việc cho nhân viên hoặc đặt lịch hẹn chăm sóc khách hàng, hệ thống luôn hiện thẻ xác nhận để bạn duyệt trước; và các thao tác này chỉ chạy được nếu tài khoản của bạn có **quyền tạo công việc / tạo nhắc hẹn**. Thiếu quyền thì khi xác nhận sẽ báo không đủ quyền — hãy liên hệ người quản trị để được cấp. Các việc chỉ xem (hỏi số liệu, xem mail, chấm điểm) thì không cần quyền này.
@@ -135,13 +135,13 @@ A: Hai thao tác này cần tài khoản của bạn có **quyền tạo công v
 A: Trên điện thoại, TRAVAI thu âm cho tới khi bạn **bấm micro lần thứ hai để dừng**. Sau khi dừng, máy sẽ hiện "Đang nhận diện…" một chút rồi tự gửi câu hỏi. Nếu bạn chỉ bấm một lần rồi để đó, máy sẽ vẫn đang thu âm chứ chưa gửi.
 
 **Q: Đổi giọng đọc ở đâu?**
-A: Trên thanh điều khiển phía trên cùng, có một ô chọn giọng (chỉ hiện khi máy bạn có giọng tiếng Việt). Chọn giọng bạn thích, bấm nút "Thử" để nghe thử ngay.
+A: Hiện chưa đổi được — cả hệ thống dùng chung **một giọng thống nhất** phát từ máy chủ, nên ai nghe cũng giống nhau. Ô **TTS** trên thanh điều khiển chỉ cho bạn biết đang dùng bộ đọc nào (hiện dấu "—" khi TRAVAI chưa đọc câu nào), chứ không phải ô để chọn giọng.
 
 **Q: Vì sao vừa vào trang mà không nghe TRAVAI chào?**
 A: Trình duyệt thường chặn phát âm thanh tự động khi trang mới mở. Bạn chỉ cần bấm/gõ vào bất kỳ chỗ nào trên trang, tiếng chào (và các câu trả lời sau) sẽ phát bình thường từ đó.
 
 **Q: Dùng TRAVAI có tốn phí gì không?**
-A: Về phía bạn thì không — giọng đọc chính đang dùng là miễn phí (chạy ngay trên trình duyệt Edge, hoặc dịch vụ đọc thành tiếng miễn phí phía máy chủ). Bạn không cần quan tâm chi phí khi sử dụng bình thường.
+A: Về phía bạn thì không. Phần đọc thành tiếng chạy ở máy chủ của hệ thống — bạn không phải cài thêm gì và không phải trả thêm khoản nào khi sử dụng bình thường.
 
 **Q: TRAVAI trả lời sai hoặc không đúng số liệu tôi cần thì sao?**
 A: Hãy hỏi càng cụ thể càng tốt (tên khách hàng, khoảng thời gian, loại số liệu...) để TRAVAI chọn đúng nguồn dữ liệu. Nếu vẫn thấy số liệu không khớp thực tế, hãy phản hồi lại cho bộ phận quản trị/IT để kiểm tra.
@@ -150,7 +150,7 @@ A: Hãy hỏi càng cụ thể càng tốt (tên khách hàng, khoảng thời g
 A: Không sao — link cũ `/jarvis` vẫn vào được trang này bình thường (được giữ lại làm đường tắt). Nhưng bạn nên dùng mục "TRAVAI (giọng nói)" trong menu, hoặc địa chỉ `/travai` cho đúng tên mới.
 
 **Q: Chế độ "Luôn nghe" khác gì so với bấm micro từng câu?**
-A: Bấm micro cạnh ô nhập là hỏi từng câu một — bấm, nói, TRAVAI gửi. "Luôn nghe" là chế độ rảnh tay hoàn toàn: bật lên một lần, sau đó cứ nói là TRAVAI tự nghe và trả lời liên tục, không cần bấm nút mỗi lần hỏi. Chế độ này chỉ có trên máy tính (Chrome/Edge); trên điện thoại nút bị mờ nên bạn dùng cách bấm-để-nói.
+A: Bấm micro cạnh ô nhập là hỏi từng câu một — bấm, nói, TRAVAI gửi. "Luôn nghe" là chế độ rảnh tay hoàn toàn: bật lên một lần, sau đó cứ nói là TRAVAI tự nghe và trả lời liên tục, không cần bấm nút mỗi lần hỏi. Chế độ này dùng được cả trên máy tính lẫn điện thoại; nút chỉ bị mờ khi trình duyệt không mở được micro — khi đó bạn dùng cách bấm-để-nói.
 
 **Q: Tôi muốn tắt tiếng đọc nhưng vẫn xem được câu trả lời bằng chữ, có được không?**
 A: Được. Bấm nút "LOA" trên thanh điều khiển để tắt — TRAVAI vẫn trả lời đầy đủ bằng chữ, chỉ ngừng đọc to.

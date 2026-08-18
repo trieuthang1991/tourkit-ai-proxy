@@ -99,7 +99,7 @@ Bước cuối cùng hiển thị **bản xem trước báo giá** dạng trình
 ![Xem trước và xuất báo giá](../images/bao-gia-tour-buoc7.png)
 > 📸 Cần chụp: Bước 4 — bản xem trước báo giá đẹp, nút "Tải PDF", nút "Gửi link cho khách", và các nút đổi trạng thái Nháp/Đã gửi/Đã chốt.
 
-Ngoài ra, ở bước này còn có khung **"Dự đoán khả năng chốt"** — bấm "Dự đoán bằng AI" để xem AI ước tính khả năng khách sẽ đồng ý báo giá này, giúp bạn cân nhắc có nên điều chỉnh giá thêm hay không trước khi gửi.
+Ngoài ra, ở bước này còn có khung **dự đoán tỉ lệ chốt sale** — bấm **"Dự đoán bằng AI"** để xem AI ước tính khả năng khách sẽ đồng ý báo giá này, giúp bạn cân nhắc có nên điều chỉnh giá thêm hay không trước khi gửi.
 
 ## 3B. Nhập bảng giá nhà cung cấp bằng AI (Import NCC)
 
