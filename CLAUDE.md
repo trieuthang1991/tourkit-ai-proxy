@@ -386,7 +386,7 @@ PerTenant. Auth = **service account** per-tenant (`dbo.TenantServiceAccounts`, `
 - **Scheduler:** `WorkflowSchedulerService` (`BackgroundService`, tick 60s) → `ListDue` → fire-and-forget `Task.Run`. `SetNextRun` chạy ngay trước `Task.Run` để tránh re-fire trong tick kế. Auto-pause sau 5 fail liên tiếp, user "Bật lại" qua PUT endpoint.
 - **MailSyncService (extract):** logic `POST /mail/sync` được extract ra `Services/Mail/MailSyncService.cs` → dùng chung giữa HTTP endpoint và `MailAutoSyncWorkflow`. Response shape `/mail/sync` giữ nguyên (`{items, counts, classified, fetched}`).
 - **Endpoint:** require `X-Session-Id` (pattern giống MailEndpoints). Manual trigger (`/run-now`) **fire-and-forget, KHÔNG đồng bộ** — trả về sau ~100ms với `summary` rỗng, workflow chạy tiếp ở nền qua pipeline scheduler (vẫn đếm failure + auto-pause + ghi `WorkflowRuns`). ⚠️ Đừng "sửa" lại thành đồng bộ: đã từng đồng bộ và run dài 100s+ làm request trình duyệt timeout → user thấy báo **lỗi giả** dù workflow chạy xong bình thường. Kết quả đọc ở `GET /workflows/{type}/runs`, không đọc ở response của `/run-now`.
-- **Frontend:** `/workflows` page (`wwwroot/pages/workflows.jsx`), card per workflow + toggle + interval dropdown + run history collapsible. Nav entry "Tự động hóa" trong group "Bản tin & Tự động" (chuyển khỏi "Tích hợp" 12/08 vì trang có thêm phần cá nhân — xem section "Bản tin AI").
+- **Frontend:** `/workflows` page (`wwwroot/pages/workflows.jsx`), card per workflow + toggle + interval dropdown + run history collapsible. Nav entry "Tự động hóa" nằm CUỐI group **"Tích hợp"** (kiểm code 18/08: `app.jsx` — tài liệu này từng ghi nhầm là group "Bản tin & Tự động", chưa bao giờ đúng với code). Mục này KHÔNG gate quyền vì trang có thêm phần cá nhân — xem section "Bản tin AI").
 
 ## Bản tin AI ("Đợt 1" — bản tin sáng + Bảng tin)
 
@@ -555,7 +555,7 @@ markdown; và mỗi người chỉ nhận **1 loại** bản tin theo vai trò (
 
 **Phân vai quyền:** "Bản tin của tôi" (nơi nhận của chính mình) → KHÔNG cần quyền, giống hộp thư cá nhân.
 Lịch chạy + tài khoản dịch vụ + Zalo OA → cần `CH_HT_XEM`. Vì trang này nay có phần cá nhân nên mục menu
-nằm ở khối **"Bản tin & Tự động"** (không phải "Tích hợp") và route KHÔNG gate cứng.
+nằm ở khối **"Tích hợp"** (kiểm code 18/08) (không phải "Tích hợp") và route KHÔNG gate cứng.
 
 **Theo dõi (admin):** `/admin-trav-ai` → **Bản tin**. Cần trang này vì **cả 3 kiểu hỏng của tính năng
 đều IM LẶNG** — người dùng chỉ thấy sáng ra không có gì, không lỗi nào hiện lên: (1) đã đăng ký nhưng

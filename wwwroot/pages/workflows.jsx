@@ -798,7 +798,9 @@ function WorkflowCard({ wf, onUpdate, pushToast, locked, canConfig = true, diges
               <div className="workflows-optgroup-title">Lịch chạy</div>
               <div className="workflows-opt is-toggle">
                 <div className="workflows-opt-row">
-                  <label className="workflows-opt-label">Bật workflow</label>
+                  {/* "Tác vụ" chứ không phải "workflow": cả trang đã gọi là tác vụ (tab "Tác vụ", ô đếm
+                      "TÁC VỤ"), riêng công tắc này còn sót chữ tiếng Anh giữa giao diện tiếng Việt. */}
+                  <label className="workflows-opt-label">Bật tác vụ</label>
                   <div className="workflows-opt-control">
                     <div className="workflows-toggle-wrap">
                       <label className="workflows-toggle">
