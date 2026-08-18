@@ -119,3 +119,49 @@ public static class AutoCareRule
         _     => new[] { 1, 2, 3, 4 },   // quietDays bị kẹp tối thiểu 7 nên nhóm 1 luôn phủ được
     };
 }
+
+/// <summary>
+/// Đo xem lời nhắc có ai làm theo không: so ngày chăm sóc LÚC NHẮC với ngày chăm sóc HIỆN TẠI.
+///
+/// <para><b>Vì sao đây là con số quan trọng nhất của tính năng.</b> Tác vụ này chỉ NHẮC — nó không
+/// gọi khách, không gửi gì. Giá trị bằng 0 nếu nhân viên không nhấc máy. Mà "có ai gọi không" thì
+/// trước đây không chỗ nào trả lời được, nên chẳng có căn cứ để quyết giữ hay bỏ.</para>
+///
+/// <para>Hàm thuần, tách khỏi DB và khỏi CRM để test được — kể cả những ca biên dễ đọc nhầm thành
+/// "đã gọi": mốc trống, mốc không đọc được, ngày lùi về quá khứ.</para>
+/// </summary>
+public static class CareFollowUp
+{
+    /// <param name="marks">(id khách, ngày chăm sóc GHI LÚC NHẮC) — lấy từ NotifyLedger.StateStamp.</param>
+    /// <param name="careNow">(id khách, ngày chăm sóc HIỆN TẠI) — hỏi lại CRM theo đúng danh sách id đó.</param>
+    /// <returns>
+    /// Reached = số khách có người liên hệ SAU khi nhắc · Checked = số khách tra được trạng thái hiện tại.
+    /// Tách hai số vì "0/0" và "0/25" là hai chuyện khác hẳn: một cái là chưa đo được, một cái là
+    /// nhắc mà không ai làm gì. Gộp lại thành một tỉ lệ sẽ giấu mất sự khác biệt đó.
+    /// </returns>
+    public static (int Reached, int Checked) Measure(
+        IEnumerable<(int Id, string? StampAtNotify)> marks,
+        IReadOnlyDictionary<int, DateTime?> careNow)
+    {
+        int reached = 0, checkedCount = 0;
+        foreach (var (id, stamp) in marks)
+        {
+            if (!careNow.TryGetValue(id, out var now)) continue;   // không tra được → không tính vào mẫu
+            checkedCount++;
+            if (now == null) continue;                             // vẫn chưa chăm lần nào
+
+            // Mốc trống = lúc nhắc khách CHƯA từng được chăm. Nay đã có ngày → rõ ràng là mới liên hệ.
+            if (string.IsNullOrWhiteSpace(stamp)) { reached++; continue; }
+
+            // So bằng CHUỖI ngày thì lệch định dạng là ra kết quả sai lặng lẽ — parse ra ngày rồi so.
+            // Không parse được (dữ liệu lạ) thì KHÔNG tính là đã gọi: thà báo thiếu còn hơn báo thừa,
+            // vì con số này dùng để quyết định giữ hay bỏ cả tính năng.
+            if (!DateTime.TryParse(stamp, System.Globalization.CultureInfo.InvariantCulture,
+                    System.Globalization.DateTimeStyles.AssumeUniversal | System.Globalization.DateTimeStyles.AdjustToUniversal,
+                    out var then)) continue;
+
+            if (now.Value.Date > then.Date) reached++;
+        }
+        return (reached, checkedCount);
+    }
+}

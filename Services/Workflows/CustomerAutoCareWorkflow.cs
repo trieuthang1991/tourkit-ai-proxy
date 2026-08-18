@@ -33,6 +33,9 @@ public class CustomerAutoCareWorkflow : IScheduledWorkflow
     /// Chạm trần thì NÓI RA trong tóm tắt, không im lặng cắt bớt.
     /// </summary>
     private const int MaxPages = 30;
+    /// Đo hiệu quả trong bao nhiêu ngày gần đây. 30 ngày: đủ dài để nhân viên kịp gọi, đủ ngắn để
+    /// con số phản ánh hiện tại chứ không phải thành tích từ quý trước.
+    private const int FollowUpDays = 30;
 
     private readonly TenantServiceAccountStore _accounts;
     private readonly TkSessionStore _sessions;
@@ -308,6 +311,52 @@ public class CustomerAutoCareWorkflow : IScheduledWorkflow
         await _insights.PruneAsync(KeepInsightDays, ct);
         await _ledger.PruneAsync(ct: ct);
 
+        // ── Nhắc rồi thì có ai gọi không? ────────────────────────────────────────────
+        // Con số quan trọng nhất của tác vụ này, và trước đây không chỗ nào trả lời được. Tác vụ
+        // chỉ NHẮC — giá trị bằng 0 nếu nhân viên không nhấc máy, nên không có số này thì giữ hay
+        // bỏ tính năng đều chỉ là cảm tính.
+        //
+        // Cách đo KHÔNG cần thêm gì: StateStamp đã lưu ngày chăm sóc LÚC NHẮC. Hỏi lại CRM đúng
+        // danh sách khách đã nhắc (tham số ids, KHÔNG kèm careFilter — người đã được gọi thì rơi
+        // khỏi nhóm "im lâu", lọc vào là không bao giờ thấy họ nữa, tức là luôn đo ra 0).
+        string? followUp = null;
+        try
+        {
+            var recent = await _ledger.ListRecentAsync(tenantId, LedgerScope, FollowUpDays, ct: ct);
+            if (recent.Count > 0)
+            {
+                var notified = new List<(int Id, string? Stamp)>();
+                foreach (var r in recent)
+                {
+                    var raw2 = r.SubjectKey.Split(':', 2);
+                    if (raw2.Length == 2 && int.TryParse(raw2[1], out var cid)) notified.Add((cid, r.StateStamp));
+                }
+
+                var careNow = new Dictionary<int, DateTime?>();
+                // Upstream chặn danh sách ids ở 500/lần → chia lô, đừng gửi cả nghìn rồi bị cắt âm thầm.
+                foreach (var chunk in notified.Select(m => m.Id).Chunk(500))
+                {
+                    var d = await _api.GetAsync(jwt,
+                        $"/api/ai/customers?ids={string.Join(",", chunk)}&pageSize=500", ct);
+                    if (d.TryGetProperty("items", out var arr2) && arr2.ValueKind == JsonValueKind.Array)
+                        foreach (var it in arr2.EnumerateArray())
+                            if (TryInt(it, "id", out var cid2))
+                                careNow[cid2] = TryDate(it, "lastCareDate", out var dd) ? dd : null;
+                }
+
+                var (reached, checkedCount) = CareFollowUp.Measure(notified, careNow);
+                if (checkedCount > 0)
+                    followUp = $"Trong {checkedCount} khách đã nhắc {FollowUpDays} ngày qua, "
+                             + $"{reached} người đã được liên hệ sau đó ({reached * 100 / checkedCount}%)";
+            }
+        }
+        catch (OperationCanceledException) { throw; }
+        catch (Exception ex)
+        {
+            // Đo hiệu quả HỎNG thì không được kéo đổ lượt chạy: việc chính (nhắc) đã xong rồi.
+            _log.LogWarning(ex, "[customer-auto-care] tenant={T} đo hiệu quả lỗi — bỏ qua", tenantId);
+        }
+
         // Trình bày theo ĐÚNG thứ tự xử lý: tới hạn → bỏ đã nhắc → cắt → chia thẻ.
         // Bản đầu ghi "→ {leads.Count} khách cần gọi lại ... Bỏ {remindedBefore} đã nhắc rồi", mà
         // leads.Count là con số SAU KHI CẮT còn remindedBefore là TRƯỚC — đọc ra "20 cần gọi, bỏ 31"
@@ -323,6 +372,7 @@ public class CustomerAutoCareWorkflow : IScheduledWorkflow
                     + (dedupedCards > 0 ? $", {dedupedCards} đã nhắc hôm nay" : "")
                     + (noOwner > 0 ? $", BỎ QUA {noOwner} khách chưa gán người phụ trách" : "")
                     + (noCareDate > 0 ? $". {noCareDate} khách chưa có ngày chăm sóc nên bỏ qua" : "")
+                    + (followUp != null ? $". {followUp}" : "")
                     + (truncated ? $". CHẠM TRẦN {MaxPages} trang — còn khách chưa quét tới, hạ 'im bao nhiêu ngày' hoặc để lần sau" : "") + ".";
         _log.LogInformation("[customer-auto-care] tenant={T} {Sum}", tenantId, summary);
         return new(true, summary, null);

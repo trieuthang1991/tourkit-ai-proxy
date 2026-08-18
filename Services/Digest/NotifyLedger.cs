@@ -126,6 +126,35 @@ WHEN NOT MATCHED THEN
             marks.Select(m => new { tenantId, scope, subject = m.Subject, stamp = m.StateStamp }));
     }
 
+    /// <summary>
+    /// Liệt kê những đối tượng ĐÃ NHẮC gần đây — để đo xem lời nhắc có ai làm theo không.
+    ///
+    /// <para><b>Vì sao cần.</b> Tác vụ nhắc chăm khách chỉ NHẮC; giá trị của nó bằng 0 nếu không ai
+    /// gọi. Mà trước đây không chỗ nào trả lời được câu "nhắc rồi thì có ai gọi không" — nên không
+    /// có căn cứ để quyết định giữ hay bỏ tính năng, chỉ có cảm tính.</para>
+    ///
+    /// <para><c>StateStamp</c> lưu dấu vết trạng thái LÚC NHẮC (ở đây: ngày chăm sóc gần nhất). So
+    /// với trạng thái hiện tại là biết ngay ai đã được xử lý sau lời nhắc. Dữ liệu vốn đã có sẵn —
+    /// không cần bảng mới, không cần ghi thêm gì.</para>
+    ///
+    /// <para>Giới hạn <paramref name="sinceDays"/> vì chỉ khoảng gần đây mới nói lên điều gì, và để
+    /// danh sách id đủ nhỏ cho một lần hỏi ngược sang CRM.</para>
+    /// </summary>
+    public async Task<List<(string SubjectKey, string? StateStamp, int Times, DateTime LastUtc)>> ListRecentAsync(
+        string tenantId, string scope, int sinceDays, int max = 500, CancellationToken ct = default)
+    {
+        await using var c = await _db.OpenAsync(ct);
+        var rows = await c.QueryAsync<(string SubjectKey, string? StateStamp, int Times, DateTime LastUtc)>(@"
+SELECT TOP (@max) SubjectKey, StateStamp, Times, LastUtc
+FROM dbo.NotifyLedger
+WHERE TenantId = @tenantId AND Scope = @scope
+  AND LastUtc >= DATEADD(DAY, -@sinceDays, SYSUTCDATETIME())
+ORDER BY LastUtc DESC",
+            new { tenantId, scope, sinceDays, max });
+        return rows.Select(r => (r.SubjectKey, r.StateStamp, r.Times,
+            DateTime.SpecifyKind(r.LastUtc, DateTimeKind.Utc))).ToList();
+    }
+
     /// Dọn dòng đã lâu không đụng tới. Giữ mặc định 180 ngày — dài hơn mọi chính sách nhắc hiện có
     /// (tính bằng ngày/tuần), nhưng không giữ mãi để bảng khỏi phình theo tuổi hệ thống.
     public async Task<int> PruneAsync(int keepDays = 180, CancellationToken ct = default)

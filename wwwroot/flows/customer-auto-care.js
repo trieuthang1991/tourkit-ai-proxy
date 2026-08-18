@@ -34,12 +34,14 @@
         sub: 'Khách chưa gán người phụ trách thì bỏ qua, không đổ vào thẻ chung' }),
       F.node('c10', 'step', F.MID, 9, { icon: 'phone', title: 'Nhân viên gọi',
         sub: 'Hệ thống KHÔNG gửi gì cho khách — người quyết định gọi ai, nói gì' }),
+      F.node('c11', 'step', F.MID, 10.2, { icon: 'checkCircle', title: 'Đo lại: có ai gọi thật không?',
+        sub: 'So ngày chăm sóc lúc nhắc với hiện tại → hiện trong lịch sử chạy. Đây là con số nói tác vụ này có đáng giữ hay không' }),
     ],
     edges: [
       F.edge('c1', 'c2'), F.edge('c2', 'c3', 'Rồi'), F.edge('c3', 'c4'),
       F.edge('c4', 'c5'), F.edge('c4', 'c6'),
       F.edge('c5', 'c7', 'Rồi'), F.edge('c6', 'c7', 'Có'),
-      F.edge('c7', 'c8', 'Chưa'), F.edge('c8', 'c9'), F.edge('c9', 'c10'),
+      F.edge('c7', 'c8', 'Chưa'), F.edge('c8', 'c9'), F.edge('c9', 'c10'), F.edge('c10', 'c11'),
     ],
   });
 })();

@@ -13,6 +13,31 @@ Những cập nhật gần đây của TRAV-AI, viết cho người dùng. Mới
 
 ---
 
+## Phiên bản 18/08/2026 (bản 3) — Nhắc chăm khách: hết nhắc trùng, và đo được là có ai gọi không
+
+### ✨ Tính năng mới
+- **📞 Biết được lời nhắc có ai làm theo không.** Lịch sử chạy của tác vụ *Nhắc chăm lại khách ngủ
+  quên* nay có thêm dòng: *"Trong 26 khách đã nhắc 30 ngày qua, 6 người đã được liên hệ sau đó
+  (23%)"*. Đây là con số cho bạn biết tính năng có đáng bật hay không — trước đây không có cách nào
+  trả lời.
+- **⏸️ Nhắc rồi thì thôi, không nhắc lại mỗi sáng.** Hai ô cấu hình mới: *nhắc lại sau bao nhiêu
+  ngày* (mặc định 7) và *mỗi khách nhắc tối đa mấy lần* (mặc định 3). Bộ đếm **tự về 0 khi khách
+  được chăm sóc thật**, nên khách đã gọi rồi mà sau này ngủ quên lại vẫn được nhắc tiếp.
+
+### 🔧 Đã khắc phục
+- **Cùng một khách bị nhắc lại mỗi sáng cho tới khi có người gọi.** Danh sách phình to dần, vài tuần
+  là không ai buồn mở nữa — đúng lúc nó bắt đầu có khách thật sự cần gọi.
+- **Tác vụ chỉ nhìn 200 khách mới nhất.** Trong khi công ty có hàng chục nghìn khách, và nhóm dễ ngủ
+  quên lại là khách *cũ*. Nay hệ thống nhờ phần mềm lọc sẵn đúng nhóm "lâu chưa chăm sóc" rồi mới
+  lấy về — phủ hết, mà không chậm hơn.
+- **Danh sách đứng im sau vài ngày.** Khi 20 khách chi nhiều nhất đều đã được nhắc, tác vụ báo
+  "không có ai mới" và không bao giờ chuyển sang khách tiếp theo. Nay lọc trước rồi mới cắt, kèm ghi
+  rõ *"còn N khách để lượt sau"*.
+- **Dòng tóm tắt lần chạy trộn hai mốc số liệu** nên đọc ra con số sai. Nay mọi số trong câu đều quy
+  về được: *"131 tới hạn → bỏ 20 đã nhắc → lấy 20 → 6 thẻ cho 6 nhân viên"*.
+
+---
+
 ## Phiên bản 18/08/2026 (bản 2) — Cảnh báo gửi đúng người, không còn "ai cũng thấy"
 
 ### ✨ Tính năng mới
