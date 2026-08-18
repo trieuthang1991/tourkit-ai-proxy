@@ -16,6 +16,10 @@
     { slug: 'tham-dinh-visa',      label: 'Thẩm định Visa' },
     { slug: 'tu-dong-hoa',         label: 'Tự động hóa' },
     { slug: 'jarvis',              label: 'TRAVAI — trợ lý giọng nói' },
+    // Bài con của "Tự động hóa" (một tác vụ có nhiều tuỳ chọn nên tách riêng). Vẫn PHẢI khai ở đây:
+    // danh mục này cũng là danh sách đường dẫn hợp lệ, thiếu thì /help/<slug> rơi về trang mục lục
+    // và cả link từ bài "Tự động hóa" sang cũng không mở được.
+    { slug: 'nhac-cham-khach',     label: 'Nhắc chăm lại khách ngủ quên' },
   ];
   const SLUGS = new Set(GUIDES.map(g => g.slug));
 
@@ -27,8 +31,16 @@
     s = esc(s);
     // ảnh ![alt](src) — src đã được rewrite ../images/ → /docs/images/ ở bước render()
     s = s.replace(/!\[([^\]]*)\]\(([^)\s]+)[^)]*\)/g, (m, alt, src) => `<img alt="${alt}" src="${src}" loading="lazy" />`);
-    // link [text](url)
-    s = s.replace(/\[([^\]]+)\]\(([^)\s]+)[^)]*\)/g, '<a href="$2" target="_blank" rel="noopener">$1</a>');
+    // link [text](url) — riêng link sang guide khác ("nhac-cham-khach.md") phải đổi thành
+    // /help/<slug>. Để nguyên thì trình duyệt hiểu là đường dẫn tương đối "/help/<slug>.md",
+    // không khớp danh mục nên rơi về trang mục lục — bấm vào tưởng hỏng. Cũng KHÔNG mở tab mới:
+    // đây là điều hướng trong chính trang hướng dẫn.
+    s = s.replace(/\[([^\]]+)\]\(([^)\s]+)[^)]*\)/g, (m, chu, url) => {
+      const noiBo = /^[a-z0-9-]+\.md$/i.test(url);
+      return noiBo
+        ? `<a href="/help/${url.slice(0, -3)}" data-help-link="1">${chu}</a>`
+        : `<a href="${url}" target="_blank" rel="noopener">${chu}</a>`;
+    });
     // đậm **x**
     s = s.replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>');
     // code `x`
@@ -95,18 +107,44 @@
     // Cuộn lên đầu khi đổi guide
     React.useEffect(() => { if (mainRef.current) mainRef.current.scrollTop = 0; }, [active, state]);
 
-    // Ảnh chưa chụp (404) → ẩn cho gọn (note "📸 Cần chụp" ngay dưới vẫn giữ lại).
+    // Ảnh chưa chụp (404) → ẩn ảnh, GIỮ note "📸 Cần chụp" ngay dưới làm chỗ trống.
+    // Ảnh đã chụp rồi → ẩn NOTE đi: nó là lời dặn cho người đi chụp, không phải nội dung cho người
+    // dùng đọc. Thiếu vế này thì mỗi ảnh chụp xong lại để lại một dòng thừa ngay bên dưới — đã có
+    // lúc 42 dòng như vậy hiện trên trang hướng dẫn thật. Làm ở đây thay vì xoá tay trong từng file
+    // .md để lần chụp sau tự đúng, khỏi phải nhớ đi dọn.
     React.useEffect(() => {
       const el = docRef.current;
       if (!el) return;
+      // Note nằm ngay sau khối ảnh, dạng blockquote bắt đầu bằng "📸".
+      const noteSau = (img) => {
+        const khoi = img.closest('p') || img;
+        const kh = khoi.nextElementSibling;
+        return kh && kh.tagName === 'BLOCKQUOTE' && kh.textContent.trim().startsWith('📸') ? kh : null;
+      };
+      // Ẩn note TRƯỚC, chỉ hiện lại khi ảnh báo hỏng. Làm ngược lại (chờ sự kiện tải xong mới ẩn)
+      // thì hỏng vì ảnh khai loading="lazy": sự kiện chỉ nổ khi cuộn tới, nên mọi note phía dưới
+      // màn hình hiện chình ình rồi mới lần lượt biến mất khi người ta cuộn qua.
       el.querySelectorAll('img').forEach(img => {
-        const hide = () => { img.style.display = 'none'; };
-        if (img.complete && img.naturalWidth === 0) hide();
-        else img.addEventListener('error', hide, { once: true });
+        const note = noteSau(img);
+        if (note) note.style.display = 'none';
+        const hong = () => {
+          img.style.display = 'none';
+          if (note) note.style.display = '';   // chưa có ảnh → trả note về làm chỗ trống
+        };
+        if (img.complete && img.naturalWidth === 0) hong();
+        else img.addEventListener('error', hong, { once: true });
       });
     }, [html]);
 
     const go = (s) => (e) => { e.preventDefault(); nav('/help/' + s); };
+
+    // Link sang guide khác nằm trong nội dung markdown → cho đi qua router thay vì tải lại cả trang.
+    const bamTrongBai = (e) => {
+      const a = e.target.closest('a[data-help-link]');
+      if (!a) return;
+      e.preventDefault();
+      nav(a.getAttribute('href'));
+    };
 
     return (
       <div className="help-wrap">
@@ -131,7 +169,7 @@
           )}
           {active && state === 'loading' && <div className="help-status">Đang tải hướng dẫn…</div>}
           {active && state === 'error'   && <div className="help-status">Không tải được hướng dẫn cho tính năng này.</div>}
-          {active && state === 'ok'      && <article className="help-doc" ref={docRef} dangerouslySetInnerHTML={{ __html: html }} />}
+          {active && state === 'ok'      && <article className="help-doc" ref={docRef} onClick={bamTrongBai} dangerouslySetInnerHTML={{ __html: html }} />}
         </main>
       </div>
     );
