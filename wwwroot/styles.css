@@ -7949,14 +7949,37 @@ n
 
 /* Summary inline text */
 .workflows-summary span { font-size: 12px; color: var(--text-2); }
-/* Tóm tắt dạng câu chữ: cột hẹp nên cắt một dòng, rê chuột (title) đọc nguyên văn. Không cho xuống
-   dòng vì bảng lịch sử có 20 dòng — mỗi dòng cao ba hàng thì không đọc nổi cái nào. */
+/* Tóm tắt dạng câu chữ: trên DÒNG GỌN của thẻ thì cắt một dòng, rê chuột (title) đọc nguyên văn —
+   chỗ đó nằm cạnh tên tác vụ, cho xuống dòng là thẻ cao gấp đôi và danh sách 10 tác vụ hết nhìn
+   lướt được. */
 .workflows-summary-text {
   display: inline-block; max-width: 46ch;
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap; vertical-align: bottom;
   font-size: 12px; color: var(--text-2); cursor: help;
 }
 .workflows-summary span + span::before { content: ''; }
+/* ...NHƯNG trong bảng "20 lần gần nhất" thì cho xuống dòng, tối đa 3 hàng.
+   Bản đầu cắt một dòng ở CẢ HAI CHỖ vì lúc đó tóm tắt chỉ vài chữ ("4 mail kéo · 3 phân loại").
+   Từ khi các tác vụ cảnh báo báo cả phần chẩn đoán, tóm tắt dài hơn 200 ký tự và thứ đáng đọc nhất
+   lại nằm ở CUỐI câu — số khách bị bỏ vì đã nhắc rồi, số tour bỏ qua vì chưa gán người phụ trách,
+   và tỉ lệ khách được gọi lại sau khi nhắc. Cắt một dòng nghĩa là đúng phần đó không bao giờ hiện,
+   trừ khi rê chuột đợi tooltip — mà không ai biết để rê. Bảng là chỗ người dùng CHỦ ĐỘNG mở ra để
+   đọc kỹ, nên đánh đổi chiều cao lấy nội dung ở đây là đúng; dòng gọn phía trên vẫn giữ 1 dòng. */
+.workflows-history-table .workflows-summary-text {
+  max-width: none; white-space: normal; word-break: break-word;
+  display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 3; line-clamp: 3;
+  /* GIỮ cursor: help — 3 hàng phủ gần hết, nhưng tóm tắt dài nhất (tác vụ sẵn sàng khởi hành, có
+     thêm dòng CẢNH BÁO) vẫn có thể chạm đáy. Đổi thành con trỏ thường là mất luôn dấu hiệu duy nhất
+     cho biết còn chữ đọc được khi rê vào. */
+  cursor: help;
+}
+/* Cột tóm tắt nay chiếm nhiều bề ngang hơn, nên 3 cột hẹp hai bên phải giữ nguyên một dòng —
+   không thì "Thủ công" / "Thành công" tự gãy đôi, trông như dữ liệu lỗi.
+   ⚠️ LOẠI TRỪ ô có colspan: dòng báo lỗi của một lần chạy là MỘT ô trải hết bảng, nên nó vừa là
+   ô đầu vừa là ô cuối. Dính nowrap thì câu lỗi dài không xuống dòng, kéo bảng tràn ngang. */
+.workflows-history-table tbody td:nth-child(2):not([colspan]),
+.workflows-history-table tbody td:nth-child(3):not([colspan]),
+.workflows-history-table tbody td:last-child:not([colspan]) { white-space: nowrap; }
 .workflows-summary-empty { color: var(--text-3); font-size: 12px; }
 .workflows-summary span.workflows-summary-warn { color: var(--warn, #b8860b); }
 
@@ -8015,6 +8038,21 @@ n
   .workflows-actions { gap: 6px; }
   .workflows-btn { padding: 7px 11px; font-size: 12.5px; }
   .workflows-history-table { font-size: 12px; }
+  /* Màn hẹp: bỏ cột "Trigger" (Thủ công / Theo lịch) và cột thời lượng — hai cột này giữ nguyên
+     một dòng nên ăn hết bề ngang, dồn cột Tóm tắt còn ba chữ mỗi hàng, tức là cắt cụt y như cũ chỉ
+     cao gấp ba. Ai xem trên điện thoại cần biết CHUYỆN GÌ ĐÃ XẢY RA, còn chạy tay hay theo lịch và
+     mất mấy giây thì để lúc ngồi máy tính.
+     ⚠️ Cũng loại trừ ô colspan — không thì dòng báo lỗi (một ô trải hết bảng, tức là ô cuối) bị ẩn
+     sạch trên điện thoại: lần chạy hỏng trông y hệt lần chạy bình thường. */
+  .workflows-history-table thead th:nth-child(2),
+  .workflows-history-table tbody td:nth-child(2):not([colspan]),
+  .workflows-history-table thead th:last-child,
+  .workflows-history-table tbody td:last-child:not([colspan]) { display: none; }
+  /* KHÔNG kẹp số dòng trên mobile. Bản desktop kẹp 3 hàng được là vì còn dòng chú thích khi rê
+     chuột đọc nốt phần thừa — trên cảm ứng KHÔNG có thứ đó, nên kẹp bao nhiêu cũng là giấu vĩnh
+     viễn, đúng cái lỗi vừa sửa. Bảng này người dùng phải chủ động bấm mở, dài thì cuộn. */
+  .workflows-history-table .workflows-summary-text {
+    display: block; -webkit-line-clamp: none; line-clamp: none; cursor: default; }
 }
 
 .bg-intro-3 {
