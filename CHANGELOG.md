@@ -24,6 +24,14 @@ Những cập nhật gần đây của TRAV-AI, viết cho người dùng. Mới
   ngày* (mặc định 7) và *mỗi khách nhắc tối đa mấy lần* (mặc định 3). Bộ đếm **tự về 0 khi khách
   được chăm sóc thật**, nên khách đã gọi rồi mà sau này ngủ quên lại vẫn được nhắc tiếp.
 
+- **📤 Nhắc chăm khách gửi được ra ngoài Bảng tin.** Bật *"Gửi thêm tới kênh riêng của nhân viên"*
+  thì danh sách gọi điện đi thẳng tới email/Telegram/Zalo mà chính nhân viên đó đã khai — khỏi phải
+  nhớ mở phần mềm. Ai chưa khai vẫn nhận trong Bảng tin như thường.
+- **🙋 Khách chưa có ai phụ trách cũng có chỗ báo.** Khai email/Telegram/Zalo ở ô *"Khách chưa có
+  người phụ trách"* thì nhóm này được gửi riêng cho người bạn chỉ định — để họ **gán người phụ
+  trách**, chứ không phải gọi hộ một lần rồi đâu lại vào đấy. **Không khai thì bỏ qua như hiện
+  nay**, chỉ đếm trong lịch sử chạy.
+
 ### 🔧 Đã khắc phục
 - **Cùng một khách bị nhắc lại mỗi sáng cho tới khi có người gọi.** Danh sách phình to dần, vài tuần
   là không ai buồn mở nữa — đúng lúc nó bắt đầu có khách thật sự cần gọi.

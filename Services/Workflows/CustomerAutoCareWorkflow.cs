@@ -1,5 +1,6 @@
 using System.Text.Json;
 using TourkitAiProxy.Services.Digest;
+using TourkitAiProxy.Services.Mail;
 using TourkitAiProxy.Services.TourKit;
 
 namespace TourkitAiProxy.Services.Workflows;
@@ -42,12 +43,16 @@ public class CustomerAutoCareWorkflow : IScheduledWorkflow
     private readonly TourKitApiClient _api;
     private readonly InsightRepository _insights;
     private readonly NotifyLedgerRepository _ledger;
+    private readonly DigestSubscriptionRepository _subs;
+    private readonly MailQueueRepository _mailQueue;
     private readonly ILogger<CustomerAutoCareWorkflow> _log;
 
     public CustomerAutoCareWorkflow(TenantServiceAccountStore accounts, TkSessionStore sessions,
         TourKitApiClient api, InsightRepository insights, NotifyLedgerRepository ledger,
+        DigestSubscriptionRepository subs, MailQueueRepository mailQueue,
         ILogger<CustomerAutoCareWorkflow> log)
-    { _accounts = accounts; _sessions = sessions; _api = api; _insights = insights; _ledger = ledger; _log = log; }
+    { _accounts = accounts; _sessions = sessions; _api = api; _insights = insights; _ledger = ledger;
+      _subs = subs; _mailQueue = mailQueue; _log = log; }
 
     public string Type => "customer-auto-care";
     public string Label => "Nhắc chăm lại khách ngủ quên";
@@ -58,12 +63,14 @@ public class CustomerAutoCareWorkflow : IScheduledWorkflow
 
     // ⚠️ default PHẢI khớp WORKFLOW_OPTIONS['customer-auto-care'] bên workflow-options.jsx.
     private record Options(int QuietDays, List<string> Ranks, bool RequireBought, int MaxLeads,
-        int RemindGapDays, int MaxReminders);
+        int RemindGapDays, int MaxReminders, bool NotifyStaffChannels,
+        List<string> OrphanEmails, List<string> OrphanTelegramChatIds, List<string> OrphanZaloPhones);
 
     private static Options ParseOptions(string? json)
     {
         var def = new Options(QuietDays: 90, Ranks: new List<string>(), RequireBought: true, MaxLeads: 20,
-            RemindGapDays: 7, MaxReminders: 3);
+            RemindGapDays: 7, MaxReminders: 3, NotifyStaffChannels: false,
+            OrphanEmails: new(), OrphanTelegramChatIds: new(), OrphanZaloPhones: new());
         if (string.IsNullOrWhiteSpace(json)) return def;
         try
         {
@@ -75,6 +82,9 @@ public class CustomerAutoCareWorkflow : IScheduledWorkflow
             bool Bit(string k, bool dv)
                 => r.TryGetProperty(k, out var v) && v.ValueKind is JsonValueKind.True or JsonValueKind.False
                     ? v.GetBoolean() : dv;
+            string? Txt(string k)
+                => r.TryGetProperty(k, out var v) && v.ValueKind == JsonValueKind.String
+                    && !string.IsNullOrWhiteSpace(v.GetString()) ? v.GetString()!.Trim() : null;
             List<string> Strs(string k, List<string> dv)
             {
                 if (!r.TryGetProperty(k, out var arr) || arr.ValueKind != JsonValueKind.Array) return dv;
@@ -92,6 +102,10 @@ public class CustomerAutoCareWorkflow : IScheduledWorkflow
                 MaxLeads = Num("maxLeads", def.MaxLeads, 1, 50),
                 RemindGapDays = Num("remindGapDays", def.RemindGapDays, 0, 365),
                 MaxReminders = Num("maxReminders", def.MaxReminders, 0, 20),
+                NotifyStaffChannels = Bit("notifyStaffChannels", def.NotifyStaffChannels),
+                OrphanEmails = AlertRecipients.Emails(Txt("orphanEmails")),
+                OrphanTelegramChatIds = AlertRecipients.TelegramChatIds(Txt("orphanTelegramChatIds")),
+                OrphanZaloPhones = AlertRecipients.ZaloPhones(Txt("orphanZaloPhones")),
             };
         }
         catch (JsonException) { return def; }
@@ -269,11 +283,43 @@ public class CustomerAutoCareWorkflow : IScheduledWorkflow
         // có ai để nhắc.
         //
         // apiHasStaff=false = API chưa nâng cấp → giữ hành vi cũ (một thẻ chung) chứ không im lặng.
-        int noOwner = 0, created = 0, dedupedCards = 0;
+        int noOwner = 0, created = 0, dedupedCards = 0, queued = 0;
+        var orphans = new List<CareLead>();
+
+        // Hồ sơ "Nơi nhận của tôi" — đọc MỘT LẦN cho cả lượt, không hỏi lại theo từng thẻ.
+        // KHÔNG lọc theo cờ "nhận bản tin sáng": cờ đó nói về bản tin, còn đây là nhắc việc — một
+        // người có thể không muốn bản tin nhưng vẫn muốn biết mình đang nợ mấy cuộc gọi.
+        var channelOf = new Dictionary<string, DigestSubscription>(StringComparer.OrdinalIgnoreCase);
+        if (opt.NotifyStaffChannels)
+        {
+            try
+            {
+                foreach (var sub in await _subs.ListWithChannelsAsync(tenantId, ct))
+                    channelOf[sub.Username] = sub;
+            }
+            catch (Exception ex)
+            {
+                // Đọc hồ sơ hỏng thì vẫn ghi Bảng tin như thường — Bảng tin là kênh chắc chắn,
+                // kênh ngoài chỉ là thêm. Đừng để phần "thêm" kéo đổ phần chính.
+                _log.LogWarning(ex, "[customer-auto-care] tenant={T} đọc nơi nhận lỗi — chỉ ghi Bảng tin", tenantId);
+            }
+        }
         foreach (var g in leads.GroupBy(l => PaymentWatchdogRule.ResolveOwner(l.StaffUserName, apiHasStaff)))
         {
             var (owner, skip) = g.Key;
-            if (skip) { noOwner += g.Count(); continue; }
+            if (skip)
+            {
+                // Khách chưa gán người phụ trách. MẶC ĐỊNH vẫn bỏ qua như trước — chỉ khi công ty
+                // khai nơi nhận dự phòng thì mới gửi, và gửi tới ĐÚNG danh sách khai tay đó chứ
+                // KHÔNG đổ vào Bảng tin chung: đổ vào đó là quay lại đúng cái vừa sửa (ai cũng
+                // thấy = không ai chịu trách nhiệm).
+                //
+                // Nội dung cố ý nói thẳng vấn đề GỐC — những khách này chưa có ai phụ trách — vì
+                // việc đúng cần làm là GÁN người, không phải gọi hộ một lần rồi đâu lại vào đấy.
+                noOwner += g.Count();
+                orphans.AddRange(g);
+                continue;
+            }
 
             var mine = g.ToList();
             var lines2 = string.Join("\n", mine.Select(l => $"- {l.Text}"));
@@ -306,6 +352,108 @@ public class CustomerAutoCareWorkflow : IScheduledWorkflow
                 await _ledger.MarkAsync(tenantId, LedgerScope,
                     mine.Select(l => (NotifyLedgerRepository.Subject("customer", l.Id),
                                       (string?)Stamp(l, careDateOf))).ToList(), ct);
+
+            // ── Gửi thêm tới kênh riêng của CHÍNH nhân viên đó ───────────────────────
+            // Bảng tin đòi người ta phải đăng nhập rồi mở ra xem. Danh sách gọi điện mà nằm im ở
+            // đó thì đúng hôm bận nhất là hôm không ai mở. Nên gửi tới nơi họ đang ở.
+            //
+            // Chỉ gửi khi thẻ THẬT SỰ mới (insId != null): thẻ bị chặn vì trùng trong ngày thì
+            // nội dung y hệt cái đã gửi, gửi lại là tự biến mình thành thư rác.
+            //
+            // An toàn được là nhờ phần chống lặp làm TRƯỚC: mỗi khách chỉ vào danh sách lại sau
+            // remindGapDays và tối đa maxReminders lần, nên nhân viên không nhận thư mỗi sáng.
+            // Mở kênh ngoài trước khi có chống lặp mới là cách chắc chắn để bị tắt tính năng.
+            if (insId != null && opt.NotifyStaffChannels
+                && owner.Length > 0 && channelOf.TryGetValue(owner, out var sub2))
+            {
+                foreach (var ch in OutboundChannels.EnabledOf(sub2))
+                {
+                    try
+                    {
+                        // SourceId gắn insId: một thẻ = một lần gửi, đối soát được khi ai đó bảo
+                        // "hôm nay tôi không nhận được gì".
+                        await _mailQueue.EnqueueAsync(new OutboundMailInput(
+                            tenantId, Kind: "auto-care",
+                            SourceId: $"auto-care:{insId}:{ch}",
+                            Username: owner,
+                            TemplateCode: ch == OutboundChannel.Email ? "auto-care" : null,
+                            ToEmail: ch == OutboundChannel.Email ? sub2.Email : null,
+                            Subject: $"{mine.Count} khách cũ lâu chưa ai gọi lại",
+                            Params: ch == OutboundChannel.Email
+                                ? JsonSerializer.Serialize(new
+                                {
+                                    title = $"{mine.Count} khách cũ lâu chưa ai gọi lại",
+                                    // Escape TRƯỚC rồi mới đổi xuống dòng thành <br>: làm ngược thì
+                                    // chính thẻ <br> vừa chèn bị escape thành chữ.
+                                    bodyHtml = System.Net.WebUtility.HtmlEncode(body2).Replace("\n", "<br>"),
+                                    date = day,
+                                })
+                                : null,
+                            Data: ch == OutboundChannel.Email ? null
+                                : JsonSerializer.Serialize(new
+                                {
+                                    chatId = ch == OutboundChannel.Telegram ? sub2.TelegramChatId : null,
+                                    phone = ch == OutboundChannel.Zalo ? sub2.ZaloPhone : null,
+                                    title = $"{mine.Count} khách cũ lâu chưa ai gọi lại",
+                                    body = body2,
+                                    feature = "auto-care",
+                                }),
+                            Channel: ch), ct);
+                        queued++;
+                    }
+                    catch (Exception ex)
+                    {
+                        // Một kênh hỏng không được kéo đổ những kênh còn lại, càng không được làm
+                        // hỏng cả lượt chạy — thẻ trong Bảng tin đã ghi xong rồi.
+                        _log.LogWarning(ex, "[customer-auto-care] tenant={T} xếp {Ch} cho {U} lỗi",
+                            tenantId, ch, owner);
+                    }
+                }
+            }
+        }
+
+        // ── Khách chưa ai phụ trách → nơi nhận dự phòng (nếu công ty có khai) ────────
+        // Không khai gì thì giữ nguyên hành vi cũ: bỏ qua, chỉ đếm vào tóm tắt.
+        if (orphans.Count > 0 && (opt.OrphanEmails.Count > 0 || opt.OrphanTelegramChatIds.Count > 0
+                                  || opt.OrphanZaloPhones.Count > 0))
+        {
+            var oLines = string.Join("\n", orphans.Take(Math.Max(1, opt.MaxLeads)).Select(l => $"- {l.Text}"));
+            var oTitle = $"{orphans.Count} khách cũ chưa gán người phụ trách";
+            var oBody = "Những khách này lâu rồi không ai liên hệ, và trong phần mềm cũng CHƯA GÁN "
+                      + "nhân viên phụ trách nên không biết giao cho ai. Việc cần làm là gán người "
+                      + $"phụ trách cho họ, không chỉ gọi một lần.\n\n{oLines}";
+
+            var rows2 = new List<OutboundMailInput>();
+            foreach (var addr in opt.OrphanEmails)
+                rows2.Add(new OutboundMailInput(tenantId, Kind: "auto-care",
+                    SourceId: $"auto-care-orphan:{day}:{addr}", TemplateCode: "auto-care",
+                    ToEmail: addr, Subject: oTitle,
+                    Params: JsonSerializer.Serialize(new
+                    {
+                        title = oTitle,
+                        bodyHtml = System.Net.WebUtility.HtmlEncode(oBody).Replace("\n", "<br>"),
+                        date = day,
+                    }),
+                    Channel: OutboundChannel.Email));
+            foreach (var chat in opt.OrphanTelegramChatIds)
+                rows2.Add(new OutboundMailInput(tenantId, Kind: "auto-care",
+                    SourceId: $"auto-care-orphan:{day}:tg:{chat}", Subject: oTitle,
+                    Data: JsonSerializer.Serialize(new { chatId = chat, title = oTitle, body = oBody, feature = "auto-care" }),
+                    Channel: OutboundChannel.Telegram));
+            foreach (var phone in opt.OrphanZaloPhones)
+                rows2.Add(new OutboundMailInput(tenantId, Kind: "auto-care",
+                    SourceId: $"auto-care-orphan:{day}:zl:{phone}", Subject: oTitle,
+                    Data: JsonSerializer.Serialize(new { phone, title = oTitle, body = oBody, feature = "auto-care" }),
+                    Channel: OutboundChannel.Zalo));
+
+            foreach (var row in rows2)
+            {
+                try { await _mailQueue.EnqueueAsync(row, ct); queued++; }
+                catch (Exception ex)
+                {
+                    _log.LogWarning(ex, "[customer-auto-care] tenant={T} xếp dự phòng kênh {Ch} lỗi", tenantId, row.Channel);
+                }
+            }
         }
 
         await _insights.PruneAsync(KeepInsightDays, ct);
@@ -372,6 +520,7 @@ public class CustomerAutoCareWorkflow : IScheduledWorkflow
                     + (dedupedCards > 0 ? $", {dedupedCards} đã nhắc hôm nay" : "")
                     + (noOwner > 0 ? $", BỎ QUA {noOwner} khách chưa gán người phụ trách" : "")
                     + (noCareDate > 0 ? $". {noCareDate} khách chưa có ngày chăm sóc nên bỏ qua" : "")
+                    + (queued > 0 ? $", xếp {queued} tin chờ gửi tới nhân viên" : "")
                     + (followUp != null ? $". {followUp}" : "")
                     + (truncated ? $". CHẠM TRẦN {MaxPages} trang — còn khách chưa quét tới, hạ 'im bao nhiêu ngày' hoặc để lần sau" : "") + ".";
         _log.LogInformation("[customer-auto-care] tenant={T} {Sum}", tenantId, summary);

@@ -321,6 +321,23 @@
         hint: 'Đã đưa vào danh sách rồi thì im bấy nhiêu ngày, không nhắc lại mỗi sáng. Để 0 = không giới hạn (nhắc lại ngay lượt sau) — chỉ nên dùng khi bạn chạy tác vụ rất thưa.' },
       { key: 'maxReminders', type: 'number', label: 'Mỗi khách nhắc tối đa mấy lần', default: 3, min: 0, max: 20,
         hint: 'Nhắc đủ số lần này mà vẫn chưa ai gọi thì thôi — nhắc mãi chỉ làm người ta bỏ qua cả danh sách. Bộ đếm TỰ VỀ 0 khi khách được chăm sóc thật (ngày chăm sóc trong CRM đổi), nên khách đã gọi rồi mà sau này ngủ quên lại vẫn được nhắc tiếp. Để 0 = không giới hạn số lần.' },
+
+      // ── ④ Báo cho ai ────────────────────────────────────────────────────────────
+      // Bảng tin đòi người ta đăng nhập rồi mở ra xem. Danh sách gọi điện nằm im ở đó thì đúng hôm
+      // bận nhất là hôm không ai mở. An toàn bật được là nhờ phần chống nhắc lặp ở trên — thiếu nó
+      // thì mỗi sáng một thư nội dung y hệt.
+      { key: 'notifyStaffChannels', type: 'bool', label: 'Gửi thêm tới kênh riêng của nhân viên', default: false,
+        hint: 'Ngoài thẻ trong Bảng tin, gửi thêm qua email/Telegram/Zalo mà chính nhân viên đó đã khai ở khối "Nơi nhận của tôi". Ai chưa khai thì vẫn nhận trong Bảng tin như thường. Chỉ gửi khi có thẻ MỚI — không gửi lại thẻ cũ.' },
+
+      { key: 'orphanEmails', type: 'text', label: 'Khách chưa có người phụ trách — gửi email tới',
+        placeholder: 'truongnhom@congty.vn',
+        hint: 'Khách lâu chưa chăm mà trong phần mềm CHƯA gán ai phụ trách thì không biết giao cho ai. Để trống = bỏ qua họ như hiện nay (vẫn đếm trong lịch sử chạy). Điền vào thì gửi cho người này để họ GÁN người phụ trách — việc đúng cần làm, chứ không phải gọi hộ một lần.' },
+      { key: 'orphanTelegramChatIds', type: 'text', label: '… gửi Telegram tới',
+        placeholder: '6234567890',
+        hint: 'Là dãy SỐ (chat id), không phải @tên. Người nhận phải bấm Bắt đầu với bot trước.' },
+      { key: 'orphanZaloPhones', type: 'text', label: '… gửi Zalo tới',
+        placeholder: '0912345678',
+        hint: 'Số điện thoại đang dùng Zalo. Cần khai OA Zalo của công ty ở mục "Theo tổ chức" thì mới gửi được.' },
     ],
     'customer-auto-review': [
       { key: 'createdWithinDays', type: 'number', label: 'Chỉ khách tạo trong (ngày)', default: 30, min: 1, max: 365,
@@ -381,6 +398,8 @@
       quietDays: '① Thế nào là ngủ quên', ranks: '② Nhắc về ai',
       requireBought: '② Nhắc về ai', maxLeads: '② Nhắc về ai',
       remindGapDays: '③ Nhắc bao nhiêu lần', maxReminders: '③ Nhắc bao nhiêu lần',
+      notifyStaffChannels: '④ Báo cho ai', orphanEmails: '④ Báo cho ai',
+      orphanTelegramChatIds: '④ Báo cho ai', orphanZaloPhones: '④ Báo cho ai',
     },
     'anomaly-watchdog': {
       baselineWeeks: '① Mức thường tính thế nào', thresholdPercent: '② Khi nào thì báo',
