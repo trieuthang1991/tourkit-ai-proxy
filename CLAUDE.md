@@ -123,7 +123,9 @@ data/
   #   data/visa-assessments.json → dbo.VisaAssessments (per-tenant)
 ```
 
-**Database schema** — 25 bảng SQL Server (cùng instance với TourKit Push, conn string `ConnectionStrings:PushDb` thường ENC: Crypton). Full inventory + conventions + checklist thêm bảng mới: **[docs/database-schema.md](docs/database-schema.md)**. Schema sống trong [Services/Db/TourkitAiDb.cs](Services/Db/TourkitAiDb.cs) (`SchemaSql` const, idempotent `IF OBJECT_ID(...) IS NULL`). Khi thêm/sửa bảng → update cả file MD đó.
+**Database schema** — 26 bảng SQL Server (cùng instance với TourKit Push, conn string `ConnectionStrings:PushDb` thường ENC: Crypton). Full inventory + conventions + checklist thêm bảng mới: **[docs/database-schema.md](docs/database-schema.md)**. Schema sống trong [Services/Db/TourkitAiDb.cs](Services/Db/TourkitAiDb.cs) (`SchemaSql` const, idempotent `IF OBJECT_ID(...) IS NULL`). Khi thêm/sửa bảng → update cả file MD đó.
+
+⚠️ **Chặn “nhắc đi nhắc lại” thì dùng `dbo.NotifyLedger`, ĐỪNG thêm bảng mới.** Hai cơ chế cũ (canh thanh toán đếm `AgentInsights.AlertKey`, deal nguội đếm `OutboundMails.SourceId`) chỉ chạy được khi **1 thông báo = 1 đối tượng**; chúng đang chạy thật nên cố ý không viết lại. Cái mới thì về [`NotifyLedgerRepository`](Services/Digest/NotifyLedger.cs) — nó đếm theo ĐỐI TƯỢNG nên dùng được cả khi một thông báo gộp nhiều đối tượng (vd nhắc chăm khách: 1 thẻ = N khách). Quyết định nhắc hay không nằm ở hàm thuần `NotifyThrottle.Decide`, có test.
 
 **Adding a new provider** (e.g. OpenAI direct, Anthropic direct, Ollama local):
 1. Implement `IAiProvider` in `Services/Providers/MyProvider.cs`.

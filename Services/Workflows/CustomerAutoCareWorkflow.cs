@@ -26,16 +26,25 @@ public class CustomerAutoCareWorkflow : IScheduledWorkflow
     private const int KeepInsightDays = 90;
     /// Lấy tối đa bao nhiêu khách về để lọc. CRM phân trang; quét cả tệp mỗi lần là quá tốn.
     private const int FetchPageSize = 200;
+    /// <summary>
+    /// Trần số trang mỗi nhóm lọc. 30 trang × 200 = 6.000 khách — thừa cho mọi công ty đã đo
+    /// (erp 1.204 khách cần nhắc, vnexpresstour 3.207). Có trần vì đây là tác vụ chạy nền: một
+    /// tenant dữ liệu bất thường không được phép kéo vô hạn rồi làm chậm CRM của mọi người.
+    /// Chạm trần thì NÓI RA trong tóm tắt, không im lặng cắt bớt.
+    /// </summary>
+    private const int MaxPages = 30;
 
     private readonly TenantServiceAccountStore _accounts;
     private readonly TkSessionStore _sessions;
     private readonly TourKitApiClient _api;
     private readonly InsightRepository _insights;
+    private readonly NotifyLedgerRepository _ledger;
     private readonly ILogger<CustomerAutoCareWorkflow> _log;
 
     public CustomerAutoCareWorkflow(TenantServiceAccountStore accounts, TkSessionStore sessions,
-        TourKitApiClient api, InsightRepository insights, ILogger<CustomerAutoCareWorkflow> log)
-    { _accounts = accounts; _sessions = sessions; _api = api; _insights = insights; _log = log; }
+        TourKitApiClient api, InsightRepository insights, NotifyLedgerRepository ledger,
+        ILogger<CustomerAutoCareWorkflow> log)
+    { _accounts = accounts; _sessions = sessions; _api = api; _insights = insights; _ledger = ledger; _log = log; }
 
     public string Type => "customer-auto-care";
     public string Label => "Nhắc chăm lại khách ngủ quên";
@@ -45,11 +54,13 @@ public class CustomerAutoCareWorkflow : IScheduledWorkflow
     public bool HasCompanyRules => true;
 
     // ⚠️ default PHẢI khớp WORKFLOW_OPTIONS['customer-auto-care'] bên workflow-options.jsx.
-    private record Options(int QuietDays, List<string> Ranks, bool RequireBought, int MaxLeads);
+    private record Options(int QuietDays, List<string> Ranks, bool RequireBought, int MaxLeads,
+        int RemindGapDays, int MaxReminders);
 
     private static Options ParseOptions(string? json)
     {
-        var def = new Options(QuietDays: 90, Ranks: new List<string>(), RequireBought: true, MaxLeads: 20);
+        var def = new Options(QuietDays: 90, Ranks: new List<string>(), RequireBought: true, MaxLeads: 20,
+            RemindGapDays: 7, MaxReminders: 3);
         if (string.IsNullOrWhiteSpace(json)) return def;
         try
         {
@@ -76,6 +87,8 @@ public class CustomerAutoCareWorkflow : IScheduledWorkflow
                 Ranks = Strs("ranks", def.Ranks),
                 RequireBought = Bit("requireBought", def.RequireBought),
                 MaxLeads = Num("maxLeads", def.MaxLeads, 1, 50),
+                RemindGapDays = Num("remindGapDays", def.RemindGapDays, 0, 365),
+                MaxReminders = Num("maxReminders", def.MaxReminders, 0, 20),
             };
         }
         catch (JsonException) { return def; }
@@ -104,15 +117,48 @@ public class CustomerAutoCareWorkflow : IScheduledWorkflow
             return new(false, null, $"Đăng nhập tài khoản tự động thất bại: {ex.Message}");
         }
 
-        JsonElement data;
-        try
+        // ── Lọc NGAY TRONG CRM, đừng kéo cả tệp về ───────────────────────────────────
+        // Trước đây chỉ gọi ?pageSize=200 không lọc → lấy 200 khách MỚI NHẤT. Đo staging 18/08: tệp
+        // khách 22.079 người, tức phủ 0,6% — và phủ nhầm đầu, vì khách CŨ mới là nhóm dễ ngủ quên.
+        // Thêm CareFilter thì cả tệp "im ≥90 ngày" còn 131 người, một lời gọi lấy hết, 577ms (lời
+        // gọi không lọc là 640ms). Phủ 100% mà không tăng tải.
+        //
+        // ⚠️ TUYỆT ĐỐI không "nâng pageSize cho nhiều lên" thay vì lọc — đó mới là cách làm sập hệ
+        // đang chạy: bên trong SearchAsync có vài mệnh đề IN theo id của trang (ngày chăm gần nhất,
+        // gộp doanh thu, tra người phụ trách), nâng số bản ghi là nhân số tham số lên theo, chạm
+        // trần 2100 tham số của SQL Server. Còn CareFilter đúng là truy vấn màn Khách hàng của CRM
+        // vẫn chạy hằng ngày — kiểu tải đã có, không phải kiểu mới.
+        var buckets = AutoCareRule.CareFilterBuckets(opt.QuietDays);
+        var raw = new List<JsonElement>();
+        int pagesRead = 0; bool truncated = false;
+        foreach (var bucket in buckets)
         {
-            data = await _api.GetAsync(jwt, $"/api/ai/customers?pageSize={FetchPageSize}", ct);
-        }
-        catch (Exception ex)
-        {
-            _log.LogWarning(ex, "[customer-auto-care] tenant={T} đọc danh sách khách lỗi", tenantId);
-            return new(false, null, $"Không đọc được danh sách khách: {ex.Message}");
+            for (int page = 1; page <= MaxPages; page++)
+            {
+                ct.ThrowIfCancellationRequested();
+                JsonElement res;
+                try
+                {
+                    res = await _api.GetAsync(jwt,
+                        $"/api/ai/customers?pageSize={FetchPageSize}&pageIndex={page}&careFilter={bucket}", ct);
+                }
+                catch (Exception ex)
+                {
+                    _log.LogWarning(ex, "[customer-auto-care] tenant={T} đọc nhóm CSKH {B} trang {P} lỗi",
+                        tenantId, bucket, page);
+                    return new(false, null, $"Không đọc được danh sách khách: {ex.Message}");
+                }
+
+                pagesRead++;
+                var n = 0;
+                if (res.TryGetProperty("items", out var arr) && arr.ValueKind == JsonValueKind.Array)
+                {
+                    foreach (var it in arr.EnumerateArray()) { raw.Add(it); n++; }
+                }
+                // Trang không đầy = hết dữ liệu của nhóm này.
+                if (n < FetchPageSize) break;
+                if (page == MaxPages) truncated = true;
+            }
         }
 
         var customers = new List<CareCustomer>();
@@ -120,9 +166,8 @@ public class CustomerAutoCareWorkflow : IScheduledWorkflow
         // Xem PaymentWatchdogRule.ResolveOwner: thiếu HẲN trường = API cũ (giữ hành vi cũ),
         // có trường mà rỗng = khách chưa gán ai (bỏ qua). Gộp hai cái là im lặng toàn bộ.
         bool apiHasStaff = false;
-        if (data.TryGetProperty("items", out var items) && items.ValueKind == JsonValueKind.Array)
         {
-            foreach (var it in items.EnumerateArray())
+            foreach (var it in raw)
             {
                 if (!TryInt(it, "id", out var id)) continue;
                 var last = TryDate(it, "lastCareDate", out var d) ? d : (DateTime?)null;
@@ -144,7 +189,9 @@ public class CustomerAutoCareWorkflow : IScheduledWorkflow
         }
 
         var todayVn = DigestDue.NowVn(DateTime.UtcNow).Date;
-        var leads = AutoCareRule.Find(customers, todayVn, opt.Ranks, opt.QuietDays, opt.RequireBought, opt.MaxLeads);
+        // KHÔNG truyền MaxLeads vào đây — cắt phải làm SAU khi lọc “đã nhắc rồi”, không thì
+        // 20 khách sộp nhất đã được nhắc sẽ che mất khách thứ 21 chưa nhắc lần nào.
+        var leads = AutoCareRule.Find(customers, todayVn, opt.Ranks, opt.QuietDays, opt.RequireBought);
 
         if (leads.Count == 0)
         {
@@ -156,6 +203,55 @@ public class CustomerAutoCareWorkflow : IScheduledWorkflow
         }
 
         var day = todayVn.ToString("yyyy-MM-dd");
+
+        // ── Chặn nhắc đi nhắc lại ────────────────────────────────────────────────────
+        // Khoá chống trùng của Bảng tin có NGÀY nằm trong nó (autocare:{ngày}:{người}) nên chỉ chặn
+        // được "chạy lại trong cùng ngày". Sang ngày mới là khoá mới, mà lastCareDate chỉ đổi khi
+        // có người thật sự gọi — nên cùng một khách nằm lại trong danh sách MỖI SÁNG, vô hạn.
+        // Đo thật trên staging: 9/10 khách của lượt trước xuất hiện nguyên vẹn ở lượt sau, và danh
+        // sách phình từ 10 lên 17 vì khách cũ chưa ai gọi vẫn nằm đó. Vài tuần là không ai mở thẻ.
+        //
+        // Đếm qua dbo.NotifyLedger — sổ dùng chung, đếm theo ĐỐI TƯỢNG chứ không theo thông báo.
+        // Ở đây bắt buộc phải vậy: một thẻ chứa N khách nên đếm thông báo không nói được khách nào
+        // đã bị nhắc mấy lần. Tác vụ mới cần chặn lặp thì dùng sổ này, đừng dựng bảng riêng.
+        //
+        // StateStamp = ngày chăm sóc gần nhất. Đổi = đã có người gọi thật → bộ đếm về 0, vòng đời
+        // mới. Không có nó thì khách được chăm xong vẫn mang án "đã nhắc đủ 3 lần, thôi", rồi nửa
+        // năm sau ngủ quên mà không ai biết.
+        const string LedgerScope = "customer-auto-care";
+        static string Stamp(CareLead l, IReadOnlyDictionary<int, DateTime?> careDates)
+            => careDates.TryGetValue(l.Id, out var d) && d != null ? d.Value.ToString("yyyy-MM-dd") : "";
+
+        var careDateOf = customers.ToDictionary(c => c.Id, c => c.LastCareDate);
+        var nowUtc = DateTime.UtcNow;
+        var marks = await _ledger.GetAsync(tenantId, LedgerScope,
+            leads.Select(l => NotifyLedgerRepository.Subject("customer", l.Id)).ToList(), ct);
+
+        var reminderSkips = new Dictionary<string, int>(StringComparer.Ordinal);
+        var fresh = new List<CareLead>();
+        foreach (var l in leads)
+        {
+            var key = NotifyLedgerRepository.Subject("customer", l.Id);
+            marks.TryGetValue(key, out var mark);
+            var (skip, reason) = NotifyThrottle.Decide(mark, Stamp(l, careDateOf), nowUtc,
+                opt.RemindGapDays, opt.MaxReminders);
+            if (skip)
+            {
+                // Gom theo LÝ DO chứ không chỉ đếm tổng: "bỏ 12 khách" không nói được nên chỉnh ô
+                // nào, còn "9 vừa nhắc hôm kia · 3 đã đủ 3 lần" thì đọc là biết sửa gì.
+                var r = reason ?? "khác";
+                reminderSkips[r] = reminderSkips.GetValueOrDefault(r) + 1;
+                continue;
+            }
+            fresh.Add(l);
+        }
+        var remindedBefore = leads.Count - fresh.Count;
+        // Cắt ở ĐÂY: lọc trước, cắt sau. Danh sách đã xếp khách chi nhiều lên đầu từ AutoCareRule.
+        leads = fresh.Take(Math.Max(1, opt.MaxLeads)).ToList();
+
+        if (leads.Count == 0)
+            return new(true, $"Quét {customers.Count} khách → {remindedBefore} khách tới hạn nhưng đã nhắc rồi "
+                           + $"({string.Join(" · ", reminderSkips.Select(kv => $"{kv.Value} {kv.Key}"))}), không có ai mới.", null);
 
         // ── Chia theo NGƯỜI PHỤ TRÁCH ────────────────────────────────────────────────
         // Trước đây gom hết vào MỘT thẻ cho cả công ty. Danh sách chung thì không ai thấy đó là
@@ -197,15 +293,28 @@ public class CustomerAutoCareWorkflow : IScheduledWorkflow
                 IsRead: false, CreatedUtc: DateTime.UtcNow), ct);
 
             if (insId == null) dedupedCards++; else created++;
+
+            // Chỉ ghi sổ khi thẻ THẬT SỰ được tạo. Thẻ bị chặn vì trùng trong ngày thì chưa ai
+            // nhìn thấy gì, đếm là tính oan một lần nhắc — ba lần "oan" là khách rơi khỏi danh
+            // sách mà chưa bao giờ được nhắc thật.
+            if (insId != null)
+                await _ledger.MarkAsync(tenantId, LedgerScope,
+                    mine.Select(l => (NotifyLedgerRepository.Subject("customer", l.Id),
+                                      (string?)Stamp(l, careDateOf))).ToList(), ct);
         }
 
         await _insights.PruneAsync(KeepInsightDays, ct);
+        await _ledger.PruneAsync(ct: ct);
 
         var summary = $"Quét {customers.Count} khách → {leads.Count} khách cần gọi lại "
                     + $"({created} thẻ mới cho {created} nhân viên"
                     + (dedupedCards > 0 ? $", {dedupedCards} đã nhắc hôm nay" : "")
                     + (noOwner > 0 ? $", BỎ QUA {noOwner} khách chưa gán người phụ trách" : "") + ")"
-                    + (noCareDate > 0 ? $". {noCareDate} khách chưa có ngày chăm sóc nên bỏ qua" : "") + ".";
+                    + (remindedBefore > 0
+                        ? $". Bỏ {remindedBefore} khách đã nhắc rồi ({string.Join(" · ", reminderSkips.Select(kv => $"{kv.Value} {kv.Key}"))})"
+                        : "")
+                    + (noCareDate > 0 ? $". {noCareDate} khách chưa có ngày chăm sóc nên bỏ qua" : "")
+                    + (truncated ? $". CHẠM TRẦN {MaxPages} trang — còn khách chưa quét tới, hạ 'im bao nhiêu ngày' hoặc để lần sau" : "") + ".";
         _log.LogInformation("[customer-auto-care] tenant={T} {Sum}", tenantId, summary);
         return new(true, summary, null);
     }

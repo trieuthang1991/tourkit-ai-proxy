@@ -41,7 +41,7 @@ public static class AutoCareRule
     /// <param name="max">Cắt danh sách còn bao nhiêu dòng.</param>
     public static List<CareLead> Find(
         IEnumerable<CareCustomer> customers, DateTime todayLocal,
-        IReadOnlyCollection<string>? ranks, int quietDays, bool requireBought, int max)
+        IReadOnlyCollection<string>? ranks, int quietDays, bool requireBought, int max = 0)
     {
         var today = todayLocal.Date;
         var wanted = ranks is { Count: > 0 }
@@ -70,10 +70,46 @@ public static class AutoCareRule
 
         // Khách đã chi nhiều lên trước; cùng mức tiền thì ai im lâu hơn lên trước. Sắp theo "im lâu
         // nhất" đơn thuần sẽ đẩy mấy khách mua một lần từ đời nào lên đầu, che mất khách sộp.
-        return result
+        //
+        // ⚠️ CẮT SỐ LƯỢNG PHẢI LÀM SAU KHI LỌC "ĐÃ NHẮC RỒI", KHÔNG PHẢI Ở ĐÂY.
+        // Cắt ở đây thì khi 20 khách sộp nhất đều đã được nhắc, tác vụ báo "không có ai mới" và
+        // KHÔNG BAO GIỜ với tới khách thứ 21 — tính năng đứng im sau vài ngày mà không lỗi nào hiện
+        // ra. Vì thế `max` để mặc định là không cắt; nơi gọi tự cắt sau khi lọc (xem
+        // CustomerAutoCareWorkflow). Tham số vẫn giữ để test cũ và nơi gọi khác dùng được.
+        var ordered = result
             .OrderByDescending(x => x.TotalRevenue)
-            .ThenByDescending(x => x.QuietDays)
-            .Take(Math.Max(1, max))
-            .ToList();
+            .ThenByDescending(x => x.QuietDays);
+        return max <= 0 ? ordered.ToList() : ordered.Take(max).ToList();
     }
+
+    /// <summary>
+    /// Đổi "im bao nhiêu ngày" sang các nhóm lọc <c>CareFilter</c> mà CRM hiểu, để LỌC NGAY TRONG
+    /// SQL thay vì kéo cả tệp khách về rồi lọc.
+    ///
+    /// <para><b>Vì sao đáng làm.</b> Đo trên staging 18/08: không lọc thì tệp khách là <b>22.079</b>,
+    /// mà tác vụ chỉ kéo được 200 khách MỚI NHẤT — tức phủ 0,6%, và phủ nhầm đầu (khách cũ mới là
+    /// nhóm dễ ngủ quên). Lọc <c>CareFilter=4</c> thì cả tệp "im ≥90 ngày" chỉ còn <b>131</b> khách,
+    /// một lời gọi lấy hết, <b>577ms</b> — ngang lời gọi không lọc (640ms). Phủ 100% mà không tăng
+    /// tải, khỏi phải phân trang 110 lần.</para>
+    ///
+    /// <para><b>Vì sao an toàn với hệ đang chạy.</b> Đây đúng là truy vấn mà màn Khách hàng của CRM
+    /// vẫn chạy khi người dùng chọn bộ lọc CSKH — không phải kiểu tải mới. Ngược lại, cách "nâng
+    /// PageSize cho nhiều lên" mới là cách làm sập: bên trong <c>SearchAsync</c> có vài mệnh đề
+    /// <c>IN</c> theo id của trang (tính ngày chăm gần nhất, gộp doanh thu, tra người phụ trách),
+    /// nâng số bản ghi là nhân số tham số lên theo — chạm trần 2100 tham số của SQL Server.</para>
+    ///
+    /// <para>Nhóm của CRM là khoảng cố định: 1=[7,15) · 2=[15,30) · 3=[30,90) · 4=≥90. Nên trả về
+    /// TẤT CẢ nhóm có thể chứa khách im ≥ <paramref name="quietDays"/> — tức một tập CHA. Lọc chính
+    /// xác vẫn do <see cref="Find"/> làm, ở đây chỉ thu hẹp cho đỡ tải.</para>
+    ///
+    /// <para>Nhóm CareFilter loại luôn khách CHƯA có lần chăm nào (CRM nối trong, mirror INNER JOIN)
+    /// — trùng đúng luật của <see cref="Find"/>, nên không mất ai.</para>
+    /// </summary>
+    public static int[] CareFilterBuckets(int quietDays) => quietDays switch
+    {
+        >= 90 => new[] { 4 },
+        >= 30 => new[] { 3, 4 },
+        >= 15 => new[] { 2, 3, 4 },
+        _     => new[] { 1, 2, 3, 4 },   // quietDays bị kẹp tối thiểu 7 nên nhóm 1 luôn phủ được
+    };
 }

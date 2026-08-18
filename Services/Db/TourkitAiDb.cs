@@ -696,6 +696,42 @@ END;
 -- TÀI KHOẢN GỬI ĐI của từng công ty (OA Zalo/ZNS, bot Telegram). Tách khỏi bảng trên vì
 -- đây là cấu hình chung của công ty, quản trị khai 1 lần — không phải của từng người.
 -- Thứ gì tốn tiền/có hạn mức thì để tenant tự cấu hình (xem plan Đợt 1).
+-- ─── Sổ ghi nhắc — DÙNG CHUNG cho mọi tác vụ, đừng thêm bảng thứ hai ─────────────
+-- VÌ SAO CÓ BẢNG NÀY. Hệ đã có hai cách chặn “nhắc đi nhắc lại”, cả hai đều đếm chính CÁI THÔNG
+-- BÁO đã tạo: canh thanh toán đếm dbo.AgentInsights.AlertKey ('payment:<tourId>'), cảnh báo deal
+-- nguội đếm dbo.OutboundMails.SourceId ('Deal_<id>'). Hai cách đó chạy được vì cùng dựa trên MỘT
+-- giả định: mỗi thông báo ứng với đúng MỘT đối tượng.
+--
+-- Nhắc chăm khách phá vỡ giả định: một thẻ chứa N khách (cố ý — hai mươi thẻ mỗi sáng thì Bảng tin
+-- thành nơi không ai mở). Đếm thông báo không nói được ”khách 58382 đã bị nhắc mấy lần”. Mọi phân
+-- hệ sau này gộp nhiều đối tượng vào một thông báo (“5 NCC chưa xác nhận”, “3 hồ sơ visa thiếu
+-- giấy”) sẽ đâm vào đúng bức tường đó.
+--
+-- Nên bảng này đếm theo ĐỐI TƯỢNG, tách rời khỏi thông báo. Tác vụ mới cần chặn nhắc lặp thì dùng
+-- nó, KHÔNG dựng bảng riêng.
+--
+-- StateStamp = dấu vết trạng thái của đối tượng lúc nhắc (vd ngày chăm sóc gần nhất). Lần nhắc sau
+-- thấy dấu vết ĐỔI nghĩa là đã có người xử lý thật → đếm lại từ đầu. Không có nó thì khách được
+-- chăm xong vẫn mang tiếng “đã nhắc đủ 3 lần, thôi”, rồi nửa năm sau ngủ quên mà không ai biết.
+IF OBJECT_ID('dbo.NotifyLedger', 'U') IS NULL
+BEGIN
+    CREATE TABLE dbo.NotifyLedger (
+        TenantId   NVARCHAR(128) NOT NULL,
+        -- Tác vụ nào đang nhắc. Hai tác vụ nhắc CÙNG một khách là hai việc khác nhau, không dùng
+        -- chung bộ đếm — nên Scope nằm trong khoá chính.
+        Scope      NVARCHAR(64)  NOT NULL,
+        -- Đối tượng bị nhắc, dạng 'loai:id' (vd 'customer:58382', 'tour:24880').
+        SubjectKey NVARCHAR(128) NOT NULL,
+        Times      INT           NOT NULL,
+        FirstUtc   DATETIME2     NOT NULL,
+        LastUtc    DATETIME2     NOT NULL,
+        StateStamp NVARCHAR(64)  NULL,
+        CONSTRAINT PK_NotifyLedger PRIMARY KEY (TenantId, Scope, SubjectKey)
+    );
+    -- Dọn dòng cũ theo thời gian (xem NotifyLedgerRepository.PruneAsync).
+    CREATE INDEX IX_NotifyLedger_Last ON dbo.NotifyLedger(LastUtc);
+END;
+
 IF OBJECT_ID('dbo.TenantChannelSettings', 'U') IS NULL
 BEGIN
     CREATE TABLE dbo.TenantChannelSettings (

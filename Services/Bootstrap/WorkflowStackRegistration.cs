@@ -162,6 +162,8 @@ public static class WorkflowStackRegistration
         // Đăng ký ở ĐÂY (không phải Program.cs) để worker chạy nền cũng có — workflow gửi bản tin
         // sống bên worker, endpoint cấu hình sống bên web, cả hai cùng cần bộ này.
         s.AddSingleton<Digest.InsightRepository>();
+        // Sổ ghi nhắc DÙNG CHUNG — tác vụ mới cần chặn nhắc lặp thì tiêm cái này, đừng thêm bảng.
+        s.AddSingleton<Digest.NotifyLedgerRepository>();
         s.AddSingleton<Digest.DigestSubscriptionRepository>();
         // Cấu hình kênh gửi CỦA CÔNG TY — quay lại per-tenant 17/08 (xem TenantChannelSettingsStore):
         // đi gặp khách hàng thì không công ty nào chịu gửi ZNS bằng OA của bên cung cấp dịch vụ.
