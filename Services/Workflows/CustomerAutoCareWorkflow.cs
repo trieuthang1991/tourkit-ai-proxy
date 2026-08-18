@@ -384,9 +384,7 @@ public class CustomerAutoCareWorkflow : IScheduledWorkflow
                                 ? JsonSerializer.Serialize(new
                                 {
                                     title = $"{mine.Count} khách cũ lâu chưa ai gọi lại",
-                                    // Escape TRƯỚC rồi mới đổi xuống dòng thành <br>: làm ngược thì
-                                    // chính thẻ <br> vừa chèn bị escape thành chữ.
-                                    bodyHtml = System.Net.WebUtility.HtmlEncode(body2).Replace("\n", "<br>"),
+                                    bodyHtml = MailHtml.EscToHtml(body2),
                                     date = day,
                                 })
                                 : null,
@@ -435,19 +433,19 @@ public class CustomerAutoCareWorkflow : IScheduledWorkflow
                     Params: JsonSerializer.Serialize(new
                     {
                         title = oTitle,
-                        bodyHtml = System.Net.WebUtility.HtmlEncode(oBody).Replace("\n", "<br>"),
+                        bodyHtml = MailHtml.EscToHtml(oBody),
                         date = day,
-                    }),
+                    }, MailHtml.Json),
                     Channel: OutboundChannel.Email));
             foreach (var chat in opt.OrphanTelegramChatIds)
                 rows2.Add(new OutboundMailInput(tenantId, Kind: "auto-care",
                     SourceId: $"auto-care-orphan:{day}:tg:{chat}", Subject: oTitle,
-                    Data: JsonSerializer.Serialize(new { chatId = chat, title = oTitle, body = oBody, feature = "auto-care" }),
+                    Data: JsonSerializer.Serialize(new { chatId = chat, title = oTitle, body = oBody, feature = "auto-care" }, MailHtml.Json),
                     Channel: OutboundChannel.Telegram));
             foreach (var phone in opt.OrphanZaloPhones)
                 rows2.Add(new OutboundMailInput(tenantId, Kind: "auto-care",
                     SourceId: $"auto-care-orphan:{day}:zl:{phone}", Subject: oTitle,
-                    Data: JsonSerializer.Serialize(new { phone, title = oTitle, body = oBody, feature = "auto-care" }),
+                    Data: JsonSerializer.Serialize(new { phone, title = oTitle, body = oBody, feature = "auto-care" }, MailHtml.Json),
                     Channel: OutboundChannel.Zalo));
 
             foreach (var row in rows2)

@@ -65,7 +65,8 @@ public static class PaymentAlertMail
         return new Result(subject, json);
     }
 
-    private static string Esc(string s) => WebUtility.HtmlEncode(s);
+    // Escape TỐI THIỂU — HtmlEncode biến chữ có dấu thành &#225;. Xem MailHtml.
+    private static string Esc(string s) => MailHtml.Esc(s);
 
     /// <summary>
     /// Ghim vi-VN như mọi chỗ khác của Bảng tin (xem <see cref="TourReadinessRule"/>). <c>:N0</c>

@@ -267,7 +267,7 @@ public static class SaleBriefBuilder
     /// </summary>
     internal static string ToHtml(string bodyMd)
         => "<div style=\"font-family:sans-serif;line-height:1.6\">"
-         + Regex.Replace(System.Net.WebUtility.HtmlEncode(bodyMd), @"\*\*(.+?)\*\*", "<b>$1</b>")
+         + Regex.Replace(MailHtml.Esc(bodyMd), @"\*\*(.+?)\*\*", "<b>$1</b>")
                 .Replace("\n", "<br>")
          + "</div>";
 }

@@ -32,7 +32,7 @@ public static class DigestEnqueuePlanner
                 OutboundChannel.Email => new OutboundMailInput(
                     sub.TenantId, Kind, SourceId: insightId.ToString(), Username: sub.Username,
                     TemplateCode: "daily-brief", ToEmail: sub.Email!.Trim(), Subject: m.Title,
-                    Params: JsonSerializer.Serialize(new { title = m.Title, bodyHtml = m.BodyHtml, briefType = m.Kind, date = dateVn }),
+                    Params: JsonSerializer.Serialize(new { title = m.Title, bodyHtml = m.BodyHtml, briefType = m.Kind, date = dateVn }, MailHtml.Json),
                     ScheduledUtc: scheduledUtc, Channel: OutboundChannel.Email),
                 OutboundChannel.Telegram => new OutboundMailInput(
                     sub.TenantId, Kind, SourceId: insightId.ToString(), Username: sub.Username,
@@ -42,7 +42,7 @@ public static class DigestEnqueuePlanner
                         chatId = sub.TelegramChatId!.Trim(),
                         title = m.Title,
                         body = m.BodyMarkdown,
-                    }),
+                    }, MailHtml.Json),
                     ScheduledUtc: scheduledUtc, Channel: OutboundChannel.Telegram),
                 // Zalo đi bằng ZNS → nơi nhận là SỐ ĐIỆN THOẠI. Vẫn mang theo title/body dù mẫu ZNS
                 // chỉ hiện được vài tham số: worker quyết lấy gì nhét vào mẫu, và nếu sau này đổi
@@ -62,7 +62,7 @@ public static class DigestEnqueuePlanner
                         // trước xếp vào, chưa có templateId). Thiếu nó thì bản dự phòng phải đoán,
                         // và đoán trượt là gửi bản tin điều hành bằng mẫu của bản tin bán hàng.
                         briefType = m.Kind,
-                    }),
+                    }, MailHtml.Json),
                     ScheduledUtc: scheduledUtc, Channel: OutboundChannel.Zalo),
             });
         }

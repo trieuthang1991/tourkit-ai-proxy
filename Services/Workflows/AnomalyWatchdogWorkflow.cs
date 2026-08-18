@@ -202,13 +202,13 @@ public class AnomalyWatchdogWorkflow : IScheduledWorkflow
                 rows.Add(new OutboundMailInput(tenantId, Kind: "anomaly-alert",
                     SourceId: $"anomaly:{week}:{addr}", TemplateCode: "anomaly-alert",
                     ToEmail: addr, Subject: title,
-                    Params: JsonSerializer.Serialize(new { title, bodyHtml = System.Net.WebUtility.HtmlEncode(a.Text), week }),
+                    Params: JsonSerializer.Serialize(new { title, bodyHtml = MailHtml.EscToHtml(a.Text), week }, MailHtml.Json),
                     Channel: OutboundChannel.Email));
 
             foreach (var chat in opt.AlertTelegramChatIds)
                 rows.Add(new OutboundMailInput(tenantId, Kind: "anomaly-alert",
                     SourceId: $"anomaly:{week}:tg:{chat}", Subject: title,
-                    Data: JsonSerializer.Serialize(new { chatId = chat, title, body = a.Text }),
+                    Data: JsonSerializer.Serialize(new { chatId = chat, title, body = a.Text }, MailHtml.Json),
                     Channel: OutboundChannel.Telegram));
 
             foreach (var phone in opt.AlertZaloPhones)
@@ -216,7 +216,7 @@ public class AnomalyWatchdogWorkflow : IScheduledWorkflow
                     SourceId: $"anomaly:{week}:zl:{phone}", Subject: title,
                     // templateId null = công ty chưa khai mẫu ZNS cho chức năng này → worker đánh
                     // dấu "thiếu cấu hình" chứ KHÔNG mượn mẫu của bản tin sáng gửi thay.
-                    Data: JsonSerializer.Serialize(new { phone, title, body = a.Text, templateId = opt.ZaloTemplateId, feature = "anomaly-alert" }),
+                    Data: JsonSerializer.Serialize(new { phone, title, body = a.Text, templateId = opt.ZaloTemplateId, feature = "anomaly-alert" }, MailHtml.Json),
                     Channel: OutboundChannel.Zalo));
 
             foreach (var row in rows)
