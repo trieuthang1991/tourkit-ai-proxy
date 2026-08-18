@@ -5,11 +5,13 @@ namespace TourkitAiProxy.Services.Digest;
 /// 1 khách hàng, đủ field để chấm "có cần chăm lại không".
 public record CareCustomer(
     int Id, string Name, string? Phone, string? Email,
-    string? RankName, decimal TotalRevenue, int TotalTours, DateTime? LastCareDate);
+    string? RankName, decimal TotalRevenue, int TotalTours, DateTime? LastCareDate,
+    /// Tên đăng nhập NV phụ trách khách (customers.INS_UID phía CRM). null = chưa gán.
+    string? StaffUserName = null);
 
 /// 1 dòng trong danh sách nhắc chăm lại.
 public record CareLead(int Id, string Name, string? Phone, string? RankName,
-    decimal TotalRevenue, int QuietDays, string Text);
+    decimal TotalRevenue, int QuietDays, string Text, string? StaffUserName = null);
 
 /// <summary>
 /// Tìm khách ĐÁNG chăm mà lâu không ai đụng tới (S6).
@@ -62,7 +64,8 @@ public static class AutoCareRule
             var rank = string.IsNullOrWhiteSpace(c.RankName) ? "" : $" (hạng {c.RankName})";
             result.Add(new CareLead(c.Id, c.Name, c.Phone, c.RankName, c.TotalRevenue, quiet,
                 $"{c.Name}{rank} — {quiet} ngày chưa chăm{money}"
-                + (string.IsNullOrWhiteSpace(c.Phone) ? "" : $" · {c.Phone}")));
+                + (string.IsNullOrWhiteSpace(c.Phone) ? "" : $" · {c.Phone}"),
+                c.StaffUserName));
         }
 
         // Khách đã chi nhiều lên trước; cùng mức tiền thì ai im lâu hơn lên trước. Sắp theo "im lâu

@@ -13,6 +13,34 @@ Những cập nhật gần đây của TRAV-AI, viết cho người dùng. Mới
 
 ---
 
+## Phiên bản 18/08/2026 (bản 2) — Cảnh báo gửi đúng người, không còn "ai cũng thấy"
+
+### ✨ Tính năng mới
+- **🎯 Cảnh báo giờ tới đúng người phụ trách.** Trước đây *Canh thanh toán*, *Sẵn sàng khởi hành* và
+  *Nhắc chăm khách* đều đổ chung vào Bảng tin cho **cả công ty** — ai cũng thấy nghĩa là ai cũng
+  nghĩ người khác lo. Nay mỗi thẻ ghi đích danh người đang phụ trách tour hoặc khách đó, chỉ người
+  ấy thấy.
+- **📋 Nhắc chăm khách chia theo từng nhân viên.** Trước là một danh sách chung dài dằng dặc; nay
+  mỗi người một thẻ, chỉ chứa khách của mình — mở ra là biết hôm nay phải gọi ai.
+- **📨 Cảnh báo doanh thu bất thường gửi được ra ngoài.** Thêm ô khai người nhận qua **email,
+  Telegram, Zalo** — nhiều người thì cách nhau bằng dấu phẩy hoặc xuống dòng. Để trống thì cảnh báo
+  vẫn vào Bảng tin như cũ. Đây là số liệu tài chính cả công ty nên cố ý bắt khai đích danh, không
+  tự gửi cho mọi người.
+
+### 🔧 Đã khắc phục
+- **Cảnh báo ghi "Phụ trách: ?" dù hệ thống biết là ai.** Với một số loại tour, tên người phụ trách
+  không được lấy ra nên thẻ hiện dấu hỏi, người đọc tưởng tour chưa giao cho ai. Nay hiện đúng tên.
+
+### 📌 Lưu ý
+- **Tour ghép (GIT) phần lớn không có người phụ trách riêng** — một chuyến nhiều người cùng bán.
+  Những tour đó nay **được bỏ qua** thay vì báo cho cả công ty, và số bị bỏ qua được ghi rõ trong
+  lịch sử chạy của tác vụ để bạn biết. Nếu muốn theo dõi nhóm tour này, hãy gán người phụ trách cho
+  tour trong phần mềm.
+- Chạy lại một tác vụ trong cùng ngày sẽ báo **"đã nhắc hôm nay"** và không tạo thẻ mới — đó là
+  chống trùng, không phải lỗi.
+
+---
+
 ## Phiên bản 18/08/2026 — Trang Tự động hoá gọn lại, phần khai Zalo dễ hiểu hơn
 
 ### ✨ Tính năng mới

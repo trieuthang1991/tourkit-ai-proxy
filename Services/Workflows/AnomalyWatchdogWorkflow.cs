@@ -1,5 +1,6 @@
 using System.Text.Json;
 using TourkitAiProxy.Services.Digest;
+using TourkitAiProxy.Services.Mail;
 using TourkitAiProxy.Services.TourKit;
 
 namespace TourkitAiProxy.Services.Workflows;
@@ -26,11 +27,13 @@ public class AnomalyWatchdogWorkflow : IScheduledWorkflow
     private readonly TkSessionStore _sessions;
     private readonly TourKitApiClient _api;
     private readonly InsightRepository _insights;
+    private readonly MailQueueRepository _mailQueue;
     private readonly ILogger<AnomalyWatchdogWorkflow> _log;
 
     public AnomalyWatchdogWorkflow(TenantServiceAccountStore accounts, TkSessionStore sessions,
-        TourKitApiClient api, InsightRepository insights, ILogger<AnomalyWatchdogWorkflow> log)
-    { _accounts = accounts; _sessions = sessions; _api = api; _insights = insights; _log = log; }
+        TourKitApiClient api, InsightRepository insights, MailQueueRepository mailQueue,
+        ILogger<AnomalyWatchdogWorkflow> log)
+    { _accounts = accounts; _sessions = sessions; _api = api; _insights = insights; _mailQueue = mailQueue; _log = log; }
 
     public string Type => "anomaly-watchdog";
     public string Label => "Canh doanh thu bất thường";
@@ -40,11 +43,19 @@ public class AnomalyWatchdogWorkflow : IScheduledWorkflow
     public bool HasCompanyRules => true;
 
     // ⚠️ default PHẢI khớp WORKFLOW_OPTIONS['anomaly-watchdog'] bên workflow-options.jsx.
-    private record Options(int BaselineWeeks, int ThresholdPercent, bool AlertOnIncrease);
+    // AlertEmails/AlertTelegramChatIds/AlertZaloPhones: nhập TAY, nhiều giá trị cách nhau bằng
+    // dấu phẩy/chấm phẩy/xuống dòng. Cố ý KHÔNG đọc hồ sơ "Nơi nhận của tôi" như các cảnh báo
+    // khác: cảnh báo này KHÔNG có "người phụ trách" — không ai phụ trách doanh thu công ty — và
+    // nó mang số liệu tài chính toàn công ty, nên phải do người có thẩm quyền chỉ đích danh ai
+    // được nhận, chứ không phải ai bật email thì nhận.
+    private record Options(int BaselineWeeks, int ThresholdPercent, bool AlertOnIncrease,
+        List<string> AlertEmails, List<string> AlertTelegramChatIds, List<string> AlertZaloPhones,
+        string? ZaloTemplateId);
 
     private static Options ParseOptions(string? json)
     {
-        var def = new Options(BaselineWeeks: 4, ThresholdPercent: 30, AlertOnIncrease: true);
+        var def = new Options(BaselineWeeks: 4, ThresholdPercent: 30, AlertOnIncrease: true,
+            AlertEmails: new(), AlertTelegramChatIds: new(), AlertZaloPhones: new(), ZaloTemplateId: null);
         if (string.IsNullOrWhiteSpace(json)) return def;
         try
         {
@@ -56,11 +67,19 @@ public class AnomalyWatchdogWorkflow : IScheduledWorkflow
             bool Bit(string k, bool dv)
                 => r.TryGetProperty(k, out var v) && v.ValueKind is JsonValueKind.True or JsonValueKind.False
                     ? v.GetBoolean() : dv;
+            string? Txt(string k)
+                => r.TryGetProperty(k, out var v) && v.ValueKind == JsonValueKind.String
+                    && !string.IsNullOrWhiteSpace(v.GetString()) ? v.GetString()!.Trim() : null;
+
             return def with
             {
                 BaselineWeeks = Num("baselineWeeks", def.BaselineWeeks, AnomalyRule.MinBaselineWeeks, 12),
                 ThresholdPercent = Num("thresholdPercent", def.ThresholdPercent, 10, 200),
                 AlertOnIncrease = Bit("alertOnIncrease", def.AlertOnIncrease),
+                AlertEmails = AlertRecipients.Emails(Txt("alertEmails")),
+                AlertTelegramChatIds = AlertRecipients.TelegramChatIds(Txt("alertTelegramChatIds")),
+                AlertZaloPhones = AlertRecipients.ZaloPhones(Txt("alertZaloPhones")),
+                ZaloTemplateId = Txt("zaloTemplateId"),
             };
         }
         catch (JsonException) { return def; }
@@ -146,13 +165,19 @@ public class AnomalyWatchdogWorkflow : IScheduledWorkflow
         var body = a.Text + "\n\nMở *Trợ lý số liệu* để xem chi tiết theo nguồn khách, nhân viên hoặc tuyến.";
         var week = currentStart.ToString("yyyy-MM-dd");
 
+        // Tách ra biến vì dòng tiêu đề này dùng lại cho cả thư/tin nhắn gửi ra ngoài — hai chỗ
+        // viết khác nhau thì người nhận đọc Bảng tin và đọc email thấy hai câu, tưởng hai việc.
+        var title = a.DeviationPercent > 0
+            ? $"Doanh thu tuần vừa rồi tăng {a.DeviationPercent}%"
+            : $"Doanh thu tuần vừa rồi giảm {Math.Abs(a.DeviationPercent)}%";
+
         var id = await _insights.InsertAsync(new AgentInsight(
             Id: 0, TenantId: tenantId,
-            Username: "",                       // tenant-wide: cả công ty cùng thấy
+            // Cảnh báo này KHÔNG có "người phụ trách" — doanh thu là số của cả công ty. Nơi nhận
+            // ngoài do người có thẩm quyền khai tay ở cấu hình tác vụ (xem Options.AlertEmails…).
+            Username: "",
             Kind: "anomaly-alert", Severity: a.Severity,
-            Title: a.DeviationPercent > 0
-                ? $"Doanh thu tuần vừa rồi tăng {a.DeviationPercent}%"
-                : $"Doanh thu tuần vừa rồi giảm {Math.Abs(a.DeviationPercent)}%",
+            Title: title,
             Body: body,
             DataJson: JsonSerializer.Serialize(new
             {
@@ -165,8 +190,50 @@ public class AnomalyWatchdogWorkflow : IScheduledWorkflow
 
         await _insights.PruneAsync(KeepInsightDays, ct);
 
+        // ── Gửi ra ngoài tới danh sách KHAI TAY ──────────────────────────────────────
+        // Chỉ xếp hàng đợi khi VỪA sinh cảnh báo mới (id != null). Chạy lại trong tuần mà vẫn xếp
+        // thì mỗi lần chạy là một thư, trong khi nội dung y hệt — người nhận sẽ tắt luôn tính năng.
+        int queued = 0;
+        if (id != null)
+        {
+            var rows = new List<OutboundMailInput>();
+
+            foreach (var addr in opt.AlertEmails)
+                rows.Add(new OutboundMailInput(tenantId, Kind: "anomaly-alert",
+                    SourceId: $"anomaly:{week}:{addr}", TemplateCode: "anomaly-alert",
+                    ToEmail: addr, Subject: title,
+                    Params: JsonSerializer.Serialize(new { title, bodyHtml = System.Net.WebUtility.HtmlEncode(a.Text), week }),
+                    Channel: OutboundChannel.Email));
+
+            foreach (var chat in opt.AlertTelegramChatIds)
+                rows.Add(new OutboundMailInput(tenantId, Kind: "anomaly-alert",
+                    SourceId: $"anomaly:{week}:tg:{chat}", Subject: title,
+                    Data: JsonSerializer.Serialize(new { chatId = chat, title, body = a.Text }),
+                    Channel: OutboundChannel.Telegram));
+
+            foreach (var phone in opt.AlertZaloPhones)
+                rows.Add(new OutboundMailInput(tenantId, Kind: "anomaly-alert",
+                    SourceId: $"anomaly:{week}:zl:{phone}", Subject: title,
+                    // templateId null = công ty chưa khai mẫu ZNS cho chức năng này → worker đánh
+                    // dấu "thiếu cấu hình" chứ KHÔNG mượn mẫu của bản tin sáng gửi thay.
+                    Data: JsonSerializer.Serialize(new { phone, title, body = a.Text, templateId = opt.ZaloTemplateId, feature = "anomaly-alert" }),
+                    Channel: OutboundChannel.Zalo));
+
+            foreach (var row in rows)
+            {
+                try { await _mailQueue.EnqueueAsync(row, ct); queued++; }
+                catch (Exception ex)
+                {
+                    // Một nơi nhận hỏng không được kéo đổ những nơi còn lại.
+                    _log.LogWarning(ex, "[anomaly-watchdog] tenant={T} xếp hàng đợi kênh {Ch} lỗi", tenantId, row.Channel);
+                }
+            }
+        }
+
         var summary = $"Tuần {week}: {a.Text} "
                     + (id == null ? "(đã báo tuần này rồi)" : "(cảnh báo mới)")
+                    + (queued > 0 ? $", xếp {queued} tin chờ gửi" : "")
+                    + (id != null && queued == 0 ? ", chưa khai nơi nhận nào nên chỉ vào Bảng tin" : "")
                     + (failed > 0 ? $". {failed} tuần nền không đọc được" : "") + ".";
         _log.LogInformation("[anomaly-watchdog] tenant={T} {Sum}", tenantId, summary);
         return new(true, summary, null);

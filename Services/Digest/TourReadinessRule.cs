@@ -17,7 +17,8 @@ namespace TourkitAiProxy.Services.Digest;
 public record TourReadinessRow(
     int TourId, string Title, string? CustomerName, string? SellerName,
     DateTime DepartureDate, decimal Revenue, decimal ActualRevenue,
-    int Slots, int Booked, int TourType, string? TourTypeLabel, int OnHold = 0)
+    int Slots, int Booked, int TourType, string? TourTypeLabel, int OnHold = 0,
+    string? SellerUserName = null)
 {
     /// Số chỗ đã bị chiếm = đã đặt + đang giữ.
     public int Taken => Booked + OnHold;
@@ -37,7 +38,8 @@ public record ReadinessIssue(string Code, string Text);
 public record ReadinessCard(
     int TourId, string Title, string? CustomerName, string? SellerName,
     DateTime DepartureDate, int DaysLeft, int Milestone,
-    List<ReadinessIssue> Issues, int Severity, string AlertKey);
+    List<ReadinessIssue> Issues, int Severity, string AlertKey,
+    string? SellerUserName = null);
 
 /// <summary>
 /// Luật thuần (không AI, không DB): tour chạm mốc D-7 / D-3 / D-1 mà còn thiếu điều kiện khởi
@@ -169,7 +171,7 @@ public static class TourReadinessRule
 
             result.Add(new ReadinessCard(r.TourId, r.Title, r.CustomerName, r.SellerName,
                 r.DepartureDate.Date, daysLeft, milestone, issues, severity,
-                $"readiness:{r.TourId}:{milestone}"));
+                $"readiness:{r.TourId}:{milestone}", r.SellerUserName));
         }
 
         // Gấp trước, rồi tới ngày đi gần nhất — điều hành đọc từ trên xuống là đúng thứ tự xử lý.

@@ -153,6 +153,10 @@ public class TourReadinessWorkflow : IScheduledWorkflow
 
         var rows = new List<TourReadinessRow>();
         int skipped = 0, missingPaid = 0;
+        // Xem PaymentWatchdogRule.ResolveOwner: phải phân biệt "API chưa nâng cấp" (thiếu HẲN
+        // thuộc tính sellerSource → giữ hành vi cũ) với "tour chưa gán ai" (có thuộc tính, rỗng
+        // → bỏ qua). Gộp hai cái là hôm deploy proxy trước API thì tác vụ im lặng hoàn toàn.
+        bool apiHasSeller = false;
         foreach (var it in items)
         {
             if (!TryGetInt(it, "id", out var id)) { skipped++; continue; }
@@ -165,23 +169,35 @@ public class TourReadinessWorkflow : IScheduledWorkflow
             var revenue = GetDec(it, "revenue");
             if (!hasPaid) { missingPaid++; actual = revenue; }
 
+            if (it.TryGetProperty("sellerSource", out _)) apiHasSeller = true;
+
             rows.Add(new TourReadinessRow(id,
                 GetStr(it, "title") ?? GetStr(it, "tourCode") ?? $"Tour #{id}",
                 GetStr(it, "customerName"), GetStr(it, "sellerName"),
                 dep, revenue, actual,
                 GetInt(it, "slots"), GetInt(it, "booked"),
                 GetInt(it, "tourType"), GetStr(it, "tourTypeLabel"),
-                GetInt(it, "onHold")));
+                GetInt(it, "onHold"),
+                SellerUserName: GetStr(it, "sellerUserName")));
         }
 
         var cards = TourReadinessRule.Evaluate(rows, todayVn, opt.Milestones,
             opt.CheckPayment, opt.CheckSeats, opt.CheckVisa, opt.MinSeats, opt.VisaTourTypes,
             opt.CheckNearlyFull, opt.NearlyFullPercent, opt.CapacityMilestones);
 
-        int created = 0, deduped = 0;
+        int created = 0, deduped = 0, noOwner = 0;
         foreach (var c in cards)
         {
             ct.ThrowIfCancellationRequested();
+
+            // Không biết gửi cho ai thì BỎ QUA, không rơi về mức công ty (chốt 18/08).
+            // ⚠️ Ở tác vụ này cái giá cao hơn hẳn canh thanh toán: phần kiểm số chỗ (đủ khách tối
+            // thiểu, sắp đầy chỗ) CHỈ chạy trên tour ghép, mà tour ghép lại đúng là loại thiếu
+            // người phụ trách ~90% (đo staging 08/2026: GIT 746/830, LandTour 331/350). Nên đừng
+            // ngạc nhiên khi số thẻ tụt mạnh — đó là chủ ý, không phải hỏng. Tour ghép nhiều người
+            // cùng bán nên gán cho một người thì gán ai cũng sai.
+            var (owner, skipNoOwner) = PaymentWatchdogRule.ResolveOwner(c.SellerUserName, apiHasSeller);
+            if (skipNoOwner) { noOwner++; continue; }
             // Chữ trên thẻ tách sang TourReadinessCardText — phần đó KHÔNG kiểm được bằng chạy
             // thật (tenant thử nghiệm không có tour nào khai số chỗ), nên phải test riêng.
             var text = TourReadinessCardText.Build(c);
@@ -189,7 +205,8 @@ public class TourReadinessWorkflow : IScheduledWorkflow
 
             var id = await _insights.InsertAsync(new AgentInsight(
                 Id: 0, TenantId: tenantId,
-                Username: "",                       // tenant-wide: cả công ty cùng thấy
+                // Đích danh NV phụ trách; rỗng chỉ khi API chưa nâng cấp (giữ hành vi cũ).
+                Username: owner,
                 Kind: "tour-readiness", Severity: c.Severity,
                 Title: text.Title,
                 Body: text.Body,
@@ -209,7 +226,8 @@ public class TourReadinessWorkflow : IScheduledWorkflow
         // "còn thiếu điều kiện" nay không còn đúng: thẻ có thể chỉ mang tin vui (tour sắp đầy).
         var scanned = string.Join(" + ", opt.ScanTourTypes.Select(TourTypes.Name));
         var summary = $"Quét {rows.Count} tour ({scanned}) trong {window} ngày tới → {cards.Count} tour cần chú ý "
-                    + $"({created} thẻ mới, {deduped} đã nhắc ở mốc này)"
+                    + $"({created} thẻ mới, {deduped} đã nhắc ở mốc này"
+                    + (noOwner > 0 ? $", BỎ QUA {noOwner} tour chưa gán người phụ trách" : "") + ")"
                     + (skipped > 0 ? $", bỏ qua {skipped} dòng thiếu dữ liệu" : "")
                     + (failedTypes.Count > 0 ? $". Không đọc được loại: {string.Join(", ", failedTypes)}" : "")
                     + (missingPaid > 0 ? $". Lưu ý: {missingPaid} tour không có số thực thu nên bỏ phần kiểm tiền cho những tour đó" : "")

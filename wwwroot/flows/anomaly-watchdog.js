@@ -34,12 +34,19 @@
         sub: 'Giảm sâu = gấp · tăng vọt chỉ là tin vui, không tô đỏ' }),
       F.node('a9', 'send', F.MID, 8, { icon: 'bell', title: 'Ghi vào Bảng tin',
         sub: 'Khoá theo TUẦN — chạy lại trong cùng tuần không nhắc lại' }),
+
+      // Cảnh báo này KHÔNG có "người phụ trách" (không ai phụ trách doanh thu công ty) nên nơi
+      // nhận phải khai tay — khác hẳn canh thanh toán / nhắc chăm khách vốn tự tìm người phụ trách.
+      F.node('a10', 'send', F.MID, 9.2, { icon: 'send', title: 'Gửi tới người được chỉ định',
+        sub: 'Chỉ gửi khi VỪA có cảnh báo mới. Để trống hết = chỉ vào Bảng tin, không gửi đi đâu',
+        cfg: ['alertEmails', 'alertTelegramChatIds', 'alertZaloPhones', 'zaloTemplateId'] }),
     ],
     edges: [
       F.edge('a1', 'a2'), F.edge('a2', 'a3', 'Rồi'),
       F.edge('a3', 'a4'), F.edge('a3', 'a5'),
       F.edge('a4', 'a6'), F.edge('a5', 'a6'),
       F.edge('a6', 'a7'), F.edge('a7', 'a8', 'Có'), F.edge('a8', 'a9'),
+      F.edge('a9', 'a10'),
     ],
   });
 })();

@@ -16,8 +16,10 @@ namespace TourkitAiProxy.Services.Workflows;
 ///
 /// <para><b>KHÔNG gọi AI</b> — luật thuần, không tốn lượt.</para>
 ///
-/// <para>MỘT thẻ cho cả danh sách, không phải mỗi khách một thẻ: hai mươi thẻ mỗi sáng thì Bảng tin
-/// thành nơi không ai mở.</para>
+/// <para>MỘT thẻ cho mỗi NHÂN VIÊN, không phải mỗi khách một thẻ: hai mươi thẻ mỗi sáng thì Bảng
+/// tin thành nơi không ai mở. Trước 18/08 gom hết vào một thẻ chung cho cả công ty — danh sách
+/// chung thì không ai thấy đó là việc của mình, mà đây là danh sách để GỌI ĐIỆN. Khách chưa gán
+/// người phụ trách thì bỏ qua (đếm vào tóm tắt), không đổ vào thẻ chung.</para>
 /// </summary>
 public class CustomerAutoCareWorkflow : IScheduledWorkflow
 {
@@ -115,6 +117,9 @@ public class CustomerAutoCareWorkflow : IScheduledWorkflow
 
         var customers = new List<CareCustomer>();
         int noCareDate = 0;
+        // Xem PaymentWatchdogRule.ResolveOwner: thiếu HẲN trường = API cũ (giữ hành vi cũ),
+        // có trường mà rỗng = khách chưa gán ai (bỏ qua). Gộp hai cái là im lặng toàn bộ.
+        bool apiHasStaff = false;
         if (data.TryGetProperty("items", out var items) && items.ValueKind == JsonValueKind.Array)
         {
             foreach (var it in items.EnumerateArray())
@@ -122,13 +127,19 @@ public class CustomerAutoCareWorkflow : IScheduledWorkflow
                 if (!TryInt(it, "id", out var id)) continue;
                 var last = TryDate(it, "lastCareDate", out var d) ? d : (DateTime?)null;
                 if (last == null) noCareDate++;
+                // staffChargeUserName = NV phụ trách khách (customers.INS_UID phía CRM), 98,5% có.
+                // KHÔNG dùng `assignee`: tên nghe như người phụ trách nhưng ruột là NGƯỜI TẠO
+                // (IdCreator, chỉ 74%) — bàn giao khách xong nó vẫn trỏ về người cũ.
+                if (it.TryGetProperty("staffChargeUserName", out _)) apiHasStaff = true;
+
                 customers.Add(new CareCustomer(
                     id,
                     Str(it, "fullName") ?? $"Khách #{id}",
                     Str(it, "phone"), Str(it, "email"),
                     Str(it, "rankName"),
                     Dec(it, "totalRevenue"), (int)Dec(it, "totalTours"),
-                    last));
+                    last,
+                    StaffUserName: Str(it, "staffChargeUserName")));
             }
         }
 
@@ -144,30 +155,56 @@ public class CustomerAutoCareWorkflow : IScheduledWorkflow
             return new(true, $"Quét {customers.Count} khách → không ai tới hạn chăm lại{why}.", null);
         }
 
-        var lines = string.Join("\n", leads.Select(l => $"- {l.Text}"));
-        var body = $"Những khách này đã từng mua nhưng lâu rồi không ai liên hệ. "
-                 + $"Xếp theo mức đã chi, gọi từ trên xuống.\n\n{lines}";
-
         var day = todayVn.ToString("yyyy-MM-dd");
-        var id2 = await _insights.InsertAsync(new AgentInsight(
-            Id: 0, TenantId: tenantId,
-            Username: "",                       // tenant-wide: cả công ty cùng thấy
-            Kind: "auto-care", Severity: 1,
-            Title: $"{leads.Count} khách cũ lâu chưa ai gọi lại",
-            Body: body,
-            DataJson: JsonSerializer.Serialize(new
-            {
-                day, count = leads.Count,
-                ids = leads.Select(l => l.Id).ToArray(),
-            }),
-            // Khoá theo NGÀY: tác vụ thường đặt chạy hằng ngày, chạy lại trong ngày không nhắc lại.
-            AlertKey: $"autocare:{day}",
-            IsRead: false, CreatedUtc: DateTime.UtcNow), ct);
+
+        // ── Chia theo NGƯỜI PHỤ TRÁCH ────────────────────────────────────────────────
+        // Trước đây gom hết vào MỘT thẻ cho cả công ty. Danh sách chung thì không ai thấy đó là
+        // việc của mình — mà đây là danh sách để GỌI ĐIỆN, không ai gọi thì tính năng vô nghĩa.
+        // Nay mỗi nhân viên một thẻ, chỉ chứa khách của họ.
+        //
+        // Không xác định được người phụ trách thì BỎ QUA, không rơi về mức công ty (chốt 18/08).
+        // Ở đây bỏ qua gần như không mất gì — đo staging 08/2026: 32.529/33.026 khách (98,5%) đã
+        // gán người; 496 còn lại là khách dạng lead chưa ai nhận, mà chưa ai nhận thì cũng chưa
+        // có ai để nhắc.
+        //
+        // apiHasStaff=false = API chưa nâng cấp → giữ hành vi cũ (một thẻ chung) chứ không im lặng.
+        int noOwner = 0, created = 0, dedupedCards = 0;
+        foreach (var g in leads.GroupBy(l => PaymentWatchdogRule.ResolveOwner(l.StaffUserName, apiHasStaff)))
+        {
+            var (owner, skip) = g.Key;
+            if (skip) { noOwner += g.Count(); continue; }
+
+            var mine = g.ToList();
+            var lines2 = string.Join("\n", mine.Select(l => $"- {l.Text}"));
+            var body2 = $"Những khách này đã từng mua nhưng lâu rồi không ai liên hệ. "
+                      + $"Xếp theo mức đã chi, gọi từ trên xuống.\n\n{lines2}";
+
+            // Khoá kèm TÊN NGƯỜI: mỗi người một khoá riêng. Dùng chung khoá theo ngày thì thẻ của
+            // người đầu tiên chặn mất thẻ của TẤT CẢ những người sau trong cùng ngày.
+            var key = owner.Length == 0 ? $"autocare:{day}" : $"autocare:{day}:{owner}";
+            var insId = await _insights.InsertAsync(new AgentInsight(
+                Id: 0, TenantId: tenantId,
+                Username: owner,
+                Kind: "auto-care", Severity: 1,
+                Title: $"{mine.Count} khách cũ lâu chưa ai gọi lại",
+                Body: body2,
+                DataJson: JsonSerializer.Serialize(new
+                {
+                    day, count = mine.Count,
+                    ids = mine.Select(l => l.Id).ToArray(),
+                }),
+                AlertKey: key,
+                IsRead: false, CreatedUtc: DateTime.UtcNow), ct);
+
+            if (insId == null) dedupedCards++; else created++;
+        }
 
         await _insights.PruneAsync(KeepInsightDays, ct);
 
         var summary = $"Quét {customers.Count} khách → {leads.Count} khách cần gọi lại "
-                    + (id2 == null ? "(đã nhắc hôm nay rồi)" : "(thẻ mới)")
+                    + $"({created} thẻ mới cho {created} nhân viên"
+                    + (dedupedCards > 0 ? $", {dedupedCards} đã nhắc hôm nay" : "")
+                    + (noOwner > 0 ? $", BỎ QUA {noOwner} khách chưa gán người phụ trách" : "") + ")"
                     + (noCareDate > 0 ? $". {noCareDate} khách chưa có ngày chăm sóc nên bỏ qua" : "") + ".";
         _log.LogInformation("[customer-auto-care] tenant={T} {Sum}", tenantId, summary);
         return new(true, summary, null);

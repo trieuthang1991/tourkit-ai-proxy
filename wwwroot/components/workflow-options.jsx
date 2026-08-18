@@ -282,6 +282,22 @@
         hint: 'Lệch ít hơn mức này coi như dao động bình thường và KHÔNG báo. Đặt thấp quá thì tuần nào cũng có cảnh báo, mà cảnh báo tuần nào cũng có thì không còn là cảnh báo.' },
       { key: 'alertOnIncrease', type: 'bool', label: 'Báo cả khi tăng vọt', default: true,
         hint: 'Tăng mạnh cũng đáng biết — để kịp giữ nhịp hoặc phát hiện số liệu nhập sai. Thẻ tăng hiện ở mức thông tin, không tô đỏ như cảnh báo giảm. Tắt nếu bạn chỉ muốn nghe tin xấu.' },
+
+      // Cảnh báo này KHÔNG có "người phụ trách" — không ai phụ trách doanh thu công ty — nên nơi
+      // nhận phải khai tay, khác hẳn canh thanh toán / nhắc chăm khách (tự tìm người phụ trách).
+      // Và vì nó mang số liệu tài chính toàn công ty, để trống là an toàn: chỉ vào Bảng tin.
+      { key: 'alertEmails', type: 'text', label: 'Gửi email tới',
+        placeholder: 'giamdoc@congty.vn, ketoan@congty.vn',
+        hint: 'Nhiều địa chỉ thì cách nhau bằng dấu phẩy hoặc xuống dòng. Để trống = không gửi email, cảnh báo vẫn vào Bảng tin. Đây là SỐ LIỆU TÀI CHÍNH cả công ty — chỉ điền người thật sự cần xem.' },
+      { key: 'alertTelegramChatIds', type: 'text', label: 'Gửi Telegram tới',
+        placeholder: '6234567890, -1001234567890',
+        hint: 'Là dãy SỐ (chat id), không phải @tên. Người nhận phải bấm Bắt đầu với bot trước, nếu không Telegram từ chối gửi. Chat id của nhóm bắt đầu bằng dấu trừ.' },
+      { key: 'alertZaloPhones', type: 'text', label: 'Gửi Zalo tới',
+        placeholder: '0912345678, 0987654321',
+        hint: 'Số điện thoại đang dùng Zalo, cách nhau bằng dấu phẩy. Cần khai OA Zalo của công ty ở mục "Theo tổ chức" thì mới gửi được.' },
+      { key: 'zaloTemplateId', type: 'text', label: 'Mã mẫu ZNS cho cảnh báo này',
+        placeholder: 'mã mẫu ZNS',
+        hint: 'Zalo duyệt mẫu theo nội dung nên cảnh báo doanh thu cần mẫu riêng, không dùng chung mẫu bản tin sáng. Bỏ trống thì phần Zalo không gửi được.' },
     ],
     // Nhắc chăm lại khách ngủ quên (S6). KHÔNG có tuỳ chọn nào về gửi thư — tác vụ này cố ý không
     // gửi gì cho khách, xem ghi chú trong CustomerAutoCareWorkflow.cs.
