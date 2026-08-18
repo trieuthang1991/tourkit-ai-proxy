@@ -246,6 +246,8 @@ public class CustomerAutoCareWorkflow : IScheduledWorkflow
             fresh.Add(l);
         }
         var remindedBefore = leads.Count - fresh.Count;
+        var qualified = leads.Count;      // tới hạn, TRƯỚC khi bỏ "đã nhắc" và trước khi cắt
+        var freshCount = fresh.Count;     // còn lại sau khi bỏ "đã nhắc", vẫn TRƯỚC khi cắt
         // Cắt ở ĐÂY: lọc trước, cắt sau. Danh sách đã xếp khách chi nhiều lên đầu từ AutoCareRule.
         leads = fresh.Take(Math.Max(1, opt.MaxLeads)).ToList();
 
@@ -306,13 +308,20 @@ public class CustomerAutoCareWorkflow : IScheduledWorkflow
         await _insights.PruneAsync(KeepInsightDays, ct);
         await _ledger.PruneAsync(ct: ct);
 
-        var summary = $"Quét {customers.Count} khách → {leads.Count} khách cần gọi lại "
-                    + $"({created} thẻ mới cho {created} nhân viên"
-                    + (dedupedCards > 0 ? $", {dedupedCards} đã nhắc hôm nay" : "")
-                    + (noOwner > 0 ? $", BỎ QUA {noOwner} khách chưa gán người phụ trách" : "") + ")"
+        // Trình bày theo ĐÚNG thứ tự xử lý: tới hạn → bỏ đã nhắc → cắt → chia thẻ.
+        // Bản đầu ghi "→ {leads.Count} khách cần gọi lại ... Bỏ {remindedBefore} đã nhắc rồi", mà
+        // leads.Count là con số SAU KHI CẮT còn remindedBefore là TRƯỚC — đọc ra "20 cần gọi, bỏ 31"
+        // thì không tài nào lần ra thực ra có 51 khách tới hạn. Hai con số cùng một câu phải cùng
+        // một mốc, không thì người đọc tự dựng ra một bức tranh sai mà vẫn thấy hợp lý.
+        var summary = $"Quét {customers.Count} khách → {qualified} khách tới hạn"
                     + (remindedBefore > 0
-                        ? $". Bỏ {remindedBefore} khách đã nhắc rồi ({string.Join(" · ", reminderSkips.Select(kv => $"{kv.Value} {kv.Key}"))})"
+                        ? $" (bỏ {remindedBefore} đã nhắc rồi: {string.Join(" · ", reminderSkips.Select(kv => $"{kv.Value} {kv.Key}"))})"
                         : "")
+                    + (freshCount > leads.Count
+                        ? $" → lấy {leads.Count} khách chi nhiều nhất (còn {freshCount - leads.Count} để lượt sau)" : "")
+                    + $" → {created} thẻ cho {created} nhân viên"
+                    + (dedupedCards > 0 ? $", {dedupedCards} đã nhắc hôm nay" : "")
+                    + (noOwner > 0 ? $", BỎ QUA {noOwner} khách chưa gán người phụ trách" : "")
                     + (noCareDate > 0 ? $". {noCareDate} khách chưa có ngày chăm sóc nên bỏ qua" : "")
                     + (truncated ? $". CHẠM TRẦN {MaxPages} trang — còn khách chưa quét tới, hạ 'im bao nhiêu ngày' hoặc để lần sau" : "") + ".";
         _log.LogInformation("[customer-auto-care] tenant={T} {Sum}", tenantId, summary);
