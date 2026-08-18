@@ -147,4 +147,50 @@ public class PaymentWatchdogRuleTests
         var rows = new[] { Row(1, 5, 100_000_000m, 99_000_000m) };
         Assert.Single(PaymentWatchdogRule.Evaluate(rows, Today, minOutstanding: 1_000_000m));
     }
+
+    // ─── Cảnh báo này là việc CỦA AI ───────────────────────────────────────────────
+    // Ba trạng thái, và cái đắt nhất là trạng thái ĐẦU: nếu gộp "API chưa nâng cấp" chung với
+    // "tour chưa gán ai" thì hôm nào deploy proxy trước TourKit.Api là tác vụ im lặng hoàn toàn —
+    // không cảnh báo nào, không lỗi nào, không ai biết.
+
+    [Fact]
+    public void Api_chua_nang_cap_thi_van_bao_ca_cong_ty_chu_khong_im_lang()
+    {
+        var (owner, skip) = PaymentWatchdogRule.ResolveOwner(null, apiHasSellerField: false);
+        Assert.False(skip);
+        Assert.Equal("", owner);
+    }
+
+    [Fact]
+    public void Tour_chua_gan_nguoi_phu_trach_thi_BO_QUA_chu_khong_roi_ve_cong_ty()
+    {
+        // Không rơi về cả công ty: cảnh báo ai cũng thấy = không ai chịu trách nhiệm. Chỗ thiếu
+        // dồn vào tour ghép (GIT 90%, LandTour 95%) nên rơi về công ty là nhấn chìm cảnh báo thật.
+        var (_, skip) = PaymentWatchdogRule.ResolveOwner(null, apiHasSellerField: true);
+        Assert.True(skip);
+    }
+
+    [Theory]
+    [InlineData("")]
+    [InlineData("   ")]
+    public void Ten_dang_nhap_rong_hay_toan_khoang_trang_cung_la_chua_gan(string raw)
+    {
+        var (_, skip) = PaymentWatchdogRule.ResolveOwner(raw, apiHasSellerField: true);
+        Assert.True(skip);
+    }
+
+    [Fact]
+    public void Co_nguoi_phu_trach_thi_ghi_dich_danh_va_cat_khoang_trang()
+    {
+        var (owner, skip) = PaymentWatchdogRule.ResolveOwner("  trang01 ", apiHasSellerField: true);
+        Assert.False(skip);
+        Assert.Equal("trang01", owner);
+    }
+
+    [Fact]
+    public void Nguoi_phu_trach_di_theo_tour_qua_Evaluate()
+    {
+        var rows = new[] { Row(1, 5, 100_000_000m, 0m) with { SellerUserName = "trang01" } };
+        Assert.Equal("trang01", PaymentWatchdogRule.Evaluate(rows, Today).Single().SellerUserName);
+    }
 }

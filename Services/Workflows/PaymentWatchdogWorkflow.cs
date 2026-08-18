@@ -165,6 +165,12 @@ public class PaymentWatchdogWorkflow : IScheduledWorkflow
 
         var rows = new List<TourPaymentRow>();
         int skipped = 0, missingPaid = 0;
+        // apiHasSeller: bản /api/ai/tours ĐANG CHẠY có trả trường người phụ trách không.
+        // Phải phân biệt cho bằng được với "tour này chưa gán ai":
+        //   • thiếu HẲN thuộc tính  → API cũ chưa nâng cấp → giữ hành vi cũ (ghi cả công ty),
+        //     nếu không thì ngày deploy proxy trước API là CẢ HAI tác vụ im lặng hoàn toàn.
+        //   • có thuộc tính, giá trị rỗng → tour thật sự chưa gán → bỏ qua + đếm.
+        bool apiHasSeller = false;
         foreach (var it in items)
         {
             // Thiếu id hoặc ngày khởi hành thì không xét được — bỏ dòng đó, KHÔNG ném,
@@ -177,14 +183,20 @@ public class PaymentWatchdogWorkflow : IScheduledWorkflow
             // (đã xảy ra thật 12/08). Thà bỏ qua và nói rõ trong summary còn hơn báo số sai.
             if (!TryGetDec(it, "actualRevenue", out var actual)) { missingPaid++; continue; }
 
+            // sellerSource là trường "chứng nhận API đã nâng cấp": nó LUÔN có mặt ở bản mới (giá
+            // trị "tour" hoặc null), và KHÔNG có ở bản cũ. Dùng nó thay vì sellerUserName vì
+            // sellerUserName rỗng là trạng thái hợp lệ (tour ghép chưa gán ai).
+            if (it.TryGetProperty("sellerSource", out _)) apiHasSeller = true;
+
             rows.Add(new TourPaymentRow(id,
                 GetStr(it, "title") ?? GetStr(it, "tourCode") ?? $"Tour #{id}",
                 GetStr(it, "customerName"), GetStr(it, "sellerName"),
-                dep, GetDec(it, "revenue"), actual));
+                dep, GetDec(it, "revenue"), actual,
+                SellerUserName: GetStr(it, "sellerUserName")));
         }
 
         var alerts = PaymentWatchdogRule.Evaluate(rows, todayVn, opt.WindowDays, opt.MinOutstanding);
-        int created = 0, deduped = 0, capped = 0;
+        int created = 0, deduped = 0, capped = 0, noOwner = 0;
 
         // Đã nhắc mấy lần rồi? Hỏi MỘT LƯỢT cho cả danh sách, không hỏi từng tour.
         var counts = opt.MaxReminders > 0
@@ -198,6 +210,23 @@ public class PaymentWatchdogWorkflow : IScheduledWorkflow
 
             if (opt.MaxReminders > 0 && counts.TryGetValue(a.AlertKey, out var already)
                 && already >= opt.MaxReminders) { capped++; continue; }
+
+            // ── Cảnh báo này là việc CỦA AI ────────────────────────────────────────────
+            // Không có người phụ trách thì BỎ QUA, tuyệt đối KHÔNG rơi về mức cả công ty.
+            // Rơi về công ty là tái tạo đúng cái đang sửa: cảnh báo ai cũng thấy = không ai chịu
+            // trách nhiệm. Và chỗ thiếu người phụ trách KHÔNG rải đều — nó dồn vào TOUR GHÉP
+            // (đo staging 08/2026: GIT thiếu 90%, LandTour 95%; còn Dịch vụ lẻ/Booking/Visa/Vé
+            // máy bay thiếu 0%). Một chuyến GIT là sản phẩm chung, nhiều người cùng bán — gán cho
+            // một người thì gán ai cũng sai, mà đổ hết vào Bảng tin chung thì 746 tour GIT nhấn
+            // chìm những cảnh báo có chủ thật.
+            //
+            // Bỏ qua nhưng KHÔNG im lặng: đếm rồi ghi vào tóm tắt lần chạy, để người bật tác vụ
+            // biết vùng mù thay vì tưởng đã canh hết.
+            //
+            // apiHasSeller=false nghĩa là API chưa nâng cấp, chưa có căn cứ để chia → giữ hành vi
+            // cũ (cả công ty) chứ không bỏ qua sạch. Ba trạng thái ở PaymentWatchdogRule.ResolveOwner.
+            var (owner, skipNoOwner) = PaymentWatchdogRule.ResolveOwner(a.SellerUserName, apiHasSeller);
+            if (skipNoOwner) { noOwner++; continue; }
             // Vnd() chứ không phải {:N0} trần: máy chạy en-US in "7,350,000đ" trong khi thẻ ngay
             // bên cạnh (tour-readiness) in "7.350.000đ" — hai kiểu số cạnh nhau trong cùng Bảng tin.
             var body = $"**{a.Title}** — khách {a.CustomerName ?? "?"} còn thiếu **{Vnd(a.Outstanding)}đ**, "
@@ -205,7 +234,9 @@ public class PaymentWatchdogWorkflow : IScheduledWorkflow
 
             var id = await _insights.InsertAsync(new AgentInsight(
                 Id: 0, TenantId: tenantId,
-                Username: "",                       // tenant-wide: cả công ty cùng thấy
+                // Đích danh NV phụ trách. Rỗng chỉ xảy ra khi API chưa nâng cấp (giữ hành vi cũ:
+                // cả công ty cùng thấy) — tour đã gán ai thì chỉ người đó thấy.
+                Username: owner,
                 Kind: "payment-alert", Severity: a.Severity,
                 Title: $"Thu nốt tiền tour trước khởi hành (còn {a.DaysLeft} ngày)",
                 Body: body,
@@ -277,7 +308,10 @@ public class PaymentWatchdogWorkflow : IScheduledWorkflow
         var nguon = opt.PaymentStatus == 1 ? "theo bộ lọc phần mềm" : "tự tính";
         var summary = $"Quét {rows.Count} tour ({scanned}) khởi hành trong {opt.WindowDays} ngày tới → {alerts.Count} còn nợ ({nguon}) "
                     + $"({created} cảnh báo mới, {deduped} đã báo hôm nay"
-                    + (capped > 0 ? $", {capped} đã đủ {opt.MaxReminders} lần nhắc nên dừng" : "") + ")"
+                    + (capped > 0 ? $", {capped} đã đủ {opt.MaxReminders} lần nhắc nên dừng" : "")
+                    // Nói ra vùng mù. Bỏ qua im lặng thì người bật tác vụ tưởng đã canh hết, mà
+                    // thường đây là tour ghép — loại đúng ra phải giao cho điều hành, không phải sale.
+                    + (noOwner > 0 ? $", BỎ QUA {noOwner} tour chưa gán người phụ trách" : "") + ")"
                     + (queued > 0 ? $", xếp {queued} thư chờ gửi" : "")
                     + (mailNote != null ? $". {mailNote}" : "")
                     + (skipped > 0 ? $", bỏ qua {skipped} dòng thiếu dữ liệu" : "")
