@@ -303,7 +303,7 @@
     // gửi gì cho khách, xem ghi chú trong CustomerAutoCareWorkflow.cs.
     'customer-auto-care': [
       { key: 'quietDays', type: 'number', label: 'Bao lâu không chăm thì coi là ngủ quên (ngày)', default: 90, min: 7, max: 3650,
-        hint: 'Tính từ ngày chăm sóc gần nhất ghi trong CRM. Bên bán tour đoàn quen chu kỳ dài có thể để 180; bên bán vé lẻ thì 30–60 hợp hơn.' },
+        hint: 'Tính từ ngày chăm sóc gần nhất ghi trong CRM. Bên bán tour đoàn quen chu kỳ dài có thể để 180; bên bán vé lẻ thì 30–60 hợp hơn. Mẹo: để đúng 7, 15, 30 hoặc 90 thì bạn đối chiếu được — mở màn Khách hàng trong phần mềm, lọc "chưa chăm sóc" đúng mốc đó sẽ ra cùng danh sách. Số lẻ vẫn chạy chính xác, chỉ là phần mềm không có bộ lọc tương ứng để so tay.' },
       { key: 'ranks', type: 'multi', label: 'Chỉ nhắc khách hạng (không chọn = mọi hạng)', default: [],
         options: [
           { value: 'A', label: 'Hạng A' }, { value: 'B', label: 'Hạng B' },
