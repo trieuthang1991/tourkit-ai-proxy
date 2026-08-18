@@ -7949,6 +7949,13 @@ n
 
 /* Summary inline text */
 .workflows-summary span { font-size: 12px; color: var(--text-2); }
+/* Tóm tắt dạng câu chữ: cột hẹp nên cắt một dòng, rê chuột (title) đọc nguyên văn. Không cho xuống
+   dòng vì bảng lịch sử có 20 dòng — mỗi dòng cao ba hàng thì không đọc nổi cái nào. */
+.workflows-summary-text {
+  display: inline-block; max-width: 46ch;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap; vertical-align: bottom;
+  font-size: 12px; color: var(--text-2); cursor: help;
+}
 .workflows-summary span + span::before { content: ''; }
 .workflows-summary-empty { color: var(--text-3); font-size: 12px; }
 .workflows-summary span.workflows-summary-warn { color: var(--warn, #b8860b); }

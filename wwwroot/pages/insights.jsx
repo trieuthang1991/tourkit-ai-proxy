@@ -17,6 +17,12 @@ const INSIGHT_KINDS = [
   { kind: 'sale-brief',      label: 'Bản tin sáng',          icon: 'phone' },
   { kind: 'ceo-brief',       label: 'Bản tin điều hành',     icon: 'trend' },
   { kind: 'payment-alert',   label: 'Cảnh báo thanh toán',   icon: 'dollar' },
+  // Ba loại dưới đây từng THIẾU ở danh sách này. Hậu quả: đường rơi bên dưới hiện NGUYÊN MÃ tiếng
+  // Anh cho người dùng — "auto-care", "anomaly-alert", "tour-readiness" — giữa một giao diện toàn
+  // tiếng Việt, và cũng không có ô lọc riêng. Thêm tác vụ mới sinh loại thẻ mới thì phải khai ở đây.
+  { kind: 'tour-readiness',  label: 'Sẵn sàng khởi hành',    icon: 'calendar' },
+  { kind: 'anomaly-alert',   label: 'Doanh thu bất thường',  icon: 'trend' },
+  { kind: 'auto-care',       label: 'Nhắc chăm khách',       icon: 'user' },
 ];
 const kindMeta = (k) => INSIGHT_KINDS.find(x => x.kind === k)
   // Loại mới do backend thêm mà frontend chưa biết: hiện NGUYÊN mã thay vì bỏ dòng đó đi —

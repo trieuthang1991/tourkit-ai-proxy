@@ -63,13 +63,13 @@ public class CustomerAutoCareWorkflow : IScheduledWorkflow
 
     // ⚠️ default PHẢI khớp WORKFLOW_OPTIONS['customer-auto-care'] bên workflow-options.jsx.
     private record Options(int QuietDays, List<string> Ranks, bool RequireBought, int MaxLeads,
-        int RemindGapDays, int MaxReminders, bool NotifyStaffChannels,
+        int RemindGapDays, int MaxReminders, bool NotifyStaffChannels, bool NotifyOrphans,
         List<string> OrphanEmails, List<string> OrphanTelegramChatIds, List<string> OrphanZaloPhones);
 
     private static Options ParseOptions(string? json)
     {
         var def = new Options(QuietDays: 90, Ranks: new List<string>(), RequireBought: true, MaxLeads: 20,
-            RemindGapDays: 7, MaxReminders: 3, NotifyStaffChannels: false,
+            RemindGapDays: 7, MaxReminders: 3, NotifyStaffChannels: false, NotifyOrphans: false,
             OrphanEmails: new(), OrphanTelegramChatIds: new(), OrphanZaloPhones: new());
         if (string.IsNullOrWhiteSpace(json)) return def;
         try
@@ -103,6 +103,7 @@ public class CustomerAutoCareWorkflow : IScheduledWorkflow
                 RemindGapDays = Num("remindGapDays", def.RemindGapDays, 0, 365),
                 MaxReminders = Num("maxReminders", def.MaxReminders, 0, 20),
                 NotifyStaffChannels = Bit("notifyStaffChannels", def.NotifyStaffChannels),
+                NotifyOrphans = Bit("notifyOrphans", def.NotifyOrphans),
                 OrphanEmails = AlertRecipients.Emails(Txt("orphanEmails")),
                 OrphanTelegramChatIds = AlertRecipients.TelegramChatIds(Txt("orphanTelegramChatIds")),
                 OrphanZaloPhones = AlertRecipients.ZaloPhones(Txt("orphanZaloPhones")),
@@ -414,8 +415,11 @@ public class CustomerAutoCareWorkflow : IScheduledWorkflow
 
         // ── Khách chưa ai phụ trách → nơi nhận dự phòng (nếu công ty có khai) ────────
         // Không khai gì thì giữ nguyên hành vi cũ: bỏ qua, chỉ đếm vào tóm tắt.
-        if (orphans.Count > 0 && (opt.OrphanEmails.Count > 0 || opt.OrphanTelegramChatIds.Count > 0
-                                  || opt.OrphanZaloPhones.Count > 0))
+        // Công tắc TẮT = bỏ qua như cũ, kể cả khi ô nơi nhận còn giá trị cũ — người dùng tắt đi
+        // là có ý dừng, không phải quên xoá địa chỉ.
+        if (orphans.Count > 0 && opt.NotifyOrphans
+            && (opt.OrphanEmails.Count > 0 || opt.OrphanTelegramChatIds.Count > 0
+                || opt.OrphanZaloPhones.Count > 0))
         {
             var oLines = string.Join("\n", orphans.Take(Math.Max(1, opt.MaxLeads)).Select(l => $"- {l.Text}"));
             var oTitle = $"{orphans.Count} khách cũ chưa gán người phụ trách";

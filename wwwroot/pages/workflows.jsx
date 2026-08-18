@@ -46,7 +46,17 @@ function parseSummary(summaryJson) {
 
 function SummaryText({ summaryJson }) {
   const s = parseSummary(summaryJson);
-  if (!s) return <span className="workflows-summary-empty">—</span>;
+  // Tóm tắt dạng CÂU CHỮ (payment-watchdog, tour-readiness, anomaly-watchdog, customer-auto-care)
+  // — không phải JSON. Bản đầu parse hỏng là trả "—", nên mọi thông tin chẩn đoán viết trong tóm
+  // tắt ("BỎ QUA 3 tour chưa gán người phụ trách", "Bỏ 20 khách đã nhắc rồi", "0 người đã được
+  // liên hệ sau đó") KHÔNG hiện ra chỗ nào — chỉ gọi API mới đọc được. Mà tóm tắt sinh ra chính là
+  // để người vận hành đọc trên màn hình này.
+  if (!s) {
+    const txt = String(summaryJson ?? '').trim();
+    if (!txt) return <span className="workflows-summary-empty">—</span>;
+    // title: giữ nguyên văn để rê chuột đọc hết — cột hẹp nên câu dài bị cắt bớt.
+    return <span className="workflows-summary workflows-summary-text" title={txt}>{txt}</span>;
+  }
   // customer-auto-review summary: { reviewed, rereviewed, skippedFresh, skippedUnchanged, skippedOld, timedOut }
   if (s.skippedFresh != null || s.skippedUnchanged != null || s.skippedOld != null) {
     return (
