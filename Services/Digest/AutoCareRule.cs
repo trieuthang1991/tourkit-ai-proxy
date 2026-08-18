@@ -98,6 +98,12 @@ public static class AutoCareRule
     /// <c>IN</c> theo id của trang (tính ngày chăm gần nhất, gộp doanh thu, tra người phụ trách),
     /// nâng số bản ghi là nhân số tham số lên theo — chạm trần 2100 tham số của SQL Server.</para>
     ///
+    /// <para><b>Chiều của bộ lọc là "CHƯA được chăm bao lâu", không phải "đã chăm trong bao lâu".</b>
+    /// Dễ đọc ngược nên đã đo tận nơi (staging 18/08, đối chiếu ngày chăm cuối của TỪNG khách trả về):
+    /// nhóm 1 → 10 ngày · nhóm 3 → 32–83 ngày · <b>nhóm 4 → 95–846 ngày</b>. Còn khi KHÔNG lọc thì
+    /// 300 khách đầu chỉ mới im 10–74 ngày — tức cách cũ (không lọc, lấy 300 mới nhất) nhắm đúng vào
+    /// nhóm vừa được chăm, ngược hẳn mục đích.</para>
+    ///
     /// <para>Nhóm của CRM là khoảng cố định: 1=[7,15) · 2=[15,30) · 3=[30,90) · 4=≥90. Nên trả về
     /// TẤT CẢ nhóm có thể chứa khách im ≥ <paramref name="quietDays"/> — tức một tập CHA. Lọc chính
     /// xác vẫn do <see cref="Find"/> làm, ở đây chỉ thu hẹp cho đỡ tải.</para>
