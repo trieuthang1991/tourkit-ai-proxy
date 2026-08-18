@@ -59,13 +59,17 @@ public static class WorkflowStackRegistration
         AttachLogAndInsecure(s.AddHttpClient("openai",    c => c.Timeout = TimeSpan.FromSeconds(120)), "openai", allowInsecure);
         AttachLogAndInsecure(s.AddHttpClient("anthropic", c => c.Timeout = TimeSpan.FromSeconds(120)), "anthropic", allowInsecure);
         AttachLogAndInsecure(s.AddHttpClient("deepseek",  c => c.Timeout = TimeSpan.FromSeconds(120)), "deepseek", allowInsecure);
+        // TourKitSourceHandler gắn X-TK-Source: ai + X-TK-Client-IP cho MỌI lệnh gọi TourKit.Api,
+        // để ActivityLogsNewVersion phân biệt được thay đổi do AI với thay đổi do app mobile
+        // (hai bên dùng chung tiến trình TourKit.Api nên DB không tự phân biệt được).
+        s.AddTransient<TourkitAiProxy.Services.Http.TourKitSourceHandler>();
         AttachLogAndInsecure(
             s.AddHttpClient("tourkit", c =>
             {
                 var baseUrl = cfg["TourKit:BaseUrl"] ?? "https://mobile-test-api-2.tourkit.vn";
                 c.BaseAddress = new Uri(baseUrl);
                 c.Timeout     = TimeSpan.FromSeconds(60);
-            }), "tourkit",
+            }).AddHttpMessageHandler<TourkitAiProxy.Services.Http.TourKitSourceHandler>(), "tourkit",
             allowInsecure || cfg.GetValue<bool>("TourKit:AllowInsecureTls"));
 
         // ─── Usage / Quota ────────────────────────────────────────────────────
