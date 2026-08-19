@@ -160,7 +160,7 @@ public class NineRoutesProvider : IAiProvider
             throw new UpstreamException((int)resp.StatusCode, "9routes error", raw[..Math.Min(raw.Length, 800)]);
 
         // 9routes đôi khi trả SSE format ngay cả khi không stream — parse safely.
-        var (text, inTok, outTok, finishReason) = ParseResponse(raw);
+        var (text, inTok, outTok, finishReason, fromReasoning) = ParseResponse(raw);
 
         if (string.IsNullOrEmpty(text))
         {
@@ -170,12 +170,14 @@ public class NineRoutesProvider : IAiProvider
                 RawUpstream: raw[..Math.Min(raw.Length, 2000)]);
         }
         LogUsage(model, inTok, outTok, sw.ElapsedMilliseconds);
-        return new CompleteResult(text, model, inTok, outTok, sw.ElapsedMilliseconds, finishReason);
+        return new CompleteResult(text, model, inTok, outTok, sw.ElapsedMilliseconds, finishReason,
+            TextFromReasoning: fromReasoning);
     }
 
-    private static (string text, int inTok, int outTok, string finishReason) ParseResponse(string raw)
+    private static (string text, int inTok, int outTok, string finishReason, bool fromReasoning) ParseResponse(string raw)
     {
         var trimmed = raw.TrimStart();
+        bool sseFromReasoning = false;
 
         // 9routes/route.com đôi khi trả SSE ngay cả khi non-stream. Nhận diện rộng:
         // bắt đầu bằng "data:" HOẶC có dòng "data:" ở giữa (router chèn keepalive/comment trước).
@@ -198,11 +200,12 @@ public class NineRoutesProvider : IAiProvider
                     if (parsed.InputTokens > 0) inTok = parsed.InputTokens;
                     if (parsed.OutputTokens > 0) outTok = parsed.OutputTokens;
                     if (!string.IsNullOrEmpty(parsed.FinishReason)) finishReason = parsed.FinishReason;
+                    if (parsed.TextFromReasoning) sseFromReasoning = true;
                 }
                 catch { continue; }
             }
             if (sb.Length > 0 || inTok > 0 || outTok > 0)
-                return (sb.ToString(), inTok, outTok, finishReason);
+                return (sb.ToString(), inTok, outTok, finishReason, sseFromReasoning);
             // SSE walk không ra gì → rơi xuống parse JSON thường bên dưới.
         }
 
@@ -212,7 +215,7 @@ public class NineRoutesProvider : IAiProvider
         try
         {
             var p = UpstreamParser.Parse(raw, "openai");
-            return (p.Text, p.InputTokens, p.OutputTokens, p.FinishReason);
+            return (p.Text, p.InputTokens, p.OutputTokens, p.FinishReason, p.TextFromReasoning);
         }
         catch (JsonException)
         {
@@ -220,7 +223,7 @@ public class NineRoutesProvider : IAiProvider
             if (!string.IsNullOrEmpty(first))
             {
                 var p = UpstreamParser.Parse(first, "openai");
-                return (p.Text, p.InputTokens, p.OutputTokens, p.FinishReason);
+                return (p.Text, p.InputTokens, p.OutputTokens, p.FinishReason, p.TextFromReasoning);
             }
             throw;
         }

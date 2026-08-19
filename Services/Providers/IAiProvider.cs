@@ -39,5 +39,9 @@ public record CompleteResult(
     string FinishReason,
     int Attempts = 1,
     string? Warning = null,
-    string? RawUpstream = null
+    string? RawUpstream = null,
+    /// TRUE khi Text lấy tạm từ reasoning_content (model nghĩ hết hạn mức, chưa kịp trả lời).
+    /// Đây là CHUỖI SUY NGHĨ, không phải câu trả lời — chỗ nào sinh chữ cho người đọc thì phải
+    /// coi ngang với Text rỗng. Xem UpstreamParser.ParsedResponse.TextFromReasoning.
+    bool TextFromReasoning = false
 );

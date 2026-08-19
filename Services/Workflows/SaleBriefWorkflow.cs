@@ -310,16 +310,25 @@ public class SaleBriefWorkflow : IScheduledWorkflow
             var r = await provider.CompleteAsync(new Models.CompleteRequest(
                 Prompt: SaleBriefBuilder.BuildPrompt(input, todayVn, opt.MaxItems),
                 Provider: resolved.Provider, Model: resolved.Model,
-                MaxTokens: 1400,
+                // 10000: model reasoning (vd DeepSeek qua nine-routes) tiêu phần lớn hạn mức vào
+                // phần NGHĨ trước khi viết. Để 1200–1400 thì nó nghĩ hết sạch, `content` trả về rỗng,
+                // và bản tin gửi đi là chuỗi suy nghĩ cụt giữa chừng (đã xảy ra thật 19/08).
+                MaxTokens: 10000,
                 Temperature: 0.3,   // sát dữ kiện; cao hơn là bắt đầu "văn hoa" thêm ý không có
                 System: null,
                 ApiKey: resolved.ApiKey), ct);
 
-            if (string.IsNullOrWhiteSpace(r.Text))
+            // Rỗng HOẶC chỉ có chuỗi suy nghĩ → đều là "AI không trả lời được", dùng bản rule.
+            // TextFromReasoning là chốt QUAN TRỌNG: khi model nghĩ hết hạn mức, UpstreamParser lấy
+            // tạm reasoning_content làm Text (để debug). Text đó KHÔNG rỗng nên chốt IsNullOrWhiteSpace
+            // ở trên không bắt được, và nguyên phần "Chúng ta cần trả lời câu hỏi…" từng lọt vào thư
+            // gửi đi thật. Bản rule vốn đã chạy tốt — nó chỉ chưa từng được gọi tới.
+            if (string.IsNullOrWhiteSpace(r.Text) || r.TextFromReasoning)
             {
                 onAiFail();
-                _log.LogWarning("[sale-brief] tenant={T} user={U} AI trả rỗng → dùng bản rule",
-                    tenantId, input.Username);
+                _log.LogWarning("[sale-brief] tenant={T} user={U} AI {Ly} → dùng bản rule",
+                    tenantId, input.Username,
+                    r.TextFromReasoning ? "chỉ trả chuỗi suy nghĩ (nghĩ hết hạn mức)" : "trả rỗng");
                 return SaleBriefBuilder.Build(input, todayVn);
             }
             return SaleBriefBuilder.WrapAiReply(r.Text, input, todayVn);

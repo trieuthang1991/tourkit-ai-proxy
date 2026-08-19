@@ -275,15 +275,21 @@ public class CeoBriefWorkflow : IScheduledWorkflow
             var r = await provider.CompleteAsync(new CompleteRequest(
                 Prompt: CeoBriefBuilder.BuildPrompt(data, todayVn),
                 Provider: resolved.Provider, Model: resolved.Model,
-                MaxTokens: 1200,
+                // 10000: model reasoning (vd DeepSeek qua nine-routes) tiêu phần lớn hạn mức vào
+                // phần NGHĨ trước khi viết. Để 1200–1400 thì nó nghĩ hết sạch, `content` trả về rỗng,
+                // và bản tin gửi đi là chuỗi suy nghĩ cụt giữa chừng (đã xảy ra thật 19/08).
+                MaxTokens: 10000,
                 Temperature: 0.4,   // đủ tự nhiên nhưng vẫn sát số, không "văn hoa" thêm ý
                 System: null,
                 ApiKey: resolved.ApiKey), ct);
 
-            if (string.IsNullOrWhiteSpace(r.Text))
+            // Xem chú thích cùng chốt này ở SaleBriefWorkflow: chuỗi suy nghĩ KHÔNG rỗng nên
+            // IsNullOrWhiteSpace không bắt được, phải kiểm TextFromReasoning mới rơi về bảng số.
+            if (string.IsNullOrWhiteSpace(r.Text) || r.TextFromReasoning)
             {
                 onAiFail();
-                _log.LogWarning("[ceo-brief] tenant={T} AI trả rỗng → dùng bảng số", tenantId);
+                _log.LogWarning("[ceo-brief] tenant={T} AI {Ly} → dùng bảng số", tenantId,
+                    r.TextFromReasoning ? "chỉ trả chuỗi suy nghĩ (nghĩ hết hạn mức)" : "trả rỗng");
                 return CeoBriefBuilder.RenderFallback(data, todayVn);
             }
             return CeoBriefBuilder.WrapAiReply(r.Text, data, todayVn);

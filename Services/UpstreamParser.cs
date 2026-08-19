@@ -18,13 +18,22 @@ public static class UpstreamParser
         return false;
     }
 
-    public record ParsedResponse(string Text, int InputTokens, int OutputTokens, string FinishReason);
+    /// <param name="TextFromReasoning">
+    /// TRUE khi <c>content</c> rỗng và Text được lấy tạm từ <c>reasoning_content</c>/<c>reasoning</c>
+    /// — tức đây là CHUỖI SUY NGHĨ của model, KHÔNG phải câu trả lời. Hữu ích để debug (thấy model
+    /// tiêu token vào đâu), nhưng TUYỆT ĐỐI không được đem hiển thị cho người dùng: đã có lần lọt
+    /// nguyên phần "Chúng ta cần trả lời câu hỏi…" vào thư bản tin gửi giám đốc. Bên nào sinh chữ
+    /// cho người đọc thì phải coi cờ này NGANG VỚI text rỗng và dùng bản dự phòng.
+    /// </param>
+    public record ParsedResponse(string Text, int InputTokens, int OutputTokens, string FinishReason,
+                                 bool TextFromReasoning = false);
 
     /// Parse buffered upstream response. `stop_reason: max_tokens` được normalize → "length"
     /// để cả 2 path surface OpenAI-style finishReason.
     public static ParsedResponse Parse(string raw, string fmt)
     {
         string text = "", finishReason = "";
+        bool fromReasoning = false;
         int inTok = 0, outTok = 0;
         using var doc = JsonDocument.Parse(raw);
         var root = doc.RootElement;
@@ -68,7 +77,8 @@ public static class UpstreamParser
                                 if (m.TryGetProperty(name, out var rc) && rc.ValueKind == JsonValueKind.String)
                                 {
                                     var s = rc.GetString();
-                                    if (!string.IsNullOrEmpty(s)) { text += s; break; }
+                                    // Đánh dấu để bên gọi biết đây là phần NGHĨ, không phải câu trả lời.
+                                    if (!string.IsNullOrEmpty(s)) { text += s; fromReasoning = true; break; }
                                 }
                             }
                         }
@@ -85,6 +95,6 @@ public static class UpstreamParser
                 if (usg.TryGetProperty("completion_tokens", out var o)) outTok = o.GetInt32();
             }
         }
-        return new ParsedResponse(text, inTok, outTok, finishReason);
+        return new ParsedResponse(text, inTok, outTok, finishReason, fromReasoning);
     }
 }
