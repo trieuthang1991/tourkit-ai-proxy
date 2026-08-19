@@ -1262,6 +1262,7 @@
                 <th style={{ width: 60 }}>ID</th>
                 <th>Tenant</th>
                 <th>Loại / Template</th>
+                <th style={{ width: 92 }}>Kênh</th>
                 <th>Người nhận</th>
                 <th>Tiêu đề</th>
                 <th style={{ width: 90 }}>Trạng thái</th>
@@ -1272,8 +1273,12 @@
               {items.map(r => {
                 const st = MAIL_STATUS[r.status] || { text: r.statusText || "?", color: "#6b7280", bg: "#F3F4F6" };
                 const p = prettyParams(safeObj(r.paramsJson));
-                // Người nhận: ưu tiên ToEmail của row; chưa có (chờ assigneeEmail deploy) → suy từ Params.
-                const toEmail = r.toEmail || p.email || p.toEmail || null;
+                // Người nhận: server đã resolve theo KÊNH (email → ToEmail, Telegram → chatId,
+                // Zalo → số điện thoại) vì nơi nhận của Telegram/Zalo nằm trong Data chứ không phải
+                // ToEmail. Trước đây chỉ đọc ToEmail nên mọi dòng Telegram/Zalo đều in "chưa có
+                // người nhận" — đúng những dòng hỏng lại là những dòng không truy được gửi cho ai.
+                // Các nhánh sau giữ nguyên cho dòng CŨ (xếp trước khi server trả `to`).
+                const toEmail = r.to || r.toEmail || p.email || p.toEmail || null;
                 const toName = r.toName || p.fullName || p.assigneeNames || null;
                 // Tiêu đề sinh lúc gửi → row chưa có thì render từ template + Params để xem trước.
                 const tpl = r.templateCode ? tplMap[r.templateCode] : null;
@@ -1298,7 +1303,12 @@
                       )}
                     </td>
                     <td>
-                      <div style={{ fontSize: 13 }}>
+                      <span className={"mailq-ch mailq-ch-" + (r.channel ?? 0)}>
+                        {r.channelText || "Email"}
+                      </span>
+                    </td>
+                    <td>
+                      <div style={{ fontSize: 13, wordBreak: "break-all" }}>
                         {toEmail || toName || <span style={{ color: "var(--text-faint)" }}>— chưa có người nhận</span>}
                       </div>
                       {toEmail && toName && <div style={{ fontSize: 11, color: "var(--text-faint)" }}>{toName}</div>}
@@ -1332,7 +1342,7 @@
                 );
               })}
               {!loading && items.length === 0 && (
-                <tr><td colSpan={7} className="quota-empty">Không có mail nào khớp bộ lọc.</td></tr>
+                <tr><td colSpan={8} className="quota-empty">Không có mail nào khớp bộ lọc.</td></tr>
               )}
             </tbody>
           </table>
@@ -1345,7 +1355,7 @@
           const subject = r.subject || (tpl ? renderTemplate(tpl.subject, p, false) : "(không có)");
           const body = tpl ? renderTemplate(tpl.bodyHtml, p, true) : "";
           const st = MAIL_STATUS[r.status] || { text: r.statusText || "?", color: "#6b7280", bg: "#F3F4F6" };
-          const toEmail = r.toEmail || p.email || p.toEmail || null;
+          const toEmail = r.to || r.toEmail || p.email || p.toEmail || null;
           const toName = r.toName || p.fullName || p.assigneeNames || null;
           const F = (label, val) => val ? (
             <div style={{ display: "flex", gap: 8, padding: "4px 0", fontSize: 13 }}>
@@ -1372,7 +1382,8 @@
                   {F("Tenant", r.tenantName)}
                   {F("Loại (Kind)", r.kind)}
                   {F("Template", r.templateCode)}
-                  {F("Người nhận", toEmail || toName || "— chưa có")}
+                  {F("Kênh", r.channelText || "Email")}
+          {F("Người nhận", toEmail || toName || "— chưa có")}
                   {toEmail && toName && F("Tên NV", toName)}
                   {F("Cc", r.cc)}
                   {F("KH liên quan", p.customerName)}

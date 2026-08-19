@@ -400,6 +400,14 @@ public static class AdminUiEndpoints
                     templateCode = r.TemplateCode,
                     toEmail      = r.ToEmail,
                     toName       = r.ToName,
+                    // Kênh + nơi nhận ĐÃ RESOLVE. Trước đây chỉ trả ToEmail, mà tin Telegram/Zalo
+                    // KHÔNG có email — nơi nhận của chúng nằm trong Data (chatId / phone). Hệ quả:
+                    // đúng những dòng hỏng lại là những dòng trang theo dõi in "— chưa có", không
+                    // nói được gửi cho ai qua kênh nào, dù cả hai thứ đã nằm sẵn trong DB. Resolve ở
+                    // server để giao diện khỏi phải biết Data của từng kênh có hình thù gì.
+                    channel      = r.Channel,
+                    channelText  = ChannelText(r.Channel),
+                    to           = ResolveTo(r.Channel, r.ToEmail, r.Data),
                     cc           = r.Cc,
                     subject      = r.Subject,
                     paramsJson   = r.Params,
@@ -426,6 +434,34 @@ public static class AdminUiEndpoints
             {
                 0 => "Chờ gửi", 1 => "Đã gửi", 2 => "Lỗi", 3 => "Đã hủy", 4 => "Bỏ qua", _ => "?"
             };
+
+            // Bảng số phải TRÙNG OutboundChannel (0=Email, 1=Telegram, 2=Zalo) — xem
+            // Services/Digest/OutboundChannel.cs. Thêm kênh mới thì thêm ở CẢ hai chỗ.
+            static string ChannelText(byte c) => c switch
+            {
+                0 => "Email", 1 => "Telegram", 2 => "Zalo", _ => "?"
+            };
+
+            static string? ResolveTo(byte channel, string? toEmail, string? dataJson) => channel switch
+            {
+                1 => DataStr(dataJson, "chatId"),
+                2 => DataStr(dataJson, "phone"),
+                _ => toEmail,
+            };
+
+            // Data do producer tự do đặt hình thù, và dòng cũ có thể thiếu khoá → hỏng phải trả null
+            // chứ KHÔNG được ném: một dòng dữ liệu lạ không đáng làm vỡ cả trang theo dõi.
+            static string? DataStr(string? json, string key)
+            {
+                if (string.IsNullOrWhiteSpace(json)) return null;
+                try
+                {
+                    using var doc = JsonDocument.Parse(json);
+                    return doc.RootElement.TryGetProperty(key, out var v)
+                        && v.ValueKind == JsonValueKind.String ? v.GetString() : null;
+                }
+                catch { return null; }
+            }
         });
 
         // ── Quản lý template mail (global) ─────────────────────────────────────────

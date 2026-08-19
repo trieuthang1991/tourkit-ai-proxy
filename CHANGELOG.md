@@ -13,6 +13,23 @@ Những cập nhật gần đây của TRAV-AI, viết cho người dùng. Mới
 
 ---
 
+## Phiên bản 19/08/2026 — Bản tin sáng gửi đúng nội dung
+
+### 🔧 Đã khắc phục
+- **Bản tin sáng gửi đi phần AI đang nghĩ, không phải bản tin.** Thư nhận được là một đoạn AI tự nhủ
+  — *"Chúng ta cần trả lời câu hỏi…"*, *"Yêu cầu: Chọn tối đa 7 việc…"* — rồi đứt ngang giữa câu.
+  Nguyên nhân: hạn mức chữ cho AI quá chật, nó nghĩ chưa xong đã hết chỗ nên chẳng viết được câu nào,
+  và phần nghĩ dở bị đem đi gửi. Nay hạn mức đã nới rộng, và **nếu AI vẫn chỉ kịp nghĩ thì hệ thống
+  tự chuyển sang bản tin dạng bảng số** thay vì gửi chữ vô nghĩa. Áp dụng cho cả bản tin nhân viên
+  bán hàng lẫn bản tin điều hành.
+
+### 📌 Lưu ý
+- Trang theo dõi hàng đợi gửi (dành cho quản trị) nay hiện thêm cột **Kênh** và **người nhận đúng
+  theo kênh**. Trước đây tin Telegram/Zalo luôn hiện "— chưa có người nhận" vì trang chỉ biết đọc
+  địa chỉ email — tức đúng những dòng gửi hỏng lại là những dòng không tra được đã gửi cho ai.
+
+---
+
 ## Phiên bản 18/08/2026 (bản 5) — Trang Hướng dẫn: đủ ảnh, mở được mọi bài
 
 ### ✨ Tính năng mới

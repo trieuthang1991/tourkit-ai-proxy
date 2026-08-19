@@ -402,3 +402,14 @@
   background: var(--accent); color: #fff; border-color: var(--accent);
 }
 .ai-usage-range-btn:disabled { opacity: 0.45; cursor: not-allowed; }
+
+/* ── Nhãn kênh trong hàng đợi gửi ────────────────────────────────────────────
+   Bảng số PHẢI trùng OutboundChannel (0=Email, 1=Telegram, 2=Zalo). Màu chỉ để
+   liếc là phân biệt được, KHÔNG mang nghĩa thành/bại — trạng thái đã có cột riêng. */
+.mailq-ch {
+  display: inline-block; padding: 2px 8px; border-radius: 999px;
+  font-size: 11px; font-weight: 600; letter-spacing: .2px; white-space: nowrap;
+}
+.mailq-ch-0 { background: #EFF6FF; color: #1D4ED8; }   /* Email    */
+.mailq-ch-1 { background: #ECFEFF; color: #0E7490; }   /* Telegram */
+.mailq-ch-2 { background: #F5F3FF; color: #6D28D9; }   /* Zalo     */
