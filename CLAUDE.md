@@ -363,6 +363,49 @@ Gmail inbox synced on demand, AI-classified, with AI-drafted replies. Flow lives
 - **Phase 2 (deferred):** 2-way sync (write `\Seen` back / mirror deletes), incremental UID fetch (hiện kéo 30 mới nhất/lần), OAuth source, assign-to-staff ("Của tôi"), attachments.
 - **Tests:** `TourkitAiProxy.Tests` (xUnit, project nằm trong thư mục con → main csproj `<Compile Remove="TourkitAiProxy.Tests/**" />`). Covers pure logic only: `MailTaxonomy`, `MailMapper`, `MailClassifier.ParseClassification`, `MailRepository`. Run: `dotnet test TourkitAiProxy.Tests/TourkitAiProxy.Tests.csproj`. IMAP/frontend verified manually. (This is the repo's first test project — the rest of the codebase still has none.)
 
+## Hộp thư chat đa kênh (`Features:Chat`)
+
+Khách nhắn Zalo OA → tin vào hộp thư trong app → bot trả lời → nhân viên tiếp quản. Spec + kế hoạch:
+[specs/2026-08-20-omnichannel-chat-design.md](docs/superpowers/specs/2026-08-20-omnichannel-chat-design.md) ·
+[plans/2026-08-20-omnichannel-chat-dot1.md](docs/superpowers/plans/2026-08-20-omnichannel-chat-dot1.md).
+Nghiệp vụ tham khảo [ChatbotX](https://github.com/ChatbotXIO/ChatbotX) (MIT) — **đọc để lấy nghiệp vụ,
+KHÔNG chạy như phụ thuộc**.
+
+⚠️ **CSDL RIÊNG, PostgreSQL — không phải SQL Server.** `ConnectionStrings:Chat` trỏ tới PostgreSQL 18
+(Google Cloud SQL, instance dùng chung với dự án `farmer`). Lý do tách: `pgvector` để sau này tìm hội
+thoại theo ngữ nghĩa — SQL Server 2022 không có kiểu vector. Cái giá: **không `JOIN` được** với
+khách/tour bên SQL Server và **không có giao dịch chung** — ghi tin nhắn trước, cập nhật CRM sau và cho
+thử lại. Schema ở [`ChatDb.SchemaSql`](Services/Chat/Inbox/ChatDb.cs); thiếu chuỗi kết nối thì cụm chat
+tự tắt, KHÔNG làm sập app.
+
+**Đường đi:** webhook (`POST /api/v1/chat/webhook/zalo/{tenantId}` — **công khai**, gác bằng chữ ký) →
+[`ChatInboundService`](Services/Chat/Inbox/ChatInboundService.cs) chạy NỀN → bot trả lời → xếp
+`chat_outbox` → [`ChatOutboxWorker`](Services/Chat/Inbox/ChatOutboxWorker.cs) gửi qua
+[`ZaloChatAdapter`](Services/Chat/Channels/ZaloChatAdapter.cs).
+
+**Sáu luật sai-là-hỏng**, tách thuần ở [`ChatRules`](Services/Chat/Inbox/ChatRules.cs), có test:
+1. **Cửa sổ gửi** — Zalo 48h / Messenger 24h kể từ tin cuối CỦA KHÁCH. **Chưa có tin nào của khách =
+   ĐÓNG**, không phải mở. Hết cửa sổ thì khoá ô soạn kèm lý do, đừng để gọi API rồi mới biết.
+2. **Bot câm khi người thật vào** — `bot_resume_at` là **MỐC THỜI GIAN, không phải cờ**: câm có thời
+   hạn rồi tự nói lại. Làm thành cờ thì sẽ có hội thoại tắt bot vĩnh viễn mà không ai nhớ bật lại.
+3. **Chống trùng ở TẦNG CSDL** (chỉ mục duy nhất trên `external_msg_id`), không chỉ kiểm trong code —
+   webhook gửi lại đồng thời hai lần thì kiểm-rồi-ghi vẫn lọt.
+4. **Gộp tin liên tiếp** — chờ khách im 4 giây rồi xử lý cả cụm; trả lời từng dòng vừa ngớ ngẩn vừa
+   tốn gấp mấy lần lượt AI.
+5. **Webhook trả 200 NGAY** rồi xử lý nền — Zalo gửi lại khi không thấy 200, mà xử lý có gọi AI.
+6. **Tiếng vọng `oa_send_*`** — nhân viên trả lời từ chính app Zalo OA thì mình chỉ biết qua đây. Bỏ
+   nhóm này thì hộp thư thiếu nửa cuộc trò chuyện VÀ bot nói đè lên người thật.
+
+⚠️ **Zalo chat dùng `message/cs`, KHÁC bản tin sáng (ZNS).** Bản tin là mình chủ động đẩy đi nên cửa
+sổ tư vấn luôn đóng → phải dùng mẫu ZNS. Chat là trả lời khách vừa nhắn nên cửa sổ vừa mở → `message/cs`
+đúng chỗ. **Đừng "sửa" cái này thành ZNS.**
+
+⚠️ **Access token Zalo: proxy chỉ ĐỌC, worker toutkit-app xoay vòng.** Hai nơi cùng xoay một refresh
+token thì Zalo vô hiệu hoá cái cũ và bên chậm chân mất token vĩnh viễn.
+
+**Đợt 1 CHƯA nối CRM** — bot trả lời bằng kiến thức chung, `crm_customer_id` để trống. Lời dặn mặc
+định **cấm bịa giá/lịch khởi hành**; đổi qua `Chat:SystemPrompt`.
+
 ## User Workflows ("Tự động hóa")
 
 Tác vụ AI chạy tự động theo lịch (interval), cấu hình per-(Tenant, Username). Framework đủ mở rộng: thêm workflow mới = implement `IScheduledWorkflow` + đăng ký DI + registry tự pickup. Built-in:
@@ -724,6 +767,7 @@ tính năng bị ẩn — phiền nhưng sửa 1 dòng; mặc định bật thì
 | `Features:MeetingBrief` | Action `prepare_meeting` (thẻ chuẩn bị gặp khách) | — |
 | `Features:AnomalyWatchdog` | Tác vụ `anomaly-watchdog` (canh doanh thu bất thường) | **CẦN `Digest`** — ghi vào Bảng tin |
 | `Features:AutoCare` | Tác vụ `customer-auto-care` (nhắc chăm lại khách ngủ quên) | **CẦN `Digest`** — ghi vào Bảng tin |
+| `Features:Chat` | Hộp thư chat đa kênh (`/chat-inbox` + webhook Zalo) | — (có CSDL riêng, không ghi Bảng tin) |
 
 ⚠️ `AutoCare` là cờ **quan trọng nhất**: tính năng duy nhất của cả hệ đụng tới KHÁCH HÀNG THẬT. Mọi
 thứ khác chỉ ghi vào Bảng tin cho người trong công ty đọc. Bản hiện tại **KHÔNG gửi gì cho khách** —

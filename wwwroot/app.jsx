@@ -36,7 +36,8 @@ const NAV_GROUPS = [
   { label: 'Khách hàng & Bán hàng', items: [
     { to: '/customers', icon: 'users',   label: 'Khách hàng' },       // people
     { to: '/deals',     icon: 'trend',   label: 'AI phân tích Cơ hội' },  // opportunity analysis
-    { to: '/mail',      icon: 'mail',    label: 'Hộp thư AI' },       // envelope
+    { to: '/mail',      icon: 'mail',    label: 'Hộp thư AI' },
+    { to: '/chat-inbox', icon: 'send',  label: 'Hộp thư chat', feature: 'chat' },  // tin khách nhắn qua Zalo/kênh khác
   ]},
   { label: 'Sản phẩm Tour', items: [
     { to: '/ncc-list',     icon: 'download', label: 'AI Import NCC' },      // NCC: import + danh sách (đặt trên Tính giá Tour)
@@ -157,8 +158,12 @@ function App() {
   // Filter NAV_GROUPS theo requirePerm — nhóm không đủ quyền bị ẨN hoàn toàn khỏi sidebar/drawer.
   // Ẩn theo TỪNG item.requirePerm; group rỗng (mọi item bị ẩn) thì bỏ. Item không có requirePerm
   // (vd /workflows) luôn hiện.
+  // Mục có `feature` còn phải chờ cờ RA MẮT bật — khác quyền: quyền nói "ai được xem", cờ nói
+  // "tính năng đã ra mắt chưa". Cờ tắt mà vẫn bày mục menu thì bấm vào chỉ nhận 404.
+  const chatOn = window.tourkitFeatures.useFeature('chat');
+  const featureOn = (name) => !name || (name === 'chat' ? chatOn : true);
   const visibleGroups = NAV_GROUPS
-    .map(g => ({ ...g, items: g.items.filter(it => hasPerm(it.requirePerm)) }))
+    .map(g => ({ ...g, items: g.items.filter(it => hasPerm(it.requirePerm) && featureOn(it.feature)) }))
     .filter(g => g.items.length > 0);
   // Gate 1 route theo permission: nếu route yêu cầu quyền mà user không có → render page "Không có quyền".
   // (URL vẫn giữ để user có thể chia sẻ link/bookmark; nếu được cấp quyền sau này thì reload thấy được.)
@@ -539,6 +544,7 @@ function App() {
         <Route path="/travai"    render={() => <window.JarvisPage pushToast={pushToast} />} />
         <Route path="/jarvis"    render={() => <window.JarvisPage pushToast={pushToast} />} />{/* alias link cũ */}
         <Route path="/mail"      render={() => <window.MailPage pushToast={pushToast} />} />
+        <Route path="/chat-inbox" render={() => <window.ChatInboxPage pushToast={pushToast} />} />
         <Route path="/visa"      render={() => <window.VisaPage pushToast={pushToast} />} />
         <Route path="/visa/history" render={() => <window.VisaHistoryPage pushToast={pushToast} />} />
         <Route path="/deals"     render={() => <window.DealsPage pushToast={pushToast} />} />

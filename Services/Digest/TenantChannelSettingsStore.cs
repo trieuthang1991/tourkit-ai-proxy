@@ -154,6 +154,33 @@ VALUES (@tenantId, @channel, @json, SYSUTCDATETIME());",
         return n > 0;
     }
 
+    /// <summary>
+    /// Access token Zalo đang lưu — CHỈ ĐỌC.
+    ///
+    /// <para>Token do <b>worker bên toutkit-app xoay vòng</b> và ghi vào <c>accessTokenEnc</c>.
+    /// Proxy tuyệt đối KHÔNG tự làm mới: hai nơi cùng xoay một refresh token thì Zalo vô hiệu hoá
+    /// cái cũ, và bên chậm chân hơn mất token vĩnh viễn. Hết hạn thì báo lỗi tạm thời để hàng đợi
+    /// thử lại — worker sẽ có token mới trong vòng một nhịp.</para>
+    /// </summary>
+    public async Task<string?> GetZaloAccessTokenAsync(string tenantId, CancellationToken ct = default)
+    {
+        var json = await ReadRawAsync(tenantId, ChannelZalo, ct);
+        if (json == null) return null;
+        try
+        {
+            var o = JsonNode.Parse(json)?.AsObject();
+            var enc = o is null ? null : Str(o, "accessTokenEnc");
+            if (string.IsNullOrWhiteSpace(enc)) return null;
+            var tok = Crypton.Decrypt(enc);
+            return string.IsNullOrWhiteSpace(tok) ? null : tok;
+        }
+        catch (Exception ex)
+        {
+            _log.LogWarning(ex, "[TenantChannel] đọc access token Zalo hỏng, tenant={T}", tenantId);
+            return null;
+        }
+    }
+
     private async Task<string?> ReadRawAsync(string tenantId, string channel, CancellationToken ct)
     {
         try

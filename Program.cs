@@ -197,6 +197,11 @@ if (runScheduler)
     builder.Services.AddHostedService(sp =>
         sp.GetRequiredService<TourkitAiProxy.Services.Workflows.WorkflowSchedulerService>());
 
+// Worker gửi tin chat. Chạy ở WEB (không phải worker riêng) vì tin chat phải đi NGAY — khách đang
+// chờ trước màn hình, không như bản tin sáng hẹn giờ. Tắt cờ thì không đăng ký, không tốn nhịp nào.
+if (TourkitAiProxy.Services.Bootstrap.FeatureFlags.Chat(builder.Configuration))
+    builder.Services.AddHostedService<TourkitAiProxy.Services.Chat.Inbox.ChatOutboxWorker>();
+
 // ─── Response compression (Brotli + Gzip) ─────────────────────────────────────
 // Frontend bundle ~596KB + styles.css ~352KB gửi RAW trước đây → public landing/NCC
 // tải dư ~700KB mỗi lần load lạnh. Brotli nén JS/CSS xuống ~20-25% → ~200KB tổng.
@@ -289,7 +294,11 @@ _ = Task.Run(async () =>
     using var scope = app.Services.CreateScope();
     var reviewRepo = scope.ServiceProvider.GetRequiredService<ReviewRepository>();
     var dealRepo   = scope.ServiceProvider.GetRequiredService<TourkitAiProxy.Services.Deals.DealRepository>();
-    try { await reviewRepo.InitAsync(); }
+    // CSDL chat là PostgreSQL RIÊNG (xem ChatDb). Thiếu chuỗi kết nối thì tự tắt, KHÔNG làm sập app.
+if (TourkitAiProxy.Services.Bootstrap.FeatureFlags.Chat(builder.Configuration))
+    await app.Services.GetRequiredService<TourkitAiProxy.Services.Chat.Inbox.ChatDb>().InitAsync();
+
+try { await reviewRepo.InitAsync(); }
     catch (Exception ex)
     {
         scope.ServiceProvider.GetRequiredService<ILogger<Program>>()
@@ -386,6 +395,20 @@ else
         app.Map(p, Off);
         app.Map(p + "/{**rest}", Off);
     }
+}
+// Hộp thư chat đa kênh — sau cờ Features:Chat. Tắt thì webhook cũng không map: khách nhắn tới
+// mà endpoint tồn tại nghĩa là tin vẫn chảy vào hệ dù tính năng "đang tắt".
+if (TourkitAiProxy.Services.Bootstrap.FeatureFlags.Chat(builder.Configuration))
+{
+    app.MapChatInboxEndpoints();
+}
+else
+{
+    IResult ChatOff() => Results.Json(
+        new { error = "Tính năng hộp thư chat đang tắt (Features:Chat=false)." }, statusCode: 404);
+    app.Map("/api/v1/chat/conversations", ChatOff);
+    app.Map("/api/v1/chat/conversations/{**rest}", ChatOff);
+    app.Map("/api/v1/chat/webhook/{**rest}", ChatOff);
 }
 app.MapTourEndpoints();
 app.MapTourPriceEndpoints();      // GET /api/v1/tour-price/candidates — ứng viên giá NCC (mẫu/thật/cả 2) cho wizard

@@ -8896,3 +8896,78 @@ n
 
 .workflows-digest-warn { font-size: 12px; font-weight: 600; color: var(--warning); margin-left: 6px; }
 .digest-warn-sched { margin-left: 0; align-items: flex-start; }
+
+/* ── Hộp thư chat đa kênh (/chat-inbox) ───────────────────────────────────────
+   Ba cột cố định giống Hộp thư AI để người dùng khỏi học lại bố cục. */
+.ci-grid { display: grid; grid-template-columns: 180px 300px 1fr; gap: 12px;
+           height: calc(100vh - 190px); min-height: 420px; }
+.ci-loc { display: flex; flex-direction: column; gap: 6px; }
+.ci-loc-nut { display: flex; align-items: center; justify-content: space-between; gap: 8px;
+              padding: 9px 12px; border: 1px solid var(--line, #e5e7eb); border-radius: 8px;
+              background: #fff; cursor: pointer; font-size: 14px; text-align: left; }
+.ci-loc-nut.on { border-color: #f97316; background: #fff7ed; font-weight: 600; }
+.ci-dem { background: #f97316; color: #fff; border-radius: 999px; padding: 1px 7px; font-size: 12px; }
+.ci-tim { margin-top: 6px; padding: 8px 10px; border: 1px solid var(--line, #e5e7eb);
+          border-radius: 8px; font-size: 13px; }
+
+.ci-ds { overflow-y: auto; border: 1px solid var(--line, #e5e7eb); border-radius: 10px; background: #fff; }
+.ci-muc { display: block; width: 100%; text-align: left; padding: 10px 12px; border: 0;
+          border-bottom: 1px solid #f1f5f9; background: transparent; cursor: pointer; }
+.ci-muc:hover { background: #f8fafc; }
+.ci-muc.on { background: #fff7ed; }
+/* Chưa đọc: in đậm + chấm cam — cùng quy ước với Hộp thư AI. */
+.ci-muc.chuadoc .ci-ten::before { content: "●"; color: #fb923c; margin-right: 5px; font-size: 10px; }
+.ci-muc.chuadoc .ci-ten { font-weight: 700; }
+.ci-muc-dau { display: flex; justify-content: space-between; gap: 8px; margin-bottom: 3px; }
+.ci-ten { font-size: 14px; color: #0f172a; }
+.ci-kenh { font-size: 11px; color: #64748b; }
+.ci-xemtruoc { font-size: 12.5px; color: #64748b; overflow: hidden; text-overflow: ellipsis;
+               white-space: nowrap; }
+.ci-muc-cuoi { display: flex; gap: 8px; align-items: center; margin-top: 4px;
+               font-size: 11px; color: #94a3b8; }
+.ci-giao { background: #eff6ff; color: #1d4ed8; border-radius: 4px; padding: 0 5px; }
+.ci-botcam { background: #fef3c7; color: #92400e; border-radius: 4px; padding: 0 5px; }
+
+.ci-chat { display: flex; flex-direction: column; border: 1px solid var(--line, #e5e7eb);
+           border-radius: 10px; background: #fff; overflow: hidden; }
+.ci-chat-dau { display: flex; justify-content: space-between; align-items: center; gap: 10px;
+               padding: 10px 14px; border-bottom: 1px solid #f1f5f9; }
+.ci-nut-nhom { display: flex; gap: 6px; }
+.ci-nut-nhom button { padding: 5px 10px; font-size: 12.5px; border: 1px solid var(--line, #e5e7eb);
+                      border-radius: 6px; background: #fff; cursor: pointer; }
+.ci-nut-nhom button:hover { background: #f8fafc; }
+
+.ci-cuon { flex: 1; overflow-y: auto; padding: 14px; background: #fafafa; }
+.ci-dong { display: flex; margin-bottom: 8px; }
+.ci-trai { justify-content: flex-start; }
+.ci-phai { justify-content: flex-end; }
+.ci-bong { max-width: 72%; padding: 8px 12px; border-radius: 12px; font-size: 14px; line-height: 1.5; }
+/* BA màu cho BA bên — người đọc cần biết câu nào do máy trả lời. */
+.ci-khach   { background: #fff; border: 1px solid #e5e7eb; }
+.ci-ai      { background: #eff6ff; border: 1px solid #bfdbfe; }
+.ci-nv      { background: #f97316; color: #fff; }
+.ci-hethong { background: #f1f5f9; color: #475569; font-style: italic; }
+.ci-nhan { font-size: 11px; opacity: .75; margin-bottom: 2px; font-weight: 600; }
+.ci-noidung { white-space: pre-wrap; word-break: break-word; }
+.ci-gio { font-size: 10.5px; opacity: .65; margin-top: 3px; }
+.ci-loi { color: #dc2626; font-weight: 600; }
+.ci-cho { font-style: italic; }
+
+.ci-soan { border-top: 1px solid #f1f5f9; padding: 10px 12px; display: flex; gap: 8px;
+           align-items: flex-end; flex-wrap: wrap; }
+.ci-soan textarea { flex: 1; min-height: 60px; max-height: 160px; resize: vertical;
+                    border: 1px solid var(--line, #e5e7eb); border-radius: 8px; padding: 8px 10px;
+                    font-size: 14px; font-family: inherit; }
+/* Hết cửa sổ gửi → thay hẳn ô soạn bằng lý do, không để bấm gửi rồi mới báo hỏng. */
+.ci-khoa { width: 100%; padding: 10px 12px; background: #fef2f2; border: 1px solid #fecaca;
+           border-radius: 8px; color: #991b1b; font-size: 13px; line-height: 1.6; }
+.ci-sapdong { width: 100%; padding: 6px 10px; background: #fffbeb; border: 1px solid #fde68a;
+              border-radius: 6px; color: #92400e; font-size: 12.5px; margin-bottom: 6px; }
+.ci-trong { padding: 28px 20px; text-align: center; color: #94a3b8; font-size: 14px; line-height: 1.7; }
+
+@media (max-width: 980px) {
+  .ci-grid { grid-template-columns: 1fr; height: auto; }
+  .ci-loc { flex-direction: row; flex-wrap: wrap; }
+  .ci-ds { max-height: 300px; }
+  .ci-chat { min-height: 460px; }
+}

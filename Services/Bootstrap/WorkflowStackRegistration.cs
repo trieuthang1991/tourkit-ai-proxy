@@ -172,6 +172,15 @@ public static class WorkflowStackRegistration
         // Cấu hình kênh gửi CỦA CÔNG TY — quay lại per-tenant 17/08 (xem TenantChannelSettingsStore):
         // đi gặp khách hàng thì không công ty nào chịu gửi ZNS bằng OA của bên cung cấp dịch vụ.
         s.AddSingleton<Digest.TenantChannelSettingsStore>();
+
+        // ── Hộp thư chat đa kênh ────────────────────────────────────────────
+        // Đăng ký KHÔNG phụ thuộc cờ Features:Chat: các lớp này vô hại khi không ai gọi, còn
+        // ChatDb tự tắt nếu thiếu chuỗi kết nối. Chặn thật nằm ở chỗ map endpoint và worker.
+        s.AddSingleton<Chat.Inbox.ChatDb>();
+        s.AddSingleton<Chat.Inbox.ChatRepository>();
+        s.AddSingleton<Chat.Inbox.ChatInboundService>();
+        // Thêm kênh mới = thêm 1 dòng ở đây, KHÔNG đụng phần lõi.
+        s.AddSingleton<Chat.Channels.IChatChannelAdapter, Chat.Channels.ZaloChatAdapter>();
         // Ghi chú cũ, giữ lại để hiểu vì sao từng có giai đoạn không có lớp này:
         // TenantChannelSettingsStore đã GỠ (14/08): proxy không còn đọc/ghi cấu hình kênh của
         // công ty — Zalo nay dùng OA chung khai ở config worker. Bảng dbo.TenantChannelSettings vẫn

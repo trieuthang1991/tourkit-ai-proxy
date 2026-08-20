@@ -13,6 +13,30 @@ Những cập nhật gần đây của TRAV-AI, viết cho người dùng. Mới
 
 ---
 
+## Phiên bản 21/08/2026 — Hộp thư chat
+
+### ✨ Tính năng mới
+- **Khách nhắn Zalo, bạn trả lời ngay trong phần mềm.** Có thêm mục **"Hộp thư chat"**: tin khách
+  nhắn tới trang Zalo OA của công ty chảy thẳng vào đây, trợ lý trả lời trước, bạn đọc và tiếp quản
+  khi cần. Mỗi hội thoại giao được cho một nhân viên, đóng lại khi xong, và tạm dừng trợ lý nếu
+  muốn tự trả lời.
+
+  Vài điểm đáng biết:
+  - **Trợ lý tự im khi bạn vào cuộc.** Bạn gửi một tin là trợ lý ngừng nói trong 30 phút, để không
+    có chuyện khách nhận hai câu trả lời khác nhau. Kể cả khi bạn trả lời từ chính ứng dụng Zalo.
+  - **Ba màu cho ba bên** — khách, trợ lý, và nhân viên — nên nhìn là biết câu nào do máy trả lời.
+  - **Zalo chỉ cho trả lời trong 48 giờ** kể từ tin cuối của khách. Quá hạn thì ô soạn tự khoá kèm
+    lời giải thích, thay vì để bạn gõ xong mới báo không gửi được.
+  - **Trợ lý không bịa giá.** Chưa nối dữ liệu tour nên gặp câu hỏi về giá hay lịch khởi hành, nó
+    hỏi thêm thông tin và hẹn báo lại — không tự nghĩ ra con số.
+
+### 📌 Lưu ý
+- Tính năng đang **tắt mặc định**, cần bật cho từng công ty.
+- Để khách nhắn được vào đây, công ty phải khai địa chỉ nhận tin trong trang quản trị Zalo OA.
+- Đợt này mới có Zalo. Facebook Messenger và các kênh khác làm sau.
+
+---
+
 ## Phiên bản 20/08/2026 — Cảnh báo tới đúng người
 
 ### ✨ Tính năng mới

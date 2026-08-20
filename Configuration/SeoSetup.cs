@@ -58,6 +58,7 @@ public static class SeoSetup
         new("/deals", $"Phân tích cơ hội bán hàng · {Brand}"),
         new("/assistant", $"Trợ lý số liệu · {Brand}"),
         new("/mail", $"Hộp thư AI · {Brand}"),
+        new("/chat-inbox", $"Hộp thư chat · {Brand}"),
         new("/visa", $"Visa AI · {Brand}"),
         new("/visa-config", $"Cấu hình Visa · {Brand}"),
         new("/ncc-import", $"Import nhà cung cấp · {Brand}"),
