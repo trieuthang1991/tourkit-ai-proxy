@@ -15,7 +15,7 @@
   const authedFetch = (...a) => window.tourkitAuth.authedFetch(...a);
   const fmtAgo = (t) => (window.tourkitUtil?.fmtAgo ? window.tourkitUtil.fmtAgo(t) : t || '');
 
-  const KENH = { 0: 'Zalo', 1: 'Messenger', 2: 'Web' };
+  const KENH = { 0: 'Zalo', 1: 'Messenger', 2: 'Web', 3: 'Telegram' };
   const TRANG_THAI = [
     { v: null, nhan: 'Tất cả' },
     { v: 0, nhan: 'Mới' },
@@ -44,6 +44,84 @@
     );
   }
 
+  // Khối khai kết nối kênh. Form TỰ VẼ theo danh sách ô mà máy chủ trả về — thêm kênh mới ở
+  // backend là giao diện tự có ô nhập, không phải sửa hai nơi rồi lệch nhau.
+  function KhaiKenh({ pushToast, onDong }) {
+    const [ds, setDs] = useState(null);
+    const [dangLuu, setDangLuu] = useState(null);
+    const [nhap, setNhap] = useState({});
+
+    useEffect(() => {
+      authedFetch('/api/v1/chat/channels')
+        .then(r => r.ok ? r.json() : Promise.reject(r.status))
+        .then(j => setDs(j.items || []))
+        .catch(st => setDs(st === 403 ? 'cam' : []));
+    }, []);
+
+    async function luu(kenh) {
+      setDangLuu(kenh);
+      try {
+        const r = await authedFetch('/api/v1/chat/channels/' + kenh, {
+          method: 'PUT', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(nhap[kenh] || {}),
+        });
+        if (!r.ok) { pushToast('Lưu không được', 'error'); return; }
+        pushToast('Đã lưu kết nối kênh', 'success');
+        setNhap(p => ({ ...p, [kenh]: {} }));
+        const j = await (await authedFetch('/api/v1/chat/channels')).json();
+        setDs(j.items || []);
+      } finally { setDangLuu(null); }
+    }
+
+    if (ds === 'cam') return (
+      <div className="ci-khai"><div className="ci-trong">
+        Chỉ tài khoản có quyền Cấu hình hệ thống mới khai được kết nối kênh.
+      </div></div>
+    );
+    if (!ds) return <div className="ci-khai"><div className="ci-trong">Đang tải…</div></div>;
+
+    return (
+      <div className="ci-khai">
+        <div className="ci-khai-dau">
+          <b>Kết nối kênh</b>
+          <button onClick={onDong}>Đóng</button>
+        </div>
+        {ds.map(k => (
+          <div key={k.channel} className="ci-kenh-the">
+            <div className="ci-kenh-ten">
+              {k.name}
+              {k.configured === true && <span className="ci-xong">đã khai</span>}
+              {k.configured === false && <span className="ci-chua">chưa khai</span>}
+            </div>
+            <label className="ci-url">
+              Địa chỉ nhận tin (dán vào trang quản trị của kênh)
+              <input readOnly value={k.webhookUrl} onFocus={e => e.target.select()} />
+            </label>
+            {k.fields.map(o => o.type === 'note'
+              ? <div key={o.key} className="ci-ghichu">{o.label}</div>
+              : (
+                <label key={o.key} className="ci-o">
+                  {o.label}
+                  <input type={o.type === 'secret' ? 'password' : 'text'}
+                         placeholder={k.configured ? 'để trống = giữ nguyên' : ''}
+                         value={(nhap[k.channel] || {})[o.key] || ''}
+                         onChange={e => setNhap(p => ({
+                           ...p, [k.channel]: { ...(p[k.channel] || {}), [o.key]: e.target.value },
+                         }))} />
+                </label>
+              ))}
+            {k.fields.some(o => o.type !== 'note') && (
+              <button className="btn-primary" disabled={dangLuu === k.channel}
+                      onClick={() => luu(k.channel)}>
+                {dangLuu === k.channel ? 'Đang lưu…' : 'Lưu'}
+              </button>
+            )}
+          </div>
+        ))}
+      </div>
+    );
+  }
+
   function ChatInboxPage({ pushToast }) {
     const [dsach, setDsach] = useState([]);
     const [dem, setDem] = useState({ moi: 0, dangXuLy: 0, daDong: 0 });
@@ -54,6 +132,7 @@
     const [soan, setSoan] = useState('');
     const [dangGui, setDangGui] = useState(false);
     const [dangTai, setDangTai] = useState(true);
+    const [moKhai, setMoKhai] = useState(false);
     const cuonRef = useRef(null);
 
     const taiDsach = useCallback(async () => {
@@ -159,9 +238,12 @@
         <header className="page-head">
           <div>
             <h1>Hộp thư chat</h1>
-            <p className="muted">Tin khách nhắn từ Zalo OA — bot trả lời trước, bạn tiếp quản khi cần.</p>
+            <p className="muted">Tin khách nhắn từ Zalo, Facebook Messenger và Telegram — bot trả lời trước, bạn tiếp quản khi cần.</p>
           </div>
+          <button className="btn-ghost" onClick={() => setMoKhai(v => !v)}>Kết nối kênh</button>
         </header>
+
+        {moKhai && <KhaiKenh pushToast={pushToast} onDong={() => setMoKhai(false)} />}
 
         <div className="ci-grid">
           {/* Cột 1 — bộ lọc */}
@@ -185,7 +267,7 @@
             {!dangTai && dsach.length === 0 && (
               <div className="ci-trong">
                 Chưa có hội thoại nào.<br />
-                <span className="muted">Khai địa chỉ webhook trong trang quản trị Zalo OA để khách nhắn vào đây.</span>
+                <span className="muted">Bấm “Kết nối kênh” ở trên để lấy địa chỉ nhận tin, rồi dán vào trang quản trị của Zalo OA / Facebook / Telegram.</span>
               </div>
             )}
             {dsach.map(c => (

@@ -179,8 +179,13 @@ public static class WorkflowStackRegistration
         s.AddSingleton<Chat.Inbox.ChatDb>();
         s.AddSingleton<Chat.Inbox.ChatRepository>();
         s.AddSingleton<Chat.Inbox.ChatInboundService>();
+        s.AddSingleton<Chat.Channels.ChannelCredentialStore>();
         // Thêm kênh mới = thêm 1 dòng ở đây, KHÔNG đụng phần lõi.
         s.AddSingleton<Chat.Channels.IChatChannelAdapter, Chat.Channels.ZaloChatAdapter>();
+        s.AddSingleton<Chat.Channels.IChatChannelAdapter, Chat.Channels.MessengerChatAdapter>();
+        s.AddSingleton<Chat.Channels.IChatChannelAdapter, Chat.Channels.TelegramChatAdapter>();
+        // MessengerChatAdapter cần được lấy đích danh cho bước Meta xác minh địa chỉ webhook.
+        s.AddSingleton<Chat.Channels.MessengerChatAdapter>();
         // Ghi chú cũ, giữ lại để hiểu vì sao từng có giai đoạn không có lớp này:
         // TenantChannelSettingsStore đã GỠ (14/08): proxy không còn đọc/ghi cấu hình kênh của
         // công ty — Zalo nay dùng OA chung khai ở config worker. Bảng dbo.TenantChannelSettings vẫn

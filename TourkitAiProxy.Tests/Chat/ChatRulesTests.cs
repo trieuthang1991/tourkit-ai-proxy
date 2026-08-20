@@ -61,6 +61,24 @@ public class ChatRulesTests
         Assert.True(ChatRules.TinhCuaSo(ChatChannel.Webchat, null, Now).Open);
     }
 
+    [Fact]
+    public void Telegram_khong_co_cua_so_nen_chu_dong_nhan_truoc_duoc()
+    {
+        // Khác Zalo/Messenger: Telegram cho nhắn lại lúc nào cũng được, miễn khách chưa chặn bot.
+        // Áp luật 24h cho nó là tự khoá tay mình vô cớ.
+        Assert.True(ChatRules.TinhCuaSo(ChatChannel.Telegram, null, Now).Open);
+        Assert.True(ChatRules.TinhCuaSo(ChatChannel.Telegram, Now.AddDays(-30), Now).Open);
+    }
+
+    [Fact]
+    public void Moi_kenh_mot_han_rieng_khong_dung_chung_mot_luat()
+    {
+        var luc = Now.AddHours(-30);   // quá 24h nhưng chưa quá 48h
+        Assert.True(ChatRules.TinhCuaSo(ChatChannel.Zalo, luc, Now).Open);        // 48h → còn
+        Assert.False(ChatRules.TinhCuaSo(ChatChannel.Messenger, luc, Now).Open);  // 24h → hết
+        Assert.True(ChatRules.TinhCuaSo(ChatChannel.Telegram, luc, Now).Open);    // không hạn
+    }
+
     // ── Bot câm ─────────────────────────────────────────────────────────────
 
     [Fact]

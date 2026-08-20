@@ -13,6 +13,7 @@ public enum ChatChannel : short
     Zalo = 0,
     Messenger = 1,
     Webchat = 2,
+    Telegram = 3,
 }
 
 /// Chiều của tin nhắn.

@@ -29,17 +29,29 @@ public static class ChatInboxEndpoints
 
     // ── Webhook ─────────────────────────────────────────────────────────────
 
+    /// Tên kênh trên đường dẫn → enum. Một nguồn cho cả ba kênh, thêm kênh chỉ thêm 1 dòng.
+    private static readonly Dictionary<string, ChatChannel> TenKenh = new(StringComparer.OrdinalIgnoreCase)
+    {
+        ["zalo"] = ChatChannel.Zalo,
+        ["messenger"] = ChatChannel.Messenger,
+        ["telegram"] = ChatChannel.Telegram,
+    };
+
     private static void MapWebhook(IEndpointRouteBuilder routes)
     {
         // Tenant nằm trên ĐƯỜNG DẪN vì webhook không có phiên đăng nhập: mỗi công ty khai một URL
-        // riêng ở trang quản trị OA của họ. Không nhận tenant từ thân request — thân do người ngoài
+        // riêng ở trang quản trị của kênh. Không nhận tenant từ thân request — thân do người ngoài
         // gửi, tin vào đó là ai cũng ghi được tin vào hộp thư công ty khác.
-        routes.MapPost("/api/v1/chat/webhook/zalo/{tenantId}", async (
-            string tenantId, HttpContext ctx, ChatInboundService svc, ILoggerFactory lf,
+        //
+        // MỘT đường dẫn cho MỌI kênh. Viết riêng từng kênh thì phần chung (đọc thân thô, kiểm chữ
+        // ký, trả 200 ngay, xử lý nền) bị chép ba lần và sớm muộn lệch nhau.
+        routes.MapPost("/api/v1/chat/webhook/{kenh}/{tenantId}", async (
+            string kenh, string tenantId, HttpContext ctx, ChatInboundService svc, ILoggerFactory lf,
             CancellationToken ct) =>
         {
             var log = lf.CreateLogger("chat.webhook");
-            var adapter = svc.Adapter(ChatChannel.Zalo);
+            if (!TenKenh.TryGetValue(kenh, out var loaiKenh)) return Results.NotFound();
+            var adapter = svc.Adapter(loaiKenh);
             if (adapter is null) return Results.NotFound();
 
             // Đọc THÂN THÔ: chữ ký ký trên đúng chuỗi này, parse rồi dựng lại là chữ ký hỏng.
@@ -50,15 +62,15 @@ public static class ChatInboxEndpoints
 
             if (!await adapter.VerifyAsync(tenantId, raw, ctx.Request.Headers, ct))
             {
-                log.LogWarning("[chat/webhook] chữ ký sai, tenant={T}", tenantId);
+                log.LogWarning("[chat/webhook] chữ ký sai, kênh={K} tenant={T}", kenh, tenantId);
                 return Results.Unauthorized();
             }
 
             var sk = adapter.Parse(raw);
             if (sk.Count == 0) return Results.Ok();
 
-            // TRẢ 200 NGAY rồi xử lý nền. Zalo gửi lại khi không thấy 200, mà xử lý có gọi AI nên
-            // mất vài giây — trả lời chậm là khách nhận tin nhân đôi.
+            // TRẢ 200 NGAY rồi xử lý nền. Kênh nào cũng gửi lại khi không thấy 200, mà xử lý có gọi
+            // AI nên mất vài giây — trả lời chậm là khách nhận tin nhân đôi.
             _ = Task.Run(async () =>
             {
                 try { await svc.HandleAsync(tenantId, sk, CancellationToken.None); }
@@ -66,6 +78,18 @@ public static class ChatInboxEndpoints
             }, CancellationToken.None);
 
             return Results.Ok();
+        });
+
+        // Meta xác minh địa chỉ webhook bằng một lượt GET riêng trước khi bắt đầu gửi tin. Thiếu
+        // đường này thì không đăng ký được webhook Messenger, dù phần nhận tin đã đúng hết.
+        routes.MapGet("/api/v1/chat/webhook/messenger/{tenantId}", async (
+            string tenantId, HttpContext ctx, MessengerChatAdapter adapter, CancellationToken ct) =>
+        {
+            var q = ctx.Request.Query;
+            var challenge = await adapter.XacMinhDangKyAsync(tenantId,
+                q["hub.mode"], q["hub.verify_token"], q["hub.challenge"], ct);
+            // Trả chuỗi THÔ, không bọc JSON — Meta so khớp nguyên văn.
+            return challenge is null ? Results.Forbid() : Results.Text(challenge);
         });
     }
 
@@ -211,10 +235,82 @@ public static class ChatInboxEndpoints
             await repo.PauseBotAsync(a.TenantId, id, body.Paused ? Math.Clamp(body.Minutes ?? 30, 1, 1440) : 0, ct);
             return Results.Json(new { ok = true }, Web);
         });
+
+        // ── Khai kết nối kênh ───────────────────────────────────────────────
+        // Cần quyền Cấu hình hệ thống: đây là khoá cấp CÔNG TY, ai cầm được là nhắn tin dưới danh
+        // nghĩa công ty. Cùng luật với khai OA Zalo cho bản tin.
+        g.MapGet("/channels", async (HttpContext ctx, TkSessionStore sessions,
+            ChannelCredentialStore cred, IConfiguration cfg, CancellationToken ct) =>
+        {
+            var a = SessionAuth.Read(ctx, sessions);
+            if (a == null) return SessionAuth.Unauthorized();
+            if (!await SessionAuth.CanConfigSystemAsync(a.SessionId, sessions, ct))
+                return SessionAuth.ForbiddenConfigSystem();
+
+            var goc = $"{ctx.Request.Scheme}://{ctx.Request.Host}";
+            var ra = new List<object>();
+            foreach (var (kenh, ten, oNhap) in KhaiBao)
+            {
+                var c = kenh == ChatChannel.Zalo ? null : await cred.GetAsync(a.TenantId, kenh, ct);
+                var xong = kenh switch
+                {
+                    // Zalo dùng chung khai báo OA với bản tin — không khai lại ở đây.
+                    ChatChannel.Zalo => (bool?)null,
+                    ChatChannel.Messenger => c is not null && c.ContainsKey("pageAccessToken") && c.ContainsKey("appSecret"),
+                    ChatChannel.Telegram => c is not null && c.ContainsKey("webhookSecret")
+                        && (c.ContainsKey("botToken") || !string.IsNullOrWhiteSpace(cfg["Telegram:BotToken"])),
+                    _ => false,
+                };
+                ra.Add(new
+                {
+                    channel = (short)kenh, name = ten, fields = oNhap, configured = xong,
+                    // Địa chỉ để dán vào trang quản trị của kênh. Dựng từ request để không hardcode
+                    // tên miền — sau proxy thì Host là tên miền thật.
+                    webhookUrl = $"{goc}/api/v1/chat/webhook/{kenh.ToString().ToLowerInvariant()}/{a.TenantId}",
+                });
+            }
+            return Results.Json(new { items = ra }, Web);
+        });
+
+        g.MapPut("/channels/{channel:int}", async (int channel, Dictionary<string, string?> body,
+            HttpContext ctx, TkSessionStore sessions, ChannelCredentialStore cred, CancellationToken ct) =>
+        {
+            var a = SessionAuth.Read(ctx, sessions);
+            if (a == null) return SessionAuth.Unauthorized();
+            if (!await SessionAuth.CanConfigSystemAsync(a.SessionId, sessions, ct))
+                return SessionAuth.ForbiddenConfigSystem();
+            if (!Enum.IsDefined(typeof(ChatChannel), (short)channel) || (ChatChannel)channel == ChatChannel.Zalo)
+                return Results.BadRequest(new { error = "Kênh không hợp lệ (Zalo khai ở mục OA của công ty)" });
+
+            await cred.SaveAsync(a.TenantId, (ChatChannel)channel, body, ct);
+            return Results.Json(new { ok = true }, Web);
+        });
     }
 
     private static IResult ChuaCauHinh()
         => Results.Json(new { error = "Chưa khai cơ sở dữ liệu chat (ConnectionStrings:Chat)" }, statusCode: 503);
+
+    /// Ô cần nhập cho từng kênh. MỘT nguồn — giao diện đọc để tự vẽ form, thêm kênh không phải
+    /// sửa giao diện.
+    private static readonly (ChatChannel Kenh, string Ten, object[] O)[] KhaiBao =
+    {
+        (ChatChannel.Zalo, "Zalo OA", new object[]
+        {
+            new { key = "note", label = "Khai ở Tự động hoá → Theo tổ chức → Zalo OA của công ty", type = "note" },
+        }),
+        (ChatChannel.Messenger, "Facebook Messenger", new object[]
+        {
+            new { key = "pageId",          label = "ID Trang", type = "text" },
+            new { key = "pageAccessToken", label = "Page Access Token", type = "secret" },
+            new { key = "appSecret",       label = "App Secret (để kiểm chữ ký)", type = "secret" },
+            new { key = "verifyToken",     label = "Verify Token (bạn tự đặt, dán cả vào Meta)", type = "secret" },
+        }),
+        (ChatChannel.Telegram, "Telegram", new object[]
+        {
+            new { key = "botToken",      label = "Bot token riêng (bỏ trống = dùng bot chung của hệ thống)", type = "secret" },
+            new { key = "webhookSecret", label = "Chuỗi bí mật webhook (bạn tự đặt, khai khi gọi setWebhook)", type = "secret" },
+        }),
+    };
 
     private static object Shape(ChatConversation v) => new
     {

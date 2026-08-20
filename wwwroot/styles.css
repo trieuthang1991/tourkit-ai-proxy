@@ -8971,3 +8971,20 @@ n
   .ci-ds { max-height: 300px; }
   .ci-chat { min-height: 460px; }
 }
+
+/* Khối khai kết nối kênh trong Hộp thư chat. */
+.ci-khai { border: 1px solid var(--line, #e5e7eb); border-radius: 10px; background: #fff;
+           padding: 14px; margin-bottom: 12px; }
+.ci-khai-dau { display: flex; justify-content: space-between; align-items: center;
+               margin-bottom: 10px; }
+.ci-khai-dau button { padding: 4px 10px; border: 1px solid var(--line, #e5e7eb);
+                      border-radius: 6px; background: #fff; cursor: pointer; font-size: 12.5px; }
+.ci-kenh-the { border: 1px solid #f1f5f9; border-radius: 8px; padding: 10px 12px; margin-bottom: 8px; }
+.ci-kenh-ten { font-weight: 600; margin-bottom: 8px; display: flex; align-items: center; gap: 8px; }
+.ci-xong { font-size: 11px; background: #dcfce7; color: #166534; border-radius: 4px; padding: 1px 6px; }
+.ci-chua { font-size: 11px; background: #fef3c7; color: #92400e; border-radius: 4px; padding: 1px 6px; }
+.ci-o, .ci-url { display: block; font-size: 12.5px; color: #475569; margin-bottom: 7px; }
+.ci-o input, .ci-url input { display: block; width: 100%; margin-top: 3px; padding: 6px 9px;
+                             border: 1px solid var(--line, #e5e7eb); border-radius: 6px; font-size: 13px; }
+.ci-url input { background: #f8fafc; font-family: ui-monospace, monospace; font-size: 12px; }
+.ci-ghichu { font-size: 12.5px; color: #64748b; font-style: italic; }

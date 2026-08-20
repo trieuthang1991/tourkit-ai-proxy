@@ -378,7 +378,27 @@ khách/tour bên SQL Server và **không có giao dịch chung** — ghi tin nh�
 thử lại. Schema ở [`ChatDb.SchemaSql`](Services/Chat/Inbox/ChatDb.cs); thiếu chuỗi kết nối thì cụm chat
 tự tắt, KHÔNG làm sập app.
 
-**Đường đi:** webhook (`POST /api/v1/chat/webhook/zalo/{tenantId}` — **công khai**, gác bằng chữ ký) →
+**Ba kênh, MỘT đường dẫn webhook:** `POST /api/v1/chat/webhook/{kenh}/{tenantId}` với `kenh` ∈
+`zalo` · `messenger` · `telegram` — **công khai** (kênh gọi tới, không có phiên), gác bằng chữ ký.
+Viết riêng từng kênh thì phần chung (đọc thân thô, kiểm chữ ký, trả 200 ngay, xử lý nền) bị chép ba
+lần và sớm muộn lệch nhau. Messenger cần thêm `GET` cùng đường dẫn cho bước Meta xác minh
+(`hub.challenge`) — thiếu là không đăng ký được webhook dù phần nhận tin đã đúng.
+
+⚠️ **Mỗi kênh một kiểu xác thực, đừng chép qua lại:** Zalo = `SHA256(appId+thânThô+timestamp+secret)`;
+Messenger = **HMAC**-SHA256(appSecret, thânThô) trong `X-Hub-Signature-256`; Telegram **không ký gì
+cả** — chỉ so chuỗi bí mật trong `X-Telegram-Bot-Api-Secret-Token`, nên **thiếu chuỗi đó là ai biết
+địa chỉ webhook cũng bơm tin giả vào hộp thư**.
+
+⚠️ **Cửa sổ gửi khác nhau THẬT:** Zalo 48h · Messenger 24h · Telegram và web **không giới hạn**. Áp
+một luật chung là hoặc tự khoá tay mình (Telegram), hoặc để tin biến mất (Messenger).
+
+**Khoá kênh:** Messenger/Telegram lưu ở [`ChannelCredentialStore`](Services/Chat/Channels/ChannelCredentialStore.cs)
+— dùng lại bảng `dbo.TenantChannelSettings`, mọi giá trị mã hoá Crypton. **Zalo KHÔNG dùng kho này**
+(bản ghi `zalo` do `TenantChannelSettingsStore` làm chủ, có khoá worker xoay vòng — hai nơi cùng ghi
+là mất token của nhau). Khai qua `GET/PUT /api/v1/chat/channels` (cần `CH_HT_XEM`), giao diện **tự vẽ
+form** theo danh sách ô máy chủ trả về.
+
+**Đường đi:** webhook →
 [`ChatInboundService`](Services/Chat/Inbox/ChatInboundService.cs) chạy NỀN → bot trả lời → xếp
 `chat_outbox` → [`ChatOutboxWorker`](Services/Chat/Inbox/ChatOutboxWorker.cs) gửi qua
 [`ZaloChatAdapter`](Services/Chat/Channels/ZaloChatAdapter.cs).

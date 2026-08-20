@@ -34,7 +34,9 @@ public static class ChatRules
     /// </summary>
     public static SendWindow TinhCuaSo(ChatChannel kenh, DateTime? khachNhanLuc, DateTime nowUtc)
     {
-        if (kenh == ChatChannel.Webchat)
+        // Telegram và web không giới hạn thời gian — nhắn lại lúc nào cũng được. Đây là khác biệt
+        // THẬT giữa các kênh, đừng áp một luật chung cho tất cả.
+        if (kenh is ChatChannel.Webchat or ChatChannel.Telegram)
             return new(true, TimeSpan.MaxValue, "");
 
         var han = kenh == ChatChannel.Zalo ? CuaSoZalo : CuaSoMessenger;
@@ -58,6 +60,8 @@ public static class ChatRules
     {
         ChatChannel.Zalo => "Zalo",
         ChatChannel.Messenger => "Messenger",
+        ChatChannel.Telegram => "Telegram",
+        ChatChannel.Webchat => "Chat trên web",
         _ => "Kênh này",
     };
 
