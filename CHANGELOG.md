@@ -16,6 +16,12 @@ Những cập nhật gần đây của TRAV-AI, viết cho người dùng. Mới
 ## Phiên bản 20/08/2026 — Cảnh báo tới đúng người
 
 ### ✨ Tính năng mới
+- **Nghe bản tin ngay trong TRAVAI.** Trước đây muốn nghe bản tin sáng bạn phải vào Bảng tin —
+  tức là phải ngồi trước màn hình mới bấm được, trong khi bản tin lại đúng là thứ hợp để nghe
+  lúc đang lái xe hay vừa ngủ dậy. Nay trên trang trợ lý giọng nói có nút **"Bản tin"**: mở ra
+  là thấy danh sách bản tin gần đây (của bạn và của công ty), chọn cái nào bấm **Nghe** cái đó,
+  bấm lần nữa để dừng.
+
 - **Trang hướng dẫn cho Nhà cung cấp.** Phần nhập bảng giá nhà cung cấp bằng AI trước đây nằm lẫn
   trong bài *Tính giá Tour*, nên mở mục lục Hướng dẫn không thấy dòng nào tên nó — nhiều người
   tưởng chưa có hướng dẫn. Nay có bài riêng **"Nhà cung cấp & Import giá"**, kèm ảnh minh hoạ đầy

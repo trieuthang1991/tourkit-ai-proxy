@@ -1383,6 +1383,51 @@ function JarvisPage({ pushToast }) {
     return () => window.removeEventListener('keydown', onKey);
   }, [sugOpen]);
 
+  // ── Nghe bản tin ────────────────────────────────────────────────────────────
+  // Bản tin sáng là thứ HỢP VỚI NGHE NHẤT trong cả hệ: nó đã được viết sẵn thành lời
+  // (server trả `speakText` — bản đã bỏ markdown/emoji), lại đúng cảnh người ta mở TRAVAI
+  // (đang lái xe, vừa ngủ dậy). Trước đây chỉ nghe được ở Bảng tin, mà đó là trang phải
+  // ngồi trước màn hình mới bấm được.
+  //
+  // Danh sách chứ không phải một nút đọc-ngay: sáng nay có thể có bản tin của mình, và
+  // những ngày trước vẫn còn đó — người dùng phải được CHỌN nghe cái nào.
+  const [briefOpen, setBriefOpen] = React.useState(false);
+  const [briefItems, setBriefItems] = React.useState(null);
+  const [briefLoading, setBriefLoading] = React.useState(false);
+  const [briefPlaying, setBriefPlaying] = React.useState(null);   // id dòng đang đọc
+  // Tách LỖI với RỖNG. Gộp hai cái làm một thì lúc máy chủ trục trặc, người dùng đọc được câu
+  // "chưa có bản tin nào" rồi đi bật đăng ký mà họ vốn đã bật — mất công mà không chữa được gì.
+  const [briefErr, setBriefErr] = React.useState(false);
+  const digestOn = window.tourkitFeatures?.useFeature
+    ? window.tourkitFeatures.useFeature('digest')
+    : false;
+
+  React.useEffect(() => {
+    if (!briefOpen) return;
+    let alive = true;
+    setBriefLoading(true);
+    setBriefErr(false);
+    window.tourkitAuth.authedFetch('/api/v1/insights?limit=30')
+      .then(r => { if (!r.ok) throw new Error('HTTP ' + r.status); return r.json(); })
+      // CHỈ dòng có `speakText` mới nghe được — đó đúng là bản tin (sale/ceo). Thẻ cảnh báo
+      // (nhắc thu tiền, doanh thu bất thường…) không có lời đọc nên lọc ra, bày lên mà bấm
+      // không kêu thì người dùng tưởng hỏng.
+      .then(j => { if (alive) setBriefItems((j.items || []).filter(x => x.speakText)); })
+      .catch(() => { if (alive) { setBriefItems([]); setBriefErr(true); } })
+      .finally(() => { if (alive) setBriefLoading(false); });
+    return () => { alive = false; };
+  }, [briefOpen]);
+
+  // Bấm dòng đang đọc = dừng. Bấm dòng khác = chuyển sang đọc dòng đó.
+  function toggleBrief(it) {
+    if (briefPlaying === it.id) { stopEverything(); setBriefPlaying(null); return; }
+    stopEverything();
+    setBriefPlaying(it.id);
+    speakViaServer(it.speakText);
+  }
+  // Giọng đọc xong (hoặc bị dừng ở chỗ khác) thì bỏ đánh dấu, nếu không nút kẹt ở chữ "Dừng".
+  React.useEffect(() => { if (!speaking) setBriefPlaying(null); }, [speaking]);
+
   // O3 (BugTRAV-AI): drawer "Yêu cầu (Hàng đợi CRM)" mở từ nút 3 gạch ngay tại màn AI Talk —
   // trước phải vào /workflows (Tích hợp/cấu hình) mới xem được, bất tiện.
   const [queueOpen, setQueueOpen] = React.useState(false);
@@ -1458,6 +1503,15 @@ function JarvisPage({ pushToast }) {
                 <Icon name="bell" size={14} /> NGHE
               </button>
             )}
+            {/* Nghe bản tin — ẩn hẳn khi cụm bản tin chưa mở cho công ty này, vì lúc đó
+                /api/v1/insights trả 404, bày nút ra chỉ để bấm vào báo lỗi. */}
+            {digestOn && (
+              <button className={'jv-toggle' + (briefPlaying ? ' listen-on' : '')}
+                      onClick={() => setBriefOpen(true)}
+                      title="Nghe bản tin sáng — chọn bản tin rồi bấm Nghe">
+                <Icon name="bell" size={14} /> BẢN TIN
+              </button>
+            )}
             {/* O3: nút 3 gạch mở danh sách Yêu cầu (Hàng đợi CRM) ngay tại màn AI Talk. */}
             <button className="jv-toggle" onClick={() => setQueueOpen(true)} title="Danh sách Yêu cầu (Hàng đợi CRM)">
               <Icon name="list" size={14} /> YÊU CẦU
@@ -1499,6 +1553,60 @@ function JarvisPage({ pushToast }) {
         )}
 
         {/* O3: Drawer "Yêu cầu — Hàng đợi CRM" (giao việc / lịch hẹn trợ lý đã enqueue). */}
+        {briefOpen && (
+          <div style={{ position: 'fixed', inset: 0, zIndex: 1200, background: 'rgba(2,6,23,0.6)', display: 'flex', justifyContent: 'flex-end' }}
+               onClick={() => setBriefOpen(false)}>
+            <aside style={{ width: 'min(460px, 96vw)', height: '100vh', background: '#0b1220', color: '#e2e8f0', overflowY: 'auto',
+                            borderLeft: '1px solid rgba(56,189,248,0.25)', boxShadow: '-12px 0 32px rgba(0,0,0,0.5)' }}
+                   onClick={e => e.stopPropagation()}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '14px 18px', borderBottom: '1px solid rgba(148,163,184,0.2)' }}>
+                <Icon name="bell" size={16} />
+                <div style={{ flex: 1, fontWeight: 700, fontSize: 14 }}>Bản tin — chọn để nghe</div>
+                <button onClick={() => setBriefOpen(false)} aria-label="Đóng"
+                        style={{ background: 'transparent', border: 'none', color: '#94a3b8', fontSize: 20, cursor: 'pointer' }}>×</button>
+              </div>
+              <div style={{ padding: 14 }}>
+                {briefLoading ? (
+                  <div style={{ padding: 20, textAlign: 'center', color: '#64748b' }}>Đang tải…</div>
+                ) : briefErr ? (
+                  <div style={{ padding: 20, textAlign: 'center', color: '#fca5a5', lineHeight: 1.7 }}>
+                    Không lấy được danh sách bản tin.<br />
+                    <span style={{ color: '#94a3b8' }}>Máy chủ đang trục trặc — đóng lại rồi mở ra thử lần nữa.</span>
+                  </div>
+                ) : !briefItems || briefItems.length === 0 ? (
+                  <div style={{ padding: 20, textAlign: 'center', color: '#64748b', lineHeight: 1.7 }}>
+                    Chưa có bản tin nào để nghe.<br />
+                    Bật nhận bản tin ở trang <b>Tự động hoá</b> → <b>Bản tin của tôi</b>.
+                  </div>
+                ) : (
+                  <div style={{ display: 'grid', gap: 8 }}>
+                    {briefItems.map(it => {
+                      const loai = it.kind === 'ceo-brief' ? 'Bản tin điều hành' : 'Bản tin sáng';
+                      const khi = window.tourkitUtil?.fmtAgo ? window.tourkitUtil.fmtAgo(it.createdUtc) : (it.createdUtc || '');
+                      const dangDoc = briefPlaying === it.id;
+                      return (
+                        <div key={it.id} style={{ border: '1px solid rgba(148,163,184,0.18)', borderRadius: 10, padding: '10px 12px',
+                                                  background: dangDoc ? 'rgba(56,189,248,0.10)' : 'rgba(15,23,42,0.6)' }}>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4 }}>
+                            <span style={{ fontSize: 11, color: '#38bdf8', fontWeight: 700, letterSpacing: '.04em' }}>{loai.toUpperCase()}</span>
+                            {!it.isRead && <span title="Chưa đọc" style={{ width: 7, height: 7, borderRadius: '50%', background: '#fb923c' }} />}
+                            <span style={{ marginLeft: 'auto', fontSize: 11, color: '#64748b' }}>{khi}</span>
+                          </div>
+                          <div style={{ fontSize: 13, fontWeight: 600, lineHeight: 1.45, marginBottom: 8 }}>{it.title}</div>
+                          <button className={'jv-toggle' + (dangDoc ? ' listen-on' : '')} onClick={() => toggleBrief(it)}
+                                  title={dangDoc ? 'Đang đọc — bấm để dừng' : 'Nghe bản tin này'}>
+                            <Icon name="bell" size={13} /> {dangDoc ? 'DỪNG' : 'NGHE'}
+                          </button>
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
+            </aside>
+          </div>
+        )}
+
         {queueOpen && (
           <div style={{ position: 'fixed', inset: 0, zIndex: 1200, background: 'rgba(2,6,23,0.6)', display: 'flex', justifyContent: 'flex-end' }}
                onClick={() => setQueueOpen(false)}>
