@@ -13,6 +13,21 @@ Những cập nhật gần đây của TRAV-AI, viết cho người dùng. Mới
 
 ---
 
+## Phiên bản 20/08/2026 — Mở CRM báo đúng lỗi
+
+### 🔧 Đã khắc phục
+- **Bấm "Danh sách Khách hàng CRM" hiện một câu lỗi không ai hiểu.** Câu hiện ra là
+  *"Không mở được CRM: Unexpected token '<'…"* — nghe như lỗi của TRAV-AI, nhưng thật ra bên CRM mới
+  là nơi trục trặc, còn lời giải thích của nó bị chặn lại giữa đường nên không tới được màn hình.
+  Nay bạn đọc được **đúng nguyên nhân** ngay trên thông báo, thay vì một câu lỗi kỹ thuật vô nghĩa.
+  Áp dụng cho mọi nút mở sang CRM: danh sách khách hàng, danh sách cơ hội, và mở một cơ hội cụ thể.
+
+### 📌 Lưu ý
+- Bản này làm lỗi **hiện ra đúng**. Nếu bấm nút mà vẫn chưa mở được CRM, thông báo giờ sẽ nói rõ
+  vướng ở đâu — gửi nguyên câu đó cho bộ phận kỹ thuật là đủ để xử lý.
+
+---
+
 ## Phiên bản 19/08/2026 — Bản tin sáng gửi đúng nội dung
 
 ### 🔧 Đã khắc phục
