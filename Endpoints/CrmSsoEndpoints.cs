@@ -87,18 +87,21 @@ public static class CrmSsoEndpoints
                 if (!resp.IsSuccessStatusCode)
                 {
                     // Lộ message lỗi thật của CRM (body { error } từ SsoController) để chẩn đoán, không nuốt.
+                    // TUYỆT ĐỐI KHÔNG trả 502/504: travelai.vn đứng sau Cloudflare, mà Cloudflare THAY body
+                    // origin bằng trang HTML "Bad gateway Error code 502" của nó → message dưới đây bay sạch,
+                    // browser nhận <!DOCTYPE → "Unexpected token '<'". 424 (Failed Dependency) không bị chặn.
                     var snippet = (respBody ?? "").Trim();
                     if (snippet.Length > 400) snippet = snippet.Substring(0, 400);
-                    return Results.Json(new { error = $"CRM từ chối SSO (HTTP {(int)resp.StatusCode}) @ {scheme}://{host} — {snippet}" }, statusCode: 502);
+                    return Results.Json(new { error = $"CRM từ chối SSO (HTTP {(int)resp.StatusCode}) @ {scheme}://{host} — {snippet}" }, statusCode: 424);
                 }
                 using var doc = JsonDocument.Parse(respBody);
                 if (!doc.RootElement.TryGetProperty("exchangeUrl", out var ex) || ex.ValueKind != JsonValueKind.String)
-                    return Results.Json(new { error = "CRM trả response không hợp lệ" }, statusCode: 502);
+                    return Results.Json(new { error = "CRM trả response không hợp lệ" }, statusCode: 424);
                 return Results.Json(new { url = ex.GetString() });
             }
             catch (Exception e)
             {
-                return Results.Json(new { error = "Không kết nối được CRM: " + e.Message }, statusCode: 502);
+                return Results.Json(new { error = "Không kết nối được CRM: " + e.Message }, statusCode: 424);
             }
         }).DisableAntiforgery();
 
@@ -136,7 +139,7 @@ public static class CrmSsoEndpoints
             // Sinh code random 256-bit + lưu TTL 60s (giá trị = nguyên body đã verify).
             var code = store.GenCode();
             if (!store.Save(code, body, TimeSpan.FromSeconds(60)))
-                return Results.Json(new { error = "Không lưu được code" }, statusCode: 502);
+                return Results.Json(new { error = "Không lưu được code" }, statusCode: 424);
 
             var self = (cfg["TravAiSso:BaseUrl"] ?? "").Trim().TrimEnd('/');
             if (self.Length == 0) self = $"{ctx.Request.Scheme}://{ctx.Request.Host}";

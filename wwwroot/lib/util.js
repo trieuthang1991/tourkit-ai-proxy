@@ -102,9 +102,19 @@
     const win = window.open('', '_blank');
     try {
       const redirect = String(path || '/').startsWith('/') ? path : '/' + path;
+      // Body '{}' tường minh: POST rỗng qua HTTP/2 có thể thiếu Content-Length → http.sys chặn 411
+      // "Length Required" (trang HTML) trước cả khi tới app.
       const r = await window.tourkitAuth.authedFetch(
-        '/api/v1/crm-sso-ticket?redirect=' + encodeURIComponent(redirect), { method: 'POST' });
-      const j = await r.json();
+        '/api/v1/crm-sso-ticket?redirect=' + encodeURIComponent(redirect),
+        { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' });
+      // Đọc TEXT rồi mới parse. Hạ tầng chen ngang (Cloudflare 502/504, IIS 411/502.5) trả TRANG HTML,
+      // r.json() sẽ ném "Unexpected token '<', <!DOCTYPE" — nuốt mất status thật, không ai chẩn được.
+      const raw = await r.text();
+      let j = null;
+      try { j = JSON.parse(raw); } catch { /* không phải JSON = trang lỗi của hạ tầng, không phải của app */ }
+      if (!j) throw new Error(r.ok
+        ? 'máy chủ trả dữ liệu không hợp lệ (không phải JSON)'
+        : 'máy chủ lỗi HTTP ' + r.status + ' (Cloudflare/IIS chặn, chưa tới ứng dụng)');
       if (!r.ok || j.error) throw new Error(j.error || ('HTTP ' + r.status));
       if (win) win.location = j.url; else window.location = j.url;
     } catch (e) {
