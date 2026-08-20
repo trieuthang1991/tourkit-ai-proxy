@@ -51,9 +51,20 @@ nhân viên tiếp quản/giao việc được. Đủ 6 luật nghiệp vụ ở
 | Máy chủ | **Google Cloud SQL**, instance `farmer-db`, khu vực Singapore |
 | Phiên bản | **PostgreSQL 18.4** (Debian) |
 | CSDL | `tourkit-chat` · 7,8 MB · **0 bảng** (còn trắng) |
+| Tài khoản | **`tourkit_chat`** — riêng cho chat, KHÔNG thuộc nhóm nào |
+| Chuỗi kết nối | `ConnectionStrings:Chat`, **đã mã hoá `ENC:`** (Crypton, như `PushDb`) |
 | Độ trễ từ máy phát triển | **78 ms** bắt tay TCP |
 | Đã kiểm | tạo bảng · ghi · đọc · đánh chỉ mục · xoá — **qua hết** |
 | `pgvector` | ✅ **đã bật** |
+
+**Chốt: dùng CHUNG instance `farmer-db`** (quyết định 20/08). Có sẵn một instance riêng tên
+`tourkit-chat` nhân bản từ `farmer-db` nhưng **không dùng** — xem mục rủi ro bên dưới.
+
+⚠️ **`gcloud sql users create` tự cấp nhóm `cloudsqlsuperuser`** cho tài khoản mới — quyền gần như
+quản trị, quá rộng cho tài khoản ứng dụng, và để nguyên thì việc tách tài khoản gần như vô nghĩa.
+Đã gỡ. Bẫy khi gỡ: **quyền tạo bảng của nó đến từ chính nhóm đó**, nên phải cấp quyền tường minh
+TRƯỚC rồi mới gỡ nhóm, không thì gỡ xong là mất luôn quyền. Tạo tài khoản mới sau này nhớ làm đúng
+thứ tự này.
 
 ### Vì sao tách khỏi SQL Server — và mất gì
 
@@ -84,17 +95,32 @@ cuối tài liệu).
 | Hàng đợi gửi | **Bảng + rút định kỳ**, đúng cách `OutboundMails` đang chạy tốt. `LISTEN/NOTIFY` của PostgreSQL để dành khi cần nhanh hơn |
 | Tìm theo ngữ nghĩa | Hạ tầng đã sẵn sàng, nhưng **đợt 1 chưa làm** — chưa có gì để tìm khi kho hội thoại còn trống |
 
-### Ba rủi ro phải xử TRƯỚC khi code
+### Bốn rủi ro phải xử TRƯỚC khi code
 
 **① Chuỗi kết nối đang để DẠNG RÕ.** `ConnectionStrings:Chat` chưa mã hoá, trong khi `PushDb` dùng
 `ENC:`. File đang gitignore nên chưa lộ ra repo, nhưng **phải mã hoá cho đồng nhất** trước khi lên máy
 chủ thật.
 
-**② Tài khoản `farmer_app` dùng chung với dự án khác.** Cùng instance có CSDL `farmer`. Chung tài
-khoản là chung quyền — và chuyện này **đã gây sự cố thật** trong lúc dựng: một lệnh cấp quyền chạy nhầm
-sang CSDL `farmer`, vô tình cho `farmer_app` quyền tạo bảng ở đó. **Tạo tài khoản riêng cho chat.**
+**② Chung instance với dự án `farmer` — đã giảm nhẹ, chưa hết.** Đã tạo tài khoản riêng
+`tourkit_chat` nên không còn chung tài khoản với dự án kia. Nhưng vẫn còn hai điểm:
 
-**③ IP máy chủ ứng dụng phải nằm trong danh sách cho phép.** Cloud SQL chặn mặc định. Máy phát triển
+- `farmer_app` **vẫn còn quyền tạo bảng trên CSDL chat**. Tài khoản mới không gỡ được vì quyền đó do
+  chủ CSDL cấp — cần chạy bằng `postgres`, **trong CSDL `tourkit-chat`**:
+  `REVOKE CREATE, USAGE ON SCHEMA public FROM farmer_app;`
+- `tourkit_chat` **vẫn kết nối được sang CSDL `farmer`** — mặc định của PostgreSQL cho mọi role.
+  Chặn hẳn phải thu hồi quyền kết nối của `PUBLIC` trên `farmer`, nhưng làm vậy **có thể gãy chính
+  `farmer_app`** nếu nó đang dựa vào mặc định đó. Chấp nhận rủi ro này khi chọn dùng chung instance.
+
+⚠️ Trong lúc dựng đã có **một lệnh cấp quyền chạy nhầm sang CSDL `farmer`**, vô tình cho `farmer_app`
+quyền tạo bảng ở đó. **Cố ý không tự thu hồi**: không phân biệt được nó vốn đã có hay do lệnh nhầm
+thêm vào, gỡ mà nó vốn cần thì gãy dự án kia. Người biết rõ dự án `farmer` phải tự quyết.
+
+**③ Còn một instance thừa đang tính tiền.** `tourkit-chat` (8 vCPU, **250 GB SSD**) tạo lúc
+20/08 rồi dừng. Máy dừng thì không tính giờ CPU nhưng **đĩa vẫn tính tiền** — 250 GB SSD ở Singapore
+khoảng **$50/tháng cho thứ không dùng**. Đã chốt dùng chung `farmer-db` nên instance này nên xoá,
+nhưng **xoá là không lấy lại được** — người quản trị tự quyết.
+
+**④ IP máy chủ ứng dụng phải nằm trong danh sách cho phép.** Cloud SQL chặn mặc định. Máy phát triển
 dùng IP động nên khai cứng chỉ hợp để thử; chạy thật nên đi qua **Cloud SQL Proxy** hoặc mạng riêng.
 
 ⚠️ **Bẫy đã dính, ghi lại cho người sau:** Cloud SQL Studio **chạy câu lệnh trên CSDL mà tab đang nối,
@@ -383,8 +409,9 @@ Tất cả yêu cầu `X-Session-Id`; tenant từ phiên.
    trước khi code Task 4 — không thì làm xong mới biết OA không nhận được webhook.
 2. **Giữ lịch sử chat bao lâu?** Bảng tin giữ 30 ngày. Chat nhiều hơn hẳn và có thể là **chứng cứ
    giao dịch** — chốt trước khi bảng phình.
-3. **Tài khoản CSDL chat dùng cái nào?** Hiện là `farmer_app` — dùng chung với dự án `farmer` trên
-   cùng instance. Cần tài khoản riêng, và chuỗi kết nối phải mã hoá `ENC:` (đang để dạng rõ).
+3. ~~Tài khoản CSDL chat dùng cái nào?~~ **XONG 20/08:** đã tạo `tourkit_chat` riêng, gỡ nhóm
+   `cloudsqlsuperuser`, chuỗi kết nối đã mã hoá `ENC:`. Còn nợ một lệnh `REVOKE` phải chạy bằng
+   `postgres` (xem rủi ro ②).
 4. **SQL Server rớt kết nối lai rai — 4 lần trong ngày 20/08.** Chat KHÔNG dùng máy đó nữa nên không
    bị ảnh hưởng trực tiếp, NHƯNG mọi câu trả lời của AI đều đọc CRM từ đó. Đọc CRM hỏng thì chat vẫn
    nhận được tin mà **trả lời sai hoặc không trả lời được** — vẫn phải xử.
