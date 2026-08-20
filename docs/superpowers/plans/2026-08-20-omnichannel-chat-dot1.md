@@ -27,6 +27,49 @@ nhân viên tiếp quản/giao việc được. Đủ 6 luật nghiệp vụ ở
 
 ---
 
+## Hạ tầng dữ liệu — SQL Server có đáp ứng không
+
+Đo thật trên máy đang chạy (20/08/2026), không ước chừng.
+
+**Hiện trạng:** SQL Server **2022 Developer Edition**, Windows Server 2022. Bảng lớn nhất
+`PushLogs` 370.188 dòng / 185 MB; `Mails` 4.059 dòng / 116 MB (mỗi thư ~29 KB vì chứa HTML);
+`Reviews` 9.381 dòng / 25 MB. Cả cơ sở dữ liệu chừng **350 MB**.
+
+**Chat sẽ nặng cỡ nào:** ước cho công ty tour cỡ vừa — 50 hội thoại/ngày × 15 tin =
+**750 tin/ngày ≈ 275.000 tin/năm**. Tin chat là chữ ngắn (không như email), chừng 1–2 KB/tin →
+**~400 MB/năm**. `PushLogs` đã 370k dòng và chạy bình thường; kiểu truy vấn của chat (ghi dòng nhỏ,
+đọc theo một hội thoại đã đánh chỉ mục) đúng là loại SQL Server làm tốt nhất.
+
+→ **Lưu trữ và ghi/đọc: không phải lo.**
+
+### Ba chỗ SQL KHÔNG làm được — và chốt cách xử lý
+
+| Việc | ChatbotX làm sao | Đợt 1 chốt thế nào |
+|---|---|---|
+| Đẩy tin lên màn hình thời gian thực | Redis + websocket | **Hỏi lại mỗi 4 giây** khi đang mở hộp thư. Đủ dùng, ít việc. SignalR để đợt sau nếu thấy chậm |
+| Hàng đợi gửi | BullMQ trên Redis | **Bảng + rút định kỳ**, đúng cách `OutboundMails` đang chạy tốt mấy tháng nay. Redis đã có sẵn trong cấu hình nếu cần đổi |
+| Tìm theo ngữ nghĩa | `pgvector` | **Không làm.** Trợ lý trả lời bằng gọi công cụ đọc CRM, không tìm trong kho văn bản |
+
+⚠️ **Giới hạn thật, ghi lại để sau khỏi ngạc nhiên:** SQL Server 2022 **không có kiểu dữ liệu
+vector** — thứ đó tới SQL Server 2025 mới có. Nên câu kiểu *"tìm hội thoại nào khách từng hỏi về
+Nhật Bản"* sẽ **không làm được** bằng hạ tầng hiện tại. Muốn có thì phải nâng SQL lên 2025, hoặc
+dựng kho vector riêng. Đừng hứa tính năng đó ở đợt 1.
+
+### Hai rủi ro hạ tầng phải xử TRƯỚC khi code
+
+**① Máy chủ đang rớt kết nối lai rai.** Riêng ngày 20/08 gặp **ít nhất 4 lần**
+`wait operation timed out`: lúc chạy 5 tác vụ nền song song, lúc truy vấn thường, và một lần làm
+giao diện TRAVAI trả 500 cho người dùng. Chat hỏi cơ sở dữ liệu **liên tục** chứ không thưa như bản
+tin — chuyện đang khó chịu sẽ thành hỏng thấy rõ. **Tìm nguyên nhân trước.**
+
+**② Developer Edition không được phép dùng cho sản xuất.** Bản này miễn phí và đầy đủ tính năng như
+Enterprise, nhưng giấy phép Microsoft chỉ cho **phát triển và kiểm thử**. Nếu máy đo được ở trên là
+máy chạy thật thì đó là vấn đề giấy phép, không phải kỹ thuật. Nếu chỉ là staging thì phải biết máy
+thật chạy bản nào: **Express giới hạn 10 GB mỗi cơ sở dữ liệu**, với đà chat ~400 MB/năm cộng dữ
+liệu sẵn có thì vài năm là chạm trần — và lúc chạm thì **ghi vào hỏng, không phải chạy chậm**.
+
+---
+
 ### Task 1: Bảng dữ liệu + cờ tính năng
 
 **Files:**
@@ -229,6 +272,9 @@ Tất cả yêu cầu `X-Session-Id`; tenant từ phiên.
 - [ ] **Step 3:** **Hết cửa sổ gửi → khoá ô soạn** kèm câu nói rõ còn bao lâu / vì sao, và gợi ý
       đường thay thế. Đừng để bấm gửi rồi mới báo hỏng.
 - [ ] **Step 4:** Nút giao việc, đóng việc, tạm dừng bot. Hiện rõ **ai đang phụ trách**.
+- [ ] **Step 4b:** Cập nhật bằng **hỏi lại mỗi 4 giây** khi trang đang mở (dừng hỏi khi tab ẩn —
+      `document.hidden`, không thì mở 10 tab là nhân 10 lần tải). KHÔNG dùng SignalR ở đợt này;
+      xem mục "Hạ tầng dữ liệu" để biết vì sao.
 - [ ] **Step 5:** Khai trang ở `index.html` **VÀ** `bundle-entry.js` **VÀ** `app.jsx` (route + menu)
       **VÀ** `SeoSetup.Routes` (thiếu → mở link trực tiếp ra 404).
 
@@ -245,12 +291,17 @@ Tất cả yêu cầu `X-Session-Id`; tenant từ phiên.
 
 ---
 
-## Ba câu phải chốt TRƯỚC khi bắt đầu
+## Năm câu phải chốt TRƯỚC khi bắt đầu
 
 1. **Quyền Zalo OA cho chat.** Nhận tin cần quyền khác với gửi ZNS. Phải kiểm bộ quyền OA thật
    trước khi code Task 4 — không thì làm xong mới biết OA không nhận được webhook.
 2. **Giữ lịch sử chat bao lâu?** Bảng tin giữ 30 ngày. Chat nhiều hơn hẳn và có thể là **chứng cứ
    giao dịch** — chốt trước khi bảng phình.
-3. **Tính lượt AI thế nào?** Một hội thoại 20 lượt qua lại tốn gấp 20 lần một lần chấm khách.
+3. **Máy chạy thật dùng bản SQL nào?** Máy đo được là **Developer Edition** — không được phép dùng
+   cho sản xuất. Nếu máy thật là **Express** thì trần 10 GB/CSDL là mốc phải tính ngay từ đầu
+   (xem mục "Hạ tầng dữ liệu").
+4. **Vì sao SQL rớt kết nối lai rai?** 4 lần trong một ngày. Chat hỏi CSDL liên tục nên phải xử
+   trước, không thì lỗi sẽ hiện ra ngay trước mặt khách.
+5. **Tính lượt AI thế nào?** Một hội thoại 20 lượt qua lại tốn gấp 20 lần một lần chấm khách.
    Hạn mức tenant hiện tại chưa tính tới kiểu tiêu này — cần ngưỡng riêng cho chat, nếu không một
    khách nhắn nhiều là hết lượt của cả công ty.
