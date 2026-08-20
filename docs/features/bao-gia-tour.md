@@ -101,71 +101,11 @@ Bước cuối cùng hiển thị **bản xem trước báo giá** dạng trình
 
 Ngoài ra, ở bước này còn có khung **dự đoán tỉ lệ chốt sale** — bấm **"Dự đoán bằng AI"** để xem AI ước tính khả năng khách sẽ đồng ý báo giá này, giúp bạn cân nhắc có nên điều chỉnh giá thêm hay không trước khi gửi.
 
-## 3B. Nhập bảng giá nhà cung cấp bằng AI (Import NCC)
+## 3B. Bảng giá nhà cung cấp lấy ở đâu ra?
 
-Để khi dựng lịch trình (Bước 2 ở trên) bạn có thể chọn **nhà cung cấp thực tế** với đúng giá công ty đang có, trước tiên các bảng giá của nhà cung cấp (khách sạn, nhà hàng, xe, vé...) cần được nạp vào hệ thống. Thay vì gõ tay từng dòng giá, bạn chỉ cần **tải file bảng giá NCC lên** (hoặc dán nội dung), AI sẽ tự bóc tách thành bảng để bạn xem lại và lưu vào hệ thống.
+Để AI dựng lịch trình bằng **giá thật** (Bước 4 ở trên) và để bạn chọn được **nhà cung cấp thực tế** khi sửa từng hoạt động (Bước 5), trước tiên bảng giá của khách sạn, nhà hàng, xe, vé… phải có sẵn trong hệ thống. Công ty chưa nhập bảng giá nào thì AI chỉ còn cách dựa vào giá mẫu chung, và số sẽ lệch xa thực tế hơn.
 
-### Bước A — Mở trang Import NCC
-
-Vào trang **"AI Import NCC"** (hoặc từ trang **Danh sách NCC**, bấm nút **"Import bằng AI"** ở góc trên). Màn hình sẽ hiện một ô lớn để kéo thả file.
-
-![Trang Import NCC — ô kéo thả file](../images/bao-gia-tour-ncc-buocA.png)
-> 📸 Cần chụp: trang "AI Import NCC" khi chưa có file — ô kéo thả lớn ở giữa, nút "Dán nội dung báo giá" bên dưới.
-
-### Bước B — Chọn một hoặc nhiều file (tối đa 10 file/lần)
-
-Kéo thả file vào ô, hoặc bấm để chọn từ máy. Bạn có thể **chọn cùng lúc từ 1 đến 10 file** — hệ thống sẽ bóc tách song song (chạy tối đa 3 file cùng lúc cho nhanh nhưng không quá tải). Hỗ trợ nhiều định dạng phổ biến: PDF, Word (.docx), Excel (.xlsx), PowerPoint (.pptx), email (.eml), file văn bản (.txt, .csv)…
-
-Nếu bạn chỉ có nội dung bảng giá dạng chữ (copy từ PDF/Word/email), bấm **"Dán nội dung báo giá"** rồi dán vào ô văn bản và bấm **"AI bóc tách"** — không cần tạo file.
-
-> Mẹo: chọn quá 10 file thì hệ thống chỉ nhận 10 file đầu và báo cho bạn biết đã bỏ những file dư.
-
-### Bước C — Chuyển qua lại giữa các tab file
-
-Mỗi file bạn tải lên là **một tab (chip) riêng** trên một hàng ngang. Bấm vào tab để xem nội dung file đó. Mỗi tab tự có trạng thái riêng, nhận biết qua ký hiệu ở đầu tab:
-- **…** đang chờ đến lượt
-- **⏳** đang được AI bóc tách
-- **✓** đã bóc xong
-- **✗** file bị lỗi (bấm vào để xem lý do)
-- **ĐÃ LƯU** đã lưu vào hệ thống
-
-![Nhiều tab file, mỗi tab một trạng thái](../images/bao-gia-tour-ncc-buocC.png)
-> 📸 Cần chụp: hàng chip nhiều file với các trạng thái khác nhau (một file ⏳ đang bóc, một file ✓ xong, một file có badge ⚠).
-
-### Bước D — Đọc banner cảnh báo thiếu số liệu
-
-Ngay sau khi một file bóc xong, nếu AI **thiếu thông tin bắt buộc** — Tên NCC, Số điện thoại, Bảng giá dịch vụ, hoặc chưa nhận diện được Loại dịch vụ — hệ thống sẽ hiện một **banner cảnh báo màu cam** liệt kê rõ những mục còn thiếu để bạn bổ sung trước khi lưu.
-
-Trên chip tab của những file còn thiếu sẽ có thêm **badge ⚠ kèm con số** (số mục còn thiếu), giúp bạn biết ngay file nào cần bổ sung mà không phải mở từng tab kiểm tra.
-
-Để bổ sung: sửa trực tiếp trong ô **"Thông tin nhà cung cấp"** (Tên, SĐT, Email, Địa chỉ…) hoặc sửa từng ô trong bảng giá bên dưới. Nếu file quá mờ/dạng ảnh khiến bảng giá trống hoàn toàn, hãy thử tải lại bằng file rõ hơn hoặc dán trực tiếp nội dung chữ.
-
-![Banner cảnh báo thiếu số liệu + badge cảnh báo trên tab](../images/bao-gia-tour-ncc-buocD.png)
-> 📸 Cần chụp: banner cam "Thiếu số liệu — cần bổ sung trước khi lưu vào CRM" kèm danh sách mục thiếu, và chip tab có badge "⚠ 2".
-
-### Bước E — Chọn loại dịch vụ và lưu vào hệ thống
-
-Xem lại thông tin và bảng giá (sửa trực tiếp trong ô nếu cần), sau đó ở khung **"Lưu vào hệ thống CRM"**:
-1. Chọn **Loại dịch vụ** (khách sạn, nhà hàng, vận chuyển…). Hệ thống thường tự đoán sẵn loại phù hợp, bạn chỉ cần kiểm tra lại.
-2. (Tuỳ chọn) Nhập **Mã NCC** — để trống thì hệ thống tự sinh mã.
-3. Bấm **"Lưu vào hệ thống"**.
-
-Giá mà AI bóc được sẽ được lưu vào cột **Giá Bán** của nhà cung cấp (đây là mức giá dùng để dựng báo giá tour). Lưu xong, tab sẽ chuyển sang trạng thái **ĐÃ LƯU** và có sẵn link mở nhanh **Danh sách NCC**.
-
-> Để lưu được vào hệ thống, bạn cần **đã đăng nhập TourKit** (đăng nhập một lần ở trang Trợ lý). Nếu chưa đăng nhập, khung lưu sẽ hiện nhắc bạn đăng nhập trước.
-
-![Khung lưu NCC vào hệ thống](../images/bao-gia-tour-ncc-buocE.png)
-> 📸 Cần chụp: khung "Lưu vào hệ thống CRM" — dropdown Loại dịch vụ, ô Mã NCC, nút "Lưu vào hệ thống", và một tab đã chuyển "ĐÃ LƯU".
-
-### Bước F — Xem lại nhà cung cấp trong danh sách
-
-Vào trang **Danh sách NCC** để xem toàn bộ nhà cung cấp đã có. Tại đây bạn có thể:
-- **Tìm kiếm** theo tên / mã / SĐT / email / mã số thuế (gõ rồi bấm Enter).
-- **Lọc theo "Loại NCC"** bằng dropdown bên cạnh ô tìm kiếm — chọn một loại dịch vụ để chỉ xem đúng nhóm nhà cung cấp đó (ví dụ chỉ xem khách sạn).
-- **Bấm vào một nhà cung cấp** để mở **cửa sổ xem nhanh (Preview)** hiển thị thông tin liên hệ và bảng giá dịch vụ đã lưu (Tên dịch vụ · Số lượng · Giá NET · Giá bán). Cửa sổ này chỉ để **xem**, muốn sửa thì vào phần quản lý nhà cung cấp trong hệ thống CRM.
-
-![Danh sách NCC + dropdown lọc Loại NCC + Preview](../images/bao-gia-tour-ncc-buocF.png)
-> 📸 Cần chụp: trang Danh sách NCC với dropdown "Tất cả loại NCC" đang mở, và cửa sổ Preview một NCC (thông tin + bảng giá dịch vụ) mở bên phải.
+Bạn không phải gõ tay từng dòng giá: chỉ cần tải file báo giá nhà cung cấp lên, AI sẽ tự bóc thành bảng để bạn xem lại và lưu. Cách làm chi tiết xem ở [Hướng dẫn Nhà cung cấp](nhap-gia-ncc.md).
 
 ## 4. Lưu ý quan trọng / giới hạn
 
@@ -179,16 +119,7 @@ Vào trang **Danh sách NCC** để xem toàn bộ nhà cung cấp đã có. T�
 - **Giá AI dựng là ước lượng dựa trên bảng giá NCC, không phải giá chốt.** AI bám theo mốc giá tham khảo (thật của công ty và/hoặc mẫu hệ thống) để tránh bịa số, nhưng vẫn có thể lệch so với giá thực tế tại thời điểm bán. Luôn rà lại, nhất là các mục lớn như vé máy bay và vận chuyển.
 - **Muốn AI dùng giá thật đầy đủ, hãy đồng bộ bảng giá NCC.** Nếu công ty chưa từng đồng bộ, AI sẽ nghiêng nhiều về giá mẫu của hệ thống. Bật tác vụ **"Đồng bộ bảng giá nhà cung cấp"** ở trang **Tự động hóa** (xem [Hướng dẫn Tự động hóa](tu-dong-hoa.md)) để bảng giá thật luôn được cập nhật.
 - **Dòng đơn giá theo đầu người chỉ hiện khi hoạt động đã có mức giá.** Hoạt động chưa nhập giá (bằng 0) sẽ không có dòng ước tính này.
-
-### Riêng phần Import NCC
-
-- **Mỗi lần nhận tối đa 10 file.** Chọn quá 10 file thì hệ thống chỉ xử lý 10 file đầu và báo cho bạn biết.
-- **Bắt buộc có Tên NCC và Số điện thoại** thì mới lưu được vào hệ thống (đây là yêu cầu của phần quản lý nhà cung cấp). Nếu AI bóc thiếu, banner cảnh báo sẽ nhắc và bạn tự điền vào.
-- **Phải chọn Loại dịch vụ trước khi lưu.** Hệ thống thường đoán sẵn, nhưng nếu không đoán được thì bạn phải tự chọn.
-- **Cần đăng nhập TourKit để lưu.** Đăng nhập một lần ở trang Trợ lý; chưa đăng nhập thì chỉ xem/sửa được kết quả bóc tách chứ chưa lưu vào hệ thống.
-- **Giá AI bóc được lưu vào cột "Giá Bán"** của nhà cung cấp — đây là mức giá dùng để dựng báo giá tour. Hãy rà lại con số trước khi lưu vì AI đọc từ file có thể sai lệch.
-- **AI có thể bóc trượt** với file dạng ảnh chụp, file scan mờ, hoặc bảng giá trình bày phức tạp. Khi bảng giá trống hoặc sai nhiều, hãy dùng file rõ hơn hoặc dán trực tiếp nội dung chữ.
-- **Cửa sổ Preview trong Danh sách NCC chỉ để xem**, không sửa được — muốn chỉnh sửa nhà cung cấp thì vào phần quản lý NCC trong hệ thống CRM.
+- **Chưa có bảng giá nhà cung cấp trong hệ thống thì AI chỉ dựng được giá mẫu.** Cách nhập bảng giá bằng AI, giới hạn định dạng file và những chỗ dễ vấp — xem [Hướng dẫn Nhà cung cấp](nhap-gia-ncc.md).
 
 ## 5. Câu hỏi thường gặp (FAQ)
 
@@ -228,23 +159,8 @@ A: Để AI dựng giá bằng số thật của công ty (kể cả vé máy ba
 **Q: Dòng "≈ .../khách" hay "chia ... khách" dưới mỗi hoạt động có ý nghĩa gì?**
 A: Đó là cách AI ước chi phí theo đầu người. Với chi phí tính theo từng khách (khách sạn, ăn uống, vé) sẽ hiện "≈ đơn giá/khách × số khách"; với chi phí dùng chung cả đoàn (vé máy bay, xe) sẽ hiện "chia số khách ≈ bình quân/khách". Đây chỉ là thông tin để bạn nhìn nhanh, không phải một khoản tính thêm.
 
-**Q: Tôi có thể nhập nhiều bảng giá nhà cung cấp cùng lúc không?**
-A: Được. Ở trang Import NCC, chọn cùng lúc tối đa 10 file — hệ thống bóc song song và tạo cho mỗi file một tab riêng để bạn xem/sửa/lưu từng nhà cung cấp độc lập.
-
-**Q: Làm sao biết file nào còn thiếu thông tin mà không phải mở từng tab?**
-A: Nhìn vào badge **⚠ kèm số** trên chip tab — con số là số mục còn thiếu của file đó. Mở tab lên sẽ thấy banner cam liệt kê chi tiết mục nào cần bổ sung trước khi lưu.
-
-**Q: AI bóc bảng giá bị trống hoặc sai nhiều thì làm sao?**
-A: Thường do file là ảnh chụp/scan mờ hoặc bảng trình bày phức tạp. Bạn sửa trực tiếp trong các ô, hoặc tải lại bằng file rõ hơn, hoặc dùng "Dán nội dung báo giá" để dán chữ trực tiếp cho AI bóc lại.
-
-**Q: Vì sao lưu NCC báo lỗi thiếu số điện thoại?**
-A: Phần quản lý nhà cung cấp bắt buộc phải có số điện thoại. Nếu bảng giá gốc không ghi SĐT thì AI không có để bóc — bạn tự điền vào ô "SĐT" trong phần thông tin nhà cung cấp rồi lưu lại.
-
-**Q: Giá tôi vừa import được lưu là giá NET hay giá bán?**
-A: Được lưu vào cột **Giá Bán** của nhà cung cấp. Khi mở cửa sổ xem nhanh trong Danh sách NCC, bạn sẽ thấy con số này nằm ở cột "Giá bán".
-
-**Q: Tôi muốn xem lại bảng giá của một nhà cung cấp đã lưu thì làm thế nào?**
-A: Vào trang Danh sách NCC, bấm vào dòng nhà cung cấp đó — cửa sổ xem nhanh mở ra hiển thị thông tin liên hệ và toàn bộ bảng giá dịch vụ đã lưu. Bạn cũng có thể lọc theo "Loại NCC" để nhanh chóng tìm đúng nhóm nhà cung cấp.
+**Q: Tôi nhập bảng giá của nhà cung cấp vào hệ thống bằng cách nào?**
+A: Tải file báo giá lên trang **"AI Import NCC"**, AI sẽ tự bóc thành bảng để bạn xem lại rồi lưu. Toàn bộ hướng dẫn (kể cả cách tra cứu, lọc và xem nhanh bảng giá đã lưu) nằm ở [Hướng dẫn Nhà cung cấp](nhap-gia-ncc.md).
 
 ## 6. Ảnh cần bổ sung cho các phần mới
 

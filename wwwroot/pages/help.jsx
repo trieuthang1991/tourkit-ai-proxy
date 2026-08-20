@@ -9,6 +9,7 @@
   // Danh mục guide — slug PHẢI khớp tên file docs/features/<slug>.md
   const GUIDES = [
     { slug: 'bao-gia-tour',        label: 'Tính giá Tour (AI)' },
+    { slug: 'nhap-gia-ncc',        label: 'Nhà cung cấp & Import giá' },
     { slug: 'danh-gia-khach-hang', label: 'Chấm điểm khách hàng' },
     { slug: 'tro-ly-so-lieu',      label: 'Trợ lý số liệu' },
     { slug: 'hop-thu-ai',          label: 'Hộp thư AI' },

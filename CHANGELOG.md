@@ -15,6 +15,13 @@ Những cập nhật gần đây của TRAV-AI, viết cho người dùng. Mới
 
 ## Phiên bản 20/08/2026 — Cảnh báo tới đúng người
 
+### ✨ Tính năng mới
+- **Trang hướng dẫn cho Nhà cung cấp.** Phần nhập bảng giá nhà cung cấp bằng AI trước đây nằm lẫn
+  trong bài *Tính giá Tour*, nên mở mục lục Hướng dẫn không thấy dòng nào tên nó — nhiều người
+  tưởng chưa có hướng dẫn. Nay có bài riêng **"Nhà cung cấp & Import giá"**, kèm ảnh minh hoạ đầy
+  đủ cho từng bước: tra cứu trong danh sách, xem nhanh bảng giá đã lưu, tải file lên, sửa chỗ AI
+  bóc chưa đúng, và lưu vào hệ thống.
+
 ### 🔧 Đã khắc phục
 - **Thư nhắc thu tiền gửi tour của người khác cho bạn.** Trên Bảng tin, cảnh báo "tour sắp đi mà
   khách chưa trả đủ" vốn chỉ hiện với người phụ trách tour đó. Nhưng bản gửi qua email lại gộp
