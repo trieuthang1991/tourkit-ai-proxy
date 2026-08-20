@@ -697,10 +697,16 @@ wwwroot/
 
 No bundler, no npm install. `<script type="text/babel">` is transformed in-browser by `@babel/standalone`.
 
-**Thêm một file `.js` THƯỜNG (không phải `text/babel`)** — vd `core/features.js`, `lib/data.js`: khai thẻ
-`<script src>` trong `index.html` VÀ `import` trong `bundle-entry.js` thì phải thêm tên nó vào
-`_bundledPlainJsRegex` ([StaticFilesSetup.cs](Configuration/StaticFilesSetup.cs)). Quên thì ở prod file
-chạy **hai lần** (thẻ script + bản trong bundle) — dev không bao giờ lộ ra vì dev không có bundle.
+**Thêm một file `.js` THƯỜNG (không phải `text/babel`)** — vd `core/features.js`, `lib/data.js`: khai
+thẻ `<script src>` trong `index.html` VÀ `import` trong `bundle-entry.js`. **Chỉ hai chỗ đó** — danh
+sách gỡ thẻ ở [StaticFilesSetup.cs](Configuration/StaticFilesSetup.cs) nay **đọc thẳng từ
+`bundle-entry.js`** lúc khởi động, không khai tay nữa.
+
+⚠️ Trước 20/08 danh sách đó viết tay, và nó **đã lệch 12 file** dù ngay cạnh có sẵn dòng chú thích
+dặn phải thêm. Hậu quả không phải "tải đôi cho tốn": bản trong bundle nạp **SAU** nên nó **thắng** —
+sửa một file plain `.js` mà chưa dựng lại bundle thì bản sửa **im lặng không có tác dụng ở prod**,
+dev không bao giờ lộ ra vì dev không có bundle. Chốt chặn: `BundledPlainJsStripTests` đối chiếu
+`index.html` thật với `bundle-entry.js` thật.
 
 **Dùng lại helper, KHÔNG copy-paste:** React hook chung ở [`wwwroot/lib/hooks.jsx`](wwwroot/lib/hooks.jsx) (`window.tourkitHooks` — vd `useIsMobile`); util thuần ở [`wwwroot/lib/util.js`](wwwroot/lib/util.js) (`window.tourkitUtil` — `readSSE`, `fmtAgo`, `fmtDate`, `copyText`); tiền VND ở `window.fmtVND` (lib/data.js); auth/fetch ở `window.tourkitAuth.authedFetch`. Cần thêm helper dùng nhiều nơi → thêm vào các file này thay vì định nghĩa lại trong từng page.
 

@@ -17,6 +17,7 @@ public static class StaticFilesSetup
         var webRoot = Path.Combine(app.Environment.ContentRootPath, "wwwroot");
         _buildVersion = ComputeBuildVersion(webRoot);
         app.Logger.LogInformation("Frontend BUILD_VERSION: {V} (wwwroot: {Path})", _buildVersion, webRoot);
+        _bundledPlainJsRegex = LoadBundledPlainJsRegex(webRoot, app.Logger);
 
         // DEV: recompute hash MỖI request /index.html — sửa .jsx + F5 là ?v đổi → browser
         // bypass cache immutable ngay, không cần restart server. Prod: hash tính 1 lần lúc
@@ -110,6 +111,58 @@ public static class StaticFilesSetup
     //     SKIP lib/tinymce/** (3rd-party, ~100 file skin/plugin) — chỉ hash core app code.
     //     Trước có Take(200) → tinymce skin chiếm slot đầu alphabetically, edits ở /pages/, /steps/
     //     hoàn toàn không invalidate hash → browser cache 1-năm immutable bị stale.
+    /// <summary>
+    /// Bóc danh sách plain <c>.js</c> mà bundle đã nuốt, từ nguồn <c>bundle-entry.js</c>
+    /// (các dòng <c>import "./lib/util.js";</c>).
+    /// </summary>
+    /// <remarks>
+    /// Bỏ qua <c>.jsx</c>: thẻ của chúng khai <c>type="text/babel"</c> nên đã bị
+    /// <c>_babelScriptRegex</c> gỡ rồi — gỡ lần nữa thì thừa, mà lọt vào đây thì che mất lỗi thật.
+    /// </remarks>
+    public static IReadOnlyList<string> ParseBundledPlainJs(string bundleEntrySource)
+    {
+        if (string.IsNullOrWhiteSpace(bundleEntrySource)) return Array.Empty<string>();
+        return Regex.Matches(bundleEntrySource, @"^\s*import\s+[""']\./([^""']+\.js)[""']\s*;",
+                             RegexOptions.Multiline)
+                    .Select(m => m.Groups[1].Value.Trim())
+                    .Where(p => p.Length > 0)
+                    .Distinct(StringComparer.OrdinalIgnoreCase)
+                    .ToList();
+    }
+
+    /// <summary>Ghép 1 regex gỡ đúng những thẻ &lt;script src&gt; của các file đã vào bundle.</summary>
+    public static Regex BuildBundledPlainJsRegex(IReadOnlyList<string> bundledPaths)
+    {
+        // Rỗng = không đọc được bundle-entry.js. Vẫn phải gỡ 2 file mà chạy đôi là CÓ HẠI thật:
+        // core/features.js gọi /api/v1/features lúc nạp → hỏi server 2 lần rồi thay luôn
+        // window.tourkitFeatures; lib/data.js là nền của mọi trang.
+        var list = bundledPaths.Count > 0 ? bundledPaths : _fallbackBundledPlainJs;
+        var alt = string.Join("|", list.Select(Regex.Escape));
+        return new Regex($@"<script\s+src=[""'](?:{alt})[""'][^>]*></script>\s*",
+                         RegexOptions.IgnoreCase | RegexOptions.Compiled);
+    }
+
+    private static Regex LoadBundledPlainJsRegex(string webRoot, ILogger log)
+    {
+        IReadOnlyList<string> paths = Array.Empty<string>();
+        var entry = Path.Combine(webRoot, "bundle-entry.js");
+        try
+        {
+            if (File.Exists(entry)) paths = ParseBundledPlainJs(File.ReadAllText(entry));
+        }
+        catch (Exception ex)
+        {
+            log.LogWarning(ex, "Không đọc được bundle-entry.js — dùng danh sách dự phòng");
+        }
+
+        if (paths.Count == 0)
+            log.LogWarning("bundle-entry.js không có dòng import .js nào (hoặc đọc lỗi) → dự phòng {N} file",
+                           _fallbackBundledPlainJs.Length);
+        else
+            log.LogInformation("Bundle mode: gỡ {N} thẻ <script> plain .js đã nằm trong bundle", paths.Count);
+        return BuildBundledPlainJsRegex(paths);
+    }
+
     private static string ComputeBuildVersion(string webRoot)
     {
         try
@@ -150,15 +203,22 @@ public static class StaticFilesSetup
     private static readonly Regex _babelCacheRegex = new(
         @"<script\s+src=[""']core/babel-cache\.js[""'][^>]*></script>\s*",
         RegexOptions.IgnoreCase | RegexOptions.Compiled);
-    // Strip cả các plain .js file đã được bundle vào (lib/data.js, core/features.js).
-    // tinymce-loader giữ ngoài bundle (lazy load TinyMCE ~5MB chỉ khi mở mail).
-    // THÊM FILE MỚI VÀO ĐÂY mỗi khi khai một plain .js ở index.html VÀ import nó trong
-    // bundle-entry.js — quên thì ở prod file chạy HAI lần (bản thẻ script + bản trong bundle),
-    // và dev không bao giờ lộ ra vì dev không có bundle. core/features.js gọi /api/v1/features
-    // lúc nạp, chạy đôi là hỏi server 2 lần rồi thay luôn window.tourkitFeatures.
-    private static readonly Regex _bundledPlainJsRegex = new(
-        @"<script\s+src=[""'](?:lib/data|core/features)\.js[""'][^>]*></script>\s*",
-        RegexOptions.IgnoreCase | RegexOptions.Compiled);
+    // Strip các plain .js đã nằm trong bundle. DANH SÁCH ĐỌC THẲNG TỪ wwwroot/bundle-entry.js,
+    // KHÔNG khai tay nữa.
+    //
+    // Trước đây đây là một danh sách viết tay đặt cạnh MỘT danh sách viết tay khác (bundle-entry.js),
+    // kèm sẵn dòng dặn "thêm file mới thì nhớ thêm vào đây" — và vẫn lệch 12 file (lib/util.js,
+    // lib/tts.js, flows/*.js). Hậu quả không phải "chạy đôi cho tốn": bản trong bundle nạp SAU nên nó
+    // THẮNG, tức là sửa một file plain .js mà chưa dựng lại bundle thì bản sửa IM LẶNG không có tác
+    // dụng ở prod — dev không bao giờ lộ ra vì dev không có bundle. Đã xảy ra thật với bản vá lỗi mở
+    // CRM (20/08/2026): lib/util.js mới nằm trong thẻ script, bundle cũ đè lên, không lỗi nào hiện ra.
+    //
+    // tinymce-loader / chart-loader / flow-loader KHÔNG có trong bundle-entry.js (cố ý lazy-load) nên
+    // tự động không bị gỡ — thêm một lý do để đọc từ đó thay vì chép tay.
+    private static readonly string[] _fallbackBundledPlainJs = { "lib/data.js", "core/features.js" };
+
+    // Đọc 1 lần lúc startup (bundle-entry.js chỉ đổi khi dựng lại frontend).
+    private static Regex _bundledPlainJsRegex = BuildBundledPlainJsRegex(Array.Empty<string>());
 
     // Thẻ <title> gốc trong index.html — thay bằng tiêu đề theo từng trang.
     private static readonly Regex _titleRegex = new(
