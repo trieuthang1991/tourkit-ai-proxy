@@ -49,12 +49,36 @@
     s = s.replace(/(^|[^*])\*([^*\n]+)\*/g, '$1<em>$2</em>');
     return s;
   }
+  // Khung trích dẫn hay có gạch đầu dòng ("> - ..."). Nhánh blockquote không đi qua bộ dựng
+  // danh sách nên phải tự dựng ở đây, không thì mấy dòng đó hiện ra dạng "- chữ" chạy thẳng hàng.
+  function quoteHtml(lines) {
+    const laGach = s => /^\s*[-*+]\s+/.test(s);
+    const out = [];
+    let i = 0;
+    while (i < lines.length) {
+      if (laGach(lines[i])) {
+        const li = [];
+        while (i < lines.length && laGach(lines[i])) {
+          li.push('<li>' + inline(lines[i].replace(/^\s*[-*+]\s+/, '')) + '</li>'); i++;
+        }
+        out.push('<ul>' + li.join('') + '</ul>');
+      } else {
+        const p = [];
+        while (i < lines.length && !laGach(lines[i])) { p.push(inline(lines[i])); i++; }
+        out.push('<p>' + p.join('<br>') + '</p>');
+      }
+    }
+    return out.join('');
+  }
   function render(md) {
     md = md.replace(/\r\n/g, '\n').replace(/\.\.\/images\//g, '/docs/images/');
     const lines = md.split('\n');
     const out = [];
     let para = [];
-    const flush = () => { if (para.length) { out.push('<p>' + inline(para.join('<br>')) + '</p>'); para = []; } };
+    // Escape TỪNG DÒNG rồi mới nối bằng <br>. Nối trước rồi escape sau thì chính thẻ <br> bị
+    // escape thành &lt;br&gt; → người đọc thấy chữ "<br>" chèn giữa câu. Đã hiện thật ở 120
+    // đoạn trong cả 9 bài hướng dẫn.
+    const flush = () => { if (para.length) { out.push('<p>' + para.map(inline).join('<br>') + '</p>'); para = []; } };
     let i = 0;
     while (i < lines.length) {
       const line = lines[i];
@@ -67,7 +91,7 @@
       if (/^\s*>\s?/.test(line)) {
         flush(); const buf = [];
         while (i < lines.length && /^\s*>\s?/.test(lines[i])) { buf.push(lines[i].replace(/^\s*>\s?/, '')); i++; }
-        out.push('<blockquote>' + inline(buf.join('<br>')) + '</blockquote>'); continue;
+        out.push('<blockquote>' + quoteHtml(buf) + '</blockquote>'); continue;
       }
       if (/^\s*[-*+]\s+/.test(line)) {
         flush(); const buf = [];
