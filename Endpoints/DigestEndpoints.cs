@@ -447,13 +447,9 @@ public static class DigestEndpoints
         return routes;
     }
 
-    /// Gác quyền cấu hình hệ thống — cùng luật với trang Tự động hoá (WorkflowEndpoints).
-    private static async Task<bool> CanConfigSystemAsync(string sid, TkSessionStore sessions, CancellationToken ct)
-    {
-        await sessions.EnsurePermissionsAsync(sid, ct);
-        return sessions.HasPermission(sid, TkPermissionCodes.CauHinhHeThong);
-    }
+    /// Gác quyền cấu hình hệ thống — 1 nguồn ở SessionAuth (xem ghi chú ở đó).
+    private static Task<bool> CanConfigSystemAsync(string sid, TkSessionStore sessions, CancellationToken ct)
+        => SessionAuth.CanConfigSystemAsync(sid, sessions, ct);
 
-    private static IResult Forbidden()
-        => Results.Json(new { error = "Bạn không có quyền Cấu hình hệ thống (CH_HT_XEM)." }, statusCode: 403);
+    private static IResult Forbidden() => SessionAuth.ForbiddenConfigSystem();
 }

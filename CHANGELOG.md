@@ -13,6 +13,34 @@ Những cập nhật gần đây của TRAV-AI, viết cho người dùng. Mới
 
 ---
 
+## Phiên bản 20/08/2026 — Cảnh báo tới đúng người
+
+### 🔧 Đã khắc phục
+- **Thư nhắc thu tiền gửi tour của người khác cho bạn.** Trên Bảng tin, cảnh báo "tour sắp đi mà
+  khách chưa trả đủ" vốn chỉ hiện với người phụ trách tour đó. Nhưng bản gửi qua email lại gộp
+  *tất cả* tour vào một thư rồi gửi cho *mọi* người đã bật nhận email — kèm tên khách và số tiền
+  còn thiếu. Nay **mỗi người nhận một thư riêng, chỉ chứa tour của mình**. Ai chưa khai email thì
+  cảnh báo vẫn nằm trên Bảng tin, và phần tóm tắt lần chạy nói rõ còn bao nhiêu người như vậy để
+  bạn nhắc họ khai. Muốn một bản đầy đủ cho kế toán hay quản lý thì gõ địa chỉ vào ô
+  *"Gửi thêm tới"* — chỗ đó vẫn nhận trọn danh sách như cũ.
+
+- **Nhân viên đọc được số liệu của cả công ty.** Những thẻ không gắn với ai cụ thể — điển hình là
+  *"doanh thu tuần vừa rồi giảm bao nhiêu phần trăm"* — trước đây hiện trên Bảng tin của **mọi**
+  tài khoản trong công ty. Nay chỉ tài khoản có quyền **Cấu hình hệ thống** mới thấy, giống như
+  phần cài đặt cấp công ty ở trang Tự động hoá. Thẻ có người phụ trách thì không đổi gì: vẫn chỉ
+  người đó thấy.
+
+- **Trang Hướng dẫn hiện chữ lạ chèn giữa câu.** Nhiều đoạn trong tài liệu bị chèn ký tự
+  `<br>` ngay giữa dòng, đọc rất khó chịu. Lỗi có ở cả 9 bài, nay đã sạch. Phần khung ghi chú có
+  gạch đầu dòng cũng được trình bày thành danh sách cho dễ đọc, thay vì dính liền vào câu trên.
+
+### 📌 Lưu ý
+- Nếu công ty bạn đang bật *"Gửi thêm qua email"* cho tác vụ **Canh thanh toán**, hãy nhắc nhân
+  viên bán tour vào **Tự động hoá → Nơi nhận của tôi** khai email. Chưa khai thì họ sẽ không nhận
+  được thư — trước đây thư đi vòng qua người khác nên chuyện này bị che mất.
+
+---
+
 ## Phiên bản 20/08/2026 — Mở CRM báo đúng lỗi
 
 ### 🔧 Đã khắc phục

@@ -87,20 +87,26 @@ GROUP BY AlertKey", new { tenant, keys });
             DateTime.SpecifyKind(CreatedUtc, DateTimeKind.Utc));
     }
 
-    /// Feed của 1 người: dòng của chính họ + dòng tenant-wide (Username='').
+    /// Feed của 1 người: dòng của chính họ, cộng dòng cấp công ty nếu được phép xem.
+    /// <param name="companyWide">Được xem dòng cấp công ty (<c>Username=''</c>) không — tức có
+    /// quyền <c>CH_HT_XEM</c>. Cảnh báo không có người phụ trách (vd doanh thu bất thường) là số
+    /// của cả công ty, không phải việc của từng nhân viên; để mặc định <c>false</c> nên chỗ nào
+    /// quên truyền thì THIẾU dòng chứ không LỘ dòng.</param>
     public async Task<List<AgentInsight>> ListAsync(string tenant, string username, string? kind,
-        bool unreadOnly, int offset, int limit, CancellationToken ct = default)
+        bool unreadOnly, int offset, int limit, CancellationToken ct = default,
+        bool companyWide = false)
     {
         await using var c = await _db.OpenAsync(ct);
         var rows = await c.QueryAsync<InsightRow>(@"
 SELECT Id, TenantId, Username, Kind, Severity, Title, Body, DataJson, AlertKey, IsRead, CreatedUtc
 FROM dbo.AgentInsights
-WHERE TenantId = @tenant AND (Username = @username OR Username = '')
+WHERE TenantId = @tenant AND (Username = @username OR (@companyWide = 1 AND Username = ''))
   AND (@kind IS NULL OR Kind = @kind)
   AND (@unreadOnly = 0 OR IsRead = 0)
 ORDER BY CreatedUtc DESC
 OFFSET @offset ROWS FETCH NEXT @limit ROWS ONLY",
-            new { tenant, username, kind, unreadOnly = unreadOnly ? 1 : 0, offset, limit = Math.Clamp(limit, 1, 100) });
+            new { tenant, username, kind, unreadOnly = unreadOnly ? 1 : 0, offset,
+                  limit = Math.Clamp(limit, 1, 100), companyWide = companyWide ? 1 : 0 });
         return rows.Select(r => r.ToModel()).ToList();
     }
 
@@ -140,33 +146,49 @@ FROM dbo.AgentInsights WHERE Id = @id AND TenantId = @tenant", new { id, tenant 
     }
 
     /// <param name="kind">Lọc theo loại (vd "payment-alert"). null = đếm mọi loại (badge chuông).</param>
+    /// <param name="companyWide">Được xem dòng cấp công ty (<c>Username=''</c>) không — tức có
+    /// quyền <c>CH_HT_XEM</c>. Cảnh báo không có người phụ trách (vd doanh thu bất thường) là số
+    /// của cả công ty, không phải việc của từng nhân viên; để mặc định <c>false</c> nên chỗ nào
+    /// quên truyền thì THIẾU dòng chứ không LỘ dòng.</param>
     public async Task<int> UnreadCountAsync(string tenant, string username, CancellationToken ct = default,
-        string? kind = null)
+        string? kind = null, bool companyWide = false)
     {
         await using var c = await _db.OpenAsync(ct);
         return await c.ExecuteScalarAsync<int>(@"
 SELECT COUNT(1) FROM dbo.AgentInsights
-WHERE TenantId = @tenant AND (Username = @username OR Username = '') AND IsRead = 0
-  AND (@kind IS NULL OR Kind = @kind)",
-            new { tenant, username, kind });
+WHERE TenantId = @tenant AND (Username = @username OR (@companyWide = 1 AND Username = ''))
+  AND IsRead = 0 AND (@kind IS NULL OR Kind = @kind)",
+            new { tenant, username, kind, companyWide = companyWide ? 1 : 0 });
     }
 
-    public async Task MarkReadAsync(string tenant, string username, long id, CancellationToken ct = default)
+    /// <param name="companyWide">Được xem dòng cấp công ty (<c>Username=''</c>) không — tức có
+    /// quyền <c>CH_HT_XEM</c>. Cảnh báo không có người phụ trách (vd doanh thu bất thường) là số
+    /// của cả công ty, không phải việc của từng nhân viên; để mặc định <c>false</c> nên chỗ nào
+    /// quên truyền thì THIẾU dòng chứ không LỘ dòng.</param>
+    public async Task MarkReadAsync(string tenant, string username, long id,
+        CancellationToken ct = default, bool companyWide = false)
     {
         await using var c = await _db.OpenAsync(ct);
         await c.ExecuteAsync(@"
 UPDATE dbo.AgentInsights SET IsRead = 1
-WHERE Id = @id AND TenantId = @tenant AND (Username = @username OR Username = '')",
-            new { id, tenant, username });
+WHERE Id = @id AND TenantId = @tenant
+  AND (Username = @username OR (@companyWide = 1 AND Username = ''))",
+            new { id, tenant, username, companyWide = companyWide ? 1 : 0 });
     }
 
-    public async Task MarkAllReadAsync(string tenant, string username, CancellationToken ct = default)
+    /// <param name="companyWide">Được xem dòng cấp công ty (<c>Username=''</c>) không — tức có
+    /// quyền <c>CH_HT_XEM</c>. Cảnh báo không có người phụ trách (vd doanh thu bất thường) là số
+    /// của cả công ty, không phải việc của từng nhân viên; để mặc định <c>false</c> nên chỗ nào
+    /// quên truyền thì THIẾU dòng chứ không LỘ dòng.</param>
+    public async Task MarkAllReadAsync(string tenant, string username,
+        CancellationToken ct = default, bool companyWide = false)
     {
         await using var c = await _db.OpenAsync(ct);
         await c.ExecuteAsync(@"
 UPDATE dbo.AgentInsights SET IsRead = 1
-WHERE TenantId = @tenant AND (Username = @username OR Username = '') AND IsRead = 0",
-            new { tenant, username });
+WHERE TenantId = @tenant AND (Username = @username OR (@companyWide = 1 AND Username = ''))
+  AND IsRead = 0",
+            new { tenant, username, companyWide = companyWide ? 1 : 0 });
     }
 
     /// Xoá dòng cũ hơn keepDays. Gọi cuối mỗi lượt workflow để bảng không phình mãi.

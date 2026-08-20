@@ -12,6 +12,12 @@ namespace TourkitAiProxy.Endpoints;
 ///
 /// <para>Mọi endpoint yêu cầu <c>X-Session-Id</c>; tenant + user lấy từ phiên chứ KHÔNG nhận từ
 /// client, nếu không thì ai cũng đọc được thông báo của công ty khác bằng cách đổi tham số.</para>
+///
+/// <para><b>Dòng cấp công ty cần quyền (20/08/2026).</b> Thẻ có người phụ trách thì chỉ người đó
+/// thấy — vốn đã đúng. Nhưng thẻ KHÔNG có người phụ trách (<c>Username=''</c>, vd cảnh báo doanh
+/// thu bất thường) trước đây hiện cho MỌI tài khoản trong công ty: nhân viên bán tour cũng đọc
+/// được doanh thu và mức lệch của cả công ty. Nay chỉ tài khoản có <c>CH_HT_XEM</c> mới thấy —
+/// cùng luật với phần cấu hình cấp công ty ở trang Tự động hoá.</para>
 /// </summary>
 public static class InsightEndpoints
 {
@@ -27,8 +33,10 @@ public static class InsightEndpoints
             var a = SessionAuth.Read(ctx, sessions);
             if (a == null) return SessionAuth.Unauthorized();
 
+            // Số liệu cấp công ty (doanh thu bất thường…) chỉ dành cho người có quyền cấu hình.
+            var caCongTy = await SessionAuth.CanConfigSystemAsync(a.SessionId, sessions, ct);
             var items = await repo.ListAsync(a.TenantId, a.Username, kind,
-                unread == true, Math.Max(0, offset ?? 0), limit ?? 30, ct);
+                unread == true, Math.Max(0, offset ?? 0), limit ?? 30, ct, companyWide: caCongTy);
             // Chỉ bản tin (sale/ceo) mới có nút "Nghe" → tính speakText tại chỗ; loại khác để null.
             var shaped = items.Select(it => new
             {
@@ -46,7 +54,13 @@ public static class InsightEndpoints
             var a = SessionAuth.Read(ctx, sessions);
             if (a == null) return SessionAuth.Unauthorized();
 
-            return Results.Json(new { count = await repo.UnreadCountAsync(a.TenantId, a.Username, ct, kind) }, Web);
+            // Phải hỏi quyền y như lúc liệt kê: đếm rộng hơn danh sách thì chuông báo có tin
+            // mới mà mở ra chẳng thấy gì — người dùng tưởng hỏng.
+            var caCongTy = await SessionAuth.CanConfigSystemAsync(a.SessionId, sessions, ct);
+            return Results.Json(new
+            {
+                count = await repo.UnreadCountAsync(a.TenantId, a.Username, ct, kind, companyWide: caCongTy),
+            }, Web);
         });
 
         g.MapPost("/{id:long}/read", async (long id, HttpContext ctx, TkSessionStore sessions,
@@ -55,8 +69,10 @@ public static class InsightEndpoints
             var a = SessionAuth.Read(ctx, sessions);
             if (a == null) return SessionAuth.Unauthorized();
 
-            // Repo tự kẹp theo tenant/user → id của công ty khác không đánh dấu được.
-            await repo.MarkReadAsync(a.TenantId, a.Username, id, ct);
+            // Repo tự kẹp theo tenant/user → id của công ty khác không đánh dấu được. Dòng cấp
+            // công ty cũng vậy: không được xem thì cũng không đánh dấu đã đọc hộ người khác.
+            var caCongTy = await SessionAuth.CanConfigSystemAsync(a.SessionId, sessions, ct);
+            await repo.MarkReadAsync(a.TenantId, a.Username, id, ct, companyWide: caCongTy);
             return Results.Json(new { ok = true }, Web);
         });
 
@@ -66,7 +82,8 @@ public static class InsightEndpoints
             var a = SessionAuth.Read(ctx, sessions);
             if (a == null) return SessionAuth.Unauthorized();
 
-            await repo.MarkAllReadAsync(a.TenantId, a.Username, ct);
+            var caCongTy = await SessionAuth.CanConfigSystemAsync(a.SessionId, sessions, ct);
+            await repo.MarkAllReadAsync(a.TenantId, a.Username, ct, companyWide: caCongTy);
             return Results.Json(new { ok = true }, Web);
         });
 

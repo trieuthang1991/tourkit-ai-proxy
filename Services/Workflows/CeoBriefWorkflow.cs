@@ -405,6 +405,9 @@ public class CeoBriefWorkflow : IScheduledWorkflow
         if (opt.SecAlerts)
         await Safe("payment-alerts", async () =>
         {
+            // companyWide để mặc định false: đếm thẻ CỦA CHÍNH người nhận, không gộp thẻ cấp
+            // công ty. Thẻ cấp công ty chỉ sinh ra khi TourKit.Api chưa có trường người phụ trách;
+            // lúc đó đếm gộp sẽ đưa con số của người khác vào bản tin của người này. Thà thiếu.
             openAlerts = await _insights.UnreadCountAsync(tenantId, user, ct, kind: "payment-alert");
         });
 

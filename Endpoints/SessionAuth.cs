@@ -24,4 +24,21 @@ public static class SessionAuth
 
     public static IResult Unauthorized()
         => Results.Json(new { error = "Phiên không hợp lệ — đăng nhập lại" }, statusCode: 401);
+
+    /// <summary>
+    /// Tài khoản này có quyền <b>Cấu hình hệ thống</b> (<c>CH_HT_XEM</c>) không.
+    ///
+    /// <para>Trước 20/08/2026 hàm này được chép trong DigestEndpoints và WorkflowEndpoints. Bản thứ
+    /// ba (InsightEndpoints) là lúc phải gom lại: đây là câu hỏi "ai được xem thứ cấp công ty",
+    /// trả lời khác nhau ở hai chỗ thì thành lỗ hổng chứ không phải bất tiện.</para>
+    /// </summary>
+    public static async Task<bool> CanConfigSystemAsync(string sid, TkSessionStore sessions,
+                                                        CancellationToken ct = default)
+    {
+        await sessions.EnsurePermissionsAsync(sid, ct);
+        return sessions.HasPermission(sid, TkPermissionCodes.CauHinhHeThong);
+    }
+
+    public static IResult ForbiddenConfigSystem()
+        => Results.Json(new { error = "Bạn không có quyền Cấu hình hệ thống (CH_HT_XEM)." }, statusCode: 403);
 }
