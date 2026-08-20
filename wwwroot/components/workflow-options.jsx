@@ -234,7 +234,7 @@
       { key: 'maxReminders', type: 'number', label: 'Mỗi tour nhắc tối đa bao nhiêu lần', default: 3, min: 0, max: 30,
         hint: 'Mỗi ngày nhiều nhất một lần cho mỗi tour, và dừng hẳn khi đủ số lần này. Để 0 = nhắc mãi tới ngày khởi hành — cửa sổ 30 ngày nghĩa là 30 lần cho cùng một tour, tới lần thứ tư là không ai đọc nữa.' },
       { key: 'emailEnabled', type: 'bool', label: 'Gửi thêm qua email', default: false,
-        hint: 'Bảng tin trong ứng dụng thì luôn có. Bật thêm cái này nếu muốn nhận được thư kể cả hôm không mở phần mềm. Thư gửi cho MỌI người đã bật email ở khối "Nơi nhận của tôi" — họ khai một lần, dùng cho cả bản tin lẫn cảnh báo. Mỗi lượt quét một thư gộp, không phải mỗi tour một thư.' },
+        hint: 'Bảng tin trong ứng dụng thì luôn có. Bật thêm cái này nếu muốn nhận được thư kể cả hôm không mở phần mềm. Thư gửi ĐÍCH DANH người phụ trách tour — mỗi người một thư chỉ chứa tour của họ, lấy email họ đã khai ở khối "Nơi nhận của tôi". Mỗi lượt quét một thư gộp, không phải mỗi tour một thư. Người phụ trách chưa khai email thì cảnh báo của họ chỉ nằm trên Bảng tin, và tóm tắt lần chạy sẽ nói rõ còn bao nhiêu người như vậy.' },
       { key: 'alertEmails', type: 'text', label: 'Gửi thêm tới (không bắt buộc)', showIf: 'emailEnabled', default: '',
         placeholder: 'ketoan@congty.vn, giamdoc@congty.vn',
         hint: 'Chỉ dùng cho địa chỉ KHÔNG phải tài khoản trong phần mềm — ví dụ hộp thư chung của kế toán. Người có tài khoản thì tự khai ở "Nơi nhận của tôi", đừng gõ lại vào đây kẻo sau này họ đổi email mà chỗ này vẫn giữ địa chỉ cũ. Nhiều địa chỉ thì cách nhau dấu phẩy.' },

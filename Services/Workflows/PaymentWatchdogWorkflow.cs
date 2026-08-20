@@ -249,39 +249,45 @@ public class PaymentWatchdogWorkflow : IScheduledWorkflow
 
         await _insights.PruneAsync(KeepInsightDays, ct);
 
-        // ── Email: MỘT thư gộp cho cả lượt quét ────────────────────────────────────────
-        // Cố ý không gửi mỗi tour một thư: hộp thư kế toán sáng ra 20 thư cùng tiêu đề thì đọc
-        // được đúng cái đầu. Chỉ gửi những tour VỪA sinh cảnh báo mới (sentNow) — tour đã bị chặn
-        // vì trùng ngày hoặc đủ số lần nhắc thì thư cũng không được nhắc lại.
+        // ── Email: MỖI NGƯỜI PHỤ TRÁCH MỘT THƯ GỘP ────────────────────────────────────
+        // Vẫn gộp theo lượt quét (không phải mỗi tour một thư): hộp thư sáng ra 20 thư cùng tiêu
+        // đề thì chỉ cái đầu được đọc. Nhưng người nhận nay theo ĐÚNG luật của Bảng tin — xem
+        // PaymentWatchdogRule.PlanMails để biết vì sao đổi (20/08/2026).
+        // Chỉ gửi tour VỪA sinh cảnh báo mới (sentNow) — tour bị chặn vì trùng ngày hoặc đủ số lần
+        // nhắc thì thư cũng không được nhắc lại.
         int queued = 0;
         string? mailNote = null;
+        var noMailOwners = new List<string>();
         if (opt.EmailEnabled && sentNow.Count > 0)
         {
-            // Người nhận = ai đã khai "Nơi nhận của tôi" có bật email, CỘNG các địa chỉ khai thêm
-            // ở tuỳ chọn. Lấy từ hồ sơ dùng chung để nhân viên chỉ phải khai email MỘT LẦN cho mọi
-            // thông báo — bắt khai lại ở từng tác vụ thì sớm muộn có chỗ khai sai mà không ai biết.
-            // KHÔNG lọc theo `Enabled` của bản tin: đó là đăng ký bản tin sáng, một người có thể
-            // không nhận bản tin nhưng vẫn muốn nhận cảnh báo tiền.
-            var recipients = new List<string>(opt.AlertEmails);
+            // Email lấy từ hồ sơ dùng chung ("Nơi nhận của tôi") để nhân viên chỉ khai MỘT LẦN cho
+            // mọi thông báo. KHÔNG lọc theo `Enabled` của bản tin: đó là đăng ký bản tin sáng, một
+            // người có thể không nhận bản tin nhưng vẫn phải nhận cảnh báo tiền của tour mình bán.
+            var emailOfUser = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
             try
             {
                 var profiles = await _subs.ListWithChannelsAsync(tenantId, ct);
                 foreach (var p in profiles)
-                    if (p.ChannelEmail && !string.IsNullOrWhiteSpace(p.Email)) recipients.Add(p.Email.Trim());
+                    if (p.ChannelEmail && !string.IsNullOrWhiteSpace(p.Email)
+                        && !string.IsNullOrWhiteSpace(p.Username))
+                        emailOfUser[p.Username.Trim()] = p.Email.Trim();
             }
             catch (Exception ex)
             {
                 _log.LogWarning(ex, "[payment-watchdog] tenant={T} đọc nơi nhận dùng chung lỗi", tenantId);
             }
-            recipients = recipients.Distinct(StringComparer.OrdinalIgnoreCase).ToList();
 
-            if (recipients.Count == 0)
-                mailNote = "Đã bật gửi email nhưng chưa ai khai nơi nhận (khối \"Nơi nhận của tôi\") và cũng chưa khai địa chỉ nào ở đây";
+            var plan = PaymentWatchdogRule.PlanMails(sentNow, apiHasSeller, emailOfUser, opt.AlertEmails);
+            noMailOwners = plan.OwnersWithoutEmail;
+
+            if (plan.Mails.Count == 0)
+                mailNote = "Đã bật gửi email nhưng không gửi được cho ai: người phụ trách chưa khai "
+                         + "email ở khối \"Nơi nhận của tôi\", và cũng chưa khai địa chỉ nào ở đây";
             else
             {
-                var mail = PaymentAlertMail.Build(sentNow, todayVn);
-                foreach (var addr in recipients)
+                foreach (var m in plan.Mails)
                 {
+                    var mail = PaymentAlertMail.Build(m.Alerts, todayVn);
                     try
                     {
                         await _mailQueue.EnqueueAsync(new OutboundMailInput(
@@ -289,16 +295,16 @@ public class PaymentWatchdogWorkflow : IScheduledWorkflow
                             Kind: "payment-alert",
                             // Một dòng cho mỗi địa chỉ mỗi ngày → dễ đối soát khi ai đó bảo
                             // "hôm nay tôi không nhận được thư".
-                            SourceId: $"payment-alert:{todayVn:yyyy-MM-dd}:{addr}",
+                            SourceId: $"payment-alert:{todayVn:yyyy-MM-dd}:{m.ToEmail}",
                             TemplateCode: "payment-alert",
-                            ToEmail: addr,
+                            ToEmail: m.ToEmail,
                             Subject: mail.Subject,
                             Params: mail.ParamsJson), ct);
                         queued++;
                     }
                     catch (Exception ex)
                     {
-                        _log.LogWarning(ex, "[payment-watchdog] tenant={T} xếp thư cho {Addr} lỗi", tenantId, addr);
+                        _log.LogWarning(ex, "[payment-watchdog] tenant={T} xếp thư cho {Addr} lỗi", tenantId, m.ToEmail);
                     }
                 }
             }
@@ -312,7 +318,12 @@ public class PaymentWatchdogWorkflow : IScheduledWorkflow
                     // Nói ra vùng mù. Bỏ qua im lặng thì người bật tác vụ tưởng đã canh hết, mà
                     // thường đây là tour ghép — loại đúng ra phải giao cho điều hành, không phải sale.
                     + (noOwner > 0 ? $", BỎ QUA {noOwner} tour chưa gán người phụ trách" : "") + ")"
-                    + (queued > 0 ? $", xếp {queued} thư chờ gửi" : "")
+                    + (queued > 0 ? $", xếp {queued} thư chờ gửi (mỗi người phụ trách 1 thư)" : "")
+                    // Không im lặng: người phụ trách chưa khai email thì cảnh báo của họ CHỈ nằm
+                    // trên Bảng tin. Không nói ra thì người bật tác vụ tưởng ai cũng đã nhận thư.
+                    + (noMailOwners.Count > 0
+                        ? $", {noMailOwners.Count} người phụ trách chưa khai email nên chỉ hiện ở Bảng tin"
+                        : "")
                     + (mailNote != null ? $". {mailNote}" : "")
                     + (skipped > 0 ? $", bỏ qua {skipped} dòng thiếu dữ liệu" : "")
                     + (failedTypes.Count > 0 ? $". Không đọc được loại: {string.Join(", ", failedTypes)}" : "")

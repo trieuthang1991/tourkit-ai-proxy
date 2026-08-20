@@ -92,4 +92,86 @@ public static class PaymentWatchdogRule
 
         return result;
     }
+
+    /// <summary>Một lá thư sắp gửi: gửi tới đâu, gồm những cảnh báo nào, của ai.</summary>
+    /// <param name="OwnerUsername">Rỗng = thư gộp cả công ty (API chưa nâng cấp, hoặc bản sao
+    /// gửi thêm cho kế toán/quản lý).</param>
+    public record PaymentMailPlan(string ToEmail, List<PaymentAlert> Alerts, string OwnerUsername);
+
+    /// <param name="OwnersWithoutEmail">Người phụ trách có cảnh báo nhưng chưa khai email —
+    /// đếm để nói ra trong tóm tắt, KHÔNG được im lặng bỏ qua.</param>
+    public record PaymentMailPlanResult(List<PaymentMailPlan> Mails, List<string> OwnersWithoutEmail);
+
+    /// <summary>
+    /// Chia cảnh báo thành thư: <b>mỗi người phụ trách một thư gộp</b>, không phải một thư chung
+    /// gửi tất cả.
+    ///
+    /// <para><b>Vì sao đổi (20/08/2026):</b> Bảng tin vốn đã ghi ĐÍCH DANH người phụ trách
+    /// (<see cref="ResolveOwner"/>) nhưng email lại gửi cho MỌI người đã bật email — cùng một cảnh
+    /// báo mà hai cách chọn người nhận. Đo trên staging: một lá thư chứa 3 tour của 2 người phụ
+    /// trách khác nhau, gửi cho một người thứ ba. Thư liệt kê tên khách và số tiền còn thiếu, nên
+    /// đó không chỉ là ồn — người này đọc được tour của người kia.</para>
+    ///
+    /// <para><b>Vẫn gộp theo lượt quét, không phải mỗi tour một thư</b> — lý do cũ còn nguyên:
+    /// hộp thư sáng ra 20 thư cùng tiêu đề thì chỉ cái đầu được đọc.</para>
+    ///
+    /// <para>Ba đường, đừng gộp:</para>
+    /// <list type="bullet">
+    /// <item><b>Có người phụ trách + đã khai email</b> → thư riêng, chỉ tour của họ.</item>
+    /// <item><b>Có người phụ trách + chưa khai email</b> → KHÔNG gửi cho ai khác thay, chỉ đếm.
+    /// Đẩy sang người khác là quay lại đúng cái vừa sửa.</item>
+    /// <item><b>Owner rỗng</b> (API chưa nâng cấp — xem <see cref="ResolveOwner"/>) → giữ hành vi
+    /// cũ: thư gộp cho mọi người bật email. Lúc đó chưa có căn cứ chia, im lặng còn tệ hơn.</item>
+    /// </list>
+    ///
+    /// <para><paramref name="extraEmails"/> là địa chỉ người dùng TỰ GÕ ở ô "Gửi thêm tới" — chủ ý
+    /// muốn một bản đầy đủ (kế toán, quản lý) nên nhận trọn danh sách. Khác hẳn việc vô tình gửi
+    /// tất cả chỉ vì ai đó bật email để nhận bản tin sáng.</para>
+    /// </summary>
+    /// <param name="emailOfUser">tên đăng nhập → email, CHỈ gồm người đã bật kênh email.</param>
+    public static PaymentMailPlanResult PlanMails(
+        IReadOnlyList<PaymentAlert> alerts,
+        bool apiHasSellerField,
+        IReadOnlyDictionary<string, string> emailOfUser,
+        IEnumerable<string>? extraEmails = null)
+    {
+        // Gộp theo địa chỉ: một người vừa là phụ trách vừa nằm trong ô "Gửi thêm tới" thì nhận
+        // MỘT thư, không phải hai.
+        var byAddr = new Dictionary<string, PaymentMailPlan>(StringComparer.OrdinalIgnoreCase);
+        var missing = new List<string>();
+
+        void Add(string addr, string owner, IEnumerable<PaymentAlert> items)
+        {
+            addr = addr.Trim();
+            if (addr.Length == 0) return;
+            if (!byAddr.TryGetValue(addr, out var plan))
+                byAddr[addr] = plan = new PaymentMailPlan(addr, new List<PaymentAlert>(), owner);
+            foreach (var a in items)
+                if (plan.Alerts.All(x => x.TourId != a.TourId)) plan.Alerts.Add(a);
+        }
+
+        var companyWide = new List<PaymentAlert>();
+        foreach (var g in alerts.GroupBy(a => ResolveOwner(a.SellerUserName, apiHasSellerField).Owner,
+                                         StringComparer.OrdinalIgnoreCase))
+        {
+            var owner = g.Key ?? "";
+            if (owner.Length == 0) { companyWide.AddRange(g); continue; }
+
+            if (emailOfUser.TryGetValue(owner, out var addr) && !string.IsNullOrWhiteSpace(addr))
+                Add(addr, owner, g);
+            else
+                missing.Add(owner);
+        }
+
+        // Owner rỗng: chưa có căn cứ chia → gửi cho mọi người bật email (hành vi cũ).
+        if (companyWide.Count > 0)
+            foreach (var addr in emailOfUser.Values) Add(addr, "", companyWide);
+
+        // Bản sao đầy đủ cho địa chỉ tự gõ.
+        foreach (var addr in extraEmails ?? Enumerable.Empty<string>()) Add(addr, "", alerts);
+
+        return new PaymentMailPlanResult(
+            byAddr.Values.ToList(),
+            missing.Distinct(StringComparer.OrdinalIgnoreCase).ToList());
+    }
 }
