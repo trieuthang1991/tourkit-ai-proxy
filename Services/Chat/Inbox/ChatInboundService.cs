@@ -39,11 +39,14 @@ public class ChatInboundService
     /// <para>Gọi từ NỀN, sau khi webhook đã trả 200. Kênh nào cũng gửi lại khi không thấy 200, mà
     /// xử lý mất vài giây (có gọi AI) — trả lời chậm là kênh gửi lại và khách nhận tin nhân đôi.</para>
     /// </summary>
-    public async Task HandleAsync(string tenantId, IReadOnlyList<InboundChatEvent> sk, CancellationToken ct)
+    /// <param name="accountId">Tài khoản (Trang/OA/bot) đã kiểm chữ ký khớp — do endpoint webhook
+    /// xác định TRƯỚC khi gọi hàm này, xem <see cref="IChatChannelAdapter.VerifyAsync"/>.</param>
+    public async Task HandleAsync(string tenantId, string accountId, IReadOnlyList<InboundChatEvent> sk,
+        CancellationToken ct)
     {
         foreach (var e in sk)
         {
-            try { await MotSuKienAsync(tenantId, e, ct); }
+            try { await MotSuKienAsync(tenantId, accountId, e, ct); }
             catch (Exception ex)
             {
                 // Một sự kiện hỏng không được kéo cả loạt: mỗi tin là một khách khác nhau.
@@ -53,10 +56,10 @@ public class ChatInboundService
         }
     }
 
-    private async Task MotSuKienAsync(string tenantId, InboundChatEvent e, CancellationToken ct)
+    private async Task MotSuKienAsync(string tenantId, string accountId, InboundChatEvent e, CancellationToken ct)
     {
         await _repo.UpsertContactAsync(tenantId, e.Channel, e.ExternalUserId, e.DisplayName, ct);
-        var hoiThoai = await _repo.GetOrCreateConversationAsync(tenantId, e.Channel, e.ExternalUserId, ct);
+        var hoiThoai = await _repo.GetOrCreateConversationAsync(tenantId, e.Channel, e.ExternalUserId, accountId, ct);
 
         // "Khách đã xem" — không phải tin nhắn, chỉ ghi mốc.
         if (e.SeenMarker is not null) return;

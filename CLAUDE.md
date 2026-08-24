@@ -392,11 +392,54 @@ cả** — chỉ so chuỗi bí mật trong `X-Telegram-Bot-Api-Secret-Token`, n
 ⚠️ **Cửa sổ gửi khác nhau THẬT:** Zalo 48h · Messenger 24h · Telegram và web **không giới hạn**. Áp
 một luật chung là hoặc tự khoá tay mình (Telegram), hoặc để tin biến mất (Messenger).
 
-**Khoá kênh:** Messenger/Telegram lưu ở [`ChannelCredentialStore`](Services/Chat/Channels/ChannelCredentialStore.cs)
-— dùng lại bảng `dbo.TenantChannelSettings`, mọi giá trị mã hoá Crypton. **Zalo KHÔNG dùng kho này**
-(bản ghi `zalo` do `TenantChannelSettingsStore` làm chủ, có khoá worker xoay vòng — hai nơi cùng ghi
-là mất token của nhau). Khai qua `GET/PUT /api/v1/chat/channels` (cần `CH_HT_XEM`), giao diện **tự vẽ
-form** theo danh sách ô máy chủ trả về.
+**NHIỀU tài khoản mỗi kênh** (đổi 24/08). Một công ty du lịch có nhiều Trang Facebook cho các chi
+nhánh, nhiều OA Zalo, nhiều bot Telegram cho từng đội sale — ép về một tài khoản/kênh là sai với thực
+tế vận hành. Khoá lưu ở [`ChannelCredentialStore`](Services/Chat/Channels/ChannelCredentialStore.cs),
+vẫn dùng lại bảng `dbo.TenantChannelSettings` nhưng cột `Channel` nay mang dạng `"{tiềnTố}:{accountId}"`
+(mã 8 ký tự do **máy chủ sinh**, không nhận từ client — nó nằm trên URL webhook công khai). Mọi giá trị
+mã hoá Crypton. CRUD qua `GET /api/v1/chat/channels` + `POST|PUT|DELETE .../channels/{kênh}/accounts[/{id}]`
+(cần `CH_HT_XEM`); giao diện **tự vẽ form** theo danh sách ô máy chủ trả về, dạng **popup** (khai kênh là
+việc một lần lúc cài đặt, chèn giữa trang thì mỗi lần mở là danh sách hội thoại tụt xuống).
+
+⚠️ **Zalo của chat ĐỘC LẬP với Zalo của bản tin sáng.** Trước 24/08 chat dùng chung bản ghi `zalo` của
+`TenantChannelSettingsStore`; nay chat có kho riêng (tiền tố `chat-zalo`) và **tự xoay vòng access token
+của chính nó** trong [`ZaloChatAdapter`](Services/Chat/Channels/ZaloChatAdapter.cs). Hai kho tuyệt đối
+không đọc/ghi chéo — hai nơi cùng xoay MỘT refresh token thì Zalo vô hiệu hoá cái cũ và bên chậm chân
+mất token vĩnh viễn. Zalo trả refresh token MỚI mỗi lần làm mới, phải lưu đè cái cũ.
+
+⚠️ **Đường webhook khác nhau theo kênh, không phải tuỳ tiện:**
+`POST /api/v1/chat/webhook/{kênh}/{tenantId}[/{accountId}]`.
+**Telegram BẮT BUỘC có `{accountId}`** — thân tin không chứa bất kỳ thông tin nào cho biết bot nào, định
+danh duy nhất nằm ở chính URL đã khai lúc `setWebhook`. **Zalo/Messenger dùng CHUNG một URL** cho mọi tài
+khoản (hai nền tảng đăng ký webhook theo App chứ không theo Trang/OA), adapter tự soát ra tài khoản:
+Messenger kiểm chữ ký với từng `appSecret` **rồi** khớp `entry[].id` với `pageId` đã khai (hai Trang cùng
+App có secret giống hệt nhau, chữ ký một mình không phân biệt nổi); Zalo đọc `app_id` trong thân tin rồi
+dùng CHÍNH secret của tài khoản đó để kiểm chữ ký.
+
+Hội thoại nhớ `account_id` **ghi một lần lúc tạo**, những lần sau không ghi đè kể cả khi tới từ tài khoản
+khác — đổi ngầm giữa chừng làm nhân viên trả lời sai danh nghĩa mà không hay.
+
+**Gỡ kết nối KHÔNG xoá hội thoại cũ** — lịch sử chat với khách là dữ liệu nghiệp vụ; gỡ chỉ nghĩa là thôi
+nhận/gửi qua tài khoản đó.
+
+**Gửi ảnh/tệp — kho lưu chọn được: `Storage:Provider` = `r2` | `s3` | `local`** (mặc định `local`).
+Một giao diện [`IChatFileStorage`](Services/Storage/IChatFileStorage.cs), ba cách lưu; R2 và S3 dùng
+CHUNG một lớp vì cùng giao thức S3, chỉ khác cách dựng client. **`local` không cần tài khoản cloud nào**
+nên chạy được ngay trên máy dev/VPS tự quản (phục vụ qua `/chat-files`), NHƯNG không hợp khi nhiều
+instance sau load-balancer — mỗi máy một đĩa, ảnh tải lên máy A sẽ 404 khi máy B phục vụ.
+
+⚠️ **Chọn `r2`/`s3` mà thiếu khoá thì TẮT hẳn kèm lý do, KHÔNG tự lùi về `local`** — lùi ngầm nghĩa là
+ảnh tưởng nằm trên cloud hoá ra nằm trên đĩa máy chủ, đầy đĩa hoặc mất máy là mất ảnh mà không ai biết.
+
+⚠️ **Bucket R2/S3 phải cho ĐỌC CÔNG KHAI.** Cả ba kênh gửi media bằng cách đưa URL để nền tảng TỰ TẢI
+về, không nhận nhị phân qua API chat. Presigned URL có hạn cũng không hợp vì khách xem lại tin cũ bất cứ
+lúc nào. Nên **đừng để tệp nhạy cảm đi đường này**.
+
+**Đính kèm khách gửi** chuẩn hoá ở MÁY CHỦ ([`ChatAttachment`](Services/Chat/Inbox/ChatAttachment.cs),
+hàm thuần, có test): mỗi kênh gói tệp một kiểu, để giao diện tự bóc thì cùng đoạn phân tích phải viết
+lại bằng JavaScript và không test được. Ảnh Telegram lấy **cỡ lớn nhất** (Telegram xếp nhỏ trước — lấy
+nhầm cỡ nhỏ thì soi ảnh hoá đơn/hộ chiếu khách gửi không đọc nổi chữ). Telegram chỉ cho `file_id` chứ
+không cho URL, nên đi qua `GET /api/v1/chat/messages/{id}/file` để **giấu bot token** khỏi trình duyệt.
 
 **Đường đi:** webhook →
 [`ChatInboundService`](Services/Chat/Inbox/ChatInboundService.cs) chạy NỀN → bot trả lời → xếp
@@ -787,13 +830,27 @@ tính năng bị ẩn — phiền nhưng sửa 1 dòng; mặc định bật thì
 | `Features:MeetingBrief` | Action `prepare_meeting` (thẻ chuẩn bị gặp khách) | — |
 | `Features:AnomalyWatchdog` | Tác vụ `anomaly-watchdog` (canh doanh thu bất thường) | **CẦN `Digest`** — ghi vào Bảng tin |
 | `Features:AutoCare` | Tác vụ `customer-auto-care` (nhắc chăm lại khách ngủ quên) | **CẦN `Digest`** — ghi vào Bảng tin |
-| `Features:Chat` | Hộp thư chat đa kênh (`/chat-inbox` + webhook Zalo) | — (có CSDL riêng, không ghi Bảng tin) |
+| `Features:Chat` | Hộp thư chat đa kênh: `/chat-inbox` + webhook 3 kênh + worker gửi + khai kết nối | — (có CSDL riêng, không ghi Bảng tin) |
 
 ⚠️ `AutoCare` là cờ **quan trọng nhất**: tính năng duy nhất của cả hệ đụng tới KHÁCH HÀNG THẬT. Mọi
 thứ khác chỉ ghi vào Bảng tin cho người trong công ty đọc. Bản hiện tại **KHÔNG gửi gì cho khách** —
 xem ghi chú trong [`CustomerAutoCareWorkflow`](Services/Workflows/CustomerAutoCareWorkflow.cs): đo
 thật thấy số điện thoại có ở 100/100 khách còn email chỉ 14/100, nên việc đúng với dữ liệu là **nhắc
 nhân viên gọi**. Nếu sau này thêm khâu gửi, cờ này là chỗ chặn.
+
+⚠️ **Riêng `Features:Chat`: KHÔNG chặn được bằng tiền tố `/api/v1/chat`.** `POST /api/v1/chat` và
+`/api/v1/chat/stream` là **Trợ lý số liệu** — tính năng khác, không nằm sau cờ này; chặn cả cụm là giết
+nhầm thứ đang chạy thật. Vì vậy nhánh tắt phải liệt kê đúng các nhóm đường của hộp thư chat, và danh
+sách đó là **một nguồn** ở [`ChatInboxEndpoints.DuongRieng`](Endpoints/ChatInboxEndpoints.cs) dùng chung
+cho cả nhánh bật lẫn nhánh tắt. Liệt kê tay ở `Program.cs` **đã lệch một lần** (thêm `/channels` và
+`/messages/{id}/file` mà quên) — hai đường đó rơi vào `MapFallback` và trả `index.html` kèm **200**.
+`ChatFeatureFlagCoverageTests` canh cả hai chiều: mọi route mới phải được phủ, và không được phủ nhầm
+đường của Trợ lý số liệu.
+
+⚠️ **Ẩn mục menu là CHƯA ĐỦ.** Route `/chat-inbox` trong [app.jsx](wwwroot/app.jsx) phải tự gate: gõ tay
+URL vẫn mở được trang, rồi trang gọi API nhận 404 và hiện lỗi kỹ thuật khó hiểu. Cờ tắt → render
+`FeatureOffPage` nói rõ "chưa mở", **khác hẳn** trang "không có quyền" (quyền là chuyện riêng tài khoản;
+cờ tắt là tắt cho tất cả, xin cấp quyền cũng vô ích).
 
 **Tắt một tính năng phải chặn ở chỗ nó SINH RA, không phải chỗ nó chạy.** Workflow → không đăng ký DI
 ([`WorkflowStackRegistration`](Services/Bootstrap/WorkflowStackRegistration.cs)) nên scheduler + `GET

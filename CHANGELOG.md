@@ -13,6 +13,39 @@ Những cập nhật gần đây của TRAV-AI, viết cho người dùng. Mới
 
 ---
 
+## Phiên bản 24/08/2026 — Hộp thư chat: nhiều tài khoản, gửi ảnh, bật/tắt gọn
+
+### ✨ Tính năng mới
+- **Một công ty nối được nhiều tài khoản cho mỗi kênh.** Trước đây mỗi kênh chỉ khai được một nơi
+  nhận. Nay bạn thêm bao nhiêu Trang Facebook, Zalo OA hay bot Telegram cũng được — mỗi chi nhánh
+  một Trang, mỗi đội sale một bot. Tin của khách luôn được trả lời bằng đúng tài khoản mà khách đã
+  nhắn tới, không lẫn sang nơi khác.
+- **Khai kết nối kênh chuyển thành cửa sổ riêng.** Bấm "Kết nối kênh" là mở ra một cửa sổ gọn, khai
+  xong đóng lại — danh sách hội thoại không còn bị đẩy tụt xuống mỗi lần bạn mở phần cài đặt.
+- **Gửi ảnh và tệp cho khách.** Ô soạn tin có thêm nút kẹp giấy: chọn ảnh hoặc tệp, xem trước rồi
+  mới bấm gửi, kèm được lời chú thích. Chọn nhầm thì gỡ ra trước khi gửi.
+- **Xem được ảnh và tệp khách gửi.** Trước đây khách gửi ảnh thì bạn chỉ thấy một ô trống. Nay ảnh
+  hiện ngay trong khung chat, bấm vào xem cỡ đầy đủ; tệp thì hiện tên và dung lượng để tải về; khách
+  gửi vị trí thì bấm ra bản đồ.
+- **Chọn được nơi lưu ảnh/tệp**: trên máy chủ của bạn, hoặc trên dịch vụ lưu trữ đám mây. Không cần
+  đăng ký dịch vụ nào vẫn dùng được ngay.
+
+### 🔧 Đã khắc phục
+- **Tắt tính năng chat giờ tắt sạch.** Trước đây tắt rồi mà gõ thẳng địa chỉ trang vẫn vào được, và
+  vài chức năng bên trong vẫn đáp lại thay vì báo đã tắt. Nay tắt là menu ẩn, trang báo rõ "chưa mở",
+  và mọi chức năng của hộp thư chat đều ngừng hẳn — trong khi Trợ lý số liệu vẫn chạy bình thường.
+- **Chữ trên bong bóng tin nhắn của bạn đã dễ đọc hơn.** Nền cam trước đây quá sáng nên chữ trắng
+  nhoè, nhìn cả ngày thì mỏi mắt.
+- **Giờ trong tin nhắn không còn lặp lại ngày.** Mỗi ngày đã có một vạch ngăn ghi "Hôm nay"/"Hôm qua",
+  nên trong từng tin chỉ hiện giờ phút.
+- **Lý do không gửi được chỉ hiện một lần.** Trước đây khi hết hạn trả lời khách, câu giải thích hiện
+  ở hai chỗ trông như hai lỗi khác nhau.
+- **Tiêu đề trang không còn bị thanh công cụ che.**
+
+### 📌 Lưu ý
+- Ảnh và tệp gửi qua chat được các nền tảng (Zalo, Facebook, Telegram) tự tải về từ đường dẫn công
+  khai. Vì vậy **đừng gửi giấy tờ nhạy cảm** qua đường này.
+
 ## Phiên bản 21/08/2026 — Hộp thư chat
 
 ### ✨ Tính năng mới

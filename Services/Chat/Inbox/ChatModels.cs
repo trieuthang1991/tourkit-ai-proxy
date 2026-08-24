@@ -54,10 +54,22 @@ public class ChatContact
     public short Channel { get; set; }
     public string ExternalId { get; set; } = "";
     public string? DisplayName { get; set; }
+    public string? AvatarUrl { get; set; }
     public string? Phone { get; set; }
     public string? Email { get; set; }
     public int? CrmCustomerId { get; set; }
+    public DateTime CreatedUtc { get; set; }
+    public DateTime UpdatedUtc { get; set; }
 }
+
+/// <summary>Bộ đếm cho hộp thư: theo trạng thái, theo kênh, số chưa đọc, tổng.</summary>
+/// <param name="TheoTrangThai">status -> số hội thoại.</param>
+/// <param name="TheoKenh">channel -> số hội thoại. Dải kênh bên trái giao diện đọc cái này.</param>
+public record ChatInboxCounts(
+    Dictionary<short, int> TheoTrangThai,
+    Dictionary<short, int> TheoKenh,
+    int ChuaDoc,
+    int Tong);
 
 public class ChatConversation
 {
@@ -65,6 +77,8 @@ public class ChatConversation
     public string TenantId { get; set; } = "";
     public short Channel { get; set; }
     public string ContactExternalId { get; set; } = "";
+    // Tài khoản (Trang/OA/bot) đã nhận cuộc trò chuyện này — rỗng ở dòng cũ tạo trước 24/08.
+    public string AccountId { get; set; } = "";
     public short Status { get; set; }
     public string? AssignedUsername { get; set; }
     public DateTime? BotResumeAt { get; set; }

@@ -87,13 +87,26 @@ public class ChatOutboxWorker : BackgroundService
 
         var tin = (await repo.ListMessagesAsync(r.TenantId, r.ConversationId, 300, ct))
             .FirstOrDefault(m => m.Id == r.MessageId);
-        if (tin is null || string.IsNullOrWhiteSpace(tin.Body))
+        if (tin is null)
         {
             await repo.FinishOutboxAsync(r.Id, false, false, "Không thấy nội dung tin", ct);
             return;
         }
 
-        var kq = await adapter.SendTextAsync(r.TenantId, hoiThoai.ContactExternalId, tin.Body!, ct);
+        // Có đính kèm → gửi media (chữ là chú thích, có thể rỗng). Không đính kèm → gửi chữ như
+        // trước. Đính kèm ghi theo hình dạng CHUẨN {ten,kich,url} lúc AppendMessageAsync ở endpoint
+        // /send, nên đọc thẳng bằng chieu=1 (mình gửi) — xem ChatAttachment.Doc.
+        var (kq, coDinhKem) = ((ChatKind)tin.Kind) switch
+        {
+            ChatKind.Chu => (await GuiChuAsync(adapter, r, hoiThoai, tin, ct), false),
+            _ => (await GuiMediaAsync(adapter, r, hoiThoai, tin, ct), true),
+        };
+        if (kq is null)
+        {
+            await repo.FinishOutboxAsync(r.Id, false, false,
+                coDinhKem ? "Đính kèm hỏng, không đọc được đường tải" : "Không thấy nội dung tin", ct);
+            return;
+        }
         if (kq.Ok)
         {
             await repo.FinishOutboxAsync(r.Id, true, false, null, ct);
@@ -107,5 +120,23 @@ public class ChatOutboxWorker : BackgroundService
             await repo.SetMessageStateAsync(r.TenantId, r.MessageId, ChatState.Hong, kq.Error, ct);
         _log.LogWarning("[chat/outbox] dòng {Id} hỏng ({Thu}): {Loi}",
             r.Id, conLuot ? "sẽ thử lại" : "dừng", kq.Error);
+    }
+
+    private static async Task<SendResult?> GuiChuAsync(IChatChannelAdapter adapter, ChatRepository.OutboxRow r,
+        ChatConversation hoiThoai, ChatMessage tin, CancellationToken ct)
+    {
+        if (string.IsNullOrWhiteSpace(tin.Body)) return null;
+        return await adapter.SendTextAsync(r.TenantId, hoiThoai.AccountId, hoiThoai.ContactExternalId,
+            tin.Body!, ct);
+    }
+
+    private static async Task<SendResult?> GuiMediaAsync(IChatChannelAdapter adapter, ChatRepository.OutboxRow r,
+        ChatConversation hoiThoai, ChatMessage tin, CancellationToken ct)
+    {
+        var files = ChatAttachment.Doc((ChatChannel)hoiThoai.Channel, (ChatKind)tin.Kind, tin.Attachment, tin.Direction);
+        var url = files.FirstOrDefault()?.Url;
+        if (string.IsNullOrWhiteSpace(url)) return null;
+        return await adapter.SendMediaAsync(r.TenantId, hoiThoai.AccountId, hoiThoai.ContactExternalId,
+            (ChatKind)tin.Kind, url, tin.Body, ct);
     }
 }

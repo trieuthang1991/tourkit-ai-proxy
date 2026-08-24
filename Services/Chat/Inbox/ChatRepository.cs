@@ -41,19 +41,23 @@ public class ChatRepository
 
     // ── Hội thoại ───────────────────────────────────────────────────────────
 
-    /// Tìm hội thoại của khách trên kênh, chưa có thì tạo.
+    /// <summary>Tìm hội thoại của khách trên kênh, chưa có thì tạo.</summary>
+    /// <param name="accountId">Tài khoản (Trang/OA/bot) vừa nhận tin này. GHI MỘT LẦN lúc tạo —
+    /// những lần sau KHÔNG ghi đè, kể cả khi tới từ tài khoản khác: một cuộc trò chuyện thuộc về
+    /// đúng tài khoản khách đã nhắn LẦN ĐẦU, đổi ngầm giữa chừng sẽ làm nhân viên trả lời sai danh
+    /// nghĩa mà không hay.</param>
     public async Task<ChatConversation> GetOrCreateConversationAsync(string tenant, ChatChannel kenh,
-        string externalId, CancellationToken ct = default)
+        string externalId, string accountId, CancellationToken ct = default)
     {
         await using var c = await _db.OpenAsync(ct);
         // ON CONFLICT DO UPDATE (không phải DO NOTHING) để câu lệnh LUÔN trả về dòng — DO NOTHING
         // thì lần chạy đồng thời thứ hai trả rỗng và phải SELECT thêm một vòng.
         return await c.QuerySingleAsync<ChatConversation>("""
-            INSERT INTO chat_conversations (tenant_id, channel, contact_external_id)
-            VALUES (@tenant, @kenh, @id)
+            INSERT INTO chat_conversations (tenant_id, channel, contact_external_id, account_id)
+            VALUES (@tenant, @kenh, @id, @accountId)
             ON CONFLICT (tenant_id, channel, contact_external_id) DO UPDATE SET tenant_id = EXCLUDED.tenant_id
             RETURNING *
-            """, new { tenant, kenh = (short)kenh, id = externalId });
+            """, new { tenant, kenh = (short)kenh, id = externalId, accountId });
     }
 
     public async Task<ChatConversation?> GetConversationAsync(string tenant, long id, CancellationToken ct = default)
@@ -63,10 +67,26 @@ public class ChatRepository
             "SELECT * FROM chat_conversations WHERE id = @id AND tenant_id = @tenant", new { id, tenant });
     }
 
+    /// <summary>Id tin đoán được (số tăng dần) — proxy tệp Telegram phải tự kiểm chủ trước khi
+    /// đổi file_id thành đường tải thật, không tin vào việc id khó đoán.</summary>
+    public async Task<bool> MessageBelongsToTenantAsync(string tenant, long messageId, CancellationToken ct = default)
+    {
+        await using var c = await _db.OpenAsync(ct);
+        return await c.ExecuteScalarAsync<bool>(
+            "SELECT EXISTS(SELECT 1 FROM chat_messages WHERE id = @messageId AND tenant_id = @tenant)",
+            new { messageId, tenant });
+    }
+
     /// <param name="chiCuaToi">Chỉ hội thoại giao cho người này, cộng hội thoại chưa giao ai. Dùng
     /// cho tài khoản không có quyền xem toàn công ty — kẹp ở SQL chứ không lọc phía client.</param>
+    /// <param name="kenh">Lọc theo kênh (dải kênh bên trái giao diện). Null = mọi kênh.</param>
+    /// <param name="giaoCho">Lọc theo người phụ trách do NGƯỜI DÙNG chọn ("Của tôi"). Khác hẳn
+    /// <paramref name="chiCuaToi"/> vốn là kẹp QUYỀN: cái này lọc đúng một người, cái kia còn cho
+    /// thấy phần chưa ai nhận. Gộp hai thứ lại thì "Của tôi" sẽ hiện cả việc của người khác.</param>
+    /// <param name="chiChuaDoc">Chỉ hội thoại khách nhắn sau lần mình mở gần nhất.</param>
     public async Task<List<ChatConversation>> ListConversationsAsync(string tenant, short? trangThai,
-        string? chiCuaToi, string? timKiem, int limit = 60, CancellationToken ct = default)
+        string? chiCuaToi, string? timKiem, short? kenh = null, string? giaoCho = null,
+        bool chiChuaDoc = false, int limit = 60, CancellationToken ct = default)
     {
         await using var c = await _db.OpenAsync(ct);
         return (await c.QueryAsync<ChatConversation>("""
@@ -77,25 +97,67 @@ public class ChatRepository
             WHERE v.tenant_id = @tenant
               AND (@trangThai IS NULL OR v.status = @trangThai)
               AND (@chiCuaToi IS NULL OR v.assigned_username = @chiCuaToi OR v.assigned_username IS NULL)
+              AND (@kenh IS NULL OR v.channel = @kenh)
+              AND (@giaoCho IS NULL OR v.assigned_username = @giaoCho)
+              AND (NOT @chuaDoc OR (v.contact_replied_at IS NOT NULL
+                   AND (v.agent_last_read_at IS NULL OR v.contact_replied_at > v.agent_last_read_at)))
               AND (@tim IS NULL OR ct.display_name ILIKE @tim OR v.last_preview ILIKE @tim
                    OR v.contact_external_id ILIKE @tim)
             ORDER BY v.last_activity_at DESC
             LIMIT @limit
-            """, new { tenant, trangThai, chiCuaToi,
+            """, new { tenant, trangThai, chiCuaToi, kenh, giaoCho, chuaDoc = chiChuaDoc,
                        tim = string.IsNullOrWhiteSpace(timKiem) ? null : $"%{timKiem.Trim()}%",
                        limit = Math.Clamp(limit, 1, 200) })).ToList();
     }
 
-    public async Task<Dictionary<short, int>> CountByStatusAsync(string tenant, string? chiCuaToi,
+    /// <summary>Hồ sơ khách của một hội thoại. Panel bên phải đọc cái này.</summary>
+    public async Task<ChatContact?> GetContactAsync(string tenant, short kenh, string externalId,
         CancellationToken ct = default)
     {
         await using var c = await _db.OpenAsync(ct);
-        var rows = await c.QueryAsync<(short status, int so)>("""
-            SELECT status, COUNT(*)::int FROM chat_conversations
-            WHERE tenant_id = @tenant AND (@chiCuaToi IS NULL OR assigned_username = @chiCuaToi OR assigned_username IS NULL)
-            GROUP BY status
-            """, new { tenant, chiCuaToi });
-        return rows.ToDictionary(r => r.status, r => r.so);
+        return await c.QuerySingleOrDefaultAsync<ChatContact>("""
+            SELECT * FROM chat_contacts
+            WHERE tenant_id = @tenant AND channel = @kenh AND external_id = @externalId
+            """, new { tenant, kenh, externalId });
+    }
+
+    /// <summary>
+    /// Bộ đếm cho giao diện: theo trạng thái, theo kênh, và số chưa đọc.
+    ///
+    /// <para><b>MỘT truy vấn cho cả ba.</b> Giao diện hỏi lại 4 giây một lần, nên mỗi bộ đếm một
+    /// truy vấn là nhân ba số lần đụng CSDL cho cùng một bảng, cùng một điều kiện.</para>
+    /// </summary>
+    public async Task<ChatInboxCounts> CountAsync(string tenant, string? chiCuaToi,
+        CancellationToken ct = default)
+    {
+        await using var c = await _db.OpenAsync(ct);
+        var rows = (await c.QueryAsync<DemDong>("""
+            SELECT status, channel, COUNT(*)::int AS so,
+                   COUNT(*) FILTER (WHERE contact_replied_at IS NOT NULL
+                        AND (agent_last_read_at IS NULL OR contact_replied_at > agent_last_read_at))::int
+                        AS chua_doc
+            FROM chat_conversations
+            WHERE tenant_id = @tenant
+              AND (@chiCuaToi IS NULL OR assigned_username = @chiCuaToi OR assigned_username IS NULL)
+            GROUP BY status, channel
+            """, new { tenant, chiCuaToi })).ToList();
+
+        var theoTrangThai = new Dictionary<short, int>();
+        var theoKenh = new Dictionary<short, int>();
+        foreach (var r in rows)
+        {
+            theoTrangThai[r.Status] = theoTrangThai.GetValueOrDefault(r.Status) + r.So;
+            theoKenh[r.Channel] = theoKenh.GetValueOrDefault(r.Channel) + r.So;
+        }
+        return new ChatInboxCounts(theoTrangThai, theoKenh, rows.Sum(r => r.ChuaDoc), rows.Sum(r => r.So));
+    }
+
+    private class DemDong
+    {
+        public short Status { get; set; }
+        public short Channel { get; set; }
+        public int So { get; set; }
+        public int ChuaDoc { get; set; }
     }
 
     public async Task AssignAsync(string tenant, long id, string? username, CancellationToken ct = default)

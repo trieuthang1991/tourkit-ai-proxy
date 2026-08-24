@@ -366,6 +366,17 @@ app.UseMiddleware<WorkflowTraceMiddleware>();
 app.UseMiddleware<TourkitAiProxy.Services.Quota.QuotaExceptionMiddleware>();
 app.UseTourkitStaticFiles();
 
+// Kho ảnh/tệp CỤC BỘ của chat (chỉ có tác dụng khi Storage:Provider=local — R2/S3 phục vụ thẳng
+// từ CDN của họ, không qua đây). Đường KHÁC hẳn wwwroot để không lẫn với file tĩnh của giao diện.
+var chatUploadsDir = Path.Combine(Directory.GetCurrentDirectory(),
+    builder.Configuration["Storage:Local:Dir"] ?? Path.Combine("data", "chat-uploads"));
+Directory.CreateDirectory(chatUploadsDir);   // PhysicalFileProvider cần thư mục tồn tại từ lúc khởi động
+app.UseStaticFiles(new Microsoft.AspNetCore.Builder.StaticFileOptions
+{
+    FileProvider = new Microsoft.Extensions.FileProviders.PhysicalFileProvider(chatUploadsDir),
+    RequestPath = "/chat-files",
+});
+
 // ─── Routes ──────────────────────────────────────────────────────────────────
 app.MapSystemEndpoints();
 app.MapConsultLeadEndpoints();   // POST /api/v1/consult-leads (public, lưu data/consult-leads.jsonl)
@@ -406,9 +417,14 @@ else
 {
     IResult ChatOff() => Results.Json(
         new { error = "Tính năng hộp thư chat đang tắt (Features:Chat=false)." }, statusCode: 404);
-    app.Map("/api/v1/chat/conversations", ChatOff);
-    app.Map("/api/v1/chat/conversations/{**rest}", ChatOff);
-    app.Map("/api/v1/chat/webhook/{**rest}", ChatOff);
+    // Đọc CHUNG danh sách với nhánh bật (ChatInboxEndpoints.DuongRieng) — liệt kê tay ở đây đã
+    // lệch một lần: thêm /channels và /messages mà quên cập nhật, hai đường đó rơi vào MapFallback
+    // và trả index.html kèm 200 thay vì 404.
+    foreach (var p in TourkitAiProxy.Endpoints.ChatInboxEndpoints.DuongRieng)
+    {
+        app.Map(p, ChatOff);
+        app.Map(p + "/{**rest}", ChatOff);
+    }
 }
 app.MapTourEndpoints();
 app.MapTourPriceEndpoints();      // GET /api/v1/tour-price/candidates — ứng viên giá NCC (mẫu/thật/cả 2) cho wizard

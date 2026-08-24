@@ -9,18 +9,18 @@ namespace TourkitAiProxy.Services.Chat.Channels;
 /// <summary>
 /// Telegram.
 ///
-/// <para><b>Khác hai kênh kia ở hai điểm quan trọng:</b></para>
-/// <list type="bullet">
-/// <item><b>Không có cửa sổ thời gian.</b> Nhắn lại lúc nào cũng được, miễn người dùng chưa chặn
-/// bot. Nên đây là kênh duy nhất trong ba kênh mà nhân viên chủ động mở lời được.</item>
-/// <item><b>Không ký chữ ký.</b> Telegram xác thực bằng một chuỗi bí mật khai lúc đăng ký địa chỉ
-/// webhook, gửi lại trong header <c>X-Telegram-Bot-Api-Secret-Token</c>. Không khai chuỗi đó thì
-/// <b>ai biết địa chỉ webhook cũng bơm tin vào được</b> — nên ở đây bắt buộc phải có.</item>
-/// </list>
+/// <para><b>Mỗi bot MỘT đường webhook riêng</b> — đây là điểm khác Zalo/Messenger. Telegram không
+/// gửi kèm bất kỳ thông tin nào trong THÂN tin cho biết "tin này của bot nào"; định danh DUY NHẤT
+/// nằm ở chính đường dẫn Telegram gọi tới (đường đó gắn với token lúc gọi <c>setWebhook</c>). Nên
+/// một công ty muốn nhiều bot (vd một bot chăm khách lẻ, một bot cho đại lý) thì mỗi bot phải có
+/// một mã tài khoản riêng trên URL — không gộp chung một đường như Zalo/Messenger được.</para>
 ///
-/// <para>Bot token có thể lấy từ khoá riêng của công ty, hoặc rơi về <c>Telegram:BotToken</c> dùng
-/// chung — bot Telegram miễn phí nên hệ thống cấp sẵn một con, khác hẳn Zalo OA (phải là OA riêng
-/// vì tin hiện tên người gửi).</para>
+/// <para><b>Không ký chữ ký.</b> Telegram xác thực bằng một chuỗi bí mật khai lúc đăng ký địa chỉ
+/// webhook, gửi lại trong header <c>X-Telegram-Bot-Api-Secret-Token</c>. Không khai chuỗi đó thì
+/// <b>ai biết địa chỉ webhook cũng bơm tin vào được</b> — nên ở đây bắt buộc phải có.</para>
+///
+/// <para>Bot token có thể lấy từ khoá riêng của tài khoản, hoặc rơi về <c>Telegram:BotToken</c>
+/// dùng chung — CHỈ khi công ty chưa khai tài khoản nào (tương thích ngược với bản một-bot cũ).</para>
 /// </summary>
 public class TelegramChatAdapter : IChatChannelAdapter
 {
@@ -37,33 +37,38 @@ public class TelegramChatAdapter : IChatChannelAdapter
 
     public ChatChannel Channel => ChatChannel.Telegram;
 
-    private async Task<string?> TokenAsync(string tenantId, CancellationToken ct)
+    private async Task<string?> TokenAsync(string tenantId, string accountId, CancellationToken ct)
     {
-        var c = await _cred.GetAsync(tenantId, Channel, ct);
+        var c = await _cred.GetAsync(tenantId, Channel, accountId, ct);
         if (c is not null && c.TryGetValue("botToken", out var rieng) && !string.IsNullOrWhiteSpace(rieng))
             return rieng;
         var chung = _cfg["Telegram:BotToken"];
         return string.IsNullOrWhiteSpace(chung) ? null : chung;
     }
 
-    public async Task<bool> VerifyAsync(string tenantId, string rawBody, IHeaderDictionary headers,
-        CancellationToken ct)
+    public async Task<string?> VerifyAsync(string tenantId, string? accountIdTuUrl, string rawBody,
+        IHeaderDictionary headers, CancellationToken ct)
     {
-        var c = await _cred.GetAsync(tenantId, Channel, ct);
+        // Telegram BẮT BUỘC có mã tài khoản trên URL — xem docstring lớp. Thiếu là lỗi định tuyến,
+        // không phải chuyện xác thực.
+        if (string.IsNullOrWhiteSpace(accountIdTuUrl)) return null;
+
+        var c = await _cred.GetAsync(tenantId, Channel, accountIdTuUrl, ct);
         if (c is null || !c.TryGetValue("webhookSecret", out var mong) || string.IsNullOrWhiteSpace(mong))
         {
             // KHÔNG cho qua khi thiếu chuỗi bí mật. Telegram không ký nội dung, nên chuỗi này là
             // thứ DUY NHẤT ngăn người ngoài bơm tin giả vào hộp thư.
-            _log.LogWarning("[chat/telegram] tenant={T} chưa khai webhookSecret — bỏ webhook", tenantId);
-            return false;
+            _log.LogWarning("[chat/telegram] tenant={T} account={A} chưa khai webhookSecret — bỏ webhook",
+                tenantId, accountIdTuUrl);
+            return null;
         }
 
         var gui = headers["X-Telegram-Bot-Api-Secret-Token"].FirstOrDefault();
-        if (string.IsNullOrWhiteSpace(gui)) return false;
+        if (string.IsNullOrWhiteSpace(gui)) return null;
 
         var a = Encoding.UTF8.GetBytes(mong);
         var b = Encoding.UTF8.GetBytes(gui);
-        return a.Length == b.Length && CryptographicOperations.FixedTimeEquals(a, b);
+        return a.Length == b.Length && CryptographicOperations.FixedTimeEquals(a, b) ? accountIdTuUrl : null;
     }
 
     public IReadOnlyList<InboundChatEvent> Parse(string rawBody)
@@ -104,18 +109,41 @@ public class TelegramChatAdapter : IChatChannelAdapter
         return ra;
     }
 
-    public async Task<SendResult> SendTextAsync(string tenantId, string externalUserId, string text,
+    public Task<SendResult> SendTextAsync(string tenantId, string accountId, string externalUserId, string text,
+        CancellationToken ct)
+        => GuiAsync(tenantId, accountId, "sendMessage", new { chat_id = externalUserId, text }, ct);
+
+    /// <summary>
+    /// Telegram nhận media qua trường <c>photo</c>/<c>document</c> = URL — bot TỰ TẢI về, không
+    /// nhận nhị phân. Đây là kênh DUY NHẤT trong ba kênh cho ảnh + chữ chú thích trong CÙNG một
+    /// tin (<c>caption</c>), nên không cần gửi tin phụ như Zalo/Messenger.
+    /// </summary>
+    public Task<SendResult> SendMediaAsync(string tenantId, string accountId, string externalUserId,
+        ChatKind loai, string url, string? caption, CancellationToken ct)
+    {
+        var (truong, phuong) = loai switch
+        {
+            ChatKind.Anh => ("photo", "sendPhoto"),
+            ChatKind.AmThanh => ("audio", "sendAudio"),
+            _ => ("document", "sendDocument"),
+        };
+        object body = string.IsNullOrWhiteSpace(caption)
+            ? new Dictionary<string, object> { ["chat_id"] = externalUserId, [truong] = url }
+            : new Dictionary<string, object> { ["chat_id"] = externalUserId, [truong] = url, ["caption"] = caption };
+        return GuiAsync(tenantId, accountId, phuong, body, ct);
+    }
+
+    private async Task<SendResult> GuiAsync(string tenantId, string accountId, string phuongThuc, object body,
         CancellationToken ct)
     {
-        var token = await TokenAsync(tenantId, ct);
+        var token = await TokenAsync(tenantId, accountId, ct);
         if (token is null)
-            return new(false, false, null, "Chưa khai bot token Telegram");
+            return new(false, false, null, "Chưa khai bot token Telegram cho tài khoản này");
 
         try
         {
             var http = _http.CreateClient();
-            using var res = await http.PostAsJsonAsync($"{ApiBase}/bot{token}/sendMessage",
-                new { chat_id = externalUserId, text }, ct);
+            using var res = await http.PostAsJsonAsync($"{ApiBase}/bot{token}/{phuongThuc}", body, ct);
             var raw = await res.Content.ReadAsStringAsync(ct);
             var o = JsonNode.Parse(raw)?.AsObject();
 

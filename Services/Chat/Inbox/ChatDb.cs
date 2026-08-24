@@ -105,6 +105,10 @@ public class ChatDb
       tenant_id            text     NOT NULL,
       channel              smallint NOT NULL,
       contact_external_id  text     NOT NULL,
+      -- TÀI KHOẢN nào của công ty nhận tin này (Trang Facebook / OA Zalo / bot Telegram cụ thể) —
+      -- một công ty giờ có thể nối NHIỀU tài khoản/kênh, nên phải nhớ cuộc trò chuyện này thuộc
+      -- tài khoản nào để trả lời đúng danh nghĩa, không lẫn sang tài khoản khác.
+      account_id           text     NOT NULL DEFAULT '',
       status               smallint NOT NULL DEFAULT 0,   -- 0=mới 1=đang xử lý 2=đã đóng
       assigned_username    text,
       -- MỐC THỜI GIAN, không phải cờ bật/tắt: nhân viên nhảy vào trả lời thì bot câm CÓ THỜI HẠN,
@@ -126,6 +130,9 @@ public class ChatDb
       ON chat_conversations (tenant_id, status, last_activity_at DESC);
     CREATE INDEX IF NOT EXISTS ix_conv_tenant_assignee
       ON chat_conversations (tenant_id, assigned_username, last_activity_at DESC);
+    -- account_id thêm sau (24/08, đa tài khoản/kênh) — bảng đã tồn tại từ trước thì CREATE TABLE
+    -- IF NOT EXISTS ở trên là no-op, phải ALTER riêng mới thấy cột mới.
+    ALTER TABLE chat_conversations ADD COLUMN IF NOT EXISTS account_id text NOT NULL DEFAULT '';
 
     CREATE TABLE IF NOT EXISTS chat_messages (
       id              bigserial PRIMARY KEY,
@@ -166,5 +173,18 @@ public class ChatDb
     -- Chỉ mục CÓ ĐIỀU KIỆN: worker chỉ hỏi dòng đang chờ. Không có nó thì mỗi vài giây lại quét
     -- cả bảng, mà bảng này chỉ phình chứ không co lại.
     CREATE INDEX IF NOT EXISTS ix_outbox_cho ON chat_outbox (created_utc) WHERE status = 0;
+
+    -- Mẫu trả lời nhanh, theo TỪNG CÔNG TY (KHÔNG theo từng nhân viên) — cả đội trực chat cùng
+    -- dùng một bộ câu, đổi một mẫu là cả đội thấy ngay, không phải dạy lại từng người.
+    CREATE TABLE IF NOT EXISTS chat_quick_replies (
+      id          bigserial PRIMARY KEY,
+      tenant_id   text        NOT NULL,
+      trigger     text        NOT NULL,   -- gõ sau dấu "/", vd "gia" cho lệnh "/gia"
+      body        text        NOT NULL,
+      created_utc timestamptz NOT NULL DEFAULT now(),
+      updated_utc timestamptz NOT NULL DEFAULT now()
+    );
+    CREATE UNIQUE INDEX IF NOT EXISTS ux_quickreply_trigger
+      ON chat_quick_replies (tenant_id, lower(trigger));
     """;
 }

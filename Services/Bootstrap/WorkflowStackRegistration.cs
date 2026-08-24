@@ -3,6 +3,7 @@ using TourkitAiProxy.Services.Chat;
 using TourkitAiProxy.Services.Providers;
 using TourkitAiProxy.Services.Reviews;
 using TourkitAiProxy.Services.Reviews.Agents;
+using TourkitAiProxy.Services.Storage;
 using TourkitAiProxy.Services.TourKit;
 using TourkitAiProxy.Services.Workflow;
 
@@ -180,6 +181,8 @@ public static class WorkflowStackRegistration
         s.AddSingleton<Chat.Inbox.ChatRepository>();
         s.AddSingleton<Chat.Inbox.ChatInboundService>();
         s.AddSingleton<Chat.Channels.ChannelCredentialStore>();
+        // Kho ảnh/tệp nhân viên gửi — r2 | s3 | local theo Storage:Provider, xem IChatFileStorage.
+        s.AddChatFileStorage(cfg);
         // Thêm kênh mới = thêm 1 dòng ở đây, KHÔNG đụng phần lõi.
         s.AddSingleton<Chat.Channels.IChatChannelAdapter, Chat.Channels.ZaloChatAdapter>();
         s.AddSingleton<Chat.Channels.IChatChannelAdapter, Chat.Channels.MessengerChatAdapter>();
