@@ -124,8 +124,21 @@ public class ChatDb
       archived_at          timestamptz,
       created_utc          timestamptz NOT NULL DEFAULT now()
     );
-    CREATE UNIQUE INDEX IF NOT EXISTS ux_conv_scope
-      ON chat_conversations (tenant_id, channel, contact_external_id);
+    -- Khoá hội thoại PHẢI có account_id. Thiếu nó thì hai tài khoản cùng kênh của cùng công ty
+    -- gộp nhầm hội thoại của cùng một khách, và câu trả lời đi ra SAI tài khoản.
+    --
+    -- Không phải kênh nào cũng lộ ra như nhau, nên rất dễ tưởng là an toàn:
+    --   • Messenger — PSID cấp theo TỪNG Trang, hai Trang cho hai id khác nhau → tình cờ không sao;
+    --   • Zalo      — user id cấp theo TỪNG OA → cũng không sao;
+    --   • Telegram  — chat.id của chat riêng CHÍNH LÀ id người dùng, GIỐNG HỆT ở mọi bot. Một khách
+    --     nhắn bot A rồi nhắn bot B sẽ rơi vào cùng một hội thoại, và bot B trả lời tin của bot A.
+    --
+    -- Thứ tự CỐ Ý: tạo chỉ mục mới TRƯỚC rồi mới bỏ cái cũ. Nếu dữ liệu đang có trùng thì lệnh tạo
+    -- hỏng, cả khối SQL dừng, và chỉ mục CŨ vẫn còn nguyên — vẫn chống trùng. Bỏ trước tạo sau thì
+    -- lúc hỏng sẽ không còn chỉ mục duy nhất nào cả, mất luôn lớp chống trùng ở tầng CSDL.
+    CREATE UNIQUE INDEX IF NOT EXISTS ux_conv_scope_acc
+      ON chat_conversations (tenant_id, channel, account_id, contact_external_id);
+    DROP INDEX IF EXISTS ux_conv_scope;
     CREATE INDEX IF NOT EXISTS ix_conv_tenant_status
       ON chat_conversations (tenant_id, status, last_activity_at DESC);
     CREATE INDEX IF NOT EXISTS ix_conv_tenant_assignee

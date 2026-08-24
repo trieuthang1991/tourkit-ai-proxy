@@ -55,7 +55,8 @@ public class ChatRepository
         return await c.QuerySingleAsync<ChatConversation>("""
             INSERT INTO chat_conversations (tenant_id, channel, contact_external_id, account_id)
             VALUES (@tenant, @kenh, @id, @accountId)
-            ON CONFLICT (tenant_id, channel, contact_external_id) DO UPDATE SET tenant_id = EXCLUDED.tenant_id
+            ON CONFLICT (tenant_id, channel, account_id, contact_external_id)
+              DO UPDATE SET tenant_id = EXCLUDED.tenant_id
             RETURNING *
             """, new { tenant, kenh = (short)kenh, id = externalId, accountId });
     }
