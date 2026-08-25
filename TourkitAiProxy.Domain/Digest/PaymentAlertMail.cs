@@ -4,7 +4,7 @@ using System.Text;
 using System.Text.Json;
 using TourkitAiProxy.Domain.Digest;
 
-namespace TourkitAiProxy.Services.Digest;
+namespace TourkitAiProxy.Domain.Digest;
 
 /// <summary>
 /// Dựng nội dung thư "tour sắp đi mà khách còn nợ". Hàm THUẦN — không chạm DB, không gọi mạng —

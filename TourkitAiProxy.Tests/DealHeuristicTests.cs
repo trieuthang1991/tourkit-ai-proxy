@@ -1,4 +1,4 @@
-using TourkitAiProxy.Services.Deals;
+﻿using TourkitAiProxy.Services.Deals;
 using Xunit;
 
 namespace TourkitAiProxy.Tests;

@@ -1,7 +1,7 @@
 ﻿using System.Text;
 using TourkitAiProxy.Domain.Digest;
 
-namespace TourkitAiProxy.Services.Digest;
+namespace TourkitAiProxy.Domain.Digest;
 
 /// <summary>
 /// Dựng TIÊU ĐỀ + NỘI DUNG của thẻ "sẵn sàng khởi hành". Tách khỏi workflow để test được: phần chữ

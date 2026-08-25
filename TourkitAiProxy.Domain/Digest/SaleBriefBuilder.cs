@@ -3,7 +3,7 @@ using System.Text;
 using System.Text.RegularExpressions;
 using TourkitAiProxy.Domain.Digest;
 
-namespace TourkitAiProxy.Services.Digest;
+namespace TourkitAiProxy.Domain.Digest;
 
 public record DealLine(int DealId, string Title, string? CustomerName, int WinRate, int SilentDays, string? StatusText);
 public record ApptLine(string Time, string Title, string? CustomerName);
@@ -266,7 +266,13 @@ public static class SaleBriefBuilder
     /// escape (email in ra chữ "&lt;b&gt;"). Nhờ thứ tự này mà tên khách / tiêu đề cơ hội do
     /// người dùng nhập bị vô hiệu hoá, còn phần in đậm mình chủ động tạo thì giữ nguyên.
     /// </summary>
-    internal static string ToHtml(string bodyMd)
+    /// <remarks>
+    /// <c>public</c> chứ không <c>internal</c> vì nay ở assembly khác: CeoBriefBuilder và
+    /// DigestEndpoints (đều ở tầng ngoài) dùng chung hàm này. Trước khi tách project thì
+    /// <c>internal</c> đủ, việc đổi sang public là hệ quả TRỰC TIẾP của việc ranh giới thật sự
+    /// tồn tại — chính là thứ mình muốn: chỗ nào dùng chéo tầng thì phải khai ra, không lẳng lặng.
+    /// </remarks>
+    public static string ToHtml(string bodyMd)
         => "<div style=\"font-family:sans-serif;line-height:1.6\">"
          + Regex.Replace(MailHtml.Esc(bodyMd), @"\*\*(.+?)\*\*", "<b>$1</b>")
                 .Replace("\n", "<br>")

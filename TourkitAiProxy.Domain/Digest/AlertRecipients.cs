@@ -1,5 +1,5 @@
 ﻿using TourkitAiProxy.Domain.Digest;
-namespace TourkitAiProxy.Services.Digest;
+namespace TourkitAiProxy.Domain.Digest;
 
 /// <summary>
 /// Tách chuỗi "nhiều nơi nhận, cách nhau bằng dấu" mà người dùng gõ tay trong ô cấu hình tác vụ.

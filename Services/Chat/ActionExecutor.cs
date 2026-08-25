@@ -3,7 +3,7 @@ using System.Globalization;
 using System.Text.Json;
 using TourkitAiProxy.Models;              // ActionExecuteRequest, ActionResult, ActionChoice, ChatData, MailItem, MailDraft
 using TourkitAiProxy.Services.Crm;        // CrmActionQueueRepository, CrmActionInput, CrmActionKind
-using TourkitAiProxy.Services.Deals;      // DealOpportunityClient, DealScoringService, DealRepository
+using TourkitAiProxy.Services.Deals;
 using TourkitAiProxy.Services.Mail;       // MailSyncService, IMailSender, MailRepository, MailAccountStore, MailTaxonomy
 using TourkitAiProxy.Services.Reviews;    // ReviewService
 using TourkitAiProxy.Services.TourKit;    // TourKitCustomerSource

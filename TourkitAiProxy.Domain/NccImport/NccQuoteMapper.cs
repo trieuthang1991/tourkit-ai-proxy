@@ -1,6 +1,6 @@
-using System.Text.Json;
+﻿using System.Text.Json;
 
-namespace TourkitAiProxy.Services.NccImport;
+namespace TourkitAiProxy.Domain.NccImport;
 
 /// Body cho POST /api/v1/ncc-import/save: quote (đã bóc tách, có thể user sửa) + loại dịch vụ + mã (tuỳ chọn).
 public record NccSaveReq(JsonElement Quote, int ServiceId, string? ProviderCode);

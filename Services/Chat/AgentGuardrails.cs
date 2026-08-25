@@ -1,4 +1,4 @@
-// Services/Chat/AgentGuardrails.cs
+﻿// Services/Chat/AgentGuardrails.cs
 using System.Text.RegularExpressions;
 using System.Globalization;
 using TourkitAiProxy.Models;

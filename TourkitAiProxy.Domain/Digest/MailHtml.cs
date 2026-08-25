@@ -1,4 +1,4 @@
-namespace TourkitAiProxy.Services.Digest;
+﻿namespace TourkitAiProxy.Domain.Digest;
 
 /// <summary>
 /// Escape HTML cho nội dung thư — <b>TỐI THIỂU</b>, chỉ bốn ký tự thật sự phá cấu trúc HTML.

@@ -1,5 +1,6 @@
-using System.Text.Json;
+﻿using System.Text.Json;
 using TourkitAiProxy.Services.NccImport;
+using TourkitAiProxy.Domain.NccImport;
 using Xunit;
 
 namespace TourkitAiProxy.Tests;

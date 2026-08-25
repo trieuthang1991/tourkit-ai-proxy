@@ -1,6 +1,7 @@
-using System.Text.Json;
+﻿using System.Text.Json;
 using TourkitAiProxy.Models;
 using TourkitAiProxy.Services.NccImport;
+using TourkitAiProxy.Domain.NccImport;
 using TourkitAiProxy.Services.TourKit;
 
 namespace TourkitAiProxy.Endpoints;
