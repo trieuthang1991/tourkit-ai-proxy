@@ -107,14 +107,20 @@
   }
 
   // Dấu tích trạng thái gửi. Ghép từ biểu tượng "check" có sẵn thay vì vẽ tay đường SVG mới.
-  function DauGui({ state }) {
+  // Telegram không bao giờ báo lại đã nhận/đã xem (Bot API không có). Không nói rõ thì nhân viên
+  // nhìn hai hội thoại cạnh nhau sẽ kết luận sai "khách Telegram không đọc tin" — hiểu nhầm do
+  // MÌNH tạo ra, tệ hơn là không hiện gì.
+  function DauGui({ state, kenh }) {
     if (state === 0) return <span className="ci-tich cho">đang gửi…</span>;
     if (state === 4) return null;   // lỗi có dòng riêng, màu đỏ, không nhét vào đây
-    const nhan = state >= 3 ? 'Khách đã xem' : state === 2 ? 'Đã tới máy khách' : 'Đã gửi';
+    const khongBao = kenh === 3;    // Telegram
+    const nhan = khongBao
+      ? 'Đã gửi — kênh này không báo lại việc khách đã nhận hay đã xem'
+      : state >= 3 ? 'Khách đã xem' : state === 2 ? 'Đã tới máy khách' : 'Đã gửi';
     return (
-      <span className={'ci-tich' + (state >= 3 ? ' xem' : '')} title={nhan} aria-label={nhan}>
+      <span className={'ci-tich' + (state >= 3 && !khongBao ? ' xem' : '')} title={nhan} aria-label={nhan}>
         <window.Icon name="check" size={11} stroke={2.6} />
-        {state >= 2 && <window.Icon name="check" size={11} stroke={2.6} />}
+        {state >= 2 && !khongBao && <window.Icon name="check" size={11} stroke={2.6} />}
       </span>
     );
   }
@@ -168,7 +174,10 @@
     );
   }
 
-  function BongBong({ tin }) {
+  // Kênh lấy từ HỘI THOẠI, không phải từ tin: bảng chat_messages có cột channel nhưng lớp
+  // ChatMessage không map cột đó nên API không trả về — viết tin.channel sẽ ra undefined và mọi
+  // tin đều bị coi là Zalo.
+  function BongBong({ tin, kenh }) {
     // 0=khách 1=AI 2=nhân viên 3=hệ thống
     const ben = tin.senderKind;
     const cuaMinh = tin.direction === 1;
@@ -187,7 +196,7 @@
           )}
           <div className="ci-gio">
             <span>{gioPhut(tin.createdUtc)}</span>
-            {cuaMinh && <DauGui state={tin.state} />}
+            {cuaMinh && <DauGui state={tin.state} kenh={kenh} />}
             {tin.state === 4 && <span className="ci-loi" title={tin.errorMessage}>gửi hỏng</span>}
           </div>
         </div>
@@ -776,7 +785,7 @@
                       {(i === 0 || ngayCua(m.createdUtc) !== ngayCua(tinNhan[i - 1].createdUtc)) && (
                         <div className="ci-ngay"><span>{nhanNgay(m.createdUtc)}</span></div>
                       )}
-                      <BongBong tin={m} />
+                      <BongBong tin={m} kenh={v.channel} />
                     </React.Fragment>
                   ))}
                 </div>

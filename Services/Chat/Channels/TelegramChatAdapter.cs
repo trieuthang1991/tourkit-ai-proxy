@@ -21,6 +21,12 @@ namespace TourkitAiProxy.Services.Chat.Channels;
 ///
 /// <para>Bot token có thể lấy từ khoá riêng của tài khoản, hoặc rơi về <c>Telegram:BotToken</c>
 /// dùng chung — CHỈ khi công ty chưa khai tài khoản nào (tương thích ngược với bản một-bot cũ).</para>
+///
+/// <para><b>Telegram KHÔNG báo đã nhận / đã xem.</b> Bot API không cung cấp — khác hẳn Zalo
+/// (<c>user_seen_message</c>) và Messenger (<c>delivery</c>/<c>read</c>). Nên tin gửi qua kênh này
+/// dừng ở "đã gửi" vĩnh viễn, và <b>đó là đúng</b>. Đừng "sửa" bằng cách tự đặt trạng thái cao hơn
+/// khi gửi thành công: như thế là nói dối nhân viên rằng khách đã nhận trong khi mình không biết.
+/// Giao diện nói rõ chuyện này ở tooltip dấu tích (xem <c>DauGui</c> trong chat-inbox.jsx).</para>
 /// </summary>
 public class TelegramChatAdapter : IChatChannelAdapter
 {

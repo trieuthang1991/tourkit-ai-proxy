@@ -103,4 +103,25 @@ public class ChatLifecycleTests
         // Không được còn dòng bỏ qua cả cụm delivery/read như trước.
         Assert.DoesNotContain("delivery/read/postback — chưa dùng ở đợt này", src);
     }
+
+    [Fact]
+    public void Telegram_khong_duoc_tu_nhay_trang_thai()
+    {
+        // Bot API không có báo đã nhận/đã xem. Tự đặt DaNhan khi gửi xong là NÓI DỐI nhân viên —
+        // họ sẽ tưởng khách đã nhận trong khi mình không hề biết.
+        var src = ChatSchemaGuardTests.DocFile("Services/Chat/Channels/TelegramChatAdapter.cs");
+        Assert.DoesNotContain("ChatState.DaNhan", src);
+        Assert.DoesNotContain("ChatState.DaXem", src);
+        // Phải có chú thích giải thích, không thì người sau tưởng là thiếu sót rồi "sửa".
+        // So KHÔNG phân biệt hoa thường: chú thích viết hoa để nhấn mạnh ("KHÔNG báo") vẫn là
+        // lời giải thích hợp lệ — thứ cần canh là có giải thích, không phải kiểu chữ.
+        Assert.Contains("không báo", src, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public void Giao_dien_noi_ro_kenh_nao_khong_bao_lai()
+    {
+        var jsx = ChatSchemaGuardTests.DocFile("wwwroot/pages/chat-inbox.jsx");
+        Assert.Contains("kênh này không báo", jsx);
+    }
 }
