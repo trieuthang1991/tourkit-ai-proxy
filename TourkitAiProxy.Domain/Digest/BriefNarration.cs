@@ -1,7 +1,7 @@
 using System.Text;
 using System.Text.RegularExpressions;
 
-namespace TourkitAiProxy.Services.Digest;
+namespace TourkitAiProxy.Domain.Digest;
 
 /// <summary>
 /// Đổi nội dung bản tin (markdown-lite: **in đậm** + gạch đầu dòng + emoji tiêu đề) sang câu chữ

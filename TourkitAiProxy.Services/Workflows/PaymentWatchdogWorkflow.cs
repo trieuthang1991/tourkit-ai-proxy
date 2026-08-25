@@ -1,9 +1,9 @@
 ﻿using System.Globalization;
 using System.Text.Json;
-using TourkitAiProxy.Services.Digest;
-using TourkitAiProxy.Services.Mail;
+using TourkitAiProxy.Infrastructure.Digest;
+using TourkitAiProxy.Infrastructure.Mail;
 using TourkitAiProxy.Domain.Mail;
-using TourkitAiProxy.Services.TourKit;
+using TourkitAiProxy.Infrastructure.TourKit;
 using TourkitAiProxy.Domain.Digest;
 
 namespace TourkitAiProxy.Services.Workflows;
@@ -109,12 +109,12 @@ public class PaymentWatchdogWorkflow : IScheduledWorkflow
     private readonly TkSessionStore _sessions;
     private readonly TourKitApiClient _api;
     private readonly InsightRepository _insights;
-    private readonly Mail.MailQueueRepository _mailQueue;
+    private readonly MailQueueRepository _mailQueue;
     private readonly DigestSubscriptionRepository _subs;
     private readonly ILogger<PaymentWatchdogWorkflow> _log;
 
     public PaymentWatchdogWorkflow(TenantServiceAccountStore accounts, TkSessionStore sessions,
-        TourKitApiClient api, InsightRepository insights, Mail.MailQueueRepository mailQueue,
+        TourKitApiClient api, InsightRepository insights, MailQueueRepository mailQueue,
         DigestSubscriptionRepository subs, ILogger<PaymentWatchdogWorkflow> log)
     { _accounts = accounts; _sessions = sessions; _api = api; _insights = insights; _mailQueue = mailQueue; _subs = subs; _log = log; }
 

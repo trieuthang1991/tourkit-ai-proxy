@@ -1,7 +1,7 @@
 ﻿using System.Text.Json;
 using TourkitAiProxy.Services.Deals;
 using TourkitAiProxy.Shared.Text;
-using TourkitAiProxy.Services.TourKit;
+using TourkitAiProxy.Infrastructure.TourKit;
 using Xunit;
 
 namespace TourkitAiProxy.Tests.TourKit;

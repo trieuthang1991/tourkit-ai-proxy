@@ -1,4 +1,4 @@
-namespace TourkitAiProxy.Models;
+namespace TourkitAiProxy.Domain.Models;
 
 // KHÔNG khai DTO cho item upstream: workflow đọc thẳng JsonElement (giống ChatAgentService /
 // TourKitNccClient hiện tại) → thiếu field thì bỏ dòng, không ném. Thêm 1 record chỉ để

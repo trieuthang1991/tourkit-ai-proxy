@@ -1,6 +1,6 @@
 ﻿using System.Text.Json;
-using TourkitAiProxy.Services.Digest;
-using TourkitAiProxy.Services.TourKit;
+using TourkitAiProxy.Infrastructure.Digest;
+using TourkitAiProxy.Infrastructure.TourKit;
 using TourkitAiProxy.Domain.Digest;
 
 namespace TourkitAiProxy.Endpoints;

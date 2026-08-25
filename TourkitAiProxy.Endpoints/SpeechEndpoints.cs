@@ -1,5 +1,5 @@
 ﻿using TourkitAiProxy.Services.Speech;
-using TourkitAiProxy.Services.TourKit;
+using TourkitAiProxy.Infrastructure.TourKit;
 
 namespace TourkitAiProxy.Endpoints;
 

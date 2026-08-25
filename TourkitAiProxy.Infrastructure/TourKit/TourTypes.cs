@@ -1,6 +1,6 @@
 using System.Text.Json;
 
-namespace TourkitAiProxy.Services.TourKit;
+namespace TourkitAiProxy.Infrastructure.TourKit;
 
 /// <summary>
 /// Mã loại tour của TourKit. Danh sách CỐ ĐỊNH của hệ thống (mirror <c>AiFormat.TourTypeName</c>

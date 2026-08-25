@@ -1,6 +1,6 @@
 using System.Text.Json.Serialization;
 
-namespace TourkitAiProxy.Models;
+namespace TourkitAiProxy.Domain.Models;
 
 /// Cơ hội bán hàng (booking-ticket) dạng nhẹ từ /api/ai/booking-tickets — đầu vào heuristic.
 /// Các field cooling* server-side compute (upstream TourKit.Api ≥ commit thêm AiBookingTicketItem.IsCooling).

@@ -1,6 +1,6 @@
 using System.Text.Json.Serialization;
 
-namespace TourkitAiProxy.Models;
+namespace TourkitAiProxy.Domain.Models;
 
 /// Flat shape (KHÔNG phải OpenAI messages[]) — đây là contract với frontend.
 /// `provider` chọn upstream (opencode-go | nine-routes | …); nếu trống → default

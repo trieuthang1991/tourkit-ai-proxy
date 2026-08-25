@@ -2,10 +2,10 @@ using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
 using Dapper;
-using TourkitAiProxy.Models;
-using TourkitAiProxy.Services.Db;
+using TourkitAiProxy.Domain.Models;
+using TourkitAiProxy.Infrastructure.Db;
 
-namespace TourkitAiProxy.Services.Reviews;
+namespace TourkitAiProxy.Infrastructure.Reviews;
 
 /// <summary>
 /// SQL Server-backed store: customerId → CustomerReview.

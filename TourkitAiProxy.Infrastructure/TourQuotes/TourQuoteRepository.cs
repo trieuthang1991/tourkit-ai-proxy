@@ -2,11 +2,11 @@ using System.Text.Json;
 using System.Text.Json.Serialization;
 using Dapper;
 using StackExchange.Redis;
-using TourkitAiProxy.Models;
-using TourkitAiProxy.Services.Cache;
-using TourkitAiProxy.Services.Db;
+using TourkitAiProxy.Domain.Models;
+using TourkitAiProxy.Infrastructure.Cache;
+using TourkitAiProxy.Infrastructure.Db;
 
-namespace TourkitAiProxy.Services.TourQuotes;
+namespace TourkitAiProxy.Infrastructure.TourQuotes;
 
 /// <summary>
 /// 2-tier storage cho tour quote:

@@ -1,7 +1,7 @@
 using DocumentFormat.OpenXml;
 using DocumentFormat.OpenXml.Packaging;
 using DocumentFormat.OpenXml.Spreadsheet;
-using TourkitAiProxy.Models;
+using TourkitAiProxy.Domain.Models;
 
 namespace TourkitAiProxy.Services.NccImport;
 

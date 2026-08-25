@@ -1,4 +1,4 @@
-namespace TourkitAiProxy.Models;
+namespace TourkitAiProxy.Domain.Models;
 
 /// <summary>Single source of truth cho model routing + listing.</summary>
 /// Thêm model mới: chỉ cần append 1 entry vào <see cref="All"/>.

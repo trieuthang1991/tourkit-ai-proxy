@@ -1,8 +1,10 @@
 using System.Diagnostics;
 using System.Text.Json;
 using TourkitAiProxy.Services;
-using TourkitAiProxy.Services.Cache;
+using TourkitAiProxy.Infrastructure.Cache;
 using TourkitAiProxy.Services.Quota;
+using TourkitAiProxy.Infrastructure.Reviews;
+using TourkitAiProxy.Infrastructure.TourKit;
 using TourkitAiProxy.Services.Reviews;
 using TourkitAiProxy.Services.TourKit;
 

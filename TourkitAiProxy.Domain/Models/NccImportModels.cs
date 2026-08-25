@@ -1,4 +1,4 @@
-namespace TourkitAiProxy.Models;
+namespace TourkitAiProxy.Domain.Models;
 
 /// 1 dòng NCC chuẩn hoá theo file_import_ncc.xlsx (13 cột).
 /// Phần tài chính (Tổng mua, Đã trả…) mặc định 0 khi nhập mới — hệ thống cập nhật sau.

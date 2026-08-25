@@ -1,8 +1,12 @@
 ﻿using System.Diagnostics;
 using System.Text.Json;
-using TourkitAiProxy.Services.Crm;
-using TourkitAiProxy.Services.Mail;
+using TourkitAiProxy.Infrastructure.Crm;
+using TourkitAiProxy.Infrastructure.Mail;
 using TourkitAiProxy.Domain.Mail;
+using TourkitAiProxy.Infrastructure.TourKit;
+using TourkitAiProxy.Infrastructure.TourPrices;
+using TourkitAiProxy.Infrastructure.Workflows;
+using TourkitAiProxy.Services.Mail;
 using TourkitAiProxy.Services.TourKit;
 using TourkitAiProxy.Services.TourPrices;
 using TourkitAiProxy.Services.Workflows;

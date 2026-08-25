@@ -1,6 +1,8 @@
 ﻿using System.Text;
 using System.Text.Json;
-using TourkitAiProxy.Models;
+using TourkitAiProxy.Domain.Models;
+using TourkitAiProxy.Infrastructure.Reviews;
+using TourkitAiProxy.Infrastructure.TourKit;
 using TourkitAiProxy.Services.Reviews;
 using TourkitAiProxy.Services.TourKit;
 

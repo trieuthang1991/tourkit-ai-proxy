@@ -1,5 +1,6 @@
 ﻿using TourkitAiProxy.Services.Chat;
 using TourkitAiProxy.Domain.Chat;
+using TourkitAiProxy.Infrastructure.Cache;
 
 namespace TourkitAiProxy.Tests.Chat;
 

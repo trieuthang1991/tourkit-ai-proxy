@@ -1,6 +1,7 @@
 // Services/Reviews/Agents/IReviewAgent.cs
-using TourkitAiProxy.Models;
+using TourkitAiProxy.Domain.Models;
 using TourkitAiProxy.Services.Workflow;
+using TourkitAiProxy.Domain.Workflow;
 
 namespace TourkitAiProxy.Services.Reviews.Agents;
 

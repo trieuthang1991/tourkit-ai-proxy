@@ -1,4 +1,4 @@
-﻿using TourkitAiProxy.Models;
+﻿using TourkitAiProxy.Domain.Models;
 
 namespace TourkitAiProxy.Domain.TourPrices;
 

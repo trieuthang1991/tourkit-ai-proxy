@@ -1,5 +1,5 @@
 ﻿using TourkitAiProxy.Domain.Digest;   // DigestSubscription
-namespace TourkitAiProxy.Services.Digest;
+namespace TourkitAiProxy.Domain.Digest;
 
 /// <summary>
 /// Kênh gửi ra ngoài — enum kênh DUY NHẤT toàn hệ (đã thay hẳn DigestChannel/ChannelMask cũ).

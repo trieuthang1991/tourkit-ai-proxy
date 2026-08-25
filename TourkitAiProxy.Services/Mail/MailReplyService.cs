@@ -1,8 +1,9 @@
 ﻿using System.Text.RegularExpressions;
-using TourkitAiProxy.Models;
+using TourkitAiProxy.Domain.Models;
 using TourkitAiProxy.Services.Providers;
 using TourkitAiProxy.Services.Workflow;
 using TourkitAiProxy.Domain.Mail;
+using TourkitAiProxy.Infrastructure.Mail;
 
 namespace TourkitAiProxy.Services.Mail;
 

@@ -1,7 +1,8 @@
 ﻿using System.Text;
-using TourkitAiProxy.Models;
+using TourkitAiProxy.Domain.Models;
 using TourkitAiProxy.Services.Providers;
 using TourkitAiProxy.Domain.Chat;
+using TourkitAiProxy.Infrastructure.Widget;
 
 namespace TourkitAiProxy.Services.Widget;
 

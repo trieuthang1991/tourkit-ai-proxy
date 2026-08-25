@@ -1,12 +1,12 @@
 using TourkitAiProxy.Configuration;
 using TourkitAiProxy.Endpoints;
-using TourkitAiProxy.Services;
+using TourkitAiProxy.Infrastructure;
 using TourkitAiProxy.Services.Bootstrap;
 using TourkitAiProxy.Services.Chat;
 using TourkitAiProxy.Services.Providers;
-using TourkitAiProxy.Services.Reviews;
+using TourkitAiProxy.Infrastructure.Reviews;
 using TourkitAiProxy.Services.Reviews.Agents;
-using TourkitAiProxy.Services.TourKit;
+using TourkitAiProxy.Infrastructure.TourKit;
 using TourkitAiProxy.Services.Workflow;
 
 var builder = WebApplication.CreateBuilder(args);
@@ -27,22 +27,22 @@ builder.Logging.AddLog4Net(new Microsoft.Extensions.Logging.Log4NetProviderOptio
 // → lệch +7h. App lưu UTC toàn bộ nên gắn 'Z' là đúng. Chỉ tác động field DateTime-typed (an toàn,
 // các entity lưu local đọc dạng string không bị đụng). Xem UtcDateTimeConverter.
 builder.Services.ConfigureHttpJsonOptions(o =>
-    o.SerializerOptions.Converters.Add(new TourkitAiProxy.Services.Json.UtcDateTimeConverter()));
+    o.SerializerOptions.Converters.Add(new TourkitAiProxy.Shared.Json.UtcDateTimeConverter()));
 
 // ─── DB logging ĐỘNG (dbo.AppLogs) ────────────────────────────────────────────
 // Site workflow sẽ tách riêng → log gom về DB để MỌI instance truy chung 1 nguồn (stdout không share được).
 // Thiết kế động: cột Kind phân loại + DataJson payload tùy ý → thêm loại log mới khỏi đổi schema.
 // ILogSink (đăng ký luôn, dù DB-log tắt) cho code ghi log CÓ CẤU TRÚC loại bất kỳ.
-var dbLogQueue = new TourkitAiProxy.Services.Logging.DbLogQueue();
+var dbLogQueue = new TourkitAiProxy.Infrastructure.Logging.DbLogQueue();
 builder.Services.AddSingleton(dbLogQueue);
-builder.Services.AddSingleton<TourkitAiProxy.Services.Logging.ILogSink,
-                              TourkitAiProxy.Services.Logging.DbLogSink>();
+builder.Services.AddSingleton<TourkitAiProxy.Infrastructure.Logging.ILogSink,
+                              TourkitAiProxy.Infrastructure.Logging.DbLogSink>();
 if (builder.Configuration.GetValue("Logging:Database:Enabled", false))
 {
     var dbLogMin = Enum.TryParse<LogLevel>(
         builder.Configuration["Logging:Database:MinLevel"], out var lv) ? lv : LogLevel.Information;
-    builder.Logging.AddProvider(new TourkitAiProxy.Services.Logging.DbLoggerProvider(dbLogQueue, dbLogMin));
-    builder.Services.AddHostedService<TourkitAiProxy.Services.Logging.DbLogWriter>();
+    builder.Logging.AddProvider(new TourkitAiProxy.Infrastructure.Logging.DbLoggerProvider(dbLogQueue, dbLogMin));
+    builder.Services.AddHostedService<TourkitAiProxy.Infrastructure.Logging.DbLogWriter>();
 }
 
 // ─── Outbound TLS: ép TLS 1.2/1.3 ─────────────────────────────────────────────
@@ -102,20 +102,20 @@ builder.Services.AddWorkflowStack(builder.Configuration);
 // Admin governance — auth qua Admin:Users (JSON config) + in-mem session.
 builder.Services.AddSingleton<TourkitAiProxy.Services.Admin.AdminUserStore>();
 builder.Services.AddSingleton<TourkitAiProxy.Services.Admin.AdminSessionStore>();
-builder.Services.AddSingleton<TourkitAiProxy.Services.Admin.AdminUsageRepository>();
-builder.Services.AddSingleton<TourkitAiProxy.Services.Admin.AdminDigestRepository>();
+builder.Services.AddSingleton<TourkitAiProxy.Infrastructure.Admin.AdminUsageRepository>();
+builder.Services.AddSingleton<TourkitAiProxy.Infrastructure.Admin.AdminDigestRepository>();
 builder.Services.AddSingleton<TourkitAiProxy.Services.Admin.ConsultLeadRepository>();
 
 // Tingee client cho luồng mua quota. Tingee = webhook IPN-only (bắn về tourkit-web); QR = VietQR
 // img.vietqr.io. Chỉ 1 client THẬT, không mock.
 builder.Services.AddSingleton<TourkitAiProxy.Services.Quota.ITingeeClient,
                               TourkitAiProxy.Services.Quota.TingeeClient>();
-builder.Services.AddSingleton<TourkitAiProxy.Services.Quota.QuotaOrderRepository>();
+builder.Services.AddSingleton<TourkitAiProxy.Infrastructure.Quota.QuotaOrderRepository>();
 
 // Widget Chat — token per-tenant, embed JS vào site khách.
 //   • FAQ mode (WidgetChatService): chỉ system prompt + LLM kiến thức nền.
 //   • CRM mode (WidgetChatCrmService): plan → call /api/ai/* whitelist → analyze. Cần link CRM.
-builder.Services.AddSingleton<TourkitAiProxy.Services.Widget.WidgetTokenRepository>();
+builder.Services.AddSingleton<TourkitAiProxy.Infrastructure.Widget.WidgetTokenRepository>();
 builder.Services.AddSingleton<TourkitAiProxy.Services.Widget.WidgetChatService>();
 builder.Services.AddSingleton<TourkitAiProxy.Services.Widget.WidgetCrmLinkService>();
 builder.Services.AddSingleton<TourkitAiProxy.Services.Widget.WidgetChatCrmService>();
@@ -131,12 +131,12 @@ builder.Services.AddSingleton<ChatAgentService>();
 // Các Mail/Workflow service khác (MailAccountStore, MailQueueRepository, các workflow…) đã nằm
 // trong AddWorkflowStack ở trên. MailTemplateRepository là UI/admin-specific (không cần cho
 // scheduler worker) nên đăng ký riêng ở đây.
-builder.Services.AddSingleton<TourkitAiProxy.Services.Mail.MailTemplateRepository>();
+builder.Services.AddSingleton<TourkitAiProxy.Infrastructure.Mail.MailTemplateRepository>();
 
 // Hàng đợi hành động CRM (dbo.CrmActionQueue) — trợ lý enqueue (giao việc/tạo lịch hẹn),
 // worker app-side (toutkit-app) drain. Singleton như MailQueueRepository (cùng chỉ dùng
 // TourkitAiDb.OpenAsync mở connection mới mỗi lần gọi, không giữ state).
-builder.Services.AddSingleton<TourkitAiProxy.Services.Crm.CrmActionQueueRepository>();
+builder.Services.AddSingleton<TourkitAiProxy.Infrastructure.Crm.CrmActionQueueRepository>();
 
 // Resolver tên→id (khách/nhân viên/deal/workflow) cho các action ghi — dùng ActionExecutor.
 // Stateless (chỉ gọi TourKitApiClient qua jwt truyền vào), singleton như TourKitCustomerSource/DealOpportunityClient.
@@ -161,7 +161,7 @@ builder.Services.AddSingleton<TourkitAiProxy.Services.Chat.MeetingBriefService>(
 builder.Services.AddSingleton<TourkitAiProxy.Services.Tour.TourBuilderService>();
 
 // Báo giá tour persist (replace flow localStorage cũ). DB-backed, per-tenant scope.
-builder.Services.AddSingleton<TourkitAiProxy.Services.TourQuotes.TourQuoteRepository>();
+builder.Services.AddSingleton<TourkitAiProxy.Infrastructure.TourQuotes.TourQuoteRepository>();
 
 // Speech-to-Text (Whisper) — chat assistant ghi âm / upload audio → text.
 builder.Services.AddSingleton<TourkitAiProxy.Services.Speech.SpeechToTextService>();
@@ -183,8 +183,8 @@ builder.Services.AddSingleton<TourkitAiProxy.Services.Speech.GoogleTtsService>()
 // Thẩm định Visa AI — upload hồ sơ → AI vision đọc → chấm tỉ lệ đậu/rớt.
 // File gốc lưu tạm data/visa-files/ (tự xóa 7 ngày), kết quả data/visa-assessments.json.
 builder.Services.AddSingleton<TourkitAiProxy.Services.Visa.VisaFileStore>();
-builder.Services.AddSingleton<TourkitAiProxy.Services.Visa.VisaRepository>();
-builder.Services.AddSingleton<TourkitAiProxy.Services.Visa.VisaQuestionRepository>();
+builder.Services.AddSingleton<TourkitAiProxy.Infrastructure.Visa.VisaRepository>();
+builder.Services.AddSingleton<TourkitAiProxy.Infrastructure.Visa.VisaQuestionRepository>();
 builder.Services.AddSingleton<TourkitAiProxy.Services.Visa.VisaExtractionService>();
 builder.Services.AddSingleton<TourkitAiProxy.Services.Visa.VisaScoringService>();
 
@@ -248,7 +248,7 @@ TourkitAiProxy.Services.Db.MultiTenantMigration.Run(
 // (an toàn hơn race condition fire-and-forget). DB chết → log warning, app vẫn boot — repos fallback theo logic riêng.
 try
 {
-    await app.Services.GetRequiredService<TourkitAiProxy.Services.Db.TourkitAiDb>().InitAsync();
+    await app.Services.GetRequiredService<TourkitAiProxy.Infrastructure.Db.TourkitAiDb>().InitAsync();
 }
 catch (Exception ex)
 {
@@ -275,7 +275,7 @@ _ = Task.Run(async () =>
     try
     {
         using var scope = app.Services.CreateScope();
-        var store = scope.ServiceProvider.GetRequiredService<TourkitAiProxy.Services.TourKit.TkSessionStore>();
+        var store = scope.ServiceProvider.GetRequiredService<TourkitAiProxy.Infrastructure.TourKit.TkSessionStore>();
         await store.MigrateFromLegacyFileAsync(
             Path.Combine(app.Environment.ContentRootPath, "data"));
     }
@@ -289,7 +289,7 @@ _ = Task.Run(async () =>
 // Force-resolve AiUsageLog singleton ở startup → CTOR tự kick off migrate
 // data/ai-usage.jsonl → dbo.AiUsageHistory (fire-and-forget bên trong). Không có dòng này,
 // singleton chỉ instantiate khi có AI call đầu tiên → migration trễ.
-_ = app.Services.GetRequiredService<TourkitAiProxy.Services.AiUsageLog>();
+_ = app.Services.GetRequiredService<TourkitAiProxy.Infrastructure.AiUsageLog>();
 
 // DB init: tạo schema dbo.Reviews/DealScores/AiHistory nếu chưa có + migrate JSON cũ vào DB.
 // Chạy async fire-and-forget — không block startup. Nếu DB chưa sẵn sàng → log warning, fallback file.
@@ -297,10 +297,10 @@ _ = Task.Run(async () =>
 {
     using var scope = app.Services.CreateScope();
     var reviewRepo = scope.ServiceProvider.GetRequiredService<ReviewRepository>();
-    var dealRepo   = scope.ServiceProvider.GetRequiredService<TourkitAiProxy.Services.Deals.DealRepository>();
+    var dealRepo   = scope.ServiceProvider.GetRequiredService<TourkitAiProxy.Infrastructure.Deals.DealRepository>();
     // CSDL chat là PostgreSQL RIÊNG (xem ChatDb). Thiếu chuỗi kết nối thì tự tắt, KHÔNG làm sập app.
 if (TourkitAiProxy.Services.Bootstrap.FeatureFlags.Chat(builder.Configuration))
-    await app.Services.GetRequiredService<TourkitAiProxy.Services.Chat.Inbox.ChatDb>().InitAsync();
+    await app.Services.GetRequiredService<TourkitAiProxy.Infrastructure.Chat.Inbox.ChatDb>().InitAsync();
 
 try { await reviewRepo.InitAsync(); }
     catch (Exception ex)
@@ -315,7 +315,7 @@ try { await reviewRepo.InitAsync(); }
             .LogError(ex, "Deal DB init/migrate fail — fallback file");
     }
     // Seed template mail mặc định (chỉ khi bảng rỗng) — chạy nền, KHÔNG block startup.
-    try { await scope.ServiceProvider.GetRequiredService<TourkitAiProxy.Services.Mail.MailTemplateRepository>().SeedDefaultsAsync(); }
+    try { await scope.ServiceProvider.GetRequiredService<TourkitAiProxy.Infrastructure.Mail.MailTemplateRepository>().SeedDefaultsAsync(); }
     catch (Exception ex)
     {
         scope.ServiceProvider.GetRequiredService<ILogger<Program>>()

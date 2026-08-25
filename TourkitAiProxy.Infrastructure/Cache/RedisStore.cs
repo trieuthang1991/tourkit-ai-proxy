@@ -1,8 +1,8 @@
 // Services/Cache/RedisStore.cs
 using StackExchange.Redis;
-using TourkitAiProxy.Services.Security;
+using TourkitAiProxy.Infrastructure.Security;
 
-namespace TourkitAiProxy.Services.Cache;
+namespace TourkitAiProxy.Infrastructure.Cache;
 
 /// <summary>
 /// Generic Redis store dùng chung cho mọi feature cần persist nhẹ (board snapshot, fallback,

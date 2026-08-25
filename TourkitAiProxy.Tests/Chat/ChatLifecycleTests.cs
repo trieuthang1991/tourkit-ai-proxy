@@ -1,4 +1,4 @@
-﻿using TourkitAiProxy.Services.Chat.Inbox;
+﻿using TourkitAiProxy.Infrastructure.Chat.Inbox;
 using Xunit;
 using TourkitAiProxy.Domain.Chat;
 

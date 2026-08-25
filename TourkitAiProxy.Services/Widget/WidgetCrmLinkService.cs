@@ -1,6 +1,7 @@
 using System.Text.Json;
-using TourkitAiProxy.Services.Security;
-using TourkitAiProxy.Services.TourKit;
+using TourkitAiProxy.Infrastructure.Security;
+using TourkitAiProxy.Infrastructure.TourKit;
+using TourkitAiProxy.Infrastructure.Widget;
 
 namespace TourkitAiProxy.Services.Widget;
 

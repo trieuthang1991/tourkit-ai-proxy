@@ -1,6 +1,7 @@
 using System.Collections.Concurrent;
 using System.Security.Cryptography;
-using TourkitAiProxy.Services.Cache;
+using TourkitAiProxy.Infrastructure.Cache;
+using TourkitAiProxy.Infrastructure;
 
 namespace TourkitAiProxy.Services.Security;
 

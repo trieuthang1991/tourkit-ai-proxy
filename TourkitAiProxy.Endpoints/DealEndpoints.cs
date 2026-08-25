@@ -1,11 +1,15 @@
 ﻿using System.Text;
 using System.Text.Json;
-using TourkitAiProxy.Models;
+using TourkitAiProxy.Domain.Models;
 using TourkitAiProxy.Services;
+using TourkitAiProxy.Infrastructure.Deals;
+using TourkitAiProxy.Infrastructure.TourKit;
+using TourkitAiProxy.Infrastructure.Workflows;
+using TourkitAiProxy.Domain.Deals;
+using TourkitAiProxy.Domain.Speech;
 using TourkitAiProxy.Services.Deals;
 using TourkitAiProxy.Services.TourKit;
 using TourkitAiProxy.Services.Workflows;
-using TourkitAiProxy.Domain.Deals;
 
 namespace TourkitAiProxy.Endpoints;
 

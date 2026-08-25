@@ -3,7 +3,8 @@ using MailKit;
 using MailKit.Net.Imap;
 using MailKit.Search;
 using MailKit.Security;
-using TourkitAiProxy.Models;
+using TourkitAiProxy.Domain.Models;
+using TourkitAiProxy.Infrastructure.Mail;
 
 namespace TourkitAiProxy.Services.Mail;
 

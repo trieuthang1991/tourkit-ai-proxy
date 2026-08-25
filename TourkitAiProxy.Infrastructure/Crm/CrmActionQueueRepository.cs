@@ -1,8 +1,8 @@
 ﻿using Dapper;
-using TourkitAiProxy.Services.Db;
 using TourkitAiProxy.Domain.Chat;
+using TourkitAiProxy.Infrastructure.Db;
 
-namespace TourkitAiProxy.Services.Crm;
+namespace TourkitAiProxy.Infrastructure.Crm;
 
 /// <summary>
 /// Hàng đợi hành động CRM (dbo.CrmActionQueue). Proxy CHỈ enqueue + đọc cho monitor.

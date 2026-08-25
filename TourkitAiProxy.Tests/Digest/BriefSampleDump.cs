@@ -1,5 +1,4 @@
-﻿using TourkitAiProxy.Services.Digest;
-using Xunit;
+﻿using Xunit;
 using Xunit.Abstractions;
 using TourkitAiProxy.Domain.Digest;
 

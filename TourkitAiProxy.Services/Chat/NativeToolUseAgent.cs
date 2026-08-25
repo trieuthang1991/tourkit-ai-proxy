@@ -2,11 +2,13 @@
 using System.Diagnostics;
 using System.Text;
 using System.Text.Json;
-using TourkitAiProxy.Models;
+using TourkitAiProxy.Domain.Models;
 using TourkitAiProxy.Services.Providers;
 using TourkitAiProxy.Services.Quota;
-using TourkitAiProxy.Services.TourKit;
+using TourkitAiProxy.Infrastructure.TourKit;
 using TourkitAiProxy.Domain.Chat;
+using TourkitAiProxy.Infrastructure;
+using TourkitAiProxy.Infrastructure.Cache;
 
 namespace TourkitAiProxy.Services.Chat;
 
@@ -46,7 +48,7 @@ public class NativeToolUseAgent : IAgentRuntime
 {
     private readonly TourKitApiClient _api;
     private readonly TkSessionStore _sessions;
-    private readonly Cache.ChatCache _cache;
+    private readonly ChatCache _cache;
     private readonly UnresolvedQuestionsLog _unresolved;
     private readonly ILogger<NativeToolUseAgent> _log;
     private readonly IHttpClientFactory _http;
@@ -86,7 +88,7 @@ public class NativeToolUseAgent : IAgentRuntime
     public NativeToolUseAgent(
         TourKitApiClient api,
         TkSessionStore sessions,
-        Cache.ChatCache cache,
+        ChatCache cache,
         UnresolvedQuestionsLog unresolved,
         ILogger<NativeToolUseAgent> log,
         IHttpClientFactory http,

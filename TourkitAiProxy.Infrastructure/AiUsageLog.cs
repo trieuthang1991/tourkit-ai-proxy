@@ -1,7 +1,7 @@
 using System.Text.Json;
 using System.Text.Json.Serialization;
 
-namespace TourkitAiProxy.Services;
+namespace TourkitAiProxy.Infrastructure;
 
 /// Log per-request AI calls: time, feature, sessionId, tenant, model, tokens, latency, cost.
 /// Append JSONL vào data/ai-usage.jsonl (giữ tối đa 10k dòng gần nhất, rotate).

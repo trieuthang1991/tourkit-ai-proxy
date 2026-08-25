@@ -1,6 +1,6 @@
 using System.Text.Json.Serialization;
 
-namespace TourkitAiProxy.Models;
+namespace TourkitAiProxy.Domain.Models;
 
 /// Khách hàng tour. Đọc từ data/customers.seed.json (read-only seed).
 /// Trong production thay bằng table customer thực + repository theo CRM.

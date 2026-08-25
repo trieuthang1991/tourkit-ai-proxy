@@ -1,10 +1,10 @@
 using System.Text.Json;
 using System.Text.Json.Nodes;
 using Dapper;
-using TourkitAiProxy.Services.Db;
-using TourkitAiProxy.Services.Security;
+using TourkitAiProxy.Infrastructure.Db;
+using TourkitAiProxy.Infrastructure.Security;
 
-namespace TourkitAiProxy.Services.Digest;
+namespace TourkitAiProxy.Infrastructure.Digest;
 
 /// <summary>
 /// Cấu hình kênh gửi CỦA CÔNG TY (<c>dbo.TenantChannelSettings</c>) — khác hoàn toàn "nơi nhận của

@@ -1,8 +1,8 @@
 ﻿using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
-using TourkitAiProxy.Models;
-using TourkitAiProxy.Services.Cache;
+using TourkitAiProxy.Domain.Models;
+using TourkitAiProxy.Infrastructure.Cache;
 using TourkitAiProxy.Shared.Json;
 using TourkitAiProxy.Services.Providers;
 

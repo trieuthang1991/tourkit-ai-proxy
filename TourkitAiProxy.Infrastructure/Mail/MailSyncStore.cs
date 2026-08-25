@@ -1,7 +1,7 @@
 using Dapper;
-using TourkitAiProxy.Services.Db;
+using TourkitAiProxy.Infrastructure.Db;
 
-namespace TourkitAiProxy.Services.Mail;
+namespace TourkitAiProxy.Infrastructure.Mail;
 
 /// <summary>
 /// State đồng bộ IMAP per-(TenantId, Address) — để kéo INCREMENTAL chỉ email UID mới hơn lần trước.

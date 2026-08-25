@@ -1,14 +1,27 @@
-﻿using TourkitAiProxy.Services;
+﻿using TourkitAiProxy.Infrastructure;
 using TourkitAiProxy.Services.Chat;
 using TourkitAiProxy.Services.Providers;
-using TourkitAiProxy.Services.Reviews;
+using TourkitAiProxy.Infrastructure.Reviews;
 using TourkitAiProxy.Services.Reviews.Agents;
 using TourkitAiProxy.Services.Storage;
-using TourkitAiProxy.Services.TourKit;
+using TourkitAiProxy.Infrastructure.TourKit;
 using TourkitAiProxy.Services.Workflow;
 using TourkitAiProxy.Domain.Digest;
 using TourkitAiProxy.Domain.Chat;
 using TourkitAiProxy.Domain.TourPrices;
+using TourkitAiProxy.Infrastructure.Cache;
+using TourkitAiProxy.Infrastructure.Chat.Channels;
+using TourkitAiProxy.Infrastructure.Chat.Inbox;
+using TourkitAiProxy.Infrastructure.Db;
+using TourkitAiProxy.Infrastructure.Deals;
+using TourkitAiProxy.Infrastructure.Digest;
+using TourkitAiProxy.Infrastructure.Mail;
+using TourkitAiProxy.Infrastructure.Quota;
+using TourkitAiProxy.Infrastructure.TourPrices;
+using TourkitAiProxy.Infrastructure.Workflows;
+using TourkitAiProxy.Services;
+using TourkitAiProxy.Services.Reviews;
+using TourkitAiProxy.Services.TourKit;
 
 namespace TourkitAiProxy.Services.Bootstrap;
 
@@ -82,8 +95,8 @@ public static class WorkflowStackRegistration
         s.AddSingleton<AiUsageHistoryRepository>();
         s.AddSingleton<AiUsageLog>();
         s.AddSingleton<AiCallContext>();
-        s.AddSingleton<TourkitAiProxy.Services.Cache.AiResponseCache>();
-        s.AddSingleton<TourkitAiProxy.Services.Quota.TenantQuotaRepository>();
+        s.AddSingleton<TourkitAiProxy.Infrastructure.Cache.AiResponseCache>();
+        s.AddSingleton<TourkitAiProxy.Infrastructure.Quota.TenantQuotaRepository>();
         s.AddSingleton<TourkitAiProxy.Services.Quota.TenantQuotaStore>();
         s.AddHostedService<TourkitAiProxy.Services.Quota.QuotaFlushService>();
 
@@ -106,11 +119,11 @@ public static class WorkflowStackRegistration
         s.AddSingleton<WorkflowTraceLog>();
 
         // ─── DB + Redis ──────────────────────────────────────────────────────
-        s.AddSingleton<TourkitAiProxy.Services.Db.TourkitAiDb>();
-        s.AddSingleton<TourkitAiProxy.Services.Cache.RedisStore>();
-        s.AddSingleton<TourkitAiProxy.Services.Cache.RedisProvider>();
+        s.AddSingleton<TourkitAiProxy.Infrastructure.Db.TourkitAiDb>();
+        s.AddSingleton<TourkitAiProxy.Infrastructure.Cache.RedisStore>();
+        s.AddSingleton<TourkitAiProxy.Infrastructure.Cache.RedisProvider>();
         s.AddSingleton<TourkitAiProxy.Services.Security.SsoCodeStore>();   // kho code 1-lần SSO (RAM/Redis theo Sso:ForceInMemory)
-        s.AddSingleton<TourkitAiProxy.Services.Cache.ChatCache>();
+        s.AddSingleton<TourkitAiProxy.Infrastructure.Cache.ChatCache>();
         // Gợi ý "trạng thái nào còn phải làm" do AI đọc tên trạng thái của từng công ty.
         s.AddSingleton<TourkitAiProxy.Services.Workflows.StatusSemanticsService>();
 
@@ -133,20 +146,20 @@ public static class WorkflowStackRegistration
         s.AddSingleton<BatchService>();
 
         // ─── Mail (auto-sync + reply + queue) ────────────────────────────────
-        s.AddSingleton<TourkitAiProxy.Services.Mail.MailAccountStore>();
-        s.AddSingleton<TourkitAiProxy.Services.Mail.MailSyncStore>();
-        s.AddSingleton<TourkitAiProxy.Services.Mail.MailRepository>();
+        s.AddSingleton<TourkitAiProxy.Infrastructure.Mail.MailAccountStore>();
+        s.AddSingleton<TourkitAiProxy.Infrastructure.Mail.MailSyncStore>();
+        s.AddSingleton<TourkitAiProxy.Infrastructure.Mail.MailRepository>();
         s.AddSingleton<TourkitAiProxy.Services.Mail.IMailSource, TourkitAiProxy.Services.Mail.GmailImapClient>();
         s.AddSingleton<TourkitAiProxy.Services.Mail.IMailSender, TourkitAiProxy.Services.Mail.GmailSmtpClient>();
         s.AddSingleton<TourkitAiProxy.Services.Mail.MailClassifier>();
         s.AddSingleton<TourkitAiProxy.Services.Mail.MailSyncService>();
         s.AddSingleton<TourkitAiProxy.Services.Mail.MailReplyService>();
-        s.AddSingleton<TourkitAiProxy.Services.Mail.MailQueueRepository>();
+        s.AddSingleton<TourkitAiProxy.Infrastructure.Mail.MailQueueRepository>();
 
         // ─── Deal (score + cảnh báo nguội) ───────────────────────────────────
         s.AddSingleton<TourkitAiProxy.Services.Deals.DealOpportunityClient>();
         s.AddSingleton<TourkitAiProxy.Services.Deals.DealScoringService>();
-        s.AddSingleton<TourkitAiProxy.Services.Deals.DealRepository>();
+        s.AddSingleton<TourkitAiProxy.Infrastructure.Deals.DealRepository>();
         s.AddSingleton<TourkitAiProxy.Services.Deals.DealBatchJobStore>();
         s.AddSingleton<TourkitAiProxy.Services.Deals.DealBatchService>();
 
@@ -154,14 +167,14 @@ public static class WorkflowStackRegistration
         s.AddSingleton<TourkitAiProxy.Services.Store.TenantStore>();
 
         // ─── Workflow scheduler + built-in workflows ─────────────────────────
-        s.AddSingleton<Workflows.WorkflowRepository>();
+        s.AddSingleton<WorkflowRepository>();
         s.AddSingleton<Workflows.WorkflowRegistry>();
         s.AddSingleton<Workflows.IScheduledWorkflow, Workflows.MailAutoSyncWorkflow>();
         s.AddSingleton<Workflows.IScheduledWorkflow, Workflows.DealAutoReviewWorkflow>();
         s.AddSingleton<Workflows.IScheduledWorkflow, Workflows.CustomerAutoReviewWorkflow>();
 
         // ─── Tour Price Catalog (đồng bộ bảng giá NCC → dbo.TourPriceCatalog) ──
-        s.AddSingleton<TourPrices.TourPriceCatalogRepository>();
+        s.AddSingleton<TourPriceCatalogRepository>();
         s.AddSingleton<Workflows.IScheduledWorkflow, TourPrices.TourPriceCatalogSyncWorkflow>();
         s.AddSingleton<TourPrices.TourPriceRetriever>();       // chọn nguồn giá (mẫu/thật/cả 2)
         s.AddSingleton<TourPrices.SampleCatalogSeeder>();      // nạp NCC mẫu từ seed lúc startup
@@ -169,23 +182,23 @@ public static class WorkflowStackRegistration
         // ─── Bản tin sáng (Đợt 1) ────────────────────────────────────────────
         // Đăng ký ở ĐÂY (không phải Program.cs) để worker chạy nền cũng có — workflow gửi bản tin
         // sống bên worker, endpoint cấu hình sống bên web, cả hai cùng cần bộ này.
-        s.AddSingleton<Digest.InsightRepository>();
+        s.AddSingleton<InsightRepository>();
         // Sổ ghi nhắc DÙNG CHUNG — tác vụ mới cần chặn nhắc lặp thì tiêm cái này, đừng thêm bảng.
-        s.AddSingleton<Digest.NotifyLedgerRepository>();
-        s.AddSingleton<Digest.DigestSubscriptionRepository>();
+        s.AddSingleton<NotifyLedgerRepository>();
+        s.AddSingleton<DigestSubscriptionRepository>();
         s.AddSingleton<Infrastructure.Digest.SaleBriefRepository>();
         // Cấu hình kênh gửi CỦA CÔNG TY — quay lại per-tenant 17/08 (xem TenantChannelSettingsStore):
         // đi gặp khách hàng thì không công ty nào chịu gửi ZNS bằng OA của bên cung cấp dịch vụ.
-        s.AddSingleton<Digest.TenantChannelSettingsStore>();
+        s.AddSingleton<TenantChannelSettingsStore>();
 
         // ── Hộp thư chat đa kênh ────────────────────────────────────────────
         // Đăng ký KHÔNG phụ thuộc cờ Features:Chat: các lớp này vô hại khi không ai gọi, còn
         // ChatDb tự tắt nếu thiếu chuỗi kết nối. Chặn thật nằm ở chỗ map endpoint và worker.
-        s.AddSingleton<Chat.Inbox.ChatDb>();
-        s.AddSingleton<Chat.Inbox.ChatRepository>();
-        s.AddSingleton<Chat.Inbox.ChatQuickReplyRepository>();
+        s.AddSingleton<ChatDb>();
+        s.AddSingleton<ChatRepository>();
+        s.AddSingleton<ChatQuickReplyRepository>();
         s.AddSingleton<Chat.Inbox.ChatInboundService>();
-        s.AddSingleton<Chat.Channels.ChannelCredentialStore>();
+        s.AddSingleton<ChannelCredentialStore>();
         // Kho ảnh/tệp nhân viên gửi — r2 | s3 | local theo Storage:Provider, xem IChatFileStorage.
         s.AddChatFileStorage(cfg);
         // Thêm kênh mới = thêm 1 dòng ở đây, KHÔNG đụng phần lõi.

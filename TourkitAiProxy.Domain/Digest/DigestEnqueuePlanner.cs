@@ -1,9 +1,8 @@
 ﻿using System.Text.Json;
-using TourkitAiProxy.Services.Mail;
 using TourkitAiProxy.Domain.Mail;
 using TourkitAiProxy.Domain.Digest;
 
-namespace TourkitAiProxy.Services.Digest;
+namespace TourkitAiProxy.Domain.Digest;
 
 /// <summary>
 /// Dựng danh sách dòng hàng đợi cho 1 bản tin đã chuẩn bị xong: mỗi kênh NGOÀI đang bật = 1 dòng,

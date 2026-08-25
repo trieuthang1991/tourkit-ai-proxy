@@ -1,5 +1,5 @@
 using System.Collections.Concurrent;
-using TourkitAiProxy.Models;
+using TourkitAiProxy.Domain.Models;
 
 namespace TourkitAiProxy.Services.Reviews;
 

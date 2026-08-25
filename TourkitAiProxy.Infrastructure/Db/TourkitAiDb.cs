@@ -1,10 +1,12 @@
 ﻿// Services/Db/TourkitAiDb.cs
 using Microsoft.Data.SqlClient;
-using TourkitAiProxy.Services.Security;
 using TourkitAiProxy.Domain.Digest;
 using TourkitAiProxy.Domain.Chat;
+using TourkitAiProxy.Infrastructure.Digest;
+using TourkitAiProxy.Infrastructure.Security;
+using TourkitAiProxy.Infrastructure.TourKit;
 
-namespace TourkitAiProxy.Services.Db;
+namespace TourkitAiProxy.Infrastructure.Db;
 
 /// <summary>
 /// Factory + initializer cho SQL Server `PushDb` (dùng chung instance với TourKit/PushNotification).

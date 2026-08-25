@@ -1,13 +1,16 @@
 ﻿using System.Text;
 using System.Text.Json;
-using TourkitAiProxy.Models;
+using TourkitAiProxy.Domain.Models;
 using TourkitAiProxy.Services;
 using TourkitAiProxy.Services.Chat;
-using TourkitAiProxy.Services.Security;
+using TourkitAiProxy.Infrastructure.Security;
 using TourkitAiProxy.Services.Speech;
+using TourkitAiProxy.Infrastructure.TourKit;
+using TourkitAiProxy.Infrastructure.Widget;
+using TourkitAiProxy.Domain.Chat;
+using TourkitAiProxy.Services.Security;
 using TourkitAiProxy.Services.TourKit;
 using TourkitAiProxy.Services.Widget;
-using TourkitAiProxy.Domain.Chat;
 
 namespace TourkitAiProxy.Endpoints;
 

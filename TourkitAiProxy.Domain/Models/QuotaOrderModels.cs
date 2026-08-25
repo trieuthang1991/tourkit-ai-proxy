@@ -1,4 +1,4 @@
-namespace TourkitAiProxy.Models;
+namespace TourkitAiProxy.Domain.Models;
 
 /// <summary>
 /// Catalog gói nạp quota AI. 3 mức theo chính sách:

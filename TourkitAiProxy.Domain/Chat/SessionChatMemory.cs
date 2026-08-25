@@ -1,5 +1,5 @@
 ﻿// Services/Chat/SessionChatMemory.cs
-using TourkitAiProxy.Models;
+using TourkitAiProxy.Domain.Models;
 
 namespace TourkitAiProxy.Domain.Chat;
 

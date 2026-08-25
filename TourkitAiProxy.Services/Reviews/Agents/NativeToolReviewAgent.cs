@@ -1,9 +1,11 @@
 ﻿// Services/Reviews/Agents/NativeToolReviewAgent.cs
 using System.Text.Json;
-using TourkitAiProxy.Models;
+using TourkitAiProxy.Domain.Models;
 using TourkitAiProxy.Services.Providers;
 using TourkitAiProxy.Services.Workflow;
+using TourkitAiProxy.Domain.Workflow;
 using TourkitAiProxy.Domain.Reviews;
+using TourkitAiProxy.Infrastructure;
 
 namespace TourkitAiProxy.Services.Reviews.Agents;
 

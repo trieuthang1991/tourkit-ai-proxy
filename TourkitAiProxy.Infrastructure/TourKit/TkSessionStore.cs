@@ -1,8 +1,8 @@
 ﻿using System.Collections.Concurrent;
-using TourkitAiProxy.Services.Chat;
 using TourkitAiProxy.Domain.Chat;
+using TourkitAiProxy.Infrastructure.Security;
 
-namespace TourkitAiProxy.Services.TourKit;
+namespace TourkitAiProxy.Infrastructure.TourKit;
 
 /// 1 phiên đăng nhập TourKit. Giữ credentials đã giải mã (in-memory) để tự re-login khi JWT hết hạn.
 public class TkSession
@@ -408,7 +408,7 @@ public class TkSessionStore
             int ok = 0, skip = 0;
             foreach (var p in legacyList)
             {
-                var pwd = TourkitAiProxy.Services.Security.Crypton.Decrypt(p.EncPassword);
+                var pwd = TourkitAiProxy.Infrastructure.Security.Crypton.Decrypt(p.EncPassword);
                 if (string.IsNullOrEmpty(pwd)) { skip++; continue; }
                 var existing = await _repo.GetAsync(p.Id, ct);
                 if (existing != null) { skip++; continue; }

@@ -1,6 +1,6 @@
-﻿using TourkitAiProxy.Services.Digest;
+﻿using TourkitAiProxy.Domain.Digest;
 
-namespace TourkitAiProxy.Services.Mail;
+namespace TourkitAiProxy.Domain.Mail;
 
 /// <remarks>
 /// Ở Domain chứ không ở cạnh MailQueueRepository: đây là HÌNH DẠNG của một dòng hàng đợi, do

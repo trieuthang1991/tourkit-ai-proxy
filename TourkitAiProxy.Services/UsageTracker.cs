@@ -1,3 +1,4 @@
+using TourkitAiProxy.Infrastructure;
 namespace TourkitAiProxy.Services;
 
 /// <summary>

@@ -1,5 +1,5 @@
 ﻿using TourkitAiProxy.Domain.Chat;
-namespace TourkitAiProxy.Models;
+namespace TourkitAiProxy.Domain.Models;
 
 // Widget Chat — token gen per-tenant, paste vào <script data-token="trav_..."> ở site khách.
 // AllowedOrigins JSON array (null = wildcard). Custom hết: bot name / greeting / system prompt / màu.

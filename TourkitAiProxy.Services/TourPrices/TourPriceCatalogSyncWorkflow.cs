@@ -1,10 +1,11 @@
 ﻿using System.Diagnostics;
 using System.Text.Json;
-using TourkitAiProxy.Models;
+using TourkitAiProxy.Domain.Models;
 using TourkitAiProxy.Shared.Text;
-using TourkitAiProxy.Services.TourKit;
+using TourkitAiProxy.Infrastructure.TourKit;
 using TourkitAiProxy.Services.Workflows;
 using TourkitAiProxy.Domain.TourPrices;
+using TourkitAiProxy.Infrastructure.TourPrices;
 
 namespace TourkitAiProxy.Services.TourPrices;
 

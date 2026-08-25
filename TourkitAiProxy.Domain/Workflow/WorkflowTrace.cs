@@ -3,7 +3,7 @@ using System.Collections.Concurrent;
 using System.Diagnostics;
 using System.Text.Json.Serialization;
 
-namespace TourkitAiProxy.Services.Workflow;
+namespace TourkitAiProxy.Domain.Workflow;
 
 /// <summary>
 /// 1 bước quan sát được trong BẤT KỲ workflow AI nào (chat, review, mail, visa, deal, tour-builder).

@@ -2,8 +2,8 @@
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
-using TourkitAiProxy.Models;
-using TourkitAiProxy.Services.TourKit;
+using TourkitAiProxy.Domain.Models;
+using TourkitAiProxy.Infrastructure.TourKit;
 using TourkitAiProxy.Domain.Deals;
 
 namespace TourkitAiProxy.Services.Deals;

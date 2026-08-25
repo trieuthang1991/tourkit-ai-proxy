@@ -131,22 +131,44 @@ Clean Architecture sách vở đảo chiều: `Application` khai `interface`, `I
 - **Chưa đạt:** nghiệp vụ cầm **kiểu cụ thể** của repository, nên chưa thay được cài đặt và chưa test nghiệp vụ mà không có CSDL.
 - **Vì sao hoãn:** cần rút ~30 giao diện và sửa constructor khắp nơi, mà repo **chưa có test tích hợp chạm CSDL** — làm bây giờ là đổi hành vi không ai bắt được. Làm theo từng tính năng, sau khi có test.
 
-### QĐ-2: Chuyển file thì GIỮ NGUYÊN namespace
+### QĐ-2: Chuyển file thì giữ namespace — rồi trả nợ đó sau (ĐÃ TRẢ 25/08/2026)
 
-`Models/`, các repository, `WorkflowTrace`… đổi chỗ vật lý mà **không** đổi namespace → không phải sửa một dòng `using` nào trong hơn 250 file.
+Đợt tách kiến trúc cố ý **giữ nguyên namespace** lúc chuyển file: `Models/`, các repository,
+`WorkflowTrace`… đổi chỗ vật lý mà không đổi namespace → không phải sửa một dòng `using` nào
+trong hơn 250 file. Lý do tách hai bước: trộn "di chuyển" với "đổi tên" vào một đợt thì lúc hỏng
+không phân biệt được cái nào gây ra.
 
-**Cái giá:** namespace thôi nói lên tầng — `TourkitAiProxy.Services.Chat.Inbox.ChatRepository` thật ra nằm ở `Infrastructure`. Đổi tên namespace là **việc dọn riêng**: trộn vào đợt di chuyển thì lúc hỏng không phân biệt được do di chuyển hay do đổi tên.
+**Nợ đó nay đã trả**: 73 file (Shared 2 · Domain 25 · Infrastructure 46) đã mang đúng namespace
+theo tầng, và [`RanhGioiTangTests.Namespace_phai_khop_project`](../TourkitAiProxy.Tests/KienTruc/RanhGioiTangTests.cs)
+giữ cho nó không quay lại. Không còn ưu đãi nào cho file mới lẫn file cũ: **namespace phải bắt đầu
+bằng tên project chứa nó.**
 
-⚠️ **Ưu đãi này CHỈ dành cho file DI CHUYỂN. File MỚI phải đặt namespace theo TẦNG.**
-Giữ namespace cũ là để khỏi sửa `using` ở hàng trăm chỗ — file mới không có gì để tiết kiệm, nên
-viết đúng ngay. Ví dụ: [`SaleBriefRepository`](../TourkitAiProxy.Infrastructure/Digest/SaleBriefRepository.cs)
-là file mới, mang `TourkitAiProxy.Infrastructure.Digest` dù nằm cạnh các repository còn mang
-`Services.*`. Không làm thế thì nợ namespace **lớn thêm mỗi lần thêm file**, và cái tạm bợ trở
-thành vĩnh viễn.
+⚠️ **Tám cái bẫy khi đổi namespace hàng loạt** — ghi lại vì lần sau sẽ có người làm việc tương tự,
+và cả tám đều KHÔNG hiện ra ở bước nào ngoài lỗi biên dịch cuối cùng:
+
+1. **Thứ tự: `using` trước, tên-đầy-đủ sau.** Làm ngược thì tiền tố ngắn `TourkitAiProxy.Services`
+   khớp luôn vào dòng `using TourkitAiProxy.Services.Digest;` (sau nó là `.D` viết hoa) và **thay
+   thế** nó thay vì thêm bên cạnh → mất những kiểu vẫn còn ở `Services`.
+2. **`Shared`/`Domain`/`Infrastructure` không tham chiếu project `Services`.** Mọi dòng
+   `using TourkitAiProxy.Services.*` ở đó trước giờ biên dịch được **chỉ vì** namespace ấy nằm
+   ngay trong chính assembly đó. Đổi xong là chúng vô nghĩa — phải bỏ hẳn, không phải đổi.
+3. **Kiểu nằm CÙNG namespace với nơi dùng thì trước giờ không cần `using` nào.** Tách namespace là
+   mất luôn đường nhìn thấy — phải quét riêng.
+4. **Quét tên kiểu thì phải bỏ chú thích trước.** Một file `Domain` chỉ *nhắc* tên `TkSessionStore`
+   trong một câu giải thích cũng bị ghép thêm `using ...Infrastructure...` → hỏng biên dịch.
+5. **Bước ghép `using` phải theo bảng phụ thuộc ở §1**, không thì nó ghép tầng trên vào tầng dưới.
+6. **`os.walk('.')` trả đường dẫn `./…`** nên mọi phép `startswith("TourkitAiProxy.Domain/")` đều
+   False → luật phân tầng rơi thẳng xuống nhánh "thấy hết" **mà không báo gì**.
+7. **Dòng `using` có chú thích đuôi** (`using …Crm;   // CrmActionQueueRepository, …`) không khớp
+   biểu thức kết thúc bằng `;$`.
+8. **Tham chiếu TƯƠNG ĐỐI là cái khó thấy nhất** — `Cache.ChatCache`, `Chat.Inbox.ChatDb`,
+   `Models.CompleteRequest`. C# giải tên bằng cách đi **ngược lên** cây namespace, nên trong văn
+   bản **không hề có chữ "TourkitAiProxy"** để mà tìm. Mọi hậu tố của namespace cũ đều là một cách
+   viết hợp lệ.
 
 ### QĐ-3: Cái gì biên dịch viên không kiểm được thì viết test guard
 
-[`RanhGioiTangTests`](../TourkitAiProxy.Tests/KienTruc/RanhGioiTangTests.cs) canh 5 luật: `Shared` không chứa danh từ nghiệp vụ · `Shared` không tham chiếu gì · `Domain` không chạm CSDL/mạng · `Services` không tự mở kết nối · `Endpoints` không tự mở kết nối.
+[`RanhGioiTangTests`](../TourkitAiProxy.Tests/KienTruc/RanhGioiTangTests.cs) canh 6 luật: `Shared` không chứa danh từ nghiệp vụ · `Shared` không tham chiếu gì · `Domain` không chạm CSDL/mạng · `Services` không tự mở kết nối · `Endpoints` không tự mở kết nối · **namespace phải khớp project**. Thêm [`TaiLieuTests`](../TourkitAiProxy.Tests/KienTruc/TaiLieuTests.cs) canh bộ tài liệu: `CLAUDE.md` không phình lại, và không tài liệu nào chứa liên kết chết.
 
 ⚠️ **Guard phải bỏ chú thích/`using`/`namespace` trước khi soi.** Bản đầu soi văn bản thô và **báo nhầm cả 5**: "Tour" khớp vào chính `namespace TourkitAiProxy…`, "Dapper" nằm trong một câu giải thích. **Guard hay kêu oan thì sớm muộn có người tắt nó** — lúc đó tệ hơn không có, vì vẫn tạo cảm giác đang được canh.
 
@@ -185,7 +207,7 @@ Mỗi dòng là một việc phải làm, **không phải ngoại lệ vĩnh vi�
 | ~~3 câu SQL trong `SaleBriefWorkflow`~~ | ~~`Services/Workflows`~~ | **ĐÃ TRẢ 25/08** → `Infrastructure/Digest/SaleBriefRepository` |
 | `WorkflowEndpoints` tự mở kết nối | `Endpoints` | còn trong danh sách miễn trừ của guard |
 | **Chưa có test tích hợp chạm CSDL** | — | việc lớn; là **điều kiện** cho mọi nợ còn lại |
-| Namespace không khớp tầng | `Models`, repository, `WorkflowTrace` | cố ý (QĐ-2), dọn riêng |
+| ~~Namespace không khớp tầng~~ | ~~73 file~~ | **ĐÃ TRẢ 25/08** → guard `Namespace_phai_khop_project` |
 | `JsonPlannerAgent` 1.845 dòng | `Services/Chat` | cần hiểu nghiệp vụ planner trước; đừng trộn vào đợt di chuyển |
 | `Program.cs` 467 dòng | `Api` | mỗi tính năng nên tự đăng ký DI |
 | 27 `CREATE TABLE` trong một hằng | `Infrastructure/Db/TourkitAiDb.cs` | mỗi tính năng nên sở hữu mảnh schema riêng |

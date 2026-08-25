@@ -1,4 +1,4 @@
-﻿using TourkitAiProxy.Models;
+﻿using TourkitAiProxy.Domain.Models;
 using TourkitAiProxy.Services.Mail;
 using Xunit;
 using TourkitAiProxy.Domain.Mail;

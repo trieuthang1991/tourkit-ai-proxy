@@ -1,10 +1,12 @@
 ﻿using System.Text;
 using System.Text.Json;
-using TourkitAiProxy.Models;
-using TourkitAiProxy.Services.Mail;
-using TourkitAiProxy.Services.TourKit;
+using TourkitAiProxy.Domain.Models;
+using TourkitAiProxy.Infrastructure.Mail;
+using TourkitAiProxy.Infrastructure.TourKit;
 using MailSyncResult = TourkitAiProxy.Services.Mail.MailSyncResult;
 using TourkitAiProxy.Domain.Mail;
+using TourkitAiProxy.Services.Mail;
+using TourkitAiProxy.Services.TourKit;
 
 namespace TourkitAiProxy.Endpoints;
 
@@ -472,7 +474,7 @@ public static class MailEndpoints
     /// Handler caller trả 401 nếu null. Username dùng để scope MailAccount per-user
     /// (cùng tenant nhưng 2 nhân viên = 2 hộp thư riêng).
     private static (string SessionId, string TenantId, string Username)? RequireSession(
-        HttpContext ctx, TourkitAiProxy.Services.TourKit.TkSessionStore sessions)
+        HttpContext ctx, TourkitAiProxy.Infrastructure.TourKit.TkSessionStore sessions)
     {
         var sid = ctx.Request.Headers["X-Session-Id"].FirstOrDefault()
             ?? ctx.Request.Query["sessionId"].FirstOrDefault();

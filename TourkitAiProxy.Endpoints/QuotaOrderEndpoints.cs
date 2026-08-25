@@ -1,5 +1,8 @@
 ﻿using System.Text.Json;
-using TourkitAiProxy.Models;
+using TourkitAiProxy.Domain.Models;
+using TourkitAiProxy.Infrastructure.Quota;
+using TourkitAiProxy.Infrastructure.TourKit;
+using TourkitAiProxy.Infrastructure.Security;
 using TourkitAiProxy.Services.Quota;
 using TourkitAiProxy.Services.TourKit;
 
@@ -273,7 +276,7 @@ public static class QuotaOrderEndpoints
     /// <summary>Giải secret dạng ENC: (Crypton) — mirror SecureHelper.DecryptIfEncrypted bản web.</summary>
     private static string? ResolveSecret(string? v)
         => !string.IsNullOrEmpty(v) && v.StartsWith("ENC:", StringComparison.Ordinal)
-            ? TourkitAiProxy.Services.Security.Crypton.Decrypt(v.Substring(4))
+            ? TourkitAiProxy.Infrastructure.Security.Crypton.Decrypt(v.Substring(4))
             : v;
 
     private static bool AdminOk(HttpContext ctx, IConfiguration cfg)

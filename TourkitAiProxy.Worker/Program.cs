@@ -26,19 +26,19 @@ builder.Services.AddWindowsService(o => o.ServiceName = "TourkitAiProxyWorker");
 
 // JSON UTC converter — giữ convention với web (mọi DateTime kèm 'Z').
 builder.Services.ConfigureHttpJsonOptions(o =>
-    o.SerializerOptions.Converters.Add(new TourkitAiProxy.Services.Json.UtcDateTimeConverter()));
+    o.SerializerOptions.Converters.Add(new TourkitAiProxy.Shared.Json.UtcDateTimeConverter()));
 
 // DB logging động (khuyến nghị BẬT cho worker → log gom về dbo.AppLogs, xem chung với web).
-var dbLogQueue = new TourkitAiProxy.Services.Logging.DbLogQueue();
+var dbLogQueue = new TourkitAiProxy.Infrastructure.Logging.DbLogQueue();
 builder.Services.AddSingleton(dbLogQueue);
-builder.Services.AddSingleton<TourkitAiProxy.Services.Logging.ILogSink,
-                              TourkitAiProxy.Services.Logging.DbLogSink>();
+builder.Services.AddSingleton<TourkitAiProxy.Infrastructure.Logging.ILogSink,
+                              TourkitAiProxy.Infrastructure.Logging.DbLogSink>();
 if (builder.Configuration.GetValue("Logging:Database:Enabled", false))
 {
     var dbLogMin = Enum.TryParse<LogLevel>(
         builder.Configuration["Logging:Database:MinLevel"], out var lv) ? lv : LogLevel.Information;
-    builder.Logging.AddProvider(new TourkitAiProxy.Services.Logging.DbLoggerProvider(dbLogQueue, dbLogMin));
-    builder.Services.AddHostedService<TourkitAiProxy.Services.Logging.DbLogWriter>();
+    builder.Logging.AddProvider(new TourkitAiProxy.Infrastructure.Logging.DbLoggerProvider(dbLogQueue, dbLogMin));
+    builder.Services.AddHostedService<TourkitAiProxy.Infrastructure.Logging.DbLogWriter>();
 }
 
 // IWebHostEnvironment shim — nhiều service (AiUsageLog, ReviewRepository, TenantStore,
@@ -68,7 +68,7 @@ var host = builder.Build();
 // Schema init đồng bộ (giống web) — tránh race với TkSessionStore CTOR.
 try
 {
-    await host.Services.GetRequiredService<TourkitAiProxy.Services.Db.TourkitAiDb>().InitAsync();
+    await host.Services.GetRequiredService<TourkitAiProxy.Infrastructure.Db.TourkitAiDb>().InitAsync();
 }
 catch (Exception ex)
 {
@@ -77,7 +77,7 @@ catch (Exception ex)
 }
 
 // Force-resolve AiUsageLog (giống web) → CTOR tự kick off migrate jsonl→SQL.
-_ = host.Services.GetRequiredService<TourkitAiProxy.Services.AiUsageLog>();
+_ = host.Services.GetRequiredService<TourkitAiProxy.Infrastructure.AiUsageLog>();
 
 host.Services.GetRequiredService<ILogger<Program>>()
     .LogInformation("[Worker] TourkitAiProxy.Worker khởi động — tick {Sec}s",

@@ -1,4 +1,4 @@
-using TourkitAiProxy.Services.TourKit;
+using TourkitAiProxy.Infrastructure.TourKit;
 
 namespace TourkitAiProxy.Services;
 

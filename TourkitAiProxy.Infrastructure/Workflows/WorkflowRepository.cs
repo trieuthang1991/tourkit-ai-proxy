@@ -1,7 +1,7 @@
 using Dapper;
-using TourkitAiProxy.Services.Db;
+using TourkitAiProxy.Infrastructure.Db;
 
-namespace TourkitAiProxy.Services.Workflows;
+namespace TourkitAiProxy.Infrastructure.Workflows;
 
 /// <summary>
 /// Dapper CRUD cho dbo.UserWorkflows + dbo.WorkflowRuns.

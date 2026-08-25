@@ -1,6 +1,6 @@
 using System.Text.Json.Serialization;
 
-namespace TourkitAiProxy.Models;
+namespace TourkitAiProxy.Domain.Models;
 
 /// 1 email trong hộp thư SmartMail. Lưu data/mails.json keyed by Id (Message-Id header, fallback uid).
 /// Category null khi chưa phân loại; Status mặc định "moi".

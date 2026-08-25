@@ -1,6 +1,6 @@
-﻿using TourkitAiProxy.Models;
-using TourkitAiProxy.Services.TourKit;
-using TourkitAiProxy.Services.TourQuotes;
+﻿using TourkitAiProxy.Domain.Models;
+using TourkitAiProxy.Infrastructure.TourKit;
+using TourkitAiProxy.Infrastructure.TourQuotes;
 
 namespace TourkitAiProxy.Endpoints;
 

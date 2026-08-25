@@ -1,9 +1,10 @@
 ﻿using System.Text.Json;
-using TourkitAiProxy.Models;
-using TourkitAiProxy.Services.Cache;
+using TourkitAiProxy.Domain.Models;
+using TourkitAiProxy.Infrastructure.Cache;
 using TourkitAiProxy.Shared.Json;
 using TourkitAiProxy.Services.Providers;
 using TourkitAiProxy.Services.Workflow;
+using TourkitAiProxy.Domain.Workflow;
 
 namespace TourkitAiProxy.Services.Deals;
 

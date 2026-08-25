@@ -1,7 +1,7 @@
 using System.Security.Cryptography;
 using System.Text;
 
-namespace TourkitAiProxy.Services.Security;
+namespace TourkitAiProxy.Infrastructure.Security;
 
 /// <summary>
 /// AES-256/CBC encryption — PORT NGUYÊN từ TourKit.Shared/Crypton.cs (toutkit-app).

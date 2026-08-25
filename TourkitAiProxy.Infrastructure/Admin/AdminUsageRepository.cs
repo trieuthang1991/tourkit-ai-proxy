@@ -1,7 +1,7 @@
 using Dapper;
-using TourkitAiProxy.Services.Db;
+using TourkitAiProxy.Infrastructure.Db;
 
-namespace TourkitAiProxy.Services.Admin;
+namespace TourkitAiProxy.Infrastructure.Admin;
 
 /// <summary>
 /// Aggregate cross-tenant trên dbo.AiUsageHistory (granular per-request).

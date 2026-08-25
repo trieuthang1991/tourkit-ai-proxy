@@ -1,6 +1,7 @@
 ﻿using System.Globalization;
+using TourkitAiProxy.Domain.Speech;
 
-namespace TourkitAiProxy.Services.Digest;
+namespace TourkitAiProxy.Domain.Digest;
 
 /// <summary>
 /// Phát hiện tuần bất thường (C2): doanh thu tuần vừa rồi lệch quá xa mức bình thường của mấy tuần

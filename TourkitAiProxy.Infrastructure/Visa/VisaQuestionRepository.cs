@@ -1,7 +1,7 @@
 using Dapper;
-using TourkitAiProxy.Services.Db;
+using TourkitAiProxy.Infrastructure.Db;
 
-namespace TourkitAiProxy.Services.Visa;
+namespace TourkitAiProxy.Infrastructure.Visa;
 
 /// Per-tenant config câu hỏi wizard /visa. NULL = dùng default embedded ở frontend.
 /// CRUD đơn giản (Get/Save/Delete) — payload là JSON string đã validate ở endpoint.

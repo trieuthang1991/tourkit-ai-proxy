@@ -1,11 +1,11 @@
 ﻿using System.Globalization;
 using System.Text.Json;
 using TourkitAiProxy.Services.Db;
-using TourkitAiProxy.Services.Digest;
-using TourkitAiProxy.Services.Mail;
+using TourkitAiProxy.Infrastructure.Mail;
 using TourkitAiProxy.Domain.Mail;
-using TourkitAiProxy.Services.TourKit;
+using TourkitAiProxy.Infrastructure.TourKit;
 using TourkitAiProxy.Domain.Digest;
+using TourkitAiProxy.Domain.Deals;
 using TourkitAiProxy.Infrastructure.Digest;   // SaleBriefRepository
 
 namespace TourkitAiProxy.Services.Workflows;
@@ -309,7 +309,7 @@ public class SaleBriefWorkflow : IScheduledWorkflow
             // lấy model "Recommended" của chính nó và bỏ qua cấu hình Models:* của người vận hành.
             var resolved = _models.Resolve(Providers.AiFeature.Digest);
             var provider = _providers.Resolve(resolved.Provider);
-            var r = await provider.CompleteAsync(new Models.CompleteRequest(
+            var r = await provider.CompleteAsync(new Domain.Models.CompleteRequest(
                 Prompt: SaleBriefBuilder.BuildPrompt(input, todayVn, opt.MaxItems),
                 Provider: resolved.Provider, Model: resolved.Model,
                 // 10000: model reasoning (vd DeepSeek qua nine-routes) tiêu phần lớn hạn mức vào
@@ -385,7 +385,7 @@ public class SaleBriefWorkflow : IScheduledWorkflow
                 // công ty đặt tên trạng thái theo lối phổ biến.
                 var eligible = opt.CallStatuses.Count > 0
                     ? opt.CallStatuses.Contains(statusId)
-                    : statusId != Deals.DealCooling.CancelStatus && !Deals.DealCooling.IsClosedWon(statusName);
+                    : statusId != DealCooling.CancelStatus && !DealCooling.IsClosedWon(statusName);
                 if (!eligible) continue;
 
                 var wr = winRates.TryGetValue(code, out var w) ? w : 0;

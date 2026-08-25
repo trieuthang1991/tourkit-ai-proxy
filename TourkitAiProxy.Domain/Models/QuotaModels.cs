@@ -1,4 +1,4 @@
-namespace TourkitAiProxy.Models;
+namespace TourkitAiProxy.Domain.Models;
 
 /// State quota AI 1 tenant (persisted). Limit có thể tăng qua API topup (admin).
 /// Used = số lượt AI đã dùng. Reset: KHÔNG tự động — lĩnh 1 lần, hết phải topup.

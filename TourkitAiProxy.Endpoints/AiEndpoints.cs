@@ -1,8 +1,9 @@
 ﻿using System.Text;
 using System.Text.Json;
-using TourkitAiProxy.Models;
+using TourkitAiProxy.Domain.Models;
 using TourkitAiProxy.Services;
 using TourkitAiProxy.Services.Providers;
+using TourkitAiProxy.Infrastructure.TourKit;
 
 namespace TourkitAiProxy.Endpoints;
 
@@ -103,7 +104,7 @@ public static class AiEndpoints
         AiModelRegistry modelRegistry,
         UsageTracker usage,
         TourkitAiProxy.Services.Workflow.IWorkflowTraceAccessor traceAccessor,
-        TourkitAiProxy.Services.TourKit.TkSessionStore sessions,
+        TourkitAiProxy.Infrastructure.TourKit.TkSessionStore sessions,
         ILogger<EndpointsLog> log,
         HttpContext ctx)
     {
@@ -189,7 +190,7 @@ public static class AiEndpoints
         ProviderRegistry registry,
         AiModelRegistry modelRegistry,
         UsageTracker usage,
-        TourkitAiProxy.Services.TourKit.TkSessionStore sessions,
+        TourkitAiProxy.Infrastructure.TourKit.TkSessionStore sessions,
         ILogger<EndpointsLog> log)
     {
         // Chặn TRƯỚC khi mở SSE — mở rồi thì không trả được status code sạch nữa.
@@ -301,7 +302,7 @@ public static class AiEndpoints
     // Cùng khuôn với MailEndpoints/VisaEndpoints/WorkflowEndpoints: đọc X-Session-Id
     // (hoặc ?sessionId=) → tra TkSessionStore. Null = anonymous/hết hạn → 401.
     private static (string SessionId, string TenantId, string Username)? RequireSession(
-        HttpContext ctx, TourkitAiProxy.Services.TourKit.TkSessionStore sessions)
+        HttpContext ctx, TourkitAiProxy.Infrastructure.TourKit.TkSessionStore sessions)
     {
         var sid = ctx.Request.Headers["X-Session-Id"].FirstOrDefault()
             ?? ctx.Request.Query["sessionId"].FirstOrDefault();

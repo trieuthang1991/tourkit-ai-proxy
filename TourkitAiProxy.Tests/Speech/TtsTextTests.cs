@@ -1,4 +1,5 @@
 using TourkitAiProxy.Services.Speech;
+using TourkitAiProxy.Domain.Speech;
 using Xunit;
 
 namespace TourkitAiProxy.Tests.Speech;

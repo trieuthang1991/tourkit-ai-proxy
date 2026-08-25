@@ -1,6 +1,7 @@
 using System.Collections.Concurrent;
 using System.Text.Json;
-using TourkitAiProxy.Models;
+using TourkitAiProxy.Domain.Models;
+using TourkitAiProxy.Infrastructure.Quota;
 
 namespace TourkitAiProxy.Services.Quota;
 

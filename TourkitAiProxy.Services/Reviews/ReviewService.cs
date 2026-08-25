@@ -1,7 +1,8 @@
-﻿using TourkitAiProxy.Models;
+﻿using TourkitAiProxy.Domain.Models;
 using TourkitAiProxy.Services.Providers;
 using TourkitAiProxy.Services.Reviews.Agents;
 using TourkitAiProxy.Services.Workflow;
+using TourkitAiProxy.Infrastructure.Reviews;
 
 namespace TourkitAiProxy.Services.Reviews;
 

@@ -1,5 +1,9 @@
 ﻿using SharpCompress.Archives;
-using TourkitAiProxy.Models;
+using TourkitAiProxy.Domain.Models;
+using TourkitAiProxy.Infrastructure.TourKit;
+using TourkitAiProxy.Infrastructure.Visa;
+using TourkitAiProxy.Domain.Speech;
+using TourkitAiProxy.Infrastructure;
 using TourkitAiProxy.Services.TourKit;
 using TourkitAiProxy.Services.Visa;
 
@@ -522,7 +526,7 @@ public static class VisaEndpoints
     /// Extract sessionId + tenantId từ request. Return null nếu missing/invalid session.
     /// Handler caller trả 401 nếu null.
     private static (string SessionId, string TenantId)? RequireSession(
-        HttpContext ctx, TourkitAiProxy.Services.TourKit.TkSessionStore sessions)
+        HttpContext ctx, TourkitAiProxy.Infrastructure.TourKit.TkSessionStore sessions)
     {
         var sid = ctx.Request.Headers["X-Session-Id"].FirstOrDefault()
             ?? ctx.Request.Query["sessionId"].FirstOrDefault();

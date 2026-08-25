@@ -1,6 +1,7 @@
 using System.Text.Json.Serialization;
+using TourkitAiProxy.Domain.Speech;
 
-namespace TourkitAiProxy.Models;
+namespace TourkitAiProxy.Domain.Models;
 
 /// 1 lượt thẩm định hồ sơ visa của 1 cá nhân. Lưu data/visa-assessments.json keyed by Id.
 /// Vòng đời: upload → Status="extracted" (AI đọc xong hồ sơ) → score → Status="scored".

@@ -1,6 +1,6 @@
 using System.Text.Json.Serialization;
 
-namespace TourkitAiProxy.Models;
+namespace TourkitAiProxy.Domain.Models;
 
 /// Kết quả review 1 KH từ AI. Lưu vào data/reviews.json keyed by CustomerId.
 /// `DataFingerprint` = SHA256(customer data) — đổi tức là KH có data mới → review stale.

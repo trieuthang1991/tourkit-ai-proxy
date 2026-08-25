@@ -1,8 +1,8 @@
 using Dapper;
-using TourkitAiProxy.Models;
-using TourkitAiProxy.Services.Db;
+using TourkitAiProxy.Domain.Models;
+using TourkitAiProxy.Infrastructure.Db;
 
-namespace TourkitAiProxy.Services.Quota;
+namespace TourkitAiProxy.Infrastructure.Quota;
 
 /// <summary>
 /// Dapper repo cho dbo.TenantQuota. CRUD thuần cho TenantQuotaStore — KHÔNG cache, KHÔNG fallback.

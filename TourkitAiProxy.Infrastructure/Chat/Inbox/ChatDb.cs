@@ -1,9 +1,9 @@
 // Services/Chat/Inbox/ChatDb.cs
 using Dapper;
 using Npgsql;
-using TourkitAiProxy.Services.Security;
+using TourkitAiProxy.Infrastructure.Security;
 
-namespace TourkitAiProxy.Services.Chat.Inbox;
+namespace TourkitAiProxy.Infrastructure.Chat.Inbox;
 
 /// <summary>
 /// Kết nối + dựng bảng cho CSDL hộp thư chat — <b>PostgreSQL RIÊNG</b>, không phải SQL Server.

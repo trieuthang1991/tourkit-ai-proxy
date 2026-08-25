@@ -1,13 +1,17 @@
 ﻿using System.Diagnostics;
 using System.Globalization;
 using System.Text.Json;
-using TourkitAiProxy.Models;
+using TourkitAiProxy.Domain.Models;
 using TourkitAiProxy.Services;
-using TourkitAiProxy.Services.Cache;
-using TourkitAiProxy.Services.Deals;
-using TourkitAiProxy.Services.Mail;
+using TourkitAiProxy.Infrastructure.Cache;
+using TourkitAiProxy.Domain.Deals;
+using TourkitAiProxy.Infrastructure.Deals;
+using TourkitAiProxy.Infrastructure.Mail;
 using TourkitAiProxy.Domain.Mail;
 using TourkitAiProxy.Services.Quota;
+using TourkitAiProxy.Infrastructure.TourKit;
+using TourkitAiProxy.Services.Deals;
+using TourkitAiProxy.Services.Mail;
 using TourkitAiProxy.Services.TourKit;
 
 namespace TourkitAiProxy.Services.Workflows;

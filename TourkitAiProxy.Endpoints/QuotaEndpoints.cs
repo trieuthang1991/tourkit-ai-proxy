@@ -1,5 +1,5 @@
 using TourkitAiProxy.Services.Quota;
-using TourkitAiProxy.Services.TourKit;
+using TourkitAiProxy.Infrastructure.TourKit;
 
 namespace TourkitAiProxy.Endpoints;
 

@@ -1,5 +1,6 @@
 ﻿using System.Text.RegularExpressions;
 using Xunit;
+using TourkitAiProxy.Infrastructure.Chat.Inbox;
 
 namespace TourkitAiProxy.Tests.Chat;
 

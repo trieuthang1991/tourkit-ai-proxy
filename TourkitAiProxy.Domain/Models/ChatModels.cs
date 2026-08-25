@@ -1,7 +1,8 @@
 using System.Text.Json;
 using System.Text.Json.Serialization;
+using TourkitAiProxy.Domain.Workflow;
 
-namespace TourkitAiProxy.Models;
+namespace TourkitAiProxy.Domain.Models;
 
 // ─── /api/v1/login-token ──────────────────────────────────────────────────────
 
@@ -86,7 +87,7 @@ public record ChatResult(
     int TokensIn,
     int TokensOut,
     string? Warning,
-    TourkitAiProxy.Services.Workflow.WorkflowTrace? Trace = null,
+    TourkitAiProxy.Domain.Workflow.WorkflowTrace? Trace = null,
     // Nhãn NGUỒN tiếng Việt để HIỆN cho người dùng (vd "Chi tiết tài chính"). ToolName ở trên là tên
     // kỹ thuật, chỉ dùng cho E2E/trace/log — UI phải render field này, null = ẩn chip.
     string? ToolTitle = null

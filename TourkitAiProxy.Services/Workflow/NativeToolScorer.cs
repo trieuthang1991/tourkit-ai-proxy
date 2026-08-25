@@ -1,6 +1,8 @@
 // Services/Workflow/NativeToolScorer.cs
 using System.Text.Json;
 using TourkitAiProxy.Services.Providers;
+using TourkitAiProxy.Domain.Workflow;
+using TourkitAiProxy.Infrastructure;
 
 namespace TourkitAiProxy.Services.Workflow;
 

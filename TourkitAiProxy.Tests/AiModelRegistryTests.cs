@@ -1,5 +1,5 @@
 using Microsoft.Extensions.Configuration;
-using TourkitAiProxy.Models;
+using TourkitAiProxy.Domain.Models;
 using TourkitAiProxy.Services.Providers;
 using Xunit;
 

@@ -4,11 +4,12 @@ using System.Globalization;
 using System.Text;
 using System.Text.Json;
 using System.Text.RegularExpressions;
-using TourkitAiProxy.Models;
+using TourkitAiProxy.Domain.Models;
 using TourkitAiProxy.Shared.Json;
 using TourkitAiProxy.Services.Providers;
-using TourkitAiProxy.Services.TourKit;
+using TourkitAiProxy.Infrastructure.TourKit;
 using TourkitAiProxy.Domain.Chat;
+using TourkitAiProxy.Infrastructure.Cache;
 
 namespace TourkitAiProxy.Services.Chat;
 
@@ -23,7 +24,7 @@ public class JsonPlannerAgent : IAgentRuntime
     private readonly ProviderRegistry _registry;
     private readonly TourKitApiClient _api;
     private readonly TkSessionStore _sessions;
-    private readonly Cache.ChatCache _cache;
+    private readonly ChatCache _cache;
     private readonly UnresolvedQuestionsLog _unresolved;
     private readonly ILogger<JsonPlannerAgent> _log;
     private readonly IConfiguration _cfg;   // doc co tinh nang -> loc danh muc action gui cho AI
@@ -38,7 +39,7 @@ public class JsonPlannerAgent : IAgentRuntime
         ProviderRegistry registry,
         TourKitApiClient api,
         TkSessionStore sessions,
-        Cache.ChatCache cache,
+        ChatCache cache,
         UnresolvedQuestionsLog unresolved,
         ILogger<JsonPlannerAgent> log,
         IConfiguration cfg)

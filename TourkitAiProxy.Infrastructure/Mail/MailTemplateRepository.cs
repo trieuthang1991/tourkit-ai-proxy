@@ -1,7 +1,7 @@
 using Dapper;
-using TourkitAiProxy.Services.Db;
+using TourkitAiProxy.Infrastructure.Db;
 
-namespace TourkitAiProxy.Services.Mail;
+namespace TourkitAiProxy.Infrastructure.Mail;
 
 /// <summary>
 /// CRUD template mail dùng chung (dbo.MailTemplates, global PK=Code) — nguồn nội dung cho hàng đợi

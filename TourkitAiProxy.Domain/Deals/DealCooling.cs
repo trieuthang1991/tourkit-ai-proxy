@@ -1,5 +1,5 @@
 ﻿using TourkitAiProxy.Domain.Deals;
-namespace TourkitAiProxy.Services.Deals;
+namespace TourkitAiProxy.Domain.Deals;
 
 /// <summary>
 /// Định nghĩa "deal NGUỘI" — NGUỒN DUY NHẤT cho UI badge/KPI (deals.jsx) + alert workflow

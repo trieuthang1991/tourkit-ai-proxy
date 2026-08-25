@@ -1,10 +1,13 @@
 ﻿using System.Text.Json;
-using TourkitAiProxy.Services.Admin;
+using TourkitAiProxy.Infrastructure.Admin;
 using TourkitAiProxy.Services.Chat;
 using TourkitAiProxy.Domain.Chat;
-using TourkitAiProxy.Services.Mail;
+using TourkitAiProxy.Infrastructure.Mail;
 using TourkitAiProxy.Domain.Mail;
 using TourkitAiProxy.Services.Quota;
+using TourkitAiProxy.Infrastructure.TourKit;
+using TourkitAiProxy.Services.Admin;
+using TourkitAiProxy.Services.Mail;
 using TourkitAiProxy.Services.TourKit;
 
 namespace TourkitAiProxy.Endpoints;

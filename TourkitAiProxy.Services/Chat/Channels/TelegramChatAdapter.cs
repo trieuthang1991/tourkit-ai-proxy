@@ -4,6 +4,7 @@ using System.Text;
 using System.Text.Json.Nodes;
 using TourkitAiProxy.Services.Chat.Inbox;
 using TourkitAiProxy.Domain.Chat;
+using TourkitAiProxy.Infrastructure.Chat.Channels;
 
 namespace TourkitAiProxy.Services.Chat.Channels;
 

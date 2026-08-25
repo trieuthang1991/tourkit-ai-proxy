@@ -1,5 +1,6 @@
-using TourkitAiProxy.Models;
+using TourkitAiProxy.Domain.Models;
 using TourkitAiProxy.Services.Workflow;
+using TourkitAiProxy.Infrastructure.Mail;
 
 namespace TourkitAiProxy.Services.Mail;
 

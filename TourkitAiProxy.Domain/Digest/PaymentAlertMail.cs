@@ -3,6 +3,7 @@ using System.Net;
 using System.Text;
 using System.Text.Json;
 using TourkitAiProxy.Domain.Digest;
+using TourkitAiProxy.Domain.Speech;
 
 namespace TourkitAiProxy.Domain.Digest;
 

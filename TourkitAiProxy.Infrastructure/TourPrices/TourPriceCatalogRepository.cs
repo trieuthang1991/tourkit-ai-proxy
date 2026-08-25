@@ -1,9 +1,9 @@
 ﻿using Dapper;
-using TourkitAiProxy.Models;
-using TourkitAiProxy.Services.Db;
+using TourkitAiProxy.Domain.Models;
 using TourkitAiProxy.Domain.TourPrices;
+using TourkitAiProxy.Infrastructure.Db;
 
-namespace TourkitAiProxy.Services.TourPrices;
+namespace TourkitAiProxy.Infrastructure.TourPrices;
 
 /// <summary>
 /// Dapper CRUD cho `dbo.TourPriceCatalog` — 1 nguồn persistence của catalog.

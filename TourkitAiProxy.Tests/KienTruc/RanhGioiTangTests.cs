@@ -157,6 +157,42 @@ public class RanhGioiTangTests
             + string.Join("\n  ", pham));
     }
 
+    // ── Namespace phải nói đúng tầng ─────────────────────────────────────────
+
+    /// <summary>
+    /// Namespace của một file phải bắt đầu bằng tên project chứa nó.
+    ///
+    /// <para><b>Vì sao đáng canh.</b> Đợt tách kiến trúc cố ý GIỮ NGUYÊN namespace lúc chuyển file,
+    /// để khỏi phải sửa <c>using</c> ở hơn 250 chỗ. Cái giá: 73 file nói dối về tầng của mình —
+    /// <c>TourkitAiProxy.Services.Chat.Inbox.ChatRepository</c> thật ra nằm ở <c>Infrastructure</c>.
+    /// Nợ đó đã trả ngày 25/08/2026; test này giữ cho nó không quay lại.</para>
+    ///
+    /// <para>Cái tạm bợ ấy tự lớn thêm mỗi lần thêm file: người viết sau nhìn hàng xóm rồi chép
+    /// theo. Chặn ở đây thì lần chép đầu tiên đã đỏ.</para>
+    /// </summary>
+    [Fact]
+    public void Namespace_phai_khop_project()
+    {
+        string[] projects =
+        {
+            "TourkitAiProxy.Shared", "TourkitAiProxy.Domain", "TourkitAiProxy.Infrastructure",
+            "TourkitAiProxy.Services", "TourkitAiProxy.Endpoints", "TourkitAiProxy.Tests",
+        };
+
+        var pham = new List<string>();
+        foreach (var prj in projects)
+            foreach (var f in DocFileCs(prj))
+            {
+                var m = Regex.Match(File.ReadAllText(f), @"^namespace\s+([\w.]+)\s*;", RegexOptions.Multiline);
+                if (m.Success && !m.Groups[1].Value.StartsWith(prj, StringComparison.Ordinal))
+                    pham.Add($"{prj}/{Path.GetFileName(f)} — namespace {m.Groups[1].Value}");
+            }
+
+        Assert.True(pham.Count == 0,
+            "Namespace phải bắt đầu bằng tên project chứa file. Vi phạm:\n  "
+            + string.Join("\n  ", pham));
+    }
+
     // ── Helper ───────────────────────────────────────────────────────────────
 
     private static string Goc(string duongDanTuongDoi)

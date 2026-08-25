@@ -1,9 +1,9 @@
 ﻿using Dapper;
-using TourkitAiProxy.Services.Db;
-using TourkitAiProxy.Services.Digest;
 using TourkitAiProxy.Domain.Digest;
+using TourkitAiProxy.Domain.Mail;
+using TourkitAiProxy.Infrastructure.Db;
 
-namespace TourkitAiProxy.Services.Mail;
+namespace TourkitAiProxy.Infrastructure.Mail;
 
 /// <summary>
 /// Hàng đợi mail OUTBOUND dùng chung (dbo.OutboundMails). Producer (vd DealAutoReviewWorkflow)

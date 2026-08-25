@@ -1,13 +1,18 @@
 ﻿// Services/Chat/ChatAgentService.cs
 using System.Globalization;
 using System.Text.Json;
-using TourkitAiProxy.Models;
-using TourkitAiProxy.Services.Mail;
+using TourkitAiProxy.Domain.Models;
+using TourkitAiProxy.Infrastructure.Mail;
 using TourkitAiProxy.Domain.Mail;
 using TourkitAiProxy.Services.Providers;
-using TourkitAiProxy.Services.TourKit;
+using TourkitAiProxy.Infrastructure.TourKit;
 using TourkitAiProxy.Services.Workflow;
+using TourkitAiProxy.Domain.Workflow;
 using TourkitAiProxy.Domain.Chat;
+using TourkitAiProxy.Domain.Speech;
+using TourkitAiProxy.Infrastructure.Cache;
+using TourkitAiProxy.Services.Mail;
+using TourkitAiProxy.Services.TourKit;
 
 namespace TourkitAiProxy.Services.Chat;
 
@@ -27,7 +32,7 @@ public class ChatAgentService
     private readonly ProviderRegistry _registry;
     private readonly AiModelRegistry _modelRegistry;
     private readonly TkSessionStore _sessions;
-    private readonly Cache.ChatCache _cache;
+    private readonly ChatCache _cache;
     private readonly UnresolvedQuestionsLog _unresolved;
     private readonly IWorkflowTraceAccessor _traceAccessor;
     private readonly ActionExecutor _exec;
@@ -43,7 +48,7 @@ public class ChatAgentService
         ProviderRegistry registry,
         AiModelRegistry modelRegistry,
         TkSessionStore sessions,
-        Cache.ChatCache cache,
+        ChatCache cache,
         UnresolvedQuestionsLog unresolved,
         IWorkflowTraceAccessor traceAccessor,
         ActionExecutor exec,

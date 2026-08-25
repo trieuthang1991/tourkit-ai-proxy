@@ -1,5 +1,5 @@
 using System.Diagnostics;
-using TourkitAiProxy.Services.TourKit;
+using TourkitAiProxy.Infrastructure.TourKit;
 
 namespace TourkitAiProxy.Services.Logging;
 

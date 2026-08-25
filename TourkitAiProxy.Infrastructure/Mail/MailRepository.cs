@@ -2,10 +2,10 @@ using System.Globalization;
 using System.Text;
 using System.Text.Json;
 using Dapper;
-using TourkitAiProxy.Models;
-using TourkitAiProxy.Services.Db;
+using TourkitAiProxy.Domain.Models;
+using TourkitAiProxy.Infrastructure.Db;
 
-namespace TourkitAiProxy.Services.Mail;
+namespace TourkitAiProxy.Infrastructure.Mail;
 
 /// <summary>
 /// Counts cho sidebar: tổng + chưa đọc + theo trạng thái + theo nhóm.

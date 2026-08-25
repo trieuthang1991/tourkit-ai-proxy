@@ -1,5 +1,5 @@
 ﻿using System.Text.Json;
-using TourkitAiProxy.Services.Json;
+using TourkitAiProxy.Shared.Json;
 using Xunit;
 
 namespace TourkitAiProxy.Tests.Json;

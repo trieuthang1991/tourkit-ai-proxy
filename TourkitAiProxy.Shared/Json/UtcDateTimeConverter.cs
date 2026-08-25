@@ -1,7 +1,7 @@
 using System.Text.Json;
 using System.Text.Json.Serialization;
 
-namespace TourkitAiProxy.Services.Json;
+namespace TourkitAiProxy.Shared.Json;
 
 /// <summary>
 /// Serialize MỌI DateTime kèm hậu tố 'Z' (UTC ISO-8601) cho JSON HTTP response.

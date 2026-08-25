@@ -1,11 +1,14 @@
 ﻿// Endpoints/ChatInboxEndpoints.cs
 using System.Text.Json;
 using System.Text.Json.Nodes;
+using TourkitAiProxy.Infrastructure.Chat.Channels;
+using TourkitAiProxy.Infrastructure.Chat.Inbox;
+using TourkitAiProxy.Services.Storage;
+using TourkitAiProxy.Infrastructure.TourKit;
+using TourkitAiProxy.Domain.Chat;
 using TourkitAiProxy.Services.Chat.Channels;
 using TourkitAiProxy.Services.Chat.Inbox;
-using TourkitAiProxy.Services.Storage;
 using TourkitAiProxy.Services.TourKit;
-using TourkitAiProxy.Domain.Chat;
 
 namespace TourkitAiProxy.Endpoints;
 

@@ -1,9 +1,9 @@
 using System.Collections.Concurrent;
 using Dapper;
 using Microsoft.Data.SqlClient;
-using TourkitAiProxy.Services.Db;
+using TourkitAiProxy.Infrastructure.Db;
 
-namespace TourkitAiProxy.Services.Quota;
+namespace TourkitAiProxy.Infrastructure.Quota;
 
 /// <summary>
 /// Dapper repo cho dbo.QuotaOrders với fallback in-memory.

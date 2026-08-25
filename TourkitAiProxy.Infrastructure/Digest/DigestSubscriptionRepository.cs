@@ -1,8 +1,8 @@
 ﻿using Dapper;
-using TourkitAiProxy.Services.Db;
 using TourkitAiProxy.Domain.Digest;
+using TourkitAiProxy.Infrastructure.Db;
 
-namespace TourkitAiProxy.Services.Digest;
+namespace TourkitAiProxy.Infrastructure.Digest;
 
 /// dbo.DigestSubscriptions — sổ người nhận bản tin: ai nhận loại nào, mấy giờ, qua kênh nào.
 public class DigestSubscriptionRepository

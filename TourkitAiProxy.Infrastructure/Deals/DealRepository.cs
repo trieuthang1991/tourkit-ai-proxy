@@ -1,11 +1,11 @@
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using Dapper;
-using TourkitAiProxy.Models;
-using TourkitAiProxy.Services.Cache;
-using TourkitAiProxy.Services.Db;
+using TourkitAiProxy.Domain.Models;
+using TourkitAiProxy.Infrastructure.Cache;
+using TourkitAiProxy.Infrastructure.Db;
 
-namespace TourkitAiProxy.Services.Deals;
+namespace TourkitAiProxy.Infrastructure.Deals;
 
 /// <summary>
 /// Cache Deal AI scoring:

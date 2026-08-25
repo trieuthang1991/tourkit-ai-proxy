@@ -1,7 +1,7 @@
 using System.Text.Json;
 using System.Text.Json.Serialization;
 
-namespace TourkitAiProxy.Models;
+namespace TourkitAiProxy.Domain.Models;
 
 /// Nháp tour AI sinh ra (itinerary + marketing + costing). Lưu Redis/file theo tenant.
 /// Các trường lồng (request/itinerary/marketing/rows) giữ nguyên dạng JS gửi lên (JsonElement).

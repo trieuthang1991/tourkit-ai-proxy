@@ -1,9 +1,10 @@
 using System.Text.Json;
 using Dapper;
-using TourkitAiProxy.Models;
-using TourkitAiProxy.Services.Db;
+using TourkitAiProxy.Domain.Models;
+using TourkitAiProxy.Domain.Speech;
+using TourkitAiProxy.Infrastructure.Db;
 
-namespace TourkitAiProxy.Services.Visa;
+namespace TourkitAiProxy.Infrastructure.Visa;
 
 /// <summary>
 /// SQL Server-backed store: (TenantId, assessmentId) → VisaAssessment. Persist dbo.VisaAssessments.

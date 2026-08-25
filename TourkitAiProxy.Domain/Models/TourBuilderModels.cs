@@ -1,6 +1,6 @@
 using System.Text.Json.Serialization;
 
-namespace TourkitAiProxy.Models;
+namespace TourkitAiProxy.Domain.Models;
 
 /// AI bóc tách 1 đoạn mô tả tự do → form Tour GIT (Type=3). 3 khối:
 /// Thông tin tour + Khách đại diện + Phần thu (revenue Sale thu khách). Phép null mọi field.

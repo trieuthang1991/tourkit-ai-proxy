@@ -1,4 +1,4 @@
-namespace TourkitAiProxy.Services.TourKit;
+namespace TourkitAiProxy.Infrastructure.TourKit;
 
 /// Mã quyền TourKit (Function_Code) mà PROXY thực sự kiểm. Đồng bộ TAY với nguồn gốc
 /// toutkit-app/TourKit.Shared/PermissionCodes.cs — CHỈ khai báo mã proxy dùng (không copy hết ~200 mã).

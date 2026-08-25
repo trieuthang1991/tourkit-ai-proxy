@@ -1,5 +1,5 @@
 ﻿using System.Text.RegularExpressions;
-using TourkitAiProxy.Services.Chat.Inbox;
+using TourkitAiProxy.Infrastructure.Chat.Inbox;
 using TourkitAiProxy.Domain.Chat;
 using Xunit;
 

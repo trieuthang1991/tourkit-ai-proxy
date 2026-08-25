@@ -1,12 +1,12 @@
 ﻿using System.Globalization;
 using System.Text.Json;
-using TourkitAiProxy.Models;
+using TourkitAiProxy.Domain.Models;
 using TourkitAiProxy.Services;
-using TourkitAiProxy.Services.Digest;
-using TourkitAiProxy.Services.Mail;
+using TourkitAiProxy.Infrastructure.Digest;
+using TourkitAiProxy.Infrastructure.Mail;
 using TourkitAiProxy.Domain.Mail;
 using TourkitAiProxy.Services.Providers;
-using TourkitAiProxy.Services.TourKit;
+using TourkitAiProxy.Infrastructure.TourKit;
 using TourkitAiProxy.Domain.Digest;
 
 namespace TourkitAiProxy.Services.Workflows;

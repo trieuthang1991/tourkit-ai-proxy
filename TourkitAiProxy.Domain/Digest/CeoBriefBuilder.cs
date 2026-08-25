@@ -1,6 +1,7 @@
 ﻿using System.Globalization;
 using System.Text;
 using TourkitAiProxy.Domain.Digest;
+using TourkitAiProxy.Domain.Speech;
 
 namespace TourkitAiProxy.Domain.Digest;
 

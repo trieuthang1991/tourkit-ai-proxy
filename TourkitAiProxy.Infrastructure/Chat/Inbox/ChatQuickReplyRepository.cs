@@ -4,7 +4,7 @@ using System.Text;
 using System.Text.RegularExpressions;
 using Dapper;
 
-namespace TourkitAiProxy.Services.Chat.Inbox;
+namespace TourkitAiProxy.Infrastructure.Chat.Inbox;
 
 /// <param name="Trigger">Chuỗi gõ sau dấu "/" — đã chuẩn hoá, không dấu, không khoảng trắng.</param>
 public record QuickReply(long Id, string Trigger, string Body);

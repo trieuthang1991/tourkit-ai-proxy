@@ -1,6 +1,6 @@
 using System.Text.Json;
 
-namespace TourkitAiProxy.Services.Json;
+namespace TourkitAiProxy.Shared.Json;
 
 /// <summary>
 /// Extension methods cho JsonElement — case-insensitive field lookup + tolerant type conversion.

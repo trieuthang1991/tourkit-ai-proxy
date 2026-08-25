@@ -1,5 +1,5 @@
 ﻿using System.Collections.Generic;
-using TourkitAiProxy.Models;
+using TourkitAiProxy.Domain.Models;
 using TourkitAiProxy.Services.Chat;
 using Xunit;
 using TourkitAiProxy.Domain.Chat;

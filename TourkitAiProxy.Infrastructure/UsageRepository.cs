@@ -1,7 +1,7 @@
 using Dapper;
-using TourkitAiProxy.Services.Db;
+using TourkitAiProxy.Infrastructure.Db;
 
-namespace TourkitAiProxy.Services;
+namespace TourkitAiProxy.Infrastructure;
 
 /// <summary>
 /// Dapper repo cho dbo.AiUsageCounters. Aggregate daily per-model — Snapshot rẻ.

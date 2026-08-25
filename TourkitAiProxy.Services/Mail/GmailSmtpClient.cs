@@ -2,6 +2,7 @@ using System.Text.RegularExpressions;
 using MailKit.Net.Smtp;
 using MailKit.Security;
 using MimeKit;
+using TourkitAiProxy.Infrastructure.Mail;
 
 namespace TourkitAiProxy.Services.Mail;
 

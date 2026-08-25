@@ -1,8 +1,8 @@
 ﻿using Dapper;
-using TourkitAiProxy.Services.Db;
 using TourkitAiProxy.Domain.Digest;
+using TourkitAiProxy.Infrastructure.Db;
 
-namespace TourkitAiProxy.Services.Digest;
+namespace TourkitAiProxy.Infrastructure.Digest;
 
 /// <summary>
 /// Sổ ghi nhắc dùng chung — <c>dbo.NotifyLedger</c>. Xem chú thích dài ở TourkitAiDb.SchemaSql cho

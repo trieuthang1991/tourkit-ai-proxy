@@ -1,9 +1,9 @@
 ﻿using System.Globalization;
 using System.Text.Json;
-using TourkitAiProxy.Models;
+using TourkitAiProxy.Domain.Models;
 using TourkitAiProxy.Shared.Text;
 
-namespace TourkitAiProxy.Services.TourKit;
+namespace TourkitAiProxy.Infrastructure.TourKit;
 
 /// Lấy KHÁCH HÀNG THẬT từ TourKit CRM (thay data/customers.seed.json):
 ///   • ListAsync  — `/api/ai/customers` (nhẹ: tên + tổng tour/doanh thu, cho danh sách).

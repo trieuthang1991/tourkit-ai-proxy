@@ -1,11 +1,12 @@
 ﻿using System.Text;
 using System.Text.Json;
-using TourkitAiProxy.Models;
+using TourkitAiProxy.Domain.Models;
 using TourkitAiProxy.Services.Chat;
 using TourkitAiProxy.Shared.Json;
 using TourkitAiProxy.Services.Providers;
-using TourkitAiProxy.Services.TourKit;
+using TourkitAiProxy.Infrastructure.TourKit;
 using TourkitAiProxy.Domain.Chat;
+using TourkitAiProxy.Infrastructure.Widget;
 
 namespace TourkitAiProxy.Services.Widget;
 

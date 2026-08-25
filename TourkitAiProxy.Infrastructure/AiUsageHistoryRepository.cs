@@ -1,9 +1,9 @@
 using System.Data;
 using Dapper;
 using Microsoft.Data.SqlClient;
-using TourkitAiProxy.Services.Db;
+using TourkitAiProxy.Infrastructure.Db;
 
-namespace TourkitAiProxy.Services;
+namespace TourkitAiProxy.Infrastructure;
 
 /// <summary>
 /// Dapper repo cho dbo.AiUsageHistory — granular per-request log (1 AI call = 1 row).

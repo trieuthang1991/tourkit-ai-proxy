@@ -1,7 +1,7 @@
 ﻿// TourkitAiProxy.Tests/Chat/AgentGuardrailsTests.cs
 using TourkitAiProxy.Services.Chat;
 using TourkitAiProxy.Domain.Chat;
-using TourkitAiProxy.Models;
+using TourkitAiProxy.Domain.Models;
 
 namespace TourkitAiProxy.Tests.Chat;
 

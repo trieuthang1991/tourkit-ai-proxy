@@ -2,10 +2,10 @@ using System.Collections.Concurrent;
 using System.Security.Cryptography;
 using Dapper;
 using Microsoft.Data.SqlClient;
-using TourkitAiProxy.Models;
-using TourkitAiProxy.Services.Db;
+using TourkitAiProxy.Domain.Models;
+using TourkitAiProxy.Infrastructure.Db;
 
-namespace TourkitAiProxy.Services.Widget;
+namespace TourkitAiProxy.Infrastructure.Widget;
 
 /// <summary>
 /// Dapper repo cho dbo.WidgetTokens + fallback in-memory sticky 60s (cùng pattern QuotaOrderRepository).

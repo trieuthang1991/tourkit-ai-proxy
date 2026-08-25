@@ -1,8 +1,8 @@
 using Dapper;
-using TourkitAiProxy.Services.Db;
-using TourkitAiProxy.Services.Security;
+using TourkitAiProxy.Infrastructure.Db;
+using TourkitAiProxy.Infrastructure.Security;
 
-namespace TourkitAiProxy.Services.TourKit;
+namespace TourkitAiProxy.Infrastructure.TourKit;
 
 /// <summary>
 /// Tài khoản dịch vụ (service account) per-tenant cho workflow nền tự đăng nhập TourKit —

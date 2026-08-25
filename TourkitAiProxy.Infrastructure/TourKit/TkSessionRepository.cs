@@ -1,11 +1,10 @@
 ﻿using System.Text.Json;
 using Dapper;
-using TourkitAiProxy.Services.Chat;
 using TourkitAiProxy.Domain.Chat;
-using TourkitAiProxy.Services.Db;
-using TourkitAiProxy.Services.Security;
+using TourkitAiProxy.Infrastructure.Db;
+using TourkitAiProxy.Infrastructure.Security;
 
-namespace TourkitAiProxy.Services.TourKit;
+namespace TourkitAiProxy.Infrastructure.TourKit;
 
 /// <summary>
 /// Dapper repo cho dbo.TkSessions. Mật khẩu Crypton-encrypted; JWT KHÔNG persist (re-login khi cần).

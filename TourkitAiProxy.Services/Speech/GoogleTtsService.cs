@@ -2,6 +2,7 @@
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
+using TourkitAiProxy.Domain.Speech;
 
 namespace TourkitAiProxy.Services.Speech;
 

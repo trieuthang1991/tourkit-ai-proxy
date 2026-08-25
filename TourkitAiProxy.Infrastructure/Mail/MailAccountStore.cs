@@ -1,8 +1,8 @@
 using Dapper;
-using TourkitAiProxy.Services.Db;
-using TourkitAiProxy.Services.Security;
+using TourkitAiProxy.Infrastructure.Db;
+using TourkitAiProxy.Infrastructure.Security;
 
-namespace TourkitAiProxy.Services.Mail;
+namespace TourkitAiProxy.Infrastructure.Mail;
 
 /// <summary>
 /// Lưu/đọc creds hộp thư Gmail + chữ ký, SCOPED THEO (TenantId, Username).

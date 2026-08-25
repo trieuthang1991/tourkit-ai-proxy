@@ -1,7 +1,7 @@
 using System.Threading.Channels;
 using System.Text.Json;
 
-namespace TourkitAiProxy.Services.Logging;
+namespace TourkitAiProxy.Infrastructure.Logging;
 
 /// <summary>1 dòng log để ghi xuống dbo.AppLogs. Thiết kế ĐỘNG: Kind phân loại + DataJson payload tùy ý.</summary>
 public sealed record DbLogEntry(

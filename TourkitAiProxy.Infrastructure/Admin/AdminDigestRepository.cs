@@ -1,11 +1,10 @@
 ﻿using Dapper;
-using TourkitAiProxy.Services.Db;
-using TourkitAiProxy.Services.Digest;
-using TourkitAiProxy.Services.Mail;
 using TourkitAiProxy.Domain.Mail;
 using TourkitAiProxy.Domain.Digest;
+using TourkitAiProxy.Infrastructure.Db;
+using TourkitAiProxy.Infrastructure.Mail;
 
-namespace TourkitAiProxy.Services.Admin;
+namespace TourkitAiProxy.Infrastructure.Admin;
 
 /// <summary>
 /// Ảnh chụp bản tin XUYÊN TENANT cho trang admin: ai đăng ký nhận gì, hôm nay bản tin đi tới đâu.

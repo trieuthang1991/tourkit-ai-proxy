@@ -1,6 +1,6 @@
 using System.Text.Json;
 using StackExchange.Redis;
-using TourkitAiProxy.Services.Cache;
+using TourkitAiProxy.Infrastructure.Cache;
 
 namespace TourkitAiProxy.Services.Store;
 

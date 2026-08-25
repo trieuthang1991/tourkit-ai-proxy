@@ -1,4 +1,4 @@
-namespace TourkitAiProxy.Services.Chat;
+namespace TourkitAiProxy.Domain.Chat;
 
 /// <summary>
 /// Từ điển domain nhúng vào system prompt phân tích (Chat-Analytics) — NGUỒN DUY NHẤT.

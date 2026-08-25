@@ -1,7 +1,7 @@
 using System.Text.Json;
 using System.Text.Json.Serialization;
 
-namespace TourkitAiProxy.Models;
+namespace TourkitAiProxy.Domain.Models;
 
 /// <summary>
 /// 1 báo giá tour user lưu lại. Persist trong dbo.TourQuotes (per-tenant scope).

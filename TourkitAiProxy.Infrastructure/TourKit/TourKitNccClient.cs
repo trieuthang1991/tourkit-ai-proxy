@@ -1,6 +1,6 @@
 using System.Text.Json;
 
-namespace TourkitAiProxy.Services.TourKit;
+namespace TourkitAiProxy.Infrastructure.TourKit;
 
 /// Đọc NCC (nhà cung cấp) THẬT từ TourKit (picker dịch vụ dựng tour). Read-only, qua session JWT.
 ///   • CategoriesAsync       — `/api/tours/service-categories`  (loại DV: Khách sạn, Vận chuyển…)

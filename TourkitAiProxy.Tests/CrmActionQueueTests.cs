@@ -1,4 +1,4 @@
-﻿using TourkitAiProxy.Services.Crm;
+﻿using TourkitAiProxy.Infrastructure.Crm;
 using Xunit;
 using TourkitAiProxy.Domain.Chat;
 

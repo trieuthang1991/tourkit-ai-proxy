@@ -2,7 +2,7 @@ using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
 
-namespace TourkitAiProxy.Services.Cache;
+namespace TourkitAiProxy.Infrastructure.Cache;
 
 /// Cache prompt→response cho các tính năng AI tốn kém (Visa extract/score, Deal score, TourBuilder).
 /// Key = sha256(feature|model|prompt) → JSON. TTL 24h. Redis nếu có, fallback in-memory.

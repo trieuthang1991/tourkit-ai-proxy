@@ -1,7 +1,7 @@
 ﻿// Services/Chat/AgentGuardrails.cs
 using System.Text.RegularExpressions;
 using System.Globalization;
-using TourkitAiProxy.Models;
+using TourkitAiProxy.Domain.Models;
 using System.Linq;
 using TourkitAiProxy.Domain.Chat;
 

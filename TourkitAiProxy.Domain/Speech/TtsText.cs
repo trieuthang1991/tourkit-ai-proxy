@@ -1,4 +1,4 @@
-namespace TourkitAiProxy.Services.Speech;
+namespace TourkitAiProxy.Domain.Speech;
 
 /// <summary>
 /// Cắt bớt chữ trước khi gửi sang engine đọc, khi vượt giới hạn của nhà cung cấp.

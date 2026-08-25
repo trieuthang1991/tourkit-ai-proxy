@@ -2,7 +2,7 @@
 using Dapper;
 using TourkitAiProxy.Domain.Chat;
 
-namespace TourkitAiProxy.Services.Chat.Inbox;
+namespace TourkitAiProxy.Infrastructure.Chat.Inbox;
 
 /// <summary>
 /// Kho dữ liệu hộp thư chat (PostgreSQL, Dapper).

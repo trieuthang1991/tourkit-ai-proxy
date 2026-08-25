@@ -1,6 +1,6 @@
 ﻿using System.Globalization;
 using System.Text;
-using TourkitAiProxy.Models;
+using TourkitAiProxy.Domain.Models;
 using TourkitAiProxy.Domain.Deals;
 
 namespace TourkitAiProxy.Domain.Deals;

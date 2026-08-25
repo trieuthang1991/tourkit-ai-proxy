@@ -1,12 +1,11 @@
 ﻿// Services/Chat/Channels/ChannelCredentialStore.cs
 using System.Text.Json.Nodes;
 using Dapper;
-using TourkitAiProxy.Services.Chat.Inbox;
-using TourkitAiProxy.Services.Db;
-using TourkitAiProxy.Services.Security;
 using TourkitAiProxy.Domain.Chat;
+using TourkitAiProxy.Infrastructure.Db;
+using TourkitAiProxy.Infrastructure.Security;
 
-namespace TourkitAiProxy.Services.Chat.Channels;
+namespace TourkitAiProxy.Infrastructure.Chat.Channels;
 
 /// <summary>
 /// Khoá kết nối kênh chat, theo từng công ty — và theo từng TÀI KHOẢN (một công ty du lịch có thể

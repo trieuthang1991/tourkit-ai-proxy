@@ -1,9 +1,10 @@
 ﻿using System.Text.Json;
-using TourkitAiProxy.Models;
+using TourkitAiProxy.Domain.Models;
 using TourkitAiProxy.Services.Chat;
 using TourkitAiProxy.Domain.Chat;
-using TourkitAiProxy.Services.Security;
-using TourkitAiProxy.Services.TourKit;
+using TourkitAiProxy.Infrastructure.Security;
+using TourkitAiProxy.Infrastructure.TourKit;
+using TourkitAiProxy.Infrastructure.Cache;
 
 namespace TourkitAiProxy.Endpoints;
 
@@ -243,7 +244,7 @@ public static class ChatEndpoints
         });
 
         // ─── POST /chat/cache/clear ─── xóa cache số liệu của công ty (buộc gọi mới) ──
-        v1.MapPost("/chat/cache/clear", (HttpContext ctx, TkSessionStore sessions, Services.Cache.ChatCache cache) =>
+        v1.MapPost("/chat/cache/clear", (HttpContext ctx, TkSessionStore sessions, ChatCache cache) =>
         {
             var sid = ctx.Request.Headers["X-Session-Id"].FirstOrDefault() ?? ctx.Request.Query["sessionId"].FirstOrDefault();
             var s = sessions.Get(sid);
@@ -257,7 +258,7 @@ public static class ChatEndpoints
 
     private static readonly JsonSerializerOptions SseJson = new(JsonSerializerDefaults.Web);
 
-    private static LoginTokenResponse ToLoginResponse(TourkitAiProxy.Services.TourKit.TkSession s)
+    private static LoginTokenResponse ToLoginResponse(TourkitAiProxy.Infrastructure.TourKit.TkSession s)
         => new(
             SessionId:       s.Id,
             TenantId:        s.TenantId,

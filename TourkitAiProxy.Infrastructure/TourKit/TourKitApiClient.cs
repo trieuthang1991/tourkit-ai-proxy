@@ -2,8 +2,9 @@ using System.Diagnostics;
 using System.Net.Http.Headers;
 using System.Net.Http.Json;
 using System.Text.Json;
+using TourkitAiProxy.Infrastructure.Security;
 
-namespace TourkitAiProxy.Services.TourKit;
+namespace TourkitAiProxy.Infrastructure.TourKit;
 
 /// Lỗi khi gọi TourKit.Api (login sai, endpoint trả success=false, HTTP lỗi…).
 public class TourKitApiException : Exception
@@ -40,7 +41,7 @@ public class TourKitApiClient
     {
         var secret = _cfg["Sso:Secret"];
         if (!string.IsNullOrEmpty(secret) && secret.StartsWith("ENC:", StringComparison.Ordinal))
-            secret = TourkitAiProxy.Services.Security.Crypton.Decrypt(secret.Substring(4));
+            secret = TourkitAiProxy.Infrastructure.Security.Crypton.Decrypt(secret.Substring(4));
         if (string.IsNullOrWhiteSpace(secret) || secret.Length < 16)
             throw new TourKitApiException("SSO chưa cấu hình (Sso:Secret)", 500);
 

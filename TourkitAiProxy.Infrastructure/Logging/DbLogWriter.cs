@@ -1,7 +1,7 @@
 using Dapper;
-using TourkitAiProxy.Services.Db;
+using TourkitAiProxy.Infrastructure.Db;
 
-namespace TourkitAiProxy.Services.Logging;
+namespace TourkitAiProxy.Infrastructure.Logging;
 
 /// <summary>
 /// Drain <see cref="DbLogQueue"/> nền → batch INSERT vào dbo.AppLogs. SingleReader.

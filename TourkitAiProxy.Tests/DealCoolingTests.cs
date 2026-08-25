@@ -1,4 +1,5 @@
 ﻿using TourkitAiProxy.Services.Deals;
+using TourkitAiProxy.Domain.Deals;
 using Xunit;
 
 /// <summary>

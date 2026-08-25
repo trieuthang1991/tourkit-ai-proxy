@@ -1,9 +1,9 @@
 using System.Collections.Concurrent;
 using System.Text.Json;
 using StackExchange.Redis;
-using TourkitAiProxy.Services.Security;
+using TourkitAiProxy.Infrastructure.Security;
 
-namespace TourkitAiProxy.Services.Cache;
+namespace TourkitAiProxy.Infrastructure.Cache;
 
 /// <summary>
 /// Cache cho Chat-Analytics. Dùng REDIS nếu có Redis:ConnectionString (chia sẻ qua nhiều instance +

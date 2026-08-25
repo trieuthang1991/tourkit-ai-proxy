@@ -1,5 +1,6 @@
 // Services/TourKit/HttpTenantContext.cs
 using Microsoft.AspNetCore.Http;
+using TourkitAiProxy.Infrastructure.TourKit;
 
 namespace TourkitAiProxy.Services.TourKit;
 

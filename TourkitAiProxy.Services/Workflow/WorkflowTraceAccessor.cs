@@ -1,5 +1,6 @@
 // Services/Workflow/WorkflowTraceAccessor.cs
 using Microsoft.AspNetCore.Http;
+using TourkitAiProxy.Domain.Workflow;
 
 namespace TourkitAiProxy.Services.Workflow;
 

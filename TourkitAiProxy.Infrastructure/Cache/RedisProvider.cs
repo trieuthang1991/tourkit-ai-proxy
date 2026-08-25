@@ -1,7 +1,7 @@
 using StackExchange.Redis;
-using TourkitAiProxy.Services.Security;
+using TourkitAiProxy.Infrastructure.Security;
 
-namespace TourkitAiProxy.Services.Cache;
+namespace TourkitAiProxy.Infrastructure.Cache;
 
 /// Multiplexer Redis DÙNG CHUNG (null nếu không cấu hình `Redis:ConnectionString`).
 /// Decrypt `ENC:` (Crypton, copy thẳng từ TourKit.Api). Dùng cho store bền vững (nháp tour, review).

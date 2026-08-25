@@ -4,7 +4,7 @@ using System.Text.RegularExpressions;
 using DocumentFormat.OpenXml.Packaging;
 using DocumentFormat.OpenXml.Spreadsheet;
 using MimeKit;
-using TourkitAiProxy.Models;
+using TourkitAiProxy.Domain.Models;
 using TourkitAiProxy.Shared.Json;
 using TourkitAiProxy.Services.Providers;
 using UglyToad.PdfPig;
