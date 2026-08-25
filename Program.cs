@@ -1,4 +1,4 @@
-using TourkitAiProxy.Configuration;
+﻿using TourkitAiProxy.Configuration;
 using TourkitAiProxy.Endpoints;
 using TourkitAiProxy.Infrastructure;
 using TourkitAiProxy.Services.Bootstrap;
@@ -99,112 +99,11 @@ builder.Services.AddScoped<TourkitAiProxy.Services.TourKit.ITenantContext,
                           TourkitAiProxy.Services.TourKit.HttpTenantContext>();
 builder.Services.AddWorkflowStack(builder.Configuration);
 
-// Admin governance — auth qua Admin:Users (JSON config) + in-mem session.
-builder.Services.AddSingleton<TourkitAiProxy.Services.Admin.AdminUserStore>();
-builder.Services.AddSingleton<TourkitAiProxy.Services.Admin.AdminSessionStore>();
-builder.Services.AddSingleton<TourkitAiProxy.Infrastructure.Admin.AdminUsageRepository>();
-builder.Services.AddSingleton<TourkitAiProxy.Infrastructure.Admin.AdminDigestRepository>();
-builder.Services.AddSingleton<TourkitAiProxy.Services.Admin.ConsultLeadRepository>();
-
-// Tingee client cho luồng mua quota. Tingee = webhook IPN-only (bắn về tourkit-web); QR = VietQR
-// img.vietqr.io. Chỉ 1 client THẬT, không mock.
-builder.Services.AddSingleton<TourkitAiProxy.Services.Quota.ITingeeClient,
-                              TourkitAiProxy.Services.Quota.TingeeClient>();
-builder.Services.AddSingleton<TourkitAiProxy.Infrastructure.Quota.QuotaOrderRepository>();
-
-// Widget Chat — token per-tenant, embed JS vào site khách.
-//   • FAQ mode (WidgetChatService): chỉ system prompt + LLM kiến thức nền.
-//   • CRM mode (WidgetChatCrmService): plan → call /api/ai/* whitelist → analyze. Cần link CRM.
-builder.Services.AddSingleton<TourkitAiProxy.Infrastructure.Widget.WidgetTokenRepository>();
-builder.Services.AddSingleton<TourkitAiProxy.Services.Widget.WidgetChatService>();
-builder.Services.AddSingleton<TourkitAiProxy.Services.Widget.WidgetCrmLinkService>();
-builder.Services.AddSingleton<TourkitAiProxy.Services.Widget.WidgetChatCrmService>();
-// Agent runtimes -- thu tu quan trong: NativeToolUseAgent (Anthropic native tools) chay truoc,
-// JsonPlannerAgent la fallback cho moi provider khac (OpenCode, 9routes...).
-// ChatAgentService resolve runtime dau tien co Supports(provider)=true.
-builder.Services.AddSingleton<IAgentRuntime, NativeToolUseAgent>();
-builder.Services.AddSingleton<IAgentRuntime, JsonPlannerAgent>();
-builder.Services.AddSingleton<TourkitAiProxy.Services.Chat.UnresolvedQuestionsLog>();
-builder.Services.AddSingleton<ChatAgentService>();
-
-// SmartMail — template mail global (dbo.MailTemplates) cho admin CRUD + seed mặc định.
-// Các Mail/Workflow service khác (MailAccountStore, MailQueueRepository, các workflow…) đã nằm
-// trong AddWorkflowStack ở trên. MailTemplateRepository là UI/admin-specific (không cần cho
-// scheduler worker) nên đăng ký riêng ở đây.
-builder.Services.AddSingleton<TourkitAiProxy.Infrastructure.Mail.MailTemplateRepository>();
-
-// Hàng đợi hành động CRM (dbo.CrmActionQueue) — trợ lý enqueue (giao việc/tạo lịch hẹn),
-// worker app-side (toutkit-app) drain. Singleton như MailQueueRepository (cùng chỉ dùng
-// TourkitAiDb.OpenAsync mở connection mới mỗi lần gọi, không giữ state).
-builder.Services.AddSingleton<TourkitAiProxy.Infrastructure.Crm.CrmActionQueueRepository>();
-
-// Resolver tên→id (khách/nhân viên/deal/workflow) cho các action ghi — dùng ActionExecutor.
-// Stateless (chỉ gọi TourKitApiClient qua jwt truyền vào), singleton như TourKitCustomerSource/DealOpportunityClient.
-builder.Services.AddSingleton<TourkitAiProxy.Services.Chat.ActionResolver>();
-
-// Bộ nhớ resolve theo phiên (in-mem): nhớ lựa chọn user đã chọn ở action-clarify để lượt sau (bổ sung
-// thông tin qua chat) KHÔNG bắt chọn lại. Singleton (chia sẻ state giữa /chat và /action/resolve).
-builder.Services.AddSingleton<TourkitAiProxy.Services.Chat.ActionResolutionMemory>();
-
-// Thực thi hành động đã xác nhận (route theo ActionKind). Task 8a: nhánh CrmQueue
-// (assign_task/create_appointment). Task 8b: nhánh Internal (review_customer/score_deal) — reuse
-// NGUYÊN ReviewService/DealScoringService (đã singleton qua AddWorkflowStack ở trên). Mail vẫn throw
-// NotImplementedException("8b") — task 8c. Singleton — mọi dependency đều singleton, không captive.
-builder.Services.AddSingleton<TourkitAiProxy.Services.Chat.ActionExecutor>();
-
-// Thẻ chuẩn bị gặp khách (S4) — gom hồ sơ + hạng đã chấm + thư gần nhất rồi để AI gợi ý nên nói gì.
-// Chạy theo yêu cầu (qua action prepare_meeting), KHÔNG phải tác vụ nền: dựng sẵn cho mọi cuộc hẹn
-// thì tốn một lượt AI cho cả những cuộc chẳng ai cần chuẩn bị.
-builder.Services.AddSingleton<TourkitAiProxy.Services.Chat.MeetingBriefService>();
-
-// Soạn Tour GIT bằng AI — bóc mô tả tự do thành form Tour GIT (Type=3) cho NV prefill.
-builder.Services.AddSingleton<TourkitAiProxy.Services.Tour.TourBuilderService>();
-
-// Báo giá tour persist (replace flow localStorage cũ). DB-backed, per-tenant scope.
-builder.Services.AddSingleton<TourkitAiProxy.Infrastructure.TourQuotes.TourQuoteRepository>();
-
-// Speech-to-Text (Whisper) — chat assistant ghi âm / upload audio → text.
-builder.Services.AddSingleton<TourkitAiProxy.Services.Speech.SpeechToTextService>();
-// Text-to-Speech — JARVIS đọc reply khi máy không có giọng vi miễn phí.
-// Ưu tiên edge-tts (giọng vi neural CHUẨN, free, cần mạng) → Piper (offline) → OpenAI (nếu có key).
-builder.Services.AddSingleton<TourkitAiProxy.Services.Speech.EdgeTtsService>();            // FREE, giọng vi chuẩn
-builder.Services.AddSingleton<TourkitAiProxy.Services.Speech.PiperTtsService>();           // FREE offline (fallback)
-builder.Services.AddSingleton<TourkitAiProxy.Services.Speech.TextToSpeechService>();        // OpenAI (fallback nếu có key)
-// Vbee AIVoice — giọng Việt neural chất lượng cao (batch async). Ưu tiên đầu chuỗi TTS nếu cấu hình
-// Speech:Vbee:AppId/Token. Named HttpClient "vbee" (auto-follow redirect audioLink mặc định).
-builder.Services.AddHttpClient("vbee");
-builder.Services.AddSingleton<TourkitAiProxy.Services.Speech.VbeeTtsService>();             // Vbee TTS (ưu tiên nếu có key)
-builder.Services.AddSingleton<TourkitAiProxy.Services.Speech.VbeeSttService>();             // Vbee STT (primary khi SttEnabled; WAV-only + fallback)
-// Google Cloud Text-to-Speech — giọng Việt neural (Wavenet/Neural2/Chirp3-HD). Auth = API key (REST đồng bộ).
-// Khác Vbee: endpoint Google (GFE) backward-compat với Schannel cũ → thường gọi thẳng được từ WinServer 2012 R2.
-builder.Services.AddHttpClient("google-tts");
-builder.Services.AddSingleton<TourkitAiProxy.Services.Speech.GoogleTtsService>();           // Google TTS (ưu tiên nếu có key)
-
-// Thẩm định Visa AI — upload hồ sơ → AI vision đọc → chấm tỉ lệ đậu/rớt.
-// File gốc lưu tạm data/visa-files/ (tự xóa 7 ngày), kết quả data/visa-assessments.json.
-builder.Services.AddSingleton<TourkitAiProxy.Services.Visa.VisaFileStore>();
-builder.Services.AddSingleton<TourkitAiProxy.Infrastructure.Visa.VisaRepository>();
-builder.Services.AddSingleton<TourkitAiProxy.Infrastructure.Visa.VisaQuestionRepository>();
-builder.Services.AddSingleton<TourkitAiProxy.Services.Visa.VisaExtractionService>();
-builder.Services.AddSingleton<TourkitAiProxy.Services.Visa.VisaScoringService>();
-
-// CHỈ instance có Workflows:RunScheduler=true mới CHẠY scheduler nền.
-// Mặc định false — sau khi tách TourkitAiProxy.Worker, worker mới chạy scheduler;
-// web deploy KHÔNG tự tick nền. Endpoint "Chạy ngay" (run-now) vẫn dùng được (Singleton).
-var runScheduler = builder.Configuration.GetValue("Workflows:RunScheduler", false);
-Console.WriteLine($"[Startup] Workflows:RunScheduler = {runScheduler} (mặc định false — worker riêng TourkitAiProxy.Worker sẽ chạy)");
-if (runScheduler)
-    builder.Services.AddHostedService(sp =>
-        sp.GetRequiredService<TourkitAiProxy.Services.Workflows.WorkflowSchedulerService>());
-
-// Hai worker của chat. Chạy ở WEB (không phải worker riêng) vì tin chat phải đi NGAY — khách đang
-// chờ trước màn hình, không như bản tin sáng hẹn giờ. Tắt cờ thì không đăng ký, không tốn nhịp nào.
-// Vào: webhook chỉ GHI thân thô, worker này mới xử lý — xem ChatInboundWorker.
-if (TourkitAiProxy.Services.Bootstrap.FeatureFlags.Chat(builder.Configuration))
-{
-    builder.Services.AddHostedService<TourkitAiProxy.Services.Chat.Inbox.ChatInboundWorker>();
-    builder.Services.AddHostedService<TourkitAiProxy.Services.Chat.Inbox.ChatOutboxWorker>();
-}
+// ─── Tính năng chỉ web dùng ───────────────────────────────────────────────────
+// Mỗi tính năng tự khai đủ thứ nó cần trong Services/Bootstrap/WebFeatureRegistration.cs.
+// Thêm tính năng mới KHÔNG phải sửa file này — trước đây phải, nên đây từng là chỗ hay đụng
+// độ nhất khi gộp nhánh, và đọc xong vẫn không biết tính năng nào cần gì.
+builder.Services.AddWebFeatures(builder.Configuration);
 
 // ─── Response compression (Brotli + Gzip) ─────────────────────────────────────
 // Frontend bundle ~596KB + styles.css ~352KB gửi RAW trước đây → public landing/NCC
@@ -384,81 +283,8 @@ app.UseStaticFiles(new Microsoft.AspNetCore.Builder.StaticFileOptions
 });
 
 // ─── Routes ──────────────────────────────────────────────────────────────────
-app.MapSystemEndpoints();
-app.MapConsultLeadEndpoints();   // POST /api/v1/consult-leads (public, lưu data/consult-leads.jsonl)
-app.MapNccImportEndpoints();     // /api/v1/ncc-import/* — bóc tách NCC từ file/text → Excel chuẩn
-app.MapAiEndpoints();
-app.MapReviewEndpoints();
-app.MapChatEndpoints();
-app.MapAssistantActionEndpoints();
-app.MapMailEndpoints();
-app.MapWorkflowEndpoints();
-// Cụm bản tin nằm sau cờ Features:Digest — TẮT thì không map, nên không gọi được kể cả gõ tay
-// hay curl (ẩn ở giao diện thôi thì API vẫn đăng ký + gửi thật được).
-if (TourkitAiProxy.Services.Bootstrap.FeatureFlags.Digest(builder.Configuration))
-{
-    app.MapInsightEndpoints();  // /api/v1/insights/*  — bảng tin trong app (bản tin + cảnh báo)
-    app.MapDigestEndpoints();   // /api/v1/digest/*    — đăng ký nhận bản tin + gửi thử + Zalo OA
-}
-else
-{
-    // BẪY: không map KHÔNG có nghĩa là 404. app.MapFallback (StaticFilesSetup) nhận mọi đường
-    // dẫn không khớp, kể cả /api/**, và trả index.html kèm status 200 — client gọi API sẽ nhận
-    // một trang HTML thay vì lỗi, lần ra nguyên nhân rất mất công. Chặn tường minh ở đây.
-    IResult Off() => Results.Json(
-        new { error = "Tính năng bản tin đang tắt (Features:Digest=false)." }, statusCode: 404);
-    foreach (var p in new[] { "/api/v1/insights", "/api/v1/digest" })
-    {
-        app.Map(p, Off);
-        app.Map(p + "/{**rest}", Off);
-    }
-}
-// Hộp thư chat đa kênh — sau cờ Features:Chat. Tắt thì webhook cũng không map: khách nhắn tới
-// mà endpoint tồn tại nghĩa là tin vẫn chảy vào hệ dù tính năng "đang tắt".
-if (TourkitAiProxy.Services.Bootstrap.FeatureFlags.Chat(builder.Configuration))
-{
-    app.MapChatInboxEndpoints();
-}
-else
-{
-    IResult ChatOff() => Results.Json(
-        new { error = "Tính năng hộp thư chat đang tắt (Features:Chat=false)." }, statusCode: 404);
-    // Đọc CHUNG danh sách với nhánh bật (ChatInboxEndpoints.DuongRieng) — liệt kê tay ở đây đã
-    // lệch một lần: thêm /channels và /messages mà quên cập nhật, hai đường đó rơi vào MapFallback
-    // và trả index.html kèm 200 thay vì 404.
-    foreach (var p in TourkitAiProxy.Endpoints.ChatInboxEndpoints.DuongRieng)
-    {
-        app.Map(p, ChatOff);
-        app.Map(p + "/{**rest}", ChatOff);
-    }
-}
-app.MapTourEndpoints();
-app.MapTourPriceEndpoints();      // GET /api/v1/tour-price/candidates — ứng viên giá NCC (mẫu/thật/cả 2) cho wizard
-app.MapVisaEndpoints();
-app.MapDealEndpoints();
-app.MapTourQuoteEndpoints();
-app.MapSpeechEndpoints();
-app.MapTourBuilderEndpoints();
-app.MapAiUsageEndpoints();
-app.MapAdminAuthEndpoints();    // /api/v1/admin/auth/{login,logout,me}
-app.MapAdminUiEndpoints();      // /api/v1/admin/ui/* (require X-Admin-Session)
-app.MapQuotaEndpoints();
-app.MapQuotaOrderEndpoints();
-app.MapWidgetEndpoints();
-app.MapCrmSsoEndpoints();        // SSO 2 chiều với CRM: /api/v1/crm-sso-ticket + /api/v1/sso/register-code + /sso/exchange
-
-// Admin shell — entry HTML riêng /admin-trav-ai.html, KHÔNG share index.html user-facing.
-// MapGet explicit thắng MapFallback (StaticFilesSetup) → /admin-trav-ai/{**path} serve đúng file admin.
-app.MapGet("/admin-trav-ai", (HttpContext ctx) => ServeAdminHtml(ctx, app.Environment.ContentRootPath));
-app.MapGet("/admin-trav-ai/{**path}", (HttpContext ctx) => ServeAdminHtml(ctx, app.Environment.ContentRootPath));
-
-static IResult ServeAdminHtml(HttpContext ctx, string contentRoot)
-{
-    var path = Path.Combine(contentRoot, "wwwroot", "admin-trav-ai.html");
-    if (!File.Exists(path)) return Results.NotFound();
-    ctx.Response.Headers["Cache-Control"] = "no-cache, must-revalidate";
-    return Results.Content(File.ReadAllText(path), "text/html; charset=utf-8");
-}
+// Danh sách đầy đủ + hai nhánh cờ tính năng ở TourkitAiProxy.Endpoints/EndpointRegistration.cs.
+app.MapTourkitEndpoints(builder.Configuration);
 
 // SPA fallback (deep-link /mail, /customers, /assistant + F5) ĐÃ CHUYỂN vào UseTourkitStaticFiles
 // → app.MapFallback(ServeIndex): deep-link/F5 nay cũng nhận bundle-injection + ?v=hash thay vì rớt

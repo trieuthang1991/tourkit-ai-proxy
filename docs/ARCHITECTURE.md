@@ -205,11 +205,11 @@ Mỗi dòng là một việc phải làm, **không phải ngoại lệ vĩnh vi�
 |---|---|---|
 | Đảo chiều phụ thuộc bằng `interface` | `Services` ↔ `Infrastructure` | cần test tích hợp trước (QĐ-1) |
 | ~~3 câu SQL trong `SaleBriefWorkflow`~~ | ~~`Services/Workflows`~~ | **ĐÃ TRẢ 25/08** → `Infrastructure/Digest/SaleBriefRepository` |
-| `WorkflowEndpoints` tự mở kết nối | `Endpoints` | còn trong danh sách miễn trừ của guard |
+| ~~`WorkflowEndpoints` tự mở kết nối~~ | ~~`Endpoints`~~ | **KHÔNG PHẢI NỢ 25/08** — kiểm lại thì nó đã hết chạm CSDL từ lâu, chỉ còn chữ "Dapper" trong một câu chú thích. Miễn trừ đã gỡ, danh sách nay rỗng |
 | **Chưa có test tích hợp chạm CSDL** | — | việc lớn; là **điều kiện** cho mọi nợ còn lại |
 | ~~Namespace không khớp tầng~~ | ~~73 file~~ | **ĐÃ TRẢ 25/08** → guard `Namespace_phai_khop_project` |
 | `JsonPlannerAgent` 1.845 dòng | `Services/Chat` | cần hiểu nghiệp vụ planner trước; đừng trộn vào đợt di chuyển |
-| `Program.cs` 467 dòng | `Api` | mỗi tính năng nên tự đăng ký DI |
+| ~~`Program.cs` 467 dòng~~ | ~~`Api`~~ | **ĐÃ TRẢ 25/08** → 294 dòng; DI theo tính năng ở `Services/Bootstrap/WebFeatureRegistration`, route ở `Endpoints/EndpointRegistration` |
 | 27 `CREATE TABLE` trong một hằng | `Infrastructure/Db/TourkitAiDb.cs` | mỗi tính năng nên sở hữu mảnh schema riêng |
 
 ---

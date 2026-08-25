@@ -7,14 +7,20 @@ namespace TourkitAiProxy.Tests.KienTruc;
 /// Canh ranh giới tầng ở mức MÃ NGUỒN — phần biên dịch viên không thấy.
 ///
 /// <para><b>Vì sao cần lớp này.</b> Luật phụ thuộc giữa các project đã do biên dịch viên ép: Shared
-/// không tham chiếu gì, Domain chỉ tham chiếu Shared, Application không tham chiếu Infrastructure.
-/// Nhưng có ba thứ biên dịch viên KHÔNG thấy được, mà cả ba đều đã hỏng thật ít nhất một lần:</para>
+/// không tham chiếu gì, Domain chỉ tham chiếu Shared, Endpoints không tham chiếu Infrastructure
+/// trực tiếp. Nhưng có những thứ biên dịch viên KHÔNG thấy được, và mỗi cái ở đây đều đã hỏng thật
+/// ít nhất một lần:</para>
 ///
 /// <list type="number">
 /// <item>"Shared không biết gì về nghiệp vụ" — biên dịch được nhưng sai ý nghĩa;</item>
-/// <item>"endpoint không mở kết nối CSDL" — hiện có đúng 1 chỗ lọt;</item>
-/// <item>"không để file .cs nằm trần ở gốc thư mục" — hiện có 7 file không nhà.</item>
+/// <item>"Domain là luật thuần" — kéo Dapper/HttpClient vào vẫn biên dịch ngon;</item>
+/// <item>"chỉ Infrastructure mở kết nối CSDL" — Services thấy Dapper qua đường bắc cầu;</item>
+/// <item>"namespace nói đúng tầng" — sai thì không có triệu chứng nào, chỉ gây hiểu nhầm.</item>
 /// </list>
+///
+/// <para><b>Cả hai danh sách miễn trừ nay đều RỖNG</b> (25/08/2026). Giữ chúng lại làm chỗ ghi nợ
+/// tạm thời cho lần sau, nhưng rỗng mới là trạng thái đúng: một luật có sẵn cửa thoát thì cửa đó
+/// sớm muộn thành lối đi chính.</para>
 ///
 /// <para>Quy ước bằng lời không giữ được. Ngày 25/08/2026 <c>CLAUDE.md</c> đã dài 1.086 dòng —
 /// và chính hôm đó có người vi phạm quy ước đặt tên <b>vài giờ sau khi đọc nó</b>. File ấy nay đã
@@ -94,11 +100,17 @@ public class RanhGioiTangTests
     /// <summary>
     /// Endpoint chỉ được gọi service/repository, không tự mở kết nối.
     ///
-    /// <para><b>Danh sách miễn trừ là NỢ, không phải ngoại lệ vĩnh viễn.</b> Ghi tên ở đây để test
-    /// vẫn xanh trong lúc chưa dọn, nhưng mỗi dòng là một việc phải làm. Thêm tên mới vào đây thì
-    /// phải kèm lý do — nếu không, luật này chết dần đúng kiểu quy ước bằng lời.</para>
+    /// <para><b>Danh sách miễn trừ nay RỖNG.</b> Từng có đúng một tên — <c>WorkflowEndpoints.cs</c>
+    /// — nhưng hoá ra nó đã hết chạm CSDL từ lâu: thứ duy nhất còn nhắc "Dapper" trong file là một
+    /// câu chú thích giải thích vì sao phải <c>SpecifyKind</c>. Miễn trừ ấy sống sót thêm một thời
+    /// gian chỉ vì bản đầu của guard soi văn bản thô nên khớp cả chú thích; vá guard xong thì không
+    /// ai quay lại xem danh sách còn cần nữa không.</para>
+    ///
+    /// <para>⚠️ Đó là cách một danh sách miễn trừ gây hại kể cả khi nội dung của nó đã sai: nó nói
+    /// "chỗ này còn nợ" trong khi nợ đã hết, nên người đọc sau tưởng đây là ngoại lệ được phép và
+    /// yên tâm thêm tên thứ hai. Thêm tên vào đây phải kèm lý do VÀ hạn trả.</para>
     /// </summary>
-    private static readonly string[] MienTru = { "WorkflowEndpoints.cs" };
+    private static readonly string[] MienTru = System.Array.Empty<string>();
 
     [Fact]
     public void Endpoint_khong_duoc_mo_ket_noi_CSDL()
