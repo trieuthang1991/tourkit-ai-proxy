@@ -1,5 +1,5 @@
 <!--
-  QUY TẮC (BẮT BUỘC — xem CLAUDE.md mục Conventions):
+  QUY TẮC (BẮT BUỘC — xem docs/conventions.md):
   • Mỗi lần public code (merge main/dev, release, deploy) PHẢI thêm 1 mục ở đây.
   • Viết CHO NGƯỜI DÙNG CUỐI: theo trải nghiệm ("Bạn có thể…", "Trước đây … nay …").
   • KHÔNG đưa mã commit/SHA, tên file/hàm/class, tên bảng SQL, thuật ngữ kỹ thuật vào đây.
