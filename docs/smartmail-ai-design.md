@@ -11,7 +11,7 @@
 | Auth Gmail | **App Password** (cần bật 2-Step Verification) | Google đã bỏ "less secure apps"; đây là cách duy nhất cho IMAP |
 | Hộp thư | **1 hộp thư chung công ty** (vd `booking@congty.com`) | Per-staff sẽ cần mỗi người 1 app-password → quá phiền |
 | Đồng bộ | **Bấm Refresh kéo về (on-demand)**, 1 chiều | Mockup đã có nút Refresh → không cần background poller; ghi ngược trạng thái để sau |
-| Trả lời | Phase 1: chỉ soạn nháp — **Phase 2 (gửi SMTP) ĐÃ LÀM**, xem [`GmailSmtpClient`](../Services/Mail/GmailSmtpClient.cs) | Gửi bằng chính Gmail công ty nên không dính SPF/DKIM như giả mạo domain |
+| Trả lời | Phase 1: chỉ soạn nháp — **Phase 2 (gửi SMTP) ĐÃ LÀM**, xem [`GmailSmtpClient`](../TourkitAiProxy.Services/Mail/GmailSmtpClient.cs) | Gửi bằng chính Gmail công ty nên không dính SPF/DKIM như giả mạo domain |
 | Lưu trữ | **File-backed `data/mails.json`** | Đúng nếp `reviews.json` — lên DB sau |
 | Phân loại AI | **Chỉ phân loại email MỚI**, cache theo fingerprint | Tiết kiệm token; Refresh lần sau không gọi lại AI |
 

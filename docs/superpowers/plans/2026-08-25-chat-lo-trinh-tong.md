@@ -682,7 +682,7 @@ Thêm vào khối `<summary>` của class:
 
 - [ ] **Bước 4: Giao diện nói rõ**
 
-⚠️ **Kênh phải lấy từ HỘI THOẠI, không phải từ tin.** Bảng `chat_messages` có cột `channel` nhưng lớp `ChatMessage` ([ChatModels.cs:94-107](../../../Services/Chat/Inbox/ChatModels.cs)) **không map cột đó**, nên API không trả về — viết `tin.channel` sẽ ra `undefined` và mọi tin bị coi là Zalo (kênh 0).
+⚠️ **Kênh phải lấy từ HỘI THOẠI, không phải từ tin.** Bảng `chat_messages` có cột `channel` nhưng lớp `ChatMessage` ([ChatModels.cs:94-107](../../../TourkitAiProxy.Domain/Chat/ChatModels.cs)) **không map cột đó**, nên API không trả về — viết `tin.channel` sẽ ra `undefined` và mọi tin bị coi là Zalo (kênh 0).
 
 `wwwroot/pages/chat-inbox.jsx`, thay `DauGui`:
 
@@ -790,8 +790,8 @@ Bơm `read` trước, `delivery` sau → trạng thái phải **giữ nguyên** 
 
 ```markdown
 **Vòng đời tin gửi đi:** `chờ → đã gửi → đã nhận → đã xem`, cập nhật qua
-[`ChatRepository.MarkStateWatermarkAsync`](Services/Chat/Inbox/ChatRepository.cs) và **chỉ tiến, không lùi**
-([`ChatRules.KhongLui`](Services/Chat/Inbox/ChatRules.cs), có test) — nền tảng không bảo đảm thứ tự
+[`ChatRepository.MarkStateWatermarkAsync`](../../../TourkitAiProxy.Infrastructure/Chat/Inbox/ChatRepository.cs) và **chỉ tiến, không lùi**
+([`ChatRules.KhongLui`](../../../TourkitAiProxy.Domain/Chat/ChatRules.cs), có test) — nền tảng không bảo đảm thứ tự
 webhook, "đã nhận" hoàn toàn có thể tới sau "đã xem", ghi đè mù thì dấu tích chạy ngược trước mắt
 nhân viên. Mã tin của nền tảng lưu vào `chat_messages.external_msg_id` ngay khi gửi được — thứ duy
 nhất đối chiếu được khi nền tảng báo lại.
@@ -1222,7 +1222,7 @@ dotnet test TourkitAiProxy.Tests/TourkitAiProxy.Tests.csproj --filter "FullyQual
     }, [chon, taiDsach, taiChiTiet, dsach.length]);
 ```
 
-⚠️ `EventSource` **không gửi được header tuỳ ý** — nên phiên phải đi qua query `?sessionId=`. Đã kiểm: [`SessionAuth.Read`](../../../Endpoints/SessionAuth.cs) đọc `X-Session-Id` **rồi mới** tới `Query["sessionId"]`, nên endpoint SSE chạy được **không cần sửa gì** ở lớp xác thực.
+⚠️ `EventSource` **không gửi được header tuỳ ý** — nên phiên phải đi qua query `?sessionId=`. Đã kiểm: [`SessionAuth.Read`](../../../TourkitAiProxy.Endpoints/SessionAuth.cs) đọc `X-Session-Id` **rồi mới** tới `Query["sessionId"]`, nên endpoint SSE chạy được **không cần sửa gì** ở lớp xác thực.
 
 ⚠️ **Không dùng `authedFetch` cho SSE.** `authedFetch` tự đăng xuất toàn cục khi gặp bất kỳ 401 nào; một luồng SSE đứt lúc phiên hết hạn sẽ **đá người dùng ra khỏi app** giữa lúc họ đang gõ dở cho khách. `EventSource` gọi thẳng và tự thử lại là đúng.
 

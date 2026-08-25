@@ -15,7 +15,7 @@ Wizard hiện tại ([wwwroot/pages/wizard.jsx:182](../../../wwwroot/pages/wizar
 ```
 
 Prompt chỉ nhét vào **tên** của tối đa 40 NCC (`nccBlock`, dòng 170) — **không kèm giá**. Trong khi
-`TourKitNccClient.ProviderServicesAsync` ([Services/TourKit/TourKitNccClient.cs:29](../../../Services/TourKit/TourKitNccClient.cs))
+`TourKitNccClient.ProviderServicesAsync` ([Services/TourKit/TourKitNccClient.cs:29](../../../TourkitAiProxy.Infrastructure/TourKit/TourKitNccClient.cs))
 đã có sẵn giá hợp đồng thật từ TourKit mà không ai dùng.
 
 Hệ quả (user xác nhận cả 3): giá sai thực tế · lịch trình/dịch vụ không sát · không tái dùng được gì.
@@ -185,7 +185,7 @@ Lý do: đường hiện tại phải gọi `providers-by-service` cho từng lo
 ### 4.3 `TourPriceCatalogSyncWorkflow`
 
 `IScheduledWorkflow`, `Scope = PerTenant`, mặc định **1 lần/ngày**. Đăng ký trong
-[`WorkflowStackRegistration`](../../../Services/Bootstrap/WorkflowStackRegistration.cs) → web + worker tự pickup.
+[`WorkflowStackRegistration`](../../../TourkitAiProxy.Services/Bootstrap/WorkflowStackRegistration.cs) → web + worker tự pickup.
 
 - Auth: `TenantServiceAccountStore` + `TkSessionStore.GetOrCreateServiceSessionAsync` — **không cần user online**
 - Phân trang qua endpoint mới; upsert; dòng không còn thấy → `IsActive = 0`

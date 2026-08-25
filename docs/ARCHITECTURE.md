@@ -101,6 +101,24 @@ flowchart TB
 
 `Program.cs`, `Configuration/`, `wwwroot/`. Không ai tham chiếu ngược lên đây.
 
+### Bản đồ thư mục — chỉ tới mức cụm, cố ý
+
+| Project | Cụm bên trong |
+|---|---|
+| `TourkitAiProxy.Shared` | `Json` · `Text` |
+| `TourkitAiProxy.Domain` | `Chat` · `Deals` · `Digest` · `Mail` · `Models` · `NccImport` · `Reviews` · `Speech` · `TourPrices` · `Workflow` |
+| `TourkitAiProxy.Infrastructure` | `Admin` · `Cache` · `Chat` · `Crm` · `Db` · `Deals` · `Digest` · `Logging` · `Mail` · `Quota` · `Reviews` · `Security` · `TourKit` · `TourPrices` · `TourQuotes` · `Visa` · `Widget` · `Workflows` |
+| `TourkitAiProxy.Services` | 27 cụm, phần lớn soi gương `Infrastructure` (`Chat`, `Mail`, `Deals`…) cộng phần chỉ có ở đây: `Bootstrap` · `Http` · `Providers` · `Storage` · `Tour` |
+| `TourkitAiProxy.Endpoints` | phẳng — một file một nhóm route |
+| `TourkitAiProxy` (Api) | `Program.cs` · `Configuration/` · `wwwroot/` · `data/` · `scripts/` |
+
+⚠️ **Cố ý KHÔNG liệt kê từng file ở đây.** `CLAUDE.md` từng có cây thư mục đầy đủ tới mức tên
+file kèm chú thích một dòng; tới lúc tách kiến trúc thì nó **sai gần như toàn bộ** — vẫn vẽ
+`Services/`, `Endpoints/`, `Models/` nằm ở gốc, tức mô tả một dự án không còn tồn tại. Bản đồ càng
+chi tiết càng mau thành bản đồ của quá khứ, mà bản đồ sai còn hại hơn không có bản đồ: người đọc
+tin nó rồi đi tìm file ở chỗ không có. Cần biết một symbol nằm đâu thì hỏi `codegraph` — nó đọc từ
+mã nguồn thật nên không bao giờ lạc hậu.
+
 ---
 
 ## 3. Quyết định lớn và cái giá

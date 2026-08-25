@@ -20,9 +20,9 @@ Nền tảng **bán phần mềm, không bán lượt AI**. Mỗi tenant **tự 
 
 ## 2. Hiện trạng (code seam)
 
-- [`ProviderKeyStore.Get(providerId)`](../../../Services/Providers/ProviderKeyStore.cs) đọc key **chỉ từ `Providers:{X}:ApiKey`/env** — **không có chiều tenant**, 1 key chung mọi tenant.
+- [`ProviderKeyStore.Get(providerId)`](../../../TourkitAiProxy.Services/Providers/ProviderKeyStore.cs) đọc key **chỉ từ `Providers:{X}:ApiKey`/env** — **không có chiều tenant**, 1 key chung mọi tenant.
 - Mỗi provider (`OpenCodeProvider`/`NineRoutesProvider`/`OpenAIProvider`/`AnthropicProvider`/…) ở đầu `CompleteAsync`/`StreamAsync`: **check quota** (`EnsureQuota()`) + resolve key (`req.ApiKey` → `ProviderKeyStore`). → **Đây là seam chung cho cả key lẫn quota.**
-- Tenant context: `AiCallContext.Push(feature, tenantId[, sessionId])` (nền/workflow) + `HttpTenantContext`/`ITenantContext` (web). Quota consume ở `LogUsage` khi `status=ok` + có tenant. Hết → `QuotaExhaustedException` → [`QuotaExceptionMiddleware`](../../../Services/Quota/QuotaExceptionMiddleware.cs) → 429.
+- Tenant context: `AiCallContext.Push(feature, tenantId[, sessionId])` (nền/workflow) + `HttpTenantContext`/`ITenantContext` (web). Quota consume ở `LogUsage` khi `status=ok` + có tenant. Hết → `QuotaExhaustedException` → [`QuotaExceptionMiddleware`](../../../TourkitAiProxy.Services/Quota/QuotaExceptionMiddleware.cs) → 429.
 - `Crypton` (AES-256/CBC) sẵn có để mã hóa key at-rest (giống `MailAccounts.AppPasswordEnc`, `TenantServiceAccounts.PasswordEnc`).
 
 ## 3. Kiến trúc

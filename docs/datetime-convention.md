@@ -41,7 +41,7 @@ Cột `DATETIME2` đọc qua Dapper có `Kind=Unspecified` → **không tự có
 
 ### 3a. Field kiểu `DateTime`/`DateTime?` trả qua JSON HTTP → ĐÃ TỰ ĐỘNG
 
-[`Services/Json/UtcDateTimeConverter.cs`](../Services/Json/UtcDateTimeConverter.cs) (đăng ký global ở
+[`Services/Json/UtcDateTimeConverter.cs`](../TourkitAiProxy.Shared/Json/UtcDateTimeConverter.cs) (đăng ký global ở
 `Program.cs` qua `ConfigureHttpJsonOptions`) tự serialize **mọi `DateTime`** kèm `Z`. **Không cần làm gì thêm**
 cho field DateTime-typed trong response.
 

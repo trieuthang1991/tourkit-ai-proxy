@@ -20,11 +20,11 @@ Nhiều tenant muốn trợ lý AI **hiểu và nói được về chính doanh 
 
 ## 2. Hiện trạng (code seam)
 
-- Prompt **hardcode** trong [`Services/Chat/JsonPlannerAgent.cs`](../../../Services/Chat/JsonPlannerAgent.cs): `PLANNER_SYSTEM`, `ANALYSIS_SYSTEM` (const) + `BuildPlannerPrompt(history, memory)`.
+- Prompt **hardcode** trong [`Services/Chat/JsonPlannerAgent.cs`](../../../TourkitAiProxy.Services/Chat/JsonPlannerAgent.cs): `PLANNER_SYSTEM`, `ANALYSIS_SYSTEM` (const) + `BuildPlannerPrompt(history, memory)`.
 - Câu **có tool** → 2 lệnh AI: planner (chọn tool) → dispatch CRM → analysis (`ANALYSIS_SYSTEM`).
 - Câu **không phải số liệu** → planner trả `tool=none` → nhánh `directText` (RunAsync ~dòng 237, StreamAsync tương ứng): dùng `directReply` của planner hoặc câu canned. **Đây là chỗ nâng cấp thành hỏi-đáp có kiến thức.**
 - Tenant resolve qua `ITenantContext`/`HttpTenantContext` + `TkSessionStore`; `companyName` có sẵn trong session/memory.
-- Bảng tạo idempotent trong [`Services/Db/TourkitAiDb.cs`](../../../Services/Db/TourkitAiDb.cs) (`SchemaSql`). Mẫu form self-service đã có ở tính năng Mail (`MailEndpoints` + `mail.jsx`).
+- Bảng tạo idempotent trong [`Services/Db/TourkitAiDb.cs`](../../../TourkitAiProxy.Infrastructure/Db/TourkitAiDb.cs) (`SchemaSql`). Mẫu form self-service đã có ở tính năng Mail (`MailEndpoints` + `mail.jsx`).
 
 ## 3. Kiến trúc tổng thể
 

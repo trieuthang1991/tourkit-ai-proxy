@@ -1748,7 +1748,7 @@ Tìm:
 
 Replace bằng:
 ```
-| 14 | `dbo.AiUsageHistory` | **Granular** per-request AI usage history (mỗi AI call = 1 row). Bổ sung cho `AiUsageCounters` khi cần breakdown theo feature/session/tenant. Trước đây file `data/ai-usage.jsonl` → mất khi deploy → đã migrate sang đây 2026-06-24. **Source của admin cross-tenant view `/admin-trav-ai/ai-usage`** (xem [AdminUsageRepository](../Services/Admin/AdminUsageRepository.cs)). |
+| 14 | `dbo.AiUsageHistory` | **Granular** per-request AI usage history (mỗi AI call = 1 row). Bổ sung cho `AiUsageCounters` khi cần breakdown theo feature/session/tenant. Trước đây file `data/ai-usage.jsonl` → mất khi deploy → đã migrate sang đây 2026-06-24. **Source của admin cross-tenant view `/admin-trav-ai/ai-usage`** (xem [AdminUsageRepository](../../../TourkitAiProxy.Infrastructure/Admin/AdminUsageRepository.cs)). |
 ```
 
 - [ ] **Step 4: Smoke test docs render OK**

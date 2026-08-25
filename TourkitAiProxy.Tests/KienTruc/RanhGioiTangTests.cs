@@ -16,8 +16,10 @@ namespace TourkitAiProxy.Tests.KienTruc;
 /// <item>"không để file .cs nằm trần ở gốc thư mục" — hiện có 7 file không nhà.</item>
 /// </list>
 ///
-/// <para>Quy ước bằng lời không giữ được: CLAUDE.md hơn 700 dòng, mà ngày 25/08/2026 vẫn có người
-/// vi phạm quy ước đặt tên vài giờ sau khi đọc nó. Test thì không quên.</para>
+/// <para>Quy ước bằng lời không giữ được. Ngày 25/08/2026 <c>CLAUDE.md</c> đã dài 1.086 dòng —
+/// và chính hôm đó có người vi phạm quy ước đặt tên <b>vài giờ sau khi đọc nó</b>. File ấy nay đã
+/// tách nhỏ ra <c>docs/</c>, nhưng tách chỉ làm quy ước DỄ ĐỌC hơn chứ không làm nó tự giữ mình:
+/// đọc rồi vẫn quên. Test thì không quên.</para>
 /// </summary>
 public class RanhGioiTangTests
 {

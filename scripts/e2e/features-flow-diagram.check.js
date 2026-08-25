@@ -7,7 +7,7 @@
 // Bat cac loi that su xay ra khi so do nhieu len:
 //   1. Them file so do moi ma QUEN khai vao index.html hoac bundle-entry.js
 //      -> dev mode chay duoc / prod thieu so do (hoac nguoc lai). Day la cai bay
-//         co san cua du an (xem CLAUDE.md muc "Adding a new page").
+//         co san cua du an (xem docs/frontend.md muc "Adding a new page").
 //   2. Canh tro toi node khong ton tai (go id sai khi them buoc)
 //   3. Node mo coi - khong co canh nao noi toi
 //   4. Khoa cau hinh tren node KHONG co trong schema
@@ -26,7 +26,6 @@ const P_OPTS   = path.join(ROOT, 'wwwroot', 'components', 'workflow-options.jsx'
 const P_ICONS  = path.join(ROOT, 'wwwroot', 'lib', 'icons.jsx');
 const P_INDEX  = path.join(ROOT, 'wwwroot', 'index.html');
 const P_ENTRY  = path.join(ROOT, 'wwwroot', 'bundle-entry.js');
-const D_SERVICES = path.join(ROOT, 'Services');
 const WWWROOT  = path.join(ROOT, 'wwwroot');
 
 const fail = [], warn = [], ok = [];
@@ -143,10 +142,17 @@ for (const f of inIndexPages) if (!PAGE_FILES.includes(f)) { fail.push(`index.ht
 for (const f of inEntryPages) if (!PAGE_FILES.includes(f)) { fail.push(`bundle-entry.js tro toi pages/${f} nhung file khong ton tai`); pageMiss++; }
 if (pageMiss === 0) ok.push(`Ca ${PAGE_FILES.length - pagesInOtherEntries.size} file pages/ cua app deu da khai o index.html VA bundle-entry.js` + (pagesInOtherEntries.size ? ` (bo qua ${pagesInOtherEntries.size} trang thuoc HTML entry rieng)` : ''));
 
-// ── Workflow that su ton tai trong backend (quet CA cay Services/) ────────────
+// ── Workflow that su ton tai trong backend ────────────────────────────────────
+// Quet CA repo chu khong tro cung vao mot thu muc: ban dau cho nay ghi thang
+// 'Services/', va dot tach kien truc 25/08/2026 doi ten no thanh
+// 'TourkitAiProxy.Services/' -> script chet ngay dong readdir bang ENOENT, tuc la
+// bo kiem nay ngung canh ma khong ai biet. Quet tu goc thi doi cho project khong
+// lam hong nua; doi lai phai tu bo qua obj/bin keo doc trung ban da bien dich.
 const backendTypes = new Set();
+const BO_QUA_QUET = new Set(['obj', 'bin', 'node_modules', '.git', 'out', 'publish']);
 (function scan(dir) {
   for (const e of fs.readdirSync(dir, { withFileTypes: true })) {
+    if (BO_QUA_QUET.has(e.name)) continue;
     const p = path.join(dir, e.name);
     if (e.isDirectory()) { scan(p); continue; }
     if (!e.name.endsWith('.cs')) continue;
@@ -155,7 +161,10 @@ const backendTypes = new Set();
     const m = src.match(/public\s+string\s+Type\s*=>\s*"([^"]+)"/);
     if (m) backendTypes.add(m[1]);
   }
-})(D_SERVICES);
+})(ROOT);
+if (backendTypes.size === 0) {
+  fail.push('Khong tim thay workflow nao trong backend - cay thu muc da doi? Sua bo quet o day.');
+}
 ok.push(`Backend dang co ${backendTypes.size} workflow: ${[...backendTypes].sort().join(', ')}`);
 
 // ── Kiem tung so do ───────────────────────────────────────────────────────────

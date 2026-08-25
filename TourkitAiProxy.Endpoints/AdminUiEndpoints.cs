@@ -13,7 +13,7 @@ namespace TourkitAiProxy.Endpoints;
 /// Admin UI endpoints — backing cho /admin-trav-ai/* pages. Tất cả require X-Admin-Session.
 ///
 /// Thêm trang admin mới = thêm route ở đây + 1 component trong wwwroot/pages/admin.jsx
-/// + 1 entry vào ADMIN_NAV (xem "Admin governance" trong CLAUDE.md).
+/// + 1 entry vào ADMIN_NAV (xem "Admin governance" trong docs/operations.md).
 ///
 ///   GET  /api/v1/admin/ui/ai-usage?days=30&amp;tenantId=          — aggregate cross-tenant
 ///   GET  /api/v1/admin/ui/quota                                  — list quota mọi tenant

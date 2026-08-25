@@ -9,20 +9,20 @@ của **worker phía `toutkit-app`** (viết sau, ngoài phạm vi proxy v1) —
 worker đó implement đúng.
 
 Nguồn thiết kế: `docs/superpowers/specs/2026-07-14-assistant-action-tools-design.md` §4.
-Code enqueue: [`Services/Crm/CrmActionQueueRepository.cs`](../../Services/Crm/CrmActionQueueRepository.cs),
-[`Services/Chat/ActionExecutor.cs`](../../Services/Chat/ActionExecutor.cs) (`ExecuteAssignTaskAsync` /
+Code enqueue: [`Services/Crm/CrmActionQueueRepository.cs`](../../TourkitAiProxy.Infrastructure/Crm/CrmActionQueueRepository.cs),
+[`Services/Chat/ActionExecutor.cs`](../../TourkitAiProxy.Services/Chat/ActionExecutor.cs) (`ExecuteAssignTaskAsync` /
 `ExecuteCreateAppointmentAsync` — nơi build `PayloadJson`).
 
 ## 1. Bảng `dbo.CrmActionQueue`
 
-Schema idempotent trong [`Services/Db/TourkitAiDb.cs`](../../Services/Db/TourkitAiDb.cs) (`SchemaSql`).
+Schema idempotent trong [`Services/Db/TourkitAiDb.cs`](../../TourkitAiProxy.Infrastructure/Db/TourkitAiDb.cs) (`SchemaSql`).
 
 | Cột | Kiểu | Ý nghĩa |
 |---|---|---|
 | `Id` | `BIGINT IDENTITY(1,1)` PK | Id dòng, tăng dần. |
 | `TenantId` | `NVARCHAR(64)` | Tenant sở hữu hành động (từ session TourKit). |
 | `Username` | `NVARCHAR(128)` | Ai yêu cầu (từ session) — dùng để audit "ai giao việc". |
-| `Kind` | `NVARCHAR(40)` | `'assign-task'` hoặc `'create-appointment'` (hằng số [`CrmActionKind`](../../Services/Crm/CrmActionQueueRepository.cs)). |
+| `Kind` | `NVARCHAR(40)` | `'assign-task'` hoặc `'create-appointment'` (hằng số [`CrmActionKind`](../../TourkitAiProxy.Infrastructure/Crm/CrmActionQueueRepository.cs)). |
 | `PayloadJson` | `NVARCHAR(MAX)` | JSON — khớp field cho field với DTO CRM đích (xem §2/§3 dưới). |
 | `Status` | `TINYINT` | Vòng đời — xem §4. |
 | `ResultJson` | `NVARCHAR(MAX)` NULL | Worker ghi sau khi POST thành công, vd `{"crmTaskId": 789}`. |
@@ -39,7 +39,7 @@ qua Dapper — tự coi là UTC, KHÔNG cộng/trừ múi giờ.
 
 ## 2. `assign-task` → `POST /api/tasks` (`CreateOrUpdateTaskingRequest`)
 
-`PayloadJson` do [`ActionExecutor.BuildAssignTaskPayload`](../../Services/Chat/ActionExecutor.cs) sinh, ví dụ:
+`PayloadJson` do [`ActionExecutor.BuildAssignTaskPayload`](../../TourkitAiProxy.Services/Chat/ActionExecutor.cs) sinh, ví dụ:
 
 ```json
 {
@@ -90,7 +90,7 @@ Worker khi xử lý dòng `Kind='assign-task'` **PHẢI**:
 
 ## 3. `create-appointment` → `POST /api/customer-care` (`CreateCustomerCareRequest`)
 
-`PayloadJson` do [`ActionExecutor.BuildAppointmentPayload`](../../Services/Chat/ActionExecutor.cs) sinh, ví dụ:
+`PayloadJson` do [`ActionExecutor.BuildAppointmentPayload`](../../TourkitAiProxy.Services/Chat/ActionExecutor.cs) sinh, ví dụ:
 
 ```json
 {

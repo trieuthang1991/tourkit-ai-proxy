@@ -42,7 +42,7 @@ hàng) và `ceo-brief` (giám đốc) — phân biệt qua `briefType`.
 | `briefType` | string | `sale-brief` \| `ceo-brief` |
 | `date` | string | Ngày **Việt Nam** `dd/MM/yyyy` (khớp ngày người đọc thấy trên lịch của họ) |
 
-⚠️ **`bodyHtml` ĐÃ escape ở proxy** ([`SaleBriefBuilder.ToHtml`](../../Services/Digest/SaleBriefBuilder.cs)) —
+⚠️ **`bodyHtml` ĐÃ escape ở proxy** ([`SaleBriefBuilder.ToHtml`](../../TourkitAiProxy.Domain/Digest/SaleBriefBuilder.cs)) —
 worker chèn NGUYÊN, **không escape lần nữa**, nếu không người đọc thấy `&lt;b&gt;` thay vì chữ in đậm.
 
 Người nhận: đọc thẳng cột `ToEmail` (chính người dùng tự khai ở "Bản tin của tôi") — **không** phải resolve
@@ -70,7 +70,7 @@ khai gì trong `dbo.MailTemplates`**.
 người nhận mở thư ra thấy đúng ba dòng `title / bodyHtml / date` kèm một đống HTML, tưởng hệ thống
 hỏng. Mà gửi vẫn báo THÀNH CÔNG nên không lỗi nào nổi lên. Đã xảy ra thật với thư nhắc chăm khách.
 
-⚠️ **Escape `bodyHtml` phải TỐI THIỂU — chỉ `& < > "`** ([`MailHtml.Esc`](../../Services/Digest/MailHtml.cs)).
+⚠️ **Escape `bodyHtml` phải TỐI THIỂU — chỉ `& < > "`** ([`MailHtml.Esc`](../../TourkitAiProxy.Domain/Digest/MailHtml.cs)).
 KHÔNG dùng `WebUtility.HtmlEncode`: nó mã hoá cả chữ có dấu, "Những khách này" thành
 `Những kh&#225;ch n&#224;y`. Đã dính hai lần (chữ dựng sẵn cho máy tìm kiếm 17/08, thư nhắc chăm
 khách 18/08) nên hàm escape để hẳn cạnh chỗ dựng thư, có test khoá lại.
@@ -83,7 +83,7 @@ của việc chuẩn hoá: mã mới không kéo theo mẫu mới. Muốn thư �
 
 Từ 2026-08 hàng đợi này thành đa kênh (email/Telegram/Zalo) cho bản tin sáng, không chỉ email. Cột
 `Channel` cho worker biết dòng đó gửi bằng đường nào — enum
-[`OutboundChannel`](../../Services/Digest/OutboundChannel.cs), **worker toutkit-app phải MIRROR đúng
+[`OutboundChannel`](../../TourkitAiProxy.Domain/Digest/OutboundChannel.cs), **worker toutkit-app phải MIRROR đúng
 bảng số** này:
 
 | Số | Tên | Nơi nhận + nội dung nằm ở | Adapter bên worker |
@@ -137,7 +137,7 @@ Worker cần đọc thêm:
 `ConfigJson` hiện có → sửa đúng khoá của mình → ghi lại. Bên nào ghi đè cả cục là xoá mất phần của
 bên kia, và hỏng hóc chỉ lộ ra ở lần gửi sau đó chứ không báo gì lúc lưu. Bên worker:
 [`TenantZaloConfigStore`](../../../toutkit-app/PushNotification.Worker/Channels/TenantZaloConfigStore.cs);
-bên proxy: [`TenantChannelSettingsStore`](../../Services/Digest/TenantChannelSettingsStore.cs).
+bên proxy: [`TenantChannelSettingsStore`](../../TourkitAiProxy.Infrastructure/Digest/TenantChannelSettingsStore.cs).
 
 ⚠️ **`ZaloTokenStore` cũ (OA dùng chung, `TenantId='(system)'`, `Channel='zalo-zns'`) vẫn còn trong
 worker nhưng KHÔNG lớp nào gọi tới** — giữ lại cho chế độ `provided` khi bên cung cấp mở đường đó.

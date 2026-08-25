@@ -1,0 +1,66 @@
+# Trợ lý số liệu và Chấm hạng khách
+
+> Tách khỏi `CLAUDE.md` ngày 25/08/2026 — file đó đã hơn 1.000 dòng nên không ai đọc hết,
+> mà quy ước không đọc thì bằng không có. Xem `CLAUDE.md` để biết khi nào cần đọc file này.
+> Kiến trúc và luật đặt file: [ARCHITECTURE.md](../ARCHITECTURE.md).
+
+---
+
+## Customer Review feature
+
+AI grades a customer (rank A–D, alert level, strengths/concerns, action-now + 30-day ideas, product suggestions) and persists the result. Flows through `ReviewEndpoints` → `ReviewService` → dispatch tới `IReviewAgent` → `ReviewRepository`.
+
+- **Storage is file-backed, not a DB.** Customers are read-only from `data/customers.seed.json` (`CustomerRepository`, loaded once at startup). Reviews persist to `data/reviews.json` (`ReviewRepository`, lock-guarded, camelCase JSON to match the JS frontend). Both are explicitly MVP placeholders — swap for EF/Dapper/SQLite to scale. `reviews.json` is mutable runtime state.
+- **Caching via data fingerprint.** `ReviewRepository.FingerprintFor(customer)` is a SHA-256 (first 32 hex) of the canonical customer JSON. `ReviewService.ReviewAsync` returns the cached review (no AI call) when the stored `DataFingerprint` matches and `forceFresh` is false. The customer-list endpoint reports `fresh`/`stale`/`none` by comparing fingerprints.
+- **Strategy pattern dispatch.** `ReviewService` chỉ orchestrate (fingerprint check + Save) — KHÔNG hold prompt/parse logic nữa. Dispatch tới `IReviewAgent` đầu tiên `Supports(defaultProviderId)`. Xem section "Native function-calling" ở trên cho dual-path. Cả 2 agent dùng chung `ReviewPrompt.SYSTEM_*`, `BuildUserPrompt*`, `ParseElement`, `Compose` → 1 nguồn schema, không drift.
+- **Buffered, not streamed, to the model.** Cả 2 agent đều dùng buffered call (Json: `CompleteAsync`; Native: `AnthropicToolsClient.RunAsync` returns sau khi terminal tool gọi). DeepSeek/Kimi reasoning models interleave `reasoning_content` với `content`, streaming sẽ mix prose vào JSON. `onStage` callback (`preparing` → `calling` → `parsing`) cho UI lifecycle.
+- **Defaults (JSON path):** `Resolve(null)` default provider, `maxTokens: 8000`, `temperature: 0.4`, tour-operator system prompt ở `ReviewPrompt.SystemForJsonPrompt`. **Defaults (Native path):** `claude-sonnet-4-5`, `maxTokens: 4000` (schema enforce nên không leak → 4000 đủ). Đổi ngành = sửa `ReviewPrompt.SYSTEM_*` + `RankingCriteria` const.
+- **Batch is parallel + SSE.** `BatchService.Start` is fire-and-forget; `Parallel.ForEachAsync` runs up to `CONCURRENCY = 10` reviews, pushing `BatchEvent`s into the job's `Channel`. The SSE endpoint drains that channel to the client and removes the job when done. `BatchJobStore` is in-memory only — jobs are lost on restart and clients must re-trigger. Cancel via the cancel endpoint or by closing the SSE connection.
+
+## Chat-Analytics feature ("Trợ lý số liệu")
+
+A chat-left / data-right assistant. The user asks in natural language; the AI decides which **TourKit CRM API** (the `toutkit-app` backend, NOT the Google-Doc CRM) to call, the proxy fetches real data, computes numbers server-side, and the AI writes the analysis. Flow lives in `ChatEndpoints` → `ChatAgentService`.
+
+- **Upstream is TourKit.Api's dedicated AI surface `/api/ai/*`** (`D:\MiGroup\tourkitapp\toutkit-app\TourKit.Api\Controllers\AiController.cs` + `docs/ai-api-guide.md`). Host via config `TourKit:BaseUrl` (the AI surface must be deployed there — prod `mobile-api.tourkit.vn` did NOT have it as of last check; staging `mobile-test-api-2.tourkit.vn` did). Every `/api/ai/{section}` returns a **uniform envelope** `{section,title,count,total,period,summary,items[]}` (b-wrapped in `{success,data,message}`); items carry `value`+`*Formatted` and codes carry `*Name`/`*Label`/`statusText` (Vietnamese, server-formatted). `TourKitApiClient.GetAsync` unwraps `data` (the envelope); throws `TourKitApiException` on `success:false`/non-2xx.
+- **Auth = token-decrypt, NOT api-key.** TourKit.Api uses JWT (`POST /api/auth/login` with `{tenantId, username, password}`). The client doesn't store credentials in config. Instead: `POST /api/v1/login-token {token}` where `token = Crypton.Encrypt(JSON {username,password,domain})`. `Crypton` is a **verbatim port** of `TourKit.Shared/Crypton.cs` (AES-256/CBC, `PassPhrase="Pas5pr@se"`, `Salt="s@1tValue"`, `IV="@1B2c3D4e5F6g7H8"`, `PasswordDeriveBytes`/SHA1/iterations=2) — DO NOT change the constants or tokens won't decrypt. `domain` maps to TenantId. The proxy logs in, creates a server-side session (`TkSessionStore`), and returns only a `sessionId` — **the JWT never reaches the client**. Sessions hold the decrypted creds to silently re-login on JWT expiry or a 401 (one retry in `ChatAgentService`). **Sessions persist to SQL `dbo.TkSessions`** (password Crypton-encrypted, JWT NOT persisted — re-login on first use sau restart) → cross-process share giữa nhiều instance, survives restart/deploy mà user khỏi login lại; in-mem cache cho hot path Get, write-through SQL mọi mutation. Soft-TTL JWT ~50min, idle prune sau 30 ngày. File legacy `data/tk-sessions.json` auto-migrate vào SQL ở startup (one-shot, rename `.migrated`).
+- **Single-shot agent, no native function-calling.** `ChatAgentService.AskAsync` (buffered) / `AskStreamAsync` (SSE): (1) planner prompt with the `ChatTools` catalog → AI returns `{tool, params}` JSON (parsed via `LooseJson`); (2) dispatch to a `/api/ai/{section}` GET (`ChatTools.BuildPath` whitelists params; `ResolveMarketAsync` turns `marketName`→`marketId`); (3) **`BuildChatData`** maps the envelope → `ChatData` (items→Raw for table/chart, `summary`+`total`→stat cards, `title`); financial-summary's items become the stat cards. (4) analysis prompt → AI prose. Two AI calls; both have provider-fallback to the default provider on upstream/key failure.
+- **Streaming + caches.** `AskStreamAsync` emits SSE events `{stage}` (planning→fetching→analyzing, data attached early) then `{delta}` (token-streamed analysis) then `{done}`. **SSE payloads MUST be serialized camelCase** (`SseJson = new(JsonSerializerDefaults.Web)` in `ChatEndpoints`) to match the client — default PascalCase silently breaks `data.stats`/`title`/`raw`. Caching via `TourkitAiProxy.Infrastructure/Cache/ChatCache.cs`: **CHỈ CRM-data** (`d|{tenant}|{path}`), TTL 30m, values as JSON. **KHÔNG cache câu trả lời AI** — `r1|`/`r2|` đã bị **gỡ bỏ hẳn 2026-08-11**: key của chúng (câu hỏi, hoặc tool+params) không bao giờ bắt đủ mọi chiều quyết định câu trả lời (câu chữ + ngữ cảnh hội thoại + focus doanh thu/chi phí + ý so sánh + model), đã gây **3 bug "trả lời cũ" liên tiếp** (ý so sánh `ca2d68f`; ngữ cảnh hội thoại; focus). `d|` giữ lại vì key của nó — tenant + đường dẫn API — xác định **trọn vẹn** dữ liệu trả về. Đừng thêm lại cache câu trả lời: xem `docs/test-plans/2026-08-11-chat-e2e-question-bank.md` và bộ E2E `scripts/e2e/specs/`. **Backend = Redis if `Redis:ConnectionString` is set (shared across instances + survives restart), else in-memory fallback.** The connection string may be `ENC:`-encrypted (copied verbatim from TourKit.Api) — `ChatCache` decrypts it with `Crypton` at runtime; keys are prefixed `tkai:` to avoid colliding with TourKit's own Redis keys; `AbortOnConnectFail=false` so a down Redis never blocks startup. **Never cache empty results** (`HasContent`/`IsUsableData`) or a transient empty poisons the path for 30m.
+- **Tools are read-only `/api/ai/*` sections** (financial-summary, cashflow, marketing, departures, top-customers, top-sellers, tours, booking-tickets, tasks, customers, appointments, vouchers, notifications) + `list_markets` (still `/api/tours/markets` for the resolver). Add a tool = add one `ChatTool` entry in `ChatTools.All`. Discovery endpoints `/api/ai/catalog` + `/api/ai/reference` exist upstream (not yet wired into the proxy). Write endpoints excluded.
+- **Name→id resolver (controlled multi-step).** Some filters need an id the user only knows by name (e.g. market "Nội địa miền Nam"). The planner fills a `marketName` param; `ChatAgentService.ResolveMarketAsync` looks it up against the tenant's market list (`GET /api/tours/markets`, cached 6h per tenant) and rewrites it to `marketId` before the call. `MatchMarket` normalizes (lowercase, strip Vietnamese diacritics, đ→d, drop punctuation, token-subset) so "Nội địa miền Nam" matches "Nội địa - Miền Nam". Customer-by-market questions route to `list_booking_tickets` (carries `MarketId`), since `/api/customers` has no market filter.
+- **Caching + heuristic fallback.** Chỉ CRM-data caching, delegated to `ChatCache` (`d|…` keys — Redis-backed when configured, so NOT lost on restart; câu trả lời AI KHÔNG cache, xem "Streaming + caches" ở trên). `ChatAgentService`'s only own cache is `_markets` (the 6h-per-tenant market-resolver list). The fallback `HeuristicRoute` keyword-routes when the planner emits non-JSON (reasoning models sometimes do), so a clear data question never silently returns "none".
+- **Endpoints:** `POST /api/v1/login-token` (`{token}` → `{sessionId, tenantId, fullName, companyName, expiresAt}`), `POST /api/v1/chat` + `POST /api/v1/chat/stream` (`{messages, sessionId?, provider?, model?}`; sessionId may also come via `X-Session-Id` header → `{reply, toolName, data:{kind,title,raw,stats[]}, …}`; the `/stream` variant emits the SSE `{stage}`/`{delta}`/`{done}` sequence), `GET /api/v1/session` (validate the current sessionId).
+- **Login UX:** two modes on `/assistant` — a direct form (`POST /api/v1/login {username,password,domain}`, server-side login, no client-side crypto) and the encrypted-token paste (`/login-token`). Both return a `sessionId`.
+- **Frontend:** `wwwroot/pages/assistant.jsx` (route `/assistant`). Stores `sessionId` in `localStorage["tourkit_tk_session"]`, renders chat on the left and on the right: `data.stats` cards + a **Chart.js** chart + a generic table. Chart.js is loaded via CDN `<script>` in `index.html` (no build step); `ChartView` picks horizontal bars for categorical data and vertical grouped bars for time-series, with a metric-toggle (Doanh thu/Chi phí/Lợi nhuận). `ChatData.Focus` (derived in `ChatAgentService.DetectFocus` from question keywords like "chi phí"→`expense`) restricts the chart/table/stats to the requested metric. Money formatted with `fmtVND`.
+
+### Trợ lý hành động (action tools, 2026-07-14)
+
+Ngoài đọc số liệu, `/assistant` và `/travai` (JARVIS voice) giờ có thêm **ACTION tools** (ghi/thao
+tác) song song `ChatTools` (read-only): `check_mail`, `send_mail_reply`, `compose_mail`,
+`review_customer`, `prepare_meeting`, `score_deal`, `assign_task`, `create_appointment` — catalog 1 nguồn ở
+[`TourkitAiProxy.Services/Chat/ActionTools.cs`](../../TourkitAiProxy.Services/Chat/ActionTools.cs). Hành động hướng ra ngoài/khó undo
+(gửi mail, giao việc, tạo lịch hẹn) là **confirm-first**: planner phát `ActionProposal` (thẻ xác
+nhận, field sửa được) → user bấm "Xác nhận" → FE gọi `POST /api/v1/assistant/action/execute` →
+[`ActionExecutor`](../../TourkitAiProxy.Services/Chat/ActionExecutor.cs) re-resolve + re-check tenant server-side rồi
+thực thi, idempotent theo `actionId`. `review_customer`/`prepare_meeting`/`score_deal`/`check_mail`
+(đọc/non-destructive với 1 thực thể) chạy thẳng không cần xác nhận. Tên → id (nhân viên/khách hàng/deal)
+resolve qua [`TourkitAiProxy.Services/Chat/ActionResolver.cs`](../../TourkitAiProxy.Services/Chat/ActionResolver.cs) (mơ hồ → hỏi lại, không đoán).
+
+**`prepare_meeting` — "thẻ chuẩn bị gặp khách" (S4, 2026-08-14).** Gom hồ sơ + lịch sử mua + nhật ký
+chăm sóc + hạng đã chấm (`dbo.Reviews`) + thư gần nhất CỦA CHÍNH khách đó → AI viết "khách này là ai /
+nên nói gì / cần tránh gì" ([`MeetingBriefService`](../../TourkitAiProxy.Services/Chat/MeetingBriefService.cs)). Bốn quyết
+định cố ý, đừng "sửa": (1) **theo yêu cầu, KHÔNG phải workflow nền** — spec gợi ý "trước lịch hẹn X giờ"
+nhưng làm nền thì tốn 1 lượt AI cho MỌI cuộc hẹn, kể cả cuộc chẳng ai cần chuẩn bị; (2) **không lưu kết
+quả** — khác `review_customer` (bản chấm hạng là dữ liệu dùng lại, worker sync xuống CRM), thẻ chuẩn bị
+chỉ đúng cho cuộc gặp sắp tới, lưu lại thì lần sau đọc phải bản cũ mà tưởng mới; (3) **thư khớp theo
+EMAIL, không theo tên** — trùng tên là chuyện thường, đưa nhầm thư của người khác vào thẻ thì nhân viên
+nói sai chuyện ngay trước mặt khách; (4) **lời AI về khung chat, dữ kiện thô về panel phải** (`ChatData.Kind
+= "meeting-brief"`) — in cả hai chỗ là đọc hai lần cùng một thứ. AI hỏng → vẫn trả dữ kiện thô kèm câu
+nói rõ là chưa có gợi ý.
+**Ghi vào CRM (`assign_task`/`create_appointment`) chỉ ENQUEUE** vào
+[`dbo.CrmActionQueue`](../../TourkitAiProxy.Infrastructure/Crm/CrmActionQueueRepository.cs) — proxy KHÔNG POST thẳng
+`/api/tasks`/`/api/customer-care`; worker phía `toutkit-app` (viết sau) drain hàng đợi + sync CRM
+theo hợp đồng ở [docs/crm-action-contract/README.md](../crm-action-contract/README.md). Endpoint
+routing ở [`TourkitAiProxy.Endpoints/AssistantActionEndpoints.cs`](../../TourkitAiProxy.Endpoints/AssistantActionEndpoints.cs); theo
+dõi hàng đợi qua `GET /api/v1/workflows/crm-queue`. Thiết kế đầy đủ:
+[docs/superpowers/specs/2026-07-14-assistant-action-tools-design.md](../superpowers/specs/2026-07-14-assistant-action-tools-design.md).
+

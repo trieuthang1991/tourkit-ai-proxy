@@ -20,7 +20,7 @@ nhân viên tiếp quản/giao việc được. Đủ 6 luật nghiệp vụ ở
 - Comment/log/chuỗi hiển thị **tiếng Việt**. DateTime **UTC** (`SYSUTCDATETIME()` / `DateTime.UtcNow`);
   giờ VN qua `TimeZoneInfo.FindSystemTimeZoneById("SE Asia Standard Time")`.
 - Cả cụm nằm sau cờ **`Features:Chat`**, mặc định TẮT — thêm 1 method vào
-  [`FeatureFlags`](../../../Services/Bootstrap/FeatureFlags.cs), 1 field vào `GET /api/v1/features`,
+  [`FeatureFlags`](../../../TourkitAiProxy.Services/Bootstrap/FeatureFlags.cs), 1 field vào `GET /api/v1/features`,
   khai key ở **CẢ** `appsettings.example.json` lẫn bản worker. Tắt thì endpoint trả **404 tường minh**
   (nhớ map tay, `MapFallback` sẽ nuốt và trả `index.html` kèm 200).
 - Bảng chat nằm **trong PostgreSQL**, KHÔNG thêm vào `TourkitAiDb.SchemaSql` (file đó là T-SQL,
@@ -33,7 +33,7 @@ nhân viên tiếp quản/giao việc được. Đủ 6 luật nghiệp vụ ở
   PascalCase như SQL Server, vì PostgreSQL hạ chữ thường mọi định danh không đặt trong nháy kép, và
   đặt nháy kép thì về sau câu lệnh nào cũng phải nháy theo.
 - Tenant lấy từ `ITenantContext`/`SessionAuth` — **KHÔNG nhận `tenantId` từ client**.
-- DI đăng ký trong [`WorkflowStackRegistration.AddWorkflowStack`](../../../Services/Bootstrap/WorkflowStackRegistration.cs).
+- DI đăng ký trong [`WorkflowStackRegistration.AddWorkflowStack`](../../../TourkitAiProxy.Services/Bootstrap/WorkflowStackRegistration.cs).
 - AI gọi từ nền (không có HttpContext) PHẢI bọc `AiCallContext.Push("chat-reply", tenantId)` —
   thiếu là bypass hạn mức tenant và log `feature=unknown`.
 - Thêm trang mới: khai ở **CẢ** `index.html` **VÀ** `bundle-entry.js` (thiếu một bên → prod trắng trang).
@@ -316,7 +316,7 @@ Tách thuần vì **sai ở đây là hỏng thật**, và chỉ tách mới tes
       ghi tin → cập nhật `ContactRepliedAt` + `LastActivityAt` → chờ gộp (`ShouldFlush`) →
       `BotShouldReply`? → gọi AI → xếp `ChatOutbox`.
 - [ ] **Step 2:** **Nối vào trợ lý sẵn có, KHÔNG viết bộ não mới.** Dùng lại
-      [`ChatAgentService`](../../../Services/Chat/ChatAgentService.cs) để câu trả lời bám dữ liệu CRM thật.
+      [`ChatAgentService`](../../../TourkitAiProxy.Services/Chat/ChatAgentService.cs) để câu trả lời bám dữ liệu CRM thật.
       Bọc `AiCallContext.Push("chat-reply", tenantId)`.
 - [ ] **Step 3:** Nối khách chat với khách CRM: có số điện thoại/email → tìm trong CRM → gán
       `CrmCustomerId`. **Không khớp thì để trống** — gộp nhầm hai khách còn tệ hơn không gộp.
@@ -332,7 +332,7 @@ Tách thuần vì **sai ở đây là hỏng thật**, và chỉ tách mới tes
 **Files:** Create `Services/Chat/ChatOutboxWorker.cs`; Modify `ZaloChatAdapter`
 
 - [ ] **Step 1:** `SendAsync` gọi `v3.0/oa/message/cs` (base `https://openapi.zalo.me`).
-      Token OA lấy từ [`TenantChannelSettingsStore`](../../../Services/Digest/TenantChannelSettingsStore.cs) —
+      Token OA lấy từ [`TenantChannelSettingsStore`](../../../TourkitAiProxy.Infrastructure/Digest/TenantChannelSettingsStore.cs) —
       **tái dùng cấu hình OA đã có**, không bắt khai lại.
 
   ⚠️ Lưu cấu hình phải **HỢP NHẤT**, đừng ghi đè cả cục: `ConfigJson` có hai chủ — phần khai tay và
