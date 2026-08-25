@@ -1,6 +1,6 @@
-using TourkitAiProxy.Models;
+﻿using TourkitAiProxy.Models;
 
-namespace TourkitAiProxy.Services.TourPrices;
+namespace TourkitAiProxy.Domain.TourPrices;
 
 /// Logic thuần trộn nguồn giá — tách khỏi retriever/DB để test không cần SQL.
 public static class PriceMerge

@@ -1,4 +1,4 @@
-namespace TourkitAiProxy.Services.TourPrices;
+﻿namespace TourkitAiProxy.Domain.TourPrices;
 
 /// NCC mẫu (dữ liệu hệ thống) lưu trong dbo.TourPriceCatalog với TenantId dành riêng này.
 /// Reserved — tenant thật là domain (vd erp.tourkit.vn) nên không bao giờ trùng "__sample__".

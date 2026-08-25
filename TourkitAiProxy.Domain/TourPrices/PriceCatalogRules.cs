@@ -1,7 +1,7 @@
 ﻿using System.Text.RegularExpressions;
 using TourkitAiProxy.Shared.Text;
 
-namespace TourkitAiProxy.Services.TourPrices;
+namespace TourkitAiProxy.Domain.TourPrices;
 
 /// <summary>
 /// Luật thuần cho catalog — tách khỏi repository/workflow để test không cần DB.

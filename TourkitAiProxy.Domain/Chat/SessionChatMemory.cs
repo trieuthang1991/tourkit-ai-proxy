@@ -1,7 +1,7 @@
-// Services/Chat/SessionChatMemory.cs
+﻿// Services/Chat/SessionChatMemory.cs
 using TourkitAiProxy.Models;
 
-namespace TourkitAiProxy.Services.Chat;
+namespace TourkitAiProxy.Domain.Chat;
 
 /// <summary>
 /// Bộ nhớ chat per-session, lưu cùng TkSession xuống đĩa.

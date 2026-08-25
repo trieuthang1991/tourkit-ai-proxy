@@ -48,6 +48,7 @@
   </ItemGroup>
 
   <ItemGroup>
+    <ProjectReference Include="..\TourkitAiProxy.Infrastructure\TourkitAiProxy.Infrastructure.csproj" />
     <ProjectReference Include="..\TourkitAiProxy.Domain\TourkitAiProxy.Domain.csproj" />
     <ProjectReference Include="..\TourkitAiProxy.Shared\TourkitAiProxy.Shared.csproj" />
   </ItemGroup>

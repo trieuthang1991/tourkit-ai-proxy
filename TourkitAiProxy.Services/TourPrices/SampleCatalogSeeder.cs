@@ -2,6 +2,7 @@
 using Microsoft.Extensions.Hosting;
 using TourkitAiProxy.Models;
 using TourkitAiProxy.Shared.Text;
+using TourkitAiProxy.Domain.TourPrices;
 
 namespace TourkitAiProxy.Services.TourPrices;
 

@@ -13,13 +13,13 @@ public class ChatQuickReplyTests
         // Chỉ mục là biểu thức `lower(trigger)`, không phải cột trần. Postgres đòi ON CONFLICT
         // ghi ĐÚNG biểu thức đó; viết `(tenant_id, trigger)` là lỗi lúc CHẠY chứ không phải lúc
         // biên dịch — tức chỉ lộ ra khi có người bấm lưu mẫu thật.
-        var schema = ChatSchemaGuardTests.DocFile("TourkitAiProxy.Services/Chat/Inbox/ChatDb.cs");
+        var schema = ChatSchemaGuardTests.DocFile("TourkitAiProxy.Infrastructure/Chat/Inbox/ChatDb.cs");
         var m = Regex.Match(schema,
             @"CREATE UNIQUE INDEX IF NOT EXISTS \w+\s+ON chat_quick_replies \(([^;]*?)\);");
         Assert.True(m.Success, "chat_quick_replies thiếu chỉ mục duy nhất");
         var bieuThuc = Regex.Replace(m.Groups[1].Value, @"\s+", " ").Trim().TrimEnd(')');
 
-        var repo = ChatSchemaGuardTests.DocFile("TourkitAiProxy.Services/Chat/Inbox/ChatQuickReplyRepository.cs");
+        var repo = ChatSchemaGuardTests.DocFile("TourkitAiProxy.Infrastructure/Chat/Inbox/ChatQuickReplyRepository.cs");
         Assert.Contains($"ON CONFLICT ({bieuThuc})", repo);
     }
 

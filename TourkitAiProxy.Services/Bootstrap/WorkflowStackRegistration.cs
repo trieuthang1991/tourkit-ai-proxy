@@ -8,6 +8,7 @@ using TourkitAiProxy.Services.TourKit;
 using TourkitAiProxy.Services.Workflow;
 using TourkitAiProxy.Domain.Digest;
 using TourkitAiProxy.Domain.Chat;
+using TourkitAiProxy.Domain.TourPrices;
 
 namespace TourkitAiProxy.Services.Bootstrap;
 

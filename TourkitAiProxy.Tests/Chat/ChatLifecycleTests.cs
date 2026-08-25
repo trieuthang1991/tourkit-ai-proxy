@@ -61,7 +61,7 @@ public class ChatLifecycleTests
     {
         // Luật trên phải được chặn CẢ trong SQL: cập nhật hàng loạt không đọc từng dòng ra để hỏi
         // ChatRules được.
-        var repo = ChatSchemaGuardTests.DocFile("TourkitAiProxy.Services/Chat/Inbox/ChatRepository.cs");
+        var repo = ChatSchemaGuardTests.DocFile("TourkitAiProxy.Infrastructure/Chat/Inbox/ChatRepository.cs");
         var i = repo.IndexOf("MarkStateWatermarkAsync", StringComparison.Ordinal);
         Assert.True(i > 0, "chưa có MarkStateWatermarkAsync");
         var than = repo.Substring(i, Math.Min(900, repo.Length - i));
@@ -82,7 +82,7 @@ public class ChatLifecycleTests
     public void Ghi_ma_tin_la_lenh_rieng_khong_gop_vao_doi_trang_thai()
     {
         // Gộp thì mỗi lần đổi trạng thái về sau phải nhớ truyền kèm mã; quên là xoá mất mã bằng null.
-        var repo = ChatSchemaGuardTests.DocFile("TourkitAiProxy.Services/Chat/Inbox/ChatRepository.cs");
+        var repo = ChatSchemaGuardTests.DocFile("TourkitAiProxy.Infrastructure/Chat/Inbox/ChatRepository.cs");
         Assert.Contains("public async Task SetExternalMsgIdAsync", repo);
         Assert.DoesNotContain(
             "SetMessageStateAsync(string tenant, long messageId, ChatState tt, string? loi, string? maNenTang",
@@ -113,7 +113,7 @@ public class ChatLifecycleTests
     {
         // "Khách đã xem" nói về tin CỦA MÌNH. Quên kẹp direction thì tin của chính khách cũng bị
         // đánh dấu, vô nghĩa và làm hỏng bộ đếm chưa đọc.
-        var repo = ChatSchemaGuardTests.DocFile("TourkitAiProxy.Services/Chat/Inbox/ChatRepository.cs");
+        var repo = ChatSchemaGuardTests.DocFile("TourkitAiProxy.Infrastructure/Chat/Inbox/ChatRepository.cs");
         var i = repo.IndexOf("MarkStateWatermarkAsync", StringComparison.Ordinal);
         Assert.True(i > 0, "chưa có MarkStateWatermarkAsync");
         var than = repo.Substring(i, Math.Min(900, repo.Length - i));

@@ -1,4 +1,4 @@
-﻿using TourkitAiProxy.Domain.Digest;
+﻿using TourkitAiProxy.Domain.Digest;   // DigestSubscription
 namespace TourkitAiProxy.Services.Digest;
 
 /// <summary>

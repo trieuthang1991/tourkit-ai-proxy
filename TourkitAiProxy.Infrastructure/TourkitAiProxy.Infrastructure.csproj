@@ -1,0 +1,61 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!-- ════════════════════════════════════════════════════════════════════════
+       TRUY CẬP DỮ LIỆU — mọi thứ mở kết nối CSDL.
+
+       Vào được : repository/store Dapper (SQL Server + PostgreSQL), lớp mở kết nối,
+                  ghi log xuống DB.
+       KHÔNG vào: luồng nghiệp vụ. Nếu một lớp ở đây bắt đầu quyết định "khi nào thì
+                  gửi", "có được trả lời không" — nó thuộc Services, không thuộc đây.
+
+       ⚠️ CHIỀU PHỤ THUỘC HIỆN TẠI LÀ Services -> Infrastructure, tức NGƯỢC với Clean
+       Architecture sách vở (Application khai giao diện, Infrastructure cài). Đây là
+       thoả hiệp có chủ đích, và phải nói rõ kẻo người sau tưởng đã xong:
+
+         • Cái ĐÃ đạt: mã chạm CSDL nằm gọn một assembly, Domain và Endpoints không
+           với tới Dapper được nữa — biên dịch viên chặn. Đó chính là "tách DB khỏi
+           nghiệp vụ" theo nghĩa vật lý.
+         • Cái CHƯA đạt: nghiệp vụ vẫn cầm KIỂU CỤ THỂ của repository, nên chưa thay
+           được cài đặt và chưa test nghiệp vụ mà không có DB.
+         • Muốn đảo chiều thì phải rút khoảng 30 giao diện rồi sửa constructor khắp
+           nơi — việc lớn, và repo CHƯA có test tích hợp chạm CSDL nên làm bây giờ là
+           đổi hành vi mà không ai bắt được. Để sau, làm theo từng tính năng.
+       ════════════════════════════════════════════════════════════════════════ -->
+
+  <PropertyGroup>
+    <TargetFramework>net8.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <RootNamespace>TourkitAiProxy.Infrastructure</RootNamespace>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <FrameworkReference Include="Microsoft.AspNetCore.App" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Using Include="Microsoft.AspNetCore.Hosting" />
+    <Using Include="Microsoft.Extensions.Configuration" />
+    <Using Include="Microsoft.Extensions.DependencyInjection" />
+    <Using Include="Microsoft.Extensions.Hosting" />
+    <Using Include="Microsoft.Extensions.Logging" />
+    <Using Include="System.Net.Http.Json" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\TourkitAiProxy.Domain\TourkitAiProxy.Domain.csproj" />
+    <ProjectReference Include="..\TourkitAiProxy.Shared\TourkitAiProxy.Shared.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Dapper" Version="2.1.79" />
+    <PackageReference Include="Microsoft.Data.SqlClient" Version="7.0.1" />
+    <PackageReference Include="Npgsql" Version="8.0.5" />
+    <PackageReference Include="StackExchange.Redis" Version="2.13.17" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <InternalsVisibleTo Include="TourkitAiProxy.Tests" />
+  </ItemGroup>
+
+</Project>

@@ -4,6 +4,7 @@ using TourkitAiProxy.Models;
 using TourkitAiProxy.Shared.Text;
 using TourkitAiProxy.Services.TourKit;
 using TourkitAiProxy.Services.Workflows;
+using TourkitAiProxy.Domain.TourPrices;
 
 namespace TourkitAiProxy.Services.TourPrices;
 

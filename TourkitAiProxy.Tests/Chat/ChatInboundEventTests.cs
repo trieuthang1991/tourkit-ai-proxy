@@ -12,7 +12,7 @@ public class ChatInboundEventTests
     [Fact]
     public void Co_bang_su_kien_vao()
     {
-        var sql = ChatSchemaGuardTests.DocFile("TourkitAiProxy.Services/Chat/Inbox/ChatDb.cs");
+        var sql = ChatSchemaGuardTests.DocFile("TourkitAiProxy.Infrastructure/Chat/Inbox/ChatDb.cs");
         Assert.Contains("CREATE TABLE IF NOT EXISTS chat_inbound_events", sql);
     }
 
@@ -21,7 +21,7 @@ public class ChatInboundEventTests
     {
         // Webhook gửi lại đồng thời hai lần thì kiểm-rồi-ghi trong code vẫn lọt. Phải là chỉ mục
         // duy nhất để chính CSDL từ chối bản thứ hai.
-        var sql = ChatSchemaGuardTests.DocFile("TourkitAiProxy.Services/Chat/Inbox/ChatDb.cs");
+        var sql = ChatSchemaGuardTests.DocFile("TourkitAiProxy.Infrastructure/Chat/Inbox/ChatDb.cs");
         var m = Regex.Match(sql,
             @"CREATE UNIQUE INDEX IF NOT EXISTS \w+\s+ON chat_inbound_events \(([^)]*)\)");
         Assert.True(m.Success, "chat_inbound_events thiếu chỉ mục duy nhất chống trùng");

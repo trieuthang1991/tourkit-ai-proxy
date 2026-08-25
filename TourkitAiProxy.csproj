@@ -20,6 +20,8 @@
     <Content Remove="TourkitAiProxy.Shared/**" />
     <Compile Remove="TourkitAiProxy.Domain/**/*.cs" />
     <Content Remove="TourkitAiProxy.Domain/**" />
+    <Compile Remove="TourkitAiProxy.Infrastructure/**/*.cs" />
+    <Content Remove="TourkitAiProxy.Infrastructure/**" />
     <Compile Remove="TourkitAiProxy.Services/**/*.cs" />
     <Content Remove="TourkitAiProxy.Services/**" />
     <Compile Remove="TourkitAiProxy.Endpoints/**/*.cs" />

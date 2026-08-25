@@ -1,6 +1,7 @@
-using Dapper;
+﻿using Dapper;
 using TourkitAiProxy.Models;
 using TourkitAiProxy.Services.Db;
+using TourkitAiProxy.Domain.TourPrices;
 
 namespace TourkitAiProxy.Services.TourPrices;
 

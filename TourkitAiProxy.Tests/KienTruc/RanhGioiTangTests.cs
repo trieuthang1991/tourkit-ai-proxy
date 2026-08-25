@@ -118,6 +118,41 @@ public class RanhGioiTangTests
             + string.Join("\n  ", pham));
     }
 
+    // ── Services: nghiệp vụ, KHÔNG tự mở kết nối CSDL ────────────────────────
+
+    /// <summary>
+    /// File còn chạm CSDL trong Services. <b>Đây là NỢ, không phải ngoại lệ.</b>
+    ///
+    /// <para><c>SaleBriefWorkflow</c> có ba câu SQL viết thẳng trong luồng workflow. Tách ra cần
+    /// sửa mã có logic thật, mà repo chưa có test tích hợp chạm CSDL — nên ghi nợ ở đây thay vì
+    /// làm liều. Thêm tên mới vào danh sách này thì phải kèm lý do; không thì luật chết dần đúng
+    /// kiểu quy ước bằng lời.</para>
+    /// </summary>
+    private static readonly string[] ServicesConChamDb = { "SaleBriefWorkflow.cs" };
+
+    [Fact]
+    public void Nghiep_vu_khong_tu_mo_ket_noi_CSDL()
+    {
+        // Sau khi tách Infrastructure, mọi truy cập CSDL phải nằm ở đó. Kiểm ở mức mã nguồn vì
+        // biên dịch viên KHÔNG chặn được: Services có tham chiếu Infrastructure nên vẫn "with" tới
+        // Dapper qua đường transitive.
+        var cam = new[] { "using Dapper", "new SqlConnection", "new NpgsqlConnection" };
+        var pham = new List<string>();
+        foreach (var f in DocFileCs("TourkitAiProxy.Services"))
+        {
+            var ten = Path.GetFileName(f);
+            if (ServicesConChamDb.Contains(ten)) continue;
+            var noiDung = ChiLayCode(File.ReadAllText(f));
+            foreach (var c in cam)
+                if (noiDung.Contains(c, StringComparison.Ordinal))
+                    pham.Add($"{ten} — {c}");
+        }
+
+        Assert.True(pham.Count == 0,
+            "Truy cập CSDL thuộc TourkitAiProxy.Infrastructure. Các chỗ sau vi phạm:\n  "
+            + string.Join("\n  ", pham));
+    }
+
     // ── Helper ───────────────────────────────────────────────────────────────
 
     private static string Goc(string duongDanTuongDoi)

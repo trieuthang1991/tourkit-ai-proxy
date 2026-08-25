@@ -1,5 +1,6 @@
-using TourkitAiProxy.Services.TourPrices;
+﻿using TourkitAiProxy.Services.TourPrices;
 using Xunit;
+using TourkitAiProxy.Domain.TourPrices;
 
 namespace TourkitAiProxy.Tests.TourPrices;
 

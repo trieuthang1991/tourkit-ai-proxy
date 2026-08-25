@@ -125,22 +125,7 @@ GROUP BY [Status];",
     }
 }
 
-/// Input enqueue 1 mail (Id/Status/CreatedUtc do DB sinh). `Params` = JSON tham số replace vào template.
-public record OutboundMailInput(
-    string TenantId,
-    string Kind,
-    string? SourceId = null,
-    string? Username = null,
-    string? TemplateCode = null,
-    string? ToEmail = null,
-    string? ToName = null,
-    int? ToUserId = null,
-    string? Cc = null,
-    string? Subject = null,
-    string? Params = null,
-    string? Data = null,
-    DateTime? ScheduledUtc = null,
-    OutboundChannel Channel = OutboundChannel.Email);
+
 
 /// Read-model 1 dòng hàng đợi (cho monitor).
 public record OutboundMail(

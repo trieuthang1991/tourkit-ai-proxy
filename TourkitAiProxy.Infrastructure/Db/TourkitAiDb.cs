@@ -2,6 +2,7 @@
 using Microsoft.Data.SqlClient;
 using TourkitAiProxy.Services.Security;
 using TourkitAiProxy.Domain.Digest;
+using TourkitAiProxy.Domain.Chat;
 
 namespace TourkitAiProxy.Services.Db;
 
