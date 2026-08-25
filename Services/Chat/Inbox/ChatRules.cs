@@ -110,4 +110,21 @@ public static class ChatRules
         while (s.Contains("  ")) s = s.Replace("  ", " ");
         return s.Length <= toiDa ? s : s[..toiDa].TrimEnd() + "…";
     }
+
+    /// <summary>
+    /// Có được cập nhật trạng thái tin từ <paramref name="dangCo"/> sang <paramref name="moi"/> không.
+    ///
+    /// <para><b>Chỉ tiến, không lùi.</b> Nền tảng không bảo đảm thứ tự webhook: "đã nhận" hoàn toàn
+    /// có thể tới sau "đã xem" (hai webhook hai đường mạng, hoặc bị gửi lại). Ghi đè mù thì tin đang
+    /// "đã xem" tụt về "đã nhận" — nhân viên thấy dấu tích chạy ngược, tưởng khách bỏ đọc.</para>
+    ///
+    /// <para><b>Hỏng KHÔNG phải mức cao nhất</b> dù số lớn nhất: gửi được rồi mà báo hỏng là vô
+    /// nghĩa. Chỉ tin còn đang chờ mới hỏng được.</para>
+    /// </summary>
+    public static bool KhongLui(ChatState dangCo, ChatState moi)
+    {
+        if (moi == ChatState.Hong) return dangCo == ChatState.Cho;
+        if (dangCo == ChatState.Hong) return false;   // đã hỏng thì không tự sống lại
+        return (short)moi > (short)dangCo;
+    }
 }
