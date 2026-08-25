@@ -1,5 +1,6 @@
-using System.Collections.Concurrent;
+﻿using System.Collections.Concurrent;
 using TourkitAiProxy.Services.Chat;
+using TourkitAiProxy.Domain.Chat;
 
 namespace TourkitAiProxy.Services.TourKit;
 

@@ -1,5 +1,6 @@
-using TourkitAiProxy.Services.Crm;
+﻿using TourkitAiProxy.Services.Crm;
 using Xunit;
+using TourkitAiProxy.Domain.Chat;
 
 public class CrmActionQueueTests
 {

@@ -1,5 +1,6 @@
-using System.Text.Json;
+﻿using System.Text.Json;
 using TourkitAiProxy.Services.Chat;
+using TourkitAiProxy.Domain.Chat;
 using Xunit;
 
 public class ActionExecutorTests

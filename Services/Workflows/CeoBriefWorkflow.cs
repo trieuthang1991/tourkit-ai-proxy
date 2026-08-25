@@ -4,6 +4,7 @@ using TourkitAiProxy.Models;
 using TourkitAiProxy.Services;
 using TourkitAiProxy.Services.Digest;
 using TourkitAiProxy.Services.Mail;
+using TourkitAiProxy.Domain.Mail;
 using TourkitAiProxy.Services.Providers;
 using TourkitAiProxy.Services.TourKit;
 using TourkitAiProxy.Domain.Digest;

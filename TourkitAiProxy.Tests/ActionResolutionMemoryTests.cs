@@ -1,4 +1,5 @@
-using TourkitAiProxy.Services.Chat;
+﻿using TourkitAiProxy.Services.Chat;
+using TourkitAiProxy.Domain.Chat;
 using Xunit;
 
 /// <summary>

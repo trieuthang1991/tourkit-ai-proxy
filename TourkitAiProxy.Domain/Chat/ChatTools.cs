@@ -1,7 +1,7 @@
-using System.Text;
+﻿using System.Text;
 using System.Text.Json;
 
-namespace TourkitAiProxy.Services.Chat;
+namespace TourkitAiProxy.Domain.Chat;
 
 /// 1 "tool" = 1 endpoint GET read-only của TourKit.Api mà AI có thể chọn để lấy số liệu.
 public record ChatTool(

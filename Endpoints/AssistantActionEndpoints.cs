@@ -1,6 +1,7 @@
-using System.Text.Json;
+﻿using System.Text.Json;
 using TourkitAiProxy.Models;              // ActionExecuteRequest
-using TourkitAiProxy.Services.Chat;       // ActionExecutor
+using TourkitAiProxy.Services.Chat;
+using TourkitAiProxy.Domain.Chat;       // ActionExecutor
 using TourkitAiProxy.Services.TourKit;    // TkSessionStore
 
 namespace TourkitAiProxy.Endpoints;

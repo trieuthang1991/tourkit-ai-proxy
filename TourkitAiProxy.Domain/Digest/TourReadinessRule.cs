@@ -1,6 +1,6 @@
-using System.Globalization;
+﻿using System.Globalization;
 
-namespace TourkitAiProxy.Services.Digest;
+namespace TourkitAiProxy.Domain.Digest;
 
 /// <summary>
 /// 1 dòng tour lấy từ /api/ai/tours, đủ field để chấm sẵn sàng khởi hành.

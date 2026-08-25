@@ -1,6 +1,7 @@
-// TourkitAiProxy.Tests/Chat/ToolSchemaGeneratorTests.cs
+﻿// TourkitAiProxy.Tests/Chat/ToolSchemaGeneratorTests.cs
 using System.Text.Json;
 using TourkitAiProxy.Services.Chat;
+using TourkitAiProxy.Domain.Chat;
 
 namespace TourkitAiProxy.Tests.Chat;
 

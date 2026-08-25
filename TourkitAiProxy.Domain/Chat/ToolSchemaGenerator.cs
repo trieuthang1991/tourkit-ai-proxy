@@ -1,5 +1,5 @@
-// Services/Chat/ToolSchemaGenerator.cs
-namespace TourkitAiProxy.Services.Chat;
+﻿// Services/Chat/ToolSchemaGenerator.cs
+namespace TourkitAiProxy.Domain.Chat;
 
 /// <summary>
 /// Chuyen ChatTool catalog thanh danh sach Anthropic tool schema (JSON Schema tiêu chuẩn).

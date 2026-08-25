@@ -1,7 +1,8 @@
-// Services/Chat/ChatDataBuilder.cs
+﻿// Services/Chat/ChatDataBuilder.cs
 using System.Globalization;
 using System.Text.Json;
 using TourkitAiProxy.Models;
+using TourkitAiProxy.Domain.Chat;
 
 namespace TourkitAiProxy.Services.Chat;
 

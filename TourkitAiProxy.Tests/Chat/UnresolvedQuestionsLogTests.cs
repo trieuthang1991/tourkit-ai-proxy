@@ -1,7 +1,8 @@
-// TourkitAiProxy.Tests/Chat/UnresolvedQuestionsLogTests.cs
+﻿// TourkitAiProxy.Tests/Chat/UnresolvedQuestionsLogTests.cs
 using Microsoft.Extensions.Logging.Abstractions;
 using TourkitAiProxy.Models;
 using TourkitAiProxy.Services.Chat;
+using TourkitAiProxy.Domain.Chat;
 
 namespace TourkitAiProxy.Tests.Chat;
 

@@ -1,4 +1,4 @@
-namespace TourkitAiProxy.Services.Digest;
+﻿namespace TourkitAiProxy.Domain.Digest;
 
 /// 1 dòng tour kèm số tiền, lấy từ /api/ai/tours.
 /// <param name="SellerUserName">Tên đăng nhập NV phụ trách — dùng để ghi Bảng tin ĐÍCH DANH.

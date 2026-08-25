@@ -8,6 +8,7 @@ using TourkitAiProxy.Services.Mail;       // MailSyncService, IMailSender, MailR
 using TourkitAiProxy.Services.Reviews;    // ReviewService
 using TourkitAiProxy.Services.TourKit;    // TourKitCustomerSource
 using TourkitAiProxy.Domain.Mail;
+using TourkitAiProxy.Domain.Chat;
 
 namespace TourkitAiProxy.Services.Chat;
 

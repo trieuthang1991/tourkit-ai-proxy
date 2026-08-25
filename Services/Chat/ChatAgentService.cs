@@ -1,11 +1,13 @@
-// Services/Chat/ChatAgentService.cs
+﻿// Services/Chat/ChatAgentService.cs
 using System.Globalization;
 using System.Text.Json;
 using TourkitAiProxy.Models;
 using TourkitAiProxy.Services.Mail;
+using TourkitAiProxy.Domain.Mail;
 using TourkitAiProxy.Services.Providers;
 using TourkitAiProxy.Services.TourKit;
 using TourkitAiProxy.Services.Workflow;
+using TourkitAiProxy.Domain.Chat;
 
 namespace TourkitAiProxy.Services.Chat;
 

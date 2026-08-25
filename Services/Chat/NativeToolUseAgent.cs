@@ -6,6 +6,7 @@ using TourkitAiProxy.Models;
 using TourkitAiProxy.Services.Providers;
 using TourkitAiProxy.Services.Quota;
 using TourkitAiProxy.Services.TourKit;
+using TourkitAiProxy.Domain.Chat;
 
 namespace TourkitAiProxy.Services.Chat;
 

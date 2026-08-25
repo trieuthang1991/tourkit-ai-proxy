@@ -1,6 +1,7 @@
-using System.Text.Json;
+﻿using System.Text.Json;
 using TourkitAiProxy.Models;
 using TourkitAiProxy.Services.Chat;
+using TourkitAiProxy.Domain.Chat;
 using TourkitAiProxy.Services.Security;
 using TourkitAiProxy.Services.TourKit;
 

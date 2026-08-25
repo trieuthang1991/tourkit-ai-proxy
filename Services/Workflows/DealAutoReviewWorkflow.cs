@@ -1,4 +1,4 @@
-using System.Diagnostics;
+﻿using System.Diagnostics;
 using System.Globalization;
 using System.Text.Json;
 using TourkitAiProxy.Models;
@@ -6,6 +6,7 @@ using TourkitAiProxy.Services;
 using TourkitAiProxy.Services.Cache;
 using TourkitAiProxy.Services.Deals;
 using TourkitAiProxy.Services.Mail;
+using TourkitAiProxy.Domain.Mail;
 using TourkitAiProxy.Services.Quota;
 using TourkitAiProxy.Services.TourKit;
 

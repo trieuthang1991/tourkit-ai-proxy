@@ -1,4 +1,4 @@
-using System.Text;
+﻿using System.Text;
 using System.Text.Json;
 using TourkitAiProxy.Models;
 using TourkitAiProxy.Services;
@@ -7,6 +7,7 @@ using TourkitAiProxy.Services.Security;
 using TourkitAiProxy.Services.Speech;
 using TourkitAiProxy.Services.TourKit;
 using TourkitAiProxy.Services.Widget;
+using TourkitAiProxy.Domain.Chat;
 
 namespace TourkitAiProxy.Endpoints;
 

@@ -1,4 +1,5 @@
-using TourkitAiProxy.Services.Digest;
+﻿using TourkitAiProxy.Services.Digest;
+using TourkitAiProxy.Domain.Digest;
 
 namespace TourkitAiProxy.Tests.Digest;
 

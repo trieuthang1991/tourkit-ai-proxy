@@ -1,6 +1,7 @@
-using System.Text.Json;
+﻿using System.Text.Json;
 using Dapper;
 using TourkitAiProxy.Services.Chat;
+using TourkitAiProxy.Domain.Chat;
 using TourkitAiProxy.Services.Db;
 using TourkitAiProxy.Services.Security;
 

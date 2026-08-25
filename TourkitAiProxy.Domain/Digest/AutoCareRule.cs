@@ -1,6 +1,6 @@
-using System.Globalization;
+﻿using System.Globalization;
 
-namespace TourkitAiProxy.Services.Digest;
+namespace TourkitAiProxy.Domain.Digest;
 
 /// 1 khách hàng, đủ field để chấm "có cần chăm lại không".
 public record CareCustomer(

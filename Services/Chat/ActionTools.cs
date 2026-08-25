@@ -1,13 +1,7 @@
-using System.Text;
+﻿using System.Text;
+using TourkitAiProxy.Domain.Chat;
 
 namespace TourkitAiProxy.Services.Chat;
-
-public enum ActionKind { Mail, Internal, CrmQueue }
-
-/// 1 "action" = 1 hành động GHI/nghiệp vụ trợ lý có thể đề xuất. Song song ChatTools (read).
-public record ActionTool(
-    string Name, string Description, string[] Params,
-    ActionKind Kind, bool NeedsConfirm, string Title);
 
 /// Catalog action — NGUỒN DUY NHẤT cho prompt planner + dispatch executor.
 public static class ActionTools

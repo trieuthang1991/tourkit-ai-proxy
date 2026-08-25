@@ -1,5 +1,6 @@
 ﻿using System.Text.Json;
 using TourkitAiProxy.Services.Mail;
+using TourkitAiProxy.Domain.Mail;
 using TourkitAiProxy.Domain.Digest;
 
 namespace TourkitAiProxy.Services.Digest;

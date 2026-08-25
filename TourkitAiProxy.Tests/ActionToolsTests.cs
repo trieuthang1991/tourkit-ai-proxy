@@ -1,6 +1,7 @@
-using Microsoft.Extensions.Configuration;
+﻿using Microsoft.Extensions.Configuration;
 using TourkitAiProxy.Services.Chat;
 using Xunit;
+using TourkitAiProxy.Domain.Chat;
 
 public class ActionToolsTests
 {

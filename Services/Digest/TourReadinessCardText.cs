@@ -1,4 +1,5 @@
-using System.Text;
+﻿using System.Text;
+using TourkitAiProxy.Domain.Digest;
 
 namespace TourkitAiProxy.Services.Digest;
 

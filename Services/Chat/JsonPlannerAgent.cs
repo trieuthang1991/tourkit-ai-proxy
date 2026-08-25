@@ -8,6 +8,7 @@ using TourkitAiProxy.Models;
 using TourkitAiProxy.Shared.Json;
 using TourkitAiProxy.Services.Providers;
 using TourkitAiProxy.Services.TourKit;
+using TourkitAiProxy.Domain.Chat;
 
 namespace TourkitAiProxy.Services.Chat;
 

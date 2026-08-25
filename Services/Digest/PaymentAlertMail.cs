@@ -1,7 +1,8 @@
-using System.Globalization;
+﻿using System.Globalization;
 using System.Net;
 using System.Text;
 using System.Text.Json;
+using TourkitAiProxy.Domain.Digest;
 
 namespace TourkitAiProxy.Services.Digest;
 
