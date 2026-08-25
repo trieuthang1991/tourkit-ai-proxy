@@ -319,6 +319,32 @@ public class ChatRepository
             """, new { id = messageId, tenant, ma = maNenTang });
     }
 
+    /// <summary>
+    /// Nền tảng báo mọi tin gửi trước <paramref name="denLuc"/> đã đạt <paramref name="moi"/>.
+    /// Trả về số dòng thật sự đổi.
+    /// </summary>
+    /// <remarks>
+    /// <para><b>Chỉ tin MÌNH GỬI</b> (<c>direction = 1</c>): "khách đã xem" nói về tin của mình.
+    /// Quên kẹp thì tin của chính khách cũng bị đánh dấu — vô nghĩa, và làm hỏng bộ đếm chưa đọc.</para>
+    /// <para><b>Chỉ tiến, không lùi</b> (<c>state &lt; @moi</c>): nền tảng không bảo đảm thứ tự.
+    /// Luật đầy đủ ở <see cref="ChatRules.KhongLui"/>; ở đây chặn ngay trong SQL vì cập nhật hàng
+    /// loạt không đọc từng dòng ra được.</para>
+    /// <para><b>Bỏ qua tin hỏng</b> (<c>state &lt;&gt; 4</c>): tin gửi hỏng thì không thể được xem.</para>
+    /// </remarks>
+    public async Task<int> DanhDauMocAsync(string tenant, long conversationId, ChatState moi,
+        DateTime denLuc, CancellationToken ct = default)
+    {
+        await using var c = await _db.OpenAsync(ct);
+        return await c.ExecuteAsync("""
+            UPDATE chat_messages
+               SET state = @moi
+             WHERE tenant_id = @tenant AND conversation_id = @conv
+               AND direction = 1
+               AND created_utc <= @denLuc
+               AND state < @moi AND state <> 4
+            """, new { tenant, conv = conversationId, moi = (short)moi, denLuc });
+    }
+
     // ── Hàng đợi gửi ────────────────────────────────────────────────────────
 
     public async Task EnqueueOutboxAsync(string tenant, long conversationId, long messageId,

@@ -36,6 +36,8 @@ public enum ChatStatus : short { Moi = 0, DangXuLy = 1, DaDong = 2 }
 /// <param name="IsEcho">Tin do CHÍNH OA/Page gửi, nhận lại dưới dạng tiếng vọng — nghĩa là có người
 /// đang trả lời từ app của kênh (Zalo OA, Facebook Page). Phải ghi lại VÀ cho bot câm, nếu không
 /// bot sẽ nói đè lên người thật.</param>
+/// <param name="Moc">Nền tảng báo lại trạng thái tin MÌNH đã gửi — không phải tin nhắn mới.
+/// Xem <see cref="MocTrangThai"/>.</param>
 public record InboundChatEvent(
     ChatChannel Channel,
     string ExternalUserId,
@@ -46,7 +48,17 @@ public record InboundChatEvent(
     DateTime SentUtc,
     bool IsEcho = false,
     string? DisplayName = null,
-    string? SeenMarker = null);
+    MocTrangThai? Moc = null);
+
+/// <summary>
+/// Nền tảng báo lại trạng thái tin MÌNH đã gửi, theo kiểu <b>mốc nước</b>: mọi tin gửi trước
+/// <paramref name="DenLuc"/> đều đã đạt <paramref name="TrangThai"/>.
+///
+/// <para>Thay cho <c>SeenMarker</c> cũ (chuỗi <c>"seen"</c>): chuỗi đó chỉ nói được "đã xem",
+/// không nói được "đã nhận", và không mang thời điểm — mà thiếu thời điểm thì hoặc đánh dấu cả
+/// hội thoại (sai: tin gửi sau đó cũng bị coi là đã xem), hoặc không đánh dấu gì.</para>
+/// </summary>
+public record MocTrangThai(ChatState TrangThai, DateTime DenLuc);
 
 public class ChatContact
 {

@@ -61,8 +61,16 @@ public class ChatInboundService
         await _repo.UpsertContactAsync(tenantId, e.Channel, e.ExternalUserId, e.DisplayName, ct);
         var hoiThoai = await _repo.GetOrCreateConversationAsync(tenantId, e.Channel, e.ExternalUserId, accountId, ct);
 
-        // "Khách đã xem" — không phải tin nhắn, chỉ ghi mốc.
-        if (e.SeenMarker is not null) return;
+        // Nền tảng báo trạng thái tin MÌNH đã gửi — không phải tin mới, xử lý xong là về.
+        // Trước đây chỗ này bóc ra rồi BỎ, nên tin gửi đi dừng mãi ở "đã gửi" dù giao diện đã vẽ
+        // sẵn dấu tích hai mức.
+        if (e.Moc is { } moc)
+        {
+            var soDong = await _repo.DanhDauMocAsync(tenantId, hoiThoai.Id, moc.TrangThai, moc.DenLuc, ct);
+            _log.LogDebug("[chat] mốc {TT} tới {Luc:o} — đổi {N} tin, hội thoại {H}",
+                moc.TrangThai, moc.DenLuc, soDong, hoiThoai.Id);
+            return;
+        }
 
         // ── Tiếng vọng: nhân viên trả lời từ app của kênh ────────────────────
         if (e.IsEcho)

@@ -60,4 +60,36 @@ public class ChatLifecycleTests
             "SetMessageStateAsync(string tenant, long messageId, ChatState tt, string? loi, string? maNenTang",
             repo);
     }
+
+    [Fact]
+    public void Zalo_bao_da_xem_thi_sinh_moc_co_thoi_diem()
+    {
+        var adapter = ChatSchemaGuardTests.DocFile("Services/Chat/Channels/ZaloChatAdapter.cs");
+        // Mốc phải mang THỜI ĐIỂM: nền tảng báo kiểu "mọi tin trước lúc này đã đọc". Không có mốc
+        // thì hoặc đánh dấu cả hội thoại (sai), hoặc không đánh dấu gì.
+        Assert.Contains("Moc: new(ChatState.DaXem", adapter);
+        Assert.DoesNotContain("SeenMarker", adapter);
+    }
+
+    [Fact]
+    public void Moc_khong_con_bi_vut_di()
+    {
+        // Trước đây: `if (e.SeenMarker is not null) return;` — bóc ra rồi bỏ.
+        var svc = ChatSchemaGuardTests.DocFile("Services/Chat/Inbox/ChatInboundService.cs");
+        Assert.Contains("DanhDauMocAsync", svc);
+        Assert.DoesNotContain("SeenMarker", svc);
+    }
+
+    [Fact]
+    public void Danh_dau_moc_chi_dung_cho_tin_MINH_gui()
+    {
+        // "Khách đã xem" nói về tin CỦA MÌNH. Quên kẹp direction thì tin của chính khách cũng bị
+        // đánh dấu, vô nghĩa và làm hỏng bộ đếm chưa đọc.
+        var repo = ChatSchemaGuardTests.DocFile("Services/Chat/Inbox/ChatRepository.cs");
+        var i = repo.IndexOf("DanhDauMocAsync", StringComparison.Ordinal);
+        Assert.True(i > 0, "chưa có DanhDauMocAsync");
+        var than = repo.Substring(i, Math.Min(900, repo.Length - i));
+        Assert.Contains("direction = 1", than);
+        Assert.Contains("created_utc <=", than);
+    }
 }
