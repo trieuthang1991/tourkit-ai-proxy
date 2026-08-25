@@ -41,7 +41,7 @@ public class ProviderPricePayload
 ///   contractPrice = số (Giá NET — giá NCC báo cho mình, KHÔNG phải Giá Bán khách),
 ///   quantity = 1, description = nhãn cột, note = tên bảng.
 /// Cột number = cột giá; cột text = cột nhãn (ghép làm tên dòng). supplier.* → field NCC;
-/// website/validYear + conditions[] → Note của NCC; contactName/contactPhone → dataServices (JSON).
+/// website/validYear + conditions[] → Note của NCC; contactName/contactPhone → dataServices (JSON ARRAY `_name_member`/`_phone_member`, khớp web).
 /// </summary>
 public static class NccQuoteMapper
 {
@@ -185,13 +185,38 @@ public static class NccQuoteMapper
         return Str(sup, "contactPhone") ?? "";
     }
 
+    /// <summary>
+    /// Cột `providers.dataServices` bên web là MẢNG thành viên liên hệ, khớp class `dataServices`
+    /// (Mi.Entity/Base/Providers/ProvidersEntity.cs) — web deserialize bằng
+    /// <c>JsonConvert.DeserializeObject&lt;List&lt;dataServices&gt;&gt;()</c> và KHÔNG bắt lỗi ở
+    /// ProviderAction (thêm/sửa/xoá thẻ HDV, giấy giới thiệu, dashboard đếm thẻ).
+    /// Ghi object <c>{contactName, contactPhone}</c> vào đây làm web nổ JsonSerializationException.
+    /// Định dạng chuẩn: <c>[{"_name_member","_position_member","_birthday_member","_phone_member","_email_member"}]</c>.
+    /// </summary>
     private static string? BuildContactJson(JsonElement sup)
     {
         var name = Str(sup, "contactName");
         var phone = Str(sup, "contactPhone");
         if (string.IsNullOrWhiteSpace(name) && string.IsNullOrWhiteSpace(phone)) return null;
-        return JsonSerializer.Serialize(new { contactName = name, contactPhone = phone });
+        var members = new[]
+        {
+            new
+            {
+                _name_member = name?.Trim() ?? "",
+                _position_member = "",
+                _birthday_member = "",
+                _phone_member = phone?.Trim() ?? "",
+                _email_member = ""
+            }
+        };
+        return JsonSerializer.Serialize(members, ContactJsonOpts);
     }
+
+    /// Giữ nguyên tiếng Việt (không escape \uXXXX) cho khớp chuỗi web tự sinh từ Provider.js.
+    private static readonly JsonSerializerOptions ContactJsonOpts = new()
+    {
+        Encoder = System.Text.Encodings.Web.JavaScriptEncoder.UnsafeRelaxedJsonEscaping
+    };
 
     private static string? BuildNote(JsonElement sup, JsonElement quote)
     {
