@@ -497,10 +497,12 @@
     const [dangTai2, setDangTai2] = useState(false);   // đang tải tệp lên kho
     const [mauTraLoi, setMauTraLoi] = useState([]);
     const [goiY, setGoiY] = useState(null);            // null = đang không gõ lệnh
+    const [conTro, setConTro] = useState(null);      // vị trí đọc tiếp; null = hết hoặc chưa tải
+    const [dangTaiThem, setDangTaiThem] = useState(false);
     const cuonRef = useRef(null);
     const tepRef = useRef(null);
 
-    const taiDsach = useCallback(async () => {
+    const taiDsach = useCallback(async (cursor) => {
       try {
         const q = new URLSearchParams();
         if (loc !== null) q.set('status', loc);
@@ -508,10 +510,23 @@
         if (nhom === 'chua-doc') q.set('unread', 'true');
         if (nhom === 'cua-toi') q.set('mine', 'true');
         if (tim.trim()) q.set('search', tim.trim());
+        if (cursor) q.set('cursor', cursor);
         const r = await authedFetch('/api/v1/chat/conversations?' + q);
         if (!r.ok) throw new Error('HTTP ' + r.status);
         const j = await r.json();
-        setDsach(j.items || []);
+        const moi = j.items || [];
+        // Trộn theo id chứ không thay thế: nhịp làm mới 4 giây chạy song song với cuộn,
+        // thay thẳng là cuốn người dùng về đầu danh sách giữa lúc họ đang đọc.
+        if (cursor) {
+          setConTro(j.nextCursor || null);
+          setDsach(cu => { const co = new Set(cu.map(x => x.id));
+                           return cu.concat(moi.filter(x => !co.has(x.id))); });
+        } else {
+          // Làm mới đầu danh sách, GIỮ các trang đã cuộn ở dưới.
+          setConTro(c => c === null ? (j.nextCursor || null) : c);
+          setDsach(cu => { const co = new Set(moi.map(x => x.id));
+                           return moi.concat(cu.filter(x => !co.has(x.id))); });
+        }
         setDem(j.counts || {});
         setDemKenh(j.channelCounts || {});
       } catch (e) {
@@ -543,6 +558,9 @@
       const t = setInterval(nhip, 4000);
       return () => { huy = true; clearInterval(t); };
     }, [taiDsach, taiChiTiet, chon]);
+
+    // Đổi bộ lọc là reset con trỏ + danh sách — không thì trộn kết quả của hai bộ lọc khác nhau.
+    useEffect(() => { setDsach([]); setConTro(null); }, [loc, kenhLoc, nhom, tim]);
 
     useEffect(() => { if (chon) taiChiTiet(chon); }, [chon, taiChiTiet]);
 
@@ -746,6 +764,14 @@
                   </span>
                 </button>
               ))}
+              {conTro && (
+                <button className="ci-taithem" disabled={dangTaiThem}
+                        onClick={async () => { setDangTaiThem(true);
+                                               try { await taiDsach(conTro); }
+                                               finally { setDangTaiThem(false); } }}>
+                  {dangTaiThem ? "Đang tải…" : "Tải thêm hội thoại"}
+                </button>
+              )}
             </div>
           </section>
 

@@ -150,6 +150,9 @@ public class ChatDb
       ON chat_conversations (tenant_id, status, last_activity_at DESC);
     CREATE INDEX IF NOT EXISTS ix_conv_tenant_assignee
       ON chat_conversations (tenant_id, assigned_username, last_activity_at DESC);
+    -- Phân trang con trỏ: khớp ORDER BY last_activity_at DESC, id DESC của ListConversationsAsync.
+    CREATE INDEX IF NOT EXISTS ix_conv_tenant_hoatdong
+      ON chat_conversations (tenant_id, last_activity_at DESC, id DESC);
 
     CREATE TABLE IF NOT EXISTS chat_messages (
       id              bigserial PRIMARY KEY,

@@ -147,7 +147,7 @@ public static class ChatInboxEndpoints
 
         g.MapGet("/conversations", async (HttpContext ctx, TkSessionStore sessions, ChatRepository repo,
             short? status, string? search, short? channel, bool? unread, bool? mine,
-            CancellationToken ct) =>
+            string? cursor, CancellationToken ct) =>
         {
             var a = SessionAuth.Read(ctx, sessions);
             if (a == null) return SessionAuth.Unauthorized();
@@ -158,9 +158,12 @@ public static class ChatInboxEndpoints
             var xemHet = await SessionAuth.CanConfigSystemAsync(a.SessionId, sessions, ct);
             var chiCuaToi = xemHet ? null : a.Username;
 
+            // Mã hỏng → Giai() trả null → coi như trang đầu. Không ném: con trỏ nằm trên URL,
+            // người dùng sửa tay được và mã cũ từ bản trước còn trong lịch sử trình duyệt.
+            const int soDong = 60;
             var items = await repo.ListConversationsAsync(a.TenantId, status, chiCuaToi, search,
                 kenh: channel, giaoCho: mine == true ? a.Username : null, chiChuaDoc: unread == true,
-                limit: 60, ct: ct);
+                sau: ChatCursor.Giai(cursor), limit: soDong, ct: ct);
             var dem = await repo.CountAsync(a.TenantId, chiCuaToi, ct);
             return Results.Json(new
             {
@@ -176,6 +179,10 @@ public static class ChatInboxEndpoints
                 // Dải kênh bên trái: kênh nào có bao nhiêu hội thoại. Khoá là số của ChatChannel.
                 channelCounts = dem.TheoKenh.ToDictionary(k => k.Key.ToString(), k => k.Value),
                 xemToanCongTy = xemHet,
+                // Ít hơn số dòng xin = hết dữ liệu → null để giao diện biết dừng.
+                // Luôn trả mã thì giao diện cuộn mãi không hết.
+                nextCursor = items.Count < soDong ? null
+                           : ChatCursor.Ma(new(items[^1].LastActivityAt, items[^1].Id)),
             }, Web);
         });
 

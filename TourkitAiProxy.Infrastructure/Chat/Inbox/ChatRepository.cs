@@ -88,7 +88,7 @@ public class ChatRepository
     /// <param name="chiChuaDoc">Chỉ hội thoại khách nhắn sau lần mình mở gần nhất.</param>
     public async Task<List<ChatConversation>> ListConversationsAsync(string tenant, short? trangThai,
         string? chiCuaToi, string? timKiem, short? kenh = null, string? giaoCho = null,
-        bool chiChuaDoc = false, int limit = 60, CancellationToken ct = default)
+        bool chiChuaDoc = false, ConvCursor? sau = null, int limit = 60, CancellationToken ct = default)
     {
         await using var c = await _db.OpenAsync(ct);
         return (await c.QueryAsync<ChatConversation>("""
@@ -105,10 +105,13 @@ public class ChatRepository
                    AND (v.agent_last_read_at IS NULL OR v.contact_replied_at > v.agent_last_read_at)))
               AND (@tim IS NULL OR ct.display_name ILIKE @tim OR v.last_preview ILIKE @tim
                    OR v.contact_external_id ILIKE @tim)
-            ORDER BY v.last_activity_at DESC
+              AND (@sauLuc::timestamptz IS NULL
+                   OR (v.last_activity_at, v.id) < (@sauLuc::timestamptz, @sauId::bigint))
+            ORDER BY v.last_activity_at DESC, v.id DESC
             LIMIT @limit
             """, new { tenant, trangThai, chiCuaToi, kenh, giaoCho, chuaDoc = chiChuaDoc,
                        tim = string.IsNullOrWhiteSpace(timKiem) ? null : $"%{timKiem.Trim()}%",
+                       sauLuc = sau?.LastActivityAt, sauId = sau?.Id,
                        limit = Math.Clamp(limit, 1, 200) })).ToList();
     }
 

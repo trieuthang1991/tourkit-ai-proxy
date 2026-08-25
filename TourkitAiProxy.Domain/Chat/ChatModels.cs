@@ -117,3 +117,37 @@ public class ChatMessage
     public string? ErrorMessage { get; set; }
     public DateTime CreatedUtc { get; set; }
 }
+
+/// <summary>Vị trí đọc tiếp trong danh sách hội thoại (sắp theo <c>last_activity_at DESC, id DESC</c>).</summary>
+/// <param name="Id">BẮT BUỘC có, không chỉ mốc thời gian: hai hội thoại hoàn toàn có thể cùng
+/// <c>last_activity_at</c> tới từng micro giây (hai webhook xử lý song song). Chỉ so thời gian thì
+/// hoặc lặp một dòng, hoặc mất một dòng — và người dùng không bao giờ báo lại được lỗi kiểu đó.</param>
+public record ConvCursor(DateTime LastActivityAt, long Id);
+
+/// <summary>
+/// Mã hoá con trỏ thành chuỗi đi trên URL. Hàm thuần — đây là chỗ có test thật.
+/// </summary>
+public static class ChatCursor
+{
+    public static string Ma(ConvCursor c)
+        => Convert.ToBase64String(System.Text.Encoding.UTF8.GetBytes(
+               $"{c.LastActivityAt.Ticks}|{c.Id}"))
+           .TrimEnd('=').Replace('+', '-').Replace('/', '_');   // base64url — đi trên URL không phải escape
+
+    /// <summary>Mã hỏng → <c>null</c>, KHÔNG ném: con trỏ nằm trên URL nên người dùng sửa tay được,
+    /// và mã cũ từ bản trước vẫn có thể còn trong lịch sử trình duyệt. Ném là cả trang trắng.</summary>
+    public static ConvCursor? Giai(string? s)
+    {
+        if (string.IsNullOrWhiteSpace(s)) return null;
+        try
+        {
+            var b = s.Replace('-', '+').Replace('_', '/');
+            b = b.PadRight(b.Length + (4 - b.Length % 4) % 4, '=');
+            var phan = System.Text.Encoding.UTF8.GetString(Convert.FromBase64String(b)).Split('|');
+            if (phan.Length != 2) return null;
+            if (!long.TryParse(phan[0], out var ticks) || !long.TryParse(phan[1], out var id)) return null;
+            return new(new DateTime(ticks, DateTimeKind.Utc), id);
+        }
+        catch { return null; }
+    }
+}

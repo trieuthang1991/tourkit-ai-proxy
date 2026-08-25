@@ -8982,6 +8982,13 @@ n
 .ci-tomtat { font-size: 11.5px; color: var(--text-3); }
 
 .ci-ds { flex: 1; overflow-y: auto; min-height: 0; }
+/* Nút tải trang hội thoại tiếp theo (phân trang con trỏ). */
+.ci-taithem { width: 100%; padding: 10px; margin: 6px 0 2px; border: 1px dashed var(--vien, #d6dae2);
+  border-radius: 8px; background: transparent; color: var(--chu-nhat, #5a6474); cursor: pointer;
+  font-size: 13px; }
+.ci-taithem:hover:not(:disabled) { background: var(--nen-nhat, #f4f6f9); }
+.ci-taithem:disabled { opacity: .6; cursor: default; }
+
 .ci-muc { display: grid; grid-template-columns: 36px minmax(0, 1fr); gap: 10px; width: 100%;
           text-align: left; padding: 10px; border: 0; border-bottom: 1px solid var(--border);
           background: transparent; cursor: pointer; font-family: inherit; }
