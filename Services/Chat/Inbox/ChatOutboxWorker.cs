@@ -111,6 +111,10 @@ public class ChatOutboxWorker : BackgroundService
         {
             await repo.FinishOutboxAsync(r.Id, true, false, null, ct);
             await repo.SetMessageStateAsync(r.TenantId, r.MessageId, ChatState.DaGui, null, ct);
+            // Mã tin của nền tảng — thứ duy nhất đối chiếu được khi nó báo lại "đã nhận"/"đã xem".
+            // Telegram không bao giờ báo lại (Bot API không có), nhưng vẫn lưu: rẻ, và khi cần truy
+            // vết một tin cụ thể trên nền tảng thì đúng cái mã này là thứ dán vào công cụ của họ.
+            await repo.LuuMaTinDaGuiAsync(r.TenantId, r.MessageId, kq.ExternalMsgId, ct);
             return;
         }
 

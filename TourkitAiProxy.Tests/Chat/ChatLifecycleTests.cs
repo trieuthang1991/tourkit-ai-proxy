@@ -39,4 +39,25 @@ public class ChatLifecycleTests
     [Fact]
     public void Tin_dang_cho_thi_hong_duoc()
         => Assert.True(ChatRules.KhongLui(ChatState.Cho, ChatState.Hong));
+
+    [Fact]
+    public void Worker_gui_xong_phai_luu_ma_tin_cua_nen_tang()
+    {
+        // Không có CI chạy PostgreSQL nên canh ở mức mã nguồn. Mã tin nền tảng là thứ DUY NHẤT
+        // đối chiếu được khi nền tảng báo lại — vứt đi là cả vòng đời tin vô nghĩa.
+        var src = ChatSchemaGuardTests.DocFile("Services/Chat/Inbox/ChatOutboxWorker.cs");
+        Assert.Contains("LuuMaTinDaGuiAsync", src);
+        Assert.Contains("kq.ExternalMsgId", src);
+    }
+
+    [Fact]
+    public void Ghi_ma_tin_la_lenh_rieng_khong_gop_vao_doi_trang_thai()
+    {
+        // Gộp thì mỗi lần đổi trạng thái về sau phải nhớ truyền kèm mã; quên là xoá mất mã bằng null.
+        var repo = ChatSchemaGuardTests.DocFile("Services/Chat/Inbox/ChatRepository.cs");
+        Assert.Contains("public async Task LuuMaTinDaGuiAsync", repo);
+        Assert.DoesNotContain(
+            "SetMessageStateAsync(string tenant, long messageId, ChatState tt, string? loi, string? maNenTang",
+            repo);
+    }
 }

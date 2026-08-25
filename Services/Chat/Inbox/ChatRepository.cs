@@ -296,6 +296,29 @@ public class ChatRepository
             """, new { id = messageId, tenant, tt = (short)tt, loi });
     }
 
+    /// <summary>
+    /// Ghi mã tin của nền tảng cho tin MÌNH GỬI, sau khi gửi thành công.
+    ///
+    /// <para>Đây là thứ duy nhất đối chiếu được khi nền tảng báo lại "đã nhận"/"đã xem".
+    /// Không lưu thì mọi báo lại đều không biết là của tin nào.</para>
+    ///
+    /// <para><b>Lệnh RIÊNG, cố ý không gộp vào <see cref="SetMessageStateAsync"/></b>: trạng thái
+    /// đổi nhiều lần trong đời một tin (gửi → nhận → xem), còn mã nền tảng chỉ ghi đúng một lần.
+    /// Gộp lại thì lần cập nhật trạng thái nào quên truyền mã sẽ xoá mất mã bằng <c>null</c>.</para>
+    /// </summary>
+    public async Task LuuMaTinDaGuiAsync(string tenant, long messageId, string? maNenTang,
+        CancellationToken ct = default)
+    {
+        if (string.IsNullOrWhiteSpace(maNenTang)) return;   // kênh không trả mã — không có gì để ghi
+        await using var c = await _db.OpenAsync(ct);
+        // external_msg_id IS NULL để không đè lên mã đã ghi — gửi lại sau lỗi tạm thời có thể
+        // chạy hàm này hai lần.
+        await c.ExecuteAsync("""
+            UPDATE chat_messages SET external_msg_id = @ma
+             WHERE id = @id AND tenant_id = @tenant AND external_msg_id IS NULL
+            """, new { id = messageId, tenant, ma = maNenTang });
+    }
+
     // ── Hàng đợi gửi ────────────────────────────────────────────────────────
 
     public async Task EnqueueOutboxAsync(string tenant, long conversationId, long messageId,
