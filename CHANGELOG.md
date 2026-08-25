@@ -13,6 +13,22 @@ Những cập nhật gần đây của TRAV-AI, viết cho người dùng. Mới
 
 ---
 
+## Phiên bản 25/08/2026 — Biết khách đã nhận và đã đọc tin chưa
+
+### ✨ Tính năng mới
+- **Dấu tích cho biết tin đã tới đâu.** Tin bạn gửi cho khách nay hiện rõ: một dấu là đã gửi đi,
+  hai dấu là đã tới máy khách, hai dấu đậm là khách đã mở đọc. Trước đây mọi tin đều dừng ở một
+  dấu nên không biết khách đã thấy chưa.
+- Áp dụng cho **Zalo** (báo khi khách đã đọc) và **Facebook Messenger** (báo cả hai mức).
+  **Telegram** không cung cấp thông tin này nên tin gửi qua Telegram chỉ hiện "đã gửi" — di chuột
+  lên dấu tích sẽ thấy giải thích, đây không phải lỗi.
+
+### 📌 Lưu ý
+- Dấu tích chỉ chạy **tiến**, không lùi. Nếu nền tảng báo tin về muộn hơn thứ tự thật, hệ thống
+  giữ mức cao nhất đã biết thay vì hạ xuống — nên bạn sẽ không thấy tin "đang đọc rồi lại chưa đọc".
+
+---
+
 ## Phiên bản 25/08/2026 — Hộp thư chat: không sót tin, trả lời nhanh bằng /lệnh
 
 ### ✨ Tính năng mới

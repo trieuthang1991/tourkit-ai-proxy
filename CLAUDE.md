@@ -471,6 +471,36 @@ không dừng bật bộ gõ để ra `/giá`. Chỉ gợi ý khi `/` đứng đ
 `lower(trigger)`, nên `ON CONFLICT` phải ghi đúng biểu thức đó — lệch là lỗi lúc CHẠY, có test đối
 chiếu hai chỗ.
 
+**Vòng đời tin gửi đi:** `chờ → đã gửi → đã nhận → đã xem`, cập nhật qua
+[`ChatRepository.MarkStateWatermarkAsync`](Services/Chat/Inbox/ChatRepository.cs) và **chỉ tiến,
+không lùi** ([`ChatRules.KhongLui`](Services/Chat/Inbox/ChatRules.cs), có test) — nền tảng không bảo
+đảm thứ tự webhook, "đã nhận" hoàn toàn có thể tới sau "đã xem", ghi đè mù thì dấu tích chạy ngược
+trước mắt nhân viên. Mã tin của nền tảng lưu vào `chat_messages.external_msg_id` ngay khi gửi được
+([`SetExternalMsgIdAsync`](Services/Chat/Inbox/ChatRepository.cs)) — thứ **duy nhất** đối chiếu được
+khi nền tảng báo lại.
+
+⚠️ **Ba kênh báo lại khác nhau, đừng áp một luật:** Zalo `user_seen_message` (chỉ "đã xem") ·
+Messenger `delivery` + `read` (đủ hai mức, theo **mốc nước** — mọi tin trước thời điểm đó; dùng
+`watermark` chứ không `mids` vì gói `read` không có `mids`) · **Telegram KHÔNG báo gì cả** — Bot API
+không có, nên tin Telegram dừng ở "đã gửi" vĩnh viễn và **đó là đúng**. Đừng "sửa" bằng cách tự nhảy
+trạng thái khi gửi xong: như thế là nói dối nhân viên rằng khách đã nhận trong khi mình không biết.
+Giao diện nói rõ ở tooltip dấu tích.
+
+⚠️ **Mốc nước quét theo `created_utc` nên phải loại tin CÒN TRONG HÀNG ĐỢI** (`state > 0`). Nhân viên
+bấm gửi lúc 10:00:00 (tin vào hàng đợi), worker gửi lúc 10:00:03 vì nhịp 5 giây; khách đọc một tin CŨ
+lúc 10:00:01 → mốc 10:00:01 quét trúng luôn tin vừa tạo còn chưa rời khỏi hệ thống. Để lọt thì nhân
+viên thấy "khách đã xem" một tin khách chưa hề nhận, rồi worker gửi xong lại đặt về "đã gửi" — dấu
+tích chạy ngược. Chặn ở **cả** luật thuần lẫn SQL, vì cập nhật hàng loạt không đọc từng dòng ra hỏi
+luật được.
+
+**Tên định danh trong cụm chat KHÔNG đồng nhất, và đó là chuyện đã rồi:**
+[`ChatRules`](Services/Chat/Inbox/ChatRules.cs) đặt tên tiếng Việt (`TinhCuaSo`, `GhepCum`, `TomTat`,
+`KhongLui`), còn [`ChatRepository`](Services/Chat/Inbox/ChatRepository.cs) và
+[`ChatModels`](Services/Chat/Inbox/ChatModels.cs) đặt tiếng Anh. **Theo file mình đang sửa**, đừng
+theo cụm — thêm một tên tiếng Việt vào `ChatRepository` là tạo ngoại lệ giữa 26 tên tiếng Anh (đã
+xảy ra một lần, phải đổi lại). Quy ước ở mục Conventions chỉ nói tiếng Việt cho **chữ hiển thị, log,
+chú thích** — không nói gì về tên định danh.
+
 **Sáu luật sai-là-hỏng**, tách thuần ở [`ChatRules`](Services/Chat/Inbox/ChatRules.cs), có test:
 1. **Cửa sổ gửi** — Zalo 48h / Messenger 24h kể từ tin cuối CỦA KHÁCH. **Chưa có tin nào của khách =
    ĐÓNG**, không phải mở. Hết cửa sổ thì khoá ô soạn kèm lý do, đừng để gọi API rồi mới biết.
@@ -482,6 +512,7 @@ chiếu hai chỗ.
    tốn gấp mấy lần lượt AI.
 5. **Webhook trả 200 NGAY** rồi xử lý nền — Zalo gửi lại khi không thấy 200, mà xử lý có gọi AI.
    "Nền" ở đây là **hàng đợi trong CSDL**, không phải `Task.Run` (xem cảnh báo ở mục Đường đi).
+   ⚠️ Luật thứ bảy nằm ở mục "Vòng đời tin gửi đi" bên trên: **trạng thái chỉ tiến, không lùi**.
 6. **Tiếng vọng `oa_send_*`** — nhân viên trả lời từ chính app Zalo OA thì mình chỉ biết qua đây. Bỏ
    nhóm này thì hộp thư thiếu nửa cuộc trò chuyện VÀ bot nói đè lên người thật.
 
