@@ -142,7 +142,7 @@ public class MessengerChatAdapter : IChatChannelAdapter
                     {
                         var mocLuc = DateTimeOffset.FromUnixTimeMilliseconds(wms).UtcDateTime;
                         ra.Add(new(ChatChannel.Messenger, uidM!, null, ChatKind.Chu, null, null,
-                            mocLuc, Moc: new(trangThai, mocLuc)));
+                            mocLuc, Watermark: new(trangThai, mocLuc)));
                     }
                     continue;
                 }

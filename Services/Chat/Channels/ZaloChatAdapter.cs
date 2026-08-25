@@ -157,7 +157,7 @@ public class ZaloChatAdapter : IChatChannelAdapter
             var uid0 = goc["sender"]?["id"]?.ToString();
             if (!string.IsNullOrWhiteSpace(uid0))
                 ra.Add(new(ChatChannel.Zalo, uid0!, null, ChatKind.Chu, null, null, luc,
-                    Moc: new(ChatState.DaXem, luc)));
+                    Watermark: new(ChatState.DaXem, luc)));
             return ra;
         }
 

@@ -61,8 +61,8 @@ public class ChatLifecycleTests
         // Luật trên phải được chặn CẢ trong SQL: cập nhật hàng loạt không đọc từng dòng ra để hỏi
         // ChatRules được.
         var repo = ChatSchemaGuardTests.DocFile("Services/Chat/Inbox/ChatRepository.cs");
-        var i = repo.IndexOf("DanhDauMocAsync", StringComparison.Ordinal);
-        Assert.True(i > 0, "chưa có DanhDauMocAsync");
+        var i = repo.IndexOf("MarkStateWatermarkAsync", StringComparison.Ordinal);
+        Assert.True(i > 0, "chưa có MarkStateWatermarkAsync");
         var than = repo.Substring(i, Math.Min(900, repo.Length - i));
         Assert.Contains("state > 0", than);
     }
@@ -73,7 +73,7 @@ public class ChatLifecycleTests
         // Không có CI chạy PostgreSQL nên canh ở mức mã nguồn. Mã tin nền tảng là thứ DUY NHẤT
         // đối chiếu được khi nền tảng báo lại — vứt đi là cả vòng đời tin vô nghĩa.
         var src = ChatSchemaGuardTests.DocFile("Services/Chat/Inbox/ChatOutboxWorker.cs");
-        Assert.Contains("LuuMaTinDaGuiAsync", src);
+        Assert.Contains("SetExternalMsgIdAsync", src);
         Assert.Contains("kq.ExternalMsgId", src);
     }
 
@@ -82,7 +82,7 @@ public class ChatLifecycleTests
     {
         // Gộp thì mỗi lần đổi trạng thái về sau phải nhớ truyền kèm mã; quên là xoá mất mã bằng null.
         var repo = ChatSchemaGuardTests.DocFile("Services/Chat/Inbox/ChatRepository.cs");
-        Assert.Contains("public async Task LuuMaTinDaGuiAsync", repo);
+        Assert.Contains("public async Task SetExternalMsgIdAsync", repo);
         Assert.DoesNotContain(
             "SetMessageStateAsync(string tenant, long messageId, ChatState tt, string? loi, string? maNenTang",
             repo);
@@ -94,7 +94,7 @@ public class ChatLifecycleTests
         var adapter = ChatSchemaGuardTests.DocFile("Services/Chat/Channels/ZaloChatAdapter.cs");
         // Mốc phải mang THỜI ĐIỂM: nền tảng báo kiểu "mọi tin trước lúc này đã đọc". Không có mốc
         // thì hoặc đánh dấu cả hội thoại (sai), hoặc không đánh dấu gì.
-        Assert.Contains("Moc: new(ChatState.DaXem", adapter);
+        Assert.Contains("Watermark: new(ChatState.DaXem", adapter);
         Assert.DoesNotContain("SeenMarker", adapter);
     }
 
@@ -103,7 +103,7 @@ public class ChatLifecycleTests
     {
         // Trước đây: `if (e.SeenMarker is not null) return;` — bóc ra rồi bỏ.
         var svc = ChatSchemaGuardTests.DocFile("Services/Chat/Inbox/ChatInboundService.cs");
-        Assert.Contains("DanhDauMocAsync", svc);
+        Assert.Contains("MarkStateWatermarkAsync", svc);
         Assert.DoesNotContain("SeenMarker", svc);
     }
 
@@ -113,8 +113,8 @@ public class ChatLifecycleTests
         // "Khách đã xem" nói về tin CỦA MÌNH. Quên kẹp direction thì tin của chính khách cũng bị
         // đánh dấu, vô nghĩa và làm hỏng bộ đếm chưa đọc.
         var repo = ChatSchemaGuardTests.DocFile("Services/Chat/Inbox/ChatRepository.cs");
-        var i = repo.IndexOf("DanhDauMocAsync", StringComparison.Ordinal);
-        Assert.True(i > 0, "chưa có DanhDauMocAsync");
+        var i = repo.IndexOf("MarkStateWatermarkAsync", StringComparison.Ordinal);
+        Assert.True(i > 0, "chưa có MarkStateWatermarkAsync");
         var than = repo.Substring(i, Math.Min(900, repo.Length - i));
         Assert.Contains("direction = 1", than);
         Assert.Contains("created_utc <=", than);

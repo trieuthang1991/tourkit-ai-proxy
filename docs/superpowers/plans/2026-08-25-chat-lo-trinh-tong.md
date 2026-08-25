@@ -201,7 +201,7 @@ Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>"
 
 **Interfaces:**
 - Consumes: `SendResult(bool Ok, bool ThuLai, string? ExternalMsgId, string? Error)` — **cả ba adapter đã trả mã**: Zalo qua `TraVeSauKhiGuiAsync`, Telegram `o["result"]["message_id"]`, Messenger trong `GuiAsync`
-- Produces: `Task LuuMaTinDaGuiAsync(string tenant, long messageId, string? maNenTang, CancellationToken ct = default)`
+- Produces: `Task SetExternalMsgIdAsync(string tenant, long messageId, string? maNenTang, CancellationToken ct = default)`
 
 > **Đây là gốc của cả đợt.** Nền tảng báo "đã nhận/đã xem" bằng **mã tin của nó**. Không lưu mã thì không có gì đối chiếu, Task 3.3 và 3.4 đều vô nghĩa. Cột `external_msg_id` đã có sẵn trong `chat_messages` (đang dùng cho tin ĐẾN để chống trùng); đợt này dùng nốt cho tin ĐI — **không cần đổi schema**.
 
@@ -218,7 +218,7 @@ Thêm vào `ChatLifecycleTests.cs`:
         // Không có CI chạy PostgreSQL nên canh ở mức mã nguồn. Mã tin nền tảng là thứ DUY NHẤT
         // đối chiếu được khi nền tảng báo lại — vứt đi là cả vòng đời tin vô nghĩa.
         var src = ChatSchemaGuardTests.DocFile("Services/Chat/Inbox/ChatOutboxWorker.cs");
-        Assert.Contains("LuuMaTinDaGuiAsync", src);
+        Assert.Contains("SetExternalMsgIdAsync", src);
         Assert.Contains("kq.ExternalMsgId", src);
     }
 
@@ -226,7 +226,7 @@ Thêm vào `ChatLifecycleTests.cs`:
     public void Ghi_ma_tin_la_lenh_rieng_khong_gop_vao_doi_trang_thai()
     {
         var repo = ChatSchemaGuardTests.DocFile("Services/Chat/Inbox/ChatRepository.cs");
-        Assert.Contains("public async Task LuuMaTinDaGuiAsync", repo);
+        Assert.Contains("public async Task SetExternalMsgIdAsync", repo);
         Assert.DoesNotContain(
             "SetMessageStateAsync(string tenant, long messageId, ChatState tt, string? loi, string? maNenTang",
             repo);
@@ -256,7 +256,7 @@ Mong đợi: **FAIL 2**.
     /// đổi nhiều lần trong đời một tin, còn mã nền tảng chỉ ghi đúng một lần. Gộp lại thì lần cập
     /// nhật trạng thái nào quên truyền mã sẽ xoá mất mã bằng <c>null</c>.</para>
     /// </summary>
-    public async Task LuuMaTinDaGuiAsync(string tenant, long messageId, string? maNenTang,
+    public async Task SetExternalMsgIdAsync(string tenant, long messageId, string? maNenTang,
         CancellationToken ct = default)
     {
         if (string.IsNullOrWhiteSpace(maNenTang)) return;   // kênh không trả mã — không có gì để ghi
@@ -293,7 +293,7 @@ bằng:
             // Mã tin của nền tảng — thứ duy nhất đối chiếu được khi nó báo lại "đã nhận"/"đã xem".
             // Telegram không bao giờ báo lại (Bot API không có), nhưng vẫn lưu: rẻ, và khi cần truy
             // vết một tin cụ thể trên nền tảng thì đúng cái mã này là thứ dán vào công cụ của họ.
-            await repo.LuuMaTinDaGuiAsync(r.TenantId, r.MessageId, kq.ExternalMsgId, ct);
+            await repo.SetExternalMsgIdAsync(r.TenantId, r.MessageId, kq.ExternalMsgId, ct);
             return;
         }
 ```
@@ -340,9 +340,9 @@ Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>"
 **Interfaces:**
 - Consumes: `ChatRules.KhongLui` (Task 3.1), `ChatState`
 - Produces:
-  - `public record MocTrangThai(ChatState TrangThai, DateTime DenLuc)` trong `ChatModels.cs`
-  - `InboundChatEvent` thêm `MocTrangThai? Moc = null`, **bỏ** `string? SeenMarker`
-  - `Task<int> DanhDauMocAsync(string tenant, long conversationId, ChatState moi, DateTime denLuc, CancellationToken ct = default)` — trả số dòng đã đổi
+  - `public record StateWatermark(ChatState TrangThai, DateTime DenLuc)` trong `ChatModels.cs`
+  - `InboundChatEvent` thêm `StateWatermark? Moc = null`, **bỏ** `string? SeenMarker`
+  - `Task<int> MarkStateWatermarkAsync(string tenant, long conversationId, ChatState moi, DateTime denLuc, CancellationToken ct = default)` — trả số dòng đã đổi
 
 > **Vì sao đổi kiểu chứ không thêm cờ thứ hai.** `SeenMarker` là `string?` mang đúng giá trị `"seen"`: chỉ nói được "đã xem", không nói được "đã nhận", và **không mang thời điểm**. Mà cả Messenger lẫn Zalo đều báo theo **mốc nước**: "mọi tin gửi TRƯỚC thời điểm này đã đọc". Thiếu mốc thì hoặc đánh dấu cả hội thoại (sai — tin gửi sau đó cũng bị coi là đã xem), hoặc không đánh dấu gì.
 
@@ -365,7 +365,7 @@ Thêm vào `ChatLifecycleTests.cs`:
         var adapter = ChatSchemaGuardTests.DocFile("Services/Chat/Channels/ZaloChatAdapter.cs");
         // Mốc phải mang THỜI ĐIỂM: nền tảng báo kiểu "mọi tin trước lúc này đã đọc". Không có mốc
         // thì hoặc đánh dấu cả hội thoại (sai), hoặc không đánh dấu gì.
-        Assert.Contains("Moc: new(ChatState.DaXem", adapter);
+        Assert.Contains("Watermark: new(ChatState.DaXem", adapter);
         Assert.DoesNotContain("SeenMarker", adapter);
     }
 
@@ -374,7 +374,7 @@ Thêm vào `ChatLifecycleTests.cs`:
     {
         // Trước đây: `if (e.SeenMarker is not null) return;` — bóc ra rồi bỏ.
         var svc = ChatSchemaGuardTests.DocFile("Services/Chat/Inbox/ChatInboundService.cs");
-        Assert.Contains("DanhDauMocAsync", svc);
+        Assert.Contains("MarkStateWatermarkAsync", svc);
         Assert.DoesNotContain("SeenMarker", svc);
     }
 
@@ -384,8 +384,8 @@ Thêm vào `ChatLifecycleTests.cs`:
         // "Khách đã xem" nói về tin CỦA MÌNH. Quên kẹp direction thì tin của chính khách cũng bị
         // đánh dấu, vô nghĩa và làm hỏng bộ đếm chưa đọc.
         var repo = ChatSchemaGuardTests.DocFile("Services/Chat/Inbox/ChatRepository.cs");
-        var i = repo.IndexOf("DanhDauMocAsync", StringComparison.Ordinal);
-        Assert.True(i > 0, "chưa có DanhDauMocAsync");
+        var i = repo.IndexOf("MarkStateWatermarkAsync", StringComparison.Ordinal);
+        Assert.True(i > 0, "chưa có MarkStateWatermarkAsync");
         var than = repo.Substring(i, Math.Min(900, repo.Length - i));
         Assert.Contains("direction = 1", than);
         Assert.Contains("created_utc <=", than);
@@ -405,7 +405,7 @@ Mong đợi: **FAIL 3**.
 Thay dòng cuối record `InboundChatEvent` (`string? SeenMarker = null);`) bằng:
 
 ```csharp
-    MocTrangThai? Moc = null);
+    StateWatermark? Moc = null);
 
 /// <summary>
 /// Nền tảng báo lại trạng thái tin MÌNH đã gửi, theo kiểu <b>mốc nước</b>: mọi tin gửi trước
@@ -415,7 +415,7 @@ Thay dòng cuối record `InboundChatEvent` (`string? SeenMarker = null);`) bằ
 /// không nói được "đã nhận", và không mang thời điểm — mà thiếu thời điểm thì hoặc đánh dấu cả
 /// hội thoại (sai: tin gửi sau đó cũng bị coi là đã xem), hoặc không đánh dấu gì.</para>
 /// </summary>
-public record MocTrangThai(ChatState TrangThai, DateTime DenLuc);
+public record StateWatermark(ChatState TrangThai, DateTime DenLuc);
 ```
 
 Sửa luôn chú thích `<param name="IsEcho">` phía trên nếu nó nhắc tới `SeenMarker`.
@@ -432,12 +432,12 @@ bằng:
 
 ```csharp
                 ra.Add(new(ChatChannel.Zalo, uid0!, null, ChatKind.Chu, null, null, luc,
-                    Moc: new(ChatState.DaXem, luc)));
+                    Watermark: new(ChatState.DaXem, luc)));
 ```
 
-- [ ] **Bước 6: Thêm `DanhDauMocAsync`**
+- [ ] **Bước 6: Thêm `MarkStateWatermarkAsync`**
 
-`Services/Chat/Inbox/ChatRepository.cs`, NGAY SAU `LuuMaTinDaGuiAsync`:
+`Services/Chat/Inbox/ChatRepository.cs`, NGAY SAU `SetExternalMsgIdAsync`:
 
 ```csharp
     /// <summary>
@@ -452,7 +452,7 @@ bằng:
     /// loạt không đọc từng dòng ra được.</para>
     /// <para><b>Bỏ qua tin hỏng</b> (<c>state &lt;&gt; 4</c>): tin gửi hỏng thì không thể được xem.</para>
     /// </remarks>
-    public async Task<int> DanhDauMocAsync(string tenant, long conversationId, ChatState moi,
+    public async Task<int> MarkStateWatermarkAsync(string tenant, long conversationId, ChatState moi,
         DateTime denLuc, CancellationToken ct = default)
     {
         await using var c = await _db.OpenAsync(ct);
@@ -482,11 +482,11 @@ bằng:
         // Nền tảng báo trạng thái tin MÌNH đã gửi — không phải tin mới, xử lý xong là về.
         // Trước đây chỗ này bóc ra rồi BỎ, nên tin gửi đi dừng mãi ở "đã gửi" dù giao diện đã vẽ
         // sẵn dấu tích hai mức.
-        if (e.Moc is { } moc)
+        if (e.Watermark is { } moc)
         {
-            var soDong = await _repo.DanhDauMocAsync(tenantId, hoiThoai.Id, moc.TrangThai, moc.DenLuc, ct);
+            var soDong = await _repo.MarkStateWatermarkAsync(tenantId, hoiThoai.Id, moc.State, moc.UpToUtc, ct);
             _log.LogDebug("[chat] mốc {TT} tới {Luc:o} — đổi {N} tin, hội thoại {H}",
-                moc.TrangThai, moc.DenLuc, soDong, hoiThoai.Id);
+                moc.State, moc.UpToUtc, soDong, hoiThoai.Id);
             return;
         }
 ```
@@ -509,7 +509,7 @@ git commit -m "feat(chat): mốc 'khách đã xem' của Zalo cập nhật thậ
 Trước đây adapter bóc ra rồi ChatInboundService bỏ thẳng, nên tin gửi đi dừng
 mãi ở 'đã gửi' dù giao diện đã vẽ sẵn dấu tích hai mức.
 
-SeenMarker (chuỗi 'seen') đổi thành MocTrangThai có thời điểm: nền tảng báo theo
+SeenMarker (chuỗi 'seen') đổi thành StateWatermark có thời điểm: nền tảng báo theo
 kiểu mốc nước. Thiếu thời điểm thì hoặc đánh dấu cả hội thoại, hoặc không đánh
 dấu gì.
 
@@ -526,7 +526,7 @@ Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>"
 - Test: `TourkitAiProxy.Tests/Chat/ChatLifecycleTests.cs`
 
 **Interfaces:**
-- Consumes: `MocTrangThai` (Task 3.3)
+- Consumes: `StateWatermark` (Task 3.3)
 - Produces: `Parse` trả thêm sự kiện có `Moc`
 
 > **Hình dạng thật của webhook Meta.** Trong `entry[].messaging[]`, ngoài `message` còn có:
@@ -591,7 +591,7 @@ bằng:
                     {
                         var mocLuc = DateTimeOffset.FromUnixTimeMilliseconds(wms).UtcDateTime;
                         ra.Add(new(ChatChannel.Messenger, uidM!, null, ChatKind.Chu, null, null,
-                            mocLuc, Moc: new(trangThai, mocLuc)));
+                            mocLuc, Watermark: new(trangThai, mocLuc)));
                     }
                     continue;
                 }
@@ -790,7 +790,7 @@ Bơm `read` trước, `delivery` sau → trạng thái phải **giữ nguyên** 
 
 ```markdown
 **Vòng đời tin gửi đi:** `chờ → đã gửi → đã nhận → đã xem`, cập nhật qua
-[`ChatRepository.DanhDauMocAsync`](Services/Chat/Inbox/ChatRepository.cs) và **chỉ tiến, không lùi**
+[`ChatRepository.MarkStateWatermarkAsync`](Services/Chat/Inbox/ChatRepository.cs) và **chỉ tiến, không lùi**
 ([`ChatRules.KhongLui`](Services/Chat/Inbox/ChatRules.cs), có test) — nền tảng không bảo đảm thứ tự
 webhook, "đã nhận" hoàn toàn có thể tới sau "đã xem", ghi đè mù thì dấu tích chạy ngược trước mắt
 nhân viên. Mã tin của nền tảng lưu vào `chat_messages.external_msg_id` ngay khi gửi được — thứ duy
@@ -1180,7 +1180,7 @@ dotnet test TourkitAiProxy.Tests/TourkitAiProxy.Tests.csproj --filter "FullyQual
 - [ ] **Bước 6: Bắn sự kiện ở ba chỗ**
 
 - `ChatInboundService.MotSuKienAsync` — sau `TouchConversationAsync` (tin khách): `_bus.Bao(new(tenantId, hoiThoai.Id, "tin-moi", id.Value));`
-- `ChatInboundService` — sau `DanhDauMocAsync` (Task 3.3): `"doi-trang-thai"`
+- `ChatInboundService` — sau `MarkStateWatermarkAsync` (Task 3.3): `"doi-trang-thai"`
 - `ChatOutboxWorker.MotDongAsync` — sau `SetMessageStateAsync`: `"doi-trang-thai"`
 
 - [ ] **Bước 7: DI**

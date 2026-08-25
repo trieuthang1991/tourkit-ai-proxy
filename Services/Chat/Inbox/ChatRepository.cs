@@ -306,7 +306,7 @@ public class ChatRepository
     /// đổi nhiều lần trong đời một tin (gửi → nhận → xem), còn mã nền tảng chỉ ghi đúng một lần.
     /// Gộp lại thì lần cập nhật trạng thái nào quên truyền mã sẽ xoá mất mã bằng <c>null</c>.</para>
     /// </summary>
-    public async Task LuuMaTinDaGuiAsync(string tenant, long messageId, string? maNenTang,
+    public async Task SetExternalMsgIdAsync(string tenant, long messageId, string? maNenTang,
         CancellationToken ct = default)
     {
         if (string.IsNullOrWhiteSpace(maNenTang)) return;   // kênh không trả mã — không có gì để ghi
@@ -335,7 +335,7 @@ public class ChatRepository
     /// khoảng mốc nước và bị đánh dấu "đã xem". Nhân viên sẽ thấy khách đã xem một tin khách chưa hề
     /// nhận, rồi worker gửi xong lại đặt về "đã gửi" nên dấu tích còn chạy ngược nữa.</para>
     /// </remarks>
-    public async Task<int> DanhDauMocAsync(string tenant, long conversationId, ChatState moi,
+    public async Task<int> MarkStateWatermarkAsync(string tenant, long conversationId, ChatState moi,
         DateTime denLuc, CancellationToken ct = default)
     {
         await using var c = await _db.OpenAsync(ct);

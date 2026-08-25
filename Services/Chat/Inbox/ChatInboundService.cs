@@ -64,11 +64,11 @@ public class ChatInboundService
         // Nền tảng báo trạng thái tin MÌNH đã gửi — không phải tin mới, xử lý xong là về.
         // Trước đây chỗ này bóc ra rồi BỎ, nên tin gửi đi dừng mãi ở "đã gửi" dù giao diện đã vẽ
         // sẵn dấu tích hai mức.
-        if (e.Moc is { } moc)
+        if (e.Watermark is { } moc)
         {
-            var soDong = await _repo.DanhDauMocAsync(tenantId, hoiThoai.Id, moc.TrangThai, moc.DenLuc, ct);
+            var soDong = await _repo.MarkStateWatermarkAsync(tenantId, hoiThoai.Id, moc.State, moc.UpToUtc, ct);
             _log.LogDebug("[chat] mốc {TT} tới {Luc:o} — đổi {N} tin, hội thoại {H}",
-                moc.TrangThai, moc.DenLuc, soDong, hoiThoai.Id);
+                moc.State, moc.UpToUtc, soDong, hoiThoai.Id);
             return;
         }
 
