@@ -543,32 +543,34 @@ public static class ChatInboxEndpoints
     /// biết bot nào); Zalo/Messenger nhiều tài khoản chung một URL.</remarks>
     /// <param name="Type">"text" (điền sẵn lại được) · "secret" (KHÔNG bao giờ trả ra client) ·
     /// "note" (chỉ là dòng hướng dẫn, không phải ô nhập).</param>
-    private record ONhap(string Key, string Label, string Type = "text");
+    /// <param name="Hint">Chữ mờ trong ô — cho VÍ DỤ về định dạng, không lặp lại nhãn. Ô token
+    /// dài mà không có ví dụ thì người khai không biết mình dán đúng thứ chưa.</param>
+    private record ONhap(string Key, string Label, string Type = "text", string Hint = "");
 
     private static readonly (ChatChannel Kenh, string Ten, ONhap[] O, bool MoiTaiKhoanMotUrl)[] KhaiBao =
     {
         (ChatChannel.Zalo, "Zalo OA", new[]
         {
-            new ONhap("label",        "Tên gợi nhớ (vd: OA Hà Nội)"),
-            new ONhap("appId",        "App ID"),
-            new ONhap("secretKey",    "Secret Key", "secret"),
-            new ONhap("refreshToken", "Refresh Token (lấy sau bước cấp quyền OA)", "secret"),
+            new ONhap("label",        "Tên gợi nhớ", "text",   "OA Hà Nội"),
+            new ONhap("appId",        "App ID",      "text",   "1234567890123456789"),
+            new ONhap("secretKey",    "Secret Key",  "secret", "Lấy ở Zalo Developers → ứng dụng của bạn"),
+            new ONhap("refreshToken", "Refresh Token", "secret", "Lấy sau bước cấp quyền OA"),
             new ONhap("note",
                 "Đây là OA RIÊNG của chat, độc lập với OA khai cho bản tin sáng ở Tự động hoá.", "note"),
         }, false),
         (ChatChannel.Messenger, "Facebook Messenger", new[]
         {
-            new ONhap("label",           "Tên gợi nhớ (vd: Trang chi nhánh Q1)"),
-            new ONhap("pageId",          "ID Trang"),
-            new ONhap("pageAccessToken", "Page Access Token", "secret"),
-            new ONhap("appSecret",       "App Secret (để kiểm chữ ký)", "secret"),
-            new ONhap("verifyToken",     "Verify Token (bạn tự đặt, dán cả vào Meta)", "secret"),
+            new ONhap("label",           "Tên gợi nhớ", "text", "Trang chi nhánh Q1"),
+            new ONhap("pageId",          "ID Trang",    "text", "102938475610293"),
+            new ONhap("pageAccessToken", "Page Access Token", "secret", "EAAG… (lấy ở Meta for Developers)"),
+            new ONhap("appSecret",       "App Secret",  "secret", "Dùng để kiểm chữ ký webhook"),
+            new ONhap("verifyToken",     "Verify Token", "secret", "Bạn tự đặt, dán y hệt vào Meta"),
         }, false),
         (ChatChannel.Telegram, "Telegram", new[]
         {
-            new ONhap("label",         "Tên gợi nhớ (vd: Bot đội sale lẻ)"),
-            new ONhap("botToken",      "Bot token", "secret"),
-            new ONhap("webhookSecret", "Chuỗi bí mật webhook (bạn tự đặt, khai khi gọi setWebhook)", "secret"),
+            new ONhap("label",         "Tên gợi nhớ", "text", "Bot đội sale lẻ"),
+            new ONhap("botToken",      "Bot token",   "secret", "123456:ABC-DEF… (lấy từ @BotFather)"),
+            new ONhap("webhookSecret", "Chuỗi bí mật webhook", "secret", "Bạn tự đặt, khai khi gọi setWebhook"),
         }, true),
     };
 

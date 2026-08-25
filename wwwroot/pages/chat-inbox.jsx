@@ -299,6 +299,7 @@
     const [ds, setDs] = useState(null);
     const [dangLuu, setDangLuu] = useState(null);
     const [nhap, setNhap] = useState({});     // { "kenh:accountId" | "kenh:moi" -> {field: value} }
+    const [tab, setTab] = useState(0);        // số của kênh đang xem
 
     const taiLai = useCallback(async () => {
       try {
@@ -365,7 +366,7 @@
         <label className="ci-o">
           {truong.label}
           <input type={biMat ? 'password' : 'text'}
-                 placeholder={biMat && daKhai ? 'để trống = giữ nguyên' : ''}
+                 placeholder={biMat && daKhai ? 'để trống = giữ nguyên' : (truong.hint || '')}
                  value={giaTri}
                  onChange={e => dat(kenh, accId, truong.key, e.target.value)} />
         </label>
@@ -378,21 +379,31 @@
     );
     else if (!ds) than = <div className="ci-trong">Đang tải…</div>;
     else than = (
-      <div className="ci-khai-luoi">
-        {ds.map(k => (
-          <div key={k.channel} className="ci-kenh-the">
-            <div className="ci-kenh-ten">
-              <HuyHieuKenh kenh={k.channel} day />
+      <>
+        {/* Tab thay vì đổ cả ba kênh ra một màn hình. Mỗi lần người dùng chỉ khai MỘT kênh, mà
+            bày cả ba thì vừa phải cuộn vừa thêm một lớp viền bao quanh từng kênh. */}
+        <div className="ci-tab">
+          {ds.map(k => (
+            <button key={k.channel} className={'ci-tab-nut' + (tab === k.channel ? ' on' : '')}
+                    onClick={() => setTab(k.channel)}>
+              <HuyHieuKenh kenh={k.channel} />
               {k.name}
-              <span className="ci-so-tk">{k.accounts.length} tài khoản</span>
-            </div>
-
+              {k.accounts.length > 0 && <b>{k.accounts.length}</b>}
+            </button>
+          ))}
+        </div>
+        {ds.filter(k => k.channel === tab).map(k => (
+          <div key={k.channel} className="ci-tab-noi">
             {/* URL dùng CHUNG (Zalo/Messenger). Telegram để null vì mỗi bot một URL riêng. */}
             {k.webhookUrl && (
               <label className="ci-url">
                 Địa chỉ nhận tin (dán vào trang quản trị của kênh)
                 <input readOnly value={k.webhookUrl} onFocus={e => e.target.select()} />
               </label>
+            )}
+
+            {k.accounts.length === 0 && (
+              <div className="ci-trong">Chưa nối tài khoản nào cho kênh này.</div>
             )}
 
             {k.accounts.map(t => (
@@ -415,11 +426,11 @@
                          sanCo={t.values} />
                 ))}
                 <div className="ci-tk-nut">
-                  <button className="btn-primary" disabled={dangLuu === k.channel + ':' + t.accountId}
+                  <button className="ci-nut chinh" disabled={dangLuu === k.channel + ':' + t.accountId}
                           onClick={() => luu(k.channel, t.accountId)}>
                     {dangLuu === k.channel + ':' + t.accountId ? 'Đang lưu…' : 'Lưu'}
                   </button>
-                  <button className="ci-nut-xoa" onClick={() => xoa(k.channel, t.accountId, t.label)}>
+                  <button className="ci-nut nguyhiem" onClick={() => xoa(k.channel, t.accountId, t.label)}>
                     Gỡ kết nối
                   </button>
                 </div>
@@ -431,14 +442,14 @@
               {k.fields.map(f => (
                 <ONhap key={f.key} kenh={k.channel} accId={null} truong={f} daKhai={false} />
               ))}
-              <button className="btn-primary" disabled={dangLuu === k.channel + ':moi'}
+              <button className="ci-nut chinh" disabled={dangLuu === k.channel + ':moi'}
                       onClick={() => luu(k.channel, null)}>
-                {dangLuu === k.channel + ':moi' ? 'Đang thêm…' : 'Thêm'}
+                {dangLuu === k.channel + ':moi' ? 'Đang thêm…' : 'Thêm tài khoản'}
               </button>
             </details>
           </div>
         ))}
-      </div>
+      </>
     );
 
     return (
@@ -742,11 +753,11 @@
                       {v.assignedUsername ? ' · ' + v.assignedUsername : ''}</span>
                   </div>
                   <div className="ci-nut-nhom">
-                    <button onClick={nhanViec}>{v.assignedUsername ? 'Bỏ nhận' : 'Nhận việc'}</button>
-                    <button onClick={batTatBot}>{v.botPaused ? 'Cho bot nói lại' : 'Tạm dừng bot'}</button>
+                    <button className="ci-nut" onClick={nhanViec}>{v.assignedUsername ? 'Bỏ nhận' : 'Nhận việc'}</button>
+                    <button className="ci-nut" onClick={batTatBot}>{v.botPaused ? 'Cho bot nói lại' : 'Tạm dừng bot'}</button>
                     {v.status !== 2
-                      ? <button onClick={() => doiTrangThai(2)}>Đóng</button>
-                      : <button onClick={() => doiTrangThai(1)}>Mở lại</button>}
+                      ? <button className="ci-nut" onClick={() => doiTrangThai(2)}>Đóng</button>
+                      : <button className="ci-nut" onClick={() => doiTrangThai(1)}>Mở lại</button>}
                     <button className={'ci-nut-icon' + (moHoSo ? ' on' : '')}
                             onClick={() => setMoHoSo(x => !x)}
                             title={moHoSo ? 'Ẩn hồ sơ khách' : 'Xem hồ sơ khách'}

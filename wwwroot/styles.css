@@ -9021,12 +9021,29 @@ n
 .ci-chat-ten b { font-size: 14px; color: var(--text); overflow: hidden; text-overflow: ellipsis;
                  white-space: nowrap; }
 .ci-chat-ten span { font-size: 11.5px; color: var(--text-3); }
-.ci-nut-nhom { display: flex; gap: 6px; flex: none; }
-.ci-nut-nhom button { padding: 5px 10px; font-size: 12.5px; border: 1px solid var(--border);
-                      border-radius: 8px; background: var(--surface); cursor: pointer;
-                      color: var(--text-2); font-family: inherit; white-space: nowrap; }
-.ci-nut-nhom button:hover { background: var(--bg); border-color: var(--border-strong); }
-.ci-nut-icon { display: grid; place-items: center; width: 30px; padding: 0 !important; }
+/* MỘT hệ nút cho cả trang chat. Trước đó có bốn cỡ và ba kiểu lẫn lộn: nút hành động ở đầu
+   khung chat, nút Lưu cam đặc, nút Gỡ viền đỏ, nút Thêm nhỏ hơn hẳn. Cùng chiều cao, cùng bo
+   góc, khác nhau chỉ ở MỨC ĐỘ nhấn. */
+.ci-nut { display: inline-flex; align-items: center; justify-content: center; gap: 6px;
+          height: 34px; padding: 0 14px; border-radius: 8px; border: 1px solid var(--border);
+          background: var(--surface); color: var(--text-2); cursor: pointer;
+          font-family: inherit; font-size: 13px; font-weight: 500; white-space: nowrap; }
+.ci-nut:hover:not(:disabled) { background: var(--bg); border-color: var(--border-strong); }
+.ci-nut:active:not(:disabled) { transform: translateY(1px); }
+.ci-nut:disabled { opacity: .55; cursor: not-allowed; }
+/* Hành động chính — mỗi khối chỉ được có MỘT. */
+.ci-nut.chinh { background: var(--primary); border-color: var(--primary); color: #fff; font-weight: 600; }
+.ci-nut.chinh:hover:not(:disabled) { background: var(--primary-dark); border-color: var(--primary-dark); }
+/* Hành động phá huỷ — viền đỏ, KHÔNG nền đỏ đặc: nền đặc hút mắt ngang nút chính. */
+.ci-nut.nguyhiem { border-color: #FECACA; color: #991B1B; }
+.ci-nut.nguyhiem:hover:not(:disabled) { background: #FEF2F2; }
+
+.ci-nut-nhom { display: flex; gap: 6px; flex: none; align-items: center; }
+/* Nút chỉ có biểu tượng — vẫn cùng chiều cao 34px, chỉ hẹp lại thành ô vuông. */
+.ci-nut-icon { display: inline-grid; place-items: center; width: 34px; height: 34px; padding: 0;
+               border-radius: 8px; border: 1px solid var(--border); background: var(--surface);
+               color: var(--text-2); cursor: pointer; font-family: inherit; }
+.ci-nut-icon:hover { background: var(--bg); border-color: var(--border-strong); }
 .ci-nut-icon.on { border-color: var(--primary); background: var(--primary-soft);
                   color: var(--ci-cam-800); }
 
@@ -9183,6 +9200,10 @@ n
 /* Viền bàn phím thấy được ở mọi nút của trang. */
 .ci-wrap :is(button, input, textarea):focus-visible { outline: 2px solid var(--primary);
                                                       outline-offset: 2px; }
+/* Ô soạn: khung ngoài .ci-soan-o đã đổi màu viền khi focus, nên textarea bên trong KHÔNG được
+   vẽ thêm outline — hai viền lồng nhau trông như lỗi. Phải đặt SAU quy tắc focus-visible ở trên
+   vì hai bên cùng độ ưu tiên (0,2,1), cái viết sau thắng. */
+.ci-soan-o textarea:focus-visible { outline: none; }
 
 /* Đo theo bề rộng VÙNG NỘI DUNG, không theo bề rộng màn hình: menu bên trái ăn mất 240px và
    người dùng thu gọn được nó. Đo theo màn hình thì trên laptop 1280px cột chat bị bóp còn hơn
@@ -9216,14 +9237,20 @@ n
 .ci-modal-dau .ci-nut-icon { border: 1px solid var(--border); height: 28px; border-radius: 8px;
                              background: var(--surface); color: var(--text-2); cursor: pointer; }
 .ci-modal-than { padding: 14px 16px; overflow-y: auto; }
-/* Ba kênh nằm cạnh nhau: khai xong một kênh còn nhìn thấy hai kênh kia chưa khai. Xếp dọc thì
-   phải cuộn mới biết mình bỏ sót. */
-.ci-khai-luoi { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 12px;
-                align-items: start; }
-.ci-kenh-the { border: 1px solid var(--border); border-radius: 10px; padding: 10px 12px; }
-.ci-kenh-ten { font-weight: 600; margin-bottom: 8px; display: flex; align-items: center; gap: 8px;
-               font-size: 13.5px; }
-.ci-so-tk { margin-left: auto; font-size: 11.5px; font-weight: 400; color: var(--text-3); }
+/* Tab kênh. Bỏ hẳn .ci-kenh-the (thẻ bao quanh từng kênh) — với tab thì mỗi lúc chỉ có một
+   kênh trên màn hình, thẻ bao quanh chỉ còn là một lớp viền thừa. */
+.ci-tab { display: flex; gap: 4px; border-bottom: 1px solid var(--border); margin-bottom: 14px; }
+.ci-tab-nut { display: inline-flex; align-items: center; gap: 7px; padding: 9px 13px;
+              border: 0; border-bottom: 2px solid transparent; background: transparent;
+              cursor: pointer; font-family: inherit; font-size: 13.5px; color: var(--text-3);
+              margin-bottom: -1px; }
+.ci-tab-nut:hover { color: var(--text-2); }
+.ci-tab-nut.on { color: var(--text); font-weight: 600; border-bottom-color: var(--primary); }
+.ci-tab-nut.on .ci-hh { border-color: var(--primary); color: var(--ci-cam-800); }
+.ci-tab-nut b { background: var(--bg); border-radius: 999px; padding: 0 6px; font-size: 11px;
+                line-height: 17px; color: var(--text-3); }
+.ci-tab-nut.on b { background: var(--primary-soft); color: var(--ci-cam-800); }
+.ci-tab-noi { display: grid; gap: 2px; }
 
 /* Mỗi tài khoản một khối gập lại — một công ty có thể nối chục Trang/OA/bot, trải phẳng hết thì
    không tìm nổi cái cần sửa. */
@@ -9239,10 +9266,6 @@ n
 .ci-tk > :last-child { margin-bottom: 10px; }
 .ci-tk-moi > summary { background: var(--primary-soft); color: var(--ci-cam-800); }
 .ci-tk-nut { display: flex; gap: 8px; align-items: center; }
-.ci-nut-xoa { padding: 6px 11px; border: 1px solid #FECACA; border-radius: 8px;
-              background: var(--surface); color: #991B1B; cursor: pointer; font-size: 12.5px;
-              font-family: inherit; }
-.ci-nut-xoa:hover { background: #FEF2F2; }
 .ci-xong { font-size: 11px; background: #DCFCE7; color: #166534; border-radius: 6px; padding: 1px 6px; }
 .ci-chua { font-size: 11px; background: #FEF3C7; color: #92400E; border-radius: 6px; padding: 1px 6px; }
 .ci-o, .ci-url { display: block; font-size: 12.5px; color: var(--text-2); margin-bottom: 7px; }
