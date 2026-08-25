@@ -1,8 +1,8 @@
-using System.Collections.Concurrent;
+﻿using System.Collections.Concurrent;
 using System.Text;
 using System.Text.Json;
 using TourkitAiProxy.Models;
-using TourkitAiProxy.Services.Json;
+using TourkitAiProxy.Shared.Json;
 using TourkitAiProxy.Services.Providers;
 
 namespace TourkitAiProxy.Services.Visa;

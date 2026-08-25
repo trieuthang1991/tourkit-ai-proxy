@@ -1,4 +1,4 @@
-namespace TourkitAiProxy.Services.Mail;
+﻿namespace TourkitAiProxy.Domain.Mail;
 
 /// Nguồn duy nhất cho danh mục phân loại, trạng thái, ngữ điệu — nhãn tiếng Việt.
 /// Dùng cho cả prompt AI, validate endpoint, lẫn hiển thị.

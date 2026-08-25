@@ -1,6 +1,6 @@
 ﻿using System.Text.RegularExpressions;
 
-namespace TourkitAiProxy.Services.Html;
+namespace TourkitAiProxy.Shared.Text;
 
 /// <summary>
 /// Đổi chữ HTML thành chữ thuần. MỘT nguồn cho mọi chỗ cần đọc chữ do người nhập qua ô soạn thảo

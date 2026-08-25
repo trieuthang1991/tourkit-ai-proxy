@@ -1,5 +1,5 @@
-using System.Text.RegularExpressions;
-using TourkitAiProxy.Services.TextUtil;
+﻿using System.Text.RegularExpressions;
+using TourkitAiProxy.Shared.Text;
 
 namespace TourkitAiProxy.Services.TourPrices;
 

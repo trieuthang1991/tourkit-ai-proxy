@@ -1,7 +1,8 @@
-using Dapper;
+﻿using Dapper;
 using TourkitAiProxy.Services.Db;
 using TourkitAiProxy.Services.Digest;
 using TourkitAiProxy.Services.Mail;
+using TourkitAiProxy.Domain.Digest;
 
 namespace TourkitAiProxy.Services.Admin;
 

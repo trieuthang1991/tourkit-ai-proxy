@@ -1,6 +1,6 @@
 ﻿using System.Text.Json;
 using TourkitAiProxy.Services.Deals;
-using TourkitAiProxy.Services.Html;
+using TourkitAiProxy.Shared.Text;
 using TourkitAiProxy.Services.TourKit;
 using Xunit;
 

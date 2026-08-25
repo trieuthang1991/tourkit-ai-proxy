@@ -1,4 +1,4 @@
-using TourkitAiProxy.Services.TextUtil;
+﻿using TourkitAiProxy.Shared.Text;
 using Xunit;
 
 namespace TourkitAiProxy.Tests.TourPrices;

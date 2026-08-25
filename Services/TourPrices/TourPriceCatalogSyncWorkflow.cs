@@ -1,7 +1,7 @@
-using System.Diagnostics;
+﻿using System.Diagnostics;
 using System.Text.Json;
 using TourkitAiProxy.Models;
-using TourkitAiProxy.Services.TextUtil;
+using TourkitAiProxy.Shared.Text;
 using TourkitAiProxy.Services.TourKit;
 using TourkitAiProxy.Services.Workflows;
 

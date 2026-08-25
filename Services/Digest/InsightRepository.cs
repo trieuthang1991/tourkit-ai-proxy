@@ -1,5 +1,6 @@
-using Dapper;
+﻿using Dapper;
 using TourkitAiProxy.Services.Db;
+using TourkitAiProxy.Domain.Digest;
 
 namespace TourkitAiProxy.Services.Digest;
 

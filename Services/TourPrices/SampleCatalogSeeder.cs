@@ -1,7 +1,7 @@
-using System.Text.Json;
+﻿using System.Text.Json;
 using Microsoft.Extensions.Hosting;
 using TourkitAiProxy.Models;
-using TourkitAiProxy.Services.TextUtil;
+using TourkitAiProxy.Shared.Text;
 
 namespace TourkitAiProxy.Services.TourPrices;
 

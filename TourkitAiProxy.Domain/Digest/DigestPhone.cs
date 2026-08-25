@@ -1,4 +1,4 @@
-namespace TourkitAiProxy.Services.Digest;
+﻿namespace TourkitAiProxy.Domain.Digest;
 
 /// <summary>
 /// Số điện thoại nhận bản tin qua Zalo (ZNS nhắn theo SỐ, không phải theo Zalo user id).

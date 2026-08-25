@@ -1,9 +1,9 @@
-using System.Security.Cryptography;
+﻿using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
 using TourkitAiProxy.Models;
 using TourkitAiProxy.Services.Cache;
-using TourkitAiProxy.Services.Json;
+using TourkitAiProxy.Shared.Json;
 using TourkitAiProxy.Services.Providers;
 
 namespace TourkitAiProxy.Services.Workflows;

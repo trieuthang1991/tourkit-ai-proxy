@@ -1,5 +1,5 @@
-using TourkitAiProxy.Models;
-using TourkitAiProxy.Services.TextUtil;
+﻿using TourkitAiProxy.Models;
+using TourkitAiProxy.Shared.Text;
 using TourkitAiProxy.Services.TourKit;
 using TourkitAiProxy.Services.TourPrices;
 

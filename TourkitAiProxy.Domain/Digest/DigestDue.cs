@@ -1,4 +1,4 @@
-namespace TourkitAiProxy.Services.Digest;
+﻿namespace TourkitAiProxy.Domain.Digest;
 
 /// <summary>
 /// Chọn đăng ký "đến lúc chuẩn bị bản tin": từ mốc (giờ người chọn − cửa sổ chuẩn bị) trở đi, tính

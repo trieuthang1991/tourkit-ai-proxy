@@ -1,8 +1,9 @@
-using System.Text.Json;
+﻿using System.Text.Json;
 using TourkitAiProxy.Services.Digest;
 using TourkitAiProxy.Services.Mail;
 using TourkitAiProxy.Services.TourKit;
 using TourkitAiProxy.Services.Workflows;
+using TourkitAiProxy.Domain.Digest;
 
 namespace TourkitAiProxy.Endpoints;
 

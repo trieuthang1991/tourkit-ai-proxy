@@ -1,7 +1,7 @@
-using System.Globalization;
+﻿using System.Globalization;
 using System.Text;
 
-namespace TourkitAiProxy.Services.TextUtil;
+namespace TourkitAiProxy.Shared.Text;
 
 /// <summary>
 /// Chuẩn hóa tiếng Việt để so khớp: thường hóa + bỏ dấu + đ→d + gộp khoảng trắng.

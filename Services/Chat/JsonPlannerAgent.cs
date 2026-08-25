@@ -1,11 +1,11 @@
-// Services/Chat/JsonPlannerAgent.cs
+﻿// Services/Chat/JsonPlannerAgent.cs
 using System.Collections.Concurrent;
 using System.Globalization;
 using System.Text;
 using System.Text.Json;
 using System.Text.RegularExpressions;
 using TourkitAiProxy.Models;
-using TourkitAiProxy.Services.Json;
+using TourkitAiProxy.Shared.Json;
 using TourkitAiProxy.Services.Providers;
 using TourkitAiProxy.Services.TourKit;
 

@@ -6,6 +6,7 @@ using TourkitAiProxy.Services.Reviews.Agents;
 using TourkitAiProxy.Services.Storage;
 using TourkitAiProxy.Services.TourKit;
 using TourkitAiProxy.Services.Workflow;
+using TourkitAiProxy.Domain.Digest;
 
 namespace TourkitAiProxy.Services.Bootstrap;
 

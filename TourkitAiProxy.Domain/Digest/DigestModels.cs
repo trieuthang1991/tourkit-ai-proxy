@@ -1,4 +1,4 @@
-namespace TourkitAiProxy.Services.Digest;
+﻿namespace TourkitAiProxy.Domain.Digest;
 
 /// Loại bản tin (khớp WorkflowType của workflow tương ứng).
 public static class BriefTypes

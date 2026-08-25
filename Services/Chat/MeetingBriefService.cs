@@ -1,9 +1,10 @@
-using System.Globalization;
+﻿using System.Globalization;
 using System.Text;
 using TourkitAiProxy.Models;
 using TourkitAiProxy.Services.Mail;
 using TourkitAiProxy.Services.Providers;
 using TourkitAiProxy.Services.Reviews;
+using TourkitAiProxy.Domain.Mail;
 
 namespace TourkitAiProxy.Services.Chat;
 

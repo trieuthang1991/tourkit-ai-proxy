@@ -175,8 +175,8 @@ public static class MailMapper
         return bulkLocals.Any(b => local == b || local.StartsWith(b + "+") || local.StartsWith(b + "."));
     }
 
-    /// HTML → text SẠCH. Bản gốc của hàm này nay nằm ở <see cref="Services.Html.PlainText.FromHtml"/>
+    /// HTML → text SẠCH. Bản gốc của hàm này nay nằm ở <see cref="Shared.Text.PlainText.FromHtml"/>
     /// — cùng một việc còn cần cho ghi chú khách hàng và cơ hội bán hàng, giữ ba bản chép tay thì
     /// chúng lệch nhau (đã xảy ra: bản của khách hàng quên giải mã ký tự suốt nhiều tháng).
-    private static string HtmlToText(string html) => Services.Html.PlainText.FromHtml(html);
+    private static string HtmlToText(string html) => Shared.Text.PlainText.FromHtml(html);
 }

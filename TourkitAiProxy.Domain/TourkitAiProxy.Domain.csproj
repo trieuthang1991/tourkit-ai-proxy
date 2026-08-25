@@ -1,0 +1,30 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!-- ════════════════════════════════════════════════════════════════════════
+       LUẬT NGHIỆP VỤ TOURKIT — thuần, chạy được trong mili giây.
+
+       Vào được : luật quyết định đúng/sai mà KHÔNG cần CSDL, mạng hay thời gian thực
+                  (cửa sổ gửi của kênh, phân loại thư, mốc gửi bản tin, chuẩn hoá số…),
+                  và các kiểu dữ liệu nghiệp vụ.
+       KHÔNG vào: Dapper, HttpClient, ASP.NET, đọc file, gọi AI. Cần một trong số đó
+                  nghĩa là nó thuộc Application (điều phối) hoặc Infrastructure (cài đặt).
+
+       Vì sao TÁCH RIÊNG khỏi Application thay vì gộp thành "Core": hai thứ hỏng theo
+       hai kiểu khác nhau. Tầng này test được không cần dựng gì (ChatRules.KhongLui chạy
+       10 test trong 40ms). Application thì cần CSDL/mạng nên không test kiểu đó được.
+       Gộp lại là kéo phụ thuộc của phần không thuần sang phần thuần, mất luôn thứ quý
+       nhất: một tầng chạy được trong mili giây.
+       ════════════════════════════════════════════════════════════════════════ -->
+
+  <PropertyGroup>
+    <TargetFramework>net8.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <RootNamespace>TourkitAiProxy.Domain</RootNamespace>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\TourkitAiProxy.Shared\TourkitAiProxy.Shared.csproj" />
+  </ItemGroup>
+
+</Project>

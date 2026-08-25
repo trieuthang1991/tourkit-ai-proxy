@@ -1,0 +1,28 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!-- ════════════════════════════════════════════════════════════════════════
+       TIỆN ÍCH DÙNG CHUNG — KHÔNG biết gì về nghiệp vụ TourKit, KHÔNG chạm I/O.
+
+       ⚠️ LUẬT KẾT NẠP (đọc trước khi thêm file vào đây):
+       Vào được : xử lý chuỗi/ngày/JSON tổng quát — thứ bê sang dự án khác vẫn dùng được.
+       KHÔNG vào: bất cứ thứ gì nhắc tới tour, khách, chat, mail, deal, visa, bản tin…
+                  Đó là luật nghiệp vụ → thuộc TourkitAiProxy.Domain.
+
+       Vì sao phải viết luật này ra: đây CHÍNH XÁC là cách Services/ hỏng — không ai
+       quyết định biến nó thành thùng chứa, nó thành thùng chứa vì là chỗ mặc định và
+       không có tiêu chí từ chối. Một project tên "Shared" không có luật kết nạp sẽ đi
+       đúng con đường đó, chỉ nhanh hơn, vì cái tên đã mời gọi sẵn.
+
+       Nửa đầu luật do BIÊN DỊCH VIÊN ép: project này KHÔNG tham chiếu gì cả — thêm
+       PackageReference hay ProjectReference vào đây là đã phá ranh giới.
+       Nửa sau ("không biết nghiệp vụ") biên dịch viên không thấy → có test guard canh.
+       ════════════════════════════════════════════════════════════════════════ -->
+
+  <PropertyGroup>
+    <TargetFramework>net8.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <RootNamespace>TourkitAiProxy.Shared</RootNamespace>
+  </PropertyGroup>
+
+</Project>

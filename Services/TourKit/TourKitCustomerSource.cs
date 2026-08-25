@@ -1,7 +1,7 @@
 ﻿using System.Globalization;
 using System.Text.Json;
 using TourkitAiProxy.Models;
-using TourkitAiProxy.Services.Html;
+using TourkitAiProxy.Shared.Text;
 
 namespace TourkitAiProxy.Services.TourKit;
 

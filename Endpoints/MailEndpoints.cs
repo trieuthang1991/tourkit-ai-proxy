@@ -1,9 +1,10 @@
-using System.Text;
+﻿using System.Text;
 using System.Text.Json;
 using TourkitAiProxy.Models;
 using TourkitAiProxy.Services.Mail;
 using TourkitAiProxy.Services.TourKit;
 using MailSyncResult = TourkitAiProxy.Services.Mail.MailSyncResult;
+using TourkitAiProxy.Domain.Mail;
 
 namespace TourkitAiProxy.Endpoints;
 

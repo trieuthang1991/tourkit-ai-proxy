@@ -1,5 +1,6 @@
-using TourkitAiProxy.Services.Mail;
+﻿using TourkitAiProxy.Services.Mail;
 using Xunit;
+using TourkitAiProxy.Domain.Mail;
 
 namespace TourkitAiProxy.Tests;
 

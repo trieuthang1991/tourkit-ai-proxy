@@ -387,7 +387,7 @@ public class DealOpportunityClient
         => DateTime.TryParse(iso, CultureInfo.InvariantCulture, DateTimeStyles.None, out var d) ? d.ToString("dd/MM HH:mm") : iso;
     /// Ghi chú cơ hội do người nhập qua ô soạn thảo CRM. Bản cũ chỉ gỡ THẺ, để nguyên ký tự đã mã
     /// hoá → tiếng Việt tới AI ở dạng "kh&aacute;ch muốn đi Đ&agrave; Nẵng". Nay dùng chung PlainText.
-    internal static string StripHtml(string s) => Services.Html.PlainText.FromHtml(s);
+    internal static string StripHtml(string s) => Shared.Text.PlainText.FromHtml(s);
     private static string Fingerprint(string s)
         => Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(s)))[..16].ToLowerInvariant();
 

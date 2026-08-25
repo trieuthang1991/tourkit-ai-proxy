@@ -7,6 +7,7 @@ using TourkitAiProxy.Services.Deals;      // DealOpportunityClient, DealScoringS
 using TourkitAiProxy.Services.Mail;       // MailSyncService, IMailSender, MailRepository, MailAccountStore, MailTaxonomy
 using TourkitAiProxy.Services.Reviews;    // ReviewService
 using TourkitAiProxy.Services.TourKit;    // TourKitCustomerSource
+using TourkitAiProxy.Domain.Mail;
 
 namespace TourkitAiProxy.Services.Chat;
 

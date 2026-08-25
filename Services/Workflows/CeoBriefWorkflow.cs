@@ -6,6 +6,7 @@ using TourkitAiProxy.Services.Digest;
 using TourkitAiProxy.Services.Mail;
 using TourkitAiProxy.Services.Providers;
 using TourkitAiProxy.Services.TourKit;
+using TourkitAiProxy.Domain.Digest;
 
 namespace TourkitAiProxy.Services.Workflows;
 

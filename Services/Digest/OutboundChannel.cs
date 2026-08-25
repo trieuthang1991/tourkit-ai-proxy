@@ -1,3 +1,4 @@
+﻿using TourkitAiProxy.Domain.Digest;
 namespace TourkitAiProxy.Services.Digest;
 
 /// <summary>

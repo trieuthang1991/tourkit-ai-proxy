@@ -1,4 +1,4 @@
-<Project Sdk="Microsoft.NET.Sdk.Web">
+﻿<Project Sdk="Microsoft.NET.Sdk.Web">
   <PropertyGroup>
     <TargetFramework>net8.0</TargetFramework>
     <Nullable>enable</Nullable>
@@ -14,6 +14,24 @@
     <Content Remove="TourkitAiProxy.Tests/**" />
     <Compile Remove="TourkitAiProxy.Worker/**/*.cs" />
     <Content Remove="TourkitAiProxy.Worker/**" />
+    <!-- Bốn project tầng (Clean Architecture) cũng nằm trong thư mục con → phải loại khỏi
+         glob **/*.cs, nếu không mỗi file bị biên dịch HAI lần và hỏng build vì trùng kiểu. -->
+    <Compile Remove="TourkitAiProxy.Shared/**/*.cs" />
+    <Content Remove="TourkitAiProxy.Shared/**" />
+    <Compile Remove="TourkitAiProxy.Domain/**/*.cs" />
+    <Content Remove="TourkitAiProxy.Domain/**" />
+    <Compile Remove="TourkitAiProxy.Application/**/*.cs" />
+    <Content Remove="TourkitAiProxy.Application/**" />
+    <Compile Remove="TourkitAiProxy.Infrastructure/**/*.cs" />
+    <Content Remove="TourkitAiProxy.Infrastructure/**" />
+  </ItemGroup>
+
+  <!-- Api tham chiếu cả bốn tầng. Chiều ngược lại KHÔNG có: không tầng nào tham chiếu Api. -->
+  <ItemGroup>
+    <ProjectReference Include="TourkitAiProxy.Application\TourkitAiProxy.Application.csproj" />
+    <ProjectReference Include="TourkitAiProxy.Infrastructure\TourkitAiProxy.Infrastructure.csproj" />
+    <ProjectReference Include="TourkitAiProxy.Domain\TourkitAiProxy.Domain.csproj" />
+    <ProjectReference Include="TourkitAiProxy.Shared\TourkitAiProxy.Shared.csproj" />
   </ItemGroup>
   <!-- ── Frontend bundle (esbuild) — auto build khi Release/Publish ───────────
        Dev (`dotnet run` Debug): skip → wwwroot/dist/ không tồn tại → index.html

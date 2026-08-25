@@ -1,0 +1,28 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!-- ════════════════════════════════════════════════════════════════════════
+       ĐIỀU PHỐI NGHIỆP VỤ — biết PHẢI LÀM GÌ, không biết LÀM BẰNG CÁCH NÀO.
+
+       Vào được : luồng việc (nhận tin → nhận diện khách → gọi bot → xếp hàng đợi gửi),
+                  và KHAI BÁO giao diện cho thứ nó cần (IChatRepository, IMailSource,
+                  IAiProvider…).
+       KHÔNG vào: Dapper, ASP.NET, và TUYỆT ĐỐI không tham chiếu Infrastructure.
+
+       ⚠️ Mũi tên đi NGƯỢC chiều gọi: tầng này KHAI giao diện, Infrastructure CÀI nó.
+       Nhờ vậy nghiệp vụ không biết dữ liệu nằm ở SQL Server hay PostgreSQL — đúng thứ
+       dự án này cần, vì nó đang có HAI CSDL và một cái có thể đổi.
+       ════════════════════════════════════════════════════════════════════════ -->
+
+  <PropertyGroup>
+    <TargetFramework>net8.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <RootNamespace>TourkitAiProxy.Application</RootNamespace>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\TourkitAiProxy.Domain\TourkitAiProxy.Domain.csproj" />
+    <ProjectReference Include="..\TourkitAiProxy.Shared\TourkitAiProxy.Shared.csproj" />
+  </ItemGroup>
+
+</Project>

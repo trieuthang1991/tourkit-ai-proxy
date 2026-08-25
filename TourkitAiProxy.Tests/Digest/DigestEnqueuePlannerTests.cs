@@ -1,6 +1,7 @@
-using System.Text.Json;
+﻿using System.Text.Json;
 using TourkitAiProxy.Services.Digest;
 using Xunit;
+using TourkitAiProxy.Domain.Digest;
 
 namespace TourkitAiProxy.Tests.Digest;
 

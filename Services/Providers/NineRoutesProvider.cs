@@ -1,7 +1,7 @@
-using System.Text;
+﻿using System.Text;
 using System.Text.Json;
 using TourkitAiProxy.Models;
-using TourkitAiProxy.Services.Json;
+using TourkitAiProxy.Shared.Json;
 using TourkitAiProxy.Services.Quota;
 
 namespace TourkitAiProxy.Services.Providers;

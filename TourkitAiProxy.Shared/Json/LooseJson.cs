@@ -1,6 +1,6 @@
-using System.Text.Json;
+﻿using System.Text.Json;
 
-namespace TourkitAiProxy.Services.Json;
+namespace TourkitAiProxy.Shared.Json;
 
 /// <summary>
 /// Trích JSON object đầu tiên từ output AI (có thể bọc ```json fences, kèm prose, hoặc

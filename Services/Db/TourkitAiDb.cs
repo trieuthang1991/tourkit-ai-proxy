@@ -1,6 +1,7 @@
-// Services/Db/TourkitAiDb.cs
+﻿// Services/Db/TourkitAiDb.cs
 using Microsoft.Data.SqlClient;
 using TourkitAiProxy.Services.Security;
+using TourkitAiProxy.Domain.Digest;
 
 namespace TourkitAiProxy.Services.Db;
 
