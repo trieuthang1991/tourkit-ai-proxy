@@ -35,8 +35,11 @@ public class ChatQuickReplyRepository
             .ToArray()).Normalize(NormalizationForm.FormC);
         s = Regex.Replace(s, @"[^a-z0-9\s-]", "");
         s = Regex.Replace(s, @"[\s-]+", "-").Trim('-');
+        // CỐ Ý không truyền tên tham số: endpoint trả thẳng Message này cho người dùng, mà
+        // ArgumentException tự nối thêm "(Parameter 'tho')" — người khai mẫu đọc phải tên biến
+        // trong mã nguồn thì vừa khó hiểu vừa lộ nội bộ.
         if (s.Length == 0)
-            throw new ArgumentException("Lệnh gọi mẫu không được rỗng", nameof(tho));
+            throw new ArgumentException("Lệnh gọi mẫu không được rỗng");
         return s;
     }
 

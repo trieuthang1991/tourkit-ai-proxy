@@ -13,6 +13,7 @@ public static class ChatFileStorageRegistration
         services.AddSingleton<IChatFileStorage>(sp =>
         {
             var log = sp.GetRequiredService<ILoggerFactory>().CreateLogger("storage");
+            var goc = sp.GetRequiredService<IHostEnvironment>().ContentRootPath;
             var provider = (cfg["Storage:Provider"] ?? "local").Trim().ToLowerInvariant();
             return provider switch
             {
@@ -26,19 +27,19 @@ public static class ChatFileStorageRegistration
                     cfg["Storage:S3:AccessKeyId"], cfg["Storage:S3:SecretAccessKey"],
                     cfg["Storage:S3:Bucket"], cfg["Storage:S3:PublicBaseUrl"],
                     serviceUrl: null, region: cfg["Storage:S3:Region"], log),
-                "local" => new LocalChatFileStorage(cfg["Storage:Local:Dir"]),
-                _ => Rơi(provider, log),
+                "local" => new LocalChatFileStorage(cfg["Storage:Local:Dir"], goc),
+                _ => Rơi(provider, log, goc),
             };
         });
         return services;
     }
 
-    private static IChatFileStorage Rơi(string provider, ILogger log)
+    private static IChatFileStorage Rơi(string provider, ILogger log, string contentRoot)
     {
         // Giá trị lạ (gõ sai "R2" hoa/thường không phải vấn đề vì đã ToLower ở trên; đây là khi
         // gõ hẳn tên khác) → về local thay vì crash lúc khởi động, nhưng NÓI RÕ để không âm thầm
         // dùng nhầm nhà cung cấp.
         log.LogWarning("[storage] Storage:Provider=\"{P}\" không nhận diện được — dùng local", provider);
-        return new LocalChatFileStorage(null);
+        return new LocalChatFileStorage(null, contentRoot);
     }
 }

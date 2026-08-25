@@ -36,6 +36,12 @@ Những cập nhật gần đây của TRAV-AI, viết cho người dùng. Mới
   bọc thêm khung nên phải cuộn nhiều và rối mắt. Nay là ba thẻ chuyển qua lại, mỗi lúc chỉ hiện
   kênh bạn đang khai. Các ô nhập mã, khoá bí mật đều có **ví dụ mờ sẵn trong ô** để bạn biết
   mình dán đúng thứ chưa.
+- **Ảnh và tệp bạn gửi cho khách không còn bị mất.** Khi hệ thống lưu tệp trên máy chủ của bạn
+  (thay vì trên đám mây), tệp có thể bị ghi nhầm ra ngoài thư mục ứng dụng — hậu quả là mở lại
+  hội thoại cũ thì ảnh hiện ô vỡ, và cập nhật phiên bản là mất luôn. Nay tệp luôn nằm đúng chỗ.
+  Ảnh cũ đã bị mất trước đó thì không khôi phục được, phải gửi lại.
+- **Báo lỗi khi đặt mẫu trả lời đã đọc được.** Bỏ trống lệnh gọi thì trước đây câu báo lỗi kèm
+  một đoạn chữ kỹ thuật khó hiểu.
 
 ---
 

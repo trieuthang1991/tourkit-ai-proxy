@@ -35,6 +35,10 @@ public class ChatQuickReplyTests
     public void Trigger_rong_thi_nem()
     {
         // Mẫu không có lệnh gọi thì gõ "/" mãi cũng không ra — thà chặn lúc lưu.
-        Assert.Throws<ArgumentException>(() => ChatQuickReplyRepository.ChuanHoaTrigger("///"));
+        var ex = Assert.Throws<ArgumentException>(() => ChatQuickReplyRepository.ChuanHoaTrigger("///"));
+
+        // Message này được endpoint trả THẲNG cho người dùng. Truyền nameof() vào ArgumentException
+        // sẽ nối thêm "(Parameter 'tho')" — đã lọt ra thật một lần khi thử trên staging.
+        Assert.DoesNotContain("Parameter", ex.Message);
     }
 }

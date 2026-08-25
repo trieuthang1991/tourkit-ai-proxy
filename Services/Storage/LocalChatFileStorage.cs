@@ -20,10 +20,33 @@ public class LocalChatFileStorage : IChatFileStorage
     public bool Configured => true;
     public string Provider => "local";
 
-    /// <param name="dir">Thư mục gốc, mặc định <c>data/chat-uploads</c> cạnh nơi app chạy.</param>
-    public LocalChatFileStorage(string? dir)
+    /// <summary>
+    /// Dựng đường dẫn tuyệt đối của kho, neo vào THƯ MỤC APP.
+    ///
+    /// <para><b>Phải là một nguồn</b>: nơi GHI (lớp này) và nơi PHỤC VỤ <c>/chat-files</c>
+    /// (<c>Program.cs</c>) buộc phải ra cùng một thư mục. Hai bên tự dựng riêng thì lệch nhau lúc
+    /// nào không biết, mà triệu chứng chỉ là ảnh 404 — không lỗi nào hiện lên.</para>
+    ///
+    /// <para><b>KHÔNG dùng <c>Directory.GetCurrentDirectory()</c></b>: thư mục làm việc của tiến
+    /// trình không phải thư mục app. Chạy <c>dotnet run</c> ở gốc repo thì tình cờ trùng nên không
+    /// lộ, nhưng dưới IIS nó thường là <c>C:\Windows\System32</c> — ảnh ghi ra ngoài app rồi mất
+    /// khi deploy lại, hoặc ghi hỏng vì không có quyền. Đường dẫn ảnh lưu trong CSDL là vĩnh viễn
+    /// nên một lần lệch là ảnh đó 404 mãi.</para>
+    /// </summary>
+    /// <param name="dir">Khai ở <c>Storage:Local:Dir</c>. Bỏ trống = <c>data/chat-uploads</c>.
+    /// Đường dẫn tương đối hiểu là "cạnh app"; tuyệt đối thì giữ nguyên (trỏ sang ổ dữ liệu riêng).</param>
+    /// <param name="contentRoot">Thư mục app — <c>IHostEnvironment.ContentRootPath</c>.</param>
+    public static string ThuMucGoc(string? dir, string contentRoot)
     {
-        _dir = string.IsNullOrWhiteSpace(dir) ? Path.Combine("data", "chat-uploads") : dir;
+        var d = string.IsNullOrWhiteSpace(dir) ? Path.Combine("data", "chat-uploads") : dir.Trim();
+        return Path.IsPathRooted(d) ? d : Path.Combine(contentRoot, d);
+    }
+
+    /// <param name="dir">Xem <see cref="ThuMucGoc"/>.</param>
+    /// <param name="contentRoot">Thư mục app — <c>IHostEnvironment.ContentRootPath</c>.</param>
+    public LocalChatFileStorage(string? dir, string contentRoot)
+    {
+        _dir = ThuMucGoc(dir, contentRoot);
         Directory.CreateDirectory(_dir);
     }
 

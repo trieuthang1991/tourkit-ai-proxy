@@ -372,8 +372,10 @@ app.UseTourkitStaticFiles();
 
 // Kho ảnh/tệp CỤC BỘ của chat (chỉ có tác dụng khi Storage:Provider=local — R2/S3 phục vụ thẳng
 // từ CDN của họ, không qua đây). Đường KHÁC hẳn wwwroot để không lẫn với file tĩnh của giao diện.
-var chatUploadsDir = Path.Combine(Directory.GetCurrentDirectory(),
-    builder.Configuration["Storage:Local:Dir"] ?? Path.Combine("data", "chat-uploads"));
+// Dùng CHUNG hàm dựng đường dẫn với nơi ghi (LocalChatFileStorage) — hai bên tự dựng riêng thì
+// lệch nhau lúc nào không biết, mà triệu chứng chỉ là ảnh 404, không lỗi nào hiện lên.
+var chatUploadsDir = TourkitAiProxy.Services.Storage.LocalChatFileStorage.ThuMucGoc(
+    builder.Configuration["Storage:Local:Dir"], app.Environment.ContentRootPath);
 Directory.CreateDirectory(chatUploadsDir);   // PhysicalFileProvider cần thư mục tồn tại từ lúc khởi động
 app.UseStaticFiles(new Microsoft.AspNetCore.Builder.StaticFileOptions
 {

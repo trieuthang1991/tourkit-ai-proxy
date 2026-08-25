@@ -431,6 +431,15 @@ instance sau load-balancer — mỗi máy một đĩa, ảnh tải lên máy A s
 ⚠️ **Chọn `r2`/`s3` mà thiếu khoá thì TẮT hẳn kèm lý do, KHÔNG tự lùi về `local`** — lùi ngầm nghĩa là
 ảnh tưởng nằm trên cloud hoá ra nằm trên đĩa máy chủ, đầy đĩa hoặc mất máy là mất ảnh mà không ai biết.
 
+⚠️ **`local`: thư mục neo vào THƯ MỤC APP, tuyệt đối không dùng `Directory.GetCurrentDirectory()`.**
+Nơi GHI và nơi PHỤC VỤ `/chat-files` phải ra cùng một chỗ, nên cùng gọi
+[`LocalChatFileStorage.ThuMucGoc`](Services/Storage/LocalChatFileStorage.cs) — hai bên tự dựng riêng
+thì lệch lúc nào không biết, mà triệu chứng chỉ là **ảnh 404**, không lỗi nào hiện lên. Thư mục làm
+việc của tiến trình KHÔNG phải thư mục app: chạy `dotnet run` ở gốc repo thì tình cờ trùng nên không
+lộ, dưới IIS nó thường là `C:\Windows\System32` → ảnh ghi ra ngoài app rồi mất khi deploy lại, hoặc
+ghi hỏng vì không có quyền. Đường dẫn ảnh **lưu trong CSDL là vĩnh viễn** nên một lần lệch là ảnh đó
+404 mãi. Đã dính thật 25/08 (ảnh gửi trong hội thoại thử không còn đọc được).
+
 ⚠️ **Bucket R2/S3 phải cho ĐỌC CÔNG KHAI.** Cả ba kênh gửi media bằng cách đưa URL để nền tảng TỰ TẢI
 về, không nhận nhị phân qua API chat. Presigned URL có hạn cũng không hợp vì khách xem lại tin cũ bất cứ
 lúc nào. Nên **đừng để tệp nhạy cảm đi đường này**.
