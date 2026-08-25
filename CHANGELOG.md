@@ -13,6 +13,20 @@ Những cập nhật gần đây của TRAV-AI, viết cho người dùng. Mới
 
 ---
 
+## Phiên bản 25/08/2026 — Gợi ý trạng thái quay lại khi cấu hình bản tin
+
+### 🔧 Đã khắc phục
+- **Ô "trạng thái nào còn phải làm" nay có gợi ý sẵn trở lại.** Khi bạn mở phần cài đặt bản tin
+  và chọn trạng thái cho Cơ hội bán hàng, hệ thống sẽ tự đánh dấu trước những trạng thái mà nó
+  cho là còn đang chạy, bạn chỉ việc soát lại. Trước đây ô này thường trống trơn, bấm "Phân loại
+  lại" bao nhiêu lần cũng không ra gì, và không có thông báo nào cho biết vì sao — nên nhiều
+  người tưởng tính năng bị bỏ. Phần cài đặt cho Công việc vẫn chạy bình thường từ trước, nên rất
+  dễ nghĩ là do dữ liệu của mình chứ không phải do hệ thống.
+- Càng nhiều trạng thái thì càng hay gặp: công ty nào có danh sách trạng thái dài chính là công
+  ty gần như không bao giờ thấy gợi ý.
+
+---
+
 ## Phiên bản 25/08/2026 — Biết khách đã nhận và đã đọc tin chưa
 
 ### ✨ Tính năng mới
