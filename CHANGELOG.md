@@ -13,6 +13,21 @@ Những cập nhật gần đây của TRAV-AI, viết cho người dùng. Mới
 
 ---
 
+## Phiên bản 25/08/2026 — Nhà cung cấp từ AI không còn làm lỗi trang web
+
+### 🔧 Đã khắc phục
+- **Nhà cung cấp tạo bằng AI làm lỗi phần thẻ hướng dẫn viên bên web.** Khi bạn nhập bảng giá
+  bằng AI, thông tin người liên hệ của nhà cung cấp được lưu theo một kiểu khác với lúc bạn nhập
+  tay bên web. Hậu quả là mở đúng nhà cung cấp đó bên web rồi thêm/sửa/xoá thẻ hướng dẫn viên,
+  xuất giấy giới thiệu, hay xem thống kê thẻ thì trang báo lỗi và không làm gì được. Nay thông
+  tin người liên hệ được lưu giống hệt như khi nhập tay, nên các chức năng trên chạy bình thường.
+
+### 📌 Lưu ý
+- Bản sửa này áp dụng cho nhà cung cấp tạo **từ nay trở đi**. Những nhà cung cấp đã tạo bằng AI
+  trước đó vẫn giữ kiểu lưu cũ và vẫn gây lỗi — nhờ bộ phận kỹ thuật chạy dọn một lần là xong.
+
+---
+
 ## Phiên bản 20/08/2026 — Cảnh báo tới đúng người
 
 ### ✨ Tính năng mới
