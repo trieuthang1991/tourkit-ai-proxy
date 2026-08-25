@@ -1,4 +1,4 @@
-using System.Text;
+﻿using System.Text;
 using System.Text.Json;
 using TourkitAiProxy.Models;
 using TourkitAiProxy.Services;
@@ -52,7 +52,7 @@ public static class AiEndpoints
 
         // Live model list cho provider có model động (vd 9routes proxy nhiều upstream).
         // OpenCode trả static list. Lỗi → fallback static.
-        v1.MapGet("/providers/{id}/models", async (string id, ProviderRegistry reg, ILogger<Program> log, HttpContext ctx) =>
+        v1.MapGet("/providers/{id}/models", async (string id, ProviderRegistry reg, ILogger<EndpointsLog> log, HttpContext ctx) =>
         {
             var provider = reg.Resolve(id);
             try
@@ -104,7 +104,7 @@ public static class AiEndpoints
         UsageTracker usage,
         TourkitAiProxy.Services.Workflow.IWorkflowTraceAccessor traceAccessor,
         TourkitAiProxy.Services.TourKit.TkSessionStore sessions,
-        ILogger<Program> log,
+        ILogger<EndpointsLog> log,
         HttpContext ctx)
     {
         if (RequireSession(ctx, sessions) == null) return Unauthorized(ctx, log, "completions");
@@ -190,7 +190,7 @@ public static class AiEndpoints
         AiModelRegistry modelRegistry,
         UsageTracker usage,
         TourkitAiProxy.Services.TourKit.TkSessionStore sessions,
-        ILogger<Program> log)
+        ILogger<EndpointsLog> log)
     {
         // Chặn TRƯỚC khi mở SSE — mở rồi thì không trả được status code sạch nữa.
         if (RequireSession(ctx, sessions) == null)
@@ -311,13 +311,13 @@ public static class AiEndpoints
 
     // Log riêng cho lượt bị từ chối — endpoint này là mục tiêu quét của bot săn
     // "open AI proxy", cần thấy được IP/UA để chặn ở tầng reverse proxy khi cần.
-    private static void LogDenied(HttpContext ctx, ILogger<Program> log, string route)
+    private static void LogDenied(HttpContext ctx, ILogger<EndpointsLog> log, string route)
         => log.LogWarning("[{Route}] TỪ CHỐI request thiếu/sai phiên — ip={Ip} ua={Ua}",
             route,
             ctx.Connection.RemoteIpAddress?.ToString() ?? "?",
             ctx.Request.Headers.UserAgent.FirstOrDefault() ?? "?");
 
-    private static IResult Unauthorized(HttpContext ctx, ILogger<Program> log, string route)
+    private static IResult Unauthorized(HttpContext ctx, ILogger<EndpointsLog> log, string route)
     {
         LogDenied(ctx, log, route);
         return Results.Json(new { error = "Phiên không hợp lệ — đăng nhập lại" }, statusCode: 401);

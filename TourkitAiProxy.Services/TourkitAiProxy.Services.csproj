@@ -1,0 +1,77 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!-- ════════════════════════════════════════════════════════════════════════
+       ĐIỀU PHỐI NGHIỆP VỤ + CÀI ĐẶT HẠ TẦNG.
+
+       ⚠️ ĐÂY LÀ MỘT THOẢ HIỆP CÓ CHỦ ĐÍCH, ĐỌC TRƯỚC KHI TRÁCH.
+       Clean Architecture "chuẩn" tách tiếp thành Application (điều phối, KHAI giao
+       diện) và Infrastructure (CÀI giao diện bằng Dapper/HttpClient). Ở đây gộp làm
+       một, vì tách đôi 172 file nghĩa là sờ vào từng file có logic thật — mà repo
+       CHƯA có test tích hợp chạm CSDL, tức đổi hành vi thì không ai bắt được.
+
+       Đổi lại, thứ có được NGAY và gần như miễn phí (không di chuyển file nào,
+       không sửa một dòng using nào):
+         • Api/Endpoints KHÔNG gọi ngược vào đây được nữa — biên dịch viên chặn;
+         • đây KHÔNG gọi ngược lên Endpoints được — vòng tròn thành bất khả thi;
+         • Domain vẫn thuần vì nó nằm project riêng và không tham chiếu project này.
+
+       Tách tiếp Application/Infrastructure là việc SAU, và làm được dễ hơn nhờ đã
+       có ranh giới này — không phải bỏ đi làm lại.
+       ════════════════════════════════════════════════════════════════════════ -->
+
+  <PropertyGroup>
+    <TargetFramework>net8.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <RootNamespace>TourkitAiProxy.Services</RootNamespace>
+  </PropertyGroup>
+
+  <!-- Cần vì một số lớp ở đây chạm kiểu ASP.NET một cách hợp lệ: adapter kênh chat đọc
+       IHeaderDictionary để kiểm chữ ký webhook, AiCallContext đọc IHttpContextAccessor
+       để ghi log tenant. Đó là ranh giới đúng — Domain thì tuyệt đối không được. -->
+  <ItemGroup>
+    <FrameworkReference Include="Microsoft.AspNetCore.App" />
+  </ItemGroup>
+
+  <!-- Web SDK tự thêm sẵn mấy global using này; project thư viện thì không, nên phải khai tay.
+       Khai tường minh cũng tốt hơn: nhìn là biết tầng này phụ thuộc những gì. -->
+  <ItemGroup>
+    <Using Include="Microsoft.AspNetCore.Builder" />
+    <Using Include="Microsoft.AspNetCore.Hosting" />
+    <Using Include="Microsoft.AspNetCore.Http" />
+    <Using Include="Microsoft.AspNetCore.Routing" />
+    <Using Include="Microsoft.Extensions.Configuration" />
+    <Using Include="Microsoft.Extensions.DependencyInjection" />
+    <Using Include="Microsoft.Extensions.Hosting" />
+    <Using Include="Microsoft.Extensions.Logging" />
+    <Using Include="System.Net.Http.Json" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\TourkitAiProxy.Domain\TourkitAiProxy.Domain.csproj" />
+    <ProjectReference Include="..\TourkitAiProxy.Shared\TourkitAiProxy.Shared.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="AWSSDK.S3" Version="4.0.102.3" />
+    <PackageReference Include="Dapper" Version="2.1.79" />
+    <PackageReference Include="DocumentFormat.OpenXml" Version="3.1.0" />
+    <PackageReference Include="log4net" Version="3.3.2" />
+    <PackageReference Include="MailKit" Version="4.17.0" />
+    <PackageReference Include="Microsoft.Data.SqlClient" Version="7.0.1" />
+    <PackageReference Include="Microsoft.Extensions.Logging.Log4Net.AspNetCore" Version="8.0.0" />
+    <PackageReference Include="Mscc.GenerativeAI" Version="3.1.0" />
+    <PackageReference Include="Npgsql" Version="8.0.5" />
+    <PackageReference Include="OpenAI" Version="2.4.0" />
+    <PackageReference Include="SharpCompress" Version="0.49.1" />
+    <PackageReference Include="StackExchange.Redis" Version="2.13.17" />
+    <PackageReference Include="UglyToad.PdfPig" Version="1.7.0-custom-5" />
+  </ItemGroup>
+
+  <!-- Test cần thấy thành viên internal. Cách này ĐÚNG hơn là mở public: mở public chỉ để test
+       là biến chi tiết cài đặt thành hợp đồng công khai, rồi sau này không ai dám đổi. -->
+  <ItemGroup>
+    <InternalsVisibleTo Include="TourkitAiProxy.Tests" />
+  </ItemGroup>
+
+</Project>

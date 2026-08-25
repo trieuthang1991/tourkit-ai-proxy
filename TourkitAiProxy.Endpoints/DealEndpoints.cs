@@ -32,7 +32,7 @@ public static class DealEndpoints
         // → tường minh giống /customers (không cần merge client-side với board).
         v1.MapGet("/deals", async (HttpContext ctx, DealOpportunityClient client, DealRepository repo,
             TourKitApiClient api, TkSessionStore sessions, WorkflowRepository workflows,
-            ILogger<Program> log, int? page, int? pageSize, string? q,
+            ILogger<EndpointsLog> log, int? page, int? pageSize, string? q,
             int? trangThai, int? nguon, int? nhanVienPhuTrach,
             string? rank, int? minRank, int? maxRank,
             int? maxAge, long? minValue, long? maxValue, bool? cooling) =>
@@ -199,7 +199,7 @@ public static class DealEndpoints
         });
 
         // ─── GET /deals/analyze/{jobId}/stream ─── SSE ───────────────────────────
-        v1.MapGet("/deals/analyze/{jobId}/stream", async (string jobId, HttpContext ctx, DealBatchJobStore jobs, TkSessionStore sessions, ILogger<Program> log) =>
+        v1.MapGet("/deals/analyze/{jobId}/stream", async (string jobId, HttpContext ctx, DealBatchJobStore jobs, TkSessionStore sessions, ILogger<EndpointsLog> log) =>
         {
             // Auth + tenant scope: stream lộ deal/KH/winRate → PHẢI verify session + đúng tenant.
             var sess = sessions.Get(Sid(ctx));
@@ -261,7 +261,7 @@ public static class DealEndpoints
         v1.MapPost("/deals/{id:int}/rescore", async (int id, HttpContext ctx,
             DealOpportunityClient client, DealScoringService scorer, DealRepository repo,
             TourkitAiProxy.Services.AiCallContext aiCtx,
-            TkSessionStore sessions, ILogger<Program> log) =>
+            TkSessionStore sessions, ILogger<EndpointsLog> log) =>
         {
             var sid = Sid(ctx);
             var sess = sessions.Get(sid);

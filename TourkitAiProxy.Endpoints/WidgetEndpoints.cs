@@ -113,7 +113,7 @@ public static class WidgetEndpoints
         // POST init — one-shot: Crypton token (cùng /login-token) → decrypt + login + tạo widget → trả token widget.
         // Tiện server-to-server integration. Không gửi password plain qua API.
         pub.MapPost("/init", async (InitWidgetReq req, HttpContext ctx,
-            WidgetTokenRepository repo, WidgetCrmLinkService crmLink, TkSessionStore sessions, ILogger<Program> log) =>
+            WidgetTokenRepository repo, WidgetCrmLinkService crmLink, TkSessionStore sessions, ILogger<EndpointsLog> log) =>
         {
             if (string.IsNullOrWhiteSpace(req?.Token))
                 return Results.BadRequest(new { error = "Thiếu token" });
@@ -201,7 +201,7 @@ public static class WidgetEndpoints
         // POST transcribe — public token-scoped STT. Quota consume đúng tenant của widget token.
         // multipart/form-data: file (audio) + token (form/query). Limit 25MB như endpoint admin.
         pub.MapPost("/transcribe", async (HttpContext ctx,
-            WidgetTokenRepository repo, SpeechToTextService stt, AiCallContext aiCtx, ILogger<Program> log) =>
+            WidgetTokenRepository repo, SpeechToTextService stt, AiCallContext aiCtx, ILogger<EndpointsLog> log) =>
         {
             if (!ctx.Request.HasFormContentType)
                 return Results.BadRequest(new { error = "Cần multipart/form-data" });

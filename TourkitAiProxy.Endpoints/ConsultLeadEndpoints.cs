@@ -1,4 +1,4 @@
-using System.Text.Json;
+﻿using System.Text.Json;
 
 namespace TourkitAiProxy.Endpoints;
 
@@ -17,7 +17,7 @@ public static class ConsultLeadEndpoints
 
     public static IEndpointRouteBuilder MapConsultLeadEndpoints(this IEndpointRouteBuilder routes)
     {
-        routes.MapPost("/api/v1/consult-leads", async (ConsultLeadReq req, HttpContext ctx, ILogger<Program> log) =>
+        routes.MapPost("/api/v1/consult-leads", async (ConsultLeadReq req, HttpContext ctx, ILogger<EndpointsLog> log) =>
         {
             if (string.IsNullOrWhiteSpace(req.FullName) || string.IsNullOrWhiteSpace(req.Phone))
                 return Results.BadRequest(new { error = "Vui lòng nhập Họ tên và Số điện thoại" });

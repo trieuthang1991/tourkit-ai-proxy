@@ -1,4 +1,4 @@
-using System.Text;
+﻿using System.Text;
 using System.Text.Json;
 using TourkitAiProxy.Models;
 using TourkitAiProxy.Services.Reviews;
@@ -52,7 +52,7 @@ public static class ReviewEndpoints
         // vì upstream chưa có; chấp nhận hiển thị "shown/total" hơi lệch khi segment ≠ all.
         v1.MapGet("/customers", async (
             HttpContext ctx, TourKitCustomerSource source, ReviewRepository reviews,
-            TkSessionStore sessions, ILogger<Program> log,
+            TkSessionStore sessions, ILogger<EndpointsLog> log,
             string? segment, string? search,
             int? customerTypeId, int? customerSourceId, int? sellerId,
             string? gender, string? careFilter, bool? birthdayThisMonth,
@@ -130,7 +130,7 @@ public static class ReviewEndpoints
         // A/B test giữa anthropic native-tool vs JSON fallback mà không đổi config global.
         v1.MapPost("/reviews/customer/{id}", async (string id, HttpContext ctx,
             TourKitCustomerSource source, ReviewService service, TkSessionStore sessions,
-            TourkitAiProxy.Services.Workflow.IWorkflowTraceAccessor trace, ILogger<Program> log) =>
+            TourkitAiProxy.Services.Workflow.IWorkflowTraceAccessor trace, ILogger<EndpointsLog> log) =>
         {
             var sid = Sid(ctx);
             if (sessions.Get(sid) == null) return Unauthorized();
@@ -170,7 +170,7 @@ public static class ReviewEndpoints
         // bằng provider khác (vd "thử lại bằng Claude xem chất lượng có hơn không").
         v1.MapPost("/reviews/customer/{id}/refresh", async (string id, HttpContext ctx,
             TourKitCustomerSource source, ReviewService service, TkSessionStore sessions,
-            TourkitAiProxy.Services.Workflow.IWorkflowTraceAccessor trace, ILogger<Program> log) =>
+            TourkitAiProxy.Services.Workflow.IWorkflowTraceAccessor trace, ILogger<EndpointsLog> log) =>
         {
             var sid = Sid(ctx);
             if (sessions.Get(sid) == null) return Unauthorized();
@@ -216,7 +216,7 @@ public static class ReviewEndpoints
             });
         });
 
-        v1.MapGet("/reviews/batch/{jobId}/stream", async (string jobId, HttpContext ctx, BatchJobStore jobs, TkSessionStore sessions, ILogger<Program> log) =>
+        v1.MapGet("/reviews/batch/{jobId}/stream", async (string jobId, HttpContext ctx, BatchJobStore jobs, TkSessionStore sessions, ILogger<EndpointsLog> log) =>
         {
             // Auth + tenant scope: stream lộ tên KH / hạng / summaryLine → PHẢI verify session + đúng tenant.
             var sess = sessions.Get(Sid(ctx));

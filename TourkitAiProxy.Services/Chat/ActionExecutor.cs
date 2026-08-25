@@ -713,7 +713,7 @@ public class ActionExecutor
         return sumLine;   // rank không kèm dấu phân tách → có thể là từ khác, giữ nguyên cho an toàn
     }
 
-    internal static string? Str(Dictionary<string, object?> p, string key)
+    public static string? Str(Dictionary<string, object?> p, string key)
     {
         if (!p.TryGetValue(key, out var v) || v is null) return null;
         if (v is JsonElement je)

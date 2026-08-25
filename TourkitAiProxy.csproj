@@ -20,16 +20,16 @@
     <Content Remove="TourkitAiProxy.Shared/**" />
     <Compile Remove="TourkitAiProxy.Domain/**/*.cs" />
     <Content Remove="TourkitAiProxy.Domain/**" />
-    <Compile Remove="TourkitAiProxy.Application/**/*.cs" />
-    <Content Remove="TourkitAiProxy.Application/**" />
-    <Compile Remove="TourkitAiProxy.Infrastructure/**/*.cs" />
-    <Content Remove="TourkitAiProxy.Infrastructure/**" />
+    <Compile Remove="TourkitAiProxy.Services/**/*.cs" />
+    <Content Remove="TourkitAiProxy.Services/**" />
+    <Compile Remove="TourkitAiProxy.Endpoints/**/*.cs" />
+    <Content Remove="TourkitAiProxy.Endpoints/**" />
   </ItemGroup>
 
   <!-- Api tham chiếu cả bốn tầng. Chiều ngược lại KHÔNG có: không tầng nào tham chiếu Api. -->
   <ItemGroup>
-    <ProjectReference Include="TourkitAiProxy.Application\TourkitAiProxy.Application.csproj" />
-    <ProjectReference Include="TourkitAiProxy.Infrastructure\TourkitAiProxy.Infrastructure.csproj" />
+    <ProjectReference Include="TourkitAiProxy.Endpoints\TourkitAiProxy.Endpoints.csproj" />
+    <ProjectReference Include="TourkitAiProxy.Services\TourkitAiProxy.Services.csproj" />
     <ProjectReference Include="TourkitAiProxy.Domain\TourkitAiProxy.Domain.csproj" />
     <ProjectReference Include="TourkitAiProxy.Shared\TourkitAiProxy.Shared.csproj" />
   </ItemGroup>

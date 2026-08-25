@@ -1,4 +1,4 @@
-using System.Collections.Concurrent;
+﻿using System.Collections.Concurrent;
 using System.Text.Json;
 using TourkitAiProxy.Models;
 using TourkitAiProxy.Services.Store;
@@ -133,7 +133,7 @@ public static class TourEndpoints
         // R1 (Sheet BugTRAV-AI): thống kê "nâng cao chất lượng dữ liệu" cho banner màn NCC list.
         // Đếm TỔNG toàn bộ NCC → thiếu email / thiếu SĐT (quét /api/ai/providers) + NCC chưa có bảng giá
         // (distinct providerId từ /api/ai/provider-prices → thiếu = total - có). Nặng nên cache 10 phút/tenant.
-        v1.MapGet("/ncc/stats", async (HttpContext ctx, TourKitNccClient ncc, TkSessionStore sessions, ILogger<Program> log) =>
+        v1.MapGet("/ncc/stats", async (HttpContext ctx, TourKitNccClient ncc, TkSessionStore sessions, ILogger<EndpointsLog> log) =>
         {
             var sid = Sid(ctx); var sess = sessions.Get(sid);
             if (sess == null) return Unauthorized();
@@ -188,7 +188,7 @@ public static class TourEndpoints
 
         // ─── Thị trường THẬT (proxy TourKit /api/tours/markets, cache 6h per-tenant) ──
         // Tour-builder + Wizard dùng để fill dropdown Thị trường thay vì hardcode 12 string.
-        v1.MapGet("/markets", async (HttpContext ctx, TourKitApiClient api, TkSessionStore sessions, ILogger<Program> log) =>
+        v1.MapGet("/markets", async (HttpContext ctx, TourKitApiClient api, TkSessionStore sessions, ILogger<EndpointsLog> log) =>
         {
             var sid = Sid(ctx);
             var sess = sessions.Get(sid);
@@ -237,7 +237,7 @@ public static class TourEndpoints
         // Frontend cache 1 lần sau login → filter nav "Tích hợp" + gate các page /widget-admin,
         // /visa-config, /workflows theo CH_HT_XEM (mirror web CRM). Không cache server-side vì
         // upstream đã cache theo tenant + response nhẹ (~vài KB).
-        v1.MapGet("/permissions", async (HttpContext ctx, TourKitApiClient api, TkSessionStore sessions, ILogger<Program> log) =>
+        v1.MapGet("/permissions", async (HttpContext ctx, TourKitApiClient api, TkSessionStore sessions, ILogger<EndpointsLog> log) =>
         {
             var sid = Sid(ctx);
             var sess = sessions.Get(sid);

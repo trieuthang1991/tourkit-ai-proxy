@@ -25,7 +25,7 @@ public static class ChatEndpoints
 
         // ─── POST /login-token ──────────────────────────────────────────────────
         v1.MapPost("/login-token", async (
-            LoginTokenRequest req, TkSessionStore sessions, ILogger<Program> log, HttpContext ctx) =>
+            LoginTokenRequest req, TkSessionStore sessions, ILogger<EndpointsLog> log, HttpContext ctx) =>
         {
             if (string.IsNullOrWhiteSpace(req.Token))
                 return Results.BadRequest(new { error = "Thiếu token" });
@@ -72,7 +72,7 @@ public static class ChatEndpoints
 
         // ─── POST /login ─── đăng nhập trực tiếp bằng form {username,password,domain} ──
         v1.MapPost("/login", async (
-            LoginCredRequest req, TkSessionStore sessions, ILogger<Program> log, HttpContext ctx) =>
+            LoginCredRequest req, TkSessionStore sessions, ILogger<EndpointsLog> log, HttpContext ctx) =>
         {
             if (string.IsNullOrWhiteSpace(req.Username) || string.IsNullOrWhiteSpace(req.Password) || string.IsNullOrWhiteSpace(req.Domain))
                 return Results.BadRequest(new { error = "Thiếu username/password/domain" });
@@ -109,7 +109,7 @@ public static class ChatEndpoints
 
         // ─── POST /chat ───────────────────────────────────────────────────────────
         v1.MapPost("/chat", async (
-            ChatRequest req, ChatAgentService agent, TkSessionStore sessions, ILogger<Program> log, HttpContext ctx) =>
+            ChatRequest req, ChatAgentService agent, TkSessionStore sessions, ILogger<EndpointsLog> log, HttpContext ctx) =>
         {
             var sessionId = ctx.Request.Headers["X-Session-Id"].FirstOrDefault() ?? req.SessionId;
             if (string.IsNullOrWhiteSpace(sessionId) || sessions.Get(sessionId) == null)
@@ -149,7 +149,7 @@ public static class ChatEndpoints
 
         // ─── POST /chat/stream (SSE) ── stage + stream chữ phân tích ────────────────
         v1.MapPost("/chat/stream", async (
-            ChatRequest req, ChatAgentService agent, TkSessionStore sessions, ILogger<Program> log, HttpContext ctx) =>
+            ChatRequest req, ChatAgentService agent, TkSessionStore sessions, ILogger<EndpointsLog> log, HttpContext ctx) =>
         {
             var sessionId = ctx.Request.Headers["X-Session-Id"].FirstOrDefault() ?? req.SessionId;
             if (string.IsNullOrWhiteSpace(sessionId) || sessions.Get(sessionId) == null)

@@ -1,4 +1,4 @@
-using System.Text.Json;
+﻿using System.Text.Json;
 using TourkitAiProxy.Models;
 using TourkitAiProxy.Services.Tour;
 using TourkitAiProxy.Services.TourKit;
@@ -38,7 +38,7 @@ public static class TourBuilderEndpoints
         // ── LƯU VÀO CRM: tour-builder → tạo/sửa Tour GIT thật (qua TourKit.Api /api/ai/tours) — cần đăng nhập ──
         //    Body: { form: {...tour-builder form...}, crmTourId } (crmTourId>0 = sửa tour đó).
         //    Map expenses[] (Phần thu) → revenues[]; KH tìm-hoặc-tạo phía server.
-        v1.MapPost("/tour-builder/save-crm", async (HttpContext ctx, TourKitApiClient api, TkSessionStore sessions, ILogger<Program> log) =>
+        v1.MapPost("/tour-builder/save-crm", async (HttpContext ctx, TourKitApiClient api, TkSessionStore sessions, ILogger<EndpointsLog> log) =>
         {
             var sid = ctx.Request.Headers["X-Session-Id"].FirstOrDefault() ?? ctx.Request.Query["sessionId"].FirstOrDefault();
             if (string.IsNullOrEmpty(sid) || sessions.Get(sid) == null)

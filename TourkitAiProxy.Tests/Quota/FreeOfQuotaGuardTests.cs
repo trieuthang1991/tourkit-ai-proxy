@@ -1,4 +1,4 @@
-using System.Text.RegularExpressions;
+﻿using System.Text.RegularExpressions;
 using Xunit;
 
 namespace TourkitAiProxy.Tests.Quota;
@@ -23,11 +23,11 @@ public class FreeOfQuotaGuardTests
     /// File được phép bật cờ (đường dẫn tương đối tính từ gốc repo, phân cách bằng '/').
     private static readonly string[] ChoDuocPhep =
     {
-        "Services/Workflows/StatusSemanticsService.cs",
+        "TourkitAiProxy.Services/Workflows/StatusSemanticsService.cs",
     };
 
     /// Nơi ĐỊNH NGHĨA cờ — có chữ "freeOfQuota" nhưng là khai báo tham số, không phải bật.
-    private const string NoiDinhNghia = "Services/AiCallContext.cs";
+    private const string NoiDinhNghia = "TourkitAiProxy.Services/AiCallContext.cs";
 
     [Fact]
     public void Chi_MOT_cho_duoc_mien_quota()
@@ -38,7 +38,7 @@ public class FreeOfQuotaGuardTests
         Assert.True(root != null, "Không tìm thấy gốc repo — test này cần đọc source.");
 
         var viPham = new List<string>();
-        foreach (var file in Directory.EnumerateFiles(Path.Combine(root!, "Services"), "*.cs", SearchOption.AllDirectories))
+        foreach (var file in Directory.EnumerateFiles(Path.Combine(root!, "TourkitAiProxy.Services"), "*.cs", SearchOption.AllDirectories))
         {
             var rel = Path.GetRelativePath(root!, file).Replace('\\', '/');
             if (rel == NoiDinhNghia || ChoDuocPhep.Contains(rel)) continue;
@@ -61,7 +61,7 @@ public class FreeOfQuotaGuardTests
         var root = TimGocRepo();
         Assert.True(root != null, "Không tìm thấy gốc repo — test này cần đọc source.");
 
-        var src = File.ReadAllText(Path.Combine(root!, "Services/Workflows/StatusSemanticsService.cs"));
+        var src = File.ReadAllText(Path.Combine(root!, "TourkitAiProxy.Services/Workflows/StatusSemanticsService.cs"));
         Assert.Contains("freeOfQuota: !forceRefresh", src);
     }
 

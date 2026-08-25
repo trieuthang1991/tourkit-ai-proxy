@@ -1,4 +1,4 @@
-using System.Text.RegularExpressions;
+﻿using System.Text.RegularExpressions;
 using Xunit;
 
 namespace TourkitAiProxy.Tests.Chat;
@@ -12,7 +12,7 @@ public class ChatInboundEventTests
     [Fact]
     public void Co_bang_su_kien_vao()
     {
-        var sql = ChatSchemaGuardTests.DocFile("Services/Chat/Inbox/ChatDb.cs");
+        var sql = ChatSchemaGuardTests.DocFile("TourkitAiProxy.Services/Chat/Inbox/ChatDb.cs");
         Assert.Contains("CREATE TABLE IF NOT EXISTS chat_inbound_events", sql);
     }
 
@@ -21,7 +21,7 @@ public class ChatInboundEventTests
     {
         // Webhook gửi lại đồng thời hai lần thì kiểm-rồi-ghi trong code vẫn lọt. Phải là chỉ mục
         // duy nhất để chính CSDL từ chối bản thứ hai.
-        var sql = ChatSchemaGuardTests.DocFile("Services/Chat/Inbox/ChatDb.cs");
+        var sql = ChatSchemaGuardTests.DocFile("TourkitAiProxy.Services/Chat/Inbox/ChatDb.cs");
         var m = Regex.Match(sql,
             @"CREATE UNIQUE INDEX IF NOT EXISTS \w+\s+ON chat_inbound_events \(([^)]*)\)");
         Assert.True(m.Success, "chat_inbound_events thiếu chỉ mục duy nhất chống trùng");
@@ -33,7 +33,7 @@ public class ChatInboundEventTests
     {
         // Đã trả 200 nghĩa là kênh sẽ KHÔNG gửi lại. Xử lý còn nằm trong bộ nhớ lúc đó thì
         // IIS recycle / deploy / crash làm mất hẳn tin của khách, không dấu vết.
-        var src = ChatSchemaGuardTests.DocFile("Endpoints/ChatInboxEndpoints.cs");
+        var src = ChatSchemaGuardTests.DocFile("TourkitAiProxy.Endpoints/ChatInboxEndpoints.cs");
         Assert.DoesNotContain("Task.Run", src);
     }
 }

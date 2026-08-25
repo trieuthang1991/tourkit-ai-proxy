@@ -1,4 +1,4 @@
-using System.Text.RegularExpressions;
+﻿using System.Text.RegularExpressions;
 using Xunit;
 
 namespace TourkitAiProxy.Tests.Chat;
@@ -12,7 +12,7 @@ public class ChatSchemaGuardTests
     [Fact]
     public void Khoa_hoi_thoai_phai_co_account_id()
     {
-        var sql = DocFile("Services/Chat/Inbox/ChatDb.cs");
+        var sql = DocFile("TourkitAiProxy.Services/Chat/Inbox/ChatDb.cs");
 
         var m = Regex.Match(sql,
             @"CREATE UNIQUE INDEX IF NOT EXISTS \w+\s+ON chat_conversations \(([^)]*)\)");
@@ -29,7 +29,7 @@ public class ChatSchemaGuardTests
     {
         // Postgres đòi cột trong ON CONFLICT phải khớp một chỉ mục duy nhất. Lệch là lỗi lúc
         // CHẠY chứ không phải lúc biên dịch — nghĩa là chỉ lộ ra khi khách nhắn tin thật.
-        var repo = DocFile("Services/Chat/Inbox/ChatRepository.cs");
+        var repo = DocFile("TourkitAiProxy.Services/Chat/Inbox/ChatRepository.cs");
         Assert.Contains("ON CONFLICT (tenant_id, channel, account_id, contact_external_id)", repo);
     }
 

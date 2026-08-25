@@ -1,4 +1,4 @@
-using System.Text.RegularExpressions;
+﻿using System.Text.RegularExpressions;
 using TourkitAiProxy.Endpoints;
 using Xunit;
 
@@ -74,7 +74,7 @@ public class ChatFeatureFlagCoverageTests
             d = d.Parent;
 
         Assert.NotNull(d);
-        var f = Path.Combine(d!.FullName, "Endpoints", "ChatInboxEndpoints.cs");
+        var f = Path.Combine(d!.FullName, "TourkitAiProxy.Endpoints", "ChatInboxEndpoints.cs");
         Assert.True(File.Exists(f), $"Không thấy {f}");
         return File.ReadAllText(f);
     }

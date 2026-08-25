@@ -25,4 +25,10 @@
     <RootNamespace>TourkitAiProxy.Shared</RootNamespace>
   </PropertyGroup>
 
+  <!-- Test cần thấy thành viên internal. Cách này ĐÚNG hơn là mở public: mở public chỉ để test
+       là biến chi tiết cài đặt thành hợp đồng công khai, rồi sau này không ai dám đổi. -->
+  <ItemGroup>
+    <InternalsVisibleTo Include="TourkitAiProxy.Tests" />
+  </ItemGroup>
+
 </Project>

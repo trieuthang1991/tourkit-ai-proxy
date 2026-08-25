@@ -1,4 +1,4 @@
-using TourkitAiProxy.Models;
+﻿using TourkitAiProxy.Models;
 using TourkitAiProxy.Services.TourKit;
 using TourkitAiProxy.Services.TourQuotes;
 
@@ -22,7 +22,7 @@ public static class TourQuoteEndpoints
 
         // POST /tour-quotes — COMMIT vào SQL (1 lần ghi DB). Dùng cho nút "Lưu báo giá" của user.
         v1.MapPost("/tour-quotes", (SaveTourQuoteRequest req, HttpContext ctx,
-            TourQuoteRepository repo, TkSessionStore sessions, ILogger<Program> log) =>
+            TourQuoteRepository repo, TkSessionStore sessions, ILogger<EndpointsLog> log) =>
         {
             var sid = Sid(ctx);
             var sess = sessions.Get(sid);
@@ -40,7 +40,7 @@ public static class TourQuoteEndpoints
         // POST /tour-quotes/draft — AUTO-SAVE vào Redis (TTL 24h), KHÔNG đụng DB.
         // FE debounce 1.5s sau mỗi keystroke → gọi endpoint này. Trả lại id để FE giữ URL ?id=.
         v1.MapPost("/tour-quotes/draft", (SaveTourQuoteRequest req, HttpContext ctx,
-            TourQuoteRepository repo, TkSessionStore sessions, ILogger<Program> log) =>
+            TourQuoteRepository repo, TkSessionStore sessions, ILogger<EndpointsLog> log) =>
         {
             var sid = Sid(ctx);
             var sess = sessions.Get(sid);
@@ -56,7 +56,7 @@ public static class TourQuoteEndpoints
         // POST /tour-quotes/{id}/commit — flush draft Redis → SQL (1 lần ghi DB).
         // Dùng khi FE muốn "lock-in" mà không cần re-send full data (đã có sẵn ở Redis).
         v1.MapPost("/tour-quotes/{id}/commit", (string id, HttpContext ctx,
-            TourQuoteRepository repo, TkSessionStore sessions, ILogger<Program> log) =>
+            TourQuoteRepository repo, TkSessionStore sessions, ILogger<EndpointsLog> log) =>
         {
             var sid = Sid(ctx);
             var sess = sessions.Get(sid);
@@ -71,7 +71,7 @@ public static class TourQuoteEndpoints
         });
 
         v1.MapGet("/tour-quotes", (HttpContext ctx, TourQuoteRepository repo,
-            TkSessionStore sessions, ILogger<Program> log,
+            TkSessionStore sessions, ILogger<EndpointsLog> log,
             int? page, int? pageSize, string? search) =>
         {
             var sid = Sid(ctx);

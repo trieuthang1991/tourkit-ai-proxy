@@ -1,4 +1,4 @@
-using System.Text.Json;
+﻿using System.Text.Json;
 using TourkitAiProxy.Models;
 using TourkitAiProxy.Services.Quota;
 using TourkitAiProxy.Services.TourKit;
@@ -115,7 +115,7 @@ public static class QuotaOrderEndpoints
         // Auth server-to-server = header X-Admin-Token (== Admin:Token, dùng chung). KHÔNG có session người dùng.
         // Idempotent theo trạng thái đơn (atomic mark-paid) → gọi lại / Tingee retry không cộng trùng.
         v1.MapPost("/internal/tingee-credit", async (TingeeCreditReq req, HttpContext ctx,
-            QuotaOrderRepository orders, TenantQuotaStore quota, IConfiguration cfg, ILogger<Program> log) =>
+            QuotaOrderRepository orders, TenantQuotaStore quota, IConfiguration cfg, ILogger<EndpointsLog> log) =>
         {
             // FAIL-CLOSED (endpoint cộng tiền): Tingee:RelayToken PHẢI cấu hình + header X-Relay-Token khớp.
             // Trống → chặn hẳn. Token hỗ trợ ENC: (Crypton) — giải trước khi so.
@@ -181,7 +181,7 @@ public static class QuotaOrderEndpoints
         // KHÔNG có auth header (Tingee không gửi session). Verify bằng HMAC X-Tingee-Signature.
         v1.MapPost("/webhook/tingee", async (HttpContext ctx,
             QuotaOrderRepository orders, TenantQuotaStore quota, ITingeeClient tingee,
-            ILogger<Program> log) =>
+            ILogger<EndpointsLog> log) =>
         {
             string raw;
             using (var rd = new StreamReader(ctx.Request.Body))

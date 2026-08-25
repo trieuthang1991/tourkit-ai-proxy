@@ -1,0 +1,47 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!-- ════════════════════════════════════════════════════════════════════════
+       TẦNG HTTP — định tuyến, đọc phiên, dựng JSON trả về.
+
+       Luật một dòng: endpoint KHÔNG tự mở kết nối CSDL, chỉ gọi service/repository.
+       Hiện còn đúng MỘT chỗ vi phạm (WorkflowEndpoints), đang nằm trong danh sách
+       miễn trừ của RanhGioiTangTests — miễn trừ đó là NỢ, không phải ngoại lệ.
+       ════════════════════════════════════════════════════════════════════════ -->
+
+  <PropertyGroup>
+    <TargetFramework>net8.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <RootNamespace>TourkitAiProxy.Endpoints</RootNamespace>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <FrameworkReference Include="Microsoft.AspNetCore.App" />
+  </ItemGroup>
+
+  <!-- Web SDK tự thêm sẵn mấy global using này; project thư viện thì không, nên phải khai tay.
+       Khai tường minh cũng tốt hơn: nhìn là biết tầng này phụ thuộc những gì. -->
+  <ItemGroup>
+    <Using Include="Microsoft.AspNetCore.Builder" />
+    <Using Include="Microsoft.AspNetCore.Hosting" />
+    <Using Include="Microsoft.AspNetCore.Http" />
+    <Using Include="Microsoft.AspNetCore.Routing" />
+    <Using Include="Microsoft.Extensions.Configuration" />
+    <Using Include="Microsoft.Extensions.DependencyInjection" />
+    <Using Include="Microsoft.Extensions.Hosting" />
+    <Using Include="Microsoft.Extensions.Logging" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\TourkitAiProxy.Services\TourkitAiProxy.Services.csproj" />
+    <ProjectReference Include="..\TourkitAiProxy.Domain\TourkitAiProxy.Domain.csproj" />
+    <ProjectReference Include="..\TourkitAiProxy.Shared\TourkitAiProxy.Shared.csproj" />
+  </ItemGroup>
+
+  <!-- Test cần thấy thành viên internal. Cách này ĐÚNG hơn là mở public: mở public chỉ để test
+       là biến chi tiết cài đặt thành hợp đồng công khai, rồi sau này không ai dám đổi. -->
+  <ItemGroup>
+    <InternalsVisibleTo Include="TourkitAiProxy.Tests" />
+  </ItemGroup>
+
+</Project>

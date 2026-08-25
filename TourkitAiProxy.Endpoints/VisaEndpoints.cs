@@ -1,4 +1,4 @@
-using SharpCompress.Archives;
+﻿using SharpCompress.Archives;
 using TourkitAiProxy.Models;
 using TourkitAiProxy.Services.TourKit;
 using TourkitAiProxy.Services.Visa;
@@ -132,7 +132,7 @@ public static class VisaEndpoints
         // ─── POST /visa/lead ─── User bấm "Liên hệ tư vấn" ở result → log lead ───
         // Phase 1: append vào data/visa-leads.jsonl (sales team đọc thủ công).
         // Phase 2: wire POST /api/booking-tickets vào TourKit CRM (cần upstream support).
-        v1.MapPost("/visa/lead", async (HttpRequest request, HttpContext ctx, TkSessionStore sessions, IWebHostEnvironment env, ILogger<Program> log) =>
+        v1.MapPost("/visa/lead", async (HttpRequest request, HttpContext ctx, TkSessionStore sessions, IWebHostEnvironment env, ILogger<EndpointsLog> log) =>
         {
             var auth = RequireSession(ctx, sessions);
             if (auth == null) return Unauthorized();
@@ -210,7 +210,7 @@ public static class VisaEndpoints
         });
 
         v1.MapPost("/visa/score-wizard", async (HttpRequest request, HttpContext ctx, TkSessionStore sessions,
-            VisaScoringService scorer, VisaRepository repo, VisaExtractionService extractor, ILogger<Program> log, CancellationToken ct) =>
+            VisaScoringService scorer, VisaRepository repo, VisaExtractionService extractor, ILogger<EndpointsLog> log, CancellationToken ct) =>
         {
             var auth = RequireSession(ctx, sessions);
             if (auth == null) return Unauthorized();

@@ -61,7 +61,7 @@ public class ChatLifecycleTests
     {
         // Luật trên phải được chặn CẢ trong SQL: cập nhật hàng loạt không đọc từng dòng ra để hỏi
         // ChatRules được.
-        var repo = ChatSchemaGuardTests.DocFile("Services/Chat/Inbox/ChatRepository.cs");
+        var repo = ChatSchemaGuardTests.DocFile("TourkitAiProxy.Services/Chat/Inbox/ChatRepository.cs");
         var i = repo.IndexOf("MarkStateWatermarkAsync", StringComparison.Ordinal);
         Assert.True(i > 0, "chưa có MarkStateWatermarkAsync");
         var than = repo.Substring(i, Math.Min(900, repo.Length - i));
@@ -73,7 +73,7 @@ public class ChatLifecycleTests
     {
         // Không có CI chạy PostgreSQL nên canh ở mức mã nguồn. Mã tin nền tảng là thứ DUY NHẤT
         // đối chiếu được khi nền tảng báo lại — vứt đi là cả vòng đời tin vô nghĩa.
-        var src = ChatSchemaGuardTests.DocFile("Services/Chat/Inbox/ChatOutboxWorker.cs");
+        var src = ChatSchemaGuardTests.DocFile("TourkitAiProxy.Services/Chat/Inbox/ChatOutboxWorker.cs");
         Assert.Contains("SetExternalMsgIdAsync", src);
         Assert.Contains("kq.ExternalMsgId", src);
     }
@@ -82,7 +82,7 @@ public class ChatLifecycleTests
     public void Ghi_ma_tin_la_lenh_rieng_khong_gop_vao_doi_trang_thai()
     {
         // Gộp thì mỗi lần đổi trạng thái về sau phải nhớ truyền kèm mã; quên là xoá mất mã bằng null.
-        var repo = ChatSchemaGuardTests.DocFile("Services/Chat/Inbox/ChatRepository.cs");
+        var repo = ChatSchemaGuardTests.DocFile("TourkitAiProxy.Services/Chat/Inbox/ChatRepository.cs");
         Assert.Contains("public async Task SetExternalMsgIdAsync", repo);
         Assert.DoesNotContain(
             "SetMessageStateAsync(string tenant, long messageId, ChatState tt, string? loi, string? maNenTang",
@@ -92,7 +92,7 @@ public class ChatLifecycleTests
     [Fact]
     public void Zalo_bao_da_xem_thi_sinh_moc_co_thoi_diem()
     {
-        var adapter = ChatSchemaGuardTests.DocFile("Services/Chat/Channels/ZaloChatAdapter.cs");
+        var adapter = ChatSchemaGuardTests.DocFile("TourkitAiProxy.Services/Chat/Channels/ZaloChatAdapter.cs");
         // Mốc phải mang THỜI ĐIỂM: nền tảng báo kiểu "mọi tin trước lúc này đã đọc". Không có mốc
         // thì hoặc đánh dấu cả hội thoại (sai), hoặc không đánh dấu gì.
         Assert.Contains("Watermark: new(ChatState.DaXem", adapter);
@@ -103,7 +103,7 @@ public class ChatLifecycleTests
     public void Moc_khong_con_bi_vut_di()
     {
         // Trước đây: `if (e.SeenMarker is not null) return;` — bóc ra rồi bỏ.
-        var svc = ChatSchemaGuardTests.DocFile("Services/Chat/Inbox/ChatInboundService.cs");
+        var svc = ChatSchemaGuardTests.DocFile("TourkitAiProxy.Services/Chat/Inbox/ChatInboundService.cs");
         Assert.Contains("MarkStateWatermarkAsync", svc);
         Assert.DoesNotContain("SeenMarker", svc);
     }
@@ -113,7 +113,7 @@ public class ChatLifecycleTests
     {
         // "Khách đã xem" nói về tin CỦA MÌNH. Quên kẹp direction thì tin của chính khách cũng bị
         // đánh dấu, vô nghĩa và làm hỏng bộ đếm chưa đọc.
-        var repo = ChatSchemaGuardTests.DocFile("Services/Chat/Inbox/ChatRepository.cs");
+        var repo = ChatSchemaGuardTests.DocFile("TourkitAiProxy.Services/Chat/Inbox/ChatRepository.cs");
         var i = repo.IndexOf("MarkStateWatermarkAsync", StringComparison.Ordinal);
         Assert.True(i > 0, "chưa có MarkStateWatermarkAsync");
         var than = repo.Substring(i, Math.Min(900, repo.Length - i));
@@ -124,7 +124,7 @@ public class ChatLifecycleTests
     [Fact]
     public void Messenger_boc_duoc_delivery_va_read()
     {
-        var src = ChatSchemaGuardTests.DocFile("Services/Chat/Channels/MessengerChatAdapter.cs");
+        var src = ChatSchemaGuardTests.DocFile("TourkitAiProxy.Services/Chat/Channels/MessengerChatAdapter.cs");
         Assert.Contains("\"delivery\"", src);
         Assert.Contains("\"read\"", src);
         Assert.Contains("watermark", src);
@@ -137,7 +137,7 @@ public class ChatLifecycleTests
     {
         // Bot API không có báo đã nhận/đã xem. Tự đặt DaNhan khi gửi xong là NÓI DỐI nhân viên —
         // họ sẽ tưởng khách đã nhận trong khi mình không hề biết.
-        var src = ChatSchemaGuardTests.DocFile("Services/Chat/Channels/TelegramChatAdapter.cs");
+        var src = ChatSchemaGuardTests.DocFile("TourkitAiProxy.Services/Chat/Channels/TelegramChatAdapter.cs");
         Assert.DoesNotContain("ChatState.DaNhan", src);
         Assert.DoesNotContain("ChatState.DaXem", src);
         // Phải có chú thích giải thích, không thì người sau tưởng là thiếu sót rồi "sửa".

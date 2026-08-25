@@ -64,7 +64,7 @@ public static class MailEndpoints
         // ?wipeMails=true → xoá luôn dbo.Mails + dbo.MailSyncState của TENANT (lưu ý: chung tenant).
         v1.MapDelete("/mail/account", (HttpContext ctx, MailAccountStore account,
             MailRepository repo, MailSyncStore sync, TkSessionStore sessions,
-            ILogger<Program> log, bool? wipeMails) =>
+            ILogger<EndpointsLog> log, bool? wipeMails) =>
         {
             var auth = RequireSession(ctx, sessions);
             if (auth == null) return Unauthorized();
@@ -88,7 +88,7 @@ public static class MailEndpoints
             MailSyncService sync, MailRepository repo,
             TourkitAiProxy.Services.Workflow.IWorkflowTraceAccessor trace,
             TkSessionStore sessions,
-            ILogger<Program> log, HttpContext ctx, int? max) =>
+            ILogger<EndpointsLog> log, HttpContext ctx, int? max) =>
         {
             var auth = RequireSession(ctx, sessions);
             if (auth == null) return Unauthorized();
@@ -128,7 +128,7 @@ public static class MailEndpoints
         // KHÔNG gọi AI (giữ nguyên nhóm đã phân loại) → không tốn lượt.
         v1.MapPost("/mail/refresh-content", async (
             MailSyncService sync, MailRepository repo, TkSessionStore sessions,
-            ILogger<Program> log, HttpContext ctx, int? max) =>
+            ILogger<EndpointsLog> log, HttpContext ctx, int? max) =>
         {
             var auth = RequireSession(ctx, sessions);
             if (auth == null) return Unauthorized();
@@ -165,7 +165,7 @@ public static class MailEndpoints
         //         (lặp lại từng mail) → {stage:"done", classified, fetched, counts, items}
         v1.MapPost("/mail/sync/stream", async (
             IMailSource source, MailRepository repo, MailClassifier classifier,
-            TkSessionStore sessions, ILogger<Program> log, HttpContext ctx, int? max) =>
+            TkSessionStore sessions, ILogger<EndpointsLog> log, HttpContext ctx, int? max) =>
         {
             var auth = RequireSession(ctx, sessions);
             if (auth == null) { ctx.Response.StatusCode = 401; return; }
@@ -301,7 +301,7 @@ public static class MailEndpoints
             ComposeDraftRequest req, MailReplyService replyService,
             TourkitAiProxy.Services.Workflow.IWorkflowTraceAccessor trace,
             TkSessionStore sessions,
-            ILogger<Program> log, HttpContext ctx) =>
+            ILogger<EndpointsLog> log, HttpContext ctx) =>
         {
             var auth = RequireSession(ctx, sessions);
             if (auth == null)
@@ -330,7 +330,7 @@ public static class MailEndpoints
 
         // ─── POST /mail/compose/send ─── gửi email MỚI qua SMTP ─────────────────
         v1.MapPost("/mail/compose/send", async (
-            ComposeSendRequest req, IMailSender sender, TkSessionStore sessions, ILogger<Program> log, HttpContext ctx) =>
+            ComposeSendRequest req, IMailSender sender, TkSessionStore sessions, ILogger<EndpointsLog> log, HttpContext ctx) =>
         {
             var auth = RequireSession(ctx, sessions);
             if (auth == null) return Unauthorized();
@@ -355,7 +355,7 @@ public static class MailEndpoints
             string id, DraftReplyRequest req, MailRepository repo, MailReplyService replyService,
             TourkitAiProxy.Services.Workflow.IWorkflowTraceAccessor trace,
             TkSessionStore sessions,
-            ILogger<Program> log, HttpContext ctx) =>
+            ILogger<EndpointsLog> log, HttpContext ctx) =>
         {
             var auth = RequireSession(ctx, sessions);
             if (auth == null)
@@ -406,7 +406,7 @@ public static class MailEndpoints
         v1.MapPost("/mail/{id}/reply/send", async (
             string id, SendReplyRequest req, MailRepository repo, IMailSender sender,
             TkSessionStore sessions,
-            ILogger<Program> log, HttpContext ctx) =>
+            ILogger<EndpointsLog> log, HttpContext ctx) =>
         {
             var auth = RequireSession(ctx, sessions);
             if (auth == null) return Unauthorized();

@@ -1,4 +1,4 @@
-using TourkitAiProxy.Services.Speech;
+﻿using TourkitAiProxy.Services.Speech;
 using TourkitAiProxy.Services.TourKit;
 
 namespace TourkitAiProxy.Endpoints;
@@ -21,7 +21,7 @@ public static class SpeechEndpoints
         var v1 = routes.MapGroup("/api/v1");
 
         v1.MapPost("/speech/transcribe", async (HttpContext ctx, SpeechToTextService stt,
-            TkSessionStore sessions, ILogger<Program> log) =>
+            TkSessionStore sessions, ILogger<EndpointsLog> log) =>
         {
             var sid = Sid(ctx);
             if (sessions.Get(sid) == null) return Unauthorized();
@@ -78,7 +78,7 @@ public static class SpeechEndpoints
         //    POST /api/v1/speech/compare (multipart) — field 'file' + optional 'engines' (csv, default "openai,deepgram")
         //    Chạy các engine SONG SONG trên cùng bytes → trả từng kết quả + độ trễ để người dùng tự chấm.
         v1.MapPost("/speech/compare", async (HttpContext ctx, SpeechToTextService stt,
-            TkSessionStore sessions, ILogger<Program> log) =>
+            TkSessionStore sessions, ILogger<EndpointsLog> log) =>
         {
             var sid = Sid(ctx);
             if (sessions.Get(sid) == null) return Unauthorized();
@@ -127,7 +127,7 @@ public static class SpeechEndpoints
         //    Speech:Tts:Fallback = true → engine chính lỗi/chưa cấu hình thì thử các engine còn lại theo thứ tự.
         //    Frontend LUÔN gọi endpoint này (không dùng giọng trình duyệt) → mọi máy nghe cùng 1 giọng.
         v1.MapPost("/speech/tts", async (HttpContext ctx, TtsRequest req, GoogleTtsService google, VbeeTtsService vbee, EdgeTtsService edge,
-            PiperTtsService piper, TextToSpeechService openai, TkSessionStore sessions, IConfiguration cfg, ILogger<Program> log) =>
+            PiperTtsService piper, TextToSpeechService openai, TkSessionStore sessions, IConfiguration cfg, ILogger<EndpointsLog> log) =>
         {
             var sid = Sid(ctx);
             if (sessions.Get(sid) == null) return Unauthorized();

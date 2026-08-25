@@ -1,4 +1,4 @@
-using System.Diagnostics;
+﻿using System.Diagnostics;
 using TourkitAiProxy.Services.Quota;
 
 namespace TourkitAiProxy.Services.Workflows;
@@ -90,7 +90,7 @@ public class WorkflowSchedulerService : BackgroundService
     }
 
     /// Chạy 1 workflow (dùng chung cả scheduled lẫn manual trigger).
-    internal async Task RunOneAsync(
+    public async Task RunOneAsync(
         IScheduledWorkflow wf,
         string tenantId, string username, string type,
         string triggerKind,

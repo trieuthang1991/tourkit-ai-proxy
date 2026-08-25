@@ -103,7 +103,7 @@ public class RanhGioiTangTests
     {
         var cam = new[] { "using Dapper", "new SqlConnection", "new NpgsqlConnection" };
         var pham = new List<string>();
-        foreach (var f in DocFileCs("Endpoints"))
+        foreach (var f in DocFileCs("TourkitAiProxy.Endpoints"))
         {
             var ten = Path.GetFileName(f);
             if (MienTru.Contains(ten)) continue;

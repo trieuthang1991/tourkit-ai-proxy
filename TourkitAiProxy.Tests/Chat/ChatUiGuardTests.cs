@@ -1,4 +1,4 @@
-using System.Text.RegularExpressions;
+﻿using System.Text.RegularExpressions;
 using Xunit;
 
 namespace TourkitAiProxy.Tests.Chat;
@@ -25,7 +25,7 @@ public class ChatUiGuardTests
         //
         // Đếm token "Hint:" thì HỎNG: gán theo vị trí (đối số thứ 4) cũng là khai placeholder mà
         // không có chữ "Hint:" nào. Phải soi TỪNG dòng khai báo và đếm đối số.
-        var src = ChatSchemaGuardTests.DocFile("Endpoints/ChatInboxEndpoints.cs");
+        var src = ChatSchemaGuardTests.DocFile("TourkitAiProxy.Endpoints/ChatInboxEndpoints.cs");
 
         var thieu = new List<string>();
         foreach (Match m in Regex.Matches(src, @"new ONhap\((?<args>[^;]*?)\),?\s*$",

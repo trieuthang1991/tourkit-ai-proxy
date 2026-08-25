@@ -659,7 +659,7 @@ public class ChatAgentService
 
     /// Heuristic: chuỗi có "dáng" số điện thoại (≥8 chữ số, chỉ chứa số/+/-/space/()) — để lọc Hint resolver
     /// (phone ?? email) chỉ lấy khi đúng là SĐT, tránh nhét email vào field customerPhone.
-    internal static bool LooksLikePhone(string? s)
+    public static bool LooksLikePhone(string? s)
     {
         if (string.IsNullOrWhiteSpace(s)) return false;
         var digits = s.Count(char.IsDigit);

@@ -20,7 +20,7 @@ public static class NccImportEndpoints
         var g = routes.MapGroup("/api/v1/ncc-import");
 
         // ── EXTRACT: hỗ trợ 2 mode (multipart file HOẶC JSON text) ────────────
-        g.MapPost("/extract", async (HttpContext ctx, NccImportService svc, ILogger<Program> log) =>
+        g.MapPost("/extract", async (HttpContext ctx, NccImportService svc, ILogger<EndpointsLog> log) =>
         {
             try
             {
@@ -91,7 +91,7 @@ public static class NccImportEndpoints
         }).DisableAntiforgery();
 
         // ── EXTRACT-QUOTE: PDF/text → báo giá dạng GRID (giữ cấu trúc bảng gốc) ──
-        g.MapPost("/extract-quote", async (HttpContext ctx, NccImportService svc, ILogger<Program> log) =>
+        g.MapPost("/extract-quote", async (HttpContext ctx, NccImportService svc, ILogger<EndpointsLog> log) =>
         {
             try
             {
@@ -162,7 +162,7 @@ public static class NccImportEndpoints
         }));
 
         // ── SERVICES: loại dịch vụ NCC (Hotel/Vé/Xe/HDV…) cho dropdown — cần đăng nhập TourKit ──
-        g.MapGet("/services", async (HttpContext ctx, TourKitApiClient api, TkSessionStore sessions, ILogger<Program> log) =>
+        g.MapGet("/services", async (HttpContext ctx, TourKitApiClient api, TkSessionStore sessions, ILogger<EndpointsLog> log) =>
         {
             var sid = SessionId(ctx);
             if (string.IsNullOrEmpty(sid))
@@ -184,7 +184,7 @@ public static class NccImportEndpoints
         });
 
         // ── SAVE: báo giá đã bóc tách → tạo NCC trong CRM (qua TourKit.Api) — cần đăng nhập ──
-        g.MapPost("/save", async (HttpContext ctx, TourKitApiClient api, TkSessionStore sessions, ILogger<Program> log) =>
+        g.MapPost("/save", async (HttpContext ctx, TourKitApiClient api, TkSessionStore sessions, ILogger<EndpointsLog> log) =>
         {
             var sid = SessionId(ctx);
             if (string.IsNullOrEmpty(sid))
