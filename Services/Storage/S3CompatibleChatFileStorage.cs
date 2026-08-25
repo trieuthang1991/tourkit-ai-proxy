@@ -1,7 +1,8 @@
-// Services/Storage/S3CompatibleChatFileStorage.cs
+﻿// Services/Storage/S3CompatibleChatFileStorage.cs
 using Amazon.Runtime;
 using Amazon.S3;
 using Amazon.S3.Model;
+using TourkitAiProxy.Domain.Chat;
 
 namespace TourkitAiProxy.Services.Storage;
 

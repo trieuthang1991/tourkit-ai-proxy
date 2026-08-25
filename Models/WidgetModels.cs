@@ -1,3 +1,4 @@
+﻿using TourkitAiProxy.Domain.Chat;
 namespace TourkitAiProxy.Models;
 
 // Widget Chat — token gen per-tenant, paste vào <script data-token="trav_..."> ở site khách.

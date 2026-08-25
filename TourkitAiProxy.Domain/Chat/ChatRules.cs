@@ -1,5 +1,5 @@
-// Services/Chat/Inbox/ChatRules.cs
-namespace TourkitAiProxy.Services.Chat.Inbox;
+﻿// Services/Chat/Inbox/ChatRules.cs
+namespace TourkitAiProxy.Domain.Chat;
 
 /// <summary>Kết quả tính cửa sổ gửi của một kênh.</summary>
 /// <param name="Open">Còn gửi được không.</param>

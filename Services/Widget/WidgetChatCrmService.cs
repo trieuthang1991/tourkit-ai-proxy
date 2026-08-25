@@ -5,6 +5,7 @@ using TourkitAiProxy.Services.Chat;
 using TourkitAiProxy.Shared.Json;
 using TourkitAiProxy.Services.Providers;
 using TourkitAiProxy.Services.TourKit;
+using TourkitAiProxy.Domain.Chat;
 
 namespace TourkitAiProxy.Services.Widget;
 

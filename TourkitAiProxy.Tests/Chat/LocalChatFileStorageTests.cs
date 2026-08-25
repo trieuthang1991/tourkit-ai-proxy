@@ -1,5 +1,6 @@
-using TourkitAiProxy.Services.Storage;
+﻿using TourkitAiProxy.Services.Storage;
 using Xunit;
+using TourkitAiProxy.Domain.Chat;
 
 namespace TourkitAiProxy.Tests.Chat;
 

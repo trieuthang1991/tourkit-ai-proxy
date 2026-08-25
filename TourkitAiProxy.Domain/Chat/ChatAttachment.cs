@@ -1,7 +1,7 @@
-// Services/Chat/Inbox/ChatAttachment.cs
+﻿// Services/Chat/Inbox/ChatAttachment.cs
 using System.Text.Json.Nodes;
 
-namespace TourkitAiProxy.Services.Chat.Inbox;
+namespace TourkitAiProxy.Domain.Chat;
 
 /// <summary>
 /// Một tệp khách gửi kèm, đã chuẩn hoá về CÙNG một hình dạng cho cả ba kênh.

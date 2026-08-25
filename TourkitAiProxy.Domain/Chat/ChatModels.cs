@@ -1,5 +1,5 @@
-// Services/Chat/Inbox/ChatModels.cs
-namespace TourkitAiProxy.Services.Chat.Inbox;
+﻿// Services/Chat/Inbox/ChatModels.cs
+namespace TourkitAiProxy.Domain.Chat;
 
 /// <summary>
 /// Kênh chat. SỐ tường minh, lưu thẳng cột <c>channel</c> — số để tránh lỗi gõ chuỗi, và đổi tên

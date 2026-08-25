@@ -1,5 +1,6 @@
-// Services/Chat/Inbox/ChatRepository.cs
+﻿// Services/Chat/Inbox/ChatRepository.cs
 using Dapper;
+using TourkitAiProxy.Domain.Chat;
 
 namespace TourkitAiProxy.Services.Chat.Inbox;
 

@@ -1,9 +1,10 @@
-// Services/Chat/Channels/ChannelCredentialStore.cs
+﻿// Services/Chat/Channels/ChannelCredentialStore.cs
 using System.Text.Json.Nodes;
 using Dapper;
 using TourkitAiProxy.Services.Chat.Inbox;
 using TourkitAiProxy.Services.Db;
 using TourkitAiProxy.Services.Security;
+using TourkitAiProxy.Domain.Chat;
 
 namespace TourkitAiProxy.Services.Chat.Channels;
 

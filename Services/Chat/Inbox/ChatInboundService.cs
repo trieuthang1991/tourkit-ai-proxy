@@ -1,8 +1,9 @@
-// Services/Chat/Inbox/ChatInboundService.cs
+﻿// Services/Chat/Inbox/ChatInboundService.cs
 using TourkitAiProxy.Models;
 using TourkitAiProxy.Services.Chat.Channels;
 using TourkitAiProxy.Services.Providers;
 using TourkitAiProxy.Services.Quota;
+using TourkitAiProxy.Domain.Chat;
 
 namespace TourkitAiProxy.Services.Chat.Inbox;
 

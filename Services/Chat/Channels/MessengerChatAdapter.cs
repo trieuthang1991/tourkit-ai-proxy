@@ -1,8 +1,9 @@
-// Services/Chat/Channels/MessengerChatAdapter.cs
+﻿// Services/Chat/Channels/MessengerChatAdapter.cs
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json.Nodes;
 using TourkitAiProxy.Services.Chat.Inbox;
+using TourkitAiProxy.Domain.Chat;
 
 namespace TourkitAiProxy.Services.Chat.Channels;
 

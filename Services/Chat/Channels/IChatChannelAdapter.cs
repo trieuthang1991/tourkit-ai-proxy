@@ -1,5 +1,6 @@
-// Services/Chat/Channels/IChatChannelAdapter.cs
+﻿// Services/Chat/Channels/IChatChannelAdapter.cs
 using TourkitAiProxy.Services.Chat.Inbox;
+using TourkitAiProxy.Domain.Chat;
 
 namespace TourkitAiProxy.Services.Chat.Channels;
 

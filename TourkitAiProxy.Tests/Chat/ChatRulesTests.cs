@@ -1,4 +1,5 @@
-using TourkitAiProxy.Services.Chat.Inbox;
+﻿using TourkitAiProxy.Services.Chat.Inbox;
+using TourkitAiProxy.Domain.Chat;
 
 namespace TourkitAiProxy.Tests.Chat;
 

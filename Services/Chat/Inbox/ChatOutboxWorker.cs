@@ -1,5 +1,6 @@
-// Services/Chat/Inbox/ChatOutboxWorker.cs
+﻿// Services/Chat/Inbox/ChatOutboxWorker.cs
 using TourkitAiProxy.Services.Chat.Channels;
+using TourkitAiProxy.Domain.Chat;
 
 namespace TourkitAiProxy.Services.Chat.Inbox;
 

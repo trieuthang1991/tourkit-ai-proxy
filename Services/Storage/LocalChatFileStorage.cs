@@ -1,3 +1,4 @@
+﻿using TourkitAiProxy.Domain.Chat;
 // Services/Storage/LocalChatFileStorage.cs
 namespace TourkitAiProxy.Services.Storage;
 
