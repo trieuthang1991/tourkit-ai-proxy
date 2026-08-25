@@ -4,7 +4,7 @@ using System.Text.Json;
 using TourkitAiProxy.Models;
 using TourkitAiProxy.Domain.Chat;
 
-namespace TourkitAiProxy.Services.Chat;
+namespace TourkitAiProxy.Domain.Chat;
 
 /// <summary>
 /// Chuyen envelope /api/ai/* (items + summary + total + title) thanh ChatData.

@@ -1,6 +1,7 @@
-using System.Globalization;
+﻿using System.Globalization;
+using TourkitAiProxy.Domain.Digest;
 
-namespace TourkitAiProxy.Services.Digest;
+namespace TourkitAiProxy.Domain.Digest;
 
 /// <summary>
 /// Dự phóng doanh thu cuối tháng cho bản tin điều hành (C4).

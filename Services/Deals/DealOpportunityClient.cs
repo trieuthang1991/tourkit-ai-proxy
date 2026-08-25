@@ -4,6 +4,7 @@ using System.Text;
 using System.Text.Json;
 using TourkitAiProxy.Models;
 using TourkitAiProxy.Services.TourKit;
+using TourkitAiProxy.Domain.Deals;
 
 namespace TourkitAiProxy.Services.Deals;
 

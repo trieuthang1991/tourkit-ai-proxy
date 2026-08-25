@@ -1,6 +1,7 @@
-using TourkitAiProxy.Models;
+﻿using TourkitAiProxy.Models;
 using TourkitAiProxy.Services;
 using TourkitAiProxy.Services.Workflow;
+using TourkitAiProxy.Domain.Deals;
 
 namespace TourkitAiProxy.Services.Deals;
 

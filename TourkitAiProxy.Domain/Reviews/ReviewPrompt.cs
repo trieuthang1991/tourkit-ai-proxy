@@ -1,8 +1,9 @@
 ﻿// Services/Reviews/Agents/ReviewPrompt.cs
 using System.Text.Json;
 using TourkitAiProxy.Models;
+using TourkitAiProxy.Domain.Reviews;
 
-namespace TourkitAiProxy.Services.Reviews.Agents;
+namespace TourkitAiProxy.Domain.Reviews;
 
 /// <summary>
 /// Shared prompt + JSON schema + tolerant parser cho 2 agent (Json + Native).

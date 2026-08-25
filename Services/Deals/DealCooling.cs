@@ -1,3 +1,4 @@
+﻿using TourkitAiProxy.Domain.Deals;
 namespace TourkitAiProxy.Services.Deals;
 
 /// <summary>

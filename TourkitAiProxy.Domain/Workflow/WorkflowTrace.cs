@@ -1,4 +1,4 @@
-// Services/Workflow/WorkflowTrace.cs
+﻿// Services/Workflow/WorkflowTrace.cs
 using System.Collections.Concurrent;
 using System.Diagnostics;
 using System.Text.Json.Serialization;

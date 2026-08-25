@@ -1,8 +1,9 @@
 ﻿using System.Globalization;
 using System.Text;
 using TourkitAiProxy.Models;
+using TourkitAiProxy.Domain.Deals;
 
-namespace TourkitAiProxy.Services.Deals;
+namespace TourkitAiProxy.Domain.Deals;
 
 /// Chấm điểm cơ hội bằng CODE (không AI) — thuần, test được.
 ///   • QuickScore: xếp sơ bộ toàn bộ pipeline (tầng 1) = stage·0.4 + value·0.3 + urgency·0.3.

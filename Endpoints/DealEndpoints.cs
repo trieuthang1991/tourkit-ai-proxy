@@ -5,6 +5,7 @@ using TourkitAiProxy.Services;
 using TourkitAiProxy.Services.Deals;
 using TourkitAiProxy.Services.TourKit;
 using TourkitAiProxy.Services.Workflows;
+using TourkitAiProxy.Domain.Deals;
 
 namespace TourkitAiProxy.Endpoints;
 

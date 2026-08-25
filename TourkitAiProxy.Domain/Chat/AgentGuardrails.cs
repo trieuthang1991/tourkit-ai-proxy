@@ -3,8 +3,9 @@ using System.Text.RegularExpressions;
 using System.Globalization;
 using TourkitAiProxy.Models;
 using System.Linq;
+using TourkitAiProxy.Domain.Chat;
 
-namespace TourkitAiProxy.Services.Chat;
+namespace TourkitAiProxy.Domain.Chat;
 
 public static class AgentGuardrails
 {

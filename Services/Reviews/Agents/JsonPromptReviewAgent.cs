@@ -1,7 +1,8 @@
-// Services/Reviews/Agents/JsonPromptReviewAgent.cs
+﻿// Services/Reviews/Agents/JsonPromptReviewAgent.cs
 using TourkitAiProxy.Models;
 using TourkitAiProxy.Services.Providers;
 using TourkitAiProxy.Services.Workflow;
+using TourkitAiProxy.Domain.Reviews;
 
 namespace TourkitAiProxy.Services.Reviews.Agents;
 

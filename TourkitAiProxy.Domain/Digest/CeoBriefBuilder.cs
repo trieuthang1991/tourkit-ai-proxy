@@ -2,7 +2,7 @@
 using System.Text;
 using TourkitAiProxy.Domain.Digest;
 
-namespace TourkitAiProxy.Services.Digest;
+namespace TourkitAiProxy.Domain.Digest;
 
 public record CeoNumbers(decimal Revenue, decimal Expense, decimal Profit);
 

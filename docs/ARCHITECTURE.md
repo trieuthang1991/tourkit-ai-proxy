@@ -297,6 +297,40 @@ Hai dòng ⚠️ là **lỗ hổng thật**: cả hai dẫn tới "một tính n
 > vào đúng chỗ** — biên dịch viên chặn. Cái đống cũ vẫn còn, nhưng nó **thôi lớn thêm**. Big-bang
 > biến thành bánh cóc: chỉ tiến, không lùi.
 
+### Đã làm được tới đâu (cập nhật 25/08/2026)
+
+| | Lúc bắt đầu | Hiện tại |
+|---|---|---|
+| `Services/` | 200 file | **172** |
+| `Domain` | — | **43** |
+| `Shared` | — | **3** |
+| Project C# | 3 | **7** |
+
+Bước 0a (test guard) và bước 1 (dựng khung + chuyển file thuần) **đã xong**, 812 test xanh,
+build 5 project sạch.
+
+⚠️ **Một dự đoán trong chính tài liệu này đã SAI, và cái sai đó đáng ghi lại.** Bản trước viết
+"Models/ phần lớn là DTO của endpoint, nên về Api". Đo lại khi thi hành: cả **16/16 file trong
+Models/ đều THUẦN** (0 phụ thuộc ngoài BCL), và chúng chính là **nút thắt** — sáu file luật nghiệp
+vụ không sang Domain được chỉ vì cần kiểu nằm trong Models/. Chuyển Models/ vào Domain gỡ được cả
+sáu ngay.
+
+Models/ chuyển **giữ nguyên namespace `TourkitAiProxy.Models`**: đổi chỗ vật lý mà không đổi
+namespace nên **không phải sửa một dòng `using` nào** trong hơn 250 file. Cái giá: namespace thôi
+nói lên tầng. Đổi tên namespace là việc dọn riêng — đừng trộn vào đợt di chuyển, vì lúc đó không
+phân biệt được lỗi do di chuyển hay do đổi tên.
+
+⚠️ **Đo "thuần" bằng cách quét `using` và từ khoá hạ tầng là KHÔNG ĐỦ.** Nó bỏ sót phụ thuộc KIỂU
+sang tầng ngoài: sáu file kể trên lọt qua bộ lọc rồi mới gãy lúc biên dịch. Thứ phát hiện ra là
+chính biên dịch viên — sau khi ranh giới project tồn tại thật. Đó đúng là luận điểm §2, chỉ khác
+là lần này nó tự chứng minh ngay trong lúc thi hành chứ không phải trên giấy.
+
+Một hệ quả nhỏ nhưng đúng hướng: `SaleBriefBuilder.ToHtml` phải đổi từ `internal` sang `public`
+vì hai nơi dùng nó nay ở assembly khác. Trước khi tách thì `internal` đủ và **không ai thấy** rằng
+đang có phụ thuộc chéo tầng. Ranh giới thật buộc chuyện đó phải khai ra.
+
+---
+
 **Bước 2 — chuyển dần, mỗi lần một tính năng:**
 
 4. Chỉ chuyển khi **đang sửa** tính năng đó. Mỗi tính năng ra **một commit "chỉ di chuyển, không đổi
