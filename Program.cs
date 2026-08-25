@@ -197,10 +197,14 @@ if (runScheduler)
     builder.Services.AddHostedService(sp =>
         sp.GetRequiredService<TourkitAiProxy.Services.Workflows.WorkflowSchedulerService>());
 
-// Worker gửi tin chat. Chạy ở WEB (không phải worker riêng) vì tin chat phải đi NGAY — khách đang
+// Hai worker của chat. Chạy ở WEB (không phải worker riêng) vì tin chat phải đi NGAY — khách đang
 // chờ trước màn hình, không như bản tin sáng hẹn giờ. Tắt cờ thì không đăng ký, không tốn nhịp nào.
+// Vào: webhook chỉ GHI thân thô, worker này mới xử lý — xem ChatInboundWorker.
 if (TourkitAiProxy.Services.Bootstrap.FeatureFlags.Chat(builder.Configuration))
+{
+    builder.Services.AddHostedService<TourkitAiProxy.Services.Chat.Inbox.ChatInboundWorker>();
     builder.Services.AddHostedService<TourkitAiProxy.Services.Chat.Inbox.ChatOutboxWorker>();
+}
 
 // ─── Response compression (Brotli + Gzip) ─────────────────────────────────────
 // Frontend bundle ~596KB + styles.css ~352KB gửi RAW trước đây → public landing/NCC

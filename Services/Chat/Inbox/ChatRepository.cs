@@ -339,6 +339,52 @@ public class ChatRepository
             """, new { id, ok = thanhCong, thuLai, loi });
     }
 
+    // ── Hàng đợi sự kiện VÀO ─────────────────────────────────────────────────
+
+    /// <summary>Ghi sự kiện webhook xuống CSDL. Trả <c>null</c> khi trùng (kênh gửi lại).</summary>
+    public async Task<long?> EnqueueInboundAsync(string tenant, ChatChannel kenh, string accountId,
+        string? providerEventId, string rawBody, CancellationToken ct = default)
+    {
+        await using var c = await _db.OpenAsync(ct);
+        return await c.ExecuteScalarAsync<long?>("""
+            INSERT INTO chat_inbound_events (tenant_id, channel, account_id, provider_event_id, raw_body)
+            VALUES (@tenant, @kenh, @accountId, @ext, @raw)
+            ON CONFLICT (tenant_id, channel, provider_event_id) WHERE provider_event_id IS NOT NULL
+              DO NOTHING
+            RETURNING id
+            """, new { tenant, kenh = (short)kenh, accountId, ext = providerEventId, raw = rawBody });
+    }
+
+    public record InboundRow(long Id, string TenantId, short Channel, string AccountId,
+        string RawBody, int RetryCount);
+
+    public async Task<List<InboundRow>> ClaimInboundAsync(int soLuong, CancellationToken ct = default)
+    {
+        await using var c = await _db.OpenAsync(ct);
+        return (await c.QueryAsync<InboundRow>("""
+            UPDATE chat_inbound_events SET status = 3
+             WHERE id IN (
+               SELECT id FROM chat_inbound_events WHERE status = 0
+                ORDER BY created_utc LIMIT @n FOR UPDATE SKIP LOCKED)
+            RETURNING id, tenant_id, channel, account_id, raw_body, retry_count
+            """, new { n = Math.Clamp(soLuong, 1, 50) })).ToList();
+    }
+
+    /// <param name="thuLai">true = trả về hàng đợi để thử lần sau (lỗi tạm thời).</param>
+    public async Task FinishInboundAsync(long id, bool thanhCong, bool thuLai, string? loi,
+        CancellationToken ct = default)
+    {
+        await using var c = await _db.OpenAsync(ct);
+        await c.ExecuteAsync("""
+            UPDATE chat_inbound_events
+               SET status = CASE WHEN @ok THEN 1 WHEN @thuLai THEN 0 ELSE 2 END,
+                   retry_count = retry_count + CASE WHEN @thuLai THEN 1 ELSE 0 END,
+                   error_message = @loi,
+                   processed_utc = CASE WHEN @thuLai THEN NULL ELSE now() END
+             WHERE id = @id
+            """, new { id, ok = thanhCong, thuLai, loi });
+    }
+
     /// Xoá tin cũ hơn N ngày. Chat sinh nhiều hơn Bảng tin nhiều lần nên phải dọn định kỳ.
     public async Task<int> PruneAsync(int giuNgay, CancellationToken ct = default)
     {

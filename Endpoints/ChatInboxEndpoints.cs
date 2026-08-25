@@ -74,7 +74,7 @@ public static class ChatInboxEndpoints
         // TelegramChatAdapter). Zalo/Messenger dùng dạng .../{tenantId} — nhiều OA/Trang chung một
         // đường, adapter tự soát ra tài khoản từ app_id/pageId trong thân tin.
         async Task<IResult> XuLy(string kenh, string tenantId, string? accountId, HttpContext ctx,
-            ChatInboundService svc, ILoggerFactory lf, CancellationToken ct)
+            ChatInboundService svc, ChatRepository repo, ILoggerFactory lf, CancellationToken ct)
         {
             var log = lf.CreateLogger("chat.webhook");
             if (!TenKenh.TryGetValue(kenh, out var loaiKenh)) return Results.NotFound();
@@ -95,27 +95,31 @@ public static class ChatInboxEndpoints
                 return Results.Unauthorized();
             }
 
+            // Vẫn bóc MỘT lần ở đây, nhưng CHỈ để lấy id sự kiện làm khoá chống trùng — chống trùng
+            // phải xảy ra lúc GHI, không thì kênh gửi lại sẽ tạo hai dòng và bot trả lời hai lần.
             var sk = adapter.Parse(raw);
             if (sk.Count == 0) return Results.Ok();
+            var maSuKien = sk[0].ExternalMsgId;
 
-            // TRẢ 200 NGAY rồi xử lý nền. Kênh nào cũng gửi lại khi không thấy 200, mà xử lý có gọi
-            // AI nên mất vài giây — trả lời chậm là khách nhận tin nhân đôi.
-            _ = Task.Run(async () =>
-            {
-                try { await svc.HandleAsync(tenantId, taiKhoan, sk, CancellationToken.None); }
-                catch (Exception ex) { log.LogError(ex, "[chat/webhook] xử lý nền hỏng tenant={T}", tenantId); }
-            }, CancellationToken.None);
+            // Chỉ GHI thân thô rồi trả 200. XỬ LÝ là việc của ChatInboundWorker: đã trả 200 thì kênh
+            // không gửi lại nữa, nên việc còn dở KHÔNG được nằm trong bộ nhớ — recycle/deploy/crash
+            // lúc đó là mất hẳn tin của khách mà không dấu vết.
+            var id = await repo.EnqueueInboundAsync(tenantId, loaiKenh, taiKhoan, maSuKien, raw, ct);
+            if (id is null)
+                log.LogInformation("[chat/webhook] bỏ qua bản gửi lại, kênh={K} tenant={T} sk={S}",
+                    kenh, tenantId, maSuKien);
 
             return Results.Ok();
         }
 
         routes.MapPost("/api/v1/chat/webhook/{kenh}/{tenantId}", (
-            string kenh, string tenantId, HttpContext ctx, ChatInboundService svc, ILoggerFactory lf,
-            CancellationToken ct) => XuLy(kenh, tenantId, null, ctx, svc, lf, ct));
+            string kenh, string tenantId, HttpContext ctx, ChatInboundService svc, ChatRepository repo,
+            ILoggerFactory lf, CancellationToken ct) => XuLy(kenh, tenantId, null, ctx, svc, repo, lf, ct));
 
         routes.MapPost("/api/v1/chat/webhook/{kenh}/{tenantId}/{accountId}", (
             string kenh, string tenantId, string accountId, HttpContext ctx, ChatInboundService svc,
-            ILoggerFactory lf, CancellationToken ct) => XuLy(kenh, tenantId, accountId, ctx, svc, lf, ct));
+            ChatRepository repo, ILoggerFactory lf, CancellationToken ct)
+            => XuLy(kenh, tenantId, accountId, ctx, svc, repo, lf, ct));
 
         // Meta xác minh địa chỉ webhook bằng một lượt GET riêng trước khi bắt đầu gửi tin. Thiếu
         // đường này thì không đăng ký được webhook Messenger, dù phần nhận tin đã đúng hết.

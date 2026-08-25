@@ -136,6 +136,13 @@ public class ChatDb
     -- Thứ tự CỐ Ý: tạo chỉ mục mới TRƯỚC rồi mới bỏ cái cũ. Nếu dữ liệu đang có trùng thì lệnh tạo
     -- hỏng, cả khối SQL dừng, và chỉ mục CŨ vẫn còn nguyên — vẫn chống trùng. Bỏ trước tạo sau thì
     -- lúc hỏng sẽ không còn chỉ mục duy nhất nào cả, mất luôn lớp chống trùng ở tầng CSDL.
+    -- ALTER phải chạy TRƯỚC chỉ mục bên dưới, vì chỉ mục dùng chính cột này. Với CSDL đã tồn tại
+    -- từ trước 24/08 thì CREATE TABLE IF NOT EXISTS ở trên là no-op — cột account_id chưa có, và
+    -- CREATE INDEX ... (account_id) sẽ hỏng "column does not exist", kéo cả khối SQL dừng theo.
+    -- Đặt sau chỉ mục thì chỉ CSDL nào ĐÃ có sẵn cột mới chạy được, tức là hỏng đúng ở máy chưa
+    -- nâng cấp — chỗ cần nó chạy nhất.
+    ALTER TABLE chat_conversations ADD COLUMN IF NOT EXISTS account_id text NOT NULL DEFAULT '';
+
     CREATE UNIQUE INDEX IF NOT EXISTS ux_conv_scope_acc
       ON chat_conversations (tenant_id, channel, account_id, contact_external_id);
     DROP INDEX IF EXISTS ux_conv_scope;
@@ -143,9 +150,6 @@ public class ChatDb
       ON chat_conversations (tenant_id, status, last_activity_at DESC);
     CREATE INDEX IF NOT EXISTS ix_conv_tenant_assignee
       ON chat_conversations (tenant_id, assigned_username, last_activity_at DESC);
-    -- account_id thêm sau (24/08, đa tài khoản/kênh) — bảng đã tồn tại từ trước thì CREATE TABLE
-    -- IF NOT EXISTS ở trên là no-op, phải ALTER riêng mới thấy cột mới.
-    ALTER TABLE chat_conversations ADD COLUMN IF NOT EXISTS account_id text NOT NULL DEFAULT '';
 
     CREATE TABLE IF NOT EXISTS chat_messages (
       id              bigserial PRIMARY KEY,
@@ -172,6 +176,31 @@ public class ChatDb
 
     -- Hàng đợi gửi RIÊNG cho chat. KHÔNG dùng dbo.OutboundMails: khác máy chủ, và khác vòng đời
     -- (thông báo có mẫu + lịch gửi; chat gửi ngay, chữ tự do, có cửa sổ thời gian theo kênh).
+    -- Sự kiện webhook ĐÃ NHẬN, chưa xử lý. Webhook chỉ ghi vào đây rồi trả 200; xử lý là việc
+    -- của ChatInboundWorker. Trước đây webhook trả 200 rồi mới `Task.Run` xử lý — đã trả 200
+    -- nghĩa là kênh coi như giao xong và không gửi lại, nên app chết trong vài giây đó là mất
+    -- hẳn tin của khách, không dấu vết.
+    CREATE TABLE IF NOT EXISTS chat_inbound_events (
+      id                bigserial PRIMARY KEY,
+      tenant_id         text     NOT NULL,
+      channel           smallint NOT NULL,
+      account_id        text     NOT NULL,
+      provider_event_id text,             -- id sự kiện phía kênh, dùng chống trùng
+      raw_body          text     NOT NULL,
+      status            smallint NOT NULL DEFAULT 0,  -- 0=chờ 1=xong 2=hỏng 3=đang xử lý
+      retry_count       integer  NOT NULL DEFAULT 0,
+      error_message     text,
+      created_utc       timestamptz NOT NULL DEFAULT now(),
+      processed_utc     timestamptz
+    );
+    -- Chống trùng ở TẦNG CSDL. Kiểm-rồi-ghi trong code vẫn lọt khi kênh gửi lại đồng thời.
+    -- Partial index: sự kiện không có id thì không chống trùng được, cứ nhận.
+    CREATE UNIQUE INDEX IF NOT EXISTS ux_inbound_event
+      ON chat_inbound_events (tenant_id, channel, provider_event_id)
+      WHERE provider_event_id IS NOT NULL;
+    CREATE INDEX IF NOT EXISTS ix_inbound_cho
+      ON chat_inbound_events (created_utc) WHERE status = 0;
+
     CREATE TABLE IF NOT EXISTS chat_outbox (
       id              bigserial PRIMARY KEY,
       tenant_id       text     NOT NULL,
