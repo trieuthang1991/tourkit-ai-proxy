@@ -73,7 +73,7 @@ VALUES
                 t = tenantId, id = item.Id,
                 fn = item.From.Name, fe = item.From.Email,
                 sub = item.Subject, body = item.Body, html = item.BodyHtml,
-                recv = DateTime.TryParse(item.ReceivedAt, out var dt) ? dt : DateTime.UtcNow,
+                recv = DocMocUtc(item.ReceivedAt),
                 read = item.IsRead, cat = item.Category, stat = item.Status, sum = item.AiSummary,
                 draft = item.Draft == null ? null : JsonSerializer.Serialize(item.Draft, _jsonOpts)
             });
@@ -231,7 +231,7 @@ VALUES
                 From: new MailContact(row.FromName ?? "", row.FromEmail ?? ""),
                 Subject: row.Subject ?? "",
                 Body: row.Body ?? "",
-                ReceivedAt: row.ReceivedAt.ToString("o"),
+                ReceivedAt: MocUtcRaChuoi(row.ReceivedAt),
                 IsRead: row.IsRead,
                 Category: row.Category,
                 Status: row.Status,
@@ -275,6 +275,40 @@ VALUES
         public string? Category { get; set; }
         public bool IsRead { get; set; }
     }
+
+    // ─── Ngày giờ: hai vế của cùng một luật, cùng hỏng trong file này ────────────
+    // docs/datetime-convention.md nói rõ cả hai, mà cả hai đều bị vi phạm ở đây — E2E bắt được
+    // 25/08/2026 khi thấy `receivedAt` trả về "2026-08-25T21:08:09.0000000": vừa THIẾU 'Z', vừa là
+    // GIỜ ĐỊA PHƯƠNG (+7) chứ không phải UTC.
+    //
+    // Hai lỗi này che nhau nên nằm im rất lâu: lưu dư 7 tiếng, rồi đọc ra thiếu 'Z' nên trình duyệt
+    // hiểu là giờ địa phương — cộng lại thành ra HIỂN THỊ ĐÚNG trên máy ở Việt Nam. Chỉ lộ khi so
+    // với cột giờ chuẩn khác, khi sắp xếp, hoặc khi người dùng ở múi giờ khác mở lên.
+
+    /// <summary>
+    /// Chuỗi ISO từ tầng trên → <c>DateTime</c> UTC để ghi CSDL.
+    ///
+    /// <para><c>DateTime.TryParse</c> trần đổi chuỗi có <c>Z</c> sang giờ MÁY CHỦ
+    /// (<c>Kind=Local</c>), nên "14:08Z" thành "21:08" rồi ghi thẳng vào <c>DATETIME2</c> — cột
+    /// không mang múi giờ nên sai vĩnh viễn. Phải có
+    /// <c>AssumeUniversal | AdjustToUniversal</c>.</para>
+    /// </summary>
+    internal static DateTime DocMocUtc(string? iso)
+        => DateTime.TryParse(iso, CultureInfo.InvariantCulture,
+                             DateTimeStyles.AssumeUniversal | DateTimeStyles.AdjustToUniversal,
+                             out var dt)
+            ? dt
+            : DateTime.UtcNow;
+
+    /// <summary>
+    /// <c>DateTime</c> đọc từ CSDL → chuỗi ISO có <c>Z</c>.
+    ///
+    /// <para>Dapper trả <c>DATETIME2</c> ra <c>Kind=Unspecified</c>, mà <c>ToString("o")</c> chỉ
+    /// thêm <c>Z</c> khi <c>Kind=Utc</c>. Không <c>SpecifyKind</c> thì chuỗi ra thiếu hậu tố, và
+    /// trình duyệt hiểu nhầm sang giờ địa phương.</para>
+    /// </summary>
+    internal static string MocUtcRaChuoi(DateTime moc)
+        => DateTime.SpecifyKind(moc, DateTimeKind.Utc).ToString("o");
 
     /// Chuẩn hóa search: lowercase + bỏ dấu tiếng Việt + đ→d.
     private static string Norm(string s)

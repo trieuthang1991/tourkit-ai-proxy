@@ -8,8 +8,8 @@ namespace TourkitAiProxy.Endpoints;
 ///   GET  /api/v1/admin/quota                 — toàn bộ tenant (admin)
 ///   POST /api/v1/admin/quota/{tenant}/topup  — cộng thêm lượt cho tenant (admin)
 ///
-/// Admin protect: nếu `Admin:Token` cấu hình trong appsettings → yêu cầu header `X-Admin-Token` khớp.
-/// Không cấu hình → endpoint admin mở (dev mode).
+/// Admin protect: chấp nhận phiên đăng nhập quản trị (`X-Admin-Session`) HOẶC chuỗi tĩnh
+/// `X-Admin-Token` khớp `Admin:Token`. Không có gì → 403. Xem `AdminOk`.
 public static class QuotaEndpoints
 {
     public static void MapQuotaEndpoints(this IEndpointRouteBuilder routes)
@@ -54,10 +54,42 @@ public static class QuotaEndpoints
         => ctx.Request.Headers["X-Session-Id"].FirstOrDefault()
         ?? ctx.Request.Query["sessionId"].FirstOrDefault();
 
+    /// <summary>
+    /// Cổng của hai đường quản trị quota. Chấp nhận <b>một trong hai</b> giấy tờ:
+    ///
+    /// <list type="number">
+    /// <item><b>Phiên đăng nhập quản trị</b> (<c>X-Admin-Session</c>) — thứ trang
+    /// <c>/admin-trav-ai</c> vẫn dùng, lấy từ <c>POST /api/v1/admin/auth/login</c>.</item>
+    /// <item><b>Chuỗi tĩnh</b> <c>X-Admin-Token</c> khớp <c>Admin:Token</c> — giữ cho script/ops
+    /// bên ngoài đang gọi sẵn, để không phải sửa gì bên đó.</item>
+    /// </list>
+    ///
+    /// <para>⚠️ <b>Không giấy tờ nào thì TỪ CHỐI.</b> Bản cũ trả <c>true</c> khi <c>Admin:Token</c>
+    /// để trống, kèm chú thích "dev mode" — nhưng không có gì bảo đảm đó là máy dev. Mà
+    /// <c>POST /admin/quota/{tenant}/topup</c> thì <b>cộng thẳng lượt AI</b>: ai biết đường dẫn là
+    /// tự cấp vô hạn cho tenant bất kỳ, không lỗi, không log. Thử thật trên staging 25/08/2026:
+    /// phiên người dùng THƯỜNG mở được <c>GET /admin/quota</c> của mọi công ty.</para>
+    ///
+    /// <para><b>Vì sao cách này không làm hỏng gì.</b> Nút "Nạp lượt" trong trang quản trị KHÔNG đi
+    /// qua đây — nó gọi <c>/api/v1/admin/ui/quota/{tenant}/topup</c>, vốn đã có
+    /// <c>RequireAdminSession()</c>. Tài liệu cũ dặn giữ nguyên chỗ này "để khỏi vỡ Tingee", nhưng
+    /// Tingee thật bắn IPN vào stack CŨ (<c>tourkit</c>, <c>/api/hooks/tingee</c>, HMAC SHA512) chứ
+    /// không hề gọi proxy — nên căn cứ đó không còn đúng. Ai vẫn muốn dùng chuỗi tĩnh thì chỉ cần
+    /// đặt <c>Admin:Token</c>, đúng như trước.</para>
+    /// </summary>
     private static bool AdminOk(HttpContext ctx, IConfiguration cfg)
     {
+        // 1) Phiên đăng nhập quản trị — không cần thêm cấu hình nào.
+        var phien = ctx.Request.Headers["X-Admin-Session"].FirstOrDefault();
+        if (!string.IsNullOrWhiteSpace(phien))
+        {
+            var store = ctx.RequestServices.GetService<Services.Admin.AdminSessionStore>();
+            if (store?.Get(phien) is not null) return true;
+        }
+
+        // 2) Chuỗi tĩnh, CHỈ khi đã cấu hình. Trống → đóng, không mở như trước.
         var expected = cfg["Admin:Token"];
-        if (string.IsNullOrWhiteSpace(expected)) return true;   // dev mode, không cấu hình → open
+        if (string.IsNullOrWhiteSpace(expected)) return false;
         var got = ctx.Request.Headers["X-Admin-Token"].FirstOrDefault();
         return string.Equals(expected, got, StringComparison.Ordinal);
     }

@@ -13,6 +13,23 @@ Những cập nhật gần đây của TRAV-AI, viết cho người dùng. Mới
 
 ---
 
+## Phiên bản 25/08/2026 — Chặt hơn ở phần quản trị, và vài lỗi âm thầm
+
+### 🔧 Đã khắc phục
+- **Trang quản trị: chỉ người đã đăng nhập mới xem/nạp được lượt AI.** Trước đây có một đường
+  cũ cho phép xem lượt của mọi công ty và cộng lượt mà không cần đăng nhập, miễn là biết đường
+  dẫn. Nút "Nạp lượt" bạn vẫn dùng không đổi gì.
+- **Lưu nháp báo giá tour không còn báo lỗi.** Một số trường hợp bấm lưu nháp bị báo "không lưu
+  được" dù không thiếu thông tin gì.
+- **Giờ nhận thư hiển thị đúng theo múi giờ.** Trước đây giờ nhận của thư được lưu lệch, chỉ
+  tình cờ hiện đúng trên máy đặt giờ Việt Nam; xem từ máy đặt múi giờ khác thì sai.
+
+### 📌 Lưu ý
+- Mật khẩu đăng nhập trang quản trị nay có thể để ở **dạng đã mã hoá** trong cấu hình. Bạn đăng
+  nhập vẫn như cũ, không phải nhớ gì thêm.
+
+---
+
 ## Phiên bản 25/08/2026 — Gợi ý trạng thái quay lại khi cấu hình bản tin
 
 ### 🔧 Đã khắc phục

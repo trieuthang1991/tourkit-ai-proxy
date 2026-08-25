@@ -113,3 +113,7 @@ gateway/.env
 
 # CodeGraph local index (per-project SQLite graph)
 .codegraph/
+
+# File tam cua bo E2E (chua id phien dang nhap) — khong bao gio commit
+.e2e-sid.tmp
+.enc-admin.tmp

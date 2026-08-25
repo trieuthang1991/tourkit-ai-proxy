@@ -38,6 +38,29 @@ public class TourQuoteRepository
 
     private static string DraftKey(string tenantId, string id) => $"tkai:tq-draft:{tenantId}:{id}";
 
+    /// <summary>
+    /// Thay <c>Data</c> rỗng bằng một object rỗng thật sự, trước khi đem đi serialize.
+    ///
+    /// <para><b>Vì sao cần.</b> Client không gửi field <c>data</c> thì <c>JsonElement</c> nhận giá
+    /// trị mặc định — <c>ValueKind = Undefined</c>, không gắn với <c>JsonDocument</c> nào. Đem một
+    /// giá trị như thế đi <c>JsonSerializer.Serialize</c> là ném
+    /// <c>InvalidOperationException: Operation is not valid due to the current state of the
+    /// object</c>, tức <b>500 chứ không phải 400</b> — người dùng chỉ thấy "không lưu được báo giá".
+    /// </para>
+    ///
+    /// <para>Bẫy này đã được phát hiện và vá một lần ở <see cref="Save"/> (đường SQL, xem chú thích
+    /// "DataJson là cột NOT NULL"), nhưng <see cref="SaveDraft"/> — đường Redis thêm sau — thì
+    /// không. Rút thành hàm dùng chung để hai đường không lệch nhau lần nữa: sửa một chỗ mà quên
+    /// chỗ kia chính là cách lỗi này sống sót. E2E bắt lại được 25/08/2026.</para>
+    /// </summary>
+    private static SaveTourQuoteRequest ChuanHoaData(SaveTourQuoteRequest req)
+        => req.Data.ValueKind is JsonValueKind.Undefined
+            ? req with { Data = RongJson }
+            : req;
+
+    /// <summary><c>{}</c> dựng sẵn một lần — <c>JsonElement</c> phải có <c>JsonDocument</c> đỡ nó.</summary>
+    private static readonly JsonElement RongJson = JsonDocument.Parse("{}").RootElement.Clone();
+
     // ─── DRAFT layer (Redis only — không đụng DB) ──────────────────────────────
 
     /// Lưu nháp vào Redis. Id null/blank → server sinh GUID-N. KHÔNG ghi DB. TTL 24h.
@@ -52,7 +75,7 @@ public class TourQuoteRepository
             return Save(req, tenantId, createdBy);
         }
         var nowIso = DateTime.UtcNow.ToString("o");
-        var draft = new DraftEnvelope(req, createdBy, nowIso);
+        var draft = new DraftEnvelope(ChuanHoaData(req), createdBy, nowIso);
         var json = JsonSerializer.Serialize(draft, _jsonOpts);
         try
         {
