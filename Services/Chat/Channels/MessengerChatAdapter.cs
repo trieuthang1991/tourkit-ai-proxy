@@ -122,8 +122,33 @@ public class MessengerChatAdapter : IChatChannelAdapter
             foreach (var m in ms)
             {
                 if (m is null) continue;
+
+                // Meta báo trạng thái tin MÌNH đã gửi bằng hai gói riêng, không nằm trong "message":
+                //   delivery: {"mids":[…], "watermark": <ms>}  — đã tới máy khách
+                //   read:     {"watermark": <ms>}              — khách đã đọc
+                // Dùng watermark chứ không dùng mids: "read" không có mids, đi chung một đường thì
+                // ít code hơn và hai loại không lệch hành vi.
+                //
+                // ⚠️ Người gửi ở hai gói này là KHÁCH (ngược với tin echo). Lấy nhầm recipient là
+                // đánh dấu vào hội thoại của chính Trang mình — tức là không hội thoại nào cả.
+                var tt = m["delivery"] is not null ? ChatState.DaNhan
+                       : m["read"] is not null ? ChatState.DaXem
+                       : (ChatState?)null;
+                if (tt is { } trangThai)
+                {
+                    var uidM = m["sender"]?["id"]?.ToString();
+                    var wm = m[trangThai == ChatState.DaNhan ? "delivery" : "read"]?["watermark"]?.ToString();
+                    if (!string.IsNullOrWhiteSpace(uidM) && long.TryParse(wm, out var wms))
+                    {
+                        var mocLuc = DateTimeOffset.FromUnixTimeMilliseconds(wms).UtcDateTime;
+                        ra.Add(new(ChatChannel.Messenger, uidM!, null, ChatKind.Chu, null, null,
+                            mocLuc, Moc: new(trangThai, mocLuc)));
+                    }
+                    continue;
+                }
+
                 var msg = m["message"];
-                if (msg is null) continue;   // delivery/read/postback — chưa dùng ở đợt này
+                if (msg is null) continue;   // postback, opt-in… — chưa dùng
 
                 // is_echo = tin do CHÍNH trang gửi. Nhân viên trả lời từ Trang hoặc từ ứng dụng
                 // Meta Business thì mình chỉ biết qua đây — bỏ là hộp thư thiếu nửa cuộc trò chuyện.

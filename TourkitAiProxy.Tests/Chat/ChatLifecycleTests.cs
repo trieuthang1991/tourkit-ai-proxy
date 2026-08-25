@@ -92,4 +92,15 @@ public class ChatLifecycleTests
         Assert.Contains("direction = 1", than);
         Assert.Contains("created_utc <=", than);
     }
+
+    [Fact]
+    public void Messenger_boc_duoc_delivery_va_read()
+    {
+        var src = ChatSchemaGuardTests.DocFile("Services/Chat/Channels/MessengerChatAdapter.cs");
+        Assert.Contains("\"delivery\"", src);
+        Assert.Contains("\"read\"", src);
+        Assert.Contains("watermark", src);
+        // Không được còn dòng bỏ qua cả cụm delivery/read như trước.
+        Assert.DoesNotContain("delivery/read/postback — chưa dùng ở đợt này", src);
+    }
 }
