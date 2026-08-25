@@ -12,6 +12,40 @@
 
 ---
 
+## TRẠNG THÁI THI CÔNG — cập nhật 26/08/2026
+
+Kiểm bằng cách đọc code thật, **không tin ô checkbox** (trước hôm nay cả 96 ô đều trống dù đợt 3 đã
+làm xong từ lâu — ô trống chỉ có nghĩa là chưa ai tick).
+
+| Đợt | Trạng thái | Căn cứ |
+|---|---|---|
+| **Đợt 3** — vòng đời tin | ✅ xong phần code | `ChatRules.KhongLui` + test · `ExternalMsgId` đã lưu · `MarkStateWatermarkAsync` · Messenger bóc `delivery`/`read` theo watermark · Telegram chú thích đúng · CHANGELOG 25/08 |
+| Task 3.6 bước 1-4 | ⚠️ **chưa có bằng chứng** | 4 bước kiểm tay trên staging — không tick vì không ai ghi lại kết quả thật. Làm lại khi có phiên staging. |
+| **Task 4.1** — phân trang con trỏ | ✅ xong, commit `fe60f40` | 7 test mới · `ix_conv_tenant_hoatdong` · endpoint trả `nextCursor` · nút "Tải thêm" · bundle đã dựng · 841 test xanh |
+| **Task 4.2** — SSE | ⛔ **DỪNG Ở ĐÂY** | chưa viết dòng nào. Bắt đầu lại từ Bước 1 (mã test nằm sẵn trong task). |
+| Task 4.3 · Đợt 5 · Đợt 6 | ⛔ chưa động | |
+
+**Nhánh đang làm:** `feat/chat-dot4-realtime` (tách từ `dev`, đã có 1 commit).
+
+**Ba cái bẫy vấp phải khi làm 4.1 — người làm tiếp đọc trước kẻo mất thì giờ:**
+
+1. **Đường dẫn trong plan là của cấu trúc CŨ.** Plan viết `Services/Chat/Inbox/...`, `Endpoints/...`;
+   sau refactor kiến trúc thì thành `TourkitAiProxy.Infrastructure/Chat/Inbox/`,
+   `TourkitAiProxy.Endpoints/`, và `ChatModels.cs` nằm ở `TourkitAiProxy.Domain/Chat/`
+   (namespace `TourkitAiProxy.Domain.Chat`, không phải `TourkitAiProxy.Services.Chat.Inbox`).
+2. **Phần lớn file `.cs` dùng CRLF.** Thay chuỗi nhiều dòng bằng `\n` sẽ **trượt im lặng** — script báo
+   thành công trong khi chỉ vào được một nửa. Kiểm từng phép thay, đừng kiểm tổng.
+3. **Alias bảng trong `ListConversationsAsync` là `v`, không phải `c`** như plan viết. Và tham số con
+   trỏ phải cast `::timestamptz` / `::bigint` — Npgsql không đoán được kiểu của tham số null, để trần
+   là lỗi lúc chạy ngay ở trang đầu.
+
+**Một điểm plan chưa lường:** nhịp làm mới 4 giây chạy song song với phân trang, nên `taiDsach()`
+phải **trộn theo id** chứ không thay thế — thay thẳng là cứ 4 giây cuốn người dùng về đầu danh sách.
+Bước 8 của Task 4.2 (bỏ nhịp 4 giây, chuyển SSE) sẽ làm chỗ trộn này bớt quan trọng, nhưng đừng gỡ:
+lúc không có Redis thì đường lùi vẫn là hỏi-lại-định-kỳ.
+
+---
+
 ## Bảng đối chiếu: spec nói gì, code đang thế nào
 
 Kiểm bằng cách đọc code thật ngày 25/08, không suy đoán. Đây là căn cứ chia đợt.
@@ -90,7 +124,7 @@ Spec §3.4 ghi "SignalR". **Plan này dùng SSE (Server-Sent Events) thay thế.
 
 > Nền tảng KHÔNG bảo đảm thứ tự webhook: `delivery` (đã nhận) hoàn toàn có thể tới **sau** `read` (đã xem) — hai webhook hai đường mạng, hoặc bị gửi lại. Ghi đè mù thì tin đang "đã xem" tụt về "đã nhận", nhân viên thấy dấu tích **chạy ngược**, tưởng khách bỏ đọc. Và `Hong` (4) tuy số lớn nhất nhưng KHÔNG phải mức cao nhất: gửi được rồi mà báo hỏng là vô nghĩa.
 
-- [ ] **Bước 1: Viết test đỏ**
+- [x] **Bước 1: Viết test đỏ**
 
 Tạo `TourkitAiProxy.Tests/Chat/ChatLifecycleTests.cs`:
 
@@ -139,7 +173,7 @@ public class ChatLifecycleTests
 }
 ```
 
-- [ ] **Bước 2: Chạy để xác nhận ĐỎ**
+- [x] **Bước 2: Chạy để xác nhận ĐỎ**
 
 ```bash
 dotnet test TourkitAiProxy.Tests/TourkitAiProxy.Tests.csproj --filter "FullyQualifiedName~ChatLifecycle"
@@ -147,7 +181,7 @@ dotnet test TourkitAiProxy.Tests/TourkitAiProxy.Tests.csproj --filter "FullyQual
 
 Mong đợi: **FAIL** — `error CS0117: 'ChatRules' does not contain a definition for 'KhongLui'`.
 
-- [ ] **Bước 3: Viết luật**
+- [x] **Bước 3: Viết luật**
 
 `Services/Chat/Inbox/ChatRules.cs`, thêm vào cuối class:
 
@@ -169,7 +203,7 @@ Mong đợi: **FAIL** — `error CS0117: 'ChatRules' does not contain a definiti
     }
 ```
 
-- [ ] **Bước 4: Chạy test — phải XANH**
+- [x] **Bước 4: Chạy test — phải XANH**
 
 ```bash
 dotnet test TourkitAiProxy.Tests/TourkitAiProxy.Tests.csproj --filter "FullyQualifiedName~ChatLifecycle"
@@ -177,7 +211,7 @@ dotnet test TourkitAiProxy.Tests/TourkitAiProxy.Tests.csproj --filter "FullyQual
 
 Mong đợi: **Passed — 10 test** (4+3 từ hai Theory, 3 Fact).
 
-- [ ] **Bước 5: Commit**
+- [x] **Bước 5: Commit**
 
 ```bash
 git add Services/Chat/Inbox/ChatRules.cs TourkitAiProxy.Tests/Chat/ChatLifecycleTests.cs
@@ -207,7 +241,7 @@ Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>"
 
 ⚠️ **Lệnh RIÊNG, KHÔNG gộp vào `SetMessageStateAsync`.** Trạng thái đổi nhiều lần trong đời một tin (gửi → nhận → xem), mã nền tảng chỉ ghi đúng một lần. Gộp thì lần cập nhật nào quên truyền mã sẽ **xoá mất mã** bằng `null`.
 
-- [ ] **Bước 1: Viết test đỏ**
+- [x] **Bước 1: Viết test đỏ**
 
 Thêm vào `ChatLifecycleTests.cs`:
 
@@ -233,7 +267,7 @@ Thêm vào `ChatLifecycleTests.cs`:
     }
 ```
 
-- [ ] **Bước 2: Chạy để xác nhận ĐỎ**
+- [x] **Bước 2: Chạy để xác nhận ĐỎ**
 
 ```bash
 dotnet test TourkitAiProxy.Tests/TourkitAiProxy.Tests.csproj --filter "FullyQualifiedName~ChatLifecycle"
@@ -241,7 +275,7 @@ dotnet test TourkitAiProxy.Tests/TourkitAiProxy.Tests.csproj --filter "FullyQual
 
 Mong đợi: **FAIL 2**.
 
-- [ ] **Bước 3: Thêm hàm vào repository**
+- [x] **Bước 3: Thêm hàm vào repository**
 
 `Services/Chat/Inbox/ChatRepository.cs`, NGAY SAU `SetMessageStateAsync`:
 
@@ -270,7 +304,7 @@ Mong đợi: **FAIL 2**.
 
 > `external_msg_id IS NULL` để không đè lên mã đã ghi — gửi lại sau lỗi tạm thời có thể chạy hàm này hai lần.
 
-- [ ] **Bước 4: Gọi từ worker**
+- [x] **Bước 4: Gọi từ worker**
 
 `Services/Chat/Inbox/ChatOutboxWorker.cs`, trong `MotDongAsync`, thay:
 
@@ -298,7 +332,7 @@ bằng:
         }
 ```
 
-- [ ] **Bước 5: Chạy test — phải XANH**
+- [x] **Bước 5: Chạy test — phải XANH**
 
 ```bash
 dotnet test TourkitAiProxy.Tests/TourkitAiProxy.Tests.csproj --filter "FullyQualifiedName~ChatLifecycle"
@@ -306,14 +340,14 @@ dotnet test TourkitAiProxy.Tests/TourkitAiProxy.Tests.csproj --filter "FullyQual
 
 Mong đợi: **Passed — 12 test**.
 
-- [ ] **Bước 6: Build**
+- [x] **Bước 6: Build**
 
 ```bash
 # dừng app trước nếu đang chạy, không thì MSB3027
 dotnet build TourkitAiProxy.csproj
 ```
 
-- [ ] **Bước 7: Commit**
+- [x] **Bước 7: Commit**
 
 ```bash
 git add Services/Chat/Inbox/ChatRepository.cs Services/Chat/Inbox/ChatOutboxWorker.cs TourkitAiProxy.Tests/Chat/ChatLifecycleTests.cs
@@ -346,7 +380,7 @@ Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>"
 
 > **Vì sao đổi kiểu chứ không thêm cờ thứ hai.** `SeenMarker` là `string?` mang đúng giá trị `"seen"`: chỉ nói được "đã xem", không nói được "đã nhận", và **không mang thời điểm**. Mà cả Messenger lẫn Zalo đều báo theo **mốc nước**: "mọi tin gửi TRƯỚC thời điểm này đã đọc". Thiếu mốc thì hoặc đánh dấu cả hội thoại (sai — tin gửi sau đó cũng bị coi là đã xem), hoặc không đánh dấu gì.
 
-- [ ] **Bước 1: CodeGraph trước khi sửa** (bắt buộc theo CLAUDE.md)
+- [x] **Bước 1: CodeGraph trước khi sửa** (bắt buộc theo CLAUDE.md)
 
 ```bash
 codegraph impact SeenMarker
@@ -354,7 +388,7 @@ codegraph impact SeenMarker
 
 Mong đợi blast-radius nhỏ, đúng 3 chỗ: `ChatModels.cs:49` (khai báo) · `ZaloChatAdapter.cs:159` (sinh ra) · `ChatInboundService.cs:65` (đọc). **Rộng hơn thế thì dừng, báo người dùng.**
 
-- [ ] **Bước 2: Viết test đỏ**
+- [x] **Bước 2: Viết test đỏ**
 
 Thêm vào `ChatLifecycleTests.cs`:
 
@@ -392,7 +426,7 @@ Thêm vào `ChatLifecycleTests.cs`:
     }
 ```
 
-- [ ] **Bước 3: Chạy để xác nhận ĐỎ**
+- [x] **Bước 3: Chạy để xác nhận ĐỎ**
 
 ```bash
 dotnet test TourkitAiProxy.Tests/TourkitAiProxy.Tests.csproj --filter "FullyQualifiedName~ChatLifecycle"
@@ -400,7 +434,7 @@ dotnet test TourkitAiProxy.Tests/TourkitAiProxy.Tests.csproj --filter "FullyQual
 
 Mong đợi: **FAIL 3**.
 
-- [ ] **Bước 4: Đổi kiểu trong `ChatModels.cs`**
+- [x] **Bước 4: Đổi kiểu trong `ChatModels.cs`**
 
 Thay dòng cuối record `InboundChatEvent` (`string? SeenMarker = null);`) bằng:
 
@@ -420,7 +454,7 @@ public record StateWatermark(ChatState TrangThai, DateTime DenLuc);
 
 Sửa luôn chú thích `<param name="IsEcho">` phía trên nếu nó nhắc tới `SeenMarker`.
 
-- [ ] **Bước 5: Sửa Zalo adapter**
+- [x] **Bước 5: Sửa Zalo adapter**
 
 `Services/Chat/Channels/ZaloChatAdapter.cs` dòng 159, thay:
 
@@ -435,7 +469,7 @@ bằng:
                     Watermark: new(ChatState.DaXem, luc)));
 ```
 
-- [ ] **Bước 6: Thêm `MarkStateWatermarkAsync`**
+- [x] **Bước 6: Thêm `MarkStateWatermarkAsync`**
 
 `Services/Chat/Inbox/ChatRepository.cs`, NGAY SAU `SetExternalMsgIdAsync`:
 
@@ -467,7 +501,7 @@ bằng:
     }
 ```
 
-- [ ] **Bước 7: Xử lý mốc trong `ChatInboundService`**
+- [x] **Bước 7: Xử lý mốc trong `ChatInboundService`**
 
 Thay:
 
@@ -491,7 +525,7 @@ bằng:
         }
 ```
 
-- [ ] **Bước 8: Chạy TOÀN BỘ test — phải XANH**
+- [x] **Bước 8: Chạy TOÀN BỘ test — phải XANH**
 
 ```bash
 dotnet test TourkitAiProxy.Tests/TourkitAiProxy.Tests.csproj
@@ -499,7 +533,7 @@ dotnet test TourkitAiProxy.Tests/TourkitAiProxy.Tests.csproj
 
 Đổi kiểu có thể làm đỏ test cũ. Nếu `ChatAttachmentTests` hay test khác dùng `SeenMarker` thì sửa sang kiểu mới.
 
-- [ ] **Bước 9: Build + commit**
+- [x] **Bước 9: Build + commit**
 
 ```bash
 dotnet build TourkitAiProxy.csproj
@@ -537,7 +571,7 @@ Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>"
 >
 > ⚠️ **Người gửi ở hai gói này là KHÁCH** (`sender.id` = khách, `recipient.id` = Trang) — ngược với tin echo. Lấy nhầm là đánh dấu vào hội thoại của chính Trang mình, tức là không hội thoại nào cả.
 
-- [ ] **Bước 1: Viết test đỏ**
+- [x] **Bước 1: Viết test đỏ**
 
 ```csharp
     [Fact]
@@ -551,13 +585,13 @@ Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>"
     }
 ```
 
-- [ ] **Bước 2: Chạy để xác nhận ĐỎ**
+- [x] **Bước 2: Chạy để xác nhận ĐỎ**
 
 ```bash
 dotnet test TourkitAiProxy.Tests/TourkitAiProxy.Tests.csproj --filter "FullyQualifiedName~ChatLifecycle"
 ```
 
-- [ ] **Bước 3: Bóc hai gói mới**
+- [x] **Bước 3: Bóc hai gói mới**
 
 Thay:
 
@@ -600,14 +634,14 @@ bằng:
                 if (msg is null) continue;   // postback, opt-in… — chưa dùng
 ```
 
-- [ ] **Bước 4: Chạy TOÀN BỘ test + build**
+- [x] **Bước 4: Chạy TOÀN BỘ test + build**
 
 ```bash
 dotnet test TourkitAiProxy.Tests/TourkitAiProxy.Tests.csproj
 dotnet build TourkitAiProxy.csproj
 ```
 
-- [ ] **Bước 5: Commit**
+- [x] **Bước 5: Commit**
 
 ```bash
 git add Services/Chat/Channels/MessengerChatAdapter.cs TourkitAiProxy.Tests/Chat/ChatLifecycleTests.cs
@@ -640,7 +674,7 @@ Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>"
 >
 > Chữa **không phải** bằng cách tự nhảy state lên 2 khi gửi xong — như thế là nói dối. Chữa bằng **nói thật**.
 
-- [ ] **Bước 1: Viết test đỏ**
+- [x] **Bước 1: Viết test đỏ**
 
 ```csharp
     [Fact]
@@ -662,13 +696,13 @@ Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>"
     }
 ```
 
-- [ ] **Bước 2: Chạy để xác nhận ĐỎ**
+- [x] **Bước 2: Chạy để xác nhận ĐỎ**
 
 ```bash
 dotnet test TourkitAiProxy.Tests/TourkitAiProxy.Tests.csproj --filter "FullyQualifiedName~ChatLifecycle"
 ```
 
-- [ ] **Bước 3: Chú thích trong Telegram adapter**
+- [x] **Bước 3: Chú thích trong Telegram adapter**
 
 Thêm vào khối `<summary>` của class:
 
@@ -680,7 +714,7 @@ Thêm vào khối `<summary>` của class:
 /// Giao diện nói rõ ở tooltip dấu tích (xem <c>DauGui</c> trong chat-inbox.jsx).</para>
 ```
 
-- [ ] **Bước 4: Giao diện nói rõ**
+- [x] **Bước 4: Giao diện nói rõ**
 
 ⚠️ **Kênh phải lấy từ HỘI THOẠI, không phải từ tin.** Bảng `chat_messages` có cột `channel` nhưng lớp `ChatMessage` ([ChatModels.cs:94-107](../../../TourkitAiProxy.Domain/Chat/ChatModels.cs)) **không map cột đó**, nên API không trả về — viết `tin.channel` sẽ ra `undefined` và mọi tin bị coi là Zalo (kênh 0).
 
@@ -724,7 +758,7 @@ Chỗ render (dòng 779) — `v` là hội thoại đang mở, `v.channel` đã 
                       <BongBong tin={m} kenh={v.channel} />
 ```
 
-- [ ] **Bước 5: Chạy test + dựng bundle**
+- [x] **Bước 5: Chạy test + dựng bundle**
 
 ```bash
 dotnet test TourkitAiProxy.Tests/TourkitAiProxy.Tests.csproj
@@ -733,7 +767,7 @@ dotnet test TourkitAiProxy.Tests/TourkitAiProxy.Tests.csproj
 
 Bắt buộc dựng bundle: `wwwroot/dist/` đã tồn tại nên app chạy chế độ bundle, không dựng lại thì sửa `.jsx` **không có tác dụng**.
 
-- [ ] **Bước 6: Commit**
+- [x] **Bước 6: Commit**
 
 ```bash
 git add Services/Chat/Channels/TelegramChatAdapter.cs wwwroot/pages/chat-inbox.jsx TourkitAiProxy.Tests/Chat/ChatLifecycleTests.cs
@@ -786,7 +820,7 @@ Bơm `read` trước, `delivery` sau → trạng thái phải **giữ nguyên** 
 
 - [ ] **Bước 4: Dọn sạch dữ liệu thử.** Ghi lại đã xoá những gì.
 
-- [ ] **Bước 5: CLAUDE.md** — thêm vào mục "Hộp thư chat đa kênh", sau đoạn "Đường đi":
+- [x] **Bước 5: CLAUDE.md** — thêm vào mục "Hộp thư chat đa kênh", sau đoạn "Đường đi":
 
 ```markdown
 **Vòng đời tin gửi đi:** `chờ → đã gửi → đã nhận → đã xem`, cập nhật qua
@@ -803,7 +837,7 @@ Messenger `delivery` + `read` (đủ hai mức, theo **mốc nước**: mọi ti
 Giao diện nói rõ ở tooltip dấu tích.
 ```
 
-- [ ] **Bước 6: CHANGELOG.md** — mục mới trên cùng:
+- [x] **Bước 6: CHANGELOG.md** — mục mới trên cùng:
 
 ```markdown
 ## Phiên bản dd/MM/2026 — Biết khách đã nhận và đã đọc tin chưa
@@ -860,7 +894,7 @@ Rồi dùng skill `superpowers:finishing-a-development-branch`.
 >
 > **Con trỏ phải gồm CẢ `id`**, không chỉ thời gian: hai hội thoại hoàn toàn có thể có cùng `last_activity_at` tới từng micro giây (hai webhook xử lý song song). Chỉ so thời gian thì hoặc lặp hoặc mất dòng.
 
-- [ ] **Bước 1: Viết test đỏ**
+- [x] **Bước 1: Viết test đỏ**
 
 Tạo `TourkitAiProxy.Tests/Chat/ChatPagingTests.cs`:
 
@@ -905,7 +939,7 @@ public class ChatPagingTests
 }
 ```
 
-- [ ] **Bước 2: Chạy để xác nhận ĐỎ**
+- [x] **Bước 2: Chạy để xác nhận ĐỎ**
 
 ```bash
 dotnet test TourkitAiProxy.Tests/TourkitAiProxy.Tests.csproj --filter "FullyQualifiedName~ChatPaging"
@@ -913,7 +947,7 @@ dotnet test TourkitAiProxy.Tests/TourkitAiProxy.Tests.csproj --filter "FullyQual
 
 Mong đợi: **FAIL** — không có `ConvCursor` / `ChatCursor`.
 
-- [ ] **Bước 3: Viết `ConvCursor` + `ChatCursor`**
+- [x] **Bước 3: Viết `ConvCursor` + `ChatCursor`**
 
 Thêm vào cuối `Services/Chat/Inbox/ChatModels.cs`:
 
@@ -953,7 +987,7 @@ public static class ChatCursor
 }
 ```
 
-- [ ] **Bước 4: Chạy test — phải XANH**
+- [x] **Bước 4: Chạy test — phải XANH**
 
 ```bash
 dotnet test TourkitAiProxy.Tests/TourkitAiProxy.Tests.csproj --filter "FullyQualifiedName~ChatPaging"
@@ -961,7 +995,7 @@ dotnet test TourkitAiProxy.Tests/TourkitAiProxy.Tests.csproj --filter "FullyQual
 
 Mong đợi: **Passed — 7 test**.
 
-- [ ] **Bước 5: Dùng con trỏ trong truy vấn**
+- [x] **Bước 5: Dùng con trỏ trong truy vấn**
 
 `Services/Chat/Inbox/ChatRepository.cs`, `ListConversationsAsync`: thêm tham số `ConvCursor? sau = null`, thêm vào `WHERE`:
 
@@ -980,7 +1014,7 @@ Thêm chỉ mục vào `ChatDb.SchemaSql` (**sau** mọi `ALTER TABLE`, xem Glob
       ON chat_conversations (tenant_id, last_activity_at DESC, id DESC);
 ```
 
-- [ ] **Bước 6: Endpoint trả `nextCursor`**
+- [x] **Bước 6: Endpoint trả `nextCursor`**
 
 `Endpoints/ChatInboxEndpoints.cs`, route `GET /conversations`: nhận `string? cursor`, gọi `ChatCursor.Giai(cursor)`, và trả thêm:
 
@@ -991,11 +1025,11 @@ nextCursor = ds.Count < limit ? null
 
 > `ds.Count < limit` → hết dữ liệu → trả `null` để giao diện biết dừng. Luôn trả mã thì giao diện cuộn mãi không hết.
 
-- [ ] **Bước 7: Giao diện cuộn vô hạn**
+- [x] **Bước 7: Giao diện cuộn vô hạn**
 
 `wwwroot/pages/chat-inbox.jsx`: `taiDsach()` nhận `cursor`, nối vào `dsach` thay vì thay thế khi có cursor; thêm nút/`IntersectionObserver` ở cuối danh sách. Giữ nguyên hành vi khi đổi bộ lọc: **đổi lọc là reset con trỏ** (không thì trộn kết quả hai bộ lọc).
 
-- [ ] **Bước 8: Test + bundle + commit**
+- [x] **Bước 8: Test + bundle + commit**
 
 ```bash
 dotnet test TourkitAiProxy.Tests/TourkitAiProxy.Tests.csproj
