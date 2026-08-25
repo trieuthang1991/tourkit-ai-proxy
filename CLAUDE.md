@@ -441,10 +441,26 @@ lại bằng JavaScript và không test được. Ảnh Telegram lấy **cỡ l�
 nhầm cỡ nhỏ thì soi ảnh hoá đơn/hộ chiếu khách gửi không đọc nổi chữ). Telegram chỉ cho `file_id` chứ
 không cho URL, nên đi qua `GET /api/v1/chat/messages/{id}/file` để **giấu bot token** khỏi trình duyệt.
 
-**Đường đi:** webhook →
-[`ChatInboundService`](Services/Chat/Inbox/ChatInboundService.cs) chạy NỀN → bot trả lời → xếp
+**Đường đi:** webhook **chỉ GHI thân thô** vào `chat_inbound_events` rồi trả 200 →
+[`ChatInboundWorker`](Services/Chat/Inbox/ChatInboundWorker.cs) (nhịp 2s) rút ra →
+[`ChatInboundService`](Services/Chat/Inbox/ChatInboundService.cs) → bot trả lời → xếp
 `chat_outbox` → [`ChatOutboxWorker`](Services/Chat/Inbox/ChatOutboxWorker.cs) gửi qua
 [`ZaloChatAdapter`](Services/Chat/Channels/ZaloChatAdapter.cs).
+
+⚠️ **Đã trả 200 thì kênh KHÔNG gửi lại — nên việc còn dở tuyệt đối không được nằm trong bộ nhớ.**
+Bản đầu dùng `Task.Run` rời: IIS recycle / deploy / crash đúng lúc đó là **mất hẳn tin của khách,
+không dấu vết**. Hàng đợi vào lưu **thân THÔ** chứ không lưu bản đã bóc — sửa adapter xong là chạy
+lại được dòng cũ, còn lưu bản đã bóc thì lỗi bóc tin nằm lại vĩnh viễn. Webhook vẫn bóc MỘT lần
+nhưng chỉ để lấy id sự kiện làm khoá chống trùng: chống trùng phải xảy ra lúc **GHI**, không thì
+kênh gửi lại đồng thời hai lần sẽ tạo hai dòng và bot trả lời hai lần.
+
+**Mẫu trả lời nhanh** (`chat_quick_replies` +
+[`ChatQuickReplyRepository`](Services/Chat/Inbox/ChatQuickReplyRepository.cs)): gõ `/` ở **ĐẦU** ô
+soạn ra danh sách. Lệnh gọi **bỏ dấu** khi lưu — nhân viên đang gõ nhanh cho khách sẽ gõ `/gia` chứ
+không dừng bật bộ gõ để ra `/giá`. Chỉ gợi ý khi `/` đứng đầu, giữa câu nó là dấu gạch bình thường
+(vd "sáng/chiều"). Theo TỪNG CÔNG TY, không theo từng nhân viên. ⚠️ Chỉ mục là **biểu thức**
+`lower(trigger)`, nên `ON CONFLICT` phải ghi đúng biểu thức đó — lệch là lỗi lúc CHẠY, có test đối
+chiếu hai chỗ.
 
 **Sáu luật sai-là-hỏng**, tách thuần ở [`ChatRules`](Services/Chat/Inbox/ChatRules.cs), có test:
 1. **Cửa sổ gửi** — Zalo 48h / Messenger 24h kể từ tin cuối CỦA KHÁCH. **Chưa có tin nào của khách =
@@ -456,6 +472,7 @@ không cho URL, nên đi qua `GET /api/v1/chat/messages/{id}/file` để **giấ
 4. **Gộp tin liên tiếp** — chờ khách im 4 giây rồi xử lý cả cụm; trả lời từng dòng vừa ngớ ngẩn vừa
    tốn gấp mấy lần lượt AI.
 5. **Webhook trả 200 NGAY** rồi xử lý nền — Zalo gửi lại khi không thấy 200, mà xử lý có gọi AI.
+   "Nền" ở đây là **hàng đợi trong CSDL**, không phải `Task.Run` (xem cảnh báo ở mục Đường đi).
 6. **Tiếng vọng `oa_send_*`** — nhân viên trả lời từ chính app Zalo OA thì mình chỉ biết qua đây. Bỏ
    nhóm này thì hộp thư thiếu nửa cuộc trò chuyện VÀ bot nói đè lên người thật.
 

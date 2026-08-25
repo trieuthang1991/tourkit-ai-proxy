@@ -13,6 +13,32 @@ Những cập nhật gần đây của TRAV-AI, viết cho người dùng. Mới
 
 ---
 
+## Phiên bản 25/08/2026 — Hộp thư chat: không sót tin, trả lời nhanh bằng /lệnh
+
+### ✨ Tính năng mới
+- **Mẫu trả lời nhanh.** Những câu bạn phải gõ đi gõ lại cho khách — bảng giá, lịch khởi hành,
+  lời chào — nay lưu thành mẫu. Trong ô soạn tin, gõ dấu `/` rồi vài chữ đầu là danh sách mẫu
+  hiện ra, bấm một cái là nội dung điền sẵn, sửa thêm rồi gửi. Lệnh gọi **không cần bỏ dấu**:
+  mẫu đặt tên "giá" thì gõ `/gia` vẫn ra, không phải dừng lại bật bộ gõ tiếng Việt.
+  Cả đội trực chat dùng chung một bộ mẫu, một người sửa là mọi người thấy ngay.
+
+### 🔧 Đã khắc phục
+- **Tin của khách không còn nguy cơ biến mất.** Trước đây nếu máy chủ được khởi động lại hoặc
+  cập nhật đúng lúc khách vừa nhắn, tin đó có thể mất hẳn mà không ai biết — kênh đã coi như
+  gửi thành công nên không gửi lại. Nay tin được ghi lại ngay khi vừa tới, rồi mới xử lý; máy
+  chủ có tắt giữa chừng thì bật lên vẫn xử lý tiếp đúng tin đó.
+- **Khách nhắn nhanh hai lần không còn bị bot trả lời hai lần.** Khi kênh gửi trùng cùng một
+  tin, hệ thống nay nhận ra và bỏ qua bản thứ hai.
+- **Ô soạn tin hết bị hai viền chồng nhau** khi bạn bấm vào để gõ.
+- **Các nút trong màn hình chat nay cùng một cỡ, một kiểu.** Trước đó mỗi nút một dáng, nhìn
+  lộn xộn và khó biết nút nào là hành động chính.
+- **Khai kết nối kênh gọn hơn hẳn.** Trước đây cả ba kênh đổ hết ra một màn hình, mỗi kênh lại
+  bọc thêm khung nên phải cuộn nhiều và rối mắt. Nay là ba thẻ chuyển qua lại, mỗi lúc chỉ hiện
+  kênh bạn đang khai. Các ô nhập mã, khoá bí mật đều có **ví dụ mờ sẵn trong ô** để bạn biết
+  mình dán đúng thứ chưa.
+
+---
+
 ## Phiên bản 24/08/2026 — Hộp thư chat: nhiều tài khoản, gửi ảnh, bật/tắt gọn
 
 ### ✨ Tính năng mới
