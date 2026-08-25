@@ -33,7 +33,7 @@ public record CareLead(int Id, string Name, string? Phone, string? RankName,
 public static class AutoCareRule
 {
     private static readonly CultureInfo Vi = CultureInfo.GetCultureInfo("vi-VN");
-    private static string Vnd(decimal v) => v.ToString("N0", Vi);
+    private static string Vnd(decimal v) => TourkitAiProxy.Shared.Text.Money.So(v);
 
     /// <param name="ranks">Hạng được coi là đáng chăm. Rỗng = mọi hạng.</param>
     /// <param name="quietDays">Bao lâu không chăm thì coi là "ngủ quên".</param>

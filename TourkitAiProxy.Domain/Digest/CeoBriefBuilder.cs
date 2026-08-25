@@ -46,7 +46,7 @@ public static class CeoBriefBuilder
     private static readonly CultureInfo Vi = CultureInfo.GetCultureInfo("vi-VN");
     /// Public để nơi lấy số (CeoBriefWorkflow) định dạng CÙNG một kiểu — bản tin trộn hai kiểu số
     /// đọc như ghép từ hai nguồn khác nhau.
-    public static string Vnd(decimal v) => v.ToString("N0", Vi) + "đ";
+    public static string Vnd(decimal v) => TourkitAiProxy.Shared.Text.Money.Vnd(v);
 
     /// So sánh kỳ này với kỳ trước. Kỳ trước = 0 → "n/a" chứ không phải "+∞%" hay chia cho 0.
     ///

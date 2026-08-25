@@ -121,14 +121,16 @@ public class RanhGioiTangTests
     // ── Services: nghiệp vụ, KHÔNG tự mở kết nối CSDL ────────────────────────
 
     /// <summary>
-    /// File còn chạm CSDL trong Services. <b>Đây là NỢ, không phải ngoại lệ.</b>
+    /// File còn chạm CSDL trong Services. <b>Danh sách này phải RỖNG.</b>
     ///
-    /// <para><c>SaleBriefWorkflow</c> có ba câu SQL viết thẳng trong luồng workflow. Tách ra cần
-    /// sửa mã có logic thật, mà repo chưa có test tích hợp chạm CSDL — nên ghi nợ ở đây thay vì
-    /// làm liều. Thêm tên mới vào danh sách này thì phải kèm lý do; không thì luật chết dần đúng
-    /// kiểu quy ước bằng lời.</para>
+    /// <para>Từng có đúng một tên: <c>SaleBriefWorkflow</c> với ba câu SQL viết thẳng trong luồng
+    /// workflow. Nợ đó đã trả (25/08/2026) — ba truy vấn nay ở
+    /// <c>Infrastructure/Digest/SaleBriefRepository</c>.</para>
+    ///
+    /// <para>⚠️ Thêm tên vào đây phải kèm lý do VÀ hạn trả. Một danh sách miễn trừ không ai dọn
+    /// chính là cách một luật chết dần mà vẫn trông như đang sống.</para>
     /// </summary>
-    private static readonly string[] ServicesConChamDb = { "SaleBriefWorkflow.cs" };
+    private static readonly string[] ServicesConChamDb = System.Array.Empty<string>();
 
     [Fact]
     public void Nghiep_vu_khong_tu_mo_ket_noi_CSDL()

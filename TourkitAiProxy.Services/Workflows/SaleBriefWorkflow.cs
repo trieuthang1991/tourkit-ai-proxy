@@ -1,12 +1,12 @@
 ﻿using System.Globalization;
 using System.Text.Json;
-using Dapper;
 using TourkitAiProxy.Services.Db;
 using TourkitAiProxy.Services.Digest;
 using TourkitAiProxy.Services.Mail;
 using TourkitAiProxy.Domain.Mail;
 using TourkitAiProxy.Services.TourKit;
 using TourkitAiProxy.Domain.Digest;
+using TourkitAiProxy.Infrastructure.Digest;   // SaleBriefRepository
 
 namespace TourkitAiProxy.Services.Workflows;
 
@@ -41,7 +41,7 @@ public class SaleBriefWorkflow : IScheduledWorkflow
     private readonly TkSessionStore _sessions;
     private readonly TkSessionRepository _sessionRepo;
     private readonly TourKitApiClient _api;
-    private readonly TourkitAiDb _db;
+    private readonly SaleBriefRepository _repo;
     private readonly MailRepository _mails;
     private readonly InsightRepository _insights;
     private readonly MailQueueRepository _queue;
@@ -53,13 +53,13 @@ public class SaleBriefWorkflow : IScheduledWorkflow
     private readonly ILogger<SaleBriefWorkflow> _log;
 
     public SaleBriefWorkflow(DigestSubscriptionRepository subs, TkSessionStore sessions,
-        TkSessionRepository sessionRepo, TourKitApiClient api, TourkitAiDb db,
+        TkSessionRepository sessionRepo, TourKitApiClient api, SaleBriefRepository repo,
         MailRepository mails, InsightRepository insights, MailQueueRepository queue, TenantChannelSettingsStore channels,
         IConfiguration cfg, Providers.ProviderRegistry providers, Providers.AiModelRegistry models,
         AiCallContext ctx, ILogger<SaleBriefWorkflow> log)
     {
         _subs = subs; _sessions = sessions; _sessionRepo = sessionRepo; _api = api;
-        _db = db; _mails = mails; _insights = insights; _queue = queue; _channels = channels; _cfg = cfg;
+        _repo = repo; _mails = mails; _insights = insights; _queue = queue; _channels = channels; _cfg = cfg;
         _providers = providers; _models = models; _ctx = ctx; _log = log;
     }
 
@@ -483,10 +483,7 @@ public class SaleBriefWorkflow : IScheduledWorkflow
         if (opt.SecVips)
         await Safe("reviews", async () =>
         {
-            await using var c = await _db.OpenAsync(ct);
-            var rows = await c.QueryAsync<(string CustomerId, string Rank, long GeneratedAt)>(@"
-SELECT CustomerId, [Rank], GeneratedAt FROM dbo.Reviews
-WHERE TenantId = @tenantId AND [Rank] IN ('A','B')", new { tenantId });
+            var rows = await _repo.HangKhachAsync(tenantId, ct);
             foreach (var r in rows)
             {
                 var days = (int)(DateTimeOffset.UtcNow - DateTimeOffset.FromUnixTimeMilliseconds(r.GeneratedAt)).TotalDays;
@@ -499,12 +496,7 @@ WHERE TenantId = @tenantId AND [Rank] IN ('A','B')", new { tenantId });
         if (opt.SecQuotes)
         await Safe("quotes", async () =>
         {
-            await using var c = await _db.OpenAsync(ct);
-            var rows = await c.QueryAsync<(string? Title, string? CustomerName, DateTime UpdatedAt)>(@"
-SELECT Title, CustomerName, UpdatedAt FROM dbo.TourQuotes
-WHERE TenantId = @tenantId AND CreatedBy = @user
-  AND UpdatedAt < DATEADD(DAY, -@days, SYSUTCDATETIME())
-ORDER BY UpdatedAt ASC", new { tenantId, user, days = opt.StaleQuoteDays });
+            var rows = await _repo.BaoGiaCuAsync(tenantId, user, opt.StaleQuoteDays, ct);
             foreach (var r in rows)
                 quotes.Add(new QuoteLine(r.Title ?? "Báo giá", r.CustomerName,
                     (int)(DateTime.UtcNow - r.UpdatedAt).TotalDays));
@@ -534,9 +526,7 @@ ORDER BY UpdatedAt ASC", new { tenantId, user, days = opt.StaleQuoteDays });
         var map = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
         try
         {
-            await using var c = await _db.OpenAsync(ct);
-            var rows = await c.QueryAsync<(string DealId, int? WinRate)>(
-                "SELECT DealId, WinRate FROM dbo.DealScores WHERE TenantId = @tenantId", new { tenantId });
+            var rows = await _repo.DiemDealAsync(tenantId, ct);
             foreach (var r in rows) map[r.DealId] = r.WinRate ?? 0;
         }
         catch (Exception ex)

@@ -21,7 +21,7 @@ public static class CeoForecast
     public const int MinDaysToProject = 5;
 
     private static readonly CultureInfo Vi = CultureInfo.GetCultureInfo("vi-VN");
-    private static string Vnd(decimal v) => v.ToString("N0", Vi);
+    private static string Vnd(decimal v) => TourkitAiProxy.Shared.Text.Money.So(v);
 
     /// <param name="Projected">Dự phóng cả tháng. <c>null</c> khi còn quá sớm để ước.</param>
     /// <param name="PercentOfTarget">Phần trăm so chỉ tiêu, làm tròn. 0 khi chưa ước được.</param>

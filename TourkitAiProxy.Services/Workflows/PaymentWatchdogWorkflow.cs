@@ -25,7 +25,7 @@ public class PaymentWatchdogWorkflow : IScheduledWorkflow
 
     /// Tiền trên thẻ: ghim vi-VN như mọi chỗ khác của Bảng tin, không theo ngôn ngữ máy chủ.
     private static readonly CultureInfo Vi = CultureInfo.GetCultureInfo("vi-VN");
-    private static string Vnd(decimal v) => v.ToString("N0", Vi);
+    private static string Vnd(decimal v) => TourkitAiProxy.Shared.Text.Money.So(v);
 
     // ── Tuỳ chọn per-tenant ──────────────────────────────────────────────────────
     // ⚠️ default PHẢI khớp WORKFLOW_OPTIONS['payment-watchdog'] bên workflow-options.jsx.

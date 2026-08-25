@@ -108,7 +108,7 @@ public class MeetingBriefService
         }
     }
 
-    private static string Vnd(long v) => v.ToString("N0", Vi) + "đ";
+    private static string Vnd(long v) => TourkitAiProxy.Shared.Text.Money.Vnd(v);
 
     /// Dữ kiện thô đưa cho AI — cũng chính là bản dự phòng khi AI hỏng, nên phải tự đọc được.
     internal static string BuildFacts(Customer c, CustomerReview? review, IReadOnlyList<MailItem> mails)

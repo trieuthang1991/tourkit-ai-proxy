@@ -47,7 +47,7 @@ public static class SaleBriefBuilder
     private const int TopHygiene = 3;   // mục "dọn dẹp" ít cấp thiết hơn → cắt sâu hơn
 
     private static readonly CultureInfo Vi = CultureInfo.GetCultureInfo("vi-VN");
-    private static string Vnd(decimal v) => v.ToString("N0", Vi) + "đ";
+    private static string Vnd(decimal v) => TourkitAiProxy.Shared.Text.Money.Vnd(v);
 
     /// Nhãn hiển thị: tiêu đề rỗng thì rơi về tên khách, cùng lắm mới ghi chung chung.
     /// Dữ liệu thật có cơ hội không đặt tiêu đề → trước đây in ra dòng '**** — Tên khách' vô nghĩa.

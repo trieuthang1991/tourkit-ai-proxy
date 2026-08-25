@@ -77,7 +77,7 @@ public static class TourReadinessRule
     // Ghim vi-VN, KHÔNG dùng culture của máy: máy chạy en-US sẽ in "6,000,000đ" trong khi cả bản
     // tin dùng "6.000.000đ" — hai kiểu số trong một thẻ đọc như ghép từ hai nguồn.
     private static readonly CultureInfo Vi = CultureInfo.GetCultureInfo("vi-VN");
-    private static string Vnd(decimal v) => v.ToString("N0", Vi);
+    private static string Vnd(decimal v) => TourkitAiProxy.Shared.Text.Money.So(v);
 
     /// <param name="minSeats">Số khách tối thiểu để tour chạy. 0 = công ty CHƯA khai → bỏ qua
     /// hẳn phần kiểm chỗ ngồi. Đoán hộ một con số ở đây là báo nhầm hàng loạt.</param>

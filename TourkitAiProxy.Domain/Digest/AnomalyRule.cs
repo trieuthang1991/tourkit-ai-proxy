@@ -1,4 +1,4 @@
-using System.Globalization;
+﻿using System.Globalization;
 
 namespace TourkitAiProxy.Services.Digest;
 
@@ -24,7 +24,7 @@ public static class AnomalyRule
     public const int MinBaselineWeeks = 2;
 
     private static readonly CultureInfo Vi = CultureInfo.GetCultureInfo("vi-VN");
-    private static string Vnd(decimal v) => v.ToString("N0", Vi);
+    private static string Vnd(decimal v) => TourkitAiProxy.Shared.Text.Money.So(v);
 
     /// <param name="Severity">0 = tin vui (tăng) · 1 = cần để ý · 2 = gấp.</param>
     public record Result(decimal Current, decimal Baseline, int DeviationPercent, int Severity, string Text);

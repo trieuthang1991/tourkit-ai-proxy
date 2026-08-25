@@ -123,9 +123,9 @@ data/
   #   data/visa-assessments.json → dbo.VisaAssessments (per-tenant)
 ```
 
-**Database schema** — 26 bảng SQL Server (cùng instance với TourKit Push, conn string `ConnectionStrings:PushDb` thường ENC: Crypton). Full inventory + conventions + checklist thêm bảng mới: **[docs/database-schema.md](docs/database-schema.md)**. Schema sống trong [Services/Db/TourkitAiDb.cs](Services/Db/TourkitAiDb.cs) (`SchemaSql` const, idempotent `IF OBJECT_ID(...) IS NULL`). Khi thêm/sửa bảng → update cả file MD đó.
+**Database schema** — 26 bảng SQL Server (cùng instance với TourKit Push, conn string `ConnectionStrings:PushDb` thường ENC: Crypton). Full inventory + conventions + checklist thêm bảng mới: **[docs/database-schema.md](docs/database-schema.md)**. Schema sống trong [Services/Db/TourkitAiDb.cs](TourkitAiProxy.Infrastructure/Db/TourkitAiDb.cs) (`SchemaSql` const, idempotent `IF OBJECT_ID(...) IS NULL`). Khi thêm/sửa bảng → update cả file MD đó.
 
-⚠️ **Chặn “nhắc đi nhắc lại” thì dùng `dbo.NotifyLedger`, ĐỪNG thêm bảng mới.** Hai cơ chế cũ (canh thanh toán đếm `AgentInsights.AlertKey`, deal nguội đếm `OutboundMails.SourceId`) chỉ chạy được khi **1 thông báo = 1 đối tượng**; chúng đang chạy thật nên cố ý không viết lại. Cái mới thì về [`NotifyLedgerRepository`](Services/Digest/NotifyLedger.cs) — nó đếm theo ĐỐI TƯỢNG nên dùng được cả khi một thông báo gộp nhiều đối tượng (vd nhắc chăm khách: 1 thẻ = N khách). Quyết định nhắc hay không nằm ở hàm thuần `NotifyThrottle.Decide`, có test.
+⚠️ **Chặn “nhắc đi nhắc lại” thì dùng `dbo.NotifyLedger`, ĐỪNG thêm bảng mới.** Hai cơ chế cũ (canh thanh toán đếm `AgentInsights.AlertKey`, deal nguội đếm `OutboundMails.SourceId`) chỉ chạy được khi **1 thông báo = 1 đối tượng**; chúng đang chạy thật nên cố ý không viết lại. Cái mới thì về [`NotifyLedgerRepository`](TourkitAiProxy.Infrastructure/Digest/NotifyLedger.cs) — nó đếm theo ĐỐI TƯỢNG nên dùng được cả khi một thông báo gộp nhiều đối tượng (vd nhắc chăm khách: 1 thẻ = N khách). Quyết định nhắc hay không nằm ở hàm thuần `NotifyThrottle.Decide`, có test.
 
 **Adding a new provider** (e.g. OpenAI direct, Anthropic direct, Ollama local):
 1. Implement `IAiProvider` in `Services/Providers/MyProvider.cs`.
@@ -276,7 +276,7 @@ A chat-left / data-right assistant. The user asks in natural language; the AI de
 - **Upstream is TourKit.Api's dedicated AI surface `/api/ai/*`** (`D:\MiGroup\tourkitapp\toutkit-app\TourKit.Api\Controllers\AiController.cs` + `docs/ai-api-guide.md`). Host via config `TourKit:BaseUrl` (the AI surface must be deployed there — prod `mobile-api.tourkit.vn` did NOT have it as of last check; staging `mobile-test-api-2.tourkit.vn` did). Every `/api/ai/{section}` returns a **uniform envelope** `{section,title,count,total,period,summary,items[]}` (b-wrapped in `{success,data,message}`); items carry `value`+`*Formatted` and codes carry `*Name`/`*Label`/`statusText` (Vietnamese, server-formatted). `TourKitApiClient.GetAsync` unwraps `data` (the envelope); throws `TourKitApiException` on `success:false`/non-2xx.
 - **Auth = token-decrypt, NOT api-key.** TourKit.Api uses JWT (`POST /api/auth/login` with `{tenantId, username, password}`). The client doesn't store credentials in config. Instead: `POST /api/v1/login-token {token}` where `token = Crypton.Encrypt(JSON {username,password,domain})`. `Crypton` is a **verbatim port** of `TourKit.Shared/Crypton.cs` (AES-256/CBC, `PassPhrase="Pas5pr@se"`, `Salt="s@1tValue"`, `IV="@1B2c3D4e5F6g7H8"`, `PasswordDeriveBytes`/SHA1/iterations=2) — DO NOT change the constants or tokens won't decrypt. `domain` maps to TenantId. The proxy logs in, creates a server-side session (`TkSessionStore`), and returns only a `sessionId` — **the JWT never reaches the client**. Sessions hold the decrypted creds to silently re-login on JWT expiry or a 401 (one retry in `ChatAgentService`). **Sessions persist to SQL `dbo.TkSessions`** (password Crypton-encrypted, JWT NOT persisted — re-login on first use sau restart) → cross-process share giữa nhiều instance, survives restart/deploy mà user khỏi login lại; in-mem cache cho hot path Get, write-through SQL mọi mutation. Soft-TTL JWT ~50min, idle prune sau 30 ngày. File legacy `data/tk-sessions.json` auto-migrate vào SQL ở startup (one-shot, rename `.migrated`).
 - **Single-shot agent, no native function-calling.** `ChatAgentService.AskAsync` (buffered) / `AskStreamAsync` (SSE): (1) planner prompt with the `ChatTools` catalog → AI returns `{tool, params}` JSON (parsed via `LooseJson`); (2) dispatch to a `/api/ai/{section}` GET (`ChatTools.BuildPath` whitelists params; `ResolveMarketAsync` turns `marketName`→`marketId`); (3) **`BuildChatData`** maps the envelope → `ChatData` (items→Raw for table/chart, `summary`+`total`→stat cards, `title`); financial-summary's items become the stat cards. (4) analysis prompt → AI prose. Two AI calls; both have provider-fallback to the default provider on upstream/key failure.
-- **Streaming + caches.** `AskStreamAsync` emits SSE events `{stage}` (planning→fetching→analyzing, data attached early) then `{delta}` (token-streamed analysis) then `{done}`. **SSE payloads MUST be serialized camelCase** (`SseJson = new(JsonSerializerDefaults.Web)` in `ChatEndpoints`) to match the client — default PascalCase silently breaks `data.stats`/`title`/`raw`. Caching via `Services/Cache/ChatCache.cs`: **CHỈ CRM-data** (`d|{tenant}|{path}`), TTL 30m, values as JSON. **KHÔNG cache câu trả lời AI** — `r1|`/`r2|` đã bị **gỡ bỏ hẳn 2026-08-11**: key của chúng (câu hỏi, hoặc tool+params) không bao giờ bắt đủ mọi chiều quyết định câu trả lời (câu chữ + ngữ cảnh hội thoại + focus doanh thu/chi phí + ý so sánh + model), đã gây **3 bug "trả lời cũ" liên tiếp** (ý so sánh `ca2d68f`; ngữ cảnh hội thoại; focus). `d|` giữ lại vì key của nó — tenant + đường dẫn API — xác định **trọn vẹn** dữ liệu trả về. Đừng thêm lại cache câu trả lời: xem `docs/test-plans/2026-08-11-chat-e2e-question-bank.md` và bộ E2E `scripts/e2e/specs/`. **Backend = Redis if `Redis:ConnectionString` is set (shared across instances + survives restart), else in-memory fallback.** The connection string may be `ENC:`-encrypted (copied verbatim from TourKit.Api) — `ChatCache` decrypts it with `Crypton` at runtime; keys are prefixed `tkai:` to avoid colliding with TourKit's own Redis keys; `AbortOnConnectFail=false` so a down Redis never blocks startup. **Never cache empty results** (`HasContent`/`IsUsableData`) or a transient empty poisons the path for 30m.
+- **Streaming + caches.** `AskStreamAsync` emits SSE events `{stage}` (planning→fetching→analyzing, data attached early) then `{delta}` (token-streamed analysis) then `{done}`. **SSE payloads MUST be serialized camelCase** (`SseJson = new(JsonSerializerDefaults.Web)` in `ChatEndpoints`) to match the client — default PascalCase silently breaks `data.stats`/`title`/`raw`. Caching via `TourkitAiProxy.Infrastructure/Cache/ChatCache.cs`: **CHỈ CRM-data** (`d|{tenant}|{path}`), TTL 30m, values as JSON. **KHÔNG cache câu trả lời AI** — `r1|`/`r2|` đã bị **gỡ bỏ hẳn 2026-08-11**: key của chúng (câu hỏi, hoặc tool+params) không bao giờ bắt đủ mọi chiều quyết định câu trả lời (câu chữ + ngữ cảnh hội thoại + focus doanh thu/chi phí + ý so sánh + model), đã gây **3 bug "trả lời cũ" liên tiếp** (ý so sánh `ca2d68f`; ngữ cảnh hội thoại; focus). `d|` giữ lại vì key của nó — tenant + đường dẫn API — xác định **trọn vẹn** dữ liệu trả về. Đừng thêm lại cache câu trả lời: xem `docs/test-plans/2026-08-11-chat-e2e-question-bank.md` và bộ E2E `scripts/e2e/specs/`. **Backend = Redis if `Redis:ConnectionString` is set (shared across instances + survives restart), else in-memory fallback.** The connection string may be `ENC:`-encrypted (copied verbatim from TourKit.Api) — `ChatCache` decrypts it with `Crypton` at runtime; keys are prefixed `tkai:` to avoid colliding with TourKit's own Redis keys; `AbortOnConnectFail=false` so a down Redis never blocks startup. **Never cache empty results** (`HasContent`/`IsUsableData`) or a transient empty poisons the path for 30m.
 - **Tools are read-only `/api/ai/*` sections** (financial-summary, cashflow, marketing, departures, top-customers, top-sellers, tours, booking-tickets, tasks, customers, appointments, vouchers, notifications) + `list_markets` (still `/api/tours/markets` for the resolver). Add a tool = add one `ChatTool` entry in `ChatTools.All`. Discovery endpoints `/api/ai/catalog` + `/api/ai/reference` exist upstream (not yet wired into the proxy). Write endpoints excluded.
 - **Name→id resolver (controlled multi-step).** Some filters need an id the user only knows by name (e.g. market "Nội địa miền Nam"). The planner fills a `marketName` param; `ChatAgentService.ResolveMarketAsync` looks it up against the tenant's market list (`GET /api/tours/markets`, cached 6h per tenant) and rewrites it to `marketId` before the call. `MatchMarket` normalizes (lowercase, strip Vietnamese diacritics, đ→d, drop punctuation, token-subset) so "Nội địa miền Nam" matches "Nội địa - Miền Nam". Customer-by-market questions route to `list_booking_tickets` (carries `MarketId`), since `/api/customers` has no market filter.
 - **Caching + heuristic fallback.** Chỉ CRM-data caching, delegated to `ChatCache` (`d|…` keys — Redis-backed when configured, so NOT lost on restart; câu trả lời AI KHÔNG cache, xem "Streaming + caches" ở trên). `ChatAgentService`'s only own cache is `_markets` (the 6h-per-tenant market-resolver list). The fallback `HeuristicRoute` keyword-routes when the planner emits non-JSON (reasoning models sometimes do), so a clear data question never silently returns "none".
@@ -289,17 +289,17 @@ A chat-left / data-right assistant. The user asks in natural language; the AI de
 Ngoài đọc số liệu, `/assistant` và `/travai` (JARVIS voice) giờ có thêm **ACTION tools** (ghi/thao
 tác) song song `ChatTools` (read-only): `check_mail`, `send_mail_reply`, `compose_mail`,
 `review_customer`, `prepare_meeting`, `score_deal`, `assign_task`, `create_appointment` — catalog 1 nguồn ở
-[`Services/Chat/ActionTools.cs`](Services/Chat/ActionTools.cs). Hành động hướng ra ngoài/khó undo
+[`TourkitAiProxy.Services/Chat/ActionTools.cs`](TourkitAiProxy.Services/Chat/ActionTools.cs). Hành động hướng ra ngoài/khó undo
 (gửi mail, giao việc, tạo lịch hẹn) là **confirm-first**: planner phát `ActionProposal` (thẻ xác
 nhận, field sửa được) → user bấm "Xác nhận" → FE gọi `POST /api/v1/assistant/action/execute` →
-[`ActionExecutor`](Services/Chat/ActionExecutor.cs) re-resolve + re-check tenant server-side rồi
+[`ActionExecutor`](TourkitAiProxy.Services/Chat/ActionExecutor.cs) re-resolve + re-check tenant server-side rồi
 thực thi, idempotent theo `actionId`. `review_customer`/`prepare_meeting`/`score_deal`/`check_mail`
 (đọc/non-destructive với 1 thực thể) chạy thẳng không cần xác nhận. Tên → id (nhân viên/khách hàng/deal)
-resolve qua [`Services/Chat/ActionResolver.cs`](Services/Chat/ActionResolver.cs) (mơ hồ → hỏi lại, không đoán).
+resolve qua [`TourkitAiProxy.Services/Chat/ActionResolver.cs`](TourkitAiProxy.Services/Chat/ActionResolver.cs) (mơ hồ → hỏi lại, không đoán).
 
 **`prepare_meeting` — "thẻ chuẩn bị gặp khách" (S4, 2026-08-14).** Gom hồ sơ + lịch sử mua + nhật ký
 chăm sóc + hạng đã chấm (`dbo.Reviews`) + thư gần nhất CỦA CHÍNH khách đó → AI viết "khách này là ai /
-nên nói gì / cần tránh gì" ([`MeetingBriefService`](Services/Chat/MeetingBriefService.cs)). Bốn quyết
+nên nói gì / cần tránh gì" ([`MeetingBriefService`](TourkitAiProxy.Services/Chat/MeetingBriefService.cs)). Bốn quyết
 định cố ý, đừng "sửa": (1) **theo yêu cầu, KHÔNG phải workflow nền** — spec gợi ý "trước lịch hẹn X giờ"
 nhưng làm nền thì tốn 1 lượt AI cho MỌI cuộc hẹn, kể cả cuộc chẳng ai cần chuẩn bị; (2) **không lưu kết
 quả** — khác `review_customer` (bản chấm hạng là dữ liệu dùng lại, worker sync xuống CRM), thẻ chuẩn bị
@@ -309,10 +309,10 @@ nói sai chuyện ngay trước mặt khách; (4) **lời AI về khung chat, d�
 = "meeting-brief"`) — in cả hai chỗ là đọc hai lần cùng một thứ. AI hỏng → vẫn trả dữ kiện thô kèm câu
 nói rõ là chưa có gợi ý.
 **Ghi vào CRM (`assign_task`/`create_appointment`) chỉ ENQUEUE** vào
-[`dbo.CrmActionQueue`](Services/Crm/CrmActionQueueRepository.cs) — proxy KHÔNG POST thẳng
+[`dbo.CrmActionQueue`](TourkitAiProxy.Infrastructure/Crm/CrmActionQueueRepository.cs) — proxy KHÔNG POST thẳng
 `/api/tasks`/`/api/customer-care`; worker phía `toutkit-app` (viết sau) drain hàng đợi + sync CRM
 theo hợp đồng ở [docs/crm-action-contract/README.md](docs/crm-action-contract/README.md). Endpoint
-routing ở [`Endpoints/AssistantActionEndpoints.cs`](Endpoints/AssistantActionEndpoints.cs); theo
+routing ở [`TourkitAiProxy.Endpoints/AssistantActionEndpoints.cs`](TourkitAiProxy.Endpoints/AssistantActionEndpoints.cs); theo
 dõi hàng đợi qua `GET /api/v1/workflows/crm-queue`. Thiết kế đầy đủ:
 [docs/superpowers/specs/2026-07-14-assistant-action-tools-design.md](docs/superpowers/specs/2026-07-14-assistant-action-tools-design.md).
 
@@ -375,7 +375,7 @@ KHÔNG chạy như phụ thuộc**.
 (Google Cloud SQL, instance dùng chung với dự án `farmer`). Lý do tách: `pgvector` để sau này tìm hội
 thoại theo ngữ nghĩa — SQL Server 2022 không có kiểu vector. Cái giá: **không `JOIN` được** với
 khách/tour bên SQL Server và **không có giao dịch chung** — ghi tin nhắn trước, cập nhật CRM sau và cho
-thử lại. Schema ở [`ChatDb.SchemaSql`](Services/Chat/Inbox/ChatDb.cs); thiếu chuỗi kết nối thì cụm chat
+thử lại. Schema ở [`ChatDb.SchemaSql`](TourkitAiProxy.Infrastructure/Chat/Inbox/ChatDb.cs); thiếu chuỗi kết nối thì cụm chat
 tự tắt, KHÔNG làm sập app.
 
 **Ba kênh, MỘT đường dẫn webhook:** `POST /api/v1/chat/webhook/{kenh}/{tenantId}` với `kenh` ∈
@@ -394,7 +394,7 @@ một luật chung là hoặc tự khoá tay mình (Telegram), hoặc để tin 
 
 **NHIỀU tài khoản mỗi kênh** (đổi 24/08). Một công ty du lịch có nhiều Trang Facebook cho các chi
 nhánh, nhiều OA Zalo, nhiều bot Telegram cho từng đội sale — ép về một tài khoản/kênh là sai với thực
-tế vận hành. Khoá lưu ở [`ChannelCredentialStore`](Services/Chat/Channels/ChannelCredentialStore.cs),
+tế vận hành. Khoá lưu ở [`ChannelCredentialStore`](TourkitAiProxy.Infrastructure/Chat/Channels/ChannelCredentialStore.cs),
 vẫn dùng lại bảng `dbo.TenantChannelSettings` nhưng cột `Channel` nay mang dạng `"{tiềnTố}:{accountId}"`
 (mã 8 ký tự do **máy chủ sinh**, không nhận từ client — nó nằm trên URL webhook công khai). Mọi giá trị
 mã hoá Crypton. CRUD qua `GET /api/v1/chat/channels` + `POST|PUT|DELETE .../channels/{kênh}/accounts[/{id}]`
@@ -403,7 +403,7 @@ việc một lần lúc cài đặt, chèn giữa trang thì mỗi lần mở l�
 
 ⚠️ **Zalo của chat ĐỘC LẬP với Zalo của bản tin sáng.** Trước 24/08 chat dùng chung bản ghi `zalo` của
 `TenantChannelSettingsStore`; nay chat có kho riêng (tiền tố `chat-zalo`) và **tự xoay vòng access token
-của chính nó** trong [`ZaloChatAdapter`](Services/Chat/Channels/ZaloChatAdapter.cs). Hai kho tuyệt đối
+của chính nó** trong [`ZaloChatAdapter`](TourkitAiProxy.Services/Chat/Channels/ZaloChatAdapter.cs). Hai kho tuyệt đối
 không đọc/ghi chéo — hai nơi cùng xoay MỘT refresh token thì Zalo vô hiệu hoá cái cũ và bên chậm chân
 mất token vĩnh viễn. Zalo trả refresh token MỚI mỗi lần làm mới, phải lưu đè cái cũ.
 
@@ -423,7 +423,7 @@ khác — đổi ngầm giữa chừng làm nhân viên trả lời sai danh ngh
 nhận/gửi qua tài khoản đó.
 
 **Gửi ảnh/tệp — kho lưu chọn được: `Storage:Provider` = `r2` | `s3` | `local`** (mặc định `local`).
-Một giao diện [`IChatFileStorage`](Services/Storage/IChatFileStorage.cs), ba cách lưu; R2 và S3 dùng
+Một giao diện [`IChatFileStorage`](TourkitAiProxy.Services/Storage/IChatFileStorage.cs), ba cách lưu; R2 và S3 dùng
 CHUNG một lớp vì cùng giao thức S3, chỉ khác cách dựng client. **`local` không cần tài khoản cloud nào**
 nên chạy được ngay trên máy dev/VPS tự quản (phục vụ qua `/chat-files`), NHƯNG không hợp khi nhiều
 instance sau load-balancer — mỗi máy một đĩa, ảnh tải lên máy A sẽ 404 khi máy B phục vụ.
@@ -433,7 +433,7 @@ instance sau load-balancer — mỗi máy một đĩa, ảnh tải lên máy A s
 
 ⚠️ **`local`: thư mục neo vào THƯ MỤC APP, tuyệt đối không dùng `Directory.GetCurrentDirectory()`.**
 Nơi GHI và nơi PHỤC VỤ `/chat-files` phải ra cùng một chỗ, nên cùng gọi
-[`LocalChatFileStorage.ThuMucGoc`](Services/Storage/LocalChatFileStorage.cs) — hai bên tự dựng riêng
+[`LocalChatFileStorage.ThuMucGoc`](TourkitAiProxy.Services/Storage/LocalChatFileStorage.cs) — hai bên tự dựng riêng
 thì lệch lúc nào không biết, mà triệu chứng chỉ là **ảnh 404**, không lỗi nào hiện lên. Thư mục làm
 việc của tiến trình KHÔNG phải thư mục app: chạy `dotnet run` ở gốc repo thì tình cờ trùng nên không
 lộ, dưới IIS nó thường là `C:\Windows\System32` → ảnh ghi ra ngoài app rồi mất khi deploy lại, hoặc
@@ -444,17 +444,17 @@ ghi hỏng vì không có quyền. Đường dẫn ảnh **lưu trong CSDL là v
 về, không nhận nhị phân qua API chat. Presigned URL có hạn cũng không hợp vì khách xem lại tin cũ bất cứ
 lúc nào. Nên **đừng để tệp nhạy cảm đi đường này**.
 
-**Đính kèm khách gửi** chuẩn hoá ở MÁY CHỦ ([`ChatAttachment`](Services/Chat/Inbox/ChatAttachment.cs),
+**Đính kèm khách gửi** chuẩn hoá ở MÁY CHỦ ([`ChatAttachment`](TourkitAiProxy.Domain/Chat/ChatAttachment.cs),
 hàm thuần, có test): mỗi kênh gói tệp một kiểu, để giao diện tự bóc thì cùng đoạn phân tích phải viết
 lại bằng JavaScript và không test được. Ảnh Telegram lấy **cỡ lớn nhất** (Telegram xếp nhỏ trước — lấy
 nhầm cỡ nhỏ thì soi ảnh hoá đơn/hộ chiếu khách gửi không đọc nổi chữ). Telegram chỉ cho `file_id` chứ
 không cho URL, nên đi qua `GET /api/v1/chat/messages/{id}/file` để **giấu bot token** khỏi trình duyệt.
 
 **Đường đi:** webhook **chỉ GHI thân thô** vào `chat_inbound_events` rồi trả 200 →
-[`ChatInboundWorker`](Services/Chat/Inbox/ChatInboundWorker.cs) (nhịp 2s) rút ra →
-[`ChatInboundService`](Services/Chat/Inbox/ChatInboundService.cs) → bot trả lời → xếp
-`chat_outbox` → [`ChatOutboxWorker`](Services/Chat/Inbox/ChatOutboxWorker.cs) gửi qua
-[`ZaloChatAdapter`](Services/Chat/Channels/ZaloChatAdapter.cs).
+[`ChatInboundWorker`](TourkitAiProxy.Services/Chat/Inbox/ChatInboundWorker.cs) (nhịp 2s) rút ra →
+[`ChatInboundService`](TourkitAiProxy.Services/Chat/Inbox/ChatInboundService.cs) → bot trả lời → xếp
+`chat_outbox` → [`ChatOutboxWorker`](TourkitAiProxy.Services/Chat/Inbox/ChatOutboxWorker.cs) gửi qua
+[`ZaloChatAdapter`](TourkitAiProxy.Services/Chat/Channels/ZaloChatAdapter.cs).
 
 ⚠️ **Đã trả 200 thì kênh KHÔNG gửi lại — nên việc còn dở tuyệt đối không được nằm trong bộ nhớ.**
 Bản đầu dùng `Task.Run` rời: IIS recycle / deploy / crash đúng lúc đó là **mất hẳn tin của khách,
@@ -464,7 +464,7 @@ nhưng chỉ để lấy id sự kiện làm khoá chống trùng: chống trùn
 kênh gửi lại đồng thời hai lần sẽ tạo hai dòng và bot trả lời hai lần.
 
 **Mẫu trả lời nhanh** (`chat_quick_replies` +
-[`ChatQuickReplyRepository`](Services/Chat/Inbox/ChatQuickReplyRepository.cs)): gõ `/` ở **ĐẦU** ô
+[`ChatQuickReplyRepository`](TourkitAiProxy.Infrastructure/Chat/Inbox/ChatQuickReplyRepository.cs)): gõ `/` ở **ĐẦU** ô
 soạn ra danh sách. Lệnh gọi **bỏ dấu** khi lưu — nhân viên đang gõ nhanh cho khách sẽ gõ `/gia` chứ
 không dừng bật bộ gõ để ra `/giá`. Chỉ gợi ý khi `/` đứng đầu, giữa câu nó là dấu gạch bình thường
 (vd "sáng/chiều"). Theo TỪNG CÔNG TY, không theo từng nhân viên. ⚠️ Chỉ mục là **biểu thức**
@@ -472,11 +472,11 @@ không dừng bật bộ gõ để ra `/giá`. Chỉ gợi ý khi `/` đứng đ
 chiếu hai chỗ.
 
 **Vòng đời tin gửi đi:** `chờ → đã gửi → đã nhận → đã xem`, cập nhật qua
-[`ChatRepository.MarkStateWatermarkAsync`](Services/Chat/Inbox/ChatRepository.cs) và **chỉ tiến,
-không lùi** ([`ChatRules.KhongLui`](Services/Chat/Inbox/ChatRules.cs), có test) — nền tảng không bảo
+[`ChatRepository.MarkStateWatermarkAsync`](TourkitAiProxy.Infrastructure/Chat/Inbox/ChatRepository.cs) và **chỉ tiến,
+không lùi** ([`ChatRules.KhongLui`](TourkitAiProxy.Domain/Chat/ChatRules.cs), có test) — nền tảng không bảo
 đảm thứ tự webhook, "đã nhận" hoàn toàn có thể tới sau "đã xem", ghi đè mù thì dấu tích chạy ngược
 trước mắt nhân viên. Mã tin của nền tảng lưu vào `chat_messages.external_msg_id` ngay khi gửi được
-([`SetExternalMsgIdAsync`](Services/Chat/Inbox/ChatRepository.cs)) — thứ **duy nhất** đối chiếu được
+([`SetExternalMsgIdAsync`](TourkitAiProxy.Infrastructure/Chat/Inbox/ChatRepository.cs)) — thứ **duy nhất** đối chiếu được
 khi nền tảng báo lại.
 
 ⚠️ **Ba kênh báo lại khác nhau, đừng áp một luật:** Zalo `user_seen_message` (chỉ "đã xem") ·
@@ -494,14 +494,14 @@ tích chạy ngược. Chặn ở **cả** luật thuần lẫn SQL, vì cập n
 luật được.
 
 **Tên định danh trong cụm chat KHÔNG đồng nhất, và đó là chuyện đã rồi:**
-[`ChatRules`](Services/Chat/Inbox/ChatRules.cs) đặt tên tiếng Việt (`TinhCuaSo`, `GhepCum`, `TomTat`,
-`KhongLui`), còn [`ChatRepository`](Services/Chat/Inbox/ChatRepository.cs) và
-[`ChatModels`](Services/Chat/Inbox/ChatModels.cs) đặt tiếng Anh. **Theo file mình đang sửa**, đừng
+[`ChatRules`](TourkitAiProxy.Domain/Chat/ChatRules.cs) đặt tên tiếng Việt (`TinhCuaSo`, `GhepCum`, `TomTat`,
+`KhongLui`), còn [`ChatRepository`](TourkitAiProxy.Infrastructure/Chat/Inbox/ChatRepository.cs) và
+[`ChatModels`](TourkitAiProxy.Domain/Chat/ChatModels.cs) đặt tiếng Anh. **Theo file mình đang sửa**, đừng
 theo cụm — thêm một tên tiếng Việt vào `ChatRepository` là tạo ngoại lệ giữa 26 tên tiếng Anh (đã
 xảy ra một lần, phải đổi lại). Quy ước ở mục Conventions chỉ nói tiếng Việt cho **chữ hiển thị, log,
 chú thích** — không nói gì về tên định danh.
 
-**Sáu luật sai-là-hỏng**, tách thuần ở [`ChatRules`](Services/Chat/Inbox/ChatRules.cs), có test:
+**Sáu luật sai-là-hỏng**, tách thuần ở [`ChatRules`](TourkitAiProxy.Domain/Chat/ChatRules.cs), có test:
 1. **Cửa sổ gửi** — Zalo 48h / Messenger 24h kể từ tin cuối CỦA KHÁCH. **Chưa có tin nào của khách =
    ĐÓNG**, không phải mở. Hết cửa sổ thì khoá ô soạn kèm lý do, đừng để gọi API rồi mới biết.
 2. **Bot câm khi người thật vào** — `bot_resume_at` là **MỐC THỜI GIAN, không phải cờ**: câm có thời
@@ -547,7 +547,7 @@ PerTenant. Auth = **service account** per-tenant (`dbo.TenantServiceAccounts`, `
 
 - **Schema:** `dbo.UserWorkflows` (config, PK `TenantId+Username+WorkflowType`) + `dbo.WorkflowRuns` (lịch sử 100 run/scope, prune tự động). `Username=''` = per-tenant (workflow `Scope=PerTenant`, vd `deal-auto-review`).
 - **Scheduler:** `WorkflowSchedulerService` (`BackgroundService`, tick 60s) → `ListDue` → fire-and-forget `Task.Run`. `SetNextRun` chạy ngay trước `Task.Run` để tránh re-fire trong tick kế. Auto-pause sau 5 fail liên tiếp, user "Bật lại" qua PUT endpoint.
-- **MailSyncService (extract):** logic `POST /mail/sync` được extract ra `Services/Mail/MailSyncService.cs` → dùng chung giữa HTTP endpoint và `MailAutoSyncWorkflow`. Response shape `/mail/sync` giữ nguyên (`{items, counts, classified, fetched}`).
+- **MailSyncService (extract):** logic `POST /mail/sync` được extract ra `TourkitAiProxy.Services/Mail/MailSyncService.cs` → dùng chung giữa HTTP endpoint và `MailAutoSyncWorkflow`. Response shape `/mail/sync` giữ nguyên (`{items, counts, classified, fetched}`).
 - **Endpoint:** require `X-Session-Id` (pattern giống MailEndpoints). Manual trigger (`/run-now`) **fire-and-forget, KHÔNG đồng bộ** — trả về sau ~100ms với `summary` rỗng, workflow chạy tiếp ở nền qua pipeline scheduler (vẫn đếm failure + auto-pause + ghi `WorkflowRuns`). ⚠️ Đừng "sửa" lại thành đồng bộ: đã từng đồng bộ và run dài 100s+ làm request trình duyệt timeout → user thấy báo **lỗi giả** dù workflow chạy xong bình thường. Kết quả đọc ở `GET /workflows/{type}/runs`, không đọc ở response của `/run-now`.
 - **Frontend:** `/workflows` page (`wwwroot/pages/workflows.jsx`), card per workflow + toggle + interval dropdown + run history collapsible. Nav entry "Tự động hóa" nằm CUỐI group **"Tích hợp"** (kiểm code 18/08: `app.jsx` — tài liệu này từng ghi nhầm là group "Bản tin & Tự động", chưa bao giờ đúng với code). Mục này KHÔNG gate quyền vì trang có thêm phần cá nhân — xem section "Bản tin AI").
 
@@ -562,10 +562,10 @@ theo hướng an toàn). Một cờ cho cả 3 tác vụ `sale-brief` · `ceo-br
 vì với người dùng chúng là MỘT tính năng: cả 3 đều ghi vào Bảng tin và Bảng tin là chỗ đọc lại.
 Bật: `appsettings.json` → `"Features": { "Digest": true }` **ở CẢ web lẫn worker** (worker mới là nơi
 thật sự chạy tác vụ nền — web tắt mà worker bật thì bản tin vẫn gửi cho khách dù giao diện đã ẩn sạch),
-rồi restart. Tắt thì: 3 workflow không đăng ký DI ([`WorkflowStackRegistration`](Services/Bootstrap/WorkflowStackRegistration.cs))
+rồi restart. Tắt thì: 3 workflow không đăng ký DI ([`WorkflowStackRegistration`](TourkitAiProxy.Services/Bootstrap/WorkflowStackRegistration.cs))
 → biến mất khỏi scheduler + `GET /api/v1/workflows` → thẻ tự mất khỏi trang; `/api/v1/insights|digest/*`
 trả 404 tường minh; chuông + tab Bảng tin + khối Zalo OA + mục admin "Bản tin" bị ẩn qua
-[`GET /api/v1/features`](Endpoints/SystemEndpoints.cs) → [`window.tourkitFeatures`](wwwroot/core/features.js).
+[`GET /api/v1/features`](TourkitAiProxy.Endpoints/SystemEndpoints.cs) → [`window.tourkitFeatures`](wwwroot/core/features.js).
 **Không xoá dữ liệu** — `dbo.DigestSubscriptions`/`dbo.UserWorkflows` giữ nguyên, bật lại là còn đủ.
 Cờ này KHÁC phân quyền: tắt là tắt cho tất cả, kể cả admin.
 
@@ -576,17 +576,17 @@ Cờ này KHÁC phân quyền: tắt là tắt cho tất cả, kể cả admin.
 **2 loại bản tin** (`BriefTypes`): `sale-brief` — việc cần làm của từng nhân viên bán hàng (cơ hội cần
 gọi, lịch hẹn, việc, báo giá, tour còn thiếu tiền) — **số do máy chủ lấy, AI sắp xếp lại cho gọn** (tốn 1 lượt/người/ngày, tắt bằng tuỳ chọn `useAi=false`; AI lỗi → rơi về bản rule); `ceo-brief` — doanh thu/chi
 phí/lợi nhuận so cùng kỳ, **AI chỉ viết lời còn số do máy chủ tính**, AI lỗi → in bảng số
-([`CeoBriefBuilder.RenderFallback`](Services/Digest/CeoBriefBuilder.cs)).
+([`CeoBriefBuilder.RenderFallback`](TourkitAiProxy.Domain/Digest/CeoBriefBuilder.cs)).
 
 **Cách chạy — CHUẨN BỊ TRƯỚC, GỬI QUA HÀNG ĐỢI** (đổi 13/08, xem
 [plan](docs/superpowers/plans/2026-08-13-digest-queue-pipeline.md)). Cả 2 là `PerTenant` (1 bản ghi
 scheduler, bật 1 lần) nhưng workflow **tự đổi phiên theo từng người nhận**; workflow KHÔNG gửi gì cả:
 
 1. **PREPARE** — từ mốc `giờ người chọn − Digest:LeadMinutes` (mặc định 10') trở đi, workflow dựng nội
-   dung ([`DigestDue.ShouldPrepare`](Services/Digest/DigestDue.cs) — so theo **phút**, mở tới hết ngày VN).
+   dung ([`DigestDue.ShouldPrepare`](TourkitAiProxy.Domain/Digest/DigestDue.cs) — so theo **phút**, mở tới hết ngày VN).
 2. **GHI Bảng tin** — `dbo.AgentInsights`. Đây là kênh "trong app" **luôn bật** (kho lưu để xem/nghe lại).
 3. **ENQUEUE** — mỗi kênh ngoài đang bật = 1 dòng `dbo.OutboundMails` với `ScheduledUtc`
-   ([`DigestEnqueuePlanner`](Services/Digest/DigestEnqueuePlanner.cs) + [`DigestDue.SendMomentUtc`](Services/Digest/DigestDue.cs)).
+   ([`DigestEnqueuePlanner`](TourkitAiProxy.Domain/Digest/DigestEnqueuePlanner.cs) + [`DigestDue.SendMomentUtc`](TourkitAiProxy.Domain/Digest/DigestDue.cs)).
    Dòng mang theo **đủ thứ cần để gửi**: email → `Params`; telegram/zalo → `Data` chứa nơi nhận +
    `title` + `body`.
 4. **GỬI** — **KHÔNG phải việc của proxy.** Cả 3 kênh do **`TourKit.PushWorker` bên toutkit-app** rút
@@ -645,7 +645,7 @@ KHÔNG thêm bảng mới cho việc này.
 
 ⚠️ **Zalo: 3 điều dễ hiểu sai** (đổi 14/08 — trước đó code dùng API `message/cs` theo Zalo user id):
 1. **Nơi nhận là SỐ ĐIỆN THOẠI**, không phải Zalo user id. Người dùng chỉ nhập số của mình; server
-   chuẩn hoá về `0xxxxxxxxx` ngay lúc lưu ([`DigestPhone`](Services/Digest/DigestPhone.cs)), worker đổi
+   chuẩn hoá về `0xxxxxxxxx` ngay lúc lưu ([`DigestPhone`](TourkitAiProxy.Domain/Digest/DigestPhone.cs)), worker đổi
    sang `84…` lúc gọi API. Cột DB tên `ZaloPhone` (đổi từ `ZaloUserId`
    ngày 14/08 bằng `sp_rename` trong `SchemaSql` — tên cột nói sai nội dung là bẫy cho người sau).
 2. **ZNS KHÔNG gửi được chữ tự do** — chỉ điền tham số vào mẫu đã được Zalo duyệt. Nên tin Zalo là
@@ -657,7 +657,7 @@ KHÔNG thêm bảng mới cho việc này.
    đúng chi phí khai báo nhưng bỏ qua chuyện thương hiệu, mà đó mới là thứ quyết định.
    - 3 endpoint `/api/v1/digest/zalo-config` (GET/PUT/DELETE) **khôi phục**, gác `CH_HT_XEM`;
      lưu ở `dbo.TenantChannelSettings` (`Channel='zalo'`) qua
-     [`TenantChannelSettingsStore`](Services/Digest/TenantChannelSettingsStore.cs). Giao diện nằm
+     [`TenantChannelSettingsStore`](TourkitAiProxy.Infrastructure/Digest/TenantChannelSettingsStore.cs). Giao diện nằm
      **cùng thẻ với tài khoản dịch vụ** trong mục "Theo tổ chức" — cả hai đều là thông tin đăng
      nhập cấp công ty, khai một lần.
    - **MỘT bộ ô, MỘT đường code — `mode` đã gỡ khỏi giao diện (18/08).** Dù OA do công ty tự đăng ký
@@ -699,7 +699,7 @@ nay chuẩn bị rồi; (2) Bảng tin là nơi xem/nghe **lại bản tin thậ
 Gửi thử là để thử **kênh ngoài** — kênh trong app luôn bật, không cần thử. Không bật kênh ngoài nào thì
 endpoint trả `ok:false` nói thẳng là không có gì để thử.
 
-**Một enum kênh duy nhất** — [`OutboundChannel`](Services/Digest/OutboundChannel.cs): `0=Email`,
+**Một enum kênh duy nhất** — [`OutboundChannel`](TourkitAiProxy.Domain/Digest/OutboundChannel.cs): `0=Email`,
 `1=Telegram`, `2=Zalo`, lưu thẳng cột `dbo.OutboundMails.Channel` (TINYINT). Default 0 nên dòng cũ trong
 DB tự đúng nghĩa. Worker toutkit-app **mirror đúng bảng số này**
 ([docs/mail-templates/README.md](docs/mail-templates/README.md)) — thêm kênh mới = thêm 1 member ở CẢ 2
@@ -724,7 +724,7 @@ nằm ở khối **"Tích hợp"** (kiểm code 18/08) (không phải "Tích h�
 đều IM LẶNG** — người dùng chỉ thấy sáng ra không có gì, không lỗi nào hiện lên: (1) đã đăng ký nhưng
 công ty chưa bật lịch chạy, (2) bật kênh mà bỏ trống nơi nhận, (3) kênh gửi hỏng. Cột "Hôm nay" đọc từ
 **hàng đợi** (đã gửi / hỏng / còn chờ tới giờ) thay cờ bit cũ; "Gửi lần cuối" = `MAX(ProcessedUtc)` của
-dòng đã gửi. Cột "Vấn đề" tính ở server ([`AdminDigestRepository.DetectProblem`](Services/Admin/AdminDigestRepository.cs))
+dòng đã gửi. Cột "Vấn đề" tính ở server ([`AdminDigestRepository.DetectProblem`](TourkitAiProxy.Infrastructure/Admin/AdminDigestRepository.cs))
 theo thứ tự nguyên nhân GỐC trước. Bộ đếm luôn là tổng THẬT kể cả khi đang lọc "chỉ lỗi" — lọc ở SQL thì
 "3/12 có vấn đề" biến thành "3/3", đọc xong tưởng cả hệ thống hỏng.
 
@@ -748,7 +748,7 @@ Scheduler workflow (`WorkflowSchedulerService` tick 60s) chạy trên project ri
 - Web restart / IIS AppPool recycle / crash → automation KHÔNG rớt.
 - Worker fail → UI + API vẫn sống. Deploy độc lập.
 - Share code qua `<ProjectReference Include="../TourkitAiProxy.csproj" />` — worker dùng NGUYÊN `Services/Workflows/*`, `Services/Mail/*`, `Services/Deals/*`... không copy code.
-- DI wiring shared qua [`Services/Bootstrap/WorkflowStackRegistration.cs`](Services/Bootstrap/WorkflowStackRegistration.cs) extension `AddWorkflowStack()` — cả web và worker gọi cùng 1 method → 1 nguồn wiring.
+- DI wiring shared qua [`TourkitAiProxy.Services/Bootstrap/WorkflowStackRegistration.cs`](TourkitAiProxy.Services/Bootstrap/WorkflowStackRegistration.cs) extension `AddWorkflowStack()` — cả web và worker gọi cùng 1 method → 1 nguồn wiring.
 
 **Cấu hình tách:**
 - Web `appsettings.json`: `"Workflows": { "RunScheduler": false }` (default sau khi split — xem `appsettings.example.json`).
@@ -766,12 +766,12 @@ Hệ quản trị admin riêng biệt với user-facing app. Entry HTML `wwwroot
 
 - **Auth**: cấu hình `Admin:Users` JSON trong `appsettings.json` (plain text password — admin pool nhỏ, self-host, file gitignore). `AdminUserStore.Authenticate` string-compare. Session in-mem `AdminSessionStore` (token GUID, 12h idle, KHÔNG persist). Client gửi `X-Admin-Session` header. Endpoint require qua extension `.RequireAdminSession()`.
 - **Compatibility**: `/api/v1/admin/quota/*` (webhook ops) GIỮ NGUYÊN `Admin:Token` cũ — KHÔNG đụng. Mọi endpoint admin UI mới dùng `/api/v1/admin/ui/*` với `RequireAdminSession()`.
-- **Cross-tenant digest**: `Services/Admin/AdminDigestRepository.cs` — JOIN `dbo.DigestSubscriptions` với `dbo.UserWorkflows` (`Username=''` vì 2 tác vụ bản tin đều PerTenant) để biết đăng ký nào đang "chết lặng". Mask chỉ đọc khi `LastSentLocalDate` ĐÚNG là hôm nay — sang ngày mới mask chưa reset tới lượt gửi đầu, đọc nhầm sẽ báo "đã gửi" cho hôm nay.
-- **Cross-tenant usage**: `Services/Admin/AdminUsageRepository.cs` aggregate trên `dbo.AiUsageHistory` (4 query: totals/byModel/byTenant/byDay). Filter `Status='ok'` để khỏi double-count retry. `Tenant IS NULL` group thành `(system)`. Tenant name resolve qua `TkSessionRepository.GetTenantNamesAsync` (SELECT TOP 1 per tenant ORDER BY LastUsedUtc DESC, fallback `tenantId`).
+- **Cross-tenant digest**: `TourkitAiProxy.Infrastructure/Admin/AdminDigestRepository.cs` — JOIN `dbo.DigestSubscriptions` với `dbo.UserWorkflows` (`Username=''` vì 2 tác vụ bản tin đều PerTenant) để biết đăng ký nào đang "chết lặng". Mask chỉ đọc khi `LastSentLocalDate` ĐÚNG là hôm nay — sang ngày mới mask chưa reset tới lượt gửi đầu, đọc nhầm sẽ báo "đã gửi" cho hôm nay.
+- **Cross-tenant usage**: `TourkitAiProxy.Infrastructure/Admin/AdminUsageRepository.cs` aggregate trên `dbo.AiUsageHistory` (4 query: totals/byModel/byTenant/byDay). Filter `Status='ok'` để khỏi double-count retry. `Tenant IS NULL` group thành `(system)`. Tenant name resolve qua `TkSessionRepository.GetTenantNamesAsync` (SELECT TOP 1 per tenant ORDER BY LastUsedUtc DESC, fallback `tenantId`).
 
 ### Thêm trang admin mới — 3 dòng
 
-1. **Backend** — endpoint mới trong `Endpoints/AdminUiEndpoints.cs`:
+1. **Backend** — endpoint mới trong `TourkitAiProxy.Endpoints/AdminUiEndpoints.cs`:
    ```csharp
    g.MapGet("/orders", async (...) => { ... });
    // Filter `.RequireAdminSession()` đã apply ở group level — KHÔNG cần lặp.
@@ -875,7 +875,7 @@ dev không bao giờ lộ ra vì dev không có bundle. Chốt chặn: `BundledP
 
 ## Cross-cutting
 
-**Cờ tính năng chưa ra mắt — `Features:*`, 1 nguồn ở [`FeatureFlags`](Services/Bootstrap/FeatureFlags.cs).**
+**Cờ tính năng chưa ra mắt — `Features:*`, 1 nguồn ở [`FeatureFlags`](TourkitAiProxy.Services/Bootstrap/FeatureFlags.cs).**
 KHÁC phân quyền: quyền trả lời "người này được xem gì", cờ trả lời "tính năng đã ra mắt chưa" — tắt là
 tắt cho tất cả, kể cả admin. **Thiếu key = TẮT** (cố ý sai theo hướng an toàn: quên khai lúc deploy thì
 tính năng bị ẩn — phiền nhưng sửa 1 dòng; mặc định bật thì thứ chưa ra mắt lọt thẳng ra bản public).
@@ -891,14 +891,14 @@ tính năng bị ẩn — phiền nhưng sửa 1 dòng; mặc định bật thì
 
 ⚠️ `AutoCare` là cờ **quan trọng nhất**: tính năng duy nhất của cả hệ đụng tới KHÁCH HÀNG THẬT. Mọi
 thứ khác chỉ ghi vào Bảng tin cho người trong công ty đọc. Bản hiện tại **KHÔNG gửi gì cho khách** —
-xem ghi chú trong [`CustomerAutoCareWorkflow`](Services/Workflows/CustomerAutoCareWorkflow.cs): đo
+xem ghi chú trong [`CustomerAutoCareWorkflow`](TourkitAiProxy.Services/Workflows/CustomerAutoCareWorkflow.cs): đo
 thật thấy số điện thoại có ở 100/100 khách còn email chỉ 14/100, nên việc đúng với dữ liệu là **nhắc
 nhân viên gọi**. Nếu sau này thêm khâu gửi, cờ này là chỗ chặn.
 
 ⚠️ **Riêng `Features:Chat`: KHÔNG chặn được bằng tiền tố `/api/v1/chat`.** `POST /api/v1/chat` và
 `/api/v1/chat/stream` là **Trợ lý số liệu** — tính năng khác, không nằm sau cờ này; chặn cả cụm là giết
 nhầm thứ đang chạy thật. Vì vậy nhánh tắt phải liệt kê đúng các nhóm đường của hộp thư chat, và danh
-sách đó là **một nguồn** ở [`ChatInboxEndpoints.DuongRieng`](Endpoints/ChatInboxEndpoints.cs) dùng chung
+sách đó là **một nguồn** ở [`ChatInboxEndpoints.DuongRieng`](TourkitAiProxy.Endpoints/ChatInboxEndpoints.cs) dùng chung
 cho cả nhánh bật lẫn nhánh tắt. Liệt kê tay ở `Program.cs` **đã lệch một lần** (thêm `/channels` và
 `/messages/{id}/file` mà quên) — hai đường đó rơi vào `MapFallback` và trả `index.html` kèm **200**.
 `ChatFeatureFlagCoverageTests` canh cả hai chiều: mọi route mới phải được phủ, và không được phủ nhầm
@@ -910,11 +910,11 @@ URL vẫn mở được trang, rồi trang gọi API nhận 404 và hiện lỗi
 cờ tắt là tắt cho tất cả, xin cấp quyền cũng vô ích).
 
 **Tắt một tính năng phải chặn ở chỗ nó SINH RA, không phải chỗ nó chạy.** Workflow → không đăng ký DI
-([`WorkflowStackRegistration`](Services/Bootstrap/WorkflowStackRegistration.cs)) nên scheduler + `GET
+([`WorkflowStackRegistration`](TourkitAiProxy.Services/Bootstrap/WorkflowStackRegistration.cs)) nên scheduler + `GET
 /api/v1/workflows` không thấy → thẻ tự mất khỏi giao diện. Action tool → gỡ khỏi danh mục gửi cho AI
 (`ActionTools.Enabled(cfg)`) nên **AI không biết là có nó để mà gọi**; chặn lúc thực thi thôi là muộn,
 AI đã hứa với người dùng rồi mới báo lỗi. Vẫn giữ chốt chặn thứ hai ở `ActionExecutor` cho tab mở từ
-trước lúc tắt cờ — ném [`FeatureDisabledException`](Services/Bootstrap/FeatureDisabledException.cs) →
+trước lúc tắt cờ — ném [`FeatureDisabledException`](TourkitAiProxy.Services/Bootstrap/FeatureDisabledException.cs) →
 **403**, KHÔNG để rơi vào bộ bắt lỗi chung thành 500 (nói sai với người dùng, và trộn cảnh báo giả vào
 log lỗi thật).
 
@@ -931,7 +931,7 @@ Thêm cờ mới: thêm 1 method vào `FeatureFlags` → gate chỗ sinh ra → 
 âm thầm chạy bằng `Models:Primary`** — không log, không cảnh báo, chỉ hoá đơn cuối tháng biết. Đã dính
 thật (14/08): appsettings prod thiếu `Models:MailClassify` nên phân loại mail chạy bằng `claude-haiku`
 suốt, mà đó là task chạy **hàng trăm lần mỗi lần đồng bộ hộp thư**; `Models:Digest` cũng thiếu tương tự.
-Danh sách 14 = enum `AiFeature` ([AiModelRegistry.cs](Services/Providers/AiModelRegistry.cs)) — khai đủ
+Danh sách 14 = enum `AiFeature` ([AiModelRegistry.cs](TourkitAiProxy.Services/Providers/AiModelRegistry.cs)) — khai đủ
 ở **CẢ** `appsettings.json` của web **VÀ** của worker (worker mới là nơi chạy `mail-auto-sync`,
 `deal-auto-review`, `customer-auto-review`, `ceo-brief`).
 
@@ -952,7 +952,7 @@ mọi thư, giao diện nhìn vẫn bình thường). Nên thiếu khoá còn t�
 
 **Usage tracking trong SQL** `dbo.AiUsageCounters` (daily aggregate per-model, MERGE upsert). `UsageTracker.Track` fire-and-forget UPSERT (không block AI call); `Snapshot()` đọc cache in-mem 10s, miss → `UsageRepository.ReadAggregateAsync(30 ngày)` → SUM GROUP BY Model. Cross-process: 2 instance cùng SQL share counter tự động. Cost estimate hardcode DeepSeek V4 Pro retail ($0.27/$1.10 per Mtok) bất kể model. Streaming chỉ Track khi `outTok > 0`. Key dạng `"{providerId}:{model}"`.
 
-**Tenant AI quota** ([Services/Quota/TenantQuotaStore.cs](Services/Quota/TenantQuotaStore.cs)). Mỗi tenant mặc định 1000 lượt AI (lĩnh 1 lần, KHÔNG tự reset). Storage: in-mem `ConcurrentDictionary` source of truth + ghi đè file `data/tenant-quota.json` mỗi lần thay đổi + mirror Redis best-effort (cross-instance visibility). Provider check ở đầu `CompleteAsync`/`StreamAsync` (5 providers — `EnsureQuota()`); consume ở `LogUsage`/sau khi `_usage.Append` khi status=ok và có tenant. Hết quota → throw `QuotaExhaustedException` → middleware [`QuotaExceptionMiddleware`](Services/Quota/QuotaExceptionMiddleware.cs) convert → 429 JSON `{error, quota}`. Frontend: chip `.tb-quota` ở topbar (`AI <used>/<limit>`), warn ở 90%, pulse đỏ ở 100%. Endpoints: `GET /api/v1/quota` (user), `GET /api/v1/admin/quota` + `POST /api/v1/admin/quota/{tenant}/topup` (admin gate qua `Admin:Token` config). System calls không có tenant (no session) → skip check.
+**Tenant AI quota** ([Services/Quota/TenantQuotaStore.cs](TourkitAiProxy.Services/Quota/TenantQuotaStore.cs)). Mỗi tenant mặc định 1000 lượt AI (lĩnh 1 lần, KHÔNG tự reset). Storage: in-mem `ConcurrentDictionary` source of truth + ghi đè file `data/tenant-quota.json` mỗi lần thay đổi + mirror Redis best-effort (cross-instance visibility). Provider check ở đầu `CompleteAsync`/`StreamAsync` (5 providers — `EnsureQuota()`); consume ở `LogUsage`/sau khi `_usage.Append` khi status=ok và có tenant. Hết quota → throw `QuotaExhaustedException` → middleware [`QuotaExceptionMiddleware`](TourkitAiProxy.Services/Quota/QuotaExceptionMiddleware.cs) convert → 429 JSON `{error, quota}`. Frontend: chip `.tb-quota` ở topbar (`AI <used>/<limit>`), warn ở 90%, pulse đỏ ở 100%. Endpoints: `GET /api/v1/quota` (user), `GET /api/v1/admin/quota` + `POST /api/v1/admin/quota/{tenant}/topup` (admin gate qua `Admin:Token` config). System calls không có tenant (no session) → skip check.
 
 **Cost UI hidden by default.** Menu "Chi phí AI" + page `/ai-usage` chỉ hiện khi user toggle debug ON (icon info ở topbar). URL `/ai-usage` vẫn accessible trực tiếp (giữ cho admin xem nhanh).
 
@@ -1002,9 +1002,9 @@ upstream.
 **Layout kèm 2 property**: `[req=%property{RequestId}|tenant=%property{TenantId}]` — nghĩa là mọi log trong 1 request có cùng `RequestId` (12-char GUID), grep 1 lần ra full flow.
 
 **3 middleware bọc pipeline** (thứ tự ngoài → trong, đăng ký sớm nhất trong `Program.cs`):
-1. `CorrelationIdMiddleware` ([Services/Logging/CorrelationIdMiddleware.cs](Services/Logging/CorrelationIdMiddleware.cs)) — reuse `X-Request-Id` header hoặc sinh mới, push vào `log4net.LogicalThreadContext`, echo response header
-2. `RequestLoggingMiddleware` ([Services/Logging/RequestLoggingMiddleware.cs](Services/Logging/RequestLoggingMiddleware.cs)) — log 1 line/request `{Method} {Path} → {Status} ({Ms}ms) tenant={T} ip={IP}`. 2xx/3xx=Info · 4xx=Warn · 5xx=Error. Skip static asset (`.js`/`.jsx`/`.css`/`.png`/`/dist/`/`/lib/`/`/pages/`) để tránh spam
-3. `UseExceptionHandler()` với `GlobalExceptionHandler` (`IExceptionHandler`, [Services/Logging/GlobalExceptionHandler.cs](Services/Logging/GlobalExceptionHandler.cs)) — bắt exception KHÔNG được endpoint handle → log ERROR có full stack + trả JSON `{error, detail, type, requestId}` 500
+1. `CorrelationIdMiddleware` ([Services/Logging/CorrelationIdMiddleware.cs](TourkitAiProxy.Services/Logging/CorrelationIdMiddleware.cs)) — reuse `X-Request-Id` header hoặc sinh mới, push vào `log4net.LogicalThreadContext`, echo response header
+2. `RequestLoggingMiddleware` ([Services/Logging/RequestLoggingMiddleware.cs](TourkitAiProxy.Services/Logging/RequestLoggingMiddleware.cs)) — log 1 line/request `{Method} {Path} → {Status} ({Ms}ms) tenant={T} ip={IP}`. 2xx/3xx=Info · 4xx=Warn · 5xx=Error. Skip static asset (`.js`/`.jsx`/`.css`/`.png`/`/dist/`/`/lib/`/`/pages/`) để tránh spam
+3. `UseExceptionHandler()` với `GlobalExceptionHandler` (`IExceptionHandler`, [Services/Logging/GlobalExceptionHandler.cs](TourkitAiProxy.Services/Logging/GlobalExceptionHandler.cs)) — bắt exception KHÔNG được endpoint handle → log ERROR có full stack + trả JSON `{error, detail, type, requestId}` 500
 
 **DB logging** (song song với log4net — độc lập): `dbo.AppLogs` bật qua `Logging:Database:Enabled=true` cho cross-instance search bằng SQL. Đã có sẵn `DbLoggerProvider` + `DbLogWriter`. Web mặc định OFF (log ra file đủ dùng); worker khuyến nghị ON khi scale nhiều instance.
 
@@ -1019,7 +1019,7 @@ upstream.
 - QUOTA hit → Warning (không fail run, không auto-pause)
 - FINISH — tổng duration + full counter breakdown
 
-**Upstream call log** ([Services/TourKit/TourKitApiClient.cs](Services/TourKit/TourKitApiClient.cs)):
+**Upstream call log** ([Services/TourKit/TourKitApiClient.cs](TourkitAiProxy.Infrastructure/TourKit/TourKitApiClient.cs)):
 - LOGIN OK/FAIL kèm tenantId + username + duration
 - GET/POST duration + status + bytes trên success (Debug); Warning cho 401/non-2xx/network error
 
@@ -1030,7 +1030,7 @@ upstream.
 - User-facing strings, log messages, comments, and README are in Vietnamese — preserve that when editing.
 - `appsettings.json` currently contains real-looking API keys. Treat them as secrets: don't echo them, and prefer env vars (e.g. `Providers__OpenCode__ApiKey`, `OPENCODE_API_KEY`, `NINE_ROUTES_API_KEY`) for any production-bound change.
 - Frontend exposes singletons via `window.tourkit*` namespaces (`tourkit.ai`, `tourkitStorage`, `tourkitParsers`, `tourkitRouter`, `tourkitHistory`, `tourkitHooks`, `tourkitUtil`).
-- **DateTime = UTC, luôn kèm `Z`** (STRICT — xem [docs/datetime-convention.md](docs/datetime-convention.md)). Lưu DB bằng `DateTime.UtcNow` / SQL `SYSUTCDATETIME()` (KHÔNG `DateTime.Now`/`GETDATE()`). Parse chuỗi ngày để lưu → `DateTimeStyles.AssumeUniversal | AdjustToUniversal` (TryParse trần ra `Kind=Local` → lưu sai). Trả client: field `DateTime` tự có `Z` qua [`UtcDateTimeConverter`](Services/Json/UtcDateTimeConverter.cs) (global); chuỗi `ToString("o")` từ SQL phải `DateTime.SpecifyKind(x, DateTimeKind.Utc)` trước (Dapper đọc DATETIME2 ra `Kind=Unspecified` → thiếu `Z` → frontend lệch +7h). Frontend dùng `window.tourkitUtil.fmtAgo/fmtDate`, không tự cộng/trừ giờ.
+- **DateTime = UTC, luôn kèm `Z`** (STRICT — xem [docs/datetime-convention.md](docs/datetime-convention.md)). Lưu DB bằng `DateTime.UtcNow` / SQL `SYSUTCDATETIME()` (KHÔNG `DateTime.Now`/`GETDATE()`). Parse chuỗi ngày để lưu → `DateTimeStyles.AssumeUniversal | AdjustToUniversal` (TryParse trần ra `Kind=Local` → lưu sai). Trả client: field `DateTime` tự có `Z` qua [`UtcDateTimeConverter`](TourkitAiProxy.Services/Json/UtcDateTimeConverter.cs) (global); chuỗi `ToString("o")` từ SQL phải `DateTime.SpecifyKind(x, DateTimeKind.Utc)` trước (Dapper đọc DATETIME2 ra `Kind=Unspecified` → thiếu `Z` → frontend lệch +7h). Frontend dùng `window.tourkitUtil.fmtAgo/fmtDate`, không tự cộng/trừ giờ.
 - **Viết tài liệu hướng dẫn người dùng** (`docs/features/*.md`): dùng agent [`tourkit-doc-writer`](.claude/agents/tourkit-doc-writer.md). Quy tắc: ưu tiên sự rõ ràng, dễ hiểu hơn chi tiết kỹ thuật; dùng CodeGraph kiểm flow THẬT trước khi viết + tham khảo internal knowledge base (claude-memory-compiler, nếu có) để giải thích ngắn gọn "tại sao"; mỗi trang tối thiểu có **Mô tả / Hướng dẫn từng bước / Lưu ý / FAQ**; luôn viết tiếng Việt, giọng thân thiện; viết xong **đề xuất các ảnh chụp màn hình cần bổ sung**.
 - **CHANGELOG.md — BẮT BUỘC cập nhật mỗi lần public code** (STRICT). Bất cứ khi nào chuẩn bị phát hành (merge vào `main`/`dev`, tạo bản release, hoặc user nói "public/ra mắt/deploy"), PHẢI thêm/cập nhật một mục trong [`CHANGELOG.md`](CHANGELOG.md) mô tả **tính năng mới** + **lỗi đã sửa** của đợt đó. Nếu một thay đổi có ảnh hưởng tới người dùng mà chưa có dòng trong CHANGELOG → coi như **chưa xong**, đừng phát hành.
   - **Viết CHO NGƯỜI DÙNG CUỐI, không phải cho dev**: mô tả theo *trải nghiệm người dùng* ("Bạn có thể…", "Trước đây … nay …"). TUYỆT ĐỐI không đưa mã commit/SHA, tên file/hàm/class, tên bảng SQL, hay thuật ngữ kỹ thuật (Dapper, TINYINT, race, token…) vào CHANGELOG.

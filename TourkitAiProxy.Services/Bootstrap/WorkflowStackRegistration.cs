@@ -173,6 +173,7 @@ public static class WorkflowStackRegistration
         // Sổ ghi nhắc DÙNG CHUNG — tác vụ mới cần chặn nhắc lặp thì tiêm cái này, đừng thêm bảng.
         s.AddSingleton<Digest.NotifyLedgerRepository>();
         s.AddSingleton<Digest.DigestSubscriptionRepository>();
+        s.AddSingleton<Infrastructure.Digest.SaleBriefRepository>();
         // Cấu hình kênh gửi CỦA CÔNG TY — quay lại per-tenant 17/08 (xem TenantChannelSettingsStore):
         // đi gặp khách hàng thì không công ty nào chịu gửi ZNS bằng OA của bên cung cấp dịch vụ.
         s.AddSingleton<Digest.TenantChannelSettingsStore>();
