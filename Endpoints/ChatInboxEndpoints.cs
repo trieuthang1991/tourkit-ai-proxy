@@ -40,6 +40,7 @@ public static class ChatInboxEndpoints
         "/api/v1/chat/conversations",
         "/api/v1/chat/channels",
         "/api/v1/chat/messages",
+        "/api/v1/chat/quick-replies",
         "/api/v1/chat/webhook",
     };
 
@@ -475,6 +476,50 @@ public static class ChatInboxEndpoints
             var xoa = await cred.DeleteAsync(a.TenantId, (ChatChannel)channel, accountId, ct);
             return Results.Json(new { ok = true, removed = xoa }, Web);
         });
+
+        // ── Mẫu trả lời nhanh ───────────────────────────────────────────────
+        // ĐỌC thì mọi nhân viên trực chat đều cần; SỬA/XOÁ thì cần quyền cấu hình hệ thống —
+        // đây là bộ câu dùng chung cả đội, một người sửa là cả đội đổi theo.
+        g.MapGet("/quick-replies", async (HttpContext ctx, TkSessionStore sessions,
+            ChatQuickReplyRepository repo, CancellationToken ct) =>
+        {
+            var a = SessionAuth.Read(ctx, sessions);
+            if (a == null) return SessionAuth.Unauthorized();
+            if (!repo.Configured) return ChuaCauHinh();
+            return Results.Json(new { items = await repo.ListAsync(a.TenantId, ct) }, Web);
+        });
+
+        g.MapPut("/quick-replies", async (QuickReplyReq body, HttpContext ctx,
+            TkSessionStore sessions, ChatQuickReplyRepository repo, CancellationToken ct) =>
+        {
+            var a = SessionAuth.Read(ctx, sessions);
+            if (a == null) return SessionAuth.Unauthorized();
+            if (!await SessionAuth.CanConfigSystemAsync(a.SessionId, sessions, ct))
+                return SessionAuth.ForbiddenConfigSystem();
+            if (!repo.Configured) return ChuaCauHinh();
+            if (string.IsNullOrWhiteSpace(body.Body))
+                return Results.BadRequest(new { error = "Chưa nhập nội dung mẫu" });
+            try
+            {
+                var id = await repo.UpsertAsync(a.TenantId, body.Trigger, body.Body.Trim(), ct);
+                return Results.Json(new { ok = true, id }, Web);
+            }
+            catch (ArgumentException ex)
+            {
+                return Results.BadRequest(new { error = ex.Message });
+            }
+        });
+
+        g.MapDelete("/quick-replies/{id:long}", async (long id, HttpContext ctx,
+            TkSessionStore sessions, ChatQuickReplyRepository repo, CancellationToken ct) =>
+        {
+            var a = SessionAuth.Read(ctx, sessions);
+            if (a == null) return SessionAuth.Unauthorized();
+            if (!await SessionAuth.CanConfigSystemAsync(a.SessionId, sessions, ct))
+                return SessionAuth.ForbiddenConfigSystem();
+            if (!repo.Configured) return ChuaCauHinh();
+            return Results.Json(new { ok = true, removed = await repo.DeleteAsync(a.TenantId, id, ct) }, Web);
+        });
     }
 
     /// Đã khai đủ khoá để tài khoản này chạy được chưa.
@@ -544,4 +589,7 @@ public record SendReq(string? Text, string? AttachmentUrl = null, string? Attach
     public record AssignReq(string? Username);
     public record StatusReq(short Status);
     public record BotReq(bool Paused, int? Minutes);
+
+    /// <param name="Trigger">Lệnh gọi thô — server tự chuẩn hoá (bỏ dấu, hạ chữ thường).</param>
+    public record QuickReplyReq(string Trigger, string Body);
 }

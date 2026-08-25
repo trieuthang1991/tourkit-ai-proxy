@@ -179,6 +179,7 @@ public static class WorkflowStackRegistration
         // ChatDb tự tắt nếu thiếu chuỗi kết nối. Chặn thật nằm ở chỗ map endpoint và worker.
         s.AddSingleton<Chat.Inbox.ChatDb>();
         s.AddSingleton<Chat.Inbox.ChatRepository>();
+        s.AddSingleton<Chat.Inbox.ChatQuickReplyRepository>();
         s.AddSingleton<Chat.Inbox.ChatInboundService>();
         s.AddSingleton<Chat.Channels.ChannelCredentialStore>();
         // Kho ảnh/tệp nhân viên gửi — r2 | s3 | local theo Storage:Provider, xem IChatFileStorage.

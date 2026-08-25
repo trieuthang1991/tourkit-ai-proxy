@@ -475,6 +475,8 @@
     const [moHoSo, setMoHoSo] = useState(true);
     const [dinhKem, setDinhKem] = useState(null);      // tệp đã tải lên, CHỜ bấm gửi
     const [dangTai2, setDangTai2] = useState(false);   // đang tải tệp lên kho
+    const [mauTraLoi, setMauTraLoi] = useState([]);
+    const [goiY, setGoiY] = useState(null);            // null = đang không gõ lệnh
     const cuonRef = useRef(null);
     const tepRef = useRef(null);
 
@@ -523,6 +525,15 @@
     }, [taiDsach, taiChiTiet, chon]);
 
     useEffect(() => { if (chon) taiChiTiet(chon); }, [chon, taiChiTiet]);
+
+    // Tải một lần, KHÔNG theo nhịp hỏi lại 4 giây: bộ mẫu hiếm khi đổi, kéo lại liên tục là
+    // tốn truy vấn cho thứ gần như đứng yên.
+    useEffect(() => {
+      authedFetch('/api/v1/chat/quick-replies')
+        .then(r => r.ok ? r.json() : { items: [] })
+        .then(j => setMauTraLoi(j.items || []))
+        .catch(() => {});
+    }, []);
 
     useEffect(() => {
       const el = cuonRef.current;
@@ -777,6 +788,19 @@
                           </button>
                         </div>
                       )}
+                      {/* Gõ "/" ra danh sách mẫu. Nổi TRÊN ô soạn, không đẩy ô soạn xuống. */}
+                      {goiY !== null && mauTraLoi.filter(m => m.trigger.startsWith(goiY)).length > 0 && (
+                        <div className="ci-mau">
+                          <div className="ci-mau-dau">Mẫu trả lời</div>
+                          {mauTraLoi.filter(m => m.trigger.startsWith(goiY)).slice(0, 6).map(m => (
+                            <button key={m.id} className="ci-mau-muc"
+                                    onClick={() => { setSoan(m.body); setGoiY(null); }}>
+                              <b>/{m.trigger}</b>
+                              <span>{m.body}</span>
+                            </button>
+                          ))}
+                        </div>
+                      )}
                       <div className="ci-soan-o">
                         <input type="file" ref={tepRef} hidden
                                onChange={e => { chonTep(e.target.files?.[0]); e.target.value = ''; }} />
@@ -785,9 +809,18 @@
                                 title="Gửi ảnh hoặc tệp" aria-label="Gửi ảnh hoặc tệp">
                           <window.Icon name={dangTai2 ? 'refresh' : 'paperclip'} size={16} />
                         </button>
-                        <textarea value={soan} onChange={e => setSoan(e.target.value)}
-                                  placeholder={dinhKem ? 'Thêm chú thích (không bắt buộc)…' : 'Nhập trả lời cho khách…'}
+                        <textarea value={soan}
+                                  onChange={e => {
+                                    const val = e.target.value;
+                                    setSoan(val);
+                                    // Chỉ gợi ý khi "/" đứng ĐẦU ô soạn — giữa câu thì "/" là dấu
+                                    // gạch bình thường (vd "sáng/chiều"), bật popup là phiền.
+                                    const m = /^\/([a-z0-9-]*)$/i.exec(val);
+                                    setGoiY(m ? m[1].toLowerCase() : null);
+                                  }}
+                                  placeholder={dinhKem ? 'Thêm chú thích (không bắt buộc)…' : 'Nhập trả lời cho khách… (gõ / để chèn mẫu)'}
                                   onKeyDown={e => {
+                                    if (e.key === 'Escape') { setGoiY(null); return; }
                                     if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); gui(); }
                                   }} />
                         <button className="ci-gui" onClick={gui}
