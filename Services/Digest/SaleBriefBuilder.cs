@@ -138,7 +138,7 @@ public static class SaleBriefBuilder
         if (sections == 0)
             md.Insert(0, "Hôm nay chưa có việc gấp 🎉 — dành thời gian chăm khách cũ nhé.\n\n");
 
-        var title = $"Bản tin sáng {todayLocal:dd/MM} — {input.FullName ?? input.Username}";
+        var title = $"Bản tin {todayLocal:dd/MM} — {input.FullName ?? input.Username}";
         var bodyMd = md.ToString().TrimEnd();
         return new DigestMessage(title, bodyMd, ToHtml(bodyMd), BriefTypes.Sale);
     }
