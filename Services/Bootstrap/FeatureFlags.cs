@@ -23,6 +23,18 @@ public static class FeatureFlags
     public static bool Digest(IConfiguration cfg) => cfg.GetValue("Features:Digest", false);
 
     /// <summary>
+    /// Hộp thư chat đa kênh: nhận tin khách nhắn từ Zalo OA (sau này thêm kênh), bot trả lời, nhân
+    /// viên tiếp quản.
+    ///
+    /// <para>Cờ RIÊNG, không dựa vào cờ nào khác — nó có CSDL riêng và không ghi vào Bảng tin.</para>
+    ///
+    /// <para>Tắt thì webhook + API hộp thư không map (trả 404 tường minh), worker gửi không chạy,
+    /// và mục menu biến mất. Tức là <b>khách nhắn tới cũng không có gì xảy ra</b> — đúng ý nghĩa
+    /// của một tính năng chưa ra mắt.</para>
+    /// </summary>
+    public static bool Chat(IConfiguration cfg) => cfg.GetValue("Features:Chat", false);
+
+    /// <summary>
     /// Kiểm tra sẵn sàng khởi hành (tác vụ <c>tour-readiness</c>): quét tour sắp đi, tour nào còn
     /// thiếu thì ghi cảnh báo vào Bảng tin.
     ///

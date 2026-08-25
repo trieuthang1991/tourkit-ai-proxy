@@ -3,6 +3,7 @@ using TourkitAiProxy.Services.Chat;
 using TourkitAiProxy.Services.Providers;
 using TourkitAiProxy.Services.Reviews;
 using TourkitAiProxy.Services.Reviews.Agents;
+using TourkitAiProxy.Services.Storage;
 using TourkitAiProxy.Services.TourKit;
 using TourkitAiProxy.Services.Workflow;
 
@@ -172,6 +173,23 @@ public static class WorkflowStackRegistration
         // Cấu hình kênh gửi CỦA CÔNG TY — quay lại per-tenant 17/08 (xem TenantChannelSettingsStore):
         // đi gặp khách hàng thì không công ty nào chịu gửi ZNS bằng OA của bên cung cấp dịch vụ.
         s.AddSingleton<Digest.TenantChannelSettingsStore>();
+
+        // ── Hộp thư chat đa kênh ────────────────────────────────────────────
+        // Đăng ký KHÔNG phụ thuộc cờ Features:Chat: các lớp này vô hại khi không ai gọi, còn
+        // ChatDb tự tắt nếu thiếu chuỗi kết nối. Chặn thật nằm ở chỗ map endpoint và worker.
+        s.AddSingleton<Chat.Inbox.ChatDb>();
+        s.AddSingleton<Chat.Inbox.ChatRepository>();
+        s.AddSingleton<Chat.Inbox.ChatQuickReplyRepository>();
+        s.AddSingleton<Chat.Inbox.ChatInboundService>();
+        s.AddSingleton<Chat.Channels.ChannelCredentialStore>();
+        // Kho ảnh/tệp nhân viên gửi — r2 | s3 | local theo Storage:Provider, xem IChatFileStorage.
+        s.AddChatFileStorage(cfg);
+        // Thêm kênh mới = thêm 1 dòng ở đây, KHÔNG đụng phần lõi.
+        s.AddSingleton<Chat.Channels.IChatChannelAdapter, Chat.Channels.ZaloChatAdapter>();
+        s.AddSingleton<Chat.Channels.IChatChannelAdapter, Chat.Channels.MessengerChatAdapter>();
+        s.AddSingleton<Chat.Channels.IChatChannelAdapter, Chat.Channels.TelegramChatAdapter>();
+        // MessengerChatAdapter cần được lấy đích danh cho bước Meta xác minh địa chỉ webhook.
+        s.AddSingleton<Chat.Channels.MessengerChatAdapter>();
         // Ghi chú cũ, giữ lại để hiểu vì sao từng có giai đoạn không có lớp này:
         // TenantChannelSettingsStore đã GỠ (14/08): proxy không còn đọc/ghi cấu hình kênh của
         // công ty — Zalo nay dùng OA chung khai ở config worker. Bảng dbo.TenantChannelSettings vẫn

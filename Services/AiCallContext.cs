@@ -39,6 +39,11 @@ public static class AiFeatures
     // log đúng feature, tránh rơi vào "unknown" (xem docs class comment ở trên).
     public const string AssistantAction     = "assistant-action";
 
+    /// Bot trả lời khách trong hộp thư chat đa kênh. Feature RIÊNG (không gộp vào "chat" của Trợ lý
+    /// số liệu) vì hai thứ khác hẳn về lượng và về người trả tiền: trợ lý là nhân viên tự hỏi, còn
+    /// cái này là KHÁCH nhắn tới — số lượt do người ngoài quyết định.
+    public const string ChatInbox           = "chat-inbox";
+
     /// Đọc tên trạng thái của công ty để chọn sẵn cấu hình. KHÔNG trừ quota — xem ghi chú
     /// <see cref="AiCallContext.Ctx.FreeOfQuota"/>.
     public const string StatusSemantics     = "status-semantics";

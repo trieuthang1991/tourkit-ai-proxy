@@ -53,7 +53,7 @@ public class CeoBriefWorkflow : IScheduledWorkflow
 
     public string Type => "ceo-brief";
     public string Label => "Bản tin điều hành (giám đốc)";
-    public string Description => "Mỗi sáng gửi doanh thu – chi phí – lợi nhuận so cùng kỳ tháng trước, kèm biến động chính. Tốn khoảng 1 lượt AI mỗi lần gửi.";
+    public string Description => "Mỗi ngày gửi doanh thu – chi phí – lợi nhuận so cùng kỳ tháng trước, kèm biến động chính. Tốn khoảng 1 lượt AI mỗi lần gửi.";
     public WorkflowScope Scope => WorkflowScope.PerTenant;
     // Có luật chung (mục nào vào bản tin, kỳ so sánh) → công ty phải khai trước khi ai đăng ký nhận.
     public bool HasCompanyRules => true;

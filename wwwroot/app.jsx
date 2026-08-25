@@ -36,7 +36,8 @@ const NAV_GROUPS = [
   { label: 'Khách hàng & Bán hàng', items: [
     { to: '/customers', icon: 'users',   label: 'Khách hàng' },       // people
     { to: '/deals',     icon: 'trend',   label: 'AI phân tích Cơ hội' },  // opportunity analysis
-    { to: '/mail',      icon: 'mail',    label: 'Hộp thư AI' },       // envelope
+    { to: '/mail',      icon: 'mail',    label: 'Hộp thư AI' },
+    { to: '/chat-inbox', icon: 'send',  label: 'Hộp thư chat', feature: 'chat' },  // tin khách nhắn qua Zalo/kênh khác
   ]},
   { label: 'Sản phẩm Tour', items: [
     { to: '/ncc-list',     icon: 'download', label: 'AI Import NCC' },      // NCC: import + danh sách (đặt trên Tính giá Tour)
@@ -92,6 +93,29 @@ const TWEAK_DEFAULTS = /*EDITMODE-BEGIN*/{
 
 // Trang "Không có quyền xem" — mirror text web CRM khi user vào page bị gate perm.
 // Đặt ngoài App vì component nhỏ, không dùng state riêng.
+// Cờ RA MẮT tắt → trang nói rõ là chưa mở, KHÁC hẳn "không có quyền": quyền là chuyện của
+// riêng tài khoản này, cờ thì tắt cho tất cả kể cả admin. Nói sai một trong hai thì người dùng
+// đi xin cấp quyền cho một tính năng chưa tồn tại.
+function FeatureOffPage({ ten }) {
+  return (
+    <main className="page" style={{ padding: 60, textAlign: 'center' }}>
+      <div style={{ maxWidth: 480, margin: '0 auto', color: 'var(--text)' }}>
+        <div style={{ fontSize: 44, marginBottom: 16 }}>🚧</div>
+        <h2 style={{ margin: '0 0 8px', fontSize: 22, fontWeight: 700 }}>{ten} chưa mở</h2>
+        <p style={{ color: 'var(--text-3)', fontSize: 14, marginBottom: 20, lineHeight: 1.6 }}>
+          Tính năng này đang được hoàn thiện và chưa mở cho người dùng. Xin cấp quyền cũng không
+          vào được — cần bật ở cấu hình hệ thống.
+        </p>
+        <a href="/travai"
+           onClick={e => { e.preventDefault(); window.tourkitRouter.navigate('/travai'); }}
+           className="btn btn-primary" style={{ display: 'inline-flex', gap: 6 }}>
+          <Icon name="arrowLeft" size={14} /> Về trang chính
+        </a>
+      </div>
+    </main>
+  );
+}
+
 function AccessDeniedPage({ need }) {
   return (
     <main className="page" style={{ padding: 60, textAlign: 'center' }}>
@@ -157,8 +181,12 @@ function App() {
   // Filter NAV_GROUPS theo requirePerm — nhóm không đủ quyền bị ẨN hoàn toàn khỏi sidebar/drawer.
   // Ẩn theo TỪNG item.requirePerm; group rỗng (mọi item bị ẩn) thì bỏ. Item không có requirePerm
   // (vd /workflows) luôn hiện.
+  // Mục có `feature` còn phải chờ cờ RA MẮT bật — khác quyền: quyền nói "ai được xem", cờ nói
+  // "tính năng đã ra mắt chưa". Cờ tắt mà vẫn bày mục menu thì bấm vào chỉ nhận 404.
+  const chatOn = window.tourkitFeatures.useFeature('chat');
+  const featureOn = (name) => !name || (name === 'chat' ? chatOn : true);
   const visibleGroups = NAV_GROUPS
-    .map(g => ({ ...g, items: g.items.filter(it => hasPerm(it.requirePerm)) }))
+    .map(g => ({ ...g, items: g.items.filter(it => hasPerm(it.requirePerm) && featureOn(it.feature)) }))
     .filter(g => g.items.length > 0);
   // Gate 1 route theo permission: nếu route yêu cầu quyền mà user không có → render page "Không có quyền".
   // (URL vẫn giữ để user có thể chia sẻ link/bookmark; nếu được cấp quyền sau này thì reload thấy được.)
@@ -539,6 +567,11 @@ function App() {
         <Route path="/travai"    render={() => <window.JarvisPage pushToast={pushToast} />} />
         <Route path="/jarvis"    render={() => <window.JarvisPage pushToast={pushToast} />} />{/* alias link cũ */}
         <Route path="/mail"      render={() => <window.MailPage pushToast={pushToast} />} />
+        {/* Cờ tắt thì ẨN MENU thôi chưa đủ: gõ tay /chat-inbox vẫn mở trang, rồi trang gọi API
+            nhận 404 và hiện lỗi kỹ thuật khó hiểu. Chặn ngay ở route. */}
+        <Route path="/chat-inbox" render={() => chatOn
+          ? <window.ChatInboxPage pushToast={pushToast} />
+          : <FeatureOffPage ten="Hộp thư chat" />} />
         <Route path="/visa"      render={() => <window.VisaPage pushToast={pushToast} />} />
         <Route path="/visa/history" render={() => <window.VisaHistoryPage pushToast={pushToast} />} />
         <Route path="/deals"     render={() => <window.DealsPage pushToast={pushToast} />} />

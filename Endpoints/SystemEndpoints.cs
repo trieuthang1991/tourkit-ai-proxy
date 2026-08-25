@@ -37,6 +37,7 @@ public static class SystemEndpoints
             meetingBrief  = Services.Bootstrap.FeatureFlags.MeetingBrief(cfg),
             anomalyWatchdog = Services.Bootstrap.FeatureFlags.AnomalyWatchdog(cfg),
             autoCare        = Services.Bootstrap.FeatureFlags.AutoCare(cfg),
+            chat            = Services.Bootstrap.FeatureFlags.Chat(cfg),
         }));
         v1.MapGet("/workflow-traces", (WorkflowTraceLog log, int? days, string? workflow, int? limit) =>
         {

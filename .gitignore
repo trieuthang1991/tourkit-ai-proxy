@@ -42,6 +42,10 @@ data/visa-files/
 data/chat-unresolved.jsonl
 data/chat-unresolved.jsonl.*
 
+# Hộp thư chat — ảnh/tệp khách gửi và nhân viên gửi, khi Storage:Provider=local.
+# Nội dung do người ngoài tải lên (hoá đơn, hộ chiếu…) — KHÔNG commit, y như data/visa-files/.
+data/chat-uploads/
+
 # Workflow debug trace log (runtime state, có thể rotate) — KHÔNG commit
 data/workflow-traces.jsonl
 data/workflow-traces.jsonl.*

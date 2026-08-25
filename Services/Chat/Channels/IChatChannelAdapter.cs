@@ -1,0 +1,59 @@
+// Services/Chat/Channels/IChatChannelAdapter.cs
+using TourkitAiProxy.Services.Chat.Inbox;
+
+namespace TourkitAiProxy.Services.Chat.Channels;
+
+/// <summary>Kết quả gửi một tin ra kênh.</summary>
+/// <param name="Ok">Gửi được chưa.</param>
+/// <param name="ThuLai">Hỏng TẠM THỜI (mạng, nhà cung cấp 5xx) → để hàng đợi thử lại. false nghĩa
+/// là thử lại cũng vô ích (hết cửa sổ, chưa khai OA, khách chặn) — đừng quay vòng vô nghĩa.</param>
+/// <param name="ExternalMsgId">Id tin phía kênh, để đối soát về sau.</param>
+public record SendResult(bool Ok, bool ThuLai, string? ExternalMsgId, string? Error);
+
+/// <summary>
+/// Một kênh chat. Lõi (nhận tin → sinh trả lời → xếp hàng đợi → gửi) KHÔNG biết kênh nào; mỗi kênh
+/// chỉ cần cài đủ ba việc: xác thực webhook, bóc sự kiện, và gửi tin.
+///
+/// <para><b>Đa tài khoản/kênh</b> (một công ty có thể nối nhiều Trang Facebook, nhiều OA Zalo,
+/// nhiều bot Telegram): mọi thao tác cần khoá đăng nhập đều nhận <c>accountId</c> — không còn giả
+/// định "mỗi công ty một tài khoản/kênh".</para>
+///
+/// <para>Thêm kênh mới = thêm 1 lớp cài giao diện này + 1 member trong <see cref="ChatChannel"/>.
+/// Nếu phải sửa phần lõi thì phần trừu tượng hoá này đã sai.</para>
+/// </summary>
+public interface IChatChannelAdapter
+{
+    ChatChannel Channel { get; }
+
+    /// <summary>
+    /// Kiểm chữ ký webhook và cho biết THÂN THÔ này thuộc TÀI KHOẢN nào đã khai.
+    ///
+    /// <para><paramref name="accountIdTuUrl"/>: Telegram bắt buộc có (mỗi bot một URL riêng, xem
+    /// <c>IChatChannelAdapter</c> ghi chú ở endpoint). Zalo/Messenger truyền <c>null</c> — hai
+    /// kênh này cho phép NHIỀU tài khoản dùng CHUNG một đường webhook của công ty (đúng cách hai
+    /// nền tảng đó vận hành: đăng ký webhook 1 lần/ứng dụng, nhiều Trang/OA cùng trỏ vào), nên
+    /// adapter tự soát chữ ký qua TỪNG tài khoản đã khai để tìm ra khớp cái nào.</para>
+    ///
+    /// <para><paramref name="rawBody"/> phải là THÂN THÔ, chưa parse. Ký trên bản đã parse rồi
+    /// serialize lại chỉ đúng khi thứ tự khoá và khoảng trắng trùng khít bản gốc — gần như không
+    /// bao giờ trùng, và chữ ký sẽ luôn sai.</para>
+    /// </summary>
+    /// <returns>Mã tài khoản đã khớp, hoặc <c>null</c> nếu không tài khoản nào khớp (từ chối).</returns>
+    Task<string?> VerifyAsync(string tenantId, string? accountIdTuUrl, string rawBody,
+        IHeaderDictionary headers, CancellationToken ct);
+
+    /// Bóc thân webhook thành sự kiện chuẩn hoá. Bỏ qua loại không quan tâm bằng cách không trả về.
+    IReadOnlyList<InboundChatEvent> Parse(string rawBody);
+
+    /// Gửi một tin chữ ra kênh, bằng đúng tài khoản <paramref name="accountId"/>.
+    Task<SendResult> SendTextAsync(string tenantId, string accountId, string externalUserId, string text,
+        CancellationToken ct);
+
+    /// <summary>
+    /// Gửi ảnh/tệp ra kênh — <paramref name="url"/> phải TẢI CÔNG KHAI ĐƯỢC, vì cả ba kênh đọc
+    /// media bằng cách tự tải về từ URL, không nhận file nhị phân trực tiếp qua API chat này.
+    /// </summary>
+    /// <param name="caption">Chữ đi kèm, nếu kênh hỗ trợ gộp chung một tin. Có thể rỗng.</param>
+    Task<SendResult> SendMediaAsync(string tenantId, string accountId, string externalUserId, ChatKind loai,
+        string url, string? caption, CancellationToken ct);
+}

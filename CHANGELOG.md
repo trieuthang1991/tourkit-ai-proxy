@@ -13,6 +13,91 @@ Những cập nhật gần đây của TRAV-AI, viết cho người dùng. Mới
 
 ---
 
+## Phiên bản 25/08/2026 — Hộp thư chat: không sót tin, trả lời nhanh bằng /lệnh
+
+### ✨ Tính năng mới
+- **Mẫu trả lời nhanh.** Những câu bạn phải gõ đi gõ lại cho khách — bảng giá, lịch khởi hành,
+  lời chào — nay lưu thành mẫu. Trong ô soạn tin, gõ dấu `/` rồi vài chữ đầu là danh sách mẫu
+  hiện ra, bấm một cái là nội dung điền sẵn, sửa thêm rồi gửi. Lệnh gọi **không cần bỏ dấu**:
+  mẫu đặt tên "giá" thì gõ `/gia` vẫn ra, không phải dừng lại bật bộ gõ tiếng Việt.
+  Cả đội trực chat dùng chung một bộ mẫu, một người sửa là mọi người thấy ngay.
+
+### 🔧 Đã khắc phục
+- **Tin của khách không còn nguy cơ biến mất.** Trước đây nếu máy chủ được khởi động lại hoặc
+  cập nhật đúng lúc khách vừa nhắn, tin đó có thể mất hẳn mà không ai biết — kênh đã coi như
+  gửi thành công nên không gửi lại. Nay tin được ghi lại ngay khi vừa tới, rồi mới xử lý; máy
+  chủ có tắt giữa chừng thì bật lên vẫn xử lý tiếp đúng tin đó.
+- **Khách nhắn nhanh hai lần không còn bị bot trả lời hai lần.** Khi kênh gửi trùng cùng một
+  tin, hệ thống nay nhận ra và bỏ qua bản thứ hai.
+- **Ô soạn tin hết bị hai viền chồng nhau** khi bạn bấm vào để gõ.
+- **Các nút trong màn hình chat nay cùng một cỡ, một kiểu.** Trước đó mỗi nút một dáng, nhìn
+  lộn xộn và khó biết nút nào là hành động chính.
+- **Khai kết nối kênh gọn hơn hẳn.** Trước đây cả ba kênh đổ hết ra một màn hình, mỗi kênh lại
+  bọc thêm khung nên phải cuộn nhiều và rối mắt. Nay là ba thẻ chuyển qua lại, mỗi lúc chỉ hiện
+  kênh bạn đang khai. Các ô nhập mã, khoá bí mật đều có **ví dụ mờ sẵn trong ô** để bạn biết
+  mình dán đúng thứ chưa.
+
+---
+
+## Phiên bản 24/08/2026 — Hộp thư chat: nhiều tài khoản, gửi ảnh, bật/tắt gọn
+
+### ✨ Tính năng mới
+- **Một công ty nối được nhiều tài khoản cho mỗi kênh.** Trước đây mỗi kênh chỉ khai được một nơi
+  nhận. Nay bạn thêm bao nhiêu Trang Facebook, Zalo OA hay bot Telegram cũng được — mỗi chi nhánh
+  một Trang, mỗi đội sale một bot. Tin của khách luôn được trả lời bằng đúng tài khoản mà khách đã
+  nhắn tới, không lẫn sang nơi khác.
+- **Khai kết nối kênh chuyển thành cửa sổ riêng.** Bấm "Kết nối kênh" là mở ra một cửa sổ gọn, khai
+  xong đóng lại — danh sách hội thoại không còn bị đẩy tụt xuống mỗi lần bạn mở phần cài đặt.
+- **Gửi ảnh và tệp cho khách.** Ô soạn tin có thêm nút kẹp giấy: chọn ảnh hoặc tệp, xem trước rồi
+  mới bấm gửi, kèm được lời chú thích. Chọn nhầm thì gỡ ra trước khi gửi.
+- **Xem được ảnh và tệp khách gửi.** Trước đây khách gửi ảnh thì bạn chỉ thấy một ô trống. Nay ảnh
+  hiện ngay trong khung chat, bấm vào xem cỡ đầy đủ; tệp thì hiện tên và dung lượng để tải về; khách
+  gửi vị trí thì bấm ra bản đồ.
+- **Chọn được nơi lưu ảnh/tệp**: trên máy chủ của bạn, hoặc trên dịch vụ lưu trữ đám mây. Không cần
+  đăng ký dịch vụ nào vẫn dùng được ngay.
+
+### 🔧 Đã khắc phục
+- **Tắt tính năng chat giờ tắt sạch.** Trước đây tắt rồi mà gõ thẳng địa chỉ trang vẫn vào được, và
+  vài chức năng bên trong vẫn đáp lại thay vì báo đã tắt. Nay tắt là menu ẩn, trang báo rõ "chưa mở",
+  và mọi chức năng của hộp thư chat đều ngừng hẳn — trong khi Trợ lý số liệu vẫn chạy bình thường.
+- **Chữ trên bong bóng tin nhắn của bạn đã dễ đọc hơn.** Nền cam trước đây quá sáng nên chữ trắng
+  nhoè, nhìn cả ngày thì mỏi mắt.
+- **Giờ trong tin nhắn không còn lặp lại ngày.** Mỗi ngày đã có một vạch ngăn ghi "Hôm nay"/"Hôm qua",
+  nên trong từng tin chỉ hiện giờ phút.
+- **Lý do không gửi được chỉ hiện một lần.** Trước đây khi hết hạn trả lời khách, câu giải thích hiện
+  ở hai chỗ trông như hai lỗi khác nhau.
+- **Tiêu đề trang không còn bị thanh công cụ che.**
+
+### 📌 Lưu ý
+- Ảnh và tệp gửi qua chat được các nền tảng (Zalo, Facebook, Telegram) tự tải về từ đường dẫn công
+  khai. Vì vậy **đừng gửi giấy tờ nhạy cảm** qua đường này.
+
+## Phiên bản 21/08/2026 — Hộp thư chat
+
+### ✨ Tính năng mới
+- **Khách nhắn ở đâu cũng về một chỗ.** Có thêm mục **"Hộp thư chat"**: tin khách nhắn tới
+  **Zalo OA, Facebook Messenger hoặc Telegram** đều chảy về cùng một hộp thư, trợ lý trả lời trước,
+  bạn đọc và tiếp quản khi cần. Bấm **"Kết nối kênh"** để lấy địa chỉ nhận tin rồi dán vào trang
+  quản trị của từng kênh. Mỗi hội thoại giao được cho một nhân viên, đóng lại khi xong, và tạm dừng trợ lý nếu
+  muốn tự trả lời.
+
+  Vài điểm đáng biết:
+  - **Trợ lý tự im khi bạn vào cuộc.** Bạn gửi một tin là trợ lý ngừng nói trong 30 phút, để không
+    có chuyện khách nhận hai câu trả lời khác nhau. Kể cả khi bạn trả lời từ chính ứng dụng Zalo.
+  - **Ba màu cho ba bên** — khách, trợ lý, và nhân viên — nên nhìn là biết câu nào do máy trả lời.
+  - **Mỗi kênh một hạn trả lời khác nhau** — Zalo 48 giờ, Messenger 24 giờ kể từ tin cuối của
+    khách; Telegram thì không giới hạn. Quá hạn thì ô soạn tự khoá kèm lời giải thích, thay vì để
+    bạn gõ xong mới báo không gửi được.
+  - **Trợ lý không bịa giá.** Chưa nối dữ liệu tour nên gặp câu hỏi về giá hay lịch khởi hành, nó
+    hỏi thêm thông tin và hẹn báo lại — không tự nghĩ ra con số.
+
+### 📌 Lưu ý
+- Tính năng đang **tắt mặc định**, cần bật cho từng công ty.
+- Để khách nhắn được vào đây, công ty phải khai địa chỉ nhận tin trong trang quản trị Zalo OA.
+- Instagram, WhatsApp và chat trên web làm sau.
+
+---
+
 ## Phiên bản 20/08/2026 — Cảnh báo tới đúng người
 
 ### ✨ Tính năng mới

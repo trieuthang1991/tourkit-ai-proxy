@@ -69,6 +69,7 @@ import "./pages/customers.jsx";
 import "./pages/assistant.jsx";
 import "./pages/jarvis.jsx";
 import "./pages/mail.jsx";
+import "./pages/chat-inbox.jsx";
 import "./pages/visa.jsx";
 import "./pages/visa-history.jsx";
 import "./pages/deals.jsx";

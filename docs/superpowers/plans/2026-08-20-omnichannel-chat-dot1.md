@@ -7,8 +7,13 @@ nhân viên tiếp quản/giao việc được. Đủ 6 luật nghiệp vụ ở
 
 **Spec:** [2026-08-20-omnichannel-chat-design.md](../specs/2026-08-20-omnichannel-chat-design.md) — ĐỌC TRƯỚC KHI LÀM.
 
-**Tech Stack:** ASP.NET Core 8, Dapper + SQL Server (`TourkitAiDb.SchemaSql` idempotent), xUnit
-(`TourkitAiProxy.Tests`), React no-build (`wwwroot/pages/*.jsx` + `bundle-entry.js`).
+**Tech Stack:** ASP.NET Core 8 · **Dapper + Npgsql trên PostgreSQL 18** (CSDL chat RIÊNG, xem mục
+"Hạ tầng dữ liệu") · xUnit (`TourkitAiProxy.Tests`) · React no-build (`wwwroot/pages/*.jsx` +
+`bundle-entry.js`).
+
+⚠️ **Hai cơ sở dữ liệu, hai loại khác nhau.** Phần còn lại của hệ chạy SQL Server
+(`ConnectionStrings:PushDb`); chat chạy PostgreSQL (`ConnectionStrings:Chat`). Đây là **quyết định
+đã chốt**, không phải tình cờ — lý do và hệ quả ở mục "Hạ tầng dữ liệu".
 
 ## Global Constraints
 
@@ -18,7 +23,15 @@ nhân viên tiếp quản/giao việc được. Đủ 6 luật nghiệp vụ ở
   [`FeatureFlags`](../../../Services/Bootstrap/FeatureFlags.cs), 1 field vào `GET /api/v1/features`,
   khai key ở **CẢ** `appsettings.example.json` lẫn bản worker. Tắt thì endpoint trả **404 tường minh**
   (nhớ map tay, `MapFallback` sẽ nuốt và trả `index.html` kèm 200).
-- Bảng MỚI, **không sửa bảng cũ**. Tuyệt đối không nhét chat vào `dbo.OutboundMails`.
+- Bảng chat nằm **trong PostgreSQL**, KHÔNG thêm vào `TourkitAiDb.SchemaSql` (file đó là T-SQL,
+  chạy trên SQL Server). Tuyệt đối không nhét chat vào `dbo.OutboundMails`.
+- **Không `JOIN` được giữa chat và CRM** — hai máy chủ khác nhau. Mọi liên kết nối ở tầng ứng dụng.
+- **Không có giao dịch chung.** Ghi tin nhắn (PostgreSQL) và cập nhật khách hàng (SQL Server) là hai
+  việc tách rời: cái này xong cái kia hỏng là chuyện CÓ THẬT, phải xử lý chứ không giả định nguyên tử.
+  Nguyên tắc: **ghi tin nhắn trước** (không mất dữ liệu khách), cập nhật CRM sau và cho phép thử lại.
+- Tên định danh PostgreSQL viết **snake_case chữ thường** (`chat_conversations`) — không dùng
+  PascalCase như SQL Server, vì PostgreSQL hạ chữ thường mọi định danh không đặt trong nháy kép, và
+  đặt nháy kép thì về sau câu lệnh nào cũng phải nháy theo.
 - Tenant lấy từ `ITenantContext`/`SessionAuth` — **KHÔNG nhận `tenantId` từ client**.
 - DI đăng ký trong [`WorkflowStackRegistration.AddWorkflowStack`](../../../Services/Bootstrap/WorkflowStackRegistration.cs).
 - AI gọi từ nền (không có HttpContext) PHẢI bọc `AiCallContext.Push("chat-reply", tenantId)` —
@@ -27,110 +40,209 @@ nhân viên tiếp quản/giao việc được. Đủ 6 luật nghiệp vụ ở
 
 ---
 
-## Hạ tầng dữ liệu — SQL Server có đáp ứng không
+## Hạ tầng dữ liệu
 
-Đo thật trên máy đang chạy (20/08/2026), không ước chừng.
+Đo thật ngày 20/08/2026, không ước chừng.
 
-**Hiện trạng:** SQL Server **2022 Developer Edition**, Windows Server 2022. Bảng lớn nhất
-`PushLogs` 370.188 dòng / 185 MB; `Mails` 4.059 dòng / 116 MB (mỗi thư ~29 KB vì chứa HTML);
-`Reviews` 9.381 dòng / 25 MB. Cả cơ sở dữ liệu chừng **350 MB**.
+### CSDL chat — PostgreSQL riêng
 
-**Chat sẽ nặng cỡ nào:** ước cho công ty tour cỡ vừa — 50 hội thoại/ngày × 15 tin =
-**750 tin/ngày ≈ 275.000 tin/năm**. Tin chat là chữ ngắn (không như email), chừng 1–2 KB/tin →
-**~400 MB/năm**. `PushLogs` đã 370k dòng và chạy bình thường; kiểu truy vấn của chat (ghi dòng nhỏ,
-đọc theo một hội thoại đã đánh chỉ mục) đúng là loại SQL Server làm tốt nhất.
+| | |
+|---|---|
+| Máy chủ | **Google Cloud SQL**, instance `farmer-db`, khu vực Singapore |
+| Phiên bản | **PostgreSQL 18.4** (Debian) |
+| CSDL | `tourkit-chat` · 7,8 MB · **0 bảng** (còn trắng) |
+| Tài khoản | **`tourkit_chat`** — riêng cho chat, KHÔNG thuộc nhóm nào |
+| Chuỗi kết nối | `ConnectionStrings:Chat`, **đã mã hoá `ENC:`** (Crypton, như `PushDb`) |
+| Độ trễ từ máy phát triển | **78 ms** bắt tay TCP |
+| Đã kiểm | tạo bảng · ghi · đọc · đánh chỉ mục · xoá — **qua hết** |
+| `pgvector` | ✅ **đã bật** |
 
-→ **Lưu trữ và ghi/đọc: không phải lo.**
+**Chốt: dùng CHUNG instance `farmer-db`** (quyết định 20/08). Có sẵn một instance riêng tên
+`tourkit-chat` nhân bản từ `farmer-db` nhưng **không dùng** — xem mục rủi ro bên dưới.
 
-### Ba chỗ SQL KHÔNG làm được — và chốt cách xử lý
+⚠️ **`gcloud sql users create` tự cấp nhóm `cloudsqlsuperuser`** cho tài khoản mới — quyền gần như
+quản trị, quá rộng cho tài khoản ứng dụng, và để nguyên thì việc tách tài khoản gần như vô nghĩa.
+Đã gỡ. Bẫy khi gỡ: **quyền tạo bảng của nó đến từ chính nhóm đó**, nên phải cấp quyền tường minh
+TRƯỚC rồi mới gỡ nhóm, không thì gỡ xong là mất luôn quyền. Tạo tài khoản mới sau này nhớ làm đúng
+thứ tự này.
 
-| Việc | ChatbotX làm sao | Đợt 1 chốt thế nào |
-|---|---|---|
-| Đẩy tin lên màn hình thời gian thực | Redis + websocket | **Hỏi lại mỗi 4 giây** khi đang mở hộp thư. Đủ dùng, ít việc. SignalR để đợt sau nếu thấy chậm |
-| Hàng đợi gửi | BullMQ trên Redis | **Bảng + rút định kỳ**, đúng cách `OutboundMails` đang chạy tốt mấy tháng nay. Redis đã có sẵn trong cấu hình nếu cần đổi |
-| Tìm theo ngữ nghĩa | `pgvector` | **Không làm.** Trợ lý trả lời bằng gọi công cụ đọc CRM, không tìm trong kho văn bản |
+### Vì sao tách khỏi SQL Server — và mất gì
 
-⚠️ **Giới hạn thật, ghi lại để sau khỏi ngạc nhiên:** SQL Server 2022 **không có kiểu dữ liệu
-vector** — thứ đó tới SQL Server 2025 mới có. Nên câu kiểu *"tìm hội thoại nào khách từng hỏi về
-Nhật Bản"* sẽ **không làm được** bằng hạ tầng hiện tại. Muốn có thì phải nâng SQL lên 2025, hoặc
-dựng kho vector riêng. Đừng hứa tính năng đó ở đợt 1.
+**Được:** `pgvector` chạy được → **tìm hội thoại theo ngữ nghĩa làm được**. Trên SQL Server 2022 thì
+không: kiểu dữ liệu vector tới bản 2025 mới có. Đây là lý do chính đáng để tách.
 
-### Hai rủi ro hạ tầng phải xử TRƯỚC khi code
+**Mất — ba thứ, đều phải xử ở tầng ứng dụng:**
 
-**① Máy chủ đang rớt kết nối lai rai.** Riêng ngày 20/08 gặp **ít nhất 4 lần**
-`wait operation timed out`: lúc chạy 5 tác vụ nền song song, lúc truy vấn thường, và một lần làm
-giao diện TRAVAI trả 500 cho người dùng. Chat hỏi cơ sở dữ liệu **liên tục** chứ không thưa như bản
-tin — chuyện đang khó chịu sẽ thành hỏng thấy rõ. **Tìm nguyên nhân trước.**
+1. **Không `JOIN` được** giữa `chat_conversations` và khách hàng/tour trong SQL Server. Muốn hiện tên
+   khách cạnh hội thoại thì phải đọc hai nơi rồi ghép trong bộ nhớ. Danh sách 50 hội thoại mà hỏi CRM
+   50 lần là hỏng — **phải gom một lượt theo lô**.
+2. **Không có giao dịch chung.** Xem mục Global Constraints.
+3. **Nuôi hai loại CSDL.** Sao lưu, theo dõi, cấp quyền, nâng cấp — nhân đôi. Chi phí thật, chấp nhận
+   đổi lấy `pgvector` và việc chat không làm nặng CSDL nghiệp vụ.
 
-**② Developer Edition không được phép dùng cho sản xuất.** Bản này miễn phí và đầy đủ tính năng như
-Enterprise, nhưng giấy phép Microsoft chỉ cho **phát triển và kiểm thử**. Nếu máy đo được ở trên là
-máy chạy thật thì đó là vấn đề giấy phép, không phải kỹ thuật. Nếu chỉ là staging thì phải biết máy
-thật chạy bản nào: **Express giới hạn 10 GB mỗi cơ sở dữ liệu**, với đà chat ~400 MB/năm cộng dữ
-liệu sẵn có thì vài năm là chạm trần — và lúc chạm thì **ghi vào hỏng, không phải chạy chậm**.
+### Ước dung lượng
+
+Công ty tour cỡ vừa: 50 hội thoại/ngày × 15 tin = **~275.000 tin/năm**, mỗi tin 1–2 KB (chữ ngắn,
+khác email 29 KB vì có HTML) → **~400 MB/năm**. Với Cloud SQL thì không đáng kể; điều đáng để ý là
+**chi phí lưu trữ và sao lưu tính theo dung lượng**, nên phải chốt thời hạn giữ lịch sử (xem câu hỏi
+cuối tài liệu).
+
+### Ba việc PostgreSQL không tự làm — chốt cách xử
+
+| Việc | Đợt 1 chốt thế nào |
+|---|---|
+| Đẩy tin lên màn hình thời gian thực | **Hỏi lại mỗi 4 giây** khi đang mở hộp thư, dừng khi tab ẩn. SignalR để đợt sau |
+| Hàng đợi gửi | **Bảng + rút định kỳ**, đúng cách `OutboundMails` đang chạy tốt. `LISTEN/NOTIFY` của PostgreSQL để dành khi cần nhanh hơn |
+| Tìm theo ngữ nghĩa | Hạ tầng đã sẵn sàng, nhưng **đợt 1 chưa làm** — chưa có gì để tìm khi kho hội thoại còn trống |
+
+### Bốn rủi ro phải xử TRƯỚC khi code
+
+**① Chuỗi kết nối đang để DẠNG RÕ.** `ConnectionStrings:Chat` chưa mã hoá, trong khi `PushDb` dùng
+`ENC:`. File đang gitignore nên chưa lộ ra repo, nhưng **phải mã hoá cho đồng nhất** trước khi lên máy
+chủ thật.
+
+**② Chung instance với dự án `farmer` — đã giảm nhẹ, chưa hết.** Đã tạo tài khoản riêng
+`tourkit_chat` nên không còn chung tài khoản với dự án kia. Nhưng vẫn còn hai điểm:
+
+- `farmer_app` **vẫn còn quyền tạo bảng trên CSDL chat**. Tài khoản mới không gỡ được vì quyền đó do
+  chủ CSDL cấp — cần chạy bằng `postgres`, **trong CSDL `tourkit-chat`**:
+  `REVOKE CREATE, USAGE ON SCHEMA public FROM farmer_app;`
+- `tourkit_chat` **vẫn kết nối được sang CSDL `farmer`** — mặc định của PostgreSQL cho mọi role.
+  Chặn hẳn phải thu hồi quyền kết nối của `PUBLIC` trên `farmer`, nhưng làm vậy **có thể gãy chính
+  `farmer_app`** nếu nó đang dựa vào mặc định đó. Chấp nhận rủi ro này khi chọn dùng chung instance.
+
+⚠️ Trong lúc dựng đã có **một lệnh cấp quyền chạy nhầm sang CSDL `farmer`**, vô tình cho `farmer_app`
+quyền tạo bảng ở đó. **Cố ý không tự thu hồi**: không phân biệt được nó vốn đã có hay do lệnh nhầm
+thêm vào, gỡ mà nó vốn cần thì gãy dự án kia. Người biết rõ dự án `farmer` phải tự quyết.
+
+**③ Còn một instance thừa đang tính tiền.** `tourkit-chat` (8 vCPU, **250 GB SSD**) tạo lúc
+20/08 rồi dừng. Máy dừng thì không tính giờ CPU nhưng **đĩa vẫn tính tiền** — 250 GB SSD ở Singapore
+khoảng **$50/tháng cho thứ không dùng**. Đã chốt dùng chung `farmer-db` nên instance này nên xoá,
+nhưng **xoá là không lấy lại được** — người quản trị tự quyết.
+
+**④ IP máy chủ ứng dụng phải nằm trong danh sách cho phép.** Cloud SQL chặn mặc định. Máy phát triển
+dùng IP động nên khai cứng chỉ hợp để thử; chạy thật nên đi qua **Cloud SQL Proxy** hoặc mạng riêng.
+
+⚠️ **Bẫy đã dính, ghi lại cho người sau:** Cloud SQL Studio **chạy câu lệnh trên CSDL mà tab đang nối,
+không phải nhánh mở trong cây Explorer bên trái**. Hai thứ đó độc lập, nên lệnh báo
+*"Statement executed successfully"* hoàn toàn thật mà lại thành công ở nhầm CSDL. Luôn chạy kèm
+`SELECT current_database();` để tự nó nói đang đứng ở đâu.
 
 ---
 
-### Task 1: Bảng dữ liệu + cờ tính năng
+### Task 1: Kết nối PostgreSQL + bảng dữ liệu + cờ tính năng
 
 **Files:**
-- Modify: `Services/Db/TourkitAiDb.cs` (thêm block cuối `SchemaSql`)
+- Create: `Services/Chat/Db/ChatDb.cs` (mở kết nối Npgsql + `SchemaSql` dựng bảng, idempotent)
+- Modify: `TourkitAiProxy.csproj` (thêm `Npgsql` — dự án hiện **chưa tham chiếu**)
 - Modify: `Services/Bootstrap/FeatureFlags.cs`, `Endpoints/SystemEndpoints.cs`, `wwwroot/core/features.js`
 - Modify: `docs/database-schema.md`, `appsettings.example.json`
 
-- [ ] **Step 1:** Thêm 4 bảng vào `SchemaSql` (idempotent `IF OBJECT_ID(...) IS NULL`):
+- [ ] **Step 0:** Thêm gói `Npgsql`; `ChatDb` đọc `ConnectionStrings:Chat`, hỗ trợ cả chuỗi `ENC:`
+      (giải bằng `Crypton` như `PushDb` đang làm) lẫn chuỗi rõ. Không có khoá → **cụm chat tự tắt**,
+      log cảnh báo, KHÔNG làm sập cả ứng dụng.
+- [ ] **Step 1:** Dựng 4 bảng bằng `CREATE TABLE IF NOT EXISTS` (PostgreSQL, snake_case):
 
 ```sql
--- Danh tính khách theo TỪNG KÊNH. KHÔNG phải danh bạ thứ hai: cột CrmCustomerId trỏ về
--- khách trong CRM. Chưa nhận ra là ai thì để NULL — tuyệt đối không đoán mò rồi gộp nhầm.
-dbo.ChatContacts (TenantId, Channel TINYINT, ExternalId NVARCHAR(128), DisplayName, AvatarUrl,
-                  Phone, Email, CrmCustomerId INT NULL, CreatedUtc, UpdatedUtc)
-  PK (TenantId, Channel, ExternalId)
+-- Danh tính khách theo TỪNG KÊNH. KHÔNG phải danh bạ thứ hai: cột crm_customer_id trỏ về khách
+-- trong CRM (SQL Server). Chưa nhận ra là ai thì để NULL — tuyệt đối không đoán mò rồi gộp nhầm.
+-- Không có khoá ngoại tới CRM được: khác máy chủ. Đây là cái giá của việc tách CSDL.
+CREATE TABLE IF NOT EXISTS chat_contacts (
+  tenant_id       text        NOT NULL,
+  channel         smallint    NOT NULL,
+  external_id     text        NOT NULL,
+  display_name    text, avatar_url text, phone text, email text,
+  crm_customer_id integer,
+  created_utc     timestamptz NOT NULL DEFAULT now(),
+  updated_utc     timestamptz NOT NULL DEFAULT now(),
+  PRIMARY KEY (tenant_id, channel, external_id)
+);
 
--- Một luồng chat. BotResumeAt là MỐC THỜI GIAN, không phải cờ (xem spec §5).
-dbo.ChatConversations (Id BIGINT IDENTITY, TenantId, Channel TINYINT, ContactExternalId,
-                       Status TINYINT,              -- 0=mới 1=đang xử lý 2=đã đóng
-                       AssignedUsername NVARCHAR(120) NULL,
-                       BotResumeAt DATETIME2 NULL,  -- trong khoảng này bot CÂM
-                       ContactRepliedAt DATETIME2 NULL,   -- mốc tính cửa sổ gửi
-                       AgentRepliedAt   DATETIME2 NULL,
-                       ContactLastReadAt DATETIME2 NULL, AgentLastReadAt DATETIME2 NULL,
-                       LastActivityAt DATETIME2, LastPreview NVARCHAR(300),
-                       ArchivedAt DATETIME2 NULL, CreatedUtc)
-  INDEX (TenantId, Status, LastActivityAt DESC)
-  INDEX (TenantId, AssignedUsername, LastActivityAt DESC)
+-- Một luồng chat. bot_resume_at là MỐC THỜI GIAN, không phải cờ (xem spec §5).
+CREATE TABLE IF NOT EXISTS chat_conversations (
+  id                  bigserial PRIMARY KEY,
+  tenant_id           text     NOT NULL,
+  channel             smallint NOT NULL,
+  contact_external_id text     NOT NULL,
+  status              smallint NOT NULL DEFAULT 0,   -- 0=mới 1=đang xử lý 2=đã đóng
+  assigned_username   text,
+  bot_resume_at       timestamptz,                   -- trong khoảng này bot CÂM
+  contact_replied_at  timestamptz,                   -- mốc tính cửa sổ gửi
+  agent_replied_at    timestamptz,
+  contact_last_read_at timestamptz, agent_last_read_at timestamptz,
+  last_activity_at    timestamptz NOT NULL DEFAULT now(),
+  last_preview        text,
+  archived_at         timestamptz,
+  created_utc         timestamptz NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS ix_conv_tenant_status ON chat_conversations (tenant_id, status, last_activity_at DESC);
+CREATE INDEX IF NOT EXISTS ix_conv_tenant_assignee ON chat_conversations (tenant_id, assigned_username, last_activity_at DESC);
 
--- Tin nhắn. ExternalMsgId để CHỐNG TRÙNG khi webhook gửi lại.
-dbo.ChatMessages (Id BIGINT IDENTITY, TenantId, ConversationId BIGINT,
-                  Direction TINYINT,          -- 0=khách gửi 1=mình gửi
-                  SenderKind TINYINT,         -- 0=khách 1=AI 2=nhân viên
-                  SenderUsername NVARCHAR(120) NULL,
-                  Kind TINYINT,               -- 0=text 1=ảnh 2=file 3=audio 4=sticker 5=vị trí
-                  Text NVARCHAR(MAX) NULL, AttachmentJson NVARCHAR(MAX) NULL,
-                  ExternalMsgId NVARCHAR(128) NULL,
-                  State TINYINT,              -- 0=chờ 1=đã gửi 2=đã nhận 3=đã xem 4=hỏng
-                  ErrorMessage NVARCHAR(500) NULL, CreatedUtc, ProcessedUtc DATETIME2 NULL)
-  UNIQUE INDEX (TenantId, Channel, ExternalMsgId) WHERE ExternalMsgId IS NOT NULL
-  INDEX (ConversationId, CreatedUtc)
+-- Tin nhắn. external_msg_id để CHỐNG TRÙNG khi webhook gửi lại.
+CREATE TABLE IF NOT EXISTS chat_messages (
+  id              bigserial PRIMARY KEY,
+  tenant_id       text     NOT NULL,
+  conversation_id bigint   NOT NULL REFERENCES chat_conversations(id) ON DELETE CASCADE,
+  channel         smallint NOT NULL,
+  direction       smallint NOT NULL,   -- 0=khách gửi 1=mình gửi
+  sender_kind     smallint NOT NULL,   -- 0=khách 1=AI 2=nhân viên
+  sender_username text,
+  kind            smallint NOT NULL,   -- 0=text 1=ảnh 2=file 3=audio 4=sticker 5=vị trí
+  body            text,
+  attachment      jsonb,               -- jsonb chứ không phải text: PostgreSQL truy vấn được bên trong
+  external_msg_id text,
+  state           smallint NOT NULL DEFAULT 0,  -- 0=chờ 1=đã gửi 2=đã nhận 3=đã xem 4=hỏng
+  error_message   text,
+  created_utc     timestamptz NOT NULL DEFAULT now(),
+  processed_utc   timestamptz
+);
+-- Chỉ mục DUY NHẤT có điều kiện — chốt chống trùng, đặt ở TẦNG CSDL chứ không chỉ trong code:
+-- webhook gửi lại đồng thời hai lần thì kiểm tra trong code vẫn lọt, chỉ mục thì không.
+CREATE UNIQUE INDEX IF NOT EXISTS ux_msg_external ON chat_messages (tenant_id, channel, external_msg_id)
+  WHERE external_msg_id IS NOT NULL;
+CREATE INDEX IF NOT EXISTS ix_msg_conv ON chat_messages (conversation_id, created_utc);
 
--- Hàng đợi gửi RIÊNG cho chat. KHÔNG dùng dbo.OutboundMails (vòng đời khác hẳn — xem spec §5).
-dbo.ChatOutbox (Id BIGINT IDENTITY, TenantId, ConversationId, MessageId,
-                Status TINYINT, RetryCount INT, ErrorMessage, CreatedUtc, ProcessedUtc)
+-- Hàng đợi gửi RIÊNG cho chat. KHÔNG dùng dbo.OutboundMails (khác máy chủ, và khác vòng đời).
+CREATE TABLE IF NOT EXISTS chat_outbox (
+  id              bigserial PRIMARY KEY,
+  tenant_id       text     NOT NULL,
+  conversation_id bigint   NOT NULL,
+  message_id      bigint   NOT NULL,
+  status          smallint NOT NULL DEFAULT 0,
+  retry_count     integer  NOT NULL DEFAULT 0,
+  error_message   text,
+  created_utc     timestamptz NOT NULL DEFAULT now(),
+  processed_utc   timestamptz
+);
+-- Chỉ mục CÓ ĐIỀU KIỆN: worker chỉ hỏi dòng đang chờ. Không có nó thì mỗi 5 giây lại quét cả bảng,
+-- và bảng này chỉ có phình chứ không co lại.
+CREATE INDEX IF NOT EXISTS ix_outbox_cho ON chat_outbox (created_utc) WHERE status = 0;
 ```
 
-- [ ] **Step 2:** `FeatureFlags.Chat(cfg)` + field `chat` trong `GET /api/v1/features`.
-- [ ] **Step 3:** Cập nhật `docs/database-schema.md` (lệ repo: thêm bảng là phải update file đó).
+⚠️ **`timestamptz` chứ không phải `timestamp`.** PostgreSQL có cả hai; loại không có múi giờ sẽ khiến
+giờ VN và giờ UTC lẫn vào nhau đúng kiểu lỗi đã ghi trong `docs/datetime-convention.md`. Đặt
+`timestamptz` là máy chủ tự quy về UTC.
 
-**Verify:** chạy app → log "schema OK"; `GET /api/v1/features` có `chat:false` khi chưa khai key.
+- [ ] **Step 2:** `FeatureFlags.Chat(cfg)` + field `chat` trong `GET /api/v1/features`.
+- [ ] **Step 3:** Cập nhật `docs/database-schema.md` — thêm **mục riêng cho CSDL chat**, ghi rõ đây là
+      PostgreSQL khác máy chủ, đừng để người đọc tưởng nằm chung với 26 bảng SQL Server.
+
+**Verify:** chạy app → log dựng bảng chat OK, kiểm bằng `\dt` trong `psql` thấy đủ 4 bảng;
+`GET /api/v1/features` có `chat:false` khi chưa khai key; **xoá khoá `ConnectionStrings:Chat` thì app
+vẫn chạy bình thường**, chỉ cụm chat tắt.
 
 ---
 
-### Task 2: Enum kênh + kho dữ liệu (Dapper)
+### Task 2: Enum kênh + kho dữ liệu (Dapper trên Npgsql)
 
 **Files:** Create `Services/Chat/Channels/ChatChannel.cs`, `Services/Chat/ChatRepository.cs`
 
 - [ ] **Step 1:** `enum ChatChannel : byte { Zalo = 0, Messenger = 1, Webchat = 2 }` — số tường minh,
       lưu thẳng cột. Thêm kênh = thêm 1 member + 1 adapter, **không đụng phần lõi**.
-- [ ] **Step 2:** `ChatRepository` — mọi hàm kẹp `TenantId`:
+- [ ] **Step 1b:** Dapper chạy nguyên với Npgsql, nhưng **tham số dùng `@ten`** và tên cột trả về là
+      snake_case — đặt `MatchNamesWithUnderscores = true` cho `DefaultTypeMap`, nếu không mọi thuộc
+      tính map ra `null` mà **không báo lỗi gì cả**.
+- [ ] **Step 2:** `ChatRepository` — mọi hàm kẹp `tenant_id`:
       `UpsertContactAsync` · `GetOrCreateConversationAsync` · `AppendMessageAsync` (trả `null` nếu
       `ExternalMsgId` đã có → **chống trùng**) · `ListConversationsAsync(status, assignee, search)` ·
       `ListMessagesAsync` · `AssignAsync` · `SetStatusAsync` · `PauseBotAsync(minutes)` ·
@@ -297,11 +409,12 @@ Tất cả yêu cầu `X-Session-Id`; tenant từ phiên.
    trước khi code Task 4 — không thì làm xong mới biết OA không nhận được webhook.
 2. **Giữ lịch sử chat bao lâu?** Bảng tin giữ 30 ngày. Chat nhiều hơn hẳn và có thể là **chứng cứ
    giao dịch** — chốt trước khi bảng phình.
-3. **Máy chạy thật dùng bản SQL nào?** Máy đo được là **Developer Edition** — không được phép dùng
-   cho sản xuất. Nếu máy thật là **Express** thì trần 10 GB/CSDL là mốc phải tính ngay từ đầu
-   (xem mục "Hạ tầng dữ liệu").
-4. **Vì sao SQL rớt kết nối lai rai?** 4 lần trong một ngày. Chat hỏi CSDL liên tục nên phải xử
-   trước, không thì lỗi sẽ hiện ra ngay trước mặt khách.
+3. ~~Tài khoản CSDL chat dùng cái nào?~~ **XONG 20/08:** đã tạo `tourkit_chat` riêng, gỡ nhóm
+   `cloudsqlsuperuser`, chuỗi kết nối đã mã hoá `ENC:`. Còn nợ một lệnh `REVOKE` phải chạy bằng
+   `postgres` (xem rủi ro ②).
+4. **SQL Server rớt kết nối lai rai — 4 lần trong ngày 20/08.** Chat KHÔNG dùng máy đó nữa nên không
+   bị ảnh hưởng trực tiếp, NHƯNG mọi câu trả lời của AI đều đọc CRM từ đó. Đọc CRM hỏng thì chat vẫn
+   nhận được tin mà **trả lời sai hoặc không trả lời được** — vẫn phải xử.
 5. **Tính lượt AI thế nào?** Một hội thoại 20 lượt qua lại tốn gấp 20 lần một lần chấm khách.
    Hạn mức tenant hiện tại chưa tính tới kiểu tiêu này — cần ngưỡng riêng cho chat, nếu không một
    khách nhắn nhiều là hết lượt của cả công ty.

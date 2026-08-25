@@ -197,6 +197,15 @@ if (runScheduler)
     builder.Services.AddHostedService(sp =>
         sp.GetRequiredService<TourkitAiProxy.Services.Workflows.WorkflowSchedulerService>());
 
+// Hai worker của chat. Chạy ở WEB (không phải worker riêng) vì tin chat phải đi NGAY — khách đang
+// chờ trước màn hình, không như bản tin sáng hẹn giờ. Tắt cờ thì không đăng ký, không tốn nhịp nào.
+// Vào: webhook chỉ GHI thân thô, worker này mới xử lý — xem ChatInboundWorker.
+if (TourkitAiProxy.Services.Bootstrap.FeatureFlags.Chat(builder.Configuration))
+{
+    builder.Services.AddHostedService<TourkitAiProxy.Services.Chat.Inbox.ChatInboundWorker>();
+    builder.Services.AddHostedService<TourkitAiProxy.Services.Chat.Inbox.ChatOutboxWorker>();
+}
+
 // ─── Response compression (Brotli + Gzip) ─────────────────────────────────────
 // Frontend bundle ~596KB + styles.css ~352KB gửi RAW trước đây → public landing/NCC
 // tải dư ~700KB mỗi lần load lạnh. Brotli nén JS/CSS xuống ~20-25% → ~200KB tổng.
@@ -289,7 +298,11 @@ _ = Task.Run(async () =>
     using var scope = app.Services.CreateScope();
     var reviewRepo = scope.ServiceProvider.GetRequiredService<ReviewRepository>();
     var dealRepo   = scope.ServiceProvider.GetRequiredService<TourkitAiProxy.Services.Deals.DealRepository>();
-    try { await reviewRepo.InitAsync(); }
+    // CSDL chat là PostgreSQL RIÊNG (xem ChatDb). Thiếu chuỗi kết nối thì tự tắt, KHÔNG làm sập app.
+if (TourkitAiProxy.Services.Bootstrap.FeatureFlags.Chat(builder.Configuration))
+    await app.Services.GetRequiredService<TourkitAiProxy.Services.Chat.Inbox.ChatDb>().InitAsync();
+
+try { await reviewRepo.InitAsync(); }
     catch (Exception ex)
     {
         scope.ServiceProvider.GetRequiredService<ILogger<Program>>()
@@ -357,6 +370,17 @@ app.UseMiddleware<WorkflowTraceMiddleware>();
 app.UseMiddleware<TourkitAiProxy.Services.Quota.QuotaExceptionMiddleware>();
 app.UseTourkitStaticFiles();
 
+// Kho ảnh/tệp CỤC BỘ của chat (chỉ có tác dụng khi Storage:Provider=local — R2/S3 phục vụ thẳng
+// từ CDN của họ, không qua đây). Đường KHÁC hẳn wwwroot để không lẫn với file tĩnh của giao diện.
+var chatUploadsDir = Path.Combine(Directory.GetCurrentDirectory(),
+    builder.Configuration["Storage:Local:Dir"] ?? Path.Combine("data", "chat-uploads"));
+Directory.CreateDirectory(chatUploadsDir);   // PhysicalFileProvider cần thư mục tồn tại từ lúc khởi động
+app.UseStaticFiles(new Microsoft.AspNetCore.Builder.StaticFileOptions
+{
+    FileProvider = new Microsoft.Extensions.FileProviders.PhysicalFileProvider(chatUploadsDir),
+    RequestPath = "/chat-files",
+});
+
 // ─── Routes ──────────────────────────────────────────────────────────────────
 app.MapSystemEndpoints();
 app.MapConsultLeadEndpoints();   // POST /api/v1/consult-leads (public, lưu data/consult-leads.jsonl)
@@ -385,6 +409,25 @@ else
     {
         app.Map(p, Off);
         app.Map(p + "/{**rest}", Off);
+    }
+}
+// Hộp thư chat đa kênh — sau cờ Features:Chat. Tắt thì webhook cũng không map: khách nhắn tới
+// mà endpoint tồn tại nghĩa là tin vẫn chảy vào hệ dù tính năng "đang tắt".
+if (TourkitAiProxy.Services.Bootstrap.FeatureFlags.Chat(builder.Configuration))
+{
+    app.MapChatInboxEndpoints();
+}
+else
+{
+    IResult ChatOff() => Results.Json(
+        new { error = "Tính năng hộp thư chat đang tắt (Features:Chat=false)." }, statusCode: 404);
+    // Đọc CHUNG danh sách với nhánh bật (ChatInboxEndpoints.DuongRieng) — liệt kê tay ở đây đã
+    // lệch một lần: thêm /channels và /messages mà quên cập nhật, hai đường đó rơi vào MapFallback
+    // và trả index.html kèm 200 thay vì 404.
+    foreach (var p in TourkitAiProxy.Endpoints.ChatInboxEndpoints.DuongRieng)
+    {
+        app.Map(p, ChatOff);
+        app.Map(p + "/{**rest}", ChatOff);
     }
 }
 app.MapTourEndpoints();
