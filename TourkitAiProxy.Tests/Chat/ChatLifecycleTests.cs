@@ -40,6 +40,33 @@ public class ChatLifecycleTests
     public void Tin_dang_cho_thi_hong_duoc()
         => Assert.True(ChatRules.KhongLui(ChatState.Cho, ChatState.Hong));
 
+    [Theory]
+    [InlineData(ChatState.DaNhan)]
+    [InlineData(ChatState.DaXem)]
+    public void Tin_chua_gui_di_thi_khong_the_da_nhan_hay_da_xem(ChatState moi)
+    {
+        // Kịch bản THẬT đã dựng được trên staging: nhân viên bấm gửi lúc 10:00:00 (tin vào hàng đợi,
+        // trạng thái Chờ), worker gửi lúc 10:00:03 vì nhịp 5 giây. Khách đọc một tin CŨ lúc 10:00:01
+        // → nền tảng báo mốc nước 10:00:01, mà mốc quét theo created_utc nên trúng luôn tin vừa tạo
+        // còn chưa rời khỏi hệ thống.
+        //
+        // Để lọt thì nhân viên thấy "khách đã xem" một tin khách chưa hề nhận được — và ngay sau đó
+        // worker gửi xong lại đặt về "đã gửi", tức dấu tích còn chạy ngược nữa.
+        Assert.False(ChatRules.KhongLui(ChatState.Cho, moi));
+    }
+
+    [Fact]
+    public void Danh_dau_moc_bo_qua_tin_con_trong_hang_doi()
+    {
+        // Luật trên phải được chặn CẢ trong SQL: cập nhật hàng loạt không đọc từng dòng ra để hỏi
+        // ChatRules được.
+        var repo = ChatSchemaGuardTests.DocFile("Services/Chat/Inbox/ChatRepository.cs");
+        var i = repo.IndexOf("DanhDauMocAsync", StringComparison.Ordinal);
+        Assert.True(i > 0, "chưa có DanhDauMocAsync");
+        var than = repo.Substring(i, Math.Min(900, repo.Length - i));
+        Assert.Contains("state > 0", than);
+    }
+
     [Fact]
     public void Worker_gui_xong_phai_luu_ma_tin_cua_nen_tang()
     {

@@ -330,6 +330,10 @@ public class ChatRepository
     /// Luật đầy đủ ở <see cref="ChatRules.KhongLui"/>; ở đây chặn ngay trong SQL vì cập nhật hàng
     /// loạt không đọc từng dòng ra được.</para>
     /// <para><b>Bỏ qua tin hỏng</b> (<c>state &lt;&gt; 4</c>): tin gửi hỏng thì không thể được xem.</para>
+    /// <para><b>Bỏ qua tin còn trong hàng đợi</b> (<c>state &gt; 0</c>): mốc quét theo
+    /// <c>created_utc</c>, nên tin nhân viên vừa bấm gửi — còn chưa rời khỏi hệ thống — vẫn lọt vào
+    /// khoảng mốc nước và bị đánh dấu "đã xem". Nhân viên sẽ thấy khách đã xem một tin khách chưa hề
+    /// nhận, rồi worker gửi xong lại đặt về "đã gửi" nên dấu tích còn chạy ngược nữa.</para>
     /// </remarks>
     public async Task<int> DanhDauMocAsync(string tenant, long conversationId, ChatState moi,
         DateTime denLuc, CancellationToken ct = default)
@@ -341,7 +345,7 @@ public class ChatRepository
              WHERE tenant_id = @tenant AND conversation_id = @conv
                AND direction = 1
                AND created_utc <= @denLuc
-               AND state < @moi AND state <> 4
+               AND state > 0 AND state < @moi AND state <> 4
             """, new { tenant, conv = conversationId, moi = (short)moi, denLuc });
     }
 

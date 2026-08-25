@@ -121,10 +121,19 @@ public static class ChatRules
     /// <para><b>Hỏng KHÔNG phải mức cao nhất</b> dù số lớn nhất: gửi được rồi mà báo hỏng là vô
     /// nghĩa. Chỉ tin còn đang chờ mới hỏng được.</para>
     /// </summary>
+    /// <remarks>
+    /// <para><b>Tin còn trong hàng đợi thì chỉ đi được sang "đã gửi" hoặc "hỏng".</b> Kịch bản thật
+    /// đã dựng được trên staging: nhân viên bấm gửi lúc 10:00:00 (tin vào hàng đợi), worker gửi lúc
+    /// 10:00:03 vì nhịp 5 giây; khách đọc một tin CŨ lúc 10:00:01 → nền tảng báo mốc nước 10:00:01,
+    /// mà mốc quét theo <c>created_utc</c> nên trúng luôn tin vừa tạo còn chưa rời khỏi hệ thống.
+    /// Để lọt thì nhân viên thấy "khách đã xem" một tin khách chưa hề nhận.</para>
+    /// </remarks>
     public static bool KhongLui(ChatState dangCo, ChatState moi)
     {
         if (moi == ChatState.Hong) return dangCo == ChatState.Cho;
         if (dangCo == ChatState.Hong) return false;   // đã hỏng thì không tự sống lại
+        // Chưa gửi đi thì không thể "đã nhận"/"đã xem" — xem <remarks>.
+        if (dangCo == ChatState.Cho) return moi == ChatState.DaGui;
         return (short)moi > (short)dangCo;
     }
 }
