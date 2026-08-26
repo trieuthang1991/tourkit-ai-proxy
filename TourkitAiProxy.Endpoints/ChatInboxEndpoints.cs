@@ -413,7 +413,7 @@ public static class ChatInboxEndpoints
             return Results.File(bytes, res.Content.Headers.ContentType?.ToString() ?? "application/octet-stream");
         });
 
-        g.MapPost("/conversations/{id:long}/assign", async (long id, AssignReq body, HttpContext ctx,
+        g.MapPost("/conversations/{id:long}/assign", async (long id, AssignReq? body, HttpContext ctx,
             TkSessionStore sessions, ChatRepository repo, ChatEventBus bus, CancellationToken ct) =>
         {
             var a = SessionAuth.Read(ctx, sessions);
@@ -421,8 +421,29 @@ public static class ChatInboxEndpoints
             if (!repo.Configured) return ChuaCauHinh();
             if (await repo.GetConversationAsync(a.TenantId, id, ct) is null) return Results.NotFound();
 
-            // Chuỗi rỗng = gỡ giao việc (trả về hàng chờ chung).
-            var ai = string.IsNullOrWhiteSpace(body.Username) ? null : body.Username.Trim();
+            // KHÔNG có trường username = NHẬN VIỆC cho chính mình. Tên lấy từ PHIÊN, không lấy từ
+            // thân yêu cầu: để client tự khai tên là ai cũng gán việc cho người khác được.
+            //
+            // ⚠️ Bản trước giao diện gửi một thuộc tính KHÔNG tồn tại nên thân yêu cầu luôn là
+            // chuỗi rỗng — tức nút "Nhận việc" thật ra đang GỠ giao việc, mà nhìn thì như chạy.
+            if (body?.Username is null)
+            {
+                var soDong = await repo.NhanViecAsync(a.TenantId, id, a.Username, ct);
+                if (soDong == 0)
+                {
+                    // 200 im lặng là kiểu hỏng tệ nhất: giao diện người thua vẫn hiện "của tôi",
+                    // rồi hai người cùng trả lời một khách.
+                    var dangGiu = await repo.AiDangGiuAsync(a.TenantId, id, ct);
+                    return Results.Json(new { error = $"{dangGiu} đang xử lý hội thoại này", assignedTo = dangGiu },
+                        statusCode: StatusCodes.Status409Conflict);
+                }
+                bus.Bao(new(a.TenantId, id, "doi-hoi-thoai", null));
+                return Results.Json(new { ok = true, assignedTo = a.Username }, Web);
+            }
+
+            // Chuỗi rỗng = nhả việc (trả về hàng chờ chung); có tên = chuyển việc cho người đó.
+            // Cả hai đều CỐ Ý đè lên người đang giữ, nên không đi qua đường nguyên tử ở trên.
+            var ai = string.IsNullOrWhiteSpace(body!.Username) ? null : body.Username.Trim();
             await repo.AssignAsync(a.TenantId, id, ai, ct);
             bus.Bao(new(a.TenantId, id, "doi-hoi-thoai", null));
             return Results.Json(new { ok = true, assignedTo = ai }, Web);

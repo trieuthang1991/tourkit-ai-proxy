@@ -165,6 +165,44 @@ public class ChatRepository
         public int ChuaDoc { get; set; }
     }
 
+    /// <summary>
+    /// Nhận việc <b>NGUYÊN TỬ</b>. Trả số dòng đổi được: <c>0</c> nghĩa là <b>người khác đã nhận
+    /// trước</b>, chỗ gọi phải trả 409 chứ không im lặng báo thành công.
+    ///
+    /// <para>Điều kiện nằm TRONG chính câu <c>UPDATE</c>, không phải đọc-rồi-ghi trong C#: giữa
+    /// lần đọc và lần ghi có một khe, hai nhân viên bấm cách nhau 100ms là cả hai cùng lọt. Khi đó
+    /// cả hai đều thấy "của tôi" và cùng trả lời một khách — khách nhận hai câu trả lời khác nhau
+    /// từ một công ty.</para>
+    ///
+    /// <para>Nhận lại việc mình <b>đang giữ</b> vẫn tính là thành công: giao diện có thể gửi lại
+    /// (bấm hai lần, mạng chập chờn), báo 409 cho chính người đang giữ là vô nghĩa.</para>
+    /// </summary>
+    public async Task<int> NhanViecAsync(string tenant, long id, string username,
+        CancellationToken ct = default)
+    {
+        await using var c = await _db.OpenAsync(ct);
+        return await c.ExecuteAsync("""
+            UPDATE chat_conversations
+               SET assigned_username = @username,
+                   status = CASE WHEN status = 2 THEN status ELSE 1 END
+             WHERE id = @id AND tenant_id = @tenant
+               AND (assigned_username IS NULL OR assigned_username = @username)
+            """, new { id, tenant, username });
+    }
+
+    /// <summary>Ai đang giữ hội thoại này. Dùng để nói tên trong lỗi 409, không đoán mò.</summary>
+    public async Task<string?> AiDangGiuAsync(string tenant, long id, CancellationToken ct = default)
+    {
+        await using var c = await _db.OpenAsync(ct);
+        return await c.QuerySingleOrDefaultAsync<string?>(
+            "SELECT assigned_username FROM chat_conversations WHERE id = @id AND tenant_id = @tenant",
+            new { id, tenant });
+    }
+
+    /// <summary>
+    /// Giao/gỡ giao KHÔNG kiểm ai đang giữ — dùng cho <b>nhả việc</b> và <b>chuyển việc</b>, là
+    /// hai thao tác cố ý đè lên người đang giữ. Nhận việc thì dùng <see cref="NhanViecAsync"/>.
+    /// </summary>
     public async Task AssignAsync(string tenant, long id, string? username, CancellationToken ct = default)
     {
         await using var c = await _db.OpenAsync(ct);

@@ -24,6 +24,14 @@ Những cập nhật gần đây của TRAV-AI, viết cho người dùng. Mới
   lại một hội thoại bạn vừa đọc và bỏ qua một hội thoại chưa đọc. Nay cuộn tới đâu chắc tới đó, và
   có tin mới cũng không bị cuốn ngược về đầu danh sách giữa lúc bạn đang đọc.
 
+### 🔧 Đã khắc phục
+- **Nút "Nhận việc" giờ mới thật sự nhận việc.** Trước đây bấm nút này không gán hội thoại cho
+  bạn — thậm chí còn gỡ người đang phụ trách ra. Nút trông như chạy nên không ai để ý.
+- **Hai người không còn giẫm chân nhau khi cùng bấm nhận một hội thoại.** Trước đây ai bấm sau sẽ
+  âm thầm giành mất việc của người bấm trước, mà **cả hai đều thấy "của tôi"** rồi cùng trả lời một
+  khách — khách nhận hai câu khác nhau từ một công ty. Nay người bấm sau được báo rõ **ai đang xử
+  lý** hội thoại đó.
+
 ### 📌 Lưu ý
 - Nếu mạng chập chờn hoặc đường truyền bị chặn, hộp thư **tự quay về cách cũ** là thỉnh thoảng tải
   lại — chậm hơn một chút nhưng không đứng im.

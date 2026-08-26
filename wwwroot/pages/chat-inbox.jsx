@@ -680,13 +680,22 @@
       await taiDsach(); await taiChiTiet(chon);
     }
 
+    // Nhận việc: KHÔNG gửi tên, để máy chủ lấy từ phiên. Bản trước gửi
+    // một thuộc tính KHÔNG tồn tại trên đối tượng phiên, nên thân yêu cầu luôn là
+    // chuỗi rỗng và nút này thật ra đang GỠ giao việc. Nút trông như chạy suốt nhiều tháng.
     async function nhanViec() {
       if (!chon) return;
       const dangGiao = chiTiet?.conversation?.assignedUsername;
-      await authedFetch('/api/v1/chat/conversations/' + chon + '/assign', {
+      const r = await authedFetch('/api/v1/chat/conversations/' + chon + '/assign', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ username: dangGiao ? '' : (window.tourkitAuth?.session?.username || '') }),
+        body: JSON.stringify(dangGiao ? { username: '' } : {}),
       });
+      // 409 = người khác nhận trước. Nói TÊN người đang giữ chứ không im lặng đổi nút — im lặng
+      // là hai người cùng tưởng việc của mình rồi cùng trả lời một khách.
+      if (r.status === 409) {
+        let j = null; try { j = await r.json(); } catch {}
+        pushToast(j?.error || 'Người khác đã nhận hội thoại này', 'error');
+      }
       await taiDsach(); await taiChiTiet(chon);
     }
 

@@ -1367,11 +1367,12 @@ _log.LogInformation("[chat/events] chế độ {C}", redis is null
 
 > Hiện tại nhận việc là `UPDATE ... SET assigned_username = @u` — **không kiểm ai đang giữ**. Hai nhân viên bấm cách nhau 100ms thì người sau **im lặng cướp việc** của người trước; cả hai đều thấy "của tôi" và cùng trả lời một khách. Khách nhận hai câu trả lời khác nhau từ một công ty.
 
-- [ ] **Bước 1: Test đỏ** — guard: `NhanViecAsync` phải có `assigned_username IS NULL` trong `WHERE`.
-- [ ] **Bước 2:** Chạy, xác nhận đỏ.
-- [ ] **Bước 3:** `UPDATE ... WHERE id=@id AND tenant_id=@t AND assigned_username IS NULL` → trả số dòng; 0 dòng = **người khác nhận trước**, endpoint trả **409** kèm tên người đang giữ, không phải 200 im lặng.
-- [ ] **Bước 4:** Giao diện hiện "Đang do <tên> xử lý" thay vì đổi nút, và tải lại danh sách.
-- [ ] **Bước 5:** Test + bundle + commit.
+- [x] **Bước 1: Test đỏ** — guard: `NhanViecAsync` phải có `assigned_username IS NULL` trong `WHERE`.
+- [x] **Bước 2:** Chạy, xác nhận đỏ.
+- [x] **Bước 3:** `UPDATE ... WHERE id=@id AND tenant_id=@t AND assigned_username IS NULL` → trả số dòng; 0 dòng = **người khác nhận trước**, endpoint trả **409** kèm tên người đang giữ, không phải 200 im lặng.
+- [x] **Bước 4:** Giao diện hiện "Đang do <tên> xử lý" thay vì đổi nút, và tải lại danh sách.
+- [x] **Ngoài kế hoạch:** nút "Nhận việc" **chưa từng chạy** — giao diện gửi một thuộc tính không tồn tại nên thân yêu cầu luôn rỗng, tức nút đang GỠ giao việc. Nay tên người nhận lấy từ **phiên ở máy chủ**, client không tự khai được.
+- [x] **Bước 5:** Test + bundle + commit.
 
 ## Task 5.2: Chưa đọc theo từng người
 
