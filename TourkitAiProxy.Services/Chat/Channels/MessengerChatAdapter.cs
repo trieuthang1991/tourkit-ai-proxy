@@ -369,16 +369,59 @@ public class MessengerChatAdapter : IChatChannelAdapter
                 .Where(x => x.PageId.Length > 0 && x.AccessToken.Length > 0)
                 .ToList();
 
-            return ds.Count == 0
-                ? (null, "Tài khoản Facebook này không quản trị Trang nào. Đăng nhập bằng tài khoản "
-                       + "là quản trị viên của Trang rồi thử lại.")
-                : (ds, null);
+            // Rỗng thì HỎI THẲNG Facebook đã cấp quyền gì. Câu lỗi cũ đoán bừa là "tài khoản này
+            // không quản trị Trang nào" rồi đổ lỗi cho người dùng — trong khi nguyên nhân thật hay
+            // gặp hơn nhiều là họ ĐÚNG là quản trị viên, nhưng bước chọn Trang trên màn hình đồng ý
+            // không hiện hoặc không chọn gì, nên Facebook không kèm Trang nào. Hai ca đó sửa ở hai
+            // chỗ khác hẳn nhau; đoán nhầm là người dùng đi đăng nhập lại bằng tài khoản khác cho
+            // tới lúc bỏ cuộc.
+            return ds.Count == 0 ? (null, await ViSaoRongAsync(http, dai.Gia!, ct)) : (ds, null);
         }
         catch (Exception ex)
         {
             _log.LogWarning(ex, "[chat/messenger] không đổi được mã cấp quyền");
             return (null, "Không gọi được Facebook: " + ex.Message);
         }
+    }
+
+    /// <summary>
+    /// <c>/me/accounts</c> rỗng thì hỏi <c>/me/permissions</c> xem Facebook thật sự cấp những gì,
+    /// rồi nói đúng việc người dùng phải làm.
+    ///
+    /// <para>Tốn thêm một lượt gọi, nhưng chỉ ở nhánh HỎNG — và nó biến một câu lỗi đoán mò thành
+    /// một câu chỉ đúng chỗ. Chỗ này từng làm mất một buổi.</para>
+    /// </summary>
+    private async Task<string> ViSaoRongAsync(HttpClient http, string token, CancellationToken ct)
+    {
+        var thieu = "";
+        try
+        {
+            using var res = await http.GetAsync(
+                $"{GraphBase}/{PhienBan}/me/permissions?access_token={U(token)}", ct);
+            var o = JsonNode.Parse(await res.Content.ReadAsStringAsync(ct))?.AsObject();
+            var cap = (o?["data"] as JsonArray ?? new JsonArray()).OfType<JsonNode>()
+                .Where(x => x["status"]?.ToString() == "granted")
+                .Select(x => x["permission"]?.ToString() ?? "")
+                .ToHashSet(StringComparer.Ordinal);
+
+            _log.LogWarning("[chat/messenger] /me/accounts rỗng — quyền đã cấp: {Cap}",
+                cap.Count == 0 ? "(không có)" : string.Join(", ", cap.OrderBy(x => x)));
+
+            if (!cap.Contains("pages_show_list"))
+                return "Facebook KHÔNG cấp quyền xem danh sách Trang (pages_show_list). Bấm kết nối "
+                     + "lại, và ở màn hình đồng ý nhớ qua bước CHỌN TRANG — tick đúng Trang của công "
+                     + "ty rồi mới bấm Tiếp tục. Bỏ qua bước đó là Facebook không đưa Trang nào cả.";
+
+            thieu = cap.Contains("pages_messaging") ? "" : " (cũng chưa có quyền nhắn tin)";
+        }
+        catch (Exception ex)
+        {
+            _log.LogWarning(ex, "[chat/messenger] không đọc được /me/permissions");
+        }
+
+        return "Đã cấp quyền xem danh sách Trang nhưng Facebook trả về danh sách RỖNG" + thieu
+             + ". Hai khả năng: tài khoản vừa đăng nhập không phải quản trị viên Trang nào, hoặc ở "
+             + "màn hình đồng ý chưa tick Trang nào. Thử lại và soát kỹ bước chọn Trang.";
     }
 
     private async Task<(string? Gia, string? Loi)> ChuoiAsync(HttpClient http, string url,
