@@ -199,6 +199,11 @@ public class MessengerConnectTests
         Assert.Contains("client_id=111", url);
         Assert.Contains("response_type=code", url);
         Assert.Contains("state=st-1", url);
+
+        // Thiếu cái này thì xin thêm quyền về sau là vô nghĩa: Facebook nhớ lựa chọn cũ, bỏ qua màn
+        // hình đồng ý, và người dùng không bao giờ được hỏi quyền mới. Chữa tay phải vào Facebook gỡ
+        // ứng dụng — không khách hàng nào làm nổi. Đã dính thật ngày 26/08/2026.
+        Assert.Contains("auth_type=rerequest", url);
         Assert.Contains("pages_manage_metadata", url);
         Assert.Contains(Uri.EscapeDataString("https://travelai.vn/api/v1/chat/oauth/messenger/callback"), url);
     }

@@ -329,6 +329,15 @@ public class MessengerChatAdapter : IChatChannelAdapter
               + $"&redirect_uri={U(redirectUri)}"
               + $"&scope={U(string.Join(",", Quyen))}"
               + "&response_type=code"
+
+              // BẮT Facebook hỏi lại từ đầu, kể cả khi tài khoản này đã đồng ý lần trước.
+              //
+              // Mặc định Facebook NHỚ lựa chọn cũ và bỏ qua màn hình đồng ý — nên khi mình xin thêm
+              // một quyền mới (đã dính thật với business_management), người dùng bấm kết nối lại vẫn
+              // không bao giờ được hỏi, và cứ hỏng y như cũ mà không hiểu vì sao. Cách duy nhất chữa
+              // bằng tay là vào Facebook gỡ ứng dụng ra — không khách hàng nào làm nổi việc đó.
+              + "&auth_type=rerequest"
+
               + $"&state={U(state)}";
 
         // Facebook Login for Business làm việc theo "cấu hình" (configuration): quyền và TÀI SẢN
