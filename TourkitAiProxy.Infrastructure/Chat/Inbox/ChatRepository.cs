@@ -66,6 +66,26 @@ public class ChatRepository
             """, new { tenant, kenh = (short)kenh, id = externalId });
     }
 
+    /// <summary>
+    /// Ghi nguồn khách đến cho hội thoại — <b>chỉ khi chưa có</b>.
+    ///
+    /// <para>COALESCE chứ không đè: khách quay lại qua một quảng cáo khác thì nguồn ĐẦU TIÊN mới
+    /// là cái đã kéo họ tới. Đè lên là hỏng số liệu quy công quảng cáo, mà hỏng âm thầm — không
+    /// ai nhìn ra một con số quy sai.</para>
+    /// </summary>
+    public async Task GhiNguonAsync(string tenant, long hoiThoaiId, ChatReferral r,
+        CancellationToken ct = default)
+    {
+        if (r.Nguon is null && r.Ref is null && r.AdId is null) return;
+        await using var c = await _db.OpenAsync(ct);
+        await c.ExecuteAsync("""
+            UPDATE chat_conversations
+               SET referral_source = COALESCE(referral_source, @nguon),
+                   referral_ref    = COALESCE(referral_ref,    @tref),
+                   referral_ad_id  = COALESCE(referral_ad_id,  @ad)
+             WHERE tenant_id = @tenant AND id = @id
+            """, new { tenant, id = hoiThoaiId, nguon = r.Nguon, tref = r.Ref, ad = r.AdId });
+    }
     // ── Cảm xúc ─────────────────────────────────────────────────────────────
 
     /// <summary>

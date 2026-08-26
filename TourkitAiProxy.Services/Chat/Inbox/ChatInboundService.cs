@@ -80,6 +80,20 @@ public class ChatInboundService
         }
         var hoiThoai = await _repo.GetOrCreateConversationAsync(tenantId, e.Channel, e.ExternalUserId, accountId, ct);
 
+        // Nguồn khách đến (quảng cáo/liên kết/QR). Ghi TRƯỚC mọi nhánh return bên dưới: nó có thể
+        // đi kèm postback, kèm tin thường, hoặc tới MỘT MÌNH — bỏ ở nhánh nào là mất ở nhánh đó.
+        if (e.Referral is { } tuDau)
+            await _repo.GhiNguonAsync(tenantId, hoiThoai.Id, tuDau, ct);
+
+        // Gói CHỈ mang nguồn, không có tin nào (khách mở cuộc trò chuyện từ quảng cáo mà chưa gõ
+        // gì). Ghi nguồn xong là về — tạo một tin rỗng trong hội thoại là bày rác cho nhân viên.
+        if (e.Referral is not null && e.ExternalMsgId is null && string.IsNullOrWhiteSpace(e.Text)
+            && e.AttachmentJson is null && e.Reaction is null && e.Watermark is null)
+        {
+            _bus.Bao(new(tenantId, hoiThoai.Id, "doi-hoi-thoai", null));
+            return;
+        }
+
         // Cảm xúc: gắn vào một tin ĐÃ CÓ, không phải tin mới. Xử lý xong là về — không đụng tới
         // mốc "khách vừa nhắn", không mở lại cửa sổ trả lời, không đánh thức bot. Thả tim vào tin
         // cũ mà làm hội thoại nhảy lên đầu danh sách như có tin mới là báo động giả.

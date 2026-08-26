@@ -232,6 +232,9 @@ public class MessengerConnectTests
         }).PhienBan);
     }
 
+    /// <summary>Bộ nối tối thiểu cho các test chỉ bóc gói tin — dùng chung với MessengerEventTests.</summary>
+    internal static MessengerChatAdapter DungAdapterCong() => DungAdapter(new Dictionary<string, string?>());
+
     private static MessengerChatAdapter DungAdapter(Dictionary<string, string?> khoa)
     {
         khoa["ConnectionStrings:PushDb"] = "Server=khong-dung;Database=x;";

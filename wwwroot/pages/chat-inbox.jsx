@@ -177,6 +177,16 @@
   // Kênh lấy từ HỘI THOẠI, không phải từ tin: bảng chat_messages có cột channel nhưng lớp
   // ChatMessage không map cột đó nên API không trả về — viết tin.channel sẽ ra undefined và mọi
   // tin đều bị coi là Zalo.
+  // Tên nguồn của Meta viết hoa toàn chữ Anh. Dịch sang chữ người dùng đọc được; nguồn lạ thì
+  // hiện nguyên văn còn hơn nuốt mất — biết "đến từ đâu đó không rõ" vẫn hơn không biết gì.
+  const NGUON_KHACH = {
+    ADS: 'Quảng cáo Facebook',
+    SHORTLINK: 'Liên kết m.me',
+    CUSTOMER_CHAT_PLUGIN: 'Khung chat trên website',
+    MESSENGER_CODE: 'Mã QR Messenger',
+    DISCOVER_TAB: 'Mục Khám phá',
+  };
+
   function BongBong({ tin, kenh }) {
     // 0=khách 1=AI 2=nhân viên 3=hệ thống
     const ben = tin.senderKind;
@@ -519,6 +529,15 @@
           <Dong nhan="Khách nhắn gần nhất">
             {v.contactRepliedAt ? fmtAgo(v.contactRepliedAt) : 'chưa nhắn lần nào'}
           </Dong>
+          {/* Khách đến từ đâu. Kênh chỉ nói MỘT LẦN lúc khách mở cuộc trò chuyện nên đây là bản
+              ghi duy nhất — không tra lại được ở đâu khác. Chỉ hiện khi có, đừng bày dòng trống. */}
+          {v.referral && (
+            <>
+              <Dong nhan="Đến từ">{NGUON_KHACH[v.referral.source] || v.referral.source}</Dong>
+              <Dong nhan="Mã liên kết">{v.referral.gtRef}</Dong>
+              <Dong nhan="Mã quảng cáo">{v.referral.adId}</Dong>
+            </>
+          )}
         </div>
 
         <div className="ci-hs-muc">

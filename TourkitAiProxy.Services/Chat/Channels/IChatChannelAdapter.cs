@@ -76,6 +76,15 @@ public interface IChatChannelAdapter
     /// </summary>
     Task BaoDangGoAsync(string tenantId, string accountId, string externalUserId,
         CancellationToken ct) => Task.CompletedTask;
+
+    /// <summary>
+    /// Báo cho khách biết tin của họ ĐÃ ĐƯỢC MỞ. <b>Mặc định không làm gì.</b>
+    ///
+    /// <para>Chỉ gọi khi có NGƯỜI THẬT mở hội thoại. Bot đọc mà cũng báo đã xem là nói dối khách:
+    /// họ tưởng có nhân viên đang nhìn, rồi chờ.</para>
+    /// </summary>
+    Task BaoDaXemAsync(string tenantId, string accountId, string externalUserId,
+        CancellationToken ct) => Task.CompletedTask;
 }
 
 /// <param name="Anh">Ảnh đại diện. ⚠️ Meta ký hạn vào URL này nên nó <b>HẾT HẠN</b> sau một thời

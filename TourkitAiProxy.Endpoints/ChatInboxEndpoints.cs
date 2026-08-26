@@ -780,7 +780,7 @@ public static class ChatInboxEndpoints
         });
 
         g.MapPost("/conversations/{id:long}/read", async (long id, HttpContext ctx,
-            TkSessionStore sessions, ChatRepository repo, CancellationToken ct) =>
+            TkSessionStore sessions, ChatRepository repo, ChatInboundService svc, CancellationToken ct) =>
         {
             var a = SessionAuth.Read(ctx, sessions);
             if (a == null) return SessionAuth.Unauthorized();
@@ -788,6 +788,13 @@ public static class ChatInboxEndpoints
             // Theo TỪNG NGƯỜI: đánh dấu chung cho cả công ty thì A mở hội thoại là B mất dấu
             // chưa đọc, và tin của khách trôi qua mắt B mà không có lỗi nào hiện ra.
             await repo.MarkReadAsync(a.TenantId, id, a.Username, ct);
+
+            // Báo sang kênh cho khách biết tin đã được mở. Chỉ ở ĐÂY, nơi có NGƯỜI THẬT bấm vào hội
+            // thoại — bot đọc mà cũng báo đã xem là nói dối khách: họ tưởng có nhân viên đang nhìn.
+            var v = await repo.GetConversationAsync(a.TenantId, id, ct);
+            if (v is not null && svc.Adapter((ChatChannel)v.Channel) is { } boNoi)
+                await boNoi.BaoDaXemAsync(a.TenantId, v.AccountId, v.ContactExternalId, ct);
+
             return Results.Json(new { ok = true }, Web);
         });
 
@@ -1343,6 +1350,10 @@ public static class ChatInboxEndpoints
             v.LastActivityAt, v.LastPreview, v.ContactRepliedAt,
             displayName = v.DisplayName,
             avatarUrl = v.AvatarUrl,
+            // Khách đến từ đâu. Nhà cung cấp chỉ nói MỘT LẦN lúc mở cuộc trò chuyện, nên đây là
+            // bản ghi duy nhất — không có API nào tra ngược được.
+            referral = v.ReferralSource is null && v.ReferralRef is null && v.ReferralAdId is null
+                ? null : new { source = v.ReferralSource, gtRef = v.ReferralRef, adId = v.ReferralAdId },
             // Bot có đang bị câm không — giao diện hiện rõ, không thì nhân viên tưởng bot hỏng.
             botPaused = v.BotResumeAt is { } m && m > DateTime.UtcNow,
             // Chưa đọc = khách nhắn sau lần CHÍNH MÌNH mở gần nhất.

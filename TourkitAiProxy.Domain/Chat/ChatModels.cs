@@ -49,7 +49,19 @@ public record InboundChatEvent(
     bool IsEcho = false,
     string? DisplayName = null,
     StateWatermark? Watermark = null,
-    ChatReaction? Reaction = null);
+    ChatReaction? Reaction = null,
+    ChatReferral? Referral = null);
+
+/// <summary>
+/// Khách đến từ đâu — quảng cáo nào, liên kết nào, mã QR nào.
+///
+/// <para><b>Nhà cung cấp chỉ nói MỘT LẦN</b>, ngay lúc khách mở cuộc trò chuyện. Không ghi lại
+/// lúc đó là mất vĩnh viễn: không có API nào tra ngược được "khách này đến từ quảng cáo nào".
+/// Đây là dữ liệu bán hàng thật, không phải thông tin kỹ thuật.</para>
+/// </summary>
+/// <param name="Nguon">ADS · SHORTLINK · CUSTOMER_CHAT_PLUGIN…</param>
+/// <param name="Ref">Tham số <c>ref</c> do CHÍNH MÌNH đặt trên liên kết m.me hoặc mã QR.</param>
+public record ChatReferral(string? Nguon, string? Ref, string? AdId);
 
 /// <summary>
 /// Khách thả (hoặc gỡ) cảm xúc lên MỘT tin đã có.
@@ -130,6 +142,9 @@ public class ChatConversation
     public DateTime? ArchivedAt { get; set; }
     public string? DisplayName { get; set; }   // ghép từ chat_contacts khi liệt kê
     public string? AvatarUrl { get; set; }     // ghép từ chat_contacts khi liệt kê
+    public string? ReferralSource { get; set; }
+    public string? ReferralRef { get; set; }
+    public string? ReferralAdId { get; set; }
 }
 
 public class ChatMessage

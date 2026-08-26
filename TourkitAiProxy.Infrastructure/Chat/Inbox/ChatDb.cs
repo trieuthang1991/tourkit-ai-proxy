@@ -143,6 +143,15 @@ public class ChatDb
     -- nâng cấp — chỗ cần nó chạy nhất.
     ALTER TABLE chat_conversations ADD COLUMN IF NOT EXISTS account_id text NOT NULL DEFAULT '';
 
+    -- KHÁCH ĐẾN TỪ ĐÂU. Meta chỉ nói MỘT LẦN, ngay lúc khách mở cuộc trò chuyện; không ghi lại
+    -- lúc đó là mất vĩnh viễn, không có API nào tra ngược được.
+    --
+    -- Ghi MỘT LẦN rồi thôi (COALESCE lúc cập nhật): khách quay lại qua một quảng cáo khác thì
+    -- nguồn ĐẦU TIÊN mới là cái đã kéo họ tới, đè lên là hỏng số liệu quy công quảng cáo.
+    ALTER TABLE chat_conversations ADD COLUMN IF NOT EXISTS referral_source text;   -- ADS | SHORTLINK | CUSTOMER_CHAT_PLUGIN…
+    ALTER TABLE chat_conversations ADD COLUMN IF NOT EXISTS referral_ref    text;   -- tham số ref mình tự đặt trên liên kết/QR
+    ALTER TABLE chat_conversations ADD COLUMN IF NOT EXISTS referral_ad_id  text;   -- id quảng cáo, khi source = ADS
+
     CREATE UNIQUE INDEX IF NOT EXISTS ux_conv_scope_acc
       ON chat_conversations (tenant_id, channel, account_id, contact_external_id);
     DROP INDEX IF EXISTS ux_conv_scope;

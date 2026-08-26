@@ -255,8 +255,45 @@ public class MessengerChatAdapter : IChatChannelAdapter
                     continue;
                 }
 
+                // Nguồn khách đến. Meta gắn nó vào BA chỗ khác nhau tuỳ đường khách vào:
+                //   messaging_referrals -> m.referral        (khách đã từng nhắn, quay lại qua QR/liên kết)
+                //   messaging_postbacks -> m.postback.referral (lần ĐẦU bấm "Bắt đầu" từ quảng cáo)
+                //   messaging_optins    -> m.optin.ref
+                // Chỉ đọc một chỗ là mất phần lớn ca — mà mất là mất vĩnh viễn, không tra lại được.
+                var nguon = m["referral"] ?? m["postback"]?["referral"];
+                ChatReferral? tuDau = nguon is null ? null : new(
+                    nguon["source"]?.ToString(), nguon["ref"]?.ToString(), nguon["ad_id"]?.ToString());
+
+                // Khách bấm NÚT. Ghi lại bằng CHỮ TRÊN NÚT (title) chứ không phải payload kỹ
+                // thuật: nhân viên đọc lại hội thoại phải thấy đúng thứ khách nhìn thấy, không
+                // phải một chuỗi mã như "MENU_TOUR_DA_NANG".
+                if (m["postback"] is { } pb)
+                {
+                    var uidPb = m["sender"]?["id"]?.ToString();
+                    if (!string.IsNullOrWhiteSpace(uidPb))
+                    {
+                        var lucPb = long.TryParse(m["timestamp"]?.ToString(), out var tsPb)
+                            ? DateTimeOffset.FromUnixTimeMilliseconds(tsPb).UtcDateTime : DateTime.UtcNow;
+                        ra.Add(new(ChatChannel.Messenger, uidPb!, pb["mid"]?.ToString(), ChatKind.Chu,
+                            pb["title"]?.ToString() ?? pb["payload"]?.ToString(), null, lucPb,
+                            Referral: tuDau));
+                    }
+                    continue;
+                }
+
+                // Gói CHỈ CÓ nguồn, không kèm tin (khách mở cuộc trò chuyện từ quảng cáo nhưng
+                // chưa gõ gì). Vẫn phải ghi nhận — đây chính là lúc duy nhất Meta nói nguồn.
+                if (m["message"] is null && tuDau is not null)
+                {
+                    var uidRf = m["sender"]?["id"]?.ToString();
+                    if (!string.IsNullOrWhiteSpace(uidRf))
+                        ra.Add(new(ChatChannel.Messenger, uidRf!, null, ChatKind.Chu, null, null,
+                            DateTime.UtcNow, Referral: tuDau));
+                    continue;
+                }
+
                 var msg = m["message"];
-                if (msg is null) continue;   // postback, opt-in… — chưa dùng
+                if (msg is null) continue;   // opt-in… — chưa dùng
 
                 // is_echo = tin do CHÍNH trang gửi. Nhân viên trả lời từ Trang hoặc từ ứng dụng
                 // Meta Business thì mình chỉ biết qua đây — bỏ là hộp thư thiếu nửa cuộc trò chuyện.
@@ -283,7 +320,7 @@ public class MessengerChatAdapter : IChatChannelAdapter
                     ? DateTimeOffset.FromUnixTimeMilliseconds(ts).UtcDateTime : DateTime.UtcNow;
 
                 ra.Add(new(ChatChannel.Messenger, uid!, msg["mid"]?.ToString(), loai,
-                    msg["text"]?.ToString(), att, luc, IsEcho: vong));
+                    msg["text"]?.ToString(), att, luc, IsEcho: vong, Referral: tuDau));
             }
         }
         return ra;
@@ -591,8 +628,13 @@ public class MessengerChatAdapter : IChatChannelAdapter
     ///
     /// <para>Meta tự tắt sau 20 giây hoặc khi mình gửi tin — không phải tắt tay.</para>
     /// </summary>
-    public async Task BaoDangGoAsync(string tenantId, string accountId, string externalUserId,
-        CancellationToken ct)
+    public Task BaoDangGoAsync(string tenantId, string accountId, string externalUserId,
+        CancellationToken ct) => HanhDongAsync(tenantId, accountId, externalUserId, "typing_on", ct);
+
+    /// <summary>Một lượt <c>sender_action</c> bất kỳ. Nuốt mọi lỗi — mất một chi tiết lịch sự
+    /// không đáng để chặn tin của khách.</summary>
+    private async Task HanhDongAsync(string tenantId, string accountId, string externalUserId,
+        string hanhDong, CancellationToken ct)
     {
         var c = await _cred.GetAsync(tenantId, Channel, accountId, ct);
         if (c is null || !c.TryGetValue("pageAccessToken", out var token) || string.IsNullOrWhiteSpace(token))
@@ -603,15 +645,18 @@ public class MessengerChatAdapter : IChatChannelAdapter
             await http.PostAsJsonAsync($"{GraphBase}/{PhienBan}/me/messages?access_token={U(token)}", new
             {
                 recipient = new { id = externalUserId },
-                sender_action = "typing_on",
+                sender_action = hanhDong,
             }, ct);
         }
         catch (Exception ex)
         {
-            // Nuốt: không báo được "đang gõ" thì chỉ mất một chi tiết lịch sự, không ảnh hưởng tin.
-            _log.LogDebug(ex, "[chat/messenger] không bật được báo đang gõ");
+            _log.LogDebug(ex, "[chat/messenger] sender_action {H} hỏng", hanhDong);
         }
     }
+
+    /// <summary>Đánh dấu đã xem bên phía khách. Cùng đường gọi với báo đang gõ.</summary>
+    public Task BaoDaXemAsync(string tenantId, string accountId, string externalUserId,
+        CancellationToken ct) => HanhDongAsync(tenantId, accountId, externalUserId, "mark_seen", ct);
 
     public async Task<SendResult> SendTextAsync(string tenantId, string accountId, string externalUserId,
         string text, CancellationToken ct)
