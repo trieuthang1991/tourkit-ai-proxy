@@ -13,6 +13,36 @@ Những cập nhật gần đây của TRAV-AI, viết cho người dùng. Mới
 
 ---
 
+## Phiên bản 26/08/2026 — Báo giá dựng xong đưa thẳng thành đơn trên CRM
+
+### ✨ Tính năng mới
+- **Đưa báo giá lên CRM ngay từ bước cuối.** Ở bước "Xuất báo giá" nay có nút **Đồng bộ lên CRM**.
+  Bạn chọn đơn thuộc loại **Tour đoàn** hay **Khách lẻ**, bấm một cái là đơn hiện luôn bên CRM —
+  không phải nhập lại tay. Trước đây tour dựng ở đây chỉ nằm lại trong phần tính giá, xong rồi
+  không biết đưa đi đâu.
+- Với **Tour đoàn**, bạn điền tên và số điện thoại khách; hệ thống tự tìm khách trong CRM theo số
+  điện thoại, chưa có thì tạo mới. Với **Khách lẻ**, đơn được tạo theo số chỗ và giá mỗi khách
+  đúng như bảng giá bạn vừa chốt.
+- Tour đã đưa lên CRM sẽ hiện thẻ **"Đã lên CRM"** kèm mã đơn. Bấm đồng bộ lần nữa hệ thống sẽ
+  nhắc thay vì tạo thêm một đơn trùng.
+
+### 🔧 Đã khắc phục
+- **Tài khoản đại lý / cộng tác viên không còn tự dựng được báo giá.** Trước đây những tài khoản
+  chỉ được phép đặt chỗ vẫn vào được phần Tính giá Tour và tạo báo giá. Nay phần này chỉ mở cho
+  người có quyền tạo tour trên CRM — ai không có quyền sẽ không thấy mục này trong menu, và mở
+  thẳng đường dẫn cũng không vào được.
+- **Nút đóng không còn che đồng hồ đếm ngược** ở màn hình nạp thêm lượt AI. Trước đây dấu × nằm
+  đè lên ô đếm ngược nên không đọc được còn bao nhiêu phút để chuyển khoản.
+
+### 📌 Lưu ý
+- Với đơn **Khách lẻ**, hệ thống tự suy ra điểm đón, điểm trả từ hành trình và đoán phương tiện
+  theo lịch trình — bạn nên mở đơn trên CRM xem lại hai mục này trước khi chốt.
+- Đơn **Khách lẻ** không gắn kèm thông tin khách hàng (đây là loại tour bán theo chỗ). Cần lưu
+  khách vào CRM thì chọn **Tour đoàn**.
+- Việc đồng bộ là **bạn chủ động bấm**, không tự chạy khi gửi báo giá cho khách.
+
+---
+
 ## Phiên bản 25/08/2026 — Biết khách đã nhận và đã đọc tin chưa
 
 ### ✨ Tính năng mới
