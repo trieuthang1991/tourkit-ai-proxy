@@ -699,7 +699,11 @@ function Step3Costing({ rows, setRows, request, onNext, onBack, pushToast,
                         (toàn đoàn ↔ per pax). KHÔNG auto-convert giá; user tự nhập lại nếu cần. */}
                     {(() => {
                       const ct = rowCostType(r);
-                      const Pill = ({val, label, hint}) => (
+                      // Gọi thẳng như hàm, KHÔNG dựng thẻ <Pill/>: hàm khai bên trong một
+                      // component là một kiểu component mới ở mỗi lần vẽ lại, React tháo cả
+                      // nhánh cũ rồi dựng lại. Ở đây là <button> nên chỉ mất tiêu điểm bàn phím,
+                      // còn cùng lỗi đó trên một <input> thì gõ một ký tự là con trỏ nhảy ra.
+                      const pill = ({val, label, hint}) => (
                         <button onClick={() => updateRow(i, 'costType', val)}
                           title={hint}
                           style={{
@@ -715,8 +719,8 @@ function Step3Costing({ rows, setRows, request, onNext, onBack, pushToast,
                       );
                       return (
                         <div style={{display: 'inline-flex', gap: 0}}>
-                          <Pill val="shared" label="Đoàn" hint="Giá NET cố định toàn đoàn" />
-                          <Pill val="pax"    label={`× ${totalPax} Pax`} hint={`Giá NET / khách × ${totalPax} khách`} />
+                          {pill({val: 'shared', label: 'Đoàn', hint: 'Giá NET cố định toàn đoàn'})}
+                          {pill({val: 'pax', label: `× ${totalPax} Pax`, hint: `Giá NET / khách × ${totalPax} khách`})}
                         </div>
                       );
                     })()}

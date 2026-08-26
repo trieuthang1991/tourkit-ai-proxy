@@ -67,4 +67,66 @@ public class ChatUiGuardTests
         Assert.DoesNotContain("ci-nut-xoa", jsx);
         Assert.DoesNotContain("btn-primary", jsx);
     }
+
+    /// <summary>
+    /// Không component React nào được khai báo BÊN TRONG một component khác.
+    ///
+    /// <para><b>Lỗi này đã xảy ra thật</b> (26/08): <c>ONhap</c> — ô nhập của form khai kênh — nằm
+    /// trong thân <c>KhaiKenh</c>. Hàm khai bên trong một component là một <b>kiểu component MỚI ở
+    /// mỗi lần vẽ lại</b>: React thấy kiểu khác thì tháo cả nhánh cũ rồi dựng nhánh mới, thẻ
+    /// <c>input</c> thành một nút DOM khác hẳn, con trỏ nhảy ra ngoài. Gõ một ký tự → đổi state →
+    /// vẽ lại → mất focus, người dùng phải bấm lại vào ô sau <b>mỗi chữ cái</b>.</para>
+    ///
+    /// <para>Triệu chứng là "trang bị đơ, nhập không được", không ai nghĩ tới React — nên phải canh
+    /// bằng test chứ không bằng lời dặn.</para>
+    /// </summary>
+    [Fact]
+    public void Khong_khai_component_long_trong_component_khac()
+    {
+        // Component ở tầng module thụt 2 dấu cách (nằm trong IIFE) — thụt sâu hơn là đang nằm
+        // trong thân một component khác.
+        //
+        // Hai điều kiện, PHẢI có cả hai, vì mỗi cái một mình đều báo oan:
+        //   1. thật sự ĐỊNH NGHĨA hàm (không tính `const Page = current.component` — đó là gán lại
+        //      một component đã có, kiểu không đổi theo mỗi lần vẽ);
+        //   2. có được DÙNG NHƯ THẺ JSX `<Ten` — hàm trợ giúp trả về JSX rồi gọi thẳng `F(...)`
+        //      thì không tạo ranh giới component nào, React không tháo dựng lại gì cả.
+        var dinhNghia = new Regex(
+            @"^\s{4,}(function\s+(?<ten>[A-Z][A-Za-z0-9]*)\s*\("
+            + @"|const\s+(?<ten>[A-Z][A-Za-z0-9]*)\s*=\s*(\([^)]*\)|[A-Za-z_$][\w$]*)\s*=>"
+            + @"|const\s+(?<ten>[A-Z][A-Za-z0-9]*)\s*=\s*function\b)");
+
+        var pham = new List<string>();
+        foreach (var f in DocJsx())
+        {
+            var noiDung = File.ReadAllText(f);
+            var dong = File.ReadAllLines(f);
+            for (var i = 0; i < dong.Length; i++)
+            {
+                var m = dinhNghia.Match(dong[i]);
+                if (!m.Success) continue;
+                if (!Regex.IsMatch(noiDung, @"<" + Regex.Escape(m.Groups["ten"].Value) + @"[\s/>]")) continue;
+                pham.Add($"{Path.GetFileName(f)}:{i + 1} — {dong[i].Trim()}");
+            }
+        }
+
+        Assert.True(pham.Count == 0,
+            "Component React khai bên trong component khác → mỗi lần vẽ lại là một kiểu mới, "
+            + "React tháo/dựng lại cả nhánh và ô nhập MẤT FOCUS sau mỗi ký tự. Đưa ra tầng module, "
+            + "truyền giá trị qua props:\n  " + string.Join("\n  ", pham));
+    }
+
+    private static IEnumerable<string> DocJsx()
+    {
+        var d = new DirectoryInfo(AppContext.BaseDirectory);
+        while (d is not null && !File.Exists(Path.Combine(d.FullName, "TourkitAiProxy.csproj")))
+            d = d.Parent;
+        Assert.NotNull(d);
+
+        var goc = Path.Combine(d!.FullName, "wwwroot");
+        // Bỏ dist/ (bản gộp, đã bị minify) và lib/ (thư viện bên thứ ba, không phải mã của mình).
+        return Directory.EnumerateFiles(goc, "*.jsx", SearchOption.AllDirectories)
+            .Where(x => !x.Contains($"{Path.DirectorySeparatorChar}dist{Path.DirectorySeparatorChar}")
+                     && !x.Contains($"{Path.DirectorySeparatorChar}lib{Path.DirectorySeparatorChar}"));
+    }
 }

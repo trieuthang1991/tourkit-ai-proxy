@@ -538,6 +538,28 @@
   //
   // Form TỰ VẼ theo danh sách ô mà máy chủ trả về: thêm kênh mới ở backend là giao diện tự có ô
   // nhập, không phải sửa hai nơi rồi lệch.
+  // ⚠️ PHẢI ở tầng module, KHÔNG được lồng trong KhaiKenh.
+  //
+  // Hàm khai báo bên trong một component là một **kiểu component MỚI ở mỗi lần vẽ lại**. React
+  // thấy kiểu khác thì tháo cả nhánh cũ ra rồi dựng nhánh mới — thẻ <input> thành một nút DOM
+  // khác hẳn, nên con trỏ nhảy ra ngoài. Gõ một ký tự → setNhap → vẽ lại → mất focus: người dùng
+  // phải bấm lại vào ô sau MỖI chữ cái. Nhìn thì như "trang bị đơ", không ai nghĩ tới React.
+  //
+  // Có test canh việc này (ChatUiGuardTests) — đừng đẩy ngược vào trong cho gọn.
+  function ONhap({ truong, daKhai, giaTri, onDoi }) {
+    if (truong.type === 'note') return <div className="ci-ghichu">{truong.label}</div>;
+    const biMat = truong.type === 'secret';
+    return (
+      <label className="ci-o">
+        {truong.label}
+        <input type={biMat ? 'password' : 'text'}
+               placeholder={biMat && daKhai ? 'để trống = giữ nguyên' : (truong.hint || '')}
+               value={giaTri}
+               onChange={e => onDoi(e.target.value)} />
+      </label>
+    );
+  }
+
   function KhaiKenh({ pushToast, onDong }) {
     const [ds, setDs] = useState(null);
     const [dangLuu, setDangLuu] = useState(null);
@@ -566,6 +588,14 @@
     function dat(kenh, accId, key, val) {
       const k = kenh + ':' + (accId || 'moi');
       setNhap(p => ({ ...p, [k]: { ...(p[k] || {}), [key]: val } }));
+    }
+
+    // Trường thường thì ĐIỀN SẴN giá trị đang lưu — không thấy giá trị cũ thì không kiểm được
+    // mình khai đúng Trang/OA nào. Bí mật thì máy chủ không trả về, để trống = giữ nguyên.
+    function giaTriO(kenh, accId, truong, sanCo) {
+      const dangGo = o(kenh, accId)[truong.key];
+      if (dangGo !== undefined) return dangGo;
+      return truong.type === 'secret' ? '' : (sanCo?.[truong.key] || '');
     }
 
     async function luu(kenh, accId) {
@@ -598,23 +628,6 @@
       await taiLai();
     }
 
-    function ONhap({ kenh, accId, truong, daKhai, sanCo }) {
-      if (truong.type === 'note') return <div className="ci-ghichu">{truong.label}</div>;
-      const biMat = truong.type === 'secret';
-      // Trường thường thì ĐIỀN SẴN giá trị đang lưu — không thấy giá trị cũ thì không kiểm được
-      // mình khai đúng Trang/OA nào. Bí mật thì máy chủ không trả về, để trống = giữ nguyên.
-      const dangGo = o(kenh, accId)[truong.key];
-      const giaTri = dangGo !== undefined ? dangGo : (biMat ? '' : (sanCo?.[truong.key] || ''));
-      return (
-        <label className="ci-o">
-          {truong.label}
-          <input type={biMat ? 'password' : 'text'}
-                 placeholder={biMat && daKhai ? 'để trống = giữ nguyên' : (truong.hint || '')}
-                 value={giaTri}
-                 onChange={e => dat(kenh, accId, truong.key, e.target.value)} />
-        </label>
-      );
-    }
 
     let than;
     if (ds === 'cam') than = (
@@ -665,8 +678,9 @@
                   </label>
                 )}
                 {k.fields.map(f => (
-                  <ONhap key={f.key} kenh={k.channel} accId={t.accountId} truong={f} daKhai
-                         sanCo={t.values} />
+                  <ONhap key={f.key} truong={f} daKhai
+                         giaTri={giaTriO(k.channel, t.accountId, f, t.values)}
+                         onDoi={v => dat(k.channel, t.accountId, f.key, v)} />
                 ))}
                 <div className="ci-tk-nut">
                   <button className="ci-nut chinh" disabled={dangLuu === k.channel + ':' + t.accountId}
@@ -683,7 +697,9 @@
             <details className="ci-tk ci-tk-moi">
               <summary><b>+ Thêm tài khoản</b></summary>
               {k.fields.map(f => (
-                <ONhap key={f.key} kenh={k.channel} accId={null} truong={f} daKhai={false} />
+                <ONhap key={f.key} truong={f} daKhai={false}
+                       giaTri={giaTriO(k.channel, null, f, null)}
+                       onDoi={v => dat(k.channel, null, f.key, v)} />
               ))}
               <button className="ci-nut chinh" disabled={dangLuu === k.channel + ':moi'}
                       onClick={() => luu(k.channel, null)}>
