@@ -874,7 +874,7 @@ Giao diện nói rõ ở tooltip dấu tích.
   lên dấu tích sẽ thấy giải thích, đây không phải lỗi.
 ```
 
-- [ ] **Bước 7: Chạy toàn bộ + đồng bộ + commit**
+- [x] **Bước 7: Chạy toàn bộ + đồng bộ + commit** — mục CHANGELOG "Phiên bản 25/08/2026 — Biết khách đã nhận và đã đọc tin chưa" đã có trong [CHANGELOG.md](../../../CHANGELOG.md); `CLAUDE.md` **không** sửa vì phần chat nay nằm ở [docs/features/chat-inbox.md](../../features/chat-inbox.md)
 
 ```bash
 dotnet test TourkitAiProxy.Tests/TourkitAiProxy.Tests.csproj
