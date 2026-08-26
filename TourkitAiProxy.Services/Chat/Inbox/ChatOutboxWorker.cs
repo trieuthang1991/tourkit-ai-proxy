@@ -18,36 +18,49 @@ public class ChatOutboxWorker : BackgroundService
     private static readonly TimeSpan Nhip = TimeSpan.FromSeconds(5);
     private const int SoLuotThuLai = 3;
 
+    /// Vét bao nhiêu dòng mỗi nhịp. Đủ đầy thì gửi tiếp ngay, không ngủ — xem vòng lặp.
+    private const int MoiLuot = 10;
+
     private readonly IServiceProvider _sp;
+    private readonly ChatWorkSignal _tin;
     private readonly ILogger<ChatOutboxWorker> _log;
 
-    public ChatOutboxWorker(IServiceProvider sp, ILogger<ChatOutboxWorker> log) { _sp = sp; _log = log; }
+    public ChatOutboxWorker(IServiceProvider sp, ChatWorkSignal tin, ILogger<ChatOutboxWorker> log)
+    { _sp = sp; _tin = tin; _log = log; }
 
     protected override async Task ExecuteAsync(CancellationToken ct)
     {
-        _log.LogInformation("[chat/outbox] bắt đầu, nhịp {N}s", Nhip.TotalSeconds);
+        _log.LogInformation("[chat/outbox] bắt đầu, nhịp {N}s (có tín hiệu đánh thức)", Nhip.TotalSeconds);
         while (!ct.IsCancellationRequested)
         {
-            try { await MotNhipAsync(ct); }
+            var lam = 0;
+            try { lam = await MotNhipAsync(ct); }
             catch (OperationCanceledException) when (ct.IsCancellationRequested) { break; }
             catch (Exception ex)
             {
                 // Không để vòng lặp chết vì một nhịp hỏng — chết là hộp thư ngừng gửi trong im lặng.
                 _log.LogError(ex, "[chat/outbox] nhịp hỏng");
             }
-            try { await Task.Delay(Nhip, ct); } catch (OperationCanceledException) { break; }
+
+            // Vét đầy một lượt = gần như chắc chắn còn tồn. Ngủ lúc này là bắt khách chờ trong
+            // khi máy đang rảnh.
+            if (lam >= MoiLuot) continue;
+
+            // Chờ TÍN HIỆU hoặc hết nhịp, cái nào tới trước. Nhân viên bấm Gửi là đánh thức ngay.
+            if (!await _tin.ChoAsync(ChatLan.Ra, Nhip, ct) && ct.IsCancellationRequested) break;
         }
     }
 
-    private async Task MotNhipAsync(CancellationToken ct)
+    /// <summary>Trả về SỐ DÒNG đã vét — vòng lặp dùng nó để biết có nên gửi tiếp ngay không.</summary>
+    private async Task<int> MotNhipAsync(CancellationToken ct)
     {
         using var scope = _sp.CreateScope();
         var repo = scope.ServiceProvider.GetRequiredService<ChatRepository>();
-        if (!repo.Configured) return;
+        if (!repo.Configured) return 0;
 
         var adapters = scope.ServiceProvider.GetServices<IChatChannelAdapter>().ToList();
         var bus = scope.ServiceProvider.GetRequiredService<ChatEventBus>();
-        var rows = await repo.ClaimOutboxAsync(10, ct);
+        var rows = await repo.ClaimOutboxAsync(MoiLuot, ct);
         foreach (var r in rows)
         {
             try { await MotDongAsync(repo, adapters, bus, r, ct); }
@@ -57,6 +70,8 @@ public class ChatOutboxWorker : BackgroundService
                 await repo.FinishOutboxAsync(r.Id, false, r.RetryCount + 1 < SoLuotThuLai, ex.Message, ct);
             }
         }
+
+        return rows.Count;
     }
 
     private async Task MotDongAsync(ChatRepository repo, List<IChatChannelAdapter> adapters,

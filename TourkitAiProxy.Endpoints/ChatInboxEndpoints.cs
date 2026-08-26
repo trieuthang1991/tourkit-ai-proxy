@@ -82,7 +82,8 @@ public static class ChatInboxEndpoints
         // TelegramChatAdapter). Zalo/Messenger dùng dạng .../{tenantId} — nhiều OA/Trang chung một
         // đường, adapter tự soát ra tài khoản từ app_id/pageId trong thân tin.
         async Task<IResult> XuLy(string kenh, string tenantId, string? accountId, HttpContext ctx,
-            ChatInboundService svc, ChatRepository repo, ILoggerFactory lf, CancellationToken ct)
+            ChatInboundService svc, ChatRepository repo, Services.Chat.Inbox.ChatWorkSignal tin,
+            ILoggerFactory lf, CancellationToken ct)
         {
             var log = lf.CreateLogger("chat.webhook");
             if (!TenKenh.TryGetValue(kenh, out var loaiKenh)) return Results.NotFound();
@@ -113,6 +114,7 @@ public static class ChatInboxEndpoints
             // không gửi lại nữa, nên việc còn dở KHÔNG được nằm trong bộ nhớ — recycle/deploy/crash
             // lúc đó là mất hẳn tin của khách mà không dấu vết.
             var id = await repo.EnqueueInboundAsync(tenantId, loaiKenh, taiKhoan, maSuKien, raw, ct);
+            if (id is not null) tin.Danh(Services.Chat.Inbox.ChatLan.Vao);
             if (id is null)
                 log.LogInformation("[chat/webhook] bỏ qua bản gửi lại, kênh={K} tenant={T} sk={S}",
                     kenh, tenantId, maSuKien);
@@ -139,7 +141,7 @@ public static class ChatInboxEndpoints
         // và Zalo coi như đã giao xong. Nên mọi lượt từ chối đều ghi log mức WARNING kèm lý do —
         // đó là chỗ DUY NHẤT nhìn ra "tin có tới mà không vào hộp thư".
         routes.MapPost("/api/v1/chat/webhook/zalo", async (HttpContext ctx, ChatInboundService svc,
-            ChatRepository repo, ILoggerFactory lf, CancellationToken ct) =>
+            ChatRepository repo, Services.Chat.Inbox.ChatWorkSignal tin, ILoggerFactory lf, CancellationToken ct) =>
         {
             var log = lf.CreateLogger("chat.webhook");
             if (svc.Adapter(ChatChannel.Zalo) is not Services.Chat.Channels.ZaloChatAdapter zalo)
@@ -171,6 +173,7 @@ public static class ChatInboxEndpoints
 
             var id = await repo.EnqueueInboundAsync(ai.Value.TenantId, ChatChannel.Zalo,
                 ai.Value.AccountId, sk[0].ExternalMsgId, raw, ct);
+            if (id is not null) tin.Danh(Services.Chat.Inbox.ChatLan.Vao);
             if (id is null)
                 log.LogInformation("[chat/webhook] bỏ qua bản gửi lại, zalo tenant={T} sk={S}",
                     ai.Value.TenantId, sk[0].ExternalMsgId);
@@ -190,7 +193,7 @@ public static class ChatInboxEndpoints
         // ⚠️ Cũng LUÔN TRẢ 200 như Zalo, và vì lý do nặng hơn: Meta tự động NGỪNG gửi webhook cho
         // ứng dụng nào trả lỗi liên tục. Trả 401 cho tin rác là tự tay tắt kênh của mọi khách hàng.
         routes.MapPost("/api/v1/chat/webhook/messenger", async (HttpContext ctx, ChatInboundService svc,
-            ChatRepository repo, ILoggerFactory lf, CancellationToken ct) =>
+            ChatRepository repo, Services.Chat.Inbox.ChatWorkSignal tin, ILoggerFactory lf, CancellationToken ct) =>
         {
             var log = lf.CreateLogger("chat.webhook");
             if (svc.Adapter(ChatChannel.Messenger) is not Services.Chat.Channels.MessengerChatAdapter fb)
@@ -218,6 +221,7 @@ public static class ChatInboxEndpoints
 
             var id = await repo.EnqueueInboundAsync(ai.Value.TenantId, ChatChannel.Messenger,
                 ai.Value.AccountId, sk[0].ExternalMsgId, raw, ct);
+            if (id is not null) tin.Danh(Services.Chat.Inbox.ChatLan.Vao);
             if (id is null)
                 log.LogInformation("[chat/webhook] bỏ qua bản gửi lại, messenger tenant={T} sk={S}",
                     ai.Value.TenantId, sk[0].ExternalMsgId);
@@ -243,12 +247,13 @@ public static class ChatInboxEndpoints
         // webhook đang chạy của họ chết ngay lúc deploy.
         routes.MapPost("/api/v1/chat/webhook/{kenh}/{tenantId}", (
             string kenh, string tenantId, HttpContext ctx, ChatInboundService svc, ChatRepository repo,
-            ILoggerFactory lf, CancellationToken ct) => XuLy(kenh, tenantId, null, ctx, svc, repo, lf, ct));
+            Services.Chat.Inbox.ChatWorkSignal tin, ILoggerFactory lf, CancellationToken ct)
+            => XuLy(kenh, tenantId, null, ctx, svc, repo, tin, lf, ct));
 
         routes.MapPost("/api/v1/chat/webhook/{kenh}/{tenantId}/{accountId}", (
             string kenh, string tenantId, string accountId, HttpContext ctx, ChatInboundService svc,
-            ChatRepository repo, ILoggerFactory lf, CancellationToken ct)
-            => XuLy(kenh, tenantId, accountId, ctx, svc, repo, lf, ct));
+            ChatRepository repo, Services.Chat.Inbox.ChatWorkSignal tin, ILoggerFactory lf, CancellationToken ct)
+            => XuLy(kenh, tenantId, accountId, ctx, svc, repo, tin, lf, ct));
 
         // Meta xác minh địa chỉ webhook bằng một lượt GET riêng trước khi bắt đầu gửi tin. Thiếu
         // đường này thì không đăng ký được webhook Messenger, dù phần nhận tin đã đúng hết.
@@ -431,7 +436,8 @@ public static class ChatInboxEndpoints
         });
 
         g.MapPost("/conversations/{id:long}/send", async (long id, SendReq body, HttpContext ctx,
-            TkSessionStore sessions, ChatRepository repo, ChatEventBus bus, CancellationToken ct) =>
+            TkSessionStore sessions, ChatRepository repo, ChatEventBus bus,
+            Services.Chat.Inbox.ChatWorkSignal tin, CancellationToken ct) =>
         {
             var a = SessionAuth.Read(ctx, sessions);
             if (a == null) return SessionAuth.Unauthorized();
@@ -468,6 +474,9 @@ public static class ChatInboxEndpoints
             // Người thật vừa trả lời → bot câm một lúc, nếu không nó nói đè lên nhân viên.
             await repo.PauseBotAsync(a.TenantId, id, (int)ChatRules.BotCamMacDinh.TotalMinutes, ct);
             await repo.EnqueueOutboxAsync(a.TenantId, id, msgId.Value, ct);
+            // Đánh thức worker gửi NGAY. Không có dòng này thì tin nằm chờ hết nhịp 5 giây —
+            // màn hình nhân viên đã hiện tin rồi nên không ai thấy, nhưng khách thì chờ thật.
+            tin.Danh(Services.Chat.Inbox.ChatLan.Ra);
             bus.Bao(new(a.TenantId, id, "tin-moi", msgId.Value));
 
             return Results.Json(new { ok = true, messageId = msgId }, Web);

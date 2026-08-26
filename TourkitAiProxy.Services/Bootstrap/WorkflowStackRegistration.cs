@@ -203,6 +203,8 @@ public static class WorkflowStackRegistration
         // Danh sách Trang Facebook chờ người dùng chọn, giữa hai nửa của bước nối.
         s.AddSingleton<Chat.Channels.MessengerPageChoices>();
         s.AddSingleton<Chat.Inbox.ChatEventBus>();
+        // Tín hiệu đánh thức worker: hàng đợi vừa có việc thì làm ngay, không ngủ hết nhịp.
+        s.AddSingleton<Chat.Inbox.ChatWorkSignal>();
         s.AddSingleton<Chat.Inbox.ChatInboundService>();
         s.AddSingleton<ChannelCredentialStore>();
         // Kho ảnh/tệp nhân viên gửi — r2 | s3 | local theo Storage:Provider, xem IChatFileStorage.

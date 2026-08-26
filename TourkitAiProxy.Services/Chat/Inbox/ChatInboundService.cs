@@ -21,6 +21,7 @@ public class ChatInboundService
     private static readonly TimeSpan NghiGopTin = TimeSpan.FromSeconds(4);
 
     private readonly ChatRepository _repo;
+    private readonly ChatWorkSignal _tin;
     private readonly IEnumerable<IChatChannelAdapter> _adapters;
     private readonly ProviderRegistry _providers;
     private readonly AiCallContext _aiCtx;
@@ -30,8 +31,8 @@ public class ChatInboundService
 
     public ChatInboundService(ChatRepository repo, IEnumerable<IChatChannelAdapter> adapters,
         ProviderRegistry providers, AiCallContext aiCtx, IConfiguration cfg,
-        ILogger<ChatInboundService> log, ChatEventBus bus)
-    { _repo = repo; _adapters = adapters; _providers = providers; _aiCtx = aiCtx; _cfg = cfg; _log = log; _bus = bus; }
+        ILogger<ChatInboundService> log, ChatEventBus bus, ChatWorkSignal tin)
+    { _repo = repo; _adapters = adapters; _providers = providers; _aiCtx = aiCtx; _cfg = cfg; _log = log; _bus = bus; _tin = tin; }
 
     public IChatChannelAdapter? Adapter(ChatChannel kenh)
         => _adapters.FirstOrDefault(a => a.Channel == kenh);
@@ -127,6 +128,8 @@ public class ChatInboundService
 
         await _repo.TouchConversationAsync(tenantId, hoiThoai.Id, ChatRules.TomTat(traLoi), false, ct);
         await _repo.EnqueueOutboxAsync(tenantId, hoiThoai.Id, idRa.Value, ct);
+        // Bot vừa soạn xong thì đẩy đi NGAY, đừng để nằm chờ hết nhịp — khách đang nhìn màn hình.
+        _tin.Danh(ChatLan.Ra);
         _bus.Bao(new(tenantId, hoiThoai.Id, "tin-moi", idRa.Value));
     }
 
