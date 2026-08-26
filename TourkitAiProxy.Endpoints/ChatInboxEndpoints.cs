@@ -914,8 +914,24 @@ public static class ChatInboxEndpoints
             var (trang, loi) = await fb.DoiMaLayTrangAsync(code!, cho.Value.RedirectUri, ct);
             if (loi is not null) return TrangCapQuyen(false, loi);
 
-            var ma = chon.Tao(cho.Value.TenantId, trang!);
-            return TrangChonTrang(ma, trang!, await DaNoiAsync(cred, cho.Value.TenantId, ct), null);
+            // CHỈ MỘT Trang thì nối luôn, đừng hỏi lại.
+            //
+            // Facebook đã bắt người dùng đi qua ba bước chọn rồi (tài khoản → doanh nghiệp →
+            // Trang). Dựng thêm một màn hình "chọn Trang" nữa cho đúng một lựa chọn duy nhất là
+            // bắt họ xác nhận lại thứ vừa xác nhận — người dùng đọc ra là "sao cứ lặp mãi".
+            //
+            // Từ hai Trang trở lên thì màn hình đó có việc thật: Facebook trả về mọi Trang được
+            // cấp, mình vẫn phải để họ nói Trang nào là của công ty này.
+            if (trang!.Count == 1)
+            {
+                var loiNoi = await fb.NoiTrangAsync(cho.Value.TenantId, trang[0], ct);
+                return loiNoi is null
+                    ? TrangCapQuyen(true, $"Đã nối Trang \"{trang[0].Ten}\". Tin nhắn mới sẽ vào hộp thư ngay.")
+                    : TrangCapQuyen(false, loiNoi);
+            }
+
+            var ma = chon.Tao(cho.Value.TenantId, trang);
+            return TrangChonTrang(ma, trang, await DaNoiAsync(cred, cho.Value.TenantId, ct), null);
         });
 
         // CÔNG KHAI — nửa sau của bước nối: người dùng vừa bấm chọn một Trang trên trang picker.
