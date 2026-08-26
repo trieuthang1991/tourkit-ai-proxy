@@ -41,4 +41,28 @@ public static class SessionAuth
 
     public static IResult ForbiddenConfigSystem()
         => Results.Json(new { error = "Bạn không có quyền Cấu hình hệ thống (CH_HT_XEM)." }, statusCode: 403);
+
+    /// <summary>
+    /// Tài khoản có được TẠO TOUR không — điều kiện vào màn "Tính giá Tour" và mọi thao tác ghi
+    /// nháp/báo giá của nó.
+    ///
+    /// <para>Đủ MỘT trong hai quyền là được: <c>TR_TD_TAOMOI</c> (tour đoàn GIT) hoặc
+    /// <c>TR_TM_TAOMOI</c> (tour khách lẻ FIT) — vì sản phẩm cuối của màn này là một đơn GIT hoặc
+    /// FIT trên CRM, ai tạo được loại nào thì làm giá loại đó.</para>
+    ///
+    /// <para>Sheet bug dòng 105: tài khoản đại lý/CTV chỉ có quyền đặt chỗ nhưng vẫn dựng được
+    /// báo giá vì proxy trước đây KHÔNG kiểm quyền gì ở nhóm endpoint này. Quyền lấy từ chính CRM
+    /// (SP <c>uspGetAllRoleFunctionByDepartmentId</c> theo phòng ban) nên "chỉ có quyền như trên
+    /// CRM" là đúng nghĩa đen — không có admin auto-grant ở đây, y như web.</para>
+    /// </summary>
+    public static async Task<bool> CanCreateTourAsync(string sid, TkSessionStore sessions,
+                                                      CancellationToken ct = default)
+    {
+        await sessions.EnsurePermissionsAsync(sid, ct);
+        return sessions.HasPermission(sid, TkPermissionCodes.TaoTourGit)
+            || sessions.HasPermission(sid, TkPermissionCodes.TaoTourFit);
+    }
+
+    public static IResult ForbiddenCreateTour()
+        => Results.Json(new { error = "Bạn không có quyền tạo tour (TR_TD_TAOMOI / TR_TM_TAOMOI)." }, statusCode: 403);
 }

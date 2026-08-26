@@ -5410,8 +5410,12 @@ html[data-home-theme="dark"] .hp-theme {
 
 /* ── Step 2: QrPay ─────────────────────────────────────────────────────────── */
 .qu-qr { padding: 24px 28px 28px; }
+/* padding-right chừa chỗ cho nút đóng (.qu-close absolute top/right 14px, rộng 36px → mép trong
+   cách viền modal 50px). Header lại chỉ cách viền 28px (padding của .qu-qr) nên ô đếm ngược ở cột
+   cuối bị nút "×" đè lên. 34px = 50 - 28 + 12 khoảng hở. */
 .qu-qr-head { display: grid; grid-template-columns: auto 1fr auto; gap: 16px;
-  align-items: center; margin-bottom: 18px; padding-bottom: 16px; border-bottom: 1px solid #f1f5f9; }
+  align-items: center; margin-bottom: 18px; padding-bottom: 16px; padding-right: 34px;
+  border-bottom: 1px solid #f1f5f9; }
 .qu-back { background: #f1f5f9; border: 1px solid #e2e8f0; color: #475569;
   padding: 7px 12px; border-radius: 8px; font-size: 12.5px; font-weight: 600; cursor: pointer;
   transition: all .15s; }
@@ -5502,7 +5506,9 @@ html[data-home-theme="dark"] .hp-theme {
   .qu-price-amt { font-size: 24px; }
 
   .qu-qr { padding: 16px 16px 22px; }
-  .qu-qr-head { grid-template-columns: 1fr; gap: 10px; text-align: center; }
+  /* Mobile xếp dọc: hàng đầu là nút "← Đổi gói" canh trái, nút "×" không đè vào đâu cả
+     → bỏ padding-right của desktop, nếu không tiêu đề và đồng hồ bị lệch tâm 34px. */
+  .qu-qr-head { grid-template-columns: 1fr; gap: 10px; text-align: center; padding-right: 0; }
   .qu-back { justify-self: flex-start; }
   .qu-countdown { flex-direction: row; align-items: center; gap: 8px; justify-self: center;
     padding: 6px 12px; }

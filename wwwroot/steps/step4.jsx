@@ -1,7 +1,7 @@
 // Step 4: Quote preview + actions sidebar
 // hotelOptions: { 3?: {providerName, pricePerPaxPerNight, ...}, 4?, 5? } từ Step 1.5 NccTierPicker.
 // Khi có 1+ tier → render 3 báo giá cards thay vì 1 giá đơn → khách chọn tier.
-function Step4Quote({ request, itinerary, rows, hotelOptions, onBack, onRestart, marketing, pushToast, tourId, initialStatus, onStatusSaved, ensureTourSaved }) {
+function Step4Quote({ request, itinerary, rows, hotelOptions, onBack, onRestart, marketing, pushToast, tourId, initialStatus, onStatusSaved, ensureTourSaved, crmInfo, onCrmSaved }) {
   const totalPax = request.adults + request.children;
   const nights = request.nights || Math.max((request.days || 1) - 1, 1);
   const [status, setStatus] = React.useState(initialStatus || 'draft');   // draft | sent | success — persist xuống SavedTour (/api/v1/tours) → badge Wizard landing
@@ -12,6 +12,44 @@ function Step4Quote({ request, itinerary, rows, hotelOptions, onBack, onRestart,
   const [sharePrepping, setSharePrepping] = React.useState(false);
   const [pdfBusy, setPdfBusy] = React.useState(false);
   const quoteRef = React.useRef(null);   // element .qv-paper → render ra PDF (html2pdf)
+
+  // ── Đồng bộ CRM (sheet bug 103 + 104) ────────────────────────────────────────────────────
+  // Nháp ở đây chỉ nằm trong Redis + dbo.TourQuotes; muốn thành ĐƠN THẬT phải đẩy sang CRM và
+  // phải nói rõ đơn loại gì: GIT (tour đoàn, có khách hàng) hay FIT (tour khách lẻ, bán theo chỗ).
+  const [crmOpen, setCrmOpen]   = React.useState(false);
+  const [crmType, setCrmType]   = React.useState(3);         // 3 = GIT · 2 = FIT
+  const [crmBusy, setCrmBusy]   = React.useState(false);
+  const [crmDone, setCrmDone]   = React.useState(crmInfo && crmInfo.id > 0 ? crmInfo : null);
+  const [crmName, setCrmName]   = React.useState(request.customerName || '');
+  const [crmPhone, setCrmPhone] = React.useState(request.customerPhone || '');
+
+  async function saveToCrm() {
+    if (crmType === 3 && (!crmName.trim() || !crmPhone.trim())) {
+      pushToast && pushToast('Tour GIT cần Tên + SĐT khách hàng', 'error');
+      return;
+    }
+    setCrmBusy(true);
+    try {
+      let id = tourId;
+      if (!id && ensureTourSaved) id = await ensureTourSaved();   // chưa lưu nháp thì lưu để có id
+      if (!id) throw new Error('Chưa lưu được nháp tour');
+
+      const r = await window.tourkitAuth.authedFetch('/api/v1/tours/' + id + '/save-crm', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ tourType: crmType, customerName: crmName, customerPhone: crmPhone }),
+      });
+      const j = await r.json();
+      if (!r.ok || j.error) throw new Error(j.error || 'HTTP ' + r.status);
+
+      const done = { id: j.crmTourId, code: j.crmTourCode, type: j.tourType };
+      setCrmDone(done);
+      setCrmOpen(false);
+      setStatus('success');                    // server đã set nháp = "Đã chốt", đồng bộ lại UI
+      onCrmSaved && onCrmSaved(done);
+      pushToast && pushToast(`✓ Đã tạo đơn ${j.tourType === 2 ? 'FIT' : 'GIT'} trên CRM${j.crmTourCode ? ' · ' + j.crmTourCode : ''}`);
+    } catch (e) { pushToast && pushToast('Đồng bộ CRM thất bại: ' + e.message, 'error'); }
+    finally { setCrmBusy(false); }
+  }
 
   // Tách cost: non-hotel rows (giữ nguyên) + hotel ước lượng theo tier.
   // priceNet * (1+vat/100) * (1+markup/100) → giá bán mỗi row.
@@ -194,6 +232,71 @@ function Step4Quote({ request, itinerary, rows, hotelOptions, onBack, onRestart,
             setShareOpen(false);
           }}
         />
+
+        {/* ── Đồng bộ CRM ─────────────────────────────────────────────────────────────────
+            Trả lời câu "tour dựng ở đây rồi đi đâu về đâu": bấm nút này mới thành ĐƠN THẬT trên
+            CRM. Bắt buộc chọn loại đơn vì CRM lưu hai chỗ khác nhau: GIT → bảng tours (có khách
+            hàng, có Order), FIT → bảng tour_samples (bán theo chỗ, không gắn khách). */}
+        {crmDone && crmDone.id > 0 ? (
+          <div className="card" style={{padding: 14, display: 'flex', flexDirection: 'column', gap: 4}}>
+            <div style={{fontSize: 11, fontWeight: 800, letterSpacing: '0.08em', textTransform: 'uppercase', color: 'var(--success, #16a34a)'}}>
+              ✓ Đã lên CRM
+            </div>
+            <div style={{fontSize: 13, color: 'var(--text-2)'}}>
+              Đơn {crmDone.type === 2 ? 'FIT (tour khách lẻ)' : 'GIT (tour đoàn)'}
+              {crmDone.code ? <> · mã <b>{crmDone.code}</b></> : null}
+            </div>
+            <div style={{fontSize: 12, color: 'var(--text-3)'}}>Sửa tiếp bên CRM để tránh tạo đơn trùng.</div>
+          </div>
+        ) : !crmOpen ? (
+          <button className="btn btn-primary btn-lg btn-full" onClick={() => setCrmOpen(true)}>
+            ĐỒNG BỘ LÊN CRM
+          </button>
+        ) : (
+          <div className="card" style={{padding: 14, display: 'flex', flexDirection: 'column', gap: 10}}>
+            <div style={{fontSize: 11, fontWeight: 800, letterSpacing: '0.08em', textTransform: 'uppercase', color: 'var(--text-3)'}}>
+              Tạo đơn trên CRM
+            </div>
+
+            <div style={{display: 'flex', gap: 6}}>
+              {[[3, 'Tour đoàn (GIT)'], [2, 'Khách lẻ (FIT)']].map(([v, lbl]) => (
+                <button key={v} type="button" onClick={() => setCrmType(v)}
+                  className={'btn btn-full ' + (crmType === v ? 'btn-primary' : 'btn-outline')}
+                  style={{flex: 1, fontSize: 12, padding: '8px 6px'}}>
+                  {lbl}
+                </button>
+              ))}
+            </div>
+
+            {crmType === 3 ? (
+              <>
+                {/* GIT gắn đơn vào khách hàng, CRM tìm-hoặc-tạo khách theo SĐT ⇒ hai ô này bắt buộc. */}
+                <div>
+                  <label className="label" style={{fontSize: 12}}>Tên khách hàng *</label>
+                  <input className="input" value={crmName} onChange={e => setCrmName(e.target.value)}
+                    placeholder="Công ty ABC / Anh Nam" />
+                </div>
+                <div>
+                  <label className="label" style={{fontSize: 12}}>Số điện thoại *</label>
+                  <input className="input" value={crmPhone} onChange={e => setCrmPhone(e.target.value)}
+                    placeholder="09xxxxxxxx" inputMode="tel" />
+                </div>
+              </>
+            ) : (
+              <div style={{fontSize: 12, color: 'var(--text-3)', lineHeight: 1.5}}>
+                FIT tạo tour bán theo chỗ ({totalPax} chỗ, {fmtVND(Math.round(totalSale / Math.max(totalPax, 1)))}/khách).
+                Điểm đón/trả lấy từ hành trình, phương tiện đoán theo lịch trình — kiểm lại trên CRM.
+              </div>
+            )}
+
+            <div style={{display: 'flex', gap: 6}}>
+              <button className="btn btn-primary" style={{flex: 1}} onClick={saveToCrm} disabled={crmBusy}>
+                {crmBusy ? 'ĐANG TẠO…' : 'TẠO ĐƠN'}
+              </button>
+              <button className="btn btn-ghost" onClick={() => setCrmOpen(false)} disabled={crmBusy}>Huỷ</button>
+            </div>
+          </div>
+        )}
 
         <button className="btn btn-outline btn-full" onClick={onRestart}>
           Tạo tour mới
