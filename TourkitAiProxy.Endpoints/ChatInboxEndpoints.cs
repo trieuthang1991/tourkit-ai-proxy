@@ -46,6 +46,7 @@ public static class ChatInboxEndpoints
         "/api/v1/chat/messages",
         "/api/v1/chat/quick-replies",
         "/api/v1/chat/events",
+        "/api/v1/chat/oauth",
         "/api/v1/chat/webhook",
     };
 
@@ -662,6 +663,66 @@ public static class ChatInboxEndpoints
             return Results.Json(new { ok = true }, Web);
         });
 
+        // ── Cấp quyền Zalo OA ───────────────────────────────────────────────
+        //
+        // Zalo KHÔNG cho copy Refresh Token từ giao diện — phải đi một vòng OAuth: mở đường cấp
+        // quyền → quản trị viên OA bấm đồng ý → Zalo đá về callback kèm `code` sống rất ngắn →
+        // đổi `code` lấy token. Làm tay thì phải dán URL, chép `code` trên thanh địa chỉ rồi gọi
+        // curl; làm ở đây thì người dùng bấm MỘT nút.
+        g.MapPost("/channels/{channel:int}/accounts/{accountId}/oauth-url", async (int channel,
+            string accountId, HttpContext ctx, TkSessionStore sessions, ChannelCredentialStore cred,
+            IEnumerable<Services.Chat.Channels.IChatChannelAdapter> adapters,
+            Services.Chat.Channels.ZaloOAuthStates moc, IConfiguration cfg, CancellationToken ct) =>
+        {
+            var a = SessionAuth.Read(ctx, sessions);
+            if (a == null) return SessionAuth.Unauthorized();
+            if (!await SessionAuth.CanConfigSystemAsync(a.SessionId, sessions, ct))
+                return SessionAuth.ForbiddenConfigSystem();
+            if ((ChatChannel)channel != ChatChannel.Zalo)
+                return Results.BadRequest(new { error = "Chỉ Zalo OA mới có bước cấp quyền này" });
+
+            var khoa = await cred.GetAsync(a.TenantId, ChatChannel.Zalo, accountId, ct);
+            var appId = khoa?.GetValueOrDefault("appId");
+            if (string.IsNullOrWhiteSpace(appId))
+                return Results.BadRequest(new { error = "Khai App ID và App Secret Key rồi bấm Lưu trước đã" });
+
+            // redirect_uri phải khớp Y HỆT chuỗi khai bên Zalo — nên sinh ở đây một lần rồi giữ
+            // luôn trong state, để lượt đổi mã dùng đúng chuỗi đó, không dựng lại và lệch.
+            var quayVe = GocCongKhai(ctx, cfg) + DuongCallbackZalo;
+            var state = moc.Tao(a.TenantId, accountId, quayVe);
+            return Results.Json(new
+            {
+                url = Services.Chat.Channels.ZaloChatAdapter.DuongCapQuyen(appId!, quayVe, state),
+                // Trả về để giao diện nhắc dán đúng chuỗi này vào ô Callback URL bên Zalo.
+                redirectUri = quayVe,
+            }, Web);
+        });
+
+        // CÔNG KHAI — Zalo đá trình duyệt về đây bằng chuyển hướng thường, không mang theo
+        // X-Session-Id. Ghép lại công ty/tài khoản bằng `state` do máy chủ sinh, dùng một lần.
+        g.MapGet("/oauth/zalo/callback", async (string? code, string? state, string? error,
+            IEnumerable<Services.Chat.Channels.IChatChannelAdapter> adapters,
+            Services.Chat.Channels.ZaloOAuthStates moc, CancellationToken ct) =>
+        {
+            if (!string.IsNullOrWhiteSpace(error))
+                return TrangCapQuyen(false, $"Zalo báo: {error}");
+
+            var cho = moc.Nhan(state);
+            if (cho is null)
+                return TrangCapQuyen(false, "Lượt cấp quyền đã hết hạn hoặc đã dùng rồi. Bấm lại nút Cấp quyền OA.");
+            if (string.IsNullOrWhiteSpace(code))
+                return TrangCapQuyen(false, "Zalo không trả về mã cấp quyền.");
+
+            var zalo = adapters.OfType<Services.Chat.Channels.ZaloChatAdapter>().FirstOrDefault();
+            if (zalo is null) return TrangCapQuyen(false, "Kênh Zalo chưa được bật ở máy chủ.");
+
+            var loi = await zalo.DoiMaCapQuyenAsync(cho.Value.TenantId, cho.Value.AccountId, code!,
+                cho.Value.RedirectUri, ct);
+            return loi is null
+                ? TrangCapQuyen(true, "Đã lưu Refresh Token cho tài khoản Zalo OA. Từ giờ hệ thống tự làm mới, bạn không phải làm lại.")
+                : TrangCapQuyen(false, loi);
+        });
+
         // ── Khai kết nối kênh ───────────────────────────────────────────────
         // Cần quyền Cấu hình hệ thống: đây là khoá cấp CÔNG TY, ai cầm được là nhắn tin dưới danh
         // nghĩa công ty.
@@ -669,14 +730,14 @@ public static class ChatInboxEndpoints
         // MỘT công ty nối được NHIỀU tài khoản mỗi kênh (nhiều Trang Facebook cho các chi nhánh,
         // nhiều OA Zalo, nhiều bot Telegram cho từng đội sale).
         g.MapGet("/channels", async (HttpContext ctx, TkSessionStore sessions,
-            ChannelCredentialStore cred, CancellationToken ct) =>
+            ChannelCredentialStore cred, IConfiguration cfg, CancellationToken ct) =>
         {
             var a = SessionAuth.Read(ctx, sessions);
             if (a == null) return SessionAuth.Unauthorized();
             if (!await SessionAuth.CanConfigSystemAsync(a.SessionId, sessions, ct))
                 return SessionAuth.ForbiddenConfigSystem();
 
-            var goc = $"{ctx.Request.Scheme}://{ctx.Request.Host}";
+            var goc = GocCongKhai(ctx, cfg);
             var ra = new List<object>();
             foreach (var (kenh, ten, oNhap, moiTaiKhoanMotUrl) in KhaiBao)
             {
@@ -801,6 +862,45 @@ public static class ChatInboxEndpoints
         });
     }
 
+    /// <summary>
+    /// Địa chỉ CÔNG KHAI của bản chạy này — dùng cho cả URL webhook lẫn callback cấp quyền.
+    ///
+    /// <para>Mặc định lấy theo địa chỉ của chính yêu cầu đang tới. Nhưng lúc dev thì đó là
+    /// <c>localhost</c>, mà Zalo/Meta <b>không gọi vào localhost được</b> — nên cho phép đè bằng
+    /// <c>Chat:PublicBaseUrl</c> (dán URL đường hầm ngrok vào đó).</para>
+    /// </summary>
+    private static string GocCongKhai(HttpContext ctx, IConfiguration cfg)
+    {
+        var dat = cfg["Chat:PublicBaseUrl"];
+        return string.IsNullOrWhiteSpace(dat)
+            ? $"{ctx.Request.Scheme}://{ctx.Request.Host}"
+            : dat.TrimEnd('/');
+    }
+
+    private const string DuongCallbackZalo = "/api/v1/chat/oauth/zalo/callback";
+
+    /// <summary>
+    /// Trang nhỏ trả về cho cửa sổ cấp quyền. Tự đóng khi xong; hỏng thì để nguyên cho người dùng
+    /// đọc lý do — đóng phụt mất câu lỗi là kiểu tệ nhất, họ chỉ thấy "không có gì xảy ra".
+    /// </summary>
+    private static IResult TrangCapQuyen(bool xong, string thongDiep)
+    {
+        var mau = xong ? "#16A34A" : "#DC2626";
+        var tuDong = xong
+            ? "<script>setTimeout(function(){window.close()},1500)</script>"
+            : "";
+        var html = $"""
+            <!doctype html><html lang="vi"><head><meta charset="utf-8">
+            <title>Cấp quyền Zalo OA</title></head>
+            <body style="font-family:system-ui,sans-serif;padding:32px;line-height:1.6">
+            <h2 style="color:{mau};margin:0 0 8px">{(xong ? "Đã cấp quyền" : "Cấp quyền không xong")}</h2>
+            <p>{System.Net.WebUtility.HtmlEncode(thongDiep)}</p>
+            <p style="color:#64748B">{(xong ? "Cửa sổ này tự đóng." : "Đóng cửa sổ này rồi thử lại.")}</p>
+            {tuDong}</body></html>
+            """;
+        return Results.Content(html, "text/html; charset=utf-8");
+    }
+
     /// Đã khai đủ khoá để tài khoản này chạy được chưa.
     private static bool DaKhaiDu(ChatChannel kenh, IReadOnlyDictionary<string, string> g) => kenh switch
     {
@@ -832,9 +932,14 @@ public static class ChatInboxEndpoints
         {
             new ONhap("label",        "Tên gợi nhớ", "text",   "OA Hà Nội"),
             new ONhap("appId",        "App ID",      "text",   "1234567890123456789"),
-            new ONhap("secretKey",    "Secret Key",  "secret", "Lấy ở Zalo Developers → ứng dụng của bạn"),
-            new ONhap("refreshToken", "Refresh Token", "secret", "Lấy sau bước cấp quyền OA"),
+            new ONhap("secretKey",    "App Secret Key", "secret", "Ứng dụng → Cài đặt. Dùng để GỬI tin"),
+            new ONhap("oaSecretKey",  "OA Secret Key",  "secret", "Sản phẩm → Official Account → Cài đặt chung. Dùng để NHẬN tin"),
+            new ONhap("refreshToken", "Refresh Token", "secret", "Để trống — bấm \"Cấp quyền OA\" là tự điền"),
             new ONhap("note",
+                "Zalo cấp HAI khoá bí mật khác nhau: App Secret Key để gửi, OA Secret Key để nhận. "
+                + "Bỏ trống OA Secret Key thì hệ thống dùng tạm App Secret Key — nếu tin khách không "
+                + "vào hộp thư thì gần như chắc chắn là do thiếu ô này.", "note"),
+            new ONhap("note2",
                 "Đây là OA RIÊNG của chat, độc lập với OA khai cho bản tin sáng ở Tự động hoá.", "note"),
         }, false),
         (ChatChannel.Messenger, "Facebook Messenger", new[]

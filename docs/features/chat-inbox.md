@@ -27,6 +27,34 @@ Viết riêng từng kênh thì phần chung (đọc thân thô, kiểm chữ k�
 lần và sớm muộn lệch nhau. Messenger cần thêm `GET` cùng đường dẫn cho bước Meta xác minh
 (`hub.challenge`) — thiếu là không đăng ký được webhook dù phần nhận tin đã đúng.
 
+⚠️ **Zalo cấp HAI khoá bí mật khác nhau, đừng dùng lẫn.** `secretKey` = **App Secret Key** (Ứng
+dụng → Cài đặt) dùng ở header khi đổi token, tức đường **GỬI**. `oaSecretKey` = **OA Secret Key**
+(Sản phẩm → Official Account → Cài đặt chung) dùng kiểm chữ ký webhook, tức đường **NHẬN**. Một ô
+cho cả hai thì luôn có một chiều hỏng, mà thông báo lỗi không nói ra điều đó — chỉ thấy "tin khách
+không vào hộp thư". Ô `oaSecretKey` để trống thì lùi về `secretKey`, nên cấu hình cũ không gãy.
+
+**Refresh Token lấy bằng nút "Cấp quyền OA", không phải chép tay.** Zalo không cho copy Refresh
+Token từ giao diện của họ; nó chỉ ra sau một vòng OAuth: mở `/v4/oa/permission` → quản trị viên OA
+bấm đồng ý → Zalo đá về callback kèm `code` sống rất ngắn → đổi `code` lấy token. Làm tay thì phải
+chép `code` trên thanh địa chỉ rồi gọi `curl`; ở đây là một nút.
+
+⚠️ **Đường callback CÔNG KHAI nên không có phiên.** Zalo đá trình duyệt về bằng chuyển hướng
+thường — không mang `X-Session-Id`. Ghép lại công ty/tài khoản bằng `state` **do máy chủ sinh**
+(32 byte ngẫu nhiên, dùng một lần, sống 10 phút). Để client tự khai tenant trên URL callback thì ai
+biết đường dẫn cũng nhét được refresh token của OA mình vào công ty khác, rồi đọc và trả lời tin
+của khách công ty đó — rò rỉ chéo tenant, thứ nặng nhất trong danh sách rủi ro của spec.
+
+⚠️ **`redirect_uri` phải khớp Y HỆT chuỗi khai ở ô Official Account Callback URL bên Zalo** — lệch
+một dấu gạch chéo là Zalo từ chối và câu lỗi của họ không nói lệch ở đâu. Vì thế chuỗi này sinh MỘT
+lần rồi giữ luôn trong `state`, lượt đổi mã dùng lại đúng chuỗi đó chứ không dựng lại.
+
+⚠️ **Lúc dev, `Chat:PublicBaseUrl` là bắt buộc.** Mặc định URL webhook và callback lấy theo địa chỉ
+của chính yêu cầu đang tới — trên máy chủ thật thì đúng, còn ở máy dev là `localhost`, mà Zalo/Meta
+**không gọi vào `localhost`** được. Chạy đường hầm rồi dán URL `https` vào khoá đó.
+
+⚠️ **Zalo xoay vòng refresh token.** Mỗi lượt đổi trả về một refresh token MỚI, phải lưu cái mới và
+bỏ cái cũ — dùng lại cái cũ ở lần sau là bị từ chối. Cả hai lượt (đổi `code` lần đầu và làm mới về
+sau) đi chung một hàm nên không có chỗ nào quên lưu.
 ⚠️ **Mỗi kênh một kiểu xác thực, đừng chép qua lại:** Zalo = `SHA256(appId+thânThô+timestamp+secret)`;
 Messenger = **HMAC**-SHA256(appSecret, thânThô) trong `X-Hub-Signature-256`; Telegram **không ký gì
 cả** — chỉ so chuỗi bí mật trong `X-Telegram-Bot-Api-Secret-Token`, nên **thiếu chuỗi đó là ai biết

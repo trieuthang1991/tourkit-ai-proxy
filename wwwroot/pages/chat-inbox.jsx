@@ -620,6 +620,21 @@
       } finally { setDangLuu(null); }
     }
 
+    // Zalo KHÔNG cho copy Refresh Token từ giao diện của họ — phải đi một vòng OAuth. Máy chủ
+    // dựng đường cấp quyền (kèm một mã `state` dùng một lần), mình chỉ mở cửa sổ; Zalo đá về
+    // đường callback của chính app và app tự lưu token.
+    //
+    // Mở cửa sổ PHỤ chứ không chuyển hướng cả trang: người dùng đang khai dở form, chuyển đi là
+    // mất hết những gì vừa gõ mà chưa bấm Lưu.
+    async function capQuyenZalo(kenh, accId) {
+      const r = await authedFetch('/api/v1/chat/channels/' + kenh + '/accounts/' + accId + '/oauth-url',
+        { method: 'POST' });
+      let j = null; try { j = await r.json(); } catch {}
+      if (!r.ok) { pushToast(j?.error || 'Không dựng được đường cấp quyền', 'error'); return; }
+      window.open(j.url, 'zalo-cap-quyen', 'width=560,height=720');
+      pushToast('Cấp quyền xong thì bấm Tải lại để thấy trạng thái mới', 'success');
+    }
+
     async function xoa(kenh, accId, ten) {
       if (!window.confirm(`Gỡ kết nối "${ten || accId}"?\n\nLịch sử chat với khách vẫn giữ nguyên, chỉ ngừng nhận và gửi qua tài khoản này.`)) return;
       const r = await authedFetch('/api/v1/chat/channels/' + kenh + '/accounts/' + accId, { method: 'DELETE' });
@@ -682,11 +697,24 @@
                          giaTri={giaTriO(k.channel, t.accountId, f, t.values)}
                          onDoi={v => dat(k.channel, t.accountId, f.key, v)} />
                 ))}
+                {/* Bước cấp quyền chỉ Zalo mới có: Messenger/Telegram cấp token thẳng ở giao diện
+                    của họ, không đi vòng OAuth. */}
+                {k.channel === 0 && (
+                  <div className="ci-hs-goiy">
+                    Chưa có Refresh Token? Khai App ID + App Secret Key, bấm <b>Lưu</b>, rồi bấm
+                    <b> Cấp quyền OA</b> — hệ thống tự lấy và tự làm mới về sau.
+                  </div>
+                )}
                 <div className="ci-tk-nut">
                   <button className="ci-nut chinh" disabled={dangLuu === k.channel + ':' + t.accountId}
                           onClick={() => luu(k.channel, t.accountId)}>
                     {dangLuu === k.channel + ':' + t.accountId ? 'Đang lưu…' : 'Lưu'}
                   </button>
+                  {k.channel === 0 && (
+                    <button className="ci-nut" onClick={() => capQuyenZalo(k.channel, t.accountId)}>
+                      Cấp quyền OA
+                    </button>
+                  )}
                   <button className="ci-nut nguyhiem" onClick={() => xoa(k.channel, t.accountId, t.label)}>
                     Gỡ kết nối
                   </button>

@@ -27,6 +27,15 @@ Những cập nhật gần đây của TRAV-AI, viết cho người dùng. Mới
 ### 🔧 Đã khắc phục
 - **Nút "Nhận việc" giờ mới thật sự nhận việc.** Trước đây bấm nút này không gán hội thoại cho
   bạn — thậm chí còn gỡ người đang phụ trách ra. Nút trông như chạy nên không ai để ý.
+- **Nối Zalo OA chỉ còn một nút bấm.** Trước đây muốn nối OA bạn phải tự đi lấy "Refresh Token" —
+  mà Zalo không cho chép nó ở đâu cả, phải dán một đường dẫn lạ vào trình duyệt rồi copy một đoạn
+  mã trên thanh địa chỉ. Nay bạn chỉ cần khai **App ID** và **App Secret Key**, bấm **Lưu**, rồi
+  bấm **"Cấp quyền OA"**: cửa sổ Zalo hiện ra, bạn bấm đồng ý, xong. Hệ thống tự lấy và **tự làm
+  mới về sau**, không phải làm lại.
+- **Nói rõ Zalo có hai khoá bí mật khác nhau.** Form khai kênh nay có hai ô riêng: **App Secret
+  Key** (để gửi tin) và **OA Secret Key** (để nhận tin). Trước đây chỉ có một ô nên tuỳ bạn dán
+  khoá nào mà một trong hai chiều lặng lẽ không chạy — thường gặp nhất là tin khách không vào hộp
+  thư mà không báo lỗi gì. Bỏ trống ô mới thì vẫn chạy như cũ.
 - **Gắn nhãn và ghi chú cho khách.** Trong hồ sơ bên phải có thêm mục **"Nhãn"** và **"Ghi chú
   nội bộ"**. Nhãn theo khách chứ không theo cuộc trò chuyện, nên khách nhắn lại sau vài tháng bạn
   vẫn thấy nhãn cũ. Ghi chú **chỉ nhân viên đọc được, khách không bao giờ thấy**.
