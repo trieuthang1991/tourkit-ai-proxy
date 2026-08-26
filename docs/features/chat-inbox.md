@@ -85,7 +85,7 @@ hết. Đường dẫn: `POST /channels/1/connect-url` → `dialog/oauth` → `G
 đó là lý do nửa nhận của hộp thư kiểm được trên Facebook trước.
 
 ⚠️ **`subscribed_apps` là thứ biến cả bước nối thành một nút.** Sau khi chọn Trang, hệ thống tự gọi
-`POST /{pageId}/me/subscribed_apps` để bật nhận tin — khách **không vào màn hình quản trị Meta lần**
+`POST /{pageId}/subscribed_apps` để bật nhận tin — khách **không vào màn hình quản trị Meta lần**
 **nào**. Zalo không có cái tương đương. Danh sách `subscribed_fields` phải khớp những gì `Parse` bóc:
 thiếu `message_echoes` là mất tin nhân viên trả lời từ ứng dụng Meta, thiếu `message_deliveries`/
 `message_reads` là tin gửi đi không bao giờ leo lên hai tích. Cả hai hỏng **âm thầm**; có test canh.
