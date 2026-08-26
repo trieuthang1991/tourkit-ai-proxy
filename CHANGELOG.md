@@ -1,4 +1,4 @@
-<!--
+﻿<!--
   QUY TẮC (BẮT BUỘC — xem docs/conventions.md):
   • Mỗi lần public code (merge main/dev, release, deploy) PHẢI thêm 1 mục ở đây.
   • Viết CHO NGƯỜI DÙNG CUỐI: theo trải nghiệm ("Bạn có thể…", "Trước đây … nay …").
@@ -23,6 +23,12 @@ Những cập nhật gần đây của TRAV-AI, viết cho người dùng. Mới
 - **Cuộn danh sách hội thoại không còn lặp hay sót.** Khi hộp thư đang bận, danh sách cũ hay hiện
   lại một hội thoại bạn vừa đọc và bỏ qua một hội thoại chưa đọc. Nay cuộn tới đâu chắc tới đó, và
   có tin mới cũng không bị cuốn ngược về đầu danh sách giữa lúc bạn đang đọc.
+
+- **Nối Facebook chỉ còn một nút bấm.** Trước đây muốn đưa tin nhắn Trang Facebook vào hộp thư,
+  công ty phải tự tạo một ứng dụng bên Meta, lấy bốn loại mã khác nhau rồi tự bật nhận tin cho
+  từng Trang. Nay bạn bấm **"Kết nối Facebook"**, đăng nhập Facebook, chọn Trang của công ty trong
+  danh sách hiện ra — xong. Không phải nhập mã nào, cũng không phải vào trang quản trị của Meta.
+  Quản trị nhiều Trang thì chọn xong Trang này có thể chọn tiếp Trang khác ngay trong cửa sổ đó.
 
 - **Nối Zalo OA chỉ còn một nút bấm.** Trước đây mỗi công ty phải tự vào trang dành cho lập trình
   viên của Zalo, tạo một ứng dụng, tìm hai loại khoá bí mật rồi khai địa chỉ nhận tin — tám bước

@@ -12,14 +12,14 @@ namespace TourkitAiProxy.Tests.Chat;
 /// tenant trên URL thì ai biết đường dẫn cũng nhét được refresh token của OA mình vào công ty
 /// khác, rồi đọc và trả lời tin của khách công ty đó.</para>
 /// </summary>
-public class ZaloOAuthStateTests
+public class ChatOAuthStateTests
 {
     [Fact]
     public void Ma_dung_MOT_lan()
     {
         // Mã còn dùng lại được là mã rò ra ngoài (lịch sử trình duyệt, log proxy) vẫn nhét được
         // token vào tài khoản người khác.
-        var kho = new ZaloOAuthStates();
+        var kho = new ChatOAuthStates();
         var ma = kho.Tao("cong-ty-A", "acc1", "https://x/cb");
 
         Assert.NotNull(kho.Nhan(ma));
@@ -29,7 +29,7 @@ public class ZaloOAuthStateTests
     [Fact]
     public void Tra_ve_dung_cong_ty_va_tai_khoan_da_gui()
     {
-        var kho = new ZaloOAuthStates();
+        var kho = new ChatOAuthStates();
         var ma = kho.Tao("cong-ty-B", "acc-9", "https://x/cb");
 
         var ra = kho.Nhan(ma);
@@ -49,7 +49,7 @@ public class ZaloOAuthStateTests
     public void Ma_sai_thi_tra_null_chu_khong_nem(string? ma)
     {
         // Đây là đường CÔNG KHAI — ném ra ngoài là biến một lượt bấm nhầm thành lỗi 500.
-        var kho = new ZaloOAuthStates();
+        var kho = new ChatOAuthStates();
         Assert.Null(kho.Nhan(ma));
     }
 
@@ -57,7 +57,7 @@ public class ZaloOAuthStateTests
     public void Hai_lan_tao_ra_hai_ma_khac_nhau()
     {
         // Đoán được mã là đoán được đường nhét token vào công ty khác.
-        var kho = new ZaloOAuthStates();
+        var kho = new ChatOAuthStates();
         var a = kho.Tao("t", "a", "u");
         var b = kho.Tao("t", "a", "u");
         Assert.NotEqual(a, b);

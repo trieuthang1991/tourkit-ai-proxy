@@ -1,4 +1,4 @@
-// pages/chat-inbox.jsx — Hộp thư chat đa kênh (route /chat-inbox).
+﻿// pages/chat-inbox.jsx — Hộp thư chat đa kênh (route /chat-inbox).
 //
 // BỐN vùng: dải kênh | danh sách hội thoại | khung chat | hồ sơ khách.
 // Dải kênh tách riêng khỏi bộ lọc trạng thái vì đó là hai câu hỏi khác nhau: "khách nhắn từ đâu"
@@ -638,12 +638,16 @@
       pushToast('Cấp quyền xong thì bấm Tải lại để thấy trạng thái mới', 'success');
     }
 
-    // Kết nối OA mà KHÔNG khai gì trước: ứng dụng Zalo là của TourKit, khách chỉ cần đồng ý.
-    async function noiZalo(kenh) {
+    // Kết nối mà KHÔNG khai gì trước: ứng dụng Zalo/Facebook là của TourKit, khách chỉ cần đồng ý.
+    //
+    // Facebook đi thêm một bước Zalo không có: sau khi đồng ý, máy chủ hiện danh sách Trang người
+    // đó quản trị để họ chọn. Cả bước đó nằm trong cửa sổ phụ này, mình không phải làm gì thêm.
+    async function noiNhanhKenh(kenh) {
       const r = await authedFetch('/api/v1/chat/channels/' + kenh + '/connect-url', { method: 'POST' });
       let j = null; try { j = await r.json(); } catch {}
       if (!r.ok) { pushToast(j?.error || 'Không dựng được đường kết nối', 'error'); return; }
-      window.open(j.url, 'zalo-cap-quyen', 'width=560,height=720');
+      window.open(j.url, 'chat-cap-quyen', 'width=560,height=720');
+      pushToast('Nối xong thì bấm Tải lại để thấy tài khoản mới', 'success');
     }
 
     async function xoa(kenh, accId, ten) {
@@ -692,7 +696,7 @@
             <div className="ci-tk-dau">
               <span>{k.accounts.length} tài khoản</span>
               {k.noiNhanh
-                ? <button className="ci-nut nho chinh" onClick={() => noiZalo(k.channel)}>Kết nối Zalo OA</button>
+                ? <button className="ci-nut nho chinh" onClick={() => noiNhanhKenh(k.channel)}>{k.nutNoi || 'Kết nối'}</button>
                 : (
                   <button className="ci-nut nho"
                           onClick={() => setMo(mo === k.channel + ':moi' ? null : k.channel + ':moi')}>

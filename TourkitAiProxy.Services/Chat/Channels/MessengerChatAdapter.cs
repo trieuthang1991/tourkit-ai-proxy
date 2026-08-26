@@ -28,17 +28,48 @@ namespace TourkitAiProxy.Services.Chat.Channels;
 /// </summary>
 public class MessengerChatAdapter : IChatChannelAdapter
 {
-    private const string GraphBase = "https://graph.facebook.com/v21.0";
+    private const string GraphBase = "https://graph.facebook.com";
+
+    /// Đổi phiên bản là đổi hành vi của MỌI lệnh gọi Meta cùng lúc — để ở cấu hình, mặc định giữ
+    /// nguyên bản đang chạy thật, đừng nhảy phiên bản chỉ vì Meta ra bản mới.
+    private const string MacDinhPhienBan = "v21.0";
 
     private readonly IHttpClientFactory _http;
     private readonly ChannelCredentialStore _cred;
+    private readonly IConfiguration _cfg;
     private readonly ILogger<MessengerChatAdapter> _log;
 
     public MessengerChatAdapter(IHttpClientFactory http, ChannelCredentialStore cred,
-        ILogger<MessengerChatAdapter> log)
-    { _http = http; _cred = cred; _log = log; }
+        IConfiguration cfg, ILogger<MessengerChatAdapter> log)
+    { _http = http; _cred = cred; _cfg = cfg; _log = log; }
 
     public ChatChannel Channel => ChatChannel.Messenger;
+
+    // ── Ứng dụng Meta CẤP NỀN TẢNG ──────────────────────────────────────────
+    //
+    // Giống hệt lối đã làm cho Zalo: TourKit sở hữu MỘT ứng dụng Facebook cho mọi khách hàng, khai
+    // một lần ở appsettings. Khách bấm một nút, đăng nhập Facebook, chọn Trang — hết.
+    //
+    // Facebook còn dễ hơn Zalo một bậc: bước đăng ký nhận tin cho Trang gọi được bằng API
+    // (<c>subscribed_apps</c>), nên khách KHÔNG phải vào màn hình quản trị của Meta lần nào. Zalo
+    // không có cái tương đương.
+    //
+    // Khoá RIÊNG của tài khoản vẫn được ưu tiên: công ty nào đã khai ứng dụng riêng theo đường cũ
+    // thì chạy nguyên, không phải khai lại.
+    public string? AppIdNenTang => Rong(_cfg["Chat:Messenger:AppId"]);
+    private string? AppSecretNenTang => Rong(_cfg["Chat:Messenger:AppSecret"]);
+    private string? VerifyTokenNenTang => Rong(_cfg["Chat:Messenger:VerifyToken"]);
+    public string PhienBan => Rong(_cfg["Chat:Messenger:Version"]) ?? MacDinhPhienBan;
+
+    /// Đã khai đủ ứng dụng cấp nền tảng chưa. Thiếu thì giao diện phải hiện lại các ô nhập tay.
+    public bool CoUngDungNenTang => AppIdNenTang is not null && AppSecretNenTang is not null;
+
+    private static string? Rong(string? s) => string.IsNullOrWhiteSpace(s) ? null : s.Trim();
+
+    /// App Secret của một tài khoản, <b>lùi về ứng dụng cấp nền tảng</b>. Tài khoản nối bằng luồng
+    /// mới chỉ lưu <c>pageId</c> + <c>pageAccessToken</c>; khoá ứng dụng lấy từ cấu hình.
+    private string? AppSecretCua(IReadOnlyDictionary<string, string> g)
+        => Rong(g.GetValueOrDefault("appSecret")) ?? AppSecretNenTang;
 
     /// <summary>
     /// Meta xác minh địa chỉ webhook bằng một lượt GET kèm <c>hub.challenge</c> — phải trả lại đúng
@@ -51,6 +82,11 @@ public class MessengerChatAdapter : IChatChannelAdapter
         string? challenge, CancellationToken ct)
     {
         if (mode != "subscribe" || string.IsNullOrWhiteSpace(token)) return null;
+
+        // Ứng dụng cấp nền tảng: chỉ có MỘT verify token, khai ở appsettings. Kiểm trước vì đường
+        // dùng chung không mang tên công ty nên danh sách tài khoản bên dưới sẽ rỗng.
+        if (VerifyTokenNenTang is { } chung && chung == token) return challenge;
+
         var taiKhoan = await _cred.ListAccountsAsync(tenantId, Channel, ct);
         var khop = taiKhoan.Any(t => t.GiaTri.TryGetValue("verifyToken", out var mong) && mong == token);
         return khop ? challenge : null;
@@ -77,36 +113,80 @@ public class MessengerChatAdapter : IChatChannelAdapter
             return null;
         }
 
-        // Bước 1: chữ ký chứng minh đây là traffic THẬT của công ty (thử từng secret, nhiều Trang
-        // cùng App sẽ trùng secret nên chỉ cần tìm MỘT khớp).
-        var quaChuKy = taiKhoan.Any(t =>
-        {
-            if (!t.GiaTri.TryGetValue("appSecret", out var secret) || string.IsNullOrWhiteSpace(secret)) return false;
-            using var hmac = new HMACSHA256(Encoding.UTF8.GetBytes(secret));
-            var mong = Convert.ToHexString(hmac.ComputeHash(Encoding.UTF8.GetBytes(rawBody))).ToLowerInvariant();
-            var a = Encoding.ASCII.GetBytes(mong);
-            return a.Length == chuKyGui.Length && CryptographicOperations.FixedTimeEquals(a, chuKyGui);
-        });
-        if (!quaChuKy) return null;
-
-        // Bước 2: chữ ký đúng chỉ chứng minh "của công ty này", CHƯA biết Trang nào — đọc ID Trang
-        // thật trong thân tin rồi khớp với tài khoản đã khai đúng Trang đó.
-        var pageId = DocPageId(rawBody);
+        // Bước 1: TÌM TRANG. Meta đăng ký webhook theo ỨNG DỤNG chứ không theo Trang, nên một gói
+        // tin tới đây chưa tự nói nó thuộc tài khoản nào — id Trang nằm trong thân tin (hoặc do
+        // đường dùng chung tra sẵn ra rồi truyền vào).
+        var pageId = accountIdTuUrl is { Length: > 0 } ? accountIdTuUrl : IdTrangCuaSuKien(rawBody);
         if (pageId is null) return null;
-        var taiKhoanKhop = taiKhoan.FirstOrDefault(t => t.GiaTri.GetValueOrDefault("pageId") == pageId);
+
+        // accountId của luồng mới CHÍNH LÀ id Trang; luồng khai tay cũ để id ngẫu nhiên và cất id
+        // Trang trong ô pageId — thử cả hai, không thì tài khoản khai tay ngừng nhận tin.
+        var taiKhoanKhop = taiKhoan.FirstOrDefault(t => t.AccountId == pageId)
+                        ?? taiKhoan.FirstOrDefault(t => t.GiaTri.GetValueOrDefault("pageId") == pageId);
         if (taiKhoanKhop is null)
+        {
             _log.LogWarning("[chat/messenger] tenant={T} nhận tin từ Trang {P} chưa khai tài khoản nào", tenantId, pageId);
-        return taiKhoanKhop?.AccountId;
+            return null;
+        }
+
+        // Bước 2: KIỂM CHỮ KÝ bằng đúng khoá của tài khoản vừa tìm ra.
+        //
+        // Trước đây bước này thử LẦN LƯỢT mọi appSecret đã khai rồi mới đi tìm Trang. Đổi thứ tự
+        // vì với ứng dụng cấp nền tảng thì mọi công ty chung một App Secret — "khớp một cái bất
+        // kỳ" không còn chứng minh được gì. Tìm Trang trước rồi kiểm bằng khoá của chính nó thì
+        // chặt hơn, và luồng khai tay cũ vẫn đúng y như cũ.
+        var secret = AppSecretCua(taiKhoanKhop.GiaTri);
+        if (secret is null)
+        {
+            _log.LogWarning("[chat/messenger] tenant={T} Trang {P} chưa khai App Secret và máy chủ "
+                + "cũng chưa khai ứng dụng dùng chung — không kiểm được chữ ký", tenantId, pageId);
+            return null;
+        }
+        using var hmac = new HMACSHA256(Encoding.UTF8.GetBytes(secret));
+        var mong = Convert.ToHexString(hmac.ComputeHash(Encoding.UTF8.GetBytes(rawBody))).ToLowerInvariant();
+        var a = Encoding.ASCII.GetBytes(mong);
+        return a.Length == chuKyGui.Length && CryptographicOperations.FixedTimeEquals(a, chuKyGui)
+            ? taiKhoanKhop.AccountId : null;
     }
 
-    private static string? DocPageId(string rawBody)
+    /// <summary>
+    /// Id Trang của gói tin này — <b>khoá định tuyến</b> của webhook dùng chung.
+    ///
+    /// <para>Meta để nó ở <c>entry[].id</c> cho MỌI loại sự kiện (tin khách, tiếng vọng, báo đã
+    /// đọc, đổi nhãn). Dễ hơn Zalo, nơi id OA nhảy chỗ theo từng loại sự kiện.</para>
+    /// </summary>
+    public static string? IdTrangCuaSuKien(string rawBody)
     {
         try
         {
             var goc = JsonNode.Parse(rawBody);
-            return (goc?["entry"] as JsonArray)?.OfType<JsonNode>().FirstOrDefault()?["id"]?.ToString();
+            var id = (goc?["entry"] as JsonArray)?.OfType<JsonNode>().FirstOrDefault()?["id"]?.ToString();
+            return string.IsNullOrWhiteSpace(id) ? null : id;
         }
         catch { return null; }
+    }
+
+    /// <summary>
+    /// Xác thực cho đường webhook <b>DÙNG CHUNG</b> (không mang tên công ty trên URL).
+    ///
+    /// <para>Dùng ứng dụng cấp nền tảng thì mọi khách hàng chung một App, nên URL không thể mang
+    /// tên công ty. Định tuyến bằng <b>id Trang</b>: id đó chính là <c>accountId</c> của tài khoản
+    /// nối theo luồng mới, nên tra ra công ty chỉ mất một phép so.</para>
+    ///
+    /// <para>Tra được công ty rồi <b>vẫn phải kiểm chữ ký</b> — id Trang không phải bí mật, ai vào
+    /// trang Facebook công khai cũng đọc được.</para>
+    /// </summary>
+    public async Task<(string TenantId, string AccountId)?> XacMinhDungChungAsync(string rawBody,
+        IHeaderDictionary headers, CancellationToken ct)
+    {
+        if (IdTrangCuaSuKien(rawBody) is not { } pageId) return null;
+        var tenant = await _cred.TimTenantAsync(Channel, pageId, ct);
+        if (tenant is null)
+        {
+            _log.LogWarning("[chat/messenger] nhận tin của Trang {P} nhưng chưa công ty nào nối Trang đó", pageId);
+            return null;
+        }
+        return await VerifyAsync(tenant, pageId, rawBody, headers, ct) is { } tk ? (tenant, tk) : null;
     }
 
     public IReadOnlyList<InboundChatEvent> Parse(string rawBody)
@@ -183,6 +263,184 @@ public class MessengerChatAdapter : IChatChannelAdapter
         return ra;
     }
 
+    // ── Nối Trang bằng MỘT nút (OAuth) ──────────────────────────────────────
+
+    /// <summary>
+    /// Quyền xin của người dùng, giữ ở mức <b>tối thiểu chạy được</b>:
+    /// <list type="bullet">
+    /// <item><c>pages_show_list</c> — để đọc <c>/me/accounts</c>, tức là biết họ quản trị Trang nào.</item>
+    /// <item><c>pages_messaging</c> — để gửi tin.</item>
+    /// <item><c>pages_read_engagement</c> — để đọc tên/ảnh Trang.</item>
+    /// <item><c>pages_manage_metadata</c> — để gọi <c>subscribed_apps</c>, tức là TỰ bật nhận tin.</item>
+    /// </list>
+    ///
+    /// <para><b>Vì sao không xin thêm cho chắc.</b> Mỗi quyền thừa là một mục phải giải trình khi
+    /// Meta duyệt ứng dụng, và một dòng đáng ngờ trong màn hình khách bấm đồng ý. Cần thêm về sau
+    /// thì xin thêm — khách cấp quyền lại mất mười giây.</para>
+    /// </summary>
+    public static readonly string[] Quyen =
+    {
+        "public_profile",
+        "pages_show_list",
+        "pages_messaging",
+        "pages_read_engagement",
+        "pages_manage_metadata",
+    };
+
+    /// <summary>
+    /// Loại sự kiện đăng ký cho Trang. <b>Đây là thứ quyết định webhook có tin hay không</b> — cấp
+    /// quyền xong mà quên bước này thì mọi thứ trông như đã nối mà hộp thư im lặng mãi mãi.
+    ///
+    /// <para>Phải khớp với những gì <see cref="Parse"/> bóc: thiếu <c>message_echoes</c> là mất tin
+    /// nhân viên trả lời từ ứng dụng Meta; thiếu <c>message_deliveries</c>/<c>message_reads</c> là
+    /// tin gửi đi không bao giờ leo lên hai tích.</para>
+    /// </summary>
+    private static readonly string[] SuKienTrang =
+    {
+        "messages", "messaging_postbacks", "messaging_optins", "messaging_referrals",
+        "message_deliveries", "message_reads", "message_echoes",
+    };
+
+    private static string U(string s) => Uri.EscapeDataString(s);
+
+    /// <summary>
+    /// Đường đăng nhập Facebook để xin quyền.
+    ///
+    /// <para><paramref name="redirectUri"/> phải nằm trong danh sách <b>Valid OAuth Redirect URIs</b>
+    /// của ứng dụng bên Meta — lệch một dấu gạch chéo là Facebook từ chối, y như Zalo.</para>
+    /// </summary>
+    public string DuongCapQuyen(string redirectUri, string state)
+        => $"https://www.facebook.com/{PhienBan}/dialog/oauth"
+         + $"?client_id={U(AppIdNenTang ?? "")}"
+         + $"&redirect_uri={U(redirectUri)}"
+         + $"&scope={U(string.Join(",", Quyen))}"
+         + "&response_type=code"
+         + $"&state={U(state)}";
+
+    /// <summary>
+    /// Đổi <c>code</c> Facebook vừa đá về lấy <b>danh sách Trang</b> người này quản trị, mỗi Trang
+    /// kèm access token riêng của nó.
+    ///
+    /// <para><b>Vì sao chưa nối luôn.</b> Zalo hỏi ra đúng một OA; Meta trả về mọi Trang người đó
+    /// quản trị, kể cả Trang cá nhân chẳng liên quan. Phải để họ chọn.</para>
+    /// </summary>
+    public async Task<(IReadOnlyList<TrangUngVien>? Trang, string? Loi)> DoiMaLayTrangAsync(
+        string ma, string redirectUri, CancellationToken ct)
+    {
+        if (AppIdNenTang is null || AppSecretNenTang is null)
+            return (null, "Máy chủ chưa khai ứng dụng Facebook dùng chung (Chat:Messenger)");
+
+        try
+        {
+            var http = _http.CreateClient();
+
+            // 1. code → user token NGẮN hạn (khoảng 1-2 giờ).
+            var ngan = await ChuoiAsync(http, $"{GraphBase}/{PhienBan}/oauth/access_token"
+                + $"?client_id={U(AppIdNenTang)}&client_secret={U(AppSecretNenTang)}"
+                + $"&redirect_uri={U(redirectUri)}&code={U(ma)}", "access_token", ct);
+            if (ngan.Loi is not null) return (null, ngan.Loi);
+
+            // 2. Đổi sang user token DÀI hạn TRƯỚC khi hỏi danh sách Trang.
+            //
+            // Thứ tự này quan trọng và rất dễ làm ngược: page token lấy ra từ user token NGẮN hạn
+            // cũng chỉ sống vài giờ, còn page token lấy ra từ user token DÀI hạn thì KHÔNG HẾT HẠN.
+            // Làm ngược là vài giờ sau cả hộp thư ngừng gửi được, mà lỗi Meta trả về chỉ nói
+            // "session expired" — không ai đoán ra nguyên nhân nằm ở thứ tự hai lệnh gọi này.
+            var dai = await ChuoiAsync(http, $"{GraphBase}/{PhienBan}/oauth/access_token"
+                + $"?grant_type=fb_exchange_token&client_id={U(AppIdNenTang)}"
+                + $"&client_secret={U(AppSecretNenTang)}&fb_exchange_token={U(ngan.Gia!)}", "access_token", ct);
+            if (dai.Loi is not null) return (null, dai.Loi);
+
+            // 3. Danh sách Trang, mỗi Trang một token riêng.
+            using var res = await http.GetAsync($"{GraphBase}/{PhienBan}/me/accounts"
+                + $"?fields=id,name,access_token&limit=100&access_token={U(dai.Gia!)}", ct);
+            var raw = await res.Content.ReadAsStringAsync(ct);
+            var o = JsonNode.Parse(raw)?.AsObject();
+            if (o?["error"] is { } loi)
+                return (null, $"Facebook từ chối: {loi["message"]?.ToString() ?? Cat(raw)}");
+
+            var ds = (o?["data"] as JsonArray ?? new JsonArray())
+                .OfType<JsonNode>()
+                .Select(x => new TrangUngVien(x["id"]?.ToString() ?? "", x["name"]?.ToString() ?? "",
+                    x["access_token"]?.ToString() ?? ""))
+                .Where(x => x.PageId.Length > 0 && x.AccessToken.Length > 0)
+                .ToList();
+
+            return ds.Count == 0
+                ? (null, "Tài khoản Facebook này không quản trị Trang nào. Đăng nhập bằng tài khoản "
+                       + "là quản trị viên của Trang rồi thử lại.")
+                : (ds, null);
+        }
+        catch (Exception ex)
+        {
+            _log.LogWarning(ex, "[chat/messenger] không đổi được mã cấp quyền");
+            return (null, "Không gọi được Facebook: " + ex.Message);
+        }
+    }
+
+    private async Task<(string? Gia, string? Loi)> ChuoiAsync(HttpClient http, string url,
+        string truong, CancellationToken ct)
+    {
+        using var res = await http.GetAsync(url, ct);
+        var raw = await res.Content.ReadAsStringAsync(ct);
+        var o = JsonNode.Parse(raw)?.AsObject();
+        if (o?["error"] is { } loi)
+            return (null, $"Facebook từ chối: {loi["message"]?.ToString() ?? Cat(raw)}");
+        var gia = o?[truong]?.ToString();
+        return string.IsNullOrWhiteSpace(gia)
+            ? (null, $"Facebook không trả về {truong}: {Cat(raw)}")
+            : (gia, null);
+    }
+
+    /// <summary>
+    /// Bật nhận tin cho Trang rồi lưu khoá. Trả <c>null</c> khi xong, câu lỗi tiếng Việt khi hỏng.
+    ///
+    /// <para><c>subscribed_apps</c> là thứ Zalo không có: nó thay cho việc bắt khách tự vào màn
+    /// hình quản trị của Meta bật webhook. Gọi được cái này thì cả bước nối gói gọn trong một nút.</para>
+    ///
+    /// <para><c>accountId</c> lưu bằng CHÍNH id Trang — webhook dùng chung tra ngược ra công ty
+    /// bằng id đó, đặt mã ngẫu nhiên là tin của khách không bao giờ tới nơi.</para>
+    /// </summary>
+    public async Task<string?> NoiTrangAsync(string tenantId, TrangUngVien trang, CancellationToken ct)
+    {
+        try
+        {
+            var http = _http.CreateClient();
+            using var req = new HttpRequestMessage(HttpMethod.Post,
+                $"{GraphBase}/{PhienBan}/{trang.PageId}/subscribed_apps");
+            req.Headers.Authorization = new("Bearer", trang.AccessToken);
+            req.Content = new FormUrlEncodedContent(new Dictionary<string, string>
+            {
+                ["subscribed_fields"] = string.Join(",", SuKienTrang),
+            });
+            using var res = await http.SendAsync(req, ct);
+            var raw = await res.Content.ReadAsStringAsync(ct);
+            var o = JsonNode.Parse(raw)?.AsObject();
+
+            // Meta trả {"success":true}. Không đọc trường đó mà chỉ nhìn mã HTTP là có ngày báo
+            // "đã nối" cho một Trang không bao giờ gửi tin về.
+            if (!res.IsSuccessStatusCode || o?["success"]?.GetValue<bool>() != true)
+                return $"Không bật được nhận tin cho Trang: {Cat(raw)}";
+        }
+        catch (Exception ex)
+        {
+            _log.LogWarning(ex, "[chat/messenger] không đăng ký được webhook cho Trang {P}", trang.PageId);
+            return "Không gọi được Facebook: " + ex.Message;
+        }
+
+        await _cred.SaveAsync(tenantId, Channel, trang.PageId, new Dictionary<string, string?>
+        {
+            ["pageId"] = trang.PageId,
+            ["pageName"] = trang.Ten,
+            // Tên gợi nhớ mặc định là tên Trang. Người dùng sửa lại được, và chỉ khi họ muốn.
+            ["label"] = trang.Ten,
+            ["pageAccessToken"] = trang.AccessToken,
+        }, ct);
+
+        _log.LogInformation("[chat/messenger] tenant={T} vừa nối Trang {P} ({Ten})",
+            tenantId, trang.PageId, trang.Ten);
+        return null;
+    }
     public async Task<SendResult> SendTextAsync(string tenantId, string accountId, string externalUserId,
         string text, CancellationToken ct)
         => await GuiAsync(tenantId, accountId, externalUserId, new { text }, ct);
@@ -223,7 +481,7 @@ public class MessengerChatAdapter : IChatChannelAdapter
                 messaging_type = "RESPONSE",
                 message = noiDungTin,
             };
-            using var res = await http.PostAsJsonAsync($"{GraphBase}/me/messages?access_token={token}", body, ct);
+            using var res = await http.PostAsJsonAsync($"{GraphBase}/{PhienBan}/me/messages?access_token={token}", body, ct);
             var raw = await res.Content.ReadAsStringAsync(ct);
 
             if (!res.IsSuccessStatusCode)

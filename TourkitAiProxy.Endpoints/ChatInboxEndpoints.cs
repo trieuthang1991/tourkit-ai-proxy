@@ -181,6 +181,64 @@ public static class ChatInboxEndpoints
         // và lượt kiểm cũng trượt — thêm một dòng còn hơn ngồi đoán vì sao không lưu được.
         routes.MapGet("/api/v1/chat/webhook/zalo", () => Results.Ok());
 
+        // Đường DÙNG CHUNG cho Messenger — cùng lý do với Zalo: ứng dụng Facebook là của TourKit,
+        // khai một lần, mọi khách hàng dùng chung nên URL không mang tên công ty được.
+        //
+        // Thực ra Meta BẮT BUỘC như vậy: webhook đăng ký theo ỨNG DỤNG, một địa chỉ duy nhất cho
+        // mọi Trang. Tra ngược ra công ty bằng id Trang ở entry[].id, rồi vẫn kiểm chữ ký.
+        //
+        // ⚠️ Cũng LUÔN TRẢ 200 như Zalo, và vì lý do nặng hơn: Meta tự động NGỪNG gửi webhook cho
+        // ứng dụng nào trả lỗi liên tục. Trả 401 cho tin rác là tự tay tắt kênh của mọi khách hàng.
+        routes.MapPost("/api/v1/chat/webhook/messenger", async (HttpContext ctx, ChatInboundService svc,
+            ChatRepository repo, ILoggerFactory lf, CancellationToken ct) =>
+        {
+            var log = lf.CreateLogger("chat.webhook");
+            if (svc.Adapter(ChatChannel.Messenger) is not Services.Chat.Channels.MessengerChatAdapter fb)
+                return Results.NotFound();
+
+            ctx.Request.EnableBuffering();
+            using var reader = new StreamReader(ctx.Request.Body, leaveOpen: true);
+            var raw = await reader.ReadToEndAsync(ct);
+            ctx.Request.Body.Position = 0;
+
+            var ai = await fb.XacMinhDungChungAsync(raw, ctx.Request.Headers, ct);
+            if (ai is null)
+            {
+                var trang = Services.Chat.Channels.MessengerChatAdapter.IdTrangCuaSuKien(raw);
+                if (trang is null)
+                    log.LogInformation("[chat/webhook] messenger: gói không có id Trang — trả 200, không ghi gì");
+                else
+                    log.LogWarning("[chat/webhook] messenger: TỪ CHỐI tin của Trang {P} — chữ ký sai "
+                        + "hoặc chưa công ty nào nối Trang này. Tin KHÔNG vào hộp thư.", trang);
+                return Results.Ok();
+            }
+
+            var sk = fb.Parse(raw);
+            if (sk.Count == 0) return Results.Ok();
+
+            var id = await repo.EnqueueInboundAsync(ai.Value.TenantId, ChatChannel.Messenger,
+                ai.Value.AccountId, sk[0].ExternalMsgId, raw, ct);
+            if (id is null)
+                log.LogInformation("[chat/webhook] bỏ qua bản gửi lại, messenger tenant={T} sk={S}",
+                    ai.Value.TenantId, sk[0].ExternalMsgId);
+            return Results.Ok();
+        });
+
+        // Meta xác minh địa chỉ bằng một lượt GET kèm hub.challenge. Ở đường dùng chung không có
+        // tên công ty nên chỉ đối chiếu được với verify token CẤP NỀN TẢNG.
+        routes.MapGet("/api/v1/chat/webhook/messenger", async (HttpContext ctx,
+            Services.Chat.Channels.MessengerChatAdapter adapter, CancellationToken ct) =>
+        {
+            var q = ctx.Request.Query;
+            var challenge = await adapter.XacMinhDangKyAsync("", q["hub.mode"], q["hub.verify_token"],
+                q["hub.challenge"], ct);
+            // Trả chuỗi THÔ, không bọc JSON — Meta so khớp nguyên văn.
+            // KHÔNG dùng Results.Forbid(): ứng dụng không đăng ký dịch vụ xác thực nào nên nó ném
+            // InvalidOperationException, và Meta nhận về 500 thay vì 403 — báo lỗi sai chỗ, mất công
+            // đi tìm ở đầu Meta trong khi lỗi nằm ở đây.
+            return challenge is null ? Results.StatusCode(403) : Results.Text(challenge);
+        });
+
         // Đường CŨ, mang tên công ty: giữ nguyên cho các OA đã khai theo ứng dụng riêng. Bỏ đi là
         // webhook đang chạy của họ chết ngay lúc deploy.
         routes.MapPost("/api/v1/chat/webhook/{kenh}/{tenantId}", (
@@ -201,7 +259,10 @@ public static class ChatInboxEndpoints
             var challenge = await adapter.XacMinhDangKyAsync(tenantId,
                 q["hub.mode"], q["hub.verify_token"], q["hub.challenge"], ct);
             // Trả chuỗi THÔ, không bọc JSON — Meta so khớp nguyên văn.
-            return challenge is null ? Results.Forbid() : Results.Text(challenge);
+            // KHÔNG dùng Results.Forbid(): ứng dụng không đăng ký dịch vụ xác thực nào nên nó ném
+            // InvalidOperationException, và Meta nhận về 500 thay vì 403 — báo lỗi sai chỗ, mất công
+            // đi tìm ở đầu Meta trong khi lỗi nằm ở đây.
+            return challenge is null ? Results.StatusCode(403) : Results.Text(challenge);
         });
     }
 
@@ -739,33 +800,47 @@ public static class ChatInboxEndpoints
         g.MapPost("/channels/{channel:int}/connect-url", async (int channel, HttpContext ctx,
             TkSessionStore sessions,
             IEnumerable<Services.Chat.Channels.IChatChannelAdapter> adapters,
-            Services.Chat.Channels.ZaloOAuthStates moc, IConfiguration cfg, CancellationToken ct) =>
+            Services.Chat.Channels.ChatOAuthStates moc, IConfiguration cfg, CancellationToken ct) =>
         {
             var a = SessionAuth.Read(ctx, sessions);
             if (a == null) return SessionAuth.Unauthorized();
             if (!await SessionAuth.CanConfigSystemAsync(a.SessionId, sessions, ct))
                 return SessionAuth.ForbiddenConfigSystem();
-            if ((ChatChannel)channel != ChatChannel.Zalo)
-                return Results.BadRequest(new { error = "Chỉ Zalo OA mới có bước kết nối này" });
-
-            var zalo = adapters.OfType<Services.Chat.Channels.ZaloChatAdapter>().FirstOrDefault();
-            if (zalo?.CoUngDungNenTang != true)
-                return Results.BadRequest(new { error = "Máy chủ chưa khai ứng dụng Zalo dùng chung (Chat:Zalo)" });
-
-            var quayVe = GocCongKhai(ctx, cfg) + DuongCallbackZalo;
-            // accountId để TRỐNG: chưa biết OA nào cho tới lúc Zalo trả hồ sơ về.
-            var state = moc.Tao(a.TenantId, "", quayVe);
-            return Results.Json(new
+            // accountId để TRỐNG ở cả hai nhánh: chưa biết OA/Trang nào cho tới lúc nhà cung cấp
+            // trả hồ sơ về. Mã tài khoản sẽ là chính id OA / id Trang.
+            if ((ChatChannel)channel == ChatChannel.Zalo)
             {
-                url = Services.Chat.Channels.ZaloChatAdapter.DuongCapQuyen(zalo.AppIdNenTang!, quayVe, state),
-                redirectUri = quayVe,
-            }, Web);
+                var zalo = adapters.OfType<Services.Chat.Channels.ZaloChatAdapter>().FirstOrDefault();
+                if (zalo?.CoUngDungNenTang != true)
+                    return Results.BadRequest(new { error = "Máy chủ chưa khai ứng dụng Zalo dùng chung (Chat:Zalo)" });
+
+                var quayVe = GocCongKhai(ctx, cfg) + DuongCallbackZalo;
+                var state = moc.Tao(a.TenantId, "", quayVe);
+                return Results.Json(new
+                {
+                    url = Services.Chat.Channels.ZaloChatAdapter.DuongCapQuyen(zalo.AppIdNenTang!, quayVe, state),
+                    redirectUri = quayVe,
+                }, Web);
+            }
+
+            if ((ChatChannel)channel == ChatChannel.Messenger)
+            {
+                var fb = adapters.OfType<Services.Chat.Channels.MessengerChatAdapter>().FirstOrDefault();
+                if (fb?.CoUngDungNenTang != true)
+                    return Results.BadRequest(new { error = "Máy chủ chưa khai ứng dụng Facebook dùng chung (Chat:Messenger)" });
+
+                var quayVe = GocCongKhai(ctx, cfg) + DuongCallbackMessenger;
+                var state = moc.Tao(a.TenantId, "", quayVe);
+                return Results.Json(new { url = fb.DuongCapQuyen(quayVe, state), redirectUri = quayVe }, Web);
+            }
+
+            return Results.BadRequest(new { error = "Kênh này không có bước kết nối một chạm" });
         });
 
         g.MapPost("/channels/{channel:int}/accounts/{accountId}/oauth-url", async (int channel,
             string accountId, HttpContext ctx, TkSessionStore sessions, ChannelCredentialStore cred,
             IEnumerable<Services.Chat.Channels.IChatChannelAdapter> adapters,
-            Services.Chat.Channels.ZaloOAuthStates moc, IConfiguration cfg, CancellationToken ct) =>
+            Services.Chat.Channels.ChatOAuthStates moc, IConfiguration cfg, CancellationToken ct) =>
         {
             var a = SessionAuth.Read(ctx, sessions);
             if (a == null) return SessionAuth.Unauthorized();
@@ -795,7 +870,7 @@ public static class ChatInboxEndpoints
         // X-Session-Id. Ghép lại công ty/tài khoản bằng `state` do máy chủ sinh, dùng một lần.
         g.MapGet("/oauth/zalo/callback", async (string? code, string? state, string? error,
             IEnumerable<Services.Chat.Channels.IChatChannelAdapter> adapters,
-            Services.Chat.Channels.ZaloOAuthStates moc, CancellationToken ct) =>
+            Services.Chat.Channels.ChatOAuthStates moc, CancellationToken ct) =>
         {
             if (!string.IsNullOrWhiteSpace(error))
                 return TrangCapQuyen(false, $"Zalo báo: {error}");
@@ -816,6 +891,62 @@ public static class ChatInboxEndpoints
                 : TrangCapQuyen(false, loi);
         });
 
+        // CÔNG KHAI — Meta đá trình duyệt về đây. Khác Zalo ở chỗ CHƯA nối được ngay: /me/accounts
+        // trả về mọi Trang người này quản trị, phải để họ chọn Trang nào là của công ty.
+        g.MapGet("/oauth/messenger/callback", async (string? code, string? state, string? error,
+            string? error_description, HttpContext ctx, ChannelCredentialStore cred,
+            IEnumerable<Services.Chat.Channels.IChatChannelAdapter> adapters,
+            Services.Chat.Channels.ChatOAuthStates moc, Services.Chat.Channels.MessengerPageChoices chon,
+            CancellationToken ct) =>
+        {
+            if (!string.IsNullOrWhiteSpace(error))
+                return TrangCapQuyen(false, $"Facebook báo: {error_description ?? error}");
+
+            var cho = moc.Nhan(state);
+            if (cho is null)
+                return TrangCapQuyen(false, "Lượt kết nối đã hết hạn hoặc đã dùng rồi. Bấm lại nút Kết nối Facebook.");
+            if (string.IsNullOrWhiteSpace(code))
+                return TrangCapQuyen(false, "Facebook không trả về mã cấp quyền.");
+
+            var fb = adapters.OfType<Services.Chat.Channels.MessengerChatAdapter>().FirstOrDefault();
+            if (fb is null) return TrangCapQuyen(false, "Kênh Messenger chưa được bật ở máy chủ.");
+
+            var (trang, loi) = await fb.DoiMaLayTrangAsync(code!, cho.Value.RedirectUri, ct);
+            if (loi is not null) return TrangCapQuyen(false, loi);
+
+            var ma = chon.Tao(cho.Value.TenantId, trang!);
+            return TrangChonTrang(ma, trang!, await DaNoiAsync(cred, cho.Value.TenantId, ct), null);
+        });
+
+        // CÔNG KHAI — nửa sau của bước nối: người dùng vừa bấm chọn một Trang trên trang picker.
+        //
+        // Không có phiên nên chốt chặn nằm ở `ma`: máy chủ tự sinh 32 byte ngẫu nhiên, sống 10
+        // phút, và CHỈ nối được Trang nằm trong danh sách đã lưu kèm mã đó. Thiếu vế sau thì ai
+        // cầm mã cũng nối được Trang bất kỳ chỉ bằng cách đoán một id.
+        g.MapPost("/oauth/messenger/chon", async (HttpContext ctx, ChannelCredentialStore cred,
+            IEnumerable<Services.Chat.Channels.IChatChannelAdapter> adapters,
+            Services.Chat.Channels.MessengerPageChoices chon, CancellationToken ct) =>
+        {
+            var form = await ctx.Request.ReadFormAsync(ct);
+            var ma = form["ma"].ToString();
+            var c = chon.Nhan(ma, form["pageId"].ToString());
+            if (c is null)
+                return TrangCapQuyen(false, "Lượt chọn đã hết hạn. Bấm lại nút Kết nối Facebook.");
+
+            var fb = adapters.OfType<Services.Chat.Channels.MessengerChatAdapter>().FirstOrDefault();
+            if (fb is null) return TrangCapQuyen(false, "Kênh Messenger chưa được bật ở máy chủ.");
+
+            var loi = await fb.NoiTrangAsync(c.Value.TenantId, c.Value.Trang, ct);
+            if (loi is not null) return TrangCapQuyen(false, loi);
+
+            // Vẽ lại danh sách thay vì đóng cửa sổ: công ty nhiều chi nhánh nối vài Trang liền tay,
+            // đóng phụt sau Trang đầu là bắt họ đăng nhập Facebook lại từ đầu cho Trang thứ hai.
+            var con = chon.Xem(ma);
+            return TrangChonTrang(ma, con?.Trang ?? Array.Empty<Services.Chat.Channels.TrangUngVien>(),
+                await DaNoiAsync(cred, c.Value.TenantId, ct),
+                $"Đã nối Trang \"{c.Value.Trang.Ten}\". Tin nhắn mới sẽ vào hộp thư ngay.");
+        });
+
         // ── Khai kết nối kênh ───────────────────────────────────────────────
         // Cần quyền Cấu hình hệ thống: đây là khoá cấp CÔNG TY, ai cầm được là nhắn tin dưới danh
         // nghĩa công ty.
@@ -832,24 +963,40 @@ public static class ChatInboxEndpoints
                 return SessionAuth.ForbiddenConfigSystem();
 
             var goc = GocCongKhai(ctx, cfg);
-            // Máy chủ đã khai ứng dụng Zalo dùng chung chưa. Có thì giao diện giấu hết ô nhập và
-            // chỉ hiện một nút — khách không phải chạm vào cổng developer của Zalo.
+            // Máy chủ đã khai ứng dụng cấp nền tảng cho kênh này chưa. Có thì giao diện giấu hết ô
+            // nhập và chỉ hiện một nút — khách không phải chạm vào cổng developer của Zalo/Meta.
             var zaloNhanh = adapters.OfType<Services.Chat.Channels.ZaloChatAdapter>()
                                     .FirstOrDefault()?.CoUngDungNenTang == true;
+            var fbNhanh = adapters.OfType<Services.Chat.Channels.MessengerChatAdapter>()
+                                  .FirstOrDefault()?.CoUngDungNenTang == true;
             var ra = new List<object>();
             foreach (var (kenh, ten, oNhap, moiTaiKhoanMotUrl) in KhaiBao)
             {
                 var dsach = await cred.ListAccountsAsync(a.TenantId, kenh, ct);
-                // Ứng dụng Zalo dùng chung thì URL webhook cũng dùng chung — khai MỘT lần trong
-                // ứng dụng của TourKit, khách không phải dán gì. Vẫn trả về để quản trị đối chiếu.
-                var duong = kenh == ChatChannel.Zalo && zaloNhanh
-                    ? $"{goc}/api/v1/chat/webhook/zalo"
+                var nhanh = kenh switch
+                {
+                    ChatChannel.Zalo => zaloNhanh,
+                    ChatChannel.Messenger => fbNhanh,
+                    _ => false,
+                };
+                // Ứng dụng dùng chung thì URL webhook cũng dùng chung — khai MỘT lần trong ứng dụng
+                // của TourKit, khách không phải dán gì. Vẫn trả về để quản trị đối chiếu.
+                var duong = nhanh
+                    ? $"{goc}/api/v1/chat/webhook/{kenh.ToString().ToLowerInvariant()}"
                     : $"{goc}/api/v1/chat/webhook/{kenh.ToString().ToLowerInvariant()}/{a.TenantId}";
                 ra.Add(new
                 {
                     channel = (short)kenh, name = ten, fields = oNhap,
                     // Kênh này nối được bằng MỘT nút hay phải khai tay từng ô.
-                    noiNhanh = kenh == ChatChannel.Zalo && zaloNhanh,
+                    noiNhanh = nhanh,
+                    // Chữ trên nút. Để máy chủ quyết định để giao diện không phải biết tên kênh —
+                    // thêm kênh nối-một-chạm mới thì không phải sửa .jsx.
+                    nutNoi = kenh switch
+                    {
+                        ChatChannel.Zalo => "Kết nối Zalo OA",
+                        ChatChannel.Messenger => "Kết nối Facebook",
+                        _ => "Kết nối",
+                    },
                     // Telegram: mỗi bot một URL riêng (thân tin không nói bot nào) → URL chung để
                     // trống, giao diện hiện URL riêng ở từng tài khoản. Zalo/Messenger dùng chung.
                     webhookUrl = moiTaiKhoanMotUrl ? null : duong,
@@ -857,11 +1004,15 @@ public static class ChatInboxEndpoints
                     {
                         accountId = t.AccountId,
                         label = t.GiaTri.GetValueOrDefault("label", ""),
-                        // Tên OA THẬT do Zalo trả về sau khi cấp quyền — khác "Tên gợi nhớ" người
-                        // dùng tự đặt. Khai nhiều OA mà không có cái này thì không phân biệt nổi.
-                        oaName = t.GiaTri.GetValueOrDefault("oaName", ""),
-                        oaId = t.GiaTri.GetValueOrDefault("oaId", ""),
-                        configured = DaKhaiDu(kenh, t.GiaTri),
+                        // Tên/id THẬT do nhà cung cấp trả về sau khi nối — khác "Tên gợi nhớ" người
+                        // dùng tự đặt. Nối nhiều OA/Trang mà không có cái này thì không phân biệt
+                        // nổi. Zalo cất ở oaName/oaId, Meta ở pageName/pageId; giao diện chỉ cần
+                        // MỘT cặp khoá nên gộp ở đây.
+                        oaName = t.GiaTri.GetValueOrDefault("oaName", "")
+                                 is { Length: > 0 } tenThat ? tenThat : t.GiaTri.GetValueOrDefault("pageName", ""),
+                        oaId = t.GiaTri.GetValueOrDefault("oaId", "")
+                               is { Length: > 0 } idThat ? idThat : t.GiaTri.GetValueOrDefault("pageId", ""),
+                        configured = DaKhaiDu(kenh, t.GiaTri, nhanh),
                         webhookUrl = moiTaiKhoanMotUrl ? $"{duong}/{t.AccountId}" : duong,
                         // Giá trị điền sẵn khi sửa — CHỈ trường không phải bí mật. Bí mật thì
                         // tuyệt đối không trả ra: giao diện để trống, gửi rỗng = giữ nguyên.
@@ -987,6 +1138,74 @@ public static class ChatInboxEndpoints
 
     private const string DuongCallbackZalo = "/api/v1/chat/oauth/zalo/callback";
 
+    /// <remarks>Chuỗi này phải nằm trong <b>Valid OAuth Redirect URIs</b> của ứng dụng bên Meta,
+    /// khớp từng ký tự. Đổi ở đây là phải sửa cả bên đó.</remarks>
+    private const string DuongCallbackMessenger = "/api/v1/chat/oauth/messenger/callback";
+
+    /// <summary>Id các Trang công ty này đã nối — để trang chọn Trang không mời nối lại cái đã có.</summary>
+    private static async Task<HashSet<string>> DaNoiAsync(ChannelCredentialStore cred, string tenantId,
+        CancellationToken ct)
+    {
+        var ds = await cred.ListAccountsAsync(tenantId, ChatChannel.Messenger, ct);
+        return ds.Select(t => t.GiaTri.GetValueOrDefault("pageId", t.AccountId))
+                 .Where(x => !string.IsNullOrWhiteSpace(x))
+                 .ToHashSet(StringComparer.Ordinal);
+    }
+
+    /// <summary>
+    /// Trang CHỌN TRANG — nửa sau của bước nối Facebook, thứ Zalo không cần.
+    ///
+    /// <para>Là HTML dựng tay chứ không phải một trang React vì nó chạy trong cửa sổ phụ Meta vừa
+    /// đá về: <b>không có phiên đăng nhập</b>, nên không nạp được ứng dụng chính. Một form thuần,
+    /// mỗi Trang một nút, mã <c>ma</c> là thứ duy nhất chứng minh lượt chọn này là thật.</para>
+    /// </summary>
+    private static IResult TrangChonTrang(string ma, IReadOnlyList<Services.Chat.Channels.TrangUngVien> trang,
+        HashSet<string> daNoi, string? thongDiep)
+    {
+        var b = new System.Text.StringBuilder();
+        b.Append("<!doctype html><html lang=\"vi\"><head><meta charset=\"utf-8\">");
+        b.Append("<meta name=\"viewport\" content=\"width=device-width,initial-scale=1\">");
+        b.Append("<title>Chọn Trang Facebook</title><style>");
+        b.Append("body{font-family:system-ui,sans-serif;padding:28px 24px;line-height:1.6;color:#0F172A;max-width:520px;margin:0 auto}");
+        b.Append("h2{margin:0 0 4px;font-size:20px}p{margin:0 0 20px;color:#64748B}");
+        b.Append(".ok{background:#F0FDF4;border:1px solid #BBF7D0;color:#15803D;padding:10px 12px;border-radius:8px;margin:0 0 16px}");
+        b.Append("ul{list-style:none;padding:0;margin:0;border:1px solid #E2E8F0;border-radius:10px;overflow:hidden}");
+        b.Append("li{display:flex;align-items:center;gap:12px;padding:12px 14px;border-top:1px solid #E2E8F0}");
+        b.Append("li:first-child{border-top:0}");
+        b.Append(".ten{flex:1;min-width:0}.ten b{display:block;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}");
+        b.Append(".ten small{color:#94A3B8;font-variant-numeric:tabular-nums}");
+        b.Append("button{font:inherit;font-size:14px;padding:7px 14px;border-radius:8px;border:0;cursor:pointer}");
+        b.Append("button.chinh{background:#0F172A;color:#fff}button.phu{background:#F1F5F9;color:#475569}");
+        b.Append("button:active{transform:translateY(1px)}");
+        b.Append(".da{color:#15803D;font-size:13px;font-weight:600}");
+        b.Append("</style></head><body>");
+        b.Append("<h2>Chọn Trang để nối</h2>");
+        b.Append("<p>Chỉ Trang bạn chọn mới vào hộp thư. Nối xong một Trang có thể chọn tiếp Trang khác, "
+            + "hoặc đóng cửa sổ này.</p>");
+        if (thongDiep is not null) b.Append("<div class=\"ok\">").Append(System.Net.WebUtility.HtmlEncode(thongDiep)).Append("</div>");
+
+        if (trang.Count == 0)
+            b.Append("<p>Không có Trang nào để chọn.</p>");
+        else
+        {
+            b.Append("<form method=\"post\" action=\"/api/v1/chat/oauth/messenger/chon\">");
+            b.Append("<input type=\"hidden\" name=\"ma\" value=\"").Append(System.Net.WebUtility.HtmlEncode(ma)).Append("\"><ul>");
+            foreach (var t in trang)
+            {
+                var xong = daNoi.Contains(t.PageId);
+                b.Append("<li><span class=\"ten\"><b>").Append(System.Net.WebUtility.HtmlEncode(t.Ten))
+                 .Append("</b><small>").Append(System.Net.WebUtility.HtmlEncode(t.PageId)).Append("</small></span>");
+                if (xong) b.Append("<span class=\"da\">Đã nối</span>");
+                b.Append("<button class=\"").Append(xong ? "phu" : "chinh")
+                 .Append("\" name=\"pageId\" value=\"").Append(System.Net.WebUtility.HtmlEncode(t.PageId)).Append("\">")
+                 .Append(xong ? "Nối lại" : "Nối Trang này").Append("</button></li>");
+            }
+            b.Append("</ul></form>");
+        }
+        b.Append("</body></html>");
+        return Results.Content(b.ToString(), "text/html; charset=utf-8");
+    }
+
     /// <summary>
     /// Trang nhỏ trả về cho cửa sổ cấp quyền. Tự đóng khi xong; hỏng thì để nguyên cho người dùng
     /// đọc lý do — đóng phụt mất câu lỗi là kiểu tệ nhất, họ chỉ thấy "không có gì xảy ra".
@@ -1009,12 +1228,20 @@ public static class ChatInboxEndpoints
         return Results.Content(html, "text/html; charset=utf-8");
     }
 
+    /// <summary>
     /// Đã khai đủ khoá để tài khoản này chạy được chưa.
-    private static bool DaKhaiDu(ChatChannel kenh, IReadOnlyDictionary<string, string> g) => kenh switch
+    ///
+    /// <para><paramref name="nenTang"/> = máy chủ có ứng dụng dùng chung cho kênh này không. Tài
+    /// khoản nối bằng một nút KHÔNG lưu khoá ứng dụng (chúng nằm ở appsettings), nên nếu vẫn đòi
+    /// đủ các ô đó thì mọi tài khoản nối theo luồng mới đều hiện "chưa khai đủ" — sai, và người
+    /// dùng sẽ đi khai tay lại một thứ đang chạy tốt.</para>
+    /// </summary>
+    private static bool DaKhaiDu(ChatChannel kenh, IReadOnlyDictionary<string, string> g, bool nenTang) => kenh switch
     {
-        ChatChannel.Zalo => g.ContainsKey("appId") && g.ContainsKey("secretKey") && g.ContainsKey("refreshToken"),
+        ChatChannel.Zalo => g.ContainsKey("refreshToken")
+                            && (nenTang || (g.ContainsKey("appId") && g.ContainsKey("secretKey"))),
         ChatChannel.Messenger => g.ContainsKey("pageId") && g.ContainsKey("pageAccessToken")
-                                 && g.ContainsKey("appSecret") && g.ContainsKey("verifyToken"),
+                                 && (nenTang || (g.ContainsKey("appSecret") && g.ContainsKey("verifyToken"))),
         ChatChannel.Telegram => g.ContainsKey("botToken") && g.ContainsKey("webhookSecret"),
         _ => false,
     };
@@ -1057,6 +1284,9 @@ public static class ChatInboxEndpoints
             new ONhap("pageAccessToken", "Page Access Token", "secret", "EAAG… (lấy ở Meta for Developers)"),
             new ONhap("appSecret",       "App Secret",  "secret", "Dùng để kiểm chữ ký webhook"),
             new ONhap("verifyToken",     "Verify Token", "secret", "Bạn tự đặt, dán y hệt vào Meta"),
+            new ONhap("note",
+                "Bốn ô này CHỈ dùng khi công ty tự tạo ứng dụng riêng trên Meta for Developers. "
+                + "Bình thường bấm \"Kết nối Facebook\" là xong — không phải khai gì.", "note"),
         }, false),
         (ChatChannel.Telegram, "Telegram", new[]
         {

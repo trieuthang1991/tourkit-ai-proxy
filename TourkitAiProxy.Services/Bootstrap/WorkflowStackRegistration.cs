@@ -199,7 +199,9 @@ public static class WorkflowStackRegistration
         s.AddSingleton<ChatQuickReplyRepository>();
         // Singleton: người nghe (tab đang mở) sống lâu hơn một request, để scope là mỗi request
         // một bus riêng và không ai nhận được gì.
-        s.AddSingleton<Chat.Channels.ZaloOAuthStates>();
+        s.AddSingleton<Chat.Channels.ChatOAuthStates>();
+        // Danh sách Trang Facebook chờ người dùng chọn, giữa hai nửa của bước nối.
+        s.AddSingleton<Chat.Channels.MessengerPageChoices>();
         s.AddSingleton<Chat.Inbox.ChatEventBus>();
         s.AddSingleton<Chat.Inbox.ChatInboundService>();
         s.AddSingleton<ChannelCredentialStore>();

@@ -1,4 +1,4 @@
-# Hộp thư chat đa kênh
+﻿# Hộp thư chat đa kênh
 
 > Tách khỏi `CLAUDE.md` ngày 25/08/2026 — file đó đã hơn 1.000 dòng nên không ai đọc hết,
 > mà quy ước không đọc thì bằng không có. Xem `CLAUDE.md` để biết khi nào cần đọc file này.
@@ -74,6 +74,41 @@ của khách công ty đó — rò rỉ chéo tenant, thứ nặng nhất trong 
 một dấu gạch chéo là Zalo từ chối và câu lỗi của họ không nói lệch ở đâu. Vì thế chuỗi này sinh MỘT
 lần rồi giữ luôn trong `state`, lượt đổi mã dùng lại đúng chuỗi đó chứ không dựng lại.
 
+**Messenger cũng dùng MỘT ứng dụng Facebook của TourKit** (`Chat:Messenger` trong cấu hình), cùng
+lối với Zalo và **dễ hơn Zalo một bậc**. Khách bấm **"Kết nối Facebook"**, đăng nhập, chọn Trang —
+hết. Đường dẫn: `POST /channels/1/connect-url` → `dialog/oauth` → `GET /api/v1/chat/oauth/messenger/callback`
+→ trang chọn Trang → `POST /api/v1/chat/oauth/messenger/chon`.
+
+⚠️ **Facebook KHÔNG có cửa gói như Zalo.** Meta không thu tiền, và ứng dụng ở chế độ **Development**
+đã nhận/gửi tin thật với Trang mà người kết nối là quản trị viên. App Review + xác minh doanh nghiệp
+(vẫn miễn phí) chỉ cần khi mở cho Trang của khách hàng khác. Zalo thì Open API nằm sau gói trả tiền —
+đó là lý do nửa nhận của hộp thư kiểm được trên Facebook trước.
+
+⚠️ **`subscribed_apps` là thứ biến cả bước nối thành một nút.** Sau khi chọn Trang, hệ thống tự gọi
+`POST /{pageId}/me/subscribed_apps` để bật nhận tin — khách **không vào màn hình quản trị Meta lần**
+**nào**. Zalo không có cái tương đương. Danh sách `subscribed_fields` phải khớp những gì `Parse` bóc:
+thiếu `message_echoes` là mất tin nhân viên trả lời từ ứng dụng Meta, thiếu `message_deliveries`/
+`message_reads` là tin gửi đi không bao giờ leo lên hai tích. Cả hai hỏng **âm thầm**; có test canh.
+
+⚠️ **Đổi user token sang bản DÀI hạn TRƯỚC khi gọi `/me/accounts`.** Page token lấy ra từ user token
+ngắn hạn cũng chỉ sống vài giờ; lấy ra từ user token dài hạn thì **không hết hạn**. Làm ngược thứ tự
+thì vài giờ sau cả hộp thư ngừng gửi được, mà Meta chỉ nói "session expired" — không ai đoán ra
+nguyên nhân nằm ở thứ tự hai lệnh gọi. Có test canh thứ tự.
+
+⚠️ **Bước chọn Trang là bắt buộc, không bỏ được.** Zalo hỏi `getoa` ra đúng một OA nên nối xong ngay
+trong callback; Meta trả `/me/accounts` — một người có thể quản trị chục Trang, kể cả Trang chẳng
+liên quan. Nối bừa Trang đầu danh sách là sai, nối hết còn tệ hơn. Trang picker là **HTML dựng tay**
+([`TrangChonTrang`](../../TourkitAiProxy.Endpoints/ChatInboxEndpoints.cs)) vì nó chạy trong cửa sổ Meta vừa đá về:
+không có phiên nên không nạp được ứng dụng React chính. Danh sách Trang + token giữ ở máy chủ
+([`MessengerPageChoices`](../../TourkitAiProxy.Services/Chat/Channels/MessengerPageChoices.cs)), trình duyệt chỉ cầm một mã tra
+cứu vô nghĩa — và **chỉ nối được Trang nằm trong danh sách của mã đó**, không thì ai cầm mã cũng nối
+được Trang bất kỳ bằng cách đoán một id.
+
+⚠️ **Quyền xin ở mức tối thiểu:** `public_profile` · `pages_show_list` · `pages_messaging` ·
+`pages_read_engagement` · `pages_manage_metadata` (cái cuối để gọi `subscribed_apps`). ChatbotX xin 12
+quyền vì họ còn quản bài đăng và quảng cáo; mỗi quyền thừa là một mục phải giải trình khi Meta duyệt
+và một dòng đáng ngờ trên màn hình khách bấm đồng ý. Có test chặn việc âm thầm xin thêm.
+
 ⚠️ **Lúc dev, `Chat:PublicBaseUrl` là bắt buộc.** Mặc định URL webhook và callback lấy theo địa chỉ
 của chính yêu cầu đang tới — trên máy chủ thật thì đúng, còn ở máy dev là `localhost`, mà Zalo/Meta
 **không gọi vào `localhost`** được. Chạy đường hầm rồi dán URL `https` vào khoá đó.
@@ -108,10 +143,21 @@ mất token vĩnh viễn. Zalo trả refresh token MỚI mỗi lần làm mới,
 `POST /api/v1/chat/webhook/{kênh}/{tenantId}[/{accountId}]`.
 **Telegram BẮT BUỘC có `{accountId}`** — thân tin không chứa bất kỳ thông tin nào cho biết bot nào, định
 danh duy nhất nằm ở chính URL đã khai lúc `setWebhook`. **Zalo/Messenger dùng CHUNG một URL** cho mọi tài
-khoản (hai nền tảng đăng ký webhook theo App chứ không theo Trang/OA), adapter tự soát ra tài khoản:
-Messenger kiểm chữ ký với từng `appSecret` **rồi** khớp `entry[].id` với `pageId` đã khai (hai Trang cùng
-App có secret giống hệt nhau, chữ ký một mình không phân biệt nổi); Zalo đọc `app_id` trong thân tin rồi
-dùng CHÍNH secret của tài khoản đó để kiểm chữ ký.
+khoản (hai nền tảng đăng ký webhook theo App chứ không theo Trang/OA), adapter tự soát ra tài khoản.
+
+⚠️ **Với ứng dụng cấp nền tảng, thứ tự là TÌM TRANG/OA TRƯỚC rồi mới kiểm chữ ký** — không phải ngược
+lại. Messenger từng thử lần lượt mọi `appSecret` đã khai rồi mới khớp `entry[].id`; cách đó chỉ đúng khi
+mỗi công ty một App riêng. Nay mọi khách chung một App Secret nên "khớp một cái bất kỳ" không chứng minh
+được gì. Cả hai kênh nay: đọc id Trang (`entry[].id`) / id OA trong thân tin → tra ra công ty và tài
+khoản → kiểm chữ ký bằng khoá **của chính tài khoản đó**. Tài khoản khai tay theo đường cũ vẫn khớp được
+vì tìm cả `accountId` lẫn ô `pageId`.
+
+⚠️ **Đường DÙNG CHUNG luôn trả 200, kể cả khi từ chối** (`/webhook/zalo`, `/webhook/messenger`). Zalo nói
+thẳng "chỉ được thiết lập khi trả về 200 OK" và gọi thử bằng gói rỗng; Meta thì **tự động ngừng gửi** cho
+ứng dụng nào trả lỗi liên tục — mà ứng dụng là dùng chung, nên trả 401 cho tin rác là tắt kênh của **mọi**
+khách hàng cùng lúc. Từ chối vẫn là **không ghi gì** vào hộp thư. Cái giá: hỏng thì hỏng **im lặng**, nên
+mọi lượt từ chối ghi log mức WARNING kèm id Trang/OA — đó là chỗ duy nhất nhìn ra "tin có tới mà không vào
+hộp thư".
 
 Hội thoại nhớ `account_id` **ghi một lần lúc tạo**, những lần sau không ghi đè kể cả khi tới từ tài khoản
 khác — đổi ngầm giữa chừng làm nhân viên trả lời sai danh nghĩa mà không hay.

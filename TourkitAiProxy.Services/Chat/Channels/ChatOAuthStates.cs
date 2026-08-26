@@ -1,16 +1,17 @@
-// Services/Chat/Channels/ZaloOAuthStates.cs
+﻿// Services/Chat/Channels/ChatOAuthStates.cs
 using System.Collections.Concurrent;
 using System.Security.Cryptography;
 
 namespace TourkitAiProxy.Services.Chat.Channels;
 
 /// <summary>
-/// Giữ tạm tham số <c>state</c> của vòng cấp quyền Zalo OA.
+/// Giữ tạm tham số <c>state</c> của vòng cấp quyền — <b>dùng chung cho Zalo OA và Facebook
+/// Messenger</b>. Hai nhà cung cấp, một cơ chế: cả hai đều là OAuth 2.0 authorization-code.
 ///
-/// <para><b>Vì sao cần.</b> Zalo đá trình duyệt về đường callback bằng một chuyển hướng thường —
-/// không mang theo <c>X-Session-Id</c>, nên lúc nhận <c>code</c> máy chủ <b>không biết</b> đây là
-/// công ty nào, tài khoản nào. Ghép lại bằng <c>state</c>: sinh ra ở đường có phiên, tra lại ở
-/// đường công khai.</para>
+/// <para><b>Vì sao cần.</b> Zalo/Meta đá trình duyệt về đường callback bằng một chuyển hướng
+/// thường — không mang theo <c>X-Session-Id</c>, nên lúc nhận <c>code</c> máy chủ <b>không biết</b>
+/// đây là công ty nào, tài khoản nào. Ghép lại bằng <c>state</c>: sinh ra ở đường có phiên, tra
+/// lại ở đường công khai.</para>
 ///
 /// <para><b>Đây là chốt chặn an ninh, không phải tiện ích.</b> Nếu để client tự khai tenant trên
 /// URL callback thì ai biết đường dẫn cũng nhét được refresh token của OA mình vào công ty khác —
@@ -21,7 +22,7 @@ namespace TourkitAiProxy.Services.Chat.Channels;
 /// ngồi trước màn hình. Chạy nhiều instance sau load-balancer thì lượt cấp quyền có thể rơi vào
 /// instance khác và hỏng — lúc đó bấm lại là xong, chứ không mất mát gì.</para>
 /// </summary>
-public class ZaloOAuthStates
+public class ChatOAuthStates
 {
     /// 10 phút: đủ để đăng nhập Zalo và bấm đồng ý, không đủ để một mã rò ra ngoài còn dùng được.
     private static readonly TimeSpan HanDung = TimeSpan.FromMinutes(10);
