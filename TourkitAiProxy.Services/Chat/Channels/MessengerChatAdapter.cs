@@ -61,6 +61,9 @@ public class MessengerChatAdapter : IChatChannelAdapter
     private string? VerifyTokenNenTang => Rong(_cfg["Chat:Messenger:VerifyToken"]);
     public string PhienBan => Rong(_cfg["Chat:Messenger:Version"]) ?? MacDinhPhienBan;
 
+    /// Mã cấu hình của Facebook Login for Business. Để trống = dùng luồng cổ điển.
+    private string? CauHinhNenTang => Rong(_cfg["Chat:Messenger:ConfigId"]);
+
     /// Đã khai đủ ứng dụng cấp nền tảng chưa. Thiếu thì giao diện phải hiện lại các ô nhập tay.
     public bool CoUngDungNenTang => AppIdNenTang is not null && AppSecretNenTang is not null;
 
@@ -288,6 +291,13 @@ public class MessengerChatAdapter : IChatChannelAdapter
         "pages_show_list",
         "pages_messaging",
         "pages_manage_metadata",
+
+        // Thêm 26/08/2026 SAU KHI GẶP THẬT. Ban đầu cố tình bỏ cho nhẹ khâu duyệt, và trả giá:
+        // Facebook cấp pages_show_list bình thường nhưng /me/accounts trả về RỖNG, không báo lỗi
+        // gì. Tài liệu Messenger của Meta ghi business_management là PHỤ THUỘC của
+        // pages_show_list và pages_messaging — Trang do một Danh mục doanh nghiệp sở hữu thì
+        // thiếu quyền này là không liệt kê ra được. Đừng bỏ lại.
+        "business_management",
     };
 
     /// <summary>
@@ -313,12 +323,22 @@ public class MessengerChatAdapter : IChatChannelAdapter
     /// của ứng dụng bên Meta — lệch một dấu gạch chéo là Facebook từ chối, y như Zalo.</para>
     /// </summary>
     public string DuongCapQuyen(string redirectUri, string state)
-        => $"https://www.facebook.com/{PhienBan}/dialog/oauth"
-         + $"?client_id={U(AppIdNenTang ?? "")}"
-         + $"&redirect_uri={U(redirectUri)}"
-         + $"&scope={U(string.Join(",", Quyen))}"
-         + "&response_type=code"
-         + $"&state={U(state)}";
+    {
+        var d = $"https://www.facebook.com/{PhienBan}/dialog/oauth"
+              + $"?client_id={U(AppIdNenTang ?? "")}"
+              + $"&redirect_uri={U(redirectUri)}"
+              + $"&scope={U(string.Join(",", Quyen))}"
+              + "&response_type=code"
+              + $"&state={U(state)}";
+
+        // Facebook Login for Business làm việc theo "cấu hình" (configuration): quyền và TÀI SẢN
+        // (Trang nào) khai sẵn trong bảng điều khiển, rồi truyền config_id để màn hình đồng ý hiện
+        // đúng bước chọn Trang. Không có nó thì luồng cổ điển vẫn cấp quyền nhưng có thể KHÔNG kèm
+        // tài sản nào — quyền đủ mà danh sách Trang rỗng.
+        //
+        // Để TRỐNG là giữ nguyên luồng cổ điển. Chỉ khai khi đã tạo cấu hình bên Meta.
+        return CauHinhNenTang is { } ch ? d + $"&config_id={U(ch)}" : d;
+    }
 
     /// <summary>
     /// Đổi <c>code</c> Facebook vừa đá về lấy <b>danh sách Trang</b> người này quản trị, mỗi Trang
@@ -420,8 +440,9 @@ public class MessengerChatAdapter : IChatChannelAdapter
         }
 
         return "Đã cấp quyền xem danh sách Trang nhưng Facebook trả về danh sách RỖNG" + thieu
-             + ". Hai khả năng: tài khoản vừa đăng nhập không phải quản trị viên Trang nào, hoặc ở "
-             + "màn hình đồng ý chưa tick Trang nào. Thử lại và soát kỹ bước chọn Trang.";
+             + ". Thường là Trang do một Danh mục doanh nghiệp sở hữu: bấm kết nối lại và ở màn "
+             + "hình đồng ý nhớ CHỌN DOANH NGHIỆP rồi TICK TRANG của công ty. Nếu vẫn rỗng thì tài "
+             + "khoản vừa đăng nhập không quản trị Trang nào.";
     }
 
     private async Task<(string? Gia, string? Loi)> ChuoiAsync(HttpClient http, string url,

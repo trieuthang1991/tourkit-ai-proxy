@@ -129,11 +129,24 @@ public class MessengerConnectTests
         // Mỗi quyền thừa là một mục phải giải trình khi Meta duyệt ứng dụng, và một dòng đáng ngờ
         // trên màn hình khách bấm đồng ý. Dự án tham khảo xin 12 quyền vì họ còn quản bài đăng và
         // quảng cáo — mình không làm những việc đó.
+        //
+        // ⚠️ Test này TỪNG cấm cả business_management, và cấm sai. Thực tế 26/08/2026: Facebook cấp
+        // pages_show_list bình thường nhưng /me/accounts trả RỖNG vì Trang do một Danh mục doanh
+        // nghiệp sở hữu. "Ít quyền cho nhẹ khâu duyệt" là ý hay cho tới lúc nó chặn cả tính năng.
         Assert.DoesNotContain("pages_manage_posts", MessengerChatAdapter.Quyen);
         Assert.DoesNotContain("pages_manage_ads", MessengerChatAdapter.Quyen);
-        Assert.DoesNotContain("business_management", MessengerChatAdapter.Quyen);
+        Assert.DoesNotContain("pages_manage_engagement", MessengerChatAdapter.Quyen);
         Assert.True(MessengerChatAdapter.Quyen.Length <= 6,
             "Xin thêm quyền thì cân nhắc lại: mỗi cái là một mục Meta bắt giải trình.");
+    }
+
+    [Fact]
+    public void Van_xin_business_management()
+    {
+        // Bỏ lại là lặp đúng lỗi ngày 26/08/2026: Facebook báo cấp quyền thành công, màn hình đồng ý
+        // trông bình thường, mà danh sách Trang rỗng và KHÔNG có thông báo lỗi nào chỉ vào đây.
+        // Tài liệu Messenger của Meta ghi nó là phụ thuộc của pages_show_list và pages_messaging.
+        Assert.Contains("business_management", MessengerChatAdapter.Quyen);
     }
 
     [Fact]
