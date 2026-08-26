@@ -27,6 +27,10 @@ Những cập nhật gần đây của TRAV-AI, viết cho người dùng. Mới
 ### 🔧 Đã khắc phục
 - **Nút "Nhận việc" giờ mới thật sự nhận việc.** Trước đây bấm nút này không gán hội thoại cho
   bạn — thậm chí còn gỡ người đang phụ trách ra. Nút trông như chạy nên không ai để ý.
+- **Nối khách đang chat với hồ sơ khách trong CRM.** Mở hồ sơ bên phải, bấm **"Nối khách CRM"**,
+  gõ tên hoặc số điện thoại rồi chọn. Trước đây mục này luôn hiện "chưa nối" vì không có cách nào
+  nối cả. Nối nhầm thì bấm **"Gỡ nối"**. Bạn chỉ tìm được những khách mà tài khoản của bạn vốn
+  được phép xem.
 - **Xem được ai đã làm gì với một hội thoại.** Mở hồ sơ khách bên phải, cuộn xuống mục **"Nhật ký
   thao tác"**: ai nhận việc, ai chuyển cho ai, ai đóng hội thoại, ai tạm dừng trợ lý — kèm thời
   điểm. Trước đây những việc này không để lại dấu vết nào, nên khi khách thắc mắc thì không tra

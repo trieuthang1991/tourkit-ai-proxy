@@ -261,6 +261,91 @@
     );
   }
 
+  // Nối khách chat với khách CRM — NỐI TAY, không đoán tự động. Ghép theo tên sai thường xuyên
+  // (trùng tên là chuyện bình thường ở khách du lịch), còn Zalo/Messenger thì không cho biết số
+  // điện thoại trừ khi khách tự nhắn. Nối tay đúng 100% và dùng được ngay.
+  function NoiCrm({ chiTiet, pushToast }) {
+    const v = chiTiet?.conversation;
+    const lh = chiTiet?.contact;
+    const [mo, setMo] = useState(false);
+    const [tim, setTim] = useState('');
+    const [ds, setDs] = useState(null);
+    const [dangLam, setDangLam] = useState(false);
+
+    // Chờ người dùng ngừng gõ rồi mới hỏi: mỗi phím một lượt gọi CRM là vừa chậm vừa tốn quota
+    // của chính công ty khách.
+    useEffect(() => {
+      if (!mo || !v?.id) return;
+      const q = tim.trim();
+      if (q.length < 2) { setDs(null); return; }
+      let song = true;
+      const hen = setTimeout(async () => {
+        try {
+          const r = await authedFetch('/api/v1/chat/conversations/' + v.id
+            + '/crm-search?q=' + encodeURIComponent(q));
+          const j = r.ok ? await r.json() : { items: [] };
+          if (song) setDs(j.items || []);
+        } catch { if (song) setDs([]); }
+      }, 350);
+      return () => { song = false; clearTimeout(hen); };
+    }, [mo, tim, v?.id]);
+
+    async function doiNoi(customerId) {
+      setDangLam(true);
+      try {
+        const r = await authedFetch('/api/v1/chat/conversations/' + v.id + '/link-crm', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(customerId ? { customerId: Number(customerId) } : {}),
+        });
+        if (!r.ok) { pushToast('Không lưu được', 'error'); return; }
+        pushToast(customerId ? 'Đã nối với khách CRM' : 'Đã gỡ nối khách CRM', 'success');
+        setMo(false); setTim(''); setDs(null);
+      } finally { setDangLam(false); }
+    }
+
+    if (lh?.crmCustomerId && !mo) {
+      return (
+        <div className="ci-hs-crm">
+          Đã nối với khách <b>#{lh.crmCustomerId}</b>
+          <div className="ci-hs-crm-nut">
+            <button className="ci-nut nho" onClick={() => setMo(true)}>Đổi</button>
+            <button className="ci-nut nho" disabled={dangLam} onClick={() => doiNoi(null)}>Gỡ nối</button>
+          </div>
+        </div>
+      );
+    }
+
+    if (!mo) {
+      return (
+        <div className="ci-hs-trong">
+          Chưa nối với khách hàng trong CRM. Bot đang trả lời bằng kiến thức chung, không đọc
+          lịch sử mua hay bảng giá của khách này.
+          <div className="ci-hs-crm-nut">
+            <button className="ci-nut nho" onClick={() => setMo(true)}>Nối khách CRM</button>
+          </div>
+        </div>
+      );
+    }
+
+    return (
+      <div className="ci-hs-crm-tim">
+        <input value={tim} onChange={e => setTim(e.target.value)} autoFocus
+               placeholder="Tên, số điện thoại hoặc mã khách…" />
+        {tim.trim().length >= 2 && ds === null && <div className="ci-hs-trong">Đang tìm…</div>}
+        {ds !== null && ds.length === 0 && <div className="ci-hs-trong">Không thấy khách nào khớp.</div>}
+        {(ds || []).map(k => (
+          <button key={k.id} className="ci-hs-crm-kq" disabled={dangLam} onClick={() => doiNoi(k.id)}>
+            <b>{k.name}</b>
+            <span>{[k.code, k.phone].filter(Boolean).join(' · ') || '#' + k.id}</span>
+          </button>
+        ))}
+        <div className="ci-hs-crm-nut">
+          <button className="ci-nut nho" onClick={() => { setMo(false); setTim(''); setDs(null); }}>Thôi</button>
+        </div>
+      </div>
+    );
+  }
+
   function HoSo({ chiTiet, onDong, pushToast }) {
     const v = chiTiet?.conversation;
     const lh = chiTiet?.contact;
@@ -302,14 +387,7 @@
 
         <div className="ci-hs-muc">
           <h4>Khách hàng CRM</h4>
-          {lh?.crmCustomerId
-            ? <div className="ci-hs-crm">Đã nối với khách <b>#{lh.crmCustomerId}</b></div>
-            : (
-              <div className="ci-hs-trong">
-                Chưa nối với khách hàng trong CRM. Bot đang trả lời bằng kiến thức chung, không đọc
-                lịch sử mua hay bảng giá của khách này.
-              </div>
-            )}
+          <NoiCrm chiTiet={chiTiet} pushToast={pushToast} />
         </div>
 
         <div className="ci-hs-muc">

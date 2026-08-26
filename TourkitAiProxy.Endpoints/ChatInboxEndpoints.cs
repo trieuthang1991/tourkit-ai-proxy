@@ -469,6 +469,55 @@ public static class ChatInboxEndpoints
             return Results.Json(new { ok = true }, Web);
         });
 
+        // ── Nối khách chat với khách CRM ────────────────────────────────────
+        //
+        // Nối TAY, KHÔNG đoán tự động: ghép theo tên sai thường xuyên (trùng tên là chuyện bình
+        // thường ở khách du lịch), còn ghép theo số điện thoại thì Zalo/Messenger không cho biết
+        // số trừ khi khách tự nhắn. Nối tay đúng 100% và làm được ngay; tự động để sau khi đã có
+        // dữ liệu thật xem tỉ lệ trùng thế nào.
+        g.MapGet("/conversations/{id:long}/crm-search", async (long id, string? q, HttpContext ctx,
+            TkSessionStore sessions, ChatRepository repo, TourKitCustomerSource khach,
+            CancellationToken ct) =>
+        {
+            var a = SessionAuth.Read(ctx, sessions);
+            if (a == null) return SessionAuth.Unauthorized();
+            if (!repo.Configured) return ChuaCauHinh();
+            if (await repo.GetConversationAsync(a.TenantId, id, ct) is null) return Results.NotFound();
+            if (string.IsNullOrWhiteSpace(q)) return Results.Json(new { items = Array.Empty<object>() }, Web);
+
+            // Tìm bằng PHIÊN CỦA CHÍNH NHÂN VIÊN, không phải tài khoản dịch vụ — để CRM tự chặn
+            // theo quyền của họ. Dùng tài khoản dịch vụ là nhân viên chỉ được xem khách của mình
+            // vẫn tra ra cả kho khách của công ty.
+            var kq = await khach.ListAsync(a.SessionId, new(Search: q.Trim()), 1, 10, ct);
+            return Results.Json(new
+            {
+                items = kq.Items.Select(k => new { id = k.Id, name = k.Name, phone = k.Phone, code = k.Code }),
+                total = kq.Total,
+            }, Web);
+        });
+
+        g.MapPost("/conversations/{id:long}/link-crm", async (long id, LinkCrmReq? body, HttpContext ctx,
+            TkSessionStore sessions, ChatRepository repo, ChatEventBus bus, CancellationToken ct) =>
+        {
+            var a = SessionAuth.Read(ctx, sessions);
+            if (a == null) return SessionAuth.Unauthorized();
+            if (!repo.Configured) return ChuaCauHinh();
+
+            var v = await repo.GetConversationAsync(a.TenantId, id, ct);
+            if (v is null) return Results.NotFound();
+
+            // Không có customerId = GỠ nối. Gỡ phải làm được: nối nhầm là bot đọc lịch sử mua của
+            // người khác rồi nói với khách này, và không có đường lùi thì chỉ còn cách sửa tay CSDL.
+            var ma = body?.CustomerId;
+            var soDong = await repo.NoiCrmAsync(a.TenantId, v.Channel, v.ContactExternalId, ma, ct);
+            if (soDong == 0) return Results.NotFound();
+
+            await repo.GhiNhatKyAsync(a.TenantId, id, a.Username, ma is null ? "go-noi-crm" : "noi-crm",
+                ma is null ? null : new JsonObject { ["khachCrm"] = ma }.ToJsonString(), ct);
+            bus.Bao(new(a.TenantId, id, "doi-hoi-thoai", null));
+            return Results.Json(new { ok = true, crmCustomerId = ma }, Web);
+        });
+
         // Nhật ký của một hội thoại. Nằm dưới tiền tố /conversations nên đã được DuongRieng phủ.
         g.MapGet("/conversations/{id:long}/audit", async (long id, HttpContext ctx,
             TkSessionStore sessions, ChatRepository repo, CancellationToken ct) =>
@@ -733,6 +782,8 @@ public static class ChatInboxEndpoints
 public record SendReq(string? Text, string? AttachmentUrl = null, string? AttachmentKind = null,
     string? AttachmentName = null, long? AttachmentSize = null);
     public record AssignReq(string? Username);
+    /// <param name="CustomerId">Bỏ trống = GỠ nối khách CRM khỏi hội thoại này.</param>
+    public record LinkCrmReq(int? CustomerId);
     public record StatusReq(short Status);
     public record BotReq(bool Paused, int? Minutes);
 

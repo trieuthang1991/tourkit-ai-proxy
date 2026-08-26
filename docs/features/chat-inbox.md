@@ -175,6 +175,20 @@ trái ý khách. Có test canh việc này.
 
 ⚠️ **Ghi nhật ký không bao giờ ném.** Nhân viên bấm đóng hội thoại mà nhận lỗi chỉ vì bảng nhật ký
 có vấn đề là đổi một sự cố ghi chép thành một sự cố vận hành.
+**Nối khách chat với khách CRM — NỐI TAY, không đoán tự động.** Cột `chat_contacts.crm_customer_id`
+có từ đợt 1 nhưng **chưa dòng code nào ghi giá trị vào đó**, nên panel hồ sơ luôn hiện "chưa nối".
+Nay panel có ô tìm + nút Nối/Đổi/Gỡ (`GET …/crm-search?q=`, `POST …/link-crm`).
+
+⚠️ **Vì sao không ghép tự động:** ghép theo tên sai thường xuyên — trùng tên là chuyện bình thường
+ở khách du lịch; ghép theo số điện thoại thì Zalo/Messenger **không cho biết số** trừ khi khách tự
+nhắn. Nối tay đúng 100% và làm được ngay; tự động để sau khi có dữ liệu thật xem tỉ lệ trùng.
+
+⚠️ **Tìm khách dùng phiên CỦA CHÍNH NHÂN VIÊN**, không phải tài khoản dịch vụ — để CRM tự chặn theo
+quyền của họ. Dùng tài khoản dịch vụ là nhân viên chỉ được xem khách của mình vẫn tra ra cả kho
+khách của công ty. Có test canh.
+
+⚠️ **Gỡ nối phải làm được.** Nối nhầm là bot đọc lịch sử mua của người khác rồi nói với khách này;
+không có đường lùi thì chỉ còn cách sửa tay CSDL. Cả nối lẫn gỡ đều vào nhật ký thao tác.
 **Mẫu trả lời nhanh** (`chat_quick_replies` +
 [`ChatQuickReplyRepository`](../../TourkitAiProxy.Infrastructure/Chat/Inbox/ChatQuickReplyRepository.cs)): gõ `/` ở **ĐẦU** ô
 soạn ra danh sách. Lệnh gọi **bỏ dấu** khi lưu — nhân viên đang gõ nhanh cho khách sẽ gõ `/gia` chứ

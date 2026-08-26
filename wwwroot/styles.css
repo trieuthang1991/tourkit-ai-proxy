@@ -9038,6 +9038,8 @@ n
 .ci-nut:hover:not(:disabled) { background: var(--bg); border-color: var(--border-strong); }
 .ci-nut:active:not(:disabled) { transform: translateY(1px); }
 .ci-nut:disabled { opacity: .55; cursor: not-allowed; }
+/* Biến thể nhỏ cho panel hồ sơ — cột hẹp, nút cao 34px lấn chỗ của chính thông tin cần đọc. */
+.ci-nut.nho { height: 28px; padding: 0 10px; font-size: 12px; }
 /* Hành động chính — mỗi khối chỉ được có MỘT. */
 .ci-nut.chinh { background: var(--primary); border-color: var(--primary); color: #fff; font-weight: 600; }
 .ci-nut.chinh:hover:not(:disabled) { background: var(--primary-dark); border-color: var(--primary-dark); }
@@ -9204,7 +9206,24 @@ n
 /* Một dòng nhật ký thao tác: giờ đứng riêng một dòng nhỏ, nội dung xuống dưới — khác hẳn
    .ci-hs-dong thường (nhãn trái, giá trị phải) vì câu nhật ký dài hơn một ô giá trị. */
 .ci-hs-dong.nk { display: block; padding: 4px 0; line-height: 1.45; }
-.ci-hs-dong.nk > span { display: block; font-size: 11px; opacity: .65; }
+.ci-hs-dong.nk > span { display: block; font-size: 12px; color: var(--text-2); }
+/* Nối khách CRM trong panel hồ sơ. Kết quả tìm là NÚT chứ không phải div bấm được: panel này
+   nhân viên trực chat mở cả ngày, phải dùng được bằng bàn phím. */
+.ci-hs-crm-nut { display: flex; gap: 6px; margin-top: 8px; }
+.ci-hs-crm-tim > input {
+  width: 100%; height: 32px; padding: 0 10px; border-radius: 8px;
+  border: 1px solid var(--border); background: var(--surface); color: var(--text);
+  font-family: inherit; font-size: 13px;
+}
+.ci-hs-crm-tim > input:focus { outline: none; border-color: var(--primary); }
+.ci-hs-crm-kq {
+  display: block; width: 100%; text-align: left; margin-top: 6px; padding: 7px 10px;
+  border-radius: 8px; border: 1px solid var(--border); background: var(--surface);
+  color: var(--text); font-family: inherit; font-size: 13px; cursor: pointer;
+}
+.ci-hs-crm-kq:hover:not(:disabled) { background: var(--bg); border-color: var(--border-strong); }
+.ci-hs-crm-kq:disabled { opacity: .55; cursor: not-allowed; }
+.ci-hs-crm-kq > span { display: block; margin-top: 2px; font-size: 12px; color: var(--text-2); }
 .ci-hs-trong { font-size: 12px; line-height: 1.65; color: var(--text-3); background: var(--bg);
                border: 1px dashed var(--border-strong); border-radius: 8px; padding: 9px 10px; }
 

@@ -1441,12 +1441,12 @@ _log.LogInformation("[chat/events] chế độ {C}", redis is null
 
 > **Nối TAY trước, đoán tự động sau.** Ghép tự động theo tên là sai thường xuyên (trùng tên là chuyện bình thường ở khách du lịch); ghép theo số điện thoại thì Zalo/Messenger **không cho biết số** trừ khi khách tự nhắn. Nối tay đúng 100% và làm được ngay; tự động để sau khi đã có dữ liệu thật xem tỉ lệ trùng thế nào.
 
-- [ ] **Bước 1: Test đỏ** — guard: có `NoiCrmAsync` và endpoint `POST /conversations/{id}/link-crm`.
-- [ ] **Bước 2:** Chạy, xác nhận đỏ.
-- [ ] **Bước 3:** `NoiCrmAsync(tenant, channel, externalId, crmCustomerId)` — `UPDATE chat_contacts SET crm_customer_id = @id`.
-- [ ] **Bước 4:** Endpoint tìm khách (`GET /conversations/{id}/crm-search?q=`) gọi `/api/ai/customers` qua `TourKitApiClient` bằng phiên **của chính nhân viên** — không dùng tài khoản dịch vụ, để CRM tự chặn theo quyền của họ.
-- [ ] **Bước 5:** Panel hồ sơ: ô tìm + nút "Nối", nối xong hiện tên + link sang CRM.
-- [ ] **Bước 6:** Thêm đường vào `DuongRieng`. Test + bundle + commit.
+- [x] **Bước 1: Test đỏ** — guard: có `NoiCrmAsync` và endpoint `POST /conversations/{id}/link-crm`.
+- [x] **Bước 2:** Chạy, xác nhận đỏ.
+- [x] **Bước 3:** `NoiCrmAsync(tenant, channel, externalId, crmCustomerId)` — `UPDATE chat_contacts SET crm_customer_id = @id`.
+- [x] **Bước 4:** Endpoint tìm khách (`GET /conversations/{id}/crm-search?q=`) gọi `/api/ai/customers` qua `TourKitApiClient` bằng phiên **của chính nhân viên** — không dùng tài khoản dịch vụ, để CRM tự chặn theo quyền của họ.
+- [x] **Bước 5:** Panel hồ sơ: ô tìm + nút "Nối", nối xong hiện tên + link sang CRM.
+- [x] **Bước 6:** ~~Thêm đường vào `DuongRieng`~~ — **không cần**: cả hai đường nằm dưới tiền tố `/api/v1/chat/conversations` vốn đã có trong danh sách; có test khẳng định để người sau khỏi thêm thừa. Test + bundle + commit.
 
 ## Task 6.2: Nhãn và ghi chú
 

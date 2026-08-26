@@ -122,6 +122,25 @@ public class ChatRepository
                        limit = Math.Clamp(limit, 1, 200) })).ToList();
     }
 
+    /// <summary>
+    /// Nối (hoặc gỡ nối, khi <paramref name="crmCustomerId"/> là <c>null</c>) khách chat với
+    /// khách trong CRM. Trả số dòng đổi được — 0 nghĩa là không có hồ sơ khách nào khớp.
+    ///
+    /// <para><b>Nối TAY, không đoán tự động.</b> Ghép theo tên sai thường xuyên (trùng tên là
+    /// chuyện bình thường ở khách du lịch); ghép theo số điện thoại thì Zalo/Messenger không cho
+    /// biết số trừ khi khách tự nhắn. Nối tay đúng 100% và làm được ngay.</para>
+    /// </summary>
+    public async Task<int> NoiCrmAsync(string tenant, short kenh, string externalId,
+        int? crmCustomerId, CancellationToken ct = default)
+    {
+        await using var c = await _db.OpenAsync(ct);
+        return await c.ExecuteAsync("""
+            UPDATE chat_contacts
+               SET crm_customer_id = @crmCustomerId, updated_utc = now()
+             WHERE tenant_id = @tenant AND channel = @kenh AND external_id = @externalId
+            """, new { tenant, kenh, externalId, crmCustomerId });
+    }
+
     /// <summary>Hồ sơ khách của một hội thoại. Panel bên phải đọc cái này.</summary>
     public async Task<ChatContact?> GetContactAsync(string tenant, short kenh, string externalId,
         CancellationToken ct = default)
