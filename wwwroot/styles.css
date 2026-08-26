@@ -9307,17 +9307,33 @@ n
 
 /* Mỗi tài khoản một khối gập lại — một công ty có thể nối chục Trang/OA/bot, trải phẳng hết thì
    không tìm nổi cái cần sửa. */
+/* Một tài khoản kênh = một dòng bấm được, mở ra cấu hình bên dưới. Bỏ <details> vì nó cho mở
+   hết cùng lúc — khai ba OA là hộp thoại dài bằng ba màn hình. */
 .ci-tk { border: 1px solid var(--border); border-radius: 8px; margin-top: 7px; overflow: hidden; }
-.ci-tk > summary { display: flex; align-items: center; gap: 8px; padding: 8px 10px;
-                   cursor: pointer; font-size: 13px; background: var(--bg); list-style: none; }
-.ci-tk > summary::-webkit-details-marker { display: none; }
-.ci-tk > summary::before { content: "▸"; color: var(--text-3); font-size: 11px; }
-.ci-tk[open] > summary::before { content: "▾"; }
-.ci-tk[open] > summary { border-bottom: 1px solid var(--border); }
-.ci-tk > :not(summary) { margin-left: 10px; margin-right: 10px; }
-.ci-tk > :nth-child(2) { margin-top: 10px; }
-.ci-tk > :last-child { margin-bottom: 10px; }
-.ci-tk-moi > summary { background: var(--primary-soft); color: var(--ci-cam-800); }
+.ci-tk.mo { border-color: var(--border-strong); }
+.ci-tk-dong {
+  display: flex; align-items: center; gap: 8px; width: 100%; padding: 8px 10px;
+  border: 0; background: none; color: inherit; cursor: pointer; text-align: left;
+  font-family: inherit; font-size: 13px;
+}
+.ci-tk-dong:hover { background: var(--bg); }
+.ci-tk-dong > svg { color: var(--text-3); flex: none; }
+.ci-tk-dong > b { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* Tên OA thật đứng sau tên gợi nhớ, nhạt hơn — phụ chú chứ không tranh chỗ. Nhãn trạng thái bị
+   đẩy sang phải để mắt quét một cột dọc thay vì rê theo độ dài từng cái tên. */
+.ci-tk-oa { font-size: 12px; color: var(--text-3); min-width: 0;
+            overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ci-tk-dong .ci-xong, .ci-tk-dong .ci-chua { margin-left: auto; flex: none; }
+.ci-tk.mo .ci-tk-dong { border-bottom: 1px solid var(--border); }
+.ci-tk-form { display: flex; flex-direction: column; gap: 10px; padding: 10px; }
+
+/* Hàng đầu của danh sách: đếm bên trái, nút thêm bên phải. Nút NHỎ và cố định một chỗ vì thêm
+   tài khoản là việc hiếm — danh sách mới là thứ người dùng nhìn hằng ngày. */
+.ci-tk-dau {
+  display: flex; align-items: center; justify-content: space-between;
+  margin-top: 14px; padding-bottom: 6px; border-bottom: 1px solid var(--border);
+}
+.ci-tk-dau > span { font-size: 12px; color: var(--text-2); }
 .ci-tk-nut { display: flex; gap: 8px; align-items: center; }
 .ci-xong { font-size: 11px; background: #DCFCE7; color: #166534; border-radius: 6px; padding: 1px 6px; }
 .ci-chua { font-size: 11px; background: #FEF3C7; color: #92400E; border-radius: 6px; padding: 1px 6px; }

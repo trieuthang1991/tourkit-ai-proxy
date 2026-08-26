@@ -565,6 +565,9 @@
     const [dangLuu, setDangLuu] = useState(null);
     const [nhap, setNhap] = useState({});     // { "kenh:accountId" | "kenh:moi" -> {field: value} }
     const [tab, setTab] = useState(0);        // số của kênh đang xem
+    // Đang mở cấu hình của tài khoản nào: "kênh:accountId" hoặc "kênh:moi". Một lúc MỘT —
+    // mở hết cùng lúc thì khai ba OA là hộp thoại dài bằng ba màn hình.
+    const [mo, setMo] = useState(null);
 
     const taiLai = useCallback(async () => {
       try {
@@ -673,67 +676,100 @@
               </label>
             )}
 
-            {k.accounts.length === 0 && (
+            {/* Hàng đầu: đếm tài khoản + nút thêm NHỎ, đặt TRÊN danh sách.
+
+                Trước đây nút thêm là một khối <details> to nằm CUỐI danh sách — khai xong tài khoản
+                thứ tư là phải cuộn qua hết bốn khối mới thấy nó. Thêm tài khoản là việc hiếm, nên nó
+                phải nhỏ và ở chỗ cố định; danh sách mới là thứ người dùng nhìn. */}
+            <div className="ci-tk-dau">
+              <span>{k.accounts.length} tài khoản</span>
+              <button className="ci-nut nho" onClick={() => setMo(mo === k.channel + ':moi' ? null : k.channel + ':moi')}>
+                {mo === k.channel + ':moi' ? 'Thôi' : '+ Thêm'}
+              </button>
+            </div>
+
+            {/* Form thêm mở ra NGAY DƯỚI nút, không phải cuối trang — mắt không phải nhảy đi đâu. */}
+            {mo === k.channel + ':moi' && (
+              <div className="ci-tk-form">
+                {k.fields.map(f => (
+                  <ONhap key={f.key} truong={f} daKhai={false}
+                         giaTri={giaTriO(k.channel, null, f, null)}
+                         onDoi={v => dat(k.channel, null, f.key, v)} />
+                ))}
+                <div className="ci-tk-nut">
+                  <button className="ci-nut chinh" disabled={dangLuu === k.channel + ':moi'}
+                          onClick={() => luu(k.channel, null)}>
+                    {dangLuu === k.channel + ':moi' ? 'Đang thêm…' : 'Thêm tài khoản'}
+                  </button>
+                </div>
+              </div>
+            )}
+
+            {k.accounts.length === 0 && mo !== k.channel + ':moi' && (
               <div className="ci-trong">Chưa nối tài khoản nào cho kênh này.</div>
             )}
 
-            {k.accounts.map(t => (
-              <details key={t.accountId} className="ci-tk">
-                <summary>
-                  <b>{t.label || 'Chưa đặt tên'}</b>
-                  {t.configured
-                    ? <span className="ci-xong">đã khai</span>
-                    : <span className="ci-chua">thiếu khoá</span>}
-                </summary>
-                {/* URL RIÊNG từng bot Telegram — dán vào lệnh setWebhook của đúng bot đó. */}
-                {!k.webhookUrl && (
-                  <label className="ci-url">
-                    Địa chỉ nhận tin của tài khoản này
-                    <input readOnly value={t.webhookUrl} onFocus={e => e.target.select()} />
-                  </label>
-                )}
-                {k.fields.map(f => (
-                  <ONhap key={f.key} truong={f} daKhai
-                         giaTri={giaTriO(k.channel, t.accountId, f, t.values)}
-                         onDoi={v => dat(k.channel, t.accountId, f.key, v)} />
-                ))}
-                {/* Bước cấp quyền chỉ Zalo mới có: Messenger/Telegram cấp token thẳng ở giao diện
-                    của họ, không đi vòng OAuth. */}
-                {k.channel === 0 && (
-                  <div className="ci-hs-goiy">
-                    Chưa có Refresh Token? Khai App ID + App Secret Key, bấm <b>Lưu</b>, rồi bấm
-                    <b> Cấp quyền OA</b> — hệ thống tự lấy và tự làm mới về sau.
-                  </div>
-                )}
-                <div className="ci-tk-nut">
-                  <button className="ci-nut chinh" disabled={dangLuu === k.channel + ':' + t.accountId}
-                          onClick={() => luu(k.channel, t.accountId)}>
-                    {dangLuu === k.channel + ':' + t.accountId ? 'Đang lưu…' : 'Lưu'}
+            {/* Danh sách: MỘT dòng mỗi tài khoản, bấm để mở cấu hình. Mỗi lúc chỉ mở MỘT —
+                <details> cũ cho mở hết cùng lúc, khai ba OA là hộp thoại dài bằng ba màn hình. */}
+            {k.accounts.map(t => {
+              const khoa = k.channel + ':' + t.accountId;
+              const dangMo = mo === khoa;
+              return (
+                <div key={t.accountId} className={'ci-tk' + (dangMo ? ' mo' : '')}>
+                  <button className="ci-tk-dong" onClick={() => setMo(dangMo ? null : khoa)}
+                          aria-expanded={dangMo}>
+                    <window.Icon name={dangMo ? 'chevronDown' : 'chevronRight'} size={14} />
+                    <b>{t.label || t.oaName || 'Chưa đặt tên'}</b>
+                    {/* Tên OA thật do Zalo trả về — khác "Tên gợi nhớ" người dùng tự đặt. Khai
+                        nhiều OA mà không có nó thì không biết dòng nào là OA nào. */}
+                    {t.oaName && t.label && <span className="ci-tk-oa">{t.oaName}</span>}
+                    {t.configured
+                      ? <span className="ci-xong">đã khai</span>
+                      : <span className="ci-chua">thiếu khoá</span>}
                   </button>
-                  {k.channel === 0 && (
-                    <button className="ci-nut" onClick={() => capQuyenZalo(k.channel, t.accountId)}>
-                      Cấp quyền OA
-                    </button>
-                  )}
-                  <button className="ci-nut nguyhiem" onClick={() => xoa(k.channel, t.accountId, t.label)}>
-                    Gỡ kết nối
-                  </button>
-                </div>
-              </details>
-            ))}
 
-            <details className="ci-tk ci-tk-moi">
-              <summary><b>+ Thêm tài khoản</b></summary>
-              {k.fields.map(f => (
-                <ONhap key={f.key} truong={f} daKhai={false}
-                       giaTri={giaTriO(k.channel, null, f, null)}
-                       onDoi={v => dat(k.channel, null, f.key, v)} />
-              ))}
-              <button className="ci-nut chinh" disabled={dangLuu === k.channel + ':moi'}
-                      onClick={() => luu(k.channel, null)}>
-                {dangLuu === k.channel + ':moi' ? 'Đang thêm…' : 'Thêm tài khoản'}
-              </button>
-            </details>
+                  {dangMo && (
+                    <div className="ci-tk-form">
+                      {/* URL RIÊNG từng bot Telegram — dán vào lệnh setWebhook của đúng bot đó. */}
+                      {!k.webhookUrl && (
+                        <label className="ci-url">
+                          Địa chỉ nhận tin của tài khoản này
+                          <input readOnly value={t.webhookUrl} onFocus={e => e.target.select()} />
+                        </label>
+                      )}
+                      {k.fields.map(f => (
+                        <ONhap key={f.key} truong={f} daKhai
+                               giaTri={giaTriO(k.channel, t.accountId, f, t.values)}
+                               onDoi={v => dat(k.channel, t.accountId, f.key, v)} />
+                      ))}
+                      {/* Bước cấp quyền chỉ Zalo mới có: Messenger/Telegram cấp token thẳng ở
+                          giao diện của họ, không đi vòng OAuth. */}
+                      {k.channel === 0 && (
+                        <div className="ci-hs-goiy">
+                          Chưa có Refresh Token? Khai App ID + App Secret Key, bấm <b>Lưu</b>, rồi
+                          bấm <b>Cấp quyền OA</b> — hệ thống tự lấy và tự làm mới về sau.
+                        </div>
+                      )}
+                      <div className="ci-tk-nut">
+                        <button className="ci-nut chinh" disabled={dangLuu === khoa}
+                                onClick={() => luu(k.channel, t.accountId)}>
+                          {dangLuu === khoa ? 'Đang lưu…' : 'Lưu'}
+                        </button>
+                        {k.channel === 0 && (
+                          <button className="ci-nut" onClick={() => capQuyenZalo(k.channel, t.accountId)}>
+                            Cấp quyền OA
+                          </button>
+                        )}
+                        <button className="ci-nut nguyhiem"
+                                onClick={() => xoa(k.channel, t.accountId, t.label)}>
+                          Gỡ kết nối
+                        </button>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              );
+            })}
           </div>
         ))}
       </>

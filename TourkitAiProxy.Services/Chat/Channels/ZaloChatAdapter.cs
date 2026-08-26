@@ -142,6 +142,9 @@ public class ZaloChatAdapter : IChatChannelAdapter
     private static readonly Dictionary<string, ChatKind> OaGui = new(StringComparer.OrdinalIgnoreCase)
     {
         ["oa_send_text"] = ChatKind.Chu,
+        // Zalo dùng cả tên chung "oa_send_msg" cho một số loại tin nhân viên gửi từ app OA. Thiếu
+        // nó thì hộp thư mất một phần cuộc trò chuyện mà không có dấu hiệu gì.
+        ["oa_send_msg"] = ChatKind.Chu,
         ["oa_send_image"] = ChatKind.Anh,
         ["oa_send_file"] = ChatKind.Tep,
         ["oa_send_video"] = ChatKind.Tep,
@@ -150,6 +153,10 @@ public class ZaloChatAdapter : IChatChannelAdapter
         ["oa_send_link"] = ChatKind.Chu,
         ["oa_send_list"] = ChatKind.Chu,
         ["oa_send_carousel"] = ChatKind.Chu,
+        // CỐ Ý KHÔNG có "oa_send_action": đó là báo thao tác (đang gõ, đã xem…), KHÔNG phải tin và
+        // không có msg_id. Nhận nó vào đây là sinh ra tin rỗng trong hộp thư mỗi lần nhân viên gõ
+        // phím bên app Zalo. (ChatbotX có nó trong danh sách sự kiện nhưng cũng không dựng tin từ
+        // nó — nhánh switch của họ không xử lý, rơi vào chỗ đòi msg_id rồi ném.)
     };
 
     public IReadOnlyList<InboundChatEvent> Parse(string rawBody)
@@ -354,7 +361,40 @@ public class ZaloChatAdapter : IChatChannelAdapter
             ["code"] = ma,
             ["redirect_uri"] = redirectUri,
         }, tenantId, accountId, ct);
-        return kq.Loi;
+        if (kq.Loi is not null) return kq.Loi;
+
+        // Hỏi Zalo vừa nối OA nào. Hỏng ở đây KHÔNG được coi là cấp quyền hỏng — token đã lấy và
+        // lưu xong, thiếu mỗi cái tên hiển thị. Báo lỗi lúc này là bắt người dùng cấp quyền lại
+        // một cách vô ích, mà lần sau cũng chỉ hỏng đúng chỗ đó.
+        await LuuHoSoOaAsync(tenantId, accountId, kq.Token!, ct);
+        return null;
+    }
+
+    /// <summary>Lấy <c>oa_id</c> + tên OA rồi lưu vào cấu hình tài khoản. Nuốt mọi lỗi.</summary>
+    private async Task LuuHoSoOaAsync(string tenantId, string accountId, string accessToken,
+        CancellationToken ct)
+    {
+        try
+        {
+            var http = _http.CreateClient();
+            using var req = new HttpRequestMessage(HttpMethod.Get, $"{ApiBase}/v2.0/oa/getoa");
+            req.Headers.Add("access_token", accessToken);
+            using var res = await http.SendAsync(req, ct);
+            var o = JsonNode.Parse(await res.Content.ReadAsStringAsync(ct))?.AsObject();
+
+            // Zalo trả HTTP 200 kèm error != 0 khi hỏng — không đọc trường đó là tưởng thành công.
+            if (o?["error"]?.GetValue<int>() is not 0) return;
+            var d = o["data"];
+            await _cred.SaveAsync(tenantId, Channel, accountId, new Dictionary<string, string?>
+            {
+                ["oaId"] = d?["oa_id"]?.ToString(),
+                ["oaName"] = d?["name"]?.ToString(),
+            }, ct);
+        }
+        catch (Exception ex)
+        {
+            _log.LogWarning(ex, "[chat/zalo] cấp quyền xong nhưng không lấy được hồ sơ OA");
+        }
     }
 
     /// <summary>Trả token dùng được ngay. Còn hạn (đệm 5 phút) → đọc cache; sắp/đã hết hạn → làm

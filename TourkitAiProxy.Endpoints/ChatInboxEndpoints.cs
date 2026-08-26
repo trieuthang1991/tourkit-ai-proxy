@@ -753,6 +753,10 @@ public static class ChatInboxEndpoints
                     {
                         accountId = t.AccountId,
                         label = t.GiaTri.GetValueOrDefault("label", ""),
+                        // Tên OA THẬT do Zalo trả về sau khi cấp quyền — khác "Tên gợi nhớ" người
+                        // dùng tự đặt. Khai nhiều OA mà không có cái này thì không phân biệt nổi.
+                        oaName = t.GiaTri.GetValueOrDefault("oaName", ""),
+                        oaId = t.GiaTri.GetValueOrDefault("oaId", ""),
                         configured = DaKhaiDu(kenh, t.GiaTri),
                         webhookUrl = moiTaiKhoanMotUrl ? $"{duong}/{t.AccountId}" : duong,
                         // Giá trị điền sẵn khi sửa — CHỈ trường không phải bí mật. Bí mật thì
