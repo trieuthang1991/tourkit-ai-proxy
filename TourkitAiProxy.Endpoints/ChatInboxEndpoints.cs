@@ -394,6 +394,11 @@ public static class ChatInboxEndpoints
             if (v is null) return Results.NotFound();   // id của tenant khác cũng rơi vào đây
 
             var tin = await repo.ListMessagesAsync(a.TenantId, id, 120, ct);
+            // Cảm xúc lấy MỘT lượt cho cả hội thoại rồi gộp trong bộ nhớ — hỏi theo từng tin là 120
+            // lượt truy vấn cho một lần mở hội thoại.
+            var camXuc = (await repo.CamXucTheoHoiThoaiAsync(a.TenantId, id, ct))
+                .GroupBy(x => x.ExternalMsgId)
+                .ToDictionary(g => g.Key, g => g.ToList());
             var lienHe = await repo.GetContactAsync(a.TenantId, v.Channel, v.ContactExternalId, ct);
             var cuaSo = ChatRules.TinhCuaSo((ChatChannel)v.Channel, v.ContactRepliedAt, DateTime.UtcNow);
             return Results.Json(new
@@ -413,6 +418,12 @@ public static class ChatInboxEndpoints
                     // Đính kèm đã CHUẨN HOÁ về cùng một hình dạng cho cả ba kênh — xem
                     // ChatAttachment. Giao diện không cần biết Zalo/Messenger/Telegram gói tệp
                     // khác nhau thế nào.
+                    // Cảm xúc khách thả lên chính tin này. Gộp theo biểu tượng: ba người cùng thả
+                    // tim thì giao diện hiện "❤️ 3", không phải ba cái tim rời.
+                    reactions = m.ExternalMsgId is { Length: > 0 } maTin && camXuc.TryGetValue(maTin, out var ds)
+                        ? ds.GroupBy(x => x.Emoji ?? x.ReactionName ?? "?")
+                            .Select(g => new { emoji = g.Key, count = g.Count() })
+                        : null,
                     files = ChatAttachment.Doc((ChatChannel)v.Channel, (ChatKind)m.Kind, m.Attachment,
                         m.Direction).Select(f => new
                     {

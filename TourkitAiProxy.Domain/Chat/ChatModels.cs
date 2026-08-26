@@ -48,7 +48,31 @@ public record InboundChatEvent(
     DateTime SentUtc,
     bool IsEcho = false,
     string? DisplayName = null,
-    StateWatermark? Watermark = null);
+    StateWatermark? Watermark = null,
+    ChatReaction? Reaction = null);
+
+/// <summary>
+/// Khách thả (hoặc gỡ) cảm xúc lên MỘT tin đã có.
+///
+/// <para><b>Không phải một tin nhắn mới.</b> Ghi nó thành tin trong hội thoại là dòng thời gian
+/// loạn ngay: biểu tượng "❤️" hiện như một câu khách vừa nói, và mọi thứ đếm theo tin (chưa đọc,
+/// xem trước, cửa sổ trả lời) đều lệch.</para>
+///
+/// <para><b>Dạng chung cho mọi kênh</b>, cố ý không gắn cứng vào Meta: Zalo và Telegram cũng có
+/// cảm xúc nhưng đặt tên trường khác hẳn. Cái bất biến là "ai, thả gì, lên tin nào".</para>
+/// </summary>
+/// <param name="ExternalMsgId">Tin BỊ thả — mã của nhà cung cấp, không phải id nội bộ.</param>
+/// <param name="Bo"><c>true</c> = GỠ cảm xúc. Bỏ sót nhánh này là cảm xúc đã gỡ vẫn hiện mãi.</param>
+public record ChatReaction(string ExternalMsgId, string? BieuTuong, string? Ten, bool Bo);
+
+/// <summary>Một cảm xúc đọc lên từ CSDL, để đính vào tin lúc liệt kê.</summary>
+public class ChatReactionRow
+{
+    public string ExternalMsgId { get; set; } = "";
+    public string ActorExternalId { get; set; } = "";
+    public string? Emoji { get; set; }
+    public string? ReactionName { get; set; }
+}
 
 /// <summary>
 /// Nền tảng báo lại trạng thái tin MÌNH đã gửi, theo kiểu <b>mốc nước</b>: mọi tin gửi trước
@@ -118,6 +142,8 @@ public class ChatMessage
     public short Kind { get; set; }
     public string? Body { get; set; }
     public string? Attachment { get; set; }
+    /// Mã tin của nhà cung cấp. Khoá để gắn cảm xúc — cảm xúc tới theo mã này, không theo id nội bộ.
+    public string? ExternalMsgId { get; set; }
     public short State { get; set; }
     public string? ErrorMessage { get; set; }
     public DateTime CreatedUtc { get; set; }

@@ -1,4 +1,4 @@
-// Services/Chat/Inbox/ChatDb.cs
+﻿// Services/Chat/Inbox/ChatDb.cs
 using Dapper;
 using Npgsql;
 using TourkitAiProxy.Infrastructure.Security;
@@ -65,7 +65,7 @@ public class ChatDb
             await using var cmd = c.CreateCommand();
             cmd.CommandText = SchemaSql;
             await cmd.ExecuteNonQueryAsync(ct);
-            _log.LogInformation("ChatDb schema OK (chat_contacts/chat_conversations/chat_messages/chat_outbox)");
+            _log.LogInformation("ChatDb schema OK (chat_contacts/chat_conversations/chat_messages/chat_reactions/chat_outbox)");
         }
         catch (Exception ex)
         {
@@ -176,6 +176,25 @@ public class ChatDb
     CREATE UNIQUE INDEX IF NOT EXISTS ux_msg_external
       ON chat_messages (tenant_id, channel, external_msg_id) WHERE external_msg_id IS NOT NULL;
     CREATE INDEX IF NOT EXISTS ix_msg_conv ON chat_messages (conversation_id, created_utc);
+
+    -- Cảm xúc khách thả lên một tin. BẢNG RIÊNG, không phải cột trên chat_messages và cũng
+    -- không phải một dòng trong chat_messages:
+    --   * nhiều người thả lên cùng một tin (nhóm chat), một cột không chứa nổi;
+    --   * thả rồi GỠ là chuyện thường, xoá một dòng dễ hơn sửa JSON trong cột;
+    --   * ghi thành tin mới thì "❤️" hiện như một câu khách nói, và mọi thứ đếm theo tin
+    --     (chưa đọc, xem trước, cửa sổ trả lời) đều lệch.
+    -- Khoá theo external_msg_id chứ không theo id nội bộ: cảm xúc có thể tới TRƯỚC khi tin được
+    -- ghi xong (hai worker khác nhịp), tham chiếu khoá ngoại lúc đó sẽ ném.
+    CREATE TABLE IF NOT EXISTS chat_reactions (
+      tenant_id       text     NOT NULL,
+      channel         smallint NOT NULL,
+      external_msg_id text     NOT NULL,
+      actor_external_id text   NOT NULL,        -- ai thả (mã người dùng của kênh)
+      emoji           text,
+      reaction_name   text,                     -- tên nhà cung cấp đặt: love, like, wow…
+      created_utc     timestamptz NOT NULL DEFAULT now(),
+      PRIMARY KEY (tenant_id, channel, external_msg_id, actor_external_id)
+    );
 
     -- Hàng đợi gửi RIÊNG cho chat. KHÔNG dùng dbo.OutboundMails: khác máy chủ, và khác vòng đời
     -- (thông báo có mẫu + lịch gửi; chat gửi ngay, chữ tự do, có cửa sổ thời gian theo kênh).

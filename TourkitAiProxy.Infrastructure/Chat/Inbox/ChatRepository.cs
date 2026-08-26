@@ -66,6 +66,51 @@ public class ChatRepository
             """, new { tenant, kenh = (short)kenh, id = externalId });
     }
 
+    // ── Cảm xúc ─────────────────────────────────────────────────────────────
+
+    /// <summary>
+    /// Ghi hoặc GỠ một cảm xúc. Một người chỉ giữ MỘT cảm xúc trên một tin — thả cái mới là đè
+    /// cái cũ, đúng như hành vi của Messenger.
+    /// </summary>
+    public async Task ThaCamXucAsync(string tenant, ChatChannel kenh, ChatReaction cx,
+        string aiTha, CancellationToken ct = default)
+    {
+        await using var c = await _db.OpenAsync(ct);
+        if (cx.Bo)
+        {
+            await c.ExecuteAsync("""
+                DELETE FROM chat_reactions
+                WHERE tenant_id = @tenant AND channel = @kenh
+                  AND external_msg_id = @mid AND actor_external_id = @ai
+                """, new { tenant, kenh = (short)kenh, mid = cx.ExternalMsgId, ai = aiTha });
+            return;
+        }
+
+        await c.ExecuteAsync("""
+            INSERT INTO chat_reactions
+              (tenant_id, channel, external_msg_id, actor_external_id, emoji, reaction_name)
+            VALUES (@tenant, @kenh, @mid, @ai, @emoji, @ten)
+            ON CONFLICT (tenant_id, channel, external_msg_id, actor_external_id) DO UPDATE
+              SET emoji = EXCLUDED.emoji, reaction_name = EXCLUDED.reaction_name,
+                  created_utc = now()
+            """, new { tenant, kenh = (short)kenh, mid = cx.ExternalMsgId, ai = aiTha,
+                       emoji = cx.BieuTuong, ten = cx.Ten });
+    }
+
+    /// <summary>Cảm xúc của các tin trong một hội thoại, để đính kèm lúc liệt kê tin.</summary>
+    public async Task<IReadOnlyList<ChatReactionRow>> CamXucTheoHoiThoaiAsync(string tenant,
+        long hoiThoaiId, CancellationToken ct = default)
+    {
+        await using var c = await _db.OpenAsync(ct);
+        return (await c.QueryAsync<ChatReactionRow>("""
+            SELECT r.external_msg_id, r.actor_external_id, r.emoji, r.reaction_name
+            FROM chat_reactions r
+            JOIN chat_messages m
+              ON m.tenant_id = r.tenant_id AND m.channel = r.channel
+             AND m.external_msg_id = r.external_msg_id
+            WHERE r.tenant_id = @tenant AND m.conversation_id = @hoiThoai
+            """, new { tenant, hoiThoai = hoiThoaiId })).ToList();
+    }
     // ── Hội thoại ───────────────────────────────────────────────────────────
 
     /// <summary>Tìm hội thoại của khách trên kênh, chưa có thì tạo.</summary>

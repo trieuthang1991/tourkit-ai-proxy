@@ -68,6 +68,14 @@ public interface IChatChannelAdapter
     /// </summary>
     Task<HoSoKhach?> HoSoKhachAsync(string tenantId, string accountId, string externalUserId,
         CancellationToken ct) => Task.FromResult<HoSoKhach?>(null);
+
+    /// <summary>
+    /// Bật dấu "đang gõ" bên phía khách. <b>Mặc định không làm gì</b> — kênh nào không có thì bỏ.
+    ///
+    /// <para>Nuốt mọi lỗi trong từng bộ nối: mất một chi tiết lịch sự không đáng để chặn tin.</para>
+    /// </summary>
+    Task BaoDangGoAsync(string tenantId, string accountId, string externalUserId,
+        CancellationToken ct) => Task.CompletedTask;
 }
 
 /// <param name="Anh">Ảnh đại diện. ⚠️ Meta ký hạn vào URL này nên nó <b>HẾT HẠN</b> sau một thời

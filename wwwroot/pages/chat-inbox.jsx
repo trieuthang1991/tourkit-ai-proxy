@@ -200,6 +200,17 @@
             {tin.state === 4 && <span className="ci-loi" title={tin.errorMessage}>gửi hỏng</span>}
           </div>
         </div>
+        {/* Cảm xúc nằm NGOÀI bóng, nép dưới mép — đúng lối Messenger/Zalo. Nhét vào trong bóng thì
+            nó trông như một phần nội dung tin, mà nó là của người khác thả lên. */}
+        {(tin.reactions || []).length > 0 && (
+          <div className="ci-camxuc">
+            {tin.reactions.map(r => (
+              <span key={r.emoji} className="ci-camxuc-mot">
+                {r.emoji}{r.count > 1 && <b>{r.count}</b>}
+              </span>
+            ))}
+          </div>
+        )}
       </div>
     );
   }

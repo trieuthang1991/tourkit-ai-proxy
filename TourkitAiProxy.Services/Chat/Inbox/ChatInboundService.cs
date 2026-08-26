@@ -80,6 +80,16 @@ public class ChatInboundService
         }
         var hoiThoai = await _repo.GetOrCreateConversationAsync(tenantId, e.Channel, e.ExternalUserId, accountId, ct);
 
+        // Cảm xúc: gắn vào một tin ĐÃ CÓ, không phải tin mới. Xử lý xong là về — không đụng tới
+        // mốc "khách vừa nhắn", không mở lại cửa sổ trả lời, không đánh thức bot. Thả tim vào tin
+        // cũ mà làm hội thoại nhảy lên đầu danh sách như có tin mới là báo động giả.
+        if (e.Reaction is { } camXuc)
+        {
+            await _repo.ThaCamXucAsync(tenantId, e.Channel, camXuc, e.ExternalUserId, ct);
+            _bus.Bao(new(tenantId, hoiThoai.Id, "doi-hoi-thoai", null));
+            return;
+        }
+
         // Nền tảng báo trạng thái tin MÌNH đã gửi — không phải tin mới, xử lý xong là về.
         // Trước đây chỗ này bóc ra rồi BỎ, nên tin gửi đi dừng mãi ở "đã gửi" dù giao diện đã vẽ
         // sẵn dấu tích hai mức.
@@ -133,6 +143,14 @@ public class ChatInboundService
         var cauHoi = ChatRules.GhepCum(choXuLy.Select(m => m.Body));
         await _repo.MarkProcessedAsync(tenantId, choXuLy.Select(m => m.Id), ct);
         if (string.IsNullOrWhiteSpace(cauHoi)) return;
+
+        // Bật ba chấm "đang gõ" TRƯỚC khi hỏi AI. Sinh câu trả lời mất vài giây; không có dấu hiệu
+        // nào thì khách nhìn màn hình trống và tưởng không ai đọc tin của mình.
+        //
+        // Đặt sau mọi phép kiểm ở trên là cố ý: chỉ báo khi CHẮC CHẮN sắp trả lời. Bật rồi im là
+        // tệ hơn không bật — khách thấy "đang gõ" rồi chờ mãi không có gì.
+        if (Adapter(e.Channel) is { } boNoiGo)
+            await boNoiGo.BaoDangGoAsync(tenantId, accountId, e.ExternalUserId, ct);
 
         var traLoi = await SinhTraLoiAsync(tenantId, hoiThoai.Id, cauHoi, ct);
         if (string.IsNullOrWhiteSpace(traLoi)) return;

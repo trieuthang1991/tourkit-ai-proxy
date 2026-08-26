@@ -1,4 +1,4 @@
-/* AI Tour Operation & Quotation — spec design system */
+﻿/* AI Tour Operation & Quotation — spec design system */
 :root {
   --primary: #F97316;
   --primary-dark: #EA580C;
@@ -9112,6 +9112,15 @@ n
 .ci-gio { display: flex; align-items: center; gap: 5px; font-size: 10.5px; opacity: .72;
           margin-top: 3px; }
 .ci-phai .ci-gio { justify-content: flex-end; opacity: .88; }
+
+/* Cảm xúc khách thả lên một tin. Nép dưới mép bóng, đè lên một chút — đúng lối Messenger/Zalo,
+   và nhờ đè nên không đẩy các bóng sau tụt xuống mỗi lần có người thả tim. */
+.ci-camxuc { display: flex; gap: 3px; margin-top: -6px; padding: 0 6px; }
+.ci-phai .ci-camxuc { justify-content: flex-end; }
+.ci-camxuc-mot { display: inline-flex; align-items: center; gap: 3px;
+  background: var(--surface); border: 1px solid var(--border); border-radius: 999px;
+  padding: 1px 6px; font-size: 12px; line-height: 1.5; }
+.ci-camxuc-mot b { font-weight: 600; font-size: 10.5px; color: var(--text-3); }
 .ci-tich { display: inline-flex; align-items: center; }
 .ci-tich svg + svg { margin-left: -6px; }   /* hai tích chồng nhau = đã tới máy khách */
 .ci-tich.cho { font-style: italic; }

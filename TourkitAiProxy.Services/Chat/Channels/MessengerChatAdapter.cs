@@ -232,6 +232,29 @@ public class MessengerChatAdapter : IChatChannelAdapter
                     continue;
                 }
 
+                // Cảm xúc: KHÔNG phải tin mới, mà gắn vào một tin đã có.
+                //
+                //   {"sender":{"id":<khách>},"recipient":{"id":<Trang>},
+                //    "reaction":{"mid":<tin bị thả>,"action":"react"|"unreact",
+                //                "emoji":"❤","reaction":"love"}}
+                //
+                // ⚠️ "unreact" là GỠ cảm xúc, và lúc đó Meta KHÔNG gửi kèm emoji. Xử lý chung một
+                // nhánh với "react" mà không đọc action là cảm xúc đã gỡ vẫn hiện mãi.
+                if (m["reaction"] is { } cx)
+                {
+                    var uidCx = m["sender"]?["id"]?.ToString();
+                    var midCx = cx["mid"]?.ToString();
+                    if (!string.IsNullOrWhiteSpace(uidCx) && !string.IsNullOrWhiteSpace(midCx))
+                    {
+                        var lucCx = long.TryParse(m["timestamp"]?.ToString(), out var tsCx)
+                            ? DateTimeOffset.FromUnixTimeMilliseconds(tsCx).UtcDateTime : DateTime.UtcNow;
+                        ra.Add(new(ChatChannel.Messenger, uidCx!, null, ChatKind.Chu, null, null, lucCx,
+                            Reaction: new(midCx!, cx["emoji"]?.ToString(), cx["reaction"]?.ToString(),
+                                cx["action"]?.ToString() == "unreact")));
+                    }
+                    continue;
+                }
+
                 var msg = m["message"];
                 if (msg is null) continue;   // postback, opt-in… — chưa dùng
 
@@ -560,6 +583,36 @@ public class MessengerChatAdapter : IChatChannelAdapter
             tenantId, trang.PageId, trang.Ten);
         return null;
     }
+    /// <summary>
+    /// Bật ba chấm "đang gõ" bên phía khách.
+    ///
+    /// <para>Bot mất vài giây mới soạn xong; trong lúc đó khách nhìn màn hình trống và tưởng
+    /// không ai đọc tin của mình. Một lượt gọi, không lưu gì, không có gì để hỏng.</para>
+    ///
+    /// <para>Meta tự tắt sau 20 giây hoặc khi mình gửi tin — không phải tắt tay.</para>
+    /// </summary>
+    public async Task BaoDangGoAsync(string tenantId, string accountId, string externalUserId,
+        CancellationToken ct)
+    {
+        var c = await _cred.GetAsync(tenantId, Channel, accountId, ct);
+        if (c is null || !c.TryGetValue("pageAccessToken", out var token) || string.IsNullOrWhiteSpace(token))
+            return;
+        try
+        {
+            var http = _http.CreateClient();
+            await http.PostAsJsonAsync($"{GraphBase}/{PhienBan}/me/messages?access_token={U(token)}", new
+            {
+                recipient = new { id = externalUserId },
+                sender_action = "typing_on",
+            }, ct);
+        }
+        catch (Exception ex)
+        {
+            // Nuốt: không báo được "đang gõ" thì chỉ mất một chi tiết lịch sự, không ảnh hưởng tin.
+            _log.LogDebug(ex, "[chat/messenger] không bật được báo đang gõ");
+        }
+    }
+
     public async Task<SendResult> SendTextAsync(string tenantId, string accountId, string externalUserId,
         string text, CancellationToken ct)
         => await GuiAsync(tenantId, accountId, externalUserId, new { text }, ct);
