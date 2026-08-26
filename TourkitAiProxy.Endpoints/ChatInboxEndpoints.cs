@@ -126,6 +126,18 @@ public static class ChatInboxEndpoints
         // Không mang tenant thì lấy đâu ra? Từ id OA trong thân tin, tra ngược ra công ty đã nối
         // OA đó. Vẫn kiểm chữ ký sau khi tra: id OA không phải bí mật, tra được không có nghĩa là
         // tin thật.
+        //
+        // ⚠️ LUÔN TRẢ 200, kể cả khi từ chối. Zalo nói thẳng: "Webhook của bạn chỉ được thiết lập
+        // khi trả về http code 200 OK" — họ gọi thử URL lúc lưu bằng một gói tin RỖNG, không chữ
+        // ký, không id OA. Trả 401 ở đó là không bao giờ lưu được URL, tức là cả tính năng chết.
+        //
+        // Trả 200 KHÔNG nới lỏng gì: từ chối vẫn là KHÔNG GHI GÌ vào hộp thư. Thực ra còn kín hơn
+        // một chút — 401/200 khác nhau là một cái máy đoán, cho người ngoài dò xem id OA nào đã có
+        // trong hệ thống.
+        //
+        // Cái giá: hỏng thì hỏng IM LẶNG. Chữ ký sai vì khai nhầm khoá cũng trả 200 y như tin rác,
+        // và Zalo coi như đã giao xong. Nên mọi lượt từ chối đều ghi log mức WARNING kèm lý do —
+        // đó là chỗ DUY NHẤT nhìn ra "tin có tới mà không vào hộp thư".
         routes.MapPost("/api/v1/chat/webhook/zalo", async (HttpContext ctx, ChatInboundService svc,
             ChatRepository repo, ILoggerFactory lf, CancellationToken ct) =>
         {
@@ -141,8 +153,17 @@ public static class ChatInboxEndpoints
             var ai = await zalo.XacMinhDungChungAsync(raw, ctx.Request.Headers, ct);
             if (ai is null)
             {
-                log.LogWarning("[chat/webhook] zalo dùng chung: chữ ký sai hoặc OA chưa ai nối");
-                return Results.Unauthorized();
+                // Gói rỗng = Zalo đang gọi thử lúc lưu URL. Có id OA mà vẫn trượt = khai nhầm khoá
+                // hoặc OA chưa ai nối — phân biệt hai ca này trong log, không thì đọc log không
+                // biết đang gặp cái nào.
+                var oa = Services.Chat.Channels.ZaloChatAdapter.IdOaCuaSuKien(raw);
+                if (oa is null)
+                    log.LogInformation("[chat/webhook] zalo: gói không có id OA (nhiều khả năng là "
+                        + "lượt gọi thử lúc lưu URL) — trả 200, không ghi gì");
+                else
+                    log.LogWarning("[chat/webhook] zalo: TỪ CHỐI tin của OA {Oa} — chữ ký sai hoặc "
+                        + "chưa công ty nào nối OA này. Tin KHÔNG vào hộp thư.", oa);
+                return Results.Ok();
             }
 
             var sk = zalo.Parse(raw);
@@ -155,6 +176,10 @@ public static class ChatInboxEndpoints
                     ai.Value.TenantId, sk[0].ExternalMsgId);
             return Results.Ok();
         });
+
+        // Zalo có thể gọi thử bằng GET thay vì POST tuỳ lúc. Không có đường GET thì máy chủ trả 405
+        // và lượt kiểm cũng trượt — thêm một dòng còn hơn ngồi đoán vì sao không lưu được.
+        routes.MapGet("/api/v1/chat/webhook/zalo", () => Results.Ok());
 
         // Đường CŨ, mang tên công ty: giữ nguyên cho các OA đã khai theo ứng dụng riêng. Bỏ đi là
         // webhook đang chạy của họ chết ngay lúc deploy.

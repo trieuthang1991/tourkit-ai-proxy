@@ -79,6 +79,30 @@ public class ZaloWebhookRoutingTests
     }
 
     [Fact]
+    public void Webhook_dung_chung_LUON_tra_200_ke_ca_khi_tu_choi()
+    {
+        // Zalo nói thẳng: "Webhook của bạn chỉ được thiết lập khi trả về http code 200 OK". Họ gọi
+        // thử URL lúc lưu bằng một gói RỖNG — không chữ ký, không id OA. Trả 401 ở đó là KHÔNG BAO
+        // GIỜ lưu được URL, tức là cả tính năng chết trước khi bắt đầu. Đã mất một buổi vì chỗ này.
+        //
+        // Trả 200 không nới lỏng gì: từ chối vẫn là không ghi gì vào hộp thư.
+        var src = ChatSchemaGuardTests.DocFile("TourkitAiProxy.Endpoints/ChatInboxEndpoints.cs");
+        var i = src.IndexOf("MapPost(\"/api/v1/chat/webhook/zalo\"", System.StringComparison.Ordinal);
+        Assert.True(i > 0, "Không thấy đường webhook dùng chung");
+
+        var het = src.IndexOf("MapGet(\"/api/v1/chat/webhook/zalo\"", i, System.StringComparison.Ordinal);
+        var than = het > i ? src[i..het] : src[i..];
+        Assert.DoesNotContain("Results.Unauthorized()", than);
+    }
+
+    [Fact]
+    public void Co_ca_duong_GET_cho_luot_goi_thu()
+    {
+        // Zalo có thể gọi thử bằng GET tuỳ lúc; không có đường GET là 405 và lượt kiểm cũng trượt.
+        var src = ChatSchemaGuardTests.DocFile("TourkitAiProxy.Endpoints/ChatInboxEndpoints.cs");
+        Assert.Contains("MapGet(\"/api/v1/chat/webhook/zalo\"", src);
+    }
+    [Fact]
     public void Van_kiem_chu_ky_sau_khi_tra_ra_cong_ty()
     {
         // Tra được công ty KHÔNG có nghĩa là tin thật: id OA không phải bí mật, ai biết đường dẫn
