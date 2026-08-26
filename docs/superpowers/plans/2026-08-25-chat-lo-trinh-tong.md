@@ -23,10 +23,11 @@ làm xong từ lâu — ô trống chỉ có nghĩa là chưa ai tick).
 | Task 3.6 bước 1-4 | ⚠️ **chưa có bằng chứng** | 4 bước kiểm tay trên staging — không tick vì không ai ghi lại kết quả thật. Làm lại khi có phiên staging. |
 | **Task 4.1** — phân trang con trỏ | ✅ xong, commit `fe60f40` | 7 test mới · `ix_conv_tenant_hoatdong` · endpoint trả `nextCursor` · nút "Tải thêm" · bundle đã dựng · 841 test xanh |
 | **Task 4.2** — SSE | ✅ xong | 4 test mới · `ChatEventBus` kẹp tenant · `GET /events` + nhịp giữ sống 25s · bắn ở 10 chỗ · giao diện bỏ nhịp 4 giây, có đường lùi 20s · **kiểm thật trên staging**: sự kiện tới + nhịp giữ sống đúng · 845 test xanh · CHANGELOG 26/08 |
-| **Task 4.3** — Redis pub/sub | ⛔ **DỪNG Ở ĐÂY** | chưa viết dòng nào. Đây là mục tiếp theo. |
-| Đợt 5 · Đợt 6 | ⛔ chưa động | |
+| **Task 4.3** — Redis pub/sub | ✅ xong | 4 test mới · bỏ qua gói của chính mình · log chế độ lúc khởi động · `/api/v1/features` trả `chatRealtime` · **kiểm thật hai bản 5080↔5081 chung Redis** · 852 test xanh |
+| **Đợt 5** — cộng tác nhiều nhân viên | ⛔ **DỪNG Ở ĐÂY** | Task 5.1 là mục tiếp theo. |
+| Đợt 6 | ⛔ chưa động | |
 
-**Nhánh đang làm:** `feat/chat-dot4-realtime` (tách từ `dev`, đã có 3 commit). **Chưa merge về `dev`.**
+**Nhánh đang làm:** `feat/chat-dot4-realtime` (tách từ `dev`, đã có 4 commit — hết ĐỢT 4). **Chưa merge về `dev`.**
 
 **Ba cái bẫy vấp phải khi làm 4.1 — người làm tiếp đọc trước kẻo mất thì giờ:**
 
@@ -1320,7 +1321,7 @@ Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>"
 
 > SSE giữ kết nối tới **đúng một** instance. Tin tới instance khác thì tab đang mở **không nhận được** — và triệu chứng là "thỉnh thoảng tin mới không hiện", loại lỗi chỉ xuất hiện khi đông người dùng, tức đúng lúc tệ nhất.
 
-- [ ] **Bước 1: Test đỏ** — `ChatEventBus` nhận `RedisProvider?`, không có Redis thì chạy y như cũ:
+- [x] **Bước 1: Test đỏ** — `ChatEventBus` nhận `RedisProvider?`, không có Redis thì chạy y như cũ:
 
 ```csharp
     [Fact]
@@ -1333,13 +1334,13 @@ Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>"
     }
 ```
 
-- [ ] **Bước 2** Chạy, xác nhận đỏ (`ChatEventBus` chưa nhận tham số).
+- [x] **Bước 2** Chạy, xác nhận đỏ (`ChatEventBus` chưa nhận tham số).
 
-- [ ] **Bước 3: Thêm nhánh Redis**
+- [x] **Bước 3: Thêm nhánh Redis** — `CLAUDE.md` **không** sửa: file đó nay cố ý ngắn, phần này thuộc [docs/features/chat-inbox.md](../../features/chat-inbox.md)
 
 `Bao()` publish lên kênh `tkai:chat:events`; lúc khởi tạo subscribe kênh đó và đổ vào các listener nội bộ. **Tự bỏ qua sự kiện do chính instance mình publish** (kèm một id instance vào payload) — không thì mỗi sự kiện xử lý hai lần.
 
-- [ ] **Bước 4: Log lúc khởi động nói rõ chế độ**
+- [x] **Bước 4: Log lúc khởi động nói rõ chế độ**
 
 ```csharp
 _log.LogInformation("[chat/events] chế độ {C}", redis is null
@@ -1347,9 +1348,9 @@ _log.LogInformation("[chat/events] chế độ {C}", redis is null
     : "nhiều instance qua Redis pub/sub");
 ```
 
-- [ ] **Bước 5: Giao diện có đường lùi.** `GET /api/v1/features` trả thêm `chatRealtime: bool`; giao diện thấy `false` thì bật lại `setInterval` 4 giây. **Không im lặng chạy chế độ kém hơn.**
+- [x] **Bước 5: Giao diện có đường lùi.** `GET /api/v1/features` trả thêm `chatRealtime: bool`; giao diện thấy `false` thì giữ `setInterval` **20 giây** chạy liên tục (không phải 4 giây — xem lý do ở [chat-inbox.md](../../features/chat-inbox.md)). **Không im lặng chạy chế độ kém hơn.**
 
-- [ ] **Bước 6: Test + commit** (thông điệp nêu rõ vì sao phải bỏ qua sự kiện của chính mình).
+- [x] **Bước 6: Test + commit** (thông điệp nêu rõ vì sao phải bỏ qua sự kiện của chính mình).
 
 ---
 
