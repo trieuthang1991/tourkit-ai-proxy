@@ -31,6 +31,7 @@ Những cập nhật gần đây của TRAV-AI, viết cho người dùng. Mới
   khác trong app chậm đi.
 
 ---
+
 ## Phiên bản 25/08/2026 — Chặt hơn ở phần quản trị, và vài lỗi âm thầm
 
 ### 🔧 Đã khắc phục

@@ -550,9 +550,15 @@
     // ⚠️ ĐÓNG luồng khi tab ẩn: HTTP/1.1 chỉ cho 6 kết nối mỗi origin, một luồng SSE giữ mất một
     // suất. Mở nhiều tab TRAV-AI mà không đóng là các request thường bị treo — lỗi rất khó lần.
     //
+    // ⚠️ Cờ chatRealtime=false nghĩa là máy chủ CHƯA cắm Redis, nên bus chỉ thấy sự kiện của
+    // chính instance mình — chạy nhiều bản sau load-balancer là tin tới bản khác không đẩy sang
+    // được. Lúc đó giữ đường lùi hỏi lại CHẠY LIÊN TỤC, không chỉ khi luồng đứt.
+    //
     // ⚠️ KHÔNG dùng authedFetch cho SSE: nó tự đăng xuất TOÀN CỤC khi gặp bất kỳ 401 nào, nên một
     // luồng đứt lúc phiên hết hạn sẽ đá nhân viên ra khỏi app giữa lúc đang gõ dở cho khách.
     // EventSource không gửi được header tuỳ ý → phiên đi qua ?sessionId=, backend đã đọc sẵn.
+    const dayDuTin = window.tourkitFeatures.useFeature('chatRealtime');
+
     useEffect(() => {
       let huy = false, es = null, hen = null, luiVe = null;
 
@@ -568,19 +574,21 @@
       // thư câm hẳn — tệ hơn hiện trạng. Chỉ chạy KHI luồng chưa mở, nên lúc đẩy chạy tốt thì
       // tab Network sạch, không có request định kỳ nào.
       const batLui = () => { if (!luiVe && !huy) luiVe = setInterval(lamMoi, 20000); };
-      const tatLui = () => { clearInterval(luiVe); luiVe = null; };
+      // Chỉ tắt đường lùi khi máy chủ nói đẩy là ĐỦ. Chưa có Redis thì luồng vẫn mở bình thường
+      // nhưng sự kiện của instance khác không tới — tắt đường lùi lúc đó là câm mà trông như chạy.
+      const tatLui = () => { if (!dayDuTin) return; clearInterval(luiVe); luiVe = null; };
 
       const moKet = () => {
         if (huy || document.hidden || es) return;
         const sid = window.tourkitAuth.getSessionId();
         if (!sid) { batLui(); return; }
         es = new EventSource('/api/v1/chat/events?sessionId=' + encodeURIComponent(sid));
-        es.onopen = tatLui;
+        es.onopen = () => { tatLui(); if (!dayDuTin) batLui(); };
         es.onmessage = (ev) => { try { JSON.parse(ev.data); } catch { return; } gom(); };
         // EventSource TỰ nối lại — không đóng tay ở đây, chỉ bật đường lùi cho tới lúc nối được.
         es.onerror = batLui;
       };
-      const dong = () => { if (es) { es.close(); es = null; } tatLui(); };
+      const dong = () => { if (es) { es.close(); es = null; } clearInterval(luiVe); luiVe = null; };
       const doiTab = () => { if (document.hidden) dong(); else { moKet(); lamMoi(); } };
 
       lamMoi();
@@ -591,7 +599,7 @@
         document.removeEventListener('visibilitychange', doiTab);
         clearTimeout(hen); dong();
       };
-    }, [taiDsach, taiChiTiet, chon]);
+    }, [taiDsach, taiChiTiet, chon, dayDuTin]);
 
     // Đổi bộ lọc là reset con trỏ + danh sách — không thì trộn kết quả của hai bộ lọc khác nhau.
     useEffect(() => { setDsach([]); setConTro(null); }, [loc, kenhLoc, nhom, tim]);

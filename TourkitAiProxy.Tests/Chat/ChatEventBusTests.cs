@@ -98,6 +98,74 @@ public class ChatEventBusTests
         Assert.Equal(7, (await t2).ConversationId);
     }
 
+    [Fact]
+    public void Khong_co_Redis_van_chay_nhu_cu()
+    {
+        // Redis là TUỲ CHỌN. Thiếu nó thì bus vẫn phải chạy trong một instance — không được ném
+        // lúc khởi động, vì máy dev và VPS nhỏ thường không cắm Redis.
+        var bus = new ChatEventBus(null);
+        bus.Bao(new("cong-ty-A", 1, "tin-moi", 1));
+        Assert.False(bus.NhieuInstance);
+    }
+
+    [Fact]
+    public async Task Su_kien_tu_instance_khac_van_toi_duoc_nguoi_nghe()
+    {
+        // Đây là đường Redis đi vào: gói tin từ instance khác được bóc ra rồi đổ vào đúng người
+        // nghe nội bộ. Không có Redis thật trong test nên gọi thẳng cửa vào đó.
+        var bus = new ChatEventBus(null);
+        using var huy = new CancellationTokenSource(TimeSpan.FromSeconds(5));
+
+        var doc = Task.Run(async () =>
+        {
+            await foreach (var e in bus.NgheAsync("cong-ty-A", huy.Token)) return e;
+            throw new InvalidOperationException("luồng đóng trước khi có sự kiện");
+        });
+        await ChoDangKyAsync(bus, huy.Token);
+
+        bus.NhanTuXa(ChatEventBus.DongGoi("instance-khac", new("cong-ty-A", 9, "tin-moi", 90)));
+        Assert.Equal(9, (await doc).ConversationId);
+    }
+
+    [Fact]
+    public async Task Bo_qua_goi_tin_do_CHINH_MINH_phat()
+    {
+        // Redis trả gói tin về cho cả người phát. Không lọc thì mỗi sự kiện tới người nghe HAI
+        // lần — giao diện tải lại gấp đôi, và lỗi kiểu đó chỉ lộ ra khi đã cắm Redis trên prod.
+        var bus = new ChatEventBus(null);
+        using var huy = new CancellationTokenSource(TimeSpan.FromSeconds(5));
+
+        var nhan = new List<ChatEvent>();
+        var doc = Task.Run(async () =>
+        {
+            await foreach (var e in bus.NgheAsync("cong-ty-A", huy.Token))
+            {
+                nhan.Add(e);
+                if (nhan.Count == 1) break;
+            }
+        });
+        await ChoDangKyAsync(bus, huy.Token);
+
+        bus.NhanTuXa(ChatEventBus.DongGoi(bus.MaInstance, new("cong-ty-A", 1, "tin-moi", 1)));   // của mình → bỏ
+        bus.NhanTuXa(ChatEventBus.DongGoi("instance-khac", new("cong-ty-A", 2, "tin-moi", 2)));
+        await doc;
+
+        Assert.Single(nhan);
+        Assert.Equal(2, nhan[0].ConversationId);
+    }
+
+    [Theory]
+    [InlineData("")]
+    [InlineData("khong-phai-json")]
+    [InlineData("{}")]
+    [InlineData("{\"tuAi\":\"x\"}")]
+    public void Goi_tin_hong_thi_bo_qua_chu_khong_nem(string thô)
+    {
+        // Gói tin tới từ MẠNG: phiên bản cũ còn trong Redis, hoặc ai đó publish nhầm kênh. Ném ở
+        // đây là chết luồng đăng ký, và từ đó instance này câm hẳn mà không ai biết.
+        var bus = new ChatEventBus(null);
+        bus.NhanTuXa(thô);
+    }
     /// Chờ tới khi đủ số người nghe đã đăng ký. Ngủ một khoảng cố định thì test lúc xanh lúc đỏ
     /// trên máy chạy chậm — thứ tệ hơn cả không có test, vì người sau sẽ chạy lại cho tới khi xanh.
     private static async Task ChoDangKyAsync(ChatEventBus bus, CancellationToken ct, int can = 1)

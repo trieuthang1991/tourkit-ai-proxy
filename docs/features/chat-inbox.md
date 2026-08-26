@@ -129,10 +129,23 @@ endpoint thay vì phải nhân bản sang kênh đẩy.
 **đóng luồng khi tab ẩn** — không thì mở vài tab TRAV-AI là các request thường bị treo, lỗi rất khó
 lần. Chạy HTTP/2 thì hết vấn đề.
 
-⚠️ **Bus nằm trong bộ nhớ nên chỉ thấy sự kiện của CHÍNH instance mình.** Nhiều instance sau
-load-balancer thì tin tới instance khác không đẩy sang được. Giao diện vì thế giữ **đường lùi hỏi
-lại 20 giây, chỉ chạy khi luồng đẩy chưa mở** — đẩy chạy tốt thì tab Network sạch, đẩy hỏng thì hộp
-thư chậm chứ không câm. Giải triệt để bằng Redis pub/sub là việc của đợt sau.
+**Nhiều instance đi qua Redis pub/sub** (kênh `tkai:chat:events`). SSE giữ kết nối tới **đúng một**
+instance, nên không có pub/sub thì tin tới instance khác làm tab đang mở không thấy — triệu chứng là
+"thỉnh thoảng tin mới không hiện", loại lỗi chỉ ra mặt khi đông người dùng, tức đúng lúc tệ nhất.
+Mỗi gói tin kèm **mã instance phát** và instance **bỏ qua gói của chính mình**: Redis trả gói về cho
+cả người phát, không lọc thì mỗi sự kiện tới người nghe hai lần và giao diện tải lại gấp đôi. Gói tin
+hỏng (phiên bản cũ còn trong Redis, hoặc ai đó publish nhầm kênh) thì **bỏ qua chứ không ném** — ném
+là chết luồng đăng ký và từ đó instance câm hẳn mà không ai biết.
+
+⚠️ **Không có `Redis:ConnectionString` thì bus chỉ thấy sự kiện của CHÍNH instance mình** — vẫn chạy
+tốt khi triển khai một bản, nhưng **nói ra chứ không im lặng**: log lúc khởi động ghi rõ chế độ, và
+`GET /api/v1/features` trả `chatRealtime: false` để giao diện giữ **đường lùi hỏi lại 20 giây chạy
+liên tục**. Có Redis thì `chatRealtime: true` và đường lùi chỉ bật khi luồng đứt — lúc đẩy chạy tốt
+thì tab Network sạch, không có request định kỳ nào.
+
+⚠️ Bản gốc của kế hoạch ghi đường lùi là **4 giây** (đúng bằng nhịp cũ). Ở đây để **20 giây**: khi
+chỉ chạy một instance — trường hợp thường gặp — luồng đẩy đã phủ đủ, quay lại nhịp 4 giây là xoá
+sạch cái lợi vừa làm được. 20 giây vẫn nhẹ hơn 5 lần so với trước mà không để hộp thư câm.
 **Mẫu trả lời nhanh** (`chat_quick_replies` +
 [`ChatQuickReplyRepository`](../../TourkitAiProxy.Infrastructure/Chat/Inbox/ChatQuickReplyRepository.cs)): gõ `/` ở **ĐẦU** ô
 soạn ra danh sách. Lệnh gọi **bỏ dấu** khi lưu — nhân viên đang gõ nhanh cho khách sẽ gõ `/gia` chứ
