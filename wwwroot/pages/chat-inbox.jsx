@@ -724,8 +724,12 @@
 
             {k.accounts.length === 0 && mo !== k.channel + ':moi' && (
               <div className="ci-trong">
+                {/* Chữ phải theo KÊNH đang mở. Trước đây câu này viết cứng cho Zalo nên tab
+                    Facebook cũng bảo người dùng đi bấm "Kết nối Zalo OA" — chỉ sang một nút
+                    không hề có trên màn hình họ đang nhìn. Dùng lại k.nutNoi do máy chủ trả về,
+                    thêm kênh nối-một-chạm mới thì không phải sửa chỗ này nữa. */}
                 {k.noiNhanh
-                  ? 'Chưa nối OA nào. Bấm "Kết nối Zalo OA", đăng nhập Zalo rồi chọn OA của công ty bạn.'
+                  ? `Chưa nối tài khoản nào. Bấm "${k.nutNoi || 'Kết nối'}" rồi làm theo hướng dẫn trong cửa sổ hiện ra.`
                   : 'Chưa nối tài khoản nào cho kênh này.'}
               </div>
             )}
