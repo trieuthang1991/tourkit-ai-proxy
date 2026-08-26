@@ -27,6 +27,10 @@ Những cập nhật gần đây của TRAV-AI, viết cho người dùng. Mới
 ### 🔧 Đã khắc phục
 - **Nút "Nhận việc" giờ mới thật sự nhận việc.** Trước đây bấm nút này không gán hội thoại cho
   bạn — thậm chí còn gỡ người đang phụ trách ra. Nút trông như chạy nên không ai để ý.
+- **Dấu "chưa đọc" nay là của riêng bạn.** Trước đây đồng nghiệp mở một hội thoại là dấu chưa
+  đọc biến mất với **tất cả mọi người** — bạn không hề mở mà vẫn mất dấu, nên tin của khách trôi
+  qua mà không ai để ý. Nay mỗi người có dấu chưa đọc riêng. Các hội thoại cũ giữ nguyên trạng
+  thái như trước, không tự bật đỏ lại.
 - **Hai người không còn giẫm chân nhau khi cùng bấm nhận một hội thoại.** Trước đây ai bấm sau sẽ
   âm thầm giành mất việc của người bấm trước, mà **cả hai đều thấy "của tôi"** rồi cùng trả lời một
   khách — khách nhận hai câu khác nhau từ một công ty. Nay người bấm sau được báo rõ **ai đang xử

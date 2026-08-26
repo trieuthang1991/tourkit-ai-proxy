@@ -86,30 +86,37 @@ public class ChatRepository
     /// <paramref name="chiCuaToi"/> vốn là kẹp QUYỀN: cái này lọc đúng một người, cái kia còn cho
     /// thấy phần chưa ai nhận. Gộp hai thứ lại thì "Của tôi" sẽ hiện cả việc của người khác.</param>
     /// <param name="chiChuaDoc">Chỉ hội thoại khách nhắn sau lần mình mở gần nhất.</param>
+    /// <param name="nguoiDung">Người đang xem — mốc "đã đọc" lấy theo người này, không phải theo
+    /// cả công ty. Null thì lùi về mốc chung cũ.</param>
     public async Task<List<ChatConversation>> ListConversationsAsync(string tenant, short? trangThai,
         string? chiCuaToi, string? timKiem, short? kenh = null, string? giaoCho = null,
-        bool chiChuaDoc = false, ConvCursor? sau = null, int limit = 60, CancellationToken ct = default)
+        bool chiChuaDoc = false, ConvCursor? sau = null, int limit = 60, string? nguoiDung = null,
+        CancellationToken ct = default)
     {
         await using var c = await _db.OpenAsync(ct);
         return (await c.QueryAsync<ChatConversation>("""
-            SELECT v.*, ct.display_name
+            SELECT v.*, ct.display_name, r.last_read_at AS my_last_read_at
             FROM chat_conversations v
             LEFT JOIN chat_contacts ct
               ON ct.tenant_id = v.tenant_id AND ct.channel = v.channel AND ct.external_id = v.contact_external_id
+            LEFT JOIN chat_conversation_reads r
+              ON r.tenant_id = v.tenant_id AND r.conversation_id = v.id AND r.username = @nguoiDung
             WHERE v.tenant_id = @tenant
               AND (@trangThai IS NULL OR v.status = @trangThai)
               AND (@chiCuaToi IS NULL OR v.assigned_username = @chiCuaToi OR v.assigned_username IS NULL)
               AND (@kenh IS NULL OR v.channel = @kenh)
               AND (@giaoCho IS NULL OR v.assigned_username = @giaoCho)
+              -- Mốc RIÊNG của người đang xem, lùi về mốc chung cũ khi họ chưa mở lần nào.
               AND (NOT @chuaDoc OR (v.contact_replied_at IS NOT NULL
-                   AND (v.agent_last_read_at IS NULL OR v.contact_replied_at > v.agent_last_read_at)))
+                   AND (COALESCE(r.last_read_at, v.agent_last_read_at) IS NULL
+                        OR v.contact_replied_at > COALESCE(r.last_read_at, v.agent_last_read_at))))
               AND (@tim IS NULL OR ct.display_name ILIKE @tim OR v.last_preview ILIKE @tim
                    OR v.contact_external_id ILIKE @tim)
               AND (@sauLuc::timestamptz IS NULL
                    OR (v.last_activity_at, v.id) < (@sauLuc::timestamptz, @sauId::bigint))
             ORDER BY v.last_activity_at DESC, v.id DESC
             LIMIT @limit
-            """, new { tenant, trangThai, chiCuaToi, kenh, giaoCho, chuaDoc = chiChuaDoc,
+            """, new { tenant, trangThai, chiCuaToi, kenh, giaoCho, chuaDoc = chiChuaDoc, nguoiDung,
                        tim = string.IsNullOrWhiteSpace(timKiem) ? null : $"%{timKiem.Trim()}%",
                        sauLuc = sau?.LastActivityAt, sauId = sau?.Id,
                        limit = Math.Clamp(limit, 1, 200) })).ToList();
@@ -133,19 +140,22 @@ public class ChatRepository
     /// truy vấn là nhân ba số lần đụng CSDL cho cùng một bảng, cùng một điều kiện.</para>
     /// </summary>
     public async Task<ChatInboxCounts> CountAsync(string tenant, string? chiCuaToi,
-        CancellationToken ct = default)
+        string? nguoiDung = null, CancellationToken ct = default)
     {
         await using var c = await _db.OpenAsync(ct);
         var rows = (await c.QueryAsync<DemDong>("""
-            SELECT status, channel, COUNT(*)::int AS so,
-                   COUNT(*) FILTER (WHERE contact_replied_at IS NOT NULL
-                        AND (agent_last_read_at IS NULL OR contact_replied_at > agent_last_read_at))::int
+            SELECT v.status, v.channel, COUNT(*)::int AS so,
+                   COUNT(*) FILTER (WHERE v.contact_replied_at IS NOT NULL
+                        AND (COALESCE(r.last_read_at, v.agent_last_read_at) IS NULL
+                             OR v.contact_replied_at > COALESCE(r.last_read_at, v.agent_last_read_at)))::int
                         AS chua_doc
-            FROM chat_conversations
-            WHERE tenant_id = @tenant
-              AND (@chiCuaToi IS NULL OR assigned_username = @chiCuaToi OR assigned_username IS NULL)
-            GROUP BY status, channel
-            """, new { tenant, chiCuaToi })).ToList();
+            FROM chat_conversations v
+            LEFT JOIN chat_conversation_reads r
+              ON r.tenant_id = v.tenant_id AND r.conversation_id = v.id AND r.username = @nguoiDung
+            WHERE v.tenant_id = @tenant
+              AND (@chiCuaToi IS NULL OR v.assigned_username = @chiCuaToi OR v.assigned_username IS NULL)
+            GROUP BY v.status, v.channel
+            """, new { tenant, chiCuaToi, nguoiDung })).ToList();
 
         var theoTrangThai = new Dictionary<short, int>();
         var theoKenh = new Dictionary<short, int>();
@@ -237,12 +247,22 @@ public class ChatRepository
             """, new { id, tenant, phut });
     }
 
-    public async Task MarkAgentReadAsync(string tenant, long id, CancellationToken ct = default)
+    /// <summary>
+    /// Đánh dấu người này đã đọc tới giờ.
+    ///
+    /// <para><b>KHÔNG đụng <c>chat_conversations.agent_last_read_at</c> nữa.</b> Ghi vào cột chung
+    /// đó nghĩa là A mở hội thoại thì B cũng mất dấu chưa đọc — đúng cái lỗi bảng này sinh ra để
+    /// sửa. Cột cũ vẫn nằm đó làm mốc ban đầu cho người chưa có dòng nào.</para>
+    /// </summary>
+    public async Task MarkReadAsync(string tenant, long id, string username, CancellationToken ct = default)
     {
         await using var c = await _db.OpenAsync(ct);
-        await c.ExecuteAsync(
-            "UPDATE chat_conversations SET agent_last_read_at = now() WHERE id = @id AND tenant_id = @tenant",
-            new { id, tenant });
+        await c.ExecuteAsync("""
+            INSERT INTO chat_conversation_reads (tenant_id, conversation_id, username, last_read_at)
+            VALUES (@tenant, @id, @username, now())
+            ON CONFLICT (tenant_id, conversation_id, username)
+            DO UPDATE SET last_read_at = now()
+            """, new { id, tenant, username });
     }
 
     // ── Tin nhắn ────────────────────────────────────────────────────────────

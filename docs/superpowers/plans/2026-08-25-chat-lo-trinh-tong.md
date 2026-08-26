@@ -1380,9 +1380,9 @@ _log.LogInformation("[chat/events] chế độ {C}", redis is null
 
 > `agent_last_read_at` là **một cột cho cả công ty**: A mở hội thoại thì B cũng mất dấu chưa đọc. Với hộp thư một người thì không lộ; hai người trở lên là sai ngay.
 
-- [ ] **Bước 1: Test đỏ** — guard: có bảng `chat_conversation_reads` với khoá `(tenant_id, conversation_id, username)`.
-- [ ] **Bước 2:** Chạy, xác nhận đỏ.
-- [ ] **Bước 3:** Thêm bảng vào `SchemaSql` (nhớ thứ tự ALTER/INDEX):
+- [x] **Bước 1: Test đỏ** — guard: có bảng `chat_conversation_reads` với khoá `(tenant_id, conversation_id, username)`.
+- [x] **Bước 2:** Chạy, xác nhận đỏ.
+- [x] **Bước 3:** Thêm bảng vào `SchemaSql` (nhớ thứ tự ALTER/INDEX):
 
 ```sql
     CREATE TABLE IF NOT EXISTS chat_conversation_reads (
@@ -1394,9 +1394,10 @@ _log.LogInformation("[chat/events] chế độ {C}", redis is null
     );
 ```
 
-- [ ] **Bước 4:** `MarkReadAsync` ghi theo `username` (`ON CONFLICT (tenant_id, conversation_id, username) DO UPDATE`); bộ đếm chưa đọc `LEFT JOIN` bảng này.
-- [ ] **Bước 5:** **Giữ `agent_last_read_at`**, không xoá — dữ liệu cũ vẫn dùng làm mốc ban đầu cho người chưa có dòng nào. Xoá là mọi hội thoại cũ bật lại thành "chưa đọc" cho tất cả mọi người ngay sau khi deploy.
-- [ ] **Bước 6:** Test + commit.
+- [x] **Bước 4:** `MarkReadAsync` ghi theo `username` (`ON CONFLICT (tenant_id, conversation_id, username) DO UPDATE`); bộ đếm chưa đọc `LEFT JOIN` bảng này.
+- [x] **Bước 5:** **Giữ `agent_last_read_at`**, không xoá — dữ liệu cũ vẫn dùng làm mốc ban đầu cho người chưa có dòng nào. Xoá là mọi hội thoại cũ bật lại thành "chưa đọc" cho tất cả mọi người ngay sau khi deploy.
+- [x] **Bước 6:** Test + commit.
+- [ ] ⚠️ **Chưa kiểm được việc TÁCH THEO NGƯỜI trên staging** — chỉ có một phiên đăng nhập, không dựng được người thứ hai. Đã kiểm: schema áp không lỗi, `ON CONFLICT` khớp khoá chính lúc CHẠY thật (đây mới là kiểu hỏng mà guard mã nguồn không bắt được), truy vấn danh sách + bộ đếm chạy với tham số người dùng. Việc còn lại: đăng nhập hai tài khoản khác nhau, A mở hội thoại → B **vẫn** phải thấy chấm chưa đọc.
 
 ## Task 5.3: Nhật ký thao tác
 

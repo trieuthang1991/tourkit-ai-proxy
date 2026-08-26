@@ -228,8 +228,8 @@ public static class ChatInboxEndpoints
             const int soDong = 60;
             var items = await repo.ListConversationsAsync(a.TenantId, status, chiCuaToi, search,
                 kenh: channel, giaoCho: mine == true ? a.Username : null, chiChuaDoc: unread == true,
-                sau: ChatCursor.Giai(cursor), limit: soDong, ct: ct);
-            var dem = await repo.CountAsync(a.TenantId, chiCuaToi, ct);
+                sau: ChatCursor.Giai(cursor), limit: soDong, nguoiDung: a.Username, ct: ct);
+            var dem = await repo.CountAsync(a.TenantId, chiCuaToi, a.Username, ct);
             return Results.Json(new
             {
                 items = items.Select(Shape),
@@ -470,7 +470,9 @@ public static class ChatInboxEndpoints
             var a = SessionAuth.Read(ctx, sessions);
             if (a == null) return SessionAuth.Unauthorized();
             if (!repo.Configured) return ChuaCauHinh();
-            await repo.MarkAgentReadAsync(a.TenantId, id, ct);
+            // Theo TỪNG NGƯỜI: đánh dấu chung cho cả công ty thì A mở hội thoại là B mất dấu
+            // chưa đọc, và tin của khách trôi qua mắt B mà không có lỗi nào hiện ra.
+            await repo.MarkReadAsync(a.TenantId, id, a.Username, ct);
             return Results.Json(new { ok = true }, Web);
         });
 
@@ -675,16 +677,22 @@ public static class ChatInboxEndpoints
         }, true),
     };
 
-    private static object Shape(ChatConversation v) => new
+    private static object Shape(ChatConversation v)
     {
-        v.Id, v.Channel, v.ContactExternalId, v.AccountId, v.Status, v.AssignedUsername,
-        v.LastActivityAt, v.LastPreview, v.ContactRepliedAt,
-        displayName = v.DisplayName,
-        // Bot có đang bị câm không — giao diện hiện rõ, không thì nhân viên tưởng bot hỏng.
-        botPaused = v.BotResumeAt is { } m && m > DateTime.UtcNow,
-        // Chưa đọc = khách nhắn sau lần mình mở gần nhất.
-        unread = v.ContactRepliedAt is { } cr && (v.AgentLastReadAt is null || cr > v.AgentLastReadAt),
-    };
+        // Mốc đọc RIÊNG của người đang xem. Chưa mở lần nào thì lùi về mốc chung cũ — không thì
+        // mọi hội thoại cũ bật lại thành "chưa đọc" cho tất cả mọi người ngay sau khi nâng cấp.
+        var docToi = v.MyLastReadAt ?? v.AgentLastReadAt;
+        return new
+        {
+            v.Id, v.Channel, v.ContactExternalId, v.AccountId, v.Status, v.AssignedUsername,
+            v.LastActivityAt, v.LastPreview, v.ContactRepliedAt,
+            displayName = v.DisplayName,
+            // Bot có đang bị câm không — giao diện hiện rõ, không thì nhân viên tưởng bot hỏng.
+            botPaused = v.BotResumeAt is { } m && m > DateTime.UtcNow,
+            // Chưa đọc = khách nhắn sau lần CHÍNH MÌNH mở gần nhất.
+            unread = v.ContactRepliedAt is { } cr && (docToi is null || cr > docToi),
+        };
+    }
 
     /// <param name="AttachmentKind">"anh" | "tep" — bỏ trống khi không đính kèm.</param>
 public record SendReq(string? Text, string? AttachmentUrl = null, string? AttachmentKind = null,

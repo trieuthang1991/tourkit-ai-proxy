@@ -231,5 +231,20 @@ public class ChatDb
     );
     CREATE UNIQUE INDEX IF NOT EXISTS ux_quickreply_trigger
       ON chat_quick_replies (tenant_id, lower(trigger));
+
+    -- Đã đọc theo TỪNG NGƯỜI. Trước đây chỉ có chat_conversations.agent_last_read_at — MỘT cột
+    -- cho cả công ty, nên A mở hội thoại là B cũng mất dấu chưa đọc. Hộp thư một người thì không
+    -- lộ ra; hai người trở lên là sai ngay, mà sai im lặng: không có lỗi nào hiện, chỉ có tin của
+    -- khách trôi qua mắt người thứ hai.
+    --
+    -- Cột cũ VẪN GIỮ, làm mốc ban đầu cho người chưa có dòng nào ở đây. Xoá nó là mọi hội thoại
+    -- cũ bật lại thành "chưa đọc" cho tất cả mọi người ngay sau khi deploy.
+    CREATE TABLE IF NOT EXISTS chat_conversation_reads (
+      tenant_id       text        NOT NULL,
+      conversation_id bigint      NOT NULL REFERENCES chat_conversations(id) ON DELETE CASCADE,
+      username        text        NOT NULL,
+      last_read_at    timestamptz NOT NULL DEFAULT now(),
+      PRIMARY KEY (tenant_id, conversation_id, username)
+    );
     """;
 }

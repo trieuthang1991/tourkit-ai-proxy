@@ -146,6 +146,25 @@ thì tab Network sạch, không có request định kỳ nào.
 ⚠️ Bản gốc của kế hoạch ghi đường lùi là **4 giây** (đúng bằng nhịp cũ). Ở đây để **20 giây**: khi
 chỉ chạy một instance — trường hợp thường gặp — luồng đẩy đã phủ đủ, quay lại nhịp 4 giây là xoá
 sạch cái lợi vừa làm được. 20 giây vẫn nhẹ hơn 5 lần so với trước mà không để hộp thư câm.
+**Nhận việc là NGUYÊN TỬ.** Điều kiện `assigned_username IS NULL` nằm trong chính câu `UPDATE`,
+không phải đọc-rồi-ghi trong C#: giữa lần đọc và lần ghi có một khe, hai nhân viên bấm cách nhau
+100ms là cả hai cùng lọt, cùng thấy "của tôi" và cùng trả lời một khách. 0 dòng đổi được → **409**
+kèm tên người đang giữ, không phải 200 im lặng. Tên người nhận lấy từ **phiên ở máy chủ**, không
+lấy từ thân yêu cầu — để client tự khai tên là ai cũng gán việc cho người khác được.
+
+⚠️ **Nhả việc và chuyển việc CỐ Ý không đi đường nguyên tử** — cả hai đều là thao tác đè lên người
+đang giữ. Chỉ "nhận việc cho chính mình" mới phải tranh nhau.
+
+**Chưa đọc tính theo TỪNG NGƯỜI** (`chat_conversation_reads`, khoá `(tenant_id, conversation_id,
+username)`). Trước đây chỉ có `chat_conversations.agent_last_read_at` — **một cột cho cả công ty**,
+nên A mở hội thoại là B cũng mất dấu chưa đọc. Hộp thư một người thì không lộ ra; hai người trở
+lên là sai ngay, mà sai **im lặng**: không có lỗi nào hiện, chỉ có tin của khách trôi qua mắt người
+thứ hai.
+
+⚠️ **Cột cũ VẪN GIỮ và vẫn được đọc**, làm mốc ban đầu cho người chưa có dòng nào trong bảng mới —
+nhưng **không còn được ghi**. Xoá cột là mọi hội thoại cũ bật lại thành "chưa đọc" cho tất cả mọi
+người ngay sau khi deploy; còn tiếp tục ghi vào nó thì quay lại đúng cái lỗi vừa sửa, chỉ khác là
+nay có thêm một bảng trông như đã sửa.
 **Mẫu trả lời nhanh** (`chat_quick_replies` +
 [`ChatQuickReplyRepository`](../../TourkitAiProxy.Infrastructure/Chat/Inbox/ChatQuickReplyRepository.cs)): gõ `/` ở **ĐẦU** ô
 soạn ra danh sách. Lệnh gọi **bỏ dấu** khi lưu — nhân viên đang gõ nhanh cho khách sẽ gõ `/gia` chứ

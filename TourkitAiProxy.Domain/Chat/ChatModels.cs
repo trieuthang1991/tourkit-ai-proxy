@@ -96,7 +96,11 @@ public class ChatConversation
     public DateTime? BotResumeAt { get; set; }
     public DateTime? ContactRepliedAt { get; set; }
     public DateTime? AgentRepliedAt { get; set; }
+    /// Mốc đọc CHUNG của cả công ty. Giữ lại làm mốc ban đầu cho người chưa có dòng riêng —
+    /// KHÔNG còn được ghi mới. Xem chat_conversation_reads.
     public DateTime? AgentLastReadAt { get; set; }
+    /// Mốc đọc của CHÍNH người đang xem, ghép từ chat_conversation_reads lúc liệt kê.
+    public DateTime? MyLastReadAt { get; set; }
     public DateTime LastActivityAt { get; set; }
     public string? LastPreview { get; set; }
     public DateTime? ArchivedAt { get; set; }
