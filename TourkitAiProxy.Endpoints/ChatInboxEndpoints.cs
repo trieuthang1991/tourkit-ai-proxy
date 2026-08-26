@@ -45,6 +45,7 @@ public static class ChatInboxEndpoints
         "/api/v1/chat/channels",
         "/api/v1/chat/messages",
         "/api/v1/chat/quick-replies",
+        "/api/v1/chat/events",
         "/api/v1/chat/webhook",
     };
 
@@ -145,6 +146,70 @@ public static class ChatInboxEndpoints
     {
         var g = routes.MapGroup("/api/v1/chat");
 
+        // ── Đẩy sự kiện: thay cho hỏi-lại-4-giây ────────────────────────────
+        //
+        // Dùng SSE chứ không SignalR — dự án đã có sẵn SSE ở CẢ HAI đầu (AiEndpoints, DealEndpoints;
+        // window.tourkitUtil.readSSE ở frontend) và frontend KHÔNG có bundler, nên thêm SignalR là
+        // thêm một thẻ script CDN VÀ một import bundle-entry — hai danh sách đó đã lệch nhau một
+        // lần rồi. Nhu cầu thật cũng chỉ một chiều: server báo "có tin mới", nhân viên gõ thì POST.
+        //
+        // ⚠️ EventSource KHÔNG gửi được header tuỳ ý, nên phiên đi qua ?sessionId=. SessionAuth.Read
+        // đọc X-Session-Id rồi mới tới Query["sessionId"] nên chỗ này không cần sửa lớp xác thực.
+        g.MapGet("/events", async (HttpContext ctx, TkSessionStore sessions, ChatEventBus bus,
+            CancellationToken ct) =>
+        {
+            var a = SessionAuth.Read(ctx, sessions);
+            if (a == null) return SessionAuth.Unauthorized();
+
+            ctx.Response.Headers["Content-Type"] = "text/event-stream";
+            ctx.Response.Headers["Cache-Control"] = "no-cache, no-transform";
+            ctx.Response.Headers["X-Accel-Buffering"] = "no";   // nginx: đừng gom lại rồi mới đẩy
+            ctx.Features.Get<Microsoft.AspNetCore.Http.Features.IHttpResponseBodyFeature>()
+                ?.DisableBuffering();
+            await ctx.Response.StartAsync(ct);
+
+            async Task GhiAsync(string dong)
+            {
+                await ctx.Response.WriteAsync(dong, ct);
+                await ctx.Response.Body.FlushAsync(ct);
+            }
+
+            // Đọc sự kiện và nhịp giữ sống trên CÙNG MỘT luồng, đua nhau bằng WhenAny.
+            //
+            // Vì sao không tách nhịp ra một tác vụ nền chạy song song cho gọn: hai bên cùng ghi
+            // là hỏng khung SSE giữa chừng, mà chống lại thì phải thêm khoá. Một luồng ghi thì
+            // không có gì để chống. (Tác vụ nền trong file endpoint này còn bị một chốt chặn từ
+            // chối — xem ChatInboundEventTests.Webhook_khong_con_fire_and_forget.)
+            //
+            // Nhịp 25 giây: hộp thư im hàng giờ là bình thường, mà proxy thường cắt kết nối rảnh
+            // sau 60 giây — không có nhịp thì cứ mỗi phút EventSource lại nối lại một lần. Dòng
+            // bắt đầu bằng dấu hai chấm là chú thích của giao thức SSE, trình duyệt bỏ qua.
+            await using var nguon = bus.NgheAsync(a.TenantId, ct).GetAsyncEnumerator(ct);
+            using var dongHo = new PeriodicTimer(TimeSpan.FromSeconds(25));
+            var toi = nguon.MoveNextAsync().AsTask();
+            var nhip = dongHo.WaitForNextTickAsync(ct).AsTask();
+            try
+            {
+                while (true)
+                {
+                    if (await Task.WhenAny(toi, nhip) == nhip)
+                    {
+                        if (!await nhip) break;
+                        await GhiAsync(": nhip\n\n");
+                        nhip = dongHo.WaitForNextTickAsync(ct).AsTask();
+                    }
+                    else
+                    {
+                        if (!await toi) break;
+                        await GhiAsync($"data: {JsonSerializer.Serialize(nguon.Current, Web)}\n\n");
+                        toi = nguon.MoveNextAsync().AsTask();
+                    }
+                }
+            }
+            catch (OperationCanceledException) { }   // tab đóng — chuyện thường, không phải lỗi
+            return Results.Empty;
+        });
+
         g.MapGet("/conversations", async (HttpContext ctx, TkSessionStore sessions, ChatRepository repo,
             short? status, string? search, short? channel, bool? unread, bool? mine,
             string? cursor, CancellationToken ct) =>
@@ -240,7 +305,7 @@ public static class ChatInboxEndpoints
         });
 
         g.MapPost("/conversations/{id:long}/send", async (long id, SendReq body, HttpContext ctx,
-            TkSessionStore sessions, ChatRepository repo, CancellationToken ct) =>
+            TkSessionStore sessions, ChatRepository repo, ChatEventBus bus, CancellationToken ct) =>
         {
             var a = SessionAuth.Read(ctx, sessions);
             if (a == null) return SessionAuth.Unauthorized();
@@ -277,6 +342,7 @@ public static class ChatInboxEndpoints
             // Người thật vừa trả lời → bot câm một lúc, nếu không nó nói đè lên nhân viên.
             await repo.PauseBotAsync(a.TenantId, id, (int)ChatRules.BotCamMacDinh.TotalMinutes, ct);
             await repo.EnqueueOutboxAsync(a.TenantId, id, msgId.Value, ct);
+            bus.Bao(new(a.TenantId, id, "tin-moi", msgId.Value));
 
             return Results.Json(new { ok = true, messageId = msgId }, Web);
         });
@@ -348,7 +414,7 @@ public static class ChatInboxEndpoints
         });
 
         g.MapPost("/conversations/{id:long}/assign", async (long id, AssignReq body, HttpContext ctx,
-            TkSessionStore sessions, ChatRepository repo, CancellationToken ct) =>
+            TkSessionStore sessions, ChatRepository repo, ChatEventBus bus, CancellationToken ct) =>
         {
             var a = SessionAuth.Read(ctx, sessions);
             if (a == null) return SessionAuth.Unauthorized();
@@ -358,11 +424,12 @@ public static class ChatInboxEndpoints
             // Chuỗi rỗng = gỡ giao việc (trả về hàng chờ chung).
             var ai = string.IsNullOrWhiteSpace(body.Username) ? null : body.Username.Trim();
             await repo.AssignAsync(a.TenantId, id, ai, ct);
+            bus.Bao(new(a.TenantId, id, "doi-hoi-thoai", null));
             return Results.Json(new { ok = true, assignedTo = ai }, Web);
         });
 
         g.MapPatch("/conversations/{id:long}/status", async (long id, StatusReq body, HttpContext ctx,
-            TkSessionStore sessions, ChatRepository repo, CancellationToken ct) =>
+            TkSessionStore sessions, ChatRepository repo, ChatEventBus bus, CancellationToken ct) =>
         {
             var a = SessionAuth.Read(ctx, sessions);
             if (a == null) return SessionAuth.Unauthorized();
@@ -372,6 +439,7 @@ public static class ChatInboxEndpoints
             if (await repo.GetConversationAsync(a.TenantId, id, ct) is null) return Results.NotFound();
 
             await repo.SetStatusAsync(a.TenantId, id, (ChatStatus)body.Status, ct);
+            bus.Bao(new(a.TenantId, id, "doi-hoi-thoai", null));
             return Results.Json(new { ok = true }, Web);
         });
 
@@ -386,7 +454,7 @@ public static class ChatInboxEndpoints
         });
 
         g.MapPost("/conversations/{id:long}/bot", async (long id, BotReq body, HttpContext ctx,
-            TkSessionStore sessions, ChatRepository repo, CancellationToken ct) =>
+            TkSessionStore sessions, ChatRepository repo, ChatEventBus bus, CancellationToken ct) =>
         {
             var a = SessionAuth.Read(ctx, sessions);
             if (a == null) return SessionAuth.Unauthorized();
@@ -395,6 +463,7 @@ public static class ChatInboxEndpoints
 
             // paused=false → bỏ câm ngay; true → câm theo số phút (mặc định 30).
             await repo.PauseBotAsync(a.TenantId, id, body.Paused ? Math.Clamp(body.Minutes ?? 30, 1, 1440) : 0, ct);
+            bus.Bao(new(a.TenantId, id, "doi-hoi-thoai", null));
             return Results.Json(new { ok = true }, Web);
         });
 

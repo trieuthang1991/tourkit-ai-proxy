@@ -46,10 +46,11 @@ public class ChatOutboxWorker : BackgroundService
         if (!repo.Configured) return;
 
         var adapters = scope.ServiceProvider.GetServices<IChatChannelAdapter>().ToList();
+        var bus = scope.ServiceProvider.GetRequiredService<ChatEventBus>();
         var rows = await repo.ClaimOutboxAsync(10, ct);
         foreach (var r in rows)
         {
-            try { await MotDongAsync(repo, adapters, r, ct); }
+            try { await MotDongAsync(repo, adapters, bus, r, ct); }
             catch (Exception ex)
             {
                 _log.LogError(ex, "[chat/outbox] gửi dòng {Id} hỏng", r.Id);
@@ -59,7 +60,7 @@ public class ChatOutboxWorker : BackgroundService
     }
 
     private async Task MotDongAsync(ChatRepository repo, List<IChatChannelAdapter> adapters,
-        ChatRepository.OutboxRow r, CancellationToken ct)
+        ChatEventBus bus, ChatRepository.OutboxRow r, CancellationToken ct)
     {
         var hoiThoai = await repo.GetConversationAsync(r.TenantId, r.ConversationId, ct);
         if (hoiThoai is null)
@@ -83,6 +84,7 @@ public class ChatOutboxWorker : BackgroundService
         {
             await repo.FinishOutboxAsync(r.Id, false, false, cuaSo.Reason, ct);
             await repo.SetMessageStateAsync(r.TenantId, r.MessageId, ChatState.Hong, cuaSo.Reason, ct);
+            bus.Bao(new(r.TenantId, r.ConversationId, "doi-trang-thai", r.MessageId));
             _log.LogInformation("[chat/outbox] bỏ dòng {Id}: {Ly}", r.Id, cuaSo.Reason);
             return;
         }
@@ -117,13 +119,17 @@ public class ChatOutboxWorker : BackgroundService
             // Telegram không bao giờ báo lại (Bot API không có), nhưng vẫn lưu: rẻ, và khi cần truy
             // vết một tin cụ thể trên nền tảng thì đúng cái mã này là thứ dán vào công cụ của họ.
             await repo.SetExternalMsgIdAsync(r.TenantId, r.MessageId, kq.ExternalMsgId, ct);
+            bus.Bao(new(r.TenantId, r.ConversationId, "doi-trang-thai", r.MessageId));
             return;
         }
 
         var conLuot = kq.ThuLai && r.RetryCount + 1 < SoLuotThuLai;
         await repo.FinishOutboxAsync(r.Id, false, conLuot, kq.Error, ct);
         if (!conLuot)
+        {
             await repo.SetMessageStateAsync(r.TenantId, r.MessageId, ChatState.Hong, kq.Error, ct);
+            bus.Bao(new(r.TenantId, r.ConversationId, "doi-trang-thai", r.MessageId));
+        }
         _log.LogWarning("[chat/outbox] dòng {Id} hỏng ({Thu}): {Loi}",
             r.Id, conLuot ? "sẽ thử lại" : "dừng", kq.Error);
     }

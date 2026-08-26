@@ -197,6 +197,9 @@ public static class WorkflowStackRegistration
         s.AddSingleton<ChatDb>();
         s.AddSingleton<ChatRepository>();
         s.AddSingleton<ChatQuickReplyRepository>();
+        // Singleton: người nghe (tab đang mở) sống lâu hơn một request, để scope là mỗi request
+        // một bus riêng và không ai nhận được gì.
+        s.AddSingleton<Chat.Inbox.ChatEventBus>();
         s.AddSingleton<Chat.Inbox.ChatInboundService>();
         s.AddSingleton<ChannelCredentialStore>();
         // Kho ảnh/tệp nhân viên gửi — r2 | s3 | local theo Storage:Provider, xem IChatFileStorage.

@@ -151,3 +151,13 @@ public static class ChatCursor
         catch { return null; }
     }
 }
+
+/// <summary>
+/// Một chuyện vừa xảy ra trong hộp thư, đủ để tab đang mở biết phải tải lại cái gì.
+///
+/// <para><b>Cố ý KHÔNG mang nội dung tin.</b> Sự kiện chỉ nói "hội thoại này vừa đổi"; tab tự gọi
+/// API để lấy dữ liệu — nhờ vậy luật xem-được-gì vẫn nằm nguyên ở endpoint, không phải nhân bản
+/// vào kênh đẩy. Đẩy thẳng nội dung qua đây là một đường rò dữ liệu thứ hai phải canh riêng.</para>
+/// </summary>
+/// <param name="Loai">"tin-moi" · "doi-trang-thai" · "doi-hoi-thoai".</param>
+public record ChatEvent(string TenantId, long ConversationId, string Loai, long? MessageId);

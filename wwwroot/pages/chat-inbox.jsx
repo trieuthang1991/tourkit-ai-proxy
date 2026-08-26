@@ -515,7 +515,7 @@
         if (!r.ok) throw new Error('HTTP ' + r.status);
         const j = await r.json();
         const moi = j.items || [];
-        // Trộn theo id chứ không thay thế: nhịp làm mới 4 giây chạy song song với cuộn,
+        // Trộn theo id chứ không thay thế: sự kiện đẩy tới giữa lúc đang cuộn là chuyện thường,
         // thay thẳng là cuốn người dùng về đầu danh sách giữa lúc họ đang đọc.
         if (cursor) {
           setConTro(j.nextCursor || null);
@@ -530,7 +530,7 @@
         setDem(j.counts || {});
         setDemKenh(j.channelCounts || {});
       } catch (e) {
-        // Không toast mỗi lần hỏng: trang tự hỏi lại 4 giây một lần, mạng chập chờn là spam ngay.
+        // Không toast mỗi lần hỏng: trang còn đường lùi tự hỏi lại, mạng chập chờn là spam ngay.
       } finally { setDangTai(false); }
     }, [loc, kenhLoc, nhom, tim]);
 
@@ -544,19 +544,53 @@
       } catch {}
     }, []);
 
-    // Hỏi lại định kỳ thay cho đẩy thời gian thực (xem mục Hạ tầng dữ liệu trong kế hoạch).
-    // DỪNG khi tab ẩn — không thì mở 10 tab là nhân 10 lần tải, và lỗi kiểu đó chỉ lộ ra lúc
-    // đông người dùng, tức là đúng lúc tệ nhất.
+    // Nghe sự kiện ĐẨY thay cho hỏi lại 4 giây một lần. Mười nhân viên mở hộp thư là 300 lượt
+    // hỏi mỗi phút cho thứ hầu hết thời gian không đổi — mà tin mới vẫn trễ tới 4 giây.
+    //
+    // ⚠️ ĐÓNG luồng khi tab ẩn: HTTP/1.1 chỉ cho 6 kết nối mỗi origin, một luồng SSE giữ mất một
+    // suất. Mở nhiều tab TRAV-AI mà không đóng là các request thường bị treo — lỗi rất khó lần.
+    //
+    // ⚠️ KHÔNG dùng authedFetch cho SSE: nó tự đăng xuất TOÀN CỤC khi gặp bất kỳ 401 nào, nên một
+    // luồng đứt lúc phiên hết hạn sẽ đá nhân viên ra khỏi app giữa lúc đang gõ dở cho khách.
+    // EventSource không gửi được header tuỳ ý → phiên đi qua ?sessionId=, backend đã đọc sẵn.
     useEffect(() => {
-      let huy = false;
-      const nhip = async () => {
-        if (document.hidden || huy) return;
+      let huy = false, es = null, hen = null, luiVe = null;
+
+      const lamMoi = async () => {
+        if (huy || document.hidden) return;
         await taiDsach();
         if (chon) await taiChiTiet(chon);
       };
-      nhip();
-      const t = setInterval(nhip, 4000);
-      return () => { huy = true; clearInterval(t); };
+      // Gom sự kiện: khách gửi liền 5 tin là 5 sự kiện, tải lại 5 lần thì tệ hơn cả nhịp cũ.
+      const gom = () => { clearTimeout(hen); hen = setTimeout(lamMoi, 300); };
+
+      // Đường lùi: SSE hỏng (proxy chặn, hoặc tin tới instance khác khi chạy nhiều bản) thì hộp
+      // thư câm hẳn — tệ hơn hiện trạng. Chỉ chạy KHI luồng chưa mở, nên lúc đẩy chạy tốt thì
+      // tab Network sạch, không có request định kỳ nào.
+      const batLui = () => { if (!luiVe && !huy) luiVe = setInterval(lamMoi, 20000); };
+      const tatLui = () => { clearInterval(luiVe); luiVe = null; };
+
+      const moKet = () => {
+        if (huy || document.hidden || es) return;
+        const sid = window.tourkitAuth.getSessionId();
+        if (!sid) { batLui(); return; }
+        es = new EventSource('/api/v1/chat/events?sessionId=' + encodeURIComponent(sid));
+        es.onopen = tatLui;
+        es.onmessage = (ev) => { try { JSON.parse(ev.data); } catch { return; } gom(); };
+        // EventSource TỰ nối lại — không đóng tay ở đây, chỉ bật đường lùi cho tới lúc nối được.
+        es.onerror = batLui;
+      };
+      const dong = () => { if (es) { es.close(); es = null; } tatLui(); };
+      const doiTab = () => { if (document.hidden) dong(); else { moKet(); lamMoi(); } };
+
+      lamMoi();
+      moKet();
+      document.addEventListener('visibilitychange', doiTab);
+      return () => {
+        huy = true;
+        document.removeEventListener('visibilitychange', doiTab);
+        clearTimeout(hen); dong();
+      };
     }, [taiDsach, taiChiTiet, chon]);
 
     // Đổi bộ lọc là reset con trỏ + danh sách — không thì trộn kết quả của hai bộ lọc khác nhau.
@@ -564,7 +598,7 @@
 
     useEffect(() => { if (chon) taiChiTiet(chon); }, [chon, taiChiTiet]);
 
-    // Tải một lần, KHÔNG theo nhịp hỏi lại 4 giây: bộ mẫu hiếm khi đổi, kéo lại liên tục là
+    // Tải một lần, KHÔNG bám theo sự kiện đẩy: bộ mẫu hiếm khi đổi, kéo lại liên tục là
     // tốn truy vấn cho thứ gần như đứng yên.
     useEffect(() => {
       authedFetch('/api/v1/chat/quick-replies')

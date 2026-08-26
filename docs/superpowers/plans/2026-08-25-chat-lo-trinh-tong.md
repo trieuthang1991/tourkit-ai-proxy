@@ -22,10 +22,11 @@ làm xong từ lâu — ô trống chỉ có nghĩa là chưa ai tick).
 | **Đợt 3** — vòng đời tin | ✅ xong phần code | `ChatRules.KhongLui` + test · `ExternalMsgId` đã lưu · `MarkStateWatermarkAsync` · Messenger bóc `delivery`/`read` theo watermark · Telegram chú thích đúng · CHANGELOG 25/08 |
 | Task 3.6 bước 1-4 | ⚠️ **chưa có bằng chứng** | 4 bước kiểm tay trên staging — không tick vì không ai ghi lại kết quả thật. Làm lại khi có phiên staging. |
 | **Task 4.1** — phân trang con trỏ | ✅ xong, commit `fe60f40` | 7 test mới · `ix_conv_tenant_hoatdong` · endpoint trả `nextCursor` · nút "Tải thêm" · bundle đã dựng · 841 test xanh |
-| **Task 4.2** — SSE | ⛔ **DỪNG Ở ĐÂY** | chưa viết dòng nào. Bắt đầu lại từ Bước 1 (mã test nằm sẵn trong task). |
-| Task 4.3 · Đợt 5 · Đợt 6 | ⛔ chưa động | |
+| **Task 4.2** — SSE | ✅ xong | 4 test mới · `ChatEventBus` kẹp tenant · `GET /events` + nhịp giữ sống 25s · bắn ở 10 chỗ · giao diện bỏ nhịp 4 giây, có đường lùi 20s · **kiểm thật trên staging**: sự kiện tới + nhịp giữ sống đúng · 845 test xanh · CHANGELOG 26/08 |
+| **Task 4.3** — Redis pub/sub | ⛔ **DỪNG Ở ĐÂY** | chưa viết dòng nào. Đây là mục tiếp theo. |
+| Đợt 5 · Đợt 6 | ⛔ chưa động | |
 
-**Nhánh đang làm:** `feat/chat-dot4-realtime` (tách từ `dev`, đã có 1 commit).
+**Nhánh đang làm:** `feat/chat-dot4-realtime` (tách từ `dev`, đã có 3 commit). **Chưa merge về `dev`.**
 
 **Ba cái bẫy vấp phải khi làm 4.1 — người làm tiếp đọc trước kẻo mất thì giờ:**
 
@@ -38,6 +39,25 @@ làm xong từ lâu — ô trống chỉ có nghĩa là chưa ai tick).
 3. **Alias bảng trong `ListConversationsAsync` là `v`, không phải `c`** như plan viết. Và tham số con
    trỏ phải cast `::timestamptz` / `::bigint` — Npgsql không đoán được kiểu của tham số null, để trần
    là lỗi lúc chạy ngay ở trang đầu.
+
+**Ba cái bẫy nữa, gặp khi làm 4.2:**
+
+4. **`Task.Run` bị cấm trong `ChatInboxEndpoints.cs`** — guard `Webhook_khong_con_fire_and_forget`
+   soi **văn bản thô**, nên nó bắt cả chữ trong CHÚ THÍCH. Bản đầu của nhịp giữ sống dùng
+   `Task.Run` riêng + `SemaphoreSlim`; viết lại thành **một luồng ghi duy nhất** đua `MoveNextAsync`
+   với `PeriodicTimer` bằng `Task.WhenAny` — vừa qua guard vừa bỏ hẳn được cái khoá.
+5. **Kế hoạch chỉ ghi 3 chỗ bắn sự kiện, thiếu chỗ QUAN TRỌNG NHẤT.** `POST /conversations/{id}/send`
+   không bắn thì đúng cái phép thử của Bước 9 ("tab 1 gửi, tab 2 phải thấy") **không bao giờ chạy**.
+   Nay bắn ở 10 chỗ: 4 trong `ChatInboundService`, 4 trong `ChatOutboxWorker`, và `send` ·
+   `assign` · `status` · `bot` ở endpoint. **KHÔNG bắn ở `/read`** — đánh dấu đã đọc là việc riêng
+   của người đang xem, bắn ở đó thì mọi tab tải lại mỗi lần ai đó mở một hội thoại.
+6. **Heredoc + template literal trong shell làm hỏng `
+` của chuỗi C#.** Hai lần liên tiếp: một lần
+   `": nhip
+
+"` biến thành xuống dòng thật (lỗi biên dịch, thấy ngay), một lần `+NN+` lọt vào
+   nguyên văn vì dấu nháy đơn của shell đóng sớm. Ghi chuỗi có ký tự thoát thì **đọc lại file rồi
+   nhìn tận mắt**, đừng tin script báo "ok".
 
 **Một điểm plan chưa lường:** nhịp làm mới 4 giây chạy song song với phân trang, nên `taiDsach()`
 phải **trộn theo id** chứ không thay thế — thay thẳng là cứ 4 giây cuốn người dùng về đầu danh sách.
@@ -1070,7 +1090,7 @@ Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>"
 
 ⚠️ **Nhiều instance:** bus trong bộ nhớ chỉ thấy sự kiện của chính instance mình. Có `Redis:ConnectionString` → dùng pub/sub (`RedisProvider` đã có trong DI). Không có Redis → **giữ nguyên hỏi-lại-4-giây làm đường lùi** và **ghi log lúc khởi động nói rõ**, đừng im lặng chạy chế độ kém hơn.
 
-- [ ] **Bước 1: Viết test đỏ**
+- [x] **Bước 1: Viết test đỏ**
 
 Tạo `TourkitAiProxy.Tests/Chat/ChatEventBusTests.cs`:
 
@@ -1119,13 +1139,13 @@ public class ChatEventBusTests
 }
 ```
 
-- [ ] **Bước 2: Chạy để xác nhận ĐỎ**
+- [x] **Bước 2: Chạy để xác nhận ĐỎ**
 
 ```bash
 dotnet test TourkitAiProxy.Tests/TourkitAiProxy.Tests.csproj --filter "FullyQualifiedName~ChatEventBus"
 ```
 
-- [ ] **Bước 3: Viết `ChatEventBus`**
+- [x] **Bước 3: Viết `ChatEventBus`**
 
 Tạo `Services/Chat/Inbox/ChatEventBus.cs`:
 
@@ -1181,13 +1201,13 @@ public class ChatEventBus
 }
 ```
 
-- [ ] **Bước 4: Chạy test — phải XANH**
+- [x] **Bước 4: Chạy test — phải XANH**
 
 ```bash
 dotnet test TourkitAiProxy.Tests/TourkitAiProxy.Tests.csproj --filter "FullyQualifiedName~ChatEventBus"
 ```
 
-- [ ] **Bước 5: Endpoint SSE**
+- [x] **Bước 5: Endpoint SSE**
 
 `Endpoints/ChatInboxEndpoints.cs` — thêm `"/api/v1/chat/events"` vào `DuongRieng` (bắt buộc, xem Global Constraints), rồi thêm vào `MapInbox`:
 
@@ -1211,13 +1231,13 @@ dotnet test TourkitAiProxy.Tests/TourkitAiProxy.Tests.csproj --filter "FullyQual
         });
 ```
 
-- [ ] **Bước 6: Bắn sự kiện ở ba chỗ**
+- [x] **Bước 6: Bắn sự kiện ở ba chỗ** — thực tế làm **10 chỗ**, xem bẫy số 5 ở đầu file
 
 - `ChatInboundService.MotSuKienAsync` — sau `TouchConversationAsync` (tin khách): `_bus.Bao(new(tenantId, hoiThoai.Id, "tin-moi", id.Value));`
 - `ChatInboundService` — sau `MarkStateWatermarkAsync` (Task 3.3): `"doi-trang-thai"`
 - `ChatOutboxWorker.MotDongAsync` — sau `SetMessageStateAsync`: `"doi-trang-thai"`
 
-- [ ] **Bước 7: DI**
+- [x] **Bước 7: DI**
 
 `Services/Bootstrap/WorkflowStackRegistration.cs`, cạnh `ChatQuickReplyRepository`:
 
@@ -1225,7 +1245,7 @@ dotnet test TourkitAiProxy.Tests/TourkitAiProxy.Tests.csproj --filter "FullyQual
         s.AddSingleton<Chat.Inbox.ChatEventBus>();
 ```
 
-- [ ] **Bước 8: Giao diện — nghe SSE, bỏ nhịp 4 giây**
+- [x] **Bước 8: Giao diện — nghe SSE, bỏ nhịp 4 giây**
 
 `wwwroot/pages/chat-inbox.jsx`, thay `useEffect` có `setInterval(nhip, 4000)`:
 
@@ -1260,7 +1280,7 @@ dotnet test TourkitAiProxy.Tests/TourkitAiProxy.Tests.csproj --filter "FullyQual
 
 ⚠️ **Không dùng `authedFetch` cho SSE.** `authedFetch` tự đăng xuất toàn cục khi gặp bất kỳ 401 nào; một luồng SSE đứt lúc phiên hết hạn sẽ **đá người dùng ra khỏi app** giữa lúc họ đang gõ dở cho khách. `EventSource` gọi thẳng và tự thử lại là đúng.
 
-- [ ] **Bước 9: Test + bundle + kiểm tay**
+- [x] **Bước 9: Test + bundle + kiểm tay**
 
 ```bash
 dotnet test TourkitAiProxy.Tests/TourkitAiProxy.Tests.csproj
@@ -1269,7 +1289,7 @@ dotnet test TourkitAiProxy.Tests/TourkitAiProxy.Tests.csproj
 
 Kiểm tay: mở hai tab `/chat-inbox`, gửi tin ở tab 1 → tab 2 phải cập nhật **trong ~2 giây mà không có request định kỳ nào** trong tab Network.
 
-- [ ] **Bước 10: Commit**
+- [x] **Bước 10: Commit**
 
 ```bash
 git add Services/Chat/Inbox/ChatEventBus.cs Services/Chat/Inbox/ChatInboundService.cs Services/Chat/Inbox/ChatOutboxWorker.cs Endpoints/ChatInboxEndpoints.cs Services/Bootstrap/WorkflowStackRegistration.cs wwwroot/pages/chat-inbox.jsx TourkitAiProxy.Tests/Chat/ChatEventBusTests.cs

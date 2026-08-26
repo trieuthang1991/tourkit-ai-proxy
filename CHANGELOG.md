@@ -13,6 +13,24 @@ Những cập nhật gần đây của TRAV-AI, viết cho người dùng. Mới
 
 ---
 
+## Phiên bản 26/08/2026 — Hộp thư chat: tin hiện ngay, cuộn không sót
+
+### ✨ Tính năng mới
+- **Tin mới hiện ra ngay, không phải chờ.** Trước đây hộp thư tự tải lại vài giây một lần, nên tin
+  khách vừa nhắn có thể mất tới bốn giây mới thấy — và máy vẫn tải lại đều đặn kể cả lúc chẳng có
+  gì mới. Nay tin được đẩy tới ngay khi có: khách nhắn, đồng nghiệp trả lời, hay dấu tích chuyển
+  sang "đã nhận"/"đã xem" đều hiện gần như tức thì. Bạn không phải làm gì thêm.
+- **Cuộn danh sách hội thoại không còn lặp hay sót.** Khi hộp thư đang bận, danh sách cũ hay hiện
+  lại một hội thoại bạn vừa đọc và bỏ qua một hội thoại chưa đọc. Nay cuộn tới đâu chắc tới đó, và
+  có tin mới cũng không bị cuốn ngược về đầu danh sách giữa lúc bạn đang đọc.
+
+### 📌 Lưu ý
+- Nếu mạng chập chờn hoặc đường truyền bị chặn, hộp thư **tự quay về cách cũ** là thỉnh thoảng tải
+  lại — chậm hơn một chút nhưng không đứng im.
+- Nên mở hộp thư ở **một thẻ trình duyệt** thôi. Mở quá nhiều thẻ cùng lúc có thể làm các thao tác
+  khác trong app chậm đi.
+
+---
 ## Phiên bản 25/08/2026 — Chặt hơn ở phần quản trị, và vài lỗi âm thầm
 
 ### 🔧 Đã khắc phục

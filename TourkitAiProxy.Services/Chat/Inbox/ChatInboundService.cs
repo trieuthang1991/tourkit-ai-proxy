@@ -26,11 +26,12 @@ public class ChatInboundService
     private readonly AiCallContext _aiCtx;
     private readonly IConfiguration _cfg;
     private readonly ILogger<ChatInboundService> _log;
+    private readonly ChatEventBus _bus;
 
     public ChatInboundService(ChatRepository repo, IEnumerable<IChatChannelAdapter> adapters,
         ProviderRegistry providers, AiCallContext aiCtx, IConfiguration cfg,
-        ILogger<ChatInboundService> log)
-    { _repo = repo; _adapters = adapters; _providers = providers; _aiCtx = aiCtx; _cfg = cfg; _log = log; }
+        ILogger<ChatInboundService> log, ChatEventBus bus)
+    { _repo = repo; _adapters = adapters; _providers = providers; _aiCtx = aiCtx; _cfg = cfg; _log = log; _bus = bus; }
 
     public IChatChannelAdapter? Adapter(ChatChannel kenh)
         => _adapters.FirstOrDefault(a => a.Channel == kenh);
@@ -71,6 +72,9 @@ public class ChatInboundService
             var soDong = await _repo.MarkStateWatermarkAsync(tenantId, hoiThoai.Id, moc.State, moc.UpToUtc, ct);
             _log.LogDebug("[chat] mốc {TT} tới {Luc:o} — đổi {N} tin, hội thoại {H}",
                 moc.State, moc.UpToUtc, soDong, hoiThoai.Id);
+            // Chỉ báo khi thật sự có tin đổi trạng thái — nền tảng gửi lại mốc cũ khá thường,
+            // báo mọi lần là các tab tải lại liên tục cho một thứ y hệt.
+            if (soDong > 0) _bus.Bao(new(tenantId, hoiThoai.Id, "doi-trang-thai", null));
             return;
         }
 
@@ -84,6 +88,7 @@ public class ChatInboundService
             await _repo.TouchConversationAsync(tenantId, hoiThoai.Id, ChatRules.TomTat(e.Text), false, ct);
             // Có người thật đang trả lời → bot phải câm, nếu không nó nói đè lên người ta.
             await _repo.PauseBotAsync(tenantId, hoiThoai.Id, (int)ChatRules.BotCamMacDinh.TotalMinutes, ct);
+            _bus.Bao(new(tenantId, hoiThoai.Id, "tin-moi", idV.Value));
             return;
         }
 
@@ -93,6 +98,9 @@ public class ChatInboundService
         if (id is null) return;   // webhook gửi lại — bỏ qua, KHÔNG sinh thêm câu trả lời
 
         await _repo.TouchConversationAsync(tenantId, hoiThoai.Id, ChatRules.TomTat(e.Text), true, ct);
+        // Bắn NGAY, trước quãng nghỉ gộp tin: nhân viên phải thấy tin khách lập tức, đừng bắt họ
+        // chờ thêm bốn giây chỉ vì bot đang đợi xem khách có gõ tiếp không.
+        _bus.Bao(new(tenantId, hoiThoai.Id, "tin-moi", id.Value));
 
         // Gộp tin nhắn liên tiếp: chờ khách im rồi mới xử lý cả cụm. Chờ thẳng ở đây thay vì hẹn
         // giờ riêng — đang chạy nền, vài giây không ảnh hưởng ai, mà đỡ hẳn một cơ chế hẹn giờ.
@@ -119,6 +127,7 @@ public class ChatInboundService
 
         await _repo.TouchConversationAsync(tenantId, hoiThoai.Id, ChatRules.TomTat(traLoi), false, ct);
         await _repo.EnqueueOutboxAsync(tenantId, hoiThoai.Id, idRa.Value, ct);
+        _bus.Bao(new(tenantId, hoiThoai.Id, "tin-moi", idRa.Value));
     }
 
     /// <summary>

@@ -106,6 +106,33 @@ lại được dòng cũ, còn lưu bản đã bóc thì lỗi bóc tin nằm l�
 nhưng chỉ để lấy id sự kiện làm khoá chống trùng: chống trùng phải xảy ra lúc **GHI**, không thì
 kênh gửi lại đồng thời hai lần sẽ tạo hai dòng và bot trả lời hai lần.
 
+**Danh sách hội thoại phân trang bằng CON TRỎ**, không phải số trang. Con trỏ là cặp
+`(lần hoạt động cuối, id)` mã hoá base64url, so bằng bộ đôi ngay trong SQL
+([`ChatCursor`](../../TourkitAiProxy.Domain/Chat/ChatModels.cs), có test). Dùng `OFFSET` thì mỗi tin mới đẩy cả
+danh sách xuống một dòng — người đang cuộn thấy **lặp lại** hội thoại vừa đọc và **sót** hội thoại
+chưa đọc, đúng lúc hộp thư bận nhất. Giao diện **trộn theo id** chứ không thay thế, nên trang đã
+cuộn ở dưới không bị cuốn về đầu khi có tin mới.
+
+**Tin mới ĐẨY tới bằng SSE, không hỏi lại định kỳ** (`GET /api/v1/chat/events`,
+[`ChatEventBus`](../../TourkitAiProxy.Services/Chat/Inbox/ChatEventBus.cs)). Mười nhân viên mở hộp thư theo
+kiểu hỏi-lại-4-giây là 300 lượt mỗi phút cho thứ hầu hết thời gian không đổi — mà tin mới **vẫn**
+trễ tới 4 giây. Chọn SSE chứ không SignalR vì dự án đã có sẵn SSE ở cả hai đầu và **frontend không
+có bundler**: thêm SignalR là thêm một thẻ script CDN VÀ một dòng vào `bundle-entry.js`, hai danh
+sách đó đã lệch nhau một lần rồi. Nhu cầu cũng chỉ một chiều — nhân viên gõ thì vẫn `POST`.
+
+⚠️ **Bus kẹp tenant NGAY TRONG BUS, không lọc ở endpoint.** Lọc ở ngoài thì một lần quên là hộp thư
+công ty này nhận sự kiện của công ty khác. Sự kiện **cố ý không mang nội dung tin** — chỉ nói "hội
+thoại này vừa đổi", tab tự gọi API để lấy dữ liệu, nhờ vậy luật xem-được-gì vẫn nằm nguyên ở
+endpoint thay vì phải nhân bản sang kênh đẩy.
+
+⚠️ **HTTP/1.1 chỉ cho 6 kết nối mỗi origin** và một luồng SSE giữ mất một suất, nên giao diện
+**đóng luồng khi tab ẩn** — không thì mở vài tab TRAV-AI là các request thường bị treo, lỗi rất khó
+lần. Chạy HTTP/2 thì hết vấn đề.
+
+⚠️ **Bus nằm trong bộ nhớ nên chỉ thấy sự kiện của CHÍNH instance mình.** Nhiều instance sau
+load-balancer thì tin tới instance khác không đẩy sang được. Giao diện vì thế giữ **đường lùi hỏi
+lại 20 giây, chỉ chạy khi luồng đẩy chưa mở** — đẩy chạy tốt thì tab Network sạch, đẩy hỏng thì hộp
+thư chậm chứ không câm. Giải triệt để bằng Redis pub/sub là việc của đợt sau.
 **Mẫu trả lời nhanh** (`chat_quick_replies` +
 [`ChatQuickReplyRepository`](../../TourkitAiProxy.Infrastructure/Chat/Inbox/ChatQuickReplyRepository.cs)): gõ `/` ở **ĐẦU** ô
 soạn ra danh sách. Lệnh gọi **bỏ dấu** khi lưu — nhân viên đang gõ nhanh cho khách sẽ gõ `/gia` chứ
