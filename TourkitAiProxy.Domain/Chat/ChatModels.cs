@@ -105,6 +105,7 @@ public class ChatConversation
     public string? LastPreview { get; set; }
     public DateTime? ArchivedAt { get; set; }
     public string? DisplayName { get; set; }   // ghép từ chat_contacts khi liệt kê
+    public string? AvatarUrl { get; set; }     // ghép từ chat_contacts khi liệt kê
 }
 
 public class ChatMessage

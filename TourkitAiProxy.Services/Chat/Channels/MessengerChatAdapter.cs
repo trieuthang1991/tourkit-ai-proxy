@@ -266,6 +266,49 @@ public class MessengerChatAdapter : IChatChannelAdapter
         return ra;
     }
 
+    /// <summary>
+    /// Tên + ảnh của khách. Gói tin webhook của Meta <b>chỉ có mã người dùng</b>, khác Zalo và
+    /// Telegram vốn kèm sẵn tên — nên riêng kênh này phải hỏi thêm một lượt.
+    ///
+    /// <para>Mã đó (PSID) <b>riêng cho từng Trang</b>: cùng một người nhắn hai Trang là hai mã
+    /// khác nhau. Nên phải hỏi bằng token của ĐÚNG Trang đã nhận tin.</para>
+    ///
+    /// <para>Nuốt mọi lỗi và trả <c>null</c>: không có tên thì hộp thư hiện mã người dùng, xấu
+    /// nhưng vẫn dùng được. Ném ở đây là chặn cả tin của khách chỉ vì không lấy được cái tên.</para>
+    /// </summary>
+    public async Task<HoSoKhach?> HoSoKhachAsync(string tenantId, string accountId,
+        string externalUserId, CancellationToken ct)
+    {
+        var c = await _cred.GetAsync(tenantId, Channel, accountId, ct);
+        if (c is null || !c.TryGetValue("pageAccessToken", out var token) || string.IsNullOrWhiteSpace(token))
+            return null;
+        try
+        {
+            var http = _http.CreateClient();
+            using var res = await http.GetAsync($"{GraphBase}/{PhienBan}/{U(externalUserId)}"
+                + $"?fields=first_name,last_name,profile_pic&access_token={U(token)}", ct);
+            var raw = await res.Content.ReadAsStringAsync(ct);
+            var o = JsonNode.Parse(raw)?.AsObject();
+            if (o is null || o["error"] is not null)
+            {
+                _log.LogWarning("[chat/messenger] không lấy được hồ sơ khách {Id}: {Loi}",
+                    externalUserId, Cat(raw));
+                return null;
+            }
+
+            var ten = string.Join(" ", new[] { o["first_name"]?.ToString(), o["last_name"]?.ToString() }
+                .Where(x => !string.IsNullOrWhiteSpace(x))).Trim();
+            var anh = o["profile_pic"]?.ToString();
+            return string.IsNullOrWhiteSpace(ten) && string.IsNullOrWhiteSpace(anh)
+                ? null : new HoSoKhach(Rong(ten), Rong(anh));
+        }
+        catch (Exception ex)
+        {
+            _log.LogWarning(ex, "[chat/messenger] hỏi hồ sơ khách {Id} hỏng", externalUserId);
+            return null;
+        }
+    }
+
     // ── Nối Trang bằng MỘT nút (OAuth) ──────────────────────────────────────
 
     /// <summary>

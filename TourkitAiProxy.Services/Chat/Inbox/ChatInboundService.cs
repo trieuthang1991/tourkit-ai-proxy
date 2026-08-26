@@ -62,7 +62,22 @@ public class ChatInboundService
 
     private async Task MotSuKienAsync(string tenantId, string accountId, InboundChatEvent e, CancellationToken ct)
     {
-        await _repo.UpsertContactAsync(tenantId, e.Channel, e.ExternalUserId, e.DisplayName, ct);
+        await _repo.UpsertContactAsync(tenantId, e.Channel, e.ExternalUserId, e.DisplayName, ct: ct);
+
+        // Còn thiếu tên hoặc ảnh thì hỏi thẳng nhà cung cấp.
+        //
+        // Zalo và Telegram kèm sẵn tên trong gói tin nên nhánh này không bao giờ chạy cho hai kênh
+        // đó. Riêng Messenger, gói tin của Meta CHỈ có mã người dùng — không hỏi thì cả hộp thư
+        // hiện một dãy số như "4951953868228330" thay cho tên khách.
+        //
+        // Nuốt mọi lỗi bên trong adapter: không lấy được tên thì hiện mã, xấu nhưng vẫn dùng được.
+        // Chặn tin của khách chỉ vì không lấy được cái tên là đổi một lỗi nhỏ lấy một lỗi to.
+        if (await _repo.CanLayHoSoAsync(tenantId, e.Channel, e.ExternalUserId, ct)
+            && Adapter(e.Channel) is { } boNoi
+            && await boNoi.HoSoKhachAsync(tenantId, accountId, e.ExternalUserId, ct) is { } hoSo)
+        {
+            await _repo.UpsertContactAsync(tenantId, e.Channel, e.ExternalUserId, hoSo.Ten, hoSo.Anh, ct);
+        }
         var hoiThoai = await _repo.GetOrCreateConversationAsync(tenantId, e.Channel, e.ExternalUserId, accountId, ct);
 
         // Nền tảng báo trạng thái tin MÌNH đã gửi — không phải tin mới, xử lý xong là về.

@@ -57,4 +57,19 @@ public interface IChatChannelAdapter
     /// <param name="caption">Chữ đi kèm, nếu kênh hỗ trợ gộp chung một tin. Có thể rỗng.</param>
     Task<SendResult> SendMediaAsync(string tenantId, string accountId, string externalUserId, ChatKind loai,
         string url, string? caption, CancellationToken ct);
+
+    /// <summary>
+    /// Hỏi nhà cung cấp tên + ảnh đại diện của khách. Trả <c>null</c> khi kênh không có (hoặc
+    /// không cần) — <b>mặc định là không làm gì</b>.
+    ///
+    /// <para><b>Vì sao không bắt mọi kênh làm.</b> Zalo và Telegram gửi sẵn tên ngay trong gói
+    /// tin webhook nên không tốn lượt gọi nào. Chỉ Messenger là gói tin chỉ có mã người dùng —
+    /// muốn biết tên phải hỏi riêng.</para>
+    /// </summary>
+    Task<HoSoKhach?> HoSoKhachAsync(string tenantId, string accountId, string externalUserId,
+        CancellationToken ct) => Task.FromResult<HoSoKhach?>(null);
 }
+
+/// <param name="Anh">Ảnh đại diện. ⚠️ Meta ký hạn vào URL này nên nó <b>HẾT HẠN</b> sau một thời
+/// gian — lưu rồi để mãi là vài tuần sau cả hộp thư hiện ảnh vỡ. Vì thế có mốc làm mới.</param>
+public record HoSoKhach(string? Ten, string? Anh);

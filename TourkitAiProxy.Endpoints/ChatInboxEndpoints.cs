@@ -1331,6 +1331,7 @@ public static class ChatInboxEndpoints
             v.Id, v.Channel, v.ContactExternalId, v.AccountId, v.Status, v.AssignedUsername,
             v.LastActivityAt, v.LastPreview, v.ContactRepliedAt,
             displayName = v.DisplayName,
+            avatarUrl = v.AvatarUrl,
             // Bot có đang bị câm không — giao diện hiện rõ, không thì nhân viên tưởng bot hỏng.
             botPaused = v.BotResumeAt is { } m && m > DateTime.UtcNow,
             // Chưa đọc = khách nhắn sau lần CHÍNH MÌNH mở gần nhất.

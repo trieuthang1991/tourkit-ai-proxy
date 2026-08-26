@@ -28,16 +28,42 @@ public class ChatRepository
     /// xoá mất tên đã lấy được từ lần trước.</para>
     /// </summary>
     public async Task UpsertContactAsync(string tenant, ChatChannel kenh, string externalId,
-        string? tenHienThi, CancellationToken ct = default)
+        string? tenHienThi, string? anhDaiDien = null, CancellationToken ct = default)
     {
         await using var c = await _db.OpenAsync(ct);
         await c.ExecuteAsync("""
-            INSERT INTO chat_contacts (tenant_id, channel, external_id, display_name)
-            VALUES (@tenant, @kenh, @id, @ten)
+            INSERT INTO chat_contacts (tenant_id, channel, external_id, display_name, avatar_url)
+            VALUES (@tenant, @kenh, @id, @ten, @anh)
             ON CONFLICT (tenant_id, channel, external_id) DO UPDATE
               SET display_name = COALESCE(NULLIF(EXCLUDED.display_name, ''), chat_contacts.display_name),
+                  avatar_url   = COALESCE(NULLIF(EXCLUDED.avatar_url, ''), chat_contacts.avatar_url),
                   updated_utc  = now()
-            """, new { tenant, kenh = (short)kenh, id = externalId, ten = tenHienThi });
+            """, new { tenant, kenh = (short)kenh, id = externalId, ten = tenHienThi, anh = anhDaiDien });
+    }
+
+    /// <summary>
+    /// Có cần đi hỏi nhà cung cấp về khách này không — <b>thiếu tên hoặc thiếu ảnh</b> thì cần.
+    ///
+    /// <para>Hỏi mỗi tin là mỗi lượt khách nhắn lại tốn một lượt gọi ra nhà cung cấp, mà tên thì
+    /// gần như không đổi. Nên chỉ hỏi khi còn thiếu, và có được rồi thì thôi.</para>
+    ///
+    /// <para>⚠️ <b>Hạn chế đã biết:</b> Meta ký hạn vào URL ảnh đại diện nên nó sẽ hết hạn sau
+    /// một thời gian, lúc đó hộp thư hiện ảnh vỡ và chỗ này KHÔNG tự lấy lại (đã có ảnh nên coi
+    /// như đủ). Chữa đúng thì cần một cột riêng ghi mốc lần hỏi cuối — chưa làm, vì thêm cột là
+    /// đụng lược đồ, và ảnh vỡ thì xấu chứ không sai dữ liệu.</para>
+    /// </summary>
+    public async Task<bool> CanLayHoSoAsync(string tenant, ChatChannel kenh, string externalId,
+        CancellationToken ct = default)
+    {
+        await using var c = await _db.OpenAsync(ct);
+        return await c.ExecuteScalarAsync<bool>("""
+            SELECT NOT EXISTS (
+              SELECT 1 FROM chat_contacts
+              WHERE tenant_id = @tenant AND channel = @kenh AND external_id = @id
+                AND display_name IS NOT NULL AND display_name <> ''
+                AND avatar_url IS NOT NULL AND avatar_url <> ''
+            )
+            """, new { tenant, kenh = (short)kenh, id = externalId });
     }
 
     // ── Hội thoại ───────────────────────────────────────────────────────────
@@ -95,7 +121,7 @@ public class ChatRepository
     {
         await using var c = await _db.OpenAsync(ct);
         return (await c.QueryAsync<ChatConversation>("""
-            SELECT v.*, ct.display_name, r.last_read_at AS my_last_read_at
+            SELECT v.*, ct.display_name, ct.avatar_url, r.last_read_at AS my_last_read_at
             FROM chat_conversations v
             LEFT JOIN chat_contacts ct
               ON ct.tenant_id = v.tenant_id AND ct.channel = v.channel AND ct.external_id = v.contact_external_id
