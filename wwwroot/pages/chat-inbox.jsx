@@ -187,40 +187,76 @@
     DISCOVER_TAB: 'Mục Khám phá',
   };
 
-  function BongBong({ tin, kenh }) {
+  function BongBong({ tin, kenh, ten0 }) {
     // 0=khách 1=AI 2=nhân viên 3=hệ thống
     const ben = tin.senderKind;
     const cuaMinh = tin.direction === 1;
     const lop = ben === 0 ? 'ci-khach' : ben === 1 ? 'ci-ai' : ben === 3 ? 'ci-hethong' : 'ci-nv';
     const nhan = ben === 1 ? 'AI trả lời' : ben === 2 ? (tin.senderUsername || 'Nhân viên') : null;
     const coTep = (tin.files || []).length > 0;
-    return (
-      <div className={'ci-dong ' + (cuaMinh ? 'ci-phai' : 'ci-trai')}>
-        <div className={'ci-bong ' + lop}>
-          {nhan && <div className="ci-nhan">{nhan}</div>}
-          <DinhKem tin={tin} />
-          {/* Có đính kèm thì chữ là CHÚ THÍCH, vắng chữ là bình thường — đừng in "(không có chữ)"
-              dưới một tấm ảnh, vừa thừa vừa trông như lỗi. */}
-          {(tin.body || !coTep) && (
-            <div className="ci-noidung">{tin.body || <i>(không có chữ)</i>}</div>
-          )}
-          <div className="ci-gio">
-            <span>{gioPhut(tin.createdUtc)}</span>
-            {cuaMinh && <DauGui state={tin.state} kenh={kenh} />}
-            {tin.state === 4 && <span className="ci-loi" title={tin.errorMessage}>gửi hỏng</span>}
-          </div>
-        </div>
-        {/* Cảm xúc nằm NGOÀI bóng, nép dưới mép — đúng lối Messenger/Zalo. Nhét vào trong bóng thì
-            nó trông như một phần nội dung tin, mà nó là của người khác thả lên. */}
-        {(tin.reactions || []).length > 0 && (
-          <div className="ci-camxuc">
-            {tin.reactions.map(r => (
-              <span key={r.emoji} className="ci-camxuc-mot">
-                {r.emoji}{r.count > 1 && <b>{r.count}</b>}
-              </span>
-            ))}
-          </div>
+
+    // Ba dạng trình bày KHÁC NHAU, không phải một bong bóng đổi màu:
+    //   khách  — bong bóng trắng, có ảnh đại diện, giờ nằm DƯỚI bóng
+    //   bot    — KHÔNG bong bóng, chỉ một dải mảnh bên trái. Bot nói nhiều; để nó cũng thành
+    //            bong bóng thì khung chat đặc kín và mắt không phân biệt nổi đâu là người thật
+    //   mình   — bong bóng đậm, nhãn người gửi nằm TRONG bóng
+    const noiDung = (
+      <>
+        <DinhKem tin={tin} />
+        {/* Có đính kèm thì chữ là CHÚ THÍCH, vắng chữ là bình thường — đừng in "(không có chữ)"
+            dưới một tấm ảnh, vừa thừa vừa trông như lỗi. */}
+        {(tin.body || !coTep) && (
+          <div className="ci-noidung">{tin.body || <i>(không có chữ)</i>}</div>
         )}
+      </>
+    );
+    const gio = (
+      <div className="ci-gio">
+        <span>{gioPhut(tin.createdUtc)}</span>
+        {cuaMinh && <DauGui state={tin.state} kenh={kenh} />}
+        {tin.state === 4 && <span className="ci-loi" title={tin.errorMessage}>gửi hỏng</span>}
+      </div>
+    );
+    const camXuc = (tin.reactions || []).length > 0 && (
+      <div className="ci-camxuc">
+        {tin.reactions.map(r => (
+          <span key={r.emoji} className="ci-camxuc-mot">
+            {r.emoji}{r.count > 1 && <b>{r.count}</b>}
+          </span>
+        ))}
+      </div>
+    );
+
+    if (ben === 1) return (
+      <div className="ci-ai">
+        <div className="ci-nhan"><window.Icon name="sparkle" size={11} />Bot đã trả lời</div>
+        {noiDung}
+        {gio}
+        {camXuc}
+      </div>
+    );
+
+    if (!cuaMinh) return (
+      <div className="ci-dong ci-trai">
+        <AnhDaiDien ten={tin.senderUsername || ten0} co={26} />
+        <div style={{ minWidth: 0 }}>
+          <div className="ci-bong ci-khach">{noiDung}</div>
+          {gio}
+          {camXuc}
+        </div>
+      </div>
+    );
+
+    return (
+      <div className="ci-dong ci-phai">
+        <div>
+          <div className={'ci-bong ' + lop}>
+            {nhan && <div className="ci-nhan">{nhan}</div>}
+            {noiDung}
+            {gio}
+          </div>
+          {camXuc}
+        </div>
       </div>
     );
   }
@@ -239,9 +275,13 @@
       </div>
     );
     const sap = cuaSo.hoursLeft < 6;
+    // Vạch ở mép dưới cho thấy còn BAO NHIÊU so với cả cửa sổ, không chỉ con số. Mốc lấy theo
+    // cửa sổ dài nhất của kênh (Zalo 48h, Messenger 24h) — đọc bằng mắt nhanh hơn đọc số.
+    const tron = kenh === 0 ? 48 : 24;
+    const con = Math.max(2, Math.min(100, Math.round(cuaSo.hoursLeft / tron * 100)));
     return (
-      <div className={'ci-cuaso ' + (sap ? 'sap' : 'mo')}>
-        <window.Icon name="clock" size={14} />
+      <div className={'ci-cuaso ' + (sap ? 'sap' : 'mo')} style={{ '--ci-con': con + '%' }}>
+        <window.Icon name="clock" size={12} />
         <span>Cửa sổ trả lời {ten} còn <b>{dienGio(cuaSo.hoursLeft)}</b></span>
         <span className="ci-cuaso-phu">hết hạn thì phải chờ khách nhắn lại mới gửi được</span>
       </div>
@@ -509,6 +549,26 @@
           </button>
         </div>
 
+        {/* "Hội thoại này đang ra sao" — ba dòng gom trong MỘT thẻ có viền vì chúng là một cụm.
+            Để rời thì mắt phải tự gom lại, mà đây là thứ nhân viên liếc đầu tiên khi mở hồ sơ. */}
+        <div className="ci-hs-muc">
+          <h4>Xử lý</h4>
+          <div className="ci-hs-the">
+            <div className="ci-hs-dong">
+              <span>Trạng thái</span>
+              <span className="cham"><i />{TEN_TRANG_THAI[v.status]}</span>
+            </div>
+            <div className="ci-hs-dong">
+              <span>Phụ trách</span>
+              <span>{v.assignedUsername || 'chưa ai nhận'}</span>
+            </div>
+            <div className="ci-hs-dong">
+              <span>Trợ lý bot</span>
+              <span>{v.botPaused ? 'đang tạm dừng' : 'đang trả lời'}</span>
+            </div>
+          </div>
+        </div>
+
         <div className="ci-hs-muc">
           <h4>Khách hàng CRM</h4>
           <NoiCrm chiTiet={chiTiet} pushToast={pushToast} />
@@ -540,12 +600,6 @@
           )}
         </div>
 
-        <div className="ci-hs-muc">
-          <h4>Xử lý</h4>
-          <Dong nhan="Trạng thái">{TEN_TRANG_THAI[v.status]}</Dong>
-          <Dong nhan="Phụ trách">{v.assignedUsername || 'chưa ai nhận'}</Dong>
-          <Dong nhan="Bot">{v.botPaused ? 'đang tạm dừng' : 'đang trả lời'}</Dong>
-        </div>
 
         <NhanVaGhiChu chiTiet={chiTiet} pushToast={pushToast} />
 
@@ -1086,30 +1140,42 @@
 
     const v = chiTiet?.conversation;
     const lh = chiTiet?.contact;
+    // Tên hiển thị của khách, dùng lại ở nhiều chỗ (đầu khung chat, ảnh trên từng tin, hồ sơ).
+    // Chưa lấy được tên thật thì hiện mã người dùng — xấu nhưng không bịa ra một cái tên.
+    const tenKhach = v ? (v.displayName || v.contactExternalId) : '';
     const tinNhan = chiTiet?.messages || [];
     const coLoc = kenhLoc !== null || nhom !== 'tat-ca' || loc !== null || !!tim.trim();
 
     return (
       <main className="page ci-wrap">
-        {/* Dùng lại PageHero chung của app thay vì tự dựng header riêng: trang này là trang DUY
-            NHẤT còn xài `page-head`, mà lớp đó chưa bao giờ được khai kiểu dáng nên tiêu đề bị
-            thanh trên che. */}
-        <window.PageShell.PageHero
-          icon="send"
-          title="Hộp thư chat"
-          badge="Đa kênh"
-          sub="Tin khách nhắn từ Zalo, Facebook Messenger và Telegram. Bot trả lời trước, bạn tiếp quản khi cần."
-          status={{
-            label: dem.chuaDoc > 0 ? dem.chuaDoc + ' chưa đọc' : 'Đã đọc hết',
-            detail: dem.tong ? dem.tong + ' hội thoại' : null,
-            tone: dem.chuaDoc > 0 ? 'live' : 'idle',
-          }}
-          actions={<button className="btn-ghost" onClick={() => setMoKhai(x => !x)}>Kết nối kênh</button>}
-        />
-
         {moKhai && <KhaiKenh pushToast={pushToast} onDong={() => setMoKhai(false)} />}
 
         <div className={'ci-grid' + (v && moHoSo ? ' co-hoso' : '')}>
+          {/* Hàng tiêu đề nằm TRONG thẻ, trải hết các cột.
+
+              Trước đây dùng PageHero chung của app, đặt bên ngoài lưới. Đưa vào trong vì trang
+              này là một CÔNG CỤ dùng liên tục chứ không phải trang đọc: gom tiêu đề, bộ đếm và
+              nút kết nối vào cùng một khung có viền thì mắt biết ngay đâu là vùng làm việc, và
+              tiết kiệm được một dải chiều cao cho phần đang thật sự cần — danh sách và tin. */}
+          <div className="ci-dau">
+            <span className="ci-dau-icon"><window.Icon name="send" size={16} /></span>
+            <span className="ci-dau-ten">
+              <h1>Hộp thư chat</h1>
+              <span className="ci-dau-nhan">Đa kênh</span>
+            </span>
+            <p className="ci-dau-phu">
+              Zalo · Facebook Messenger · Telegram — bot trả lời trước, bạn tiếp quản khi cần.
+            </p>
+            <span className="ci-dau-dem">
+              <i className={'ci-cham-song' + (dem.chuaDoc > 0 ? '' : ' im')} aria-hidden="true" />
+              <b>{dem.chuaDoc > 0 ? dem.chuaDoc + ' chưa đọc' : 'Đã đọc hết'}</b>
+              {dem.tong > 0 && <><span className="tach">·</span>
+                <span className="so">{dem.tong} hội thoại</span></>}
+            </span>
+            <button className="ci-dau-nut" onClick={() => setMoKhai(x => !x)}>
+              <window.Icon name="plus" size={12} />Kết nối kênh
+            </button>
+          </div>
           {/* Vùng 1 — dải kênh */}
           <nav className="ci-dai" aria-label="Lọc theo kênh">
             <button className={'ci-dai-nut' + (kenhLoc === null ? ' on' : '')}
@@ -1181,12 +1247,15 @@
                       <span className="ci-luc">{gioNgan(c.lastActivityAt)}</span>
                     </span>
                     <span className="ci-xemtruoc">{c.lastPreview || 'chưa có tin nào'}</span>
-                    {(c.assignedUsername || c.botPaused) && (
-                      <span className="ci-muc-cuoi">
-                        {c.assignedUsername && <span className="ci-giao">{c.assignedUsername}</span>}
-                        {c.botPaused && <span className="ci-botcam">bot tạm dừng</span>}
+                    {/* Hàng cuối LUÔN có ít nhất viên trạng thái. Trước đây cả hàng biến mất khi
+                        chưa ai nhận việc, nên các mục cao thấp so le và danh sách trông lởm chởm. */}
+                    <span className="ci-muc-cuoi">
+                      <span className={'ci-tt' + (c.status === 0 ? ' moi' : '')}>
+                        <i />{TEN_TRANG_THAI[c.status]}
                       </span>
-                    )}
+                      {c.assignedUsername && <span className="ci-giao">{c.assignedUsername}</span>}
+                      {c.botPaused && <span className="ci-botcam">bot tạm dừng</span>}
+                    </span>
                   </span>
                 </button>
               ))}
@@ -1209,16 +1278,25 @@
                 <div className="ci-chat-dau">
                   <AnhDaiDien ten={v.displayName || v.contactExternalId} url={lh?.avatarUrl} co={36} />
                   <div className="ci-chat-ten">
-                    <b>{v.displayName || v.contactExternalId}</b>
-                    <span>{KENH[v.channel]?.ten} · {TEN_TRANG_THAI[v.status]}
-                      {v.assignedUsername ? ' · ' + v.assignedUsername : ''}</span>
+                    <b>{tenKhach}</b>
+                    {/* Gộp mọi thứ "hội thoại này đang ra sao" vào MỘT dòng, cắt bớt khi hẹp.
+                        Tách thành nhiều thẻ thì hàng tiêu đề cao gấp đôi mà không thêm thông tin. */}
+                    <span>
+                      <i aria-hidden="true" />
+                      <em>{[KENH[v.channel]?.ten, TEN_TRANG_THAI[v.status],
+                           v.assignedUsername || 'chưa ai nhận',
+                           v.botPaused ? 'bot tạm dừng' : 'bot đang trả lời'].join(' · ')}</em>
+                    </span>
                   </div>
                   <div className="ci-nut-nhom">
-                    <button className="ci-nut" onClick={nhanViec}>{v.assignedUsername ? 'Bỏ nhận' : 'Nhận việc'}</button>
+                    <button className={'ci-nut' + (v.assignedUsername ? '' : ' chinh')} onClick={nhanViec}>
+                      {v.assignedUsername ? 'Bỏ nhận' : 'Nhận việc'}
+                    </button>
                     <button className="ci-nut" onClick={batTatBot}>{v.botPaused ? 'Cho bot nói lại' : 'Tạm dừng bot'}</button>
                     {v.status !== 2
                       ? <button className="ci-nut" onClick={() => doiTrangThai(2)}>Đóng</button>
                       : <button className="ci-nut" onClick={() => doiTrangThai(1)}>Mở lại</button>}
+                    <span className="ci-vach" aria-hidden="true" />
                     <button className={'ci-nut-icon' + (moHoSo ? ' on' : '')}
                             onClick={() => setMoHoSo(x => !x)}
                             title={moHoSo ? 'Ẩn hồ sơ khách' : 'Xem hồ sơ khách'}
@@ -1237,7 +1315,7 @@
                       {(i === 0 || ngayCua(m.createdUtc) !== ngayCua(tinNhan[i - 1].createdUtc)) && (
                         <div className="ci-ngay"><span>{nhanNgay(m.createdUtc)}</span></div>
                       )}
-                      <BongBong tin={m} kenh={v.channel} />
+                      <BongBong tin={m} kenh={v.channel} ten0={tenKhach} />
                     </React.Fragment>
                   ))}
                 </div>
@@ -1276,11 +1354,6 @@
                       <div className="ci-soan-o">
                         <input type="file" ref={tepRef} hidden
                                onChange={e => { chonTep(e.target.files?.[0]); e.target.value = ''; }} />
-                        <button className="ci-kep" disabled={dangTai2}
-                                onClick={() => tepRef.current?.click()}
-                                title="Gửi ảnh hoặc tệp" aria-label="Gửi ảnh hoặc tệp">
-                          <window.Icon name={dangTai2 ? 'refresh' : 'paperclip'} size={16} />
-                        </button>
                         <textarea value={soan}
                                   onChange={e => {
                                     const val = e.target.value;
@@ -1295,16 +1368,31 @@
                                     if (e.key === 'Escape') { setGoiY(null); return; }
                                     if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); gui(); }
                                   }} />
-                        <button className="ci-gui" onClick={gui}
-                                disabled={dangGui || (!soan.trim() && !dinhKem)}
-                                title="Gửi" aria-label="Gửi">
-                          <window.Icon name="send" size={16} />
-                        </button>
+                        {/* Hàng công cụ nằm DƯỚI ô gõ, không kẹp hai bên: chữ được trọn chiều
+                            ngang, và nút gửi luôn ở một chỗ cố định dù ô gõ cao lên bao nhiêu. */}
+                        <div className="ci-soan-nut">
+                          <button className="icon" disabled={dangTai2}
+                                  onClick={() => tepRef.current?.click()}
+                                  title="Gửi ảnh hoặc tệp" aria-label="Gửi ảnh hoặc tệp">
+                            <window.Icon name={dangTai2 ? 'refresh' : 'paperclip'} size={15} />
+                          </button>
+                          <button className="mau" onClick={() => setGoiY(goiY === null ? '' : null)}
+                                  title="Chèn mẫu trả lời">
+                            <b>/</b>Mẫu trả lời
+                          </button>
+                          <span className="ci-soan-nhac">
+                            Enter để gửi · Shift + Enter xuống dòng
+                          </span>
+                          <button className="ci-gui" onClick={gui}
+                                  disabled={dangGui || (!soan.trim() && !dinhKem)}
+                                  title="Gửi" aria-label="Gửi">
+                            <window.Icon name="send" size={15} />
+                          </button>
+                        </div>
                       </div>
-                      <div className="ci-soan-nhac">
-                        Enter để gửi, Shift + Enter xuống dòng.
-                        {v.botPaused && <span> Bot đang tạm dừng nên sẽ không trả lời chen vào.</span>}
-                      </div>
+                      {v.botPaused && (
+                        <div className="ci-cho-gui">Bot đang tạm dừng nên sẽ không trả lời chen vào.</div>
+                      )}
                     </>
                   )}
                 </div>
