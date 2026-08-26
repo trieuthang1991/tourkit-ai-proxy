@@ -270,9 +270,13 @@ public class MessengerChatAdapter : IChatChannelAdapter
     /// <list type="bullet">
     /// <item><c>pages_show_list</c> — để đọc <c>/me/accounts</c>, tức là biết họ quản trị Trang nào.</item>
     /// <item><c>pages_messaging</c> — để gửi tin.</item>
-    /// <item><c>pages_read_engagement</c> — để đọc tên/ảnh Trang.</item>
     /// <item><c>pages_manage_metadata</c> — để gọi <c>subscribed_apps</c>, tức là TỰ bật nhận tin.</item>
     /// </list>
+    ///
+    /// <para>⚠️ <b>Đã BỎ <c>pages_read_engagement</c> ngày 26/08/2026</b> dù tài liệu Messenger của
+    /// Meta có liệt kê nó: app thật trả về <c>Invalid Scopes: pages_read_engagement</c> rồi bỏ qua.
+    /// Mình không cần — tên Trang lấy từ <c>/me/accounts</c> bằng <c>pages_show_list</c>. Thêm lại
+    /// chỉ khi khâu duyệt của Meta đòi, và phải khai quyền đó trong ứng dụng trước.</para>
     ///
     /// <para><b>Vì sao không xin thêm cho chắc.</b> Mỗi quyền thừa là một mục phải giải trình khi
     /// Meta duyệt ứng dụng, và một dòng đáng ngờ trong màn hình khách bấm đồng ý. Cần thêm về sau
@@ -283,7 +287,6 @@ public class MessengerChatAdapter : IChatChannelAdapter
         "public_profile",
         "pages_show_list",
         "pages_messaging",
-        "pages_read_engagement",
         "pages_manage_metadata",
     };
 
