@@ -169,12 +169,13 @@ public static class WebFeatureRegistration
             s.AddHostedService(sp => sp.GetRequiredService<Workflows.WorkflowSchedulerService>());
 
         // Hai worker của chat chạy ở WEB (không phải worker riêng) vì tin chat phải đi NGAY — khách
-        // đang chờ trước màn hình, không như bản tin sáng hẹn giờ. Tắt cờ thì không đăng ký, không
-        // tốn nhịp nào. Vào: webhook chỉ GHI thân thô, worker này mới xử lý.
-        if (FeatureFlags.Chat(cfg))
-        {
-            s.AddHostedService<Chat.Inbox.ChatInboundWorker>();
-            s.AddHostedService<Chat.Inbox.ChatOutboxWorker>();
-        }
+        // đang chờ trước màn hình, không như bản tin sáng hẹn giờ. Vào: webhook chỉ GHI thân thô,
+        // worker này mới xử lý.
+        //
+        // KHÔNG còn phụ thuộc cờ Features:Chat — cờ đó nay chỉ ẩn mục menu (xem MapHopThuChat).
+        // Vẫn không tốn nhịp nào khi chưa dùng: cả hai worker tự dừng ngay vòng đầu nếu
+        // ConnectionStrings:Chat để trống (repo.Configured == false).
+        s.AddHostedService<Chat.Inbox.ChatInboundWorker>();
+        s.AddHostedService<Chat.Inbox.ChatOutboxWorker>();
     }
 }

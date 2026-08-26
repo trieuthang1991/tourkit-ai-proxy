@@ -27,17 +27,18 @@ public static class ChatInboxEndpoints
     private static readonly JsonSerializerOptions Web = new(JsonSerializerDefaults.Web);
 
     /// <summary>
-    /// Các tiền tố đường dẫn CHỈ thuộc hộp thư chat. <c>Program.cs</c> dùng chính danh sách này cho
-    /// nhánh <b>tắt cờ</b> <c>Features:Chat</c> để trả 404 — nhờ vậy thêm nhóm endpoint mới không
-    /// thể quên cập nhật nơi thứ hai.
+    /// Các tiền tố đường dẫn CHỈ thuộc hộp thư chat — <b>bản kiểm kê bề mặt API của cụm này</b>.
     ///
-    /// <para><b>Vì sao không chặn thẳng tiền tố <c>/api/v1/chat</c>:</b> <c>POST /api/v1/chat</c> và
-    /// <c>/api/v1/chat/stream</c> là <b>Trợ lý số liệu</b> — tính năng KHÁC, không nằm sau cờ này.
-    /// Chặn cả cụm là giết nhầm một tính năng đang chạy thật.</para>
+    /// <para>⚠️ <b>Từ 26/08/2026 danh sách này KHÔNG còn dùng để chặn.</b> Cờ <c>Features:Chat</c> nay
+    /// chỉ ẩn mục menu, đường dẫn luôn được map (xem <c>EndpointRegistration.MapHopThuChat</c>).</para>
     ///
-    /// <para><b>Vì sao phải liệt kê thay vì để rơi:</b> không map ≠ 404. <c>app.MapFallback</c> (deep
-    /// link SPA) nuốt mọi đường không khớp kể cả <c>/api/**</c> và trả <c>index.html</c> kèm status
-    /// <b>200</b> — client gọi API nhận HTML thay vì lỗi, lần ra nguyên nhân rất mất công.</para>
+    /// <para><b>Vẫn giữ và vẫn có test canh cho đủ</b> vì hai lý do: nó là chỗ duy nhất liệt kê đủ
+    /// bề mặt API của hộp thư chat, và nếu sau này làm cờ THEO TỪNG CÔNG TY thì cần đúng danh sách
+    /// này. Thêm nhóm endpoint mới thì thêm một dòng ở đây.</para>
+    ///
+    /// <para><b>Vì sao không gộp thành tiền tố <c>/api/v1/chat</c> trần:</b> <c>POST /api/v1/chat</c>
+    /// và <c>/api/v1/chat/stream</c> là <b>Trợ lý số liệu</b> — tính năng KHÁC. Gộp là kể nhầm nó
+    /// vào cụm chat, và bất cứ ai dùng lại danh sách này để chặn sẽ giết một tính năng đang chạy.</para>
     /// </summary>
     public static readonly string[] DuongRieng =
     {

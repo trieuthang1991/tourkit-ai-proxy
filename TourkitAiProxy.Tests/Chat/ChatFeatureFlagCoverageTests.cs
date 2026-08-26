@@ -13,8 +13,12 @@ namespace TourkitAiProxy.Tests.Chat;
 /// mọi đường không khớp kể cả <c>/api/**</c> và trả <c>index.html</c> kèm status <b>200</b>. Client
 /// gọi API nhận về HTML, và lỗi kiểu đó rất khó lần ra.</para>
 ///
-/// <para>Nay hai nhánh đọc chung <see cref="ChatInboxEndpoints.DuongRieng"/>. Test này canh việc
-/// danh sách đó thật sự phủ hết mọi route mà file endpoint đăng ký.</para>
+/// <para>⚠️ <b>Từ 26/08/2026 cờ không còn chặn route nữa</b> — quyết định của chủ dự án: chặn cả
+/// cụm thì không setup và kiểm thử được trên bản chạy thật. Cờ nay chỉ ẩn mục menu.</para>
+///
+/// <para>Test này vẫn giữ vì <see cref="ChatInboxEndpoints.DuongRieng"/> vẫn là bản kiểm kê bề mặt
+/// API của cụm chat, và cờ theo-từng-công-ty (nếu làm) sẽ cần đúng danh sách đó. Để nó mục ruỗng
+/// rồi mới đi dùng lại là lặp lại y hệt lỗi cũ.</para>
 /// </summary>
 public class ChatFeatureFlagCoverageTests
 {
@@ -64,6 +68,39 @@ public class ChatFeatureFlagCoverageTests
                 p => duong.Equals(p, StringComparison.Ordinal) || duong.StartsWith(p + "/", StringComparison.Ordinal));
             Assert.False(bịChan, $"'{duong}' thuộc Trợ lý số liệu nhưng lại bị cờ chat chặn.");
         }
+    }
+
+    [Fact]
+    public void Co_tat_thi_route_VAN_duoc_map()
+    {
+        // Chốt cho quyết định 26/08/2026: cờ chỉ ẩn menu. Ai đó "sửa lại cho đúng" bằng cách chặn
+        // route trở lại là chặn luôn đường setup trên bản chạy thật — đúng cái đã phải gỡ ra.
+        //
+        // ⚠️ Cái giá đi kèm, cố ý nhận: tắt cờ giờ chỉ là GIẤU. Webhook vẫn sống nên tin của khách
+        // vẫn chảy vào hệ thống dù menu đang ẩn. Muốn tắt THẬT thì bỏ ConnectionStrings:Chat.
+        var src = DocFileGoc("TourkitAiProxy.Endpoints/EndpointRegistration.cs");
+        var i = src.IndexOf("MapHopThuChat(WebApplication", System.StringComparison.Ordinal);
+        Assert.True(i > 0, "Không thấy MapHopThuChat");
+
+        // Cắt tới DÒNG TRỐNG đầu tiên, không lấy một cửa sổ ký tự cố định: cửa sổ trùm sang hàm
+        // ChanTuongMinh nằm ngay dưới (hàm đó vẫn dùng cho cụm bản tin) rồi báo đỏ oan.
+        var het = src.IndexOf("\r\n\r\n", i, System.StringComparison.Ordinal);
+        var than = het > i ? src[i..het] : src[i..];
+
+        Assert.Contains("MapChatInboxEndpoints", than);
+        Assert.DoesNotContain("ChanTuongMinh", than);
+        Assert.DoesNotContain("FeatureFlags.Chat", than);
+    }
+
+    private static string DocFileGoc(string duongDanTuongDoi)
+    {
+        var d = new DirectoryInfo(AppContext.BaseDirectory);
+        while (d is not null && !File.Exists(Path.Combine(d.FullName, "TourkitAiProxy.csproj")))
+            d = d.Parent;
+        Assert.NotNull(d);
+        var f = Path.Combine(d!.FullName, duongDanTuongDoi.Replace('/', Path.DirectorySeparatorChar));
+        Assert.True(File.Exists(f), $"Không thấy {f}");
+        return File.ReadAllText(f);
     }
 
     private static string DocMaNguon()

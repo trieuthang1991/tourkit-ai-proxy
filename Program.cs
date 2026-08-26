@@ -198,7 +198,8 @@ _ = Task.Run(async () =>
     var reviewRepo = scope.ServiceProvider.GetRequiredService<ReviewRepository>();
     var dealRepo   = scope.ServiceProvider.GetRequiredService<TourkitAiProxy.Infrastructure.Deals.DealRepository>();
     // CSDL chat là PostgreSQL RIÊNG (xem ChatDb). Thiếu chuỗi kết nối thì tự tắt, KHÔNG làm sập app.
-if (TourkitAiProxy.Services.Bootstrap.FeatureFlags.Chat(builder.Configuration))
+    // Không gác sau cờ Features:Chat nữa: cờ đó nay chỉ ẩn mục menu, còn API và webhook vẫn sống
+    // nên schema phải sẵn sàng — không thì tin đầu tiên tới là lỗi "bảng không tồn tại".
     await app.Services.GetRequiredService<TourkitAiProxy.Infrastructure.Chat.Inbox.ChatDb>().InitAsync();
 
 try { await reviewRepo.InitAsync(); }

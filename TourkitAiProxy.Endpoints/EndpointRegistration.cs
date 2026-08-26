@@ -75,23 +75,23 @@ public static class EndpointRegistration
     }
 
     /// <summary>
-    /// Hộp thư chat đa kênh, sau cờ <c>Features:Chat</c>. Tắt thì webhook cũng không map: endpoint
-    /// còn sống nghĩa là tin của khách vẫn chảy vào hệ dù tính năng "đang tắt".
+    /// Hộp thư chat đa kênh. <b>Đường dẫn LUÔN được map, không phụ thuộc cờ</b>.
+    ///
+    /// <para><b>Cờ <c>Features:Chat</c> nay chỉ ẩn/hiện MỤC MENU</b> (qua
+    /// <c>/api/v1/features</c>), không chặn API, không chặn webhook, không tắt worker. Quyết định
+    /// của chủ dự án ngày 26/08/2026: chặn cả cụm thì không setup và kiểm thử được trên bản chạy
+    /// thật — muốn thử một tính năng chưa ra mắt thì buộc phải mở nó cho mọi người.</para>
+    ///
+    /// <para>⚠️ <b>Cái giá, biết mà nhận:</b> tắt cờ giờ chỉ là <b>giấu</b>. Ai biết đường dẫn
+    /// <c>/chat-inbox</c> vẫn vào được, và webhook vẫn sống nên <b>tin của khách vẫn chảy vào hệ
+    /// thống</b> dù menu đang ẩn. Đừng trỏ webhook về đây rồi tưởng "tính năng đang tắt thì không
+    /// sao" — tin vào thật, chỉ là không ai ngồi nhìn.</para>
+    ///
+    /// <para>Muốn tắt THẬT thì bỏ chuỗi kết nối <c>ConnectionStrings:Chat</c>: không có CSDL thì
+    /// repository báo chưa cấu hình, worker tự dừng, mọi đường trả 503.</para>
     /// </summary>
     private static void MapHopThuChat(WebApplication app, IConfiguration cfg)
-    {
-        if (FeatureFlags.Chat(cfg))
-        {
-            app.MapChatInboxEndpoints();
-            return;
-        }
-
-        // Đọc CHUNG danh sách với nhánh bật (ChatInboxEndpoints.DuongRieng). Liệt kê tay ở đây đã
-        // lệch một lần — thêm /channels và /messages mà quên cập nhật, hai đường đó rơi vào
-        // MapFallback và trả index.html kèm 200 thay vì 404.
-        ChanTuongMinh(app, ChatInboxEndpoints.DuongRieng,
-            "Tính năng hộp thư chat đang tắt (Features:Chat=false).");
-    }
+        => app.MapChatInboxEndpoints();
 
     /// <summary>Trả 404 JSON tường minh cho một nhóm tiền tố — xem cảnh báo ở đầu lớp.</summary>
     private static void ChanTuongMinh(WebApplication app, IEnumerable<string> tienTo, string loi)
