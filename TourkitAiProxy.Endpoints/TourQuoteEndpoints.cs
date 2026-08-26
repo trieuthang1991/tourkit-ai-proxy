@@ -21,12 +21,16 @@ public static class TourQuoteEndpoints
         var v1 = routes.MapGroup("/api/v1");
 
         // POST /tour-quotes — COMMIT vào SQL (1 lần ghi DB). Dùng cho nút "Lưu báo giá" của user.
-        v1.MapPost("/tour-quotes", (SaveTourQuoteRequest req, HttpContext ctx,
+        v1.MapPost("/tour-quotes", async (SaveTourQuoteRequest req, HttpContext ctx,
             TourQuoteRepository repo, TkSessionStore sessions, ILogger<EndpointsLog> log) =>
         {
             var sid = Sid(ctx);
             var sess = sessions.Get(sid);
             if (sess == null) return Unauthorized();
+            // Sheet bug 105 — báo giá là sản phẩm của quyền tạo tour: đại lý/CTV chỉ được đặt chỗ thì
+            // không lưu được báo giá, kể cả khi gọi thẳng API (ẩn nút UI không phải là chặn).
+            if (!await SessionAuth.CanCreateTourAsync(sid!, sessions, ctx.RequestAborted))
+                return SessionAuth.ForbiddenCreateTour();
             try
             {
                 var id = repo.Save(req, sess.TenantId, sess.Username);
@@ -39,12 +43,14 @@ public static class TourQuoteEndpoints
 
         // POST /tour-quotes/draft — AUTO-SAVE vào Redis (TTL 24h), KHÔNG đụng DB.
         // FE debounce 1.5s sau mỗi keystroke → gọi endpoint này. Trả lại id để FE giữ URL ?id=.
-        v1.MapPost("/tour-quotes/draft", (SaveTourQuoteRequest req, HttpContext ctx,
+        v1.MapPost("/tour-quotes/draft", async (SaveTourQuoteRequest req, HttpContext ctx,
             TourQuoteRepository repo, TkSessionStore sessions, ILogger<EndpointsLog> log) =>
         {
             var sid = Sid(ctx);
             var sess = sessions.Get(sid);
             if (sess == null) return Unauthorized();
+            if (!await SessionAuth.CanCreateTourAsync(sid!, sessions, ctx.RequestAborted))
+                return SessionAuth.ForbiddenCreateTour();
             try
             {
                 var id = repo.SaveDraft(req, sess.TenantId, sess.Username);
@@ -55,12 +61,14 @@ public static class TourQuoteEndpoints
 
         // POST /tour-quotes/{id}/commit — flush draft Redis → SQL (1 lần ghi DB).
         // Dùng khi FE muốn "lock-in" mà không cần re-send full data (đã có sẵn ở Redis).
-        v1.MapPost("/tour-quotes/{id}/commit", (string id, HttpContext ctx,
+        v1.MapPost("/tour-quotes/{id}/commit", async (string id, HttpContext ctx,
             TourQuoteRepository repo, TkSessionStore sessions, ILogger<EndpointsLog> log) =>
         {
             var sid = Sid(ctx);
             var sess = sessions.Get(sid);
             if (sess == null) return Unauthorized();
+            if (!await SessionAuth.CanCreateTourAsync(sid!, sessions, ctx.RequestAborted))
+                return SessionAuth.ForbiddenCreateTour();
             try
             {
                 var item = repo.Commit(sess.TenantId, id, sess.Username);

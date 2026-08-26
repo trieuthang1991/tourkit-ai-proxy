@@ -492,7 +492,15 @@ ${lines.join('\n')}
       });
       if (!r.ok) throw new Error('HTTP ' + r.status);
       const j = await r.json();
-      if (j.id) setCurrentTour(c => ({ id: j.id, status: (c && c.status) || (j.tour && j.tour.status) || 'draft' }));   // giữ status đã set ở Step 4
+      // giữ status đã set ở Step 4 + mang theo dấu đã-đồng-bộ-CRM (server trả trong j.tour) để Bước 4
+      // biết nháp này đã thành đơn thật, khỏi cho bấm tạo lần hai.
+      if (j.id) setCurrentTour(c => ({
+        id: j.id,
+        status: (c && c.status) || (j.tour && j.tour.status) || 'draft',
+        crmTourId: (j.tour && j.tour.crmTourId) || (c && c.crmTourId) || 0,
+        crmTourCode: (j.tour && j.tour.crmTourCode) || (c && c.crmTourCode) || null,
+        crmTourType: (j.tour && j.tour.crmTourType) || (c && c.crmTourType) || null,
+      }));
       setLastSavedAt(new Date().toISOString());
       setSaveState('saved');
       return j.id;
@@ -538,7 +546,9 @@ ${lines.join('\n')}
     if (t.itinerary) setItinerary(t.itinerary);
     if (t.rows) setRows(t.rows);
     if (t.marketing) setMarketing(t.marketing);
-    setCurrentTour({ id: t.id, status: tourStatus(t) });   // Step 4 PATCH đúng tour này
+    // Step 4 PATCH đúng tour này; kèm dấu đã-lên-CRM để mở lại nháp cũ không tạo đơn trùng.
+    setCurrentTour({ id: t.id, status: tourStatus(t),
+      crmTourId: t.crmTourId || 0, crmTourCode: t.crmTourCode || null, crmTourType: t.crmTourType || null });
     setView('create'); setStep(4);
     pushToast('Đã mở nháp tour');
   }
@@ -808,6 +818,12 @@ ${lines.join('\n')}
           initialStatus={(currentTour && currentTour.status) || 'draft'}
           ensureTourSaved={async () => (currentTour && currentTour.id) ? currentTour.id : await saveTourToServer(itinerary, marketing, rows)}
           onStatusSaved={(st) => { setCurrentTour(c => c ? {...c, status: st} : c); loadSavedTours(); }}
+          crmInfo={currentTour && currentTour.crmTourId > 0
+            ? { id: currentTour.crmTourId, code: currentTour.crmTourCode, type: currentTour.crmTourType } : null}
+          onCrmSaved={(done) => {
+            setCurrentTour(c => c ? {...c, status: 'success', crmTourId: done.id, crmTourCode: done.code, crmTourType: done.type} : c);
+            loadSavedTours();
+          }}
           onBack={() => setStep(3)}
           onRestart={() => { setStep(1); setMaxStep(1); pushToast('Bắt đầu tour mới'); }}
           pushToast={pushToast} />}

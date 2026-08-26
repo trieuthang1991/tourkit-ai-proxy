@@ -41,7 +41,10 @@ const NAV_GROUPS = [
   ]},
   { label: 'Sản phẩm Tour', items: [
     { to: '/ncc-list',     icon: 'download', label: 'AI Import NCC' },      // NCC: import + danh sách (đặt trên Tính giá Tour)
-    { to: '/wizard',       icon: 'dollar', label: 'Tính giá Tour' },        // pricing/quote
+    // Tính giá Tour = dựng đơn GIT/FIT ⇒ đúng quyền tạo tour bên CRM. Đại lý/CTV chỉ có quyền đặt
+    // chỗ thì không thấy mục này (sheet bug 105). Server chặn song song ở /api/v1/tours + /tour-quotes.
+    { to: '/wizard',       icon: 'dollar', label: 'Tính giá Tour',
+      requirePerm: ['TR_TD_TAOMOI', 'TR_TM_TAOMOI'] },                      // pricing/quote
     { to: '/tour-builder', icon: 'plane',  label: 'Soạn Tour GIT (AI)' },   // travel/itinerary
     { to: '/visa/history', icon: 'shield', label: 'Thẩm định Visa' },       // hub: danh sách hồ sơ đã chấm + nút mở wizard (gộp Lịch sử + Thẩm định)
   ]},
@@ -123,8 +126,10 @@ function AccessDeniedPage({ need }) {
         <div style={{ fontSize: 44, marginBottom: 16 }}>🔒</div>
         <h2 style={{ margin: '0 0 8px', fontSize: 22, fontWeight: 700 }}>Bạn không có quyền xem</h2>
         <p style={{ color: 'var(--text-3)', fontSize: 14, marginBottom: 20, lineHeight: 1.6 }}>
-          Trang này yêu cầu quyền <strong style={{ color: 'var(--text)' }}>{need || '—'}</strong> (Xem cấu hình hệ thống).
-          Liên hệ quản trị viên tenant để được cấp quyền, hoặc quay về trang chính.
+          Trang này yêu cầu quyền <strong style={{ color: 'var(--text)' }}>
+            {Array.isArray(need) ? need.join(' hoặc ') : (need || '—')}
+          </strong>. Quyền lấy từ chính TourKit CRM theo phòng ban của bạn — liên hệ quản trị viên để
+          được cấp, hoặc quay về trang chính.
         </p>
         <a href="/travai"
            onClick={e => { e.preventDefault(); window.tourkitRouter.navigate('/travai'); }}
@@ -177,7 +182,13 @@ function App() {
       window.removeEventListener('tourkit-auth-changed', on);
     };
   }, []);
-  const hasPerm = (code) => !code || (Array.isArray(perms) && perms.includes(code));
+  // code: chuỗi 1 mã, hoặc MẢNG mã với ý nghĩa "có MỘT trong số này là đủ" (vd Tính giá Tour cần
+  // TR_TD_TAOMOI hoặc TR_TM_TAOMOI — ai tạo được loại tour nào thì làm giá loại đó).
+  const hasPerm = (code) => {
+    if (!code) return true;
+    if (!Array.isArray(perms)) return false;
+    return Array.isArray(code) ? code.some(c => perms.includes(c)) : perms.includes(code);
+  };
   // Filter NAV_GROUPS theo requirePerm — nhóm không đủ quyền bị ẨN hoàn toàn khỏi sidebar/drawer.
   // Ẩn theo TỪNG item.requirePerm; group rỗng (mọi item bị ẩn) thì bỏ. Item không có requirePerm
   // (vd /workflows) luôn hiện.
@@ -561,7 +572,8 @@ function App() {
       {/* Router: chọn page theo hash. Thêm page = thêm <Route> ở đây. */}
       <Router>
         {/* '/' không có route ở đây: đã xử lý sớm là LandingPage (guest) / redirect /travai (đã login). */}
-        <Route path="/wizard"    render={() => <window.WizardPage pushToast={pushToast} tweaks={t} />} />
+        {/* gatePerm: ẩn menu thôi chưa đủ — gõ thẳng /wizard vẫn vào được (sheet bug 105). */}
+        <Route path="/wizard"    render={() => gatePerm('/wizard', <window.WizardPage pushToast={pushToast} tweaks={t} />)} />
         <Route path="/customers" render={() => <window.CustomersPage pushToast={pushToast} />} />
         <Route path="/assistant" render={() => <window.AssistantPage pushToast={pushToast} />} />
         <Route path="/travai"    render={() => <window.JarvisPage pushToast={pushToast} />} />
@@ -602,7 +614,7 @@ function App() {
 
       {/* MOBILE BOTTOM DOCK (≤900px) — 5 quick + 1 Thêm (mở drawer) */}
       <nav className="app-bottom-dock" aria-label="Tính năng nhanh">
-        {MOBILE_QUICK.map(q => (
+        {MOBILE_QUICK.filter(q => hasPerm(ROUTE_REQUIRE_PERM[q.to])).map(q => (
           <a key={q.to} href={q.to}
              className={'app-dock-item' + (isActive(q.to) ? ' active' : '')}
              onClick={e => {
