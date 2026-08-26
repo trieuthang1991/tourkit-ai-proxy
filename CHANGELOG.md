@@ -27,6 +27,10 @@ Những cập nhật gần đây của TRAV-AI, viết cho người dùng. Mới
 ### 🔧 Đã khắc phục
 - **Nút "Nhận việc" giờ mới thật sự nhận việc.** Trước đây bấm nút này không gán hội thoại cho
   bạn — thậm chí còn gỡ người đang phụ trách ra. Nút trông như chạy nên không ai để ý.
+- **Xem được ai đã làm gì với một hội thoại.** Mở hồ sơ khách bên phải, cuộn xuống mục **"Nhật ký
+  thao tác"**: ai nhận việc, ai chuyển cho ai, ai đóng hội thoại, ai tạm dừng trợ lý — kèm thời
+  điểm. Trước đây những việc này không để lại dấu vết nào, nên khi khách thắc mắc thì không tra
+  được. Nội dung tin nhắn **không** bị chép lại vào đây, tin vẫn nằm nguyên ở khung trò chuyện.
 - **Dấu "chưa đọc" nay là của riêng bạn.** Trước đây đồng nghiệp mở một hội thoại là dấu chưa
   đọc biến mất với **tất cả mọi người** — bạn không hề mở mà vẫn mất dấu, nên tin của khách trôi
   qua mà không ai để ý. Nay mỗi người có dấu chưa đọc riêng. Các hội thoại cũ giữ nguyên trạng

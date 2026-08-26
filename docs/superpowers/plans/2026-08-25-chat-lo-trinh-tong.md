@@ -24,10 +24,11 @@ làm xong từ lâu — ô trống chỉ có nghĩa là chưa ai tick).
 | **Task 4.1** — phân trang con trỏ | ✅ xong, commit `fe60f40` | 7 test mới · `ix_conv_tenant_hoatdong` · endpoint trả `nextCursor` · nút "Tải thêm" · bundle đã dựng · 841 test xanh |
 | **Task 4.2** — SSE | ✅ xong | 4 test mới · `ChatEventBus` kẹp tenant · `GET /events` + nhịp giữ sống 25s · bắn ở 10 chỗ · giao diện bỏ nhịp 4 giây, có đường lùi 20s · **kiểm thật trên staging**: sự kiện tới + nhịp giữ sống đúng · 845 test xanh · CHANGELOG 26/08 |
 | **Task 4.3** — Redis pub/sub | ✅ xong | 4 test mới · bỏ qua gói của chính mình · log chế độ lúc khởi động · `/api/v1/features` trả `chatRealtime` · **kiểm thật hai bản 5080↔5081 chung Redis** · 852 test xanh |
-| **Đợt 5** — cộng tác nhiều nhân viên | ⛔ **DỪNG Ở ĐÂY** | Task 5.1 là mục tiếp theo. |
-| Đợt 6 | ⛔ chưa động | |
+| **Đợt 5** — cộng tác nhiều nhân viên | ✅ xong | 5.1 nhận việc nguyên tử + 409 (và nút "Nhận việc" chưa từng chạy — đã sửa) · 5.2 chưa đọc theo từng người · 5.3 nhật ký thao tác · **kiểm thật trên staging cả ba** · 872 test xanh |
+| Đợt 5 — còn nợ | ⚠️ một việc | tách chưa-đọc theo người chưa kiểm được: chỉ có một phiên đăng nhập trên staging |
+| **Đợt 6** — hồ sơ khách và CRM | ⛔ **DỪNG Ở ĐÂY** | Task 6.1 là mục tiếp theo. |
 
-**Nhánh đang làm:** `feat/chat-dot4-realtime` (tách từ `dev`, đã có 4 commit — hết ĐỢT 4). **Chưa merge về `dev`.**
+**Nhánh đang làm:** `feat/chat-dot4-realtime` (tách từ `dev`, đã có 7 commit — hết ĐỢT 4 và ĐỢT 5). **Chưa merge về `dev`.**
 
 **Ba cái bẫy vấp phải khi làm 4.1 — người làm tiếp đọc trước kẻo mất thì giờ:**
 
@@ -1405,9 +1406,9 @@ _log.LogInformation("[chat/events] chế độ {C}", redis is null
 
 > Spec §1.3: "Mọi thao tác nhạy cảm đều được phân quyền và audit". Nhận/nhả việc, đổi trạng thái, tạm dừng bot, gỡ kết nối kênh, gửi tin — hiện **không lưu dấu vết nào**. Khi khách khiếu nại "ai nói câu này với tôi" thì không tra được.
 
-- [ ] **Bước 1: Test đỏ** — guard: bảng `chat_audit` tồn tại và endpoint nhận việc có gọi ghi nhật ký.
-- [ ] **Bước 2:** Chạy, xác nhận đỏ.
-- [ ] **Bước 3:** Bảng:
+- [x] **Bước 1: Test đỏ** — guard: bảng `chat_audit` tồn tại và endpoint nhận việc có gọi ghi nhật ký.
+- [x] **Bước 2:** Chạy, xác nhận đỏ.
+- [x] **Bước 3:** Bảng:
 
 ```sql
     CREATE TABLE IF NOT EXISTS chat_audit (
@@ -1422,9 +1423,9 @@ _log.LogInformation("[chat/events] chế độ {C}", redis is null
     CREATE INDEX IF NOT EXISTS ix_audit_conv ON chat_audit (tenant_id, conversation_id, created_utc DESC);
 ```
 
-- [ ] **Bước 4:** Ghi ở các endpoint. **KHÔNG ghi nội dung tin** vào `chi_tiet` — tin đã nằm ở `chat_messages`, chép lại là nhân đôi dữ liệu khách và nhân đôi chỗ phải xoá khi khách yêu cầu xoá dữ liệu.
-- [ ] **Bước 5:** `GET /api/v1/chat/conversations/{id}/audit` (thêm vào `DuongRieng`), giao diện hiện trong panel hồ sơ.
-- [ ] **Bước 6:** Test + bundle + commit.
+- [x] **Bước 4:** Ghi ở các endpoint. **KHÔNG ghi nội dung tin** vào `chi_tiet` — tin đã nằm ở `chat_messages`, chép lại là nhân đôi dữ liệu khách và nhân đôi chỗ phải xoá khi khách yêu cầu xoá dữ liệu.
+- [x] **Bước 5:** `GET /api/v1/chat/conversations/{id}/audit` (**không** phải thêm vào `DuongRieng`: tiền tố `/api/v1/chat/conversations` đã phủ; có test khẳng định điều đó), giao diện hiện trong panel hồ sơ.
+- [x] **Bước 6:** Test + bundle + commit.
 
 ---
 

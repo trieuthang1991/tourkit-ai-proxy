@@ -437,6 +437,7 @@ public static class ChatInboxEndpoints
                     return Results.Json(new { error = $"{dangGiu} đang xử lý hội thoại này", assignedTo = dangGiu },
                         statusCode: StatusCodes.Status409Conflict);
                 }
+                await repo.GhiNhatKyAsync(a.TenantId, id, a.Username, "nhan-viec", null, ct);
                 bus.Bao(new(a.TenantId, id, "doi-hoi-thoai", null));
                 return Results.Json(new { ok = true, assignedTo = a.Username }, Web);
             }
@@ -445,6 +446,8 @@ public static class ChatInboxEndpoints
             // Cả hai đều CỐ Ý đè lên người đang giữ, nên không đi qua đường nguyên tử ở trên.
             var ai = string.IsNullOrWhiteSpace(body!.Username) ? null : body.Username.Trim();
             await repo.AssignAsync(a.TenantId, id, ai, ct);
+            await repo.GhiNhatKyAsync(a.TenantId, id, a.Username, ai is null ? "nha-viec" : "chuyen-viec",
+                ai is null ? null : new JsonObject { ["cho"] = ai }.ToJsonString(), ct);
             bus.Bao(new(a.TenantId, id, "doi-hoi-thoai", null));
             return Results.Json(new { ok = true, assignedTo = ai }, Web);
         });
@@ -460,8 +463,33 @@ public static class ChatInboxEndpoints
             if (await repo.GetConversationAsync(a.TenantId, id, ct) is null) return Results.NotFound();
 
             await repo.SetStatusAsync(a.TenantId, id, (ChatStatus)body.Status, ct);
+            await repo.GhiNhatKyAsync(a.TenantId, id, a.Username, "doi-trang-thai",
+                new JsonObject { ["trangThai"] = body.Status }.ToJsonString(), ct);
             bus.Bao(new(a.TenantId, id, "doi-hoi-thoai", null));
             return Results.Json(new { ok = true }, Web);
+        });
+
+        // Nhật ký của một hội thoại. Nằm dưới tiền tố /conversations nên đã được DuongRieng phủ.
+        g.MapGet("/conversations/{id:long}/audit", async (long id, HttpContext ctx,
+            TkSessionStore sessions, ChatRepository repo, CancellationToken ct) =>
+        {
+            var a = SessionAuth.Read(ctx, sessions);
+            if (a == null) return SessionAuth.Unauthorized();
+            if (!repo.Configured) return ChuaCauHinh();
+            // Hội thoại của tenant khác cũng rơi vào đây — không rò rỉ việc id đó có tồn tại hay không.
+            if (await repo.GetConversationAsync(a.TenantId, id, ct) is null) return Results.NotFound();
+
+            var ds = await repo.ListAuditAsync(a.TenantId, id, 50, ct);
+            return Results.Json(new
+            {
+                items = ds.Select(x => new
+                {
+                    x.Id, x.Username, x.HanhDong, x.CreatedUtc,
+                    // Trả JSON thô: giao diện tự diễn giải theo hành động, backend không phải biết
+                    // cách hiển thị.
+                    chiTiet = x.ChiTiet,
+                }),
+            }, Web);
         });
 
         g.MapPost("/conversations/{id:long}/read", async (long id, HttpContext ctx,
@@ -485,7 +513,10 @@ public static class ChatInboxEndpoints
             if (await repo.GetConversationAsync(a.TenantId, id, ct) is null) return Results.NotFound();
 
             // paused=false → bỏ câm ngay; true → câm theo số phút (mặc định 30).
-            await repo.PauseBotAsync(a.TenantId, id, body.Paused ? Math.Clamp(body.Minutes ?? 30, 1, 1440) : 0, ct);
+            var phut = body.Paused ? Math.Clamp(body.Minutes ?? 30, 1, 1440) : 0;
+            await repo.PauseBotAsync(a.TenantId, id, phut, ct);
+            await repo.GhiNhatKyAsync(a.TenantId, id, a.Username, "tam-dung-bot",
+                new JsonObject { ["phut"] = phut }.ToJsonString(), ct);
             bus.Bao(new(a.TenantId, id, "doi-hoi-thoai", null));
             return Results.Json(new { ok = true }, Web);
         });
@@ -565,7 +596,8 @@ public static class ChatInboxEndpoints
         });
 
         g.MapDelete("/channels/{channel:int}/accounts/{accountId}", async (int channel, string accountId,
-            HttpContext ctx, TkSessionStore sessions, ChannelCredentialStore cred, CancellationToken ct) =>
+            HttpContext ctx, TkSessionStore sessions, ChannelCredentialStore cred, ChatRepository repo,
+            CancellationToken ct) =>
         {
             var a = SessionAuth.Read(ctx, sessions);
             if (a == null) return SessionAuth.Unauthorized();
@@ -577,6 +609,9 @@ public static class ChatInboxEndpoints
             // CỐ Ý không xoá hội thoại cũ của tài khoản này: lịch sử chat với khách là dữ liệu
             // nghiệp vụ, gỡ kết nối chỉ nghĩa là "thôi không nhận/gửi qua tài khoản này nữa".
             var xoa = await cred.DeleteAsync(a.TenantId, (ChatChannel)channel, accountId, ct);
+            // Không gắn với hội thoại nào — gỡ kết nối là việc ở mức tài khoản kênh.
+            await repo.GhiNhatKyAsync(a.TenantId, null, a.Username, "go-ket-noi",
+                new JsonObject { ["kenh"] = channel, ["taiKhoan"] = accountId }.ToJsonString(), ct);
             return Results.Json(new { ok = true, removed = xoa }, Web);
         });
 

@@ -246,5 +246,23 @@ public class ChatDb
       last_read_at    timestamptz NOT NULL DEFAULT now(),
       PRIMARY KEY (tenant_id, conversation_id, username)
     );
+
+    -- Nhật ký thao tác. Khi khách khiếu nại "ai nói câu này với tôi", hoặc một hội thoại bị
+    -- đóng nhầm, thì đây là chỗ duy nhất tra được.
+    --
+    -- chi_tiet KHÔNG chứa nội dung tin: tin đã nằm ở chat_messages, chép lại là nhân đôi dữ
+    -- liệu khách VÀ nhân đôi chỗ phải xoá khi khách yêu cầu xoá dữ liệu — sót một chỗ là vẫn
+    -- còn lưu trái ý khách.
+    CREATE TABLE IF NOT EXISTS chat_audit (
+      id              bigserial PRIMARY KEY,
+      tenant_id       text        NOT NULL,
+      conversation_id bigint,
+      username        text        NOT NULL,
+      hanh_dong       text        NOT NULL,   -- nhan-viec | nha-viec | chuyen-viec | doi-trang-thai | tam-dung-bot | go-ket-noi
+      chi_tiet        jsonb,
+      created_utc     timestamptz NOT NULL DEFAULT now()
+    );
+    CREATE INDEX IF NOT EXISTS ix_audit_conv
+      ON chat_audit (tenant_id, conversation_id, created_utc DESC);
     """;
 }

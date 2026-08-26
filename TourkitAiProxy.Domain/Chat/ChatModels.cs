@@ -165,3 +165,14 @@ public static class ChatCursor
 /// </summary>
 /// <param name="Loai">"tin-moi" · "doi-trang-thai" · "doi-hoi-thoai".</param>
 public record ChatEvent(string TenantId, long ConversationId, string Loai, long? MessageId);
+
+/// <summary>Một dòng nhật ký thao tác. <c>ChiTiet</c> là JSON thô, KHÔNG chứa nội dung tin.</summary>
+public class ChatAuditRow
+{
+    public long Id { get; set; }
+    public long? ConversationId { get; set; }
+    public string Username { get; set; } = "";
+    public string HanhDong { get; set; } = "";
+    public string? ChiTiet { get; set; }
+    public DateTime CreatedUtc { get; set; }
+}

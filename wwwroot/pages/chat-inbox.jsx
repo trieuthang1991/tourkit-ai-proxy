@@ -234,9 +234,51 @@
     return <div className="ci-hs-dong"><span>{nhan}</span><b>{children}</b></div>;
   }
 
+  // Nhãn của từng hành động trong nhật ký. Thêm hành động mới ở máy chủ thì thêm một dòng ở đây;
+  // thiếu thì hiện nguyên mã hành động — xấu nhưng KHÔNG giấu mất dòng nhật ký.
+  const TEN_HANH_DONG = {
+    'nhan-viec': 'nhận việc',
+    'nha-viec': 'nhả việc',
+    'chuyen-viec': 'chuyển việc',
+    'doi-trang-thai': 'đổi trạng thái',
+    'tam-dung-bot': 'chỉnh trợ lý',
+    'go-ket-noi': 'gỡ kết nối kênh',
+  };
+
+  function MotDongNhatKy({ d }) {
+    let ct = null;
+    try { ct = d.chiTiet ? JSON.parse(d.chiTiet) : null; } catch {}
+    const them =
+      d.hanhDong === 'chuyen-viec' && ct?.cho ? ' cho ' + ct.cho
+      : d.hanhDong === 'doi-trang-thai' && ct?.trangThai != null ? ' → ' + (TEN_TRANG_THAI[ct.trangThai] || ct.trangThai)
+      : d.hanhDong === 'tam-dung-bot' ? (ct?.phut ? ' (tạm dừng ' + ct.phut + ' phút)' : ' (cho chạy lại)')
+      : '';
+    return (
+      <div className="ci-hs-dong nk">
+        <span>{fmtAgo(d.createdUtc)}</span>
+        <b>{d.username}</b> {TEN_HANH_DONG[d.hanhDong] || d.hanhDong}{them}
+      </div>
+    );
+  }
+
   function HoSo({ chiTiet, onDong, pushToast }) {
     const v = chiTiet?.conversation;
     const lh = chiTiet?.contact;
+    const [nhatKy, setNhatKy] = useState(null);
+
+    // Tải RIÊNG, không nhét vào /conversations/{id}: nhật ký chỉ xem khi mở panel hồ sơ, còn
+    // hội thoại thì tải lại mỗi lần có sự kiện — gộp vào là kéo thêm một bảng nữa mỗi tin mới.
+    useEffect(() => {
+      if (!v?.id) return;
+      let song = true;
+      setNhatKy(null);
+      authedFetch('/api/v1/chat/conversations/' + v.id + '/audit')
+        .then(r => (r.ok ? r.json() : { items: [] }))
+        .then(j => { if (song) setNhatKy(j.items || []); })
+        .catch(() => { if (song) setNhatKy([]); });
+      return () => { song = false; };
+    }, [v?.id]);
+
     if (!v) return null;
     const ten = v.displayName || v.contactExternalId;
 
@@ -292,6 +334,15 @@
           <Dong nhan="Trạng thái">{TEN_TRANG_THAI[v.status]}</Dong>
           <Dong nhan="Phụ trách">{v.assignedUsername || 'chưa ai nhận'}</Dong>
           <Dong nhan="Bot">{v.botPaused ? 'đang tạm dừng' : 'đang trả lời'}</Dong>
+        </div>
+
+        <div className="ci-hs-muc">
+          <h4>Nhật ký thao tác</h4>
+          {nhatKy === null
+            ? <div className="ci-hs-trong">Đang tải…</div>
+            : nhatKy.length === 0
+              ? <div className="ci-hs-trong">Chưa có thao tác nào được ghi lại.</div>
+              : nhatKy.map(d => <MotDongNhatKy key={d.id} d={d} />)}
         </div>
       </aside>
     );

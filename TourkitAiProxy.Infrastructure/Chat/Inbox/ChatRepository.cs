@@ -200,6 +200,50 @@ public class ChatRepository
             """, new { id, tenant, username });
     }
 
+    // ── Nhật ký thao tác ────────────────────────────────────────────────────
+
+    /// <summary>
+    /// Ghi một dòng nhật ký.
+    ///
+    /// <para><b>Không bao giờ ném.</b> Nhật ký hỏng không được làm hỏng thao tác chính: nhân viên
+    /// bấm đóng hội thoại mà nhận lỗi chỉ vì bảng nhật ký có vấn đề là đổi một sự cố ghi chép
+    /// thành một sự cố vận hành.</para>
+    ///
+    /// <para><paramref name="chiTiet"/> là JSON và <b>KHÔNG được chứa nội dung tin</b> — tin đã
+    /// nằm ở <c>chat_messages</c>, chép lại là nhân đôi dữ liệu khách và nhân đôi chỗ phải xoá
+    /// khi khách yêu cầu xoá dữ liệu.</para>
+    /// </summary>
+    public async Task GhiNhatKyAsync(string tenant, long? hoiThoaiId, string username,
+        string hanhDong, string? chiTiet = null, CancellationToken ct = default)
+    {
+        try
+        {
+            await using var c = await _db.OpenAsync(ct);
+            await c.ExecuteAsync("""
+                INSERT INTO chat_audit (tenant_id, conversation_id, username, hanh_dong, chi_tiet)
+                VALUES (@tenant, @hoiThoaiId, @username, @hanhDong, @chiTiet::jsonb)
+                """, new { tenant, hoiThoaiId, username, hanhDong, chiTiet });
+        }
+        catch (Exception ex)
+        {
+            _log.LogError(ex, "[chat/nhật ký] không ghi được {HD} hội thoại {H}", hanhDong, hoiThoaiId);
+        }
+    }
+
+    /// <summary>Nhật ký của một hội thoại, mới nhất trước.</summary>
+    public async Task<List<ChatAuditRow>> ListAuditAsync(string tenant, long hoiThoaiId,
+        int limit = 50, CancellationToken ct = default)
+    {
+        await using var c = await _db.OpenAsync(ct);
+        return (await c.QueryAsync<ChatAuditRow>("""
+            SELECT id, conversation_id, username, hanh_dong, chi_tiet, created_utc
+            FROM chat_audit
+            WHERE tenant_id = @tenant AND conversation_id = @hoiThoaiId
+            ORDER BY created_utc DESC, id DESC
+            LIMIT @limit
+            """, new { tenant, hoiThoaiId, limit = Math.Clamp(limit, 1, 200) })).ToList();
+    }
+
     /// <summary>Ai đang giữ hội thoại này. Dùng để nói tên trong lỗi 409, không đoán mò.</summary>
     public async Task<string?> AiDangGiuAsync(string tenant, long id, CancellationToken ct = default)
     {

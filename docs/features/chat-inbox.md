@@ -165,6 +165,16 @@ thứ hai.
 nhưng **không còn được ghi**. Xoá cột là mọi hội thoại cũ bật lại thành "chưa đọc" cho tất cả mọi
 người ngay sau khi deploy; còn tiếp tục ghi vào nó thì quay lại đúng cái lỗi vừa sửa, chỉ khác là
 nay có thêm một bảng trông như đã sửa.
+**Nhật ký thao tác** (`chat_audit`, xem ở cuối panel hồ sơ): nhận việc · nhả việc · chuyển việc ·
+đổi trạng thái · chỉnh trợ lý · gỡ kết nối kênh. Khi khách khiếu nại "ai nói câu này với tôi",
+hoặc một hội thoại bị đóng nhầm, đây là chỗ duy nhất tra được.
+
+⚠️ **`chi_tiet` KHÔNG chứa nội dung tin** — tin đã nằm ở `chat_messages`. Chép lại là nhân đôi dữ
+liệu khách **và** nhân đôi chỗ phải xoá khi khách yêu cầu xoá dữ liệu; sót một chỗ là vẫn còn lưu
+trái ý khách. Có test canh việc này.
+
+⚠️ **Ghi nhật ký không bao giờ ném.** Nhân viên bấm đóng hội thoại mà nhận lỗi chỉ vì bảng nhật ký
+có vấn đề là đổi một sự cố ghi chép thành một sự cố vận hành.
 **Mẫu trả lời nhanh** (`chat_quick_replies` +
 [`ChatQuickReplyRepository`](../../TourkitAiProxy.Infrastructure/Chat/Inbox/ChatQuickReplyRepository.cs)): gõ `/` ở **ĐẦU** ô
 soạn ra danh sách. Lệnh gọi **bỏ dấu** khi lưu — nhân viên đang gõ nhanh cho khách sẽ gõ `/gia` chứ
