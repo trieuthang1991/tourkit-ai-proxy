@@ -638,6 +638,14 @@
       pushToast('Cấp quyền xong thì bấm Tải lại để thấy trạng thái mới', 'success');
     }
 
+    // Kết nối OA mà KHÔNG khai gì trước: ứng dụng Zalo là của TourKit, khách chỉ cần đồng ý.
+    async function noiZalo(kenh) {
+      const r = await authedFetch('/api/v1/chat/channels/' + kenh + '/connect-url', { method: 'POST' });
+      let j = null; try { j = await r.json(); } catch {}
+      if (!r.ok) { pushToast(j?.error || 'Không dựng được đường kết nối', 'error'); return; }
+      window.open(j.url, 'zalo-cap-quyen', 'width=560,height=720');
+    }
+
     async function xoa(kenh, accId, ten) {
       if (!window.confirm(`Gỡ kết nối "${ten || accId}"?\n\nLịch sử chat với khách vẫn giữ nguyên, chỉ ngừng nhận và gửi qua tài khoản này.`)) return;
       const r = await authedFetch('/api/v1/chat/channels/' + kenh + '/accounts/' + accId, { method: 'DELETE' });
@@ -683,13 +691,18 @@
                 phải nhỏ và ở chỗ cố định; danh sách mới là thứ người dùng nhìn. */}
             <div className="ci-tk-dau">
               <span>{k.accounts.length} tài khoản</span>
-              <button className="ci-nut nho" onClick={() => setMo(mo === k.channel + ':moi' ? null : k.channel + ':moi')}>
-                {mo === k.channel + ':moi' ? 'Thôi' : '+ Thêm'}
-              </button>
+              {k.noiNhanh
+                ? <button className="ci-nut nho chinh" onClick={() => noiZalo(k.channel)}>Kết nối Zalo OA</button>
+                : (
+                  <button className="ci-nut nho"
+                          onClick={() => setMo(mo === k.channel + ':moi' ? null : k.channel + ':moi')}>
+                    {mo === k.channel + ':moi' ? 'Thôi' : '+ Thêm'}
+                  </button>
+                )}
             </div>
 
             {/* Form thêm mở ra NGAY DƯỚI nút, không phải cuối trang — mắt không phải nhảy đi đâu. */}
-            {mo === k.channel + ':moi' && (
+            {mo === k.channel + ':moi' && !k.noiNhanh && (
               <div className="ci-tk-form">
                 {k.fields.map(f => (
                   <ONhap key={f.key} truong={f} daKhai={false}
@@ -706,7 +719,11 @@
             )}
 
             {k.accounts.length === 0 && mo !== k.channel + ':moi' && (
-              <div className="ci-trong">Chưa nối tài khoản nào cho kênh này.</div>
+              <div className="ci-trong">
+                {k.noiNhanh
+                  ? 'Chưa nối OA nào. Bấm "Kết nối Zalo OA", đăng nhập Zalo rồi chọn OA của công ty bạn.'
+                  : 'Chưa nối tài khoản nào cho kênh này.'}
+              </div>
             )}
 
             {/* Danh sách: MỘT dòng mỗi tài khoản, bấm để mở cấu hình. Mỗi lúc chỉ mở MỘT —
@@ -737,14 +754,20 @@
                           <input readOnly value={t.webhookUrl} onFocus={e => e.target.select()} />
                         </label>
                       )}
-                      {k.fields.map(f => (
+                      {/* Kênh nối nhanh: khoá ứng dụng nằm ở máy chủ, khách không có gì để khai
+                          ngoài cái tên cho dễ nhớ. Bày ra mấy ô khoá rỗng chỉ làm người ta tưởng
+                          mình còn thiếu bước nào đó. */}
+                      {k.fields.filter(f => !k.noiNhanh || f.key === 'label').map(f => (
                         <ONhap key={f.key} truong={f} daKhai
                                giaTri={giaTriO(k.channel, t.accountId, f, t.values)}
                                onDoi={v => dat(k.channel, t.accountId, f.key, v)} />
                       ))}
+                      {k.noiNhanh && t.oaId && (
+                        <div className="ci-hs-goiy">Mã OA: {t.oaId}</div>
+                      )}
                       {/* Bước cấp quyền chỉ Zalo mới có: Messenger/Telegram cấp token thẳng ở
                           giao diện của họ, không đi vòng OAuth. */}
-                      {k.channel === 0 && (
+                      {k.channel === 0 && !k.noiNhanh && (
                         <div className="ci-hs-goiy">
                           Chưa có Refresh Token? Khai App ID + App Secret Key, bấm <b>Lưu</b>, rồi
                           bấm <b>Cấp quyền OA</b> — hệ thống tự lấy và tự làm mới về sau.
@@ -755,7 +778,7 @@
                                 onClick={() => luu(k.channel, t.accountId)}>
                           {dangLuu === khoa ? 'Đang lưu…' : 'Lưu'}
                         </button>
-                        {k.channel === 0 && (
+                        {k.channel === 0 && !k.noiNhanh && (
                           <button className="ci-nut" onClick={() => capQuyenZalo(k.channel, t.accountId)}>
                             Cấp quyền OA
                           </button>

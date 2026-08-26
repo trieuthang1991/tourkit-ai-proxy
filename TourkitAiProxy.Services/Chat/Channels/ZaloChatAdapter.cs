@@ -47,8 +47,31 @@ public class ZaloChatAdapter : IChatChannelAdapter
     private readonly ChannelCredentialStore _cred;
     private readonly ILogger<ZaloChatAdapter> _log;
 
-    public ZaloChatAdapter(IHttpClientFactory http, ChannelCredentialStore cred, ILogger<ZaloChatAdapter> log)
-    { _http = http; _cred = cred; _log = log; }
+    private readonly IConfiguration _cfg;
+
+    public ZaloChatAdapter(IHttpClientFactory http, ChannelCredentialStore cred,
+        IConfiguration cfg, ILogger<ZaloChatAdapter> log)
+    { _http = http; _cred = cred; _cfg = cfg; _log = log; }
+
+    // ── Ứng dụng Zalo CẤP NỀN TẢNG ──────────────────────────────────────────
+    //
+    // Trước đây mỗi công ty phải tự tạo một ứng dụng trên developers.zalo.me: tự tìm App ID, hai
+    // loại khoá bí mật, tự khai callback và webhook. Tám bước kỹ thuật trước khi nhắn được tin đầu
+    // tiên — không công ty du lịch nào làm nổi, và không sửa được bằng cách viết hướng dẫn hay hơn.
+    //
+    // Nay TourKit sở hữu MỘT ứng dụng cho mọi khách hàng, khai một lần ở appsettings. Khách chỉ
+    // bấm "Kết nối Zalo OA" rồi đồng ý trong cửa sổ Zalo.
+    //
+    // Khoá RIÊNG của tài khoản vẫn được ưu tiên nếu có — công ty nào đã khai ứng dụng riêng theo
+    // đường cũ thì vẫn chạy nguyên, không phải khai lại.
+    public string? AppIdNenTang => Rong(_cfg["Chat:Zalo:AppId"]);
+    private string? AppSecretNenTang => Rong(_cfg["Chat:Zalo:AppSecretKey"]);
+    private string? OaSecretNenTang => Rong(_cfg["Chat:Zalo:OaSecretKey"]);
+
+    /// Đã khai đủ ứng dụng cấp nền tảng chưa. Thiếu thì giao diện phải hiện lại các ô nhập tay.
+    public bool CoUngDungNenTang => AppIdNenTang is not null && AppSecretNenTang is not null;
+
+    private static string? Rong(string? s) => string.IsNullOrWhiteSpace(s) ? null : s.Trim();
 
     public ChatChannel Channel => ChatChannel.Zalo;
 
@@ -63,9 +86,17 @@ public class ZaloChatAdapter : IChatChannelAdapter
         public bool DuDeGui => DuDeXacThuc && !string.IsNullOrWhiteSpace(RefreshToken);
     }
 
-    private static TaiKhoan? Doc(IReadOnlyDictionary<string, string>? g) => g is null ? null : new TaiKhoan(
-        g.GetValueOrDefault("appId", ""), g.GetValueOrDefault("secretKey", ""),
-        g.GetValueOrDefault("oaSecretKey"),
+    /// <summary>
+    /// Đọc khoá của một tài khoản, <b>lùi về ứng dụng cấp nền tảng</b> ở từng ô một.
+    ///
+    /// <para>Lùi theo TỪNG Ô chứ không phải cả cụm: tài khoản nối bằng luồng mới chỉ có
+    /// <c>refreshToken</c> + <c>oaId</c>, ba ô khoá ứng dụng lấy từ cấu hình; còn tài khoản khai
+    /// tay theo đường cũ có đủ cả ba và phải được giữ nguyên.</para>
+    /// </summary>
+    private TaiKhoan? Doc(IReadOnlyDictionary<string, string>? g) => g is null ? null : new TaiKhoan(
+        Rong(g.GetValueOrDefault("appId")) ?? AppIdNenTang ?? "",
+        Rong(g.GetValueOrDefault("secretKey")) ?? AppSecretNenTang ?? "",
+        Rong(g.GetValueOrDefault("oaSecretKey")) ?? OaSecretNenTang,
         g.GetValueOrDefault("refreshToken"), g.GetValueOrDefault("accessToken"),
         DateTime.TryParse(g.GetValueOrDefault("accessTokenExpiresUtc"),
             System.Globalization.CultureInfo.InvariantCulture,
@@ -81,6 +112,49 @@ public class ZaloChatAdapter : IChatChannelAdapter
     /// <para><b>Ký trên THÂN THÔ.</b> Serialize lại từ object đã parse chỉ đúng khi thứ tự khoá và
     /// khoảng trắng trùng khít bản gốc — gần như không bao giờ trùng. Đọc raw rồi ký thẳng.</para>
     /// </summary>
+    /// <summary>
+    /// Id của OA nhận/gửi sự kiện này — <b>khoá định tuyến</b> của webhook dùng chung.
+    ///
+    /// <para>Zalo không đặt id OA vào một chỗ cố định: sự kiện gắn nhãn có <c>oa_id</c> riêng, tin
+    /// khách gửi thì OA là NGƯỜI NHẬN, còn tiếng vọng OA gửi thì OA là NGƯỜI GỬI. Lấy nhầm đầu là
+    /// tra ra id của KHÁCH rồi không khớp công ty nào, tin rơi vào hư không mà chỉ có một dòng log.</para>
+    /// </summary>
+    public static string? IdOaCuaSuKien(string rawBody)
+    {
+        JsonNode? goc;
+        try { goc = JsonNode.Parse(rawBody); } catch { return null; }
+        if (goc?["oa_id"]?.ToString() is { Length: > 0 } thang) return thang;
+
+        var ten = goc?["event_name"]?.ToString() ?? "";
+        var laOaGui = ten.StartsWith("oa_send", StringComparison.OrdinalIgnoreCase);
+        var id = laOaGui ? goc?["sender"]?["id"]?.ToString() : goc?["recipient"]?["id"]?.ToString();
+        return string.IsNullOrWhiteSpace(id) ? null : id;
+    }
+
+    /// <summary>
+    /// Xác thực cho đường webhook <b>DÙNG CHUNG</b> (không mang tên công ty trên URL).
+    ///
+    /// <para>Dùng ứng dụng cấp nền tảng thì <c>app_id</c> giống hệt nhau ở mọi khách hàng, nên nó
+    /// không còn phân biệt được ai với ai. Định tuyến bằng <b>id OA</b>: id đó chính là
+    /// <c>accountId</c> của tài khoản nối theo luồng mới, nên tra ra công ty chỉ mất một phép so.</para>
+    ///
+    /// <para>Tra được công ty rồi <b>vẫn phải kiểm chữ ký</b> bằng khoá của chính tài khoản đó.
+    /// Bỏ bước này thì ai biết đường dẫn cũng bơm tin giả vào hộp thư, chỉ cần đoán một id OA —
+    /// mà id OA không phải bí mật.</para>
+    /// </summary>
+    public async Task<(string TenantId, string AccountId)?> XacMinhDungChungAsync(string rawBody,
+        IHeaderDictionary headers, CancellationToken ct)
+    {
+        if (IdOaCuaSuKien(rawBody) is not { } oaId) return null;
+        var tenant = await _cred.TimTenantAsync(Channel, oaId, ct);
+        if (tenant is null)
+        {
+            _log.LogWarning("[chat/zalo] nhận tin của OA {Oa} nhưng chưa công ty nào nối OA đó", oaId);
+            return null;
+        }
+        return await VerifyAsync(tenant, oaId, rawBody, headers, ct) is { } tk ? (tenant, tk) : null;
+    }
+
     public async Task<string?> VerifyAsync(string tenantId, string? accountIdTuUrl, string rawBody,
         IHeaderDictionary headers, CancellationToken ct)
     {
@@ -99,8 +173,13 @@ public class ZaloChatAdapter : IChatChannelAdapter
         var phan = header.Split('=', 2);
         if (phan.Length != 2) return null;
 
+        // Có accountId trên URL (hoặc do tra theo id OA) thì dùng ĐÚNG tài khoản đó. Dò theo
+        // app_id chỉ còn đúng ở đường cũ, nơi mỗi công ty một ứng dụng riêng; với ứng dụng cấp
+        // nền tảng thì app_id giống nhau ở mọi khách nên dò theo nó là khớp bừa.
         var taiKhoan = await _cred.ListAccountsAsync(tenantId, Channel, ct);
-        var khop = taiKhoan.FirstOrDefault(t => Doc(t.GiaTri)?.AppId == appIdKhaiBao);
+        var khop = accountIdTuUrl is { Length: > 0 }
+            ? taiKhoan.FirstOrDefault(t => t.AccountId == accountIdTuUrl)
+            : taiKhoan.FirstOrDefault(t => Doc(t.GiaTri)?.AppId == appIdKhaiBao);
         if (khop is null)
         {
             _log.LogWarning("[chat/zalo] tenant={T} nhận tin từ app_id {A} chưa khai tài khoản nào", tenantId, appIdKhaiBao);
@@ -350,25 +429,84 @@ public class ZaloChatAdapter : IChatChannelAdapter
     public async Task<string?> DoiMaCapQuyenAsync(string tenantId, string accountId, string ma,
         string redirectUri, CancellationToken ct)
     {
-        var cfg = Doc(await _cred.GetAsync(tenantId, Channel, accountId, ct));
+        // accountId rỗng = luồng MỚI: chưa có tài khoản nào, khoá lấy từ ứng dụng cấp nền tảng và
+        // mã tài khoản sẽ là chính id OA — biết được sau khi hỏi hồ sơ.
+        var moiToanh = string.IsNullOrWhiteSpace(accountId);
+        var cfg = moiToanh
+            ? Doc(new Dictionary<string, string>())
+            : Doc(await _cred.GetAsync(tenantId, Channel, accountId, ct));
         if (cfg is null || !cfg.DuDeXacThuc)
-            return "Tài khoản Zalo OA này chưa khai App ID và App Secret Key";
+            return moiToanh
+                ? "Máy chủ chưa khai ứng dụng Zalo dùng chung (Chat:Zalo)"
+                : "Tài khoản Zalo OA này chưa khai App ID và App Secret Key";
 
-        var kq = await GoiOAuthAsync(cfg, new Dictionary<string, string>
+        var than = new Dictionary<string, string>
         {
             ["app_id"] = cfg.AppId,
             ["grant_type"] = "authorization_code",
             ["code"] = ma,
             ["redirect_uri"] = redirectUri,
-        }, tenantId, accountId, ct);
+        };
+
+        // Luồng CŨ: đã biết tài khoản nào, đổi xong lưu thẳng.
+        if (!moiToanh)
+        {
+            var kqCu = await GoiOAuthAsync(cfg, than, tenantId, accountId, ct);
+            if (kqCu.Loi is not null) return kqCu.Loi;
+            await LuuHoSoOaAsync(tenantId, accountId, kqCu.Token!, ct);
+            return null;
+        }
+
+        // Luồng MỚI: đổi mã TRƯỚC, chưa lưu — chưa biết lưu vào đâu.
+        var kq = await DoiTokenAsync(cfg, than, ct);
         if (kq.Loi is not null) return kq.Loi;
 
-        // Hỏi Zalo vừa nối OA nào. Hỏng ở đây KHÔNG được coi là cấp quyền hỏng — token đã lấy và
-        // lưu xong, thiếu mỗi cái tên hiển thị. Báo lỗi lúc này là bắt người dùng cấp quyền lại
-        // một cách vô ích, mà lần sau cũng chỉ hỏng đúng chỗ đó.
-        await LuuHoSoOaAsync(tenantId, accountId, kq.Token!, ct);
+        // Hỏi Zalo vừa nối OA nào. Ở luồng này KHÔNG được nuốt lỗi như luồng cũ: thiếu id OA thì
+        // không có mã tài khoản để lưu, mà webhook dùng chung cũng tra ngược bằng chính id đó —
+        // lưu bừa một mã ngẫu nhiên là tin của khách không bao giờ tới được công ty này.
+        var hoSo = await HoSoOaAsync(kq.Token!, ct);
+        if (hoSo is null)
+            return "Đã lấy được quyền nhưng Zalo không trả hồ sơ OA — thử kết nối lại";
+
+        await _cred.SaveAsync(tenantId, Channel, hoSo.Value.OaId, new Dictionary<string, string?>
+        {
+            ["oaId"] = hoSo.Value.OaId,
+            ["oaName"] = hoSo.Value.Ten,
+            // Tên gợi nhớ mặc định là tên OA. Người dùng sửa lại được, và chỉ khi họ muốn.
+            ["label"] = hoSo.Value.Ten,
+            ["accessToken"] = kq.AccessToken,
+            ["refreshToken"] = kq.RefreshToken,
+            ["accessTokenExpiresUtc"] = DateTime.UtcNow.AddSeconds(kq.HetHanGiay).ToString("o"),
+        }, ct);
+
+        _log.LogInformation("[chat/zalo] tenant={T} vừa nối OA {Oa} ({Ten})",
+            tenantId, hoSo.Value.OaId, hoSo.Value.Ten);
         return null;
     }
+
+    /// <summary>Hồ sơ OA của access token này. Trả null khi Zalo không cho biết.</summary>
+    private async Task<(string OaId, string? Ten)?> HoSoOaAsync(string accessToken, CancellationToken ct)
+    {
+        try
+        {
+            var http = _http.CreateClient();
+            using var req = new HttpRequestMessage(HttpMethod.Get, $"{ApiBase}/v2.0/oa/getoa");
+            req.Headers.Add("access_token", accessToken);
+            using var res = await http.SendAsync(req, ct);
+            var o = JsonNode.Parse(await res.Content.ReadAsStringAsync(ct))?.AsObject();
+
+            // Zalo trả HTTP 200 kèm error != 0 khi hỏng — không đọc trường đó là tưởng thành công.
+            if (o?["error"]?.GetValue<int>() is not 0) return null;
+            var oaId = o["data"]?["oa_id"]?.ToString();
+            return string.IsNullOrWhiteSpace(oaId) ? null : (oaId!, o["data"]?["name"]?.ToString());
+        }
+        catch (Exception ex)
+        {
+            _log.LogWarning(ex, "[chat/zalo] không lấy được hồ sơ OA");
+            return null;
+        }
+    }
+
 
     /// <summary>Lấy <c>oa_id</c> + tên OA rồi lưu vào cấu hình tài khoản. Nuốt mọi lỗi.</summary>
     private async Task LuuHoSoOaAsync(string tenantId, string accountId, string accessToken,
@@ -435,16 +573,16 @@ public class ZaloChatAdapter : IChatChannelAdapter
             ["refresh_token"] = cfg.RefreshToken!,
         }, tenantId, accountId, ct);
     }
-
     /// <summary>
-    /// Gọi <c>/v4/oa/access_token</c> — dùng chung cho CẢ HAI lượt: đổi <c>code</c> lần đầu và làm
-    /// mới bằng <c>refresh_token</c> về sau. Zalo trả cùng một hình dạng, và cả hai lượt đều phải
-    /// lưu lại refresh token MỚI.
+    /// Gọi <c>/v4/oa/access_token</c> và <b>KHÔNG lưu gì</b> — chỉ trả về những gì Zalo nói.
+    ///
+    /// <para>Tách khỏi phần lưu vì luồng kết nối mới chưa biết lưu vào đâu: mã tài khoản là id OA,
+    /// mà id đó phải hỏi thêm một lượt nữa mới biết.</para>
     ///
     /// <para>Header <c>secret_key</c> là <b>App Secret Key</b>, không phải OA Secret Key.</para>
     /// </summary>
-    private async Task<TokenResult> GoiOAuthAsync(TaiKhoan cfg, Dictionary<string, string> than,
-        string tenantId, string accountId, CancellationToken ct)
+    private async Task<DoiToken> DoiTokenAsync(TaiKhoan cfg, Dictionary<string, string> than,
+        CancellationToken ct)
     {
         try
         {
@@ -458,38 +596,58 @@ public class ZaloChatAdapter : IChatChannelAdapter
             var raw = await res.Content.ReadAsStringAsync(ct);
 
             if (!res.IsSuccessStatusCode)
-                return new(null, (int)res.StatusCode >= 500, $"Làm mới token Zalo hỏng: HTTP {(int)res.StatusCode}");
+                return new(null, null, 0, (int)res.StatusCode >= 500,
+                    $"Zalo trả HTTP {(int)res.StatusCode} khi đổi token");
 
             var o = JsonNode.Parse(raw)?.AsObject();
             var accessToken = o?["access_token"]?.ToString();
             var refreshMoi = o?["refresh_token"]?.ToString();
-            var hetHanGiay = o?["expires_in"]?.ToString();
             if (string.IsNullOrWhiteSpace(accessToken) || string.IsNullOrWhiteSpace(refreshMoi))
             {
-                _log.LogWarning("[chat/zalo] đổi token hỏng, tenant={T} acc={A}: {Raw}", tenantId, accountId, Cat(raw));
-                // Zalo trả 200 kèm error trong thân khi mã sai/hết hạn hoặc refresh token bị thu
-                // hồi (đổi mật khẩu OA, rút quyền…) — thử lại vô ích, phải cấp quyền lại từ đầu.
+                _log.LogWarning("[chat/zalo] đổi token hỏng: {Raw}", Cat(raw));
+                // Zalo trả 200 kèm error trong thân khi mã sai/hết hạn hoặc quyền bị thu hồi —
+                // thử lại vô ích, phải cấp quyền lại từ đầu.
                 var loi = o?["error_name"]?.ToString() ?? o?["message"]?.ToString();
-                return new(null, false, string.IsNullOrWhiteSpace(loi)
+                return new(null, null, 0, false, string.IsNullOrWhiteSpace(loi)
                     ? "Zalo không cấp token — mã cấp quyền đã hết hạn hoặc quyền bị thu hồi, hãy cấp quyền lại"
                     : $"Zalo từ chối: {Cat(loi!)}");
             }
 
-            // Zalo LUÔN trả refresh token MỚI (token rotation) — phải lưu cái mới và bỏ cái cũ,
-            // dùng lại cái cũ ở lần sau sẽ bị từ chối.
-            var giay = int.TryParse(hetHanGiay, out var s) ? s : 3600;
-            await _cred.SaveAsync(tenantId, Channel, accountId, new Dictionary<string, string?>
-            {
-                ["accessToken"] = accessToken,
-                ["refreshToken"] = refreshMoi,
-                ["accessTokenExpiresUtc"] = DateTime.UtcNow.AddSeconds(giay).ToString("o"),
-            }, ct);
-
-            return new(accessToken, false, null);
+            var giay = int.TryParse(o?["expires_in"]?.ToString(), out var gi) ? gi : 3600;
+            return new(accessToken, refreshMoi, giay, false, null);
         }
         catch (Exception ex)
         {
-            return new(null, true, ex.Message);
+            return new(null, null, 0, true, ex.Message);
         }
+    }
+
+    /// <param name="HetHanGiay">Access token sống được bao lâu, theo lời Zalo.</param>
+    private record DoiToken(string? AccessToken, string? RefreshToken, int HetHanGiay,
+        bool ThuLai, string? Loi)
+    {
+        public string? Token => AccessToken;
+    }
+
+    /// <summary>
+    /// Đổi token rồi LƯU cho một tài khoản đã biết. Dùng chung cho cả hai lượt: đổi <c>code</c> lần
+    /// đầu (đường cũ) và làm mới bằng <c>refresh_token</c> về sau.
+    /// </summary>
+    private async Task<TokenResult> GoiOAuthAsync(TaiKhoan cfg, Dictionary<string, string> than,
+        string tenantId, string accountId, CancellationToken ct)
+    {
+        var kq = await DoiTokenAsync(cfg, than, ct);
+        if (kq.Loi is not null) return new(null, kq.ThuLai, kq.Loi);
+
+        // Zalo LUÔN trả refresh token MỚI (token rotation) — phải lưu cái mới và bỏ cái cũ, dùng
+        // lại cái cũ ở lần sau sẽ bị từ chối.
+        await _cred.SaveAsync(tenantId, Channel, accountId, new Dictionary<string, string?>
+        {
+            ["accessToken"] = kq.AccessToken,
+            ["refreshToken"] = kq.RefreshToken,
+            ["accessTokenExpiresUtc"] = DateTime.UtcNow.AddSeconds(kq.HetHanGiay).ToString("o"),
+        }, ct);
+
+        return new(kq.AccessToken, false, null);
     }
 }

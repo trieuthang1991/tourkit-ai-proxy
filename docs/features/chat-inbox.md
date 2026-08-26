@@ -27,6 +27,32 @@ Viết riêng từng kênh thì phần chung (đọc thân thô, kiểm chữ k�
 lần và sớm muộn lệch nhau. Messenger cần thêm `GET` cùng đường dẫn cho bước Meta xác minh
 (`hub.challenge`) — thiếu là không đăng ký được webhook dù phần nhận tin đã đúng.
 
+**Zalo dùng MỘT ứng dụng của TourKit cho mọi khách hàng** (`Chat:Zalo` trong cấu hình). Khách chỉ
+bấm **"Kết nối Zalo OA"**, đăng nhập Zalo, chọn OA của mình, bấm đồng ý. Không App ID, không khoá
+bí mật, không callback, không webhook.
+
+⚠️ **Vì sao phải đổi:** mô hình cũ bắt MỖI công ty tự tạo một ứng dụng trên `developers.zalo.me` —
+tám bước kỹ thuật trước khi nhắn được tin đầu tiên. Không công ty du lịch nào làm nổi, và không
+sửa được bằng cách viết hướng dẫn hay hơn. (ChatbotX cũng đặt khoá ứng dụng ở cấp nền tảng:
+`apps/builder/src/features/platform-credentials/zalo`.)
+
+⚠️ **Định tuyến webhook đổi hẳn cách làm việc.** Ứng dụng dùng chung thì `app_id` **giống hệt nhau**
+ở mọi khách, nên nó không còn phân biệt được ai với ai, và URL webhook cũng không mang tên công ty
+nữa (`/api/v1/chat/webhook/zalo`, khai một lần trong ứng dụng của TourKit). Khoá định tuyến duy
+nhất còn lại là **id OA** — mà id đó chính là `accountId` của tài khoản, nên tra ngược ra công ty
+chỉ mất một phép so trên cột `Channel`.
+
+⚠️ **Zalo không đặt id OA vào một chỗ cố định** — đây là cái bẫy: sự kiện gắn nhãn có `oa_id` riêng;
+tin khách gửi và "đã xem" thì OA là **người nhận**; tiếng vọng OA gửi thì OA là **người gửi**. Lấy
+nhầm đầu là tra ra id của khách, không khớp công ty nào, tin rơi vào hư không mà chỉ còn một dòng
+log. Có test cho cả bốn dạng.
+
+⚠️ **Tra được công ty KHÔNG có nghĩa là tin thật.** Id OA không phải bí mật, ai biết đường dẫn cũng
+đoán được — nên sau khi tra vẫn phải kiểm chữ ký bằng khoá của chính tài khoản đó.
+
+⚠️ **Đường cũ mang tên công ty vẫn sống** (`/webhook/zalo/{tenantId}`) cho các OA đã khai theo ứng
+dụng riêng. Bỏ đi là webhook đang chạy của họ chết ngay lúc deploy. Khoá lùi theo TỪNG Ô: tài khoản
+nào có khoá riêng thì dùng khoá riêng, thiếu ô nào mới lấy từ cấu hình nền tảng.
 ⚠️ **Zalo cấp HAI khoá bí mật khác nhau, đừng dùng lẫn.** `secretKey` = **App Secret Key** (Ứng
 dụng → Cài đặt) dùng ở header khi đổi token, tức đường **GỬI**. `oaSecretKey` = **OA Secret Key**
 (Sản phẩm → Official Account → Cài đặt chung) dùng kiểm chữ ký webhook, tức đường **NHẬN**. Một ô

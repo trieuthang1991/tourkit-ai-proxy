@@ -24,18 +24,10 @@ Những cập nhật gần đây của TRAV-AI, viết cho người dùng. Mới
   lại một hội thoại bạn vừa đọc và bỏ qua một hội thoại chưa đọc. Nay cuộn tới đâu chắc tới đó, và
   có tin mới cũng không bị cuốn ngược về đầu danh sách giữa lúc bạn đang đọc.
 
-### 🔧 Đã khắc phục
-- **Nút "Nhận việc" giờ mới thật sự nhận việc.** Trước đây bấm nút này không gán hội thoại cho
-  bạn — thậm chí còn gỡ người đang phụ trách ra. Nút trông như chạy nên không ai để ý.
-- **Nối Zalo OA chỉ còn một nút bấm.** Trước đây muốn nối OA bạn phải tự đi lấy "Refresh Token" —
-  mà Zalo không cho chép nó ở đâu cả, phải dán một đường dẫn lạ vào trình duyệt rồi copy một đoạn
-  mã trên thanh địa chỉ. Nay bạn chỉ cần khai **App ID** và **App Secret Key**, bấm **Lưu**, rồi
-  bấm **"Cấp quyền OA"**: cửa sổ Zalo hiện ra, bạn bấm đồng ý, xong. Hệ thống tự lấy và **tự làm
-  mới về sau**, không phải làm lại.
-- **Nói rõ Zalo có hai khoá bí mật khác nhau.** Form khai kênh nay có hai ô riêng: **App Secret
-  Key** (để gửi tin) và **OA Secret Key** (để nhận tin). Trước đây chỉ có một ô nên tuỳ bạn dán
-  khoá nào mà một trong hai chiều lặng lẽ không chạy — thường gặp nhất là tin khách không vào hộp
-  thư mà không báo lỗi gì. Bỏ trống ô mới thì vẫn chạy như cũ.
+- **Nối Zalo OA chỉ còn một nút bấm.** Trước đây mỗi công ty phải tự vào trang dành cho lập trình
+  viên của Zalo, tạo một ứng dụng, tìm hai loại khoá bí mật rồi khai địa chỉ nhận tin — tám bước
+  kỹ thuật trước khi nhắn được tin đầu tiên. Nay bạn chỉ bấm **"Kết nối Zalo OA"**, đăng nhập Zalo,
+  chọn OA của công ty và bấm đồng ý. Không phải nhập mã nào cả.
 - **Gắn nhãn và ghi chú cho khách.** Trong hồ sơ bên phải có thêm mục **"Nhãn"** và **"Ghi chú
   nội bộ"**. Nhãn theo khách chứ không theo cuộc trò chuyện, nên khách nhắn lại sau vài tháng bạn
   vẫn thấy nhãn cũ. Ghi chú **chỉ nhân viên đọc được, khách không bao giờ thấy**.
@@ -49,6 +41,13 @@ Những cập nhật gần đây của TRAV-AI, viết cho người dùng. Mới
   thao tác"**: ai nhận việc, ai chuyển cho ai, ai đóng hội thoại, ai tạm dừng trợ lý — kèm thời
   điểm. Trước đây những việc này không để lại dấu vết nào, nên khi khách thắc mắc thì không tra
   được. Nội dung tin nhắn **không** bị chép lại vào đây, tin vẫn nằm nguyên ở khung trò chuyện.
+
+### 🔧 Đã khắc phục
+- **Nút "Nhận việc" giờ mới thật sự nhận việc.** Trước đây bấm nút này không gán hội thoại cho
+  bạn — thậm chí còn gỡ người đang phụ trách ra. Nút trông như chạy nên không ai để ý.
+- **Công ty nào đã tự khai ứng dụng Zalo riêng vẫn dùng được như cũ**, và form khai tay nay tách
+  rõ hai khoá bí mật mà Zalo cấp: một khoá để gửi tin, một khoá để nhận tin. Trước đây chỉ có một
+  ô nên tuỳ bạn dán khoá nào mà một trong hai chiều lặng lẽ không chạy.
 - **Dấu "chưa đọc" nay là của riêng bạn.** Trước đây đồng nghiệp mở một hội thoại là dấu chưa
   đọc biến mất với **tất cả mọi người** — bạn không hề mở mà vẫn mất dấu, nên tin của khách trôi
   qua mà không ai để ý. Nay mỗi người có dấu chưa đọc riêng. Các hội thoại cũ giữ nguyên trạng

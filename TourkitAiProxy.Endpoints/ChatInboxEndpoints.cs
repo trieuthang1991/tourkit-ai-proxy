@@ -119,6 +119,44 @@ public static class ChatInboxEndpoints
             return Results.Ok();
         }
 
+        // Đường DÙNG CHUNG cho Zalo: KHÔNG mang tên công ty. Khai một lần trong ứng dụng Zalo của
+        // TourKit, mọi khách hàng dùng chung — khách không phải chạm vào cổng developer.
+        //
+        // Không mang tenant thì lấy đâu ra? Từ id OA trong thân tin, tra ngược ra công ty đã nối
+        // OA đó. Vẫn kiểm chữ ký sau khi tra: id OA không phải bí mật, tra được không có nghĩa là
+        // tin thật.
+        routes.MapPost("/api/v1/chat/webhook/zalo", async (HttpContext ctx, ChatInboundService svc,
+            ChatRepository repo, ILoggerFactory lf, CancellationToken ct) =>
+        {
+            var log = lf.CreateLogger("chat.webhook");
+            if (svc.Adapter(ChatChannel.Zalo) is not Services.Chat.Channels.ZaloChatAdapter zalo)
+                return Results.NotFound();
+
+            ctx.Request.EnableBuffering();
+            using var reader = new StreamReader(ctx.Request.Body, leaveOpen: true);
+            var raw = await reader.ReadToEndAsync(ct);
+            ctx.Request.Body.Position = 0;
+
+            var ai = await zalo.XacMinhDungChungAsync(raw, ctx.Request.Headers, ct);
+            if (ai is null)
+            {
+                log.LogWarning("[chat/webhook] zalo dùng chung: chữ ký sai hoặc OA chưa ai nối");
+                return Results.Unauthorized();
+            }
+
+            var sk = zalo.Parse(raw);
+            if (sk.Count == 0) return Results.Ok();
+
+            var id = await repo.EnqueueInboundAsync(ai.Value.TenantId, ChatChannel.Zalo,
+                ai.Value.AccountId, sk[0].ExternalMsgId, raw, ct);
+            if (id is null)
+                log.LogInformation("[chat/webhook] bỏ qua bản gửi lại, zalo tenant={T} sk={S}",
+                    ai.Value.TenantId, sk[0].ExternalMsgId);
+            return Results.Ok();
+        });
+
+        // Đường CŨ, mang tên công ty: giữ nguyên cho các OA đã khai theo ứng dụng riêng. Bỏ đi là
+        // webhook đang chạy của họ chết ngay lúc deploy.
         routes.MapPost("/api/v1/chat/webhook/{kenh}/{tenantId}", (
             string kenh, string tenantId, HttpContext ctx, ChatInboundService svc, ChatRepository repo,
             ILoggerFactory lf, CancellationToken ct) => XuLy(kenh, tenantId, null, ctx, svc, repo, lf, ct));
@@ -669,6 +707,35 @@ public static class ChatInboxEndpoints
         // quyền → quản trị viên OA bấm đồng ý → Zalo đá về callback kèm `code` sống rất ngắn →
         // đổi `code` lấy token. Làm tay thì phải dán URL, chép `code` trên thanh địa chỉ rồi gọi
         // curl; làm ở đây thì người dùng bấm MỘT nút.
+        // Kết nối OA mà KHÔNG cần khai gì trước: dùng ứng dụng Zalo cấp nền tảng, nên chỉ cần biết
+        // đây là công ty nào. Tài khoản được TẠO Ở BƯỚC CALLBACK, lấy chính id OA làm mã tài khoản
+        // — nhờ vậy webhook dùng chung tra ngược ra công ty chỉ bằng một phép so.
+        g.MapPost("/channels/{channel:int}/connect-url", async (int channel, HttpContext ctx,
+            TkSessionStore sessions,
+            IEnumerable<Services.Chat.Channels.IChatChannelAdapter> adapters,
+            Services.Chat.Channels.ZaloOAuthStates moc, IConfiguration cfg, CancellationToken ct) =>
+        {
+            var a = SessionAuth.Read(ctx, sessions);
+            if (a == null) return SessionAuth.Unauthorized();
+            if (!await SessionAuth.CanConfigSystemAsync(a.SessionId, sessions, ct))
+                return SessionAuth.ForbiddenConfigSystem();
+            if ((ChatChannel)channel != ChatChannel.Zalo)
+                return Results.BadRequest(new { error = "Chỉ Zalo OA mới có bước kết nối này" });
+
+            var zalo = adapters.OfType<Services.Chat.Channels.ZaloChatAdapter>().FirstOrDefault();
+            if (zalo?.CoUngDungNenTang != true)
+                return Results.BadRequest(new { error = "Máy chủ chưa khai ứng dụng Zalo dùng chung (Chat:Zalo)" });
+
+            var quayVe = GocCongKhai(ctx, cfg) + DuongCallbackZalo;
+            // accountId để TRỐNG: chưa biết OA nào cho tới lúc Zalo trả hồ sơ về.
+            var state = moc.Tao(a.TenantId, "", quayVe);
+            return Results.Json(new
+            {
+                url = Services.Chat.Channels.ZaloChatAdapter.DuongCapQuyen(zalo.AppIdNenTang!, quayVe, state),
+                redirectUri = quayVe,
+            }, Web);
+        });
+
         g.MapPost("/channels/{channel:int}/accounts/{accountId}/oauth-url", async (int channel,
             string accountId, HttpContext ctx, TkSessionStore sessions, ChannelCredentialStore cred,
             IEnumerable<Services.Chat.Channels.IChatChannelAdapter> adapters,
@@ -730,7 +797,8 @@ public static class ChatInboxEndpoints
         // MỘT công ty nối được NHIỀU tài khoản mỗi kênh (nhiều Trang Facebook cho các chi nhánh,
         // nhiều OA Zalo, nhiều bot Telegram cho từng đội sale).
         g.MapGet("/channels", async (HttpContext ctx, TkSessionStore sessions,
-            ChannelCredentialStore cred, IConfiguration cfg, CancellationToken ct) =>
+            ChannelCredentialStore cred, IConfiguration cfg,
+            IEnumerable<Services.Chat.Channels.IChatChannelAdapter> adapters, CancellationToken ct) =>
         {
             var a = SessionAuth.Read(ctx, sessions);
             if (a == null) return SessionAuth.Unauthorized();
@@ -738,14 +806,24 @@ public static class ChatInboxEndpoints
                 return SessionAuth.ForbiddenConfigSystem();
 
             var goc = GocCongKhai(ctx, cfg);
+            // Máy chủ đã khai ứng dụng Zalo dùng chung chưa. Có thì giao diện giấu hết ô nhập và
+            // chỉ hiện một nút — khách không phải chạm vào cổng developer của Zalo.
+            var zaloNhanh = adapters.OfType<Services.Chat.Channels.ZaloChatAdapter>()
+                                    .FirstOrDefault()?.CoUngDungNenTang == true;
             var ra = new List<object>();
             foreach (var (kenh, ten, oNhap, moiTaiKhoanMotUrl) in KhaiBao)
             {
                 var dsach = await cred.ListAccountsAsync(a.TenantId, kenh, ct);
-                var duong = $"{goc}/api/v1/chat/webhook/{kenh.ToString().ToLowerInvariant()}/{a.TenantId}";
+                // Ứng dụng Zalo dùng chung thì URL webhook cũng dùng chung — khai MỘT lần trong
+                // ứng dụng của TourKit, khách không phải dán gì. Vẫn trả về để quản trị đối chiếu.
+                var duong = kenh == ChatChannel.Zalo && zaloNhanh
+                    ? $"{goc}/api/v1/chat/webhook/zalo"
+                    : $"{goc}/api/v1/chat/webhook/{kenh.ToString().ToLowerInvariant()}/{a.TenantId}";
                 ra.Add(new
                 {
                     channel = (short)kenh, name = ten, fields = oNhap,
+                    // Kênh này nối được bằng MỘT nút hay phải khai tay từng ô.
+                    noiNhanh = kenh == ChatChannel.Zalo && zaloNhanh,
                     // Telegram: mỗi bot một URL riêng (thân tin không nói bot nào) → URL chung để
                     // trống, giao diện hiện URL riêng ở từng tài khoản. Zalo/Messenger dùng chung.
                     webhookUrl = moiTaiKhoanMotUrl ? null : duong,

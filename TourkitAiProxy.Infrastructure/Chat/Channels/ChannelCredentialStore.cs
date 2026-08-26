@@ -64,6 +64,42 @@ public class ChannelCredentialStore
         }
     }
 
+    /// <summary>
+    /// Tài khoản này thuộc công ty nào. Dùng cho webhook DÙNG CHUNG: khi TourKit sở hữu một ứng
+    /// dụng Zalo cho mọi khách hàng thì <c>app_id</c> giống hệt nhau ở mọi công ty, nên không còn
+    /// phân biệt được bằng nó nữa — phải tra ngược từ id của OA.
+    ///
+    /// <para>Rẻ vì <c>accountId</c> của luồng kết nối mới CHÍNH LÀ id OA, nên đây là một phép so
+    /// bằng trên cột <c>Channel</c>, không phải quét rồi giải mã từng dòng.</para>
+    ///
+    /// <para>Hai công ty cùng nối một OA là chuyện bất thường nhưng có thể xảy ra (một doanh
+    /// nghiệp mở hai tenant). Lấy dòng đầu và <b>ghi cảnh báo</b> — im lặng thì tin của khách rơi
+    /// vào công ty nào là hên xui, mà không ai biết để mà sửa.</para>
+    /// </summary>
+    public async Task<string?> TimTenantAsync(ChatChannel kenh, string accountId,
+        CancellationToken ct = default)
+    {
+        if (string.IsNullOrWhiteSpace(accountId)) return null;
+        try
+        {
+            await using var c = await _db.OpenAsync(ct);
+            var ds = (await c.QueryAsync<string>(
+                "SELECT TenantId FROM dbo.TenantChannelSettings WHERE Channel=@c",
+                new { c = KeyOf(kenh) + ":" + accountId })).ToList();
+
+            if (ds.Count == 0) return null;
+            if (ds.Count > 1)
+                _log.LogWarning("[chat/cred] tài khoản {A} kênh {K} khai ở {N} công ty ({DS}) — lấy cái đầu",
+                    accountId, kenh, ds.Count, string.Join(", ", ds));
+            return ds[0];
+        }
+        catch (Exception ex)
+        {
+            _log.LogWarning(ex, "[chat/cred] tra công ty theo tài khoản {A} kênh {K} hỏng", accountId, kenh);
+            return null;
+        }
+    }
+
     /// Đọc khoá đã giải mã của MỘT tài khoản. Chưa khai → null.
     public async Task<IReadOnlyDictionary<string, string>?> GetAsync(string tenantId, ChatChannel kenh,
         string accountId, CancellationToken ct = default)
