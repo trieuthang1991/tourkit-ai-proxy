@@ -29,7 +29,7 @@ làm xong từ lâu — ô trống chỉ có nghĩa là chưa ai tick).
 | **Đợt 6** — hồ sơ khách và CRM | ✅ xong | 6.1 nối/gỡ khách CRM (nối tay, tìm bằng phiên nhân viên) · 6.2 nhãn + ghi chú, chuẩn hoá dùng chung `ChatRules.ChuanHoaSlug` · **kiểm thật trên staging cả hai** · 892 test xanh |
 | **Đợt 7-10** | ⛔ chưa lên bước được | lý do ghi rõ ở cuối file — thiếu tài liệu kênh, thiếu tài khoản doanh nghiệp, và một quyết định về `Services/Widget/` chưa chốt |
 
-**Nhánh đang làm:** `feat/chat-dot4-realtime` (tách từ `dev`, đã có 9 commit — **hết đợt 4, 5, 6**). **Chưa merge về `dev`.**
+**Nhánh đang làm:** `feat/chat-dot4-realtime` (tách từ `dev`, đã có 11 commit — **hết đợt 4, 5, 6**). **Chưa merge về `dev`.**
 
 **Ba cái bẫy vấp phải khi làm 4.1 — người làm tiếp đọc trước kẻo mất thì giờ:**
 
