@@ -176,3 +176,12 @@ public class ChatAuditRow
     public string? ChiTiet { get; set; }
     public DateTime CreatedUtc { get; set; }
 }
+
+/// <summary>Ghi chú nội bộ về khách. <b>Khách không bao giờ thấy</b> — chỉ nhân viên đọc.</summary>
+public class ChatNote
+{
+    public long Id { get; set; }
+    public string Username { get; set; } = "";
+    public string NoiDung { get; set; } = "";
+    public DateTime CreatedUtc { get; set; }
+}

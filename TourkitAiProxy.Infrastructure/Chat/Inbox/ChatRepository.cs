@@ -141,6 +141,77 @@ public class ChatRepository
             """, new { tenant, kenh, externalId, crmCustomerId });
     }
 
+    // ── Nhãn và ghi chú của khách ───────────────────────────────────────────
+
+    /// <summary>
+    /// Nhãn của một khách. Theo KHÁCH chứ không theo hội thoại — khách nhắn lại sau ba tháng vẫn
+    /// còn nhãn cũ; gắn theo hội thoại thì mỗi lần mở hội thoại mới là mất hết.
+    /// </summary>
+    public async Task<List<string>> ListTagsAsync(string tenant, short kenh, string externalId,
+        CancellationToken ct = default)
+    {
+        await using var c = await _db.OpenAsync(ct);
+        return (await c.QueryAsync<string>("""
+            SELECT tag FROM chat_contact_tags
+            WHERE tenant_id = @tenant AND channel = @kenh AND external_id = @externalId
+            ORDER BY tag
+            """, new { tenant, kenh, externalId })).ToList();
+    }
+
+    /// <summary><paramref name="tag"/> phải ĐÃ chuẩn hoá (xem <c>ChatRules.ChuanHoaSlug</c>).</summary>
+    public async Task AddTagAsync(string tenant, short kenh, string externalId, string tag,
+        CancellationToken ct = default)
+    {
+        await using var c = await _db.OpenAsync(ct);
+        await c.ExecuteAsync("""
+            INSERT INTO chat_contact_tags (tenant_id, channel, external_id, tag)
+            VALUES (@tenant, @kenh, @externalId, @tag)
+            ON CONFLICT (tenant_id, channel, external_id, tag) DO NOTHING
+            """, new { tenant, kenh, externalId, tag });
+    }
+
+    public async Task<int> RemoveTagAsync(string tenant, short kenh, string externalId, string tag,
+        CancellationToken ct = default)
+    {
+        await using var c = await _db.OpenAsync(ct);
+        return await c.ExecuteAsync("""
+            DELETE FROM chat_contact_tags
+            WHERE tenant_id = @tenant AND channel = @kenh AND external_id = @externalId AND tag = @tag
+            """, new { tenant, kenh, externalId, tag });
+    }
+
+    public async Task<List<ChatNote>> ListNotesAsync(string tenant, short kenh, string externalId,
+        int limit = 50, CancellationToken ct = default)
+    {
+        await using var c = await _db.OpenAsync(ct);
+        return (await c.QueryAsync<ChatNote>("""
+            SELECT id, username, noi_dung, created_utc FROM chat_contact_notes
+            WHERE tenant_id = @tenant AND channel = @kenh AND external_id = @externalId
+            ORDER BY created_utc DESC, id DESC
+            LIMIT @limit
+            """, new { tenant, kenh, externalId, limit = Math.Clamp(limit, 1, 200) })).ToList();
+    }
+
+    public async Task<long> AddNoteAsync(string tenant, short kenh, string externalId,
+        string username, string noiDung, CancellationToken ct = default)
+    {
+        await using var c = await _db.OpenAsync(ct);
+        return await c.ExecuteScalarAsync<long>("""
+            INSERT INTO chat_contact_notes (tenant_id, channel, external_id, username, noi_dung)
+            VALUES (@tenant, @kenh, @externalId, @username, @noiDung)
+            RETURNING id
+            """, new { tenant, kenh, externalId, username, noiDung });
+    }
+
+    /// <summary>Xoá ghi chú. Kẹp tenant để id đoán được cũng không xoá được của công ty khác.</summary>
+    public async Task<int> RemoveNoteAsync(string tenant, long id, CancellationToken ct = default)
+    {
+        await using var c = await _db.OpenAsync(ct);
+        return await c.ExecuteAsync(
+            "DELETE FROM chat_contact_notes WHERE id = @id AND tenant_id = @tenant",
+            new { id, tenant });
+    }
+
     /// <summary>Hồ sơ khách của một hội thoại. Panel bên phải đọc cái này.</summary>
     public async Task<ChatContact?> GetContactAsync(string tenant, short kenh, string externalId,
         CancellationToken ct = default)

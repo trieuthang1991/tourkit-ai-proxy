@@ -189,6 +189,18 @@ khách của công ty. Có test canh.
 
 ⚠️ **Gỡ nối phải làm được.** Nối nhầm là bot đọc lịch sử mua của người khác rồi nói với khách này;
 không có đường lùi thì chỉ còn cách sửa tay CSDL. Cả nối lẫn gỡ đều vào nhật ký thao tác.
+**Nhãn và ghi chú gắn theo KHÁCH, không theo hội thoại** (`chat_contact_tags`,
+`chat_contact_notes`). Khách nhắn lại sau ba tháng vẫn còn nhãn cũ; gắn theo hội thoại thì mỗi lần
+mở hội thoại mới là mất hết — đúng lúc cần nhất. Ghi chú là **nội bộ**: khách không bao giờ thấy,
+giao diện nói thẳng câu đó, vì không nói thì không ai dám ghi thật.
+
+⚠️ **Nhãn dùng CHUNG hàm chuẩn hoá với lệnh gọi mẫu trả lời nhanh** —
+[`ChatRules.ChuanHoaSlug`](../../TourkitAiProxy.Domain/Chat/ChatRules.cs), hàm thuần, có test. Đây là đúng cùng một
+vấn đề: người Việt gõ nhanh sẽ không bật bộ gõ để ra dấu. Viết lại lần hai là hai chỗ lệch nhau —
+`khach-vip` bên này và `khach vip` bên kia — rồi lọc theo nhãn ra rỗng mà không ai hiểu tại sao.
+
+⚠️ **Chuẩn hoá cả lúc XOÁ nhãn.** Nhãn nằm trên đường dẫn nên trình duyệt có thể gửi bản còn dấu,
+mà trong CSDL chỉ có bản đã chuẩn hoá — không chuẩn hoá là xoá trượt, nút bấm không có tác dụng gì.
 **Mẫu trả lời nhanh** (`chat_quick_replies` +
 [`ChatQuickReplyRepository`](../../TourkitAiProxy.Infrastructure/Chat/Inbox/ChatQuickReplyRepository.cs)): gõ `/` ở **ĐẦU** ô
 soạn ra danh sách. Lệnh gọi **bỏ dấu** khi lưu — nhân viên đang gõ nhanh cho khách sẽ gõ `/gia` chứ

@@ -264,5 +264,33 @@ public class ChatDb
     );
     CREATE INDEX IF NOT EXISTS ix_audit_conv
       ON chat_audit (tenant_id, conversation_id, created_utc DESC);
+
+    -- Nhãn theo KHÁCH (không theo hội thoại): khách nhắn lại sau ba tháng vẫn còn nhãn cũ,
+    -- còn gắn theo hội thoại thì mỗi lần mở hội thoại mới là mất hết.
+    --
+    -- tag đã CHUẨN HOÁ (bỏ dấu, gạch nối) trước khi ghi — xem ChatRules.ChuanHoaSlug. Ghi thô
+    -- thì "Khách VIP" và "khach vip" thành hai nhãn khác nhau, lọc ra rỗng mà không ai hiểu.
+    CREATE TABLE IF NOT EXISTS chat_contact_tags (
+      tenant_id   text NOT NULL,
+      channel     smallint NOT NULL,
+      external_id text NOT NULL,
+      tag         text NOT NULL,
+      created_utc timestamptz NOT NULL DEFAULT now(),
+      PRIMARY KEY (tenant_id, channel, external_id, tag)
+    );
+
+    -- Ghi chú nội bộ về khách. KHÁCH KHÔNG BAO GIỜ THẤY — chỉ nhân viên đọc, nên đây là chỗ
+    -- ghi "khách khó tính, đừng gọi trước 9h" mà không sợ lộ.
+    CREATE TABLE IF NOT EXISTS chat_contact_notes (
+      id          bigserial PRIMARY KEY,
+      tenant_id   text NOT NULL,
+      channel     smallint NOT NULL,
+      external_id text NOT NULL,
+      username    text NOT NULL,
+      noi_dung    text NOT NULL,
+      created_utc timestamptz NOT NULL DEFAULT now()
+    );
+    CREATE INDEX IF NOT EXISTS ix_note_contact
+      ON chat_contact_notes (tenant_id, channel, external_id, created_utc DESC);
     """;
 }

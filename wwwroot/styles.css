@@ -9207,6 +9207,29 @@ n
    .ci-hs-dong thường (nhãn trái, giá trị phải) vì câu nhật ký dài hơn một ô giá trị. */
 .ci-hs-dong.nk { display: block; padding: 4px 0; line-height: 1.45; }
 .ci-hs-dong.nk > span { display: block; font-size: 12px; color: var(--text-2); }
+/* Nhãn khách. Nút bỏ nhãn nằm TRONG chip chứ không phải một nút riêng bên cạnh: cột hồ sơ hẹp,
+   mỗi nhãn thêm một nút rời là hết chỗ sau ba nhãn. */
+.ci-hs-nhan { display: flex; flex-wrap: wrap; gap: 6px; }
+.ci-nhan {
+  display: inline-flex; align-items: center; gap: 4px; padding: 2px 6px 2px 8px;
+  border-radius: 999px; border: 1px solid var(--border); background: var(--bg);
+  font-size: 12px; color: var(--text-2);
+}
+.ci-nhan > button {
+  display: inline-flex; padding: 0; border: 0; background: none; cursor: pointer;
+  color: var(--text-3); line-height: 0;
+}
+.ci-nhan > button:hover { color: var(--danger); }
+.ci-hs-them { display: flex; gap: 6px; margin-top: 8px; }
+.ci-hs-them.doc { flex-direction: column; align-items: flex-start; }
+.ci-hs-them input, .ci-hs-them textarea {
+  flex: 1; width: 100%; padding: 6px 10px; border-radius: 8px;
+  border: 1px solid var(--border); background: var(--surface); color: var(--text);
+  font-family: inherit; font-size: 13px; resize: vertical;
+}
+.ci-hs-them input { height: 32px; padding: 0 10px; }
+.ci-hs-them input:focus, .ci-hs-them textarea:focus { outline: none; border-color: var(--primary); }
+.ci-hs-goiy { margin-top: 6px; font-size: 12px; color: var(--text-3); }
 /* Nối khách CRM trong panel hồ sơ. Kết quả tìm là NÚT chứ không phải div bấm được: panel này
    nhân viên trực chat mở cả ngày, phải dùng được bằng bàn phím. */
 .ci-hs-crm-nut { display: flex; gap: 6px; margin-top: 8px; }

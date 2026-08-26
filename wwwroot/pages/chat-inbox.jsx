@@ -264,6 +264,109 @@
   // Nối khách chat với khách CRM — NỐI TAY, không đoán tự động. Ghép theo tên sai thường xuyên
   // (trùng tên là chuyện bình thường ở khách du lịch), còn Zalo/Messenger thì không cho biết số
   // điện thoại trừ khi khách tự nhắn. Nối tay đúng 100% và dùng được ngay.
+  // Nhãn và ghi chú gắn theo KHÁCH, không theo hội thoại: khách nhắn lại sau ba tháng vẫn còn
+  // nhãn cũ. Gắn theo hội thoại thì mỗi lần mở hội thoại mới là mất hết — đúng lúc cần nhất.
+  function NhanVaGhiChu({ chiTiet, pushToast }) {
+    const id = chiTiet?.conversation?.id;
+    const [nhan, setNhan] = useState(null);
+    const [ghiChu, setGhiChu] = useState(null);
+    const [nhanMoi, setNhanMoi] = useState('');
+    const [ghiChuMoi, setGhiChuMoi] = useState('');
+    const [dangLam, setDangLam] = useState(false);
+
+    const tai = useCallback(async () => {
+      if (!id) return;
+      const [a, b] = await Promise.all([
+        authedFetch('/api/v1/chat/conversations/' + id + '/tags').then(r => r.ok ? r.json() : { items: [] }).catch(() => ({ items: [] })),
+        authedFetch('/api/v1/chat/conversations/' + id + '/notes').then(r => r.ok ? r.json() : { items: [] }).catch(() => ({ items: [] })),
+      ]);
+      setNhan(a.items || []);
+      setGhiChu(b.items || []);
+    }, [id]);
+
+    useEffect(() => { setNhan(null); setGhiChu(null); tai(); }, [tai]);
+
+    async function themNhan(e) {
+      e.preventDefault();
+      const t = nhanMoi.trim();
+      if (!t) return;
+      setDangLam(true);
+      try {
+        const r = await authedFetch('/api/v1/chat/conversations/' + id + '/tags', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ tag: t }),
+        });
+        if (!r.ok) { pushToast('Nhãn không hợp lệ', 'error'); return; }
+        setNhanMoi(''); await tai();
+      } finally { setDangLam(false); }
+    }
+
+    async function xoaNhan(t) {
+      await authedFetch('/api/v1/chat/conversations/' + id + '/tags/' + encodeURIComponent(t),
+        { method: 'DELETE' });
+      await tai();
+    }
+
+    async function themGhiChu(e) {
+      e.preventDefault();
+      const t = ghiChuMoi.trim();
+      if (!t) return;
+      setDangLam(true);
+      try {
+        const r = await authedFetch('/api/v1/chat/conversations/' + id + '/notes', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ noiDung: t }),
+        });
+        if (!r.ok) { pushToast('Không lưu được ghi chú', 'error'); return; }
+        setGhiChuMoi(''); await tai();
+      } finally { setDangLam(false); }
+    }
+
+    return (
+      <>
+        <div className="ci-hs-muc">
+          <h4>Nhãn</h4>
+          <div className="ci-hs-nhan">
+            {(nhan || []).map(t => (
+              <span key={t} className="ci-nhan">
+                {t}
+                <button onClick={() => xoaNhan(t)} title={'Bỏ nhãn ' + t} aria-label={'Bỏ nhãn ' + t}>
+                  <window.Icon name="close" size={11} />
+                </button>
+              </span>
+            ))}
+            {nhan !== null && nhan.length === 0 && <span className="ci-hs-trong">Chưa có nhãn nào.</span>}
+          </div>
+          <form className="ci-hs-them" onSubmit={themNhan}>
+            <input value={nhanMoi} onChange={e => setNhanMoi(e.target.value)}
+                   placeholder="Thêm nhãn, vd: khách VIP" />
+            <button className="ci-nut nho" type="submit" disabled={dangLam || !nhanMoi.trim()}>Thêm</button>
+          </form>
+          {/* Dấu sẽ bị bỏ khi lưu — nói trước để người dùng khỏi tưởng hệ thống gõ sai tiếng Việt. */}
+          <div className="ci-hs-goiy">Nhãn được bỏ dấu và nối bằng gạch nối khi lưu.</div>
+        </div>
+
+        <div className="ci-hs-muc">
+          <h4>Ghi chú nội bộ</h4>
+          {/* Nói rõ khách không thấy: không có câu này thì không ai dám ghi thật. */}
+          <div className="ci-hs-goiy">Chỉ nhân viên đọc được — khách không bao giờ thấy.</div>
+          <form className="ci-hs-them doc" onSubmit={themGhiChu}>
+            <textarea value={ghiChuMoi} onChange={e => setGhiChuMoi(e.target.value)} rows={2}
+                      placeholder="vd: khách khó tính, đừng gọi trước 9h" />
+            <button className="ci-nut nho" type="submit" disabled={dangLam || !ghiChuMoi.trim()}>Lưu ghi chú</button>
+          </form>
+          {ghiChu !== null && ghiChu.length === 0 && <div className="ci-hs-trong">Chưa có ghi chú nào.</div>}
+          {(ghiChu || []).map(g => (
+            <div key={g.id} className="ci-hs-dong nk">
+              <span>{fmtAgo(g.createdUtc)} · {g.username}</span>
+              {g.noiDung}
+            </div>
+          ))}
+        </div>
+      </>
+    );
+  }
+
   function NoiCrm({ chiTiet, pushToast }) {
     const v = chiTiet?.conversation;
     const lh = chiTiet?.contact;
@@ -413,6 +516,8 @@
           <Dong nhan="Phụ trách">{v.assignedUsername || 'chưa ai nhận'}</Dong>
           <Dong nhan="Bot">{v.botPaused ? 'đang tạm dừng' : 'đang trả lời'}</Dong>
         </div>
+
+        <NhanVaGhiChu chiTiet={chiTiet} pushToast={pushToast} />
 
         <div className="ci-hs-muc">
           <h4>Nhật ký thao tác</h4>

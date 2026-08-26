@@ -27,6 +27,11 @@ Những cập nhật gần đây của TRAV-AI, viết cho người dùng. Mới
 ### 🔧 Đã khắc phục
 - **Nút "Nhận việc" giờ mới thật sự nhận việc.** Trước đây bấm nút này không gán hội thoại cho
   bạn — thậm chí còn gỡ người đang phụ trách ra. Nút trông như chạy nên không ai để ý.
+- **Gắn nhãn và ghi chú cho khách.** Trong hồ sơ bên phải có thêm mục **"Nhãn"** và **"Ghi chú
+  nội bộ"**. Nhãn theo khách chứ không theo cuộc trò chuyện, nên khách nhắn lại sau vài tháng bạn
+  vẫn thấy nhãn cũ. Ghi chú **chỉ nhân viên đọc được, khách không bao giờ thấy**.
+- Gõ nhãn có dấu cũng được — hệ thống tự bỏ dấu khi lưu, nên "Khách VIP" và "khach vip" là **một**
+  nhãn chứ không thành hai.
 - **Nối khách đang chat với hồ sơ khách trong CRM.** Mở hồ sơ bên phải, bấm **"Nối khách CRM"**,
   gõ tên hoặc số điện thoại rồi chọn. Trước đây mục này luôn hiện "chưa nối" vì không có cách nào
   nối cả. Nối nhầm thì bấm **"Gỡ nối"**. Bạn chỉ tìm được những khách mà tài khoản của bạn vốn

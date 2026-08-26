@@ -26,9 +26,10 @@ làm xong từ lâu — ô trống chỉ có nghĩa là chưa ai tick).
 | **Task 4.3** — Redis pub/sub | ✅ xong | 4 test mới · bỏ qua gói của chính mình · log chế độ lúc khởi động · `/api/v1/features` trả `chatRealtime` · **kiểm thật hai bản 5080↔5081 chung Redis** · 852 test xanh |
 | **Đợt 5** — cộng tác nhiều nhân viên | ✅ xong | 5.1 nhận việc nguyên tử + 409 (và nút "Nhận việc" chưa từng chạy — đã sửa) · 5.2 chưa đọc theo từng người · 5.3 nhật ký thao tác · **kiểm thật trên staging cả ba** · 872 test xanh |
 | Đợt 5 — còn nợ | ⚠️ một việc | tách chưa-đọc theo người chưa kiểm được: chỉ có một phiên đăng nhập trên staging |
-| **Đợt 6** — hồ sơ khách và CRM | ⛔ **DỪNG Ở ĐÂY** | Task 6.1 là mục tiếp theo. |
+| **Đợt 6** — hồ sơ khách và CRM | ✅ xong | 6.1 nối/gỡ khách CRM (nối tay, tìm bằng phiên nhân viên) · 6.2 nhãn + ghi chú, chuẩn hoá dùng chung `ChatRules.ChuanHoaSlug` · **kiểm thật trên staging cả hai** · 892 test xanh |
+| **Đợt 7-10** | ⛔ chưa lên bước được | lý do ghi rõ ở cuối file — thiếu tài liệu kênh, thiếu tài khoản doanh nghiệp, và một quyết định về `Services/Widget/` chưa chốt |
 
-**Nhánh đang làm:** `feat/chat-dot4-realtime` (tách từ `dev`, đã có 7 commit — hết ĐỢT 4 và ĐỢT 5). **Chưa merge về `dev`.**
+**Nhánh đang làm:** `feat/chat-dot4-realtime` (tách từ `dev`, đã có 9 commit — **hết đợt 4, 5, 6**). **Chưa merge về `dev`.**
 
 **Ba cái bẫy vấp phải khi làm 4.1 — người làm tiếp đọc trước kẻo mất thì giờ:**
 
@@ -1452,9 +1453,9 @@ _log.LogInformation("[chat/events] chế độ {C}", redis is null
 
 **Files:** `ChatDb.cs` · `ChatRepository.cs` · endpoint · giao diện
 
-- [ ] **Bước 1: Test đỏ** — guard hai bảng + hàm chuẩn hoá nhãn (hàm thuần, có test thật như `ChuanHoaTrigger` của mẫu trả lời nhanh).
-- [ ] **Bước 2:** Chạy, xác nhận đỏ.
-- [ ] **Bước 3:** Bảng:
+- [x] **Bước 1: Test đỏ** — guard hai bảng + hàm chuẩn hoá nhãn (hàm thuần, có test thật như `ChuanHoaTrigger` của mẫu trả lời nhanh).
+- [x] **Bước 2:** Chạy, xác nhận đỏ.
+- [x] **Bước 3:** Bảng:
 
 ```sql
     CREATE TABLE IF NOT EXISTS chat_contact_tags (
@@ -1478,9 +1479,9 @@ _log.LogInformation("[chat/events] chế độ {C}", redis is null
       ON chat_contact_notes (tenant_id, channel, external_id, created_utc DESC);
 ```
 
-- [ ] **Bước 4:** Chuẩn hoá nhãn **dùng lại** `ChatQuickReplyRepository.ChuanHoaTrigger` (bỏ dấu, hạ chữ thường, gạch nối) — cùng vấn đề, cùng lời giải; viết lại lần hai là hai chỗ lệch nhau. Tách hàm đó ra chỗ dùng chung nếu cần.
-- [ ] **Bước 5:** Endpoint CRUD + giao diện panel hồ sơ. Thêm vào `DuongRieng`.
-- [ ] **Bước 6:** Test + bundle + commit.
+- [x] **Bước 4:** Đã **tách hẳn ra `ChatRules.ChuanHoaSlug`** (Domain, hàm thuần, có test thật) rồi cho `ChuanHoaTrigger` gọi vào — chứ không phải gọi ngược từ Domain sang Infrastructure. Chuẩn hoá nhãn **dùng lại** `ChatQuickReplyRepository.ChuanHoaTrigger` (bỏ dấu, hạ chữ thường, gạch nối) — cùng vấn đề, cùng lời giải; viết lại lần hai là hai chỗ lệch nhau. Tách hàm đó ra chỗ dùng chung nếu cần.
+- [x] **Bước 5:** Endpoint CRUD + giao diện panel hồ sơ. ~~Thêm vào `DuongRieng`~~ — **không cần**, tiền tố `/api/v1/chat/conversations` đã phủ; có test khẳng định.
+- [x] **Bước 6:** Test + bundle + commit.
 
 ---
 

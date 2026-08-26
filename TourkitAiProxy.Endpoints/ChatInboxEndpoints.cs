@@ -469,6 +469,98 @@ public static class ChatInboxEndpoints
             return Results.Json(new { ok = true }, Web);
         });
 
+        // ── Nhãn và ghi chú của khách ───────────────────────────────────────
+        //
+        // Gắn theo KHÁCH chứ không theo hội thoại: khách nhắn lại sau ba tháng vẫn còn nhãn cũ,
+        // còn gắn theo hội thoại thì mỗi lần mở hội thoại mới là mất hết — đúng lúc cần nhất.
+        g.MapGet("/conversations/{id:long}/tags", async (long id, HttpContext ctx,
+            TkSessionStore sessions, ChatRepository repo, CancellationToken ct) =>
+        {
+            var a = SessionAuth.Read(ctx, sessions);
+            if (a == null) return SessionAuth.Unauthorized();
+            if (!repo.Configured) return ChuaCauHinh();
+            var v = await repo.GetConversationAsync(a.TenantId, id, ct);
+            if (v is null) return Results.NotFound();
+            return Results.Json(new
+            {
+                items = await repo.ListTagsAsync(a.TenantId, v.Channel, v.ContactExternalId, ct),
+            }, Web);
+        });
+
+        g.MapPost("/conversations/{id:long}/tags", async (long id, TagReq body, HttpContext ctx,
+            TkSessionStore sessions, ChatRepository repo, CancellationToken ct) =>
+        {
+            var a = SessionAuth.Read(ctx, sessions);
+            if (a == null) return SessionAuth.Unauthorized();
+            if (!repo.Configured) return ChuaCauHinh();
+            var v = await repo.GetConversationAsync(a.TenantId, id, ct);
+            if (v is null) return Results.NotFound();
+
+            // Chuẩn hoá DÙNG CHUNG với lệnh gọi mẫu trả lời nhanh — cùng vấn đề, cùng lời giải.
+            // Ghi thô thì "Khách VIP" và "khach vip" thành hai nhãn khác nhau.
+            var nhan = ChatRules.ChuanHoaSlug(body?.Tag);
+            if (nhan.Length == 0) return Results.BadRequest(new { error = "Nhãn không hợp lệ" });
+
+            await repo.AddTagAsync(a.TenantId, v.Channel, v.ContactExternalId, nhan, ct);
+            return Results.Json(new { ok = true, tag = nhan }, Web);
+        });
+
+        g.MapDelete("/conversations/{id:long}/tags/{tag}", async (long id, string tag, HttpContext ctx,
+            TkSessionStore sessions, ChatRepository repo, CancellationToken ct) =>
+        {
+            var a = SessionAuth.Read(ctx, sessions);
+            if (a == null) return SessionAuth.Unauthorized();
+            if (!repo.Configured) return ChuaCauHinh();
+            var v = await repo.GetConversationAsync(a.TenantId, id, ct);
+            if (v is null) return Results.NotFound();
+
+            // Chuẩn hoá cả lúc XOÁ: nhãn nằm trên đường dẫn nên trình duyệt/người dùng có thể gửi
+            // bản có dấu, mà trong CSDL chỉ có bản đã chuẩn hoá — không chuẩn hoá là xoá trượt.
+            var xoa = await repo.RemoveTagAsync(a.TenantId, v.Channel, v.ContactExternalId,
+                ChatRules.ChuanHoaSlug(tag), ct);
+            return Results.Json(new { ok = true, removed = xoa }, Web);
+        });
+
+        g.MapGet("/conversations/{id:long}/notes", async (long id, HttpContext ctx,
+            TkSessionStore sessions, ChatRepository repo, CancellationToken ct) =>
+        {
+            var a = SessionAuth.Read(ctx, sessions);
+            if (a == null) return SessionAuth.Unauthorized();
+            if (!repo.Configured) return ChuaCauHinh();
+            var v = await repo.GetConversationAsync(a.TenantId, id, ct);
+            if (v is null) return Results.NotFound();
+            return Results.Json(new
+            {
+                items = await repo.ListNotesAsync(a.TenantId, v.Channel, v.ContactExternalId, 50, ct),
+            }, Web);
+        });
+
+        g.MapPost("/conversations/{id:long}/notes", async (long id, NoteReq body, HttpContext ctx,
+            TkSessionStore sessions, ChatRepository repo, CancellationToken ct) =>
+        {
+            var a = SessionAuth.Read(ctx, sessions);
+            if (a == null) return SessionAuth.Unauthorized();
+            if (!repo.Configured) return ChuaCauHinh();
+            if (string.IsNullOrWhiteSpace(body?.NoiDung))
+                return Results.BadRequest(new { error = "Chưa nhập nội dung ghi chú" });
+            var v = await repo.GetConversationAsync(a.TenantId, id, ct);
+            if (v is null) return Results.NotFound();
+
+            var maGhiChu = await repo.AddNoteAsync(a.TenantId, v.Channel, v.ContactExternalId,
+                a.Username, body.NoiDung.Trim(), ct);
+            return Results.Json(new { ok = true, id = maGhiChu }, Web);
+        });
+
+        g.MapDelete("/conversations/{id:long}/notes/{noteId:long}", async (long id, long noteId,
+            HttpContext ctx, TkSessionStore sessions, ChatRepository repo, CancellationToken ct) =>
+        {
+            var a = SessionAuth.Read(ctx, sessions);
+            if (a == null) return SessionAuth.Unauthorized();
+            if (!repo.Configured) return ChuaCauHinh();
+            if (await repo.GetConversationAsync(a.TenantId, id, ct) is null) return Results.NotFound();
+            return Results.Json(new { ok = true, removed = await repo.RemoveNoteAsync(a.TenantId, noteId, ct) }, Web);
+        });
+
         // ── Nối khách chat với khách CRM ────────────────────────────────────
         //
         // Nối TAY, KHÔNG đoán tự động: ghép theo tên sai thường xuyên (trùng tên là chuyện bình
@@ -784,6 +876,9 @@ public record SendReq(string? Text, string? AttachmentUrl = null, string? Attach
     public record AssignReq(string? Username);
     /// <param name="CustomerId">Bỏ trống = GỠ nối khách CRM khỏi hội thoại này.</param>
     public record LinkCrmReq(int? CustomerId);
+    /// <param name="Tag">Nhãn thô — server tự chuẩn hoá (bỏ dấu, hạ chữ thường, gạch nối).</param>
+    public record TagReq(string? Tag);
+    public record NoteReq(string? NoiDung);
     public record StatusReq(short Status);
     public record BotReq(bool Paused, int? Minutes);
 

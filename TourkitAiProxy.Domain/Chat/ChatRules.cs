@@ -1,4 +1,8 @@
 ﻿// Services/Chat/Inbox/ChatRules.cs
+using System.Globalization;
+using System.Text;
+using System.Text.RegularExpressions;
+
 namespace TourkitAiProxy.Domain.Chat;
 
 /// <summary>Kết quả tính cửa sổ gửi của một kênh.</summary>
@@ -16,6 +20,33 @@ public record SendWindow(bool Open, TimeSpan Left, string Reason);
 /// </summary>
 public static class ChatRules
 {
+    /// <summary>
+    /// Bỏ dấu, hạ chữ thường, nối bằng gạch nối. Dùng cho <b>cả</b> lệnh gọi mẫu trả lời nhanh
+    /// <b>lẫn</b> nhãn khách.
+    ///
+    /// <para><b>Bỏ dấu là bắt buộc.</b> Nhân viên đang gõ nhanh cho khách sẽ gõ <c>gia</c> chứ
+    /// không dừng lại bật bộ gõ để ra <c>giá</c>. Giữ nguyên dấu thì gõ hai lần ra hai giá trị
+    /// khác nhau, và lọc theo nhãn trả về rỗng mà không ai hiểu tại sao.</para>
+    ///
+    /// <para><b>Một hàm cho cả hai chỗ</b>, không viết lại lần hai: cùng vấn đề mà hai cách
+    /// chuẩn hoá là "khach-vip" bên này và "khach vip" bên kia.</para>
+    ///
+    /// <para>Trả <b>chuỗi rỗng</b> khi không còn ký tự nào dùng được — <b>không ném</b>. Hàm thuần
+    /// thì trả giá trị; ném từ đây là ép mọi chỗ gọi phải bọc <c>try</c>, kể cả chỗ chỉ muốn lọc
+    /// bỏ. Chỗ nào coi rỗng là lỗi thì tự báo bằng câu nói của mình.</para>
+    /// </summary>
+    public static string ChuanHoaSlug(string? tho)
+    {
+        var s = (tho ?? "").Trim().TrimStart('/').ToLowerInvariant();
+        // đ → d phải làm TRƯỚC khi bóc dấu: nó không phải nguyên âm có dấu, FormD không tách ra.
+        s = s.Replace('đ', 'd');
+        s = new string(s.Normalize(NormalizationForm.FormD)
+            .Where(c => CharUnicodeInfo.GetUnicodeCategory(c) != UnicodeCategory.NonSpacingMark)
+            .ToArray()).Normalize(NormalizationForm.FormC);
+        s = Regex.Replace(s, @"[^a-z0-9\s-]", "");
+        return Regex.Replace(s, @"[\s-]+", "-").Trim('-');
+    }
+
     /// Zalo: gửi tin tự do trong 48 giờ kể từ tin cuối CỦA KHÁCH.
     public static readonly TimeSpan CuaSoZalo = TimeSpan.FromHours(48);
 

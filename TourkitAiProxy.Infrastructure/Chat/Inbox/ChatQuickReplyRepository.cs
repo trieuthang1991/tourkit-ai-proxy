@@ -1,8 +1,6 @@
 // Services/Chat/Inbox/ChatQuickReplyRepository.cs
-using System.Globalization;
-using System.Text;
-using System.Text.RegularExpressions;
 using Dapper;
+using TourkitAiProxy.Domain.Chat;
 
 namespace TourkitAiProxy.Infrastructure.Chat.Inbox;
 
@@ -28,13 +26,10 @@ public class ChatQuickReplyRepository
     /// </summary>
     public static string ChuanHoaTrigger(string tho)
     {
-        var s = (tho ?? "").Trim().TrimStart('/').ToLowerInvariant();
-        s = s.Replace('đ', 'd');
-        s = new string(s.Normalize(NormalizationForm.FormD)
-            .Where(c => CharUnicodeInfo.GetUnicodeCategory(c) != UnicodeCategory.NonSpacingMark)
-            .ToArray()).Normalize(NormalizationForm.FormC);
-        s = Regex.Replace(s, @"[^a-z0-9\s-]", "");
-        s = Regex.Replace(s, @"[\s-]+", "-").Trim('-');
+        // Dùng CHUNG với nhãn khách (ChatRules.ChuanHoaSlug) — cùng vấn đề, cùng lời giải. Viết
+        // lại lần hai là hai chỗ lệch nhau: "khach-vip" bên này, "khach vip" bên kia, rồi lọc theo
+        // nhãn trả về rỗng mà không ai hiểu tại sao.
+        var s = ChatRules.ChuanHoaSlug(tho);
         // CỐ Ý không truyền tên tham số: endpoint trả thẳng Message này cho người dùng, mà
         // ArgumentException tự nối thêm "(Parameter 'tho')" — người khai mẫu đọc phải tên biến
         // trong mã nguồn thì vừa khó hiểu vừa lộ nội bộ.
