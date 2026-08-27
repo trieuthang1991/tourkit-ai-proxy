@@ -29,11 +29,17 @@ const EMPTY_SUB = {
 
 const BRIEF_TYPES = ['sale-brief', 'ceo-brief'];
 
-// Mốc UTC từ máy chủ → ngày giờ Việt Nam để hiện. Ngày hỏng thì trả rỗng chứ KHÔNG hiện
+// Mốc UTC từ máy chủ → ngày/tháng để hiện. Ngày hỏng thì trả rỗng chứ KHÔNG hiện
 // "Invalid Date" — chuỗi đó nằm giữa câu tiếng Việt trông như lỗi hệ thống.
+//
+// ⚠️ Tự ghép dd/MM, KHÔNG dùng toLocaleDateString('vi-VN'): Chrome trả về '24-08' (gạch nối)
+// chứ không phải '24/08'. Định dạng phụ thuộc bảng locale của TỪNG trình duyệt nên máy khác có
+// thể ra kiểu khác — thấy tận mắt lúc chạy thử, không phải suy đoán.
 function ngayVn(iso) {
   const d = new Date(iso);
-  return isNaN(d) ? '' : d.toLocaleDateString('vi-VN', { day: '2-digit', month: '2-digit' });
+  if (isNaN(d)) return '';
+  const hai = n => String(n).padStart(2, '0');
+  return `${hai(d.getDate())}/${hai(d.getMonth() + 1)}`;
 }
 
 // Công tắc DÙNG CHUNG với trang Tự động hoá (.workflows-toggle), không phải ô tick mặc định của
@@ -327,7 +333,10 @@ function DigestSubBlock({ briefType, sub, onSaved, pushToast, companyReady = tru
           Chữ lấy NGUYÊN từ máy chủ (notReadyLabel + notReadyAction) — bảng ánh xạ mã→chữ nằm một
           chỗ ở BriefReadiness. Chép sang đây là hai bản, và thêm một mã mới thì màn hình lặng lẽ
           hiện mã kỹ thuật kiểu "thieu-phien" cho người dùng đọc. */}
-      {f.notReadyLabel && (
+      {/* Ẩn ngay khi người dùng bật lại công tắc: giữ lại thì dải vẫn bảo "bật lại công tắc bên
+          dưới" trong khi họ vừa bật xong — một lời nhắc đã lỗi thời. Phần nhắc lưu đã có chỉ báo
+          "Có thay đổi chưa lưu" lo. */}
+      {f.notReadyLabel && !f.enabled && (
         <div className="digest-paused">
           <Icon name="warning" size={13} />
           <b>Bản tin đã tạm tắt{f.notReadySinceUtc ? ` từ ${ngayVn(f.notReadySinceUtc)}` : ''}</b>

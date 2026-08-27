@@ -1,4 +1,4 @@
-// pages/workflows.jsx — Trang "Tự động hóa" (User Workflows)
+﻿// pages/workflows.jsx — Trang "Tự động hóa" (User Workflows)
 // Cho user cấu hình tác vụ AI chạy tự động theo lịch (interval).
 // V1 built-in: mail-auto-sync (đồng bộ Gmail mỗi N phút).
 // Pattern: X-Session-Id header + authedFetch giống mail.jsx / assistant.jsx.
@@ -686,6 +686,17 @@ function WorkflowCard({ wf, onUpdate, pushToast, locked, canConfig = true, diges
           : <span className="wf-verdict-note">Nhờ người quản trị bật giúp.</span>}
       </div>
     );
+    // ĐỨNG TRƯỚC nhánh "chưa đăng ký": người bị hệ thống tạm tắt thì `me` cũng bằng false, nên
+    // không tách ra là họ đọc được câu "bạn chưa đăng ký nhận" — SAI, và mâu thuẫn thẳng với dải
+    // "đã tạm tắt" hiện ngay bên dưới trong cùng một màn hình.
+    if (!me && digestSub && digestSub.notReadyLabel) return (
+      <div className="wf-verdict is-bad" onClick={stop}>
+        <Icon name="warning" size={13} />
+        <span>Bản tin của bạn <b>đang tạm tắt</b> — {digestSub.notReadyLabel.charAt(0).toLowerCase()
+          + digestSub.notReadyLabel.slice(1)}. Mở thẻ để bật lại.</span>
+      </div>
+    );
+
     if (!me && co) return (
       <div className="wf-verdict is-idle">
         <Icon name="info" size={13} />
