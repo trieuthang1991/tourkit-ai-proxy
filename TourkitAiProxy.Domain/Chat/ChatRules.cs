@@ -5,11 +5,22 @@ using System.Text.RegularExpressions;
 
 namespace TourkitAiProxy.Domain.Chat;
 
+/// <summary>
+/// Nhãn Meta bắt buộc đính khi gửi NGOÀI cửa sổ 24 giờ.
+///
+/// <para><c>HumanAgent</c> chỉ hợp lệ khi <b>người thật</b> đang gõ. Meta cấp nhãn này để nhân
+/// viên xử nốt việc dở, không phải để bot nhắn tiếp — đính nhãn cho tin của bot là vi phạm chính
+/// sách và có thể bị khoá quyền nhắn tin của cả Trang.</para>
+/// </summary>
+public enum MetaSendTag : short { None = 0, HumanAgent = 1 }
+
 /// <summary>Kết quả tính cửa sổ gửi của một kênh.</summary>
 /// <param name="Open">Còn gửi được không.</param>
 /// <param name="Left">Còn bao lâu nữa thì đóng (0 khi đã đóng).</param>
 /// <param name="Reason">Câu nói cho NGƯỜI ĐỌC hiểu vì sao — hiện thẳng lên giao diện.</param>
-public record SendWindow(bool Open, TimeSpan Left, string Reason);
+/// <param name="Tag">Nhãn phải đính lúc gọi API. <c>None</c> ở gần hết mọi ca.</param>
+public record SendWindow(bool Open, TimeSpan Left, string Reason,
+    MetaSendTag Tag = MetaSendTag.None);
 
 /// <summary>
 /// Luật thuần của hộp thư chat: cửa sổ gửi, bot có được trả lời không, gộp tin nhắn liên tiếp.
@@ -53,6 +64,145 @@ public static class ChatRules
     /// Messenger: 24 giờ.
     public static readonly TimeSpan MetaWindow = TimeSpan.FromHours(24);
 
+    /// <summary>
+    /// Messenger và Instagram: <b>7 ngày</b> cho NGƯỜI THẬT trả lời, bằng nhãn <c>HUMAN_AGENT</c>.
+    ///
+    /// <para>Đây không phải ngoại lệ mình tự nghĩ ra — Meta mở sẵn cửa này để nhân viên xử nốt
+    /// việc dở sau khi cửa sổ 24 giờ đóng. Trước 28/08/2026 mình chặn thẳng ở mốc 24 giờ, tức
+    /// <b>tự bỏ 6 ngày</b> mà nền tảng vẫn cho phép: khách nhắn tối thứ Sáu, nhân viên vào sáng
+    /// thứ Hai là ô soạn đã khoá, dù Messenger vẫn nhận tin bình thường.</para>
+    ///
+    /// <para><b>Không áp cho WhatsApp.</b> WhatsApp không có nhãn này; ngoài 24 giờ phải gửi
+    /// bằng mẫu tin đã được duyệt. Gộp chung ba kênh "Meta" thành một luật là sai.</para>
+    /// </summary>
+    public static readonly TimeSpan MetaHumanAgentWindow = TimeSpan.FromDays(7);
+
+    /// <summary>
+    /// Số nút TỐI ĐA mỗi kênh nhận. <c>0</c> = kênh không có nút.
+    ///
+    /// <para><b>Vượt giới hạn là nền tảng TỪ CHỐI CẢ TIN</b>, không phải cắt bớt nút — khách
+    /// không nhận được gì. Vì thế cắt ở đây trước khi gọi API, và cắt thì phải nói cho người gửi
+    /// biết chứ đừng lặng lẽ bỏ.</para>
+    ///
+    /// <para>Con số khác nhau THẬT: Meta cho 3 nút trong khung nút nhưng 13 nút trả lời nhanh;
+    /// WhatsApp 3; Zalo 5; Telegram không giới hạn thực tế. Áp một con số chung là hoặc tự bó
+    /// tay mình, hoặc để tin biến mất ở kênh chặt nhất.</para>
+    /// </summary>
+    public static int MaxButtons(ChatChannel kenh, bool coLienKet) => kenh switch
+    {
+        // Nút mở liên kết phải đi trong "khung nút" (button template) — khung đó chỉ chứa 3.
+        // Không có liên kết thì đi bằng trả lời nhanh, thoải mái hơn nhiều.
+        ChatChannel.Messenger or ChatChannel.Instagram => coLienKet ? 3 : 13,
+        // WhatsApp: nút tương tác tối đa 3, và KHÔNG nhận nút mở liên kết trong cùng một tin.
+        ChatChannel.WhatsApp => coLienKet ? 0 : 3,
+        ChatChannel.Zalo => 5,
+        ChatChannel.Telegram => 8,
+        // TikTok không có nút nào cả.
+        _ => 0,
+    };
+
+    /// <summary>
+    /// Cắt danh sách nút cho vừa kênh. Trả thêm câu giải thích khi có nút bị bỏ — im lặng cắt
+    /// thì nhân viên soạn năm nút, khách thấy ba, và không ai biết vì sao.
+    /// </summary>
+    public static (IReadOnlyList<ChatButton> Nut, string? CanhBao) FitButtons(
+        ChatChannel kenh, IReadOnlyList<ChatButton> nut)
+    {
+        if (nut.Count == 0) return (nut, null);
+
+        var coLienKet = nut.Any(x => x.IsLink);
+        var toiDa = MaxButtons(kenh, coLienKet);
+
+        if (toiDa == 0)
+            return (Array.Empty<ChatButton>(), coLienKet && kenh == ChatChannel.WhatsApp
+                ? "WhatsApp không nhận nút mở liên kết trong tin thường. Gửi đường dẫn bằng chữ, "
+                  + "hoặc dùng tin mẫu đã duyệt."
+                : $"{ChannelName(kenh)} không có nút bấm. Tin vẫn gửi, nhưng chỉ phần chữ.");
+
+        if (nut.Count <= toiDa) return (nut, null);
+
+        return (nut.Take(toiDa).ToList(),
+            $"{ChannelName(kenh)} chỉ nhận {toiDa} nút nên đã bỏ {nut.Count - toiDa} nút cuối.");
+    }
+
+    /// <summary>
+    /// Đọc danh sách nút từ JSON đã lưu. <b>Hỏng thì trả RỖNG, không ném</b>: tin vẫn phải gửi
+    /// được dù phần nút hỏng — mất mấy cái nút còn hơn mất cả câu trả lời cho khách.
+    /// </summary>
+    public static IReadOnlyList<ChatButton> ReadButtons(string? json)
+    {
+        if (string.IsNullOrWhiteSpace(json)) return Array.Empty<ChatButton>();
+        try
+        {
+            if (System.Text.Json.Nodes.JsonNode.Parse(json) is not System.Text.Json.Nodes.JsonArray ds)
+                return Array.Empty<ChatButton>();
+
+            var ra = new List<ChatButton>();
+            foreach (var x in ds)
+            {
+                var chu = x?["chu"]?.ToString();
+                if (string.IsNullOrWhiteSpace(chu)) continue;   // nút không có chữ thì vô nghĩa
+
+                var url = x?["url"]?.ToString();
+                // CHỈ nhận http(s). Nền tảng từ chối các lược đồ khác, mà javascript: thì là lỗ
+                // hổng — nút do người dùng tự đặt nên đây là dữ liệu KHÔNG tin được.
+                if (!string.IsNullOrWhiteSpace(url)
+                    && !url!.StartsWith("http://", StringComparison.OrdinalIgnoreCase)
+                    && !url.StartsWith("https://", StringComparison.OrdinalIgnoreCase))
+                    url = null;
+
+                ra.Add(new(chu!.Trim(), string.IsNullOrWhiteSpace(url) ? null : url));
+            }
+            return ra;
+        }
+        catch { return Array.Empty<ChatButton>(); }
+    }
+
+    /// <summary>
+    /// Dựng bản ghi hội thoại làm ngữ cảnh cho trợ lý.
+    ///
+    /// <para><b>Đây là chỗ chữa một lỗi thật.</b> Trước 28/08/2026 bot chỉ nhận đúng cụm tin vừa
+    /// tới, không có gì khác. Nên:</para>
+    /// <code>
+    /// Khách: "Tour Nhật bao nhiêu tiền ạ?"
+    /// Bot:   "Dạ em kiểm tra rồi báo lại anh ngay…"
+    /// Khách: "Thế còn tháng 10?"
+    /// Bot:   ← chỉ thấy "Thế còn tháng 10?", không biết đang nói về tour nào
+    /// </code>
+    /// <para>Khách nào cũng nhắn kiểu đó, nên bot lạc đề gần như mọi hội thoại dài quá hai lượt.</para>
+    ///
+    /// <para><b>Bỏ tin HỎNG và tin CHỜ GỬI</b> (<c>Failed</c>/<c>Pending</c>): khách chưa hề đọc
+    /// chúng. Đưa vào là bot tưởng mình đã nói rồi và trả lời tiếp như thể khách đã biết.</para>
+    ///
+    /// <para>Ghi nhân viên và trợ lý CHUNG một nhãn "Mình": với khách thì cả hai đều là công ty,
+    /// và tách ra chỉ mời model bắt chước giọng của một trong hai.</para>
+    /// </summary>
+    /// <param name="tin">Theo thứ tự thời gian TĂNG dần. Chỉ lấy phần đuôi.</param>
+    /// <param name="cauHoi">Cụm tin khách vừa gửi, chưa nằm trong <paramref name="tin"/>.</param>
+    public static string BuildConversationPrompt(IEnumerable<ChatMessage> tin, string cauHoi,
+        int soLuot)
+    {
+        var truoc = tin
+            .Where(m => m.State != (short)ChatState.Failed && m.State != (short)ChatState.Pending)
+            .Where(m => !string.IsNullOrWhiteSpace(m.Body))
+            .TakeLast(Math.Max(0, soLuot))
+            .ToList();
+
+        if (truoc.Count == 0) return cauHoi;
+
+        var sb = new System.Text.StringBuilder();
+        sb.AppendLine("Đoạn hội thoại từ đầu tới giờ:");
+        foreach (var m in truoc)
+            sb.AppendLine($"{(m.Direction == (short)ChatDirection.In ? "Khách" : "Mình")}: {m.Body!.Trim()}");
+
+        sb.AppendLine();
+        // Tách hẳn câu MỚI ra khỏi phần lịch sử. Nối thẳng vào cuối bản ghi thì model coi nó là
+        // một dòng nữa để đọc, chứ không phải câu đang phải trả lời.
+        sb.AppendLine("Khách vừa nhắn:");
+        sb.Append(cauHoi);
+        return sb.ToString();
+    }
+
     /// Nhân viên trả lời xong thì bot câm bấy lâu.
     public static readonly TimeSpan DefaultBotMute = TimeSpan.FromMinutes(30);
 
@@ -63,7 +213,11 @@ public static class ChatRules
     /// tới; mình chủ động mở lời trước thì cả Zalo lẫn Meta đều chặn. Mặc định "mở" ở ca này là
     /// đẩy lỗi xuống tận lúc gọi API, lúc đó nhân viên đã gõ xong tin rồi.</para>
     /// </summary>
-    public static SendWindow ComputeSendWindow(ChatChannel kenh, DateTime? khachNhanLuc, DateTime nowUtc)
+    /// <param name="nguoiGui">Ai đang gửi. Chỉ <see cref="ChatSender.Agent"/> mới được dùng cửa
+    /// 7 ngày của Messenger/Instagram — xem <see cref="MetaSendTag"/>. Mặc định là bot, tức
+    /// <b>chặt hơn</b>: chỗ gọi nào quên truyền thì mất quyền, không phải được thêm quyền.</param>
+    public static SendWindow ComputeSendWindow(ChatChannel kenh, DateTime? khachNhanLuc,
+        DateTime nowUtc, ChatSender nguoiGui = ChatSender.Ai)
     {
         // Telegram và web không giới hạn thời gian — nhắn lại lúc nào cũng được. Đây là khác biệt
         // THẬT giữa các kênh, đừng áp một luật chung cho tất cả.
@@ -85,15 +239,35 @@ public static class ChatRules
                 + "kể từ tin của khách — mình không được chủ động mở lời.");
 
         var conLai = khachNhanLuc.Value + han - nowUtc;
-        if (conLai <= TimeSpan.Zero)
-            return new(false, TimeSpan.Zero,
-                $"Đã quá {gio} giờ kể từ tin cuối của khách nên {ChannelName(kenh)} không cho gửi nữa. "
-                + "Muốn liên hệ lại thì dùng tin theo mẫu (ZNS) hoặc gọi điện.");
+        if (conLai > TimeSpan.Zero) return new(true, conLai, "");
 
-        return new(true, conLai, "");
+        // Hết cửa sổ thường. Messenger/Instagram còn một cửa nữa: NGƯỜI THẬT được trả lời tới
+        // 7 ngày bằng nhãn HUMAN_AGENT. Bot thì không — xem MetaSendTag.
+        if (kenh is ChatChannel.Messenger or ChatChannel.Instagram)
+        {
+            var conLaiNguoiThat = khachNhanLuc.Value + MetaHumanAgentWindow - nowUtc;
+            if (conLaiNguoiThat > TimeSpan.Zero)
+                return nguoiGui == ChatSender.Agent
+                    ? new(true, conLaiNguoiThat, "", MetaSendTag.HumanAgent)
+                    : new(false, TimeSpan.Zero,
+                        $"Đã quá {gio} giờ kể từ tin cuối của khách nên trợ lý không được tự trả lời nữa. "
+                        + "Nhân viên vẫn nhắn tay được, trong 7 ngày kể từ tin của khách.");
+
+            return new(false, TimeSpan.Zero,
+                $"Đã quá 7 ngày kể từ tin cuối của khách nên {ChannelName(kenh)} không cho gửi nữa. "
+                + "Muốn liên hệ lại thì gọi điện hoặc nhắn qua kênh khác.");
+        }
+
+        return new(false, TimeSpan.Zero,
+            $"Đã quá {gio} giờ kể từ tin cuối của khách nên {ChannelName(kenh)} không cho gửi nữa. "
+            + (kenh == ChatChannel.WhatsApp
+                ? "Muốn liên hệ lại thì dùng mẫu tin WhatsApp đã được duyệt hoặc gọi điện."
+                : "Muốn liên hệ lại thì dùng tin theo mẫu (ZNS) hoặc gọi điện."));
     }
 
-    private static string ChannelName(ChatChannel k) => k switch
+    /// <summary>Tên kênh cho câu nói với người dùng. Công khai vì tầng endpoint cũng cần —
+    /// để mỗi chỗ tự đặt tên riêng thì cùng một kênh có hai cái tên trên hai màn hình.</summary>
+    public static string ChannelName(ChatChannel k) => k switch
     {
         ChatChannel.Zalo => "Zalo",
         ChatChannel.Messenger => "Messenger",

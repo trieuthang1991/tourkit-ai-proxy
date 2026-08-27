@@ -26,7 +26,8 @@ namespace TourkitAiProxy.Services.Chat.Channels;
 ///
 /// <para>Tham khảo cách bóc sự kiện của ChatbotX (<c>integrations/messenger</c>).</para>
 /// </summary>
-public class MessengerChatAdapter : IChatChannelAdapter
+public class MessengerChatAdapter : IChatChannelAdapter, ILateHumanReplySender,
+    IApprovedTemplateSender, IButtonSender
 {
     private const string GraphBase = "https://graph.facebook.com";
 
@@ -531,30 +532,158 @@ public class MessengerChatAdapter : IChatChannelAdapter
     public Task MarkSeenAsync(string tenantId, string accountId, string externalUserId,
         CancellationToken ct) => SenderActionAsync(tenantId, accountId, externalUserId, "mark_seen", ct);
 
+    // ── Nút bấm ─────────────────────────────────────────────────────────────
+
+    /// <summary>
+    /// Gửi chữ kèm nút. <b>Meta có HAI cơ chế nút hoàn toàn khác nhau</b>, chọn theo việc có
+    /// nút mở liên kết hay không:
+    ///
+    /// <list type="bullet">
+    ///   <item><b>quick_replies</b> — chỉ trả lời nhanh, tối đa 13, hiện thành dải nút NGANG ô
+    ///     soạn và <b>biến mất sau khi bấm</b>. Đúng cho câu hỏi chọn một trong nhiều.</item>
+    ///   <item><b>button template</b> — chứa được nút mở liên kết, nhưng tối đa 3 và nút NẰM LẠI
+    ///     trong dòng tin mãi mãi, bấm lại được nhiều lần.</item>
+    /// </list>
+    ///
+    /// <para>Dùng nhầm cơ chế thì tin vẫn đi nhưng hỏng theo kiểu khó thấy: nhét liên kết vào
+    /// quick_replies là Meta bỏ luôn phần liên kết, còn nhét 13 nút vào khung nút là Meta từ
+    /// chối cả tin.</para>
+    /// </summary>
+    public Task<SendResult> SendTextWithButtonsAsync(string tenantId, string accountId,
+        string externalUserId, string text, IReadOnlyList<ChatButton> nut, CancellationToken ct)
+        => GuiAsync(tenantId, accountId, externalUserId,
+            MetaButtonBuilder.Build(text, nut), MetaSendTag.None, ct);
+
+    // ── Mẫu tin đã duyệt ────────────────────────────────────────────────────
+
+    /// <inheritdoc/>
+    public async Task<IReadOnlyList<ChatTemplate>> ListTemplatesAsync(string tenantId,
+        string accountId, CancellationToken ct)
+    {
+        var c = await _cred.GetAsync(tenantId, Channel, accountId, ct);
+        if (c is null || !c.TryGetValue("pageAccessToken", out var token)
+            || string.IsNullOrWhiteSpace(token))
+            return Array.Empty<ChatTemplate>();
+
+        // ⚠️ Mẫu Messenger khai trên TRANG, khác WhatsApp (khai trên tài khoản doanh nghiệp).
+        var pageId = c.GetValueOrDefault("pageId") is { Length: > 0 } p ? p : "me";
+
+        try
+        {
+            var http = _http.CreateClient();
+            using var res = await http.GetAsync(
+                $"{GraphBase}/{ApiVersion}/{Uri.EscapeDataString(pageId)}/message_templates"
+                + "?fields=name,status,language,category,components&limit=200"
+                + $"&access_token={Uri.EscapeDataString(token!)}", ct);
+            var o = JsonNode.Parse(await res.Content.ReadAsStringAsync(ct));
+            if (o?["data"] is not JsonArray ds) return Array.Empty<ChatTemplate>();
+
+            var ra = new List<ChatTemplate>();
+            foreach (var m in ds.OfType<JsonNode>())
+            {
+                var ten = m["name"]?.ToString();
+                if (string.IsNullOrWhiteSpace(ten)) continue;
+                var (slots, xem) = MetaTemplateParser.ReadComponents(m["components"] as JsonArray);
+                ra.Add(new(m["id"]?.ToString() ?? ten!, ten!, m["language"]?.ToString() ?? "vi",
+                    m["category"]?.ToString(), m["status"]?.ToString() ?? "UNKNOWN", slots, xem));
+            }
+            return ra;
+        }
+        catch (Exception ex)
+        {
+            // Chưa có mẫu nào là chuyện bình thường của công ty mới — không ném lên giao diện.
+            _log.LogWarning(ex, "[chat/messenger] không đọc được danh sách mẫu tin");
+            return Array.Empty<ChatTemplate>();
+        }
+    }
+
+    /// <inheritdoc/>
+    public async Task<SendResult> SendTemplateAsync(string tenantId, string accountId,
+        string externalUserId, ChatContact? khach, ChatTemplate mau,
+        IReadOnlyDictionary<string, string> giaTri, CancellationToken ct)
+    {
+        var c = await _cred.GetAsync(tenantId, Channel, accountId, ct);
+        if (c is null || !c.TryGetValue("pageAccessToken", out var token)
+            || string.IsNullOrWhiteSpace(token))
+            return new(false, false, null, "Trang Facebook này chưa khai (thiếu page access token)");
+
+        var than = new JsonObject
+        {
+            ["recipient"] = new JsonObject { ["id"] = externalUserId },
+            // ⚠️ UTILITY chứ không phải RESPONSE. Gửi mẫu bằng RESPONSE thì Meta vẫn nhận khi
+            // còn trong cửa sổ 24 giờ, nên thử lúc mới nhắn là thấy chạy — rồi đúng lúc CẦN nó
+            // nhất (khách im ba ngày) thì bị từ chối.
+            ["messaging_type"] = "UTILITY",
+            ["message"] = new JsonObject
+            {
+                ["template"] = new JsonObject
+                {
+                    ["name"] = mau.Name,
+                    ["language"] = new JsonObject { ["code"] = mau.Language },
+                    ["components"] = MetaTemplateParser.BuildComponents(mau, giaTri),
+                },
+            },
+        };
+
+        try
+        {
+            var http = _http.CreateClient();
+            using var res = await http.PostAsync(
+                $"{GraphBase}/{ApiVersion}/me/messages?access_token={Uri.EscapeDataString(token!)}",
+                new StringContent(than.ToJsonString(), Encoding.UTF8, "application/json"), ct);
+            var raw = await res.Content.ReadAsStringAsync(ct);
+            var o = JsonNode.Parse(raw)?.AsObject();
+
+            if (res.IsSuccessStatusCode && o?["error"] is null)
+                return new(true, false, o?["message_id"]?.ToString(), null);
+
+            return new(false, (int)res.StatusCode >= 500, null,
+                $"Facebook từ chối mẫu: {o?["error"]?["message"]?.ToString() ?? Truncate(raw)}");
+        }
+        catch (Exception ex) { return new(false, true, null, ex.Message); }
+    }
+
     public async Task<SendResult> SendTextAsync(string tenantId, string accountId, string externalUserId,
         string text, CancellationToken ct)
-        => await GuiAsync(tenantId, accountId, externalUserId, new { text }, ct);
+        => await GuiAsync(tenantId, accountId, externalUserId, new { text }, MetaSendTag.None, ct);
+
+    /// <inheritdoc cref="ILateHumanReplySender.SendTextAsHumanAgentAsync"/>
+    public Task<SendResult> SendTextAsHumanAgentAsync(string tenantId, string accountId,
+        string externalUserId, string text, CancellationToken ct)
+        => GuiAsync(tenantId, accountId, externalUserId, new { text }, MetaSendTag.HumanAgent, ct);
+
+    /// <inheritdoc cref="ILateHumanReplySender.SendMediaAsHumanAgentAsync"/>
+    public Task<SendResult> SendMediaAsHumanAgentAsync(string tenantId, string accountId,
+        string externalUserId, ChatKind loai, string url, string? caption, CancellationToken ct)
+        => SendMediaAsync(tenantId, accountId, externalUserId, loai, url, caption,
+            MetaSendTag.HumanAgent, ct);
 
     /// <summary>
     /// Messenger Send API nhận media qua <c>attachment.payload.url</c> — Meta TỰ TẢI ảnh/tệp từ
     /// URL đó, không nhận nhị phân trực tiếp. Chữ chú thích không gộp được vào cùng tin ảnh, nên
     /// nếu có <paramref name="caption"/> thì gửi thêm một tin chữ ngay sau, giống cách Zalo xử lý.
     /// </summary>
-    public async Task<SendResult> SendMediaAsync(string tenantId, string accountId, string externalUserId,
+    public Task<SendResult> SendMediaAsync(string tenantId, string accountId, string externalUserId,
         ChatKind loai, string url, string? caption, CancellationToken ct)
+        => SendMediaAsync(tenantId, accountId, externalUserId, loai, url, caption, MetaSendTag.None, ct);
+
+    private async Task<SendResult> SendMediaAsync(string tenantId, string accountId, string externalUserId,
+        ChatKind loai, string url, string? caption, MetaSendTag nhan, CancellationToken ct)
     {
         var loaiMeta = loai switch { ChatKind.Image => "image", ChatKind.Audio => "audio", _ => "file" };
         var kq = await GuiAsync(tenantId, accountId, externalUserId, new
         {
             attachment = new { type = loaiMeta, payload = new { url, is_reusable = true } },
-        }, ct);
+        }, nhan, ct);
+        // Chú thích đi thành tin RIÊNG nên cũng phải mang cùng nhãn — không thì tin ảnh lọt qua
+        // còn dòng chữ ngay sau bị Meta chặn, khách thấy ảnh mà không thấy mình nói gì.
         if (kq.Ok && !string.IsNullOrWhiteSpace(caption))
-            await GuiAsync(tenantId, accountId, externalUserId, new { text = caption }, ct);
+            await GuiAsync(tenantId, accountId, externalUserId, new { text = caption }, nhan, ct);
         return kq;
     }
 
     private async Task<SendResult> GuiAsync(string tenantId, string accountId, string externalUserId,
-        object noiDungTin, CancellationToken ct)
+        object noiDungTin, MetaSendTag nhan, CancellationToken ct)
     {
         var c = await _cred.GetAsync(tenantId, Channel, accountId, ct);
         if (c is null || !c.TryGetValue("pageAccessToken", out var token) || string.IsNullOrWhiteSpace(token))
@@ -563,14 +692,16 @@ public class MessengerChatAdapter : IChatChannelAdapter
         try
         {
             var http = _http.CreateClient();
-            var body = new
+            // RESPONSE = trả lời trong cửa sổ 24 giờ. Ngoài cửa sổ đó, tin do NHÂN VIÊN gõ đi
+            // bằng MESSAGE_TAG + HUMAN_AGENT — Meta mở sẵn tới 7 ngày cho đúng việc này. Chọn
+            // nhãn nào là việc của ChatRules.ComputeSendWindow, không phải chỗ này.
+            var body = new Dictionary<string, object?>
             {
-                recipient = new { id = externalUserId },
-                // RESPONSE = đang trả lời khách trong cửa sổ 24 giờ. Gửi ngoài cửa sổ phải dùng
-                // message_tag, mà cái đó Meta duyệt theo từng mục đích — chưa làm ở đợt này.
-                messaging_type = "RESPONSE",
-                message = noiDungTin,
+                ["recipient"] = new { id = externalUserId },
+                ["messaging_type"] = nhan == MetaSendTag.HumanAgent ? "MESSAGE_TAG" : "RESPONSE",
+                ["message"] = noiDungTin,
             };
+            if (nhan == MetaSendTag.HumanAgent) body["tag"] = "HUMAN_AGENT";
             using var res = await http.PostAsJsonAsync($"{GraphBase}/{ApiVersion}/me/messages?access_token={token}", body, ct);
             var raw = await res.Content.ReadAsStringAsync(ct);
 

@@ -278,8 +278,166 @@ Messenger = **HMAC**-SHA256(appSecret, thânThô) trong `X-Hub-Signature-256`; T
 cả** — chỉ so chuỗi bí mật trong `X-Telegram-Bot-Api-Secret-Token`, nên **thiếu chuỗi đó là ai biết
 địa chỉ webhook cũng bơm tin giả vào hộp thư**.
 
-⚠️ **Cửa sổ gửi khác nhau THẬT:** Zalo 48h · Messenger 24h · Telegram và web **không giới hạn**. Áp
-một luật chung là hoặc tự khoá tay mình (Telegram), hoặc để tin biến mất (Messenger).
+⚠️ **Cửa sổ gửi khác nhau THẬT:** Zalo 48h · Messenger/Instagram/WhatsApp 24h · Telegram, TikTok
+và web **không giới hạn**. Áp một luật chung là hoặc tự khoá tay mình (Telegram), hoặc để tin biến
+mất (Messenger).
+
+⚠️ **Messenger và Instagram còn một cửa thứ hai: 7 NGÀY cho NGƯỜI THẬT** (nhãn `HUMAN_AGENT`, đổi
+28/08/2026). Ngoài 24h, tin do **nhân viên** gõ vẫn gửi được tới 7 ngày kể từ tin của khách; tin do
+**trợ lý** sinh ra thì không — đính nhãn đó cho tin của bot là vi phạm chính sách Meta và có thể bị
+khoá quyền nhắn tin của cả Trang. Vì thế `ComputeSendWindow` nhận thêm `ChatSender`, và **mặc định
+là bot** (chặt hơn): chỗ gọi nào quên truyền thì mất quyền chứ không được thêm quyền. WhatsApp
+**không** có cửa này — ngoài 24h phải dùng mẫu đã duyệt. Đường gửi có nhãn tách riêng ở
+[`ILateHumanReplySender`](../../TourkitAiProxy.Services/Chat/Channels/IChatChannelAdapter.cs), không
+nhét vào chữ ký chung: bốn kênh còn lại không có khái niệm này.
+
+### Cấu hình trợ lý (theo TỪNG công ty)
+
+[`chat_bot_settings`](../../TourkitAiProxy.Infrastructure/Chat/Inbox/ChatBotSettingsRepository.cs)
+trong **CSDL chat (PostgreSQL)** — không phải `dbo.TenantChannelSettings` bên SQL Server, vì bảng
+đó dùng chung với cụm bản tin và worker của `toutkit-app`. Cụm chat tách hẳn, cấu hình cũng vậy.
+
+Trước 28/08/2026 lời dặn cho bot nằm ở `Chat:SystemPrompt` trong `appsettings.json` — **một
+prompt cho MỌI công ty**. Cấu hình một sản phẩm nhiều khách hàng bằng file cấu hình máy chủ chỉ
+đúng khi có đúng một khách hàng.
+
+⚠️ **Lời dặn của công ty NỐI THÊM, tuyệt đối không thay thế khung.** Khung chứa luật chống bịa
+(giá tour, lịch khởi hành, số chỗ còn, khuyến mãi) — bot này **không đọc dữ liệu thật của công
+ty**, nên bỏ khung đi là nó bịa giá và hứa giữ chỗ với khách thật. Và khung đặt **SAU** phần
+công ty viết: phần cuối là phần model bám chặt nhất, nên luật cấm phải nằm cuối để một câu vô ý
+("cứ báo giá luôn cho khách") không đè được lên. Có test cho cả hai điều này.
+
+⚠️ **Bot phải đọc lại đoạn hội thoại.** Trước đây `GenerateReplyAsync` chỉ nhận cụm tin vừa tới:
+
+```
+Khách: "Tour Nhật bao nhiêu tiền ạ?"
+Bot:   "Dạ em kiểm tra rồi báo lại anh ngay…"
+Khách: "Thế còn tháng 10?"
+Bot:   ← chỉ thấy "Thế còn tháng 10?", không biết đang nói về tour nào
+```
+
+`ChatRules.BuildConversationPrompt` dựng bản ghi hội thoại (tầng AI chỉ nhận MỘT chuỗi prompt,
+không có mảng lượt). Nó **bỏ tin `Failed` và `Pending`** — khách chưa hề đọc chúng, đưa vào là
+bot tưởng mình đã nói rồi. Nhân viên và trợ lý ghi **chung nhãn "Mình"**: với khách thì cả hai
+đều là công ty.
+
+⚠️ Đọc rất thường xuyên (mỗi tin khách nhắn là một lượt) nên kho nhớ tạm 60 giây trong bộ nhớ,
+và **dọn ngay khi Lưu** — chờ 60 giây mới thấy hiệu lực thì người vừa bấm tưởng nút Lưu hỏng.
+
+### Nút bấm dưới tin
+
+**Chỉ HAI kiểu, cố ý.** Dự án tham chiếu gắn vào nút một `payload` trỏ tới bước trong luồng của
+nó — bên mình **không có trình dựng luồng**, bot là trợ lý AI đọc CRM. Nên:
+
+- **Mở liên kết** (`url` có giá trị) — bấm là mở trang.
+- **Trả lời nhanh** (`url` rỗng) — bấm là khách **nói đúng câu trên nút**. Nền tảng gửi chữ đó
+  về như một tin của khách, rồi trợ lý xử như mọi câu khác.
+
+Vế thứ hai khép kín mà không cần cơ chế nào thêm: bộ bóc tin **vốn đã** ghi lượt bấm bằng CHỮ
+TRÊN NÚT chứ không phải mã kỹ thuật (xem `MetaMessagingParser`). Không có trạng thái nào phải
+giữ giữa hai lượt.
+
+| Kênh | Số nút tối đa | Ghi chú |
+|---|---|---|
+| Messenger · Instagram | **13** trả lời nhanh · **3** nếu có nút liên kết | hai cơ chế khác nhau, xem dưới |
+| Telegram | 8 | `inline_keyboard`, gộp cả hai kiểu vào một cơ chế |
+| Zalo | 5 | `oa.open.url` / `oa.query.show` — tên trường khác hẳn Meta |
+| WhatsApp | 3, và **0 nếu có nút liên kết** | nút liên kết chỉ sống trong mẫu đã duyệt |
+| TikTok | 0 | không có nút |
+
+⚠️ **Vượt giới hạn là nền tảng từ chối CẢ TIN**, không phải cắt bớt nút — khách không nhận được
+gì. Vì thế `ChatRules.FitButtons` cắt trước khi gọi API, ở **cả hai chỗ**: endpoint `/send` (để
+báo lại cho nhân viên trong cùng lượt bấm) và worker gửi (chốt chặn cuối). Cắt thì **phải nói
+ra** — im lặng cắt thì nhân viên soạn năm nút, khách thấy ba, không ai biết vì sao.
+
+⚠️ **Meta có HAI cơ chế nút khác hẳn nhau** — chọn nhầm thì tin vẫn đi nhưng hỏng khó thấy:
+`quick_replies` (tối đa 13, không chứa được liên kết, biến mất sau khi bấm) và khung nút
+`button` template (tối đa 3, chứa được liên kết, nằm lại trong dòng tin mãi mãi). Nhét liên kết
+vào `quick_replies` là Meta bỏ luôn phần liên kết. Phần thuần ở
+[`MetaButtonBuilder`](../../TourkitAiProxy.Services/Chat/Channels/MetaButtonBuilder.cs), có test.
+
+⚠️ **Telegram cắt `callback_data` theo BYTE, không theo ký tự** — chặn ở 64 byte, mà tiếng Việt
+có dấu tốn 2–3 byte một ký tự nên nhãn 25 chữ cái đã vượt, và Telegram từ chối cả tin.
+
+Nút lưu ở cột `chat_messages.buttons` (jsonb) để vẽ lại khi đọc hội thoại cũ, và ở
+`chat_quick_replies.buttons` để mẫu trả lời nhanh mang theo nút. Đọc lại **luôn qua**
+`ChatRules.ReadButtons` — nó lọc `http(s)`, vì nút do người dùng tự đặt là dữ liệu không tin được.
+
+### Tin mẫu đã duyệt — nhắn khi cửa sổ đã đóng
+
+Hết 24h (Meta) hoặc 48h (Zalo) là hộp thư **câm hẳn**. Mẫu đã được nền tảng duyệt là đường
+**duy nhất** còn lại. Giao diện đặt nút ngay trong hộp báo "hết hạn" ở ô soạn — đúng chỗ và
+đúng lúc người dùng gặp bức tường.
+
+| Kênh | Có mẫu? | Gửi theo | Tham số |
+|---|---|---|---|
+| WhatsApp | ✅ | id số điện thoại | đánh SỐ, tách theo khối |
+| Messenger | ✅ | PSID, `messaging_type: UTILITY` | như WhatsApp |
+| Zalo (ZNS) | ✅ | **SỐ ĐIỆN THOẠI của khách** | TÊN tự đặt |
+| Instagram | ❌ | Meta không cấp mẫu cho kênh này | |
+| Telegram · TikTok | ❌ | không có cửa sổ nên không cần | |
+
+⚠️ **Ba cơ chế khác hẳn nhau, đừng gộp.** Meta ghép tham số **theo VỊ TRÍ trong mảng, không
+đọc tên khoá** — sắp sai thứ tự là khách nhận tin với các ô hoán chỗ cho nhau, mà lượt gọi vẫn
+trả về thành công. Và Meta đánh `{{1}}`, `{{2}}`… **đếm lại từ đầu trong TỪNG khối** (tiêu đề
+có `{{1}}` riêng, thân tin có `{{1}}` riêng), nên khoá ô mang cả tên khối: `body:1`, `header:1`.
+Phần thuần nằm ở [`MetaTemplateParser`](../../TourkitAiProxy.Services/Chat/Channels/MetaTemplateParser.cs),
+dùng chung cho WhatsApp + Messenger, có test.
+
+⚠️ **ZNS gửi theo SỐ ĐIỆN THOẠI, không theo id người dùng Zalo.** Một hội thoại Zalo đang mở
+vẫn có thể không gửi ZNS được: mình biết khách là ai trên OA nhưng không biết số của họ. Vì thế
+có `WhyBlocked` — kiểm TRƯỚC khi bày danh sách mẫu, để nhân viên không chọn mẫu, điền năm ô rồi
+mới bị báo thiếu số.
+
+⚠️ **ZNS của hộp thư chat tách hẳn khỏi ZNS của bản tin sáng.** Bản tin xếp vào
+`dbo.OutboundMails` (SQL Server) rồi worker của `toutkit-app` mới rút ra gửi. Chat gọi thẳng
+`business.openapi.zalo.me` bằng token OA của **chính kênh chat**, vì ba lý do: cần mã tin trả về
+NGAY để gắn vào hội thoại; nhân viên bấm gửi và chờ kết quả trên màn hình; và hai kho dữ liệu
+tách hẳn (chat ở PostgreSQL). **Đừng gộp lại.**
+
+⚠️ Đường gửi mẫu **không đi qua hàng đợi gửi** như tin thường: hàng đợi kiểm cửa sổ gửi trước
+khi gọi API, mà cả điểm của tin mẫu là gửi được KHI cửa sổ đã đóng — qua hàng đợi thì mọi tin
+mẫu đều bị chính chốt chặn đó loại bỏ.
+
+### Khôi phục hội thoại cũ
+
+Câu hỏi hay gặp: *nối kênh xong, các đoạn chat có từ trước có lấy lại được không?* Câu trả lời
+**khác nhau theo từng kênh**, và bốn trong sáu kênh là **không**:
+
+| Kênh | Lấy lại được? | Đường nào |
+|---|---|---|
+| Messenger | ✅ | `GET /{pageId}/conversations` → `GET /{convId}/messages`, phân trang bằng cursor |
+| Instagram | ✅ | y hệt Messenger, nhưng qua `graph.instagram.com` và token đi ở header |
+| WhatsApp | ⚠️ chỉ khi chuyển từ ứng dụng WhatsApp Business | Meta **tự đẩy** qua trường webhook `history`, sau khi mình gọi `POST /{phoneNumberId}/smb_app_data` |
+| Telegram | ❌ | Bot API chỉ cho bot thấy tin gửi tới nó **sau khi bot được tạo**. Không có API đọc quá khứ. |
+| Zalo | ❌ | Open API không có đầu đọc hội thoại |
+| TikTok | ❌ | có đầu đọc nhưng đòi tư cách **Messaging Partner**, phải xin duyệt riêng |
+
+**Messenger / Instagram** — nằm sau cờ riêng `Features:ChatHistoryImport` và **người dùng tự bấm**
+từng tài khoản (`POST .../accounts/{id}/import-history`, tra tiến độ bằng `GET` cùng đường). Không
+tự chạy lúc nối: một Trang bán hàng lâu năm có hàng chục nghìn tin, và gọi Graph quá nhiều là
+Facebook chặn tạm cả ứng dụng — lúc đó **tin trực tiếp cũng ngừng về**, tức lấy lịch sử làm hỏng
+chính việc đang chạy. Chặn ở 200 hội thoại × 200 tin mỗi lượt; hết chặn thì bấm lại, phần đã ghi
+được chống trùng bỏ qua.
+
+[`MetaHistoryImporter`](../../TourkitAiProxy.Services/Chat/Channels/MetaHistoryImporter.cs) **không
+ghi thẳng vào bảng tin** — nó xếp từng trang vào hàng đợi `chat_inbound_events` dưới vỏ
+`{"tourkit_lich_su": …}`, rồi `MetaMessagingParser` nhận ra vỏ đó và bóc. Nhờ vậy được lại nguyên
+bộ: chống trùng ở tầng CSDL, chạy lại được khi mất điện, và **dùng chung đúng một đường ghi tin với
+webhook** thay vì một đường thứ hai âm thầm lệch dần.
+
+⚠️ **Tin cũ phải mang cờ `IsHistory`**, và lõi xử lý nó ở một nhánh RIÊNG. Ba việc lõi làm với tin
+thường đều sai với tin cũ: sinh câu trả lời (một năm lịch sử = hàng trăm câu trợ lý gửi cho khách
+**hôm nay**, về chuyện đã xong từ lâu — không rút lại được), cho bot câm 30 phút tính từ giờ, và chờ
+4 giây gộp tin nhân với vài nghìn tin. Thời điểm lấy từ `SentUtc` của chính gói tin, không phải giờ
+nhập — bỏ qua là cả năm hội thoại dồn vào một phút. Sau khi ghi, `RecomputeActivityAsync` tính lại
+mốc hoạt động **từ chính các tin**: dùng `TouchConversationAsync` thì hội thoại chết ba năm nhảy lên
+đầu hộp thư như vừa có người nhắn.
+
+⚠️ **Chiều tin không đọc từ "id của mình".** Ở Graph, `from.id != <id khách>` là tin của mình; ở
+gói `history` của WhatsApp, `thread.id` **chính là** số khách nên `from != thread.id` là tin của
+mình. Cả hai cách đều không cần biết id của chính công ty — mà id đó thì Instagram trả về khác hẳn
+chuỗi `me` mình gửi lên, và gói lịch sử WhatsApp không phải lúc nào cũng có.
 
 **NHIỀU tài khoản mỗi kênh** (đổi 24/08). Một công ty du lịch có nhiều Trang Facebook cho các chi
 nhánh, nhiều OA Zalo, nhiều bot Telegram cho từng đội sale — ép về một tài khoản/kênh là sai với thực
@@ -521,8 +679,9 @@ chỉ sống trong một hàm, không phải bề mặt API, còn đổi hàng l
 sửa trúng chữ trong câu chú thích tiếng Việt. Viết mới thì đặt tiếng Anh.
 
 **Sáu luật sai-là-hỏng**, tách thuần ở [`ChatRules`](../../TourkitAiProxy.Domain/Chat/ChatRules.cs), có test:
-1. **Cửa sổ gửi** — Zalo 48h / Messenger 24h kể từ tin cuối CỦA KHÁCH. **Chưa có tin nào của khách =
-   ĐÓNG**, không phải mở. Hết cửa sổ thì khoá ô soạn kèm lý do, đừng để gọi API rồi mới biết.
+1. **Cửa sổ gửi** — Zalo 48h / Meta 24h kể từ tin cuối CỦA KHÁCH, và **thêm 7 ngày cho nhân viên**
+   ở Messenger + Instagram. **Chưa có tin nào của khách = ĐÓNG**, không phải mở. Hết cửa sổ thì
+   khoá ô soạn kèm lý do, đừng để gọi API rồi mới biết.
 2. **Bot câm khi người thật vào** — `bot_resume_at` là **MỐC THỜI GIAN, không phải cờ**: câm có thời
    hạn rồi tự nói lại. Làm thành cờ thì sẽ có hội thoại tắt bot vĩnh viễn mà không ai nhớ bật lại.
 3. **Chống trùng ở TẦNG CSDL** (chỉ mục duy nhất trên `external_msg_id`), không chỉ kiểm trong code —

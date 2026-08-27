@@ -1,4 +1,4 @@
-// pages/help.jsx — Trang Hướng dẫn sử dụng (kiểu tài liệu Google Doc).
+﻿// pages/help.jsx — Trang Hướng dẫn sử dụng (kiểu tài liệu Google Doc).
 // Route: /help (mục lục) + /help/:slug (đọc 1 guide).
 // Nội dung là markdown ở docs/features/<slug>.md (server serve qua /docs/features/…);
 // render markdown ngay tại client bằng renderer tối giản (guides chỉ dùng heading/list/
@@ -13,6 +13,7 @@
     { slug: 'danh-gia-khach-hang', label: 'Chấm điểm khách hàng' },
     { slug: 'tro-ly-so-lieu',      label: 'Trợ lý số liệu' },
     { slug: 'hop-thu-ai',          label: 'Hộp thư AI' },
+    { slug: 'hop-thu-chat',        label: 'Hộp thư chat đa kênh' },
     { slug: 'uu-tien-deal',        label: 'AI phân tích Cơ hội' },
     { slug: 'tham-dinh-visa',      label: 'Thẩm định Visa' },
     { slug: 'tu-dong-hoa',         label: 'Tự động hóa' },
@@ -206,6 +207,7 @@
     '/customers': 'danh-gia-khach-hang',
     '/assistant': 'tro-ly-so-lieu',
     '/mail': 'hop-thu-ai',
+    '/chat-inbox': 'hop-thu-chat',
     '/deals': 'uu-tien-deal',
     '/visa': 'tham-dinh-visa',
     '/visa/history': 'tham-dinh-visa',

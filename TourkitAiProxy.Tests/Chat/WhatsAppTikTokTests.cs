@@ -16,11 +16,15 @@ namespace TourkitAiProxy.Tests.Chat;
 /// </summary>
 public class WhatsAppTikTokTests
 {
-    private static IConfiguration Cfg() => new ConfigurationBuilder()
-        .AddInMemoryCollection(new Dictionary<string, string?>
+    private static IConfiguration Cfg(Dictionary<string, string?>? them = null)
+    {
+        var g = new Dictionary<string, string?>
         {
             ["ConnectionStrings:PushDb"] = "Server=khong-dung;Database=x;",
-        }).Build();
+        };
+        foreach (var kv in them ?? new()) g[kv.Key] = kv.Value;
+        return new ConfigurationBuilder().AddInMemoryCollection(g).Build();
+    }
 
     private static TourkitAiProxy.Infrastructure.Chat.Channels.ChannelCredentialStore Kho(IConfiguration cfg)
     {
@@ -265,5 +269,208 @@ public class WhatsAppTikTokTests
         using var h = new HMACSHA256(Encoding.UTF8.GetBytes(biMat));
         var s = Convert.ToHexString(h.ComputeHash(Encoding.UTF8.GetBytes($"{t}.{than}"))).ToLowerInvariant();
         return $"t={t},s={s}";
+    }
+
+    // ── Nối bằng một nút ────────────────────────────────────────────────────
+
+    private static WhatsAppChatAdapter Wa(Dictionary<string, string?> khai)
+    {
+        var cfg = Cfg(khai);
+        return new WhatsAppChatAdapter(null!, Kho(cfg), cfg,
+            Microsoft.Extensions.Logging.Abstractions.NullLogger<WhatsAppChatAdapter>.Instance);
+    }
+
+    private static TikTokChatAdapter Tt(Dictionary<string, string?> khai)
+    {
+        var cfg = Cfg(khai);
+        return new TikTokChatAdapter(null!, Kho(cfg), cfg,
+            Microsoft.Extensions.Logging.Abstractions.NullLogger<TikTokChatAdapter>.Instance);
+    }
+
+    [Fact]
+    public void WhatsApp_xin_quyen_bang_config_id_KHONG_phai_scope()
+    {
+        // Đây là chỗ khác Messenger nhiều người chép nhầm nhất: WhatsApp đi bằng config_id của
+        // luồng Embedded Signup. Truyền scope vào thì Meta BỎ QUA — người dùng đi hết luồng,
+        // màn hình báo thành công, mà không quyền nào được cấp và mình không tra ra tài khoản.
+        var wa = Wa(new Dictionary<string, string?>
+        {
+            ["Chat:WhatsApp:AppId"] = "222",
+            ["Chat:WhatsApp:AppSecret"] = "bí-mật",
+            ["Chat:WhatsApp:ConfigId"] = "cfg-9",
+        });
+        Assert.True(wa.HasPlatformApp);
+
+        var url = wa.PermissionUrlFor("https://travelai.vn/api/v1/chat/oauth/whatsapp/callback", "st-2");
+        Assert.Contains("client_id=222", url);
+        Assert.Contains("config_id=cfg-9", url);
+        Assert.Contains("response_type=code", url);
+        Assert.Contains("state=st-2", url);
+
+        // extras bật đúng luồng Embedded Signup. Thiếu nó thì Meta mở hộp thoại đăng nhập
+        // thường, người dùng không được dẫn qua bước tạo/chọn tài khoản WhatsApp.
+        Assert.Contains("sessionInfoVersion", Uri.UnescapeDataString(url));
+    }
+
+    [Fact]
+    public void WhatsApp_thieu_ConfigId_thi_KHONG_bao_la_noi_nhanh_duoc()
+    {
+        // Giao diện dựa vào cờ này để chọn giữa "một nút" và "khai tay". Báo bừa là người dùng
+        // bấm nút rồi rơi vào màn hình lỗi của Meta, không hiểu vì sao.
+        Assert.False(Wa(new Dictionary<string, string?>
+        {
+            ["Chat:WhatsApp:AppId"] = "222",
+            ["Chat:WhatsApp:AppSecret"] = "bí-mật",
+        }).HasPlatformApp);
+    }
+
+    [Fact]
+    public void WhatsApp_dang_ky_du_bon_truong_ke_ca_lich_su_chat_cu()
+    {
+        // history là đường DUY NHẤT trong sáu kênh lấy lại được đoạn hội thoại có từ TRƯỚC lúc
+        // nối. Bỏ nó thì hộp thư vẫn có tin mới nên nhìn qua tưởng chạy đúng, mà lịch sử thì mất
+        // hẳn — và không lấy lại được sau. smb_message_echoes cũng vậy: thiếu nó thì hộp thư chỉ
+        // thấy câu khách hỏi mà không thấy câu nhân viên đã trả lời từ điện thoại.
+        foreach (var can in new[] { "messages", "history", "smb_app_state_sync", "smb_message_echoes" })
+            Assert.Contains(can, WhatsAppChatAdapter.WabaEvents);
+    }
+
+    [Fact]
+    public void TikTok_xin_du_ba_quyen_nhan_tin()
+    {
+        var tt = Tt(new Dictionary<string, string?>
+        {
+            ["Chat:TikTok:ClientId"] = "ck-1",
+            ["Chat:TikTok:ClientSecret"] = "bí-mật",
+        });
+        Assert.True(tt.HasPlatformApp);
+
+        var url = tt.PermissionUrlFor("https://travelai.vn/api/v1/chat/oauth/tiktok/callback", "st-3");
+        Assert.StartsWith("https://www.tiktok.com/v2/auth/authorize/?", url);
+
+        // TikTok dùng client_key, KHÔNG phải client_id như mọi OAuth khác.
+        Assert.Contains("client_key=ck-1", url);
+        Assert.Contains("response_type=code", url);
+        Assert.Contains("state=st-3", url);
+
+        var quyen = Uri.UnescapeDataString(url);
+        foreach (var can in new[] { "message.list.read", "message.list.send", "message.list.manage" })
+            Assert.Contains(can, quyen);
+
+        // Thiếu cái này thì ĐỔI TÀI KHOẢN không được: bấm Kết nối là TikTok lặng lẽ nối lại đúng
+        // tài khoản lần trước, không hiện màn hình chọn nào.
+        Assert.Contains("disable_auto_auth=1", url);
+    }
+
+    [Fact]
+    public void TikTok_thieu_ClientId_thi_KHONG_bao_la_noi_nhanh_duoc()
+    {
+        Assert.False(Tt(new Dictionary<string, string?>
+        {
+            ["Chat:TikTok:ClientSecret"] = "bí-mật",
+        }).HasPlatformApp);
+    }
+
+    // ── Khôi phục hội thoại cũ ──────────────────────────────────────────────
+
+    [Fact]
+    public void Lich_su_doc_chieu_tin_tu_ma_luong_khong_can_biet_so_cua_minh()
+    {
+        // thread.id CHÍNH LÀ số của khách. Nhờ vậy from != thread.id nghĩa là tin của mình — và
+        // không phải đi tìm số của công ty, thứ mà gói lịch sử không phải lúc nào cũng có.
+        var goi = """
+        {"entry":[{"changes":[{"field":"history","value":{
+          "contacts":[{"wa_id":"84900111222","profile":{"name":"Chị Lan"}}],
+          "history":[{"threads":[{"id":"84900111222","messages":[
+            {"id":"wamid.A","from":"84900111222","timestamp":"1700000000",
+             "type":"text","text":{"body":"Tour Nhật còn chỗ không ạ"}},
+            {"id":"wamid.B","from":"84988000000","timestamp":"1700000600",
+             "type":"text","text":{"body":"Dạ còn 4 chỗ chị nhé"}}
+          ]}]}]}}]}]}
+        """;
+
+        var sk = Wa(new Dictionary<string, string?>()).Parse(goi);
+        Assert.Equal(2, sk.Count);
+
+        // Cả hai đều là tin CŨ — nếu không, mỗi câu khách hỏi năm ngoái sẽ kích một câu trả lời
+        // của trợ lý gửi thẳng cho khách hôm nay.
+        Assert.All(sk, e => Assert.True(e.IsHistory));
+        Assert.All(sk, e => Assert.Equal("84900111222", e.ExternalUserId));
+
+        Assert.False(sk[0].IsEcho);   // from == thread.id → khách nói
+        Assert.True(sk[1].IsEcho);    // from != thread.id → mình nói
+
+        // Giờ THẬT của tin, không phải giờ nhập. Sai chỗ này là cả năm hội thoại dồn vào một phút.
+        Assert.Equal(new DateTime(2023, 11, 14, 22, 13, 20, DateTimeKind.Utc), sk[0].SentUtc);
+        Assert.Equal("Chị Lan", sk[0].DisplayName);
+    }
+
+    [Fact]
+    public void Lich_su_bo_tin_Meta_khong_giai_ma_duoc()
+    {
+        // type="errors" không có nội dung dùng được. Ghi vào là hộp thư đầy dòng trống mà không
+        // ai biết là tin gì.
+        var goi = """
+        {"entry":[{"changes":[{"field":"history","value":{"history":[{"threads":[
+          {"id":"84900111222","messages":[
+            {"id":"wamid.X","from":"84900111222","timestamp":"1700000000","type":"errors"}
+          ]}]}]}}]}]}
+        """;
+        Assert.Empty(Wa(new Dictionary<string, string?>()).Parse(goi));
+    }
+
+    [Fact]
+    public void Tieng_vong_lay_KHACH_o_truong_to_khong_phai_from()
+    {
+        // Ở tiếng vọng, from là số của CÔNG TY. Lấy nhầm đầu là hội thoại mang tên chính mình.
+        var goi = """
+        {"entry":[{"changes":[{"field":"smb_message_echoes","value":{
+          "message_echoes":[{"id":"wamid.E","from":"84988000000","to":"84900111222",
+            "timestamp":"1700000600","type":"text","text":{"body":"Dạ em gửi giá ngay"}}]
+        }}]}]}
+        """;
+
+        var sk = Assert.Single(Wa(new Dictionary<string, string?>()).Parse(goi));
+        Assert.Equal("84900111222", sk.ExternalUserId);
+        Assert.True(sk.IsEcho);
+
+        // KHÔNG phải tin cũ: nhân viên vừa gõ từ điện thoại xong. Đánh dấu nhầm là lịch sử thì
+        // bot không bị câm và sẽ nói đè lên người thật.
+        Assert.False(sk.IsHistory);
+        Assert.Equal("Dạ em gửi giá ngay", sk.Text);
+    }
+
+    [Fact]
+    public void Lich_su_co_anh_thi_giu_ma_tep_chu_khong_tai_ve()
+    {
+        // Gói lịch sử có thể chở hàng nghìn tệp. Tải hết ngay lúc nhận webhook là treo cả đường
+        // nhận tin — mà webhook có hạn trả lời.
+        var goi = """
+        {"entry":[{"changes":[{"field":"history","value":{"history":[{"threads":[
+          {"id":"84900111222","messages":[
+            {"id":"wamid.I","from":"84900111222","timestamp":"1700000000","type":"image",
+             "image":{"id":"media-77","mime_type":"image/jpeg","caption":"Hộ chiếu em đây"}}
+          ]}]}]}}]}]}
+        """;
+
+        var sk = Assert.Single(Wa(new Dictionary<string, string?>()).Parse(goi));
+        Assert.Equal(ChatKind.Image, sk.Kind);
+        Assert.Equal("Hộ chiếu em đây", sk.Text);
+        Assert.Contains("media-77", sk.AttachmentJson);
+    }
+
+    [Fact]
+    public void Lich_su_loai_chua_ho_tro_van_giu_mot_dong_noi_ro_la_gi()
+    {
+        // Dòng trống giữa hội thoại khiến người đọc tưởng mất tin.
+        var goi = """
+        {"entry":[{"changes":[{"field":"history","value":{"history":[{"threads":[
+          {"id":"84900111222","messages":[
+            {"id":"wamid.L","from":"84900111222","timestamp":"1700000000","type":"location"}
+          ]}]}]}}]}]}
+        """;
+
+        var sk = Assert.Single(Wa(new Dictionary<string, string?>()).Parse(goi));
+        Assert.Equal("[location]", sk.Text);
     }
 }

@@ -21,14 +21,20 @@
 
   // Chữ viết tắt thay cho biểu tượng thương hiệu: ba kênh ba chữ khác nhau nên phân biệt được
   // ngay, mà không phải kéo logo của bên thứ ba về.
+  // Mỗi kênh dùng ĐÚNG dấu hiệu thật của nó. Zalo và Facebook nhận diện bằng CHỮ (Z, f) — đó là
+  // chữ ký thương hiệu, không phải viết tắt. Bốn kênh còn lại nhận diện bằng HÌNH.
+  //
+  // Bản đầu viết tắt 'ig' / 'wa' / 'tt' cho ba kênh mới: hai chữ thường, nhỏ hơn hẳn chữ ký thật
+  // bên cạnh, và không ai nhận ra đó là kênh nào. Trộn chữ ký thật với viết tắt tự bịa là chỗ
+  // dải kênh trông lệch.
   const KENH = {
     0: { ten: 'Zalo', chu: 'Z' },
     1: { ten: 'Messenger', chu: 'f' },
-    4: { ten: 'Instagram', chu: 'ig' },
-    5: { ten: 'WhatsApp', chu: 'wa' },
-    6: { ten: 'TikTok', chu: 'tt' },
+    4: { ten: 'Instagram', hinh: 'instagram' },
+    5: { ten: 'WhatsApp', hinh: 'whatsapp' },
+    6: { ten: 'TikTok', hinh: 'tiktok' },
     2: { ten: 'Web', chu: 'W' },
-    3: { ten: 'Telegram', chu: 'T' },
+    3: { ten: 'Telegram', hinh: 'telegram' },
   };
   const KENH_SONG = [0, 1, 4, 5, 6, 3];   // kênh đã nối thật; Web chỉ hiện khi có dữ liệu
 
@@ -106,7 +112,12 @@
   function HuyHieuKenh({ kenh, day }) {
     const k = KENH[kenh];
     if (!k) return null;
-    return <span className={'ci-hh' + (day ? ' day' : '')} title={k.ten}>{k.chu}</span>;
+    // Hình vẽ theo cỡ chữ quanh nó nên nằm cùng hàng với chữ ký Z/f, không nhảy dòng.
+    return (
+      <span className={'ci-hh' + (day ? ' day' : '') + (k.hinh ? ' hinh' : '')} title={k.ten}>
+        {k.hinh ? <window.Icon name={k.hinh} size={13} stroke={1.9} /> : k.chu}
+      </span>
+    );
   }
 
   // Dấu tích trạng thái gửi. Ghép từ biểu tượng "check" có sẵn thay vì vẽ tay đường SVG mới.
@@ -256,10 +267,151 @@
           <div className={'ci-bong ' + lop}>
             {nhan && <div className="ci-nhan">{nhan}</div>}
             {noiDung}
+            {/* Nút ĐÃ GỬI kèm tin. Vẽ lại để đọc hội thoại là thấy đúng thứ khách nhìn thấy —
+                không vẽ thì dòng tin chỉ còn chữ, và không ai hiểu vì sao khách trả lời gọn lỏn
+                "Nhật Bản" giữa chừng.
+
+                CỐ Ý không bấm được: đây là bản ghi lại, không phải nút thật. Cho bấm thì nhân
+                viên tưởng mình đang thay khách chọn. Nút mở liên kết thì mở được — nó chỉ dẫn
+                tới một trang, và nhân viên xem thử khách sẽ thấy gì là việc chính đáng. */}
+            {tin.buttons?.length > 0 && (
+              <div className="ci-nut-tin">
+                {tin.buttons.map((b, i) => b.url
+                  ? <a key={i} href={b.url} target="_blank" rel="noopener noreferrer">{b.chu}</a>
+                  : <span key={i}>{b.chu}</span>)}
+              </div>
+            )}
             {gio}
           </div>
           {camXuc}
         </div>
+      </div>
+    );
+  }
+
+  // ── Tin mẫu đã duyệt ──────────────────────────────────────────────────────
+  //
+  // Chỉ hiện khi cửa sổ trả lời tự do ĐÃ ĐÓNG — lúc đó đây là đường duy nhất còn lại. Mở nó ra
+  // lúc vẫn nhắn tự do được là dụ người dùng tiêu một tin trả phí cho việc gõ tay vẫn làm được.
+  function BangTinMau({ hoiThoai, onDong, onGuiXong, pushToast }) {
+    const [ds, setDs] = React.useState(null);      // null = đang tải
+    const [chan, setChan] = React.useState(null);  // lý do kênh này không gửi mẫu được
+    const [chonMau, setChonMau] = React.useState(null);
+    const [oDien, setODien] = React.useState({});
+    const [dangGui, setDangGui] = React.useState(false);
+
+    React.useEffect(() => {
+      let huy = false;
+      (async () => {
+        // try/catch bao TRỌN, không chỉ kiểm r.ok: mạng đứt hay máy chủ chết giữa chừng thì
+        // authedFetch NÉM chứ không trả về phản hồi hỏng — và lời hứa bị từ chối ở đây không
+        // chạm tới setDs nào cả, nên bảng kẹt mãi ở "Đang đọc danh sách mẫu…". Người dùng ngồi
+        // chờ một thứ không bao giờ tới, mà cũng không có lỗi nào hiện ra để họ biết mà đóng.
+        try {
+          const r = await authedFetch('/api/v1/chat/conversations/' + hoiThoai + '/templates');
+          if (huy) return;
+          if (!r.ok) { setDs([]); setChan('Không đọc được danh sách mẫu. Thử lại sau ít phút.'); return; }
+          const j = await r.json();
+          setChan(j.supported === false || j.blocked ? j.reason : null);
+          setDs(j.items || []);
+        } catch {
+          if (huy) return;
+          setDs([]);
+          setChan('Không đọc được danh sách mẫu. Thử lại sau ít phút.');
+        }
+      })();
+      return () => { huy = true; };
+    }, [hoiThoai]);
+
+    // Điền sẵn ví dụ nền tảng kèm theo. Nhân viên sửa nhanh hơn gõ từ đầu, và nhìn ví dụ mới
+    // đoán ra ô đó là gì — Meta không đặt tên ô, chỉ đánh số.
+    function chon(m) {
+      setChonMau(m);
+      const d = {};
+      (m.slots || []).forEach(o => { d[o.key] = o.sample || ''; });
+      setODien(d);
+    }
+
+    async function gui() {
+      setDangGui(true);
+      try {
+        const r = await authedFetch('/api/v1/chat/conversations/' + hoiThoai + '/send-template', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ templateId: chonMau.id, values: oDien }),
+        });
+        let j = null; try { j = await r.json(); } catch {}
+        if (!r.ok) { pushToast(j?.error || 'Gửi không được', 'error'); return; }
+        pushToast('Đã gửi tin mẫu', 'success');
+        await onGuiXong();
+      } finally { setDangGui(false); }
+    }
+
+    const thieuO = (chonMau?.slots || []).some(o => !(oDien[o.key] || '').trim());
+
+    return (
+      <div className="ci-mau-tin">
+        <div className="ci-mau-tin-dau">
+          <b>Tin mẫu đã duyệt</b>
+          <button className="ci-nut-icon" onClick={onDong} aria-label="Đóng">
+            <window.Icon name="close" size={14} />
+          </button>
+        </div>
+
+        {ds === null && <div className="ci-mau-tin-trong">Đang đọc danh sách mẫu…</div>}
+        {chan && <div className="ci-mau-tin-trong">{chan}</div>}
+
+        {/* Chưa đăng ký mẫu nào là trạng thái BÌNH THƯỜNG của công ty mới, không phải lỗi —
+            nên nói cách làm tiếp, đừng chỉ báo trống. */}
+        {ds !== null && !chan && ds.length === 0 && (
+          <div className="ci-mau-tin-trong">
+            Kênh này chưa có mẫu nào được duyệt. Đăng ký mẫu trong trang quản trị của nền tảng
+            (Zalo ZNS · Meta Business), duyệt xong là nó tự hiện ở đây.
+          </div>
+        )}
+
+        {ds !== null && !chan && ds.length > 0 && !chonMau && (
+          <ul className="ci-mau-tin-ds">
+            {ds.map(m => (
+              <li key={m.id}>
+                <button type="button" disabled={!m.ready} onClick={() => chon(m)}>
+                  <span className="ci-mau-tin-ten">{m.name}</span>
+                  {/* Mẫu chờ duyệt vẫn hiện, mờ đi. Giấu hẳn thì người dùng tưởng mẫu bị mất
+                      rồi đăng ký lại một mẫu trùng — và Meta tính lượt duyệt. */}
+                  {!m.ready && <span className="ci-mau-tin-tt">{m.status}</span>}
+                  {m.preview && <span className="ci-mau-tin-xem">{m.preview}</span>}
+                </button>
+              </li>
+            ))}
+          </ul>
+        )}
+
+        {chonMau && (
+          <div className="ci-mau-tin-dien">
+            <button type="button" className="ci-lienket" onClick={() => setChonMau(null)}>
+              ← Chọn mẫu khác
+            </button>
+            <div className="ci-mau-tin-ten">{chonMau.name}</div>
+            {chonMau.preview && <div className="ci-mau-tin-xem">{chonMau.preview}</div>}
+
+            {(chonMau.slots || []).map(o => (
+              <label key={o.key} className="ci-o">
+                {o.label}
+                <input value={oDien[o.key] || ''} placeholder={o.sample || ''}
+                       onChange={e => setODien(p => ({ ...p, [o.key]: e.target.value }))} />
+              </label>
+            ))}
+
+            <div className="ci-tk-nut">
+              <button className="ci-nut chinh" disabled={dangGui || thieuO} onClick={gui}>
+                {dangGui ? 'Đang gửi…' : 'Gửi cho khách'}
+              </button>
+              {/* Nói TRƯỚC khi bấm: mẫu Zalo tính tiền từng tin, và tin đã gửi thì không thu lại
+                  được. Báo sau khi gửi là quá muộn. */}
+              <span className="ci-mau-tin-luuy">Tin mẫu có thể tính phí và không thu hồi được.</span>
+            </div>
+          </div>
+        )}
       </div>
     );
   }
@@ -275,6 +427,18 @@
       <div className="ci-cuaso mo">
         <window.Icon name="checkCircle" size={14} />
         <span>{ten} không giới hạn thời gian trả lời.</span>
+      </div>
+    );
+    // Quá 24 giờ nhưng vẫn trong 7 ngày: Messenger/Instagram cho NGƯỜI THẬT nhắn tiếp, trợ lý
+    // thì không. Phải nói ra — nhân viên đang quen có bot trực hộ, không nói thì họ đóng máy về
+    // và tưởng khách vẫn được trả lời.
+    if (cuaSo.lateHumanReply) return (
+      <div className="ci-cuaso muon" style={{ '--ci-con': '100%' }}>
+        <window.Icon name="user" size={12} />
+        <span>Quá 24 giờ — giờ chỉ <b>bạn</b> trả lời được, trợ lý thì không.</span>
+        <span className="ci-cuaso-phu">
+          còn {dienGio(cuaSo.hoursLeft)} trước khi {ten} đóng hẳn
+        </span>
       </div>
     );
     const sap = cuaSo.hoursLeft < 6;
@@ -671,14 +835,307 @@
       </ol>
     );
     const biMat = truong.type === 'secret';
+
+    // Ô BÍ MẬT ở form XEM LẠI: hiện trạng thái, không hiện ô nhập.
+    //
+    // Ô che sao kèm chữ mờ "để trống = giữ nguyên" vừa mời người ta gõ vào, vừa bắt họ đoán
+    // nghĩa của việc để trống — mà đoán sai ở đây là mất khoá đăng nhập của cả kênh. Người mở
+    // form này gần như luôn chỉ định đổi tên gợi nhớ; đổi khoá là việc hiếm và phải cố ý.
+    if (biMat && daKhai) return (
+      <OBiMatDaLuu truong={truong} giaTri={giaTri} onDoi={onDoi} />
+    );
+
     return (
       <label className="ci-o">
         {truong.label}
         <input type={biMat ? 'password' : 'text'}
-               placeholder={biMat && daKhai ? 'để trống = giữ nguyên' : (truong.hint || '')}
+               placeholder={truong.hint || ''}
                value={giaTri}
                onChange={e => onDoi(e.target.value)} />
       </label>
+    );
+  }
+
+  /// Khoá đã lưu: một dòng trạng thái, và ô nhập chỉ bung ra khi người dùng CHỦ ĐỘNG bấm đổi.
+  function OBiMatDaLuu({ truong, giaTri, onDoi }) {
+    const [dangDoi, setDangDoi] = useState(false);
+
+    // Bấm Thôi phải XOÁ luôn cái vừa gõ dở. Ẩn ô mà giữ giá trị thì lượt Lưu tới vẫn ghi đè
+    // khoá cũ bằng một chuỗi người dùng tưởng mình đã bỏ.
+    function thoi() { onDoi(''); setDangDoi(false); }
+
+    if (!dangDoi) return (
+      <div className="ci-bimat">
+        <span className="ci-bimat-ten">{truong.label}</span>
+        <span className="ci-bimat-tt">đã lưu</span>
+        <button type="button" className="ci-lienket" onClick={() => setDangDoi(true)}>
+          Đổi
+        </button>
+      </div>
+    );
+
+    return (
+      <div className="ci-bimat-doi">
+        <label className="ci-o">
+          {truong.label} mới
+          <input type="password" autoFocus placeholder={truong.hint || ''}
+                 value={giaTri} onChange={e => onDoi(e.target.value)} />
+        </label>
+        <div className="ci-bimat-doi-duoi">
+          <span>Bấm <b>Lưu</b> để thay khoá cũ.</span>
+          <button type="button" className="ci-lienket" onClick={thoi}>Thôi</button>
+        </div>
+      </div>
+    );
+  }
+
+  // ── Cài đặt trợ lý ────────────────────────────────────────────────────────
+  //
+  // Trước 28/08/2026 mọi công ty dùng chung MỘT lời dặn nằm trong file cấu hình máy chủ — không
+  // công ty nào khai được "bên em chuyên tour Nhật, giọng trang trọng". Màn hình này mở chỗ đó ra.
+  function CaiDatTroLy({ pushToast }) {
+    const [v, setV] = React.useState(null);
+    const [dangLuu, setDangLuu] = React.useState(false);
+
+    React.useEffect(() => {
+      let huy = false;
+      (async () => {
+        try {
+          const r = await authedFetch('/api/v1/chat/bot-settings');
+          if (huy) return;
+          setV(r.ok ? await r.json() : { error: true });
+        } catch { if (!huy) setV({ error: true }); }
+      })();
+      return () => { huy = true; };
+    }, []);
+
+    async function luu() {
+      setDangLuu(true);
+      try {
+        const r = await authedFetch('/api/v1/chat/bot-settings', {
+          method: 'PUT', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            enabled: v.enabled, persona: v.persona, greeting: v.greeting,
+            muteMinutes: v.muteMinutes, historyTurns: v.historyTurns,
+          }),
+        });
+        let j = null; try { j = await r.json(); } catch {}
+        if (!r.ok) { pushToast(j?.error || 'Lưu không được', 'error'); return; }
+        pushToast('Đã lưu cài đặt trợ lý', 'success');
+      } catch (e) { pushToast('Lưu không được: ' + e.message, 'error'); }
+      finally { setDangLuu(false); }
+    }
+
+    if (!v) return <div className="ci-trong">Đang tải…</div>;
+    if (v.error) return <div className="ci-trong">Không đọc được cài đặt trợ lý.</div>;
+
+    const gioiHan = v.limits || {};
+    return (
+      <div className="ci-tk-form">
+        {/* Công tắc đứng ĐẦU: tắt bot là mọi ô còn lại thành vô nghĩa, nên nó phải là thứ đọc
+            được trước tiên. */}
+        <label className="ci-bat">
+          <input type="checkbox" checked={v.enabled}
+                 onChange={e => setV(p => ({ ...p, enabled: e.target.checked }))} />
+          <span>
+            <b>Trợ lý tự trả lời khách</b>
+            <em>Tắt thì tin vẫn vào hộp thư, chỉ là không ai trả lời hộ — nhân viên trực toàn bộ.</em>
+          </span>
+        </label>
+
+        <label className="ci-o">
+          Trợ lý cần biết gì về công ty bạn
+          <textarea rows={7} maxLength={gioiHan.personaChars}
+                    value={v.persona || ''}
+                    placeholder={'vd: Bên em chuyên tour Nhật – Hàn – Đài, khởi hành từ Hà Nội và '
+                      + 'TP.HCM.\nXưng "em", gọi khách là "anh/chị".\nKhông nhận đoàn dưới 10 khách.\n'
+                      + 'Khách hỏi visa thì hướng dẫn nộp hồ sơ trước 20 ngày.'}
+                    onChange={e => setV(p => ({ ...p, persona: e.target.value }))} />
+        </label>
+        {/* Nói rõ giới hạn của công cụ. Không nói thì công ty viết "báo giá tour Nhật 25 triệu"
+            vào đây rồi tưởng bot sẽ báo giá — mà nó sẽ KHÔNG, vì luật chống bịa luôn thắng. */}
+        <div className="ci-ghichu">
+          Phần này <b>thêm vào</b> chứ không thay thế các luật an toàn có sẵn. Trợ lý vẫn
+          <b> không bao giờ tự báo giá, lịch khởi hành hay số chỗ còn</b> — nó chưa đọc dữ liệu
+          thật của công ty, nên gặp câu hỏi cần số liệu thì nó hẹn kiểm tra rồi báo lại.
+        </div>
+
+        <label className="ci-o">
+          Câu chào khách nhắn lần đầu
+          <input value={v.greeting || ''} placeholder="Bỏ trống = không chào, vào thẳng trả lời"
+                 onChange={e => setV(p => ({ ...p, greeting: e.target.value }))} />
+        </label>
+
+        <div className="ci-doi-o">
+          <label className="ci-o">
+            Nhân viên trả lời xong thì trợ lý im (phút)
+            <input type="number" min={0} max={1440} value={v.muteMinutes}
+                   onChange={e => setV(p => ({ ...p, muteMinutes: +e.target.value }))} />
+          </label>
+          <label className="ci-o">
+            Trợ lý nhớ lại bao nhiêu tin gần nhất
+            <input type="number" min={gioiHan.minHistory} max={gioiHan.maxHistory}
+                   value={v.historyTurns}
+                   onChange={e => setV(p => ({ ...p, historyTurns: +e.target.value }))} />
+          </label>
+        </div>
+        <div className="ci-ghichu">
+          Nhớ ít thì trợ lý không hiểu câu hỏi nối tiếp ("thế còn tháng 10?"); nhớ nhiều thì tốn
+          lượt AI hơn và dễ bám vào chuyện cũ. {gioiHan.minHistory}–{gioiHan.maxHistory} tin.
+        </div>
+
+        <div className="ci-tk-nut">
+          <button className="ci-nut chinh" disabled={dangLuu} onClick={luu}>
+            {dangLuu ? 'Đang lưu…' : 'Lưu'}
+          </button>
+        </div>
+      </div>
+    );
+  }
+
+  // ── Quản lý mẫu trả lời nhanh ─────────────────────────────────────────────
+  //
+  // Trước 28/08/2026 KHÔNG có màn hình nào — mẫu chỉ tạo được bằng gọi API tay, nên tính năng
+  // này gần như không ai dùng dù đã chạy từ lâu.
+  function QuanLyMau({ pushToast }) {
+    const [ds, setDs] = React.useState(null);
+    const [sua, setSua] = React.useState(null);   // {trigger, body, buttons[]} — null = đang không sửa
+    const [dangLuu, setDangLuu] = React.useState(false);
+
+    const tai = React.useCallback(async () => {
+      try {
+        const r = await authedFetch('/api/v1/chat/quick-replies');
+        setDs(r.ok ? (await r.json()).items || [] : []);
+      } catch { setDs([]); }
+    }, []);
+    React.useEffect(() => { tai(); }, [tai]);
+
+    async function luu() {
+      const tg = (sua.trigger || '').trim();
+      const noi = (sua.body || '').trim();
+      if (!tg || !noi) { pushToast('Cần cả lệnh gọi và nội dung', 'error'); return; }
+      setDangLuu(true);
+      try {
+        const r = await authedFetch('/api/v1/chat/quick-replies', {
+          method: 'PUT', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            trigger: tg, body: noi,
+            buttons: (sua.buttons || []).map(b => ({ label: b.chu, url: b.url })),
+          }),
+        });
+        let j = null; try { j = await r.json(); } catch {}
+        if (!r.ok) { pushToast(j?.error || 'Lưu không được', 'error'); return; }
+        pushToast('Đã lưu mẫu', 'success');
+        setSua(null);
+        await tai();
+      } finally { setDangLuu(false); }
+    }
+
+    async function xoa(m) {
+      if (!window.confirm(`Xoá mẫu "/${m.trigger}"?`)) return;
+      const r = await authedFetch('/api/v1/chat/quick-replies/' + m.id, { method: 'DELETE' });
+      if (!r.ok) { pushToast('Xoá không được', 'error'); return; }
+      await tai();
+    }
+
+    if (ds === null) return <div className="ci-trong">Đang tải…</div>;
+
+    return (
+      <div>
+        <div className="ci-tk-dau">
+          <span>{ds.length} mẫu</span>
+          <button className="ci-nut nho chinh"
+                  onClick={() => setSua(sua ? null : { trigger: '', body: '', buttons: [] })}>
+            {sua ? 'Thôi' : '+ Thêm mẫu'}
+          </button>
+        </div>
+
+        {sua && (
+          <div className="ci-tk-form">
+            <label className="ci-o">
+              Gõ gì để gọi mẫu
+              <input value={sua.trigger} placeholder="vd: gia — nhân viên gõ /gia trong ô soạn"
+                     onChange={e => setSua(p => ({ ...p, trigger: e.target.value }))} />
+            </label>
+            <label className="ci-o">
+              Nội dung
+              <textarea rows={4} value={sua.body}
+                        onChange={e => setSua(p => ({ ...p, body: e.target.value }))} />
+            </label>
+
+            <BoNut nut={sua.buttons || []} onDoi={n => setSua(p => ({ ...p, buttons: n }))} />
+
+            <div className="ci-tk-nut">
+              <button className="ci-nut chinh" disabled={dangLuu} onClick={luu}>
+                {dangLuu ? 'Đang lưu…' : 'Lưu mẫu'}
+              </button>
+            </div>
+          </div>
+        )}
+
+        {ds.length === 0 && !sua && (
+          <div className="ci-trong">
+            Chưa có mẫu nào. Mẫu giúp nhân viên gõ <b>/gia</b> là ra sẵn cả câu trả lời, kèm nút
+            bấm nếu bạn muốn — đỡ phải gõ lại những câu nói suốt ngày.
+          </div>
+        )}
+
+        {ds.map(m => (
+          <div key={m.id} className="ci-tk">
+            <div className="ci-mau-dong">
+              <b>/{m.trigger}</b>
+              <span>{m.body}</span>
+              {m.buttons?.length > 0 && (
+                <span className="ci-mau-so-nut">{m.buttons.length} nút</span>
+              )}
+              <button className="ci-lienket"
+                      onClick={() => setSua({ trigger: m.trigger, body: m.body, buttons: m.buttons || [] })}>
+                Sửa
+              </button>
+              <button className="ci-lienket nguyhiem" onClick={() => xoa(m)}>Xoá</button>
+            </div>
+          </div>
+        ))}
+      </div>
+    );
+  }
+
+  /// Bộ đặt nút dùng chung cho màn hình mẫu. Cùng ý nghĩa hai kiểu nút như ở ô soạn.
+  function BoNut({ nut, onDoi }) {
+    const [them, setThem] = React.useState({ chu: '', url: '' });
+    return (
+      <div className="ci-bo-nut">
+        <div className="ci-o">Nút gắn kèm (không bắt buộc)</div>
+        {nut.length > 0 && (
+          <div className="ci-nut-soan">
+            {nut.map((b, i) => (
+              <button key={i} type="button" title="Bỏ nút này"
+                      onClick={() => onDoi(nut.filter((_, j) => j !== i))}>
+                {b.chu}
+                <window.Icon name="close" size={11} />
+              </button>
+            ))}
+          </div>
+        )}
+        <div className="ci-nut-them">
+          <input value={them.chu} placeholder="Chữ trên nút"
+                 onChange={e => setThem(p => ({ ...p, chu: e.target.value }))} />
+          <input value={them.url} placeholder="Đường dẫn (bỏ trống = trả lời nhanh)"
+                 onChange={e => setThem(p => ({ ...p, url: e.target.value }))} />
+          <button type="button" className="ci-lienket" onClick={() => {
+            const chu = them.chu.trim();
+            if (!chu) return;
+            onDoi([...nut, { chu, url: them.url.trim() || undefined }]);
+            setThem({ chu: '', url: '' });
+          }}>Thêm nút</button>
+        </div>
+        {/* Mẫu dùng chung cho cả sáu kênh mà mỗi kênh một giới hạn, nên KHÔNG cắt ở đây — cắt
+            lúc gửi, khi đã biết hội thoại thuộc kênh nào. Nói trước để khỏi bất ngờ. */}
+        <div className="ci-ghichu">
+          Mỗi kênh nhận số nút khác nhau (Facebook 13 · Zalo 5 · WhatsApp 3 · Telegram 8 ·
+          TikTok không có). Soạn dư thì lúc gửi hệ thống bỏ bớt và báo lại.
+        </div>
+      </div>
     );
   }
 
@@ -690,6 +1147,8 @@
     // Đang mở cấu hình của tài khoản nào: "kênh:accountId" hoặc "kênh:moi". Một lúc MỘT —
     // mở hết cùng lúc thì khai ba OA là hộp thoại dài bằng ba màn hình.
     const [mo, setMo] = useState(null);
+    // Mục cài đặt đang xem: kenh | troly | mau.
+    const [muc, setMuc] = useState("kenh");
 
     const taiLai = useCallback(async () => {
       try {
@@ -771,12 +1230,46 @@
     //
     // Facebook đi thêm một bước Zalo không có: sau khi đồng ý, máy chủ hiện danh sách Trang người
     // đó quản trị để họ chọn. Cả bước đó nằm trong cửa sổ phụ này, mình không phải làm gì thêm.
+    // Kênh nào người dùng đã chủ động bung phần khai tay ra (chỉ dùng khi máy chủ chưa khai
+    // khoá ứng dụng). Mặc định đóng: đường đúng là báo quản trị, không phải tự đi tìm mã.
+    const [khaiTay, setKhaiTay] = React.useState({});
+
+    // Tiến độ lấy hội thoại cũ, khoá theo 'kênh:tài khoản'.
+    const [lichSu, setLichSu] = React.useState({});
+
     async function noiNhanhKenh(kenh) {
       const r = await authedFetch('/api/v1/chat/channels/' + kenh + '/connect-url', { method: 'POST' });
       let j = null; try { j = await r.json(); } catch {}
       if (!r.ok) { pushToast(j?.error || 'Không dựng được đường kết nối', 'error'); return; }
       window.open(j.url, 'chat-cap-quyen', 'width=560,height=720');
       pushToast('Nối xong thì bấm Tải lại để thấy tài khoản mới', 'success');
+    }
+
+    // Lấy lại đoạn chat cũ. Chạy nền vài phút nên đây chỉ ra lệnh bắt đầu rồi hỏi tiến độ —
+    // giữ yêu cầu HTTP mở suốt lượt lấy thì trình duyệt hoặc proxy sẽ cắt, và người dùng thấy
+    // "lỗi" trong khi việc vẫn đang chạy tốt.
+    async function layLichSu(kenh, accId) {
+      const goc = '/api/v1/chat/channels/' + kenh + '/accounts/' + encodeURIComponent(accId) + '/import-history';
+      const r = await authedFetch(goc, { method: 'POST' });
+      let j = null; try { j = await r.json(); } catch {}
+      if (!r.ok) { pushToast(j?.error || 'Không bắt đầu được', 'error'); return; }
+
+      pushToast('Đang lấy hội thoại cũ về…', 'success');
+      setLichSu(t => ({ ...t, [kenh + ':' + accId]: { running: true } }));
+
+      // Hỏi lại mỗi 3 giây. Bỏ hẳn sau 10 phút: quá mức đó thì hoặc đã xong mà mình lỡ nhịp,
+      // hoặc máy chủ đã khởi động lại — hỏi mãi cũng không ra thêm gì.
+      const hetHan = Date.now() + 10 * 60 * 1000;
+      const hoi = async () => {
+        const rr = await authedFetch(goc);
+        if (!rr.ok) return;
+        const jj = await rr.json();
+        setLichSu(t => ({ ...t, [kenh + ':' + accId]: jj }));
+        if (jj.running && Date.now() < hetHan) { setTimeout(hoi, 3000); return; }
+        if (jj.error) pushToast(jj.error, 'error');
+        else if (!jj.running) pushToast(`Đã lấy ${jj.conversations} hội thoại về hộp thư`, 'success');
+      };
+      setTimeout(hoi, 3000);
     }
 
     async function xoa(kenh, accId, ten) {
@@ -795,14 +1288,17 @@
     else if (!ds) than = <div className="ci-trong">Đang tải…</div>;
     else than = (
       <>
-        {/* Tab thay vì đổ cả ba kênh ra một màn hình. Mỗi lần người dùng chỉ khai MỘT kênh, mà
-            bày cả ba thì vừa phải cuộn vừa thêm một lớp viền bao quanh từng kênh. */}
+        {/* Tab thay vì đổ mọi kênh ra một màn hình. Mỗi lần người dùng chỉ khai MỘT kênh, mà
+            bày hết thì vừa phải cuộn vừa thêm một lớp viền bao quanh từng kênh.
+
+            Dùng tên NGẮN do máy chủ cấp: từ khi có sáu kênh, tên đầy đủ làm dải tab vỡ thành
+            hai dòng cao thấp lệch nhau. Tên đầy đủ vẫn hiện ở tiêu đề mục bên dưới. */}
         <div className="ci-tab">
           {ds.map(k => (
             <button key={k.channel} className={'ci-tab-nut' + (tab === k.channel ? ' on' : '')}
                     onClick={() => setTab(k.channel)}>
               <HuyHieuKenh kenh={k.channel} />
-              {k.name}
+              {k.shortName || k.name}
               {k.accounts.length > 0 && <b>{k.accounts.length}</b>}
             </button>
           ))}
@@ -826,6 +1322,23 @@
               <span>{k.accounts.length} tài khoản</span>
               {k.noiNhanh
                 ? <button className="ci-nut nho chinh" onClick={() => noiNhanhKenh(k.channel)}>{k.nutNoi || 'Kết nối'}</button>
+                : k.noiKemKenh != null
+                ? (
+                  /* Kênh nối KÈM kênh khác (Instagram theo Trang Facebook). Đưa thẳng người
+                     dùng sang tab kia thay vì bày ô khai tay — việc cần làm nằm ở đó. */
+                  <button className="ci-nut nho chinh" onClick={() => setTab(k.noiKemKenh)}>
+                    {k.nutNoi || 'Kết nối'}
+                  </button>
+                )
+                : k.hoTroNoiNhanh
+                ? (
+                  /* Kênh CÓ đường một nút nhưng máy chủ chưa đủ khoá. Không bày ô khai tay ra
+                     ngay: việc cần làm là báo quản trị, không phải tự đi tìm mã. */
+                  <button className="ci-nut nho"
+                          onClick={() => setKhaiTay(p => ({ ...p, [k.channel]: !p[k.channel] }))}>
+                    {khaiTay[k.channel] ? 'Thôi' : 'Khai tay'}
+                  </button>
+                )
                 : (
                   <button className="ci-nut nho"
                           onClick={() => setMo(mo === k.channel + ':moi' ? null : k.channel + ':moi')}>
@@ -835,7 +1348,10 @@
             </div>
 
             {/* Form thêm mở ra NGAY DƯỚI nút, không phải cuối trang — mắt không phải nhảy đi đâu. */}
-            {mo === k.channel + ':moi' && !k.noiNhanh && (
+            {/* Kênh chờ khoá máy chủ: form khai tay chỉ mở khi người dùng CHỦ ĐỘNG bấm "Khai
+                tay" — đường lui cho công ty tự tạo ứng dụng riêng, không phải đường mặc định. */}
+            {(k.hoTroNoiNhanh && !k.noiNhanh ? khaiTay[k.channel] : mo === k.channel + ':moi')
+              && !k.noiNhanh && (
               <div className="ci-tk-form">
                 {k.fields.map(f => (
                   <ONhap key={f.key} truong={f} daKhai={false}
@@ -859,6 +1375,10 @@
                     thêm kênh nối-một-chạm mới thì không phải sửa chỗ này nữa. */}
                 {k.noiNhanh
                   ? `Chưa nối tài khoản nào. Bấm "${k.nutNoi || 'Kết nối'}" rồi làm theo hướng dẫn trong cửa sổ hiện ra.`
+                  : k.noiKemKenh != null
+                  ? 'Kênh này không nối riêng — nó đi theo Trang Facebook. Nối Trang xong là tài khoản ở đây hiện ra.'
+                  : k.hoTroNoiNhanh
+                  ? `${k.shortName || k.name} nối bằng một nút, nhưng máy chủ chưa được khai khoá ứng dụng nên nút chưa bật. Báo quản trị hệ thống giúp bạn.`
                   : 'Chưa nối tài khoản nào cho kênh này.'}
               </div>
             )}
@@ -884,30 +1404,64 @@
 
                   {dangMo && (
                     <div className="ci-tk-form">
-                      {/* URL RIÊNG từng bot Telegram. Máy chủ TỰ đăng ký địa chỉ này với
-                          Telegram lúc lưu bot token — để đây chỉ để quản trị đối chiếu khi
-                          nghi ngờ, không phải việc người dùng phải làm. Trước 27/08 đúng ô
-                          này bắt họ copy rồi tự gõ lệnh setWebhook bên ngoài. */}
-                      {!k.webhookUrl && (
-                        <label className="ci-url">
-                          Địa chỉ nhận tin (hệ thống đã tự đăng ký)
-                          <input readOnly value={t.webhookUrl} onFocus={e => e.target.select()} />
-                        </label>
-                      )}
-                      {/* Kênh nối nhanh: khoá ứng dụng nằm ở máy chủ, khách không có gì để khai
-                          ngoài cái tên cho dễ nhớ. Bày ra mấy ô khoá rỗng chỉ làm người ta tưởng
-                          mình còn thiếu bước nào đó. */}
-                      {k.fields.filter(f => !k.noiNhanh || f.key === 'label').map(f => (
+
+                      {/* Lọc trường theo VIỆC ĐANG LÀM, không phải theo kênh:
+                          · steps — chỉ dùng lúc THÊM MỚI. Người đã nối bot ba tuần trước không
+                            cần đọc lại cách vào BotFather; ba bước đó đẩy ô "Tên gợi nhớ" —
+                            thứ họ thật sự mở form này để sửa — xuống tận dưới.
+                          · note — lúc này là tham khảo, chỉ giữ khi tài khoản ĐANG HỎNG, vì đó
+                            đúng là lúc nó thành hướng dẫn chữa.
+                          · kênh nối nhanh / nối kèm — khoá nằm ở máy chủ, bày ô rỗng chỉ làm
+                            người ta tưởng mình còn thiếu bước nào đó. */}
+                      {k.fields.filter(f => {
+                        if (f.type === 'steps') return false;
+                        if (f.type === 'note') return !t.configured;
+                        if (k.noiNhanh || k.noiKemKenh != null) return f.key === 'label';
+                        return true;
+                      }).map(f => (
                         <ONhap key={f.key} truong={f} daKhai
                                giaTri={giaTriO(k.channel, t.accountId, f, t.values)}
                                onDoi={v => dat(k.channel, t.accountId, f.key, v)} />
                       ))}
-                      {/* Mã thật do nền tảng cấp: OA của Zalo, Trang của Facebook, bot của
-                          Telegram. Không gắn với việc kênh đó có nối-một-chạm hay không —
-                          gắn nhầm vào noiNhanh thì bot Telegram vừa nối xong không hiện mã. */}
-                      {t.oaId && (
-                        <div className="ci-hs-goiy">Mã trên nền tảng: {t.oaId}</div>
+                      {/* Thông tin TRA CỨU — mã bot/Trang/OA và địa chỉ nhận tin. Cả hai đều
+                          không sửa được và chỉ dùng khi cần đối chiếu.
+
+                          Đặt SAU ô sửa được, và nén thành hai dòng nhỏ. Trước 28/08 địa chỉ nhận
+                          tin là một ô nhập chiếm cả chiều ngang, có nhãn dài, nằm TRÊN CÙNG —
+                          tức thứ không ai đụng tới chiếm chỗ đẹp nhất, còn ô "Tên gợi nhớ" (thứ
+                          duy nhất người ta mở form này để sửa) bị đẩy xuống giữa. */}
+                      {(t.oaId || !k.webhookUrl) && (
+                        <dl className="ci-tracuu">
+                          {t.oaId && (<>
+                            <dt>Mã trên nền tảng</dt>
+                            <dd><code>{t.oaId}</code></dd>
+                          </>)}
+                          {!k.webhookUrl && (<>
+                            <dt>Địa chỉ nhận tin</dt>
+                            {/* Hệ thống TỰ đăng ký địa chỉ này lúc lưu bot token — để đây chỉ để
+                                đối chiếu khi nghi ngờ. Trước 27/08 đúng ô này bắt người dùng chép
+                                rồi tự gõ lệnh setWebhook bên ngoài trình duyệt. */}
+                            <dd><code title={t.webhookUrl}>{t.webhookUrl}</code></dd>
+                          </>)}
+                        </dl>
                       )}
+                      {/* Nói TRƯỚC khi họ bấm. Đây là việc tốn hạn mức gọi API và có thể mất vài
+                          phút — bấm rồi mới biết là quá muộn. */}
+                      {k.layLichSuDuoc && (() => {
+                        const ls = lichSu[k.channel + ':' + t.accountId];
+                        if (ls && !ls.running && ls.ever) return (
+                          <div className="ci-hs-goiy">
+                            Lượt gần nhất: <b>{ls.conversations}</b> hội thoại.
+                            {ls.more && ' Còn nữa — bấm lại để lấy tiếp.'}
+                          </div>
+                        );
+                        return (
+                          <div className="ci-hs-goiy">
+                            Các đoạn chat có từ <b>trước khi nối</b> không tự về. Bấm <b>Lấy hội
+                            thoại cũ</b> để kéo về — mất vài phút, và tin đã có thì bỏ qua.
+                          </div>
+                        );
+                      })()}
                       {/* Bước cấp quyền chỉ Zalo mới có: Messenger/Telegram cấp token thẳng ở
                           giao diện của họ, không đi vòng OAuth. */}
                       {k.channel === 0 && !k.noiNhanh && (
@@ -926,6 +1480,17 @@
                             Cấp quyền OA
                           </button>
                         )}
+                        {k.layLichSuDuoc && (() => {
+                          const ls = lichSu[k.channel + ':' + t.accountId];
+                          return (
+                            <button className="ci-nut" disabled={ls?.running}
+                                    onClick={() => layLichSu(k.channel, t.accountId)}>
+                              {ls?.running
+                                ? `Đang lấy… ${ls.conversations || 0} hội thoại`
+                                : 'Lấy hội thoại cũ'}
+                            </button>
+                          );
+                        })()}
                         <button className="ci-nut nguyhiem"
                                 onClick={() => xoa(k.channel, t.accountId, t.label)}>
                           Gỡ kết nối
@@ -943,14 +1508,31 @@
 
     return (
       <div className="ci-modal-nen" onMouseDown={e => { if (e.target === e.currentTarget) onDong(); }}>
-        <div className="ci-modal" role="dialog" aria-modal="true" aria-label="Kết nối kênh">
+        <div className="ci-modal" role="dialog" aria-modal="true" aria-label="Cài đặt hộp thư">
           <div className="ci-modal-dau">
-            <b>Kết nối kênh</b>
+            <b>Cài đặt hộp thư</b>
             <button className="ci-nut-icon" onClick={onDong} aria-label="Đóng">
               <window.Icon name="close" size={16} />
             </button>
           </div>
-          <div className="ci-modal-than">{than}</div>
+
+          {/* Ba mục cài đặt của hộp thư. Trước 28/08 hộp này chỉ có phần kênh, nên trợ lý
+              không có chỗ nào chỉnh và mẫu trả lời nhanh chỉ sửa được bằng gọi API tay.
+
+              Gom một cửa thay vì ba nút rời trên thanh tiêu đề: cả ba đều là "chỉnh hộp thư",
+              làm một lần lúc cài đặt rồi hiếm khi mở lại. */}
+          <div className="ci-muc">
+            {[["kenh", "Kênh"], ["troly", "Trợ lý"], ["mau", "Mẫu trả lời"]].map(([ma, ten]) => (
+              <button key={ma} className={"ci-muc-nut" + (muc === ma ? " on" : "")}
+                      onClick={() => setMuc(ma)}>{ten}</button>
+            ))}
+          </div>
+
+          <div className="ci-modal-than">
+            {muc === "kenh" && than}
+            {muc === "troly" && <CaiDatTroLy pushToast={pushToast} />}
+            {muc === "mau" && <QuanLyMau pushToast={pushToast} />}
+          </div>
         </div>
       </div>
     );
@@ -972,11 +1554,19 @@
     const [dangGui, setDangGui] = useState(false);
     const [dangTai, setDangTai] = useState(true);
     const [moKhai, setMoKhai] = useState(false);
+    // Bảng chọn tin mẫu — chỉ mở từ ô soạn đang khoá, xem chỗ dùng.
+    const [moMau, setMoMau] = useState(false);
     const [moHoSo, setMoHoSo] = useState(true);
     const [dinhKem, setDinhKem] = useState(null);      // tệp đã tải lên, CHỜ bấm gửi
     const [dangTai2, setDangTai2] = useState(false);   // đang tải tệp lên kho
     const [mauTraLoi, setMauTraLoi] = useState([]);
     const [goiY, setGoiY] = useState(null);            // null = đang không gõ lệnh
+    // Nút đi kèm tin SẮP gửi, lấy từ mẫu trả lời nhanh vừa chọn. Không phải chữ nên không nằm
+    // trong ô soạn được — giữ riêng ở đây và hiện thành dải chip ngay trên ô soạn.
+    const [nutSoan, setNutSoan] = useState([]);
+    // Ô thêm nút đang mở hay không. Đóng mặc định: phần lớn tin không có nút, bày sẵn hai ô
+    // nhập là làm ô soạn chật thêm cho việc hiếm dùng.
+    const [themNut, setThemNut] = useState(null);   // null = đóng; {chu, url} = đang nhập
     const [conTro, setConTro] = useState(null);      // vị trí đọc tiếp; null = hết hoặc chưa tải
     const [dangTaiThem, setDangTaiThem] = useState(false);
     const cuonRef = useRef(null);
@@ -1085,6 +1675,9 @@
     useEffect(() => { setDsach([]); setConTro(null); }, [loc, kenhLoc, nhom, tim]);
 
     useEffect(() => { if (chon) taiChiTiet(chon); }, [chon, taiChiTiet]);
+    useEffect(() => { setMoMau(false); }, [chon]);
+    // Nút soạn dở thuộc về hội thoại CŨ. Giữ lại là gửi nhầm nút của khách này cho khách khác.
+    useEffect(() => { setNutSoan([]); setThemNut(null); }, [chon]);
 
     // Tải một lần, KHÔNG bám theo sự kiện đẩy: bộ mẫu hiếm khi đổi, kéo lại liên tục là
     // tốn truy vấn cho thứ gần như đứng yên.
@@ -1140,12 +1733,17 @@
             text: noi,
             attachmentUrl: dinhKem?.url, attachmentKind: dinhKem?.kind,
             attachmentName: dinhKem?.name, attachmentSize: dinhKem?.size,
+            buttons: nutSoan.length > 0 ? nutSoan.map(b => ({ label: b.chu, url: b.url })) : null,
           }),
         });
         const j = await r.json().catch(() => ({}));
         if (!r.ok) { pushToast(j.error || 'Không gửi được', 'error'); return; }
+        // Máy chủ cắt nút cho vừa kênh và nói lại nếu có nút bị bỏ — phải hiện ngay, chứ đợi
+        // tới lúc khách hỏi lại thì đã muộn.
+        if (j.buttonWarning) pushToast(j.buttonWarning, 'error');
         setSoan('');
         setDinhKem(null);
+        setNutSoan([]);
         await taiChiTiet(chon);
       } catch (e) { pushToast('Không gửi được: ' + e.message, 'error'); }
       finally { setDangGui(false); }
@@ -1371,10 +1969,24 @@
                   ))}
                 </div>
 
+                {moMau && (
+                  <BangTinMau hoiThoai={v.id} onDong={() => setMoMau(false)}
+                              pushToast={pushToast} onGuiXong={async () => { setMoMau(false); await taiChiTiet(chon); }} />
+                )}
+
                 <div className="ci-soan">
                   {khoaSoan ? (
                     // Nói rõ VÌ SAO và chỉ đường đi tiếp, không chỉ chặn.
-                    <div className="ci-khoa">{cuaSo?.reason || 'Hiện chưa gửi được cho khách này.'}</div>
+                    //
+                    // Và đây CHÍNH LÀ chỗ tin mẫu có việc: hết cửa sổ tự do thì mẫu đã duyệt là
+                    // đường duy nhất còn lại. Đặt nút ở đâu khác thì đúng lúc cần nhất người
+                    // dùng lại không thấy nó.
+                    <div className="ci-khoa">
+                      <span>{cuaSo?.reason || 'Hiện chưa gửi được cho khách này.'}</span>
+                      <button type="button" className="ci-lienket" onClick={() => setMoMau(true)}>
+                        Gửi tin mẫu
+                      </button>
+                    </div>
                   ) : (
                     <>
                       {/* Tệp đã tải lên, CHỜ bấm gửi. Xem trước rồi mới gửi — lỡ chọn nhầm còn gỡ kịp. */}
@@ -1395,11 +2007,48 @@
                           <div className="ci-mau-dau">Mẫu trả lời</div>
                           {mauTraLoi.filter(m => m.trigger.startsWith(goiY)).slice(0, 6).map(m => (
                             <button key={m.id} className="ci-mau-muc"
-                                    onClick={() => { setSoan(m.body); setGoiY(null); }}>
+                                    onClick={() => { setSoan(m.body); setNutSoan(m.buttons || []); setGoiY(null); }}>
                               <b>/{m.trigger}</b>
                               <span>{m.body}</span>
                             </button>
                           ))}
+                        </div>
+                      )}
+                      {/* Nút CHỜ gửi. Hiện ra để nhân viên thấy tin sắp đi kèm gì — mẫu trả lời
+                          nhanh chỉ chèn phần CHỮ vào ô soạn, nút thì không nhìn thấy ở đâu cả
+                          nếu không có dải này. Bỏ được từng nút trước khi gửi. */}
+                      {(nutSoan.length > 0 || themNut) && (
+                        <div className="ci-nut-soan">
+                          <span>Kèm nút:</span>
+                          {nutSoan.map((b, i) => (
+                            <button key={i} type="button" title="Bỏ nút này"
+                                    onClick={() => setNutSoan(p => p.filter((_, j) => j !== i))}>
+                              {b.chu}
+                              <window.Icon name="close" size={11} />
+                            </button>
+                          ))}
+
+                          {themNut && (
+                            <form className="ci-nut-them" onSubmit={e => {
+                              e.preventDefault();
+                              const chu = (themNut.chu || '').trim();
+                              if (!chu) return;
+                              const url = (themNut.url || '').trim();
+                              setNutSoan(p => [...p, { chu, url: url || undefined }]);
+                              // Giữ ô mở để thêm nút tiếp — người ta hiếm khi chỉ thêm MỘT nút.
+                              setThemNut({ chu: '', url: '' });
+                            }}>
+                              <input autoFocus value={themNut.chu || ''} placeholder="Chữ trên nút"
+                                     onChange={e => setThemNut(p => ({ ...p, chu: e.target.value }))} />
+                              {/* Để trống = nút TRẢ LỜI NHANH: khách bấm là coi như họ nói đúng câu
+                                  trên nút, rồi trợ lý xử tiếp như mọi câu khác. */}
+                              <input value={themNut.url || ''} placeholder="Đường dẫn (bỏ trống = trả lời nhanh)"
+                                     onChange={e => setThemNut(p => ({ ...p, url: e.target.value }))} />
+                              <button type="submit" className="ci-lienket">Thêm</button>
+                              <button type="button" className="ci-lienket"
+                                      onClick={() => setThemNut(null)}>Xong</button>
+                            </form>
+                          )}
                         </div>
                       )}
                       <div className="ci-soan-o">
@@ -1426,6 +2075,12 @@
                                   onClick={() => tepRef.current?.click()}
                                   title="Gửi ảnh hoặc tệp" aria-label="Gửi ảnh hoặc tệp">
                             <window.Icon name={dangTai2 ? 'refresh' : 'paperclip'} size={15} />
+                          </button>
+                          {/* Thêm nút cho tin sắp gửi. Đứng cạnh nút mẫu trả lời vì cùng loại
+                              việc: chuẩn bị nội dung trước khi bấm gửi. */}
+                          <button className="mau" title="Thêm nút bấm dưới tin"
+                                  onClick={() => setThemNut(themNut ? null : { chu: '', url: '' })}>
+                            + Nút
                           </button>
                           <button className="mau" onClick={() => setGoiY(goiY === null ? '' : null)}
                                   title="Chèn mẫu trả lời">

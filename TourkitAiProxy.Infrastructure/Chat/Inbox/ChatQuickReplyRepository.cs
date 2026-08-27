@@ -5,7 +5,12 @@ using TourkitAiProxy.Domain.Chat;
 namespace TourkitAiProxy.Infrastructure.Chat.Inbox;
 
 /// <param name="Trigger">Chuỗi gõ sau dấu "/" — đã chuẩn hoá, không dấu, không khoảng trắng.</param>
-public record QuickReply(long Id, string Trigger, string Body);
+/// <param name="Buttons">Nút gắn kèm, dạng JSON. <c>null</c> = mẫu chỉ có chữ.
+///
+/// <para>Đây là nguồn nút THỰC TẾ cho nhân viên: gõ <c>/tuyen</c> là gửi luôn câu hỏi kèm ba
+/// nút chọn tuyến, khỏi soạn lại mỗi lần. Nút bấm về sẽ thành một câu của khách và trợ lý xử
+/// tiếp như thường — xem <see cref="ChatButton"/>.</para></param>
+public record QuickReply(long Id, string Trigger, string Body, string? Buttons = null);
 
 /// <summary>
 /// Mẫu trả lời nhanh, theo TỪNG CÔNG TY (không theo từng nhân viên): cả đội trực chat dùng chung
@@ -42,22 +47,24 @@ public class ChatQuickReplyRepository
     {
         await using var c = await _db.OpenAsync(ct);
         return (await c.QueryAsync<QuickReply>(
-            "SELECT id, trigger, body FROM chat_quick_replies WHERE tenant_id = @tenant ORDER BY trigger",
+            "SELECT id, trigger, body, buttons FROM chat_quick_replies WHERE tenant_id = @tenant ORDER BY trigger",
             new { tenant })).ToList();
     }
 
+    /// <param name="buttonsJson">Nút kèm mẫu. <c>null</c> XOÁ nút đang có — cố ý, vì màn hình
+    /// sửa mẫu luôn gửi lên trạng thái đầy đủ, và "bỏ hết nút" phải làm được.</param>
     public async Task<long> UpsertAsync(string tenant, string trigger, string body,
-        CancellationToken ct = default)
+        CancellationToken ct = default, string? buttonsJson = null)
     {
         var tg = NormalizeTrigger(trigger);
         await using var c = await _db.OpenAsync(ct);
         return await c.ExecuteScalarAsync<long>("""
-            INSERT INTO chat_quick_replies (tenant_id, trigger, body)
-            VALUES (@tenant, @tg, @body)
+            INSERT INTO chat_quick_replies (tenant_id, trigger, body, buttons)
+            VALUES (@tenant, @tg, @body, @nut::jsonb)
             ON CONFLICT (tenant_id, lower(trigger))
-              DO UPDATE SET body = EXCLUDED.body, updated_utc = now()
+              DO UPDATE SET body = EXCLUDED.body, buttons = EXCLUDED.buttons, updated_utc = now()
             RETURNING id
-            """, new { tenant, tg, body });
+            """, new { tenant, tg, body, nut = buttonsJson });
     }
 
     public async Task<bool> DeleteAsync(string tenant, long id, CancellationToken ct = default)

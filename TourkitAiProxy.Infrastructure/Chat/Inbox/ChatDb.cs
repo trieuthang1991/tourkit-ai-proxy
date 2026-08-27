@@ -180,6 +180,11 @@ public class ChatDb
       created_utc     timestamptz NOT NULL DEFAULT now(),
       processed_utc   timestamptz
     );
+    -- Nút bấm ĐÃ GỬI kèm tin. Lưu lại để hộp thư vẽ đúng thứ khách nhìn thấy khi đọc lại hội
+    -- thoại — không lưu thì dòng tin chỉ còn chữ, và không ai biết khách đã được mời chọn gì.
+    -- Dạng: [{"chu":"Xem tour","url":"https://…"},{"chu":"Gọi lại cho tôi"}]
+    ALTER TABLE chat_messages ADD COLUMN IF NOT EXISTS buttons jsonb;
+
     -- Chống trùng đặt ở TẦNG CSDL, không chỉ kiểm trong code: webhook của kênh gửi lại khi không
     -- nhận được 200, hai lần gửi song song thì kiểm trong code vẫn lọt, chỉ mục thì không.
     CREATE UNIQUE INDEX IF NOT EXISTS ux_msg_external
@@ -249,6 +254,22 @@ public class ChatDb
 
     -- Mẫu trả lời nhanh, theo TỪNG CÔNG TY (KHÔNG theo từng nhân viên) — cả đội trực chat cùng
     -- dùng một bộ câu, đổi một mẫu là cả đội thấy ngay, không phải dạy lại từng người.
+    -- Cấu hình trợ lý chat, MỘT dòng mỗi công ty. Chưa có dòng = dùng mặc định trong mã.
+    --
+    -- Nằm ở CSDL chat chứ không phải dbo.TenantChannelSettings bên SQL Server: bảng đó dùng
+    -- chung với cụm bản tin và worker của toutkit-app, mà cụm chat tách hẳn.
+    CREATE TABLE IF NOT EXISTS chat_bot_settings (
+      tenant_id     text        PRIMARY KEY,
+      enabled       boolean     NOT NULL DEFAULT true,
+      -- Lời dặn RIÊNG của công ty. NỐI THÊM vào khung an toàn trong mã, không thay thế —
+      -- khung chứa luật chống bịa giá tour, bỏ nó là bot hứa giữ chỗ với khách thật.
+      persona       text,
+      greeting      text,
+      mute_minutes  integer     NOT NULL DEFAULT 30,
+      history_turns integer     NOT NULL DEFAULT 12,
+      updated_utc   timestamptz NOT NULL DEFAULT now()
+    );
+
     CREATE TABLE IF NOT EXISTS chat_quick_replies (
       id          bigserial PRIMARY KEY,
       tenant_id   text        NOT NULL,
@@ -257,6 +278,10 @@ public class ChatDb
       created_utc timestamptz NOT NULL DEFAULT now(),
       updated_utc timestamptz NOT NULL DEFAULT now()
     );
+    -- Nút bấm gắn kèm mẫu trả lời nhanh. Cột THÊM chứ không phải bảng mới: nút không sống
+    -- độc lập với câu trả lời, và tách bảng thì mọi lượt đọc mẫu phải join thêm một lần.
+    ALTER TABLE chat_quick_replies ADD COLUMN IF NOT EXISTS buttons jsonb;
+
     CREATE UNIQUE INDEX IF NOT EXISTS ux_quickreply_trigger
       ON chat_quick_replies (tenant_id, lower(trigger));
 

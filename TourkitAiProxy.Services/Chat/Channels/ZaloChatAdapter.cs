@@ -34,7 +34,7 @@ namespace TourkitAiProxy.Services.Chat.Channels;
 /// <para>Tham khảo cách bóc sự kiện của ChatbotX (<c>integrations/zalo</c>): danh sách tên sự kiện
 /// và công thức chữ ký lấy từ đó, phần còn lại viết lại cho khớp kiến trúc ở đây.</para>
 /// </summary>
-public class ZaloChatAdapter : IChatChannelAdapter
+public class ZaloChatAdapter : IChatChannelAdapter, IApprovedTemplateSender, IButtonSender
 {
     private const string ApiBase = "https://openapi.zalo.me";
     private const string SendPath = "v3.0/oa/message/cs";
@@ -286,6 +286,218 @@ public class ZaloChatAdapter : IChatChannelAdapter
         => long.TryParse(ms, out var v)
             ? DateTimeOffset.FromUnixTimeMilliseconds(v).UtcDateTime
             : DateTime.UtcNow;
+
+    // ── Nút bấm ─────────────────────────────────────────────────────────────
+
+    /// <summary>
+    /// Gửi chữ kèm nút bằng khung <c>template</c> của Zalo OA.
+    ///
+    /// <para>Zalo gộp cả hai kiểu vào một cơ chế như Telegram, nhưng tên trường thì khác hẳn
+    /// Meta: <c>type</c> là <c>oa.open.url</c> (mở trang) hoặc <c>oa.query.show</c> (gửi lại chữ
+    /// về). Chép hình dạng của Meta sang là Zalo nhận tin rồi bỏ sạch nút, không báo lỗi.</para>
+    ///
+    /// <para>⚠️ Khung này chỉ chạy trong <b>cửa sổ tư vấn</b>. Hết cửa sổ thì phải đi bằng tin
+    /// mẫu ZNS, và ZNS có kiểu nút riêng của nó — không dùng lại được chỗ này.</para>
+    /// </summary>
+    public async Task<SendResult> SendTextWithButtonsAsync(string tenantId, string accountId,
+        string externalUserId, string text, IReadOnlyList<ChatButton> nut, CancellationToken ct)
+    {
+        var token = await GetAccessTokenAsync(tenantId, accountId, ct);
+        if (token.Loi is not null) return new(false, token.ThuLai, null, token.Loi);
+
+        var dsNut = new JsonArray();
+        foreach (var b in nut)
+            dsNut.Add(new JsonObject
+            {
+                ["title"] = b.Label,
+                ["type"] = b.IsLink ? "oa.open.url" : "oa.query.show",
+                ["payload"] = b.IsLink
+                    ? new JsonObject { ["url"] = b.Url }
+                    // Với nút trả lời nhanh, payload CHÍNH LÀ chữ trên nút — khách bấm là coi
+                    // như họ nói câu đó, rồi trợ lý xử như mọi câu khác.
+                    : new JsonObject { ["content"] = b.Label },
+            });
+
+        var than = new JsonObject
+        {
+            ["recipient"] = new JsonObject { ["user_id"] = externalUserId },
+            ["message"] = new JsonObject
+            {
+                ["text"] = text,
+                ["attachment"] = new JsonObject
+                {
+                    ["type"] = "template",
+                    ["payload"] = new JsonObject
+                    {
+                        ["template_type"] = "button",
+                        ["buttons"] = dsNut,
+                    },
+                },
+            },
+        };
+
+        var (ok, thuLai, id, loi) = await GoiApiGuiThoAsync(token.Token!, than, ct);
+        return await AfterSendAsync(tenantId, accountId, ok, thuLai, id, loi,
+            () => GoiApiGuiThoAsync(token.Token!, than, ct), ct);
+    }
+
+    // ── Mẫu tin đã duyệt (ZNS) ──────────────────────────────────────────────
+
+    /// <summary>
+    /// ZNS đi qua tên miền RIÊNG, không phải <c>openapi.zalo.me</c> như tin tư vấn. Gọi nhầm
+    /// tên miền thì Zalo trả 404 chứ không nói là sai đường.
+    ///
+    /// <para><b>⚠️ Đường ZNS này của RIÊNG hộp thư chat, cố ý tách khỏi cụm bản tin.</b> Bản
+    /// tin sáng cũng gửi ZNS, nhưng đi hẳn lối khác: xếp vào <c>dbo.OutboundMails</c> (SQL
+    /// Server) rồi worker của <c>toutkit-app</c> mới rút ra gửi. Chat KHÔNG dùng lối đó và
+    /// đừng gộp lại:</para>
+    /// <list type="number">
+    ///   <item>Chat cần <b>mã tin trả về ngay</b> để gắn vào đúng hội thoại và theo dõi trạng
+    ///     thái. Qua hàng đợi của repo khác thì mã đó không bao giờ quay lại được.</item>
+    ///   <item>Nhân viên bấm gửi và <b>chờ kết quả trên màn hình</b>. Hàng đợi chạy theo nhịp
+    ///     riêng, có khi vài phút.</item>
+    ///   <item>Hai kho dữ liệu tách hẳn: chat ở PostgreSQL, hàng đợi bản tin ở SQL Server.</item>
+    /// </list>
+    /// <para>Token dùng ở đây là token OA của <b>chính kênh chat</b> (kho khoá riêng, tự gia
+    /// hạn), không phải cấu hình OA của bản tin.</para>
+    /// </summary>
+    private const string ZnsBase = "https://business.openapi.zalo.me";
+
+    /// <inheritdoc/>
+    /// <remarks>
+    /// Hai lượt gọi: danh sách mẫu chỉ có tên và mã, phải hỏi tiếp từng mẫu mới ra danh sách ô
+    /// điền. Chặn ở 50 mẫu — công ty du lịch thường dùng dưới mười, và mỗi mẫu là một lượt gọi.
+    /// </remarks>
+    public async Task<IReadOnlyList<ChatTemplate>> ListTemplatesAsync(string tenantId,
+        string accountId, CancellationToken ct)
+    {
+        var token = await GetAccessTokenAsync(tenantId, accountId, ct);
+        if (token.Token is null) return Array.Empty<ChatTemplate>();
+
+        var http = _http.CreateClient();
+        var ds = await ZnsJsonAsync(http, token.Token,
+            $"{ZnsBase}/template/all?offset=0&limit=50&status=1", ct);
+        if (ds?["data"] is not JsonArray mangMau) return Array.Empty<ChatTemplate>();
+
+        var ra = new List<ChatTemplate>();
+        foreach (var mau in mangMau.OfType<JsonNode>())
+        {
+            var ma = mau["templateId"]?.ToString() ?? mau["template_id"]?.ToString();
+            if (string.IsNullOrWhiteSpace(ma)) continue;
+
+            var ten = mau["templateName"]?.ToString() ?? mau["template_name"]?.ToString() ?? ma!;
+            var tt = (mau["status"]?.ToString() ?? "").ToUpperInvariant();
+
+            var chiTiet = await ZnsJsonAsync(http, token.Token,
+                $"{ZnsBase}/template/info?template_id={Uri.EscapeDataString(ma!)}", ct);
+            var slots = new List<ChatTemplateSlot>();
+            if (chiTiet?["data"]?["listParams"] is JsonArray ps)
+                foreach (var x in ps.OfType<JsonNode>())
+                {
+                    var khoa = x["name"]?.ToString();
+                    if (string.IsNullOrWhiteSpace(khoa)) continue;
+                    // Zalo dùng TÊN tự đặt (ma_don, ngay_khoi_hanh), không phải số thứ tự như
+                    // Meta — nên tên khoá vừa là khoá vừa là nhãn hiện cho nhân viên.
+                    slots.Add(new(khoa!, khoa!, x["sample_value"]?.ToString()));
+                }
+
+            // Zalo trả status kiểu "ENABLE"; quy về đúng một từ mà cả ba kênh cùng hiểu.
+            ra.Add(new(ma!, ten, "vi", mau["templateQuality"]?.ToString(),
+                tt is "ENABLE" or "1" ? "APPROVED" : tt,
+                slots, chiTiet?["data"]?["previewUrl"]?.ToString()));
+        }
+        return ra;
+    }
+
+    /// <summary>
+    /// ⚠️ <b>ZNS gửi theo SỐ ĐIỆN THOẠI, không theo id người dùng Zalo.</b> Đây là khác biệt
+    /// lớn nhất giữa ZNS và tin tư vấn, và là lý do một hội thoại Zalo đang mở vẫn có thể KHÔNG
+    /// gửi ZNS được: mình biết khách là ai trên OA, nhưng không biết số của họ.
+    ///
+    /// <para>Kiểm ở đây, trước khi bày danh sách mẫu ra — để nhân viên chọn mẫu, điền năm ô rồi
+    /// mới báo thiếu số là bắt họ làm công cốc.</para>
+    /// </summary>
+    public TemplateBlocked? WhyBlocked(ChatContact? khach)
+        => string.IsNullOrWhiteSpace(khach?.Phone)
+            ? new("Zalo gửi tin mẫu theo SỐ ĐIỆN THOẠI, mà hội thoại này chưa có số của khách. "
+                  + "Hỏi số rồi điền vào hồ sơ khách bên phải, hoặc gọi điện.")
+            : null;
+
+    /// <inheritdoc/>
+    public async Task<SendResult> SendTemplateAsync(string tenantId, string accountId,
+        string externalUserId, ChatContact? khach, ChatTemplate mau,
+        IReadOnlyDictionary<string, string> giaTri, CancellationToken ct)
+    {
+        if (WhyBlocked(khach) is { } chan) return new(false, false, null, chan.Reason);
+
+        var token = await GetAccessTokenAsync(tenantId, accountId, ct);
+        if (token.Loi is not null) return new(false, token.ThuLai, null, token.Loi);
+
+        var duLieu = new JsonObject();
+        foreach (var slot in mau.Slots)
+            duLieu[slot.Key] = giaTri.GetValueOrDefault(slot.Key, "");
+
+        var than = new JsonObject
+        {
+            ["phone"] = ChuanHoaSo(khach!.Phone!),
+            ["template_id"] = mau.Id,
+            ["template_data"] = duLieu,
+        };
+
+        try
+        {
+            var http = _http.CreateClient();
+            using var req = new HttpRequestMessage(HttpMethod.Post, $"{ZnsBase}/message/template")
+            {
+                Content = new StringContent(than.ToJsonString(), Encoding.UTF8, "application/json"),
+            };
+            req.Headers.Add("access_token", token.Token);
+
+            using var res = await http.SendAsync(req, ct);
+            var raw = await res.Content.ReadAsStringAsync(ct);
+            var o = JsonNode.Parse(raw)?.AsObject();
+
+            // ⚠️ Zalo trả HTTP 200 kể cả khi hỏng; lỗi nằm ở trường "error" (0 = xong). Chỉ nhìn
+            // mã HTTP là báo "đã gửi" cho những tin không bao giờ tới.
+            var ma = o?["error"]?.ToString();
+            if (res.IsSuccessStatusCode && ma == "0")
+                return new(true, false, o?["data"]?["msg_id"]?.ToString(), null);
+
+            var moTa = o?["message"]?.ToString() ?? Truncate(raw);
+            return new(false, (int)res.StatusCode >= 500, null, $"Zalo từ chối tin mẫu ({ma}): {moTa}");
+        }
+        catch (Exception ex) { return new(false, true, null, ex.Message); }
+    }
+
+    /// <summary>
+    /// ZNS đòi số dạng <c>84…</c>. Số trong CRM thường lưu <c>0…</c>, đôi khi có dấu cách hoặc
+    /// dấu chấm — gửi nguyên si là Zalo từ chối với câu lỗi không hề nhắc tới định dạng.
+    /// </summary>
+    internal static string ChuanHoaSo(string so)
+    {
+        var s = new string(so.Where(char.IsDigit).ToArray());
+        if (s.StartsWith("84", StringComparison.Ordinal)) return s;
+        if (s.StartsWith('0')) return "84" + s[1..];
+        return s;
+    }
+
+    /// <summary>Gọi một đường ZNS trả JSON. Không ném — chỗ gọi tự đọc lỗi trong thân.</summary>
+    private async Task<JsonNode?> ZnsJsonAsync(HttpClient http, string token, string url,
+        CancellationToken ct)
+    {
+        try
+        {
+            using var req = new HttpRequestMessage(HttpMethod.Get, url);
+            req.Headers.Add("access_token", token);
+            using var res = await http.SendAsync(req, ct);
+            return JsonNode.Parse(await res.Content.ReadAsStringAsync(ct));
+        }
+        catch (Exception ex)
+        {
+            _log.LogWarning(ex, "[chat/zalo] gọi ZNS hỏng: {Url}", url);
+            return null;
+        }
+    }
 
     // ── Gửi ─────────────────────────────────────────────────────────────────
 

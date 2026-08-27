@@ -9002,6 +9002,9 @@ n
 .ci-dai-nut:hover { background: var(--ci-nen-chip); }
 .ci-dai-nut.on { background: var(--dark); color: #fff; }
 .ci-hh { font-size: 11.5px; font-weight: 700; line-height: 1; }
+/* Ô chứa HÌNH phải chiếm đúng chỗ như ô chứa chữ, không thì dải kênh so le. */
+.ci-hh.hinh { display: inline-grid; place-items: center; width: 1em; height: 1em; }
+.ci-hh.hinh > svg { width: 13px; height: 13px; }
 /* Chấm báo có hội thoại. Nằm ở góc nên không đẩy chữ. */
 .ci-cham { position: absolute; top: 3px; right: 3px; width: 5px; height: 5px; border-radius: 999px;
            background: var(--primary); }
@@ -9095,9 +9098,13 @@ n
    hai chỗ — thiếu một là ảnh bị bóp méo đúng ở nhánh hay gặp nhất. */
 img.ci-avt { object-fit: cover; }
 .ci-avt img { width: 100%; height: 100%; object-fit: cover; }
-/* Huy hiệu nằm ĐÈ góc dưới phải ảnh, chỉ khi có ảnh bọc ngoài (`.ci-muc-avt`). Đứng một mình
-   trong tab hoặc dòng chữ thì nó chỉ là một ô chữ bình thường. */
-.ci-muc-avt .ci-hh, .ci-hh.dinh { position: absolute; right: -3px; bottom: -3px;
+/* Huy hiệu kênh đè góc ảnh đại diện, chỉ khi có ảnh bọc ngoài (`.ci-muc-avt`). Đứng một mình
+   trong tab hoặc dòng chữ thì nó chỉ là một ô chữ bình thường.
+
+   ⚠️ Góc dưới TRÁI, không phải phải. Bên phải ảnh chính là chỗ dòng xem trước bắt đầu, mà huy
+   hiệu thò ra 3px nên nó đè lên chữ — thấy rõ nhất ở các kênh dùng HÌNH (Telegram, Instagram,
+   WhatsApp, TikTok) vì hình rộng hơn một chữ cái. Bên trái ảnh là lề trống, không đụng gì. */
+.ci-muc-avt .ci-hh, .ci-hh.dinh { position: absolute; left: -3px; bottom: -3px;
           display: inline-grid; place-items: center; min-width: 17px; height: 17px; padding: 0 4px;
           border-radius: 6px; border: 1px solid var(--border); background: var(--surface);
           color: var(--text-2); font-size: 9.5px; font-weight: 700; line-height: 1; }
@@ -9147,6 +9154,10 @@ img.ci-avt { object-fit: cover; }
 .ci-cuaso::after { content: ''; position: absolute; left: 0; bottom: -1px; height: 2px;
                    width: var(--ci-con, 100%); background: #CBD5E1; }
 .ci-cuaso.sap::after { background: var(--warning); }
+/* Cửa "người thật trả lời muộn" (Messenger/Instagram, 24 giờ → 7 ngày). KHÔNG dùng màu đỏ:
+   vẫn gửi được bình thường, chỉ là bot đã ngừng. Đỏ ở đây làm nhân viên tưởng đã hỏng. */
+.ci-cuaso.muon { background: var(--ci-nen-diu); color: var(--text-2); }
+.ci-cuaso.muon::after { background: var(--warning); }
 .ci-cuaso.het { background: #FEF2F2; color: var(--danger); }
 .ci-cuaso.het::after { background: var(--danger); width: 100%; }
 
@@ -9182,7 +9193,38 @@ img.ci-avt { object-fit: cover; }
 /* ⚠️ .ci-nhan mang HAI nghĩa trong trang này: nhãn NGƯỜI GỬI trong bong bóng tin, và thẻ NHÃN
    KHÁCH ở hồ sơ. Khai trần một kiểu là bên kia vỡ — đã vỡ thật 27/08/2026: thẻ nhãn khách biến
    thành chữ hoa li ti. Khoanh vùng cả hai, đừng gộp. */
-.ci-bong .ci-nhan, .ci-ai .ci-nhan {
+.ci-bong .ci-nhan, .ci-ai /* Nút CHỜ gửi, trên ô soạn. Khác hẳn .ci-nut-tin (bản ghi lại): mấy cái này BẤM ĐƯỢC và bấm là
+   BỎ nút đó, nên phải trông như thao tác được — có dấu × và đổi màu khi rê chuột. */
+.ci-nut-soan { display: flex; flex-wrap: wrap; align-items: center; gap: 5px;
+               margin-bottom: 7px; font-size: 10.5px; color: var(--text-3); }
+.ci-nut-soan button { display: inline-flex; align-items: center; gap: 5px;
+                      padding: 3px 7px 4px 10px; border: 1px solid var(--ci-vien-trong);
+                      border-radius: 999px; background: var(--surface); cursor: pointer;
+                      font: inherit; font-size: 11px; color: var(--text-2); }
+.ci-nut-soan button:hover { border-color: var(--danger); color: var(--danger); }
+/* Ô thêm nút: hai ô nhập nhỏ nằm NGANG dải chip, không phải một khối riêng bên dưới — nó là
+   phần nối dài của dải đó, và tách khối làm ô soạn tụt thêm một tầng. */
+.ci-nut-them { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
+.ci-nut-them input { width: 130px; padding: 4px 8px 5px; border: 1px solid var(--border);
+                     border-radius: 999px; background: var(--surface); font: inherit;
+                     font-size: 11px; color: var(--text); }
+.ci-nut-them input:last-of-type { width: 190px; }
+.ci-nut-them input:focus { outline: none; border-color: var(--primary); }
+/* Nút Thêm/Xong KHÔNG được kế thừa kiểu chip-bỏ-nút ở trên (viền tròn, hover đỏ) — chúng là
+   thao tác khác hẳn, đỏ lên khi rê chuột thì trông như sắp xoá mất thứ vừa gõ. */
+.ci-nut-soan .ci-nut-them button { padding: 0; border: 0; background: none; }
+.ci-nut-soan .ci-nut-them button:hover { border-color: transparent; color: var(--primary); }
+
+/* Nút đã gửi kèm tin — bản GHI LẠI, không phải nút bấm được (trừ nút mở liên kết). Vẽ nhạt hơn
+   nút thật của app để mắt không nhầm đây là chỗ thao tác. */
+.ci-nut-tin { display: flex; flex-wrap: wrap; gap: 5px; margin-top: 7px; }
+.ci-nut-tin > * { padding: 4px 10px 5px; border: 1px solid var(--ci-vien-trong);
+                  border-radius: 999px; font-size: 11px; color: var(--text-2);
+                  background: var(--surface); }
+.ci-nut-tin > a { color: var(--primary); text-decoration: none; }
+.ci-nut-tin > a:hover { text-decoration: underline; }
+
+.ci-nhan {
            font-size: 9px; font-weight: 700; letter-spacing: .1em; text-transform: uppercase;
            margin-bottom: 5px; color: var(--text-3); }
 .ci-nv .ci-nhan, .ci-hethong .ci-nhan { color: rgba(255, 255, 255, .72); }
@@ -9255,6 +9297,47 @@ img.ci-avt { object-fit: cover; }
 .ci-khoa { display: flex; align-items: center; gap: 8px; padding: 11px 13px; border-radius: 11px;
            background: var(--bg); border: 1px dashed var(--border); font-size: 11.5px;
            color: var(--text-3); }
+/* Hộp "hết cửa sổ gửi" nay chở thêm lối thoát bằng tin mẫu, nên phải xếp được hai thứ trên
+   một hàng và xuống dòng gọn ở màn hẹp. */
+.ci-khoa { flex-wrap: wrap; justify-content: space-between; }
+.ci-khoa > span { flex: 1 1 auto; min-width: 0; }
+
+/* ── Bảng tin mẫu ─────────────────────────────────────────────────────────
+   Nổi lên TRÊN ô soạn, không đẩy bố cục — giống bảng mẫu trả lời nhanh ngay dưới đây, để hai
+   thứ cùng công dụng "chọn sẵn rồi gửi" trông và hành xử như nhau. */
+.ci-mau-tin { border: 1px solid var(--ci-vien-trong); border-radius: 10px;
+              background: var(--surface); margin-bottom: 10px; overflow: hidden; }
+.ci-mau-tin-dau { display: flex; align-items: center; justify-content: space-between;
+                  padding: 9px 12px; border-bottom: 1px solid var(--ci-vien-trong);
+                  font-size: 12px; }
+.ci-mau-tin-trong { padding: 14px 12px; font-size: 11.5px; color: var(--text-3);
+                    line-height: 1.6; }
+
+/* Chặn chiều cao rồi cho cuộn: công ty dùng nhiều mẫu thì danh sách không được đẩy ô soạn
+   ra khỏi màn hình — chỗ người dùng đang đứng phải luôn nhìn thấy. */
+.ci-mau-tin-ds { max-height: 240px; overflow-y: auto; margin: 0; padding: 6px;
+                 list-style: none; display: grid; gap: 4px; }
+.ci-mau-tin-ds button { display: grid; gap: 2px; width: 100%; padding: 8px 10px; border: 0;
+                        border-radius: 7px; background: transparent; cursor: pointer;
+                        font: inherit; text-align: left; }
+.ci-mau-tin-ds button:hover:not(:disabled) { background: var(--bg); }
+/* Mẫu chưa duyệt: mờ đi nhưng VẪN ĐỌC ĐƯỢC. Giấu hẳn thì người dùng tưởng mẫu bị mất rồi đăng
+   ký lại một mẫu trùng — mà mỗi lượt duyệt là một lượt chờ. */
+.ci-mau-tin-ds button:disabled { cursor: default; opacity: .55; }
+.ci-mau-tin-ten { font-size: 12px; font-weight: 600; color: var(--text); }
+.ci-mau-tin-tt { justify-self: start; padding: 1px 7px 2px; border-radius: 999px;
+                 background: var(--bg); font-size: 10px; color: var(--text-3); }
+/* Xem trước cắt ở hai dòng: đủ nhận ra mẫu nào, không biến danh sách thành một bức tường chữ. */
+.ci-mau-tin-xem { font-size: 11px; color: var(--text-3); line-height: 1.5;
+                  display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical;
+                  overflow: hidden; }
+
+.ci-mau-tin-dien { display: grid; gap: 9px; padding: 11px 12px 13px; }
+.ci-mau-tin-dien .ci-lienket { justify-self: start; }
+/* Câu cảnh báo phí đứng NGANG nút gửi, không nằm dưới: đặt dưới thì mắt đã bấm xong mới đọc
+   tới, mà tin đã gửi thì không thu lại được. */
+.ci-mau-tin-luuy { align-self: center; font-size: 10.5px; color: var(--text-3); }
+
 .ci-cho-gui { font-size: 10.5px; color: var(--text-3); margin-top: 6px; }
 
 /* Bảng mẫu trả lời — nổi lên trên ô soạn, không đẩy bố cục. */
@@ -9365,11 +9448,59 @@ img.ci-avt { object-fit: cover; }
                 padding: 14px 16px; border-bottom: 1px solid var(--ci-vien-trong); }
 .ci-modal-dau h3 { margin: 0; font-size: 14px; font-weight: 700; color: var(--text); }
 .ci-modal-than { padding: 16px; overflow-y: auto; }
+/* ── Ba mục cài đặt của hộp thư (Kênh · Trợ lý · Mẫu trả lời) ─────────────
+   Nằm TRÊN dải tab kênh và nặng hơn nó về thị giác: đây là tầng điều hướng ngoài, còn dải kênh
+   là tầng trong. Cùng cỡ chữ thì người dùng không đoán được cái nào chứa cái nào. */
+.ci-muc { display: flex; gap: 2px; padding: 0 16px; border-bottom: 1px solid var(--ci-vien-trong); }
+.ci-muc-nut { padding: 9px 13px 10px; border: 0; border-bottom: 2px solid transparent;
+              background: transparent; cursor: pointer; font: inherit; font-size: 12.5px;
+              font-weight: 600; color: var(--text-3); }
+.ci-muc-nut:hover { color: var(--text-2); }
+.ci-muc-nut.on { color: var(--text); border-bottom-color: var(--primary); }
+
+/* Công tắc có câu giải thích bên dưới nhãn — bật/tắt trợ lý là quyết định đáng đọc một dòng
+   trước khi bấm, không phải một ô tích trần. */
+.ci-bat { display: flex; align-items: flex-start; gap: 9px; cursor: pointer; }
+.ci-bat input { margin-top: 2px; flex: 0 0 auto; }
+.ci-bat span { display: grid; gap: 2px; font-size: 12px; color: var(--text); }
+.ci-bat em { font-style: normal; font-size: 11px; color: var(--text-3); line-height: 1.5; }
+
+/* Hai ô số đứng cạnh nhau: chúng cùng trả lời câu "trợ lý cư xử thế nào", tách hai hàng làm
+   biểu mẫu dài ra mà chẳng rõ hơn. */
+.ci-doi-o { display: grid; grid-template-columns: 1fr 1fr; gap: 9px; }
+@media (max-width: 560px) { .ci-doi-o { grid-template-columns: 1fr; } }
+
+.ci-o textarea { display: block; width: 100%; margin-top: 4px; padding: 8px 9px;
+                 border: 1px solid var(--border); border-radius: 7px; background: var(--surface);
+                 font: inherit; font-size: 12px; color: var(--text); resize: vertical;
+                 line-height: 1.55; }
+.ci-o textarea:focus, .ci-o input:focus { outline: none; border-color: var(--primary); }
+
+/* Một dòng mẫu trả lời nhanh. Lệnh gọi và nội dung trên cùng hàng, nút thao tác dạt phải. */
+.ci-mau-dong { display: flex; align-items: baseline; gap: 10px; padding: 9px 12px;
+               font-size: 12px; }
+.ci-mau-dong > b { flex: 0 0 auto; font-family: ui-monospace, monospace; font-size: 11.5px;
+                   color: var(--primary); }
+/* Nội dung cắt một dòng: danh sách mẫu để TRA, đọc đủ thì bấm Sửa. */
+.ci-mau-dong > span { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis;
+                      white-space: nowrap; color: var(--text-2); }
+.ci-mau-so-nut { flex: 0 0 auto; padding: 1px 7px 2px; border-radius: 999px;
+                 background: var(--bg); font-size: 10px; color: var(--text-3); }
+.ci-lienket.nguyhiem { color: var(--danger); }
+
+.ci-bo-nut { display: grid; gap: 6px; }
+
+/* Dải tab kênh. Sáu kênh không còn vừa một hàng ở bề ngang hộp thoại, nên:
+   - KHÔNG cho chữ xuống dòng (trước đây "Facebook Messenger" gãy làm hai, các tab cao thấp
+     lệch nhau và đường gạch dưới của tab đang chọn chạy sai chỗ),
+   - KHÔNG cho co lại (flex mặc định bóp item cho vừa, chính là thứ ép chữ gãy dòng),
+   - thiếu chỗ thì cuộn ngang — thà cuộn còn hơn vỡ hàng. */
 .ci-tab { display: flex; gap: 4px; border-bottom: 1px solid var(--ci-vien-trong);
-          margin-bottom: 14px; }
+          margin-bottom: 14px; overflow-x: auto; scrollbar-width: thin; }
 .ci-tab-nut { display: inline-flex; align-items: center; gap: 7px; padding: 8px 12px 9px; border: 0;
               border-bottom: 2px solid transparent; background: transparent; cursor: pointer;
-              font: inherit; font-size: 12px; font-weight: 600; color: var(--text-3); }
+              font: inherit; font-size: 12px; font-weight: 600; color: var(--text-3);
+              white-space: nowrap; flex: 0 0 auto; }
 .ci-tab-nut.on { color: var(--text); border-bottom-color: var(--primary); }
 .ci-tab-nut b { background: var(--ci-nen-chip); border-radius: 999px; padding: 0 6px;
                 font-size: 10px; line-height: 15px; color: var(--text-2); }
@@ -9400,13 +9531,61 @@ img.ci-avt { object-fit: cover; }
 .ci-url input { background: var(--bg); font-family: ui-monospace, monospace; font-size: 11px; }
 .ci-ghichu { font-size: 11.5px; color: var(--text-3); line-height: 1.6; }
 
+/* ── Form XEM LẠI một kết nối ─────────────────────────────────────────────
+   Khác form THÊM MỚI: không hướng dẫn, không ô khoá. Người mở nó ra gần như luôn chỉ định
+   xác nhận đúng tài khoản nào rồi sửa tên gợi nhớ. */
+
+/* Thông tin TRA CỨU: mã nền tảng + địa chỉ nhận tin. Hai dòng nhãn–giá trị, không phải hai ô
+   nhập — chúng không sửa được, mà ô nhập thì nói ngược lại điều đó.
+
+   Ngăn bằng một đường kẻ ở trên thay vì một hộp nền: hộp làm khối này nặng ngang phần sửa được
+   ngay trên nó, trong khi nó chỉ là chú thích cuối trang. */
+.ci-tracuu { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 3px 12px;
+             margin: 2px 0 0; padding-top: 9px; border-top: 1px solid var(--ci-vien-trong);
+             font-size: 10.5px; }
+.ci-tracuu dt { color: var(--text-3); white-space: nowrap; }
+.ci-tracuu dd { margin: 0; min-width: 0; text-align: right; }
+/* Giá trị dài (địa chỉ webhook) cắt bằng dấu ba chấm ở ĐẦU chuỗi: phần phân biệt các bot với
+   nhau nằm ở ĐUÔI, cắt đuôi là mọi dòng trông giống hệt nhau. user-select: all cho một cú bấm
+   là chọn trọn để chép. */
+.ci-tracuu code { display: block; overflow: hidden; direction: rtl; text-align: left;
+                  text-overflow: ellipsis; white-space: nowrap; user-select: all;
+                  font-family: ui-monospace, monospace; font-size: 10.5px; color: var(--text-2); }
+
+/* Khoá ĐÃ LƯU: một dòng trạng thái. Tên lớp là ci-bimat chứ KHÔNG phải ci-khoa — ci-khoa đã
+   có sẵn cho hộp "hết cửa sổ gửi" ở ô soạn, dùng lại là kế thừa nguyên viền đứt của nó và
+   dòng này trông y như một ô nhập, đúng tín hiệu ngược với điều nó muốn nói. Cố ý KHÔNG phải ô nhập — ô che sao vừa mời gõ vào, vừa bắt
+   người dùng đoán nghĩa của việc để trống, mà đoán sai là mất khoá của cả kênh. */
+.ci-bimat { display: flex; align-items: center; gap: 8px; min-height: 30px;
+           font-size: 11.5px; color: var(--text-2); }
+.ci-bimat-ten { flex: 1; min-width: 0; }
+.ci-bimat-tt { padding: 1px 7px 2px; border-radius: 999px; background: var(--bg);
+              font-size: 10px; color: var(--text-3); }
+
+.ci-bimat-doi { display: grid; gap: 6px; padding: 9px; border-radius: 6px;
+               background: var(--bg); }
+.ci-bimat-doi-duoi { display: flex; align-items: center; justify-content: space-between;
+                    gap: 10px; font-size: 10.5px; color: var(--text-3); }
+
+/* Nút chữ cho hành động phụ. Nút viền ở đây sẽ nặng ngang nút Lưu — mà đổi khoá là việc hiếm,
+   không phải việc chính của màn hình này. */
+.ci-lienket { padding: 0; border: 0; background: none; cursor: pointer; font: inherit;
+              font-size: 11px; font-weight: 600; color: var(--primary); }
+.ci-lienket:hover { text-decoration: underline; }
+.ci-lienket:focus-visible { outline: 2px solid var(--primary); outline-offset: 2px;
+                            border-radius: 3px; }
+
 /* Các bước lấy khoá, hiện NGAY trong form khai kênh.
 
    Vì sao không để thành một dòng ghi chú như trước: ô "Bot token" giả định người khai đã biết
    cách lấy token — mà đó chính là chỗ họ tắc. Dự án tham chiếu đặt ba bước kèm liên kết bấm
    thẳng sang @BotFather ngay trong hộp thoại nối, và đó là khác biệt giữa "dán vào đây" với
    "tôi lấy cái đó ở đâu". */
-.ci-buoc { display: flex; flex-direction: column; gap: 8px; margin: 2px 0 4px; }
+/* padding:0 + list-style:none là BẮT BUỘC, không phải cho gọn: thẻ <ol> mặc định thụt vào 40px
+   và tự vẽ số của nó. Số ở đây do mình vẽ (ô tròn), nên để mặc định thì vừa thụt lệch hẳn so
+   với nhãn các ô nhập bên dưới, vừa có nguy cơ hai bộ số chồng nhau. */
+.ci-buoc { display: flex; flex-direction: column; gap: 8px; margin: 2px 0 4px;
+           padding: 0; list-style: none; }
 .ci-buoc li { display: grid; grid-template-columns: 18px 1fr; gap: 8px; align-items: start;
               font-size: 11.5px; line-height: 1.6; color: var(--text-3); }
 .ci-buoc li > span:first-child {

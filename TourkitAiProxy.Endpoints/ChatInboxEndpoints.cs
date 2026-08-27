@@ -46,6 +46,7 @@ public static class ChatInboxEndpoints
         "/api/v1/chat/channels",
         "/api/v1/chat/messages",
         "/api/v1/chat/avatars",
+        "/api/v1/chat/bot-settings",
         "/api/v1/chat/quick-replies",
         "/api/v1/chat/events",
         "/api/v1/chat/oauth",
@@ -502,7 +503,8 @@ public static class ChatInboxEndpoints
             var items = await repo.ListConversationsAsync(a.TenantId, status, chiCuaToi, search,
                 kenh: channel, giaoCho: mine == true ? a.Username : null, chiChuaDoc: unread == true,
                 sau: ChatCursor.Decode(cursor), limit: soDong, nguoiDung: a.Username, ct: ct);
-            var dem = await repo.CountAsync(a.TenantId, chiCuaToi, a.Username, ct);
+            // Truyền kênh đang lọc: chip trạng thái phải nói về ĐÚNG danh sách đang hiện bên dưới.
+            var dem = await repo.CountAsync(a.TenantId, chiCuaToi, a.Username, channel, ct);
             return Results.Json(new
             {
                 items = items.Select(x => Shape(x, a.SessionId)),
@@ -542,7 +544,11 @@ public static class ChatInboxEndpoints
                 .GroupBy(x => x.ExternalMsgId)
                 .ToDictionary(g => g.Key, g => g.ToList());
             var lienHe = await repo.GetContactAsync(a.TenantId, v.Channel, v.ContactExternalId, ct);
-            var cuaSo = ChatRules.ComputeSendWindow((ChatChannel)v.Channel, v.ContactRepliedAt, DateTime.UtcNow);
+            // ChatSender.Agent: hai đường này đều là NGƯỜI THẬT đang mở hộp thư và gõ. Messenger
+            // với Instagram cho nhân viên nhắn tới 7 ngày (nhãn HUMAN_AGENT) trong khi bot chỉ có
+            // 24 giờ — bỏ tham số này là ô soạn khoá sớm 6 ngày dù nền tảng vẫn cho gửi.
+            var cuaSo = ChatRules.ComputeSendWindow((ChatChannel)v.Channel, v.ContactRepliedAt,
+                DateTime.UtcNow, ChatSender.Agent);
             return Results.Json(new
             {
                 conversation = Shape(v, a.SessionId),
@@ -558,6 +564,11 @@ public static class ChatInboxEndpoints
                 {
                     m.Id, m.Direction, m.SenderKind, m.SenderUsername, m.Kind,
                     m.Body, m.State, m.ErrorMessage, m.CreatedUtc,
+                    // Nút ĐÃ GỬI kèm tin. Đọc lại qua ChatRules chứ không đổ thẳng chuỗi JSON
+                    // trong CSDL ra: dòng cũ có thể sai hình dạng, và đường dẫn phải lọc lại
+                    // http(s) — nút do người dùng tự đặt nên là dữ liệu không tin được.
+                    buttons = ChatRules.ReadButtons(m.Buttons)
+                        .Select(b => new { chu = b.Label, url = b.Url }),
                     // Đính kèm đã CHUẨN HOÁ về cùng một hình dạng cho cả ba kênh — xem
                     // ChatAttachment. Giao diện không cần biết Zalo/Messenger/Telegram gói tệp
                     // khác nhau thế nào.
@@ -585,8 +596,130 @@ public static class ChatInboxEndpoints
                     reason = cuaSo.Reason,
                     hoursLeft = cuaSo.Open && cuaSo.Left != TimeSpan.MaxValue
                         ? Math.Round(cuaSo.Left.TotalHours, 1) : (double?)null,
+                    // Đang ở cửa "người thật trả lời muộn": vẫn gửi được, nhưng TRỢ LÝ thì không.
+                    // Giao diện cần nói ra, không thì nhân viên tưởng bot vẫn đang trực hộ.
+                    lateHumanReply = cuaSo.Tag == MetaSendTag.HumanAgent,
                 },
             }, Web);
+        });
+
+        // ── Mẫu tin đã duyệt: đường DUY NHẤT nhắn khi cửa sổ trả lời tự do đã đóng ──
+        //
+        // Hết 24 giờ (Meta) hoặc 48 giờ (Zalo) là hộp thư câm hẳn: không gửi được xác nhận đặt
+        // tour, không nhắc ngày khởi hành, không báo đổi giờ bay — đúng những việc cần nhất, và
+        // đều rơi vào lúc khách đã im lâu.
+        g.MapGet("/conversations/{id:long}/templates", async (long id, HttpContext ctx,
+            TkSessionStore sessions, ChatRepository repo,
+            IEnumerable<Services.Chat.Channels.IChatChannelAdapter> adapters,
+            CancellationToken ct) =>
+        {
+            var a = SessionAuth.Read(ctx, sessions);
+            if (a == null) return SessionAuth.Unauthorized();
+
+            var v = await repo.GetConversationAsync(a.TenantId, id, ct);
+            if (v is null) return Results.NotFound();
+
+            var kenh = (ChatChannel)v.Channel;
+            var boNoi = adapters.FirstOrDefault(x => x.Channel == kenh);
+            if (boNoi is not Services.Chat.Channels.IApprovedTemplateSender mauGui)
+                return Results.Json(new
+                {
+                    supported = false,
+                    // Nói rõ vì sao, đừng chỉ trả danh sách rỗng: Telegram/TikTok không cần mẫu
+                    // (không có cửa sổ), còn Instagram thì Meta không cấp mẫu nào cả — ba lý do
+                    // khác hẳn nhau mà cùng ra một danh sách rỗng.
+                    reason = kenh is ChatChannel.Telegram or ChatChannel.TikTok
+                                     or ChatChannel.Webchat
+                        ? $"{ChatRules.ChannelName(kenh)} không giới hạn thời gian trả lời nên không cần tin mẫu."
+                        : $"{ChatRules.ChannelName(kenh)} không có tin mẫu.",
+                    items = Array.Empty<object>(),
+                }, Web);
+
+            var khach = await repo.GetContactAsync(a.TenantId, v.Channel, v.ContactExternalId, ct);
+            if (mauGui.WhyBlocked(khach) is { } chan)
+                return Results.Json(new
+                {
+                    supported = true, blocked = true, reason = chan.Reason,
+                    items = Array.Empty<object>(),
+                }, Web);
+
+            var ds = await mauGui.ListTemplatesAsync(a.TenantId, v.AccountId, ct);
+            return Results.Json(new
+            {
+                supported = true,
+                blocked = false,
+                items = ds.Select(m => new
+                {
+                    id = m.Id, name = m.Name, language = m.Language, category = m.Category,
+                    status = m.Status, ready = m.SendReady, preview = m.Preview,
+                    slots = m.Slots.Select(x => new { key = x.Key, label = x.Label, sample = x.Sample }),
+                }),
+            }, Web);
+        });
+
+        // Gửi một mẫu. KHÔNG đi qua hàng đợi gửi như tin thường: hàng đợi kiểm cửa sổ gửi trước
+        // khi gọi API, mà cả điểm của tin mẫu là gửi được KHI cửa sổ đã đóng — qua hàng đợi thì
+        // mọi tin mẫu đều bị chính chốt chặn đó loại bỏ.
+        g.MapPost("/conversations/{id:long}/send-template", async (long id, SendTemplateReq body,
+            HttpContext ctx, TkSessionStore sessions, ChatRepository repo, ChatEventBus bus,
+            IEnumerable<Services.Chat.Channels.IChatChannelAdapter> adapters,
+            CancellationToken ct) =>
+        {
+            var a = SessionAuth.Read(ctx, sessions);
+            if (a == null) return SessionAuth.Unauthorized();
+            if (string.IsNullOrWhiteSpace(body.TemplateId))
+                return Results.BadRequest(new { error = "Chưa chọn mẫu tin" });
+
+            var v = await repo.GetConversationAsync(a.TenantId, id, ct);
+            if (v is null) return Results.NotFound();
+
+            var kenh = (ChatChannel)v.Channel;
+            var boNoi = adapters.FirstOrDefault(x => x.Channel == kenh);
+            if (boNoi is not Services.Chat.Channels.IApprovedTemplateSender mauGui)
+                return Results.BadRequest(new { error = $"{ChatRules.ChannelName(kenh)} không có tin mẫu." });
+
+            var khach = await repo.GetContactAsync(a.TenantId, v.Channel, v.ContactExternalId, ct);
+            if (mauGui.WhyBlocked(khach) is { } chan)
+                return Results.BadRequest(new { error = chan.Reason });
+
+            // Đọc lại mẫu từ nền tảng thay vì tin danh sách client gửi lên: client có thể đang
+            // cầm bản cũ (mẫu vừa bị gỡ duyệt), và ô điền phải khớp đúng mẫu THẬT thì tham số
+            // mới không lệch chỗ.
+            var mau = (await mauGui.ListTemplatesAsync(a.TenantId, v.AccountId, ct))
+                .FirstOrDefault(x => x.Id == body.TemplateId);
+            if (mau is null)
+                return Results.BadRequest(new { error = "Mẫu này không còn trong danh sách của kênh." });
+            if (!mau.SendReady)
+                return Results.BadRequest(new
+                    { error = $"Mẫu \"{mau.Name}\" đang ở trạng thái {mau.Status}, chưa gửi được." });
+
+            var giaTri = body.Values ?? new Dictionary<string, string>();
+            var thieu = mau.Slots.Where(x => string.IsNullOrWhiteSpace(giaTri.GetValueOrDefault(x.Key)))
+                                 .Select(x => x.Label).ToList();
+            if (thieu.Count > 0)
+                return Results.BadRequest(new { error = "Chưa điền: " + string.Join(", ", thieu) });
+
+            var kq = await mauGui.SendTemplateAsync(a.TenantId, v.AccountId, v.ContactExternalId,
+                khach, mau, giaTri, ct);
+
+            // Ghi vào hội thoại DÙ GỬI HỎNG, kèm lý do. Không ghi thì nhân viên bấm gửi, thấy một
+            // câu lỗi thoáng qua rồi mất — và không còn dấu vết nào là đã từng thử.
+            var noiDung = MoTaMauDaGui(mau, giaTri);
+            var msgId = await repo.AppendMessageAsync(a.TenantId, id, kenh, ChatDirection.Out,
+                ChatSender.Agent, a.Username, ChatKind.Text, noiDung, null, kq.ExternalMsgId,
+                kq.Ok ? ChatState.Sent : ChatState.Failed, ct);
+
+            if (msgId is not null)
+            {
+                if (!kq.Ok)
+                    await repo.SetMessageStateAsync(a.TenantId, msgId.Value, ChatState.Failed, kq.Error, ct);
+                await repo.TouchConversationAsync(a.TenantId, id, ChatRules.Summarize(noiDung), false, ct);
+                bus.Publish(new(a.TenantId, id, "tin-moi", msgId.Value));
+            }
+
+            return kq.Ok
+                ? Results.Json(new { ok = true, messageId = msgId }, Web)
+                : Results.BadRequest(new { error = kq.Error });
         });
 
         g.MapPost("/conversations/{id:long}/send", async (long id, SendReq body, HttpContext ctx,
@@ -606,7 +739,11 @@ public static class ChatInboxEndpoints
             var v = await repo.GetConversationAsync(a.TenantId, id, ct);
             if (v is null) return Results.NotFound();
 
-            var cuaSo = ChatRules.ComputeSendWindow((ChatChannel)v.Channel, v.ContactRepliedAt, DateTime.UtcNow);
+            // ChatSender.Agent: hai đường này đều là NGƯỜI THẬT đang mở hộp thư và gõ. Messenger
+            // với Instagram cho nhân viên nhắn tới 7 ngày (nhãn HUMAN_AGENT) trong khi bot chỉ có
+            // 24 giờ — bỏ tham số này là ô soạn khoá sớm 6 ngày dù nền tảng vẫn cho gửi.
+            var cuaSo = ChatRules.ComputeSendWindow((ChatChannel)v.Channel, v.ContactRepliedAt,
+                DateTime.UtcNow, ChatSender.Agent);
             if (!cuaSo.Open) return Results.BadRequest(new { error = cuaSo.Reason });
 
             var loai = coDinhKem ? (body.AttachmentKind == "anh" ? ChatKind.Image : ChatKind.File) : ChatKind.Text;
@@ -618,9 +755,26 @@ public static class ChatInboxEndpoints
                 : null;
             var chu = string.IsNullOrWhiteSpace(body.Text) ? null : body.Text.Trim();
 
+            // Nút: cắt cho vừa kênh NGAY Ở ĐÂY để báo lại cho người gửi trong cùng lượt bấm.
+            // Worker cũng cắt lần nữa (nó là chốt chặn cuối trước khi gọi API), nhưng lúc đó
+            // nhân viên đã rời màn hình rồi — cảnh báo tới chỗ không ai đọc.
+            string? nutJson = null;
+            string? nutCanhBao = null;
+            if (body.Buttons is { Count: > 0 } dsNut)
+            {
+                var (vua, canhBao) = ChatRules.FitButtons((ChatChannel)v.Channel, dsNut);
+                nutCanhBao = canhBao;
+                if (vua.Count > 0)
+                    nutJson = new JsonArray(vua.Select(x => (JsonNode)new JsonObject
+                    {
+                        ["chu"] = x.Label,
+                        ["url"] = x.Url,
+                    }).ToArray()).ToJsonString();
+            }
+
             var msgId = await repo.AppendMessageAsync(a.TenantId, id, (ChatChannel)v.Channel,
                 ChatDirection.Out, ChatSender.Agent, a.Username, loai, chu,
-                attJson, null, ChatState.Pending, ct);
+                attJson, null, ChatState.Pending, ct, buttonsJson: nutJson);
             if (msgId is null) return Results.Problem("Không ghi được tin");
 
             var tomTat = coDinhKem ? (loai == ChatKind.Image ? "Đã gửi 1 ảnh" : "Đã gửi 1 tệp") : chu!;
@@ -633,7 +787,9 @@ public static class ChatInboxEndpoints
             tin.Signal(Services.Chat.Inbox.ChatLane.Out);
             bus.Publish(new(a.TenantId, id, "tin-moi", msgId.Value));
 
-            return Results.Json(new { ok = true, messageId = msgId }, Web);
+            // Trả kèm cảnh báo cắt nút: nhân viên soạn năm nút mà kênh chỉ nhận ba thì phải
+            // biết ngay, chứ không phải phát hiện lúc khách hỏi lại.
+            return Results.Json(new { ok = true, messageId = msgId, buttonWarning = nutCanhBao }, Web);
         });
 
         // ── Gửi ảnh/tệp: tải lên kho (R2/S3/local theo Storage:Provider) rồi trả URL để FE gọi
@@ -993,6 +1149,71 @@ public static class ChatInboxEndpoints
         // Kết nối OA mà KHÔNG cần khai gì trước: dùng ứng dụng Zalo cấp nền tảng, nên chỉ cần biết
         // đây là công ty nào. Tài khoản được TẠO Ở BƯỚC CALLBACK, lấy chính id OA làm mã tài khoản
         // — nhờ vậy webhook dùng chung tra ngược ra công ty chỉ bằng một phép so.
+        // ── Lấy lại hội thoại cũ (Messenger / Instagram) ─────────────────────
+        //
+        // Người dùng TỰ BẤM. Một Trang bán hàng lâu năm có thể có hàng chục nghìn tin, và gọi
+        // Graph quá nhiều là Facebook chặn tạm cả ứng dụng — lúc đó tin trực tiếp cũng ngừng về.
+        // Đó là quyết định của người dùng, không phải thứ nên âm thầm làm thay họ lúc nối.
+        g.MapPost("/channels/{channel:int}/accounts/{accountId}/import-history",
+            async (int channel, string accountId, HttpContext ctx, TkSessionStore sessions,
+            Services.Chat.Channels.ChatHistoryImportQueue hang,
+            Services.Chat.Channels.ChatHistoryJobs viec,
+            IConfiguration cfg, CancellationToken ct) =>
+        {
+            var a = SessionAuth.Read(ctx, sessions);
+            if (a == null) return SessionAuth.Unauthorized();
+            if (!await SessionAuth.CanConfigSystemAsync(a.SessionId, sessions, ct))
+                return SessionAuth.ForbiddenConfigSystem();
+
+            if (!Services.Bootstrap.FeatureFlags.ChatHistoryImport(cfg))
+                return Results.BadRequest(new
+                {
+                    error = "Tính năng lấy lại hội thoại cũ đang tắt (Features:ChatHistoryImport).",
+                });
+
+            var kenh = (ChatChannel)channel;
+            if (!Services.Chat.Channels.MetaHistoryImporter.Supports(kenh))
+                return Results.BadRequest(new
+                {
+                    error = $"{kenh} không có đường đọc lại hội thoại cũ. Chỉ Facebook và Instagram cho phép.",
+                });
+
+            if (!viec.BatDau(a.TenantId, kenh, accountId))
+                return Results.Conflict(new { error = "Đang lấy dở cho tài khoản này rồi." });
+
+            // Xếp vào hàng đợi rồi trả lời NGAY: đọc vài trăm hội thoại mất vài phút, quá dài
+            // để giữ một kết nối HTTP mở — trình duyệt hoặc proxy sẽ cắt và người dùng thấy
+            // "lỗi" trong khi việc vẫn đang chạy tốt.
+            //
+            // Worker chạy MỘT lượt tại một thời điểm cho cả máy chủ, xem ChatHistoryImportQueue.
+            await hang.XepAsync(new(a.TenantId, kenh, accountId), ct);
+            return Results.Accepted(value: new { started = true });
+        });
+
+        // Tra tiến độ lượt lấy. Giao diện hỏi lại vài giây một lần trong lúc chạy.
+        g.MapGet("/channels/{channel:int}/accounts/{accountId}/import-history",
+            async (int channel, string accountId, HttpContext ctx, TkSessionStore sessions,
+            Services.Chat.Channels.ChatHistoryJobs viec, CancellationToken ct) =>
+        {
+            var a = SessionAuth.Read(ctx, sessions);
+            if (a == null) return SessionAuth.Unauthorized();
+            if (!await SessionAuth.CanConfigSystemAsync(a.SessionId, sessions, ct))
+                return SessionAuth.ForbiddenConfigSystem();
+
+            var t = viec.Xem(a.TenantId, (ChatChannel)channel, accountId);
+            if (t is null) return Results.Json(new { running = false, ever = false }, Web);
+
+            return Results.Json(new
+            {
+                running = !t.Xong,
+                ever = true,
+                conversations = t.SoHoiThoai,
+                messages = t.SoTin,
+                more = t.ConNua,
+                error = t.Loi,
+            }, Web);
+        });
+
         g.MapPost("/channels/{channel:int}/connect-url", async (int channel, HttpContext ctx,
             TkSessionStore sessions,
             IEnumerable<Services.Chat.Channels.IChatChannelAdapter> adapters,
@@ -1028,6 +1249,35 @@ public static class ChatInboxEndpoints
                 var quayVe = PublicOrigin(ctx, cfg) + MessengerCallbackPath;
                 var state = moc.Create(a.TenantId, "", quayVe);
                 return Results.Json(new { url = fb.PermissionUrlFor(quayVe, state), redirectUri = quayVe }, Web);
+            }
+
+            if ((ChatChannel)channel == ChatChannel.WhatsApp)
+            {
+                var wa = adapters.OfType<Services.Chat.Channels.WhatsAppChatAdapter>().FirstOrDefault();
+                if (wa?.HasPlatformApp != true)
+                    return Results.BadRequest(new
+                    {
+                        error = "Máy chủ chưa khai ứng dụng WhatsApp (Chat:WhatsApp — cần cả AppId, "
+                              + "AppSecret và ConfigId của luồng Embedded Signup)",
+                    });
+
+                var quayVe = PublicOrigin(ctx, cfg) + WhatsAppCallbackPath;
+                var state = moc.Create(a.TenantId, "", quayVe);
+                return Results.Json(new { url = wa.PermissionUrlFor(quayVe, state), redirectUri = quayVe }, Web);
+            }
+
+            if ((ChatChannel)channel == ChatChannel.TikTok)
+            {
+                var tt = adapters.OfType<Services.Chat.Channels.TikTokChatAdapter>().FirstOrDefault();
+                if (tt?.HasPlatformApp != true)
+                    return Results.BadRequest(new
+                    {
+                        error = "Máy chủ chưa khai ứng dụng TikTok (Chat:TikTok — cần cả ClientId và ClientSecret)",
+                    });
+
+                var quayVe = PublicOrigin(ctx, cfg) + TikTokCallbackPath;
+                var state = moc.Create(a.TenantId, "", quayVe);
+                return Results.Json(new { url = tt.PermissionUrlFor(quayVe, state), redirectUri = quayVe }, Web);
             }
 
             return Results.BadRequest(new { error = "Kênh này không có bước kết nối một chạm" });
@@ -1131,6 +1381,67 @@ public static class ChatInboxEndpoints
             return PagePickerPage(ma, trang, await ConnectedIdsAsync(cred, cho.Value.TenantId, ct), null);
         });
 
+        // CÔNG KHAI — Meta gọi lại sau luồng Embedded Signup của WhatsApp.
+        //
+        // Khác Facebook ở chỗ KHÔNG có màn hình chọn: luồng Embedded Signup chỉ cấp quyền cho
+        // ĐÚNG MỘT tài khoản WhatsApp, nên phía máy chủ tự dựng lại được cả tài khoản lẫn số điện
+        // thoại từ mã cấp quyền. Người dùng không phải nhập gì.
+        g.MapGet("/oauth/whatsapp/callback", async (string? code, string? state, string? error,
+            string? error_description, HttpContext ctx,
+            IEnumerable<Services.Chat.Channels.IChatChannelAdapter> adapters,
+            Services.Chat.Channels.ChatOAuthStates moc, CancellationToken ct) =>
+        {
+            if (!string.IsNullOrWhiteSpace(error))
+                return PermissionPage(false, $"WhatsApp báo: {error_description ?? error}");
+
+            var cho = moc.Nhan(state);
+            if (cho is null)
+                return PermissionPage(false,
+                    "Lượt kết nối đã hết hạn hoặc đã dùng rồi. Bấm lại nút Kết nối WhatsApp.");
+            if (string.IsNullOrWhiteSpace(code))
+                return PermissionPage(false, "WhatsApp không trả về mã cấp quyền.");
+
+            var wa = adapters.OfType<Services.Chat.Channels.WhatsAppChatAdapter>().FirstOrDefault();
+            if (wa is null) return PermissionPage(false, "Kênh WhatsApp chưa được bật ở máy chủ.");
+
+            var kq = await wa.ConnectFromCodeAsync(cho.Value.TenantId, code!, cho.Value.RedirectUri, ct);
+            if (kq.Loi is not null) return PermissionPage(false, kq.Loi);
+
+            var ten = string.IsNullOrWhiteSpace(kq.SoHienThi) ? "WhatsApp" : kq.SoHienThi;
+            return PermissionPage(true,
+                $"Đã nối số {ten}. Tin nhắn mới sẽ vào hộp thư ngay.");
+        });
+
+        // CÔNG KHAI — TikTok gọi lại sau khi người dùng bấm Đồng ý.
+        //
+        // Cũng không có màn hình chọn: một lượt cấp quyền TikTok gắn với đúng MỘT tài khoản, và
+        // mã tài khoản (open_id) chính là thứ dùng để gửi tin — không phải đi tìm thêm mã nào.
+        g.MapGet("/oauth/tiktok/callback", async (string? code, string? state, string? error,
+            string? error_description, HttpContext ctx,
+            IEnumerable<Services.Chat.Channels.IChatChannelAdapter> adapters,
+            Services.Chat.Channels.ChatOAuthStates moc, CancellationToken ct) =>
+        {
+            if (!string.IsNullOrWhiteSpace(error))
+                return PermissionPage(false, $"TikTok báo: {error_description ?? error}");
+
+            var cho = moc.Nhan(state);
+            if (cho is null)
+                return PermissionPage(false,
+                    "Lượt kết nối đã hết hạn hoặc đã dùng rồi. Bấm lại nút Kết nối TikTok.");
+            if (string.IsNullOrWhiteSpace(code))
+                return PermissionPage(false, "TikTok không trả về mã cấp quyền.");
+
+            var tt = adapters.OfType<Services.Chat.Channels.TikTokChatAdapter>().FirstOrDefault();
+            if (tt is null) return PermissionPage(false, "Kênh TikTok chưa được bật ở máy chủ.");
+
+            var kq = await tt.ConnectFromCodeAsync(cho.Value.TenantId, code!, cho.Value.RedirectUri, ct);
+            if (kq.Loi is not null) return PermissionPage(false, kq.Loi);
+
+            var ten = string.IsNullOrWhiteSpace(kq.Ten) ? "TikTok" : kq.Ten;
+            return PermissionPage(true,
+                $"Đã nối tài khoản \"{ten}\". Tin nhắn mới sẽ vào hộp thư ngay.");
+        });
+
         // CÔNG KHAI — nửa sau của bước nối: người dùng vừa bấm chọn một Trang trên trang picker.
         //
         // Không có phiên nên chốt chặn nằm ở `ma`: máy chủ tự sinh 32 byte ngẫu nhiên, sống 10
@@ -1183,14 +1494,21 @@ public static class ChatInboxEndpoints
                                     .FirstOrDefault()?.HasPlatformApp == true;
             var fbNhanh = adapters.OfType<Services.Chat.Channels.MessengerChatAdapter>()
                                   .FirstOrDefault()?.HasPlatformApp == true;
+            var waNhanh = adapters.OfType<Services.Chat.Channels.WhatsAppChatAdapter>()
+                                  .FirstOrDefault()?.HasPlatformApp == true;
+            var ttNhanh = adapters.OfType<Services.Chat.Channels.TikTokChatAdapter>()
+                                  .FirstOrDefault()?.HasPlatformApp == true;
+            var batLichSu = Services.Bootstrap.FeatureFlags.ChatHistoryImport(cfg);
             var ra = new List<object>();
-            foreach (var (kenh, ten, oNhap, moiTaiKhoanMotUrl) in KhaiBao)
+            foreach (var (kenh, ten, tenNgan, oNhap, moiTaiKhoanMotUrl) in KhaiBao)
             {
                 var dsach = await cred.ListAccountsAsync(a.TenantId, kenh, ct);
                 var nhanh = kenh switch
                 {
                     ChatChannel.Zalo => zaloNhanh,
                     ChatChannel.Messenger => fbNhanh,
+                    ChatChannel.WhatsApp => waNhanh,
+                    ChatChannel.TikTok => ttNhanh,
                     _ => false,
                 };
                 // Ứng dụng dùng chung thì URL webhook cũng dùng chung — khai MỘT lần trong ứng dụng
@@ -1200,17 +1518,44 @@ public static class ChatInboxEndpoints
                     : $"{goc}/api/v1/chat/webhook/{kenh.ToString().ToLowerInvariant()}/{a.TenantId}";
                 ra.Add(new
                 {
-                    channel = (short)kenh, name = ten, fields = oNhap,
-                    // Kênh này nối được bằng MỘT nút hay phải khai tay từng ô.
+                    channel = (short)kenh, name = ten, shortName = tenNgan, fields = oNhap,
+                    // Máy chủ ĐÃ đủ khoá để nối bằng một nút chưa.
                     noiNhanh = nhanh,
+                    // Kênh này CÓ đường một nút hay không — khác hẳn cờ trên.
+                    //
+                    // Thiếu vế này thì hai trạng thái rất khác nhau bị trộn làm một: "kênh vốn
+                    // phải khai tay" (Telegram — bot token là đường DUY NHẤT) và "kênh nối một
+                    // nút nhưng quản trị chưa khai khoá ứng dụng" (WhatsApp, TikTok). Trộn lại
+                    // thì người dùng nhìn thấy bốn ô kỹ thuật và tưởng đó là việc của mình, đi
+                    // tìm mã trong bảng điều khiển Meta — trong khi việc cần làm là báo quản trị
+                    // điền một khoá vào máy chủ.
+                    hoTroNoiNhanh = kenh is ChatChannel.Zalo or ChatChannel.Messenger
+                                         or ChatChannel.WhatsApp or ChatChannel.TikTok,
                     // Chữ trên nút. Để máy chủ quyết định để giao diện không phải biết tên kênh —
                     // thêm kênh nối-một-chạm mới thì không phải sửa .jsx.
                     nutNoi = kenh switch
                     {
                         ChatChannel.Zalo => "Kết nối Zalo OA",
                         ChatChannel.Messenger => "Kết nối Facebook",
+                        ChatChannel.WhatsApp => "Kết nối WhatsApp",
+                        ChatChannel.TikTok => "Kết nối TikTok",
+                        ChatChannel.Instagram => "Kết nối qua Facebook",
                         _ => "Kết nối",
                     },
+                    // Kênh này nối KÈM kênh nào (mã kênh), hay tự nối lấy.
+                    //
+                    // Instagram không có bước cấp quyền riêng: nó đi theo chính Trang Facebook
+                    // đã nối — nối Trang là hệ thống tự tìm tài khoản Instagram liên kết vào đó.
+                    // Không nói ra thì tab này bày ba ô khai tay và người dùng tưởng phải đi tìm
+                    // token ở đâu đó, trong khi việc cần làm nằm ở tab bên cạnh.
+                    noiKemKenh = kenh == ChatChannel.Instagram && fbNhanh
+                        ? (short?)ChatChannel.Messenger : null,
+                    // Kênh này lấy lại được đoạn chat cũ không. Bốn kênh kia KHÔNG có đường nào:
+                    // Telegram Bot API không cho đọc quá khứ, Zalo không có đầu đọc hội thoại,
+                    // TikTok đòi tư cách Messaging Partner, WhatsApp thì Meta tự đẩy về lúc nối
+                    // chứ không phải mình đi đọc. Để giao diện không phải biết danh sách đó.
+                    layLichSuDuoc = batLichSu
+                                    && Services.Chat.Channels.MetaHistoryImporter.Supports(kenh),
                     // Telegram: mỗi bot một URL riêng (thân tin không nói bot nào) → URL chung để
                     // trống, giao diện hiện URL riêng ở từng tài khoản. Zalo/Messenger dùng chung.
                     webhookUrl = moiTaiKhoanMotUrl ? null : duong,
@@ -1316,6 +1661,54 @@ public static class ChatInboxEndpoints
             return Results.Json(new { ok = true, removed = xoa }, Web);
         });
 
+        // ── Cấu hình trợ lý chat ────────────────────────────────────────────
+        //
+        // ĐỌC thì mọi nhân viên trực chat đều cần (giao diện hiện trạng thái bot bật/tắt);
+        // SỬA thì cần quyền cấu hình hệ thống — đây là giọng nói của cả công ty với khách.
+        g.MapGet("/bot-settings", async (HttpContext ctx, TkSessionStore sessions,
+            ChatBotSettingsRepository repo, CancellationToken ct) =>
+        {
+            var a = SessionAuth.Read(ctx, sessions);
+            if (a == null) return SessionAuth.Unauthorized();
+            if (!repo.Configured) return NotConfigured();
+
+            var v = await repo.GetAsync(a.TenantId, ct);
+            return Results.Json(new
+            {
+                enabled = v.Enabled,
+                persona = v.Persona,
+                greeting = v.Greeting,
+                muteMinutes = v.MuteMinutes,
+                historyTurns = v.HistoryTurns,
+                // Giới hạn do máy chủ nói ra để giao diện không phải chép cứng — sửa mốc ở
+                // Domain là màn hình đổi theo, không lệch.
+                limits = new
+                {
+                    personaChars = ChatBotSettings.MaxPersonaChars,
+                    minHistory = ChatBotSettings.MinHistoryTurns,
+                    maxHistory = ChatBotSettings.MaxHistoryTurns,
+                },
+            }, Web);
+        });
+
+        g.MapPut("/bot-settings", async (BotSettingsReq body, HttpContext ctx,
+            TkSessionStore sessions, ChatBotSettingsRepository repo, CancellationToken ct) =>
+        {
+            var a = SessionAuth.Read(ctx, sessions);
+            if (a == null) return SessionAuth.Unauthorized();
+            if (!await SessionAuth.CanConfigSystemAsync(a.SessionId, sessions, ct))
+                return SessionAuth.ForbiddenConfigSystem();
+            if (!repo.Configured) return NotConfigured();
+
+            // Kẹp giá trị nằm ở Domain (Normalized) chứ không ở đây: worker đọc cùng bộ luật đó,
+            // và kiểm hai nơi là hai nơi lệch nhau.
+            await repo.SaveAsync(a.TenantId, new ChatBotSettings(
+                body.Enabled, body.Persona, body.Greeting,
+                body.MuteMinutes ?? 30, body.HistoryTurns ?? 12), ct);
+
+            return Results.Json(new { ok = true }, Web);
+        });
+
         // ── Mẫu trả lời nhanh ───────────────────────────────────────────────
         // ĐỌC thì mọi nhân viên trực chat đều cần; SỬA/XOÁ thì cần quyền cấu hình hệ thống —
         // đây là bộ câu dùng chung cả đội, một người sửa là cả đội đổi theo.
@@ -1325,7 +1718,19 @@ public static class ChatInboxEndpoints
             var a = SessionAuth.Read(ctx, sessions);
             if (a == null) return SessionAuth.Unauthorized();
             if (!repo.Configured) return NotConfigured();
-            return Results.Json(new { items = await repo.ListAsync(a.TenantId, ct) }, Web);
+            // ⚠️ Bóc nút ra MẢNG THẬT, đừng trả nguyên chuỗi JSON trong CSDL. Trả chuỗi thì
+            // giao diện gọi .length lên nó và ra SỐ KÝ TỰ — màn hình hiện "68 nút" cho một mẫu
+            // có hai nút, còn chỗ chèn mẫu vào ô soạn thì .map lên chuỗi và hỏng hẳn.
+            var ds = await repo.ListAsync(a.TenantId, ct);
+            return Results.Json(new
+            {
+                items = ds.Select(m => new
+                {
+                    m.Id, m.Trigger, m.Body,
+                    buttons = ChatRules.ReadButtons(m.Buttons)
+                        .Select(b => new { chu = b.Label, url = b.Url }),
+                }),
+            }, Web);
         });
 
         g.MapPut("/quick-replies", async (QuickReplyReq body, HttpContext ctx,
@@ -1340,7 +1745,17 @@ public static class ChatInboxEndpoints
                 return Results.BadRequest(new { error = "Chưa nhập nội dung mẫu" });
             try
             {
-                var id = await repo.UpsertAsync(a.TenantId, body.Trigger, body.Body.Trim(), ct);
+                // Nút KHÔNG cắt theo kênh ở đây: mẫu dùng chung cho cả sáu kênh, mà mỗi kênh
+                // một giới hạn. Cắt lúc GỬI, khi đã biết hội thoại thuộc kênh nào.
+                var nutMau = body.Buttons is { Count: > 0 } dsN
+                    ? new JsonArray(dsN.Select(x => (JsonNode)new JsonObject
+                      {
+                          ["chu"] = x.Label,
+                          ["url"] = x.Url,
+                      }).ToArray()).ToJsonString()
+                    : null;
+                var id = await repo.UpsertAsync(a.TenantId, body.Trigger, body.Body.Trim(), ct,
+                    buttonsJson: nutMau);
                 return Results.Json(new { ok = true, id }, Web);
             }
             catch (ArgumentException ex)
@@ -1479,11 +1894,36 @@ public static class ChatInboxEndpoints
             : dat.TrimEnd('/');
     }
 
+    /// <param name="Values">Giá trị từng ô, khoá theo <c>ChatTemplateSlot.Key</c>.</param>
+    public record SendTemplateReq(string? TemplateId, Dictionary<string, string>? Values);
+
+    /// <summary>
+    /// Chữ ghi vào hội thoại cho một tin mẫu.
+    ///
+    /// <para>Nền tảng KHÔNG trả về nội dung cuối cùng sau khi ghép ô, và bên mình cũng không
+    /// dựng lại được (bản xem trước có thể thiếu, mẫu có thể đổi). Nên ghi tên mẫu kèm giá trị
+    /// đã điền — đủ để sau này ai đọc lại hội thoại cũng biết khách đã nhận gì.</para>
+    /// </summary>
+    private static string MoTaMauDaGui(Services.Chat.Channels.ChatTemplate mau,
+        IReadOnlyDictionary<string, string> giaTri)
+    {
+        var oDien = mau.Slots.Count == 0
+            ? ""
+            : " — " + string.Join(" · ", mau.Slots.Select(x => giaTri.GetValueOrDefault(x.Key, "")));
+        return $"[Tin mẫu] {mau.Name}{oDien}";
+    }
+
     private const string ZaloCallbackPath = "/api/v1/chat/oauth/zalo/callback";
 
     /// <remarks>Chuỗi này phải nằm trong <b>Valid OAuth Redirect URIs</b> của ứng dụng bên Meta,
     /// khớp từng ký tự. Đổi ở đây là phải sửa cả bên đó.</remarks>
     private const string MessengerCallbackPath = "/api/v1/chat/oauth/messenger/callback";
+
+    /// Đường Meta gọi lại sau khi người dùng đi hết luồng Embedded Signup của WhatsApp.
+    private const string WhatsAppCallbackPath = "/api/v1/chat/oauth/whatsapp/callback";
+
+    /// Đường TikTok gọi lại sau khi người dùng bấm Đồng ý.
+    private const string TikTokCallbackPath = "/api/v1/chat/oauth/tiktok/callback";
 
     /// <summary>Id các Trang công ty này đã nối — để trang chọn Trang không mời nối lại cái đã có.</summary>
     private static async Task<HashSet<string>> ConnectedIdsAsync(ChannelCredentialStore cred, string tenantId,
@@ -1609,9 +2049,12 @@ public static class ChatInboxEndpoints
     /// dài mà không có ví dụ thì người khai không biết mình dán đúng thứ chưa.</param>
     private record FieldSpec(string Key, string Label, string Type = "text", string Hint = "");
 
-    private static readonly (ChatChannel Kenh, string Ten, FieldSpec[] O, bool MoiTaiKhoanMotUrl)[] KhaiBao =
+    /// <param name="TenNgan">Tên cho dải tab. Từ khi có SÁU kênh, tên đầy đủ làm dải tab vỡ
+    /// thành hai dòng cao thấp lệch nhau. Tên đầy đủ vẫn dùng cho tiêu đề mục bên dưới — chỗ đó
+    /// có chỗ và cần nói rõ ("Zalo OA" khác Zalo cá nhân, "Instagram Direct" là tin nhắn riêng).</param>
+    private static readonly (ChatChannel Kenh, string Ten, string TenNgan, FieldSpec[] O, bool MoiTaiKhoanMotUrl)[] KhaiBao =
     {
-        (ChatChannel.Zalo, "Zalo OA", new[]
+        (ChatChannel.Zalo, "Zalo OA", "Zalo", new[]
         {
             new FieldSpec("label",        "Tên gợi nhớ", "text",   "OA Hà Nội"),
             new FieldSpec("appId",        "App ID",      "text",   "1234567890123456789"),
@@ -1625,7 +2068,7 @@ public static class ChatInboxEndpoints
             new FieldSpec("note2",
                 "Đây là OA RIÊNG của chat, độc lập với OA khai cho bản tin sáng ở Tự động hoá.", "note"),
         }, false),
-        (ChatChannel.Messenger, "Facebook Messenger", new[]
+        (ChatChannel.Messenger, "Facebook Messenger", "Messenger", new[]
         {
             new FieldSpec("label",           "Tên gợi nhớ", "text", "Trang chi nhánh Q1"),
             new FieldSpec("pageId",          "ID Trang",    "text", "102938475610293"),
@@ -1636,18 +2079,21 @@ public static class ChatInboxEndpoints
                 "Bốn ô này CHỈ dùng khi công ty tự tạo ứng dụng riêng trên Meta for Developers. "
                 + "Bình thường bấm \"Kết nối Facebook\" là xong — không phải khai gì.", "note"),
         }, false),
-        (ChatChannel.Instagram, "Instagram Direct", new[]
+        (ChatChannel.Instagram, "Instagram Direct", "Instagram", new[]
         {
             new FieldSpec("label",           "Tên gợi nhớ", "text", "IG chi nhánh Q1"),
             new FieldSpec("igId",            "ID tài khoản Instagram", "text", "17841400000000000"),
             new FieldSpec("pageAccessToken", "Page Access Token", "secret",
                 "Token của Trang Facebook mà tài khoản Instagram này liên kết vào"),
             new FieldSpec("note",
-                "Instagram đi qua chính Trang Facebook đã nối: tài khoản phải là Instagram "
-                + "Professional và đã liên kết với Trang đó, rồi bật \"Cho phép truy cập tin nhắn\" "
-                + "trong cài đặt Instagram. Không cần khai thêm khoá ứng dụng nào.", "note"),
+                "Hai ô này CHỈ dùng khi vì lý do nào đó hệ thống không tự tìm ra tài khoản "
+                + "Instagram lúc nối Trang. Bình thường không phải khai gì.", "note"),
+            new FieldSpec("note2",
+                "Tài khoản phải là Instagram Professional, đã liên kết với Trang Facebook đó, "
+                + "và đã bật \"Cho phép truy cập tin nhắn\" trong cài đặt Instagram. Thiếu một "
+                + "trong ba thì Facebook không trả tài khoản Instagram nào về cả.", "note"),
         }, false),
-        (ChatChannel.WhatsApp, "WhatsApp", new[]
+        (ChatChannel.WhatsApp, "WhatsApp", "WhatsApp", new[]
         {
             new FieldSpec("label",         "Tên gợi nhớ", "text", "Số hotline tour nước ngoài"),
             new FieldSpec("phoneNumberId", "Phone Number ID", "text", "1088888888888888"),
@@ -1656,11 +2102,14 @@ public static class ChatInboxEndpoints
             new FieldSpec("appSecret",     "App Secret", "secret",
                 "Để trống nếu dùng chung ứng dụng Meta với Facebook"),
             new FieldSpec("note",
+                "Bốn ô này CHỈ dùng khi công ty tự tạo ứng dụng riêng trên Meta for Developers. "
+                + "Bình thường bấm \"Kết nối WhatsApp\" là xong — không phải khai gì.", "note"),
+            new FieldSpec("note2",
                 "WhatsApp cần tài khoản doanh nghiệp đã xác minh và một số điện thoại RIÊNG "
                 + "(số đã dùng cho ứng dụng WhatsApp thường thì không khai được). Ngoài 24 giờ kể "
                 + "từ tin của khách chỉ gửi được mẫu đã duyệt, không gửi chữ tự do.", "note"),
         }, false),
-        (ChatChannel.TikTok, "TikTok", new[]
+        (ChatChannel.TikTok, "TikTok", "TikTok", new[]
         {
             new FieldSpec("label",        "Tên gợi nhớ", "text", "TikTok bán tour"),
             new FieldSpec("openId",       "Open ID tài khoản", "text", "_000AbCdEf…"),
@@ -1668,10 +2117,13 @@ public static class ChatInboxEndpoints
             new FieldSpec("accessToken",  "Access Token", "secret", "Token của ứng dụng TikTok for Business"),
             new FieldSpec("clientSecret", "Client Secret", "secret", "Dùng để kiểm chữ ký webhook"),
             new FieldSpec("note",
+                "Bốn ô này CHỈ dùng khi công ty tự tạo ứng dụng riêng trên TikTok for Business. "
+                + "Bình thường bấm \"Kết nối TikTok\" là xong — không phải khai gì.", "note"),
+            new FieldSpec("note2",
                 "TikTok cần ứng dụng TikTok for Business đã được duyệt quyền nhắn tin. Kênh này "
                 + "chỉ gửi được CHỮ và ẢNH; tệp, âm thanh, video thì gửi đường dẫn bằng tin chữ.", "note"),
         }, false),
-        (ChatChannel.Telegram, "Telegram", new[]
+        (ChatChannel.Telegram, "Telegram", "Telegram", new[]
         {
             // Các bước ĐỨNG TRƯỚC ô nhập: người khai đọc cách lấy mã rồi mới có cái để dán. Ô
             // "Bot token" đứng một mình giả định họ đã biết lấy ở đâu — mà đó đúng là chỗ tắc.
@@ -1711,8 +2163,10 @@ public static class ChatInboxEndpoints
     }
 
     /// <param name="AttachmentKind">"anh" | "tep" — bỏ trống khi không đính kèm.</param>
+/// <param name="Buttons">Nút gắn dưới tin. Bỏ trống = tin chữ thường.</param>
 public record SendReq(string? Text, string? AttachmentUrl = null, string? AttachmentKind = null,
-    string? AttachmentName = null, long? AttachmentSize = null);
+    string? AttachmentName = null, long? AttachmentSize = null,
+    List<ChatButton>? Buttons = null);
     public record AssignReq(string? Username);
     /// <param name="CustomerId">Bỏ trống = GỠ nối khách CRM khỏi hội thoại này.</param>
     public record LinkCrmReq(int? CustomerId);
@@ -1723,5 +2177,12 @@ public record SendReq(string? Text, string? AttachmentUrl = null, string? Attach
     public record BotReq(bool Paused, int? Minutes);
 
     /// <param name="Trigger">Lệnh gọi thô — server tự chuẩn hoá (bỏ dấu, hạ chữ thường).</param>
-    public record QuickReplyReq(string Trigger, string Body);
+    /// <param name="Buttons">Nút kèm mẫu. Bỏ trống hoặc rỗng = XOÁ nút đang có — màn hình sửa
+    /// mẫu luôn gửi lên trạng thái đầy đủ, và "bỏ hết nút" phải làm được.</param>
+    /// <param name="Persona">Lời dặn RIÊNG của công ty. NỐI THÊM vào khung an toàn, không thay
+    /// thế — xem <see cref="ChatBotSettings.BuildSystemPrompt"/>.</param>
+    public record BotSettingsReq(bool Enabled, string? Persona, string? Greeting,
+        int? MuteMinutes, int? HistoryTurns);
+
+    public record QuickReplyReq(string Trigger, string Body, List<ChatButton>? Buttons = null);
 }

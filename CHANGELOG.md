@@ -13,6 +13,97 @@ Những cập nhật gần đây của TRAV-AI, viết cho người dùng. Mới
 
 ---
 
+## Phiên bản 28/08/2026 — Thêm 6 ngày để trả lời khách Facebook
+
+### ✨ Tính năng mới
+- **Có chỗ chỉnh trợ lý chat rồi.** Mở **Cài đặt hộp thư → Trợ lý**: bật/tắt trợ lý, viết
+  những gì nó cần biết về công ty bạn (chuyên tuyến nào, xưng hô ra sao, không nhận đoàn
+  dưới bao nhiêu khách), đặt câu chào, và chọn nhân viên trả lời xong thì trợ lý im bao lâu.
+  Trước đây tất cả những thứ này nằm cứng trong máy chủ, mọi công ty dùng chung một kiểu.
+
+  *Lưu ý:* phần bạn viết **thêm vào** chứ không thay thế các luật an toàn. Trợ lý vẫn không
+  bao giờ tự báo giá, lịch khởi hành hay số chỗ còn — nó chưa đọc dữ liệu thật của công ty.
+
+- **Quản lý mẫu trả lời nhanh ngay trong app.** Mở **Cài đặt hộp thư → Mẫu trả lời**: thêm,
+  sửa, xoá mẫu và gắn nút bấm cho từng mẫu. Trước đây không có màn hình nào — mẫu chỉ tạo
+  được bằng cách nhờ người kỹ thuật, nên gần như không ai dùng.
+
+- **Gửi kèm nút bấm cho khách.** Bấm **+ Nút** ở ô soạn, đặt chữ trên nút rồi gửi. Hai kiểu:
+  để trống đường dẫn thì khách bấm là **coi như họ nhắn đúng câu đó** — trợ lý trả lời tiếp
+  bình thường, hợp cho câu hỏi kiểu "Anh quan tâm tuyến nào?" với ba nút Nhật · Hàn · Đài;
+  điền đường dẫn thì bấm là mở trang. Nút đã gửi hiện lại trong dòng tin để sau này đọc lại
+  vẫn biết khách được mời chọn gì.
+
+  *Lưu ý:* mỗi nơi cho số nút khác nhau — Facebook và Instagram 13 nút (3 nếu có nút mở
+  trang), Zalo 5, WhatsApp 3, Telegram 8. Soạn quá thì hệ thống bỏ bớt và **báo cho bạn biết**
+  ngay sau khi gửi. TikTok không có nút; WhatsApp không nhận nút mở trang trong tin thường.
+
+- **Hết hạn trả lời vẫn nhắn được cho khách, bằng tin mẫu đã duyệt.** Trước đây quá 24 giờ
+  (Facebook, WhatsApp) hoặc 48 giờ (Zalo) là hộp thư câm hẳn — không gửi được xác nhận đặt
+  tour, không nhắc ngày khởi hành, không báo đổi giờ bay. Nay ngay tại chỗ báo "hết hạn" có
+  thêm nút **Gửi tin mẫu**: chọn một mẫu công ty đã đăng ký và được nền tảng duyệt, điền vài ô
+  rồi gửi. Ô nào có ví dụ sẵn thì hệ thống điền trước cho bạn sửa.
+
+  *Lưu ý:* mẫu phải đăng ký bên nền tảng trước (Zalo ZNS · Meta Business) và chờ họ duyệt —
+  duyệt xong là tự hiện ở đây, không phải khai lại. Mẫu đang chờ duyệt vẫn hiện nhưng chưa bấm
+  gửi được. **Tin mẫu có thể tính phí và không thu hồi được**, nên màn hình nhắc trước khi gửi.
+  Zalo gửi tin mẫu **theo số điện thoại**, nên hội thoại nào chưa có số của khách thì chưa gửi
+  được — màn hình nói rõ và chỉ chỗ điền số.
+
+- **Nối WhatsApp và TikTok chỉ còn một nút.** Trước đây hai kênh này bắt bạn tự vào bảng điều
+  khiển của Meta và TikTok tìm bốn dòng mã kỹ thuật rồi chép sang — hầu như không ai làm được
+  nếu không có người kỹ thuật ngồi cạnh. Nay bấm **Kết nối WhatsApp** hoặc **Kết nối TikTok**,
+  đăng nhập tài khoản của bạn, chọn số điện thoại (hoặc tài khoản) rồi quay về — xong. Hệ thống
+  tự lấy hết những mã đó.
+
+  *Lưu ý:* ô khai tay vẫn còn, dành cho công ty nào đã tự tạo ứng dụng riêng bên Meta/TikTok.
+
+- **Lấy lại các đoạn chat cũ của Facebook và Instagram.** Nối kênh xong, những cuộc trò chuyện
+  có từ trước đó không tự về hộp thư. Nay mở **Kết nối kênh**, chọn tài khoản rồi bấm **Lấy hội
+  thoại cũ** — hệ thống kéo về, mất vài phút, tin nào đã có thì bỏ qua. Trợ lý **không** trả lời
+  lại những tin cũ này, và chúng nằm đúng ngày giờ thật chứ không dồn lên đầu hộp thư.
+
+  *Lưu ý:* chỉ Facebook và Instagram lấy lại được. Telegram, Zalo và TikTok thì nền tảng không
+  cho đọc lại quá khứ — kênh mới nối chỉ nhận tin từ lúc nối trở đi. WhatsApp có lấy được, nhưng
+  chỉ khi công ty chuyển sang từ ứng dụng WhatsApp Business và chỉ trong 24 giờ đầu sau khi nối.
+
+### 🔧 Đã khắc phục
+- **Trợ lý nhớ được đoạn hội thoại, không còn trả lời lạc đề.** Trước đây nó chỉ đọc đúng câu
+  khách vừa gửi, nên khách hỏi "Tour Nhật bao nhiêu ạ?" rồi hỏi tiếp "Thế còn tháng 10?" là
+  nó không biết đang nói về tour nào. Khách nào cũng nhắn kiểu đó, nên trợ lý lạc đề gần như
+  mọi cuộc dài quá hai lượt. Nay nó đọc lại các tin gần nhất trước khi trả lời — số tin do bạn
+  đặt trong Cài đặt hộp thư.
+- **Màn hình xem lại một kênh đã nối gọn hẳn.** Trước đây mở một bot Telegram ra là gặp lại ba
+  bước hướng dẫn cách tạo bot — thứ chỉ cần lúc thêm mới — cùng một ô mã bot che sao mời bạn gõ
+  vào, mà để trống thì không ai đoán được là giữ hay xoá. Nay màn hình đó chỉ còn thứ bạn thật
+  sự mở nó ra để làm: đổi tên gợi nhớ. Mã bot hiện thành dòng **đã lưu** kèm nút **Đổi**, bấm
+  mới ra ô nhập. Mã bot và địa chỉ nhận tin nén thành hai dòng nhỏ ở cuối để đối chiếu khi cần.
+- **Instagram không còn bắt bạn đi tìm mã.** Kênh này vốn nối kèm theo Trang Facebook, nhưng
+  giao diện lại bày ô nhập như thể phải khai riêng. Nay nó chỉ thẳng sang **Kết nối Facebook**.
+- **Kênh chưa được quản trị khai khoá thì nói rõ ra.** Trước đây WhatsApp và TikTok cứ đổ bốn ô
+  kỹ thuật ra màn hình, làm bạn tưởng phải tự vào bảng điều khiển Meta hay TikTok tìm mã. Nay
+  màn hình nói đúng việc cần làm: kênh này nối bằng một nút, chỉ là quản trị hệ thống chưa khai
+  khoá — báo họ giúp bạn.
+- **TikTok không còn tự ngắt sau một ngày.** Chìa khoá TikTok cấp chỉ sống 24 giờ. Trước đây hệ
+  thống không tự xin chìa mới, nên đúng một ngày sau khi nối là mọi tin gửi đi đều hỏng — mà
+  câu báo lỗi không hề nhắc tới chuyện hết hạn nên rất khó đoán ra. Nay hệ thống tự gia hạn
+  trước khi hết, bạn không phải làm gì.
+- **WhatsApp: nhận cả tin nhân viên trả lời thẳng từ điện thoại.** Trước đây hộp thư chỉ thấy
+  câu khách hỏi, không thấy câu đã trả lời từ ứng dụng WhatsApp trên máy — nên trợ lý trả lời
+  đè lên người thật. Nay cả hai chiều đều hiện lên.
+- **Khách nhắn Facebook/Instagram từ hôm trước: nay vẫn trả lời được.** Trước đây quá 24 giờ
+  kể từ tin của khách là ô soạn khoá lại — khách nhắn tối thứ Sáu, sáng thứ Hai bạn vào thì
+  đã không gõ được gì, dù mở Messenger ra vẫn nhắn bình thường. Hoá ra Facebook cho **nhân
+  viên** trả lời tới **7 ngày**, chỉ là trợ lý tự động thì không. Nay hộp thư mở đúng như
+  vậy: quá 24 giờ, bạn vẫn nhắn tay được thêm 6 ngày nữa, và có một dòng nhắc ngay trên
+  khung chat cho biết từ lúc đó trợ lý đã ngừng trả lời hộ — để bạn không tưởng nhầm là vẫn
+  có người trực.
+
+  *Lưu ý:* chỉ Facebook và Instagram có thêm 6 ngày này. Zalo vẫn 48 giờ, WhatsApp vẫn 24
+  giờ rồi phải dùng mẫu đã duyệt — đó là quy định của từng nền tảng.
+
+---
+
 ## Phiên bản 27/08/2026 — Sáu kênh chat trong một hộp thư
 
 ### ✨ Tính năng mới

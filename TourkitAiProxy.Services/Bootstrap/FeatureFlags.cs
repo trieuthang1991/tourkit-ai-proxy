@@ -35,6 +35,20 @@ public static class FeatureFlags
     public static bool Chat(IConfiguration cfg) => cfg.GetValue("Features:Chat", false);
 
     /// <summary>
+    /// Lấy lại các đoạn hội thoại CŨ của Messenger / Instagram (có từ trước lúc nối).
+    ///
+    /// <para>PHỤ THUỘC <see cref="Chat"/>: không có hộp thư thì lấy lịch sử về cũng không có
+    /// chỗ nào đọc.</para>
+    ///
+    /// <para><b>Cờ riêng vì đây là việc TỐN HẠN MỨC.</b> Một Trang bán hàng lâu năm có thể có
+    /// hàng chục nghìn tin; gọi Graph quá nhiều là Facebook chặn tạm cả ứng dụng, mà lúc đó
+    /// <b>tin trực tiếp cũng ngừng về</b> — tức lấy lịch sử làm hỏng chính việc đang chạy. Bật
+    /// có ý thức, và vẫn phải người dùng tự bấm chứ không tự chạy lúc nối.</para>
+    /// </summary>
+    public static bool ChatHistoryImport(IConfiguration cfg)
+        => Chat(cfg) && cfg.GetValue("Features:ChatHistoryImport", false);
+
+    /// <summary>
     /// Kiểm tra sẵn sàng khởi hành (tác vụ <c>tour-readiness</c>): quét tour sắp đi, tour nào còn
     /// thiếu thì ghi cảnh báo vào Bảng tin.
     ///

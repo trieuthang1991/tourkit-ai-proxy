@@ -196,12 +196,19 @@ public static class WorkflowStackRegistration
         // ChatDb tự tắt nếu thiếu chuỗi kết nối. Chặn thật nằm ở chỗ map endpoint và worker.
         s.AddSingleton<ChatDb>();
         s.AddSingleton<ChatRepository>();
+        // Singleton: nó giữ bộ nhớ tạm 60 giây, scoped thì cache chết theo từng lượt gọi.
+        s.AddSingleton<ChatBotSettingsRepository>();
         s.AddSingleton<ChatQuickReplyRepository>();
         // Singleton: người nghe (tab đang mở) sống lâu hơn một request, để scope là mỗi request
         // một bus riêng và không ai nhận được gì.
         s.AddSingleton<Chat.Channels.ChatOAuthStates>();
         // Danh sách Trang Facebook chờ người dùng chọn, giữa hai nửa của bước nối.
         s.AddSingleton<Chat.Channels.MessengerPageChoices>();
+        // Không giữ trạng thái nào — mọi phụ thuộc đều singleton, nên cũng singleton.
+        s.AddSingleton<Chat.Channels.MetaHistoryImporter>();
+        s.AddSingleton<Chat.Channels.ChatHistoryJobs>();
+        s.AddSingleton<Chat.Channels.ChatHistoryImportQueue>();
+        s.AddHostedService<Chat.Channels.ChatHistoryImportWorker>();
         s.AddSingleton<Chat.Inbox.ChatEventBus>();
         // Tín hiệu đánh thức worker: hàng đợi vừa có việc thì làm ngay, không ngủ hết nhịp.
         s.AddSingleton<Chat.Inbox.ChatWorkSignal>();

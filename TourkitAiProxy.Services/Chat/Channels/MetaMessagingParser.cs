@@ -29,6 +29,10 @@ public static class MetaMessagingParser
         JsonNode? goc;
         try { goc = JsonNode.Parse(rawBody); } catch { return ra; }
 
+        // Gói LỊCH SỬ do MetaHistoryImporter tự xếp vào hàng đợi — không phải webhook của Meta.
+        // Nhận ra trước rồi đi đường riêng: hình dạng của Graph khác hẳn hình dạng webhook.
+        if (goc?["tourkit_lich_su"] is { } manh) return DocLichSu(manh, kenh);
+
         // Meta gói nhiều sự kiện trong một lần gọi: entry[] × messaging[]. Bóc thiếu vòng lặp là
         // mất tin khi khách nhắn dồn.
         if (goc?["entry"] is not JsonArray entries) return ra;
@@ -175,4 +179,86 @@ public static class MetaMessagingParser
         }
         return ra;
     }
+
+    /// <summary>
+    /// Bóc một mảnh hội thoại CŨ lấy về từ Graph.
+    ///
+    /// <para><b>Hình dạng khác hẳn webhook</b> nên không dùng lại đường trên được: Graph trả
+    /// <c>{id, message, from:{id,name}, created_time, attachments:{data:[…]}}</c>, còn webhook
+    /// trả <c>messaging[].message.{mid,text,attachments[]}</c>. Ép chung một hàm là hai hình
+    /// dạng cùng phải chiều theo nhau rồi cả hai cùng khó đọc.</para>
+    ///
+    /// <para>Graph trả tin <b>mới nhất trước</b>. Không đảo lại thì hộp thư vẫn hiện đúng thứ tự
+    /// (sắp theo thời điểm khi đọc ra), nên ở đây không đảo — thứ tự trong danh sách này không
+    /// mang ý nghĩa gì.</para>
+    /// </summary>
+    private static IReadOnlyList<InboundChatEvent> DocLichSu(JsonNode manh, ChatChannel kenh)
+    {
+        var ra = new List<InboundChatEvent>();
+        var maKhach = manh["khach"]?.ToString();
+        if (string.IsNullOrWhiteSpace(maKhach)) return ra;
+
+        var ten = manh["ten"]?.ToString();
+        if (manh["tin"] is not JsonArray ds) return ra;
+
+        foreach (var m in ds.OfType<JsonNode>())
+        {
+            var maTin = m["id"]?.ToString();
+            if (string.IsNullOrWhiteSpace(maTin)) continue;
+
+            // Chiều tin đọc từ from.id: khác khách nghĩa là Trang mình đã gửi. So với "cuaToi"
+            // thì hỏng ở Instagram — id trong from KHÔNG phải chuỗi "me" mình gửi lên.
+            var laCuaMinh = m["from"]?["id"]?.ToString() != maKhach;
+            var (loai, att) = DocDinhKemLichSu(m["attachments"]?["data"] as JsonArray);
+            var chu = m["message"]?.ToString();
+
+            // Tin chỉ có đính kèm thì message rỗng — bỏ hẳn là mất tin. Giữ lại, dòng chữ để trống,
+            // giao diện tự hiện thẻ tệp.
+            if (string.IsNullOrWhiteSpace(chu) && att is null) continue;
+
+            ra.Add(new(kenh, maKhach!, maTin, loai, chu, att, LucGuiLichSu(m),
+                IsEcho: laCuaMinh,
+                DisplayName: laCuaMinh ? ten : (m["from"]?["name"]?.ToString() ?? ten),
+                IsHistory: true));
+        }
+
+        return ra;
+    }
+
+    /// <summary>
+    /// Đính kèm ở Graph nằm ở BA chỗ khác nhau tuỳ loại tệp: ảnh ở <c>image_data.url</c>, video ở
+    /// <c>video_data.url</c>, còn tệp và âm thanh ở <c>file_url</c> ngoài cùng. Chỉ đọc một chỗ là
+    /// mất hẳn hai loại kia mà không có lỗi nào.
+    /// </summary>
+    private static (ChatKind Loai, string? Att) DocDinhKemLichSu(JsonArray? ds)
+    {
+        var d = ds?.OfType<JsonNode>().FirstOrDefault();
+        if (d is null) return (ChatKind.Text, null);
+
+        var mime = d["mime_type"]?.ToString() ?? "";
+        var url = d["image_data"]?["url"]?.ToString()
+               ?? d["video_data"]?["url"]?.ToString()
+               ?? d["file_url"]?.ToString();
+        if (string.IsNullOrWhiteSpace(url)) return (ChatKind.Text, null);
+
+        var loai = mime.StartsWith("image/", StringComparison.Ordinal) || d["image_data"] is not null
+            ? ChatKind.Image
+            : mime.StartsWith("audio/", StringComparison.Ordinal) ? ChatKind.Audio : ChatKind.File;
+
+        return (loai, new JsonObject
+        {
+            ["ten"] = d["name"]?.ToString(),
+            ["kich"] = d["size"]?.ToString(),
+            ["url"] = url,
+        }.ToJsonString());
+    }
+
+    /// <summary>
+    /// <c>created_time</c> của Graph là ISO-8601 kèm múi giờ. Đọc hỏng thì lấy giờ hiện tại —
+    /// thà một tin sai chỗ còn hơn cả mảnh hội thoại biến mất.
+    /// </summary>
+    private static DateTime LucGuiLichSu(JsonNode m)
+        => DateTimeOffset.TryParse(m["created_time"]?.ToString(), out var luc)
+            ? luc.UtcDateTime
+            : DateTime.UtcNow;
 }

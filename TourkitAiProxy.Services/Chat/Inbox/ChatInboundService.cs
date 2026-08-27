@@ -27,12 +27,14 @@ public class ChatInboundService
     private readonly AiCallContext _aiCtx;
     private readonly IConfiguration _cfg;
     private readonly ILogger<ChatInboundService> _log;
+    private readonly ChatBotSettingsRepository _cauHinh;
     private readonly ChatEventBus _bus;
 
     public ChatInboundService(ChatRepository repo, IEnumerable<IChatChannelAdapter> adapters,
         ProviderRegistry providers, AiCallContext aiCtx, IConfiguration cfg,
-        ILogger<ChatInboundService> log, ChatEventBus bus, ChatWorkSignal tin)
-    { _repo = repo; _adapters = adapters; _providers = providers; _aiCtx = aiCtx; _cfg = cfg; _log = log; _bus = bus; _tin = tin; }
+        ILogger<ChatInboundService> log, ChatEventBus bus, ChatWorkSignal tin,
+        ChatBotSettingsRepository cauHinh)
+    { _repo = repo; _adapters = adapters; _providers = providers; _aiCtx = aiCtx; _cfg = cfg; _log = log; _bus = bus; _tin = tin; _cauHinh = cauHinh; }
 
     public IChatChannelAdapter? Adapter(ChatChannel kenh)
         => _adapters.FirstOrDefault(a => a.Channel == kenh);
@@ -143,6 +145,32 @@ public class ChatInboundService
             return;
         }
 
+        // ── Tin CŨ: nền tảng trả lịch sử về lúc nối ──────────────────────────
+        //
+        // Ghi rồi DỪNG. Ba việc ngay dưới đây đều sai với tin cũ:
+        //   · sinh câu trả lời — một năm lịch sử là hàng trăm câu trợ lý gửi thẳng cho khách
+        //     HÔM NAY, về những chuyện đã xong từ lâu. Đây là kiểu hỏng không rút lại được.
+        //   · cho bot câm 30 phút — tính từ giờ, vì một tin của ba năm trước.
+        //   · chờ gộp tin — bốn giây nhân với vài nghìn tin lịch sử.
+        //
+        // Thời điểm lấy từ chính gói tin (e.SentUtc), không phải giờ nhập.
+        if (e.IsHistory)
+        {
+            var idCu = await _repo.AppendMessageAsync(tenantId, hoiThoai.Id, e.Channel,
+                e.IsEcho ? ChatDirection.Out : ChatDirection.In,
+                e.IsEcho ? ChatSender.Agent : ChatSender.Customer, null, e.Kind, e.Text,
+                e.AttachmentJson, e.ExternalMsgId,
+                e.IsEcho ? ChatState.Sent : ChatState.Delivered, ct, e.SentUtc);
+            if (idCu is null) return;   // đã nhập lần trước — nền tảng gửi lại cùng một mảnh
+
+            // Đánh dấu đã xử lý NGAY: nếu không, cụm gộp tin của lượt tin thật kế tiếp sẽ vơ cả
+            // đống tin cũ vào làm câu hỏi cho trợ lý.
+            await _repo.MarkProcessedAsync(tenantId, new[] { idCu.Value }, ct);
+            await _repo.RecomputeActivityAsync(tenantId, hoiThoai.Id, ct);
+            _bus.Publish(new(tenantId, hoiThoai.Id, "tin-moi", idCu.Value));
+            return;
+        }
+
         // ── Tiếng vọng: nhân viên trả lời từ app của kênh ────────────────────
         if (e.IsEcho)
         {
@@ -152,7 +180,9 @@ public class ChatInboundService
             if (idV is null) return;   // đã ghi lần trước
             await _repo.TouchConversationAsync(tenantId, hoiThoai.Id, ChatRules.Summarize(e.Text), false, ct);
             // Có người thật đang trả lời → bot phải câm, nếu không nó nói đè lên người ta.
-            await _repo.PauseBotAsync(tenantId, hoiThoai.Id, (int)ChatRules.DefaultBotMute.TotalMinutes, ct);
+            // Bao lâu là do công ty đặt: đội trực dày thì để ngắn, đội mỏng thì để dài.
+        await _repo.PauseBotAsync(tenantId, hoiThoai.Id,
+            (await _cauHinh.GetAsync(tenantId, ct)).MuteMinutes, ct);
             _bus.Publish(new(tenantId, hoiThoai.Id, "tin-moi", idV.Value));
             return;
         }
@@ -170,6 +200,11 @@ public class ChatInboundService
         // Gộp tin nhắn liên tiếp: chờ khách im rồi mới xử lý cả cụm. Chờ thẳng ở đây thay vì hẹn
         // giờ riêng — đang chạy nền, vài giây không ảnh hưởng ai, mà đỡ hẳn một cơ chế hẹn giờ.
         await Task.Delay(BurstIdle, ct);
+
+        // Cấu hình của CÔNG TY NÀY, không phải của máy chủ. Đọc trước mọi việc tốn kém: tắt bot
+        // thì khỏi chờ gộp tin, khỏi gọi AI, khỏi bật dấu "đang gõ" rồi im.
+        var cfgBot = await _cauHinh.GetAsync(tenantId, ct);
+        if (!cfgBot.Enabled) return;
 
         var moi = await _repo.GetConversationAsync(tenantId, hoiThoai.Id, ct);
         if (moi is null || !ChatRules.BotMayReply(moi, DateTime.UtcNow)) return;
@@ -191,7 +226,16 @@ public class ChatInboundService
         if (Adapter(e.Channel) is { } boNoiGo)
             await boNoiGo.SendTypingAsync(tenantId, accountId, e.ExternalUserId, ct);
 
-        var traLoi = await GenerateReplyAsync(tenantId, hoiThoai.Id, cauHoi, ct);
+        // Đọc lại đoạn hội thoại làm ngữ cảnh. Trước 28/08/2026 bot chỉ nhận đúng cụm tin vừa
+        // tới, nên khách nhắn "Thế còn tháng 10?" là nó không biết đang nói về tour nào — mà
+        // khách nào cũng nhắn kiểu đó.
+        //
+        // Lấy dư vài tin rồi mới lọc: hàm dựng bỏ tin hỏng và tin chờ gửi (khách chưa hề đọc),
+        // nên xin đúng số lượt là hụt mất mấy dòng.
+        var lichSu = await _repo.ListMessagesAsync(tenantId, hoiThoai.Id, cfgBot.HistoryTurns * 2, ct);
+        var nhacLai = ChatRules.BuildConversationPrompt(lichSu, cauHoi, cfgBot.HistoryTurns);
+
+        var traLoi = await GenerateReplyAsync(tenantId, hoiThoai.Id, nhacLai, cfgBot, ct);
         if (string.IsNullOrWhiteSpace(traLoi)) return;
 
         var idRa = await _repo.AppendMessageAsync(tenantId, hoiThoai.Id, e.Channel, ChatDirection.Out,
@@ -212,9 +256,13 @@ public class ChatInboundService
     /// vẫn nằm trong hộp thư, nhân viên thấy và trả lời tay được.</para>
     /// </summary>
     private async Task<string?> GenerateReplyAsync(string tenantId, long hoiThoaiId, string cauHoi,
-        CancellationToken ct)
+        ChatBotSettings cfgBot, CancellationToken ct)
     {
-        var loiDan = _cfg["Chat:SystemPrompt"] ?? DefaultSystemPrompt;
+        // Khung an toàn: máy chủ khai đè được (Chat:SystemPrompt) để sửa nóng khi cần, còn mặc
+        // định nằm trong mã. Lời dặn RIÊNG của công ty NỐI THÊM vào, không thay thế — khung chứa
+        // luật chống bịa giá tour, bỏ nó là bot hứa giữ chỗ với khách thật.
+        var khung = _cfg["Chat:SystemPrompt"] ?? DefaultSystemPrompt;
+        var loiDan = cfgBot.BuildSystemPrompt(khung);
         try
         {
             // Gọi từ NỀN nên không có HttpContext — phải Push thủ công, nếu không là bỏ qua hạn
