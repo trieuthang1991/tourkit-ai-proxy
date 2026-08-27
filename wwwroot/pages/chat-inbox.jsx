@@ -275,6 +275,133 @@
     );
   }
 
+  // ── Tin mẫu đã duyệt ──────────────────────────────────────────────────────
+  //
+  // Chỉ hiện khi cửa sổ trả lời tự do ĐÃ ĐÓNG — lúc đó đây là đường duy nhất còn lại. Mở nó ra
+  // lúc vẫn nhắn tự do được là dụ người dùng tiêu một tin trả phí cho việc gõ tay vẫn làm được.
+  function BangTinMau({ hoiThoai, onDong, onGuiXong, pushToast }) {
+    const [ds, setDs] = React.useState(null);      // null = đang tải
+    const [chan, setChan] = React.useState(null);  // lý do kênh này không gửi mẫu được
+    const [chonMau, setChonMau] = React.useState(null);
+    const [oDien, setODien] = React.useState({});
+    const [dangGui, setDangGui] = React.useState(false);
+
+    React.useEffect(() => {
+      let huy = false;
+      (async () => {
+        // try/catch bao TRỌN, không chỉ kiểm r.ok: mạng đứt hay máy chủ chết giữa chừng thì
+        // authedFetch NÉM chứ không trả về phản hồi hỏng — và lời hứa bị từ chối ở đây không
+        // chạm tới setDs nào cả, nên bảng kẹt mãi ở "Đang đọc danh sách mẫu…". Người dùng ngồi
+        // chờ một thứ không bao giờ tới, mà cũng không có lỗi nào hiện ra để họ biết mà đóng.
+        try {
+          const r = await authedFetch('/api/v1/chat/conversations/' + hoiThoai + '/templates');
+          if (huy) return;
+          if (!r.ok) { setDs([]); setChan('Không đọc được danh sách mẫu. Thử lại sau ít phút.'); return; }
+          const j = await r.json();
+          setChan(j.supported === false || j.blocked ? j.reason : null);
+          setDs(j.items || []);
+        } catch {
+          if (huy) return;
+          setDs([]);
+          setChan('Không đọc được danh sách mẫu. Thử lại sau ít phút.');
+        }
+      })();
+      return () => { huy = true; };
+    }, [hoiThoai]);
+
+    // Điền sẵn ví dụ nền tảng kèm theo. Nhân viên sửa nhanh hơn gõ từ đầu, và nhìn ví dụ mới
+    // đoán ra ô đó là gì — Meta không đặt tên ô, chỉ đánh số.
+    function chon(m) {
+      setChonMau(m);
+      const d = {};
+      (m.slots || []).forEach(o => { d[o.key] = o.sample || ''; });
+      setODien(d);
+    }
+
+    async function gui() {
+      setDangGui(true);
+      try {
+        const r = await authedFetch('/api/v1/chat/conversations/' + hoiThoai + '/send-template', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ templateId: chonMau.id, values: oDien }),
+        });
+        let j = null; try { j = await r.json(); } catch {}
+        if (!r.ok) { pushToast(j?.error || 'Gửi không được', 'error'); return; }
+        pushToast('Đã gửi tin mẫu', 'success');
+        await onGuiXong();
+      } finally { setDangGui(false); }
+    }
+
+    const thieuO = (chonMau?.slots || []).some(o => !(oDien[o.key] || '').trim());
+
+    return (
+      <div className="ci-mau-tin">
+        <div className="ci-mau-tin-dau">
+          <b>Tin mẫu đã duyệt</b>
+          <button className="ci-nut-icon" onClick={onDong} aria-label="Đóng">
+            <window.Icon name="close" size={14} />
+          </button>
+        </div>
+
+        {ds === null && <div className="ci-mau-tin-trong">Đang đọc danh sách mẫu…</div>}
+        {chan && <div className="ci-mau-tin-trong">{chan}</div>}
+
+        {/* Chưa đăng ký mẫu nào là trạng thái BÌNH THƯỜNG của công ty mới, không phải lỗi —
+            nên nói cách làm tiếp, đừng chỉ báo trống. */}
+        {ds !== null && !chan && ds.length === 0 && (
+          <div className="ci-mau-tin-trong">
+            Kênh này chưa có mẫu nào được duyệt. Đăng ký mẫu trong trang quản trị của nền tảng
+            (Zalo ZNS · Meta Business), duyệt xong là nó tự hiện ở đây.
+          </div>
+        )}
+
+        {ds !== null && !chan && ds.length > 0 && !chonMau && (
+          <ul className="ci-mau-tin-ds">
+            {ds.map(m => (
+              <li key={m.id}>
+                <button type="button" disabled={!m.ready} onClick={() => chon(m)}>
+                  <span className="ci-mau-tin-ten">{m.name}</span>
+                  {/* Mẫu chờ duyệt vẫn hiện, mờ đi. Giấu hẳn thì người dùng tưởng mẫu bị mất
+                      rồi đăng ký lại một mẫu trùng — và Meta tính lượt duyệt. */}
+                  {!m.ready && <span className="ci-mau-tin-tt">{m.status}</span>}
+                  {m.preview && <span className="ci-mau-tin-xem">{m.preview}</span>}
+                </button>
+              </li>
+            ))}
+          </ul>
+        )}
+
+        {chonMau && (
+          <div className="ci-mau-tin-dien">
+            <button type="button" className="ci-lienket" onClick={() => setChonMau(null)}>
+              ← Chọn mẫu khác
+            </button>
+            <div className="ci-mau-tin-ten">{chonMau.name}</div>
+            {chonMau.preview && <div className="ci-mau-tin-xem">{chonMau.preview}</div>}
+
+            {(chonMau.slots || []).map(o => (
+              <label key={o.key} className="ci-o">
+                {o.label}
+                <input value={oDien[o.key] || ''} placeholder={o.sample || ''}
+                       onChange={e => setODien(p => ({ ...p, [o.key]: e.target.value }))} />
+              </label>
+            ))}
+
+            <div className="ci-tk-nut">
+              <button className="ci-nut chinh" disabled={dangGui || thieuO} onClick={gui}>
+                {dangGui ? 'Đang gửi…' : 'Gửi cho khách'}
+              </button>
+              {/* Nói TRƯỚC khi bấm: mẫu Zalo tính tiền từng tin, và tin đã gửi thì không thu lại
+                  được. Báo sau khi gửi là quá muộn. */}
+              <span className="ci-mau-tin-luuy">Tin mẫu có thể tính phí và không thu hồi được.</span>
+            </div>
+          </div>
+        )}
+      </div>
+    );
+  }
+
   // Thời hạn trả lời. Ba mức: còn nhiều / sắp hết / đã đóng, dùng đúng bộ màu cảnh báo của app.
   function ThanhCuaSo({ cuaSo, kenh }) {
     if (!cuaSo) return null;
@@ -1144,6 +1271,8 @@
     const [dangGui, setDangGui] = useState(false);
     const [dangTai, setDangTai] = useState(true);
     const [moKhai, setMoKhai] = useState(false);
+    // Bảng chọn tin mẫu — chỉ mở từ ô soạn đang khoá, xem chỗ dùng.
+    const [moMau, setMoMau] = useState(false);
     const [moHoSo, setMoHoSo] = useState(true);
     const [dinhKem, setDinhKem] = useState(null);      // tệp đã tải lên, CHỜ bấm gửi
     const [dangTai2, setDangTai2] = useState(false);   // đang tải tệp lên kho
@@ -1257,6 +1386,7 @@
     useEffect(() => { setDsach([]); setConTro(null); }, [loc, kenhLoc, nhom, tim]);
 
     useEffect(() => { if (chon) taiChiTiet(chon); }, [chon, taiChiTiet]);
+    useEffect(() => { setMoMau(false); }, [chon]);
 
     // Tải một lần, KHÔNG bám theo sự kiện đẩy: bộ mẫu hiếm khi đổi, kéo lại liên tục là
     // tốn truy vấn cho thứ gần như đứng yên.
@@ -1543,10 +1673,24 @@
                   ))}
                 </div>
 
+                {moMau && (
+                  <BangTinMau hoiThoai={v.id} onDong={() => setMoMau(false)}
+                              pushToast={pushToast} onGuiXong={async () => { setMoMau(false); await taiChiTiet(chon); }} />
+                )}
+
                 <div className="ci-soan">
                   {khoaSoan ? (
                     // Nói rõ VÌ SAO và chỉ đường đi tiếp, không chỉ chặn.
-                    <div className="ci-khoa">{cuaSo?.reason || 'Hiện chưa gửi được cho khách này.'}</div>
+                    //
+                    // Và đây CHÍNH LÀ chỗ tin mẫu có việc: hết cửa sổ tự do thì mẫu đã duyệt là
+                    // đường duy nhất còn lại. Đặt nút ở đâu khác thì đúng lúc cần nhất người
+                    // dùng lại không thấy nó.
+                    <div className="ci-khoa">
+                      <span>{cuaSo?.reason || 'Hiện chưa gửi được cho khách này.'}</span>
+                      <button type="button" className="ci-lienket" onClick={() => setMoMau(true)}>
+                        Gửi tin mẫu
+                      </button>
+                    </div>
                   ) : (
                     <>
                       {/* Tệp đã tải lên, CHỜ bấm gửi. Xem trước rồi mới gửi — lỡ chọn nhầm còn gỡ kịp. */}

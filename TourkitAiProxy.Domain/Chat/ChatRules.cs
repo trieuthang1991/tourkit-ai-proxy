@@ -139,7 +139,9 @@ public static class ChatRules
                 : "Muốn liên hệ lại thì dùng tin theo mẫu (ZNS) hoặc gọi điện."));
     }
 
-    private static string ChannelName(ChatChannel k) => k switch
+    /// <summary>Tên kênh cho câu nói với người dùng. Công khai vì tầng endpoint cũng cần —
+    /// để mỗi chỗ tự đặt tên riêng thì cùng một kênh có hai cái tên trên hai màn hình.</summary>
+    public static string ChannelName(ChatChannel k) => k switch
     {
         ChatChannel.Zalo => "Zalo",
         ChatChannel.Messenger => "Messenger",

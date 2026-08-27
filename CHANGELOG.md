@@ -16,6 +16,18 @@ Những cập nhật gần đây của TRAV-AI, viết cho người dùng. Mới
 ## Phiên bản 28/08/2026 — Thêm 6 ngày để trả lời khách Facebook
 
 ### ✨ Tính năng mới
+- **Hết hạn trả lời vẫn nhắn được cho khách, bằng tin mẫu đã duyệt.** Trước đây quá 24 giờ
+  (Facebook, WhatsApp) hoặc 48 giờ (Zalo) là hộp thư câm hẳn — không gửi được xác nhận đặt
+  tour, không nhắc ngày khởi hành, không báo đổi giờ bay. Nay ngay tại chỗ báo "hết hạn" có
+  thêm nút **Gửi tin mẫu**: chọn một mẫu công ty đã đăng ký và được nền tảng duyệt, điền vài ô
+  rồi gửi. Ô nào có ví dụ sẵn thì hệ thống điền trước cho bạn sửa.
+
+  *Lưu ý:* mẫu phải đăng ký bên nền tảng trước (Zalo ZNS · Meta Business) và chờ họ duyệt —
+  duyệt xong là tự hiện ở đây, không phải khai lại. Mẫu đang chờ duyệt vẫn hiện nhưng chưa bấm
+  gửi được. **Tin mẫu có thể tính phí và không thu hồi được**, nên màn hình nhắc trước khi gửi.
+  Zalo gửi tin mẫu **theo số điện thoại**, nên hội thoại nào chưa có số của khách thì chưa gửi
+  được — màn hình nói rõ và chỉ chỗ điền số.
+
 - **Nối WhatsApp và TikTok chỉ còn một nút.** Trước đây hai kênh này bắt bạn tự vào bảng điều
   khiển của Meta và TikTok tìm bốn dòng mã kỹ thuật rồi chép sang — hầu như không ai làm được
   nếu không có người kỹ thuật ngồi cạnh. Nay bấm **Kết nối WhatsApp** hoặc **Kết nối TikTok**,

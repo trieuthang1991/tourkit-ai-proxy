@@ -26,7 +26,8 @@ namespace TourkitAiProxy.Services.Chat.Channels;
 ///
 /// <para>Tham khảo cách bóc sự kiện của ChatbotX (<c>integrations/messenger</c>).</para>
 /// </summary>
-public class MessengerChatAdapter : IChatChannelAdapter, ILateHumanReplySender
+public class MessengerChatAdapter : IChatChannelAdapter, ILateHumanReplySender,
+    IApprovedTemplateSender
 {
     private const string GraphBase = "https://graph.facebook.com";
 
@@ -530,6 +531,95 @@ public class MessengerChatAdapter : IChatChannelAdapter, ILateHumanReplySender
     /// <summary>Đánh dấu đã xem bên phía khách. Cùng đường gọi với báo đang gõ.</summary>
     public Task MarkSeenAsync(string tenantId, string accountId, string externalUserId,
         CancellationToken ct) => SenderActionAsync(tenantId, accountId, externalUserId, "mark_seen", ct);
+
+    // ── Mẫu tin đã duyệt ────────────────────────────────────────────────────
+
+    /// <inheritdoc/>
+    public async Task<IReadOnlyList<ChatTemplate>> ListTemplatesAsync(string tenantId,
+        string accountId, CancellationToken ct)
+    {
+        var c = await _cred.GetAsync(tenantId, Channel, accountId, ct);
+        if (c is null || !c.TryGetValue("pageAccessToken", out var token)
+            || string.IsNullOrWhiteSpace(token))
+            return Array.Empty<ChatTemplate>();
+
+        // ⚠️ Mẫu Messenger khai trên TRANG, khác WhatsApp (khai trên tài khoản doanh nghiệp).
+        var pageId = c.GetValueOrDefault("pageId") is { Length: > 0 } p ? p : "me";
+
+        try
+        {
+            var http = _http.CreateClient();
+            using var res = await http.GetAsync(
+                $"{GraphBase}/{ApiVersion}/{Uri.EscapeDataString(pageId)}/message_templates"
+                + "?fields=name,status,language,category,components&limit=200"
+                + $"&access_token={Uri.EscapeDataString(token!)}", ct);
+            var o = JsonNode.Parse(await res.Content.ReadAsStringAsync(ct));
+            if (o?["data"] is not JsonArray ds) return Array.Empty<ChatTemplate>();
+
+            var ra = new List<ChatTemplate>();
+            foreach (var m in ds.OfType<JsonNode>())
+            {
+                var ten = m["name"]?.ToString();
+                if (string.IsNullOrWhiteSpace(ten)) continue;
+                var (slots, xem) = MetaTemplateParser.ReadComponents(m["components"] as JsonArray);
+                ra.Add(new(m["id"]?.ToString() ?? ten!, ten!, m["language"]?.ToString() ?? "vi",
+                    m["category"]?.ToString(), m["status"]?.ToString() ?? "UNKNOWN", slots, xem));
+            }
+            return ra;
+        }
+        catch (Exception ex)
+        {
+            // Chưa có mẫu nào là chuyện bình thường của công ty mới — không ném lên giao diện.
+            _log.LogWarning(ex, "[chat/messenger] không đọc được danh sách mẫu tin");
+            return Array.Empty<ChatTemplate>();
+        }
+    }
+
+    /// <inheritdoc/>
+    public async Task<SendResult> SendTemplateAsync(string tenantId, string accountId,
+        string externalUserId, ChatContact? khach, ChatTemplate mau,
+        IReadOnlyDictionary<string, string> giaTri, CancellationToken ct)
+    {
+        var c = await _cred.GetAsync(tenantId, Channel, accountId, ct);
+        if (c is null || !c.TryGetValue("pageAccessToken", out var token)
+            || string.IsNullOrWhiteSpace(token))
+            return new(false, false, null, "Trang Facebook này chưa khai (thiếu page access token)");
+
+        var than = new JsonObject
+        {
+            ["recipient"] = new JsonObject { ["id"] = externalUserId },
+            // ⚠️ UTILITY chứ không phải RESPONSE. Gửi mẫu bằng RESPONSE thì Meta vẫn nhận khi
+            // còn trong cửa sổ 24 giờ, nên thử lúc mới nhắn là thấy chạy — rồi đúng lúc CẦN nó
+            // nhất (khách im ba ngày) thì bị từ chối.
+            ["messaging_type"] = "UTILITY",
+            ["message"] = new JsonObject
+            {
+                ["template"] = new JsonObject
+                {
+                    ["name"] = mau.Name,
+                    ["language"] = new JsonObject { ["code"] = mau.Language },
+                    ["components"] = MetaTemplateParser.BuildComponents(mau, giaTri),
+                },
+            },
+        };
+
+        try
+        {
+            var http = _http.CreateClient();
+            using var res = await http.PostAsync(
+                $"{GraphBase}/{ApiVersion}/me/messages?access_token={Uri.EscapeDataString(token!)}",
+                new StringContent(than.ToJsonString(), Encoding.UTF8, "application/json"), ct);
+            var raw = await res.Content.ReadAsStringAsync(ct);
+            var o = JsonNode.Parse(raw)?.AsObject();
+
+            if (res.IsSuccessStatusCode && o?["error"] is null)
+                return new(true, false, o?["message_id"]?.ToString(), null);
+
+            return new(false, (int)res.StatusCode >= 500, null,
+                $"Facebook từ chối mẫu: {o?["error"]?["message"]?.ToString() ?? Truncate(raw)}");
+        }
+        catch (Exception ex) { return new(false, true, null, ex.Message); }
+    }
 
     public async Task<SendResult> SendTextAsync(string tenantId, string accountId, string externalUserId,
         string text, CancellationToken ct)

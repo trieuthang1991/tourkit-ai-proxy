@@ -291,6 +291,42 @@ là bot** (chặt hơn): chỗ gọi nào quên truyền thì mất quyền ch�
 [`ILateHumanReplySender`](../../TourkitAiProxy.Services/Chat/Channels/IChatChannelAdapter.cs), không
 nhét vào chữ ký chung: bốn kênh còn lại không có khái niệm này.
 
+### Tin mẫu đã duyệt — nhắn khi cửa sổ đã đóng
+
+Hết 24h (Meta) hoặc 48h (Zalo) là hộp thư **câm hẳn**. Mẫu đã được nền tảng duyệt là đường
+**duy nhất** còn lại. Giao diện đặt nút ngay trong hộp báo "hết hạn" ở ô soạn — đúng chỗ và
+đúng lúc người dùng gặp bức tường.
+
+| Kênh | Có mẫu? | Gửi theo | Tham số |
+|---|---|---|---|
+| WhatsApp | ✅ | id số điện thoại | đánh SỐ, tách theo khối |
+| Messenger | ✅ | PSID, `messaging_type: UTILITY` | như WhatsApp |
+| Zalo (ZNS) | ✅ | **SỐ ĐIỆN THOẠI của khách** | TÊN tự đặt |
+| Instagram | ❌ | Meta không cấp mẫu cho kênh này | |
+| Telegram · TikTok | ❌ | không có cửa sổ nên không cần | |
+
+⚠️ **Ba cơ chế khác hẳn nhau, đừng gộp.** Meta ghép tham số **theo VỊ TRÍ trong mảng, không
+đọc tên khoá** — sắp sai thứ tự là khách nhận tin với các ô hoán chỗ cho nhau, mà lượt gọi vẫn
+trả về thành công. Và Meta đánh `{{1}}`, `{{2}}`… **đếm lại từ đầu trong TỪNG khối** (tiêu đề
+có `{{1}}` riêng, thân tin có `{{1}}` riêng), nên khoá ô mang cả tên khối: `body:1`, `header:1`.
+Phần thuần nằm ở [`MetaTemplateParser`](../../TourkitAiProxy.Services/Chat/Channels/MetaTemplateParser.cs),
+dùng chung cho WhatsApp + Messenger, có test.
+
+⚠️ **ZNS gửi theo SỐ ĐIỆN THOẠI, không theo id người dùng Zalo.** Một hội thoại Zalo đang mở
+vẫn có thể không gửi ZNS được: mình biết khách là ai trên OA nhưng không biết số của họ. Vì thế
+có `WhyBlocked` — kiểm TRƯỚC khi bày danh sách mẫu, để nhân viên không chọn mẫu, điền năm ô rồi
+mới bị báo thiếu số.
+
+⚠️ **ZNS của hộp thư chat tách hẳn khỏi ZNS của bản tin sáng.** Bản tin xếp vào
+`dbo.OutboundMails` (SQL Server) rồi worker của `toutkit-app` mới rút ra gửi. Chat gọi thẳng
+`business.openapi.zalo.me` bằng token OA của **chính kênh chat**, vì ba lý do: cần mã tin trả về
+NGAY để gắn vào hội thoại; nhân viên bấm gửi và chờ kết quả trên màn hình; và hai kho dữ liệu
+tách hẳn (chat ở PostgreSQL). **Đừng gộp lại.**
+
+⚠️ Đường gửi mẫu **không đi qua hàng đợi gửi** như tin thường: hàng đợi kiểm cửa sổ gửi trước
+khi gọi API, mà cả điểm của tin mẫu là gửi được KHI cửa sổ đã đóng — qua hàng đợi thì mọi tin
+mẫu đều bị chính chốt chặn đó loại bỏ.
+
 ### Khôi phục hội thoại cũ
 
 Câu hỏi hay gặp: *nối kênh xong, các đoạn chat có từ trước có lấy lại được không?* Câu trả lời

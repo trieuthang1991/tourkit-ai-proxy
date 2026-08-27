@@ -597,6 +597,125 @@ public static class ChatInboxEndpoints
             }, Web);
         });
 
+        // ── Mẫu tin đã duyệt: đường DUY NHẤT nhắn khi cửa sổ trả lời tự do đã đóng ──
+        //
+        // Hết 24 giờ (Meta) hoặc 48 giờ (Zalo) là hộp thư câm hẳn: không gửi được xác nhận đặt
+        // tour, không nhắc ngày khởi hành, không báo đổi giờ bay — đúng những việc cần nhất, và
+        // đều rơi vào lúc khách đã im lâu.
+        g.MapGet("/conversations/{id:long}/templates", async (long id, HttpContext ctx,
+            TkSessionStore sessions, ChatRepository repo,
+            IEnumerable<Services.Chat.Channels.IChatChannelAdapter> adapters,
+            CancellationToken ct) =>
+        {
+            var a = SessionAuth.Read(ctx, sessions);
+            if (a == null) return SessionAuth.Unauthorized();
+
+            var v = await repo.GetConversationAsync(a.TenantId, id, ct);
+            if (v is null) return Results.NotFound();
+
+            var kenh = (ChatChannel)v.Channel;
+            var boNoi = adapters.FirstOrDefault(x => x.Channel == kenh);
+            if (boNoi is not Services.Chat.Channels.IApprovedTemplateSender mauGui)
+                return Results.Json(new
+                {
+                    supported = false,
+                    // Nói rõ vì sao, đừng chỉ trả danh sách rỗng: Telegram/TikTok không cần mẫu
+                    // (không có cửa sổ), còn Instagram thì Meta không cấp mẫu nào cả — ba lý do
+                    // khác hẳn nhau mà cùng ra một danh sách rỗng.
+                    reason = kenh is ChatChannel.Telegram or ChatChannel.TikTok
+                                     or ChatChannel.Webchat
+                        ? $"{ChatRules.ChannelName(kenh)} không giới hạn thời gian trả lời nên không cần tin mẫu."
+                        : $"{ChatRules.ChannelName(kenh)} không có tin mẫu.",
+                    items = Array.Empty<object>(),
+                }, Web);
+
+            var khach = await repo.GetContactAsync(a.TenantId, v.Channel, v.ContactExternalId, ct);
+            if (mauGui.WhyBlocked(khach) is { } chan)
+                return Results.Json(new
+                {
+                    supported = true, blocked = true, reason = chan.Reason,
+                    items = Array.Empty<object>(),
+                }, Web);
+
+            var ds = await mauGui.ListTemplatesAsync(a.TenantId, v.AccountId, ct);
+            return Results.Json(new
+            {
+                supported = true,
+                blocked = false,
+                items = ds.Select(m => new
+                {
+                    id = m.Id, name = m.Name, language = m.Language, category = m.Category,
+                    status = m.Status, ready = m.SendReady, preview = m.Preview,
+                    slots = m.Slots.Select(x => new { key = x.Key, label = x.Label, sample = x.Sample }),
+                }),
+            }, Web);
+        });
+
+        // Gửi một mẫu. KHÔNG đi qua hàng đợi gửi như tin thường: hàng đợi kiểm cửa sổ gửi trước
+        // khi gọi API, mà cả điểm của tin mẫu là gửi được KHI cửa sổ đã đóng — qua hàng đợi thì
+        // mọi tin mẫu đều bị chính chốt chặn đó loại bỏ.
+        g.MapPost("/conversations/{id:long}/send-template", async (long id, SendTemplateReq body,
+            HttpContext ctx, TkSessionStore sessions, ChatRepository repo, ChatEventBus bus,
+            IEnumerable<Services.Chat.Channels.IChatChannelAdapter> adapters,
+            CancellationToken ct) =>
+        {
+            var a = SessionAuth.Read(ctx, sessions);
+            if (a == null) return SessionAuth.Unauthorized();
+            if (string.IsNullOrWhiteSpace(body.TemplateId))
+                return Results.BadRequest(new { error = "Chưa chọn mẫu tin" });
+
+            var v = await repo.GetConversationAsync(a.TenantId, id, ct);
+            if (v is null) return Results.NotFound();
+
+            var kenh = (ChatChannel)v.Channel;
+            var boNoi = adapters.FirstOrDefault(x => x.Channel == kenh);
+            if (boNoi is not Services.Chat.Channels.IApprovedTemplateSender mauGui)
+                return Results.BadRequest(new { error = $"{ChatRules.ChannelName(kenh)} không có tin mẫu." });
+
+            var khach = await repo.GetContactAsync(a.TenantId, v.Channel, v.ContactExternalId, ct);
+            if (mauGui.WhyBlocked(khach) is { } chan)
+                return Results.BadRequest(new { error = chan.Reason });
+
+            // Đọc lại mẫu từ nền tảng thay vì tin danh sách client gửi lên: client có thể đang
+            // cầm bản cũ (mẫu vừa bị gỡ duyệt), và ô điền phải khớp đúng mẫu THẬT thì tham số
+            // mới không lệch chỗ.
+            var mau = (await mauGui.ListTemplatesAsync(a.TenantId, v.AccountId, ct))
+                .FirstOrDefault(x => x.Id == body.TemplateId);
+            if (mau is null)
+                return Results.BadRequest(new { error = "Mẫu này không còn trong danh sách của kênh." });
+            if (!mau.SendReady)
+                return Results.BadRequest(new
+                    { error = $"Mẫu \"{mau.Name}\" đang ở trạng thái {mau.Status}, chưa gửi được." });
+
+            var giaTri = body.Values ?? new Dictionary<string, string>();
+            var thieu = mau.Slots.Where(x => string.IsNullOrWhiteSpace(giaTri.GetValueOrDefault(x.Key)))
+                                 .Select(x => x.Label).ToList();
+            if (thieu.Count > 0)
+                return Results.BadRequest(new { error = "Chưa điền: " + string.Join(", ", thieu) });
+
+            var kq = await mauGui.SendTemplateAsync(a.TenantId, v.AccountId, v.ContactExternalId,
+                khach, mau, giaTri, ct);
+
+            // Ghi vào hội thoại DÙ GỬI HỎNG, kèm lý do. Không ghi thì nhân viên bấm gửi, thấy một
+            // câu lỗi thoáng qua rồi mất — và không còn dấu vết nào là đã từng thử.
+            var noiDung = MoTaMauDaGui(mau, giaTri);
+            var msgId = await repo.AppendMessageAsync(a.TenantId, id, kenh, ChatDirection.Out,
+                ChatSender.Agent, a.Username, ChatKind.Text, noiDung, null, kq.ExternalMsgId,
+                kq.Ok ? ChatState.Sent : ChatState.Failed, ct);
+
+            if (msgId is not null)
+            {
+                if (!kq.Ok)
+                    await repo.SetMessageStateAsync(a.TenantId, msgId.Value, ChatState.Failed, kq.Error, ct);
+                await repo.TouchConversationAsync(a.TenantId, id, ChatRules.Summarize(noiDung), false, ct);
+                bus.Publish(new(a.TenantId, id, "tin-moi", msgId.Value));
+            }
+
+            return kq.Ok
+                ? Results.Json(new { ok = true, messageId = msgId }, Web)
+                : Results.BadRequest(new { error = kq.Error });
+        });
+
         g.MapPost("/conversations/{id:long}/send", async (long id, SendReq body, HttpContext ctx,
             TkSessionStore sessions, ChatRepository repo, ChatEventBus bus,
             Services.Chat.Inbox.ChatWorkSignal tin, CancellationToken ct) =>
@@ -1678,6 +1797,25 @@ public static class ChatInboxEndpoints
         return string.IsNullOrWhiteSpace(dat)
             ? $"{ctx.Request.Scheme}://{ctx.Request.Host}"
             : dat.TrimEnd('/');
+    }
+
+    /// <param name="Values">Giá trị từng ô, khoá theo <c>ChatTemplateSlot.Key</c>.</param>
+    public record SendTemplateReq(string? TemplateId, Dictionary<string, string>? Values);
+
+    /// <summary>
+    /// Chữ ghi vào hội thoại cho một tin mẫu.
+    ///
+    /// <para>Nền tảng KHÔNG trả về nội dung cuối cùng sau khi ghép ô, và bên mình cũng không
+    /// dựng lại được (bản xem trước có thể thiếu, mẫu có thể đổi). Nên ghi tên mẫu kèm giá trị
+    /// đã điền — đủ để sau này ai đọc lại hội thoại cũng biết khách đã nhận gì.</para>
+    /// </summary>
+    private static string MoTaMauDaGui(Services.Chat.Channels.ChatTemplate mau,
+        IReadOnlyDictionary<string, string> giaTri)
+    {
+        var oDien = mau.Slots.Count == 0
+            ? ""
+            : " — " + string.Join(" · ", mau.Slots.Select(x => giaTri.GetValueOrDefault(x.Key, "")));
+        return $"[Tin mẫu] {mau.Name}{oDien}";
     }
 
     private const string ZaloCallbackPath = "/api/v1/chat/oauth/zalo/callback";

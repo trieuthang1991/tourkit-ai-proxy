@@ -36,7 +36,7 @@ namespace TourkitAiProxy.Services.Chat.Channels;
 /// nghiệp cùng số điện thoại riêng — chưa có thì phần bóc tin và chữ ký có test, còn đường gửi và
 /// bước nối vẫn là theo tài liệu.</para>
 /// </summary>
-public class WhatsAppChatAdapter : IChatChannelAdapter
+public class WhatsAppChatAdapter : IChatChannelAdapter, IApprovedTemplateSender
 {
     private const string GraphBase = "https://graph.facebook.com";
     private const string DefaultApiVersion = "v21.0";
@@ -356,6 +356,81 @@ public class WhatsAppChatAdapter : IChatChannelAdapter
             _log.LogWarning(ex, "[chat/whatsapp] gọi Graph hỏng");
             return null;
         }
+    }
+
+    // ── Mẫu tin đã duyệt ────────────────────────────────────────────────────
+
+    /// <inheritdoc/>
+    public async Task<IReadOnlyList<ChatTemplate>> ListTemplatesAsync(string tenantId,
+        string accountId, CancellationToken ct)
+    {
+        var c = await _cred.GetAsync(tenantId, Channel, accountId, ct);
+        var token = NullIfBlank(c?.GetValueOrDefault("accessToken"));
+        var wabaId = NullIfBlank(c?.GetValueOrDefault("wabaId"));
+        if (token is null || wabaId is null) return Array.Empty<ChatTemplate>();
+
+        // ⚠️ Mẫu khai trên TÀI KHOẢN DOANH NGHIỆP (waba), không phải trên số điện thoại. Hỏi
+        // nhầm số thì Meta trả rỗng chứ không báo lỗi — trông y như công ty chưa đăng ký mẫu nào.
+        var o = await JsonAsync(_http.CreateClient(),
+            $"{GraphBase}/{ApiVersion}/{U(wabaId)}/message_templates"
+            + $"?fields=name,status,language,category,components&limit=200"
+            + $"&access_token={U(token)}", ct);
+
+        if (o?["data"] is not JsonArray ds) return Array.Empty<ChatTemplate>();
+
+        var ra = new List<ChatTemplate>();
+        foreach (var m in ds.OfType<JsonNode>())
+        {
+            var ten = m["name"]?.ToString();
+            if (string.IsNullOrWhiteSpace(ten)) continue;
+            var (o1, xem) = MetaTemplateParser.ReadComponents(m["components"] as JsonArray);
+            ra.Add(new(m["id"]?.ToString() ?? ten!, ten!, m["language"]?.ToString() ?? "vi",
+                m["category"]?.ToString(), m["status"]?.ToString() ?? "UNKNOWN", o1, xem));
+        }
+        return ra;
+    }
+
+    /// <inheritdoc/>
+    public async Task<SendResult> SendTemplateAsync(string tenantId, string accountId,
+        string externalUserId, ChatContact? khach, ChatTemplate mau,
+        IReadOnlyDictionary<string, string> giaTri, CancellationToken ct)
+    {
+        var c = await _cred.GetAsync(tenantId, Channel, accountId, ct);
+        var token = NullIfBlank(c?.GetValueOrDefault("accessToken"));
+        var soId = NullIfBlank(c?.GetValueOrDefault("phoneNumberId")) ?? accountId;
+        if (token is null) return new(false, false, null, "Số WhatsApp này chưa có khoá đăng nhập");
+
+
+        var than = new JsonObject
+        {
+            ["messaging_product"] = "whatsapp",
+            ["to"] = externalUserId,
+            ["type"] = "template",
+            ["template"] = new JsonObject
+            {
+                ["name"] = mau.Name,
+                ["language"] = new JsonObject { ["code"] = mau.Language },
+                ["components"] = MetaTemplateParser.BuildComponents(mau, giaTri),
+            },
+        };
+
+        try
+        {
+            var http = _http.CreateClient();
+            using var res = await http.PostAsync(
+                $"{GraphBase}/{ApiVersion}/{U(soId)}/messages?access_token={U(token)}",
+                new StringContent(than.ToJsonString(), Encoding.UTF8, "application/json"), ct);
+            var raw = await res.Content.ReadAsStringAsync(ct);
+            var o = JsonNode.Parse(raw)?.AsObject();
+
+            if (res.IsSuccessStatusCode && o?["error"] is null)
+                return new(true, false,
+                    (o?["messages"] as JsonArray)?.FirstOrDefault()?["id"]?.ToString(), null);
+
+            return new(false, (int)res.StatusCode >= 500, null,
+                $"WhatsApp từ chối mẫu: {o?["error"]?["message"]?.ToString() ?? Truncate(raw)}");
+        }
+        catch (Exception ex) { return new(false, true, null, ex.Message); }
     }
 
     // ── Bóc gói tin ─────────────────────────────────────────────────────────
