@@ -9098,9 +9098,13 @@ n
    hai chỗ — thiếu một là ảnh bị bóp méo đúng ở nhánh hay gặp nhất. */
 img.ci-avt { object-fit: cover; }
 .ci-avt img { width: 100%; height: 100%; object-fit: cover; }
-/* Huy hiệu nằm ĐÈ góc dưới phải ảnh, chỉ khi có ảnh bọc ngoài (`.ci-muc-avt`). Đứng một mình
-   trong tab hoặc dòng chữ thì nó chỉ là một ô chữ bình thường. */
-.ci-muc-avt .ci-hh, .ci-hh.dinh { position: absolute; right: -3px; bottom: -3px;
+/* Huy hiệu kênh đè góc ảnh đại diện, chỉ khi có ảnh bọc ngoài (`.ci-muc-avt`). Đứng một mình
+   trong tab hoặc dòng chữ thì nó chỉ là một ô chữ bình thường.
+
+   ⚠️ Góc dưới TRÁI, không phải phải. Bên phải ảnh chính là chỗ dòng xem trước bắt đầu, mà huy
+   hiệu thò ra 3px nên nó đè lên chữ — thấy rõ nhất ở các kênh dùng HÌNH (Telegram, Instagram,
+   WhatsApp, TikTok) vì hình rộng hơn một chữ cái. Bên trái ảnh là lề trống, không đụng gì. */
+.ci-muc-avt .ci-hh, .ci-hh.dinh { position: absolute; left: -3px; bottom: -3px;
           display: inline-grid; place-items: center; min-width: 17px; height: 17px; padding: 0 4px;
           border-radius: 6px; border: 1px solid var(--border); background: var(--surface);
           color: var(--text-2); font-size: 9.5px; font-weight: 700; line-height: 1; }
