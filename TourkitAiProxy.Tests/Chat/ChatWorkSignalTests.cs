@@ -1,4 +1,4 @@
-using TourkitAiProxy.Services.Chat.Inbox;
+﻿using TourkitAiProxy.Services.Chat.Inbox;
 using Xunit;
 
 namespace TourkitAiProxy.Tests.Chat;
@@ -17,10 +17,10 @@ public class ChatWorkSignalTests
     {
         // Cốt lõi của cả bản sửa: đánh trước thì lượt chờ trả về NGAY, không ăn hết hạn chờ.
         var tin = new ChatWorkSignal();
-        tin.Danh(ChatLan.Ra);
+        tin.Signal(ChatLane.Out);
 
         var dh = System.Diagnostics.Stopwatch.StartNew();
-        var duocDanhThuc = await tin.ChoAsync(ChatLan.Ra, TimeSpan.FromSeconds(5), default);
+        var duocDanhThuc = await tin.WaitAsync(ChatLane.Out, TimeSpan.FromSeconds(5), default);
         dh.Stop();
 
         Assert.True(duocDanhThuc);
@@ -33,7 +33,7 @@ public class ChatWorkSignalTests
         // Nhịp là LƯỚI AN TOÀN, không bỏ: chạy nhiều máy chủ thì tín hiệu chỉ đánh thức worker cùng
         // tiến trình, và việc tới hạn thử lại thì không ai đánh thức cả.
         var tin = new ChatWorkSignal();
-        Assert.False(await tin.ChoAsync(ChatLan.Vao, TimeSpan.FromMilliseconds(80), default));
+        Assert.False(await tin.WaitAsync(ChatLane.In, TimeSpan.FromMilliseconds(80), default));
     }
 
     [Fact]
@@ -42,10 +42,10 @@ public class ChatWorkSignalTests
         // Tin khách gửi tới và tin mình gửi đi là hai worker riêng. Dùng chung một tín hiệu thì mỗi
         // lượt webhook lại đánh thức cả worker gửi — quay không tải, và ngược lại.
         var tin = new ChatWorkSignal();
-        tin.Danh(ChatLan.Vao);
+        tin.Signal(ChatLane.In);
 
-        Assert.False(await tin.ChoAsync(ChatLan.Ra, TimeSpan.FromMilliseconds(80), default));
-        Assert.True(await tin.ChoAsync(ChatLan.Vao, TimeSpan.FromMilliseconds(80), default));
+        Assert.False(await tin.WaitAsync(ChatLane.Out, TimeSpan.FromMilliseconds(80), default));
+        Assert.True(await tin.WaitAsync(ChatLane.In, TimeSpan.FromMilliseconds(80), default));
     }
 
     [Fact]
@@ -54,10 +54,10 @@ public class ChatWorkSignalTests
         // Tín hiệu là "có việc", không phải "có bao nhiêu việc": worker dậy MỘT lần rồi vét sạch
         // hàng đợi. Đếm dồn thì một đợt 100 tin làm worker quay 99 vòng không có gì để làm.
         var tin = new ChatWorkSignal();
-        for (var i = 0; i < 100; i++) tin.Danh(ChatLan.Vao);
+        for (var i = 0; i < 100; i++) tin.Signal(ChatLane.In);
 
-        Assert.True(await tin.ChoAsync(ChatLan.Vao, TimeSpan.FromMilliseconds(80), default));
-        Assert.False(await tin.ChoAsync(ChatLan.Vao, TimeSpan.FromMilliseconds(80), default));
+        Assert.True(await tin.WaitAsync(ChatLane.In, TimeSpan.FromMilliseconds(80), default));
+        Assert.False(await tin.WaitAsync(ChatLane.In, TimeSpan.FromMilliseconds(80), default));
     }
 
     [Fact]
@@ -68,7 +68,7 @@ public class ChatWorkSignalTests
         var tin = new ChatWorkSignal();
         var ex = Record.Exception(() =>
         {
-            for (var i = 0; i < 1000; i++) { tin.Danh(ChatLan.Vao); tin.Danh(ChatLan.Ra); }
+            for (var i = 0; i < 1000; i++) { tin.Signal(ChatLane.In); tin.Signal(ChatLane.Out); }
         });
         Assert.Null(ex);
     }
@@ -82,9 +82,9 @@ public class ChatWorkSignalTests
         // chỉ "thỉnh thoảng hơi chậm" — thứ gần như không ai lần ra được.
         foreach (var (tep, ham, lan) in new[]
         {
-            ("TourkitAiProxy.Endpoints/ChatInboxEndpoints.cs", "EnqueueInboundAsync", "ChatLan.Vao"),
-            ("TourkitAiProxy.Endpoints/ChatInboxEndpoints.cs", "EnqueueOutboxAsync", "ChatLan.Ra"),
-            ("TourkitAiProxy.Services/Chat/Inbox/ChatInboundService.cs", "EnqueueOutboxAsync", "ChatLan.Ra"),
+            ("TourkitAiProxy.Endpoints/ChatInboxEndpoints.cs", "EnqueueInboundAsync", "ChatLane.In"),
+            ("TourkitAiProxy.Endpoints/ChatInboxEndpoints.cs", "EnqueueOutboxAsync", "ChatLane.Out"),
+            ("TourkitAiProxy.Services/Chat/Inbox/ChatInboundService.cs", "EnqueueOutboxAsync", "ChatLane.Out"),
         })
         {
             var src = ChatSchemaGuardTests.DocFile(tep);
@@ -97,7 +97,7 @@ public class ChatWorkSignalTests
 
                 // Đánh thức phải nằm ngay sau lượt xếp hàng, trong vòng vài dòng.
                 var sau = src.Substring(i, Math.Min(400, src.Length - i));
-                Assert.True(sau.Contains("Danh(") && sau.Contains(lan),
+                Assert.True(sau.Contains("Signal(") && sau.Contains(lan),
                     $"{tep}: gọi {ham} mà không đánh thức {lan} ngay sau đó.");
             }
             Assert.True(tu > 0, $"Không thấy {ham} trong {tep} — test này đã lạc hậu.");
@@ -116,8 +116,8 @@ public class ChatWorkSignalTests
         })
         {
             var src = ChatSchemaGuardTests.DocFile(tep);
-            Assert.Contains("ChoAsync(", src);
-            Assert.Contains("Nhip", src);
+            Assert.Contains("WaitAsync(", src);
+            Assert.Contains("Tick", src);
         }
     }
 }

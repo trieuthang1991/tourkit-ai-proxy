@@ -1,4 +1,4 @@
-using TourkitAiProxy.Services.Chat.Channels;
+﻿using TourkitAiProxy.Services.Chat.Channels;
 using Xunit;
 
 namespace TourkitAiProxy.Tests.Chat;
@@ -23,8 +23,8 @@ public class TelegramConnectTests
     [Fact]
     public void Chuoi_bi_mat_do_MAY_CHU_sinh_va_khong_lap_lai()
     {
-        var a = TelegramChatAdapter.SinhChuoiBiMat();
-        var b = TelegramChatAdapter.SinhChuoiBiMat();
+        var a = TelegramChatAdapter.NewWebhookSecret();
+        var b = TelegramChatAdapter.NewWebhookSecret();
         Assert.NotEqual(a, b);
 
         // Telegram chỉ nhận A-Z a-z 0-9 _ - cho secret_token, dài 1-256. Lọt ký tự khác là
@@ -43,7 +43,7 @@ public class TelegramConnectTests
         var i = src.IndexOf("ChatChannel.Telegram, \"Telegram\"", System.StringComparison.Ordinal);
         Assert.True(i > 0, "Không thấy khai báo ô nhập của Telegram");
         var khoi = src.Substring(i, System.Math.Min(700, src.Length - i));
-        Assert.DoesNotContain("new ONhap(\"webhookSecret\"", khoi);
+        Assert.DoesNotContain("new FieldSpec(\"webhookSecret\"", khoi);
     }
 
     // ── setWebhook ──────────────────────────────────────────────────────────
@@ -82,6 +82,6 @@ public class TelegramConnectTests
         // Không gỡ thì Telegram nện vào URL cũ mãi mãi: mỗi lượt là một dòng từ chối trong log,
         // và bot vẫn tưởng nó đang được dùng. Đối chiếu dự án tham khảo mới lộ ra chỗ này.
         Assert.Contains("deleteWebhook", ChatSchemaGuardTests.DocFile(TepAdapter));
-        Assert.Contains("GoBotAsync", ChatSchemaGuardTests.DocFile(TepEndpoint));
+        Assert.Contains("DisconnectBotAsync", ChatSchemaGuardTests.DocFile(TepEndpoint));
     }
 }

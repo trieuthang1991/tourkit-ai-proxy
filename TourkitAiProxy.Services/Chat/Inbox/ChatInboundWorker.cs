@@ -22,11 +22,11 @@ namespace TourkitAiProxy.Services.Chat.Inbox;
 public class ChatInboundWorker : BackgroundService
 {
     // Nhanh hơn hàng đợi gửi: đây là độ trễ khách CẢM NHẬN được (nhắn xong bao lâu thì bot đáp).
-    private static readonly TimeSpan Nhip = TimeSpan.FromSeconds(2);
-    private const int SoLuotThuLai = 3;
+    private static readonly TimeSpan Tick = TimeSpan.FromSeconds(2);
+    private const int MaxRetries = 3;
 
     /// Vét bao nhiêu dòng mỗi nhịp. Đủ đầy thì làm tiếp ngay, không ngủ — xem vòng lặp.
-    private const int MoiLuot = 10;
+    private const int PerCall = 10;
 
     private readonly IServiceProvider _sp;
     private readonly ChatWorkSignal _tin;
@@ -37,11 +37,11 @@ public class ChatInboundWorker : BackgroundService
 
     protected override async Task ExecuteAsync(CancellationToken ct)
     {
-        _log.LogInformation("[chat/inbound] bắt đầu, nhịp {N}s (có tín hiệu đánh thức)", Nhip.TotalSeconds);
+        _log.LogInformation("[chat/inbound] bắt đầu, nhịp {N}s (có tín hiệu đánh thức)", Tick.TotalSeconds);
         while (!ct.IsCancellationRequested)
         {
             var lam = 0;
-            try { lam = await MotNhipAsync(ct); }
+            try { lam = await OneTickAsync(ct); }
             catch (OperationCanceledException) when (ct.IsCancellationRequested) { break; }
             catch (Exception ex)
             {
@@ -51,37 +51,37 @@ public class ChatInboundWorker : BackgroundService
 
             // Vét đầy một lượt = gần như chắc chắn còn tồn. Ngủ tiếp lúc này là để tin của khách
             // nằm chờ trong khi máy đang rảnh.
-            if (lam >= MoiLuot) continue;
+            if (lam >= PerCall) continue;
 
             // Chờ TÍN HIỆU hoặc hết nhịp, cái nào tới trước. Webhook ghi xong là đánh thức ngay,
             // nên đường thường tính bằng mili giây chứ không phải giây.
-            if (!await _tin.ChoAsync(ChatLan.Vao, Nhip, ct) && ct.IsCancellationRequested) break;
+            if (!await _tin.WaitAsync(ChatLane.In, Tick, ct) && ct.IsCancellationRequested) break;
         }
     }
 
     /// <summary>Trả về SỐ DÒNG đã vét — vòng lặp dùng nó để biết có nên làm tiếp ngay không.</summary>
-    private async Task<int> MotNhipAsync(CancellationToken ct)
+    private async Task<int> OneTickAsync(CancellationToken ct)
     {
         using var scope = _sp.CreateScope();
         var repo = scope.ServiceProvider.GetRequiredService<ChatRepository>();
         if (!repo.Configured) return 0;
 
         var svc = scope.ServiceProvider.GetRequiredService<ChatInboundService>();
-        var rows = await repo.ClaimInboundAsync(MoiLuot, ct);
+        var rows = await repo.ClaimInboundAsync(PerCall, ct);
         foreach (var r in rows)
         {
-            try { await MotDongAsync(repo, svc, r, ct); }
+            try { await OneRowAsync(repo, svc, r, ct); }
             catch (Exception ex)
             {
                 _log.LogError(ex, "[chat/inbound] xử lý dòng {Id} hỏng", r.Id);
-                await repo.FinishInboundAsync(r.Id, false, r.RetryCount + 1 < SoLuotThuLai, ex.Message, ct);
+                await repo.FinishInboundAsync(r.Id, false, r.RetryCount + 1 < MaxRetries, ex.Message, ct);
             }
         }
 
         return rows.Count;
     }
 
-    private async Task MotDongAsync(ChatRepository repo, ChatInboundService svc,
+    private async Task OneRowAsync(ChatRepository repo, ChatInboundService svc,
         ChatRepository.InboundRow r, CancellationToken ct)
     {
         var kenh = (ChatChannel)r.Channel;

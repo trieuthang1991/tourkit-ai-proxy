@@ -1,14 +1,14 @@
-// Services/Chat/Inbox/ChatWorkSignal.cs
+﻿// Services/Chat/Inbox/ChatWorkSignal.cs
 namespace TourkitAiProxy.Services.Chat.Inbox;
 
 /// <summary>Hai hàng việc của hộp thư chat, mỗi cái một tín hiệu riêng.</summary>
-public enum ChatLan
+public enum ChatLane
 {
     /// Tin KHÁCH gửi tới, webhook vừa ghi thân thô.
-    Vao = 0,
+    In = 0,
 
     /// Tin MÌNH gửi đi, vừa xếp vào hàng đợi.
-    Ra = 1,
+    Out = 1,
 }
 
 /// <summary>
@@ -48,7 +48,7 @@ public class ChatWorkSignal
     /// sạch hàng đợi, nên đếm 100 lần cũng thừa 99 — mà đếm dồn thì worker quay không tải 99 vòng.
     /// Đầy sẵn thì <see cref="SemaphoreSlim.Release()"/> ném, nên nuốt luôn.
     /// </remarks>
-    public void Danh(ChatLan lan)
+    public void Signal(ChatLane lan)
     {
         try { _co[(int)lan].Release(); }
         catch (SemaphoreFullException) { /* đã có tín hiệu chờ sẵn — đúng ý */ }
@@ -59,7 +59,7 @@ public class ChatWorkSignal
     /// <c>false</c> khi hết hạn chờ. Cả hai đều dẫn tới một nhịp làm việc — giá trị trả về chỉ để
     /// ghi log và đo.
     /// </summary>
-    public async Task<bool> ChoAsync(ChatLan lan, TimeSpan toiDa, CancellationToken ct)
+    public async Task<bool> WaitAsync(ChatLane lan, TimeSpan toiDa, CancellationToken ct)
     {
         try { return await _co[(int)lan].WaitAsync(toiDa, ct); }
         catch (OperationCanceledException) { return false; }

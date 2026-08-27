@@ -43,7 +43,7 @@ public static class SystemEndpoints
             // instance mình (chưa cắm Redis), nên giao diện phải giữ đường lùi hỏi lại định kỳ.
             // Nói ra chứ không im lặng chạy chế độ kém hơn: triệu chứng "thỉnh thoảng tin mới
             // không hiện" cực khó lần nếu giao diện tưởng đẩy luôn đủ.
-            chatRealtime    = chatBus.NhieuInstance,
+            chatRealtime    = chatBus.MultiInstance,
         }));
         v1.MapGet("/workflow-traces", (WorkflowTraceLog log, int? days, string? workflow, int? limit) =>
         {

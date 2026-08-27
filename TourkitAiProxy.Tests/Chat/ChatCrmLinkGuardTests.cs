@@ -22,9 +22,9 @@ public class ChatCrmLinkGuardTests
     public void Co_ham_ghi_ma_khach_CRM()
     {
         var src = Repo();
-        Assert.Contains("NoiCrmAsync", src);
+        Assert.Contains("LinkCrmAsync", src);
 
-        var m = Regex.Match(src, "NoiCrmAsync(.{0,700})", RegexOptions.Singleline);
+        var m = Regex.Match(src, "LinkCrmAsync(.{0,700})", RegexOptions.Singleline);
         Assert.True(m.Success);
         Assert.Contains("crm_customer_id", m.Groups[1].Value);
         // Kẹp tenant ngay trong câu lệnh: thiếu là nối nhầm khách của công ty khác vào hội thoại
@@ -58,7 +58,7 @@ public class ChatCrmLinkGuardTests
         // trả index.html kèm 200 thay vì 404.
         foreach (var duong in new[] { "/api/v1/chat/conversations/1/crm-search",
                                       "/api/v1/chat/conversations/1/link-crm" })
-            Assert.Contains(TourkitAiProxy.Endpoints.ChatInboxEndpoints.DuongRieng,
+            Assert.Contains(TourkitAiProxy.Endpoints.ChatInboxEndpoints.OwnedPaths,
                 p => duong.StartsWith(p + "/", System.StringComparison.Ordinal));
     }
 

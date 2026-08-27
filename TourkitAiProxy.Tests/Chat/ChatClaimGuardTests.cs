@@ -22,10 +22,10 @@ public class ChatClaimGuardTests
     public void Nhan_viec_kiem_ai_dang_giu_ngay_trong_WHERE()
     {
         var src = Repo();
-        // Lấy một cửa sổ quanh NhanViecAsync thay vì soi cả file: "assigned_username IS NULL" có
+        // Lấy một cửa sổ quanh ClaimConversationAsync thay vì soi cả file: "assigned_username IS NULL" có
         // thể nằm ở truy vấn khác (bộ lọc danh sách cũng dùng), khớp nhầm là guard xanh giả.
-        var m = Regex.Match(src, "NhanViecAsync(.{0,800})", RegexOptions.Singleline);
-        Assert.True(m.Success, "Không thấy NhanViecAsync trong ChatRepository");
+        var m = Regex.Match(src, "ClaimConversationAsync(.{0,800})", RegexOptions.Singleline);
+        Assert.True(m.Success, "Không thấy ClaimConversationAsync trong ChatRepository");
 
         var than = m.Groups[1].Value;
         Assert.Contains("UPDATE chat_conversations", than);
@@ -39,7 +39,7 @@ public class ChatClaimGuardTests
     {
         // Trả void thì chỗ gọi không phân biệt được "nhận được" với "người khác nhận trước" —
         // và endpoint sẽ trả 200 cho cả hai người.
-        Assert.Matches(@"Task<int>\s+NhanViecAsync", Repo());
+        Assert.Matches(@"Task<int>\s+ClaimConversationAsync", Repo());
     }
 
     [Fact]
@@ -58,7 +58,7 @@ public class ChatClaimGuardTests
         // trông như chạy suốt nhiều tháng. Nay tên người nhận lấy từ phiên ở máy chủ.
         var src = Endpoint();
         Assert.DoesNotContain("body.Username ?? a.Username", src);
-        Assert.Matches(@"NhanViecAsync\([^)]*a\.Username", src);
+        Assert.Matches(@"ClaimConversationAsync\([^)]*a\.Username", src);
     }
 
     [Fact]

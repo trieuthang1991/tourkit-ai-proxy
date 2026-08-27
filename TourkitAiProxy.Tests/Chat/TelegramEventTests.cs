@@ -1,4 +1,4 @@
-using Microsoft.Extensions.Configuration;
+﻿using Microsoft.Extensions.Configuration;
 using TourkitAiProxy.Domain.Chat;
 using TourkitAiProxy.Services.Chat.Channels;
 using Xunit;
@@ -40,17 +40,17 @@ public class TelegramEventTests
     [Fact]
     public void Khach_gui_video_khong_duoc_thanh_tin_rong()
     {
-        // Trước đây `video` không khớp nhánh nào nên rơi vào ChatKind.Chu với nội dung null:
+        // Trước đây `video` không khớp nhánh nào nên rơi vào ChatKind.Text với nội dung null:
         // một dòng trắng trong hộp thư, không lỗi, không log.
         var sk = Assert.Single(A().Parse(Goi(
             """ "video":{"file_id":"vid-1","file_name":"tour.mp4","file_size":1234,"mime_type":"video/mp4"} """)));
-        Assert.Equal(ChatKind.Tep, sk.Kind);
+        Assert.Equal(ChatKind.File, sk.Kind);
         Assert.Contains("vid-1", sk.AttachmentJson);
 
         // Và phải bóc ra được tệp thật, không chỉ giữ JSON thô.
-        var tep = Assert.Single(ChatAttachment.Doc(ChatChannel.Telegram, sk.Kind, sk.AttachmentJson, 0));
+        var tep = Assert.Single(ChatAttachment.Read(ChatChannel.Telegram, sk.Kind, sk.AttachmentJson, 0));
         Assert.Equal("vid-1", tep.FileId);
-        Assert.Equal("tour.mp4", tep.Ten);
+        Assert.Equal("tour.mp4", tep.Name);
     }
 
     [Fact]
@@ -60,7 +60,7 @@ public class TelegramEventTests
         // hiện thành "tệp" thì nhân viên phải tải về mới biết có nghe được không.
         var sk = Assert.Single(A().Parse(Goi(
             """ "audio":{"file_id":"au-1","file_size":222,"mime_type":"audio/mpeg"} """)));
-        Assert.Equal(ChatKind.AmThanh, sk.Kind);
+        Assert.Equal(ChatKind.Audio, sk.Kind);
         Assert.Contains("au-1", sk.AttachmentJson);
     }
 
@@ -71,7 +71,7 @@ public class TelegramEventTests
         var sk = Assert.Single(A().Parse(Goi("""
             "video_note":{"file_id":"vn-1","file_size":99}
             """)));
-        Assert.Equal(ChatKind.Tep, sk.Kind);
+        Assert.Equal(ChatKind.File, sk.Kind);
         Assert.Contains("vn-1", sk.AttachmentJson);
     }
 
@@ -89,7 +89,7 @@ public class TelegramEventTests
     public void Tin_chu_binh_thuong_van_chay()
     {
         var sk = Assert.Single(A().Parse(Goi(""" "text":"Cho hỏi tour Đà Nẵng" """)));
-        Assert.Equal(ChatKind.Chu, sk.Kind);
+        Assert.Equal(ChatKind.Text, sk.Kind);
         Assert.Equal("Cho hỏi tour Đà Nẵng", sk.Text);
         Assert.Equal("Lan", sk.DisplayName);
         // Telegram đánh số tin theo từng cuộc trò chuyện, không toàn cục — phải ghép chat id vào.
@@ -141,8 +141,8 @@ public class TelegramEventTests
         var sk = Assert.Single(A().Parse(tho));
         Assert.NotNull(sk.Reaction);
         Assert.Equal("9:77", sk.Reaction!.ExternalMsgId);
-        Assert.Equal("❤", sk.Reaction.BieuTuong);
-        Assert.False(sk.Reaction.Bo);
+        Assert.Equal("❤", sk.Reaction.Emoji);
+        Assert.False(sk.Reaction.Removed);
         // Không được là một tin trong hội thoại: "❤️" hiện như một câu khách vừa nói thì dòng
         // thời gian loạn và mọi thứ đếm theo tin đều lệch.
         Assert.Null(sk.Text);
@@ -160,7 +160,7 @@ public class TelegramEventTests
              "old_reaction":[{"type":"emoji","emoji":"❤"}],"new_reaction":[]}}
             """;
         var sk = Assert.Single(A().Parse(tho));
-        Assert.True(sk.Reaction!.Bo);
+        Assert.True(sk.Reaction!.Removed);
         Assert.Equal("9:77", sk.Reaction.ExternalMsgId);
     }
 
@@ -196,9 +196,9 @@ public class TelegramEventTests
         // lỗi nào, chỉ là khách Telegram không bao giờ thấy ba chấm và không bao giờ có ảnh.
         var src = ChatSchemaGuardTests.DocFile(
             "TourkitAiProxy.Services/Chat/Channels/TelegramChatAdapter.cs");
-        Assert.Contains("BaoDangGoAsync", src);
+        Assert.Contains("SendTypingAsync", src);
         Assert.Contains("sendChatAction", src);
-        Assert.Contains("HoSoKhachAsync", src);
+        Assert.Contains("ContactProfileAsync", src);
         Assert.Contains("getUserProfilePhotos", src);
 
         // ⚠️ Bấm nút mà không trả lời Telegram thì nút QUAY VÒNG mãi trên máy khách, dù mình đã
@@ -214,7 +214,7 @@ public class TelegramEventTests
         // cho mọi trình duyệt mở hộp thư. Ở đây ảnh phải đi qua máy chủ.
         var src = ChatSchemaGuardTests.DocFile(
             "TourkitAiProxy.Services/Chat/Channels/TelegramChatAdapter.cs");
-        var i = src.IndexOf("HoSoKhachAsync", System.StringComparison.Ordinal);
+        var i = src.IndexOf("ContactProfileAsync", System.StringComparison.Ordinal);
         var than = src.Substring(i, System.Math.Min(2500, src.Length - i));
         Assert.DoesNotContain("/file/bot", than);
     }
@@ -230,14 +230,14 @@ public class TelegramEventTests
         Assert.True(i > 0, "Không thấy đường proxy tệp Telegram");
         // Cửa sổ đủ rộng để trùm cả nhánh WhatsApp chèn giữa — kênh nào cũng có cách giấu tệp riêng.
         var than = src.Substring(i, System.Math.Min(3000, src.Length - i));
-        Assert.Contains("TokenTelegramAsync", than);
+        Assert.Contains("TelegramTokenAsync", than);
         // Soi ĐÚNG dạng mã chứ không soi chữ: guard đọc văn bản thô nên bắt cả chú thích, mà chú
         // thích ngay trên nó có nhắc tên khoá cũ để người sau biết vì sao đổi.
         Assert.DoesNotContain(""" cfg["Telegram:BotToken"] """.Trim(), than);
 
         // ...và chỗ tra token phải hỏi khoá của TỪNG tài khoản trước, chỉ lùi về bot dùng chung
         // khi tài khoản chưa có khoá riêng (tương thích bản một-bot cũ).
-        var j = src.IndexOf("private static async Task<string?> TokenTelegramAsync",
+        var j = src.IndexOf("private static async Task<string?> TelegramTokenAsync",
             System.StringComparison.Ordinal);
         Assert.True(j > 0, "Không thấy hàm tra bot token theo tài khoản");
         var hamTra = src.Substring(j, System.Math.Min(900, src.Length - j));

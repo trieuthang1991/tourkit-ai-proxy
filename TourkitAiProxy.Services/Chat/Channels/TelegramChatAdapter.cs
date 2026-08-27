@@ -50,7 +50,7 @@ public class TelegramChatAdapter : IChatChannelAdapter
     /// <summary>Kết quả nối một bot.</summary>
     /// <param name="ChuoiBiMat">Chuỗi bí mật webhook do MÁY CHỦ sinh — phải lưu lại, vì đó là thứ
     /// DUY NHẤT dùng để kiểm tin đến có thật hay không.</param>
-    public record KetQuaNoiBot(bool Ok, string? BotId, string? Username, string? ChuoiBiMat, string? Loi);
+    public record ConnectBotResult(bool Ok, string? BotId, string? Username, string? ChuoiBiMat, string? Loi);
 
     /// <summary>
     /// Sinh chuỗi bí mật webhook. <b>Máy chủ sinh, không nhận từ người dùng</b> — trước đây ô này
@@ -61,7 +61,7 @@ public class TelegramChatAdapter : IChatChannelAdapter
     /// base64url chứ không phải base64 thường: một dấu <c>+</c> hay <c>/</c> lọt vào là Telegram
     /// từ chối, mà lời từ chối của họ không nói vướng ở đâu.</para>
     /// </summary>
-    public static string SinhChuoiBiMat()
+    public static string NewWebhookSecret()
     {
         Span<byte> b = stackalloc byte[24];
         RandomNumberGenerator.Fill(b);
@@ -75,23 +75,23 @@ public class TelegramChatAdapter : IChatChannelAdapter
     /// trên màn hình, rồi tự gõ lệnh <c>setWebhook</c> ngoài trình duyệt. Không công ty du lịch
     /// nào làm nổi — đúng lý do đã phải đổi cách nối của Zalo.</para>
     /// </summary>
-    public async Task<KetQuaNoiBot> NoiBotAsync(string? botToken, string webhookUrl, CancellationToken ct)
+    public async Task<ConnectBotResult> ConnectBotAsync(string? botToken, string webhookUrl, CancellationToken ct)
     {
         if (string.IsNullOrWhiteSpace(botToken))
             return new(false, null, null, null, "Chưa dán bot token lấy từ @BotFather");
 
         // ⚠️ Xác thực token TRƯỚC khi đăng ký. Làm ngược thứ tự thì token sai vẫn kịp trỏ một địa
         // chỉ công khai vào một bot không tồn tại, và bản ghi rác nằm lại trong danh sách kênh.
-        var me = await GoiTraJsonAsync(botToken!, "getMe", null, ct);
+        var me = await CallJsonAsync(botToken!, "getMe", null, ct);
         if (me is null || me["ok"]?.GetValue<bool>() != true)
             return new(false, null, null, null,
                 "Bot token không đúng, hoặc Telegram không trả lời. Kiểm tra lại chuỗi @BotFather đưa.");
 
         var botId = me["result"]?["id"]?.ToString();
         var username = me["result"]?["username"]?.ToString();
-        var biMat = SinhChuoiBiMat();
+        var biMat = NewWebhookSecret();
 
-        var kq = await GoiTraJsonAsync(botToken!, "setWebhook", new JsonObject
+        var kq = await CallJsonAsync(botToken!, "setWebhook", new JsonObject
         {
             ["url"] = webhookUrl,
             // Telegram không ký nội dung; chuỗi này là thứ duy nhất ngăn người ngoài bơm tin giả.
@@ -125,18 +125,18 @@ public class TelegramChatAdapter : IChatChannelAdapter
     /// <para><c>drop_pending_updates=false</c>: gỡ khỏi hộp thư này không có nghĩa là vứt tin của
     /// khách — công ty có thể đang chuyển bot sang nơi khác dùng tiếp.</para>
     /// </summary>
-    public async Task<bool> GoBotAsync(string tenantId, string accountId, CancellationToken ct)
+    public async Task<bool> DisconnectBotAsync(string tenantId, string accountId, CancellationToken ct)
     {
         var token = await TokenAsync(tenantId, accountId, ct);
         if (token is null) return false;
-        var kq = await GoiTraJsonAsync(token, "deleteWebhook",
+        var kq = await CallJsonAsync(token, "deleteWebhook",
             new JsonObject { ["drop_pending_updates"] = false }, ct);
         return kq?["ok"]?.GetValue<bool>() == true;
     }
 
     /// <summary>Gọi một phương thức Bot API, trả JSON thô. Không ném — chỗ gọi tự đọc <c>ok</c>.</summary>
     /// <remarks>Token nằm TRONG đường dẫn nên tuyệt đối không ghi URL ra nhật ký.</remarks>
-    private async Task<JsonObject?> GoiTraJsonAsync(string token, string phuongThuc, JsonObject? than,
+    private async Task<JsonObject?> CallJsonAsync(string token, string phuongThuc, JsonObject? than,
         CancellationToken ct)
     {
         try
@@ -197,10 +197,10 @@ public class TelegramChatAdapter : IChatChannelAdapter
 
         // Khách bấm nút. Telegram gói RIÊNG, không nằm trong "message" — đọc sót là nút bấm rơi
         // vào hư không và khách nhìn thấy nút quay vòng rồi báo lỗi.
-        if (goc?["callback_query"] is { } bam) return BocBamNut(bam);
+        if (goc?["callback_query"] is { } bam) return ReadButtonClick(bam);
 
         // Cảm xúc khách thả. Cũng là gói riêng, và gắn vào MỘT tin đã có chứ không phải tin mới.
-        if (goc?["message_reaction"] is { } camXuc) return BocCamXuc(camXuc);
+        if (goc?["message_reaction"] is { } camXuc) return ReadReaction(camXuc);
 
         // edited_message: khách sửa lại tin đã gửi. Coi như tin mới — id khác nên không trùng, và
         // nội dung sửa thường là ý họ thật sự muốn nói.
@@ -211,21 +211,21 @@ public class TelegramChatAdapter : IChatChannelAdapter
         if (string.IsNullOrWhiteSpace(chatId)) return ra;
 
         // ⚠️ Telegram gói MỖI loại đính kèm vào MỘT trường tên khác nhau — không có trường chung
-        // nào cho biết "tin này có tệp". Thiếu một nhánh là loại đó rơi xuống ChatKind.Chu với nội
+        // nào cho biết "tin này có tệp". Thiếu một nhánh là loại đó rơi xuống ChatKind.Text với nội
         // dung null: một dòng TRẮNG trong hộp thư, không lỗi, không log. Đã dính thật với `video`
         // và `audio` (đối chiếu ChatbotX 27/08 mới lộ ra).
-        var loai = ChatKind.Chu;
+        var loai = ChatKind.Text;
         string? att = null;
-        if (msg["photo"] is JsonArray p && p.Count > 0) { loai = ChatKind.Anh; att = p.ToJsonString(); }
-        else if (msg["video"] is JsonNode vid) { loai = ChatKind.Tep; att = vid.ToJsonString(); }
+        if (msg["photo"] is JsonArray p && p.Count > 0) { loai = ChatKind.Image; att = p.ToJsonString(); }
+        else if (msg["video"] is JsonNode vid) { loai = ChatKind.File; att = vid.ToJsonString(); }
         // video_note = ô video tròn (bấm giữ quay). Trường riêng, không nằm trong `video`.
-        else if (msg["video_note"] is JsonNode vn) { loai = ChatKind.Tep; att = vn.ToJsonString(); }
+        else if (msg["video_note"] is JsonNode vn) { loai = ChatKind.File; att = vn.ToJsonString(); }
         // `audio` (tệp nhạc/ghi âm đính kèm) KHÁC `voice` (bấm giữ nói) nhưng cùng là âm thanh:
         // xếp nhầm sang "tệp" thì nhân viên phải tải về mới biết có nghe được không.
-        else if (msg["audio"] is JsonNode au) { loai = ChatKind.AmThanh; att = au.ToJsonString(); }
-        else if (msg["document"] is JsonNode d) { loai = ChatKind.Tep; att = d.ToJsonString(); }
-        else if (msg["voice"] is JsonNode v) { loai = ChatKind.AmThanh; att = v.ToJsonString(); }
-        else if (msg["location"] is JsonNode l) { loai = ChatKind.ViTri; att = l.ToJsonString(); }
+        else if (msg["audio"] is JsonNode au) { loai = ChatKind.Audio; att = au.ToJsonString(); }
+        else if (msg["document"] is JsonNode d) { loai = ChatKind.File; att = d.ToJsonString(); }
+        else if (msg["voice"] is JsonNode v) { loai = ChatKind.Audio; att = v.ToJsonString(); }
+        else if (msg["location"] is JsonNode l) { loai = ChatKind.Location; att = l.ToJsonString(); }
         else if (msg["sticker"] is JsonNode s) { loai = ChatKind.Sticker; att = s.ToJsonString(); }
 
         var ten = string.Join(' ', new[] { msg["from"]?["first_name"]?.ToString(),
@@ -269,7 +269,7 @@ public class TelegramChatAdapter : IChatChannelAdapter
 
         if (tuDau is not null)
         {
-            ra.Add(new(ChatChannel.Telegram, chatId!, null, ChatKind.Chu, null, null, luc,
+            ra.Add(new(ChatChannel.Telegram, chatId!, null, ChatKind.Text, null, null, luc,
                 DisplayName: string.IsNullOrWhiteSpace(ten) ? msg["from"]?["username"]?.ToString() : ten,
                 Referral: tuDau));
             return ra;
@@ -291,7 +291,7 @@ public class TelegramChatAdapter : IChatChannelAdapter
     /// lại hội thoại phải thấy đúng thứ khách nhìn thấy, không phải một chuỗi mã như
     /// "MENU_TOUR_DN". Tin cũ không kèm bàn phím thì đành lùi về mã nút — vẫn hơn dòng trống.</para>
     /// </summary>
-    private static List<InboundChatEvent> BocBamNut(JsonNode bam)
+    private static List<InboundChatEvent> ReadButtonClick(JsonNode bam)
     {
         var ra = new List<InboundChatEvent>();
         var tin = bam["message"];
@@ -308,17 +308,17 @@ public class TelegramChatAdapter : IChatChannelAdapter
             // Mã riêng cho lượt bấm: dùng lại mã tin gốc thì lượt bấm bị coi là trùng với chính
             // tin mang nút, và biến mất.
             $"{chatId}:cb:{maBam}",
-            ChatKind.Chu, ChuTrenNut(tin?["reply_markup"], maNut) ?? maNut, null,
+            ChatKind.Text, ButtonLabel(tin?["reply_markup"], maNut) ?? maNut, null,
             // ⚠️ Thời điểm là BÂY GIỜ, không phải `date` của tin mang nút — tin đó có thể gửi từ
             // hôm qua, lấy nhầm là lượt bấm nằm ngược dòng thời gian và không ai thấy nó.
             DateTime.UtcNow,
             DisplayName: string.IsNullOrWhiteSpace(ten) ? bam["from"]?["username"]?.ToString() : ten,
-            MaBamNut: maBam));
+            ButtonClickId: maBam));
         return ra;
     }
 
     /// <summary>Tìm chữ hiện trên nút theo <c>callback_data</c> khách vừa bấm.</summary>
-    private static string? ChuTrenNut(JsonNode? banPhim, string? maNut)
+    private static string? ButtonLabel(JsonNode? banPhim, string? maNut)
     {
         if (banPhim?["inline_keyboard"] is not JsonArray hang || string.IsNullOrWhiteSpace(maNut))
             return null;
@@ -339,7 +339,7 @@ public class TelegramChatAdapter : IChatChannelAdapter
     /// <para>Gói này chỉ tới khi đã khai <c>message_reaction</c> trong <c>allowed_updates</c> lúc
     /// đăng ký webhook — danh sách mặc định của Telegram KHÔNG có nó.</para>
     /// </summary>
-    private static List<InboundChatEvent> BocCamXuc(JsonNode camXuc)
+    private static List<InboundChatEvent> ReadReaction(JsonNode camXuc)
     {
         var ra = new List<InboundChatEvent>();
         var chatId = camXuc["chat"]?["id"]?.ToString();
@@ -352,7 +352,7 @@ public class TelegramChatAdapter : IChatChannelAdapter
         var luc = long.TryParse(camXuc["date"]?.ToString(), out var giay)
             ? DateTimeOffset.FromUnixTimeSeconds(giay).UtcDateTime : DateTime.UtcNow;
 
-        ra.Add(new(ChatChannel.Telegram, chatId!, null, ChatKind.Chu, null, null, luc,
+        ra.Add(new(ChatChannel.Telegram, chatId!, null, ChatKind.Text, null, null, luc,
             // Mã tin phải ghép chat id, y như lúc ghi tin — không thì không khớp được với tin nào.
             Reaction: new($"{chatId}:{maTin}", dau?["emoji"]?.ToString(),
                 dau?["custom_emoji_id"]?.ToString(), dau is null)));
@@ -365,22 +365,22 @@ public class TelegramChatAdapter : IChatChannelAdapter
     /// Ba chấm "đang gõ" bên phía khách. Telegram tự tắt sau 5 giây hoặc khi tin tới, nên không
     /// có (và không cần) lượt tắt.
     /// </summary>
-    public async Task BaoDangGoAsync(string tenantId, string accountId, string externalUserId,
+    public async Task SendTypingAsync(string tenantId, string accountId, string externalUserId,
         CancellationToken ct)
     {
         var token = await TokenAsync(tenantId, accountId, ct);
         if (token is null) return;
-        await GoiTraJsonAsync(token, "sendChatAction",
+        await CallJsonAsync(token, "sendChatAction",
             new JsonObject { ["chat_id"] = externalUserId, ["action"] = "typing" }, ct);
     }
 
     /// <inheritdoc />
-    public async Task XacNhanBamNutAsync(string tenantId, string accountId, string maBamNut,
+    public async Task AckButtonClickAsync(string tenantId, string accountId, string maBamNut,
         CancellationToken ct)
     {
         var token = await TokenAsync(tenantId, accountId, ct);
         if (token is null) return;
-        await GoiTraJsonAsync(token, "answerCallbackQuery",
+        await CallJsonAsync(token, "answerCallbackQuery",
             new JsonObject { ["callback_query_id"] = maBamNut }, ct);
     }
 
@@ -396,20 +396,20 @@ public class TelegramChatAdapter : IChatChannelAdapter
     /// cầm được nó thì đọc và trả lời được toàn bộ tin của công ty. Nên ở đây chỉ lưu một đường
     /// TƯƠNG ĐỐI trỏ về máy chủ mình; máy chủ mới là nơi cầm token.</para>
     /// </summary>
-    public async Task<HoSoKhach?> HoSoKhachAsync(string tenantId, string accountId,
+    public async Task<ContactProfile?> ContactProfileAsync(string tenantId, string accountId,
         string externalUserId, CancellationToken ct)
     {
         var token = await TokenAsync(tenantId, accountId, ct);
         if (token is null) return null;
 
-        var hs = await GoiTraJsonAsync(token,
+        var hs = await CallJsonAsync(token,
             $"getChat?chat_id={Uri.EscapeDataString(externalUserId)}", null, ct);
         var chat = hs?["result"];
         var ten = string.Join(' ', new[] { chat?["first_name"]?.ToString(), chat?["last_name"]?.ToString() }
             .Where(x => !string.IsNullOrWhiteSpace(x))).Trim();
         if (string.IsNullOrWhiteSpace(ten)) ten = chat?["username"]?.ToString() ?? "";
 
-        var anh = await GoiTraJsonAsync(token,
+        var anh = await CallJsonAsync(token,
             $"getUserProfilePhotos?user_id={Uri.EscapeDataString(externalUserId)}&limit=1", null, ct);
         // photos[0] = ảnh mới nhất, các phần tử bên trong là các cỡ (nhỏ trước). Ảnh đại diện chỉ
         // hiện cỡ 32px nên lấy cỡ NHỎ NHẤT là đúng — khác hẳn ảnh khách gửi (lấy cỡ lớn nhất để
@@ -420,7 +420,7 @@ public class TelegramChatAdapter : IChatChannelAdapter
             : $"/api/v1/chat/avatars/{accountId}/{Uri.EscapeDataString(maTep!)}";
 
         return string.IsNullOrWhiteSpace(ten) && duongAnh is null
-            ? null : new HoSoKhach(string.IsNullOrWhiteSpace(ten) ? null : ten, duongAnh);
+            ? null : new ContactProfile(string.IsNullOrWhiteSpace(ten) ? null : ten, duongAnh);
     }
 
     public Task<SendResult> SendTextAsync(string tenantId, string accountId, string externalUserId, string text,
@@ -437,8 +437,8 @@ public class TelegramChatAdapter : IChatChannelAdapter
     {
         var (truong, phuong) = loai switch
         {
-            ChatKind.Anh => ("photo", "sendPhoto"),
-            ChatKind.AmThanh => ("audio", "sendAudio"),
+            ChatKind.Image => ("photo", "sendPhoto"),
+            ChatKind.Audio => ("audio", "sendAudio"),
             _ => ("document", "sendDocument"),
         };
         object body = string.IsNullOrWhiteSpace(caption)
@@ -464,7 +464,7 @@ public class TelegramChatAdapter : IChatChannelAdapter
             if (o?["ok"]?.GetValue<bool>() == true)
                 return new(true, false, o["result"]?["message_id"]?.ToString(), null);
 
-            var moTa = o?["description"]?.ToString() ?? Cat(raw);
+            var moTa = o?["description"]?.ToString() ?? Truncate(raw);
             // 5xx là hỏng tạm thời phía Telegram; 4xx là mình sai (khách chặn bot, sai chat id) —
             // thử lại chỉ tốn công.
             return new(false, (int)res.StatusCode >= 500, null, $"Telegram từ chối: {moTa}");
@@ -475,5 +475,5 @@ public class TelegramChatAdapter : IChatChannelAdapter
         }
     }
 
-    private static string Cat(string s) => s.Length <= 200 ? s : s[..200];
+    private static string Truncate(string s) => s.Length <= 200 ? s : s[..200];
 }

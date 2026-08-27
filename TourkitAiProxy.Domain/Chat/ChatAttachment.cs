@@ -16,15 +16,15 @@ namespace TourkitAiProxy.Domain.Chat;
 /// <param name="FileId">Mã tệp Telegram. Phải đổi sang đường dẫn bằng bot token, mà token thì
 /// không được lọt ra trình duyệt, nên phải đi qua máy chủ.</param>
 public record ChatFile(
-    string? Ten = null,
-    long? Kich = null,
+    string? Name = null,
+    long? Size = null,
     string? Url = null,
     string? FileId = null,
     double? Lat = null,
     double? Lon = null)
 {
     /// Có thứ gì để tải/hiện không. Sticker Telegram không tên không cỡ vẫn tải được.
-    public bool CoTep => !string.IsNullOrWhiteSpace(Url) || !string.IsNullOrWhiteSpace(FileId);
+    public bool HasFile => !string.IsNullOrWhiteSpace(Url) || !string.IsNullOrWhiteSpace(FileId);
 }
 
 /// <summary>Bóc cột <c>attachment</c> (jsonb) thành danh sách <see cref="ChatFile"/>. Hàm THUẦN.</summary>
@@ -37,7 +37,7 @@ public static class ChatAttachment
     /// <param name="chieu">0=khách gửi (bóc theo định dạng RIÊNG của từng kênh) — 1=mình gửi (đọc
     /// thẳng, vì <c>ChatOutboxWorker</c> tự ghi theo MỘT hình dạng chuẩn <see cref="ChatFile"/>
     /// lúc gửi đi, không phải bóc lại định dạng gốc của kênh).</param>
-    public static IReadOnlyList<ChatFile> Doc(ChatChannel kenh, ChatKind loai, string? json, short chieu)
+    public static IReadOnlyList<ChatFile> Read(ChatChannel kenh, ChatKind loai, string? json, short chieu)
     {
         if (string.IsNullOrWhiteSpace(json)) return Array.Empty<ChatFile>();
         JsonNode? goc;
@@ -47,41 +47,41 @@ public static class ChatAttachment
         if (chieu == 1)
         {
             var o = goc.AsObject();
-            return new[] { new ChatFile(Ten: Chu(o["ten"]), Kich: So(o["kich"]), Url: Chu(o["url"])) };
+            return new[] { new ChatFile(Name: Str(o["ten"]), Size: Num(o["kich"]), Url: Str(o["url"])) };
         }
 
         return kenh switch
         {
-            ChatChannel.Telegram => DocTelegram(goc, loai),
+            ChatChannel.Telegram => ReadTelegram(goc, loai),
             // Instagram dùng CHUNG hình dạng đính kèm của Meta: attachments[] = [{type,payload}].
-            ChatChannel.Messenger or ChatChannel.Instagram => DocMeta(goc),
-            ChatChannel.Zalo => DocZalo(goc),
-            ChatChannel.WhatsApp => DocWhatsApp(goc),
-            ChatChannel.TikTok => DocTikTok(goc),
+            ChatChannel.Messenger or ChatChannel.Instagram => ReadMeta(goc),
+            ChatChannel.Zalo => ReadZalo(goc),
+            ChatChannel.WhatsApp => ReadWhatsApp(goc),
+            ChatChannel.TikTok => ReadTikTok(goc),
             _ => Array.Empty<ChatFile>(),
         };
     }
 
     // Telegram gói mỗi loại một kiểu, và KHÔNG cho đường dẫn — chỉ cho file_id.
-    private static IReadOnlyList<ChatFile> DocTelegram(JsonNode goc, ChatKind loai)
+    private static IReadOnlyList<ChatFile> ReadTelegram(JsonNode goc, ChatKind loai)
     {
         // Ảnh: mảng nhiều cỡ của CÙNG một ảnh. Lấy cỡ LỚN NHẤT (Telegram xếp nhỏ trước) — lấy
         // nhầm cỡ nhỏ thì nhân viên soi hoá đơn hay ảnh hộ chiếu khách gửi sẽ không đọc nổi chữ.
-        if (loai == ChatKind.Anh && goc is JsonArray cacCo && cacCo.Count > 0)
+        if (loai == ChatKind.Image && goc is JsonArray cacCo && cacCo.Count > 0)
         {
             var to = cacCo.OfType<JsonNode>()
-                .OrderByDescending(x => So(x["file_size"]) ?? So(x["width"]) ?? 0)
+                .OrderByDescending(x => Num(x["file_size"]) ?? Num(x["width"]) ?? 0)
                 .First();
-            return new[] { new ChatFile(FileId: Chu(to["file_id"]), Kich: So(to["file_size"])) };
+            return new[] { new ChatFile(FileId: Str(to["file_id"]), Size: Num(to["file_size"])) };
         }
 
         var o = goc.AsObject();
-        if (loai == ChatKind.ViTri)
-            return new[] { new ChatFile(Lat: SoThuc(o["latitude"]), Lon: SoThuc(o["longitude"])) };
+        if (loai == ChatKind.Location)
+            return new[] { new ChatFile(Lat: Dec(o["latitude"]), Lon: Dec(o["longitude"])) };
 
-        var id = Chu(o["file_id"]);
+        var id = Str(o["file_id"]);
         if (string.IsNullOrWhiteSpace(id)) return Array.Empty<ChatFile>();
-        return new[] { new ChatFile(Ten: Chu(o["file_name"]), Kich: So(o["file_size"]), FileId: id) };
+        return new[] { new ChatFile(Name: Str(o["file_name"]), Size: Num(o["file_size"]), FileId: id) };
     }
 
     /// <summary>
@@ -91,29 +91,29 @@ public static class ChatAttachment
     /// không chỉ giấu khoá trong đường dẫn. Nên ảnh khách gửi bắt buộc đi qua máy chủ mình, không có
     /// cách nào đưa thẳng cho trình duyệt.</para>
     /// </summary>
-    private static IReadOnlyList<ChatFile> DocWhatsApp(JsonNode goc)
+    private static IReadOnlyList<ChatFile> ReadWhatsApp(JsonNode goc)
     {
         var o = goc.AsObject();
         // Vị trí gói riêng, không có mã tệp.
         if (o["latitude"] is not null || o["longitude"] is not null)
-            return new[] { new ChatFile(Lat: SoThuc(o["latitude"]), Lon: SoThuc(o["longitude"])) };
+            return new[] { new ChatFile(Lat: Dec(o["latitude"]), Lon: Dec(o["longitude"])) };
 
-        var id = Chu(o["id"]);
+        var id = Str(o["id"]);
         if (string.IsNullOrWhiteSpace(id)) return Array.Empty<ChatFile>();
-        return new[] { new ChatFile(Ten: Chu(o["filename"]), FileId: id) };
+        return new[] { new ChatFile(Name: Str(o["filename"]), FileId: id) };
     }
 
     /// <summary>
     /// TikTok: <c>{ media_url }</c> — cho sẵn đường tải, khác hẳn WhatsApp và Telegram.
     /// </summary>
-    private static IReadOnlyList<ChatFile> DocTikTok(JsonNode goc)
+    private static IReadOnlyList<ChatFile> ReadTikTok(JsonNode goc)
     {
-        var url = Chu(goc.AsObject()["media_url"]);
+        var url = Str(goc.AsObject()["media_url"]);
         return string.IsNullOrWhiteSpace(url)
             ? Array.Empty<ChatFile>() : new[] { new ChatFile(Url: url) };
     }
     // Messenger: attachments[] = [{ type, payload: { url } }] hoặc payload {lat,long} cho vị trí.
-    private static IReadOnlyList<ChatFile> DocMeta(JsonNode goc)
+    private static IReadOnlyList<ChatFile> ReadMeta(JsonNode goc)
     {
         if (goc is not JsonArray ds) return Array.Empty<ChatFile>();
         var ra = new List<ChatFile>();
@@ -124,17 +124,17 @@ public static class ChatAttachment
             var toaDo = p["coordinates"];
             if (toaDo is not null)
             {
-                ra.Add(new ChatFile(Lat: SoThuc(toaDo["lat"]), Lon: SoThuc(toaDo["long"])));
+                ra.Add(new ChatFile(Lat: Dec(toaDo["lat"]), Lon: Dec(toaDo["long"])));
                 continue;
             }
-            var url = Chu(p["url"]);
-            if (!string.IsNullOrWhiteSpace(url)) ra.Add(new ChatFile(Ten: Chu(m["title"]), Url: url));
+            var url = Str(p["url"]);
+            if (!string.IsNullOrWhiteSpace(url)) ra.Add(new ChatFile(Name: Str(m["title"]), Url: url));
         }
         return ra;
     }
 
     // Zalo: attachments[] = [{ type, payload: { url, thumbnail, name, size } }].
-    private static IReadOnlyList<ChatFile> DocZalo(JsonNode goc)
+    private static IReadOnlyList<ChatFile> ReadZalo(JsonNode goc)
     {
         if (goc is not JsonArray ds) return Array.Empty<ChatFile>();
         var ra = new List<ChatFile>();
@@ -144,29 +144,29 @@ public static class ChatAttachment
             if (p is null) continue;
             if (p["latitude"] is not null || p["lat"] is not null)
             {
-                ra.Add(new ChatFile(Lat: SoThuc(p["latitude"] ?? p["lat"]),
-                                    Lon: SoThuc(p["longitude"] ?? p["long"])));
+                ra.Add(new ChatFile(Lat: Dec(p["latitude"] ?? p["lat"]),
+                                    Lon: Dec(p["longitude"] ?? p["long"])));
                 continue;
             }
             // Sticker Zalo dùng `thumbnail` chứ không có `url`.
-            var url = Chu(p["url"]) ?? Chu(p["thumbnail"]);
+            var url = Str(p["url"]) ?? Str(p["thumbnail"]);
             if (!string.IsNullOrWhiteSpace(url))
-                ra.Add(new ChatFile(Ten: Chu(p["name"]), Kich: So(p["size"]), Url: url));
+                ra.Add(new ChatFile(Name: Str(p["name"]), Size: Num(p["size"]), Url: url));
         }
         return ra;
     }
 
-    private static string? Chu(JsonNode? n)
+    private static string? Str(JsonNode? n)
     {
         var s = n?.ToString();
         return string.IsNullOrWhiteSpace(s) ? null : s;
     }
 
     // Cỡ tệp có kênh trả số, có kênh trả chuỗi — nhận cả hai thay vì tin vào một kiểu.
-    private static long? So(JsonNode? n)
+    private static long? Num(JsonNode? n)
         => n is null ? null : long.TryParse(n.ToString(), out var v) ? v : null;
 
-    private static double? SoThuc(JsonNode? n)
+    private static double? Dec(JsonNode? n)
         => n is null ? null
            : double.TryParse(n.ToString(), System.Globalization.NumberStyles.Float,
                              System.Globalization.CultureInfo.InvariantCulture, out var v) ? v : null;

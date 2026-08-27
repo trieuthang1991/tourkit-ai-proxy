@@ -1,4 +1,4 @@
-// Services/Chat/Inbox/ChatQuickReplyRepository.cs
+﻿// Services/Chat/Inbox/ChatQuickReplyRepository.cs
 using Dapper;
 using TourkitAiProxy.Domain.Chat;
 
@@ -24,12 +24,12 @@ public class ChatQuickReplyRepository
     /// <para><b>Bỏ dấu là bắt buộc.</b> Nhân viên đang gõ nhanh cho khách sẽ gõ <c>/gia</c> chứ
     /// không dừng lại bật bộ gõ để ra <c>/giá</c>. Giữ nguyên dấu thì mẫu gần như không ai dùng.</para>
     /// </summary>
-    public static string ChuanHoaTrigger(string tho)
+    public static string NormalizeTrigger(string tho)
     {
-        // Dùng CHUNG với nhãn khách (ChatRules.ChuanHoaSlug) — cùng vấn đề, cùng lời giải. Viết
+        // Dùng CHUNG với nhãn khách (ChatRules.NormalizeSlug) — cùng vấn đề, cùng lời giải. Viết
         // lại lần hai là hai chỗ lệch nhau: "khach-vip" bên này, "khach vip" bên kia, rồi lọc theo
         // nhãn trả về rỗng mà không ai hiểu tại sao.
-        var s = ChatRules.ChuanHoaSlug(tho);
+        var s = ChatRules.NormalizeSlug(tho);
         // CỐ Ý không truyền tên tham số: endpoint trả thẳng Message này cho người dùng, mà
         // ArgumentException tự nối thêm "(Parameter 'tho')" — người khai mẫu đọc phải tên biến
         // trong mã nguồn thì vừa khó hiểu vừa lộ nội bộ.
@@ -49,7 +49,7 @@ public class ChatQuickReplyRepository
     public async Task<long> UpsertAsync(string tenant, string trigger, string body,
         CancellationToken ct = default)
     {
-        var tg = ChuanHoaTrigger(trigger);
+        var tg = NormalizeTrigger(trigger);
         await using var c = await _db.OpenAsync(ct);
         return await c.ExecuteScalarAsync<long>("""
             INSERT INTO chat_quick_replies (tenant_id, trigger, body)

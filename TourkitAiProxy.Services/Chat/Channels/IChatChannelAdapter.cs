@@ -66,8 +66,8 @@ public interface IChatChannelAdapter
     /// tin webhook nên không tốn lượt gọi nào. Chỉ Messenger là gói tin chỉ có mã người dùng —
     /// muốn biết tên phải hỏi riêng.</para>
     /// </summary>
-    Task<HoSoKhach?> HoSoKhachAsync(string tenantId, string accountId, string externalUserId,
-        CancellationToken ct) => Task.FromResult<HoSoKhach?>(null);
+    Task<ContactProfile?> ContactProfileAsync(string tenantId, string accountId, string externalUserId,
+        CancellationToken ct) => Task.FromResult<ContactProfile?>(null);
 
     /// <summary>
     /// Xác nhận với kênh rằng lượt bấm nút đã tiếp nhận. <b>Mặc định không làm gì</b>.
@@ -78,7 +78,7 @@ public interface IChatChannelAdapter
     ///
     /// <para>Nuốt mọi lỗi trong từng bộ nối: mất một lượt xác nhận không đáng để chặn tin.</para>
     /// </summary>
-    Task XacNhanBamNutAsync(string tenantId, string accountId, string maBamNut,
+    Task AckButtonClickAsync(string tenantId, string accountId, string maBamNut,
         CancellationToken ct) => Task.CompletedTask;
 
     /// <summary>
@@ -86,7 +86,7 @@ public interface IChatChannelAdapter
     ///
     /// <para>Nuốt mọi lỗi trong từng bộ nối: mất một chi tiết lịch sự không đáng để chặn tin.</para>
     /// </summary>
-    Task BaoDangGoAsync(string tenantId, string accountId, string externalUserId,
+    Task SendTypingAsync(string tenantId, string accountId, string externalUserId,
         CancellationToken ct) => Task.CompletedTask;
 
     /// <summary>
@@ -95,10 +95,10 @@ public interface IChatChannelAdapter
     /// <para>Chỉ gọi khi có NGƯỜI THẬT mở hội thoại. Bot đọc mà cũng báo đã xem là nói dối khách:
     /// họ tưởng có nhân viên đang nhìn, rồi chờ.</para>
     /// </summary>
-    Task BaoDaXemAsync(string tenantId, string accountId, string externalUserId,
+    Task MarkSeenAsync(string tenantId, string accountId, string externalUserId,
         CancellationToken ct) => Task.CompletedTask;
 }
 
 /// <param name="Anh">Ảnh đại diện. ⚠️ Meta ký hạn vào URL này nên nó <b>HẾT HẠN</b> sau một thời
 /// gian — lưu rồi để mãi là vài tuần sau cả hộp thư hiện ảnh vỡ. Vì thế có mốc làm mới.</param>
-public record HoSoKhach(string? Ten, string? Anh);
+public record ContactProfile(string? Name, string? AvatarUrl);

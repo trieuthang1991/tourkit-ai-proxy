@@ -53,7 +53,7 @@ public class ChannelCredentialStore
                 "SELECT Channel, ConfigJson FROM dbo.TenantChannelSettings WHERE TenantId=@t AND Channel LIKE @p",
                 new { t = tenantId, p = tienTo + "%" });
 
-            return hang.Select(h => new ChatAccount(h.Channel[tienTo.Length..], GiaiMa(h.ConfigJson)))
+            return hang.Select(h => new ChatAccount(h.Channel[tienTo.Length..], Decode(h.ConfigJson)))
                        .OrderBy(a => a.GiaTri.GetValueOrDefault("label", a.AccountId))
                        .ToList();
         }
@@ -76,7 +76,7 @@ public class ChannelCredentialStore
     /// nghiệp mở hai tenant). Lấy dòng đầu và <b>ghi cảnh báo</b> — im lặng thì tin của khách rơi
     /// vào công ty nào là hên xui, mà không ai biết để mà sửa.</para>
     /// </summary>
-    public async Task<string?> TimTenantAsync(ChatChannel kenh, string accountId,
+    public async Task<string?> FindTenantAsync(ChatChannel kenh, string accountId,
         CancellationToken ct = default)
     {
         if (string.IsNullOrWhiteSpace(accountId)) return null;
@@ -110,7 +110,7 @@ public class ChannelCredentialStore
             var json = await c.ExecuteScalarAsync<string?>(
                 "SELECT ConfigJson FROM dbo.TenantChannelSettings WHERE TenantId=@t AND Channel=@c",
                 new { t = tenantId, c = KeyOf(kenh) + ":" + accountId });
-            return string.IsNullOrWhiteSpace(json) ? null : GiaiMa(json);
+            return string.IsNullOrWhiteSpace(json) ? null : Decode(json);
         }
         catch (Exception ex)
         {
@@ -155,7 +155,7 @@ public class ChannelCredentialStore
             new { t = tenantId, c = KeyOf(kenh) + ":" + accountId }) > 0;
     }
 
-    private static Dictionary<string, string> GiaiMa(string json)
+    private static Dictionary<string, string> Decode(string json)
     {
         var ra = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
         if (JsonNode.Parse(json)?.AsObject() is not { } o) return ra;

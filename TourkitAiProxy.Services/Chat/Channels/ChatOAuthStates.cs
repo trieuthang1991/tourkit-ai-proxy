@@ -25,17 +25,17 @@ namespace TourkitAiProxy.Services.Chat.Channels;
 public class ChatOAuthStates
 {
     /// 10 phút: đủ để đăng nhập Zalo và bấm đồng ý, không đủ để một mã rò ra ngoài còn dùng được.
-    private static readonly TimeSpan HanDung = TimeSpan.FromMinutes(10);
+    private static readonly TimeSpan MaxAge = TimeSpan.FromMinutes(10);
 
-    private record Cho(string TenantId, string AccountId, string RedirectUri, DateTime HetHanUtc);
+    private record Pending(string TenantId, string AccountId, string RedirectUri, DateTime ExpiresUtc);
 
-    private readonly ConcurrentDictionary<string, Cho> _cho = new(StringComparer.Ordinal);
+    private readonly ConcurrentDictionary<string, Pending> _cho = new(StringComparer.Ordinal);
 
-    public string Tao(string tenantId, string accountId, string redirectUri)
+    public string Create(string tenantId, string accountId, string redirectUri)
     {
-        DonRac();
+        Sweep();
         var ma = Convert.ToHexString(RandomNumberGenerator.GetBytes(32)).ToLowerInvariant();
-        _cho[ma] = new(tenantId, accountId, redirectUri, DateTime.UtcNow.Add(HanDung));
+        _cho[ma] = new(tenantId, accountId, redirectUri, DateTime.UtcNow.Add(MaxAge));
         return ma;
     }
 
@@ -45,15 +45,15 @@ public class ChatOAuthStates
     /// </summary>
     public (string TenantId, string AccountId, string RedirectUri)? Nhan(string? ma)
     {
-        DonRac();
+        Sweep();
         if (string.IsNullOrWhiteSpace(ma) || !_cho.TryRemove(ma, out var c)) return null;
-        return c.HetHanUtc <= DateTime.UtcNow ? null : (c.TenantId, c.AccountId, c.RedirectUri);
+        return c.ExpiresUtc <= DateTime.UtcNow ? null : (c.TenantId, c.AccountId, c.RedirectUri);
     }
 
-    private void DonRac()
+    private void Sweep()
     {
         var gio = DateTime.UtcNow;
         foreach (var kv in _cho)
-            if (kv.Value.HetHanUtc <= gio) _cho.TryRemove(kv.Key, out _);
+            if (kv.Value.ExpiresUtc <= gio) _cho.TryRemove(kv.Key, out _);
     }
 }

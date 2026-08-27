@@ -488,13 +488,37 @@ viên thấy "khách đã xem" một tin khách chưa hề nhận, rồi worker 
 tích chạy ngược. Chặn ở **cả** luật thuần lẫn SQL, vì cập nhật hàng loạt không đọc từng dòng ra hỏi
 luật được.
 
-**Tên định danh trong cụm chat KHÔNG đồng nhất, và đó là chuyện đã rồi:**
-[`ChatRules`](../../TourkitAiProxy.Domain/Chat/ChatRules.cs) đặt tên tiếng Việt (`TinhCuaSo`, `GhepCum`, `TomTat`,
-`KhongLui`), còn [`ChatRepository`](../../TourkitAiProxy.Infrastructure/Chat/Inbox/ChatRepository.cs) và
-[`ChatModels`](../../TourkitAiProxy.Domain/Chat/ChatModels.cs) đặt tiếng Anh. **Theo file mình đang sửa**, đừng
-theo cụm — thêm một tên tiếng Việt vào `ChatRepository` là tạo ngoại lệ giữa 26 tên tiếng Anh (đã
-xảy ra một lần, phải đổi lại). Quy ước ở mục Conventions chỉ nói tiếng Việt cho **chữ hiển thị, log,
-chú thích** — không nói gì về tên định danh.
+**Tên định danh trong cụm chat là TIẾNG ANH — toàn bộ, không ngoại lệ** (chuẩn hoá 27/08/2026).
+Kiểu, hàm, thuộc tính, hằng, thành viên enum: tiếng Anh. **Chữ hiển thị, log và chú thích vẫn
+tiếng Việt** như quy ước chung ở [conventions.md](../conventions.md) — luật đó nói về *nội dung*
+cho người đọc, không nói về tên định danh.
+
+⚠️ **Vì sao đổi.** Trước đó cụm này pha trộn: `ChatRules` đặt tiếng Việt (`TinhCuaSo`, `GhepCum`,
+`KhongLui`), còn `ChatRepository`/`ChatModels` đặt tiếng Anh, và luật là "theo file mình đang sửa".
+Luật đó **không sống nổi**: chỉ trong một buổi đã có hai lần đặt nhầm — một tên tiếng Việt lọt vào
+`ChatRepository` giữa 26 tên tiếng Anh, đúng cái bẫy tài liệu đã cảnh báo. Một quy ước mà người
+đọc nó xong vẫn vi phạm thì quy ước ấy sai, không phải người đọc sai.
+
+⚠️ **Vài chỗ đổi tên KHÔNG phải chỉ đổi chữ, đọc kỹ nếu bạn nhớ tên cũ:**
+
+| Cũ | Mới | Ghi chú |
+|---|---|---|
+| `ChatState.Cho/DaGui/DaNhan/DaXem/Hong` | `Pending/Sent/Delivered/Seen/Failed` | số trong CSDL **không đổi** |
+| `ChatKind.Chu/Anh/Tep/AmThanh/ViTri` | `Text/Image/File/Audio/Location` | như trên |
+| `ChatDirection.Vao/Ra` · `ChatSender.Khach/NhanVien/HeThong` | `In/Out` · `Customer/Agent/System` | như trên |
+| `KhongLui` | `CanAdvanceState` | tên cũ nói điều **cấm**, tên mới nói điều **cho phép** — nghĩa giữ nguyên, đọc ngược lại |
+| `TinhCuaSo` | `ComputeSendWindow` | |
+| `XacMinhDungChungAsync` | `ResolveSharedWebhookAsync` | |
+| `HoSoKhach` | `ContactProfile` | trường `Ten`/`Anh` → `Name`/`AvatarUrl` |
+| `ChatLan` | `ChatLane` | |
+
+⚠️ **Thành viên enum đổi tên nhưng GIÁ TRỊ SỐ giữ nguyên** — `chat_messages.state`,
+`chat_conversations.status`, `direction`, `kind`, `channel` đều lưu số, nên dữ liệu cũ không cần
+chuyển đổi gì. Đừng "sửa" bằng cách đánh số lại cho đẹp: làm thế là hỏng toàn bộ lịch sử chat.
+
+**Biến cục bộ vẫn còn tên tiếng Việt** (`than`, `chu`, `luc`, `kenh`…) và **cố ý để nguyên**: chúng
+chỉ sống trong một hàm, không phải bề mặt API, còn đổi hàng loạt thì mỗi phép thay lại có nguy cơ
+sửa trúng chữ trong câu chú thích tiếng Việt. Viết mới thì đặt tiếng Anh.
 
 **Sáu luật sai-là-hỏng**, tách thuần ở [`ChatRules`](../../TourkitAiProxy.Domain/Chat/ChatRules.cs), có test:
 1. **Cửa sổ gửi** — Zalo 48h / Messenger 24h kể từ tin cuối CỦA KHÁCH. **Chưa có tin nào của khách =

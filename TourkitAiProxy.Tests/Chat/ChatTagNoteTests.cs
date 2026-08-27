@@ -28,7 +28,7 @@ public class ChatTagNoteTests
     [InlineData("tour-nhật-bản", "tour-nhat-ban")]
     [InlineData("ĐÃ-CHỐT", "da-chot")]
     public void Chuan_hoa_nhan_bo_dau_ha_chu_thuong_noi_bang_gach(string tho, string mong)
-        => Assert.Equal(mong, ChatRules.ChuanHoaSlug(tho));
+        => Assert.Equal(mong, ChatRules.NormalizeSlug(tho));
 
     [Theory]
     [InlineData("")]
@@ -39,7 +39,7 @@ public class ChatTagNoteTests
     {
         // Hàm THUẦN thì trả giá trị, không ném: chỗ gọi tự quyết định rỗng là lỗi hay là bỏ qua.
         // Ném từ trong hàm thuần là ép mọi chỗ gọi phải bọc try, kể cả chỗ chỉ muốn lọc bỏ.
-        Assert.Equal("", ChatRules.ChuanHoaSlug(tho));
+        Assert.Equal("", ChatRules.NormalizeSlug(tho));
     }
 
     [Fact]
@@ -47,8 +47,8 @@ public class ChatTagNoteTests
     {
         // Hai chỗ chuẩn hoá khác nhau là "khach-vip" bên này và "khach vip" bên kia — lọc theo nhãn
         // ra rỗng mà không ai hiểu tại sao.
-        Assert.Equal(ChatRules.ChuanHoaSlug("Khách VIP"),
-                     ChatQuickReplyRepository.ChuanHoaTrigger("/Khách VIP"));
+        Assert.Equal(ChatRules.NormalizeSlug("Khách VIP"),
+                     ChatQuickReplyRepository.NormalizeTrigger("/Khách VIP"));
     }
 
     // ── Schema ──────────────────────────────────────────────────────────────
@@ -93,7 +93,7 @@ public class ChatTagNoteTests
     {
         foreach (var duong in new[] { "/api/v1/chat/conversations/1/tags",
                                       "/api/v1/chat/conversations/1/notes" })
-            Assert.Contains(TourkitAiProxy.Endpoints.ChatInboxEndpoints.DuongRieng,
+            Assert.Contains(TourkitAiProxy.Endpoints.ChatInboxEndpoints.OwnedPaths,
                 p => duong.StartsWith(p + "/", System.StringComparison.Ordinal));
     }
 }
