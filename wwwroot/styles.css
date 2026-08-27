@@ -9444,6 +9444,48 @@ img.ci-avt { object-fit: cover; }
                 padding: 14px 16px; border-bottom: 1px solid var(--ci-vien-trong); }
 .ci-modal-dau h3 { margin: 0; font-size: 14px; font-weight: 700; color: var(--text); }
 .ci-modal-than { padding: 16px; overflow-y: auto; }
+/* ── Ba mục cài đặt của hộp thư (Kênh · Trợ lý · Mẫu trả lời) ─────────────
+   Nằm TRÊN dải tab kênh và nặng hơn nó về thị giác: đây là tầng điều hướng ngoài, còn dải kênh
+   là tầng trong. Cùng cỡ chữ thì người dùng không đoán được cái nào chứa cái nào. */
+.ci-muc { display: flex; gap: 2px; padding: 0 16px; border-bottom: 1px solid var(--ci-vien-trong); }
+.ci-muc-nut { padding: 9px 13px 10px; border: 0; border-bottom: 2px solid transparent;
+              background: transparent; cursor: pointer; font: inherit; font-size: 12.5px;
+              font-weight: 600; color: var(--text-3); }
+.ci-muc-nut:hover { color: var(--text-2); }
+.ci-muc-nut.on { color: var(--text); border-bottom-color: var(--primary); }
+
+/* Công tắc có câu giải thích bên dưới nhãn — bật/tắt trợ lý là quyết định đáng đọc một dòng
+   trước khi bấm, không phải một ô tích trần. */
+.ci-bat { display: flex; align-items: flex-start; gap: 9px; cursor: pointer; }
+.ci-bat input { margin-top: 2px; flex: 0 0 auto; }
+.ci-bat span { display: grid; gap: 2px; font-size: 12px; color: var(--text); }
+.ci-bat em { font-style: normal; font-size: 11px; color: var(--text-3); line-height: 1.5; }
+
+/* Hai ô số đứng cạnh nhau: chúng cùng trả lời câu "trợ lý cư xử thế nào", tách hai hàng làm
+   biểu mẫu dài ra mà chẳng rõ hơn. */
+.ci-doi-o { display: grid; grid-template-columns: 1fr 1fr; gap: 9px; }
+@media (max-width: 560px) { .ci-doi-o { grid-template-columns: 1fr; } }
+
+.ci-o textarea { display: block; width: 100%; margin-top: 4px; padding: 8px 9px;
+                 border: 1px solid var(--border); border-radius: 7px; background: var(--surface);
+                 font: inherit; font-size: 12px; color: var(--text); resize: vertical;
+                 line-height: 1.55; }
+.ci-o textarea:focus, .ci-o input:focus { outline: none; border-color: var(--primary); }
+
+/* Một dòng mẫu trả lời nhanh. Lệnh gọi và nội dung trên cùng hàng, nút thao tác dạt phải. */
+.ci-mau-dong { display: flex; align-items: baseline; gap: 10px; padding: 9px 12px;
+               font-size: 12px; }
+.ci-mau-dong > b { flex: 0 0 auto; font-family: ui-monospace, monospace; font-size: 11.5px;
+                   color: var(--primary); }
+/* Nội dung cắt một dòng: danh sách mẫu để TRA, đọc đủ thì bấm Sửa. */
+.ci-mau-dong > span { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis;
+                      white-space: nowrap; color: var(--text-2); }
+.ci-mau-so-nut { flex: 0 0 auto; padding: 1px 7px 2px; border-radius: 999px;
+                 background: var(--bg); font-size: 10px; color: var(--text-3); }
+.ci-lienket.nguyhiem { color: var(--danger); }
+
+.ci-bo-nut { display: grid; gap: 6px; }
+
 /* Dải tab kênh. Sáu kênh không còn vừa một hàng ở bề ngang hộp thoại, nên:
    - KHÔNG cho chữ xuống dòng (trước đây "Facebook Messenger" gãy làm hai, các tab cao thấp
      lệch nhau và đường gạch dưới của tab đang chọn chạy sai chỗ),

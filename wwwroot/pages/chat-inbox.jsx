@@ -889,6 +889,256 @@
     );
   }
 
+  // ── Cài đặt trợ lý ────────────────────────────────────────────────────────
+  //
+  // Trước 28/08/2026 mọi công ty dùng chung MỘT lời dặn nằm trong file cấu hình máy chủ — không
+  // công ty nào khai được "bên em chuyên tour Nhật, giọng trang trọng". Màn hình này mở chỗ đó ra.
+  function CaiDatTroLy({ pushToast }) {
+    const [v, setV] = React.useState(null);
+    const [dangLuu, setDangLuu] = React.useState(false);
+
+    React.useEffect(() => {
+      let huy = false;
+      (async () => {
+        try {
+          const r = await authedFetch('/api/v1/chat/bot-settings');
+          if (huy) return;
+          setV(r.ok ? await r.json() : { error: true });
+        } catch { if (!huy) setV({ error: true }); }
+      })();
+      return () => { huy = true; };
+    }, []);
+
+    async function luu() {
+      setDangLuu(true);
+      try {
+        const r = await authedFetch('/api/v1/chat/bot-settings', {
+          method: 'PUT', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            enabled: v.enabled, persona: v.persona, greeting: v.greeting,
+            muteMinutes: v.muteMinutes, historyTurns: v.historyTurns,
+          }),
+        });
+        let j = null; try { j = await r.json(); } catch {}
+        if (!r.ok) { pushToast(j?.error || 'Lưu không được', 'error'); return; }
+        pushToast('Đã lưu cài đặt trợ lý', 'success');
+      } catch (e) { pushToast('Lưu không được: ' + e.message, 'error'); }
+      finally { setDangLuu(false); }
+    }
+
+    if (!v) return <div className="ci-trong">Đang tải…</div>;
+    if (v.error) return <div className="ci-trong">Không đọc được cài đặt trợ lý.</div>;
+
+    const gioiHan = v.limits || {};
+    return (
+      <div className="ci-tk-form">
+        {/* Công tắc đứng ĐẦU: tắt bot là mọi ô còn lại thành vô nghĩa, nên nó phải là thứ đọc
+            được trước tiên. */}
+        <label className="ci-bat">
+          <input type="checkbox" checked={v.enabled}
+                 onChange={e => setV(p => ({ ...p, enabled: e.target.checked }))} />
+          <span>
+            <b>Trợ lý tự trả lời khách</b>
+            <em>Tắt thì tin vẫn vào hộp thư, chỉ là không ai trả lời hộ — nhân viên trực toàn bộ.</em>
+          </span>
+        </label>
+
+        <label className="ci-o">
+          Trợ lý cần biết gì về công ty bạn
+          <textarea rows={7} maxLength={gioiHan.personaChars}
+                    value={v.persona || ''}
+                    placeholder={'vd: Bên em chuyên tour Nhật – Hàn – Đài, khởi hành từ Hà Nội và '
+                      + 'TP.HCM.\nXưng "em", gọi khách là "anh/chị".\nKhông nhận đoàn dưới 10 khách.\n'
+                      + 'Khách hỏi visa thì hướng dẫn nộp hồ sơ trước 20 ngày.'}
+                    onChange={e => setV(p => ({ ...p, persona: e.target.value }))} />
+        </label>
+        {/* Nói rõ giới hạn của công cụ. Không nói thì công ty viết "báo giá tour Nhật 25 triệu"
+            vào đây rồi tưởng bot sẽ báo giá — mà nó sẽ KHÔNG, vì luật chống bịa luôn thắng. */}
+        <div className="ci-ghichu">
+          Phần này <b>thêm vào</b> chứ không thay thế các luật an toàn có sẵn. Trợ lý vẫn
+          <b> không bao giờ tự báo giá, lịch khởi hành hay số chỗ còn</b> — nó chưa đọc dữ liệu
+          thật của công ty, nên gặp câu hỏi cần số liệu thì nó hẹn kiểm tra rồi báo lại.
+        </div>
+
+        <label className="ci-o">
+          Câu chào khách nhắn lần đầu
+          <input value={v.greeting || ''} placeholder="Bỏ trống = không chào, vào thẳng trả lời"
+                 onChange={e => setV(p => ({ ...p, greeting: e.target.value }))} />
+        </label>
+
+        <div className="ci-doi-o">
+          <label className="ci-o">
+            Nhân viên trả lời xong thì trợ lý im (phút)
+            <input type="number" min={0} max={1440} value={v.muteMinutes}
+                   onChange={e => setV(p => ({ ...p, muteMinutes: +e.target.value }))} />
+          </label>
+          <label className="ci-o">
+            Trợ lý nhớ lại bao nhiêu tin gần nhất
+            <input type="number" min={gioiHan.minHistory} max={gioiHan.maxHistory}
+                   value={v.historyTurns}
+                   onChange={e => setV(p => ({ ...p, historyTurns: +e.target.value }))} />
+          </label>
+        </div>
+        <div className="ci-ghichu">
+          Nhớ ít thì trợ lý không hiểu câu hỏi nối tiếp ("thế còn tháng 10?"); nhớ nhiều thì tốn
+          lượt AI hơn và dễ bám vào chuyện cũ. {gioiHan.minHistory}–{gioiHan.maxHistory} tin.
+        </div>
+
+        <div className="ci-tk-nut">
+          <button className="ci-nut chinh" disabled={dangLuu} onClick={luu}>
+            {dangLuu ? 'Đang lưu…' : 'Lưu'}
+          </button>
+        </div>
+      </div>
+    );
+  }
+
+  // ── Quản lý mẫu trả lời nhanh ─────────────────────────────────────────────
+  //
+  // Trước 28/08/2026 KHÔNG có màn hình nào — mẫu chỉ tạo được bằng gọi API tay, nên tính năng
+  // này gần như không ai dùng dù đã chạy từ lâu.
+  function QuanLyMau({ pushToast }) {
+    const [ds, setDs] = React.useState(null);
+    const [sua, setSua] = React.useState(null);   // {trigger, body, buttons[]} — null = đang không sửa
+    const [dangLuu, setDangLuu] = React.useState(false);
+
+    const tai = React.useCallback(async () => {
+      try {
+        const r = await authedFetch('/api/v1/chat/quick-replies');
+        setDs(r.ok ? (await r.json()).items || [] : []);
+      } catch { setDs([]); }
+    }, []);
+    React.useEffect(() => { tai(); }, [tai]);
+
+    async function luu() {
+      const tg = (sua.trigger || '').trim();
+      const noi = (sua.body || '').trim();
+      if (!tg || !noi) { pushToast('Cần cả lệnh gọi và nội dung', 'error'); return; }
+      setDangLuu(true);
+      try {
+        const r = await authedFetch('/api/v1/chat/quick-replies', {
+          method: 'PUT', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            trigger: tg, body: noi,
+            buttons: (sua.buttons || []).map(b => ({ label: b.chu, url: b.url })),
+          }),
+        });
+        let j = null; try { j = await r.json(); } catch {}
+        if (!r.ok) { pushToast(j?.error || 'Lưu không được', 'error'); return; }
+        pushToast('Đã lưu mẫu', 'success');
+        setSua(null);
+        await tai();
+      } finally { setDangLuu(false); }
+    }
+
+    async function xoa(m) {
+      if (!window.confirm(`Xoá mẫu "/${m.trigger}"?`)) return;
+      const r = await authedFetch('/api/v1/chat/quick-replies/' + m.id, { method: 'DELETE' });
+      if (!r.ok) { pushToast('Xoá không được', 'error'); return; }
+      await tai();
+    }
+
+    if (ds === null) return <div className="ci-trong">Đang tải…</div>;
+
+    return (
+      <div>
+        <div className="ci-tk-dau">
+          <span>{ds.length} mẫu</span>
+          <button className="ci-nut nho chinh"
+                  onClick={() => setSua(sua ? null : { trigger: '', body: '', buttons: [] })}>
+            {sua ? 'Thôi' : '+ Thêm mẫu'}
+          </button>
+        </div>
+
+        {sua && (
+          <div className="ci-tk-form">
+            <label className="ci-o">
+              Gõ gì để gọi mẫu
+              <input value={sua.trigger} placeholder="vd: gia — nhân viên gõ /gia trong ô soạn"
+                     onChange={e => setSua(p => ({ ...p, trigger: e.target.value }))} />
+            </label>
+            <label className="ci-o">
+              Nội dung
+              <textarea rows={4} value={sua.body}
+                        onChange={e => setSua(p => ({ ...p, body: e.target.value }))} />
+            </label>
+
+            <BoNut nut={sua.buttons || []} onDoi={n => setSua(p => ({ ...p, buttons: n }))} />
+
+            <div className="ci-tk-nut">
+              <button className="ci-nut chinh" disabled={dangLuu} onClick={luu}>
+                {dangLuu ? 'Đang lưu…' : 'Lưu mẫu'}
+              </button>
+            </div>
+          </div>
+        )}
+
+        {ds.length === 0 && !sua && (
+          <div className="ci-trong">
+            Chưa có mẫu nào. Mẫu giúp nhân viên gõ <b>/gia</b> là ra sẵn cả câu trả lời, kèm nút
+            bấm nếu bạn muốn — đỡ phải gõ lại những câu nói suốt ngày.
+          </div>
+        )}
+
+        {ds.map(m => (
+          <div key={m.id} className="ci-tk">
+            <div className="ci-mau-dong">
+              <b>/{m.trigger}</b>
+              <span>{m.body}</span>
+              {m.buttons?.length > 0 && (
+                <span className="ci-mau-so-nut">{m.buttons.length} nút</span>
+              )}
+              <button className="ci-lienket"
+                      onClick={() => setSua({ trigger: m.trigger, body: m.body, buttons: m.buttons || [] })}>
+                Sửa
+              </button>
+              <button className="ci-lienket nguyhiem" onClick={() => xoa(m)}>Xoá</button>
+            </div>
+          </div>
+        ))}
+      </div>
+    );
+  }
+
+  /// Bộ đặt nút dùng chung cho màn hình mẫu. Cùng ý nghĩa hai kiểu nút như ở ô soạn.
+  function BoNut({ nut, onDoi }) {
+    const [them, setThem] = React.useState({ chu: '', url: '' });
+    return (
+      <div className="ci-bo-nut">
+        <div className="ci-o">Nút gắn kèm (không bắt buộc)</div>
+        {nut.length > 0 && (
+          <div className="ci-nut-soan">
+            {nut.map((b, i) => (
+              <button key={i} type="button" title="Bỏ nút này"
+                      onClick={() => onDoi(nut.filter((_, j) => j !== i))}>
+                {b.chu}
+                <window.Icon name="close" size={11} />
+              </button>
+            ))}
+          </div>
+        )}
+        <div className="ci-nut-them">
+          <input value={them.chu} placeholder="Chữ trên nút"
+                 onChange={e => setThem(p => ({ ...p, chu: e.target.value }))} />
+          <input value={them.url} placeholder="Đường dẫn (bỏ trống = trả lời nhanh)"
+                 onChange={e => setThem(p => ({ ...p, url: e.target.value }))} />
+          <button type="button" className="ci-lienket" onClick={() => {
+            const chu = them.chu.trim();
+            if (!chu) return;
+            onDoi([...nut, { chu, url: them.url.trim() || undefined }]);
+            setThem({ chu: '', url: '' });
+          }}>Thêm nút</button>
+        </div>
+        {/* Mẫu dùng chung cho cả sáu kênh mà mỗi kênh một giới hạn, nên KHÔNG cắt ở đây — cắt
+            lúc gửi, khi đã biết hội thoại thuộc kênh nào. Nói trước để khỏi bất ngờ. */}
+        <div className="ci-ghichu">
+          Mỗi kênh nhận số nút khác nhau (Facebook 13 · Zalo 5 · WhatsApp 3 · Telegram 8 ·
+          TikTok không có). Soạn dư thì lúc gửi hệ thống bỏ bớt và báo lại.
+        </div>
+      </div>
+    );
+  }
+
   function KhaiKenh({ pushToast, onDong }) {
     const [ds, setDs] = useState(null);
     const [dangLuu, setDangLuu] = useState(null);
@@ -897,6 +1147,8 @@
     // Đang mở cấu hình của tài khoản nào: "kênh:accountId" hoặc "kênh:moi". Một lúc MỘT —
     // mở hết cùng lúc thì khai ba OA là hộp thoại dài bằng ba màn hình.
     const [mo, setMo] = useState(null);
+    // Mục cài đặt đang xem: kenh | troly | mau.
+    const [muc, setMuc] = useState("kenh");
 
     const taiLai = useCallback(async () => {
       try {
@@ -1256,14 +1508,31 @@
 
     return (
       <div className="ci-modal-nen" onMouseDown={e => { if (e.target === e.currentTarget) onDong(); }}>
-        <div className="ci-modal" role="dialog" aria-modal="true" aria-label="Kết nối kênh">
+        <div className="ci-modal" role="dialog" aria-modal="true" aria-label="Cài đặt hộp thư">
           <div className="ci-modal-dau">
-            <b>Kết nối kênh</b>
+            <b>Cài đặt hộp thư</b>
             <button className="ci-nut-icon" onClick={onDong} aria-label="Đóng">
               <window.Icon name="close" size={16} />
             </button>
           </div>
-          <div className="ci-modal-than">{than}</div>
+
+          {/* Ba mục cài đặt của hộp thư. Trước 28/08 hộp này chỉ có phần kênh, nên trợ lý
+              không có chỗ nào chỉnh và mẫu trả lời nhanh chỉ sửa được bằng gọi API tay.
+
+              Gom một cửa thay vì ba nút rời trên thanh tiêu đề: cả ba đều là "chỉnh hộp thư",
+              làm một lần lúc cài đặt rồi hiếm khi mở lại. */}
+          <div className="ci-muc">
+            {[["kenh", "Kênh"], ["troly", "Trợ lý"], ["mau", "Mẫu trả lời"]].map(([ma, ten]) => (
+              <button key={ma} className={"ci-muc-nut" + (muc === ma ? " on" : "")}
+                      onClick={() => setMuc(ma)}>{ten}</button>
+            ))}
+          </div>
+
+          <div className="ci-modal-than">
+            {muc === "kenh" && than}
+            {muc === "troly" && <CaiDatTroLy pushToast={pushToast} />}
+            {muc === "mau" && <QuanLyMau pushToast={pushToast} />}
+          </div>
         </div>
       </div>
     );

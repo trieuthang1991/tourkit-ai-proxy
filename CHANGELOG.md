@@ -16,6 +16,18 @@ Những cập nhật gần đây của TRAV-AI, viết cho người dùng. Mới
 ## Phiên bản 28/08/2026 — Thêm 6 ngày để trả lời khách Facebook
 
 ### ✨ Tính năng mới
+- **Có chỗ chỉnh trợ lý chat rồi.** Mở **Cài đặt hộp thư → Trợ lý**: bật/tắt trợ lý, viết
+  những gì nó cần biết về công ty bạn (chuyên tuyến nào, xưng hô ra sao, không nhận đoàn
+  dưới bao nhiêu khách), đặt câu chào, và chọn nhân viên trả lời xong thì trợ lý im bao lâu.
+  Trước đây tất cả những thứ này nằm cứng trong máy chủ, mọi công ty dùng chung một kiểu.
+
+  *Lưu ý:* phần bạn viết **thêm vào** chứ không thay thế các luật an toàn. Trợ lý vẫn không
+  bao giờ tự báo giá, lịch khởi hành hay số chỗ còn — nó chưa đọc dữ liệu thật của công ty.
+
+- **Quản lý mẫu trả lời nhanh ngay trong app.** Mở **Cài đặt hộp thư → Mẫu trả lời**: thêm,
+  sửa, xoá mẫu và gắn nút bấm cho từng mẫu. Trước đây không có màn hình nào — mẫu chỉ tạo
+  được bằng cách nhờ người kỹ thuật, nên gần như không ai dùng.
+
 - **Gửi kèm nút bấm cho khách.** Bấm **+ Nút** ở ô soạn, đặt chữ trên nút rồi gửi. Hai kiểu:
   để trống đường dẫn thì khách bấm là **coi như họ nhắn đúng câu đó** — trợ lý trả lời tiếp
   bình thường, hợp cho câu hỏi kiểu "Anh quan tâm tuyến nào?" với ba nút Nhật · Hàn · Đài;
@@ -56,6 +68,11 @@ Những cập nhật gần đây của TRAV-AI, viết cho người dùng. Mới
   chỉ khi công ty chuyển sang từ ứng dụng WhatsApp Business và chỉ trong 24 giờ đầu sau khi nối.
 
 ### 🔧 Đã khắc phục
+- **Trợ lý nhớ được đoạn hội thoại, không còn trả lời lạc đề.** Trước đây nó chỉ đọc đúng câu
+  khách vừa gửi, nên khách hỏi "Tour Nhật bao nhiêu ạ?" rồi hỏi tiếp "Thế còn tháng 10?" là
+  nó không biết đang nói về tour nào. Khách nào cũng nhắn kiểu đó, nên trợ lý lạc đề gần như
+  mọi cuộc dài quá hai lượt. Nay nó đọc lại các tin gần nhất trước khi trả lời — số tin do bạn
+  đặt trong Cài đặt hộp thư.
 - **Màn hình xem lại một kênh đã nối gọn hẳn.** Trước đây mở một bot Telegram ra là gặp lại ba
   bước hướng dẫn cách tạo bot — thứ chỉ cần lúc thêm mới — cùng một ô mã bot che sao mời bạn gõ
   vào, mà để trống thì không ai đoán được là giữ hay xoá. Nay màn hình đó chỉ còn thứ bạn thật

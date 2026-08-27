@@ -158,6 +158,51 @@ public static class ChatRules
         catch { return Array.Empty<ChatButton>(); }
     }
 
+    /// <summary>
+    /// Dựng bản ghi hội thoại làm ngữ cảnh cho trợ lý.
+    ///
+    /// <para><b>Đây là chỗ chữa một lỗi thật.</b> Trước 28/08/2026 bot chỉ nhận đúng cụm tin vừa
+    /// tới, không có gì khác. Nên:</para>
+    /// <code>
+    /// Khách: "Tour Nhật bao nhiêu tiền ạ?"
+    /// Bot:   "Dạ em kiểm tra rồi báo lại anh ngay…"
+    /// Khách: "Thế còn tháng 10?"
+    /// Bot:   ← chỉ thấy "Thế còn tháng 10?", không biết đang nói về tour nào
+    /// </code>
+    /// <para>Khách nào cũng nhắn kiểu đó, nên bot lạc đề gần như mọi hội thoại dài quá hai lượt.</para>
+    ///
+    /// <para><b>Bỏ tin HỎNG và tin CHỜ GỬI</b> (<c>Failed</c>/<c>Pending</c>): khách chưa hề đọc
+    /// chúng. Đưa vào là bot tưởng mình đã nói rồi và trả lời tiếp như thể khách đã biết.</para>
+    ///
+    /// <para>Ghi nhân viên và trợ lý CHUNG một nhãn "Mình": với khách thì cả hai đều là công ty,
+    /// và tách ra chỉ mời model bắt chước giọng của một trong hai.</para>
+    /// </summary>
+    /// <param name="tin">Theo thứ tự thời gian TĂNG dần. Chỉ lấy phần đuôi.</param>
+    /// <param name="cauHoi">Cụm tin khách vừa gửi, chưa nằm trong <paramref name="tin"/>.</param>
+    public static string BuildConversationPrompt(IEnumerable<ChatMessage> tin, string cauHoi,
+        int soLuot)
+    {
+        var truoc = tin
+            .Where(m => m.State != (short)ChatState.Failed && m.State != (short)ChatState.Pending)
+            .Where(m => !string.IsNullOrWhiteSpace(m.Body))
+            .TakeLast(Math.Max(0, soLuot))
+            .ToList();
+
+        if (truoc.Count == 0) return cauHoi;
+
+        var sb = new System.Text.StringBuilder();
+        sb.AppendLine("Đoạn hội thoại từ đầu tới giờ:");
+        foreach (var m in truoc)
+            sb.AppendLine($"{(m.Direction == (short)ChatDirection.In ? "Khách" : "Mình")}: {m.Body!.Trim()}");
+
+        sb.AppendLine();
+        // Tách hẳn câu MỚI ra khỏi phần lịch sử. Nối thẳng vào cuối bản ghi thì model coi nó là
+        // một dòng nữa để đọc, chứ không phải câu đang phải trả lời.
+        sb.AppendLine("Khách vừa nhắn:");
+        sb.Append(cauHoi);
+        return sb.ToString();
+    }
+
     /// Nhân viên trả lời xong thì bot câm bấy lâu.
     public static readonly TimeSpan DefaultBotMute = TimeSpan.FromMinutes(30);
 

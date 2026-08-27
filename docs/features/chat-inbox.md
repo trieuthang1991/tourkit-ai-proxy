@@ -291,6 +291,39 @@ là bot** (chặt hơn): chỗ gọi nào quên truyền thì mất quyền ch�
 [`ILateHumanReplySender`](../../TourkitAiProxy.Services/Chat/Channels/IChatChannelAdapter.cs), không
 nhét vào chữ ký chung: bốn kênh còn lại không có khái niệm này.
 
+### Cấu hình trợ lý (theo TỪNG công ty)
+
+[`chat_bot_settings`](../../TourkitAiProxy.Infrastructure/Chat/Inbox/ChatBotSettingsRepository.cs)
+trong **CSDL chat (PostgreSQL)** — không phải `dbo.TenantChannelSettings` bên SQL Server, vì bảng
+đó dùng chung với cụm bản tin và worker của `toutkit-app`. Cụm chat tách hẳn, cấu hình cũng vậy.
+
+Trước 28/08/2026 lời dặn cho bot nằm ở `Chat:SystemPrompt` trong `appsettings.json` — **một
+prompt cho MỌI công ty**. Cấu hình một sản phẩm nhiều khách hàng bằng file cấu hình máy chủ chỉ
+đúng khi có đúng một khách hàng.
+
+⚠️ **Lời dặn của công ty NỐI THÊM, tuyệt đối không thay thế khung.** Khung chứa luật chống bịa
+(giá tour, lịch khởi hành, số chỗ còn, khuyến mãi) — bot này **không đọc dữ liệu thật của công
+ty**, nên bỏ khung đi là nó bịa giá và hứa giữ chỗ với khách thật. Và khung đặt **SAU** phần
+công ty viết: phần cuối là phần model bám chặt nhất, nên luật cấm phải nằm cuối để một câu vô ý
+("cứ báo giá luôn cho khách") không đè được lên. Có test cho cả hai điều này.
+
+⚠️ **Bot phải đọc lại đoạn hội thoại.** Trước đây `GenerateReplyAsync` chỉ nhận cụm tin vừa tới:
+
+```
+Khách: "Tour Nhật bao nhiêu tiền ạ?"
+Bot:   "Dạ em kiểm tra rồi báo lại anh ngay…"
+Khách: "Thế còn tháng 10?"
+Bot:   ← chỉ thấy "Thế còn tháng 10?", không biết đang nói về tour nào
+```
+
+`ChatRules.BuildConversationPrompt` dựng bản ghi hội thoại (tầng AI chỉ nhận MỘT chuỗi prompt,
+không có mảng lượt). Nó **bỏ tin `Failed` và `Pending`** — khách chưa hề đọc chúng, đưa vào là
+bot tưởng mình đã nói rồi. Nhân viên và trợ lý ghi **chung nhãn "Mình"**: với khách thì cả hai
+đều là công ty.
+
+⚠️ Đọc rất thường xuyên (mỗi tin khách nhắn là một lượt) nên kho nhớ tạm 60 giây trong bộ nhớ,
+và **dọn ngay khi Lưu** — chờ 60 giây mới thấy hiệu lực thì người vừa bấm tưởng nút Lưu hỏng.
+
 ### Nút bấm dưới tin
 
 **Chỉ HAI kiểu, cố ý.** Dự án tham chiếu gắn vào nút một `payload` trỏ tới bước trong luồng của

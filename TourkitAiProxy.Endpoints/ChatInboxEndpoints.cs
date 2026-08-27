@@ -46,6 +46,7 @@ public static class ChatInboxEndpoints
         "/api/v1/chat/channels",
         "/api/v1/chat/messages",
         "/api/v1/chat/avatars",
+        "/api/v1/chat/bot-settings",
         "/api/v1/chat/quick-replies",
         "/api/v1/chat/events",
         "/api/v1/chat/oauth",
@@ -1660,6 +1661,54 @@ public static class ChatInboxEndpoints
             return Results.Json(new { ok = true, removed = xoa }, Web);
         });
 
+        // ── Cấu hình trợ lý chat ────────────────────────────────────────────
+        //
+        // ĐỌC thì mọi nhân viên trực chat đều cần (giao diện hiện trạng thái bot bật/tắt);
+        // SỬA thì cần quyền cấu hình hệ thống — đây là giọng nói của cả công ty với khách.
+        g.MapGet("/bot-settings", async (HttpContext ctx, TkSessionStore sessions,
+            ChatBotSettingsRepository repo, CancellationToken ct) =>
+        {
+            var a = SessionAuth.Read(ctx, sessions);
+            if (a == null) return SessionAuth.Unauthorized();
+            if (!repo.Configured) return NotConfigured();
+
+            var v = await repo.GetAsync(a.TenantId, ct);
+            return Results.Json(new
+            {
+                enabled = v.Enabled,
+                persona = v.Persona,
+                greeting = v.Greeting,
+                muteMinutes = v.MuteMinutes,
+                historyTurns = v.HistoryTurns,
+                // Giới hạn do máy chủ nói ra để giao diện không phải chép cứng — sửa mốc ở
+                // Domain là màn hình đổi theo, không lệch.
+                limits = new
+                {
+                    personaChars = ChatBotSettings.MaxPersonaChars,
+                    minHistory = ChatBotSettings.MinHistoryTurns,
+                    maxHistory = ChatBotSettings.MaxHistoryTurns,
+                },
+            }, Web);
+        });
+
+        g.MapPut("/bot-settings", async (BotSettingsReq body, HttpContext ctx,
+            TkSessionStore sessions, ChatBotSettingsRepository repo, CancellationToken ct) =>
+        {
+            var a = SessionAuth.Read(ctx, sessions);
+            if (a == null) return SessionAuth.Unauthorized();
+            if (!await SessionAuth.CanConfigSystemAsync(a.SessionId, sessions, ct))
+                return SessionAuth.ForbiddenConfigSystem();
+            if (!repo.Configured) return NotConfigured();
+
+            // Kẹp giá trị nằm ở Domain (Normalized) chứ không ở đây: worker đọc cùng bộ luật đó,
+            // và kiểm hai nơi là hai nơi lệch nhau.
+            await repo.SaveAsync(a.TenantId, new ChatBotSettings(
+                body.Enabled, body.Persona, body.Greeting,
+                body.MuteMinutes ?? 30, body.HistoryTurns ?? 12), ct);
+
+            return Results.Json(new { ok = true }, Web);
+        });
+
         // ── Mẫu trả lời nhanh ───────────────────────────────────────────────
         // ĐỌC thì mọi nhân viên trực chat đều cần; SỬA/XOÁ thì cần quyền cấu hình hệ thống —
         // đây là bộ câu dùng chung cả đội, một người sửa là cả đội đổi theo.
@@ -1669,7 +1718,19 @@ public static class ChatInboxEndpoints
             var a = SessionAuth.Read(ctx, sessions);
             if (a == null) return SessionAuth.Unauthorized();
             if (!repo.Configured) return NotConfigured();
-            return Results.Json(new { items = await repo.ListAsync(a.TenantId, ct) }, Web);
+            // ⚠️ Bóc nút ra MẢNG THẬT, đừng trả nguyên chuỗi JSON trong CSDL. Trả chuỗi thì
+            // giao diện gọi .length lên nó và ra SỐ KÝ TỰ — màn hình hiện "68 nút" cho một mẫu
+            // có hai nút, còn chỗ chèn mẫu vào ô soạn thì .map lên chuỗi và hỏng hẳn.
+            var ds = await repo.ListAsync(a.TenantId, ct);
+            return Results.Json(new
+            {
+                items = ds.Select(m => new
+                {
+                    m.Id, m.Trigger, m.Body,
+                    buttons = ChatRules.ReadButtons(m.Buttons)
+                        .Select(b => new { chu = b.Label, url = b.Url }),
+                }),
+            }, Web);
         });
 
         g.MapPut("/quick-replies", async (QuickReplyReq body, HttpContext ctx,
@@ -2118,5 +2179,10 @@ public record SendReq(string? Text, string? AttachmentUrl = null, string? Attach
     /// <param name="Trigger">Lệnh gọi thô — server tự chuẩn hoá (bỏ dấu, hạ chữ thường).</param>
     /// <param name="Buttons">Nút kèm mẫu. Bỏ trống hoặc rỗng = XOÁ nút đang có — màn hình sửa
     /// mẫu luôn gửi lên trạng thái đầy đủ, và "bỏ hết nút" phải làm được.</param>
+    /// <param name="Persona">Lời dặn RIÊNG của công ty. NỐI THÊM vào khung an toàn, không thay
+    /// thế — xem <see cref="ChatBotSettings.BuildSystemPrompt"/>.</param>
+    public record BotSettingsReq(bool Enabled, string? Persona, string? Greeting,
+        int? MuteMinutes, int? HistoryTurns);
+
     public record QuickReplyReq(string Trigger, string Body, List<ChatButton>? Buttons = null);
 }

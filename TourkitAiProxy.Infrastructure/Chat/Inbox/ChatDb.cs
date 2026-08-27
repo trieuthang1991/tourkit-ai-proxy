@@ -254,6 +254,22 @@ public class ChatDb
 
     -- Mẫu trả lời nhanh, theo TỪNG CÔNG TY (KHÔNG theo từng nhân viên) — cả đội trực chat cùng
     -- dùng một bộ câu, đổi một mẫu là cả đội thấy ngay, không phải dạy lại từng người.
+    -- Cấu hình trợ lý chat, MỘT dòng mỗi công ty. Chưa có dòng = dùng mặc định trong mã.
+    --
+    -- Nằm ở CSDL chat chứ không phải dbo.TenantChannelSettings bên SQL Server: bảng đó dùng
+    -- chung với cụm bản tin và worker của toutkit-app, mà cụm chat tách hẳn.
+    CREATE TABLE IF NOT EXISTS chat_bot_settings (
+      tenant_id     text        PRIMARY KEY,
+      enabled       boolean     NOT NULL DEFAULT true,
+      -- Lời dặn RIÊNG của công ty. NỐI THÊM vào khung an toàn trong mã, không thay thế —
+      -- khung chứa luật chống bịa giá tour, bỏ nó là bot hứa giữ chỗ với khách thật.
+      persona       text,
+      greeting      text,
+      mute_minutes  integer     NOT NULL DEFAULT 30,
+      history_turns integer     NOT NULL DEFAULT 12,
+      updated_utc   timestamptz NOT NULL DEFAULT now()
+    );
+
     CREATE TABLE IF NOT EXISTS chat_quick_replies (
       id          bigserial PRIMARY KEY,
       tenant_id   text        NOT NULL,
