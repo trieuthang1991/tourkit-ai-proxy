@@ -49,6 +49,13 @@ Những cập nhật gần đây của TRAV-AI, viết cho người dùng. Mới
   khách mở cuộc trò chuyện — thay vì nhận một câu lệnh khó hiểu như trước.
 
 ### 🔧 Đã khắc phục
+- **Đăng nhập một chạm từ CRM không còn bị văng ra sau mỗi lần cập nhật.** Ai vào Trav-ai bằng
+  cách bấm thẳng từ CRM (không gõ mật khẩu) thì phiên làm việc bị mất mỗi lần hệ thống khởi
+  động lại, phải quay về CRM bấm lại từ đầu. Nay phiên được giữ nguyên.
+- **Bản tin sáng tới được cả người đăng nhập một chạm.** Đây là hệ quả nặng hơn của cùng một
+  lỗi: những người này bị hệ thống xem như *chưa từng đăng nhập*, nên bản tin sáng lặng lẽ bỏ
+  qua họ — không báo lỗi, không ai biết, chỉ là sáng ra không có bản tin. Kiểm trên dữ liệu
+  thật: 6 phiên đang bị bỏ oan, nay nhận lại đủ.
 - **Khách gửi video hoặc file nhạc qua Telegram không còn là một dòng trắng.** Trước đây những
   loại này lọt vào hộp thư thành một dòng trống: hội thoại nhảy lên đầu danh sách, báo có tin
   chưa đọc, mà mở ra không thấy gì — bạn không có cách nào biết khách vừa gửi cái gì.
