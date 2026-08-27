@@ -1,4 +1,4 @@
-// Icon library — minimal line icons used throughout the app
+﻿// Icon library — minimal line icons used throughout the app
 const Icon = ({ name, size = 16, stroke = 1.75 }) => {
   const paths = {
     sparkle: <><path d="M12 3v3M12 18v3M3 12h3M18 12h3M5.6 5.6l2.1 2.1M16.3 16.3l2.1 2.1M5.6 18.4l2.1-2.1M16.3 7.7l2.1-2.1" /><circle cx="12" cy="12" r="3" /></>,
@@ -58,6 +58,16 @@ const Icon = ({ name, size = 16, stroke = 1.75 }) => {
     book: <><path d="M2 4h7a3 3 0 0 1 3 3v13a2.5 2.5 0 0 0-2.5-2H2zM22 4h-7a3 3 0 0 0-3 3v13a2.5 2.5 0 0 1 2.5-2H22z" /></>,
     bell: <><path d="M18 8a6 6 0 0 0-12 0c0 7-3 9-3 9h18s-3-2-3-9" /><path d="M13.7 21a2 2 0 0 1-3.4 0" /></>,
     mic: <><path d="M12 2a3 3 0 0 0-3 3v6a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3z" /><path d="M19 10v1a7 7 0 0 1-14 0v-1M12 18v4M8 22h8" /></>,
+    // ── Dấu hiệu kênh chat ──────────────────────────────────────────────
+    // Zalo và Facebook nhận diện bằng CHỮ (Z, f) nên để nguyên chữ, không vẽ hình.
+    // Bốn kênh dưới đây nhận diện bằng HÌNH — trước đây viết tắt "ig"/"wa"/"tt" là tôi tự bịa,
+    // hai chữ thường nhỏ xíu không ai nhận ra. Vẽ theo lối nét đơn sắc của cả bộ, không dùng
+    // logo nhiều màu: dải kênh nằm trên nền đổi màu theo trạng thái chọn.
+    instagram: <><rect x="3" y="3" width="18" height="18" rx="5" /><circle cx="12" cy="12" r="4" /><circle cx="17" cy="7" r=".6" fill="currentColor" /></>,
+    whatsapp: <><path d="M21 11.5a8.5 8.5 0 0 1-12.7 7.4L3 20.5l1.7-5.1A8.5 8.5 0 1 1 21 11.5z" /><path d="M8.8 8.4c.3-.6.6-.6.9-.6h.6c.2 0 .5 0 .7.5l.8 1.9c.1.3 0 .5-.1.7l-.4.5c-.2.2-.3.4-.1.7.4.7 1.4 1.8 2.4 2.3.3.2.5.1.7-.1l.5-.6c.2-.2.4-.2.7-.1l1.8.9c.3.1.4.3.4.6 0 .4-.2 1-.5 1.3-.4.3-1 .6-1.6.5-1.4-.2-3.3-1-4.9-2.6-1.6-1.6-2.4-3.5-2.6-4.9-.1-.6.2-1.2.5-1.6z" /></>,
+    tiktok: <><path d="M9 21a4 4 0 1 0-4-4" /><path d="M13 3v11" /><path d="M9 17V8" /><path d="M13 3c.6 2.7 2.4 4.3 5 4.5" /></>,
+    telegram: <><path d="M21.5 3.5L2.8 10.6c-.7.3-.7 1.2 0 1.4l4.7 1.5 1.8 5.5c.2.6 1 .8 1.4.3l2.5-2.6 4.6 3.4c.5.4 1.2.1 1.4-.5l3-14.6c.1-.7-.5-1.3-1.2-1.1z" /><path d="M7.5 13.5L18.5 6l-8 8.5" /></>,
+
     paperclip: <path d="M21.4 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48" />
   };
   return (

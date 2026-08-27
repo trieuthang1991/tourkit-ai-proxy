@@ -1184,7 +1184,7 @@ public static class ChatInboxEndpoints
             var fbNhanh = adapters.OfType<Services.Chat.Channels.MessengerChatAdapter>()
                                   .FirstOrDefault()?.HasPlatformApp == true;
             var ra = new List<object>();
-            foreach (var (kenh, ten, oNhap, moiTaiKhoanMotUrl) in KhaiBao)
+            foreach (var (kenh, ten, tenNgan, oNhap, moiTaiKhoanMotUrl) in KhaiBao)
             {
                 var dsach = await cred.ListAccountsAsync(a.TenantId, kenh, ct);
                 var nhanh = kenh switch
@@ -1200,7 +1200,7 @@ public static class ChatInboxEndpoints
                     : $"{goc}/api/v1/chat/webhook/{kenh.ToString().ToLowerInvariant()}/{a.TenantId}";
                 ra.Add(new
                 {
-                    channel = (short)kenh, name = ten, fields = oNhap,
+                    channel = (short)kenh, name = ten, shortName = tenNgan, fields = oNhap,
                     // Kênh này nối được bằng MỘT nút hay phải khai tay từng ô.
                     noiNhanh = nhanh,
                     // Chữ trên nút. Để máy chủ quyết định để giao diện không phải biết tên kênh —
@@ -1609,9 +1609,12 @@ public static class ChatInboxEndpoints
     /// dài mà không có ví dụ thì người khai không biết mình dán đúng thứ chưa.</param>
     private record FieldSpec(string Key, string Label, string Type = "text", string Hint = "");
 
-    private static readonly (ChatChannel Kenh, string Ten, FieldSpec[] O, bool MoiTaiKhoanMotUrl)[] KhaiBao =
+    /// <param name="TenNgan">Tên cho dải tab. Từ khi có SÁU kênh, tên đầy đủ làm dải tab vỡ
+    /// thành hai dòng cao thấp lệch nhau. Tên đầy đủ vẫn dùng cho tiêu đề mục bên dưới — chỗ đó
+    /// có chỗ và cần nói rõ ("Zalo OA" khác Zalo cá nhân, "Instagram Direct" là tin nhắn riêng).</param>
+    private static readonly (ChatChannel Kenh, string Ten, string TenNgan, FieldSpec[] O, bool MoiTaiKhoanMotUrl)[] KhaiBao =
     {
-        (ChatChannel.Zalo, "Zalo OA", new[]
+        (ChatChannel.Zalo, "Zalo OA", "Zalo", new[]
         {
             new FieldSpec("label",        "Tên gợi nhớ", "text",   "OA Hà Nội"),
             new FieldSpec("appId",        "App ID",      "text",   "1234567890123456789"),
@@ -1625,7 +1628,7 @@ public static class ChatInboxEndpoints
             new FieldSpec("note2",
                 "Đây là OA RIÊNG của chat, độc lập với OA khai cho bản tin sáng ở Tự động hoá.", "note"),
         }, false),
-        (ChatChannel.Messenger, "Facebook Messenger", new[]
+        (ChatChannel.Messenger, "Facebook Messenger", "Messenger", new[]
         {
             new FieldSpec("label",           "Tên gợi nhớ", "text", "Trang chi nhánh Q1"),
             new FieldSpec("pageId",          "ID Trang",    "text", "102938475610293"),
@@ -1636,7 +1639,7 @@ public static class ChatInboxEndpoints
                 "Bốn ô này CHỈ dùng khi công ty tự tạo ứng dụng riêng trên Meta for Developers. "
                 + "Bình thường bấm \"Kết nối Facebook\" là xong — không phải khai gì.", "note"),
         }, false),
-        (ChatChannel.Instagram, "Instagram Direct", new[]
+        (ChatChannel.Instagram, "Instagram Direct", "Instagram", new[]
         {
             new FieldSpec("label",           "Tên gợi nhớ", "text", "IG chi nhánh Q1"),
             new FieldSpec("igId",            "ID tài khoản Instagram", "text", "17841400000000000"),
@@ -1647,7 +1650,7 @@ public static class ChatInboxEndpoints
                 + "Professional và đã liên kết với Trang đó, rồi bật \"Cho phép truy cập tin nhắn\" "
                 + "trong cài đặt Instagram. Không cần khai thêm khoá ứng dụng nào.", "note"),
         }, false),
-        (ChatChannel.WhatsApp, "WhatsApp", new[]
+        (ChatChannel.WhatsApp, "WhatsApp", "WhatsApp", new[]
         {
             new FieldSpec("label",         "Tên gợi nhớ", "text", "Số hotline tour nước ngoài"),
             new FieldSpec("phoneNumberId", "Phone Number ID", "text", "1088888888888888"),
@@ -1660,7 +1663,7 @@ public static class ChatInboxEndpoints
                 + "(số đã dùng cho ứng dụng WhatsApp thường thì không khai được). Ngoài 24 giờ kể "
                 + "từ tin của khách chỉ gửi được mẫu đã duyệt, không gửi chữ tự do.", "note"),
         }, false),
-        (ChatChannel.TikTok, "TikTok", new[]
+        (ChatChannel.TikTok, "TikTok", "TikTok", new[]
         {
             new FieldSpec("label",        "Tên gợi nhớ", "text", "TikTok bán tour"),
             new FieldSpec("openId",       "Open ID tài khoản", "text", "_000AbCdEf…"),
@@ -1671,7 +1674,7 @@ public static class ChatInboxEndpoints
                 "TikTok cần ứng dụng TikTok for Business đã được duyệt quyền nhắn tin. Kênh này "
                 + "chỉ gửi được CHỮ và ẢNH; tệp, âm thanh, video thì gửi đường dẫn bằng tin chữ.", "note"),
         }, false),
-        (ChatChannel.Telegram, "Telegram", new[]
+        (ChatChannel.Telegram, "Telegram", "Telegram", new[]
         {
             // Các bước ĐỨNG TRƯỚC ô nhập: người khai đọc cách lấy mã rồi mới có cái để dán. Ô
             // "Bot token" đứng một mình giả định họ đã biết lấy ở đâu — mà đó đúng là chỗ tắc.

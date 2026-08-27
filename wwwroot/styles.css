@@ -9002,6 +9002,9 @@ n
 .ci-dai-nut:hover { background: var(--ci-nen-chip); }
 .ci-dai-nut.on { background: var(--dark); color: #fff; }
 .ci-hh { font-size: 11.5px; font-weight: 700; line-height: 1; }
+/* Ô chứa HÌNH phải chiếm đúng chỗ như ô chứa chữ, không thì dải kênh so le. */
+.ci-hh.hinh { display: inline-grid; place-items: center; width: 1em; height: 1em; }
+.ci-hh.hinh > svg { width: 13px; height: 13px; }
 /* Chấm báo có hội thoại. Nằm ở góc nên không đẩy chữ. */
 .ci-cham { position: absolute; top: 3px; right: 3px; width: 5px; height: 5px; border-radius: 999px;
            background: var(--primary); }
@@ -9365,11 +9368,17 @@ img.ci-avt { object-fit: cover; }
                 padding: 14px 16px; border-bottom: 1px solid var(--ci-vien-trong); }
 .ci-modal-dau h3 { margin: 0; font-size: 14px; font-weight: 700; color: var(--text); }
 .ci-modal-than { padding: 16px; overflow-y: auto; }
+/* Dải tab kênh. Sáu kênh không còn vừa một hàng ở bề ngang hộp thoại, nên:
+   - KHÔNG cho chữ xuống dòng (trước đây "Facebook Messenger" gãy làm hai, các tab cao thấp
+     lệch nhau và đường gạch dưới của tab đang chọn chạy sai chỗ),
+   - KHÔNG cho co lại (flex mặc định bóp item cho vừa, chính là thứ ép chữ gãy dòng),
+   - thiếu chỗ thì cuộn ngang — thà cuộn còn hơn vỡ hàng. */
 .ci-tab { display: flex; gap: 4px; border-bottom: 1px solid var(--ci-vien-trong);
-          margin-bottom: 14px; }
+          margin-bottom: 14px; overflow-x: auto; scrollbar-width: thin; }
 .ci-tab-nut { display: inline-flex; align-items: center; gap: 7px; padding: 8px 12px 9px; border: 0;
               border-bottom: 2px solid transparent; background: transparent; cursor: pointer;
-              font: inherit; font-size: 12px; font-weight: 600; color: var(--text-3); }
+              font: inherit; font-size: 12px; font-weight: 600; color: var(--text-3);
+              white-space: nowrap; flex: 0 0 auto; }
 .ci-tab-nut.on { color: var(--text); border-bottom-color: var(--primary); }
 .ci-tab-nut b { background: var(--ci-nen-chip); border-radius: 999px; padding: 0 6px;
                 font-size: 10px; line-height: 15px; color: var(--text-2); }

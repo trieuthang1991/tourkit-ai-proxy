@@ -21,14 +21,20 @@
 
   // Chữ viết tắt thay cho biểu tượng thương hiệu: ba kênh ba chữ khác nhau nên phân biệt được
   // ngay, mà không phải kéo logo của bên thứ ba về.
+  // Mỗi kênh dùng ĐÚNG dấu hiệu thật của nó. Zalo và Facebook nhận diện bằng CHỮ (Z, f) — đó là
+  // chữ ký thương hiệu, không phải viết tắt. Bốn kênh còn lại nhận diện bằng HÌNH.
+  //
+  // Bản đầu viết tắt 'ig' / 'wa' / 'tt' cho ba kênh mới: hai chữ thường, nhỏ hơn hẳn chữ ký thật
+  // bên cạnh, và không ai nhận ra đó là kênh nào. Trộn chữ ký thật với viết tắt tự bịa là chỗ
+  // dải kênh trông lệch.
   const KENH = {
     0: { ten: 'Zalo', chu: 'Z' },
     1: { ten: 'Messenger', chu: 'f' },
-    4: { ten: 'Instagram', chu: 'ig' },
-    5: { ten: 'WhatsApp', chu: 'wa' },
-    6: { ten: 'TikTok', chu: 'tt' },
+    4: { ten: 'Instagram', hinh: 'instagram' },
+    5: { ten: 'WhatsApp', hinh: 'whatsapp' },
+    6: { ten: 'TikTok', hinh: 'tiktok' },
     2: { ten: 'Web', chu: 'W' },
-    3: { ten: 'Telegram', chu: 'T' },
+    3: { ten: 'Telegram', hinh: 'telegram' },
   };
   const KENH_SONG = [0, 1, 4, 5, 6, 3];   // kênh đã nối thật; Web chỉ hiện khi có dữ liệu
 
@@ -106,7 +112,12 @@
   function HuyHieuKenh({ kenh, day }) {
     const k = KENH[kenh];
     if (!k) return null;
-    return <span className={'ci-hh' + (day ? ' day' : '')} title={k.ten}>{k.chu}</span>;
+    // Hình vẽ theo cỡ chữ quanh nó nên nằm cùng hàng với chữ ký Z/f, không nhảy dòng.
+    return (
+      <span className={'ci-hh' + (day ? ' day' : '') + (k.hinh ? ' hinh' : '')} title={k.ten}>
+        {k.hinh ? <window.Icon name={k.hinh} size={13} stroke={1.9} /> : k.chu}
+      </span>
+    );
   }
 
   // Dấu tích trạng thái gửi. Ghép từ biểu tượng "check" có sẵn thay vì vẽ tay đường SVG mới.
@@ -795,14 +806,17 @@
     else if (!ds) than = <div className="ci-trong">Đang tải…</div>;
     else than = (
       <>
-        {/* Tab thay vì đổ cả ba kênh ra một màn hình. Mỗi lần người dùng chỉ khai MỘT kênh, mà
-            bày cả ba thì vừa phải cuộn vừa thêm một lớp viền bao quanh từng kênh. */}
+        {/* Tab thay vì đổ mọi kênh ra một màn hình. Mỗi lần người dùng chỉ khai MỘT kênh, mà
+            bày hết thì vừa phải cuộn vừa thêm một lớp viền bao quanh từng kênh.
+
+            Dùng tên NGẮN do máy chủ cấp: từ khi có sáu kênh, tên đầy đủ làm dải tab vỡ thành
+            hai dòng cao thấp lệch nhau. Tên đầy đủ vẫn hiện ở tiêu đề mục bên dưới. */}
         <div className="ci-tab">
           {ds.map(k => (
             <button key={k.channel} className={'ci-tab-nut' + (tab === k.channel ? ' on' : '')}
                     onClick={() => setTab(k.channel)}>
               <HuyHieuKenh kenh={k.channel} />
-              {k.name}
+              {k.shortName || k.name}
               {k.accounts.length > 0 && <b>{k.accounts.length}</b>}
             </button>
           ))}
