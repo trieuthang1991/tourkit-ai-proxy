@@ -9189,7 +9189,38 @@ img.ci-avt { object-fit: cover; }
 /* ⚠️ .ci-nhan mang HAI nghĩa trong trang này: nhãn NGƯỜI GỬI trong bong bóng tin, và thẻ NHÃN
    KHÁCH ở hồ sơ. Khai trần một kiểu là bên kia vỡ — đã vỡ thật 27/08/2026: thẻ nhãn khách biến
    thành chữ hoa li ti. Khoanh vùng cả hai, đừng gộp. */
-.ci-bong .ci-nhan, .ci-ai .ci-nhan {
+.ci-bong .ci-nhan, .ci-ai /* Nút CHỜ gửi, trên ô soạn. Khác hẳn .ci-nut-tin (bản ghi lại): mấy cái này BẤM ĐƯỢC và bấm là
+   BỎ nút đó, nên phải trông như thao tác được — có dấu × và đổi màu khi rê chuột. */
+.ci-nut-soan { display: flex; flex-wrap: wrap; align-items: center; gap: 5px;
+               margin-bottom: 7px; font-size: 10.5px; color: var(--text-3); }
+.ci-nut-soan button { display: inline-flex; align-items: center; gap: 5px;
+                      padding: 3px 7px 4px 10px; border: 1px solid var(--ci-vien-trong);
+                      border-radius: 999px; background: var(--surface); cursor: pointer;
+                      font: inherit; font-size: 11px; color: var(--text-2); }
+.ci-nut-soan button:hover { border-color: var(--danger); color: var(--danger); }
+/* Ô thêm nút: hai ô nhập nhỏ nằm NGANG dải chip, không phải một khối riêng bên dưới — nó là
+   phần nối dài của dải đó, và tách khối làm ô soạn tụt thêm một tầng. */
+.ci-nut-them { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
+.ci-nut-them input { width: 130px; padding: 4px 8px 5px; border: 1px solid var(--border);
+                     border-radius: 999px; background: var(--surface); font: inherit;
+                     font-size: 11px; color: var(--text); }
+.ci-nut-them input:last-of-type { width: 190px; }
+.ci-nut-them input:focus { outline: none; border-color: var(--primary); }
+/* Nút Thêm/Xong KHÔNG được kế thừa kiểu chip-bỏ-nút ở trên (viền tròn, hover đỏ) — chúng là
+   thao tác khác hẳn, đỏ lên khi rê chuột thì trông như sắp xoá mất thứ vừa gõ. */
+.ci-nut-soan .ci-nut-them button { padding: 0; border: 0; background: none; }
+.ci-nut-soan .ci-nut-them button:hover { border-color: transparent; color: var(--primary); }
+
+/* Nút đã gửi kèm tin — bản GHI LẠI, không phải nút bấm được (trừ nút mở liên kết). Vẽ nhạt hơn
+   nút thật của app để mắt không nhầm đây là chỗ thao tác. */
+.ci-nut-tin { display: flex; flex-wrap: wrap; gap: 5px; margin-top: 7px; }
+.ci-nut-tin > * { padding: 4px 10px 5px; border: 1px solid var(--ci-vien-trong);
+                  border-radius: 999px; font-size: 11px; color: var(--text-2);
+                  background: var(--surface); }
+.ci-nut-tin > a { color: var(--primary); text-decoration: none; }
+.ci-nut-tin > a:hover { text-decoration: underline; }
+
+.ci-nhan {
            font-size: 9px; font-weight: 700; letter-spacing: .1em; text-transform: uppercase;
            margin-bottom: 5px; color: var(--text-3); }
 .ci-nv .ci-nhan, .ci-hethong .ci-nhan { color: rgba(255, 255, 255, .72); }

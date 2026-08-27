@@ -16,6 +16,16 @@ Những cập nhật gần đây của TRAV-AI, viết cho người dùng. Mới
 ## Phiên bản 28/08/2026 — Thêm 6 ngày để trả lời khách Facebook
 
 ### ✨ Tính năng mới
+- **Gửi kèm nút bấm cho khách.** Bấm **+ Nút** ở ô soạn, đặt chữ trên nút rồi gửi. Hai kiểu:
+  để trống đường dẫn thì khách bấm là **coi như họ nhắn đúng câu đó** — trợ lý trả lời tiếp
+  bình thường, hợp cho câu hỏi kiểu "Anh quan tâm tuyến nào?" với ba nút Nhật · Hàn · Đài;
+  điền đường dẫn thì bấm là mở trang. Nút đã gửi hiện lại trong dòng tin để sau này đọc lại
+  vẫn biết khách được mời chọn gì.
+
+  *Lưu ý:* mỗi nơi cho số nút khác nhau — Facebook và Instagram 13 nút (3 nếu có nút mở
+  trang), Zalo 5, WhatsApp 3, Telegram 8. Soạn quá thì hệ thống bỏ bớt và **báo cho bạn biết**
+  ngay sau khi gửi. TikTok không có nút; WhatsApp không nhận nút mở trang trong tin thường.
+
 - **Hết hạn trả lời vẫn nhắn được cho khách, bằng tin mẫu đã duyệt.** Trước đây quá 24 giờ
   (Facebook, WhatsApp) hoặc 48 giờ (Zalo) là hộp thư câm hẳn — không gửi được xác nhận đặt
   tour, không nhắc ngày khởi hành, không báo đổi giờ bay. Nay ngay tại chỗ báo "hết hạn" có

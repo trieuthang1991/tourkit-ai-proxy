@@ -36,7 +36,7 @@ namespace TourkitAiProxy.Services.Chat.Channels;
 /// <para>⚠️ Và <c>messaging_seen</c> của Instagram báo bằng <c>mid</c> chứ không bằng
 /// <c>watermark</c> — xử lý ở <see cref="MetaMessagingParser"/>, đọc ghi chú tại đó.</para>
 /// </summary>
-public class InstagramChatAdapter : IChatChannelAdapter, ILateHumanReplySender
+public class InstagramChatAdapter : IChatChannelAdapter, ILateHumanReplySender, IButtonSender
 {
     private const string GraphBase = "https://graph.instagram.com";
     private const string DefaultApiVersion = "v21.0";
@@ -196,6 +196,31 @@ public class InstagramChatAdapter : IChatChannelAdapter, ILateHumanReplySender
         string externalUserId, ChatKind loai, string url, string? caption, CancellationToken ct)
         => SendMediaAsync(tenantId, accountId, externalUserId, loai, url, caption,
             MetaSendTag.HumanAgent, ct);
+
+    /// <summary>
+    /// Gửi chữ kèm nút — cùng hai cơ chế của Meta, xem <see cref="MetaButtonBuilder"/>.
+    ///
+    /// <para>⚠️ Instagram <b>không nhận khung nút</b> (button template) như Messenger. Nút mở
+    /// liên kết vì thế rơi về một dòng chữ kèm đường dẫn — thà khách bấm được vào link trong
+    /// chữ còn hơn mình báo đã gửi mà họ chẳng thấy nút nào.</para>
+    /// </summary>
+    public Task<SendResult> SendTextWithButtonsAsync(string tenantId, string accountId,
+        string externalUserId, string text, IReadOnlyList<ChatButton> nut, CancellationToken ct)
+    {
+        var lienKet = nut.Where(x => x.IsLink).ToList();
+        var traLoi = nut.Where(x => !x.IsLink).ToList();
+
+        var chu = lienKet.Count == 0
+            ? text
+            : text + "\n\n" + string.Join("\n", lienKet.Select(x => $"{x.Label}: {x.Url}"));
+
+        var than = new JsonObject
+        {
+            ["recipient"] = new JsonObject { ["id"] = externalUserId },
+            ["message"] = MetaButtonBuilder.QuickReplyMessage(chu, traLoi),
+        };
+        return GuiAsync(tenantId, accountId, than, ct);
+    }
 
     private static JsonObject ThanChu(string externalUserId, string text, MetaSendTag nhan)
         => DinhNhan(new JsonObject

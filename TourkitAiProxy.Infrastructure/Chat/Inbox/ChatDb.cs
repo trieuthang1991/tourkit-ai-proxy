@@ -180,6 +180,11 @@ public class ChatDb
       created_utc     timestamptz NOT NULL DEFAULT now(),
       processed_utc   timestamptz
     );
+    -- Nút bấm ĐÃ GỬI kèm tin. Lưu lại để hộp thư vẽ đúng thứ khách nhìn thấy khi đọc lại hội
+    -- thoại — không lưu thì dòng tin chỉ còn chữ, và không ai biết khách đã được mời chọn gì.
+    -- Dạng: [{"chu":"Xem tour","url":"https://…"},{"chu":"Gọi lại cho tôi"}]
+    ALTER TABLE chat_messages ADD COLUMN IF NOT EXISTS buttons jsonb;
+
     -- Chống trùng đặt ở TẦNG CSDL, không chỉ kiểm trong code: webhook của kênh gửi lại khi không
     -- nhận được 200, hai lần gửi song song thì kiểm trong code vẫn lọt, chỉ mục thì không.
     CREATE UNIQUE INDEX IF NOT EXISTS ux_msg_external
@@ -257,6 +262,10 @@ public class ChatDb
       created_utc timestamptz NOT NULL DEFAULT now(),
       updated_utc timestamptz NOT NULL DEFAULT now()
     );
+    -- Nút bấm gắn kèm mẫu trả lời nhanh. Cột THÊM chứ không phải bảng mới: nút không sống
+    -- độc lập với câu trả lời, và tách bảng thì mọi lượt đọc mẫu phải join thêm một lần.
+    ALTER TABLE chat_quick_replies ADD COLUMN IF NOT EXISTS buttons jsonb;
+
     CREATE UNIQUE INDEX IF NOT EXISTS ux_quickreply_trigger
       ON chat_quick_replies (tenant_id, lower(trigger));
 

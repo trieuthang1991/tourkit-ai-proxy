@@ -162,10 +162,29 @@ public class ChatOutboxWorker : BackgroundService
     /// Messenger/Instagram mới sinh ra nhãn trong <c>ComputeSendWindow</c>. Vẫn để nhánh về đường
     /// thường thay vì ném — một luật mới thêm sau này không nên làm tin của khách biến mất.</para>
     /// </summary>
-    private static async Task<SendResult?> SendPlainTextAsync(IChatChannelAdapter adapter, ChatRepository.OutboxRow r,
+    private async Task<SendResult?> SendPlainTextAsync(IChatChannelAdapter adapter, ChatRepository.OutboxRow r,
         ChatConversation hoiThoai, ChatMessage tin, MetaSendTag nhan, CancellationToken ct)
     {
         if (string.IsNullOrWhiteSpace(tin.Body)) return null;
+
+        // Có NÚT thì đi đường riêng. Cắt cho vừa kênh TRƯỚC khi gọi API: vượt giới hạn là nền
+        // tảng từ chối CẢ TIN chứ không bỏ bớt nút, tức khách không nhận được gì.
+        //
+        // Cắt sạch (kênh không có nút, hoặc WhatsApp gặp nút liên kết) thì rơi về gửi chữ trần
+        // — thà khách nhận được câu trả lời không nút còn hơn không nhận gì.
+        var nut = ChatRules.ReadButtons(tin.Buttons);
+        if (nut.Count > 0 && adapter is IButtonSender boNut)
+        {
+            var (vua, canhBao) = ChatRules.FitButtons((ChatChannel)hoiThoai.Channel, nut);
+            // Ghi nhật ký chứ không chặn: nhân viên đã bấm gửi, chặn lại ở đây là tin không
+            // bao giờ tới mà họ tưởng đã gửi rồi.
+            if (canhBao is not null)
+                _log.LogInformation("[chat/outbox] {Ly}", canhBao);
+            if (vua.Count > 0)
+                return await boNut.SendTextWithButtonsAsync(r.TenantId, hoiThoai.AccountId,
+                    hoiThoai.ContactExternalId, tin.Body!, vua, ct);
+        }
+
         if (nhan == MetaSendTag.HumanAgent && adapter is ILateHumanReplySender muon)
             return await muon.SendTextAsHumanAgentAsync(r.TenantId, hoiThoai.AccountId,
                 hoiThoai.ContactExternalId, tin.Body!, ct);
@@ -174,7 +193,7 @@ public class ChatOutboxWorker : BackgroundService
     }
 
     /// <inheritdoc cref="SendPlainTextAsync"/>
-    private static async Task<SendResult?> SendMediaBodyAsync(IChatChannelAdapter adapter, ChatRepository.OutboxRow r,
+    private async Task<SendResult?> SendMediaBodyAsync(IChatChannelAdapter adapter, ChatRepository.OutboxRow r,
         ChatConversation hoiThoai, ChatMessage tin, MetaSendTag nhan, CancellationToken ct)
     {
         var files = ChatAttachment.Read((ChatChannel)hoiThoai.Channel, (ChatKind)tin.Kind, tin.Attachment, tin.Direction);

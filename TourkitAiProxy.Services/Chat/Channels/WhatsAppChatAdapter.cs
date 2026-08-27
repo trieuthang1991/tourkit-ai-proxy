@@ -36,7 +36,7 @@ namespace TourkitAiProxy.Services.Chat.Channels;
 /// nghiệp cùng số điện thoại riêng — chưa có thì phần bóc tin và chữ ký có test, còn đường gửi và
 /// bước nối vẫn là theo tài liệu.</para>
 /// </summary>
-public class WhatsAppChatAdapter : IChatChannelAdapter, IApprovedTemplateSender
+public class WhatsAppChatAdapter : IChatChannelAdapter, IApprovedTemplateSender, IButtonSender
 {
     private const string GraphBase = "https://graph.facebook.com";
     private const string DefaultApiVersion = "v21.0";
@@ -356,6 +356,72 @@ public class WhatsAppChatAdapter : IChatChannelAdapter, IApprovedTemplateSender
             _log.LogWarning(ex, "[chat/whatsapp] gọi Graph hỏng");
             return null;
         }
+    }
+
+    // ── Nút bấm ─────────────────────────────────────────────────────────────
+
+    /// <summary>
+    /// Gửi chữ kèm nút bằng tin <c>interactive</c>.
+    ///
+    /// <para>⚠️ <b>WhatsApp KHÔNG nhận nút mở liên kết trong tin thường</b> — nút liên kết chỉ
+    /// sống trong mẫu đã duyệt. Đây là lý do <c>ChatRules.MaxButtons</c> trả về 0 khi danh sách
+    /// có liên kết, và chỗ gọi đã cắt sạch trước khi tới đây.</para>
+    ///
+    /// <para>⚠️ Mỗi nút có <c>id</c> RIÊNG với <c>title</c>. Đặt id trùng nhau là WhatsApp từ
+    /// chối cả tin. Ở đây id lấy theo thứ tự, còn title mang chữ hiển thị — và khi khách bấm,
+    /// gói tin trả về CẢ HAI nên vẫn đọc ra được câu họ chọn.</para>
+    /// </summary>
+    public async Task<SendResult> SendTextWithButtonsAsync(string tenantId, string accountId,
+        string externalUserId, string text, IReadOnlyList<ChatButton> nut, CancellationToken ct)
+    {
+        var c = await _cred.GetAsync(tenantId, Channel, accountId, ct);
+        var token = NullIfBlank(c?.GetValueOrDefault("accessToken"));
+        var soId = NullIfBlank(c?.GetValueOrDefault("phoneNumberId")) ?? accountId;
+        if (token is null) return new(false, false, null, "Số WhatsApp này chưa có khoá đăng nhập");
+
+        var dsNut = new JsonArray();
+        for (var i = 0; i < nut.Count; i++)
+            dsNut.Add(new JsonObject
+            {
+                ["type"] = "reply",
+                ["reply"] = new JsonObject
+                {
+                    ["id"] = $"nut-{i}",
+                    // ⚠️ Quá 20 ký tự là WhatsApp từ chối CẢ TIN, không cắt bớt chữ.
+                    ["title"] = CatNhan(nut[i].Label, 20),
+                },
+            });
+
+        var than = new JsonObject
+        {
+            ["messaging_product"] = "whatsapp",
+            ["to"] = externalUserId,
+            ["type"] = "interactive",
+            ["interactive"] = new JsonObject
+            {
+                ["type"] = "button",
+                ["body"] = new JsonObject { ["text"] = text },
+                ["action"] = new JsonObject { ["buttons"] = dsNut },
+            },
+        };
+
+        try
+        {
+            var http = _http.CreateClient();
+            using var res = await http.PostAsync(
+                $"{GraphBase}/{ApiVersion}/{U(soId)}/messages?access_token={U(token)}",
+                new StringContent(than.ToJsonString(), Encoding.UTF8, "application/json"), ct);
+            var raw = await res.Content.ReadAsStringAsync(ct);
+            var o = JsonNode.Parse(raw)?.AsObject();
+
+            if (res.IsSuccessStatusCode && o?["error"] is null)
+                return new(true, false,
+                    (o?["messages"] as JsonArray)?.FirstOrDefault()?["id"]?.ToString(), null);
+
+            return new(false, (int)res.StatusCode >= 500, null,
+                $"WhatsApp từ chối: {o?["error"]?["message"]?.ToString() ?? Truncate(raw)}");
+        }
+        catch (Exception ex) { return new(false, true, null, ex.Message); }
     }
 
     // ── Mẫu tin đã duyệt ────────────────────────────────────────────────────
@@ -847,4 +913,8 @@ public class WhatsAppChatAdapter : IChatChannelAdapter, IApprovedTemplateSender
     }
 
     private static string Truncate(string s) => s.Length <= 200 ? s : s[..200];
+
+    /// <summary>Cắt nhãn nút. Riêng khỏi <see cref="Truncate"/> — hàm kia cắt câu lỗi để ghi
+    /// nhật ký, đổi mốc 200 của nó là log cụt mà chẳng ai để ý.</summary>
+    private static string CatNhan(string s, int n) => s.Length <= n ? s : s[..n];
 }

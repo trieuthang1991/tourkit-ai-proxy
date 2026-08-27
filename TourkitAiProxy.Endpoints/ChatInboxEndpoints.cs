@@ -563,6 +563,11 @@ public static class ChatInboxEndpoints
                 {
                     m.Id, m.Direction, m.SenderKind, m.SenderUsername, m.Kind,
                     m.Body, m.State, m.ErrorMessage, m.CreatedUtc,
+                    // Nút ĐÃ GỬI kèm tin. Đọc lại qua ChatRules chứ không đổ thẳng chuỗi JSON
+                    // trong CSDL ra: dòng cũ có thể sai hình dạng, và đường dẫn phải lọc lại
+                    // http(s) — nút do người dùng tự đặt nên là dữ liệu không tin được.
+                    buttons = ChatRules.ReadButtons(m.Buttons)
+                        .Select(b => new { chu = b.Label, url = b.Url }),
                     // Đính kèm đã CHUẨN HOÁ về cùng một hình dạng cho cả ba kênh — xem
                     // ChatAttachment. Giao diện không cần biết Zalo/Messenger/Telegram gói tệp
                     // khác nhau thế nào.
@@ -749,9 +754,26 @@ public static class ChatInboxEndpoints
                 : null;
             var chu = string.IsNullOrWhiteSpace(body.Text) ? null : body.Text.Trim();
 
+            // Nút: cắt cho vừa kênh NGAY Ở ĐÂY để báo lại cho người gửi trong cùng lượt bấm.
+            // Worker cũng cắt lần nữa (nó là chốt chặn cuối trước khi gọi API), nhưng lúc đó
+            // nhân viên đã rời màn hình rồi — cảnh báo tới chỗ không ai đọc.
+            string? nutJson = null;
+            string? nutCanhBao = null;
+            if (body.Buttons is { Count: > 0 } dsNut)
+            {
+                var (vua, canhBao) = ChatRules.FitButtons((ChatChannel)v.Channel, dsNut);
+                nutCanhBao = canhBao;
+                if (vua.Count > 0)
+                    nutJson = new JsonArray(vua.Select(x => (JsonNode)new JsonObject
+                    {
+                        ["chu"] = x.Label,
+                        ["url"] = x.Url,
+                    }).ToArray()).ToJsonString();
+            }
+
             var msgId = await repo.AppendMessageAsync(a.TenantId, id, (ChatChannel)v.Channel,
                 ChatDirection.Out, ChatSender.Agent, a.Username, loai, chu,
-                attJson, null, ChatState.Pending, ct);
+                attJson, null, ChatState.Pending, ct, buttonsJson: nutJson);
             if (msgId is null) return Results.Problem("Không ghi được tin");
 
             var tomTat = coDinhKem ? (loai == ChatKind.Image ? "Đã gửi 1 ảnh" : "Đã gửi 1 tệp") : chu!;
@@ -764,7 +786,9 @@ public static class ChatInboxEndpoints
             tin.Signal(Services.Chat.Inbox.ChatLane.Out);
             bus.Publish(new(a.TenantId, id, "tin-moi", msgId.Value));
 
-            return Results.Json(new { ok = true, messageId = msgId }, Web);
+            // Trả kèm cảnh báo cắt nút: nhân viên soạn năm nút mà kênh chỉ nhận ba thì phải
+            // biết ngay, chứ không phải phát hiện lúc khách hỏi lại.
+            return Results.Json(new { ok = true, messageId = msgId, buttonWarning = nutCanhBao }, Web);
         });
 
         // ── Gửi ảnh/tệp: tải lên kho (R2/S3/local theo Storage:Provider) rồi trả URL để FE gọi
@@ -1660,7 +1684,17 @@ public static class ChatInboxEndpoints
                 return Results.BadRequest(new { error = "Chưa nhập nội dung mẫu" });
             try
             {
-                var id = await repo.UpsertAsync(a.TenantId, body.Trigger, body.Body.Trim(), ct);
+                // Nút KHÔNG cắt theo kênh ở đây: mẫu dùng chung cho cả sáu kênh, mà mỗi kênh
+                // một giới hạn. Cắt lúc GỬI, khi đã biết hội thoại thuộc kênh nào.
+                var nutMau = body.Buttons is { Count: > 0 } dsN
+                    ? new JsonArray(dsN.Select(x => (JsonNode)new JsonObject
+                      {
+                          ["chu"] = x.Label,
+                          ["url"] = x.Url,
+                      }).ToArray()).ToJsonString()
+                    : null;
+                var id = await repo.UpsertAsync(a.TenantId, body.Trigger, body.Body.Trim(), ct,
+                    buttonsJson: nutMau);
                 return Results.Json(new { ok = true, id }, Web);
             }
             catch (ArgumentException ex)
@@ -2068,8 +2102,10 @@ public static class ChatInboxEndpoints
     }
 
     /// <param name="AttachmentKind">"anh" | "tep" — bỏ trống khi không đính kèm.</param>
+/// <param name="Buttons">Nút gắn dưới tin. Bỏ trống = tin chữ thường.</param>
 public record SendReq(string? Text, string? AttachmentUrl = null, string? AttachmentKind = null,
-    string? AttachmentName = null, long? AttachmentSize = null);
+    string? AttachmentName = null, long? AttachmentSize = null,
+    List<ChatButton>? Buttons = null);
     public record AssignReq(string? Username);
     /// <param name="CustomerId">Bỏ trống = GỠ nối khách CRM khỏi hội thoại này.</param>
     public record LinkCrmReq(int? CustomerId);
@@ -2080,5 +2116,7 @@ public record SendReq(string? Text, string? AttachmentUrl = null, string? Attach
     public record BotReq(bool Paused, int? Minutes);
 
     /// <param name="Trigger">Lệnh gọi thô — server tự chuẩn hoá (bỏ dấu, hạ chữ thường).</param>
-    public record QuickReplyReq(string Trigger, string Body);
+    /// <param name="Buttons">Nút kèm mẫu. Bỏ trống hoặc rỗng = XOÁ nút đang có — màn hình sửa
+    /// mẫu luôn gửi lên trạng thái đầy đủ, và "bỏ hết nút" phải làm được.</param>
+    public record QuickReplyReq(string Trigger, string Body, List<ChatButton>? Buttons = null);
 }

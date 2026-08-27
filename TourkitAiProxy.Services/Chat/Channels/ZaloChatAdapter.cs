@@ -34,7 +34,7 @@ namespace TourkitAiProxy.Services.Chat.Channels;
 /// <para>Tham khảo cách bóc sự kiện của ChatbotX (<c>integrations/zalo</c>): danh sách tên sự kiện
 /// và công thức chữ ký lấy từ đó, phần còn lại viết lại cho khớp kiến trúc ở đây.</para>
 /// </summary>
-public class ZaloChatAdapter : IChatChannelAdapter, IApprovedTemplateSender
+public class ZaloChatAdapter : IChatChannelAdapter, IApprovedTemplateSender, IButtonSender
 {
     private const string ApiBase = "https://openapi.zalo.me";
     private const string SendPath = "v3.0/oa/message/cs";
@@ -286,6 +286,60 @@ public class ZaloChatAdapter : IChatChannelAdapter, IApprovedTemplateSender
         => long.TryParse(ms, out var v)
             ? DateTimeOffset.FromUnixTimeMilliseconds(v).UtcDateTime
             : DateTime.UtcNow;
+
+    // ── Nút bấm ─────────────────────────────────────────────────────────────
+
+    /// <summary>
+    /// Gửi chữ kèm nút bằng khung <c>template</c> của Zalo OA.
+    ///
+    /// <para>Zalo gộp cả hai kiểu vào một cơ chế như Telegram, nhưng tên trường thì khác hẳn
+    /// Meta: <c>type</c> là <c>oa.open.url</c> (mở trang) hoặc <c>oa.query.show</c> (gửi lại chữ
+    /// về). Chép hình dạng của Meta sang là Zalo nhận tin rồi bỏ sạch nút, không báo lỗi.</para>
+    ///
+    /// <para>⚠️ Khung này chỉ chạy trong <b>cửa sổ tư vấn</b>. Hết cửa sổ thì phải đi bằng tin
+    /// mẫu ZNS, và ZNS có kiểu nút riêng của nó — không dùng lại được chỗ này.</para>
+    /// </summary>
+    public async Task<SendResult> SendTextWithButtonsAsync(string tenantId, string accountId,
+        string externalUserId, string text, IReadOnlyList<ChatButton> nut, CancellationToken ct)
+    {
+        var token = await GetAccessTokenAsync(tenantId, accountId, ct);
+        if (token.Loi is not null) return new(false, token.ThuLai, null, token.Loi);
+
+        var dsNut = new JsonArray();
+        foreach (var b in nut)
+            dsNut.Add(new JsonObject
+            {
+                ["title"] = b.Label,
+                ["type"] = b.IsLink ? "oa.open.url" : "oa.query.show",
+                ["payload"] = b.IsLink
+                    ? new JsonObject { ["url"] = b.Url }
+                    // Với nút trả lời nhanh, payload CHÍNH LÀ chữ trên nút — khách bấm là coi
+                    // như họ nói câu đó, rồi trợ lý xử như mọi câu khác.
+                    : new JsonObject { ["content"] = b.Label },
+            });
+
+        var than = new JsonObject
+        {
+            ["recipient"] = new JsonObject { ["user_id"] = externalUserId },
+            ["message"] = new JsonObject
+            {
+                ["text"] = text,
+                ["attachment"] = new JsonObject
+                {
+                    ["type"] = "template",
+                    ["payload"] = new JsonObject
+                    {
+                        ["template_type"] = "button",
+                        ["buttons"] = dsNut,
+                    },
+                },
+            },
+        };
+
+        var (ok, thuLai, id, loi) = await GoiApiGuiThoAsync(token.Token!, than, ct);
+        return await AfterSendAsync(tenantId, accountId, ok, thuLai, id, loi,
+            () => GoiApiGuiThoAsync(token.Token!, than, ct), ct);
+    }
 
     // ── Mẫu tin đã duyệt (ZNS) ──────────────────────────────────────────────
 

@@ -100,6 +100,23 @@ public interface IChatChannelAdapter
 }
 
 /// <summary>
+/// Kênh gửi được <b>nút bấm</b> dưới tin nhắn. Năm trong sáu kênh có; TikTok thì không.
+///
+/// <para><b>Tách khỏi giao diện chính</b> vì cùng lý do <see cref="ILateHumanReplySender"/>:
+/// TikTok không có khái niệm này, nhét vào chữ ký chung là bắt nó mang theo thứ không dùng.</para>
+///
+/// <para><b>Chỗ gọi phải cắt nút TRƯỚC</b> bằng <c>ChatRules.FitButtons</c>: mỗi kênh một giới
+/// hạn khác nhau, và vượt giới hạn là nền tảng từ chối CẢ TIN chứ không cắt bớt nút — khách
+/// không nhận được gì. Bộ nối ở đây tin rằng danh sách đưa xuống đã vừa.</para>
+/// </summary>
+public interface IButtonSender
+{
+    /// <param name="nut">Đã cắt cho vừa kênh. Rỗng thì chỗ gọi nên dùng đường gửi chữ thường.</param>
+    Task<SendResult> SendTextWithButtonsAsync(string tenantId, string accountId, string externalUserId,
+        string text, IReadOnlyList<ChatButton> nut, CancellationToken ct);
+}
+
+/// <summary>
 /// Kênh có cửa <b>"người thật trả lời muộn"</b> thì cài thêm giao diện này. Hiện chỉ Messenger và
 /// Instagram: Meta cho nhân viên nhắn tới <b>7 ngày</b> kể từ tin của khách, ngoài cửa sổ 24 giờ
 /// thường, miễn là đính nhãn <c>HUMAN_AGENT</c>.

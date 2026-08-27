@@ -267,6 +267,20 @@
           <div className={'ci-bong ' + lop}>
             {nhan && <div className="ci-nhan">{nhan}</div>}
             {noiDung}
+            {/* Nút ĐÃ GỬI kèm tin. Vẽ lại để đọc hội thoại là thấy đúng thứ khách nhìn thấy —
+                không vẽ thì dòng tin chỉ còn chữ, và không ai hiểu vì sao khách trả lời gọn lỏn
+                "Nhật Bản" giữa chừng.
+
+                CỐ Ý không bấm được: đây là bản ghi lại, không phải nút thật. Cho bấm thì nhân
+                viên tưởng mình đang thay khách chọn. Nút mở liên kết thì mở được — nó chỉ dẫn
+                tới một trang, và nhân viên xem thử khách sẽ thấy gì là việc chính đáng. */}
+            {tin.buttons?.length > 0 && (
+              <div className="ci-nut-tin">
+                {tin.buttons.map((b, i) => b.url
+                  ? <a key={i} href={b.url} target="_blank" rel="noopener noreferrer">{b.chu}</a>
+                  : <span key={i}>{b.chu}</span>)}
+              </div>
+            )}
             {gio}
           </div>
           {camXuc}
@@ -1278,6 +1292,12 @@
     const [dangTai2, setDangTai2] = useState(false);   // đang tải tệp lên kho
     const [mauTraLoi, setMauTraLoi] = useState([]);
     const [goiY, setGoiY] = useState(null);            // null = đang không gõ lệnh
+    // Nút đi kèm tin SẮP gửi, lấy từ mẫu trả lời nhanh vừa chọn. Không phải chữ nên không nằm
+    // trong ô soạn được — giữ riêng ở đây và hiện thành dải chip ngay trên ô soạn.
+    const [nutSoan, setNutSoan] = useState([]);
+    // Ô thêm nút đang mở hay không. Đóng mặc định: phần lớn tin không có nút, bày sẵn hai ô
+    // nhập là làm ô soạn chật thêm cho việc hiếm dùng.
+    const [themNut, setThemNut] = useState(null);   // null = đóng; {chu, url} = đang nhập
     const [conTro, setConTro] = useState(null);      // vị trí đọc tiếp; null = hết hoặc chưa tải
     const [dangTaiThem, setDangTaiThem] = useState(false);
     const cuonRef = useRef(null);
@@ -1387,6 +1407,8 @@
 
     useEffect(() => { if (chon) taiChiTiet(chon); }, [chon, taiChiTiet]);
     useEffect(() => { setMoMau(false); }, [chon]);
+    // Nút soạn dở thuộc về hội thoại CŨ. Giữ lại là gửi nhầm nút của khách này cho khách khác.
+    useEffect(() => { setNutSoan([]); setThemNut(null); }, [chon]);
 
     // Tải một lần, KHÔNG bám theo sự kiện đẩy: bộ mẫu hiếm khi đổi, kéo lại liên tục là
     // tốn truy vấn cho thứ gần như đứng yên.
@@ -1442,12 +1464,17 @@
             text: noi,
             attachmentUrl: dinhKem?.url, attachmentKind: dinhKem?.kind,
             attachmentName: dinhKem?.name, attachmentSize: dinhKem?.size,
+            buttons: nutSoan.length > 0 ? nutSoan.map(b => ({ label: b.chu, url: b.url })) : null,
           }),
         });
         const j = await r.json().catch(() => ({}));
         if (!r.ok) { pushToast(j.error || 'Không gửi được', 'error'); return; }
+        // Máy chủ cắt nút cho vừa kênh và nói lại nếu có nút bị bỏ — phải hiện ngay, chứ đợi
+        // tới lúc khách hỏi lại thì đã muộn.
+        if (j.buttonWarning) pushToast(j.buttonWarning, 'error');
         setSoan('');
         setDinhKem(null);
+        setNutSoan([]);
         await taiChiTiet(chon);
       } catch (e) { pushToast('Không gửi được: ' + e.message, 'error'); }
       finally { setDangGui(false); }
@@ -1711,11 +1738,48 @@
                           <div className="ci-mau-dau">Mẫu trả lời</div>
                           {mauTraLoi.filter(m => m.trigger.startsWith(goiY)).slice(0, 6).map(m => (
                             <button key={m.id} className="ci-mau-muc"
-                                    onClick={() => { setSoan(m.body); setGoiY(null); }}>
+                                    onClick={() => { setSoan(m.body); setNutSoan(m.buttons || []); setGoiY(null); }}>
                               <b>/{m.trigger}</b>
                               <span>{m.body}</span>
                             </button>
                           ))}
+                        </div>
+                      )}
+                      {/* Nút CHỜ gửi. Hiện ra để nhân viên thấy tin sắp đi kèm gì — mẫu trả lời
+                          nhanh chỉ chèn phần CHỮ vào ô soạn, nút thì không nhìn thấy ở đâu cả
+                          nếu không có dải này. Bỏ được từng nút trước khi gửi. */}
+                      {(nutSoan.length > 0 || themNut) && (
+                        <div className="ci-nut-soan">
+                          <span>Kèm nút:</span>
+                          {nutSoan.map((b, i) => (
+                            <button key={i} type="button" title="Bỏ nút này"
+                                    onClick={() => setNutSoan(p => p.filter((_, j) => j !== i))}>
+                              {b.chu}
+                              <window.Icon name="close" size={11} />
+                            </button>
+                          ))}
+
+                          {themNut && (
+                            <form className="ci-nut-them" onSubmit={e => {
+                              e.preventDefault();
+                              const chu = (themNut.chu || '').trim();
+                              if (!chu) return;
+                              const url = (themNut.url || '').trim();
+                              setNutSoan(p => [...p, { chu, url: url || undefined }]);
+                              // Giữ ô mở để thêm nút tiếp — người ta hiếm khi chỉ thêm MỘT nút.
+                              setThemNut({ chu: '', url: '' });
+                            }}>
+                              <input autoFocus value={themNut.chu || ''} placeholder="Chữ trên nút"
+                                     onChange={e => setThemNut(p => ({ ...p, chu: e.target.value }))} />
+                              {/* Để trống = nút TRẢ LỜI NHANH: khách bấm là coi như họ nói đúng câu
+                                  trên nút, rồi trợ lý xử tiếp như mọi câu khác. */}
+                              <input value={themNut.url || ''} placeholder="Đường dẫn (bỏ trống = trả lời nhanh)"
+                                     onChange={e => setThemNut(p => ({ ...p, url: e.target.value }))} />
+                              <button type="submit" className="ci-lienket">Thêm</button>
+                              <button type="button" className="ci-lienket"
+                                      onClick={() => setThemNut(null)}>Xong</button>
+                            </form>
+                          )}
                         </div>
                       )}
                       <div className="ci-soan-o">
@@ -1742,6 +1806,12 @@
                                   onClick={() => tepRef.current?.click()}
                                   title="Gửi ảnh hoặc tệp" aria-label="Gửi ảnh hoặc tệp">
                             <window.Icon name={dangTai2 ? 'refresh' : 'paperclip'} size={15} />
+                          </button>
+                          {/* Thêm nút cho tin sắp gửi. Đứng cạnh nút mẫu trả lời vì cùng loại
+                              việc: chuẩn bị nội dung trước khi bấm gửi. */}
+                          <button className="mau" title="Thêm nút bấm dưới tin"
+                                  onClick={() => setThemNut(themNut ? null : { chu: '', url: '' })}>
+                            + Nút
                           </button>
                           <button className="mau" onClick={() => setGoiY(goiY === null ? '' : null)}
                                   title="Chèn mẫu trả lời">

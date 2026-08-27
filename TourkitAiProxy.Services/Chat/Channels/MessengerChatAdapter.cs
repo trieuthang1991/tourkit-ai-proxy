@@ -27,7 +27,7 @@ namespace TourkitAiProxy.Services.Chat.Channels;
 /// <para>Tham khảo cách bóc sự kiện của ChatbotX (<c>integrations/messenger</c>).</para>
 /// </summary>
 public class MessengerChatAdapter : IChatChannelAdapter, ILateHumanReplySender,
-    IApprovedTemplateSender
+    IApprovedTemplateSender, IButtonSender
 {
     private const string GraphBase = "https://graph.facebook.com";
 
@@ -531,6 +531,28 @@ public class MessengerChatAdapter : IChatChannelAdapter, ILateHumanReplySender,
     /// <summary>Đánh dấu đã xem bên phía khách. Cùng đường gọi với báo đang gõ.</summary>
     public Task MarkSeenAsync(string tenantId, string accountId, string externalUserId,
         CancellationToken ct) => SenderActionAsync(tenantId, accountId, externalUserId, "mark_seen", ct);
+
+    // ── Nút bấm ─────────────────────────────────────────────────────────────
+
+    /// <summary>
+    /// Gửi chữ kèm nút. <b>Meta có HAI cơ chế nút hoàn toàn khác nhau</b>, chọn theo việc có
+    /// nút mở liên kết hay không:
+    ///
+    /// <list type="bullet">
+    ///   <item><b>quick_replies</b> — chỉ trả lời nhanh, tối đa 13, hiện thành dải nút NGANG ô
+    ///     soạn và <b>biến mất sau khi bấm</b>. Đúng cho câu hỏi chọn một trong nhiều.</item>
+    ///   <item><b>button template</b> — chứa được nút mở liên kết, nhưng tối đa 3 và nút NẰM LẠI
+    ///     trong dòng tin mãi mãi, bấm lại được nhiều lần.</item>
+    /// </list>
+    ///
+    /// <para>Dùng nhầm cơ chế thì tin vẫn đi nhưng hỏng theo kiểu khó thấy: nhét liên kết vào
+    /// quick_replies là Meta bỏ luôn phần liên kết, còn nhét 13 nút vào khung nút là Meta từ
+    /// chối cả tin.</para>
+    /// </summary>
+    public Task<SendResult> SendTextWithButtonsAsync(string tenantId, string accountId,
+        string externalUserId, string text, IReadOnlyList<ChatButton> nut, CancellationToken ct)
+        => GuiAsync(tenantId, accountId, externalUserId,
+            MetaButtonBuilder.Build(text, nut), MetaSendTag.None, ct);
 
     // ── Mẫu tin đã duyệt ────────────────────────────────────────────────────
 

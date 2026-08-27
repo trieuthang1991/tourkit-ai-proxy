@@ -77,6 +77,87 @@ public static class ChatRules
     /// </summary>
     public static readonly TimeSpan MetaHumanAgentWindow = TimeSpan.FromDays(7);
 
+    /// <summary>
+    /// Số nút TỐI ĐA mỗi kênh nhận. <c>0</c> = kênh không có nút.
+    ///
+    /// <para><b>Vượt giới hạn là nền tảng TỪ CHỐI CẢ TIN</b>, không phải cắt bớt nút — khách
+    /// không nhận được gì. Vì thế cắt ở đây trước khi gọi API, và cắt thì phải nói cho người gửi
+    /// biết chứ đừng lặng lẽ bỏ.</para>
+    ///
+    /// <para>Con số khác nhau THẬT: Meta cho 3 nút trong khung nút nhưng 13 nút trả lời nhanh;
+    /// WhatsApp 3; Zalo 5; Telegram không giới hạn thực tế. Áp một con số chung là hoặc tự bó
+    /// tay mình, hoặc để tin biến mất ở kênh chặt nhất.</para>
+    /// </summary>
+    public static int MaxButtons(ChatChannel kenh, bool coLienKet) => kenh switch
+    {
+        // Nút mở liên kết phải đi trong "khung nút" (button template) — khung đó chỉ chứa 3.
+        // Không có liên kết thì đi bằng trả lời nhanh, thoải mái hơn nhiều.
+        ChatChannel.Messenger or ChatChannel.Instagram => coLienKet ? 3 : 13,
+        // WhatsApp: nút tương tác tối đa 3, và KHÔNG nhận nút mở liên kết trong cùng một tin.
+        ChatChannel.WhatsApp => coLienKet ? 0 : 3,
+        ChatChannel.Zalo => 5,
+        ChatChannel.Telegram => 8,
+        // TikTok không có nút nào cả.
+        _ => 0,
+    };
+
+    /// <summary>
+    /// Cắt danh sách nút cho vừa kênh. Trả thêm câu giải thích khi có nút bị bỏ — im lặng cắt
+    /// thì nhân viên soạn năm nút, khách thấy ba, và không ai biết vì sao.
+    /// </summary>
+    public static (IReadOnlyList<ChatButton> Nut, string? CanhBao) FitButtons(
+        ChatChannel kenh, IReadOnlyList<ChatButton> nut)
+    {
+        if (nut.Count == 0) return (nut, null);
+
+        var coLienKet = nut.Any(x => x.IsLink);
+        var toiDa = MaxButtons(kenh, coLienKet);
+
+        if (toiDa == 0)
+            return (Array.Empty<ChatButton>(), coLienKet && kenh == ChatChannel.WhatsApp
+                ? "WhatsApp không nhận nút mở liên kết trong tin thường. Gửi đường dẫn bằng chữ, "
+                  + "hoặc dùng tin mẫu đã duyệt."
+                : $"{ChannelName(kenh)} không có nút bấm. Tin vẫn gửi, nhưng chỉ phần chữ.");
+
+        if (nut.Count <= toiDa) return (nut, null);
+
+        return (nut.Take(toiDa).ToList(),
+            $"{ChannelName(kenh)} chỉ nhận {toiDa} nút nên đã bỏ {nut.Count - toiDa} nút cuối.");
+    }
+
+    /// <summary>
+    /// Đọc danh sách nút từ JSON đã lưu. <b>Hỏng thì trả RỖNG, không ném</b>: tin vẫn phải gửi
+    /// được dù phần nút hỏng — mất mấy cái nút còn hơn mất cả câu trả lời cho khách.
+    /// </summary>
+    public static IReadOnlyList<ChatButton> ReadButtons(string? json)
+    {
+        if (string.IsNullOrWhiteSpace(json)) return Array.Empty<ChatButton>();
+        try
+        {
+            if (System.Text.Json.Nodes.JsonNode.Parse(json) is not System.Text.Json.Nodes.JsonArray ds)
+                return Array.Empty<ChatButton>();
+
+            var ra = new List<ChatButton>();
+            foreach (var x in ds)
+            {
+                var chu = x?["chu"]?.ToString();
+                if (string.IsNullOrWhiteSpace(chu)) continue;   // nút không có chữ thì vô nghĩa
+
+                var url = x?["url"]?.ToString();
+                // CHỈ nhận http(s). Nền tảng từ chối các lược đồ khác, mà javascript: thì là lỗ
+                // hổng — nút do người dùng tự đặt nên đây là dữ liệu KHÔNG tin được.
+                if (!string.IsNullOrWhiteSpace(url)
+                    && !url!.StartsWith("http://", StringComparison.OrdinalIgnoreCase)
+                    && !url.StartsWith("https://", StringComparison.OrdinalIgnoreCase))
+                    url = null;
+
+                ra.Add(new(chu!.Trim(), string.IsNullOrWhiteSpace(url) ? null : url));
+            }
+            return ra;
+        }
+        catch { return Array.Empty<ChatButton>(); }
+    }
+
     /// Nhân viên trả lời xong thì bot câm bấy lâu.
     public static readonly TimeSpan DefaultBotMute = TimeSpan.FromMinutes(30);
 

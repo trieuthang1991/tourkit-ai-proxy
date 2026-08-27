@@ -555,23 +555,23 @@ public class ChatRepository
     public async Task<long?> AppendMessageAsync(string tenant, long conversationId, ChatChannel kenh,
         ChatDirection chieu, ChatSender nguoiGui, string? username, ChatKind loai, string? noiDung,
         string? attachmentJson, string? externalMsgId, ChatState trangThai, CancellationToken ct = default,
-        DateTime? createdUtc = null)
+        DateTime? createdUtc = null, string? buttonsJson = null)
     {
         await using var c = await _db.OpenAsync(ct);
         var id = await c.ExecuteScalarAsync<long?>("""
             INSERT INTO chat_messages
               (tenant_id, conversation_id, channel, direction, sender_kind, sender_username,
-               kind, body, attachment, external_msg_id, state, created_utc)
+               kind, body, attachment, external_msg_id, state, created_utc, buttons)
             VALUES (@tenant, @conv, @kenh, @chieu, @nguoiGui, @username,
                     @loai, @noiDung, @att::jsonb, @ext, @tt,
-                    COALESCE(@luc, NOW() AT TIME ZONE 'utc'))
+                    COALESCE(@luc, NOW() AT TIME ZONE 'utc'), @nut::jsonb)
             ON CONFLICT (tenant_id, channel, external_msg_id) WHERE external_msg_id IS NOT NULL
               DO NOTHING
             RETURNING id
             """, new { tenant, conv = conversationId, kenh = (short)kenh, chieu = (short)chieu,
                        nguoiGui = (short)nguoiGui, username, loai = (short)loai, noiDung,
                        att = attachmentJson, ext = externalMsgId, tt = (short)trangThai,
-                       luc = createdUtc });
+                       luc = createdUtc, nut = buttonsJson });
 
         if (id is null) _log.LogDebug("[chat] bỏ tin trùng ext={Ext} conv={Conv}", externalMsgId, conversationId);
         return id;

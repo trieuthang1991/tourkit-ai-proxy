@@ -291,6 +291,45 @@ là bot** (chặt hơn): chỗ gọi nào quên truyền thì mất quyền ch�
 [`ILateHumanReplySender`](../../TourkitAiProxy.Services/Chat/Channels/IChatChannelAdapter.cs), không
 nhét vào chữ ký chung: bốn kênh còn lại không có khái niệm này.
 
+### Nút bấm dưới tin
+
+**Chỉ HAI kiểu, cố ý.** Dự án tham chiếu gắn vào nút một `payload` trỏ tới bước trong luồng của
+nó — bên mình **không có trình dựng luồng**, bot là trợ lý AI đọc CRM. Nên:
+
+- **Mở liên kết** (`url` có giá trị) — bấm là mở trang.
+- **Trả lời nhanh** (`url` rỗng) — bấm là khách **nói đúng câu trên nút**. Nền tảng gửi chữ đó
+  về như một tin của khách, rồi trợ lý xử như mọi câu khác.
+
+Vế thứ hai khép kín mà không cần cơ chế nào thêm: bộ bóc tin **vốn đã** ghi lượt bấm bằng CHỮ
+TRÊN NÚT chứ không phải mã kỹ thuật (xem `MetaMessagingParser`). Không có trạng thái nào phải
+giữ giữa hai lượt.
+
+| Kênh | Số nút tối đa | Ghi chú |
+|---|---|---|
+| Messenger · Instagram | **13** trả lời nhanh · **3** nếu có nút liên kết | hai cơ chế khác nhau, xem dưới |
+| Telegram | 8 | `inline_keyboard`, gộp cả hai kiểu vào một cơ chế |
+| Zalo | 5 | `oa.open.url` / `oa.query.show` — tên trường khác hẳn Meta |
+| WhatsApp | 3, và **0 nếu có nút liên kết** | nút liên kết chỉ sống trong mẫu đã duyệt |
+| TikTok | 0 | không có nút |
+
+⚠️ **Vượt giới hạn là nền tảng từ chối CẢ TIN**, không phải cắt bớt nút — khách không nhận được
+gì. Vì thế `ChatRules.FitButtons` cắt trước khi gọi API, ở **cả hai chỗ**: endpoint `/send` (để
+báo lại cho nhân viên trong cùng lượt bấm) và worker gửi (chốt chặn cuối). Cắt thì **phải nói
+ra** — im lặng cắt thì nhân viên soạn năm nút, khách thấy ba, không ai biết vì sao.
+
+⚠️ **Meta có HAI cơ chế nút khác hẳn nhau** — chọn nhầm thì tin vẫn đi nhưng hỏng khó thấy:
+`quick_replies` (tối đa 13, không chứa được liên kết, biến mất sau khi bấm) và khung nút
+`button` template (tối đa 3, chứa được liên kết, nằm lại trong dòng tin mãi mãi). Nhét liên kết
+vào `quick_replies` là Meta bỏ luôn phần liên kết. Phần thuần ở
+[`MetaButtonBuilder`](../../TourkitAiProxy.Services/Chat/Channels/MetaButtonBuilder.cs), có test.
+
+⚠️ **Telegram cắt `callback_data` theo BYTE, không theo ký tự** — chặn ở 64 byte, mà tiếng Việt
+có dấu tốn 2–3 byte một ký tự nên nhãn 25 chữ cái đã vượt, và Telegram từ chối cả tin.
+
+Nút lưu ở cột `chat_messages.buttons` (jsonb) để vẽ lại khi đọc hội thoại cũ, và ở
+`chat_quick_replies.buttons` để mẫu trả lời nhanh mang theo nút. Đọc lại **luôn qua**
+`ChatRules.ReadButtons` — nó lọc `http(s)`, vì nút do người dùng tự đặt là dữ liệu không tin được.
+
 ### Tin mẫu đã duyệt — nhắn khi cửa sổ đã đóng
 
 Hết 24h (Meta) hoặc 48h (Zalo) là hộp thư **câm hẳn**. Mẫu đã được nền tảng duyệt là đường

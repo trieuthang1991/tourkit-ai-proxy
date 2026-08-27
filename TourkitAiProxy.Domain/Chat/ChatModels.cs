@@ -42,6 +42,28 @@ public enum ChatState : short { Pending = 0, Sent = 1, Delivered = 2, Seen = 3, 
 /// Trạng thái xử lý một hội thoại.
 public enum ChatStatus : short { New = 0, InProgress = 1, Closed = 2 }
 
+/// <summary>
+/// Một nút bấm gắn dưới tin nhắn.
+///
+/// <para><b>Chỉ hai kiểu, cố ý.</b> Dự án tham chiếu gắn vào nút một <c>payload</c> trỏ tới
+/// bước trong luồng của nó — bên mình KHÔNG có trình dựng luồng, bot là trợ lý AI đọc CRM. Nên
+/// nút ở đây mang nghĩa đơn giản hơn nhiều và không cần máy chạy luồng nào:</para>
+/// <list type="bullet">
+///   <item><b>Mở liên kết</b> (<see cref="Url"/> có giá trị) — bấm là mở trang.</item>
+///   <item><b>Trả lời nhanh</b> (<see cref="Url"/> rỗng) — bấm là khách <b>NÓI ĐÚNG CÂU trên
+///     nút</b>. Nền tảng gửi lại chữ đó như một tin của khách, rồi trợ lý xử như mọi câu khác.</item>
+/// </list>
+///
+/// <para>Nhờ vế thứ hai mà nút không cần thêm cơ chế nào: bộ bóc tin <b>vốn đã</b> ghi lượt bấm
+/// bằng CHỮ TRÊN NÚT chứ không phải mã kỹ thuật — xem <c>MetaMessagingParser</c>. Một vòng khép
+/// kín, không có trạng thái nào phải giữ giữa hai lượt.</para>
+/// </summary>
+/// <param name="Label">Chữ trên nút. Cũng CHÍNH LÀ câu khách nói khi bấm, ở nút trả lời nhanh.</param>
+public record ChatButton(string Label, string? Url = null)
+{
+    public bool IsLink => !string.IsNullOrWhiteSpace(Url);
+}
+
 /// <summary>Một sự kiện đến từ kênh, đã chuẩn hoá — lõi không cần biết kênh nào sinh ra nó.</summary>
 /// <param name="IsEcho">Tin do CHÍNH OA/Page gửi, nhận lại dưới dạng tiếng vọng — nghĩa là có người
 /// đang trả lời từ app của kênh (Zalo OA, Facebook Page). Phải ghi lại VÀ cho bot câm, nếu không
@@ -186,6 +208,8 @@ public class ChatMessage
     /// Mã tin của nhà cung cấp. Khoá để gắn cảm xúc — cảm xúc tới theo mã này, không theo id nội bộ.
     public string? ExternalMsgId { get; set; }
     public short State { get; set; }
+    /// Nút đã gửi kèm tin, dạng JSON. Xem <see cref="ChatButton"/>.
+    public string? Buttons { get; set; }
     public string? ErrorMessage { get; set; }
     public DateTime CreatedUtc { get; set; }
 }

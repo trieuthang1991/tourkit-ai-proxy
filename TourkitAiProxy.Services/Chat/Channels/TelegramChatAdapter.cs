@@ -30,7 +30,7 @@ namespace TourkitAiProxy.Services.Chat.Channels;
 /// khi gửi thành công: như thế là nói dối nhân viên rằng khách đã nhận trong khi mình không biết.
 /// Giao diện nói rõ chuyện này ở tooltip dấu tích (xem <c>DauGui</c> trong chat-inbox.jsx).</para>
 /// </summary>
-public class TelegramChatAdapter : IChatChannelAdapter
+public class TelegramChatAdapter : IChatChannelAdapter, IButtonSender
 {
     private const string ApiBase = "https://api.telegram.org";
 
@@ -421,6 +421,50 @@ public class TelegramChatAdapter : IChatChannelAdapter
 
         return string.IsNullOrWhiteSpace(ten) && duongAnh is null
             ? null : new ContactProfile(string.IsNullOrWhiteSpace(ten) ? null : ten, duongAnh);
+    }
+
+    /// <summary>
+    /// Gửi chữ kèm bàn phím gắn dưới tin (<c>inline_keyboard</c>).
+    ///
+    /// <para>Telegram gộp cả hai kiểu nút vào MỘT cơ chế: nút có <c>url</c> thì mở trang, nút có
+    /// <c>callback_data</c> thì gửi chuỗi đó về. Gọn hơn Meta nhiều.</para>
+    ///
+    /// <para>⚠️ <c>callback_data</c> chặn ở <b>64 byte</b>. Chữ trên nút bằng tiếng Việt có dấu
+    /// tốn 2–3 byte một ký tự, nên một nhãn 25 chữ cái đã vượt — và Telegram từ chối CẢ TIN.
+    /// Cắt ở đây theo BYTE chứ không theo số ký tự.</para>
+    ///
+    /// <para>Xếp <b>mỗi nút một hàng</b>: nhãn tiếng Việt thường dài, nhồi hai nút một hàng là
+    /// chữ bị cắt cụt trên điện thoại.</para>
+    /// </summary>
+    public Task<SendResult> SendTextWithButtonsAsync(string tenantId, string accountId,
+        string externalUserId, string text, IReadOnlyList<ChatButton> nut, CancellationToken ct)
+    {
+        var hang = new JsonArray();
+        foreach (var b in nut)
+        {
+            var o = new JsonObject { ["text"] = b.Label };
+            if (b.IsLink) o["url"] = b.Url;
+            else o["callback_data"] = CatTheoByte(b.Label, 64);
+            hang.Add(new JsonArray(o));
+        }
+
+        return GuiAsync(tenantId, accountId, "sendMessage", new JsonObject
+        {
+            ["chat_id"] = externalUserId,
+            ["text"] = text,
+            ["reply_markup"] = new JsonObject { ["inline_keyboard"] = hang },
+        }, ct);
+    }
+
+    /// <summary>Cắt chuỗi cho vừa <paramref name="toiDa"/> BYTE UTF-8, không cắt giữa một ký tự.</summary>
+    internal static string CatTheoByte(string s, int toiDa)
+    {
+        var b = Encoding.UTF8.GetBytes(s);
+        if (b.Length <= toiDa) return s;
+        var n = toiDa;
+        // Lùi khỏi byte nối tiếp (10xxxxxx) để không xẻ đôi một ký tự tiếng Việt.
+        while (n > 0 && (b[n] & 0xC0) == 0x80) n--;
+        return Encoding.UTF8.GetString(b, 0, n);
     }
 
     public Task<SendResult> SendTextAsync(string tenantId, string accountId, string externalUserId, string text,
