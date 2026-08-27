@@ -32,7 +32,9 @@ public class ChatUiGuardTests
                                           RegexOptions.Multiline))
         {
             var args = m.Groups["args"].Value;
-            if (args.Contains("\"note\"")) continue;          // ghi chú, không phải ô nhập
+            // Chỉ ô NHẬP mới cần chữ gợi ý. "note" là một dòng ghi chú, "steps" là danh sách các
+            // bước lấy khoá — cả hai không có chỗ nào để gõ, nên không có gì để gợi ý.
+            if (args.Contains("\"note\"") || args.Contains("\"steps\"")) continue;
 
             // Tách đối số ở dấu phẩy NGOÀI chuỗi — nhãn tiếng Việt có dấu phẩy bên trong.
             var soDoiSo = 1; var trongChuoi = false;

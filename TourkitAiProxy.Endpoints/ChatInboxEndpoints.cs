@@ -1673,11 +1673,18 @@ public static class ChatInboxEndpoints
         }, false),
         (ChatChannel.Telegram, "Telegram", new[]
         {
+            // Các bước ĐỨNG TRƯỚC ô nhập: người khai đọc cách lấy mã rồi mới có cái để dán. Ô
+            // "Bot token" đứng một mình giả định họ đã biết lấy ở đâu — mà đó đúng là chỗ tắc.
+            new FieldSpec("buoc",
+                "Mở [@BotFather](https://t.me/BotFather) trong Telegram."
+                + "|Gửi **/newbot**, đặt tên hiển thị rồi đặt tên đăng nhập kết thúc bằng **bot**."
+                + "|BotFather trả về một dòng mã dạng **8012345678:AAH…** — chép rồi dán xuống dưới.",
+                "steps"),
             new FieldSpec("label",         "Tên gợi nhớ", "text", "Bot đội sale lẻ"),
-            new FieldSpec("botToken",      "Bot token",   "secret", "123456:ABC-DEF… (lấy từ @BotFather)"),
+            new FieldSpec("botToken",      "Bot token",   "secret", "123456:ABC-DEF… (dán mã BotFather đưa)"),
             new FieldSpec("note",
-                "Chỉ cần dán bot token. Hệ thống tự kiểm tra token, tự đặt chuỗi bí mật và tự đăng "
-                + "ký địa chỉ nhận tin với Telegram — không phải gõ lệnh gì bên ngoài.", "note"),
+                "Bấm Lưu là xong — hệ thống tự kiểm tra mã, tự đặt chuỗi bí mật và tự đăng ký địa "
+                + "chỉ nhận tin với Telegram. Bạn không phải gõ lệnh nào bên ngoài.", "note"),
         }, true),
     };
 
