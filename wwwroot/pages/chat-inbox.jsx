@@ -694,14 +694,57 @@
       </ol>
     );
     const biMat = truong.type === 'secret';
+
+    // Ô BÍ MẬT ở form XEM LẠI: hiện trạng thái, không hiện ô nhập.
+    //
+    // Ô che sao kèm chữ mờ "để trống = giữ nguyên" vừa mời người ta gõ vào, vừa bắt họ đoán
+    // nghĩa của việc để trống — mà đoán sai ở đây là mất khoá đăng nhập của cả kênh. Người mở
+    // form này gần như luôn chỉ định đổi tên gợi nhớ; đổi khoá là việc hiếm và phải cố ý.
+    if (biMat && daKhai) return (
+      <OBiMatDaLuu truong={truong} giaTri={giaTri} onDoi={onDoi} />
+    );
+
     return (
       <label className="ci-o">
         {truong.label}
         <input type={biMat ? 'password' : 'text'}
-               placeholder={biMat && daKhai ? 'để trống = giữ nguyên' : (truong.hint || '')}
+               placeholder={truong.hint || ''}
                value={giaTri}
                onChange={e => onDoi(e.target.value)} />
       </label>
+    );
+  }
+
+  /// Khoá đã lưu: một dòng trạng thái, và ô nhập chỉ bung ra khi người dùng CHỦ ĐỘNG bấm đổi.
+  function OBiMatDaLuu({ truong, giaTri, onDoi }) {
+    const [dangDoi, setDangDoi] = useState(false);
+
+    // Bấm Thôi phải XOÁ luôn cái vừa gõ dở. Ẩn ô mà giữ giá trị thì lượt Lưu tới vẫn ghi đè
+    // khoá cũ bằng một chuỗi người dùng tưởng mình đã bỏ.
+    function thoi() { onDoi(''); setDangDoi(false); }
+
+    if (!dangDoi) return (
+      <div className="ci-bimat">
+        <span className="ci-bimat-ten">{truong.label}</span>
+        <span className="ci-bimat-tt">đã lưu</span>
+        <button type="button" className="ci-lienket" onClick={() => setDangDoi(true)}>
+          Đổi
+        </button>
+      </div>
+    );
+
+    return (
+      <div className="ci-bimat-doi">
+        <label className="ci-o">
+          {truong.label} mới
+          <input type="password" autoFocus placeholder={truong.hint || ''}
+                 value={giaTri} onChange={e => onDoi(e.target.value)} />
+        </label>
+        <div className="ci-bimat-doi-duoi">
+          <span>Bấm <b>Lưu</b> để thay khoá cũ.</span>
+          <button type="button" className="ci-lienket" onClick={thoi}>Thôi</button>
+        </div>
+      </div>
     );
   }
 
@@ -794,12 +837,46 @@
     //
     // Facebook đi thêm một bước Zalo không có: sau khi đồng ý, máy chủ hiện danh sách Trang người
     // đó quản trị để họ chọn. Cả bước đó nằm trong cửa sổ phụ này, mình không phải làm gì thêm.
+    // Kênh nào người dùng đã chủ động bung phần khai tay ra (chỉ dùng khi máy chủ chưa khai
+    // khoá ứng dụng). Mặc định đóng: đường đúng là báo quản trị, không phải tự đi tìm mã.
+    const [khaiTay, setKhaiTay] = React.useState({});
+
+    // Tiến độ lấy hội thoại cũ, khoá theo 'kênh:tài khoản'.
+    const [lichSu, setLichSu] = React.useState({});
+
     async function noiNhanhKenh(kenh) {
       const r = await authedFetch('/api/v1/chat/channels/' + kenh + '/connect-url', { method: 'POST' });
       let j = null; try { j = await r.json(); } catch {}
       if (!r.ok) { pushToast(j?.error || 'Không dựng được đường kết nối', 'error'); return; }
       window.open(j.url, 'chat-cap-quyen', 'width=560,height=720');
       pushToast('Nối xong thì bấm Tải lại để thấy tài khoản mới', 'success');
+    }
+
+    // Lấy lại đoạn chat cũ. Chạy nền vài phút nên đây chỉ ra lệnh bắt đầu rồi hỏi tiến độ —
+    // giữ yêu cầu HTTP mở suốt lượt lấy thì trình duyệt hoặc proxy sẽ cắt, và người dùng thấy
+    // "lỗi" trong khi việc vẫn đang chạy tốt.
+    async function layLichSu(kenh, accId) {
+      const goc = '/api/v1/chat/channels/' + kenh + '/accounts/' + encodeURIComponent(accId) + '/import-history';
+      const r = await authedFetch(goc, { method: 'POST' });
+      let j = null; try { j = await r.json(); } catch {}
+      if (!r.ok) { pushToast(j?.error || 'Không bắt đầu được', 'error'); return; }
+
+      pushToast('Đang lấy hội thoại cũ về…', 'success');
+      setLichSu(t => ({ ...t, [kenh + ':' + accId]: { running: true } }));
+
+      // Hỏi lại mỗi 3 giây. Bỏ hẳn sau 10 phút: quá mức đó thì hoặc đã xong mà mình lỡ nhịp,
+      // hoặc máy chủ đã khởi động lại — hỏi mãi cũng không ra thêm gì.
+      const hetHan = Date.now() + 10 * 60 * 1000;
+      const hoi = async () => {
+        const rr = await authedFetch(goc);
+        if (!rr.ok) return;
+        const jj = await rr.json();
+        setLichSu(t => ({ ...t, [kenh + ':' + accId]: jj }));
+        if (jj.running && Date.now() < hetHan) { setTimeout(hoi, 3000); return; }
+        if (jj.error) pushToast(jj.error, 'error');
+        else if (!jj.running) pushToast(`Đã lấy ${jj.conversations} hội thoại về hộp thư`, 'success');
+      };
+      setTimeout(hoi, 3000);
     }
 
     async function xoa(kenh, accId, ten) {
@@ -852,6 +929,23 @@
               <span>{k.accounts.length} tài khoản</span>
               {k.noiNhanh
                 ? <button className="ci-nut nho chinh" onClick={() => noiNhanhKenh(k.channel)}>{k.nutNoi || 'Kết nối'}</button>
+                : k.noiKemKenh != null
+                ? (
+                  /* Kênh nối KÈM kênh khác (Instagram theo Trang Facebook). Đưa thẳng người
+                     dùng sang tab kia thay vì bày ô khai tay — việc cần làm nằm ở đó. */
+                  <button className="ci-nut nho chinh" onClick={() => setTab(k.noiKemKenh)}>
+                    {k.nutNoi || 'Kết nối'}
+                  </button>
+                )
+                : k.hoTroNoiNhanh
+                ? (
+                  /* Kênh CÓ đường một nút nhưng máy chủ chưa đủ khoá. Không bày ô khai tay ra
+                     ngay: việc cần làm là báo quản trị, không phải tự đi tìm mã. */
+                  <button className="ci-nut nho"
+                          onClick={() => setKhaiTay(p => ({ ...p, [k.channel]: !p[k.channel] }))}>
+                    {khaiTay[k.channel] ? 'Thôi' : 'Khai tay'}
+                  </button>
+                )
                 : (
                   <button className="ci-nut nho"
                           onClick={() => setMo(mo === k.channel + ':moi' ? null : k.channel + ':moi')}>
@@ -861,7 +955,10 @@
             </div>
 
             {/* Form thêm mở ra NGAY DƯỚI nút, không phải cuối trang — mắt không phải nhảy đi đâu. */}
-            {mo === k.channel + ':moi' && !k.noiNhanh && (
+            {/* Kênh chờ khoá máy chủ: form khai tay chỉ mở khi người dùng CHỦ ĐỘNG bấm "Khai
+                tay" — đường lui cho công ty tự tạo ứng dụng riêng, không phải đường mặc định. */}
+            {(k.hoTroNoiNhanh && !k.noiNhanh ? khaiTay[k.channel] : mo === k.channel + ':moi')
+              && !k.noiNhanh && (
               <div className="ci-tk-form">
                 {k.fields.map(f => (
                   <ONhap key={f.key} truong={f} daKhai={false}
@@ -885,6 +982,10 @@
                     thêm kênh nối-một-chạm mới thì không phải sửa chỗ này nữa. */}
                 {k.noiNhanh
                   ? `Chưa nối tài khoản nào. Bấm "${k.nutNoi || 'Kết nối'}" rồi làm theo hướng dẫn trong cửa sổ hiện ra.`
+                  : k.noiKemKenh != null
+                  ? 'Kênh này không nối riêng — nó đi theo Trang Facebook. Nối Trang xong là tài khoản ở đây hiện ra.'
+                  : k.hoTroNoiNhanh
+                  ? `${k.shortName || k.name} nối bằng một nút, nhưng máy chủ chưa được khai khoá ứng dụng nên nút chưa bật. Báo quản trị hệ thống giúp bạn.`
                   : 'Chưa nối tài khoản nào cho kênh này.'}
               </div>
             )}
@@ -910,30 +1011,64 @@
 
                   {dangMo && (
                     <div className="ci-tk-form">
-                      {/* URL RIÊNG từng bot Telegram. Máy chủ TỰ đăng ký địa chỉ này với
-                          Telegram lúc lưu bot token — để đây chỉ để quản trị đối chiếu khi
-                          nghi ngờ, không phải việc người dùng phải làm. Trước 27/08 đúng ô
-                          này bắt họ copy rồi tự gõ lệnh setWebhook bên ngoài. */}
-                      {!k.webhookUrl && (
-                        <label className="ci-url">
-                          Địa chỉ nhận tin (hệ thống đã tự đăng ký)
-                          <input readOnly value={t.webhookUrl} onFocus={e => e.target.select()} />
-                        </label>
-                      )}
-                      {/* Kênh nối nhanh: khoá ứng dụng nằm ở máy chủ, khách không có gì để khai
-                          ngoài cái tên cho dễ nhớ. Bày ra mấy ô khoá rỗng chỉ làm người ta tưởng
-                          mình còn thiếu bước nào đó. */}
-                      {k.fields.filter(f => !k.noiNhanh || f.key === 'label').map(f => (
+
+                      {/* Lọc trường theo VIỆC ĐANG LÀM, không phải theo kênh:
+                          · steps — chỉ dùng lúc THÊM MỚI. Người đã nối bot ba tuần trước không
+                            cần đọc lại cách vào BotFather; ba bước đó đẩy ô "Tên gợi nhớ" —
+                            thứ họ thật sự mở form này để sửa — xuống tận dưới.
+                          · note — lúc này là tham khảo, chỉ giữ khi tài khoản ĐANG HỎNG, vì đó
+                            đúng là lúc nó thành hướng dẫn chữa.
+                          · kênh nối nhanh / nối kèm — khoá nằm ở máy chủ, bày ô rỗng chỉ làm
+                            người ta tưởng mình còn thiếu bước nào đó. */}
+                      {k.fields.filter(f => {
+                        if (f.type === 'steps') return false;
+                        if (f.type === 'note') return !t.configured;
+                        if (k.noiNhanh || k.noiKemKenh != null) return f.key === 'label';
+                        return true;
+                      }).map(f => (
                         <ONhap key={f.key} truong={f} daKhai
                                giaTri={giaTriO(k.channel, t.accountId, f, t.values)}
                                onDoi={v => dat(k.channel, t.accountId, f.key, v)} />
                       ))}
-                      {/* Mã thật do nền tảng cấp: OA của Zalo, Trang của Facebook, bot của
-                          Telegram. Không gắn với việc kênh đó có nối-một-chạm hay không —
-                          gắn nhầm vào noiNhanh thì bot Telegram vừa nối xong không hiện mã. */}
-                      {t.oaId && (
-                        <div className="ci-hs-goiy">Mã trên nền tảng: {t.oaId}</div>
+                      {/* Thông tin TRA CỨU — mã bot/Trang/OA và địa chỉ nhận tin. Cả hai đều
+                          không sửa được và chỉ dùng khi cần đối chiếu.
+
+                          Đặt SAU ô sửa được, và nén thành hai dòng nhỏ. Trước 28/08 địa chỉ nhận
+                          tin là một ô nhập chiếm cả chiều ngang, có nhãn dài, nằm TRÊN CÙNG —
+                          tức thứ không ai đụng tới chiếm chỗ đẹp nhất, còn ô "Tên gợi nhớ" (thứ
+                          duy nhất người ta mở form này để sửa) bị đẩy xuống giữa. */}
+                      {(t.oaId || !k.webhookUrl) && (
+                        <dl className="ci-tracuu">
+                          {t.oaId && (<>
+                            <dt>Mã trên nền tảng</dt>
+                            <dd><code>{t.oaId}</code></dd>
+                          </>)}
+                          {!k.webhookUrl && (<>
+                            <dt>Địa chỉ nhận tin</dt>
+                            {/* Hệ thống TỰ đăng ký địa chỉ này lúc lưu bot token — để đây chỉ để
+                                đối chiếu khi nghi ngờ. Trước 27/08 đúng ô này bắt người dùng chép
+                                rồi tự gõ lệnh setWebhook bên ngoài trình duyệt. */}
+                            <dd><code title={t.webhookUrl}>{t.webhookUrl}</code></dd>
+                          </>)}
+                        </dl>
                       )}
+                      {/* Nói TRƯỚC khi họ bấm. Đây là việc tốn hạn mức gọi API và có thể mất vài
+                          phút — bấm rồi mới biết là quá muộn. */}
+                      {k.layLichSuDuoc && (() => {
+                        const ls = lichSu[k.channel + ':' + t.accountId];
+                        if (ls && !ls.running && ls.ever) return (
+                          <div className="ci-hs-goiy">
+                            Lượt gần nhất: <b>{ls.conversations}</b> hội thoại.
+                            {ls.more && ' Còn nữa — bấm lại để lấy tiếp.'}
+                          </div>
+                        );
+                        return (
+                          <div className="ci-hs-goiy">
+                            Các đoạn chat có từ <b>trước khi nối</b> không tự về. Bấm <b>Lấy hội
+                            thoại cũ</b> để kéo về — mất vài phút, và tin đã có thì bỏ qua.
+                          </div>
+                        );
+                      })()}
                       {/* Bước cấp quyền chỉ Zalo mới có: Messenger/Telegram cấp token thẳng ở
                           giao diện của họ, không đi vòng OAuth. */}
                       {k.channel === 0 && !k.noiNhanh && (
@@ -952,6 +1087,17 @@
                             Cấp quyền OA
                           </button>
                         )}
+                        {k.layLichSuDuoc && (() => {
+                          const ls = lichSu[k.channel + ':' + t.accountId];
+                          return (
+                            <button className="ci-nut" disabled={ls?.running}
+                                    onClick={() => layLichSu(k.channel, t.accountId)}>
+                              {ls?.running
+                                ? `Đang lấy… ${ls.conversations || 0} hội thoại`
+                                : 'Lấy hội thoại cũ'}
+                            </button>
+                          );
+                        })()}
                         <button className="ci-nut nguyhiem"
                                 onClick={() => xoa(k.channel, t.accountId, t.label)}>
                           Gỡ kết nối

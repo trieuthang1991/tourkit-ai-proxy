@@ -9413,6 +9413,50 @@ img.ci-avt { object-fit: cover; }
 .ci-url input { background: var(--bg); font-family: ui-monospace, monospace; font-size: 11px; }
 .ci-ghichu { font-size: 11.5px; color: var(--text-3); line-height: 1.6; }
 
+/* ── Form XEM LẠI một kết nối ─────────────────────────────────────────────
+   Khác form THÊM MỚI: không hướng dẫn, không ô khoá. Người mở nó ra gần như luôn chỉ định
+   xác nhận đúng tài khoản nào rồi sửa tên gợi nhớ. */
+
+/* Thông tin TRA CỨU: mã nền tảng + địa chỉ nhận tin. Hai dòng nhãn–giá trị, không phải hai ô
+   nhập — chúng không sửa được, mà ô nhập thì nói ngược lại điều đó.
+
+   Ngăn bằng một đường kẻ ở trên thay vì một hộp nền: hộp làm khối này nặng ngang phần sửa được
+   ngay trên nó, trong khi nó chỉ là chú thích cuối trang. */
+.ci-tracuu { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 3px 12px;
+             margin: 2px 0 0; padding-top: 9px; border-top: 1px solid var(--ci-vien-trong);
+             font-size: 10.5px; }
+.ci-tracuu dt { color: var(--text-3); white-space: nowrap; }
+.ci-tracuu dd { margin: 0; min-width: 0; text-align: right; }
+/* Giá trị dài (địa chỉ webhook) cắt bằng dấu ba chấm ở ĐẦU chuỗi: phần phân biệt các bot với
+   nhau nằm ở ĐUÔI, cắt đuôi là mọi dòng trông giống hệt nhau. user-select: all cho một cú bấm
+   là chọn trọn để chép. */
+.ci-tracuu code { display: block; overflow: hidden; direction: rtl; text-align: left;
+                  text-overflow: ellipsis; white-space: nowrap; user-select: all;
+                  font-family: ui-monospace, monospace; font-size: 10.5px; color: var(--text-2); }
+
+/* Khoá ĐÃ LƯU: một dòng trạng thái. Tên lớp là ci-bimat chứ KHÔNG phải ci-khoa — ci-khoa đã
+   có sẵn cho hộp "hết cửa sổ gửi" ở ô soạn, dùng lại là kế thừa nguyên viền đứt của nó và
+   dòng này trông y như một ô nhập, đúng tín hiệu ngược với điều nó muốn nói. Cố ý KHÔNG phải ô nhập — ô che sao vừa mời gõ vào, vừa bắt
+   người dùng đoán nghĩa của việc để trống, mà đoán sai là mất khoá của cả kênh. */
+.ci-bimat { display: flex; align-items: center; gap: 8px; min-height: 30px;
+           font-size: 11.5px; color: var(--text-2); }
+.ci-bimat-ten { flex: 1; min-width: 0; }
+.ci-bimat-tt { padding: 1px 7px 2px; border-radius: 999px; background: var(--bg);
+              font-size: 10px; color: var(--text-3); }
+
+.ci-bimat-doi { display: grid; gap: 6px; padding: 9px; border-radius: 6px;
+               background: var(--bg); }
+.ci-bimat-doi-duoi { display: flex; align-items: center; justify-content: space-between;
+                    gap: 10px; font-size: 10.5px; color: var(--text-3); }
+
+/* Nút chữ cho hành động phụ. Nút viền ở đây sẽ nặng ngang nút Lưu — mà đổi khoá là việc hiếm,
+   không phải việc chính của màn hình này. */
+.ci-lienket { padding: 0; border: 0; background: none; cursor: pointer; font: inherit;
+              font-size: 11px; font-weight: 600; color: var(--primary); }
+.ci-lienket:hover { text-decoration: underline; }
+.ci-lienket:focus-visible { outline: 2px solid var(--primary); outline-offset: 2px;
+                            border-radius: 3px; }
+
 /* Các bước lấy khoá, hiện NGAY trong form khai kênh.
 
    Vì sao không để thành một dòng ghi chú như trước: ô "Bot token" giả định người khai đã biết

@@ -278,8 +278,58 @@ Messenger = **HMAC**-SHA256(appSecret, thânThô) trong `X-Hub-Signature-256`; T
 cả** — chỉ so chuỗi bí mật trong `X-Telegram-Bot-Api-Secret-Token`, nên **thiếu chuỗi đó là ai biết
 địa chỉ webhook cũng bơm tin giả vào hộp thư**.
 
-⚠️ **Cửa sổ gửi khác nhau THẬT:** Zalo 48h · Messenger 24h · Telegram và web **không giới hạn**. Áp
-một luật chung là hoặc tự khoá tay mình (Telegram), hoặc để tin biến mất (Messenger).
+⚠️ **Cửa sổ gửi khác nhau THẬT:** Zalo 48h · Messenger/Instagram/WhatsApp 24h · Telegram, TikTok
+và web **không giới hạn**. Áp một luật chung là hoặc tự khoá tay mình (Telegram), hoặc để tin biến
+mất (Messenger).
+
+⚠️ **Messenger và Instagram còn một cửa thứ hai: 7 NGÀY cho NGƯỜI THẬT** (nhãn `HUMAN_AGENT`, đổi
+28/08/2026). Ngoài 24h, tin do **nhân viên** gõ vẫn gửi được tới 7 ngày kể từ tin của khách; tin do
+**trợ lý** sinh ra thì không — đính nhãn đó cho tin của bot là vi phạm chính sách Meta và có thể bị
+khoá quyền nhắn tin của cả Trang. Vì thế `ComputeSendWindow` nhận thêm `ChatSender`, và **mặc định
+là bot** (chặt hơn): chỗ gọi nào quên truyền thì mất quyền chứ không được thêm quyền. WhatsApp
+**không** có cửa này — ngoài 24h phải dùng mẫu đã duyệt. Đường gửi có nhãn tách riêng ở
+[`ILateHumanReplySender`](../../TourkitAiProxy.Services/Chat/Channels/IChatChannelAdapter.cs), không
+nhét vào chữ ký chung: bốn kênh còn lại không có khái niệm này.
+
+### Khôi phục hội thoại cũ
+
+Câu hỏi hay gặp: *nối kênh xong, các đoạn chat có từ trước có lấy lại được không?* Câu trả lời
+**khác nhau theo từng kênh**, và bốn trong sáu kênh là **không**:
+
+| Kênh | Lấy lại được? | Đường nào |
+|---|---|---|
+| Messenger | ✅ | `GET /{pageId}/conversations` → `GET /{convId}/messages`, phân trang bằng cursor |
+| Instagram | ✅ | y hệt Messenger, nhưng qua `graph.instagram.com` và token đi ở header |
+| WhatsApp | ⚠️ chỉ khi chuyển từ ứng dụng WhatsApp Business | Meta **tự đẩy** qua trường webhook `history`, sau khi mình gọi `POST /{phoneNumberId}/smb_app_data` |
+| Telegram | ❌ | Bot API chỉ cho bot thấy tin gửi tới nó **sau khi bot được tạo**. Không có API đọc quá khứ. |
+| Zalo | ❌ | Open API không có đầu đọc hội thoại |
+| TikTok | ❌ | có đầu đọc nhưng đòi tư cách **Messaging Partner**, phải xin duyệt riêng |
+
+**Messenger / Instagram** — nằm sau cờ riêng `Features:ChatHistoryImport` và **người dùng tự bấm**
+từng tài khoản (`POST .../accounts/{id}/import-history`, tra tiến độ bằng `GET` cùng đường). Không
+tự chạy lúc nối: một Trang bán hàng lâu năm có hàng chục nghìn tin, và gọi Graph quá nhiều là
+Facebook chặn tạm cả ứng dụng — lúc đó **tin trực tiếp cũng ngừng về**, tức lấy lịch sử làm hỏng
+chính việc đang chạy. Chặn ở 200 hội thoại × 200 tin mỗi lượt; hết chặn thì bấm lại, phần đã ghi
+được chống trùng bỏ qua.
+
+[`MetaHistoryImporter`](../../TourkitAiProxy.Services/Chat/Channels/MetaHistoryImporter.cs) **không
+ghi thẳng vào bảng tin** — nó xếp từng trang vào hàng đợi `chat_inbound_events` dưới vỏ
+`{"tourkit_lich_su": …}`, rồi `MetaMessagingParser` nhận ra vỏ đó và bóc. Nhờ vậy được lại nguyên
+bộ: chống trùng ở tầng CSDL, chạy lại được khi mất điện, và **dùng chung đúng một đường ghi tin với
+webhook** thay vì một đường thứ hai âm thầm lệch dần.
+
+⚠️ **Tin cũ phải mang cờ `IsHistory`**, và lõi xử lý nó ở một nhánh RIÊNG. Ba việc lõi làm với tin
+thường đều sai với tin cũ: sinh câu trả lời (một năm lịch sử = hàng trăm câu trợ lý gửi cho khách
+**hôm nay**, về chuyện đã xong từ lâu — không rút lại được), cho bot câm 30 phút tính từ giờ, và chờ
+4 giây gộp tin nhân với vài nghìn tin. Thời điểm lấy từ `SentUtc` của chính gói tin, không phải giờ
+nhập — bỏ qua là cả năm hội thoại dồn vào một phút. Sau khi ghi, `RecomputeActivityAsync` tính lại
+mốc hoạt động **từ chính các tin**: dùng `TouchConversationAsync` thì hội thoại chết ba năm nhảy lên
+đầu hộp thư như vừa có người nhắn.
+
+⚠️ **Chiều tin không đọc từ "id của mình".** Ở Graph, `from.id != <id khách>` là tin của mình; ở
+gói `history` của WhatsApp, `thread.id` **chính là** số khách nên `from != thread.id` là tin của
+mình. Cả hai cách đều không cần biết id của chính công ty — mà id đó thì Instagram trả về khác hẳn
+chuỗi `me` mình gửi lên, và gói lịch sử WhatsApp không phải lúc nào cũng có.
 
 **NHIỀU tài khoản mỗi kênh** (đổi 24/08). Một công ty du lịch có nhiều Trang Facebook cho các chi
 nhánh, nhiều OA Zalo, nhiều bot Telegram cho từng đội sale — ép về một tài khoản/kênh là sai với thực
@@ -521,8 +571,9 @@ chỉ sống trong một hàm, không phải bề mặt API, còn đổi hàng l
 sửa trúng chữ trong câu chú thích tiếng Việt. Viết mới thì đặt tiếng Anh.
 
 **Sáu luật sai-là-hỏng**, tách thuần ở [`ChatRules`](../../TourkitAiProxy.Domain/Chat/ChatRules.cs), có test:
-1. **Cửa sổ gửi** — Zalo 48h / Messenger 24h kể từ tin cuối CỦA KHÁCH. **Chưa có tin nào của khách =
-   ĐÓNG**, không phải mở. Hết cửa sổ thì khoá ô soạn kèm lý do, đừng để gọi API rồi mới biết.
+1. **Cửa sổ gửi** — Zalo 48h / Meta 24h kể từ tin cuối CỦA KHÁCH, và **thêm 7 ngày cho nhân viên**
+   ở Messenger + Instagram. **Chưa có tin nào của khách = ĐÓNG**, không phải mở. Hết cửa sổ thì
+   khoá ô soạn kèm lý do, đừng để gọi API rồi mới biết.
 2. **Bot câm khi người thật vào** — `bot_resume_at` là **MỐC THỜI GIAN, không phải cờ**: câm có thời
    hạn rồi tự nói lại. Làm thành cờ thì sẽ có hội thoại tắt bot vĩnh viễn mà không ai nhớ bật lại.
 3. **Chống trùng ở TẦNG CSDL** (chỉ mục duy nhất trên `external_msg_id`), không chỉ kiểm trong code —

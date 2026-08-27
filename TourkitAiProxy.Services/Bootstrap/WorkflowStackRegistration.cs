@@ -202,6 +202,11 @@ public static class WorkflowStackRegistration
         s.AddSingleton<Chat.Channels.ChatOAuthStates>();
         // Danh sách Trang Facebook chờ người dùng chọn, giữa hai nửa của bước nối.
         s.AddSingleton<Chat.Channels.MessengerPageChoices>();
+        // Không giữ trạng thái nào — mọi phụ thuộc đều singleton, nên cũng singleton.
+        s.AddSingleton<Chat.Channels.MetaHistoryImporter>();
+        s.AddSingleton<Chat.Channels.ChatHistoryJobs>();
+        s.AddSingleton<Chat.Channels.ChatHistoryImportQueue>();
+        s.AddHostedService<Chat.Channels.ChatHistoryImportWorker>();
         s.AddSingleton<Chat.Inbox.ChatEventBus>();
         // Tín hiệu đánh thức worker: hàng đợi vừa có việc thì làm ngay, không ngủ hết nhịp.
         s.AddSingleton<Chat.Inbox.ChatWorkSignal>();

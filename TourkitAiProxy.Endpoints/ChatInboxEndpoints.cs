@@ -1005,6 +1005,71 @@ public static class ChatInboxEndpoints
         // Kết nối OA mà KHÔNG cần khai gì trước: dùng ứng dụng Zalo cấp nền tảng, nên chỉ cần biết
         // đây là công ty nào. Tài khoản được TẠO Ở BƯỚC CALLBACK, lấy chính id OA làm mã tài khoản
         // — nhờ vậy webhook dùng chung tra ngược ra công ty chỉ bằng một phép so.
+        // ── Lấy lại hội thoại cũ (Messenger / Instagram) ─────────────────────
+        //
+        // Người dùng TỰ BẤM. Một Trang bán hàng lâu năm có thể có hàng chục nghìn tin, và gọi
+        // Graph quá nhiều là Facebook chặn tạm cả ứng dụng — lúc đó tin trực tiếp cũng ngừng về.
+        // Đó là quyết định của người dùng, không phải thứ nên âm thầm làm thay họ lúc nối.
+        g.MapPost("/channels/{channel:int}/accounts/{accountId}/import-history",
+            async (int channel, string accountId, HttpContext ctx, TkSessionStore sessions,
+            Services.Chat.Channels.ChatHistoryImportQueue hang,
+            Services.Chat.Channels.ChatHistoryJobs viec,
+            IConfiguration cfg, CancellationToken ct) =>
+        {
+            var a = SessionAuth.Read(ctx, sessions);
+            if (a == null) return SessionAuth.Unauthorized();
+            if (!await SessionAuth.CanConfigSystemAsync(a.SessionId, sessions, ct))
+                return SessionAuth.ForbiddenConfigSystem();
+
+            if (!Services.Bootstrap.FeatureFlags.ChatHistoryImport(cfg))
+                return Results.BadRequest(new
+                {
+                    error = "Tính năng lấy lại hội thoại cũ đang tắt (Features:ChatHistoryImport).",
+                });
+
+            var kenh = (ChatChannel)channel;
+            if (!Services.Chat.Channels.MetaHistoryImporter.Supports(kenh))
+                return Results.BadRequest(new
+                {
+                    error = $"{kenh} không có đường đọc lại hội thoại cũ. Chỉ Facebook và Instagram cho phép.",
+                });
+
+            if (!viec.BatDau(a.TenantId, kenh, accountId))
+                return Results.Conflict(new { error = "Đang lấy dở cho tài khoản này rồi." });
+
+            // Xếp vào hàng đợi rồi trả lời NGAY: đọc vài trăm hội thoại mất vài phút, quá dài
+            // để giữ một kết nối HTTP mở — trình duyệt hoặc proxy sẽ cắt và người dùng thấy
+            // "lỗi" trong khi việc vẫn đang chạy tốt.
+            //
+            // Worker chạy MỘT lượt tại một thời điểm cho cả máy chủ, xem ChatHistoryImportQueue.
+            await hang.XepAsync(new(a.TenantId, kenh, accountId), ct);
+            return Results.Accepted(value: new { started = true });
+        });
+
+        // Tra tiến độ lượt lấy. Giao diện hỏi lại vài giây một lần trong lúc chạy.
+        g.MapGet("/channels/{channel:int}/accounts/{accountId}/import-history",
+            async (int channel, string accountId, HttpContext ctx, TkSessionStore sessions,
+            Services.Chat.Channels.ChatHistoryJobs viec, CancellationToken ct) =>
+        {
+            var a = SessionAuth.Read(ctx, sessions);
+            if (a == null) return SessionAuth.Unauthorized();
+            if (!await SessionAuth.CanConfigSystemAsync(a.SessionId, sessions, ct))
+                return SessionAuth.ForbiddenConfigSystem();
+
+            var t = viec.Xem(a.TenantId, (ChatChannel)channel, accountId);
+            if (t is null) return Results.Json(new { running = false, ever = false }, Web);
+
+            return Results.Json(new
+            {
+                running = !t.Xong,
+                ever = true,
+                conversations = t.SoHoiThoai,
+                messages = t.SoTin,
+                more = t.ConNua,
+                error = t.Loi,
+            }, Web);
+        });
+
         g.MapPost("/channels/{channel:int}/connect-url", async (int channel, HttpContext ctx,
             TkSessionStore sessions,
             IEnumerable<Services.Chat.Channels.IChatChannelAdapter> adapters,
@@ -1289,6 +1354,7 @@ public static class ChatInboxEndpoints
                                   .FirstOrDefault()?.HasPlatformApp == true;
             var ttNhanh = adapters.OfType<Services.Chat.Channels.TikTokChatAdapter>()
                                   .FirstOrDefault()?.HasPlatformApp == true;
+            var batLichSu = Services.Bootstrap.FeatureFlags.ChatHistoryImport(cfg);
             var ra = new List<object>();
             foreach (var (kenh, ten, tenNgan, oNhap, moiTaiKhoanMotUrl) in KhaiBao)
             {
@@ -1309,8 +1375,18 @@ public static class ChatInboxEndpoints
                 ra.Add(new
                 {
                     channel = (short)kenh, name = ten, shortName = tenNgan, fields = oNhap,
-                    // Kênh này nối được bằng MỘT nút hay phải khai tay từng ô.
+                    // Máy chủ ĐÃ đủ khoá để nối bằng một nút chưa.
                     noiNhanh = nhanh,
+                    // Kênh này CÓ đường một nút hay không — khác hẳn cờ trên.
+                    //
+                    // Thiếu vế này thì hai trạng thái rất khác nhau bị trộn làm một: "kênh vốn
+                    // phải khai tay" (Telegram — bot token là đường DUY NHẤT) và "kênh nối một
+                    // nút nhưng quản trị chưa khai khoá ứng dụng" (WhatsApp, TikTok). Trộn lại
+                    // thì người dùng nhìn thấy bốn ô kỹ thuật và tưởng đó là việc của mình, đi
+                    // tìm mã trong bảng điều khiển Meta — trong khi việc cần làm là báo quản trị
+                    // điền một khoá vào máy chủ.
+                    hoTroNoiNhanh = kenh is ChatChannel.Zalo or ChatChannel.Messenger
+                                         or ChatChannel.WhatsApp or ChatChannel.TikTok,
                     // Chữ trên nút. Để máy chủ quyết định để giao diện không phải biết tên kênh —
                     // thêm kênh nối-một-chạm mới thì không phải sửa .jsx.
                     nutNoi = kenh switch
@@ -1319,8 +1395,23 @@ public static class ChatInboxEndpoints
                         ChatChannel.Messenger => "Kết nối Facebook",
                         ChatChannel.WhatsApp => "Kết nối WhatsApp",
                         ChatChannel.TikTok => "Kết nối TikTok",
+                        ChatChannel.Instagram => "Kết nối qua Facebook",
                         _ => "Kết nối",
                     },
+                    // Kênh này nối KÈM kênh nào (mã kênh), hay tự nối lấy.
+                    //
+                    // Instagram không có bước cấp quyền riêng: nó đi theo chính Trang Facebook
+                    // đã nối — nối Trang là hệ thống tự tìm tài khoản Instagram liên kết vào đó.
+                    // Không nói ra thì tab này bày ba ô khai tay và người dùng tưởng phải đi tìm
+                    // token ở đâu đó, trong khi việc cần làm nằm ở tab bên cạnh.
+                    noiKemKenh = kenh == ChatChannel.Instagram && fbNhanh
+                        ? (short?)ChatChannel.Messenger : null,
+                    // Kênh này lấy lại được đoạn chat cũ không. Bốn kênh kia KHÔNG có đường nào:
+                    // Telegram Bot API không cho đọc quá khứ, Zalo không có đầu đọc hội thoại,
+                    // TikTok đòi tư cách Messaging Partner, WhatsApp thì Meta tự đẩy về lúc nối
+                    // chứ không phải mình đi đọc. Để giao diện không phải biết danh sách đó.
+                    layLichSuDuoc = batLichSu
+                                    && Services.Chat.Channels.MetaHistoryImporter.Supports(kenh),
                     // Telegram: mỗi bot một URL riêng (thân tin không nói bot nào) → URL chung để
                     // trống, giao diện hiện URL riêng ở từng tài khoản. Zalo/Messenger dùng chung.
                     webhookUrl = moiTaiKhoanMotUrl ? null : duong,
@@ -1762,9 +1853,12 @@ public static class ChatInboxEndpoints
             new FieldSpec("pageAccessToken", "Page Access Token", "secret",
                 "Token của Trang Facebook mà tài khoản Instagram này liên kết vào"),
             new FieldSpec("note",
-                "Instagram đi qua chính Trang Facebook đã nối: tài khoản phải là Instagram "
-                + "Professional và đã liên kết với Trang đó, rồi bật \"Cho phép truy cập tin nhắn\" "
-                + "trong cài đặt Instagram. Không cần khai thêm khoá ứng dụng nào.", "note"),
+                "Hai ô này CHỈ dùng khi vì lý do nào đó hệ thống không tự tìm ra tài khoản "
+                + "Instagram lúc nối Trang. Bình thường không phải khai gì.", "note"),
+            new FieldSpec("note2",
+                "Tài khoản phải là Instagram Professional, đã liên kết với Trang Facebook đó, "
+                + "và đã bật \"Cho phép truy cập tin nhắn\" trong cài đặt Instagram. Thiếu một "
+                + "trong ba thì Facebook không trả tài khoản Instagram nào về cả.", "note"),
         }, false),
         (ChatChannel.WhatsApp, "WhatsApp", "WhatsApp", new[]
         {

@@ -24,6 +24,15 @@ Những cập nhật gần đây của TRAV-AI, viết cho người dùng. Mới
 
   *Lưu ý:* ô khai tay vẫn còn, dành cho công ty nào đã tự tạo ứng dụng riêng bên Meta/TikTok.
 
+- **Lấy lại các đoạn chat cũ của Facebook và Instagram.** Nối kênh xong, những cuộc trò chuyện
+  có từ trước đó không tự về hộp thư. Nay mở **Kết nối kênh**, chọn tài khoản rồi bấm **Lấy hội
+  thoại cũ** — hệ thống kéo về, mất vài phút, tin nào đã có thì bỏ qua. Trợ lý **không** trả lời
+  lại những tin cũ này, và chúng nằm đúng ngày giờ thật chứ không dồn lên đầu hộp thư.
+
+  *Lưu ý:* chỉ Facebook và Instagram lấy lại được. Telegram, Zalo và TikTok thì nền tảng không
+  cho đọc lại quá khứ — kênh mới nối chỉ nhận tin từ lúc nối trở đi. WhatsApp có lấy được, nhưng
+  chỉ khi công ty chuyển sang từ ứng dụng WhatsApp Business và chỉ trong 24 giờ đầu sau khi nối.
+
 ### 🔧 Đã khắc phục
 - **TikTok không còn tự ngắt sau một ngày.** Chìa khoá TikTok cấp chỉ sống 24 giờ. Trước đây hệ
   thống không tự xin chìa mới, nên đúng một ngày sau khi nối là mọi tin gửi đi đều hỏng — mà
