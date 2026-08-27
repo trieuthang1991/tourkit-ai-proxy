@@ -1,4 +1,4 @@
-using TourkitAiProxy.Domain.Chat;
+﻿using TourkitAiProxy.Domain.Chat;
 using TourkitAiProxy.Services.Chat.Channels;
 using Xunit;
 
@@ -29,8 +29,8 @@ public class MessengerEventTests
         var sk = Assert.Single(A().Parse(tho));
         Assert.NotNull(sk.Reaction);
         Assert.Equal("mid-abc", sk.Reaction!.ExternalMsgId);
-        Assert.Equal("love", sk.Reaction.Ten);
-        Assert.False(sk.Reaction.Bo);
+        Assert.Equal("love", sk.Reaction.Name);
+        Assert.False(sk.Reaction.Removed);
 
         // Không mang thân tin: nhánh xử lý cảm xúc phải về sớm, không tạo dòng nào trong hội thoại.
         Assert.Null(sk.Text);
@@ -48,7 +48,7 @@ public class MessengerEventTests
               "reaction":{"mid":"mid-abc","action":"unreact"}}]}]}
             """;
         var sk = Assert.Single(A().Parse(tho));
-        Assert.True(sk.Reaction!.Bo);
+        Assert.True(sk.Reaction!.Removed);
         Assert.Equal("mid-abc", sk.Reaction.ExternalMsgId);
     }
 
@@ -96,11 +96,11 @@ public class MessengerEventTests
 
         var a = A();
         var q = Assert.Single(a.Parse(quaQuangCao));
-        Assert.Equal("ADS", q.Referral!.Nguon);
+        Assert.Equal("ADS", q.Referral!.Source);
         Assert.Equal("ad-99", q.Referral.AdId);
 
         var l = Assert.Single(a.Parse(quayLai));
-        Assert.Equal("SHORTLINK", l.Referral!.Nguon);
+        Assert.Equal("SHORTLINK", l.Referral!.Source);
         Assert.Equal("qr-quay-le", l.Referral.Ref);
         Assert.Null(l.Text);            // gói CHỈ có nguồn, không kèm tin
 
@@ -115,8 +115,8 @@ public class MessengerEventTests
         // Khách quay lại qua một quảng cáo khác thì nguồn ĐẦU TIÊN mới là cái đã kéo họ tới. Đè lên
         // là hỏng số liệu quy công quảng cáo — mà hỏng âm thầm, không ai nhìn ra một con số quy sai.
         var src = ChatSchemaGuardTests.DocFile("TourkitAiProxy.Infrastructure/Chat/Inbox/ChatRepository.cs");
-        var i = src.IndexOf("GhiNguonAsync", System.StringComparison.Ordinal);
-        Assert.True(i > 0, "Không thấy GhiNguonAsync");
+        var i = src.IndexOf("SetReferralAsync", System.StringComparison.Ordinal);
+        Assert.True(i > 0, "Không thấy SetReferralAsync");
         var than = src.Substring(i, System.Math.Min(900, src.Length - i));
         Assert.Contains("COALESCE(referral_source", than);
     }
@@ -128,10 +128,10 @@ public class MessengerEventTests
         var src = ChatSchemaGuardTests.DocFile("TourkitAiProxy.Endpoints/ChatInboxEndpoints.cs");
         var i = src.IndexOf("MapPost(\"/conversations/{id:long}/read\"", System.StringComparison.Ordinal);
         Assert.True(i > 0);
-        Assert.Contains("BaoDaXemAsync", src.Substring(i, System.Math.Min(1200, src.Length - i)));
+        Assert.Contains("MarkSeenAsync", src.Substring(i, System.Math.Min(1200, src.Length - i)));
 
         // Và KHÔNG gọi ở đường xử lý tin tự động.
         var svc = ChatSchemaGuardTests.DocFile("TourkitAiProxy.Services/Chat/Inbox/ChatInboundService.cs");
-        Assert.DoesNotContain("BaoDaXemAsync", svc);
+        Assert.DoesNotContain("MarkSeenAsync", svc);
     }
 }

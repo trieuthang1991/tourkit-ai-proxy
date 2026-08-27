@@ -23,7 +23,7 @@ public class ZaloWebhookRoutingTests
              "sender":{"id":"khach-123"},"recipient":{"id":"oa-777"},
              "message":{"msg_id":"m1","text":"chào"}}
             """;
-        Assert.Equal("oa-777", ZaloChatAdapter.IdOaCuaSuKien(tho));
+        Assert.Equal("oa-777", ZaloChatAdapter.OaIdOfEvent(tho));
     }
 
     [Fact]
@@ -36,7 +36,7 @@ public class ZaloWebhookRoutingTests
              "sender":{"id":"oa-777"},"recipient":{"id":"khach-123"},
              "message":{"msg_id":"m2","text":"vâng"}}
             """;
-        Assert.Equal("oa-777", ZaloChatAdapter.IdOaCuaSuKien(tho));
+        Assert.Equal("oa-777", ZaloChatAdapter.OaIdOfEvent(tho));
     }
 
     [Fact]
@@ -46,7 +46,7 @@ public class ZaloWebhookRoutingTests
             {"app_id":"9","event_name":"user_seen_message","timestamp":"1",
              "sender":{"id":"khach-123"},"recipient":{"id":"oa-777"}}
             """;
-        Assert.Equal("oa-777", ZaloChatAdapter.IdOaCuaSuKien(tho));
+        Assert.Equal("oa-777", ZaloChatAdapter.OaIdOfEvent(tho));
     }
 
     [Fact]
@@ -55,7 +55,7 @@ public class ZaloWebhookRoutingTests
         // Nhóm sự kiện này KHÔNG có sender/recipient — chỉ có oa_id. Không đọc trường đó trước là
         // rơi xuống nhánh sender/recipient rồi trả null.
         var tho = """{"app_id":"9","event_name":"add_user_to_tag","oa_id":"oa-777","timestamp":"1"}""";
-        Assert.Equal("oa-777", ZaloChatAdapter.IdOaCuaSuKien(tho));
+        Assert.Equal("oa-777", ZaloChatAdapter.OaIdOfEvent(tho));
     }
 
     [Theory]
@@ -66,7 +66,7 @@ public class ZaloWebhookRoutingTests
     public void Than_tin_hong_thi_tra_null_chu_khong_nem(string tho)
     {
         // Đường webhook là CÔNG KHAI: ném ở đây là biến một gói tin rác thành lỗi 500.
-        Assert.Null(ZaloChatAdapter.IdOaCuaSuKien(tho));
+        Assert.Null(ZaloChatAdapter.OaIdOfEvent(tho));
     }
 
     [Fact]
@@ -108,7 +108,7 @@ public class ZaloWebhookRoutingTests
         // Tra được công ty KHÔNG có nghĩa là tin thật: id OA không phải bí mật, ai biết đường dẫn
         // cũng đoán được. Bỏ bước kiểm chữ ký là mở cửa cho người ngoài bơm tin vào hộp thư.
         var src = ChatSchemaGuardTests.DocFile("TourkitAiProxy.Services/Chat/Channels/ZaloChatAdapter.cs");
-        var i = src.IndexOf("XacMinhDungChungAsync", System.StringComparison.Ordinal);
+        var i = src.IndexOf("ResolveSharedWebhookAsync", System.StringComparison.Ordinal);
         Assert.True(i > 0);
         var than = src.Substring(i, System.Math.Min(1200, src.Length - i));
         Assert.Contains("VerifyAsync(", than);

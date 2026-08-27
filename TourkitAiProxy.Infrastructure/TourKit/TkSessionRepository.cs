@@ -300,14 +300,82 @@ VALUES
         }
     }
 
+    /// <summary>Kết quả đọc cột <c>PasswordEnc</c> của một phiên.</summary>
+    public enum PasswordState
+    {
+        /// Phiên thường: có mật khẩu, đăng nhập lại được bằng chính mật khẩu đó.
+        Ok,
+
+        /// <summary>
+        /// Phiên SSO: mã hoá đàng hoàng nhưng nội dung RỖNG — đăng nhập một chạm từ CRM ký bằng
+        /// HMAC, không hề có mật khẩu.
+        ///
+        /// <para><b>Phải GIỮ, không được vứt.</b> Phần còn lại của hệ đã hỗ trợ sẵn: khi hết hạn,
+        /// <c>TkSessionStore.ReloginAsync</c> thấy mật khẩu rỗng thì xin JWT mới qua
+        /// <c>IssueSsoTokenAsync</c> — một lượt gọi máy-tới-máy sang CRM, không cần người dùng làm
+        /// gì. Vứt phiên ở đây là chặn đúng cái đường đó.</para>
+        /// </summary>
+        Sso,
+
+        /// Cột rỗng hẳn — dòng ghi thiếu, không suy ra được người này đăng nhập kiểu gì.
+        MissingColumn,
+
+        /// Chuỗi không giải mã được (không phải base64, hoặc sai khối/đệm). Dữ liệu hỏng thật.
+        Corrupt,
+    }
+
+    /// <summary>
+    /// Đọc mật khẩu đã mã hoá và cho biết <b>vì sao</b> nếu không ra được.
+    ///
+    /// <para>⚠️ <b>Ba ca này trước 27/08/2026 bị gộp làm một.</b> Cả ba đều cho ra chuỗi rỗng, và
+    /// lớp đọc coi hết là "decrypt fail" rồi bỏ phiên. Nhưng <b>phiên SSO vốn không có mật khẩu</b>
+    /// nên cũng ra rỗng — và bị vứt oan. Hậu quả: mỗi lần khởi động lại, mọi phiên SSO biến mất và
+    /// không khôi phục được, kể cả tra thẳng theo id.</para>
+    ///
+    /// <para>Nặng nhất là bản tin sáng: <c>SaleBriefWorkflow</c> hỏi CSDL theo tên người dùng,
+    /// không thấy gì, rồi ghi nhật ký <i>"chưa đăng nhập lần nào"</i> — sai sự thật, và người đó
+    /// <b>không bao giờ nhận được bản tin</b>. Không lỗi, không cảnh báo, không ai biết.</para>
+    ///
+    /// <para>Hàm THUẦN, có test cho cả năm ca.</para>
+    /// </summary>
+    public static PasswordState ReadPassword(string? enc, out string password)
+    {
+        password = "";
+        if (string.IsNullOrWhiteSpace(enc)) return PasswordState.MissingColumn;
+
+        // Kiểm base64 TRƯỚC: Crypton.Decrypt nuốt lỗi base64 và trả chuỗi rỗng, tức là chuỗi rác
+        // sẽ trông y hệt phiên SSO. Không tách ở đây thì bản sửa này vô nghĩa.
+        if (!LooksBase64(enc!)) return PasswordState.Corrupt;
+
+        try { password = Crypton.Decrypt(enc!); }
+        catch { return PasswordState.Corrupt; }   // sai khối / sai đệm
+
+        // Giải được nhưng rỗng = phiên SSO. Đây là ca ĐÚNG, không phải lỗi.
+        return password.Length == 0 ? PasswordState.Sso : PasswordState.Ok;
+    }
+
+    /// <summary>Chuỗi có phải base64 hợp lệ không — tách riêng vì <c>Crypton.Decrypt</c>
+    /// nuốt lỗi base64 và trả chuỗi rỗng, tức chuỗi rác trông y hệt phiên SSO.</summary>
+    private static bool LooksBase64(string s)
+    {
+        var dem = new byte[((s.Length + 3) / 4) * 3];
+        return Convert.TryFromBase64String(s, dem, out _);
+    }
+
     private TkSession? TryHydrate(Row r)
     {
-        var pwd = Crypton.Decrypt(r.PasswordEnc);
-        if (string.IsNullOrEmpty(pwd))
+        var trangThai = ReadPassword(r.PasswordEnc, out var pwd);
+        if (trangThai is PasswordState.MissingColumn or PasswordState.Corrupt)
         {
-            _log.LogWarning("[TkSessionRepo] Session {Id} decrypt fail — skip", r.Id);
+            // Nói ĐÚNG bệnh: câu "decrypt fail" cũ chỉ người đọc đi soi khoá mã hoá, trong khi
+            // khoá là hằng số biên dịch cứng và chưa bao giờ là nguyên nhân.
+            _log.LogWarning("[TkSessionRepo] Phiên {Id} bỏ qua — mật khẩu {ViSao}", r.Id,
+                trangThai == PasswordState.MissingColumn ? "thiếu trong CSDL" : "lưu hỏng, không giải được");
             return null;
         }
+
+        // trangThai == Sso: mật khẩu rỗng là ĐÚNG, phiên vẫn dùng được — ReloginAsync tự xin JWT
+        // mới qua đường sso-token. Xem chú thích ở PasswordState.Sso.
         SessionChatMemory? mem = null;
         if (!string.IsNullOrWhiteSpace(r.ChatMemoryJson))
         {

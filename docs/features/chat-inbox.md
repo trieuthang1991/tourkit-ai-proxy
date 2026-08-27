@@ -116,6 +116,163 @@ của chính yêu cầu đang tới — trên máy chủ thật thì đúng, cò
 ⚠️ **Zalo xoay vòng refresh token.** Mỗi lượt đổi trả về một refresh token MỚI, phải lưu cái mới và
 bỏ cái cũ — dùng lại cái cũ ở lần sau là bị từ chối. Cả hai lượt (đổi `code` lần đầu và làm mới về
 sau) đi chung một hàm nên không có chỗ nào quên lưu.
+**WhatsApp và TikTok — kênh thứ năm và sáu** (thêm 27/08).
+
+⚠️ **WhatsApp cùng nhà Meta nhưng KHÔNG dùng chung được gì với Messenger/Instagram.** Hai kênh kia
+đi hợp đồng nhắn tin `entry[] × messaging[]`; WhatsApp đi hợp đồng Business Management
+`entry[] × changes[] × value`. Chỉ **chữ ký** là giống (HMAC App Secret trong `X-Hub-Signature-256`).
+Đừng nhét vào `MetaMessagingParser` — gộp hai hợp đồng khác nhau vào một hàm là chỗ đẻ ra lỗi im lặng.
+
+⚠️ **Khoá định tuyến WhatsApp là `value.metadata.phone_number_id`, KHÔNG phải `entry[].id`** (chỗ đó
+là id WABA). Lấy nhầm là tra ra rỗng và tin rơi vào hư không.
+
+⚠️ **Tên khách WhatsApp nằm ở `contacts[]`, TÁCH khỏi `messages[]`** — ghép lại bằng số điện thoại.
+Không ghép thì hộp thư hiện một dãy số dù gói tin có sẵn tên.
+
+⚠️ **WhatsApp báo trạng thái theo `id` TỪNG TIN** (`statuses[]`: `sent`/`delivered`/`read`), không
+theo mốc nước như Messenger — đi chung đường với Instagram qua `StateWatermark.ExternalMsgId`.
+`failed` **không** map sang trạng thái nào: luật `KhongLui` vốn chặn tin gửi được thành hỏng, ghi bừa
+ở đây là dấu tích chạy ngược. Chỉ ghi log để còn tra.
+
+⚠️ **Tệp khách gửi qua WhatsApp đòi KHOÁ XÁC THỰC ở CẢ HAI lượt.** Gói tin chỉ cho mã tệp; hỏi ra
+đường tải rồi vẫn phải gắn `Bearer` mới tải được — gọi trần vào đường đó là 401. Khác Telegram (khoá
+giấu trong đường dẫn) và khác hẳn Zalo/Messenger/Instagram (URL công khai). Nên **không có cách nào**
+đưa thẳng cho trình duyệt; bắt buộc qua `GET /api/v1/chat/messages/{id}/file`, nay đường đó rẽ nhánh
+theo kênh của hội thoại.
+
+⚠️ **Ngoài cửa sổ 24h WhatsApp chỉ nhận mẫu đã duyệt**, không gửi chữ tự do. Cửa sổ tính như
+Messenger nên `ChatRules.TinhCuaSo` không phải sửa.
+
+⚠️ **TikTok: nội dung tin là CHUỖI JSON lồng trong JSON.** Trường `content` của gói webhook là một
+**chuỗi**, phải phân tích lần thứ hai mới ra tin. Đọc thẳng như đối tượng là luôn ra rỗng — không lỗi,
+không log, hộp thư chỉ đơn giản không bao giờ có tin.
+
+⚠️ **Chữ ký TikTok CÓ HẠN 5 GIÂY.** Header `TikTok-Signature: t=<giây>,s=<hex>`, ký trên chuỗi
+`"{t}.{thân thô}"`. Máy chủ lệch giờ là **mọi** gói bị từ chối sạch — nên nhật ký tách riêng "quá hạn"
+khỏi "chữ ký sai", không thì người tìm lỗi đi soi khoá bí mật suốt buổi trong khi lỗi nằm ở đồng hồ.
+
+⚠️ **TikTok gửi theo mã HỘI THOẠI, không theo mã người** (`recipient_type=CONVERSATION`). Nên ở kênh
+này `ExternalUserId` mang **mã hội thoại** — mọi kênh khác mang mã khách. Lấy nhầm là gửi ra lỗi mà
+nhìn dữ liệu vẫn thấy "có id đàng hoàng". Và tiếng vọng `im_send_msg` thì tên khách nằm ở **người**
+**nhận**, lấy `from_user` là hội thoại mang tên chính công ty mình.
+
+⚠️ **TikTok trả HTTP 200 KỂ CẢ KHI HỎNG** — lỗi nằm ở trường `code` trong thân. Chỉ nhìn mã HTTP là
+báo "đã gửi" cho những tin không bao giờ tới. Và **ảnh phải tải lên trước** (`media/upload` ra
+`media_id`), TikTok không tự tải từ URL như bốn kênh kia; header xác thực là `Access-Token`, **không**
+phải `Authorization: Bearer`.
+
+**Hạn trả lời của TikTok không có trong tài liệu công khai**, nên `TinhCuaSo` để **mở** cho kênh này —
+khoá ô soạn theo một con số tự đoán là tự khoá tay nhân viên vì một luật có thể không tồn tại. TikTok
+từ chối thì câu lỗi của họ hiện lên. Tra ra hạn thật thì chuyển xuống nhánh có hạn.
+
+⚠️ **Cả hai chưa kiểm bằng tài khoản thật** (27/08): WhatsApp cần WABA đã xác minh doanh nghiệp + số
+điện thoại riêng; TikTok cần ứng dụng TikTok for Business đã duyệt quyền nhắn tin. Phần bóc tin, chữ ký
+và cửa sổ gửi có test; đường gửi và bước nối vẫn là theo tài liệu.
+
+**Instagram Direct — kênh thứ tư** (thêm 27/08). Đi **cùng hợp đồng nhắn tin của Meta** với
+Messenger, nên phần bóc tin dùng CHUNG một lớp
+([`MetaMessagingParser`](../../TourkitAiProxy.Services/Chat/Channels/MetaMessagingParser.cs)): cùng hình dạng
+`entry[] × messaging[]`, cùng `mid`, cùng `is_echo`, cùng cách gói đính kèm, cùng kiểu ký. Chép ra
+hai bản là hai bản lệch nhau — mà lệch ở đây thì hỏng im lặng: một kênh nhận được cảm xúc, kênh
+kia không, không lỗi nào hiện ra. Cùng lý do R2 và S3 dùng chung một lớp lưu trữ.
+
+**Nối qua TRANG FACEBOOK đã kết nối, KHÔNG qua đăng nhập Instagram riêng.** Khách bấm "Kết nối
+Facebook" như cũ; nối Trang xong hệ thống tự hỏi Trang đó có tài khoản Instagram liên kết không
+(`GET /{pageId}?fields=instagram_business_account`) và nối luôn — **không thêm nút nào**. Cùng ứng
+dụng Meta, cùng App Secret, cùng Page Access Token.
+
+⚠️ **Vì sao KHÔNG chép cách ChatbotX làm.** Họ dùng *Instagram Login* (`api.instagram.com`, app
+Instagram riêng, scope `instagram_business_*`). Đường đó không cần Trang, nhưng token **hết hạn sau
+60 ngày** và phải tự làm mới — thêm một thứ hỏng âm thầm vào lúc không ai để ý. Page Access Token
+thì không hết hạn, và công ty du lịch nào cũng đã có Trang. Cái giá: tài khoản phải là Instagram
+Professional đã liên kết Trang, và phải bật "Cho phép truy cập tin nhắn" trong cài đặt Instagram.
+
+⚠️ **Ba chỗ KHÁC Messenger thật, đừng áp một luật:**
+1. Trường `object` là `"instagram"`, không phải `"page"`.
+2. Đường gửi là `graph.instagram.com` và token đi ở header `Authorization: Bearer` — Instagram
+   **không** nhận `?access_token=` trên URL như Graph của Facebook. Chép nguyên đường gửi của
+   Messenger sang là mọi tin gửi đi đều bị từ chối.
+3. **KHÔNG có `message_deliveries`.** Meta chỉ cấp `messaging_seen` cho Instagram, nên tin nhảy
+   thẳng "đã gửi" → "đã xem", không bao giờ có "đã nhận" — **và đó là đúng**.
+
+⚠️ **`messaging_seen` của Instagram báo bằng `mid`, KHÔNG bằng `watermark`.** Messenger gửi
+`{"read":{"watermark":<ms>}}`; Instagram gửi `{"read":{"mid":"<tin cuối đã đọc>"}}`. Đọc theo lối
+Messenger thì giá trị ra `null`, sự kiện **rơi im lặng**, dấu tích đứng mãi ở "đã gửi". Mốc thời
+gian phải tra ngược từ chính tin đó (`ChatRepository.ThoiDiemTinAsync`) — lấy tạm giờ nhận gói cho
+nhanh là đánh dấu THỪA lên tin khách chưa hề mở, tức nói dối nhân viên. Không tra ra tin thì **bỏ
+qua**, không đoán.
+
+⚠️ **Đường webhook RIÊNG dù chung ứng dụng:** `/api/v1/chat/webhook/instagram`. Meta khai địa chỉ
+webhook riêng cho từng *đối tượng* (`page` · `instagram`), nên gộp vào đường của Messenger là
+Instagram không có chỗ gửi tới. Cũng **luôn trả 200** kể cả khi từ chối, và vì lý do nặng hơn: ứng
+dụng dùng chung nên trả lỗi liên tục là Meta tắt kênh của **mọi** khách hàng cùng lúc.
+
+⚠️ **Trường webhook của đối tượng `instagram` bật ở CẤP ỨNG DỤNG**, không phải lệnh gọi cho từng
+tài khoản (khác Trang Facebook và khác Telegram). Danh sách ghi ở `InstagramChatAdapter.SuKienTaiKhoan`
+để lúc khai ứng dụng không ai phải đoán — thiếu một trường thì mã bóc vẫn đúng, chỉ là gói tin không
+bao giờ tới.
+
+⚠️ **Chưa kiểm bằng tài khoản thật** (27/08). Phần bóc tin, cửa sổ gửi và luật "đã xem" có test;
+bước nối và đường gửi phải thử trên một tài khoản Instagram Professional thật rồi mới coi là xong.
+
+**Telegram nối bằng MỘT nút, giống Zalo/Messenger** (đổi 27/08). Dán bot token → máy chủ gọi
+`getMe` xác thực → **tự sinh** chuỗi bí mật webhook → gọi `setWebhook`. Gỡ kết nối gọi
+`deleteWebhook`. Vào từ chính `POST|PUT|DELETE /channels/3/accounts[/{id}]`, không thêm đường mới
+([`NoiBotAsync`](../../TourkitAiProxy.Services/Chat/Channels/TelegramChatAdapter.cs)).
+
+⚠️ **Xác thực token TRƯỚC khi đăng ký webhook, không được ngược.** Đăng ký trước rồi mới biết
+token sai là đã trỏ một địa chỉ công khai vào một bot không tồn tại, và bản ghi rác nằm lại trong
+danh sách kênh. Có test canh thứ tự.
+
+⚠️ **`allowed_updates` phải khai ĐỦ — đây là bẫy "sửa hai chỗ" của Telegram.** Telegram CHỈ gửi
+những loại nằm trong danh sách khai lúc `setWebhook`, và **danh sách mặc định của họ đã bỏ sẵn**
+**`message_reaction`**. Viết mã bóc cảm xúc mà quên khai là không bao giờ có gói tin nào tới:
+không lỗi, không log, chỉ là một thứ không xảy ra. Đang khai năm loại: `message` ·
+`edited_message` · `callback_query` · `message_reaction` · `my_chat_member`. Có test canh đủ năm.
+
+⚠️ **Chuỗi bí mật webhook do MÁY CHỦ sinh, KHÔNG còn là ô nhập.** Để lại ô đó thì người khai vẫn
+tưởng phải làm tay, mà giá trị họ gõ sẽ đè lên chuỗi máy chủ vừa sinh → webhook chết im lặng.
+Dùng base64url (`A-Z a-z 0-9 _ -`), không phải base64 thường: một dấu `+` hay `/` lọt vào là
+Telegram từ chối mà không nói vướng ở đâu.
+
+⚠️ **Telegram gói MỖI loại đính kèm vào MỘT trường tên khác nhau** — không có trường chung nào cho
+biết "tin này có tệp". Thiếu một nhánh trong `Parse` là loại đó rơi xuống `ChatKind.Chu` với nội
+dung `null`: một **dòng trắng** trong hộp thư vẫn đẩy hội thoại lên đầu và vẫn tính chưa đọc.
+Đã dính thật với `video` và `audio` (đối chiếu ChatbotX 27/08 mới lộ). Nay bắt `photo` · `video` ·
+`video_note` · `audio` · `document` · `voice` · `location` · `sticker`; loại lạ thì **bỏ qua** kèm
+log WARNING liệt kê các trường trong gói.
+
+⚠️ **Bấm nút phải gọi `answerCallbackQuery`, không thì nút QUAY VÒNG mãi** trên máy khách dù mình
+đã xử lý xong. Chỉ biết được điều này khi đọc ChatbotX. Gọi **ngay đầu** `MotSuKienAsync` qua
+`IChatChannelAdapter.XacNhanBamNutAsync` (mặc định rỗng — Zalo/Messenger không có khái niệm này),
+trước cả bước gọi AI vốn mất vài giây. Lượt bấm ghi lại bằng **chữ trên nút** (dò `reply_markup`
+theo `callback_data`), lùi về mã nút khi tin cũ không kèm bàn phím. **Thời điểm là BÂY GIỜ**, không
+phải `date` của tin mang nút — tin đó có thể gửi từ hôm qua.
+
+⚠️ **Cảm xúc Telegram báo TRẠNG THÁI MỚI, không báo "thêm/bớt"** — gỡ cảm xúc là gói có
+`new_reaction` **rỗng**, khác hẳn Meta nói thẳng `action="unreact"`. Áp luật của Meta sang là cảm
+xúc đã gỡ vẫn hiện mãi.
+
+⚠️ **`/start <tham số>` là cách DUY NHẤT Telegram nói khách đến từ đâu**, và nó tới đúng một lần,
+đội lốt một câu tin thường. Không tách ra thì hộp thư có một câu `"/start fb_ads_hue"` vô nghĩa còn
+dữ liệu bán hàng mất vĩnh viễn. Tách xong phải bỏ **cả** phần chữ **và** mã tin, không thì lõi coi
+đây là tin thật và ghi một dòng trắng. `/start` trơn (bấm nút Bắt đầu trong Telegram) **không** có
+nguồn — ghi bừa nguồn rỗng là làm bẩn báo cáo.
+
+⚠️ **Ảnh đại diện Telegram phải đi qua máy chủ: đường tải thật của họ CHỨA BOT TOKEN**
+(`/file/bot<token>/…`). ChatbotX lưu thẳng chuỗi đó làm avatar, tức phát bot token cho mọi trình
+duyệt mở hộp thư — **không chép chỗ này**. Ở đây lưu đường tương đối `/api/v1/chat/avatars/`
+`{accountId}/{fileId}`, và lúc trả ra API mới gắn thêm `?sessionId=` (thẻ `<img>` không gửi được
+tiêu đề xác thực). Lấy cỡ **nhỏ nhất** — ngược với ảnh khách gửi (lấy cỡ lớn nhất để soi được chữ).
+
+⚠️ **`file_id` gắn với TỪNG bot.** Proxy tệp trước 27/08 dùng `Telegram:BotToken` — bot **dùng**
+**chung của bản tin sáng**, không phải bot công ty vừa nối — nên mọi tệp khách gửi đều hiện "chưa
+tải được" mà không lỗi nào lần ra. Nay tra token theo `account_id` của hội thoại
+(`GetConversationByMessageAsync`), chỉ lùi về cấu hình chung khi tài khoản chưa có khoá riêng.
+
+**Telegram vẫn KHÔNG có** báo đã nhận/đã xem (dừng ở "đã gửi" vĩnh viễn — đó là đúng), và **chưa**
+**làm**: gửi nút inline ra (chưa có luồng bot dùng nút), menu cố định, xử lý `my_chat_member` khi
+khách chặn bot (đã khai nhận gói, chưa xử lý).
 ⚠️ **Mỗi kênh một kiểu xác thực, đừng chép qua lại:** Zalo = `SHA256(appId+thânThô+timestamp+secret)`;
 Messenger = **HMAC**-SHA256(appSecret, thânThô) trong `X-Hub-Signature-256`; Telegram **không ký gì
 cả** — chỉ so chuỗi bí mật trong `X-Telegram-Bot-Api-Secret-Token`, nên **thiếu chuỗi đó là ai biết
@@ -331,13 +488,37 @@ viên thấy "khách đã xem" một tin khách chưa hề nhận, rồi worker 
 tích chạy ngược. Chặn ở **cả** luật thuần lẫn SQL, vì cập nhật hàng loạt không đọc từng dòng ra hỏi
 luật được.
 
-**Tên định danh trong cụm chat KHÔNG đồng nhất, và đó là chuyện đã rồi:**
-[`ChatRules`](../../TourkitAiProxy.Domain/Chat/ChatRules.cs) đặt tên tiếng Việt (`TinhCuaSo`, `GhepCum`, `TomTat`,
-`KhongLui`), còn [`ChatRepository`](../../TourkitAiProxy.Infrastructure/Chat/Inbox/ChatRepository.cs) và
-[`ChatModels`](../../TourkitAiProxy.Domain/Chat/ChatModels.cs) đặt tiếng Anh. **Theo file mình đang sửa**, đừng
-theo cụm — thêm một tên tiếng Việt vào `ChatRepository` là tạo ngoại lệ giữa 26 tên tiếng Anh (đã
-xảy ra một lần, phải đổi lại). Quy ước ở mục Conventions chỉ nói tiếng Việt cho **chữ hiển thị, log,
-chú thích** — không nói gì về tên định danh.
+**Tên định danh trong cụm chat là TIẾNG ANH — toàn bộ, không ngoại lệ** (chuẩn hoá 27/08/2026).
+Kiểu, hàm, thuộc tính, hằng, thành viên enum: tiếng Anh. **Chữ hiển thị, log và chú thích vẫn
+tiếng Việt** như quy ước chung ở [conventions.md](../conventions.md) — luật đó nói về *nội dung*
+cho người đọc, không nói về tên định danh.
+
+⚠️ **Vì sao đổi.** Trước đó cụm này pha trộn: `ChatRules` đặt tiếng Việt (`TinhCuaSo`, `GhepCum`,
+`KhongLui`), còn `ChatRepository`/`ChatModels` đặt tiếng Anh, và luật là "theo file mình đang sửa".
+Luật đó **không sống nổi**: chỉ trong một buổi đã có hai lần đặt nhầm — một tên tiếng Việt lọt vào
+`ChatRepository` giữa 26 tên tiếng Anh, đúng cái bẫy tài liệu đã cảnh báo. Một quy ước mà người
+đọc nó xong vẫn vi phạm thì quy ước ấy sai, không phải người đọc sai.
+
+⚠️ **Vài chỗ đổi tên KHÔNG phải chỉ đổi chữ, đọc kỹ nếu bạn nhớ tên cũ:**
+
+| Cũ | Mới | Ghi chú |
+|---|---|---|
+| `ChatState.Cho/DaGui/DaNhan/DaXem/Hong` | `Pending/Sent/Delivered/Seen/Failed` | số trong CSDL **không đổi** |
+| `ChatKind.Chu/Anh/Tep/AmThanh/ViTri` | `Text/Image/File/Audio/Location` | như trên |
+| `ChatDirection.Vao/Ra` · `ChatSender.Khach/NhanVien/HeThong` | `In/Out` · `Customer/Agent/System` | như trên |
+| `KhongLui` | `CanAdvanceState` | tên cũ nói điều **cấm**, tên mới nói điều **cho phép** — nghĩa giữ nguyên, đọc ngược lại |
+| `TinhCuaSo` | `ComputeSendWindow` | |
+| `XacMinhDungChungAsync` | `ResolveSharedWebhookAsync` | |
+| `HoSoKhach` | `ContactProfile` | trường `Ten`/`Anh` → `Name`/`AvatarUrl` |
+| `ChatLan` | `ChatLane` | |
+
+⚠️ **Thành viên enum đổi tên nhưng GIÁ TRỊ SỐ giữ nguyên** — `chat_messages.state`,
+`chat_conversations.status`, `direction`, `kind`, `channel` đều lưu số, nên dữ liệu cũ không cần
+chuyển đổi gì. Đừng "sửa" bằng cách đánh số lại cho đẹp: làm thế là hỏng toàn bộ lịch sử chat.
+
+**Biến cục bộ vẫn còn tên tiếng Việt** (`than`, `chu`, `luc`, `kenh`…) và **cố ý để nguyên**: chúng
+chỉ sống trong một hàm, không phải bề mặt API, còn đổi hàng loạt thì mỗi phép thay lại có nguy cơ
+sửa trúng chữ trong câu chú thích tiếng Việt. Viết mới thì đặt tiếng Anh.
 
 **Sáu luật sai-là-hỏng**, tách thuần ở [`ChatRules`](../../TourkitAiProxy.Domain/Chat/ChatRules.cs), có test:
 1. **Cửa sổ gửi** — Zalo 48h / Messenger 24h kể từ tin cuối CỦA KHÁCH. **Chưa có tin nào của khách =

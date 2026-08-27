@@ -28,7 +28,7 @@ public class ChatUiGuardTests
         var src = ChatSchemaGuardTests.DocFile("TourkitAiProxy.Endpoints/ChatInboxEndpoints.cs");
 
         var thieu = new List<string>();
-        foreach (Match m in Regex.Matches(src, @"new ONhap\((?<args>[^;]*?)\),?\s*$",
+        foreach (Match m in Regex.Matches(src, @"new FieldSpec\((?<args>[^;]*?)\),?\s*$",
                                           RegexOptions.Multiline))
         {
             var args = m.Groups["args"].Value;
@@ -71,7 +71,7 @@ public class ChatUiGuardTests
     /// <summary>
     /// Không component React nào được khai báo BÊN TRONG một component khác.
     ///
-    /// <para><b>Lỗi này đã xảy ra thật</b> (26/08): <c>ONhap</c> — ô nhập của form khai kênh — nằm
+    /// <para><b>Lỗi này đã xảy ra thật</b> (26/08): <c>FieldSpec</c> — ô nhập của form khai kênh — nằm
     /// trong thân <c>KhaiKenh</c>. Hàm khai bên trong một component là một <b>kiểu component MỚI ở
     /// mỗi lần vẽ lại</b>: React thấy kiểu khác thì tháo cả nhánh cũ rồi dựng nhánh mới, thẻ
     /// <c>input</c> thành một nút DOM khác hẳn, con trỏ nhảy ra ngoài. Gõ một ký tự → đổi state →

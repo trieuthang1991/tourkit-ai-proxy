@@ -30,13 +30,13 @@ public class ChatQuickReplyTests
     [InlineData("hẹn lịch", "hen-lich")]
     [InlineData("giá!!!", "gia")]
     public void Chuan_hoa_trigger(string tho, string mong)
-        => Assert.Equal(mong, ChatQuickReplyRepository.ChuanHoaTrigger(tho));
+        => Assert.Equal(mong, ChatQuickReplyRepository.NormalizeTrigger(tho));
 
     [Fact]
     public void Trigger_rong_thi_nem()
     {
         // Mẫu không có lệnh gọi thì gõ "/" mãi cũng không ra — thà chặn lúc lưu.
-        var ex = Assert.Throws<ArgumentException>(() => ChatQuickReplyRepository.ChuanHoaTrigger("///"));
+        var ex = Assert.Throws<ArgumentException>(() => ChatQuickReplyRepository.NormalizeTrigger("///"));
 
         // Message này được endpoint trả THẲNG cho người dùng. Truyền nameof() vào ArgumentException
         // sẽ nối thêm "(Parameter 'tho')" — đã lọt ra thật một lần khi thử trên staging.

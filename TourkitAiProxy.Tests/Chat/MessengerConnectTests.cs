@@ -28,7 +28,7 @@ public class MessengerConnectTests
              "messaging":[{"sender":{"id":"khach-1"},"recipient":{"id":"trang-777"},
              "timestamp":1,"message":{"mid":"m1","text":"chào"}}]}]}
             """;
-        Assert.Equal("trang-777", MessengerChatAdapter.IdTrangCuaSuKien(tho));
+        Assert.Equal("trang-777", MessengerChatAdapter.PageIdOfEvent(tho));
     }
 
     [Fact]
@@ -36,7 +36,7 @@ public class MessengerConnectTests
     {
         // Khác Zalo: Meta để id Trang ở entry[].id cho MỌI loại sự kiện, hai đầu sender/recipient
         // đảo ngược thế nào cũng không ảnh hưởng. Test này chốt điều đó, để ai nhìn thấy
-        // sender/recipient đảo chiều không đi "sửa" IdTrangCuaSuKien theo kiểu Zalo.
+        // sender/recipient đảo chiều không đi "sửa" PageIdOfEvent theo kiểu Zalo.
         var vong = """
             {"object":"page","entry":[{"id":"trang-777","messaging":[
              {"sender":{"id":"trang-777"},"recipient":{"id":"khach-1"},
@@ -47,8 +47,8 @@ public class MessengerConnectTests
              {"sender":{"id":"khach-1"},"recipient":{"id":"trang-777"},
               "read":{"watermark":1700000000000}}]}]}
             """;
-        Assert.Equal("trang-777", MessengerChatAdapter.IdTrangCuaSuKien(vong));
-        Assert.Equal("trang-777", MessengerChatAdapter.IdTrangCuaSuKien(daDoc));
+        Assert.Equal("trang-777", MessengerChatAdapter.PageIdOfEvent(vong));
+        Assert.Equal("trang-777", MessengerChatAdapter.PageIdOfEvent(daDoc));
     }
 
     [Theory]
@@ -61,7 +61,7 @@ public class MessengerConnectTests
     {
         // Meta gọi thử địa chỉ bằng gói rỗng lúc lưu. Ném ở đây là webhook trả 500 và Meta ngừng
         // gửi cho CẢ ứng dụng — tức là mọi khách hàng mất kênh, không riêng ai.
-        Assert.Null(MessengerChatAdapter.IdTrangCuaSuKien(tho));
+        Assert.Null(MessengerChatAdapter.PageIdOfEvent(tho));
     }
 
     // ── Kho Trang chờ chọn ──────────────────────────────────────────────────
@@ -73,7 +73,7 @@ public class MessengerConnectTests
         // thường, không mang phiên). Không kiểm id Trang có trong danh sách thì ai cầm mã cũng nối
         // được Trang bất kỳ chỉ bằng cách đoán một id — mà id Trang thì ai cũng đọc được.
         var kho = new MessengerPageChoices();
-        var ma = kho.Tao("cty-1", new[] { new TrangUngVien("trang-1", "Chi nhánh Q1", "tok-1") });
+        var ma = kho.Create("cty-1", new[] { new PageCandidate("trang-1", "Chi nhánh Q1", "tok-1") });
 
         Assert.NotNull(kho.Nhan(ma, "trang-1"));
         Assert.Null(kho.Nhan(ma, "trang-9"));
@@ -87,15 +87,15 @@ public class MessengerConnectTests
         // Cố ý KHÔNG dùng một lần, khác ChatOAuthStates: công ty nhiều chi nhánh nối vài Trang liền
         // tay. Bắt đăng nhập Facebook lại từ đầu cho mỗi Trang là hành người dùng.
         var kho = new MessengerPageChoices();
-        var ma = kho.Tao("cty-1", new[]
+        var ma = kho.Create("cty-1", new[]
         {
-            new TrangUngVien("trang-1", "Q1", "tok-1"),
-            new TrangUngVien("trang-2", "Q3", "tok-2"),
+            new PageCandidate("trang-1", "Q1", "tok-1"),
+            new PageCandidate("trang-2", "Q3", "tok-2"),
         });
 
-        Assert.Equal("tok-1", kho.Nhan(ma, "trang-1")!.Value.Trang.AccessToken);
-        Assert.Equal("tok-2", kho.Nhan(ma, "trang-2")!.Value.Trang.AccessToken);
-        Assert.Equal(2, kho.Xem(ma)!.Value.Trang.Count);
+        Assert.Equal("tok-1", kho.Nhan(ma, "trang-1")!.Value.Pages.AccessToken);
+        Assert.Equal("tok-2", kho.Nhan(ma, "trang-2")!.Value.Pages.AccessToken);
+        Assert.Equal(2, kho.Xem(ma)!.Value.Pages.Count);
     }
 
     [Fact]
@@ -104,8 +104,8 @@ public class MessengerConnectTests
         // Lấy nhầm tenant là lưu khoá Trang của công ty này vào công ty khác — từ đó họ đọc và trả
         // lời tin của khách bên kia.
         var kho = new MessengerPageChoices();
-        var a = kho.Tao("cty-a", new[] { new TrangUngVien("t", "T", "k") });
-        var b = kho.Tao("cty-b", new[] { new TrangUngVien("t", "T", "k") });
+        var a = kho.Create("cty-a", new[] { new PageCandidate("t", "T", "k") });
+        var b = kho.Create("cty-b", new[] { new PageCandidate("t", "T", "k") });
         Assert.Equal("cty-a", kho.Nhan(a, "t")!.Value.TenantId);
         Assert.Equal("cty-b", kho.Nhan(b, "t")!.Value.TenantId);
     }
@@ -118,9 +118,9 @@ public class MessengerConnectTests
         // pages_manage_metadata là quyền gọi subscribed_apps — thứ biến cả bước nối thành một nút.
         // Bỏ nó đi thì luồng vẫn "thành công", chỉ là Trang không bao giờ gửi tin về, và không có
         // thông báo lỗi nào chỉ vào đây.
-        Assert.Contains("pages_manage_metadata", MessengerChatAdapter.Quyen);
-        Assert.Contains("pages_messaging", MessengerChatAdapter.Quyen);
-        Assert.Contains("pages_show_list", MessengerChatAdapter.Quyen);
+        Assert.Contains("pages_manage_metadata", MessengerChatAdapter.Scopes);
+        Assert.Contains("pages_messaging", MessengerChatAdapter.Scopes);
+        Assert.Contains("pages_show_list", MessengerChatAdapter.Scopes);
     }
 
     [Fact]
@@ -133,10 +133,10 @@ public class MessengerConnectTests
         // ⚠️ Test này TỪNG cấm cả business_management, và cấm sai. Thực tế 26/08/2026: Facebook cấp
         // pages_show_list bình thường nhưng /me/accounts trả RỖNG vì Trang do một Danh mục doanh
         // nghiệp sở hữu. "Ít quyền cho nhẹ khâu duyệt" là ý hay cho tới lúc nó chặn cả tính năng.
-        Assert.DoesNotContain("pages_manage_posts", MessengerChatAdapter.Quyen);
-        Assert.DoesNotContain("pages_manage_ads", MessengerChatAdapter.Quyen);
-        Assert.DoesNotContain("pages_manage_engagement", MessengerChatAdapter.Quyen);
-        Assert.True(MessengerChatAdapter.Quyen.Length <= 6,
+        Assert.DoesNotContain("pages_manage_posts", MessengerChatAdapter.Scopes);
+        Assert.DoesNotContain("pages_manage_ads", MessengerChatAdapter.Scopes);
+        Assert.DoesNotContain("pages_manage_engagement", MessengerChatAdapter.Scopes);
+        Assert.True(MessengerChatAdapter.Scopes.Length <= 6,
             "Xin thêm quyền thì cân nhắc lại: mỗi cái là một mục Meta bắt giải trình.");
     }
 
@@ -146,7 +146,7 @@ public class MessengerConnectTests
         // Bỏ lại là lặp đúng lỗi ngày 26/08/2026: Facebook báo cấp quyền thành công, màn hình đồng ý
         // trông bình thường, mà danh sách Trang rỗng và KHÔNG có thông báo lỗi nào chỉ vào đây.
         // Tài liệu Messenger của Meta ghi nó là phụ thuộc của pages_show_list và pages_messaging.
-        Assert.Contains("business_management", MessengerChatAdapter.Quyen);
+        Assert.Contains("business_management", MessengerChatAdapter.Scopes);
     }
 
     [Fact]
@@ -159,7 +159,7 @@ public class MessengerConnectTests
         // Tìm theo chuỗi DỰNG URL chứ không theo tên trần: cả hai tên đều xuất hiện trong chú
         // thích ở trên, và chú thích thì không nói lên thứ tự chạy thật.
         var doiDai = src.IndexOf("grant_type=fb_exchange_token", System.StringComparison.Ordinal);
-        var layTrang = src.IndexOf("{PhienBan}/me/accounts", System.StringComparison.Ordinal);
+        var layTrang = src.IndexOf("{ApiVersion}/me/accounts", System.StringComparison.Ordinal);
         Assert.True(doiDai > 0, "Không thấy bước đổi token dài hạn");
         Assert.True(layTrang > 0, "Không thấy bước lấy danh sách Trang");
         Assert.True(doiDai < layTrang,
@@ -173,7 +173,7 @@ public class MessengerConnectTests
         // nhân viên trả lời từ ứng dụng Meta; thiếu message_deliveries/message_reads là tin gửi đi
         // không bao giờ leo lên hai tích. Cả hai đều hỏng ÂM THẦM.
         var src = ChatSchemaGuardTests.DocFile(TepAdapter);
-        var i = src.IndexOf("SuKienTrang =", System.StringComparison.Ordinal);
+        var i = src.IndexOf("PageEvents =", System.StringComparison.Ordinal);
         Assert.True(i > 0, "Không thấy danh sách sự kiện đăng ký");
         var than = src.Substring(i, System.Math.Min(400, src.Length - i));
 
@@ -192,9 +192,9 @@ public class MessengerConnectTests
             ["Chat:Messenger:AppId"] = "111",
             ["Chat:Messenger:AppSecret"] = "bí-mật",
         });
-        Assert.True(fb.CoUngDungNenTang);
+        Assert.True(fb.HasPlatformApp);
 
-        var url = fb.DuongCapQuyen("https://travelai.vn/api/v1/chat/oauth/messenger/callback", "st-1");
+        var url = fb.PermissionUrlFor("https://travelai.vn/api/v1/chat/oauth/messenger/callback", "st-1");
         Assert.StartsWith("https://www.facebook.com/v21.0/dialog/oauth?", url);
         Assert.Contains("client_id=111", url);
         Assert.Contains("response_type=code", url);
@@ -213,11 +213,11 @@ public class MessengerConnectTests
     {
         // Giao diện dựa vào cờ này để chọn giữa "một nút" và "khai tay 4 ô". Báo bừa là khách bấm nút
         // rồi rơi vào màn hình lỗi của Facebook, không hiểu vì sao.
-        Assert.False(DungAdapter(new Dictionary<string, string?>()).CoUngDungNenTang);
+        Assert.False(DungAdapter(new Dictionary<string, string?>()).HasPlatformApp);
         Assert.False(DungAdapter(new Dictionary<string, string?>
         {
             ["Chat:Messenger:AppId"] = "111",
-        }).CoUngDungNenTang);
+        }).HasPlatformApp);
     }
 
     [Fact]
@@ -225,11 +225,11 @@ public class MessengerConnectTests
     {
         // Đổi phiên bản là đổi hành vi của MỌI lệnh gọi Meta cùng lúc. Mặc định phải đứng yên; muốn
         // đổi thì khai Chat:Messenger:Version, một quyết định có chủ ý.
-        Assert.Equal("v21.0", DungAdapter(new Dictionary<string, string?>()).PhienBan);
+        Assert.Equal("v21.0", DungAdapter(new Dictionary<string, string?>()).ApiVersion);
         Assert.Equal("v23.0", DungAdapter(new Dictionary<string, string?>
         {
             ["Chat:Messenger:Version"] = "v23.0",
-        }).PhienBan);
+        }).ApiVersion);
     }
 
     /// <summary>Bộ nối tối thiểu cho các test chỉ bóc gói tin — dùng chung với MessengerEventTests.</summary>
@@ -255,7 +255,7 @@ public class MessengerConnectTests
         // Tra ra công ty bằng id Trang KHÔNG chứng minh tin là thật — id Trang nằm công khai trên
         // chính trang Facebook đó. Bỏ bước kiểm chữ ký là mở cửa cho người ngoài bơm tin vào hộp thư.
         var src = ChatSchemaGuardTests.DocFile(TepAdapter);
-        var i = src.IndexOf("XacMinhDungChungAsync", System.StringComparison.Ordinal);
+        var i = src.IndexOf("ResolveSharedWebhookAsync", System.StringComparison.Ordinal);
         Assert.True(i > 0);
         var than = src.Substring(i, System.Math.Min(1200, src.Length - i));
         Assert.Contains("VerifyAsync(", than);
@@ -281,7 +281,7 @@ public class MessengerConnectTests
         // accountId phải là id Trang: webhook dùng chung tra ngược ra công ty bằng đúng id đó. Đặt
         // mã ngẫu nhiên như luồng khai tay là tin của khách không bao giờ tới nơi.
         var src = ChatSchemaGuardTests.DocFile(TepAdapter);
-        var i = src.IndexOf("NoiTrangAsync", System.StringComparison.Ordinal);
+        var i = src.IndexOf("ConnectPageAsync", System.StringComparison.Ordinal);
         Assert.True(i > 0);
         var than = src.Substring(i, System.Math.Min(2000, src.Length - i));
         Assert.Contains("SaveAsync(tenantId, Channel, trang.PageId", than);

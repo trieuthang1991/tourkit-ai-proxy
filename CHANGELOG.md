@@ -13,6 +13,66 @@ Những cập nhật gần đây của TRAV-AI, viết cho người dùng. Mới
 
 ---
 
+## Phiên bản 27/08/2026 — Sáu kênh chat trong một hộp thư
+
+### ✨ Tính năng mới
+- **Thêm WhatsApp và TikTok.** Hộp thư nay gom đủ sáu nơi khách hay nhắn: Zalo, Facebook,
+  Instagram, WhatsApp, TikTok và Telegram — trả lời tất cả ở cùng một chỗ, không phải mở sáu
+  ứng dụng.
+
+  *Lưu ý:* WhatsApp cần tài khoản doanh nghiệp đã xác minh và một số điện thoại riêng; ngoài 24
+  giờ kể từ tin của khách thì chỉ gửi được mẫu đã duyệt. TikTok cần ứng dụng doanh nghiệp đã
+  được duyệt quyền nhắn tin, và chỉ gửi được chữ với ảnh — tệp thì gửi đường dẫn bằng tin chữ.
+  Cả hai kênh này chưa chạy thử với tài khoản thật, nên hãy thử một cuộc trước khi giao cho cả
+  đội dùng.
+- **Tin nhắn Instagram vào thẳng hộp thư.** Nếu tài khoản Instagram của công ty đã liên kết với
+  Trang Facebook, thì chỉ cần nối Trang như trước là xong — hệ thống tự nhận ra và nối luôn
+  Instagram, **không phải bấm thêm nút nào**. Khách nhắn Direct hiện cạnh tin Zalo, Facebook và
+  Telegram trong cùng một hộp thư, trả lời cùng một chỗ.
+
+  *Lưu ý:* tài khoản Instagram phải là loại **Professional** và đã bật "Cho phép truy cập tin
+  nhắn" trong cài đặt Instagram. Instagram cho trả lời trong **24 giờ** kể từ tin của khách,
+  giống Facebook. Instagram chỉ báo "khách đã xem", không báo "đã nhận" — nên dấu tích ở kênh
+  này nhảy thẳng từ một tích sang hai tích.
+- **Nối bot Telegram chỉ còn dán một dòng mã.** Trước đây muốn đưa tin Telegram vào hộp thư,
+  bạn phải tự nghĩ ra một chuỗi bí mật, chép địa chỉ trên màn hình, rồi tự gõ một câu lệnh ở
+  ngoài trình duyệt — gần như không ai làm được nếu không có người kỹ thuật ngồi cạnh. Nay chỉ
+  cần dán mã bot lấy từ BotFather rồi bấm **Lưu**: hệ thống tự kiểm tra mã, tự lo phần còn lại,
+  và tự lấy tên bot làm tên gợi nhớ cho bạn. Gõ sai mã thì hiện đúng lý do thay vì chỉ báo
+  "Lưu không được".
+- **Khách Telegram nay được đối xử như khách Facebook.** Cảm xúc khách thả lên một tin hiện ngay
+  trong hộp thư và gỡ ra thì mất theo; khách bấm nút thì bạn thấy đúng chữ trên nút họ bấm;
+  khách nhìn thấy ba chấm trong lúc trợ lý soạn câu trả lời; và ảnh đại diện của khách hiện
+  cạnh tin thay vì một ô chữ cái.
+- **Biết khách Telegram đến từ đâu.** Nếu bạn phát liên kết chat có gắn dấu riêng cho từng chiến
+  dịch (quảng cáo, mã QR tại quầy, đường dẫn trên website), hộp thư ghi lại nguồn đó ngay khi
+  khách mở cuộc trò chuyện — thay vì nhận một câu lệnh khó hiểu như trước.
+
+### 🔧 Đã khắc phục
+- **Bản tin sáng tự chạy tiếp, không bắt bạn đăng nhập lại.** Trước đây nếu hệ thống không lấy
+  được số liệu của bạn thì bản tin chỉ đơn giản không tới — không báo gì, và bạn không có cách
+  nào biết. Nay hệ thống **tự lấy quyền của bạn** để chạy tiếp, bạn không phải làm gì cả.
+  Chỉ khi tài khoản của bạn bị khoá hoặc xoá bên CRM thì mới cần người xử lý — lúc đó bạn nhận
+  một thư nói rõ, đăng ký được tạm tắt, và chỗ **Tự động hoá → Bản tin của tôi** hiện luôn lý do
+  cùng nút bật lại.
+- **Đăng nhập một chạm từ CRM không còn bị văng ra sau mỗi lần cập nhật.** Ai vào Trav-ai bằng
+  cách bấm thẳng từ CRM (không gõ mật khẩu) thì phiên làm việc bị mất mỗi lần hệ thống khởi
+  động lại, phải quay về CRM bấm lại từ đầu. Nay phiên được giữ nguyên.
+- **Bản tin sáng tới được cả người đăng nhập một chạm.** Đây là hệ quả nặng hơn của cùng một
+  lỗi: những người này bị hệ thống xem như *chưa từng đăng nhập*, nên bản tin sáng lặng lẽ bỏ
+  qua họ — không báo lỗi, không ai biết, chỉ là sáng ra không có bản tin. Kiểm trên dữ liệu
+  thật: 6 phiên đang bị bỏ oan, nay nhận lại đủ.
+- **Khách gửi video hoặc file nhạc qua Telegram không còn là một dòng trắng.** Trước đây những
+  loại này lọt vào hộp thư thành một dòng trống: hội thoại nhảy lên đầu danh sách, báo có tin
+  chưa đọc, mà mở ra không thấy gì — bạn không có cách nào biết khách vừa gửi cái gì.
+- **Ảnh và tệp khách gửi qua Telegram không còn báo "chưa tải được".** Hệ thống lấy nhầm chìa
+  của con bot dùng cho bản tin sáng thay vì bot của chính công ty bạn, nên mọi tệp đều mở không
+  ra. Nay mở bình thường.
+- **Gỡ kết nối bot Telegram nay báo cho Telegram ngừng gửi.** Trước đây gỡ xong Telegram vẫn gửi
+  tin vào một địa chỉ đã bỏ, mãi mãi.
+
+---
+
 ## Phiên bản 26/08/2026 — Hộp thư chat: tin hiện ngay, cuộn không sót
 
 ### ✨ Tính năng mới

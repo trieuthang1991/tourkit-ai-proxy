@@ -25,23 +25,23 @@ public class ChatAttachmentTests
         [{"file_id":"nho","file_size":1200,"width":90},
          {"file_id":"to","file_size":85000,"width":1280}]
         """;
-        var ra = ChatAttachment.Doc(ChatChannel.Telegram, ChatKind.Anh, json, KhachGui);
+        var ra = ChatAttachment.Read(ChatChannel.Telegram, ChatKind.Image, json, KhachGui);
 
         var f = Assert.Single(ra);
         Assert.Equal("to", f.FileId);
-        Assert.Equal(85000, f.Kich);
+        Assert.Equal(85000, f.Size);
         Assert.Null(f.Url);          // Telegram KHÔNG cho URL — phải đi qua máy chủ
-        Assert.True(f.CoTep);
+        Assert.True(f.HasFile);
     }
 
     [Fact]
     public void Telegram_tep_lay_ten_va_co()
     {
         var json = """{"file_id":"abc","file_name":"bao-gia.pdf","file_size":40960}""";
-        var f = Assert.Single(ChatAttachment.Doc(ChatChannel.Telegram, ChatKind.Tep, json, KhachGui));
+        var f = Assert.Single(ChatAttachment.Read(ChatChannel.Telegram, ChatKind.File, json, KhachGui));
 
-        Assert.Equal("bao-gia.pdf", f.Ten);
-        Assert.Equal(40960, f.Kich);
+        Assert.Equal("bao-gia.pdf", f.Name);
+        Assert.Equal(40960, f.Size);
         Assert.Equal("abc", f.FileId);
     }
 
@@ -49,11 +49,11 @@ public class ChatAttachmentTests
     public void Telegram_vi_tri_ra_toa_do_khong_phai_tep()
     {
         var json = """{"latitude":10.7769,"longitude":106.7009}""";
-        var f = Assert.Single(ChatAttachment.Doc(ChatChannel.Telegram, ChatKind.ViTri, json, KhachGui));
+        var f = Assert.Single(ChatAttachment.Read(ChatChannel.Telegram, ChatKind.Location, json, KhachGui));
 
         Assert.Equal(10.7769, f.Lat!.Value, 4);
         Assert.Equal(106.7009, f.Lon!.Value, 4);
-        Assert.False(f.CoTep);   // vị trí không có gì để tải
+        Assert.False(f.HasFile);   // vị trí không có gì để tải
     }
 
     // ── Messenger ───────────────────────────────────────────────────────────
@@ -62,7 +62,7 @@ public class ChatAttachmentTests
     public void Messenger_lay_url_thang()
     {
         var json = """[{"type":"image","payload":{"url":"https://cdn.fb/a.jpg"}}]""";
-        var f = Assert.Single(ChatAttachment.Doc(ChatChannel.Messenger, ChatKind.Anh, json, KhachGui));
+        var f = Assert.Single(ChatAttachment.Read(ChatChannel.Messenger, ChatKind.Image, json, KhachGui));
 
         Assert.Equal("https://cdn.fb/a.jpg", f.Url);
         Assert.Null(f.FileId);
@@ -75,7 +75,7 @@ public class ChatAttachmentTests
         [{"type":"image","payload":{"url":"https://cdn.fb/1.jpg"}},
          {"type":"image","payload":{"url":"https://cdn.fb/2.jpg"}}]
         """;
-        Assert.Equal(2, ChatAttachment.Doc(ChatChannel.Messenger, ChatKind.Anh, json, KhachGui).Count);
+        Assert.Equal(2, ChatAttachment.Read(ChatChannel.Messenger, ChatKind.Image, json, KhachGui).Count);
     }
 
     // ── Zalo ────────────────────────────────────────────────────────────────
@@ -84,7 +84,7 @@ public class ChatAttachmentTests
     public void Zalo_sticker_roi_ve_thumbnail_khi_khong_co_url()
     {
         var json = """[{"type":"sticker","payload":{"thumbnail":"https://zalo/s.png"}}]""";
-        var f = Assert.Single(ChatAttachment.Doc(ChatChannel.Zalo, ChatKind.Sticker, json, KhachGui));
+        var f = Assert.Single(ChatAttachment.Read(ChatChannel.Zalo, ChatKind.Sticker, json, KhachGui));
 
         Assert.Equal("https://zalo/s.png", f.Url);
     }
@@ -94,10 +94,10 @@ public class ChatAttachmentTests
     {
         // Zalo có chỗ trả số dạng chuỗi — tin vào đúng một kiểu là mất cỡ tệp trong im lặng.
         var json = """[{"type":"file","payload":{"url":"https://z/f.pdf","name":"hd.pdf","size":"2048"}}]""";
-        var f = Assert.Single(ChatAttachment.Doc(ChatChannel.Zalo, ChatKind.Tep, json, KhachGui));
+        var f = Assert.Single(ChatAttachment.Read(ChatChannel.Zalo, ChatKind.File, json, KhachGui));
 
-        Assert.Equal("hd.pdf", f.Ten);
-        Assert.Equal(2048, f.Kich);
+        Assert.Equal("hd.pdf", f.Name);
+        Assert.Equal(2048, f.Size);
     }
 
     // ── Tin MÌNH gửi ────────────────────────────────────────────────────────
@@ -108,9 +108,9 @@ public class ChatAttachmentTests
         // Tin mình gửi được ghi theo hình dạng chuẩn {ten,kich,url} lúc lưu, nên phải đọc thẳng —
         // bóc theo định dạng riêng của kênh sẽ ra rỗng và ảnh vừa gửi biến mất khỏi khung chat.
         var json = """{"ten":"anh.jpg","kich":5000,"url":"https://r2/x.jpg"}""";
-        var f = Assert.Single(ChatAttachment.Doc(ChatChannel.Telegram, ChatKind.Anh, json, MinhGui));
+        var f = Assert.Single(ChatAttachment.Read(ChatChannel.Telegram, ChatKind.Image, json, MinhGui));
 
-        Assert.Equal("anh.jpg", f.Ten);
+        Assert.Equal("anh.jpg", f.Name);
         Assert.Equal("https://r2/x.jpg", f.Url);
     }
 
@@ -125,7 +125,7 @@ public class ChatAttachmentTests
     public void Json_rong_hay_hong_tra_danh_sach_rong(string? json)
     {
         // Một đính kèm lạ KHÔNG được phép làm hỏng cả khung chat.
-        Assert.Empty(ChatAttachment.Doc(ChatChannel.Zalo, ChatKind.Anh, json, KhachGui));
-        Assert.Empty(ChatAttachment.Doc(ChatChannel.Messenger, ChatKind.Anh, json, KhachGui));
+        Assert.Empty(ChatAttachment.Read(ChatChannel.Zalo, ChatKind.Image, json, KhachGui));
+        Assert.Empty(ChatAttachment.Read(ChatChannel.Messenger, ChatKind.Image, json, KhachGui));
     }
 }

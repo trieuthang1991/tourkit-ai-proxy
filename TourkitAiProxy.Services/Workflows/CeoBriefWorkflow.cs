@@ -32,6 +32,7 @@ namespace TourkitAiProxy.Services.Workflows;
 public class CeoBriefWorkflow : IScheduledWorkflow
 {
     private readonly DigestSubscriptionRepository _subs;
+    private readonly BriefReadinessNotifier _readiness;
     private readonly TkSessionStore _sessions;
     private readonly TkSessionRepository _sessionRepo;
     private readonly TourKitApiClient _api;
@@ -44,12 +45,14 @@ public class CeoBriefWorkflow : IScheduledWorkflow
     private readonly AiCallContext _ctx;
     private readonly ILogger<CeoBriefWorkflow> _log;
 
-    public CeoBriefWorkflow(DigestSubscriptionRepository subs, TkSessionStore sessions,
+    public CeoBriefWorkflow(BriefReadinessNotifier readiness,
+        DigestSubscriptionRepository subs, TkSessionStore sessions,
         TkSessionRepository sessionRepo, TourKitApiClient api, InsightRepository insights,
         MailQueueRepository queue, TenantChannelSettingsStore channels, IConfiguration cfg, ProviderRegistry providers, AiModelRegistry models,
         AiCallContext ctx, ILogger<CeoBriefWorkflow> log)
     {
         _subs = subs; _sessions = sessions; _sessionRepo = sessionRepo; _api = api;
+        _readiness = readiness;
         _insights = insights; _queue = queue; _channels = channels; _cfg = cfg; _providers = providers; _models = models; _ctx = ctx; _log = log;
     }
 
@@ -161,7 +164,8 @@ public class CeoBriefWorkflow : IScheduledWorkflow
 
         // Khoá theo BỘ SỐ (không theo tenant): xem ghi chú class. Chỉ sống trong 1 lượt chạy.
         var byNumbers = new Dictionary<string, DigestMessage>();
-        int prepared = 0, noSession = 0, failed = 0, skipped = 0, aiCalls = 0, aiFailed = 0;
+        int prepared = 0, noSession = 0, reloginFailed = 0, khongNhacDuoc = 0,
+            failed = 0, skipped = 0, aiCalls = 0, aiFailed = 0;
         var parts = new List<string>();
 
         // Mẫu ZNS của công ty: tra MỘT LẦN cho cả lượt, không tra lại theo từng người.
@@ -178,22 +182,39 @@ public class CeoBriefWorkflow : IScheduledWorkflow
             ct.ThrowIfCancellationRequested();
             try
             {
-                var session = await _sessionRepo.GetByUserAsync(tenantId, sub.Username, ct);
-                if (session == null)
+                // Tự xin chìa khoá nếu chưa có phiên — người dùng KHÔNG phải làm gì. Đăng nhập
+                // một chạm của TourKit chỉ cần tên công ty + tên đăng nhập, hai thứ nằm sẵn trên
+                // dòng đăng ký; không hề đụng tới mật khẩu.
+                var sanSang = await _readiness.TimHoacTuCapPhienAsync(sub, ct);
+                if (sanSang.SessionId is null)
                 {
-                    noSession++;
-                    _log.LogInformation("[ceo-brief] tenant={T} user={U} chưa đăng nhập lần nào — bỏ qua",
-                        tenantId, sub.Username);
+                    // Tới đây nghĩa là CRM từ chối cấp chìa — tài khoản khoá/xoá, hoặc chưa khai
+                    // khoá SSO. Cả hai đều cần người xử lý, không tự khỏi được.
+                    if (sanSang.LyDo == BriefReadinessReason.ReloginFailed) reloginFailed++;
+                    else noSession++;
+                    if (!await _readiness.NotifyAndDisableAsync(sub, sanSang.LyDo!.Value, utcNow, ct))
+                        khongNhacDuoc++;
                     continue;
                 }
 
-                var jwt = await _sessions.GetValidJwtAsync(session.Id, ct);
+                string jwt;
+                try { jwt = await _sessions.GetValidJwtAsync(sanSang.SessionId, ct); }
+                catch (OperationCanceledException) { throw; }
+                catch (Exception ex)
+                {
+                    reloginFailed++;
+                    _log.LogWarning(ex, "[ceo-brief] tenant={T} user={U} chìa khoá hỏng",
+                        tenantId, sub.Username);
+                    if (!await _readiness.NotifyAndDisableAsync(sub, BriefReadinessReason.ReloginFailed, utcNow, ct))
+                        khongNhacDuoc++;
+                    continue;
+                }
                 var data = await FetchDataAsync(tenantId, sub.Username, jwt, todayVn, opt, ct);
 
                 var key = Fingerprint(data);
                 if (!byNumbers.TryGetValue(key, out var msg))
                 {
-                    msg = await ComposeAsync(tenantId, session.Id, data, todayVn, opt, ct,
+                    msg = await ComposeAsync(tenantId, sanSang.SessionId, data, todayVn, opt, ct,
                                              onAiCall: () => aiCalls++, onAiFail: () => aiFailed++);
                     byNumbers[key] = msg;
                 }
@@ -237,7 +258,9 @@ public class CeoBriefWorkflow : IScheduledWorkflow
         }
 
         var summary = $"{due.Count} đăng ký đến hạn → chuẩn bị {prepared}"
-                    + (noSession > 0 ? $", bỏ qua {noSession} (chưa đăng nhập)" : "")
+                    + (noSession > 0 ? $", tạm tắt {noSession} (hết hạn phiên)" : "")
+                    + (reloginFailed > 0 ? $", tạm tắt {reloginFailed} (đăng nhập lại hỏng)" : "")
+                    + (khongNhacDuoc > 0 ? $", {khongNhacDuoc} không gửi nhắc được (chưa khai email)" : "")
                     + (skipped > 0 ? $", trùng {skipped}" : "")
                     + (failed > 0 ? $", lỗi {failed}" : "")
                     + $". Lượt AI: {aiCalls}"

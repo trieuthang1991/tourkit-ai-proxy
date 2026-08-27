@@ -213,6 +213,9 @@ public static class WorkflowStackRegistration
         s.AddSingleton<Chat.Channels.IChatChannelAdapter, Chat.Channels.ZaloChatAdapter>();
         s.AddSingleton<Chat.Channels.IChatChannelAdapter, Chat.Channels.MessengerChatAdapter>();
         s.AddSingleton<Chat.Channels.IChatChannelAdapter, Chat.Channels.TelegramChatAdapter>();
+        s.AddSingleton<Chat.Channels.IChatChannelAdapter, Chat.Channels.InstagramChatAdapter>();
+        s.AddSingleton<Chat.Channels.IChatChannelAdapter, Chat.Channels.WhatsAppChatAdapter>();
+        s.AddSingleton<Chat.Channels.IChatChannelAdapter, Chat.Channels.TikTokChatAdapter>();
         // MessengerChatAdapter cần được lấy đích danh cho bước Meta xác minh địa chỉ webhook.
         s.AddSingleton<Chat.Channels.MessengerChatAdapter>();
         // Ghi chú cũ, giữ lại để hiểu vì sao từng có giai đoạn không có lớp này:
@@ -254,6 +257,9 @@ public static class WorkflowStackRegistration
                 s.AddSingleton<Workflows.IScheduledWorkflow, Workflows.CustomerAutoCareWorkflow>();
             // Bản tin sáng: fetch bằng phiên CỦA TỪNG NGƯỜI NHẬN (không phải tài khoản tự động)
             // → CRM tự áp quyền, lọc sai cũng chỉ thiếu chứ không lộ dữ liệu người khác.
+            // Dùng chung cho cả hai bản tin: báo người dùng biết vì sao bản tin không tới được
+            // rồi tạm tắt đăng ký. Chép sang hai workflow thì sớm muộn hai nơi lệch nhau.
+            s.AddSingleton<Workflows.BriefReadinessNotifier>();
             s.AddSingleton<Workflows.IScheduledWorkflow, Workflows.SaleBriefWorkflow>();
             // Bản tin điều hành: cùng nguyên tắc phiên riêng; khác ở chỗ có gọi AI viết lời (tốn lượt),
             // và AI lỗi thì rơi về bảng số chứ không bỏ gửi.

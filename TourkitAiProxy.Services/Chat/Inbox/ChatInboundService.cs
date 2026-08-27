@@ -18,7 +18,7 @@ namespace TourkitAiProxy.Services.Chat.Inbox;
 public class ChatInboundService
 {
     /// Chờ khách im bấy lâu rồi mới gộp cụm tin lại xử lý.
-    private static readonly TimeSpan NghiGopTin = TimeSpan.FromSeconds(4);
+    private static readonly TimeSpan BurstIdle = TimeSpan.FromSeconds(4);
 
     private readonly ChatRepository _repo;
     private readonly ChatWorkSignal _tin;
@@ -50,7 +50,7 @@ public class ChatInboundService
     {
         foreach (var e in sk)
         {
-            try { await MotSuKienAsync(tenantId, accountId, e, ct); }
+            try { await OneEventAsync(tenantId, accountId, e, ct); }
             catch (Exception ex)
             {
                 // Một sự kiện hỏng không được kéo cả loạt: mỗi tin là một khách khác nhau.
@@ -60,8 +60,16 @@ public class ChatInboundService
         }
     }
 
-    private async Task MotSuKienAsync(string tenantId, string accountId, InboundChatEvent e, CancellationToken ct)
+    private async Task OneEventAsync(string tenantId, string accountId, InboundChatEvent e, CancellationToken ct)
     {
+        // Khách bấm nút: xác nhận với kênh NGAY, trước mọi việc khác. Xử lý bên dưới có gọi AI
+        // nên mất vài giây, mà trong lúc đó Telegram để nút quay vòng trên máy khách.
+        if (e.ButtonClickId is { Length: > 0 } maNut && Adapter(e.Channel) is { } boNut)
+        {
+            try { await boNut.AckButtonClickAsync(tenantId, accountId, maNut, ct); }
+            catch (Exception ex) { _log.LogDebug(ex, "[chat] xác nhận lượt bấm nút hỏng"); }
+        }
+
         await _repo.UpsertContactAsync(tenantId, e.Channel, e.ExternalUserId, e.DisplayName, ct: ct);
 
         // Còn thiếu tên hoặc ảnh thì hỏi thẳng nhà cung cấp.
@@ -72,25 +80,25 @@ public class ChatInboundService
         //
         // Nuốt mọi lỗi bên trong adapter: không lấy được tên thì hiện mã, xấu nhưng vẫn dùng được.
         // Chặn tin của khách chỉ vì không lấy được cái tên là đổi một lỗi nhỏ lấy một lỗi to.
-        if (await _repo.CanLayHoSoAsync(tenantId, e.Channel, e.ExternalUserId, ct)
+        if (await _repo.NeedsContactProfileAsync(tenantId, e.Channel, e.ExternalUserId, ct)
             && Adapter(e.Channel) is { } boNoi
-            && await boNoi.HoSoKhachAsync(tenantId, accountId, e.ExternalUserId, ct) is { } hoSo)
+            && await boNoi.ContactProfileAsync(tenantId, accountId, e.ExternalUserId, ct) is { } hoSo)
         {
-            await _repo.UpsertContactAsync(tenantId, e.Channel, e.ExternalUserId, hoSo.Ten, hoSo.Anh, ct);
+            await _repo.UpsertContactAsync(tenantId, e.Channel, e.ExternalUserId, hoSo.Name, hoSo.AvatarUrl, ct);
         }
         var hoiThoai = await _repo.GetOrCreateConversationAsync(tenantId, e.Channel, e.ExternalUserId, accountId, ct);
 
         // Nguồn khách đến (quảng cáo/liên kết/QR). Ghi TRƯỚC mọi nhánh return bên dưới: nó có thể
         // đi kèm postback, kèm tin thường, hoặc tới MỘT MÌNH — bỏ ở nhánh nào là mất ở nhánh đó.
         if (e.Referral is { } tuDau)
-            await _repo.GhiNguonAsync(tenantId, hoiThoai.Id, tuDau, ct);
+            await _repo.SetReferralAsync(tenantId, hoiThoai.Id, tuDau, ct);
 
         // Gói CHỈ mang nguồn, không có tin nào (khách mở cuộc trò chuyện từ quảng cáo mà chưa gõ
         // gì). Ghi nguồn xong là về — tạo một tin rỗng trong hội thoại là bày rác cho nhân viên.
         if (e.Referral is not null && e.ExternalMsgId is null && string.IsNullOrWhiteSpace(e.Text)
             && e.AttachmentJson is null && e.Reaction is null && e.Watermark is null)
         {
-            _bus.Bao(new(tenantId, hoiThoai.Id, "doi-hoi-thoai", null));
+            _bus.Publish(new(tenantId, hoiThoai.Id, "doi-hoi-thoai", null));
             return;
         }
 
@@ -99,8 +107,8 @@ public class ChatInboundService
         // cũ mà làm hội thoại nhảy lên đầu danh sách như có tin mới là báo động giả.
         if (e.Reaction is { } camXuc)
         {
-            await _repo.ThaCamXucAsync(tenantId, e.Channel, camXuc, e.ExternalUserId, ct);
-            _bus.Bao(new(tenantId, hoiThoai.Id, "doi-hoi-thoai", null));
+            await _repo.SetReactionAsync(tenantId, e.Channel, camXuc, e.ExternalUserId, ct);
+            _bus.Publish(new(tenantId, hoiThoai.Id, "doi-hoi-thoai", null));
             return;
         }
 
@@ -109,52 +117,69 @@ public class ChatInboundService
         // sẵn dấu tích hai mức.
         if (e.Watermark is { } moc)
         {
-            var soDong = await _repo.MarkStateWatermarkAsync(tenantId, hoiThoai.Id, moc.State, moc.UpToUtc, ct);
+            // Instagram KHÔNG gửi mốc thời gian, chỉ gửi mã tin cuối khách đã đọc — phải tra
+            // ngược ra thời điểm của chính tin đó. Lấy tạm giờ nhận gói cho nhanh là đánh dấu
+            // THỪA: mọi tin gửi trước đó bị coi là đã xem, kể cả tin khách chưa hề mở.
+            var mocLuc = moc.UpToUtc;
+            if (moc.ExternalMsgId is { Length: > 0 } maTinDoc)
+            {
+                var luc = await _repo.GetMessageSentAtAsync(tenantId, hoiThoai.Id, maTinDoc, ct);
+                if (luc is null)
+                {
+                    // Tin không nằm trong hộp thư (nhân viên trả lời từ app Meta trước khi nối,
+                    // hoặc tin đã xoá). Không có mốc thì KHÔNG đánh dấu gì — đoán là nói dối.
+                    _log.LogDebug("[chat] báo đã xem theo mã tin {Ma} nhưng không tìm thấy tin", maTinDoc);
+                    return;
+                }
+                mocLuc = luc.Value;
+            }
+
+            var soDong = await _repo.MarkStateWatermarkAsync(tenantId, hoiThoai.Id, moc.State, mocLuc, ct);
             _log.LogDebug("[chat] mốc {TT} tới {Luc:o} — đổi {N} tin, hội thoại {H}",
-                moc.State, moc.UpToUtc, soDong, hoiThoai.Id);
+                moc.State, mocLuc, soDong, hoiThoai.Id);
             // Chỉ báo khi thật sự có tin đổi trạng thái — nền tảng gửi lại mốc cũ khá thường,
             // báo mọi lần là các tab tải lại liên tục cho một thứ y hệt.
-            if (soDong > 0) _bus.Bao(new(tenantId, hoiThoai.Id, "doi-trang-thai", null));
+            if (soDong > 0) _bus.Publish(new(tenantId, hoiThoai.Id, "doi-trang-thai", null));
             return;
         }
 
         // ── Tiếng vọng: nhân viên trả lời từ app của kênh ────────────────────
         if (e.IsEcho)
         {
-            var idV = await _repo.AppendMessageAsync(tenantId, hoiThoai.Id, e.Channel, ChatDirection.Ra,
-                ChatSender.NhanVien, null, e.Kind, e.Text, e.AttachmentJson, e.ExternalMsgId,
-                ChatState.DaGui, ct);
+            var idV = await _repo.AppendMessageAsync(tenantId, hoiThoai.Id, e.Channel, ChatDirection.Out,
+                ChatSender.Agent, null, e.Kind, e.Text, e.AttachmentJson, e.ExternalMsgId,
+                ChatState.Sent, ct);
             if (idV is null) return;   // đã ghi lần trước
-            await _repo.TouchConversationAsync(tenantId, hoiThoai.Id, ChatRules.TomTat(e.Text), false, ct);
+            await _repo.TouchConversationAsync(tenantId, hoiThoai.Id, ChatRules.Summarize(e.Text), false, ct);
             // Có người thật đang trả lời → bot phải câm, nếu không nó nói đè lên người ta.
-            await _repo.PauseBotAsync(tenantId, hoiThoai.Id, (int)ChatRules.BotCamMacDinh.TotalMinutes, ct);
-            _bus.Bao(new(tenantId, hoiThoai.Id, "tin-moi", idV.Value));
+            await _repo.PauseBotAsync(tenantId, hoiThoai.Id, (int)ChatRules.DefaultBotMute.TotalMinutes, ct);
+            _bus.Publish(new(tenantId, hoiThoai.Id, "tin-moi", idV.Value));
             return;
         }
 
         // ── Tin của khách ────────────────────────────────────────────────────
-        var id = await _repo.AppendMessageAsync(tenantId, hoiThoai.Id, e.Channel, ChatDirection.Vao,
-            ChatSender.Khach, null, e.Kind, e.Text, e.AttachmentJson, e.ExternalMsgId, ChatState.DaNhan, ct);
+        var id = await _repo.AppendMessageAsync(tenantId, hoiThoai.Id, e.Channel, ChatDirection.In,
+            ChatSender.Customer, null, e.Kind, e.Text, e.AttachmentJson, e.ExternalMsgId, ChatState.Delivered, ct);
         if (id is null) return;   // webhook gửi lại — bỏ qua, KHÔNG sinh thêm câu trả lời
 
-        await _repo.TouchConversationAsync(tenantId, hoiThoai.Id, ChatRules.TomTat(e.Text), true, ct);
+        await _repo.TouchConversationAsync(tenantId, hoiThoai.Id, ChatRules.Summarize(e.Text), true, ct);
         // Bắn NGAY, trước quãng nghỉ gộp tin: nhân viên phải thấy tin khách lập tức, đừng bắt họ
         // chờ thêm bốn giây chỉ vì bot đang đợi xem khách có gõ tiếp không.
-        _bus.Bao(new(tenantId, hoiThoai.Id, "tin-moi", id.Value));
+        _bus.Publish(new(tenantId, hoiThoai.Id, "tin-moi", id.Value));
 
         // Gộp tin nhắn liên tiếp: chờ khách im rồi mới xử lý cả cụm. Chờ thẳng ở đây thay vì hẹn
         // giờ riêng — đang chạy nền, vài giây không ảnh hưởng ai, mà đỡ hẳn một cơ chế hẹn giờ.
-        await Task.Delay(NghiGopTin, ct);
+        await Task.Delay(BurstIdle, ct);
 
         var moi = await _repo.GetConversationAsync(tenantId, hoiThoai.Id, ct);
-        if (moi is null || !ChatRules.BotDuocTraLoi(moi, DateTime.UtcNow)) return;
+        if (moi is null || !ChatRules.BotMayReply(moi, DateTime.UtcNow)) return;
 
         var choXuLy = await _repo.ListPendingInboundAsync(tenantId, hoiThoai.Id, ct);
         if (choXuLy.Count == 0) return;   // luồng khác đã xử lý cụm này
 
         // Chỉ trả lời khi có CHỮ. Ảnh/sticker/vị trí thì ghi vào hộp thư cho nhân viên xem, bot
         // đoán bừa nội dung ảnh sẽ trả lời lạc đề.
-        var cauHoi = ChatRules.GhepCum(choXuLy.Select(m => m.Body));
+        var cauHoi = ChatRules.JoinBurst(choXuLy.Select(m => m.Body));
         await _repo.MarkProcessedAsync(tenantId, choXuLy.Select(m => m.Id), ct);
         if (string.IsNullOrWhiteSpace(cauHoi)) return;
 
@@ -164,20 +189,20 @@ public class ChatInboundService
         // Đặt sau mọi phép kiểm ở trên là cố ý: chỉ báo khi CHẮC CHẮN sắp trả lời. Bật rồi im là
         // tệ hơn không bật — khách thấy "đang gõ" rồi chờ mãi không có gì.
         if (Adapter(e.Channel) is { } boNoiGo)
-            await boNoiGo.BaoDangGoAsync(tenantId, accountId, e.ExternalUserId, ct);
+            await boNoiGo.SendTypingAsync(tenantId, accountId, e.ExternalUserId, ct);
 
-        var traLoi = await SinhTraLoiAsync(tenantId, hoiThoai.Id, cauHoi, ct);
+        var traLoi = await GenerateReplyAsync(tenantId, hoiThoai.Id, cauHoi, ct);
         if (string.IsNullOrWhiteSpace(traLoi)) return;
 
-        var idRa = await _repo.AppendMessageAsync(tenantId, hoiThoai.Id, e.Channel, ChatDirection.Ra,
-            ChatSender.Ai, null, ChatKind.Chu, traLoi, null, null, ChatState.Cho, ct);
+        var idRa = await _repo.AppendMessageAsync(tenantId, hoiThoai.Id, e.Channel, ChatDirection.Out,
+            ChatSender.Ai, null, ChatKind.Text, traLoi, null, null, ChatState.Pending, ct);
         if (idRa is null) return;
 
-        await _repo.TouchConversationAsync(tenantId, hoiThoai.Id, ChatRules.TomTat(traLoi), false, ct);
+        await _repo.TouchConversationAsync(tenantId, hoiThoai.Id, ChatRules.Summarize(traLoi), false, ct);
         await _repo.EnqueueOutboxAsync(tenantId, hoiThoai.Id, idRa.Value, ct);
         // Bot vừa soạn xong thì đẩy đi NGAY, đừng để nằm chờ hết nhịp — khách đang nhìn màn hình.
-        _tin.Danh(ChatLan.Ra);
-        _bus.Bao(new(tenantId, hoiThoai.Id, "tin-moi", idRa.Value));
+        _tin.Signal(ChatLane.Out);
+        _bus.Publish(new(tenantId, hoiThoai.Id, "tin-moi", idRa.Value));
     }
 
     /// <summary>
@@ -186,10 +211,10 @@ public class ChatInboundService
     /// <para>AI hỏng thì trả <c>null</c> — <b>im lặng còn hơn gửi câu rác cho khách</b>. Hội thoại
     /// vẫn nằm trong hộp thư, nhân viên thấy và trả lời tay được.</para>
     /// </summary>
-    private async Task<string?> SinhTraLoiAsync(string tenantId, long hoiThoaiId, string cauHoi,
+    private async Task<string?> GenerateReplyAsync(string tenantId, long hoiThoaiId, string cauHoi,
         CancellationToken ct)
     {
-        var loiDan = _cfg["Chat:SystemPrompt"] ?? MacDinhLoiDan;
+        var loiDan = _cfg["Chat:SystemPrompt"] ?? DefaultSystemPrompt;
         try
         {
             // Gọi từ NỀN nên không có HttpContext — phải Push thủ công, nếu không là bỏ qua hạn
@@ -227,7 +252,7 @@ public class ChatInboundService
     /// cấm nó sẽ tự nghĩ ra giá tour và lịch khởi hành — khách đọc xong tưởng thật, và công ty phải
     /// chịu. Thà nói "để em kiểm rồi báo lại".</para>
     /// </summary>
-    private const string MacDinhLoiDan = """
+    private const string DefaultSystemPrompt = """
         Bạn là nhân viên tư vấn của một công ty du lịch Việt Nam, đang trả lời khách qua tin nhắn.
 
         Cách trả lời:

@@ -296,7 +296,7 @@ public class ChatDb
     -- Nhãn theo KHÁCH (không theo hội thoại): khách nhắn lại sau ba tháng vẫn còn nhãn cũ,
     -- còn gắn theo hội thoại thì mỗi lần mở hội thoại mới là mất hết.
     --
-    -- tag đã CHUẨN HOÁ (bỏ dấu, gạch nối) trước khi ghi — xem ChatRules.ChuanHoaSlug. Ghi thô
+    -- tag đã CHUẨN HOÁ (bỏ dấu, gạch nối) trước khi ghi — xem ChatRules.NormalizeSlug. Ghi thô
     -- thì "Khách VIP" và "khach vip" thành hai nhãn khác nhau, lọc ra rỗng mà không ai hiểu.
     CREATE TABLE IF NOT EXISTS chat_contact_tags (
       tenant_id   text NOT NULL,

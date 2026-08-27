@@ -1,4 +1,4 @@
-# Bản tin AI và Bảng tin
+﻿# Bản tin AI và Bảng tin
 
 > Tách khỏi `CLAUDE.md` ngày 25/08/2026 — file đó đã hơn 1.000 dòng nên không ai đọc hết,
 > mà quy ước không đọc thì bằng không có. Xem `CLAUDE.md` để biết khi nào cần đọc file này.
@@ -78,6 +78,59 @@ Dùng token của chính họ thì **CRM tự chặn** → lọc sai chỉ thi�
 gác quyền** khi đăng ký: `DashboardService.ResolveSpUserIdAsync` (TourKit.Api) chỉ cho "xem tất cả" khi
 tài khoản có `BC_NV_XEM`, còn lại SP tự lọc về số của riêng họ; và proxy không truyền `userId` —
 `AiController.GetClaims()` bóc từ JWT.
+
+**Không có phiên thì TỰ XIN, không bắt người dùng đăng nhập** (28/08). Đăng nhập một chạm của
+TourKit ký bằng `Sso:Secret` và chỉ cần `tenantId` + tên đăng nhập — hai thứ nằm sẵn ngay trên dòng
+đăng ký. Nên `TimHoacTuCapPhienAsync` **tự xin chìa khoá mới** thay vì báo cho người dùng đi đăng
+nhập rồi quay lại bật đăng ký. **Mật khẩu không còn liên quan gì tới luồng này.**
+
+Đo thật 27/08: CRM cấp chìa cho một tài khoản thật (`staging.tourkit.vn/admin`) **không cần mật
+khẩu, không cần thao tác nào của họ** — token 229 ký tự kèm đúng tên hiển thị.
+
+⚠️ **Kẹp thời gian chờ 10 giây.** Đo thật cùng hôm: hỏi CRM cho một tên đăng nhập **không tồn tại**
+thì họ **không từ chối, mà treo** tới hết 30 giây. Trong vòng lặp bản tin, mỗi người hỏng là chặn cả
+lượt chạy chừng đó — mười người là năm phút. Chờ lâu cũng không cứu được ai.
+
+**Chỉ khi CRM TỪ CHỐI mới thật sự bó tay** (tài khoản khoá/xoá, hoặc chưa khai `Sso:Secret`) — lúc đó
+mới báo và tắt đăng ký theo luồng dưới. Ca này hiếm, và nó cần người xử lý bên CRM.
+
+⚠️ **Hệ quả của việc dùng phiên người nhận: không có phiên = không có bản tin.** Trước 27/08/2026
+chỗ này **hỏng im lặng** — workflow bỏ qua người đó rồi ghi log *"chưa đăng nhập lần nào"*, câu đó
+**sai** với cả hai nguyên nhân thật, và người mất bản tin không bao giờ biết mình đang mất.
+
+Nay tách hai bệnh, mỗi bệnh một câu hướng dẫn khác nhau
+([`BriefReadiness`](../../TourkitAiProxy.Domain/Digest/BriefReadiness.cs), hàm thuần, có test):
+
+| Mã lưu ở `NotReadyReason` | Nghĩa | Người dùng cần làm |
+|---|---|---|
+| `thieu-phien` | Không tự xin chìa được vì **chưa khai `Sso:Secret`** | Đăng nhập một lần |
+| `dang-nhap-lai-hong` | **CRM từ chối cấp chìa** — khoá/xoá tài khoản | Kiểm tra tài khoản bên CRM trước |
+
+⚠️ **KHÔNG được viết "chưa đăng nhập lần nào".** Dòng phiên đã bị dọn nên không phân biệt được
+"chưa từng" với "hết hạn"; khẳng định sai với người đã dùng nhiều tháng là họ mất tin vào cả tính năng.
+
+⚠️ **Báo MỘT lần rồi TẮT đăng ký** (`MarkNotReadyAsync` ghi lý do và `Enabled=0` trong **cùng một
+lệnh**). Tắt để lượt sau khỏi kiểm lại và không có lá thư thứ hai. Người dùng đăng nhập, thấy dải
+cảnh báo trên thẻ "Bản tin của tôi", tự bật lại — `UpsertAsync` xoá ba cột trạng thái khi `Enabled=1`.
+
+⚠️ **Thứ tự: báo TRƯỚC, tắt SAU.** Tắt trước mà xếp thư hỏng thì họ mất bản tin và không hề được
+báo — đúng cái lỗi đang sửa, chỉ khác là do mình gây ra. Báo hỏng thì **giữ nguyên đăng ký**.
+
+⚠️ **Lời nhắc chỉ đi qua THƯ và trong app.** Telegram bỏ vì lời nhắc hành chính không nên chen vào
+kênh chat; **Zalo bỏ vì ZNS chỉ chở được mẫu đã duyệt** — gửi tự do là chắc chắn bị từ chối, mà mỗi
+lần hỏng lại đẻ một dòng hàng đợi làm người đọc nhật ký tưởng kênh Zalo đang lỗi. Ai **chưa khai
+email** thì không nhắc ra ngoài được: con số đó phải hiện trong tóm tắt lượt chạy, đừng nuốt.
+
+⚠️ **Dòng ghi vào Bảng tin mang `Kind` RIÊNG** (`brief-login-required`), không mang loại bản tin —
+ghi cùng loại thì lượt sau hệ thống tưởng "hôm nay gửi rồi" và bản tin thật không bao giờ tới.
+
+**Chữ hiển thị sinh ở MÁY CHỦ** (`NotReadyLabel` / `NotReadyAction` — thuộc tính tính toán nên tự
+vào JSON). Giao diện chỉ việc in ra: chép bảng ánh xạ mã→chữ sang JavaScript là hai bản, và thêm
+một mã mới thì màn hình lặng lẽ hiện mã kỹ thuật kiểu `thieu-phien` cho người dùng đọc.
+
+⚠️ **Mốc dọn phiên 30 ngày KHÔNG phải nguyên nhân.** `GetValidJwtAsync` cập nhật `LastUsed` mỗi lượt
+chạy, nên người nhận bản tin hằng ngày **không bao giờ bị dọn** kể cả khi không mở app — chuỗi tự
+nuôi nó. Bị dọn là *hệ quả* của việc gì đó đã cắt đứt chuỗi suốt 30 ngày trước đó.
 
 **Nơi nhận — 1 kho lưu + 3 kênh gửi.** "Trong app" (`dbo.AgentInsights`) **KHÔNG phải kênh gửi** mà là
 **kho lưu luôn bật**: bản tin ghi vào đó lúc dựng, trước khi nghĩ tới chuyện gửi đi đâu — nên mọi kênh

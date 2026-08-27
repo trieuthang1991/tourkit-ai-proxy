@@ -24,7 +24,7 @@ public class ChatRulesTests
     [Fact]
     public void Zalo_con_trong_48_gio_thi_gui_duoc()
     {
-        var w = ChatRules.TinhCuaSo(ChatChannel.Zalo, Now.AddHours(-47.9), Now);
+        var w = ChatRules.ComputeSendWindow(ChatChannel.Zalo, Now.AddHours(-47.9), Now);
         Assert.True(w.Open);
         Assert.Equal("", w.Reason);
     }
@@ -32,7 +32,7 @@ public class ChatRulesTests
     [Fact]
     public void Zalo_qua_48_gio_thi_dong_va_noi_ro_ly_do()
     {
-        var w = ChatRules.TinhCuaSo(ChatChannel.Zalo, Now.AddHours(-48.1), Now);
+        var w = ChatRules.ComputeSendWindow(ChatChannel.Zalo, Now.AddHours(-48.1), Now);
         Assert.False(w.Open);
         // Lý do phải đọc được, và phải chỉ đường đi tiếp — không chỉ báo "lỗi".
         Assert.Contains("48 giờ", w.Reason);
@@ -42,8 +42,8 @@ public class ChatRulesTests
     [Fact]
     public void Messenger_han_24_gio_chu_khong_phai_48()
     {
-        Assert.True(ChatRules.TinhCuaSo(ChatChannel.Messenger, Now.AddHours(-23.9), Now).Open);
-        Assert.False(ChatRules.TinhCuaSo(ChatChannel.Messenger, Now.AddHours(-24.1), Now).Open);
+        Assert.True(ChatRules.ComputeSendWindow(ChatChannel.Messenger, Now.AddHours(-23.9), Now).Open);
+        Assert.False(ChatRules.ComputeSendWindow(ChatChannel.Messenger, Now.AddHours(-24.1), Now).Open);
     }
 
     [Fact]
@@ -51,7 +51,7 @@ public class ChatRulesTests
     {
         // Ca dễ làm sai nhất: null nghĩa là chưa ai mở lời, tức cửa sổ CHƯA TỪNG mở.
         // Coi là "mở" thì lỗi bị đẩy xuống tận lúc gọi API, sau khi nhân viên đã gõ xong tin.
-        var w = ChatRules.TinhCuaSo(ChatChannel.Zalo, null, Now);
+        var w = ChatRules.ComputeSendWindow(ChatChannel.Zalo, null, Now);
         Assert.False(w.Open);
         Assert.Contains("Khách chưa nhắn", w.Reason);
     }
@@ -59,7 +59,7 @@ public class ChatRulesTests
     [Fact]
     public void Webchat_khong_co_gioi_han_thoi_gian()
     {
-        Assert.True(ChatRules.TinhCuaSo(ChatChannel.Webchat, null, Now).Open);
+        Assert.True(ChatRules.ComputeSendWindow(ChatChannel.Webchat, null, Now).Open);
     }
 
     [Fact]
@@ -67,17 +67,17 @@ public class ChatRulesTests
     {
         // Khác Zalo/Messenger: Telegram cho nhắn lại lúc nào cũng được, miễn khách chưa chặn bot.
         // Áp luật 24h cho nó là tự khoá tay mình vô cớ.
-        Assert.True(ChatRules.TinhCuaSo(ChatChannel.Telegram, null, Now).Open);
-        Assert.True(ChatRules.TinhCuaSo(ChatChannel.Telegram, Now.AddDays(-30), Now).Open);
+        Assert.True(ChatRules.ComputeSendWindow(ChatChannel.Telegram, null, Now).Open);
+        Assert.True(ChatRules.ComputeSendWindow(ChatChannel.Telegram, Now.AddDays(-30), Now).Open);
     }
 
     [Fact]
     public void Moi_kenh_mot_han_rieng_khong_dung_chung_mot_luat()
     {
         var luc = Now.AddHours(-30);   // quá 24h nhưng chưa quá 48h
-        Assert.True(ChatRules.TinhCuaSo(ChatChannel.Zalo, luc, Now).Open);        // 48h → còn
-        Assert.False(ChatRules.TinhCuaSo(ChatChannel.Messenger, luc, Now).Open);  // 24h → hết
-        Assert.True(ChatRules.TinhCuaSo(ChatChannel.Telegram, luc, Now).Open);    // không hạn
+        Assert.True(ChatRules.ComputeSendWindow(ChatChannel.Zalo, luc, Now).Open);        // 48h → còn
+        Assert.False(ChatRules.ComputeSendWindow(ChatChannel.Messenger, luc, Now).Open);  // 24h → hết
+        Assert.True(ChatRules.ComputeSendWindow(ChatChannel.Telegram, luc, Now).Open);    // không hạn
     }
 
     // ── Bot câm ─────────────────────────────────────────────────────────────
@@ -86,21 +86,21 @@ public class ChatRulesTests
     public void Dang_trong_han_nhuong_nguoi_that_thi_bot_cam()
     {
         var c = new ChatConversation { BotResumeAt = Now.AddMinutes(10) };
-        Assert.False(ChatRules.BotDuocTraLoi(c, Now));
+        Assert.False(ChatRules.BotMayReply(c, Now));
     }
 
     [Fact]
     public void Het_han_nhuong_thi_bot_noi_lai()
     {
         var c = new ChatConversation { BotResumeAt = Now.AddMinutes(-1) };
-        Assert.True(ChatRules.BotDuocTraLoi(c, Now));
+        Assert.True(ChatRules.BotMayReply(c, Now));
     }
 
     [Fact]
     public void Hoi_thoai_da_dong_thi_bot_cam()
     {
-        var c = new ChatConversation { Status = (short)ChatStatus.DaDong };
-        Assert.False(ChatRules.BotDuocTraLoi(c, Now));
+        var c = new ChatConversation { Status = (short)ChatStatus.Closed };
+        Assert.False(ChatRules.BotMayReply(c, Now));
     }
 
     [Fact]
@@ -109,7 +109,7 @@ public class ChatRulesTests
         // Cố ý: giao việc không có nghĩa người đó đang ngồi trước màn hình. Câm ngay lúc giao thì
         // khách bị bỏ rơi cho tới khi nhân viên mở máy.
         var c = new ChatConversation { AssignedUsername = "an" };
-        Assert.True(ChatRules.BotDuocTraLoi(c, Now));
+        Assert.True(ChatRules.BotMayReply(c, Now));
     }
 
     // ── Gộp tin liên tiếp ───────────────────────────────────────────────────
@@ -117,19 +117,19 @@ public class ChatRulesTests
     [Fact]
     public void Khach_dang_go_tiep_thi_chua_xu_ly()
     {
-        Assert.False(ChatRules.DenLucXuLy(Now.AddSeconds(-2), Now));
+        Assert.False(ChatRules.DueAt(Now.AddSeconds(-2), Now));
     }
 
     [Fact]
     public void Im_du_lau_thi_xu_ly_ca_cum()
     {
-        Assert.True(ChatRules.DenLucXuLy(Now.AddSeconds(-5), Now));
+        Assert.True(ChatRules.DueAt(Now.AddSeconds(-5), Now));
     }
 
     [Fact]
     public void Ghep_cum_noi_bang_xuong_dong_va_bo_dong_rong()
     {
-        var s = ChatRules.GhepCum(new[] { "cho hỏi tour Đà Nẵng", "  ", null, "đi 4 ngày" });
+        var s = ChatRules.JoinBurst(new[] { "cho hỏi tour Đà Nẵng", "  ", null, "đi 4 ngày" });
         Assert.Equal("cho hỏi tour Đà Nẵng\nđi 4 ngày", s);
     }
 
@@ -138,13 +138,13 @@ public class ChatRulesTests
     [Fact]
     public void Tom_tat_gop_khoang_trang_va_bo_xuong_dong()
     {
-        Assert.Equal("a b c", ChatRules.TomTat("a\nb   c"));
+        Assert.Equal("a b c", ChatRules.Summarize("a\nb   c"));
     }
 
     [Fact]
     public void Tom_tat_dai_thi_cat_va_them_dau_ba_cham()
     {
-        var s = ChatRules.TomTat(new string('x', 200));
+        var s = ChatRules.Summarize(new string('x', 200));
         Assert.Equal(121, s.Length);   // 120 ký tự + dấu …
         Assert.EndsWith("…", s);
     }

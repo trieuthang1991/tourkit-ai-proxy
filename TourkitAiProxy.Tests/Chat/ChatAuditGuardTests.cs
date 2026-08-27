@@ -44,9 +44,9 @@ public class ChatAuditGuardTests
     public void Nhan_viec_that_su_goi_ghi_nhat_ky()
     {
         var src = Endpoint();
-        var m = Regex.Match(src, "NhanViecAsync(.{0,1200})", RegexOptions.Singleline);
+        var m = Regex.Match(src, "ClaimConversationAsync(.{0,1200})", RegexOptions.Singleline);
         Assert.True(m.Success);
-        Assert.Contains("GhiNhatKyAsync", m.Groups[1].Value);
+        Assert.Contains("AppendAuditAsync", m.Groups[1].Value);
     }
 
     [Fact]
@@ -56,11 +56,11 @@ public class ChatAuditGuardTests
         // khi khách yêu cầu xoá dữ liệu — sót một chỗ là vẫn còn lưu trái ý khách.
         // Soi TỪNG lời gọi tới hết dấu chấm phẩy, không soi một cửa sổ ký tự cố định: cửa sổ dễ
         // trùm sang mã bên cạnh rồi báo đỏ vì một chữ chẳng liên quan.
-        var goi = Regex.Matches(Endpoint(), @"GhiNhatKyAsync\([^;]*;", RegexOptions.Singleline)
+        var goi = Regex.Matches(Endpoint(), @"AppendAuditAsync\([^;]*;", RegexOptions.Singleline)
             .Select(x => x.Value).ToList();
         Assert.NotEmpty(goi);
 
-        foreach (var cam in new[] { "body.Text", "tin.Body", "LastPreview", "TomTat" })
+        foreach (var cam in new[] { "body.Text", "tin.Body", "LastPreview", "Summarize" })
             Assert.DoesNotContain(goi, g => g.Contains(cam, System.StringComparison.Ordinal));
     }
 
@@ -70,7 +70,7 @@ public class ChatAuditGuardTests
         // Không nằm trong danh sách thì lúc tắt cờ Features:Chat, đường này rơi vào MapFallback và
         // trả index.html kèm 200 thay vì 404 — client gọi API nhận về HTML.
         const string duong = "/api/v1/chat/conversations/1/audit";
-        Assert.Contains(TourkitAiProxy.Endpoints.ChatInboxEndpoints.DuongRieng,
+        Assert.Contains(TourkitAiProxy.Endpoints.ChatInboxEndpoints.OwnedPaths,
             p => duong.StartsWith(p + "/", System.StringComparison.Ordinal));
     }
 }

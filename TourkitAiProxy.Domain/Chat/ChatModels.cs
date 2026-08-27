@@ -14,23 +14,33 @@ public enum ChatChannel : short
     Messenger = 1,
     Webchat = 2,
     Telegram = 3,
+    /// <summary>Instagram Direct. Đi CÙNG hợp đồng nhắn tin của Meta với Messenger — xem
+    /// <c>MetaMessagingParser</c> — nhưng khác đường gửi, khác khoá ký, và KHÔNG có báo
+    /// "đã nhận".</summary>
+    Instagram = 4,
+    /// <summary>WhatsApp Cloud API. Cũng của Meta nhưng <b>hợp đồng khác hẳn</b> Messenger:
+    /// gói tin là <c>entry[].changes[].value</c>, báo trạng thái theo <c>id</c> từng tin, và
+    /// tệp khách gửi phải tải bằng khoá — không có URL công khai.</summary>
+    WhatsApp = 5,
+    /// <summary>TikTok Direct Message cho tài khoản doanh nghiệp.</summary>
+    TikTok = 6,
 }
 
 /// Chiều của tin nhắn.
-public enum ChatDirection : short { Vao = 0, Ra = 1 }
+public enum ChatDirection : short { In = 0, Out = 1 }
 
 /// Ai gửi. Tách AI với nhân viên vì người đọc CẦN biết câu nào do máy trả lời.
-public enum ChatSender : short { Khach = 0, Ai = 1, NhanVien = 2, HeThong = 3 }
+public enum ChatSender : short { Customer = 0, Ai = 1, Agent = 2, System = 3 }
 
 /// Loại nội dung.
-public enum ChatKind : short { Chu = 0, Anh = 1, Tep = 2, AmThanh = 3, Sticker = 4, ViTri = 5 }
+public enum ChatKind : short { Text = 0, Image = 1, File = 2, Audio = 3, Sticker = 4, Location = 5 }
 
 /// Trạng thái vòng đời một tin GỬI ĐI. Thiếu delivered/seen/failed thì nhân viên không phân biệt
 /// được "khách chưa đọc" với "gửi hỏng" — hai thứ dẫn tới hai hành động trái ngược.
-public enum ChatState : short { Cho = 0, DaGui = 1, DaNhan = 2, DaXem = 3, Hong = 4 }
+public enum ChatState : short { Pending = 0, Sent = 1, Delivered = 2, Seen = 3, Failed = 4 }
 
 /// Trạng thái xử lý một hội thoại.
-public enum ChatStatus : short { Moi = 0, DangXuLy = 1, DaDong = 2 }
+public enum ChatStatus : short { New = 0, InProgress = 1, Closed = 2 }
 
 /// <summary>Một sự kiện đến từ kênh, đã chuẩn hoá — lõi không cần biết kênh nào sinh ra nó.</summary>
 /// <param name="IsEcho">Tin do CHÍNH OA/Page gửi, nhận lại dưới dạng tiếng vọng — nghĩa là có người
@@ -38,6 +48,9 @@ public enum ChatStatus : short { Moi = 0, DangXuLy = 1, DaDong = 2 }
 /// bot sẽ nói đè lên người thật.</param>
 /// <param name="Watermark">Nền tảng báo lại trạng thái tin MÌNH đã gửi — không phải tin nhắn mới.
 /// Xem <see cref="StateWatermark"/>.</param>
+/// <param name="ButtonClickId">Mã lượt bấm nút cần xác nhận lại với kênh. Chỉ Telegram có:
+/// không xác nhận thì nút quay vòng trên máy khách tới lúc hết giờ rồi báo lỗi, dù mình đã
+/// xử lý xong. Xem <c>IChatChannelAdapter.AckButtonClickAsync</c>.</param>
 public record InboundChatEvent(
     ChatChannel Channel,
     string ExternalUserId,
@@ -50,7 +63,8 @@ public record InboundChatEvent(
     string? DisplayName = null,
     StateWatermark? Watermark = null,
     ChatReaction? Reaction = null,
-    ChatReferral? Referral = null);
+    ChatReferral? Referral = null,
+    string? ButtonClickId = null);
 
 /// <summary>
 /// Khách đến từ đâu — quảng cáo nào, liên kết nào, mã QR nào.
@@ -61,7 +75,7 @@ public record InboundChatEvent(
 /// </summary>
 /// <param name="Nguon">ADS · SHORTLINK · CUSTOMER_CHAT_PLUGIN…</param>
 /// <param name="Ref">Tham số <c>ref</c> do CHÍNH MÌNH đặt trên liên kết m.me hoặc mã QR.</param>
-public record ChatReferral(string? Nguon, string? Ref, string? AdId);
+public record ChatReferral(string? Source, string? Ref, string? AdId);
 
 /// <summary>
 /// Khách thả (hoặc gỡ) cảm xúc lên MỘT tin đã có.
@@ -75,7 +89,7 @@ public record ChatReferral(string? Nguon, string? Ref, string? AdId);
 /// </summary>
 /// <param name="ExternalMsgId">Tin BỊ thả — mã của nhà cung cấp, không phải id nội bộ.</param>
 /// <param name="Bo"><c>true</c> = GỠ cảm xúc. Bỏ sót nhánh này là cảm xúc đã gỡ vẫn hiện mãi.</param>
-public record ChatReaction(string ExternalMsgId, string? BieuTuong, string? Ten, bool Bo);
+public record ChatReaction(string ExternalMsgId, string? Emoji, string? Name, bool Removed);
 
 /// <summary>Một cảm xúc đọc lên từ CSDL, để đính vào tin lúc liệt kê.</summary>
 public class ChatReactionRow
@@ -94,7 +108,11 @@ public class ChatReactionRow
 /// không nói được "đã nhận", và không mang thời điểm — mà thiếu thời điểm thì hoặc đánh dấu cả
 /// hội thoại (sai: tin gửi sau đó cũng bị coi là đã xem), hoặc không đánh dấu gì.</para>
 /// </summary>
-public record StateWatermark(ChatState State, DateTime UpToUtc);
+/// <param name="ExternalMsgId">Instagram KHÔNG gửi <c>watermark</c> — chỉ gửi mã tin cuối
+/// khách đã đọc. Mốc thời gian phải tra ngược từ chính tin đó, mà tra thì phải chạm CSDL nên
+/// không làm được trong hàm bóc tin thuần. Có giá trị ở đây nghĩa là <c>UpToUtc</c> chưa dùng
+/// được, lõi phải tra trước.</param>
+public record StateWatermark(ChatState State, DateTime UpToUtc, string? ExternalMsgId = null);
 
 public class ChatContact
 {
@@ -116,7 +134,7 @@ public class ChatContact
 public record ChatInboxCounts(
     Dictionary<short, int> TheoTrangThai,
     Dictionary<short, int> TheoKenh,
-    int ChuaDoc,
+    int Unread,
     int Tong);
 
 public class ChatConversation
@@ -175,14 +193,14 @@ public record ConvCursor(DateTime LastActivityAt, long Id);
 /// </summary>
 public static class ChatCursor
 {
-    public static string Ma(ConvCursor c)
+    public static string Encode(ConvCursor c)
         => Convert.ToBase64String(System.Text.Encoding.UTF8.GetBytes(
                $"{c.LastActivityAt.Ticks}|{c.Id}"))
            .TrimEnd('=').Replace('+', '-').Replace('/', '_');   // base64url — đi trên URL không phải escape
 
     /// <summary>Mã hỏng → <c>null</c>, KHÔNG ném: con trỏ nằm trên URL nên người dùng sửa tay được,
     /// và mã cũ từ bản trước vẫn có thể còn trong lịch sử trình duyệt. Ném là cả trang trắng.</summary>
-    public static ConvCursor? Giai(string? s)
+    public static ConvCursor? Decode(string? s)
     {
         if (string.IsNullOrWhiteSpace(s)) return null;
         try
@@ -208,14 +226,14 @@ public static class ChatCursor
 /// <param name="Loai">"tin-moi" · "doi-trang-thai" · "doi-hoi-thoai".</param>
 public record ChatEvent(string TenantId, long ConversationId, string Loai, long? MessageId);
 
-/// <summary>Một dòng nhật ký thao tác. <c>ChiTiet</c> là JSON thô, KHÔNG chứa nội dung tin.</summary>
+/// <summary>Một dòng nhật ký thao tác. <c>Detail</c> là JSON thô, KHÔNG chứa nội dung tin.</summary>
 public class ChatAuditRow
 {
     public long Id { get; set; }
     public long? ConversationId { get; set; }
     public string Username { get; set; } = "";
-    public string HanhDong { get; set; } = "";
-    public string? ChiTiet { get; set; }
+    public string Action { get; set; } = "";
+    public string? Detail { get; set; }
     public DateTime CreatedUtc { get; set; }
 }
 
@@ -224,6 +242,6 @@ public class ChatNote
 {
     public long Id { get; set; }
     public string Username { get; set; } = "";
-    public string NoiDung { get; set; } = "";
+    public string Body { get; set; } = "";
     public DateTime CreatedUtc { get; set; }
 }
