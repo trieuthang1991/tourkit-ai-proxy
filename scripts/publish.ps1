@@ -66,7 +66,20 @@ if (Test-Path $OutDir) {
 # lúc SDK glob → được copy vào output (đã kiểm: dist tồn tại trước publish thì luôn được include).
 Step "Build frontend bundle (esbuild)"
 & (Join-Path $Root "build-frontend.ps1")
-if ($LASTEXITCODE -ne 0) { throw "esbuild bundle lỗi" }
+
+# KHÔNG kiểm $LASTEXITCODE ở đây: nó chỉ mang mã thoát của lệnh NATIVE cuối cùng, mà một
+# script PowerShell thì không đặt biến này. Nó có thể còn giữ mã của một lệnh nào đó chạy
+# trước → ném nhầm dù bundle vừa dựng xong. build-frontend.ps1 đã tự throw khi esbuild hỏng,
+# và $ErrorActionPreference='Stop' ở đầu file này sẽ nhận lấy — thế là đủ.
+#
+# Kiểm bằng thứ CHẮC CHẮN đúng: file bundle có thật và vừa được ghi hay không.
+$BundleOut = Join-Path $Root "wwwroot/dist/app.bundle.js"
+if (-not (Test-Path $BundleOut)) { throw "Không thấy wwwroot/dist/app.bundle.js sau khi bundle" }
+$tuoi = (Get-Date) - (Get-Item $BundleOut).LastWriteTime
+if ($tuoi.TotalMinutes -gt 10) {
+    throw "Bundle cũ $([math]::Round($tuoi.TotalMinutes)) phút — esbuild có vẻ đã không chạy lại. Kiểm build-frontend.ps1."
+}
+Write-Host "  bundle: $([math]::Round((Get-Item $BundleOut).Length / 1KB)) KB, vừa dựng xong" -ForegroundColor Green
 
 Step "dotnet publish"
 $args = @(

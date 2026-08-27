@@ -1,4 +1,4 @@
-# build-frontend.ps1 - Bundle wwwroot/*.jsx vao 1 file dist/app.bundle.js bang esbuild.
+﻿# build-frontend.ps1 - Bundle wwwroot/*.jsx vao 1 file dist/app.bundle.js bang esbuild.
 #
 # Workflow:
 #   * Dev mode (DEFAULT): index.html load 35 file .jsx + Babel standalone -> hot reload tot
@@ -65,7 +65,22 @@ if (-not $NoMinify) {
 if ($Watch) { $flags += '--watch' }
 
 Write-Host ">> esbuild bundle -> wwwroot/dist/app.bundle.js ..." -ForegroundColor Cyan
-& npx --yes esbuild @flags
+
+# esbuild ghi dong tom tat ("app.bundle.js  882kb / Done in 23ms") ra STDERR ke ca khi
+# THANH CONG. PowerShell 5.1 boc moi dong stderr cua native exe thanh NativeCommandError;
+# gap $ErrorActionPreference='Stop' o dau file thi no thanh loi CHI MANG va giet script —
+# du esbuild tra ve 0 va da ghi file xong.
+#
+# Hau qua that: scripts/publish.ps1 goi file nay, chet ngay tai day va KHONG BAO GIO toi
+# buoc `dotnet publish` — ma no da kip xoa sach thu muc publish/ truoc do. Nhin ben ngoai
+# giong het "publish khong nhan bundle moi".
+#
+# Ha ve Continue DUNG quanh loi goi native, roi tin vao $LASTEXITCODE — do moi la tin hieu
+# that. Van giu nguyen stderr tren man hinh vi tom tat cua esbuild dang doc.
+$eapCu = $ErrorActionPreference
+$ErrorActionPreference = 'Continue'
+try     { & npx --yes esbuild @flags }
+finally { $ErrorActionPreference = $eapCu }
 
 if ($LASTEXITCODE -ne 0) { throw "esbuild failed (exit $LASTEXITCODE)" }
 
