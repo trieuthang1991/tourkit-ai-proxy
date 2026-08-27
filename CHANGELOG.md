@@ -49,11 +49,12 @@ Những cập nhật gần đây của TRAV-AI, viết cho người dùng. Mới
   khách mở cuộc trò chuyện — thay vì nhận một câu lệnh khó hiểu như trước.
 
 ### 🔧 Đã khắc phục
-- **Không còn lặng lẽ mất bản tin sáng.** Trước đây nếu hệ thống không lấy được số liệu của bạn,
-  bản tin chỉ đơn giản không tới — không báo gì, và bạn không có cách nào biết. Nay bạn nhận một
-  thư nói rõ chuyện gì xảy ra và cần làm gì; đăng ký được **tạm tắt** để khỏi phải nhận thư nhắc
-  mỗi ngày. Đăng nhập lại rồi vào **Tự động hoá → Bản tin của tôi** bật lại là chạy tiếp — chỗ đó
-  cũng hiện luôn lý do đã bị tắt.
+- **Bản tin sáng tự chạy tiếp, không bắt bạn đăng nhập lại.** Trước đây nếu hệ thống không lấy
+  được số liệu của bạn thì bản tin chỉ đơn giản không tới — không báo gì, và bạn không có cách
+  nào biết. Nay hệ thống **tự lấy quyền của bạn** để chạy tiếp, bạn không phải làm gì cả.
+  Chỉ khi tài khoản của bạn bị khoá hoặc xoá bên CRM thì mới cần người xử lý — lúc đó bạn nhận
+  một thư nói rõ, đăng ký được tạm tắt, và chỗ **Tự động hoá → Bản tin của tôi** hiện luôn lý do
+  cùng nút bật lại.
 - **Đăng nhập một chạm từ CRM không còn bị văng ra sau mỗi lần cập nhật.** Ai vào Trav-ai bằng
   cách bấm thẳng từ CRM (không gõ mật khẩu) thì phiên làm việc bị mất mỗi lần hệ thống khởi
   động lại, phải quay về CRM bấm lại từ đầu. Nay phiên được giữ nguyên.

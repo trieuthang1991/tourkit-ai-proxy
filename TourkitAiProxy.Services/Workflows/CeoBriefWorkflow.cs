@@ -182,26 +182,28 @@ public class CeoBriefWorkflow : IScheduledWorkflow
             ct.ThrowIfCancellationRequested();
             try
             {
-                var session = await _sessionRepo.GetByUserAsync(tenantId, sub.Username, ct);
-                if (session == null)
+                // Tự xin chìa khoá nếu chưa có phiên — người dùng KHÔNG phải làm gì. Đăng nhập
+                // một chạm của TourKit chỉ cần tên công ty + tên đăng nhập, hai thứ nằm sẵn trên
+                // dòng đăng ký; không hề đụng tới mật khẩu.
+                var sanSang = await _readiness.TimHoacTuCapPhienAsync(sub, ct);
+                if (sanSang.SessionId is null)
                 {
-                    // ⚠️ KHÔNG bỏ qua im lặng như trước. Câu cũ ghi "chưa đăng nhập lần nào" là sai:
-                    // dòng phiên đã bị dọn nên không biết được. Nay báo cho họ rồi TẮT đăng ký.
-                    noSession++;
-                    if (!await _readiness.NotifyAndDisableAsync(sub, BriefReadinessReason.NoSession, utcNow, ct))
+                    // Tới đây nghĩa là CRM từ chối cấp chìa — tài khoản khoá/xoá, hoặc chưa khai
+                    // khoá SSO. Cả hai đều cần người xử lý, không tự khỏi được.
+                    if (sanSang.LyDo == BriefReadinessReason.ReloginFailed) reloginFailed++;
+                    else noSession++;
+                    if (!await _readiness.NotifyAndDisableAsync(sub, sanSang.LyDo!.Value, utcNow, ct))
                         khongNhacDuoc++;
                     continue;
                 }
 
-                // ⚠️ Bắt riêng lỗi đăng nhập lại: đó là BỆNH KHÁC (đổi mật khẩu / khoá tài khoản bên
-                // CRM) và cần câu hướng dẫn khác. Gộp vào "lỗi" chung là đưa lời khuyên sai.
                 string jwt;
-                try { jwt = await _sessions.GetValidJwtAsync(session.Id, ct); }
+                try { jwt = await _sessions.GetValidJwtAsync(sanSang.SessionId, ct); }
                 catch (OperationCanceledException) { throw; }
                 catch (Exception ex)
                 {
                     reloginFailed++;
-                    _log.LogWarning(ex, "[ceo-brief] tenant={T} user={U} đăng nhập lại hỏng",
+                    _log.LogWarning(ex, "[ceo-brief] tenant={T} user={U} chìa khoá hỏng",
                         tenantId, sub.Username);
                     if (!await _readiness.NotifyAndDisableAsync(sub, BriefReadinessReason.ReloginFailed, utcNow, ct))
                         khongNhacDuoc++;
@@ -212,7 +214,7 @@ public class CeoBriefWorkflow : IScheduledWorkflow
                 var key = Fingerprint(data);
                 if (!byNumbers.TryGetValue(key, out var msg))
                 {
-                    msg = await ComposeAsync(tenantId, session.Id, data, todayVn, opt, ct,
+                    msg = await ComposeAsync(tenantId, sanSang.SessionId, data, todayVn, opt, ct,
                                              onAiCall: () => aiCalls++, onAiFail: () => aiFailed++);
                     byNumbers[key] = msg;
                 }

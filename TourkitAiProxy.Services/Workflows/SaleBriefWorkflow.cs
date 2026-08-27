@@ -213,43 +213,40 @@ public class SaleBriefWorkflow : IScheduledWorkflow
             ct.ThrowIfCancellationRequested();
             try
             {
-                var session = await _sessionRepo.GetByUserAsync(tenantId, sub.Username, ct);
-                if (session == null)
+                // Tự xin chìa khoá nếu chưa có phiên — người dùng KHÔNG phải làm gì. Đăng nhập
+                // một chạm của TourKit chỉ cần tên công ty + tên đăng nhập, hai thứ nằm sẵn trên
+                // dòng đăng ký; không hề đụng tới mật khẩu.
+                var sanSang = await _readiness.TimHoacTuCapPhienAsync(sub, ct);
+                if (sanSang.SessionId is null)
                 {
-                    // ⚠️ KHÔNG bỏ qua im lặng như trước. Câu cũ ghi "chưa đăng nhập lần nào" là sai:
-                    // dòng phiên đã bị dọn nên không biết được, mà người dùng lâu năm đọc câu đó thì
-                    // mất tin vào cả tính năng. Nay báo cho họ rồi TẮT đăng ký.
-                    noSession++;
-                    if (!await _readiness.NotifyAndDisableAsync(sub, BriefReadinessReason.NoSession, utcNow, ct))
+                    // Tới đây nghĩa là CRM từ chối cấp chìa — tài khoản khoá/xoá, hoặc chưa khai
+                    // khoá SSO. Cả hai đều cần người xử lý, không tự khỏi được.
+                    if (sanSang.LyDo == BriefReadinessReason.ReloginFailed) reloginFailed++;
+                    else noSession++;
+                    if (!await _readiness.NotifyAndDisableAsync(sub, sanSang.LyDo!.Value, utcNow, ct))
                         khongNhacDuoc++;
                     continue;
                 }
 
-                // Token của CHÍNH người này; tự đăng nhập lại nếu hết hạn (user không thấy gì).
-                //
-                // ⚠️ Bắt riêng lỗi ở ĐÂY, không để rơi vào catch chung: đăng nhập lại hỏng là một
-                // BỆNH KHÁC (đổi mật khẩu / khoá tài khoản bên CRM) và cần câu hướng dẫn khác. Gộp
-                // vào "lỗi" chung thì người dùng nhận lời khuyên sai.
                 string jwt;
-                try { jwt = await _sessions.GetValidJwtAsync(session.Id, ct); }
+                try { jwt = await _sessions.GetValidJwtAsync(sanSang.SessionId, ct); }
                 catch (OperationCanceledException) { throw; }
                 catch (Exception ex)
                 {
                     reloginFailed++;
-                    _log.LogWarning(ex, "[sale-brief] tenant={T} user={U} đăng nhập lại hỏng",
+                    _log.LogWarning(ex, "[sale-brief] tenant={T} user={U} chìa khoá hỏng",
                         tenantId, sub.Username);
                     if (!await _readiness.NotifyAndDisableAsync(sub, BriefReadinessReason.ReloginFailed, utcNow, ct))
                         khongNhacDuoc++;
                     continue;
                 }
+                var crmUserId = await _sessions.EnsureCrmUserIdAsync(sanSang.SessionId, ct);
 
-                var crmUserId = await _sessions.EnsureCrmUserIdAsync(session.Id, ct);
-
-                var input = await BuildInputAsync(tenantId, sub.Username, session.FullName,
+                var input = await BuildInputAsync(tenantId, sub.Username, (await _sessionRepo.GetAsync(sanSang.SessionId, ct))?.FullName,
                     crmUserId, jwt, todayVn, mailPending, mailQuote, mailOk, opt, ct);
 
                 var msg = opt.UseAi
-                    ? await ComposeAsync(tenantId, session.Id, input, todayVn, opt, ct,
+                    ? await ComposeAsync(tenantId, sanSang.SessionId, input, todayVn, opt, ct,
                         () => aiCalls++, () => aiFails++)
                     : SaleBriefBuilder.Build(input, todayVn);
 

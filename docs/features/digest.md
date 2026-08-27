@@ -79,6 +79,21 @@ gác quyền** khi đăng ký: `DashboardService.ResolveSpUserIdAsync` (TourKit.
 tài khoản có `BC_NV_XEM`, còn lại SP tự lọc về số của riêng họ; và proxy không truyền `userId` —
 `AiController.GetClaims()` bóc từ JWT.
 
+**Không có phiên thì TỰ XIN, không bắt người dùng đăng nhập** (28/08). Đăng nhập một chạm của
+TourKit ký bằng `Sso:Secret` và chỉ cần `tenantId` + tên đăng nhập — hai thứ nằm sẵn ngay trên dòng
+đăng ký. Nên `TimHoacTuCapPhienAsync` **tự xin chìa khoá mới** thay vì báo cho người dùng đi đăng
+nhập rồi quay lại bật đăng ký. **Mật khẩu không còn liên quan gì tới luồng này.**
+
+Đo thật 27/08: CRM cấp chìa cho một tài khoản thật (`staging.tourkit.vn/admin`) **không cần mật
+khẩu, không cần thao tác nào của họ** — token 229 ký tự kèm đúng tên hiển thị.
+
+⚠️ **Kẹp thời gian chờ 10 giây.** Đo thật cùng hôm: hỏi CRM cho một tên đăng nhập **không tồn tại**
+thì họ **không từ chối, mà treo** tới hết 30 giây. Trong vòng lặp bản tin, mỗi người hỏng là chặn cả
+lượt chạy chừng đó — mười người là năm phút. Chờ lâu cũng không cứu được ai.
+
+**Chỉ khi CRM TỪ CHỐI mới thật sự bó tay** (tài khoản khoá/xoá, hoặc chưa khai `Sso:Secret`) — lúc đó
+mới báo và tắt đăng ký theo luồng dưới. Ca này hiếm, và nó cần người xử lý bên CRM.
+
 ⚠️ **Hệ quả của việc dùng phiên người nhận: không có phiên = không có bản tin.** Trước 27/08/2026
 chỗ này **hỏng im lặng** — workflow bỏ qua người đó rồi ghi log *"chưa đăng nhập lần nào"*, câu đó
 **sai** với cả hai nguyên nhân thật, và người mất bản tin không bao giờ biết mình đang mất.
@@ -88,8 +103,8 @@ Nay tách hai bệnh, mỗi bệnh một câu hướng dẫn khác nhau
 
 | Mã lưu ở `NotReadyReason` | Nghĩa | Người dùng cần làm |
 |---|---|---|
-| `thieu-phien` | Không còn dòng phiên nào | Đăng nhập một lần |
-| `dang-nhap-lai-hong` | Có phiên nhưng xin lại chìa khoá hỏng | Kiểm tra tài khoản bên CRM trước |
+| `thieu-phien` | Không tự xin chìa được vì **chưa khai `Sso:Secret`** | Đăng nhập một lần |
+| `dang-nhap-lai-hong` | **CRM từ chối cấp chìa** — khoá/xoá tài khoản | Kiểm tra tài khoản bên CRM trước |
 
 ⚠️ **KHÔNG được viết "chưa đăng nhập lần nào".** Dòng phiên đã bị dọn nên không phân biệt được
 "chưa từng" với "hết hạn"; khẳng định sai với người đã dùng nhiều tháng là họ mất tin vào cả tính năng.

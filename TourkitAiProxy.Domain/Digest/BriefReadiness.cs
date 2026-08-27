@@ -3,13 +3,24 @@
 /// <summary>Vì sao một người đang đăng ký mà bản tin không tới được.</summary>
 public enum BriefReadinessReason
 {
-    /// Không còn phiên đăng nhập nào trong cơ sở dữ liệu — hết hạn 30 ngày không dùng, hoặc chưa
-    /// từng đăng nhập. <b>Không phân biệt được hai ca này</b> vì dòng đã bị dọn, nên câu chữ phải
-    /// nói ở mức "phiên đã hết hạn", không được khẳng định "chưa đăng nhập lần nào".
+    /// <summary>
+    /// Không có phiên, và <b>không tự xin chìa khoá được vì máy chủ chưa khai <c>Sso:Secret</c></b>
+    /// (bản cài tại chỗ, máy dev). Khai đủ khoá thì ca này gần như không còn xảy ra — hệ thống tự
+    /// xin chìa, người dùng không phải làm gì.
+    ///
+    /// <para>Câu cho người dùng vẫn nói ở mức "phiên đã hết hạn" và bảo họ đăng nhập một lần:
+    /// đúng việc cần làm, và <b>không khẳng định "chưa đăng nhập lần nào"</b> — dòng phiên đã bị
+    /// dọn nên không biết được, mà nói sai với người dùng nhiều tháng là họ mất tin vào tính năng.
+    /// Lý do kỹ thuật (thiếu khoá) là chuyện của máy chủ, không phải việc của họ.</para>
+    /// </summary>
     NoSession,
 
-    /// Có phiên nhưng xin lại chìa khoá thất bại — thường là đổi mật khẩu hoặc khoá tài khoản bên
-    /// CRM. Bảo họ đăng nhập lại là bảo làm một việc chắc chắn hỏng; phải chỉ sang CRM.
+    /// <summary>
+    /// <b>CRM TỪ CHỐI cấp chìa khoá</b> — tài khoản bị khoá hoặc đã xoá. Đây là ca duy nhất còn
+    /// thật sự bó tay sau khi có lối tự xin chìa.
+    ///
+    /// <para>Bảo họ đăng nhập lại là bảo làm một việc chắc chắn hỏng; phải chỉ sang CRM.</para>
+    /// </summary>
     ReloginFailed,
 }
 
