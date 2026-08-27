@@ -113,6 +113,34 @@ public class BriefReadinessTests
         Assert.False(BriefReadiness.CanRemindByMail(rong));
     }
 
+    [Fact]
+    public void Dong_hang_doi_cua_loi_nhac_CHI_co_thu()
+    {
+        // Kiểm tận nơi, không chỉ kiểm cờ: cờ đúng mà bộ dựng dòng vẫn đẻ ra dòng Zalo thì mỗi
+        // sáng có một dòng chắc chắn hỏng trong hàng đợi, và người đọc nhật ký tưởng Zalo lỗi.
+        var sub = Sub(email: true, tele: true, zalo: true);
+        var m = BriefReadiness.BuildReminder(BriefReadinessReason.NoSession, BriefTypes.Sale,
+            null, DateTime.UtcNow);
+
+        var rows = DigestEnqueuePlanner.BuildRows(
+            BriefReadiness.ChannelsForReminder(sub), 123, m, DateTime.UtcNow, "27/08/2026");
+
+        var row = Assert.Single(rows);
+        Assert.Equal(OutboundChannel.Email, row.Channel);
+        Assert.Equal("an@cty.vn", row.ToEmail);
+    }
+
+    [Fact]
+    public void Khong_khai_thu_thi_KHONG_de_ra_dong_hang_doi_nao()
+    {
+        // Không có gì để gửi thì phải ra rỗng, chứ không phải một dòng thiếu người nhận.
+        var sub = Sub(email: false, tele: true, zalo: true);
+        var m = BriefReadiness.BuildReminder(BriefReadinessReason.NoSession, BriefTypes.Sale,
+            null, DateTime.UtcNow);
+        Assert.Empty(DigestEnqueuePlanner.BuildRows(
+            BriefReadiness.ChannelsForReminder(sub), 123, m, DateTime.UtcNow, "27/08/2026"));
+    }
+
     // ── Mã lý do lưu xuống CSDL ─────────────────────────────────────────────
 
     [Fact]
