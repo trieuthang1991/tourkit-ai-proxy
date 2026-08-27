@@ -34,6 +34,17 @@ Những cập nhật gần đây của TRAV-AI, viết cho người dùng. Mới
   chỉ khi công ty chuyển sang từ ứng dụng WhatsApp Business và chỉ trong 24 giờ đầu sau khi nối.
 
 ### 🔧 Đã khắc phục
+- **Màn hình xem lại một kênh đã nối gọn hẳn.** Trước đây mở một bot Telegram ra là gặp lại ba
+  bước hướng dẫn cách tạo bot — thứ chỉ cần lúc thêm mới — cùng một ô mã bot che sao mời bạn gõ
+  vào, mà để trống thì không ai đoán được là giữ hay xoá. Nay màn hình đó chỉ còn thứ bạn thật
+  sự mở nó ra để làm: đổi tên gợi nhớ. Mã bot hiện thành dòng **đã lưu** kèm nút **Đổi**, bấm
+  mới ra ô nhập. Mã bot và địa chỉ nhận tin nén thành hai dòng nhỏ ở cuối để đối chiếu khi cần.
+- **Instagram không còn bắt bạn đi tìm mã.** Kênh này vốn nối kèm theo Trang Facebook, nhưng
+  giao diện lại bày ô nhập như thể phải khai riêng. Nay nó chỉ thẳng sang **Kết nối Facebook**.
+- **Kênh chưa được quản trị khai khoá thì nói rõ ra.** Trước đây WhatsApp và TikTok cứ đổ bốn ô
+  kỹ thuật ra màn hình, làm bạn tưởng phải tự vào bảng điều khiển Meta hay TikTok tìm mã. Nay
+  màn hình nói đúng việc cần làm: kênh này nối bằng một nút, chỉ là quản trị hệ thống chưa khai
+  khoá — báo họ giúp bạn.
 - **TikTok không còn tự ngắt sau một ngày.** Chìa khoá TikTok cấp chỉ sống 24 giờ. Trước đây hệ
   thống không tự xin chìa mới, nên đúng một ngày sau khi nối là mọi tin gửi đi đều hỏng — mà
   câu báo lỗi không hề nhắc tới chuyện hết hạn nên rất khó đoán ra. Nay hệ thống tự gia hạn
