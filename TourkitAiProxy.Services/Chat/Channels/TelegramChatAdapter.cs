@@ -93,9 +93,19 @@ public class TelegramChatAdapter : IChatChannelAdapter
         var chatId = msg["chat"]?["id"]?.ToString();
         if (string.IsNullOrWhiteSpace(chatId)) return ra;
 
+        // ⚠️ Telegram gói MỖI loại đính kèm vào MỘT trường tên khác nhau — không có trường chung
+        // nào cho biết "tin này có tệp". Thiếu một nhánh là loại đó rơi xuống ChatKind.Chu với nội
+        // dung null: một dòng TRẮNG trong hộp thư, không lỗi, không log. Đã dính thật với `video`
+        // và `audio` (đối chiếu ChatbotX 27/08 mới lộ ra).
         var loai = ChatKind.Chu;
         string? att = null;
         if (msg["photo"] is JsonArray p && p.Count > 0) { loai = ChatKind.Anh; att = p.ToJsonString(); }
+        else if (msg["video"] is JsonNode vid) { loai = ChatKind.Tep; att = vid.ToJsonString(); }
+        // video_note = ô video tròn (bấm giữ quay). Trường riêng, không nằm trong `video`.
+        else if (msg["video_note"] is JsonNode vn) { loai = ChatKind.Tep; att = vn.ToJsonString(); }
+        // `audio` (tệp nhạc/ghi âm đính kèm) KHÁC `voice` (bấm giữ nói) nhưng cùng là âm thanh:
+        // xếp nhầm sang "tệp" thì nhân viên phải tải về mới biết có nghe được không.
+        else if (msg["audio"] is JsonNode au) { loai = ChatKind.AmThanh; att = au.ToJsonString(); }
         else if (msg["document"] is JsonNode d) { loai = ChatKind.Tep; att = d.ToJsonString(); }
         else if (msg["voice"] is JsonNode v) { loai = ChatKind.AmThanh; att = v.ToJsonString(); }
         else if (msg["location"] is JsonNode l) { loai = ChatKind.ViTri; att = l.ToJsonString(); }
@@ -105,6 +115,19 @@ public class TelegramChatAdapter : IChatChannelAdapter
                                            msg["from"]?["last_name"]?.ToString() }
             .Where(x => !string.IsNullOrWhiteSpace(x)));
 
+        var chu = msg["text"]?.ToString() ?? msg["caption"]?.ToString();
+
+        // Telegram còn hàng chục loại nữa (poll, dice, game, invoice, hoá đơn…). Không nhận ra thì
+        // BỎ QUA chứ đừng ghi một dòng trắng: dòng trắng vẫn đẩy hội thoại lên đầu danh sách và
+        // vẫn tính là chưa đọc, nhân viên mở ra không thấy gì. Ghi log để còn biết mà bổ sung —
+        // đây là chỗ DUY NHẤT nhìn ra "khách có gửi mà hộp thư không hiện".
+        if (att is null && string.IsNullOrWhiteSpace(chu))
+        {
+            _log.LogWarning("[chat/telegram] loại tin chưa hỗ trợ, bỏ qua. Các trường trong gói: {Truong}",
+                string.Join(", ", msg.AsObject().Select(x => x.Key)));
+            return ra;
+        }
+
         var luc = long.TryParse(msg["date"]?.ToString(), out var d2)
             ? DateTimeOffset.FromUnixTimeSeconds(d2).UtcDateTime : DateTime.UtcNow;
 
@@ -112,7 +135,7 @@ public class TelegramChatAdapter : IChatChannelAdapter
             // Telegram đánh số tin theo từng cuộc trò chuyện, không phải toàn cục — phải ghép
             // chat id vào, không thì hai khách khác nhau đụng cùng một số và tin sau bị coi là trùng.
             $"{chatId}:{msg["message_id"]}",
-            loai, msg["text"]?.ToString() ?? msg["caption"]?.ToString(), att, luc,
+            loai, chu, att, luc,
             DisplayName: string.IsNullOrWhiteSpace(ten) ? msg["from"]?["username"]?.ToString() : ten));
         return ra;
     }
