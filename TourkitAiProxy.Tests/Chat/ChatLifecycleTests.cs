@@ -124,7 +124,9 @@ public class ChatLifecycleTests
     [Fact]
     public void Messenger_boc_duoc_delivery_va_read()
     {
-        var src = ChatSchemaGuardTests.DocFile("TourkitAiProxy.Services/Chat/Channels/MessengerChatAdapter.cs");
+        // Phần bóc tin nay dùng CHUNG với Instagram — hai kênh đi cùng một hợp đồng của Meta.
+        var src = ChatSchemaGuardTests.DocFile(
+            "TourkitAiProxy.Services/Chat/Channels/MetaMessagingParser.cs");
         Assert.Contains("\"delivery\"", src);
         Assert.Contains("\"read\"", src);
         Assert.Contains("watermark", src);
