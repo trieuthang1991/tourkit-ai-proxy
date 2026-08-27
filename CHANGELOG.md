@@ -15,7 +15,23 @@ Những cập nhật gần đây của TRAV-AI, viết cho người dùng. Mới
 
 ## Phiên bản 28/08/2026 — Thêm 6 ngày để trả lời khách Facebook
 
+### ✨ Tính năng mới
+- **Nối WhatsApp và TikTok chỉ còn một nút.** Trước đây hai kênh này bắt bạn tự vào bảng điều
+  khiển của Meta và TikTok tìm bốn dòng mã kỹ thuật rồi chép sang — hầu như không ai làm được
+  nếu không có người kỹ thuật ngồi cạnh. Nay bấm **Kết nối WhatsApp** hoặc **Kết nối TikTok**,
+  đăng nhập tài khoản của bạn, chọn số điện thoại (hoặc tài khoản) rồi quay về — xong. Hệ thống
+  tự lấy hết những mã đó.
+
+  *Lưu ý:* ô khai tay vẫn còn, dành cho công ty nào đã tự tạo ứng dụng riêng bên Meta/TikTok.
+
 ### 🔧 Đã khắc phục
+- **TikTok không còn tự ngắt sau một ngày.** Chìa khoá TikTok cấp chỉ sống 24 giờ. Trước đây hệ
+  thống không tự xin chìa mới, nên đúng một ngày sau khi nối là mọi tin gửi đi đều hỏng — mà
+  câu báo lỗi không hề nhắc tới chuyện hết hạn nên rất khó đoán ra. Nay hệ thống tự gia hạn
+  trước khi hết, bạn không phải làm gì.
+- **WhatsApp: nhận cả tin nhân viên trả lời thẳng từ điện thoại.** Trước đây hộp thư chỉ thấy
+  câu khách hỏi, không thấy câu đã trả lời từ ứng dụng WhatsApp trên máy — nên trợ lý trả lời
+  đè lên người thật. Nay cả hai chiều đều hiện lên.
 - **Khách nhắn Facebook/Instagram từ hôm trước: nay vẫn trả lời được.** Trước đây quá 24 giờ
   kể từ tin của khách là ô soạn khoá lại — khách nhắn tối thứ Sáu, sáng thứ Hai bạn vào thì
   đã không gõ được gì, dù mở Messenger ra vẫn nhắn bình thường. Hoá ra Facebook cho **nhân

@@ -42,12 +42,23 @@ public class WhatsAppChatAdapter : IChatChannelAdapter
     private const string DefaultApiVersion = "v21.0";
 
     /// <summary>
-    /// Trường webhook đăng ký cho WABA (<c>POST /{wabaId}/subscribed_apps</c>).
+    /// Trường webhook đăng ký cho WABA (<c>POST /{wabaId}/subscribed_apps</c>). Danh sách này
+    /// chép từ dự án tham chiếu, không phải tự chọn.
     ///
-    /// <para>Thiếu <c>messages</c> là không có tin nào cả — trường này chở CẢ tin khách gửi LẪN
-    /// <c>statuses[]</c> báo trạng thái, không phải hai trường riêng như Messenger.</para>
+    /// <list type="bullet">
+    ///   <item><c>messages</c> — thiếu là không có tin nào cả. Trường này chở CẢ tin khách gửi
+    ///     LẪN <c>statuses[]</c> báo trạng thái, không phải hai trường riêng như Messenger.</item>
+    ///   <item><c>history</c> — chở <b>lịch sử chat cũ</b> khi công ty chuyển từ ứng dụng WhatsApp
+    ///     Business sang dùng API. Đây là <b>đường DUY NHẤT</b> trong sáu kênh lấy lại được đoạn
+    ///     hội thoại có từ trước lúc nối; bỏ nó là mất hẳn cơ hội đó, và không lấy lại được sau.</item>
+    ///   <item><c>smb_app_state_sync</c> — chở danh bạ khách có sẵn trong ứng dụng.</item>
+    ///   <item><c>smb_message_echoes</c> — chở tin nhân viên trả lời từ CHÍNH điện thoại. Thiếu
+    ///     nó thì hộp thư chỉ thấy câu khách hỏi mà không thấy câu đã trả lời, rồi trợ lý trả lời
+    ///     đè lên người thật.</item>
+    /// </list>
     /// </summary>
-    public static readonly string[] WabaEvents = { "messages" };
+    public static readonly string[] WabaEvents =
+        { "messages", "history", "smb_app_state_sync", "smb_message_echoes" };
 
     private readonly IHttpClientFactory _http;
     private readonly ChannelCredentialStore _cred;
@@ -236,11 +247,19 @@ public class WhatsAppChatAdapter : IChatChannelAdapter
         if (string.IsNullOrWhiteSpace(soId))
             return new(null, null, "Tài khoản WhatsApp này chưa có số điện thoại nào.");
 
-        // 4. bật nhận tin cho tài khoản
+        // 4. bật nhận tin cho tài khoản.
+        //
+        // ⚠️ PHẢI gửi subscribed_fields trong thân yêu cầu. Gọi rỗng thì Meta chỉ bật đúng bộ
+        // trường mặc định khai ở bảng điều khiển ứng dụng — hộp thư vẫn có tin, nên nhìn qua
+        // tưởng chạy đúng, nhưng LỊCH SỬ CHAT CŨ và tin nhân viên gõ từ điện thoại thì không bao
+        // giờ tới. Đó là loại hỏng chỉ phát hiện ra hàng tuần sau, lúc không lấy lại được nữa.
         try
         {
+            var than = new JsonObject { ["subscribed_fields"] = new JsonArray(
+                WabaEvents.Select(x => (JsonNode)JsonValue.Create(x)!).ToArray()) };
             using var res = await http.PostAsync(
-                $"{GraphBase}/{ApiVersion}/{U(wabaId!)}/subscribed_apps?access_token={U(token!)}", null, ct);
+                $"{GraphBase}/{ApiVersion}/{U(wabaId!)}/subscribed_apps?access_token={U(token!)}",
+                new StringContent(than.ToJsonString(), Encoding.UTF8, "application/json"), ct);
             var raw = await res.Content.ReadAsStringAsync(ct);
             if (!res.IsSuccessStatusCode || JsonNode.Parse(raw)?["error"] is not null)
                 return new(null, null, $"Không bật được nhận tin WhatsApp: {Truncate(raw)}");
@@ -263,7 +282,65 @@ public class WhatsAppChatAdapter : IChatChannelAdapter
 
         _log.LogInformation("[chat/whatsapp] tenant={T} nối số {So} ({Id}) của tài khoản {W}",
             tenantId, soHienThi, soId, wabaId);
+
+        // 5. xin Meta đẩy lịch sử chat cũ + danh bạ về.
+        //
+        // Không chặn lượt nối nếu hỏng: nối được rồi là kênh chạy, lịch sử chỉ là phần thêm.
+        await TriggerHistorySyncAsync(http, soId!, token!, ct);
+
         return new(soId, soHienThi, null);
+    }
+
+    /// <summary>
+    /// Xin Meta đẩy <b>lịch sử chat cũ</b> và <b>danh bạ</b> của ứng dụng WhatsApp Business về.
+    ///
+    /// <para>⚠️ <b>Đăng ký trường <c>history</c> thôi là KHÔNG ĐỦ</b> — nếu không gọi hàm này thì
+    /// Meta không gửi gì cả, và nhìn bên ngoài mọi thứ vẫn bình thường: tin mới vẫn về, chỉ có
+    /// lịch sử là im lặng không bao giờ tới. Đây là chỗ dễ tưởng đã xong nhất.</para>
+    ///
+    /// <para>⚠️ <b>Mỗi loại chỉ xin được MỘT LẦN</b>, và chỉ trong <b>24 giờ</b> kể từ lúc nối.
+    /// Bỏ lỡ là mất hẳn, không có đường xin lại. Vì thế gọi ngay trong bước nối chứ không hẹn
+    /// một tác vụ chạy sau.</para>
+    ///
+    /// <para>Ba lý do hỏng dưới đây đều BÌNH THƯỜNG, không phải sự cố: số không phải loại đăng ký
+    /// từ ứng dụng WhatsApp Business (mã 131000/10), đã xin rồi, hoặc quá 24 giờ. Ghi log ở mức
+    /// nhắc chứ không báo lỗi — dựng cảnh báo cho ba ca này là báo động giả cho gần như mọi lượt
+    /// nối của tài khoản mở mới.</para>
+    /// </summary>
+    private async Task TriggerHistorySyncAsync(HttpClient http, string phoneNumberId, string token,
+        CancellationToken ct)
+    {
+        foreach (var loai in new[] { "history", "smb_app_state_sync" })
+        {
+            try
+            {
+                var than = new JsonObject
+                {
+                    ["messaging_product"] = "whatsapp",
+                    ["sync_type"] = loai,
+                };
+                using var res = await http.PostAsync(
+                    $"{GraphBase}/{ApiVersion}/{U(phoneNumberId)}/smb_app_data?access_token={U(token)}",
+                    new StringContent(than.ToJsonString(), Encoding.UTF8, "application/json"), ct);
+                var raw = await res.Content.ReadAsStringAsync(ct);
+
+                if (res.IsSuccessStatusCode && JsonNode.Parse(raw)?["error"] is null)
+                {
+                    _log.LogInformation("[chat/whatsapp] đã xin Meta đẩy {Loai} cho số {So}",
+                        loai, phoneNumberId);
+                    continue;
+                }
+
+                _log.LogInformation("[chat/whatsapp] không xin được {Loai} cho số {So} — "
+                    + "bình thường nếu số này không đăng ký từ ứng dụng WhatsApp Business, "
+                    + "đã xin rồi, hoặc đã quá 24 giờ. Meta trả: {Ly}",
+                    loai, phoneNumberId, Truncate(raw));
+            }
+            catch (Exception ex)
+            {
+                _log.LogWarning(ex, "[chat/whatsapp] gọi smb_app_data ({Loai}) hỏng", loai);
+            }
+        }
     }
 
     /// <summary>Gọi Graph trả JSON. Không ném — chỗ gọi tự đọc lỗi trong thân.</summary>
@@ -311,11 +388,120 @@ public class WhatsAppChatAdapter : IChatChannelAdapter
 
                 ReadStatuses(v, ra);
                 ReadMessages(v, ten, ra);
+                ReadEchoes(v, ten, ra);
+                ReadHistory(v, ten, ra);
             }
         }
         return ra;
     }
 
+    /// <summary>
+    /// <c>message_echoes[]</c>: tin nhân viên gõ từ CHÍNH ứng dụng WhatsApp trên điện thoại.
+    ///
+    /// <para>Thiếu nhánh này thì hộp thư chỉ thấy câu khách hỏi mà không thấy câu đã trả lời —
+    /// rồi trợ lý trả lời đè lên người thật, khách nhận hai câu khác nhau cho cùng một câu hỏi.</para>
+    ///
+    /// <para>Khách là <c>to</c> chứ không phải <c>from</c>: ở tiếng vọng, <c>from</c> là số của
+    /// công ty. Lấy nhầm đầu là hội thoại mang tên chính mình.</para>
+    ///
+    /// <para>Meta dùng cả hai tên trường cho cùng một thứ tuỳ đời gói tin — đọc cả hai.</para>
+    /// </summary>
+    private void ReadEchoes(JsonNode v, Dictionary<string, string> ten, List<InboundChatEvent> ra)
+    {
+        foreach (var khoa in new[] { "message_echoes", "smb_message_echoes" })
+        {
+            if (v[khoa] is not JsonArray ds) continue;
+            foreach (var m in ds.OfType<JsonNode>())
+            {
+                var khach = m["to"]?.ToString();
+                if (string.IsNullOrWhiteSpace(khach)) continue;
+                var (loai, chu, att) = DocThan(m);
+                ra.Add(new(Channel, khach!, m["id"]?.ToString(), loai, chu, att, LucGui(m),
+                    IsEcho: true, DisplayName: ten.GetValueOrDefault(khach!)));
+            }
+        }
+    }
+
+    /// <summary>
+    /// <c>history[]</c>: đoạn chat CŨ, có từ trước lúc nối — Meta đẩy về sau khi mình gọi
+    /// <c>smb_app_data</c>. Đây là <b>đường duy nhất</b> trong sáu kênh lấy lại được lịch sử.
+    ///
+    /// <para><b>Chiều tin đọc từ <c>thread.id</c>.</b> Mã luồng CHÍNH LÀ số của khách, nên
+    /// <c>from != thread.id</c> nghĩa là tin của mình. Nhờ vậy không cần biết số của công ty —
+    /// mà trong gói lịch sử thì đúng là không phải lúc nào cũng có.</para>
+    ///
+    /// <para>Bỏ tin <c>type="errors"</c>: Meta không giải mã được, không có nội dung gì dùng
+    /// được. Ghi vào là hộp thư đầy dòng trống mà không ai biết là tin gì.</para>
+    /// </summary>
+    private void ReadHistory(JsonNode v, Dictionary<string, string> ten, List<InboundChatEvent> ra)
+    {
+        if (v["history"] is not JsonArray mangLs) return;
+        foreach (var manh in mangLs.OfType<JsonNode>())
+        {
+            if (manh["threads"] is not JsonArray luong) continue;
+            foreach (var t in luong.OfType<JsonNode>())
+            {
+                var khach = t["id"]?.ToString();
+                if (string.IsNullOrWhiteSpace(khach)) continue;
+                if (t["messages"] is not JsonArray tins) continue;
+
+                foreach (var m in tins.OfType<JsonNode>())
+                {
+                    if (m["type"]?.ToString() == "errors") continue;
+                    var (loai, chu, att) = DocThan(m);
+                    ra.Add(new(Channel, khach!, m["id"]?.ToString(), loai, chu, att, LucGui(m),
+                        IsEcho: m["from"]?.ToString() != khach,
+                        DisplayName: ten.GetValueOrDefault(khach!),
+                        IsHistory: true));
+                }
+            }
+        }
+    }
+
+    /// <summary>
+    /// Bóc phần nội dung dùng chung giữa tin thường, tiếng vọng và lịch sử — ba chỗ này mang
+    /// CÙNG hình dạng tin, chỉ khác vỏ ngoài.
+    ///
+    /// <para>Media ở đây <b>chỉ giữ mã tệp</b>, không tải về: gói lịch sử có thể chở hàng nghìn
+    /// tệp, tải hết ngay lúc nhận webhook là treo cả đường nhận tin. Tin vẫn hiện đúng chỗ đúng
+    /// giờ, kèm nhãn loại tệp.</para>
+    /// </summary>
+    private static (ChatKind Loai, string? Chu, string? Att) DocThan(JsonNode m)
+    {
+        var kieu = m["type"]?.ToString();
+        var chu = m["text"]?["body"]?.ToString();
+
+        foreach (var (khoa, loai) in new[]
+        {
+            ("image", ChatKind.Image), ("sticker", ChatKind.Sticker), ("video", ChatKind.File),
+            ("audio", ChatKind.Audio), ("document", ChatKind.File),
+        })
+        {
+            if (m[khoa] is not JsonNode tep) continue;
+            var att = new JsonObject
+            {
+                ["id"] = tep["id"]?.ToString(),
+                ["mime"] = tep["mime_type"]?.ToString(),
+                ["ten"] = tep["filename"]?.ToString(),
+            }.ToJsonString();
+            return (loai, chu ?? tep["caption"]?.ToString(), att);
+        }
+
+        // Loại chưa hỗ trợ (vị trí, danh thiếp, đơn hàng…): giữ lại một dòng nói rõ là gì thay vì
+        // bỏ hẳn. Dòng trống giữa hội thoại khiến người đọc tưởng mất tin.
+        if (string.IsNullOrWhiteSpace(chu) && !string.IsNullOrWhiteSpace(kieu))
+            chu = $"[{kieu}]";
+        return (ChatKind.Text, chu, null);
+    }
+
+    /// <summary>
+    /// <c>timestamp</c> của WhatsApp là GIÂY Unix, kiểu chuỗi. Thiếu hoặc hỏng thì lấy giờ hiện
+    /// tại — với tin trực tiếp là đúng, còn tin lịch sử thì thà sai chỗ hơn là mất hẳn tin.
+    /// </summary>
+    private static DateTime LucGui(JsonNode m)
+        => long.TryParse(m["timestamp"]?.ToString(), out var giay)
+            ? DateTimeOffset.FromUnixTimeSeconds(giay).UtcDateTime
+            : DateTime.UtcNow;
     /// <summary>
     /// <c>statuses[]</c>: WhatsApp báo trạng thái theo <b>mã từng tin</b>, không theo mốc nước.
     ///

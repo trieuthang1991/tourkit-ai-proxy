@@ -1042,6 +1042,35 @@ public static class ChatInboxEndpoints
                 return Results.Json(new { url = fb.PermissionUrlFor(quayVe, state), redirectUri = quayVe }, Web);
             }
 
+            if ((ChatChannel)channel == ChatChannel.WhatsApp)
+            {
+                var wa = adapters.OfType<Services.Chat.Channels.WhatsAppChatAdapter>().FirstOrDefault();
+                if (wa?.HasPlatformApp != true)
+                    return Results.BadRequest(new
+                    {
+                        error = "Máy chủ chưa khai ứng dụng WhatsApp (Chat:WhatsApp — cần cả AppId, "
+                              + "AppSecret và ConfigId của luồng Embedded Signup)",
+                    });
+
+                var quayVe = PublicOrigin(ctx, cfg) + WhatsAppCallbackPath;
+                var state = moc.Create(a.TenantId, "", quayVe);
+                return Results.Json(new { url = wa.PermissionUrlFor(quayVe, state), redirectUri = quayVe }, Web);
+            }
+
+            if ((ChatChannel)channel == ChatChannel.TikTok)
+            {
+                var tt = adapters.OfType<Services.Chat.Channels.TikTokChatAdapter>().FirstOrDefault();
+                if (tt?.HasPlatformApp != true)
+                    return Results.BadRequest(new
+                    {
+                        error = "Máy chủ chưa khai ứng dụng TikTok (Chat:TikTok — cần cả ClientId và ClientSecret)",
+                    });
+
+                var quayVe = PublicOrigin(ctx, cfg) + TikTokCallbackPath;
+                var state = moc.Create(a.TenantId, "", quayVe);
+                return Results.Json(new { url = tt.PermissionUrlFor(quayVe, state), redirectUri = quayVe }, Web);
+            }
+
             return Results.BadRequest(new { error = "Kênh này không có bước kết nối một chạm" });
         });
 
@@ -1143,6 +1172,67 @@ public static class ChatInboxEndpoints
             return PagePickerPage(ma, trang, await ConnectedIdsAsync(cred, cho.Value.TenantId, ct), null);
         });
 
+        // CÔNG KHAI — Meta gọi lại sau luồng Embedded Signup của WhatsApp.
+        //
+        // Khác Facebook ở chỗ KHÔNG có màn hình chọn: luồng Embedded Signup chỉ cấp quyền cho
+        // ĐÚNG MỘT tài khoản WhatsApp, nên phía máy chủ tự dựng lại được cả tài khoản lẫn số điện
+        // thoại từ mã cấp quyền. Người dùng không phải nhập gì.
+        g.MapGet("/oauth/whatsapp/callback", async (string? code, string? state, string? error,
+            string? error_description, HttpContext ctx,
+            IEnumerable<Services.Chat.Channels.IChatChannelAdapter> adapters,
+            Services.Chat.Channels.ChatOAuthStates moc, CancellationToken ct) =>
+        {
+            if (!string.IsNullOrWhiteSpace(error))
+                return PermissionPage(false, $"WhatsApp báo: {error_description ?? error}");
+
+            var cho = moc.Nhan(state);
+            if (cho is null)
+                return PermissionPage(false,
+                    "Lượt kết nối đã hết hạn hoặc đã dùng rồi. Bấm lại nút Kết nối WhatsApp.");
+            if (string.IsNullOrWhiteSpace(code))
+                return PermissionPage(false, "WhatsApp không trả về mã cấp quyền.");
+
+            var wa = adapters.OfType<Services.Chat.Channels.WhatsAppChatAdapter>().FirstOrDefault();
+            if (wa is null) return PermissionPage(false, "Kênh WhatsApp chưa được bật ở máy chủ.");
+
+            var kq = await wa.ConnectFromCodeAsync(cho.Value.TenantId, code!, cho.Value.RedirectUri, ct);
+            if (kq.Loi is not null) return PermissionPage(false, kq.Loi);
+
+            var ten = string.IsNullOrWhiteSpace(kq.SoHienThi) ? "WhatsApp" : kq.SoHienThi;
+            return PermissionPage(true,
+                $"Đã nối số {ten}. Tin nhắn mới sẽ vào hộp thư ngay.");
+        });
+
+        // CÔNG KHAI — TikTok gọi lại sau khi người dùng bấm Đồng ý.
+        //
+        // Cũng không có màn hình chọn: một lượt cấp quyền TikTok gắn với đúng MỘT tài khoản, và
+        // mã tài khoản (open_id) chính là thứ dùng để gửi tin — không phải đi tìm thêm mã nào.
+        g.MapGet("/oauth/tiktok/callback", async (string? code, string? state, string? error,
+            string? error_description, HttpContext ctx,
+            IEnumerable<Services.Chat.Channels.IChatChannelAdapter> adapters,
+            Services.Chat.Channels.ChatOAuthStates moc, CancellationToken ct) =>
+        {
+            if (!string.IsNullOrWhiteSpace(error))
+                return PermissionPage(false, $"TikTok báo: {error_description ?? error}");
+
+            var cho = moc.Nhan(state);
+            if (cho is null)
+                return PermissionPage(false,
+                    "Lượt kết nối đã hết hạn hoặc đã dùng rồi. Bấm lại nút Kết nối TikTok.");
+            if (string.IsNullOrWhiteSpace(code))
+                return PermissionPage(false, "TikTok không trả về mã cấp quyền.");
+
+            var tt = adapters.OfType<Services.Chat.Channels.TikTokChatAdapter>().FirstOrDefault();
+            if (tt is null) return PermissionPage(false, "Kênh TikTok chưa được bật ở máy chủ.");
+
+            var kq = await tt.ConnectFromCodeAsync(cho.Value.TenantId, code!, cho.Value.RedirectUri, ct);
+            if (kq.Loi is not null) return PermissionPage(false, kq.Loi);
+
+            var ten = string.IsNullOrWhiteSpace(kq.Ten) ? "TikTok" : kq.Ten;
+            return PermissionPage(true,
+                $"Đã nối tài khoản \"{ten}\". Tin nhắn mới sẽ vào hộp thư ngay.");
+        });
+
         // CÔNG KHAI — nửa sau của bước nối: người dùng vừa bấm chọn một Trang trên trang picker.
         //
         // Không có phiên nên chốt chặn nằm ở `ma`: máy chủ tự sinh 32 byte ngẫu nhiên, sống 10
@@ -1195,6 +1285,10 @@ public static class ChatInboxEndpoints
                                     .FirstOrDefault()?.HasPlatformApp == true;
             var fbNhanh = adapters.OfType<Services.Chat.Channels.MessengerChatAdapter>()
                                   .FirstOrDefault()?.HasPlatformApp == true;
+            var waNhanh = adapters.OfType<Services.Chat.Channels.WhatsAppChatAdapter>()
+                                  .FirstOrDefault()?.HasPlatformApp == true;
+            var ttNhanh = adapters.OfType<Services.Chat.Channels.TikTokChatAdapter>()
+                                  .FirstOrDefault()?.HasPlatformApp == true;
             var ra = new List<object>();
             foreach (var (kenh, ten, tenNgan, oNhap, moiTaiKhoanMotUrl) in KhaiBao)
             {
@@ -1203,6 +1297,8 @@ public static class ChatInboxEndpoints
                 {
                     ChatChannel.Zalo => zaloNhanh,
                     ChatChannel.Messenger => fbNhanh,
+                    ChatChannel.WhatsApp => waNhanh,
+                    ChatChannel.TikTok => ttNhanh,
                     _ => false,
                 };
                 // Ứng dụng dùng chung thì URL webhook cũng dùng chung — khai MỘT lần trong ứng dụng
@@ -1221,6 +1317,8 @@ public static class ChatInboxEndpoints
                     {
                         ChatChannel.Zalo => "Kết nối Zalo OA",
                         ChatChannel.Messenger => "Kết nối Facebook",
+                        ChatChannel.WhatsApp => "Kết nối WhatsApp",
+                        ChatChannel.TikTok => "Kết nối TikTok",
                         _ => "Kết nối",
                     },
                     // Telegram: mỗi bot một URL riêng (thân tin không nói bot nào) → URL chung để
@@ -1497,6 +1595,12 @@ public static class ChatInboxEndpoints
     /// khớp từng ký tự. Đổi ở đây là phải sửa cả bên đó.</remarks>
     private const string MessengerCallbackPath = "/api/v1/chat/oauth/messenger/callback";
 
+    /// Đường Meta gọi lại sau khi người dùng đi hết luồng Embedded Signup của WhatsApp.
+    private const string WhatsAppCallbackPath = "/api/v1/chat/oauth/whatsapp/callback";
+
+    /// Đường TikTok gọi lại sau khi người dùng bấm Đồng ý.
+    private const string TikTokCallbackPath = "/api/v1/chat/oauth/tiktok/callback";
+
     /// <summary>Id các Trang công ty này đã nối — để trang chọn Trang không mời nối lại cái đã có.</summary>
     private static async Task<HashSet<string>> ConnectedIdsAsync(ChannelCredentialStore cred, string tenantId,
         CancellationToken ct)
@@ -1671,6 +1775,9 @@ public static class ChatInboxEndpoints
             new FieldSpec("appSecret",     "App Secret", "secret",
                 "Để trống nếu dùng chung ứng dụng Meta với Facebook"),
             new FieldSpec("note",
+                "Bốn ô này CHỈ dùng khi công ty tự tạo ứng dụng riêng trên Meta for Developers. "
+                + "Bình thường bấm \"Kết nối WhatsApp\" là xong — không phải khai gì.", "note"),
+            new FieldSpec("note2",
                 "WhatsApp cần tài khoản doanh nghiệp đã xác minh và một số điện thoại RIÊNG "
                 + "(số đã dùng cho ứng dụng WhatsApp thường thì không khai được). Ngoài 24 giờ kể "
                 + "từ tin của khách chỉ gửi được mẫu đã duyệt, không gửi chữ tự do.", "note"),
@@ -1683,6 +1790,9 @@ public static class ChatInboxEndpoints
             new FieldSpec("accessToken",  "Access Token", "secret", "Token của ứng dụng TikTok for Business"),
             new FieldSpec("clientSecret", "Client Secret", "secret", "Dùng để kiểm chữ ký webhook"),
             new FieldSpec("note",
+                "Bốn ô này CHỈ dùng khi công ty tự tạo ứng dụng riêng trên TikTok for Business. "
+                + "Bình thường bấm \"Kết nối TikTok\" là xong — không phải khai gì.", "note"),
+            new FieldSpec("note2",
                 "TikTok cần ứng dụng TikTok for Business đã được duyệt quyền nhắn tin. Kênh này "
                 + "chỉ gửi được CHỮ và ẢNH; tệp, âm thanh, video thì gửi đường dẫn bằng tin chữ.", "note"),
         }, false),

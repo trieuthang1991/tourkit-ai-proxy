@@ -549,26 +549,64 @@ public class ChatRepository
     /// lại, KHÔNG phải tin mới. Chống trùng dựa vào chỉ mục duy nhất ở CSDL chứ không phải kiểm
     /// trước rồi ghi: hai lần gửi song song thì cách kiểm-rồi-ghi vẫn lọt.
     /// </summary>
+    /// <param name="createdUtc">Thời điểm THẬT của tin. Để <c>null</c> ở tin trực tiếp — cột tự
+    /// đóng dấu giờ ghi, lệch vài giây không ai thấy. Chỉ NHẬP LỊCH SỬ mới cần truyền: bỏ qua là
+    /// cả năm hội thoại cũ dồn vào một phút và dòng thời gian đảo lộn hết.</param>
     public async Task<long?> AppendMessageAsync(string tenant, long conversationId, ChatChannel kenh,
         ChatDirection chieu, ChatSender nguoiGui, string? username, ChatKind loai, string? noiDung,
-        string? attachmentJson, string? externalMsgId, ChatState trangThai, CancellationToken ct = default)
+        string? attachmentJson, string? externalMsgId, ChatState trangThai, CancellationToken ct = default,
+        DateTime? createdUtc = null)
     {
         await using var c = await _db.OpenAsync(ct);
         var id = await c.ExecuteScalarAsync<long?>("""
             INSERT INTO chat_messages
               (tenant_id, conversation_id, channel, direction, sender_kind, sender_username,
-               kind, body, attachment, external_msg_id, state)
+               kind, body, attachment, external_msg_id, state, created_utc)
             VALUES (@tenant, @conv, @kenh, @chieu, @nguoiGui, @username,
-                    @loai, @noiDung, @att::jsonb, @ext, @tt)
+                    @loai, @noiDung, @att::jsonb, @ext, @tt,
+                    COALESCE(@luc, NOW() AT TIME ZONE 'utc'))
             ON CONFLICT (tenant_id, channel, external_msg_id) WHERE external_msg_id IS NOT NULL
               DO NOTHING
             RETURNING id
             """, new { tenant, conv = conversationId, kenh = (short)kenh, chieu = (short)chieu,
                        nguoiGui = (short)nguoiGui, username, loai = (short)loai, noiDung,
-                       att = attachmentJson, ext = externalMsgId, tt = (short)trangThai });
+                       att = attachmentJson, ext = externalMsgId, tt = (short)trangThai,
+                       luc = createdUtc });
 
         if (id is null) _log.LogDebug("[chat] bỏ tin trùng ext={Ext} conv={Conv}", externalMsgId, conversationId);
         return id;
+    }
+
+    /// <summary>
+    /// Tính lại mốc hoạt động và dòng xem trước TỪ CHÍNH các tin đang có.
+    ///
+    /// <para>Dùng sau khi nhập lịch sử. Không dùng <see cref="TouchConversationAsync"/> được:
+    /// hàm đó đóng dấu giờ HIỆN TẠI, mà tin vừa nhập là tin cũ — hội thoại chết ba năm sẽ nhảy
+    /// lên đầu hộp thư như vừa có người nhắn.</para>
+    ///
+    /// <para>Đọc lại từ bảng tin thay vì nhận mốc từ chỗ gọi: lịch sử về theo từng mảnh không
+    /// theo thứ tự nào, nên chỗ gọi không biết mảnh mình cầm có phải mảnh mới nhất không.</para>
+    /// </summary>
+    public async Task RecomputeActivityAsync(string tenant, long conversationId,
+        CancellationToken ct = default)
+    {
+        await using var c = await _db.OpenAsync(ct);
+        await c.ExecuteAsync("""
+            UPDATE chat_conversations c
+               SET last_activity_at  = COALESCE(m.moc, c.last_activity_at),
+                   last_preview      = COALESCE(m.xem, c.last_preview),
+                   contact_replied_at = COALESCE(m.khach, c.contact_replied_at)
+              FROM (
+                    SELECT MAX(created_utc) AS moc,
+                           MAX(created_utc) FILTER (WHERE direction = 0) AS khach,
+                           (SELECT LEFT(COALESCE(body, ''), 200) FROM chat_messages
+                              WHERE conversation_id = @conv AND tenant_id = @tenant
+                              ORDER BY created_utc DESC, id DESC LIMIT 1) AS xem
+                      FROM chat_messages
+                     WHERE conversation_id = @conv AND tenant_id = @tenant
+                   ) m
+             WHERE c.id = @conv AND c.tenant_id = @tenant
+            """, new { tenant, conv = conversationId });
     }
 
     /// Cập nhật mốc hoạt động + dòng xem trước. Tin của khách thì cập nhật thêm mốc tính cửa sổ gửi.

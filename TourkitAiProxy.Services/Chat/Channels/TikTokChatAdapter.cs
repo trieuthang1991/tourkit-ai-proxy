@@ -59,6 +59,200 @@ public class TikTokChatAdapter : IChatChannelAdapter
 
     private string? PlatformClientSecret => NullIfBlank(_cfg["Chat:TikTok:ClientSecret"]);
 
+    // ── Nối bằng MỘT nút ────────────────────────────────────────────────────
+
+    private const string OpenApiBase = "https://open.tiktokapis.com/v2";
+    private const string AuthorizeUrl = "https://www.tiktok.com/v2/auth/authorize/";
+
+    /// <summary>
+    /// Quyền xin lúc cấp phép. Ba quyền <c>message.list.*</c> là phần bắt buộc; năm quyền
+    /// <c>user.info.*</c> để lấy tên và ảnh tài khoản hiện lên danh sách kênh.
+    ///
+    /// <para>⚠️ Danh sách này phải TRÙNG với phần đã khai trong ứng dụng TikTok for Business.
+    /// Xin một quyền chưa được duyệt thì TikTok từ chối CẢ lượt cấp phép chứ không bỏ qua riêng
+    /// quyền đó — và câu lỗi của họ không nói quyền nào.</para>
+    /// </summary>
+    private const string Scopes =
+        "user.info.basic,user.info.username,user.info.profile,user.info.stats,user.account.type,"
+        + "message.list.read,message.list.send,message.list.manage";
+
+    private string? PlatformClientId => NullIfBlank(_cfg["Chat:TikTok:ClientId"]);
+
+    public bool HasPlatformApp => PlatformClientId is not null && PlatformClientSecret is not null;
+
+    /// <summary>
+    /// Đường mở hộp thoại cấp quyền của TikTok.
+    ///
+    /// <para><c>disable_auto_auth=1</c> buộc TikTok hỏi lại người dùng thay vì lặng lẽ dùng lại
+    /// lượt cấp quyền cũ. Thiếu nó thì ĐỔI TÀI KHOẢN không được: bấm Kết nối là nối lại đúng tài
+    /// khoản lần trước, không hiện màn hình chọn nào.</para>
+    /// </summary>
+    public string PermissionUrlFor(string redirectUri, string state)
+        => $"{AuthorizeUrl}?client_key={U(PlatformClientId!)}&response_type=code"
+         + $"&scope={U(Scopes)}&redirect_uri={U(redirectUri)}&disable_auto_auth=1&state={U(state)}";
+
+    /// <summary>Kết quả nối một tài khoản TikTok.</summary>
+    public record KetQuaNoi(string? AccountId, string? Ten, string? Loi);
+
+    /// <summary>
+    /// Đổi mã cấp quyền thành một tài khoản TikTok nối sẵn — <b>người dùng không nhập gì cả</b>.
+    ///
+    /// <para>⚠️ <b>Đổi mã đi qua Business API, KHÔNG phải Open API.</b> Hai bên có hai đường đổi
+    /// mã khác nhau và chỉ đường Business mới cấp token dùng được cho nhắn tin. Gọi nhầm đường
+    /// thì vẫn ra token hợp lệ, nối vẫn báo thành công, mà mọi lượt gửi tin sau đó đều bị từ chối.</para>
+    ///
+    /// <para>⚠️ Thân yêu cầu là <b>JSON</b> chứ không phải form — khác hầu hết OAuth khác.</para>
+    /// </summary>
+    public async Task<KetQuaNoi> ConnectFromCodeAsync(string tenantId, string code, string redirectUri,
+        CancellationToken ct)
+    {
+        if (!HasPlatformApp) return new(null, null, "Máy chủ chưa khai ứng dụng TikTok (Chat:TikTok)");
+
+        var tk = await DoiMaAsync(new JsonObject
+        {
+            ["client_id"] = PlatformClientId,
+            ["client_secret"] = PlatformClientSecret,
+            ["grant_type"] = "authorization_code",
+            ["auth_code"] = code,
+            ["redirect_uri"] = redirectUri,
+        }, "tt_user/oauth2/token/", ct);
+        if (tk.Loi is not null) return new(null, null, tk.Loi);
+
+        // business_id CHÍNH LÀ open_id — không phải một mã riêng phải đi tìm trong bảng điều
+        // khiển TikTok. Đây là lý do bốn ô khai tay trước đây đều thừa.
+        var openId = tk.OpenId;
+        if (string.IsNullOrWhiteSpace(openId))
+            return new(null, null, "TikTok không trả về mã tài khoản (open_id).");
+
+        var hoSo = await HoSoAsync(tk.AccessToken!, ct);
+        var ten = hoSo?["display_name"]?.ToString() ?? hoSo?["username"]?.ToString();
+
+        await LuuKhoaAsync(tenantId, openId!, tk, new Dictionary<string, string?>
+        {
+            ["businessId"] = openId,
+            ["openId"] = openId,
+            ["tiktokName"] = ten,
+            ["avatarUrl"] = hoSo?["avatar_url"]?.ToString(),
+            ["label"] = ten,
+        }, ct);
+
+        _log.LogInformation("[chat/tiktok] tenant={T} nối tài khoản {Ten} ({Id})", tenantId, ten, openId);
+        return new(openId, ten, null);
+    }
+
+    /// <summary>
+    /// Đảm bảo token còn hạn trước khi gọi API. <b>Gọi ở MỌI đường ra ngoài.</b>
+    ///
+    /// <para>Token TikTok sống 24 giờ. Không tự gia hạn thì đúng một ngày sau khi nối là mọi tin
+    /// gửi đi đều hỏng — và triệu chứng ("TikTok từ chối") không hề gợi ra rằng nguyên nhân là
+    /// hết hạn, nên chỗ này im lặng hỏng rất lâu.</para>
+    ///
+    /// <para>Gia hạn <b>sớm 30 phút</b>: gọi đúng lúc hết hạn thì lượt đang bay vẫn hỏng.</para>
+    /// </summary>
+    private async Task EnsureFreshTokenAsync(string tenantId, string accountId, CancellationToken ct)
+    {
+        var c = await _cred.GetAsync(tenantId, Channel, accountId, ct);
+        if (c is null) return;
+        c.TryGetValue("refreshToken", out var refresh);
+        if (string.IsNullOrWhiteSpace(refresh)) return;   // khai tay, không có gì để gia hạn
+
+        c.TryGetValue("expiresAtUtc", out var hanChu);
+        if (DateTime.TryParse(hanChu, CultureInfo.InvariantCulture,
+                DateTimeStyles.AdjustToUniversal | DateTimeStyles.AssumeUniversal, out var han)
+            && han - DateTime.UtcNow > TimeSpan.FromMinutes(30))
+            return;
+
+        if (!HasPlatformApp) return;
+        var tk = await DoiMaAsync(new JsonObject
+        {
+            ["client_id"] = PlatformClientId,
+            ["client_secret"] = PlatformClientSecret,
+            ["grant_type"] = "refresh_token",
+            ["refresh_token"] = refresh,
+        }, "tt_user/oauth2/refresh_token/", ct);
+
+        if (tk.Loi is not null)
+        {
+            _log.LogWarning("[chat/tiktok] gia hạn token hỏng cho {Acc}: {Loi}", accountId, tk.Loi);
+            return;   // để lượt gọi tới tự báo lỗi thật, đừng nuốt tin
+        }
+        await LuuKhoaAsync(tenantId, accountId, tk, new Dictionary<string, string?>(), ct);
+        _log.LogInformation("[chat/tiktok] đã gia hạn token cho {Acc}", accountId);
+    }
+
+    private record KetQuaToken(string? AccessToken, string? RefreshToken, string? OpenId,
+        int ExpiresInSeconds, string? Loi);
+
+    /// <summary>
+    /// Gọi một trong hai đường token của Business API. Cả hai trả cùng hình dạng
+    /// <c>{code, message, data:{…}}</c> — và <c>code != 0</c> là HỎNG dù HTTP vẫn 200.
+    /// </summary>
+    private async Task<KetQuaToken> DoiMaAsync(JsonObject than, string duong, CancellationToken ct)
+    {
+        try
+        {
+            var http = _http.CreateClient();
+            using var res = await http.PostAsync($"{BusinessBase}/{duong}",
+                new StringContent(than.ToJsonString(), Encoding.UTF8, "application/json"), ct);
+            var raw = await res.Content.ReadAsStringAsync(ct);
+            var o = JsonNode.Parse(raw)?.AsObject();
+
+            var ma = o?["code"]?.ToString();
+            if (ma is not null && ma != "0")
+                return new(null, null, null, 0,
+                    $"TikTok từ chối ({ma}): {o?["message"]?.ToString() ?? "không rõ lý do"}");
+
+            var d = o?["data"];
+            var token = d?["access_token"]?.ToString();
+            if (string.IsNullOrWhiteSpace(token))
+                return new(null, null, null, 0, $"TikTok không trả về token: {Truncate(raw)}");
+
+            var song = 0;
+            if (d?["expires_in"] is { } e) int.TryParse(e.ToString(), out song);
+            return new(token, d?["refresh_token"]?.ToString(), d?["open_id"]?.ToString(), song, null);
+        }
+        catch (Exception ex) { return new(null, null, null, 0, "Không gọi được TikTok: " + ex.Message); }
+    }
+
+    private async Task<JsonNode?> HoSoAsync(string token, CancellationToken ct)
+    {
+        try
+        {
+            var http = _http.CreateClient();
+            using var req = new HttpRequestMessage(HttpMethod.Get,
+                $"{OpenApiBase}/user/info/?fields=open_id,display_name,avatar_url,username");
+            req.Headers.Add("Authorization", "Bearer " + token);
+            using var res = await http.SendAsync(req, ct);
+            return JsonNode.Parse(await res.Content.ReadAsStringAsync(ct))?["data"]?["user"];
+        }
+        catch (Exception ex)
+        {
+            // Thiếu tên thì danh sách hiện mã tài khoản — xấu nhưng vẫn nhắn tin được. Không chặn.
+            _log.LogWarning(ex, "[chat/tiktok] không đọc được hồ sơ tài khoản");
+            return null;
+        }
+    }
+
+    /// <summary>
+    /// Ghi token kèm mốc hết hạn. Kho khoá GỘP theo từng khoá nên ô nào để rỗng thì giữ giá trị
+    /// cũ — nhờ đó lượt gia hạn không xoá mất tên tài khoản và nhãn người dùng tự đặt.
+    /// </summary>
+    private Task LuuKhoaAsync(string tenantId, string accountId, KetQuaToken tk,
+        Dictionary<string, string?> them, CancellationToken ct)
+    {
+        var g = new Dictionary<string, string?>(them)
+        {
+            ["accessToken"] = tk.AccessToken,
+            ["refreshToken"] = tk.RefreshToken,
+            ["expiresAtUtc"] = DateTime.UtcNow
+                .AddSeconds(tk.ExpiresInSeconds > 0 ? tk.ExpiresInSeconds : 3600)
+                .ToString("O", CultureInfo.InvariantCulture),
+        };
+        return _cred.SaveAsync(tenantId, Channel, accountId, g, ct);
+    }
+
+    private static string U(string s) => Uri.EscapeDataString(s);
+
     private static string? NullIfBlank(string? s) => string.IsNullOrWhiteSpace(s) ? null : s.Trim();
 
     /// <summary><c>user_openid</c> của gói tin — khoá định tuyến ra công ty.</summary>
@@ -211,6 +405,10 @@ public class TikTokChatAdapter : IChatChannelAdapter
     private async Task<(string? Token, string? BusinessId)> KhoaAsync(string tenantId, string accountId,
         CancellationToken ct)
     {
+        // Gia hạn TRƯỚC khi đọc khoá. Mọi đường gửi ra ngoài đều qua đây, nên đặt ở đây là
+        // không đường nào lọt. Token TikTok sống 24 giờ; thiếu bước này thì đúng một ngày sau
+        // khi nối là kênh im lặng hỏng.
+        await EnsureFreshTokenAsync(tenantId, accountId, ct);
         var c = await _cred.GetAsync(tenantId, Channel, accountId, ct);
         if (c is null) return (null, null);
         c.TryGetValue("accessToken", out var token);

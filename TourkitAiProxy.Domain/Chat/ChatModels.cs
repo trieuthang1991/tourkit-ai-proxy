@@ -51,6 +51,13 @@ public enum ChatStatus : short { New = 0, InProgress = 1, Closed = 2 }
 /// <param name="ButtonClickId">Mã lượt bấm nút cần xác nhận lại với kênh. Chỉ Telegram có:
 /// không xác nhận thì nút quay vòng trên máy khách tới lúc hết giờ rồi báo lỗi, dù mình đã
 /// xử lý xong. Xem <c>IChatChannelAdapter.AckButtonClickAsync</c>.</param>
+/// <param name="IsHistory">Tin CŨ do nền tảng trả về lúc nối, không phải tin vừa xảy ra.
+///
+/// <para><b>Phải đi đường riêng, không dùng lại đường tin thường.</b> Ba việc lõi làm với mỗi
+/// tin của khách đều SAI với tin cũ: sinh một câu trả lời của trợ lý (một năm lịch sử là hàng
+/// trăm câu trả lời gửi thẳng cho khách hôm nay), cho bot câm 30 phút, và chờ gộp tin. Ngoài
+/// ra tin cũ phải giữ đúng <see cref="InboundChatEvent.SentUtc"/> làm thời điểm — đóng dấu giờ
+/// nhập là cả năm hội thoại dồn vào một phút.</para></param>
 public record InboundChatEvent(
     ChatChannel Channel,
     string ExternalUserId,
@@ -64,7 +71,8 @@ public record InboundChatEvent(
     StateWatermark? Watermark = null,
     ChatReaction? Reaction = null,
     ChatReferral? Referral = null,
-    string? ButtonClickId = null);
+    string? ButtonClickId = null,
+    bool IsHistory = false);
 
 /// <summary>
 /// Khách đến từ đâu — quảng cáo nào, liên kết nào, mã QR nào.

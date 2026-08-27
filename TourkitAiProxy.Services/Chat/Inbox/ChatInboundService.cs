@@ -143,6 +143,32 @@ public class ChatInboundService
             return;
         }
 
+        // ── Tin CŨ: nền tảng trả lịch sử về lúc nối ──────────────────────────
+        //
+        // Ghi rồi DỪNG. Ba việc ngay dưới đây đều sai với tin cũ:
+        //   · sinh câu trả lời — một năm lịch sử là hàng trăm câu trợ lý gửi thẳng cho khách
+        //     HÔM NAY, về những chuyện đã xong từ lâu. Đây là kiểu hỏng không rút lại được.
+        //   · cho bot câm 30 phút — tính từ giờ, vì một tin của ba năm trước.
+        //   · chờ gộp tin — bốn giây nhân với vài nghìn tin lịch sử.
+        //
+        // Thời điểm lấy từ chính gói tin (e.SentUtc), không phải giờ nhập.
+        if (e.IsHistory)
+        {
+            var idCu = await _repo.AppendMessageAsync(tenantId, hoiThoai.Id, e.Channel,
+                e.IsEcho ? ChatDirection.Out : ChatDirection.In,
+                e.IsEcho ? ChatSender.Agent : ChatSender.Customer, null, e.Kind, e.Text,
+                e.AttachmentJson, e.ExternalMsgId,
+                e.IsEcho ? ChatState.Sent : ChatState.Delivered, ct, e.SentUtc);
+            if (idCu is null) return;   // đã nhập lần trước — nền tảng gửi lại cùng một mảnh
+
+            // Đánh dấu đã xử lý NGAY: nếu không, cụm gộp tin của lượt tin thật kế tiếp sẽ vơ cả
+            // đống tin cũ vào làm câu hỏi cho trợ lý.
+            await _repo.MarkProcessedAsync(tenantId, new[] { idCu.Value }, ct);
+            await _repo.RecomputeActivityAsync(tenantId, hoiThoai.Id, ct);
+            _bus.Publish(new(tenantId, hoiThoai.Id, "tin-moi", idCu.Value));
+            return;
+        }
+
         // ── Tiếng vọng: nhân viên trả lời từ app của kênh ────────────────────
         if (e.IsEcho)
         {
