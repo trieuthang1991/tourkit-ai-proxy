@@ -36,7 +36,7 @@ namespace TourkitAiProxy.Services.Chat.Channels;
 /// <para>⚠️ Và <c>messaging_seen</c> của Instagram báo bằng <c>mid</c> chứ không bằng
 /// <c>watermark</c> — xử lý ở <see cref="MetaMessagingParser"/>, đọc ghi chú tại đó.</para>
 /// </summary>
-public class InstagramChatAdapter : IChatChannelAdapter
+public class InstagramChatAdapter : IChatChannelAdapter, ILateHumanReplySender
 {
     private const string GraphBase = "https://graph.instagram.com";
     private const string DefaultApiVersion = "v21.0";
@@ -184,11 +184,38 @@ public class InstagramChatAdapter : IChatChannelAdapter
 
     public Task<SendResult> SendTextAsync(string tenantId, string accountId, string externalUserId,
         string text, CancellationToken ct)
-        => GuiAsync(tenantId, accountId, new JsonObject
+        => GuiAsync(tenantId, accountId, ThanChu(externalUserId, text, MetaSendTag.None), ct);
+
+    /// <inheritdoc cref="ILateHumanReplySender.SendTextAsHumanAgentAsync"/>
+    public Task<SendResult> SendTextAsHumanAgentAsync(string tenantId, string accountId,
+        string externalUserId, string text, CancellationToken ct)
+        => GuiAsync(tenantId, accountId, ThanChu(externalUserId, text, MetaSendTag.HumanAgent), ct);
+
+    /// <inheritdoc cref="ILateHumanReplySender.SendMediaAsHumanAgentAsync"/>
+    public Task<SendResult> SendMediaAsHumanAgentAsync(string tenantId, string accountId,
+        string externalUserId, ChatKind loai, string url, string? caption, CancellationToken ct)
+        => SendMediaAsync(tenantId, accountId, externalUserId, loai, url, caption,
+            MetaSendTag.HumanAgent, ct);
+
+    private static JsonObject ThanChu(string externalUserId, string text, MetaSendTag nhan)
+        => DinhNhan(new JsonObject
         {
             ["recipient"] = new JsonObject { ["id"] = externalUserId },
             ["message"] = new JsonObject { ["text"] = text },
-        }, ct);
+        }, nhan);
+
+    /// <summary>
+    /// Đính nhãn <c>HUMAN_AGENT</c> — cửa Meta mở cho NHÂN VIÊN nhắn tới 7 ngày, ngoài cửa sổ
+    /// 24 giờ thường. Bot không được dùng; ai quyết định là
+    /// <see cref="TourkitAiProxy.Domain.Chat.ChatRules.ComputeSendWindow"/>.
+    /// </summary>
+    private static JsonObject DinhNhan(JsonObject than, MetaSendTag nhan)
+    {
+        if (nhan != MetaSendTag.HumanAgent) return than;
+        than["messaging_type"] = "MESSAGE_TAG";
+        than["tag"] = "HUMAN_AGENT";
+        return than;
+    }
 
     /// <summary>
     /// Gửi ảnh/tệp. Instagram tải về từ URL công khai, y như Messenger.
@@ -197,8 +224,12 @@ public class InstagramChatAdapter : IChatChannelAdapter
     /// Nên chú thích phải đi thành một tin riêng — bỏ qua là khách nhận ảnh trần không hiểu để làm
     /// gì.</para>
     /// </summary>
-    public async Task<SendResult> SendMediaAsync(string tenantId, string accountId, string externalUserId,
+    public Task<SendResult> SendMediaAsync(string tenantId, string accountId, string externalUserId,
         ChatKind loai, string url, string? caption, CancellationToken ct)
+        => SendMediaAsync(tenantId, accountId, externalUserId, loai, url, caption, MetaSendTag.None, ct);
+
+    private async Task<SendResult> SendMediaAsync(string tenantId, string accountId, string externalUserId,
+        ChatKind loai, string url, string? caption, MetaSendTag nhan, CancellationToken ct)
     {
         var kieu = loai switch
         {
@@ -206,7 +237,7 @@ public class InstagramChatAdapter : IChatChannelAdapter
             ChatKind.Audio => "audio",
             _ => "file",
         };
-        var kq = await GuiAsync(tenantId, accountId, new JsonObject
+        var kq = await GuiAsync(tenantId, accountId, DinhNhan(new JsonObject
         {
             ["recipient"] = new JsonObject { ["id"] = externalUserId },
             ["message"] = new JsonObject
@@ -217,10 +248,12 @@ public class InstagramChatAdapter : IChatChannelAdapter
                     ["payload"] = new JsonObject { ["url"] = url, ["is_reusable"] = true },
                 },
             },
-        }, ct);
+        }, nhan), ct);
 
+        // Chú thích là tin RIÊNG nên phải mang cùng nhãn: không thì ảnh lọt qua mà dòng chữ ngay
+        // sau bị Meta chặn, khách nhận ảnh trần không hiểu để làm gì.
         if (kq.Ok && !string.IsNullOrWhiteSpace(caption))
-            await SendTextAsync(tenantId, accountId, externalUserId, caption!, ct);
+            await GuiAsync(tenantId, accountId, ThanChu(externalUserId, caption!, nhan), ct);
         return kq;
     }
 

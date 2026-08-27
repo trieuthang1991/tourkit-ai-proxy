@@ -13,6 +13,22 @@ Những cập nhật gần đây của TRAV-AI, viết cho người dùng. Mới
 
 ---
 
+## Phiên bản 28/08/2026 — Thêm 6 ngày để trả lời khách Facebook
+
+### 🔧 Đã khắc phục
+- **Khách nhắn Facebook/Instagram từ hôm trước: nay vẫn trả lời được.** Trước đây quá 24 giờ
+  kể từ tin của khách là ô soạn khoá lại — khách nhắn tối thứ Sáu, sáng thứ Hai bạn vào thì
+  đã không gõ được gì, dù mở Messenger ra vẫn nhắn bình thường. Hoá ra Facebook cho **nhân
+  viên** trả lời tới **7 ngày**, chỉ là trợ lý tự động thì không. Nay hộp thư mở đúng như
+  vậy: quá 24 giờ, bạn vẫn nhắn tay được thêm 6 ngày nữa, và có một dòng nhắc ngay trên
+  khung chat cho biết từ lúc đó trợ lý đã ngừng trả lời hộ — để bạn không tưởng nhầm là vẫn
+  có người trực.
+
+  *Lưu ý:* chỉ Facebook và Instagram có thêm 6 ngày này. Zalo vẫn 48 giờ, WhatsApp vẫn 24
+  giờ rồi phải dùng mẫu đã duyệt — đó là quy định của từng nền tảng.
+
+---
+
 ## Phiên bản 27/08/2026 — Sáu kênh chat trong một hộp thư
 
 ### ✨ Tính năng mới

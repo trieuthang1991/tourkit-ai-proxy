@@ -99,6 +99,29 @@ public interface IChatChannelAdapter
         CancellationToken ct) => Task.CompletedTask;
 }
 
+/// <summary>
+/// Kênh có cửa <b>"người thật trả lời muộn"</b> thì cài thêm giao diện này. Hiện chỉ Messenger và
+/// Instagram: Meta cho nhân viên nhắn tới <b>7 ngày</b> kể từ tin của khách, ngoài cửa sổ 24 giờ
+/// thường, miễn là đính nhãn <c>HUMAN_AGENT</c>.
+///
+/// <para><b>Vì sao tách ra chứ không thêm tham số vào <see cref="IChatChannelAdapter"/>.</b> Bốn
+/// kênh còn lại không có khái niệm này: Zalo đi bằng ZNS, WhatsApp đi bằng mẫu duyệt sẵn,
+/// Telegram/TikTok không giới hạn. Nhét một tham số riêng của Meta vào chữ ký chung là bắt mọi
+/// kênh mang theo một thứ chúng không dùng — đúng cái mà ghi chú ở giao diện chính bảo đừng làm.</para>
+///
+/// <para><b>Ai được gọi:</b> chỉ khi <see cref="TourkitAiProxy.Domain.Chat.ChatRules.ComputeSendWindow"/>
+/// trả về <see cref="TourkitAiProxy.Domain.Chat.MetaSendTag.HumanAgent"/> — tức tin do NHÂN VIÊN
+/// gõ. Đính nhãn này cho tin của bot là vi phạm chính sách Meta.</para>
+/// </summary>
+public interface ILateHumanReplySender
+{
+    Task<SendResult> SendTextAsHumanAgentAsync(string tenantId, string accountId, string externalUserId,
+        string text, CancellationToken ct);
+
+    Task<SendResult> SendMediaAsHumanAgentAsync(string tenantId, string accountId, string externalUserId,
+        ChatKind loai, string url, string? caption, CancellationToken ct);
+}
+
 /// <param name="Anh">Ảnh đại diện. ⚠️ Meta ký hạn vào URL này nên nó <b>HẾT HẠN</b> sau một thời
 /// gian — lưu rồi để mãi là vài tuần sau cả hộp thư hiện ảnh vỡ. Vì thế có mốc làm mới.</param>
 public record ContactProfile(string? Name, string? AvatarUrl);

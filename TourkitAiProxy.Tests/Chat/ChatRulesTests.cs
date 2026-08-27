@@ -47,6 +47,70 @@ public class ChatRulesTests
     }
 
     [Fact]
+    public void Qua_24_gio_thi_NHAN_VIEN_van_nhan_duoc_toi_7_ngay()
+    {
+        // Meta mở sẵn cửa này (nhãn HUMAN_AGENT) để nhân viên xử nốt việc dở. Trước 28/08/2026
+        // mình chặn thẳng ở mốc 24 giờ, tức tự bỏ 6 ngày nền tảng vẫn cho phép: khách nhắn tối
+        // thứ Sáu, nhân viên vào sáng thứ Hai là ô soạn đã khoá.
+        foreach (var kenh in new[] { ChatChannel.Messenger, ChatChannel.Instagram })
+        {
+            var w = ChatRules.ComputeSendWindow(kenh, Now.AddDays(-3), Now, ChatSender.Agent);
+            Assert.True(w.Open);
+            Assert.Equal(MetaSendTag.HumanAgent, w.Tag);
+            // Còn lại đếm tới mốc 7 ngày chứ không phải 24 giờ.
+            Assert.InRange(w.Left.TotalDays, 3.9, 4.1);
+        }
+    }
+
+    [Fact]
+    public void Cua_7_ngay_chi_danh_cho_nguoi_that_KHONG_cho_bot()
+    {
+        // Đính nhãn HUMAN_AGENT cho tin của bot là vi phạm chính sách Meta và có thể bị khoá
+        // quyền nhắn tin của cả Trang. Mặc định của hàm phải là CHẶT (bot), không phải lỏng.
+        foreach (var ai in new[] { ChatSender.Ai, ChatSender.System })
+        {
+            var w = ChatRules.ComputeSendWindow(ChatChannel.Messenger, Now.AddDays(-3), Now, ai);
+            Assert.False(w.Open);
+            Assert.Equal(MetaSendTag.None, w.Tag);
+            Assert.Contains("trợ lý không được tự trả lời", w.Reason);
+            Assert.Contains("Nhân viên vẫn nhắn tay được", w.Reason);
+        }
+
+        // Quên truyền tham số = coi như bot. Chỗ gọi nào sót thì MẤT quyền, không phải được thêm.
+        Assert.False(ChatRules.ComputeSendWindow(ChatChannel.Messenger, Now.AddDays(-3), Now).Open);
+    }
+
+    [Fact]
+    public void Qua_7_ngay_thi_nguoi_that_cung_khong_gui_duoc()
+    {
+        var w = ChatRules.ComputeSendWindow(ChatChannel.Messenger, Now.AddDays(-7.1), Now, ChatSender.Agent);
+        Assert.False(w.Open);
+        Assert.Equal(MetaSendTag.None, w.Tag);
+        Assert.Contains("7 ngày", w.Reason);
+    }
+
+    [Fact]
+    public void WhatsApp_KHONG_co_cua_7_ngay_vi_khong_co_nhan_HUMAN_AGENT()
+    {
+        // WhatsApp ngoài 24 giờ phải đi bằng MẪU TIN đã được duyệt, không có nhãn nào cả. Gộp ba
+        // kênh "của Meta" thành một luật là chỗ dễ sai nhất ở đây.
+        var w = ChatRules.ComputeSendWindow(ChatChannel.WhatsApp, Now.AddDays(-3), Now, ChatSender.Agent);
+        Assert.False(w.Open);
+        Assert.Equal(MetaSendTag.None, w.Tag);
+        Assert.Contains("mẫu tin WhatsApp", w.Reason);
+        Assert.DoesNotContain("ZNS", w.Reason);
+    }
+
+    [Fact]
+    public void Trong_24_gio_thi_KHONG_dinh_nhan_du_la_nhan_vien_gui()
+    {
+        // Đính nhãn khi không cần là tự lấy hạn mức của một loại tin khác mà chẳng được gì.
+        var w = ChatRules.ComputeSendWindow(ChatChannel.Messenger, Now.AddHours(-2), Now, ChatSender.Agent);
+        Assert.True(w.Open);
+        Assert.Equal(MetaSendTag.None, w.Tag);
+    }
+
+    [Fact]
     public void Khach_chua_nhan_gi_thi_DONG_chu_khong_phai_mo()
     {
         // Ca dễ làm sai nhất: null nghĩa là chưa ai mở lời, tức cửa sổ CHƯA TỪNG mở.

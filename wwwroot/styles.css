@@ -9150,6 +9150,10 @@ img.ci-avt { object-fit: cover; }
 .ci-cuaso::after { content: ''; position: absolute; left: 0; bottom: -1px; height: 2px;
                    width: var(--ci-con, 100%); background: #CBD5E1; }
 .ci-cuaso.sap::after { background: var(--warning); }
+/* Cửa "người thật trả lời muộn" (Messenger/Instagram, 24 giờ → 7 ngày). KHÔNG dùng màu đỏ:
+   vẫn gửi được bình thường, chỉ là bot đã ngừng. Đỏ ở đây làm nhân viên tưởng đã hỏng. */
+.ci-cuaso.muon { background: var(--ci-nen-diu); color: var(--text-2); }
+.ci-cuaso.muon::after { background: var(--warning); }
 .ci-cuaso.het { background: #FEF2F2; color: var(--danger); }
 .ci-cuaso.het::after { background: var(--danger); width: 100%; }
 

@@ -92,9 +92,22 @@ public class ChatOutboxWorker : BackgroundService
             return;
         }
 
+        var tin = (await repo.ListMessagesAsync(r.TenantId, r.ConversationId, 300, ct))
+            .FirstOrDefault(m => m.Id == r.MessageId);
+        if (tin is null)
+        {
+            await repo.FinishOutboxAsync(r.Id, false, false, "Không thấy nội dung tin", ct);
+            return;
+        }
+
         // Kiểm CỬA SỔ GỬI trước khi gọi API. Gọi rồi mới biết hết hạn thì tin đã mất, và lý do
         // trả về của kênh thường là mã lỗi khó hiểu.
-        var cuaSo = ChatRules.ComputeSendWindow(kenh, hoiThoai.ContactRepliedAt, DateTime.UtcNow);
+        //
+        // ⚠️ Phải đọc TIN TRƯỚC rồi mới tính cửa sổ, vì cửa sổ phụ thuộc AI GỬI: Messenger và
+        // Instagram cho NHÂN VIÊN nhắn tới 7 ngày (nhãn HUMAN_AGENT) trong khi bot chỉ có 24 giờ.
+        // Đảo thứ tự lại là mọi tin đều bị tính theo luật của bot, và nhân viên mất 6 ngày.
+        var nguoiGui = (ChatSender)tin.SenderKind;
+        var cuaSo = ChatRules.ComputeSendWindow(kenh, hoiThoai.ContactRepliedAt, DateTime.UtcNow, nguoiGui);
         if (!cuaSo.Open)
         {
             await repo.FinishOutboxAsync(r.Id, false, false, cuaSo.Reason, ct);
@@ -104,21 +117,13 @@ public class ChatOutboxWorker : BackgroundService
             return;
         }
 
-        var tin = (await repo.ListMessagesAsync(r.TenantId, r.ConversationId, 300, ct))
-            .FirstOrDefault(m => m.Id == r.MessageId);
-        if (tin is null)
-        {
-            await repo.FinishOutboxAsync(r.Id, false, false, "Không thấy nội dung tin", ct);
-            return;
-        }
-
         // Có đính kèm → gửi media (chữ là chú thích, có thể rỗng). Không đính kèm → gửi chữ như
         // trước. Đính kèm ghi theo hình dạng CHUẨN {ten,kich,url} lúc AppendMessageAsync ở endpoint
         // /send, nên đọc thẳng bằng chieu=1 (mình gửi) — xem ChatAttachment.Doc.
         var (kq, coDinhKem) = ((ChatKind)tin.Kind) switch
         {
-            ChatKind.Text => (await SendPlainTextAsync(adapter, r, hoiThoai, tin, ct), false),
-            _ => (await SendMediaBodyAsync(adapter, r, hoiThoai, tin, ct), true),
+            ChatKind.Text => (await SendPlainTextAsync(adapter, r, hoiThoai, tin, cuaSo.Tag, ct), false),
+            _ => (await SendMediaBodyAsync(adapter, r, hoiThoai, tin, cuaSo.Tag, ct), true),
         };
         if (kq is null)
         {
@@ -149,20 +154,35 @@ public class ChatOutboxWorker : BackgroundService
             r.Id, conLuot ? "sẽ thử lại" : "dừng", kq.Error);
     }
 
+    /// <summary>
+    /// Gửi tin chữ. <paramref name="nhan"/> khác <c>None</c> nghĩa là đang đi qua cửa "người thật
+    /// trả lời muộn" của Meta — chuyển sang đường gửi có nhãn, xem <see cref="ILateHumanReplySender"/>.
+    ///
+    /// <para>Kênh không cài giao diện đó mà lại có nhãn thì <b>không bao giờ xảy ra</b>: chỉ
+    /// Messenger/Instagram mới sinh ra nhãn trong <c>ComputeSendWindow</c>. Vẫn để nhánh về đường
+    /// thường thay vì ném — một luật mới thêm sau này không nên làm tin của khách biến mất.</para>
+    /// </summary>
     private static async Task<SendResult?> SendPlainTextAsync(IChatChannelAdapter adapter, ChatRepository.OutboxRow r,
-        ChatConversation hoiThoai, ChatMessage tin, CancellationToken ct)
+        ChatConversation hoiThoai, ChatMessage tin, MetaSendTag nhan, CancellationToken ct)
     {
         if (string.IsNullOrWhiteSpace(tin.Body)) return null;
+        if (nhan == MetaSendTag.HumanAgent && adapter is ILateHumanReplySender muon)
+            return await muon.SendTextAsHumanAgentAsync(r.TenantId, hoiThoai.AccountId,
+                hoiThoai.ContactExternalId, tin.Body!, ct);
         return await adapter.SendTextAsync(r.TenantId, hoiThoai.AccountId, hoiThoai.ContactExternalId,
             tin.Body!, ct);
     }
 
+    /// <inheritdoc cref="SendPlainTextAsync"/>
     private static async Task<SendResult?> SendMediaBodyAsync(IChatChannelAdapter adapter, ChatRepository.OutboxRow r,
-        ChatConversation hoiThoai, ChatMessage tin, CancellationToken ct)
+        ChatConversation hoiThoai, ChatMessage tin, MetaSendTag nhan, CancellationToken ct)
     {
         var files = ChatAttachment.Read((ChatChannel)hoiThoai.Channel, (ChatKind)tin.Kind, tin.Attachment, tin.Direction);
         var url = files.FirstOrDefault()?.Url;
         if (string.IsNullOrWhiteSpace(url)) return null;
+        if (nhan == MetaSendTag.HumanAgent && adapter is ILateHumanReplySender muon)
+            return await muon.SendMediaAsHumanAgentAsync(r.TenantId, hoiThoai.AccountId,
+                hoiThoai.ContactExternalId, (ChatKind)tin.Kind, url, tin.Body, ct);
         return await adapter.SendMediaAsync(r.TenantId, hoiThoai.AccountId, hoiThoai.ContactExternalId,
             (ChatKind)tin.Kind, url, tin.Body, ct);
     }

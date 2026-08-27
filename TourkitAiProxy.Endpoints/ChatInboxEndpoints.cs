@@ -543,7 +543,11 @@ public static class ChatInboxEndpoints
                 .GroupBy(x => x.ExternalMsgId)
                 .ToDictionary(g => g.Key, g => g.ToList());
             var lienHe = await repo.GetContactAsync(a.TenantId, v.Channel, v.ContactExternalId, ct);
-            var cuaSo = ChatRules.ComputeSendWindow((ChatChannel)v.Channel, v.ContactRepliedAt, DateTime.UtcNow);
+            // ChatSender.Agent: hai đường này đều là NGƯỜI THẬT đang mở hộp thư và gõ. Messenger
+            // với Instagram cho nhân viên nhắn tới 7 ngày (nhãn HUMAN_AGENT) trong khi bot chỉ có
+            // 24 giờ — bỏ tham số này là ô soạn khoá sớm 6 ngày dù nền tảng vẫn cho gửi.
+            var cuaSo = ChatRules.ComputeSendWindow((ChatChannel)v.Channel, v.ContactRepliedAt,
+                DateTime.UtcNow, ChatSender.Agent);
             return Results.Json(new
             {
                 conversation = Shape(v, a.SessionId),
@@ -586,6 +590,9 @@ public static class ChatInboxEndpoints
                     reason = cuaSo.Reason,
                     hoursLeft = cuaSo.Open && cuaSo.Left != TimeSpan.MaxValue
                         ? Math.Round(cuaSo.Left.TotalHours, 1) : (double?)null,
+                    // Đang ở cửa "người thật trả lời muộn": vẫn gửi được, nhưng TRỢ LÝ thì không.
+                    // Giao diện cần nói ra, không thì nhân viên tưởng bot vẫn đang trực hộ.
+                    lateHumanReply = cuaSo.Tag == MetaSendTag.HumanAgent,
                 },
             }, Web);
         });
@@ -607,7 +614,11 @@ public static class ChatInboxEndpoints
             var v = await repo.GetConversationAsync(a.TenantId, id, ct);
             if (v is null) return Results.NotFound();
 
-            var cuaSo = ChatRules.ComputeSendWindow((ChatChannel)v.Channel, v.ContactRepliedAt, DateTime.UtcNow);
+            // ChatSender.Agent: hai đường này đều là NGƯỜI THẬT đang mở hộp thư và gõ. Messenger
+            // với Instagram cho nhân viên nhắn tới 7 ngày (nhãn HUMAN_AGENT) trong khi bot chỉ có
+            // 24 giờ — bỏ tham số này là ô soạn khoá sớm 6 ngày dù nền tảng vẫn cho gửi.
+            var cuaSo = ChatRules.ComputeSendWindow((ChatChannel)v.Channel, v.ContactRepliedAt,
+                DateTime.UtcNow, ChatSender.Agent);
             if (!cuaSo.Open) return Results.BadRequest(new { error = cuaSo.Reason });
 
             var loai = coDinhKem ? (body.AttachmentKind == "anh" ? ChatKind.Image : ChatKind.File) : ChatKind.Text;

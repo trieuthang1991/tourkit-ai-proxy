@@ -147,6 +147,140 @@ public class WhatsAppChatAdapter : IChatChannelAdapter
         return a.Length == b.Length && CryptographicOperations.FixedTimeEquals(a, b);
     }
 
+    // ── Nối bằng MỘT nút (Embedded Signup của Meta) ─────────────────────────
+
+    /// Id ứng dụng: dùng chung ứng dụng Meta với Messenger nếu không khai riêng.
+    public string? PlatformAppId => NullIfBlank(_cfg["Chat:WhatsApp:AppId"]) ?? NullIfBlank(_cfg["Chat:Messenger:AppId"]);
+
+    /// <summary>
+    /// Mã cấu hình <b>Embedded Signup</b> khai trong bảng điều khiển Meta.
+    ///
+    /// <para>⚠️ WhatsApp KHÔNG xin quyền bằng <c>scope</c> như Messenger — nó đi bằng
+    /// <c>config_id</c>. Truyền <c>scope</c> vào là Meta bỏ qua và người dùng đi hết luồng mà
+    /// không cấp quyền nào, rồi mình không tra ra tài khoản WhatsApp của họ.</para>
+    /// </summary>
+    public string? ConfigId => NullIfBlank(_cfg["Chat:WhatsApp:ConfigId"]);
+
+    public bool HasPlatformApp =>
+        PlatformAppId is not null && PlatformAppSecret is not null && ConfigId is not null;
+
+    /// <summary>
+    /// Đường mở hộp thoại cấp quyền của Meta cho WhatsApp.
+    ///
+    /// <para><c>extras</c> bật luồng Embedded Signup — thiếu nó thì Meta mở hộp thoại đăng nhập
+    /// thường, người dùng không được dẫn qua bước tạo/chọn tài khoản WhatsApp.</para>
+    /// </summary>
+    public string PermissionUrlFor(string redirectUri, string state)
+    {
+        var extras = "{\"sessionInfoVersion\":3,\"setup\":{}}";
+        return $"https://www.facebook.com/{ApiVersion}/dialog/oauth"
+             + $"?client_id={U(PlatformAppId!)}&config_id={U(ConfigId!)}"
+             + $"&redirect_uri={U(redirectUri)}&response_type=code&state={U(state)}"
+             + $"&extras={U(extras)}";
+    }
+
+    /// <summary>Kết quả nối một số WhatsApp.</summary>
+    public record KetQuaNoiSo(string? AccountId, string? SoHienThi, string? Loi);
+
+    /// <summary>
+    /// Đổi mã cấp quyền thành một số WhatsApp nối sẵn — <b>người dùng không nhập gì cả</b>.
+    ///
+    /// <para>Bốn bước, chép cách làm của dự án tham chiếu (ChatbotX) chứ không tự nghĩ:</para>
+    /// <list type="number">
+    ///   <item>Đổi <c>code</c> lấy token của người dùng.</item>
+    ///   <item><c>debug_token</c> đọc <c>granular_scopes</c> → quyền
+    ///     <c>whatsapp_business_management</c> chỉ đúng MỘT tài khoản WhatsApp, nên
+    ///     <c>target_ids[0]</c> chính là id tài khoản đó. Đây là mẹo mấu chốt: hộp thoại chỉ trả
+    ///     về <c>code</c>, không trả về id nào.</item>
+    ///   <item>Hỏi tài khoản đó lấy <b>số điện thoại đầu tiên</b> — cái mình dùng để gửi.</item>
+    ///   <item>Bật nhận tin cho tài khoản (<c>subscribed_apps</c>).</item>
+    /// </list>
+    ///
+    /// <para>⚠️ <c>redirect_uri</c> lúc đổi mã phải TRÙNG KHÍT chuỗi đã dùng lúc mở hộp thoại —
+    /// lệch một ký tự là Meta từ chối và câu lỗi của họ không nói lệch ở đâu.</para>
+    /// </summary>
+    public async Task<KetQuaNoiSo> ConnectFromCodeAsync(string tenantId, string code,
+        string redirectUri, CancellationToken ct)
+    {
+        if (!HasPlatformApp) return new(null, null, "Máy chủ chưa khai ứng dụng WhatsApp (Chat:WhatsApp)");
+        var http = _http.CreateClient();
+
+        // 1. code → token người dùng
+        var tk = await JsonAsync(http,
+            $"{GraphBase}/{ApiVersion}/oauth/access_token?client_id={U(PlatformAppId!)}"
+            + $"&client_secret={U(PlatformAppSecret!)}&code={U(code)}&redirect_uri={U(redirectUri)}", ct);
+        var token = tk?["access_token"]?.ToString();
+        if (string.IsNullOrWhiteSpace(token))
+            return new(null, null, $"Không đổi được mã cấp quyền: {tk?["error"]?["message"] ?? "không rõ lý do"}");
+
+        // 2. debug_token → id tài khoản WhatsApp được cấp quyền
+        var appToken = $"{PlatformAppId}|{PlatformAppSecret}";
+        var dbg = await JsonAsync(http,
+            $"{GraphBase}/debug_token?input_token={U(token!)}&access_token={U(appToken)}", ct);
+        string? wabaId = null;
+        if (dbg?["data"]?["granular_scopes"] is JsonArray quyen)
+            foreach (var q in quyen.OfType<JsonNode>())
+                if (q["scope"]?.ToString() == "whatsapp_business_management")
+                    wabaId = (q["target_ids"] as JsonArray)?.FirstOrDefault()?.ToString();
+        if (string.IsNullOrWhiteSpace(wabaId))
+            return new(null, null,
+                "Không tra ra tài khoản WhatsApp nào từ lượt cấp quyền. Kiểm lại mã cấu hình "
+                + "Embedded Signup (Chat:WhatsApp:ConfigId).");
+
+        // 3. tài khoản → số điện thoại đầu tiên
+        var waba = await JsonAsync(http,
+            $"{GraphBase}/{ApiVersion}/{U(wabaId!)}?fields=name,owner_business_info,phone_numbers"
+            + $"&access_token={U(token!)}", ct);
+        var so = (waba?["phone_numbers"]?["data"] as JsonArray)?.FirstOrDefault();
+        var soId = so?["id"]?.ToString();
+        if (string.IsNullOrWhiteSpace(soId))
+            return new(null, null, "Tài khoản WhatsApp này chưa có số điện thoại nào.");
+
+        // 4. bật nhận tin cho tài khoản
+        try
+        {
+            using var res = await http.PostAsync(
+                $"{GraphBase}/{ApiVersion}/{U(wabaId!)}/subscribed_apps?access_token={U(token!)}", null, ct);
+            var raw = await res.Content.ReadAsStringAsync(ct);
+            if (!res.IsSuccessStatusCode || JsonNode.Parse(raw)?["error"] is not null)
+                return new(null, null, $"Không bật được nhận tin WhatsApp: {Truncate(raw)}");
+        }
+        catch (Exception ex) { return new(null, null, "Không gọi được Meta: " + ex.Message); }
+
+        var soHienThi = so?["display_phone_number"]?.ToString();
+        var tenWaba = waba?["name"]?.ToString();
+
+        // Mã tài khoản là chính id số điện thoại — cũng là khoá định tuyến webhook, nên tra ngược
+        // ra công ty chỉ mất một phép so.
+        await _cred.SaveAsync(tenantId, Channel, soId!, new Dictionary<string, string?>
+        {
+            ["phoneNumberId"] = soId,
+            ["wabaId"] = wabaId,
+            ["accessToken"] = token,
+            ["displayPhone"] = soHienThi,
+            ["label"] = string.IsNullOrWhiteSpace(soHienThi) ? tenWaba : soHienThi,
+        }, ct);
+
+        _log.LogInformation("[chat/whatsapp] tenant={T} nối số {So} ({Id}) của tài khoản {W}",
+            tenantId, soHienThi, soId, wabaId);
+        return new(soId, soHienThi, null);
+    }
+
+    /// <summary>Gọi Graph trả JSON. Không ném — chỗ gọi tự đọc lỗi trong thân.</summary>
+    private async Task<JsonNode?> JsonAsync(HttpClient http, string url, CancellationToken ct)
+    {
+        try
+        {
+            using var res = await http.GetAsync(url, ct);
+            return JsonNode.Parse(await res.Content.ReadAsStringAsync(ct));
+        }
+        catch (Exception ex)
+        {
+            _log.LogWarning(ex, "[chat/whatsapp] gọi Graph hỏng");
+            return null;
+        }
+    }
+
     // ── Bóc gói tin ─────────────────────────────────────────────────────────
 
     public IReadOnlyList<InboundChatEvent> Parse(string rawBody)

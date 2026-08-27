@@ -5,11 +5,22 @@ using System.Text.RegularExpressions;
 
 namespace TourkitAiProxy.Domain.Chat;
 
+/// <summary>
+/// Nhãn Meta bắt buộc đính khi gửi NGOÀI cửa sổ 24 giờ.
+///
+/// <para><c>HumanAgent</c> chỉ hợp lệ khi <b>người thật</b> đang gõ. Meta cấp nhãn này để nhân
+/// viên xử nốt việc dở, không phải để bot nhắn tiếp — đính nhãn cho tin của bot là vi phạm chính
+/// sách và có thể bị khoá quyền nhắn tin của cả Trang.</para>
+/// </summary>
+public enum MetaSendTag : short { None = 0, HumanAgent = 1 }
+
 /// <summary>Kết quả tính cửa sổ gửi của một kênh.</summary>
 /// <param name="Open">Còn gửi được không.</param>
 /// <param name="Left">Còn bao lâu nữa thì đóng (0 khi đã đóng).</param>
 /// <param name="Reason">Câu nói cho NGƯỜI ĐỌC hiểu vì sao — hiện thẳng lên giao diện.</param>
-public record SendWindow(bool Open, TimeSpan Left, string Reason);
+/// <param name="Tag">Nhãn phải đính lúc gọi API. <c>None</c> ở gần hết mọi ca.</param>
+public record SendWindow(bool Open, TimeSpan Left, string Reason,
+    MetaSendTag Tag = MetaSendTag.None);
 
 /// <summary>
 /// Luật thuần của hộp thư chat: cửa sổ gửi, bot có được trả lời không, gộp tin nhắn liên tiếp.
@@ -53,6 +64,19 @@ public static class ChatRules
     /// Messenger: 24 giờ.
     public static readonly TimeSpan MetaWindow = TimeSpan.FromHours(24);
 
+    /// <summary>
+    /// Messenger và Instagram: <b>7 ngày</b> cho NGƯỜI THẬT trả lời, bằng nhãn <c>HUMAN_AGENT</c>.
+    ///
+    /// <para>Đây không phải ngoại lệ mình tự nghĩ ra — Meta mở sẵn cửa này để nhân viên xử nốt
+    /// việc dở sau khi cửa sổ 24 giờ đóng. Trước 28/08/2026 mình chặn thẳng ở mốc 24 giờ, tức
+    /// <b>tự bỏ 6 ngày</b> mà nền tảng vẫn cho phép: khách nhắn tối thứ Sáu, nhân viên vào sáng
+    /// thứ Hai là ô soạn đã khoá, dù Messenger vẫn nhận tin bình thường.</para>
+    ///
+    /// <para><b>Không áp cho WhatsApp.</b> WhatsApp không có nhãn này; ngoài 24 giờ phải gửi
+    /// bằng mẫu tin đã được duyệt. Gộp chung ba kênh "Meta" thành một luật là sai.</para>
+    /// </summary>
+    public static readonly TimeSpan MetaHumanAgentWindow = TimeSpan.FromDays(7);
+
     /// Nhân viên trả lời xong thì bot câm bấy lâu.
     public static readonly TimeSpan DefaultBotMute = TimeSpan.FromMinutes(30);
 
@@ -63,7 +87,11 @@ public static class ChatRules
     /// tới; mình chủ động mở lời trước thì cả Zalo lẫn Meta đều chặn. Mặc định "mở" ở ca này là
     /// đẩy lỗi xuống tận lúc gọi API, lúc đó nhân viên đã gõ xong tin rồi.</para>
     /// </summary>
-    public static SendWindow ComputeSendWindow(ChatChannel kenh, DateTime? khachNhanLuc, DateTime nowUtc)
+    /// <param name="nguoiGui">Ai đang gửi. Chỉ <see cref="ChatSender.Agent"/> mới được dùng cửa
+    /// 7 ngày của Messenger/Instagram — xem <see cref="MetaSendTag"/>. Mặc định là bot, tức
+    /// <b>chặt hơn</b>: chỗ gọi nào quên truyền thì mất quyền, không phải được thêm quyền.</param>
+    public static SendWindow ComputeSendWindow(ChatChannel kenh, DateTime? khachNhanLuc,
+        DateTime nowUtc, ChatSender nguoiGui = ChatSender.Ai)
     {
         // Telegram và web không giới hạn thời gian — nhắn lại lúc nào cũng được. Đây là khác biệt
         // THẬT giữa các kênh, đừng áp một luật chung cho tất cả.
@@ -85,12 +113,30 @@ public static class ChatRules
                 + "kể từ tin của khách — mình không được chủ động mở lời.");
 
         var conLai = khachNhanLuc.Value + han - nowUtc;
-        if (conLai <= TimeSpan.Zero)
-            return new(false, TimeSpan.Zero,
-                $"Đã quá {gio} giờ kể từ tin cuối của khách nên {ChannelName(kenh)} không cho gửi nữa. "
-                + "Muốn liên hệ lại thì dùng tin theo mẫu (ZNS) hoặc gọi điện.");
+        if (conLai > TimeSpan.Zero) return new(true, conLai, "");
 
-        return new(true, conLai, "");
+        // Hết cửa sổ thường. Messenger/Instagram còn một cửa nữa: NGƯỜI THẬT được trả lời tới
+        // 7 ngày bằng nhãn HUMAN_AGENT. Bot thì không — xem MetaSendTag.
+        if (kenh is ChatChannel.Messenger or ChatChannel.Instagram)
+        {
+            var conLaiNguoiThat = khachNhanLuc.Value + MetaHumanAgentWindow - nowUtc;
+            if (conLaiNguoiThat > TimeSpan.Zero)
+                return nguoiGui == ChatSender.Agent
+                    ? new(true, conLaiNguoiThat, "", MetaSendTag.HumanAgent)
+                    : new(false, TimeSpan.Zero,
+                        $"Đã quá {gio} giờ kể từ tin cuối của khách nên trợ lý không được tự trả lời nữa. "
+                        + "Nhân viên vẫn nhắn tay được, trong 7 ngày kể từ tin của khách.");
+
+            return new(false, TimeSpan.Zero,
+                $"Đã quá 7 ngày kể từ tin cuối của khách nên {ChannelName(kenh)} không cho gửi nữa. "
+                + "Muốn liên hệ lại thì gọi điện hoặc nhắn qua kênh khác.");
+        }
+
+        return new(false, TimeSpan.Zero,
+            $"Đã quá {gio} giờ kể từ tin cuối của khách nên {ChannelName(kenh)} không cho gửi nữa. "
+            + (kenh == ChatChannel.WhatsApp
+                ? "Muốn liên hệ lại thì dùng mẫu tin WhatsApp đã được duyệt hoặc gọi điện."
+                : "Muốn liên hệ lại thì dùng tin theo mẫu (ZNS) hoặc gọi điện."));
     }
 
     private static string ChannelName(ChatChannel k) => k switch

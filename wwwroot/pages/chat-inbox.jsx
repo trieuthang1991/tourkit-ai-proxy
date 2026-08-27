@@ -288,6 +288,18 @@
         <span>{ten} không giới hạn thời gian trả lời.</span>
       </div>
     );
+    // Quá 24 giờ nhưng vẫn trong 7 ngày: Messenger/Instagram cho NGƯỜI THẬT nhắn tiếp, trợ lý
+    // thì không. Phải nói ra — nhân viên đang quen có bot trực hộ, không nói thì họ đóng máy về
+    // và tưởng khách vẫn được trả lời.
+    if (cuaSo.lateHumanReply) return (
+      <div className="ci-cuaso muon" style={{ '--ci-con': '100%' }}>
+        <window.Icon name="user" size={12} />
+        <span>Quá 24 giờ — giờ chỉ <b>bạn</b> trả lời được, trợ lý thì không.</span>
+        <span className="ci-cuaso-phu">
+          còn {dienGio(cuaSo.hoursLeft)} trước khi {ten} đóng hẳn
+        </span>
+      </div>
+    );
     const sap = cuaSo.hoursLeft < 6;
     // Vạch ở mép dưới cho thấy còn BAO NHIÊU so với cả cửa sổ, không chỉ con số. Mốc lấy theo
     // cửa sổ dài nhất của kênh (Zalo 48h, Messenger 24h) — đọc bằng mắt nhanh hơn đọc số.

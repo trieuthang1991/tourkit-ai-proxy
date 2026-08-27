@@ -26,7 +26,7 @@ namespace TourkitAiProxy.Services.Chat.Channels;
 ///
 /// <para>Tham khảo cách bóc sự kiện của ChatbotX (<c>integrations/messenger</c>).</para>
 /// </summary>
-public class MessengerChatAdapter : IChatChannelAdapter
+public class MessengerChatAdapter : IChatChannelAdapter, ILateHumanReplySender
 {
     private const string GraphBase = "https://graph.facebook.com";
 
@@ -533,28 +533,45 @@ public class MessengerChatAdapter : IChatChannelAdapter
 
     public async Task<SendResult> SendTextAsync(string tenantId, string accountId, string externalUserId,
         string text, CancellationToken ct)
-        => await GuiAsync(tenantId, accountId, externalUserId, new { text }, ct);
+        => await GuiAsync(tenantId, accountId, externalUserId, new { text }, MetaSendTag.None, ct);
+
+    /// <inheritdoc cref="ILateHumanReplySender.SendTextAsHumanAgentAsync"/>
+    public Task<SendResult> SendTextAsHumanAgentAsync(string tenantId, string accountId,
+        string externalUserId, string text, CancellationToken ct)
+        => GuiAsync(tenantId, accountId, externalUserId, new { text }, MetaSendTag.HumanAgent, ct);
+
+    /// <inheritdoc cref="ILateHumanReplySender.SendMediaAsHumanAgentAsync"/>
+    public Task<SendResult> SendMediaAsHumanAgentAsync(string tenantId, string accountId,
+        string externalUserId, ChatKind loai, string url, string? caption, CancellationToken ct)
+        => SendMediaAsync(tenantId, accountId, externalUserId, loai, url, caption,
+            MetaSendTag.HumanAgent, ct);
 
     /// <summary>
     /// Messenger Send API nhận media qua <c>attachment.payload.url</c> — Meta TỰ TẢI ảnh/tệp từ
     /// URL đó, không nhận nhị phân trực tiếp. Chữ chú thích không gộp được vào cùng tin ảnh, nên
     /// nếu có <paramref name="caption"/> thì gửi thêm một tin chữ ngay sau, giống cách Zalo xử lý.
     /// </summary>
-    public async Task<SendResult> SendMediaAsync(string tenantId, string accountId, string externalUserId,
+    public Task<SendResult> SendMediaAsync(string tenantId, string accountId, string externalUserId,
         ChatKind loai, string url, string? caption, CancellationToken ct)
+        => SendMediaAsync(tenantId, accountId, externalUserId, loai, url, caption, MetaSendTag.None, ct);
+
+    private async Task<SendResult> SendMediaAsync(string tenantId, string accountId, string externalUserId,
+        ChatKind loai, string url, string? caption, MetaSendTag nhan, CancellationToken ct)
     {
         var loaiMeta = loai switch { ChatKind.Image => "image", ChatKind.Audio => "audio", _ => "file" };
         var kq = await GuiAsync(tenantId, accountId, externalUserId, new
         {
             attachment = new { type = loaiMeta, payload = new { url, is_reusable = true } },
-        }, ct);
+        }, nhan, ct);
+        // Chú thích đi thành tin RIÊNG nên cũng phải mang cùng nhãn — không thì tin ảnh lọt qua
+        // còn dòng chữ ngay sau bị Meta chặn, khách thấy ảnh mà không thấy mình nói gì.
         if (kq.Ok && !string.IsNullOrWhiteSpace(caption))
-            await GuiAsync(tenantId, accountId, externalUserId, new { text = caption }, ct);
+            await GuiAsync(tenantId, accountId, externalUserId, new { text = caption }, nhan, ct);
         return kq;
     }
 
     private async Task<SendResult> GuiAsync(string tenantId, string accountId, string externalUserId,
-        object noiDungTin, CancellationToken ct)
+        object noiDungTin, MetaSendTag nhan, CancellationToken ct)
     {
         var c = await _cred.GetAsync(tenantId, Channel, accountId, ct);
         if (c is null || !c.TryGetValue("pageAccessToken", out var token) || string.IsNullOrWhiteSpace(token))
@@ -563,14 +580,16 @@ public class MessengerChatAdapter : IChatChannelAdapter
         try
         {
             var http = _http.CreateClient();
-            var body = new
+            // RESPONSE = trả lời trong cửa sổ 24 giờ. Ngoài cửa sổ đó, tin do NHÂN VIÊN gõ đi
+            // bằng MESSAGE_TAG + HUMAN_AGENT — Meta mở sẵn tới 7 ngày cho đúng việc này. Chọn
+            // nhãn nào là việc của ChatRules.ComputeSendWindow, không phải chỗ này.
+            var body = new Dictionary<string, object?>
             {
-                recipient = new { id = externalUserId },
-                // RESPONSE = đang trả lời khách trong cửa sổ 24 giờ. Gửi ngoài cửa sổ phải dùng
-                // message_tag, mà cái đó Meta duyệt theo từng mục đích — chưa làm ở đợt này.
-                messaging_type = "RESPONSE",
-                message = noiDungTin,
+                ["recipient"] = new { id = externalUserId },
+                ["messaging_type"] = nhan == MetaSendTag.HumanAgent ? "MESSAGE_TAG" : "RESPONSE",
+                ["message"] = noiDungTin,
             };
+            if (nhan == MetaSendTag.HumanAgent) body["tag"] = "HUMAN_AGENT";
             using var res = await http.PostAsJsonAsync($"{GraphBase}/{ApiVersion}/me/messages?access_token={token}", body, ct);
             var raw = await res.Content.ReadAsStringAsync(ct);
 
