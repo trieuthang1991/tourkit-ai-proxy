@@ -13,6 +13,35 @@ Những cập nhật gần đây của TRAV-AI, viết cho người dùng. Mới
 
 ---
 
+## Phiên bản 27/08/2026 — Telegram theo kịp Facebook
+
+### ✨ Tính năng mới
+- **Nối bot Telegram chỉ còn dán một dòng mã.** Trước đây muốn đưa tin Telegram vào hộp thư,
+  bạn phải tự nghĩ ra một chuỗi bí mật, chép địa chỉ trên màn hình, rồi tự gõ một câu lệnh ở
+  ngoài trình duyệt — gần như không ai làm được nếu không có người kỹ thuật ngồi cạnh. Nay chỉ
+  cần dán mã bot lấy từ BotFather rồi bấm **Lưu**: hệ thống tự kiểm tra mã, tự lo phần còn lại,
+  và tự lấy tên bot làm tên gợi nhớ cho bạn. Gõ sai mã thì hiện đúng lý do thay vì chỉ báo
+  "Lưu không được".
+- **Khách Telegram nay được đối xử như khách Facebook.** Cảm xúc khách thả lên một tin hiện ngay
+  trong hộp thư và gỡ ra thì mất theo; khách bấm nút thì bạn thấy đúng chữ trên nút họ bấm;
+  khách nhìn thấy ba chấm trong lúc trợ lý soạn câu trả lời; và ảnh đại diện của khách hiện
+  cạnh tin thay vì một ô chữ cái.
+- **Biết khách Telegram đến từ đâu.** Nếu bạn phát liên kết chat có gắn dấu riêng cho từng chiến
+  dịch (quảng cáo, mã QR tại quầy, đường dẫn trên website), hộp thư ghi lại nguồn đó ngay khi
+  khách mở cuộc trò chuyện — thay vì nhận một câu lệnh khó hiểu như trước.
+
+### 🔧 Đã khắc phục
+- **Khách gửi video hoặc file nhạc qua Telegram không còn là một dòng trắng.** Trước đây những
+  loại này lọt vào hộp thư thành một dòng trống: hội thoại nhảy lên đầu danh sách, báo có tin
+  chưa đọc, mà mở ra không thấy gì — bạn không có cách nào biết khách vừa gửi cái gì.
+- **Ảnh và tệp khách gửi qua Telegram không còn báo "chưa tải được".** Hệ thống lấy nhầm chìa
+  của con bot dùng cho bản tin sáng thay vì bot của chính công ty bạn, nên mọi tệp đều mở không
+  ra. Nay mở bình thường.
+- **Gỡ kết nối bot Telegram nay báo cho Telegram ngừng gửi.** Trước đây gỡ xong Telegram vẫn gửi
+  tin vào một địa chỉ đã bỏ, mãi mãi.
+
+---
+
 ## Phiên bản 26/08/2026 — Hộp thư chat: tin hiện ngay, cuộn không sót
 
 ### ✨ Tính năng mới

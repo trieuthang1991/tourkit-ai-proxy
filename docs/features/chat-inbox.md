@@ -116,6 +116,64 @@ của chính yêu cầu đang tới — trên máy chủ thật thì đúng, cò
 ⚠️ **Zalo xoay vòng refresh token.** Mỗi lượt đổi trả về một refresh token MỚI, phải lưu cái mới và
 bỏ cái cũ — dùng lại cái cũ ở lần sau là bị từ chối. Cả hai lượt (đổi `code` lần đầu và làm mới về
 sau) đi chung một hàm nên không có chỗ nào quên lưu.
+**Telegram nối bằng MỘT nút, giống Zalo/Messenger** (đổi 27/08). Dán bot token → máy chủ gọi
+`getMe` xác thực → **tự sinh** chuỗi bí mật webhook → gọi `setWebhook`. Gỡ kết nối gọi
+`deleteWebhook`. Vào từ chính `POST|PUT|DELETE /channels/3/accounts[/{id}]`, không thêm đường mới
+([`NoiBotAsync`](../../TourkitAiProxy.Services/Chat/Channels/TelegramChatAdapter.cs)).
+
+⚠️ **Xác thực token TRƯỚC khi đăng ký webhook, không được ngược.** Đăng ký trước rồi mới biết
+token sai là đã trỏ một địa chỉ công khai vào một bot không tồn tại, và bản ghi rác nằm lại trong
+danh sách kênh. Có test canh thứ tự.
+
+⚠️ **`allowed_updates` phải khai ĐỦ — đây là bẫy "sửa hai chỗ" của Telegram.** Telegram CHỈ gửi
+những loại nằm trong danh sách khai lúc `setWebhook`, và **danh sách mặc định của họ đã bỏ sẵn**
+**`message_reaction`**. Viết mã bóc cảm xúc mà quên khai là không bao giờ có gói tin nào tới:
+không lỗi, không log, chỉ là một thứ không xảy ra. Đang khai năm loại: `message` ·
+`edited_message` · `callback_query` · `message_reaction` · `my_chat_member`. Có test canh đủ năm.
+
+⚠️ **Chuỗi bí mật webhook do MÁY CHỦ sinh, KHÔNG còn là ô nhập.** Để lại ô đó thì người khai vẫn
+tưởng phải làm tay, mà giá trị họ gõ sẽ đè lên chuỗi máy chủ vừa sinh → webhook chết im lặng.
+Dùng base64url (`A-Z a-z 0-9 _ -`), không phải base64 thường: một dấu `+` hay `/` lọt vào là
+Telegram từ chối mà không nói vướng ở đâu.
+
+⚠️ **Telegram gói MỖI loại đính kèm vào MỘT trường tên khác nhau** — không có trường chung nào cho
+biết "tin này có tệp". Thiếu một nhánh trong `Parse` là loại đó rơi xuống `ChatKind.Chu` với nội
+dung `null`: một **dòng trắng** trong hộp thư vẫn đẩy hội thoại lên đầu và vẫn tính chưa đọc.
+Đã dính thật với `video` và `audio` (đối chiếu ChatbotX 27/08 mới lộ). Nay bắt `photo` · `video` ·
+`video_note` · `audio` · `document` · `voice` · `location` · `sticker`; loại lạ thì **bỏ qua** kèm
+log WARNING liệt kê các trường trong gói.
+
+⚠️ **Bấm nút phải gọi `answerCallbackQuery`, không thì nút QUAY VÒNG mãi** trên máy khách dù mình
+đã xử lý xong. Chỉ biết được điều này khi đọc ChatbotX. Gọi **ngay đầu** `MotSuKienAsync` qua
+`IChatChannelAdapter.XacNhanBamNutAsync` (mặc định rỗng — Zalo/Messenger không có khái niệm này),
+trước cả bước gọi AI vốn mất vài giây. Lượt bấm ghi lại bằng **chữ trên nút** (dò `reply_markup`
+theo `callback_data`), lùi về mã nút khi tin cũ không kèm bàn phím. **Thời điểm là BÂY GIỜ**, không
+phải `date` của tin mang nút — tin đó có thể gửi từ hôm qua.
+
+⚠️ **Cảm xúc Telegram báo TRẠNG THÁI MỚI, không báo "thêm/bớt"** — gỡ cảm xúc là gói có
+`new_reaction` **rỗng**, khác hẳn Meta nói thẳng `action="unreact"`. Áp luật của Meta sang là cảm
+xúc đã gỡ vẫn hiện mãi.
+
+⚠️ **`/start <tham số>` là cách DUY NHẤT Telegram nói khách đến từ đâu**, và nó tới đúng một lần,
+đội lốt một câu tin thường. Không tách ra thì hộp thư có một câu `"/start fb_ads_hue"` vô nghĩa còn
+dữ liệu bán hàng mất vĩnh viễn. Tách xong phải bỏ **cả** phần chữ **và** mã tin, không thì lõi coi
+đây là tin thật và ghi một dòng trắng. `/start` trơn (bấm nút Bắt đầu trong Telegram) **không** có
+nguồn — ghi bừa nguồn rỗng là làm bẩn báo cáo.
+
+⚠️ **Ảnh đại diện Telegram phải đi qua máy chủ: đường tải thật của họ CHỨA BOT TOKEN**
+(`/file/bot<token>/…`). ChatbotX lưu thẳng chuỗi đó làm avatar, tức phát bot token cho mọi trình
+duyệt mở hộp thư — **không chép chỗ này**. Ở đây lưu đường tương đối `/api/v1/chat/avatars/`
+`{accountId}/{fileId}`, và lúc trả ra API mới gắn thêm `?sessionId=` (thẻ `<img>` không gửi được
+tiêu đề xác thực). Lấy cỡ **nhỏ nhất** — ngược với ảnh khách gửi (lấy cỡ lớn nhất để soi được chữ).
+
+⚠️ **`file_id` gắn với TỪNG bot.** Proxy tệp trước 27/08 dùng `Telegram:BotToken` — bot **dùng**
+**chung của bản tin sáng**, không phải bot công ty vừa nối — nên mọi tệp khách gửi đều hiện "chưa
+tải được" mà không lỗi nào lần ra. Nay tra token theo `account_id` của hội thoại
+(`GetConversationByMessageAsync`), chỉ lùi về cấu hình chung khi tài khoản chưa có khoá riêng.
+
+**Telegram vẫn KHÔNG có** báo đã nhận/đã xem (dừng ở "đã gửi" vĩnh viễn — đó là đúng), và **chưa**
+**làm**: gửi nút inline ra (chưa có luồng bot dùng nút), menu cố định, xử lý `my_chat_member` khi
+khách chặn bot (đã khai nhận gói, chưa xử lý).
 ⚠️ **Mỗi kênh một kiểu xác thực, đừng chép qua lại:** Zalo = `SHA256(appId+thânThô+timestamp+secret)`;
 Messenger = **HMAC**-SHA256(appSecret, thânThô) trong `X-Hub-Signature-256`; Telegram **không ký gì
 cả** — chỉ so chuỗi bí mật trong `X-Telegram-Bot-Api-Secret-Token`, nên **thiếu chuỗi đó là ai biết
