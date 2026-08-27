@@ -228,7 +228,8 @@ public class TelegramEventTests
         var src = ChatSchemaGuardTests.DocFile("TourkitAiProxy.Endpoints/ChatInboxEndpoints.cs");
         var i = src.IndexOf("/messages/{msgId:long}/file", System.StringComparison.Ordinal);
         Assert.True(i > 0, "Không thấy đường proxy tệp Telegram");
-        var than = src.Substring(i, System.Math.Min(1500, src.Length - i));
+        // Cửa sổ đủ rộng để trùm cả nhánh WhatsApp chèn giữa — kênh nào cũng có cách giấu tệp riêng.
+        var than = src.Substring(i, System.Math.Min(3000, src.Length - i));
         Assert.Contains("TokenTelegramAsync", than);
         // Soi ĐÚNG dạng mã chứ không soi chữ: guard đọc văn bản thô nên bắt cả chú thích, mà chú
         // thích ngay trên nó có nhắc tên khoá cũ để người sau biết vì sao đổi.

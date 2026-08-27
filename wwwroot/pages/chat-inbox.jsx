@@ -25,10 +25,12 @@
     0: { ten: 'Zalo', chu: 'Z' },
     1: { ten: 'Messenger', chu: 'f' },
     4: { ten: 'Instagram', chu: 'ig' },
+    5: { ten: 'WhatsApp', chu: 'wa' },
+    6: { ten: 'TikTok', chu: 'tt' },
     2: { ten: 'Web', chu: 'W' },
     3: { ten: 'Telegram', chu: 'T' },
   };
-  const KENH_SONG = [0, 1, 4, 3];   // kênh đã nối thật; Web chỉ hiện khi có dữ liệu
+  const KENH_SONG = [0, 1, 4, 5, 6, 3];   // kênh đã nối thật; Web chỉ hiện khi có dữ liệu
 
   const TRANG_THAI = [
     { v: null, nhan: 'Tất cả' },

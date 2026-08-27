@@ -13,9 +13,18 @@ Những cập nhật gần đây của TRAV-AI, viết cho người dùng. Mới
 
 ---
 
-## Phiên bản 27/08/2026 — Thêm Instagram, và Telegram theo kịp Facebook
+## Phiên bản 27/08/2026 — Sáu kênh chat trong một hộp thư
 
 ### ✨ Tính năng mới
+- **Thêm WhatsApp và TikTok.** Hộp thư nay gom đủ sáu nơi khách hay nhắn: Zalo, Facebook,
+  Instagram, WhatsApp, TikTok và Telegram — trả lời tất cả ở cùng một chỗ, không phải mở sáu
+  ứng dụng.
+
+  *Lưu ý:* WhatsApp cần tài khoản doanh nghiệp đã xác minh và một số điện thoại riêng; ngoài 24
+  giờ kể từ tin của khách thì chỉ gửi được mẫu đã duyệt. TikTok cần ứng dụng doanh nghiệp đã
+  được duyệt quyền nhắn tin, và chỉ gửi được chữ với ảnh — tệp thì gửi đường dẫn bằng tin chữ.
+  Cả hai kênh này chưa chạy thử với tài khoản thật, nên hãy thử một cuộc trước khi giao cho cả
+  đội dùng.
 - **Tin nhắn Instagram vào thẳng hộp thư.** Nếu tài khoản Instagram của công ty đã liên kết với
   Trang Facebook, thì chỉ cần nối Trang như trước là xong — hệ thống tự nhận ra và nối luôn
   Instagram, **không phải bấm thêm nút nào**. Khách nhắn Direct hiện cạnh tin Zalo, Facebook và

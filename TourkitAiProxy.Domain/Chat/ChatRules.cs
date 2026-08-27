@@ -67,9 +67,15 @@ public static class ChatRules
     {
         // Telegram và web không giới hạn thời gian — nhắn lại lúc nào cũng được. Đây là khác biệt
         // THẬT giữa các kênh, đừng áp một luật chung cho tất cả.
-        if (kenh is ChatChannel.Webchat or ChatChannel.Telegram)
+        //
+        // ⚠️ TikTok nằm ở đây vì lý do KHÁC: hạn trả lời của họ không có trong tài liệu công khai.
+        // Khoá ô soạn theo một con số tự đoán là tự khoá tay nhân viên vì một luật có thể không
+        // tồn tại. Để mở, và nếu TikTok từ chối thì câu lỗi của họ hiện lên — thà biết muộn còn
+        // hơn chặn nhầm. Tra ra hạn thật thì chuyển xuống dưới.
+        if (kenh is ChatChannel.Webchat or ChatChannel.Telegram or ChatChannel.TikTok)
             return new(true, TimeSpan.MaxValue, "");
 
+        // Zalo 48h; Messenger, Instagram và WhatsApp đều 24h.
         var han = kenh == ChatChannel.Zalo ? CuaSoZalo : CuaSoMessenger;
         var gio = (int)han.TotalHours;
 
@@ -92,6 +98,8 @@ public static class ChatRules
         ChatChannel.Zalo => "Zalo",
         ChatChannel.Messenger => "Messenger",
         ChatChannel.Instagram => "Instagram",
+        ChatChannel.WhatsApp => "WhatsApp",
+        ChatChannel.TikTok => "TikTok",
         ChatChannel.Telegram => "Telegram",
         ChatChannel.Webchat => "Chat trên web",
         _ => "Kênh này",

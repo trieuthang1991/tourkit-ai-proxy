@@ -56,6 +56,8 @@ public static class ChatAttachment
             // Instagram dùng CHUNG hình dạng đính kèm của Meta: attachments[] = [{type,payload}].
             ChatChannel.Messenger or ChatChannel.Instagram => DocMeta(goc),
             ChatChannel.Zalo => DocZalo(goc),
+            ChatChannel.WhatsApp => DocWhatsApp(goc),
+            ChatChannel.TikTok => DocTikTok(goc),
             _ => Array.Empty<ChatFile>(),
         };
     }
@@ -82,6 +84,34 @@ public static class ChatAttachment
         return new[] { new ChatFile(Ten: Chu(o["file_name"]), Kich: So(o["file_size"]), FileId: id) };
     }
 
+    /// <summary>
+    /// WhatsApp: <c>{ id, mime_type, filename?, caption? }</c> — <b>chỉ có mã tệp, KHÔNG có URL</b>.
+    ///
+    /// <para>⚠️ Và khác Telegram ở một điểm nữa: đường tải của WhatsApp <b>đòi khoá xác thực</b> chứ
+    /// không chỉ giấu khoá trong đường dẫn. Nên ảnh khách gửi bắt buộc đi qua máy chủ mình, không có
+    /// cách nào đưa thẳng cho trình duyệt.</para>
+    /// </summary>
+    private static IReadOnlyList<ChatFile> DocWhatsApp(JsonNode goc)
+    {
+        var o = goc.AsObject();
+        // Vị trí gói riêng, không có mã tệp.
+        if (o["latitude"] is not null || o["longitude"] is not null)
+            return new[] { new ChatFile(Lat: SoThuc(o["latitude"]), Lon: SoThuc(o["longitude"])) };
+
+        var id = Chu(o["id"]);
+        if (string.IsNullOrWhiteSpace(id)) return Array.Empty<ChatFile>();
+        return new[] { new ChatFile(Ten: Chu(o["filename"]), FileId: id) };
+    }
+
+    /// <summary>
+    /// TikTok: <c>{ media_url }</c> — cho sẵn đường tải, khác hẳn WhatsApp và Telegram.
+    /// </summary>
+    private static IReadOnlyList<ChatFile> DocTikTok(JsonNode goc)
+    {
+        var url = Chu(goc.AsObject()["media_url"]);
+        return string.IsNullOrWhiteSpace(url)
+            ? Array.Empty<ChatFile>() : new[] { new ChatFile(Url: url) };
+    }
     // Messenger: attachments[] = [{ type, payload: { url } }] hoặc payload {lat,long} cho vị trí.
     private static IReadOnlyList<ChatFile> DocMeta(JsonNode goc)
     {

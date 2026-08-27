@@ -123,7 +123,7 @@ public class ChatInboundService
             var mocLuc = moc.UpToUtc;
             if (moc.ExternalMsgId is { Length: > 0 } maTinDoc)
             {
-                var luc = await _repo.ThoiDiemTinAsync(tenantId, hoiThoai.Id, maTinDoc, ct);
+                var luc = await _repo.GetMessageSentAtAsync(tenantId, hoiThoai.Id, maTinDoc, ct);
                 if (luc is null)
                 {
                     // Tin không nằm trong hộp thư (nhân viên trả lời từ app Meta trước khi nối,
