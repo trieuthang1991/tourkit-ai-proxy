@@ -355,8 +355,19 @@ public class ChatRepository
     /// <para><b>MỘT truy vấn cho cả ba.</b> Giao diện hỏi lại 4 giây một lần, nên mỗi bộ đếm một
     /// truy vấn là nhân ba số lần đụng CSDL cho cùng một bảng, cùng một điều kiện.</para>
     /// </summary>
+    /// <summary>
+    /// Đếm hội thoại cho các chip lọc.
+    ///
+    /// <para>⚠️ <paramref name="kenh"/> chỉ kẹp <b>đếm theo TRẠNG THÁI</b>, KHÔNG kẹp đếm theo kênh.
+    /// Hai con số đó trả lời hai câu khác nhau: chip trạng thái nói "trong kênh đang xem có bao
+    /// nhiêu việc mới", còn dải kênh nói "mỗi kênh có bao nhiêu" — kẹp cả hai thì chọn một kênh là
+    /// mọi kênh khác về 0 và người dùng mất đường quay lại.</para>
+    ///
+    /// <para>Trước 28/08/2026 chỗ này không nhận kênh: lọc sang Telegram mà chip vẫn hiện số của
+    /// cả sáu kênh — danh sách một đằng, con số một nẻo, ngay cạnh nhau trên cùng màn hình.</para>
+    /// </summary>
     public async Task<ChatInboxCounts> CountAsync(string tenant, string? chiCuaToi,
-        string? nguoiDung = null, CancellationToken ct = default)
+        string? nguoiDung = null, short? kenh = null, CancellationToken ct = default)
     {
         await using var c = await _db.OpenAsync(ct);
         var rows = (await c.QueryAsync<RowCount>("""
@@ -377,10 +388,16 @@ public class ChatRepository
         var theoKenh = new Dictionary<short, int>();
         foreach (var r in rows)
         {
-            theoTrangThai[r.Status] = theoTrangThai.GetValueOrDefault(r.Status) + r.So;
+            // Dải kênh luôn đếm ĐỦ MỌI KÊNH — xem ghi chú ở chữ ký hàm.
             theoKenh[r.Channel] = theoKenh.GetValueOrDefault(r.Channel) + r.So;
+            if (kenh is { } k && r.Channel != k) continue;
+            theoTrangThai[r.Status] = theoTrangThai.GetValueOrDefault(r.Status) + r.So;
         }
-        return new ChatInboxCounts(theoTrangThai, theoKenh, rows.Sum(r => r.Unread), rows.Sum(r => r.So));
+
+        // Tổng và chưa đọc đi theo chip trạng thái: chúng đứng cùng chỗ và nói về cùng một danh sách.
+        var trongKenh = kenh is { } kk ? rows.Where(r => r.Channel == kk).ToList() : rows;
+        return new ChatInboxCounts(theoTrangThai, theoKenh,
+            trongKenh.Sum(r => r.Unread), trongKenh.Sum(r => r.So));
     }
 
     private class RowCount

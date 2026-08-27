@@ -9415,7 +9415,11 @@ img.ci-avt { object-fit: cover; }
    cách lấy token — mà đó chính là chỗ họ tắc. Dự án tham chiếu đặt ba bước kèm liên kết bấm
    thẳng sang @BotFather ngay trong hộp thoại nối, và đó là khác biệt giữa "dán vào đây" với
    "tôi lấy cái đó ở đâu". */
-.ci-buoc { display: flex; flex-direction: column; gap: 8px; margin: 2px 0 4px; }
+/* padding:0 + list-style:none là BẮT BUỘC, không phải cho gọn: thẻ <ol> mặc định thụt vào 40px
+   và tự vẽ số của nó. Số ở đây do mình vẽ (ô tròn), nên để mặc định thì vừa thụt lệch hẳn so
+   với nhãn các ô nhập bên dưới, vừa có nguy cơ hai bộ số chồng nhau. */
+.ci-buoc { display: flex; flex-direction: column; gap: 8px; margin: 2px 0 4px;
+           padding: 0; list-style: none; }
 .ci-buoc li { display: grid; grid-template-columns: 18px 1fr; gap: 8px; align-items: start;
               font-size: 11.5px; line-height: 1.6; color: var(--text-3); }
 .ci-buoc li > span:first-child {

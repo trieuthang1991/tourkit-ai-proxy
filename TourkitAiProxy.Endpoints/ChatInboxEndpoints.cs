@@ -502,7 +502,8 @@ public static class ChatInboxEndpoints
             var items = await repo.ListConversationsAsync(a.TenantId, status, chiCuaToi, search,
                 kenh: channel, giaoCho: mine == true ? a.Username : null, chiChuaDoc: unread == true,
                 sau: ChatCursor.Decode(cursor), limit: soDong, nguoiDung: a.Username, ct: ct);
-            var dem = await repo.CountAsync(a.TenantId, chiCuaToi, a.Username, ct);
+            // Truyền kênh đang lọc: chip trạng thái phải nói về ĐÚNG danh sách đang hiện bên dưới.
+            var dem = await repo.CountAsync(a.TenantId, chiCuaToi, a.Username, channel, ct);
             return Results.Json(new
             {
                 items = items.Select(x => Shape(x, a.SessionId)),
