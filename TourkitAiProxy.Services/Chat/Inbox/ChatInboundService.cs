@@ -117,9 +117,26 @@ public class ChatInboundService
         // sẵn dấu tích hai mức.
         if (e.Watermark is { } moc)
         {
-            var soDong = await _repo.MarkStateWatermarkAsync(tenantId, hoiThoai.Id, moc.State, moc.UpToUtc, ct);
+            // Instagram KHÔNG gửi mốc thời gian, chỉ gửi mã tin cuối khách đã đọc — phải tra
+            // ngược ra thời điểm của chính tin đó. Lấy tạm giờ nhận gói cho nhanh là đánh dấu
+            // THỪA: mọi tin gửi trước đó bị coi là đã xem, kể cả tin khách chưa hề mở.
+            var mocLuc = moc.UpToUtc;
+            if (moc.ExternalMsgId is { Length: > 0 } maTinDoc)
+            {
+                var luc = await _repo.ThoiDiemTinAsync(tenantId, hoiThoai.Id, maTinDoc, ct);
+                if (luc is null)
+                {
+                    // Tin không nằm trong hộp thư (nhân viên trả lời từ app Meta trước khi nối,
+                    // hoặc tin đã xoá). Không có mốc thì KHÔNG đánh dấu gì — đoán là nói dối.
+                    _log.LogDebug("[chat] báo đã xem theo mã tin {Ma} nhưng không tìm thấy tin", maTinDoc);
+                    return;
+                }
+                mocLuc = luc.Value;
+            }
+
+            var soDong = await _repo.MarkStateWatermarkAsync(tenantId, hoiThoai.Id, moc.State, mocLuc, ct);
             _log.LogDebug("[chat] mốc {TT} tới {Luc:o} — đổi {N} tin, hội thoại {H}",
-                moc.State, moc.UpToUtc, soDong, hoiThoai.Id);
+                moc.State, mocLuc, soDong, hoiThoai.Id);
             // Chỉ báo khi thật sự có tin đổi trạng thái — nền tảng gửi lại mốc cũ khá thường,
             // báo mọi lần là các tab tải lại liên tục cho một thứ y hệt.
             if (soDong > 0) _bus.Bao(new(tenantId, hoiThoai.Id, "doi-trang-thai", null));

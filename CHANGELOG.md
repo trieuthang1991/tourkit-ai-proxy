@@ -13,9 +13,18 @@ Những cập nhật gần đây của TRAV-AI, viết cho người dùng. Mới
 
 ---
 
-## Phiên bản 27/08/2026 — Telegram theo kịp Facebook
+## Phiên bản 27/08/2026 — Thêm Instagram, và Telegram theo kịp Facebook
 
 ### ✨ Tính năng mới
+- **Tin nhắn Instagram vào thẳng hộp thư.** Nếu tài khoản Instagram của công ty đã liên kết với
+  Trang Facebook, thì chỉ cần nối Trang như trước là xong — hệ thống tự nhận ra và nối luôn
+  Instagram, **không phải bấm thêm nút nào**. Khách nhắn Direct hiện cạnh tin Zalo, Facebook và
+  Telegram trong cùng một hộp thư, trả lời cùng một chỗ.
+
+  *Lưu ý:* tài khoản Instagram phải là loại **Professional** và đã bật "Cho phép truy cập tin
+  nhắn" trong cài đặt Instagram. Instagram cho trả lời trong **24 giờ** kể từ tin của khách,
+  giống Facebook. Instagram chỉ báo "khách đã xem", không báo "đã nhận" — nên dấu tích ở kênh
+  này nhảy thẳng từ một tích sang hai tích.
 - **Nối bot Telegram chỉ còn dán một dòng mã.** Trước đây muốn đưa tin Telegram vào hộp thư,
   bạn phải tự nghĩ ra một chuỗi bí mật, chép địa chỉ trên màn hình, rồi tự gõ một câu lệnh ở
   ngoài trình duyệt — gần như không ai làm được nếu không có người kỹ thuật ngồi cạnh. Nay chỉ

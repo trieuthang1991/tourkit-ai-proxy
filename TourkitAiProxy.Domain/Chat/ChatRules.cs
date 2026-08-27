@@ -91,6 +91,7 @@ public static class ChatRules
     {
         ChatChannel.Zalo => "Zalo",
         ChatChannel.Messenger => "Messenger",
+        ChatChannel.Instagram => "Instagram",
         ChatChannel.Telegram => "Telegram",
         ChatChannel.Webchat => "Chat trên web",
         _ => "Kênh này",

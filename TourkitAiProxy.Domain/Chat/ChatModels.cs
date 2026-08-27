@@ -14,6 +14,10 @@ public enum ChatChannel : short
     Messenger = 1,
     Webchat = 2,
     Telegram = 3,
+    /// <summary>Instagram Direct. Đi CÙNG hợp đồng nhắn tin của Meta với Messenger — xem
+    /// <c>MetaMessagingParser</c> — nhưng khác đường gửi, khác khoá ký, và KHÔNG có báo
+    /// "đã nhận".</summary>
+    Instagram = 4,
 }
 
 /// Chiều của tin nhắn.
@@ -98,7 +102,11 @@ public class ChatReactionRow
 /// không nói được "đã nhận", và không mang thời điểm — mà thiếu thời điểm thì hoặc đánh dấu cả
 /// hội thoại (sai: tin gửi sau đó cũng bị coi là đã xem), hoặc không đánh dấu gì.</para>
 /// </summary>
-public record StateWatermark(ChatState State, DateTime UpToUtc);
+/// <param name="ExternalMsgId">Instagram KHÔNG gửi <c>watermark</c> — chỉ gửi mã tin cuối
+/// khách đã đọc. Mốc thời gian phải tra ngược từ chính tin đó, mà tra thì phải chạm CSDL nên
+/// không làm được trong hàm bóc tin thuần. Có giá trị ở đây nghĩa là <c>UpToUtc</c> chưa dùng
+/// được, lõi phải tra trước.</param>
+public record StateWatermark(ChatState State, DateTime UpToUtc, string? ExternalMsgId = null);
 
 public class ChatContact
 {

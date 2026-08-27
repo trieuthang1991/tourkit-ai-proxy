@@ -53,12 +53,31 @@ public static class MetaMessagingParser
                 if (tt is { } trangThai)
                 {
                     var uidM = m["sender"]?["id"]?.ToString();
-                    var wm = m[trangThai == ChatState.DaNhan ? "delivery" : "read"]?["watermark"]?.ToString();
+                    var goiTt = m[trangThai == ChatState.DaNhan ? "delivery" : "read"];
+                    var wm = goiTt?["watermark"]?.ToString();
                     if (!string.IsNullOrWhiteSpace(uidM) && long.TryParse(wm, out var wms))
                     {
                         var mocLuc = DateTimeOffset.FromUnixTimeMilliseconds(wms).UtcDateTime;
                         ra.Add(new(kenh, uidM!, null, ChatKind.Chu, null, null,
                             mocLuc, Watermark: new(trangThai, mocLuc)));
+                        continue;
+                    }
+
+                    // ⚠️ Instagram báo "đã xem" KHÁC Messenger: {"read":{"mid":"<tin cuối đã đọc>"}},
+                    // KHÔNG có watermark. Đọc theo lối Messenger thì giá trị ra null và sự kiện rơi
+                    // im lặng — dấu tích Instagram đứng mãi ở "đã gửi" mà không lỗi nào hiện ra.
+                    //
+                    // Mốc thời gian phải tra ngược từ chính tin đó (chạm CSDL, không làm được ở hàm
+                    // thuần này) nên chỉ chuyển mã tin sang cho lõi. Lấy tạm `timestamp` của gói cho
+                    // nhanh là đánh dấu THỪA: mọi tin gửi trước lúc đó bị coi là đã xem, kể cả tin
+                    // khách chưa hề mở — tức nói dối nhân viên.
+                    var maTinDoc = goiTt?["mid"]?.ToString();
+                    if (!string.IsNullOrWhiteSpace(uidM) && !string.IsNullOrWhiteSpace(maTinDoc))
+                    {
+                        var lucBao = long.TryParse(m["timestamp"]?.ToString(), out var tsBao)
+                            ? DateTimeOffset.FromUnixTimeMilliseconds(tsBao).UtcDateTime : DateTime.UtcNow;
+                        ra.Add(new(kenh, uidM!, null, ChatKind.Chu, null, null, lucBao,
+                            Watermark: new(trangThai, default, maTinDoc)));
                     }
                     continue;
                 }

@@ -67,6 +67,7 @@ public static class ChatInboxEndpoints
         ["zalo"] = ChatChannel.Zalo,
         ["messenger"] = ChatChannel.Messenger,
         ["telegram"] = ChatChannel.Telegram,
+        ["instagram"] = ChatChannel.Instagram,
     };
 
     private static void MapWebhook(IEndpointRouteBuilder routes)
@@ -241,6 +242,60 @@ public static class ChatInboxEndpoints
             // KHÔNG dùng Results.Forbid(): ứng dụng không đăng ký dịch vụ xác thực nào nên nó ném
             // InvalidOperationException, và Meta nhận về 500 thay vì 403 — báo lỗi sai chỗ, mất công
             // đi tìm ở đầu Meta trong khi lỗi nằm ở đây.
+            return challenge is null ? Results.StatusCode(403) : Results.Text(challenge);
+        });
+
+        // ── Instagram: đường DÙNG CHUNG ──────────────────────────────────────
+        //
+        // Instagram đi qua CHÍNH ứng dụng Meta của Messenger, nhưng Meta khai địa chỉ webhook
+        // RIÊNG cho từng "đối tượng" (page · instagram) — nên phải có đường riêng ở đây, dù cùng
+        // một ứng dụng. Gộp vào đường của Messenger là Instagram không có chỗ để gửi tới.
+        //
+        // ⚠️ LUÔN TRẢ 200, cùng lý do với Messenger và nặng hơn: ứng dụng dùng chung, trả lỗi
+        // liên tục là Meta tự ngừng gửi cho MỌI khách hàng cùng lúc. Từ chối = không ghi gì, và
+        // mỗi lượt từ chối ghi log WARNING — đó là chỗ duy nhất nhìn ra "tin có tới mà không vào
+        // hộp thư".
+        routes.MapPost("/api/v1/chat/webhook/instagram", async (HttpContext ctx, ChatInboundService svc,
+            ChatRepository repo, Services.Chat.Inbox.ChatWorkSignal tin, ILoggerFactory lf,
+            CancellationToken ct) =>
+        {
+            var log = lf.CreateLogger("chat.webhook");
+            if (svc.Adapter(ChatChannel.Instagram) is not Services.Chat.Channels.InstagramChatAdapter ig)
+                return Results.NotFound();
+
+            ctx.Request.EnableBuffering();
+            using var reader = new StreamReader(ctx.Request.Body, leaveOpen: true);
+            var raw = await reader.ReadToEndAsync(ct);
+            ctx.Request.Body.Position = 0;
+
+            var ai = await ig.XacMinhDungChungAsync(raw, ctx.Request.Headers, ct);
+            if (ai is null)
+            {
+                log.LogWarning("[chat/webhook] instagram: TỪ CHỐI tin của tài khoản {Ig} — chữ ký sai "
+                    + "hoặc chưa công ty nào nối. Tin KHÔNG vào hộp thư.",
+                    Services.Chat.Channels.InstagramChatAdapter.IdTaiKhoanCuaSuKien(raw));
+                return Results.Ok();
+            }
+
+            var sk = ig.Parse(raw);
+            if (sk.Count == 0) return Results.Ok();
+
+            var id = await repo.EnqueueInboundAsync(ai.Value.TenantId, ChatChannel.Instagram,
+                ai.Value.AccountId, sk[0].ExternalMsgId, raw, ct);
+            if (id is not null) tin.Danh(Services.Chat.Inbox.ChatLan.Vao);
+            else log.LogInformation("[chat/webhook] bỏ qua bản gửi lại, instagram tenant={T} sk={S}",
+                ai.Value.TenantId, sk[0].ExternalMsgId);
+            return Results.Ok();
+        });
+
+        // Meta xác minh địa chỉ bằng một lượt GET kèm hub.challenge — dùng lại verify token cấp
+        // nền tảng của Messenger, vì Instagram nằm trong CHÍNH ứng dụng đó.
+        routes.MapGet("/api/v1/chat/webhook/instagram", async (HttpContext ctx,
+            Services.Chat.Channels.MessengerChatAdapter adapter, CancellationToken ct) =>
+        {
+            var q = ctx.Request.Query;
+            var challenge = await adapter.XacMinhDangKyAsync("", q["hub.mode"], q["hub.verify_token"],
+                q["hub.challenge"], ct);
             return challenge is null ? Results.StatusCode(403) : Results.Text(challenge);
         });
 
@@ -966,9 +1021,10 @@ public static class ChatInboxEndpoints
             if (trang!.Count == 1)
             {
                 var loiNoi = await fb.NoiTrangAsync(cho.Value.TenantId, trang[0], ct);
-                return loiNoi is null
-                    ? TrangCapQuyen(true, $"Đã nối Trang \"{trang[0].Ten}\". Tin nhắn mới sẽ vào hộp thư ngay.")
-                    : TrangCapQuyen(false, loiNoi);
+                if (loiNoi is not null) return TrangCapQuyen(false, loiNoi);
+                var kemIg = await NoiKemInstagramAsync(adapters, cho.Value.TenantId, trang[0], ct);
+                return TrangCapQuyen(true,
+                    $"Đã nối Trang \"{trang[0].Ten}\"{kemIg}. Tin nhắn mới sẽ vào hộp thư ngay.");
             }
 
             var ma = chon.Tao(cho.Value.TenantId, trang);
@@ -995,6 +1051,7 @@ public static class ChatInboxEndpoints
 
             var loi = await fb.NoiTrangAsync(c.Value.TenantId, c.Value.Trang, ct);
             if (loi is not null) return TrangCapQuyen(false, loi);
+            var kemIg = await NoiKemInstagramAsync(adapters, c.Value.TenantId, c.Value.Trang, ct);
 
             // Vẽ lại danh sách thay vì đóng cửa sổ: công ty nhiều chi nhánh nối vài Trang liền tay,
             // đóng phụt sau Trang đầu là bắt họ đăng nhập Facebook lại từ đầu cho Trang thứ hai.
@@ -1295,6 +1352,25 @@ public static class ChatInboxEndpoints
         => string.IsNullOrWhiteSpace(url) || !url.StartsWith('/') ? url
            : $"{url}?sessionId={Uri.EscapeDataString(sessionId)}";
 
+    /// <summary>
+    /// Nối luôn tài khoản Instagram liên kết với Trang vừa nối, nếu có.
+    ///
+    /// <para>Instagram Direct đi qua CHÍNH Trang đó — cùng ứng dụng Meta, cùng token, cùng khoá ký.
+    /// Nên bắt khách bấm thêm một nút nữa là bắt họ làm một việc máy tự làm được.</para>
+    ///
+    /// <para>⚠️ Không bao giờ chặn việc nối Trang: Trang không có Instagram là chuyện bình thường.</para>
+    /// </summary>
+    /// <returns>Đoạn chữ nối thêm vào câu báo thành công, hoặc rỗng.</returns>
+    private static async Task<string> NoiKemInstagramAsync(
+        IEnumerable<Services.Chat.Channels.IChatChannelAdapter> adapters, string tenantId,
+        Services.Chat.Channels.TrangUngVien trang, CancellationToken ct)
+    {
+        var ig = adapters.OfType<Services.Chat.Channels.InstagramChatAdapter>().FirstOrDefault();
+        if (ig is null) return "";
+        var id = await ig.NoiTuTrangAsync(tenantId, trang.PageId, trang.Ten, trang.AccessToken, ct);
+        return id is null ? "" : " và tài khoản Instagram liên kết";
+    }
+
     private static string GocCongKhai(HttpContext ctx, IConfiguration cfg)
     {
         var dat = cfg["Chat:PublicBaseUrl"];
@@ -1410,6 +1486,8 @@ public static class ChatInboxEndpoints
         ChatChannel.Messenger => g.ContainsKey("pageId") && g.ContainsKey("pageAccessToken")
                                  && (nenTang || (g.ContainsKey("appSecret") && g.ContainsKey("verifyToken"))),
         ChatChannel.Telegram => g.ContainsKey("botToken") && g.ContainsKey("webhookSecret"),
+        // Instagram đi bằng chính Page Access Token của Trang đã nối, nên chỉ cần hai ô này.
+        ChatChannel.Instagram => g.ContainsKey("igId") && g.ContainsKey("pageAccessToken"),
         _ => false,
     };
 
@@ -1454,6 +1532,17 @@ public static class ChatInboxEndpoints
             new ONhap("note",
                 "Bốn ô này CHỈ dùng khi công ty tự tạo ứng dụng riêng trên Meta for Developers. "
                 + "Bình thường bấm \"Kết nối Facebook\" là xong — không phải khai gì.", "note"),
+        }, false),
+        (ChatChannel.Instagram, "Instagram Direct", new[]
+        {
+            new ONhap("label",           "Tên gợi nhớ", "text", "IG chi nhánh Q1"),
+            new ONhap("igId",            "ID tài khoản Instagram", "text", "17841400000000000"),
+            new ONhap("pageAccessToken", "Page Access Token", "secret",
+                "Token của Trang Facebook mà tài khoản Instagram này liên kết vào"),
+            new ONhap("note",
+                "Instagram đi qua chính Trang Facebook đã nối: tài khoản phải là Instagram "
+                + "Professional và đã liên kết với Trang đó, rồi bật \"Cho phép truy cập tin nhắn\" "
+                + "trong cài đặt Instagram. Không cần khai thêm khoá ứng dụng nào.", "note"),
         }, false),
         (ChatChannel.Telegram, "Telegram", new[]
         {

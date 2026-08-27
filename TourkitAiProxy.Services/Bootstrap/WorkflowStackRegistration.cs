@@ -213,6 +213,7 @@ public static class WorkflowStackRegistration
         s.AddSingleton<Chat.Channels.IChatChannelAdapter, Chat.Channels.ZaloChatAdapter>();
         s.AddSingleton<Chat.Channels.IChatChannelAdapter, Chat.Channels.MessengerChatAdapter>();
         s.AddSingleton<Chat.Channels.IChatChannelAdapter, Chat.Channels.TelegramChatAdapter>();
+        s.AddSingleton<Chat.Channels.IChatChannelAdapter, Chat.Channels.InstagramChatAdapter>();
         // MessengerChatAdapter cần được lấy đích danh cho bước Meta xác minh địa chỉ webhook.
         s.AddSingleton<Chat.Channels.MessengerChatAdapter>();
         // Ghi chú cũ, giữ lại để hiểu vì sao từng có giai đoạn không có lớp này:

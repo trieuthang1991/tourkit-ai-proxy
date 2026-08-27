@@ -176,6 +176,25 @@ public class ChatRepository
             """, new { messageId, tenant });
     }
 
+    /// <summary>
+    /// Thời điểm một tin, tra theo mã của nhà cung cấp.
+    ///
+    /// <para>Chỉ Instagram cần: kênh đó báo "khách đã xem" bằng <b>mã tin cuối đã đọc</b> chứ không
+    /// bằng mốc thời gian, mà luật đánh dấu hàng loạt lại chạy theo thời gian. Không tìm thấy thì trả
+    /// <c>null</c> — chỗ gọi phải BỎ QUA, đoán một mốc là đánh dấu thừa lên tin khách chưa hề mở.</para>
+    /// </summary>
+    public async Task<DateTime?> ThoiDiemTinAsync(string tenant, long conversationId,
+        string externalMsgId, CancellationToken ct = default)
+    {
+        await using var c = await _db.OpenAsync(ct);
+        return await c.ExecuteScalarAsync<DateTime?>("""
+            SELECT created_utc FROM chat_messages
+            WHERE tenant_id = @tenant AND conversation_id = @conversationId
+              AND external_msg_id = @externalMsgId
+            LIMIT 1
+            """, new { tenant, conversationId, externalMsgId });
+    }
+
     /// <summary>Id tin đoán được (số tăng dần) — proxy tệp Telegram phải tự kiểm chủ trước khi
     /// đổi file_id thành đường tải thật, không tin vào việc id khó đoán.</summary>
     public async Task<bool> MessageBelongsToTenantAsync(string tenant, long messageId, CancellationToken ct = default)

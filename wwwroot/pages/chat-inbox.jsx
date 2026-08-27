@@ -24,10 +24,11 @@
   const KENH = {
     0: { ten: 'Zalo', chu: 'Z' },
     1: { ten: 'Messenger', chu: 'f' },
+    4: { ten: 'Instagram', chu: 'ig' },
     2: { ten: 'Web', chu: 'W' },
     3: { ten: 'Telegram', chu: 'T' },
   };
-  const KENH_SONG = [0, 1, 3];   // kênh đã nối thật; Web chỉ hiện khi có dữ liệu
+  const KENH_SONG = [0, 1, 4, 3];   // kênh đã nối thật; Web chỉ hiện khi có dữ liệu
 
   const TRANG_THAI = [
     { v: null, nhan: 'Tất cả' },
@@ -277,6 +278,7 @@
     const sap = cuaSo.hoursLeft < 6;
     // Vạch ở mép dưới cho thấy còn BAO NHIÊU so với cả cửa sổ, không chỉ con số. Mốc lấy theo
     // cửa sổ dài nhất của kênh (Zalo 48h, Messenger 24h) — đọc bằng mắt nhanh hơn đọc số.
+    // Zalo 48h; Messenger, Instagram 24h. Telegram/web không giới hạn nên không tới đây.
     const tron = kenh === 0 ? 48 : 24;
     const con = Math.max(2, Math.min(100, Math.round(cuaSo.hoursLeft / tron * 100)));
     return (

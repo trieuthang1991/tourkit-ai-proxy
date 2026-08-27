@@ -116,6 +116,52 @@ của chính yêu cầu đang tới — trên máy chủ thật thì đúng, cò
 ⚠️ **Zalo xoay vòng refresh token.** Mỗi lượt đổi trả về một refresh token MỚI, phải lưu cái mới và
 bỏ cái cũ — dùng lại cái cũ ở lần sau là bị từ chối. Cả hai lượt (đổi `code` lần đầu và làm mới về
 sau) đi chung một hàm nên không có chỗ nào quên lưu.
+**Instagram Direct — kênh thứ tư** (thêm 27/08). Đi **cùng hợp đồng nhắn tin của Meta** với
+Messenger, nên phần bóc tin dùng CHUNG một lớp
+([`MetaMessagingParser`](../../TourkitAiProxy.Services/Chat/Channels/MetaMessagingParser.cs)): cùng hình dạng
+`entry[] × messaging[]`, cùng `mid`, cùng `is_echo`, cùng cách gói đính kèm, cùng kiểu ký. Chép ra
+hai bản là hai bản lệch nhau — mà lệch ở đây thì hỏng im lặng: một kênh nhận được cảm xúc, kênh
+kia không, không lỗi nào hiện ra. Cùng lý do R2 và S3 dùng chung một lớp lưu trữ.
+
+**Nối qua TRANG FACEBOOK đã kết nối, KHÔNG qua đăng nhập Instagram riêng.** Khách bấm "Kết nối
+Facebook" như cũ; nối Trang xong hệ thống tự hỏi Trang đó có tài khoản Instagram liên kết không
+(`GET /{pageId}?fields=instagram_business_account`) và nối luôn — **không thêm nút nào**. Cùng ứng
+dụng Meta, cùng App Secret, cùng Page Access Token.
+
+⚠️ **Vì sao KHÔNG chép cách ChatbotX làm.** Họ dùng *Instagram Login* (`api.instagram.com`, app
+Instagram riêng, scope `instagram_business_*`). Đường đó không cần Trang, nhưng token **hết hạn sau
+60 ngày** và phải tự làm mới — thêm một thứ hỏng âm thầm vào lúc không ai để ý. Page Access Token
+thì không hết hạn, và công ty du lịch nào cũng đã có Trang. Cái giá: tài khoản phải là Instagram
+Professional đã liên kết Trang, và phải bật "Cho phép truy cập tin nhắn" trong cài đặt Instagram.
+
+⚠️ **Ba chỗ KHÁC Messenger thật, đừng áp một luật:**
+1. Trường `object` là `"instagram"`, không phải `"page"`.
+2. Đường gửi là `graph.instagram.com` và token đi ở header `Authorization: Bearer` — Instagram
+   **không** nhận `?access_token=` trên URL như Graph của Facebook. Chép nguyên đường gửi của
+   Messenger sang là mọi tin gửi đi đều bị từ chối.
+3. **KHÔNG có `message_deliveries`.** Meta chỉ cấp `messaging_seen` cho Instagram, nên tin nhảy
+   thẳng "đã gửi" → "đã xem", không bao giờ có "đã nhận" — **và đó là đúng**.
+
+⚠️ **`messaging_seen` của Instagram báo bằng `mid`, KHÔNG bằng `watermark`.** Messenger gửi
+`{"read":{"watermark":<ms>}}`; Instagram gửi `{"read":{"mid":"<tin cuối đã đọc>"}}`. Đọc theo lối
+Messenger thì giá trị ra `null`, sự kiện **rơi im lặng**, dấu tích đứng mãi ở "đã gửi". Mốc thời
+gian phải tra ngược từ chính tin đó (`ChatRepository.ThoiDiemTinAsync`) — lấy tạm giờ nhận gói cho
+nhanh là đánh dấu THỪA lên tin khách chưa hề mở, tức nói dối nhân viên. Không tra ra tin thì **bỏ
+qua**, không đoán.
+
+⚠️ **Đường webhook RIÊNG dù chung ứng dụng:** `/api/v1/chat/webhook/instagram`. Meta khai địa chỉ
+webhook riêng cho từng *đối tượng* (`page` · `instagram`), nên gộp vào đường của Messenger là
+Instagram không có chỗ gửi tới. Cũng **luôn trả 200** kể cả khi từ chối, và vì lý do nặng hơn: ứng
+dụng dùng chung nên trả lỗi liên tục là Meta tắt kênh của **mọi** khách hàng cùng lúc.
+
+⚠️ **Trường webhook của đối tượng `instagram` bật ở CẤP ỨNG DỤNG**, không phải lệnh gọi cho từng
+tài khoản (khác Trang Facebook và khác Telegram). Danh sách ghi ở `InstagramChatAdapter.SuKienTaiKhoan`
+để lúc khai ứng dụng không ai phải đoán — thiếu một trường thì mã bóc vẫn đúng, chỉ là gói tin không
+bao giờ tới.
+
+⚠️ **Chưa kiểm bằng tài khoản thật** (27/08). Phần bóc tin, cửa sổ gửi và luật "đã xem" có test;
+bước nối và đường gửi phải thử trên một tài khoản Instagram Professional thật rồi mới coi là xong.
+
 **Telegram nối bằng MỘT nút, giống Zalo/Messenger** (đổi 27/08). Dán bot token → máy chủ gọi
 `getMe` xác thực → **tự sinh** chuỗi bí mật webhook → gọi `setWebhook`. Gỡ kết nối gọi
 `deleteWebhook`. Vào từ chính `POST|PUT|DELETE /channels/3/accounts[/{id}]`, không thêm đường mới
