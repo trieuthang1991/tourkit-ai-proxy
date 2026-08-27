@@ -45,6 +45,116 @@ public class TelegramChatAdapter : IChatChannelAdapter
 
     public ChatChannel Channel => ChatChannel.Telegram;
 
+    // ── Nối bot bằng MỘT nút ────────────────────────────────────────────────
+
+    /// <summary>Kết quả nối một bot.</summary>
+    /// <param name="ChuoiBiMat">Chuỗi bí mật webhook do MÁY CHỦ sinh — phải lưu lại, vì đó là thứ
+    /// DUY NHẤT dùng để kiểm tin đến có thật hay không.</param>
+    public record KetQuaNoiBot(bool Ok, string? BotId, string? Username, string? ChuoiBiMat, string? Loi);
+
+    /// <summary>
+    /// Sinh chuỗi bí mật webhook. <b>Máy chủ sinh, không nhận từ người dùng</b> — trước đây ô này
+    /// bắt người khai tự nghĩ ra rồi tự dán vào lệnh <c>setWebhook</c>, tức là đã tự tay làm cái
+    /// việc mà nút này sinh ra để bỏ đi.
+    ///
+    /// <para>Telegram chỉ nhận <c>A-Z a-z 0-9 _ -</c> cho <c>secret_token</c>, nên phải dùng
+    /// base64url chứ không phải base64 thường: một dấu <c>+</c> hay <c>/</c> lọt vào là Telegram
+    /// từ chối, mà lời từ chối của họ không nói vướng ở đâu.</para>
+    /// </summary>
+    public static string SinhChuoiBiMat()
+    {
+        Span<byte> b = stackalloc byte[24];
+        RandomNumberGenerator.Fill(b);
+        return Convert.ToBase64String(b).Replace('+', '-').Replace('/', '_').TrimEnd('=');
+    }
+
+    /// <summary>
+    /// Nối một bot: xác thực token → sinh chuỗi bí mật → đăng ký địa chỉ webhook.
+    ///
+    /// <para>Trước 27/08 ba việc này là việc TAY của người khai: tự nghĩ chuỗi bí mật, copy URL
+    /// trên màn hình, rồi tự gõ lệnh <c>setWebhook</c> ngoài trình duyệt. Không công ty du lịch
+    /// nào làm nổi — đúng lý do đã phải đổi cách nối của Zalo.</para>
+    /// </summary>
+    public async Task<KetQuaNoiBot> NoiBotAsync(string? botToken, string webhookUrl, CancellationToken ct)
+    {
+        if (string.IsNullOrWhiteSpace(botToken))
+            return new(false, null, null, null, "Chưa dán bot token lấy từ @BotFather");
+
+        // ⚠️ Xác thực token TRƯỚC khi đăng ký. Làm ngược thứ tự thì token sai vẫn kịp trỏ một địa
+        // chỉ công khai vào một bot không tồn tại, và bản ghi rác nằm lại trong danh sách kênh.
+        var me = await GoiTraJsonAsync(botToken!, "getMe", null, ct);
+        if (me is null || me["ok"]?.GetValue<bool>() != true)
+            return new(false, null, null, null,
+                "Bot token không đúng, hoặc Telegram không trả lời. Kiểm tra lại chuỗi @BotFather đưa.");
+
+        var botId = me["result"]?["id"]?.ToString();
+        var username = me["result"]?["username"]?.ToString();
+        var biMat = SinhChuoiBiMat();
+
+        var kq = await GoiTraJsonAsync(botToken!, "setWebhook", new JsonObject
+        {
+            ["url"] = webhookUrl,
+            // Telegram không ký nội dung; chuỗi này là thứ duy nhất ngăn người ngoài bơm tin giả.
+            ["secret_token"] = biMat,
+            // ⚠️ HAI CHỖ, THIẾU MỘT LÀ HỎNG IM LẶNG. Telegram CHỈ gửi những loại nằm trong danh
+            // sách này, và danh sách MẶC ĐỊNH của họ đã bỏ sẵn message_reaction. Viết mã bóc cảm
+            // xúc mà quên khai ở đây thì không bao giờ có gói tin nào tới: không lỗi, không log,
+            // chỉ là một thứ không bao giờ xảy ra.
+            ["allowed_updates"] = new JsonArray(
+                "message", "edited_message", "callback_query", "message_reaction", "my_chat_member"),
+            // Bỏ gói tồn đọng (Telegram giữ tối đa 24h). Nhận vào thì bot trả lời những câu hỏi
+            // từ hôm qua như thể khách vừa hỏi — và có thể là tin của một hệ thống khác đang dùng
+            // chính bot này trước đó.
+            ["drop_pending_updates"] = true,
+        }, ct);
+
+        if (kq is null || kq["ok"]?.GetValue<bool>() != true)
+            return new(false, botId, username, null,
+                "Telegram từ chối đăng ký địa chỉ nhận tin: "
+                + (kq?["description"]?.ToString() ?? "không rõ lý do")
+                + ". Địa chỉ phải là https công khai — lúc chạy ở máy dev thì phải khai Chat:PublicBaseUrl.");
+
+        _log.LogInformation("[chat/telegram] đã nối bot @{Ten} ({Id})", username, botId);
+        return new(true, botId, username, biMat, null);
+    }
+
+    /// <summary>
+    /// Gỡ địa chỉ nhận tin của bot. Không gọi thì Telegram <b>nện vào URL cũ mãi mãi</b>: mỗi lượt
+    /// một dòng từ chối trong nhật ký, và bot vẫn tưởng nó đang được dùng.
+    ///
+    /// <para><c>drop_pending_updates=false</c>: gỡ khỏi hộp thư này không có nghĩa là vứt tin của
+    /// khách — công ty có thể đang chuyển bot sang nơi khác dùng tiếp.</para>
+    /// </summary>
+    public async Task<bool> GoBotAsync(string tenantId, string accountId, CancellationToken ct)
+    {
+        var token = await TokenAsync(tenantId, accountId, ct);
+        if (token is null) return false;
+        var kq = await GoiTraJsonAsync(token, "deleteWebhook",
+            new JsonObject { ["drop_pending_updates"] = false }, ct);
+        return kq?["ok"]?.GetValue<bool>() == true;
+    }
+
+    /// <summary>Gọi một phương thức Bot API, trả JSON thô. Không ném — chỗ gọi tự đọc <c>ok</c>.</summary>
+    /// <remarks>Token nằm TRONG đường dẫn nên tuyệt đối không ghi URL ra nhật ký.</remarks>
+    private async Task<JsonObject?> GoiTraJsonAsync(string token, string phuongThuc, JsonObject? than,
+        CancellationToken ct)
+    {
+        try
+        {
+            var http = _http.CreateClient();
+            using var res = than is null
+                ? await http.GetAsync($"{ApiBase}/bot{token}/{phuongThuc}", ct)
+                : await http.PostAsync($"{ApiBase}/bot{token}/{phuongThuc}",
+                    new StringContent(than.ToJsonString(), Encoding.UTF8, "application/json"), ct);
+            return JsonNode.Parse(await res.Content.ReadAsStringAsync(ct))?.AsObject();
+        }
+        catch (Exception ex)
+        {
+            _log.LogWarning(ex, "[chat/telegram] gọi {PhuongThuc} hỏng", phuongThuc);
+            return null;
+        }
+    }
+
     private async Task<string?> TokenAsync(string tenantId, string accountId, CancellationToken ct)
     {
         var c = await _cred.GetAsync(tenantId, Channel, accountId, ct);

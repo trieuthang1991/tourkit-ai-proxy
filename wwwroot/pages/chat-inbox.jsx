@@ -700,7 +700,14 @@
           method: accId ? 'PUT' : 'POST', headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify(than),
         });
-        if (!r.ok) { pushToast('Lưu không được', 'error'); return; }
+        if (!r.ok) {
+          // Máy chủ trả câu lỗi CỤ THỂ (token sai, Telegram từ chối đăng ký địa chỉ nhận tin,
+          // địa chỉ không phải https công khai…). Nuốt mất rồi hiện "Lưu không được" thì người
+          // khai không có manh mối nào để sửa — đúng thứ vừa mất một buổi khi nối Facebook.
+          let cau = 'Lưu không được';
+          try { const j = await r.json(); if (j && j.error) cau = j.error; } catch (e) {}
+          pushToast(cau, 'error'); return;
+        }
         pushToast(accId ? 'Đã cập nhật tài khoản' : 'Đã thêm tài khoản', 'success');
         setNhap(p => ({ ...p, [khoa]: {} }));
         await taiLai();
@@ -839,10 +846,13 @@
 
                   {dangMo && (
                     <div className="ci-tk-form">
-                      {/* URL RIÊNG từng bot Telegram — dán vào lệnh setWebhook của đúng bot đó. */}
+                      {/* URL RIÊNG từng bot Telegram. Máy chủ TỰ đăng ký địa chỉ này với
+                          Telegram lúc lưu bot token — để đây chỉ để quản trị đối chiếu khi
+                          nghi ngờ, không phải việc người dùng phải làm. Trước 27/08 đúng ô
+                          này bắt họ copy rồi tự gõ lệnh setWebhook bên ngoài. */}
                       {!k.webhookUrl && (
                         <label className="ci-url">
-                          Địa chỉ nhận tin của tài khoản này
+                          Địa chỉ nhận tin (hệ thống đã tự đăng ký)
                           <input readOnly value={t.webhookUrl} onFocus={e => e.target.select()} />
                         </label>
                       )}
@@ -854,8 +864,11 @@
                                giaTri={giaTriO(k.channel, t.accountId, f, t.values)}
                                onDoi={v => dat(k.channel, t.accountId, f.key, v)} />
                       ))}
-                      {k.noiNhanh && t.oaId && (
-                        <div className="ci-hs-goiy">Mã OA: {t.oaId}</div>
+                      {/* Mã thật do nền tảng cấp: OA của Zalo, Trang của Facebook, bot của
+                          Telegram. Không gắn với việc kênh đó có nối-một-chạm hay không —
+                          gắn nhầm vào noiNhanh thì bot Telegram vừa nối xong không hiện mã. */}
+                      {t.oaId && (
+                        <div className="ci-hs-goiy">Mã trên nền tảng: {t.oaId}</div>
                       )}
                       {/* Bước cấp quyền chỉ Zalo mới có: Messenger/Telegram cấp token thẳng ở
                           giao diện của họ, không đi vòng OAuth. */}
