@@ -1,0 +1,333 @@
+﻿// Services/Chat/Channels/TikTokChatAdapter.cs
+using System.Globalization;
+using System.Security.Cryptography;
+using System.Text;
+using System.Text.Json.Nodes;
+using TourkitAiProxy.Services.Chat.Inbox;
+using TourkitAiProxy.Domain.Chat;
+using TourkitAiProxy.Infrastructure.Chat.Channels;
+
+namespace TourkitAiProxy.Services.Chat.Channels;
+
+/// <summary>
+/// TikTok Direct Message cho tài khoản doanh nghiệp.
+///
+/// <para>⚠️ <b>Bốn chỗ TikTok làm khác mọi kênh khác — mỗi chỗ là một kiểu hỏng riêng:</b></para>
+/// <list type="number">
+///   <item><b>Nội dung tin là một chuỗi JSON LỒNG trong JSON.</b> Trường <c>content</c> của gói
+///     webhook là một <b>chuỗi</b> phải phân tích lần thứ hai mới ra tin. Đọc thẳng như một đối
+///     tượng là luôn ra rỗng, mà không có lỗi nào — hộp thư chỉ đơn giản không có tin nào.</item>
+///   <item><b>Chữ ký có HẠN 5 GIÂY.</b> Header <c>TikTok-Signature: t=&lt;giây&gt;,s=&lt;hex&gt;</c>,
+///     ký trên chuỗi <c>"{t}.{thân thô}"</c>. TikTok khuyến nghị từ chối gói cũ hơn 5 giây — chống
+///     phát lại. Máy chủ lệch giờ là mọi gói tin bị từ chối sạch mà log chỉ nói "chữ ký sai", nên
+///     ở đây tách riêng hai lý do trong nhật ký.</item>
+///   <item><b>Gửi tin theo mã HỘI THOẠI, không theo mã người.</b> Mọi kênh khác gửi tới id khách;
+///     TikTok đòi <c>recipient_type=CONVERSATION</c> và <c>recipient</c> là mã hội thoại. Nên ở
+///     kênh này <c>ExternalUserId</c> mang <b>mã hội thoại</b> — không phải mã người dùng. Lấy
+///     nhầm là gửi ra lỗi mà nhìn dữ liệu thì thấy "có id đàng hoàng".</item>
+///   <item><b>Ảnh phải TẢI LÊN trước rồi mới gửi được</b> (<c>media/upload</c> ra <c>media_id</c>);
+///     TikTok không tự tải từ URL như bốn kênh kia.</item>
+/// </list>
+///
+/// <para><b>Không có báo đã nhận / đã xem</b> — như Telegram, tin dừng ở "đã gửi" và đó là đúng.
+/// Tiếng vọng <c>im_send_msg</c> thì có: nhân viên trả lời từ chính ứng dụng TikTok cũng vào hộp
+/// thư.</para>
+///
+/// <para>⚠️ <b>Chưa kiểm bằng tài khoản thật</b> (27/08/2026). Cần một ứng dụng TikTok for Business
+/// đã được duyệt quyền nhắn tin.</para>
+/// </summary>
+public class TikTokChatAdapter : IChatChannelAdapter
+{
+    private const string BusinessBase = "https://business-api.tiktok.com/open_api/v1.3";
+
+    /// <summary>TikTok khuyến nghị bỏ gói cũ hơn 5 giây — chống phát lại.</summary>
+    private static readonly TimeSpan HanChuKy = TimeSpan.FromSeconds(5);
+
+    /// <summary>Cho phép lệch đồng hồ hai chiều giữa máy chủ TikTok và máy mình.</summary>
+    private static readonly TimeSpan LechDongHo = TimeSpan.FromSeconds(2);
+
+    private readonly IHttpClientFactory _http;
+    private readonly ChannelCredentialStore _cred;
+    private readonly IConfiguration _cfg;
+    private readonly ILogger<TikTokChatAdapter> _log;
+
+    public TikTokChatAdapter(IHttpClientFactory http, ChannelCredentialStore cred,
+        IConfiguration cfg, ILogger<TikTokChatAdapter> log)
+    { _http = http; _cred = cred; _cfg = cfg; _log = log; }
+
+    public ChatChannel Channel => ChatChannel.TikTok;
+
+    private string? ClientSecretNenTang => Rong(_cfg["Chat:TikTok:ClientSecret"]);
+
+    private static string? Rong(string? s) => string.IsNullOrWhiteSpace(s) ? null : s.Trim();
+
+    /// <summary><c>user_openid</c> của gói tin — khoá định tuyến ra công ty.</summary>
+    public static string? OpenIdCuaSuKien(string rawBody)
+    {
+        try { return JsonNode.Parse(rawBody)?["user_openid"]?.ToString(); }
+        catch { return null; }
+    }
+
+    public async Task<string?> VerifyAsync(string tenantId, string? accountIdTuUrl, string rawBody,
+        IHeaderDictionary headers, CancellationToken ct)
+    {
+        var ky = headers["TikTok-Signature"].FirstOrDefault();
+        if (string.IsNullOrWhiteSpace(ky)) return null;
+
+        var openId = OpenIdCuaSuKien(rawBody);
+        var dsach = await _cred.ListAccountsAsync(tenantId, Channel, ct);
+
+        foreach (var tk in dsach)
+        {
+            var khop = accountIdTuUrl is { Length: > 0 }
+                ? string.Equals(tk.AccountId, accountIdTuUrl, StringComparison.OrdinalIgnoreCase)
+                : openId is { Length: > 0 } && tk.GiaTri.GetValueOrDefault("openId", "") == openId;
+            if (!khop) continue;
+
+            var bimat = Rong(tk.GiaTri.GetValueOrDefault("clientSecret", "")) ?? ClientSecretNenTang;
+            if (bimat is null) continue;
+
+            var (dung, viSao) = KiemChuKy(bimat, rawBody, ky!, DateTimeOffset.UtcNow);
+            if (dung) return tk.AccountId;
+
+            // Tách rõ "quá hạn" khỏi "ký sai": máy chủ lệch giờ làm MỌI gói bị từ chối, mà nếu chỉ
+            // ghi "chữ ký sai" thì người tìm lỗi sẽ đi soi khoá bí mật suốt buổi.
+            _log.LogWarning("[chat/tiktok] từ chối gói của {Ig} tenant {T}: {ViSao}", openId, tenantId, viSao);
+            return null;
+        }
+
+        _log.LogWarning("[chat/tiktok] không tài khoản nào khớp openid {Ig} của {T} — bỏ gói tin",
+            openId, tenantId);
+        return null;
+    }
+
+    /// <summary>
+    /// Đường webhook DÙNG CHUNG: tra ra công ty rồi kiểm chữ ký.
+    ///
+    /// <para>Webhook đăng ký theo ỨNG DỤNG nên URL không mang tên công ty được. Khoá định tuyến
+    /// là openid trong thân tin — nhưng tra ra công ty <b>KHÔNG</b> chứng minh tin là thật,
+    /// nên vẫn phải kiểm chữ ký bằng khoá của chính tài khoản đó.</para>
+    /// </summary>
+    public async Task<(string TenantId, string AccountId)?> XacMinhDungChungAsync(string rawBody,
+        IHeaderDictionary headers, CancellationToken ct)
+    {
+        if (OpenIdCuaSuKien(rawBody) is not { } khoa) return null;
+        var tenant = await _cred.TimTenantAsync(Channel, khoa, ct);
+        if (tenant is null)
+        {
+            _log.LogWarning("[chat/tiktok] nhận tin của {Khoa} nhưng chưa công ty nào nối", khoa);
+            return null;
+        }
+        return await VerifyAsync(tenant, khoa, rawBody, headers, ct) is { } tk ? (tenant, tk) : null;
+    }
+
+    /// <summary>Kiểm chữ ký TikTok. Hàm thuần (trừ tham số thời điểm) để test được cả nhánh quá hạn.</summary>
+    internal static (bool Dung, string ViSao) KiemChuKy(string clientSecret, string rawBody,
+        string header, DateTimeOffset bayGio)
+    {
+        string? t = null, chuKy = null;
+        foreach (var phan in header.Split(','))
+        {
+            var p = phan.Trim();
+            if (p.StartsWith("t=", StringComparison.Ordinal)) t = p[2..];
+            else if (p.StartsWith("s=", StringComparison.Ordinal)) chuKy = p[2..];
+        }
+        if (t is null || chuKy is null) return (false, "header không đúng dạng t=…,s=…");
+
+        if (!long.TryParse(t, NumberStyles.Integer, CultureInfo.InvariantCulture, out var giay))
+            return (false, "mốc thời gian không phải số");
+
+        var lech = bayGio - DateTimeOffset.FromUnixTimeSeconds(giay);
+        if (lech > HanChuKy || lech < -LechDongHo)
+            return (false, $"gói quá hạn {lech.TotalSeconds:F0}s — kiểm đồng hồ máy chủ trước khi nghi khoá");
+
+        using var h = new HMACSHA256(Encoding.UTF8.GetBytes(clientSecret));
+        var tinh = Convert.ToHexString(
+            h.ComputeHash(Encoding.UTF8.GetBytes($"{t}.{rawBody}"))).ToLowerInvariant();
+        var a = Encoding.UTF8.GetBytes(tinh);
+        var b = Encoding.UTF8.GetBytes(chuKy.ToLowerInvariant());
+        return a.Length == b.Length && CryptographicOperations.FixedTimeEquals(a, b)
+            ? (true, "") : (false, "chữ ký không khớp");
+    }
+
+    // ── Bóc gói tin ─────────────────────────────────────────────────────────
+
+    public IReadOnlyList<InboundChatEvent> Parse(string rawBody)
+    {
+        var ra = new List<InboundChatEvent>();
+        JsonNode? goc;
+        try { goc = JsonNode.Parse(rawBody); } catch { return ra; }
+        if (goc is null) return ra;
+
+        var loaiSuKien = goc["event"]?.ToString();
+        // im_receive_msg = khách nhắn tới; im_send_msg = tiếng vọng tin mình gửi (kể cả gửi từ
+        // chính ứng dụng TikTok). Bỏ tiếng vọng là hộp thư thiếu nửa cuộc trò chuyện VÀ bot nói
+        // đè lên người thật — cùng bài học với Zalo.
+        var vong = loaiSuKien == "im_send_msg";
+        if (loaiSuKien != "im_receive_msg" && !vong) return ra;
+
+        // ⚠️ content là một CHUỖI JSON, phải phân tích lần hai. Đọc thẳng như đối tượng thì luôn
+        // rỗng và không có lỗi nào để lần ra.
+        JsonNode? noi;
+        try { noi = JsonNode.Parse(goc["content"]?.GetValue<string>() ?? ""); }
+        catch
+        {
+            _log.LogWarning("[chat/tiktok] không đọc được trường content của gói {SuKien}", loaiSuKien);
+            return ra;
+        }
+        if (noi is null) return ra;
+
+        // Mã HỘI THOẠI là thứ dùng để gửi lại — xem docstring lớp.
+        var maHoiThoai = noi["conversation_id"]?.ToString();
+        if (string.IsNullOrWhiteSpace(maHoiThoai)) return ra;
+
+        var luc = long.TryParse(goc["create_time"]?.ToString(), out var giay)
+            ? DateTimeOffset.FromUnixTimeSeconds(giay).UtcDateTime : DateTime.UtcNow;
+
+        var kieu = noi["type"]?.ToString();
+        var loai = kieu == "image" ? ChatKind.Anh : ChatKind.Chu;
+        var chu = noi["text"]?["body"]?.ToString();
+        var att = kieu == "image" && noi["media_url"] is not null
+            ? new JsonObject { ["media_url"] = noi["media_url"]!.ToString() }.ToJsonString()
+            : null;
+
+        if (att is null && string.IsNullOrWhiteSpace(chu))
+        {
+            _log.LogWarning("[chat/tiktok] loại tin chưa hỗ trợ ({Kieu}), bỏ qua", kieu);
+            return ra;
+        }
+
+        // Tên khách: ở tiếng vọng thì khách là NGƯỜI NHẬN, không phải người gửi. Lấy nhầm đầu là
+        // hội thoại mang tên chính mình.
+        var ben = vong ? noi["to_user"] : noi["from_user"];
+
+        ra.Add(new(Channel, maHoiThoai!, noi["message_id"]?.ToString(), loai, chu, att, luc,
+            IsEcho: vong, DisplayName: ben?["nickname"]?.ToString() ?? ben?["name"]?.ToString()));
+        return ra;
+    }
+
+    // ── Gửi ─────────────────────────────────────────────────────────────────
+
+    private async Task<(string? Token, string? BusinessId)> KhoaAsync(string tenantId, string accountId,
+        CancellationToken ct)
+    {
+        var c = await _cred.GetAsync(tenantId, Channel, accountId, ct);
+        if (c is null) return (null, null);
+        c.TryGetValue("accessToken", out var token);
+        c.TryGetValue("businessId", out var bid);
+        return (Rong(token), Rong(bid));
+    }
+
+    public Task<SendResult> SendTextAsync(string tenantId, string accountId, string externalUserId,
+        string text, CancellationToken ct)
+        => GuiAsync(tenantId, accountId, externalUserId, than =>
+        {
+            than["message_type"] = "TEXT";
+            than["text"] = new JsonObject { ["body"] = text };
+        }, ct);
+
+    /// <summary>
+    /// Gửi ảnh. <b>TikTok không tự tải từ URL</b> — phải tải tệp lên trước để lấy <c>media_id</c>,
+    /// khác cả bốn kênh kia. Và chỉ nhận ẢNH: tệp, âm thanh, video đều không gửi được qua đường này.
+    /// </summary>
+    public async Task<SendResult> SendMediaAsync(string tenantId, string accountId, string externalUserId,
+        ChatKind loai, string url, string? caption, CancellationToken ct)
+    {
+        if (loai != ChatKind.Anh)
+            return new(false, false, null,
+                "TikTok chỉ gửi được ảnh qua tin nhắn. Gửi đường dẫn tệp bằng tin chữ thay thế.");
+
+        var maTep = await TaiLenAsync(tenantId, accountId, url, ct);
+        if (maTep is null) return new(false, true, null, "Không tải được ảnh lên TikTok");
+
+        var kq = await GuiAsync(tenantId, accountId, externalUserId, than =>
+        {
+            than["message_type"] = "IMAGE";
+            than["image"] = new JsonObject { ["media_id"] = maTep };
+        }, ct);
+
+        // Chú thích phải đi thành tin riêng — TikTok không gộp chữ vào tin ảnh.
+        if (kq.Ok && !string.IsNullOrWhiteSpace(caption))
+            await SendTextAsync(tenantId, accountId, externalUserId, caption!, ct);
+        return kq;
+    }
+
+    private async Task<string?> TaiLenAsync(string tenantId, string accountId, string url,
+        CancellationToken ct)
+    {
+        var (token, businessId) = await KhoaAsync(tenantId, accountId, ct);
+        if (token is null || businessId is null) return null;
+        try
+        {
+            var http = _http.CreateClient();
+            var anh = await http.GetByteArrayAsync(url, ct);
+
+            using var form = new MultipartFormDataContent
+            {
+                { new StringContent(businessId), "business_id" },
+                { new StringContent("IMAGE"), "media_type" },
+                { new ByteArrayContent(anh), "file", "anh.jpg" },
+            };
+            using var req = new HttpRequestMessage(HttpMethod.Post,
+                $"{BusinessBase}/business/message/media/upload/") { Content = form };
+            // ⚠️ TikTok dùng header "Access-Token", KHÔNG phải "Authorization: Bearer".
+            req.Headers.Add("Access-Token", token);
+
+            using var res = await http.SendAsync(req, ct);
+            var o = JsonNode.Parse(await res.Content.ReadAsStringAsync(ct));
+            return o?["data"]?["media_id"]?.ToString();
+        }
+        catch (Exception ex)
+        {
+            _log.LogWarning(ex, "[chat/tiktok] tải ảnh lên hỏng");
+            return null;
+        }
+    }
+
+    private async Task<SendResult> GuiAsync(string tenantId, string accountId, string maHoiThoai,
+        Action<JsonObject> dungNoiDung, CancellationToken ct)
+    {
+        var (token, businessId) = await KhoaAsync(tenantId, accountId, ct);
+        if (token is null || businessId is null)
+            return new(false, false, null, "Chưa khai tài khoản TikTok cho công ty này");
+
+        var than = new JsonObject
+        {
+            ["business_id"] = businessId,
+            // recipient là mã HỘI THOẠI — xem docstring lớp.
+            ["recipient_type"] = "CONVERSATION",
+            ["recipient"] = maHoiThoai,
+        };
+        dungNoiDung(than);
+
+        try
+        {
+            var http = _http.CreateClient();
+            using var req = new HttpRequestMessage(HttpMethod.Post,
+                $"{BusinessBase}/business/message/send/")
+            {
+                Content = new StringContent(than.ToJsonString(), Encoding.UTF8, "application/json"),
+            };
+            req.Headers.Add("Access-Token", token);
+
+            using var res = await http.SendAsync(req, ct);
+            var raw = await res.Content.ReadAsStringAsync(ct);
+            var o = JsonNode.Parse(raw)?.AsObject();
+
+            // ⚠️ TikTok trả HTTP 200 KỂ CẢ KHI HỎNG; lỗi nằm ở trường "code" trong thân. Chỉ nhìn
+            // mã HTTP là báo "đã gửi" cho những tin không bao giờ tới.
+            var ma = o?["code"]?.ToString();
+            if (res.IsSuccessStatusCode && (ma is null || ma == "0"))
+                return new(true, false, o?["data"]?["message_id"]?.ToString(), null);
+
+            var moTa = o?["message"]?.ToString() ?? Cat(raw);
+            return new(false, (int)res.StatusCode >= 500, null, $"TikTok từ chối ({ma}): {moTa}");
+        }
+        catch (Exception ex)
+        {
+            return new(false, true, null, ex.Message);
+        }
+    }
+
+    private static string Cat(string s) => s.Length <= 200 ? s : s[..200];
+}

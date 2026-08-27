@@ -68,6 +68,8 @@ public static class ChatInboxEndpoints
         ["messenger"] = ChatChannel.Messenger,
         ["telegram"] = ChatChannel.Telegram,
         ["instagram"] = ChatChannel.Instagram,
+        ["whatsapp"] = ChatChannel.WhatsApp,
+        ["tiktok"] = ChatChannel.TikTok,
     };
 
     private static void MapWebhook(IEndpointRouteBuilder routes)
@@ -297,6 +299,90 @@ public static class ChatInboxEndpoints
             var challenge = await adapter.XacMinhDangKyAsync("", q["hub.mode"], q["hub.verify_token"],
                 q["hub.challenge"], ct);
             return challenge is null ? Results.StatusCode(403) : Results.Text(challenge);
+        });
+
+        // ── WhatsApp: đường DÙNG CHUNG ───────────────────────────────────────
+        //
+        // Cùng lý do với Messenger/Instagram: webhook đăng ký theo ỨNG DỤNG. Định tuyến bằng
+        // phone_number_id trong thân tin. LUÔN trả 200 kể cả khi từ chối.
+        routes.MapPost("/api/v1/chat/webhook/whatsapp", async (HttpContext ctx, ChatInboundService svc,
+            ChatRepository repo, Services.Chat.Inbox.ChatWorkSignal tin, ILoggerFactory lf,
+            CancellationToken ct) =>
+        {
+            var log = lf.CreateLogger("chat.webhook");
+            if (svc.Adapter(ChatChannel.WhatsApp) is not Services.Chat.Channels.WhatsAppChatAdapter wa)
+                return Results.NotFound();
+
+            ctx.Request.EnableBuffering();
+            using var reader = new StreamReader(ctx.Request.Body, leaveOpen: true);
+            var raw = await reader.ReadToEndAsync(ct);
+            ctx.Request.Body.Position = 0;
+
+            var ai = await wa.XacMinhDungChungAsync(raw, ctx.Request.Headers, ct);
+            if (ai is null)
+            {
+                var soId = Services.Chat.Channels.WhatsAppChatAdapter.IdSoDienThoaiCuaSuKien(raw);
+                log.LogWarning("[chat/webhook] whatsapp: TỪ CHỐI tin của số {So} — chữ ký sai hoặc "
+                    + "chưa công ty nào nối. Tin KHÔNG vào hộp thư.", soId);
+                return Results.Ok();
+            }
+
+            var sk = wa.Parse(raw);
+            if (sk.Count == 0) return Results.Ok();
+
+            var id = await repo.EnqueueInboundAsync(ai.Value.TenantId, ChatChannel.WhatsApp,
+                ai.Value.AccountId, sk[0].ExternalMsgId ?? sk[0].Watermark?.ExternalMsgId, raw, ct);
+            if (id is not null) tin.Danh(Services.Chat.Inbox.ChatLan.Vao);
+            else log.LogInformation("[chat/webhook] bỏ qua bản gửi lại, whatsapp tenant={T}",
+                ai.Value.TenantId);
+            return Results.Ok();
+        });
+
+        // Meta xác minh địa chỉ bằng hub.challenge — dùng chung verify token cấp nền tảng.
+        routes.MapGet("/api/v1/chat/webhook/whatsapp", async (HttpContext ctx,
+            Services.Chat.Channels.MessengerChatAdapter adapter, CancellationToken ct) =>
+        {
+            var q = ctx.Request.Query;
+            var challenge = await adapter.XacMinhDangKyAsync("", q["hub.mode"], q["hub.verify_token"],
+                q["hub.challenge"], ct);
+            return challenge is null ? Results.StatusCode(403) : Results.Text(challenge);
+        });
+
+        // ── TikTok: đường DÙNG CHUNG ─────────────────────────────────────────
+        //
+        // Định tuyến bằng user_openid trong thân tin. ⚠️ Chữ ký TikTok CÓ HẠN 5 GIÂY, nên đường
+        // này phải nhẹ: đọc thân, tra công ty, kiểm chữ ký, ghi hàng đợi, trả 200.
+        routes.MapPost("/api/v1/chat/webhook/tiktok", async (HttpContext ctx, ChatInboundService svc,
+            ChatRepository repo, Services.Chat.Inbox.ChatWorkSignal tin, ILoggerFactory lf,
+            CancellationToken ct) =>
+        {
+            var log = lf.CreateLogger("chat.webhook");
+            if (svc.Adapter(ChatChannel.TikTok) is not Services.Chat.Channels.TikTokChatAdapter tt)
+                return Results.NotFound();
+
+            ctx.Request.EnableBuffering();
+            using var reader = new StreamReader(ctx.Request.Body, leaveOpen: true);
+            var raw = await reader.ReadToEndAsync(ct);
+            ctx.Request.Body.Position = 0;
+
+            var ai = await tt.XacMinhDungChungAsync(raw, ctx.Request.Headers, ct);
+            if (ai is null)
+            {
+                var openId = Services.Chat.Channels.TikTokChatAdapter.OpenIdCuaSuKien(raw);
+                log.LogWarning("[chat/webhook] tiktok: TỪ CHỐI tin của {Ig} — chữ ký sai, quá hạn 5 giây, "
+                    + "hoặc chưa công ty nào nối. Tin KHÔNG vào hộp thư.", openId);
+                return Results.Ok();
+            }
+
+            var sk = tt.Parse(raw);
+            if (sk.Count == 0) return Results.Ok();
+
+            var id = await repo.EnqueueInboundAsync(ai.Value.TenantId, ChatChannel.TikTok,
+                ai.Value.AccountId, sk[0].ExternalMsgId, raw, ct);
+            if (id is not null) tin.Danh(Services.Chat.Inbox.ChatLan.Vao);
+            else log.LogInformation("[chat/webhook] bỏ qua bản gửi lại, tiktok tenant={T}",
+                ai.Value.TenantId);
+            return Results.Ok();
         });
 
         // Đường CŨ, mang tên công ty: giữ nguyên cho các OA đã khai theo ứng dụng riêng. Bỏ đi là
@@ -591,6 +677,7 @@ public static class ChatInboxEndpoints
         // đây, máy chủ tự đổi file_id → đường tải thật rồi chuyển tiếp byte.
         g.MapGet("/messages/{msgId:long}/file", async (long msgId, string fid, HttpContext ctx,
             TkSessionStore sessions, ChatRepository repo, ChannelCredentialStore cred,
+            IEnumerable<Services.Chat.Channels.IChatChannelAdapter> adapters,
             IHttpClientFactory httpFac, IConfiguration cfg, CancellationToken ct) =>
         {
             var a = SessionAuth.Read(ctx, sessions);
@@ -599,6 +686,19 @@ public static class ChatInboxEndpoints
             // Tin phải thuộc hội thoại của CHÍNH tenant này — chặn ở đây thay vì tin vào id đoán được.
             var hoiThoai = await repo.GetConversationByMessageAsync(a.TenantId, msgId, ct);
             if (hoiThoai is null) return Results.NotFound();
+
+            // ⚠️ Mỗi kênh giấu tệp một kiểu khác nhau, KHÔNG áp một luật:
+            //   Telegram — cho mã tệp, đường tải mang bot token trong chính đường dẫn
+            //   WhatsApp — cho mã tệp, đường tải đòi KHOÁ XÁC THỰC (gọi trần là 401)
+            //   Zalo/Messenger/Instagram — cho URL công khai, không đi qua đây bao giờ
+            if ((ChatChannel)hoiThoai.Channel == ChatChannel.WhatsApp)
+            {
+                var wa = adapters.OfType<Services.Chat.Channels.WhatsAppChatAdapter>().FirstOrDefault();
+                if (wa is null || hoiThoai.AccountId is null) return Results.NotFound();
+                var tep = await wa.TaiTepAsync(a.TenantId, hoiThoai.AccountId, fid, ct);
+                return tep is null ? Results.NotFound()
+                    : Results.File(tep.Value.Bytes, tep.Value.Kieu ?? "application/octet-stream");
+            }
 
             // ⚠️ file_id của Telegram gắn với TỪNG bot: đổi bằng token của bot khác thì họ trả lỗi.
             // Trước 27/08 chỗ này lấy Telegram:BotToken — bot DÙNG CHUNG của bản tin sáng, không
@@ -1488,6 +1588,9 @@ public static class ChatInboxEndpoints
         ChatChannel.Telegram => g.ContainsKey("botToken") && g.ContainsKey("webhookSecret"),
         // Instagram đi bằng chính Page Access Token của Trang đã nối, nên chỉ cần hai ô này.
         ChatChannel.Instagram => g.ContainsKey("igId") && g.ContainsKey("pageAccessToken"),
+        ChatChannel.WhatsApp => g.ContainsKey("phoneNumberId") && g.ContainsKey("accessToken"),
+        ChatChannel.TikTok => g.ContainsKey("openId") && g.ContainsKey("businessId")
+                              && g.ContainsKey("accessToken"),
         _ => false,
     };
 
@@ -1543,6 +1646,30 @@ public static class ChatInboxEndpoints
                 "Instagram đi qua chính Trang Facebook đã nối: tài khoản phải là Instagram "
                 + "Professional và đã liên kết với Trang đó, rồi bật \"Cho phép truy cập tin nhắn\" "
                 + "trong cài đặt Instagram. Không cần khai thêm khoá ứng dụng nào.", "note"),
+        }, false),
+        (ChatChannel.WhatsApp, "WhatsApp", new[]
+        {
+            new ONhap("label",         "Tên gợi nhớ", "text", "Số hotline tour nước ngoài"),
+            new ONhap("phoneNumberId", "Phone Number ID", "text", "1088888888888888"),
+            new ONhap("wabaId",        "WhatsApp Business Account ID", "text", "1099999999999999"),
+            new ONhap("accessToken",   "Access Token", "secret", "Token hệ thống của WABA"),
+            new ONhap("appSecret",     "App Secret", "secret",
+                "Để trống nếu dùng chung ứng dụng Meta với Facebook"),
+            new ONhap("note",
+                "WhatsApp cần tài khoản doanh nghiệp đã xác minh và một số điện thoại RIÊNG "
+                + "(số đã dùng cho ứng dụng WhatsApp thường thì không khai được). Ngoài 24 giờ kể "
+                + "từ tin của khách chỉ gửi được mẫu đã duyệt, không gửi chữ tự do.", "note"),
+        }, false),
+        (ChatChannel.TikTok, "TikTok", new[]
+        {
+            new ONhap("label",        "Tên gợi nhớ", "text", "TikTok bán tour"),
+            new ONhap("openId",       "Open ID tài khoản", "text", "_000AbCdEf…"),
+            new ONhap("businessId",   "Business ID", "text", "7000000000000000000"),
+            new ONhap("accessToken",  "Access Token", "secret", "Token của ứng dụng TikTok for Business"),
+            new ONhap("clientSecret", "Client Secret", "secret", "Dùng để kiểm chữ ký webhook"),
+            new ONhap("note",
+                "TikTok cần ứng dụng TikTok for Business đã được duyệt quyền nhắn tin. Kênh này "
+                + "chỉ gửi được CHỮ và ẢNH; tệp, âm thanh, video thì gửi đường dẫn bằng tin chữ.", "note"),
         }, false),
         (ChatChannel.Telegram, "Telegram", new[]
         {

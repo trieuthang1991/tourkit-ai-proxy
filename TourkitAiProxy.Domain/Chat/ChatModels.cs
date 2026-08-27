@@ -18,6 +18,12 @@ public enum ChatChannel : short
     /// <c>MetaMessagingParser</c> — nhưng khác đường gửi, khác khoá ký, và KHÔNG có báo
     /// "đã nhận".</summary>
     Instagram = 4,
+    /// <summary>WhatsApp Cloud API. Cũng của Meta nhưng <b>hợp đồng khác hẳn</b> Messenger:
+    /// gói tin là <c>entry[].changes[].value</c>, báo trạng thái theo <c>id</c> từng tin, và
+    /// tệp khách gửi phải tải bằng khoá — không có URL công khai.</summary>
+    WhatsApp = 5,
+    /// <summary>TikTok Direct Message cho tài khoản doanh nghiệp.</summary>
+    TikTok = 6,
 }
 
 /// Chiều của tin nhắn.

@@ -183,7 +183,7 @@ public class ChatRepository
     /// bằng mốc thời gian, mà luật đánh dấu hàng loạt lại chạy theo thời gian. Không tìm thấy thì trả
     /// <c>null</c> — chỗ gọi phải BỎ QUA, đoán một mốc là đánh dấu thừa lên tin khách chưa hề mở.</para>
     /// </summary>
-    public async Task<DateTime?> ThoiDiemTinAsync(string tenant, long conversationId,
+    public async Task<DateTime?> GetMessageSentAtAsync(string tenant, long conversationId,
         string externalMsgId, CancellationToken ct = default)
     {
         await using var c = await _db.OpenAsync(ct);

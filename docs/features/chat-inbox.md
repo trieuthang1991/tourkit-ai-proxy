@@ -116,6 +116,59 @@ của chính yêu cầu đang tới — trên máy chủ thật thì đúng, cò
 ⚠️ **Zalo xoay vòng refresh token.** Mỗi lượt đổi trả về một refresh token MỚI, phải lưu cái mới và
 bỏ cái cũ — dùng lại cái cũ ở lần sau là bị từ chối. Cả hai lượt (đổi `code` lần đầu và làm mới về
 sau) đi chung một hàm nên không có chỗ nào quên lưu.
+**WhatsApp và TikTok — kênh thứ năm và sáu** (thêm 27/08).
+
+⚠️ **WhatsApp cùng nhà Meta nhưng KHÔNG dùng chung được gì với Messenger/Instagram.** Hai kênh kia
+đi hợp đồng nhắn tin `entry[] × messaging[]`; WhatsApp đi hợp đồng Business Management
+`entry[] × changes[] × value`. Chỉ **chữ ký** là giống (HMAC App Secret trong `X-Hub-Signature-256`).
+Đừng nhét vào `MetaMessagingParser` — gộp hai hợp đồng khác nhau vào một hàm là chỗ đẻ ra lỗi im lặng.
+
+⚠️ **Khoá định tuyến WhatsApp là `value.metadata.phone_number_id`, KHÔNG phải `entry[].id`** (chỗ đó
+là id WABA). Lấy nhầm là tra ra rỗng và tin rơi vào hư không.
+
+⚠️ **Tên khách WhatsApp nằm ở `contacts[]`, TÁCH khỏi `messages[]`** — ghép lại bằng số điện thoại.
+Không ghép thì hộp thư hiện một dãy số dù gói tin có sẵn tên.
+
+⚠️ **WhatsApp báo trạng thái theo `id` TỪNG TIN** (`statuses[]`: `sent`/`delivered`/`read`), không
+theo mốc nước như Messenger — đi chung đường với Instagram qua `StateWatermark.ExternalMsgId`.
+`failed` **không** map sang trạng thái nào: luật `KhongLui` vốn chặn tin gửi được thành hỏng, ghi bừa
+ở đây là dấu tích chạy ngược. Chỉ ghi log để còn tra.
+
+⚠️ **Tệp khách gửi qua WhatsApp đòi KHOÁ XÁC THỰC ở CẢ HAI lượt.** Gói tin chỉ cho mã tệp; hỏi ra
+đường tải rồi vẫn phải gắn `Bearer` mới tải được — gọi trần vào đường đó là 401. Khác Telegram (khoá
+giấu trong đường dẫn) và khác hẳn Zalo/Messenger/Instagram (URL công khai). Nên **không có cách nào**
+đưa thẳng cho trình duyệt; bắt buộc qua `GET /api/v1/chat/messages/{id}/file`, nay đường đó rẽ nhánh
+theo kênh của hội thoại.
+
+⚠️ **Ngoài cửa sổ 24h WhatsApp chỉ nhận mẫu đã duyệt**, không gửi chữ tự do. Cửa sổ tính như
+Messenger nên `ChatRules.TinhCuaSo` không phải sửa.
+
+⚠️ **TikTok: nội dung tin là CHUỖI JSON lồng trong JSON.** Trường `content` của gói webhook là một
+**chuỗi**, phải phân tích lần thứ hai mới ra tin. Đọc thẳng như đối tượng là luôn ra rỗng — không lỗi,
+không log, hộp thư chỉ đơn giản không bao giờ có tin.
+
+⚠️ **Chữ ký TikTok CÓ HẠN 5 GIÂY.** Header `TikTok-Signature: t=<giây>,s=<hex>`, ký trên chuỗi
+`"{t}.{thân thô}"`. Máy chủ lệch giờ là **mọi** gói bị từ chối sạch — nên nhật ký tách riêng "quá hạn"
+khỏi "chữ ký sai", không thì người tìm lỗi đi soi khoá bí mật suốt buổi trong khi lỗi nằm ở đồng hồ.
+
+⚠️ **TikTok gửi theo mã HỘI THOẠI, không theo mã người** (`recipient_type=CONVERSATION`). Nên ở kênh
+này `ExternalUserId` mang **mã hội thoại** — mọi kênh khác mang mã khách. Lấy nhầm là gửi ra lỗi mà
+nhìn dữ liệu vẫn thấy "có id đàng hoàng". Và tiếng vọng `im_send_msg` thì tên khách nằm ở **người**
+**nhận**, lấy `from_user` là hội thoại mang tên chính công ty mình.
+
+⚠️ **TikTok trả HTTP 200 KỂ CẢ KHI HỎNG** — lỗi nằm ở trường `code` trong thân. Chỉ nhìn mã HTTP là
+báo "đã gửi" cho những tin không bao giờ tới. Và **ảnh phải tải lên trước** (`media/upload` ra
+`media_id`), TikTok không tự tải từ URL như bốn kênh kia; header xác thực là `Access-Token`, **không**
+phải `Authorization: Bearer`.
+
+**Hạn trả lời của TikTok không có trong tài liệu công khai**, nên `TinhCuaSo` để **mở** cho kênh này —
+khoá ô soạn theo một con số tự đoán là tự khoá tay nhân viên vì một luật có thể không tồn tại. TikTok
+từ chối thì câu lỗi của họ hiện lên. Tra ra hạn thật thì chuyển xuống nhánh có hạn.
+
+⚠️ **Cả hai chưa kiểm bằng tài khoản thật** (27/08): WhatsApp cần WABA đã xác minh doanh nghiệp + số
+điện thoại riêng; TikTok cần ứng dụng TikTok for Business đã duyệt quyền nhắn tin. Phần bóc tin, chữ ký
+và cửa sổ gửi có test; đường gửi và bước nối vẫn là theo tài liệu.
+
 **Instagram Direct — kênh thứ tư** (thêm 27/08). Đi **cùng hợp đồng nhắn tin của Meta** với
 Messenger, nên phần bóc tin dùng CHUNG một lớp
 ([`MetaMessagingParser`](../../TourkitAiProxy.Services/Chat/Channels/MetaMessagingParser.cs)): cùng hình dạng
