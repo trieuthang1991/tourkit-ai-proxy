@@ -38,6 +38,9 @@ public enum ChatStatus : short { Moi = 0, DangXuLy = 1, DaDong = 2 }
 /// bot sẽ nói đè lên người thật.</param>
 /// <param name="Watermark">Nền tảng báo lại trạng thái tin MÌNH đã gửi — không phải tin nhắn mới.
 /// Xem <see cref="StateWatermark"/>.</param>
+/// <param name="MaBamNut">Mã lượt bấm nút cần xác nhận lại với kênh. Chỉ Telegram có:
+/// không xác nhận thì nút quay vòng trên máy khách tới lúc hết giờ rồi báo lỗi, dù mình đã
+/// xử lý xong. Xem <c>IChatChannelAdapter.XacNhanBamNutAsync</c>.</param>
 public record InboundChatEvent(
     ChatChannel Channel,
     string ExternalUserId,
@@ -50,7 +53,8 @@ public record InboundChatEvent(
     string? DisplayName = null,
     StateWatermark? Watermark = null,
     ChatReaction? Reaction = null,
-    ChatReferral? Referral = null);
+    ChatReferral? Referral = null,
+    string? MaBamNut = null);
 
 /// <summary>
 /// Khách đến từ đâu — quảng cáo nào, liên kết nào, mã QR nào.

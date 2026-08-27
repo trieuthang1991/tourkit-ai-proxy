@@ -70,6 +70,18 @@ public interface IChatChannelAdapter
         CancellationToken ct) => Task.FromResult<HoSoKhach?>(null);
 
     /// <summary>
+    /// Xác nhận với kênh rằng lượt bấm nút đã tiếp nhận. <b>Mặc định không làm gì</b>.
+    ///
+    /// <para>Telegram BẮT BUỘC gọi: không gọi thì nút <b>quay vòng</b> trên máy khách cho tới lúc
+    /// hết giờ rồi hiện lỗi — kể cả khi mình đã xử lý xong và đã trả lời. Zalo/Messenger không có
+    /// khái niệm này, nên đây là mặc định rỗng chứ không phải hàm bắt buộc.</para>
+    ///
+    /// <para>Nuốt mọi lỗi trong từng bộ nối: mất một lượt xác nhận không đáng để chặn tin.</para>
+    /// </summary>
+    Task XacNhanBamNutAsync(string tenantId, string accountId, string maBamNut,
+        CancellationToken ct) => Task.CompletedTask;
+
+    /// <summary>
     /// Bật dấu "đang gõ" bên phía khách. <b>Mặc định không làm gì</b> — kênh nào không có thì bỏ.
     ///
     /// <para>Nuốt mọi lỗi trong từng bộ nối: mất một chi tiết lịch sự không đáng để chặn tin.</para>

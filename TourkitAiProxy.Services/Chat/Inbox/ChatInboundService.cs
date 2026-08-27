@@ -62,6 +62,14 @@ public class ChatInboundService
 
     private async Task MotSuKienAsync(string tenantId, string accountId, InboundChatEvent e, CancellationToken ct)
     {
+        // Khách bấm nút: xác nhận với kênh NGAY, trước mọi việc khác. Xử lý bên dưới có gọi AI
+        // nên mất vài giây, mà trong lúc đó Telegram để nút quay vòng trên máy khách.
+        if (e.MaBamNut is { Length: > 0 } maNut && Adapter(e.Channel) is { } boNut)
+        {
+            try { await boNut.XacNhanBamNutAsync(tenantId, accountId, maNut, ct); }
+            catch (Exception ex) { _log.LogDebug(ex, "[chat] xác nhận lượt bấm nút hỏng"); }
+        }
+
         await _repo.UpsertContactAsync(tenantId, e.Channel, e.ExternalUserId, e.DisplayName, ct: ct);
 
         // Còn thiếu tên hoặc ảnh thì hỏi thẳng nhà cung cấp.

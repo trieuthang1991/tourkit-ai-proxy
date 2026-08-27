@@ -195,6 +195,13 @@ public class TelegramChatAdapter : IChatChannelAdapter
         JsonNode? goc;
         try { goc = JsonNode.Parse(rawBody); } catch { return ra; }
 
+        // Khách bấm nút. Telegram gói RIÊNG, không nằm trong "message" — đọc sót là nút bấm rơi
+        // vào hư không và khách nhìn thấy nút quay vòng rồi báo lỗi.
+        if (goc?["callback_query"] is { } bam) return BocBamNut(bam);
+
+        // Cảm xúc khách thả. Cũng là gói riêng, và gắn vào MỘT tin đã có chứ không phải tin mới.
+        if (goc?["message_reaction"] is { } camXuc) return BocCamXuc(camXuc);
+
         // edited_message: khách sửa lại tin đã gửi. Coi như tin mới — id khác nên không trùng, và
         // nội dung sửa thường là ý họ thật sự muốn nói.
         var msg = goc?["message"] ?? goc?["edited_message"];
@@ -241,6 +248,33 @@ public class TelegramChatAdapter : IChatChannelAdapter
         var luc = long.TryParse(msg["date"]?.ToString(), out var d2)
             ? DateTimeOffset.FromUnixTimeSeconds(d2).UtcDateTime : DateTime.UtcNow;
 
+        // Khách đến từ đâu. Telegram KHÔNG có trường riêng cho việc này như Meta: cách duy nhất
+        // là tham số trên liên kết t.me/<bot>?start=<tham số>, và nó tới đúng MỘT LẦN, đội lốt
+        // một câu tin bình thường. Không tách ra thì hộp thư có một câu "/start fb_ads_hue" vô
+        // nghĩa, còn dữ liệu bán hàng thì mất vĩnh viễn — không API nào tra ngược được.
+        ChatReferral? tuDau = null;
+        if (chu is not null && chu.StartsWith("/start", StringComparison.Ordinal))
+        {
+            var thamSo = chu.Length > "/start".Length ? chu["/start".Length..].Trim() : "";
+            if (thamSo.Length > 0)
+            {
+                tuDau = new("DEEPLINK", thamSo, null);
+                // Bỏ hẳn phần chữ VÀ mã tin: gói này chỉ mang nguồn, không phải câu khách nói.
+                // Còn mã tin thì lõi coi đây là một tin thật và ghi một dòng trắng vào hội thoại.
+                chu = null;
+            }
+            // "/start" trơn (bấm nút Bắt đầu trong chính Telegram) KHÔNG có nguồn nào — ghi bừa
+            // một nguồn rỗng là làm bẩn báo cáo "khách đến từ đâu".
+        }
+
+        if (tuDau is not null)
+        {
+            ra.Add(new(ChatChannel.Telegram, chatId!, null, ChatKind.Chu, null, null, luc,
+                DisplayName: string.IsNullOrWhiteSpace(ten) ? msg["from"]?["username"]?.ToString() : ten,
+                Referral: tuDau));
+            return ra;
+        }
+
         ra.Add(new(ChatChannel.Telegram, chatId!,
             // Telegram đánh số tin theo từng cuộc trò chuyện, không phải toàn cục — phải ghép
             // chat id vào, không thì hai khách khác nhau đụng cùng một số và tin sau bị coi là trùng.
@@ -248,6 +282,145 @@ public class TelegramChatAdapter : IChatChannelAdapter
             loai, chu, att, luc,
             DisplayName: string.IsNullOrWhiteSpace(ten) ? msg["from"]?["username"]?.ToString() : ten));
         return ra;
+    }
+
+    /// <summary>
+    /// Khách bấm nút bàn phím gắn dưới tin (<c>callback_query</c>).
+    ///
+    /// <para>Ghi lại bằng <b>CHỮ TRÊN NÚT</b> chứ không phải <c>callback_data</c>: nhân viên đọc
+    /// lại hội thoại phải thấy đúng thứ khách nhìn thấy, không phải một chuỗi mã như
+    /// "MENU_TOUR_DN". Tin cũ không kèm bàn phím thì đành lùi về mã nút — vẫn hơn dòng trống.</para>
+    /// </summary>
+    private static List<InboundChatEvent> BocBamNut(JsonNode bam)
+    {
+        var ra = new List<InboundChatEvent>();
+        var tin = bam["message"];
+        var chatId = tin?["chat"]?["id"]?.ToString() ?? bam["from"]?["id"]?.ToString();
+        var maBam = bam["id"]?.ToString();
+        if (string.IsNullOrWhiteSpace(chatId) || string.IsNullOrWhiteSpace(maBam)) return ra;
+
+        var maNut = bam["data"]?.ToString();
+        var ten = string.Join(' ', new[] { bam["from"]?["first_name"]?.ToString(),
+                                           bam["from"]?["last_name"]?.ToString() }
+            .Where(x => !string.IsNullOrWhiteSpace(x)));
+
+        ra.Add(new(ChatChannel.Telegram, chatId!,
+            // Mã riêng cho lượt bấm: dùng lại mã tin gốc thì lượt bấm bị coi là trùng với chính
+            // tin mang nút, và biến mất.
+            $"{chatId}:cb:{maBam}",
+            ChatKind.Chu, ChuTrenNut(tin?["reply_markup"], maNut) ?? maNut, null,
+            // ⚠️ Thời điểm là BÂY GIỜ, không phải `date` của tin mang nút — tin đó có thể gửi từ
+            // hôm qua, lấy nhầm là lượt bấm nằm ngược dòng thời gian và không ai thấy nó.
+            DateTime.UtcNow,
+            DisplayName: string.IsNullOrWhiteSpace(ten) ? bam["from"]?["username"]?.ToString() : ten,
+            MaBamNut: maBam));
+        return ra;
+    }
+
+    /// <summary>Tìm chữ hiện trên nút theo <c>callback_data</c> khách vừa bấm.</summary>
+    private static string? ChuTrenNut(JsonNode? banPhim, string? maNut)
+    {
+        if (banPhim?["inline_keyboard"] is not JsonArray hang || string.IsNullOrWhiteSpace(maNut))
+            return null;
+        foreach (var h in hang.OfType<JsonArray>())
+            foreach (var nut in h.OfType<JsonNode>())
+                if (nut["callback_data"]?.ToString() == maNut)
+                    return nut["text"]?.ToString();
+        return null;
+    }
+
+    /// <summary>
+    /// Khách thả (hoặc gỡ) cảm xúc lên một tin đã có.
+    ///
+    /// <para>⚠️ <b>Telegram gửi TRẠNG THÁI MỚI, không gửi "thêm" hay "bớt".</b> Gỡ cảm xúc là một
+    /// gói có <c>new_reaction</c> RỖNG — khác hẳn Meta vốn nói thẳng <c>action="unreact"</c>. Đọc
+    /// nhầm là cảm xúc đã gỡ vẫn hiện mãi trên màn hình.</para>
+    ///
+    /// <para>Gói này chỉ tới khi đã khai <c>message_reaction</c> trong <c>allowed_updates</c> lúc
+    /// đăng ký webhook — danh sách mặc định của Telegram KHÔNG có nó.</para>
+    /// </summary>
+    private static List<InboundChatEvent> BocCamXuc(JsonNode camXuc)
+    {
+        var ra = new List<InboundChatEvent>();
+        var chatId = camXuc["chat"]?["id"]?.ToString();
+        var maTin = camXuc["message_id"]?.ToString();
+        if (string.IsNullOrWhiteSpace(chatId) || string.IsNullOrWhiteSpace(maTin)) return ra;
+
+        var moi = camXuc["new_reaction"] as JsonArray;
+        var dau = moi is { Count: > 0 } ? moi[0] : null;
+
+        var luc = long.TryParse(camXuc["date"]?.ToString(), out var giay)
+            ? DateTimeOffset.FromUnixTimeSeconds(giay).UtcDateTime : DateTime.UtcNow;
+
+        ra.Add(new(ChatChannel.Telegram, chatId!, null, ChatKind.Chu, null, null, luc,
+            // Mã tin phải ghép chat id, y như lúc ghi tin — không thì không khớp được với tin nào.
+            Reaction: new($"{chatId}:{maTin}", dau?["emoji"]?.ToString(),
+                dau?["custom_emoji_id"]?.ToString(), dau is null)));
+        return ra;
+    }
+
+    // ── Năng lực kênh ───────────────────────────────────────────────────────
+
+    /// <summary>
+    /// Ba chấm "đang gõ" bên phía khách. Telegram tự tắt sau 5 giây hoặc khi tin tới, nên không
+    /// có (và không cần) lượt tắt.
+    /// </summary>
+    public async Task BaoDangGoAsync(string tenantId, string accountId, string externalUserId,
+        CancellationToken ct)
+    {
+        var token = await TokenAsync(tenantId, accountId, ct);
+        if (token is null) return;
+        await GoiTraJsonAsync(token, "sendChatAction",
+            new JsonObject { ["chat_id"] = externalUserId, ["action"] = "typing" }, ct);
+    }
+
+    /// <inheritdoc />
+    public async Task XacNhanBamNutAsync(string tenantId, string accountId, string maBamNut,
+        CancellationToken ct)
+    {
+        var token = await TokenAsync(tenantId, accountId, ct);
+        if (token is null) return;
+        await GoiTraJsonAsync(token, "answerCallbackQuery",
+            new JsonObject { ["callback_query_id"] = maBamNut }, ct);
+    }
+
+    /// <summary>
+    /// Tên + ảnh đại diện khách.
+    ///
+    /// <para>Tên đã có sẵn trong gói tin, nên hàm này chạy chủ yếu vì <b>ảnh</b> — thứ Telegram
+    /// không bao giờ gửi kèm. Phải đi hai lượt: <c>getUserProfilePhotos</c> ra mã tệp, rồi đổi mã
+    /// tệp thành đường xem.</para>
+    ///
+    /// <para>⚠️ <b>Đường tải thật của Telegram chứa BOT TOKEN</b> (<c>/file/bot&lt;token&gt;/…</c>).
+    /// Lưu thẳng chuỗi đó làm ảnh đại diện là phát bot token cho mọi trình duyệt mở hộp thư — ai
+    /// cầm được nó thì đọc và trả lời được toàn bộ tin của công ty. Nên ở đây chỉ lưu một đường
+    /// TƯƠNG ĐỐI trỏ về máy chủ mình; máy chủ mới là nơi cầm token.</para>
+    /// </summary>
+    public async Task<HoSoKhach?> HoSoKhachAsync(string tenantId, string accountId,
+        string externalUserId, CancellationToken ct)
+    {
+        var token = await TokenAsync(tenantId, accountId, ct);
+        if (token is null) return null;
+
+        var hs = await GoiTraJsonAsync(token,
+            $"getChat?chat_id={Uri.EscapeDataString(externalUserId)}", null, ct);
+        var chat = hs?["result"];
+        var ten = string.Join(' ', new[] { chat?["first_name"]?.ToString(), chat?["last_name"]?.ToString() }
+            .Where(x => !string.IsNullOrWhiteSpace(x))).Trim();
+        if (string.IsNullOrWhiteSpace(ten)) ten = chat?["username"]?.ToString() ?? "";
+
+        var anh = await GoiTraJsonAsync(token,
+            $"getUserProfilePhotos?user_id={Uri.EscapeDataString(externalUserId)}&limit=1", null, ct);
+        // photos[0] = ảnh mới nhất, các phần tử bên trong là các cỡ (nhỏ trước). Ảnh đại diện chỉ
+        // hiện cỡ 32px nên lấy cỡ NHỎ NHẤT là đúng — khác hẳn ảnh khách gửi (lấy cỡ lớn nhất để
+        // còn soi được chữ trên hoá đơn/hộ chiếu).
+        var maTep = anh?["result"]?["photos"]?[0]?[0]?["file_id"]?.ToString();
+
+        var duongAnh = string.IsNullOrWhiteSpace(maTep) ? null
+            : $"/api/v1/chat/avatars/{accountId}/{Uri.EscapeDataString(maTep!)}";
+
+        return string.IsNullOrWhiteSpace(ten) && duongAnh is null
+            ? null : new HoSoKhach(string.IsNullOrWhiteSpace(ten) ? null : ten, duongAnh);
     }
 
     public Task<SendResult> SendTextAsync(string tenantId, string accountId, string externalUserId, string text,
