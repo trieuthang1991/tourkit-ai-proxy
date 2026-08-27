@@ -9400,6 +9400,22 @@ img.ci-avt { object-fit: cover; }
 .ci-url input { background: var(--bg); font-family: ui-monospace, monospace; font-size: 11px; }
 .ci-ghichu { font-size: 11.5px; color: var(--text-3); line-height: 1.6; }
 
+/* Các bước lấy khoá, hiện NGAY trong form khai kênh.
+
+   Vì sao không để thành một dòng ghi chú như trước: ô "Bot token" giả định người khai đã biết
+   cách lấy token — mà đó chính là chỗ họ tắc. Dự án tham chiếu đặt ba bước kèm liên kết bấm
+   thẳng sang @BotFather ngay trong hộp thoại nối, và đó là khác biệt giữa "dán vào đây" với
+   "tôi lấy cái đó ở đâu". */
+.ci-buoc { display: flex; flex-direction: column; gap: 8px; margin: 2px 0 4px; }
+.ci-buoc li { display: grid; grid-template-columns: 18px 1fr; gap: 8px; align-items: start;
+              font-size: 11.5px; line-height: 1.6; color: var(--text-3); }
+.ci-buoc li > span:first-child {
+  width: 18px; height: 18px; border-radius: 999px; display: grid; place-items: center;
+  font-size: 10px; font-weight: 700; color: var(--primary);
+  background: var(--primary-glow); margin-top: 1px;
+}
+.ci-buoc a { color: var(--primary); text-underline-offset: 2px; }
+
 /* Hẹp thì bỏ cột hồ sơ trước (nó mở/đóng được), rồi mới tới dải kênh. */
 @container (max-width: 1180px) {
   .ci-grid.co-hoso { grid-template-columns: 48px minmax(200px, 280px) minmax(320px, 1fr) 280px; }

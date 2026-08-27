@@ -634,8 +634,42 @@
   // phải bấm lại vào ô sau MỖI chữ cái. Nhìn thì như "trang bị đơ", không ai nghĩ tới React.
   //
   // Có test canh việc này (ChatUiGuardTests) — đừng đẩy ngược vào trong cho gọn.
+  // Chữ trong form kênh do MÁY CHỦ mô tả, nên nó phải chở được liên kết và chữ đậm mà không
+  // cần mỗi kênh một đoạn JSX riêng. Hai cú pháp, đúng hai cái cần: [chữ](đường dẫn) và **đậm**.
+  // Cố ý KHÔNG dùng thư viện markdown: nhận HTML từ chuỗi cấu hình là mở cửa cho chèn thẻ.
+  function chuCoLienKet(raw) {
+    const ra = [];
+    const mau = /\[([^\]]+)\]\(([^)]+)\)|\*\*([^*]+)\*\*/g;
+    let cuoi = 0, m, i = 0;
+    while ((m = mau.exec(raw)) !== null) {
+      if (m.index > cuoi) ra.push(raw.slice(cuoi, m.index));
+      if (m[1]) {
+        // Chỉ nhận http(s): chuỗi cấu hình không được mở ra javascript:
+        const an = /^https?:\/\//i.test(m[2]);
+        ra.push(an
+          ? <a key={i++} href={m[2]} target="_blank" rel="noopener noreferrer">{m[1]}</a>
+          : m[1]);
+      } else {
+        ra.push(<b key={i++}>{m[3]}</b>);
+      }
+      cuoi = mau.lastIndex;
+    }
+    if (cuoi < raw.length) ra.push(raw.slice(cuoi));
+    return ra;
+  }
+
   function ONhap({ truong, daKhai, giaTri, onDoi }) {
-    if (truong.type === 'note') return <div className="ci-ghichu">{truong.label}</div>;
+    if (truong.type === 'note') return <div className="ci-ghichu">{chuCoLienKet(truong.label)}</div>;
+
+    // Các bước lấy khoá — ngăn cách bằng |. Đặt TRƯỚC ô nhập trong danh sách trường thì nó hiện
+    // trước, đúng thứ tự người ta làm: đọc cách lấy rồi mới có cái để dán.
+    if (truong.type === 'steps') return (
+      <ol className="ci-buoc">
+        {truong.label.split('|').map((b, i) => (
+          <li key={i}><span>{i + 1}</span><span>{chuCoLienKet(b.trim())}</span></li>
+        ))}
+      </ol>
+    );
     const biMat = truong.type === 'secret';
     return (
       <label className="ci-o">
