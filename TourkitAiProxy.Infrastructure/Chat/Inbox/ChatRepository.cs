@@ -160,6 +160,41 @@ public class ChatRepository
             "SELECT * FROM chat_conversations WHERE id = @id AND tenant_id = @tenant", new { id, tenant });
     }
 
+    /// <summary>
+    /// Hội thoại chứa một tin. Proxy tệp Telegram cần cả hai thứ trong một lượt hỏi: <b>tin có
+    /// thuộc công ty này không</b> (id là số tăng dần, đoán được) và <b>tin tới qua tài khoản nào</b>
+    /// — vì <c>file_id</c> của Telegram gắn với TỪNG bot, đổi bằng token bot khác là họ trả lỗi.
+    /// </summary>
+    public async Task<ChatConversation?> GetConversationByMessageAsync(string tenant, long messageId,
+        CancellationToken ct = default)
+    {
+        await using var c = await _db.OpenAsync(ct);
+        return await c.QuerySingleOrDefaultAsync<ChatConversation>("""
+            SELECT v.* FROM chat_conversations v
+              JOIN chat_messages m ON m.conversation_id = v.id
+            WHERE m.id = @messageId AND m.tenant_id = @tenant
+            """, new { messageId, tenant });
+    }
+
+    /// <summary>
+    /// Thời điểm một tin, tra theo mã của nhà cung cấp.
+    ///
+    /// <para>Chỉ Instagram cần: kênh đó báo "khách đã xem" bằng <b>mã tin cuối đã đọc</b> chứ không
+    /// bằng mốc thời gian, mà luật đánh dấu hàng loạt lại chạy theo thời gian. Không tìm thấy thì trả
+    /// <c>null</c> — chỗ gọi phải BỎ QUA, đoán một mốc là đánh dấu thừa lên tin khách chưa hề mở.</para>
+    /// </summary>
+    public async Task<DateTime?> ThoiDiemTinAsync(string tenant, long conversationId,
+        string externalMsgId, CancellationToken ct = default)
+    {
+        await using var c = await _db.OpenAsync(ct);
+        return await c.ExecuteScalarAsync<DateTime?>("""
+            SELECT created_utc FROM chat_messages
+            WHERE tenant_id = @tenant AND conversation_id = @conversationId
+              AND external_msg_id = @externalMsgId
+            LIMIT 1
+            """, new { tenant, conversationId, externalMsgId });
+    }
+
     /// <summary>Id tin đoán được (số tăng dần) — proxy tệp Telegram phải tự kiểm chủ trước khi
     /// đổi file_id thành đường tải thật, không tin vào việc id khó đoán.</summary>
     public async Task<bool> MessageBelongsToTenantAsync(string tenant, long messageId, CancellationToken ct = default)

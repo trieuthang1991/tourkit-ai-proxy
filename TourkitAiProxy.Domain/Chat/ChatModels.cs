@@ -14,6 +14,10 @@ public enum ChatChannel : short
     Messenger = 1,
     Webchat = 2,
     Telegram = 3,
+    /// <summary>Instagram Direct. Đi CÙNG hợp đồng nhắn tin của Meta với Messenger — xem
+    /// <c>MetaMessagingParser</c> — nhưng khác đường gửi, khác khoá ký, và KHÔNG có báo
+    /// "đã nhận".</summary>
+    Instagram = 4,
 }
 
 /// Chiều của tin nhắn.
@@ -38,6 +42,9 @@ public enum ChatStatus : short { Moi = 0, DangXuLy = 1, DaDong = 2 }
 /// bot sẽ nói đè lên người thật.</param>
 /// <param name="Watermark">Nền tảng báo lại trạng thái tin MÌNH đã gửi — không phải tin nhắn mới.
 /// Xem <see cref="StateWatermark"/>.</param>
+/// <param name="MaBamNut">Mã lượt bấm nút cần xác nhận lại với kênh. Chỉ Telegram có:
+/// không xác nhận thì nút quay vòng trên máy khách tới lúc hết giờ rồi báo lỗi, dù mình đã
+/// xử lý xong. Xem <c>IChatChannelAdapter.XacNhanBamNutAsync</c>.</param>
 public record InboundChatEvent(
     ChatChannel Channel,
     string ExternalUserId,
@@ -50,7 +57,8 @@ public record InboundChatEvent(
     string? DisplayName = null,
     StateWatermark? Watermark = null,
     ChatReaction? Reaction = null,
-    ChatReferral? Referral = null);
+    ChatReferral? Referral = null,
+    string? MaBamNut = null);
 
 /// <summary>
 /// Khách đến từ đâu — quảng cáo nào, liên kết nào, mã QR nào.
@@ -94,7 +102,11 @@ public class ChatReactionRow
 /// không nói được "đã nhận", và không mang thời điểm — mà thiếu thời điểm thì hoặc đánh dấu cả
 /// hội thoại (sai: tin gửi sau đó cũng bị coi là đã xem), hoặc không đánh dấu gì.</para>
 /// </summary>
-public record StateWatermark(ChatState State, DateTime UpToUtc);
+/// <param name="ExternalMsgId">Instagram KHÔNG gửi <c>watermark</c> — chỉ gửi mã tin cuối
+/// khách đã đọc. Mốc thời gian phải tra ngược từ chính tin đó, mà tra thì phải chạm CSDL nên
+/// không làm được trong hàm bóc tin thuần. Có giá trị ở đây nghĩa là <c>UpToUtc</c> chưa dùng
+/// được, lõi phải tra trước.</param>
+public record StateWatermark(ChatState State, DateTime UpToUtc, string? ExternalMsgId = null);
 
 public class ChatContact
 {

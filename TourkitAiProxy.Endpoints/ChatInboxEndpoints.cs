@@ -45,6 +45,7 @@ public static class ChatInboxEndpoints
         "/api/v1/chat/conversations",
         "/api/v1/chat/channels",
         "/api/v1/chat/messages",
+        "/api/v1/chat/avatars",
         "/api/v1/chat/quick-replies",
         "/api/v1/chat/events",
         "/api/v1/chat/oauth",
@@ -66,6 +67,7 @@ public static class ChatInboxEndpoints
         ["zalo"] = ChatChannel.Zalo,
         ["messenger"] = ChatChannel.Messenger,
         ["telegram"] = ChatChannel.Telegram,
+        ["instagram"] = ChatChannel.Instagram,
     };
 
     private static void MapWebhook(IEndpointRouteBuilder routes)
@@ -243,6 +245,60 @@ public static class ChatInboxEndpoints
             return challenge is null ? Results.StatusCode(403) : Results.Text(challenge);
         });
 
+        // ── Instagram: đường DÙNG CHUNG ──────────────────────────────────────
+        //
+        // Instagram đi qua CHÍNH ứng dụng Meta của Messenger, nhưng Meta khai địa chỉ webhook
+        // RIÊNG cho từng "đối tượng" (page · instagram) — nên phải có đường riêng ở đây, dù cùng
+        // một ứng dụng. Gộp vào đường của Messenger là Instagram không có chỗ để gửi tới.
+        //
+        // ⚠️ LUÔN TRẢ 200, cùng lý do với Messenger và nặng hơn: ứng dụng dùng chung, trả lỗi
+        // liên tục là Meta tự ngừng gửi cho MỌI khách hàng cùng lúc. Từ chối = không ghi gì, và
+        // mỗi lượt từ chối ghi log WARNING — đó là chỗ duy nhất nhìn ra "tin có tới mà không vào
+        // hộp thư".
+        routes.MapPost("/api/v1/chat/webhook/instagram", async (HttpContext ctx, ChatInboundService svc,
+            ChatRepository repo, Services.Chat.Inbox.ChatWorkSignal tin, ILoggerFactory lf,
+            CancellationToken ct) =>
+        {
+            var log = lf.CreateLogger("chat.webhook");
+            if (svc.Adapter(ChatChannel.Instagram) is not Services.Chat.Channels.InstagramChatAdapter ig)
+                return Results.NotFound();
+
+            ctx.Request.EnableBuffering();
+            using var reader = new StreamReader(ctx.Request.Body, leaveOpen: true);
+            var raw = await reader.ReadToEndAsync(ct);
+            ctx.Request.Body.Position = 0;
+
+            var ai = await ig.XacMinhDungChungAsync(raw, ctx.Request.Headers, ct);
+            if (ai is null)
+            {
+                log.LogWarning("[chat/webhook] instagram: TỪ CHỐI tin của tài khoản {Ig} — chữ ký sai "
+                    + "hoặc chưa công ty nào nối. Tin KHÔNG vào hộp thư.",
+                    Services.Chat.Channels.InstagramChatAdapter.IdTaiKhoanCuaSuKien(raw));
+                return Results.Ok();
+            }
+
+            var sk = ig.Parse(raw);
+            if (sk.Count == 0) return Results.Ok();
+
+            var id = await repo.EnqueueInboundAsync(ai.Value.TenantId, ChatChannel.Instagram,
+                ai.Value.AccountId, sk[0].ExternalMsgId, raw, ct);
+            if (id is not null) tin.Danh(Services.Chat.Inbox.ChatLan.Vao);
+            else log.LogInformation("[chat/webhook] bỏ qua bản gửi lại, instagram tenant={T} sk={S}",
+                ai.Value.TenantId, sk[0].ExternalMsgId);
+            return Results.Ok();
+        });
+
+        // Meta xác minh địa chỉ bằng một lượt GET kèm hub.challenge — dùng lại verify token cấp
+        // nền tảng của Messenger, vì Instagram nằm trong CHÍNH ứng dụng đó.
+        routes.MapGet("/api/v1/chat/webhook/instagram", async (HttpContext ctx,
+            Services.Chat.Channels.MessengerChatAdapter adapter, CancellationToken ct) =>
+        {
+            var q = ctx.Request.Query;
+            var challenge = await adapter.XacMinhDangKyAsync("", q["hub.mode"], q["hub.verify_token"],
+                q["hub.challenge"], ct);
+            return challenge is null ? Results.StatusCode(403) : Results.Text(challenge);
+        });
+
         // Đường CŨ, mang tên công ty: giữ nguyên cho các OA đã khai theo ứng dụng riêng. Bỏ đi là
         // webhook đang chạy của họ chết ngay lúc deploy.
         routes.MapPost("/api/v1/chat/webhook/{kenh}/{tenantId}", (
@@ -363,7 +419,7 @@ public static class ChatInboxEndpoints
             var dem = await repo.CountAsync(a.TenantId, chiCuaToi, a.Username, ct);
             return Results.Json(new
             {
-                items = items.Select(Shape),
+                items = items.Select(x => Shape(x, a.SessionId)),
                 counts = new
                 {
                     moi = dem.TheoTrangThai.GetValueOrDefault((short)0),
@@ -403,12 +459,13 @@ public static class ChatInboxEndpoints
             var cuaSo = ChatRules.TinhCuaSo((ChatChannel)v.Channel, v.ContactRepliedAt, DateTime.UtcNow);
             return Results.Json(new
             {
-                conversation = Shape(v),
+                conversation = Shape(v, a.SessionId),
                 // Hồ sơ khách cho panel bên phải. Chỉ những gì kênh thật sự cho biết — chưa nối CRM
                 // nên crmCustomerId còn trống, giao diện nói thẳng điều đó thay vì bịa một thẻ khách.
                 contact = lienHe is null ? null : new
                 {
-                    lienHe.DisplayName, lienHe.AvatarUrl, lienHe.Phone, lienHe.Email,
+                    lienHe.DisplayName, lienHe.Phone, lienHe.Email,
+                    AvatarUrl = AnhKhach(lienHe.AvatarUrl, a.SessionId),
                     lienHe.CrmCustomerId, lienHe.CreatedUtc,
                 },
                 messages = tin.Select(m => new
@@ -533,30 +590,42 @@ public static class ChatInboxEndpoints
         // Proxy tệp Telegram: bot token KHÔNG được lọt ra trình duyệt, nên trình duyệt gọi vào
         // đây, máy chủ tự đổi file_id → đường tải thật rồi chuyển tiếp byte.
         g.MapGet("/messages/{msgId:long}/file", async (long msgId, string fid, HttpContext ctx,
-            TkSessionStore sessions, ChatRepository repo, IHttpClientFactory httpFac,
-            IConfiguration cfg, CancellationToken ct) =>
+            TkSessionStore sessions, ChatRepository repo, ChannelCredentialStore cred,
+            IHttpClientFactory httpFac, IConfiguration cfg, CancellationToken ct) =>
         {
             var a = SessionAuth.Read(ctx, sessions);
             if (a == null) return SessionAuth.Unauthorized();
             if (!repo.Configured) return ChuaCauHinh();
             // Tin phải thuộc hội thoại của CHÍNH tenant này — chặn ở đây thay vì tin vào id đoán được.
-            if (!await repo.MessageBelongsToTenantAsync(a.TenantId, msgId, ct))
-                return Results.NotFound();
+            var hoiThoai = await repo.GetConversationByMessageAsync(a.TenantId, msgId, ct);
+            if (hoiThoai is null) return Results.NotFound();
 
-            var token = cfg["Telegram:BotToken"];
-            if (string.IsNullOrWhiteSpace(token)) return Results.NotFound();
+            // ⚠️ file_id của Telegram gắn với TỪNG bot: đổi bằng token của bot khác thì họ trả lỗi.
+            // Trước 27/08 chỗ này lấy Telegram:BotToken — bot DÙNG CHUNG của bản tin sáng, không
+            // phải bot công ty vừa nối. Hậu quả: mọi tệp khách gửi qua Telegram đều hiện "chưa tải
+            // được", mà không có lỗi nào để lần ra.
+            var token = await TokenTelegramAsync(cred, cfg, a.TenantId, hoiThoai.AccountId, ct);
+            if (token is null) return Results.NotFound();
 
-            var http = httpFac.CreateClient();
-            using var meta = await http.GetAsync(
-                $"https://api.telegram.org/bot{token}/getFile?file_id={Uri.EscapeDataString(fid)}", ct);
-            var raw = await meta.Content.ReadAsStringAsync(ct);
-            var duong = JsonNode.Parse(raw)?["result"]?["file_path"]?.ToString();
-            if (string.IsNullOrWhiteSpace(duong)) return Results.NotFound();
+            return await TepTelegramAsync(httpFac, token, fid, ct);
+        });
 
-            var res = await http.GetAsync($"https://api.telegram.org/file/bot{token}/{duong}", ct);
-            if (!res.IsSuccessStatusCode) return Results.NotFound();
-            var bytes = await res.Content.ReadAsByteArrayAsync(ct);
-            return Results.File(bytes, res.Content.Headers.ContentType?.ToString() ?? "application/octet-stream");
+        // Proxy ảnh đại diện Telegram. Cùng lý do với proxy tệp: đường tải thật chứa bot token,
+        // nên trình duyệt gọi vào đây chứ không gọi thẳng Telegram.
+        //
+        // Mã tệp KHÔNG phải bí mật, nhưng vẫn kẹp theo phiên và theo tài khoản của chính công ty:
+        // để trần thì ai có đường dẫn cũng biến máy chủ mình thành cửa tải tệp cho bot người khác.
+        g.MapGet("/avatars/{accountId}/{fid}", async (string accountId, string fid, HttpContext ctx,
+            TkSessionStore sessions, ChannelCredentialStore cred, IHttpClientFactory httpFac,
+            IConfiguration cfg, CancellationToken ct) =>
+        {
+            var a = SessionAuth.Read(ctx, sessions);
+            if (a == null) return SessionAuth.Unauthorized();
+
+            var token = await TokenTelegramAsync(cred, cfg, a.TenantId, accountId, ct);
+            if (token is null) return Results.NotFound();
+
+            return await TepTelegramAsync(httpFac, token, fid, ct);
         });
 
         g.MapPost("/conversations/{id:long}/assign", async (long id, AssignReq? body, HttpContext ctx,
@@ -952,9 +1021,10 @@ public static class ChatInboxEndpoints
             if (trang!.Count == 1)
             {
                 var loiNoi = await fb.NoiTrangAsync(cho.Value.TenantId, trang[0], ct);
-                return loiNoi is null
-                    ? TrangCapQuyen(true, $"Đã nối Trang \"{trang[0].Ten}\". Tin nhắn mới sẽ vào hộp thư ngay.")
-                    : TrangCapQuyen(false, loiNoi);
+                if (loiNoi is not null) return TrangCapQuyen(false, loiNoi);
+                var kemIg = await NoiKemInstagramAsync(adapters, cho.Value.TenantId, trang[0], ct);
+                return TrangCapQuyen(true,
+                    $"Đã nối Trang \"{trang[0].Ten}\"{kemIg}. Tin nhắn mới sẽ vào hộp thư ngay.");
             }
 
             var ma = chon.Tao(cho.Value.TenantId, trang);
@@ -981,6 +1051,7 @@ public static class ChatInboxEndpoints
 
             var loi = await fb.NoiTrangAsync(c.Value.TenantId, c.Value.Trang, ct);
             if (loi is not null) return TrangCapQuyen(false, loi);
+            var kemIg = await NoiKemInstagramAsync(adapters, c.Value.TenantId, c.Value.Trang, ct);
 
             // Vẽ lại danh sách thay vì đóng cửa sổ: công ty nhiều chi nhánh nối vài Trang liền tay,
             // đóng phụt sau Trang đầu là bắt họ đăng nhập Facebook lại từ đầu cho Trang thứ hai.
@@ -1052,9 +1123,15 @@ public static class ChatInboxEndpoints
                         // nổi. Zalo cất ở oaName/oaId, Meta ở pageName/pageId; giao diện chỉ cần
                         // MỘT cặp khoá nên gộp ở đây.
                         oaName = t.GiaTri.GetValueOrDefault("oaName", "")
-                                 is { Length: > 0 } tenThat ? tenThat : t.GiaTri.GetValueOrDefault("pageName", ""),
+                                 is { Length: > 0 } tenThat ? tenThat
+                                 : t.GiaTri.GetValueOrDefault("pageName", "")
+                                   is { Length: > 0 } tenTrang ? tenTrang
+                                   : t.GiaTri.GetValueOrDefault("botUsername", ""),
                         oaId = t.GiaTri.GetValueOrDefault("oaId", "")
-                               is { Length: > 0 } idThat ? idThat : t.GiaTri.GetValueOrDefault("pageId", ""),
+                               is { Length: > 0 } idThat ? idThat
+                               : t.GiaTri.GetValueOrDefault("pageId", "")
+                                 is { Length: > 0 } idTrang ? idTrang
+                                 : t.GiaTri.GetValueOrDefault("botId", ""),
                         configured = DaKhaiDu(kenh, t.GiaTri, nhanh),
                         webhookUrl = moiTaiKhoanMotUrl ? $"{duong}/{t.AccountId}" : duong,
                         // Giá trị điền sẵn khi sửa — CHỈ trường không phải bí mật. Bí mật thì
@@ -1070,7 +1147,8 @@ public static class ChatInboxEndpoints
         // Tạo tài khoản mới cho một kênh. Mã tài khoản do MÁY CHỦ sinh, không nhận từ client —
         // nó nằm trên URL webhook công khai nên phải chắc chắn không trùng và không có ký tự lạ.
         g.MapPost("/channels/{channel:int}/accounts", async (int channel, Dictionary<string, string?> body,
-            HttpContext ctx, TkSessionStore sessions, ChannelCredentialStore cred, CancellationToken ct) =>
+            HttpContext ctx, TkSessionStore sessions, ChannelCredentialStore cred, IConfiguration cfg,
+            IEnumerable<Services.Chat.Channels.IChatChannelAdapter> adapters, CancellationToken ct) =>
         {
             var a = SessionAuth.Read(ctx, sessions);
             if (a == null) return SessionAuth.Unauthorized();
@@ -1080,13 +1158,19 @@ public static class ChatInboxEndpoints
                 return Results.BadRequest(new { error = "Kênh không hợp lệ" });
 
             var accountId = Guid.NewGuid().ToString("N")[..8];
+
+            var loi = await NoiBotTelegramAsync(adapters, ctx, cfg, a.TenantId, accountId,
+                (ChatChannel)channel, body, ct);
+            if (loi is not null) return Results.BadRequest(new { error = loi });
+
             await cred.SaveAsync(a.TenantId, (ChatChannel)channel, accountId, body, ct);
             return Results.Json(new { ok = true, accountId }, Web);
         });
 
         g.MapPut("/channels/{channel:int}/accounts/{accountId}", async (int channel, string accountId,
             Dictionary<string, string?> body, HttpContext ctx, TkSessionStore sessions,
-            ChannelCredentialStore cred, CancellationToken ct) =>
+            ChannelCredentialStore cred, IConfiguration cfg,
+            IEnumerable<Services.Chat.Channels.IChatChannelAdapter> adapters, CancellationToken ct) =>
         {
             var a = SessionAuth.Read(ctx, sessions);
             if (a == null) return SessionAuth.Unauthorized();
@@ -1094,6 +1178,12 @@ public static class ChatInboxEndpoints
                 return SessionAuth.ForbiddenConfigSystem();
             if (!Enum.IsDefined(typeof(ChatChannel), (short)channel))
                 return Results.BadRequest(new { error = "Kênh không hợp lệ" });
+
+            // Dan bot token MOI thi phai dang ky lai dia chi nhan tin - chuoi bi mat cu gan voi
+            // token cu, giu lai la webhook cam ma khong bao gi. De trong o token = giu nguyen.
+            var loi = await NoiBotTelegramAsync(adapters, ctx, cfg, a.TenantId, accountId,
+                (ChatChannel)channel, body, ct);
+            if (loi is not null) return Results.BadRequest(new { error = loi });
 
             await cred.SaveAsync(a.TenantId, (ChatChannel)channel, accountId, body, ct);
             return Results.Json(new { ok = true }, Web);
@@ -1101,7 +1191,7 @@ public static class ChatInboxEndpoints
 
         g.MapDelete("/channels/{channel:int}/accounts/{accountId}", async (int channel, string accountId,
             HttpContext ctx, TkSessionStore sessions, ChannelCredentialStore cred, ChatRepository repo,
-            CancellationToken ct) =>
+            IEnumerable<Services.Chat.Channels.IChatChannelAdapter> adapters, CancellationToken ct) =>
         {
             var a = SessionAuth.Read(ctx, sessions);
             if (a == null) return SessionAuth.Unauthorized();
@@ -1109,6 +1199,13 @@ public static class ChatInboxEndpoints
                 return SessionAuth.ForbiddenConfigSystem();
             if (!Enum.IsDefined(typeof(ChatChannel), (short)channel))
                 return Results.BadRequest(new { error = "Kênh không hợp lệ" });
+
+            // ⚠️ Gỡ địa chỉ nhận tin bên Telegram TRƯỚC khi xoá khoá — xoá trước thì không còn
+            // token nào để gọi deleteWebhook, và Telegram nện vào URL đã chết mãi mãi. Hỏng thì
+            // vẫn cho xoá tiếp: người dùng bấm gỡ là muốn gỡ, không phải muốn nghe báo lỗi.
+            if ((ChatChannel)channel == ChatChannel.Telegram)
+                await (adapters.OfType<Services.Chat.Channels.TelegramChatAdapter>().FirstOrDefault()
+                       ?.GoBotAsync(a.TenantId, accountId, ct) ?? Task.FromResult(false));
 
             // CỐ Ý không xoá hội thoại cũ của tài khoản này: lịch sử chat với khách là dữ liệu
             // nghiệp vụ, gỡ kết nối chỉ nghĩa là "thôi không nhận/gửi qua tài khoản này nữa".
@@ -1171,6 +1268,109 @@ public static class ChatInboxEndpoints
     /// <c>localhost</c>, mà Zalo/Meta <b>không gọi vào localhost được</b> — nên cho phép đè bằng
     /// <c>Chat:PublicBaseUrl</c> (dán URL đường hầm ngrok vào đó).</para>
     /// </summary>
+    /// <summary>
+    /// Nối bot Telegram bằng MỘT nút: xác thực token → sinh chuỗi bí mật → đăng ký địa chỉ nhận
+    /// tin. Kết quả bơm thẳng vào <paramref name="body"/> để chỗ gọi lưu MỘT lần.
+    /// </summary>
+    /// <returns><c>null</c> = xong (hoặc không phải việc của kênh này); khác <c>null</c> = câu lỗi
+    /// hiện cho người dùng.</returns>
+    private static async Task<string?> NoiBotTelegramAsync(
+        IEnumerable<Services.Chat.Channels.IChatChannelAdapter> adapters, HttpContext ctx,
+        IConfiguration cfg, string tenantId, string accountId, ChatChannel kenh,
+        Dictionary<string, string?> body, CancellationToken ct)
+    {
+        if (kenh != ChatChannel.Telegram) return null;
+
+        // Ô token để trống = người dùng đang sửa tên gợi nhớ, hoặc mới tạo bản nháp. Không đăng ký
+        // lại: chuỗi bí mật hiện có vẫn đúng với token hiện có.
+        body.TryGetValue("botToken", out var token);
+        if (string.IsNullOrWhiteSpace(token)) return null;
+
+        var tg = adapters.OfType<Services.Chat.Channels.TelegramChatAdapter>().FirstOrDefault();
+        if (tg is null) return "Kênh Telegram chưa được bật trên máy chủ";
+
+        // ⚠️ Mỗi bot MỘT đường riêng, có mã tài khoản trên URL — thân tin Telegram không nói bot
+        // nào, định danh duy nhất nằm ở chính đường dẫn đã khai lúc đăng ký.
+        var duong = $"{GocCongKhai(ctx, cfg)}/api/v1/chat/webhook/telegram/{tenantId}/{accountId}";
+        var kq = await tg.NoiBotAsync(token, duong, ct);
+        if (!kq.Ok) return kq.Loi;
+
+        body["webhookSecret"] = kq.ChuoiBiMat;
+        if (!string.IsNullOrWhiteSpace(kq.BotId)) body["botId"] = kq.BotId;
+        if (!string.IsNullOrWhiteSpace(kq.Username)) body["botUsername"] = kq.Username;
+
+        // Chưa đặt tên gợi nhớ thì lấy @tên bot. Nối ba bot mà cả ba đều trống tên thì trong danh
+        // sách không phân biệt nổi cái nào với cái nào.
+        if (string.IsNullOrWhiteSpace(body.GetValueOrDefault("label"))
+            && !string.IsNullOrWhiteSpace(kq.Username))
+            body["label"] = "@" + kq.Username;
+
+        return null;
+    }
+
+    /// <summary>
+    /// Bot token của một tài khoản Telegram. Lùi về <c>Telegram:BotToken</c> dùng chung khi tài
+    /// khoản chưa có khoá riêng — giữ tương thích với bản một-bot cũ, y như trong bộ nối.
+    /// </summary>
+    private static async Task<string?> TokenTelegramAsync(ChannelCredentialStore cred,
+        IConfiguration cfg, string tenantId, string? accountId, CancellationToken ct)
+    {
+        if (!string.IsNullOrWhiteSpace(accountId))
+        {
+            var c = await cred.GetAsync(tenantId, ChatChannel.Telegram, accountId!, ct);
+            if (c is not null && c.TryGetValue("botToken", out var rieng) && !string.IsNullOrWhiteSpace(rieng))
+                return rieng;
+        }
+        var chung = cfg["Telegram:BotToken"];
+        return string.IsNullOrWhiteSpace(chung) ? null : chung;
+    }
+
+    /// <summary>Đổi <c>file_id</c> thành byte thật. Hai lượt gọi: hỏi đường, rồi tải.</summary>
+    /// <remarks>Token nằm TRONG đường dẫn nên tuyệt đối không ghi URL ra nhật ký.</remarks>
+    private static async Task<IResult> TepTelegramAsync(IHttpClientFactory httpFac, string token,
+        string fid, CancellationToken ct)
+    {
+        var http = httpFac.CreateClient();
+        using var meta = await http.GetAsync(
+            $"https://api.telegram.org/bot{token}/getFile?file_id={Uri.EscapeDataString(fid)}", ct);
+        var raw = await meta.Content.ReadAsStringAsync(ct);
+        var duong = JsonNode.Parse(raw)?["result"]?["file_path"]?.ToString();
+        if (string.IsNullOrWhiteSpace(duong)) return Results.NotFound();
+
+        var res = await http.GetAsync($"https://api.telegram.org/file/bot{token}/{duong}", ct);
+        if (!res.IsSuccessStatusCode) return Results.NotFound();
+        var bytes = await res.Content.ReadAsByteArrayAsync(ct);
+        return Results.File(bytes, res.Content.Headers.ContentType?.ToString() ?? "application/octet-stream");
+    }
+
+    /// <summary>
+    /// Ảnh đại diện cho giao diện. Đường TƯƠNG ĐỐI nghĩa là ảnh phải đi qua máy chủ mình (Telegram
+    /// — vì đường tải thật của họ chứa bot token), nên phải gắn thêm mã phiên: thẻ &lt;img&gt; không
+    /// gửi được tiêu đề xác thực. Đường tuyệt đối (Zalo/Meta) thì để nguyên.
+    /// </summary>
+    private static string? AnhKhach(string? url, string sessionId)
+        => string.IsNullOrWhiteSpace(url) || !url.StartsWith('/') ? url
+           : $"{url}?sessionId={Uri.EscapeDataString(sessionId)}";
+
+    /// <summary>
+    /// Nối luôn tài khoản Instagram liên kết với Trang vừa nối, nếu có.
+    ///
+    /// <para>Instagram Direct đi qua CHÍNH Trang đó — cùng ứng dụng Meta, cùng token, cùng khoá ký.
+    /// Nên bắt khách bấm thêm một nút nữa là bắt họ làm một việc máy tự làm được.</para>
+    ///
+    /// <para>⚠️ Không bao giờ chặn việc nối Trang: Trang không có Instagram là chuyện bình thường.</para>
+    /// </summary>
+    /// <returns>Đoạn chữ nối thêm vào câu báo thành công, hoặc rỗng.</returns>
+    private static async Task<string> NoiKemInstagramAsync(
+        IEnumerable<Services.Chat.Channels.IChatChannelAdapter> adapters, string tenantId,
+        Services.Chat.Channels.TrangUngVien trang, CancellationToken ct)
+    {
+        var ig = adapters.OfType<Services.Chat.Channels.InstagramChatAdapter>().FirstOrDefault();
+        if (ig is null) return "";
+        var id = await ig.NoiTuTrangAsync(tenantId, trang.PageId, trang.Ten, trang.AccessToken, ct);
+        return id is null ? "" : " và tài khoản Instagram liên kết";
+    }
+
     private static string GocCongKhai(HttpContext ctx, IConfiguration cfg)
     {
         var dat = cfg["Chat:PublicBaseUrl"];
@@ -1286,6 +1486,8 @@ public static class ChatInboxEndpoints
         ChatChannel.Messenger => g.ContainsKey("pageId") && g.ContainsKey("pageAccessToken")
                                  && (nenTang || (g.ContainsKey("appSecret") && g.ContainsKey("verifyToken"))),
         ChatChannel.Telegram => g.ContainsKey("botToken") && g.ContainsKey("webhookSecret"),
+        // Instagram đi bằng chính Page Access Token của Trang đã nối, nên chỉ cần hai ô này.
+        ChatChannel.Instagram => g.ContainsKey("igId") && g.ContainsKey("pageAccessToken"),
         _ => false,
     };
 
@@ -1331,15 +1533,28 @@ public static class ChatInboxEndpoints
                 "Bốn ô này CHỈ dùng khi công ty tự tạo ứng dụng riêng trên Meta for Developers. "
                 + "Bình thường bấm \"Kết nối Facebook\" là xong — không phải khai gì.", "note"),
         }, false),
+        (ChatChannel.Instagram, "Instagram Direct", new[]
+        {
+            new ONhap("label",           "Tên gợi nhớ", "text", "IG chi nhánh Q1"),
+            new ONhap("igId",            "ID tài khoản Instagram", "text", "17841400000000000"),
+            new ONhap("pageAccessToken", "Page Access Token", "secret",
+                "Token của Trang Facebook mà tài khoản Instagram này liên kết vào"),
+            new ONhap("note",
+                "Instagram đi qua chính Trang Facebook đã nối: tài khoản phải là Instagram "
+                + "Professional và đã liên kết với Trang đó, rồi bật \"Cho phép truy cập tin nhắn\" "
+                + "trong cài đặt Instagram. Không cần khai thêm khoá ứng dụng nào.", "note"),
+        }, false),
         (ChatChannel.Telegram, "Telegram", new[]
         {
             new ONhap("label",         "Tên gợi nhớ", "text", "Bot đội sale lẻ"),
             new ONhap("botToken",      "Bot token",   "secret", "123456:ABC-DEF… (lấy từ @BotFather)"),
-            new ONhap("webhookSecret", "Chuỗi bí mật webhook", "secret", "Bạn tự đặt, khai khi gọi setWebhook"),
+            new ONhap("note",
+                "Chỉ cần dán bot token. Hệ thống tự kiểm tra token, tự đặt chuỗi bí mật và tự đăng "
+                + "ký địa chỉ nhận tin với Telegram — không phải gõ lệnh gì bên ngoài.", "note"),
         }, true),
     };
 
-    private static object Shape(ChatConversation v)
+    private static object Shape(ChatConversation v, string sessionId)
     {
         // Mốc đọc RIÊNG của người đang xem. Chưa mở lần nào thì lùi về mốc chung cũ — không thì
         // mọi hội thoại cũ bật lại thành "chưa đọc" cho tất cả mọi người ngay sau khi nâng cấp.
@@ -1349,7 +1564,7 @@ public static class ChatInboxEndpoints
             v.Id, v.Channel, v.ContactExternalId, v.AccountId, v.Status, v.AssignedUsername,
             v.LastActivityAt, v.LastPreview, v.ContactRepliedAt,
             displayName = v.DisplayName,
-            avatarUrl = v.AvatarUrl,
+            avatarUrl = AnhKhach(v.AvatarUrl, sessionId),
             // Khách đến từ đâu. Nhà cung cấp chỉ nói MỘT LẦN lúc mở cuộc trò chuyện, nên đây là
             // bản ghi duy nhất — không có API nào tra ngược được.
             referral = v.ReferralSource is null && v.ReferralRef is null && v.ReferralAdId is null

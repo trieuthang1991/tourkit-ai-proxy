@@ -116,6 +116,110 @@ của chính yêu cầu đang tới — trên máy chủ thật thì đúng, cò
 ⚠️ **Zalo xoay vòng refresh token.** Mỗi lượt đổi trả về một refresh token MỚI, phải lưu cái mới và
 bỏ cái cũ — dùng lại cái cũ ở lần sau là bị từ chối. Cả hai lượt (đổi `code` lần đầu và làm mới về
 sau) đi chung một hàm nên không có chỗ nào quên lưu.
+**Instagram Direct — kênh thứ tư** (thêm 27/08). Đi **cùng hợp đồng nhắn tin của Meta** với
+Messenger, nên phần bóc tin dùng CHUNG một lớp
+([`MetaMessagingParser`](../../TourkitAiProxy.Services/Chat/Channels/MetaMessagingParser.cs)): cùng hình dạng
+`entry[] × messaging[]`, cùng `mid`, cùng `is_echo`, cùng cách gói đính kèm, cùng kiểu ký. Chép ra
+hai bản là hai bản lệch nhau — mà lệch ở đây thì hỏng im lặng: một kênh nhận được cảm xúc, kênh
+kia không, không lỗi nào hiện ra. Cùng lý do R2 và S3 dùng chung một lớp lưu trữ.
+
+**Nối qua TRANG FACEBOOK đã kết nối, KHÔNG qua đăng nhập Instagram riêng.** Khách bấm "Kết nối
+Facebook" như cũ; nối Trang xong hệ thống tự hỏi Trang đó có tài khoản Instagram liên kết không
+(`GET /{pageId}?fields=instagram_business_account`) và nối luôn — **không thêm nút nào**. Cùng ứng
+dụng Meta, cùng App Secret, cùng Page Access Token.
+
+⚠️ **Vì sao KHÔNG chép cách ChatbotX làm.** Họ dùng *Instagram Login* (`api.instagram.com`, app
+Instagram riêng, scope `instagram_business_*`). Đường đó không cần Trang, nhưng token **hết hạn sau
+60 ngày** và phải tự làm mới — thêm một thứ hỏng âm thầm vào lúc không ai để ý. Page Access Token
+thì không hết hạn, và công ty du lịch nào cũng đã có Trang. Cái giá: tài khoản phải là Instagram
+Professional đã liên kết Trang, và phải bật "Cho phép truy cập tin nhắn" trong cài đặt Instagram.
+
+⚠️ **Ba chỗ KHÁC Messenger thật, đừng áp một luật:**
+1. Trường `object` là `"instagram"`, không phải `"page"`.
+2. Đường gửi là `graph.instagram.com` và token đi ở header `Authorization: Bearer` — Instagram
+   **không** nhận `?access_token=` trên URL như Graph của Facebook. Chép nguyên đường gửi của
+   Messenger sang là mọi tin gửi đi đều bị từ chối.
+3. **KHÔNG có `message_deliveries`.** Meta chỉ cấp `messaging_seen` cho Instagram, nên tin nhảy
+   thẳng "đã gửi" → "đã xem", không bao giờ có "đã nhận" — **và đó là đúng**.
+
+⚠️ **`messaging_seen` của Instagram báo bằng `mid`, KHÔNG bằng `watermark`.** Messenger gửi
+`{"read":{"watermark":<ms>}}`; Instagram gửi `{"read":{"mid":"<tin cuối đã đọc>"}}`. Đọc theo lối
+Messenger thì giá trị ra `null`, sự kiện **rơi im lặng**, dấu tích đứng mãi ở "đã gửi". Mốc thời
+gian phải tra ngược từ chính tin đó (`ChatRepository.ThoiDiemTinAsync`) — lấy tạm giờ nhận gói cho
+nhanh là đánh dấu THỪA lên tin khách chưa hề mở, tức nói dối nhân viên. Không tra ra tin thì **bỏ
+qua**, không đoán.
+
+⚠️ **Đường webhook RIÊNG dù chung ứng dụng:** `/api/v1/chat/webhook/instagram`. Meta khai địa chỉ
+webhook riêng cho từng *đối tượng* (`page` · `instagram`), nên gộp vào đường của Messenger là
+Instagram không có chỗ gửi tới. Cũng **luôn trả 200** kể cả khi từ chối, và vì lý do nặng hơn: ứng
+dụng dùng chung nên trả lỗi liên tục là Meta tắt kênh của **mọi** khách hàng cùng lúc.
+
+⚠️ **Trường webhook của đối tượng `instagram` bật ở CẤP ỨNG DỤNG**, không phải lệnh gọi cho từng
+tài khoản (khác Trang Facebook và khác Telegram). Danh sách ghi ở `InstagramChatAdapter.SuKienTaiKhoan`
+để lúc khai ứng dụng không ai phải đoán — thiếu một trường thì mã bóc vẫn đúng, chỉ là gói tin không
+bao giờ tới.
+
+⚠️ **Chưa kiểm bằng tài khoản thật** (27/08). Phần bóc tin, cửa sổ gửi và luật "đã xem" có test;
+bước nối và đường gửi phải thử trên một tài khoản Instagram Professional thật rồi mới coi là xong.
+
+**Telegram nối bằng MỘT nút, giống Zalo/Messenger** (đổi 27/08). Dán bot token → máy chủ gọi
+`getMe` xác thực → **tự sinh** chuỗi bí mật webhook → gọi `setWebhook`. Gỡ kết nối gọi
+`deleteWebhook`. Vào từ chính `POST|PUT|DELETE /channels/3/accounts[/{id}]`, không thêm đường mới
+([`NoiBotAsync`](../../TourkitAiProxy.Services/Chat/Channels/TelegramChatAdapter.cs)).
+
+⚠️ **Xác thực token TRƯỚC khi đăng ký webhook, không được ngược.** Đăng ký trước rồi mới biết
+token sai là đã trỏ một địa chỉ công khai vào một bot không tồn tại, và bản ghi rác nằm lại trong
+danh sách kênh. Có test canh thứ tự.
+
+⚠️ **`allowed_updates` phải khai ĐỦ — đây là bẫy "sửa hai chỗ" của Telegram.** Telegram CHỈ gửi
+những loại nằm trong danh sách khai lúc `setWebhook`, và **danh sách mặc định của họ đã bỏ sẵn**
+**`message_reaction`**. Viết mã bóc cảm xúc mà quên khai là không bao giờ có gói tin nào tới:
+không lỗi, không log, chỉ là một thứ không xảy ra. Đang khai năm loại: `message` ·
+`edited_message` · `callback_query` · `message_reaction` · `my_chat_member`. Có test canh đủ năm.
+
+⚠️ **Chuỗi bí mật webhook do MÁY CHỦ sinh, KHÔNG còn là ô nhập.** Để lại ô đó thì người khai vẫn
+tưởng phải làm tay, mà giá trị họ gõ sẽ đè lên chuỗi máy chủ vừa sinh → webhook chết im lặng.
+Dùng base64url (`A-Z a-z 0-9 _ -`), không phải base64 thường: một dấu `+` hay `/` lọt vào là
+Telegram từ chối mà không nói vướng ở đâu.
+
+⚠️ **Telegram gói MỖI loại đính kèm vào MỘT trường tên khác nhau** — không có trường chung nào cho
+biết "tin này có tệp". Thiếu một nhánh trong `Parse` là loại đó rơi xuống `ChatKind.Chu` với nội
+dung `null`: một **dòng trắng** trong hộp thư vẫn đẩy hội thoại lên đầu và vẫn tính chưa đọc.
+Đã dính thật với `video` và `audio` (đối chiếu ChatbotX 27/08 mới lộ). Nay bắt `photo` · `video` ·
+`video_note` · `audio` · `document` · `voice` · `location` · `sticker`; loại lạ thì **bỏ qua** kèm
+log WARNING liệt kê các trường trong gói.
+
+⚠️ **Bấm nút phải gọi `answerCallbackQuery`, không thì nút QUAY VÒNG mãi** trên máy khách dù mình
+đã xử lý xong. Chỉ biết được điều này khi đọc ChatbotX. Gọi **ngay đầu** `MotSuKienAsync` qua
+`IChatChannelAdapter.XacNhanBamNutAsync` (mặc định rỗng — Zalo/Messenger không có khái niệm này),
+trước cả bước gọi AI vốn mất vài giây. Lượt bấm ghi lại bằng **chữ trên nút** (dò `reply_markup`
+theo `callback_data`), lùi về mã nút khi tin cũ không kèm bàn phím. **Thời điểm là BÂY GIỜ**, không
+phải `date` của tin mang nút — tin đó có thể gửi từ hôm qua.
+
+⚠️ **Cảm xúc Telegram báo TRẠNG THÁI MỚI, không báo "thêm/bớt"** — gỡ cảm xúc là gói có
+`new_reaction` **rỗng**, khác hẳn Meta nói thẳng `action="unreact"`. Áp luật của Meta sang là cảm
+xúc đã gỡ vẫn hiện mãi.
+
+⚠️ **`/start <tham số>` là cách DUY NHẤT Telegram nói khách đến từ đâu**, và nó tới đúng một lần,
+đội lốt một câu tin thường. Không tách ra thì hộp thư có một câu `"/start fb_ads_hue"` vô nghĩa còn
+dữ liệu bán hàng mất vĩnh viễn. Tách xong phải bỏ **cả** phần chữ **và** mã tin, không thì lõi coi
+đây là tin thật và ghi một dòng trắng. `/start` trơn (bấm nút Bắt đầu trong Telegram) **không** có
+nguồn — ghi bừa nguồn rỗng là làm bẩn báo cáo.
+
+⚠️ **Ảnh đại diện Telegram phải đi qua máy chủ: đường tải thật của họ CHỨA BOT TOKEN**
+(`/file/bot<token>/…`). ChatbotX lưu thẳng chuỗi đó làm avatar, tức phát bot token cho mọi trình
+duyệt mở hộp thư — **không chép chỗ này**. Ở đây lưu đường tương đối `/api/v1/chat/avatars/`
+`{accountId}/{fileId}`, và lúc trả ra API mới gắn thêm `?sessionId=` (thẻ `<img>` không gửi được
+tiêu đề xác thực). Lấy cỡ **nhỏ nhất** — ngược với ảnh khách gửi (lấy cỡ lớn nhất để soi được chữ).
+
+⚠️ **`file_id` gắn với TỪNG bot.** Proxy tệp trước 27/08 dùng `Telegram:BotToken` — bot **dùng**
+**chung của bản tin sáng**, không phải bot công ty vừa nối — nên mọi tệp khách gửi đều hiện "chưa
+tải được" mà không lỗi nào lần ra. Nay tra token theo `account_id` của hội thoại
+(`GetConversationByMessageAsync`), chỉ lùi về cấu hình chung khi tài khoản chưa có khoá riêng.
+
+**Telegram vẫn KHÔNG có** báo đã nhận/đã xem (dừng ở "đã gửi" vĩnh viễn — đó là đúng), và **chưa**
+**làm**: gửi nút inline ra (chưa có luồng bot dùng nút), menu cố định, xử lý `my_chat_member` khi
+khách chặn bot (đã khai nhận gói, chưa xử lý).
 ⚠️ **Mỗi kênh một kiểu xác thực, đừng chép qua lại:** Zalo = `SHA256(appId+thânThô+timestamp+secret)`;
 Messenger = **HMAC**-SHA256(appSecret, thânThô) trong `X-Hub-Signature-256`; Telegram **không ký gì
 cả** — chỉ so chuỗi bí mật trong `X-Telegram-Bot-Api-Secret-Token`, nên **thiếu chuỗi đó là ai biết

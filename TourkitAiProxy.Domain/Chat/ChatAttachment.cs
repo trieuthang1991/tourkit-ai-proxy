@@ -53,7 +53,8 @@ public static class ChatAttachment
         return kenh switch
         {
             ChatChannel.Telegram => DocTelegram(goc, loai),
-            ChatChannel.Messenger => DocMeta(goc),
+            // Instagram dùng CHUNG hình dạng đính kèm của Meta: attachments[] = [{type,payload}].
+            ChatChannel.Messenger or ChatChannel.Instagram => DocMeta(goc),
             ChatChannel.Zalo => DocZalo(goc),
             _ => Array.Empty<ChatFile>(),
         };

@@ -24,10 +24,11 @@
   const KENH = {
     0: { ten: 'Zalo', chu: 'Z' },
     1: { ten: 'Messenger', chu: 'f' },
+    4: { ten: 'Instagram', chu: 'ig' },
     2: { ten: 'Web', chu: 'W' },
     3: { ten: 'Telegram', chu: 'T' },
   };
-  const KENH_SONG = [0, 1, 3];   // kênh đã nối thật; Web chỉ hiện khi có dữ liệu
+  const KENH_SONG = [0, 1, 4, 3];   // kênh đã nối thật; Web chỉ hiện khi có dữ liệu
 
   const TRANG_THAI = [
     { v: null, nhan: 'Tất cả' },
@@ -277,6 +278,7 @@
     const sap = cuaSo.hoursLeft < 6;
     // Vạch ở mép dưới cho thấy còn BAO NHIÊU so với cả cửa sổ, không chỉ con số. Mốc lấy theo
     // cửa sổ dài nhất của kênh (Zalo 48h, Messenger 24h) — đọc bằng mắt nhanh hơn đọc số.
+    // Zalo 48h; Messenger, Instagram 24h. Telegram/web không giới hạn nên không tới đây.
     const tron = kenh === 0 ? 48 : 24;
     const con = Math.max(2, Math.min(100, Math.round(cuaSo.hoursLeft / tron * 100)));
     return (
@@ -700,7 +702,14 @@
           method: accId ? 'PUT' : 'POST', headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify(than),
         });
-        if (!r.ok) { pushToast('Lưu không được', 'error'); return; }
+        if (!r.ok) {
+          // Máy chủ trả câu lỗi CỤ THỂ (token sai, Telegram từ chối đăng ký địa chỉ nhận tin,
+          // địa chỉ không phải https công khai…). Nuốt mất rồi hiện "Lưu không được" thì người
+          // khai không có manh mối nào để sửa — đúng thứ vừa mất một buổi khi nối Facebook.
+          let cau = 'Lưu không được';
+          try { const j = await r.json(); if (j && j.error) cau = j.error; } catch (e) {}
+          pushToast(cau, 'error'); return;
+        }
         pushToast(accId ? 'Đã cập nhật tài khoản' : 'Đã thêm tài khoản', 'success');
         setNhap(p => ({ ...p, [khoa]: {} }));
         await taiLai();
@@ -839,10 +848,13 @@
 
                   {dangMo && (
                     <div className="ci-tk-form">
-                      {/* URL RIÊNG từng bot Telegram — dán vào lệnh setWebhook của đúng bot đó. */}
+                      {/* URL RIÊNG từng bot Telegram. Máy chủ TỰ đăng ký địa chỉ này với
+                          Telegram lúc lưu bot token — để đây chỉ để quản trị đối chiếu khi
+                          nghi ngờ, không phải việc người dùng phải làm. Trước 27/08 đúng ô
+                          này bắt họ copy rồi tự gõ lệnh setWebhook bên ngoài. */}
                       {!k.webhookUrl && (
                         <label className="ci-url">
-                          Địa chỉ nhận tin của tài khoản này
+                          Địa chỉ nhận tin (hệ thống đã tự đăng ký)
                           <input readOnly value={t.webhookUrl} onFocus={e => e.target.select()} />
                         </label>
                       )}
@@ -854,8 +866,11 @@
                                giaTri={giaTriO(k.channel, t.accountId, f, t.values)}
                                onDoi={v => dat(k.channel, t.accountId, f.key, v)} />
                       ))}
-                      {k.noiNhanh && t.oaId && (
-                        <div className="ci-hs-goiy">Mã OA: {t.oaId}</div>
+                      {/* Mã thật do nền tảng cấp: OA của Zalo, Trang của Facebook, bot của
+                          Telegram. Không gắn với việc kênh đó có nối-một-chạm hay không —
+                          gắn nhầm vào noiNhanh thì bot Telegram vừa nối xong không hiện mã. */}
+                      {t.oaId && (
+                        <div className="ci-hs-goiy">Mã trên nền tảng: {t.oaId}</div>
                       )}
                       {/* Bước cấp quyền chỉ Zalo mới có: Messenger/Telegram cấp token thẳng ở
                           giao diện của họ, không đi vòng OAuth. */}
