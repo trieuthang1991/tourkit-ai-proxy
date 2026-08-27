@@ -116,8 +116,19 @@ public class TkSessionStore
         TkSession session;
         if (existing != null)
         {
-            // Reuse Id + ChatMemory; refresh JWT + credentials (phòng user đổi password) + LastUsed.
-            existing.Password    = password;
+            // Reuse Id + ChatMemory; refresh JWT + LastUsed.
+
+            // ⚠️ CHỈ ghi đè mật khẩu khi lần đăng nhập này THẬT SỰ có mật khẩu.
+            //
+            // Đăng nhập một chạm từ CRM truyền chuỗi RỖNG (không hề có mật khẩu). Ghi đè vô điều
+            // kiện như trước là XOÁ MẤT mật khẩu đã lưu của phiên cũ: một người đã đăng nhập bình
+            // thường, hôm sau bấm SSO một cái là phiên của họ biến thành phiên SSO vĩnh viễn.
+            // Không ai thấy gì — phiên vẫn chạy, chỉ là từ đó mình không còn đường đăng nhập lại
+            // bằng mật khẩu nữa. Đây chính là cách những phiên rỗng mật khẩu đã sinh ra.
+            //
+            // Chiều ngược lại vẫn giữ nguyên ý cũ: đăng nhập bằng mật khẩu MỚI thì cập nhật, phòng
+            // người dùng vừa đổi mật khẩu bên CRM.
+            if (!string.IsNullOrEmpty(password)) existing.Password = password;
             existing.Jwt         = login.Token;
             // ?? giữ giá trị cũ: JWT lần này thiếu claim thì đừng xoá cái đã có.
             existing.CrmUserId   = JwtClaims.TryGetUserId(login.Token) ?? existing.CrmUserId;

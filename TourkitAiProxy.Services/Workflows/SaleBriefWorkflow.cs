@@ -38,6 +38,7 @@ public class SaleBriefWorkflow : IScheduledWorkflow
     private const int HygieneStuckDaysDefault = 14;  // cơ hội kẹt 1 trạng thái bao lâu thì coi là cần dọn
 
     private readonly DigestSubscriptionRepository _subs;
+    private readonly BriefReadinessNotifier _readiness;
     private readonly TkSessionStore _sessions;
     private readonly TkSessionRepository _sessionRepo;
     private readonly TourKitApiClient _api;
@@ -52,13 +53,15 @@ public class SaleBriefWorkflow : IScheduledWorkflow
     private readonly AiCallContext _ctx;
     private readonly ILogger<SaleBriefWorkflow> _log;
 
-    public SaleBriefWorkflow(DigestSubscriptionRepository subs, TkSessionStore sessions,
+    public SaleBriefWorkflow(BriefReadinessNotifier readiness,
+        DigestSubscriptionRepository subs, TkSessionStore sessions,
         TkSessionRepository sessionRepo, TourKitApiClient api, SaleBriefRepository repo,
         MailRepository mails, InsightRepository insights, MailQueueRepository queue, TenantChannelSettingsStore channels,
         IConfiguration cfg, Providers.ProviderRegistry providers, Providers.AiModelRegistry models,
         AiCallContext ctx, ILogger<SaleBriefWorkflow> log)
     {
         _subs = subs; _sessions = sessions; _sessionRepo = sessionRepo; _api = api;
+        _readiness = readiness;
         _repo = repo; _mails = mails; _insights = insights; _queue = queue; _channels = channels; _cfg = cfg;
         _providers = providers; _models = models; _ctx = ctx; _log = log;
     }
@@ -192,7 +195,8 @@ public class SaleBriefWorkflow : IScheduledWorkflow
             _log.LogWarning("[sale-brief] tenant={T} đọc hộp thư lỗi: {Err}", tenantId, ex.Message);
         }
 
-        int prepared = 0, noSession = 0, failed = 0, skipped = 0, aiCalls = 0, aiFails = 0;
+        int prepared = 0, noSession = 0, reloginFailed = 0, khongNhacDuoc = 0,
+            failed = 0, skipped = 0, aiCalls = 0, aiFails = 0;
         var parts = new List<string>();
 
         // Mẫu ZNS của công ty: tra MỘT LẦN cho cả lượt, không tra lại theo từng người.
@@ -212,14 +216,33 @@ public class SaleBriefWorkflow : IScheduledWorkflow
                 var session = await _sessionRepo.GetByUserAsync(tenantId, sub.Username, ct);
                 if (session == null)
                 {
+                    // ⚠️ KHÔNG bỏ qua im lặng như trước. Câu cũ ghi "chưa đăng nhập lần nào" là sai:
+                    // dòng phiên đã bị dọn nên không biết được, mà người dùng lâu năm đọc câu đó thì
+                    // mất tin vào cả tính năng. Nay báo cho họ rồi TẮT đăng ký.
                     noSession++;
-                    _log.LogInformation("[sale-brief] tenant={T} user={U} chưa đăng nhập lần nào — bỏ qua",
-                        tenantId, sub.Username);
+                    if (!await _readiness.NotifyAndDisableAsync(sub, BriefReadinessReason.NoSession, utcNow, ct))
+                        khongNhacDuoc++;
                     continue;
                 }
 
                 // Token của CHÍNH người này; tự đăng nhập lại nếu hết hạn (user không thấy gì).
-                var jwt = await _sessions.GetValidJwtAsync(session.Id, ct);
+                //
+                // ⚠️ Bắt riêng lỗi ở ĐÂY, không để rơi vào catch chung: đăng nhập lại hỏng là một
+                // BỆNH KHÁC (đổi mật khẩu / khoá tài khoản bên CRM) và cần câu hướng dẫn khác. Gộp
+                // vào "lỗi" chung thì người dùng nhận lời khuyên sai.
+                string jwt;
+                try { jwt = await _sessions.GetValidJwtAsync(session.Id, ct); }
+                catch (OperationCanceledException) { throw; }
+                catch (Exception ex)
+                {
+                    reloginFailed++;
+                    _log.LogWarning(ex, "[sale-brief] tenant={T} user={U} đăng nhập lại hỏng",
+                        tenantId, sub.Username);
+                    if (!await _readiness.NotifyAndDisableAsync(sub, BriefReadinessReason.ReloginFailed, utcNow, ct))
+                        khongNhacDuoc++;
+                    continue;
+                }
+
                 var crmUserId = await _sessions.EnsureCrmUserIdAsync(session.Id, ct);
 
                 var input = await BuildInputAsync(tenantId, sub.Username, session.FullName,
@@ -269,7 +292,11 @@ public class SaleBriefWorkflow : IScheduledWorkflow
         }
 
         var summary = $"{due.Count} đăng ký đến hạn → chuẩn bị {prepared}"
-                    + (noSession > 0 ? $", bỏ qua {noSession} (chưa đăng nhập)" : "")
+                    + (noSession > 0 ? $", tạm tắt {noSession} (hết hạn phiên)" : "")
+                    + (reloginFailed > 0 ? $", tạm tắt {reloginFailed} (đăng nhập lại hỏng)" : "")
+                    // Người không khai email thì KHÔNG ai báo được — phải hiện ra ở đây, không thì
+                    // họ mất bản tin mà cả họ lẫn quản lý đều không biết.
+                    + (khongNhacDuoc > 0 ? $", {khongNhacDuoc} không gửi nhắc được (chưa khai email)" : "")
                     + (skipped > 0 ? $", trùng {skipped}" : "")
                     + (failed > 0 ? $", lỗi {failed}" : "")
             // Ghi rõ số lượt AI vào tóm tắt: nhìn lịch sử chạy là biết ngay tốn bao nhiêu lượt và

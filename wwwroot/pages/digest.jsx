@@ -1,4 +1,4 @@
-// pages/digest.jsx — Khối "Bản tin của tôi".
+﻿// pages/digest.jsx — Khối "Bản tin của tôi".
 //
 // KHÔNG phải một trang riêng: 2 khối này nhúng vào thẻ tác vụ ở trang Tự động hoá. Lý do (chốt
 // 12/08): đăng ký nhận bản tin CHÍNH LÀ cấu hình của tác vụ sale-brief/ceo-brief — tách ra trang
@@ -28,6 +28,13 @@ const EMPTY_SUB = {
 };
 
 const BRIEF_TYPES = ['sale-brief', 'ceo-brief'];
+
+// Mốc UTC từ máy chủ → ngày giờ Việt Nam để hiện. Ngày hỏng thì trả rỗng chứ KHÔNG hiện
+// "Invalid Date" — chuỗi đó nằm giữa câu tiếng Việt trông như lỗi hệ thống.
+function ngayVn(iso) {
+  const d = new Date(iso);
+  return isNaN(d) ? '' : d.toLocaleDateString('vi-VN', { day: '2-digit', month: '2-digit' });
+}
 
 // Công tắc DÙNG CHUNG với trang Tự động hoá (.workflows-toggle), không phải ô tick mặc định của
 // trình duyệt. Trước đây khối này dùng <input type="checkbox"> trần nên cùng một màn hình có hai
@@ -313,6 +320,21 @@ function DigestSubBlock({ briefType, sub, onSaved, pushToast, companyReady = tru
   return (
     <div className="workflows-optgroup digest-block">
       <div className="workflows-optgroup-title">Bản tin của tôi</div>
+
+      {/* Vì sao bản tin dừng. Đặt TRÊN công tắc có chủ đích: việc cần làm là bật chính công tắc
+          ngay dưới, nên phải đọc được trước khi mắt chạm tới nó.
+
+          Chữ lấy NGUYÊN từ máy chủ (notReadyLabel + notReadyAction) — bảng ánh xạ mã→chữ nằm một
+          chỗ ở BriefReadiness. Chép sang đây là hai bản, và thêm một mã mới thì màn hình lặng lẽ
+          hiện mã kỹ thuật kiểu "thieu-phien" cho người dùng đọc. */}
+      {f.notReadyLabel && (
+        <div className="digest-paused">
+          <Icon name="warning" size={13} />
+          <b>Bản tin đã tạm tắt{f.notReadySinceUtc ? ` từ ${ngayVn(f.notReadySinceUtc)}` : ''}</b>
+          {' — '}{f.notReadyLabel.charAt(0).toLowerCase() + f.notReadyLabel.slice(1)}.
+          <span className="digest-paused-do">{f.notReadyAction}</span>
+        </div>
+      )}
 
       <div className="digest-ch">
         <Sw checked={!!f.enabled} disabled={!companyReady}

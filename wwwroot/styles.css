@@ -8805,6 +8805,26 @@ n
   border: 1px solid var(--warning); background: #FFFBEB;
   font-size: 12px; line-height: 1.6; color: var(--text-2);
 }
+/* Dải "bản tin đang tạm tắt" ở ĐẦU thẻ Bản tin của tôi.
+
+   Dùng LẠI đúng bộ token của .digest-ch-warn (viền --warning, nền #FFFBEB) chứ không đặt màu
+   mới: đây vẫn là cảnh báo, chỉ khác PHẠM VI — nói về cả thẻ nên trải hết bề ngang, không thụt
+   114px như cảnh báo của một dòng kênh. Không dùng .digest-problem (đỏ) vì đỏ ở trang này dành
+   cho việc người dùng vừa làm hỏng; đây là hệ thống báo một trạng thái, không phải lỗi của họ.
+
+   display:block CÓ CHỦ ĐÍCH — xem ghi chú ở .digest-role-note: đây là CÂU CHỮ, để flex thì mỗi
+   <b> thành một ô riêng và xuống điện thoại câu bị xé thành các cột chồng lên nhau. */
+.digest-paused {
+  display: block;
+  margin: 0 0 10px; padding: 9px 11px; border-radius: var(--radius-sm);
+  border: 1px solid var(--warning); background: #FFFBEB;
+  font-size: 12px; line-height: 1.6; color: var(--text-2);
+}
+.digest-paused > svg { vertical-align: -2px; margin-right: 6px; }
+/* Việc CẦN LÀM xuống dòng riêng: gộp chung một khối thì ba mệnh đề (chuyện gì / vì sao / làm
+   gì) trông như một đoạn văn, người quét mắt đọc hai câu đầu rồi bỏ qua câu duy nhất có ích. */
+.digest-paused-do { display: block; margin-top: 4px; }
+
 .digest-problem {
   margin-top: 10px;
   padding: 8px 11px; border-radius: var(--radius-sm);
