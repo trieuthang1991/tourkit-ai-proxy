@@ -32,6 +32,7 @@ namespace TourkitAiProxy.Services.Workflows;
 public class CeoBriefWorkflow : IScheduledWorkflow
 {
     private readonly DigestSubscriptionRepository _subs;
+    private readonly BriefReadinessNotifier _readiness;
     private readonly TkSessionStore _sessions;
     private readonly TkSessionRepository _sessionRepo;
     private readonly TourKitApiClient _api;
@@ -44,12 +45,14 @@ public class CeoBriefWorkflow : IScheduledWorkflow
     private readonly AiCallContext _ctx;
     private readonly ILogger<CeoBriefWorkflow> _log;
 
-    public CeoBriefWorkflow(DigestSubscriptionRepository subs, TkSessionStore sessions,
+    public CeoBriefWorkflow(BriefReadinessNotifier readiness,
+        DigestSubscriptionRepository subs, TkSessionStore sessions,
         TkSessionRepository sessionRepo, TourKitApiClient api, InsightRepository insights,
         MailQueueRepository queue, TenantChannelSettingsStore channels, IConfiguration cfg, ProviderRegistry providers, AiModelRegistry models,
         AiCallContext ctx, ILogger<CeoBriefWorkflow> log)
     {
         _subs = subs; _sessions = sessions; _sessionRepo = sessionRepo; _api = api;
+        _readiness = readiness;
         _insights = insights; _queue = queue; _channels = channels; _cfg = cfg; _providers = providers; _models = models; _ctx = ctx; _log = log;
     }
 
@@ -161,7 +164,8 @@ public class CeoBriefWorkflow : IScheduledWorkflow
 
         // Khoá theo BỘ SỐ (không theo tenant): xem ghi chú class. Chỉ sống trong 1 lượt chạy.
         var byNumbers = new Dictionary<string, DigestMessage>();
-        int prepared = 0, noSession = 0, failed = 0, skipped = 0, aiCalls = 0, aiFailed = 0;
+        int prepared = 0, noSession = 0, reloginFailed = 0, khongNhacDuoc = 0,
+            failed = 0, skipped = 0, aiCalls = 0, aiFailed = 0;
         var parts = new List<string>();
 
         // Mẫu ZNS của công ty: tra MỘT LẦN cho cả lượt, không tra lại theo từng người.
@@ -181,13 +185,28 @@ public class CeoBriefWorkflow : IScheduledWorkflow
                 var session = await _sessionRepo.GetByUserAsync(tenantId, sub.Username, ct);
                 if (session == null)
                 {
+                    // ⚠️ KHÔNG bỏ qua im lặng như trước. Câu cũ ghi "chưa đăng nhập lần nào" là sai:
+                    // dòng phiên đã bị dọn nên không biết được. Nay báo cho họ rồi TẮT đăng ký.
                     noSession++;
-                    _log.LogInformation("[ceo-brief] tenant={T} user={U} chưa đăng nhập lần nào — bỏ qua",
-                        tenantId, sub.Username);
+                    if (!await _readiness.NotifyAndDisableAsync(sub, BriefReadinessReason.NoSession, utcNow, ct))
+                        khongNhacDuoc++;
                     continue;
                 }
 
-                var jwt = await _sessions.GetValidJwtAsync(session.Id, ct);
+                // ⚠️ Bắt riêng lỗi đăng nhập lại: đó là BỆNH KHÁC (đổi mật khẩu / khoá tài khoản bên
+                // CRM) và cần câu hướng dẫn khác. Gộp vào "lỗi" chung là đưa lời khuyên sai.
+                string jwt;
+                try { jwt = await _sessions.GetValidJwtAsync(session.Id, ct); }
+                catch (OperationCanceledException) { throw; }
+                catch (Exception ex)
+                {
+                    reloginFailed++;
+                    _log.LogWarning(ex, "[ceo-brief] tenant={T} user={U} đăng nhập lại hỏng",
+                        tenantId, sub.Username);
+                    if (!await _readiness.NotifyAndDisableAsync(sub, BriefReadinessReason.ReloginFailed, utcNow, ct))
+                        khongNhacDuoc++;
+                    continue;
+                }
                 var data = await FetchDataAsync(tenantId, sub.Username, jwt, todayVn, opt, ct);
 
                 var key = Fingerprint(data);
@@ -237,7 +256,9 @@ public class CeoBriefWorkflow : IScheduledWorkflow
         }
 
         var summary = $"{due.Count} đăng ký đến hạn → chuẩn bị {prepared}"
-                    + (noSession > 0 ? $", bỏ qua {noSession} (chưa đăng nhập)" : "")
+                    + (noSession > 0 ? $", tạm tắt {noSession} (hết hạn phiên)" : "")
+                    + (reloginFailed > 0 ? $", tạm tắt {reloginFailed} (đăng nhập lại hỏng)" : "")
+                    + (khongNhacDuoc > 0 ? $", {khongNhacDuoc} không gửi nhắc được (chưa khai email)" : "")
                     + (skipped > 0 ? $", trùng {skipped}" : "")
                     + (failed > 0 ? $", lỗi {failed}" : "")
                     + $". Lượt AI: {aiCalls}"

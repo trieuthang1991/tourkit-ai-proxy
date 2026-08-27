@@ -32,6 +32,34 @@ public record DigestSubscription(
     bool ChannelZalo, string? ZaloPhone,
     DateTime? LastSentUtc, DateTime? LastSentLocalDate)
 {
+    /// <summary>
+    /// Vì sao người này đang KHÔNG nhận được bản tin. <c>null</c> = đang ổn.
+    ///
+    /// <para>Thêm dạng thuộc tính <c>init</c> chứ không thêm vào danh sách tham số vị trí: record
+    /// này được dựng ở nhiều nơi, đổi chữ ký là vỡ hết mà chẳng được gì.</para>
+    /// </summary>
+    public string? NotReadyReason { get; init; }
+
+    /// Hỏng từ khi nào — để câu nhắc nói được "mấy hôm nay" thay vì một mốc trống.
+    public DateTime? NotReadySinceUtc { get; init; }
+
+    /// Đã nhắc lúc nào. Chỉ nhắc MỘT lần rồi tắt đăng ký, nên không cần đếm số lần.
+    public DateTime? NotifiedNotReadyUtc { get; init; }
+
+    /// <summary>
+    /// Chữ cho NGƯỜI DÙNG đọc, sinh từ <see cref="NotReadyReason"/>.
+    ///
+    /// <para>Để ở đây chứ không ở giao diện: bảng ánh xạ mã→chữ nằm MỘT chỗ. Chép sang JavaScript
+    /// là hai bản, và thêm một mã mới thì giao diện lặng lẽ hiện mã kỹ thuật cho người dùng đọc.
+    /// Thuộc tính tính toán nên tự vào JSON, endpoint không phải sửa gì.</para>
+    /// </summary>
+    public string? NotReadyLabel =>
+        NotReadyReason is null ? null : BriefReadiness.ReasonLabel(NotReadyReason);
+
+    /// Việc người dùng cần làm — cũng sinh ở máy chủ, cùng lý do với <see cref="NotReadyLabel"/>.
+    public string? NotReadyAction =>
+        NotReadyReason is null ? null : BriefReadiness.ActionLabel(NotReadyReason);
+
     /// Giờ gửi hợp lệ 0–23; giá trị rác → 7h sáng (default an toàn).
     public static int ClampHour(int h) => h is >= 0 and <= 23 ? h : 7;
 }

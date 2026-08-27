@@ -13,7 +13,8 @@ public class DigestSubscriptionRepository
 
     private const string Cols = @"TenantId, Username, BriefType, Enabled, SendHourLocal,
 ChannelInApp, ChannelEmail, Email, ChannelTelegram, TelegramChatId, ChannelZalo, ZaloPhone,
-LastSentUtc, LastSentLocalDate";
+LastSentUtc, LastSentLocalDate,
+NotReadyReason, NotReadySinceUtc, NotifiedNotReadyUtc";
 
     /// <summary>
     /// DTO trung gian có setter, KHÔNG đọc thẳng vào record <see cref="DigestSubscription"/>.
@@ -38,12 +39,20 @@ LastSentUtc, LastSentLocalDate";
         public string? ZaloPhone { get; set; }
         public DateTime? LastSentUtc { get; set; }
         public DateTime? LastSentLocalDate { get; set; }
+        public string? NotReadyReason { get; set; }
+        public DateTime? NotReadySinceUtc { get; set; }
+        public DateTime? NotifiedNotReadyUtc { get; set; }
 
         public DigestSubscription ToModel() => new(
             TenantId, Username, BriefType, Enabled, SendHourLocal,
             ChannelInApp, ChannelEmail, Email,
             ChannelTelegram, TelegramChatId, ChannelZalo, ZaloPhone,
-            LastSentUtc, LastSentLocalDate);
+            LastSentUtc, LastSentLocalDate)
+        {
+            NotReadyReason = NotReadyReason,
+            NotReadySinceUtc = NotReadySinceUtc,
+            NotifiedNotReadyUtc = NotifiedNotReadyUtc,
+        };
     }
 
     public async Task<List<DigestSubscription>> ListForUserAsync(string tenant, string username, CancellationToken ct = default)
@@ -81,7 +90,13 @@ WHEN MATCHED THEN UPDATE SET
     BriefType = @BriefType, Enabled = @Enabled, SendHourLocal = @SendHourLocal,
     ChannelInApp = @ChannelInApp, ChannelEmail = @ChannelEmail, Email = @Email,
     ChannelTelegram = @ChannelTelegram, TelegramChatId = @TelegramChatId,
-    ChannelZalo = @ChannelZalo, ZaloPhone = @ZaloPhone, UpdatedUtc = SYSUTCDATETIME()
+    ChannelZalo = @ChannelZalo, ZaloPhone = @ZaloPhone, UpdatedUtc = SYSUTCDATETIME(),
+    -- Người dùng tự BẬT lại = họ đã đăng nhập được, nên xoá luôn trạng thái hỏng. Không xoá
+    -- thì dải cảnh báo nằm lại vĩnh viễn và họ tưởng vẫn đang hỏng. Tắt tay thì GIỮ nguyên
+    -- lý do — người ta còn cần biết vì sao hôm trước bị tắt.
+    NotReadyReason      = CASE WHEN @Enabled = 1 THEN NULL ELSE T.NotReadyReason END,
+    NotReadySinceUtc    = CASE WHEN @Enabled = 1 THEN NULL ELSE T.NotReadySinceUtc END,
+    NotifiedNotReadyUtc = CASE WHEN @Enabled = 1 THEN NULL ELSE T.NotifiedNotReadyUtc END
 WHEN NOT MATCHED THEN INSERT
     (TenantId, Username, BriefType, Enabled, SendHourLocal, ChannelInApp, ChannelEmail, Email,
      ChannelTelegram, TelegramChatId, ChannelZalo, ZaloPhone, CreatedUtc, UpdatedUtc)
@@ -95,6 +110,31 @@ VALUES
                 s.ChannelInApp, s.ChannelEmail, s.Email,
                 s.ChannelTelegram, s.TelegramChatId, s.ChannelZalo, s.ZaloPhone
             });
+    }
+
+    /// <summary>
+    /// Ghi lý do người này không nhận được bản tin, <b>và TẮT đăng ký ngay trong cùng một lệnh</b>.
+    ///
+    /// <para>Tắt để lượt sau khỏi kiểm lại và không có lá thư thứ hai. Người dùng đăng nhập, thấy
+    /// lý do trên thẻ "Bản tin của tôi", tự bật lại — lúc đó <see cref="UpsertAsync"/> xoá ba cột
+    /// này về rỗng.</para>
+    ///
+    /// <para><c>NotReadySinceUtc</c> chỉ ghi khi đang rỗng: giữ mốc hỏng ĐẦU TIÊN để câu nhắc nói
+    /// được "mấy ngày qua". Ghi đè mỗi lượt thì con số đó luôn bằng 0.</para>
+    /// </summary>
+    public async Task MarkNotReadyAsync(string tenant, string username, string reasonCode,
+        DateTime nowUtc, CancellationToken ct = default)
+    {
+        await using var c = await _db.OpenAsync(ct);
+        await c.ExecuteAsync(@"
+UPDATE dbo.DigestSubscriptions SET
+    Enabled             = 0,
+    NotReadyReason      = @reasonCode,
+    NotReadySinceUtc    = ISNULL(NotReadySinceUtc, @nowUtc),
+    NotifiedNotReadyUtc = @nowUtc,
+    UpdatedUtc          = SYSUTCDATETIME()
+WHERE TenantId = @tenant AND Username = @username;",
+            new { tenant, username, reasonCode, nowUtc });
     }
 
     /// <summary>

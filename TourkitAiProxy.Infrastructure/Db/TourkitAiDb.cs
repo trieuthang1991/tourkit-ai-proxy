@@ -693,6 +693,24 @@ BEGIN
     );
 END;
 
+-- Vì sao một người ĐANG đăng ký mà KHÔNG nhận được bản tin. NULL = đang ổn.
+--
+-- Trước 27/08/2026 chỗ này không có gì: bản tin cứ lặng lẽ bỏ qua người thiếu phiên và ghi
+-- nhật ký ""chưa đăng nhập lần nào"". Không ai biết mình đang mất bản tin, kể cả chính họ.
+--
+-- KHÔNG cần đếm số lần nhắc: nhắc XONG thì TẮT luôn đăng ký (Enabled=0). Nhờ vậy lượt sau không
+-- phải kiểm lại và không có lá thư thứ hai. Người dùng đăng nhập lại, thấy lý do trên thẻ
+-- ""Bản tin của tôi"" rồi tự bật lại — lúc đó ba cột này được xoá về NULL.
+IF COL_LENGTH('dbo.DigestSubscriptions', 'NotReadyReason') IS NULL
+    ALTER TABLE dbo.DigestSubscriptions ADD NotReadyReason NVARCHAR(32) NULL;
+
+IF COL_LENGTH('dbo.DigestSubscriptions', 'NotReadySinceUtc') IS NULL
+    ALTER TABLE dbo.DigestSubscriptions ADD NotReadySinceUtc DATETIME2 NULL;
+
+IF COL_LENGTH('dbo.DigestSubscriptions', 'NotifiedNotReadyUtc') IS NULL
+    ALTER TABLE dbo.DigestSubscriptions ADD NotifiedNotReadyUtc DATETIME2 NULL;
+
+
 -- (Gợi ý trạng thái do AI đọc tên: CỐ Ý không có bảng — xem StatusSemanticsService. Đó là gợi ý
 --  cho lần mở form đầu tiên, lựa chọn thật của người dùng nằm ở UserWorkflows.OptionsJson. Mất
 --  gợi ý chỉ tốn thêm một lượt AI rẻ, không mất dữ liệu nào → để trong cache là đủ.)
