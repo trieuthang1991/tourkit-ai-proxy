@@ -1,4 +1,4 @@
-using System.Security.Cryptography;
+﻿using System.Security.Cryptography;
 using System.Text;
 using Microsoft.Extensions.Configuration;
 using TourkitAiProxy.Domain.Chat;
@@ -78,7 +78,7 @@ public class WhatsAppTikTokTests
             """;
         var sk = Assert.Single(Wa().Parse(tho));
         Assert.NotNull(sk.Watermark);
-        Assert.Equal(ChatState.DaXem, sk.Watermark!.State);
+        Assert.Equal(ChatState.Seen, sk.Watermark!.State);
         Assert.Equal("wamid-9", sk.Watermark.ExternalMsgId);
         // Không được là một tin mới trong hội thoại.
         Assert.Null(sk.ExternalMsgId);
@@ -88,7 +88,7 @@ public class WhatsAppTikTokTests
     [Fact]
     public void WhatsApp_tin_hong_KHONG_thanh_trang_thai()
     {
-        // "failed" không map sang trạng thái nào: luật KhongLui vốn chặn tin đã gửi được thành
+        // "failed" không map sang trạng thái nào: luật CanAdvanceState vốn chặn tin đã gửi được thành
         // hỏng, và ghi bừa một trạng thái ở đây là dấu tích chạy ngược.
         var tho = """
             {"object":"whatsapp_business_account","entry":[{"id":"waba-1","changes":[{"value":{
@@ -110,10 +110,10 @@ public class WhatsAppTikTokTests
                                                    "caption":"Hộ chiếu của em đây"}}]}}]}]}
             """;
         var sk = Assert.Single(Wa().Parse(tho));
-        Assert.Equal(ChatKind.Anh, sk.Kind);
+        Assert.Equal(ChatKind.Image, sk.Kind);
         Assert.Equal("Hộ chiếu của em đây", sk.Text);
 
-        var tep = Assert.Single(ChatAttachment.Doc(ChatChannel.WhatsApp, sk.Kind, sk.AttachmentJson, 0));
+        var tep = Assert.Single(ChatAttachment.Read(ChatChannel.WhatsApp, sk.Kind, sk.AttachmentJson, 0));
         Assert.Equal("media-1", tep.FileId);
         // ⚠️ WhatsApp KHÔNG cho URL — có URL ở đây nghĩa là ai đó vừa nhét đường công khai vào,
         // mà đường tải của họ đòi khoá xác thực nên trình duyệt sẽ nhận 401.
@@ -140,16 +140,16 @@ public class WhatsAppTikTokTests
         var tho = """
             {"entry":[{"id":"waba-1","changes":[{"value":{"metadata":{"phone_number_id":"so-1"}}}]}]}
             """;
-        Assert.Equal("so-1", WhatsAppChatAdapter.IdSoDienThoaiCuaSuKien(tho));
+        Assert.Equal("so-1", WhatsAppChatAdapter.PhoneNumberIdOfEvent(tho));
     }
 
     [Fact]
     public void Cua_so_gui_WhatsApp_la_24_gio()
     {
         var moc = new DateTime(2026, 8, 27, 8, 0, 0, DateTimeKind.Utc);
-        Assert.True(ChatRules.TinhCuaSo(ChatChannel.WhatsApp, moc, moc.AddHours(23)).Open);
-        Assert.False(ChatRules.TinhCuaSo(ChatChannel.WhatsApp, moc, moc.AddHours(25)).Open);
-        Assert.Contains("WhatsApp", ChatRules.TinhCuaSo(ChatChannel.WhatsApp, null, moc).Reason);
+        Assert.True(ChatRules.ComputeSendWindow(ChatChannel.WhatsApp, moc, moc.AddHours(23)).Open);
+        Assert.False(ChatRules.ComputeSendWindow(ChatChannel.WhatsApp, moc, moc.AddHours(25)).Open);
+        Assert.Contains("WhatsApp", ChatRules.ComputeSendWindow(ChatChannel.WhatsApp, null, moc).Reason);
     }
 
     // ── TikTok ──────────────────────────────────────────────────────────────
@@ -221,7 +221,7 @@ public class WhatsAppTikTokTests
     {
         var than = """{"event":"im_receive_msg"}""";
         var luc = DateTimeOffset.FromUnixTimeSeconds(1_800_000_000);
-        var (dung, _) = TikTokChatAdapter.KiemChuKy("bi-mat", than, Ky("bi-mat", than, luc), luc);
+        var (dung, _) = TikTokChatAdapter.CheckSignature("bi-mat", than, Ky("bi-mat", than, luc), luc);
         Assert.True(dung);
     }
 
@@ -232,7 +232,7 @@ public class WhatsAppTikTokTests
         // tìm lỗi sẽ đi soi khoá bí mật suốt buổi trong khi lỗi nằm ở đồng hồ.
         var than = """{"event":"im_receive_msg"}""";
         var luc = DateTimeOffset.FromUnixTimeSeconds(1_800_000_000);
-        var (dung, viSao) = TikTokChatAdapter.KiemChuKy(
+        var (dung, viSao) = TikTokChatAdapter.CheckSignature(
             "bi-mat", than, Ky("bi-mat", than, luc), luc.AddSeconds(30));
         Assert.False(dung);
         Assert.Contains("quá hạn", viSao);
@@ -244,7 +244,7 @@ public class WhatsAppTikTokTests
     {
         var than = """{"event":"im_receive_msg"}""";
         var luc = DateTimeOffset.FromUnixTimeSeconds(1_800_000_000);
-        var (dung, viSao) = TikTokChatAdapter.KiemChuKy(
+        var (dung, viSao) = TikTokChatAdapter.CheckSignature(
             "bi-mat-khac", than, Ky("bi-mat", than, luc), luc);
         Assert.False(dung);
         Assert.Contains("không khớp", viSao);
@@ -255,7 +255,7 @@ public class WhatsAppTikTokTests
     {
         // Hạn trả lời của TikTok không có trong tài liệu công khai. Khoá ô soạn theo một con số tự
         // đoán là tự khoá tay nhân viên vì một luật có thể không tồn tại.
-        Assert.True(ChatRules.TinhCuaSo(ChatChannel.TikTok, null, DateTime.UtcNow).Open);
+        Assert.True(ChatRules.ComputeSendWindow(ChatChannel.TikTok, null, DateTime.UtcNow).Open);
     }
 
     /// <summary>Dựng header <c>TikTok-Signature</c> đúng cách họ ký: HMAC trên <c>"{t}.{thân}"</c>.</summary>

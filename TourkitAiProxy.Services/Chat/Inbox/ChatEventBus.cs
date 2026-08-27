@@ -28,7 +28,7 @@ public class ChatEventBus
 {
     /// Kênh Redis. Một kênh cho MỌI tenant — kẹp tenant vẫn làm ở người nghe, y như bản một
     /// instance, nên không có đường thứ hai để quên lọc.
-    private const string KenhRedis = "tkai:chat:events";
+    private const string EventChannelName = "tkai:chat:events";
 
     private readonly List<(string Tenant, Channel<ChatEvent> Kenh)> _nghe = new();
     private readonly object _khoa = new();
@@ -36,11 +36,11 @@ public class ChatEventBus
 
     /// Mã của instance này. Redis trả gói tin về cho CẢ người phát, nên phải nhận ra gói của chính
     /// mình mà bỏ — không thì mỗi sự kiện tới người nghe hai lần và giao diện tải lại gấp đôi.
-    public string MaInstance { get; } = Guid.NewGuid().ToString("N");
+    public string InstanceId { get; } = Guid.NewGuid().ToString("N");
 
     /// Đang chạy chế độ nhiều instance hay không. Giao diện đọc qua <c>/api/v1/features</c> để biết
     /// có được tin vào đẩy hay phải giữ đường lùi hỏi lại định kỳ.
-    public bool NhieuInstance => _redis != null;
+    public bool MultiInstance => _redis != null;
 
     public ChatEventBus(RedisProvider? redis = null, ILogger<ChatEventBus>? log = null)
     {
@@ -54,7 +54,7 @@ public class ChatEventBus
         // thì mất đẩy chéo instance, còn app thì vẫn phải phục vụ.
         try
         {
-            _redis?.Subscribe(RedisChannel.Literal(KenhRedis), (_, val) => NhanTuXa(val.ToString()));
+            _redis?.Subscribe(RedisChannel.Literal(EventChannelName), (_, val) => FromRemote(val.ToString()));
         }
         catch (Exception ex)
         {
@@ -64,22 +64,22 @@ public class ChatEventBus
 
     /// Số tab đang nghe. Dùng cho test và cho trang quản trị — người nghe không được gỡ ra khi tab
     /// đóng là rò rỉ: mỗi lần mở hộp thư thêm một hàng đợi không ai đọc.
-    public int SoNguoiNghe { get { lock (_khoa) return _nghe.Count; } }
+    public int SubscriberCount { get { lock (_khoa) return _nghe.Count; } }
 
     /// <summary>
     /// Bắn một sự kiện. <b>Không bao giờ ném và không bao giờ chờ</b> — chỗ gọi là luồng xử lý tin
     /// của khách, hỏng ở đây mà lan ra là mất tin thật vì một tab không ai nhìn.
     /// </summary>
-    public void Bao(ChatEvent e)
+    public void Publish(ChatEvent e)
     {
-        BaoNoiBo(e);
+        PublishLocal(e);
         // FireAndForget: chỗ gọi là luồng xử lý tin của khách, chờ Redis ở đây là để mạng quyết
         // định tốc độ trả lời khách.
-        try { _redis?.Publish(RedisChannel.Literal(KenhRedis), DongGoi(MaInstance, e), CommandFlags.FireAndForget); }
+        try { _redis?.Publish(RedisChannel.Literal(EventChannelName), Pack(InstanceId, e), CommandFlags.FireAndForget); }
         catch { /* Redis xuống → mất đẩy chéo instance, không được lan ra ngoài */ }
     }
 
-    private void BaoNoiBo(ChatEvent e)
+    private void PublishLocal(ChatEvent e)
     {
         lock (_khoa)
             foreach (var (tenant, kenh) in _nghe)
@@ -87,11 +87,11 @@ public class ChatEventBus
                     kenh.Writer.TryWrite(e);   // TryWrite: đầy thì bỏ, KHÔNG chặn
     }
 
-    private record GoiTin(string TuAi, ChatEvent SuKien);
+    private record Envelope(string TuAi, ChatEvent SuKien);
 
     /// Gói một sự kiện kèm mã instance phát. Public để test dựng được gói tin mà không cần Redis thật.
-    public static string DongGoi(string tuAi, ChatEvent e)
-        => JsonSerializer.Serialize(new GoiTin(tuAi, e));
+    public static string Pack(string tuAi, ChatEvent e)
+        => JsonSerializer.Serialize(new Envelope(tuAi, e));
 
     /// <summary>
     /// Cửa vào của gói tin từ instance khác.
@@ -100,20 +100,20 @@ public class ChatEventBus
     /// Redis, hoặc ai đó publish nhầm kênh. Ném ở đây là chết luồng đăng ký, và từ đó instance này
     /// câm hẳn mà không ai biết.</para>
     /// </summary>
-    public void NhanTuXa(string? tho)
+    public void FromRemote(string? tho)
     {
-        GoiTin? goi;
-        try { goi = string.IsNullOrWhiteSpace(tho) ? null : JsonSerializer.Deserialize<GoiTin>(tho); }
+        Envelope? goi;
+        try { goi = string.IsNullOrWhiteSpace(tho) ? null : JsonSerializer.Deserialize<Envelope>(tho); }
         catch { return; }
         if (goi?.SuKien is null || string.IsNullOrEmpty(goi.TuAi)) return;
-        if (string.Equals(goi.TuAi, MaInstance, StringComparison.Ordinal)) return;   // của chính mình
-        BaoNoiBo(goi.SuKien);
+        if (string.Equals(goi.TuAi, InstanceId, StringComparison.Ordinal)) return;   // của chính mình
+        PublishLocal(goi.SuKien);
     }
 
     /// <summary>
     /// Nghe sự kiện của MỘT tenant cho tới khi <paramref name="ct"/> bị huỷ (tab đóng, mạng rớt).
     /// </summary>
-    public async IAsyncEnumerable<ChatEvent> NgheAsync(string tenantId,
+    public async IAsyncEnumerable<ChatEvent> SubscribeAsync(string tenantId,
         [System.Runtime.CompilerServices.EnumeratorCancellation] CancellationToken ct)
     {
         var kenh = Channel.CreateBounded<ChatEvent>(new BoundedChannelOptions(100)

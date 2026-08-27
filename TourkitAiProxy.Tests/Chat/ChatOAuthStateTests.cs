@@ -20,7 +20,7 @@ public class ChatOAuthStateTests
         // Mã còn dùng lại được là mã rò ra ngoài (lịch sử trình duyệt, log proxy) vẫn nhét được
         // token vào tài khoản người khác.
         var kho = new ChatOAuthStates();
-        var ma = kho.Tao("cong-ty-A", "acc1", "https://x/cb");
+        var ma = kho.Create("cong-ty-A", "acc1", "https://x/cb");
 
         Assert.NotNull(kho.Nhan(ma));
         Assert.Null(kho.Nhan(ma));
@@ -30,7 +30,7 @@ public class ChatOAuthStateTests
     public void Tra_ve_dung_cong_ty_va_tai_khoan_da_gui()
     {
         var kho = new ChatOAuthStates();
-        var ma = kho.Tao("cong-ty-B", "acc-9", "https://x/cb");
+        var ma = kho.Create("cong-ty-B", "acc-9", "https://x/cb");
 
         var ra = kho.Nhan(ma);
         Assert.NotNull(ra);
@@ -58,8 +58,8 @@ public class ChatOAuthStateTests
     {
         // Đoán được mã là đoán được đường nhét token vào công ty khác.
         var kho = new ChatOAuthStates();
-        var a = kho.Tao("t", "a", "u");
-        var b = kho.Tao("t", "a", "u");
+        var a = kho.Create("t", "a", "u");
+        var b = kho.Create("t", "a", "u");
         Assert.NotEqual(a, b);
         Assert.True(a.Length >= 32, "mã quá ngắn thì dò được");
     }
@@ -67,7 +67,7 @@ public class ChatOAuthStateTests
     [Fact]
     public void Duong_cap_quyen_mang_du_ba_tham_so()
     {
-        var url = ZaloChatAdapter.DuongCapQuyen("123", "https://a.b/cb?x=1", "st1");
+        var url = ZaloChatAdapter.PermissionUrlFor("123", "https://a.b/cb?x=1", "st1");
 
         Assert.StartsWith("https://oauth.zaloapp.com/v4/oa/permission?", url);
         Assert.Contains("app_id=123", url);
@@ -81,7 +81,7 @@ public class ChatOAuthStateTests
     public void Duong_callback_nam_trong_DuongRieng()
     {
         const string duong = "/api/v1/chat/oauth/zalo/callback";
-        Assert.Contains(TourkitAiProxy.Endpoints.ChatInboxEndpoints.DuongRieng,
+        Assert.Contains(TourkitAiProxy.Endpoints.ChatInboxEndpoints.OwnedPaths,
             p => duong.StartsWith(p + "/", System.StringComparison.Ordinal));
     }
 

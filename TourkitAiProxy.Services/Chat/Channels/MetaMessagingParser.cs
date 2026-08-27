@@ -23,7 +23,7 @@ public static class MetaMessagingParser
 {
     /// <param name="kenh">Kênh gắn cho mọi sự kiện bóc ra — gói tin không tự nói nó là kênh nào
     /// (trường <c>object</c> có nói, nhưng đường webhook đã biết trước rồi).</param>
-    public static IReadOnlyList<InboundChatEvent> Boc(string rawBody, ChatChannel kenh)
+    public static IReadOnlyList<InboundChatEvent> Read(string rawBody, ChatChannel kenh)
     {
         var ra = new List<InboundChatEvent>();
         JsonNode? goc;
@@ -47,18 +47,18 @@ public static class MetaMessagingParser
                 //
                 // ⚠️ Người gửi ở hai gói này là KHÁCH (ngược với tin echo). Lấy nhầm recipient là
                 // đánh dấu vào hội thoại của chính Trang mình — tức là không hội thoại nào cả.
-                var tt = m["delivery"] is not null ? ChatState.DaNhan
-                       : m["read"] is not null ? ChatState.DaXem
+                var tt = m["delivery"] is not null ? ChatState.Delivered
+                       : m["read"] is not null ? ChatState.Seen
                        : (ChatState?)null;
                 if (tt is { } trangThai)
                 {
                     var uidM = m["sender"]?["id"]?.ToString();
-                    var goiTt = m[trangThai == ChatState.DaNhan ? "delivery" : "read"];
+                    var goiTt = m[trangThai == ChatState.Delivered ? "delivery" : "read"];
                     var wm = goiTt?["watermark"]?.ToString();
                     if (!string.IsNullOrWhiteSpace(uidM) && long.TryParse(wm, out var wms))
                     {
                         var mocLuc = DateTimeOffset.FromUnixTimeMilliseconds(wms).UtcDateTime;
-                        ra.Add(new(kenh, uidM!, null, ChatKind.Chu, null, null,
+                        ra.Add(new(kenh, uidM!, null, ChatKind.Text, null, null,
                             mocLuc, Watermark: new(trangThai, mocLuc)));
                         continue;
                     }
@@ -76,7 +76,7 @@ public static class MetaMessagingParser
                     {
                         var lucBao = long.TryParse(m["timestamp"]?.ToString(), out var tsBao)
                             ? DateTimeOffset.FromUnixTimeMilliseconds(tsBao).UtcDateTime : DateTime.UtcNow;
-                        ra.Add(new(kenh, uidM!, null, ChatKind.Chu, null, null, lucBao,
+                        ra.Add(new(kenh, uidM!, null, ChatKind.Text, null, null, lucBao,
                             Watermark: new(trangThai, default, maTinDoc)));
                     }
                     continue;
@@ -98,7 +98,7 @@ public static class MetaMessagingParser
                     {
                         var lucCx = long.TryParse(m["timestamp"]?.ToString(), out var tsCx)
                             ? DateTimeOffset.FromUnixTimeMilliseconds(tsCx).UtcDateTime : DateTime.UtcNow;
-                        ra.Add(new(kenh, uidCx!, null, ChatKind.Chu, null, null, lucCx,
+                        ra.Add(new(kenh, uidCx!, null, ChatKind.Text, null, null, lucCx,
                             Reaction: new(midCx!, cx["emoji"]?.ToString(), cx["reaction"]?.ToString(),
                                 cx["action"]?.ToString() == "unreact")));
                     }
@@ -124,7 +124,7 @@ public static class MetaMessagingParser
                     {
                         var lucPb = long.TryParse(m["timestamp"]?.ToString(), out var tsPb)
                             ? DateTimeOffset.FromUnixTimeMilliseconds(tsPb).UtcDateTime : DateTime.UtcNow;
-                        ra.Add(new(kenh, uidPb!, pb["mid"]?.ToString(), ChatKind.Chu,
+                        ra.Add(new(kenh, uidPb!, pb["mid"]?.ToString(), ChatKind.Text,
                             pb["title"]?.ToString() ?? pb["payload"]?.ToString(), null, lucPb,
                             Referral: tuDau));
                     }
@@ -137,7 +137,7 @@ public static class MetaMessagingParser
                 {
                     var uidRf = m["sender"]?["id"]?.ToString();
                     if (!string.IsNullOrWhiteSpace(uidRf))
-                        ra.Add(new(kenh, uidRf!, null, ChatKind.Chu, null, null,
+                        ra.Add(new(kenh, uidRf!, null, ChatKind.Text, null, null,
                             DateTime.UtcNow, Referral: tuDau));
                     continue;
                 }
@@ -151,18 +151,18 @@ public static class MetaMessagingParser
                 var uid = vong ? m["recipient"]?["id"]?.ToString() : m["sender"]?["id"]?.ToString();
                 if (string.IsNullOrWhiteSpace(uid)) continue;
 
-                var loai = ChatKind.Chu;
+                var loai = ChatKind.Text;
                 string? att = null;
                 if (msg["attachments"] is JsonArray a && a.Count > 0)
                 {
                     att = a.ToJsonString();
                     loai = a[0]?["type"]?.ToString() switch
                     {
-                        "image" => ChatKind.Anh,
-                        "audio" => ChatKind.AmThanh,
-                        "video" or "file" => ChatKind.Tep,
-                        "location" => ChatKind.ViTri,
-                        _ => ChatKind.Tep,
+                        "image" => ChatKind.Image,
+                        "audio" => ChatKind.Audio,
+                        "video" or "file" => ChatKind.File,
+                        "location" => ChatKind.Location,
+                        _ => ChatKind.File,
                     };
                 }
 

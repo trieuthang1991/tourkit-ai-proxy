@@ -52,7 +52,7 @@ public class ChatRepository
     /// như đủ). Chữa đúng thì cần một cột riêng ghi mốc lần hỏi cuối — chưa làm, vì thêm cột là
     /// đụng lược đồ, và ảnh vỡ thì xấu chứ không sai dữ liệu.</para>
     /// </summary>
-    public async Task<bool> CanLayHoSoAsync(string tenant, ChatChannel kenh, string externalId,
+    public async Task<bool> NeedsContactProfileAsync(string tenant, ChatChannel kenh, string externalId,
         CancellationToken ct = default)
     {
         await using var c = await _db.OpenAsync(ct);
@@ -73,10 +73,10 @@ public class ChatRepository
     /// là cái đã kéo họ tới. Đè lên là hỏng số liệu quy công quảng cáo, mà hỏng âm thầm — không
     /// ai nhìn ra một con số quy sai.</para>
     /// </summary>
-    public async Task GhiNguonAsync(string tenant, long hoiThoaiId, ChatReferral r,
+    public async Task SetReferralAsync(string tenant, long hoiThoaiId, ChatReferral r,
         CancellationToken ct = default)
     {
-        if (r.Nguon is null && r.Ref is null && r.AdId is null) return;
+        if (r.Source is null && r.Ref is null && r.AdId is null) return;
         await using var c = await _db.OpenAsync(ct);
         await c.ExecuteAsync("""
             UPDATE chat_conversations
@@ -84,7 +84,7 @@ public class ChatRepository
                    referral_ref    = COALESCE(referral_ref,    @tref),
                    referral_ad_id  = COALESCE(referral_ad_id,  @ad)
              WHERE tenant_id = @tenant AND id = @id
-            """, new { tenant, id = hoiThoaiId, nguon = r.Nguon, tref = r.Ref, ad = r.AdId });
+            """, new { tenant, id = hoiThoaiId, nguon = r.Source, tref = r.Ref, ad = r.AdId });
     }
     // ── Cảm xúc ─────────────────────────────────────────────────────────────
 
@@ -92,11 +92,11 @@ public class ChatRepository
     /// Ghi hoặc GỠ một cảm xúc. Một người chỉ giữ MỘT cảm xúc trên một tin — thả cái mới là đè
     /// cái cũ, đúng như hành vi của Messenger.
     /// </summary>
-    public async Task ThaCamXucAsync(string tenant, ChatChannel kenh, ChatReaction cx,
+    public async Task SetReactionAsync(string tenant, ChatChannel kenh, ChatReaction cx,
         string aiTha, CancellationToken ct = default)
     {
         await using var c = await _db.OpenAsync(ct);
-        if (cx.Bo)
+        if (cx.Removed)
         {
             await c.ExecuteAsync("""
                 DELETE FROM chat_reactions
@@ -114,11 +114,11 @@ public class ChatRepository
               SET emoji = EXCLUDED.emoji, reaction_name = EXCLUDED.reaction_name,
                   created_utc = now()
             """, new { tenant, kenh = (short)kenh, mid = cx.ExternalMsgId, ai = aiTha,
-                       emoji = cx.BieuTuong, ten = cx.Ten });
+                       emoji = cx.Emoji, ten = cx.Name });
     }
 
     /// <summary>Cảm xúc của các tin trong một hội thoại, để đính kèm lúc liệt kê tin.</summary>
-    public async Task<IReadOnlyList<ChatReactionRow>> CamXucTheoHoiThoaiAsync(string tenant,
+    public async Task<IReadOnlyList<ChatReactionRow>> ReactionsByConversationAsync(string tenant,
         long hoiThoaiId, CancellationToken ct = default)
     {
         await using var c = await _db.OpenAsync(ct);
@@ -256,7 +256,7 @@ public class ChatRepository
     /// chuyện bình thường ở khách du lịch); ghép theo số điện thoại thì Zalo/Messenger không cho
     /// biết số trừ khi khách tự nhắn. Nối tay đúng 100% và làm được ngay.</para>
     /// </summary>
-    public async Task<int> NoiCrmAsync(string tenant, short kenh, string externalId,
+    public async Task<int> LinkCrmAsync(string tenant, short kenh, string externalId,
         int? crmCustomerId, CancellationToken ct = default)
     {
         await using var c = await _db.OpenAsync(ct);
@@ -284,7 +284,7 @@ public class ChatRepository
             """, new { tenant, kenh, externalId })).ToList();
     }
 
-    /// <summary><paramref name="tag"/> phải ĐÃ chuẩn hoá (xem <c>ChatRules.ChuanHoaSlug</c>).</summary>
+    /// <summary><paramref name="tag"/> phải ĐÃ chuẩn hoá (xem <c>ChatRules.NormalizeSlug</c>).</summary>
     public async Task AddTagAsync(string tenant, short kenh, string externalId, string tag,
         CancellationToken ct = default)
     {
@@ -359,7 +359,7 @@ public class ChatRepository
         string? nguoiDung = null, CancellationToken ct = default)
     {
         await using var c = await _db.OpenAsync(ct);
-        var rows = (await c.QueryAsync<DemDong>("""
+        var rows = (await c.QueryAsync<RowCount>("""
             SELECT v.status, v.channel, COUNT(*)::int AS so,
                    COUNT(*) FILTER (WHERE v.contact_replied_at IS NOT NULL
                         AND (COALESCE(r.last_read_at, v.agent_last_read_at) IS NULL
@@ -380,15 +380,15 @@ public class ChatRepository
             theoTrangThai[r.Status] = theoTrangThai.GetValueOrDefault(r.Status) + r.So;
             theoKenh[r.Channel] = theoKenh.GetValueOrDefault(r.Channel) + r.So;
         }
-        return new ChatInboxCounts(theoTrangThai, theoKenh, rows.Sum(r => r.ChuaDoc), rows.Sum(r => r.So));
+        return new ChatInboxCounts(theoTrangThai, theoKenh, rows.Sum(r => r.Unread), rows.Sum(r => r.So));
     }
 
-    private class DemDong
+    private class RowCount
     {
         public short Status { get; set; }
         public short Channel { get; set; }
         public int So { get; set; }
-        public int ChuaDoc { get; set; }
+        public int Unread { get; set; }
     }
 
     /// <summary>
@@ -403,7 +403,7 @@ public class ChatRepository
     /// <para>Nhận lại việc mình <b>đang giữ</b> vẫn tính là thành công: giao diện có thể gửi lại
     /// (bấm hai lần, mạng chập chờn), báo 409 cho chính người đang giữ là vô nghĩa.</para>
     /// </summary>
-    public async Task<int> NhanViecAsync(string tenant, long id, string username,
+    public async Task<int> ClaimConversationAsync(string tenant, long id, string username,
         CancellationToken ct = default)
     {
         await using var c = await _db.OpenAsync(ct);
@@ -429,7 +429,7 @@ public class ChatRepository
     /// nằm ở <c>chat_messages</c>, chép lại là nhân đôi dữ liệu khách và nhân đôi chỗ phải xoá
     /// khi khách yêu cầu xoá dữ liệu.</para>
     /// </summary>
-    public async Task GhiNhatKyAsync(string tenant, long? hoiThoaiId, string username,
+    public async Task AppendAuditAsync(string tenant, long? hoiThoaiId, string username,
         string hanhDong, string? chiTiet = null, CancellationToken ct = default)
     {
         try
@@ -461,7 +461,7 @@ public class ChatRepository
     }
 
     /// <summary>Ai đang giữ hội thoại này. Dùng để nói tên trong lỗi 409, không đoán mò.</summary>
-    public async Task<string?> AiDangGiuAsync(string tenant, long id, CancellationToken ct = default)
+    public async Task<string?> AssigneeOfAsync(string tenant, long id, CancellationToken ct = default)
     {
         await using var c = await _db.OpenAsync(ct);
         return await c.QuerySingleOrDefaultAsync<string?>(
@@ -471,7 +471,7 @@ public class ChatRepository
 
     /// <summary>
     /// Giao/gỡ giao KHÔNG kiểm ai đang giữ — dùng cho <b>nhả việc</b> và <b>chuyển việc</b>, là
-    /// hai thao tác cố ý đè lên người đang giữ. Nhận việc thì dùng <see cref="NhanViecAsync"/>.
+    /// hai thao tác cố ý đè lên người đang giữ. Nhận việc thì dùng <see cref="ClaimConversationAsync"/>.
     /// </summary>
     public async Task AssignAsync(string tenant, long id, string? username, CancellationToken ct = default)
     {
@@ -649,7 +649,7 @@ public class ChatRepository
     /// <para><b>Chỉ tin MÌNH GỬI</b> (<c>direction = 1</c>): "khách đã xem" nói về tin của mình.
     /// Quên kẹp thì tin của chính khách cũng bị đánh dấu — vô nghĩa, và làm hỏng bộ đếm chưa đọc.</para>
     /// <para><b>Chỉ tiến, không lùi</b> (<c>state &lt; @moi</c>): nền tảng không bảo đảm thứ tự.
-    /// Luật đầy đủ ở <see cref="ChatRules.KhongLui"/>; ở đây chặn ngay trong SQL vì cập nhật hàng
+    /// Luật đầy đủ ở <see cref="ChatRules.CanAdvanceState"/>; ở đây chặn ngay trong SQL vì cập nhật hàng
     /// loạt không đọc từng dòng ra được.</para>
     /// <para><b>Bỏ qua tin hỏng</b> (<c>state &lt;&gt; 4</c>): tin gửi hỏng thì không thể được xem.</para>
     /// <para><b>Bỏ qua tin còn trong hàng đợi</b> (<c>state &gt; 0</c>): mốc quét theo

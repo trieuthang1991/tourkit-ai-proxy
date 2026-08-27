@@ -39,7 +39,7 @@ namespace TourkitAiProxy.Services.Chat.Channels;
 public class WhatsAppChatAdapter : IChatChannelAdapter
 {
     private const string GraphBase = "https://graph.facebook.com";
-    private const string MacDinhPhienBan = "v21.0";
+    private const string DefaultApiVersion = "v21.0";
 
     /// <summary>
     /// Trường webhook đăng ký cho WABA (<c>POST /{wabaId}/subscribed_apps</c>).
@@ -47,7 +47,7 @@ public class WhatsAppChatAdapter : IChatChannelAdapter
     /// <para>Thiếu <c>messages</c> là không có tin nào cả — trường này chở CẢ tin khách gửi LẪN
     /// <c>statuses[]</c> báo trạng thái, không phải hai trường riêng như Messenger.</para>
     /// </summary>
-    public static readonly string[] SuKienWaba = { "messages" };
+    public static readonly string[] WabaEvents = { "messages" };
 
     private readonly IHttpClientFactory _http;
     private readonly ChannelCredentialStore _cred;
@@ -60,14 +60,14 @@ public class WhatsAppChatAdapter : IChatChannelAdapter
 
     public ChatChannel Channel => ChatChannel.WhatsApp;
 
-    private string PhienBan => Rong(_cfg["Chat:WhatsApp:Version"])
-                               ?? Rong(_cfg["Chat:Messenger:Version"]) ?? MacDinhPhienBan;
+    private string ApiVersion => NullIfBlank(_cfg["Chat:WhatsApp:Version"])
+                               ?? NullIfBlank(_cfg["Chat:Messenger:Version"]) ?? DefaultApiVersion;
 
     /// Khoá ký: ứng dụng Meta riêng cho WhatsApp nếu có, không thì dùng chung với Messenger.
-    private string? AppSecretNenTang => Rong(_cfg["Chat:WhatsApp:AppSecret"])
-                                        ?? Rong(_cfg["Chat:Messenger:AppSecret"]);
+    private string? PlatformAppSecret => NullIfBlank(_cfg["Chat:WhatsApp:AppSecret"])
+                                        ?? NullIfBlank(_cfg["Chat:Messenger:AppSecret"]);
 
-    private static string? Rong(string? s) => string.IsNullOrWhiteSpace(s) ? null : s.Trim();
+    private static string? NullIfBlank(string? s) => string.IsNullOrWhiteSpace(s) ? null : s.Trim();
 
     private static string U(string s) => Uri.EscapeDataString(s);
 
@@ -77,7 +77,7 @@ public class WhatsAppChatAdapter : IChatChannelAdapter
     /// <para>Nằm ở <c>entry[].changes[].value.metadata.phone_number_id</c>, KHÔNG phải
     /// <c>entry[].id</c> (chỗ đó là id WABA). Lấy nhầm là tra ra rỗng và tin rơi vào hư không.</para>
     /// </summary>
-    public static string? IdSoDienThoaiCuaSuKien(string rawBody)
+    public static string? PhoneNumberIdOfEvent(string rawBody)
     {
         try
         {
@@ -93,7 +93,7 @@ public class WhatsAppChatAdapter : IChatChannelAdapter
         var ky = headers["X-Hub-Signature-256"].FirstOrDefault();
         if (string.IsNullOrWhiteSpace(ky)) return null;
 
-        var idSo = IdSoDienThoaiCuaSuKien(rawBody);
+        var idSo = PhoneNumberIdOfEvent(rawBody);
         var dsach = await _cred.ListAccountsAsync(tenantId, Channel, ct);
 
         foreach (var tk in dsach)
@@ -103,9 +103,9 @@ public class WhatsAppChatAdapter : IChatChannelAdapter
                 : idSo is { Length: > 0 } && tk.GiaTri.GetValueOrDefault("phoneNumberId", "") == idSo;
             if (!khop) continue;
 
-            var bimat = Rong(tk.GiaTri.GetValueOrDefault("appSecret", "")) ?? AppSecretNenTang;
+            var bimat = NullIfBlank(tk.GiaTri.GetValueOrDefault("appSecret", "")) ?? PlatformAppSecret;
             if (bimat is null) continue;
-            if (KyDung(bimat, rawBody, ky!)) return tk.AccountId;
+            if (SignatureMatches(bimat, rawBody, ky!)) return tk.AccountId;
 
             _log.LogWarning("[chat/whatsapp] chữ ký sai cho số {So} của {T}", idSo, tenantId);
             return null;
@@ -123,11 +123,11 @@ public class WhatsAppChatAdapter : IChatChannelAdapter
     /// là số điện thoại trong thân tin — nhưng tra ra công ty <b>KHÔNG</b> chứng minh tin là thật,
     /// nên vẫn phải kiểm chữ ký bằng khoá của chính tài khoản đó.</para>
     /// </summary>
-    public async Task<(string TenantId, string AccountId)?> XacMinhDungChungAsync(string rawBody,
+    public async Task<(string TenantId, string AccountId)?> ResolveSharedWebhookAsync(string rawBody,
         IHeaderDictionary headers, CancellationToken ct)
     {
-        if (IdSoDienThoaiCuaSuKien(rawBody) is not { } khoa) return null;
-        var tenant = await _cred.TimTenantAsync(Channel, khoa, ct);
+        if (PhoneNumberIdOfEvent(rawBody) is not { } khoa) return null;
+        var tenant = await _cred.FindTenantAsync(Channel, khoa, ct);
         if (tenant is null)
         {
             _log.LogWarning("[chat/whatsapp] nhận tin của {Khoa} nhưng chưa công ty nào nối", khoa);
@@ -136,7 +136,7 @@ public class WhatsAppChatAdapter : IChatChannelAdapter
         return await VerifyAsync(tenant, khoa, rawBody, headers, ct) is { } tk ? (tenant, tk) : null;
     }
 
-    private static bool KyDung(string appSecret, string rawBody, string header)
+    private static bool SignatureMatches(string appSecret, string rawBody, string header)
     {
         var mong = header.StartsWith("sha256=", StringComparison.OrdinalIgnoreCase)
             ? header["sha256=".Length..] : header;
@@ -175,8 +175,8 @@ public class WhatsAppChatAdapter : IChatChannelAdapter
                         if (!string.IsNullOrWhiteSpace(so) && !string.IsNullOrWhiteSpace(t)) ten[so!] = t!;
                     }
 
-                BocTrangThai(v, ra);
-                BocTin(v, ten, ra);
+                ReadStatuses(v, ra);
+                ReadMessages(v, ten, ra);
             }
         }
         return ra;
@@ -189,9 +189,9 @@ public class WhatsAppChatAdapter : IChatChannelAdapter
     /// nhận gói là đánh dấu THỪA lên mọi tin gửi trước đó, kể cả tin khách chưa hề mở.</para>
     ///
     /// <para><c>failed</c> KHÔNG map sang trạng thái hỏng: tin đã rời khỏi mình rồi, và luật
-    /// <c>ChatRules.KhongLui</c> vốn chặn việc tin gửi được lại thành hỏng. Ghi log để còn tra.</para>
+    /// <c>ChatRules.CanAdvanceState</c> vốn chặn việc tin gửi được lại thành hỏng. Ghi log để còn tra.</para>
     /// </summary>
-    private void BocTrangThai(JsonNode v, List<InboundChatEvent> ra)
+    private void ReadStatuses(JsonNode v, List<InboundChatEvent> ra)
     {
         if (v["statuses"] is not JsonArray ds) return;
         foreach (var st in ds.OfType<JsonNode>())
@@ -202,9 +202,9 @@ public class WhatsAppChatAdapter : IChatChannelAdapter
 
             var tt = st["status"]?.ToString() switch
             {
-                "sent" => ChatState.DaGui,
-                "delivered" => ChatState.DaNhan,
-                "read" => ChatState.DaXem,
+                "sent" => ChatState.Sent,
+                "delivered" => ChatState.Delivered,
+                "read" => ChatState.Seen,
                 _ => (ChatState?)null,
             };
             if (tt is null)
@@ -217,12 +217,12 @@ public class WhatsAppChatAdapter : IChatChannelAdapter
 
             var luc = long.TryParse(st["timestamp"]?.ToString(), out var giay)
                 ? DateTimeOffset.FromUnixTimeSeconds(giay).UtcDateTime : DateTime.UtcNow;
-            ra.Add(new(Channel, so!, null, ChatKind.Chu, null, null, luc,
+            ra.Add(new(Channel, so!, null, ChatKind.Text, null, null, luc,
                 Watermark: new(tt.Value, default, maTin)));
         }
     }
 
-    private void BocTin(JsonNode v, Dictionary<string, string> ten, List<InboundChatEvent> ra)
+    private void ReadMessages(JsonNode v, Dictionary<string, string> ten, List<InboundChatEvent> ra)
     {
         if (v["messages"] is not JsonArray ds) return;
         foreach (var m in ds.OfType<JsonNode>())
@@ -237,7 +237,7 @@ public class WhatsAppChatAdapter : IChatChannelAdapter
             var kieu = m["type"]?.ToString();
             string? chu = null;
             string? att = null;
-            var loai = ChatKind.Chu;
+            var loai = ChatKind.Text;
 
             switch (kieu)
             {
@@ -255,15 +255,15 @@ public class WhatsAppChatAdapter : IChatChannelAdapter
                     chu = m[kieu!]?["caption"]?.ToString();
                     loai = kieu switch
                     {
-                        "image" => ChatKind.Anh,
+                        "image" => ChatKind.Image,
                         "sticker" => ChatKind.Sticker,
-                        "audio" => ChatKind.AmThanh,
-                        _ => ChatKind.Tep,
+                        "audio" => ChatKind.Audio,
+                        _ => ChatKind.File,
                     };
                     break;
                 case "location":
                     att = m["location"]?.ToJsonString();
-                    loai = ChatKind.ViTri;
+                    loai = ChatKind.Location;
                     break;
                 case "button":
                     // Khách bấm nút của một mẫu tin. Ghi bằng CHỮ TRÊN NÚT, không phải payload.
@@ -297,7 +297,7 @@ public class WhatsAppChatAdapter : IChatChannelAdapter
         if (c is null) return (null, null);
         c.TryGetValue("accessToken", out var token);
         c.TryGetValue("phoneNumberId", out var soId);
-        return (Rong(token), Rong(soId));
+        return (NullIfBlank(token), NullIfBlank(soId));
     }
 
     public Task<SendResult> SendTextAsync(string tenantId, string accountId, string externalUserId,
@@ -324,8 +324,8 @@ public class WhatsAppChatAdapter : IChatChannelAdapter
     {
         var kieu = loai switch
         {
-            ChatKind.Anh => "image",
-            ChatKind.AmThanh => "audio",
+            ChatKind.Image => "image",
+            ChatKind.Audio => "audio",
             _ => "document",
         };
         var noi = new JsonObject { ["link"] = url };
@@ -352,7 +352,7 @@ public class WhatsAppChatAdapter : IChatChannelAdapter
         {
             var http = _http.CreateClient();
             using var req = new HttpRequestMessage(HttpMethod.Post,
-                $"{GraphBase}/{PhienBan}/{U(soId)}/messages")
+                $"{GraphBase}/{ApiVersion}/{U(soId)}/messages")
             {
                 Content = new StringContent(than.ToJsonString(), Encoding.UTF8, "application/json"),
             };
@@ -366,7 +366,7 @@ public class WhatsAppChatAdapter : IChatChannelAdapter
                 // Mã tin nằm trong messages[0].id — đây là thứ statuses[] sẽ đối chiếu về sau.
                 return new(true, false, o?["messages"]?[0]?["id"]?.ToString(), null);
 
-            var moTa = o?["error"]?["message"]?.ToString() ?? Cat(raw);
+            var moTa = o?["error"]?["message"]?.ToString() ?? Truncate(raw);
             return new(false, (int)res.StatusCode >= 500, null, $"WhatsApp từ chối: {moTa}");
         }
         catch (Exception ex)
@@ -384,7 +384,7 @@ public class WhatsAppChatAdapter : IChatChannelAdapter
     /// công khai</b> — gọi trần vào nó là 401. Nên không có cách nào đưa thẳng cho trình duyệt,
     /// bắt buộc máy chủ tải hộ. Quên gắn khoá ở lượt hai là ảnh hỏng mà lỗi lại nằm ở tận Meta.</para>
     /// </summary>
-    public async Task<(byte[] Bytes, string? Kieu)?> TaiTepAsync(string tenantId, string accountId,
+    public async Task<(byte[] Bytes, string? Kieu)?> DownloadFileAsync(string tenantId, string accountId,
         string mediaId, CancellationToken ct)
     {
         var (token, _) = await KhoaAsync(tenantId, accountId, ct);
@@ -393,7 +393,7 @@ public class WhatsAppChatAdapter : IChatChannelAdapter
         {
             var http = _http.CreateClient();
 
-            using var req1 = new HttpRequestMessage(HttpMethod.Get, $"{GraphBase}/{PhienBan}/{U(mediaId)}");
+            using var req1 = new HttpRequestMessage(HttpMethod.Get, $"{GraphBase}/{ApiVersion}/{U(mediaId)}");
             req1.Headers.Add("Authorization", "Bearer " + token);
             using var res1 = await http.SendAsync(req1, ct);
             var o = JsonNode.Parse(await res1.Content.ReadAsStringAsync(ct));
@@ -420,11 +420,11 @@ public class WhatsAppChatAdapter : IChatChannelAdapter
     /// <summary>
     /// Đánh dấu đã xem bên phía khách (hai tích xanh).
     ///
-    /// <para>WhatsApp <b>không có</b> dấu "đang gõ" cho bot — nên <c>BaoDangGoAsync</c> để nguyên
+    /// <para>WhatsApp <b>không có</b> dấu "đang gõ" cho bot — nên <c>SendTypingAsync</c> để nguyên
     /// mặc định rỗng. Đừng giả lập bằng cách gửi một tin "..." rồi xoá: khách nhận thông báo đẩy
     /// cho cái tin đó.</para>
     /// </summary>
-    public async Task BaoDaXemAsync(string tenantId, string accountId, string maTin,
+    public async Task MarkSeenAsync(string tenantId, string accountId, string maTin,
         CancellationToken ct)
     {
         var (token, soId) = await KhoaAsync(tenantId, accountId, ct);
@@ -433,7 +433,7 @@ public class WhatsAppChatAdapter : IChatChannelAdapter
         {
             var http = _http.CreateClient();
             using var req = new HttpRequestMessage(HttpMethod.Post,
-                $"{GraphBase}/{PhienBan}/{U(soId)}/messages")
+                $"{GraphBase}/{ApiVersion}/{U(soId)}/messages")
             {
                 Content = new StringContent(new JsonObject
                 {
@@ -451,5 +451,5 @@ public class WhatsAppChatAdapter : IChatChannelAdapter
         }
     }
 
-    private static string Cat(string s) => s.Length <= 200 ? s : s[..200];
+    private static string Truncate(string s) => s.Length <= 200 ? s : s[..200];
 }

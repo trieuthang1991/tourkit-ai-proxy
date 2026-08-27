@@ -13,7 +13,7 @@ public class ChatPagingTests
     public void Ma_roi_giai_ra_dung_nguyen_ban()
     {
         var c = new ConvCursor(new DateTime(2026, 8, 25, 10, 30, 15, 123, DateTimeKind.Utc), 4567);
-        var lai = ChatCursor.Giai(ChatCursor.Ma(c));
+        var lai = ChatCursor.Decode(ChatCursor.Encode(c));
         Assert.NotNull(lai);
         Assert.Equal(c.LastActivityAt, lai!.LastActivityAt);
         Assert.Equal(c.Id, lai.Id);
@@ -24,7 +24,7 @@ public class ChatPagingTests
     {
         // Mất Kind=Utc là lệch 7 tiếng — trang sau bắt đầu sai chỗ, người dùng thấy thiếu hội thoại.
         var c = new ConvCursor(new DateTime(2026, 8, 25, 10, 0, 0, DateTimeKind.Utc), 1);
-        var lai = ChatCursor.Giai(ChatCursor.Ma(c))!;
+        var lai = ChatCursor.Decode(ChatCursor.Encode(c))!;
         Assert.Equal(DateTimeKind.Utc, lai.LastActivityAt.Kind);
     }
 
@@ -37,6 +37,6 @@ public class ChatPagingTests
     public void Ma_hong_thi_tra_null_chu_khong_nem(string? tho)
     {
         // Con trỏ nằm trên URL — người dùng sửa tay, hoặc mã cũ từ bản trước. Ném là cả trang trắng.
-        Assert.Null(ChatCursor.Giai(tho));
+        Assert.Null(ChatCursor.Decode(tho));
     }
 }

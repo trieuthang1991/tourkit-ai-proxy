@@ -11,39 +11,39 @@ namespace TourkitAiProxy.Tests.Chat;
 public class ChatLifecycleTests
 {
     [Theory]
-    [InlineData(ChatState.Cho, ChatState.DaGui, true)]
-    [InlineData(ChatState.DaGui, ChatState.DaNhan, true)]
-    [InlineData(ChatState.DaNhan, ChatState.DaXem, true)]
-    [InlineData(ChatState.DaGui, ChatState.DaXem, true)]    // nhảy cóc: chỉ nhận được "đã xem"
+    [InlineData(ChatState.Pending, ChatState.Sent, true)]
+    [InlineData(ChatState.Sent, ChatState.Delivered, true)]
+    [InlineData(ChatState.Delivered, ChatState.Seen, true)]
+    [InlineData(ChatState.Sent, ChatState.Seen, true)]    // nhảy cóc: chỉ nhận được "đã xem"
     public void Tien_len_thi_duoc(ChatState dangCo, ChatState moi, bool mong)
-        => Assert.Equal(mong, ChatRules.KhongLui(dangCo, moi));
+        => Assert.Equal(mong, ChatRules.CanAdvanceState(dangCo, moi));
 
     [Theory]
-    [InlineData(ChatState.DaXem, ChatState.DaNhan)]   // delivery tới SAU read — chuyện thường
-    [InlineData(ChatState.DaXem, ChatState.DaGui)]
-    [InlineData(ChatState.DaNhan, ChatState.DaGui)]
+    [InlineData(ChatState.Seen, ChatState.Delivered)]   // delivery tới SAU read — chuyện thường
+    [InlineData(ChatState.Seen, ChatState.Sent)]
+    [InlineData(ChatState.Delivered, ChatState.Sent)]
     public void Lui_lai_thi_bo_qua(ChatState dangCo, ChatState moi)
-        => Assert.False(ChatRules.KhongLui(dangCo, moi));
+        => Assert.False(ChatRules.CanAdvanceState(dangCo, moi));
 
     [Fact]
     public void Cung_mot_muc_thi_bo_qua()
-        => Assert.False(ChatRules.KhongLui(ChatState.DaXem, ChatState.DaXem));
+        => Assert.False(ChatRules.CanAdvanceState(ChatState.Seen, ChatState.Seen));
 
     [Fact]
     public void Tin_da_gui_duoc_thi_khong_the_thanh_hong()
     {
         // Hỏng (4) số lớn nhất nhưng KHÔNG phải mức cao nhất.
-        Assert.False(ChatRules.KhongLui(ChatState.DaGui, ChatState.Hong));
-        Assert.False(ChatRules.KhongLui(ChatState.DaXem, ChatState.Hong));
+        Assert.False(ChatRules.CanAdvanceState(ChatState.Sent, ChatState.Failed));
+        Assert.False(ChatRules.CanAdvanceState(ChatState.Seen, ChatState.Failed));
     }
 
     [Fact]
     public void Tin_dang_cho_thi_hong_duoc()
-        => Assert.True(ChatRules.KhongLui(ChatState.Cho, ChatState.Hong));
+        => Assert.True(ChatRules.CanAdvanceState(ChatState.Pending, ChatState.Failed));
 
     [Theory]
-    [InlineData(ChatState.DaNhan)]
-    [InlineData(ChatState.DaXem)]
+    [InlineData(ChatState.Delivered)]
+    [InlineData(ChatState.Seen)]
     public void Tin_chua_gui_di_thi_khong_the_da_nhan_hay_da_xem(ChatState moi)
     {
         // Kịch bản THẬT đã dựng được trên staging: nhân viên bấm gửi lúc 10:00:00 (tin vào hàng đợi,
@@ -53,7 +53,7 @@ public class ChatLifecycleTests
         //
         // Để lọt thì nhân viên thấy "khách đã xem" một tin khách chưa hề nhận được — và ngay sau đó
         // worker gửi xong lại đặt về "đã gửi", tức dấu tích còn chạy ngược nữa.
-        Assert.False(ChatRules.KhongLui(ChatState.Cho, moi));
+        Assert.False(ChatRules.CanAdvanceState(ChatState.Pending, moi));
     }
 
     [Fact]
@@ -95,7 +95,7 @@ public class ChatLifecycleTests
         var adapter = ChatSchemaGuardTests.DocFile("TourkitAiProxy.Services/Chat/Channels/ZaloChatAdapter.cs");
         // Mốc phải mang THỜI ĐIỂM: nền tảng báo kiểu "mọi tin trước lúc này đã đọc". Không có mốc
         // thì hoặc đánh dấu cả hội thoại (sai), hoặc không đánh dấu gì.
-        Assert.Contains("Watermark: new(ChatState.DaXem", adapter);
+        Assert.Contains("Watermark: new(ChatState.Seen", adapter);
         Assert.DoesNotContain("SeenMarker", adapter);
     }
 
@@ -140,8 +140,8 @@ public class ChatLifecycleTests
         // Bot API không có báo đã nhận/đã xem. Tự đặt DaNhan khi gửi xong là NÓI DỐI nhân viên —
         // họ sẽ tưởng khách đã nhận trong khi mình không hề biết.
         var src = ChatSchemaGuardTests.DocFile("TourkitAiProxy.Services/Chat/Channels/TelegramChatAdapter.cs");
-        Assert.DoesNotContain("ChatState.DaNhan", src);
-        Assert.DoesNotContain("ChatState.DaXem", src);
+        Assert.DoesNotContain("ChatState.Delivered", src);
+        Assert.DoesNotContain("ChatState.Seen", src);
         // Phải có chú thích giải thích, không thì người sau tưởng là thiếu sót rồi "sửa".
         // So KHÔNG phân biệt hoa thường: chú thích viết hoa để nhấn mạnh ("KHÔNG báo") vẫn là
         // lời giải thích hợp lệ — thứ cần canh là có giải thích, không phải kiểu chữ.

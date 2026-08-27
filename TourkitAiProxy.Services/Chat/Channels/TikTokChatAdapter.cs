@@ -41,10 +41,10 @@ public class TikTokChatAdapter : IChatChannelAdapter
     private const string BusinessBase = "https://business-api.tiktok.com/open_api/v1.3";
 
     /// <summary>TikTok khuyến nghị bỏ gói cũ hơn 5 giây — chống phát lại.</summary>
-    private static readonly TimeSpan HanChuKy = TimeSpan.FromSeconds(5);
+    private static readonly TimeSpan SignatureMaxAge = TimeSpan.FromSeconds(5);
 
     /// <summary>Cho phép lệch đồng hồ hai chiều giữa máy chủ TikTok và máy mình.</summary>
-    private static readonly TimeSpan LechDongHo = TimeSpan.FromSeconds(2);
+    private static readonly TimeSpan ClockSkew = TimeSpan.FromSeconds(2);
 
     private readonly IHttpClientFactory _http;
     private readonly ChannelCredentialStore _cred;
@@ -57,12 +57,12 @@ public class TikTokChatAdapter : IChatChannelAdapter
 
     public ChatChannel Channel => ChatChannel.TikTok;
 
-    private string? ClientSecretNenTang => Rong(_cfg["Chat:TikTok:ClientSecret"]);
+    private string? PlatformClientSecret => NullIfBlank(_cfg["Chat:TikTok:ClientSecret"]);
 
-    private static string? Rong(string? s) => string.IsNullOrWhiteSpace(s) ? null : s.Trim();
+    private static string? NullIfBlank(string? s) => string.IsNullOrWhiteSpace(s) ? null : s.Trim();
 
     /// <summary><c>user_openid</c> của gói tin — khoá định tuyến ra công ty.</summary>
-    public static string? OpenIdCuaSuKien(string rawBody)
+    public static string? OpenIdOfEvent(string rawBody)
     {
         try { return JsonNode.Parse(rawBody)?["user_openid"]?.ToString(); }
         catch { return null; }
@@ -74,7 +74,7 @@ public class TikTokChatAdapter : IChatChannelAdapter
         var ky = headers["TikTok-Signature"].FirstOrDefault();
         if (string.IsNullOrWhiteSpace(ky)) return null;
 
-        var openId = OpenIdCuaSuKien(rawBody);
+        var openId = OpenIdOfEvent(rawBody);
         var dsach = await _cred.ListAccountsAsync(tenantId, Channel, ct);
 
         foreach (var tk in dsach)
@@ -84,10 +84,10 @@ public class TikTokChatAdapter : IChatChannelAdapter
                 : openId is { Length: > 0 } && tk.GiaTri.GetValueOrDefault("openId", "") == openId;
             if (!khop) continue;
 
-            var bimat = Rong(tk.GiaTri.GetValueOrDefault("clientSecret", "")) ?? ClientSecretNenTang;
+            var bimat = NullIfBlank(tk.GiaTri.GetValueOrDefault("clientSecret", "")) ?? PlatformClientSecret;
             if (bimat is null) continue;
 
-            var (dung, viSao) = KiemChuKy(bimat, rawBody, ky!, DateTimeOffset.UtcNow);
+            var (dung, viSao) = CheckSignature(bimat, rawBody, ky!, DateTimeOffset.UtcNow);
             if (dung) return tk.AccountId;
 
             // Tách rõ "quá hạn" khỏi "ký sai": máy chủ lệch giờ làm MỌI gói bị từ chối, mà nếu chỉ
@@ -108,11 +108,11 @@ public class TikTokChatAdapter : IChatChannelAdapter
     /// là openid trong thân tin — nhưng tra ra công ty <b>KHÔNG</b> chứng minh tin là thật,
     /// nên vẫn phải kiểm chữ ký bằng khoá của chính tài khoản đó.</para>
     /// </summary>
-    public async Task<(string TenantId, string AccountId)?> XacMinhDungChungAsync(string rawBody,
+    public async Task<(string TenantId, string AccountId)?> ResolveSharedWebhookAsync(string rawBody,
         IHeaderDictionary headers, CancellationToken ct)
     {
-        if (OpenIdCuaSuKien(rawBody) is not { } khoa) return null;
-        var tenant = await _cred.TimTenantAsync(Channel, khoa, ct);
+        if (OpenIdOfEvent(rawBody) is not { } khoa) return null;
+        var tenant = await _cred.FindTenantAsync(Channel, khoa, ct);
         if (tenant is null)
         {
             _log.LogWarning("[chat/tiktok] nhận tin của {Khoa} nhưng chưa công ty nào nối", khoa);
@@ -122,7 +122,7 @@ public class TikTokChatAdapter : IChatChannelAdapter
     }
 
     /// <summary>Kiểm chữ ký TikTok. Hàm thuần (trừ tham số thời điểm) để test được cả nhánh quá hạn.</summary>
-    internal static (bool Dung, string ViSao) KiemChuKy(string clientSecret, string rawBody,
+    internal static (bool Dung, string ViSao) CheckSignature(string clientSecret, string rawBody,
         string header, DateTimeOffset bayGio)
     {
         string? t = null, chuKy = null;
@@ -138,7 +138,7 @@ public class TikTokChatAdapter : IChatChannelAdapter
             return (false, "mốc thời gian không phải số");
 
         var lech = bayGio - DateTimeOffset.FromUnixTimeSeconds(giay);
-        if (lech > HanChuKy || lech < -LechDongHo)
+        if (lech > SignatureMaxAge || lech < -ClockSkew)
             return (false, $"gói quá hạn {lech.TotalSeconds:F0}s — kiểm đồng hồ máy chủ trước khi nghi khoá");
 
         using var h = new HMACSHA256(Encoding.UTF8.GetBytes(clientSecret));
@@ -185,7 +185,7 @@ public class TikTokChatAdapter : IChatChannelAdapter
             ? DateTimeOffset.FromUnixTimeSeconds(giay).UtcDateTime : DateTime.UtcNow;
 
         var kieu = noi["type"]?.ToString();
-        var loai = kieu == "image" ? ChatKind.Anh : ChatKind.Chu;
+        var loai = kieu == "image" ? ChatKind.Image : ChatKind.Text;
         var chu = noi["text"]?["body"]?.ToString();
         var att = kieu == "image" && noi["media_url"] is not null
             ? new JsonObject { ["media_url"] = noi["media_url"]!.ToString() }.ToJsonString()
@@ -215,7 +215,7 @@ public class TikTokChatAdapter : IChatChannelAdapter
         if (c is null) return (null, null);
         c.TryGetValue("accessToken", out var token);
         c.TryGetValue("businessId", out var bid);
-        return (Rong(token), Rong(bid));
+        return (NullIfBlank(token), NullIfBlank(bid));
     }
 
     public Task<SendResult> SendTextAsync(string tenantId, string accountId, string externalUserId,
@@ -233,11 +233,11 @@ public class TikTokChatAdapter : IChatChannelAdapter
     public async Task<SendResult> SendMediaAsync(string tenantId, string accountId, string externalUserId,
         ChatKind loai, string url, string? caption, CancellationToken ct)
     {
-        if (loai != ChatKind.Anh)
+        if (loai != ChatKind.Image)
             return new(false, false, null,
                 "TikTok chỉ gửi được ảnh qua tin nhắn. Gửi đường dẫn tệp bằng tin chữ thay thế.");
 
-        var maTep = await TaiLenAsync(tenantId, accountId, url, ct);
+        var maTep = await UploadAsync(tenantId, accountId, url, ct);
         if (maTep is null) return new(false, true, null, "Không tải được ảnh lên TikTok");
 
         var kq = await GuiAsync(tenantId, accountId, externalUserId, than =>
@@ -252,7 +252,7 @@ public class TikTokChatAdapter : IChatChannelAdapter
         return kq;
     }
 
-    private async Task<string?> TaiLenAsync(string tenantId, string accountId, string url,
+    private async Task<string?> UploadAsync(string tenantId, string accountId, string url,
         CancellationToken ct)
     {
         var (token, businessId) = await KhoaAsync(tenantId, accountId, ct);
@@ -320,7 +320,7 @@ public class TikTokChatAdapter : IChatChannelAdapter
             if (res.IsSuccessStatusCode && (ma is null || ma == "0"))
                 return new(true, false, o?["data"]?["message_id"]?.ToString(), null);
 
-            var moTa = o?["message"]?.ToString() ?? Cat(raw);
+            var moTa = o?["message"]?.ToString() ?? Truncate(raw);
             return new(false, (int)res.StatusCode >= 500, null, $"TikTok từ chối ({ma}): {moTa}");
         }
         catch (Exception ex)
@@ -329,5 +329,5 @@ public class TikTokChatAdapter : IChatChannelAdapter
         }
     }
 
-    private static string Cat(string s) => s.Length <= 200 ? s : s[..200];
+    private static string Truncate(string s) => s.Length <= 200 ? s : s[..200];
 }

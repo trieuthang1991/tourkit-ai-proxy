@@ -1,4 +1,4 @@
-using Microsoft.Extensions.Configuration;
+﻿using Microsoft.Extensions.Configuration;
 using TourkitAiProxy.Domain.Chat;
 using TourkitAiProxy.Services.Chat.Channels;
 using Xunit;
@@ -63,7 +63,7 @@ public class InstagramEventTests
             """;
         var sk = Assert.Single(A().Parse(tho));
         Assert.NotNull(sk.Watermark);
-        Assert.Equal(ChatState.DaXem, sk.Watermark!.State);
+        Assert.Equal(ChatState.Seen, sk.Watermark!.State);
         // Mốc thời gian phải tra từ chính tin đó, nên ở đây chỉ mang mã tin sang cho lõi tra tiếp.
         Assert.Equal("mid-cuoi", sk.Watermark.ExternalMsgId);
     }
@@ -83,14 +83,14 @@ public class InstagramEventTests
     public void Cua_so_gui_Instagram_la_24_gio_nhu_Messenger()
     {
         var moc = new DateTime(2026, 8, 27, 8, 0, 0, DateTimeKind.Utc);
-        Assert.True(ChatRules.TinhCuaSo(ChatChannel.Instagram, moc, moc.AddHours(23)).Open);
-        Assert.False(ChatRules.TinhCuaSo(ChatChannel.Instagram, moc, moc.AddHours(25)).Open);
+        Assert.True(ChatRules.ComputeSendWindow(ChatChannel.Instagram, moc, moc.AddHours(23)).Open);
+        Assert.False(ChatRules.ComputeSendWindow(ChatChannel.Instagram, moc, moc.AddHours(25)).Open);
     }
 
     [Fact]
     public void Chua_co_tin_nao_cua_khach_thi_cua_so_DONG_va_noi_dung_ten_kenh()
     {
-        var kq = ChatRules.TinhCuaSo(ChatChannel.Instagram, null, DateTime.UtcNow);
+        var kq = ChatRules.ComputeSendWindow(ChatChannel.Instagram, null, DateTime.UtcNow);
         Assert.False(kq.Open);
         // Câu báo phải gọi đúng tên kênh — "Kênh này" là dấu hiệu quên khai tên.
         Assert.Contains("Instagram", kq.Reason);
@@ -121,7 +121,7 @@ public class InstagramEventTests
     {
         // Bẫy "sửa đủ hai chỗ": bóc được mà không đăng ký thì không bao giờ có gói tin nào tới.
         var src = ChatSchemaGuardTests.DocFile(TepAdapter);
-        var i = src.IndexOf("SuKienTaiKhoan", System.StringComparison.Ordinal);
+        var i = src.IndexOf("AccountEvents", System.StringComparison.Ordinal);
         Assert.True(i > 0, "Không ghi danh sách trường webhook nào");
         var khoi = src.Substring(System.Math.Max(0, i - 500), System.Math.Min(900, src.Length - i));
         foreach (var truong in new[]

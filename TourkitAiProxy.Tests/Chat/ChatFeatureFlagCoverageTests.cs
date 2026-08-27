@@ -16,7 +16,7 @@ namespace TourkitAiProxy.Tests.Chat;
 /// <para>⚠️ <b>Từ 26/08/2026 cờ không còn chặn route nữa</b> — quyết định của chủ dự án: chặn cả
 /// cụm thì không setup và kiểm thử được trên bản chạy thật. Cờ nay chỉ ẩn mục menu.</para>
 ///
-/// <para>Test này vẫn giữ vì <see cref="ChatInboxEndpoints.DuongRieng"/> vẫn là bản kiểm kê bề mặt
+/// <para>Test này vẫn giữ vì <see cref="ChatInboxEndpoints.OwnedPaths"/> vẫn là bản kiểm kê bề mặt
 /// API của cụm chat, và cờ theo-từng-công-ty (nếu làm) sẽ cần đúng danh sách đó. Để nó mục ruỗng
 /// rồi mới đi dùng lại là lặp lại y hệt lỗi cũ.</para>
 /// </summary>
@@ -44,12 +44,12 @@ public class ChatFeatureFlagCoverageTests
         Assert.NotEmpty(tatCa);
 
         var thieu = tatCa
-            .Where(r => !ChatInboxEndpoints.DuongRieng.Any(
+            .Where(r => !ChatInboxEndpoints.OwnedPaths.Any(
                 p => r.Equals(p, StringComparison.Ordinal) || r.StartsWith(p + "/", StringComparison.Ordinal)))
             .ToList();
 
         Assert.True(thieu.Count == 0,
-            "Các route sau không được ChatInboxEndpoints.DuongRieng phủ, nên khi tắt Features:Chat "
+            "Các route sau không được ChatInboxEndpoints.OwnedPaths phủ, nên khi tắt Features:Chat "
             + "chúng sẽ rơi vào MapFallback và trả index.html kèm 200 thay vì 404:\n  "
             + string.Join("\n  ", thieu));
     }
@@ -60,11 +60,11 @@ public class ChatFeatureFlagCoverageTests
         // POST /api/v1/chat và /api/v1/chat/stream là Chat-Analytics — tính năng KHÁC, không nằm
         // sau cờ Features:Chat. Nếu ai đó "gọn hoá" danh sách thành tiền tố "/api/v1/chat" trần
         // thì tắt cờ chat sẽ giết luôn Trợ lý số liệu đang chạy thật.
-        Assert.DoesNotContain(Goc, ChatInboxEndpoints.DuongRieng);
+        Assert.DoesNotContain(Goc, ChatInboxEndpoints.OwnedPaths);
 
         foreach (var duong in new[] { Goc, Goc + "/stream", Goc + "/unresolved" })
         {
-            var bịChan = ChatInboxEndpoints.DuongRieng.Any(
+            var bịChan = ChatInboxEndpoints.OwnedPaths.Any(
                 p => duong.Equals(p, StringComparison.Ordinal) || duong.StartsWith(p + "/", StringComparison.Ordinal));
             Assert.False(bịChan, $"'{duong}' thuộc Trợ lý số liệu nhưng lại bị cờ chat chặn.");
         }

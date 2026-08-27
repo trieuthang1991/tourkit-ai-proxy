@@ -22,7 +22,7 @@ public class ChatEventBusTests
 
         var doc = Task.Run(async () =>
         {
-            await foreach (var e in bus.NgheAsync("cong-ty-A", huy.Token))
+            await foreach (var e in bus.SubscribeAsync("cong-ty-A", huy.Token))
             {
                 nhan.Add(e);
                 if (nhan.Count == 1) break;
@@ -33,8 +33,8 @@ public class ChatEventBusTests
         // đúng như thiết kế (bắn là bỏ), nhưng test sẽ treo tới lúc hết giờ.
         await ChoDangKyAsync(bus, huy.Token);
 
-        bus.Bao(new("cong-ty-B", 1, "tin-moi", 10));   // KHÔNG được thấy
-        bus.Bao(new("cong-ty-A", 2, "tin-moi", 20));
+        bus.Publish(new("cong-ty-B", 1, "tin-moi", 10));   // KHÔNG được thấy
+        bus.Publish(new("cong-ty-A", 2, "tin-moi", 20));
         await doc;
 
         Assert.Single(nhan);
@@ -48,31 +48,31 @@ public class ChatEventBusTests
         // Webhook chạy nền, không ai mở hộp thư là chuyện bình thường — ném ở đây là chết luồng xử lý
         // tin của khách chỉ vì không có ai đang nhìn màn hình.
         var bus = new ChatEventBus();
-        bus.Bao(new("cong-ty-A", 1, "tin-moi", 1));
+        bus.Publish(new("cong-ty-A", 1, "tin-moi", 1));
     }
 
     [Fact]
     public async Task Huy_thi_go_nguoi_nghe_ra_khoi_danh_sach()
     {
         // Tab đóng mà người nghe còn nằm lại là rò rỉ: mỗi lần mở hộp thư thêm một hàng đợi 100 sự
-        // kiện không ai đọc, và Bao() phải duyệt qua tất cả.
+        // kiện không ai đọc, và Publish() phải duyệt qua tất cả.
         var bus = new ChatEventBus();
         var huy = new CancellationTokenSource();
 
         var doc = Task.Run(async () =>
         {
-            await foreach (var _ in bus.NgheAsync("cong-ty-A", huy.Token)) { }
+            await foreach (var _ in bus.SubscribeAsync("cong-ty-A", huy.Token)) { }
         });
 
         using (var chờ = new CancellationTokenSource(TimeSpan.FromSeconds(5)))
             await ChoDangKyAsync(bus, chờ.Token);
-        Assert.Equal(1, bus.SoNguoiNghe);
+        Assert.Equal(1, bus.SubscriberCount);
 
         huy.Cancel();
         try { await doc; } catch (OperationCanceledException) { }
         huy.Dispose();
 
-        Assert.Equal(0, bus.SoNguoiNghe);
+        Assert.Equal(0, bus.SubscriberCount);
     }
 
     [Fact]
@@ -84,7 +84,7 @@ public class ChatEventBusTests
 
         async Task<ChatEvent> MotTabAsync()
         {
-            await foreach (var e in bus.NgheAsync("cong-ty-A", huy.Token)) return e;
+            await foreach (var e in bus.SubscribeAsync("cong-ty-A", huy.Token)) return e;
             throw new InvalidOperationException("luồng đóng trước khi có sự kiện");
         }
 
@@ -92,7 +92,7 @@ public class ChatEventBusTests
         var t2 = Task.Run(MotTabAsync);
         await ChoDangKyAsync(bus, huy.Token, 2);
 
-        bus.Bao(new("cong-ty-A", 7, "doi-trang-thai", 70));
+        bus.Publish(new("cong-ty-A", 7, "doi-trang-thai", 70));
 
         Assert.Equal(7, (await t1).ConversationId);
         Assert.Equal(7, (await t2).ConversationId);
@@ -104,8 +104,8 @@ public class ChatEventBusTests
         // Redis là TUỲ CHỌN. Thiếu nó thì bus vẫn phải chạy trong một instance — không được ném
         // lúc khởi động, vì máy dev và VPS nhỏ thường không cắm Redis.
         var bus = new ChatEventBus(null);
-        bus.Bao(new("cong-ty-A", 1, "tin-moi", 1));
-        Assert.False(bus.NhieuInstance);
+        bus.Publish(new("cong-ty-A", 1, "tin-moi", 1));
+        Assert.False(bus.MultiInstance);
     }
 
     [Fact]
@@ -118,12 +118,12 @@ public class ChatEventBusTests
 
         var doc = Task.Run(async () =>
         {
-            await foreach (var e in bus.NgheAsync("cong-ty-A", huy.Token)) return e;
+            await foreach (var e in bus.SubscribeAsync("cong-ty-A", huy.Token)) return e;
             throw new InvalidOperationException("luồng đóng trước khi có sự kiện");
         });
         await ChoDangKyAsync(bus, huy.Token);
 
-        bus.NhanTuXa(ChatEventBus.DongGoi("instance-khac", new("cong-ty-A", 9, "tin-moi", 90)));
+        bus.FromRemote(ChatEventBus.Pack("instance-khac", new("cong-ty-A", 9, "tin-moi", 90)));
         Assert.Equal(9, (await doc).ConversationId);
     }
 
@@ -138,7 +138,7 @@ public class ChatEventBusTests
         var nhan = new List<ChatEvent>();
         var doc = Task.Run(async () =>
         {
-            await foreach (var e in bus.NgheAsync("cong-ty-A", huy.Token))
+            await foreach (var e in bus.SubscribeAsync("cong-ty-A", huy.Token))
             {
                 nhan.Add(e);
                 if (nhan.Count == 1) break;
@@ -146,8 +146,8 @@ public class ChatEventBusTests
         });
         await ChoDangKyAsync(bus, huy.Token);
 
-        bus.NhanTuXa(ChatEventBus.DongGoi(bus.MaInstance, new("cong-ty-A", 1, "tin-moi", 1)));   // của mình → bỏ
-        bus.NhanTuXa(ChatEventBus.DongGoi("instance-khac", new("cong-ty-A", 2, "tin-moi", 2)));
+        bus.FromRemote(ChatEventBus.Pack(bus.InstanceId, new("cong-ty-A", 1, "tin-moi", 1)));   // của mình → bỏ
+        bus.FromRemote(ChatEventBus.Pack("instance-khac", new("cong-ty-A", 2, "tin-moi", 2)));
         await doc;
 
         Assert.Single(nhan);
@@ -164,13 +164,13 @@ public class ChatEventBusTests
         // Gói tin tới từ MẠNG: phiên bản cũ còn trong Redis, hoặc ai đó publish nhầm kênh. Ném ở
         // đây là chết luồng đăng ký, và từ đó instance này câm hẳn mà không ai biết.
         var bus = new ChatEventBus(null);
-        bus.NhanTuXa(thô);
+        bus.FromRemote(thô);
     }
     /// Chờ tới khi đủ số người nghe đã đăng ký. Ngủ một khoảng cố định thì test lúc xanh lúc đỏ
     /// trên máy chạy chậm — thứ tệ hơn cả không có test, vì người sau sẽ chạy lại cho tới khi xanh.
     private static async Task ChoDangKyAsync(ChatEventBus bus, CancellationToken ct, int can = 1)
     {
-        while (bus.SoNguoiNghe < can)
+        while (bus.SubscriberCount < can)
         {
             ct.ThrowIfCancellationRequested();
             await Task.Delay(10, ct);

@@ -39,7 +39,7 @@ namespace TourkitAiProxy.Services.Chat.Channels;
 public class InstagramChatAdapter : IChatChannelAdapter
 {
     private const string GraphBase = "https://graph.instagram.com";
-    private const string MacDinhPhienBan = "v21.0";
+    private const string DefaultApiVersion = "v21.0";
 
     /// <summary>
     /// Trường webhook phải bật cho đối tượng <c>instagram</c> của ứng dụng Meta.
@@ -59,7 +59,7 @@ public class InstagramChatAdapter : IChatChannelAdapter
     /// bước nối tài khoản phải thử trên một tài khoản Instagram Professional thật rồi mới coi là
     /// xong — không lấy hành vi của dự án tham chiếu làm nguồn quy định hiện hành.</para>
     /// </summary>
-    public static readonly string[] SuKienTaiKhoan =
+    public static readonly string[] AccountEvents =
     {
         "messages", "messaging_postbacks", "messaging_optins", "messaging_seen",
         "messaging_referral", "message_reactions",
@@ -76,19 +76,19 @@ public class InstagramChatAdapter : IChatChannelAdapter
 
     public ChatChannel Channel => ChatChannel.Instagram;
 
-    private string PhienBan => Rong(_cfg["Chat:Messenger:Version"]) ?? MacDinhPhienBan;
+    private string ApiVersion => NullIfBlank(_cfg["Chat:Messenger:Version"]) ?? DefaultApiVersion;
 
     /// Khoá ký dùng CHUNG với Messenger: cùng một ứng dụng Meta, cùng một App Secret.
-    private string? AppSecretNenTang => Rong(_cfg["Chat:Messenger:AppSecret"]);
+    private string? PlatformAppSecret => NullIfBlank(_cfg["Chat:Messenger:AppSecret"]);
 
-    private static string? Rong(string? s) => string.IsNullOrWhiteSpace(s) ? null : s.Trim();
+    private static string? NullIfBlank(string? s) => string.IsNullOrWhiteSpace(s) ? null : s.Trim();
 
     private static string U(string s) => Uri.EscapeDataString(s);
 
     /// <summary>
     /// Id tài khoản Instagram của gói tin — <c>entry[].id</c>, giống hệt chỗ Messenger để id Trang.
     /// </summary>
-    public static string? IdTaiKhoanCuaSuKien(string rawBody)
+    public static string? AccountIdOfEvent(string rawBody)
     {
         try { return JsonNode.Parse(rawBody)?["entry"]?[0]?["id"]?.ToString(); }
         catch { return null; }
@@ -108,7 +108,7 @@ public class InstagramChatAdapter : IChatChannelAdapter
         var ky = headers["X-Hub-Signature-256"].FirstOrDefault();
         if (string.IsNullOrWhiteSpace(ky)) return null;
 
-        var idTk = IdTaiKhoanCuaSuKien(rawBody);
+        var idTk = AccountIdOfEvent(rawBody);
         var dsach = await _cred.ListAccountsAsync(tenantId, Channel, ct);
 
         foreach (var tk in dsach)
@@ -120,9 +120,9 @@ public class InstagramChatAdapter : IChatChannelAdapter
                 : idTk is { Length: > 0 } && tk.GiaTri.GetValueOrDefault("igId", "") == idTk;
             if (!khop) continue;
 
-            var bimat = Rong(tk.GiaTri.GetValueOrDefault("appSecret", "")) ?? AppSecretNenTang;
+            var bimat = NullIfBlank(tk.GiaTri.GetValueOrDefault("appSecret", "")) ?? PlatformAppSecret;
             if (bimat is null) continue;
-            if (KyDung(bimat, rawBody, ky!)) return tk.AccountId;
+            if (SignatureMatches(bimat, rawBody, ky!)) return tk.AccountId;
 
             _log.LogWarning("[chat/instagram] chữ ký sai cho tài khoản {A} (ig={Ig}) của {T}",
                 tk.AccountId, idTk, tenantId);
@@ -134,7 +134,7 @@ public class InstagramChatAdapter : IChatChannelAdapter
         return null;
     }
 
-    private static bool KyDung(string appSecret, string rawBody, string header)
+    private static bool SignatureMatches(string appSecret, string rawBody, string header)
     {
         var mong = header.StartsWith("sha256=", StringComparison.OrdinalIgnoreCase)
             ? header["sha256=".Length..] : header;
@@ -155,11 +155,11 @@ public class InstagramChatAdapter : IChatChannelAdapter
     /// <para>Tra được công ty rồi <b>vẫn phải kiểm chữ ký</b> — id đó nằm công khai, ai cũng đọc
     /// được trên chính trang Instagram đó.</para>
     /// </summary>
-    public async Task<(string TenantId, string AccountId)?> XacMinhDungChungAsync(string rawBody,
+    public async Task<(string TenantId, string AccountId)?> ResolveSharedWebhookAsync(string rawBody,
         IHeaderDictionary headers, CancellationToken ct)
     {
-        if (IdTaiKhoanCuaSuKien(rawBody) is not { } igId) return null;
-        var tenant = await _cred.TimTenantAsync(Channel, igId, ct);
+        if (AccountIdOfEvent(rawBody) is not { } igId) return null;
+        var tenant = await _cred.FindTenantAsync(Channel, igId, ct);
         if (tenant is null)
         {
             _log.LogWarning("[chat/instagram] nhận tin của tài khoản {Ig} nhưng chưa công ty nào nối", igId);
@@ -171,7 +171,7 @@ public class InstagramChatAdapter : IChatChannelAdapter
     /// <inheritdoc />
     /// <remarks>Dùng chung với Messenger — xem <see cref="MetaMessagingParser"/>.</remarks>
     public IReadOnlyList<InboundChatEvent> Parse(string rawBody)
-        => MetaMessagingParser.Boc(rawBody, ChatChannel.Instagram);
+        => MetaMessagingParser.Read(rawBody, ChatChannel.Instagram);
 
     // ── Gửi ─────────────────────────────────────────────────────────────────
 
@@ -202,8 +202,8 @@ public class InstagramChatAdapter : IChatChannelAdapter
     {
         var kieu = loai switch
         {
-            ChatKind.Anh => "image",
-            ChatKind.AmThanh => "audio",
+            ChatKind.Image => "image",
+            ChatKind.Audio => "audio",
             _ => "file",
         };
         var kq = await GuiAsync(tenantId, accountId, new JsonObject
@@ -234,7 +234,7 @@ public class InstagramChatAdapter : IChatChannelAdapter
         try
         {
             var http = _http.CreateClient();
-            using var req = new HttpRequestMessage(HttpMethod.Post, $"{GraphBase}/{PhienBan}/me/messages")
+            using var req = new HttpRequestMessage(HttpMethod.Post, $"{GraphBase}/{ApiVersion}/me/messages")
             {
                 Content = new StringContent(than.ToJsonString(), Encoding.UTF8, "application/json"),
             };
@@ -249,7 +249,7 @@ public class InstagramChatAdapter : IChatChannelAdapter
             if (res.IsSuccessStatusCode && o?["error"] is null)
                 return new(true, false, o?["message_id"]?.ToString(), null);
 
-            var moTa = o?["error"]?["message"]?.ToString() ?? Cat(raw);
+            var moTa = o?["error"]?["message"]?.ToString() ?? Truncate(raw);
             // 5xx là hỏng tạm thời phía Meta; 4xx là mình sai (hết cửa sổ 24h, khách chặn) —
             // thử lại chỉ quay vòng vô nghĩa.
             return new(false, (int)res.StatusCode >= 500, null, $"Instagram từ chối: {moTa}");
@@ -268,7 +268,7 @@ public class InstagramChatAdapter : IChatChannelAdapter
     /// <para>Mã đó riêng cho từng tài khoản Instagram, nên phải hỏi bằng token của ĐÚNG tài khoản
     /// đã nhận tin.</para>
     /// </summary>
-    public async Task<HoSoKhach?> HoSoKhachAsync(string tenantId, string accountId,
+    public async Task<ContactProfile?> ContactProfileAsync(string tenantId, string accountId,
         string externalUserId, CancellationToken ct)
     {
         var token = await TokenAsync(tenantId, accountId, ct);
@@ -277,7 +277,7 @@ public class InstagramChatAdapter : IChatChannelAdapter
         {
             var http = _http.CreateClient();
             using var req = new HttpRequestMessage(HttpMethod.Get,
-                $"{GraphBase}/{PhienBan}/{U(externalUserId)}?fields=name,username,profile_pic");
+                $"{GraphBase}/{ApiVersion}/{U(externalUserId)}?fields=name,username,profile_pic");
             req.Headers.Add("Authorization", "Bearer " + token);
             using var res = await http.SendAsync(req, ct);
             var raw = await res.Content.ReadAsStringAsync(ct);
@@ -285,15 +285,15 @@ public class InstagramChatAdapter : IChatChannelAdapter
             if (o is null || o["error"] is not null)
             {
                 _log.LogWarning("[chat/instagram] không lấy được hồ sơ khách {Id}: {Loi}",
-                    externalUserId, Cat(raw));
+                    externalUserId, Truncate(raw));
                 return null;
             }
 
             // `name` là tên hiển thị, `username` là @tên. Thiếu tên hiển thị thì lấy @tên còn hơn
             // để hộp thư hiện một dãy số.
-            var ten = Rong(o["name"]?.ToString()) ?? Rong(o["username"]?.ToString());
-            var anh = Rong(o["profile_pic"]?.ToString());
-            return ten is null && anh is null ? null : new HoSoKhach(ten, anh);
+            var ten = NullIfBlank(o["name"]?.ToString()) ?? NullIfBlank(o["username"]?.ToString());
+            var anh = NullIfBlank(o["profile_pic"]?.ToString());
+            return ten is null && anh is null ? null : new ContactProfile(ten, anh);
         }
         catch (Exception ex)
         {
@@ -302,12 +302,12 @@ public class InstagramChatAdapter : IChatChannelAdapter
         }
     }
 
-    public Task BaoDangGoAsync(string tenantId, string accountId, string externalUserId,
-        CancellationToken ct) => HanhDongAsync(tenantId, accountId, externalUserId, "typing_on", ct);
+    public Task SendTypingAsync(string tenantId, string accountId, string externalUserId,
+        CancellationToken ct) => SenderActionAsync(tenantId, accountId, externalUserId, "typing_on", ct);
 
     /// <summary>Một lượt <c>sender_action</c>. Nuốt mọi lỗi — mất một chi tiết lịch sự không đáng
     /// để chặn tin của khách.</summary>
-    private async Task HanhDongAsync(string tenantId, string accountId, string externalUserId,
+    private async Task SenderActionAsync(string tenantId, string accountId, string externalUserId,
         string hanhDong, CancellationToken ct)
     {
         var token = await TokenAsync(tenantId, accountId, ct);
@@ -315,7 +315,7 @@ public class InstagramChatAdapter : IChatChannelAdapter
         try
         {
             var http = _http.CreateClient();
-            using var req = new HttpRequestMessage(HttpMethod.Post, $"{GraphBase}/{PhienBan}/me/messages")
+            using var req = new HttpRequestMessage(HttpMethod.Post, $"{GraphBase}/{ApiVersion}/me/messages")
             {
                 Content = new StringContent(new JsonObject
                 {
@@ -343,7 +343,7 @@ public class InstagramChatAdapter : IChatChannelAdapter
     /// năng phụ. Hỏng thì ghi log rồi thôi.</para>
     /// </summary>
     /// <returns>Id tài khoản Instagram đã nối, hoặc <c>null</c> nếu Trang không có.</returns>
-    public async Task<string?> NoiTuTrangAsync(string tenantId, string pageId, string? pageName,
+    public async Task<string?> ConnectFromPageAsync(string tenantId, string pageId, string? pageName,
         string pageAccessToken, CancellationToken ct)
     {
         try
@@ -352,7 +352,7 @@ public class InstagramChatAdapter : IChatChannelAdapter
             // Lượt hỏi này đi qua Graph của FACEBOOK (hỏi về Trang), khác đường GỬI TIN vốn đi qua
             // graph.instagram.com. Hai tên miền, đừng gộp.
             using var res = await http.GetAsync(
-                $"https://graph.facebook.com/{PhienBan}/{U(pageId)}"
+                $"https://graph.facebook.com/{ApiVersion}/{U(pageId)}"
                 + $"?fields=instagram_business_account%7Bid%2Cusername%7D"
                 + $"&access_token={U(pageAccessToken)}", ct);
             var raw = await res.Content.ReadAsStringAsync(ct);
@@ -386,5 +386,5 @@ public class InstagramChatAdapter : IChatChannelAdapter
             return null;
         }
     }
-    private static string Cat(string s) => s.Length <= 200 ? s : s[..200];
+    private static string Truncate(string s) => s.Length <= 200 ? s : s[..200];
 }

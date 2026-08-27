@@ -35,7 +35,7 @@ public static class ChatRules
     /// thì trả giá trị; ném từ đây là ép mọi chỗ gọi phải bọc <c>try</c>, kể cả chỗ chỉ muốn lọc
     /// bỏ. Chỗ nào coi rỗng là lỗi thì tự báo bằng câu nói của mình.</para>
     /// </summary>
-    public static string ChuanHoaSlug(string? tho)
+    public static string NormalizeSlug(string? tho)
     {
         var s = (tho ?? "").Trim().TrimStart('/').ToLowerInvariant();
         // đ → d phải làm TRƯỚC khi bóc dấu: nó không phải nguyên âm có dấu, FormD không tách ra.
@@ -48,13 +48,13 @@ public static class ChatRules
     }
 
     /// Zalo: gửi tin tự do trong 48 giờ kể từ tin cuối CỦA KHÁCH.
-    public static readonly TimeSpan CuaSoZalo = TimeSpan.FromHours(48);
+    public static readonly TimeSpan ZaloWindow = TimeSpan.FromHours(48);
 
     /// Messenger: 24 giờ.
-    public static readonly TimeSpan CuaSoMessenger = TimeSpan.FromHours(24);
+    public static readonly TimeSpan MetaWindow = TimeSpan.FromHours(24);
 
     /// Nhân viên trả lời xong thì bot câm bấy lâu.
-    public static readonly TimeSpan BotCamMacDinh = TimeSpan.FromMinutes(30);
+    public static readonly TimeSpan DefaultBotMute = TimeSpan.FromMinutes(30);
 
     /// <summary>
     /// Còn gửi được cho khách không.
@@ -63,7 +63,7 @@ public static class ChatRules
     /// tới; mình chủ động mở lời trước thì cả Zalo lẫn Meta đều chặn. Mặc định "mở" ở ca này là
     /// đẩy lỗi xuống tận lúc gọi API, lúc đó nhân viên đã gõ xong tin rồi.</para>
     /// </summary>
-    public static SendWindow TinhCuaSo(ChatChannel kenh, DateTime? khachNhanLuc, DateTime nowUtc)
+    public static SendWindow ComputeSendWindow(ChatChannel kenh, DateTime? khachNhanLuc, DateTime nowUtc)
     {
         // Telegram và web không giới hạn thời gian — nhắn lại lúc nào cũng được. Đây là khác biệt
         // THẬT giữa các kênh, đừng áp một luật chung cho tất cả.
@@ -76,24 +76,24 @@ public static class ChatRules
             return new(true, TimeSpan.MaxValue, "");
 
         // Zalo 48h; Messenger, Instagram và WhatsApp đều 24h.
-        var han = kenh == ChatChannel.Zalo ? CuaSoZalo : CuaSoMessenger;
+        var han = kenh == ChatChannel.Zalo ? ZaloWindow : MetaWindow;
         var gio = (int)han.TotalHours;
 
         if (khachNhanLuc is null)
             return new(false, TimeSpan.Zero,
-                $"Khách chưa nhắn gì nên chưa gửi được. {TenKenh(kenh)} chỉ cho trả lời trong {gio} giờ "
+                $"Khách chưa nhắn gì nên chưa gửi được. {ChannelName(kenh)} chỉ cho trả lời trong {gio} giờ "
                 + "kể từ tin của khách — mình không được chủ động mở lời.");
 
         var conLai = khachNhanLuc.Value + han - nowUtc;
         if (conLai <= TimeSpan.Zero)
             return new(false, TimeSpan.Zero,
-                $"Đã quá {gio} giờ kể từ tin cuối của khách nên {TenKenh(kenh)} không cho gửi nữa. "
+                $"Đã quá {gio} giờ kể từ tin cuối của khách nên {ChannelName(kenh)} không cho gửi nữa. "
                 + "Muốn liên hệ lại thì dùng tin theo mẫu (ZNS) hoặc gọi điện.");
 
         return new(true, conLai, "");
     }
 
-    private static string TenKenh(ChatChannel k) => k switch
+    private static string ChannelName(ChatChannel k) => k switch
     {
         ChatChannel.Zalo => "Zalo",
         ChatChannel.Messenger => "Messenger",
@@ -112,9 +112,9 @@ public static class ChatRules
     /// và <b>không</b> chặn theo "đã giao cho ai" — giao việc không có nghĩa người đó đang ngồi
     /// trước màn hình, nên vẫn để bot trả lời cho tới khi họ thật sự gõ một câu.</para>
     /// </summary>
-    public static bool BotDuocTraLoi(ChatConversation hoiThoai, DateTime nowUtc)
+    public static bool BotMayReply(ChatConversation hoiThoai, DateTime nowUtc)
     {
-        if (hoiThoai.Status == (short)ChatStatus.DaDong) return false;
+        if (hoiThoai.Status == (short)ChatStatus.Closed) return false;
         if (hoiThoai.BotResumeAt is { } moc && moc > nowUtc) return false;
         return true;
     }
@@ -128,7 +128,7 @@ public static class ChatRules
     /// </summary>
     /// <param name="tinCuoiLuc">Thời điểm tin gần nhất của khách.</param>
     /// <param name="imLang">Ngưỡng im lặng, mặc định 4 giây.</param>
-    public static bool DenLucXuLy(DateTime tinCuoiLuc, DateTime nowUtc, TimeSpan? imLang = null)
+    public static bool DueAt(DateTime tinCuoiLuc, DateTime nowUtc, TimeSpan? imLang = null)
         => nowUtc - tinCuoiLuc >= (imLang ?? TimeSpan.FromSeconds(4));
 
     /// <summary>
@@ -137,14 +137,14 @@ public static class ChatRules
     /// <para>Nối bằng xuống dòng chứ không phải dấu cách: "đi 4 ngày" và "2 người lớn" là hai ý
     /// riêng, dính liền thành một dòng sẽ đọc như một câu lủng củng.</para>
     /// </summary>
-    public static string GhepCum(IEnumerable<string?> cacTin)
+    public static string JoinBurst(IEnumerable<string?> cacTin)
         => string.Join("\n", cacTin.Where(t => !string.IsNullOrWhiteSpace(t)).Select(t => t!.Trim()));
 
     /// <summary>
     /// Rút gọn để hiện ở danh sách hội thoại. Cắt giữa chừng thì thêm dấu … cho người đọc biết
     /// là còn nữa.
     /// </summary>
-    public static string TomTat(string? noiDung, int toiDa = 120)
+    public static string Summarize(string? noiDung, int toiDa = 120)
     {
         var s = (noiDung ?? "").Replace('\n', ' ').Replace('\r', ' ').Trim();
         while (s.Contains("  ")) s = s.Replace("  ", " ");
@@ -168,12 +168,12 @@ public static class ChatRules
     /// mà mốc quét theo <c>created_utc</c> nên trúng luôn tin vừa tạo còn chưa rời khỏi hệ thống.
     /// Để lọt thì nhân viên thấy "khách đã xem" một tin khách chưa hề nhận.</para>
     /// </remarks>
-    public static bool KhongLui(ChatState dangCo, ChatState moi)
+    public static bool CanAdvanceState(ChatState dangCo, ChatState moi)
     {
-        if (moi == ChatState.Hong) return dangCo == ChatState.Cho;
-        if (dangCo == ChatState.Hong) return false;   // đã hỏng thì không tự sống lại
+        if (moi == ChatState.Failed) return dangCo == ChatState.Pending;
+        if (dangCo == ChatState.Failed) return false;   // đã hỏng thì không tự sống lại
         // Chưa gửi đi thì không thể "đã nhận"/"đã xem" — xem <remarks>.
-        if (dangCo == ChatState.Cho) return moi == ChatState.DaGui;
+        if (dangCo == ChatState.Pending) return moi == ChatState.Sent;
         return (short)moi > (short)dangCo;
     }
 }
