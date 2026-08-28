@@ -2214,22 +2214,31 @@ public static class ChatInboxEndpoints
     }
 
     /// <summary>
-    /// Trang nhỏ trả về cho cửa sổ cấp quyền. Tự đóng khi xong; hỏng thì để nguyên cho người dùng
-    /// đọc lý do — đóng phụt mất câu lỗi là kiểu tệ nhất, họ chỉ thấy "không có gì xảy ra".
+    /// Trang nhỏ trả về sau khi cấp quyền. Hỏng thì để nguyên cho người dùng đọc lý do — đóng
+    /// phụt mất câu lỗi là kiểu tệ nhất, họ chỉ thấy "không có gì xảy ra".
+    ///
+    /// <para>⚠️ <b>Không được chỉ gọi <c>window.close()</c>.</b> Lệnh đó chỉ chạy được với cửa sổ
+    /// do chính script mở ra. Trên ĐIỆN THOẠI, luồng cấp quyền thường đi ngay trong tab hiện tại
+    /// (trình duyệt di động chặn cửa sổ bật lên), nên <c>close()</c> im lặng không làm gì và người
+    /// dùng mắc kẹt ở trang trắng này — cấp quyền xong xuôi mà trông như hỏng.</para>
+    ///
+    /// <para>Nên: có cửa sổ mẹ thì đóng như cũ; không có thì quay về thẳng hộp thư.</para>
     /// </summary>
     private static IResult PermissionPage(bool xong, string thongDiep)
     {
         var mau = xong ? "#16A34A" : "#DC2626";
         var tuDong = xong
-            ? "<script>setTimeout(function(){window.close()},1500)</script>"
+            ? "<script>setTimeout(function(){"
+              + "if(window.opener&&!window.opener.closed){window.close();}"
+              + "else{location.href='/chat-inbox';}},1500)</script>"
             : "";
         var html = $"""
             <!doctype html><html lang="vi"><head><meta charset="utf-8">
-            <title>Cấp quyền Zalo OA</title></head>
+            <title>Cấp quyền kênh chat</title></head>
             <body style="font-family:system-ui,sans-serif;padding:32px;line-height:1.6">
             <h2 style="color:{mau};margin:0 0 8px">{(xong ? "Đã cấp quyền" : "Cấp quyền không xong")}</h2>
             <p>{System.Net.WebUtility.HtmlEncode(thongDiep)}</p>
-            <p style="color:#64748B">{(xong ? "Cửa sổ này tự đóng." : "Đóng cửa sổ này rồi thử lại.")}</p>
+            <p style="color:#64748B">{(xong ? "Đang quay lại hộp thư…" : "Quay lại hộp thư rồi thử lại.")}</p>
             {tuDong}</body></html>
             """;
         return Results.Content(html, "text/html; charset=utf-8");

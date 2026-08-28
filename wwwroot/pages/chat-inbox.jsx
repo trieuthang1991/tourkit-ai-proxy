@@ -1438,13 +1438,37 @@
     //
     // Mở cửa sổ PHỤ chứ không chuyển hướng cả trang: người dùng đang khai dở form, chuyển đi là
     // mất hết những gì vừa gõ mà chưa bấm Lưu.
+    /// Mở cửa sổ cấp quyền cho ĐÚNG cách trình duyệt cho phép.
+    //
+    // ⚠️ Phải gọi window.open NGAY trong cử chỉ bấm, TRƯỚC mọi await. Trình duyệt chỉ cho mở cửa
+    // sổ khi lệnh nằm trong ngăn xếp ĐỒNG BỘ của một cử chỉ người dùng; sau await thì cử chỉ đã
+    // bị tiêu và lệnh bị chặn. Máy bàn dễ tính nên không lộ, còn Safari/Chrome trên điện thoại
+    // chặn thẳng — đúng kiểu lỗi "máy tôi chạy được mà máy khách thì không".
+    //
+    // Nên: mở cửa sổ RỖNG trước, xin đường dẫn xong mới trỏ nó tới đó. Bị chặn (trả null) thì
+    // lùi về điều hướng chính tab hiện tại — thà mất form đang gõ dở còn hơn bấm mà không có gì
+    // xảy ra và người dùng không hiểu vì sao.
+    function moCuaSoCapQuyen(ten) {
+      try { return window.open('', ten, 'width=560,height=720'); } catch { return null; }
+    }
+
+    function diToiCapQuyen(cua, url) {
+      if (cua && !cua.closed) { cua.location.href = url; return true; }
+      window.location.href = url;   // cửa sổ bật lên bị chặn — đi thẳng ở tab này
+      return false;
+    }
+
     async function capQuyenZalo(kenh, accId) {
+      const cua = moCuaSoCapQuyen('zalo-cap-quyen');
       const r = await authedFetch('/api/v1/chat/channels/' + kenh + '/accounts/' + accId + '/oauth-url',
         { method: 'POST' });
       let j = null; try { j = await r.json(); } catch {}
-      if (!r.ok) { pushToast(j?.error || 'Không dựng được đường cấp quyền', 'error'); return; }
-      window.open(j.url, 'zalo-cap-quyen', 'width=560,height=720');
-      pushToast('Cấp quyền xong thì bấm Tải lại để thấy trạng thái mới', 'success');
+      if (!r.ok) {
+        try { cua?.close(); } catch {}
+        pushToast(j?.error || 'Không dựng được đường cấp quyền', 'error'); return;
+      }
+      if (diToiCapQuyen(cua, j.url))
+        pushToast('Cấp quyền xong thì bấm Tải lại để thấy trạng thái mới', 'success');
     }
 
     // Kết nối mà KHÔNG khai gì trước: ứng dụng Zalo/Facebook là của TourKit, khách chỉ cần đồng ý.
@@ -1459,11 +1483,16 @@
     const [lichSu, setLichSu] = React.useState({});
 
     async function noiNhanhKenh(kenh) {
+      const cua = moCuaSoCapQuyen('chat-cap-quyen');
       const r = await authedFetch('/api/v1/chat/channels/' + kenh + '/connect-url', { method: 'POST' });
       let j = null; try { j = await r.json(); } catch {}
-      if (!r.ok) { pushToast(j?.error || 'Không dựng được đường kết nối', 'error'); return; }
-      window.open(j.url, 'chat-cap-quyen', 'width=560,height=720');
-      pushToast('Nối xong thì bấm Tải lại để thấy tài khoản mới', 'success');
+      if (!r.ok) {
+        try { cua?.close(); } catch {}
+        pushToast(j?.error || 'Không dựng được đường kết nối', 'error'); return;
+      }
+      // Đi thẳng ở tab này thì trang sắp rời đi, hiện lời nhắc là vô nghĩa.
+      if (diToiCapQuyen(cua, j.url))
+        pushToast('Nối xong thì bấm Tải lại để thấy tài khoản mới', 'success');
     }
 
     // Lấy lại đoạn chat cũ. Chạy nền vài phút nên đây chỉ ra lệnh bắt đầu rồi hỏi tiến độ —
