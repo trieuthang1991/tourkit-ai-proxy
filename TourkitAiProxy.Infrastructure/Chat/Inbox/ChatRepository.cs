@@ -680,6 +680,8 @@ public class ChatRepository
             INSERT INTO chat_conversation_reads (tenant_id, conversation_id, username, last_read_at)
             SELECT @tenant, @id, @username, m.created_utc - interval '1 millisecond'
               FROM chat_messages m
+              JOIN chat_conversations c ON c.id = m.conversation_id
+                                       AND c.id = @id AND c.tenant_id = @tenant
              WHERE m.conversation_id = @id AND m.tenant_id = @tenant AND m.direction = 0
              ORDER BY m.created_utc DESC
              LIMIT 1

@@ -1,3 +1,4 @@
+using System.Text.RegularExpressions;
 using TourkitAiProxy.Domain.Chat;
 using Xunit;
 
@@ -33,5 +34,21 @@ public class InboxActionTests
         // Kind=Unspecified lọt xuống Dapper là lệch +7h khi đọc lại — xem docs/datetime-convention.md.
         var moc = ChatRules.MocChuaDoc(new DateTime(2026, 8, 28, 10, 0, 0, DateTimeKind.Utc));
         Assert.Equal(DateTimeKind.Utc, moc.Kind);
+    }
+
+    [Fact]
+    public void Danh_dau_chua_doc_kiem_hoi_thoai_cung_tenant_ngay_trong_SQL()
+    {
+        // FK của chat_messages chỉ giữ conversation_id, không khẳng định bản ghi hội thoại đó thuộc
+        // tenant đang thao tác. Thiếu JOIN/EXISTS này thì một tin có tenant trùng có thể tạo mốc đọc
+        // trên hội thoại id trùng nhưng thuộc công ty khác.
+        var src = ChatSchemaGuardTests.DocFile("TourkitAiProxy.Infrastructure/Chat/Inbox/ChatRepository.cs");
+        var m = Regex.Match(src, "MarkUnreadAsync(.{0,1200})", RegexOptions.Singleline);
+        Assert.True(m.Success, "Không thấy MarkUnreadAsync trong ChatRepository");
+
+        var sql = m.Groups[1].Value;
+        Assert.Contains("JOIN chat_conversations c", sql);
+        Assert.Contains("c.id = @id", sql);
+        Assert.Contains("c.tenant_id = @tenant", sql);
     }
 }
