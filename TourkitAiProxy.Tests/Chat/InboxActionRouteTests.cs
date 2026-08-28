@@ -86,4 +86,16 @@ public class InboxActionRouteTests
         Assert.Contains("AS followed", get.Groups[1].Value);
         Assert.Contains("nguoiDung: a.Username", endpoint);
     }
+
+    [Fact]
+    public void Bo_theo_doi_trong_bo_loc_phai_bo_danh_sach_cu_truoc_khi_tai_lai()
+    {
+        // taiDsach() giữ các trang đã cuộn để tránh giật lúc SSE cập nhật. Sau khi BỎ theo dõi
+        // trong bộ lọc "Tôi theo dõi", giữ quy tắc đó sẽ để chính hội thoại vừa bỏ còn nằm trong
+        // danh sách — trái với lời hứa của bộ lọc. Callback phải dùng đúng reset có sẵn trước khi tải.
+        var ui = ChatSchemaGuardTests.DocFile("wwwroot/pages/chat-inbox.jsx");
+        var m = Regex.Match(ui, "async function doiTheoDoi\\(\\)(.{0,1000})", RegexOptions.Singleline);
+        Assert.True(m.Success, "Không thấy callback doiTheoDoi");
+        Assert.Matches(@"setDsach\(\[\]\);\s*setConTro\(null\);\s*await taiDsach\(\);", m.Groups[1].Value);
+    }
 }

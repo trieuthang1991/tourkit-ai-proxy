@@ -1891,6 +1891,11 @@
         });
         const j = await r.json().catch(() => ({}));
         if (!r.ok) { pushToast(j.error || 'Không cập nhật theo dõi được', 'error'); return; }
+        // Lượt tải đầu thường giữ các trang đã cuộn để SSE không làm mất vị trí. Vừa bỏ theo dõi
+        // trong bộ lọc "Tôi theo dõi" thì chính dòng cũ có thể không còn thuộc kết quả nữa, nên
+        // dùng đúng reset khi đổi bộ lọc trước khi lấy lại từ đầu.
+        setDsach([]);
+        setConTro(null);
         await taiDsach(); await taiChiTiet(chon);
       } catch (e) {
         pushToast('Không cập nhật theo dõi được: ' + e.message, 'error');
