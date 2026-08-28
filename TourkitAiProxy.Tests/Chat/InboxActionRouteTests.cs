@@ -94,7 +94,9 @@ public class InboxActionRouteTests
         // trong bộ lọc "Tôi theo dõi", giữ quy tắc đó sẽ để chính hội thoại vừa bỏ còn nằm trong
         // danh sách — trái với lời hứa của bộ lọc. Callback phải dùng đúng reset có sẵn trước khi tải.
         var ui = ChatSchemaGuardTests.DocFile("wwwroot/pages/chat-inbox.jsx");
-        var m = Regex.Match(ui, "async function doiTheoDoi\\(\\)(.{0,1000})", RegexOptions.Singleline);
+        // Chữ ký nhận tham số từ 28/08 (menu trên từng DÒNG phải tác động đúng dòng đó, không
+        // phải hội thoại đang mở) — bắt mở ngoặc thôi, đừng ghim danh sách tham số.
+        var m = Regex.Match(ui, @"async function doiTheoDoi\([^)]*\)(.{0,1000})", RegexOptions.Singleline);
         Assert.True(m.Success, "Không thấy callback doiTheoDoi");
         Assert.Matches(@"setDsach\(\[\]\);\s*setConTro\(null\);\s*await taiDsach\(\);", m.Groups[1].Value);
     }

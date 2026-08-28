@@ -9723,17 +9723,33 @@ img.ci-avt { object-fit: cover; }
 /* Bong bóng phải là mốc định vị cho nút nổi ở trên. */
 .ci-dong.ci-phai > div { position: relative; }
 
-/* ── Dấu hiệu gọn trong danh sách hội thoại ───────────────────────────────────
-   Thay ba huy hiệu CHỮ ("Đang xử lý" · tên người nhận · "bot tạm dừng") vốn chiếm nguyên một
-   hàng thứ ba. Mỗi mục thấp đi khoảng một phần ba, tức mỗi màn hình thấy được nhiều hội thoại
-   hơn hẳn — mà ba chữ kia thì lần nào cũng đọc lại y nguyên. */
-.ci-muc-duoi { display: flex; align-items: center; gap: 6px; min-width: 0; }
-.ci-muc-duoi .ci-xemtruoc { flex: 1; min-width: 0; }
-.ci-dau-hieu { display: flex; align-items: center; gap: 4px; flex: none; }
-.ci-dh { display: grid; place-items: center; width: 15px; height: 15px; flex: none;
-         font-size: 10px; font-style: normal; line-height: 1;
-         color: var(--text-3); }
-.ci-dh.sao { color: #d97706; }
-.ci-dh.chan { color: var(--danger); }
-.ci-dh.nguoi { border-radius: 50%; font-size: 9px; font-weight: 700;
-               background: var(--ci-nen-chip); color: var(--text-1); }
+
+/* ── Dòng danh sách: giãn ra cho dễ theo dõi ──────────────────────────────────
+   Bản nén trước đó dồn quá sát và thay nhãn chữ bằng ký hiệu 10px — gọn thật, nhưng người dùng
+   phải rê chuột từng cái mới biết nghĩa, và các dòng dính vào nhau thành một khối khó liếc.
+   Đây là danh sách để LIẾC chứ không phải để đọc kỹ, nên chữ đọc được thắng chỗ trống tiết kiệm. */
+.ci-muc { padding: 12px 34px 13px 10px; }   /* chừa chỗ bên phải cho nút "⋯" */
+.ci-cot .ci-muc + .ci-muc { margin-top: 2px; }
+.ci-muc-cuoi { margin-top: 7px; gap: 6px; }
+.ci-tt, .ci-giao, .ci-botcam, .ci-theodoi, .ci-dachan {
+  height: 19px; padding: 0 7px; font-size: 10.5px; border-radius: 5px; }
+.ci-tt { padding-left: 6px; }
+
+/* Hai nhãn mới, cùng khuôn với .ci-giao/.ci-botcam sẵn có. */
+.ci-theodoi, .ci-dachan { display: inline-flex; align-items: center; font-weight: 600;
+                          white-space: nowrap; }
+.ci-theodoi { background: var(--ci-nen-chip); color: var(--ci-cam-800); }
+.ci-dachan  { background: var(--primary-soft); color: var(--danger); }
+
+/* ── Nút "⋯" của một dòng ─────────────────────────────────────────────────────
+   Tuyệt đối nên không chiếm chỗ lúc ẩn: dòng không nhảy khi nó hiện ra. Vẫn hiện khi menu đang
+   mở hoặc khi bàn phím đang ở trên nó, nếu không thì mở menu xong nút biến mất ngay dưới tay. */
+.ci-muc-cham { position: absolute; top: 10px; right: 6px; z-index: 2;
+               display: grid; place-items: center; width: 26px; height: 26px; padding: 0;
+               border: 0; border-radius: 50%; cursor: pointer;
+               background: transparent; color: var(--text-3); opacity: 0; transition: opacity .12s; }
+.ci-muc:hover .ci-muc-cham, .ci-muc-cham:focus-visible { opacity: 1; }
+.ci-muc-cham:hover { background: var(--ci-nen-chip); color: var(--text-1); }
+
+/* Menu của dòng mở xuống dưới, canh mép phải nút. */
+.ci-menu-dong { top: 34px; right: 6px; }

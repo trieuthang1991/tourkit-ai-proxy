@@ -1742,6 +1742,9 @@
     // nút hồ sơ) và dồn phần còn lại vào một menu — bảy nút chữ xếp ngang như bản trước vừa tràn
     // dòng vừa bắt người ta đọc hết bảy nhãn mỗi lần chỉ để bấm một cái.
     const [moMenu, setMoMenu] = useState(false);
+    // Id của dòng đang mở menu "⋯" trong DANH SÁCH. Một biến chứ không phải cờ mỗi dòng:
+    // chỉ được mở đúng một menu tại một thời điểm, và mở cái mới là cái cũ tự đóng.
+    const [menuDong, setMenuDong] = useState(null);
     const [dinhKem, setDinhKem] = useState(null);      // tệp đã tải lên, CHỜ bấm gửi
     const [dangTai2, setDangTai2] = useState(false);   // đang tải tệp lên kho
     const [mauTraLoi, setMauTraLoi] = useState([]);
@@ -1935,13 +1938,13 @@
       finally { setDangGui(false); }
     }
 
-    async function doiTrangThai(tt) {
-      if (!chon) return;
-      await authedFetch('/api/v1/chat/conversations/' + chon + '/status', {
+    async function doiTrangThai(tt, id = chon) {
+      if (!id) return;
+      await authedFetch('/api/v1/chat/conversations/' + id + '/status', {
         method: 'PATCH', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ status: tt }),
       });
-      await taiDsach(); await taiChiTiet(chon);
+      await taiDsach(); if (chon) await taiChiTiet(chon);
     }
 
     // Nhận việc: KHÔNG gửi tên, để máy chủ lấy từ phiên. Bản trước gửi
@@ -1960,23 +1963,24 @@
         let j = null; try { j = await r.json(); } catch {}
         pushToast(j?.error || 'Người khác đã nhận hội thoại này', 'error');
       }
-      await taiDsach(); await taiChiTiet(chon);
+      await taiDsach(); if (chon) await taiChiTiet(chon);
     }
 
-    async function batTatBot() {
-      if (!chon) return;
-      const dangCam = chiTiet?.conversation?.botPaused;
-      await authedFetch('/api/v1/chat/conversations/' + chon + '/bot', {
+    async function batTatBot(id = chon, dangCamHienTai = null) {
+      if (!id) return;
+      const dangCam = dangCamHienTai ?? chiTiet?.conversation?.botPaused;
+      await authedFetch('/api/v1/chat/conversations/' + id + '/bot', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ paused: !dangCam, minutes: 30 }),
       });
       await taiChiTiet(chon);
     }
 
-    async function danhDauChuaDoc() {
-      if (!chon) return;
+    // id mặc định là hội thoại ĐANG MỞ; menu trên từng dòng truyền id của chính dòng đó.
+    async function danhDauChuaDoc(id = chon) {
+      if (!id) return;
       try {
-        const r = await authedFetch('/api/v1/chat/conversations/' + chon + '/unread', { method: 'POST' });
+        const r = await authedFetch('/api/v1/chat/conversations/' + id + '/unread', { method: 'POST' });
         const j = await r.json().catch(() => ({}));
         if (!r.ok) { pushToast(j.error || 'Không đánh dấu chưa đọc được', 'error'); return; }
         if (!j.ok) {
@@ -2046,34 +2050,34 @@
       }
     }
 
-    async function doiChan() {
-      if (!chon || !v) return;
+    async function doiChan(id = chon, dangChan = v?.blocked) {
+      if (!id) return;
       // ⚠️ Câu hỏi PHẢI nói rõ phạm vi. Không nền tảng nào cho phía doanh nghiệp chặn một người
       // qua API, nên đây chỉ là chặn trong hộp thư của mình — khách vẫn nhắn tới được. Gọi tắt
       // thành "chặn" mà không giải thích là người dùng tưởng đã chặn ở Facebook.
-      if (!v.blocked && !confirm(
+      if (!dangChan && !confirm(
         'Chặn khách này trong hộp thư?\n\n'
         + 'Hộp thư sẽ ẩn họ và trợ lý ngừng trả lời. Việc này KHÔNG báo cho Facebook/Zalo, '
         + 'khách vẫn nhắn tới được và vẫn thấy các tin cũ.')) return;
       try {
-        const r = await authedFetch('/api/v1/chat/conversations/' + chon + '/block', {
-          method: v.blocked ? 'DELETE' : 'POST',
+        const r = await authedFetch('/api/v1/chat/conversations/' + id + '/block', {
+          method: dangChan ? 'DELETE' : 'POST',
         });
         const j = await r.json().catch(() => ({}));
         if (!r.ok) { pushToast(j.error || 'Không cập nhật chặn được', 'error'); return; }
         setDsach([]);
         setConTro(null);
-        await taiDsach(); await taiChiTiet(chon);
+        await taiDsach(); if (chon) await taiChiTiet(chon);
       } catch (e) {
         pushToast('Không cập nhật chặn được: ' + e.message, 'error');
       }
     }
 
-    async function doiTheoDoi() {
-      if (!chon || !v) return;
+    async function doiTheoDoi(id = chon, dangTheoDoi = v?.followed) {
+      if (!id) return;
       try {
-        const r = await authedFetch('/api/v1/chat/conversations/' + chon + '/follow', {
-          method: v.followed ? 'DELETE' : 'POST',
+        const r = await authedFetch('/api/v1/chat/conversations/' + id + '/follow', {
+          method: dangTheoDoi ? 'DELETE' : 'POST',
         });
         const j = await r.json().catch(() => ({}));
         if (!r.ok) { pushToast(j.error || 'Không cập nhật theo dõi được', 'error'); return; }
@@ -2082,7 +2086,7 @@
         // dùng đúng reset khi đổi bộ lọc trước khi lấy lại từ đầu.
         setDsach([]);
         setConTro(null);
-        await taiDsach(); await taiChiTiet(chon);
+        await taiDsach(); if (chon) await taiChiTiet(chon);
       } catch (e) {
         pushToast('Không cập nhật theo dõi được: ' + e.message, 'error');
       }
@@ -2185,9 +2189,15 @@
                 </div>
               )}
               {dsach.map(c => (
-                <button key={c.id}
-                        className={'ci-muc' + (chon === c.id ? ' on' : '') + (c.unread ? ' chuadoc' : '')}
-                        onClick={() => setChon(c.id)}>
+                // Thẻ div chứ không phải button: bên trong có nút "⋯" riêng, mà nút lồng trong
+                // nút là HTML sai và React sẽ cảnh báo. Vẫn giữ nguyên hành vi bàn phím bằng
+                // role + tabIndex + Enter/Space.
+                <div key={c.id} role="button" tabIndex={0}
+                     className={'ci-muc' + (chon === c.id ? ' on' : '') + (c.unread ? ' chuadoc' : '')}
+                     onClick={() => setChon(c.id)}
+                     onKeyDown={e => {
+                       if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setChon(c.id); }
+                     }}>
                   <span className="ci-muc-avt">
                     {/* url= là BẮT BUỘC, không thì AnhDaiDien lặng lẽ vẽ chữ cái đầu — danh sách
                         hiện "TT" trong khi đầu khung chat ngay cạnh hiện ảnh thật của cùng khách. */}
@@ -2210,23 +2220,61 @@
                       <span className="ci-ten">{c.displayName || c.contactExternalId}</span>
                       <span className="ci-luc">{gioNgan(c.lastActivityAt)}</span>
                     </span>
-                    <span className="ci-muc-duoi">
-                      <span className="ci-xemtruoc">{c.lastPreview || 'chưa có tin nào'}</span>
-                      <span className="ci-dau-hieu">
-                        {c.followed && <i className="ci-dh sao" title="Bạn đang theo dõi">★</i>}
-                        {c.botPaused && <i className="ci-dh" title="Trợ lý đang tạm dừng">⏸</i>}
-                        {c.blocked && <i className="ci-dh chan" title="Khách đang bị chặn trong hộp thư">⊘</i>}
-                        {/* Người nhận rút về một chữ cái: cần biết CÓ ai nhận chưa và ai, mà tên
-                            đầy đủ thì chiếm gần nửa dòng. Tên đầy đủ nằm ở tooltip. */}
-                        {c.assignedUsername && (
-                          <i className="ci-dh nguoi" title={'Đang xử lý: ' + c.assignedUsername}>
-                            {c.assignedUsername.slice(0, 1).toUpperCase()}
-                          </i>
-                        )}
+                    <span className="ci-xemtruoc">{c.lastPreview || 'chưa có tin nào'}</span>
+                    {/* NHÃN CHỮ, không phải biểu tượng bé xíu. Bản trước rút xuống mấy ký hiệu
+                        10px (★ ⏸ ⊘ và một chữ cái) cho gọn — nhưng gọn tới mức không ai đoán
+                        được nghĩa, phải rê chuột từng cái mới biết. Chữ đọc được thắng chỗ trống
+                        tiết kiệm: đây là danh sách người ta LIẾC chứ không phải đọc kỹ. */}
+                    <span className="ci-muc-cuoi">
+                      <span className={'ci-tt' + (c.status === 0 ? ' moi' : '')}>
+                        <i />{TEN_TRANG_THAI[c.status]}
                       </span>
+                      {c.assignedUsername && <span className="ci-giao">{c.assignedUsername}</span>}
+                      {c.botPaused && <span className="ci-botcam">trợ lý dừng</span>}
+                      {c.followed && <span className="ci-theodoi">★ theo dõi</span>}
+                      {c.blocked && <span className="ci-dachan">đã chặn</span>}
                     </span>
                   </span>
-                </button>
+
+                  {/* "⋯" hiện khi rê chuột — đúng lối Messenger. Nút nằm TUYỆT ĐỐI nên không
+                      chiếm chỗ lúc ẩn, và dòng không nhảy khi nó hiện ra. */}
+                  <button className="ci-muc-cham" title="Thao tác" aria-label="Thao tác"
+                          onClick={e => { e.stopPropagation();
+                                          setMenuDong(x => (x === c.id ? null : c.id)); }}>
+                    <window.Icon name="more" size={15} />
+                  </button>
+                  {menuDong === c.id && (
+                    <>
+                      <div className="ci-menu-nen"
+                           onClick={e => { e.stopPropagation(); setMenuDong(null); }} />
+                      <div className="ci-menu ci-menu-dong" role="menu"
+                           onClick={e => e.stopPropagation()}>
+                        <button role="menuitem"
+                                onClick={() => { setMenuDong(null); danhDauChuaDoc(c.id); }}>
+                          Đánh dấu chưa đọc
+                        </button>
+                        <button role="menuitem"
+                                onClick={() => { setMenuDong(null); doiTheoDoi(c.id, c.followed); }}>
+                          {c.followed ? 'Bỏ theo dõi' : 'Theo dõi hội thoại'}
+                        </button>
+                        <button role="menuitem"
+                                onClick={() => { setMenuDong(null); batTatBot(c.id, c.botPaused); }}>
+                          {c.botPaused ? 'Cho trợ lý nói lại' : 'Tạm dừng trợ lý'}
+                        </button>
+                        <button role="menuitem"
+                                onClick={() => { setMenuDong(null);
+                                                 doiTrangThai(c.status !== 2 ? 2 : 1, c.id); }}>
+                          {c.status !== 2 ? 'Đóng hội thoại' : 'Mở lại hội thoại'}
+                        </button>
+                        <span className="ci-menu-vach" aria-hidden="true" />
+                        <button role="menuitem" className="nguy-hiem"
+                                onClick={() => { setMenuDong(null); doiChan(c.id, c.blocked); }}>
+                          {c.blocked ? 'Bỏ chặn khách' : 'Chặn trong hộp thư'}
+                        </button>
+                      </div>
+                    </>
+                  )}
+                </div>
               ))}
               {conTro && (
                 <button className="ci-taithem" disabled={dangTaiThem}
