@@ -279,7 +279,7 @@
     // Chỗ đặt mũi nhọn, đo từ mép PHẢI menu vào. Tính theo tâm nút thật chứ không đặt cứng: khi
     // x bị kẹp ở trên thì mép menu không còn trùng mép nút nữa, đặt cứng là mũi nhọn chỉ vào chỗ
     // trống. Kẹp lại trong thân menu để nó không thò ra ngoài góc bo.
-    const nhon = Math.max(10, Math.min(168, x - (o.left + o.width / 2) - 5));
+    const nhon = Math.max(8, Math.min(168, x - (o.left + o.width / 2) - 5));
     return { x, y, lat, nhon };
   }
 

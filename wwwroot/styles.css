@@ -435,7 +435,7 @@ input:focus, textarea:focus, select:focus { outline: none; }
 .btn.autotoggle {
   display: inline-flex; align-items: center; gap: 6px;
   padding: 7px 12px; font-size: 12px; font-weight: 600;
-  border-radius: 999px; border: 1px solid var(--line); background: transparent;
+  border-radius: 999px; border: 1px solid var(--border); background: transparent;
   transition: background .15s, border-color .15s, color .15s;
 }
 .btn.autotoggle.on  { background: rgba(255, 121, 39, 0.08); border-color: var(--primary); color: var(--primary-dark); }
@@ -1434,7 +1434,7 @@ body.editorial .ai-bubble .hl { color: #FDBA74; }
   display: flex; align-items: center; justify-content: center;
   flex-shrink: 0;
 }
-.modal-head .modal-title { font-size: 16px; font-weight: 700; color: var(--text-1); margin: 0; }
+.modal-head .modal-title { font-size: 16px; font-weight: 700; color: var(--text); margin: 0; }
 .modal-head .modal-sub { font-size: 12px; color: var(--text-3); margin-top: 2px; }
 .modal-head .modal-close {
   margin-left: auto;
@@ -1444,7 +1444,7 @@ body.editorial .ai-bubble .hl { color: #FDBA74; }
   font-size: 22px; line-height: 1; color: var(--text-3);
   display: flex; align-items: center; justify-content: center;
 }
-.modal-head .modal-close:hover { background: var(--bg-2, #f1f5f9); color: var(--text-1); }
+.modal-head .modal-close:hover { background: var(--bg-2, #f1f5f9); color: var(--text); }
 
 .provider-card {
   display: flex; align-items: center; gap: 14px;
@@ -1456,7 +1456,7 @@ body.editorial .ai-bubble .hl { color: #FDBA74; }
 .provider-card.active { border-color: var(--accent); background: color-mix(in oklab, var(--accent) 5%, var(--surface)); }
 .provider-card input[type="radio"] { accent-color: var(--accent); }
 .provider-info { flex: 1; }
-.provider-name { font-weight: 600; font-size: 14px; color: var(--text-1); }
+.provider-name { font-weight: 600; font-size: 14px; color: var(--text); }
 .provider-desc { font-size: 12px; color: var(--text-3); margin-top: 2px; }
 .provider-badge { font-size: 10px; font-weight: 700; padding: 3px 8px; border-radius: 999px; letter-spacing: 0.04em; }
 .provider-badge.default { background: var(--surface-2, #f3f4f6); color: var(--text-3); }
@@ -1469,7 +1469,7 @@ body.editorial .ai-bubble .hl { color: #FDBA74; }
 }
 .model-chip:hover { border-color: var(--accent-soft, #fed7aa); }
 .model-chip.active { border-color: var(--accent); background: color-mix(in oklab, var(--accent) 7%, var(--surface)); }
-.model-chip-name { font-weight: 600; font-size: 13px; color: var(--text-1); }
+.model-chip-name { font-weight: 600; font-size: 13px; color: var(--text); }
 .model-chip-desc { font-size: 11px; color: var(--text-3); margin-top: 2px; line-height: 1.4; }
 
 .field-hint { font-size: 11px; color: var(--text-3); margin-top: 6px; line-height: 1.5; }
@@ -6507,7 +6507,7 @@ n
   color: var(--text-2, #334155); font-size: 13px; font-weight: 500;
   cursor: pointer; transition: border-color .15s, color .15s, transform .12s;
 }
-.vh-refresh:hover { border-color: var(--border-strong, #CBD5E1); color: var(--text-1); }
+.vh-refresh:hover { border-color: var(--border-strong, #CBD5E1); color: var(--text); }
 .vh-refresh:active { transform: translateY(1px); }
 .vh-refresh:disabled { opacity: .55; cursor: not-allowed; }
 
@@ -6524,13 +6524,13 @@ n
 .vh-search svg { color: var(--text-3); flex-shrink: 0; }
 .vh-search input {
   flex: 1; border: 0; background: transparent; outline: 0;
-  font-size: 13.5px; color: var(--text-1); min-width: 0;
+  font-size: 13.5px; color: var(--text); min-width: 0;
 }
 .vh-search-clear {
   border: 0; background: transparent; color: var(--text-3); cursor: pointer;
   font-size: 18px; line-height: 1; padding: 0 4px;
 }
-.vh-search-clear:hover { color: var(--text-1); }
+.vh-search-clear:hover { color: var(--text); }
 .vh-select {
   height: 36px; padding: 0 28px 0 12px;
   background: var(--bg); border: 1px solid var(--border); border-radius: 8px;
@@ -6547,7 +6547,7 @@ n
   font-size: 12.5px; font-weight: 500; color: var(--text-3);
   cursor: pointer; transition: all .15s;
 }
-.vh-chip:hover { color: var(--text-1); border-color: var(--border-strong); }
+.vh-chip:hover { color: var(--text); border-color: var(--border-strong); }
 .vh-chip-on {
   background: var(--accent); border-color: var(--accent);
   color: #fff;
@@ -6569,7 +6569,7 @@ n
   background: var(--accent-soft, #FFF1E5); color: var(--accent);
   display: grid; place-items: center; margin: 0 auto 14px;
 }
-.vh-empty h3 { margin: 0 0 6px; font-size: 16px; color: var(--text-1); font-weight: 600; }
+.vh-empty h3 { margin: 0 0 6px; font-size: 16px; color: var(--text); font-weight: 600; }
 .vh-empty p { margin: 0; font-size: 13.5px; }
 .vh-empty a { color: var(--accent); font-weight: 500; text-decoration: none; }
 .vh-empty a:hover { text-decoration: underline; }
@@ -6579,7 +6579,7 @@ n
   background: var(--bg); border: 1px solid var(--border); color: var(--text-2);
   font-size: 12.5px; cursor: pointer;
 }
-.vh-btn-soft:hover { color: var(--text-1); border-color: var(--border-strong); }
+.vh-btn-soft:hover { color: var(--text); border-color: var(--border-strong); }
 .vh-skel {
   height: 64px; background: linear-gradient(90deg, var(--surface) 0%, var(--bg) 50%, var(--surface) 100%);
   background-size: 200% 100%; border: 1px solid var(--border); border-radius: 12px;
@@ -6617,7 +6617,7 @@ n
 
 .vh-col-main { min-width: 0; }
 .vh-name {
-  font-size: 14px; font-weight: 600; color: var(--text-1);
+  font-size: 14px; font-weight: 600; color: var(--text);
   white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
 }
 .vh-meta {
@@ -6710,7 +6710,7 @@ n
   background: transparent; border: 1px solid var(--border); color: var(--text-2);
   font-size: 20px; line-height: 1; cursor: pointer;
 }
-.vh-drawer-close:hover { background: var(--bg); color: var(--text-1); }
+.vh-drawer-close:hover { background: var(--bg); color: var(--text); }
 .vh-drawer-meta { display: flex; flex-direction: column; gap: 2px; min-width: 0; flex: 1; }
 .vh-drawer-id {
   font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
@@ -6725,7 +6725,7 @@ n
 
 .vh-drawer-body { padding: 20px 22px 28px; overflow-y: auto; flex: 1; }
 .vh-drawer-applicant { display: flex; align-items: center; gap: 14px; margin-bottom: 18px; }
-.vh-drawer-name { margin: 0; font-size: 18px; font-weight: 600; color: var(--text-1); }
+.vh-drawer-name { margin: 0; font-size: 18px; font-weight: 600; color: var(--text); }
 .vh-drawer-sub {
   display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
   font-size: 12.5px; color: var(--text-3); margin-top: 4px;
@@ -6746,7 +6746,7 @@ n
 .vh-drawer-level { font-size: 13px; font-weight: 600; margin-top: 6px; opacity: .85; }
 .vh-drawer-summary {
   margin: 12px 0 0; font-size: 13.5px; line-height: 1.55;
-  color: var(--text-1);
+  color: var(--text);
 }
 
 .vh-drawer-section { margin-top: 18px; }
@@ -9710,14 +9710,14 @@ img.ci-avt { object-fit: cover; }
 
 .ci-menu { position: absolute; top: calc(100% + 6px); right: 0; z-index: 41;
            min-width: 190px; padding: 4px; display: flex; flex-direction: column;
-           background: var(--surface); border: 1px solid var(--line);
+           background: var(--surface); border: 1px solid var(--border);
            border-radius: 10px; box-shadow: 0 8px 24px rgba(0,0,0,.12); }
 .ci-menu button { text-align: left; background: none; border: 0; cursor: pointer;
                   padding: 8px 10px; border-radius: 7px; font-size: 13px;
-                  color: var(--text-1); white-space: nowrap; }
+                  color: var(--text); white-space: nowrap; }
 .ci-menu button:hover { background: var(--ci-nen-chip); }
 .ci-menu button.nguy-hiem { color: var(--danger); }
-.ci-menu-vach { height: 1px; margin: 4px 6px; background: var(--line); }
+.ci-menu-vach { height: 1px; margin: 4px 6px; background: var(--border); }
 
 /* ── Thao tác trên MỘT tin ────────────────────────────────────────────────────
    Nút NỔI cạnh bong bóng, không nằm trong luồng: dải chữ nằm trong luồng thì lúc hiện ra nó đẩy
@@ -9734,7 +9734,7 @@ img.ci-avt { object-fit: cover; }
 .ci-tin-cham { display: grid; place-items: center; width: 26px; height: 26px; padding: 0;
                border: 0; border-radius: 50%; cursor: pointer;
                background: transparent; color: var(--text-3); }
-.ci-tin-cham:hover { background: var(--ci-nen-chip); color: var(--text-1); }
+.ci-tin-cham:hover { background: var(--ci-nen-chip); color: var(--text); }
 /* Menu của tin vẽ bằng position:fixed, toạ độ do JS neo theo nút.
    Vì sao không dùng absolute như menu ở đầu khung chat: nút "⋯" của tin nằm NGOÀI bong bóng, bên
    trong khung cuộn. Menu absolute ở đó vừa nong chiều ngang khung chat, vừa bị khung cuộn cắt,
@@ -9770,7 +9770,7 @@ img.ci-avt { object-fit: cover; }
                border: 0; border-radius: 50%; cursor: pointer;
                background: transparent; color: var(--text-3); opacity: 0; transition: opacity .12s; }
 .ci-muc:hover .ci-muc-cham, .ci-muc-cham:focus-visible { opacity: 1; }
-.ci-muc-cham:hover { background: var(--ci-nen-chip); color: var(--text-1); }
+.ci-muc-cham:hover { background: var(--ci-nen-chip); color: var(--text); }
 
 /* Menu của dòng cũng vẽ bằng position:fixed + tự lật, cùng lý do với .ci-menu-tin: danh sách
    hội thoại là khung CUỘN, menu absolute ở mấy dòng cuối sẽ bị cắt mất nửa dưới. */
@@ -9804,11 +9804,11 @@ img.ci-avt { object-fit: cover; }
    Chặng lâu nhất của cả hộp thư và trước đây KHÔNG có phản hồi nào ngoài việc đổi biểu tượng
    cái ghim. Nay có tên tệp + phần trăm THẬT đọc từ XHR. */
 .ci-tep-tai { padding: 8px 10px; margin-bottom: 8px; border-radius: 10px;
-              background: var(--bg); border: 1px solid var(--line); }
+              background: var(--bg); border: 1px solid var(--border); }
 .ci-tep-tai-dau { display: flex; align-items: baseline; justify-content: space-between; gap: 10px;
                   font-size: 11.5px; color: var(--text-2); }
 .ci-tep-tai-dau .ten { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.ci-tep-tai-dau .pt { flex: none; font-weight: 600; color: var(--text-1); font-variant-numeric: tabular-nums; }
+.ci-tep-tai-dau .pt { flex: none; font-weight: 600; color: var(--text); font-variant-numeric: tabular-nums; }
 .ci-tep-thanh { position: relative; overflow: hidden; height: 4px; margin-top: 7px;
                 border-radius: 999px; background: var(--ci-nen-chip); }
 .ci-tep-thanh i { display: block; height: 100%; border-radius: 999px; background: var(--primary);
@@ -9836,7 +9836,7 @@ img.ci-avt { object-fit: cover; }
 .ci-menu.nhon-tren::after, .ci-menu.nhon-duoi::after {
   content: ''; position: absolute; right: var(--nhon, 10px);
   width: 10px; height: 10px; transform: rotate(45deg);
-  background: var(--surface); border: 1px solid var(--line); }
+  background: var(--surface); border: 1px solid var(--border); }
 /* Menu nằm DƯỚI nút → nhọn chĩa LÊN, chỉ giữ hai cạnh trên và trái. */
 .ci-menu.nhon-tren::after { top: -6px; border-right: 0; border-bottom: 0; }
 /* Menu bị lật lên TRÊN nút → nhọn chĩa XUỐNG. */
