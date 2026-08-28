@@ -24,6 +24,26 @@ public class ChatDb
     /// Có cấu hình hay không. Chỗ nào dùng ChatDb đều PHẢI hỏi cái này trước.
     public bool Configured => _connStr != null;
 
+    private readonly TaskCompletionSource _dungSchema =
+        new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+    /// <summary>
+    /// Hoàn thành khi <see cref="InitAsync"/> đã chạy xong — <b>dù thành công hay hỏng</b>.
+    /// Các worker của chat phải chờ cái này trước nhịp đầu tiên.
+    ///
+    /// <para><b>Vì sao cần.</b> <c>InitAsync</c> được gọi trong một <c>Task.Run</c> KHÔNG chờ ở
+    /// <c>Program.cs</c>, còn worker thì bắt đầu tick ngay khi máy chủ lên. Nên có một quãng mà
+    /// mã MỚI đã chạy trong khi schema vẫn là bản CŨ — và mọi truy vấn đụng cột mới đều hỏng.
+    /// Đã xảy ra thật 28/08/2026: worker gửi hỏi cột <c>send_after</c> 0,6 giây trước khi
+    /// <c>ALTER TABLE</c> thêm nó xong.</para>
+    ///
+    /// <para>0,6 giây thì tự lành. Nhưng cùng một quãng đó kéo dài bao lâu là do CSDL quyết:
+    /// đường mạng chập thì <c>InitAsync</c> chờ hết hạn kết nối rồi <b>nuốt lỗi</b>, và worker
+    /// chạy suốt với schema cũ — hỏng mọi nhịp, chỉ để lại log. Đúng hình dạng sự cố ngừng
+    /// nhận tin sáng cùng ngày.</para>
+    /// </summary>
+    public Task DungSchema => _dungSchema.Task;
+
     static ChatDb()
     {
         // Cột PostgreSQL đặt snake_case, thuộc tính C# đặt PascalCase. Không bật cái này thì Dapper
@@ -58,6 +78,10 @@ public class ChatDb
     /// Dựng bảng nếu chưa có. Chạy 1 lần lúc khởi động, an toàn chạy lại nhiều lần.
     public async Task InitAsync(CancellationToken ct = default)
     {
+        // Báo XONG trong mọi nhánh, kể cả nhánh chưa khai chuỗi kết nối và nhánh ném lỗi —
+        // quên một nhánh là worker chờ mãi và cụm chat đứng im không dấu vết.
+        try
+        {
         if (!Configured) return;
         try
         {
@@ -72,6 +96,8 @@ public class ChatDb
             // Không ném: chat hỏng thì phần còn lại của hệ vẫn phải chạy.
             _log.LogError(ex, "ChatDb InitAsync thất bại — cụm hộp thư chat sẽ không dùng được");
         }
+        }
+        finally { _dungSchema.TrySetResult(); }
     }
 
     /// <summary>
