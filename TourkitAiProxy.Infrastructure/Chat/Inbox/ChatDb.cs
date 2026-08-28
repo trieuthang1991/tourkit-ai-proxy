@@ -104,6 +104,16 @@ public class ChatDb
     -- avatar_url đã trỏ về kho của mình, tự nó là dấu hiệu rồi.
     ALTER TABLE chat_contacts ADD COLUMN IF NOT EXISTS avatar_state smallint NOT NULL DEFAULT 0;
 
+    -- CHẶN khách. Hoàn toàn NỘI BỘ: không nền tảng nào cho phía doanh nghiệp chặn một người
+    -- qua API. Chặn ở đây nghĩa là hộp thư ẩn họ đi, trợ lý câm, và đường gửi từ chối — chứ
+    -- KHÔNG phải báo lên Facebook/Zalo. Đặt tên nút trên giao diện cho đúng chuyện đó, gọi là
+    -- "báo xấu" thì người dùng tưởng đã báo lên nền tảng.
+    --
+    -- Tin của khách bị chặn VẪN ĐƯỢC GHI: chặn không phải xoá, và khi cần đối chất thì đó là
+    -- bằng chứng duy nhất còn lại.
+    ALTER TABLE chat_contacts ADD COLUMN IF NOT EXISTS blocked_utc timestamptz;
+    ALTER TABLE chat_contacts ADD COLUMN IF NOT EXISTS blocked_by  text;
+
     -- Một luồng chat với một khách trên một kênh.
     CREATE TABLE IF NOT EXISTS chat_conversations (
       id                   bigserial PRIMARY KEY,
@@ -330,7 +340,21 @@ public class ChatDb
     );
     -- Chỉ mục CÓ ĐIỀU KIỆN: worker chỉ hỏi dòng đang chờ. Không có nó thì mỗi vài giây lại quét
     -- cả bảng, mà bảng này chỉ phình chứ không co lại.
-    CREATE INDEX IF NOT EXISTS ix_outbox_cho ON chat_outbox (created_utc) WHERE status = 0;
+    -- SỚM NHẤT được phép gửi. Đây là cửa sổ "thu hồi": tin của người thật nằm chờ vài giây,
+    -- và trong quãng đó nút Thu hồi xoá thẳng dòng này — tin CHƯA BAO GIỜ rời máy chủ.
+    --
+    -- Vì sao phải làm thế thay vì gọi API thu hồi: Meta không có API đó cho phía doanh nghiệp.
+    -- Xem docs/superpowers/plans/2026-08-28-thu-hoi-tin.md.
+    --
+    -- Mặc định NULL = gửi ngay, nên mọi dòng đang nằm sẵn trong hàng đợi lúc nâng cấp vẫn đi
+    -- bình thường. Cột không mặc định nên ALTER chỉ ghi metadata, không viết lại bảng.
+    ALTER TABLE chat_outbox ADD COLUMN IF NOT EXISTS send_after timestamptz;
+
+    -- Chỉ mục có điều kiện phải mang thêm cột mới, nếu không worker vẫn quét đúng những dòng
+    -- chưa tới giờ rồi bỏ đi — vô hại nhưng lãng phí, và lớn dần theo hàng đợi.
+    DROP INDEX IF EXISTS ix_outbox_cho;
+    CREATE INDEX IF NOT EXISTS ix_outbox_cho
+      ON chat_outbox (send_after NULLS FIRST, created_utc) WHERE status = 0;
 
     -- Mẫu trả lời nhanh, theo TỪNG CÔNG TY (KHÔNG theo từng nhân viên) — cả đội trực chat cùng
     -- dùng một bộ câu, đổi một mẫu là cả đội thấy ngay, không phải dạy lại từng người.
@@ -379,6 +403,25 @@ public class ChatDb
       last_read_at    timestamptz NOT NULL DEFAULT now(),
       PRIMARY KEY (tenant_id, conversation_id, username)
     );
+
+    -- Theo dõi một hội thoại. Khác hẳn giao việc: giao việc là SỞ HỮU (một người một hội thoại,
+    -- ai nhận thì người khác thôi), theo dõi là QUAN TÂM (nhiều người cùng theo dõi được, và
+    -- không giành việc của ai). Quản lý muốn ngó một ca khó mà không cướp việc của nhân viên thì
+    -- đây là đường duy nhất.
+    --
+    -- Khoá gồm username vì đây là chuyện của TỪNG NGƯỜI — thiếu nó thì A bỏ theo dõi là B mất
+    -- theo dõi theo, đúng kiểu hỏng im lặng của cột agent_last_read_at dùng chung ngày trước.
+    CREATE TABLE IF NOT EXISTS chat_conversation_follows (
+      tenant_id       text        NOT NULL,
+      conversation_id bigint      NOT NULL REFERENCES chat_conversations(id) ON DELETE CASCADE,
+      username        text        NOT NULL,
+      created_utc     timestamptz NOT NULL DEFAULT now(),
+      PRIMARY KEY (tenant_id, conversation_id, username)
+    );
+    -- Lọc "hội thoại tôi theo dõi" đi bằng chỉ mục này; không có nó thì mỗi lần mở bộ lọc là quét
+    -- cả bảng, mà bảng này chỉ phình theo thời gian.
+    CREATE INDEX IF NOT EXISTS ix_follow_nguoi
+      ON chat_conversation_follows (tenant_id, username);
 
     -- Nhật ký thao tác. Khi khách khiếu nại "ai nói câu này với tôi", hoặc một hội thoại bị
     -- đóng nhầm, thì đây là chỗ duy nhất tra được.

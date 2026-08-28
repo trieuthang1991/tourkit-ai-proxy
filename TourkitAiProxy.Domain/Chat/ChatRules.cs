@@ -288,10 +288,44 @@ public static class ChatRules
     /// </summary>
     public static bool BotMayReply(ChatConversation hoiThoai, DateTime nowUtc)
     {
+        // Khách bị chặn: hộp thư đã ẩn họ đi, để trợ lý vẫn tiếp chuyện là mâu thuẫn ngay
+        // trước mắt khách. Chặn là chuyện NỘI BỘ — tin của họ vẫn tới và vẫn được ghi làm
+        // bằng chứng, chỉ có bot là phải câm.
+        if (hoiThoai.BlockedUtc is not null) return false;
         if (hoiThoai.Status == (short)ChatStatus.Closed) return false;
         if (hoiThoai.BotResumeAt is { } moc && moc > nowUtc) return false;
         return true;
     }
+
+    /// <summary>Trần cho cửa sổ hoãn gửi. Giữ khách chờ hơn một phút là quá nhiều dù ai đặt.</summary>
+    public const int HoanGuiToiDaGiay = 60;
+
+    /// <summary>
+    /// Tin này nằm chờ bao nhiêu giây trước khi thật sự đi.
+    ///
+    /// <para><b>Đây là toàn bộ cơ chế "thu hồi".</b> Meta không cho doanh nghiệp thu hồi tin
+    /// đã gửi, nên cách duy nhất để nút Thu hồi nói thật là đừng gửi vội — giữ tin lại vài
+    /// giây, và trong quãng đó thì rút lại là tuyệt đối vì tin chưa hề rời máy chủ.</para>
+    ///
+    /// <para>Chỉ hoãn tin của NGƯỜI THẬT: trợ lý đã chờ 4 giây gộp tin rồi (xem
+    /// <see cref="BurstReady"/>), và nó cũng không phải thứ gõ nhầm. Tin hệ thống thì không
+    /// ai cần rút lại.</para>
+    /// </summary>
+    public static int HoanGuiGiay(ChatSender nguoiGui, int caiDatGiay)
+        => nguoiGui != ChatSender.Agent ? 0 : Math.Clamp(caiDatGiay, 0, HoanGuiToiDaGiay);
+
+    /// <summary>
+    /// Tin này còn sửa được không.
+    ///
+    /// <para><b>Chỉ tin CHƯA ra khỏi máy.</b> Tin đã gửi thì khách đã thấy bản gốc vĩnh viễn —
+    /// Meta không cấp API sửa cho doanh nghiệp — nên sửa bản của mình là làm hộp thư nói dối
+    /// về thứ khách thật sự nhận được, và đó là kiểu sai không ai phát hiện ra cho tới lúc
+    /// đối chất với khách.</para>
+    ///
+    /// <para>Đây là chỗ CỐ Ý làm khác ChatbotX: bên đó cho sửa mọi tin, kể cả tin đã gửi.</para>
+    /// </summary>
+    public static bool CoTheSuaTin(short state)
+        => state == (short)ChatState.Pending || state == (short)ChatState.Failed;
 
     /// <summary>
     /// Đã im đủ lâu để xử lý cụm tin chưa.

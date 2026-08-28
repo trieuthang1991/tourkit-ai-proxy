@@ -252,7 +252,23 @@
     return new Date(b.createdUtc) - new Date(a.createdUtc) >= MOC_MS;
   }
 
-  function BongBong({ tin, kenh, ten0, dauCum = true, cuoiCum = true }) {
+  /** Telegram — kênh DUY NHẤT thu hồi thật được (bot xoá tin của chính nó trong 48 giờ). */
+  const KENH_TELEGRAM = 3;
+  const THU_HOI_TELEGRAM_MS = 48 * 60 * 60 * 1000;
+
+  /**
+   * Còn mấy giây nữa tin rời máy chủ. 0 = đã đi (hoặc không hoãn).
+   *
+   * Mốc lấy từ MÁY CHỦ (`send_after`), không tự cộng từ `createdUtc` + số giây trong cấu hình:
+   * quản trị đổi số giây, hoặc đồng hồ máy khách chạy sai, là con số suy ra sai ngay — mà sai ở
+   * đây nghĩa là nút Thu hồi hiện ra sau khi tin đã đi, bấm vào báo lỗi.
+   */
+  function giayConLai(mocIso) {
+    if (!mocIso) return 0;
+    return Math.max(0, Math.ceil((new Date(mocIso).getTime() - Date.now()) / 1000));
+  }
+
+  function BongBong({ tin, kenh, ten0, dauCum = true, cuoiCum = true, onXoa, onSua, onThuHoi }) {
     // 0=khách 1=AI 2=nhân viên 3=hệ thống
     const ben = tin.senderKind;
     const cuaMinh = tin.direction === 1;
@@ -260,6 +276,20 @@
     // Nhãn người gửi chỉ ở ĐẦU cụm — lặp lại dưới mỗi bong bóng của cùng một người là thừa.
     const nhan = !dauCum ? null
       : ben === 1 ? 'AI trả lời' : ben === 2 ? (tin.senderUsername || 'Nhân viên') : null;
+
+    // Đếm ngược cửa sổ thu hồi. Dừng hẳn khi về 0 — để chạy tiếp là mỗi tin cũ trong hội thoại
+    // giữ một bộ đếm vô ích, mở một hội thoại dài là hàng trăm cái.
+    const [conLai, setConLai] = React.useState(() => giayConLai(tin.sendAfterUtc));
+    React.useEffect(() => {
+      setConLai(giayConLai(tin.sendAfterUtc));
+      if (!tin.sendAfterUtc) return;
+      const t = setInterval(() => {
+        const n = giayConLai(tin.sendAfterUtc);
+        setConLai(n);
+        if (n === 0) clearInterval(t);
+      }, 500);
+      return () => clearInterval(t);
+    }, [tin.sendAfterUtc]);
     const coTep = (tin.files || []).length > 0;
     // Tin CHỈ có ảnh/nhãn dán, không kèm chữ. Bong bóng bọc quanh một tấm ảnh — nhất là nhãn dán
     // nền trong suốt — trông như cái khung thừa; mọi app chat đều để media trôi tự do.
@@ -270,7 +300,11 @@
     //   bot    — KHÔNG bong bóng, chỉ một dải mảnh bên trái. Bot nói nhiều; để nó cũng thành
     //            bong bóng thì khung chat đặc kín và mắt không phân biệt nổi đâu là người thật
     //   mình   — bong bóng đậm, nhãn người gửi nằm TRONG bóng
-    const noiDung = (
+    // Tin đã xoá khỏi hộp thư: hiện một dòng nhạt thay cho nội dung, KHÔNG cho biến mất hẳn.
+    // Biến mất thì người trực tưởng mình nhớ nhầm, và cụm tin quanh nó mất mạch.
+    const noiDung = tin.deleted ? (
+      <div className="ci-noidung ci-da-xoa"><i>Tin đã bị xoá khỏi hộp thư</i></div>
+    ) : (
       <>
         <DinhKem tin={tin} />
         {/* Có đính kèm thì chữ là CHÚ THÍCH, vắng chữ là bình thường — đừng in "(không có chữ)"
@@ -336,6 +370,24 @@
       </div>
     );
 
+    // Thao tác trên tin CỦA MÌNH. Nút Sửa chỉ hiện với tin chưa ra khỏi máy (chờ gửi = 0,
+    // gửi hỏng = 4) — tin đã gửi thì khách đã thấy bản gốc vĩnh viễn, sửa bản của mình là làm
+    // hộp thư nói dối. Ẩn hẳn nút chứ không hiện rồi báo lỗi.
+    const thaoTac = !tin.deleted && (onXoa || onSua) && (
+      <div className="ci-tin-thaotac">
+        {onSua && (tin.state === 0 || tin.state === 4) && (
+          <button onClick={() => onSua(tin)}>Sửa</button>
+        )}
+        {/* Telegram thu hồi được cả tin ĐÃ gửi, trong 48 giờ — kênh duy nhất làm được. Ở kênh
+            khác thì hết đếm ngược là chỉ còn "Xoá", và câu xác nhận của nó nói rõ khách vẫn thấy. */}
+        {onThuHoi && conLai === 0 && kenh === KENH_TELEGRAM && tin.state >= 1
+          && Date.now() - new Date(tin.createdUtc).getTime() < THU_HOI_TELEGRAM_MS && (
+            <button title="Xoá cả phía khách" onClick={() => onThuHoi(tin)}>Thu hồi</button>
+          )}
+        {onXoa && <button onClick={() => onXoa(tin)}>Xoá</button>}
+      </div>
+    );
+
     return (
       <div className={'ci-dong ci-phai' + (cuoiCum ? '' : ' lien')}>
         <div>
@@ -360,6 +412,15 @@
             {gio}
           </div>
           {camXuc}
+          {/* Cửa sổ thu hồi THẬT: tin còn nằm trong hàng đợi, chưa rời máy chủ. Hết giây là nó
+              đã đi và không kênh nào (trừ Telegram) rút lại được nữa. */}
+          {conLai > 0 && onThuHoi && (
+            <div className="ci-thu-hoi">
+              <span>Đang gửi sau {conLai}s</span>
+              <button onClick={() => onThuHoi(tin)}>Thu hồi</button>
+            </div>
+          )}
+          {thaoTac}
         </div>
       </div>
     );
@@ -547,6 +608,13 @@
     'chuyen-viec': 'chuyển việc',
     'doi-trang-thai': 'đổi trạng thái',
     'tam-dung-bot': 'chỉnh trợ lý',
+    'theo-doi': 'theo dõi',
+    'bo-theo-doi': 'bỏ theo dõi',
+    'chan-khach': 'chặn khách',
+    'bo-chan-khach': 'bỏ chặn khách',
+    'xoa-tin': 'xoá tin',
+    'sua-tin': 'sửa tin',
+    'thu-hoi-tin': 'thu hồi tin',
     'go-ket-noi': 'gỡ kết nối kênh',
   };
 
@@ -1623,7 +1691,7 @@
     const [demKenh, setDemKenh] = useState({});
     const [loc, setLoc] = useState(null);          // trạng thái xử lý
     const [kenhLoc, setKenhLoc] = useState(null);  // kênh
-    const [nhom, setNhom] = useState('tat-ca');    // tat-ca | chua-doc | cua-toi
+    const [nhom, setNhom] = useState('tat-ca');    // tat-ca | chua-doc | cua-toi | toi-theo-doi
     const [tim, setTim] = useState('');
     const [chon, setChon] = useState(null);        // id hội thoại đang mở
     const [chiTiet, setChiTiet] = useState(null);
@@ -1656,6 +1724,7 @@
         if (kenhLoc !== null) q.set('channel', kenhLoc);
         if (nhom === 'chua-doc') q.set('unread', 'true');
         if (nhom === 'cua-toi') q.set('mine', 'true');
+        if (nhom === 'toi-theo-doi') q.set('followed', 'true');
         if (tim.trim()) q.set('search', tim.trim());
         if (cursor) q.set('cursor', cursor);
         const r = await authedFetch('/api/v1/chat/conversations?' + q);
@@ -1864,6 +1933,121 @@
       await taiChiTiet(chon);
     }
 
+    async function danhDauChuaDoc() {
+      if (!chon) return;
+      try {
+        const r = await authedFetch('/api/v1/chat/conversations/' + chon + '/unread', { method: 'POST' });
+        const j = await r.json().catch(() => ({}));
+        if (!r.ok) { pushToast(j.error || 'Không đánh dấu chưa đọc được', 'error'); return; }
+        if (!j.ok) {
+          pushToast('Hội thoại chưa có tin nào của khách nên không đánh dấu được', 'error');
+          return;
+        }
+        await taiDsach();
+      } catch (e) {
+        pushToast('Không đánh dấu chưa đọc được: ' + e.message, 'error');
+      }
+    }
+
+    async function thuHoiTin(tin) {
+      try {
+        const r = await authedFetch(
+          '/api/v1/chat/conversations/' + chon + '/messages/' + tin.id + '/recall',
+          { method: 'POST' });
+        const j = await r.json().catch(() => ({}));
+        if (!r.ok) {
+          // Nói THẬT khi muộn. Báo thành công ở đây là để nhân viên tưởng đã rút lại được câu lỡ
+          // tay và không đi xin lỗi khách — hậu quả thật, không phải chuyện chữ nghĩa.
+          pushToast(j.error || 'Tin đã gửi đi mất rồi — không thu hồi được nữa', 'error');
+          await taiChiTiet(chon);
+          return;
+        }
+        pushToast(j.recalledOnChannel
+          ? 'Đã thu hồi — khách không còn thấy tin này'
+          : 'Đã thu hồi trước khi gửi — tin chưa từng đến tay khách');
+        await taiChiTiet(chon);
+      } catch (e) {
+        pushToast('Không thu hồi được: ' + e.message, 'error');
+      }
+    }
+
+    async function xoaTin(tin) {
+      // ⚠️ Câu hỏi PHẢI nói khách vẫn thấy. Không nói thì nhân viên tưởng đã thu hồi được câu lỡ
+      // tay và không đi xin lỗi khách — hậu quả thật, không phải chuyện chữ nghĩa.
+      if (!confirm('Xoá tin này khỏi hộp thư?\n\n'
+        + 'Chỉ xoá ở phía bạn — KHÁCH VẪN THẤY tin này. '
+        + 'Các nền tảng không cho phép doanh nghiệp thu hồi tin đã gửi.')) return;
+      try {
+        const r = await authedFetch(
+          '/api/v1/chat/conversations/' + chon + '/messages/' + tin.id, { method: 'DELETE' });
+        const j = await r.json().catch(() => ({}));
+        if (!r.ok) { pushToast(j.error || 'Không xoá được tin', 'error'); return; }
+        await taiChiTiet(chon);
+      } catch (e) {
+        pushToast('Không xoá được tin: ' + e.message, 'error');
+      }
+    }
+
+    async function suaTin(tin) {
+      const moi = prompt('Sửa nội dung tin (tin chưa gửi đi):', tin.body || '');
+      if (moi === null || !moi.trim()) return;
+      try {
+        const r = await authedFetch(
+          '/api/v1/chat/conversations/' + chon + '/messages/' + tin.id, {
+            method: 'PATCH',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ body: moi.trim() }),
+          });
+        const j = await r.json().catch(() => ({}));
+        if (!r.ok) { pushToast(j.error || 'Không sửa được tin', 'error'); return; }
+        await taiChiTiet(chon);
+      } catch (e) {
+        pushToast('Không sửa được tin: ' + e.message, 'error');
+      }
+    }
+
+    async function doiChan() {
+      if (!chon || !v) return;
+      // ⚠️ Câu hỏi PHẢI nói rõ phạm vi. Không nền tảng nào cho phía doanh nghiệp chặn một người
+      // qua API, nên đây chỉ là chặn trong hộp thư của mình — khách vẫn nhắn tới được. Gọi tắt
+      // thành "chặn" mà không giải thích là người dùng tưởng đã chặn ở Facebook.
+      if (!v.blocked && !confirm(
+        'Chặn khách này trong hộp thư?\n\n'
+        + 'Hộp thư sẽ ẩn họ và trợ lý ngừng trả lời. Việc này KHÔNG báo cho Facebook/Zalo, '
+        + 'khách vẫn nhắn tới được và vẫn thấy các tin cũ.')) return;
+      try {
+        const r = await authedFetch('/api/v1/chat/conversations/' + chon + '/block', {
+          method: v.blocked ? 'DELETE' : 'POST',
+        });
+        const j = await r.json().catch(() => ({}));
+        if (!r.ok) { pushToast(j.error || 'Không cập nhật chặn được', 'error'); return; }
+        setDsach([]);
+        setConTro(null);
+        await taiDsach(); await taiChiTiet(chon);
+      } catch (e) {
+        pushToast('Không cập nhật chặn được: ' + e.message, 'error');
+      }
+    }
+
+    async function doiTheoDoi() {
+      if (!chon || !v) return;
+      try {
+        const r = await authedFetch('/api/v1/chat/conversations/' + chon + '/follow', {
+          method: v.followed ? 'DELETE' : 'POST',
+        });
+        const j = await r.json().catch(() => ({}));
+        if (!r.ok) { pushToast(j.error || 'Không cập nhật theo dõi được', 'error'); return; }
+        // Lượt tải đầu thường giữ các trang đã cuộn để SSE không làm mất vị trí. Vừa bỏ theo dõi
+        // trong bộ lọc "Tôi theo dõi" thì chính dòng cũ có thể không còn thuộc kết quả nữa, nên
+        // dùng đúng reset khi đổi bộ lọc trước khi lấy lại từ đầu.
+        setDsach([]);
+        setConTro(null);
+        await taiDsach(); await taiChiTiet(chon);
+      } catch (e) {
+        pushToast('Không cập nhật theo dõi được: ' + e.message, 'error');
+      }
+    }
+
     const v = chiTiet?.conversation;
     const lh = chiTiet?.contact;
     // Tên hiển thị của khách, dùng lại ở nhiều chỗ (đầu khung chat, ảnh trên từng tin, hồ sơ).
@@ -1927,7 +2111,8 @@
                        value={tim} onChange={e => setTim(e.target.value)} />
               </div>
               <div className="ci-nhom">
-                {[['tat-ca', 'Tất cả'], ['chua-doc', 'Chưa đọc'], ['cua-toi', 'Của tôi']].map(([id, nhan]) => (
+                {[['tat-ca', 'Tất cả'], ['chua-doc', 'Chưa đọc'], ['cua-toi', 'Của tôi'],
+                  ['toi-theo-doi', 'Tôi theo dõi']].map(([id, nhan]) => (
                   <button key={id} className={nhom === id ? 'on' : ''} onClick={() => setNhom(id)}>
                     {nhan}
                     {id === 'chua-doc' && dem.chuaDoc > 0 && <b>{dem.chuaDoc}</b>}
@@ -2021,6 +2206,24 @@
                     <button className={'ci-nut' + (v.assignedUsername ? '' : ' chinh')} onClick={nhanViec}>
                       {v.assignedUsername ? 'Bỏ nhận' : 'Nhận việc'}
                     </button>
+                    {/* Đánh dấu chưa đọc — trả hội thoại về hàng chờ của chính mình. */}
+                    <button className="ci-nut nho" title="Đánh dấu chưa đọc" onClick={danhDauChuaDoc}>
+                      Chưa đọc
+                    </button>
+                    {/* Theo dõi là quan tâm mà không nhận việc. */}
+                    <button className={'ci-nut nho' + (v.followed ? ' chinh' : '')}
+                            title={v.followed ? 'Bỏ theo dõi' : 'Theo dõi hội thoại này'} onClick={doiTheoDoi}>
+                      {v.followed ? '★ Đang theo dõi' : '☆ Theo dõi'}
+                    </button>
+                    {/* ⚠️ "Chặn trong hộp thư", KHÔNG phải "Báo xấu": không nền tảng nào cho báo
+                        xấu qua API, gọi tên sai là người dùng tưởng đã báo lên Facebook. */}
+                    <button className={'ci-nut nho' + (v.blocked ? ' canh-bao' : '')}
+                            title={v.blocked
+                              ? 'Bỏ chặn — hộp thư hiện lại khách này'
+                              : 'Ẩn khách khỏi hộp thư và ngừng trả lời. Không báo gì cho nền tảng.'}
+                            onClick={doiChan}>
+                      {v.blocked ? 'Bỏ chặn' : 'Chặn trong hộp thư'}
+                    </button>
                     <button className="ci-nut" onClick={batTatBot}>{v.botPaused ? 'Cho bot nói lại' : 'Tạm dừng bot'}</button>
                     {v.status !== 2
                       ? <button className="ci-nut" onClick={() => doiTrangThai(2)}>Đóng</button>
@@ -2069,7 +2272,8 @@
                           <div className="ci-mocgio"><span>{gioPhut(m.createdUtc)}</span></div>
                         )}
                         <BongBong tin={m} kenh={v.channel} ten0={tenKhach}
-                                  dauCum={dauCum} cuoiCum={cuoiCum} />
+                                  dauCum={dauCum} cuoiCum={cuoiCum}
+                                  onXoa={xoaTin} onSua={suaTin} onThuHoi={thuHoiTin} />
                       </React.Fragment>
                     );
                   })}

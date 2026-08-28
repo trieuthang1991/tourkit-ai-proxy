@@ -486,7 +486,7 @@ public static class ChatInboxEndpoints
         });
 
         g.MapGet("/conversations", async (HttpContext ctx, TkSessionStore sessions, ChatRepository repo,
-            short? status, string? search, short? channel, bool? unread, bool? mine,
+            short? status, string? search, short? channel, bool? unread, bool? followed, bool? mine,
             string? cursor, CancellationToken ct) =>
         {
             var a = SessionAuth.Read(ctx, sessions);
@@ -503,6 +503,7 @@ public static class ChatInboxEndpoints
             const int soDong = 60;
             var items = await repo.ListConversationsAsync(a.TenantId, status, chiCuaToi, search,
                 kenh: channel, giaoCho: mine == true ? a.Username : null, chiChuaDoc: unread == true,
+                chiTheoDoi: followed == true,
                 sau: ChatCursor.Decode(cursor), limit: soDong, nguoiDung: a.Username, ct: ct);
             // Truyền kênh đang lọc: chip trạng thái phải nói về ĐÚNG danh sách đang hiện bên dưới.
             var dem = await repo.CountAsync(a.TenantId, chiCuaToi, a.Username, channel, ct);
@@ -535,7 +536,7 @@ public static class ChatInboxEndpoints
             if (!repo.Configured) return NotConfigured();
             var goc = $"{ctx.Request.Scheme}://{ctx.Request.Host}";
 
-            var v = await repo.GetConversationAsync(a.TenantId, id, ct);
+            var v = await repo.GetConversationAsync(a.TenantId, id, ct, nguoiDung: a.Username);
             if (v is null) return Results.NotFound();   // id của tenant khác cũng rơi vào đây
 
             var tin = await repo.ListMessagesAsync(a.TenantId, id, 120, ct);
@@ -565,6 +566,11 @@ public static class ChatInboxEndpoints
                 {
                     m.Id, m.Direction, m.SenderKind, m.SenderUsername, m.Kind,
                     m.Body, m.State, m.ErrorMessage, m.CreatedUtc,
+                    // Tin đã xoá khỏi hộp thư. Vẫn gửi ra để giao diện hiện "đã bị xoá" thay
+                    // cho nội dung — biến mất hẳn thì người trực tưởng mình nhớ nhầm.
+                    deleted = m.DeletedUtc is not null,
+                    // Mốc CÓ THẨM QUYỀN cho đồng hồ đếm ngược nút Thu hồi. Xem ChatMessage.SendAfterUtc.
+                    sendAfterUtc = m.SendAfterUtc,
                     // Nút ĐÃ GỬI kèm tin. Đọc lại qua ChatRules chứ không đổ thẳng chuỗi JSON
                     // trong CSDL ra: dòng cũ có thể sai hình dạng, và đường dẫn phải lọc lại
                     // http(s) — nút do người dùng tự đặt nên là dữ liệu không tin được.
@@ -725,7 +731,7 @@ public static class ChatInboxEndpoints
 
         g.MapPost("/conversations/{id:long}/send", async (long id, SendReq body, HttpContext ctx,
             TkSessionStore sessions, ChatRepository repo, ChatEventBus bus,
-            Services.Chat.Inbox.ChatWorkSignal tin, CancellationToken ct) =>
+            Services.Chat.Inbox.ChatWorkSignal tin, IConfiguration cfg, CancellationToken ct) =>
         {
             var a = SessionAuth.Read(ctx, sessions);
             if (a == null) return SessionAuth.Unauthorized();
@@ -782,9 +788,16 @@ public static class ChatInboxEndpoints
             await repo.TouchConversationAsync(a.TenantId, id, ChatRules.Summarize(tomTat), false, ct);
             // Người thật vừa trả lời → bot câm một lúc, nếu không nó nói đè lên nhân viên.
             await repo.PauseBotAsync(a.TenantId, id, (int)ChatRules.DefaultBotMute.TotalMinutes, ct);
-            await repo.EnqueueOutboxAsync(a.TenantId, id, msgId.Value, ct);
-            // Đánh thức worker gửi NGAY. Không có dòng này thì tin nằm chờ hết nhịp 5 giây —
-            // màn hình nhân viên đã hiện tin rồi nên không ai thấy, nhưng khách thì chờ thật.
+            // Người thật gõ thì giữ lại vài giây cho kịp bấm Thu hồi. Đây là toàn bộ cơ chế thu
+            // hồi: Meta không cho doanh nghiệp thu hồi tin đã gửi, nên cách duy nhất để nút đó
+            // nói thật là đừng gửi vội. Đặt 0 trong cấu hình là tắt hẳn, gửi ngay như trước.
+            // Có hoãn thì worker tỉnh dậy, thấy chưa tới giờ, ngủ lại — nhịp 5 giây sẵn có mới là
+            // thứ nhặt tin lên, nên tin thật sự đi trong khoảng hoãn…hoãn+5 giây. Vẫn đánh thức
+            // để trường hợp hoãn = 0 (quản trị tắt tính năng) chạy nhanh y như trước.
+            var hoan = ChatRules.HoanGuiGiay(ChatSender.Agent,
+                cfg.GetValue("Chat:UndoSendSeconds", 5));
+            await repo.EnqueueOutboxAsync(a.TenantId, id, msgId.Value, ct, hoan);
+            // Đánh thức worker gửi NGAY — thiếu dòng này thì tin chờ hết nhịp 5 giây.
             tin.Signal(Services.Chat.Inbox.ChatLane.Out);
             bus.Publish(new(a.TenantId, id, "tin-moi", msgId.Value));
 
@@ -1122,6 +1135,165 @@ public static class ChatInboxEndpoints
                 await boNoi.MarkSeenAsync(a.TenantId, v.AccountId, v.ContactExternalId, ct);
 
             return Results.Json(new { ok = true }, Web);
+        });
+
+        // Đánh dấu CHƯA đọc — trả lại hội thoại cho chính mình hoặc cho người khác nhặt.
+        //
+        // ⚠️ KHÔNG gọi MarkSeenAsync như đường /read: không nền tảng nào cho "bỏ đã xem". Báo
+        // sang kênh một lần nữa còn tệ hơn — khách nhận thêm một tín hiệu đã xem cho tin cũ.
+        g.MapPost("/conversations/{id:long}/unread", async (long id, HttpContext ctx,
+            TkSessionStore sessions, ChatRepository repo, CancellationToken ct) =>
+        {
+            var a = SessionAuth.Read(ctx, sessions);
+            if (a == null) return SessionAuth.Unauthorized();
+            if (!repo.Configured) return NotConfigured();
+            if (await repo.GetConversationAsync(a.TenantId, id, ct) is null) return Results.NotFound();
+
+            var duoc = await repo.MarkUnreadAsync(a.TenantId, id, a.Username, ct);
+            if (duoc)
+                await repo.AppendAuditAsync(a.TenantId, id, a.Username, "danh-dau-chua-doc", null, ct);
+
+            // ok=false nghĩa là hội thoại chưa có tin nào của khách — giao diện nói rõ thay vì im.
+            return Results.Json(new { ok = duoc }, Web);
+        });
+
+        // THU HỒI — rút tin khỏi hàng đợi trước khi nó rời máy chủ. Đây là thu hồi THẬT, vì
+        // tin chưa hề được gửi. Hết cửa sổ hoãn thì KHÔNG có đường nào khác trên Meta: họ
+        // không cấp API thu hồi cho phía doanh nghiệp. Trả 409 để giao diện nói thật thay vì
+        // báo thành công rồi để nhân viên tưởng đã rút lại được và không đi xin lỗi khách.
+        g.MapPost("/conversations/{id:long}/messages/{msgId:long}/recall", async (long id,
+            long msgId, HttpContext ctx, TkSessionStore sessions, ChatRepository repo,
+            ChatInboundService svc, ChatEventBus bus, CancellationToken ct) =>
+        {
+            var a = SessionAuth.Read(ctx, sessions);
+            if (a == null) return SessionAuth.Unauthorized();
+            if (!repo.Configured) return NotConfigured();
+            if (await repo.GetConversationAsync(a.TenantId, id, ct) is not { } v) return Results.NotFound();
+
+            if (await repo.CancelOutboxAsync(a.TenantId, id, msgId, ct))
+            {
+                await repo.AppendAuditAsync(a.TenantId, id, a.Username, "thu-hoi-tin",
+                    new JsonObject { ["tin"] = msgId }.ToJsonString(), ct);
+                bus.Publish(new(a.TenantId, id, "doi-trang-thai", msgId));
+                return Results.Json(new { ok = true, recalledOnChannel = false }, Web);
+            }
+
+            // Tin đã rời máy chủ. Kênh nào thu hồi THẬT được thì thử — chỉ Telegram.
+            var tinDaGui = (await repo.ListMessagesAsync(a.TenantId, id, 300, ct))
+                .FirstOrDefault(m => m.Id == msgId);
+            if (tinDaGui?.ExternalMsgId is { Length: > 0 } maNgoai
+                && svc.Adapter((ChatChannel)v.Channel) is IMessageRecaller boThuHoi
+                && DateTime.UtcNow - tinDaGui.CreatedUtc < boThuHoi.RecallWindow
+                && await boThuHoi.RecallAsync(a.TenantId, v.AccountId, v.ContactExternalId,
+                                              maNgoai, ct))
+            {
+                await repo.SoftDeleteMessageAsync(a.TenantId, id, msgId, ct);
+                await repo.AppendAuditAsync(a.TenantId, id, a.Username, "thu-hoi-tin",
+                    new JsonObject { ["tin"] = msgId, ["kenh"] = true }.ToJsonString(), ct);
+                bus.Publish(new(a.TenantId, id, "doi-trang-thai", msgId));
+                return Results.Json(new { ok = true, recalledOnChannel = true }, Web);
+            }
+
+            return Results.Json(new { error = "Tin đã gửi đi mất rồi — không thu hồi được nữa" },
+                Web, statusCode: 409);
+        });
+
+        // Xoá tin — CHỈ trong hộp thư mình. Xoá MỀM: dòng vẫn nằm đó, chỉ đóng dấu, vì người
+        // trực có thể đã đọc và đã hành động theo câu đó.
+        g.MapDelete("/conversations/{id:long}/messages/{msgId:long}", async (long id, long msgId,
+            HttpContext ctx, TkSessionStore sessions, ChatRepository repo, ChatEventBus bus,
+            CancellationToken ct) =>
+        {
+            var a = SessionAuth.Read(ctx, sessions);
+            if (a == null) return SessionAuth.Unauthorized();
+            if (!repo.Configured) return NotConfigured();
+            if (await repo.GetConversationAsync(a.TenantId, id, ct) is null) return Results.NotFound();
+
+            if (!await repo.SoftDeleteMessageAsync(a.TenantId, id, msgId, ct)) return Results.NotFound();
+            await repo.AppendAuditAsync(a.TenantId, id, a.Username, "xoa-tin",
+                new JsonObject { ["tin"] = msgId }.ToJsonString(), ct);
+            bus.Publish(new(a.TenantId, id, "doi-trang-thai", msgId));
+            return Results.Json(new { ok = true }, Web);
+        });
+
+        // Sửa tin — CHỈ tin chưa ra khỏi máy. Xem ChatRules.CoTheSuaTin: sửa một tin đã gửi là
+        // làm hộp thư nói dối về thứ khách thật sự nhận được.
+        g.MapPatch("/conversations/{id:long}/messages/{msgId:long}", async (long id, long msgId,
+            EditMsgReq body, HttpContext ctx, TkSessionStore sessions, ChatRepository repo,
+            ChatEventBus bus, CancellationToken ct) =>
+        {
+            var a = SessionAuth.Read(ctx, sessions);
+            if (a == null) return SessionAuth.Unauthorized();
+            if (!repo.Configured) return NotConfigured();
+            if (string.IsNullOrWhiteSpace(body.Body))
+                return Results.Json(new { error = "Nội dung không được để trống" }, Web, statusCode: 400);
+            if (await repo.GetConversationAsync(a.TenantId, id, ct) is null) return Results.NotFound();
+
+            if (!await repo.EditPendingMessageAsync(a.TenantId, id, msgId, body.Body.Trim(), ct))
+                return Results.Json(new { error = "Tin đã gửi đi rồi nên không sửa được nữa" },
+                    Web, statusCode: 409);
+
+            await repo.AppendAuditAsync(a.TenantId, id, a.Username, "sua-tin",
+                new JsonObject { ["tin"] = msgId }.ToJsonString(), ct);
+            bus.Publish(new(a.TenantId, id, "doi-trang-thai", msgId));
+            return Results.Json(new { ok = true }, Web);
+        });
+
+        // Chặn / bỏ chặn khách. CHỈ trong hộp thư của mình: không nền tảng nào cho phía doanh
+        // nghiệp chặn một người qua API. Vì thế giao diện tuyệt đối không được gọi là "báo xấu".
+        g.MapPost("/conversations/{id:long}/block", async (long id, HttpContext ctx,
+            TkSessionStore sessions, ChatRepository repo, CancellationToken ct) =>
+        {
+            var a = SessionAuth.Read(ctx, sessions);
+            if (a == null) return SessionAuth.Unauthorized();
+            if (!repo.Configured) return NotConfigured();
+            if (await repo.GetConversationAsync(a.TenantId, id, ct) is not { } v) return Results.NotFound();
+
+            await repo.SetContactBlockedAsync(a.TenantId, (ChatChannel)v.Channel,
+                v.ContactExternalId, true, a.Username, ct);
+            await repo.AppendAuditAsync(a.TenantId, id, a.Username, "chan-khach", null, ct);
+            return Results.Json(new { ok = true, blocked = true }, Web);
+        });
+
+        g.MapDelete("/conversations/{id:long}/block", async (long id, HttpContext ctx,
+            TkSessionStore sessions, ChatRepository repo, CancellationToken ct) =>
+        {
+            var a = SessionAuth.Read(ctx, sessions);
+            if (a == null) return SessionAuth.Unauthorized();
+            if (!repo.Configured) return NotConfigured();
+            if (await repo.GetConversationAsync(a.TenantId, id, ct) is not { } v) return Results.NotFound();
+
+            await repo.SetContactBlockedAsync(a.TenantId, (ChatChannel)v.Channel,
+                v.ContactExternalId, false, a.Username, ct);
+            await repo.AppendAuditAsync(a.TenantId, id, a.Username, "bo-chan-khach", null, ct);
+            return Results.Json(new { ok = true, blocked = false }, Web);
+        });
+
+        // Theo dõi / bỏ theo dõi. KHÔNG đụng assigned_username — theo dõi không phải nhận việc.
+        g.MapPost("/conversations/{id:long}/follow", async (long id, HttpContext ctx,
+            TkSessionStore sessions, ChatRepository repo, CancellationToken ct) =>
+        {
+            var a = SessionAuth.Read(ctx, sessions);
+            if (a == null) return SessionAuth.Unauthorized();
+            if (!repo.Configured) return NotConfigured();
+            if (await repo.GetConversationAsync(a.TenantId, id, ct) is null) return Results.NotFound();
+
+            await repo.SetFollowAsync(a.TenantId, id, a.Username, true, ct);
+            await repo.AppendAuditAsync(a.TenantId, id, a.Username, "theo-doi", null, ct);
+            return Results.Json(new { ok = true, followed = true }, Web);
+        });
+
+        g.MapDelete("/conversations/{id:long}/follow", async (long id, HttpContext ctx,
+            TkSessionStore sessions, ChatRepository repo, CancellationToken ct) =>
+        {
+            var a = SessionAuth.Read(ctx, sessions);
+            if (a == null) return SessionAuth.Unauthorized();
+            if (!repo.Configured) return NotConfigured();
+            if (await repo.GetConversationAsync(a.TenantId, id, ct) is null) return Results.NotFound();
+
+            await repo.SetFollowAsync(a.TenantId, id, a.Username, false, ct);
+            await repo.AppendAuditAsync(a.TenantId, id, a.Username, "bo-theo-doi", null, ct);
+            return Results.Json(new { ok = true, followed = false }, Web);
         });
 
         // ── Soi lại tệp cũ về kho riêng — CHẠY TAY ──────────────────────────
@@ -1714,7 +1886,7 @@ public static class ChatInboxEndpoints
         // ĐỌC thì mọi nhân viên trực chat đều cần (giao diện hiện trạng thái bot bật/tắt);
         // SỬA thì cần quyền cấu hình hệ thống — đây là giọng nói của cả công ty với khách.
         g.MapGet("/bot-settings", async (HttpContext ctx, TkSessionStore sessions,
-            ChatBotSettingsRepository repo, CancellationToken ct) =>
+            ChatBotSettingsRepository repo, IConfiguration cfg, CancellationToken ct) =>
         {
             var a = SessionAuth.Read(ctx, sessions);
             if (a == null) return SessionAuth.Unauthorized();
@@ -1724,6 +1896,10 @@ public static class ChatInboxEndpoints
             return Results.Json(new
             {
                 enabled = v.Enabled,
+                // Số giây giữ tin lại trước khi gửi. Giao diện cần để biết có vẽ nút Thu hồi
+                // hay không; 0 = quản trị đã tắt, đừng vẽ dải đếm ngược làm gì.
+                undoSendSeconds = ChatRules.HoanGuiGiay(ChatSender.Agent,
+                    cfg.GetValue("Chat:UndoSendSeconds", 5)),
                 persona = v.Persona,
                 greeting = v.Greeting,
                 muteMinutes = v.MuteMinutes,
@@ -2195,7 +2371,10 @@ public static class ChatInboxEndpoints
         var docToi = v.MyLastReadAt ?? v.AgentLastReadAt;
         return new
         {
-            v.Id, v.Channel, v.ContactExternalId, v.AccountId, v.Status, v.AssignedUsername,
+            v.Id, v.Channel, v.ContactExternalId, v.AccountId, v.Status, v.AssignedUsername, v.Followed,
+            // Khách bị chặn — giao diện phải hiện rõ, không thì người trực tưởng kênh hỏng khi
+            // tin gửi đi cứ bị bỏ qua.
+            blocked = v.BlockedUtc is not null,
             v.LastActivityAt, v.LastPreview, v.ContactRepliedAt,
             displayName = v.DisplayName,
             avatarUrl = ContactAvatarUrl(v.AvatarUrl, sessionId),
@@ -2223,6 +2402,7 @@ public record SendReq(string? Text, string? AttachmentUrl = null, string? Attach
     public record NoteReq(string? Body);
     public record StatusReq(short Status);
     public record BotReq(bool Paused, int? Minutes);
+    public record EditMsgReq(string? Body);
 
     /// <param name="Trigger">Lệnh gọi thô — server tự chuẩn hoá (bỏ dấu, hạ chữ thường).</param>
     /// <param name="Buttons">Nút kèm mẫu. Bỏ trống hoặc rỗng = XOÁ nút đang có — màn hình sửa

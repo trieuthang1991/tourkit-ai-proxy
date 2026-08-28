@@ -241,6 +241,12 @@ public class ChatConversation
     public DateTime? AgentLastReadAt { get; set; }
     /// Mốc đọc của CHÍNH người đang xem, ghép từ chat_conversation_reads lúc liệt kê.
     public DateTime? MyLastReadAt { get; set; }
+    /// Cờ theo dõi của CHÍNH người đang xem, ghép từ chat_conversation_follows lúc liệt kê.
+    public bool Followed { get; set; }
+    /// <summary>Khách này bị chặn từ lúc nào, ghép từ chat_contacts. Null = không bị chặn.
+    /// Cờ nằm ở DANH BẠ chứ không ở hội thoại: khách nhắn lại qua một hội thoại khác vẫn phải
+    /// bị chặn. Đi kèm sẵn nhờ phép nối chat_contacts vốn đã có, nên không tốn truy vấn nào.</summary>
+    public DateTime? BlockedUtc { get; set; }
     public DateTime LastActivityAt { get; set; }
     public string? LastPreview { get; set; }
     public DateTime? ArchivedAt { get; set; }
@@ -267,6 +273,20 @@ public class ChatMessage
     /// Nút đã gửi kèm tin, dạng JSON. Xem <see cref="ChatButton"/>.
     public string? Buttons { get; set; }
     public string? ErrorMessage { get; set; }
+    /// <summary>Tin đã bị xoá khỏi hộp thư lúc nào. Null = còn nguyên.
+    ///
+    /// <para><b>Xoá MỀM</b>: dòng vẫn nằm đó, chỉ đóng dấu. Người trực có thể đã đọc và đã
+    /// hành động theo câu đó — xoá sạch thì lịch sử nói dối rằng chuyện đó chưa từng xảy ra.</para>
+    ///
+    /// <para>⚠️ Chỉ xoá ở PHÍA MÌNH. Không nền tảng nào cho doanh nghiệp thu hồi tin đã gửi,
+    /// nên khách vẫn thấy nguyên — giao diện phải nói rõ chuyện đó.</para></summary>
+    public DateTime? DeletedUtc { get; set; }
+    /// <summary>Sớm nhất được phép gửi, ghép từ hàng đợi gửi. Null = không hoãn (hoặc đã gửi rồi).
+    ///
+    /// <para>Đây là mốc CÓ THẨM QUYỀN cho đồng hồ đếm ngược của nút Thu hồi. Giao diện suy ra
+    /// từ <c>CreatedUtc</c> cộng số giây trong cấu hình thì sai ngay khi quản trị đổi cấu hình,
+    /// và lệch luôn khi đồng hồ máy khách chạy sai.</para></summary>
+    public DateTime? SendAfterUtc { get; set; }
     public DateTime CreatedUtc { get; set; }
 }
 

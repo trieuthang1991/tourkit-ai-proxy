@@ -84,6 +84,17 @@ public class ChatOutboxWorker : BackgroundService
             return;
         }
 
+        // Khách bị chặn thì không gửi gì nữa. Chặn ở bot thôi là hụt: người trực vẫn mở được
+        // hội thoại cũ ra gõ tay. Cờ đi kèm sẵn trong hội thoại nên không tốn truy vấn nào.
+        //
+        // Đánh dấu BỎ QUA chứ không phải hỏng: đây là quyết định của công ty, không phải lỗi
+        // — để nó nằm trong danh sách tin hỏng là làm nhiễu chỗ tra sự cố thật.
+        if (hoiThoai.BlockedUtc is not null)
+        {
+            await repo.FinishOutboxAsync(r.Id, false, false, "Khách đang bị chặn trong hộp thư", ct);
+            return;
+        }
+
         var kenh = (ChatChannel)hoiThoai.Channel;
         var adapter = adapters.FirstOrDefault(a => a.Channel == kenh);
         if (adapter is null)
