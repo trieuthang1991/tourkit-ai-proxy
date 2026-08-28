@@ -1,4 +1,4 @@
-using Microsoft.Extensions.Configuration;
+﻿using Microsoft.Extensions.Configuration;
 using TourkitAiProxy.Services.Storage;
 
 namespace TourkitAiProxy.Services.Bootstrap;
@@ -30,16 +30,18 @@ public static class InstanceInfo
     public static string Ten => $"{Environment.MachineName}#{Environment.ProcessId}";
 
     /// <param name="Scheduler">Có chạy bộ hẹn giờ tác vụ tự động không (<c>Workflows:RunScheduler</c>).</param>
-    /// <param name="ChatWorkers">Có chạy ba worker của hộp thư chat không.</param>
+    /// <param name="ChatWorkers">Có chạy worker TIN NHẮN của hộp thư chat không (nhận + gửi).</param>
+    /// <param name="MediaWorker">Có chạy worker ẢNH không (vét ảnh cũ về kho riêng).</param>
     /// <param name="Storage">Kho tệp đang dùng thật: <c>r2</c> · <c>s3</c> · <c>local</c>.</param>
     /// <param name="StorageBase">Đoạn đầu url của kho — nhìn là biết tệp đi đâu.</param>
-    public record TrangThai(string Instance, bool Scheduler, bool ChatWorkers,
+    public record TrangThai(string Instance, bool Scheduler, bool ChatWorkers, bool MediaWorker,
         string Storage, string? StorageBase);
 
-    public static TrangThai Doc(IConfiguration cfg, IChatFileStorage kho, bool chatWorkers = true)
+    public static TrangThai Doc(IConfiguration cfg, IChatFileStorage kho)
         => new(Ten,
                cfg.GetValue("Workflows:RunScheduler", false),
-               chatWorkers,
+               cfg.GetValue("Workflows:RunChatWorkers", true),
+               cfg.GetValue("Workflows:RunChatMediaWorker", true),
                kho.Provider,
                kho.PublicBase);
 
@@ -49,7 +51,8 @@ public static class InstanceInfo
     /// </summary>
     public static string MotDong(TrangThai t)
         => $"[instance] {t.Instance} · scheduler={(t.Scheduler ? "CÓ" : "không")} "
-         + $"· worker-chat={(t.ChatWorkers ? "CÓ" : "không")} "
+         + $"· worker-tin={(t.ChatWorkers ? "CÓ" : "không")} "
+         + $"· worker-ảnh={(t.MediaWorker ? "CÓ" : "không")} "
          + $"· kho tệp={t.Storage}{(t.StorageBase is { Length: > 0 } b ? $" → {b}" : "")}";
 
     /// <summary>

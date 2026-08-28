@@ -20,8 +20,7 @@ public static class SystemEndpoints
             service   = "Tourkit AI Proxy",
             version   = "v1.0.1",
             deployedVia = "github-actions",
-            instance  = InstanceInfo.Doc(cfg, kho,
-                            chatWorkers: cfg.GetValue("Chat:RunWorkers", true)),
+            instance  = InstanceInfo.Doc(cfg, kho),
             endpoints = new[]
             {
                 "GET  /api/v1/providers",

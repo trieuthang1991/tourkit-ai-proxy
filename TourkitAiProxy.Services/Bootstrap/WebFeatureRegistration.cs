@@ -185,16 +185,31 @@ public static class WebFeatureRegistration
         // toàn nhờ FOR UPDATE SKIP LOCKED nên không sợ gửi hai lần — cái đáng sợ là hai instance
         // chạy HAI PHIÊN BẢN MÃ khác nhau, lúc đó con cũ hỏng mọi nhịp trong im lặng (đã dính thật
         // 28/08/2026). Chọn đúng MỘT con chạy worker, các con còn lại đặt false.
-        var chatWorkers = cfg.GetValue("Chat:RunWorkers", true);
-        if (chatWorkers)
+        if (cfg.GetValue("Workflows:RunChatWorkers", true))
         {
             s.AddHostedService<Chat.Inbox.ChatInboundWorker>();
             s.AddHostedService<Chat.Inbox.ChatOutboxWorker>();
-
-            // Worker thứ ba, KHÁC nhịp hẳn hai cái trên: nó không phục vụ tin đang tới mà đi cứu
-            // ảnh CŨ trước khi url của nhà cung cấp hết hạn (đo được: ảnh Meta sống 5 ngày). Bắt
-            // đầu muộn, mẻ nhỏ, nghỉ giữa các mẻ — xem ChatMediaBackfillWorker.
-            s.AddHostedService<Chat.Inbox.ChatMediaBackfillWorker>();
         }
+
+        // ẢNH tách khỏi TIN NHẮN bằng một cờ RIÊNG, vì hai việc này khác nhau ở mọi mặt đáng kể:
+        //
+        //   · tin nhắn — khách đang chờ trước màn hình, phải đi trong vài giây, mỗi lượt rất nhẹ;
+        //   · ảnh — không ai chờ, nhưng mỗi tệp là một lượt tải mạng cộng một lượt nén (tốn CPU),
+        //     và một hộp thư lâu năm có hàng nghìn tệp.
+        //
+        // Gộp chung một cờ thì muốn dời việc nặng sang máy khác là dời luôn cả việc gấp. Tách ra
+        // mới đặt được cấu hình mà đội vận hành thật sự cần:
+        //
+        //   web  : RunWorkers = true  · RunMediaWorker = false   (nhẹ, chỉ lo tin của khách)
+        //   máy ảnh: RunWorkers = false · RunMediaWorker = true   (một con chuyên vét ảnh)
+        //
+        // ⚠️ PHẢI có ĐÚNG MỘT con bật RunMediaWorker. Tắt hết thì ảnh cũ ngừng được cứu trong im
+        // lặng — mà url của nhà cung cấp thì vẫn đếm ngược (ảnh Meta sống 5 ngày), nên "im lặng"
+        // ở đây nghĩa là mất hẳn. Bật nhiều con không sai (hàng đợi khoá bằng FOR UPDATE SKIP
+        // LOCKED) nhưng phí băng thông và dễ bị CDN chặn tốc độ.
+        //
+        // Xem con nào đang bật cái gì: GET /healthz → khối "instance".
+        if (cfg.GetValue("Workflows:RunChatMediaWorker", true))
+            s.AddHostedService<Chat.Inbox.ChatMediaBackfillWorker>();
     }
 }

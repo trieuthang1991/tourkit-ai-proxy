@@ -301,8 +301,7 @@ app.MapTourkitEndpoints(builder.Configuration);
     var nhatKy = app.Services.GetRequiredService<ILogger<Program>>();
     var tuKhai = TourkitAiProxy.Services.Bootstrap.InstanceInfo.Doc(
         app.Configuration,
-        app.Services.GetRequiredService<TourkitAiProxy.Services.Storage.IChatFileStorage>(),
-        chatWorkers: app.Configuration.GetValue("Chat:RunWorkers", true));
+        app.Services.GetRequiredService<TourkitAiProxy.Services.Storage.IChatFileStorage>());
     nhatKy.LogInformation("{Dong}", TourkitAiProxy.Services.Bootstrap.InstanceInfo.MotDong(tuKhai));
 
     // Kho local KHÔNG hỏng, nhưng tệp nằm trên đĩa của chính máy chủ ứng dụng — mỗi lần deploy

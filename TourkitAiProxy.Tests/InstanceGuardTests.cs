@@ -1,4 +1,4 @@
-using Xunit;
+﻿using Xunit;
 using TourkitAiProxy.Tests.Chat;
 
 namespace TourkitAiProxy.Tests;
@@ -17,7 +17,7 @@ public class InstanceGuardTests
         // Phải có đường tắt worker ở những con không được chọn.
         var src = ChatSchemaGuardTests.DocFile(
             "TourkitAiProxy.Services/Bootstrap/WebFeatureRegistration.cs");
-        Assert.Contains("Chat:RunWorkers", src);
+        Assert.Contains("Workflows:RunChatWorkers", src);
     }
 
     [Fact]
@@ -28,7 +28,21 @@ public class InstanceGuardTests
         // trên MỌI máy — khách nhắn vào hư không, không lỗi nào hiện lên.
         var src = ChatSchemaGuardTests.DocFile(
             "TourkitAiProxy.Services/Bootstrap/WebFeatureRegistration.cs");
-        Assert.Contains("GetValue(\"Chat:RunWorkers\", true)", src);
+        Assert.Contains("GetValue(\"Workflows:RunChatWorkers\", true)", src);
+    }
+
+    [Fact]
+    public void Worker_ANH_phai_tach_khoi_worker_TIN_NHAN()
+    {
+        // Hai viec khac nhip han: tin nhan phai di trong vai giay va rat nhe; anh thi khong ai cho
+        // nhung moi tep la mot luot tai mang cong mot luot nen ton CPU. Gop chung mot co thi muon
+        // doi viec nang sang may khac la doi luon ca viec gap.
+        var src = ChatSchemaGuardTests.DocFile(
+            "TourkitAiProxy.Services/Bootstrap/WebFeatureRegistration.cs");
+        Assert.Contains("Workflows:RunChatMediaWorker", src);
+        var i = src.IndexOf("Workflows:RunChatWorkers", System.StringComparison.Ordinal);
+        var j = src.IndexOf("Workflows:RunChatMediaWorker", System.StringComparison.Ordinal);
+        Assert.True(i > 0 && j > i, "Hai co phai la hai lenh if rieng");
     }
 
     [Fact]
