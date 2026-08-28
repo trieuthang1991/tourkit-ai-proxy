@@ -380,6 +380,25 @@ public class ChatDb
       PRIMARY KEY (tenant_id, conversation_id, username)
     );
 
+    -- Theo dõi một hội thoại. Khác hẳn giao việc: giao việc là SỞ HỮU (một người một hội thoại,
+    -- ai nhận thì người khác thôi), theo dõi là QUAN TÂM (nhiều người cùng theo dõi được, và
+    -- không giành việc của ai). Quản lý muốn ngó một ca khó mà không cướp việc của nhân viên thì
+    -- đây là đường duy nhất.
+    --
+    -- Khoá gồm username vì đây là chuyện của TỪNG NGƯỜI — thiếu nó thì A bỏ theo dõi là B mất
+    -- theo dõi theo, đúng kiểu hỏng im lặng của cột agent_last_read_at dùng chung ngày trước.
+    CREATE TABLE IF NOT EXISTS chat_conversation_follows (
+      tenant_id       text        NOT NULL,
+      conversation_id bigint      NOT NULL REFERENCES chat_conversations(id) ON DELETE CASCADE,
+      username        text        NOT NULL,
+      created_utc     timestamptz NOT NULL DEFAULT now(),
+      PRIMARY KEY (tenant_id, conversation_id, username)
+    );
+    -- Lọc "hội thoại tôi theo dõi" đi bằng chỉ mục này; không có nó thì mỗi lần mở bộ lọc là quét
+    -- cả bảng, mà bảng này chỉ phình theo thời gian.
+    CREATE INDEX IF NOT EXISTS ix_follow_nguoi
+      ON chat_conversation_follows (tenant_id, username);
+
     -- Nhật ký thao tác. Khi khách khiếu nại "ai nói câu này với tôi", hoặc một hội thoại bị
     -- đóng nhầm, thì đây là chỗ duy nhất tra được.
     --

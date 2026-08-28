@@ -547,6 +547,8 @@
     'chuyen-viec': 'chuyển việc',
     'doi-trang-thai': 'đổi trạng thái',
     'tam-dung-bot': 'chỉnh trợ lý',
+    'theo-doi': 'theo dõi',
+    'bo-theo-doi': 'bỏ theo dõi',
     'go-ket-noi': 'gỡ kết nối kênh',
   };
 
@@ -1623,7 +1625,7 @@
     const [demKenh, setDemKenh] = useState({});
     const [loc, setLoc] = useState(null);          // trạng thái xử lý
     const [kenhLoc, setKenhLoc] = useState(null);  // kênh
-    const [nhom, setNhom] = useState('tat-ca');    // tat-ca | chua-doc | cua-toi
+    const [nhom, setNhom] = useState('tat-ca');    // tat-ca | chua-doc | cua-toi | toi-theo-doi
     const [tim, setTim] = useState('');
     const [chon, setChon] = useState(null);        // id hội thoại đang mở
     const [chiTiet, setChiTiet] = useState(null);
@@ -1656,6 +1658,7 @@
         if (kenhLoc !== null) q.set('channel', kenhLoc);
         if (nhom === 'chua-doc') q.set('unread', 'true');
         if (nhom === 'cua-toi') q.set('mine', 'true');
+        if (nhom === 'toi-theo-doi') q.set('followed', 'true');
         if (tim.trim()) q.set('search', tim.trim());
         if (cursor) q.set('cursor', cursor);
         const r = await authedFetch('/api/v1/chat/conversations?' + q);
@@ -1880,6 +1883,20 @@
       }
     }
 
+    async function doiTheoDoi() {
+      if (!chon || !v) return;
+      try {
+        const r = await authedFetch('/api/v1/chat/conversations/' + chon + '/follow', {
+          method: v.followed ? 'DELETE' : 'POST',
+        });
+        const j = await r.json().catch(() => ({}));
+        if (!r.ok) { pushToast(j.error || 'Không cập nhật theo dõi được', 'error'); return; }
+        await taiDsach(); await taiChiTiet(chon);
+      } catch (e) {
+        pushToast('Không cập nhật theo dõi được: ' + e.message, 'error');
+      }
+    }
+
     const v = chiTiet?.conversation;
     const lh = chiTiet?.contact;
     // Tên hiển thị của khách, dùng lại ở nhiều chỗ (đầu khung chat, ảnh trên từng tin, hồ sơ).
@@ -1943,7 +1960,8 @@
                        value={tim} onChange={e => setTim(e.target.value)} />
               </div>
               <div className="ci-nhom">
-                {[['tat-ca', 'Tất cả'], ['chua-doc', 'Chưa đọc'], ['cua-toi', 'Của tôi']].map(([id, nhan]) => (
+                {[['tat-ca', 'Tất cả'], ['chua-doc', 'Chưa đọc'], ['cua-toi', 'Của tôi'],
+                  ['toi-theo-doi', 'Tôi theo dõi']].map(([id, nhan]) => (
                   <button key={id} className={nhom === id ? 'on' : ''} onClick={() => setNhom(id)}>
                     {nhan}
                     {id === 'chua-doc' && dem.chuaDoc > 0 && <b>{dem.chuaDoc}</b>}
@@ -2040,6 +2058,11 @@
                     {/* Đánh dấu chưa đọc — trả hội thoại về hàng chờ của chính mình. */}
                     <button className="ci-nut nho" title="Đánh dấu chưa đọc" onClick={danhDauChuaDoc}>
                       Chưa đọc
+                    </button>
+                    {/* Theo dõi là quan tâm mà không nhận việc. */}
+                    <button className={'ci-nut nho' + (v.followed ? ' chinh' : '')}
+                            title={v.followed ? 'Bỏ theo dõi' : 'Theo dõi hội thoại này'} onClick={doiTheoDoi}>
+                      {v.followed ? '★ Đang theo dõi' : '☆ Theo dõi'}
                     </button>
                     <button className="ci-nut" onClick={batTatBot}>{v.botPaused ? 'Cho bot nói lại' : 'Tạm dừng bot'}</button>
                     {v.status !== 2

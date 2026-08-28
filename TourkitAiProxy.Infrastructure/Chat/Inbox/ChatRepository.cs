@@ -267,17 +267,21 @@ public class ChatRepository
     /// danh sách bên trái hiện "Thắng Triệu" còn đầu khung chat ngay cạnh hiện
     /// "4951953868228330" — cùng một khách, hai cái tên, trên cùng một màn hình.</para>
     /// </summary>
-    public async Task<ChatConversation?> GetConversationAsync(string tenant, long id, CancellationToken ct = default)
+    public async Task<ChatConversation?> GetConversationAsync(string tenant, long id, CancellationToken ct = default,
+        string? nguoiDung = null)
     {
         await using var c = await _db.OpenAsync(ct);
         return await c.QuerySingleOrDefaultAsync<ChatConversation>("""
-            SELECT v.*, ct.display_name, ct.avatar_url
+            SELECT v.*, ct.display_name, ct.avatar_url,
+                   EXISTS (SELECT 1 FROM chat_conversation_follows f
+                            WHERE f.tenant_id = v.tenant_id AND f.conversation_id = v.id
+                              AND f.username = @nguoiDung) AS followed
               FROM chat_conversations v
               LEFT JOIN chat_contacts ct
                 ON ct.tenant_id = v.tenant_id AND ct.channel = v.channel
                AND ct.external_id = v.contact_external_id
              WHERE v.id = @id AND v.tenant_id = @tenant
-            """, new { id, tenant });
+            """, new { id, tenant, nguoiDung });
     }
 
     /// <summary>
@@ -336,12 +340,15 @@ public class ChatRepository
     /// cả công ty. Null thì lùi về mốc chung cũ.</param>
     public async Task<List<ChatConversation>> ListConversationsAsync(string tenant, short? trangThai,
         string? chiCuaToi, string? timKiem, short? kenh = null, string? giaoCho = null,
-        bool chiChuaDoc = false, ConvCursor? sau = null, int limit = 60, string? nguoiDung = null,
+        bool chiChuaDoc = false, bool chiTheoDoi = false, ConvCursor? sau = null, int limit = 60, string? nguoiDung = null,
         CancellationToken ct = default)
     {
         await using var c = await _db.OpenAsync(ct);
         return (await c.QueryAsync<ChatConversation>("""
-            SELECT v.*, ct.display_name, ct.avatar_url, r.last_read_at AS my_last_read_at
+            SELECT v.*, ct.display_name, ct.avatar_url, r.last_read_at AS my_last_read_at,
+                   EXISTS (SELECT 1 FROM chat_conversation_follows f2
+                            WHERE f2.tenant_id = v.tenant_id AND f2.conversation_id = v.id
+                              AND f2.username = @nguoiDung) AS followed
             FROM chat_conversations v
             LEFT JOIN chat_contacts ct
               ON ct.tenant_id = v.tenant_id AND ct.channel = v.channel AND ct.external_id = v.contact_external_id
@@ -352,6 +359,10 @@ public class ChatRepository
               AND (@chiCuaToi IS NULL OR v.assigned_username = @chiCuaToi OR v.assigned_username IS NULL)
               AND (@kenh IS NULL OR v.channel = @kenh)
               AND (@giaoCho IS NULL OR v.assigned_username = @giaoCho)
+              AND (NOT @chiTheoDoi OR EXISTS (
+                    SELECT 1 FROM chat_conversation_follows f
+                     WHERE f.tenant_id = v.tenant_id AND f.conversation_id = v.id
+                       AND f.username = @nguoiDung))
               -- Mốc RIÊNG của người đang xem, lùi về mốc chung cũ khi họ chưa mở lần nào.
               AND (NOT @chuaDoc OR (v.contact_replied_at IS NOT NULL
                    AND (COALESCE(r.last_read_at, v.agent_last_read_at) IS NULL
@@ -362,7 +373,7 @@ public class ChatRepository
                    OR (v.last_activity_at, v.id) < (@sauLuc::timestamptz, @sauId::bigint))
             ORDER BY v.last_activity_at DESC, v.id DESC
             LIMIT @limit
-            """, new { tenant, trangThai, chiCuaToi, kenh, giaoCho, chuaDoc = chiChuaDoc, nguoiDung,
+            """, new { tenant, trangThai, chiCuaToi, kenh, giaoCho, chuaDoc = chiChuaDoc, chiTheoDoi, nguoiDung,
                        tim = string.IsNullOrWhiteSpace(timKiem) ? null : $"%{timKiem.Trim()}%",
                        sauLuc = sau?.LastActivityAt, sauId = sau?.Id,
                        limit = Math.Clamp(limit, 1, 200) })).ToList();
@@ -689,6 +700,24 @@ public class ChatRepository
             DO UPDATE SET last_read_at = EXCLUDED.last_read_at
             """, new { tenant, id, username });
         return soDong > 0;
+    }
+
+    /// <summary>Bật/tắt theo dõi một hội thoại cho riêng một người.</summary>
+    public async Task SetFollowAsync(string tenant, long id, string username, bool theoDoi,
+        CancellationToken ct = default)
+    {
+        await using var c = await _db.OpenAsync(ct);
+        if (theoDoi)
+            await c.ExecuteAsync("""
+                INSERT INTO chat_conversation_follows (tenant_id, conversation_id, username)
+                VALUES (@tenant, @id, @username)
+                ON CONFLICT (tenant_id, conversation_id, username) DO NOTHING
+                """, new { tenant, id, username });
+        else
+            await c.ExecuteAsync("""
+                DELETE FROM chat_conversation_follows
+                 WHERE tenant_id = @tenant AND conversation_id = @id AND username = @username
+                """, new { tenant, id, username });
     }
 
     // ── Tin nhắn ────────────────────────────────────────────────────────────

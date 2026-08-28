@@ -486,7 +486,7 @@ public static class ChatInboxEndpoints
         });
 
         g.MapGet("/conversations", async (HttpContext ctx, TkSessionStore sessions, ChatRepository repo,
-            short? status, string? search, short? channel, bool? unread, bool? mine,
+            short? status, string? search, short? channel, bool? unread, bool? followed, bool? mine,
             string? cursor, CancellationToken ct) =>
         {
             var a = SessionAuth.Read(ctx, sessions);
@@ -503,6 +503,7 @@ public static class ChatInboxEndpoints
             const int soDong = 60;
             var items = await repo.ListConversationsAsync(a.TenantId, status, chiCuaToi, search,
                 kenh: channel, giaoCho: mine == true ? a.Username : null, chiChuaDoc: unread == true,
+                chiTheoDoi: followed == true,
                 sau: ChatCursor.Decode(cursor), limit: soDong, nguoiDung: a.Username, ct: ct);
             // Truyền kênh đang lọc: chip trạng thái phải nói về ĐÚNG danh sách đang hiện bên dưới.
             var dem = await repo.CountAsync(a.TenantId, chiCuaToi, a.Username, channel, ct);
@@ -535,7 +536,7 @@ public static class ChatInboxEndpoints
             if (!repo.Configured) return NotConfigured();
             var goc = $"{ctx.Request.Scheme}://{ctx.Request.Host}";
 
-            var v = await repo.GetConversationAsync(a.TenantId, id, ct);
+            var v = await repo.GetConversationAsync(a.TenantId, id, ct, nguoiDung: a.Username);
             if (v is null) return Results.NotFound();   // id của tenant khác cũng rơi vào đây
 
             var tin = await repo.ListMessagesAsync(a.TenantId, id, 120, ct);
@@ -1142,6 +1143,33 @@ public static class ChatInboxEndpoints
 
             // ok=false nghĩa là hội thoại chưa có tin nào của khách — giao diện nói rõ thay vì im.
             return Results.Json(new { ok = duoc }, Web);
+        });
+
+        // Theo dõi / bỏ theo dõi. KHÔNG đụng assigned_username — theo dõi không phải nhận việc.
+        g.MapPost("/conversations/{id:long}/follow", async (long id, HttpContext ctx,
+            TkSessionStore sessions, ChatRepository repo, CancellationToken ct) =>
+        {
+            var a = SessionAuth.Read(ctx, sessions);
+            if (a == null) return SessionAuth.Unauthorized();
+            if (!repo.Configured) return NotConfigured();
+            if (await repo.GetConversationAsync(a.TenantId, id, ct) is null) return Results.NotFound();
+
+            await repo.SetFollowAsync(a.TenantId, id, a.Username, true, ct);
+            await repo.AppendAuditAsync(a.TenantId, id, a.Username, "theo-doi", null, ct);
+            return Results.Json(new { ok = true, followed = true }, Web);
+        });
+
+        g.MapDelete("/conversations/{id:long}/follow", async (long id, HttpContext ctx,
+            TkSessionStore sessions, ChatRepository repo, CancellationToken ct) =>
+        {
+            var a = SessionAuth.Read(ctx, sessions);
+            if (a == null) return SessionAuth.Unauthorized();
+            if (!repo.Configured) return NotConfigured();
+            if (await repo.GetConversationAsync(a.TenantId, id, ct) is null) return Results.NotFound();
+
+            await repo.SetFollowAsync(a.TenantId, id, a.Username, false, ct);
+            await repo.AppendAuditAsync(a.TenantId, id, a.Username, "bo-theo-doi", null, ct);
+            return Results.Json(new { ok = true, followed = false }, Web);
         });
 
         // ── Soi lại tệp cũ về kho riêng — CHẠY TAY ──────────────────────────
@@ -2215,7 +2243,7 @@ public static class ChatInboxEndpoints
         var docToi = v.MyLastReadAt ?? v.AgentLastReadAt;
         return new
         {
-            v.Id, v.Channel, v.ContactExternalId, v.AccountId, v.Status, v.AssignedUsername,
+            v.Id, v.Channel, v.ContactExternalId, v.AccountId, v.Status, v.AssignedUsername, v.Followed,
             v.LastActivityAt, v.LastPreview, v.ContactRepliedAt,
             displayName = v.DisplayName,
             avatarUrl = ContactAvatarUrl(v.AvatarUrl, sessionId),

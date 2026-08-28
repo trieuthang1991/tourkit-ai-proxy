@@ -241,6 +241,8 @@ public class ChatConversation
     public DateTime? AgentLastReadAt { get; set; }
     /// Mốc đọc của CHÍNH người đang xem, ghép từ chat_conversation_reads lúc liệt kê.
     public DateTime? MyLastReadAt { get; set; }
+    /// Cờ theo dõi của CHÍNH người đang xem, ghép từ chat_conversation_follows lúc liệt kê.
+    public bool Followed { get; set; }
     public DateTime LastActivityAt { get; set; }
     public string? LastPreview { get; set; }
     public DateTime? ArchivedAt { get; set; }
