@@ -1864,6 +1864,22 @@
       await taiChiTiet(chon);
     }
 
+    async function danhDauChuaDoc() {
+      if (!chon) return;
+      try {
+        const r = await authedFetch('/api/v1/chat/conversations/' + chon + '/unread', { method: 'POST' });
+        const j = await r.json().catch(() => ({}));
+        if (!r.ok) { pushToast(j.error || 'Không đánh dấu chưa đọc được', 'error'); return; }
+        if (!j.ok) {
+          pushToast('Hội thoại chưa có tin nào của khách nên không đánh dấu được', 'error');
+          return;
+        }
+        await taiDsach();
+      } catch (e) {
+        pushToast('Không đánh dấu chưa đọc được: ' + e.message, 'error');
+      }
+    }
+
     const v = chiTiet?.conversation;
     const lh = chiTiet?.contact;
     // Tên hiển thị của khách, dùng lại ở nhiều chỗ (đầu khung chat, ảnh trên từng tin, hồ sơ).
@@ -2020,6 +2036,10 @@
                   <div className="ci-nut-nhom">
                     <button className={'ci-nut' + (v.assignedUsername ? '' : ' chinh')} onClick={nhanViec}>
                       {v.assignedUsername ? 'Bỏ nhận' : 'Nhận việc'}
+                    </button>
+                    {/* Đánh dấu chưa đọc — trả hội thoại về hàng chờ của chính mình. */}
+                    <button className="ci-nut nho" title="Đánh dấu chưa đọc" onClick={danhDauChuaDoc}>
+                      Chưa đọc
                     </button>
                     <button className="ci-nut" onClick={batTatBot}>{v.botPaused ? 'Cho bot nói lại' : 'Tạm dừng bot'}</button>
                     {v.status !== 2

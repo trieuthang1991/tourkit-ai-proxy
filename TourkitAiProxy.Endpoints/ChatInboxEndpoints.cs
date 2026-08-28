@@ -1124,6 +1124,26 @@ public static class ChatInboxEndpoints
             return Results.Json(new { ok = true }, Web);
         });
 
+        // Đánh dấu CHƯA đọc — trả lại hội thoại cho chính mình hoặc cho người khác nhặt.
+        //
+        // ⚠️ KHÔNG gọi MarkSeenAsync như đường /read: không nền tảng nào cho "bỏ đã xem". Báo
+        // sang kênh một lần nữa còn tệ hơn — khách nhận thêm một tín hiệu đã xem cho tin cũ.
+        g.MapPost("/conversations/{id:long}/unread", async (long id, HttpContext ctx,
+            TkSessionStore sessions, ChatRepository repo, CancellationToken ct) =>
+        {
+            var a = SessionAuth.Read(ctx, sessions);
+            if (a == null) return SessionAuth.Unauthorized();
+            if (!repo.Configured) return NotConfigured();
+            if (await repo.GetConversationAsync(a.TenantId, id, ct) is null) return Results.NotFound();
+
+            var duoc = await repo.MarkUnreadAsync(a.TenantId, id, a.Username, ct);
+            if (duoc)
+                await repo.AppendAuditAsync(a.TenantId, id, a.Username, "danh-dau-chua-doc", null, ct);
+
+            // ok=false nghĩa là hội thoại chưa có tin nào của khách — giao diện nói rõ thay vì im.
+            return Results.Json(new { ok = duoc }, Web);
+        });
+
         // ── Soi lại tệp cũ về kho riêng — CHẠY TAY ──────────────────────────
         //
         // Việc này ĐÃ tự chạy nền cho mọi công ty (ChatMediaBackfillWorker), vì nó là cứu dữ

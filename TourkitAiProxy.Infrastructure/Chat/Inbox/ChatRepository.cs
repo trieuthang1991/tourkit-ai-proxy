@@ -662,6 +662,33 @@ public class ChatRepository
             """, new { id, tenant, username });
     }
 
+    /// <summary>
+    /// Đánh dấu hội thoại CHƯA đọc, cho riêng người đang thao tác.
+    ///
+    /// <para><b>ĐẶT mốc chứ không XOÁ dòng.</b> Xoá thì phép tính chưa đọc lùi về cột chung
+    /// <c>agent_last_read_at</c> — vốn có thể vẫn mới vì người khác vừa mở — và hội thoại vẫn
+    /// hiện là đã đọc. Người dùng bấm nút, không thấy gì đổi, và không có lỗi nào để lần ra.</para>
+    ///
+    /// <para>Trả <c>false</c> khi hội thoại chưa có tin nào của khách: lúc đó không có gì để đánh
+    /// dấu chưa đọc, và tự nghĩ ra một mốc là nói dối dữ liệu.</para>
+    /// </summary>
+    public async Task<bool> MarkUnreadAsync(string tenant, long id, string username,
+        CancellationToken ct = default)
+    {
+        await using var c = await _db.OpenAsync(ct);
+        var soDong = await c.ExecuteAsync("""
+            INSERT INTO chat_conversation_reads (tenant_id, conversation_id, username, last_read_at)
+            SELECT @tenant, @id, @username, m.created_utc - interval '1 millisecond'
+              FROM chat_messages m
+             WHERE m.conversation_id = @id AND m.tenant_id = @tenant AND m.direction = 0
+             ORDER BY m.created_utc DESC
+             LIMIT 1
+            ON CONFLICT (tenant_id, conversation_id, username)
+            DO UPDATE SET last_read_at = EXCLUDED.last_read_at
+            """, new { tenant, id, username });
+        return soDong > 0;
+    }
+
     // ── Tin nhắn ────────────────────────────────────────────────────────────
 
     /// <summary>
