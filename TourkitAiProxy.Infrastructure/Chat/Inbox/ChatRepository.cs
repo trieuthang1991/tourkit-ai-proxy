@@ -722,6 +722,41 @@ public class ChatRepository
             """, new { tenant, kenh = (short)kenh, id = externalId, chan, username });
     }
 
+    /// <summary>
+    /// Xoá MỀM một tin khỏi hộp thư của mình. Dùng lại cột <c>deleted_utc</c> đã có sẵn từ đợt
+    /// bình luận (khách tự xoá bình luận của họ) — đừng thêm cột thứ hai cùng nghĩa.
+    ///
+    /// <para>⚠️ Chỉ xoá ở PHÍA MÌNH. Không nền tảng nào cho doanh nghiệp thu hồi tin đã gửi.</para>
+    /// </summary>
+    public async Task<bool> SoftDeleteMessageAsync(string tenant, long conversationId,
+        long messageId, CancellationToken ct = default)
+    {
+        await using var c = await _db.OpenAsync(ct);
+        return await c.ExecuteAsync("""
+            UPDATE chat_messages SET deleted_utc = now()
+             WHERE id = @id AND tenant_id = @tenant AND conversation_id = @conv
+               AND deleted_utc IS NULL
+            """, new { id = messageId, tenant, conv = conversationId }) > 0;
+    }
+
+    /// <summary>
+    /// Sửa nội dung một tin CHƯA gửi đi.
+    ///
+    /// <para>Điều kiện trạng thái kiểm NGAY TRONG câu lệnh chứ không chỉ ở tầng trên: kiểm rồi
+    /// mới ghi là có cửa sổ để worker gửi nhặt đúng tin đó lên giữa hai lượt. Danh sách trạng
+    /// thái phải khớp <see cref="ChatRules.CoTheSuaTin"/>.</para>
+    /// </summary>
+    public async Task<bool> EditPendingMessageAsync(string tenant, long conversationId,
+        long messageId, string body, CancellationToken ct = default)
+    {
+        await using var c = await _db.OpenAsync(ct);
+        return await c.ExecuteAsync("""
+            UPDATE chat_messages SET body = @body
+             WHERE id = @id AND tenant_id = @tenant AND conversation_id = @conv
+               AND state IN (0, 4) AND deleted_utc IS NULL
+            """, new { id = messageId, tenant, conv = conversationId, body }) > 0;
+    }
+
     /// <summary>Bật/tắt theo dõi một hội thoại cho riêng một người.</summary>
     public async Task SetFollowAsync(string tenant, long id, string username, bool theoDoi,
         CancellationToken ct = default)

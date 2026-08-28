@@ -9673,3 +9673,16 @@ img.ci-avt { object-fit: cover; }
   .ci-grid, .ci-grid.co-hoso { grid-template-columns: 48px 240px minmax(300px, 1fr); }
   .ci-hoso { display: none; }
 }
+
+/* Tin đã xoá khỏi hộp thư: hiện dấu thay cho nội dung, KHÔNG cho biến mất hẳn — biến mất thì
+   người trực tưởng mình nhớ nhầm và cụm tin quanh nó mất mạch. */
+.ci-da-xoa { opacity: .6; }
+
+/* Dải Sửa / Xoá của một tin. Ẩn cho tới khi rê chuột vào: hiện thường trực thì mỗi dòng tin có
+   thêm hai nút, khung chat rối hẳn — mà đây là thao tác hiếm. */
+.ci-tin-thaotac { display: flex; gap: 8px; justify-content: flex-end; margin-top: 2px;
+                  opacity: 0; transition: opacity .12s; }
+.ci-dong:hover .ci-tin-thaotac { opacity: 1; }
+.ci-tin-thaotac button { background: none; border: 0; padding: 0; cursor: pointer;
+                         font-size: 11px; color: var(--muted, #6b7280); text-decoration: underline; }
+.ci-tin-thaotac button:hover { color: var(--fg, #111827); }

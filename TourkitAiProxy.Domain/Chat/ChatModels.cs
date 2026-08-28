@@ -273,6 +273,14 @@ public class ChatMessage
     /// Nút đã gửi kèm tin, dạng JSON. Xem <see cref="ChatButton"/>.
     public string? Buttons { get; set; }
     public string? ErrorMessage { get; set; }
+    /// <summary>Tin đã bị xoá khỏi hộp thư lúc nào. Null = còn nguyên.
+    ///
+    /// <para><b>Xoá MỀM</b>: dòng vẫn nằm đó, chỉ đóng dấu. Người trực có thể đã đọc và đã
+    /// hành động theo câu đó — xoá sạch thì lịch sử nói dối rằng chuyện đó chưa từng xảy ra.</para>
+    ///
+    /// <para>⚠️ Chỉ xoá ở PHÍA MÌNH. Không nền tảng nào cho doanh nghiệp thu hồi tin đã gửi,
+    /// nên khách vẫn thấy nguyên — giao diện phải nói rõ chuyện đó.</para></summary>
+    public DateTime? DeletedUtc { get; set; }
     public DateTime CreatedUtc { get; set; }
 }
 

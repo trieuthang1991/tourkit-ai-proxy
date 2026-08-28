@@ -566,6 +566,9 @@ public static class ChatInboxEndpoints
                 {
                     m.Id, m.Direction, m.SenderKind, m.SenderUsername, m.Kind,
                     m.Body, m.State, m.ErrorMessage, m.CreatedUtc,
+                    // Tin đã xoá khỏi hộp thư. Vẫn gửi ra để giao diện hiện "đã bị xoá" thay
+                    // cho nội dung — biến mất hẳn thì người trực tưởng mình nhớ nhầm.
+                    deleted = m.DeletedUtc is not null,
                     // Nút ĐÃ GỬI kèm tin. Đọc lại qua ChatRules chứ không đổ thẳng chuỗi JSON
                     // trong CSDL ra: dòng cũ có thể sai hình dạng, và đường dẫn phải lọc lại
                     // http(s) — nút do người dùng tự đặt nên là dữ liệu không tin được.
@@ -1143,6 +1146,47 @@ public static class ChatInboxEndpoints
 
             // ok=false nghĩa là hội thoại chưa có tin nào của khách — giao diện nói rõ thay vì im.
             return Results.Json(new { ok = duoc }, Web);
+        });
+
+        // Xoá tin — CHỈ trong hộp thư mình. Xoá MỀM: dòng vẫn nằm đó, chỉ đóng dấu, vì người
+        // trực có thể đã đọc và đã hành động theo câu đó.
+        g.MapDelete("/conversations/{id:long}/messages/{msgId:long}", async (long id, long msgId,
+            HttpContext ctx, TkSessionStore sessions, ChatRepository repo, ChatEventBus bus,
+            CancellationToken ct) =>
+        {
+            var a = SessionAuth.Read(ctx, sessions);
+            if (a == null) return SessionAuth.Unauthorized();
+            if (!repo.Configured) return NotConfigured();
+            if (await repo.GetConversationAsync(a.TenantId, id, ct) is null) return Results.NotFound();
+
+            if (!await repo.SoftDeleteMessageAsync(a.TenantId, id, msgId, ct)) return Results.NotFound();
+            await repo.AppendAuditAsync(a.TenantId, id, a.Username, "xoa-tin",
+                new JsonObject { ["tin"] = msgId }.ToJsonString(), ct);
+            bus.Publish(new(a.TenantId, id, "doi-trang-thai", msgId));
+            return Results.Json(new { ok = true }, Web);
+        });
+
+        // Sửa tin — CHỈ tin chưa ra khỏi máy. Xem ChatRules.CoTheSuaTin: sửa một tin đã gửi là
+        // làm hộp thư nói dối về thứ khách thật sự nhận được.
+        g.MapPatch("/conversations/{id:long}/messages/{msgId:long}", async (long id, long msgId,
+            EditMsgReq body, HttpContext ctx, TkSessionStore sessions, ChatRepository repo,
+            ChatEventBus bus, CancellationToken ct) =>
+        {
+            var a = SessionAuth.Read(ctx, sessions);
+            if (a == null) return SessionAuth.Unauthorized();
+            if (!repo.Configured) return NotConfigured();
+            if (string.IsNullOrWhiteSpace(body.Body))
+                return Results.Json(new { error = "Nội dung không được để trống" }, Web, statusCode: 400);
+            if (await repo.GetConversationAsync(a.TenantId, id, ct) is null) return Results.NotFound();
+
+            if (!await repo.EditPendingMessageAsync(a.TenantId, id, msgId, body.Body.Trim(), ct))
+                return Results.Json(new { error = "Tin đã gửi đi rồi nên không sửa được nữa" },
+                    Web, statusCode: 409);
+
+            await repo.AppendAuditAsync(a.TenantId, id, a.Username, "sua-tin",
+                new JsonObject { ["tin"] = msgId }.ToJsonString(), ct);
+            bus.Publish(new(a.TenantId, id, "doi-trang-thai", msgId));
+            return Results.Json(new { ok = true }, Web);
         });
 
         // Chặn / bỏ chặn khách. CHỈ trong hộp thư của mình: không nền tảng nào cho phía doanh
@@ -2304,6 +2348,7 @@ public record SendReq(string? Text, string? AttachmentUrl = null, string? Attach
     public record NoteReq(string? Body);
     public record StatusReq(short Status);
     public record BotReq(bool Paused, int? Minutes);
+    public record EditMsgReq(string? Body);
 
     /// <param name="Trigger">Lệnh gọi thô — server tự chuẩn hoá (bỏ dấu, hạ chữ thường).</param>
     /// <param name="Buttons">Nút kèm mẫu. Bỏ trống hoặc rỗng = XOÁ nút đang có — màn hình sửa

@@ -298,6 +298,19 @@ public static class ChatRules
     }
 
     /// <summary>
+    /// Tin này còn sửa được không.
+    ///
+    /// <para><b>Chỉ tin CHƯA ra khỏi máy.</b> Tin đã gửi thì khách đã thấy bản gốc vĩnh viễn —
+    /// Meta không cấp API sửa cho doanh nghiệp — nên sửa bản của mình là làm hộp thư nói dối
+    /// về thứ khách thật sự nhận được, và đó là kiểu sai không ai phát hiện ra cho tới lúc
+    /// đối chất với khách.</para>
+    ///
+    /// <para>Đây là chỗ CỐ Ý làm khác ChatbotX: bên đó cho sửa mọi tin, kể cả tin đã gửi.</para>
+    /// </summary>
+    public static bool CoTheSuaTin(short state)
+        => state == (short)ChatState.Pending || state == (short)ChatState.Failed;
+
+    /// <summary>
     /// Đã im đủ lâu để xử lý cụm tin chưa.
     ///
     /// <para>Khách hay gõ nhiều dòng liền: "cho hỏi tour Đà Nẵng" / "đi 4 ngày" / "2 người lớn".

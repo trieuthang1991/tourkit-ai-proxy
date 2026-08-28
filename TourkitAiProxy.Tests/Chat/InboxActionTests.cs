@@ -112,4 +112,65 @@ public class InboxActionTests
         Assert.Contains("UPDATE chat_contacts", than);
         Assert.Contains("blocked_utc", than);
     }
+
+    // ── Xoá tin / sửa tin ───────────────────────────────────────────────────
+
+    [Theory]
+    [InlineData(0, true)]    // chờ gửi — sửa được, đây là ca hữu ích nhất
+    [InlineData(4, true)]    // gửi hỏng — sửa rồi gửi lại
+    [InlineData(1, false)]   // đã gửi
+    [InlineData(2, false)]   // đã nhận
+    [InlineData(3, false)]   // đã xem
+    public void Chi_sua_duoc_tin_CHUA_ra_khoi_may(short trangThai, bool mong)
+    {
+        // Tin đã đi rồi thì khách đã thấy bản gốc VĨNH VIỄN — không nền tảng nào cho sửa lại phía
+        // họ. Sửa bản của mình lúc đó là làm hộp thư nói dối về thứ khách thật sự nhận được, và
+        // đó là kiểu sai không ai phát hiện ra cho tới lúc đối chất với khách.
+        Assert.Equal(mong, TourkitAiProxy.Domain.Chat.ChatRules.CoTheSuaTin(trangThai));
+    }
+
+    [Fact]
+    public void Sua_tin_phai_kiem_trang_thai_NGAY_TRONG_cau_lenh()
+    {
+        // Kiểm ở tầng trên rồi mới ghi là có cửa sổ: worker gửi có thể vừa nhặt đúng tin đó lên
+        // giữa hai lượt. Điều kiện phải nằm trong chính câu UPDATE.
+        var than = Than("EditPendingMessageAsync");
+        Assert.Contains("UPDATE chat_messages", than);
+        Assert.Contains("state IN (0, 4)", than);
+        Assert.Contains("tenant_id = @tenant", than);
+    }
+
+    [Fact]
+    public void Xoa_tin_la_xoa_MEM_chu_khong_xoa_dong()
+    {
+        // Người trực có thể đã đọc và đã hành động theo câu đó. Xoá sạch thì lịch sử nói dối rằng
+        // chuyện đó chưa từng xảy ra — cùng lý do với bình luận khách tự xoá.
+        var than = Than("SoftDeleteMessageAsync");
+        Assert.Contains("UPDATE chat_messages", than);
+        Assert.Contains("deleted_utc", than);
+        Assert.DoesNotContain("DELETE FROM chat_messages", than);
+    }
+
+    [Fact]
+    public void Tin_da_xoa_phai_ra_TOI_giao_dien()
+    {
+        // Cột deleted_utc có từ đợt bình luận, nhưng ChatMessage không mang nó nên dấu xoá ghi vào
+        // CSDL rồi nằm im — hộp thư vẫn hiện nguyên nội dung. Lời hứa "hiện đã bị xoá" trong chú
+        // thích schema chỉ thành thật khi cả ba tầng cùng mang cờ này.
+        Assert.Contains("public DateTime? DeletedUtc",
+            ChatSchemaGuardTests.DocFile("TourkitAiProxy.Domain/Chat/ChatModels.cs"));
+        Assert.Contains("deleted = m.DeletedUtc is not null",
+            ChatSchemaGuardTests.DocFile("TourkitAiProxy.Endpoints/ChatInboxEndpoints.cs"));
+        Assert.Contains("Tin đã bị xoá",
+            ChatSchemaGuardTests.DocFile("wwwroot/pages/chat-inbox.jsx"));
+    }
+
+    [Fact]
+    public void Giao_dien_phai_noi_ro_xoa_chi_o_phia_minh()
+    {
+        // Không nói thì nhân viên tưởng đã thu hồi được câu lỡ tay và không đi xin lỗi khách.
+        // Đây là hậu quả thật, không phải chuyện chữ nghĩa.
+        var ui = ChatSchemaGuardTests.DocFile("wwwroot/pages/chat-inbox.jsx");
+        Assert.Contains("KHÁCH VẪN THẤY", ui);
+    }
 }

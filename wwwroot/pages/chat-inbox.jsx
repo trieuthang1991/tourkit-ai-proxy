@@ -252,7 +252,7 @@
     return new Date(b.createdUtc) - new Date(a.createdUtc) >= MOC_MS;
   }
 
-  function BongBong({ tin, kenh, ten0, dauCum = true, cuoiCum = true }) {
+  function BongBong({ tin, kenh, ten0, dauCum = true, cuoiCum = true, onXoa, onSua }) {
     // 0=khách 1=AI 2=nhân viên 3=hệ thống
     const ben = tin.senderKind;
     const cuaMinh = tin.direction === 1;
@@ -270,7 +270,11 @@
     //   bot    — KHÔNG bong bóng, chỉ một dải mảnh bên trái. Bot nói nhiều; để nó cũng thành
     //            bong bóng thì khung chat đặc kín và mắt không phân biệt nổi đâu là người thật
     //   mình   — bong bóng đậm, nhãn người gửi nằm TRONG bóng
-    const noiDung = (
+    // Tin đã xoá khỏi hộp thư: hiện một dòng nhạt thay cho nội dung, KHÔNG cho biến mất hẳn.
+    // Biến mất thì người trực tưởng mình nhớ nhầm, và cụm tin quanh nó mất mạch.
+    const noiDung = tin.deleted ? (
+      <div className="ci-noidung ci-da-xoa"><i>Tin đã bị xoá khỏi hộp thư</i></div>
+    ) : (
       <>
         <DinhKem tin={tin} />
         {/* Có đính kèm thì chữ là CHÚ THÍCH, vắng chữ là bình thường — đừng in "(không có chữ)"
@@ -336,6 +340,18 @@
       </div>
     );
 
+    // Thao tác trên tin CỦA MÌNH. Nút Sửa chỉ hiện với tin chưa ra khỏi máy (chờ gửi = 0,
+    // gửi hỏng = 4) — tin đã gửi thì khách đã thấy bản gốc vĩnh viễn, sửa bản của mình là làm
+    // hộp thư nói dối. Ẩn hẳn nút chứ không hiện rồi báo lỗi.
+    const thaoTac = !tin.deleted && (onXoa || onSua) && (
+      <div className="ci-tin-thaotac">
+        {onSua && (tin.state === 0 || tin.state === 4) && (
+          <button onClick={() => onSua(tin)}>Sửa</button>
+        )}
+        {onXoa && <button onClick={() => onXoa(tin)}>Xoá</button>}
+      </div>
+    );
+
     return (
       <div className={'ci-dong ci-phai' + (cuoiCum ? '' : ' lien')}>
         <div>
@@ -360,6 +376,7 @@
             {gio}
           </div>
           {camXuc}
+          {thaoTac}
         </div>
       </div>
     );
@@ -551,6 +568,8 @@
     'bo-theo-doi': 'bỏ theo dõi',
     'chan-khach': 'chặn khách',
     'bo-chan-khach': 'bỏ chặn khách',
+    'xoa-tin': 'xoá tin',
+    'sua-tin': 'sửa tin',
     'go-ket-noi': 'gỡ kết nối kênh',
   };
 
@@ -1885,6 +1904,41 @@
       }
     }
 
+    async function xoaTin(tin) {
+      // ⚠️ Câu hỏi PHẢI nói khách vẫn thấy. Không nói thì nhân viên tưởng đã thu hồi được câu lỡ
+      // tay và không đi xin lỗi khách — hậu quả thật, không phải chuyện chữ nghĩa.
+      if (!confirm('Xoá tin này khỏi hộp thư?\n\n'
+        + 'Chỉ xoá ở phía bạn — KHÁCH VẪN THẤY tin này. '
+        + 'Các nền tảng không cho phép doanh nghiệp thu hồi tin đã gửi.')) return;
+      try {
+        const r = await authedFetch(
+          '/api/v1/chat/conversations/' + chon + '/messages/' + tin.id, { method: 'DELETE' });
+        const j = await r.json().catch(() => ({}));
+        if (!r.ok) { pushToast(j.error || 'Không xoá được tin', 'error'); return; }
+        await taiChiTiet(chon);
+      } catch (e) {
+        pushToast('Không xoá được tin: ' + e.message, 'error');
+      }
+    }
+
+    async function suaTin(tin) {
+      const moi = prompt('Sửa nội dung tin (tin chưa gửi đi):', tin.body || '');
+      if (moi === null || !moi.trim()) return;
+      try {
+        const r = await authedFetch(
+          '/api/v1/chat/conversations/' + chon + '/messages/' + tin.id, {
+            method: 'PATCH',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ body: moi.trim() }),
+          });
+        const j = await r.json().catch(() => ({}));
+        if (!r.ok) { pushToast(j.error || 'Không sửa được tin', 'error'); return; }
+        await taiChiTiet(chon);
+      } catch (e) {
+        pushToast('Không sửa được tin: ' + e.message, 'error');
+      }
+    }
+
     async function doiChan() {
       if (!chon || !v) return;
       // ⚠️ Câu hỏi PHẢI nói rõ phạm vi. Không nền tảng nào cho phía doanh nghiệp chặn một người
@@ -2151,7 +2205,8 @@
                           <div className="ci-mocgio"><span>{gioPhut(m.createdUtc)}</span></div>
                         )}
                         <BongBong tin={m} kenh={v.channel} ten0={tenKhach}
-                                  dauCum={dauCum} cuoiCum={cuoiCum} />
+                                  dauCum={dauCum} cuoiCum={cuoiCum}
+                                  onXoa={xoaTin} onSua={suaTin} />
                       </React.Fragment>
                     );
                   })}

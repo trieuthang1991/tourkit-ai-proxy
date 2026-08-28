@@ -753,3 +753,32 @@ token thì Zalo vô hiệu hoá cái cũ và bên chậm chân mất token vĩnh
 **Đợt 1 CHƯA nối CRM** — bot trả lời bằng kiến thức chung, `crm_customer_id` để trống. Lời dặn mặc
 định **cấm bịa giá/lịch khởi hành**; đổi qua `Chat:SystemPrompt`.
 
+
+
+### Bốn thao tác hộp thư — và ba chỗ cố ý khác ChatbotX
+
+`POST /conversations/{id}/unread` · `POST|DELETE /conversations/{id}/follow` ·
+`POST|DELETE /conversations/{id}/block` · `DELETE|PATCH /conversations/{id}/messages/{msgId}`
+
+1. **Đánh dấu chưa đọc ĐẶT mốc, không XOÁ dòng đọc.** Xoá thì phép tính chưa đọc lùi về cột chung
+   `agent_last_read_at` — vốn có thể vẫn mới vì người khác vừa mở — nên hội thoại vẫn hiện đã đọc:
+   bấm nút mà không có gì xảy ra, không lỗi nào để lần ra. Mốc lùi đúng 1 mili giây trước tin cuối
+   của khách, vì danh sách so bằng phép **lớn hơn thực sự**.
+
+2. **Chặn khách là chuyện NỘI BỘ.** Không nền tảng nào cho phía doanh nghiệp chặn một người qua
+   API, nên nút tên là *"Chặn trong hộp thư"* chứ **không phải "Báo xấu"** — gọi sai là người dùng
+   tưởng đã báo lên Facebook. Cờ ghi vào **danh bạ** (`chat_contacts.blocked_utc`) chứ không vào
+   hội thoại: khách nhắn lại qua một hội thoại khác thì vẫn phải bị chặn. Chặn ở **cả hai** đường —
+   trợ lý câm *và* đường gửi từ chối, vì người trực vẫn mở được hội thoại cũ ra gõ tay. Tin của
+   khách bị chặn **vẫn được ghi**: chặn không phải xoá, và khi đối chất thì đó là bằng chứng duy nhất.
+
+3. **Sửa tin CHỈ cho tin chưa ra khỏi máy** (`ChatRules.CoTheSuaTin`) — khác ChatbotX, bên đó cho
+   sửa mọi tin. Tin đã gửi thì khách đã thấy bản gốc vĩnh viễn (Meta không có API sửa cho doanh
+   nghiệp), nên sửa bản của mình là làm hộp thư nói dối về thứ khách thật sự nhận được — sai kiểu
+   không ai phát hiện ra cho tới lúc đối chất. Xoá tin là **xoá mềm** và giao diện nói thẳng
+   *"khách vẫn thấy"*.
+
+⚠️ Cả hai cờ `blocked` và `deleted` đi kèm sẵn theo phép nối `chat_contacts` / cột có sẵn, **không
+thêm truy vấn nào vào đường nóng**. `ChatMessage.DeletedUtc` mới được nối ra tới giao diện ở đợt
+này — trước đó cột `deleted_utc` (dùng cho bình luận khách tự xoá) ghi vào CSDL rồi nằm im, nên
+lời hứa "hộp thư hiện đã bị xoá" trong chú thích schema chưa từng được giữ.

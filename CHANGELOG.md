@@ -16,6 +16,19 @@ Những cập nhật gần đây của TRAV-AI, viết cho người dùng. Mới
 ## Phiên bản 28/08/2026 — Thêm 6 ngày để trả lời khách Facebook
 
 ### ✨ Tính năng mới
+- **Bốn nút mới trên mỗi hội thoại.** **Chưa đọc** — trả lại dấu chưa đọc khi bạn lỡ mở nhầm,
+  chỉ ảnh hưởng tới mình bạn chứ không tới đồng nghiệp. **Theo dõi** — ngó một ca khó mà không
+  phải nhận việc, nhiều người cùng theo dõi được, và có bộ lọc **Tôi theo dõi** ở đầu danh sách.
+  **Chặn trong hộp thư** — khách quấy rối thì hộp thư ẩn họ đi và trợ lý ngừng trả lời.
+  **Xoá / Sửa tin** — rê chuột vào tin của bạn là thấy.
+
+  *Lưu ý quan trọng:* chặn và xoá **chỉ có tác dụng trong hộp thư của bạn**. Facebook, Instagram,
+  WhatsApp, Zalo và TikTok không cho phép doanh nghiệp chặn khách hay thu hồi tin đã gửi — nên
+  khách vẫn nhắn tới được và vẫn thấy tin cũ. Màn hình nói rõ điều này trước khi bạn bấm. Tin đã
+  xoá không biến mất khỏi hội thoại mà hiện thành dòng *"Tin đã bị xoá khỏi hộp thư"*, để bạn
+  không tưởng mình nhớ nhầm. Nút **Sửa** chỉ hiện với tin **chưa gửi đi được** (đang chờ hoặc gửi
+  hỏng) — tin đã tới tay khách thì sửa bản của mình chỉ làm hộp thư ghi sai thứ khách thật sự nhận.
+
 - **Có chỗ chỉnh trợ lý chat rồi.** Mở **Cài đặt hộp thư → Trợ lý**: bật/tắt trợ lý, viết
   những gì nó cần biết về công ty bạn (chuyên tuyến nào, xưng hô ra sao, không nhận đoàn
   dưới bao nhiêu khách), đặt câu chào, và chọn nhân viên trả lời xong thì trợ lý im bao lâu.
