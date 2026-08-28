@@ -104,6 +104,16 @@ public class ChatDb
     -- avatar_url đã trỏ về kho của mình, tự nó là dấu hiệu rồi.
     ALTER TABLE chat_contacts ADD COLUMN IF NOT EXISTS avatar_state smallint NOT NULL DEFAULT 0;
 
+    -- CHẶN khách. Hoàn toàn NỘI BỘ: không nền tảng nào cho phía doanh nghiệp chặn một người
+    -- qua API. Chặn ở đây nghĩa là hộp thư ẩn họ đi, trợ lý câm, và đường gửi từ chối — chứ
+    -- KHÔNG phải báo lên Facebook/Zalo. Đặt tên nút trên giao diện cho đúng chuyện đó, gọi là
+    -- "báo xấu" thì người dùng tưởng đã báo lên nền tảng.
+    --
+    -- Tin của khách bị chặn VẪN ĐƯỢC GHI: chặn không phải xoá, và khi cần đối chất thì đó là
+    -- bằng chứng duy nhất còn lại.
+    ALTER TABLE chat_contacts ADD COLUMN IF NOT EXISTS blocked_utc timestamptz;
+    ALTER TABLE chat_contacts ADD COLUMN IF NOT EXISTS blocked_by  text;
+
     -- Một luồng chat với một khách trên một kênh.
     CREATE TABLE IF NOT EXISTS chat_conversations (
       id                   bigserial PRIMARY KEY,

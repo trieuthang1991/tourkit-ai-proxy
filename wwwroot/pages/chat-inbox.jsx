@@ -549,6 +549,8 @@
     'tam-dung-bot': 'chỉnh trợ lý',
     'theo-doi': 'theo dõi',
     'bo-theo-doi': 'bỏ theo dõi',
+    'chan-khach': 'chặn khách',
+    'bo-chan-khach': 'bỏ chặn khách',
     'go-ket-noi': 'gỡ kết nối kênh',
   };
 
@@ -1883,6 +1885,29 @@
       }
     }
 
+    async function doiChan() {
+      if (!chon || !v) return;
+      // ⚠️ Câu hỏi PHẢI nói rõ phạm vi. Không nền tảng nào cho phía doanh nghiệp chặn một người
+      // qua API, nên đây chỉ là chặn trong hộp thư của mình — khách vẫn nhắn tới được. Gọi tắt
+      // thành "chặn" mà không giải thích là người dùng tưởng đã chặn ở Facebook.
+      if (!v.blocked && !confirm(
+        'Chặn khách này trong hộp thư?\n\n'
+        + 'Hộp thư sẽ ẩn họ và trợ lý ngừng trả lời. Việc này KHÔNG báo cho Facebook/Zalo, '
+        + 'khách vẫn nhắn tới được và vẫn thấy các tin cũ.')) return;
+      try {
+        const r = await authedFetch('/api/v1/chat/conversations/' + chon + '/block', {
+          method: v.blocked ? 'DELETE' : 'POST',
+        });
+        const j = await r.json().catch(() => ({}));
+        if (!r.ok) { pushToast(j.error || 'Không cập nhật chặn được', 'error'); return; }
+        setDsach([]);
+        setConTro(null);
+        await taiDsach(); await taiChiTiet(chon);
+      } catch (e) {
+        pushToast('Không cập nhật chặn được: ' + e.message, 'error');
+      }
+    }
+
     async function doiTheoDoi() {
       if (!chon || !v) return;
       try {
@@ -2068,6 +2093,15 @@
                     <button className={'ci-nut nho' + (v.followed ? ' chinh' : '')}
                             title={v.followed ? 'Bỏ theo dõi' : 'Theo dõi hội thoại này'} onClick={doiTheoDoi}>
                       {v.followed ? '★ Đang theo dõi' : '☆ Theo dõi'}
+                    </button>
+                    {/* ⚠️ "Chặn trong hộp thư", KHÔNG phải "Báo xấu": không nền tảng nào cho báo
+                        xấu qua API, gọi tên sai là người dùng tưởng đã báo lên Facebook. */}
+                    <button className={'ci-nut nho' + (v.blocked ? ' canh-bao' : '')}
+                            title={v.blocked
+                              ? 'Bỏ chặn — hộp thư hiện lại khách này'
+                              : 'Ẩn khách khỏi hộp thư và ngừng trả lời. Không báo gì cho nền tảng.'}
+                            onClick={doiChan}>
+                      {v.blocked ? 'Bỏ chặn' : 'Chặn trong hộp thư'}
                     </button>
                     <button className="ci-nut" onClick={batTatBot}>{v.botPaused ? 'Cho bot nói lại' : 'Tạm dừng bot'}</button>
                     {v.status !== 2

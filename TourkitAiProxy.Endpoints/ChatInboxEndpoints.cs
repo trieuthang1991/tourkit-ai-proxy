@@ -1145,6 +1145,36 @@ public static class ChatInboxEndpoints
             return Results.Json(new { ok = duoc }, Web);
         });
 
+        // Chặn / bỏ chặn khách. CHỈ trong hộp thư của mình: không nền tảng nào cho phía doanh
+        // nghiệp chặn một người qua API. Vì thế giao diện tuyệt đối không được gọi là "báo xấu".
+        g.MapPost("/conversations/{id:long}/block", async (long id, HttpContext ctx,
+            TkSessionStore sessions, ChatRepository repo, CancellationToken ct) =>
+        {
+            var a = SessionAuth.Read(ctx, sessions);
+            if (a == null) return SessionAuth.Unauthorized();
+            if (!repo.Configured) return NotConfigured();
+            if (await repo.GetConversationAsync(a.TenantId, id, ct) is not { } v) return Results.NotFound();
+
+            await repo.SetContactBlockedAsync(a.TenantId, (ChatChannel)v.Channel,
+                v.ContactExternalId, true, a.Username, ct);
+            await repo.AppendAuditAsync(a.TenantId, id, a.Username, "chan-khach", null, ct);
+            return Results.Json(new { ok = true, blocked = true }, Web);
+        });
+
+        g.MapDelete("/conversations/{id:long}/block", async (long id, HttpContext ctx,
+            TkSessionStore sessions, ChatRepository repo, CancellationToken ct) =>
+        {
+            var a = SessionAuth.Read(ctx, sessions);
+            if (a == null) return SessionAuth.Unauthorized();
+            if (!repo.Configured) return NotConfigured();
+            if (await repo.GetConversationAsync(a.TenantId, id, ct) is not { } v) return Results.NotFound();
+
+            await repo.SetContactBlockedAsync(a.TenantId, (ChatChannel)v.Channel,
+                v.ContactExternalId, false, a.Username, ct);
+            await repo.AppendAuditAsync(a.TenantId, id, a.Username, "bo-chan-khach", null, ct);
+            return Results.Json(new { ok = true, blocked = false }, Web);
+        });
+
         // Theo dõi / bỏ theo dõi. KHÔNG đụng assigned_username — theo dõi không phải nhận việc.
         g.MapPost("/conversations/{id:long}/follow", async (long id, HttpContext ctx,
             TkSessionStore sessions, ChatRepository repo, CancellationToken ct) =>
@@ -2244,6 +2274,9 @@ public static class ChatInboxEndpoints
         return new
         {
             v.Id, v.Channel, v.ContactExternalId, v.AccountId, v.Status, v.AssignedUsername, v.Followed,
+            // Khách bị chặn — giao diện phải hiện rõ, không thì người trực tưởng kênh hỏng khi
+            // tin gửi đi cứ bị bỏ qua.
+            blocked = v.BlockedUtc is not null,
             v.LastActivityAt, v.LastPreview, v.ContactRepliedAt,
             displayName = v.DisplayName,
             avatarUrl = ContactAvatarUrl(v.AvatarUrl, sessionId),

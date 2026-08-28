@@ -1,4 +1,4 @@
-using System.Text.RegularExpressions;
+﻿using System.Text.RegularExpressions;
 using Xunit;
 
 namespace TourkitAiProxy.Tests.Chat;
@@ -77,5 +77,39 @@ public class InboxActionTests
         // Lấy tin cuối bất kỳ thì câu trả lời của chính nhân viên cũng thành mốc, và hội thoại
         // vừa được trả lời xong lại nhảy lên "chưa đọc".
         Assert.Contains("m.direction = 0", Than("MarkUnreadAsync"));
+    }
+
+    // ── Chặn khách ──────────────────────────────────────────────────────────
+
+    [Fact]
+    public void Khach_bi_chan_thi_bot_KHONG_duoc_tra_loi()
+    {
+        // Bot trả lời một người đã bị công ty chặn là mâu thuẫn ngay trước mắt khách: hộp thư ẩn
+        // họ đi trong khi trợ lý vẫn tiếp chuyện.
+        var bayGio = new System.DateTime(2026, 8, 28, 10, 0, 0, System.DateTimeKind.Utc);
+
+        Assert.True(TourkitAiProxy.Domain.Chat.ChatRules.BotMayReply(
+            new TourkitAiProxy.Domain.Chat.ChatConversation(), bayGio));
+        Assert.False(TourkitAiProxy.Domain.Chat.ChatRules.BotMayReply(
+            new TourkitAiProxy.Domain.Chat.ChatConversation { BlockedUtc = bayGio }, bayGio));
+    }
+
+    [Fact]
+    public void Duong_gui_cung_phai_chan_chu_khong_chi_bot()
+    {
+        // Người trực vẫn mở được hội thoại cũ ra gõ tay. Chặn mỗi ở bot thì tin của người vẫn đi.
+        var than = ChatSchemaGuardTests.DocFile(
+            "TourkitAiProxy.Services/Chat/Inbox/ChatOutboxWorker.cs");
+        Assert.Contains("BlockedUtc", than);
+    }
+
+    [Fact]
+    public void Chan_khach_ghi_vao_DANH_BA_chu_khong_phai_hoi_thoai()
+    {
+        // Khách nhắn lại qua một hội thoại khác (bình luận dưới bài chẳng hạn) thì vẫn phải bị
+        // chặn. Ghi cờ lên hội thoại là chặn hụt.
+        var than = Than("SetContactBlockedAsync");
+        Assert.Contains("UPDATE chat_contacts", than);
+        Assert.Contains("blocked_utc", than);
     }
 }

@@ -288,6 +288,10 @@ public static class ChatRules
     /// </summary>
     public static bool BotMayReply(ChatConversation hoiThoai, DateTime nowUtc)
     {
+        // Khách bị chặn: hộp thư đã ẩn họ đi, để trợ lý vẫn tiếp chuyện là mâu thuẫn ngay
+        // trước mắt khách. Chặn là chuyện NỘI BỘ — tin của họ vẫn tới và vẫn được ghi làm
+        // bằng chứng, chỉ có bot là phải câm.
+        if (hoiThoai.BlockedUtc is not null) return false;
         if (hoiThoai.Status == (short)ChatStatus.Closed) return false;
         if (hoiThoai.BotResumeAt is { } moc && moc > nowUtc) return false;
         return true;

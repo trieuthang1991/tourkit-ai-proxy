@@ -243,6 +243,10 @@ public class ChatConversation
     public DateTime? MyLastReadAt { get; set; }
     /// Cờ theo dõi của CHÍNH người đang xem, ghép từ chat_conversation_follows lúc liệt kê.
     public bool Followed { get; set; }
+    /// <summary>Khách này bị chặn từ lúc nào, ghép từ chat_contacts. Null = không bị chặn.
+    /// Cờ nằm ở DANH BẠ chứ không ở hội thoại: khách nhắn lại qua một hội thoại khác vẫn phải
+    /// bị chặn. Đi kèm sẵn nhờ phép nối chat_contacts vốn đã có, nên không tốn truy vấn nào.</summary>
+    public DateTime? BlockedUtc { get; set; }
     public DateTime LastActivityAt { get; set; }
     public string? LastPreview { get; set; }
     public DateTime? ArchivedAt { get; set; }

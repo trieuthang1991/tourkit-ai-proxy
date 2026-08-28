@@ -272,7 +272,7 @@ public class ChatRepository
     {
         await using var c = await _db.OpenAsync(ct);
         return await c.QuerySingleOrDefaultAsync<ChatConversation>("""
-            SELECT v.*, ct.display_name, ct.avatar_url,
+            SELECT v.*, ct.display_name, ct.avatar_url, ct.blocked_utc,
                    EXISTS (SELECT 1 FROM chat_conversation_follows f
                             WHERE f.tenant_id = v.tenant_id AND f.conversation_id = v.id
                               AND f.username = @nguoiDung) AS followed
@@ -345,7 +345,8 @@ public class ChatRepository
     {
         await using var c = await _db.OpenAsync(ct);
         return (await c.QueryAsync<ChatConversation>("""
-            SELECT v.*, ct.display_name, ct.avatar_url, r.last_read_at AS my_last_read_at,
+            SELECT v.*, ct.display_name, ct.avatar_url, ct.blocked_utc,
+                   r.last_read_at AS my_last_read_at,
                    EXISTS (SELECT 1 FROM chat_conversation_follows f2
                             WHERE f2.tenant_id = v.tenant_id AND f2.conversation_id = v.id
                               AND f2.username = @nguoiDung) AS followed
@@ -700,6 +701,25 @@ public class ChatRepository
             DO UPDATE SET last_read_at = EXCLUDED.last_read_at
             """, new { tenant, id, username });
         return soDong > 0;
+    }
+
+    /// <summary>
+    /// Chặn / bỏ chặn một khách. Ghi vào DANH BẠ chứ không vào hội thoại: khách nhắn lại qua
+    /// một hội thoại khác (bình luận dưới bài chẳng hạn) thì vẫn phải bị chặn.
+    ///
+    /// <para>⚠️ Chỉ có tác dụng TRONG hộp thư của mình — xem ghi chú ở <see cref="ChatDb"/>.</para>
+    /// </summary>
+    public async Task SetContactBlockedAsync(string tenant, ChatChannel kenh, string externalId,
+        bool chan, string username, CancellationToken ct = default)
+    {
+        await using var c = await _db.OpenAsync(ct);
+        await c.ExecuteAsync("""
+            UPDATE chat_contacts
+               SET blocked_utc = CASE WHEN @chan THEN now() ELSE NULL END,
+                   blocked_by  = CASE WHEN @chan THEN @username ELSE NULL END,
+                   updated_utc = now()
+             WHERE tenant_id = @tenant AND channel = @kenh AND external_id = @id
+            """, new { tenant, kenh = (short)kenh, id = externalId, chan, username });
     }
 
     /// <summary>Bật/tắt theo dõi một hội thoại cho riêng một người.</summary>
