@@ -252,6 +252,23 @@
     return new Date(b.createdUtc) - new Date(a.createdUtc) >= MOC_MS;
   }
 
+  /**
+   * Toạ độ mở một menu neo theo nút vừa bấm, dùng cho position:fixed.
+   *
+   * Tự LẬT LÊN khi dưới nút không đủ chỗ — nếu không thì mấy dòng cuối danh sách (và mấy tin
+   * cuối khung chat) mở menu ra là nó chui xuống dưới khung nhìn, phải cuộn mới bấm được.
+   * Chỉ lật khi phía trên THẬT SỰ rộng hơn phía dưới, chứ không lật mù.
+   *
+   * Dùng fixed chứ không absolute vì cả hai menu đều nằm trong khung CUỘN: absolute thì bị
+   * khung cắt, nong chiều ngang, và bị phần tử sau đè lên.
+   */
+  function viTriMenu(nut, caoUocLuong) {
+    const o = nut.getBoundingClientRect();
+    const duoi = window.innerHeight - o.bottom;
+    const lat = duoi < caoUocLuong && o.top > duoi;
+    return { x: o.right, y: lat ? o.top - 6 : o.bottom + 6, lat };
+  }
+
   /** Telegram — kênh DUY NHẤT thu hồi thật được (bot xoá tin của chính nó trong 48 giờ). */
   const KENH_TELEGRAM = 3;
   const THU_HOI_TELEGRAM_MS = 48 * 60 * 60 * 1000;
@@ -277,7 +294,10 @@
     const nhan = !dauCum ? null
       : ben === 1 ? 'AI trả lời' : ben === 2 ? (tin.senderUsername || 'Nhân viên') : null;
 
-    const [moTin, setMoTin] = React.useState(false);
+    // Toạ độ mở menu của tin, hoặc null. Lưu TOẠ ĐỘ chứ không phải cờ bật/tắt: menu vẽ bằng
+    // position:fixed nên nó không nằm trong luồng của khung chat — không nong chiều ngang,
+    // không bị khung cuộn cắt, và không bị tin bên dưới đè lên.
+    const [moTin, setMoTin] = React.useState(null);
 
     // Đếm ngược cửa sổ thu hồi. Dừng hẳn khi về 0 — để chạy tiếp là mỗi tin cũ trong hội thoại
     // giữ một bộ đếm vô ích, mở một hội thoại dài là hàng trăm cái.
@@ -390,24 +410,26 @@
     const thaoTac = !tin.deleted && (onXoa || suaDuoc || thuHoiDuoc) && (
       <div className="ci-tin-menu">
         <button className="ci-tin-cham" title="Thao tác với tin này" aria-label="Thao tác với tin này"
-                onClick={() => setMoTin(x => !x)}>
+                onClick={e => setMoTin(moTin ? null : viTriMenu(e.currentTarget, 130))}>
           <window.Icon name="more" size={14} />
         </button>
         {moTin && (
           <>
-            <div className="ci-menu-nen" onClick={() => setMoTin(false)} />
-            <div className="ci-menu ci-menu-tin" role="menu">
+            <div className="ci-menu-nen" onClick={() => setMoTin(null)} />
+            <div className="ci-menu ci-menu-tin" role="menu"
+                 style={{ left: moTin.x, top: moTin.y,
+                          transform: moTin.lat ? 'translate(-100%, -100%)' : 'translateX(-100%)' }}>
               {suaDuoc && (
-                <button role="menuitem" onClick={() => { setMoTin(false); onSua(tin); }}>Sửa lại</button>
+                <button role="menuitem" onClick={() => { setMoTin(null); onSua(tin); }}>Sửa lại</button>
               )}
               {thuHoiDuoc && (
-                <button role="menuitem" onClick={() => { setMoTin(false); onThuHoi(tin); }}>
+                <button role="menuitem" onClick={() => { setMoTin(null); onThuHoi(tin); }}>
                   Thu hồi cả phía khách
                 </button>
               )}
               {onXoa && (
                 <button role="menuitem" className="nguy-hiem"
-                        onClick={() => { setMoTin(false); onXoa(tin); }}>
+                        onClick={() => { setMoTin(null); onXoa(tin); }}>
                   Xoá khỏi hộp thư
                 </button>
               )}
@@ -1747,6 +1769,13 @@
     const [menuDong, setMenuDong] = useState(null);
     const [dinhKem, setDinhKem] = useState(null);      // tệp đã tải lên, CHỜ bấm gửi
     const [dangTai2, setDangTai2] = useState(false);   // đang tải tệp lên kho
+    // Tiến độ tải tệp: {ten, phanTram, dangLuu}. dangLuu = trình duyệt đã gửi xong 100% nhưng
+    // MÁY CHỦ còn đang đẩy tiếp lên R2 — hai chặng khác nhau, và chặng sau mới là chặng lâu.
+    // Để thanh đứng ở 100% suốt chặng đó là nói dối, nên chuyển hẳn sang trạng thái không xác định.
+    const [tienDoTep, setTienDoTep] = useState(null);
+    // Đang tải TIN của một hội thoại. Thiếu cờ này thì bấm sang hội thoại khác vẫn thấy tin
+    // của hội thoại cũ đứng im vài trăm mili giây — người dùng tưởng bấm hụt và bấm lại.
+    const [dangTaiTin, setDangTaiTin] = useState(false);
     const [mauTraLoi, setMauTraLoi] = useState([]);
     const [goiY, setGoiY] = useState(null);            // null = đang không gõ lệnh
     // Nút đi kèm tin SẮP gửi, lấy từ mẫu trả lời nhanh vừa chọn. Không phải chữ nên không nằm
@@ -1795,12 +1824,14 @@
 
     const taiChiTiet = useCallback(async (id) => {
       if (!id) return;
+      setDangTaiTin(true);
       try {
         const r = await authedFetch('/api/v1/chat/conversations/' + id);
         if (!r.ok) return;
         setChiTiet(await r.json());
         authedFetch('/api/v1/chat/conversations/' + id + '/read', { method: 'POST' }).catch(() => {});
       } catch {}
+      finally { setDangTaiTin(false); }
     }, []);
 
     // Nghe sự kiện ĐẨY thay cho hỏi lại 4 giây một lần. Mười nhân viên mở hộp thư là 300 lượt
@@ -1898,17 +1929,41 @@
       if (!tep || !chon) return;
       if (tep.size > 15 * 1024 * 1024) { pushToast('Tệp quá 15MB', 'error'); return; }
       setDangTai2(true);
+      setTienDoTep({ ten: tep.name, phanTram: 0, dangLuu: false });
       try {
-        const fd = new FormData();
-        fd.append('file', tep);
-        const r = await authedFetch('/api/v1/chat/conversations/' + chon + '/upload', {
-          method: 'POST', body: fd,   // KHÔNG tự đặt Content-Type: trình duyệt phải tự thêm boundary
+        // XHR chứ không fetch: fetch KHÔNG báo được tiến độ tải LÊN. Đây là điểm mấu chốt của cả
+        // việc này — tệp đi lên R2 mất hàng chục giây, không có con số thì người dùng chỉ thấy
+        // màn hình đứng im và không biết nên chờ hay bấm lại.
+        const j = await new Promise((ok, loi) => {
+          const xhr = new XMLHttpRequest();
+          xhr.open('POST', '/api/v1/chat/conversations/' + chon + '/upload');
+          const sid = window.tourkitAuth?.getSessionId?.();
+          if (sid) xhr.setRequestHeader('X-Session-Id', sid);
+          // KHÔNG tự đặt Content-Type: trình duyệt phải tự thêm boundary cho FormData.
+
+          xhr.upload.onprogress = e => {
+            if (!e.lengthComputable) return;
+            const pt = Math.round(e.loaded / e.total * 100);
+            // Chạm 100% nghĩa là trình duyệt gửi xong, CHƯA phải lưu xong: máy chủ còn đẩy tiếp
+            // lên R2. Đổi sang trạng thái không xác định thay vì để thanh đứng im ở 100%.
+            setTienDoTep({ ten: tep.name, phanTram: pt, dangLuu: pt >= 100 });
+          };
+          xhr.onload = () => {
+            let than = {};
+            try { than = JSON.parse(xhr.responseText); } catch {}
+            if (xhr.status >= 200 && xhr.status < 300) ok(than);
+            else loi(new Error(than.error || 'HTTP ' + xhr.status));
+          };
+          xhr.onerror = () => loi(new Error('mất kết nối'));
+          xhr.onabort = () => loi(new Error('đã huỷ'));
+
+          const fd = new FormData();
+          fd.append('file', tep);
+          xhr.send(fd);
         });
-        const j = await r.json().catch(() => ({}));
-        if (!r.ok) { pushToast(j.error || 'Tải tệp lên không được', 'error'); return; }
         setDinhKem(j);
       } catch (e) { pushToast('Tải tệp lên không được: ' + e.message, 'error'); }
-      finally { setDangTai2(false); }
+      finally { setDangTai2(false); setTienDoTep(null); }
     }
 
     async function gui() {
@@ -2179,6 +2234,23 @@
             </div>
 
             <div className="ci-ds">
+              {/* KHUNG XƯƠNG đúng hình dạng mục thật (ảnh tròn + ba dòng), không phải vòng
+                  xoay chung chung: mắt đã biết trước bố cục sắp hiện nên lúc dữ liệu về
+                  không bị giật, và người dùng thấy ngay đây là danh sách chứ không phải lỗi. */}
+              {dangTai && dsach.length === 0 && (
+                <div aria-hidden="true">
+                  {[0, 1, 2, 3, 4, 5].map(i => (
+                    <div key={i} className="ci-muc ci-xuong">
+                      <span className="ci-muc-avt"><span className="xg tron" /></span>
+                      <span className="ci-muc-than">
+                        <span className="xg d1" />
+                        <span className="xg d2" />
+                        <span className="xg d3" />
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              )}
               {!dangTai && dsach.length === 0 && (
                 <div className="ci-trong">
                   {coLoc
@@ -2240,14 +2312,18 @@
                       chiếm chỗ lúc ẩn, và dòng không nhảy khi nó hiện ra. */}
                   <button className="ci-muc-cham" title="Thao tác" aria-label="Thao tác"
                           onClick={e => { e.stopPropagation();
-                                          setMenuDong(x => (x === c.id ? null : c.id)); }}>
+                                          setMenuDong(x => (x?.id === c.id ? null
+                                            : { id: c.id, ...viTriMenu(e.currentTarget, 200) })); }}>
                     <window.Icon name="more" size={15} />
                   </button>
-                  {menuDong === c.id && (
+                  {menuDong?.id === c.id && (
                     <>
                       <div className="ci-menu-nen"
                            onClick={e => { e.stopPropagation(); setMenuDong(null); }} />
                       <div className="ci-menu ci-menu-dong" role="menu"
+                           style={{ left: menuDong.x, top: menuDong.y,
+                                    transform: menuDong.lat ? 'translate(-100%, -100%)'
+                                                            : 'translateX(-100%)' }}
                            onClick={e => e.stopPropagation()}>
                         <button role="menuitem"
                                 onClick={() => { setMenuDong(null); danhDauChuaDoc(c.id); }}>
@@ -2366,7 +2442,21 @@
                 <ThanhCuaSo cuaSo={cuaSo} kenh={v.channel} />
 
                 <div className="ci-cuon" ref={cuonRef}>
-                  {tinNhan.length === 0 && <div className="ci-trong">Chưa có tin nhắn nào.</div>}
+                  {/* Khung xương bong bóng, so le hai bên đúng như hội thoại thật. Trước đây bấm
+                      sang hội thoại khác thì tin CŨ đứng im vài trăm mili giây rồi mới đổi —
+                      người dùng tưởng bấm hụt và bấm lại lần nữa. */}
+                  {dangTaiTin && tinNhan.length === 0 && (
+                    <div aria-hidden="true" className="ci-xuong-tin">
+                      {[62, 40, 75, 34, 55].map((w, i) => (
+                        <div key={i} className={'ci-dong ' + (i % 2 ? 'ci-phai' : 'ci-trai')}>
+                          <span className="xg bong" style={{ width: w + '%' }} />
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                  {!dangTaiTin && tinNhan.length === 0 && (
+                    <div className="ci-trong">Chưa có tin nhắn nào.</div>
+                  )}
                   {tinNhan.map((m, i) => {
                     const truoc = i > 0 ? tinNhan[i - 1] : null;
                     const sau = i < tinNhan.length - 1 ? tinNhan[i + 1] : null;
@@ -2424,6 +2514,28 @@
                     </div>
                   ) : (
                     <>
+                      {/* ĐANG tải tệp lên. Trước đây chặng này không có phản hồi nào ngoài việc
+                          đổi biểu tượng cái ghim — mà tệp lên R2 mất hàng chục giây, nên người
+                          dùng chỉ thấy màn hình đứng im và không biết nên chờ hay bấm lại.
+
+                          Thanh tiến độ THẬT (đọc từ XHR), rồi khi trình duyệt gửi xong 100% thì
+                          chuyển sang "đang lưu vào kho" — vì lúc đó máy chủ mới bắt đầu đẩy lên
+                          R2, và để thanh đứng ở 100% suốt chặng đó là nói dối về tiến độ. */}
+                      {tienDoTep && (
+                        <div className="ci-tep-tai" role="status" aria-live="polite">
+                          <div className="ci-tep-tai-dau">
+                            <span className="ten">{tienDoTep.ten}</span>
+                            <span className="pt">
+                              {tienDoTep.dangLuu ? 'đang lưu vào kho…' : tienDoTep.phanTram + '%'}
+                            </span>
+                          </div>
+                          <div className={'ci-tep-thanh' + (tienDoTep.dangLuu ? ' khongro' : '')}>
+                            <i style={tienDoTep.dangLuu ? undefined
+                                                       : { width: tienDoTep.phanTram + '%' }} />
+                          </div>
+                        </div>
+                      )}
+
                       {/* Tệp đã tải lên, CHỜ bấm gửi. Xem trước rồi mới gửi — lỡ chọn nhầm còn gỡ kịp. */}
                       {dinhKem && (
                         <div className="ci-tep-cho">
@@ -2510,7 +2622,8 @@
                         {/* Hàng công cụ nằm DƯỚI ô gõ, không kẹp hai bên: chữ được trọn chiều
                             ngang, và nút gửi luôn ở một chỗ cố định dù ô gõ cao lên bao nhiêu. */}
                         <div className="ci-soan-nut">
-                          <button className="icon" disabled={dangTai2}
+                          <button className={'icon' + (dangTai2 ? ' dang-lam' : '')}
+                                  disabled={dangTai2}
                                   onClick={() => tepRef.current?.click()}
                                   title="Gửi ảnh hoặc tệp" aria-label="Gửi ảnh hoặc tệp">
                             <window.Icon name={dangTai2 ? 'refresh' : 'paperclip'} size={15} />

@@ -9212,7 +9212,19 @@ img.ci-avt { object-fit: cover; }
 /* ⚠️ .ci-nhan mang HAI nghĩa trong trang này: nhãn NGƯỜI GỬI trong bong bóng tin, và thẻ NHÃN
    KHÁCH ở hồ sơ. Khai trần một kiểu là bên kia vỡ — đã vỡ thật 27/08/2026: thẻ nhãn khách biến
    thành chữ hoa li ti. Khoanh vùng cả hai, đừng gộp. */
-.ci-bong .ci-nhan, .ci-ai /* Nút CHỜ gửi, trên ô soạn. Khác hẳn .ci-nut-tin (bản ghi lại): mấy cái này BẤM ĐƯỢC và bấm là
+/* ⚠️ LUẬT NÀY TỪNG BỊ MẤT KHỐI KHAI BÁO (commit c6ee758): bộ chọn dính thẳng vào chú thích bên
+   dưới nên trình duyệt gộp thành ".ci-bong .ci-nhan, .ci-ai .ci-nut-soan". Hai thứ hỏng cùng lúc,
+   và cả hai đều hỏng IM LẶNG: nhãn người gửi mất sạch định dạng nên nhìn tin của nhân viên và tin
+   của khách gần như giống nhau, còn dải nút chờ gửi thì cũng không còn luật nào. */
+.ci-bong .ci-nhan, .ci-ai .ci-nhan {
+  display: flex; align-items: center; gap: 4px; margin-bottom: 4px;
+  font-size: 10.5px; font-weight: 700; letter-spacing: .01em; line-height: 1.2;
+  color: var(--text-3); text-transform: none;
+}
+/* Bong bóng nền đậm: nhãn phải sáng lên mới đọc được. */
+.ci-nv .ci-nhan, .ci-hethong .ci-nhan { color: rgba(248, 250, 252, .74); }
+
+/* Nút CHỜ gửi, trên ô soạn. Khác hẳn .ci-nut-tin (bản ghi lại): mấy cái này BẤM ĐƯỢC và bấm là
    BỎ nút đó, nên phải trông như thao tác được — có dấu × và đổi màu khi rê chuột. */
 .ci-nut-soan { display: flex; flex-wrap: wrap; align-items: center; gap: 5px;
                margin-bottom: 7px; font-size: 10.5px; color: var(--text-3); }
@@ -9710,15 +9722,20 @@ img.ci-avt { object-fit: cover; }
 /* ── Thao tác trên MỘT tin ────────────────────────────────────────────────────
    Nút NỔI cạnh bong bóng, không nằm trong luồng: dải chữ nằm trong luồng thì lúc hiện ra nó đẩy
    mọi tin bên dưới nhích xuống, rê chuột dọc một hội thoại dài là cả khung nhảy liên tục. */
+/* Nút neo vào chính DÒNG tin, không phải mép ngoài bong bóng: neo ngoài bong bóng thì với tin
+   sát mép trái nó tràn khỏi khung và kéo giãn chiều ngang. */
 .ci-tin-menu { position: absolute; top: 50%; right: 100%; transform: translateY(-50%);
-               margin-right: 4px; opacity: 0; transition: opacity .12s; }
+               margin-right: 2px; opacity: 0; transition: opacity .12s; z-index: 3; }
 .ci-dong:hover .ci-tin-menu, .ci-tin-menu:focus-within { opacity: 1; }
 .ci-tin-cham { display: grid; place-items: center; width: 26px; height: 26px; padding: 0;
                border: 0; border-radius: 50%; cursor: pointer;
                background: transparent; color: var(--text-3); }
 .ci-tin-cham:hover { background: var(--ci-nen-chip); color: var(--text-1); }
-/* Menu của tin mở sang TRÁI: nút nằm sát mép phải khung chat, mở sang phải là tràn ra ngoài. */
-.ci-menu-tin { right: auto; left: 0; top: calc(100% + 4px); }
+/* Menu của tin vẽ bằng position:fixed, toạ độ do JS neo theo nút.
+   Vì sao không dùng absolute như menu ở đầu khung chat: nút "⋯" của tin nằm NGOÀI bong bóng, bên
+   trong khung cuộn. Menu absolute ở đó vừa nong chiều ngang khung chat, vừa bị khung cuộn cắt,
+   vừa bị tin bên dưới đè lên — đúng ba thứ đã gặp. Fixed thì nó không thuộc luồng nào cả. */
+.ci-menu-tin { position: fixed; right: auto; top: auto; z-index: 60; }
 
 /* Bong bóng phải là mốc định vị cho nút nổi ở trên. */
 .ci-dong.ci-phai > div { position: relative; }
@@ -9751,5 +9768,59 @@ img.ci-avt { object-fit: cover; }
 .ci-muc:hover .ci-muc-cham, .ci-muc-cham:focus-visible { opacity: 1; }
 .ci-muc-cham:hover { background: var(--ci-nen-chip); color: var(--text-1); }
 
-/* Menu của dòng mở xuống dưới, canh mép phải nút. */
-.ci-menu-dong { top: 34px; right: 6px; }
+/* Menu của dòng cũng vẽ bằng position:fixed + tự lật, cùng lý do với .ci-menu-tin: danh sách
+   hội thoại là khung CUỘN, menu absolute ở mấy dòng cuối sẽ bị cắt mất nửa dưới. */
+.ci-menu-dong { position: fixed; top: auto; right: auto; z-index: 60; }
+
+/* ── Trạng thái ĐANG TẢI ──────────────────────────────────────────────────────
+   Nguyên tắc: khung xương đúng HÌNH DẠNG của thứ sắp hiện, không phải vòng xoay chung chung.
+   Vòng xoay nói "đang bận"; khung xương nói "sắp có danh sách/tin nhắn ở đây" — mắt đã biết
+   trước bố cục nên lúc dữ liệu về không bị giật, và người dùng phân biệt được đang tải với lỗi.
+
+   Cũng vì thế phản hồi đặt NGAY TẠI CHỖ thao tác chứ không dồn lên thanh mảnh ở đỉnh trang:
+   thanh đó dễ bỏ sót, và nó không nói đang làm việc gì. */
+.xg { display: block; border-radius: 6px; background: var(--ci-nen-chip); }
+.ci-xuong { pointer-events: none; }
+.ci-xuong .xg.tron { width: 38px; height: 38px; border-radius: 50%; }
+.ci-xuong .xg.d1 { width: 45%; height: 11px; }
+.ci-xuong .xg.d2 { width: 78%; height: 10px; margin-top: 8px; }
+.ci-xuong .xg.d3 { width: 32%; height: 9px;  margin-top: 9px; }
+.ci-xuong-tin .xg.bong { height: 34px; border-radius: 14px; }
+.ci-xuong-tin .ci-dong { margin-bottom: 10px; }
+
+/* Ánh sáng chạy ngang: chỉ để nói "đang chờ dữ liệu", nên rất nhạt và chậm. */
+@media (prefers-reduced-motion: no-preference) {
+  .xg { background: linear-gradient(90deg,
+          var(--ci-nen-chip) 25%, var(--bg) 50%, var(--ci-nen-chip) 75%);
+        background-size: 200% 100%; animation: xg-loe 1.4s ease-in-out infinite; }
+  @keyframes xg-loe { from { background-position: 200% 0; } to { background-position: -200% 0; } }
+}
+
+/* ── Tải tệp lên kho ──────────────────────────────────────────────────────────
+   Chặng lâu nhất của cả hộp thư và trước đây KHÔNG có phản hồi nào ngoài việc đổi biểu tượng
+   cái ghim. Nay có tên tệp + phần trăm THẬT đọc từ XHR. */
+.ci-tep-tai { padding: 8px 10px; margin-bottom: 8px; border-radius: 10px;
+              background: var(--bg); border: 1px solid var(--line); }
+.ci-tep-tai-dau { display: flex; align-items: baseline; justify-content: space-between; gap: 10px;
+                  font-size: 11.5px; color: var(--text-2); }
+.ci-tep-tai-dau .ten { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ci-tep-tai-dau .pt { flex: none; font-weight: 600; color: var(--text-1); font-variant-numeric: tabular-nums; }
+.ci-tep-thanh { position: relative; overflow: hidden; height: 4px; margin-top: 7px;
+                border-radius: 999px; background: var(--ci-nen-chip); }
+.ci-tep-thanh i { display: block; height: 100%; border-radius: 999px; background: var(--primary);
+                  transition: width .18s linear; }
+
+/* Trình duyệt đã gửi xong nhưng máy chủ còn đẩy lên R2 — không biết còn bao lâu, nên chuyển
+   sang vệt chạy thay vì để thanh đứng im ở 100%. Đứng im ở 100% là nói dối về tiến độ. */
+.ci-tep-thanh.khongro i { width: 40%; }
+@media (prefers-reduced-motion: no-preference) {
+  .ci-tep-thanh.khongro i { animation: xg-chay 1.1s ease-in-out infinite; }
+  @keyframes xg-chay { 0% { margin-left: -40%; } 100% { margin-left: 100%; } }
+}
+@media (prefers-reduced-motion: reduce) { .ci-tep-thanh.khongro i { width: 100%; opacity: .5; } }
+
+/* Nút ghim lúc đang tải: quay chậm cho biết nó thật sự đang làm việc. */
+@media (prefers-reduced-motion: no-preference) {
+  .ci-soan-nut .icon.dang-lam svg { animation: xg-quay 1.1s linear infinite; }
+  @keyframes xg-quay { to { transform: rotate(360deg); } }
+}
