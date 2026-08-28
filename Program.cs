@@ -291,4 +291,26 @@ app.MapTourkitEndpoints(builder.Configuration);
 // → app.MapFallback(ServeIndex): deep-link/F5 nay cũng nhận bundle-injection + ?v=hash thay vì rớt
 // về DEV-babel mode. Trước đây dùng MapFallbackToFile("index.html") serve file THÔ (bỏ qua ServeIndex).
 
+// BẢN TỰ KHAI của tiến trình này — in NGAY TRƯỚC khi chạy, khi mọi cấu hình đã chốt.
+//
+// Đây là thứ trả lời "con nào đang chạy worker" và "tệp đi đâu" mà không phải đoán. Hệ chạy
+// nhiều tiến trình trên CÙNG một CSDL, còn appsettings.json thì gitignore và riêng từng máy —
+// nên hai con chạy cùng một mã hoàn toàn có thể cư xử khác nhau, và trước dòng này thì không
+// có chỗ nào nhìn ra được. Đã trả giá hai lần trong ngày 28/08/2026, xem InstanceInfo.
+{
+    var nhatKy = app.Services.GetRequiredService<ILogger<Program>>();
+    var tuKhai = TourkitAiProxy.Services.Bootstrap.InstanceInfo.Doc(
+        app.Configuration,
+        app.Services.GetRequiredService<TourkitAiProxy.Services.Storage.IChatFileStorage>(),
+        chatWorkers: app.Configuration.GetValue("Chat:RunWorkers", true));
+    nhatKy.LogInformation("{Dong}", TourkitAiProxy.Services.Bootstrap.InstanceInfo.MotDong(tuKhai));
+
+    // Kho local KHÔNG hỏng, nhưng tệp nằm trên đĩa của chính máy chủ ứng dụng — mỗi lần deploy
+    // là một lần có thể mất sạch, mà đường dẫn đã ghi vĩnh viễn vào CSDL. Nói to để không ai
+    // chạy production ở chế độ này mà không biết.
+    if (TourkitAiProxy.Services.Bootstrap.InstanceInfo.DangLo(tuKhai))
+        nhatKy.LogWarning("[instance] kho tệp đang là LOCAL — tệp nằm trên đĩa máy chủ này và "
+            + "có thể mất khi deploy. Khai Storage:Provider=r2 + Storage:R2:* nếu đây là máy thật.");
+}
+
 app.Run();

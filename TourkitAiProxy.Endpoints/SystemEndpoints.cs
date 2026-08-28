@@ -1,4 +1,7 @@
-﻿using TourkitAiProxy.Services.Workflow;
+﻿using Microsoft.Extensions.Configuration;
+using TourkitAiProxy.Services.Bootstrap;
+using TourkitAiProxy.Services.Storage;
+using TourkitAiProxy.Services.Workflow;
 
 namespace TourkitAiProxy.Endpoints;
 
@@ -6,12 +9,19 @@ public static class SystemEndpoints
 {
     public static IEndpointRouteBuilder MapSystemEndpoints(this IEndpointRouteBuilder routes)
     {
-        routes.MapGet("/healthz", () => Results.Json(new
+        // Bản TỰ KHAI của chính tiến trình này. Có nó thì câu hỏi "con nào đang chạy worker"
+        // trả lời được bằng hai lượt curl, thay vì đoán qua log hoặc dò trong CSDL.
+        //
+        // Đang chạy nhiều instance trên cùng một CSDL thì đây là chỗ đầu tiên phải nhìn: hai
+        // con cùng bật worker mà KHÁC phiên bản mã là con cũ hỏng mọi nhịp trong im lặng.
+        routes.MapGet("/healthz", (IConfiguration cfg, IChatFileStorage kho) => Results.Json(new
         {
             ok        = true,
             service   = "Tourkit AI Proxy",
             version   = "v1.0.1",
             deployedVia = "github-actions",
+            instance  = InstanceInfo.Doc(cfg, kho,
+                            chatWorkers: cfg.GetValue("Chat:RunWorkers", true)),
             endpoints = new[]
             {
                 "GET  /api/v1/providers",

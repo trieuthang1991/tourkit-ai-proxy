@@ -72,7 +72,11 @@ $ExcludeFiles = @(
 )
 $ExcludeDirs = @(
     "data\visa-files",    # PII (ảnh hồ sơ visa) per-tenant
-    "data\legacy-backup"  # MultiTenantMigration đẩy file JSON cũ vào đây
+    "data\legacy-backup", # MultiTenantMigration đẩy file JSON cũ vào đây
+    # ẢNH/TỆP NHÂN VIÊN GỬI TRONG CHAT, khi Storage:Provider=local. Thiếu dòng này thì /MIR
+    # XOÁ SẠCH chúng mỗi lần deploy — mà đường dẫn đã ghi vĩnh viễn vào chat_messages, nên mọi
+    # tệp từng gửi thành liên kết gãy và KHÔNG có đường dựng lại.
+    "data\chat-uploads"
 )
 if ($KeepData) { $ExcludeDirs += "data" }  # giữ NGUYÊN folder data/ trên server
 $Exclude = @("/XF") + $ExcludeFiles + @("/XD") + $ExcludeDirs

@@ -1,4 +1,4 @@
-using Microsoft.Extensions.Configuration;
+﻿using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 
 namespace TourkitAiProxy.Services.Bootstrap;
@@ -162,26 +162,39 @@ public static class WebFeatureRegistration
         // Scheduler: CHỈ instance có Workflows:RunScheduler=true mới tick nền. Mặc định false — sau
         // khi tách TourkitAiProxy.Worker thì worker mới chạy scheduler, web không tự tick.
         // Nút "Chạy ngay" (run-now) vẫn dùng được vì service đã đăng ký Singleton.
+        // Không in ở đây nữa — cả scheduler lẫn worker chat gộp vào MỘT dòng tự khai lúc khởi
+        // động, xem InstanceInfo. In rải rác thì đọc log gộp của hai máy không ghép lại được.
         var runScheduler = cfg.GetValue("Workflows:RunScheduler", false);
-        Console.WriteLine($"[Startup] Workflows:RunScheduler = {runScheduler} "
-                          + "(mặc định false — worker riêng TourkitAiProxy.Worker sẽ chạy)");
         if (runScheduler)
             s.AddHostedService(sp => sp.GetRequiredService<Workflows.WorkflowSchedulerService>());
 
-        // Hai worker của chat chạy ở WEB (không phải worker riêng) vì tin chat phải đi NGAY — khách
+        // Ba worker của chat chạy ở WEB (không phải worker riêng) vì tin chat phải đi NGAY — khách
         // đang chờ trước màn hình, không như bản tin sáng hẹn giờ. Vào: webhook chỉ GHI thân thô,
         // worker này mới xử lý.
         //
         // KHÔNG còn phụ thuộc cờ Features:Chat — cờ đó nay chỉ ẩn mục menu (xem MapHopThuChat).
-        // Vẫn không tốn nhịp nào khi chưa dùng: cả hai worker tự dừng ngay vòng đầu nếu
+        // Vẫn không tốn nhịp nào khi chưa dùng: cả ba tự dừng ngay vòng đầu nếu
         // ConnectionStrings:Chat để trống (repo.Configured == false).
-        s.AddHostedService<Chat.Inbox.ChatInboundWorker>();
-        s.AddHostedService<Chat.Inbox.ChatOutboxWorker>();
+        //
+        // ⚠️ MẶC ĐỊNH BẬT, và cố ý ngược với Workflows:RunScheduler ở trên. Hai cờ, hai hướng an
+        // toàn khác nhau: quên khai scheduler thì bản tin sáng chậm một nhịp, không ai chết; còn
+        // quên khai cờ này mà mặc định TẮT thì hộp thư ngừng nhận VÀ ngừng gửi trên mọi máy —
+        // khách nhắn vào hư không, và không có lỗi nào hiện lên.
+        //
+        // Khi nào đặt false: máy chủ chạy NHIỀU instance trên cùng một CSDL. Hàng đợi vốn đã an
+        // toàn nhờ FOR UPDATE SKIP LOCKED nên không sợ gửi hai lần — cái đáng sợ là hai instance
+        // chạy HAI PHIÊN BẢN MÃ khác nhau, lúc đó con cũ hỏng mọi nhịp trong im lặng (đã dính thật
+        // 28/08/2026). Chọn đúng MỘT con chạy worker, các con còn lại đặt false.
+        var chatWorkers = cfg.GetValue("Chat:RunWorkers", true);
+        if (chatWorkers)
+        {
+            s.AddHostedService<Chat.Inbox.ChatInboundWorker>();
+            s.AddHostedService<Chat.Inbox.ChatOutboxWorker>();
 
-        // Worker thứ ba, KHÁC nhịp hẳn hai cái trên: nó không phục vụ tin đang tới mà đi cứu ảnh
-        // CŨ trước khi url của nhà cung cấp hết hạn (đo được: ảnh Meta sống 5 ngày). Bắt đầu muộn,
-        // mẻ nhỏ, nghỉ giữa các mẻ — xem ChatMediaBackfillWorker. Cũng tự dừng vòng đầu khi chưa
-        // khai CSDL chat hoặc chưa khai kho tệp.
-        s.AddHostedService<Chat.Inbox.ChatMediaBackfillWorker>();
+            // Worker thứ ba, KHÁC nhịp hẳn hai cái trên: nó không phục vụ tin đang tới mà đi cứu
+            // ảnh CŨ trước khi url của nhà cung cấp hết hạn (đo được: ảnh Meta sống 5 ngày). Bắt
+            // đầu muộn, mẻ nhỏ, nghỉ giữa các mẻ — xem ChatMediaBackfillWorker.
+            s.AddHostedService<Chat.Inbox.ChatMediaBackfillWorker>();
+        }
     }
 }
