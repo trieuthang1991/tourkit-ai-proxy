@@ -1807,7 +1807,14 @@
     const [moKhai, setMoKhai] = useState(false);
     // Bảng chọn tin mẫu — chỉ mở từ ô soạn đang khoá, xem chỗ dùng.
     const [moMau, setMoMau] = useState(false);
-    const [moHoSo, setMoHoSo] = useState(true);
+    // Điện thoại (≤760px): một màn hình một việc — danh sách HOẶC khung chat, hồ sơ là tấm trượt
+    // từ đáy. Ba cột co lại trên 390px thì mỗi cột còn 100px, không đọc được gì. Dùng MỘT nguồn
+    // sự thật là JS (gắn lớp .di-dong) chứ không để CSS tự đo bằng @container: trang phải BIẾT
+    // mình đang ở điện thoại để đổi cả cách điều hướng (nút quay lại, đóng hồ sơ), hai bên đo
+    // lệch nhau vài chục px là nút quay lại hiện mà bố cục vẫn ba cột.
+    const diDong = window.tourkitHooks.useIsMobile(760);
+    // Hồ sơ khách mở sẵn ở máy tính (cột thứ tư); ở điện thoại nó che cả khung chat nên phải đóng.
+    const [moHoSo, setMoHoSo] = useState(() => window.innerWidth > 760);
     // Menu "⋯" của hội thoại. Messenger để đúng HAI thứ ngoài thanh tiêu đề (một việc chính +
     // nút hồ sơ) và dồn phần còn lại vào một menu — bảy nút chữ xếp ngang như bản trước vừa tràn
     // dòng vừa bắt người ta đọc hết bảy nhãn mỗi lần chỉ để bấm một cái.
@@ -1836,6 +1843,7 @@
     const [dangTaiThem, setDangTaiThem] = useState(false);
     const cuonRef = useRef(null);
     const tepRef = useRef(null);
+    const gridRef = useRef(null);
 
     const taiDsach = useCallback(async (cursor) => {
       try {
@@ -1960,6 +1968,45 @@
       const el = cuonRef.current;
       if (el) el.scrollTop = el.scrollHeight;
     }, [chiTiet?.messages?.length]);
+
+    // Chiều cao khung ở điện thoại: ĐO bằng JS thay vì calc(100dvh - N).
+    //
+    // Hai lý do. Một: phía trên khung là thanh trên cùng + lề trang, phía dưới là dải nút cố
+    // định của app — cộng tay ra một con số N là thứ lệch ngay khi ai đó đổi chiều cao thanh.
+    // Hai — và là lý do chính: bàn phím ảo. Cả iOS lẫn Android (Chrome ≥108) KHÔNG co viewport
+    // bố cục khi bàn phím bật lên, chỉ co viewport NHÌN THẤY, nên 100dvh giữ nguyên và ô soạn
+    // nằm gọn sau bàn phím — người dùng gõ mà không thấy mình gõ gì. visualViewport là thứ
+    // duy nhất nói đúng còn bao nhiêu chỗ nhìn thấy được.
+    useEffect(() => {
+      const el = gridRef.current;
+      if (!diDong || !el) return;
+      const vv = window.visualViewport;
+      const do_ = () => {
+        const dinh = el.getBoundingClientRect().top;
+        // Mép dưới của phần nhìn thấy, tính theo toạ độ của viewport bố cục (cùng hệ với
+        // getBoundingClientRect) — vv.offsetTop là phần đã bị cuộn đi khi bàn phím đẩy trang.
+        const day = vv ? vv.offsetTop + vv.height : window.innerHeight;
+        const banPhim = !!vv && window.innerHeight - vv.height > 120;
+        // Bàn phím đang bật thì dải nút dưới đáy đã bị nó che, đừng chừa chỗ cho thứ không thấy.
+        el.style.height = banPhim
+          ? Math.max(240, day - dinh - 8) + 'px'
+          : 'calc(' + Math.max(320, day - dinh) + 'px - 72px - env(safe-area-inset-bottom))';
+        // Bàn phím vừa bật là khung ngắn lại — kéo tin mới nhất về đúng chỗ, không thì tin cuối
+        // trốn sau ô soạn.
+        const c = cuonRef.current;
+        if (c) c.scrollTop = c.scrollHeight;
+      };
+      do_();
+      window.addEventListener('resize', do_);
+      vv?.addEventListener('resize', do_);
+      vv?.addEventListener('scroll', do_);
+      return () => {
+        window.removeEventListener('resize', do_);
+        vv?.removeEventListener('resize', do_);
+        vv?.removeEventListener('scroll', do_);
+        el.style.height = '';
+      };
+    }, [diDong, chon]);
 
     const cuaSo = chiTiet?.sendWindow;
     const khoaSoan = !cuaSo?.open;
@@ -2204,10 +2251,13 @@
     const coLoc = kenhLoc !== null || nhom !== 'tat-ca' || loc !== null || !!tim.trim();
 
     return (
-      <main className="page ci-wrap">
+      // .xem-chat bám theo `chon` (id vừa chạm) chứ không theo `v` (chi tiết đã tải xong): chạm
+      // một dòng là khung chat phải hiện NGAY với khung xương, chờ tải xong mới lật màn thì có
+      // vài trăm mili giây đứng im và người dùng chạm lại lần nữa.
+      <main className={'page ci-wrap' + (diDong ? ' di-dong' : '') + (diDong && chon ? ' xem-chat' : '')}>
         {moKhai && <KhaiKenh pushToast={pushToast} onDong={() => setMoKhai(false)} />}
 
-        <div className={'ci-grid' + (v && moHoSo ? ' co-hoso' : '')}>
+        <div ref={gridRef} className={'ci-grid' + (v && moHoSo ? ' co-hoso' : '')}>
           {/* Hàng tiêu đề nằm TRONG thẻ, trải hết các cột.
 
               Trước đây dùng PageHero chung của app, đặt bên ngoài lưới. Đưa vào trong vì trang
@@ -2229,8 +2279,11 @@
               {dem.tong > 0 && <><span className="tach">·</span>
                 <span className="so">{dem.tong} hội thoại</span></>}
             </span>
-            <button className="ci-dau-nut" onClick={() => setMoKhai(x => !x)}>
-              <window.Icon name="plus" size={12} />Kết nối kênh
+            {/* Chữ bọc trong <span> để điện thoại giấu đi, chỉ còn dấu cộng — hàng tiêu đề
+                48px không đủ chỗ cho cả bộ đếm lẫn nhãn nút. title/aria-label giữ nghĩa. */}
+            <button className="ci-dau-nut" onClick={() => setMoKhai(x => !x)}
+                    title="Kết nối kênh" aria-label="Kết nối kênh">
+              <window.Icon name="plus" size={12} /><span>Kết nối kênh</span>
             </button>
           </div>
           {/* Vùng 1 — dải kênh */}
@@ -2422,10 +2475,25 @@
 
           {/* Vùng 3 — khung chat */}
           <section className="ci-chat">
-            {!v && <div className="ci-trong">Chọn một hội thoại bên trái để xem nội dung.</div>}
+            {!v && (
+              <div className="ci-trong">
+                {dangTaiTin ? 'Đang mở hội thoại…'
+                  : chon ? 'Không mở được hội thoại này. Thử chạm lại.'
+                  : 'Chọn một hội thoại bên trái để xem nội dung.'}
+              </div>
+            )}
             {v && (
               <>
                 <div className="ci-chat-dau">
+                  {/* Quay lại danh sách — chỉ ở điện thoại, vì ở đó danh sách đã bị khung chat
+                      che kín. Xoá luôn chi tiết đang giữ: không thì lần chạm sau, khung chat
+                      hiện tên khách CŨ một nhịp rồi mới đổi. */}
+                  {diDong && (
+                    <button className="ci-nut-icon ci-lui" onClick={() => { setChon(null); setChiTiet(null); }}
+                            title="Quay lại danh sách" aria-label="Quay lại danh sách">
+                      <window.Icon name="arrowLeft" size={17} />
+                    </button>
+                  )}
                   <AnhDaiDien ten={v.displayName || v.contactExternalId} url={lh?.avatarUrl} co={36} />
                   <div className="ci-chat-ten">
                     <b>{tenKhach}</b>
@@ -2715,7 +2783,11 @@
             )}
           </section>
 
-          {/* Vùng 4 — hồ sơ khách */}
+          {/* Vùng 4 — hồ sơ khách. Ở điện thoại nó là tấm trượt từ đáy đè lên khung chat, nên
+              cần thêm lớp phủ mờ phía sau để chạm ra ngoài là đóng. */}
+          {v && moHoSo && diDong && (
+            <div className="ci-menu-nen ci-hs-nen" onClick={() => setMoHoSo(false)} aria-hidden="true" />
+          )}
           {v && moHoSo && <HoSo chiTiet={chiTiet} pushToast={pushToast} onDong={() => setMoHoSo(false)} />}
         </div>
       </main>

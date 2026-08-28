@@ -1,4 +1,4 @@
-// wwwroot/bundle-entry.js — Single entry cho esbuild bundle.
+﻿// wwwroot/bundle-entry.js — Single entry cho esbuild bundle.
 // Liệt kê theo ĐÚNG ORDER như index.html ở chế độ dev (jsx + Babel).
 // Mỗi file dạng IIFE đăng ký window.X, không export → import for side-effects.
 //
@@ -63,6 +63,7 @@ import "./steps/step4.jsx";
 
 // /pages — top-level pages
 import "./pages/landing.jsx";
+import "./pages/privacy.jsx";
 // import "./pages/home.jsx";  // launcher /home tạm gỡ khỏi routing — bật lại khi cần
 import "./pages/wizard.jsx";
 import "./pages/customers.jsx";
