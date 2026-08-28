@@ -44,6 +44,24 @@ public static class ChatAttachment
         try { goc = JsonNode.Parse(json); } catch { return Array.Empty<ChatFile>(); }
         if (goc is null) return Array.Empty<ChatFile>();
 
+        // ĐÃ SOI VỀ KHO RIÊNG. Nhận ra trước mọi thứ khác, vì lúc này hình dạng KHÔNG còn là
+        // của kênh nữa — nó đã chuẩn hoá rồi (xem ChatMediaMirror).
+        //
+        // Dùng khoá "tk" làm dấu nhận: gói tin của mọi kênh đều không có khoá đó, nên không
+        // nhầm được. Rẽ theo chieu/kenh thay vì theo dấu này thì tin CŨ (chưa soi) và tin MỚI
+        // (đã soi) cùng chiều, cùng kênh, mà hình dạng khác nhau — không phân biệt nổi.
+        if (goc is JsonObject g && g["tk"] is not null && g["tep"] is JsonArray daSoi)
+        {
+            var ra = new List<ChatFile>();
+            foreach (var f in daSoi.OfType<JsonNode>())
+            {
+                var url = Str(f["url"]);
+                if (string.IsNullOrWhiteSpace(url)) continue;
+                ra.Add(new ChatFile(Name: Str(f["ten"]), Size: Num(f["kich"]), Url: url));
+            }
+            return ra;
+        }
+
         if (chieu == 1)
         {
             var o = goc.AsObject();
@@ -112,11 +130,24 @@ public static class ChatAttachment
         return string.IsNullOrWhiteSpace(url)
             ? Array.Empty<ChatFile>() : new[] { new ChatFile(Url: url) };
     }
-    // Messenger: attachments[] = [{ type, payload: { url } }] hoặc payload {lat,long} cho vị trí.
+    /// <summary>
+    /// Messenger/Instagram: <c>attachments[] = [{ type, payload: { url } }]</c>, hoặc
+    /// <c>payload {coordinates}</c> cho vị trí.
+    ///
+    /// <para>⚠️ <b>Meta gửi TRÙNG cùng một tệp khi khách gửi nhãn dán.</b> Đo trên dữ liệu thật
+    /// (28/08/2026): một cái like gửi về HAI mục, cùng URL, cùng <c>sticker_id</c>, chỉ khác
+    /// <c>type</c> — một <c>"image"</c> và một <c>"sticker"</c>. Meta trả kèm bản <c>image</c>
+    /// cho các tích hợp đời cũ đọc được.</para>
+    ///
+    /// <para>Không lọc thì khách gửi một cái like, hộp thư hiện hai — và nhân viên tưởng khách
+    /// bấm nhầm hai lần. Lọc theo URL: khách gửi nhiều ảnh thật thì mỗi ảnh một URL khác nhau
+    /// nên không bị gộp oan.</para>
+    /// </summary>
     private static IReadOnlyList<ChatFile> ReadMeta(JsonNode goc)
     {
         if (goc is not JsonArray ds) return Array.Empty<ChatFile>();
         var ra = new List<ChatFile>();
+        var daCo = new HashSet<string>(StringComparer.Ordinal);
         foreach (var m in ds.OfType<JsonNode>())
         {
             var p = m["payload"];
@@ -128,7 +159,9 @@ public static class ChatAttachment
                 continue;
             }
             var url = Str(p["url"]);
-            if (!string.IsNullOrWhiteSpace(url)) ra.Add(new ChatFile(Name: Str(m["title"]), Url: url));
+            if (string.IsNullOrWhiteSpace(url)) continue;
+            if (!daCo.Add(url!)) continue;   // Meta gửi trùng — xem ghi chú ở trên
+            ra.Add(new ChatFile(Name: Str(m["title"]), Url: url));
         }
         return ra;
     }

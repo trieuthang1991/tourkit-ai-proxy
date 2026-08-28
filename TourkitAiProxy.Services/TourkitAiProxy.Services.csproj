@@ -65,6 +65,13 @@
     <PackageReference Include="Npgsql" Version="8.0.5" />
     <PackageReference Include="OpenAI" Version="2.4.0" />
     <PackageReference Include="SharpCompress" Version="0.49.1" />
+    <!-- ⚠️ GHIM 2.1.x CÓ CHỦ ĐÍCH — KHÔNG nâng lên 3.x/4.x.
+         2.1.x là Apache-2.0 thuần. Từ 3.0 Six Labors đổi sang "Split License": vẫn miễn phí,
+         NHƯNG kèm điều kiện doanh thu (dưới 1 triệu USD/năm) — tức là quyền dùng phụ thuộc vào
+         tình hình kinh doanh của khách hàng, không phải vào mã nguồn. Nâng lên là mỗi bản build
+         lại kêu "No Six Labors license found" và đẩy một câu hỏi pháp lý vào chỗ chỉ cần thu nhỏ
+         cái ảnh. Cần tính năng của 4.x thì mua giấy phép trước, rồi hẵng đổi dòng này. -->
+    <PackageReference Include="SixLabors.ImageSharp" Version="2.1.11" />
     <PackageReference Include="StackExchange.Redis" Version="2.13.17" />
     <PackageReference Include="UglyToad.PdfPig" Version="1.7.0-custom-5" />
   </ItemGroup>

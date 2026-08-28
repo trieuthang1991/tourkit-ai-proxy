@@ -38,6 +38,11 @@ public static class MetaMessagingParser
         if (goc?["entry"] is not JsonArray entries) return ra;
         foreach (var e in entries)
         {
+            // BÌNH LUẬN dưới bài viết đi ở "changes", không phải "messaging". Bỏ sót nhánh này là
+            // toàn bộ bình luận rơi im lặng — webhook vẫn trả 200 nên không lỗi nào hiện ra.
+            if (e?["changes"] is JsonArray thayDoi)
+                DocBinhLuan(thayDoi, e["id"]?.ToString(), e["time"]?.ToString(), kenh, ra);
+
             if (e?["messaging"] is not JsonArray ms) continue;
             foreach (var m in ms)
             {
@@ -160,7 +165,17 @@ public static class MetaMessagingParser
                 if (msg["attachments"] is JsonArray a && a.Count > 0)
                 {
                     att = a.ToJsonString();
-                    loai = a[0]?["type"]?.ToString() switch
+
+                    // ⚠️ NHÃN DÁN phải nhận ra trước, và phải quét CẢ MẢNG chứ không chỉ mục đầu.
+                    //
+                    // Đo trên dữ liệu thật (28/08/2026): khách gửi một cái like thì Meta trả HAI
+                    // mục cùng URL — mục đầu type="image", mục sau type="sticker". Chỉ nhìn mục
+                    // đầu thì mọi nhãn dán đều bị ghi là ẢNH, rồi giao diện vẽ nó to bằng tấm ảnh
+                    // khách chụp hộ chiếu.
+                    var laNhanDan = a.OfType<JsonNode>().Any(x =>
+                        x["type"]?.ToString() == "sticker" || x["payload"]?["sticker_id"] is not null);
+
+                    loai = laNhanDan ? ChatKind.Sticker : a[0]?["type"]?.ToString() switch
                     {
                         "image" => ChatKind.Image,
                         "audio" => ChatKind.Audio,
@@ -251,6 +266,109 @@ public static class MetaMessagingParser
             ["kich"] = d["size"]?.ToString(),
             ["url"] = url,
         }.ToJsonString());
+    }
+
+    /// <summary>
+    /// Bóc bình luận dưới bài viết. Hai kênh, <b>hai hình dạng khác hẳn nhau</b> — đây là chỗ duy
+    /// nhất trong lớp này mà Messenger và Instagram KHÔNG dùng chung hợp đồng:
+    ///
+    /// <list type="bullet">
+    ///   <item><b>Facebook</b> — <c>field: "feed"</c>, và <c>feed</c> chở đủ thứ: đăng bài, thả
+    ///     tim, chia sẻ, ảnh mới. Phải lọc <c>item == "comment"</c>, không thì mỗi lượt thả tim
+    ///     cũng thành một dòng trong hộp thư. Có <c>verb</c> nên biết được thêm/sửa/xoá.</item>
+    ///   <item><b>Instagram</b> — <c>field: "comments"</c>, chỉ chở bình luận mới. KHÔNG có
+    ///     <c>verb</c>, cũng không có sự kiện sửa/xoá nào cả.</item>
+    /// </list>
+    ///
+    /// <para><b>Bỏ qua bình luận của CHÍNH mình</b> (<c>from.id</c> trùng mã Trang): đó là câu
+    /// người trực vừa trả lời, vọng ngược về. Ghi lại thành bình luận của khách là hộp thư tự nói
+    /// chuyện với nó, và mỗi lượt trả lời lại đội thêm một tin chưa đọc.</para>
+    /// </summary>
+    private static void DocBinhLuan(JsonArray thayDoi, string? maTrang, string? mocEntry,
+        ChatChannel kenh, List<InboundChatEvent> ra)
+    {
+        foreach (var c in thayDoi)
+        {
+            var truong = c?["field"]?.ToString();
+            var v = c?["value"];
+            if (v is null) continue;
+
+            var laFacebook = truong == "feed";
+            var laInstagram = truong == "comments";
+            if (!laFacebook && !laInstagram) continue;
+
+            // "feed" chở cả đăng bài / thả tim / chia sẻ — chỉ lấy đúng bình luận.
+            if (laFacebook && v["item"]?.ToString() != "comment") continue;
+
+            var maBinhLuan = (laFacebook ? v["comment_id"] : v["id"])?.ToString();
+            if (string.IsNullOrWhiteSpace(maBinhLuan)) continue;
+
+            var nguoi = v["from"]?["id"]?.ToString();
+            if (string.IsNullOrWhiteSpace(nguoi)) continue;
+
+            // Bình luận của chính Trang mình — xem ghi chú ở phần tóm tắt.
+            if (!string.IsNullOrWhiteSpace(maTrang) && nguoi == maTrang) continue;
+
+            var verb = laFacebook ? v["verb"]?.ToString() : "add";
+            var chu = (laFacebook ? v["message"] : v["text"])?.ToString();
+
+            if (verb is "remove" or "edited")
+            {
+                ra.Add(new(kenh, nguoi!, null, ChatKind.Text, null, null, DateTime.UtcNow,
+                    Surface: ChatSurface.Comment,
+                    CommentChange: new(maBinhLuan!, chu, verb == "remove")));
+                continue;
+            }
+
+            // Mã BÀI VIẾT. Instagram để trong media.id; thiếu nó thì không biết bình luận thuộc
+            // bài nào — bỏ qua còn hơn dồn mọi bài vào chung một hội thoại.
+            var maBai = (laFacebook ? v["post_id"] : v["media"]?["id"])?.ToString();
+            if (string.IsNullOrWhiteSpace(maBai)) continue;
+
+            ra.Add(new(kenh, nguoi!, maBinhLuan, ChatKind.Text, chu, null,
+                LucBinhLuan(v, mocEntry),
+                DisplayName: (laFacebook ? v["from"]?["name"] : v["from"]?["username"])?.ToString(),
+                Surface: ChatSurface.Comment,
+                ThreadId: maBai,
+                ParentExternalId: NullNeuRong(v["parent_id"]?.ToString())));
+        }
+    }
+
+    /// <summary>
+    /// Facebook để mốc ở <c>created_time</c> của chính bình luận; Instagram không có, phải mượn
+    /// <c>entry.time</c>. Cả hai đều tính bằng GIÂY (không phải mili-giây như bên tin nhắn) —
+    /// nhầm đơn vị là mọi bình luận nhảy sang năm 1970 và nằm sai chỗ trong dòng thời gian.
+    /// </summary>
+    private static DateTime LucBinhLuan(JsonNode v, string? mocEntry)
+    {
+        var giay = v["created_time"]?.ToString() ?? mocEntry;
+        return long.TryParse(giay, out var s) && s > 0
+            ? DateTimeOffset.FromUnixTimeSeconds(s).UtcDateTime
+            : DateTime.UtcNow;
+    }
+
+    private static string? NullNeuRong(string? s) => string.IsNullOrWhiteSpace(s) ? null : s;
+
+    /// <summary>
+    /// Bóc ba trường lỗi của Graph ra khỏi thân trả về.
+    ///
+    /// <para><b>Vì sao cần cả ba.</b> Chỉ <c>code</c> thôi là không đủ: mã 200 của Meta vừa nghĩa
+    /// là "thiếu quyền" vừa là chỗ họ nhét ca <b>khách tự tắt nhận tin</b> vào, và chỉ
+    /// <c>error_subcode</c> mới tách được hai ca đó. Còn <c>type</c> là lưới vét cuối — Meta đẻ mã
+    /// mới liên tục nhưng <c>OAuthException</c> thì giữ nguyên tên qua nhiều năm.</para>
+    ///
+    /// <para>Dùng chung cho Messenger, Instagram và WhatsApp vì cả ba trả lỗi cùng một hình dạng
+    /// <c>{"error":{"code":…,"error_subcode":…,"type":…}}</c> — dù <b>bảng mã thì khác nhau</b>,
+    /// nên chỗ gọi vẫn phải chọn đúng <c>ChannelFailures.FromMeta</c> hay <c>FromWhatsApp</c>.</para>
+    /// </summary>
+    public static (int? Code, long? SubCode, string? Type) ReadErrorFields(JsonObject? than)
+    {
+        var e = than?["error"];
+        if (e is null) return (null, null, null);
+
+        int? ma = int.TryParse(e["code"]?.ToString(), out var m) ? m : null;
+        long? maPhu = long.TryParse(e["error_subcode"]?.ToString(), out var mp) ? mp : null;
+        return (ma, maPhu, e["type"]?.ToString());
     }
 
     /// <summary>

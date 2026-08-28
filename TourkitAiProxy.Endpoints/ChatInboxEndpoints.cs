@@ -51,6 +51,7 @@ public static class ChatInboxEndpoints
         "/api/v1/chat/events",
         "/api/v1/chat/oauth",
         "/api/v1/chat/webhook",
+        "/api/v1/chat/media",
     };
 
     public static IEndpointRouteBuilder MapChatInboxEndpoints(this IEndpointRouteBuilder routes)
@@ -1123,6 +1124,47 @@ public static class ChatInboxEndpoints
             return Results.Json(new { ok = true }, Web);
         });
 
+        // ── Soi lại tệp cũ về kho riêng — CHẠY TAY ──────────────────────────
+        //
+        // Việc này ĐÃ tự chạy nền cho mọi công ty (ChatMediaBackfillWorker), vì nó là cứu dữ
+        // liệu có hạn chót: url ảnh của nhà cung cấp hết hạn sau vài ngày, chờ ai đó bấm thì
+        // đến ngày đó không còn gì để cứu.
+        //
+        // Đường này giữ lại để GỌI NGAY cho một công ty, không phải đợi vòng quét kế tiếp —
+        // dùng lúc gấp (sắp tới hạn) hoặc khi cần kiểm chứng ngay sau khi đổi cấu hình kho.
+        // Không có nút nào trên giao diện gọi nó, và cố ý vậy.
+        //
+        // Chạy lại bao nhiêu lần cũng không sao: tin đã soi bị lọc ra ở tầng truy vấn.
+        //
+        // MỘT LƯỢT là một mẻ, không phải cả hộp thư — gọi lại liên tiếp cho tới khi `examined`
+        // về 0. Không phải truyền mốc gì cả: mỗi dòng lấy ra đã được đánh dấu ngay trong CSDL
+        // nên lượt sau tự ra mẻ kế. Cắt mẻ vì yêu cầu HTTP có hạn trả lời.
+        g.MapPost("/media/backfill", async (int? limit, HttpContext ctx,
+            TkSessionStore sessions, ChatRepository repo, ChatInboundService svc,
+            CancellationToken ct) =>
+        {
+            var a = SessionAuth.Read(ctx, sessions);
+            if (a == null) return SessionAuth.Unauthorized();
+            if (!repo.Configured) return NotConfigured();
+
+            // Chặn trên 500: một lượt bấm không được phép chạy hàng giờ rồi chết vì hết hạn
+            // yêu cầu — gọi thêm lần nữa là chạy tiếp mẻ kế, vì tiến độ nằm trong CSDL.
+            var soToiDa = Math.Clamp(limit ?? 200, 1, 500);
+            var tep = await svc.BackfillMediaAsync(a.TenantId, soToiDa, ChatRepository.AnyTier, ct);
+
+            // Ảnh đại diện đi cùng lượt: chúng cũng là url có hạn của nhà cung cấp, và ít hơn
+            // hẳn (một dòng mỗi khách) nên một mẻ thường là hết. Bỏ ra ngoài thì lượt chạy tay
+            // lúc gấp lại cứu thiếu đúng thứ lộ nhất khi vỡ — khuôn mặt khách ở mọi dòng.
+            var anh = await svc.BackfillAvatarsAsync(a.TenantId, soToiDa, ChatRepository.AnyTier, ct);
+
+            return Results.Json(new
+            {
+                ok = true,
+                mirrored = tep.Mirrored, examined = tep.Examined,
+                avatarsMirrored = anh.Mirrored, avatarsExamined = anh.Examined,
+            }, Web);
+        });
+
         g.MapPost("/conversations/{id:long}/bot", async (long id, BotReq body, HttpContext ctx,
             TkSessionStore sessions, ChatRepository repo, ChatEventBus bus, CancellationToken ct) =>
         {
@@ -1645,20 +1687,26 @@ public static class ChatInboxEndpoints
             if (!Enum.IsDefined(typeof(ChatChannel), (short)channel))
                 return Results.BadRequest(new { error = "Kênh không hợp lệ" });
 
-            // ⚠️ Gỡ địa chỉ nhận tin bên Telegram TRƯỚC khi xoá khoá — xoá trước thì không còn
-            // token nào để gọi deleteWebhook, và Telegram nện vào URL đã chết mãi mãi. Hỏng thì
-            // vẫn cho xoá tiếp: người dùng bấm gỡ là muốn gỡ, không phải muốn nghe báo lỗi.
-            if ((ChatChannel)channel == ChatChannel.Telegram)
-                await (adapters.OfType<Services.Chat.Channels.TelegramChatAdapter>().FirstOrDefault()
-                       ?.DisconnectBotAsync(a.TenantId, accountId, ct) ?? Task.FromResult(false));
+            // ⚠️ Nói với nhà cung cấp TRƯỚC khi xoá khoá — xoá trước thì không còn khoá nào để
+            // gọi lệnh huỷ, và họ nện vào đường đã chết mãi mãi. Mỗi kênh tự biết phải gọi gì
+            // (hoặc không có gì để gọi); chỗ này không được biết tên kênh nào cả.
+            var boNoi = adapters.FirstOrDefault(x => x.Channel == (ChatChannel)channel);
+            var daGo = boNoi is null || await boNoi.DisconnectAsync(a.TenantId, accountId, ct);
 
             // CỐ Ý không xoá hội thoại cũ của tài khoản này: lịch sử chat với khách là dữ liệu
             // nghiệp vụ, gỡ kết nối chỉ nghĩa là "thôi không nhận/gửi qua tài khoản này nữa".
             var xoa = await cred.DeleteAsync(a.TenantId, (ChatChannel)channel, accountId, ct);
             // Không gắn với hội thoại nào — gỡ kết nối là việc ở mức tài khoản kênh.
             await repo.AppendAuditAsync(a.TenantId, null, a.Username, "go-ket-noi",
-                new JsonObject { ["kenh"] = channel, ["taiKhoan"] = accountId }.ToJsonString(), ct);
-            return Results.Json(new { ok = true, removed = xoa }, Web);
+                new JsonObject
+                {
+                    ["kenh"] = channel,
+                    ["taiKhoan"] = accountId,
+                    // Ghi lại để về sau còn truy: gỡ mà nhà cung cấp không nhận thì webhook cũ vẫn
+                    // sống, và triệu chứng lúc đó ("sao tự nhiên có tin lạ") không gợi được về đây.
+                    ["daBaoNhaCungCap"] = daGo,
+                }.ToJsonString(), ct);
+            return Results.Json(new { ok = true, removed = xoa, providerNotified = daGo }, Web);
         });
 
         // ── Cấu hình trợ lý chat ────────────────────────────────────────────

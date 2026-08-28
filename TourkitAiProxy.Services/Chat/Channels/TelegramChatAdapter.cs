@@ -125,6 +125,10 @@ public class TelegramChatAdapter : IChatChannelAdapter, IButtonSender
     /// <para><c>drop_pending_updates=false</c>: gỡ khỏi hộp thư này không có nghĩa là vứt tin của
     /// khách — công ty có thể đang chuyển bot sang nơi khác dùng tiếp.</para>
     /// </summary>
+    public Task<bool> DisconnectAsync(string tenantId, string accountId, CancellationToken ct)
+        => DisconnectBotAsync(tenantId, accountId, ct);
+
+    /// <inheritdoc cref="DisconnectAsync"/>
     public async Task<bool> DisconnectBotAsync(string tenantId, string accountId, CancellationToken ct)
     {
         var token = await TokenAsync(tenantId, accountId, ct);
@@ -509,13 +513,17 @@ public class TelegramChatAdapter : IChatChannelAdapter, IButtonSender
                 return new(true, false, o["result"]?["message_id"]?.ToString(), null);
 
             var moTa = o?["description"]?.ToString() ?? Truncate(raw);
-            // 5xx là hỏng tạm thời phía Telegram; 4xx là mình sai (khách chặn bot, sai chat id) —
-            // thử lại chỉ tốn công.
-            return new(false, (int)res.StatusCode >= 500, null, $"Telegram từ chối: {moTa}");
+            // Telegram KHÔNG có mã lỗi phân loại được — nó trả một câu tiếng Anh viết cho người
+            // đọc ("bot was blocked by the user"). Đối chiếu câu đó là cách duy nhất biết chuyện
+            // gì; mã HTTP chỉ là lưới vét, và riêng Telegram thì 403 nghĩa là KHÁCH CHẶN BOT chứ
+            // không phải "thiếu quyền" như phần lớn API khác.
+            return SendResult.Fail(
+                ChannelFailures.FromTelegram((int)res.StatusCode, moTa),
+                $"Telegram từ chối: {moTa}");
         }
         catch (Exception ex)
         {
-            return new(false, true, null, ex.Message);
+            return SendResult.Fail(ChatFailure.Network, ex.Message);
         }
     }
 

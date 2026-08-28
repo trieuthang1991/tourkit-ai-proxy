@@ -21,6 +21,10 @@ public class LocalChatFileStorage : IChatFileStorage
     public bool Configured => true;
     public string Provider => "local";
 
+    /// <inheritdoc/>
+    /// <remarks>Tương đối, khớp đúng chuỗi mà <see cref="UploadAsync"/> trả về.</remarks>
+    public string? PublicBase => "/chat-files/";
+
     /// <summary>
     /// Dựng đường dẫn tuyệt đối của kho, neo vào THƯ MỤC APP.
     ///
@@ -61,5 +65,12 @@ public class LocalChatFileStorage : IChatFileStorage
         await noiDung.CopyToAsync(f, ct);
         // Đường dẫn TƯƠNG ĐỐI — endpoint gọi hàm này tự thêm scheme+host, xem IChatFileStorage.
         return "/chat-files/" + key;
+    }
+
+    /// <inheritdoc/>
+    public Task<string?> ExistingUrlAsync(string key, CancellationToken ct)
+    {
+        var duong = Path.Combine(_dir, key.Replace('/', Path.DirectorySeparatorChar));
+        return Task.FromResult<string?>(File.Exists(duong) ? "/chat-files/" + key : null);
     }
 }

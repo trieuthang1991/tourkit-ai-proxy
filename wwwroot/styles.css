@@ -9172,6 +9172,20 @@ img.ci-avt { object-fit: cover; }
                 color: var(--text-3); }
 
 .ci-dong { display: flex; margin-bottom: 14px; }
+/* Tin GIỮA cụm: thu hẹp khoảng cách để cả cụm đọc như MỘT lượt nói, không phải mấy lượt rời.
+   3px chứ không phải 0 — dính sát nhau thì hai bong bóng trông như một bong bóng bị gãy. */
+.ci-dong.lien { margin-bottom: 3px; }
+.ci-ai.lien { margin-top: -11px; margin-bottom: 3px; }
+/* Ô giữ chỗ đúng bề ngang ảnh đại diện (26px) + khe 10px của .ci-trai, để bong bóng trong cùng
+   một cụm thẳng hàng nhau thay vì tin nào có ảnh thì thụt vào. */
+.ci-avt-cho { flex: 0 0 26px; width: 26px; }
+
+/* Mốc giờ chen giữa dòng khi hội thoại đứt quãng lâu. Nhạt hơn dải NGÀY: ngày là mốc lớn,
+   cái này chỉ là ghi chú phụ — cùng đậm thì mắt đọc thành hai lần đổi ngày. */
+.ci-mocgio { display: flex; justify-content: center; margin: 10px 0 12px; }
+.ci-mocgio span { padding: 2px 9px 3px; border-radius: 999px; background: var(--ci-nen-chip);
+                  font-size: 10px; color: var(--text-3);
+                  font-variant-numeric: tabular-nums; }
 .ci-trai { gap: 10px; max-width: 74%; }
 .ci-phai { justify-content: flex-end; }
 .ci-phai > div { max-width: 70%; min-width: 0; }
@@ -9180,6 +9194,11 @@ img.ci-avt { object-fit: cover; }
 /* Khách: bong bóng trắng, góc dưới-trái vuốt nhọn về phía ảnh đại diện. */
 .ci-khach { background: var(--surface); border: 1px solid #E7ECF2; border-radius: 13px 13px 13px 5px;
             box-shadow: 0 1px 1px rgba(15, 23, 42, .03); }
+/* Tin CHỈ có ảnh/nhãn dán: BỎ HẲN bong bóng. Khung trắng bọc quanh một cái nhãn dán nền trong
+   suốt trông như lỗi hiển thị, và với ảnh thì nó chỉ thêm một lớp viền thừa quanh thứ vốn đã có
+   khung riêng. Chỉ áp cho tin KHÔNG kèm chữ — còn bong bóng thì tin chữ mất chỗ dựa. */
+.ci-bong.tran { padding: 0; background: none; border: 0; box-shadow: none; }
+
 /* Mình gửi: nền đậm, góc dưới-phải nhọn. Chữ trắng trên #1E293B đạt 13:1. */
 .ci-nv, .ci-hethong { background: var(--dark-panel); border-radius: 13px 13px 5px 13px;
                       box-shadow: 0 1px 2px rgba(15, 23, 42, .12); }
@@ -9233,8 +9252,12 @@ img.ci-avt { object-fit: cover; }
               color: var(--text); }
 .ci-noidung i { color: var(--text-3); }
 
-.ci-gio { display: flex; align-items: center; gap: 5px; margin-top: 5px; font-size: 10px;
+/* Hàng dưới bong bóng. Từ 28/08/2026 KHÔNG còn chữ giờ ở đây (Messenger cũng vậy) — chỉ còn
+   dấu đã gửi/đã xem và báo gửi hỏng. Khe hẹp lại vì nội dung ít hẳn. */
+.ci-gio { display: flex; align-items: center; gap: 5px; margin-top: 3px; font-size: 10px;
           color: var(--text-3); font-variant-numeric: tabular-nums; }
+/* Hàng rỗng (tin của khách, không có dấu gửi) thì đừng chiếm chỗ. */
+.ci-gio:empty { display: none; }
 .ci-trai .ci-gio { padding-left: 3px; }
 .ci-nv .ci-gio, .ci-hethong .ci-gio { justify-content: flex-end; color: rgba(255, 255, 255, .75); }
 .ci-tich { display: inline-flex; }
@@ -9258,6 +9281,22 @@ img.ci-avt { object-fit: cover; }
 
 .ci-dinhkem { display: grid; gap: 4px; margin-bottom: 4px; }
 .ci-anh { max-width: 260px; border-radius: 9px; display: block; }
+/* ⚠️ Phải chặn ở CHÍNH thẻ img, không chỉ ở thẻ bọc. max-width trên <a> không ép ảnh con co
+   lại — ảnh vẫn vẽ ở cỡ gốc rồi TRÀN ra ngoài bong bóng. Sticker của Zalo/Messenger hay là
+   PNG 512px nên lỗi này lộ rõ nhất ở đó: một cái like chiếm hết khung chat. */
+/* ⚠️ Chặn CẢ hai chiều. max-width một mình không đủ: ảnh dọc (chụp màn hình điện thoại, hoá
+   đơn dài) rộng 260px nhưng cao vài nghìn pixel — đẩy hết tin khác ra khỏi màn hình và nhân
+   viên phải cuộn cả trang mới qua được MỘT tấm ảnh.
+
+   object-fit: contain giữ nguyên tỉ lệ, không méo. Bấm vào vẫn mở cỡ đầy đủ ở tab mới. */
+.ci-anh img { display: block; max-width: 100%; max-height: 320px; width: auto; height: auto;
+              object-fit: contain; border-radius: 9px; }
+
+/* Sticker KHÔNG dùng chung mốc với ảnh thường. Nó là một biểu cảm, không phải nội dung cần
+   nhìn kỹ — vẽ to bằng tấm ảnh khách chụp hộ chiếu là sai thứ tự quan trọng. */
+.ci-anh.sticker { max-width: 120px; }
+/* Nền trong suốt: sticker phần lớn là PNG nền rỗng, bo góc + nền chip làm nó trông như ảnh lỗi. */
+.ci-anh.sticker img { border-radius: 0; }
 .ci-tep { display: inline-flex; align-items: center; gap: 8px; padding: 7px 10px; border-radius: 9px;
           background: var(--ci-nen-chip); color: var(--text); text-decoration: none;
           font-size: 11.5px; }
@@ -9338,7 +9377,37 @@ img.ci-avt { object-fit: cover; }
    tới, mà tin đã gửi thì không thu lại được. */
 .ci-mau-tin-luuy { align-self: center; font-size: 10.5px; color: var(--text-3); }
 
+/* Dòng ghi chú DƯỚI ô soạn ("Bot đang tạm dừng…"). Chỉ là chữ, không bố cục.
+   Trước 28/08/2026 lớp này gánh CẢ thẻ tệp chờ gửi — mà thẻ đó có ảnh nhỏ, tên, cỡ và nút bỏ,
+   tức là cần bố cục hẳn hoi. Dùng chung nên các phần tử con dính liền nhau không khe, và
+   margin-top thì sai chiều vì thẻ tệp nằm TRÊN ô soạn chứ không phải dưới. */
 .ci-cho-gui { font-size: 10.5px; color: var(--text-3); margin-top: 6px; }
+
+/* Tệp/ảnh đã tải lên, CHỜ bấm gửi. Là một thẻ thật: có nền, có khe, bỏ được.
+   margin-bottom chứ không phải top — nó đứng trên ô soạn, dính sát vào thì trông như một phần
+   của khung nhập. */
+.ci-tep-cho { display: inline-flex; align-items: center; gap: 8px; max-width: 100%;
+              margin-bottom: 8px; padding: 5px 6px 5px 8px; border-radius: 9px;
+              background: var(--ci-nen-chip); font-size: 11.5px; color: var(--text); }
+
+/* Ảnh xem trước vuông và cắt vừa khung — ảnh dọc để nguyên tỉ lệ sẽ kéo cao cả thanh. */
+.ci-tep-cho img { width: 30px; height: 30px; object-fit: cover; border-radius: 6px;
+                  display: block; flex: 0 0 auto; }
+.ci-tep-cho-icon { display: inline-grid; place-items: center; width: 30px; height: 30px;
+                   border-radius: 6px; background: var(--surface); color: var(--text-3);
+                   flex: 0 0 auto; }
+
+/* Tên tệp cắt bằng ba chấm: tên dài (hoá đơn, hộ chiếu scan) mà để tràn thì nút bỏ bị đẩy
+   khỏi màn hình và không bấm được nữa. */
+.ci-tep-cho-ten { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ci-tep-cho em { flex: 0 0 auto; font-style: normal; font-size: 10.5px; color: var(--text-3);
+                 font-variant-numeric: tabular-nums; }
+
+.ci-tep-cho button { display: inline-grid; place-items: center; width: 22px; height: 22px;
+                     flex: 0 0 auto; border: 0; border-radius: 6px; background: transparent;
+                     cursor: pointer; color: var(--text-3); }
+.ci-tep-cho button:hover { background: var(--surface); color: var(--danger); }
+.ci-tep-cho button:focus-visible { outline: 2px solid var(--primary); outline-offset: 1px; }
 
 /* Bảng mẫu trả lời — nổi lên trên ô soạn, không đẩy bố cục. */
 .ci-mau { position: absolute; bottom: 100%; left: 0; right: 0; margin-bottom: 8px; z-index: 5;

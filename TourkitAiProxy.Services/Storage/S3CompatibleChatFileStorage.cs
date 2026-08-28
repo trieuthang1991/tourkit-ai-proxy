@@ -20,6 +20,9 @@ public class S3CompatibleChatFileStorage : IChatFileStorage
     public bool Configured => _s3 is not null;
     public string Provider { get; }
 
+    /// <inheritdoc/>
+    public string? PublicBase => _publicBase;
+
     /// <param name="provider">"r2" hoặc "s3" — chỉ để log, không rẽ nhánh hành vi.</param>
     /// <param name="serviceUrl">R2: <c>https://{accountId}.r2.cloudflarestorage.com</c>. S3: null
     /// (dùng <paramref name="region"/> thay).</param>
@@ -59,5 +62,29 @@ public class S3CompatibleChatFileStorage : IChatFileStorage
             DisablePayloadSigning = true,   // R2 không cần chữ ký payload theo chunk; S3 chấp nhận luôn
         }, ct);
         return $"{_publicBase}/{key}";
+    }
+
+    /// <inheritdoc/>
+    public async Task<string?> ExistingUrlAsync(string key, CancellationToken ct)
+    {
+        if (_s3 is null) return null;
+        try
+        {
+            // HEAD chứ không GET: chỉ cần biết CÓ hay không, kéo cả tệp về để trả lời câu hỏi đó
+            // là tự chuốc lấy đúng cái chi phí mình đang muốn tránh.
+            await _s3.GetObjectMetadataAsync(_bucket, key, ct);
+            return $"{_publicBase}/{key}";
+        }
+        catch (Amazon.S3.AmazonS3Exception ex) when (ex.StatusCode == System.Net.HttpStatusCode.NotFound)
+        {
+            return null;   // chưa có — đường thường, không phải lỗi
+        }
+        catch
+        {
+            // Mạng chập, khoá sai… → coi như chưa có rồi tải lại. Tốn thêm một lượt còn hơn để
+            // tin của khách kẹt lại vì một phép kiểm phụ. Không ghi log ở đây: hàm này gọi cho
+            // TỪNG tệp của MỌI tin, một trục trặc mạng là log ngập.
+            return null;
+        }
     }
 }

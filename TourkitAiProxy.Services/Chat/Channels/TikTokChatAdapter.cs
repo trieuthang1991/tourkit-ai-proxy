@@ -519,11 +519,15 @@ public class TikTokChatAdapter : IChatChannelAdapter
                 return new(true, false, o?["data"]?["message_id"]?.ToString(), null);
 
             var moTa = o?["message"]?.ToString() ?? Truncate(raw);
-            return new(false, (int)res.StatusCode >= 500, null, $"TikTok từ chối ({ma}): {moTa}");
+            // Vì HTTP luôn là 200, mã HTTP gần như vô dụng ở đây — nhóm lỗi phải đọc ra từ CÂU
+            // CHỮ trong thân. Đó cũng là lý do bảng đối chiếu của TikTok là bảng chuỗi con.
+            return SendResult.Fail(
+                ChannelFailures.FromTikTok((int)res.StatusCode, moTa),
+                $"TikTok từ chối ({ma}): {moTa}");
         }
         catch (Exception ex)
         {
-            return new(false, true, null, ex.Message);
+            return SendResult.Fail(ChatFailure.Network, ex.Message);
         }
     }
 

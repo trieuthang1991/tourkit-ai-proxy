@@ -177,5 +177,11 @@ public static class WebFeatureRegistration
         // ConnectionStrings:Chat để trống (repo.Configured == false).
         s.AddHostedService<Chat.Inbox.ChatInboundWorker>();
         s.AddHostedService<Chat.Inbox.ChatOutboxWorker>();
+
+        // Worker thứ ba, KHÁC nhịp hẳn hai cái trên: nó không phục vụ tin đang tới mà đi cứu ảnh
+        // CŨ trước khi url của nhà cung cấp hết hạn (đo được: ảnh Meta sống 5 ngày). Bắt đầu muộn,
+        // mẻ nhỏ, nghỉ giữa các mẻ — xem ChatMediaBackfillWorker. Cũng tự dừng vòng đầu khi chưa
+        // khai CSDL chat hoặc chưa khai kho tệp.
+        s.AddHostedService<Chat.Inbox.ChatMediaBackfillWorker>();
     }
 }

@@ -43,6 +43,48 @@ public enum ChatState : short { Pending = 0, Sent = 1, Delivered = 2, Seen = 3, 
 public enum ChatStatus : short { New = 0, InProgress = 1, Closed = 2 }
 
 /// <summary>
+/// Cuộc trò chuyện này diễn ra ở ĐÂU: trong hộp thư riêng, hay dưới một bài viết công khai.
+///
+/// <para><b>Vì sao phải phân biệt chứ không gộp làm một.</b> Nhìn từ CSDL thì cả hai đều là
+/// "khách nói gì đó, mình trả lời", nhưng ba luật quan trọng nhất lại ngược nhau:</para>
+/// <list type="bullet">
+///   <item><b>Ai đọc được.</b> Trả lời một bình luận là nói giữa chỗ đông người — mọi khách khác
+///     ghé bài viết đó đều đọc. Gõ nhầm một câu chỉ dành cho một người vào đây là công khai
+///     chuyện riêng của họ.</item>
+///   <item><b>Trợ lý có được tự trả lời không.</b> KHÔNG. Dự án tham chiếu cũng chặn đúng chỗ
+///     này: bình luận vào hộp thư nhưng không chạy máy trả lời tự động. Một câu bịa của máy dưới
+///     bài viết thì cả nghìn người thấy, và không gỡ lại được như tin riêng.</item>
+///   <item><b>Đường gửi khác hẳn.</b> Trả lời bình luận đi tới <c>{mã bình luận}/comments</c>,
+///     không phải <c>me/messages</c>; và nó KHÔNG chịu cửa sổ 24 giờ.</item>
+/// </list>
+///
+/// <para>Giá trị số ghi xuống CSDL — chỉ thêm ở cuối.</para>
+/// </summary>
+public enum ChatSurface : short
+{
+    /// <summary>Tin nhắn riêng — mặc định, và là toàn bộ những gì có trước 28/08/2026.</summary>
+    DirectMessage = 0,
+
+    /// <summary>Bình luận dưới một bài viết công khai (Facebook, Instagram).</summary>
+    Comment = 1,
+}
+
+/// <summary>
+/// Người bình luận SỬA hoặc XOÁ bình luận cũ của họ.
+///
+/// <para><b>Không phải một tin mới</b> — cùng lý do như <see cref="ChatReaction"/>. Ghi thành tin
+/// mới thì hộp thư hiện hai lần cùng một câu, đếm chưa đọc tăng thêm một, và người trực tưởng
+/// khách vừa nói tiếp.</para>
+///
+/// <para>⚠️ <b>Chỉ Facebook có.</b> Instagram không gửi sự kiện sửa/xoá bình luận nào cả — một
+/// bình luận đã xoá bên Instagram sẽ nằm lại trong hộp thư của mình mãi. Đó là giới hạn của nền
+/// tảng, không phải chỗ để "sửa" bằng cách dò lại định kỳ: dò cả nghìn bài viết mỗi giờ để bắt
+/// vài lượt xoá là đổi một vấn đề nhỏ lấy một vấn đề về hạn mức gọi API.</para>
+/// </summary>
+/// <param name="Removed"><c>true</c> = đã xoá. Khi đó <paramref name="NewText"/> vô nghĩa.</param>
+public record CommentChange(string ExternalMsgId, string? NewText, bool Removed);
+
+/// <summary>
 /// Một nút bấm gắn dưới tin nhắn.
 ///
 /// <para><b>Chỉ hai kiểu, cố ý.</b> Dự án tham chiếu gắn vào nút một <c>payload</c> trỏ tới
@@ -80,6 +122,16 @@ public record ChatButton(string Label, string? Url = null)
 /// trăm câu trả lời gửi thẳng cho khách hôm nay), cho bot câm 30 phút, và chờ gộp tin. Ngoài
 /// ra tin cũ phải giữ đúng <see cref="InboundChatEvent.SentUtc"/> làm thời điểm — đóng dấu giờ
 /// nhập là cả năm hội thoại dồn vào một phút.</para></param>
+/// <param name="Surface">Riêng hay công khai. Xem <see cref="ChatSurface"/> — đây là thứ quyết
+/// định trợ lý có được tự trả lời không, nên đừng để mặc định trôi qua với sự kiện bình luận.</param>
+/// <param name="ThreadId">Mã BÀI VIẾT khi <paramref name="Surface"/> là bình luận.
+///
+/// <para>Cần nó vì một người có thể bình luận dưới nhiều bài khác nhau, và gộp hết vào một chỗ
+/// thì người trực đọc một chuỗi câu rời rạc không biết đang nói về bài nào.</para></param>
+/// <param name="ParentExternalId">Mã bình luận CHA, khi đây là lượt trả lời trong một nhánh.
+/// Rỗng nghĩa là bình luận gốc dưới bài viết.</param>
+/// <param name="CommentChange">Người bình luận sửa/xoá bình luận cũ — <b>không phải tin mới</b>.
+/// Xem <see cref="Chat.CommentChange"/>.</param>
 public record InboundChatEvent(
     ChatChannel Channel,
     string ExternalUserId,
@@ -94,7 +146,11 @@ public record InboundChatEvent(
     ChatReaction? Reaction = null,
     ChatReferral? Referral = null,
     string? ButtonClickId = null,
-    bool IsHistory = false);
+    bool IsHistory = false,
+    ChatSurface Surface = ChatSurface.DirectMessage,
+    string? ThreadId = null,
+    string? ParentExternalId = null,
+    CommentChange? CommentChange = null);
 
 /// <summary>
 /// Khách đến từ đâu — quảng cáo nào, liên kết nào, mã QR nào.
