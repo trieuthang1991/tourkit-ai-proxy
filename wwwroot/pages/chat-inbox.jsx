@@ -277,6 +277,8 @@
     const nhan = !dauCum ? null
       : ben === 1 ? 'AI trả lời' : ben === 2 ? (tin.senderUsername || 'Nhân viên') : null;
 
+    const [moTin, setMoTin] = React.useState(false);
+
     // Đếm ngược cửa sổ thu hồi. Dừng hẳn khi về 0 — để chạy tiếp là mỗi tin cũ trong hội thoại
     // giữ một bộ đếm vô ích, mở một hội thoại dài là hàng trăm cái.
     const [conLai, setConLai] = React.useState(() => giayConLai(tin.sendAfterUtc));
@@ -373,18 +375,45 @@
     // Thao tác trên tin CỦA MÌNH. Nút Sửa chỉ hiện với tin chưa ra khỏi máy (chờ gửi = 0,
     // gửi hỏng = 4) — tin đã gửi thì khách đã thấy bản gốc vĩnh viễn, sửa bản của mình là làm
     // hộp thư nói dối. Ẩn hẳn nút chứ không hiện rồi báo lỗi.
-    const thaoTac = !tin.deleted && (onXoa || onSua) && (
-      <div className="ci-tin-thaotac">
-        {onSua && (tin.state === 0 || tin.state === 4) && (
-          <button onClick={() => onSua(tin)}>Sửa</button>
+    const suaDuoc = onSua && (tin.state === 0 || tin.state === 4);
+    // Telegram thu hồi được cả tin ĐÃ gửi, trong 48 giờ — kênh duy nhất làm được. Kênh khác thì
+    // hết đếm ngược là chỉ còn "Xoá", và câu xác nhận của nó nói rõ khách vẫn thấy.
+    const thuHoiDuoc = onThuHoi && conLai === 0 && kenh === KENH_TELEGRAM && tin.state >= 1
+      && Date.now() - new Date(tin.createdUtc).getTime() < THU_HOI_TELEGRAM_MS;
+
+    // Học Messenger: một nút tròn "⋯" NỔI cạnh bong bóng khi rê chuột, mở ra menu — chứ không
+    // phải dải chữ gạch chân nằm dưới tin.
+    //
+    // Hai lý do, đều thấy ngay trên màn hình: dải chữ nằm trong luồng nên lúc hiện ra nó ĐẨY mọi
+    // tin bên dưới nhích xuống, đọc một hội thoại dài mà rê chuột qua là cả khung nhảy; và chữ
+    // gạch chân trông như liên kết, không như thao tác.
+    const thaoTac = !tin.deleted && (onXoa || suaDuoc || thuHoiDuoc) && (
+      <div className="ci-tin-menu">
+        <button className="ci-tin-cham" title="Thao tác với tin này" aria-label="Thao tác với tin này"
+                onClick={() => setMoTin(x => !x)}>
+          <window.Icon name="more" size={14} />
+        </button>
+        {moTin && (
+          <>
+            <div className="ci-menu-nen" onClick={() => setMoTin(false)} />
+            <div className="ci-menu ci-menu-tin" role="menu">
+              {suaDuoc && (
+                <button role="menuitem" onClick={() => { setMoTin(false); onSua(tin); }}>Sửa lại</button>
+              )}
+              {thuHoiDuoc && (
+                <button role="menuitem" onClick={() => { setMoTin(false); onThuHoi(tin); }}>
+                  Thu hồi cả phía khách
+                </button>
+              )}
+              {onXoa && (
+                <button role="menuitem" className="nguy-hiem"
+                        onClick={() => { setMoTin(false); onXoa(tin); }}>
+                  Xoá khỏi hộp thư
+                </button>
+              )}
+            </div>
+          </>
         )}
-        {/* Telegram thu hồi được cả tin ĐÃ gửi, trong 48 giờ — kênh duy nhất làm được. Ở kênh
-            khác thì hết đếm ngược là chỉ còn "Xoá", và câu xác nhận của nó nói rõ khách vẫn thấy. */}
-        {onThuHoi && conLai === 0 && kenh === KENH_TELEGRAM && tin.state >= 1
-          && Date.now() - new Date(tin.createdUtc).getTime() < THU_HOI_TELEGRAM_MS && (
-            <button title="Xoá cả phía khách" onClick={() => onThuHoi(tin)}>Thu hồi</button>
-          )}
-        {onXoa && <button onClick={() => onXoa(tin)}>Xoá</button>}
       </div>
     );
 
@@ -585,10 +614,17 @@
     const tron = kenh === 0 ? 48 : 24;
     const con = Math.max(2, Math.min(100, Math.round(cuaSo.hoursLeft / tron * 100)));
     return (
-      <div className={'ci-cuaso ' + (sap ? 'sap' : 'mo')} style={{ '--ci-con': con + '%' }}>
+      // Một dòng, không hai. Câu giải thích "hết hạn thì phải chờ khách nhắn lại" là thứ đọc MỘT
+      // lần rồi thuộc, nhưng bản trước in nó ra ở mọi hội thoại và chiếm nguyên nửa dải. Đưa vào
+      // tooltip: người mới vẫn tra được, người quen việc không phải nhìn lại mỗi ngày.
+      //
+      // Chỉ khi sắp hết (dưới 6 giờ) mới bung câu nhắc ra ngoài — lúc đó nó là cảnh báo thật.
+      <div className={'ci-cuaso ' + (sap ? 'sap' : 'mo')} style={{ '--ci-con': con + '%' }}
+           title={'Còn ' + dienGio(cuaSo.hoursLeft) + ' để trả lời trên ' + ten
+                  + '. Hết hạn thì phải chờ khách nhắn lại mới gửi được, hoặc dùng tin mẫu đã duyệt.'}>
         <window.Icon name="clock" size={12} />
-        <span>Cửa sổ trả lời {ten} còn <b>{dienGio(cuaSo.hoursLeft)}</b></span>
-        <span className="ci-cuaso-phu">hết hạn thì phải chờ khách nhắn lại mới gửi được</span>
+        <span>{ten} còn <b>{dienGio(cuaSo.hoursLeft)}</b></span>
+        {sap && <span className="ci-cuaso-phu">sắp hết — trả lời sớm</span>}
       </div>
     );
   }
@@ -1702,6 +1738,10 @@
     // Bảng chọn tin mẫu — chỉ mở từ ô soạn đang khoá, xem chỗ dùng.
     const [moMau, setMoMau] = useState(false);
     const [moHoSo, setMoHoSo] = useState(true);
+    // Menu "⋯" của hội thoại. Messenger để đúng HAI thứ ngoài thanh tiêu đề (một việc chính +
+    // nút hồ sơ) và dồn phần còn lại vào một menu — bảy nút chữ xếp ngang như bản trước vừa tràn
+    // dòng vừa bắt người ta đọc hết bảy nhãn mỗi lần chỉ để bấm một cái.
+    const [moMenu, setMoMenu] = useState(false);
     const [dinhKem, setDinhKem] = useState(null);      // tệp đã tải lên, CHỜ bấm gửi
     const [dangTai2, setDangTai2] = useState(false);   // đang tải tệp lên kho
     const [mauTraLoi, setMauTraLoi] = useState([]);
@@ -2155,20 +2195,35 @@
                                 url={c.avatarUrl} co={36} />
                     <HuyHieuKenh kenh={c.channel} />
                   </span>
+                  {/* HAI hàng, không phải ba — học cách Messenger xếp danh sách: tên + giờ, rồi
+                      dòng xem trước, hết. Bản trước có thêm một hàng huy hiệu CHỮ ("Đang xử lý" ·
+                      "admin" · "bot tạm dừng") làm mỗi mục cao gấp rưỡi, tức mỗi màn hình thấy
+                      được ít hội thoại hơn hẳn — mà ba chữ đó thì lần nào cũng đọc lại y nguyên.
+                      Nay chúng thành mấy dấu hiệu nhỏ nằm ngay cạnh dòng xem trước, có tooltip.
+
+                      Trạng thái bỏ hẳn khỏi dòng: đã có dải chip lọc ngay trên đầu danh sách, và
+                      đầu khung chat cũng nói rõ — nhắc lần thứ ba ở đây chỉ tốn chỗ. */}
                   <span className="ci-muc-than">
                     <span className="ci-muc-dau">
+                      {/* Chưa đọc đã có sẵn cơ chế riêng: .ci-muc.chuadoc làm đậm tên và
+                          chấm một dấu cạnh giờ. Đừng thêm dấu thứ hai cho cùng một chuyện. */}
                       <span className="ci-ten">{c.displayName || c.contactExternalId}</span>
                       <span className="ci-luc">{gioNgan(c.lastActivityAt)}</span>
                     </span>
-                    <span className="ci-xemtruoc">{c.lastPreview || 'chưa có tin nào'}</span>
-                    {/* Hàng cuối LUÔN có ít nhất viên trạng thái. Trước đây cả hàng biến mất khi
-                        chưa ai nhận việc, nên các mục cao thấp so le và danh sách trông lởm chởm. */}
-                    <span className="ci-muc-cuoi">
-                      <span className={'ci-tt' + (c.status === 0 ? ' moi' : '')}>
-                        <i />{TEN_TRANG_THAI[c.status]}
+                    <span className="ci-muc-duoi">
+                      <span className="ci-xemtruoc">{c.lastPreview || 'chưa có tin nào'}</span>
+                      <span className="ci-dau-hieu">
+                        {c.followed && <i className="ci-dh sao" title="Bạn đang theo dõi">★</i>}
+                        {c.botPaused && <i className="ci-dh" title="Trợ lý đang tạm dừng">⏸</i>}
+                        {c.blocked && <i className="ci-dh chan" title="Khách đang bị chặn trong hộp thư">⊘</i>}
+                        {/* Người nhận rút về một chữ cái: cần biết CÓ ai nhận chưa và ai, mà tên
+                            đầy đủ thì chiếm gần nửa dòng. Tên đầy đủ nằm ở tooltip. */}
+                        {c.assignedUsername && (
+                          <i className="ci-dh nguoi" title={'Đang xử lý: ' + c.assignedUsername}>
+                            {c.assignedUsername.slice(0, 1).toUpperCase()}
+                          </i>
+                        )}
                       </span>
-                      {c.assignedUsername && <span className="ci-giao">{c.assignedUsername}</span>}
-                      {c.botPaused && <span className="ci-botcam">bot tạm dừng</span>}
                     </span>
                   </span>
                 </button>
@@ -2202,33 +2257,55 @@
                            v.botPaused ? 'bot tạm dừng' : 'bot đang trả lời'].join(' · ')}</em>
                     </span>
                   </div>
+                  {/* Học cách Messenger xếp thanh tiêu đề: chỉ để lộ MỘT việc chính cộng nút hồ
+                      sơ, còn lại dồn vào "⋯". Bản trước bày bảy nút chữ cạnh nhau — tràn dòng
+                      trên màn hình hẹp, và bắt người trực đọc hết bảy nhãn mỗi lần chỉ để bấm một. */}
                   <div className="ci-nut-nhom">
                     <button className={'ci-nut' + (v.assignedUsername ? '' : ' chinh')} onClick={nhanViec}>
                       {v.assignedUsername ? 'Bỏ nhận' : 'Nhận việc'}
                     </button>
-                    {/* Đánh dấu chưa đọc — trả hội thoại về hàng chờ của chính mình. */}
-                    <button className="ci-nut nho" title="Đánh dấu chưa đọc" onClick={danhDauChuaDoc}>
-                      Chưa đọc
-                    </button>
-                    {/* Theo dõi là quan tâm mà không nhận việc. */}
-                    <button className={'ci-nut nho' + (v.followed ? ' chinh' : '')}
-                            title={v.followed ? 'Bỏ theo dõi' : 'Theo dõi hội thoại này'} onClick={doiTheoDoi}>
-                      {v.followed ? '★ Đang theo dõi' : '☆ Theo dõi'}
-                    </button>
-                    {/* ⚠️ "Chặn trong hộp thư", KHÔNG phải "Báo xấu": không nền tảng nào cho báo
-                        xấu qua API, gọi tên sai là người dùng tưởng đã báo lên Facebook. */}
-                    <button className={'ci-nut nho' + (v.blocked ? ' canh-bao' : '')}
-                            title={v.blocked
-                              ? 'Bỏ chặn — hộp thư hiện lại khách này'
-                              : 'Ẩn khách khỏi hộp thư và ngừng trả lời. Không báo gì cho nền tảng.'}
-                            onClick={doiChan}>
-                      {v.blocked ? 'Bỏ chặn' : 'Chặn trong hộp thư'}
-                    </button>
-                    <button className="ci-nut" onClick={batTatBot}>{v.botPaused ? 'Cho bot nói lại' : 'Tạm dừng bot'}</button>
-                    {v.status !== 2
-                      ? <button className="ci-nut" onClick={() => doiTrangThai(2)}>Đóng</button>
-                      : <button className="ci-nut" onClick={() => doiTrangThai(1)}>Mở lại</button>}
-                    <span className="ci-vach" aria-hidden="true" />
+
+                    <div className="ci-menu-boc">
+                      <button className={'ci-nut-icon' + (moMenu ? ' on' : '')}
+                              onClick={() => setMoMenu(x => !x)}
+                              title="Thao tác khác" aria-label="Thao tác khác"
+                              aria-expanded={moMenu}>
+                        <window.Icon name="more" size={15} />
+                      </button>
+                      {moMenu && (
+                        <>
+                          {/* Lớp phủ trong suốt: bấm ra ngoài là đóng. Không có nó thì menu dính
+                              lại cho tới khi bấm đúng nút — kiểu bực mình nhỏ mà gặp mỗi lần. */}
+                          <div className="ci-menu-nen" onClick={() => setMoMenu(false)} />
+                          <div className="ci-menu" role="menu">
+                            <button role="menuitem"
+                                    onClick={() => { setMoMenu(false); danhDauChuaDoc(); }}>
+                              Đánh dấu chưa đọc
+                            </button>
+                            <button role="menuitem"
+                                    onClick={() => { setMoMenu(false); doiTheoDoi(); }}>
+                              {v.followed ? 'Bỏ theo dõi' : 'Theo dõi hội thoại'}
+                            </button>
+                            <button role="menuitem"
+                                    onClick={() => { setMoMenu(false); batTatBot(); }}>
+                              {v.botPaused ? 'Cho trợ lý nói lại' : 'Tạm dừng trợ lý'}
+                            </button>
+                            <button role="menuitem"
+                                    onClick={() => { setMoMenu(false); doiTrangThai(v.status !== 2 ? 2 : 1); }}>
+                              {v.status !== 2 ? 'Đóng hội thoại' : 'Mở lại hội thoại'}
+                            </button>
+                            {/* Việc gây hậu quả nặng nhất nằm CUỐI và tách hẳn ra — để không ai
+                                bấm nhầm nó khi định bấm mục ngay trên. */}
+                            <span className="ci-menu-vach" aria-hidden="true" />
+                            <button role="menuitem" className="nguy-hiem"
+                                    onClick={() => { setMoMenu(false); doiChan(); }}>
+                              {v.blocked ? 'Bỏ chặn khách' : 'Chặn trong hộp thư'}
+                            </button>
+                          </div>
+                        </>
+                      )}
+                    </div>
+
                     <button className={'ci-nut-icon' + (moHoSo ? ' on' : '')}
                             onClick={() => setMoHoSo(x => !x)}
                             title={moHoSo ? 'Ẩn hồ sơ khách' : 'Xem hồ sơ khách'}
