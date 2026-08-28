@@ -99,6 +99,11 @@ public class ChatDb
       PRIMARY KEY (tenant_id, channel, external_id)
     );
 
+    -- Cờ soi ảnh đại diện về kho riêng — MỘT cột, mã hoá như media_state của chat_messages
+    -- (xem chú thích đầy đủ ở đó). Ở đây không dùng tới giá trị -1 "đã xong": soi xong thì
+    -- avatar_url đã trỏ về kho của mình, tự nó là dấu hiệu rồi.
+    ALTER TABLE chat_contacts ADD COLUMN IF NOT EXISTS avatar_state smallint NOT NULL DEFAULT 0;
+
     -- Một luồng chat với một khách trên một kênh.
     CREATE TABLE IF NOT EXISTS chat_conversations (
       id                   bigserial PRIMARY KEY,
@@ -152,8 +157,26 @@ public class ChatDb
     ALTER TABLE chat_conversations ADD COLUMN IF NOT EXISTS referral_ref    text;   -- tham số ref mình tự đặt trên liên kết/QR
     ALTER TABLE chat_conversations ADD COLUMN IF NOT EXISTS referral_ad_id  text;   -- id quảng cáo, khi source = ADS
 
-    CREATE UNIQUE INDEX IF NOT EXISTS ux_conv_scope_acc
-      ON chat_conversations (tenant_id, channel, account_id, contact_external_id);
+    -- BÌNH LUẬN dưới bài viết, tách khỏi tin nhắn riêng.
+    --
+    -- Vì sao phải có cột riêng chứ không dùng lại hội thoại sẵn có của cùng người: một khách vừa
+    -- nhắn riêng vừa bình luận dưới bài là chuyện thường ngày. Không tách thì hai dòng đó rơi vào
+    -- CÙNG một hội thoại, và câu người trực gõ để trả lời riêng sẽ đi ra CÔNG KHAI dưới bài viết —
+    -- lộ chuyện của khách trước mọi người ghé bài đó. Đây là lỗi không sửa lại được sau khi xảy ra.
+    --
+    --   surface         0 = tin nhắn riêng (mặc định, và là toàn bộ dữ liệu cũ), 1 = bình luận
+    --   source_thread_id  mã BÀI VIẾT. Rỗng với tin nhắn riêng.
+    ALTER TABLE chat_conversations ADD COLUMN IF NOT EXISTS surface          smallint NOT NULL DEFAULT 0;
+    ALTER TABLE chat_conversations ADD COLUMN IF NOT EXISTS source_thread_id text     NOT NULL DEFAULT '';
+
+    -- Khoá gồm CẢ hai cột mới. Một người bình luận dưới hai bài khác nhau là hai hội thoại khác
+    -- nhau: gộp lại thì người trực đọc một chuỗi câu rời rạc, không biết câu nào nói về bài nào.
+    --
+    -- Thứ tự CỐ Ý (như lần thêm account_id bên dưới): tạo chỉ mục mới TRƯỚC rồi mới bỏ cái cũ.
+    CREATE UNIQUE INDEX IF NOT EXISTS ux_conv_scope_surface
+      ON chat_conversations (tenant_id, channel, account_id, contact_external_id,
+                             surface, source_thread_id);
+    DROP INDEX IF EXISTS ux_conv_scope_acc;
     DROP INDEX IF EXISTS ux_conv_scope;
     CREATE INDEX IF NOT EXISTS ix_conv_tenant_status
       ON chat_conversations (tenant_id, status, last_activity_at DESC);
@@ -180,16 +203,73 @@ public class ChatDb
       created_utc     timestamptz NOT NULL DEFAULT now(),
       processed_utc   timestamptz
     );
+    -- Bình luận CHA, khi tin này là một lượt trả lời trong nhánh dưới bài viết. Lưu bằng mã của
+    -- nhà cung cấp chứ không phải id nội bộ: bình luận con có thể về TRƯỚC bình luận cha (Meta
+    -- không bảo đảm thứ tự webhook), lúc đó chưa có dòng cha nào để trỏ khoá ngoại vào.
+    ALTER TABLE chat_messages ADD COLUMN IF NOT EXISTS parent_external_id text;
+
+    -- Người bình luận tự XOÁ bình luận của họ. Xoá mềm — giữ dòng lại và đánh dấu, không DELETE:
+    -- người trực có thể đã đọc và đã hành động theo câu đó, xoá sạch thì lịch sử nói dối rằng
+    -- chuyện đó chưa từng xảy ra. Hộp thư hiện "đã bị xoá" thay cho nội dung.
+    ALTER TABLE chat_messages ADD COLUMN IF NOT EXISTS deleted_utc timestamptz;
+
     -- Nút bấm ĐÃ GỬI kèm tin. Lưu lại để hộp thư vẽ đúng thứ khách nhìn thấy khi đọc lại hội
     -- thoại — không lưu thì dòng tin chỉ còn chữ, và không ai biết khách đã được mời chọn gì.
     -- Dạng: [{"chu":"Xem tour","url":"https://…"},{"chu":"Gọi lại cho tôi"}]
     ALTER TABLE chat_messages ADD COLUMN IF NOT EXISTS buttons jsonb;
+
+    -- ── Cờ soi tệp về kho riêng ──────────────────────────────────────────────
+    --
+    -- Vì sao phải có cờ, chứ không cứ nhìn dấu "tk" trong attachment: tin soi HỎNG cố ý KHÔNG bị
+    -- ghi đè (phải giữ nguyên gói gốc — file_id của Telegram chẳng hạn). Nên nhìn vào attachment
+    -- thì "chưa thử" và "đã thử, hỏng vĩnh viễn" trông y hệt nhau. Không phân biệt được thì mỗi
+    -- vòng quét lại tải lại đúng những ảnh đã chết; hộp thư càng lớn, phần chết đó càng chiếm
+    -- trọn mọi vòng, và ảnh CÒN CỨU ĐƯỢC không bao giờ tới lượt.
+    --
+    -- MỘT cột mang cả ba thứ cần biết (đã thử mấy lần · xong chưa · có nên bỏ không), thay vì ba
+    -- cột. Số dương đếm lần thử, số âm là điểm dừng:
+    --
+    --      0, 1, 2…   đã thử bấy nhiêu lần, VẪN còn trong hàng chờ
+    --           -1    đã soi xong
+    --           -2    thôi, đừng thử nữa (url hết hạn, hoặc đã thử đủ số lần)
+    --
+    -- Nhờ mã kiểu này mà vị từ của chỉ mục bên dưới chỉ cần "media_state >= 0" — không phải nhét
+    -- con số "tối đa mấy lần" vào DDL, nên đổi số lần thử trong mã không kéo theo sửa chỉ mục.
+    --
+    -- Lệnh này KHÔNG viết lại bảng: Postgres 11 trở lên chỉ ghi metadata khi mặc định là hằng.
+    -- Thêm cột vào bảng tin nhắn đang chạy mà phải viết lại cả bảng là khoá bảng hàng phút —
+    -- chat đứng im từng ấy lâu.
+    ALTER TABLE chat_messages ADD COLUMN IF NOT EXISTS media_state smallint NOT NULL DEFAULT 0;
 
     -- Chống trùng đặt ở TẦNG CSDL, không chỉ kiểm trong code: webhook của kênh gửi lại khi không
     -- nhận được 200, hai lần gửi song song thì kiểm trong code vẫn lọt, chỉ mục thì không.
     CREATE UNIQUE INDEX IF NOT EXISTS ux_msg_external
       ON chat_messages (tenant_id, channel, external_msg_id) WHERE external_msg_id IS NOT NULL;
     CREATE INDEX IF NOT EXISTS ix_msg_conv ON chat_messages (conversation_id, created_utc);
+
+    -- Chỉ mục CÓ ĐIỀU KIỆN cho vòng soi tệp — điều kiện ở đây phải KHỚP câu WHERE của
+    -- ChatRepository.ClaimMediaAsync, và thứ tự cột phải khớp ORDER BY của nó
+    -- (ChatSchemaGuardTests canh cả hai).
+    --
+    -- Đây là câu trả lời cho "hộp thư to lên thì sao": chỉ mục chỉ chứa ĐÚNG những tin còn phải
+    -- soi, nên chi phí mỗi vòng quét tỉ lệ với PHẦN VIỆC CÒN LẠI chứ không với cỡ bảng. Vét sạch
+    -- rồi thì nó rỗng, và vòng quét sáu tiếng một lần chỉ tốn một lượt hỏi rỗng. Tin chữ — phần
+    -- lớn của mọi hộp thư — không có đính kèm nên không bao giờ lọt vào đây.
+    CREATE INDEX IF NOT EXISTS ix_msg_media_cho
+      ON chat_messages (media_state, id)
+      WHERE media_state >= 0 AND direction = 0 AND attachment IS NOT NULL;
+
+    -- Bắc cầu cho dữ liệu có TRƯỚC cột media_state: tin nào đã soi rồi thì đánh dấu luôn, đừng
+    -- để vòng quét đầu tiên tải lại từ đầu những thứ đã nằm sẵn trong kho.
+    --
+    -- Chạy mỗi lần khởi động nhưng chỉ đắt đúng lần đầu: sau đó tập media_state >= 0 đã nhỏ, và
+    -- câu này đi bằng chính chỉ mục vừa tạo bên trên.
+    --
+    -- Dùng jsonb_exists(...) chứ không phải toán tử `?`: dấu hỏi trong câu SQL là chỗ dễ bị
+    -- tầng driver hiểu nhầm thành tham số, mà hiểu nhầm thì hỏng lúc CHẠY chứ không lúc dịch.
+    UPDATE chat_messages SET media_state = -1
+     WHERE media_state >= 0 AND direction = 0 AND attachment IS NOT NULL
+       AND jsonb_typeof(attachment) = 'object' AND jsonb_exists(attachment, 'tk');
 
     -- Cảm xúc khách thả lên một tin. BẢNG RIÊNG, không phải cột trên chat_messages và cũng
     -- không phải một dòng trong chat_messages:

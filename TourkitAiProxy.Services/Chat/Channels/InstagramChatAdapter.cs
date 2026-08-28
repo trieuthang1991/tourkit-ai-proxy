@@ -63,6 +63,9 @@ public class InstagramChatAdapter : IChatChannelAdapter, ILateHumanReplySender, 
     {
         "messages", "messaging_postbacks", "messaging_optins", "messaging_seen",
         "messaging_referral", "message_reactions",
+        // BÌNH LUẬN dưới bài viết. Khác Facebook, Instagram có trường riêng và chỉ chở đúng bình
+        // luận — nhưng cũng chỉ chở bình luận MỚI: không có sự kiện sửa hay xoá nào cả.
+        "comments",
     };
 
     private readonly IHttpClientFactory _http;
@@ -308,13 +311,16 @@ public class InstagramChatAdapter : IChatChannelAdapter, ILateHumanReplySender, 
                 return new(true, false, o?["message_id"]?.ToString(), null);
 
             var moTa = o?["error"]?["message"]?.ToString() ?? Truncate(raw);
-            // 5xx là hỏng tạm thời phía Meta; 4xx là mình sai (hết cửa sổ 24h, khách chặn) —
-            // thử lại chỉ quay vòng vô nghĩa.
-            return new(false, (int)res.StatusCode >= 500, null, $"Instagram từ chối: {moTa}");
+            // Đọc MÃ trong thân trước, mã HTTP chỉ là lưới vét: Instagram trả 400 cho cả ca hết
+            // cửa sổ 24 giờ, ca khách chặn, lẫn ca khoá đăng nhập hỏng — ba việc cần ba cách xử.
+            var (ma, maPhu, loai) = MetaMessagingParser.ReadErrorFields(o);
+            var nhom = ChannelFailures.FromMeta(ma, maPhu, loai);
+            if (nhom == ChatFailure.Unknown) nhom = ChannelFailures.FromHttp((int)res.StatusCode);
+            return SendResult.Fail(nhom, $"Instagram từ chối: {moTa}");
         }
         catch (Exception ex)
         {
-            return new(false, true, null, ex.Message);
+            return SendResult.Fail(ChatFailure.Network, ex.Message);
         }
     }
 
@@ -401,6 +407,42 @@ public class InstagramChatAdapter : IChatChannelAdapter, ILateHumanReplySender, 
     /// năng phụ. Hỏng thì ghi log rồi thôi.</para>
     /// </summary>
     /// <returns>Id tài khoản Instagram đã nối, hoặc <c>null</c> nếu Trang không có.</returns>
+    /// <summary>
+    /// Gỡ tài khoản Instagram khỏi ứng dụng.
+    ///
+    /// <para>Khoá đang cầm là khoá của <b>Trang Facebook</b> đã liên kết (Instagram nối qua Trang
+    /// thì không có khoá riêng), nên <c>me</c> trỏ đúng nơi cần gỡ. Gỡ ở đây <b>không</b> đụng tới
+    /// Messenger của cùng Trang đó nếu công ty vẫn đang dùng — hai kênh đăng ký hai bộ trường
+    /// webhook khác nhau.</para>
+    /// </summary>
+    public async Task<bool> DisconnectAsync(string tenantId, string accountId, CancellationToken ct)
+    {
+        var token = await TokenAsync(tenantId, accountId, ct);
+        if (token is null) return false;
+
+        try
+        {
+            var http = _http.CreateClient();
+            using var req = new HttpRequestMessage(HttpMethod.Delete,
+                $"{GraphBase}/{ApiVersion}/me/subscribed_apps");
+            // ⚠️ Token đi ở HEADER, y như đường gửi tin — Instagram không nhận ?access_token= .
+            req.Headers.Add("Authorization", "Bearer " + token);
+
+            using var res = await http.SendAsync(req, ct);
+            var raw = await res.Content.ReadAsStringAsync(ct);
+            var ok = res.IsSuccessStatusCode && JsonNode.Parse(raw)?["error"] is null;
+
+            if (ok) _log.LogInformation("[chat/instagram] đã gỡ tài khoản {A}", accountId);
+            else _log.LogWarning("[chat/instagram] gỡ {A} không được: {Loi}", accountId, Truncate(raw));
+            return ok;
+        }
+        catch (Exception ex)
+        {
+            _log.LogWarning(ex, "[chat/instagram] gỡ {A} không gọi được Meta", accountId);
+            return false;
+        }
+    }
+
     public async Task<string?> ConnectFromPageAsync(string tenantId, string pageId, string? pageName,
         string pageAccessToken, CancellationToken ct)
     {

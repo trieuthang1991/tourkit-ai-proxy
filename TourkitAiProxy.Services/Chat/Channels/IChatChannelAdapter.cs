@@ -9,7 +9,23 @@ namespace TourkitAiProxy.Services.Chat.Channels;
 /// <param name="ThuLai">Hỏng TẠM THỜI (mạng, nhà cung cấp 5xx) → để hàng đợi thử lại. false nghĩa
 /// là thử lại cũng vô ích (hết cửa sổ, chưa khai OA, khách chặn) — đừng quay vòng vô nghĩa.</param>
 /// <param name="ExternalMsgId">Id tin phía kênh, để đối soát về sau.</param>
-public record SendResult(bool Ok, bool ThuLai, string? ExternalMsgId, string? Error);
+/// <param name="Failure">Vì sao hỏng, đã quy về nhóm chung cho cả sáu kênh. Đây là thứ giao diện
+/// đọc để nói cho người trực biết phải làm gì — câu <paramref name="Error"/> là chữ thô của nhà
+/// cung cấp, thường tiếng Anh, không dùng để hiển thị được.</param>
+public record SendResult(bool Ok, bool ThuLai, string? ExternalMsgId, string? Error,
+    ChatFailure Failure = ChatFailure.Unknown)
+{
+    /// <summary>
+    /// Dựng một lượt hỏng và <b>để bảng luật quyết định có thử lại không</b>.
+    ///
+    /// <para>Trước đây mỗi bộ nối tự đoán bằng một dòng kiểu <c>(int)res.StatusCode >= 500</c>.
+    /// Nó đúng cho ca mạng chập, nhưng gộp mất bốn ca 4xx khác hẳn nhau vào một rọ: khách chặn,
+    /// hết hạn mức, sai nội dung, và <b>khoá đăng nhập hỏng</b>. Ca cuối là ca nguy hiểm — kênh
+    /// đã chết nhưng không ai được báo, vì trên màn hình nó trông y hệt một tin gửi lỗi.</para>
+    /// </summary>
+    public static SendResult Fail(ChatFailure loi, string? moTa) =>
+        new(false, ChannelFailures.ShouldRetry(loi), null, moTa, loi);
+}
 
 /// <summary>
 /// Một kênh chat. Lõi (nhận tin → sinh trả lời → xếp hàng đợi → gửi) KHÔNG biết kênh nào; mỗi kênh
@@ -97,6 +113,27 @@ public interface IChatChannelAdapter
     /// </summary>
     Task MarkSeenAsync(string tenantId, string accountId, string externalUserId,
         CancellationToken ct) => Task.CompletedTask;
+
+    /// <summary>
+    /// Nói với nhà cung cấp rằng <b>thôi gửi tin về đây nữa</b>. Gọi TRƯỚC khi xoá khoá đăng nhập.
+    ///
+    /// <para><b>Vì sao đây là việc của mọi kênh chứ không phải một ngoại lệ của Telegram.</b>
+    /// Trước 28/08/2026 chỗ gỡ kết nối có một câu <c>if</c> riêng cho Telegram, còn năm kênh kia
+    /// thì xoá khoá xong là hết. Hậu quả không hiện ra ngay nhưng có thật: Meta vẫn nện webhook
+    /// vào đường của công ty đã gỡ, mỗi lượt một dòng từ chối trong nhật ký, kéo dài <b>mãi mãi</b>
+    /// vì không còn ai gọi lệnh huỷ. Tệ hơn, nếu sau này công ty nối lại đúng Trang đó, họ nhận
+    /// đúp mọi tin.</para>
+    ///
+    /// <para><b>Mặc định trả <c>true</c></b> (Zalo, TikTok): hai kênh này không có lệnh huỷ nào
+    /// để gọi — Zalo tắt ở cổng quản trị OA, TikTok theo vòng đời khoá cấp quyền. Không có việc
+    /// để làm khác với làm hỏng.</para>
+    ///
+    /// <para><b>Hỏng thì vẫn cho xoá tiếp.</b> Người dùng bấm gỡ là muốn gỡ, không phải muốn nghe
+    /// báo lỗi rồi bị kẹt lại với một tài khoản họ không dùng nữa.</para>
+    /// </summary>
+    /// <returns><c>true</c> nếu đã gỡ được bên nhà cung cấp.</returns>
+    Task<bool> DisconnectAsync(string tenantId, string accountId, CancellationToken ct)
+        => Task.FromResult(true);
 }
 
 /// <summary>

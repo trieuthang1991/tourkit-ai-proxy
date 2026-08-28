@@ -289,6 +289,10 @@ public class MessengerChatAdapter : IChatChannelAdapter, ILateHumanReplySender,
     {
         "messages", "messaging_postbacks", "messaging_optins", "messaging_referrals",
         "message_deliveries", "message_reads", "message_echoes",
+        // BÌNH LUẬN dưới bài viết. Meta không có trường riêng cho bình luận — nó nằm chung trong
+        // "feed" với đăng bài, thả tim, chia sẻ, ảnh mới. Vì thế bộ bóc phải lọc item == "comment";
+        // đăng ký "feed" mà quên lọc là hộp thư đầy những dòng trống mỗi lần ai đó thả tim.
+        "feed",
     };
 
     private static string U(string s) => Uri.EscapeDataString(s);
@@ -637,7 +641,7 @@ public class MessengerChatAdapter : IChatChannelAdapter, ILateHumanReplySender,
             if (res.IsSuccessStatusCode && o?["error"] is null)
                 return new(true, false, o?["message_id"]?.ToString(), null);
 
-            return new(false, (int)res.StatusCode >= 500, null,
+            return SendResult.Fail(NhomLoi(o, (int)res.StatusCode),
                 $"Facebook từ chối mẫu: {o?["error"]?["message"]?.ToString() ?? Truncate(raw)}");
         }
         catch (Exception ex) { return new(false, true, null, ex.Message); }
@@ -705,17 +709,62 @@ public class MessengerChatAdapter : IChatChannelAdapter, ILateHumanReplySender,
             using var res = await http.PostAsJsonAsync($"{GraphBase}/{ApiVersion}/me/messages?access_token={token}", body, ct);
             var raw = await res.Content.ReadAsStringAsync(ct);
 
-            if (!res.IsSuccessStatusCode)
-                return (int)res.StatusCode >= 500
-                    ? new(false, true, null, $"Meta lỗi tạm thời {(int)res.StatusCode}")
-                    : new(false, false, null, $"Meta từ chối {(int)res.StatusCode}: {Truncate(raw)}");
-
             var o = JsonNode.Parse(raw)?.AsObject();
+
+            if (!res.IsSuccessStatusCode || o?["error"] is not null)
+                return SendResult.Fail(NhomLoi(o, (int)res.StatusCode),
+                    $"Meta từ chối {(int)res.StatusCode}: "
+                    + (o?["error"]?["message"]?.ToString() ?? Truncate(raw)));
+
             return new(true, false, o?["message_id"]?.ToString(), null);
         }
         catch (Exception ex)
         {
-            return new(false, true, null, ex.Message);   // mạng chập chờn → thử lại
+            return SendResult.Fail(ChatFailure.Network, ex.Message);   // mạng chập chờn → thử lại
+        }
+    }
+
+    /// <summary>
+    /// Quy lỗi Graph về nhóm chung. Mã trong thân <b>quan trọng hơn</b> mã HTTP: Meta trả 400 cho
+    /// cả ca khách chặn lẫn ca khoá đăng nhập hỏng, mà hai ca đó cần hai cách xử ngược nhau —
+    /// một cái bỏ qua khách này, một cái phải gọi người quản trị nối lại cả kênh.
+    /// </summary>
+    private static ChatFailure NhomLoi(JsonObject? than, int maHttp)
+    {
+        var (ma, maPhu, loai) = MetaMessagingParser.ReadErrorFields(than);
+        var nhom = ChannelFailures.FromMeta(ma, maPhu, loai);
+        return nhom == ChatFailure.Unknown ? ChannelFailures.FromHttp(maHttp) : nhom;
+    }
+
+    /// <summary>
+    /// Gỡ Trang khỏi ứng dụng: Meta thôi đẩy tin của Trang này về đường webhook của mình.
+    ///
+    /// <para>Dùng <c>me/subscribed_apps</c> chứ không phải <c>{pageId}/subscribed_apps</c> — khoá
+    /// đang cầm là <b>khoá của chính Trang</b>, nên <c>me</c> đã trỏ đúng Trang đó rồi. Ghi mã
+    /// Trang vào đường dẫn chỉ thêm một chỗ nữa để sai.</para>
+    /// </summary>
+    public async Task<bool> DisconnectAsync(string tenantId, string accountId, CancellationToken ct)
+    {
+        var c = await _cred.GetAsync(tenantId, Channel, accountId, ct);
+        var token = NullIfBlank(c?.GetValueOrDefault("pageAccessToken"));
+        if (token is null) return false;
+
+        try
+        {
+            var http = _http.CreateClient();
+            using var res = await http.DeleteAsync(
+                $"{GraphBase}/{ApiVersion}/me/subscribed_apps?access_token={U(token)}", ct);
+            var raw = await res.Content.ReadAsStringAsync(ct);
+            var ok = res.IsSuccessStatusCode && JsonNode.Parse(raw)?["error"] is null;
+
+            if (ok) _log.LogInformation("[chat/messenger] đã gỡ Trang {P} khỏi ứng dụng", accountId);
+            else _log.LogWarning("[chat/messenger] gỡ Trang {P} không được: {Loi}", accountId, Truncate(raw));
+            return ok;
+        }
+        catch (Exception ex)
+        {
+            _log.LogWarning(ex, "[chat/messenger] gỡ Trang {P} không gọi được Meta", accountId);
+            return false;
         }
     }
 

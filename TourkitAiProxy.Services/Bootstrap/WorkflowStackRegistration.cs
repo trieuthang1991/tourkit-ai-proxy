@@ -198,6 +198,7 @@ public static class WorkflowStackRegistration
         s.AddSingleton<ChatRepository>();
         // Singleton: nó giữ bộ nhớ tạm 60 giây, scoped thì cache chết theo từng lượt gọi.
         s.AddSingleton<ChatBotSettingsRepository>();
+        s.AddSingleton<Chat.Inbox.ChatMediaMirror>();
         s.AddSingleton<ChatQuickReplyRepository>();
         // Singleton: người nghe (tab đang mở) sống lâu hơn một request, để scope là mỗi request
         // một bus riêng và không ai nhận được gì.

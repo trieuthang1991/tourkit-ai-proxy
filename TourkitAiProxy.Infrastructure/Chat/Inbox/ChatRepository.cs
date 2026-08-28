@@ -37,6 +37,13 @@ public class ChatRepository
             ON CONFLICT (tenant_id, channel, external_id) DO UPDATE
               SET display_name = COALESCE(NULLIF(EXCLUDED.display_name, ''), chat_contacts.display_name),
                   avatar_url   = COALESCE(NULLIF(EXCLUDED.avatar_url, ''), chat_contacts.avatar_url),
+                  -- Ảnh ĐỔI sang url khác thì xoá cờ về 0: những lần hỏng trước là của url cũ.
+                  -- Không xoá thì khách từng có một ảnh chết sẽ mang số đếm đó mãi, và lần đổi
+                  -- ảnh sau bị bỏ qua ngay từ lượt đầu mà không ai hiểu tại sao.
+                  avatar_state = CASE
+                      WHEN NULLIF(EXCLUDED.avatar_url, '') IS NOT NULL
+                       AND EXCLUDED.avatar_url IS DISTINCT FROM chat_contacts.avatar_url
+                      THEN 0 ELSE chat_contacts.avatar_state END,
                   updated_utc  = now()
             """, new { tenant, kenh = (short)kenh, id = externalId, ten = tenHienThi, anh = anhDaiDien });
     }
@@ -47,10 +54,14 @@ public class ChatRepository
     /// <para>Hỏi mỗi tin là mỗi lượt khách nhắn lại tốn một lượt gọi ra nhà cung cấp, mà tên thì
     /// gần như không đổi. Nên chỉ hỏi khi còn thiếu, và có được rồi thì thôi.</para>
     ///
-    /// <para>⚠️ <b>Hạn chế đã biết:</b> Meta ký hạn vào URL ảnh đại diện nên nó sẽ hết hạn sau
-    /// một thời gian, lúc đó hộp thư hiện ảnh vỡ và chỗ này KHÔNG tự lấy lại (đã có ảnh nên coi
-    /// như đủ). Chữa đúng thì cần một cột riêng ghi mốc lần hỏi cuối — chưa làm, vì thêm cột là
-    /// đụng lược đồ, và ảnh vỡ thì xấu chứ không sai dữ liệu.</para>
+    /// <para>Trước 28/08/2026 chỗ này có một lỗ: Meta ký hạn vào URL ảnh đại diện, mà đã có ảnh
+    /// thì không bao giờ hỏi lại — nên đến hạn là hộp thư hiện một dãy ảnh vỡ vĩnh viễn. Nay ảnh
+    /// đại diện được tải luôn về kho của mình lúc lấy hồ sơ, url lưu lại là url của mình, không
+    /// còn hạn nào. Xem <c>ChatInboundService.MirrorAvatarAsync</c>.</para>
+    ///
+    /// <para>⚠️ <b>Còn lại một hạn chế nhỏ:</b> khách ĐỔI ảnh đại diện thì mình vẫn hiện ảnh cũ,
+    /// vì có ảnh rồi là thôi không hỏi nữa. Chữa thì cần một cột ghi mốc lần hỏi cuối để hỏi lại
+    /// định kỳ — chưa làm: ảnh cũ vẫn là ảnh của đúng người đó, khác hẳn ảnh vỡ.</para>
     /// </summary>
     public async Task<bool> NeedsContactProfileAsync(string tenant, ChatChannel kenh, string externalId,
         CancellationToken ct = default)
@@ -64,6 +75,93 @@ public class ChatRepository
                 AND avatar_url IS NOT NULL AND avatar_url <> ''
             )
             """, new { tenant, kenh = (short)kenh, id = externalId });
+    }
+
+    /// <summary>Một khách còn giữ ảnh đại diện trỏ thẳng ra máy chủ của kênh, vừa nhận về để soi.</summary>
+    /// <param name="Tries">Đã thử bấy nhiêu lần TRƯỚC lượt này — xem <see cref="MediaToMirror"/>.</param>
+    public record AvatarToMirror(string TenantId, short Channel, string ExternalId, string AvatarUrl,
+        short Tries);
+
+    /// <summary>
+    /// <b>NHẬN</b> một mẻ khách còn giữ ảnh đại diện của NHÀ CUNG CẤP — thứ sẽ hết hạn và thành
+    /// ảnh vỡ ở mọi dòng trong hộp thư.
+    ///
+    /// <para><b>Nhận ra bằng đoạn đầu url</b> (<c>khoCuaMinh</c>, xem
+    /// <c>IChatFileStorage.PublicBase</c>): cột này là <c>text</c> trần, không có chỗ cắm dấu
+    /// "đã soi" như đính kèm tin. Lọc thêm <c>LIKE 'http%'</c> để bỏ qua Telegram — ảnh Telegram
+    /// vốn đã đi qua đường proxy của mình nên lưu dạng tương đối, không có hạn.</para>
+    ///
+    /// <para>Cách nhận, cách giãn nhịp và điều kiện dừng đều giống hệt
+    /// <see cref="ClaimMediaAsync"/> — đọc lý do ở đó. Khác đúng một chỗ: không dùng tới giá trị
+    /// <see cref="MirrorDone"/>, vì soi xong thì <c>avatar_url</c> đã trỏ về kho của mình nên
+    /// dòng đó tự rơi khỏi điều kiện.</para>
+    ///
+    /// <para>Bảng này không có chỉ mục riêng cho câu hỏi trên — cố ý, xem ghi chú ở
+    /// <see cref="ChatDb"/>: vị từ "đã thuộc kho của mình" phải so với một đoạn url lấy từ cấu
+    /// hình lúc chạy, mà chỉ mục có điều kiện thì đòi hằng. Đổi lại bảng này mỗi khách một dòng,
+    /// nhỏ hơn bảng tin nhắn nhiều bậc.</para>
+    /// </summary>
+    public async Task<IReadOnlyList<AvatarToMirror>> ClaimAvatarsAsync(
+        string? tenant, string? khoCuaMinh, int limit, short tranTang, CancellationToken ct = default)
+    {
+        await using var c = await _db.OpenAsync(ct);
+        var r = await c.QueryAsync<AvatarToMirror>(
+            """
+            WITH lay AS (
+              SELECT tenant_id, channel, external_id, avatar_state AS tries
+                FROM chat_contacts
+               WHERE avatar_state >= 0
+                 AND avatar_state <= @tran
+                 AND (@tenant::text IS NULL OR tenant_id = @tenant::text)
+                 AND avatar_url LIKE 'http%'
+                 AND (@kho::text IS NULL OR avatar_url NOT LIKE @kho::text || '%')
+               ORDER BY avatar_state, tenant_id, channel, external_id
+               LIMIT @limit
+                 FOR UPDATE SKIP LOCKED
+            )
+            UPDATE chat_contacts k
+               SET avatar_state = CASE WHEN k.avatar_state + 1 >= @toiDa
+                                       THEN @boHan ELSE k.avatar_state + 1 END
+              FROM lay
+             WHERE k.tenant_id = lay.tenant_id AND k.channel = lay.channel
+               AND k.external_id = lay.external_id
+            RETURNING k.tenant_id AS "TenantId", k.channel AS "Channel",
+                      k.external_id AS "ExternalId", k.avatar_url AS "AvatarUrl",
+                      lay.tries AS "Tries"
+            """, new { tenant, kho = khoCuaMinh, limit, tran = tranTang, toiDa = MirrorMaxTries, boHan = MirrorGaveUp });
+        return r.AsList();
+    }
+
+    /// <summary>
+    /// Thôi không thử tải ảnh đại diện của khách này nữa — url đã hết hạn hoặc bị gỡ.
+    /// Cùng lý do với <see cref="GiveUpMediaAsync"/>.
+    /// </summary>
+    public async Task GiveUpAvatarAsync(string tenant, ChatChannel kenh, string externalId,
+        CancellationToken ct = default)
+    {
+        await using var c = await _db.OpenAsync(ct);
+        await c.ExecuteAsync("""
+            UPDATE chat_contacts SET avatar_state = @bo
+             WHERE tenant_id = @tenant AND channel = @kenh AND external_id = @id
+            """, new { tenant, kenh = (short)kenh, id = externalId, bo = MirrorGaveUp });
+    }
+
+    /// <summary>
+    /// Đổi ảnh đại diện của khách sang url mới (bản đã nằm trong kho của mình).
+    ///
+    /// <para>Xoá luôn cờ về 0: url mới không dính dáng gì tới những lần hỏng của url cũ. Không
+    /// xoá thì khách nào từng có một ảnh chết sẽ mang theo số đếm đó mãi, và tới lần đổi ảnh sau
+    /// là bị bỏ qua ngay từ lượt đầu.</para>
+    /// </summary>
+    public async Task SetContactAvatarAsync(string tenant, ChatChannel kenh, string externalId,
+        string url, CancellationToken ct = default)
+    {
+        await using var c = await _db.OpenAsync(ct);
+        await c.ExecuteAsync("""
+            UPDATE chat_contacts
+               SET avatar_url = @url, avatar_state = 0, updated_utc = now()
+             WHERE tenant_id = @tenant AND channel = @kenh AND external_id = @id
+            """, new { tenant, kenh = (short)kenh, id = externalId, url });
     }
 
     /// <summary>
@@ -138,26 +236,48 @@ public class ChatRepository
     /// những lần sau KHÔNG ghi đè, kể cả khi tới từ tài khoản khác: một cuộc trò chuyện thuộc về
     /// đúng tài khoản khách đã nhắn LẦN ĐẦU, đổi ngầm giữa chừng sẽ làm nhân viên trả lời sai danh
     /// nghĩa mà không hay.</param>
+    /// <param name="matTiep">Riêng hay công khai. ⚠️ Nằm TRONG khoá duy nhất: một khách vừa nhắn
+    /// riêng vừa bình luận dưới bài là hai hội thoại tách hẳn nhau. Gộp lại thì câu người trực gõ
+    /// để trả lời riêng sẽ đi ra công khai dưới bài viết.</param>
+    /// <param name="maBaiViet">Mã bài viết, khi đây là luồng bình luận. Cũng nằm trong khoá: cùng
+    /// một người bình luận dưới hai bài là hai luồng khác nhau.</param>
     public async Task<ChatConversation> GetOrCreateConversationAsync(string tenant, ChatChannel kenh,
-        string externalId, string accountId, CancellationToken ct = default)
+        string externalId, string accountId, CancellationToken ct = default,
+        ChatSurface matTiep = ChatSurface.DirectMessage, string? maBaiViet = null)
     {
         await using var c = await _db.OpenAsync(ct);
         // ON CONFLICT DO UPDATE (không phải DO NOTHING) để câu lệnh LUÔN trả về dòng — DO NOTHING
         // thì lần chạy đồng thời thứ hai trả rỗng và phải SELECT thêm một vòng.
         return await c.QuerySingleAsync<ChatConversation>("""
-            INSERT INTO chat_conversations (tenant_id, channel, contact_external_id, account_id)
-            VALUES (@tenant, @kenh, @id, @accountId)
-            ON CONFLICT (tenant_id, channel, account_id, contact_external_id)
+            INSERT INTO chat_conversations
+              (tenant_id, channel, contact_external_id, account_id, surface, source_thread_id)
+            VALUES (@tenant, @kenh, @id, @accountId, @matTiep, @maBai)
+            ON CONFLICT (tenant_id, channel, account_id, contact_external_id, surface, source_thread_id)
               DO UPDATE SET tenant_id = EXCLUDED.tenant_id
             RETURNING *
-            """, new { tenant, kenh = (short)kenh, id = externalId, accountId });
+            """, new { tenant, kenh = (short)kenh, id = externalId, accountId,
+                       matTiep = (short)matTiep, maBai = maBaiViet ?? "" });
     }
 
+    /// <summary>
+    /// Một hội thoại, KÈM tên và ảnh của khách.
+    ///
+    /// <para>⚠️ Phải ghép <c>chat_contacts</c> y như câu liệt kê. Trước 28/08/2026 hàm này chỉ
+    /// <c>SELECT *</c> trên một bảng, nên <c>DisplayName</c> luôn rỗng và giao diện rơi về mã số:
+    /// danh sách bên trái hiện "Thắng Triệu" còn đầu khung chat ngay cạnh hiện
+    /// "4951953868228330" — cùng một khách, hai cái tên, trên cùng một màn hình.</para>
+    /// </summary>
     public async Task<ChatConversation?> GetConversationAsync(string tenant, long id, CancellationToken ct = default)
     {
         await using var c = await _db.OpenAsync(ct);
-        return await c.QuerySingleOrDefaultAsync<ChatConversation>(
-            "SELECT * FROM chat_conversations WHERE id = @id AND tenant_id = @tenant", new { id, tenant });
+        return await c.QuerySingleOrDefaultAsync<ChatConversation>("""
+            SELECT v.*, ct.display_name, ct.avatar_url
+              FROM chat_conversations v
+              LEFT JOIN chat_contacts ct
+                ON ct.tenant_id = v.tenant_id AND ct.channel = v.channel
+               AND ct.external_id = v.contact_external_id
+             WHERE v.id = @id AND v.tenant_id = @tenant
+            """, new { id, tenant });
     }
 
     /// <summary>
@@ -555,26 +675,53 @@ public class ChatRepository
     public async Task<long?> AppendMessageAsync(string tenant, long conversationId, ChatChannel kenh,
         ChatDirection chieu, ChatSender nguoiGui, string? username, ChatKind loai, string? noiDung,
         string? attachmentJson, string? externalMsgId, ChatState trangThai, CancellationToken ct = default,
-        DateTime? createdUtc = null, string? buttonsJson = null)
+        DateTime? createdUtc = null, string? buttonsJson = null, string? parentExternalId = null)
     {
         await using var c = await _db.OpenAsync(ct);
         var id = await c.ExecuteScalarAsync<long?>("""
             INSERT INTO chat_messages
               (tenant_id, conversation_id, channel, direction, sender_kind, sender_username,
-               kind, body, attachment, external_msg_id, state, created_utc, buttons)
+               kind, body, attachment, external_msg_id, state, created_utc, buttons,
+               parent_external_id)
             VALUES (@tenant, @conv, @kenh, @chieu, @nguoiGui, @username,
                     @loai, @noiDung, @att::jsonb, @ext, @tt,
-                    COALESCE(@luc, NOW() AT TIME ZONE 'utc'), @nut::jsonb)
+                    COALESCE(@luc, NOW() AT TIME ZONE 'utc'), @nut::jsonb, @cha)
             ON CONFLICT (tenant_id, channel, external_msg_id) WHERE external_msg_id IS NOT NULL
               DO NOTHING
             RETURNING id
             """, new { tenant, conv = conversationId, kenh = (short)kenh, chieu = (short)chieu,
                        nguoiGui = (short)nguoiGui, username, loai = (short)loai, noiDung,
                        att = attachmentJson, ext = externalMsgId, tt = (short)trangThai,
-                       luc = createdUtc, nut = buttonsJson });
+                       luc = createdUtc, nut = buttonsJson, cha = parentExternalId });
 
         if (id is null) _log.LogDebug("[chat] bỏ tin trùng ext={Ext} conv={Conv}", externalMsgId, conversationId);
         return id;
+    }
+
+    /// <summary>
+    /// Người bình luận SỬA hoặc XOÁ bình luận của họ.
+    ///
+    /// <para><b>Xoá mềm</b>: giữ dòng lại, chỉ đóng dấu <c>deleted_utc</c>. Người trực có thể đã
+    /// đọc câu đó và đã làm gì đó theo nó — xoá sạch khỏi CSDL là để lịch sử nói dối rằng chuyện
+    /// đó chưa từng xảy ra, và người trực không hiểu vì sao mình nhớ một câu không có thật.</para>
+    ///
+    /// <para>Tìm theo mã của nhà cung cấp trong phạm vi công ty + kênh, KHÔNG theo hội thoại:
+    /// gói sửa/xoá của Meta không chở mã bài viết, nên không suy ra được hội thoại nào.</para>
+    /// </summary>
+    /// <returns>Id hội thoại chứa bình luận đó, hoặc <c>null</c> nếu không có dòng nào khớp —
+    /// chuyện thường: khách sửa một bình luận có từ trước khi công ty nối kênh.</returns>
+    public async Task<long?> ApplyCommentChangeAsync(string tenant, ChatChannel kenh,
+        CommentChange doi, CancellationToken ct = default)
+    {
+        await using var c = await _db.OpenAsync(ct);
+        return await c.ExecuteScalarAsync<long?>("""
+            UPDATE chat_messages
+               SET body        = CASE WHEN @xoa THEN body ELSE @chu END,
+                   deleted_utc = CASE WHEN @xoa THEN NOW() AT TIME ZONE 'utc' ELSE deleted_utc END
+             WHERE tenant_id = @tenant AND channel = @kenh AND external_msg_id = @ext
+            RETURNING conversation_id
+            """, new { tenant, kenh = (short)kenh, ext = doi.ExternalMsgId,
+                       chu = doi.NewText, xoa = doi.Removed });
     }
 
     /// <summary>
@@ -607,6 +754,160 @@ public class ChatRepository
                    ) m
              WHERE c.id = @conv AND c.tenant_id = @tenant
             """, new { tenant, conv = conversationId });
+    }
+
+    /// <summary>
+    /// Một tin của khách còn đính kèm trỏ ra URL của nền tảng, vừa được nhận về để soi.
+    /// </summary>
+    /// <param name="Tries">Đã thử soi bấy nhiêu lần TRƯỚC lượt này. 0 = tin chưa ai đụng tới.</param>
+    public record MediaToMirror(long Id, string TenantId, long ConversationId, short Channel, short Kind,
+        string Attachment, short Tries);
+
+    /// <summary>
+    /// Cách mã hoá cột cờ <c>chat_messages.media_state</c> và <c>chat_contacts.avatar_state</c> —
+    /// <b>một cột mang cả ba thông tin</b> thay vì ba cột riêng.
+    ///
+    /// <para>Số <b>không âm</b> là số lần đã thử và có nghĩa "còn trong hàng chờ"; số <b>âm</b> là
+    /// điểm dừng. Nhờ vậy vị từ của chỉ mục có điều kiện chỉ là <c>media_state >= 0</c> — không
+    /// phải nhét hằng số "tối đa mấy lần" vào DDL, nên đổi <see cref="MirrorMaxTries"/> không kéo
+    /// theo phải dựng lại chỉ mục.</para>
+    /// </summary>
+    public const short MirrorDone = -1;
+
+    /// <summary>Thôi, đừng thử nữa. Xem <see cref="MirrorDone"/> để biết cách mã hoá.</summary>
+    public const short MirrorGaveUp = -2;
+
+    /// <summary>
+    /// Thử tối đa bấy nhiêu lượt rồi bỏ.
+    ///
+    /// <para>Khoảng cách giữa các lượt KHÔNG lưu trong CSDL: nó chính là nhịp của vòng quét
+    /// (<c>ChatMediaBackfillWorker</c>), vì mỗi vòng quét chỉ thử mỗi tin đúng một lần — xem
+    /// <see cref="ClaimMediaAsync"/>. Bớt được một cột mốc thời gian mà vẫn có đủ giãn cách.</para>
+    /// </summary>
+    public const int MirrorMaxTries = 5;
+
+    /// <summary>
+    /// Truyền làm trần tầng khi <b>không</b> muốn chặn tầng nào — mẻ đầu của một vòng quét, và
+    /// mọi lượt gọi tay. Xem <c>tranTang</c> của <see cref="ClaimMediaAsync"/>.
+    /// </summary>
+    public const short AnyTier = short.MaxValue;
+
+    /// <summary>
+    /// <b>NHẬN</b> một mẻ tin còn đính kèm chưa soi — không phải chỉ đọc: mỗi dòng lấy ra đều
+    /// được đánh dấu ngay trong cùng câu lệnh.
+    ///
+    /// <para><b>Vì sao phải nhận chứ không chỉ liệt kê.</b> Tin soi HỎNG cố ý không bị ghi đè
+    /// (giữ nguyên gói gốc, vì <c>file_id</c> của Telegram nằm trong đó). Bản trước vì thế phải
+    /// mang theo một cái mốc "chạy tiếp từ id nào" để khỏi kẹt tại chỗ — nhưng mốc đó reset về 0
+    /// mỗi vòng, nên những ảnh đã chết hẳn vẫn được tải lại đủ mỗi sáu tiếng, mãi mãi, và phần
+    /// đã chết thì chỉ tăng theo thời gian. Nay dấu nằm trong CSDL nên tiến độ không bao giờ lùi.</para>
+    ///
+    /// <para><b>Lấy và đếm trong CÙNG một câu lệnh:</b> mỗi dòng lấy ra là <c>media_state + 1</c>
+    /// ngay tại chỗ, và tới lượt thứ <see cref="MirrorMaxTries"/> thì thành
+    /// <see cref="MirrorGaveUp"/>. Không có cột mốc thời gian nào cả — giãn cách giữa hai lượt
+    /// thử chính là nhịp của vòng quét, nhờ <c>ORDER BY media_state</c> cộng với
+    /// <paramref name="tranTang"/>.</para>
+    ///
+    /// <para>⚠️ <b><paramref name="tranTang"/> phải chặn ở ĐÂY, không phải ở chỗ gọi.</b> Bản đầu
+    /// để vòng quét tự nhận ra "đã sang tầng thử lại" rồi dừng — nhưng lúc nhận ra thì mẻ đó đã
+    /// tải xong rồi, tức là tin ở tầng trên vẫn ăn thêm một lượt thử oan. Đo được ngay trên dữ
+    /// liệu thật (28/08/2026): một khách duy nhất trong hàng chờ mà cờ nhảy thẳng 0 → 2 trong
+    /// một vòng, tức là mất một nửa số lần thử chỉ vì mạng chập vài giây.</para>
+    ///
+    /// <para><b><c>FOR UPDATE SKIP LOCKED</c></b> để hai tiến trình web chạy song song (hoặc một
+    /// lượt gọi tay đúng lúc worker đang chạy) không giành nhau cùng một tin — cùng lối với
+    /// <c>ClaimOutboxAsync</c>, mỗi dòng chỉ một bên lấy được.</para>
+    ///
+    /// <para>Trong cùng số lần thử thì cũ trước — mới sau, cố ý: URL của nền tảng hết hạn theo
+    /// tuổi tin, nên tin cũ nhất là tin sắp mất trước nhất. Chạy nửa chừng bị ngắt thì phần đã
+    /// cứu cũng là phần cần nhất. Chỉ lấy <c>direction = 0</c> — tệp mình gửi đi vốn đã nằm
+    /// trong kho của mình.</para>
+    ///
+    /// <para>⚠️ Câu <c>WHERE</c> và <c>ORDER BY</c> của CTE phải KHỚP chỉ mục <c>ix_msg_media_cho</c>
+    /// (<see cref="ChatDb"/>). Lệch một chữ là Postgres bỏ chỉ mục và quay ra quét cả bảng tin
+    /// nhắn — vẫn chạy đúng, chỉ chậm dần tới lúc không ai chịu nổi. <c>ChatSchemaGuardTests</c>
+    /// canh chỗ này.</para>
+    ///
+    /// <para><c>tenant = null</c> nghĩa là MỌI công ty, cùng lối với <c>ClaimOutboxAsync</c>: việc
+    /// này do worker nền làm cho cả máy chủ chứ không ai đứng ra bấm cho từng công ty. Mỗi dòng
+    /// mang theo <c>TenantId</c> của chính nó để tệp được ghi vào đúng kho công ty đó — ảnh khách
+    /// của hai công ty KHÔNG bao giờ dùng chung một đối tượng.</para>
+    /// </summary>
+    /// <param name="tranTang">
+    /// Chỉ nhận tin đã thử TỐI ĐA bấy nhiêu lần. <see cref="AnyTier"/> = không chặn (mẻ đầu của
+    /// một vòng quét, và mọi lượt gọi tay).
+    /// </param>
+    public async Task<IReadOnlyList<MediaToMirror>> ClaimMediaAsync(string? tenant, int limit,
+        short tranTang, CancellationToken ct = default)
+    {
+        await using var c = await _db.OpenAsync(ct);
+        var r = await c.QueryAsync<MediaToMirror>(
+            """
+            WITH lay AS (
+              -- Giữ lại cờ CŨ để trả về: chỗ gọi cần biết tin này đã thử mấy lần TRƯỚC lượt
+              -- này, mà RETURNING của UPDATE thì chỉ thấy giá trị mới.
+              SELECT id, media_state AS tries
+                FROM chat_messages
+               WHERE media_state >= 0 AND direction = 0 AND attachment IS NOT NULL
+                 AND media_state <= @tran
+                 AND (@tenant::text IS NULL OR tenant_id = @tenant::text)
+               ORDER BY media_state, id
+               LIMIT @limit
+                 FOR UPDATE SKIP LOCKED
+            )
+            UPDATE chat_messages m
+               SET media_state = CASE WHEN m.media_state + 1 >= @toiDa
+                                      THEN @boHan ELSE m.media_state + 1 END
+              FROM lay
+             WHERE m.id = lay.id
+            RETURNING m.id AS "Id", m.tenant_id AS "TenantId", m.conversation_id AS "ConversationId",
+                      m.channel AS "Channel", m.kind AS "Kind", m.attachment::text AS "Attachment",
+                      lay.tries AS "Tries"
+            """, new { tenant, limit, tran = tranTang, toiDa = MirrorMaxTries, boHan = MirrorGaveUp });
+        return r.AsList();
+    }
+
+    /// <summary>
+    /// Thôi không thử soi tin này nữa — url đã hết hạn hoặc tệp đã bị gỡ khỏi nền tảng.
+    ///
+    /// <para>Gọi khi nhà cung cấp trả một mã lỗi <b>không thể cứu</b> (xem
+    /// <c>ChatMediaMirror.KetQuaSoi.HetCuu</c>). Không có bước này thì mỗi tấm ảnh đã chết vẫn
+    /// ngốn đủ <see cref="MirrorMaxTries"/> lượt tải — nhân với vài nghìn tấm của một hộp thư lâu
+    /// năm thì đó là phần lớn công việc mà chẳng cứu được gì.</para>
+    ///
+    /// <para>Đính kèm GIỮ NGUYÊN: url tuy hết hạn nhưng vẫn là dấu vết duy nhất còn lại của tệp
+    /// đó, và với Telegram thì <c>file_id</c> trong đó có thể sống lại nếu bot được nối lại.</para>
+    /// </summary>
+    public async Task GiveUpMediaAsync(long messageId, CancellationToken ct = default)
+    {
+        await using var c = await _db.OpenAsync(ct);
+        await c.ExecuteAsync("UPDATE chat_messages SET media_state = @bo WHERE id = @id",
+            new { id = messageId, bo = MirrorGaveUp });
+    }
+
+    /// <summary>
+    /// Thay phần đính kèm của một tin bằng bản ĐÃ SOI về kho riêng.
+    ///
+    /// <para>Ghi đè hẳn thay vì thêm cột: hình dạng mới tự nhận diện được (khoá <c>tk</c>, xem
+    /// <see cref="ChatAttachment"/>), nên tin cũ chưa soi và tin mới đã soi sống chung một cột
+    /// mà không lẫn. Thêm cột thì mọi chỗ đọc đính kèm đều phải nhớ hỏi hai nơi.</para>
+    ///
+    /// <para>Đặt cờ <see cref="MirrorDone"/> trong CÙNG câu lệnh — hai việc này không được rời nhau:
+    /// ghi đính kèm mà quên đánh dấu thì tin đã cứu xong vẫn nằm trong hàng chờ và bị tải lại,
+    /// còn đánh dấu mà chưa ghi xong thì mất tệp. Nhờ vậy tin nhận MỚI (soi ngay lúc tới, không
+    /// qua vòng quét) cũng tự rơi khỏi chỉ mục chờ.</para>
+    /// </summary>
+    public async Task SetAttachmentAsync(string tenant, long messageId, string attachmentJson,
+        CancellationToken ct = default)
+    {
+        await using var c = await _db.OpenAsync(ct);
+        await c.ExecuteAsync(
+            """
+            UPDATE chat_messages
+               SET attachment = @att::jsonb, media_state = @xong
+             WHERE id = @id AND tenant_id = @tenant
+            """,
+            new { id = messageId, tenant, att = attachmentJson, xong = MirrorDone });
     }
 
     /// Cập nhật mốc hoạt động + dòng xem trước. Tin của khách thì cập nhật thêm mốc tính cửa sổ gửi.

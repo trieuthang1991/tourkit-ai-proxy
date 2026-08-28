@@ -25,10 +25,34 @@ public interface IChatFileStorage
     string Provider { get; }
 
     /// <summary>
+    /// Đoạn đầu mà MỌI url do kho này cấp đều bắt đầu bằng — <c>https://cdn…</c> với r2/s3,
+    /// <c>/chat-files/</c> với local.
+    ///
+    /// <para><b>Để phân biệt "ảnh đã của mình" với "ảnh còn nằm ở nhà cung cấp".</b> Ảnh đại diện
+    /// khách lưu trong một cột <c>text</c> trống trơn, không có chỗ cắm dấu như đính kèm tin (khoá
+    /// <c>tk</c>). Không có đoạn đầu này thì việc soi ảnh cũ về kho không cách nào biết còn sót
+    /// ảnh nào, nên hoặc bỏ sót, hoặc tải lại từ đầu mỗi lượt.</para>
+    /// </summary>
+    string? PublicBase { get; }
+
+    /// <summary>
     /// Tải một tệp lên. Trả về URL — TUYỆT ĐỐI (đã có scheme+host) với r2/s3; TƯƠNG ĐỐI
     /// (bắt đầu bằng "/") với local, vì kho local không tự biết tên miền công khai của máy chủ.
     /// Nơi gọi (endpoint, có <c>HttpContext</c>) phải tự thêm scheme+host khi thấy URL tương đối —
     /// giống hệt cách <c>webhookUrl</c> của Hộp thư chat đã làm.
     /// </summary>
     Task<string> UploadAsync(string key, Stream noiDung, string contentType, CancellationToken ct);
+
+    /// <summary>
+    /// Tệp ở khoá này đã có sẵn chưa. Có thì trả URL công khai, chưa thì <c>null</c>.
+    ///
+    /// <para><b>Vì sao cần.</b> Nhãn dán lặp lại rất nhiều: một cái like được hàng nghìn khách
+    /// gửi, mà nó là CÙNG một tệp — Meta cấp <c>sticker_id</c> cố định cho nó. Hỏi trước rồi mới
+    /// tải thì cái like đầu tiên tải một lần, mọi lượt sau dùng lại ngay: không tốn băng thông
+    /// tải về, không tốn lượt ghi, không tốn chỗ.</para>
+    ///
+    /// <para>Hỏng (mạng, quyền) thì trả <c>null</c> chứ <b>không ném</b> — coi như chưa có rồi
+    /// tải lại. Tốn thêm một lượt còn hơn để tin của khách kẹt lại vì một phép kiểm phụ.</para>
+    /// </summary>
+    Task<string?> ExistingUrlAsync(string key, CancellationToken ct);
 }

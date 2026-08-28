@@ -1,4 +1,5 @@
 ﻿// Services/Chat/Inbox/ChatInboundService.cs
+using System.Text.Json.Nodes;
 using TourkitAiProxy.Domain.Models;
 using TourkitAiProxy.Services.Chat.Channels;
 using TourkitAiProxy.Services.Providers;
@@ -28,13 +29,14 @@ public class ChatInboundService
     private readonly IConfiguration _cfg;
     private readonly ILogger<ChatInboundService> _log;
     private readonly ChatBotSettingsRepository _cauHinh;
+    private readonly ChatMediaMirror _soiTep;
     private readonly ChatEventBus _bus;
 
     public ChatInboundService(ChatRepository repo, IEnumerable<IChatChannelAdapter> adapters,
         ProviderRegistry providers, AiCallContext aiCtx, IConfiguration cfg,
         ILogger<ChatInboundService> log, ChatEventBus bus, ChatWorkSignal tin,
-        ChatBotSettingsRepository cauHinh)
-    { _repo = repo; _adapters = adapters; _providers = providers; _aiCtx = aiCtx; _cfg = cfg; _log = log; _bus = bus; _tin = tin; _cauHinh = cauHinh; }
+        ChatBotSettingsRepository cauHinh, ChatMediaMirror soiTep)
+    { _repo = repo; _adapters = adapters; _providers = providers; _aiCtx = aiCtx; _cfg = cfg; _log = log; _bus = bus; _tin = tin; _cauHinh = cauHinh; _soiTep = soiTep; }
 
     public IChatChannelAdapter? Adapter(ChatChannel kenh)
         => _adapters.FirstOrDefault(a => a.Channel == kenh);
@@ -44,12 +46,29 @@ public class ChatInboundService
     ///
     /// <para>Gọi từ NỀN, sau khi webhook đã trả 200. Kênh nào cũng gửi lại khi không thấy 200, mà
     /// xử lý mất vài giây (có gọi AI) — trả lời chậm là kênh gửi lại và khách nhận tin nhân đôi.</para>
+    ///
+    /// <para>⚠️ <b>NÉM RA khi có sự kiện hỏng — đừng nuốt.</b> Vẫn chạy hết cả loạt trước đã (mỗi
+    /// tin là một khách khác nhau, một cái hỏng không được kéo theo cái khác), nhưng cuối cùng
+    /// phải báo lên để <c>ChatInboundWorker</c> đánh dấu dòng là HỎNG và thử lại — nó có sẵn cả
+    /// đường đó.</para>
+    ///
+    /// <para><b>Vì sao đây là chuyện lớn.</b> Bản trước ghi log rồi đi tiếp, nên chỗ gọi tưởng
+    /// mọi việc êm và đánh dấu <c>status = 1</c> (xong) với <c>error_message</c> RỖNG. Kết quả là
+    /// một sự cố ngừng nhận tin HOÀN TOÀN không để lại dấu vết nào trong CSDL: gói tin nằm đó,
+    /// gắn nhãn đã xử lý, mà hội thoại thì không có. Đã xảy ra thật 27/08/2026 — bốn gói tin
+    /// Telegram của khách biến mất kiểu đó, và cách duy nhất tìm ra là dò tay từng bảng.</para>
+    ///
+    /// <para>Chạy lại một dòng cũ là AN TOÀN: chống trùng nằm ở tầng CSDL (chỉ mục
+    /// <c>ux_msg_external</c>), nên tin đã ghi sẽ không ghi lần hai — đó cũng chính là lý do hàng
+    /// đợi lưu thân THÔ chứ không lưu bản đã bóc.</para>
     /// </summary>
     /// <param name="accountId">Tài khoản (Trang/OA/bot) đã kiểm chữ ký khớp — do endpoint webhook
     /// xác định TRƯỚC khi gọi hàm này, xem <see cref="IChatChannelAdapter.VerifyAsync"/>.</param>
+    /// <exception cref="AggregateException">Có ít nhất một sự kiện trong loạt xử lý hỏng.</exception>
     public async Task HandleAsync(string tenantId, string accountId, IReadOnlyList<InboundChatEvent> sk,
         CancellationToken ct)
     {
+        var hong = new List<Exception>();
         foreach (var e in sk)
         {
             try { await OneEventAsync(tenantId, accountId, e, ct); }
@@ -58,8 +77,14 @@ public class ChatInboundService
                 // Một sự kiện hỏng không được kéo cả loạt: mỗi tin là một khách khác nhau.
                 _log.LogError(ex, "[chat] xử lý sự kiện hỏng tenant={T} kênh={K} uid={U}",
                     tenantId, e.Channel, e.ExternalUserId);
+                hong.Add(ex);
             }
         }
+
+        if (hong.Count > 0)
+            throw new AggregateException(
+                $"{hong.Count}/{sk.Count} sự kiện xử lý hỏng (tenant={tenantId}, tài khoản={accountId})",
+                hong);
     }
 
     private async Task OneEventAsync(string tenantId, string accountId, InboundChatEvent e, CancellationToken ct)
@@ -86,7 +111,12 @@ public class ChatInboundService
             && Adapter(e.Channel) is { } boNoi
             && await boNoi.ContactProfileAsync(tenantId, accountId, e.ExternalUserId, ct) is { } hoSo)
         {
-            await _repo.UpsertContactAsync(tenantId, e.Channel, e.ExternalUserId, hoSo.Name, hoSo.AvatarUrl, ct);
+            // Ảnh đại diện đi thẳng về kho mình ngay tại đây, không lưu url của Meta: url đó có
+            // hạn, mà chỗ này lại KHÔNG bao giờ hỏi lại một khách đã có ảnh — nên lưu url của họ
+            // đồng nghĩa hẹn ngày cả hộp thư hiện ảnh vỡ.
+            var anh = (await MirrorAvatarAsync(tenantId, e.Channel, hoSo.AvatarUrl, ct)).Url
+                      ?? hoSo.AvatarUrl;
+            await _repo.UpsertContactAsync(tenantId, e.Channel, e.ExternalUserId, hoSo.Name, anh, ct);
         }
         var hoiThoai = await _repo.GetOrCreateConversationAsync(tenantId, e.Channel, e.ExternalUserId, accountId, ct);
 
@@ -197,6 +227,14 @@ public class ChatInboundService
         // chờ thêm bốn giây chỉ vì bot đang đợi xem khách có gõ tiếp không.
         _bus.Publish(new(tenantId, hoiThoai.Id, "tin-moi", id.Value));
 
+        // Soi ảnh/tệp về kho riêng. ĐẶT SAU khi đã ghi tin và đã bắn tin cho giao diện: tải tệp
+        // là chạm mạng, đặt trước thì tin của khách nằm chờ một tấm ảnh 5MB tải xong mới hiện.
+        //
+        // Bắt buộc phải làm, không phải cho đẹp: URL của nền tảng đều có hạn (Meta ~5 ngày,
+        // Telegram ~1 giờ), lưu nguyên thì hộp thư tự rỗng dần mà không ai làm gì sai.
+        await MirrorMessageMediaAsync(tenantId, hoiThoai.Id, id.Value, e.Channel, e.Kind,
+            e.AttachmentJson, ct);
+
         // Gộp tin nhắn liên tiếp: chờ khách im rồi mới xử lý cả cụm. Chờ thẳng ở đây thay vì hẹn
         // giờ riêng — đang chạy nền, vài giây không ảnh hưởng ai, mà đỡ hẳn một cơ chế hẹn giờ.
         await Task.Delay(BurstIdle, ct);
@@ -249,6 +287,255 @@ public class ChatInboundService
         _bus.Publish(new(tenantId, hoiThoai.Id, "tin-moi", idRa.Value));
     }
 
+    /// <summary>
+    /// Tải ảnh/tệp của một tin về kho riêng rồi ghi đè phần đính kèm bằng URL của mình.
+    ///
+    /// <para><b>Không bao giờ ném và không bao giờ chặn tin.</b> Soi hỏng thì giữ nguyên đính
+    /// kèm gốc — ảnh hết hạn sau vài ngày vẫn hơn là mất luôn cả tin ngay bây giờ.</para>
+    ///
+    /// <para>Nhãn dán truyền kèm <c>sticker_id</c> để đi ĐƯỜNG NHANH: mã đó cố định cho mọi
+    /// khách nên cái like thứ hai trở đi không phải tải lại — xem <see cref="ChatMediaMirror"/>.</para>
+    /// </summary>
+    private async Task<MirrorOutcome> MirrorMessageMediaAsync(string tenantId, long hoiThoaiId,
+        long messageId, ChatChannel kenh, ChatKind loai, string? attachmentJson, CancellationToken ct)
+    {
+        if (!_soiTep.Configured || string.IsNullOrWhiteSpace(attachmentJson))
+            return MirrorOutcome.Retry;
+
+        try
+        {
+            var tep = ChatAttachment.Read(kenh, loai, attachmentJson, 0);
+            if (tep.Count == 0) return MirrorOutcome.Retry;
+
+            // Mã nhãn dán nằm trong gói THÔ, không có trong hình dạng đã chuẩn hoá — đọc riêng.
+            // KHÔNG lọc theo loai: tin nhận trước lúc bộ bóc biết nhận nhãn dán bị ghi nhầm là
+            // ẢNH, mà những tin đó chính là thứ soi lại đang đi cứu.
+            var maNhanDan = StickerIdOf(attachmentJson);
+            var khoa = await ChannelTokenAsync(tenantId, kenh, ct);
+
+            var ra = new JsonArray();
+            var coDoi = false;
+            var conCuuDuoc = false;
+            foreach (var f in tep)
+            {
+                var kq = string.IsNullOrWhiteSpace(f.Url)
+                    ? new ChatMediaMirror.KetQuaSoi(null, true)
+                    : await _soiTep.MirrorAsync(tenantId, kenh, new(f.Url!, maNhanDan, khoa), ct);
+
+                if (kq.Url is not null) coDoi = true;
+                else if (!kq.HetCuu) conCuuDuoc = true;
+
+                ra.Add(new JsonObject
+                {
+                    ["ten"] = f.Name,
+                    ["kich"] = f.Size,
+                    ["url"] = kq.Url ?? f.Url,
+                });
+            }
+
+            // Không soi được cái nào thì đừng ghi đè: giữ hình dạng gốc để lần chạy sau (hoặc
+            // đường proxy tệp của Telegram) vẫn còn đủ dữ liệu mà làm việc.
+            //
+            // Và nói rõ cho chỗ gọi biết vì sao hỏng: nếu MỌI tệp đều bị nhà cung cấp từ chối
+            // bằng một mã không cứu được thì thử lại chỉ tốn công — xem GiveUpMediaAsync.
+            if (!coDoi) return conCuuDuoc ? MirrorOutcome.Retry : MirrorOutcome.GiveUp;
+
+            await _repo.SetAttachmentAsync(tenantId, messageId,
+                new JsonObject { ["tk"] = 1, ["tep"] = ra }.ToJsonString(), ct);
+            _bus.Publish(new(tenantId, hoiThoaiId, "doi-trang-thai", messageId));
+            return MirrorOutcome.Mirrored;
+        }
+        catch (Exception ex)
+        {
+            _log.LogWarning(ex, "[chat] soi tệp hỏng, giữ url gốc — tin {Id}", messageId);
+            return MirrorOutcome.Retry;
+        }
+    }
+
+    /// <summary>
+    /// Kết cục một lượt soi MỘT tin. Ba nhánh chứ không phải được/không được, vì "không được"
+    /// có hai loại đối xử ngược nhau — xem <see cref="ChatMediaMirror.KetQuaSoi"/>.
+    /// </summary>
+    public enum MirrorOutcome
+    {
+        /// <summary>Đã soi và đã ghi đè đính kèm.</summary>
+        Mirrored,
+        /// <summary>Hỏng tạm — để lượt sau thử lại.</summary>
+        Retry,
+        /// <summary>Hỏng hẳn — đừng thử nữa, thử lại chỉ tốn băng thông.</summary>
+        GiveUp,
+    }
+
+    /// <summary>
+    /// Soi lại tệp của những tin NHẬN TRƯỚC khi có bước soi — một mẻ mỗi lượt gọi.
+    ///
+    /// <para><b>Vì sao phải có, chứ không chỉ soi tin mới.</b> Mọi tin nhận trước hôm nay vẫn
+    /// đang trỏ thẳng ra CDN của nền tảng. Đo trên hộp thư thật (27/08/2026): ảnh trong đó hết
+    /// hạn 01/09/2026. Không soi lại thì đúng ngày đó cả loạt ảnh cũ biến thành ô vỡ, và lúc ấy
+    /// không còn cách nào lấy lại.</para>
+    ///
+    /// <para><b>Tiến độ nằm trong CSDL, không nằm ở chỗ gọi.</b> Mỗi dòng lấy ra đã được
+    /// <see cref="ChatRepository.ClaimMediaAsync"/> đánh dấu ngay lúc lấy, nên gọi lại là ra mẻ
+    /// KẾ TIẾP chứ không phải mẻ cũ — không cần truyền mốc, không sợ hai chỗ gọi giẫm nhau, và
+    /// dừng giữa chừng thì phần đã cứu vẫn được giữ.</para>
+    ///
+    /// <para>Một tin hỏng chỉ là một tin hỏng: nó không ghi đè đính kèm (giữ nguyên gói gốc) và
+    /// không làm hỏng cả mẻ. Hỏng tạm thì lượt sau thử lại, tối đa
+    /// <see cref="ChatRepository.MirrorMaxTries"/> lần. Hỏng hẳn thì bỏ ngay, không đợi hết số lần.</para>
+    /// </summary>
+    /// <param name="tenantId">
+    /// <c>null</c> = mọi công ty, dùng cho worker nền chạy cho cả máy chủ. Truyền tên một công ty
+    /// khi chạy tay cho riêng công ty đó. Dù thế nào tệp cũng vào kho của công ty SỞ HỮU tin, lấy
+    /// từ chính dòng dữ liệu.
+    /// </param>
+    public async Task<BackfillResult> BackfillMediaAsync(string? tenantId, int soToiDa,
+        short tranTang, CancellationToken ct)
+    {
+        if (!_soiTep.Configured) return BackfillResult.Rong;
+
+        var ds = await _repo.ClaimMediaAsync(tenantId, soToiDa, tranTang, ct);
+        var xong = 0;
+        var boHan = 0;
+        foreach (var t in ds)
+        {
+            if (ct.IsCancellationRequested) break;
+            try
+            {
+                switch (await MirrorMessageMediaAsync(t.TenantId, t.ConversationId, t.Id,
+                            (ChatChannel)t.Channel, (ChatKind)t.Kind, t.Attachment, ct))
+                {
+                    case MirrorOutcome.Mirrored: xong++; break;
+                    case MirrorOutcome.GiveUp:
+                        await _repo.GiveUpMediaAsync(t.Id, ct);
+                        boHan++;
+                        break;
+                }
+            }
+            catch (Exception ex)
+            {
+                // Một tin hỏng không được kéo cả mẻ. Chỗ này bắt được thứ MirrorMessageMediaAsync
+                // không bắt: lượt ghi cờ xuống CSDL. Một cú nấc kết nối lúc đó mà làm dừng cả mẻ
+                // thì 24 tin còn lại coi như mất lượt oan.
+                _log.LogWarning(ex, "[chat] soi lại tệp hỏng — tin {Id}", t.Id);
+            }
+        }
+
+        if (ds.Count > 0)
+            _log.LogInformation("[chat] soi lại tệp cũ: {Xong}/{Tong} tin ({Bo} bỏ hẳn)",
+                xong, ds.Count, boHan);
+        return new(xong, ds.Count, ds.Count == 0 ? (short)0 : ds.Min(x => x.Tries));
+    }
+
+    /// <summary>
+    /// Kết quả một mẻ soi lại.
+    ///
+    /// <para><paramref name="Examined"/> = 0 nghĩa là hết việc — điều kiện dừng của vòng quét.
+    /// <paramref name="Mirrored"/> chỉ đếm thứ soi được, phần chênh là thứ hỏng.</para>
+    ///
+    /// <para><b><paramref name="Tier"/> — tầng thử lại thấp nhất trong mẻ này</b> (0 = có thứ
+    /// chưa ai đụng tới). Đây là thứ thay cho một cột mốc thời gian trong CSDL: vòng quét chạy
+    /// hết tầng thấp nhất rồi DỪNG, để tầng cao hơn dành cho vòng sau. Nhờ vậy mỗi thứ chỉ được
+    /// thử đúng một lần mỗi vòng, và khoảng cách giữa hai lần thử chính là nhịp của vòng quét —
+    /// một sự cố mạng ngắn không đốt sạch số lần thử của cả hộp thư trong vài phút.</para>
+    /// </summary>
+    public record BackfillResult(int Mirrored, int Examined, short Tier)
+    {
+        /// <summary>Mẻ rỗng — chưa khai kho, hoặc hết việc.</summary>
+        public static readonly BackfillResult Rong = new(0, 0, 0);
+    }
+
+    /// <summary>
+    /// Tải ảnh đại diện của khách về kho riêng, trả url của mình.
+    ///
+    /// <para>Trả <c>null</c> khi không soi được — chỗ gọi giữ nguyên url của kênh: ảnh sẽ hết hạn
+    /// sau vài ngày, nhưng có vẫn hơn không.</para>
+    ///
+    /// <para>Bỏ qua url TƯƠNG ĐỐI: đó là ảnh Telegram, vốn đã đi qua đường proxy của mình
+    /// (đường tải thật của Telegram chứa bot token nên không đưa ra trình duyệt được).</para>
+    /// </summary>
+    private async Task<ChatMediaMirror.KetQuaSoi> MirrorAvatarAsync(string tenantId, ChatChannel kenh,
+        string? url, CancellationToken ct)
+    {
+        if (!_soiTep.Configured) return new(null);
+        // Url rỗng hoặc tương đối: không có gì để tải, và sẽ mãi như vậy.
+        if (string.IsNullOrWhiteSpace(url) || !url.StartsWith("http", StringComparison.OrdinalIgnoreCase))
+            return new(null, true);
+
+        var khoa = await ChannelTokenAsync(tenantId, kenh, ct);
+        return await _soiTep.MirrorAsync(tenantId, kenh, new(url, null, khoa), ct);
+    }
+
+    /// <summary>
+    /// Soi lại ảnh đại diện của những khách đã lưu TRƯỚC khi có bước soi — cùng lý do với
+    /// <see cref="BackfillMediaAsync"/>, và còn gấp hơn: một url ảnh đại diện hết hạn không chỉ
+    /// làm vỡ một tin, nó làm vỡ khuôn mặt khách ở mọi chỗ trong hộp thư.
+    ///
+    /// <para>Cách nhận việc và cách dừng giống hệt <see cref="BackfillMediaAsync"/> — xem
+    /// <c>ChatRepository.ClaimAvatarsAsync</c>.</para>
+    /// </summary>
+    public async Task<BackfillResult> BackfillAvatarsAsync(string? tenantId, int soToiDa,
+        short tranTang, CancellationToken ct)
+    {
+        if (!_soiTep.Configured) return BackfillResult.Rong;
+
+        var ds = await _repo.ClaimAvatarsAsync(tenantId, _soiTep.KhoCuaMinh, soToiDa, tranTang, ct);
+        var xong = 0;
+        var boHan = 0;
+        foreach (var lh in ds)
+        {
+            if (ct.IsCancellationRequested) break;
+            var kenh = (ChatChannel)lh.Channel;
+            try
+            {
+                var kq = await MirrorAvatarAsync(lh.TenantId, kenh, lh.AvatarUrl, ct);
+                if (kq.Url is { } moi)
+                {
+                    await _repo.SetContactAvatarAsync(lh.TenantId, kenh, lh.ExternalId, moi, ct);
+                    xong++;
+                }
+                else if (kq.HetCuu)
+                {
+                    await _repo.GiveUpAvatarAsync(lh.TenantId, kenh, lh.ExternalId, ct);
+                    boHan++;
+                }
+            }
+            catch (Exception ex)
+            {
+                // Một khách hỏng không được kéo cả mẻ: mỗi dòng là một ảnh độc lập.
+                _log.LogWarning(ex, "[chat] soi ảnh đại diện hỏng — {Kenh}/{Id}", kenh, lh.ExternalId);
+            }
+        }
+
+        if (ds.Count > 0)
+            _log.LogInformation("[chat] soi lại ảnh đại diện: {Xong}/{Tong} khách ({Bo} bỏ hẳn)",
+                xong, ds.Count, boHan);
+        return new(xong, ds.Count, ds.Count == 0 ? (short)0 : ds.Min(x => x.Tries));
+    }
+
+    /// <summary>Mã nhãn dán trong gói thô của Meta. Kênh khác chưa có khái niệm này.</summary>
+    private static string? StickerIdOf(string json)
+    {
+        try
+        {
+            if (JsonNode.Parse(json) is not JsonArray ds) return null;
+            foreach (var x in ds.OfType<JsonNode>())
+                if (x["payload"]?["sticker_id"]?.ToString() is { Length: > 0 } ma) return ma;
+            return null;
+        }
+        catch { return null; }
+    }
+
+    /// <summary>
+    /// Khoá kèm khi tải tệp. <b>WhatsApp bắt buộc</b> — thiếu là Meta trả 401 và ảnh mất trắng.
+    /// Messenger/Instagram không cần (URL đã ký sẵn) nhưng gửi kèm cũng không sao.
+    /// </summary>
+    private async Task<string?> ChannelTokenAsync(string tenantId, ChatChannel kenh, CancellationToken ct)
+    {
+        if (kenh != ChatChannel.WhatsApp) return null;
+        // Chỉ WhatsApp cần, và adapter của nó tự biết lấy khoá ở đâu.
+        return Adapter(kenh) is Channels.WhatsAppChatAdapter wa
+            ? await wa.AccessTokenForMediaAsync(tenantId, ct) : null;
+    }
     /// <summary>
     /// Sinh câu trả lời.
     ///

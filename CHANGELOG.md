@@ -68,6 +68,19 @@ Những cập nhật gần đây của TRAV-AI, viết cho người dùng. Mới
   chỉ khi công ty chuyển sang từ ứng dụng WhatsApp Business và chỉ trong 24 giờ đầu sau khi nối.
 
 ### 🔧 Đã khắc phục
+- **Ảnh khách gửi không còn biến mất sau vài ngày.** Facebook, Instagram, WhatsApp, Zalo và
+  Telegram đều chỉ cho xem ảnh trong một thời gian ngắn — Facebook là **5 ngày** — sau đó ảnh
+  trong hộp thư thành ô vỡ và **không cách nào lấy lại**. Ảnh hoá đơn, hộ chiếu, ảnh phòng
+  khách sạn khách gửi đều mất theo. Nay mọi ảnh và tệp khách gửi được **giữ lại bản riêng của
+  công ty bạn** ngay khi nhận, nên mở lại hội thoại một năm sau vẫn xem được. Ảnh đại diện của
+  khách cũng vậy — trước đây nó cũng hết hạn và cả danh sách hội thoại hiện một dãy khuôn mặt vỡ.
+
+  Ảnh **đã nhận từ trước** cũng được cứu: hệ thống tự lặng lẽ tải về dần trong nền, bạn không
+  phải bấm gì. Ảnh chụp bằng điện thoại đời mới được thu nhỏ vừa đủ đọc rõ chữ, nên hộp thư mở
+  nhanh hơn trước.
+
+  *Lưu ý:* ảnh nào đã quá hạn trước khi bản này chạy thì không cứu được nữa — hệ thống bỏ qua
+  thay vì thử mãi.
 - **Trợ lý nhớ được đoạn hội thoại, không còn trả lời lạc đề.** Trước đây nó chỉ đọc đúng câu
   khách vừa gửi, nên khách hỏi "Tour Nhật bao nhiêu ạ?" rồi hỏi tiếp "Thế còn tháng 10?" là
   nó không biết đang nói về tour nào. Khách nào cũng nhắn kiểu đó, nên trợ lý lạc đề gần như

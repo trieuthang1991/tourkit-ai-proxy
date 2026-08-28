@@ -82,6 +82,18 @@ public class TelegramConnectTests
         // Không gỡ thì Telegram nện vào URL cũ mãi mãi: mỗi lượt là một dòng từ chối trong log,
         // và bot vẫn tưởng nó đang được dùng. Đối chiếu dự án tham khảo mới lộ ra chỗ này.
         Assert.Contains("deleteWebhook", ChatSchemaGuardTests.DocFile(TepAdapter));
-        Assert.Contains("DisconnectBotAsync", ChatSchemaGuardTests.DocFile(TepEndpoint));
+
+        // Lõi phải gọi DisconnectAsync — hợp đồng CHUNG của mọi kênh, không phải tên một kênh.
+        //
+        // ⚠️ Bản trước bắt lõi phải nhắc tới "DisconnectBotAsync" (hàm riêng của Telegram). Đến
+        // khi có người tổng quát hoá đúng cách — mỗi adapter tự cài DisconnectAsync, lõi gọi đa
+        // hình và không còn biết tên kênh nào — test đỏ, dù hành vi giữ nguyên và code TỐT HƠN.
+        // Chính giao diện IChatChannelAdapter đã dặn: phải sửa lõi thì trừu tượng hoá đã sai;
+        // guard mà đòi lõi biết tên kênh là guard đi ngược lại lời dặn đó.
+        var loi = ChatSchemaGuardTests.DocFile(TepEndpoint);
+        Assert.Contains("DisconnectAsync", loi);
+
+        // Và Telegram phải thực sự cài nó, nếu không lõi gọi vào chỗ rỗng.
+        Assert.Contains("DisconnectAsync", ChatSchemaGuardTests.DocFile(TepAdapter));
     }
 }

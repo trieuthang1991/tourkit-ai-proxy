@@ -144,14 +144,31 @@ public class ChatOutboxWorker : BackgroundService
         }
 
         var conLuot = kq.ThuLai && r.RetryCount + 1 < MaxRetries;
-        await repo.FinishOutboxAsync(r.Id, false, conLuot, kq.Error, ct);
+
+        // Câu ghi xuống là câu NGƯỜI TRỰC đọc trên hộp thư, nên nó phải nói được chuyện gì và
+        // phải làm gì. Chữ thô của nhà cung cấp đi kèm phía sau để còn tra khi cần, chứ một mình
+        // nó thì người trực nhìn vào "(#551) This person isn't available right now" và không biết
+        // là mình sai, khách chặn, hay cả kênh đã chết.
+        var cauChoNguoi = kq.Failure == ChatFailure.Unknown
+            ? kq.Error
+            : $"{ChannelFailures.Label(kq.Failure)}. {ChannelFailures.Fix(kq.Failure)}"
+              + (string.IsNullOrWhiteSpace(kq.Error) ? "" : $" ({kq.Error})");
+
+        await repo.FinishOutboxAsync(r.Id, false, conLuot, cauChoNguoi, ct);
         if (!conLuot)
         {
-            await repo.SetMessageStateAsync(r.TenantId, r.MessageId, ChatState.Failed, kq.Error, ct);
+            await repo.SetMessageStateAsync(r.TenantId, r.MessageId, ChatState.Failed, cauChoNguoi, ct);
             bus.Publish(new(r.TenantId, r.ConversationId, "doi-trang-thai", r.MessageId));
         }
-        _log.LogWarning("[chat/outbox] dòng {Id} hỏng ({Thu}): {Loi}",
-            r.Id, conLuot ? "sẽ thử lại" : "dừng", kq.Error);
+
+        // Kênh đứt thì ghi mức cảnh báo cao hơn: mọi tin gửi sau cũng sẽ hỏng y hệt, và người xem
+        // nhật ký cần thấy ngay chứ không phải lọc giữa hàng trăm dòng "khách chặn" bình thường.
+        if (!conLuot && ChannelFailures.NeedsReconnect(kq.Failure))
+            _log.LogError("[chat/outbox] KÊNH ĐỨT — tenant={T} kênh={K} tài khoản={A}: {Loi}",
+                r.TenantId, ChatRules.ChannelName((ChatChannel)hoiThoai.Channel), hoiThoai.AccountId, cauChoNguoi);
+        else
+            _log.LogWarning("[chat/outbox] dòng {Id} hỏng ({Thu}): {Loi}",
+                r.Id, conLuot ? "sẽ thử lại" : "dừng", cauChoNguoi);
     }
 
     /// <summary>

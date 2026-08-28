@@ -336,8 +336,8 @@ public class ZaloChatAdapter : IChatChannelAdapter, IApprovedTemplateSender, IBu
             },
         };
 
-        var (ok, thuLai, id, loi) = await GoiApiGuiThoAsync(token.Token!, than, ct);
-        return await AfterSendAsync(tenantId, accountId, ok, thuLai, id, loi,
+        var (ok, nhom, id, loi) = await GoiApiGuiThoAsync(token.Token!, than, ct);
+        return await AfterSendAsync(tenantId, accountId, ok, nhom, id, loi,
             () => GoiApiGuiThoAsync(token.Token!, than, ct), ct);
     }
 
@@ -507,8 +507,8 @@ public class ZaloChatAdapter : IChatChannelAdapter, IApprovedTemplateSender, IBu
         var token = await GetAccessTokenAsync(tenantId, accountId, ct);
         if (token.Loi is not null) return new(false, token.ThuLai, null, token.Loi);
 
-        var (ok, thuLai, id, loi) = await GoiApiGuiChuAsync(token.Token!, externalUserId, text, ct);
-        return await AfterSendAsync(tenantId, accountId, ok, thuLai, id, loi,
+        var (ok, nhom, id, loi) = await GoiApiGuiChuAsync(token.Token!, externalUserId, text, ct);
+        return await AfterSendAsync(tenantId, accountId, ok, nhom, id, loi,
             () => GoiApiGuiChuAsync(token.Token!, externalUserId, text, ct), ct);
     }
 
@@ -545,8 +545,8 @@ public class ZaloChatAdapter : IChatChannelAdapter, IApprovedTemplateSender, IBu
                 },
             },
         };
-        var (ok, thuLai, id, loi) = await GoiApiGuiThoAsync(token.Token!, body, ct);
-        var kq = await AfterSendAsync(tenantId, accountId, ok, thuLai, id, loi,
+        var (ok, nhom, id, loi) = await GoiApiGuiThoAsync(token.Token!, body, ct);
+        var kq = await AfterSendAsync(tenantId, accountId, ok, nhom, id, loi,
             () => GoiApiGuiThoAsync(token.Token!, body, ct), ct);
 
         // Ảnh không mang được chữ chú thích trong cùng một tin → gửi thêm một tin chữ nếu có.
@@ -558,26 +558,27 @@ public class ZaloChatAdapter : IChatChannelAdapter, IApprovedTemplateSender, IBu
     /// <summary>Gửi thất bại vì hết hạn (-1001) → làm mới token MỘT LẦN rồi thử lại. Không quay
     /// vòng vô hạn: 1 lần làm mới là đủ, hỏng nữa thì đúng là hỏng thật.</summary>
     private async Task<SendResult> AfterSendAsync(string tenantId, string accountId,
-        bool ok, bool thuLai, string? id, string? loi,
-        Func<Task<(bool ok, bool thuLai, string? id, string? loi)>> guiLai, CancellationToken ct)
+        bool ok, ChatFailure nhom, string? id, string? loi,
+        Func<Task<(bool ok, ChatFailure nhom, string? id, string? loi)>> guiLai, CancellationToken ct)
     {
         if (ok || loi is null || !loi.Contains(TokenExpiredCode.ToString()))
-            return new(ok, thuLai, id, loi);
+            return ok ? new(true, false, id, null)
+                      : SendResult.Fail(nhom, loi);
 
         _log.LogInformation("[chat/zalo] token hết hạn ngoài dự kiến, làm mới rồi thử lại — tenant={T} acc={A}",
             tenantId, accountId);
         var moi = await RefreshTokenAsync(tenantId, accountId, ct);
-        if (moi.Loi is not null) return new(false, moi.ThuLai, null, moi.Loi);
+        if (moi.Loi is not null) return new(false, moi.ThuLai, null, moi.Loi, ChatFailure.AuthFailed);
 
-        var (ok2, thuLai2, id2, loi2) = await guiLai();
-        return new(ok2, thuLai2, id2, loi2);
+        var (ok2, nhom2, id2, loi2) = await guiLai();
+        return ok2 ? new(true, false, id2, null) : SendResult.Fail(nhom2, loi2);
     }
 
-    private Task<(bool ok, bool thuLai, string? id, string? loi)> GoiApiGuiChuAsync(
+    private Task<(bool ok, ChatFailure nhom, string? id, string? loi)> GoiApiGuiChuAsync(
         string token, string uid, string text, CancellationToken ct)
         => GoiApiGuiThoAsync(token, new { recipient = new { user_id = uid }, message = new { text } }, ct);
 
-    private async Task<(bool ok, bool thuLai, string? id, string? loi)> GoiApiGuiThoAsync(
+    private async Task<(bool ok, ChatFailure nhom, string? id, string? loi)> GoiApiGuiThoAsync(
         string token, object body, CancellationToken ct)
     {
         try
@@ -592,19 +593,23 @@ public class ZaloChatAdapter : IChatChannelAdapter, IApprovedTemplateSender, IBu
             var raw = await res.Content.ReadAsStringAsync(ct);
 
             if (!res.IsSuccessStatusCode)
-                // 5xx là hỏng tạm thời phía Zalo → đáng thử lại. 4xx là mình gửi sai → đừng.
-                return (false, (int)res.StatusCode >= 500, null, $"HTTP {(int)res.StatusCode}: {Truncate(raw)}");
+                return (false, ChannelFailures.FromHttp((int)res.StatusCode), null,
+                    $"HTTP {(int)res.StatusCode}: {Truncate(raw)}");
 
             var o = JsonNode.Parse(raw)?.AsObject();
             var err = o?["error"]?.GetValue<int>() ?? 0;
-            if (err != 0) return (false, false, null, $"Zalo lỗi {err}: {o?["message"]}");
+            if (err != 0)
+                // Zalo trả HTTP 200 kèm mã lỗi ÂM trong thân. Chỉ mã đó nói được chuyện gì đã xảy
+                // ra: -216 là khách chặn OA, -115 là hết hạn mức, -124 là khoá đăng nhập hỏng. Ba
+                // việc cần ba cách xử khác nhau, mà nhìn từ mã HTTP thì cả ba đều là 200 OK.
+                return (false, ChannelFailures.FromZalo(err), null, $"Zalo lỗi {err}: {o?["message"]}");
 
-            return (true, false, o?["data"]?["message_id"]?.ToString(), null);
+            return (true, ChatFailure.Unknown, o?["data"]?["message_id"]?.ToString(), null);
         }
         catch (Exception ex)
         {
             // Mạng chập chờn → thử lại.
-            return (false, true, null, ex.Message);
+            return (false, ChatFailure.Network, null, ex.Message);
         }
     }
 

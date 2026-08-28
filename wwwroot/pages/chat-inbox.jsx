@@ -92,6 +92,18 @@
     return d.toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' });
   }
 
+  // Giờ ĐẦY ĐỦ cho tooltip khi rê chuột. Bong bóng không in giờ nữa (xem ghi chú ở BongBong),
+  // nên đây là đường duy nhất để tra chính xác một tin gửi lúc nào.
+  function gioDayDu(iso) {
+    if (!iso) return '';
+    const d = new Date(iso);
+    if (Number.isNaN(d.getTime())) return '';
+    return d.toLocaleString('vi-VN', {
+      weekday: 'short', day: '2-digit', month: '2-digit', year: 'numeric',
+      hour: '2-digit', minute: '2-digit',
+    });
+  }
+
   // 41.3 giờ thành "41 giờ 18 phút". Số giờ lẻ thập phân không nói lên gì với người trực máy.
   function dienGio(gio) {
     if (gio == null) return '';
@@ -171,9 +183,13 @@
           );
           // Ảnh: hiện thẳng, bấm để mở cỡ đầy đủ. loading="lazy" vì một hội thoại có thể có
           // hàng chục ảnh mà nhân viên chỉ nhìn vài cái gần nhất.
+          // kind 1 = ảnh, kind 4 = sticker. Cùng một thẻ nhưng KHÁC cỡ: sticker là biểu cảm,
+          // vẽ to bằng tấm ảnh khách chụp hộ chiếu là sai thứ tự quan trọng.
           if (tin.kind === 1 || tin.kind === 4) return (
-            <a key={i} href={f.url} target="_blank" rel="noopener noreferrer" className="ci-anh">
-              <img src={f.url} alt={f.ten || 'Ảnh khách gửi'} loading="lazy" />
+            <a key={i} href={f.url} target="_blank" rel="noopener noreferrer"
+               className={'ci-anh' + (tin.kind === 4 ? ' sticker' : '')}>
+              <img src={f.url} alt={f.ten || (tin.kind === 4 ? 'Sticker' : 'Ảnh khách gửi')}
+                   loading="lazy" />
             </a>
           );
           return (
@@ -201,13 +217,53 @@
     DISCOVER_TAB: 'Mục Khám phá',
   };
 
-  function BongBong({ tin, kenh, ten0 }) {
+  // ── Gộp tin liên tiếp thành CỤM ───────────────────────────────────────────
+  //
+  // Khách hay nhắn dồn ba bốn câu trong một phút. In giờ dưới TỪNG câu thì năm tin liên tiếp
+  // thành năm dòng "22:28" — không nói thêm gì mà cắt vụn dòng đọc và đẩy nội dung thật ra xa
+  // nhau. Messenger, Zalo, WhatsApp đều gộp; mình cũng vậy.
+  //
+  // Luật ở GIAO DIỆN chứ không ở ChatRules: file đó tự dặn chỉ chứa luật "sai là hỏng thật, không
+  // phải chuyện đẹp xấu". Gộp sai một cụm thì xấu, chứ không mất tin của ai.
+
+  const CUM_MS = 5 * 60 * 1000;    // trong 5 phút thì còn là một cụm
+  const MOC_MS = 20 * 60 * 1000;   // cách trên 20 phút thì chèn một mốc giờ
+
+  function cungCum(a, b) {
+    if (!a || !b) return false;
+    const ta = new Date(a.createdUtc).getTime();
+    const tb = new Date(b.createdUtc).getTime();
+    return a.senderKind === b.senderKind
+      && a.direction === b.direction
+      // Cùng NGƯỜI nữa, không chỉ cùng vai: hai nhân viên trả lời nối nhau là hai cụm, gộp thì
+      // tên ở đầu cụm nói sai ai đã nói câu nào.
+      && (a.senderUsername || '') === (b.senderUsername || '')
+      // Lùi giờ = dữ liệu lệch (nhập lịch sử, lệch đồng hồ). Gộp thì dấu giờ ở cuối cụm nói sai
+      // thời điểm của cả cụm — thà tách ra.
+      && tb >= ta && tb - ta <= CUM_MS;
+  }
+
+  // Gộp cụm làm mất bớt dấu giờ, nên phải trả ngữ cảnh lại ở chỗ nó thật sự có nghĩa: lúc hội
+  // thoại đứt quãng lâu. Không có mốc này thì đọc lại một hội thoại dài không biết khách im ba
+  // tiếng hay trả lời ngay. Đổi NGÀY đã có dải ngày riêng lo.
+  function canMocGio(a, b) {
+    if (!a || !b) return false;
+    if (ngayCua(a.createdUtc) !== ngayCua(b.createdUtc)) return false;
+    return new Date(b.createdUtc) - new Date(a.createdUtc) >= MOC_MS;
+  }
+
+  function BongBong({ tin, kenh, ten0, dauCum = true, cuoiCum = true }) {
     // 0=khách 1=AI 2=nhân viên 3=hệ thống
     const ben = tin.senderKind;
     const cuaMinh = tin.direction === 1;
     const lop = ben === 0 ? 'ci-khach' : ben === 1 ? 'ci-ai' : ben === 3 ? 'ci-hethong' : 'ci-nv';
-    const nhan = ben === 1 ? 'AI trả lời' : ben === 2 ? (tin.senderUsername || 'Nhân viên') : null;
+    // Nhãn người gửi chỉ ở ĐẦU cụm — lặp lại dưới mỗi bong bóng của cùng một người là thừa.
+    const nhan = !dauCum ? null
+      : ben === 1 ? 'AI trả lời' : ben === 2 ? (tin.senderUsername || 'Nhân viên') : null;
     const coTep = (tin.files || []).length > 0;
+    // Tin CHỈ có ảnh/nhãn dán, không kèm chữ. Bong bóng bọc quanh một tấm ảnh — nhất là nhãn dán
+    // nền trong suốt — trông như cái khung thừa; mọi app chat đều để media trôi tự do.
+    const chiMedia = coTep && !tin.body;
 
     // Ba dạng trình bày KHÁC NHAU, không phải một bong bóng đổi màu:
     //   khách  — bong bóng trắng, có ảnh đại diện, giờ nằm DƯỚI bóng
@@ -224,10 +280,21 @@
         )}
       </>
     );
-    const gio = (
+    // ⚠️ KHÔNG in giờ dưới bong bóng nữa — đây là cách Messenger làm, và nó gọn hơn hẳn.
+    //
+    // Toàn bộ thông tin thời gian dồn vào DẢI NGĂN giữa dòng (dải ngày + mốc giờ), chỉ xuất
+    // hiện khi hội thoại thật sự đứt quãng. Giờ chính xác của TỪNG tin vẫn tra được: rê chuột
+    // lên bong bóng là hiện đầy đủ cả thứ, ngày, giờ.
+    //
+    // Bản trước in giờ dưới mỗi CỤM. Đỡ hơn in dưới mỗi tin, nhưng khách nhắn rải rác vẫn ra
+    // một cột giờ chạy dọc khung chat, lặp gần như cùng một con số.
+    //
+    // Còn lại ở hàng này: dấu ĐÃ GỬI/ĐÃ XEM (chỉ tin mình gửi) và báo GỬI HỎNG. Báo hỏng luôn
+    // hiện dù nằm giữa cụm — giấu nó cho gọn mắt là giấu mất một tin khách không bao giờ nhận.
+    const coDauGui = cuaMinh && cuoiCum;
+    const gio = (coDauGui || tin.state === 4) && (
       <div className="ci-gio">
-        <span>{gioPhut(tin.createdUtc)}</span>
-        {cuaMinh && <DauGui state={tin.state} kenh={kenh} />}
+        {coDauGui && <DauGui state={tin.state} kenh={kenh} />}
         {tin.state === 4 && <span className="ci-loi" title={tin.errorMessage}>gửi hỏng</span>}
       </div>
     );
@@ -242,8 +309,10 @@
     );
 
     if (ben === 1) return (
-      <div className="ci-ai">
-        <div className="ci-nhan"><window.Icon name="sparkle" size={11} />Bot đã trả lời</div>
+      <div className={'ci-ai' + (dauCum ? '' : ' lien')} title={gioDayDu(tin.createdUtc)}>
+        {dauCum && (
+          <div className="ci-nhan"><window.Icon name="sparkle" size={11} />Bot đã trả lời</div>
+        )}
         {noiDung}
         {gio}
         {camXuc}
@@ -251,10 +320,16 @@
     );
 
     if (!cuaMinh) return (
-      <div className="ci-dong ci-trai">
-        <AnhDaiDien ten={tin.senderUsername || ten0} co={26} />
+      <div className={'ci-dong ci-trai' + (cuoiCum ? '' : ' lien')}>
+        {/* Ảnh đại diện MỘT LẦN cho cả cụm, đặt ở tin CUỐI — đó là chỗ Messenger đặt, và mắt
+            đọc từ trên xuống nên nó đóng cụm lại. Các tin trên giữ một ô trống cùng bề ngang
+            để bong bóng không bị lệch trái. */}
+        {cuoiCum
+          ? <AnhDaiDien ten={tin.senderUsername || ten0} co={26} />
+          : <span className="ci-avt-cho" aria-hidden="true" />}
         <div style={{ minWidth: 0 }}>
-          <div className="ci-bong ci-khach">{noiDung}</div>
+          <div className={'ci-bong ci-khach' + (chiMedia ? ' tran' : '')}
+               title={gioDayDu(tin.createdUtc)}>{noiDung}</div>
           {gio}
           {camXuc}
         </div>
@@ -262,9 +337,10 @@
     );
 
     return (
-      <div className="ci-dong ci-phai">
+      <div className={'ci-dong ci-phai' + (cuoiCum ? '' : ' lien')}>
         <div>
-          <div className={'ci-bong ' + lop}>
+          <div className={'ci-bong ' + lop + (chiMedia ? ' tran' : '')}
+               title={gioDayDu(tin.createdUtc)}>
             {nhan && <div className="ci-nhan">{nhan}</div>}
             {noiDung}
             {/* Nút ĐÃ GỬI kèm tin. Vẽ lại để đọc hội thoại là thấy đúng thứ khách nhìn thấy —
@@ -1503,6 +1579,7 @@
             })}
           </div>
         ))}
+
       </>
     );
 
@@ -1887,7 +1964,10 @@
                         className={'ci-muc' + (chon === c.id ? ' on' : '') + (c.unread ? ' chuadoc' : '')}
                         onClick={() => setChon(c.id)}>
                   <span className="ci-muc-avt">
-                    <AnhDaiDien ten={c.displayName || c.contactExternalId} co={36} />
+                    {/* url= là BẮT BUỘC, không thì AnhDaiDien lặng lẽ vẽ chữ cái đầu — danh sách
+                        hiện "TT" trong khi đầu khung chat ngay cạnh hiện ảnh thật của cùng khách. */}
+                    <AnhDaiDien ten={c.displayName || c.contactExternalId}
+                                url={c.avatarUrl} co={36} />
                     <HuyHieuKenh kenh={c.channel} />
                   </span>
                   <span className="ci-muc-than">
@@ -1959,14 +2039,40 @@
 
                 <div className="ci-cuon" ref={cuonRef}>
                   {tinNhan.length === 0 && <div className="ci-trong">Chưa có tin nhắn nào.</div>}
-                  {tinNhan.map((m, i) => (
-                    <React.Fragment key={m.id}>
-                      {(i === 0 || ngayCua(m.createdUtc) !== ngayCua(tinNhan[i - 1].createdUtc)) && (
-                        <div className="ci-ngay"><span>{nhanNgay(m.createdUtc)}</span></div>
-                      )}
-                      <BongBong tin={m} kenh={v.channel} ten0={tenKhach} />
-                    </React.Fragment>
-                  ))}
+                  {tinNhan.map((m, i) => {
+                    const truoc = i > 0 ? tinNhan[i - 1] : null;
+                    const sau = i < tinNhan.length - 1 ? tinNhan[i + 1] : null;
+
+                    const doiNgay = !truoc || ngayCua(m.createdUtc) !== ngayCua(truoc.createdUtc);
+                    const mocGio = !doiNgay && canMocGio(truoc, m);
+
+                    // Bất cứ thứ gì chen vào giữa (dải ngày, mốc giờ) đều CẮT cụm: cụm là một
+                    // khối liền mạch, có vạch ngăn ở giữa mà vẫn coi là liền thì dấu giờ ở cuối
+                    // nằm sau vạch và nói về đoạn nằm trước vạch.
+                    const dauCum = doiNgay || mocGio || !cungCum(truoc, m);
+                    const cuoiCum = !sau
+                      || ngayCua(sau.createdUtc) !== ngayCua(m.createdUtc)
+                      || canMocGio(m, sau)
+                      || !cungCum(m, sau);
+
+                    return (
+                      <React.Fragment key={m.id}>
+                        {/* Dải ngày mang LUÔN cả giờ. Bong bóng không in giờ nữa, nên nếu dải
+                            này chỉ ghi "Hôm nay" thì cả đoạn đầu ngày không còn mốc thời gian
+                            nào — đọc lại không biết khách nhắn lúc sáng hay lúc khuya. */}
+                        {doiNgay && (
+                          <div className="ci-ngay">
+                            <span>{nhanNgay(m.createdUtc)} · {gioPhut(m.createdUtc)}</span>
+                          </div>
+                        )}
+                        {mocGio && (
+                          <div className="ci-mocgio"><span>{gioPhut(m.createdUtc)}</span></div>
+                        )}
+                        <BongBong tin={m} kenh={v.channel} ten0={tenKhach}
+                                  dauCum={dauCum} cuoiCum={cuoiCum} />
+                      </React.Fragment>
+                    );
+                  })}
                 </div>
 
                 {moMau && (
@@ -1991,13 +2097,17 @@
                     <>
                       {/* Tệp đã tải lên, CHỜ bấm gửi. Xem trước rồi mới gửi — lỡ chọn nhầm còn gỡ kịp. */}
                       {dinhKem && (
-                        <div className="ci-cho-gui">
+                        <div className="ci-tep-cho">
                           {dinhKem.kind === 'anh'
                             ? <img src={dinhKem.url} alt="" />
-                            : <window.Icon name="paperclip" size={16} />}
-                          <span>{dinhKem.name}<em>{coCho(dinhKem.size)}</em></span>
-                          <button onClick={() => setDinhKem(null)} aria-label="Bỏ tệp này">
-                            <window.Icon name="close" size={14} />
+                            : <span className="ci-tep-cho-icon">
+                                <window.Icon name="paperclip" size={15} />
+                              </span>}
+                          <span className="ci-tep-cho-ten">{dinhKem.name}</span>
+                          <em>{coCho(dinhKem.size)}</em>
+                          <button type="button" onClick={() => setDinhKem(null)}
+                                  title="Bỏ tệp này" aria-label="Bỏ tệp này">
+                            <window.Icon name="close" size={13} />
                           </button>
                         </div>
                       )}

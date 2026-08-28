@@ -358,6 +358,21 @@ public class WhatsAppChatAdapter : IChatChannelAdapter, IApprovedTemplateSender,
         }
     }
 
+    /// <summary>
+    /// Khoá để TẢI tệp từ Meta. WhatsApp <b>bắt buộc</b> gửi kèm — thiếu là Meta trả 401 và ảnh
+    /// khách gửi mất trắng. Bốn kênh kia không cần (URL đã ký sẵn trong đường dẫn).
+    ///
+    /// <para>Lấy khoá của tài khoản ĐẦU TIÊN đã khai: lúc soi tệp mình chỉ có tin, chưa biết nó
+    /// vào qua số nào — mà mọi số trong cùng một công ty đều thuộc một ứng dụng Meta nên khoá
+    /// nào cũng tải được.</para>
+    /// </summary>
+    public async Task<string?> AccessTokenForMediaAsync(string tenantId, CancellationToken ct)
+    {
+        foreach (var t in await _cred.ListAccountsAsync(tenantId, Channel, ct))
+            if (NullIfBlank(t.GiaTri.GetValueOrDefault("accessToken")) is { } k) return k;
+        return null;
+    }
+
     // ── Nút bấm ─────────────────────────────────────────────────────────────
 
     /// <summary>
@@ -418,10 +433,10 @@ public class WhatsAppChatAdapter : IChatChannelAdapter, IApprovedTemplateSender,
                 return new(true, false,
                     (o?["messages"] as JsonArray)?.FirstOrDefault()?["id"]?.ToString(), null);
 
-            return new(false, (int)res.StatusCode >= 500, null,
+            return SendResult.Fail(NhomLoi(o, (int)res.StatusCode),
                 $"WhatsApp từ chối: {o?["error"]?["message"]?.ToString() ?? Truncate(raw)}");
         }
-        catch (Exception ex) { return new(false, true, null, ex.Message); }
+        catch (Exception ex) { return SendResult.Fail(ChatFailure.Network, ex.Message); }
     }
 
     // ── Mẫu tin đã duyệt ────────────────────────────────────────────────────
@@ -493,10 +508,10 @@ public class WhatsAppChatAdapter : IChatChannelAdapter, IApprovedTemplateSender,
                 return new(true, false,
                     (o?["messages"] as JsonArray)?.FirstOrDefault()?["id"]?.ToString(), null);
 
-            return new(false, (int)res.StatusCode >= 500, null,
+            return SendResult.Fail(NhomLoi(o, (int)res.StatusCode),
                 $"WhatsApp từ chối mẫu: {o?["error"]?["message"]?.ToString() ?? Truncate(raw)}");
         }
-        catch (Exception ex) { return new(false, true, null, ex.Message); }
+        catch (Exception ex) { return SendResult.Fail(ChatFailure.Network, ex.Message); }
     }
 
     // ── Bóc gói tin ─────────────────────────────────────────────────────────
@@ -828,12 +843,69 @@ public class WhatsAppChatAdapter : IChatChannelAdapter, IApprovedTemplateSender,
                 return new(true, false, o?["messages"]?[0]?["id"]?.ToString(), null);
 
             var moTa = o?["error"]?["message"]?.ToString() ?? Truncate(raw);
-            return new(false, (int)res.StatusCode >= 500, null, $"WhatsApp từ chối: {moTa}");
+            return SendResult.Fail(NhomLoi(o, (int)res.StatusCode), $"WhatsApp từ chối: {moTa}");
         }
         catch (Exception ex)
         {
-            return new(false, true, null, ex.Message);
+            return SendResult.Fail(ChatFailure.Network, ex.Message);
         }
+    }
+
+    /// <summary>
+    /// Gỡ tài khoản WhatsApp khỏi ứng dụng.
+    ///
+    /// <para>Gỡ theo <b>tài khoản WhatsApp</b> (<c>wabaId</c>) chứ không theo số điện thoại: đăng
+    /// ký nhận tin nằm ở cấp tài khoản, không phải cấp số. Chưa lưu <c>wabaId</c> (khoá khai tay
+    /// từ trước khi có nối một nút) thì không gỡ được — báo <c>false</c> để chỗ gọi ghi nhật ký,
+    /// rồi vẫn xoá khoá tiếp.</para>
+    /// </summary>
+    public async Task<bool> DisconnectAsync(string tenantId, string accountId, CancellationToken ct)
+    {
+        var c = await _cred.GetAsync(tenantId, Channel, accountId, ct);
+        var token = NullIfBlank(c?.GetValueOrDefault("accessToken"));
+        var wabaId = NullIfBlank(c?.GetValueOrDefault("wabaId"));
+        if (token is null || wabaId is null)
+        {
+            _log.LogWarning("[chat/whatsapp] không gỡ được {A}: thiếu khoá hoặc mã tài khoản WhatsApp",
+                accountId);
+            return false;
+        }
+
+        try
+        {
+            var http = _http.CreateClient();
+            using var res = await http.DeleteAsync(
+                $"{GraphBase}/{ApiVersion}/{U(wabaId)}/subscribed_apps?access_token={U(token)}", ct);
+            var raw = await res.Content.ReadAsStringAsync(ct);
+            var ok = res.IsSuccessStatusCode && JsonNode.Parse(raw)?["error"] is null;
+
+            if (ok) _log.LogInformation("[chat/whatsapp] đã gỡ tài khoản {W} (số {A})", wabaId, accountId);
+            else _log.LogWarning("[chat/whatsapp] gỡ {W} không được: {Loi}", wabaId, Truncate(raw));
+            return ok;
+        }
+        catch (Exception ex)
+        {
+            _log.LogWarning(ex, "[chat/whatsapp] gỡ {W} không gọi được Meta", wabaId);
+            return false;
+        }
+    }
+
+    /// <summary>
+    /// Quy lỗi WhatsApp về nhóm chung.
+    ///
+    /// <para><b>Bảng mã riêng, không dùng chung với Messenger</b> dù cùng nhà Meta: mã 131047 của
+    /// WhatsApp nghĩa là cửa sổ chăm sóc khách 24 giờ đã đóng (phải chuyển sang mẫu duyệt sẵn),
+    /// còn 131047 bên Messenger không tồn tại. Dùng nhầm bảng là đọc ra nhóm sai, rồi người trực
+    /// được bảo làm một việc chẳng liên quan.</para>
+    /// </summary>
+    private static ChatFailure NhomLoi(JsonObject? than, int maHttp)
+    {
+        var (ma, _, loai) = MetaMessagingParser.ReadErrorFields(than);
+        var nhom = ChannelFailures.FromWhatsApp(ma);
+
+        // Vét bằng bảng Meta chung: mã xác thực (190, 102…) giống nhau ở mọi sản phẩm của họ.
+        if (nhom == ChatFailure.Unknown) nhom = ChannelFailures.FromMeta(ma, null, loai);
+        return nhom == ChatFailure.Unknown ? ChannelFailures.FromHttp(maHttp) : nhom;
     }
 
     // ── Tệp khách gửi ───────────────────────────────────────────────────────

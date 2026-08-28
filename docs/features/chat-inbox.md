@@ -502,6 +502,55 @@ ghi hỏng vì không có quyền. Đường dẫn ảnh **lưu trong CSDL là v
 về, không nhận nhị phân qua API chat. Presigned URL có hạn cũng không hợp vì khách xem lại tin cũ bất cứ
 lúc nào. Nên **đừng để tệp nhạy cảm đi đường này**.
 
+### Soi tệp khách gửi về kho riêng
+
+⚠️ **URL của nền tảng có HẠN — không soi về kho mình thì hộp thư tự rỗng dần.** Meta ký hạn thẳng vào
+URL (tham số `oe=`): đo trên hộp thư staging 27/08/2026, ảnh khách gửi hôm đó hết hạn **01/09/2026** —
+sống đúng 5 ngày. Telegram còn ngặt hơn (chỉ `file_id`, đổi ra đường tải sống ~1 giờ), WhatsApp đòi khoá
+khi tải. Quá hạn là **mất hẳn**, không có API nào lấy lại.
+
+[`ChatMediaMirror`](../../TourkitAiProxy.Services/Chat/Inbox/ChatMediaMirror.cs) tải → nén (ImageSharp,
+cạnh dài 1600, JPEG q82; **bỏ qua ảnh động và tệp dưới 300KB**) → băm → ghi kho. **Nén TRƯỚC khi băm** —
+băm trước rồi nén thì hai lần nhận cùng một ảnh ra cùng khoá nhưng nội dung đã khác, chống lặp mất tác
+dụng đúng ở ca nó cần nhất. Hai khoá cho hai loại: nhãn dán `sticker/{kênh}/{sticker_id}` **dùng chung
+mọi công ty** (mã nền tảng cố định — cái like luôn là `369239263222822`, hỏi kho TRƯỚC khi tải nên lượt
+sau không chạm mạng); ảnh khách `chat/{công ty}/{sha256}` **khoá theo tenant**, hai công ty không bao
+giờ dùng chung một đối tượng.
+
+Tin MỚI soi ngay lúc nhận. Ảnh CŨ do
+[`ChatMediaBackfillWorker`](../../TourkitAiProxy.Services/Chat/Inbox/ChatMediaBackfillWorker.cs) vét nền,
+**tự động, không có nút bấm nào** — việc cứu dữ liệu có hạn chót thì người trực không có cách nào biết mà
+bấm. Ảnh đại diện khách đi cùng đường: soi lúc lấy hồ sơ, và có luồng vét riêng.
+
+**Chống phình theo dữ liệu — ba luật, đọc trước khi sửa:**
+
+| Luật | Vì sao |
+|---|---|
+| **Một cột cờ, không ba cột** — `chat_messages.media_state`, `chat_contacts.avatar_state`. Số **không âm** = đã thử bấy nhiêu lần, còn trong hàng chờ; **−1** = xong; **−2** = thôi. | Gộp cả "thử mấy lần / xong chưa / có bỏ không" vào một cột. Nhờ số âm mà vị từ chỉ mục chỉ cần `>= 0` — đổi số lần thử trong mã không phải dựng lại chỉ mục. |
+| **Chỉ mục CÓ ĐIỀU KIỆN** `ix_msg_media_cho (media_state, id) WHERE media_state >= 0 AND direction = 0 AND attachment IS NOT NULL` | Chỉ mục chỉ chứa tin CÒN phải soi → chi phí tỉ lệ **phần việc còn lại**, không tỉ lệ cỡ bảng. Tin chữ không có đính kèm nên không bao giờ lọt vào. Vét sạch rồi thì vòng quét chỉ là một lượt hỏi rỗng. ⚠️ Câu `WHERE`/`ORDER BY` của `ClaimMediaAsync` phải KHỚP vị từ này — lệch một chữ là Postgres quay ra quét cả bảng, vẫn đúng nhưng chậm dần và **không lỗi nào hiện ra**. `ChatSchemaGuardTests` canh. |
+| **NHẬN việc, không liệt kê** — `ClaimMediaAsync` / `ClaimAvatarsAsync` dùng `FOR UPDATE SKIP LOCKED` + tăng cờ ngay trong cùng câu lệnh. | Tin soi hỏng **cố ý không bị ghi đè** (giữ `file_id` Telegram trong gói gốc), nên nếu chỉ liệt kê thì mỗi vòng lại tải lại đúng những ảnh đã chết — mà phần đã chết chỉ tăng theo thời gian, tới lúc nó chiếm trọn mọi vòng và ảnh còn cứu được không bao giờ tới lượt. |
+
+**Không có cột mốc thời gian thử lại.** Giãn cách giữa hai lượt = nhịp vòng quét: mẻ đầu của vòng
+không chặn tầng và trả về `BackfillResult.Tier` (số lần đã thử thấp nhất nó gặp), từ mẻ sau con số đó
+thành **trần truyền xuống tận câu `WHERE`**. Mỗi tin chỉ được thử đúng một lần mỗi vòng, nên sự cố mạng
+5 phút không đốt sạch số lần thử của cả hộp thư.
+
+⚠️ **Trần phải chặn ở TRUY VẤN, không phải ở vòng lặp worker.** Bản đầu để worker tự nhận ra "mẻ vừa
+rồi đã sang tầng trên" rồi thoát — lúc nhận ra thì mẻ đó đã tải xong, tức tin tầng trên vẫn ăn thêm một
+lượt oan. Bắt được trên dữ liệu thật 28/08/2026: một khách duy nhất trong hàng chờ mà cờ nhảy thẳng
+`0 → 2` trong một vòng. Còn đúng một chỗ chưa khít và cố ý bỏ qua: mẻ ĐẦU có thể vắt qua ranh giới hai
+tầng khi việc còn lại ít hơn một mẻ (tối đa 24 dòng ăn thêm một lượt) — chặn nốt thì phải thêm một
+truy vấn "tầng thấp nhất là mấy" cho MỌI vòng quét.
+
+Nhà cung cấp trả 4xx (trừ 408/429) = **hết cứu** → bỏ ngay, không đợi đủ 5 lượt.
+
+**Ảnh hưởng tới web đang chạy** được chặn bằng: một việc một lúc (nhiều nhất 1 lõi CPU) · **nghỉ bằng
+đúng thời gian vừa làm** (2–30s → chiếm không quá nửa thời gian) · bắt đầu sau khởi động 1 phút · nhịp
+tự đổi (còn cứu được ảnh → 15 phút; hết việc → 6 tiếng).
+
+`POST /api/v1/chat/media/backfill` là đường **gọi tay lúc gấp** cho một công ty — không có nút nào trên
+giao diện gọi nó, và cố ý vậy.
+
 **Đính kèm khách gửi** chuẩn hoá ở MÁY CHỦ ([`ChatAttachment`](../../TourkitAiProxy.Domain/Chat/ChatAttachment.cs),
 hàm thuần, có test): mỗi kênh gói tệp một kiểu, để giao diện tự bóc thì cùng đoạn phân tích phải viết
 lại bằng JavaScript và không test được. Ảnh Telegram lấy **cỡ lớn nhất** (Telegram xếp nhỏ trước — lấy
