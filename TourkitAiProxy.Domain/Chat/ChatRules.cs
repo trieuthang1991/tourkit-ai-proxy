@@ -294,17 +294,6 @@ public static class ChatRules
     }
 
     /// <summary>
-    /// Mốc "đã đọc" cần đặt lại thành gì để hội thoại hiện CHƯA ĐỌC.
-    ///
-    /// <para>Danh sách hội thoại tính chưa đọc bằng phép so lớn hơn THỰC SỰ
-    /// (<c>contact_replied_at &gt; last_read_at</c>), nên đặt mốc bằng đúng thời điểm tin cuối là
-    /// không đủ — bấm nút mà không có gì xảy ra. Lùi một phần nghìn giây là vừa: đủ để vượt phép
-    /// so, mà không kéo theo những tin khách gửi trước đó thành chưa đọc oan.</para>
-    /// </summary>
-    public static DateTime MocChuaDoc(DateTime tinCuoiCuaKhachUtc)
-        => DateTime.SpecifyKind(tinCuoiCuaKhachUtc.AddMilliseconds(-1), DateTimeKind.Utc);
-
-    /// <summary>
     /// Đã im đủ lâu để xử lý cụm tin chưa.
     ///
     /// <para>Khách hay gõ nhiều dòng liền: "cho hỏi tour Đà Nẵng" / "đi 4 ngày" / "2 người lớn".
