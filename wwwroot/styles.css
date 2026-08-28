@@ -9724,7 +9724,11 @@ img.ci-avt { object-fit: cover; }
    mọi tin bên dưới nhích xuống, rê chuột dọc một hội thoại dài là cả khung nhảy liên tục. */
 /* Nút neo vào chính DÒNG tin, không phải mép ngoài bong bóng: neo ngoài bong bóng thì với tin
    sát mép trái nó tràn khỏi khung và kéo giãn chiều ngang. */
-.ci-tin-menu { position: absolute; top: 50%; right: 100%; transform: translateY(-50%);
+/* ⚠️ TUYỆT ĐỐI KHÔNG dùng transform ở đây. Menu bên trong vẽ bằng position:fixed, mà một tổ tiên
+   có transform sẽ biến "fixed" thành neo theo TỔ TIÊN ĐÓ chứ không theo khung nhìn — toạ độ tính
+   đúng vẫn ra sai chỗ, và menu bị đẩy ra ngoài làm khung chat tràn ngang gần 700px. Đã dính thật
+   khi chạy thử bằng trình duyệt. Căn giữa bằng margin âm, không bằng translateY. */
+.ci-tin-menu { position: absolute; top: 50%; right: 100%; margin-top: -13px;
                margin-right: 2px; opacity: 0; transition: opacity .12s; z-index: 3; }
 .ci-dong:hover .ci-tin-menu, .ci-tin-menu:focus-within { opacity: 1; }
 .ci-tin-cham { display: grid; place-items: center; width: 26px; height: 26px; padding: 0;
@@ -9824,3 +9828,16 @@ img.ci-avt { object-fit: cover; }
   .ci-soan-nut .icon.dang-lam svg { animation: xg-quay 1.1s linear infinite; }
   @keyframes xg-quay { to { transform: rotate(360deg); } }
 }
+
+/* ── Mũi nhọn của menu, chỉ về đúng nút vừa bấm ───────────────────────────────
+   Một hình vuông xoay 45°, dùng LẠI nền và viền của menu rồi bỏ hai cạnh khuất — nên nó khớp
+   màu ở mọi chủ đề mà không phải khai màu lần thứ hai. Vị trí ngang do JS tính theo tâm nút
+   thật (biến --nhon): đặt cứng thì lúc menu bị kẹp vào mép màn hình, mũi nhọn chỉ vào chỗ trống. */
+.ci-menu.nhon-tren::after, .ci-menu.nhon-duoi::after {
+  content: ''; position: absolute; right: var(--nhon, 10px);
+  width: 10px; height: 10px; transform: rotate(45deg);
+  background: var(--surface); border: 1px solid var(--line); }
+/* Menu nằm DƯỚI nút → nhọn chĩa LÊN, chỉ giữ hai cạnh trên và trái. */
+.ci-menu.nhon-tren::after { top: -6px; border-right: 0; border-bottom: 0; }
+/* Menu bị lật lên TRÊN nút → nhọn chĩa XUỐNG. */
+.ci-menu.nhon-duoi::after { bottom: -6px; border-left: 0; border-top: 0; }

@@ -264,9 +264,23 @@
    */
   function viTriMenu(nut, caoUocLuong) {
     const o = nut.getBoundingClientRect();
-    const duoi = window.innerHeight - o.bottom;
+    const cao = window.innerHeight, rong = window.innerWidth;
+    const duoi = cao - o.bottom;
     const lat = duoi < caoUocLuong && o.top > duoi;
-    return { x: o.right, y: lat ? o.top - 6 : o.bottom + 6, lat };
+
+    // KẸP vào khung nhìn. Nút neo có thể nằm ngoài màn hình (danh sách vừa cuộn, hoặc cửa sổ
+    // thấp), lúc đó menu bám sát nút sẽ chui ra ngoài và không bấm được — đã thấy khi chạy thử.
+    const y = lat
+      ? Math.min(o.top - 6, cao - 8)                       // lật lên: y là ĐÁY menu
+      : Math.max(8, Math.min(o.bottom + 6, cao - caoUocLuong - 8));
+    // x là mép PHẢI menu (có translateX(-100%)), nên phải chừa đủ bề ngang menu bên trái.
+    const x = Math.max(198, Math.min(o.right, rong - 8));
+
+    // Chỗ đặt mũi nhọn, đo từ mép PHẢI menu vào. Tính theo tâm nút thật chứ không đặt cứng: khi
+    // x bị kẹp ở trên thì mép menu không còn trùng mép nút nữa, đặt cứng là mũi nhọn chỉ vào chỗ
+    // trống. Kẹp lại trong thân menu để nó không thò ra ngoài góc bo.
+    const nhon = Math.max(10, Math.min(168, x - (o.left + o.width / 2) - 5));
+    return { x, y, lat, nhon };
   }
 
   /** Telegram — kênh DUY NHẤT thu hồi thật được (bot xoá tin của chính nó trong 48 giờ). */
@@ -416,8 +430,9 @@
         {moTin && (
           <>
             <div className="ci-menu-nen" onClick={() => setMoTin(null)} />
-            <div className="ci-menu ci-menu-tin" role="menu"
-                 style={{ left: moTin.x, top: moTin.y,
+            <div className={'ci-menu ci-menu-tin ' + (moTin.lat ? 'nhon-duoi' : 'nhon-tren')}
+                 role="menu"
+                 style={{ left: moTin.x, top: moTin.y, '--nhon': moTin.nhon + 'px',
                           transform: moTin.lat ? 'translate(-100%, -100%)' : 'translateX(-100%)' }}>
               {suaDuoc && (
                 <button role="menuitem" onClick={() => { setMoTin(null); onSua(tin); }}>Sửa lại</button>
@@ -427,10 +442,14 @@
                   Thu hồi cả phía khách
                 </button>
               )}
+              {/* ⚠️ Nhãn ngắn gọn "Gỡ" theo lối Messenger, nhưng bên đó "Gỡ" nghĩa là thu hồi
+                  CẢ PHÍA KHÁCH — còn đây chỉ gỡ trong hộp thư của mình. Vì thế câu xác nhận
+                  trong onXoa PHẢI giữ nguyên phần nói rõ khách vẫn thấy; bỏ nó đi là nhãn này
+                  thành lời hứa sai. */}
               {onXoa && (
                 <button role="menuitem" className="nguy-hiem"
                         onClick={() => { setMoTin(null); onXoa(tin); }}>
-                  Xoá khỏi hộp thư
+                  Gỡ
                 </button>
               )}
             </div>
@@ -2073,7 +2092,7 @@
     async function xoaTin(tin) {
       // ⚠️ Câu hỏi PHẢI nói khách vẫn thấy. Không nói thì nhân viên tưởng đã thu hồi được câu lỡ
       // tay và không đi xin lỗi khách — hậu quả thật, không phải chuyện chữ nghĩa.
-      if (!confirm('Xoá tin này khỏi hộp thư?\n\n'
+      if (!confirm('Gỡ tin này khỏi hộp thư?\n\n'
         + 'Chỉ xoá ở phía bạn — KHÁCH VẪN THẤY tin này. '
         + 'Các nền tảng không cho phép doanh nghiệp thu hồi tin đã gửi.')) return;
       try {
@@ -2311,17 +2330,26 @@
                   {/* "⋯" hiện khi rê chuột — đúng lối Messenger. Nút nằm TUYỆT ĐỐI nên không
                       chiếm chỗ lúc ẩn, và dòng không nhảy khi nó hiện ra. */}
                   <button className="ci-muc-cham" title="Thao tác" aria-label="Thao tác"
-                          onClick={e => { e.stopPropagation();
-                                          setMenuDong(x => (x?.id === c.id ? null
-                                            : { id: c.id, ...viTriMenu(e.currentTarget, 200) })); }}>
+                          onClick={e => {
+                            e.stopPropagation();
+                            // ⚠️ Đo NGAY trong lượt xử lý sự kiện, đừng đo bên trong hàm cập nhật
+                            // state. Hàm đó chạy SAU, lúc ấy React đã thu hồi e.currentTarget nên
+                            // nó là null — và getBoundingClientRect trên null ném lỗi làm TRẮNG
+                            // cả trang. Đã dính thật khi chạy thử bằng trình duyệt.
+                            const vt = viTriMenu(e.currentTarget, 200);
+                            setMenuDong(x => (x?.id === c.id ? null : { id: c.id, ...vt }));
+                          }}>
                     <window.Icon name="more" size={15} />
                   </button>
                   {menuDong?.id === c.id && (
                     <>
                       <div className="ci-menu-nen"
                            onClick={e => { e.stopPropagation(); setMenuDong(null); }} />
-                      <div className="ci-menu ci-menu-dong" role="menu"
+                      <div className={'ci-menu ci-menu-dong '
+                                      + (menuDong.lat ? 'nhon-duoi' : 'nhon-tren')}
+                           role="menu"
                            style={{ left: menuDong.x, top: menuDong.y,
+                                    '--nhon': menuDong.nhon + 'px',
                                     transform: menuDong.lat ? 'translate(-100%, -100%)'
                                                             : 'translateX(-100%)' }}
                            onClick={e => e.stopPropagation()}>
