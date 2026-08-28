@@ -451,7 +451,18 @@ public class TelegramChatAdapter : IChatChannelAdapter, IButtonSender, IMessageR
         // photos[0] = ảnh mới nhất, các phần tử bên trong là các cỡ (nhỏ trước). Ảnh đại diện chỉ
         // hiện cỡ 32px nên lấy cỡ NHỎ NHẤT là đúng — khác hẳn ảnh khách gửi (lấy cỡ lớn nhất để
         // còn soi được chữ trên hoá đơn/hộ chiếu).
-        var maTep = anh?["result"]?["photos"]?[0]?[0]?["file_id"]?.ToString();
+        //
+        // ⚠️ TUYỆT ĐỐI không viết `?["photos"]?[0]?[0]`. Dấu `?.` chỉ chặn null, KHÔNG chặn mảng
+        // RỖNG — mà Telegram trả `"photos": []` cho mọi khách chưa đặt ảnh đại diện. Chỉ số 0 trên
+        // mảng rỗng ném ArgumentOutOfRangeException, và vì hàm này KHÔNG nằm trong khối bắt lỗi
+        // nào, lỗi đó ném ra tận ngoài làm hỏng cả sự kiện: tin của khách không bao giờ vào hộp thư.
+        //
+        // Bắt được trên dữ liệu thật 28/08/2026 — một câu "Xin chào" của khách chưa có ảnh đại diện
+        // làm hỏng nguyên gói tin, và trước bản sửa ghi lỗi hôm nay thì nó hỏng HOÀN TOÀN im lặng.
+        var maTep = anh?["result"]?["photos"] is JsonArray ds && ds.Count > 0
+                 && ds[0] is JsonArray coAnh && coAnh.Count > 0
+            ? coAnh[0]?["file_id"]?.ToString()
+            : null;
 
         var duongAnh = string.IsNullOrWhiteSpace(maTep) ? null
             : $"/api/v1/chat/avatars/{accountId}/{Uri.EscapeDataString(maTep!)}";

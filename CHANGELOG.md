@@ -101,6 +101,11 @@ Những cập nhật gần đây của TRAV-AI, viết cho người dùng. Mới
 - **Danh sách hội thoại gọn và dễ liếc hơn.** Nhãn trạng thái giãn ra, mỗi dòng thoáng hơn, và
   thao tác dồn vào nút **⋯** thay vì bày bảy nút chữ cạnh nhau — trước đây chúng tràn dòng
   trên màn hình hẹp và bắt bạn đọc hết bảy nhãn mỗi lần chỉ để bấm một cái.
+- **Telegram: khách chưa đặt ảnh đại diện thì tin không vào được hộp thư.** Đây là lỗi nặng và
+  âm thầm: một câu "Xin chào" bình thường cũng mất, chỉ vì lúc đi lấy hồ sơ khách thì Telegram
+  trả về danh sách ảnh RỖNG và hệ thống vấp ở đúng chỗ đó. Khách vẫn thấy tin mình đã gửi, còn
+  bên bạn thì không có gì — không báo lỗi, không dấu vết. Nay đã sửa, và những tin lỡ mất trước
+  đó vẫn nằm trong hàng đợi nên khôi phục lại được.
 - **Khách thả cảm xúc trên Facebook: nay hộp thư hiện.** Trước đây khách thả tim hay biểu tượng
   vào tin của bạn thì hộp thư không hiện gì cả — trong khi Instagram thì có. Nay Facebook cũng
   hiện, kể cả lúc khách gỡ ra.
