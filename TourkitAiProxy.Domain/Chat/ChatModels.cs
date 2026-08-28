@@ -281,6 +281,12 @@ public class ChatMessage
     /// <para>⚠️ Chỉ xoá ở PHÍA MÌNH. Không nền tảng nào cho doanh nghiệp thu hồi tin đã gửi,
     /// nên khách vẫn thấy nguyên — giao diện phải nói rõ chuyện đó.</para></summary>
     public DateTime? DeletedUtc { get; set; }
+    /// <summary>Sớm nhất được phép gửi, ghép từ hàng đợi gửi. Null = không hoãn (hoặc đã gửi rồi).
+    ///
+    /// <para>Đây là mốc CÓ THẨM QUYỀN cho đồng hồ đếm ngược của nút Thu hồi. Giao diện suy ra
+    /// từ <c>CreatedUtc</c> cộng số giây trong cấu hình thì sai ngay khi quản trị đổi cấu hình,
+    /// và lệch luôn khi đồng hồ máy khách chạy sai.</para></summary>
+    public DateTime? SendAfterUtc { get; set; }
     public DateTime CreatedUtc { get; set; }
 }
 

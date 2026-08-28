@@ -9686,3 +9686,11 @@ img.ci-avt { object-fit: cover; }
 .ci-tin-thaotac button { background: none; border: 0; padding: 0; cursor: pointer;
                          font-size: 11px; color: var(--muted, #6b7280); text-decoration: underline; }
 .ci-tin-thaotac button:hover { color: var(--fg, #111827); }
+
+/* Cửa sổ thu hồi: tin còn nằm trong hàng đợi, chưa rời máy chủ. Hiện thường trực (không ẩn như
+   dải Sửa/Xoá) vì nó có ĐỒNG HỒ đếm ngược — ẩn đi thì người ta không biết mình còn mấy giây. */
+.ci-thu-hoi { display: flex; gap: 8px; align-items: center; justify-content: flex-end;
+              margin-top: 2px; font-size: 11px; color: var(--muted, #6b7280); }
+.ci-thu-hoi button { background: none; border: 0; padding: 0; cursor: pointer;
+                     font-size: 11px; font-weight: 600; color: var(--danger, #b91c1c);
+                     text-decoration: underline; }

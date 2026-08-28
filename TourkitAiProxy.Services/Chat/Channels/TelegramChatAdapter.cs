@@ -30,7 +30,7 @@ namespace TourkitAiProxy.Services.Chat.Channels;
 /// khi gửi thành công: như thế là nói dối nhân viên rằng khách đã nhận trong khi mình không biết.
 /// Giao diện nói rõ chuyện này ở tooltip dấu tích (xem <c>DauGui</c> trong chat-inbox.jsx).</para>
 /// </summary>
-public class TelegramChatAdapter : IChatChannelAdapter, IButtonSender
+public class TelegramChatAdapter : IChatChannelAdapter, IButtonSender, IMessageRecaller
 {
     private const string ApiBase = "https://api.telegram.org";
 
@@ -376,6 +376,39 @@ public class TelegramChatAdapter : IChatChannelAdapter, IButtonSender
         if (token is null) return;
         await CallJsonAsync(token, "sendChatAction",
             new JsonObject { ["chat_id"] = externalUserId, ["action"] = "typing" }, ct);
+    }
+
+    /// <inheritdoc />
+    /// <remarks>
+    /// 48 giờ là hạn Telegram đặt cho <c>deleteMessage</c>. Khai rộng hơn thì nút hiện ra rồi
+    /// bấm vào báo lỗi; khai hẹp hơn là tự bỏ mất quãng còn cứu được.
+    /// </remarks>
+    public TimeSpan RecallWindow => TimeSpan.FromHours(48);
+
+    /// <inheritdoc />
+    /// <remarks>
+    /// Telegram là kênh DUY NHẤT trong sáu kênh thu hồi thật được: bot xoá được tin của chính
+    /// nó và khách không còn thấy. Meta không có đường tương đương cho doanh nghiệp.
+    /// </remarks>
+    public async Task<bool> RecallAsync(string tenantId, string accountId, string externalUserId,
+        string externalMsgId, CancellationToken ct)
+    {
+        var token = await TokenAsync(tenantId, accountId, ct);
+        if (token is null) return false;
+
+        // Mã tin của mình lưu dạng "<chatId>:<messageId>" — xem chỗ ghi trong Parse. Phải tách
+        // lấy vế sau; đưa nguyên chuỗi thì Telegram trả "message identifier is not specified".
+        var maTin = externalMsgId.Contains(':')
+            ? externalMsgId[(externalMsgId.LastIndexOf(':') + 1)..]
+            : externalMsgId;
+        if (!long.TryParse(maTin, out var so)) return false;
+
+        var kq = await CallJsonAsync(token, "deleteMessage", new JsonObject
+        {
+            ["chat_id"] = externalUserId,
+            ["message_id"] = so,
+        }, ct);
+        return kq?["ok"]?.GetValue<bool>() == true;
     }
 
     /// <inheritdoc />

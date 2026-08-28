@@ -782,3 +782,32 @@ token thì Zalo vô hiệu hoá cái cũ và bên chậm chân mất token vĩnh
 thêm truy vấn nào vào đường nóng**. `ChatMessage.DeletedUtc` mới được nối ra tới giao diện ở đợt
 này — trước đó cột `deleted_utc` (dùng cho bình luận khách tự xoá) ghi vào CSDL rồi nằm im, nên
 lời hứa "hộp thư hiện đã bị xoá" trong chú thích schema chưa từng được giữ.
+
+
+### Thu hồi tin — vì sao là "hoãn gửi" chứ không phải "thu hồi"
+
+⚠️ **Meta không cấp API thu hồi cho phía doanh nghiệp.** Messenger, Instagram và WhatsApp Cloud API
+không có endpoint nào gỡ một tin đã gửi — thu hồi là tính năng của ứng dụng người dùng, không phải
+của nền tảng. ChatbotX **có** nút `delete-message`, nhưng đọc mã thì nó gọi `repository.deleteById`:
+chỉ xoá trong CSDL của họ, khách vẫn thấy nguyên tin. Một nút "Thu hồi" đặt ở đó là **lời nói dối
+trên giao diện**, và là loại có hậu quả thật — nhân viên tưởng đã rút lại được câu lỡ tay nên không
+gọi xin lỗi khách.
+
+Nên cơ chế ở đây **không đi tìm đường thu hồi**, mà tạo ra một quãng trước khi tin rời máy chủ:
+
+| Thành phần | Việc |
+|---|---|
+| `chat_outbox.send_after` | Sớm nhất được phép gửi. NULL = gửi ngay (mọi dòng cũ lúc nâng cấp) |
+| `ChatRules.HoanGuiGiay` | Chỉ hoãn tin của **người thật** (`ChatSender.Agent`); trợ lý đã chờ 4 giây gộp tin rồi. Kẹp 0…60 giây |
+| `ClaimOutboxAsync` | Chỉ nhặt dòng `send_after IS NULL OR <= now()` — đây là toàn bộ cơ chế |
+| `CancelOutboxAsync` | Xoá dòng hàng đợi + đánh dấu tin đã thu hồi, **trong một câu lệnh**, chỉ khi còn `status = 0` và chưa tới giờ |
+| `ChatMessage.SendAfterUtc` | Mốc **có thẩm quyền** cho đồng hồ đếm ngược. Giao diện **không** tự cộng `createdUtc` + cấu hình: đổi cấu hình hoặc đồng hồ máy khách sai là con số suy ra sai ngay |
+| `Chat:UndoSendSeconds` | Mặc định 5, đặt 0 là tắt hẳn |
+
+**Telegram là kênh DUY NHẤT thu hồi thật được** (`deleteMessage`, 48 giờ) — cài qua giao diện tuỳ
+chọn `IMessageRecaller`, cùng lối với `IButtonSender`. `RecallTests` canh **không cho kênh Meta cài
+giao diện này**: cài vào là hứa suông. Kênh không cài thì hết đếm ngược, nút đổi thành **Xoá** với
+câu xác nhận nói thẳng *"KHÁCH VẪN THẤY tin này"*.
+
+⚠️ `EnqueueOutboxAsync` vẫn phải đánh thức worker ngay sau đó, kể cả khi có hoãn — `ChatWorkSignalTests`
+canh trong phạm vi 400 ký tự, nên đừng chèn chú thích dài vào giữa hai lệnh (đã dính một lần).

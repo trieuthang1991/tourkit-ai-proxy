@@ -1046,9 +1046,16 @@ public class ChatRepository
         // ra là thấy chuyện từ hôm kia.
         var rows = await c.QueryAsync<ChatMessage>("""
             SELECT * FROM (
-              SELECT * FROM chat_messages
-               WHERE conversation_id = @conv AND tenant_id = @tenant
-               ORDER BY created_utc DESC LIMIT @limit
+              -- send_after nằm ở hàng đợi GỬI, không ở bảng tin. Ghép vào đây để giao diện có
+              -- mốc CÓ THẨM QUYỀN mà đếm ngược nút Thu hồi — suy ra từ created_utc cộng cấu
+              -- hình thì sai ngay khi quản trị đổi số giây, và lệch khi đồng hồ máy khách sai.
+              -- Chỉ ghép dòng CÒN CHỜ (status = 0): tin đã gửi rồi thì không còn gì để thu hồi.
+              SELECT m.*, o.send_after
+                FROM chat_messages m
+                LEFT JOIN chat_outbox o
+                  ON o.message_id = m.id AND o.tenant_id = m.tenant_id AND o.status = 0
+               WHERE m.conversation_id = @conv AND m.tenant_id = @tenant
+               ORDER BY m.created_utc DESC LIMIT @limit
             ) t ORDER BY created_utc
             """, new { conv = conversationId, tenant, limit = Math.Clamp(limit, 1, 300) });
         return rows.ToList();
@@ -1142,14 +1149,46 @@ public class ChatRepository
 
     // ── Hàng đợi gửi ────────────────────────────────────────────────────────
 
+    /// <param name="hoanGiay">
+    /// Giữ tin lại bấy nhiêu giây trước khi gửi — cửa sổ để người trực rút lại. 0 = gửi ngay.
+    /// Tính bằng <c>ChatRules.HoanGuiGiay</c>, đừng tự nhân chia ở chỗ gọi.
+    /// </param>
     public async Task EnqueueOutboxAsync(string tenant, long conversationId, long messageId,
-        CancellationToken ct = default)
+        CancellationToken ct = default, int hoanGiay = 0)
     {
         await using var c = await _db.OpenAsync(ct);
         await c.ExecuteAsync("""
-            INSERT INTO chat_outbox (tenant_id, conversation_id, message_id)
-            VALUES (@tenant, @conv, @msg)
-            """, new { tenant, conv = conversationId, msg = messageId });
+            INSERT INTO chat_outbox (tenant_id, conversation_id, message_id, send_after)
+            VALUES (@tenant, @conv, @msg,
+                    CASE WHEN @hoan > 0 THEN now() + make_interval(secs => @hoan) END)
+            """, new { tenant, conv = conversationId, msg = messageId, hoan = hoanGiay });
+    }
+
+    /// <summary>
+    /// Rút một tin khỏi hàng đợi gửi — thu hồi THẬT, vì tin chưa hề rời máy chủ.
+    ///
+    /// <para>Điều kiện <c>status = 0</c> và <c>send_after &gt; now()</c> kiểm NGAY TRONG câu
+    /// lệnh chứ không ở tầng trên: worker có thể vừa nhặt đúng tin đó lên giữa hai lượt. Trả
+    /// <c>false</c> nghĩa là muộn rồi — chỗ gọi phải nói thật với người dùng, đừng báo thành
+    /// công cho một việc đã không xảy ra.</para>
+    /// </summary>
+    public async Task<bool> CancelOutboxAsync(string tenant, long conversationId, long messageId,
+        CancellationToken ct = default)
+    {
+        await using var c = await _db.OpenAsync(ct);
+        return await c.ExecuteAsync("""
+            WITH bo AS (
+              DELETE FROM chat_outbox
+               WHERE tenant_id = @tenant AND conversation_id = @conv AND message_id = @msg
+                 AND status = 0 AND send_after IS NOT NULL AND send_after > now()
+              RETURNING message_id
+            )
+            UPDATE chat_messages
+               SET deleted_utc = now(), state = 4,
+                   error_message = 'Người trực đã thu hồi trước khi gửi'
+             WHERE id = (SELECT message_id FROM bo) AND tenant_id = @tenant
+               AND conversation_id = @conv
+            """, new { tenant, conv = conversationId, msg = messageId }) > 0;
     }
 
     public record OutboxRow(long Id, string TenantId, long ConversationId, long MessageId, int RetryCount);
@@ -1162,8 +1201,10 @@ public class ChatRepository
         return (await c.QueryAsync<OutboxRow>("""
             UPDATE chat_outbox SET status = 3
              WHERE id IN (
-               SELECT id FROM chat_outbox WHERE status = 0
-                ORDER BY created_utc LIMIT @n FOR UPDATE SKIP LOCKED)
+               SELECT id FROM chat_outbox
+                WHERE status = 0 AND (send_after IS NULL OR send_after <= now())
+                ORDER BY send_after NULLS FIRST, created_utc
+                LIMIT @n FOR UPDATE SKIP LOCKED)
             RETURNING id, tenant_id, conversation_id, message_id, retry_count
             """, new { n = Math.Clamp(soLuong, 1, 50) })).ToList();
     }

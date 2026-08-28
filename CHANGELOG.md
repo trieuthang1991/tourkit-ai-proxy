@@ -16,6 +16,17 @@ Những cập nhật gần đây của TRAV-AI, viết cho người dùng. Mới
 ## Phiên bản 28/08/2026 — Thêm 6 ngày để trả lời khách Facebook
 
 ### ✨ Tính năng mới
+- **Gửi nhầm thì rút lại được.** Sau khi bấm gửi, tin nằm chờ vài giây và có dải **Đang gửi sau
+  Ns — Thu hồi** ngay dưới tin. Bấm là tin **không bao giờ đến tay khách**, ở tất cả các kênh.
+  Quản trị đặt được số giây này (mặc định 5, đặt 0 để tắt và gửi ngay như trước).
+
+  Riêng **Telegram** còn thu hồi được cả tin **đã gửi**, trong vòng 48 giờ — khách không còn thấy
+  tin đó nữa.
+
+  *Lưu ý:* hết vài giây đó thì Facebook, Instagram, WhatsApp, Zalo và TikTok **không cho thu hồi**
+  — đó là quy định của họ, không phải giới hạn của phần mềm. Lúc đó bạn chỉ xoá được tin khỏi hộp
+  thư của mình, còn khách vẫn thấy; màn hình nói rõ như vậy.
+
 - **Bốn nút mới trên mỗi hội thoại.** **Chưa đọc** — trả lại dấu chưa đọc khi bạn lỡ mở nhầm,
   chỉ ảnh hưởng tới mình bạn chứ không tới đồng nghiệp. **Theo dõi** — ngó một ca khó mà không
   phải nhận việc, nhiều người cùng theo dõi được, và có bộ lọc **Tôi theo dõi** ở đầu danh sách.

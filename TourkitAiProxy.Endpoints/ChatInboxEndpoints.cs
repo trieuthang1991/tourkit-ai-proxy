@@ -569,6 +569,8 @@ public static class ChatInboxEndpoints
                     // Tin đã xoá khỏi hộp thư. Vẫn gửi ra để giao diện hiện "đã bị xoá" thay
                     // cho nội dung — biến mất hẳn thì người trực tưởng mình nhớ nhầm.
                     deleted = m.DeletedUtc is not null,
+                    // Mốc CÓ THẨM QUYỀN cho đồng hồ đếm ngược nút Thu hồi. Xem ChatMessage.SendAfterUtc.
+                    sendAfterUtc = m.SendAfterUtc,
                     // Nút ĐÃ GỬI kèm tin. Đọc lại qua ChatRules chứ không đổ thẳng chuỗi JSON
                     // trong CSDL ra: dòng cũ có thể sai hình dạng, và đường dẫn phải lọc lại
                     // http(s) — nút do người dùng tự đặt nên là dữ liệu không tin được.
@@ -729,7 +731,7 @@ public static class ChatInboxEndpoints
 
         g.MapPost("/conversations/{id:long}/send", async (long id, SendReq body, HttpContext ctx,
             TkSessionStore sessions, ChatRepository repo, ChatEventBus bus,
-            Services.Chat.Inbox.ChatWorkSignal tin, CancellationToken ct) =>
+            Services.Chat.Inbox.ChatWorkSignal tin, IConfiguration cfg, CancellationToken ct) =>
         {
             var a = SessionAuth.Read(ctx, sessions);
             if (a == null) return SessionAuth.Unauthorized();
@@ -786,9 +788,16 @@ public static class ChatInboxEndpoints
             await repo.TouchConversationAsync(a.TenantId, id, ChatRules.Summarize(tomTat), false, ct);
             // Người thật vừa trả lời → bot câm một lúc, nếu không nó nói đè lên nhân viên.
             await repo.PauseBotAsync(a.TenantId, id, (int)ChatRules.DefaultBotMute.TotalMinutes, ct);
-            await repo.EnqueueOutboxAsync(a.TenantId, id, msgId.Value, ct);
-            // Đánh thức worker gửi NGAY. Không có dòng này thì tin nằm chờ hết nhịp 5 giây —
-            // màn hình nhân viên đã hiện tin rồi nên không ai thấy, nhưng khách thì chờ thật.
+            // Người thật gõ thì giữ lại vài giây cho kịp bấm Thu hồi. Đây là toàn bộ cơ chế thu
+            // hồi: Meta không cho doanh nghiệp thu hồi tin đã gửi, nên cách duy nhất để nút đó
+            // nói thật là đừng gửi vội. Đặt 0 trong cấu hình là tắt hẳn, gửi ngay như trước.
+            // Có hoãn thì worker tỉnh dậy, thấy chưa tới giờ, ngủ lại — nhịp 5 giây sẵn có mới là
+            // thứ nhặt tin lên, nên tin thật sự đi trong khoảng hoãn…hoãn+5 giây. Vẫn đánh thức
+            // để trường hợp hoãn = 0 (quản trị tắt tính năng) chạy nhanh y như trước.
+            var hoan = ChatRules.HoanGuiGiay(ChatSender.Agent,
+                cfg.GetValue("Chat:UndoSendSeconds", 5));
+            await repo.EnqueueOutboxAsync(a.TenantId, id, msgId.Value, ct, hoan);
+            // Đánh thức worker gửi NGAY — thiếu dòng này thì tin chờ hết nhịp 5 giây.
             tin.Signal(Services.Chat.Inbox.ChatLane.Out);
             bus.Publish(new(a.TenantId, id, "tin-moi", msgId.Value));
 
@@ -1146,6 +1155,47 @@ public static class ChatInboxEndpoints
 
             // ok=false nghĩa là hội thoại chưa có tin nào của khách — giao diện nói rõ thay vì im.
             return Results.Json(new { ok = duoc }, Web);
+        });
+
+        // THU HỒI — rút tin khỏi hàng đợi trước khi nó rời máy chủ. Đây là thu hồi THẬT, vì
+        // tin chưa hề được gửi. Hết cửa sổ hoãn thì KHÔNG có đường nào khác trên Meta: họ
+        // không cấp API thu hồi cho phía doanh nghiệp. Trả 409 để giao diện nói thật thay vì
+        // báo thành công rồi để nhân viên tưởng đã rút lại được và không đi xin lỗi khách.
+        g.MapPost("/conversations/{id:long}/messages/{msgId:long}/recall", async (long id,
+            long msgId, HttpContext ctx, TkSessionStore sessions, ChatRepository repo,
+            ChatInboundService svc, ChatEventBus bus, CancellationToken ct) =>
+        {
+            var a = SessionAuth.Read(ctx, sessions);
+            if (a == null) return SessionAuth.Unauthorized();
+            if (!repo.Configured) return NotConfigured();
+            if (await repo.GetConversationAsync(a.TenantId, id, ct) is not { } v) return Results.NotFound();
+
+            if (await repo.CancelOutboxAsync(a.TenantId, id, msgId, ct))
+            {
+                await repo.AppendAuditAsync(a.TenantId, id, a.Username, "thu-hoi-tin",
+                    new JsonObject { ["tin"] = msgId }.ToJsonString(), ct);
+                bus.Publish(new(a.TenantId, id, "doi-trang-thai", msgId));
+                return Results.Json(new { ok = true, recalledOnChannel = false }, Web);
+            }
+
+            // Tin đã rời máy chủ. Kênh nào thu hồi THẬT được thì thử — chỉ Telegram.
+            var tinDaGui = (await repo.ListMessagesAsync(a.TenantId, id, 300, ct))
+                .FirstOrDefault(m => m.Id == msgId);
+            if (tinDaGui?.ExternalMsgId is { Length: > 0 } maNgoai
+                && svc.Adapter((ChatChannel)v.Channel) is IMessageRecaller boThuHoi
+                && DateTime.UtcNow - tinDaGui.CreatedUtc < boThuHoi.RecallWindow
+                && await boThuHoi.RecallAsync(a.TenantId, v.AccountId, v.ContactExternalId,
+                                              maNgoai, ct))
+            {
+                await repo.SoftDeleteMessageAsync(a.TenantId, id, msgId, ct);
+                await repo.AppendAuditAsync(a.TenantId, id, a.Username, "thu-hoi-tin",
+                    new JsonObject { ["tin"] = msgId, ["kenh"] = true }.ToJsonString(), ct);
+                bus.Publish(new(a.TenantId, id, "doi-trang-thai", msgId));
+                return Results.Json(new { ok = true, recalledOnChannel = true }, Web);
+            }
+
+            return Results.Json(new { error = "Tin đã gửi đi mất rồi — không thu hồi được nữa" },
+                Web, statusCode: 409);
         });
 
         // Xoá tin — CHỈ trong hộp thư mình. Xoá MỀM: dòng vẫn nằm đó, chỉ đóng dấu, vì người
@@ -1836,7 +1886,7 @@ public static class ChatInboxEndpoints
         // ĐỌC thì mọi nhân viên trực chat đều cần (giao diện hiện trạng thái bot bật/tắt);
         // SỬA thì cần quyền cấu hình hệ thống — đây là giọng nói của cả công ty với khách.
         g.MapGet("/bot-settings", async (HttpContext ctx, TkSessionStore sessions,
-            ChatBotSettingsRepository repo, CancellationToken ct) =>
+            ChatBotSettingsRepository repo, IConfiguration cfg, CancellationToken ct) =>
         {
             var a = SessionAuth.Read(ctx, sessions);
             if (a == null) return SessionAuth.Unauthorized();
@@ -1846,6 +1896,10 @@ public static class ChatInboxEndpoints
             return Results.Json(new
             {
                 enabled = v.Enabled,
+                // Số giây giữ tin lại trước khi gửi. Giao diện cần để biết có vẽ nút Thu hồi
+                // hay không; 0 = quản trị đã tắt, đừng vẽ dải đếm ngược làm gì.
+                undoSendSeconds = ChatRules.HoanGuiGiay(ChatSender.Agent,
+                    cfg.GetValue("Chat:UndoSendSeconds", 5)),
                 persona = v.Persona,
                 greeting = v.Greeting,
                 muteMinutes = v.MuteMinutes,

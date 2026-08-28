@@ -340,7 +340,21 @@ public class ChatDb
     );
     -- Chỉ mục CÓ ĐIỀU KIỆN: worker chỉ hỏi dòng đang chờ. Không có nó thì mỗi vài giây lại quét
     -- cả bảng, mà bảng này chỉ phình chứ không co lại.
-    CREATE INDEX IF NOT EXISTS ix_outbox_cho ON chat_outbox (created_utc) WHERE status = 0;
+    -- SỚM NHẤT được phép gửi. Đây là cửa sổ "thu hồi": tin của người thật nằm chờ vài giây,
+    -- và trong quãng đó nút Thu hồi xoá thẳng dòng này — tin CHƯA BAO GIỜ rời máy chủ.
+    --
+    -- Vì sao phải làm thế thay vì gọi API thu hồi: Meta không có API đó cho phía doanh nghiệp.
+    -- Xem docs/superpowers/plans/2026-08-28-thu-hoi-tin.md.
+    --
+    -- Mặc định NULL = gửi ngay, nên mọi dòng đang nằm sẵn trong hàng đợi lúc nâng cấp vẫn đi
+    -- bình thường. Cột không mặc định nên ALTER chỉ ghi metadata, không viết lại bảng.
+    ALTER TABLE chat_outbox ADD COLUMN IF NOT EXISTS send_after timestamptz;
+
+    -- Chỉ mục có điều kiện phải mang thêm cột mới, nếu không worker vẫn quét đúng những dòng
+    -- chưa tới giờ rồi bỏ đi — vô hại nhưng lãng phí, và lớn dần theo hàng đợi.
+    DROP INDEX IF EXISTS ix_outbox_cho;
+    CREATE INDEX IF NOT EXISTS ix_outbox_cho
+      ON chat_outbox (send_after NULLS FIRST, created_utc) WHERE status = 0;
 
     -- Mẫu trả lời nhanh, theo TỪNG CÔNG TY (KHÔNG theo từng nhân viên) — cả đội trực chat cùng
     -- dùng một bộ câu, đổi một mẫu là cả đội thấy ngay, không phải dạy lại từng người.

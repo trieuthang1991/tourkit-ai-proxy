@@ -297,6 +297,23 @@ public static class ChatRules
         return true;
     }
 
+    /// <summary>Trần cho cửa sổ hoãn gửi. Giữ khách chờ hơn một phút là quá nhiều dù ai đặt.</summary>
+    public const int HoanGuiToiDaGiay = 60;
+
+    /// <summary>
+    /// Tin này nằm chờ bao nhiêu giây trước khi thật sự đi.
+    ///
+    /// <para><b>Đây là toàn bộ cơ chế "thu hồi".</b> Meta không cho doanh nghiệp thu hồi tin
+    /// đã gửi, nên cách duy nhất để nút Thu hồi nói thật là đừng gửi vội — giữ tin lại vài
+    /// giây, và trong quãng đó thì rút lại là tuyệt đối vì tin chưa hề rời máy chủ.</para>
+    ///
+    /// <para>Chỉ hoãn tin của NGƯỜI THẬT: trợ lý đã chờ 4 giây gộp tin rồi (xem
+    /// <see cref="BurstReady"/>), và nó cũng không phải thứ gõ nhầm. Tin hệ thống thì không
+    /// ai cần rút lại.</para>
+    /// </summary>
+    public static int HoanGuiGiay(ChatSender nguoiGui, int caiDatGiay)
+        => nguoiGui != ChatSender.Agent ? 0 : Math.Clamp(caiDatGiay, 0, HoanGuiToiDaGiay);
+
     /// <summary>
     /// Tin này còn sửa được không.
     ///
