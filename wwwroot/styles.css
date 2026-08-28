@@ -9335,7 +9335,8 @@ img.ci-avt { object-fit: cover; }
 .ci-soan-nut .icon:hover { background: var(--bg); color: var(--text-2); }
 .ci-soan-nut .mau { display: inline-flex; align-items: center; gap: 6px; height: 28px; padding: 0 10px;
                     border: 0; border-radius: 8px; background: transparent; color: var(--text-3);
-                    cursor: pointer; font: inherit; font-size: 11px; font-weight: 500; }
+                    cursor: pointer; font: inherit; font-size: 11px; font-weight: 500;
+                    white-space: nowrap; }
 .ci-soan-nut .mau:hover { background: var(--bg); color: var(--text-2); }
 .ci-soan-nut .mau b { font-family: ui-monospace, "SF Mono", monospace; font-size: 11.5px;
                       font-weight: 700; }
@@ -9684,6 +9685,13 @@ img.ci-avt { object-fit: cover; }
 @container (max-width: 920px) {
   .ci-grid, .ci-grid.co-hoso { grid-template-columns: 48px 240px minmax(300px, 1fr); }
   .ci-hoso { display: none; }
+  /* Cột 240px không đủ cho bốn nhãn lọc trên một hàng — xếp 2×2 thay vì để chữ đè lên nhau.
+     Hai lớp để THẮNG luật .ci-nhom "cột theo số nút" nằm ở cuối file (cùng độ ưu tiên thì
+     luật đứng sau thắng, mà luật kia đứng sau). */
+  .ci-cot-dau .ci-nhom { grid-auto-flow: row; grid-template-columns: 1fr 1fr; }
+  /* Khung chat hẹp: bỏ dòng nhắc phím, còn lại vừa một hàng. */
+  .ci-soan-nhac { display: none; }
+  .ci-gui { margin-left: auto; }
 }
 
 /* Tin đã xoá khỏi hộp thư: hiện dấu thay cho nội dung, KHÔNG cho biến mất hẳn — biến mất thì

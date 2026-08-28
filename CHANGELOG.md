@@ -93,6 +93,20 @@ Những cập nhật gần đây của TRAV-AI, viết cho người dùng. Mới
   chỉ khi công ty chuyển sang từ ứng dụng WhatsApp Business và chỉ trong 24 giờ đầu sau khi nối.
 
 ### 🔧 Đã khắc phục
+- **Hộp thư chat dùng được trên điện thoại.** Trước đây mở trên điện thoại là ba cột bị bóp
+  vào một màn 390px — mỗi cột còn một khe hẹp, phải kéo ngang mới thấy, và không gõ nổi tin.
+  Nay theo lối Zalo/Messenger: **một màn hình một việc**. Danh sách hội thoại chiếm trọn màn
+  (dải kênh nằm ngang trên đầu, vuốt được); chạm một hội thoại là khung chat chiếm trọn, có nút
+  **←** để quay lại; hồ sơ khách (nút **ⓘ**) trượt lên từ đáy và chạm ra ngoài là đóng. Ô soạn
+  luôn nằm trên bàn phím ảo — bật bàn phím lên là khung tự ngắn lại, không còn cảnh gõ mà không
+  thấy mình gõ gì. Chữ trong ô nhập đủ lớn để iPhone không tự phóng to trang khi chạm vào. Nút
+  **⋯** trên tin của mình nay hiện mờ thường trực thay vì chỉ hiện khi rê chuột (điện thoại
+  không có chuột để rê). Cửa sổ thấp (mở bảng công cụ lập trình dọc, máy tính bảng xoay ngang)
+  thì cả trang cuộn chứ khung không bị cụt còn một hội thoại rưỡi.
+- **Nút lọc "Tôi theo dõi" không còn rơi xuống hàng riêng** nữa — bốn nút lọc đứng đều trên
+  một hàng; ở cột hẹp thì xếp 2×2 thay vì đè chữ lên nhau.
+- **Gõ `/` để chèn mẫu trả lời nay hiện đúng chỗ, ngay trên ô soạn.** Trước đây bảng mẫu bung
+  ra ở tận đỉnh trang, ngoài tầm nhìn, nên tưởng như bấm không ăn.
 - **Biết máy đang làm gì, thay vì ngồi đoán.** Chỗ nào phải chờ nay đều nói ra: mở một hội
   thoại thì hiện sẵn khung tin mờ đúng chỗ tin sắp hiện, danh sách cũng vậy. Đáng kể nhất là
   lúc **gửi ảnh hoặc tệp** — trước đây bấm chọn xong màn hình đứng im hàng chục giây, không

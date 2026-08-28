@@ -1952,6 +1952,9 @@
 
     useEffect(() => { if (chon) taiChiTiet(chon); }, [chon, taiChiTiet]);
     useEffect(() => { setMoMau(false); }, [chon]);
+    // Kéo cửa sổ qua ngưỡng điện thoại (hoặc xoay máy tính bảng) mà hồ sơ đang mở ở dạng cột
+    // thì nó lập tức thành tấm trượt che kín khung chat — người dùng không hề bấm gì. Đóng lại.
+    useEffect(() => { if (diDong) setMoHoSo(false); }, [diDong]);
     // Nút soạn dở thuộc về hội thoại CŨ. Giữ lại là gửi nhầm nút của khách này cho khách khác.
     useEffect(() => { setNutSoan([]); setThemNut(null); }, [chon]);
 
@@ -1982,15 +1985,20 @@
       if (!diDong || !el) return;
       const vv = window.visualViewport;
       const do_ = () => {
-        const dinh = el.getBoundingClientRect().top;
-        // Mép dưới của phần nhìn thấy, tính theo toạ độ của viewport bố cục (cùng hệ với
-        // getBoundingClientRect) — vv.offsetTop là phần đã bị cuộn đi khi bàn phím đẩy trang.
-        const day = vv ? vv.offsetTop + vv.height : window.innerHeight;
+        // Đỉnh khung tính theo TÀI LIỆU (cộng lại phần đã cuộn), không theo viewport: đo theo
+        // viewport thì trang cứ cuộn xuống một chút là khung "cao thêm" từng ấy, rồi lần đo sau
+        // lại cao thêm nữa — không bao giờ dừng.
+        const dinh = el.getBoundingClientRect().top + window.scrollY;
+        const cao = vv ? vv.height : window.innerHeight;
         const banPhim = !!vv && window.innerHeight - vv.height > 120;
         // Bàn phím đang bật thì dải nút dưới đáy đã bị nó che, đừng chừa chỗ cho thứ không thấy.
+        //
+        // SÀN 400px khi không có bàn phím: cửa sổ thấp (DevTools mở dọc, máy tính bảng xoay
+        // ngang có thanh địa chỉ) thì thà cả trang cuộn còn hơn một cái khung 250px lòi ra đúng
+        // một hội thoại rưỡi. Có bàn phím thì hạ sàn — lúc đó thứ phải thấy là ô soạn.
         el.style.height = banPhim
-          ? Math.max(240, day - dinh - 8) + 'px'
-          : 'calc(' + Math.max(320, day - dinh) + 'px - 72px - env(safe-area-inset-bottom))';
+          ? Math.max(220, cao - dinh - 8) + 'px'
+          : 'max(400px, calc(' + (cao - dinh) + 'px - 72px - env(safe-area-inset-bottom)))';
         // Bàn phím vừa bật là khung ngắn lại — kéo tin mới nhất về đúng chỗ, không thì tin cuối
         // trốn sau ô soạn.
         const c = cuonRef.current;
