@@ -119,9 +119,21 @@ public static class MetaMessagingParser
                 //   messaging_postbacks -> m.postback.referral (lần ĐẦU bấm "Bắt đầu" từ quảng cáo)
                 //   messaging_optins    -> m.optin.ref
                 // Chỉ đọc một chỗ là mất phần lớn ca — mà mất là mất vĩnh viễn, không tra lại được.
+                //
+                // ⚠️ Chú thích ba dòng trên có từ đầu, nhưng mã CHỈ đọc hai chỗ đầu tới 28/08/2026 —
+                // nhánh optin nằm trong danh sách đăng ký bên Meta suốt thời gian đó mà không ai bóc.
+                // Đúng kiểu hỏng không có lỗi: gói tin tới, bị bỏ qua, và "khách đến từ đâu" mất luôn.
                 var nguon = m["referral"] ?? m["postback"]?["referral"];
-                ChatReferral? tuDau = nguon is null ? null : new(
-                    nguon["source"]?.ToString(), nguon["ref"]?.ToString(), nguon["ad_id"]?.ToString());
+                ChatReferral? tuDau =
+                    nguon is not null
+                        ? new(nguon["source"]?.ToString(), nguon["ref"]?.ToString(),
+                              nguon["ad_id"]?.ToString())
+                    // Gói optin CHỈ có `ref`, không có source lẫn ad_id (khách bấm nút "Gửi tới
+                    // Messenger" trên web của công ty). Tự đặt nhãn nguồn để báo cáo phân biệt được
+                    // đường này với quảng cáo — để trống thì mọi optin dồn vào nhóm "không rõ".
+                    : m["optin"]?["ref"]?.ToString() is { Length: > 0 } refOptin
+                        ? new("OPTIN", refOptin, null)
+                        : null;
 
                 // Khách bấm NÚT. Ghi lại bằng CHỮ TRÊN NÚT (title) chứ không phải payload kỹ
                 // thuật: nhân viên đọc lại hội thoại phải thấy đúng thứ khách nhìn thấy, không

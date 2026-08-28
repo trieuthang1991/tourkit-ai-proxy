@@ -110,6 +110,44 @@ public class MessengerEventTests
     }
 
     [Fact]
+    public void Nguon_khach_den_tu_goi_optin_cung_phai_doc()
+    {
+        // Đường thứ BA Meta nói "khách đến từ đâu": khách bấm nút "Gửi tới Messenger" đặt trên web
+        // của công ty. Trường messaging_optins đã nằm trong danh sách đăng ký từ lâu và chú thích
+        // trong bộ bóc cũng ghi rõ nó — nhưng mã thì không đọc, nên gói tin tới rồi bị bỏ qua và
+        // dữ liệu bán hàng mất vĩnh viễn. Không lỗi, không log.
+        //
+        // Gói optin KHÔNG có source lẫn ad_id, chỉ có ref — nên nguồn được tự đặt nhãn "OPTIN",
+        // để báo cáo phân biệt được đường này với quảng cáo thay vì dồn hết vào "không rõ".
+        var optin = """
+            {"object":"page","entry":[{"id":"trang-1","messaging":[
+             {"sender":{"id":"khach-1"},"recipient":{"id":"trang-1"},"timestamp":1700000000000,
+              "optin":{"ref":"landing-tour-nhat"}}]}]}
+            """;
+
+        var o = Assert.Single(A().Parse(optin));
+        Assert.Equal("OPTIN", o.Referral!.Source);
+        Assert.Equal("landing-tour-nhat", o.Referral.Ref);
+        Assert.Null(o.Referral.AdId);
+        Assert.Null(o.Text);            // gói CHỈ có nguồn, không kèm tin
+    }
+
+    [Fact]
+    public void Goi_optin_khong_co_nguoi_gui_thi_bo_qua()
+    {
+        // Khách bấm hộp tích trên web mà CHƯA từng nhắn Trang: Meta gửi user_ref thay cho
+        // sender.id vì lúc đó chưa có PSID nào. Không có người gửi thì không gắn nguồn vào đâu
+        // được — bỏ qua, đừng dựng một hội thoại ma không ai nhắn tới bao giờ.
+        var chuaCoPsid = """
+            {"object":"page","entry":[{"id":"trang-1","messaging":[
+             {"recipient":{"id":"trang-1"},"timestamp":1700000000000,
+              "optin":{"ref":"landing-tour-nhat","user_ref":"UREF-9"}}]}]}
+            """;
+
+        Assert.Empty(A().Parse(chuaCoPsid));
+    }
+
+    [Fact]
     public void Ghi_nguon_MOT_LAN_roi_thoi()
     {
         // Khách quay lại qua một quảng cáo khác thì nguồn ĐẦU TIÊN mới là cái đã kéo họ tới. Đè lên

@@ -68,6 +68,15 @@ Những cập nhật gần đây của TRAV-AI, viết cho người dùng. Mới
   chỉ khi công ty chuyển sang từ ứng dụng WhatsApp Business và chỉ trong 24 giờ đầu sau khi nối.
 
 ### 🔧 Đã khắc phục
+- **Khách thả cảm xúc trên Facebook: nay hộp thư hiện.** Trước đây khách thả tim hay biểu tượng
+  vào tin của bạn thì hộp thư không hiện gì cả — trong khi Instagram thì có. Nay Facebook cũng
+  hiện, kể cả lúc khách gỡ ra.
+
+  *Lưu ý:* Trang Facebook nào đã nối **từ trước bản này** cần vào **Kết nối kênh** bấm nối lại một
+  lượt — Facebook chỉ nhận danh sách loại tin lúc kết nối.
+- **Khách bấm nút "Gửi tới Messenger" trên website: nay biết họ đến từ đâu.** Trước đây đường này
+  không được ghi nhận, nên trang đích nào kéo được khách về thì không có số liệu. Nay hiện trong
+  mục "Đến từ" của hội thoại như các nguồn khác.
 - **Ảnh khách gửi không còn biến mất sau vài ngày.** Facebook, Instagram, WhatsApp, Zalo và
   Telegram đều chỉ cho xem ảnh trong một thời gian ngắn — Facebook là **5 ngày** — sau đó ảnh
   trong hộp thư thành ô vỡ và **không cách nào lấy lại**. Ảnh hoá đơn, hộ chiếu, ảnh phòng
