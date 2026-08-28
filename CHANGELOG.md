@@ -27,11 +27,12 @@ Những cập nhật gần đây của TRAV-AI, viết cho người dùng. Mới
   — đó là quy định của họ, không phải giới hạn của phần mềm. Lúc đó bạn chỉ xoá được tin khỏi hộp
   thư của mình, còn khách vẫn thấy; màn hình nói rõ như vậy.
 
-- **Bốn nút mới trên mỗi hội thoại.** **Chưa đọc** — trả lại dấu chưa đọc khi bạn lỡ mở nhầm,
-  chỉ ảnh hưởng tới mình bạn chứ không tới đồng nghiệp. **Theo dõi** — ngó một ca khó mà không
-  phải nhận việc, nhiều người cùng theo dõi được, và có bộ lọc **Tôi theo dõi** ở đầu danh sách.
-  **Chặn trong hộp thư** — khách quấy rối thì hộp thư ẩn họ đi và trợ lý ngừng trả lời.
-  **Xoá / Sửa tin** — rê chuột vào tin của bạn là thấy.
+- **Bốn thao tác mới cho mỗi hội thoại**, nằm trong nút **⋯** ở đầu khung chat hoặc ngay trên
+  từng dòng danh sách khi bạn rê chuột vào. **Đánh dấu chưa đọc** — trả lại dấu chưa đọc khi
+  bạn lỡ mở nhầm, chỉ ảnh hưởng tới mình bạn chứ không tới đồng nghiệp. **Theo dõi hội thoại**
+  — ngó một ca khó mà không phải nhận việc, nhiều người cùng theo dõi được, và có bộ lọc
+  **Tôi theo dõi** ở đầu danh sách. **Chặn trong hộp thư** — khách quấy rối thì hộp thư ẩn họ
+  đi và trợ lý ngừng trả lời. Riêng **Gỡ / Sửa tin** thì rê chuột vào chính tin đó.
 
   *Lưu ý quan trọng:* chặn và xoá **chỉ có tác dụng trong hộp thư của bạn**. Facebook, Instagram,
   WhatsApp, Zalo và TikTok không cho phép doanh nghiệp chặn khách hay thu hồi tin đã gửi — nên
@@ -92,6 +93,14 @@ Những cập nhật gần đây của TRAV-AI, viết cho người dùng. Mới
   chỉ khi công ty chuyển sang từ ứng dụng WhatsApp Business và chỉ trong 24 giờ đầu sau khi nối.
 
 ### 🔧 Đã khắc phục
+- **Biết máy đang làm gì, thay vì ngồi đoán.** Chỗ nào phải chờ nay đều nói ra: mở một hội
+  thoại thì hiện sẵn khung tin mờ đúng chỗ tin sắp hiện, danh sách cũng vậy. Đáng kể nhất là
+  lúc **gửi ảnh hoặc tệp** — trước đây bấm chọn xong màn hình đứng im hàng chục giây, không
+  biết nên chờ hay bấm lại. Nay có tên tệp kèm **phần trăm thật**, và khi máy đã nhận đủ thì
+  đổi sang *"đang lưu vào kho"* để bạn biết vẫn còn một chặng nữa chứ không phải bị treo.
+- **Danh sách hội thoại gọn và dễ liếc hơn.** Nhãn trạng thái giãn ra, mỗi dòng thoáng hơn, và
+  thao tác dồn vào nút **⋯** thay vì bày bảy nút chữ cạnh nhau — trước đây chúng tràn dòng
+  trên màn hình hẹp và bắt bạn đọc hết bảy nhãn mỗi lần chỉ để bấm một cái.
 - **Khách thả cảm xúc trên Facebook: nay hộp thư hiện.** Trước đây khách thả tim hay biểu tượng
   vào tin của bạn thì hộp thư không hiện gì cả — trong khi Instagram thì có. Nay Facebook cũng
   hiện, kể cả lúc khách gỡ ra.
