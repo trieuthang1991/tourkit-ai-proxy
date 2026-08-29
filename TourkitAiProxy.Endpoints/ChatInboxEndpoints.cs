@@ -51,6 +51,8 @@ public static class ChatInboxEndpoints
         "/api/v1/chat/events",
         "/api/v1/chat/oauth",
         "/api/v1/chat/webhook",
+        // Trang tra tiến độ xoá dữ liệu — CÔNG KHAI, khách hàng cuối mở, không đăng nhập.
+        "/api/v1/chat/data-deletion",
         "/api/v1/chat/media",
     };
 
@@ -198,6 +200,85 @@ public static class ChatInboxEndpoints
         //
         // ⚠️ Cũng LUÔN TRẢ 200 như Zalo, và vì lý do nặng hơn: Meta tự động NGỪNG gửi webhook cho
         // ứng dụng nào trả lỗi liên tục. Trả 401 cho tin rác là tự tay tắt kênh của mọi khách hàng.
+        // ── Meta Data Deletion Callback ─────────────────────────────────────
+        //
+        // Meta gọi đường này khi một người GỠ ứng dụng khỏi tài khoản Facebook của họ và yêu cầu
+        // xoá dữ liệu. Bắt buộc phải có trước khi ứng dụng lên Live diện Tech Provider — thiếu là
+        // một trong những lý do bị trả hồ sơ hay gặp nhất.
+        //
+        // ⚠️ Đường này CÔNG KHAI, ai cũng POST vào được. Thứ DUY NHẤT chứng minh yêu cầu đến từ
+        // Meta là chữ ký trong signed_request. Bỏ qua bước kiểm đó là dựng sẵn một cửa cho người
+        // ngoài xoá dữ liệu khách hàng của mọi công ty.
+        //
+        // Meta đòi trả về đúng hình dạng { url, confirmation_code } — sai là họ báo lỗi cấu hình
+        // mà không nói vì sao.
+        routes.MapPost("/api/v1/chat/webhook/meta/data-deletion",
+            async (HttpContext ctx, ChatRepository repo, IConfiguration cfg,
+                   ILoggerFactory lf, CancellationToken ct) =>
+        {
+            var log = lf.CreateLogger("chat.webhook");
+            if (!repo.Configured) return NotConfigured();
+
+            var form = await ctx.Request.ReadFormAsync(ct);
+            var goi = MetaSignedRequest.Parse(form["signed_request"], cfg["Chat:Messenger:AppSecret"]);
+            if (goi is null)
+            {
+                log.LogWarning("[chat/xoa-du-lieu] signed_request không hợp lệ — từ chối");
+                return Results.BadRequest(new { error = "signed_request không hợp lệ" });
+            }
+
+            // Xoá cho CẢ Messenger lẫn Instagram: hai kênh dùng chung một ứng dụng Meta, và mã
+            // người dùng Meta gửi sang không nói rõ của kênh nào. Xoá thiếu một kênh là lời hứa
+            // "đã xoá" thành lời nói dối.
+            var tong = new ChatRepository.KetQuaXoa(0, 0);
+            foreach (var kenh in new[] { ChatChannel.Messenger, ChatChannel.Instagram })
+            {
+                var kq = await repo.DeleteContactDataAsync(kenh, goi.UserId, ct);
+                tong = new(tong.SoHoiThoai + kq.SoHoiThoai, tong.SoTin + kq.SoTin);
+            }
+
+            var ma = MetaSignedRequest.NewConfirmationCode();
+            await repo.RecordDeletionAsync(ma, ChatChannel.Messenger, goi.UserId, tong, ct);
+            log.LogInformation("[chat/xoa-du-lieu] xong {Ma}: {H} hội thoại, {T} tin",
+                ma, tong.SoHoiThoai, tong.SoTin);
+
+            var goc = $"{ctx.Request.Scheme}://{ctx.Request.Host}";
+            return Results.Json(new
+            {
+                url = $"{goc}/api/v1/chat/data-deletion/{ma}",
+                confirmation_code = ma,
+            }, Web);
+        });
+
+        // Trang tra tiến độ — CÔNG KHAI, không đăng nhập: người tra là khách hàng cuối, họ không
+        // có tài khoản trong hệ. Trả HTML chứ không JSON vì Meta mở nó trong trình duyệt.
+        routes.MapGet("/api/v1/chat/data-deletion/{code}",
+            async (string code, ChatRepository repo, CancellationToken ct) =>
+        {
+            if (!repo.Configured) return NotConfigured();
+            var yc = await repo.GetDeletionAsync(code, ct);
+
+            var than = yc is null
+                ? "<h2>Không tìm thấy yêu cầu</h2><p>Mã tra cứu không đúng hoặc đã quá hạn lưu.</p>"
+                : yc.DoneUtc is null
+                    ? "<h2>Đang xử lý</h2><p>Yêu cầu đã nhận, đang chờ xoá.</p>"
+                    : $"<h2 style=\"color:#16A34A\">Đã xoá xong</h2>"
+                      + $"<p>Hoàn tất lúc {yc.DoneUtc:yyyy-MM-dd HH:mm} UTC.</p>"
+                      + $"<p>Đã xoá {yc.SoHoiThoai} hội thoại và {yc.SoTin} tin nhắn, cùng tên, "
+                      + "ảnh đại diện, nhãn và ghi chú liên quan.</p>";
+
+            return Results.Content($"""
+                <!doctype html><html lang="vi"><head><meta charset="utf-8">
+                <meta name="viewport" content="width=device-width,initial-scale=1">
+                <title>Tra cứu yêu cầu xoá dữ liệu</title></head>
+                <body style="font-family:system-ui,sans-serif;max-width:640px;margin:0 auto;padding:40px 20px;line-height:1.7">
+                {than}
+                <p style="color:#64748B;font-size:14px">Mã tra cứu: <code>{System.Net.WebUtility.HtmlEncode(code)}</code></p>
+                <p style="color:#64748B;font-size:14px">Cần hỗ trợ thêm: <a href="mailto:hotro@tourkit.vn">hotro@tourkit.vn</a></p>
+                </body></html>
+                """, "text/html; charset=utf-8");
+        });
+
         routes.MapPost("/api/v1/chat/webhook/messenger", async (HttpContext ctx, ChatInboundService svc,
             ChatRepository repo, Services.Chat.Inbox.ChatWorkSignal tin, ILoggerFactory lf, CancellationToken ct) =>
         {

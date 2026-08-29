@@ -775,6 +775,95 @@ public class ChatRepository
                 """, new { tenant, id, username });
     }
 
+    // ── Xoá dữ liệu theo yêu cầu (Meta Data Deletion Callback) ──────────────
+
+    /// <summary>Kết quả một lượt xoá: đếm để trả lời "đã xoá những gì".</summary>
+    public record KetQuaXoa(int SoHoiThoai, int SoTin);
+
+    /// <summary>
+    /// Xoá SẠCH dữ liệu của một người trên một kênh, ở MỌI công ty.
+    ///
+    /// <para><b>Vì sao không khoá theo công ty.</b> Meta chỉ gửi sang mã người dùng, không nói
+    /// người đó đã nhắn cho công ty nào. Mà một người hoàn toàn có thể đã nhắn cho hai công ty
+    /// khác nhau cùng dùng hệ này. Xoá thiếu một chỗ là lời hứa "đã xoá" thành lời nói dối.</para>
+    ///
+    /// <para><b>Xoá THẬT, không xoá mềm.</b> Mọi chỗ khác trong hệ đều xoá mềm để giữ lịch sử
+    /// nghiệp vụ — riêng đường này thì không: đây là yêu cầu xoá dữ liệu cá nhân, giữ lại "cho có
+    /// dấu vết" đúng là thứ người ta yêu cầu bỏ đi.</para>
+    ///
+    /// <para>Chạy trong MỘT giao dịch: xoá được nửa chừng rồi hỏng thì còn tệ hơn chưa xoá —
+    /// không biết phần nào đã đi, phần nào còn.</para>
+    /// </summary>
+    public async Task<KetQuaXoa> DeleteContactDataAsync(ChatChannel kenh, string externalId,
+        CancellationToken ct = default)
+    {
+        await using var c = await _db.OpenAsync(ct);
+        await using var giaoDich = await c.BeginTransactionAsync(ct);
+
+        var tham = new { kenh = (short)kenh, id = externalId };
+
+        // Đếm TRƯỚC khi xoá — xoá xong thì không còn gì mà đếm.
+        var soHoiThoai = await c.ExecuteScalarAsync<int>(
+            "SELECT COUNT(*) FROM chat_conversations WHERE channel = @kenh AND contact_external_id = @id",
+            tham, giaoDich);
+        var soTin = await c.ExecuteScalarAsync<int>(
+            """
+            SELECT COUNT(*) FROM chat_messages m
+              JOIN chat_conversations v ON v.id = m.conversation_id
+             WHERE v.channel = @kenh AND v.contact_external_id = @id
+            """, tham, giaoDich);
+
+        // chat_messages và chat_conversation_reads tự đi theo nhờ ON DELETE CASCADE của
+        // chat_conversations; ba bảng còn lại khoá theo (tenant, kênh, mã ngoài) nên phải xoá tay.
+        await c.ExecuteAsync(
+            "DELETE FROM chat_conversations WHERE channel = @kenh AND contact_external_id = @id",
+            tham, giaoDich);
+        await c.ExecuteAsync(
+            "DELETE FROM chat_contact_tags WHERE channel = @kenh AND external_id = @id",
+            tham, giaoDich);
+        await c.ExecuteAsync(
+            "DELETE FROM chat_contact_notes WHERE channel = @kenh AND external_id = @id",
+            tham, giaoDich);
+        await c.ExecuteAsync(
+            "DELETE FROM chat_reactions WHERE channel = @kenh AND actor_external_id = @id",
+            tham, giaoDich);
+        // Danh bạ xoá SAU CÙNG: nó là chỗ giữ tên và ảnh đại diện, tức phần nhận dạng rõ nhất.
+        await c.ExecuteAsync(
+            "DELETE FROM chat_contacts WHERE channel = @kenh AND external_id = @id",
+            tham, giaoDich);
+
+        await giaoDich.CommitAsync(ct);
+        return new(soHoiThoai, soTin);
+    }
+
+    /// <summary>Ghi lại một yêu cầu xoá đã làm xong, để người đó tra tiến độ bằng mã.</summary>
+    public async Task RecordDeletionAsync(string code, ChatChannel kenh, string externalId,
+        KetQuaXoa kq, CancellationToken ct = default)
+    {
+        await using var c = await _db.OpenAsync(ct);
+        await c.ExecuteAsync("""
+            INSERT INTO chat_deletion_requests
+              (code, channel, external_id, done_utc, so_hoi_thoai, so_tin)
+            VALUES (@code, @kenh, @id, now(), @hoiThoai, @tin)
+            ON CONFLICT (code) DO NOTHING
+            """, new { code, kenh = (short)kenh, id = externalId,
+                       hoiThoai = kq.SoHoiThoai, tin = kq.SoTin });
+    }
+
+    public record YeuCauXoa(string Code, DateTime RequestedUtc, DateTime? DoneUtc,
+        int SoHoiThoai, int SoTin);
+
+    /// <summary>Tra một yêu cầu xoá theo mã. Trang tra cứu CÔNG KHAI dùng hàm này.</summary>
+    public async Task<YeuCauXoa?> GetDeletionAsync(string code, CancellationToken ct = default)
+    {
+        await using var c = await _db.OpenAsync(ct);
+        return await c.QuerySingleOrDefaultAsync<YeuCauXoa>("""
+            SELECT code AS "Code", requested_utc AS "RequestedUtc", done_utc AS "DoneUtc",
+                   so_hoi_thoai AS "SoHoiThoai", so_tin AS "SoTin"
+              FROM chat_deletion_requests WHERE code = @code
+            """, new { code });
+    }
+
     // ── Tin nhắn ────────────────────────────────────────────────────────────
 
     /// <summary>

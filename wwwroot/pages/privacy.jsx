@@ -1,4 +1,4 @@
-// pages/privacy.jsx — Chính sách bảo mật + hướng dẫn xoá dữ liệu.
+﻿// pages/privacy.jsx — Chính sách bảo mật + hướng dẫn xoá dữ liệu.
 //
 // Vì sao có trang này: Meta BẮT BUỘC hai đường dẫn công khai trước khi cho ứng dụng chuyển sang
 // Live — "Privacy Policy URL" và "Data Deletion Instructions". Thiếu một trong hai là App Review
@@ -106,6 +106,12 @@ function PrivacyPage() {
         <p>
           Chúng tôi xác minh rồi xoá trong vòng <b>30 ngày</b> và trả lời xác nhận bằng email.
           Việc xoá bao gồm nội dung tin nhắn, tên, ảnh đại diện và tệp đính kèm đã lưu.
+        </p>
+        <p>
+          <b>Với Facebook và Instagram còn có đường nhanh hơn:</b> vào phần cài đặt tài khoản
+          Facebook của bạn, gỡ ứng dụng TourKit AI và chọn xoá dữ liệu. Facebook báo thẳng sang
+          chúng tôi, hệ thống xoá <b>ngay lập tức</b> rồi trả về một mã tra cứu — mở mã đó là thấy
+          đã xoá bao nhiêu hội thoại, bao nhiêu tin nhắn.
         </p>
         <p className="pv-luu-y">
           Lưu ý: chúng tôi chỉ xoá được bản lưu trong hệ thống của mình. Bản nằm trên Facebook,

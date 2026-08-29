@@ -494,5 +494,24 @@ public class ChatDb
     );
     CREATE INDEX IF NOT EXISTS ix_note_contact
       ON chat_contact_notes (tenant_id, channel, external_id, created_utc DESC);
+
+    -- Yêu cầu XOÁ DỮ LIỆU do Meta chuyển sang (người dùng gỡ ứng dụng khỏi tài khoản Facebook và
+    -- đòi xoá). Meta bắt trả về một mã tra cứu, và người đó mở đường CÔNG KHAI để xem xoá xong
+    -- chưa — nên phải lưu lại, xoá xong là thôi thì không có gì mà tra.
+    --
+    -- Cố ý KHÔNG lưu tên hay nội dung: bảng này tồn tại để chứng minh mình ĐÃ xoá, giữ lại thông
+    -- tin nhận dạng thì thành xoá nửa vời. Chỉ giữ mã kênh + mã người dùng do nền tảng cấp — đúng
+    -- thứ Meta gửi sang và cũng là thứ họ đối chiếu khi kiểm tra.
+    CREATE TABLE IF NOT EXISTS chat_deletion_requests (
+      code          text        PRIMARY KEY,
+      channel       smallint    NOT NULL,
+      external_id   text        NOT NULL,
+      requested_utc timestamptz NOT NULL DEFAULT now(),
+      done_utc      timestamptz,
+      so_hoi_thoai  integer     NOT NULL DEFAULT 0,
+      so_tin        integer     NOT NULL DEFAULT 0
+    );
+    CREATE INDEX IF NOT EXISTS ix_xoa_nguoi
+      ON chat_deletion_requests (channel, external_id, requested_utc DESC);
     """;
 }
