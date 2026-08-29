@@ -32,6 +32,10 @@ Những cập nhật gần đây của TRAV-AI, viết cho người dùng. Mới
   được như những phần còn lại, nên bạn cân đối được giữa chất lượng câu trả lời và chi phí.
 
 ### 🔧 Đã khắc phục
+- **Trang chính sách và điều khoản nay có thông tin công ty, và bấm được từ chân trang.** Hai
+  đường dẫn *Chính sách bảo mật* / *Điều khoản sử dụng* ở chân trang chủ trước đây bấm vào không
+  đi đâu cả. Nay mở đúng trang, và cuối mỗi trang có tên công ty, địa chỉ hai văn phòng cùng số
+  điện thoại — thứ Facebook cần thấy khi xét duyệt hồ sơ doanh nghiệp.
 - **Nối thêm Trang Facebook thứ hai: không còn báo "xong" giả.** Bạn đã nối một Trang, nay muốn
   nối thêm Trang khác cùng tài khoản. Trước đây đi hết luồng thì màn hình hiện chữ xanh *"Đã nối
   Trang…"* — nhưng nối lại đúng Trang cũ, quay về hộp thư thấy y nguyên, và không có gì gợi ý phải

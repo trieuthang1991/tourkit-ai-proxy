@@ -1,4 +1,4 @@
-// pages/terms.jsx — Điều khoản dịch vụ.
+﻿// pages/terms.jsx — Điều khoản dịch vụ.
 //
 // Meta để trường "Terms of Service URL" là TUỲ CHỌN, nhưng hồ sơ App Review có điều khoản rõ ràng
 // thì qua dễ hơn: người duyệt đọc nó để đối chiếu lời khai về cách xử lý dữ liệu.
@@ -141,6 +141,23 @@ function TermsPage() {
           <a href="/privacy#xoa-du-lieu">Privacy Policy</a>.
         </p>
       </M>
+
+      {/* Khối pháp nhân — KHÔNG phải trang trí.
+          Xác minh doanh nghiệp của Meta là người thật mở website ra, đối chiếu tên pháp nhân và
+          địa chỉ với ĐKKD mình nộp. Hai trang này chính là hai đường dẫn khai trong Settings →
+          Basic, nên là chỗ chắc chắn người duyệt bấm vào. Thiếu khối này thì hồ sơ bị trả về với
+          lý do "không xác nhận được doanh nghiệp qua website" — mà lý do đó không nói rõ thiếu gì,
+          nên rất dễ nộp lại y nguyên rồi trượt lần nữa. */}
+      <footer className="pv-phap-nhan">
+        <p className="pv-phap-nhan-ten">Công ty Cổ phần TourKit Việt Nam</p>
+        <p>Hà Nội: Tầng 4, Tòa nhà 242 Nguyễn Văn Lộc, Hà Đông</p>
+        <p>Hồ Chí Minh: Số 1, Đặng Văn Sâm, Phường 9, Quận Phú Nhuận</p>
+        <p>
+          <a href="tel:0383202404">0383.202.404</a>
+          {' · '}
+          <a href="mailto:hotro@tourkit.vn">hotro@tourkit.vn</a>
+        </p>
+      </footer>
     </div>
   );
 }

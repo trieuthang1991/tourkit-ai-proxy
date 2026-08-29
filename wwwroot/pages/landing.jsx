@@ -1,4 +1,4 @@
-// pages/landing.jsx — Trang giới thiệu TRAV-AI (public landing).
+﻿// pages/landing.jsx — Trang giới thiệu TRAV-AI (public landing).
 // Visual rhythm: Hero split → quick value chips → 6-card feature bento →
 // 3-step "Cách bắt đầu" → CTA orange band → Footer minimal.
 // Anim: mascot float (CSS keyframes), scroll-reveal (IntersectionObserver),
@@ -575,8 +575,10 @@
             <div className="lpf-bottom">
               <p className="lpf-copy">© {new Date().getFullYear()} Công ty Cổ phần TourKit Việt Nam. All rights reserved.</p>
               <div className="lpf-bottom-links">
-                <a href="#">Chính sách bảo mật</a>
-                <a href="#">Điều khoản sử dụng</a>
+                {/* href="#" là hai đường CỤT — mà đây đúng là hai link người duyệt Meta bấm khi
+                    đối chiếu hồ sơ. Trỏ thẳng vào hai trang thật. */}
+                <a href="/privacy">Chính sách bảo mật</a>
+                <a href="/dieu-khoan">Điều khoản sử dụng</a>
               </div>
             </div>
           </div>
