@@ -285,10 +285,18 @@ public class MessengerChatAdapter : IChatChannelAdapter, ILateHumanReplySender,
     /// nhân viên trả lời từ ứng dụng Meta; thiếu <c>message_deliveries</c>/<c>message_reads</c> là
     /// tin gửi đi không bao giờ leo lên hai tích.</para>
     /// </summary>
-    private static readonly string[] PageEvents =
+    public static readonly string[] PageEvents =
     {
         "messages", "messaging_postbacks", "messaging_optins", "messaging_referrals",
         "message_deliveries", "message_reads", "message_echoes",
+        // CẢM XÚC khách thả lên một tin. Bộ bóc dùng chung (MetaMessagingParser) đã đọc nhánh
+        // này từ 27/08 và Instagram đã đăng ký — nhưng Trang Facebook thì QUÊN, nên suốt từ đó
+        // khách thả tim trên Messenger là hộp thư không hiện gì. Không lỗi, không log: đúng kiểu
+        // hỏng mà quy tắc "sửa ĐỦ HAI chỗ" sinh ra để chặn, và vẫn lọt.
+        //
+        // ⚠️ Trang ĐÃ nối trước bản này vẫn thiếu trường — Meta chỉ nhận danh sách lúc đăng ký.
+        // Phải bấm nối lại Trang đó một lượt thì mới có.
+        "message_reactions",
         // BÌNH LUẬN dưới bài viết. Meta không có trường riêng cho bình luận — nó nằm chung trong
         // "feed" với đăng bài, thả tim, chia sẻ, ảnh mới. Vì thế bộ bóc phải lọc item == "comment";
         // đăng ký "feed" mà quên lọc là hộp thư đầy những dòng trống mỗi lần ai đó thả tim.

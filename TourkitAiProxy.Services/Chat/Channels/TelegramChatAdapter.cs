@@ -30,7 +30,7 @@ namespace TourkitAiProxy.Services.Chat.Channels;
 /// khi gửi thành công: như thế là nói dối nhân viên rằng khách đã nhận trong khi mình không biết.
 /// Giao diện nói rõ chuyện này ở tooltip dấu tích (xem <c>DauGui</c> trong chat-inbox.jsx).</para>
 /// </summary>
-public class TelegramChatAdapter : IChatChannelAdapter, IButtonSender
+public class TelegramChatAdapter : IChatChannelAdapter, IButtonSender, IMessageRecaller
 {
     private const string ApiBase = "https://api.telegram.org";
 
@@ -379,6 +379,39 @@ public class TelegramChatAdapter : IChatChannelAdapter, IButtonSender
     }
 
     /// <inheritdoc />
+    /// <remarks>
+    /// 48 giờ là hạn Telegram đặt cho <c>deleteMessage</c>. Khai rộng hơn thì nút hiện ra rồi
+    /// bấm vào báo lỗi; khai hẹp hơn là tự bỏ mất quãng còn cứu được.
+    /// </remarks>
+    public TimeSpan RecallWindow => TimeSpan.FromHours(48);
+
+    /// <inheritdoc />
+    /// <remarks>
+    /// Telegram là kênh DUY NHẤT trong sáu kênh thu hồi thật được: bot xoá được tin của chính
+    /// nó và khách không còn thấy. Meta không có đường tương đương cho doanh nghiệp.
+    /// </remarks>
+    public async Task<bool> RecallAsync(string tenantId, string accountId, string externalUserId,
+        string externalMsgId, CancellationToken ct)
+    {
+        var token = await TokenAsync(tenantId, accountId, ct);
+        if (token is null) return false;
+
+        // Mã tin của mình lưu dạng "<chatId>:<messageId>" — xem chỗ ghi trong Parse. Phải tách
+        // lấy vế sau; đưa nguyên chuỗi thì Telegram trả "message identifier is not specified".
+        var maTin = externalMsgId.Contains(':')
+            ? externalMsgId[(externalMsgId.LastIndexOf(':') + 1)..]
+            : externalMsgId;
+        if (!long.TryParse(maTin, out var so)) return false;
+
+        var kq = await CallJsonAsync(token, "deleteMessage", new JsonObject
+        {
+            ["chat_id"] = externalUserId,
+            ["message_id"] = so,
+        }, ct);
+        return kq?["ok"]?.GetValue<bool>() == true;
+    }
+
+    /// <inheritdoc />
     public async Task AckButtonClickAsync(string tenantId, string accountId, string maBamNut,
         CancellationToken ct)
     {
@@ -418,7 +451,18 @@ public class TelegramChatAdapter : IChatChannelAdapter, IButtonSender
         // photos[0] = ảnh mới nhất, các phần tử bên trong là các cỡ (nhỏ trước). Ảnh đại diện chỉ
         // hiện cỡ 32px nên lấy cỡ NHỎ NHẤT là đúng — khác hẳn ảnh khách gửi (lấy cỡ lớn nhất để
         // còn soi được chữ trên hoá đơn/hộ chiếu).
-        var maTep = anh?["result"]?["photos"]?[0]?[0]?["file_id"]?.ToString();
+        //
+        // ⚠️ TUYỆT ĐỐI không viết `?["photos"]?[0]?[0]`. Dấu `?.` chỉ chặn null, KHÔNG chặn mảng
+        // RỖNG — mà Telegram trả `"photos": []` cho mọi khách chưa đặt ảnh đại diện. Chỉ số 0 trên
+        // mảng rỗng ném ArgumentOutOfRangeException, và vì hàm này KHÔNG nằm trong khối bắt lỗi
+        // nào, lỗi đó ném ra tận ngoài làm hỏng cả sự kiện: tin của khách không bao giờ vào hộp thư.
+        //
+        // Bắt được trên dữ liệu thật 28/08/2026 — một câu "Xin chào" của khách chưa có ảnh đại diện
+        // làm hỏng nguyên gói tin, và trước bản sửa ghi lỗi hôm nay thì nó hỏng HOÀN TOÀN im lặng.
+        var maTep = anh?["result"]?["photos"] is JsonArray ds && ds.Count > 0
+                 && ds[0] is JsonArray coAnh && coAnh.Count > 0
+            ? coAnh[0]?["file_id"]?.ToString()
+            : null;
 
         var duongAnh = string.IsNullOrWhiteSpace(maTep) ? null
             : $"/api/v1/chat/avatars/{accountId}/{Uri.EscapeDataString(maTep!)}";

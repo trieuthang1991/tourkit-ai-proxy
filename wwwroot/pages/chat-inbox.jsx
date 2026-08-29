@@ -252,7 +252,54 @@
     return new Date(b.createdUtc) - new Date(a.createdUtc) >= MOC_MS;
   }
 
-  function BongBong({ tin, kenh, ten0, dauCum = true, cuoiCum = true }) {
+  /**
+   * Toạ độ mở một menu neo theo nút vừa bấm, dùng cho position:fixed.
+   *
+   * Tự LẬT LÊN khi dưới nút không đủ chỗ — nếu không thì mấy dòng cuối danh sách (và mấy tin
+   * cuối khung chat) mở menu ra là nó chui xuống dưới khung nhìn, phải cuộn mới bấm được.
+   * Chỉ lật khi phía trên THẬT SỰ rộng hơn phía dưới, chứ không lật mù.
+   *
+   * Dùng fixed chứ không absolute vì cả hai menu đều nằm trong khung CUỘN: absolute thì bị
+   * khung cắt, nong chiều ngang, và bị phần tử sau đè lên.
+   */
+  function viTriMenu(nut, caoUocLuong) {
+    const o = nut.getBoundingClientRect();
+    const cao = window.innerHeight, rong = window.innerWidth;
+    const duoi = cao - o.bottom;
+    const lat = duoi < caoUocLuong && o.top > duoi;
+
+    // KẸP vào khung nhìn. Nút neo có thể nằm ngoài màn hình (danh sách vừa cuộn, hoặc cửa sổ
+    // thấp), lúc đó menu bám sát nút sẽ chui ra ngoài và không bấm được — đã thấy khi chạy thử.
+    const y = lat
+      ? Math.min(o.top - 6, cao - 8)                       // lật lên: y là ĐÁY menu
+      : Math.max(8, Math.min(o.bottom + 6, cao - caoUocLuong - 8));
+    // x là mép PHẢI menu (có translateX(-100%)), nên phải chừa đủ bề ngang menu bên trái.
+    const x = Math.max(198, Math.min(o.right, rong - 8));
+
+    // Chỗ đặt mũi nhọn, đo từ mép PHẢI menu vào. Tính theo tâm nút thật chứ không đặt cứng: khi
+    // x bị kẹp ở trên thì mép menu không còn trùng mép nút nữa, đặt cứng là mũi nhọn chỉ vào chỗ
+    // trống. Kẹp lại trong thân menu để nó không thò ra ngoài góc bo.
+    const nhon = Math.max(8, Math.min(168, x - (o.left + o.width / 2) - 5));
+    return { x, y, lat, nhon };
+  }
+
+  /** Telegram — kênh DUY NHẤT thu hồi thật được (bot xoá tin của chính nó trong 48 giờ). */
+  const KENH_TELEGRAM = 3;
+  const THU_HOI_TELEGRAM_MS = 48 * 60 * 60 * 1000;
+
+  /**
+   * Còn mấy giây nữa tin rời máy chủ. 0 = đã đi (hoặc không hoãn).
+   *
+   * Mốc lấy từ MÁY CHỦ (`send_after`), không tự cộng từ `createdUtc` + số giây trong cấu hình:
+   * quản trị đổi số giây, hoặc đồng hồ máy khách chạy sai, là con số suy ra sai ngay — mà sai ở
+   * đây nghĩa là nút Thu hồi hiện ra sau khi tin đã đi, bấm vào báo lỗi.
+   */
+  function giayConLai(mocIso) {
+    if (!mocIso) return 0;
+    return Math.max(0, Math.ceil((new Date(mocIso).getTime() - Date.now()) / 1000));
+  }
+
+  function BongBong({ tin, kenh, ten0, dauCum = true, cuoiCum = true, onXoa, onSua, onThuHoi }) {
     // 0=khách 1=AI 2=nhân viên 3=hệ thống
     const ben = tin.senderKind;
     const cuaMinh = tin.direction === 1;
@@ -260,6 +307,25 @@
     // Nhãn người gửi chỉ ở ĐẦU cụm — lặp lại dưới mỗi bong bóng của cùng một người là thừa.
     const nhan = !dauCum ? null
       : ben === 1 ? 'AI trả lời' : ben === 2 ? (tin.senderUsername || 'Nhân viên') : null;
+
+    // Toạ độ mở menu của tin, hoặc null. Lưu TOẠ ĐỘ chứ không phải cờ bật/tắt: menu vẽ bằng
+    // position:fixed nên nó không nằm trong luồng của khung chat — không nong chiều ngang,
+    // không bị khung cuộn cắt, và không bị tin bên dưới đè lên.
+    const [moTin, setMoTin] = React.useState(null);
+
+    // Đếm ngược cửa sổ thu hồi. Dừng hẳn khi về 0 — để chạy tiếp là mỗi tin cũ trong hội thoại
+    // giữ một bộ đếm vô ích, mở một hội thoại dài là hàng trăm cái.
+    const [conLai, setConLai] = React.useState(() => giayConLai(tin.sendAfterUtc));
+    React.useEffect(() => {
+      setConLai(giayConLai(tin.sendAfterUtc));
+      if (!tin.sendAfterUtc) return;
+      const t = setInterval(() => {
+        const n = giayConLai(tin.sendAfterUtc);
+        setConLai(n);
+        if (n === 0) clearInterval(t);
+      }, 500);
+      return () => clearInterval(t);
+    }, [tin.sendAfterUtc]);
     const coTep = (tin.files || []).length > 0;
     // Tin CHỈ có ảnh/nhãn dán, không kèm chữ. Bong bóng bọc quanh một tấm ảnh — nhất là nhãn dán
     // nền trong suốt — trông như cái khung thừa; mọi app chat đều để media trôi tự do.
@@ -270,7 +336,11 @@
     //   bot    — KHÔNG bong bóng, chỉ một dải mảnh bên trái. Bot nói nhiều; để nó cũng thành
     //            bong bóng thì khung chat đặc kín và mắt không phân biệt nổi đâu là người thật
     //   mình   — bong bóng đậm, nhãn người gửi nằm TRONG bóng
-    const noiDung = (
+    // Tin đã xoá khỏi hộp thư: hiện một dòng nhạt thay cho nội dung, KHÔNG cho biến mất hẳn.
+    // Biến mất thì người trực tưởng mình nhớ nhầm, và cụm tin quanh nó mất mạch.
+    const noiDung = tin.deleted ? (
+      <div className="ci-noidung ci-da-xoa"><i>Tin đã bị xoá khỏi hộp thư</i></div>
+    ) : (
       <>
         <DinhKem tin={tin} />
         {/* Có đính kèm thì chữ là CHÚ THÍCH, vắng chữ là bình thường — đừng in "(không có chữ)"
@@ -336,6 +406,58 @@
       </div>
     );
 
+    // Thao tác trên tin CỦA MÌNH. Nút Sửa chỉ hiện với tin chưa ra khỏi máy (chờ gửi = 0,
+    // gửi hỏng = 4) — tin đã gửi thì khách đã thấy bản gốc vĩnh viễn, sửa bản của mình là làm
+    // hộp thư nói dối. Ẩn hẳn nút chứ không hiện rồi báo lỗi.
+    const suaDuoc = onSua && (tin.state === 0 || tin.state === 4);
+    // Telegram thu hồi được cả tin ĐÃ gửi, trong 48 giờ — kênh duy nhất làm được. Kênh khác thì
+    // hết đếm ngược là chỉ còn "Xoá", và câu xác nhận của nó nói rõ khách vẫn thấy.
+    const thuHoiDuoc = onThuHoi && conLai === 0 && kenh === KENH_TELEGRAM && tin.state >= 1
+      && Date.now() - new Date(tin.createdUtc).getTime() < THU_HOI_TELEGRAM_MS;
+
+    // Học Messenger: một nút tròn "⋯" NỔI cạnh bong bóng khi rê chuột, mở ra menu — chứ không
+    // phải dải chữ gạch chân nằm dưới tin.
+    //
+    // Hai lý do, đều thấy ngay trên màn hình: dải chữ nằm trong luồng nên lúc hiện ra nó ĐẨY mọi
+    // tin bên dưới nhích xuống, đọc một hội thoại dài mà rê chuột qua là cả khung nhảy; và chữ
+    // gạch chân trông như liên kết, không như thao tác.
+    const thaoTac = !tin.deleted && (onXoa || suaDuoc || thuHoiDuoc) && (
+      <div className="ci-tin-menu">
+        <button className="ci-tin-cham" title="Thao tác với tin này" aria-label="Thao tác với tin này"
+                onClick={e => setMoTin(moTin ? null : viTriMenu(e.currentTarget, 130))}>
+          <window.Icon name="more" size={14} />
+        </button>
+        {moTin && (
+          <>
+            <div className="ci-menu-nen" onClick={() => setMoTin(null)} />
+            <div className={'ci-menu ci-menu-tin ' + (moTin.lat ? 'nhon-duoi' : 'nhon-tren')}
+                 role="menu"
+                 style={{ left: moTin.x, top: moTin.y, '--nhon': moTin.nhon + 'px',
+                          transform: moTin.lat ? 'translate(-100%, -100%)' : 'translateX(-100%)' }}>
+              {suaDuoc && (
+                <button role="menuitem" onClick={() => { setMoTin(null); onSua(tin); }}>Sửa lại</button>
+              )}
+              {thuHoiDuoc && (
+                <button role="menuitem" onClick={() => { setMoTin(null); onThuHoi(tin); }}>
+                  Thu hồi cả phía khách
+                </button>
+              )}
+              {/* ⚠️ Nhãn ngắn gọn "Gỡ" theo lối Messenger, nhưng bên đó "Gỡ" nghĩa là thu hồi
+                  CẢ PHÍA KHÁCH — còn đây chỉ gỡ trong hộp thư của mình. Vì thế câu xác nhận
+                  trong onXoa PHẢI giữ nguyên phần nói rõ khách vẫn thấy; bỏ nó đi là nhãn này
+                  thành lời hứa sai. */}
+              {onXoa && (
+                <button role="menuitem" className="nguy-hiem"
+                        onClick={() => { setMoTin(null); onXoa(tin); }}>
+                  Gỡ
+                </button>
+              )}
+            </div>
+          </>
+        )}
+      </div>
+    );
+
     return (
       <div className={'ci-dong ci-phai' + (cuoiCum ? '' : ' lien')}>
         <div>
@@ -360,6 +482,15 @@
             {gio}
           </div>
           {camXuc}
+          {/* Cửa sổ thu hồi THẬT: tin còn nằm trong hàng đợi, chưa rời máy chủ. Hết giây là nó
+              đã đi và không kênh nào (trừ Telegram) rút lại được nữa. */}
+          {conLai > 0 && onThuHoi && (
+            <div className="ci-thu-hoi">
+              <span>Đang gửi sau {conLai}s</span>
+              <button onClick={() => onThuHoi(tin)}>Thu hồi</button>
+            </div>
+          )}
+          {thaoTac}
         </div>
       </div>
     );
@@ -524,10 +655,17 @@
     const tron = kenh === 0 ? 48 : 24;
     const con = Math.max(2, Math.min(100, Math.round(cuaSo.hoursLeft / tron * 100)));
     return (
-      <div className={'ci-cuaso ' + (sap ? 'sap' : 'mo')} style={{ '--ci-con': con + '%' }}>
+      // Một dòng, không hai. Câu giải thích "hết hạn thì phải chờ khách nhắn lại" là thứ đọc MỘT
+      // lần rồi thuộc, nhưng bản trước in nó ra ở mọi hội thoại và chiếm nguyên nửa dải. Đưa vào
+      // tooltip: người mới vẫn tra được, người quen việc không phải nhìn lại mỗi ngày.
+      //
+      // Chỉ khi sắp hết (dưới 6 giờ) mới bung câu nhắc ra ngoài — lúc đó nó là cảnh báo thật.
+      <div className={'ci-cuaso ' + (sap ? 'sap' : 'mo')} style={{ '--ci-con': con + '%' }}
+           title={'Còn ' + dienGio(cuaSo.hoursLeft) + ' để trả lời trên ' + ten
+                  + '. Hết hạn thì phải chờ khách nhắn lại mới gửi được, hoặc dùng tin mẫu đã duyệt.'}>
         <window.Icon name="clock" size={12} />
-        <span>Cửa sổ trả lời {ten} còn <b>{dienGio(cuaSo.hoursLeft)}</b></span>
-        <span className="ci-cuaso-phu">hết hạn thì phải chờ khách nhắn lại mới gửi được</span>
+        <span>{ten} còn <b>{dienGio(cuaSo.hoursLeft)}</b></span>
+        {sap && <span className="ci-cuaso-phu">sắp hết — trả lời sớm</span>}
       </div>
     );
   }
@@ -547,6 +685,13 @@
     'chuyen-viec': 'chuyển việc',
     'doi-trang-thai': 'đổi trạng thái',
     'tam-dung-bot': 'chỉnh trợ lý',
+    'theo-doi': 'theo dõi',
+    'bo-theo-doi': 'bỏ theo dõi',
+    'chan-khach': 'chặn khách',
+    'bo-chan-khach': 'bỏ chặn khách',
+    'xoa-tin': 'xoá tin',
+    'sua-tin': 'sửa tin',
+    'thu-hoi-tin': 'thu hồi tin',
     'go-ket-noi': 'gỡ kết nối kênh',
   };
 
@@ -1293,13 +1438,37 @@
     //
     // Mở cửa sổ PHỤ chứ không chuyển hướng cả trang: người dùng đang khai dở form, chuyển đi là
     // mất hết những gì vừa gõ mà chưa bấm Lưu.
+    /// Mở cửa sổ cấp quyền cho ĐÚNG cách trình duyệt cho phép.
+    //
+    // ⚠️ Phải gọi window.open NGAY trong cử chỉ bấm, TRƯỚC mọi await. Trình duyệt chỉ cho mở cửa
+    // sổ khi lệnh nằm trong ngăn xếp ĐỒNG BỘ của một cử chỉ người dùng; sau await thì cử chỉ đã
+    // bị tiêu và lệnh bị chặn. Máy bàn dễ tính nên không lộ, còn Safari/Chrome trên điện thoại
+    // chặn thẳng — đúng kiểu lỗi "máy tôi chạy được mà máy khách thì không".
+    //
+    // Nên: mở cửa sổ RỖNG trước, xin đường dẫn xong mới trỏ nó tới đó. Bị chặn (trả null) thì
+    // lùi về điều hướng chính tab hiện tại — thà mất form đang gõ dở còn hơn bấm mà không có gì
+    // xảy ra và người dùng không hiểu vì sao.
+    function moCuaSoCapQuyen(ten) {
+      try { return window.open('', ten, 'width=560,height=720'); } catch { return null; }
+    }
+
+    function diToiCapQuyen(cua, url) {
+      if (cua && !cua.closed) { cua.location.href = url; return true; }
+      window.location.href = url;   // cửa sổ bật lên bị chặn — đi thẳng ở tab này
+      return false;
+    }
+
     async function capQuyenZalo(kenh, accId) {
+      const cua = moCuaSoCapQuyen('zalo-cap-quyen');
       const r = await authedFetch('/api/v1/chat/channels/' + kenh + '/accounts/' + accId + '/oauth-url',
         { method: 'POST' });
       let j = null; try { j = await r.json(); } catch {}
-      if (!r.ok) { pushToast(j?.error || 'Không dựng được đường cấp quyền', 'error'); return; }
-      window.open(j.url, 'zalo-cap-quyen', 'width=560,height=720');
-      pushToast('Cấp quyền xong thì bấm Tải lại để thấy trạng thái mới', 'success');
+      if (!r.ok) {
+        try { cua?.close(); } catch {}
+        pushToast(j?.error || 'Không dựng được đường cấp quyền', 'error'); return;
+      }
+      if (diToiCapQuyen(cua, j.url))
+        pushToast('Cấp quyền xong thì bấm Tải lại để thấy trạng thái mới', 'success');
     }
 
     // Kết nối mà KHÔNG khai gì trước: ứng dụng Zalo/Facebook là của TourKit, khách chỉ cần đồng ý.
@@ -1314,11 +1483,16 @@
     const [lichSu, setLichSu] = React.useState({});
 
     async function noiNhanhKenh(kenh) {
+      const cua = moCuaSoCapQuyen('chat-cap-quyen');
       const r = await authedFetch('/api/v1/chat/channels/' + kenh + '/connect-url', { method: 'POST' });
       let j = null; try { j = await r.json(); } catch {}
-      if (!r.ok) { pushToast(j?.error || 'Không dựng được đường kết nối', 'error'); return; }
-      window.open(j.url, 'chat-cap-quyen', 'width=560,height=720');
-      pushToast('Nối xong thì bấm Tải lại để thấy tài khoản mới', 'success');
+      if (!r.ok) {
+        try { cua?.close(); } catch {}
+        pushToast(j?.error || 'Không dựng được đường kết nối', 'error'); return;
+      }
+      // Đi thẳng ở tab này thì trang sắp rời đi, hiện lời nhắc là vô nghĩa.
+      if (diToiCapQuyen(cua, j.url))
+        pushToast('Nối xong thì bấm Tải lại để thấy tài khoản mới', 'success');
     }
 
     // Lấy lại đoạn chat cũ. Chạy nền vài phút nên đây chỉ ra lệnh bắt đầu rồi hỏi tiến độ —
@@ -1623,7 +1797,7 @@
     const [demKenh, setDemKenh] = useState({});
     const [loc, setLoc] = useState(null);          // trạng thái xử lý
     const [kenhLoc, setKenhLoc] = useState(null);  // kênh
-    const [nhom, setNhom] = useState('tat-ca');    // tat-ca | chua-doc | cua-toi
+    const [nhom, setNhom] = useState('tat-ca');    // tat-ca | chua-doc | cua-toi | toi-theo-doi
     const [tim, setTim] = useState('');
     const [chon, setChon] = useState(null);        // id hội thoại đang mở
     const [chiTiet, setChiTiet] = useState(null);
@@ -1633,9 +1807,30 @@
     const [moKhai, setMoKhai] = useState(false);
     // Bảng chọn tin mẫu — chỉ mở từ ô soạn đang khoá, xem chỗ dùng.
     const [moMau, setMoMau] = useState(false);
-    const [moHoSo, setMoHoSo] = useState(true);
+    // Điện thoại (≤760px): một màn hình một việc — danh sách HOẶC khung chat, hồ sơ là tấm trượt
+    // từ đáy. Ba cột co lại trên 390px thì mỗi cột còn 100px, không đọc được gì. Dùng MỘT nguồn
+    // sự thật là JS (gắn lớp .di-dong) chứ không để CSS tự đo bằng @container: trang phải BIẾT
+    // mình đang ở điện thoại để đổi cả cách điều hướng (nút quay lại, đóng hồ sơ), hai bên đo
+    // lệch nhau vài chục px là nút quay lại hiện mà bố cục vẫn ba cột.
+    const diDong = window.tourkitHooks.useIsMobile(760);
+    // Hồ sơ khách mở sẵn ở máy tính (cột thứ tư); ở điện thoại nó che cả khung chat nên phải đóng.
+    const [moHoSo, setMoHoSo] = useState(() => window.innerWidth > 760);
+    // Menu "⋯" của hội thoại. Messenger để đúng HAI thứ ngoài thanh tiêu đề (một việc chính +
+    // nút hồ sơ) và dồn phần còn lại vào một menu — bảy nút chữ xếp ngang như bản trước vừa tràn
+    // dòng vừa bắt người ta đọc hết bảy nhãn mỗi lần chỉ để bấm một cái.
+    const [moMenu, setMoMenu] = useState(false);
+    // Id của dòng đang mở menu "⋯" trong DANH SÁCH. Một biến chứ không phải cờ mỗi dòng:
+    // chỉ được mở đúng một menu tại một thời điểm, và mở cái mới là cái cũ tự đóng.
+    const [menuDong, setMenuDong] = useState(null);
     const [dinhKem, setDinhKem] = useState(null);      // tệp đã tải lên, CHỜ bấm gửi
     const [dangTai2, setDangTai2] = useState(false);   // đang tải tệp lên kho
+    // Tiến độ tải tệp: {ten, phanTram, dangLuu}. dangLuu = trình duyệt đã gửi xong 100% nhưng
+    // MÁY CHỦ còn đang đẩy tiếp lên R2 — hai chặng khác nhau, và chặng sau mới là chặng lâu.
+    // Để thanh đứng ở 100% suốt chặng đó là nói dối, nên chuyển hẳn sang trạng thái không xác định.
+    const [tienDoTep, setTienDoTep] = useState(null);
+    // Đang tải TIN của một hội thoại. Thiếu cờ này thì bấm sang hội thoại khác vẫn thấy tin
+    // của hội thoại cũ đứng im vài trăm mili giây — người dùng tưởng bấm hụt và bấm lại.
+    const [dangTaiTin, setDangTaiTin] = useState(false);
     const [mauTraLoi, setMauTraLoi] = useState([]);
     const [goiY, setGoiY] = useState(null);            // null = đang không gõ lệnh
     // Nút đi kèm tin SẮP gửi, lấy từ mẫu trả lời nhanh vừa chọn. Không phải chữ nên không nằm
@@ -1648,6 +1843,7 @@
     const [dangTaiThem, setDangTaiThem] = useState(false);
     const cuonRef = useRef(null);
     const tepRef = useRef(null);
+    const gridRef = useRef(null);
 
     const taiDsach = useCallback(async (cursor) => {
       try {
@@ -1656,6 +1852,7 @@
         if (kenhLoc !== null) q.set('channel', kenhLoc);
         if (nhom === 'chua-doc') q.set('unread', 'true');
         if (nhom === 'cua-toi') q.set('mine', 'true');
+        if (nhom === 'toi-theo-doi') q.set('followed', 'true');
         if (tim.trim()) q.set('search', tim.trim());
         if (cursor) q.set('cursor', cursor);
         const r = await authedFetch('/api/v1/chat/conversations?' + q);
@@ -1683,12 +1880,14 @@
 
     const taiChiTiet = useCallback(async (id) => {
       if (!id) return;
+      setDangTaiTin(true);
       try {
         const r = await authedFetch('/api/v1/chat/conversations/' + id);
         if (!r.ok) return;
         setChiTiet(await r.json());
         authedFetch('/api/v1/chat/conversations/' + id + '/read', { method: 'POST' }).catch(() => {});
       } catch {}
+      finally { setDangTaiTin(false); }
     }, []);
 
     // Nghe sự kiện ĐẨY thay cho hỏi lại 4 giây một lần. Mười nhân viên mở hộp thư là 300 lượt
@@ -1753,6 +1952,9 @@
 
     useEffect(() => { if (chon) taiChiTiet(chon); }, [chon, taiChiTiet]);
     useEffect(() => { setMoMau(false); }, [chon]);
+    // Kéo cửa sổ qua ngưỡng điện thoại (hoặc xoay máy tính bảng) mà hồ sơ đang mở ở dạng cột
+    // thì nó lập tức thành tấm trượt che kín khung chat — người dùng không hề bấm gì. Đóng lại.
+    useEffect(() => { if (diDong) setMoHoSo(false); }, [diDong]);
     // Nút soạn dở thuộc về hội thoại CŨ. Giữ lại là gửi nhầm nút của khách này cho khách khác.
     useEffect(() => { setNutSoan([]); setThemNut(null); }, [chon]);
 
@@ -1770,6 +1972,50 @@
       if (el) el.scrollTop = el.scrollHeight;
     }, [chiTiet?.messages?.length]);
 
+    // Chiều cao khung ở điện thoại: ĐO bằng JS thay vì calc(100dvh - N).
+    //
+    // Hai lý do. Một: phía trên khung là thanh trên cùng + lề trang, phía dưới là dải nút cố
+    // định của app — cộng tay ra một con số N là thứ lệch ngay khi ai đó đổi chiều cao thanh.
+    // Hai — và là lý do chính: bàn phím ảo. Cả iOS lẫn Android (Chrome ≥108) KHÔNG co viewport
+    // bố cục khi bàn phím bật lên, chỉ co viewport NHÌN THẤY, nên 100dvh giữ nguyên và ô soạn
+    // nằm gọn sau bàn phím — người dùng gõ mà không thấy mình gõ gì. visualViewport là thứ
+    // duy nhất nói đúng còn bao nhiêu chỗ nhìn thấy được.
+    useEffect(() => {
+      const el = gridRef.current;
+      if (!diDong || !el) return;
+      const vv = window.visualViewport;
+      const do_ = () => {
+        // Đỉnh khung tính theo TÀI LIỆU (cộng lại phần đã cuộn), không theo viewport: đo theo
+        // viewport thì trang cứ cuộn xuống một chút là khung "cao thêm" từng ấy, rồi lần đo sau
+        // lại cao thêm nữa — không bao giờ dừng.
+        const dinh = el.getBoundingClientRect().top + window.scrollY;
+        const cao = vv ? vv.height : window.innerHeight;
+        const banPhim = !!vv && window.innerHeight - vv.height > 120;
+        // Bàn phím đang bật thì dải nút dưới đáy đã bị nó che, đừng chừa chỗ cho thứ không thấy.
+        //
+        // SÀN 400px khi không có bàn phím: cửa sổ thấp (DevTools mở dọc, máy tính bảng xoay
+        // ngang có thanh địa chỉ) thì thà cả trang cuộn còn hơn một cái khung 250px lòi ra đúng
+        // một hội thoại rưỡi. Có bàn phím thì hạ sàn — lúc đó thứ phải thấy là ô soạn.
+        el.style.height = banPhim
+          ? Math.max(220, cao - dinh - 8) + 'px'
+          : 'max(400px, calc(' + (cao - dinh) + 'px - 72px - env(safe-area-inset-bottom)))';
+        // Bàn phím vừa bật là khung ngắn lại — kéo tin mới nhất về đúng chỗ, không thì tin cuối
+        // trốn sau ô soạn.
+        const c = cuonRef.current;
+        if (c) c.scrollTop = c.scrollHeight;
+      };
+      do_();
+      window.addEventListener('resize', do_);
+      vv?.addEventListener('resize', do_);
+      vv?.addEventListener('scroll', do_);
+      return () => {
+        window.removeEventListener('resize', do_);
+        vv?.removeEventListener('resize', do_);
+        vv?.removeEventListener('scroll', do_);
+        el.style.height = '';
+      };
+    }, [diDong, chon]);
+
     const cuaSo = chiTiet?.sendWindow;
     const khoaSoan = !cuaSo?.open;
 
@@ -1786,17 +2032,41 @@
       if (!tep || !chon) return;
       if (tep.size > 15 * 1024 * 1024) { pushToast('Tệp quá 15MB', 'error'); return; }
       setDangTai2(true);
+      setTienDoTep({ ten: tep.name, phanTram: 0, dangLuu: false });
       try {
-        const fd = new FormData();
-        fd.append('file', tep);
-        const r = await authedFetch('/api/v1/chat/conversations/' + chon + '/upload', {
-          method: 'POST', body: fd,   // KHÔNG tự đặt Content-Type: trình duyệt phải tự thêm boundary
+        // XHR chứ không fetch: fetch KHÔNG báo được tiến độ tải LÊN. Đây là điểm mấu chốt của cả
+        // việc này — tệp đi lên R2 mất hàng chục giây, không có con số thì người dùng chỉ thấy
+        // màn hình đứng im và không biết nên chờ hay bấm lại.
+        const j = await new Promise((ok, loi) => {
+          const xhr = new XMLHttpRequest();
+          xhr.open('POST', '/api/v1/chat/conversations/' + chon + '/upload');
+          const sid = window.tourkitAuth?.getSessionId?.();
+          if (sid) xhr.setRequestHeader('X-Session-Id', sid);
+          // KHÔNG tự đặt Content-Type: trình duyệt phải tự thêm boundary cho FormData.
+
+          xhr.upload.onprogress = e => {
+            if (!e.lengthComputable) return;
+            const pt = Math.round(e.loaded / e.total * 100);
+            // Chạm 100% nghĩa là trình duyệt gửi xong, CHƯA phải lưu xong: máy chủ còn đẩy tiếp
+            // lên R2. Đổi sang trạng thái không xác định thay vì để thanh đứng im ở 100%.
+            setTienDoTep({ ten: tep.name, phanTram: pt, dangLuu: pt >= 100 });
+          };
+          xhr.onload = () => {
+            let than = {};
+            try { than = JSON.parse(xhr.responseText); } catch {}
+            if (xhr.status >= 200 && xhr.status < 300) ok(than);
+            else loi(new Error(than.error || 'HTTP ' + xhr.status));
+          };
+          xhr.onerror = () => loi(new Error('mất kết nối'));
+          xhr.onabort = () => loi(new Error('đã huỷ'));
+
+          const fd = new FormData();
+          fd.append('file', tep);
+          xhr.send(fd);
         });
-        const j = await r.json().catch(() => ({}));
-        if (!r.ok) { pushToast(j.error || 'Tải tệp lên không được', 'error'); return; }
         setDinhKem(j);
       } catch (e) { pushToast('Tải tệp lên không được: ' + e.message, 'error'); }
-      finally { setDangTai2(false); }
+      finally { setDangTai2(false); setTienDoTep(null); }
     }
 
     async function gui() {
@@ -1826,13 +2096,13 @@
       finally { setDangGui(false); }
     }
 
-    async function doiTrangThai(tt) {
-      if (!chon) return;
-      await authedFetch('/api/v1/chat/conversations/' + chon + '/status', {
+    async function doiTrangThai(tt, id = chon) {
+      if (!id) return;
+      await authedFetch('/api/v1/chat/conversations/' + id + '/status', {
         method: 'PATCH', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ status: tt }),
       });
-      await taiDsach(); await taiChiTiet(chon);
+      await taiDsach(); if (chon) await taiChiTiet(chon);
     }
 
     // Nhận việc: KHÔNG gửi tên, để máy chủ lấy từ phiên. Bản trước gửi
@@ -1851,17 +2121,133 @@
         let j = null; try { j = await r.json(); } catch {}
         pushToast(j?.error || 'Người khác đã nhận hội thoại này', 'error');
       }
-      await taiDsach(); await taiChiTiet(chon);
+      await taiDsach(); if (chon) await taiChiTiet(chon);
     }
 
-    async function batTatBot() {
-      if (!chon) return;
-      const dangCam = chiTiet?.conversation?.botPaused;
-      await authedFetch('/api/v1/chat/conversations/' + chon + '/bot', {
+    async function batTatBot(id = chon, dangCamHienTai = null) {
+      if (!id) return;
+      const dangCam = dangCamHienTai ?? chiTiet?.conversation?.botPaused;
+      await authedFetch('/api/v1/chat/conversations/' + id + '/bot', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ paused: !dangCam, minutes: 30 }),
       });
       await taiChiTiet(chon);
+    }
+
+    // id mặc định là hội thoại ĐANG MỞ; menu trên từng dòng truyền id của chính dòng đó.
+    async function danhDauChuaDoc(id = chon) {
+      if (!id) return;
+      try {
+        const r = await authedFetch('/api/v1/chat/conversations/' + id + '/unread', { method: 'POST' });
+        const j = await r.json().catch(() => ({}));
+        if (!r.ok) { pushToast(j.error || 'Không đánh dấu chưa đọc được', 'error'); return; }
+        if (!j.ok) {
+          pushToast('Hội thoại chưa có tin nào của khách nên không đánh dấu được', 'error');
+          return;
+        }
+        await taiDsach();
+      } catch (e) {
+        pushToast('Không đánh dấu chưa đọc được: ' + e.message, 'error');
+      }
+    }
+
+    async function thuHoiTin(tin) {
+      try {
+        const r = await authedFetch(
+          '/api/v1/chat/conversations/' + chon + '/messages/' + tin.id + '/recall',
+          { method: 'POST' });
+        const j = await r.json().catch(() => ({}));
+        if (!r.ok) {
+          // Nói THẬT khi muộn. Báo thành công ở đây là để nhân viên tưởng đã rút lại được câu lỡ
+          // tay và không đi xin lỗi khách — hậu quả thật, không phải chuyện chữ nghĩa.
+          pushToast(j.error || 'Tin đã gửi đi mất rồi — không thu hồi được nữa', 'error');
+          await taiChiTiet(chon);
+          return;
+        }
+        pushToast(j.recalledOnChannel
+          ? 'Đã thu hồi — khách không còn thấy tin này'
+          : 'Đã thu hồi trước khi gửi — tin chưa từng đến tay khách');
+        await taiChiTiet(chon);
+      } catch (e) {
+        pushToast('Không thu hồi được: ' + e.message, 'error');
+      }
+    }
+
+    async function xoaTin(tin) {
+      // ⚠️ Câu hỏi PHẢI nói khách vẫn thấy. Không nói thì nhân viên tưởng đã thu hồi được câu lỡ
+      // tay và không đi xin lỗi khách — hậu quả thật, không phải chuyện chữ nghĩa.
+      if (!confirm('Gỡ tin này khỏi hộp thư?\n\n'
+        + 'Chỉ xoá ở phía bạn — KHÁCH VẪN THẤY tin này. '
+        + 'Các nền tảng không cho phép doanh nghiệp thu hồi tin đã gửi.')) return;
+      try {
+        const r = await authedFetch(
+          '/api/v1/chat/conversations/' + chon + '/messages/' + tin.id, { method: 'DELETE' });
+        const j = await r.json().catch(() => ({}));
+        if (!r.ok) { pushToast(j.error || 'Không xoá được tin', 'error'); return; }
+        await taiChiTiet(chon);
+      } catch (e) {
+        pushToast('Không xoá được tin: ' + e.message, 'error');
+      }
+    }
+
+    async function suaTin(tin) {
+      const moi = prompt('Sửa nội dung tin (tin chưa gửi đi):', tin.body || '');
+      if (moi === null || !moi.trim()) return;
+      try {
+        const r = await authedFetch(
+          '/api/v1/chat/conversations/' + chon + '/messages/' + tin.id, {
+            method: 'PATCH',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ body: moi.trim() }),
+          });
+        const j = await r.json().catch(() => ({}));
+        if (!r.ok) { pushToast(j.error || 'Không sửa được tin', 'error'); return; }
+        await taiChiTiet(chon);
+      } catch (e) {
+        pushToast('Không sửa được tin: ' + e.message, 'error');
+      }
+    }
+
+    async function doiChan(id = chon, dangChan = v?.blocked) {
+      if (!id) return;
+      // ⚠️ Câu hỏi PHẢI nói rõ phạm vi. Không nền tảng nào cho phía doanh nghiệp chặn một người
+      // qua API, nên đây chỉ là chặn trong hộp thư của mình — khách vẫn nhắn tới được. Gọi tắt
+      // thành "chặn" mà không giải thích là người dùng tưởng đã chặn ở Facebook.
+      if (!dangChan && !confirm(
+        'Chặn khách này trong hộp thư?\n\n'
+        + 'Hộp thư sẽ ẩn họ và trợ lý ngừng trả lời. Việc này KHÔNG báo cho Facebook/Zalo, '
+        + 'khách vẫn nhắn tới được và vẫn thấy các tin cũ.')) return;
+      try {
+        const r = await authedFetch('/api/v1/chat/conversations/' + id + '/block', {
+          method: dangChan ? 'DELETE' : 'POST',
+        });
+        const j = await r.json().catch(() => ({}));
+        if (!r.ok) { pushToast(j.error || 'Không cập nhật chặn được', 'error'); return; }
+        setDsach([]);
+        setConTro(null);
+        await taiDsach(); if (chon) await taiChiTiet(chon);
+      } catch (e) {
+        pushToast('Không cập nhật chặn được: ' + e.message, 'error');
+      }
+    }
+
+    async function doiTheoDoi(id = chon, dangTheoDoi = v?.followed) {
+      if (!id) return;
+      try {
+        const r = await authedFetch('/api/v1/chat/conversations/' + id + '/follow', {
+          method: dangTheoDoi ? 'DELETE' : 'POST',
+        });
+        const j = await r.json().catch(() => ({}));
+        if (!r.ok) { pushToast(j.error || 'Không cập nhật theo dõi được', 'error'); return; }
+        // Lượt tải đầu thường giữ các trang đã cuộn để SSE không làm mất vị trí. Vừa bỏ theo dõi
+        // trong bộ lọc "Tôi theo dõi" thì chính dòng cũ có thể không còn thuộc kết quả nữa, nên
+        // dùng đúng reset khi đổi bộ lọc trước khi lấy lại từ đầu.
+        setDsach([]);
+        setConTro(null);
+        await taiDsach(); if (chon) await taiChiTiet(chon);
+      } catch (e) {
+        pushToast('Không cập nhật theo dõi được: ' + e.message, 'error');
+      }
     }
 
     const v = chiTiet?.conversation;
@@ -1873,10 +2259,13 @@
     const coLoc = kenhLoc !== null || nhom !== 'tat-ca' || loc !== null || !!tim.trim();
 
     return (
-      <main className="page ci-wrap">
+      // .xem-chat bám theo `chon` (id vừa chạm) chứ không theo `v` (chi tiết đã tải xong): chạm
+      // một dòng là khung chat phải hiện NGAY với khung xương, chờ tải xong mới lật màn thì có
+      // vài trăm mili giây đứng im và người dùng chạm lại lần nữa.
+      <main className={'page ci-wrap' + (diDong ? ' di-dong' : '') + (diDong && chon ? ' xem-chat' : '')}>
         {moKhai && <KhaiKenh pushToast={pushToast} onDong={() => setMoKhai(false)} />}
 
-        <div className={'ci-grid' + (v && moHoSo ? ' co-hoso' : '')}>
+        <div ref={gridRef} className={'ci-grid' + (v && moHoSo ? ' co-hoso' : '')}>
           {/* Hàng tiêu đề nằm TRONG thẻ, trải hết các cột.
 
               Trước đây dùng PageHero chung của app, đặt bên ngoài lưới. Đưa vào trong vì trang
@@ -1898,8 +2287,11 @@
               {dem.tong > 0 && <><span className="tach">·</span>
                 <span className="so">{dem.tong} hội thoại</span></>}
             </span>
-            <button className="ci-dau-nut" onClick={() => setMoKhai(x => !x)}>
-              <window.Icon name="plus" size={12} />Kết nối kênh
+            {/* Chữ bọc trong <span> để điện thoại giấu đi, chỉ còn dấu cộng — hàng tiêu đề
+                48px không đủ chỗ cho cả bộ đếm lẫn nhãn nút. title/aria-label giữ nghĩa. */}
+            <button className="ci-dau-nut" onClick={() => setMoKhai(x => !x)}
+                    title="Kết nối kênh" aria-label="Kết nối kênh">
+              <window.Icon name="plus" size={12} /><span>Kết nối kênh</span>
             </button>
           </div>
           {/* Vùng 1 — dải kênh */}
@@ -1927,7 +2319,8 @@
                        value={tim} onChange={e => setTim(e.target.value)} />
               </div>
               <div className="ci-nhom">
-                {[['tat-ca', 'Tất cả'], ['chua-doc', 'Chưa đọc'], ['cua-toi', 'Của tôi']].map(([id, nhan]) => (
+                {[['tat-ca', 'Tất cả'], ['chua-doc', 'Chưa đọc'], ['cua-toi', 'Của tôi'],
+                  ['toi-theo-doi', 'Tôi theo dõi']].map(([id, nhan]) => (
                   <button key={id} className={nhom === id ? 'on' : ''} onClick={() => setNhom(id)}>
                     {nhan}
                     {id === 'chua-doc' && dem.chuaDoc > 0 && <b>{dem.chuaDoc}</b>}
@@ -1950,6 +2343,23 @@
             </div>
 
             <div className="ci-ds">
+              {/* KHUNG XƯƠNG đúng hình dạng mục thật (ảnh tròn + ba dòng), không phải vòng
+                  xoay chung chung: mắt đã biết trước bố cục sắp hiện nên lúc dữ liệu về
+                  không bị giật, và người dùng thấy ngay đây là danh sách chứ không phải lỗi. */}
+              {dangTai && dsach.length === 0 && (
+                <div aria-hidden="true">
+                  {[0, 1, 2, 3, 4, 5].map(i => (
+                    <div key={i} className="ci-muc ci-xuong">
+                      <span className="ci-muc-avt"><span className="xg tron" /></span>
+                      <span className="ci-muc-than">
+                        <span className="xg d1" />
+                        <span className="xg d2" />
+                        <span className="xg d3" />
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              )}
               {!dangTai && dsach.length === 0 && (
                 <div className="ci-trong">
                   {coLoc
@@ -1960,9 +2370,15 @@
                 </div>
               )}
               {dsach.map(c => (
-                <button key={c.id}
-                        className={'ci-muc' + (chon === c.id ? ' on' : '') + (c.unread ? ' chuadoc' : '')}
-                        onClick={() => setChon(c.id)}>
+                // Thẻ div chứ không phải button: bên trong có nút "⋯" riêng, mà nút lồng trong
+                // nút là HTML sai và React sẽ cảnh báo. Vẫn giữ nguyên hành vi bàn phím bằng
+                // role + tabIndex + Enter/Space.
+                <div key={c.id} role="button" tabIndex={0}
+                     className={'ci-muc' + (chon === c.id ? ' on' : '') + (c.unread ? ' chuadoc' : '')}
+                     onClick={() => setChon(c.id)}
+                     onKeyDown={e => {
+                       if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setChon(c.id); }
+                     }}>
                   <span className="ci-muc-avt">
                     {/* url= là BẮT BUỘC, không thì AnhDaiDien lặng lẽ vẽ chữ cái đầu — danh sách
                         hiện "TT" trong khi đầu khung chat ngay cạnh hiện ảnh thật của cùng khách. */}
@@ -1970,23 +2386,89 @@
                                 url={c.avatarUrl} co={36} />
                     <HuyHieuKenh kenh={c.channel} />
                   </span>
+                  {/* HAI hàng, không phải ba — học cách Messenger xếp danh sách: tên + giờ, rồi
+                      dòng xem trước, hết. Bản trước có thêm một hàng huy hiệu CHỮ ("Đang xử lý" ·
+                      "admin" · "bot tạm dừng") làm mỗi mục cao gấp rưỡi, tức mỗi màn hình thấy
+                      được ít hội thoại hơn hẳn — mà ba chữ đó thì lần nào cũng đọc lại y nguyên.
+                      Nay chúng thành mấy dấu hiệu nhỏ nằm ngay cạnh dòng xem trước, có tooltip.
+
+                      Trạng thái bỏ hẳn khỏi dòng: đã có dải chip lọc ngay trên đầu danh sách, và
+                      đầu khung chat cũng nói rõ — nhắc lần thứ ba ở đây chỉ tốn chỗ. */}
                   <span className="ci-muc-than">
                     <span className="ci-muc-dau">
+                      {/* Chưa đọc đã có sẵn cơ chế riêng: .ci-muc.chuadoc làm đậm tên và
+                          chấm một dấu cạnh giờ. Đừng thêm dấu thứ hai cho cùng một chuyện. */}
                       <span className="ci-ten">{c.displayName || c.contactExternalId}</span>
                       <span className="ci-luc">{gioNgan(c.lastActivityAt)}</span>
                     </span>
                     <span className="ci-xemtruoc">{c.lastPreview || 'chưa có tin nào'}</span>
-                    {/* Hàng cuối LUÔN có ít nhất viên trạng thái. Trước đây cả hàng biến mất khi
-                        chưa ai nhận việc, nên các mục cao thấp so le và danh sách trông lởm chởm. */}
+                    {/* NHÃN CHỮ, không phải biểu tượng bé xíu. Bản trước rút xuống mấy ký hiệu
+                        10px (★ ⏸ ⊘ và một chữ cái) cho gọn — nhưng gọn tới mức không ai đoán
+                        được nghĩa, phải rê chuột từng cái mới biết. Chữ đọc được thắng chỗ trống
+                        tiết kiệm: đây là danh sách người ta LIẾC chứ không phải đọc kỹ. */}
                     <span className="ci-muc-cuoi">
                       <span className={'ci-tt' + (c.status === 0 ? ' moi' : '')}>
                         <i />{TEN_TRANG_THAI[c.status]}
                       </span>
                       {c.assignedUsername && <span className="ci-giao">{c.assignedUsername}</span>}
-                      {c.botPaused && <span className="ci-botcam">bot tạm dừng</span>}
+                      {c.botPaused && <span className="ci-botcam">trợ lý dừng</span>}
+                      {c.followed && <span className="ci-theodoi">★ theo dõi</span>}
+                      {c.blocked && <span className="ci-dachan">đã chặn</span>}
                     </span>
                   </span>
-                </button>
+
+                  {/* "⋯" hiện khi rê chuột — đúng lối Messenger. Nút nằm TUYỆT ĐỐI nên không
+                      chiếm chỗ lúc ẩn, và dòng không nhảy khi nó hiện ra. */}
+                  <button className="ci-muc-cham" title="Thao tác" aria-label="Thao tác"
+                          onClick={e => {
+                            e.stopPropagation();
+                            // ⚠️ Đo NGAY trong lượt xử lý sự kiện, đừng đo bên trong hàm cập nhật
+                            // state. Hàm đó chạy SAU, lúc ấy React đã thu hồi e.currentTarget nên
+                            // nó là null — và getBoundingClientRect trên null ném lỗi làm TRẮNG
+                            // cả trang. Đã dính thật khi chạy thử bằng trình duyệt.
+                            const vt = viTriMenu(e.currentTarget, 200);
+                            setMenuDong(x => (x?.id === c.id ? null : { id: c.id, ...vt }));
+                          }}>
+                    <window.Icon name="more" size={15} />
+                  </button>
+                  {menuDong?.id === c.id && (
+                    <>
+                      <div className="ci-menu-nen"
+                           onClick={e => { e.stopPropagation(); setMenuDong(null); }} />
+                      <div className={'ci-menu ci-menu-dong '
+                                      + (menuDong.lat ? 'nhon-duoi' : 'nhon-tren')}
+                           role="menu"
+                           style={{ left: menuDong.x, top: menuDong.y,
+                                    '--nhon': menuDong.nhon + 'px',
+                                    transform: menuDong.lat ? 'translate(-100%, -100%)'
+                                                            : 'translateX(-100%)' }}
+                           onClick={e => e.stopPropagation()}>
+                        <button role="menuitem"
+                                onClick={() => { setMenuDong(null); danhDauChuaDoc(c.id); }}>
+                          Đánh dấu chưa đọc
+                        </button>
+                        <button role="menuitem"
+                                onClick={() => { setMenuDong(null); doiTheoDoi(c.id, c.followed); }}>
+                          {c.followed ? 'Bỏ theo dõi' : 'Theo dõi hội thoại'}
+                        </button>
+                        <button role="menuitem"
+                                onClick={() => { setMenuDong(null); batTatBot(c.id, c.botPaused); }}>
+                          {c.botPaused ? 'Cho trợ lý nói lại' : 'Tạm dừng trợ lý'}
+                        </button>
+                        <button role="menuitem"
+                                onClick={() => { setMenuDong(null);
+                                                 doiTrangThai(c.status !== 2 ? 2 : 1, c.id); }}>
+                          {c.status !== 2 ? 'Đóng hội thoại' : 'Mở lại hội thoại'}
+                        </button>
+                        <span className="ci-menu-vach" aria-hidden="true" />
+                        <button role="menuitem" className="nguy-hiem"
+                                onClick={() => { setMenuDong(null); doiChan(c.id, c.blocked); }}>
+                          {c.blocked ? 'Bỏ chặn khách' : 'Chặn trong hộp thư'}
+                        </button>
+                      </div>
+                    </>
+                  )}
+                </div>
               ))}
               {conTro && (
                 <button className="ci-taithem" disabled={dangTaiThem}
@@ -2001,10 +2483,25 @@
 
           {/* Vùng 3 — khung chat */}
           <section className="ci-chat">
-            {!v && <div className="ci-trong">Chọn một hội thoại bên trái để xem nội dung.</div>}
+            {!v && (
+              <div className="ci-trong">
+                {dangTaiTin ? 'Đang mở hội thoại…'
+                  : chon ? 'Không mở được hội thoại này. Thử chạm lại.'
+                  : 'Chọn một hội thoại bên trái để xem nội dung.'}
+              </div>
+            )}
             {v && (
               <>
                 <div className="ci-chat-dau">
+                  {/* Quay lại danh sách — chỉ ở điện thoại, vì ở đó danh sách đã bị khung chat
+                      che kín. Xoá luôn chi tiết đang giữ: không thì lần chạm sau, khung chat
+                      hiện tên khách CŨ một nhịp rồi mới đổi. */}
+                  {diDong && (
+                    <button className="ci-nut-icon ci-lui" onClick={() => { setChon(null); setChiTiet(null); }}
+                            title="Quay lại danh sách" aria-label="Quay lại danh sách">
+                      <window.Icon name="arrowLeft" size={17} />
+                    </button>
+                  )}
                   <AnhDaiDien ten={v.displayName || v.contactExternalId} url={lh?.avatarUrl} co={36} />
                   <div className="ci-chat-ten">
                     <b>{tenKhach}</b>
@@ -2017,15 +2514,55 @@
                            v.botPaused ? 'bot tạm dừng' : 'bot đang trả lời'].join(' · ')}</em>
                     </span>
                   </div>
+                  {/* Học cách Messenger xếp thanh tiêu đề: chỉ để lộ MỘT việc chính cộng nút hồ
+                      sơ, còn lại dồn vào "⋯". Bản trước bày bảy nút chữ cạnh nhau — tràn dòng
+                      trên màn hình hẹp, và bắt người trực đọc hết bảy nhãn mỗi lần chỉ để bấm một. */}
                   <div className="ci-nut-nhom">
                     <button className={'ci-nut' + (v.assignedUsername ? '' : ' chinh')} onClick={nhanViec}>
                       {v.assignedUsername ? 'Bỏ nhận' : 'Nhận việc'}
                     </button>
-                    <button className="ci-nut" onClick={batTatBot}>{v.botPaused ? 'Cho bot nói lại' : 'Tạm dừng bot'}</button>
-                    {v.status !== 2
-                      ? <button className="ci-nut" onClick={() => doiTrangThai(2)}>Đóng</button>
-                      : <button className="ci-nut" onClick={() => doiTrangThai(1)}>Mở lại</button>}
-                    <span className="ci-vach" aria-hidden="true" />
+
+                    <div className="ci-menu-boc">
+                      <button className={'ci-nut-icon' + (moMenu ? ' on' : '')}
+                              onClick={() => setMoMenu(x => !x)}
+                              title="Thao tác khác" aria-label="Thao tác khác"
+                              aria-expanded={moMenu}>
+                        <window.Icon name="more" size={15} />
+                      </button>
+                      {moMenu && (
+                        <>
+                          {/* Lớp phủ trong suốt: bấm ra ngoài là đóng. Không có nó thì menu dính
+                              lại cho tới khi bấm đúng nút — kiểu bực mình nhỏ mà gặp mỗi lần. */}
+                          <div className="ci-menu-nen" onClick={() => setMoMenu(false)} />
+                          <div className="ci-menu" role="menu">
+                            <button role="menuitem"
+                                    onClick={() => { setMoMenu(false); danhDauChuaDoc(); }}>
+                              Đánh dấu chưa đọc
+                            </button>
+                            <button role="menuitem"
+                                    onClick={() => { setMoMenu(false); doiTheoDoi(); }}>
+                              {v.followed ? 'Bỏ theo dõi' : 'Theo dõi hội thoại'}
+                            </button>
+                            <button role="menuitem"
+                                    onClick={() => { setMoMenu(false); batTatBot(); }}>
+                              {v.botPaused ? 'Cho trợ lý nói lại' : 'Tạm dừng trợ lý'}
+                            </button>
+                            <button role="menuitem"
+                                    onClick={() => { setMoMenu(false); doiTrangThai(v.status !== 2 ? 2 : 1); }}>
+                              {v.status !== 2 ? 'Đóng hội thoại' : 'Mở lại hội thoại'}
+                            </button>
+                            {/* Việc gây hậu quả nặng nhất nằm CUỐI và tách hẳn ra — để không ai
+                                bấm nhầm nó khi định bấm mục ngay trên. */}
+                            <span className="ci-menu-vach" aria-hidden="true" />
+                            <button role="menuitem" className="nguy-hiem"
+                                    onClick={() => { setMoMenu(false); doiChan(); }}>
+                              {v.blocked ? 'Bỏ chặn khách' : 'Chặn trong hộp thư'}
+                            </button>
+                          </div>
+                        </>
+                      )}
+                    </div>
+
                     <button className={'ci-nut-icon' + (moHoSo ? ' on' : '')}
                             onClick={() => setMoHoSo(x => !x)}
                             title={moHoSo ? 'Ẩn hồ sơ khách' : 'Xem hồ sơ khách'}
@@ -2038,7 +2575,21 @@
                 <ThanhCuaSo cuaSo={cuaSo} kenh={v.channel} />
 
                 <div className="ci-cuon" ref={cuonRef}>
-                  {tinNhan.length === 0 && <div className="ci-trong">Chưa có tin nhắn nào.</div>}
+                  {/* Khung xương bong bóng, so le hai bên đúng như hội thoại thật. Trước đây bấm
+                      sang hội thoại khác thì tin CŨ đứng im vài trăm mili giây rồi mới đổi —
+                      người dùng tưởng bấm hụt và bấm lại lần nữa. */}
+                  {dangTaiTin && tinNhan.length === 0 && (
+                    <div aria-hidden="true" className="ci-xuong-tin">
+                      {[62, 40, 75, 34, 55].map((w, i) => (
+                        <div key={i} className={'ci-dong ' + (i % 2 ? 'ci-phai' : 'ci-trai')}>
+                          <span className="xg bong" style={{ width: w + '%' }} />
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                  {!dangTaiTin && tinNhan.length === 0 && (
+                    <div className="ci-trong">Chưa có tin nhắn nào.</div>
+                  )}
                   {tinNhan.map((m, i) => {
                     const truoc = i > 0 ? tinNhan[i - 1] : null;
                     const sau = i < tinNhan.length - 1 ? tinNhan[i + 1] : null;
@@ -2069,7 +2620,8 @@
                           <div className="ci-mocgio"><span>{gioPhut(m.createdUtc)}</span></div>
                         )}
                         <BongBong tin={m} kenh={v.channel} ten0={tenKhach}
-                                  dauCum={dauCum} cuoiCum={cuoiCum} />
+                                  dauCum={dauCum} cuoiCum={cuoiCum}
+                                  onXoa={xoaTin} onSua={suaTin} onThuHoi={thuHoiTin} />
                       </React.Fragment>
                     );
                   })}
@@ -2095,6 +2647,28 @@
                     </div>
                   ) : (
                     <>
+                      {/* ĐANG tải tệp lên. Trước đây chặng này không có phản hồi nào ngoài việc
+                          đổi biểu tượng cái ghim — mà tệp lên R2 mất hàng chục giây, nên người
+                          dùng chỉ thấy màn hình đứng im và không biết nên chờ hay bấm lại.
+
+                          Thanh tiến độ THẬT (đọc từ XHR), rồi khi trình duyệt gửi xong 100% thì
+                          chuyển sang "đang lưu vào kho" — vì lúc đó máy chủ mới bắt đầu đẩy lên
+                          R2, và để thanh đứng ở 100% suốt chặng đó là nói dối về tiến độ. */}
+                      {tienDoTep && (
+                        <div className="ci-tep-tai" role="status" aria-live="polite">
+                          <div className="ci-tep-tai-dau">
+                            <span className="ten">{tienDoTep.ten}</span>
+                            <span className="pt">
+                              {tienDoTep.dangLuu ? 'đang lưu vào kho…' : tienDoTep.phanTram + '%'}
+                            </span>
+                          </div>
+                          <div className={'ci-tep-thanh' + (tienDoTep.dangLuu ? ' khongro' : '')}>
+                            <i style={tienDoTep.dangLuu ? undefined
+                                                       : { width: tienDoTep.phanTram + '%' }} />
+                          </div>
+                        </div>
+                      )}
+
                       {/* Tệp đã tải lên, CHỜ bấm gửi. Xem trước rồi mới gửi — lỡ chọn nhầm còn gỡ kịp. */}
                       {dinhKem && (
                         <div className="ci-tep-cho">
@@ -2181,7 +2755,8 @@
                         {/* Hàng công cụ nằm DƯỚI ô gõ, không kẹp hai bên: chữ được trọn chiều
                             ngang, và nút gửi luôn ở một chỗ cố định dù ô gõ cao lên bao nhiêu. */}
                         <div className="ci-soan-nut">
-                          <button className="icon" disabled={dangTai2}
+                          <button className={'icon' + (dangTai2 ? ' dang-lam' : '')}
+                                  disabled={dangTai2}
                                   onClick={() => tepRef.current?.click()}
                                   title="Gửi ảnh hoặc tệp" aria-label="Gửi ảnh hoặc tệp">
                             <window.Icon name={dangTai2 ? 'refresh' : 'paperclip'} size={15} />
@@ -2216,7 +2791,11 @@
             )}
           </section>
 
-          {/* Vùng 4 — hồ sơ khách */}
+          {/* Vùng 4 — hồ sơ khách. Ở điện thoại nó là tấm trượt từ đáy đè lên khung chat, nên
+              cần thêm lớp phủ mờ phía sau để chạm ra ngoài là đóng. */}
+          {v && moHoSo && diDong && (
+            <div className="ci-menu-nen ci-hs-nen" onClick={() => setMoHoSo(false)} aria-hidden="true" />
+          )}
           {v && moHoSo && <HoSo chiTiet={chiTiet} pushToast={pushToast} onDong={() => setMoHoSo(false)} />}
         </div>
       </main>

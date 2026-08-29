@@ -13,9 +13,66 @@ Những cập nhật gần đây của TRAV-AI, viết cho người dùng. Mới
 
 ---
 
+## Phiên bản 29/08/2026 — Nhắn tin trên điện thoại, và quyền riêng tư của khách
+
+### ✨ Tính năng mới
+- **Khách tự xoá được dữ liệu của mình.** TRAV-AI nay có [trang chính sách bảo mật](https://travelai.vn/privacy)
+  và [điều khoản dịch vụ](https://travelai.vn/dieu-khoan) công khai, nói rõ chúng tôi nhận dữ liệu
+  gì, dùng làm gì và ai được chạm vào.
+
+  Khách hàng của bạn muốn xoá dữ liệu thì có hai đường: gửi email yêu cầu, hoặc vào cài đặt
+  Facebook gỡ ứng dụng và chọn xoá — cách sau **xoá ngay lập tức** rồi trả về một mã tra cứu, mở
+  mã đó là thấy đã xoá bao nhiêu cuộc trò chuyện, bao nhiêu tin nhắn.
+
+  *Lưu ý:* chúng tôi chỉ xoá được bản lưu trong hệ thống mình. Bản nằm trên Facebook, Zalo hay
+  Telegram thuộc quyền các nền tảng đó.
+
+- **Chọn được trợ lý nào trả lời khách.** Trước đây trợ lý trong hộp thư chat chạy bằng mặc định
+  của nhà cung cấp, không đổi được — trong khi mọi tính năng khác đều chọn được. Nay nó cũng chọn
+  được như những phần còn lại, nên bạn cân đối được giữa chất lượng câu trả lời và chi phí.
+
+### 🔧 Đã khắc phục
+- **Nối Facebook, Zalo trên điện thoại: bấm là chạy.** Trước đây bấm nút kết nối trên điện thoại
+  thì **không có gì xảy ra** — không mở màn hình đăng nhập, không báo lỗi, không giải thích. Trên
+  máy tính thì vẫn được, nên rất khó đoán. Nay chạy đúng trên cả hai.
+- **Cấp quyền xong không còn mắc kẹt ở trang trắng.** Trên điện thoại, sau khi đồng ý cấp quyền,
+  màn hình đứng lại ở một trang trống dù việc đã xong — nhiều người tưởng hỏng nên làm lại từ đầu.
+  Nay tự quay về hộp thư.
+
+### 📌 Lưu ý
+Trang Facebook nào đã nối **từ trước bản này** cần vào **Kết nối kênh** bấm nối lại một lượt, để
+nhận thêm loại tin mới (khách thả cảm xúc). Facebook chỉ nhận danh sách loại tin lúc kết nối.
+
+---
+
 ## Phiên bản 28/08/2026 — Thêm 6 ngày để trả lời khách Facebook
 
 ### ✨ Tính năng mới
+- **Gửi nhầm thì rút lại được.** Sau khi bấm gửi, tin nằm chờ vài giây và có dải **Đang gửi sau
+  Ns — Thu hồi** ngay dưới tin. Bấm là tin **không bao giờ đến tay khách**, ở tất cả các kênh.
+  Quản trị đặt được số giây này (mặc định 5, đặt 0 để tắt và gửi ngay như trước).
+
+  Riêng **Telegram** còn thu hồi được cả tin **đã gửi**, trong vòng 48 giờ — khách không còn thấy
+  tin đó nữa.
+
+  *Lưu ý:* hết vài giây đó thì Facebook, Instagram, WhatsApp, Zalo và TikTok **không cho thu hồi**
+  — đó là quy định của họ, không phải giới hạn của phần mềm. Lúc đó bạn chỉ xoá được tin khỏi hộp
+  thư của mình, còn khách vẫn thấy; màn hình nói rõ như vậy.
+
+- **Bốn thao tác mới cho mỗi hội thoại**, nằm trong nút **⋯** ở đầu khung chat hoặc ngay trên
+  từng dòng danh sách khi bạn rê chuột vào. **Đánh dấu chưa đọc** — trả lại dấu chưa đọc khi
+  bạn lỡ mở nhầm, chỉ ảnh hưởng tới mình bạn chứ không tới đồng nghiệp. **Theo dõi hội thoại**
+  — ngó một ca khó mà không phải nhận việc, nhiều người cùng theo dõi được, và có bộ lọc
+  **Tôi theo dõi** ở đầu danh sách. **Chặn trong hộp thư** — khách quấy rối thì hộp thư ẩn họ
+  đi và trợ lý ngừng trả lời. Riêng **Gỡ / Sửa tin** thì rê chuột vào chính tin đó.
+
+  *Lưu ý quan trọng:* chặn và xoá **chỉ có tác dụng trong hộp thư của bạn**. Facebook, Instagram,
+  WhatsApp, Zalo và TikTok không cho phép doanh nghiệp chặn khách hay thu hồi tin đã gửi — nên
+  khách vẫn nhắn tới được và vẫn thấy tin cũ. Màn hình nói rõ điều này trước khi bạn bấm. Tin đã
+  xoá không biến mất khỏi hội thoại mà hiện thành dòng *"Tin đã bị xoá khỏi hộp thư"*, để bạn
+  không tưởng mình nhớ nhầm. Nút **Sửa** chỉ hiện với tin **chưa gửi đi được** (đang chờ hoặc gửi
+  hỏng) — tin đã tới tay khách thì sửa bản của mình chỉ làm hộp thư ghi sai thứ khách thật sự nhận.
+
 - **Có chỗ chỉnh trợ lý chat rồi.** Mở **Cài đặt hộp thư → Trợ lý**: bật/tắt trợ lý, viết
   những gì nó cần biết về công ty bạn (chuyên tuyến nào, xưng hô ra sao, không nhận đoàn
   dưới bao nhiêu khách), đặt câu chào, và chọn nhân viên trả lời xong thì trợ lý im bao lâu.
@@ -68,6 +125,42 @@ Những cập nhật gần đây của TRAV-AI, viết cho người dùng. Mới
   chỉ khi công ty chuyển sang từ ứng dụng WhatsApp Business và chỉ trong 24 giờ đầu sau khi nối.
 
 ### 🔧 Đã khắc phục
+- **Hộp thư chat dùng được trên điện thoại.** Trước đây mở trên điện thoại là ba cột bị bóp
+  vào một màn 390px — mỗi cột còn một khe hẹp, phải kéo ngang mới thấy, và không gõ nổi tin.
+  Nay theo lối Zalo/Messenger: **một màn hình một việc**. Danh sách hội thoại chiếm trọn màn
+  (dải kênh nằm ngang trên đầu, vuốt được); chạm một hội thoại là khung chat chiếm trọn, có nút
+  **←** để quay lại; hồ sơ khách (nút **ⓘ**) trượt lên từ đáy và chạm ra ngoài là đóng. Ô soạn
+  luôn nằm trên bàn phím ảo — bật bàn phím lên là khung tự ngắn lại, không còn cảnh gõ mà không
+  thấy mình gõ gì. Chữ trong ô nhập đủ lớn để iPhone không tự phóng to trang khi chạm vào. Nút
+  **⋯** trên tin của mình nay hiện mờ thường trực thay vì chỉ hiện khi rê chuột (điện thoại
+  không có chuột để rê). Cửa sổ thấp (mở bảng công cụ lập trình dọc, máy tính bảng xoay ngang)
+  thì cả trang cuộn chứ khung không bị cụt còn một hội thoại rưỡi.
+- **Nút lọc "Tôi theo dõi" không còn rơi xuống hàng riêng** nữa — bốn nút lọc đứng đều trên
+  một hàng; ở cột hẹp thì xếp 2×2 thay vì đè chữ lên nhau.
+- **Gõ `/` để chèn mẫu trả lời nay hiện đúng chỗ, ngay trên ô soạn.** Trước đây bảng mẫu bung
+  ra ở tận đỉnh trang, ngoài tầm nhìn, nên tưởng như bấm không ăn.
+- **Biết máy đang làm gì, thay vì ngồi đoán.** Chỗ nào phải chờ nay đều nói ra: mở một hội
+  thoại thì hiện sẵn khung tin mờ đúng chỗ tin sắp hiện, danh sách cũng vậy. Đáng kể nhất là
+  lúc **gửi ảnh hoặc tệp** — trước đây bấm chọn xong màn hình đứng im hàng chục giây, không
+  biết nên chờ hay bấm lại. Nay có tên tệp kèm **phần trăm thật**, và khi máy đã nhận đủ thì
+  đổi sang *"đang lưu vào kho"* để bạn biết vẫn còn một chặng nữa chứ không phải bị treo.
+- **Danh sách hội thoại gọn và dễ liếc hơn.** Nhãn trạng thái giãn ra, mỗi dòng thoáng hơn, và
+  thao tác dồn vào nút **⋯** thay vì bày bảy nút chữ cạnh nhau — trước đây chúng tràn dòng
+  trên màn hình hẹp và bắt bạn đọc hết bảy nhãn mỗi lần chỉ để bấm một cái.
+- **Telegram: khách chưa đặt ảnh đại diện thì tin không vào được hộp thư.** Đây là lỗi nặng và
+  âm thầm: một câu "Xin chào" bình thường cũng mất, chỉ vì lúc đi lấy hồ sơ khách thì Telegram
+  trả về danh sách ảnh RỖNG và hệ thống vấp ở đúng chỗ đó. Khách vẫn thấy tin mình đã gửi, còn
+  bên bạn thì không có gì — không báo lỗi, không dấu vết. Nay đã sửa, và những tin lỡ mất trước
+  đó vẫn nằm trong hàng đợi nên khôi phục lại được.
+- **Khách thả cảm xúc trên Facebook: nay hộp thư hiện.** Trước đây khách thả tim hay biểu tượng
+  vào tin của bạn thì hộp thư không hiện gì cả — trong khi Instagram thì có. Nay Facebook cũng
+  hiện, kể cả lúc khách gỡ ra.
+
+  *Lưu ý:* Trang Facebook nào đã nối **từ trước bản này** cần vào **Kết nối kênh** bấm nối lại một
+  lượt — Facebook chỉ nhận danh sách loại tin lúc kết nối.
+- **Khách bấm nút "Gửi tới Messenger" trên website: nay biết họ đến từ đâu.** Trước đây đường này
+  không được ghi nhận, nên trang đích nào kéo được khách về thì không có số liệu. Nay hiện trong
+  mục "Đến từ" của hội thoại như các nguồn khác.
 - **Ảnh khách gửi không còn biến mất sau vài ngày.** Facebook, Instagram, WhatsApp, Zalo và
   Telegram đều chỉ cho xem ảnh trong một thời gian ngắn — Facebook là **5 ngày** — sau đó ảnh
   trong hộp thư thành ô vỡ và **không cách nào lấy lại**. Ảnh hoá đơn, hộ chiếu, ảnh phòng

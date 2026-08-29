@@ -1,4 +1,4 @@
-using Microsoft.Extensions.Configuration;
+﻿using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 
 namespace TourkitAiProxy.Services.Bootstrap;
@@ -162,26 +162,54 @@ public static class WebFeatureRegistration
         // Scheduler: CHỈ instance có Workflows:RunScheduler=true mới tick nền. Mặc định false — sau
         // khi tách TourkitAiProxy.Worker thì worker mới chạy scheduler, web không tự tick.
         // Nút "Chạy ngay" (run-now) vẫn dùng được vì service đã đăng ký Singleton.
+        // Không in ở đây nữa — cả scheduler lẫn worker chat gộp vào MỘT dòng tự khai lúc khởi
+        // động, xem InstanceInfo. In rải rác thì đọc log gộp của hai máy không ghép lại được.
         var runScheduler = cfg.GetValue("Workflows:RunScheduler", false);
-        Console.WriteLine($"[Startup] Workflows:RunScheduler = {runScheduler} "
-                          + "(mặc định false — worker riêng TourkitAiProxy.Worker sẽ chạy)");
         if (runScheduler)
             s.AddHostedService(sp => sp.GetRequiredService<Workflows.WorkflowSchedulerService>());
 
-        // Hai worker của chat chạy ở WEB (không phải worker riêng) vì tin chat phải đi NGAY — khách
+        // Ba worker của chat chạy ở WEB (không phải worker riêng) vì tin chat phải đi NGAY — khách
         // đang chờ trước màn hình, không như bản tin sáng hẹn giờ. Vào: webhook chỉ GHI thân thô,
         // worker này mới xử lý.
         //
         // KHÔNG còn phụ thuộc cờ Features:Chat — cờ đó nay chỉ ẩn mục menu (xem MapHopThuChat).
-        // Vẫn không tốn nhịp nào khi chưa dùng: cả hai worker tự dừng ngay vòng đầu nếu
+        // Vẫn không tốn nhịp nào khi chưa dùng: cả ba tự dừng ngay vòng đầu nếu
         // ConnectionStrings:Chat để trống (repo.Configured == false).
-        s.AddHostedService<Chat.Inbox.ChatInboundWorker>();
-        s.AddHostedService<Chat.Inbox.ChatOutboxWorker>();
+        //
+        // ⚠️ MẶC ĐỊNH BẬT, và cố ý ngược với Workflows:RunScheduler ở trên. Hai cờ, hai hướng an
+        // toàn khác nhau: quên khai scheduler thì bản tin sáng chậm một nhịp, không ai chết; còn
+        // quên khai cờ này mà mặc định TẮT thì hộp thư ngừng nhận VÀ ngừng gửi trên mọi máy —
+        // khách nhắn vào hư không, và không có lỗi nào hiện lên.
+        //
+        // Khi nào đặt false: máy chủ chạy NHIỀU instance trên cùng một CSDL. Hàng đợi vốn đã an
+        // toàn nhờ FOR UPDATE SKIP LOCKED nên không sợ gửi hai lần — cái đáng sợ là hai instance
+        // chạy HAI PHIÊN BẢN MÃ khác nhau, lúc đó con cũ hỏng mọi nhịp trong im lặng (đã dính thật
+        // 28/08/2026). Chọn đúng MỘT con chạy worker, các con còn lại đặt false.
+        if (cfg.GetValue("Workflows:RunChatWorkers", true))
+        {
+            s.AddHostedService<Chat.Inbox.ChatInboundWorker>();
+            s.AddHostedService<Chat.Inbox.ChatOutboxWorker>();
+        }
 
-        // Worker thứ ba, KHÁC nhịp hẳn hai cái trên: nó không phục vụ tin đang tới mà đi cứu ảnh
-        // CŨ trước khi url của nhà cung cấp hết hạn (đo được: ảnh Meta sống 5 ngày). Bắt đầu muộn,
-        // mẻ nhỏ, nghỉ giữa các mẻ — xem ChatMediaBackfillWorker. Cũng tự dừng vòng đầu khi chưa
-        // khai CSDL chat hoặc chưa khai kho tệp.
-        s.AddHostedService<Chat.Inbox.ChatMediaBackfillWorker>();
+        // ẢNH tách khỏi TIN NHẮN bằng một cờ RIÊNG, vì hai việc này khác nhau ở mọi mặt đáng kể:
+        //
+        //   · tin nhắn — khách đang chờ trước màn hình, phải đi trong vài giây, mỗi lượt rất nhẹ;
+        //   · ảnh — không ai chờ, nhưng mỗi tệp là một lượt tải mạng cộng một lượt nén (tốn CPU),
+        //     và một hộp thư lâu năm có hàng nghìn tệp.
+        //
+        // Gộp chung một cờ thì muốn dời việc nặng sang máy khác là dời luôn cả việc gấp. Tách ra
+        // mới đặt được cấu hình mà đội vận hành thật sự cần:
+        //
+        //   web  : RunWorkers = true  · RunMediaWorker = false   (nhẹ, chỉ lo tin của khách)
+        //   máy ảnh: RunWorkers = false · RunMediaWorker = true   (một con chuyên vét ảnh)
+        //
+        // ⚠️ PHẢI có ĐÚNG MỘT con bật RunMediaWorker. Tắt hết thì ảnh cũ ngừng được cứu trong im
+        // lặng — mà url của nhà cung cấp thì vẫn đếm ngược (ảnh Meta sống 5 ngày), nên "im lặng"
+        // ở đây nghĩa là mất hẳn. Bật nhiều con không sai (hàng đợi khoá bằng FOR UPDATE SKIP
+        // LOCKED) nhưng phí băng thông và dễ bị CDN chặn tốc độ.
+        //
+        // Xem con nào đang bật cái gì: GET /healthz → khối "instance".
+        if (cfg.GetValue("Workflows:RunChatMediaWorker", true))
+            s.AddHostedService<Chat.Inbox.ChatMediaBackfillWorker>();
     }
 }

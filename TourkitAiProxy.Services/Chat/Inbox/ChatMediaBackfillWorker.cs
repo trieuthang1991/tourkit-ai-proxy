@@ -1,4 +1,4 @@
-// Services/Chat/Inbox/ChatMediaBackfillWorker.cs
+﻿// Services/Chat/Inbox/ChatMediaBackfillWorker.cs
 using System.Diagnostics;
 using TourkitAiProxy.Infrastructure.Chat.Inbox;
 
@@ -86,6 +86,13 @@ public class ChatMediaBackfillWorker : BackgroundService
     {
         try { await Task.Delay(ChoKhoiDong, ct); }
         catch (OperationCanceledException) { return; }
+
+        // Chờ schema dựng xong — cùng lý do với hai worker kia, xem ChatDb.DungSchema. Ở đây
+        // ít gấp hơn (đã nghỉ một phút rồi) nhưng vẫn phải chờ: vòng vét đầu tiên đụng đúng
+        // những cột mới nhất.
+        try { await _sp.GetRequiredService<ChatDb>().DungSchema.WaitAsync(TimeSpan.FromSeconds(30), ct); }
+        catch (OperationCanceledException) when (ct.IsCancellationRequested) { return; }
+        catch (TimeoutException) { _log.LogWarning("[chat/soi-lai] chờ dựng schema quá lâu, chạy tiếp"); }
 
         while (!ct.IsCancellationRequested)
         {

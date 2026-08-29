@@ -179,3 +179,24 @@ public interface ILateHumanReplySender
 /// <param name="Anh">Ảnh đại diện. ⚠️ Meta ký hạn vào URL này nên nó <b>HẾT HẠN</b> sau một thời
 /// gian — lưu rồi để mãi là vài tuần sau cả hộp thư hiện ảnh vỡ. Vì thế có mốc làm mới.</param>
 public record ContactProfile(string? Name, string? AvatarUrl);
+
+/// <summary>
+/// Kênh cho phép <b>thu hồi THẬT</b> một tin đã gửi — khách không còn thấy nữa.
+///
+/// <para>⚠️ <b>Chỉ Telegram.</b> Messenger, Instagram và WhatsApp Cloud API KHÔNG cấp API thu hồi
+/// cho phía doanh nghiệp: thu hồi là tính năng của ứng dụng người dùng, không phải của nền tảng.
+/// Cài giao diện này cho một kênh không làm được là hứa suông với người trực — và họ sẽ không đi
+/// xin lỗi khách vì tưởng đã rút lại được. <c>RecallTests</c> canh chuyện đó.</para>
+///
+/// <para>Kênh không cài thì hộp thư dựa vào cửa sổ hoãn gửi (xem <c>ChatRules.HoanGuiGiay</c>) —
+/// rút lại TRƯỚC khi tin rời máy chủ, cách này đúng ở mọi kênh.</para>
+/// </summary>
+public interface IMessageRecaller
+{
+    /// <summary>Thu hồi được trong bao lâu kể từ lúc gửi. Telegram: 48 giờ.</summary>
+    TimeSpan RecallWindow { get; }
+
+    /// <summary>Trả <c>false</c> khi nền tảng từ chối — chỗ gọi phải nói thật, đừng nuốt.</summary>
+    Task<bool> RecallAsync(string tenantId, string accountId, string externalUserId,
+        string externalMsgId, CancellationToken ct);
+}

@@ -105,3 +105,53 @@ cáo nào, mã QR nào) — dữ liệu bán hàng thật, mà không bóc lúc 
 4. **Mỗi lần thêm một sự kiện nhận vào: sửa ĐỦ HAI chỗ** — đăng ký bên Meta *và* bóc trong `Parse`.
    Thiếu một là hỏng im lặng, không lỗi, không log.
 5. Chỗ nào cố ý làm khác ChatbotX thì ghi lý do vào [`docs/features/chat-inbox.md`](../../features/chat-inbox.md).
+
+---
+
+## E. Soát lại hiện trạng — 28/08/2026
+
+Soát từng dòng bảng A và B trên mã thật, không tin danh sách cũ. Hai chỗ hỏng IM LẶNG mới lộ ra
+đúng bằng cách này, dù quy tắc "sửa ĐỦ HAI chỗ" ở mục D đã được viết ra từ 26/08.
+
+### Đã xong
+
+| Việc | Ghi chú |
+|---|---|
+| `message_reactions` | Bóc trong `MetaMessagingParser` (27/08), gồm cả `unreact` |
+| `messaging_postbacks` | Bóc kèm chữ trên nút, không phải payload kỹ thuật |
+| `messaging_referrals` | Ba cột `referral_*`, ghi MỘT LẦN rồi thôi |
+| `feed` / `comments` | Bình luận dưới bài, tách khỏi tin riêng bằng `surface` + `source_thread_id` |
+| Báo "đang gõ" · `mark_seen` | `SendTypingAsync` · `MarkSeenAsync` (gọi từ đường đánh dấu đã đọc) |
+| Mẫu tin ngoài cửa sổ 24h | `POST /conversations/{id}/send-template` |
+| Ảnh đại diện Meta hết hạn | Soi về kho riêng lúc lấy hồ sơ + vòng vét nền (28/08) |
+
+### Vừa sửa hôm nay — cả hai đều là hỏng im lặng
+
+1. **`message_reactions` thiếu trong `PageEvents` của Trang Facebook.** Bộ bóc đọc nhánh này từ
+   27/08 và Instagram đăng ký đủ, riêng Trang thì quên → khách thả tim trên Messenger là hộp thư
+   không hiện gì. Nay đã thêm, và có `MetaWebhookFieldTests` so chéo hai danh sách để lần sau
+   không lọt nữa (đã thử bỏ trường ra: test đỏ 3 chỗ).
+   ⚠️ **Trang đã nối từ trước vẫn thiếu** — Meta chỉ nhận danh sách lúc đăng ký. Phải bấm nối lại
+   Trang đó một lượt.
+
+2. **`messaging_optins` đã đăng ký nhưng KHÔNG bóc.** Ca ngược lại của (1), và trớ trêu là chú
+   thích ngay trong `MetaMessagingParser` đã liệt kê `m.optin.ref` là một trong ba nguồn "khách đến
+   từ đâu" — chỉ có mã là không đọc. Gói optin không mang `source`/`ad_id`, nên nguồn tự đặt nhãn
+   `OPTIN`. Gói không có `sender.id` (hộp tích trên web, khách chưa từng nhắn) thì bỏ qua.
+
+### Còn lại, theo thứ tự đáng làm
+
+| Việc | Ưu tiên | Vì sao chưa làm |
+|---|---|---|
+| Đánh dấu **chưa đọc** | Nên làm | ChatbotX có (`unread-conversation`), mình chỉ có đánh dấu ĐÃ đọc. Người trực mở nhầm là mất dấu, không trả lại được. Cần: sửa mốc đọc của riêng người đó về trước tin cuối. |
+| **Theo dõi** hội thoại | Nên làm | ChatbotX có (`follow`/`unfollow`). Mình chỉ có giao việc — tức phải NHẬN mới theo dõi được. Quản lý muốn ngó một ca khó mà không giành việc của nhân viên thì chưa có đường. |
+| Nhãn khách của Meta | P4 | Mình đã có nhãn RIÊNG (`chat_contact_tags`) đủ dùng. Đồng bộ hai chiều với Meta là thêm một nguồn sự thật thứ hai — cân nhắc kỹ trước khi làm. |
+| Tải tệp lên tái sử dụng | P3 | Chỉ đáng khi gửi CÙNG một tệp cho nhiều khách (ảnh bảng giá). Chưa có nhu cầu đó. |
+| Menu cố định / lời chào | P4 | `chat_bot_settings.greeting` đã lưu nhưng **chưa nối vào đường gửi** — làm thì làm trọn gói cùng menu. |
+| Bàn giao `standby` | P4 | Chỉ cần khi một Trang cắm NHIỀU ứng dụng cùng lúc. Chưa công ty nào như vậy. |
+
+### Lưu trữ (archive) — cố ý KHÁC ChatbotX, đừng "sửa"
+
+ChatbotX tách `archived` thành một trục riêng, độc lập với trạng thái. Mình gộp: `status = 2`
+(đã đóng) là tự đặt `archived_at`. Một trục thì người trực chỉ phải hiểu một khái niệm; hai trục
+thì luôn có câu hỏi "đóng rồi mà chưa lưu trữ nghĩa là gì". Giữ nguyên.

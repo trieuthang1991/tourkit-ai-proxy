@@ -435,7 +435,7 @@ input:focus, textarea:focus, select:focus { outline: none; }
 .btn.autotoggle {
   display: inline-flex; align-items: center; gap: 6px;
   padding: 7px 12px; font-size: 12px; font-weight: 600;
-  border-radius: 999px; border: 1px solid var(--line); background: transparent;
+  border-radius: 999px; border: 1px solid var(--border); background: transparent;
   transition: background .15s, border-color .15s, color .15s;
 }
 .btn.autotoggle.on  { background: rgba(255, 121, 39, 0.08); border-color: var(--primary); color: var(--primary-dark); }
@@ -1434,7 +1434,7 @@ body.editorial .ai-bubble .hl { color: #FDBA74; }
   display: flex; align-items: center; justify-content: center;
   flex-shrink: 0;
 }
-.modal-head .modal-title { font-size: 16px; font-weight: 700; color: var(--text-1); margin: 0; }
+.modal-head .modal-title { font-size: 16px; font-weight: 700; color: var(--text); margin: 0; }
 .modal-head .modal-sub { font-size: 12px; color: var(--text-3); margin-top: 2px; }
 .modal-head .modal-close {
   margin-left: auto;
@@ -1444,7 +1444,7 @@ body.editorial .ai-bubble .hl { color: #FDBA74; }
   font-size: 22px; line-height: 1; color: var(--text-3);
   display: flex; align-items: center; justify-content: center;
 }
-.modal-head .modal-close:hover { background: var(--bg-2, #f1f5f9); color: var(--text-1); }
+.modal-head .modal-close:hover { background: var(--bg-2, #f1f5f9); color: var(--text); }
 
 .provider-card {
   display: flex; align-items: center; gap: 14px;
@@ -1456,7 +1456,7 @@ body.editorial .ai-bubble .hl { color: #FDBA74; }
 .provider-card.active { border-color: var(--accent); background: color-mix(in oklab, var(--accent) 5%, var(--surface)); }
 .provider-card input[type="radio"] { accent-color: var(--accent); }
 .provider-info { flex: 1; }
-.provider-name { font-weight: 600; font-size: 14px; color: var(--text-1); }
+.provider-name { font-weight: 600; font-size: 14px; color: var(--text); }
 .provider-desc { font-size: 12px; color: var(--text-3); margin-top: 2px; }
 .provider-badge { font-size: 10px; font-weight: 700; padding: 3px 8px; border-radius: 999px; letter-spacing: 0.04em; }
 .provider-badge.default { background: var(--surface-2, #f3f4f6); color: var(--text-3); }
@@ -1469,7 +1469,7 @@ body.editorial .ai-bubble .hl { color: #FDBA74; }
 }
 .model-chip:hover { border-color: var(--accent-soft, #fed7aa); }
 .model-chip.active { border-color: var(--accent); background: color-mix(in oklab, var(--accent) 7%, var(--surface)); }
-.model-chip-name { font-weight: 600; font-size: 13px; color: var(--text-1); }
+.model-chip-name { font-weight: 600; font-size: 13px; color: var(--text); }
 .model-chip-desc { font-size: 11px; color: var(--text-3); margin-top: 2px; line-height: 1.4; }
 
 .field-hint { font-size: 11px; color: var(--text-3); margin-top: 6px; line-height: 1.5; }
@@ -6507,7 +6507,7 @@ n
   color: var(--text-2, #334155); font-size: 13px; font-weight: 500;
   cursor: pointer; transition: border-color .15s, color .15s, transform .12s;
 }
-.vh-refresh:hover { border-color: var(--border-strong, #CBD5E1); color: var(--text-1); }
+.vh-refresh:hover { border-color: var(--border-strong, #CBD5E1); color: var(--text); }
 .vh-refresh:active { transform: translateY(1px); }
 .vh-refresh:disabled { opacity: .55; cursor: not-allowed; }
 
@@ -6524,13 +6524,13 @@ n
 .vh-search svg { color: var(--text-3); flex-shrink: 0; }
 .vh-search input {
   flex: 1; border: 0; background: transparent; outline: 0;
-  font-size: 13.5px; color: var(--text-1); min-width: 0;
+  font-size: 13.5px; color: var(--text); min-width: 0;
 }
 .vh-search-clear {
   border: 0; background: transparent; color: var(--text-3); cursor: pointer;
   font-size: 18px; line-height: 1; padding: 0 4px;
 }
-.vh-search-clear:hover { color: var(--text-1); }
+.vh-search-clear:hover { color: var(--text); }
 .vh-select {
   height: 36px; padding: 0 28px 0 12px;
   background: var(--bg); border: 1px solid var(--border); border-radius: 8px;
@@ -6547,7 +6547,7 @@ n
   font-size: 12.5px; font-weight: 500; color: var(--text-3);
   cursor: pointer; transition: all .15s;
 }
-.vh-chip:hover { color: var(--text-1); border-color: var(--border-strong); }
+.vh-chip:hover { color: var(--text); border-color: var(--border-strong); }
 .vh-chip-on {
   background: var(--accent); border-color: var(--accent);
   color: #fff;
@@ -6569,7 +6569,7 @@ n
   background: var(--accent-soft, #FFF1E5); color: var(--accent);
   display: grid; place-items: center; margin: 0 auto 14px;
 }
-.vh-empty h3 { margin: 0 0 6px; font-size: 16px; color: var(--text-1); font-weight: 600; }
+.vh-empty h3 { margin: 0 0 6px; font-size: 16px; color: var(--text); font-weight: 600; }
 .vh-empty p { margin: 0; font-size: 13.5px; }
 .vh-empty a { color: var(--accent); font-weight: 500; text-decoration: none; }
 .vh-empty a:hover { text-decoration: underline; }
@@ -6579,7 +6579,7 @@ n
   background: var(--bg); border: 1px solid var(--border); color: var(--text-2);
   font-size: 12.5px; cursor: pointer;
 }
-.vh-btn-soft:hover { color: var(--text-1); border-color: var(--border-strong); }
+.vh-btn-soft:hover { color: var(--text); border-color: var(--border-strong); }
 .vh-skel {
   height: 64px; background: linear-gradient(90deg, var(--surface) 0%, var(--bg) 50%, var(--surface) 100%);
   background-size: 200% 100%; border: 1px solid var(--border); border-radius: 12px;
@@ -6617,7 +6617,7 @@ n
 
 .vh-col-main { min-width: 0; }
 .vh-name {
-  font-size: 14px; font-weight: 600; color: var(--text-1);
+  font-size: 14px; font-weight: 600; color: var(--text);
   white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
 }
 .vh-meta {
@@ -6710,7 +6710,7 @@ n
   background: transparent; border: 1px solid var(--border); color: var(--text-2);
   font-size: 20px; line-height: 1; cursor: pointer;
 }
-.vh-drawer-close:hover { background: var(--bg); color: var(--text-1); }
+.vh-drawer-close:hover { background: var(--bg); color: var(--text); }
 .vh-drawer-meta { display: flex; flex-direction: column; gap: 2px; min-width: 0; flex: 1; }
 .vh-drawer-id {
   font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
@@ -6725,7 +6725,7 @@ n
 
 .vh-drawer-body { padding: 20px 22px 28px; overflow-y: auto; flex: 1; }
 .vh-drawer-applicant { display: flex; align-items: center; gap: 14px; margin-bottom: 18px; }
-.vh-drawer-name { margin: 0; font-size: 18px; font-weight: 600; color: var(--text-1); }
+.vh-drawer-name { margin: 0; font-size: 18px; font-weight: 600; color: var(--text); }
 .vh-drawer-sub {
   display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
   font-size: 12.5px; color: var(--text-3); margin-top: 4px;
@@ -6746,7 +6746,7 @@ n
 .vh-drawer-level { font-size: 13px; font-weight: 600; margin-top: 6px; opacity: .85; }
 .vh-drawer-summary {
   margin: 12px 0 0; font-size: 13.5px; line-height: 1.55;
-  color: var(--text-1);
+  color: var(--text);
 }
 
 .vh-drawer-section { margin-top: 18px; }
@@ -9212,7 +9212,19 @@ img.ci-avt { object-fit: cover; }
 /* ⚠️ .ci-nhan mang HAI nghĩa trong trang này: nhãn NGƯỜI GỬI trong bong bóng tin, và thẻ NHÃN
    KHÁCH ở hồ sơ. Khai trần một kiểu là bên kia vỡ — đã vỡ thật 27/08/2026: thẻ nhãn khách biến
    thành chữ hoa li ti. Khoanh vùng cả hai, đừng gộp. */
-.ci-bong .ci-nhan, .ci-ai /* Nút CHỜ gửi, trên ô soạn. Khác hẳn .ci-nut-tin (bản ghi lại): mấy cái này BẤM ĐƯỢC và bấm là
+/* ⚠️ LUẬT NÀY TỪNG BỊ MẤT KHỐI KHAI BÁO (commit c6ee758): bộ chọn dính thẳng vào chú thích bên
+   dưới nên trình duyệt gộp thành ".ci-bong .ci-nhan, .ci-ai .ci-nut-soan". Hai thứ hỏng cùng lúc,
+   và cả hai đều hỏng IM LẶNG: nhãn người gửi mất sạch định dạng nên nhìn tin của nhân viên và tin
+   của khách gần như giống nhau, còn dải nút chờ gửi thì cũng không còn luật nào. */
+.ci-bong .ci-nhan, .ci-ai .ci-nhan {
+  display: flex; align-items: center; gap: 4px; margin-bottom: 4px;
+  font-size: 10.5px; font-weight: 700; letter-spacing: .01em; line-height: 1.2;
+  color: var(--text-3); text-transform: none;
+}
+/* Bong bóng nền đậm: nhãn phải sáng lên mới đọc được. */
+.ci-nv .ci-nhan, .ci-hethong .ci-nhan { color: rgba(248, 250, 252, .74); }
+
+/* Nút CHỜ gửi, trên ô soạn. Khác hẳn .ci-nut-tin (bản ghi lại): mấy cái này BẤM ĐƯỢC và bấm là
    BỎ nút đó, nên phải trông như thao tác được — có dấu × và đổi màu khi rê chuột. */
 .ci-nut-soan { display: flex; flex-wrap: wrap; align-items: center; gap: 5px;
                margin-bottom: 7px; font-size: 10.5px; color: var(--text-3); }
@@ -9323,7 +9335,8 @@ img.ci-avt { object-fit: cover; }
 .ci-soan-nut .icon:hover { background: var(--bg); color: var(--text-2); }
 .ci-soan-nut .mau { display: inline-flex; align-items: center; gap: 6px; height: 28px; padding: 0 10px;
                     border: 0; border-radius: 8px; background: transparent; color: var(--text-3);
-                    cursor: pointer; font: inherit; font-size: 11px; font-weight: 500; }
+                    cursor: pointer; font: inherit; font-size: 11px; font-weight: 500;
+                    white-space: nowrap; }
 .ci-soan-nut .mau:hover { background: var(--bg); color: var(--text-2); }
 .ci-soan-nut .mau b { font-family: ui-monospace, "SF Mono", monospace; font-size: 11.5px;
                       font-weight: 700; }
@@ -9672,4 +9685,316 @@ img.ci-avt { object-fit: cover; }
 @container (max-width: 920px) {
   .ci-grid, .ci-grid.co-hoso { grid-template-columns: 48px 240px minmax(300px, 1fr); }
   .ci-hoso { display: none; }
+  /* Cột 240px không đủ cho bốn nhãn lọc trên một hàng — xếp 2×2 thay vì để chữ đè lên nhau.
+     Hai lớp để THẮNG luật .ci-nhom "cột theo số nút" nằm ở cuối file (cùng độ ưu tiên thì
+     luật đứng sau thắng, mà luật kia đứng sau). */
+  .ci-cot-dau .ci-nhom { grid-auto-flow: row; grid-template-columns: 1fr 1fr; }
+  /* Khung chat hẹp: bỏ dòng nhắc phím, còn lại vừa một hàng. */
+  .ci-soan-nhac { display: none; }
+  .ci-gui { margin-left: auto; }
 }
+
+/* Tin đã xoá khỏi hộp thư: hiện dấu thay cho nội dung, KHÔNG cho biến mất hẳn — biến mất thì
+   người trực tưởng mình nhớ nhầm và cụm tin quanh nó mất mạch. */
+.ci-da-xoa { opacity: .6; }
+
+
+/* Cửa sổ thu hồi: tin còn nằm trong hàng đợi, chưa rời máy chủ. Hiện thường trực (không ẩn như
+   dải Sửa/Xoá) vì nó có ĐỒNG HỒ đếm ngược — ẩn đi thì người ta không biết mình còn mấy giây. */
+.ci-thu-hoi { display: flex; gap: 8px; align-items: center; justify-content: flex-end;
+              margin-top: 2px; font-size: 11px; color: var(--muted, #6b7280); }
+.ci-thu-hoi button { background: none; border: 0; padding: 0; cursor: pointer;
+                     font-size: 11px; font-weight: 600; color: var(--danger, #b91c1c);
+                     text-decoration: underline; }
+
+/* ── Menu "⋯" dùng chung: thanh hội thoại và từng tin ─────────────────────────
+   Học cách Messenger xếp thao tác: để lộ một việc chính, còn lại vào một menu. Bản trước bày
+   bảy nút chữ cạnh nhau nên tràn dòng trên màn hình hẹp, và bắt người trực đọc hết bảy nhãn
+   mỗi lần chỉ để bấm một cái. */
+.ci-menu-boc { position: relative; display: inline-flex; }
+
+/* Lớp phủ trong suốt để bấm ra ngoài là đóng. Phải nằm DƯỚI menu nhưng TRÊN mọi thứ khác. */
+.ci-menu-nen { position: fixed; inset: 0; z-index: 40; }
+
+.ci-menu { position: absolute; top: calc(100% + 6px); right: 0; z-index: 41;
+           min-width: 190px; padding: 4px; display: flex; flex-direction: column;
+           background: var(--surface); border: 1px solid var(--border);
+           border-radius: 10px; box-shadow: 0 8px 24px rgba(0,0,0,.12); }
+.ci-menu button { text-align: left; background: none; border: 0; cursor: pointer;
+                  padding: 8px 10px; border-radius: 7px; font-size: 13px;
+                  color: var(--text); white-space: nowrap; }
+.ci-menu button:hover { background: var(--ci-nen-chip); }
+.ci-menu button.nguy-hiem { color: var(--danger); }
+.ci-menu-vach { height: 1px; margin: 4px 6px; background: var(--border); }
+
+/* ── Thao tác trên MỘT tin ────────────────────────────────────────────────────
+   Nút NỔI cạnh bong bóng, không nằm trong luồng: dải chữ nằm trong luồng thì lúc hiện ra nó đẩy
+   mọi tin bên dưới nhích xuống, rê chuột dọc một hội thoại dài là cả khung nhảy liên tục. */
+/* Nút neo vào chính DÒNG tin, không phải mép ngoài bong bóng: neo ngoài bong bóng thì với tin
+   sát mép trái nó tràn khỏi khung và kéo giãn chiều ngang. */
+/* ⚠️ TUYỆT ĐỐI KHÔNG dùng transform ở đây. Menu bên trong vẽ bằng position:fixed, mà một tổ tiên
+   có transform sẽ biến "fixed" thành neo theo TỔ TIÊN ĐÓ chứ không theo khung nhìn — toạ độ tính
+   đúng vẫn ra sai chỗ, và menu bị đẩy ra ngoài làm khung chat tràn ngang gần 700px. Đã dính thật
+   khi chạy thử bằng trình duyệt. Căn giữa bằng margin âm, không bằng translateY. */
+.ci-tin-menu { position: absolute; top: 50%; right: 100%; margin-top: -13px;
+               margin-right: 2px; opacity: 0; transition: opacity .12s; z-index: 3; }
+.ci-dong:hover .ci-tin-menu, .ci-tin-menu:focus-within { opacity: 1; }
+.ci-tin-cham { display: grid; place-items: center; width: 26px; height: 26px; padding: 0;
+               border: 0; border-radius: 50%; cursor: pointer;
+               background: transparent; color: var(--text-3); }
+.ci-tin-cham:hover { background: var(--ci-nen-chip); color: var(--text); }
+/* Menu của tin vẽ bằng position:fixed, toạ độ do JS neo theo nút.
+   Vì sao không dùng absolute như menu ở đầu khung chat: nút "⋯" của tin nằm NGOÀI bong bóng, bên
+   trong khung cuộn. Menu absolute ở đó vừa nong chiều ngang khung chat, vừa bị khung cuộn cắt,
+   vừa bị tin bên dưới đè lên — đúng ba thứ đã gặp. Fixed thì nó không thuộc luồng nào cả. */
+.ci-menu-tin { position: fixed; right: auto; top: auto; z-index: 60; }
+
+/* Bong bóng phải là mốc định vị cho nút nổi ở trên. */
+.ci-dong.ci-phai > div { position: relative; }
+
+
+/* ── Dòng danh sách: giãn ra cho dễ theo dõi ──────────────────────────────────
+   Bản nén trước đó dồn quá sát và thay nhãn chữ bằng ký hiệu 10px — gọn thật, nhưng người dùng
+   phải rê chuột từng cái mới biết nghĩa, và các dòng dính vào nhau thành một khối khó liếc.
+   Đây là danh sách để LIẾC chứ không phải để đọc kỹ, nên chữ đọc được thắng chỗ trống tiết kiệm. */
+.ci-muc { padding: 12px 34px 13px 10px; }   /* chừa chỗ bên phải cho nút "⋯" */
+.ci-cot .ci-muc + .ci-muc { margin-top: 2px; }
+.ci-muc-cuoi { margin-top: 7px; gap: 6px; }
+.ci-tt, .ci-giao, .ci-botcam, .ci-theodoi, .ci-dachan {
+  height: 19px; padding: 0 7px; font-size: 10.5px; border-radius: 5px; }
+.ci-tt { padding-left: 6px; }
+
+/* Hai nhãn mới, cùng khuôn với .ci-giao/.ci-botcam sẵn có. */
+.ci-theodoi, .ci-dachan { display: inline-flex; align-items: center; font-weight: 600;
+                          white-space: nowrap; }
+.ci-theodoi { background: var(--ci-nen-chip); color: var(--ci-cam-800); }
+.ci-dachan  { background: var(--primary-soft); color: var(--danger); }
+
+/* ── Nút "⋯" của một dòng ─────────────────────────────────────────────────────
+   Tuyệt đối nên không chiếm chỗ lúc ẩn: dòng không nhảy khi nó hiện ra. Vẫn hiện khi menu đang
+   mở hoặc khi bàn phím đang ở trên nó, nếu không thì mở menu xong nút biến mất ngay dưới tay. */
+.ci-muc-cham { position: absolute; top: 10px; right: 6px; z-index: 2;
+               display: grid; place-items: center; width: 26px; height: 26px; padding: 0;
+               border: 0; border-radius: 50%; cursor: pointer;
+               background: transparent; color: var(--text-3); opacity: 0; transition: opacity .12s; }
+.ci-muc:hover .ci-muc-cham, .ci-muc-cham:focus-visible { opacity: 1; }
+.ci-muc-cham:hover { background: var(--ci-nen-chip); color: var(--text); }
+
+/* Menu của dòng cũng vẽ bằng position:fixed + tự lật, cùng lý do với .ci-menu-tin: danh sách
+   hội thoại là khung CUỘN, menu absolute ở mấy dòng cuối sẽ bị cắt mất nửa dưới. */
+.ci-menu-dong { position: fixed; top: auto; right: auto; z-index: 60; }
+
+/* ── Trạng thái ĐANG TẢI ──────────────────────────────────────────────────────
+   Nguyên tắc: khung xương đúng HÌNH DẠNG của thứ sắp hiện, không phải vòng xoay chung chung.
+   Vòng xoay nói "đang bận"; khung xương nói "sắp có danh sách/tin nhắn ở đây" — mắt đã biết
+   trước bố cục nên lúc dữ liệu về không bị giật, và người dùng phân biệt được đang tải với lỗi.
+
+   Cũng vì thế phản hồi đặt NGAY TẠI CHỖ thao tác chứ không dồn lên thanh mảnh ở đỉnh trang:
+   thanh đó dễ bỏ sót, và nó không nói đang làm việc gì. */
+.xg { display: block; border-radius: 6px; background: var(--ci-nen-chip); }
+.ci-xuong { pointer-events: none; }
+.ci-xuong .xg.tron { width: 38px; height: 38px; border-radius: 50%; }
+.ci-xuong .xg.d1 { width: 45%; height: 11px; }
+.ci-xuong .xg.d2 { width: 78%; height: 10px; margin-top: 8px; }
+.ci-xuong .xg.d3 { width: 32%; height: 9px;  margin-top: 9px; }
+.ci-xuong-tin .xg.bong { height: 34px; border-radius: 14px; }
+.ci-xuong-tin .ci-dong { margin-bottom: 10px; }
+
+/* Ánh sáng chạy ngang: chỉ để nói "đang chờ dữ liệu", nên rất nhạt và chậm. */
+@media (prefers-reduced-motion: no-preference) {
+  .xg { background: linear-gradient(90deg,
+          var(--ci-nen-chip) 25%, var(--bg) 50%, var(--ci-nen-chip) 75%);
+        background-size: 200% 100%; animation: xg-loe 1.4s ease-in-out infinite; }
+  @keyframes xg-loe { from { background-position: 200% 0; } to { background-position: -200% 0; } }
+}
+
+/* ── Tải tệp lên kho ──────────────────────────────────────────────────────────
+   Chặng lâu nhất của cả hộp thư và trước đây KHÔNG có phản hồi nào ngoài việc đổi biểu tượng
+   cái ghim. Nay có tên tệp + phần trăm THẬT đọc từ XHR. */
+.ci-tep-tai { padding: 8px 10px; margin-bottom: 8px; border-radius: 10px;
+              background: var(--bg); border: 1px solid var(--border); }
+.ci-tep-tai-dau { display: flex; align-items: baseline; justify-content: space-between; gap: 10px;
+                  font-size: 11.5px; color: var(--text-2); }
+.ci-tep-tai-dau .ten { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ci-tep-tai-dau .pt { flex: none; font-weight: 600; color: var(--text); font-variant-numeric: tabular-nums; }
+.ci-tep-thanh { position: relative; overflow: hidden; height: 4px; margin-top: 7px;
+                border-radius: 999px; background: var(--ci-nen-chip); }
+.ci-tep-thanh i { display: block; height: 100%; border-radius: 999px; background: var(--primary);
+                  transition: width .18s linear; }
+
+/* Trình duyệt đã gửi xong nhưng máy chủ còn đẩy lên R2 — không biết còn bao lâu, nên chuyển
+   sang vệt chạy thay vì để thanh đứng im ở 100%. Đứng im ở 100% là nói dối về tiến độ. */
+.ci-tep-thanh.khongro i { width: 40%; }
+@media (prefers-reduced-motion: no-preference) {
+  .ci-tep-thanh.khongro i { animation: xg-chay 1.1s ease-in-out infinite; }
+  @keyframes xg-chay { 0% { margin-left: -40%; } 100% { margin-left: 100%; } }
+}
+@media (prefers-reduced-motion: reduce) { .ci-tep-thanh.khongro i { width: 100%; opacity: .5; } }
+
+/* Nút ghim lúc đang tải: quay chậm cho biết nó thật sự đang làm việc. */
+@media (prefers-reduced-motion: no-preference) {
+  .ci-soan-nut .icon.dang-lam svg { animation: xg-quay 1.1s linear infinite; }
+  @keyframes xg-quay { to { transform: rotate(360deg); } }
+}
+
+/* ── Mũi nhọn của menu, chỉ về đúng nút vừa bấm ───────────────────────────────
+   Một hình vuông xoay 45°, dùng LẠI nền và viền của menu rồi bỏ hai cạnh khuất — nên nó khớp
+   màu ở mọi chủ đề mà không phải khai màu lần thứ hai. Vị trí ngang do JS tính theo tâm nút
+   thật (biến --nhon): đặt cứng thì lúc menu bị kẹp vào mép màn hình, mũi nhọn chỉ vào chỗ trống. */
+.ci-menu.nhon-tren::after, .ci-menu.nhon-duoi::after {
+  content: ''; position: absolute; right: var(--nhon, 10px);
+  width: 10px; height: 10px; transform: rotate(45deg);
+  background: var(--surface); border: 1px solid var(--border); }
+/* Menu nằm DƯỚI nút → nhọn chĩa LÊN, chỉ giữ hai cạnh trên và trái. */
+.ci-menu.nhon-tren::after { top: -6px; border-right: 0; border-bottom: 0; }
+/* Menu bị lật lên TRÊN nút → nhọn chĩa XUỐNG. */
+.ci-menu.nhon-duoi::after { bottom: -6px; border-left: 0; border-top: 0; }
+
+/* Nhóm nút lọc: số cột theo SỐ NÚT, không khai cứng. Trước đây khai repeat(3) rồi thêm nút thứ
+   tư "Tôi theo dõi" — nó rơi xuống hàng hai, một mình, rộng bằng một phần ba. */
+.ci-nhom { grid-template-columns: none; grid-auto-flow: column; grid-auto-columns: minmax(0, 1fr); }
+.ci-nhom button { white-space: nowrap; min-width: 0; padding: 0 4px; }
+
+/* Bảng mẫu trả lời (.ci-mau) neo bottom:100% — phải có mốc định vị ngay tại ô soạn, không thì
+   nó neo theo cả trang và bung ra ở trên đỉnh tài liệu, ngoài tầm nhìn. */
+.ci-soan { position: relative; }
+
+/* Màn hình cảm ứng không có "rê chuột" — nút "⋯" của tin ẩn hoàn toàn là không bao giờ bấm được.
+   Hiện mờ thường trực; chạm vào là rõ. (Nút "⋯" của DÒNG danh sách thì giấu hẳn ở điện thoại,
+   xem khối dưới: mọi thao tác của nó đều có trong menu ở đầu khung chat.) */
+@media (hover: none) { .ci-tin-menu { opacity: .45; } }
+
+/* ── Điện thoại: lớp .di-dong do trang gắn khi cửa sổ ≤760px ─────────────────
+   Vì sao gắn lớp bằng JS chứ không @container: trang phải BIẾT mình đang ở điện thoại để đổi
+   cả cách điều hướng (danh sách HOẶC khung chat, nút quay lại) chứ không chỉ đổi bố cục — hai
+   nguồn sự thật (JS đo cửa sổ, CSS đo container) lệch nhau vài chục px ở đúng khoảng giữa là
+   nút quay lại hiện ra mà bố cục vẫn ba cột.
+
+   Lối Messenger/Zalo: MỘT màn hình MỘT việc. Danh sách chiếm trọn màn, chạm một hội thoại là
+   khung chat chiếm trọn (có nút quay lại), hồ sơ khách là tấm trượt từ đáy. Ba cột co lại trên
+   390px thì mỗi cột còn 100px — không đọc được gì, và đó là cái "vỡ" người dùng thấy.
+
+   Chiều cao khung do JS đo (xem trang) vì bàn phím ảo không co 100dvh; ở đây chỉ đặt mốc lùi. */
+.ci-wrap.di-dong { padding-bottom: 0; }
+.ci-wrap.di-dong .ci-grid, .ci-wrap.di-dong .ci-grid.co-hoso {
+  grid-template-columns: minmax(0, 1fr);
+  grid-template-rows: 48px auto minmax(0, 1fr);
+  min-width: 0; min-height: 0; height: calc(100dvh - 160px);
+  border-radius: 12px; }
+/* Chế độ DANH SÁCH: khung chat và hồ sơ không vẽ. */
+.ci-wrap.di-dong .ci-chat { display: none; }
+/* Chế độ CHAT: chỉ còn khung chat, chiếm trọn. Đặt SAU luật trên để thắng .co-hoso. */
+.ci-wrap.di-dong.xem-chat .ci-grid, .ci-wrap.di-dong.xem-chat .ci-grid.co-hoso {
+  grid-template-rows: minmax(0, 1fr); }
+.ci-wrap.di-dong.xem-chat .ci-dau, .ci-wrap.di-dong.xem-chat .ci-dai,
+.ci-wrap.di-dong.xem-chat .ci-cot { display: none; }
+.ci-wrap.di-dong.xem-chat .ci-chat { display: flex; }
+
+/* Hàng tiêu đề 48px: giữ tên + bộ đếm + nút cộng, bỏ câu mô tả và nhãn "Đa kênh". */
+.ci-wrap.di-dong .ci-dau { gap: 10px; padding: 0 12px; }
+.ci-wrap.di-dong .ci-dau-phu, .ci-wrap.di-dong .ci-dau-nhan { display: none; }
+.ci-wrap.di-dong .ci-dau-icon { width: 28px; height: 28px; }
+.ci-wrap.di-dong .ci-dau-ten h1 { font-size: 15px; }
+.ci-wrap.di-dong .ci-dau-dem { font-size: 11px; }
+.ci-wrap.di-dong .ci-dau-nut { width: 32px; height: 32px; padding: 0; justify-content: center; }
+.ci-wrap.di-dong .ci-dau-nut span { display: none; }
+.ci-wrap.di-dong .ci-dau-nut svg { width: 15px; height: 15px; }
+
+/* Dải kênh: từ cột dọc 48px thành một HÀNG cuộn ngang trên đầu danh sách. */
+.ci-wrap.di-dong .ci-dai { flex-direction: row; gap: 6px; padding: 8px 12px;
+  overflow-x: auto; overflow-y: hidden; scrollbar-width: none;
+  border-right: 0; border-bottom: 1px solid var(--ci-vien-trong); }
+.ci-wrap.di-dong .ci-dai::-webkit-scrollbar { display: none; }
+.ci-wrap.di-dong .ci-dai-nut { flex: 0 0 auto; width: auto; min-width: 42px; height: 32px;
+  padding: 0 12px; }
+
+/* Danh sách: chữ to hơn một nấc (đọc ở tay, không phải ở bàn) và bỏ dòng đếm phụ. */
+.ci-wrap.di-dong .ci-cot { border-right: 0; }
+.ci-wrap.di-dong .ci-cot-dau { padding: 10px 12px 8px; gap: 8px; }
+.ci-wrap.di-dong .ci-o-tim { height: 38px; }
+/* 16px là BẮT BUỘC cho ô nhập ở iOS: nhỏ hơn là Safari tự phóng to cả trang khi chạm vào ô,
+   rồi không thu lại — người dùng thấy trang "bị zoom" và tưởng lỗi. */
+.ci-wrap.di-dong .ci-o-tim input, .ci-wrap.di-dong .ci-soan-o textarea,
+.ci-wrap.di-dong .ci-nut-them input, .ci-wrap.di-dong .ci-hs-them input,
+.ci-wrap.di-dong .ci-hs-muc textarea, .ci-wrap.di-dong .ci-hs-crm-tim input { font-size: 16px; }
+.ci-wrap.di-dong .ci-nhom button { height: 32px; font-size: 11.5px; }
+.ci-wrap.di-dong .ci-chip button { height: 26px; font-size: 11.5px; }
+.ci-wrap.di-dong .ci-tomtat { display: none; }
+.ci-wrap.di-dong .ci-ds { padding: 0 6px 12px; }
+.ci-wrap.di-dong .ci-muc { padding: 12px 10px 13px; }
+.ci-wrap.di-dong .ci-muc-cham { display: none; }
+.ci-wrap.di-dong .ci-ten { font-size: 14px; }
+.ci-wrap.di-dong .ci-xemtruoc { font-size: 12.5px; }
+.ci-wrap.di-dong .ci-luc { font-size: 11px; }
+
+/* Khung chat: nút quay lại, lề hẹp, bong bóng rộng hơn, chữ 14px. */
+.ci-lui { flex: 0 0 auto; border: 0; margin-left: -6px; }
+.ci-wrap.di-dong .ci-chat-dau { gap: 8px; padding: 8px 10px; }
+.ci-wrap.di-dong .ci-chat-ten b { font-size: 14px; }
+.ci-wrap.di-dong .ci-chat-ten span { font-size: 11px; }
+.ci-wrap.di-dong .ci-nut-nhom { gap: 5px; }
+.ci-wrap.di-dong .ci-cuaso { padding: 6px 12px 7px; }
+.ci-wrap.di-dong .ci-cuon { padding: 12px 12px 14px; }
+.ci-wrap.di-dong .ci-trai { max-width: 88%; }
+.ci-wrap.di-dong .ci-phai > div { max-width: 84%; }
+.ci-wrap.di-dong .ci-ai { margin-left: 12px; max-width: 90%; }
+.ci-wrap.di-dong .ci-noidung { font-size: 14px; }
+.ci-wrap.di-dong .ci-anh { max-width: 220px; }
+.ci-wrap.di-dong .ci-anh img { max-height: 260px; }
+
+/* Ô soạn: bỏ dòng nhắc "Enter để gửi" (bàn phím điện thoại không có Shift+Enter), nút gửi to
+   hơn cho ngón tay, nút mẫu/nút chỉ còn biểu tượng + chữ ngắn. */
+.ci-wrap.di-dong .ci-soan { padding: 8px 10px 10px; }
+.ci-wrap.di-dong .ci-soan-o { padding: 8px 10px 8px 12px; }
+.ci-wrap.di-dong .ci-soan-o textarea { min-height: 24px; max-height: 120px; line-height: 1.5; }
+.ci-wrap.di-dong .ci-soan-nhac { display: none; }
+.ci-wrap.di-dong .ci-soan-nut { margin-top: 6px; }
+.ci-wrap.di-dong .ci-soan-nut .icon { width: 32px; height: 32px; }
+.ci-wrap.di-dong .ci-soan-nut .mau { height: 32px; padding: 0 8px; }
+.ci-wrap.di-dong .ci-gui { margin-left: auto; width: 38px; height: 38px; }
+.ci-wrap.di-dong .ci-nut-them { width: 100%; }
+.ci-wrap.di-dong .ci-nut-them input,
+.ci-wrap.di-dong .ci-nut-them input:last-of-type { width: 100%; }
+.ci-wrap.di-dong .ci-khoa { font-size: 12.5px; }
+
+/* Menu "⋯" và lớp phủ phải nằm TRÊN dải nút cố định của app (z 80) — ở điện thoại menu mở gần
+   đáy khung sẽ chui xuống dưới dải đó, thấy nửa trên mà không bấm được nửa dưới. */
+.ci-wrap.di-dong .ci-menu-nen { z-index: 85; }
+.ci-wrap.di-dong .ci-menu { z-index: 90; }
+
+/* Hồ sơ khách: tấm trượt từ đáy, đè lên khung chat. Không phải cột thứ tư nữa. */
+.ci-hs-nen { background: rgba(15, 23, 42, .45); z-index: 85; }
+.ci-wrap.di-dong .ci-hoso { display: flex; position: fixed; left: 0; right: 0; bottom: 0;
+  top: max(28px, env(safe-area-inset-top)); width: auto; z-index: 90;
+  border-left: 0; border-radius: 16px 16px 0 0;
+  box-shadow: 0 -12px 40px rgba(15, 23, 42, .25);
+  padding-bottom: env(safe-area-inset-bottom);
+  animation: ciTruotLen .22s ease-out; }
+.ci-wrap.di-dong .ci-hs-dau { padding: 12px 14px; border-radius: 16px 16px 0 0; }
+@keyframes ciTruotLen { from { transform: translateY(32px); opacity: .5; } to { transform: none; opacity: 1; } }
+@media (prefers-reduced-motion: reduce) { .ci-wrap.di-dong .ci-hoso { animation: none; } }
+
+/* Hộp thoại khai kênh: bám đáy, gần trọn màn, trên dải nút của app. */
+.ci-wrap.di-dong .ci-modal-nen { padding: 0; z-index: 90; align-items: end; }
+.ci-wrap.di-dong .ci-modal { width: 100%; max-height: calc(100dvh - 24px);
+  border-radius: 16px 16px 0 0; }
+.ci-wrap.di-dong .ci-modal-than { padding: 14px 14px calc(14px + env(safe-area-inset-bottom)); }
+
+/* ── Trang chính sách bảo mật ─────────────────────────────────────────────────
+   Trang CÔNG KHAI, người đọc chính là người duyệt của Meta và khách hàng cuối — không phải nhân
+   viên đã quen giao diện. Nên ưu tiên đọc được: một cột hẹp, chữ to, không màu mè. */
+.pv-trang { max-width: 760px; margin: 0 auto; padding: 48px 24px 96px;
+            color: var(--text); font-size: 15px; line-height: 1.75; }
+.pv-dau { padding-bottom: 20px; margin-bottom: 28px; border-bottom: 1px solid var(--border); }
+.pv-dau h1 { margin: 0 0 6px; font-size: 30px; letter-spacing: -0.01em; }
+.pv-phu { margin: 0; color: var(--text-3); font-size: 13px; }
+.pv-muc { margin-bottom: 32px; }
+.pv-muc h2 { margin: 0 0 10px; font-size: 17px; font-weight: 650; }
+.pv-muc p { margin: 0 0 12px; }
+.pv-muc ul { margin: 0 0 12px; padding-left: 22px; }
+.pv-muc li { margin-bottom: 7px; }
+.pv-muc a { color: var(--primary); }
+.pv-luu-y { padding: 12px 14px; border-radius: 10px;
+            background: var(--bg); border: 1px solid var(--border);
+            color: var(--text-2); font-size: 14px; }
+@media (max-width: 640px) { .pv-trang { padding: 32px 18px 64px; font-size: 14.5px; } }

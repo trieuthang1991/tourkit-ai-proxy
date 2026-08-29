@@ -267,17 +267,21 @@ public class ChatRepository
     /// danh sách bên trái hiện "Thắng Triệu" còn đầu khung chat ngay cạnh hiện
     /// "4951953868228330" — cùng một khách, hai cái tên, trên cùng một màn hình.</para>
     /// </summary>
-    public async Task<ChatConversation?> GetConversationAsync(string tenant, long id, CancellationToken ct = default)
+    public async Task<ChatConversation?> GetConversationAsync(string tenant, long id, CancellationToken ct = default,
+        string? nguoiDung = null)
     {
         await using var c = await _db.OpenAsync(ct);
         return await c.QuerySingleOrDefaultAsync<ChatConversation>("""
-            SELECT v.*, ct.display_name, ct.avatar_url
+            SELECT v.*, ct.display_name, ct.avatar_url, ct.blocked_utc,
+                   EXISTS (SELECT 1 FROM chat_conversation_follows f
+                            WHERE f.tenant_id = v.tenant_id AND f.conversation_id = v.id
+                              AND f.username = @nguoiDung) AS followed
               FROM chat_conversations v
               LEFT JOIN chat_contacts ct
                 ON ct.tenant_id = v.tenant_id AND ct.channel = v.channel
                AND ct.external_id = v.contact_external_id
              WHERE v.id = @id AND v.tenant_id = @tenant
-            """, new { id, tenant });
+            """, new { id, tenant, nguoiDung });
     }
 
     /// <summary>
@@ -336,12 +340,16 @@ public class ChatRepository
     /// cả công ty. Null thì lùi về mốc chung cũ.</param>
     public async Task<List<ChatConversation>> ListConversationsAsync(string tenant, short? trangThai,
         string? chiCuaToi, string? timKiem, short? kenh = null, string? giaoCho = null,
-        bool chiChuaDoc = false, ConvCursor? sau = null, int limit = 60, string? nguoiDung = null,
+        bool chiChuaDoc = false, bool chiTheoDoi = false, ConvCursor? sau = null, int limit = 60, string? nguoiDung = null,
         CancellationToken ct = default)
     {
         await using var c = await _db.OpenAsync(ct);
         return (await c.QueryAsync<ChatConversation>("""
-            SELECT v.*, ct.display_name, ct.avatar_url, r.last_read_at AS my_last_read_at
+            SELECT v.*, ct.display_name, ct.avatar_url, ct.blocked_utc,
+                   r.last_read_at AS my_last_read_at,
+                   EXISTS (SELECT 1 FROM chat_conversation_follows f2
+                            WHERE f2.tenant_id = v.tenant_id AND f2.conversation_id = v.id
+                              AND f2.username = @nguoiDung) AS followed
             FROM chat_conversations v
             LEFT JOIN chat_contacts ct
               ON ct.tenant_id = v.tenant_id AND ct.channel = v.channel AND ct.external_id = v.contact_external_id
@@ -352,6 +360,10 @@ public class ChatRepository
               AND (@chiCuaToi IS NULL OR v.assigned_username = @chiCuaToi OR v.assigned_username IS NULL)
               AND (@kenh IS NULL OR v.channel = @kenh)
               AND (@giaoCho IS NULL OR v.assigned_username = @giaoCho)
+              AND (NOT @chiTheoDoi OR EXISTS (
+                    SELECT 1 FROM chat_conversation_follows f
+                     WHERE f.tenant_id = v.tenant_id AND f.conversation_id = v.id
+                       AND f.username = @nguoiDung))
               -- Mốc RIÊNG của người đang xem, lùi về mốc chung cũ khi họ chưa mở lần nào.
               AND (NOT @chuaDoc OR (v.contact_replied_at IS NOT NULL
                    AND (COALESCE(r.last_read_at, v.agent_last_read_at) IS NULL
@@ -362,7 +374,7 @@ public class ChatRepository
                    OR (v.last_activity_at, v.id) < (@sauLuc::timestamptz, @sauId::bigint))
             ORDER BY v.last_activity_at DESC, v.id DESC
             LIMIT @limit
-            """, new { tenant, trangThai, chiCuaToi, kenh, giaoCho, chuaDoc = chiChuaDoc, nguoiDung,
+            """, new { tenant, trangThai, chiCuaToi, kenh, giaoCho, chuaDoc = chiChuaDoc, chiTheoDoi, nguoiDung,
                        tim = string.IsNullOrWhiteSpace(timKiem) ? null : $"%{timKiem.Trim()}%",
                        sauLuc = sau?.LastActivityAt, sauId = sau?.Id,
                        limit = Math.Clamp(limit, 1, 200) })).ToList();
@@ -662,6 +674,196 @@ public class ChatRepository
             """, new { id, tenant, username });
     }
 
+    /// <summary>
+    /// Đánh dấu hội thoại CHƯA đọc, cho riêng người đang thao tác.
+    ///
+    /// <para><b>ĐẶT mốc chứ không XOÁ dòng.</b> Xoá thì phép tính chưa đọc lùi về cột chung
+    /// <c>agent_last_read_at</c> — vốn có thể vẫn mới vì người khác vừa mở — và hội thoại vẫn
+    /// hiện là đã đọc. Người dùng bấm nút, không thấy gì đổi, và không có lỗi nào để lần ra.</para>
+    ///
+    /// <para>Trả <c>false</c> khi hội thoại chưa có tin nào của khách: lúc đó không có gì để đánh
+    /// dấu chưa đọc, và tự nghĩ ra một mốc là nói dối dữ liệu.</para>
+    /// </summary>
+    public async Task<bool> MarkUnreadAsync(string tenant, long id, string username,
+        CancellationToken ct = default)
+    {
+        await using var c = await _db.OpenAsync(ct);
+        var soDong = await c.ExecuteAsync("""
+            INSERT INTO chat_conversation_reads (tenant_id, conversation_id, username, last_read_at)
+            SELECT @tenant, @id, @username, m.created_utc - interval '1 millisecond'
+              FROM chat_messages m
+              JOIN chat_conversations c ON c.id = m.conversation_id
+                                       AND c.id = @id AND c.tenant_id = @tenant
+             WHERE m.conversation_id = @id AND m.tenant_id = @tenant AND m.direction = 0
+             ORDER BY m.created_utc DESC
+             LIMIT 1
+            ON CONFLICT (tenant_id, conversation_id, username)
+            DO UPDATE SET last_read_at = EXCLUDED.last_read_at
+            """, new { tenant, id, username });
+        return soDong > 0;
+    }
+
+    /// <summary>
+    /// Chặn / bỏ chặn một khách. Ghi vào DANH BẠ chứ không vào hội thoại: khách nhắn lại qua
+    /// một hội thoại khác (bình luận dưới bài chẳng hạn) thì vẫn phải bị chặn.
+    ///
+    /// <para>⚠️ Chỉ có tác dụng TRONG hộp thư của mình — xem ghi chú ở <see cref="ChatDb"/>.</para>
+    /// </summary>
+    public async Task SetContactBlockedAsync(string tenant, ChatChannel kenh, string externalId,
+        bool chan, string username, CancellationToken ct = default)
+    {
+        await using var c = await _db.OpenAsync(ct);
+        await c.ExecuteAsync("""
+            UPDATE chat_contacts
+               SET blocked_utc = CASE WHEN @chan THEN now() ELSE NULL END,
+                   blocked_by  = CASE WHEN @chan THEN @username ELSE NULL END,
+                   updated_utc = now()
+             WHERE tenant_id = @tenant AND channel = @kenh AND external_id = @id
+            """, new { tenant, kenh = (short)kenh, id = externalId, chan, username });
+    }
+
+    /// <summary>
+    /// Xoá MỀM một tin khỏi hộp thư của mình. Dùng lại cột <c>deleted_utc</c> đã có sẵn từ đợt
+    /// bình luận (khách tự xoá bình luận của họ) — đừng thêm cột thứ hai cùng nghĩa.
+    ///
+    /// <para>⚠️ Chỉ xoá ở PHÍA MÌNH. Không nền tảng nào cho doanh nghiệp thu hồi tin đã gửi.</para>
+    /// </summary>
+    public async Task<bool> SoftDeleteMessageAsync(string tenant, long conversationId,
+        long messageId, CancellationToken ct = default)
+    {
+        await using var c = await _db.OpenAsync(ct);
+        return await c.ExecuteAsync("""
+            UPDATE chat_messages SET deleted_utc = now()
+             WHERE id = @id AND tenant_id = @tenant AND conversation_id = @conv
+               AND deleted_utc IS NULL
+            """, new { id = messageId, tenant, conv = conversationId }) > 0;
+    }
+
+    /// <summary>
+    /// Sửa nội dung một tin CHƯA gửi đi.
+    ///
+    /// <para>Điều kiện trạng thái kiểm NGAY TRONG câu lệnh chứ không chỉ ở tầng trên: kiểm rồi
+    /// mới ghi là có cửa sổ để worker gửi nhặt đúng tin đó lên giữa hai lượt. Danh sách trạng
+    /// thái phải khớp <see cref="ChatRules.CoTheSuaTin"/>.</para>
+    /// </summary>
+    public async Task<bool> EditPendingMessageAsync(string tenant, long conversationId,
+        long messageId, string body, CancellationToken ct = default)
+    {
+        await using var c = await _db.OpenAsync(ct);
+        return await c.ExecuteAsync("""
+            UPDATE chat_messages SET body = @body
+             WHERE id = @id AND tenant_id = @tenant AND conversation_id = @conv
+               AND state IN (0, 4) AND deleted_utc IS NULL
+            """, new { id = messageId, tenant, conv = conversationId, body }) > 0;
+    }
+
+    /// <summary>Bật/tắt theo dõi một hội thoại cho riêng một người.</summary>
+    public async Task SetFollowAsync(string tenant, long id, string username, bool theoDoi,
+        CancellationToken ct = default)
+    {
+        await using var c = await _db.OpenAsync(ct);
+        if (theoDoi)
+            await c.ExecuteAsync("""
+                INSERT INTO chat_conversation_follows (tenant_id, conversation_id, username)
+                VALUES (@tenant, @id, @username)
+                ON CONFLICT (tenant_id, conversation_id, username) DO NOTHING
+                """, new { tenant, id, username });
+        else
+            await c.ExecuteAsync("""
+                DELETE FROM chat_conversation_follows
+                 WHERE tenant_id = @tenant AND conversation_id = @id AND username = @username
+                """, new { tenant, id, username });
+    }
+
+    // ── Xoá dữ liệu theo yêu cầu (Meta Data Deletion Callback) ──────────────
+
+    /// <summary>Kết quả một lượt xoá: đếm để trả lời "đã xoá những gì".</summary>
+    public record KetQuaXoa(int SoHoiThoai, int SoTin);
+
+    /// <summary>
+    /// Xoá SẠCH dữ liệu của một người trên một kênh, ở MỌI công ty.
+    ///
+    /// <para><b>Vì sao không khoá theo công ty.</b> Meta chỉ gửi sang mã người dùng, không nói
+    /// người đó đã nhắn cho công ty nào. Mà một người hoàn toàn có thể đã nhắn cho hai công ty
+    /// khác nhau cùng dùng hệ này. Xoá thiếu một chỗ là lời hứa "đã xoá" thành lời nói dối.</para>
+    ///
+    /// <para><b>Xoá THẬT, không xoá mềm.</b> Mọi chỗ khác trong hệ đều xoá mềm để giữ lịch sử
+    /// nghiệp vụ — riêng đường này thì không: đây là yêu cầu xoá dữ liệu cá nhân, giữ lại "cho có
+    /// dấu vết" đúng là thứ người ta yêu cầu bỏ đi.</para>
+    ///
+    /// <para>Chạy trong MỘT giao dịch: xoá được nửa chừng rồi hỏng thì còn tệ hơn chưa xoá —
+    /// không biết phần nào đã đi, phần nào còn.</para>
+    /// </summary>
+    public async Task<KetQuaXoa> DeleteContactDataAsync(ChatChannel kenh, string externalId,
+        CancellationToken ct = default)
+    {
+        await using var c = await _db.OpenAsync(ct);
+        await using var giaoDich = await c.BeginTransactionAsync(ct);
+
+        var tham = new { kenh = (short)kenh, id = externalId };
+
+        // Đếm TRƯỚC khi xoá — xoá xong thì không còn gì mà đếm.
+        var soHoiThoai = await c.ExecuteScalarAsync<int>(
+            "SELECT COUNT(*) FROM chat_conversations WHERE channel = @kenh AND contact_external_id = @id",
+            tham, giaoDich);
+        var soTin = await c.ExecuteScalarAsync<int>(
+            """
+            SELECT COUNT(*) FROM chat_messages m
+              JOIN chat_conversations v ON v.id = m.conversation_id
+             WHERE v.channel = @kenh AND v.contact_external_id = @id
+            """, tham, giaoDich);
+
+        // chat_messages và chat_conversation_reads tự đi theo nhờ ON DELETE CASCADE của
+        // chat_conversations; ba bảng còn lại khoá theo (tenant, kênh, mã ngoài) nên phải xoá tay.
+        await c.ExecuteAsync(
+            "DELETE FROM chat_conversations WHERE channel = @kenh AND contact_external_id = @id",
+            tham, giaoDich);
+        await c.ExecuteAsync(
+            "DELETE FROM chat_contact_tags WHERE channel = @kenh AND external_id = @id",
+            tham, giaoDich);
+        await c.ExecuteAsync(
+            "DELETE FROM chat_contact_notes WHERE channel = @kenh AND external_id = @id",
+            tham, giaoDich);
+        await c.ExecuteAsync(
+            "DELETE FROM chat_reactions WHERE channel = @kenh AND actor_external_id = @id",
+            tham, giaoDich);
+        // Danh bạ xoá SAU CÙNG: nó là chỗ giữ tên và ảnh đại diện, tức phần nhận dạng rõ nhất.
+        await c.ExecuteAsync(
+            "DELETE FROM chat_contacts WHERE channel = @kenh AND external_id = @id",
+            tham, giaoDich);
+
+        await giaoDich.CommitAsync(ct);
+        return new(soHoiThoai, soTin);
+    }
+
+    /// <summary>Ghi lại một yêu cầu xoá đã làm xong, để người đó tra tiến độ bằng mã.</summary>
+    public async Task RecordDeletionAsync(string code, ChatChannel kenh, string externalId,
+        KetQuaXoa kq, CancellationToken ct = default)
+    {
+        await using var c = await _db.OpenAsync(ct);
+        await c.ExecuteAsync("""
+            INSERT INTO chat_deletion_requests
+              (code, channel, external_id, done_utc, so_hoi_thoai, so_tin)
+            VALUES (@code, @kenh, @id, now(), @hoiThoai, @tin)
+            ON CONFLICT (code) DO NOTHING
+            """, new { code, kenh = (short)kenh, id = externalId,
+                       hoiThoai = kq.SoHoiThoai, tin = kq.SoTin });
+    }
+
+    public record YeuCauXoa(string Code, DateTime RequestedUtc, DateTime? DoneUtc,
+        int SoHoiThoai, int SoTin);
+
+    /// <summary>Tra một yêu cầu xoá theo mã. Trang tra cứu CÔNG KHAI dùng hàm này.</summary>
+    public async Task<YeuCauXoa?> GetDeletionAsync(string code, CancellationToken ct = default)
+    {
+        await using var c = await _db.OpenAsync(ct);
+        return await c.QuerySingleOrDefaultAsync<YeuCauXoa>("""
+            SELECT code AS "Code", requested_utc AS "RequestedUtc", done_utc AS "DoneUtc",
+                   so_hoi_thoai AS "SoHoiThoai", so_tin AS "SoTin"
+              FROM chat_deletion_requests WHERE code = @code
+            """, new { code });
+    }
+
     // ── Tin nhắn ────────────────────────────────────────────────────────────
 
     /// <summary>
@@ -933,9 +1135,16 @@ public class ChatRepository
         // ra là thấy chuyện từ hôm kia.
         var rows = await c.QueryAsync<ChatMessage>("""
             SELECT * FROM (
-              SELECT * FROM chat_messages
-               WHERE conversation_id = @conv AND tenant_id = @tenant
-               ORDER BY created_utc DESC LIMIT @limit
+              -- send_after nằm ở hàng đợi GỬI, không ở bảng tin. Ghép vào đây để giao diện có
+              -- mốc CÓ THẨM QUYỀN mà đếm ngược nút Thu hồi — suy ra từ created_utc cộng cấu
+              -- hình thì sai ngay khi quản trị đổi số giây, và lệch khi đồng hồ máy khách sai.
+              -- Chỉ ghép dòng CÒN CHỜ (status = 0): tin đã gửi rồi thì không còn gì để thu hồi.
+              SELECT m.*, o.send_after
+                FROM chat_messages m
+                LEFT JOIN chat_outbox o
+                  ON o.message_id = m.id AND o.tenant_id = m.tenant_id AND o.status = 0
+               WHERE m.conversation_id = @conv AND m.tenant_id = @tenant
+               ORDER BY m.created_utc DESC LIMIT @limit
             ) t ORDER BY created_utc
             """, new { conv = conversationId, tenant, limit = Math.Clamp(limit, 1, 300) });
         return rows.ToList();
@@ -1029,14 +1238,46 @@ public class ChatRepository
 
     // ── Hàng đợi gửi ────────────────────────────────────────────────────────
 
+    /// <param name="hoanGiay">
+    /// Giữ tin lại bấy nhiêu giây trước khi gửi — cửa sổ để người trực rút lại. 0 = gửi ngay.
+    /// Tính bằng <c>ChatRules.HoanGuiGiay</c>, đừng tự nhân chia ở chỗ gọi.
+    /// </param>
     public async Task EnqueueOutboxAsync(string tenant, long conversationId, long messageId,
-        CancellationToken ct = default)
+        CancellationToken ct = default, int hoanGiay = 0)
     {
         await using var c = await _db.OpenAsync(ct);
         await c.ExecuteAsync("""
-            INSERT INTO chat_outbox (tenant_id, conversation_id, message_id)
-            VALUES (@tenant, @conv, @msg)
-            """, new { tenant, conv = conversationId, msg = messageId });
+            INSERT INTO chat_outbox (tenant_id, conversation_id, message_id, send_after)
+            VALUES (@tenant, @conv, @msg,
+                    CASE WHEN @hoan > 0 THEN now() + make_interval(secs => @hoan) END)
+            """, new { tenant, conv = conversationId, msg = messageId, hoan = hoanGiay });
+    }
+
+    /// <summary>
+    /// Rút một tin khỏi hàng đợi gửi — thu hồi THẬT, vì tin chưa hề rời máy chủ.
+    ///
+    /// <para>Điều kiện <c>status = 0</c> và <c>send_after &gt; now()</c> kiểm NGAY TRONG câu
+    /// lệnh chứ không ở tầng trên: worker có thể vừa nhặt đúng tin đó lên giữa hai lượt. Trả
+    /// <c>false</c> nghĩa là muộn rồi — chỗ gọi phải nói thật với người dùng, đừng báo thành
+    /// công cho một việc đã không xảy ra.</para>
+    /// </summary>
+    public async Task<bool> CancelOutboxAsync(string tenant, long conversationId, long messageId,
+        CancellationToken ct = default)
+    {
+        await using var c = await _db.OpenAsync(ct);
+        return await c.ExecuteAsync("""
+            WITH bo AS (
+              DELETE FROM chat_outbox
+               WHERE tenant_id = @tenant AND conversation_id = @conv AND message_id = @msg
+                 AND status = 0 AND send_after IS NOT NULL AND send_after > now()
+              RETURNING message_id
+            )
+            UPDATE chat_messages
+               SET deleted_utc = now(), state = 4,
+                   error_message = 'Người trực đã thu hồi trước khi gửi'
+             WHERE id = (SELECT message_id FROM bo) AND tenant_id = @tenant
+               AND conversation_id = @conv
+            """, new { tenant, conv = conversationId, msg = messageId }) > 0;
     }
 
     public record OutboxRow(long Id, string TenantId, long ConversationId, long MessageId, int RetryCount);
@@ -1049,8 +1290,10 @@ public class ChatRepository
         return (await c.QueryAsync<OutboxRow>("""
             UPDATE chat_outbox SET status = 3
              WHERE id IN (
-               SELECT id FROM chat_outbox WHERE status = 0
-                ORDER BY created_utc LIMIT @n FOR UPDATE SKIP LOCKED)
+               SELECT id FROM chat_outbox
+                WHERE status = 0 AND (send_after IS NULL OR send_after <= now())
+                ORDER BY send_after NULLS FIRST, created_utc
+                LIMIT @n FOR UPDATE SKIP LOCKED)
             RETURNING id, tenant_id, conversation_id, message_id, retry_count
             """, new { n = Math.Clamp(soLuong, 1, 50) })).ToList();
     }

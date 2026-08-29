@@ -1,4 +1,4 @@
-// app.jsx — App shell: header + nav + router + global state (tweaks, toasts, AI settings).
+﻿// app.jsx — App shell: header + nav + router + global state (tweaks, toasts, AI settings).
 // Mỗi page là component riêng ở /pages/ — App KHÔNG quản lý state của page.
 //
 // CÁCH THÊM 1 PAGE MỚI:
@@ -420,6 +420,16 @@ function App() {
   // Render full-screen (không sidebar, không app-shell).
   if ((cur === '/' || cur === '/landing') && window.LandingPage) {
     return <window.LandingPage />;
+  }
+
+  // ─── PUBLIC /chinh-sach-bao-mat — Meta BẮT BUỘC có trước khi cho ứng dụng lên Live, và
+  // người duyệt của họ KHÔNG có tài khoản trong hệ. Nên nhánh này phải nằm TRƯỚC cổng đăng
+  // nhập; đặt sau là họ chỉ thấy màn login và trả hồ sơ về.
+  if ((cur === '/chinh-sach-bao-mat' || cur === '/privacy') && window.PrivacyPage) {
+    return <window.PrivacyPage />;
+  }
+  if ((cur === '/dieu-khoan' || cur === '/terms') && window.TermsPage) {
+    return <window.TermsPage />;
   }
 
   // ─── Gate toàn cục: chưa đăng nhập TourKit → màn login, không vào feature nào ───

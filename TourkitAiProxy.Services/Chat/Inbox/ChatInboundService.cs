@@ -25,6 +25,8 @@ public class ChatInboundService
     private readonly ChatWorkSignal _tin;
     private readonly IEnumerable<IChatChannelAdapter> _adapters;
     private readonly ProviderRegistry _providers;
+    /// Chọn model cho câu trả lời gửi tới khách — xem AiFeature.ChatInbox.
+    private readonly AiModelRegistry _models;
     private readonly AiCallContext _aiCtx;
     private readonly IConfiguration _cfg;
     private readonly ILogger<ChatInboundService> _log;
@@ -35,8 +37,8 @@ public class ChatInboundService
     public ChatInboundService(ChatRepository repo, IEnumerable<IChatChannelAdapter> adapters,
         ProviderRegistry providers, AiCallContext aiCtx, IConfiguration cfg,
         ILogger<ChatInboundService> log, ChatEventBus bus, ChatWorkSignal tin,
-        ChatBotSettingsRepository cauHinh, ChatMediaMirror soiTep)
-    { _repo = repo; _adapters = adapters; _providers = providers; _aiCtx = aiCtx; _cfg = cfg; _log = log; _bus = bus; _tin = tin; _cauHinh = cauHinh; _soiTep = soiTep; }
+        ChatBotSettingsRepository cauHinh, ChatMediaMirror soiTep, AiModelRegistry models)
+    { _repo = repo; _adapters = adapters; _providers = providers; _aiCtx = aiCtx; _cfg = cfg; _log = log; _bus = bus; _tin = tin; _cauHinh = cauHinh; _soiTep = soiTep; _models = models; }
 
     public IChatChannelAdapter? Adapter(ChatChannel kenh)
         => _adapters.FirstOrDefault(a => a.Channel == kenh);
@@ -555,10 +557,16 @@ public class ChatInboundService
             // Gọi từ NỀN nên không có HttpContext — phải Push thủ công, nếu không là bỏ qua hạn
             // mức tenant và log ra feature "unknown".
             using var _ = _aiCtx.Push(AiFeatures.ChatInbox, tenantId);
-            var provider = _providers.Resolve(null);
+
+            // Hỏi registry chứ KHÔNG truyền null. Truyền null thì provider tự chọn model mặc
+            // định của nó — đo được trên lịch sử dùng thật: claude-sonnet-4-5, đắt nhất cả hệ,
+            // và bỏ qua luôn cả Models:Primary:Model. Đây lại là tính năng duy nhất nói thẳng
+            // với khách hàng thật, nên là chỗ cần chốt model nhất chứ không phải chỗ được thả nổi.
+            var resolved = _models.Resolve(AiFeature.ChatInbox);
+            var provider = _providers.Resolve(resolved.Provider);
             var res = await provider.CompleteAsync(new CompleteRequest(
-                Prompt: cauHoi, Provider: null, Model: null,
-                MaxTokens: 700, Temperature: 0.5, System: loiDan), ct);
+                Prompt: cauHoi, Provider: provider.Id, Model: resolved.Model,
+                MaxTokens: 700, Temperature: 0.5, System: loiDan, ApiKey: resolved.ApiKey), ct);
 
             var text = res.Text?.Trim();
             if (string.IsNullOrWhiteSpace(text))

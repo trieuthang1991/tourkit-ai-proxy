@@ -1,6 +1,6 @@
-namespace TourkitAiProxy.Services.Providers;
+﻿namespace TourkitAiProxy.Services.Providers;
 
-/// 14 feature dùng AI trong proxy. Mỗi enum value 1-1 với key `Models:{Name}` trong appsettings.
+/// 15 feature dùng AI trong proxy. Mỗi enum value 1-1 với key `Models:{Name}` trong appsettings.
 /// THÊM member ở đây thì phải khai luôn khoá `Models:{Name}` trong appsettings của CẢ web LẪN worker —
 /// thiếu thì feature mới âm thầm chạy bằng `Models:Primary`, không log, không cảnh báo.
 /// "Primary" KHÔNG có ở đây — nó chỉ là root fallback internal Registry.
@@ -23,7 +23,21 @@ public enum AiFeature
     /// Đọc TÊN trạng thái do từng công ty tự đặt → suy ra cái nào còn phải làm, cái nào đã xong.
     /// Chạy 1 lần cho mỗi công ty rồi lưu lại, chỉ chạy lại khi danh sách trạng thái đổi → model
     /// rẻ là đủ và chi phí gần như bằng 0.
-    StatusSemantics
+    StatusSemantics,
+    /// <summary>
+    /// Trợ lý trả lời khách trong Hộp thư chat.
+    ///
+    /// <para>⚠️ Đây là tính năng DUY NHẤT nói thẳng với khách hàng thật — chữ nó viết ra đi
+    /// tới điện thoại của khách, không ai duyệt lại. Nên nó cần chốt model nhất, mà lại là
+    /// cái vào enum này muộn nhất.</para>
+    ///
+    /// <para>Trước 28/08/2026 nó không có mặt ở đây: mã gọi thẳng <c>Resolve(null)</c> với
+    /// <c>Model: null</c>, nên rơi xuống model MẶC ĐỊNH của nhà cung cấp — đo trên lịch sử
+    /// dùng thật là <c>claude-sonnet-4-5</c>, model đắt nhất cả hệ, trong khi
+    /// <c>Models:Primary</c> khai <c>claude-haiku-4-5</c>. Khai <c>Models:ChatInbox</c> lúc đó
+    /// cũng vô ích vì không chỗ nào đọc.</para>
+    /// </summary>
+    ChatInbox
 }
 
 public record ResolvedModel(string Provider, string Model, string? ApiKey);

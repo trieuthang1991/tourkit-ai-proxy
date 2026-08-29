@@ -24,6 +24,26 @@ public class ChatDb
     /// Có cấu hình hay không. Chỗ nào dùng ChatDb đều PHẢI hỏi cái này trước.
     public bool Configured => _connStr != null;
 
+    private readonly TaskCompletionSource _dungSchema =
+        new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+    /// <summary>
+    /// Hoàn thành khi <see cref="InitAsync"/> đã chạy xong — <b>dù thành công hay hỏng</b>.
+    /// Các worker của chat phải chờ cái này trước nhịp đầu tiên.
+    ///
+    /// <para><b>Vì sao cần.</b> <c>InitAsync</c> được gọi trong một <c>Task.Run</c> KHÔNG chờ ở
+    /// <c>Program.cs</c>, còn worker thì bắt đầu tick ngay khi máy chủ lên. Nên có một quãng mà
+    /// mã MỚI đã chạy trong khi schema vẫn là bản CŨ — và mọi truy vấn đụng cột mới đều hỏng.
+    /// Đã xảy ra thật 28/08/2026: worker gửi hỏi cột <c>send_after</c> 0,6 giây trước khi
+    /// <c>ALTER TABLE</c> thêm nó xong.</para>
+    ///
+    /// <para>0,6 giây thì tự lành. Nhưng cùng một quãng đó kéo dài bao lâu là do CSDL quyết:
+    /// đường mạng chập thì <c>InitAsync</c> chờ hết hạn kết nối rồi <b>nuốt lỗi</b>, và worker
+    /// chạy suốt với schema cũ — hỏng mọi nhịp, chỉ để lại log. Đúng hình dạng sự cố ngừng
+    /// nhận tin sáng cùng ngày.</para>
+    /// </summary>
+    public Task DungSchema => _dungSchema.Task;
+
     static ChatDb()
     {
         // Cột PostgreSQL đặt snake_case, thuộc tính C# đặt PascalCase. Không bật cái này thì Dapper
@@ -58,6 +78,10 @@ public class ChatDb
     /// Dựng bảng nếu chưa có. Chạy 1 lần lúc khởi động, an toàn chạy lại nhiều lần.
     public async Task InitAsync(CancellationToken ct = default)
     {
+        // Báo XONG trong mọi nhánh, kể cả nhánh chưa khai chuỗi kết nối và nhánh ném lỗi —
+        // quên một nhánh là worker chờ mãi và cụm chat đứng im không dấu vết.
+        try
+        {
         if (!Configured) return;
         try
         {
@@ -72,6 +96,8 @@ public class ChatDb
             // Không ném: chat hỏng thì phần còn lại của hệ vẫn phải chạy.
             _log.LogError(ex, "ChatDb InitAsync thất bại — cụm hộp thư chat sẽ không dùng được");
         }
+        }
+        finally { _dungSchema.TrySetResult(); }
     }
 
     /// <summary>
@@ -103,6 +129,16 @@ public class ChatDb
     -- (xem chú thích đầy đủ ở đó). Ở đây không dùng tới giá trị -1 "đã xong": soi xong thì
     -- avatar_url đã trỏ về kho của mình, tự nó là dấu hiệu rồi.
     ALTER TABLE chat_contacts ADD COLUMN IF NOT EXISTS avatar_state smallint NOT NULL DEFAULT 0;
+
+    -- CHẶN khách. Hoàn toàn NỘI BỘ: không nền tảng nào cho phía doanh nghiệp chặn một người
+    -- qua API. Chặn ở đây nghĩa là hộp thư ẩn họ đi, trợ lý câm, và đường gửi từ chối — chứ
+    -- KHÔNG phải báo lên Facebook/Zalo. Đặt tên nút trên giao diện cho đúng chuyện đó, gọi là
+    -- "báo xấu" thì người dùng tưởng đã báo lên nền tảng.
+    --
+    -- Tin của khách bị chặn VẪN ĐƯỢC GHI: chặn không phải xoá, và khi cần đối chất thì đó là
+    -- bằng chứng duy nhất còn lại.
+    ALTER TABLE chat_contacts ADD COLUMN IF NOT EXISTS blocked_utc timestamptz;
+    ALTER TABLE chat_contacts ADD COLUMN IF NOT EXISTS blocked_by  text;
 
     -- Một luồng chat với một khách trên một kênh.
     CREATE TABLE IF NOT EXISTS chat_conversations (
@@ -330,7 +366,21 @@ public class ChatDb
     );
     -- Chỉ mục CÓ ĐIỀU KIỆN: worker chỉ hỏi dòng đang chờ. Không có nó thì mỗi vài giây lại quét
     -- cả bảng, mà bảng này chỉ phình chứ không co lại.
-    CREATE INDEX IF NOT EXISTS ix_outbox_cho ON chat_outbox (created_utc) WHERE status = 0;
+    -- SỚM NHẤT được phép gửi. Đây là cửa sổ "thu hồi": tin của người thật nằm chờ vài giây,
+    -- và trong quãng đó nút Thu hồi xoá thẳng dòng này — tin CHƯA BAO GIỜ rời máy chủ.
+    --
+    -- Vì sao phải làm thế thay vì gọi API thu hồi: Meta không có API đó cho phía doanh nghiệp.
+    -- Xem docs/superpowers/plans/2026-08-28-thu-hoi-tin.md.
+    --
+    -- Mặc định NULL = gửi ngay, nên mọi dòng đang nằm sẵn trong hàng đợi lúc nâng cấp vẫn đi
+    -- bình thường. Cột không mặc định nên ALTER chỉ ghi metadata, không viết lại bảng.
+    ALTER TABLE chat_outbox ADD COLUMN IF NOT EXISTS send_after timestamptz;
+
+    -- Chỉ mục có điều kiện phải mang thêm cột mới, nếu không worker vẫn quét đúng những dòng
+    -- chưa tới giờ rồi bỏ đi — vô hại nhưng lãng phí, và lớn dần theo hàng đợi.
+    DROP INDEX IF EXISTS ix_outbox_cho;
+    CREATE INDEX IF NOT EXISTS ix_outbox_cho
+      ON chat_outbox (send_after NULLS FIRST, created_utc) WHERE status = 0;
 
     -- Mẫu trả lời nhanh, theo TỪNG CÔNG TY (KHÔNG theo từng nhân viên) — cả đội trực chat cùng
     -- dùng một bộ câu, đổi một mẫu là cả đội thấy ngay, không phải dạy lại từng người.
@@ -380,6 +430,25 @@ public class ChatDb
       PRIMARY KEY (tenant_id, conversation_id, username)
     );
 
+    -- Theo dõi một hội thoại. Khác hẳn giao việc: giao việc là SỞ HỮU (một người một hội thoại,
+    -- ai nhận thì người khác thôi), theo dõi là QUAN TÂM (nhiều người cùng theo dõi được, và
+    -- không giành việc của ai). Quản lý muốn ngó một ca khó mà không cướp việc của nhân viên thì
+    -- đây là đường duy nhất.
+    --
+    -- Khoá gồm username vì đây là chuyện của TỪNG NGƯỜI — thiếu nó thì A bỏ theo dõi là B mất
+    -- theo dõi theo, đúng kiểu hỏng im lặng của cột agent_last_read_at dùng chung ngày trước.
+    CREATE TABLE IF NOT EXISTS chat_conversation_follows (
+      tenant_id       text        NOT NULL,
+      conversation_id bigint      NOT NULL REFERENCES chat_conversations(id) ON DELETE CASCADE,
+      username        text        NOT NULL,
+      created_utc     timestamptz NOT NULL DEFAULT now(),
+      PRIMARY KEY (tenant_id, conversation_id, username)
+    );
+    -- Lọc "hội thoại tôi theo dõi" đi bằng chỉ mục này; không có nó thì mỗi lần mở bộ lọc là quét
+    -- cả bảng, mà bảng này chỉ phình theo thời gian.
+    CREATE INDEX IF NOT EXISTS ix_follow_nguoi
+      ON chat_conversation_follows (tenant_id, username);
+
     -- Nhật ký thao tác. Khi khách khiếu nại "ai nói câu này với tôi", hoặc một hội thoại bị
     -- đóng nhầm, thì đây là chỗ duy nhất tra được.
     --
@@ -425,5 +494,24 @@ public class ChatDb
     );
     CREATE INDEX IF NOT EXISTS ix_note_contact
       ON chat_contact_notes (tenant_id, channel, external_id, created_utc DESC);
+
+    -- Yêu cầu XOÁ DỮ LIỆU do Meta chuyển sang (người dùng gỡ ứng dụng khỏi tài khoản Facebook và
+    -- đòi xoá). Meta bắt trả về một mã tra cứu, và người đó mở đường CÔNG KHAI để xem xoá xong
+    -- chưa — nên phải lưu lại, xoá xong là thôi thì không có gì mà tra.
+    --
+    -- Cố ý KHÔNG lưu tên hay nội dung: bảng này tồn tại để chứng minh mình ĐÃ xoá, giữ lại thông
+    -- tin nhận dạng thì thành xoá nửa vời. Chỉ giữ mã kênh + mã người dùng do nền tảng cấp — đúng
+    -- thứ Meta gửi sang và cũng là thứ họ đối chiếu khi kiểm tra.
+    CREATE TABLE IF NOT EXISTS chat_deletion_requests (
+      code          text        PRIMARY KEY,
+      channel       smallint    NOT NULL,
+      external_id   text        NOT NULL,
+      requested_utc timestamptz NOT NULL DEFAULT now(),
+      done_utc      timestamptz,
+      so_hoi_thoai  integer     NOT NULL DEFAULT 0,
+      so_tin        integer     NOT NULL DEFAULT 0
+    );
+    CREATE INDEX IF NOT EXISTS ix_xoa_nguoi
+      ON chat_deletion_requests (channel, external_id, requested_utc DESC);
     """;
 }

@@ -21,6 +21,10 @@ public class ChatOutboxWorker : BackgroundService
     /// Vét bao nhiêu dòng mỗi nhịp. Đủ đầy thì gửi tiếp ngay, không ngủ — xem vòng lặp.
     private const int PerCall = 10;
 
+    /// <summary>Chờ schema chat dựng xong tối đa bấy nhiêu. Xem chỗ dùng.</summary>
+    private static readonly TimeSpan ChoSchema = TimeSpan.FromSeconds(30);
+
+
     private readonly IServiceProvider _sp;
     private readonly ChatWorkSignal _tin;
     private readonly ILogger<ChatOutboxWorker> _log;
@@ -31,6 +35,20 @@ public class ChatOutboxWorker : BackgroundService
     protected override async Task ExecuteAsync(CancellationToken ct)
     {
         _log.LogInformation("[chat/outbox] bắt đầu, nhịp {N}s (có tín hiệu đánh thức)", Tick.TotalSeconds);
+        // Chờ schema dựng xong rồi mới tick. InitAsync chạy trong một Task.Run KHÔNG chờ ở
+        // Program.cs, nên không có dòng này thì nhịp đầu tiên chạy mã MỚI trên schema CŨ —
+        // hỏng mọi truy vấn đụng cột mới, và chỉ để lại log. Xem ChatDb.DungSchema.
+        //
+        // Có TRẦN thời gian: CSDL treo thì thà chạy rồi hỏng có log, còn hơn worker nằm im
+        // vô hạn mà không ai biết vì sao hộp thư đứng.
+        try { await _sp.GetRequiredService<ChatDb>().DungSchema.WaitAsync(ChoSchema, ct); }
+        catch (OperationCanceledException) when (ct.IsCancellationRequested) { return; }
+        catch (TimeoutException)
+        {
+            _log.LogWarning("[chat] chờ dựng schema quá {N}s — chạy tiếp, nhịp đầu có thể hỏng",
+                ChoSchema.TotalSeconds);
+        }
+
         while (!ct.IsCancellationRequested)
         {
             var lam = 0;
@@ -81,6 +99,17 @@ public class ChatOutboxWorker : BackgroundService
         if (hoiThoai is null)
         {
             await repo.FinishOutboxAsync(r.Id, false, false, "Hội thoại không còn", ct);
+            return;
+        }
+
+        // Khách bị chặn thì không gửi gì nữa. Chặn ở bot thôi là hụt: người trực vẫn mở được
+        // hội thoại cũ ra gõ tay. Cờ đi kèm sẵn trong hội thoại nên không tốn truy vấn nào.
+        //
+        // Đánh dấu BỎ QUA chứ không phải hỏng: đây là quyết định của công ty, không phải lỗi
+        // — để nó nằm trong danh sách tin hỏng là làm nhiễu chỗ tra sự cố thật.
+        if (hoiThoai.BlockedUtc is not null)
+        {
+            await repo.FinishOutboxAsync(r.Id, false, false, "Khách đang bị chặn trong hộp thư", ct);
             return;
         }
 
