@@ -554,7 +554,7 @@
                 <ul className="lpf-contact-list">
                   <li className="lpf-contact lpf-contact--top">
                     <span className="lpf-contact-ico"><Icon name="pin" size={14} stroke={2} /></span>
-                    <div><span className="lpf-contact-label">Hà Nội</span><span className="lpf-contact-addr">Tầng 4, Tòa nhà 242 Nguyễn Văn Lộc, Hà Đông</span></div>
+                    <div><span className="lpf-contact-label">Hà Nội</span><span className="lpf-contact-addr">Tầng 3, Số nhà 242 Nguyễn Văn Lộc, Phường Hà Đông, Thành phố Hà Nội</span></div>
                   </li>
                   <li className="lpf-contact lpf-contact--top">
                     <span className="lpf-contact-ico"><Icon name="pin" size={14} stroke={2} /></span>
@@ -573,7 +573,7 @@
             </div>
 
             <div className="lpf-bottom">
-              <p className="lpf-copy">© {new Date().getFullYear()} Công ty Cổ phần TourKit Việt Nam. All rights reserved.</p>
+              <p className="lpf-copy">© {new Date().getFullYear()} Công ty Cổ phần TourKit Việt Nam · MST 0111219654. All rights reserved.</p>
               <div className="lpf-bottom-links">
                 {/* href="#" là hai đường CỤT — mà đây đúng là hai link người duyệt Meta bấm khi
                     đối chiếu hồ sơ. Trỏ thẳng vào hai trang thật. */}
