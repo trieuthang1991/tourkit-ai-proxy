@@ -428,6 +428,9 @@ function App() {
   if ((cur === '/chinh-sach-bao-mat' || cur === '/privacy') && window.PrivacyPage) {
     return <window.PrivacyPage />;
   }
+  if ((cur === '/dieu-khoan' || cur === '/terms') && window.TermsPage) {
+    return <window.TermsPage />;
+  }
 
   // ─── Gate toàn cục: chưa đăng nhập TourKit → màn login, không vào feature nào ───
   if (!authUser) {

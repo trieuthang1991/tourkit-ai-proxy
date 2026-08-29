@@ -64,6 +64,7 @@ import "./steps/step4.jsx";
 // /pages — top-level pages
 import "./pages/landing.jsx";
 import "./pages/privacy.jsx";
+import "./pages/terms.jsx";
 // import "./pages/home.jsx";  // launcher /home tạm gỡ khỏi routing — bật lại khi cần
 import "./pages/wizard.jsx";
 import "./pages/customers.jsx";

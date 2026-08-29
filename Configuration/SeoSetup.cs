@@ -49,6 +49,10 @@ public static class SeoSetup
         new("/chinh-sach-bao-mat", $"Chính sách bảo mật · {Brand}",
             "Cách TRAV-AI nhận, dùng và xoá dữ liệu hội thoại từ Facebook, Zalo, Telegram và các kênh nhắn tin khác. Kèm hướng dẫn yêu cầu xoá dữ liệu.", Index: true),
         // Tên tiếng Anh: đường dẫn dán vào Meta App Dashboard, người duyệt quen dạng này hơn.
+        new("/dieu-khoan", $"Điều khoản dịch vụ · {Brand}",
+            "Điều khoản sử dụng TRAV-AI cho công ty du lịch: trách nhiệm mỗi bên, phạm vi của trợ lý AI, và giới hạn do nền tảng nhắn tin đặt ra.", Index: true),
+        new("/terms", $"Terms of Service · {Brand}",
+            "Terms of service for TRAV-AI, a multi-channel inbox for Vietnamese travel agencies.", Index: true),
         new("/privacy", $"Privacy Policy · {Brand}",
             "How TRAV-AI collects, uses and deletes conversation data from Facebook, Zalo, Telegram and other messaging channels. Includes data deletion instructions.", Index: true),
 

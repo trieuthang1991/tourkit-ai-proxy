@@ -13,6 +13,38 @@ Những cập nhật gần đây của TRAV-AI, viết cho người dùng. Mới
 
 ---
 
+## Phiên bản 29/08/2026 — Nhắn tin trên điện thoại, và quyền riêng tư của khách
+
+### ✨ Tính năng mới
+- **Khách tự xoá được dữ liệu của mình.** TRAV-AI nay có [trang chính sách bảo mật](https://travelai.vn/privacy)
+  và [điều khoản dịch vụ](https://travelai.vn/dieu-khoan) công khai, nói rõ chúng tôi nhận dữ liệu
+  gì, dùng làm gì và ai được chạm vào.
+
+  Khách hàng của bạn muốn xoá dữ liệu thì có hai đường: gửi email yêu cầu, hoặc vào cài đặt
+  Facebook gỡ ứng dụng và chọn xoá — cách sau **xoá ngay lập tức** rồi trả về một mã tra cứu, mở
+  mã đó là thấy đã xoá bao nhiêu cuộc trò chuyện, bao nhiêu tin nhắn.
+
+  *Lưu ý:* chúng tôi chỉ xoá được bản lưu trong hệ thống mình. Bản nằm trên Facebook, Zalo hay
+  Telegram thuộc quyền các nền tảng đó.
+
+- **Chọn được trợ lý nào trả lời khách.** Trước đây trợ lý trong hộp thư chat chạy bằng mặc định
+  của nhà cung cấp, không đổi được — trong khi mọi tính năng khác đều chọn được. Nay nó cũng chọn
+  được như những phần còn lại, nên bạn cân đối được giữa chất lượng câu trả lời và chi phí.
+
+### 🔧 Đã khắc phục
+- **Nối Facebook, Zalo trên điện thoại: bấm là chạy.** Trước đây bấm nút kết nối trên điện thoại
+  thì **không có gì xảy ra** — không mở màn hình đăng nhập, không báo lỗi, không giải thích. Trên
+  máy tính thì vẫn được, nên rất khó đoán. Nay chạy đúng trên cả hai.
+- **Cấp quyền xong không còn mắc kẹt ở trang trắng.** Trên điện thoại, sau khi đồng ý cấp quyền,
+  màn hình đứng lại ở một trang trống dù việc đã xong — nhiều người tưởng hỏng nên làm lại từ đầu.
+  Nay tự quay về hộp thư.
+
+### 📌 Lưu ý
+Trang Facebook nào đã nối **từ trước bản này** cần vào **Kết nối kênh** bấm nối lại một lượt, để
+nhận thêm loại tin mới (khách thả cảm xúc). Facebook chỉ nhận danh sách loại tin lúc kết nối.
+
+---
+
 ## Phiên bản 28/08/2026 — Thêm 6 ngày để trả lời khách Facebook
 
 ### ✨ Tính năng mới
