@@ -1655,6 +1655,27 @@ public static class ChatInboxEndpoints
             var (trang, loi) = await fb.DoiMaLayTrangAsync(code!, cho.Value.RedirectUri, ct);
             if (loi is not null) return PermissionPage(false, loi);
 
+            var daNoi = await ConnectedIdsAsync(cred, cho.Value.TenantId, ct);
+
+            // ⚠️ Facebook trả về TOÀN Trang đã nối từ trước = người dùng vừa đi hết luồng mà
+            // KHÔNG thêm được gì. Phải nói thẳng, đừng báo thành công.
+            //
+            // Vì sao xảy ra: luồng đăng nhập cổ điển NHỚ lựa chọn Trang của lần trước và bỏ qua
+            // bước chọn Trang. auth_type=rerequest không chữa được — nó chỉ hỏi lại QUYỀN bị từ
+            // chối, không mở lại phần chọn tài sản.
+            //
+            // Bản trước rơi thẳng vào nhánh "chỉ một Trang thì nối luôn": nó nối lại đúng Trang
+            // cũ rồi hiện chữ xanh "Đã nối Trang X". Người dùng tưởng xong, quay lại hộp thư thấy
+            // y nguyên, và không có gì trên màn hình gợi ý phải làm gì tiếp. Hỏng mà trông như chạy
+            // là kiểu tệ nhất — đã mất thời gian thật vì nó.
+            if (trang!.Count > 0 && trang.All(t => daNoi.Contains(t.PageId)))
+                return PermissionPage(false,
+                    $"Facebook chỉ trả về Trang đã nối từ trước ({trang[0].Name}), nên không có gì "
+                    + "để thêm. Facebook nhớ lựa chọn cũ và bỏ qua bước chọn Trang. "
+                    + "Cách thêm Trang khác: ngay trên màn hình đồng ý của Facebook, bấm "
+                    + "\"Chỉnh sửa quyền truy cập\" rồi tích thêm Trang. Hoặc vào Facebook → "
+                    + "Cài đặt → Ứng dụng và trang web → TourKit AI → Chỉnh sửa.");
+
             // CHỈ MỘT Trang thì nối luôn, đừng hỏi lại.
             //
             // Facebook đã bắt người dùng đi qua ba bước chọn rồi (tài khoản → doanh nghiệp →
@@ -1663,7 +1684,7 @@ public static class ChatInboxEndpoints
             //
             // Từ hai Trang trở lên thì màn hình đó có việc thật: Facebook trả về mọi Trang được
             // cấp, mình vẫn phải để họ nói Trang nào là của công ty này.
-            if (trang!.Count == 1)
+            if (trang.Count == 1)
             {
                 var loiNoi = await fb.ConnectPageAsync(cho.Value.TenantId, trang[0], ct);
                 if (loiNoi is not null) return PermissionPage(false, loiNoi);
@@ -1673,7 +1694,7 @@ public static class ChatInboxEndpoints
             }
 
             var ma = chon.Create(cho.Value.TenantId, trang);
-            return PagePickerPage(ma, trang, await ConnectedIdsAsync(cred, cho.Value.TenantId, ct), null);
+            return PagePickerPage(ma, trang, daNoi, null);
         });
 
         // CÔNG KHAI — Meta gọi lại sau luồng Embedded Signup của WhatsApp.

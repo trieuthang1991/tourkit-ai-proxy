@@ -9997,4 +9997,9 @@ img.ci-avt { object-fit: cover; }
 .pv-luu-y { padding: 12px 14px; border-radius: 10px;
             background: var(--bg); border: 1px solid var(--border);
             color: var(--text-2); font-size: 14px; }
+.pv-phap-nhan { margin-top: 40px; padding-top: 20px; border-top: 1px solid var(--border);
+                color: var(--text-3); font-size: 13px; line-height: 1.7; }
+.pv-phap-nhan p { margin: 0 0 2px; }
+.pv-phap-nhan-ten { color: var(--text-2); font-weight: 600; }
+.pv-phap-nhan a { color: var(--text-3); }
 @media (max-width: 640px) { .pv-trang { padding: 32px 18px 64px; font-size: 14.5px; } }

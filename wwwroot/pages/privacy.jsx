@@ -145,6 +145,31 @@ function PrivacyPage() {
           We verify and delete within 30 days, then confirm by email.
         </p>
       </M>
+
+      {/* Khối pháp nhân — KHÔNG phải trang trí.
+          Xác minh doanh nghiệp của Meta là người thật mở website ra, đối chiếu tên pháp nhân và
+          địa chỉ với ĐKKD mình nộp. Hai trang này chính là hai đường dẫn khai trong Settings →
+          Basic, nên là chỗ chắc chắn người duyệt bấm vào. Thiếu khối này thì hồ sơ bị trả về với
+          lý do "không xác nhận được doanh nghiệp qua website" — mà lý do đó không nói rõ thiếu gì,
+          nên rất dễ nộp lại y nguyên rồi trượt lần nữa.
+
+          ⚠️ Tên và địa chỉ trụ sở chép Y HỆT ĐKKD, kể cả kiểu viết hoa và chữ "Số nhà". Meta so
+          máy móc: "P.9" với "Phường 9", "Tòa nhà" với "Số nhà" là đủ để trả về. Ai thấy khối này
+          viết hoa toàn bộ mà định "sửa cho đẹp" thì đừng — nó cố ý.
+
+          Không đưa người đại diện và số tài khoản ngân hàng lên đây: Meta không cần, mà để công
+          khai thì mở đường cho lừa đảo mạo danh công ty đi thu tiền. */}
+      <footer className="pv-phap-nhan">
+        <p className="pv-phap-nhan-ten">CÔNG TY CỔ PHẦN TOURKIT VIỆT NAM</p>
+        <p>Trụ sở chính: Tầng 3, Số nhà 242 Nguyễn Văn Lộc, Phường Hà Đông, Thành phố Hà Nội, Việt Nam</p>
+        <p>Mã số thuế: 0111219654</p>
+        <p>Văn phòng Hồ Chí Minh: Số 1, Đặng Văn Sâm, Phường 9, Quận Phú Nhuận</p>
+        <p>
+          <a href="tel:0383202404">0383.202.404</a>
+          {' · '}
+          <a href="mailto:hotro@tourkit.vn">hotro@tourkit.vn</a>
+        </p>
+      </footer>
     </div>
   );
 }

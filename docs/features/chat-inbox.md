@@ -79,6 +79,16 @@ lối với Zalo và **dễ hơn Zalo một bậc**. Khách bấm **"Kết nối
 hết. Đường dẫn: `POST /channels/1/connect-url` → `dialog/oauth` → `GET /api/v1/chat/oauth/messenger/callback`
 → trang chọn Trang → `POST /api/v1/chat/oauth/messenger/chon`.
 
+⚠️ **Nối Trang THỨ HAI cùng tài khoản: luồng cổ điển không làm được.** Facebook nhớ lựa chọn Trang
+của lần trước và **bỏ hẳn bước chọn Trang**, nên `/me/accounts` trả về đúng Trang đã nối.
+`auth_type=rerequest` KHÔNG chữa — nó chỉ hỏi lại **quyền** bị từ chối, không mở lại phần chọn tài
+sản. Bản trước rơi vào nhánh "chỉ một Trang thì nối luôn": nối đè lên chính nó rồi báo **thành công
+màu xanh** — người dùng tưởng xong, quay lại hộp thư thấy y nguyên. Nay callback so danh sách trả về
+với danh sách đã nối; trùng hết thì **báo hỏng kèm cách xử lý** (bấm *"Chỉnh sửa quyền truy cập"* trên
+màn hình đồng ý của Facebook). Cách chữa dứt điểm là khai `Chat:Messenger:ConfigId` (Facebook Login
+for Business) — luồng đó **luôn** hiện bước chọn Trang. Test canh **thứ tự** hai nhánh, vì chỉ cần
+nhánh nối-luôn chạy trước là lỗi quay lại nguyên vẹn.
+
 ⚠️ **Facebook KHÔNG có cửa gói như Zalo.** Meta không thu tiền, và ứng dụng ở chế độ **Development**
 đã nhận/gửi tin thật với Trang mà người kết nối là quản trị viên. App Review + xác minh doanh nghiệp
 (vẫn miễn phí) chỉ cần khi mở cho Trang của khách hàng khác. Zalo thì Open API nằm sau gói trả tiền —
