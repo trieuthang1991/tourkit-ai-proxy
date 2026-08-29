@@ -1,16 +1,23 @@
-name: Deploy Website (IIS)
+﻿name: Deploy Website (IIS)
 
 # Build + deploy website TourkitAiProxy lên IIS qua self-hosted runner.
 # Worker (TourkitAiProxy.Worker) KHÔNG deploy ở workflow này.
 
+# ⚠️ KHÔNG có trigger `push`, và đó là CỐ Ý — máy chủ chưa cài self-hosted runner.
+#
+# Trước đây workflow chạy theo `push: branches: [main]`. Không có runner thì mỗi lần đẩy main lại
+# đẻ ra một run nằm "queued" chờ mãi: hai lần gần nhất treo 4h49 và 37h58 rồi mới bị huỷ tay. Nhìn
+# vào tab Actions thấy toàn màu vàng, không ai biết cái nào thật sự đang chờ.
+#
+# Deploy hiện làm TAY (scripts/publish.ps1 → scripts/deploy-iis.ps1). Khi nào dựng xong runner trên
+# máy chủ thì mở lại theo hai bước:
+#   1. Bật workflow: `gh workflow enable "Deploy Website (IIS)"` (đang disabled_manually).
+#   2. Trả lại khối `push:` bên dưới `on:` — nhớ giữ nguyên `paths-ignore` để sửa tài liệu không
+#      kéo theo một lượt deploy.
+#
+# Chừng nào chưa có runner thì để nguyên: bấm "Run workflow" tay cũng chỉ tạo thêm một run treo.
 on:
-  push:
-    branches: [ main ]
-    paths-ignore:
-      - 'TourkitAiProxy.Worker/**'
-      - 'docs/**'
-      - '**/*.md'
-  workflow_dispatch:        # cho phép bấm "Run workflow" thủ công trên GitHub
+  workflow_dispatch:        # chỉ chạy khi có người bấm "Run workflow" trên GitHub
 
 env:
   # ⬇️ SỬA cho khớp IIS của bạn. Deploy CÙNG 1 build ra 2 site.
