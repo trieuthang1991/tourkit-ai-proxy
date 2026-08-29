@@ -1,4 +1,4 @@
-# Xác minh & duyệt ứng dụng Meta — hồ sơ TourKit AI
+﻿# Xác minh & duyệt ứng dụng Meta — hồ sơ TourKit AI
 
 > **Ứng dụng:** TourKit AI · `1416202417025806`
 > **Cập nhật:** 29/08/2026
@@ -15,12 +15,30 @@ gì ứng dụng thật sự làm, và khai sai bị phạt nặng hơn nhiều 
 ## Thứ tự làm — sai thứ tự là làm lại
 
 ```
-1. Business Portfolio  ──►  2. Xác minh doanh nghiệp  ──►  3. Xác minh quyền truy cập  ──►  4. App Review
-   (gom app + Page)          (giấy tờ pháp nhân)           (Tech Provider)                  (từng quyền)
+1. Business Portfolio  ──►  2. Nộp App Review  ──►  3. Xác minh doanh nghiệp  ──►  4. Tech Provider
+   (gom app + Page,          (xin từng quyền)       (Meta ĐÒI thì mới mở)        (nếu Meta hỏi)
+    điền chi tiết pháp nhân)
 ```
 
 Xác minh gắn với **doanh nghiệp**, không gắn với app. Xác minh xong cho tài khoản cá nhân rồi mới
 lập công ty là bỏ đi làm lại từ đầu.
+
+⚠️ **Không xác minh trước được — và đây là chỗ mất thời gian nhất.** Trung tâm bảo mật hiện đúng
+câu *"Tổ chức của bạn không cần xác minh"* kèm hai link **Meta đã xác minh** / **Ủy quyền và xác
+minh**, không có nút bắt đầu nào. Rất dễ tưởng mình vào nhầm chỗ rồi đi tìm vòng quanh (đã mất một
+buổi vì đúng chuyện này, 29/08/2026).
+
+Meta chỉ mở xác minh **khi có thứ đòi đến nó**: nộp App Review xin một quyền nâng cao xong, hồ sơ
+mới hiện yêu cầu xác minh và mở luồng nộp giấy tờ.
+
+⚠️ **Hai link nó gợi ý đều KHÔNG phải thứ cần:**
+- **Meta đã xác minh** (Meta Verified) — gói **trả phí hàng tháng**, tick xanh + hỗ trợ ưu tiên.
+  Không mở khoá quyền nào cho app. Đừng mua.
+- **Ủy quyền và xác minh** — dành cho quảng cáo chủ đề chính trị/xã hội. Không liên quan.
+
+Vẫn phải điền **Chi tiết về doanh nghiệp** (tên pháp lý, địa chỉ, điện thoại, website) ở
+*Cài đặt → Thông tin doanh nghiệp* TRƯỚC khi nộp App Review — bốn ô đó chính là thứ Meta đem đối
+chiếu với ĐKKD khi luồng xác minh mở ra, và mặc định chúng TRỐNG.
 
 ---
 
