@@ -32,6 +32,14 @@ Những cập nhật gần đây của TRAV-AI, viết cho người dùng. Mới
   được như những phần còn lại, nên bạn cân đối được giữa chất lượng câu trả lời và chi phí.
 
 ### 🔧 Đã khắc phục
+- **Nối thêm Trang Facebook thứ hai: không còn báo "xong" giả.** Bạn đã nối một Trang, nay muốn
+  nối thêm Trang khác cùng tài khoản. Trước đây đi hết luồng thì màn hình hiện chữ xanh *"Đã nối
+  Trang…"* — nhưng nối lại đúng Trang cũ, quay về hộp thư thấy y nguyên, và không có gì gợi ý phải
+  làm gì tiếp. Nay màn hình nói thẳng là Facebook chỉ trả về Trang cũ, kèm cách xử lý: ngay trên
+  màn hình đồng ý của Facebook bấm **Chỉnh sửa quyền truy cập** rồi tích thêm Trang bạn muốn nối.
+
+  *Vì sao vậy:* Facebook nhớ lựa chọn Trang của lần trước và tự bỏ qua bước chọn Trang. Đó là cách
+  Facebook làm, không phải lỗi phần mềm — nhưng lẽ ra phải nói cho bạn biết thay vì báo thành công.
 - **Nối Facebook, Zalo trên điện thoại: bấm là chạy.** Trước đây bấm nút kết nối trên điện thoại
   thì **không có gì xảy ra** — không mở màn hình đăng nhập, không báo lỗi, không giải thích. Trên
   máy tính thì vẫn được, nên rất khó đoán. Nay chạy đúng trên cả hai.

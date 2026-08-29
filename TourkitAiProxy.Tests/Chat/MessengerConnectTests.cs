@@ -286,4 +286,36 @@ public class MessengerConnectTests
         var than = src.Substring(i, System.Math.Min(2000, src.Length - i));
         Assert.Contains("SaveAsync(tenantId, Channel, trang.PageId", than);
     }
+
+    [Fact]
+    public void Facebook_tra_ve_toan_Trang_da_noi_thi_KHONG_duoc_bao_thanh_cong()
+    {
+        // Ca thật, mất một buổi: người dùng đã nối một Trang, nay muốn nối Trang thứ hai cùng tài
+        // khoản. Luồng đăng nhập cổ điển NHỚ lựa chọn cũ và bỏ hẳn bước chọn Trang, nên /me/accounts
+        // trả về đúng một Trang — cái đã nối.
+        //
+        // Bản cũ rơi vào nhánh "chỉ một Trang thì nối luôn": nối đè lên chính nó rồi hiện chữ XANH
+        // "Đã nối Trang X". Không lỗi, không log, không có gì trên màn hình gợi ý phải làm gì tiếp
+        // — người dùng tưởng xong, quay lại hộp thư thấy y nguyên, rồi thử lại vòng nữa. Hỏng mà
+        // trông như chạy là kiểu tệ nhất.
+        //
+        // Test canh THỨ TỰ chứ không canh sự tồn tại: chỉ cần nhánh nối-luôn chạy TRƯỚC phép kiểm
+        // "toàn bộ Trang đều đã nối" là lỗi quay lại y nguyên.
+        var src = ChatSchemaGuardTests.DocFile("TourkitAiProxy.Endpoints/ChatInboxEndpoints.cs");
+        var i = src.IndexOf("MapGet(\"/oauth/messenger/callback\"", System.StringComparison.Ordinal);
+        Assert.True(i > 0, "Không thấy đường quay lại của Facebook");
+        var het = src.IndexOf("MapGet(\"/oauth/whatsapp/callback\"", i, System.StringComparison.Ordinal);
+        var than = het > i ? src[i..het] : src[i..];
+
+        var viTriKiem = than.IndexOf("daNoi.Contains", System.StringComparison.Ordinal);
+        var viTriNoi = than.IndexOf("ConnectPageAsync", System.StringComparison.Ordinal);
+
+        Assert.True(viTriKiem > 0,
+            "Đường quay lại của Facebook không còn kiểm 'mọi Trang trả về đều đã nối'. Thiếu nó thì "
+            + "người dùng đi hết luồng để nối Trang thứ hai mà nhận về chữ xanh 'Đã nối Trang' của "
+            + "chính Trang cũ.");
+        Assert.True(viTriNoi > 0, "Không thấy chỗ nối Trang");
+        Assert.True(viTriKiem < viTriNoi,
+            "Phép kiểm 'toàn Trang đã nối' phải chạy TRƯỚC khi nối. Chạy sau là đã báo thành công rồi.");
+    }
 }
