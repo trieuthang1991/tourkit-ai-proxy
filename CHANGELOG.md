@@ -342,6 +342,23 @@ nhận thêm loại tin mới (khách thả cảm xúc). Facebook chỉ nhận d
 
 ---
 
+## Phiên bản 29/08/2026 — Quyền trên TRAV-AI khớp đúng quyền trên CRM
+
+### 🔧 Đã khắc phục
+- **Khách hàng và Thẩm định Visa nay theo đúng quyền bên CRM.** Trước đây tài khoản đại lý hoặc
+  cộng tác viên — vốn chỉ được phép đặt chỗ — vẫn mở được danh sách khách hàng và cụm thẩm định
+  visa trên TRAV-AI, dù bên CRM họ không có quyền đó. Nay ai không có quyền sẽ không thấy hai mục
+  này trong menu, và mở thẳng đường dẫn cũng nhận thông báo không có quyền.
+- **Tiền của từng dòng dịch vụ trong đơn đồng bộ lên CRM đã tính đúng.** Trước đây phần thu ghi số
+  tiền *chưa gồm VAT*, nên đơn nào có thuế là số trên CRM lệch so với báo giá đã gửi khách. Nay
+  khớp đúng cách CRM tự tính.
+
+### 📌 Lưu ý
+- Người quản trị cấu hình bộ **câu hỏi Visa** vẫn vào được màn đó dù không có quyền thẩm định visa —
+  đây là hai việc khác nhau, cố ý không gộp.
+
+---
+
 ## Phiên bản 26/08/2026 — Báo giá dựng xong đưa thẳng thành đơn trên CRM
 
 ### ✨ Tính năng mới

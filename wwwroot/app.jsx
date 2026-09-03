@@ -34,7 +34,8 @@ const NAV_GROUPS = [
     { to: '/assistant', icon: 'chart',   label: 'Trợ lý số liệu' },   // data/chart analytics
   ]},
   { label: 'Khách hàng & Bán hàng', items: [
-    { to: '/customers', icon: 'users',   label: 'Khách hàng' },       // people
+    // Quyền xem KH lấy từ CRM (sheet bug 105) — đại lý/CTV không có KH_KH_XEM thì không thấy mục này.
+    { to: '/customers', icon: 'users',   label: 'Khách hàng', requirePerm: 'KH_KH_XEM' },  // people
     { to: '/deals',     icon: 'trend',   label: 'AI phân tích Cơ hội' },  // opportunity analysis
     { to: '/mail',      icon: 'mail',    label: 'Hộp thư AI' },
     { to: '/chat-inbox', icon: 'send',  label: 'Hộp thư chat', feature: 'chat' },  // tin khách nhắn qua Zalo/kênh khác
@@ -46,7 +47,7 @@ const NAV_GROUPS = [
     { to: '/wizard',       icon: 'dollar', label: 'Tính giá Tour',
       requirePerm: ['TR_TD_TAOMOI', 'TR_TM_TAOMOI'] },                      // pricing/quote
     { to: '/tour-builder', icon: 'plane',  label: 'Soạn Tour GIT (AI)' },   // travel/itinerary
-    { to: '/visa/history', icon: 'shield', label: 'Thẩm định Visa' },       // hub: danh sách hồ sơ đã chấm + nút mở wizard (gộp Lịch sử + Thẩm định)
+    { to: '/visa/history', icon: 'shield', label: 'Thẩm định Visa', requirePerm: 'VISA_XEM' },  // hub: danh sách hồ sơ đã chấm + nút mở wizard (gộp Lịch sử + Thẩm định)
   ]},
   // Khối "Tích hợp": gate theo TỪNG item bằng quyền CH_HT_XEM (Cấu hình hệ thống - Xem). widget-admin +
   // visa-config thiếu quyền → ẨN khỏi nav VÀ route trả trang "Không có quyền". Riêng /workflows KHÔNG
@@ -71,6 +72,9 @@ const ROUTE_REQUIRE_PERM = NAV_GROUPS
 // ROUTE_REQUIRE_PERM, thiếu key → hasPerm(undefined) = true → trang mở cho mọi người.
 // /flow-preview: vào từ nút "Xem sơ đồ" ở trang Tự động hoá → cùng quyền với Tự động hoá.
 ROUTE_REQUIRE_PERM['/flow-preview'] = 'CH_HT_XEM';
+// /visa (wizard chấm hồ sơ) KHÔNG có mục menu riêng — vào từ nút trong trang Thẩm định Visa và từ
+// dock mobile. Không khai ở đây thì gatePerm tra ra undefined → mở cho tất cả, đúng lỗ hổng dòng 105.
+ROUTE_REQUIRE_PERM['/visa'] = 'VISA_XEM';
 // Flat list — dùng cho navQuery search ở topbar (giữ logic cũ).
 const NAV = NAV_GROUPS.flatMap(g => g.items);
 const NAV_DEBUG_GROUP = { label: 'Debug', items: [
@@ -584,7 +588,7 @@ function App() {
         {/* '/' không có route ở đây: đã xử lý sớm là LandingPage (guest) / redirect /travai (đã login). */}
         {/* gatePerm: ẩn menu thôi chưa đủ — gõ thẳng /wizard vẫn vào được (sheet bug 105). */}
         <Route path="/wizard"    render={() => gatePerm('/wizard', <window.WizardPage pushToast={pushToast} tweaks={t} />)} />
-        <Route path="/customers" render={() => <window.CustomersPage pushToast={pushToast} />} />
+        <Route path="/customers" render={() => gatePerm('/customers', <window.CustomersPage pushToast={pushToast} />)} />
         <Route path="/assistant" render={() => <window.AssistantPage pushToast={pushToast} />} />
         <Route path="/travai"    render={() => <window.JarvisPage pushToast={pushToast} />} />
         <Route path="/jarvis"    render={() => <window.JarvisPage pushToast={pushToast} />} />{/* alias link cũ */}
@@ -594,8 +598,9 @@ function App() {
         <Route path="/chat-inbox" render={() => chatOn
           ? <window.ChatInboxPage pushToast={pushToast} />
           : <FeatureOffPage ten="Hộp thư chat" />} />
-        <Route path="/visa"      render={() => <window.VisaPage pushToast={pushToast} />} />
-        <Route path="/visa/history" render={() => <window.VisaHistoryPage pushToast={pushToast} />} />
+        {/* /visa (wizard chấm) và /visa/history vào từ nhiều chỗ, không chỉ menu → gate riêng từng route. */}
+        <Route path="/visa"      render={() => gatePerm('/visa', <window.VisaPage pushToast={pushToast} />)} />
+        <Route path="/visa/history" render={() => gatePerm('/visa/history', <window.VisaHistoryPage pushToast={pushToast} />)} />
         <Route path="/deals"     render={() => <window.DealsPage pushToast={pushToast} />} />
         <Route path="/tour-builder" render={() => <window.TourBuilderPage pushToast={pushToast} />} />
         <Route path="/quotes"       render={() => <window.QuotesPage pushToast={pushToast} />} />
