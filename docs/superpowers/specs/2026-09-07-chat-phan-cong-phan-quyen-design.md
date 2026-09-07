@@ -75,6 +75,33 @@ cập nhật có điều kiện; người thứ hai nhận 409 kèm tên ngườ
 
 ---
 
+## 4c. Ai là quản trị viên — TẠM thời chốt theo tên đăng nhập
+
+> Chốt 07/09/2026. **Đây là bản tạm, cố ý.** Cụm chat sau này sẽ theo hệ quyền thật; tới lúc đó
+> đổi đúng một dòng.
+
+```csharp
+XemTatCa = string.Equals(a.Username, "admin", StringComparison.OrdinalIgnoreCase)
+```
+
+Tên đăng nhập là `admin` thì xem tất cả; còn lại là tài khoản nhân viên, chỉ xem hội thoại được
+giao.
+
+⚠️ **Vì sao bỏ hướng đọc claim `is_admin` từ thẻ đăng nhập.** Hướng đó buộc phải **lưu cờ xuống
+CSDL push** (`dbo.TkSessions`), vì thẻ đăng nhập không được lưu nên sau khi khởi động lại máy chủ
+không giải mã lại được — không lưu thì quản trị viên âm thầm tụt xuống nhân viên thường. Mà CSDL
+push là chỗ **phải xin phép trước khi đụng** (chủ dự án, 07/09/2026). Chốt theo tên đăng nhập
+không cần lưu gì cả, nên không phải đụng CSDL push.
+
+⚠️ **Bỏ theo là:** `JwtClaims.TryGetIsAdmin`, trường `TkSession.IsAdmin`, cột `dbo.TkSessions.IsAdmin`
+cùng ba câu truy vấn mang nó, và các test của hàm đọc claim. Cột đã lỡ tạo thì để lại — nó có giá
+trị mặc định nên không cản lệnh ghi nào, và xoá cột ở CSDL push là việc phải xin phép.
+
+⚠️ **Khi hệ quyền thật vào**, thay dòng trên bằng phép kiểm quyền, và **chỉ chỗ đó**. Đừng rải
+phép kiểm ra nhiều nơi — cả cụm đọc quyền xem qua đúng một cửa (`SessionAuth.ReadNguoiXemAsync`).
+
+---
+
 ## 4b. Luật một khoá: quyết định bằng mã, hiển thị bằng tên
 
 > Chốt 07/09/2026, sau khi chủ dự án chỉ ra sự nhập nhằng — và sau khi cùng một gốc đẻ ra hai lỗi
