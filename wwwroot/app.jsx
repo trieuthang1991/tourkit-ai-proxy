@@ -38,6 +38,7 @@ const NAV_GROUPS = [
     { to: '/deals',     icon: 'trend',   label: 'AI phân tích Cơ hội' },  // opportunity analysis
     { to: '/mail',      icon: 'mail',    label: 'Hộp thư AI' },
     { to: '/chat-inbox', icon: 'send',  label: 'Hộp thư chat', feature: 'chat' },  // tin khách nhắn qua Zalo/kênh khác
+    { to: '/chat-assign-settings', icon: 'share', label: 'Phân công chat', feature: 'chat' },  // ai xem gì, chia hội thoại cho ai
   ]},
   { label: 'Sản phẩm Tour', items: [
     { to: '/ncc-list',     icon: 'download', label: 'AI Import NCC' },      // NCC: import + danh sách (đặt trên Tính giá Tour)
@@ -594,6 +595,11 @@ function App() {
         <Route path="/chat-inbox" render={() => chatOn
           ? <window.ChatInboxPage pushToast={pushToast} />
           : <FeatureOffPage ten="Hộp thư chat" />} />
+        {/* Cùng cờ 'chat' với /chat-inbox — chặn ngay ở route, không chỉ ẩn menu (lý do xem
+            comment ở route /chat-inbox ngay trên). */}
+        <Route path="/chat-assign-settings" render={() => chatOn
+          ? <window.ChatAssignSettingsPage pushToast={pushToast} />
+          : <FeatureOffPage ten="Phân công chat" />} />
         <Route path="/visa"      render={() => <window.VisaPage pushToast={pushToast} />} />
         <Route path="/visa/history" render={() => <window.VisaHistoryPage pushToast={pushToast} />} />
         <Route path="/deals"     render={() => <window.DealsPage pushToast={pushToast} />} />
