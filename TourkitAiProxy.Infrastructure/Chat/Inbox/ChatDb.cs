@@ -426,6 +426,30 @@ public class ChatDb
     CREATE UNIQUE INDEX IF NOT EXISTS ux_quickreply_trigger
       ON chat_quick_replies (tenant_id, lower(trigger));
 
+    -- Chuẩn hoá sang MÃ NGƯỜI. Cụm chat chưa vận hành, và chủ dự án đã đồng ý bỏ dữ liệu cũ
+    -- (07/09/2026): ba bảng này là dấu riêng của từng người + nhật ký của giai đoạn thử nghiệm.
+    --
+    -- Idempotent: lần chạy thứ hai không còn cột `username` nên khối IF không vào.
+    --
+    -- KHÁC với khối DO xoá assigned_username ở cuối file: khối đó phải LỒNG HAI IF vì vế trong
+    -- của nó đọc chính cột sắp bị xoá, mà PL/pgSQL phân giải tham chiếu cột lúc CHUẨN BỊ CÂU chứ
+    -- không hoãn theo AND. Ở đây điều kiện chỉ hỏi information_schema và thân chỉ có DROP TABLE
+    -- IF EXISTS — không câu nào chạm cột đã mất, nên một tầng IF là đủ. Đừng chép lối lồng hai
+    -- tầng sang đây cho "giống nhau": lồng thừa che mất lý do thật của chỗ kia.
+    --
+    -- Ba bảng bỏ CÙNG LÚC, không bỏ lẻ: chuyển một nửa còn tệ hơn không chuyển, vì mã sẽ ghi số
+    -- vào cột chữ và lỗi chỉ nổ lúc chạy.
+    DO $$
+    BEGIN
+      IF EXISTS (SELECT 1 FROM information_schema.columns
+                  WHERE table_name = 'chat_conversation_reads' AND column_name = 'username') THEN
+        DROP TABLE IF EXISTS chat_conversation_reads;
+        DROP TABLE IF EXISTS chat_conversation_follows;
+        DROP TABLE IF EXISTS chat_audit;
+        RAISE NOTICE 'Da bo ba bang khoa theo ten de tao lai theo ma nguoi';
+      END IF;
+    END $$;
+
     -- Đã đọc theo TỪNG NGƯỜI. Trước đây chỉ có chat_conversations.agent_last_read_at — MỘT cột
     -- cho cả công ty, nên A mở hội thoại là B cũng mất dấu chưa đọc. Hộp thư một người thì không
     -- lộ ra; hai người trở lên là sai ngay, mà sai im lặng: không có lỗi nào hiện, chỉ có tin của
@@ -433,12 +457,15 @@ public class ChatDb
     --
     -- Cột cũ VẪN GIỮ, làm mốc ban đầu cho người chưa có dòng nào ở đây. Xoá nó là mọi hội thoại
     -- cũ bật lại thành "chưa đọc" cho tất cả mọi người ngay sau khi deploy.
+    --
+    -- Khoá là MÃ NGƯỜI (user_id), không phải tên đăng nhập: toàn cụm chat dùng MỘT loại khoá
+    -- duy nhất (đặc tả mục 4b). Trộn hai loại là gốc của mọi nhập nhằng đã gặp trong đợt này.
     CREATE TABLE IF NOT EXISTS chat_conversation_reads (
       tenant_id       text        NOT NULL,
       conversation_id bigint      NOT NULL REFERENCES chat_conversations(id) ON DELETE CASCADE,
-      username        text        NOT NULL,
+      user_id         integer     NOT NULL,
       last_read_at    timestamptz NOT NULL DEFAULT now(),
-      PRIMARY KEY (tenant_id, conversation_id, username)
+      PRIMARY KEY (tenant_id, conversation_id, user_id)
     );
 
     -- Theo dõi một hội thoại. Khác hẳn giao việc: giao việc là SỞ HỮU (một người một hội thoại,
@@ -446,19 +473,19 @@ public class ChatDb
     -- không giành việc của ai). Quản lý muốn ngó một ca khó mà không cướp việc của nhân viên thì
     -- đây là đường duy nhất.
     --
-    -- Khoá gồm username vì đây là chuyện của TỪNG NGƯỜI — thiếu nó thì A bỏ theo dõi là B mất
+    -- Khoá gồm user_id vì đây là chuyện của TỪNG NGƯỜI — thiếu nó thì A bỏ theo dõi là B mất
     -- theo dõi theo, đúng kiểu hỏng im lặng của cột agent_last_read_at dùng chung ngày trước.
     CREATE TABLE IF NOT EXISTS chat_conversation_follows (
       tenant_id       text        NOT NULL,
       conversation_id bigint      NOT NULL REFERENCES chat_conversations(id) ON DELETE CASCADE,
-      username        text        NOT NULL,
+      user_id         integer     NOT NULL,
       created_utc     timestamptz NOT NULL DEFAULT now(),
-      PRIMARY KEY (tenant_id, conversation_id, username)
+      PRIMARY KEY (tenant_id, conversation_id, user_id)
     );
     -- Lọc "hội thoại tôi theo dõi" đi bằng chỉ mục này; không có nó thì mỗi lần mở bộ lọc là quét
     -- cả bảng, mà bảng này chỉ phình theo thời gian.
     CREATE INDEX IF NOT EXISTS ix_follow_nguoi
-      ON chat_conversation_follows (tenant_id, username);
+      ON chat_conversation_follows (tenant_id, user_id);
 
     -- Nhật ký thao tác. Khi khách khiếu nại "ai nói câu này với tôi", hoặc một hội thoại bị
     -- đóng nhầm, thì đây là chỗ duy nhất tra được.
@@ -466,11 +493,18 @@ public class ChatDb
     -- chi_tiet KHÔNG chứa nội dung tin: tin đã nằm ở chat_messages, chép lại là nhân đôi dữ
     -- liệu khách VÀ nhân đôi chỗ phải xoá khi khách yêu cầu xoá dữ liệu — sót một chỗ là vẫn
     -- còn lưu trái ý khách.
+    --
+    -- ⚠️ user_id CHO PHÉP NULL, và NULL nghĩa là HỆ THỐNG — vòng quay chia việc
+    -- (ChatInboundService) ghi nhật ký không dưới danh nghĩa người nào. TUYỆT ĐỐI đừng nhét số
+    -- ma thuật (0, -1) vào đây cho "khỏi null": số đó rồi sẽ đụng một mã nhân viên thật, hoặc
+    -- lọt vào ô tra tên rồi hiện ra một cái tên sai trong đúng thứ sinh ra để tra sự thật.
+    -- Ngược lại, KHÔNG được ghi NULL cho người thật khi tra mã hụt — xem GhiNhatKyAsync ở
+    -- ChatInboxEndpoints: nó bỏ qua lượt ghi và cảnh báo, chứ không ghi đè nghĩa "hệ thống".
     CREATE TABLE IF NOT EXISTS chat_audit (
       id              bigserial PRIMARY KEY,
       tenant_id       text        NOT NULL,
       conversation_id bigint,
-      username        text        NOT NULL,
+      user_id         integer,
       hanh_dong       text        NOT NULL,   -- nhan-viec | nha-viec | chuyen-viec | doi-trang-thai | tam-dung-bot | go-ket-noi
       chi_tiet        jsonb,
       created_utc     timestamptz NOT NULL DEFAULT now()

@@ -8,7 +8,7 @@ public class InboxActionRouteTests
     [Fact]
     public void Bang_theo_doi_phai_khoa_theo_TUNG_NGUOI()
     {
-        // Theo dõi là chuyện của từng người, không phải của cả công ty. Thiếu username trong khóa
+        // Theo dõi là chuyện của từng người, không phải của cả công ty. Thiếu mã người trong khóa
         // chính thì A bỏ theo dõi là B mất theo dõi theo — hỏng im lặng, giống hệt lỗi cột
         // agent_last_read_at dùng chung trước đây.
         var sql = ChatSchemaGuardTests.DocFile("TourkitAiProxy.Infrastructure/Chat/Inbox/ChatDb.cs");
@@ -19,14 +19,14 @@ public class InboxActionRouteTests
         var cot = m.Groups[1].Value;
         Assert.Contains("tenant_id", cot);
         Assert.Contains("conversation_id", cot);
-        Assert.Contains("username", cot);
+        Assert.Contains("user_id", cot);
     }
 
     [Fact]
     public void Danh_sach_theo_doi_phai_tra_co_va_loc_theo_nguoi_dang_xem()
     {
         // Nếu không trả cờ thì giao diện không biết nên hiện Theo dõi hay Bỏ theo dõi; nếu lọc
-        // không khóa username thì danh sách của A lại có ca B đang quan tâm.
+        // không khóa mã người thì danh sách của A lại có ca B đang quan tâm.
         var model = ChatSchemaGuardTests.DocFile("TourkitAiProxy.Domain/Chat/ChatModels.cs");
         var repo = ChatSchemaGuardTests.DocFile("TourkitAiProxy.Infrastructure/Chat/Inbox/ChatRepository.cs");
 
@@ -36,7 +36,7 @@ public class InboxActionRouteTests
         Assert.Contains("bool chiTheoDoi = false", m.Groups[1].Value);
         Assert.Contains("AS followed", m.Groups[1].Value);
         Assert.Contains("NOT @chiTheoDoi OR EXISTS", m.Groups[1].Value);
-        Assert.Contains("f.username = @nguoiDung", m.Groups[1].Value);
+        Assert.Contains("f.user_id = @nguoiDung", m.Groups[1].Value);
     }
 
     [Fact]
@@ -56,8 +56,8 @@ public class InboxActionRouteTests
         foreach (var route in new[] { post.Groups[1].Value, delete.Groups[1].Value })
         {
             Assert.Contains("GetConversationAsync(a.TenantId, id, xem, ct) is null", route);
-            Assert.Contains("SetFollowAsync(a.TenantId, id, a.Username", route);
-            Assert.Contains("AppendAuditAsync(a.TenantId, id, a.Username", route);
+            Assert.Contains("SetFollowAsync(a.TenantId, id, maNguoiXem.Value", route);
+            Assert.Contains("GhiNhatKyAsync(ctx, repo, sessions, a, id,", route);
             Assert.Contains(", null, ct)", route);
         }
     }
@@ -84,7 +84,7 @@ public class InboxActionRouteTests
         var get = Regex.Match(repo, "GetConversationAsync(.{0,1000})", RegexOptions.Singleline);
         Assert.True(get.Success, "Không thấy GetConversationAsync trong ChatRepository");
         Assert.Contains("AS followed", get.Groups[1].Value);
-        Assert.Contains("nguoiDung: a.Username", endpoint);
+        Assert.Contains("nguoiDung: await sessions.EnsureCrmUserIdAsync", endpoint);
     }
 
     [Fact]

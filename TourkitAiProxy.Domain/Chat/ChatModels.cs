@@ -350,12 +350,30 @@ public record ChatEvent(string TenantId, long ConversationId, string Loai, long?
     public int? AssignedUserId { get; init; }
 }
 
-/// <summary>Một dòng nhật ký thao tác. <c>Detail</c> là JSON thô, KHÔNG chứa nội dung tin.</summary>
+/// <summary>
+/// Một dòng nhật ký thao tác. <c>Detail</c> là JSON thô, KHÔNG chứa nội dung tin.
+///
+/// <para>⚠️ <b>Hai cột <c>hanh_dong</c>/<c>chi_tiet</c> chỉ tới được đây nhờ BÍ DANH trong câu
+/// SELECT của <c>ListAuditAsync</c>.</b> Dapper chạy với <c>MatchNamesWithUnderscores</c> và map
+/// theo TÊN; bỏ bí danh đi thì hai trường im lặng về rỗng — KHÔNG có lỗi nào, nhật ký chỉ hiện
+/// giờ và người rồi trống. Đã hỏng đúng như vậy cho tới 07/09/2026.</para>
+///
+/// <para>Tên thuộc tính giữ tiếng Anh theo lối của file này (48 thuộc tính, gần như toàn bộ tiếng
+/// Anh). Tiếng Việt trong cụm chat dùng cho THAM SỐ và biến cục bộ (<c>hanhDong</c>,
+/// <c>chiTiet</c>), không dùng cho thuộc tính model — đừng kéo tên tham số lên đây.</para>
+/// </summary>
 public class ChatAuditRow
 {
     public long Id { get; set; }
     public long? ConversationId { get; set; }
-    public string Username { get; set; } = "";
+
+    /// <summary>
+    /// MÃ người thao tác — <b><c>null</c> nghĩa là HỆ THỐNG</b> (vòng quay chia việc), không
+    /// phải "không rõ ai". Giao diện tra tên từ danh sách nhân viên nó vốn đã nạp; tra không ra
+    /// thì hiện <c>#&lt;mã&gt;</c>, đừng hiện ô trống (người dùng tưởng hỏng).
+    /// </summary>
+    public int? UserId { get; set; }
+
     public string Action { get; set; } = "";
     public string? Detail { get; set; }
     public DateTime CreatedUtc { get; set; }

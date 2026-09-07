@@ -147,7 +147,10 @@ public class ChatInboundService
                 // đăng nhập. Giao diện hiện tên bằng cách tra mã trong danh sách nhân viên ERP
                 // mà nó vốn đã nạp — xem Task 8.
                 hoiThoai.AssignedUserId = maNguoiNhan;
-                await _repo.AppendAuditAsync(hoiThoai.TenantId, hoiThoai.Id, "he-thong",
+                // Người thao tác = null, KHÔNG phải chuỗi "he-thong": cột chat_audit.user_id là
+                // MÃ NGƯỜI, và null ở đó CHÍNH LÀ nghĩa "hệ thống" (đặc tả mục 4b). Đây là chỗ
+                // DUY NHẤT trong cụm chat ghi nhật ký không dưới danh nghĩa người nào.
+                await _repo.AppendAuditAsync(hoiThoai.TenantId, hoiThoai.Id, null,
                     "xoay-vong", $"{{\"cho\":{maNguoiNhan}}}", ct);
             }
         }

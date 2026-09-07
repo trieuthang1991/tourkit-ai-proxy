@@ -692,7 +692,11 @@ public static class ChatInboxEndpoints
             // `xem.CrmUserId`: cái đó chỉ có giá trị khi ScopeOwnOnly bật, còn luật cũ ở đây phải
             // chạy bất kể chế độ phân công có cấu hình hay không.
             var xemHet = await SessionAuth.CanConfigSystemAsync(a.SessionId, sessions, ct);
-            int? maToi = xemHet && mine != true ? null : await sessions.EnsureCrmUserIdAsync(a.SessionId, ct);
+            // Tra MỘT lần rồi dùng cho cả hai việc. Trước đây lượt tra bị bỏ qua ở nhánh
+            // `xemHet && mine != true` cho đỡ tốn; nay dấu đã đọc và cờ theo dõi cũng khoá theo
+            // MÃ (đặc tả 4b) nên quản trị viên cũng cần mã của chính mình, không riêng nhân viên.
+            var maNguoiXem = await sessions.EnsureCrmUserIdAsync(a.SessionId, ct);
+            int? maToi = xemHet && mine != true ? null : maNguoiXem;
 
             // ⚠️ KHÔNG ĐƯỢC để `null` lọt xuống SQL khi maToi tra không ra — @chiCuaToi IS NULL
             // nghĩa là "không lọc gì cả" (mở toàn công ty), đúng cho nhánh xemHet nhưng SAI cho
@@ -713,9 +717,9 @@ public static class ChatInboxEndpoints
             var items = await repo.ListConversationsAsync(a.TenantId, xem, status, chiCuaToi, search,
                 kenh: channel, giaoCho: giaoChoLoc, chiChuaDoc: unread == true,
                 chiTheoDoi: followed == true,
-                sau: ChatCursor.Decode(cursor), limit: soDong, nguoiDung: a.Username, ct: ct);
+                sau: ChatCursor.Decode(cursor), limit: soDong, nguoiDung: maNguoiXem, ct: ct);
             // Truyền kênh đang lọc: chip trạng thái phải nói về ĐÚNG danh sách đang hiện bên dưới.
-            var dem = await repo.CountAsync(a.TenantId, chiCuaToi, xem, a.Username, channel, ct);
+            var dem = await repo.CountAsync(a.TenantId, chiCuaToi, xem, maNguoiXem, channel, ct);
             return Results.Json(new
             {
                 items = items.Select(x => Shape(x, a.SessionId)),
@@ -749,7 +753,10 @@ public static class ChatInboxEndpoints
             if (!repo.Configured) return NotConfigured();
             var goc = $"{ctx.Request.Scheme}://{ctx.Request.Host}";
 
-            var v = await repo.GetConversationAsync(a.TenantId, id, xem, ct, nguoiDung: a.Username);
+            // Cờ "tôi có theo dõi" khoá theo MÃ (đặc tả 4b). Tra mã hụt thì cờ về false — nút
+            // Theo dõi hiện sai còn hơn không mở được hội thoại.
+            var v = await repo.GetConversationAsync(a.TenantId, id, xem, ct,
+                nguoiDung: await sessions.EnsureCrmUserIdAsync(a.SessionId, ct));
             if (v is null) return Results.NotFound();   // id của tenant khác cũng rơi vào đây
 
             var tin = await repo.ListMessagesAsync(a.TenantId, id, 120, ct);
@@ -1038,7 +1045,7 @@ public static class ChatInboxEndpoints
                 var maNguoi = await sessions.EnsureCrmUserIdAsync(a.SessionId, ct);
                 if (maNguoi is not null && await repo.ClaimConversationAsync(a.TenantId, id, maNguoi.Value, ct) > 0)
                 {
-                    await repo.AppendAuditAsync(a.TenantId, id, a.Username, "tu-nhan-khi-tra-loi", null, ct);
+                    await GhiNhatKyAsync(ctx, repo, sessions, a, id, "tu-nhan-khi-tra-loi", null, ct);
                     maSauCung = maNguoi;
                 }
             }
@@ -1179,7 +1186,7 @@ public static class ChatInboxEndpoints
                     return Results.Json(new { error = "Người khác đang xử lý hội thoại này", assignedTo = dangGiu },
                         statusCode: StatusCodes.Status409Conflict);
                 }
-                await repo.AppendAuditAsync(a.TenantId, id, a.Username, "nhan-viec", null, ct);
+                await GhiNhatKyAsync(ctx, repo, sessions, a, id, "nhan-viec", null, ct);
                 // Phát giá trị SAU khi đổi — đọc lại bằng NguoiXem.HeThong (không lọc theo quyền
                 // xem) vì người vừa nhận việc có thể không còn thấy hội thoại này bằng phạm vi cũ.
                 var saoKhiNhan = await repo.GetConversationAsync(a.TenantId, id, NguoiXem.HeThong, ct);
@@ -1212,7 +1219,7 @@ public static class ChatInboxEndpoints
                     statusCode: StatusCodes.Status400BadRequest);
 
             await repo.AssignAsync(a.TenantId, id, userId: ma, ct);
-            await repo.AppendAuditAsync(a.TenantId, id, a.Username, "chuyen-viec",
+            await GhiNhatKyAsync(ctx, repo, sessions, a, id, "chuyen-viec",
                 new JsonObject { ["cho"] = ma }.ToJsonString(), ct);
             // Phát giá trị SAU khi đổi, không phải giá trị đọc lúc đầu handler — phát nhầm giá trị
             // cũ thì người vừa được giao không nhận sự kiện.
@@ -1241,7 +1248,7 @@ public static class ChatInboxEndpoints
             if (await repo.GetConversationAsync(a.TenantId, id, xem, ct) is null) return Results.NotFound();
 
             await repo.AssignAsync(a.TenantId, id, userId: null, ct);
-            await repo.AppendAuditAsync(a.TenantId, id, a.Username, "nha-viec", null, ct);
+            await GhiNhatKyAsync(ctx, repo, sessions, a, id, "nha-viec", null, ct);
             // Phát giá trị SAU khi đổi, không phải giá trị đọc lúc đầu handler — phát nhầm giá trị
             // cũ thì người vừa bị gỡ vẫn nhận sự kiện "vẫn của tôi".
             var saoKhiGiao = await repo.GetConversationAsync(a.TenantId, id, NguoiXem.HeThong, ct);
@@ -1265,7 +1272,7 @@ public static class ChatInboxEndpoints
             if (await repo.GetConversationAsync(a.TenantId, id, xem, ct) is not { } v) return Results.NotFound();
 
             await repo.SetStatusAsync(a.TenantId, id, (ChatStatus)body.Status, ct);
-            await repo.AppendAuditAsync(a.TenantId, id, a.Username, "doi-trang-thai",
+            await GhiNhatKyAsync(ctx, repo, sessions, a, id, "doi-trang-thai",
                 new JsonObject { ["trangThai"] = body.Status }.ToJsonString(), ct);
             bus.Publish(new(a.TenantId, id, "doi-hoi-thoai", null) { AssignedUserId = v.AssignedUserId });
             return Results.Json(new { ok = true }, Web);
@@ -1416,7 +1423,7 @@ public static class ChatInboxEndpoints
             var soDong = await repo.LinkCrmAsync(a.TenantId, v.Channel, v.ContactExternalId, ma, ct);
             if (soDong == 0) return Results.NotFound();
 
-            await repo.AppendAuditAsync(a.TenantId, id, a.Username, ma is null ? "go-noi-crm" : "noi-crm",
+            await GhiNhatKyAsync(ctx, repo, sessions, a, id, ma is null ? "go-noi-crm" : "noi-crm",
                 ma is null ? null : new JsonObject { ["khachCrm"] = ma }.ToJsonString(), ct);
             bus.Publish(new(a.TenantId, id, "doi-hoi-thoai", null) { AssignedUserId = v.AssignedUserId });
             return Results.Json(new { ok = true, crmCustomerId = ma }, Web);
@@ -1438,7 +1445,13 @@ public static class ChatInboxEndpoints
             {
                 items = ds.Select(x => new
                 {
-                    x.Id, x.Username, x.Action, x.CreatedUtc,
+                    // userId thay cho tên đăng nhập (đặc tả mục 4b) — null nghĩa là HỆ THỐNG, không
+                    // phải "không rõ ai". Giao diện tra tên từ danh sách nhân viên nó vốn đã nạp.
+                    x.Id, x.UserId, x.CreatedUtc,
+                    // Tên trường JSON giữ nguyên hanhDong/chiTiet vì giao diện đã đọc theo tên đó;
+                    // thuộc tính C# thì tiếng Anh theo lối ChatModels.cs. Bí danh nằm ở đây, một
+                    // chỗ duy nhất.
+                    hanhDong = x.Action,
                     // Trả JSON thô: giao diện tự diễn giải theo hành động, backend không phải biết
                     // cách hiển thị.
                     chiTiet = x.Detail,
@@ -1455,13 +1468,20 @@ public static class ChatInboxEndpoints
             var (a, xem) = p.Value;
             if (!repo.Configured) return NotConfigured();
 
+            // Tra mã TRƯỚC cửa chung, không sau: trả lỗi riêng cho hội thoại có thật là dựng
+            // đúng cái oracle mà luật 404-không-403 đang bịt. Không có mã thì bỏ mốc "đã đọc"
+            // (cột user_id là NOT NULL, không có gì để ghi) nhưng VẪN báo đã xem sang kênh:
+            // người thật đã mở hội thoại rồi, giấu chuyện đó với khách không sửa được gì.
+            var maNguoiXem = await sessions.EnsureCrmUserIdAsync(a.SessionId, ct);
+
             // Cửa chung TRƯỚC lượt ghi: MarkReadAsync trước đây chạy trước dòng này nên người
             // không được xem vẫn ghi được mốc "đã đọc" cho hội thoại lạ.
             var v = await repo.GetConversationAsync(a.TenantId, id, xem, ct);
             if (v is not null)
             {
                 // Theo TỪNG NGƯỜI: đánh dấu chung thì A mở hội thoại là B mất dấu chưa đọc.
-                await repo.MarkReadAsync(a.TenantId, id, a.Username, ct);
+                if (maNguoiXem is not null)
+                    await repo.MarkReadAsync(a.TenantId, id, maNguoiXem.Value, ct);
 
                 // Báo sang kênh khách đã được mở. Chỉ ở ĐÂY, nơi có NGƯỜI THẬT bấm vào — bot đọc
                 // mà cũng báo đã xem là nói dối khách.
@@ -1487,9 +1507,15 @@ public static class ChatInboxEndpoints
             if (!repo.Configured) return NotConfigured();
             if (await repo.GetConversationAsync(a.TenantId, id, xem, ct) is null) return Results.NotFound();
 
-            var duoc = await repo.MarkUnreadAsync(a.TenantId, id, a.Username, ct);
+            // Không tra ra mã thì KHÔNG đánh dấu được: cột user_id là NOT NULL, và đây là thao
+            // tác người dùng CHỦ ĐỘNG bấm — trả ok=false ở đây là nói dối rằng đã làm xong.
+            // Cùng câu lỗi với nhánh nhận việc: người dùng cần biết phải đăng nhập lại.
+            var maNguoiXem = await sessions.EnsureCrmUserIdAsync(a.SessionId, ct);
+            if (maNguoiXem is null) return ThieuMaNhanVien();
+
+            var duoc = await repo.MarkUnreadAsync(a.TenantId, id, maNguoiXem.Value, ct);
             if (duoc)
-                await repo.AppendAuditAsync(a.TenantId, id, a.Username, "danh-dau-chua-doc", null, ct);
+                await GhiNhatKyAsync(ctx, repo, sessions, a, id, "danh-dau-chua-doc", null, ct);
 
             // ok=false nghĩa là hội thoại chưa có tin nào của khách — giao diện nói rõ thay vì im.
             return Results.Json(new { ok = duoc }, Web);
@@ -1511,7 +1537,7 @@ public static class ChatInboxEndpoints
 
             if (await repo.CancelOutboxAsync(a.TenantId, id, msgId, ct))
             {
-                await repo.AppendAuditAsync(a.TenantId, id, a.Username, "thu-hoi-tin",
+                await GhiNhatKyAsync(ctx, repo, sessions, a, id, "thu-hoi-tin",
                     new JsonObject { ["tin"] = msgId }.ToJsonString(), ct);
                 bus.Publish(new(a.TenantId, id, "doi-trang-thai", msgId) { AssignedUserId = v.AssignedUserId });
                 return Results.Json(new { ok = true, recalledOnChannel = false }, Web);
@@ -1527,7 +1553,7 @@ public static class ChatInboxEndpoints
                                               maNgoai, ct))
             {
                 await repo.SoftDeleteMessageAsync(a.TenantId, id, msgId, ct);
-                await repo.AppendAuditAsync(a.TenantId, id, a.Username, "thu-hoi-tin",
+                await GhiNhatKyAsync(ctx, repo, sessions, a, id, "thu-hoi-tin",
                     new JsonObject { ["tin"] = msgId, ["kenh"] = true }.ToJsonString(), ct);
                 bus.Publish(new(a.TenantId, id, "doi-trang-thai", msgId) { AssignedUserId = v.AssignedUserId });
                 return Results.Json(new { ok = true, recalledOnChannel = true }, Web);
@@ -1550,7 +1576,7 @@ public static class ChatInboxEndpoints
             if (await repo.GetConversationAsync(a.TenantId, id, xem, ct) is not { } v) return Results.NotFound();
 
             if (!await repo.SoftDeleteMessageAsync(a.TenantId, id, msgId, ct)) return Results.NotFound();
-            await repo.AppendAuditAsync(a.TenantId, id, a.Username, "xoa-tin",
+            await GhiNhatKyAsync(ctx, repo, sessions, a, id, "xoa-tin",
                 new JsonObject { ["tin"] = msgId }.ToJsonString(), ct);
             bus.Publish(new(a.TenantId, id, "doi-trang-thai", msgId) { AssignedUserId = v.AssignedUserId });
             return Results.Json(new { ok = true }, Web);
@@ -1574,7 +1600,7 @@ public static class ChatInboxEndpoints
                 return Results.Json(new { error = "Tin đã gửi đi rồi nên không sửa được nữa" },
                     Web, statusCode: 409);
 
-            await repo.AppendAuditAsync(a.TenantId, id, a.Username, "sua-tin",
+            await GhiNhatKyAsync(ctx, repo, sessions, a, id, "sua-tin",
                 new JsonObject { ["tin"] = msgId }.ToJsonString(), ct);
             bus.Publish(new(a.TenantId, id, "doi-trang-thai", msgId) { AssignedUserId = v.AssignedUserId });
             return Results.Json(new { ok = true }, Web);
@@ -1593,7 +1619,7 @@ public static class ChatInboxEndpoints
 
             await repo.SetContactBlockedAsync(a.TenantId, (ChatChannel)v.Channel,
                 v.ContactExternalId, true, a.Username, ct);
-            await repo.AppendAuditAsync(a.TenantId, id, a.Username, "chan-khach", null, ct);
+            await GhiNhatKyAsync(ctx, repo, sessions, a, id, "chan-khach", null, ct);
             return Results.Json(new { ok = true, blocked = true }, Web);
         });
 
@@ -1608,7 +1634,7 @@ public static class ChatInboxEndpoints
 
             await repo.SetContactBlockedAsync(a.TenantId, (ChatChannel)v.Channel,
                 v.ContactExternalId, false, a.Username, ct);
-            await repo.AppendAuditAsync(a.TenantId, id, a.Username, "bo-chan-khach", null, ct);
+            await GhiNhatKyAsync(ctx, repo, sessions, a, id, "bo-chan-khach", null, ct);
             return Results.Json(new { ok = true, blocked = false }, Web);
         });
 
@@ -1622,8 +1648,10 @@ public static class ChatInboxEndpoints
             if (!repo.Configured) return NotConfigured();
             if (await repo.GetConversationAsync(a.TenantId, id, xem, ct) is null) return Results.NotFound();
 
-            await repo.SetFollowAsync(a.TenantId, id, a.Username, true, ct);
-            await repo.AppendAuditAsync(a.TenantId, id, a.Username, "theo-doi", null, ct);
+            var maNguoiXem = await sessions.EnsureCrmUserIdAsync(a.SessionId, ct);
+            if (maNguoiXem is null) return ThieuMaNhanVien();
+            await repo.SetFollowAsync(a.TenantId, id, maNguoiXem.Value, true, ct);
+            await GhiNhatKyAsync(ctx, repo, sessions, a, id, "theo-doi", null, ct);
             return Results.Json(new { ok = true, followed = true }, Web);
         });
 
@@ -1636,8 +1664,10 @@ public static class ChatInboxEndpoints
             if (!repo.Configured) return NotConfigured();
             if (await repo.GetConversationAsync(a.TenantId, id, xem, ct) is null) return Results.NotFound();
 
-            await repo.SetFollowAsync(a.TenantId, id, a.Username, false, ct);
-            await repo.AppendAuditAsync(a.TenantId, id, a.Username, "bo-theo-doi", null, ct);
+            var maNguoiXem = await sessions.EnsureCrmUserIdAsync(a.SessionId, ct);
+            if (maNguoiXem is null) return ThieuMaNhanVien();
+            await repo.SetFollowAsync(a.TenantId, id, maNguoiXem.Value, false, ct);
+            await GhiNhatKyAsync(ctx, repo, sessions, a, id, "bo-theo-doi", null, ct);
             return Results.Json(new { ok = true, followed = false }, Web);
         });
 
@@ -1695,7 +1725,7 @@ public static class ChatInboxEndpoints
             // paused=false → bỏ câm ngay; true → câm theo số phút (mặc định 30).
             var phut = body.Paused ? Math.Clamp(body.Minutes ?? 30, 1, 1440) : 0;
             await repo.PauseBotAsync(a.TenantId, id, phut, ct);
-            await repo.AppendAuditAsync(a.TenantId, id, a.Username, "tam-dung-bot",
+            await GhiNhatKyAsync(ctx, repo, sessions, a, id, "tam-dung-bot",
                 new JsonObject { ["phut"] = phut }.ToJsonString(), ct);
             bus.Publish(new(a.TenantId, id, "doi-hoi-thoai", null) { AssignedUserId = v.AssignedUserId });
             return Results.Json(new { ok = true }, Web);
@@ -2237,7 +2267,7 @@ public static class ChatInboxEndpoints
             // nghiệp vụ, gỡ kết nối chỉ nghĩa là "thôi không nhận/gửi qua tài khoản này nữa".
             var xoa = await cred.DeleteAsync(a.TenantId, (ChatChannel)channel, accountId, ct);
             // Không gắn với hội thoại nào — gỡ kết nối là việc ở mức tài khoản kênh.
-            await repo.AppendAuditAsync(a.TenantId, null, a.Username, "go-ket-noi",
+            await GhiNhatKyAsync(ctx, repo, sessions, a, null, "go-ket-noi",
                 new JsonObject
                 {
                     ["kenh"] = channel,
@@ -2634,6 +2664,56 @@ public static class ChatInboxEndpoints
                               && g.ContainsKey("accessToken"),
         _ => false,
     };
+
+    /// <summary>
+    /// Ghi một dòng nhật ký dưới danh nghĩa NGƯỜI ĐANG THAO TÁC.
+    ///
+    /// <para>Mã người lấy từ PHIÊN qua <c>EnsureCrmUserIdAsync</c>, không lấy từ thân yêu cầu và
+    /// cũng không lấy tên đăng nhập: toàn cụm chat khoá theo MÃ, một loại khoá duy nhất (đặc tả
+    /// mục 4b).</para>
+    ///
+    /// <para>⚠️ <b>Tra mã hụt thì BỎ QUA lượt ghi + cảnh báo, TUYỆT ĐỐI không ghi <c>null</c>.</b>
+    /// Trong <c>chat_audit</c>, <c>user_id = NULL</c> đã mang nghĩa <b>hệ thống</b> (vòng quay chia
+    /// việc ở <c>ChatInboundService</c>). Để null của "không tra ra mã" lọt xuống là ghi đè nghĩa
+    /// đó — nhật ký sẽ khai rằng máy tự làm trong khi thật ra có người bấm, tức là làm hỏng đúng
+    /// thứ sinh ra để tra. Nhét một số ma thuật (0, -1) còn tệ hơn: số đó rồi sẽ đụng một mã nhân
+    /// viên thật.</para>
+    ///
+    /// <para>Bỏ qua chứ không ném: nhật ký hỏng không được làm hỏng thao tác chính — nhân viên
+    /// bấm đóng hội thoại mà nhận lỗi chỉ vì thiếu một id phụ là đổi một sự cố ghi chép thành
+    /// một sự cố vận hành. Cùng lý lẽ với <c>ChatRepository.AppendAuditAsync</c> (không bao giờ ném).</para>
+    /// </summary>
+    private static async Task GhiNhatKyAsync(HttpContext ctx, ChatRepository repo,
+        TkSessionStore sessions, SessionAuth.Ctx a, long? hoiThoaiId, string hanhDong,
+        string? chiTiet = null, CancellationToken ct = default)
+    {
+        var maNguoi = await sessions.EnsureCrmUserIdAsync(a.SessionId, ct);
+        if (maNguoi is null)
+        {
+            ctx.RequestServices.GetRequiredService<ILoggerFactory>()
+               .CreateLogger("chat.nhatky")
+               .LogWarning("[chat/nhật ký] BỎ QUA {HD} (hội thoại {H}): phiên của {U} không tra ra "
+                   + "mã nhân viên. Không ghi null vì null nghĩa là HỆ THỐNG.",
+                   hanhDong, hoiThoaiId, a.Username);
+            return;
+        }
+        await repo.AppendAuditAsync(a.TenantId, hoiThoaiId, maNguoi, hanhDong, chiTiet, ct);
+    }
+
+    /// <summary>
+    /// Thao tác RIÊNG CỦA TỪNG NGƯỜI (theo dõi, đánh dấu chưa đọc) mà không tra ra mã nhân viên.
+    ///
+    /// <para>Ba bảng dấu vết cá nhân khoá theo <c>user_id NOT NULL</c> — không có mã thì không có
+    /// gì để ghi. Trả 400 kèm lời chỉ dẫn chứ KHÔNG trả <c>ok=false</c> hay 200 im lặng: hai kiểu
+    /// đó nói dối rằng đã làm xong, và người dùng bấm lại mãi không hiểu vì sao không có gì đổi.
+    /// Cùng câu chữ với nhánh nhận việc, vì cùng một nguyên nhân và cùng một cách chữa.</para>
+    ///
+    /// <para>⚠️ KHÁC hẳn nhật ký (<see cref="GhiNhatKyAsync"/>): nhật ký là hiệu ứng phụ nên bỏ
+    /// qua trong im lặng có cảnh báo, còn đây là chính việc người dùng yêu cầu.</para>
+    /// </summary>
+    private static IResult ThieuMaNhanVien()
+        => Results.Json(new { error = "Không xác định được mã nhân viên của bạn — đăng nhập lại rồi thử lại." },
+            statusCode: StatusCodes.Status400BadRequest);
 
     private static IResult NotConfigured()
         => Results.Json(new { error = "Chưa khai cơ sở dữ liệu chat (ConnectionStrings:Chat)" }, statusCode: 503);

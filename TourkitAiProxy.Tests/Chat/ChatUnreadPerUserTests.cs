@@ -23,11 +23,15 @@ public class ChatUnreadPerUserTests
         var sql = Db();
         Assert.Contains("CREATE TABLE IF NOT EXISTS chat_conversation_reads", sql);
 
-        var m = Regex.Match(sql, "chat_conversation_reads(.{0,700})", RegexOptions.Singleline);
+        // Neo vào ĐÚNG khai báo bảng, không bắt tên trần: từ 07/09/2026 khối DO dọn dẹp ở
+        // phía trên cũng nhắc tên bảng này, nên "chat_conversation_reads" trần khớp vào chú
+        // thích của khối đó rồi cắt hụt — chốt đỏ oan trong khi schema vẫn đúng.
+        var m = Regex.Match(sql,
+            "CREATE TABLE IF NOT EXISTS chat_conversation_reads(.{0,700})", RegexOptions.Singleline);
         Assert.True(m.Success);
-        // Khoá phải có ĐỦ BA: thiếu username là quay lại đúng cái bug đang sửa; thiếu tenant_id là
+        // Khoá phải có ĐỦ BA: thiếu mã người là quay lại đúng cái bug đang sửa; thiếu tenant_id là
         // hai công ty trùng id hội thoại ghi đè nhau.
-        Assert.Matches(@"PRIMARY KEY \(tenant_id, conversation_id, username\)", m.Groups[1].Value);
+        Assert.Matches(@"PRIMARY KEY \(tenant_id, conversation_id, user_id\)", m.Groups[1].Value);
     }
 
     [Fact]
@@ -35,7 +39,7 @@ public class ChatUnreadPerUserTests
     {
         // Postgres đòi cột trong ON CONFLICT khớp một chỉ mục duy nhất — lệch là lỗi lúc CHẠY,
         // nghĩa là chỉ lộ ra khi nhân viên mở hội thoại thật.
-        Assert.Contains("ON CONFLICT (tenant_id, conversation_id, username)", Repo());
+        Assert.Contains("ON CONFLICT (tenant_id, conversation_id, user_id)", Repo());
     }
 
     [Fact]

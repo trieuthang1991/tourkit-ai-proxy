@@ -695,7 +695,15 @@
     'go-ket-noi': 'gỡ kết nối kênh',
   };
 
-  function MotDongNhatKy({ d }) {
+  // `staffs` là danh sách nhân viên màn hình đã nạp sẵn cho ô phân công — dùng lại, không gọi thêm
+  // lượt nào. Nhật ký lưu MÃ người (đặc tả mục 4b: quyết định bằng mã, hiển thị bằng tên).
+  function MotDongNhatKy({ d, staffs }) {
+    // null nghĩa là HỆ THỐNG (vòng quay tự chia việc), KHÔNG phải "không rõ ai" — hai thứ đó khác
+    // nhau khi tra lại một hội thoại bị đóng nhầm. Tra không ra tên thì hiện #mã: người dùng còn
+    // biết là có ai đó, còn ô trống thì họ tưởng hỏng.
+    const tenNguoi =
+      d.userId == null ? 'Hệ thống'
+      : ((staffs || []).find(nv => nv.id === d.userId)?.name || ('#' + d.userId));
     let ct = null;
     try { ct = d.chiTiet ? JSON.parse(d.chiTiet) : null; } catch {}
     const them =
@@ -706,7 +714,7 @@
     return (
       <div className="ci-hs-dong nk">
         <span>{fmtAgo(d.createdUtc)}</span>
-        <b>{d.username}</b> {TEN_HANH_DONG[d.hanhDong] || d.hanhDong}{them}
+        <b>{tenNguoi}</b> {TEN_HANH_DONG[d.hanhDong] || d.hanhDong}{them}
       </div>
     );
   }
@@ -999,7 +1007,7 @@
             ? <div className="ci-hs-trong">Đang tải…</div>
             : nhatKy.length === 0
               ? <div className="ci-hs-trong">Chưa có thao tác nào được ghi lại.</div>
-              : nhatKy.map(d => <MotDongNhatKy key={d.id} d={d} />)}
+              : nhatKy.map(d => <MotDongNhatKy key={d.id} d={d} staffs={phanCong?.staffs} />)}
         </div>
       </aside>
     );

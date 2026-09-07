@@ -46,7 +46,8 @@ public class ChatAuditGuardTests
         var src = Endpoint();
         var m = Regex.Match(src, "ClaimConversationAsync(.{0,1200})", RegexOptions.Singleline);
         Assert.True(m.Success);
-        Assert.Contains("AppendAuditAsync", m.Groups[1].Value);
+        // Đi qua GhiNhatKyAsync — hàm gói chung lượt ghi nhật ký, chính nó gọi AppendAuditAsync.
+        Assert.Contains("GhiNhatKyAsync", m.Groups[1].Value);
     }
 
     [Fact]

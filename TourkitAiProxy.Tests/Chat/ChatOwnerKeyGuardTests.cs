@@ -24,9 +24,11 @@ namespace TourkitAiProxy.Tests.Chat;
 /// lấp và không có client cũ phải chiều — bỏ hẳn cột tên khỏi đường phân công là hết đường sai,
 /// không cần luật nào để canh nữa.</para>
 ///
-/// <para>⚠️ Ba bảng khác (theo dõi, dấu đã đọc, nhật ký thao tác) VẪN khoá theo tên — đó là
-/// CỐ Ý, không phải sót: chúng lưu dấu vết cá nhân/lịch sử, không phải quyết định quyền sở hữu,
-/// nên không có nguy cơ "hai nguồn sự thật" như ở đây.</para>
+/// <para>⚠️ Từ 07/09/2026 <b>TOÀN cụm chat khoá theo MÃ NGƯỜI, không còn ngoại lệ</b> — ba bảng
+/// theo dõi / dấu đã đọc / nhật ký thao tác cũng đã chuyển (chủ dự án chốt cùng ngày). Trước đó
+/// chúng cố ý ở lại với tên đăng nhập vì "chỉ là dấu vết cá nhân"; lý lẽ đó chỉ đúng khi có dữ
+/// liệu thật, mà cụm chat chưa vận hành nên không có dấu nào để mất. Một hệ, một loại khoá:
+/// trộn hai loại chính là gốc của mọi nhập nhằng đã gặp trong đợt này (đặc tả mục 4b).</para>
 /// </summary>
 public class ChatOwnerKeyGuardTests
 {
@@ -81,5 +83,43 @@ public class ChatOwnerKeyGuardTests
             Assert.False(string.IsNullOrWhiteSpace(than), $"Không cắt được thân {ten} — regex đã lạc");
             Assert.DoesNotContain("assigned_username", than);
         }
+    }
+
+    [Fact]
+    public void Toan_cum_chat_khoa_theo_MA_NGUOI_khong_con_ten_dang_nhap()
+    {
+        // Một hệ, một loại khoá. Trộn hai loại là gốc của mọi nhập nhằng đã gặp (đặc tả 4b).
+        var sql = ChatSchemaGuardTests.DocFile(
+            "TourkitAiProxy.Infrastructure/Chat/Inbox/ChatDb.cs");
+        foreach (var bang in new[] { "chat_conversation_reads", "chat_conversation_follows",
+                                     "chat_audit" })
+        {
+            var than = ThanBang(sql, bang);
+            Assert.False(string.IsNullOrWhiteSpace(than), $"Không cắt được thân bảng {bang}");
+            Assert.DoesNotContain("username", than);
+            Assert.Contains("user_id", than);
+        }
+    }
+
+    /// <summary>
+    /// Cắt từ <c>CREATE TABLE IF NOT EXISTS &lt;tên&gt; (</c> tới dấu <c>);</c> đầu tiên sau đó.
+    ///
+    /// <para>⚠️ Cắt theo RANH GIỚI CÚ PHÁP, không theo một số ký tự cố định. Bản đầu của chốt
+    /// canh này cắt 600 ký tự: thân <c>chat_conversation_reads</c> chỉ khoảng 300, nên cửa sổ
+    /// tràn sang khối chú thích của bảng kế tiếp — mà chú thích đó có nguyên chữ
+    /// <c>username</c>. Chốt sẽ ĐỎ VĨNH VIỄN kể cả khi mã đã chuyển đúng hoàn toàn, và người sau
+    /// sẽ đi sửa thứ đang đúng.</para>
+    ///
+    /// <para>⚠️ Dùng <c>IndexOf</c> chứ KHÔNG dùng regex: nhóm không bắt buộc bọc quanh lượng từ
+    /// lười khớp SAI (lặng lẽ trả <c>false</c>) trên .NET 10 dù đúng trên .NET 8 — xem chú thích
+    /// ở <see cref="ThanHam"/>. Cắt hụt cho ra chuỗi rỗng, nên chỗ gọi PHẢI khẳng định
+    /// <c>than</c> khác rỗng trước khi khẳng định bất cứ điều gì về nội dung nó.</para>
+    /// </summary>
+    private static string ThanBang(string sql, string bang)
+    {
+        var i = sql.IndexOf($"CREATE TABLE IF NOT EXISTS {bang} (", StringComparison.Ordinal);
+        if (i < 0) return "";
+        var j = sql.IndexOf(");", i, StringComparison.Ordinal);
+        return j < 0 ? "" : sql.Substring(i, j - i);
     }
 }
