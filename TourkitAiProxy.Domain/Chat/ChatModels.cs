@@ -233,6 +233,10 @@ public class ChatConversation
     public string AccountId { get; set; } = "";
     public short Status { get; set; }
     public string? AssignedUsername { get; set; }
+    // MÃ người phụ trách — khoá thật để so quyền xem. AssignedUsername ngay trên giữ nguyên vì
+    // nhật ký cũ (chat_audit) ghi theo tên đăng nhập; bỏ nó là mọi dòng nhật ký mất nghĩa.
+    // Dòng cũ tạo trước 07/09/2026 để null: chưa gán bằng mã, không phải chưa có người.
+    public int? AssignedUserId { get; set; }
     public DateTime? BotResumeAt { get; set; }
     public DateTime? ContactRepliedAt { get; set; }
     public DateTime? AgentRepliedAt { get; set; }

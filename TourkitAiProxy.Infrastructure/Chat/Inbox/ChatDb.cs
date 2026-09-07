@@ -513,5 +513,41 @@ public class ChatDb
     );
     CREATE INDEX IF NOT EXISTS ix_xoa_nguoi
       ON chat_deletion_requests (channel, external_id, requested_utc DESC);
+
+    -- NGƯỜI PHỤ TRÁCH theo MÃ, không theo tên đăng nhập.
+    --
+    -- Cột cũ assigned_username GIỮ NGUYÊN: nó là thứ đã ghi trong chat_audit, bỏ đi là mọi
+    -- dòng nhật ký cũ mất nghĩa. Ghi mới điền CẢ HAI — cột mới để so quyền, cột cũ để hiện.
+    ALTER TABLE chat_conversations ADD COLUMN IF NOT EXISTS assigned_user_id integer;
+    CREATE INDEX IF NOT EXISTS ix_conv_tenant_nguoi_phutrach
+      ON chat_conversations (tenant_id, assigned_user_id, last_activity_at DESC);
+
+    -- Cấu hình phân công, MỘT dòng mỗi công ty.
+    --
+    -- ⚠️ CHƯA CÓ DÒNG = giữ nguyên hành vi hôm nay (mọi người xem tất cả, không gán tự động).
+    -- Đây là đường lùi cho khách đang chạy: nâng cấp mà không ai mất hộp thư sáng hôm sau.
+    CREATE TABLE IF NOT EXISTS chat_assign_settings (
+      tenant_id             text        PRIMARY KEY,
+      mode                  smallint    NOT NULL DEFAULT 1,   -- 1 = thủ công, 2 = xoay vòng
+      scope_own_only        boolean     NOT NULL DEFAULT false,
+      auto_assign_on_reply  boolean     NOT NULL DEFAULT false,
+      -- ĐỘI TRỰC CHAT — mã những người được nhận hội thoại. Một danh sách cho hai việc: vòng
+      -- quay chia theo nó, và ô chọn người phụ trách đổ ra nó.
+      --
+      -- MỘT CỘT chứ không phải bảng riêng: khoá định danh là mã người, nên mỗi thành viên chỉ
+      -- còn đúng một con số. Tên hiển thị lấy từ danh sách nhân viên của ERP mà giao diện vốn
+      -- đã nạp — chép vào đây là nhân đôi chỗ phải sửa khi ai đó đổi tên.
+      member_ids            integer[]   NOT NULL DEFAULT '{}',
+      -- MÃ NGƯỜI vừa nhận lượt, KHÔNG phải vị trí trong danh sách. Lưu vị trí thì thêm hoặc
+      -- bớt một người là cả vòng lệch: chị A nhận gấp đôi, anh B không nhận cái nào, và không
+      -- ai biết vì sao.
+      rotation_last_user_id integer,
+      updated_utc           timestamptz NOT NULL DEFAULT now()
+    );
+
+    -- CSDL nào đã tạo bảng từ bản trước thì CREATE TABLE ở trên là no-op — cột thêm sau phải
+    -- có lệnh riêng, y như lần thêm account_id cho chat_conversations.
+    ALTER TABLE chat_assign_settings
+      ADD COLUMN IF NOT EXISTS member_ids integer[] NOT NULL DEFAULT '{}';
     """;
 }

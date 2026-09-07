@@ -196,6 +196,8 @@ public static class WorkflowStackRegistration
         // ChatDb tự tắt nếu thiếu chuỗi kết nối. Chặn thật nằm ở chỗ map endpoint và worker.
         s.AddSingleton<ChatDb>();
         s.AddSingleton<ChatRepository>();
+        // Cấu hình phân công + đội trực chat — cùng vòng đời với ChatRepository ở trên.
+        s.AddSingleton<ChatAssignRepository>();
         // Singleton: nó giữ bộ nhớ tạm 60 giây, scoped thì cache chết theo từng lượt gọi.
         s.AddSingleton<ChatBotSettingsRepository>();
         s.AddSingleton<Chat.Inbox.ChatMediaMirror>();
