@@ -93,26 +93,33 @@ không giải mã lại được — không lưu thì quản trị viên âm th�
 push là chỗ **phải xin phép trước khi đụng** (chủ dự án, 07/09/2026). Chốt theo tên đăng nhập
 không cần lưu gì cả, nên không phải đụng CSDL push.
 
-⚠️ **Bỏ ÍT HƠN dự định ban đầu — và đây là quyết định có cân nhắc.** Kiểm impact (07/09/2026) cho
-thấy `TkSessionRepository` là **hạ tầng dùng chung của 20 nhóm endpoint**: bản tin, deal, mail, báo
-giá tour, nhập giá NCC, hạn mức, giọng nói, quản trị… Ba câu `SELECT` và lệnh ghi trong đó là đường
-nạp phiên của **toàn hệ**. Gỡ tên cột hụt ở một câu là **mọi tính năng mất phiên**, không riêng chat.
+⚠️ **KHÔNG XOÁ GÌ CẢ** (chủ dự án chốt 07/09/2026: *"đừng xoá tránh lỗi, cứ để tạm đấy"*).
 
-Nên chỉ bỏ phần **an toàn tuyệt đối**:
+Kiểm impact cho thấy vì sao đó là quyết định đúng: `TkSessionRepository` là **hạ tầng dùng chung
+của 20 nhóm endpoint** — bản tin, deal, mail, báo giá tour, nhập giá NCC, hạn mức, giọng nói, quản
+trị… Ba câu `SELECT` và lệnh ghi trong đó là đường nạp phiên của **toàn hệ**; gỡ tên cột hụt ở một
+câu là **mọi tính năng mất phiên**, không riêng chat.
 
-| Bỏ | Giữ nguyên |
-|---|---|
-| Hai chỗ *ghi* `IsAdmin` trong `TkSessionStore` | Cột `dbo.TkSessions.IsAdmin` (có mặc định, không cản gì) |
-| `JwtClaims.TryGetIsAdmin` + test của nó | Ba câu `SELECT`/lệnh ghi trong `TkSessionRepository` |
-| Chỗ *đọc* `s.IsAdmin` ở `SessionAuth` | Trường `TkSession.IsAdmin` (thành cột chết, luôn `false`) |
+Nên **giữ nguyên tất cả**: cột `dbo.TkSessions.IsAdmin`, ba câu truy vấn mang nó, trường
+`TkSession.IsAdmin`, `JwtClaims.TryGetIsAdmin` và test của nó, cùng hai chỗ ghi trong
+`TkSessionStore`. Chúng vẫn chạy, vẫn đúng — **chỉ là cụm chat không đọc tới nữa**.
+
+Đổi **đúng một dòng**, ở `SessionAuth.ReadNguoiXemAsync`:
+
+```csharp
+// TRƯỚC
+XemTatCa: s?.IsAdmin ?? false
+// SAU
+XemTatCa: string.Equals(a.Username, "admin", StringComparison.OrdinalIgnoreCase)
+```
+
+Cộng chỗ báo về giao diện (`ChatInboxEndpoints`, trường `isAdmin` trong phản hồi cấu hình) lấy
+cùng nguồn đó.
 
 ⚠️ **TUYỆT ĐỐI không đụng `CrmUserId`.** Nó nằm cạnh `IsAdmin` trong cùng dòng mã, cùng bảng, cùng
 câu truy vấn — nên rất dễ gỡ nhầm cả hai. Nhưng `CrmUserId` là **của cụm bản tin**:
 `SaleBriefWorkflow.cs:243` dùng nó để lọc dữ liệu "của riêng người này" khi dựng bản tin sáng. Gỡ
 nhầm là bản tin sáng gửi sai người.
-
-⚠️ **Khi hệ quyền thật vào**, thay dòng trên bằng phép kiểm quyền, và **chỉ chỗ đó**. Đừng rải
-phép kiểm ra nhiều nơi — cả cụm đọc quyền xem qua đúng một cửa (`SessionAuth.ReadNguoiXemAsync`).
 
 ---
 
