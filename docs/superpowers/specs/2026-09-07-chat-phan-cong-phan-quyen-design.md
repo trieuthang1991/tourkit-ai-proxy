@@ -75,6 +75,42 @@ cập nhật có điều kiện; người thứ hai nhận 409 kèm tên ngườ
 
 ---
 
+## 4b. Luật một khoá: quyết định bằng mã, hiển thị bằng tên
+
+> Chốt 07/09/2026, sau khi chủ dự án chỉ ra sự nhập nhằng — và sau khi cùng một gốc đẻ ra hai lỗi
+> ở hai chỗ khác nhau.
+
+**`assigned_user_id` là khoá DUY NHẤT để quyết định.** Quyền xem, khoá chống tranh việc, mọi bộ
+lọc — chỉ đọc cột này.
+
+**`assigned_username` chỉ để HIỂN THỊ và cho nhật ký cũ.** Không bao giờ được đọc để quyết định
+bất cứ điều gì. Vẫn ghi khi biết, vì nó rẻ và giữ cho dòng nhật ký cũ còn nghĩa.
+
+⚠️ **Vì sao thành luật.** Hai cột cùng mang nghĩa "ai là chủ" thì sinh ra BA trạng thái dòng —
+*(tên có, mã trống)* từ dữ liệu cũ, *(tên có, mã có)* từ tự nhận việc, *(tên trống, mã có)* từ
+chuyển việc và xoay vòng. Mỗi câu truy vấn chỉ đọc MỘT cột sẽ đúng với hai trạng thái và sai với
+trạng thái thứ ba, **im lặng**. Hai lỗi đã xảy ra từ đúng gốc này:
+
+- khoá chống tranh việc so theo tên → dòng *(tên trống, mã có)* làm mệnh đề luôn đúng → người thứ
+  hai bấm nhận việc **thắng, không có 409**, người đang giữ mất việc mà không hay biết;
+- bộ lọc "chỉ của tôi" so theo tên → hội thoại do xoay vòng gán có tên trống nên lọt vào bộ lọc
+  của **mọi người**.
+
+⚠️ **Phần còn lại của hộp thư vẫn khoá theo TÊN, và đó là cố ý.** Theo dõi, dấu đã đọc, nhật ký
+thao tác đều dùng tên đăng nhập. Chúng là *dấu riêng của từng người* và *lịch sử*, không phải
+quyết định về quyền sở hữu — nên không nằm dưới luật này. Đừng "chuẩn hoá" chúng sang mã: dấu đã
+đọc chuyển khoá là mất sạch dấu, còn nhật ký chuyển khoá là mọi dòng cũ mất nghĩa.
+
+⚠️ **Không cần sửa API danh sách nhân viên.** Nó đã trả mã + tên hiển thị. Chọn khoá là mã nghĩa
+là bên ERP không phải đụng gì.
+
+⚠️ **Dữ liệu cũ lấp dần khi người dùng đăng nhập**, không chạy script một lượt. Hệ chỉ biết cặp
+tên ↔ mã của người ĐÃ đăng nhập, nên lấp theo từng người là cách duy nhất không phải tra ngược ra
+ngoài. Ai chưa bao giờ đăng nhập thì hội thoại của họ thành chưa-ai-phụ-trách — hợp lý, vì họ
+cũng không mở được hộp thư.
+
+---
+
 ## 5. Dữ liệu
 
 Ba thay đổi trong CSDL chat (PostgreSQL), **đều là thêm**, không sửa và không xoá cột cũ — theo
