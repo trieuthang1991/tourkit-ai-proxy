@@ -338,7 +338,15 @@ public static class ChatCursor
 /// <param name="Loai">"tin-moi" · "doi-trang-thai" · "doi-hoi-thoai".</param>
 public record ChatEvent(string TenantId, long ConversationId, string Loai, long? MessageId)
 {
-    /// Người phụ trách hội thoại LÚC PHÁT sự kiện — để bus kẹp người nghe. null = chưa ai nhận.
+    /// <summary>
+    /// Người phụ trách hội thoại, để bus kẹp người nghe. null = chưa ai nhận.
+    ///
+    /// <para><b>Là ẢNH CHỤP lúc chỗ gọi ĐỌC hội thoại, không phải lúc Publish thật sự chạy.</b>
+    /// Vài luồng đọc hội thoại rồi mới làm việc tốn thời gian (chờ gộp tin + gọi AI ở
+    /// <c>ChatInboundService</c>, gọi mạng ra kênh ở <c>ChatOutboxWorker</c>) trước khi phát — nên
+    /// giá trị này có thể lệch vài giây so với người phụ trách THẬT tại thời điểm Publish. Hệ quả:
+    /// người vừa bị chuyển việc trong đúng cửa sổ đó có thể còn nhận thêm vài sự kiện.</para>
+    /// </summary>
     public int? AssignedUserId { get; init; }
 }
 

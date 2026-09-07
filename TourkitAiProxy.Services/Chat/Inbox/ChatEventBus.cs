@@ -128,7 +128,15 @@ public class ChatEventBus
     /// <summary>
     /// Nghe sự kiện của MỘT tenant cho tới khi <paramref name="ct"/> bị huỷ (tab đóng, mạng rớt).
     /// </summary>
-    /// <param name="xem">Phạm vi xem của người đang nghe — xem <see cref="DuocThay"/>.</param>
+    /// <param name="xem">
+    /// Phạm vi xem của người đang nghe — xem <see cref="DuocThay"/>. ĐÓNG BĂNG tại lúc đăng ký:
+    /// kết nối SSE sống hàng giờ, mà 27 endpoint của Task 3 đọc lại <c>NguoiXem</c> mỗi request —
+    /// nên đổi phạm vi xem của một người (gỡ quyền, đổi phân công) không có hiệu lực trên kênh này
+    /// cho tới khi tab đóng và mở lại. Hướng lệch là "thấy NHIỀU HƠN thực quyền" trong lúc chờ nối
+    /// lại — chấp nhận được (cùng lớp rủi ro với JWT sống tới khi hết hạn), không đọc lại theo
+    /// nhịp: một sự kiện chỉ báo "có gì đó đổi", tab vẫn phải gọi API để lấy nội dung, và API đó
+    /// mới là nơi luật xem thật sự chặn.
+    /// </param>
     public async IAsyncEnumerable<ChatEvent> SubscribeAsync(string tenantId, NguoiXem xem,
         [System.Runtime.CompilerServices.EnumeratorCancellation] CancellationToken ct)
     {

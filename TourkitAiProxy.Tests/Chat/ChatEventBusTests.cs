@@ -204,7 +204,7 @@ public class ChatEventBusTests
         // ra 404: vừa lộ đang có việc xảy ra, vừa trông như app hỏng.
         var bus = new ChatEventBus(null, NullLogger<ChatEventBus>.Instance);
         var nhan = new List<ChatEvent>();
-        var cts = new CancellationTokenSource(TimeSpan.FromSeconds(2));
+        using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(2));
 
         var doc = Task.Run(async () =>
         {
@@ -217,7 +217,14 @@ public class ChatEventBusTests
 
         bus.Publish(new ChatEvent("t1", 100, "tin-moi", null) { AssignedUserId = 9 });
         bus.Publish(new ChatEvent("t1", 101, "tin-moi", null) { AssignedUserId = 7 });
-        await Task.Delay(200);
+        // Hội thoại CHƯA GÁN (null) cũng phải bị giấu với người không phải admin — thiếu quả này
+        // thì thêm "|| e.AssignedUserId is null" vào DuocThay vẫn để cả bộ test xanh, tức đúng
+        // luật Critical mà đề bài lo nhất lại không có gì khoá nó.
+        bus.Publish(new ChatEvent("t1", 102, "tin-moi", null) { AssignedUserId = null });
+        // Kênh giữ ĐÚNG THỨ TỰ Publish: 101 (đứng sau 100 trong hàng đợi) mà tới được nghĩa là
+        // 100 đã bị lọc, không phải đang chậm tới — nên poll đủ 1 phần tử là đủ bằng chứng, không
+        // cần đoán một khoảng chờ cố định rồi hy vọng không có gì tới thêm.
+        await ChoNhanDuAsync(nhan, 1, cts.Token);
         cts.Cancel();
         try { await doc; } catch (OperationCanceledException) { }
 
@@ -230,7 +237,7 @@ public class ChatEventBusTests
     {
         var bus = new ChatEventBus(null, NullLogger<ChatEventBus>.Instance);
         var nhan = new List<ChatEvent>();
-        var cts = new CancellationTokenSource(TimeSpan.FromSeconds(2));
+        using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(2));
 
         var doc = Task.Run(async () =>
         {
@@ -241,7 +248,7 @@ public class ChatEventBusTests
 
         bus.Publish(new ChatEvent("t1", 100, "tin-moi", null) { AssignedUserId = 9 });
         bus.Publish(new ChatEvent("t1", 101, "tin-moi", null) { AssignedUserId = null });
-        await Task.Delay(200);
+        await ChoNhanDuAsync(nhan, 2, cts.Token);
         cts.Cancel();
         try { await doc; } catch (OperationCanceledException) { }
 
@@ -253,6 +260,24 @@ public class ChatEventBusTests
     private static async Task ChoDangKyAsync(ChatEventBus bus, CancellationToken ct, int can = 1)
     {
         while (bus.SubscriberCount < can)
+        {
+            ct.ThrowIfCancellationRequested();
+            await Task.Delay(10, ct);
+        }
+    }
+
+    /// <summary>
+    /// Chờ tới khi người nghe đã NHẬN đủ <paramref name="soLuong"/> sự kiện.
+    ///
+    /// <para>Publish() ghi vào kênh trong nội bộ ĐỒNG BỘ (TryWrite chạy ngay khi Publish() trả về),
+    /// nên khi gọi hàm này thì tập sự kiện sẽ từng tới người nghe đã CỐ ĐỊNH — cái còn thiếu chỉ là
+    /// luồng nền (Task.Run) kịp rút khỏi kênh và Add vào danh sách hay chưa. Poll ở đây thay
+    /// <c>Task.Delay</c> cố định + hy vọng, đúng lời phê trong chú thích của
+    /// <see cref="ChoDangKyAsync"/> ngay trên.</para>
+    /// </summary>
+    private static async Task ChoNhanDuAsync(List<ChatEvent> nhan, int soLuong, CancellationToken ct)
+    {
+        while (nhan.Count < soLuong)
         {
             ct.ThrowIfCancellationRequested();
             await Task.Delay(10, ct);

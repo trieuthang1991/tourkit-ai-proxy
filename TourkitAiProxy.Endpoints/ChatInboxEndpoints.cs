@@ -996,8 +996,9 @@ public static class ChatInboxEndpoints
 
         g.MapPost("/conversations/{id:long}/assign", async (long id, AssignReq? body, HttpContext ctx,
             TkSessionStore sessions, ChatRepository repo, ChatAssignRepository assign, ChatEventBus bus,
-            CancellationToken ct) =>
+            ILoggerFactory lf, CancellationToken ct) =>
         {
+            var log = lf.CreateLogger("chat.assign");
             var p = await SessionAuth.ReadNguoiXemAsync(ctx, sessions, assign, ct);
             if (p == null) return SessionAuth.Unauthorized();
             var (a, xem) = p.Value;
@@ -1024,6 +1025,12 @@ public static class ChatInboxEndpoints
                 // Phát giá trị SAU khi đổi — đọc lại bằng NguoiXem.HeThong (không lọc theo quyền
                 // xem) vì người vừa nhận việc có thể không còn thấy hội thoại này bằng phạm vi cũ.
                 var saoKhiNhan = await repo.GetConversationAsync(a.TenantId, id, NguoiXem.HeThong, ct);
+                // null ở đây nghĩa là đọc lại HỤT (mất kết nối CSDL, hoặc dòng biến mất giữa hai
+                // lượt) — ?. bên dưới lặng lẽ biến thành AssignedUserId=null nếu không log, và sự
+                // kiện đó coi như "chưa ai phụ trách" thay vì báo lỗi. Ghi cảnh báo để không chết câm.
+                if (saoKhiNhan is null)
+                    log.LogWarning("[chat/assign] đọc lại hội thoại {H} sau khi NHẬN VIỆC ra null " +
+                        "— sự kiện phát đi mang AssignedUserId=null", id);
                 bus.Publish(new(a.TenantId, id, "doi-hoi-thoai", null) { AssignedUserId = saoKhiNhan?.AssignedUserId });
                 return Results.Json(new { ok = true, assignedTo = a.Username }, Web);
             }
@@ -1037,6 +1044,9 @@ public static class ChatInboxEndpoints
             // Phát giá trị SAU khi đổi, không phải giá trị đọc lúc đầu handler — phát nhầm giá trị
             // cũ thì người vừa được giao không nhận sự kiện, còn người vừa bị gỡ thì vẫn nhận.
             var saoKhiGiao = await repo.GetConversationAsync(a.TenantId, id, NguoiXem.HeThong, ct);
+            if (saoKhiGiao is null)
+                log.LogWarning("[chat/assign] đọc lại hội thoại {H} sau khi CHUYỂN/NHẢ VIỆC ra null " +
+                    "— sự kiện phát đi mang AssignedUserId=null", id);
             bus.Publish(new(a.TenantId, id, "doi-hoi-thoai", null) { AssignedUserId = saoKhiGiao?.AssignedUserId });
             return Results.Json(new { ok = true, assignedTo = ai }, Web);
         });
