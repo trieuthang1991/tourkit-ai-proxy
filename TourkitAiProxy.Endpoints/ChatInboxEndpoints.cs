@@ -578,17 +578,23 @@ public static class ChatInboxEndpoints
             if (!repo.Configured) return NotConfigured();
 
             // Không có quyền xem toàn công ty → chỉ thấy phần của mình + phần chưa ai nhận.
-            // Kẹp ở SQL, không lọc phía client. (Luật cũ theo TÊN ĐĂNG NHẬP — song song với luật
-            // xem mới theo MÃ NHÂN VIÊN ở tham số `xem`; chưa cấu hình phân công thì `xem.XemTatCa`
-            // luôn true nên vế mới không thu hẹp gì thêm.)
+            // Kẹp ở SQL, không lọc phía client. (Luật cũ CANH RIÊNG — song song với luật xem mới
+            // ở tham số `xem`; chưa cấu hình phân công thì `xem.XemTatCa` luôn true nên vế mới
+            // không thu hẹp gì thêm.)
+            //
+            // Quyết định bằng MÃ, không bằng tên (đặc tả mục 4b) — kể cả luật cũ này, nên lấy mã
+            // từ phiên qua EnsureCrmUserIdAsync, không đọc thẳng a.Username. Gọi độc lập với
+            // `xem.CrmUserId`: cái đó chỉ có giá trị khi ScopeOwnOnly bật, còn luật cũ ở đây phải
+            // chạy bất kể chế độ phân công có cấu hình hay không.
             var xemHet = await SessionAuth.CanConfigSystemAsync(a.SessionId, sessions, ct);
-            var chiCuaToi = xemHet ? null : a.Username;
+            int? maToi = xemHet && mine != true ? null : await sessions.EnsureCrmUserIdAsync(a.SessionId, ct);
+            var chiCuaToi = xemHet ? null : maToi;
 
             // Mã hỏng → Decode() trả null → coi như trang đầu. Không ném: con trỏ nằm trên URL,
             // người dùng sửa tay được và mã cũ từ bản trước còn trong lịch sử trình duyệt.
             const int soDong = 60;
             var items = await repo.ListConversationsAsync(a.TenantId, xem, status, chiCuaToi, search,
-                kenh: channel, giaoCho: mine == true ? a.Username : null, chiChuaDoc: unread == true,
+                kenh: channel, giaoCho: mine == true ? maToi : null, chiChuaDoc: unread == true,
                 chiTheoDoi: followed == true,
                 sau: ChatCursor.Decode(cursor), limit: soDong, nguoiDung: a.Username, ct: ct);
             // Truyền kênh đang lọc: chip trạng thái phải nói về ĐÚNG danh sách đang hiện bên dưới.
@@ -909,8 +915,11 @@ public static class ChatInboxEndpoints
             var ch = assign.Configured ? await assign.LayCauHinhAsync(a.TenantId, ct) : null;
             if (ch?.AutoAssignOnReply == true && v.AssignedUserId is null)
             {
+                // Không có mã người (phiên hỏng, chưa đăng nhập TourKit đúng cách) → bỏ qua trong
+                // im lặng: đây là hiệu ứng phụ TUỲ CHỌN của việc gửi tin, không phải điều kiện để
+                // gửi được — thiếu mã thì đơn giản là không ai tự nhận, tin vẫn gửi bình thường.
                 var maNguoi = await sessions.EnsureCrmUserIdAsync(a.SessionId, ct);
-                if (await repo.ClaimConversationAsync(a.TenantId, id, a.Username, maNguoi, ct) > 0)
+                if (maNguoi is not null && await repo.ClaimConversationAsync(a.TenantId, id, maNguoi.Value, ct) > 0)
                 {
                     await repo.AppendAuditAsync(a.TenantId, id, a.Username, "tu-nhan-khi-tra-loi", null, ct);
                     maSauCung = maNguoi;
@@ -1038,13 +1047,19 @@ public static class ChatInboxEndpoints
             if (body is null)
             {
                 var maToi = await sessions.EnsureCrmUserIdAsync(a.SessionId, ct);
-                var soDong = await repo.ClaimConversationAsync(a.TenantId, id, a.Username, maToi, ct);
+                // Không có mã người thì KHÔNG nhận được — ClaimConversationAsync đòi một người
+                // cụ thể để gán, "nhận việc mà không biết ai nhận" là vô nghĩa.
+                if (maToi is null)
+                    return Results.Json(new { error = "Không xác định được mã nhân viên của bạn — đăng nhập lại rồi thử lại." },
+                        statusCode: StatusCodes.Status400BadRequest);
+                var soDong = await repo.ClaimConversationAsync(a.TenantId, id, maToi.Value, ct);
                 if (soDong == 0)
                 {
                     // 200 im lặng là kiểu hỏng tệ nhất: giao diện người thua vẫn hiện "của tôi",
-                    // rồi hai người cùng trả lời một khách.
+                    // rồi hai người cùng trả lời một khách. Trả MÃ, không trả tên — giao diện tra
+                    // tên từ danh sách nhân viên nó vốn đã nạp (đặc tả mục 4b).
                     var dangGiu = await repo.AssigneeOfAsync(a.TenantId, id, ct);
-                    return Results.Json(new { error = $"{dangGiu} đang xử lý hội thoại này", assignedTo = dangGiu },
+                    return Results.Json(new { error = "Người khác đang xử lý hội thoại này", assignedTo = dangGiu },
                         statusCode: StatusCodes.Status409Conflict);
                 }
                 await repo.AppendAuditAsync(a.TenantId, id, a.Username, "nhan-viec", null, ct);
@@ -1076,7 +1091,7 @@ public static class ChatInboxEndpoints
                 return Results.Json(new { error = "Người này không có trong đội trực chat" },
                     statusCode: StatusCodes.Status400BadRequest);
 
-            await repo.AssignAsync(a.TenantId, id, username: null, userId: ma, ct);
+            await repo.AssignAsync(a.TenantId, id, userId: ma, ct);
             await repo.AppendAuditAsync(a.TenantId, id, a.Username, "chuyen-viec",
                 new JsonObject { ["cho"] = ma }.ToJsonString(), ct);
             // Phát giá trị SAU khi đổi, không phải giá trị đọc lúc đầu handler — phát nhầm giá trị
@@ -1105,7 +1120,7 @@ public static class ChatInboxEndpoints
             if (!repo.Configured) return NotConfigured();
             if (await repo.GetConversationAsync(a.TenantId, id, xem, ct) is null) return Results.NotFound();
 
-            await repo.AssignAsync(a.TenantId, id, username: null, userId: null, ct);
+            await repo.AssignAsync(a.TenantId, id, userId: null, ct);
             await repo.AppendAuditAsync(a.TenantId, id, a.Username, "nha-viec", null, ct);
             // Phát giá trị SAU khi đổi, không phải giá trị đọc lúc đầu handler — phát nhầm giá trị
             // cũ thì người vừa bị gỡ vẫn nhận sự kiện "vẫn của tôi".

@@ -151,6 +151,10 @@ public class ChatDb
       -- tài khoản nào để trả lời đúng danh nghĩa, không lẫn sang tài khoản khác.
       account_id           text     NOT NULL DEFAULT '',
       status               smallint NOT NULL DEFAULT 0,   -- 0=mới 1=đang xử lý 2=đã đóng
+      -- CHẾT: đường phân công không còn đọc/ghi cột này (đặc tả mục 4b — quyết định bằng mã,
+      -- hiển thị bằng tên). Giữ khai báo ở đây CHỈ để CREATE TABLE IF NOT EXISTS không vỡ trên
+      -- CSDL rất cũ chưa từng chạy qua bản có assigned_user_id; khối DO $$ ở cuối file tự xoá
+      -- cột này khỏi CSDL khi an toàn (không còn dòng nào mang giá trị).
       assigned_username    text,
       -- MỐC THỜI GIAN, không phải cờ bật/tắt: nhân viên nhảy vào trả lời thì bot câm CÓ THỜI HẠN,
       -- hết hạn tự nói lại. Làm thành cờ thì sẽ có hội thoại tắt bot vĩnh viễn chỉ vì hôm đó có
@@ -216,8 +220,15 @@ public class ChatDb
     DROP INDEX IF EXISTS ux_conv_scope;
     CREATE INDEX IF NOT EXISTS ix_conv_tenant_status
       ON chat_conversations (tenant_id, status, last_activity_at DESC);
-    CREATE INDEX IF NOT EXISTS ix_conv_tenant_assignee
-      ON chat_conversations (tenant_id, assigned_username, last_activity_at DESC);
+    -- ix_conv_tenant_assignee (trên assigned_username) KHÔNG còn được tạo lại ở đây — cột đó đã
+    -- chết (xem ghi chú tại khai báo cột phía trên). Bỏ CREATE INDEX khỏi đây thay vì để nó chạy
+    -- lại mỗi lần khởi động: khối DO $$ ở cuối file DROP INDEX này rồi DROP luôn cột khi an toàn,
+    -- và nếu dòng CREATE INDEX này còn ở đây thì lần khởi động NGAY SAU LẦN ĐÓ sẽ vỡ với lỗi
+    -- "column assigned_username does not exist" — SchemaSql chạy như MỘT lô lệnh, một câu hỏng
+    -- là cả lô cuốn theo (xem chú thích ở InitAsync), tức là ChatDb ngưng dựng lại được sau đúng
+    -- lần dọn cột thành công đầu tiên. Chỉ mục cũ (ở CSDL chưa dọn) không bị đụng tới cho tới
+    -- khi khối DO $$ thấy an toàn để xoá.
+    --
     -- Phân trang con trỏ: khớp ORDER BY last_activity_at DESC, id DESC của ListConversationsAsync.
     CREATE INDEX IF NOT EXISTS ix_conv_tenant_hoatdong
       ON chat_conversations (tenant_id, last_activity_at DESC, id DESC);
@@ -514,13 +525,33 @@ public class ChatDb
     CREATE INDEX IF NOT EXISTS ix_xoa_nguoi
       ON chat_deletion_requests (channel, external_id, requested_utc DESC);
 
-    -- NGƯỜI PHỤ TRÁCH theo MÃ, không theo tên đăng nhập.
+    -- NGƯỜI PHỤ TRÁCH theo MÃ — MỘT khoá duy nhất (đặc tả mục 4b).
     --
-    -- Cột cũ assigned_username GIỮ NGUYÊN: nó là thứ đã ghi trong chat_audit, bỏ đi là mọi
-    -- dòng nhật ký cũ mất nghĩa. Ghi mới điền CẢ HAI — cột mới để so quyền, cột cũ để hiện.
+    -- assigned_user_id là khoá THẬT DUY NHẤT để quyết định (quyền xem, khoá chống tranh việc,
+    -- mọi bộ lọc). Cột cũ assigned_username KHÔNG còn được ghi ở đây nữa — hai cột cùng mang
+    -- nghĩa "ai là chủ" từng sinh ra BA trạng thái dòng, và mỗi truy vấn chỉ đọc MỘT cột đã sai
+    -- lặng lẽ với trạng thái thứ ba hai lần (khoá tranh việc mất 409; bộ lọc "chỉ của tôi" lọt
+    -- vào tay mọi người). Cụm chat chưa vận hành nên không có dữ liệu cũ phải giữ tương thích.
     ALTER TABLE chat_conversations ADD COLUMN IF NOT EXISTS assigned_user_id integer;
     CREATE INDEX IF NOT EXISTS ix_conv_tenant_nguoi_phutrach
       ON chat_conversations (tenant_id, assigned_user_id, last_activity_at DESC);
+
+    -- Cột assigned_username ĐÃ CHẾT: đường phân công nay chỉ dùng assigned_user_id (đặc tả 4b).
+    --
+    -- Xoá cột không lùi được, mà không ai đã soi dữ liệu thật — nên để CSDL tự kiểm: chỉ xoá khi
+    -- không còn dòng nào mang giá trị. Còn dữ liệu thì cột ở lại và ta biết là phải xem trước.
+    -- Idempotent: chạy lại lần hai thì cột đã không còn, khối IF không vào.
+    DO $$
+    BEGIN
+      IF EXISTS (SELECT 1 FROM information_schema.columns
+                  WHERE table_name = 'chat_conversations' AND column_name = 'assigned_username')
+         AND NOT EXISTS (SELECT 1 FROM chat_conversations WHERE assigned_username IS NOT NULL)
+      THEN
+        DROP INDEX IF EXISTS ix_conv_tenant_assignee;
+        ALTER TABLE chat_conversations DROP COLUMN assigned_username;
+        RAISE NOTICE 'Da xoa cot assigned_username (khong con du lieu)';
+      END IF;
+    END $$;
 
     -- Cấu hình phân công, MỘT dòng mỗi công ty.
     --

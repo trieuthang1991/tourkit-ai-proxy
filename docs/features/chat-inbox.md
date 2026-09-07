@@ -620,14 +620,48 @@ thì tab Network sạch, không có request định kỳ nào.
 ⚠️ Bản gốc của kế hoạch ghi đường lùi là **4 giây** (đúng bằng nhịp cũ). Ở đây để **20 giây**: khi
 chỉ chạy một instance — trường hợp thường gặp — luồng đẩy đã phủ đủ, quay lại nhịp 4 giây là xoá
 sạch cái lợi vừa làm được. 20 giây vẫn nhẹ hơn 5 lần so với trước mà không để hộp thư câm.
-**Nhận việc là NGUYÊN TỬ.** Điều kiện `assigned_username IS NULL` nằm trong chính câu `UPDATE`,
+**Nhận việc là NGUYÊN TỬ.** Điều kiện `assigned_user_id IS NULL` nằm trong chính câu `UPDATE`,
 không phải đọc-rồi-ghi trong C#: giữa lần đọc và lần ghi có một khe, hai nhân viên bấm cách nhau
 100ms là cả hai cùng lọt, cùng thấy "của tôi" và cùng trả lời một khách. 0 dòng đổi được → **409**
-kèm tên người đang giữ, không phải 200 im lặng. Tên người nhận lấy từ **phiên ở máy chủ**, không
-lấy từ thân yêu cầu — để client tự khai tên là ai cũng gán việc cho người khác được.
+kèm MÃ người đang giữ (giao diện tự tra tên), không phải 200 im lặng. Mã người nhận lấy từ **phiên
+ở máy chủ**, không lấy từ thân yêu cầu — để client tự khai mã là ai cũng gán việc cho người khác
+được.
 
-⚠️ **Nhả việc và chuyển việc CỐ Ý không đi đường nguyên tử** — cả hai đều là thao tác đè lên người
-đang giữ. Chỉ "nhận việc cho chính mình" mới phải tranh nhau.
+⚠️ **Ba đường rõ ràng, không phải một route JSON body ôm cả ba ý.** `POST /assign` không thân =
+nhận việc cho mình; `POST /assign {"userId": N}` = chuyển việc cho người đó; `DELETE /assign` =
+nhả việc (trả về hàng chờ chung), cùng lối `POST`/`DELETE` mà `/follow` đã dùng. Nhả việc và
+chuyển việc CỐ Ý không đi đường nguyên tử — cả hai đều là thao tác đè lên người đang giữ. Chỉ
+"nhận việc cho chính mình" mới phải tranh nhau.
+
+### Quyết định bằng mã, hiển thị bằng tên
+
+> Chốt 07/09/2026 sau khi cùng một gốc đẻ ra hai lỗi ở hai chỗ khác nhau. Xem đặc tả mục 4b
+> (`docs/superpowers/specs/2026-09-07-chat-phan-cong-phan-quyen-design.md`).
+
+**`chat_conversations.assigned_user_id` là khoá DUY NHẤT để quyết định** — quyền xem, khoá chống
+tranh việc, mọi bộ lọc "chỉ của tôi"/"giao cho". Cột `assigned_username` cũ **không còn được đọc
+để quyết định bất cứ điều gì**, và đường phân công (`ListConversationsAsync`, `CountAsync`,
+`ClaimConversationAsync`, `AssignAsync`, `AssigneeOfAsync`) không còn ghi vào nó nữa — cột vẫn nằm
+trong CSDL (đánh dấu **đã chết**) cho tới khi một khối tự kiểm trong `ChatDb` xoá nó (chỉ xoá khi
+không còn dòng nào mang giá trị).
+
+⚠️ **Vì sao thành luật.** Hai cột cùng mang nghĩa "ai là chủ" sinh ra BA trạng thái dòng —
+*(tên có, mã trống)* từ dữ liệu cũ, *(tên có, mã có)* từ tự nhận việc, *(tên trống, mã có)* từ
+chuyển việc và xoay vòng. Mỗi câu truy vấn chỉ đọc MỘT cột sẽ đúng với hai trạng thái và sai với
+trạng thái thứ ba, **im lặng**. Đã hỏng hai lần từ đúng gốc này:
+
+- khoá chống tranh việc so theo tên → dòng *(tên trống, mã có)* làm mệnh đề luôn đúng → người thứ
+  hai bấm nhận việc **thắng, không có 409**, người đang giữ mất việc mà không hay biết;
+- bộ lọc "chỉ của tôi" so theo tên → hội thoại do xoay vòng gán có tên trống nên lọt vào bộ lọc
+  của **mọi người**.
+
+⚠️ **Theo dõi, dấu đã đọc, và nhật ký thao tác VẪN khoá theo tên đăng nhập — đó là CỐ Ý, không
+phải sót.** `chat_conversation_follows`, `chat_conversation_reads`, `chat_audit` lưu dấu vết CÁ
+NHÂN và LỊCH SỬ, không phải quyết định "ai đang sở hữu hội thoại này ngay bây giờ" — nên không có
+nguy cơ "hai nguồn sự thật" như ở `assigned_user_id`/`assigned_username`. Đừng chuyển ba bảng này
+sang mã người chỉ vì thấy đường phân công vừa đổi: đổi khoá ở đó là mất sạch dấu đã đọc và làm mọi
+dòng nhật ký cũ mất nghĩa — cái giá đó chỉ đáng trả khi có dữ liệu thật cần giữ tương thích, và ba
+bảng này (khác với đường phân công) không nằm trong phạm vi bị đổi ở đợt 07/09/2026.
 
 **Chưa đọc tính theo TỪNG NGƯỜI** (`chat_conversation_reads`, khoá `(tenant_id, conversation_id,
 username)`). Trước đây chỉ có `chat_conversations.agent_last_read_at` — **một cột cho cả công ty**,

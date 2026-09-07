@@ -342,7 +342,7 @@ public class ChatRepository
     /// <param name="nguoiDung">Người đang xem — mốc "đã đọc" lấy theo người này, không phải theo
     /// cả công ty. Null thì lùi về mốc chung cũ.</param>
     public async Task<List<ChatConversation>> ListConversationsAsync(string tenant, NguoiXem xem, short? trangThai,
-        string? chiCuaToi, string? timKiem, short? kenh = null, string? giaoCho = null,
+        int? chiCuaToi, string? timKiem, short? kenh = null, int? giaoCho = null,
         bool chiChuaDoc = false, bool chiTheoDoi = false, ConvCursor? sau = null, int limit = 60, string? nguoiDung = null,
         CancellationToken ct = default)
     {
@@ -360,9 +360,9 @@ public class ChatRepository
               ON r.tenant_id = v.tenant_id AND r.conversation_id = v.id AND r.username = @nguoiDung
             WHERE v.tenant_id = @tenant
               AND (@trangThai IS NULL OR v.status = @trangThai)
-              AND (@chiCuaToi IS NULL OR v.assigned_username = @chiCuaToi OR v.assigned_username IS NULL)
+              AND (@chiCuaToi IS NULL OR v.assigned_user_id = @chiCuaToi OR v.assigned_user_id IS NULL)
               AND (@kenh IS NULL OR v.channel = @kenh)
-              AND (@giaoCho IS NULL OR v.assigned_username = @giaoCho)
+              AND (@giaoCho IS NULL OR v.assigned_user_id = @giaoCho)
               AND (NOT @chiTheoDoi OR EXISTS (
                     SELECT 1 FROM chat_conversation_follows f
                      WHERE f.tenant_id = v.tenant_id AND f.conversation_id = v.id
@@ -504,7 +504,7 @@ public class ChatRepository
     /// <para>Trước 28/08/2026 chỗ này không nhận kênh: lọc sang Telegram mà chip vẫn hiện số của
     /// cả sáu kênh — danh sách một đằng, con số một nẻo, ngay cạnh nhau trên cùng màn hình.</para>
     /// </summary>
-    public async Task<ChatInboxCounts> CountAsync(string tenant, string? chiCuaToi, NguoiXem xem,
+    public async Task<ChatInboxCounts> CountAsync(string tenant, int? chiCuaToi, NguoiXem xem,
         string? nguoiDung = null, short? kenh = null, CancellationToken ct = default)
     {
         await using var c = await _db.OpenAsync(ct);
@@ -518,7 +518,7 @@ public class ChatRepository
             LEFT JOIN chat_conversation_reads r
               ON r.tenant_id = v.tenant_id AND r.conversation_id = v.id AND r.username = @nguoiDung
             WHERE v.tenant_id = @tenant
-              AND (@chiCuaToi IS NULL OR v.assigned_username = @chiCuaToi OR v.assigned_username IS NULL)
+              AND (@chiCuaToi IS NULL OR v.assigned_user_id = @chiCuaToi OR v.assigned_user_id IS NULL)
               -- Luật xem, giống hệt GetConversationAsync/ListConversationsAsync — thiếu vế này thì
               -- chip đếm lộ đúng con số mà luật 404 đang giấu (tổng hội thoại, chưa đọc, theo kênh).
               AND (@xemTatCa OR v.assigned_user_id = @maNguoi)
@@ -561,19 +561,17 @@ public class ChatRepository
     /// <para>Nhận lại việc mình <b>đang giữ</b> vẫn tính là thành công: giao diện có thể gửi lại
     /// (bấm hai lần, mạng chập chờn), báo 409 cho chính người đang giữ là vô nghĩa.</para>
     /// </summary>
-    public async Task<int> ClaimConversationAsync(string tenant, long id, string username,
-        int? userId, CancellationToken ct = default)
+    public async Task<int> ClaimConversationAsync(string tenant, long id, int userId,
+        CancellationToken ct = default)
     {
         await using var c = await _db.OpenAsync(ct);
         return await c.ExecuteAsync("""
             UPDATE chat_conversations
-               SET assigned_username = @username,
-                   assigned_user_id = @userId,
+               SET assigned_user_id = @userId,
                    status = CASE WHEN status = 2 THEN status ELSE 1 END
              WHERE id = @id AND tenant_id = @tenant
-               AND (assigned_username IS NULL OR assigned_username = @username)
                AND (assigned_user_id IS NULL OR assigned_user_id = @userId)
-            """, new { id, tenant, username, userId });
+            """, new { id, tenant, userId });
     }
 
     // ── Nhật ký thao tác ────────────────────────────────────────────────────
@@ -620,12 +618,16 @@ public class ChatRepository
             """, new { tenant, hoiThoaiId, limit = Math.Clamp(limit, 1, 200) })).ToList();
     }
 
-    /// <summary>Ai đang giữ hội thoại này. Dùng để nói tên trong lỗi 409, không đoán mò.</summary>
-    public async Task<string?> AssigneeOfAsync(string tenant, long id, CancellationToken ct = default)
+    /// <summary>
+    /// Ai đang giữ hội thoại này — MÃ người, không phải tên. Dùng để trả trong thân lỗi 409;
+    /// giao diện tra tên từ danh sách nhân viên nó vốn đã nạp (đặc tả mục 4b: quyết định bằng
+    /// mã, hiển thị bằng tên).
+    /// </summary>
+    public async Task<int?> AssigneeOfAsync(string tenant, long id, CancellationToken ct = default)
     {
         await using var c = await _db.OpenAsync(ct);
-        return await c.QuerySingleOrDefaultAsync<string?>(
-            "SELECT assigned_username FROM chat_conversations WHERE id = @id AND tenant_id = @tenant",
+        return await c.QuerySingleOrDefaultAsync<int?>(
+            "SELECT assigned_user_id FROM chat_conversations WHERE id = @id AND tenant_id = @tenant",
             new { id, tenant });
     }
 
@@ -633,22 +635,20 @@ public class ChatRepository
     /// Giao/gỡ giao KHÔNG kiểm ai đang giữ — dùng cho <b>nhả việc</b> và <b>chuyển việc</b>, là
     /// hai thao tác cố ý đè lên người đang giữ. Nhận việc thì dùng <see cref="ClaimConversationAsync"/>.
     /// </summary>
-    public async Task AssignAsync(string tenant, long id, string? username, int? userId,
-        CancellationToken ct = default)
+    public async Task AssignAsync(string tenant, long id, int? userId, CancellationToken ct = default)
     {
         await using var c = await _db.OpenAsync(ct);
         // Giao việc thì đẩy trạng thái sang "đang xử lý" — trừ khi đã đóng, vì gán người cho việc
         // đã đóng không có nghĩa mở lại nó.
         //
-        // Nhả việc (username = null) xoá CẢ HAI cột: còn sót mã người thì hội thoại vẫn "của"
-        // người vừa nhả, và nó không bao giờ quay lại hàng chờ.
+        // Nhả việc (userId = null) xoá cột — còn sót mã người thì hội thoại vẫn "của" người vừa
+        // nhả, và nó không bao giờ quay lại hàng chờ.
         await c.ExecuteAsync("""
             UPDATE chat_conversations
-               SET assigned_username = @username,
-                   assigned_user_id = @userId,
+               SET assigned_user_id = @userId,
                    status = CASE WHEN status = 2 THEN status ELSE 1 END
              WHERE id = @id AND tenant_id = @tenant
-            """, new { id, tenant, username, userId });
+            """, new { id, tenant, userId });
     }
 
     public async Task SetStatusAsync(string tenant, long id, ChatStatus tt, CancellationToken ct = default)

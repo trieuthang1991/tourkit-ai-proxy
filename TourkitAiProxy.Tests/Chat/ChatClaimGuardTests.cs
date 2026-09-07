@@ -53,7 +53,10 @@ public class ChatClaimGuardTests
         Assert.Contains("UPDATE chat_conversations", than);
         // Kiểm-rồi-ghi trong C# vẫn lọt khi hai người bấm cùng lúc: giữa lần đọc và lần ghi có một
         // khe. Điều kiện phải nằm TRONG chính câu UPDATE để CSDL quyết định người thắng.
-        Assert.Contains("assigned_username IS NULL", than);
+        //
+        // Đường phân công bỏ hẳn assigned_username (đặc tả mục 4b) — khoá duy nhất còn lại là
+        // assigned_user_id, nên đó là cột phải xuất hiện trong chính mệnh đề khoá này.
+        Assert.Contains("assigned_user_id IS NULL", than);
     }
 
     [Fact]
@@ -73,14 +76,16 @@ public class ChatClaimGuardTests
     }
 
     [Fact]
-    public void Nhan_viec_lay_ten_tu_PHIEN_chu_khong_tin_than_yeu_cau()
+    public void Nhan_viec_lay_ma_tu_PHIEN_chu_khong_tin_than_yeu_cau()
     {
-        // Bản trước giao diện gửi `window.tourkitAuth.session.username` — thuộc tính KHÔNG tồn tại,
-        // nên thân yêu cầu luôn là chuỗi rỗng và nút "Nhận việc" thật ra đang GỠ giao việc. Nút
-        // trông như chạy suốt nhiều tháng. Nay tên người nhận lấy từ phiên ở máy chủ.
-        var src = Endpoint();
-        Assert.DoesNotContain("body.Username ?? a.Username", src);
-        Assert.Matches(@"ClaimConversationAsync\([^)]*a\.Username", src);
+        // Bản rất cũ giao diện gửi `window.tourkitAuth.session.username` — thuộc tính KHÔNG tồn
+        // tại, nên thân yêu cầu luôn là chuỗi rỗng và nút "Nhận việc" thật ra đang GỠ giao việc.
+        // Nay đường phân công bỏ hẳn username: nhánh nhận việc phải lấy MÃ từ phiên qua
+        // EnsureCrmUserIdAsync, không tin bất cứ gì đọc được từ thân yêu cầu — để client không
+        // tự khai mã người khác rồi "nhận việc" hộ họ.
+        var than = AssignHandler();
+        Assert.Contains("EnsureCrmUserIdAsync(a.SessionId, ct)", than);
+        Assert.Matches(@"ClaimConversationAsync\(a\.TenantId, id, maToi\.Value, ct\)", than);
     }
 
     [Fact]
@@ -92,30 +97,39 @@ public class ChatClaimGuardTests
     }
 
     [Fact]
-    public void Nhan_viec_ghi_CA_HAI_cot()
+    public void Nhan_viec_ghi_DUNG_MOT_cot_khoa_duy_nhat()
     {
-        // Chỉ ghi tên đăng nhập thì luật xem (so theo assigned_user_id) không thấy hội thoại
-        // vừa nhận — người nhận việc xong là mất luôn hội thoại khỏi màn hình.
+        // Đường phân công bỏ hẳn assigned_username (đặc tả mục 4b) — ClaimConversationAsync chỉ
+        // còn ghi đúng MỘT cột. Ghi cả hai (bản trước) hoặc quên mất assigned_user_id đều sai:
+        // ghi cả hai là còn hai nguồn sự thật — đúng gốc hai lỗi đã xảy ra.
         var m = Regex.Match(Repo(), "ClaimConversationAsync(.{0,900})", RegexOptions.Singleline);
-        Assert.Contains("assigned_username = @username", m.Groups[1].Value);
         Assert.Contains("assigned_user_id = @userId", m.Groups[1].Value);
+        Assert.DoesNotContain("assigned_username", m.Groups[1].Value);
     }
 
     [Fact]
-    public void ClaimConversationAsync_tham_so_ma_nguoi_la_int_CO_THE_NULL()
+    public void ClaimConversationAsync_doi_nguoi_that_KHONG_con_nullable()
     {
-        // NULL = chưa ai phụ trách. Khai `int` trần thì Dapper/C# đổi NULL thành 0, KHÔNG báo
-        // lỗi, và hai thứ chết theo:
-        //   • vòng quay ngừng hẳn — điều kiện gán là `assigned_user_id IS NULL`, ghi 0 thì nó
-        //     không bao giờ đúng nữa;
-        //   • nhả việc không trả hội thoại về hàng chờ — nó thành "của" người mã 0 không tồn tại.
+        // Sau khi bỏ username, ClaimConversationAsync chỉ còn ĐÚNG MỘT tham số định danh — nó
+        // phải là người THẬT, không phải "có thể trống": "nhận việc mà không biết ai nhận" vô
+        // nghĩa, khác hẳn AssignAsync (vẫn phải nhận null, vì đó là cách NHẢ việc).
         //
-        // Soi TỪNG hàm riêng (không soi cả file): nếu chỉ soi cả file, hàm này tụt về `int` trần
-        // vẫn XANH nhờ hàm kia còn `int?` đâu đó trong file.
+        // Soi TỪNG hàm riêng (không soi cả file): nếu chỉ soi cả file, hàm này đổi kiểu sai vẫn
+        // XANH nhờ AssignAsync còn giữ `int?` đâu đó trong file.
         var m = Regex.Match(Repo(), "ClaimConversationAsync(.{0,150})", RegexOptions.Singleline);
         Assert.True(m.Success, "Không thấy ClaimConversationAsync");
-        Assert.Contains("int? userId", m.Groups[1].Value);
-        Assert.DoesNotContain("int userId,", m.Groups[1].Value);
+        Assert.Contains("int userId,", m.Groups[1].Value);
+        Assert.DoesNotContain("int? userId", m.Groups[1].Value);
+    }
+
+    [Fact]
+    public void Nhan_viec_kiem_ma_null_TRUOC_khi_ep_kieu_Value()
+    {
+        // EnsureCrmUserIdAsync trả int? — ép thẳng .Value mà không kiểm null trước là
+        // InvalidOperationException ném thẳng ra ngoài (500) đúng lúc phiên không tra được mã
+        // (JWT thiếu claim, upstream lỗi). Phải chặn và báo lỗi tử tế trước khi ép kiểu.
+        var than = AssignHandler();
+        Assert.Contains("if (maToi is null)", than);
     }
 
     [Fact]
