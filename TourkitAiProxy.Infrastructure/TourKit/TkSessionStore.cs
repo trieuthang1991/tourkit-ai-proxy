@@ -32,6 +32,9 @@ public class TkSession
     // null = JWT không có claim hoặc chưa relogin sau khi nâng cấp → bên dùng phải chịu được null.
     public int? CrmUserId { get; set; }
 
+    // is_admin của CRM, decode từ claim JWT lúc login/relogin — dùng cho luật xem hộp thư chat.
+    public bool IsAdmin { get; set; }
+
     // Quyền TourKit (Function_Code) của user — lấy lúc login/relogin, persist cột PermissionsJson.
     public List<string> Permissions { get; set; } = new();
     // true = ĐÃ lấy quyền thành công (kể cả rỗng). false = chưa lấy được (mới tạo / fetch lỗi) → EnsurePermissions retry.
@@ -132,6 +135,7 @@ public class TkSessionStore
             existing.Jwt         = login.Token;
             // ?? giữ giá trị cũ: JWT lần này thiếu claim thì đừng xoá cái đã có.
             existing.CrmUserId   = JwtClaims.TryGetUserId(login.Token) ?? existing.CrmUserId;
+            existing.IsAdmin     = JwtClaims.TryGetIsAdmin(login.Token);
             existing.FullName    = login.FullName;
             existing.CompanyName = login.CompanyName;
             existing.JwtExpiresAt = DateTime.UtcNow.Add(SoftTtl);
@@ -167,7 +171,8 @@ public class TkSessionStore
                 CompanyName = login.CompanyName,
                 JwtExpiresAt = DateTime.UtcNow.Add(SoftTtl),
                 LastUsed    = DateTime.UtcNow,
-                CrmUserId   = JwtClaims.TryGetUserId(login.Token)
+                CrmUserId   = JwtClaims.TryGetUserId(login.Token),
+                IsAdmin     = JwtClaims.TryGetIsAdmin(login.Token)
             };
             if (permissions != null) { session.Permissions = permissions; session.PermissionsLoaded = true; }
             _cache[session.Id] = session;
@@ -377,6 +382,7 @@ public class TkSessionStore
         if (perms != null) { s.Permissions = perms; s.PermissionsLoaded = true; }
         s.Jwt = login.Token;
         s.CrmUserId = JwtClaims.TryGetUserId(login.Token) ?? s.CrmUserId;
+        s.IsAdmin = JwtClaims.TryGetIsAdmin(login.Token);
         s.FullName = login.FullName;
         s.CompanyName = login.CompanyName;
         s.JwtExpiresAt = DateTime.UtcNow.Add(SoftTtl);

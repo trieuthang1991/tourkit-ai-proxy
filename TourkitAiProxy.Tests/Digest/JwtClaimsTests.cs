@@ -26,4 +26,23 @@ public class JwtClaimsTests
     [InlineData("khong.phai.jwt-hop-le")]
     [InlineData("1phan")]
     public void Jwt_rac_tra_null(string jwt) => Assert.Null(JwtClaims.TryGetUserId(jwt));
+
+    [Fact]
+    public void Doc_duoc_is_admin_dang_chuoi_True()
+        // ERP ghi claim bằng bool.ToString() → "True"/"False", KHÔNG phải "true"/"false".
+        // So sánh phân biệt hoa thường là hỏng im lặng: admin thành nhân viên thường.
+        => Assert.True(JwtClaims.TryGetIsAdmin(MakeJwt("{\"is_admin\":\"True\"}")));
+
+    [Fact]
+    public void Doc_duoc_is_admin_dang_bool()
+        => Assert.True(JwtClaims.TryGetIsAdmin(MakeJwt("{\"is_admin\":true}")));
+
+    [Fact]
+    public void Thieu_claim_thi_KHONG_phai_admin()
+        // Sai theo hướng an toàn: thiếu claim mà đoán là admin thì cả công ty xem được hết.
+        => Assert.False(JwtClaims.TryGetIsAdmin(MakeJwt("{\"user_id\":1}")));
+
+    [Fact]
+    public void Jwt_rac_thi_KHONG_phai_admin()
+        => Assert.False(JwtClaims.TryGetIsAdmin("khong-phai-jwt"));
 }

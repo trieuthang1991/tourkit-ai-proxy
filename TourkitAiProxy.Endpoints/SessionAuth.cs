@@ -1,3 +1,5 @@
+using TourkitAiProxy.Domain.Chat;
+using TourkitAiProxy.Infrastructure.Chat.Inbox;
 using TourkitAiProxy.Infrastructure.TourKit;
 
 namespace TourkitAiProxy.Endpoints;
@@ -24,6 +26,32 @@ public static class SessionAuth
 
     public static IResult Unauthorized()
         => Results.Json(new { error = "Phiên không hợp lệ — đăng nhập lại" }, statusCode: 401);
+
+    /// <summary>
+    /// Đọc phiên + tính luôn phạm vi xem hộp thư chat.
+    ///
+    /// <para>Trả <c>null</c> khi phiên hỏng — chỗ gọi trả <see cref="Unauthorized"/> như cũ.</para>
+    ///
+    /// <para><b>Chưa có dòng cấu hình, hoặc <c>scope_own_only</c> tắt ⇒ xem tất cả</b> — giữ
+    /// nguyên hành vi của khách đang chạy. Bật rồi thì admin xem tất cả, còn lại chỉ xem hội
+    /// thoại đã giao cho mình.</para>
+    /// </summary>
+    public static async Task<(Ctx Phien, NguoiXem Xem)?> ReadNguoiXemAsync(
+        HttpContext ctx, TkSessionStore sessions, ChatAssignRepository assign,
+        CancellationToken ct = default)
+    {
+        var a = Read(ctx, sessions);
+        if (a == null) return null;
+
+        var cauHinh = assign.Configured ? await assign.LayCauHinhAsync(a.TenantId, ct) : null;
+        if (cauHinh is null or { ScopeOwnOnly: false })
+            return (a, new NguoiXem(null, XemTatCa: true));
+
+        var s = sessions.Get(a.SessionId);
+        // Tự lấp CrmUserId nếu phiên cũ chưa có — KHÔNG bắt người dùng đăng nhập lại.
+        var maNguoi = await sessions.EnsureCrmUserIdAsync(a.SessionId, ct);
+        return (a, new NguoiXem(maNguoi, XemTatCa: s?.IsAdmin ?? false));
+    }
 
     /// <summary>
     /// Tài khoản này có quyền <b>Cấu hình hệ thống</b> (<c>CH_HT_XEM</c>) không.
