@@ -15,9 +15,12 @@ public class ChatAssignSchemaGuardTests
     [Fact]
     public void Them_cot_nguoi_phu_trach_bang_ma_so()
     {
-        // Cột cũ assigned_username giữ nguyên; cột mới mới là khoá so quyền.
+        // Cột MỚI assigned_user_id là khoá so quyền — chỉ việc của test này là xác nhận nó
+        // được thêm. KHÔNG ghim chuỗi "assigned_username" vào đây nữa: cột đó đang bị khối
+        // DO $$ ở dưới XOÁ DẦN khi hết dữ liệu (xem chú thích tại đó), tức là một cột SẮP CHẾT
+        // — bắt nó phải xuất hiện mãi mãi trong schema là bắt test này đỏ oan đúng lúc dọn dẹp
+        // xong và đoạn DROP COLUMN được gỡ khỏi migration.
         Assert.Contains("ADD COLUMN IF NOT EXISTS assigned_user_id integer", Sql());
-        Assert.Contains("assigned_username", Sql());
     }
 
     [Fact]
@@ -174,9 +177,25 @@ public class ChatAssignSchemaGuardTests
     {
         // Danh sách gần như không đổi mà bị gọi ở mỗi lần mở hộp thư — không đệm là bắt ERP
         // gánh một lượt gọi cho mỗi cú bấm.
+        //
+        // Đòi LƯỢT GỌI THẬT (có dấu chấm: redis.Get(/redis.Set(), không phải chữ "redis" trần —
+        // chữ trần khớp luôn theo TÊN THAM SỐ "RedisStore redis" trong chữ ký hàm, nên ai xoá
+        // sạch redis.Get/redis.Set mà quên xoá tham số thì bản test cũ vẫn xanh.
         var than = ThanHam("assign-settings");
         Assert.False(string.IsNullOrWhiteSpace(than), "Không cắt được thân đường đọc cấu hình");
-        Assert.Contains("redis", than, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("redis.Get(", than);
+        Assert.Contains("redis.Set(", than);
         Assert.Contains("FromHours(2)", than);
+
+        // Lệnh ghi đệm PHẢI nằm SAU điều kiện "danh sách khác rỗng" — đó là luật quan trọng
+        // nhất của cụm này: đệm một danh sách RỖNG do ERP lỗi tạm thời là khoá cả công ty khỏi
+        // màn hình cấu hình suốt 2 tiếng mà không có lỗi nào hiện ra. Bỏ điều kiện đó thì hai
+        // chuỗi ở trên vẫn còn nguyên và bản test cũ (chỉ đòi Contains rời rạc) vẫn xanh — đây
+        // là chỗ nó phải đỏ.
+        var chiSoDieuKien = than.IndexOf("nhanVien.Count > 0)", StringComparison.Ordinal);
+        var chiSoGhiDem = than.IndexOf("redis.Set(", StringComparison.Ordinal);
+        Assert.True(chiSoDieuKien >= 0, "Không thấy điều kiện kiểm danh sách nhân viên khác rỗng");
+        Assert.True(chiSoGhiDem > chiSoDieuKien,
+            "redis.Set phải nằm SAU điều kiện \"nhanVien.Count > 0\" — đệm danh sách rỗng là bị cấm");
     }
 }

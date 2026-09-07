@@ -540,16 +540,29 @@ public class ChatDb
     --
     -- Xoá cột không lùi được, mà không ai đã soi dữ liệu thật — nên để CSDL tự kiểm: chỉ xoá khi
     -- không còn dòng nào mang giá trị. Còn dữ liệu thì cột ở lại và ta biết là phải xem trước.
-    -- Idempotent: chạy lại lần hai thì cột đã không còn, khối IF không vào.
+    --
+    -- ⚠️ HAI khối IF LỒNG NHAU, KHÔNG được gộp bằng AND. PL/pgSQL chuẩn bị (parse + phân giải
+    -- cột) TOÀN BỘ biểu thức của một câu IF trước khi chạy — AND không hoãn được việc đó. Gộp
+    -- một câu "IF EXISTS cột … AND NOT EXISTS (SELECT … WHERE assigned_username IS NOT NULL)"
+    -- thì ở LẦN KHỞI ĐỘNG THỨ HAI (cột đã bị xoá ở lần một) vế sau ném thẳng lỗi
+    -- "column assigned_username does not exist" ngay khi biên dịch điều kiện — trước khi kịp
+    -- biết cột đã mất — làm hỏng cả khối DO, và vì SchemaSql chạy như MỘT lô lệnh (xem chú
+    -- thích ở InitAsync) nên MỌI câu migration phía sau khối này cũng không chạy theo. Lồng IF
+    -- thì câu SELECT ở vế trong chỉ được chuẩn bị khi THẬT SỰ chạy tới nó — tức là khi vế ngoài
+    -- đã xác nhận cột còn tồn tại. Đã dựng một cụm PostgreSQL 17 tạm cô lập, chạy khối DO này
+    -- hai lần liên tiếp để xác nhận lần hai không còn lỗi (xem báo cáo Task 6, "Vòng sửa sau
+    -- review lần 3").
     DO $$
     BEGIN
       IF EXISTS (SELECT 1 FROM information_schema.columns
                   WHERE table_name = 'chat_conversations' AND column_name = 'assigned_username')
-         AND NOT EXISTS (SELECT 1 FROM chat_conversations WHERE assigned_username IS NOT NULL)
       THEN
-        DROP INDEX IF EXISTS ix_conv_tenant_assignee;
-        ALTER TABLE chat_conversations DROP COLUMN assigned_username;
-        RAISE NOTICE 'Da xoa cot assigned_username (khong con du lieu)';
+        IF NOT EXISTS (SELECT 1 FROM chat_conversations WHERE assigned_username IS NOT NULL)
+        THEN
+          DROP INDEX IF EXISTS ix_conv_tenant_assignee;
+          ALTER TABLE chat_conversations DROP COLUMN assigned_username;
+          RAISE NOTICE 'Da xoa cot assigned_username (khong con du lieu)';
+        END IF;
       END IF;
     END $$;
 

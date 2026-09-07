@@ -571,7 +571,9 @@ public static class ChatInboxEndpoints
                 scopeOwnOnly      = ch?.ScopeOwnOnly ?? false,
                 autoAssignOnReply = ch?.AutoAssignOnReply ?? false,
                 memberIds         = ch?.MemberIds ?? Array.Empty<int>(),
-                isAdmin           = s?.IsAdmin ?? false,
+                // TẠM: cùng nguồn với SessionAuth.ReadNguoiXemAsync — chốt theo tên đăng nhập,
+                // không đọc IsAdmin (yêu cầu chủ dự án 07/09/2026, xem chú thích ở đó).
+                isAdmin           = string.Equals(a.Username, "admin", StringComparison.OrdinalIgnoreCase),
                 staffs            = nhanVien
             }, Web);
         });
@@ -686,13 +688,25 @@ public static class ChatInboxEndpoints
             // chạy bất kể chế độ phân công có cấu hình hay không.
             var xemHet = await SessionAuth.CanConfigSystemAsync(a.SessionId, sessions, ct);
             int? maToi = xemHet && mine != true ? null : await sessions.EnsureCrmUserIdAsync(a.SessionId, ct);
-            var chiCuaToi = xemHet ? null : maToi;
+
+            // ⚠️ KHÔNG ĐƯỢC để `null` lọt xuống SQL khi maToi tra không ra — @chiCuaToi IS NULL
+            // nghĩa là "không lọc gì cả" (mở toàn công ty), đúng cho nhánh xemHet nhưng SAI cho
+            // nhân viên thường mất mã. EnsureCrmUserIdAsync trả null ở BA đường: không có phiên,
+            // JWT thiếu claim, và ngoại lệ bị nuốt — trước bản sửa phân công theo mã, giá trị này
+            // là TÊN ĐĂNG NHẬP nên không bao giờ null; nay nó có thể null, và null ở đây từng mở
+            // toang cho nhân viên thường thấy hết hội thoại công ty. Không có mã thì ĐÓNG bằng
+            // một mã không người thật nào khớp được (mã CRM luôn > 0), không được MỞ bằng null.
+            const int KHONG_XAC_DINH_DUOC_MA = -1;
+            var chiCuaToi = xemHet ? (int?)null : (maToi ?? KHONG_XAC_DINH_DUOC_MA);
+            // Bộ lọc "Của tôi" lọt theo cùng đường: mine == true mà không tra ra mã thì phải
+            // trả rỗng, không được coi như "không lọc" (giaoCho == null cũng mở toang y hệt).
+            var giaoChoLoc = mine == true ? (maToi ?? KHONG_XAC_DINH_DUOC_MA) : (int?)null;
 
             // Mã hỏng → Decode() trả null → coi như trang đầu. Không ném: con trỏ nằm trên URL,
             // người dùng sửa tay được và mã cũ từ bản trước còn trong lịch sử trình duyệt.
             const int soDong = 60;
             var items = await repo.ListConversationsAsync(a.TenantId, xem, status, chiCuaToi, search,
-                kenh: channel, giaoCho: mine == true ? maToi : null, chiChuaDoc: unread == true,
+                kenh: channel, giaoCho: giaoChoLoc, chiChuaDoc: unread == true,
                 chiTheoDoi: followed == true,
                 sau: ChatCursor.Decode(cursor), limit: soDong, nguoiDung: a.Username, ct: ct);
             // Truyền kênh đang lọc: chip trạng thái phải nói về ĐÚNG danh sách đang hiện bên dưới.
@@ -2726,7 +2740,14 @@ public static class ChatInboxEndpoints
         var docToi = v.MyLastReadAt ?? v.AgentLastReadAt;
         return new
         {
-            v.Id, v.Channel, v.ContactExternalId, v.AccountId, v.Status, v.AssignedUsername, v.Followed,
+            v.Id, v.Channel, v.ContactExternalId, v.AccountId, v.Status, v.AssignedUsername,
+            // Mã người phụ trách — khoá THẬT để quyết định (đặc tả mục 4b). AssignedUsername ở
+            // trên chỉ còn để HIỂN THỊ tên với dữ liệu cũ; sau hai commit gần nhất không đường
+            // nào ghi cột tên nữa nên nó luôn null với hội thoại mới. Thiếu trường này thì nút
+            // giao diện đọc theo assignedUsername không bao giờ đổi nhãn "Nhận việc" → "Bỏ nhận",
+            // và route DELETE /assign mới không có đường nào bấm tới.
+            v.AssignedUserId,
+            v.Followed,
             // Khách bị chặn — giao diện phải hiện rõ, không thì người trực tưởng kênh hỏng khi
             // tin gửi đi cứ bị bỏ qua.
             blocked = v.BlockedUtc is not null,

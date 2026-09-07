@@ -47,10 +47,15 @@ public static class SessionAuth
         if (cauHinh is null or { ScopeOwnOnly: false })
             return (a, new NguoiXem(null, XemTatCa: true));
 
-        var s = sessions.Get(a.SessionId);
         // Tự lấp CrmUserId nếu phiên cũ chưa có — KHÔNG bắt người dùng đăng nhập lại.
         var maNguoi = await sessions.EnsureCrmUserIdAsync(a.SessionId, ct);
-        return (a, new NguoiXem(maNguoi, XemTatCa: s?.IsAdmin ?? false));
+        // TẠM: quản trị viên chat chốt theo TÊN ĐĂNG NHẬP, không đọc claim/cột IsAdmin nữa —
+        // yêu cầu của chủ dự án (07/09/2026): "đừng xoá tránh lỗi, cứ để tạm đấy". Cột
+        // dbo.TkSessions.IsAdmin, TkSession.IsAdmin, JwtClaims.TryGetIsAdmin vẫn nạp và ghi
+        // bình thường — chat chỉ THÔI ĐỌC tới chúng. Khi hệ quyền thật (theo permission, không
+        // theo tên) vào, đổi đúng dòng này lại, đừng đổi cả cụm.
+        var xemTatCa = string.Equals(a.Username, "admin", StringComparison.OrdinalIgnoreCase);
+        return (a, new NguoiXem(maNguoi, XemTatCa: xemTatCa));
     }
 
     /// <summary>

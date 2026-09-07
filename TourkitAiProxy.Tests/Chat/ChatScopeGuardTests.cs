@@ -18,6 +18,8 @@ public class ChatScopeGuardTests
         "TourkitAiProxy.Endpoints/ChatInboxEndpoints.cs");
     private static string Repo() => ChatSchemaGuardTests.DocFile(
         "TourkitAiProxy.Infrastructure/Chat/Inbox/ChatRepository.cs");
+    private static string SessionAuthSrc() => ChatSchemaGuardTests.DocFile(
+        "TourkitAiProxy.Endpoints/SessionAuth.cs");
 
     [Fact]
     public void Cua_chung_bat_buoc_nhan_nguoi_xem()
@@ -100,5 +102,63 @@ public class ChatScopeGuardTests
         // 403 nghĩa là "có hội thoại này nhưng anh không được xem" — tức xác nhận đúng cái
         // đang giấu. Dò tuần tự theo id là biết công ty có bao nhiêu khách.
         Assert.DoesNotContain("Bạn không được xem hội thoại này", Endpoint());
+    }
+
+    /// Thân route <c>GET /conversations</c> (danh sách) — KHÔNG lấy nhầm sang
+    /// <c>GET /conversations/{id:long}</c> (chi tiết) đứng ngay sau nó.
+    private static string ThanDanhSach()
+    {
+        var src = Endpoint();
+        var i = src.IndexOf("g.MapGet(\"/conversations\",", System.StringComparison.Ordinal);
+        var j = src.IndexOf("g.MapGet(\"/conversations/{id:long}\",", System.StringComparison.Ordinal);
+        Assert.True(i >= 0 && j > i, "Không thấy route GET /conversations trong ChatInboxEndpoints.cs");
+        return src[i..j];
+    }
+
+    [Fact]
+    public void Nhan_vien_thuong_khong_tra_ra_ma_thi_bi_DONG_khong_duoc_MO()
+    {
+        // Luật xem CŨ (dựa quyền CH_HT_XEM, xemHet) tách riêng khỏi luật xem MỚI (tham số
+        // `xem`) — xem chú thích "Luật cũ CANH RIÊNG" ngay tại chỗ. `chiCuaToi` là biến quyết
+        // định luật cũ này khi đổ xuống ListConversationsAsync/CountAsync qua mệnh đề
+        // "@chiCuaToi IS NULL OR ...": null nghĩa là KHÔNG LỌC GÌ CẢ.
+        //
+        // EnsureCrmUserIdAsync trả null ở BA đường (không phiên, JWT thiếu claim, ngoại lệ bị
+        // nuốt) — trước bản sửa phân công theo mã, giá trị gốc là TÊN ĐĂNG NHẬP nên không bao
+        // giờ null; nay có thể null, và bản `chiCuaToi = xemHet ? null : maToi;` cho null đó lọt
+        // thẳng xuống SQL, mở toang hội thoại cả công ty cho nhân viên thường ngay lúc tra mã
+        // lỗi. Khoá lại: mã không tra ra được phải đổi thành sentinel không mã người thật nào
+        // khớp (mã CRM luôn > 0), không được lọt thành null.
+        var than = ThanDanhSach();
+        Assert.DoesNotContain("chiCuaToi = xemHet ? null : maToi;", than);
+        Assert.Contains("maToi ?? KHONG_XAC_DINH_DUOC_MA", than);
+
+        // Bộ lọc "Của tôi" (giaoCho) lọt theo đúng đường: mine == true mà mã tra không ra thì
+        // cũng phải đóng, không coi như "không lọc" — @giaoCho IS NULL cũng mở y hệt.
+        Assert.DoesNotContain("giaoCho: mine == true ? maToi : null", than);
+    }
+
+    [Fact]
+    public void Quyen_xem_het_chat_chot_tam_theo_TEN_dang_nhap_khong_doc_IsAdmin()
+    {
+        // Yêu cầu chủ dự án 07/09/2026: chat TẠM chốt quản trị viên theo tên đăng nhập, không
+        // đọc claim/cột IsAdmin nữa — "đừng xoá tránh lỗi, cứ để tạm đấy". Cột
+        // dbo.TkSessions.IsAdmin, TkSession.IsAdmin, JwtClaims.TryGetIsAdmin PHẢI còn nguyên
+        // (test riêng của chúng ở JwtClaimsTests không đụng tới) — guard này chỉ khoá đúng CHỖ
+        // ĐỌC, không khoá phần hạ tầng ghi/nạp.
+        var neo = "string.Equals(a.Username, \"admin\", StringComparison.OrdinalIgnoreCase)";
+
+        var m = Regex.Match(SessionAuthSrc(), "ReadNguoiXemAsync(.{0,1200})", RegexOptions.Singleline);
+        Assert.True(m.Success, "Không thấy ReadNguoiXemAsync");
+        Assert.Contains(neo, m.Groups[1].Value);
+        Assert.DoesNotContain("s?.IsAdmin", m.Groups[1].Value);
+
+        var src = Endpoint();
+        var i = src.IndexOf("MapGet(\"/assign-settings\"", System.StringComparison.Ordinal);
+        var j = src.IndexOf("MapPut(\"/assign-settings\"", System.StringComparison.Ordinal);
+        Assert.True(i >= 0 && j > i, "Không thấy route GET /assign-settings trong ChatInboxEndpoints.cs");
+        var than = src[i..j];
+        Assert.Contains(neo, than);
+        Assert.DoesNotContain("s?.IsAdmin", than);
     }
 }
