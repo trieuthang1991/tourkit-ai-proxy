@@ -562,16 +562,17 @@ public class ChatRepository
     /// (bấm hai lần, mạng chập chờn), báo 409 cho chính người đang giữ là vô nghĩa.</para>
     /// </summary>
     public async Task<int> ClaimConversationAsync(string tenant, long id, string username,
-        CancellationToken ct = default)
+        int? userId, CancellationToken ct = default)
     {
         await using var c = await _db.OpenAsync(ct);
         return await c.ExecuteAsync("""
             UPDATE chat_conversations
                SET assigned_username = @username,
+                   assigned_user_id = @userId,
                    status = CASE WHEN status = 2 THEN status ELSE 1 END
              WHERE id = @id AND tenant_id = @tenant
                AND (assigned_username IS NULL OR assigned_username = @username)
-            """, new { id, tenant, username });
+            """, new { id, tenant, username, userId });
     }
 
     // ── Nhật ký thao tác ────────────────────────────────────────────────────
@@ -631,17 +632,22 @@ public class ChatRepository
     /// Giao/gỡ giao KHÔNG kiểm ai đang giữ — dùng cho <b>nhả việc</b> và <b>chuyển việc</b>, là
     /// hai thao tác cố ý đè lên người đang giữ. Nhận việc thì dùng <see cref="ClaimConversationAsync"/>.
     /// </summary>
-    public async Task AssignAsync(string tenant, long id, string? username, CancellationToken ct = default)
+    public async Task AssignAsync(string tenant, long id, string? username, int? userId,
+        CancellationToken ct = default)
     {
         await using var c = await _db.OpenAsync(ct);
         // Giao việc thì đẩy trạng thái sang "đang xử lý" — trừ khi đã đóng, vì gán người cho việc
         // đã đóng không có nghĩa mở lại nó.
+        //
+        // Nhả việc (username = null) xoá CẢ HAI cột: còn sót mã người thì hội thoại vẫn "của"
+        // người vừa nhả, và nó không bao giờ quay lại hàng chờ.
         await c.ExecuteAsync("""
             UPDATE chat_conversations
                SET assigned_username = @username,
+                   assigned_user_id = @userId,
                    status = CASE WHEN status = 2 THEN status ELSE 1 END
              WHERE id = @id AND tenant_id = @tenant
-            """, new { id, tenant, username });
+            """, new { id, tenant, username, userId });
     }
 
     public async Task SetStatusAsync(string tenant, long id, ChatStatus tt, CancellationToken ct = default)

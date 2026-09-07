@@ -68,4 +68,35 @@ public class ChatClaimGuardTests
         Assert.DoesNotContain("tourkitAuth?.session", jsx);
         Assert.DoesNotContain("tourkitAuth.session", jsx);
     }
+
+    [Fact]
+    public void Nhan_viec_ghi_CA_HAI_cot()
+    {
+        // Chỉ ghi tên đăng nhập thì luật xem (so theo assigned_user_id) không thấy hội thoại
+        // vừa nhận — người nhận việc xong là mất luôn hội thoại khỏi màn hình.
+        var m = Regex.Match(Repo(), "ClaimConversationAsync(.{0,900})", RegexOptions.Singleline);
+        Assert.Contains("assigned_username = @username", m.Groups[1].Value);
+        Assert.Contains("assigned_user_id = @userId", m.Groups[1].Value);
+    }
+
+    [Fact]
+    public void Tham_so_ma_nguoi_phai_la_int_CO_THE_NULL()
+    {
+        // NULL = chưa ai phụ trách. Khai `int` trần thì Dapper/C# đổi NULL thành 0, KHÔNG báo
+        // lỗi, và hai thứ chết theo:
+        //   • vòng quay ngừng hẳn — điều kiện gán là `assigned_user_id IS NULL`, ghi 0 thì nó
+        //     không bao giờ đúng nữa;
+        //   • nhả việc không trả hội thoại về hàng chờ — nó thành "của" người mã 0 không tồn tại.
+        var repo = Repo();
+        Assert.Contains("int? userId", repo);
+        Assert.DoesNotContain("int userId,", repo);
+    }
+
+    [Fact]
+    public void Giao_viec_kiem_nguoi_nhan_co_trong_doi_truc()
+    {
+        // Endpoint cũ nhận BẤT KỲ chuỗi tên đăng nhập nào: gõ sai một ký tự là hội thoại gán
+        // vào hư không, không ai thấy nó nữa và không có lỗi nào hiện ra.
+        Assert.Contains("MemberIds.Contains", Endpoint());
+    }
 }

@@ -895,6 +895,20 @@ public static class ChatInboxEndpoints
             tin.Signal(Services.Chat.Inbox.ChatLane.Out);
             bus.Publish(new(a.TenantId, id, "tin-moi", msgId.Value) { AssignedUserId = v.AssignedUserId });
 
+            // "Ai trả lời trước thì thành người phụ trách". Dùng lại đường nhận việc nguyên tử
+            // nên hai người cùng gõ vẫn chỉ một người thành chủ.
+            //
+            // ⚠️ Trên thực tế chỉ admin chạm được nhánh này: theo luật xem, hội thoại chưa gán
+            // không hiện với nhân viên thường nên họ không mở ra để trả lời được.
+            // `v` là hội thoại đã đọc ở đầu handler.
+            var ch = assign.Configured ? await assign.LayCauHinhAsync(a.TenantId, ct) : null;
+            if (ch?.AutoAssignOnReply == true && v.AssignedUserId is null)
+            {
+                var maNguoi = await sessions.EnsureCrmUserIdAsync(a.SessionId, ct);
+                if (await repo.ClaimConversationAsync(a.TenantId, id, a.Username, maNguoi, ct) > 0)
+                    await repo.AppendAuditAsync(a.TenantId, id, a.Username, "tu-nhan-khi-tra-loi", null, ct);
+            }
+
             // Trả kèm cảnh báo cắt nút: nhân viên soạn năm nút mà kênh chỉ nhận ba thì phải
             // biết ngay, chứ không phải phát hiện lúc khách hỏi lại.
             return Results.Json(new { ok = true, messageId = msgId, buttonWarning = nutCanhBao }, Web);
@@ -1005,14 +1019,12 @@ public static class ChatInboxEndpoints
             if (!repo.Configured) return NotConfigured();
             if (await repo.GetConversationAsync(a.TenantId, id, xem, ct) is null) return Results.NotFound();
 
-            // KHÔNG có trường username = NHẬN VIỆC cho chính mình. Tên lấy từ PHIÊN, không lấy từ
-            // thân yêu cầu: để client tự khai tên là ai cũng gán việc cho người khác được.
-            //
-            // ⚠️ Bản trước giao diện gửi một thuộc tính KHÔNG tồn tại nên thân yêu cầu luôn là
-            // chuỗi rỗng — tức nút "Nhận việc" thật ra đang GỠ giao việc, mà nhìn thì như chạy.
-            if (body?.Username is null)
+            // KHÔNG có thân yêu cầu = NHẬN VIỆC cho chính mình. Tên và mã lấy từ PHIÊN, không
+            // lấy từ thân: để client tự khai thì ai cũng gán việc cho người khác được.
+            if (body is null)
             {
-                var soDong = await repo.ClaimConversationAsync(a.TenantId, id, a.Username, ct);
+                var maToi = await sessions.EnsureCrmUserIdAsync(a.SessionId, ct);
+                var soDong = await repo.ClaimConversationAsync(a.TenantId, id, a.Username, maToi, ct);
                 if (soDong == 0)
                 {
                     // 200 im lặng là kiểu hỏng tệ nhất: giao diện người thua vẫn hiện "của tôi",
@@ -1022,33 +1034,38 @@ public static class ChatInboxEndpoints
                         statusCode: StatusCodes.Status409Conflict);
                 }
                 await repo.AppendAuditAsync(a.TenantId, id, a.Username, "nhan-viec", null, ct);
-                // Phát giá trị SAU khi đổi — đọc lại bằng NguoiXem.HeThong (không lọc theo quyền
-                // xem) vì người vừa nhận việc có thể không còn thấy hội thoại này bằng phạm vi cũ.
+                // GIỮ NGUYÊN phần đọc lại + cảnh báo mà Task 4 đã thêm — đừng thay bằng `maToi`.
+                // Đọc lại là bằng chứng lệnh ghi ĐÃ vào CSDL; dùng thẳng biến vừa tính là tin
+                // rằng nó vào, mà không có gì bảo đảm.
                 var saoKhiNhan = await repo.GetConversationAsync(a.TenantId, id, NguoiXem.HeThong, ct);
-                // null ở đây nghĩa là đọc lại HỤT (mất kết nối CSDL, hoặc dòng biến mất giữa hai
-                // lượt) — ?. bên dưới lặng lẽ biến thành AssignedUserId=null nếu không log, và sự
-                // kiện đó coi như "chưa ai phụ trách" thay vì báo lỗi. Ghi cảnh báo để không chết câm.
                 if (saoKhiNhan is null)
                     log.LogWarning("[chat/assign] đọc lại hội thoại {H} sau khi NHẬN VIỆC ra null " +
                         "— sự kiện phát đi mang AssignedUserId=null", id);
                 bus.Publish(new(a.TenantId, id, "doi-hoi-thoai", null) { AssignedUserId = saoKhiNhan?.AssignedUserId });
-                return Results.Json(new { ok = true, assignedTo = a.Username }, Web);
+                return Results.Json(new { ok = true, assignedTo = a.Username, assignedUserId = maToi }, Web);
             }
 
-            // Chuỗi rỗng = nhả việc (trả về hàng chờ chung); có tên = chuyển việc cho người đó.
-            // Cả hai đều CỐ Ý đè lên người đang giữ, nên không đi qua đường nguyên tử ở trên.
-            var ai = string.IsNullOrWhiteSpace(body!.Username) ? null : body.Username.Trim();
-            await repo.AssignAsync(a.TenantId, id, ai, ct);
-            await repo.AppendAuditAsync(a.TenantId, id, a.Username, ai is null ? "nha-viec" : "chuyen-viec",
-                ai is null ? null : new JsonObject { ["cho"] = ai }.ToJsonString(), ct);
-            // Phát giá trị SAU khi đổi, không phải giá trị đọc lúc đầu handler — phát nhầm giá trị
-            // cũ thì người vừa được giao không nhận sự kiện, còn người vừa bị gỡ thì vẫn nhận.
+            // Thân yêu cầu nay mang MÃ người, không mang tên đăng nhập: gõ sai một ký tự tên
+            // là hội thoại gán vào hư không — không ai thấy nó nữa (luật xem so theo mã), và
+            // không có lỗi nào hiện ra.
+            var ch = await assign.LayCauHinhAsync(a.TenantId, ct);
+            var ma = body!.UserId;
+            if (ma is not null && ch?.MemberIds.Contains(ma.Value) != true)
+                return Results.Json(new { error = "Người này không có trong đội trực chat" },
+                    statusCode: StatusCodes.Status400BadRequest);
+
+            // ma = null nghĩa là NHẢ VIỆC — trả hội thoại về hàng chờ.
+            await repo.AssignAsync(a.TenantId, id, username: null, userId: ma, ct);
+            await repo.AppendAuditAsync(a.TenantId, id, a.Username,
+                ma is null ? "nha-viec" : "chuyen-viec",
+                ma is null ? null : $"{{\"cho\":{ma}}}", ct);
+            // GIỮ NGUYÊN phần đọc lại + cảnh báo của Task 4 (xem chú thích ở nhánh nhận việc).
             var saoKhiGiao = await repo.GetConversationAsync(a.TenantId, id, NguoiXem.HeThong, ct);
             if (saoKhiGiao is null)
                 log.LogWarning("[chat/assign] đọc lại hội thoại {H} sau khi CHUYỂN/NHẢ VIỆC ra null " +
                     "— sự kiện phát đi mang AssignedUserId=null", id);
             bus.Publish(new(a.TenantId, id, "doi-hoi-thoai", null) { AssignedUserId = saoKhiGiao?.AssignedUserId });
-            return Results.Json(new { ok = true, assignedTo = ai }, Web);
+            return Results.Json(new { ok = true, assignedUserId = ma }, Web);
         });
 
         g.MapPatch("/conversations/{id:long}/status", async (long id, StatusReq body, HttpContext ctx,
@@ -2570,7 +2587,10 @@ public static class ChatInboxEndpoints
 public record SendReq(string? Text, string? AttachmentUrl = null, string? AttachmentKind = null,
     string? AttachmentName = null, long? AttachmentSize = null,
     List<ChatButton>? Buttons = null);
-    public record AssignReq(string? Username);
+    /// Thân RỖNG = nhận việc cho chính mình (tên + mã lấy từ PHIÊN, không tin thân yêu cầu —
+    /// để client tự khai thì ai cũng gán việc cho người khác được).
+    /// Có thân, UserId = null → NHẢ việc. Có thân, UserId = số → giao cho người đó.
+    public record AssignReq(int? UserId);
     /// <param name="CustomerId">Bỏ trống = GỠ nối khách CRM khỏi hội thoại này.</param>
     public record LinkCrmReq(int? CustomerId);
     /// <param name="Tag">Nhãn thô — server tự chuẩn hoá (bỏ dấu, hạ chữ thường, gạch nối).</param>
