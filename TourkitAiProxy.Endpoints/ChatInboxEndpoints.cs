@@ -48,6 +48,7 @@ public static class ChatInboxEndpoints
         "/api/v1/chat/avatars",
         "/api/v1/chat/bot-settings",
         "/api/v1/chat/quick-replies",
+        "/api/v1/chat/assign-settings",
         "/api/v1/chat/events",
         "/api/v1/chat/oauth",
         "/api/v1/chat/webhook",
@@ -501,6 +502,81 @@ public static class ChatInboxEndpoints
     private static void MapInbox(IEndpointRouteBuilder routes)
     {
         var g = routes.MapGroup("/api/v1/chat");
+
+        // ── Cấu hình phân công ───────────────────────────────────────────────
+        // ĐỌC thì ai cũng được: giao diện cần biết chế độ và đội trực để dựng ô chọn người phụ
+        // trách, mà giấu hai thứ đó đi không bảo vệ gì cả. GHI mới cần quyền Cấu hình hệ thống.
+        g.MapGet("/assign-settings", async (HttpContext ctx, TkSessionStore sessions,
+            ChatAssignRepository assign, TourKitApiClient api, CancellationToken ct) =>
+        {
+            var a = SessionAuth.Read(ctx, sessions);
+            if (a == null) return SessionAuth.Unauthorized();
+            if (!assign.Configured) return NotConfigured();
+
+            var ch = await assign.LayCauHinhAsync(a.TenantId, ct);
+            var s = sessions.Get(a.SessionId);
+
+            // Tên nhân viên lấy từ ERP, KHÔNG lưu trong CSDL chat: lưu là nhân đôi chỗ phải sửa
+            // khi ai đó đổi tên. Best-effort — upstream hỏng thì trả danh sách rỗng, hộp thư vẫn
+            // chạy, chỉ mất ô chọn người.
+            var nhanVien = new List<object>();
+            try
+            {
+                var r = await api.GetAsync(s!.Jwt, "/api/ai/reference", ct);
+                if (r.TryGetProperty("lookups", out var lk)
+                    && lk.TryGetProperty("sellers", out var sellers)
+                    && sellers.ValueKind == JsonValueKind.Array)
+                    foreach (var it in sellers.EnumerateArray())
+                    {
+                        // ⚠️ Khoá số có thể là "value" HOẶC "id" tuỳ enum — DealEndpoints.BuildDealLookups
+                        // đã phải xử cả hai. Gọi thẳng GetProperty("id") là NÉM khi payload dùng "value",
+                        // và cả lượt gọi rơi vào catch bên dưới → danh sách nhân viên rỗng, im lặng.
+                        var ma = it.TryGetProperty("value", out var v) && v.ValueKind == JsonValueKind.Number
+                                     ? v.GetInt32()
+                                 : it.TryGetProperty("id", out var i2) && i2.ValueKind == JsonValueKind.Number
+                                     ? i2.GetInt32() : 0;
+                        var ten = it.TryGetProperty("name", out var n) ? n.GetString() : null;
+                        if (ma > 0 && !string.IsNullOrWhiteSpace(ten))
+                            nhanVien.Add(new { id = ma, name = ten });
+                    }
+            }
+            catch { /* để rỗng */ }
+
+            // Chưa cấu hình → mặc định "thủ công, không kẹp quyền" = đúng hành vi hôm nay.
+            return Results.Json(new
+            {
+                mode              = ch?.Mode ?? CheDoPhanCong.ThuCong,
+                scopeOwnOnly      = ch?.ScopeOwnOnly ?? false,
+                autoAssignOnReply = ch?.AutoAssignOnReply ?? false,
+                memberIds         = ch?.MemberIds ?? Array.Empty<int>(),
+                isAdmin           = s?.IsAdmin ?? false,
+                staffs            = nhanVien
+            }, Web);
+        });
+
+        g.MapPut("/assign-settings", async (AssignSettingsReq body, HttpContext ctx,
+            TkSessionStore sessions, ChatAssignRepository assign, CancellationToken ct) =>
+        {
+            var a = SessionAuth.Read(ctx, sessions);
+            if (a == null) return SessionAuth.Unauthorized();
+            if (!assign.Configured) return NotConfigured();
+            if (!await SessionAuth.CanConfigSystemAsync(a.SessionId, sessions, ct))
+                return SessionAuth.ForbiddenConfigSystem();
+            if (body.Mode is not (CheDoPhanCong.ThuCong or CheDoPhanCong.XoayVong))
+                return Results.BadRequest(new { error = "Chế độ không hợp lệ" });
+
+            var doiTruc = (body.MemberIds ?? Array.Empty<int>()).Where(x => x > 0).Distinct().ToArray();
+
+            // Bật xoay vòng mà đội trực rỗng thì MỌI hội thoại rơi về hàng chờ, trông y hệt chế
+            // độ thủ công — không ai đoán được nguyên nhân. Chặn ngay tại chỗ lưu.
+            if (body.Mode == CheDoPhanCong.XoayVong && doiTruc.Length == 0)
+                return Results.BadRequest(new
+                { error = "Chưa chọn ai vào đội trực chat — bật xoay vòng lúc này sẽ không gán được cho ai." });
+
+            await assign.LuuCauHinhAsync(a.TenantId, body.Mode, body.ScopeOwnOnly,
+                body.AutoAssignOnReply, doiTruc, ct);
+            return Results.Json(new { ok = true, count = doiTruc.Length }, Web);
+        });
 
         // ── Đẩy sự kiện: thay cho hỏi-lại-4-giây ────────────────────────────
         //
@@ -2673,4 +2749,7 @@ public record SendReq(string? Text, string? AttachmentUrl = null, string? Attach
         int? MuteMinutes, int? HistoryTurns);
 
     public record QuickReplyReq(string Trigger, string Body, List<ChatButton>? Buttons = null);
+
+    public record AssignSettingsReq(short Mode, bool ScopeOwnOnly, bool AutoAssignOnReply,
+                                    int[]? MemberIds);
 }
