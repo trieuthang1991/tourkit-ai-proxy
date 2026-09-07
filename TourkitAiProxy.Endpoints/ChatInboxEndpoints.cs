@@ -591,7 +591,7 @@ public static class ChatInboxEndpoints
                 chiTheoDoi: followed == true,
                 sau: ChatCursor.Decode(cursor), limit: soDong, nguoiDung: a.Username, ct: ct);
             // Truyền kênh đang lọc: chip trạng thái phải nói về ĐÚNG danh sách đang hiện bên dưới.
-            var dem = await repo.CountAsync(a.TenantId, chiCuaToi, a.Username, channel, ct);
+            var dem = await repo.CountAsync(a.TenantId, chiCuaToi, xem, a.Username, channel, ct);
             return Results.Json(new
             {
                 items = items.Select(x => Shape(x, a.SessionId)),
@@ -605,7 +605,10 @@ public static class ChatInboxEndpoints
                 },
                 // Dải kênh bên trái: kênh nào có bao nhiêu hội thoại. Khoá là số của ChatChannel.
                 channelCounts = dem.TheoKenh.ToDictionary(k => k.Key.ToString(), k => k.Value),
-                xemToanCongTy = xemHet,
+                // Kẹp CẢ HAI luật: quyền CH_HT_XEM cũ (xemHet) VÀ luật phân công mới (xem.XemTatCa).
+                // Chỉ báo "toàn công ty" khi cả hai cùng cho phép — thiếu vế nào cũng là giao diện nói
+                // dối, vì dữ liệu trả về đã bị vế còn lại kẹp hẹp hơn rồi.
+                xemToanCongTy = xem.XemTatCa && xemHet,
                 // Ít hơn số dòng xin = hết dữ liệu → null để giao diện biết dừng.
                 // Luôn trả mã thì giao diện cuộn mãi không hết.
                 nextCursor = items.Count < soDong ? null
@@ -1233,16 +1236,23 @@ public static class ChatInboxEndpoints
             if (p == null) return SessionAuth.Unauthorized();
             var (a, xem) = p.Value;
             if (!repo.Configured) return NotConfigured();
-            // Theo TỪNG NGƯỜI: đánh dấu chung cho cả công ty thì A mở hội thoại là B mất dấu
-            // chưa đọc, và tin của khách trôi qua mắt B mà không có lỗi nào hiện ra.
-            await repo.MarkReadAsync(a.TenantId, id, a.Username, ct);
 
-            // Báo sang kênh cho khách biết tin đã được mở. Chỉ ở ĐÂY, nơi có NGƯỜI THẬT bấm vào hội
-            // thoại — bot đọc mà cũng báo đã xem là nói dối khách: họ tưởng có nhân viên đang nhìn.
+            // Cửa chung TRƯỚC lượt ghi: MarkReadAsync trước đây chạy trước dòng này nên người
+            // không được xem vẫn ghi được mốc "đã đọc" cho hội thoại lạ.
             var v = await repo.GetConversationAsync(a.TenantId, id, xem, ct);
-            if (v is not null && svc.Adapter((ChatChannel)v.Channel) is { } boNoi)
-                await boNoi.MarkSeenAsync(a.TenantId, v.AccountId, v.ContactExternalId, ct);
+            if (v is not null)
+            {
+                // Theo TỪNG NGƯỜI: đánh dấu chung thì A mở hội thoại là B mất dấu chưa đọc.
+                await repo.MarkReadAsync(a.TenantId, id, a.Username, ct);
 
+                // Báo sang kênh khách đã được mở. Chỉ ở ĐÂY, nơi có NGƯỜI THẬT bấm vào — bot đọc
+                // mà cũng báo đã xem là nói dối khách.
+                if (svc.Adapter((ChatChannel)v.Channel) is { } boNoi)
+                    await boNoi.MarkSeenAsync(a.TenantId, v.AccountId, v.ContactExternalId, ct);
+            }
+
+            // LUÔN ok=true dù không tồn tại/không được xem — trả khác đi là oracle dò hội thoại
+            // người khác (xem quy tắc 404-không-403).
             return Results.Json(new { ok = true }, Web);
         });
 

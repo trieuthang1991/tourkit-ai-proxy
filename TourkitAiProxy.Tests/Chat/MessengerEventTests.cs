@@ -166,7 +166,9 @@ public class MessengerEventTests
         var src = ChatSchemaGuardTests.DocFile("TourkitAiProxy.Endpoints/ChatInboxEndpoints.cs");
         var i = src.IndexOf("MapPost(\"/conversations/{id:long}/read\"", System.StringComparison.Ordinal);
         Assert.True(i > 0);
-        Assert.Contains("MarkSeenAsync", src.Substring(i, System.Math.Min(1200, src.Length - i)));
+        // 1500 (không phải 1200): sau Task 3 (chặn quyền xem), route /read lồng MarkReadAsync
+        // trong "if (v is not null)" — thân dài thêm một chút vì kiểm cửa chung trước khi ghi.
+        Assert.Contains("MarkSeenAsync", src.Substring(i, System.Math.Min(1500, src.Length - i)));
 
         // Và KHÔNG gọi ở đường xử lý tin tự động.
         var svc = ChatSchemaGuardTests.DocFile("TourkitAiProxy.Services/Chat/Inbox/ChatInboundService.cs");

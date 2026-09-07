@@ -1,3 +1,5 @@
+using System.Collections.Generic;
+using System.Linq;
 using System.Text.RegularExpressions;
 using Xunit;
 
@@ -21,31 +23,62 @@ public class ChatScopeGuardTests
     public void Cua_chung_bat_buoc_nhan_nguoi_xem()
     {
         // Tham số BẮT BUỘC, không phải tuỳ chọn có mặc định: có mặc định thì quên truyền cũng
-        // biên dịch được, và lỗ hổng đi thẳng lên bản chạy thật.
-        Assert.Matches(@"GetConversationAsync\(\s*string tenant,\s*long id,\s*NguoiXem ", Repo());
+        // biên dịch được, và lỗ hổng đi thẳng lên bản chạy thật. Đòi nguyên văn "NguoiXem xem,"
+        // (dấu phẩy ngay sau, không dấu "=") — pattern cũ chỉ đòi "NguoiXem " nên vẫn khớp cả
+        // "NguoiXem xem = default!," tức không khoá được đúng điều chú thích này tuyên bố.
+        Assert.Matches(@"GetConversationAsync\(\s*string tenant,\s*long id,\s*NguoiXem xem,", Repo());
     }
 
     [Fact]
-    public void Danh_sach_hoi_thoai_cung_loc_theo_nguoi_xem()
+    public void Ca_ba_ham_kep_luat_xem_bang_dung_menh_de_SQL()
     {
-        var m = Regex.Match(Repo(), "ListConversationsAsync(.{0,3000})", RegexOptions.Singleline);
-        Assert.True(m.Success, "Không thấy ListConversationsAsync");
-        // Điều kiện phải nằm TRONG câu SQL, không phải lọc trong C# sau khi đã đọc hết về.
-        Assert.Contains("assigned_user_id", m.Groups[1].Value);
+        // Đòi NGUYÊN VĂN mệnh đề, không chỉ đòi chữ "assigned_user_id" xuất hiện đâu đó — chữ đó
+        // cũng nằm sẵn trong SELECT v.* của GetConversationAsync/ListConversationsAsync, nên một
+        // assert lỏng sẽ xanh giả kể cả khi một trong ba hàm không hề kẹp luật xem.
+        //
+        // Phủ CẢ BA hàm đọc hội thoại theo id/tenant — thiếu CountAsync là chip đếm (tổng, chưa
+        // đọc, theo kênh) lộ đúng con số mà luật 404 ở hai hàm kia đang giấu.
+        var repo = Repo();
+        foreach (var ten in new[] { "GetConversationAsync", "ListConversationsAsync", "CountAsync" })
+        {
+            var m = Regex.Match(repo, ten + @"(.{0,3000})", RegexOptions.Singleline);
+            Assert.True(m.Success, $"Không thấy {ten}");
+            Assert.Contains("@xemTatCa OR v.assigned_user_id = @maNguoi", m.Groups[1].Value);
+        }
     }
 
     [Fact]
     public void Moi_route_mot_hoi_thoai_deu_doc_nguoi_xem_tu_phien()
     {
         var src = Endpoint();
-        // Đếm route dạng /conversations/{id...}
-        var soRoute = Regex.Matches(src, @"g\.Map(?:Get|Post|Put|Patch|Delete)\(""/conversations/\{id").Count;
-        Assert.True(soRoute >= 20, $"Chỉ thấy {soRoute} route — biểu thức đã lạc khỏi cách viết thật");
 
-        var soCua = Regex.Matches(src, @"ReadNguoiXemAsync").Count;
-        Assert.True(soCua >= soRoute,
-            $"Có {soRoute} route đụng một hội thoại nhưng chỉ {soCua} lượt đọc người xem — " +
-            "route nào đó đang bỏ qua cửa chung.");
+        // Điểm bắt đầu của MỌI route (không riêng /conversations/{id...}) — dùng làm biên cắt
+        // thân từng route. Cắt theo "route kế tiếp bất kỳ" thay vì so hai tổng số: một canary kiểu
+        // "tổng route <= tổng lượt đọc người xem" chỉ kêu từ route bỏ sót THỨ HAI trở đi (route đầu
+        // bị bỏ sót vẫn giữ đẳng thức tổng số bằng nhau) — cắt từng thân thì route đầu bị bỏ sót
+        // cũng lộ ngay, kèm đúng tên route.
+        var moiRoute = Regex.Matches(src, @"g\.Map(?:Get|Post|Put|Patch|Delete)\(""[^""]*""")
+            .Select(m => m.Index).OrderBy(i => i).ToList();
+        Assert.True(moiRoute.Count > 0, "Không thấy route nào trong ChatInboxEndpoints");
+
+        var diemHoiThoai = Regex.Matches(src, @"g\.Map(?:Get|Post|Put|Patch|Delete)\(""(/conversations/\{id[^""]*)""");
+        Assert.True(diemHoiThoai.Count >= 20,
+            $"Chỉ thấy {diemHoiThoai.Count} route — biểu thức đã lạc khỏi cách viết thật");
+
+        var boQua = new List<string>();
+        foreach (Match m in diemHoiThoai)
+        {
+            var batDau = m.Index;
+            var ketThuc = moiRoute.FirstOrDefault(i => i > batDau);
+            // Route cuối cùng của cả file: không có route kế tiếp để cắt, lấy hết phần còn lại.
+            var than = ketThuc > batDau ? src.Substring(batDau, ketThuc - batDau) : src.Substring(batDau);
+            if (!than.Contains("ReadNguoiXemAsync"))
+                boQua.Add(m.Groups[1].Value);
+        }
+
+        Assert.True(boQua.Count == 0,
+            "Route sau đụng một hội thoại nhưng KHÔNG đọc người xem qua cửa chung: " +
+            string.Join(", ", boQua));
     }
 
     [Fact]

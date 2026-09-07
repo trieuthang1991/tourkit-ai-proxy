@@ -504,7 +504,7 @@ public class ChatRepository
     /// <para>Trước 28/08/2026 chỗ này không nhận kênh: lọc sang Telegram mà chip vẫn hiện số của
     /// cả sáu kênh — danh sách một đằng, con số một nẻo, ngay cạnh nhau trên cùng màn hình.</para>
     /// </summary>
-    public async Task<ChatInboxCounts> CountAsync(string tenant, string? chiCuaToi,
+    public async Task<ChatInboxCounts> CountAsync(string tenant, string? chiCuaToi, NguoiXem xem,
         string? nguoiDung = null, short? kenh = null, CancellationToken ct = default)
     {
         await using var c = await _db.OpenAsync(ct);
@@ -519,8 +519,11 @@ public class ChatRepository
               ON r.tenant_id = v.tenant_id AND r.conversation_id = v.id AND r.username = @nguoiDung
             WHERE v.tenant_id = @tenant
               AND (@chiCuaToi IS NULL OR v.assigned_username = @chiCuaToi OR v.assigned_username IS NULL)
+              -- Luật xem, giống hệt GetConversationAsync/ListConversationsAsync — thiếu vế này thì
+              -- chip đếm lộ đúng con số mà luật 404 đang giấu (tổng hội thoại, chưa đọc, theo kênh).
+              AND (@xemTatCa OR v.assigned_user_id = @maNguoi)
             GROUP BY v.status, v.channel
-            """, new { tenant, chiCuaToi, nguoiDung })).ToList();
+            """, new { tenant, chiCuaToi, nguoiDung, xemTatCa = xem.XemTatCa, maNguoi = xem.CrmUserId })).ToList();
 
         var theoTrangThai = new Dictionary<short, int>();
         var theoKenh = new Dictionary<short, int>();
