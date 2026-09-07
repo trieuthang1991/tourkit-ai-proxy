@@ -105,6 +105,10 @@ không có lịch sử nào để làm hỏng — ghi lại đây để sau này
 
 Một hệ, một loại khoá. Trộn hai loại chính là nguồn gốc của mọi nhập nhằng đã gặp trong đợt này.
 
+⚠️ **Mục này tả TRẠNG THÁI CUỐI, không phải trạng thái sau mỗi việc.** Việc 11 chỉ đụng đường phân
+công; ba bảng kia chuyển ở **việc 12**. Ai đọc đặc tả giữa hai việc đó sẽ thấy mã nguồn chưa khớp —
+đó là đúng tiến độ, không phải sai sót.
+
 ⚠️ **`chat_audit` ghi `NULL` cho hệ thống.** Vòng quay chia việc ghi nhật ký không dưới danh nghĩa
 người nào. `NULL = hệ thống` — đừng nhét số ma thuật vào đó.
 
