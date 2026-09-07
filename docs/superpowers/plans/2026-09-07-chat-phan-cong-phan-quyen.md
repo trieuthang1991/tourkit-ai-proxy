@@ -1196,10 +1196,15 @@ cặp là bắt giao diện tự giữ cho hai lượt ghi khớp nhau.
                         // ⚠️ Khoá số có thể là "value" HOẶC "id" tuỳ enum — DealEndpoints.BuildDealLookups
                         // đã phải xử cả hai. Gọi thẳng GetProperty("id") là NÉM khi payload dùng "value",
                         // và cả lượt gọi rơi vào catch bên dưới → danh sách nhân viên rỗng, im lặng.
-                        var ma = it.TryGetProperty("value", out var v) && v.ValueKind == JsonValueKind.Number
-                                     ? v.GetInt32()
-                                 : it.TryGetProperty("id", out var i2) && i2.ValueKind == JsonValueKind.Number
-                                     ? i2.GetInt32() : 0;
+                        // ⚠️ TryGetInt32, KHÔNG phải GetInt32 trần. ValueKind==Number đúng với cả
+                        // 3.5 lẫn số vượt Int32, và GetInt32() NÉM ở hai ca đó — ngoại lệ rơi vào
+                        // catch bọc ngoài và làm RỖNG SẠCH danh sách vì một bản ghi lệch dạng.
+                        // BuildDealLookups dùng TryGetInt32 nên chỉ bỏ qua bản ghi lỗi một mình.
+                        var ma = it.TryGetProperty("value", out var v)
+                                 && v.ValueKind == JsonValueKind.Number && v.TryGetInt32(out var vn) ? vn
+                               : it.TryGetProperty("id", out var i2)
+                                 && i2.ValueKind == JsonValueKind.Number && i2.TryGetInt32(out var i2n) ? i2n
+                               : 0;
                         var ten = it.TryGetProperty("name", out var n) ? n.GetString() : null;
                         if (ma > 0 && !string.IsNullOrWhiteSpace(ten))
                             nhanVien.Add(new { id = ma, name = ten });
