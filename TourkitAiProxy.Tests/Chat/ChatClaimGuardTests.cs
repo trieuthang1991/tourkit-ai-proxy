@@ -19,13 +19,18 @@ public class ChatClaimGuardTests
     private static string Endpoint() => ChatSchemaGuardTests.DocFile(
         "TourkitAiProxy.Endpoints/ChatInboxEndpoints.cs");
 
-    /// Cắt đúng thân handler <c>/assign</c> — soi cả file 2.600 dòng thì khớp nhầm sang mã bên
-    /// cạnh (chuỗi trùng ngẫu nhiên) là guard xanh giả mà không canh đúng chỗ.
+    /// Cắt đúng thân handler <c>POST /assign</c> — soi cả file 2.600+ dòng thì khớp nhầm sang mã
+    /// bên cạnh (chuỗi trùng ngẫu nhiên) là guard xanh giả mà không canh đúng chỗ.
+    ///
+    /// <para>⚠️ Dừng TRƯỚC <c>MapDelete .../assign</c> (nhả việc), không dừng ở
+    /// <c>MapPatch .../status</c> như bản cũ — route DELETE đứng CHEN GIỮA hai route đó từ khi
+    /// nhả việc tách khỏi thân POST, nên cửa sổ cũ ôm luôn cả handler DELETE dù chú thích chỉ
+    /// tuyên bố cắt "thân handler /assign" (số ít, ý nói riêng nhánh POST).</para>
     private static string AssignHandler()
     {
         var src = Endpoint();
         var i = src.IndexOf("MapPost(\"/conversations/{id:long}/assign\",", StringComparison.Ordinal);
-        var j = src.IndexOf("MapPatch(\"/conversations/{id:long}/status\"", StringComparison.Ordinal);
+        var j = src.IndexOf("MapDelete(\"/conversations/{id:long}/assign\"", StringComparison.Ordinal);
         Assert.True(i >= 0 && j > i, "Không thấy handler /assign trong ChatInboxEndpoints.cs");
         return src[i..j];
     }
@@ -188,7 +193,11 @@ public class ChatClaimGuardTests
         // JsonException — nên bắt mỗi JsonException để lọt nguyên vẹn thành 500. Bản trước dùng
         // hàm này để đọc thân thô rồi tự tay bắt lỗi; bản này quay về model-binding kiểu có kiểu
         // của chính minimal API, nên endpoint không còn tự tay đọc/parse gì cả.
-        Assert.DoesNotContain("ReadFromJsonAsync", Endpoint());
+        //
+        // Kẹp trong CHÍNH thân handler /assign, không soi cả file 2.600+ dòng: endpoint khác
+        // dùng ReadFromJsonAsync HỢP LỆ ở đâu đó (ví dụ đọc multipart/tệp) sẽ làm bản test cũ
+        // đỏ oan dù handler /assign không hề đụng tới hàm này.
+        Assert.DoesNotContain("ReadFromJsonAsync", AssignHandler());
     }
 
     [Fact]

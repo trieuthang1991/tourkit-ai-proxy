@@ -527,7 +527,7 @@ public static class ChatInboxEndpoints
             var daDem = redis.Get(khoaDem);
             if (daDem is not null)
             {
-                try { nhanVien = JsonSerializer.Deserialize<List<object>>(daDem) ?? new(); }
+                try { nhanVien = JsonSerializer.Deserialize<List<object>>(daDem, Web) ?? new(); }
                 catch { /* đệm hỏng thì coi như chưa có */ }
             }
             if (nhanVien.Count == 0)
@@ -544,12 +544,17 @@ public static class ChatInboxEndpoints
                         foreach (var it in sellers.EnumerateArray())
                         {
                             // ⚠️ Khoá số có thể là "value" HOẶC "id" tuỳ enum — DealEndpoints.BuildDealLookups
-                            // đã phải xử cả hai. Gọi thẳng GetProperty("id") là NÉM khi payload dùng "value",
-                            // và cả lượt gọi rơi vào catch bên dưới → danh sách nhân viên rỗng, im lặng.
-                            var ma = it.TryGetProperty("value", out var v) && v.ValueKind == JsonValueKind.Number
-                                         ? v.GetInt32()
-                                     : it.TryGetProperty("id", out var i2) && i2.ValueKind == JsonValueKind.Number
-                                         ? i2.GetInt32() : 0;
+                            // đã phải xử cả hai. GetInt32() TRẦN còn ném khi ValueKind == Number nhưng giá
+                            // trị không vừa Int32 (số thực kiểu 1.0, hoặc tràn số) — ném là rơi thẳng vào
+                            // catch NGOÀI vòng foreach, xoá sạch TOÀN BỘ danh sách chỉ vì MỘT bản ghi lệch
+                            // dạng. TryGetInt32 không ném, chỉ bỏ qua đúng bản ghi đó — cùng lối BuildDealLookups.
+                            var ma = 0;
+                            if (it.TryGetProperty("value", out var v) && v.ValueKind == JsonValueKind.Number
+                                && v.TryGetInt32(out var vn))
+                                ma = vn;
+                            else if (it.TryGetProperty("id", out var i2) && i2.ValueKind == JsonValueKind.Number
+                                && i2.TryGetInt32(out var idn))
+                                ma = idn;
                             var ten = it.TryGetProperty("name", out var n) ? n.GetString() : null;
                             if (ma > 0 && !string.IsNullOrWhiteSpace(ten))
                                 nhanVien.Add(new { id = ma, name = ten });
@@ -561,7 +566,7 @@ public static class ChatInboxEndpoints
                 // thời là khoá cả công ty ra khỏi màn hình cấu hình suốt hai tiếng, không lỗi
                 // nào hiện ra. Không tự dựng cơ chế xoá đệm: hai tiếng là hợp đồng đã chốt.
                 if (nhanVien.Count > 0)
-                    redis.Set(khoaDem, JsonSerializer.Serialize(nhanVien), TimeSpan.FromHours(2));
+                    redis.Set(khoaDem, JsonSerializer.Serialize(nhanVien, Web), TimeSpan.FromHours(2));
             }
 
             // Chưa cấu hình → mặc định "thủ công, không kẹp quyền" = đúng hành vi hôm nay.
@@ -1185,7 +1190,10 @@ public static class ChatInboxEndpoints
                     log.LogWarning("[chat/assign] đọc lại hội thoại {H} sau khi NHẬN VIỆC ra null " +
                         "— sự kiện phát đi mang AssignedUserId=null", id);
                 bus.Publish(new(a.TenantId, id, "doi-hoi-thoai", null) { AssignedUserId = saoKhiNhan?.AssignedUserId });
-                return Results.Json(new { ok = true, assignedTo = a.Username, assignedUserId = maToi }, Web);
+                // assignedTo là MÃ (int?), giống hệt kiểu ở nhánh 409 bên trên (dangGiu) — trước
+                // đây nhánh này trả TÊN ĐĂNG NHẬP (chuỗi) trong khi nhánh 409 trả MÃ (số), hai
+                // hình dạng khác nhau cho cùng một trường ở hai nhánh của CÙNG MỘT route.
+                return Results.Json(new { ok = true, assignedTo = maToi, assignedUserId = maToi }, Web);
             }
 
             // Có thân = CHUYỂN VIỆC cho người khác. Thân mang MÃ người, không mang tên đăng

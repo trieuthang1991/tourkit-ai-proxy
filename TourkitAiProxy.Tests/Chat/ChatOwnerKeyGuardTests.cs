@@ -40,12 +40,26 @@ public class ChatOwnerKeyGuardTests
     /// pháp thì hàm dài thêm bao nhiêu cũng không ảnh hưởng, không như cắt theo số ký tự cố
     /// định (thêm một dòng chú thích XML là cửa sổ tràn ra ngoài, guard báo đỏ giả dù mã không
     /// hề sai).
+    ///
+    /// <para>⚠️ Neo vào CHỮ KÝ hàm (<c>Task</c>/<c>Task&lt;...&gt;</c> ngay trước tên), KHÔNG
+    /// neo vào tên trần bằng <c>IndexOf(ten)</c>: tên trần khớp luôn cả một dòng
+    /// <c>&lt;see cref="{ten}"/&gt;</c> nếu dòng đó đứng SỚM HƠN trong file so với định nghĩa
+    /// thật — file này đã có kiểu tham chiếu chéo đó (xref tới <c>ClaimConversationAsync</c>
+    /// trong doc-comment của <c>AssignAsync</c>), nên rủi ro không phải giả định suông. Cắt
+    /// nhầm sang thân hàm khác thì <c>than</c> vẫn KHÔNG rỗng — chốt chống-xanh-giả không tự
+    /// biết mình đã cắt sai.</para>
     /// </summary>
     private static string ThanHam(string ten)
     {
         var kho = Repo();
-        var batDau = kho.IndexOf(ten, System.StringComparison.Ordinal);
-        if (batDau < 0) return "";
+        // Hai nhánh riêng (có generic / không có generic) thay vì gộp bằng "(?:<.*?>)?" — nhóm
+        // KHÔNG BẮT BUỘC bọc quanh lượng từ lười (?:<.*?>)? khớp SAI (trả false) trên .NET 10 dù
+        // cùng nội dung, cùng mẫu vẫn khớp đúng trên .NET 8 — đã tự kiểm bằng một ứng dụng .NET
+        // độc lập trước khi đổi, không đoán suông.
+        var esc = Regex.Escape(ten);
+        var m0 = Regex.Match(kho, @"Task<.*?>\s+" + esc + @"\(|Task\s+" + esc + @"\(");
+        if (!m0.Success) return "";
+        var batDau = m0.Index;
 
         var m = Regex.Match(kho[batDau..], @"\A.*?\r?\n    \}", RegexOptions.Singleline);
         return m.Success ? m.Value : "";

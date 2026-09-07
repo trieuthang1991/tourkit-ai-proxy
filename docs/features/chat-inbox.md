@@ -655,13 +655,15 @@ trạng thái thứ ba, **im lặng**. Đã hỏng hai lần từ đúng gốc n
 - bộ lọc "chỉ của tôi" so theo tên → hội thoại do xoay vòng gán có tên trống nên lọt vào bộ lọc
   của **mọi người**.
 
-⚠️ **Theo dõi, dấu đã đọc, và nhật ký thao tác VẪN khoá theo tên đăng nhập — đó là CỐ Ý, không
-phải sót.** `chat_conversation_follows`, `chat_conversation_reads`, `chat_audit` lưu dấu vết CÁ
-NHÂN và LỊCH SỬ, không phải quyết định "ai đang sở hữu hội thoại này ngay bây giờ" — nên không có
-nguy cơ "hai nguồn sự thật" như ở `assigned_user_id`/`assigned_username`. Đừng chuyển ba bảng này
-sang mã người chỉ vì thấy đường phân công vừa đổi: đổi khoá ở đó là mất sạch dấu đã đọc và làm mọi
-dòng nhật ký cũ mất nghĩa — cái giá đó chỉ đáng trả khi có dữ liệu thật cần giữ tương thích, và ba
-bảng này (khác với đường phân công) không nằm trong phạm vi bị đổi ở đợt 07/09/2026.
+⚠️ **Theo dõi, dấu đã đọc, và nhật ký thao tác HIỆN VẪN khoá theo tên đăng nhập — đây là ĐÚNG
+TIẾN ĐỘ, không phải chủ đích lâu dài.** `chat_conversation_follows`, `chat_conversation_reads`,
+`chat_audit` sẽ chuyển sang mã người ở **việc 12** — đặc tả mục 4b
+(`docs/superpowers/specs/2026-09-07-chat-phan-cong-phan-quyen-design.md`) đã chốt rõ: *"Toàn cụm
+chat khoá theo MÃ NGƯỜI — không còn ngoại lệ."* Lý lẽ "đổi khoá là mất sạch dấu đã đọc và làm mọi
+dòng nhật ký cũ mất nghĩa" đã bị **bác và đã kết**: cụm chat chưa vận hành nên không có dấu nào để
+mất, không có lịch sử thật nào để hỏng — cái giá đó chỉ đáng trả khi có dữ liệu thật cần giữ tương
+thích. Việc 11 (đường phân công, đã xong) chỉ đụng `chat_conversations`; đọc đặc tả 4b giữa việc 11
+và việc 12 sẽ thấy mã nguồn ba bảng này chưa khớp mục này — đó là đúng tiến độ, không phải sai sót.
 
 **Chưa đọc tính theo TỪNG NGƯỜI** (`chat_conversation_reads`, khoá `(tenant_id, conversation_id,
 username)`). Trước đây chỉ có `chat_conversations.agent_last_read_at` — **một cột cho cả công ty**,
