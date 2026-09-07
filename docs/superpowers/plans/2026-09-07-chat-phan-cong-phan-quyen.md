@@ -1675,117 +1675,115 @@ git commit -m "docs(chat): tài liệu và cờ tính năng cho phân công hộ
 
 ---
 
-## Task 11 (bổ sung): Một khoá duy nhất — quyết định bằng mã
+## Task 11 (bổ sung): Một khoá duy nhất — bỏ hẳn tên đăng nhập khỏi việc phân công
 
-> Thêm 07/09/2026 sau khi chủ dự án chỉ ra sự nhập nhằng. Xem đặc tả mục **4b**.
+> Thêm 07/09/2026 sau khi chủ dự án chỉ ra sự nhập nhằng, rồi cho biết **cụm chat chưa đi vào vận
+> hành** và yêu cầu bỏ hẳn thứ không cần thiết. Xem đặc tả mục **4b**.
+
+**Việc này chủ yếu là XOÁ.** Hai cơ chế trong mã hiện tại chỉ tồn tại vì sợ dữ liệu cũ và client
+cũ — mà cả hai đều không có. Bỏ chúng đi thì sự nhập nhằng biến mất tại gốc, không cần luật nào
+để canh.
 
 **Files:**
-- Modify: `TourkitAiProxy.Infrastructure/Chat/Inbox/ChatRepository.cs` — `ListConversationsAsync`, `CountAsync`, `ClaimConversationAsync`
-- Modify: `TourkitAiProxy.Endpoints/ChatInboxEndpoints.cs` — chỗ truyền bộ lọc
-- Modify: `TourkitAiProxy.Endpoints/SessionAuth.cs` — móc lấp mã
-- Modify: `TourkitAiProxy.Infrastructure/Chat/Inbox/ChatAssignRepository.cs` — hàm lấp mã
+- Modify: `TourkitAiProxy.Infrastructure/Chat/Inbox/ChatRepository.cs` — `ListConversationsAsync`, `CountAsync`, `ClaimConversationAsync`, `AssignAsync`, `AssigneeOfAsync`
+- Modify: `TourkitAiProxy.Endpoints/ChatInboxEndpoints.cs` — chỗ truyền bộ lọc, `/assign`
+- Modify: `TourkitAiProxy.Infrastructure/Chat/Inbox/ChatDb.cs` — chú thích cột chết
 - Test: `TourkitAiProxy.Tests/Chat/ChatOwnerKeyGuardTests.cs` (mới)
 
 **Interfaces:**
-- Produces: `ChatAssignRepository.LapMaTheoTenAsync(string tenant, string username, int userId, CancellationToken ct) → Task<int>` · `ListConversationsAsync`/`CountAsync` nhận `int? chiCuaToi`, `int? giaoCho`
+- Produces: `ListConversationsAsync`/`CountAsync` nhận `int? chiCuaToi`, `int? giaoCho` · `ClaimConversationAsync(string tenant, long id, int userId, CancellationToken ct)` · `AssignAsync(string tenant, long id, int? userId, CancellationToken ct)` · `AssigneeOfAsync` trả `int?`
 
 - [ ] **Step 1: Guard cho đỏ trước**
 
-Tạo `TourkitAiProxy.Tests/Chat/ChatOwnerKeyGuardTests.cs`. Cắt thân từng hàm theo ranh giới cú pháp (chép lối `ThanGanXoayVong()` đã có trong `ChatAssignSchemaGuardTests.cs`), rồi:
+Tạo `TourkitAiProxy.Tests/Chat/ChatOwnerKeyGuardTests.cs`. Cắt thân từng hàm theo ranh giới cú pháp (chép lối `ThanGanXoayVong()` trong `ChatAssignSchemaGuardTests.cs`):
 
 ```csharp
     [Fact]
-    public void Bo_loc_va_khoa_tranh_viec_KHONG_duoc_doc_ten_dang_nhap()
+    public void Duong_phan_cong_KHONG_con_dung_ten_dang_nhap()
     {
         // Hai cột cùng mang nghĩa "ai là chủ" sinh ra BA trạng thái dòng; mỗi truy vấn chỉ đọc
         // MỘT cột sẽ đúng với hai trạng thái và sai với cái thứ ba, im lặng. Đã hỏng hai lần:
         // khoá tranh việc mất 409, và bộ lọc "chỉ của tôi" lọt vào tay mọi người.
-        foreach (var ten in new[] { "ListConversationsAsync", "CountAsync", "ClaimConversationAsync" })
+        //
+        // Cụm chat chưa vận hành nên không phải giữ cột cũ cho tương thích — bỏ hẳn khỏi đường
+        // phân công là hết đường sai.
+        foreach (var ten in new[] { "ListConversationsAsync", "CountAsync",
+                                    "ClaimConversationAsync", "AssignAsync", "AssigneeOfAsync" })
         {
             var than = ThanHam(ten);
             Assert.False(string.IsNullOrWhiteSpace(than), $"Không cắt được thân {ten} — regex đã lạc");
-            // CHO PHÉP ghi (SET assigned_username = @username). CẤM đọc để quyết định.
-            var doc = Regex.Matches(than, "assigned_username[ ]*(IS NULL|=[ ]*@(?!username\\b))");
-            Assert.True(doc.Count == 0,
-                $"{ten} còn đọc assigned_username để quyết định: " +
-                string.Join(" · ", doc.Select(m => m.Value)));
+            Assert.DoesNotContain("assigned_username", than);
         }
     }
 ```
 
-⚠️ `Assert.False(string.IsNullOrWhiteSpace(than))` là bắt buộc: cắt hụt thì `than` rỗng, `Matches` trả 0, và guard **xanh giả**.
+⚠️ `Assert.False(string.IsNullOrWhiteSpace(than))` là bắt buộc: cắt hụt thì `than` rỗng, `DoesNotContain` đúng, và guard **xanh giả**.
 
 - [ ] **Step 2: Chạy cho hỏng**
 
 Run: `dotnet test TourkitAiProxy.Tests/TourkitAiProxy.Tests.csproj --filter ChatOwnerKeyGuardTests`
-Expected: FAIL — cả ba hàm còn đọc `assigned_username`.
+Expected: FAIL — năm hàm còn dùng `assigned_username`.
 
-- [ ] **Step 3: Đổi ba bộ lọc sang mã người**
+- [ ] **Step 3: Ba bộ lọc chuyển sang mã người**
 
-`ChatRepository.cs:363`, `:365` (`ListConversationsAsync`) và `:521` (`CountAsync`): đổi tham số `chiCuaToi`/`giaoCho` từ `string?` sang `int?`, mệnh đề đổi sang `v.assigned_user_id`. Vế cho hội thoại chưa ai nhận giữ nguyên tinh thần, đổi cột: `OR v.assigned_user_id IS NULL`.
+`ChatRepository.cs:363`, `:365` (`ListConversationsAsync`) và `:521` (`CountAsync`): tham số `chiCuaToi`/`giaoCho` đổi từ `string?` sang `int?`, mệnh đề đổi sang `v.assigned_user_id`. Vế cho hội thoại chưa ai nhận đổi cột theo: `OR v.assigned_user_id IS NULL`.
 
-Sửa chỗ truyền ở `ChatInboxEndpoints.cs` cho khớp — lấy mã từ phiên (`EnsureCrmUserIdAsync`), không lấy tên.
+Sửa chỗ truyền ở `ChatInboxEndpoints.cs` — lấy mã từ phiên (`EnsureCrmUserIdAsync`), không lấy tên.
 
-- [ ] **Step 4: Bỏ vế thừa trong khoá tranh việc**
+- [ ] **Step 4: Hai hàm ghi bỏ hẳn cột tên**
 
-`ChatRepository.cs:574`. Sau khi kẹp theo mã thì vế theo tên vừa thừa vừa chính là lỗ hổng. Giữ đúng một vế:
+`ClaimConversationAsync` — bỏ tham số `username`, bỏ `SET assigned_username`, và mệnh đề chỉ còn một vế:
 
 ```sql
              WHERE id = @id AND tenant_id = @tenant
                AND (assigned_user_id IS NULL OR assigned_user_id = @userId)
 ```
 
-⚠️ Dòng cũ *(có tên, mã trống)* vẫn nhận được — đúng ý: chúng là hội thoại chưa lấp mã, chưa có chủ theo luật mới.
+`AssignAsync` — bỏ tham số `username`, bỏ `SET assigned_username`.
 
-- [ ] **Step 5: Lấp mã khi người dùng đăng nhập**
+`AssigneeOfAsync` — trả `int?` thay vì `string?`. Thân 409 trả mã người; giao diện tra tên từ danh sách nhân viên nó vốn đã nạp.
 
-Thêm vào `ChatAssignRepository`:
+⚠️ **Không xoá cột khỏi CSDL.** Xoá cột là thao tác không lùi được, và nó vô hại khi không ai đọc. Thêm một dòng chú thích ở `ChatDb.cs` nói rõ cột này **đã chết**, giữ lại chỉ vì `chat_audit` cũ có nhắc tên, và cấm đọc nó cho bất kỳ quyết định nào.
+
+- [ ] **Step 5: Ba thao tác, ba đường**
+
+Trong `/assign`, bỏ hẳn `ReadAssignBodyAsync` và mọi thứ đọc thân thô:
+
+| Thao tác | Đường |
+|---|---|
+| Nhận việc cho mình | `POST /conversations/{id}/assign` — không thân |
+| Giao cho người khác | `POST /conversations/{id}/assign` với `{"userId": N}` |
+| Nhả việc | `DELETE /conversations/{id}/assign` |
 
 ```csharp
-    /// <summary>
-    /// Điền mã người phụ trách cho những hội thoại còn mang TÊN của người này mà chưa có mã.
-    ///
-    /// <para>Chạy MỘT lần mỗi phiên, ở lượt chạm hộp thư đầu tiên. Không làm bằng script một
-    /// lượt: hệ chỉ biết cặp tên đăng nhập ↔ mã của người ĐÃ đăng nhập, nên lấp dần theo từng
-    /// người là cách duy nhất không phải tra ngược ra ngoài.</para>
-    ///
-    /// <para>Ai chưa bao giờ đăng nhập thì hội thoại của họ ở lại trạng thái chưa-ai-phụ-trách —
-    /// hợp lý, vì họ cũng không mở được hộp thư.</para>
-    /// </summary>
-    public async Task<int> LapMaTheoTenAsync(string tenant, string username, int userId,
-        CancellationToken ct = default)
-    {
-        await using var c = await _db.OpenAsync(ct);
-        return await c.ExecuteAsync(
-            "UPDATE chat_conversations SET assigned_user_id = @userId " +
-            "WHERE tenant_id = @tenant AND assigned_username = @username " +
-            "AND assigned_user_id IS NULL",
-            new { tenant, username, userId });
-    }
+    /// Chỉ MỘT trường, KHÔNG nullable. Nhả việc đi đường DELETE riêng, nên không còn phải phân
+    /// biệt "khoá vắng mặt" với "khoá mang null" — tức không cần đọc thân thô, tức không có bẫy
+    /// Content-Type ném 500.
+    public record AssignReq(int UserId);
 ```
 
-Gọi từ `SessionAuth.ReadNguoiXemAsync`, **một lần mỗi phiên** — giữ một tập mã phiên đã lấp trong bộ nhớ (`ConcurrentDictionary` hoặc `HashSet` có khoá) để không ghi lại ở mọi request. Chỉ mục `ix_conv_tenant_assignee` đã phủ đúng mệnh đề này.
-
-⚠️ **Lỗi lúc lấp KHÔNG được làm hỏng request.** Bọc `try/catch`, ghi log cảnh báo rồi đi tiếp. Lấp là việc dọn dẹp; hỏng nó mà chặn luôn đường đọc hộp thư là đổi một sự cố dọn dẹp thành một sự cố vận hành.
+⚠️ `DELETE` cho nhả việc là cùng lối mà `/follow` trong chính file này đã dùng (`POST` theo dõi, `DELETE` bỏ theo dõi). Đường nhả vẫn phải qua cửa quyền xem và vẫn phát sự kiện đổi chủ.
 
 - [ ] **Step 6: Chạy toàn bộ test**
 
 Run: `dotnet test TourkitAiProxy.Tests/TourkitAiProxy.Tests.csproj`
 Expected: PASS toàn bộ, guard mới xanh.
 
+⚠️ Chốt canh nào của task trước còn nhắc `assigned_username` ở đường phân công thì **sửa cho khớp**, đừng nới. Chốt nào canh `ReadFromJsonAsync` thì đổi thành khẳng định endpoint **không** gọi nó.
+
 - [ ] **Step 7: Chứng minh guard có ăn**
 
-Tạm trả một bộ lọc về đọc `assigned_username`, chạy test, xác nhận guard **ĐỎ**, rồi hoàn nguyên. Ghi bằng chứng đỏ vào báo cáo — không có nó thì không biết chốt có ăn hay không.
+Tạm trả một bộ lọc về đọc `assigned_username`, chạy test, xác nhận guard **ĐỎ**, rồi hoàn nguyên. Ghi bằng chứng đỏ vào báo cáo.
 
 - [ ] **Step 8: Tài liệu**
 
-Thêm mục **"quyết định bằng mã, hiển thị bằng tên"** vào `docs/features/chat-inbox.md`, nêu cả hai lỗi đã xảy ra từ gốc này, và dẫn về đặc tả mục 4b.
+Thêm mục **"quyết định bằng mã, hiển thị bằng tên"** vào `docs/features/chat-inbox.md`: nêu hai lỗi đã xảy ra từ gốc này, nói rõ theo dõi / dấu đã đọc / nhật ký **vẫn** khoá theo tên và đó là cố ý, và dẫn về đặc tả mục 4b.
 
 - [ ] **Step 9: Commit**
 
 ```bash
-git add TourkitAiProxy.Infrastructure/Chat/Inbox/ChatRepository.cs TourkitAiProxy.Infrastructure/Chat/Inbox/ChatAssignRepository.cs TourkitAiProxy.Endpoints/ChatInboxEndpoints.cs TourkitAiProxy.Endpoints/SessionAuth.cs TourkitAiProxy.Tests/Chat/ChatOwnerKeyGuardTests.cs docs/features/chat-inbox.md
-git commit -m "fix(chat): một khoá duy nhất cho người phụ trách — quyết định bằng mã"
+git add TourkitAiProxy.Infrastructure/Chat/Inbox/ChatRepository.cs TourkitAiProxy.Infrastructure/Chat/Inbox/ChatDb.cs TourkitAiProxy.Endpoints/ChatInboxEndpoints.cs TourkitAiProxy.Tests/Chat/ChatOwnerKeyGuardTests.cs docs/features/chat-inbox.md
+git commit -m "refactor(chat): bỏ tên đăng nhập khỏi đường phân công — một khoá duy nhất"
 ```
 
 ---

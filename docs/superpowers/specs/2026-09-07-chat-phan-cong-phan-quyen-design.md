@@ -104,10 +104,18 @@ quyết định về quyền sở hữu — nên không nằm dưới luật nà
 ⚠️ **Không cần sửa API danh sách nhân viên.** Nó đã trả mã + tên hiển thị. Chọn khoá là mã nghĩa
 là bên ERP không phải đụng gì.
 
-⚠️ **Dữ liệu cũ lấp dần khi người dùng đăng nhập**, không chạy script một lượt. Hệ chỉ biết cặp
-tên ↔ mã của người ĐÃ đăng nhập, nên lấp theo từng người là cách duy nhất không phải tra ngược ra
-ngoài. Ai chưa bao giờ đăng nhập thì hội thoại của họ thành chưa-ai-phụ-trách — hợp lý, vì họ
-cũng không mở được hộp thư.
+⚠️ **Không giữ tương thích ngược, vì không có gì để tương thích.** Cụm chat **chưa đi vào vận
+hành** (chủ dự án xác nhận 07/09/2026), nên không có dữ liệu cũ phải lấp và không có client cũ
+phải chiều. Hai cơ chế dựng vì nỗi lo đó — lấp mã theo từng người, và đọc thân yêu cầu thô để
+phân biệt "khoá vắng mặt" với "khoá mang null" — **đều bị bỏ**. Cơ chế thứ hai còn tự đẻ ra một
+lỗi 500 khi thiếu header `Content-Type`.
+
+⚠️ **Đường phân công bỏ HẲN cột tên**, không chỉ thôi đọc nó. Còn ghi là còn hai nguồn sự thật, và
+người sau sẽ lại đọc nhầm — đúng cách hai lỗi trên đã sinh ra. Cột ở lại trong CSDL (xoá cột là
+thao tác không lùi được, và nó vô hại khi không ai đọc) nhưng được đánh dấu **đã chết**.
+
+⚠️ **Nhả việc đi đường `DELETE` riêng.** Nhờ vậy không còn phải phân biệt "khoá vắng mặt" với
+"khoá mang null" — sự nhập nhằng biến mất ở tầng thiết kế, không cần luật nào để canh.
 
 ---
 
