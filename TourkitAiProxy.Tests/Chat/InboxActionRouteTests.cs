@@ -55,7 +55,7 @@ public class InboxActionRouteTests
         Assert.True(post.Success && delete.Success, "Thiếu đường theo dõi hoặc bỏ theo dõi");
         foreach (var route in new[] { post.Groups[1].Value, delete.Groups[1].Value })
         {
-            Assert.Contains("GetConversationAsync(a.TenantId, id, ct) is null", route);
+            Assert.Contains("GetConversationAsync(a.TenantId, id, xem, ct) is null", route);
             Assert.Contains("SetFollowAsync(a.TenantId, id, a.Username", route);
             Assert.Contains("AppendAuditAsync(a.TenantId, id, a.Username", route);
             Assert.Contains(", null, ct)", route);

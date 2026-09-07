@@ -95,7 +95,8 @@ public class ChatOutboxWorker : BackgroundService
     private async Task OneRowAsync(ChatRepository repo, List<IChatChannelAdapter> adapters,
         ChatEventBus bus, ChatRepository.OutboxRow r, CancellationToken ct)
     {
-        var hoiThoai = await repo.GetConversationAsync(r.TenantId, r.ConversationId, ct);
+        // Chạy nền — không có người dùng nào đứng sau, nên xem hết theo hệ thống.
+        var hoiThoai = await repo.GetConversationAsync(r.TenantId, r.ConversationId, NguoiXem.HeThong, ct);
         if (hoiThoai is null)
         {
             await repo.FinishOutboxAsync(r.Id, false, false, "Hội thoại không còn", ct);

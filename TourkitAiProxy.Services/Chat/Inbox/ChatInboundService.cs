@@ -246,7 +246,8 @@ public class ChatInboundService
         var cfgBot = await _cauHinh.GetAsync(tenantId, ct);
         if (!cfgBot.Enabled) return;
 
-        var moi = await _repo.GetConversationAsync(tenantId, hoiThoai.Id, ct);
+        // Đường webhook — không có người dùng nào đứng sau, nên xem hết theo hệ thống.
+        var moi = await _repo.GetConversationAsync(tenantId, hoiThoai.Id, NguoiXem.HeThong, ct);
         if (moi is null || !ChatRules.BotMayReply(moi, DateTime.UtcNow)) return;
 
         var choXuLy = await _repo.ListPendingInboundAsync(tenantId, hoiThoai.Id, ct);

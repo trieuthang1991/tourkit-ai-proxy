@@ -567,22 +567,26 @@ public static class ChatInboxEndpoints
         });
 
         g.MapGet("/conversations", async (HttpContext ctx, TkSessionStore sessions, ChatRepository repo,
+            ChatAssignRepository assign,
             short? status, string? search, short? channel, bool? unread, bool? followed, bool? mine,
             string? cursor, CancellationToken ct) =>
         {
-            var a = SessionAuth.Read(ctx, sessions);
-            if (a == null) return SessionAuth.Unauthorized();
+            var p = await SessionAuth.ReadNguoiXemAsync(ctx, sessions, assign, ct);
+            if (p == null) return SessionAuth.Unauthorized();
+            var (a, xem) = p.Value;
             if (!repo.Configured) return NotConfigured();
 
             // Không có quyền xem toàn công ty → chỉ thấy phần của mình + phần chưa ai nhận.
-            // Kẹp ở SQL, không lọc phía client.
+            // Kẹp ở SQL, không lọc phía client. (Luật cũ theo TÊN ĐĂNG NHẬP — song song với luật
+            // xem mới theo MÃ NHÂN VIÊN ở tham số `xem`; chưa cấu hình phân công thì `xem.XemTatCa`
+            // luôn true nên vế mới không thu hẹp gì thêm.)
             var xemHet = await SessionAuth.CanConfigSystemAsync(a.SessionId, sessions, ct);
             var chiCuaToi = xemHet ? null : a.Username;
 
             // Mã hỏng → Decode() trả null → coi như trang đầu. Không ném: con trỏ nằm trên URL,
             // người dùng sửa tay được và mã cũ từ bản trước còn trong lịch sử trình duyệt.
             const int soDong = 60;
-            var items = await repo.ListConversationsAsync(a.TenantId, status, chiCuaToi, search,
+            var items = await repo.ListConversationsAsync(a.TenantId, xem, status, chiCuaToi, search,
                 kenh: channel, giaoCho: mine == true ? a.Username : null, chiChuaDoc: unread == true,
                 chiTheoDoi: followed == true,
                 sau: ChatCursor.Decode(cursor), limit: soDong, nguoiDung: a.Username, ct: ct);
@@ -610,14 +614,15 @@ public static class ChatInboxEndpoints
         });
 
         g.MapGet("/conversations/{id:long}", async (long id, HttpContext ctx, TkSessionStore sessions,
-            ChatRepository repo, CancellationToken ct) =>
+            ChatRepository repo, ChatAssignRepository assign, CancellationToken ct) =>
         {
-            var a = SessionAuth.Read(ctx, sessions);
-            if (a == null) return SessionAuth.Unauthorized();
+            var p = await SessionAuth.ReadNguoiXemAsync(ctx, sessions, assign, ct);
+            if (p == null) return SessionAuth.Unauthorized();
+            var (a, xem) = p.Value;
             if (!repo.Configured) return NotConfigured();
             var goc = $"{ctx.Request.Scheme}://{ctx.Request.Host}";
 
-            var v = await repo.GetConversationAsync(a.TenantId, id, ct, nguoiDung: a.Username);
+            var v = await repo.GetConversationAsync(a.TenantId, id, xem, ct, nguoiDung: a.Username);
             if (v is null) return Results.NotFound();   // id của tenant khác cũng rơi vào đây
 
             var tin = await repo.ListMessagesAsync(a.TenantId, id, 120, ct);
@@ -697,14 +702,15 @@ public static class ChatInboxEndpoints
         // tour, không nhắc ngày khởi hành, không báo đổi giờ bay — đúng những việc cần nhất, và
         // đều rơi vào lúc khách đã im lâu.
         g.MapGet("/conversations/{id:long}/templates", async (long id, HttpContext ctx,
-            TkSessionStore sessions, ChatRepository repo,
+            TkSessionStore sessions, ChatRepository repo, ChatAssignRepository assign,
             IEnumerable<Services.Chat.Channels.IChatChannelAdapter> adapters,
             CancellationToken ct) =>
         {
-            var a = SessionAuth.Read(ctx, sessions);
-            if (a == null) return SessionAuth.Unauthorized();
+            var p = await SessionAuth.ReadNguoiXemAsync(ctx, sessions, assign, ct);
+            if (p == null) return SessionAuth.Unauthorized();
+            var (a, xem) = p.Value;
 
-            var v = await repo.GetConversationAsync(a.TenantId, id, ct);
+            var v = await repo.GetConversationAsync(a.TenantId, id, xem, ct);
             if (v is null) return Results.NotFound();
 
             var kenh = (ChatChannel)v.Channel;
@@ -749,16 +755,18 @@ public static class ChatInboxEndpoints
         // khi gọi API, mà cả điểm của tin mẫu là gửi được KHI cửa sổ đã đóng — qua hàng đợi thì
         // mọi tin mẫu đều bị chính chốt chặn đó loại bỏ.
         g.MapPost("/conversations/{id:long}/send-template", async (long id, SendTemplateReq body,
-            HttpContext ctx, TkSessionStore sessions, ChatRepository repo, ChatEventBus bus,
+            HttpContext ctx, TkSessionStore sessions, ChatRepository repo, ChatAssignRepository assign,
+            ChatEventBus bus,
             IEnumerable<Services.Chat.Channels.IChatChannelAdapter> adapters,
             CancellationToken ct) =>
         {
-            var a = SessionAuth.Read(ctx, sessions);
-            if (a == null) return SessionAuth.Unauthorized();
+            var p = await SessionAuth.ReadNguoiXemAsync(ctx, sessions, assign, ct);
+            if (p == null) return SessionAuth.Unauthorized();
+            var (a, xem) = p.Value;
             if (string.IsNullOrWhiteSpace(body.TemplateId))
                 return Results.BadRequest(new { error = "Chưa chọn mẫu tin" });
 
-            var v = await repo.GetConversationAsync(a.TenantId, id, ct);
+            var v = await repo.GetConversationAsync(a.TenantId, id, xem, ct);
             if (v is null) return Results.NotFound();
 
             var kenh = (ChatChannel)v.Channel;
@@ -811,11 +819,12 @@ public static class ChatInboxEndpoints
         });
 
         g.MapPost("/conversations/{id:long}/send", async (long id, SendReq body, HttpContext ctx,
-            TkSessionStore sessions, ChatRepository repo, ChatEventBus bus,
+            TkSessionStore sessions, ChatRepository repo, ChatAssignRepository assign, ChatEventBus bus,
             Services.Chat.Inbox.ChatWorkSignal tin, IConfiguration cfg, CancellationToken ct) =>
         {
-            var a = SessionAuth.Read(ctx, sessions);
-            if (a == null) return SessionAuth.Unauthorized();
+            var p = await SessionAuth.ReadNguoiXemAsync(ctx, sessions, assign, ct);
+            if (p == null) return SessionAuth.Unauthorized();
+            var (a, xem) = p.Value;
             if (!repo.Configured) return NotConfigured();
 
             // Có đính kèm thì chữ là CHÚ THÍCH, được phép rỗng. Không đính kèm thì bắt buộc có chữ
@@ -824,7 +833,7 @@ public static class ChatInboxEndpoints
             if (!coDinhKem && string.IsNullOrWhiteSpace(body.Text))
                 return Results.BadRequest(new { error = "Chưa nhập nội dung" });
 
-            var v = await repo.GetConversationAsync(a.TenantId, id, ct);
+            var v = await repo.GetConversationAsync(a.TenantId, id, xem, ct);
             if (v is null) return Results.NotFound();
 
             // ChatSender.Agent: hai đường này đều là NGƯỜI THẬT đang mở hộp thư và gõ. Messenger
@@ -891,15 +900,17 @@ public static class ChatInboxEndpoints
         // /send với AttachmentUrl. Tách hai bước (tải lên → gửi) để nhân viên xem trước ảnh trước
         // khi bấm gửi thật, giống mọi app chat khác.
         g.MapPost("/conversations/{id:long}/upload", async (long id, HttpRequest req, HttpContext ctx,
-            TkSessionStore sessions, ChatRepository repo, IChatFileStorage kho, CancellationToken ct) =>
+            TkSessionStore sessions, ChatRepository repo, ChatAssignRepository assign,
+            IChatFileStorage kho, CancellationToken ct) =>
         {
-            var a = SessionAuth.Read(ctx, sessions);
-            if (a == null) return SessionAuth.Unauthorized();
+            var p = await SessionAuth.ReadNguoiXemAsync(ctx, sessions, assign, ct);
+            if (p == null) return SessionAuth.Unauthorized();
+            var (a, xem) = p.Value;
             if (!repo.Configured) return NotConfigured();
             if (!kho.Configured)
                 return Results.Json(new { error = $"Chưa cấu hình Storage:{kho.Provider} — xem appsettings.example.json" },
                     statusCode: 503);
-            if (await repo.GetConversationAsync(a.TenantId, id, ct) is null) return Results.NotFound();
+            if (await repo.GetConversationAsync(a.TenantId, id, xem, ct) is null) return Results.NotFound();
             if (!req.HasFormContentType) return Results.BadRequest(new { error = "Thiếu tệp" });
 
             var form = await req.ReadFormAsync(ct);
@@ -980,12 +991,14 @@ public static class ChatInboxEndpoints
         });
 
         g.MapPost("/conversations/{id:long}/assign", async (long id, AssignReq? body, HttpContext ctx,
-            TkSessionStore sessions, ChatRepository repo, ChatEventBus bus, CancellationToken ct) =>
+            TkSessionStore sessions, ChatRepository repo, ChatAssignRepository assign, ChatEventBus bus,
+            CancellationToken ct) =>
         {
-            var a = SessionAuth.Read(ctx, sessions);
-            if (a == null) return SessionAuth.Unauthorized();
+            var p = await SessionAuth.ReadNguoiXemAsync(ctx, sessions, assign, ct);
+            if (p == null) return SessionAuth.Unauthorized();
+            var (a, xem) = p.Value;
             if (!repo.Configured) return NotConfigured();
-            if (await repo.GetConversationAsync(a.TenantId, id, ct) is null) return Results.NotFound();
+            if (await repo.GetConversationAsync(a.TenantId, id, xem, ct) is null) return Results.NotFound();
 
             // KHÔNG có trường username = NHẬN VIỆC cho chính mình. Tên lấy từ PHIÊN, không lấy từ
             // thân yêu cầu: để client tự khai tên là ai cũng gán việc cho người khác được.
@@ -1019,14 +1032,16 @@ public static class ChatInboxEndpoints
         });
 
         g.MapPatch("/conversations/{id:long}/status", async (long id, StatusReq body, HttpContext ctx,
-            TkSessionStore sessions, ChatRepository repo, ChatEventBus bus, CancellationToken ct) =>
+            TkSessionStore sessions, ChatRepository repo, ChatAssignRepository assign, ChatEventBus bus,
+            CancellationToken ct) =>
         {
-            var a = SessionAuth.Read(ctx, sessions);
-            if (a == null) return SessionAuth.Unauthorized();
+            var p = await SessionAuth.ReadNguoiXemAsync(ctx, sessions, assign, ct);
+            if (p == null) return SessionAuth.Unauthorized();
+            var (a, xem) = p.Value;
             if (!repo.Configured) return NotConfigured();
             if (!Enum.IsDefined(typeof(ChatStatus), body.Status))
                 return Results.BadRequest(new { error = "Trạng thái không hợp lệ" });
-            if (await repo.GetConversationAsync(a.TenantId, id, ct) is null) return Results.NotFound();
+            if (await repo.GetConversationAsync(a.TenantId, id, xem, ct) is null) return Results.NotFound();
 
             await repo.SetStatusAsync(a.TenantId, id, (ChatStatus)body.Status, ct);
             await repo.AppendAuditAsync(a.TenantId, id, a.Username, "doi-trang-thai",
@@ -1040,12 +1055,13 @@ public static class ChatInboxEndpoints
         // Gắn theo KHÁCH chứ không theo hội thoại: khách nhắn lại sau ba tháng vẫn còn nhãn cũ,
         // còn gắn theo hội thoại thì mỗi lần mở hội thoại mới là mất hết — đúng lúc cần nhất.
         g.MapGet("/conversations/{id:long}/tags", async (long id, HttpContext ctx,
-            TkSessionStore sessions, ChatRepository repo, CancellationToken ct) =>
+            TkSessionStore sessions, ChatRepository repo, ChatAssignRepository assign, CancellationToken ct) =>
         {
-            var a = SessionAuth.Read(ctx, sessions);
-            if (a == null) return SessionAuth.Unauthorized();
+            var p = await SessionAuth.ReadNguoiXemAsync(ctx, sessions, assign, ct);
+            if (p == null) return SessionAuth.Unauthorized();
+            var (a, xem) = p.Value;
             if (!repo.Configured) return NotConfigured();
-            var v = await repo.GetConversationAsync(a.TenantId, id, ct);
+            var v = await repo.GetConversationAsync(a.TenantId, id, xem, ct);
             if (v is null) return Results.NotFound();
             return Results.Json(new
             {
@@ -1054,12 +1070,13 @@ public static class ChatInboxEndpoints
         });
 
         g.MapPost("/conversations/{id:long}/tags", async (long id, TagReq body, HttpContext ctx,
-            TkSessionStore sessions, ChatRepository repo, CancellationToken ct) =>
+            TkSessionStore sessions, ChatRepository repo, ChatAssignRepository assign, CancellationToken ct) =>
         {
-            var a = SessionAuth.Read(ctx, sessions);
-            if (a == null) return SessionAuth.Unauthorized();
+            var p = await SessionAuth.ReadNguoiXemAsync(ctx, sessions, assign, ct);
+            if (p == null) return SessionAuth.Unauthorized();
+            var (a, xem) = p.Value;
             if (!repo.Configured) return NotConfigured();
-            var v = await repo.GetConversationAsync(a.TenantId, id, ct);
+            var v = await repo.GetConversationAsync(a.TenantId, id, xem, ct);
             if (v is null) return Results.NotFound();
 
             // Chuẩn hoá DÙNG CHUNG với lệnh gọi mẫu trả lời nhanh — cùng vấn đề, cùng lời giải.
@@ -1072,12 +1089,13 @@ public static class ChatInboxEndpoints
         });
 
         g.MapDelete("/conversations/{id:long}/tags/{tag}", async (long id, string tag, HttpContext ctx,
-            TkSessionStore sessions, ChatRepository repo, CancellationToken ct) =>
+            TkSessionStore sessions, ChatRepository repo, ChatAssignRepository assign, CancellationToken ct) =>
         {
-            var a = SessionAuth.Read(ctx, sessions);
-            if (a == null) return SessionAuth.Unauthorized();
+            var p = await SessionAuth.ReadNguoiXemAsync(ctx, sessions, assign, ct);
+            if (p == null) return SessionAuth.Unauthorized();
+            var (a, xem) = p.Value;
             if (!repo.Configured) return NotConfigured();
-            var v = await repo.GetConversationAsync(a.TenantId, id, ct);
+            var v = await repo.GetConversationAsync(a.TenantId, id, xem, ct);
             if (v is null) return Results.NotFound();
 
             // Chuẩn hoá cả lúc XOÁ: nhãn nằm trên đường dẫn nên trình duyệt/người dùng có thể gửi
@@ -1088,12 +1106,13 @@ public static class ChatInboxEndpoints
         });
 
         g.MapGet("/conversations/{id:long}/notes", async (long id, HttpContext ctx,
-            TkSessionStore sessions, ChatRepository repo, CancellationToken ct) =>
+            TkSessionStore sessions, ChatRepository repo, ChatAssignRepository assign, CancellationToken ct) =>
         {
-            var a = SessionAuth.Read(ctx, sessions);
-            if (a == null) return SessionAuth.Unauthorized();
+            var p = await SessionAuth.ReadNguoiXemAsync(ctx, sessions, assign, ct);
+            if (p == null) return SessionAuth.Unauthorized();
+            var (a, xem) = p.Value;
             if (!repo.Configured) return NotConfigured();
-            var v = await repo.GetConversationAsync(a.TenantId, id, ct);
+            var v = await repo.GetConversationAsync(a.TenantId, id, xem, ct);
             if (v is null) return Results.NotFound();
             return Results.Json(new
             {
@@ -1102,14 +1121,15 @@ public static class ChatInboxEndpoints
         });
 
         g.MapPost("/conversations/{id:long}/notes", async (long id, NoteReq body, HttpContext ctx,
-            TkSessionStore sessions, ChatRepository repo, CancellationToken ct) =>
+            TkSessionStore sessions, ChatRepository repo, ChatAssignRepository assign, CancellationToken ct) =>
         {
-            var a = SessionAuth.Read(ctx, sessions);
-            if (a == null) return SessionAuth.Unauthorized();
+            var p = await SessionAuth.ReadNguoiXemAsync(ctx, sessions, assign, ct);
+            if (p == null) return SessionAuth.Unauthorized();
+            var (a, xem) = p.Value;
             if (!repo.Configured) return NotConfigured();
             if (string.IsNullOrWhiteSpace(body?.Body))
                 return Results.BadRequest(new { error = "Chưa nhập nội dung ghi chú" });
-            var v = await repo.GetConversationAsync(a.TenantId, id, ct);
+            var v = await repo.GetConversationAsync(a.TenantId, id, xem, ct);
             if (v is null) return Results.NotFound();
 
             var maGhiChu = await repo.AddNoteAsync(a.TenantId, v.Channel, v.ContactExternalId,
@@ -1118,12 +1138,14 @@ public static class ChatInboxEndpoints
         });
 
         g.MapDelete("/conversations/{id:long}/notes/{noteId:long}", async (long id, long noteId,
-            HttpContext ctx, TkSessionStore sessions, ChatRepository repo, CancellationToken ct) =>
+            HttpContext ctx, TkSessionStore sessions, ChatRepository repo, ChatAssignRepository assign,
+            CancellationToken ct) =>
         {
-            var a = SessionAuth.Read(ctx, sessions);
-            if (a == null) return SessionAuth.Unauthorized();
+            var p = await SessionAuth.ReadNguoiXemAsync(ctx, sessions, assign, ct);
+            if (p == null) return SessionAuth.Unauthorized();
+            var (a, xem) = p.Value;
             if (!repo.Configured) return NotConfigured();
-            if (await repo.GetConversationAsync(a.TenantId, id, ct) is null) return Results.NotFound();
+            if (await repo.GetConversationAsync(a.TenantId, id, xem, ct) is null) return Results.NotFound();
             return Results.Json(new { ok = true, removed = await repo.RemoveNoteAsync(a.TenantId, noteId, ct) }, Web);
         });
 
@@ -1134,13 +1156,14 @@ public static class ChatInboxEndpoints
         // số trừ khi khách tự nhắn. Nối tay đúng 100% và làm được ngay; tự động để sau khi đã có
         // dữ liệu thật xem tỉ lệ trùng thế nào.
         g.MapGet("/conversations/{id:long}/crm-search", async (long id, string? q, HttpContext ctx,
-            TkSessionStore sessions, ChatRepository repo, TourKitCustomerSource khach,
-            CancellationToken ct) =>
+            TkSessionStore sessions, ChatRepository repo, ChatAssignRepository assign,
+            TourKitCustomerSource khach, CancellationToken ct) =>
         {
-            var a = SessionAuth.Read(ctx, sessions);
-            if (a == null) return SessionAuth.Unauthorized();
+            var p = await SessionAuth.ReadNguoiXemAsync(ctx, sessions, assign, ct);
+            if (p == null) return SessionAuth.Unauthorized();
+            var (a, xem) = p.Value;
             if (!repo.Configured) return NotConfigured();
-            if (await repo.GetConversationAsync(a.TenantId, id, ct) is null) return Results.NotFound();
+            if (await repo.GetConversationAsync(a.TenantId, id, xem, ct) is null) return Results.NotFound();
             if (string.IsNullOrWhiteSpace(q)) return Results.Json(new { items = Array.Empty<object>() }, Web);
 
             // Tìm bằng PHIÊN CỦA CHÍNH NHÂN VIÊN, không phải tài khoản dịch vụ — để CRM tự chặn
@@ -1155,13 +1178,15 @@ public static class ChatInboxEndpoints
         });
 
         g.MapPost("/conversations/{id:long}/link-crm", async (long id, LinkCrmReq? body, HttpContext ctx,
-            TkSessionStore sessions, ChatRepository repo, ChatEventBus bus, CancellationToken ct) =>
+            TkSessionStore sessions, ChatRepository repo, ChatAssignRepository assign, ChatEventBus bus,
+            CancellationToken ct) =>
         {
-            var a = SessionAuth.Read(ctx, sessions);
-            if (a == null) return SessionAuth.Unauthorized();
+            var p = await SessionAuth.ReadNguoiXemAsync(ctx, sessions, assign, ct);
+            if (p == null) return SessionAuth.Unauthorized();
+            var (a, xem) = p.Value;
             if (!repo.Configured) return NotConfigured();
 
-            var v = await repo.GetConversationAsync(a.TenantId, id, ct);
+            var v = await repo.GetConversationAsync(a.TenantId, id, xem, ct);
             if (v is null) return Results.NotFound();
 
             // Không có customerId = GỠ nối. Gỡ phải làm được: nối nhầm là bot đọc lịch sử mua của
@@ -1178,13 +1203,14 @@ public static class ChatInboxEndpoints
 
         // Nhật ký của một hội thoại. Nằm dưới tiền tố /conversations nên đã được OwnedPaths phủ.
         g.MapGet("/conversations/{id:long}/audit", async (long id, HttpContext ctx,
-            TkSessionStore sessions, ChatRepository repo, CancellationToken ct) =>
+            TkSessionStore sessions, ChatRepository repo, ChatAssignRepository assign, CancellationToken ct) =>
         {
-            var a = SessionAuth.Read(ctx, sessions);
-            if (a == null) return SessionAuth.Unauthorized();
+            var p = await SessionAuth.ReadNguoiXemAsync(ctx, sessions, assign, ct);
+            if (p == null) return SessionAuth.Unauthorized();
+            var (a, xem) = p.Value;
             if (!repo.Configured) return NotConfigured();
             // Hội thoại của tenant khác cũng rơi vào đây — không rò rỉ việc id đó có tồn tại hay không.
-            if (await repo.GetConversationAsync(a.TenantId, id, ct) is null) return Results.NotFound();
+            if (await repo.GetConversationAsync(a.TenantId, id, xem, ct) is null) return Results.NotFound();
 
             var ds = await repo.ListAuditAsync(a.TenantId, id, 50, ct);
             return Results.Json(new
@@ -1200,10 +1226,12 @@ public static class ChatInboxEndpoints
         });
 
         g.MapPost("/conversations/{id:long}/read", async (long id, HttpContext ctx,
-            TkSessionStore sessions, ChatRepository repo, ChatInboundService svc, CancellationToken ct) =>
+            TkSessionStore sessions, ChatRepository repo, ChatAssignRepository assign,
+            ChatInboundService svc, CancellationToken ct) =>
         {
-            var a = SessionAuth.Read(ctx, sessions);
-            if (a == null) return SessionAuth.Unauthorized();
+            var p = await SessionAuth.ReadNguoiXemAsync(ctx, sessions, assign, ct);
+            if (p == null) return SessionAuth.Unauthorized();
+            var (a, xem) = p.Value;
             if (!repo.Configured) return NotConfigured();
             // Theo TỪNG NGƯỜI: đánh dấu chung cho cả công ty thì A mở hội thoại là B mất dấu
             // chưa đọc, và tin của khách trôi qua mắt B mà không có lỗi nào hiện ra.
@@ -1211,7 +1239,7 @@ public static class ChatInboxEndpoints
 
             // Báo sang kênh cho khách biết tin đã được mở. Chỉ ở ĐÂY, nơi có NGƯỜI THẬT bấm vào hội
             // thoại — bot đọc mà cũng báo đã xem là nói dối khách: họ tưởng có nhân viên đang nhìn.
-            var v = await repo.GetConversationAsync(a.TenantId, id, ct);
+            var v = await repo.GetConversationAsync(a.TenantId, id, xem, ct);
             if (v is not null && svc.Adapter((ChatChannel)v.Channel) is { } boNoi)
                 await boNoi.MarkSeenAsync(a.TenantId, v.AccountId, v.ContactExternalId, ct);
 
@@ -1223,12 +1251,13 @@ public static class ChatInboxEndpoints
         // ⚠️ KHÔNG gọi MarkSeenAsync như đường /read: không nền tảng nào cho "bỏ đã xem". Báo
         // sang kênh một lần nữa còn tệ hơn — khách nhận thêm một tín hiệu đã xem cho tin cũ.
         g.MapPost("/conversations/{id:long}/unread", async (long id, HttpContext ctx,
-            TkSessionStore sessions, ChatRepository repo, CancellationToken ct) =>
+            TkSessionStore sessions, ChatRepository repo, ChatAssignRepository assign, CancellationToken ct) =>
         {
-            var a = SessionAuth.Read(ctx, sessions);
-            if (a == null) return SessionAuth.Unauthorized();
+            var p = await SessionAuth.ReadNguoiXemAsync(ctx, sessions, assign, ct);
+            if (p == null) return SessionAuth.Unauthorized();
+            var (a, xem) = p.Value;
             if (!repo.Configured) return NotConfigured();
-            if (await repo.GetConversationAsync(a.TenantId, id, ct) is null) return Results.NotFound();
+            if (await repo.GetConversationAsync(a.TenantId, id, xem, ct) is null) return Results.NotFound();
 
             var duoc = await repo.MarkUnreadAsync(a.TenantId, id, a.Username, ct);
             if (duoc)
@@ -1244,12 +1273,13 @@ public static class ChatInboxEndpoints
         // báo thành công rồi để nhân viên tưởng đã rút lại được và không đi xin lỗi khách.
         g.MapPost("/conversations/{id:long}/messages/{msgId:long}/recall", async (long id,
             long msgId, HttpContext ctx, TkSessionStore sessions, ChatRepository repo,
-            ChatInboundService svc, ChatEventBus bus, CancellationToken ct) =>
+            ChatAssignRepository assign, ChatInboundService svc, ChatEventBus bus, CancellationToken ct) =>
         {
-            var a = SessionAuth.Read(ctx, sessions);
-            if (a == null) return SessionAuth.Unauthorized();
+            var p = await SessionAuth.ReadNguoiXemAsync(ctx, sessions, assign, ct);
+            if (p == null) return SessionAuth.Unauthorized();
+            var (a, xem) = p.Value;
             if (!repo.Configured) return NotConfigured();
-            if (await repo.GetConversationAsync(a.TenantId, id, ct) is not { } v) return Results.NotFound();
+            if (await repo.GetConversationAsync(a.TenantId, id, xem, ct) is not { } v) return Results.NotFound();
 
             if (await repo.CancelOutboxAsync(a.TenantId, id, msgId, ct))
             {
@@ -1282,13 +1312,14 @@ public static class ChatInboxEndpoints
         // Xoá tin — CHỈ trong hộp thư mình. Xoá MỀM: dòng vẫn nằm đó, chỉ đóng dấu, vì người
         // trực có thể đã đọc và đã hành động theo câu đó.
         g.MapDelete("/conversations/{id:long}/messages/{msgId:long}", async (long id, long msgId,
-            HttpContext ctx, TkSessionStore sessions, ChatRepository repo, ChatEventBus bus,
-            CancellationToken ct) =>
+            HttpContext ctx, TkSessionStore sessions, ChatRepository repo, ChatAssignRepository assign,
+            ChatEventBus bus, CancellationToken ct) =>
         {
-            var a = SessionAuth.Read(ctx, sessions);
-            if (a == null) return SessionAuth.Unauthorized();
+            var p = await SessionAuth.ReadNguoiXemAsync(ctx, sessions, assign, ct);
+            if (p == null) return SessionAuth.Unauthorized();
+            var (a, xem) = p.Value;
             if (!repo.Configured) return NotConfigured();
-            if (await repo.GetConversationAsync(a.TenantId, id, ct) is null) return Results.NotFound();
+            if (await repo.GetConversationAsync(a.TenantId, id, xem, ct) is null) return Results.NotFound();
 
             if (!await repo.SoftDeleteMessageAsync(a.TenantId, id, msgId, ct)) return Results.NotFound();
             await repo.AppendAuditAsync(a.TenantId, id, a.Username, "xoa-tin",
@@ -1301,14 +1332,15 @@ public static class ChatInboxEndpoints
         // làm hộp thư nói dối về thứ khách thật sự nhận được.
         g.MapPatch("/conversations/{id:long}/messages/{msgId:long}", async (long id, long msgId,
             EditMsgReq body, HttpContext ctx, TkSessionStore sessions, ChatRepository repo,
-            ChatEventBus bus, CancellationToken ct) =>
+            ChatAssignRepository assign, ChatEventBus bus, CancellationToken ct) =>
         {
-            var a = SessionAuth.Read(ctx, sessions);
-            if (a == null) return SessionAuth.Unauthorized();
+            var p = await SessionAuth.ReadNguoiXemAsync(ctx, sessions, assign, ct);
+            if (p == null) return SessionAuth.Unauthorized();
+            var (a, xem) = p.Value;
             if (!repo.Configured) return NotConfigured();
             if (string.IsNullOrWhiteSpace(body.Body))
                 return Results.Json(new { error = "Nội dung không được để trống" }, Web, statusCode: 400);
-            if (await repo.GetConversationAsync(a.TenantId, id, ct) is null) return Results.NotFound();
+            if (await repo.GetConversationAsync(a.TenantId, id, xem, ct) is null) return Results.NotFound();
 
             if (!await repo.EditPendingMessageAsync(a.TenantId, id, msgId, body.Body.Trim(), ct))
                 return Results.Json(new { error = "Tin đã gửi đi rồi nên không sửa được nữa" },
@@ -1323,12 +1355,13 @@ public static class ChatInboxEndpoints
         // Chặn / bỏ chặn khách. CHỈ trong hộp thư của mình: không nền tảng nào cho phía doanh
         // nghiệp chặn một người qua API. Vì thế giao diện tuyệt đối không được gọi là "báo xấu".
         g.MapPost("/conversations/{id:long}/block", async (long id, HttpContext ctx,
-            TkSessionStore sessions, ChatRepository repo, CancellationToken ct) =>
+            TkSessionStore sessions, ChatRepository repo, ChatAssignRepository assign, CancellationToken ct) =>
         {
-            var a = SessionAuth.Read(ctx, sessions);
-            if (a == null) return SessionAuth.Unauthorized();
+            var p = await SessionAuth.ReadNguoiXemAsync(ctx, sessions, assign, ct);
+            if (p == null) return SessionAuth.Unauthorized();
+            var (a, xem) = p.Value;
             if (!repo.Configured) return NotConfigured();
-            if (await repo.GetConversationAsync(a.TenantId, id, ct) is not { } v) return Results.NotFound();
+            if (await repo.GetConversationAsync(a.TenantId, id, xem, ct) is not { } v) return Results.NotFound();
 
             await repo.SetContactBlockedAsync(a.TenantId, (ChatChannel)v.Channel,
                 v.ContactExternalId, true, a.Username, ct);
@@ -1337,12 +1370,13 @@ public static class ChatInboxEndpoints
         });
 
         g.MapDelete("/conversations/{id:long}/block", async (long id, HttpContext ctx,
-            TkSessionStore sessions, ChatRepository repo, CancellationToken ct) =>
+            TkSessionStore sessions, ChatRepository repo, ChatAssignRepository assign, CancellationToken ct) =>
         {
-            var a = SessionAuth.Read(ctx, sessions);
-            if (a == null) return SessionAuth.Unauthorized();
+            var p = await SessionAuth.ReadNguoiXemAsync(ctx, sessions, assign, ct);
+            if (p == null) return SessionAuth.Unauthorized();
+            var (a, xem) = p.Value;
             if (!repo.Configured) return NotConfigured();
-            if (await repo.GetConversationAsync(a.TenantId, id, ct) is not { } v) return Results.NotFound();
+            if (await repo.GetConversationAsync(a.TenantId, id, xem, ct) is not { } v) return Results.NotFound();
 
             await repo.SetContactBlockedAsync(a.TenantId, (ChatChannel)v.Channel,
                 v.ContactExternalId, false, a.Username, ct);
@@ -1352,12 +1386,13 @@ public static class ChatInboxEndpoints
 
         // Theo dõi / bỏ theo dõi. KHÔNG đụng assigned_username — theo dõi không phải nhận việc.
         g.MapPost("/conversations/{id:long}/follow", async (long id, HttpContext ctx,
-            TkSessionStore sessions, ChatRepository repo, CancellationToken ct) =>
+            TkSessionStore sessions, ChatRepository repo, ChatAssignRepository assign, CancellationToken ct) =>
         {
-            var a = SessionAuth.Read(ctx, sessions);
-            if (a == null) return SessionAuth.Unauthorized();
+            var p = await SessionAuth.ReadNguoiXemAsync(ctx, sessions, assign, ct);
+            if (p == null) return SessionAuth.Unauthorized();
+            var (a, xem) = p.Value;
             if (!repo.Configured) return NotConfigured();
-            if (await repo.GetConversationAsync(a.TenantId, id, ct) is null) return Results.NotFound();
+            if (await repo.GetConversationAsync(a.TenantId, id, xem, ct) is null) return Results.NotFound();
 
             await repo.SetFollowAsync(a.TenantId, id, a.Username, true, ct);
             await repo.AppendAuditAsync(a.TenantId, id, a.Username, "theo-doi", null, ct);
@@ -1365,12 +1400,13 @@ public static class ChatInboxEndpoints
         });
 
         g.MapDelete("/conversations/{id:long}/follow", async (long id, HttpContext ctx,
-            TkSessionStore sessions, ChatRepository repo, CancellationToken ct) =>
+            TkSessionStore sessions, ChatRepository repo, ChatAssignRepository assign, CancellationToken ct) =>
         {
-            var a = SessionAuth.Read(ctx, sessions);
-            if (a == null) return SessionAuth.Unauthorized();
+            var p = await SessionAuth.ReadNguoiXemAsync(ctx, sessions, assign, ct);
+            if (p == null) return SessionAuth.Unauthorized();
+            var (a, xem) = p.Value;
             if (!repo.Configured) return NotConfigured();
-            if (await repo.GetConversationAsync(a.TenantId, id, ct) is null) return Results.NotFound();
+            if (await repo.GetConversationAsync(a.TenantId, id, xem, ct) is null) return Results.NotFound();
 
             await repo.SetFollowAsync(a.TenantId, id, a.Username, false, ct);
             await repo.AppendAuditAsync(a.TenantId, id, a.Username, "bo-theo-doi", null, ct);
@@ -1419,12 +1455,14 @@ public static class ChatInboxEndpoints
         });
 
         g.MapPost("/conversations/{id:long}/bot", async (long id, BotReq body, HttpContext ctx,
-            TkSessionStore sessions, ChatRepository repo, ChatEventBus bus, CancellationToken ct) =>
+            TkSessionStore sessions, ChatRepository repo, ChatAssignRepository assign, ChatEventBus bus,
+            CancellationToken ct) =>
         {
-            var a = SessionAuth.Read(ctx, sessions);
-            if (a == null) return SessionAuth.Unauthorized();
+            var p = await SessionAuth.ReadNguoiXemAsync(ctx, sessions, assign, ct);
+            if (p == null) return SessionAuth.Unauthorized();
+            var (a, xem) = p.Value;
             if (!repo.Configured) return NotConfigured();
-            if (await repo.GetConversationAsync(a.TenantId, id, ct) is null) return Results.NotFound();
+            if (await repo.GetConversationAsync(a.TenantId, id, xem, ct) is null) return Results.NotFound();
 
             // paused=false → bỏ câm ngay; true → câm theo số phút (mặc định 30).
             var phut = body.Paused ? Math.Clamp(body.Minutes ?? 30, 1, 1440) : 0;

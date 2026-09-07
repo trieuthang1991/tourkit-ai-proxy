@@ -267,8 +267,8 @@ public class ChatRepository
     /// danh sách bên trái hiện "Thắng Triệu" còn đầu khung chat ngay cạnh hiện
     /// "4951953868228330" — cùng một khách, hai cái tên, trên cùng một màn hình.</para>
     /// </summary>
-    public async Task<ChatConversation?> GetConversationAsync(string tenant, long id, CancellationToken ct = default,
-        string? nguoiDung = null)
+    public async Task<ChatConversation?> GetConversationAsync(string tenant, long id, NguoiXem xem,
+        CancellationToken ct = default, string? nguoiDung = null)
     {
         await using var c = await _db.OpenAsync(ct);
         return await c.QuerySingleOrDefaultAsync<ChatConversation>("""
@@ -281,7 +281,10 @@ public class ChatRepository
                 ON ct.tenant_id = v.tenant_id AND ct.channel = v.channel
                AND ct.external_id = v.contact_external_id
              WHERE v.id = @id AND v.tenant_id = @tenant
-            """, new { id, tenant, nguoiDung });
+               -- Luật xem. Không được xem thì KHÔNG có dòng nào → chỗ gọi trả 404 sẵn có,
+               -- không phải viết nhánh 403 mới (403 là xác nhận hội thoại tồn tại).
+               AND (@xemTatCa OR v.assigned_user_id = @maNguoi)
+            """, new { id, tenant, nguoiDung, xemTatCa = xem.XemTatCa, maNguoi = xem.CrmUserId });
     }
 
     /// <summary>
@@ -338,7 +341,7 @@ public class ChatRepository
     /// <param name="chiChuaDoc">Chỉ hội thoại khách nhắn sau lần mình mở gần nhất.</param>
     /// <param name="nguoiDung">Người đang xem — mốc "đã đọc" lấy theo người này, không phải theo
     /// cả công ty. Null thì lùi về mốc chung cũ.</param>
-    public async Task<List<ChatConversation>> ListConversationsAsync(string tenant, short? trangThai,
+    public async Task<List<ChatConversation>> ListConversationsAsync(string tenant, NguoiXem xem, short? trangThai,
         string? chiCuaToi, string? timKiem, short? kenh = null, string? giaoCho = null,
         bool chiChuaDoc = false, bool chiTheoDoi = false, ConvCursor? sau = null, int limit = 60, string? nguoiDung = null,
         CancellationToken ct = default)
@@ -372,11 +375,14 @@ public class ChatRepository
                    OR v.contact_external_id ILIKE @tim)
               AND (@sauLuc::timestamptz IS NULL
                    OR (v.last_activity_at, v.id) < (@sauLuc::timestamptz, @sauId::bigint))
+              -- Luật xem, giống hệt GetConversationAsync — kẹp ở SQL, không lọc phía client.
+              AND (@xemTatCa OR v.assigned_user_id = @maNguoi)
             ORDER BY v.last_activity_at DESC, v.id DESC
             LIMIT @limit
             """, new { tenant, trangThai, chiCuaToi, kenh, giaoCho, chuaDoc = chiChuaDoc, chiTheoDoi, nguoiDung,
                        tim = string.IsNullOrWhiteSpace(timKiem) ? null : $"%{timKiem.Trim()}%",
                        sauLuc = sau?.LastActivityAt, sauId = sau?.Id,
+                       xemTatCa = xem.XemTatCa, maNguoi = xem.CrmUserId,
                        limit = Math.Clamp(limit, 1, 200) })).ToList();
     }
 
