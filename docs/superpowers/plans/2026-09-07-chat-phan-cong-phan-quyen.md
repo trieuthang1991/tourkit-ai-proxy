@@ -1189,10 +1189,21 @@ cặp là bắt giao diện tự giữ cho hai lượt ghi khớp nhau.
             {
                 var r = await api.GetAsync(s!.Jwt, "/api/ai/reference", ct);
                 if (r.TryGetProperty("lookups", out var lk)
-                    && lk.TryGetProperty("sellers", out var sellers))
+                    && lk.TryGetProperty("sellers", out var sellers)
+                    && sellers.ValueKind == JsonValueKind.Array)
                     foreach (var it in sellers.EnumerateArray())
-                        nhanVien.Add(new { id = it.GetProperty("id").GetInt32(),
-                                           name = it.GetProperty("name").GetString() });
+                    {
+                        // ⚠️ Khoá số có thể là "value" HOẶC "id" tuỳ enum — DealEndpoints.BuildDealLookups
+                        // đã phải xử cả hai. Gọi thẳng GetProperty("id") là NÉM khi payload dùng "value",
+                        // và cả lượt gọi rơi vào catch bên dưới → danh sách nhân viên rỗng, im lặng.
+                        var ma = it.TryGetProperty("value", out var v) && v.ValueKind == JsonValueKind.Number
+                                     ? v.GetInt32()
+                                 : it.TryGetProperty("id", out var i2) && i2.ValueKind == JsonValueKind.Number
+                                     ? i2.GetInt32() : 0;
+                        var ten = it.TryGetProperty("name", out var n) ? n.GetString() : null;
+                        if (ma > 0 && !string.IsNullOrWhiteSpace(ten))
+                            nhanVien.Add(new { id = ma, name = ten });
+                    }
             }
             catch { /* để rỗng */ }
 
@@ -1359,7 +1370,15 @@ Trong file CSS của hộp thư (grep `.ci-nut` để tìm), thêm:
 
 - [ ] **Step 5: Hiện tên đầy đủ thay tên đăng nhập**
 
-Ở dòng 951-952 và 2513, thay `v.assignedUsername || 'chưa ai nhận'` bằng:
+**BA chỗ, không phải hai** — kế hoạch bản đầu bỏ sót chỗ thứ ba:
+
+| Dòng | Chỗ |
+|---|---|
+| ~952 | khối Thông tin bên phải |
+| ~2513 | dòng gộp trạng thái ở thanh tiêu đề |
+| **~2413** | **huy hiệu người phụ trách trên từng dòng danh sách hội thoại** (`c.assignedUsername`) — dùng biến `c`, không phải `v` |
+
+Cả ba thay `assignedUsername` bằng:
 
 ```jsx
 {(phanCong.staffs || []).find(nv => nv.id === v.assignedUserId)?.name
