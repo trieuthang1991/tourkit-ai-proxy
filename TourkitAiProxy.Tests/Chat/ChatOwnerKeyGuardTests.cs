@@ -111,6 +111,48 @@ public class ChatOwnerKeyGuardTests
         foreach (var cam in new[] { "f.username", "f2.username", "r.username",
                                     "conversation_id, username" })
             Assert.DoesNotContain(cam, repo);
+
+        // ⚠️ Và CẢ FILE, không chỉ năm thân hàm được cắt. Cửa sổ hẹp luôn bị vô hiệu bằng cách
+        // DỜI MÃ RA NGOÀI: đặt một hàm gói ghi assigned_username ở cuối file rồi gọi từ trong
+        // AssignAsync thì đường phân công ghi lại cột chết ở MỌI lượt giao việc mà toàn bộ test
+        // vẫn xanh (đã đo). Cột này đã chết hẳn — không mã nào trong kho được đụng vào nó.
+        Assert.DoesNotContain("assigned_username", repo);
+    }
+
+    [Fact]
+    public void Shape_phai_phat_MA_nguoi_phu_trach_ra_giao_dien()
+    {
+        // Không phát mã thì nút không bao giờ đổi được sang "Bỏ nhận" và đường DELETE /assign
+        // không có chỗ nào bấm tới — tính năng chết mà không lỗi nào hiện ra. Trước 07/09/2026
+        // việc này KHÔNG có chốt canh nào: bỏ hẳn dòng đó khỏi Shape() vẫn xanh toàn bộ.
+        var endpoint = ChatSchemaGuardTests.DocFile(
+            "TourkitAiProxy.Endpoints/ChatInboxEndpoints.cs");
+        var i = endpoint.IndexOf("object Shape(", StringComparison.Ordinal);
+        Assert.True(i > 0, "Không thấy Shape()");
+        var ket = endpoint.IndexOf("\n    }", i, StringComparison.Ordinal);
+        var than = ket > i ? endpoint[i..ket] : "";
+        Assert.False(string.IsNullOrWhiteSpace(than), "Không cắt được thân Shape()");
+
+        // ⚠️ BỎ dòng chú thích trước khi tìm. Bản đầu của chính chốt này tìm trên thân thô nên
+        // biến dòng phát mã thành "// v.AssignedUserId," là nó VẪN XANH — chốt canh đếm cả mã
+        // đã bị tắt thì canh cái gì.
+        var dong = than.Split((char)10);
+        var maSong = string.Join(" ", System.Linq.Enumerable.Where(dong,
+            d => !d.TrimStart().StartsWith("//", StringComparison.Ordinal)));
+        Assert.Contains("AssignedUserId", maSong);
+    }
+
+    [Fact]
+    public void Van_GIU_khoi_don_cot_assigned_username()
+    {
+        // Sau khi mọi chốt khác thôi nhắc assigned_username thì không còn gì canh sự TỒN TẠI của
+        // khối dọn dẹp — xoá cả khối đi cũng xanh, và cột chết nằm lại trong CSDL mãi mãi.
+        var sql = ChatSchemaGuardTests.DocFile(
+            "TourkitAiProxy.Infrastructure/Chat/Inbox/ChatDb.cs");
+        Assert.Contains("DROP COLUMN assigned_username", sql);
+        // Lọc theo schema là BẮT BUỘC: thiếu nó thì một bảng trùng tên ở schema khác làm điều
+        // kiện luôn đúng, khối DO ném ở MỌI lần khởi động và cuốn theo cả lô SchemaSql.
+        Assert.Contains("table_schema = current_schema()", sql);
     }
 
     /// <summary>

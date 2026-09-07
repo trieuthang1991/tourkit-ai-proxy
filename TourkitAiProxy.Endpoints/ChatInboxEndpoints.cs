@@ -555,7 +555,12 @@ public static class ChatInboxEndpoints
                             else if (it.TryGetProperty("id", out var i2) && i2.ValueKind == JsonValueKind.Number
                                 && i2.TryGetInt32(out var idn))
                                 ma = idn;
-                            var ten = it.TryGetProperty("name", out var n) ? n.GetString() : null;
+                            // GetString() NÉM nếu "name" không phải chuỗi (ERP trả số chẳng hạn).
+                            // Ném ở đây rơi vào catch NGOÀI vòng lặp -> mất cả danh sách vì MỘT bản
+                            // ghi lệch dạng, rồi lượt đệm lại giữ danh sách cụt đó hai tiếng. Cùng
+                            // lớp lỗi với GetInt32() đã sửa ở ngay trên — sót đúng một dòng.
+                            var ten = it.TryGetProperty("name", out var n)
+                                && n.ValueKind == JsonValueKind.String ? n.GetString() : null;
                             if (ma > 0 && !string.IsNullOrWhiteSpace(ten))
                                 nhanVien.Add(new { id = ma, name = ten });
                         }

@@ -129,13 +129,22 @@ public class ChatScopeGuardTests
         // thẳng xuống SQL, mở toang hội thoại cả công ty cho nhân viên thường ngay lúc tra mã
         // lỗi. Khoá lại: mã không tra ra được phải đổi thành sentinel không mã người thật nào
         // khớp (mã CRM luôn > 0), không được lọt thành null.
+        // ⚠️ Neo vào ĐÚNG CÂU GÁN của từng biến. Bản trước rải hai khẳng định ra cả thân hàm —
+        // "không chứa nguyên văn dòng cũ" + "ở đâu đó có sentinel" — mà hai vế không buộc vào cùng
+        // một biến. Hệ quả: viết lại y nguyên lỗ hổng bằng chữ khác thì chốt VẪN XANH. Đã đo:
+        //     var chiCuaToi = xemHet ? (int?)null : maToi;      // fail-open, chốt cũ xanh 7/7
+        //     var giaoChoLoc = mine == true ? maToi : (int?)null; // fail-open, chốt cũ xanh
+        // Vế DoesNotContain cho giaoCho còn tệ hơn: biểu thức đã tách ra biến riêng nên chuỗi bị
+        // cấm KHÔNG THỂ xuất hiện nữa — nó vĩnh viễn đúng, tức vĩnh viễn vô nghĩa.
+        //
+        // Chốt canh phải bắt LUẬT ("mã tra không ra thì đóng"), không bắt CHÍNH TẢ của một bản viết.
         var than = ThanDanhSach();
-        Assert.DoesNotContain("chiCuaToi = xemHet ? null : maToi;", than);
-        Assert.Contains("maToi ?? KHONG_XAC_DINH_DUOC_MA", than);
-
-        // Bộ lọc "Của tôi" (giaoCho) lọt theo đúng đường: mine == true mà mã tra không ra thì
-        // cũng phải đóng, không coi như "không lọc" — @giaoCho IS NULL cũng mở y hệt.
-        Assert.DoesNotContain("giaoCho: mine == true ? maToi : null", than);
+        foreach (var bien in new[] { "chiCuaToi", "giaoChoLoc" })
+        {
+            var cau = CauGan(than, bien);
+            Assert.False(string.IsNullOrWhiteSpace(cau), $"Không cắt được câu gán {bien}");
+            Assert.Contains("KHONG_XAC_DINH_DUOC_MA", cau);
+        }
     }
 
     [Fact]
@@ -148,10 +157,13 @@ public class ChatScopeGuardTests
         // ĐỌC, không khoá phần hạ tầng ghi/nạp.
         var neo = "string.Equals(a.Username, \"admin\", StringComparison.OrdinalIgnoreCase)";
 
-        var m = Regex.Match(SessionAuthSrc(), "ReadNguoiXemAsync(.{0,1200})", RegexOptions.Singleline);
-        Assert.True(m.Success, "Không thấy ReadNguoiXemAsync");
-        Assert.Contains(neo, m.Groups[1].Value);
-        Assert.DoesNotContain("s?.IsAdmin", m.Groups[1].Value);
+        // Cắt tới THÀNH VIÊN KẾ TIẾP, không đếm ký tự. Cửa sổ 1200 chỉ còn dư 76 ký tự: thêm
+        // đúng MỘT dòng chú thích không đổi hành vi là chốt đỏ (đã đo). Bộ test này đã đỏ oan
+        // ba lần vì đúng cơ chế đó.
+        var thanRead = ThanReadNguoiXem();
+        Assert.False(string.IsNullOrWhiteSpace(thanRead), "Không cắt được thân ReadNguoiXemAsync");
+        Assert.Contains(neo, thanRead);
+        Assert.DoesNotContain("s?.IsAdmin", thanRead);
 
         var src = Endpoint();
         var i = src.IndexOf("MapGet(\"/assign-settings\"", System.StringComparison.Ordinal);
@@ -160,5 +172,26 @@ public class ChatScopeGuardTests
         var than = src[i..j];
         Assert.Contains(neo, than);
         Assert.DoesNotContain("s?.IsAdmin", than);
+    }
+    /// <summary>Cắt đúng CÂU LỆNH gán <c>var &lt;bien&gt; = …;</c> — trả rỗng nếu không thấy.</summary>
+    private static string CauGan(string than, string bien)
+    {
+        var i = than.IndexOf($"var {bien} = ", StringComparison.Ordinal);
+        if (i < 0) return "";
+        var j = than.IndexOf(';', i);
+        return j < 0 ? "" : than[i..j];
+    }
+
+    /// <summary>
+    /// Thân <c>ReadNguoiXemAsync</c>, cắt tới thành viên kế tiếp của lớp.
+    /// Ranh giới cú pháp, không phải số ký tự — xem lý do ở chỗ gọi.
+    /// </summary>
+    private static string ThanReadNguoiXem()
+    {
+        var src = SessionAuthSrc();
+        var i = src.IndexOf("ReadNguoiXemAsync", StringComparison.Ordinal);
+        if (i < 0) return "";
+        var j = src.IndexOf("\n    public", i + 20, StringComparison.Ordinal);
+        return j < 0 ? src[i..] : src[i..j];
     }
 }

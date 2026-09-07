@@ -194,10 +194,14 @@ public class ChatClaimGuardTests
         // hàm này để đọc thân thô rồi tự tay bắt lỗi; bản này quay về model-binding kiểu có kiểu
         // của chính minimal API, nên endpoint không còn tự tay đọc/parse gì cả.
         //
-        // Kẹp trong CHÍNH thân handler /assign, không soi cả file 2.600+ dòng: endpoint khác
-        // dùng ReadFromJsonAsync HỢP LỆ ở đâu đó (ví dụ đọc multipart/tệp) sẽ làm bản test cũ
-        // đỏ oan dù handler /assign không hề đụng tới hàm này.
-        Assert.DoesNotContain("ReadFromJsonAsync", AssignHandler());
+        // Soi CẢ FILE, không kẹp trong thân handler. Lý lẽ "kẹp hẹp cho khỏi đỏ oan" nghe hợp lý
+        // nhưng ĐO RA LÀ SAI theo hai hướng: (a) file này hiện có ĐÚNG 0 lượt dùng ReadFromJsonAsync
+        // nên không có gì để đỏ oan — sáu lượt dùng hợp lệ nằm ở file khác mà chốt không đọc tới;
+        // (b) cửa sổ hẹp luôn bị vô hiệu bằng cách DỜI MÃ RA NGOÀI: đặt một hàm gói ở cuối file rồi
+        // gọi từ trong handler thì lỗ hổng quay lại nguyên vẹn mà 18/18 test vẫn xanh (đã đo).
+        //
+        // Luật chung: DoesNotContain + cửa sổ hẹp = chốt canh giả. Cấm thì cấm cả file.
+        Assert.DoesNotContain("ReadFromJsonAsync", Endpoint());
     }
 
     [Fact]
