@@ -1743,7 +1743,36 @@ Sửa chỗ truyền ở `ChatInboxEndpoints.cs` — lấy mã từ phiên (`Ens
 
 `AssigneeOfAsync` — trả `int?` thay vì `string?`. Thân 409 trả mã người; giao diện tra tên từ danh sách nhân viên nó vốn đã nạp.
 
-⚠️ **Không xoá cột khỏi CSDL.** Xoá cột là thao tác không lùi được, và nó vô hại khi không ai đọc. Thêm một dòng chú thích ở `ChatDb.cs` nói rõ cột này **đã chết**, giữ lại chỉ vì `chat_audit` cũ có nhắc tên, và cấm đọc nó cho bất kỳ quyết định nào.
+- [ ] **Step 4b: Xoá cột khỏi CSDL — nhưng để CSDL tự kiểm trước**
+
+Chủ dự án đã cho phép chủ động xử lý CSDL chat (07/09/2026, cụm chat chưa vận hành). Nhưng xoá
+cột là thao tác **không lùi được**, và không ai trong chúng ta đã nhìn vào dữ liệu thật. Nên viết
+lệnh sao cho **chính CSDL kiểm hộ**: chỉ xoá khi không còn gì để mất.
+
+Thêm vào `ChatDb.SchemaSql`:
+
+```sql
+    -- Cột assigned_username ĐÃ CHẾT: đường phân công nay chỉ dùng assigned_user_id (đặc tả 4b).
+    --
+    -- Xoá cột không lùi được, mà không ai đã soi dữ liệu thật — nên để CSDL tự kiểm: chỉ xoá khi
+    -- không còn dòng nào mang giá trị. Còn dữ liệu thì cột ở lại và ta biết là phải xem trước.
+    -- Idempotent: chạy lại lần hai thì cột đã không còn, khối IF không vào.
+    DO $$
+    BEGIN
+      IF EXISTS (SELECT 1 FROM information_schema.columns
+                  WHERE table_name = 'chat_conversations' AND column_name = 'assigned_username')
+         AND NOT EXISTS (SELECT 1 FROM chat_conversations WHERE assigned_username IS NOT NULL)
+      THEN
+        DROP INDEX IF EXISTS ix_conv_tenant_assignee;
+        ALTER TABLE chat_conversations DROP COLUMN assigned_username;
+        RAISE NOTICE 'Da xoa cot assigned_username (khong con du lieu)';
+      END IF;
+    END $$;
+```
+
+⚠️ **Nếu cột KHÔNG bị xoá** thì nghĩa là còn dữ liệu thật — báo lại cho controller, đừng ép xoá.
+
+⚠️ Chỉ mục `ix_conv_tenant_assignee` phải bỏ **trước** cột, không thì lệnh xoá cột hỏng.
 
 - [ ] **Step 5: Ba thao tác, ba đường**
 
