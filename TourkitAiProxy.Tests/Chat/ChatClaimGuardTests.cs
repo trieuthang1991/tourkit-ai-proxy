@@ -155,21 +155,36 @@ public class ChatClaimGuardTests
     }
 
     [Fact]
-    public void Gan_viec_re_nhanh_theo_su_hien_dien_cua_khoa_userId()
+    public void AssignReq_chi_mot_truong_KHONG_nullable()
     {
-        // Rẽ theo "có thân hay không" (`body is null`) lộ một lỗ hổng tương thích ngược: client
-        // CŨ gửi thân KHÔNG có khoá "userId" (`{}` hoặc `{"username":""}`) — cả hai đều "có
-        // thân", nên rẽ theo body-null sẽ ép chúng vào nhánh "có thân" (chuyển/nhả việc) thay vì
-        // "nhận việc" như hành vi gốc — một tab đang mở JS cũ sau khi triển khai bấm "Nhận việc"
-        // sẽ âm thầm NHẢ việc.
-        //
-        // Phải rẽ theo SỰ HIỆN DIỆN của khoá "userId" (TryGetProperty), không theo "có thân hay
-        // không" và không theo giá trị bên trong khoá.
-        var than = AssignHandler();
-        Assert.Contains("TryGetProperty(\"userId\"", than);
-        Assert.DoesNotContain("if (body is null)", than);
-        Assert.DoesNotContain("body?.UserId is null", than);
-        Assert.DoesNotContain("body?.Username is null", than);
+        // Cụm chat chưa vận hành nên không có "khoá vắng mặt" cần phân biệt với "khoá mang
+        // null" — nhả việc đi hẳn đường DELETE riêng (xem guard bên dưới). AssignReq quay lại
+        // kiểu có kiểu, một trường, không nullable: không cần đọc thân thô để phân biệt hai
+        // trạng thái mà route đã tách bằng phương thức HTTP.
+        var src = Endpoint();
+        Assert.Contains("public record AssignReq(int UserId)", src);
+        Assert.DoesNotContain("record AssignReq(int? UserId)", src);
+    }
+
+    [Fact]
+    public void Assign_KHONG_doc_than_tho_qua_ReadFromJsonAsync()
+    {
+        // ReadFromJsonAsync kiểm Content-Type TRƯỚC khi đọc: header sai/thiếu (client gửi thân
+        // nhưng không kèm đúng header) làm nó ném InvalidOperationException — KHÔNG phải
+        // JsonException — nên bắt mỗi JsonException để lọt nguyên vẹn thành 500. Bản trước dùng
+        // hàm này để đọc thân thô rồi tự tay bắt lỗi; bản này quay về model-binding kiểu có kiểu
+        // của chính minimal API, nên endpoint không còn tự tay đọc/parse gì cả.
+        Assert.DoesNotContain("ReadFromJsonAsync", Endpoint());
+    }
+
+    [Fact]
+    public void Nha_viec_di_duong_DELETE_rieng()
+    {
+        // Ba thao tác, ba đường: KHÔNG thân → nhận việc; {"userId":N} → chuyển việc; DELETE →
+        // nhả việc. Tách nhả việc khỏi POST xoá luôn nhu cầu phân biệt "khoá vắng mặt" (nhận
+        // việc) với "khoá mang giá trị null" (nhả việc) — sự nhập nhằng biến mất ở tầng thiết
+        // kế, không cần đọc thân thô để phân xử. Cùng lối /follow (POST theo dõi, DELETE bỏ).
+        Assert.Contains("MapDelete(\"/conversations/{id:long}/assign\"", Endpoint());
     }
 
     [Fact]

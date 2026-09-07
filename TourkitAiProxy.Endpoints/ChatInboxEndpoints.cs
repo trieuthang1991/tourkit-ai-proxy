@@ -1017,7 +1017,7 @@ public static class ChatInboxEndpoints
             return await TelegramFileAsync(httpFac, token, fid, ct);
         });
 
-        g.MapPost("/conversations/{id:long}/assign", async (long id, HttpContext ctx,
+        g.MapPost("/conversations/{id:long}/assign", async (long id, AssignReq? body, HttpContext ctx,
             TkSessionStore sessions, ChatRepository repo, ChatAssignRepository assign, ChatEventBus bus,
             ILoggerFactory lf, CancellationToken ct) =>
         {
@@ -1028,20 +1028,15 @@ public static class ChatInboxEndpoints
             if (!repo.Configured) return NotConfigured();
             if (await repo.GetConversationAsync(a.TenantId, id, xem, ct) is null) return Results.NotFound();
 
-            // Rẽ nhánh theo SỰ HIỆN DIỆN của khoá "userId" trong thân — KHÔNG theo "có thân hay
-            // không", và KHÔNG theo giá trị bên trong khoá. Client CŨ gửi thân KHÔNG có khoá này
-            // (`{}` hoặc `{"username":""}`), và cả hai kiểu đó vẫn phải là NHẬN VIỆC như hành vi
-            // đang chạy đúng từ trước: rẽ theo "có thân hay không" (`body is null`) sẽ biến một
-            // tab đang mở JS cũ — trong cửa sổ giữa lúc triển khai bản này và lúc Task 8 cập nhật
-            // giao diện — từ "bấm Nhận việc" thành "âm thầm nhả việc", đổi hẳn nghĩa của nút đang
-            // chạy đúng chứ không phải sửa một cái vốn đã hỏng.
-            var than = await ReadAssignBodyAsync(ctx, ct);
-            var coKhoaUserId = than is { ValueKind: JsonValueKind.Object } j && j.TryGetProperty("userId", out _);
-
-            if (!coKhoaUserId)
+            // KHÔNG có thân yêu cầu = NHẬN VIỆC cho chính mình. Tên và mã lấy từ PHIÊN, không
+            // lấy từ thân: để client tự khai thì ai cũng gán việc cho người khác được.
+            //
+            // Nhả việc KHÔNG đi qua đây nữa — xem DELETE cùng đường dẫn bên dưới. Tách riêng
+            // route xoá bỏ hẳn nhu cầu phân biệt "không có khoá userId" với "khoá mang giá trị
+            // null" mà bản trước phải đọc thân JSON thô để làm — không còn thân thô nào để đọc
+            // sai, không còn phụ thuộc header Content-Type do client đặt.
+            if (body is null)
             {
-                // KHÔNG có khoá "userId" = NHẬN VIỆC cho chính mình. Tên và mã lấy từ PHIÊN,
-                // không lấy từ thân: để client tự khai thì ai cũng gán việc cho người khác được.
                 var maToi = await sessions.EnsureCrmUserIdAsync(a.SessionId, ct);
                 var soDong = await repo.ClaimConversationAsync(a.TenantId, id, a.Username, maToi, ct);
                 if (soDong == 0)
@@ -1066,43 +1061,60 @@ public static class ChatInboxEndpoints
                 return Results.Json(new { ok = true, assignedTo = a.Username, assignedUserId = maToi }, Web);
             }
 
-            // Có khoá "userId": giá trị null → NHẢ VIỆC; giá trị số → giao cho người đó. Thân
-            // yêu cầu nay mang MÃ người, không mang tên đăng nhập: gõ sai một ký tự tên là hội
-            // thoại gán vào hư không — không ai thấy nó nữa (luật xem so theo mã), và không có
-            // lỗi nào hiện ra.
-            var uid = than!.Value.GetProperty("userId");
-            int? ma;
-            if (uid.ValueKind == JsonValueKind.Null) ma = null;
-            else if (uid.ValueKind == JsonValueKind.Number && uid.TryGetInt32(out var n)) ma = n;
-            else return Results.BadRequest(new { error = "userId phải là số hoặc null" });
+            // Có thân = CHUYỂN VIỆC cho người khác. Thân mang MÃ người, không mang tên đăng
+            // nhập: gõ sai một ký tự tên là hội thoại gán vào hư không — không ai thấy nó nữa
+            // (luật xem so theo mã), và không có lỗi nào hiện ra.
+            var ma = body.UserId;
+            var ch = await assign.LayCauHinhAsync(a.TenantId, ct);
+            if (ch is null || ch.MemberIds.Length == 0)
+                // Câu lỗi khác hẳn "không có trong đội trực": ở đây KHÔNG có ai trong đội
+                // trực để so, nói "người này sai" là đổ lỗi nhầm chỗ — người dùng cần biết
+                // phải đi cấu hình trước, không phải đi tìm mã đúng.
+                return Results.Json(new { error = "Đội trực chat chưa được cấu hình — vào Cấu hình phân công để thêm người trước khi giao việc." },
+                    statusCode: StatusCodes.Status400BadRequest);
+            if (!ch.MemberIds.Contains(ma))
+                return Results.Json(new { error = "Người này không có trong đội trực chat" },
+                    statusCode: StatusCodes.Status400BadRequest);
 
-            if (ma is not null)
-            {
-                var ch = await assign.LayCauHinhAsync(a.TenantId, ct);
-                if (ch is null || ch.MemberIds.Length == 0)
-                    // Câu lỗi khác hẳn "không có trong đội trực": ở đây KHÔNG có ai trong đội
-                    // trực để so, nói "người này sai" là đổ lỗi nhầm chỗ — người dùng cần biết
-                    // phải đi cấu hình trước, không phải đi tìm mã đúng.
-                    return Results.Json(new { error = "Đội trực chat chưa được cấu hình — vào Cấu hình phân công để thêm người trước khi giao việc." },
-                        statusCode: StatusCodes.Status400BadRequest);
-                if (!ch.MemberIds.Contains(ma.Value))
-                    return Results.Json(new { error = "Người này không có trong đội trực chat" },
-                        statusCode: StatusCodes.Status400BadRequest);
-            }
-
-            // ma = null nghĩa là NHẢ VIỆC — trả hội thoại về hàng chờ.
             await repo.AssignAsync(a.TenantId, id, username: null, userId: ma, ct);
-            await repo.AppendAuditAsync(a.TenantId, id, a.Username,
-                ma is null ? "nha-viec" : "chuyen-viec",
-                ma is null ? null : new JsonObject { ["cho"] = ma }.ToJsonString(), ct);
+            await repo.AppendAuditAsync(a.TenantId, id, a.Username, "chuyen-viec",
+                new JsonObject { ["cho"] = ma }.ToJsonString(), ct);
             // Phát giá trị SAU khi đổi, không phải giá trị đọc lúc đầu handler — phát nhầm giá trị
-            // cũ thì người vừa được giao không nhận sự kiện, còn người vừa bị gỡ thì vẫn nhận.
+            // cũ thì người vừa được giao không nhận sự kiện.
             var saoKhiGiao = await repo.GetConversationAsync(a.TenantId, id, NguoiXem.HeThong, ct);
             if (saoKhiGiao is null)
-                log.LogWarning("[chat/assign] đọc lại hội thoại {H} sau khi CHUYỂN/NHẢ VIỆC ra null " +
+                log.LogWarning("[chat/assign] đọc lại hội thoại {H} sau khi CHUYỂN VIỆC ra null " +
                     "— sự kiện phát đi mang AssignedUserId=null", id);
             bus.Publish(new(a.TenantId, id, "doi-hoi-thoai", null) { AssignedUserId = saoKhiGiao?.AssignedUserId });
             return Results.Json(new { ok = true, assignedUserId = ma }, Web);
+        });
+
+        // Nhả việc — trả hội thoại về hàng chờ chung. Tách khỏi POST vì "không thân = nhận việc"
+        // và "nhả việc" là hai ý khác hẳn nhau: nhét cả hai vào một route JSON body (khoá userId
+        // vắng mặt so với khoá mang giá trị null) từng buộc phải đọc thân thô để phân biệt, mà
+        // đọc thân thô lại kéo theo rủi ro phụ thuộc header Content-Type của client. DELETE
+        // không cần thân — hết mơ hồ tại gốc. Cùng lối với /follow (POST theo dõi, DELETE bỏ).
+        g.MapDelete("/conversations/{id:long}/assign", async (long id, HttpContext ctx,
+            TkSessionStore sessions, ChatRepository repo, ChatAssignRepository assign, ChatEventBus bus,
+            ILoggerFactory lf, CancellationToken ct) =>
+        {
+            var log = lf.CreateLogger("chat.assign");
+            var p = await SessionAuth.ReadNguoiXemAsync(ctx, sessions, assign, ct);
+            if (p == null) return SessionAuth.Unauthorized();
+            var (a, xem) = p.Value;
+            if (!repo.Configured) return NotConfigured();
+            if (await repo.GetConversationAsync(a.TenantId, id, xem, ct) is null) return Results.NotFound();
+
+            await repo.AssignAsync(a.TenantId, id, username: null, userId: null, ct);
+            await repo.AppendAuditAsync(a.TenantId, id, a.Username, "nha-viec", null, ct);
+            // Phát giá trị SAU khi đổi, không phải giá trị đọc lúc đầu handler — phát nhầm giá trị
+            // cũ thì người vừa bị gỡ vẫn nhận sự kiện "vẫn của tôi".
+            var saoKhiGiao = await repo.GetConversationAsync(a.TenantId, id, NguoiXem.HeThong, ct);
+            if (saoKhiGiao is null)
+                log.LogWarning("[chat/assign] đọc lại hội thoại {H} sau khi NHẢ VIỆC ra null " +
+                    "— sự kiện phát đi mang AssignedUserId=null", id);
+            bus.Publish(new(a.TenantId, id, "doi-hoi-thoai", null) { AssignedUserId = saoKhiGiao?.AssignedUserId });
+            return Results.Json(new { ok = true, assignedUserId = (int?)null }, Web);
         });
 
         g.MapPatch("/conversations/{id:long}/status", async (long id, StatusReq body, HttpContext ctx,
@@ -2492,21 +2504,6 @@ public static class ChatInboxEndpoints
         => Results.Json(new { error = "Chưa khai cơ sở dữ liệu chat (ConnectionStrings:Chat)" }, statusCode: 503);
 
     /// <summary>
-    /// Đọc thân của <c>/assign</c> — CÓ THỂ RỖNG (nút "Nhận chăm sóc" gọi không kèm thân).
-    ///
-    /// <para>Trả <c>null</c> khi thân trống HOẶC JSON hỏng — cả hai đều phải rơi vào cùng một
-    /// chỗ ("không có khoá <c>userId</c>") như body rỗng, giống quy ước đã có ở
-    /// <c>ReviewEndpoints.ReadSyncBodyAsync</c>: body optional thì lỗi đọc không được làm hỏng
-    /// thao tác, chỉ coi như không có gì được khai thêm.</para>
-    /// </summary>
-    private static async Task<JsonElement?> ReadAssignBodyAsync(HttpContext ctx, CancellationToken ct)
-    {
-        if (ctx.Request.ContentLength is null or 0) return null;
-        try { return await ctx.Request.ReadFromJsonAsync<JsonElement>(ct); }
-        catch (JsonException) { return null; }
-    }
-
-    /// <summary>
     /// Ô cần nhập cho từng kênh. MỘT nguồn — giao diện đọc để tự vẽ form, thêm kênh không phải
     /// sửa giao diện.
     /// </summary>
@@ -2639,6 +2636,10 @@ public static class ChatInboxEndpoints
 public record SendReq(string? Text, string? AttachmentUrl = null, string? AttachmentKind = null,
     string? AttachmentName = null, long? AttachmentSize = null,
     List<ChatButton>? Buttons = null);
+    /// Chỉ MỘT trường, KHÔNG nullable. Nhả việc đi đường DELETE riêng, nên không còn phải phân
+    /// biệt "khoá vắng mặt" với "khoá mang null" — tức không cần đọc thân thô, tức không có bẫy
+    /// Content-Type ném 500.
+    public record AssignReq(int UserId);
     /// <param name="CustomerId">Bỏ trống = GỠ nối khách CRM khỏi hội thoại này.</param>
     public record LinkCrmReq(int? CustomerId);
     /// <param name="Tag">Nhãn thô — server tự chuẩn hoá (bỏ dấu, hạ chữ thường, gạch nối).</param>
