@@ -32,7 +32,10 @@ public class TkSession
     // null = JWT không có claim hoặc chưa relogin sau khi nâng cấp → bên dùng phải chịu được null.
     public int? CrmUserId { get; set; }
 
-    // is_admin của CRM, decode từ claim JWT lúc login/relogin — dùng cho luật xem hộp thư chat.
+    // is_admin của CRM, decode từ claim JWT lúc login/relogin (persist cột IsAdmin) — dùng cho
+    // luật xem hộp thư chat. Phiên load từ SQL không còn JWT để decode lại, nên PHẢI đọc từ cột
+    // này — bỏ persist là mỗi lần restart admin âm thầm rớt về false, y hệt lý do CrmUserId có
+    // cột riêng thay vì decode lười mỗi lần dùng.
     public bool IsAdmin { get; set; }
 
     // Quyền TourKit (Function_Code) của user — lấy lúc login/relogin, persist cột PermissionsJson.
@@ -135,6 +138,10 @@ public class TkSessionStore
             existing.Jwt         = login.Token;
             // ?? giữ giá trị cũ: JWT lần này thiếu claim thì đừng xoá cái đã có.
             existing.CrmUserId   = JwtClaims.TryGetUserId(login.Token) ?? existing.CrmUserId;
+            // KHÔNG có "?? existing.IsAdmin" như dòng trên: TryGetIsAdmin không có khái niệm
+            // "thiếu claim" cần giữ nguyên — thiếu/hỏng claim rơi thẳng về false, đúng hướng an
+            // toàn cho một cờ quyền (đoán nhầm THÀNH admin mới nguy hiểm, đoán nhầm KHÔNG PHẢI
+            // admin chỉ làm phạm vi xem hẹp hơn một lần đăng nhập, không rò dữ liệu).
             existing.IsAdmin     = JwtClaims.TryGetIsAdmin(login.Token);
             existing.FullName    = login.FullName;
             existing.CompanyName = login.CompanyName;

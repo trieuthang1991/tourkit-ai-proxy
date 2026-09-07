@@ -787,6 +787,12 @@ IF NOT EXISTS (SELECT 1 FROM sys.columns WHERE object_id = OBJECT_ID('dbo.Digest
 IF NOT EXISTS (SELECT 1 FROM sys.columns WHERE object_id = OBJECT_ID('dbo.TkSessions') AND name = 'CrmUserId')
     ALTER TABLE dbo.TkSessions ADD CrmUserId INT NULL;
 
+-- is_admin CRM lấy từ JWT lúc login/relogin → luật xem hộp thư chat (admin xem hết, còn lại chỉ
+-- xem hội thoại đã giao cho mình). Default 0: phiên cũ trong bảng chưa từng decode được cờ này —
+-- sai theo hướng an toàn (coi là KHÔNG phải admin) thay vì đoán nhầm thành admin.
+IF NOT EXISTS (SELECT 1 FROM sys.columns WHERE object_id = OBJECT_ID('dbo.TkSessions') AND name = 'IsAdmin')
+    ALTER TABLE dbo.TkSessions ADD IsAdmin BIT NOT NULL CONSTRAINT DF_TkSessions_IsAdmin DEFAULT 0;
+
 --
 -- Kênh gửi cho hàng đợi đa kênh (0=email 1=telegram 2=zalo — enum OutboundChannel).
 -- Default 0: mọi dòng cũ tự thành email, không cần migrate data.
