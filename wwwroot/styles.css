@@ -9137,6 +9137,14 @@ img.ci-avt { object-fit: cover; }
 .ci-nut.nguyhiem { color: var(--danger); }
 .ci-nut.nguyhiem:hover { background: #FEF2F2; color: var(--danger); }
 .ci-nut:disabled { opacity: .55; cursor: default; }
+/* Nút "Nhận chăm sóc" trên thanh tiêu đề hội thoại. Đỏ = việc chưa ai làm, cần bấm.
+   Xanh = đã có người, chỉ để biết. */
+.ci-nut.nhan     { background: #dc2626; color: #fff; border-color: #dc2626; }
+.ci-nut.nhan:hover    { background: #b91c1c; border-color: #b91c1c; color: #fff; }
+.ci-nut.da-nhan  { background: #16a34a; color: #fff; border-color: #16a34a; }
+.ci-nut.da-nhan:hover { background: #15803d; border-color: #15803d; color: #fff; }
+.ci-chon-phutrach { height: 30px; max-width: 170px; border-radius: 8px; padding: 0 8px;
+                    border: 1px solid var(--border); font-size: 13px; font: inherit; }
 .ci-nut-icon { display: inline-grid; place-items: center; width: 30px; height: 30px;
                border: 1px solid var(--border); border-radius: 8px; background: var(--surface);
                color: var(--text-3); cursor: pointer; }

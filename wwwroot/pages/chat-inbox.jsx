@@ -899,7 +899,7 @@
     );
   }
 
-  function HoSo({ chiTiet, onDong, pushToast }) {
+  function HoSo({ chiTiet, phanCong, onDong, pushToast }) {
     const v = chiTiet?.conversation;
     const lh = chiTiet?.contact;
     const [nhatKy, setNhatKy] = useState(null);
@@ -949,7 +949,8 @@
             </div>
             <div className="ci-hs-dong">
               <span>Phụ trách</span>
-              <span>{v.assignedUsername || 'chưa ai nhận'}</span>
+              <span>{(phanCong?.staffs || []).find(nv => nv.id === v.assignedUserId)?.name
+                      || v.assignedUsername || 'chưa ai nhận'}</span>
             </div>
             <div className="ci-hs-dong">
               <span>Trợ lý bot</span>
@@ -1801,6 +1802,13 @@
     const [tim, setTim] = useState('');
     const [chon, setChon] = useState(null);        // id hội thoại đang mở
     const [chiTiet, setChiTiet] = useState(null);
+    // Cấu hình phân công + đội trực — nạp MỘT lần lúc mở hộp thư (xem effect cạnh chỗ nạp
+    // mauTraLoi bên dưới). Chưa cấu hình → mặc định "thủ công, không kẹp quyền" khớp hành vi hôm nay.
+    const [phanCong, setPhanCong] = useState({ mode: 1, scopeOwnOnly: false, isAdmin: false,
+                                                memberIds: [], staffs: [] });
+    // Đội trực = giao của memberIds với danh sách nhân viên ERP. Máy chủ trả MÃ, tên thì tra ở
+    // đây — không lưu tên trong CSDL chat để khỏi phải đồng bộ khi ai đó đổi tên.
+    const doiTruc = (phanCong.staffs || []).filter(nv => (phanCong.memberIds || []).includes(nv.id));
     const [soan, setSoan] = useState('');
     const [dangGui, setDangGui] = useState(false);
     const [dangTai, setDangTai] = useState(true);
@@ -1967,6 +1975,17 @@
         .catch(() => {});
     }, []);
 
+    // Nạp MỘT lần lúc mở hộp thư — cấu hình đổi rất thưa (chỉ khi quản trị sửa), hỏi lại mỗi lần
+    // chọn hội thoại là một lượt gọi thừa cho mỗi cú bấm.
+    useEffect(() => {
+      (async () => {
+        try {
+          const r = await authedFetch('/api/v1/chat/assign-settings');
+          if (r.ok) setPhanCong(await r.json());
+        } catch { /* lỗi thì để nguyên mặc định — hộp thư vẫn chạy, chỉ mất ô chọn người */ }
+      })();
+    }, []);
+
     useEffect(() => {
       const el = cuonRef.current;
       if (el) el.scrollTop = el.scrollHeight;
@@ -2105,21 +2124,42 @@
       await taiDsach(); if (chon) await taiChiTiet(chon);
     }
 
-    // Nhận việc: KHÔNG gửi tên, để máy chủ lấy từ phiên. Bản trước gửi
-    // một thuộc tính KHÔNG tồn tại trên đối tượng phiên, nên thân yêu cầu luôn là
-    // chuỗi rỗng và nút này thật ra đang GỠ giao việc. Nút trông như chạy suốt nhiều tháng.
+    // Nhận việc cho mình — LUÔN gửi KHÔNG THÂN. Bản trước gửi {} hoặc {username:''}: cả hai bị
+    // máy chủ hiểu thành CHUYỂN VIỆC cho mã người 0 (không có trong đội trực) → 400, nút bấm mà
+    // không nhận được gì, trông như chạy suốt nhiều tháng.
     async function nhanViec() {
       if (!chon) return;
-      const dangGiao = chiTiet?.conversation?.assignedUsername;
-      const r = await authedFetch('/api/v1/chat/conversations/' + chon + '/assign', {
-        method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(dangGiao ? { username: '' } : {}),
-      });
-      // 409 = người khác nhận trước. Nói TÊN người đang giữ chứ không im lặng đổi nút — im lặng
-      // là hai người cùng tưởng việc của mình rồi cùng trả lời một khách.
-      if (r.status === 409) {
+      const r = await authedFetch('/api/v1/chat/conversations/' + chon + '/assign', { method: 'POST' });
+      // 400 = không xác định được mã nhân viên. 409 = người khác nhận trước. Cả hai đều phải
+      // BÁO — im lặng là bấm hoài tưởng nút hỏng, hoặc hai người cùng tưởng việc của mình rồi
+      // cùng trả lời một khách.
+      if (!r.ok) {
         let j = null; try { j = await r.json(); } catch {}
-        pushToast(j?.error || 'Người khác đã nhận hội thoại này', 'error');
+        pushToast(j?.error || 'Không nhận được việc', 'error');
+      }
+      await taiDsach(); if (chon) await taiChiTiet(chon);
+    }
+
+    // Giao cho người khác qua ô chọn ở thanh tiêu đề. Gửi MÃ người, không gửi tên: tên là thứ
+    // đổi được và gõ được sai, mã thì không. Chọn mục trống = nhả việc — đi ĐƯỜNG RIÊNG (DELETE),
+    // không gửi POST {userId: null}: máy chủ đòi AssignReq.UserId không rỗng ở nhánh chuyển việc,
+    // gửi null vào đó là 400 chứ không nhả được việc.
+    async function giaoCho(maNguoi) {
+      if (!chon) return;
+      const url = '/api/v1/chat/conversations/' + chon + '/assign';
+      const r = maNguoi
+        ? await authedFetch(url, {
+            method: 'POST', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ userId: Number(maNguoi) }),
+          })
+        : await authedFetch(url, { method: 'DELETE' });
+      // 400 = người chọn không có trong đội trực (hoặc đội trực chưa cấu hình). 409 = người khác
+      // đang giữ, tranh chấp ngay lúc đang chọn. Bản trước chỉ bắt 409 nên bấm 400 không thấy
+      // gì xảy ra.
+      if (!r.ok) {
+        let j = null; try { j = await r.json(); } catch {}
+        pushToast(j?.error || 'Giao việc không xong', 'error');
+        return;
       }
       await taiDsach(); if (chon) await taiChiTiet(chon);
     }
@@ -2410,7 +2450,15 @@
                       <span className={'ci-tt' + (c.status === 0 ? ' moi' : '')}>
                         <i />{TEN_TRANG_THAI[c.status]}
                       </span>
-                      {c.assignedUsername && <span className="ci-giao">{c.assignedUsername}</span>}
+                      {/* Dùng biến c (dòng danh sách), không phải v (chi tiết đang mở) — hai biến
+                          khác nhau, dễ chép nhầm. Kiểm cả assignedUserId lẫn assignedUsername vì
+                          dữ liệu mới chỉ có mã, dòng gán từ trước 07/09/2026 chỉ có tên đăng nhập. */}
+                      {(c.assignedUserId || c.assignedUsername) && (
+                        <span className="ci-giao">
+                          {(phanCong.staffs || []).find(nv => nv.id === c.assignedUserId)?.name
+                            || c.assignedUsername || 'chưa ai nhận'}
+                        </span>
+                      )}
                       {c.botPaused && <span className="ci-botcam">trợ lý dừng</span>}
                       {c.followed && <span className="ci-theodoi">★ theo dõi</span>}
                       {c.blocked && <span className="ci-dachan">đã chặn</span>}
@@ -2510,7 +2558,8 @@
                     <span>
                       <i aria-hidden="true" />
                       <em>{[KENH[v.channel]?.ten, TEN_TRANG_THAI[v.status],
-                           v.assignedUsername || 'chưa ai nhận',
+                           (phanCong.staffs || []).find(nv => nv.id === v.assignedUserId)?.name
+                             || v.assignedUsername || 'chưa ai nhận',
                            v.botPaused ? 'bot tạm dừng' : 'bot đang trả lời'].join(' · ')}</em>
                     </span>
                   </div>
@@ -2518,9 +2567,30 @@
                       sơ, còn lại dồn vào "⋯". Bản trước bày bảy nút chữ cạnh nhau — tràn dòng
                       trên màn hình hẹp, và bắt người trực đọc hết bảy nhãn mỗi lần chỉ để bấm một. */}
                   <div className="ci-nut-nhom">
-                    <button className={'ci-nut' + (v.assignedUsername ? '' : ' chinh')} onClick={nhanViec}>
-                      {v.assignedUsername ? 'Bỏ nhận' : 'Nhận việc'}
-                    </button>
+                    {/* Ô chọn người phụ trách đứng TRƯỚC nút nhận: thao tác hay dùng nhất của
+                        quản lý là giao việc, còn nút nhận là của người trực. */}
+                    {doiTruc.length > 0 && (
+                      <select className="ci-chon-phutrach"
+                              value={v.assignedUserId || ''}
+                              onChange={e => giaoCho(e.target.value)}
+                              title="Người phụ trách">
+                        <option value="">— chưa ai phụ trách —</option>
+                        {doiTruc.map(nv => (
+                          <option key={nv.id} value={nv.id}>{nv.name}</option>
+                        ))}
+                      </select>
+                    )}
+
+                    {/* Ẩn với nhân viên thường khi đang kẹp quyền: hội thoại họ mở được thì đã
+                        là của họ rồi, nút đó bấm không ra gì — để nguyên là trông như lỗi.
+                        Kiểm cả assignedUserId lẫn assignedUsername: dữ liệu mới chỉ có mã, dòng
+                        cũ chỉ có tên đăng nhập — thiếu vế nào thì nút vẫn hiện đỏ dù đã có người. */}
+                    {(phanCong.isAdmin || !phanCong.scopeOwnOnly) && (
+                      <button className={'ci-nut' + ((v.assignedUserId || v.assignedUsername) ? ' da-nhan' : ' nhan')}
+                              onClick={nhanViec}>
+                        {(v.assignedUserId || v.assignedUsername) ? 'Đã nhận chăm sóc' : 'Nhận chăm sóc'}
+                      </button>
+                    )}
 
                     <div className="ci-menu-boc">
                       <button className={'ci-nut-icon' + (moMenu ? ' on' : '')}
@@ -2796,7 +2866,7 @@
           {v && moHoSo && diDong && (
             <div className="ci-menu-nen ci-hs-nen" onClick={() => setMoHoSo(false)} aria-hidden="true" />
           )}
-          {v && moHoSo && <HoSo chiTiet={chiTiet} pushToast={pushToast} onDong={() => setMoHoSo(false)} />}
+          {v && moHoSo && <HoSo chiTiet={chiTiet} phanCong={phanCong} pushToast={pushToast} onDong={() => setMoHoSo(false)} />}
         </div>
       </main>
     );
