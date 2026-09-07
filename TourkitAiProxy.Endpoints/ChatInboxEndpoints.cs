@@ -511,11 +511,12 @@ public static class ChatInboxEndpoints
         //
         // ⚠️ EventSource KHÔNG gửi được header tuỳ ý, nên phiên đi qua ?sessionId=. SessionAuth.Read
         // đọc X-Session-Id rồi mới tới Query["sessionId"] nên chỗ này không cần sửa lớp xác thực.
-        g.MapGet("/events", async (HttpContext ctx, TkSessionStore sessions, ChatEventBus bus,
-            CancellationToken ct) =>
+        g.MapGet("/events", async (HttpContext ctx, TkSessionStore sessions, ChatAssignRepository assign,
+            ChatEventBus bus, CancellationToken ct) =>
         {
-            var a = SessionAuth.Read(ctx, sessions);
-            if (a == null) return SessionAuth.Unauthorized();
+            var p = await SessionAuth.ReadNguoiXemAsync(ctx, sessions, assign, ct);
+            if (p == null) return SessionAuth.Unauthorized();
+            var (a, xem) = p.Value;
 
             ctx.Response.Headers["Content-Type"] = "text/event-stream";
             ctx.Response.Headers["Cache-Control"] = "no-cache, no-transform";
@@ -540,7 +541,7 @@ public static class ChatInboxEndpoints
             // Nhịp 25 giây: hộp thư im hàng giờ là bình thường, mà proxy thường cắt kết nối rảnh
             // sau 60 giây — không có nhịp thì cứ mỗi phút EventSource lại nối lại một lần. Dòng
             // bắt đầu bằng dấu hai chấm là chú thích của giao thức SSE, trình duyệt bỏ qua.
-            await using var nguon = bus.SubscribeAsync(a.TenantId, ct).GetAsyncEnumerator(ct);
+            await using var nguon = bus.SubscribeAsync(a.TenantId, xem, ct).GetAsyncEnumerator(ct);
             using var dongHo = new PeriodicTimer(TimeSpan.FromSeconds(25));
             var toi = nguon.MoveNextAsync().AsTask();
             var nhip = dongHo.WaitForNextTickAsync(ct).AsTask();
@@ -813,7 +814,7 @@ public static class ChatInboxEndpoints
                 if (!kq.Ok)
                     await repo.SetMessageStateAsync(a.TenantId, msgId.Value, ChatState.Failed, kq.Error, ct);
                 await repo.TouchConversationAsync(a.TenantId, id, ChatRules.Summarize(noiDung), false, ct);
-                bus.Publish(new(a.TenantId, id, "tin-moi", msgId.Value));
+                bus.Publish(new(a.TenantId, id, "tin-moi", msgId.Value) { AssignedUserId = v.AssignedUserId });
             }
 
             return kq.Ok
@@ -892,7 +893,7 @@ public static class ChatInboxEndpoints
             await repo.EnqueueOutboxAsync(a.TenantId, id, msgId.Value, ct, hoan);
             // Đánh thức worker gửi NGAY — thiếu dòng này thì tin chờ hết nhịp 5 giây.
             tin.Signal(Services.Chat.Inbox.ChatLane.Out);
-            bus.Publish(new(a.TenantId, id, "tin-moi", msgId.Value));
+            bus.Publish(new(a.TenantId, id, "tin-moi", msgId.Value) { AssignedUserId = v.AssignedUserId });
 
             // Trả kèm cảnh báo cắt nút: nhân viên soạn năm nút mà kênh chỉ nhận ba thì phải
             // biết ngay, chứ không phải phát hiện lúc khách hỏi lại.
@@ -1020,7 +1021,10 @@ public static class ChatInboxEndpoints
                         statusCode: StatusCodes.Status409Conflict);
                 }
                 await repo.AppendAuditAsync(a.TenantId, id, a.Username, "nhan-viec", null, ct);
-                bus.Publish(new(a.TenantId, id, "doi-hoi-thoai", null));
+                // Phát giá trị SAU khi đổi — đọc lại bằng NguoiXem.HeThong (không lọc theo quyền
+                // xem) vì người vừa nhận việc có thể không còn thấy hội thoại này bằng phạm vi cũ.
+                var saoKhiNhan = await repo.GetConversationAsync(a.TenantId, id, NguoiXem.HeThong, ct);
+                bus.Publish(new(a.TenantId, id, "doi-hoi-thoai", null) { AssignedUserId = saoKhiNhan?.AssignedUserId });
                 return Results.Json(new { ok = true, assignedTo = a.Username }, Web);
             }
 
@@ -1030,7 +1034,10 @@ public static class ChatInboxEndpoints
             await repo.AssignAsync(a.TenantId, id, ai, ct);
             await repo.AppendAuditAsync(a.TenantId, id, a.Username, ai is null ? "nha-viec" : "chuyen-viec",
                 ai is null ? null : new JsonObject { ["cho"] = ai }.ToJsonString(), ct);
-            bus.Publish(new(a.TenantId, id, "doi-hoi-thoai", null));
+            // Phát giá trị SAU khi đổi, không phải giá trị đọc lúc đầu handler — phát nhầm giá trị
+            // cũ thì người vừa được giao không nhận sự kiện, còn người vừa bị gỡ thì vẫn nhận.
+            var saoKhiGiao = await repo.GetConversationAsync(a.TenantId, id, NguoiXem.HeThong, ct);
+            bus.Publish(new(a.TenantId, id, "doi-hoi-thoai", null) { AssignedUserId = saoKhiGiao?.AssignedUserId });
             return Results.Json(new { ok = true, assignedTo = ai }, Web);
         });
 
@@ -1044,12 +1051,12 @@ public static class ChatInboxEndpoints
             if (!repo.Configured) return NotConfigured();
             if (!Enum.IsDefined(typeof(ChatStatus), body.Status))
                 return Results.BadRequest(new { error = "Trạng thái không hợp lệ" });
-            if (await repo.GetConversationAsync(a.TenantId, id, xem, ct) is null) return Results.NotFound();
+            if (await repo.GetConversationAsync(a.TenantId, id, xem, ct) is not { } v) return Results.NotFound();
 
             await repo.SetStatusAsync(a.TenantId, id, (ChatStatus)body.Status, ct);
             await repo.AppendAuditAsync(a.TenantId, id, a.Username, "doi-trang-thai",
                 new JsonObject { ["trangThai"] = body.Status }.ToJsonString(), ct);
-            bus.Publish(new(a.TenantId, id, "doi-hoi-thoai", null));
+            bus.Publish(new(a.TenantId, id, "doi-hoi-thoai", null) { AssignedUserId = v.AssignedUserId });
             return Results.Json(new { ok = true }, Web);
         });
 
@@ -1200,7 +1207,7 @@ public static class ChatInboxEndpoints
 
             await repo.AppendAuditAsync(a.TenantId, id, a.Username, ma is null ? "go-noi-crm" : "noi-crm",
                 ma is null ? null : new JsonObject { ["khachCrm"] = ma }.ToJsonString(), ct);
-            bus.Publish(new(a.TenantId, id, "doi-hoi-thoai", null));
+            bus.Publish(new(a.TenantId, id, "doi-hoi-thoai", null) { AssignedUserId = v.AssignedUserId });
             return Results.Json(new { ok = true, crmCustomerId = ma }, Web);
         });
 
@@ -1295,7 +1302,7 @@ public static class ChatInboxEndpoints
             {
                 await repo.AppendAuditAsync(a.TenantId, id, a.Username, "thu-hoi-tin",
                     new JsonObject { ["tin"] = msgId }.ToJsonString(), ct);
-                bus.Publish(new(a.TenantId, id, "doi-trang-thai", msgId));
+                bus.Publish(new(a.TenantId, id, "doi-trang-thai", msgId) { AssignedUserId = v.AssignedUserId });
                 return Results.Json(new { ok = true, recalledOnChannel = false }, Web);
             }
 
@@ -1311,7 +1318,7 @@ public static class ChatInboxEndpoints
                 await repo.SoftDeleteMessageAsync(a.TenantId, id, msgId, ct);
                 await repo.AppendAuditAsync(a.TenantId, id, a.Username, "thu-hoi-tin",
                     new JsonObject { ["tin"] = msgId, ["kenh"] = true }.ToJsonString(), ct);
-                bus.Publish(new(a.TenantId, id, "doi-trang-thai", msgId));
+                bus.Publish(new(a.TenantId, id, "doi-trang-thai", msgId) { AssignedUserId = v.AssignedUserId });
                 return Results.Json(new { ok = true, recalledOnChannel = true }, Web);
             }
 
@@ -1329,12 +1336,12 @@ public static class ChatInboxEndpoints
             if (p == null) return SessionAuth.Unauthorized();
             var (a, xem) = p.Value;
             if (!repo.Configured) return NotConfigured();
-            if (await repo.GetConversationAsync(a.TenantId, id, xem, ct) is null) return Results.NotFound();
+            if (await repo.GetConversationAsync(a.TenantId, id, xem, ct) is not { } v) return Results.NotFound();
 
             if (!await repo.SoftDeleteMessageAsync(a.TenantId, id, msgId, ct)) return Results.NotFound();
             await repo.AppendAuditAsync(a.TenantId, id, a.Username, "xoa-tin",
                 new JsonObject { ["tin"] = msgId }.ToJsonString(), ct);
-            bus.Publish(new(a.TenantId, id, "doi-trang-thai", msgId));
+            bus.Publish(new(a.TenantId, id, "doi-trang-thai", msgId) { AssignedUserId = v.AssignedUserId });
             return Results.Json(new { ok = true }, Web);
         });
 
@@ -1350,7 +1357,7 @@ public static class ChatInboxEndpoints
             if (!repo.Configured) return NotConfigured();
             if (string.IsNullOrWhiteSpace(body.Body))
                 return Results.Json(new { error = "Nội dung không được để trống" }, Web, statusCode: 400);
-            if (await repo.GetConversationAsync(a.TenantId, id, xem, ct) is null) return Results.NotFound();
+            if (await repo.GetConversationAsync(a.TenantId, id, xem, ct) is not { } v) return Results.NotFound();
 
             if (!await repo.EditPendingMessageAsync(a.TenantId, id, msgId, body.Body.Trim(), ct))
                 return Results.Json(new { error = "Tin đã gửi đi rồi nên không sửa được nữa" },
@@ -1358,7 +1365,7 @@ public static class ChatInboxEndpoints
 
             await repo.AppendAuditAsync(a.TenantId, id, a.Username, "sua-tin",
                 new JsonObject { ["tin"] = msgId }.ToJsonString(), ct);
-            bus.Publish(new(a.TenantId, id, "doi-trang-thai", msgId));
+            bus.Publish(new(a.TenantId, id, "doi-trang-thai", msgId) { AssignedUserId = v.AssignedUserId });
             return Results.Json(new { ok = true }, Web);
         });
 
@@ -1472,14 +1479,14 @@ public static class ChatInboxEndpoints
             if (p == null) return SessionAuth.Unauthorized();
             var (a, xem) = p.Value;
             if (!repo.Configured) return NotConfigured();
-            if (await repo.GetConversationAsync(a.TenantId, id, xem, ct) is null) return Results.NotFound();
+            if (await repo.GetConversationAsync(a.TenantId, id, xem, ct) is not { } v) return Results.NotFound();
 
             // paused=false → bỏ câm ngay; true → câm theo số phút (mặc định 30).
             var phut = body.Paused ? Math.Clamp(body.Minutes ?? 30, 1, 1440) : 0;
             await repo.PauseBotAsync(a.TenantId, id, phut, ct);
             await repo.AppendAuditAsync(a.TenantId, id, a.Username, "tam-dung-bot",
                 new JsonObject { ["phut"] = phut }.ToJsonString(), ct);
-            bus.Publish(new(a.TenantId, id, "doi-hoi-thoai", null));
+            bus.Publish(new(a.TenantId, id, "doi-hoi-thoai", null) { AssignedUserId = v.AssignedUserId });
             return Results.Json(new { ok = true }, Web);
         });
 

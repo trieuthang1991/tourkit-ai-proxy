@@ -972,7 +972,7 @@ public class ChatRepository
     /// </summary>
     /// <param name="Tries">Đã thử soi bấy nhiêu lần TRƯỚC lượt này. 0 = tin chưa ai đụng tới.</param>
     public record MediaToMirror(long Id, string TenantId, long ConversationId, short Channel, short Kind,
-        string Attachment, short Tries);
+        string Attachment, short Tries, int? AssignedUserId);
 
     /// <summary>
     /// Cách mã hoá cột cờ <c>chat_messages.media_state</c> và <c>chat_contacts.avatar_state</c> —
@@ -1073,7 +1073,13 @@ public class ChatRepository
              WHERE m.id = lay.id
             RETURNING m.id AS "Id", m.tenant_id AS "TenantId", m.conversation_id AS "ConversationId",
                       m.channel AS "Channel", m.kind AS "Kind", m.attachment::text AS "Attachment",
-                      lay.tries AS "Tries"
+                      lay.tries AS "Tries",
+                      -- Nối THÊM người phụ trách ngay trong câu này (không phải một truy vấn
+                      -- riêng): sự kiện soi lại tệp bắn theo từng tin, lưu lượng cao hơn hẳn các
+                      -- sự kiện do người dùng bấm tay, nên thêm một vòng gọi CSDL mỗi lượt là đắt.
+                      -- Chỉ để bus kẹp người nghe lúc bắn ChatEvent — không đụng luật xem.
+                      (SELECT cv.assigned_user_id FROM chat_conversations cv
+                        WHERE cv.tenant_id = m.tenant_id AND cv.id = m.conversation_id) AS "AssignedUserId"
             """, new { tenant, limit, tran = tranTang, toiDa = MirrorMaxTries, boHan = MirrorGaveUp });
         return r.AsList();
     }

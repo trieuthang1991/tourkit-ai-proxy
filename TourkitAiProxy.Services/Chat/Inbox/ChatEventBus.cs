@@ -14,6 +14,12 @@ namespace TourkitAiProxy.Services.Chat.Inbox;
 /// là hộp thư công ty này nhận sự kiện của công ty khác — rò rỉ chéo tenant, thứ nặng nhất trong
 /// danh sách rủi ro của spec.</para>
 ///
+/// <para><b>Kẹp thứ hai, CÙNG LÝ DO: người xem.</b> Không admin thì chỉ thấy sự kiện của hội thoại
+/// mình phụ trách (<see cref="DuocThay"/>) — hội thoại chưa gán KHÔNG hiện với người không phải
+/// admin, y hệt luật 404 ở tầng đọc. Kẹp trong bus vì cùng một rủi ro: một lần quên lọc ở endpoint
+/// là lộ mã hội thoại có thật + nhịp hoạt động theo thời gian thực, đúng thứ luật 404 dựng lên để
+/// giấu.</para>
+///
 /// <para><b>Bắn là bỏ (fire-and-forget), có giới hạn.</b> Mỗi người nghe một hàng đợi 100 sự kiện,
 /// đầy thì bỏ sự kiện CŨ NHẤT chứ không chặn. Chặn nghĩa là một tab treo làm nghẽn cả luồng xử lý
 /// tin của khách — đắt hơn nhiều so với việc một tab lỡ mất vài sự kiện rồi tự tải lại.</para>
@@ -30,7 +36,7 @@ public class ChatEventBus
     /// instance, nên không có đường thứ hai để quên lọc.
     private const string EventChannelName = "tkai:chat:events";
 
-    private readonly List<(string Tenant, Channel<ChatEvent> Kenh)> _nghe = new();
+    private readonly List<(string Tenant, NguoiXem Xem, Channel<ChatEvent> Kenh)> _nghe = new();
     private readonly object _khoa = new();
     private readonly ISubscriber? _redis;
 
@@ -82,10 +88,19 @@ public class ChatEventBus
     private void PublishLocal(ChatEvent e)
     {
         lock (_khoa)
-            foreach (var (tenant, kenh) in _nghe)
-                if (string.Equals(tenant, e.TenantId, StringComparison.Ordinal))
+            foreach (var (tenant, xem, kenh) in _nghe)
+                if (string.Equals(tenant, e.TenantId, StringComparison.Ordinal) && DuocThay(xem, e))
                     kenh.Writer.TryWrite(e);   // TryWrite: đầy thì bỏ, KHÔNG chặn
     }
+
+    /// <summary>
+    /// Người nghe này có được thấy sự kiện của hội thoại đó không.
+    ///
+    /// <para>Đặt TRONG bus, y như chỗ kẹp tenant ngay bên trên và vì đúng lý do đó: lọc ở
+    /// endpoint thì một lần quên là rò rỉ.</para>
+    /// </summary>
+    private static bool DuocThay(NguoiXem xem, ChatEvent e)
+        => xem.XemTatCa || (e.AssignedUserId is not null && e.AssignedUserId == xem.CrmUserId);
 
     private record Envelope(string TuAi, ChatEvent SuKien);
 
@@ -113,7 +128,8 @@ public class ChatEventBus
     /// <summary>
     /// Nghe sự kiện của MỘT tenant cho tới khi <paramref name="ct"/> bị huỷ (tab đóng, mạng rớt).
     /// </summary>
-    public async IAsyncEnumerable<ChatEvent> SubscribeAsync(string tenantId,
+    /// <param name="xem">Phạm vi xem của người đang nghe — xem <see cref="DuocThay"/>.</param>
+    public async IAsyncEnumerable<ChatEvent> SubscribeAsync(string tenantId, NguoiXem xem,
         [System.Runtime.CompilerServices.EnumeratorCancellation] CancellationToken ct)
     {
         var kenh = Channel.CreateBounded<ChatEvent>(new BoundedChannelOptions(100)
@@ -121,7 +137,7 @@ public class ChatEventBus
             FullMode = BoundedChannelFullMode.DropOldest,   // mất sự kiện cũ còn hơn nghẽn
             SingleReader = true,
         });
-        lock (_khoa) _nghe.Add((tenantId, kenh));
+        lock (_khoa) _nghe.Add((tenantId, xem, kenh));
         try
         {
             await foreach (var e in kenh.Reader.ReadAllAsync(ct)) yield return e;

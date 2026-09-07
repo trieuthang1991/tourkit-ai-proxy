@@ -1,4 +1,5 @@
-﻿using TourkitAiProxy.Domain.Chat;
+﻿using Microsoft.Extensions.Logging.Abstractions;
+using TourkitAiProxy.Domain.Chat;
 using TourkitAiProxy.Services.Chat.Inbox;
 using Xunit;
 
@@ -10,6 +11,9 @@ namespace TourkitAiProxy.Tests.Chat;
 /// <para><b>Việc quan trọng nhất ở đây là kẹp tenant.</b> Bus gửi sự kiện của công ty nào cho đúng
 /// người nghe của công ty đó — lọc ở endpoint thì một lần quên là hộp thư công ty này thấy tin của
 /// công ty khác.</para>
+///
+/// <para><b>Kẹp thứ hai: người xem.</b> Cùng công ty, cùng lý do — không kẹp trong bus thì một lần
+/// quên ở endpoint là lộ mã hội thoại + nhịp hoạt động của hội thoại người khác đang phụ trách.</para>
 /// </summary>
 public class ChatEventBusTests
 {
@@ -22,7 +26,7 @@ public class ChatEventBusTests
 
         var doc = Task.Run(async () =>
         {
-            await foreach (var e in bus.SubscribeAsync("cong-ty-A", huy.Token))
+            await foreach (var e in bus.SubscribeAsync("cong-ty-A", NguoiXem.HeThong, huy.Token))
             {
                 nhan.Add(e);
                 if (nhan.Count == 1) break;
@@ -61,7 +65,7 @@ public class ChatEventBusTests
 
         var doc = Task.Run(async () =>
         {
-            await foreach (var _ in bus.SubscribeAsync("cong-ty-A", huy.Token)) { }
+            await foreach (var _ in bus.SubscribeAsync("cong-ty-A", NguoiXem.HeThong, huy.Token)) { }
         });
 
         using (var chờ = new CancellationTokenSource(TimeSpan.FromSeconds(5)))
@@ -84,7 +88,7 @@ public class ChatEventBusTests
 
         async Task<ChatEvent> MotTabAsync()
         {
-            await foreach (var e in bus.SubscribeAsync("cong-ty-A", huy.Token)) return e;
+            await foreach (var e in bus.SubscribeAsync("cong-ty-A", NguoiXem.HeThong, huy.Token)) return e;
             throw new InvalidOperationException("luồng đóng trước khi có sự kiện");
         }
 
@@ -118,13 +122,39 @@ public class ChatEventBusTests
 
         var doc = Task.Run(async () =>
         {
-            await foreach (var e in bus.SubscribeAsync("cong-ty-A", huy.Token)) return e;
+            await foreach (var e in bus.SubscribeAsync("cong-ty-A", NguoiXem.HeThong, huy.Token)) return e;
             throw new InvalidOperationException("luồng đóng trước khi có sự kiện");
         });
         await ChoDangKyAsync(bus, huy.Token);
 
         bus.FromRemote(ChatEventBus.Pack("instance-khac", new("cong-ty-A", 9, "tin-moi", 90)));
         Assert.Equal(9, (await doc).ConversationId);
+    }
+
+    [Fact]
+    public async Task AssignedUserId_song_sot_qua_Pack_Unpack_va_van_bi_kep_dung()
+    {
+        // Đường Redis đi vào KHÔNG được làm rớt AssignedUserId — rớt là instance khác lọc sai,
+        // triệu chứng "thỉnh thoảng thấy sự kiện lạ" chỉ hiện ra khi đã cắm Redis thật trên prod.
+        var bus = new ChatEventBus(null);
+        using var huy = new CancellationTokenSource(TimeSpan.FromSeconds(5));
+
+        var doc = Task.Run(async () =>
+        {
+            await foreach (var e in bus.SubscribeAsync("cong-ty-A", new NguoiXem(7, XemTatCa: false), huy.Token))
+                return e;
+            throw new InvalidOperationException("luồng đóng trước khi có sự kiện");
+        });
+        await ChoDangKyAsync(bus, huy.Token);
+
+        // Gói từ instance khác, mang AssignedUserId=7 — phải sống sót qua Pack (tuần tự hoá) rồi
+        // Unpack (FromRemote) và vẫn khớp đúng người đang nghe.
+        bus.FromRemote(ChatEventBus.Pack("instance-khac",
+            new ChatEvent("cong-ty-A", 5, "tin-moi", null) { AssignedUserId = 7 }));
+
+        var e = await doc;
+        Assert.Equal(5, e.ConversationId);
+        Assert.Equal(7, e.AssignedUserId);
     }
 
     [Fact]
@@ -138,7 +168,7 @@ public class ChatEventBusTests
         var nhan = new List<ChatEvent>();
         var doc = Task.Run(async () =>
         {
-            await foreach (var e in bus.SubscribeAsync("cong-ty-A", huy.Token))
+            await foreach (var e in bus.SubscribeAsync("cong-ty-A", NguoiXem.HeThong, huy.Token))
             {
                 nhan.Add(e);
                 if (nhan.Count == 1) break;
@@ -166,6 +196,58 @@ public class ChatEventBusTests
         var bus = new ChatEventBus(null);
         bus.FromRemote(thô);
     }
+
+    [Fact]
+    public async Task Nguoi_bi_gioi_han_khong_nhan_su_kien_cua_hoi_thoai_nguoi_khac()
+    {
+        // Không kẹp ở đây thì nhân viên vẫn nhận chuông báo tin mới của hội thoại họ bấm vào
+        // ra 404: vừa lộ đang có việc xảy ra, vừa trông như app hỏng.
+        var bus = new ChatEventBus(null, NullLogger<ChatEventBus>.Instance);
+        var nhan = new List<ChatEvent>();
+        var cts = new CancellationTokenSource(TimeSpan.FromSeconds(2));
+
+        var doc = Task.Run(async () =>
+        {
+            await foreach (var e in bus.SubscribeAsync("t1", new NguoiXem(7, XemTatCa: false), cts.Token))
+                nhan.Add(e);
+        });
+        // Chờ đăng ký xong trước khi bắn — xem ChoDangKyAsync bên dưới: bắn trước khi đăng ký thì
+        // sự kiện rơi vào hư không, KHÁC với cái bus đang canh (ai được thấy), nên phải chờ trước.
+        await ChoDangKyAsync(bus, cts.Token);
+
+        bus.Publish(new ChatEvent("t1", 100, "tin-moi", null) { AssignedUserId = 9 });
+        bus.Publish(new ChatEvent("t1", 101, "tin-moi", null) { AssignedUserId = 7 });
+        await Task.Delay(200);
+        cts.Cancel();
+        try { await doc; } catch (OperationCanceledException) { }
+
+        Assert.Single(nhan);
+        Assert.Equal(101, nhan[0].ConversationId);
+    }
+
+    [Fact]
+    public async Task Admin_nhan_moi_su_kien_cua_cong_ty_minh()
+    {
+        var bus = new ChatEventBus(null, NullLogger<ChatEventBus>.Instance);
+        var nhan = new List<ChatEvent>();
+        var cts = new CancellationTokenSource(TimeSpan.FromSeconds(2));
+
+        var doc = Task.Run(async () =>
+        {
+            await foreach (var e in bus.SubscribeAsync("t1", NguoiXem.HeThong, cts.Token))
+                nhan.Add(e);
+        });
+        await ChoDangKyAsync(bus, cts.Token);
+
+        bus.Publish(new ChatEvent("t1", 100, "tin-moi", null) { AssignedUserId = 9 });
+        bus.Publish(new ChatEvent("t1", 101, "tin-moi", null) { AssignedUserId = null });
+        await Task.Delay(200);
+        cts.Cancel();
+        try { await doc; } catch (OperationCanceledException) { }
+
+        Assert.Equal(2, nhan.Count);
+    }
+
     /// Chờ tới khi đủ số người nghe đã đăng ký. Ngủ một khoảng cố định thì test lúc xanh lúc đỏ
     /// trên máy chạy chậm — thứ tệ hơn cả không có test, vì người sau sẽ chạy lại cho tới khi xanh.
     private static async Task ChoDangKyAsync(ChatEventBus bus, CancellationToken ct, int can = 1)

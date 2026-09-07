@@ -132,7 +132,7 @@ public class ChatInboundService
         if (e.Referral is not null && e.ExternalMsgId is null && string.IsNullOrWhiteSpace(e.Text)
             && e.AttachmentJson is null && e.Reaction is null && e.Watermark is null)
         {
-            _bus.Publish(new(tenantId, hoiThoai.Id, "doi-hoi-thoai", null));
+            _bus.Publish(new(tenantId, hoiThoai.Id, "doi-hoi-thoai", null) { AssignedUserId = hoiThoai.AssignedUserId });
             return;
         }
 
@@ -142,7 +142,7 @@ public class ChatInboundService
         if (e.Reaction is { } camXuc)
         {
             await _repo.SetReactionAsync(tenantId, e.Channel, camXuc, e.ExternalUserId, ct);
-            _bus.Publish(new(tenantId, hoiThoai.Id, "doi-hoi-thoai", null));
+            _bus.Publish(new(tenantId, hoiThoai.Id, "doi-hoi-thoai", null) { AssignedUserId = hoiThoai.AssignedUserId });
             return;
         }
 
@@ -173,7 +173,7 @@ public class ChatInboundService
                 moc.State, mocLuc, soDong, hoiThoai.Id);
             // Chỉ báo khi thật sự có tin đổi trạng thái — nền tảng gửi lại mốc cũ khá thường,
             // báo mọi lần là các tab tải lại liên tục cho một thứ y hệt.
-            if (soDong > 0) _bus.Publish(new(tenantId, hoiThoai.Id, "doi-trang-thai", null));
+            if (soDong > 0) _bus.Publish(new(tenantId, hoiThoai.Id, "doi-trang-thai", null) { AssignedUserId = hoiThoai.AssignedUserId });
             return;
         }
 
@@ -199,7 +199,7 @@ public class ChatInboundService
             // đống tin cũ vào làm câu hỏi cho trợ lý.
             await _repo.MarkProcessedAsync(tenantId, new[] { idCu.Value }, ct);
             await _repo.RecomputeActivityAsync(tenantId, hoiThoai.Id, ct);
-            _bus.Publish(new(tenantId, hoiThoai.Id, "tin-moi", idCu.Value));
+            _bus.Publish(new(tenantId, hoiThoai.Id, "tin-moi", idCu.Value) { AssignedUserId = hoiThoai.AssignedUserId });
             return;
         }
 
@@ -215,7 +215,7 @@ public class ChatInboundService
             // Bao lâu là do công ty đặt: đội trực dày thì để ngắn, đội mỏng thì để dài.
         await _repo.PauseBotAsync(tenantId, hoiThoai.Id,
             (await _cauHinh.GetAsync(tenantId, ct)).MuteMinutes, ct);
-            _bus.Publish(new(tenantId, hoiThoai.Id, "tin-moi", idV.Value));
+            _bus.Publish(new(tenantId, hoiThoai.Id, "tin-moi", idV.Value) { AssignedUserId = hoiThoai.AssignedUserId });
             return;
         }
 
@@ -227,7 +227,7 @@ public class ChatInboundService
         await _repo.TouchConversationAsync(tenantId, hoiThoai.Id, ChatRules.Summarize(e.Text), true, ct);
         // Bắn NGAY, trước quãng nghỉ gộp tin: nhân viên phải thấy tin khách lập tức, đừng bắt họ
         // chờ thêm bốn giây chỉ vì bot đang đợi xem khách có gõ tiếp không.
-        _bus.Publish(new(tenantId, hoiThoai.Id, "tin-moi", id.Value));
+        _bus.Publish(new(tenantId, hoiThoai.Id, "tin-moi", id.Value) { AssignedUserId = hoiThoai.AssignedUserId });
 
         // Soi ảnh/tệp về kho riêng. ĐẶT SAU khi đã ghi tin và đã bắn tin cho giao diện: tải tệp
         // là chạm mạng, đặt trước thì tin của khách nằm chờ một tấm ảnh 5MB tải xong mới hiện.
@@ -235,7 +235,7 @@ public class ChatInboundService
         // Bắt buộc phải làm, không phải cho đẹp: URL của nền tảng đều có hạn (Meta ~5 ngày,
         // Telegram ~1 giờ), lưu nguyên thì hộp thư tự rỗng dần mà không ai làm gì sai.
         await MirrorMessageMediaAsync(tenantId, hoiThoai.Id, id.Value, e.Channel, e.Kind,
-            e.AttachmentJson, ct);
+            e.AttachmentJson, hoiThoai.AssignedUserId, ct);
 
         // Gộp tin nhắn liên tiếp: chờ khách im rồi mới xử lý cả cụm. Chờ thẳng ở đây thay vì hẹn
         // giờ riêng — đang chạy nền, vài giây không ảnh hưởng ai, mà đỡ hẳn một cơ chế hẹn giờ.
@@ -287,7 +287,7 @@ public class ChatInboundService
         await _repo.EnqueueOutboxAsync(tenantId, hoiThoai.Id, idRa.Value, ct);
         // Bot vừa soạn xong thì đẩy đi NGAY, đừng để nằm chờ hết nhịp — khách đang nhìn màn hình.
         _tin.Signal(ChatLane.Out);
-        _bus.Publish(new(tenantId, hoiThoai.Id, "tin-moi", idRa.Value));
+        _bus.Publish(new(tenantId, hoiThoai.Id, "tin-moi", idRa.Value) { AssignedUserId = hoiThoai.AssignedUserId });
     }
 
     /// <summary>
@@ -298,9 +298,17 @@ public class ChatInboundService
     ///
     /// <para>Nhãn dán truyền kèm <c>sticker_id</c> để đi ĐƯỜNG NHANH: mã đó cố định cho mọi
     /// khách nên cái like thứ hai trở đi không phải tải lại — xem <see cref="ChatMediaMirror"/>.</para>
+    ///
+    /// <para><paramref name="assignedUserId"/> chỉ để KẸP NGƯỜI NGHE khi bắn sự kiện xong việc —
+    /// hàm này gọi từ hai chỗ (tin mới, và vòng quét lại <see cref="BackfillMediaAsync"/>) nên
+    /// nhận sẵn từ chỗ gọi thay vì tự tra lại: chỗ gọi đầu đã có hội thoại trong tay (rẻ), còn
+    /// vòng quét lấy thẳng từ <see cref="ChatRepository.ClaimMediaAsync"/> — cột đó nối THÊM vào
+    /// chính câu truy vấn nhận dòng, không thêm vòng gọi CSDL nào, vì sự kiện này bắn theo từng
+    /// tin — lưu lượng cao hơn hẳn các sự kiện do người dùng bấm tay.</para>
     /// </summary>
     private async Task<MirrorOutcome> MirrorMessageMediaAsync(string tenantId, long hoiThoaiId,
-        long messageId, ChatChannel kenh, ChatKind loai, string? attachmentJson, CancellationToken ct)
+        long messageId, ChatChannel kenh, ChatKind loai, string? attachmentJson, int? assignedUserId,
+        CancellationToken ct)
     {
         if (!_soiTep.Configured || string.IsNullOrWhiteSpace(attachmentJson))
             return MirrorOutcome.Retry;
@@ -345,7 +353,7 @@ public class ChatInboundService
 
             await _repo.SetAttachmentAsync(tenantId, messageId,
                 new JsonObject { ["tk"] = 1, ["tep"] = ra }.ToJsonString(), ct);
-            _bus.Publish(new(tenantId, hoiThoaiId, "doi-trang-thai", messageId));
+            _bus.Publish(new(tenantId, hoiThoaiId, "doi-trang-thai", messageId) { AssignedUserId = assignedUserId });
             return MirrorOutcome.Mirrored;
         }
         catch (Exception ex)
@@ -405,7 +413,7 @@ public class ChatInboundService
             try
             {
                 switch (await MirrorMessageMediaAsync(t.TenantId, t.ConversationId, t.Id,
-                            (ChatChannel)t.Channel, (ChatKind)t.Kind, t.Attachment, ct))
+                            (ChatChannel)t.Channel, (ChatKind)t.Kind, t.Attachment, t.AssignedUserId, ct))
                 {
                     case MirrorOutcome.Mirrored: xong++; break;
                     case MirrorOutcome.GiveUp:

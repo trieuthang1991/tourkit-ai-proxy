@@ -336,7 +336,11 @@ public static class ChatCursor
 /// vào kênh đẩy. Đẩy thẳng nội dung qua đây là một đường rò dữ liệu thứ hai phải canh riêng.</para>
 /// </summary>
 /// <param name="Loai">"tin-moi" · "doi-trang-thai" · "doi-hoi-thoai".</param>
-public record ChatEvent(string TenantId, long ConversationId, string Loai, long? MessageId);
+public record ChatEvent(string TenantId, long ConversationId, string Loai, long? MessageId)
+{
+    /// Người phụ trách hội thoại LÚC PHÁT sự kiện — để bus kẹp người nghe. null = chưa ai nhận.
+    public int? AssignedUserId { get; init; }
+}
 
 /// <summary>Một dòng nhật ký thao tác. <c>Detail</c> là JSON thô, KHÔNG chứa nội dung tin.</summary>
 public class ChatAuditRow

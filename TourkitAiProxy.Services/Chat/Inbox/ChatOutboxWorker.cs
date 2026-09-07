@@ -142,7 +142,7 @@ public class ChatOutboxWorker : BackgroundService
         {
             await repo.FinishOutboxAsync(r.Id, false, false, cuaSo.Reason, ct);
             await repo.SetMessageStateAsync(r.TenantId, r.MessageId, ChatState.Failed, cuaSo.Reason, ct);
-            bus.Publish(new(r.TenantId, r.ConversationId, "doi-trang-thai", r.MessageId));
+            bus.Publish(new(r.TenantId, r.ConversationId, "doi-trang-thai", r.MessageId) { AssignedUserId = hoiThoai.AssignedUserId });
             _log.LogInformation("[chat/outbox] bỏ dòng {Id}: {Ly}", r.Id, cuaSo.Reason);
             return;
         }
@@ -169,7 +169,7 @@ public class ChatOutboxWorker : BackgroundService
             // Telegram không bao giờ báo lại (Bot API không có), nhưng vẫn lưu: rẻ, và khi cần truy
             // vết một tin cụ thể trên nền tảng thì đúng cái mã này là thứ dán vào công cụ của họ.
             await repo.SetExternalMsgIdAsync(r.TenantId, r.MessageId, kq.ExternalMsgId, ct);
-            bus.Publish(new(r.TenantId, r.ConversationId, "doi-trang-thai", r.MessageId));
+            bus.Publish(new(r.TenantId, r.ConversationId, "doi-trang-thai", r.MessageId) { AssignedUserId = hoiThoai.AssignedUserId });
             return;
         }
 
@@ -188,7 +188,7 @@ public class ChatOutboxWorker : BackgroundService
         if (!conLuot)
         {
             await repo.SetMessageStateAsync(r.TenantId, r.MessageId, ChatState.Failed, cauChoNguoi, ct);
-            bus.Publish(new(r.TenantId, r.ConversationId, "doi-trang-thai", r.MessageId));
+            bus.Publish(new(r.TenantId, r.ConversationId, "doi-trang-thai", r.MessageId) { AssignedUserId = hoiThoai.AssignedUserId });
         }
 
         // Kênh đứt thì ghi mức cảnh báo cao hơn: mọi tin gửi sau cũng sẽ hỏng y hệt, và người xem
