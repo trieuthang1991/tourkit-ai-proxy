@@ -57,7 +57,11 @@ public class ChatAuditGuardTests
         // khi khách yêu cầu xoá dữ liệu — sót một chỗ là vẫn còn lưu trái ý khách.
         // Soi TỪNG lời gọi tới hết dấu chấm phẩy, không soi một cửa sổ ký tự cố định: cửa sổ dễ
         // trùm sang mã bên cạnh rồi báo đỏ vì một chữ chẳng liên quan.
-        var goi = Regex.Matches(Endpoint(), @"AppendAuditAsync\([^;]*;", RegexOptions.Singleline)
+        // Phải soi CẢ hàm gói GhiNhatKyAsync. Từ 07/09/2026 mười tám chỗ ghi nhật ký đi qua nó
+        // chứ không gọi thẳng AppendAuditAsync nữa; chốt canh chỉ bắt tên trực tiếp thì đếm được
+        // ĐÚNG MỘT lời gọi (chính thân hàm gói) và luật này thành trang trí — đã đo: chép thẳng
+        // v.LastPreview vào một lượt ghi nhật ký mà toàn bộ 1219 test vẫn xanh.
+        var goi = Regex.Matches(Endpoint(), @"(?:AppendAuditAsync|GhiNhatKyAsync)\([^;]*;", RegexOptions.Singleline)
             .Select(x => x.Value).ToList();
         Assert.NotEmpty(goi);
 

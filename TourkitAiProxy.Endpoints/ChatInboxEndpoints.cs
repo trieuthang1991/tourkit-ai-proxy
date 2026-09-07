@@ -719,7 +719,10 @@ public static class ChatInboxEndpoints
                 chiTheoDoi: followed == true,
                 sau: ChatCursor.Decode(cursor), limit: soDong, nguoiDung: maNguoiXem, ct: ct);
             // Truyền kênh đang lọc: chip trạng thái phải nói về ĐÚNG danh sách đang hiện bên dưới.
-            var dem = await repo.CountAsync(a.TenantId, chiCuaToi, xem, maNguoiXem, channel, ct);
+            // Gọi bằng THAM SỐ CÓ TÊN: chiCuaToi và nguoiDung đều là int? nằm cạnh nhau, đảo nhầm
+            // thì vẫn biên dịch được và bộ đếm sai âm thầm — không có gì bắt được.
+            var dem = await repo.CountAsync(a.TenantId, chiCuaToi: chiCuaToi, xem: xem,
+                nguoiDung: maNguoiXem, kenh: channel, ct: ct);
             return Results.Json(new
             {
                 items = items.Select(x => Shape(x, a.SessionId)),
@@ -1173,9 +1176,7 @@ public static class ChatInboxEndpoints
                 var maToi = await sessions.EnsureCrmUserIdAsync(a.SessionId, ct);
                 // Không có mã người thì KHÔNG nhận được — ClaimConversationAsync đòi một người
                 // cụ thể để gán, "nhận việc mà không biết ai nhận" là vô nghĩa.
-                if (maToi is null)
-                    return Results.Json(new { error = "Không xác định được mã nhân viên của bạn — đăng nhập lại rồi thử lại." },
-                        statusCode: StatusCodes.Status400BadRequest);
+                if (maToi is null) return ThieuMaNhanVien();
                 var soDong = await repo.ClaimConversationAsync(a.TenantId, id, maToi.Value, ct);
                 if (soDong == 0)
                 {
@@ -1468,11 +1469,19 @@ public static class ChatInboxEndpoints
             var (a, xem) = p.Value;
             if (!repo.Configured) return NotConfigured();
 
-            // Tra mã TRƯỚC cửa chung, không sau: trả lỗi riêng cho hội thoại có thật là dựng
-            // đúng cái oracle mà luật 404-không-403 đang bịt. Không có mã thì bỏ mốc "đã đọc"
-            // (cột user_id là NOT NULL, không có gì để ghi) nhưng VẪN báo đã xem sang kênh:
-            // người thật đã mở hội thoại rồi, giấu chuyện đó với khách không sửa được gì.
+            // Tra mã TRƯỚC cửa chung. Trả lỗi ở đây KHÔNG lộ gì: nó xảy ra trước khi biết id có
+            // tồn tại hay không, nên mọi id đều nhận cùng một câu trả lời — không dựng được oracle
+            // mà luật 404-không-403 đang bịt.
+            //
+            // Không có mã thì BÁO LỖI, đừng bỏ qua trong im lặng: không còn chỗ nào ghi mốc đã đọc
+            // nữa (cột user_id là NOT NULL, và cột dùng chung ngày trước đã bị cấm ghi), nên bỏ qua
+            // là huy hiệu "chưa đọc" không bao giờ tắt trong khi máy chủ vẫn trả ok — người dùng
+            // bấm mãi không hiểu vì sao. Ba đường /unread, /follow, bỏ /follow đã chọn đúng lối này.
+            //
+            // Giá phải trả: lần đó khách không nhận được dấu "đã xem". Đổi lại là một lỗi nhìn thấy
+            // được thay cho một trạng thái hỏng âm thầm.
             var maNguoiXem = await sessions.EnsureCrmUserIdAsync(a.SessionId, ct);
+            if (maNguoiXem is null) return ThieuMaNhanVien();
 
             // Cửa chung TRƯỚC lượt ghi: MarkReadAsync trước đây chạy trước dòng này nên người
             // không được xem vẫn ghi được mốc "đã đọc" cho hội thoại lạ.
@@ -1480,8 +1489,7 @@ public static class ChatInboxEndpoints
             if (v is not null)
             {
                 // Theo TỪNG NGƯỜI: đánh dấu chung thì A mở hội thoại là B mất dấu chưa đọc.
-                if (maNguoiXem is not null)
-                    await repo.MarkReadAsync(a.TenantId, id, maNguoiXem.Value, ct);
+                await repo.MarkReadAsync(a.TenantId, id, maNguoiXem.Value, ct);
 
                 // Báo sang kênh khách đã được mở. Chỉ ở ĐÂY, nơi có NGƯỜI THẬT bấm vào — bot đọc
                 // mà cũng báo đã xem là nói dối khách.

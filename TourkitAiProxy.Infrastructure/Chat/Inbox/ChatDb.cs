@@ -441,8 +441,13 @@ public class ChatDb
     -- vào cột chữ và lỗi chỉ nổ lúc chạy.
     DO $$
     BEGIN
+      -- current_schema() là BẮT BUỘC: information_schema.columns liệt kê MỌI schema mà role nhìn
+      -- thấy, còn DROP TABLE lại tác động vào schema trong search_path. DBA sao lưu ba bảng sang
+      -- schema khác trước khi chạy migration phá huỷ — việc người ta hay làm — là điều kiện này
+      -- LUÔN đúng, và ba bảng ở public bị xoá lại ở MỖI lần khởi động, im lặng, exit=0.
       IF EXISTS (SELECT 1 FROM information_schema.columns
-                  WHERE table_name = 'chat_conversation_reads' AND column_name = 'username') THEN
+                  WHERE table_schema = current_schema()
+                    AND table_name = 'chat_conversation_reads' AND column_name = 'username') THEN
         DROP TABLE IF EXISTS chat_conversation_reads;
         DROP TABLE IF EXISTS chat_conversation_follows;
         DROP TABLE IF EXISTS chat_audit;
@@ -589,7 +594,8 @@ public class ChatDb
     DO $$
     BEGIN
       IF EXISTS (SELECT 1 FROM information_schema.columns
-                  WHERE table_name = 'chat_conversations' AND column_name = 'assigned_username')
+                  WHERE table_schema = current_schema()
+                    AND table_name = 'chat_conversations' AND column_name = 'assigned_username')
       THEN
         IF NOT EXISTS (SELECT 1 FROM chat_conversations WHERE assigned_username IS NOT NULL)
         THEN

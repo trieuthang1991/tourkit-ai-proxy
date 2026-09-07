@@ -99,6 +99,18 @@ public class ChatOwnerKeyGuardTests
             Assert.DoesNotContain("username", than);
             Assert.Contains("user_id", than);
         }
+
+        // Chỉ mục nằm NGOÀI thân bảng nên vòng lặp trên không chạm tới. Bỏ sót nó thì chỉ mục
+        // vẫn trỏ vào cột đã biến mất — schema dựng lỗi ngay lần khởi động đầu.
+        Assert.Contains("ON chat_conversation_follows (tenant_id, user_id)", sql);
+
+        // Và phần TRUY VẤN, không chỉ phần khai báo: đổi schema sang mã mà để truy vấn đọc tên là
+        // hỏng lúc chạy chứ không hỏng lúc dựng. Chốt cũ chỉ soi ChatDb.cs nên vế này lọt.
+        var repo = ChatSchemaGuardTests.DocFile(
+            "TourkitAiProxy.Infrastructure/Chat/Inbox/ChatRepository.cs");
+        foreach (var cam in new[] { "f.username", "f2.username", "r.username",
+                                    "conversation_id, username" })
+            Assert.DoesNotContain(cam, repo);
     }
 
     /// <summary>
