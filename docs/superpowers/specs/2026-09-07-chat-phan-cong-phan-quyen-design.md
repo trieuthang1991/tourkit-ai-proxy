@@ -96,10 +96,17 @@ trạng thái thứ ba, **im lặng**. Hai lỗi đã xảy ra từ đúng gốc
 - bộ lọc "chỉ của tôi" so theo tên → hội thoại do xoay vòng gán có tên trống nên lọt vào bộ lọc
   của **mọi người**.
 
-⚠️ **Phần còn lại của hộp thư vẫn khoá theo TÊN, và đó là cố ý.** Theo dõi, dấu đã đọc, nhật ký
-thao tác đều dùng tên đăng nhập. Chúng là *dấu riêng của từng người* và *lịch sử*, không phải
-quyết định về quyền sở hữu — nên không nằm dưới luật này. Đừng "chuẩn hoá" chúng sang mã: dấu đã
-đọc chuyển khoá là mất sạch dấu, còn nhật ký chuyển khoá là mọi dòng cũ mất nghĩa.
+⚠️ **Toàn cụm chat khoá theo MÃ NGƯỜI — không còn ngoại lệ.** Theo dõi, dấu đã đọc, nhật ký thao
+tác cũng chuyển sang mã (chủ dự án chốt 07/09/2026).
+
+Ban đầu tôi phản đối, lý do: đổi khoá là mất sạch dấu đã đọc và làm mọi dòng nhật ký cũ mất nghĩa.
+**Lý lẽ đó chỉ đúng khi có dữ liệu thật.** Cụm chat chưa vận hành, nên không có dấu nào để mất và
+không có lịch sử nào để làm hỏng — ghi lại đây để sau này không ai đào lại cuộc tranh luận đã kết.
+
+Một hệ, một loại khoá. Trộn hai loại chính là nguồn gốc của mọi nhập nhằng đã gặp trong đợt này.
+
+⚠️ **`chat_audit` ghi `NULL` cho hệ thống.** Vòng quay chia việc ghi nhật ký không dưới danh nghĩa
+người nào. `NULL = hệ thống` — đừng nhét số ma thuật vào đó.
 
 ⚠️ **Không cần sửa API danh sách nhân viên.** Nó đã trả mã + tên hiển thị. Chọn khoá là mã nghĩa
 là bên ERP không phải đụng gì.

@@ -1817,6 +1817,170 @@ git commit -m "refactor(chat): bỏ tên đăng nhập khỏi đường phân c�
 
 ---
 
+## Task 12 (bổ sung): Chuẩn hoá ba bảng còn lại sang mã người
+
+> Chủ dự án chốt 07/09/2026: *"theo dõi, dấu đã đọc, nhật ký thao tác — xoá luôn đi, đổi thành Id
+> User cho chuẩn"*. Cụm chat chưa vận hành nên không có dấu nào để mất.
+
+Ba bảng còn khoá theo tên đăng nhập. Sau việc này, **toàn hệ chat dùng một loại khoá duy nhất**.
+
+**Files:**
+- Modify: `TourkitAiProxy.Infrastructure/Chat/Inbox/ChatDb.cs` — schema ba bảng
+- Modify: `TourkitAiProxy.Infrastructure/Chat/Inbox/ChatRepository.cs` — ~16 chỗ
+- Modify: `TourkitAiProxy.Endpoints/ChatInboxEndpoints.cs` — 18 chỗ ghi nhật ký + chỗ truyền người dùng
+- Test: `TourkitAiProxy.Tests/Chat/ChatOwnerKeyGuardTests.cs` — mở rộng
+
+- [ ] **Step 1: Mở rộng guard cho đỏ trước**
+
+Thêm vào `ChatOwnerKeyGuardTests.cs`:
+
+```csharp
+    [Fact]
+    public void Toan_cum_chat_khoa_theo_MA_NGUOI_khong_con_ten_dang_nhap()
+    {
+        // Một hệ, một loại khoá. Trộn hai loại là nguồn gốc của mọi nhập nhằng đã gặp.
+        var sql = ChatSchemaGuardTests.DocFile(
+            "TourkitAiProxy.Infrastructure/Chat/Inbox/ChatDb.cs");
+        foreach (var bang in new[] { "chat_conversation_reads", "chat_conversation_follows",
+                                     "chat_audit" })
+        {
+            var i = sql.IndexOf($"CREATE TABLE IF NOT EXISTS {bang}", StringComparison.Ordinal);
+            Assert.True(i >= 0, $"Không thấy khai báo bảng {bang}");
+            var than = sql.Substring(i, Math.Min(600, sql.Length - i));
+            Assert.DoesNotContain("username", than);
+            Assert.Contains("user_id", than);
+        }
+    }
+```
+
+- [ ] **Step 2: Chạy cho hỏng** — `--filter ChatOwnerKeyGuardTests`, chờ ĐỎ.
+
+- [ ] **Step 3: Đổi schema ba bảng**
+
+Chèn **TRƯỚC** khối `CREATE TABLE` của ba bảng trong `ChatDb.SchemaSql`:
+
+```sql
+    -- Chuẩn hoá sang MÃ NGƯỜI. Cụm chat chưa vận hành, và chủ dự án đã đồng ý bỏ dữ liệu cũ
+    -- (07/09/2026): ba bảng này là dấu riêng của từng người + nhật ký của giai đoạn thử nghiệm.
+    --
+    -- Idempotent: lần chạy thứ hai không còn cột `username` nên khối IF không vào. Ba bảng bị bỏ
+    -- cùng lúc, không bỏ lẻ — chuyển một nửa còn tệ hơn không chuyển, vì mã ghi số vào cột chữ.
+    DO $$
+    BEGIN
+      IF EXISTS (SELECT 1 FROM information_schema.columns
+                  WHERE table_name = 'chat_conversation_reads' AND column_name = 'username') THEN
+        DROP TABLE IF EXISTS chat_conversation_reads;
+        DROP TABLE IF EXISTS chat_conversation_follows;
+        DROP TABLE IF EXISTS chat_audit;
+        RAISE NOTICE 'Da bo ba bang khoa theo ten de tao lai theo ma nguoi';
+      END IF;
+    END $$;
+```
+
+Rồi sửa ba khai báo `CREATE TABLE`: cột `username text NOT NULL` → `user_id integer NOT NULL`,
+khoá chính đổi theo, chỉ mục `ix_follow_nguoi` đổi cột.
+
+⚠️ **`chat_audit.user_id` phải cho phép NULL** — vòng quay ghi nhật ký dưới danh nghĩa hệ thống,
+không phải người nào. `NULL = hệ thống`. Ghi rõ trong chú thích, không thì người sau lại nhét một
+số ma thuật vào đó.
+
+- [ ] **Step 4: Đổi mã theo**
+
+`ChatRepository.cs` — mọi tham số `nguoiDung`/`username` phục vụ ba bảng trên đổi `string?` → `int?`.
+`ChatInboxEndpoints.cs` — 18 chỗ gọi ghi nhật ký và chỗ truyền người dùng: lấy mã từ phiên
+(`EnsureCrmUserIdAsync`), không lấy tên.
+
+⚠️ Đường nền (vòng quay, worker) ghi nhật ký với `null` thay cho chuỗi `"he-thong"`.
+
+- [ ] **Step 5: Chạy toàn bộ test** — guard mới xanh, không test nào đỏ.
+
+- [ ] **Step 6: Chứng minh guard có ăn** — tạm trả một bảng về `username`, xác nhận ĐỎ, hoàn nguyên.
+Ghi bằng chứng vào báo cáo.
+
+- [ ] **Step 7: Commit**
+
+```bash
+git commit -m "refactor(chat): chuẩn hoá toàn cụm sang mã người — bỏ khoá theo tên đăng nhập"
+```
+
+---
+
+## Task 13 (bổ sung): Đệm danh sách nhân viên trong Redis 2 tiếng
+
+> Chủ dự án chốt 07/09/2026: danh sách nhân viên lấy từ API phải đệm lại, tránh nạp đi nạp lại.
+
+Đường `GET /api/v1/chat/assign-settings` gọi sang ERP lấy danh sách nhân viên **mỗi lần**. Nó
+được gọi ở mỗi lần mở hộp thư và mỗi lần mở màn hình cấu hình. Danh sách này gần như không đổi.
+
+**Files:**
+- Modify: `TourkitAiProxy.Endpoints/ChatInboxEndpoints.cs` — đường đọc cấu hình
+- Test: `TourkitAiProxy.Tests/Chat/ChatAssignSchemaGuardTests.cs` — thêm guard
+
+- [ ] **Step 1: Guard cho đỏ trước**
+
+```csharp
+    [Fact]
+    public void Danh_sach_nhan_vien_phai_di_qua_dem()
+    {
+        // Danh sách gần như không đổi mà bị gọi ở mỗi lần mở hộp thư — không đệm là bắt ERP
+        // gánh một lượt gọi cho mỗi cú bấm.
+        var than = ThanHam("assign-settings");
+        Assert.False(string.IsNullOrWhiteSpace(than), "Không cắt được thân đường đọc cấu hình");
+        Assert.Contains("redis", than, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("FromHours(2)", than);
+    }
+```
+
+- [ ] **Step 2: Chạy cho hỏng.**
+
+- [ ] **Step 3: Bọc đệm quanh lượt gọi ERP**
+
+Dùng `RedisStore` sẵn có (`TourkitAiProxy.Infrastructure/Cache/RedisStore.cs`) — nó đã tự thêm
+tiền tố `tkai:` và **tự an toàn khi không có Redis** (trả `null`/`false`, chỗ gọi tự lùi).
+
+```csharp
+            // Danh sách nhân viên đổi rất thưa (chỉ khi nhân sự thay đổi bên ERP) nhưng bị hỏi ở
+            // MỖI lần mở hộp thư. Đệm 2 tiếng theo công ty.
+            //
+            // Không có Redis thì Get trả null và ta gọi thẳng ERP như cũ — đệm là tối ưu, không
+            // phải điều kiện để chạy.
+            var khoaDem = $"chat:nhanvien:{a.TenantId}";
+            var nhanVien = new List<object>();
+            var daDem = redis.Get(khoaDem);
+            if (daDem is not null)
+            {
+                try { nhanVien = JsonSerializer.Deserialize<List<object>>(daDem) ?? new(); }
+                catch { /* đệm hỏng thì coi như chưa có */ }
+            }
+            if (nhanVien.Count == 0)
+            {
+                // … lượt gọi /api/ai/reference như hiện tại …
+                if (nhanVien.Count > 0)
+                    redis.Set(khoaDem, JsonSerializer.Serialize(nhanVien), TimeSpan.FromHours(2));
+            }
+```
+
+⚠️ **Chỉ đệm khi danh sách KHÔNG rỗng.** Đệm một danh sách rỗng do ERP lỗi nhất thời là khoá cả
+công ty ra khỏi màn hình cấu hình suốt hai tiếng — không tick chọn được ai, mà không có lỗi nào
+hiện ra.
+
+⚠️ **Không tự dựng cơ chế xoá đệm.** Hai tiếng là hợp đồng; thêm người mới bên ERP thì chậm nhất
+hai tiếng là thấy. Dựng đường xoá đệm là thêm một thứ phải nhớ gọi đúng chỗ, mà lợi ích không đáng.
+
+- [ ] **Step 4: Chạy toàn bộ test.**
+
+- [ ] **Step 5: Thử tay**
+
+Mở màn hình cấu hình hai lần liên tiếp; lượt thứ hai **không** được thấy lượt gọi ERP trong log.
+
+- [ ] **Step 6: Commit**
+
+```bash
+git commit -m "perf(chat): đệm danh sách nhân viên 2 tiếng trong Redis"
+```
+
+---
+
 ## Kiểm cuối trước khi gộp
 
 - [ ] `dotnet test TourkitAiProxy.Tests/TourkitAiProxy.Tests.csproj` — toàn bộ xanh, chạy dưới 1 giây.
