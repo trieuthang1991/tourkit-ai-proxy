@@ -101,7 +101,28 @@ public class ChatScopeGuardTests
     {
         // 403 nghĩa là "có hội thoại này nhưng anh không được xem" — tức xác nhận đúng cái
         // đang giấu. Dò tuần tự theo id là biết công ty có bao nhiêu khách.
-        Assert.DoesNotContain("Bạn không được xem hội thoại này", Endpoint());
+        //
+        // ⚠️ Bản trước chỉ cấm ĐÚNG MỘT CÂU CHỮ tiếng Việt. Đổi cách viết là lọt: thay
+        // `return Results.NotFound();` ở route chi tiết bằng một thân lỗi 403 chữ khác thì chốt
+        // VẪN XANH (đã đo). Chốt canh phải bám vào ĐƯỜNG TỪ CHỐI, không bám vào lời văn.
+        //
+        // Không cấm trần số 403 trong cả file: xác thực webhook của Meta/Zalo/Telegram và quyền
+        // cấu hình hệ thống dùng 403 HỢP LỆ — cấm trần là đỏ oan.
+        var src = Endpoint();
+        Assert.DoesNotContain("Bạn không được xem hội thoại này", src);
+
+        // Mọi lần tra hội thoại mà KHÔNG được xem đều phải rẽ về đúng một chỗ: 404.
+        var traVe = Regex.Matches(src, @"GetConversationAsync\([^)]*\) is null\) return ([^;]+);")
+            .Select(m => m.Groups[1].Value.Trim())
+            .Concat(Regex.Matches(src, @"[ (]v is null\) return ([^;]+);")
+                .Select(m => m.Groups[1].Value.Trim()))
+            .Concat(Regex.Matches(src, @"is not \{ \} v\) return ([^;]+);")
+                .Select(m => m.Groups[1].Value.Trim()))
+            .ToList();
+        Assert.True(traVe.Count >= 24,
+            $"Chỉ thấy {traVe.Count} đường từ chối — biểu thức cắt đã lạc, chốt sẽ xanh giả");
+        foreach (var r in traVe)
+            Assert.Equal("Results.NotFound()", r);
     }
 
     /// Thân route <c>GET /conversations</c> (danh sách) — KHÔNG lấy nhầm sang
