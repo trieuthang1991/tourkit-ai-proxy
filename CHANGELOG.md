@@ -13,6 +13,20 @@ Những cập nhật gần đây của TRAV-AI, viết cho người dùng. Mới
 
 ---
 
+## Phiên bản 07/09/2026 — Giao việc trong hộp thư chat
+
+### ✨ Tính năng mới
+
+- Mỗi cuộc trò chuyện nay có **người phụ trách**. Chọn người ngay trên đầu khung chat.
+- Hai cách chia việc: **giao tay**, hoặc **chia lần lượt** cho đội trực chat — cuộc nào chưa có
+  người phụ trách thì tự chia cho người kế tiếp.
+- Bật được chế độ **nhân viên chỉ xem cuộc trò chuyện của mình**; quản trị viên vẫn xem tất cả.
+
+### 🔧 Đã khắc phục
+
+- Nút "Nhận việc" nay ghi rõ là **"Nhận chăm sóc"**, và cột người phụ trách hiện **tên đầy đủ**
+  thay cho tên đăng nhập khó đọc.
+
 ## Phiên bản 29/08/2026 — Nhắn tin trên điện thoại, và quyền riêng tư của khách
 
 ### ✨ Tính năng mới

@@ -830,6 +830,30 @@ này — trước đó cột `deleted_utc` (dùng cho bình luận khách tự x
 lời hứa "hộp thư hiện đã bị xoá" trong chú thích schema chưa từng được giữ.
 
 
+### Phân công và quyền xem (`Features:ChatAssign`)
+
+Hai chế độ: **Phân công thủ công** (máy không gán, người giao cho nhau) và **Chia xoay vòng**
+(hội thoại chưa có người thì gán lần lượt cho đội trực).
+
+⚠️ **Luật xem: admin xem tất cả, còn lại chỉ xem hội thoại đã giao cho mình.** Hội thoại **chưa
+giao cho ai KHÔNG hiện** với nhân viên thường — đây là quyết định của chủ dự án 07/09/2026, có
+test khoá lại, đừng "sửa" nó. Hệ quả là chế độ thủ công trên thực tế là **admin giao xuống**,
+không phải nhân viên tự bốc việc.
+
+⚠️ **Chặn ở chữ ký hàm, không bằng kỷ luật.** `GetConversationAsync` nhận `NguoiXem` bắt buộc, và
+27 endpoint hội thoại (mọi route `/conversations/{id…}`) đều đi qua nó — endpoint mới quên truyền
+thì **lỗi biên dịch**, không phải lỗ hổng phát hiện sau sáu tháng. Không được xem thì hàm trả
+`null` → 404. **Không trả 403**: 403 xác nhận hội thoại tồn tại, dò tuần tự theo id là biết công
+ty có bao nhiêu khách.
+
+⚠️ **Luồng sự kiện kẹp trong bus**, cùng chỗ kẹp tenant và cùng lý do. Lọc ở endpoint thì một lần
+quên là nhân viên nhận chuông báo của hội thoại họ bấm vào ra 404.
+
+⚠️ **Con trỏ xoay vòng lưu MÃ NGƯỜI, không lưu vị trí.** Lưu vị trí thì thêm hoặc bớt một người
+là cả vòng lệch, im lặng: một người nhận gấp đôi, một người không nhận cái nào.
+
+⚠️ **Chưa có dòng `chat_assign_settings` = giữ nguyên hành vi cũ.** Đường lùi cho khách đang chạy.
+
 ### Thu hồi tin — vì sao là "hoãn gửi" chứ không phải "thu hồi"
 
 ⚠️ **Meta không cấp API thu hồi cho phía doanh nghiệp.** Messenger, Instagram và WhatsApp Cloud API

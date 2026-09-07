@@ -49,6 +49,19 @@ public static class FeatureFlags
         => Chat(cfg) && cfg.GetValue("Features:ChatHistoryImport", false);
 
     /// <summary>
+    /// Phân công hội thoại và phân quyền xem trong hộp thư chat.
+    ///
+    /// <para>PHỤ THUỘC <see cref="Chat"/>: không có hộp thư thì không có gì để phân công.</para>
+    ///
+    /// <para><b>Cờ này chỉ ẩn/hiện giao diện.</b> Luật xem thật nằm ở
+    /// <c>chat_assign_settings.scope_own_only</c> theo TỪNG CÔNG TY — chưa có dòng thì mọi người
+    /// xem tất cả, y như trước. Tắt cờ mà công ty đã bật kẹp quyền thì luật vẫn chạy: bảo vệ dữ
+    /// liệu không được phụ thuộc vào một cờ khai trong file cấu hình máy chủ.</para>
+    /// </summary>
+    public static bool ChatAssign(IConfiguration cfg)
+        => Chat(cfg) && cfg.GetValue("Features:ChatAssign", false);
+
+    /// <summary>
     /// Kiểm tra sẵn sàng khởi hành (tác vụ <c>tour-readiness</c>): quét tour sắp đi, tour nào còn
     /// thiếu thì ghi cảnh báo vào Bảng tin.
     ///
