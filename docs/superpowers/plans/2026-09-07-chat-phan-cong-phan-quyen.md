@@ -1020,6 +1020,39 @@ nguyên tử ở trên. Nó cũng phải điền mã người, không thì giao 
     }
 ```
 
+- [ ] **Step 3c: Nhánh NHẬN VIỆC CHO CHÍNH MÌNH cũng phải đổi**
+
+`ChatInboxEndpoints.cs:995` đang rẽ nhánh bằng `if (body?.Username is null)`. Sau khi `AssignReq`
+đổi sang `int? UserId` thì thuộc tính `Username` không còn — quên chỗ này là **không biên dịch
+được**, và sửa cho qua bằng `body?.UserId is null` thì **sai nghĩa**: yêu cầu "nhả việc"
+(`{"userId":null}`) sẽ bị hiểu thành "nhận việc cho tôi".
+
+Rẽ nhánh theo **thân yêu cầu có hay không**, không theo giá trị bên trong:
+
+```csharp
+            // KHÔNG có thân yêu cầu = NHẬN VIỆC cho chính mình. Tên và mã lấy từ PHIÊN, không
+            // lấy từ thân: để client tự khai thì ai cũng gán việc cho người khác được.
+            if (body is null)
+            {
+                var maToi = await sessions.EnsureCrmUserIdAsync(a.SessionId, ct);
+                var soDong = await repo.ClaimConversationAsync(a.TenantId, id, a.Username, maToi, ct);
+                if (soDong == 0)
+                {
+                    // 200 im lặng là kiểu hỏng tệ nhất: giao diện người thua vẫn hiện "của tôi",
+                    // rồi hai người cùng trả lời một khách.
+                    var dangGiu = await repo.AssigneeOfAsync(a.TenantId, id, ct);
+                    return Results.Json(new { error = $"{dangGiu} đang xử lý hội thoại này", assignedTo = dangGiu },
+                        statusCode: StatusCodes.Status409Conflict);
+                }
+                await repo.AppendAuditAsync(a.TenantId, id, a.Username, "nhan-viec", null, ct);
+                bus.Publish(new(a.TenantId, id, "doi-hoi-thoai", null) { AssignedUserId = maToi });
+                return Results.Json(new { ok = true, assignedTo = a.Username, assignedUserId = maToi }, Web);
+            }
+```
+
+⚠️ Giao diện phải gửi kèm: nút "Nhận chăm sóc" gọi `/assign` **không có thân**, còn ô chọn người
+gửi `{"userId": …}`. Task 8 đã viết đúng vậy.
+
 - [ ] **Step 4: `/assign` kiểm đội trực**
 
 Trong nhánh "có tên = chuyển việc cho người đó" của `/assign` (`ChatInboxEndpoints.cs:1013`), trước khi gọi `repo.AssignAsync`:
@@ -1062,6 +1095,7 @@ Trong `/conversations/{id:long}/send` (`:813`), sau khi gửi thành công:
             //
             // ⚠️ Trên thực tế chỉ admin chạm được nhánh này: theo luật xem, hội thoại chưa gán
             // không hiện với nhân viên thường nên họ không mở ra để trả lời được.
+            // `v` là hội thoại đã đọc ở đầu handler (ChatInboxEndpoints.cs:827).
             var ch = assign.Configured ? await assign.LayCauHinhAsync(a.TenantId, ct) : null;
             if (ch?.AutoAssignOnReply == true && v.AssignedUserId is null)
             {
