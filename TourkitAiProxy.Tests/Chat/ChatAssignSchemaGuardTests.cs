@@ -58,4 +58,36 @@ public class ChatAssignSchemaGuardTests
         foreach (var manh in new[] { "chat_assign_settings" })
             Assert.Contains($"CREATE TABLE IF NOT EXISTS {manh}", sql);
     }
+
+    private static string Kho() => ChatSchemaGuardTests.DocFile(
+        "TourkitAiProxy.Infrastructure/Chat/Inbox/ChatAssignRepository.cs");
+
+    [Fact]
+    public void Xoay_vong_quay_con_tro_va_gan_trong_MOT_cau_lenh()
+    {
+        // Đọc rồi ghi thì hai tin tới cùng lúc sẽ gán hai người khác nhau, cái sau đè cái
+        // trước, và khách nhận hai lời chào.
+        var m = System.Text.RegularExpressions.Regex.Match(
+            Kho(), "GanXoayVongAsync(.{0,2500})",
+            System.Text.RegularExpressions.RegexOptions.Singleline);
+        Assert.True(m.Success, "Không thấy GanXoayVongAsync");
+
+        var than = m.Groups[1].Value;
+        Assert.Contains("WITH", than);                          // CTE ghi dữ liệu
+        Assert.Contains("UPDATE chat_assign_settings", than);   // quay con trỏ
+        Assert.Contains("UPDATE chat_conversations", than);     // gán người
+        // Điều kiện phải nằm TRONG câu UPDATE để CSDL quyết định người thắng.
+        Assert.Contains("assigned_user_id IS NULL", than);
+    }
+
+    [Fact]
+    public void Xoay_vong_chi_chia_cho_doi_truc()
+    {
+        // Không đọc member_ids thì máy chia hội thoại cho CẢ công ty — khách hỏi tour rơi vào
+        // kế toán, ngồi đó không ai trả lời.
+        var m = System.Text.RegularExpressions.Regex.Match(
+            Kho(), "GanXoayVongAsync(.{0,2500})",
+            System.Text.RegularExpressions.RegexOptions.Singleline);
+        Assert.Contains("member_ids", m.Groups[1].Value);
+    }
 }

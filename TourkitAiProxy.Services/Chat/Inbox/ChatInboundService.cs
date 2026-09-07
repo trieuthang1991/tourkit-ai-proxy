@@ -33,12 +33,14 @@ public class ChatInboundService
     private readonly ChatBotSettingsRepository _cauHinh;
     private readonly ChatMediaMirror _soiTep;
     private readonly ChatEventBus _bus;
+    private readonly ChatAssignRepository _assign;
 
     public ChatInboundService(ChatRepository repo, IEnumerable<IChatChannelAdapter> adapters,
         ProviderRegistry providers, AiCallContext aiCtx, IConfiguration cfg,
         ILogger<ChatInboundService> log, ChatEventBus bus, ChatWorkSignal tin,
-        ChatBotSettingsRepository cauHinh, ChatMediaMirror soiTep, AiModelRegistry models)
-    { _repo = repo; _adapters = adapters; _providers = providers; _aiCtx = aiCtx; _cfg = cfg; _log = log; _bus = bus; _tin = tin; _cauHinh = cauHinh; _soiTep = soiTep; _models = models; }
+        ChatBotSettingsRepository cauHinh, ChatMediaMirror soiTep, AiModelRegistry models,
+        ChatAssignRepository assign)
+    { _repo = repo; _adapters = adapters; _providers = providers; _aiCtx = aiCtx; _cfg = cfg; _log = log; _bus = bus; _tin = tin; _cauHinh = cauHinh; _soiTep = soiTep; _models = models; _assign = assign; }
 
     public IChatChannelAdapter? Adapter(ChatChannel kenh)
         => _adapters.FirstOrDefault(a => a.Channel == kenh);
@@ -121,6 +123,26 @@ public class ChatInboundService
             await _repo.UpsertContactAsync(tenantId, e.Channel, e.ExternalUserId, hoSo.Name, anh, ct);
         }
         var hoiThoai = await _repo.GetOrCreateConversationAsync(tenantId, e.Channel, e.ExternalUserId, accountId, ct);
+
+        // Chia xoay vòng. Đặt SAU khi có hội thoại và TRƯỚC khi ghi tin: gán xong mới ghi thì
+        // sự kiện "tin mới" bắn ra đã mang đúng người phụ trách, nên bus kẹp đúng ngay lượt đầu.
+        // Hàm tự bỏ qua khi chế độ khác, đội trực rỗng, hoặc hội thoại đã có người.
+        if (_assign.Configured)
+        {
+            var maNguoiNhan = await _assign.GanXoayVongAsync(hoiThoai.TenantId, hoiThoai.Id, ct);
+            if (maNguoiNhan is not null)
+            {
+                // ChatConversation là CLASS có property đặt được, không phải record — gán thẳng,
+                // đừng dùng `with { }` (không biên dịch được).
+                //
+                // AssignedUsername để NGUYÊN (null): đội trực chỉ lưu mã người, không lưu tên
+                // đăng nhập. Giao diện hiện tên bằng cách tra mã trong danh sách nhân viên ERP
+                // mà nó vốn đã nạp — xem Task 8.
+                hoiThoai.AssignedUserId = maNguoiNhan;
+                await _repo.AppendAuditAsync(hoiThoai.TenantId, hoiThoai.Id, "he-thong",
+                    "xoay-vong", $"{{\"cho\":{maNguoiNhan}}}", ct);
+            }
+        }
 
         // Nguồn khách đến (quảng cáo/liên kết/QR). Ghi TRƯỚC mọi nhánh return bên dưới: nó có thể
         // đi kèm postback, kèm tin thường, hoặc tới MỘT MÌNH — bỏ ở nhánh nào là mất ở nhánh đó.
