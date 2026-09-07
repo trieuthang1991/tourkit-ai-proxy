@@ -21,6 +21,8 @@ tính năng bị ẩn — phiền nhưng sửa 1 dòng; mặc định bật thì
 | `Features:AnomalyWatchdog` | Tác vụ `anomaly-watchdog` (canh doanh thu bất thường) | **CẦN `Digest`** — ghi vào Bảng tin |
 | `Features:AutoCare` | Tác vụ `customer-auto-care` (nhắc chăm lại khách ngủ quên) | **CẦN `Digest`** — ghi vào Bảng tin |
 | `Features:Chat` | Hộp thư chat đa kênh: `/chat-inbox` + webhook 3 kênh + worker gửi + khai kết nối | — (có CSDL riêng, không ghi Bảng tin) |
+| `Features:ChatHistoryImport` | Nạp lịch sử hội thoại cũ từ kênh về hộp thư | **CẦN `Chat`** — không có hộp thư thì không có chỗ để nạp vào |
+| `Features:ChatAssign` | Giao diện phân công hội thoại + màn hình cấu hình đội trực | **CẦN `Chat`**. ⚠️ Cờ này **chỉ ẩn/hiện giao diện** — luật xem thật nằm ở `chat_assign_settings` theo TỪNG công ty, tắt cờ mà công ty đã bật kẹp quyền thì luật vẫn chạy. Bảo vệ dữ liệu không được phụ thuộc vào một cờ khai trong file cấu hình máy chủ |
 
 ⚠️ `AutoCare` là cờ **quan trọng nhất**: tính năng duy nhất của cả hệ đụng tới KHÁCH HÀNG THẬT. Mọi
 thứ khác chỉ ghi vào Bảng tin cho người trong công ty đọc. Bản hiện tại **KHÔNG gửi gì cho khách** —
