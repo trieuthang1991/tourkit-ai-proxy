@@ -127,7 +127,15 @@ public class ChatInboundService
         // Chia xoay vòng. Đặt SAU khi có hội thoại và TRƯỚC khi ghi tin: gán xong mới ghi thì
         // sự kiện "tin mới" bắn ra đã mang đúng người phụ trách, nên bus kẹp đúng ngay lượt đầu.
         // Hàm tự bỏ qua khi chế độ khác, đội trực rỗng, hoặc hội thoại đã có người.
-        if (_assign.Configured)
+        //
+        // BỎ QUA khi là TIN LỊCH SỬ (e.IsHistory). Vòng quay để chia KHÁCH ĐANG NHẮN, không phải
+        // để chia kho lưu trữ. Lần đầu nối một kênh, nền tảng trả về hàng loạt tin cũ — đúng chữ
+        // "chưa ai phụ trách" nên không phạm luật, nhưng gán thật thì cả kho hội thoại cũ đổ hết
+        // lên đội trực, mỗi cái một dòng nhật ký KHÔNG hoàn tác được, trong khi chẳng có khách nào
+        // đang chờ trả lời. ĐỪNG "sửa lại cho nhất quán" — nhánh TIẾNG VỌNG (echo) phía dưới vẫn
+        // CỐ Ý gán bình thường, vì đó là hoạt động thật (nhân viên đang trả lời), không phải lịch
+        // sử.
+        if (_assign.Configured && !e.IsHistory)
         {
             var maNguoiNhan = await _assign.GanXoayVongAsync(hoiThoai.TenantId, hoiThoai.Id, ct);
             if (maNguoiNhan is not null)

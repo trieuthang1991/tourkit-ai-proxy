@@ -1,3 +1,4 @@
+using System.Text.RegularExpressions;
 using Xunit;
 
 namespace TourkitAiProxy.Tests.Chat;
@@ -62,22 +63,56 @@ public class ChatAssignSchemaGuardTests
     private static string Kho() => ChatSchemaGuardTests.DocFile(
         "TourkitAiProxy.Infrastructure/Chat/Inbox/ChatAssignRepository.cs");
 
+    /// <summary>
+    /// Thân hàm <c>GanXoayVongAsync</c>, cắt tới đúng dấu đóng thân hàm (thụt lề 4 dấu cách +
+    /// <c>}</c>) — KHÔNG cắt theo một số ký tự cố định.
+    ///
+    /// <para>Cắt theo số ký tự là quả bom hẹn giờ: thêm vài dòng chú thích XML vào hàm là cửa sổ
+    /// tràn ra ngoài câu SQL thật, và các test bên dưới bắt đầu báo ĐỎ GIẢ dù mã không hề sai.
+    /// Cắt theo ranh giới cú pháp thì hàm dài thêm bao nhiêu cũng không ảnh hưởng.</para>
+    /// </summary>
+    private static string ThanGanXoayVong()
+    {
+        var kho = Kho();
+        var batDau = kho.IndexOf("GanXoayVongAsync", StringComparison.Ordinal);
+        Assert.True(batDau >= 0, "Không thấy GanXoayVongAsync");
+
+        var m = Regex.Match(kho[batDau..], @"\A.*?\r?\n    \}", RegexOptions.Singleline);
+        Assert.True(m.Success, "Không tìm được dấu đóng thân hàm GanXoayVongAsync");
+        return m.Value;
+    }
+
+    [Fact]
+    public void Xoay_vong_dung_DUY_NHAT_mot_luot_goi_CSDL()
+    {
+        // Tách hàm thành "đọc con trỏ" (ExecuteScalarAsync) rồi "ghi" (ExecuteAsync) ở một lượt
+        // OpenAsync riêng là ĐÚNG lỗi Critical guard này sinh ra để chặn: hai tin tới cùng lúc
+        // đọc cùng một con trỏ CŨ rồi cùng ghi đè lên nhau, khách nhận hai lời chào. Một lượt
+        // OpenAsync = một round-trip CSDL = một câu lệnh nguyên tử.
+        Assert.Single(Regex.Matches(ThanGanXoayVong(), "OpenAsync"));
+    }
+
     [Fact]
     public void Xoay_vong_quay_con_tro_va_gan_trong_MOT_cau_lenh()
     {
         // Đọc rồi ghi thì hai tin tới cùng lúc sẽ gán hai người khác nhau, cái sau đè cái
         // trước, và khách nhận hai lời chào.
-        var m = System.Text.RegularExpressions.Regex.Match(
-            Kho(), "GanXoayVongAsync(.{0,2500})",
-            System.Text.RegularExpressions.RegexOptions.Singleline);
-        Assert.True(m.Success, "Không thấy GanXoayVongAsync");
+        var than = ThanGanXoayVong();
 
-        var than = m.Groups[1].Value;
-        Assert.Contains("WITH", than);                          // CTE ghi dữ liệu
-        Assert.Contains("UPDATE chat_assign_settings", than);   // quay con trỏ
-        Assert.Contains("UPDATE chat_conversations", than);     // gán người
+        // Bốn chuỗi dưới đây phải cùng nằm trong MỘT chuỗi SQL literal — không phải "xuất hiện
+        // đâu đó trong thân hàm" (kể cả rải ra ở hai câu SQL riêng của hai lượt gọi CSDL khác
+        // nhau, thứ mà bản test cũ không phân biệt được và vẫn XANH dù đã mất tính nguyên tử).
+        var moDau = than.IndexOf("\"\"\"", StringComparison.Ordinal);
+        Assert.True(moDau >= 0, "Không thấy câu SQL nào trong GanXoayVongAsync");
+        var dongCua = than.IndexOf("\"\"\"", moDau + 3, StringComparison.Ordinal);
+        Assert.True(dongCua > moDau, "Câu SQL không đóng đúng cách (thiếu dấu \"\"\" đóng)");
+        var cauSql = than[(moDau + 3)..dongCua];
+
+        Assert.Contains("WITH", cauSql);                          // CTE ghi dữ liệu
+        Assert.Contains("UPDATE chat_assign_settings", cauSql);   // quay con trỏ
+        Assert.Contains("UPDATE chat_conversations", cauSql);     // gán người
         // Điều kiện phải nằm TRONG câu UPDATE để CSDL quyết định người thắng.
-        Assert.Contains("assigned_user_id IS NULL", than);
+        Assert.Contains("assigned_user_id IS NULL", cauSql);
     }
 
     [Fact]
@@ -85,9 +120,31 @@ public class ChatAssignSchemaGuardTests
     {
         // Không đọc member_ids thì máy chia hội thoại cho CẢ công ty — khách hỏi tour rơi vào
         // kế toán, ngồi đó không ai trả lời.
-        var m = System.Text.RegularExpressions.Regex.Match(
-            Kho(), "GanXoayVongAsync(.{0,2500})",
-            System.Text.RegularExpressions.RegexOptions.Singleline);
-        Assert.Contains("member_ids", m.Groups[1].Value);
+        Assert.Contains("member_ids", ThanGanXoayVong());
+    }
+
+    [Fact]
+    public void Xoay_vong_chay_TRUOC_moi_lenh_phat_su_kien()
+    {
+        // Gán xong mới bắn "tin mới" thì người vừa được giao mới thấy thông báo ngay. Đảo thứ
+        // tự này là lỗi CÂM: build vẫn qua, mọi test khác vẫn xanh, và hộp thư của người vừa
+        // được gán vẫn im lặng cho tới khi họ tự tải lại trang.
+        var kho = ChatSchemaGuardTests.DocFile(
+            "TourkitAiProxy.Services/Chat/Inbox/ChatInboundService.cs");
+        var m = Regex.Match(kho,
+            @"private async Task OneEventAsync.*?(?=\r?\n    (?:private|public))",
+            RegexOptions.Singleline);
+        Assert.True(m.Success, "Không thấy thân hàm OneEventAsync");
+        var than = m.Value;
+
+        var iGan = than.IndexOf("GanXoayVongAsync", StringComparison.Ordinal);
+        var iBan = than.IndexOf("_bus.Publish", StringComparison.Ordinal);
+        // Bắt buộc kiểm >= 0 riêng: thiếu bước này thì lượt gọi xoay vòng bị xoá sạch làm
+        // iGan = -1, và "-1 < iBan" vẫn đúng — test XANH GIẢ đúng lúc tính năng đã biến mất.
+        Assert.True(iGan >= 0, "Không thấy lượt gọi xoay vòng trong OneEventAsync");
+        Assert.True(iBan >= 0, "Không thấy lệnh phát sự kiện trong OneEventAsync");
+        Assert.True(iGan < iBan,
+            "Xoay vòng phải chạy TRƯỚC khi phát sự kiện — nếu không, người vừa được gán không " +
+            "nhận được thông báo tin mới nào.");
     }
 }
