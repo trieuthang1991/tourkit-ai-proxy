@@ -1,6 +1,7 @@
 ﻿// Endpoints/ChatInboxEndpoints.cs
 using System.Text.Json;
 using System.Text.Json.Nodes;
+using TourkitAiProxy.Infrastructure.Cache;
 using TourkitAiProxy.Infrastructure.Chat.Channels;
 using TourkitAiProxy.Infrastructure.Chat.Inbox;
 using TourkitAiProxy.Services.Storage;
@@ -507,7 +508,7 @@ public static class ChatInboxEndpoints
         // ĐỌC thì ai cũng được: giao diện cần biết chế độ và đội trực để dựng ô chọn người phụ
         // trách, mà giấu hai thứ đó đi không bảo vệ gì cả. GHI mới cần quyền Cấu hình hệ thống.
         g.MapGet("/assign-settings", async (HttpContext ctx, TkSessionStore sessions,
-            ChatAssignRepository assign, TourKitApiClient api, CancellationToken ct) =>
+            ChatAssignRepository assign, TourKitApiClient api, RedisStore redis, CancellationToken ct) =>
         {
             var a = SessionAuth.Read(ctx, sessions);
             if (a == null) return SessionAuth.Unauthorized();
@@ -516,31 +517,52 @@ public static class ChatInboxEndpoints
             var ch = await assign.LayCauHinhAsync(a.TenantId, ct);
             var s = sessions.Get(a.SessionId);
 
-            // Tên nhân viên lấy từ ERP, KHÔNG lưu trong CSDL chat: lưu là nhân đôi chỗ phải sửa
-            // khi ai đó đổi tên. Best-effort — upstream hỏng thì trả danh sách rỗng, hộp thư vẫn
-            // chạy, chỉ mất ô chọn người.
+            // Danh sách nhân viên đổi rất thưa (chỉ khi nhân sự thay đổi bên ERP) nhưng bị hỏi ở
+            // MỖI lần mở hộp thư và MỖI lần mở màn hình cấu hình. Đệm 2 tiếng theo công ty.
+            //
+            // Không có Redis thì Get trả null và ta gọi thẳng ERP như cũ — đệm là tối ưu, không
+            // phải điều kiện để chạy.
+            var khoaDem = $"chat:nhanvien:{a.TenantId}";
             var nhanVien = new List<object>();
-            try
+            var daDem = redis.Get(khoaDem);
+            if (daDem is not null)
             {
-                var r = await api.GetAsync(s!.Jwt, "/api/ai/reference", ct);
-                if (r.TryGetProperty("lookups", out var lk)
-                    && lk.TryGetProperty("sellers", out var sellers)
-                    && sellers.ValueKind == JsonValueKind.Array)
-                    foreach (var it in sellers.EnumerateArray())
-                    {
-                        // ⚠️ Khoá số có thể là "value" HOẶC "id" tuỳ enum — DealEndpoints.BuildDealLookups
-                        // đã phải xử cả hai. Gọi thẳng GetProperty("id") là NÉM khi payload dùng "value",
-                        // và cả lượt gọi rơi vào catch bên dưới → danh sách nhân viên rỗng, im lặng.
-                        var ma = it.TryGetProperty("value", out var v) && v.ValueKind == JsonValueKind.Number
-                                     ? v.GetInt32()
-                                 : it.TryGetProperty("id", out var i2) && i2.ValueKind == JsonValueKind.Number
-                                     ? i2.GetInt32() : 0;
-                        var ten = it.TryGetProperty("name", out var n) ? n.GetString() : null;
-                        if (ma > 0 && !string.IsNullOrWhiteSpace(ten))
-                            nhanVien.Add(new { id = ma, name = ten });
-                    }
+                try { nhanVien = JsonSerializer.Deserialize<List<object>>(daDem) ?? new(); }
+                catch { /* đệm hỏng thì coi như chưa có */ }
             }
-            catch { /* để rỗng */ }
+            if (nhanVien.Count == 0)
+            {
+                // Tên nhân viên lấy từ ERP, KHÔNG lưu trong CSDL chat: lưu là nhân đôi chỗ phải
+                // sửa khi ai đó đổi tên. Best-effort — upstream hỏng thì trả danh sách rỗng, hộp
+                // thư vẫn chạy, chỉ mất ô chọn người.
+                try
+                {
+                    var r = await api.GetAsync(s!.Jwt, "/api/ai/reference", ct);
+                    if (r.TryGetProperty("lookups", out var lk)
+                        && lk.TryGetProperty("sellers", out var sellers)
+                        && sellers.ValueKind == JsonValueKind.Array)
+                        foreach (var it in sellers.EnumerateArray())
+                        {
+                            // ⚠️ Khoá số có thể là "value" HOẶC "id" tuỳ enum — DealEndpoints.BuildDealLookups
+                            // đã phải xử cả hai. Gọi thẳng GetProperty("id") là NÉM khi payload dùng "value",
+                            // và cả lượt gọi rơi vào catch bên dưới → danh sách nhân viên rỗng, im lặng.
+                            var ma = it.TryGetProperty("value", out var v) && v.ValueKind == JsonValueKind.Number
+                                         ? v.GetInt32()
+                                     : it.TryGetProperty("id", out var i2) && i2.ValueKind == JsonValueKind.Number
+                                         ? i2.GetInt32() : 0;
+                            var ten = it.TryGetProperty("name", out var n) ? n.GetString() : null;
+                            if (ma > 0 && !string.IsNullOrWhiteSpace(ten))
+                                nhanVien.Add(new { id = ma, name = ten });
+                        }
+                }
+                catch { /* để rỗng */ }
+
+                // ⚠️ CHỈ đệm khi danh sách KHÁC RỖNG — đệm một danh sách rỗng do ERP lỗi nhất
+                // thời là khoá cả công ty ra khỏi màn hình cấu hình suốt hai tiếng, không lỗi
+                // nào hiện ra. Không tự dựng cơ chế xoá đệm: hai tiếng là hợp đồng đã chốt.
+                if (nhanVien.Count > 0)
+                    redis.Set(khoaDem, JsonSerializer.Serialize(nhanVien), TimeSpan.FromHours(2));
+            }
 
             // Chưa cấu hình → mặc định "thủ công, không kẹp quyền" = đúng hành vi hôm nay.
             return Results.Json(new

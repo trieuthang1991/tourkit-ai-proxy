@@ -147,4 +147,36 @@ public class ChatAssignSchemaGuardTests
             "Xoay vòng phải chạy TRƯỚC khi phát sự kiện — nếu không, người vừa được gán không " +
             "nhận được thông báo tin mới nào.");
     }
+
+    private static string DuongDocCauHinh() => ChatSchemaGuardTests.DocFile(
+        "TourkitAiProxy.Endpoints/ChatInboxEndpoints.cs");
+
+    /// <summary>
+    /// Thân route GET ứng với tên đường dẫn (không dấu "/") trong <c>ChatInboxEndpoints.cs</c>,
+    /// cắt tới đúng dấu đóng khối lambda (khớp thụt lề mở <c>g.MapGet(</c>) — KHÔNG cắt theo một
+    /// số ký tự cố định. Cùng lối <c>ThanGanXoayVong</c> ở trên: hàm dài thêm bao nhiêu cũng
+    /// không ảnh hưởng, không như cắt theo số ký tự cố định (thêm một dòng chú thích là cửa sổ
+    /// tràn ra ngoài, guard báo đỏ giả dù mã không hề sai).
+    /// </summary>
+    private static string ThanHam(string ten)
+    {
+        var kho = DuongDocCauHinh();
+        var neo = $"MapGet(\"/{ten}\"";
+        var batDau = kho.IndexOf(neo, StringComparison.Ordinal);
+        if (batDau < 0) return "";
+
+        var m = Regex.Match(kho[batDau..], @"\A.*?\r?\n        \}\);", RegexOptions.Singleline);
+        return m.Success ? m.Value : "";
+    }
+
+    [Fact]
+    public void Danh_sach_nhan_vien_phai_di_qua_dem()
+    {
+        // Danh sách gần như không đổi mà bị gọi ở mỗi lần mở hộp thư — không đệm là bắt ERP
+        // gánh một lượt gọi cho mỗi cú bấm.
+        var than = ThanHam("assign-settings");
+        Assert.False(string.IsNullOrWhiteSpace(than), "Không cắt được thân đường đọc cấu hình");
+        Assert.Contains("redis", than, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("FromHours(2)", than);
+    }
 }
