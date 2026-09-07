@@ -572,6 +572,7 @@ public class ChatRepository
                    status = CASE WHEN status = 2 THEN status ELSE 1 END
              WHERE id = @id AND tenant_id = @tenant
                AND (assigned_username IS NULL OR assigned_username = @username)
+               AND (assigned_user_id IS NULL OR assigned_user_id = @userId)
             """, new { id, tenant, username, userId });
     }
 
