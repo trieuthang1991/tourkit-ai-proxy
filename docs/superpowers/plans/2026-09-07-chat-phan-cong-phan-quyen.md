@@ -1543,7 +1543,14 @@ không có khoảnh khắc nào chế độ đã là xoay vòng mà đội trự
 
 - [ ] **Step 2: Đăng ký trang**
 
-Thêm thẻ `<script type="text/babel" src="pages/chat-assign-settings.jsx">` vào `wwwroot/index.html` cạnh dòng của `chat-inbox.jsx`, và thêm mục vào menu điều hướng cạnh Cấu hình trợ lý.
+Hai chỗ, đã tra sẵn:
+
+1. `wwwroot/index.html:189` — thêm `<script type="text/babel" src="pages/chat-assign-settings.jsx"></script>` ngay cạnh dòng của `chat-inbox.jsx`.
+2. `wwwroot/app.jsx:40` — bảng điều hướng. Dòng hiện có:
+   `{ to: '/chat-inbox', icon: 'send', label: 'Hộp thư chat', feature: 'chat' },`
+   Thêm mục mới theo đúng khuôn đó, và **gắn `feature`** cho khớp cờ tính năng ở Task 10.
+   Xem thêm `app.jsx:596` để biết cách một route được bọc bởi `FeatureOffPage` khi cờ tắt —
+   làm y vậy, đừng để trang mới hiện khi cờ đang tắt.
 
 - [ ] **Step 3: Thử tay**
 
@@ -1597,7 +1604,12 @@ Trong `appsettings.example.json`, mục `Features`, thêm `"ChatAssign": false`.
 - [ ] **Step 3: Chạy toàn bộ test**
 
 Run: `dotnet test TourkitAiProxy.Tests/TourkitAiProxy.Tests.csproj`
-Expected: PASS. `AppSettingsModelCoverageTests` có thể đòi khai cờ mới — đó chính là lý do có Step 2.
+Expected: PASS.
+
+⚠️ Đừng chờ `AppSettingsModelCoverageTests` bắt lỗi giúp: nó **chỉ canh khoá `Models:*`** của enum
+`AiFeature`, KHÔNG canh `Features:*`. Nghĩa là quên khai cờ mới trong file mẫu thì **không test nào
+đỏ** — người deploy copy file mẫu ra sẽ thiếu khoá, và cờ im lặng ở trạng thái tắt. Step 2 là bắt
+buộc vì không có lưới nào đỡ.
 
 - [ ] **Step 4: Viết tài liệu tính năng**
 
@@ -1632,16 +1644,27 @@ là cả vòng lệch, im lặng: một người nhận gấp đôi, một ngư�
 
 Thêm vào `CHANGELOG.md`, viết cho người dùng cuối — **không** tên bảng, hàm, cột:
 
+⚠️ **Theo ĐÚNG khuôn bắt buộc** ghi ở đầu `CHANGELOG.md`: mục mới nằm **trên cùng**, tiêu đề dạng
+`## Phiên bản dd/MM/yyyy — <tên>`, rồi `### ✨ Tính năng mới` / `### 🔧 Đã khắc phục`. Viết sai khuôn
+là vi phạm chính quy ước mà file đó tự đặt ở dòng đầu.
+
 ```markdown
-### Hộp thư chat — giao việc cho nhân viên
+## Phiên bản dd/MM/yyyy — Giao việc trong hộp thư chat
+
+### ✨ Tính năng mới
 
 - Mỗi cuộc trò chuyện nay có **người phụ trách**. Chọn người ngay trên đầu khung chat.
-- Hai cách chia việc: **giao tay** hoặc **chia lần lượt** cho đội trực chat — cuộc nào chưa có
+- Hai cách chia việc: **giao tay**, hoặc **chia lần lượt** cho đội trực chat — cuộc nào chưa có
   người thì tự chia cho người kế tiếp.
 - Bật được chế độ **nhân viên chỉ xem cuộc trò chuyện của mình**; quản trị viên vẫn xem tất cả.
-- Nút "Nhận việc" đổi thành **"Nhận chăm sóc"**, và hiện tên đầy đủ của người phụ trách thay cho
-  tên đăng nhập.
+
+### 🔧 Đã khắc phục
+
+- Nút "Nhận việc" nay ghi rõ là **"Nhận chăm sóc"**, và cột người phụ trách hiện **tên đầy đủ**
+  thay cho tên đăng nhập khó đọc.
 ```
+
+Thay `dd/MM/yyyy` bằng ngày phát hành thật.
 
 - [ ] **Step 6: Commit**
 
