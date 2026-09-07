@@ -1053,7 +1053,14 @@ Rẽ nhánh theo **thân yêu cầu có hay không**, không theo giá trị bê
                         statusCode: StatusCodes.Status409Conflict);
                 }
                 await repo.AppendAuditAsync(a.TenantId, id, a.Username, "nhan-viec", null, ct);
-                bus.Publish(new(a.TenantId, id, "doi-hoi-thoai", null) { AssignedUserId = maToi });
+                // GIỮ NGUYÊN phần đọc lại + cảnh báo mà Task 4 đã thêm — đừng thay bằng `maToi`.
+                // Đọc lại là bằng chứng lệnh ghi ĐÃ vào CSDL; dùng thẳng biến vừa tính là tin
+                // rằng nó vào, mà không có gì bảo đảm.
+                var saoKhiNhan = await repo.GetConversationAsync(a.TenantId, id, NguoiXem.HeThong, ct);
+                if (saoKhiNhan is null)
+                    log.LogWarning("[chat/assign] đọc lại hội thoại {H} sau khi NHẬN VIỆC ra null " +
+                        "— sự kiện phát đi mang AssignedUserId=null", id);
+                bus.Publish(new(a.TenantId, id, "doi-hoi-thoai", null) { AssignedUserId = saoKhiNhan?.AssignedUserId });
                 return Results.Json(new { ok = true, assignedTo = a.Username, assignedUserId = maToi }, Web);
             }
 ```
@@ -1080,7 +1087,12 @@ Trong nhánh "có tên = chuyển việc cho người đó" của `/assign` (`Ch
             await repo.AppendAuditAsync(a.TenantId, id, a.Username,
                 ma is null ? "nha-viec" : "chuyen-viec",
                 ma is null ? null : $"{{\"cho\":{ma}}}", ct);
-            bus.Publish(new(a.TenantId, id, "doi-hoi-thoai", null) { AssignedUserId = ma });
+            // GIỮ NGUYÊN phần đọc lại + cảnh báo của Task 4 (xem chú thích ở nhánh nhận việc).
+            var saoKhiGiao = await repo.GetConversationAsync(a.TenantId, id, NguoiXem.HeThong, ct);
+            if (saoKhiGiao is null)
+                log.LogWarning("[chat/assign] đọc lại hội thoại {H} sau khi CHUYỂN/NHẢ VIỆC ra null " +
+                    "— sự kiện phát đi mang AssignedUserId=null", id);
+            bus.Publish(new(a.TenantId, id, "doi-hoi-thoai", null) { AssignedUserId = saoKhiGiao?.AssignedUserId });
             return Results.Json(new { ok = true, assignedUserId = ma }, Web);
 ```
 
