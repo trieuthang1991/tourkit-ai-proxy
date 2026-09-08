@@ -3,17 +3,11 @@
 //        Step 3 multi-pricing-options matrix · Apply ghi đè margin
 import { test, expect } from '@playwright/test';
 
-const TEST_SESSION = '5294b8ec7d8f4e12bec4b44334946e1b';
+import { PHIEN, THIEU_PHIEN, bomPhien } from '../helpers/phien.js';
 
-async function setSession(page) {
-  await page.addInitScript((sid) => {
-    localStorage.setItem('tourkit_tk_session', sid);
-    localStorage.setItem('tourkit_skip_login_gate', '1');
-  }, TEST_SESSION);
-}
 
 async function gotoWizardStep(page, stepNum) {
-  await setSession(page);
+  await bomPhien(page);
   await page.goto('/wizard');
   // Wait for wizard step bar render
   await page.locator('.wizard-stepbar .step').first().waitFor({ timeout: 10000 });
@@ -26,6 +20,7 @@ async function gotoWizardStep(page, stepNum) {
 }
 
 test.describe('Wizard Step 1 — Hotel stars + Pax ranges (v2 port)', () => {
+  test.skip(!PHIEN, THIEU_PHIEN);
   test('Hotel star chips render + toggle multi-select', async ({ page }) => {
     await gotoWizardStep(page, 1);
     // Label section
@@ -82,6 +77,7 @@ test.describe('Wizard Step 1 — Hotel stars + Pax ranges (v2 port)', () => {
 });
 
 test.describe('Wizard Step 3 — Multi-pricing-options matrix (v2 port)', () => {
+  test.skip(!PHIEN, THIEU_PHIEN);
   test('Matrix renders 9 options (3 stars × 3 ranges) with correct math', async ({ page }) => {
     await gotoWizardStep(page, 3);
     // Toggle "Bảng phương án giá" mở

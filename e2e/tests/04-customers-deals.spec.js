@@ -1,17 +1,12 @@
 // Customers + Deals: list + auto-review toggle + checkbox
 import { test, expect } from '@playwright/test';
 
-const TEST_SESSION = '5294b8ec7d8f4e12bec4b44334946e1b';
-async function setSession(page) {
-  await page.addInitScript((sid) => {
-    localStorage.setItem('tourkit_tk_session', sid);
-    localStorage.setItem('tourkit_skip_login_gate', '1');
-  }, TEST_SESSION);
-}
+import { PHIEN, THIEU_PHIEN, bomPhien } from '../helpers/phien.js';
 
 test.describe('Customers page', () => {
+  test.skip(!PHIEN, THIEU_PHIEN);
   test('list load + auto toggle hiện', async ({ page }) => {
-    await setSession(page);
+    await bomPhien(page);
     await page.goto('/customers', { waitUntil: 'networkidle' });
 
     // PageHero render
@@ -29,7 +24,7 @@ test.describe('Customers page', () => {
   });
 
   test('chọn 1 KH bằng checkbox + nút "Chấm AI" hiện', async ({ page }) => {
-    await setSession(page);
+    await bomPhien(page);
     await page.goto('/customers', { waitUntil: 'networkidle' });
 
     const rows = page.locator('table tbody tr');
@@ -47,8 +42,9 @@ test.describe('Customers page', () => {
 });
 
 test.describe('Deals page', () => {
+  test.skip(!PHIEN, THIEU_PHIEN);
   test('list load + PageHero render', async ({ page }) => {
-    await setSession(page);
+    await bomPhien(page);
     await page.goto('/deals', { waitUntil: 'networkidle' });
 
     await expect(page.locator('.ph-hero')).toBeVisible({ timeout: 10000 });
@@ -58,7 +54,7 @@ test.describe('Deals page', () => {
   });
 
   test('checkbox shared component hiện', async ({ page }) => {
-    await setSession(page);
+    await bomPhien(page);
     await page.goto('/deals', { waitUntil: 'networkidle' });
 
     await page.waitForSelector('table tbody tr', { timeout: 15000 });

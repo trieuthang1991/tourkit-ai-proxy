@@ -1,17 +1,12 @@
 // Trợ lý số liệu — 23 gợi ý / toggle "Xem tất cả" / icon SVG đầy đủ
 import { test, expect } from '@playwright/test';
 
-const TEST_SESSION = '5294b8ec7d8f4e12bec4b44334946e1b';
-async function setSession(page) {
-  await page.addInitScript((sid) => {
-    localStorage.setItem('tourkit_tk_session', sid);
-    localStorage.setItem('tourkit_skip_login_gate', '1');
-  }, TEST_SESSION);
-}
+import { PHIEN, THIEU_PHIEN, bomPhien } from '../helpers/phien.js';
 
 test.describe('Assistant page — gợi ý câu hỏi', () => {
+  test.skip(!PHIEN, THIEU_PHIEN);
   test.beforeEach(async ({ page }) => {
-    await setSession(page);
+    await bomPhien(page);
     await page.goto('/assistant', { waitUntil: 'networkidle' });
   });
 

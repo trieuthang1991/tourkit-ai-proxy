@@ -1,8 +1,7 @@
 // Smoke test: mọi page load + KHÔNG có console error + KHÔNG có 5xx response
 import { test, expect } from '@playwright/test';
 
-// Session test giả lập (đã có sẵn trong tk-sessions.json)
-const TEST_SESSION = '5294b8ec7d8f4e12bec4b44334946e1b';
+import { PHIEN, THIEU_PHIEN, bomPhien } from '../helpers/phien.js';
 
 const pages = [
   { path: '/',          name: 'Home' },
@@ -16,14 +15,9 @@ const pages = [
 ];
 
 // Helper: inject session vào localStorage trước khi page load
-async function setSession(page) {
-  await page.addInitScript((sid) => {
-    localStorage.setItem('tourkit_tk_session', sid);
-    localStorage.setItem('tourkit_skip_login_gate', '1');
-  }, TEST_SESSION);
-}
 
 test.describe('Smoke — every page loads without JS/network errors', () => {
+  test.skip(!PHIEN, THIEU_PHIEN);
   for (const p of pages) {
     test(`${p.path} (${p.name})`, async ({ page }) => {
       const consoleErrors = [];
@@ -38,7 +32,7 @@ test.describe('Smoke — every page loads without JS/network errors', () => {
         if (r.status() >= 500) networkErrors.push(`${r.status()} ${r.url()}`);
       });
 
-      await setSession(page);
+      await bomPhien(page);
       await page.goto(p.path, { waitUntil: 'networkidle' });
 
       // App shell phải render — ko bị babel crash

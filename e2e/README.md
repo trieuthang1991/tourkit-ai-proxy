@@ -76,11 +76,30 @@ khung và của driver. Đã trả mã về trạng thái hỏng để kiểm ch
 
 ## Session config
 
-Phiên truyền qua biến môi trường `E2E_SESSION` / `E2E_SESSION_NV`, **không hardcode vào file**:
-mỗi máy mỗi phiên, và phiên là thứ mở được dữ liệu công ty thật.
+Phiên truyền qua biến môi trường `E2E_SESSION` / `E2E_SESSION_NV`, **không bao giờ ghim vào file**.
+Một chỗ duy nhất đọc nó: [helpers/phien.js](helpers/phien.js) — cũng là chỗ giữ hàm bơm phiên vào
+`localStorage`.
 
 Lấy sessionId: đăng nhập app rồi mở DevTools Console → `localStorage.getItem('tourkit_tk_session')`.
 
-⚠️ `05-api-direct.spec.js` còn ghim cứng một session trong mã (file cũ). Đó là **nợ**: nó vừa hết
-hạn là bài tự bỏ qua trong im lặng, vừa là một khoá truy cập nằm trong repo. Cần chuyển sang biến
-môi trường như các file sau này.
+Thiếu `E2E_SESSION` thì bài **bỏ qua có tên** (Playwright in "skipped", đếm riêng), không giả vờ
+xanh. Có phiên mà bị từ chối 401 thì **đỏ** — người chạy tự tay đưa phiên vào thì họ cần biết nó
+chết, không cần một dấu tích xanh.
+
+> 🔑 **Phiên `5294b8…46e1b` phải coi là ĐÃ LỘ.** Tới 08/09/2026 nó nằm ghim cứng trong bảy file
+> spec, tức nằm trong repo và trong **lịch sử git** — gỡ khỏi file không gỡ được khỏi lịch sử.
+> Huỷ phiên đó ở phía máy chủ.
+
+## Bài đang ĐỎ / FIXME sẵn (đo 08/09/2026, KHÔNG phải hồi quy mới)
+
+Đối chiếu bằng cách lấy bản nguyên gốc từ git rồi chỉ thay mã phiên — đỏ y hệt, nên đây là **lệch
+giữa bài kiểm và giao diện hiện tại**, không phải do đổi cách lấy phiên:
+
+| File | Tình trạng |
+|---|---|
+| `03-home-logout.spec.js` | `fixme` cả file — trang launcher `/home` đã **gỡ khỏi routing** (xem `wwwroot/index.html` dòng 183), và `.hp-logout` nay là `.hp-pill--logout`. Hoặc bật lại `/home` rồi sửa bộ chọn, hoặc xoá file. |
+| `02-assistant-suggestions.spec.js` | 1 bài đỏ: đòi 24 chip, giao diện nay có 25. |
+| `06-wizard-v2-pricing.spec.js` | 6 bài đỏ: bộ chọn và phép tính của wizard đã đổi từ tháng 6. |
+
+Chưa sửa vì đó là việc khác hẳn việc gỡ phiên ghim cứng — và vì để đỏ còn hơn tự tay tắt đi một
+tín hiệu có thể là hồi quy thật của giao diện.
