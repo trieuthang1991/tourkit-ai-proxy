@@ -206,7 +206,7 @@
           throw new Error(t.slice(0, 200) || ('HTTP ' + resp.status));
         }
         await window.tourkitUtil.readSSE(resp, o => {
-          if (o.error) { patch(a => ({ ...a, content: '⚠️ ' + o.error, error: true, streaming: false })); setStage(null); return; }
+          if (o.error) { if (o.quotaExhausted) { try { window.dispatchEvent(new CustomEvent("tourkit:quota-exhausted")); } catch {} } patch(a => ({ ...a, content: '⚠️ ' + o.error, error: true, streaming: false })); setStage(null); return; }
           if (o.stage) { setStage(o.stage); return; }
           if (o.delta) { setStage(null); patch(a => ({ ...a, content: a.content + o.delta })); return; }
           if (o.done) {

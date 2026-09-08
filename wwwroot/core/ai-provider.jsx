@@ -83,6 +83,21 @@
       return sid ? { 'X-Session-Id': sid } : {};
     } catch { return {}; }
   }
+  // Hết lượt AI (429): mọi màn dùng window.tourkit.ai đều rơi vào đây — Tính giá Tour, Soạn Tour
+  // GIT, Thẩm định Visa, soạn nháp thư… Trước đây ném "Backend 429: {json}" nên mỗi màn hiện một
+  // dòng lỗi kỹ thuật khác nhau. Nay: bắn sự kiện cho App mở popup + màn nạp lượt, và ném lại đúng
+  // câu tiếng Việt của server để chỗ nào có bắt lỗi riêng vẫn hiện tử tế.
+  async function throwIfQuotaExhausted(resp) {
+    if (resp.status !== 429) return false;
+    let body = null;
+    try { body = await resp.clone().json(); } catch {}
+    try {
+      window.dispatchEvent(new CustomEvent('tourkit:quota-exhausted', { detail: (body && body.quota) || null }));
+      if (body && body.quota) window.dispatchEvent(new CustomEvent('tourkit:quota', { detail: body.quota }));
+    } catch {}
+    throw new Error((body && body.error) || 'Công ty đã hết lượt AI. Nạp thêm lượt để tiếp tục.');
+  }
+
   async function callBackend(prompt, cfg, options) {
     const provider = options.provider || cfg.provider;
     const model    = options.model    || cfg.model;
@@ -102,6 +117,7 @@
       headers,
       body: JSON.stringify(body)
     });
+    await throwIfQuotaExhausted(resp);
     if (!resp.ok) {
       const errText = await resp.text().catch(() => '');
       throw new Error(`Backend ${resp.status}: ${errText.slice(0, 200)}`);
@@ -127,6 +143,7 @@
       headers,
       body: JSON.stringify(body)
     });
+    await throwIfQuotaExhausted(resp);
     if (!resp.ok) {
       const errText = await resp.text().catch(() => '');
       throw new Error(`Backend ${resp.status}: ${errText.slice(0, 200)}`);

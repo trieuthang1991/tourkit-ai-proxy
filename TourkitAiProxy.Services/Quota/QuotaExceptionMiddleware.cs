@@ -28,7 +28,11 @@ public class QuotaExceptionMiddleware
             var snap = store.Snapshot(ex.Tenant);
             await ctx.Response.WriteAsync(JsonSerializer.Serialize(new
             {
-                error = "Đã hết quota AI cho tenant này.",
+                // Câu chữ NÓI THẲNG việc cần làm — thông báo này hiện nguyên văn trên giao diện
+                // (toast "Chấm lại lỗi: …", hộp thư, phân tích cơ hội…). "Hết quota tenant" là chữ
+                // của dân kỹ thuật, người dùng đọc không biết phải làm gì tiếp.
+                error = $"Công ty đã dùng hết {snap.Limit} lượt AI. Nạp thêm lượt để tiếp tục.",
+                quotaExhausted = true,
                 quota = snap,
             }, Json));
         }

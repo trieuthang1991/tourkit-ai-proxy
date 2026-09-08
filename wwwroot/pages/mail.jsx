@@ -71,7 +71,11 @@ async function _streamDraft(url, body, onText) {
   // Plumbing SSE dùng chung; accumulate text ở đây (semantics riêng của draft).
   let full = '';
   await window.tourkitUtil.readSSE(r, o => {
-    if (o.error) throw new Error(o.error);
+    if (o.error) {
+      // Hết lượt AI → App mở popup nạp lượt; vẫn ném lỗi để chỗ gọi dừng spinner như cũ.
+      if (o.quotaExhausted) { try { window.dispatchEvent(new CustomEvent('tourkit:quota-exhausted')); } catch {} }
+      throw new Error(o.error);
+    }
     if (o.delta) { full += o.delta; onText(full); }
     if (o.done && o.text) { full = o.text; onText(full); }
   });

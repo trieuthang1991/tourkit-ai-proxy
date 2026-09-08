@@ -13,6 +13,26 @@ Những cập nhật gần đây của TRAV-AI, viết cho người dùng. Mới
 
 ---
 
+## Phiên bản 08/09/2026 — Hết lượt AI: báo rõ ràng và mở luôn màn nạp lượt
+
+### ✨ Tính năng mới
+- **Hết lượt AI ở bất kỳ màn nào cũng hiện một hộp thoại thống nhất.** Trước đây mỗi màn báo một
+  kiểu — chỗ thì một dòng lỗi kỹ thuật, chỗ thì im lặng — nên nhiều người không biết là công ty đã
+  hết lượt chứ không phải hệ thống hỏng. Nay bạn thấy ngay hộp thoại **"Hết lượt sử dụng AI"**, bấm
+  **Nạp thêm lượt** là vào thẳng màn chọn gói và quét mã chuyển khoản.
+- Số lượt trên thanh trên cũng tự cập nhật lại ngay lúc đó, không phải tải lại trang.
+
+### 🔧 Đã khắc phục
+- **Trợ lý số liệu** báo *"lỗi server"* khi hết lượt. Nay nói đúng: đã dùng hết bao nhiêu lượt và
+  cần nạp thêm.
+- **AI phân tích cơ hội** báo *"đã chấm thành công 0 cơ hội"* khi hết lượt — đọc như đã chạy xong
+  bình thường. Nay dừng ngay khi hết lượt và nói rõ *"mới chấm được N cơ hội, nạp thêm lượt để chấm
+  tiếp"*; những cơ hội đã chấm xong trước đó vẫn giữ nguyên kết quả.
+- Tương tự cho **chấm hạng khách hàng** hàng loạt và **soạn nháp thư** — trước đây cũng bị báo sai
+  hoặc báo lỗi khó hiểu khi hết lượt.
+
+---
+
 ## Phiên bản 29/08/2026 — Nhắn tin trên điện thoại, và quyền riêng tư của khách
 
 ### ✨ Tính năng mới

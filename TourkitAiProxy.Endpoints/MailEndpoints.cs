@@ -323,6 +323,12 @@ public static class MailEndpoints
                 if (trace.Current?.Enabled == true) await emit(new { trace = trace.Current.Build() });
             }
             catch (OperationCanceledException) { }
+            catch (TourkitAiProxy.Services.Quota.QuotaExhaustedException qex)
+            {
+                // SSE đã gửi header nên middleware quota tự bỏ qua ca này → phải tự báo trong luồng,
+                // kèm cờ quotaExhausted để giao diện mở popup nạp lượt.
+                try { await emit(new { error = $"Công ty đã dùng hết {qex.Limit} lượt AI. Nạp thêm lượt để tiếp tục.", quotaExhausted = true }); await emit(new { done = true }); } catch { }
+            }
             catch (Exception ex)
             {
                 log.LogError(ex, "Soạn email mới lỗi");
@@ -386,6 +392,10 @@ public static class MailEndpoints
                 if (trace.Current?.Enabled == true) await emit(new { trace = trace.Current.Build() });
             }
             catch (OperationCanceledException) { }
+            catch (TourkitAiProxy.Services.Quota.QuotaExhaustedException qex)
+            {
+                try { await emit(new { error = $"Công ty đã dùng hết {qex.Limit} lượt AI. Nạp thêm lượt để tiếp tục.", quotaExhausted = true }); await emit(new { done = true }); } catch { }
+            }
             catch (Exception ex)
             {
                 log.LogError(ex, "Soạn nháp email {Id} lỗi", id);

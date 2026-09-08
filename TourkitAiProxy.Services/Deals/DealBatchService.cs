@@ -119,8 +119,10 @@ public class DealBatchService
             // Trước đây: mỗi deal 3 HTTP call (detail + comments + enrich KH) — 60 HTTP cho 20 deal.
             // Giờ: 1 HTTP batch cho 50 deal → giảm ~150 lần. Fingerprint đồng nhất với workflow.
             const int ContextBatchSize = 50;
+            var quotaExhausted = false;
             for (int start = 0; start < ranked.Count; start += ContextBatchSize)
             {
+                if (quotaExhausted) break;   // hết lượt AI → dừng, đừng quét nốt các chunk sau
                 var chunk = ranked.GetRange(start, Math.Min(ContextBatchSize, ranked.Count - start));
                 List<DealOpportunityClient.DealWithContext> contexts;
                 try
@@ -165,6 +167,14 @@ public class DealBatchService
                             await Emit(job, "scored", new { done = job.Done, total = job.Total, item });
                         }
                         catch (OperationCanceledException) { throw; }
+                        catch (TourkitAiProxy.Services.Quota.QuotaExhaustedException)
+                        {
+                            // HẾT LƯỢT AI: không phải lỗi của deal này, và mọi deal còn lại cũng sẽ
+                            // hỏng y hệt. Đánh dấu rồi dừng cả lượt — trước đây rơi vào catch chung
+                            // nên chạy hết N deal, đếm N lỗi, cuối cùng báo "Đã chấm 0 cơ hội" như
+                            // thể thành công (sheet bug dòng 110).
+                            lock (gate) { quotaExhausted = true; }
+                        }
                         catch (Exception ex)
                         {
                             _log.LogWarning(ex, "[deals] chấm deal {Id} lỗi", deal.Id);
@@ -177,7 +187,10 @@ public class DealBatchService
             var sorted = items.OrderByDescending(i => i.PriorityScore).ToList();
             var board = new DealBoard(sorted, DateTime.UtcNow.ToString("o"), scanned, sorted.Count);
             _repo.SaveBoard(tenant, board);
-            await Finish(job, "done", new { board });
+            // quotaExhausted đi kèm sự kiện kết thúc để giao diện nói "hết lượt, nạp thêm" thay vì
+            // "đã chấm N cơ hội". Vẫn trả board: những deal chấm được TRƯỚC khi hết lượt là kết quả
+            // thật, không vứt đi.
+            await Finish(job, "done", new { board, quotaExhausted });
         }
         catch (OperationCanceledException)
         {

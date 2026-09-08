@@ -194,6 +194,25 @@ public static class ChatEndpoints
                     : $"Nhà cung cấp AI đang lỗi (HTTP {ex.Status}).";
                 try { await Emit(new { error = msg, status = ex.Status }); await Emit(new { done = true }); } catch { }
             }
+            catch (TourkitAiProxy.Services.Quota.QuotaExhaustedException ex)
+            {
+                // Hết lượt AI KHÔNG phải lỗi server. Middleware quota không cứu được ca này vì SSE
+                // đã gửi header đi rồi (nó tự bỏ qua khi Response.HasStarted) → trước đây rơi vào
+                // catch chung và hiện đúng chữ "Lỗi server (QuotaExhaustedException)" trên giao diện
+                // (sheet bug dòng 109). Phải tự báo ngay trong luồng SSE.
+                log.LogInformation("chat-stream: hết lượt AI tenant={T} {U}/{L}", ex.Tenant, ex.Used, ex.Limit);
+                try
+                {
+                    await Emit(new
+                    {
+                        error = $"Công ty đã dùng hết {ex.Limit} lượt AI. Nạp thêm lượt để tiếp tục dùng Trợ lý số liệu.",
+                        quotaExhausted = true,
+                        status = 429,
+                    });
+                    await Emit(new { done = true });
+                }
+                catch { }
+            }
             catch (Exception ex)
             {
                 log.LogError(ex, "chat-stream unhandled");

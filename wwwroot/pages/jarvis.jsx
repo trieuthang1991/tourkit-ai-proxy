@@ -724,7 +724,7 @@ function JarvisPage({ pushToast }) {
           setPendingClarify(clarify);
           return;
         }
-        if (o.error) { patch(a => ({ ...a, content: '⚠️ ' + o.error, error: true, streaming: false })); return; }
+        if (o.error) { if (o.quotaExhausted) { try { window.dispatchEvent(new CustomEvent("tourkit:quota-exhausted")); } catch {} } patch(a => ({ ...a, content: "⚠️ " + o.error, error: true, streaming: false })); return; }
         if (o.stage) {
           setOrbState(o.stage === 'analyzing' ? 'responding' : 'thinking');
           // Nhãn NGUỒN tiếng Việt (toolTitle) — KHÔNG dùng o.tool/o.toolName (tên kỹ thuật).

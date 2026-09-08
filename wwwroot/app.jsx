@@ -257,6 +257,8 @@ function App() {
   const [quota, setQuota] = uS(null);
   // Modal nạp quota AI — click chip .tb-quota → mở. Catalog + 3 gói + Tingee VietQR.
   const [showUpgrade, setShowUpgrade] = uS(false);
+  // Popup "hết lượt" — bật khi bất kỳ lời gọi AI nào bị chặn vì hết quota.
+  const [quotaBlocked, setQuotaBlocked] = uS(false);
   uE(() => {
     if (!authUser) return;
     let alive = true;
@@ -275,11 +277,20 @@ function App() {
       if (e.detail) setQuota(e.detail); else load();
     };
     window.addEventListener('tourkit:quota', onQuota);
+    // Hết lượt: hiện popup + cập nhật chip. Một lượt chấm hàng loạt có thể bắn sự kiện nhiều lần
+    // (nhiều deal/KH cùng hỏng) → setState về true nhiều lần vẫn chỉ MỘT popup, không chồng chất.
+    const onExhausted = (e) => { if (e.detail) setQuota(e.detail); else load(); setQuotaBlocked(true); };
+    window.addEventListener('tourkit:quota-exhausted', onExhausted);
     // Poll mỗi 10s — chip update gần realtime mà KHÔNG cần header X-Quota từ backend.
     // Phần lớn refresh trigger qua event 'tourkit:quota' (authedFetch sau AI call, ai-provider sau complete);
     // poll chỉ là backstop khi consumer không qua authedFetch (vd built-in claude).
     const t = setInterval(load, 10_000);
-    return () => { alive = false; window.removeEventListener('tourkit:quota', onQuota); clearInterval(t); };
+    return () => {
+      alive = false;
+      window.removeEventListener('tourkit:quota', onQuota);
+      window.removeEventListener('tourkit:quota-exhausted', onExhausted);
+      clearInterval(t);
+    };
   }, [authUser]);
 
   // ─── Số thông báo chưa đọc (badge chuông) ───────────────────────────────────
@@ -707,6 +718,22 @@ function App() {
           setAiCfg(cfg);
           pushToast(`AI: ${cfg.provider} · ${cfg.model}`);
         }}
+      />}
+
+      {/* Hết lượt AI — popup DÙNG CHUNG cho MỌI màn. Bấm "Nạp thêm lượt" → mở thẳng màn nạp tiền.
+          Đặt ở App vì mọi lời gọi AI đều đi qua authedFetch hoặc window.tourkit.ai, cả hai đều bắn
+          sự kiện 'tourkit:quota-exhausted' — vá ở từng trang thì kiểu gì cũng sót màn. */}
+      {window.ConfirmDialog && <window.ConfirmDialog
+        open={quotaBlocked}
+        title="Hết lượt sử dụng AI"
+        eyebrow="KHÔNG THỂ TIẾP TỤC"
+        message={quota
+          ? `Công ty đã dùng hết ${quota.limit.toLocaleString('vi-VN')} lượt AI. Nạp thêm lượt để tiếp tục dùng các tính năng AI.`
+          : 'Công ty đã dùng hết lượt AI. Nạp thêm lượt để tiếp tục dùng các tính năng AI.'}
+        confirmLabel="Nạp thêm lượt"
+        cancelLabel="Để sau"
+        onClose={() => setQuotaBlocked(false)}
+        onConfirm={() => setShowUpgrade(true)}
       />}
 
       {window.QuotaUpgradeModal && <window.QuotaUpgradeModal
