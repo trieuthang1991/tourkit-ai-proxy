@@ -10,6 +10,27 @@
 
 **Spec:** [docs/superpowers/specs/2026-09-07-chat-phan-cong-phan-quyen-design.md](../specs/2026-09-07-chat-phan-cong-phan-quyen-design.md)
 
+> ## ✅ Trạng thái: XONG (08/09/2026) — đã gộp vào `dev` và `main`
+>
+> Cả 13 việc đã vào mã. Sổ thi công đầy đủ (mọi phán quyết, mọi lỗi tìm ra khi chạy thật, mọi phép
+> phá chốt canh) ở `.superpowers/sdd/2026-09-07-chat-phan-cong-phan-quyen/progress.md`.
+> Các ô `- [ ]` bên dưới **không được tick trong lúc làm** — tiến độ theo dõi ở sổ, không ở đây.
+>
+> **HAI RÀNG BUỘC BÊN DƯỚI ĐÃ BỊ THAY THẾ, đừng đọc theo nghĩa đen:**
+>
+> 1. *"Chỉ THÊM cột/bảng… `assigned_username` phải còn nguyên"* — **không còn đúng.** Việc 11 chốt
+>    lại: cụm chat chưa vận hành nên **bỏ HẲN** cột tên khỏi đường phân công, không chỉ thôi đọc —
+>    còn ghi là còn hai nguồn sự thật, mà chính hai nguồn ấy đã đẻ ra hai lỗi. Cột nay bị một khối
+>    tự kiểm trong `ChatDb` xoá đi khi không còn dòng nào mang giá trị.
+> 2. *"Đừng viết test cần kết nối CSDL"* — vẫn đúng với **bộ test C#** (1.236 bài, logic thuần +
+>    quét văn bản nguồn). Nhưng từ 08/09/2026 có thêm **bộ Playwright chạy trên máy chủ thật**
+>    (`e2e/tests/07*`), vì hai lỗi CHẶN của đợt này vô hình với test đọc mã nguồn: một cái nằm ở
+>    tầng định tuyến của khung, một cái ở tầng ánh xạ của driver. Bộ đó bật bằng biến môi trường
+>    và tự chặn mình khỏi chạy nhầm vào bản thật — xem `e2e/README.md`.
+>
+> **Việc còn lại của người triển khai:** bật `Features:ChatAssign` (mặc định TẮT nên màn hình
+> *Phân công chat* sẽ ẩn cho tới khi bật), và huỷ hai mã phiên từng bị ghim trong bộ E2E.
+
 ## Global Constraints
 
 - **Chữ hiển thị, log, chú thích viết tiếng Việt.** Tên định danh theo file đang sửa.
