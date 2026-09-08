@@ -9,7 +9,6 @@ async function login(page) {
 }
 
 test('Mobile (380px): sidebar ẨN, dock dưới có 5 + Thêm', async ({ page }) => {
-
   test.skip(!PHIEN, THIEU_PHIEN);
   await page.setViewportSize({ width: 380, height: 800 });
   await login(page);
@@ -49,7 +48,6 @@ test('Mobile (380px): sidebar ẨN, dock dưới có 5 + Thêm', async ({ page }
 });
 
 test('Desktop (1440px): sidebar hiện, dock ẨN', async ({ page }) => {
-
   test.skip(!PHIEN, THIEU_PHIEN);
   await page.setViewportSize({ width: 1440, height: 900 });
   await login(page);
@@ -62,7 +60,6 @@ test('Desktop (1440px): sidebar hiện, dock ẨN', async ({ page }) => {
 });
 
 test('Active state: ở /wizard → mục Wizard nền cam', async ({ page }) => {
-
   test.skip(!PHIEN, THIEU_PHIEN);
   await page.setViewportSize({ width: 380, height: 800 });
   await login(page);

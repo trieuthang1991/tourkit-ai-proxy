@@ -5,7 +5,6 @@ import { test, expect } from '@playwright/test';
 import { PHIEN, THIEU_PHIEN } from '../helpers/phien.js';
 
 test('tour-builder UI sạch: 3 block, không còn "Dịch vụ điều hành (chi)"', async ({ page }) => {
-
   test.skip(!PHIEN, THIEU_PHIEN);
   await page.setViewportSize({ width: 1440, height: 900 });
   await page.addInitScript((sid) => { localStorage.setItem('tourkit_tk_session', sid); }, PHIEN);
@@ -30,7 +29,6 @@ test('tour-builder UI sạch: 3 block, không còn "Dịch vụ điều hành (c
 });
 
 test('markets dropdown: fetch từ /api/v1/markets (real tenant data)', async ({ page }) => {
-
   test.skip(!PHIEN, THIEU_PHIEN);
   await page.setViewportSize({ width: 1440, height: 900 });
   await page.addInitScript((sid) => { localStorage.setItem('tourkit_tk_session', sid); }, PHIEN);

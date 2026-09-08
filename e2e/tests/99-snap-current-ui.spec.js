@@ -4,7 +4,6 @@ import { test } from '@playwright/test';
 import { PHIEN, THIEU_PHIEN } from '../helpers/phien.js';
 
 test('snap home + assistant + customers', async ({ page }) => {
-
   test.skip(!PHIEN, THIEU_PHIEN);
   test.setTimeout(60_000);
   await page.addInitScript((sid) => {

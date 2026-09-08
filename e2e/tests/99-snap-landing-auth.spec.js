@@ -5,7 +5,6 @@ import { test, expect } from '@playwright/test';
 import { PHIEN, THIEU_PHIEN } from '../helpers/phien.js';
 
 test('topbar — KHÁCH: hiện Đăng nhập + Đăng ký tư vấn', async ({ page }) => {
-
   test.skip(!PHIEN, THIEU_PHIEN);
   await page.setViewportSize({ width: 1440, height: 900 });
   await page.goto('/landing', { waitUntil: 'domcontentloaded' });
@@ -17,7 +16,6 @@ test('topbar — KHÁCH: hiện Đăng nhập + Đăng ký tư vấn', async ({ 
 });
 
 test('topbar — LOGGED IN: hiện user chip (tên server-side)', async ({ page }) => {
-
   test.skip(!PHIEN, THIEU_PHIEN);
   await page.setViewportSize({ width: 1440, height: 900 });
   // Chỉ set session — app.jsx sẽ refresh() để lấy user thật từ /api/v1/session.
@@ -50,7 +48,6 @@ test('topbar — LOGGED IN: hiện user chip (tên server-side)', async ({ page 
 });
 
 test('feature click khi đã login → navigate, KHÔNG popup', async ({ page }) => {
-
   test.skip(!PHIEN, THIEU_PHIEN);
   await page.setViewportSize({ width: 1440, height: 900 });
   await page.addInitScript((sid) => {

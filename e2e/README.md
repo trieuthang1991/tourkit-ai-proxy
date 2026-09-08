@@ -108,6 +108,9 @@ giữa bài kiểm và giao diện hiện tại**, không phải do đổi cách
 Chưa sửa vì đó là việc khác hẳn việc gỡ phiên ghim cứng — và vì để đỏ còn hơn tự tay tắt đi một
 tín hiệu có thể là hồi quy thật của giao diện.
 
-⚠️ **Còn hai file nữa cùng cảnh với `03-home-logout` đã xoá**, chưa đụng vì chúng còn kiểm cả thứ
-khác: `99-home-route.spec.js` (toàn bộ file nói về `/home`) và một bài `/home` trong
-`99-snap-ncc-surfaced.spec.js`. Bật lại `/home` hay xoá nốt — cần chủ dự án chốt.
+✅ **Mọi bài về `/home` đã dọn sạch (08/09/2026)**: xoá `03-home-logout.spec.js` và
+`99-home-route.spec.js`, bỏ riêng bài `/home` trong `99-snap-ncc-surfaced.spec.js` (hai bài còn
+lại của file đó — sidebar và landing — vẫn giữ, đã chạy lại: xanh).
+
+Nếu sau này bật lại launcher `/home` (bỏ chú thích ở `wwwroot/index.html` dòng 183) thì phải viết
+lại bộ kiểm cho nó — lưu ý `.hp-logout` cũ nay là `.hp-pill--logout`.

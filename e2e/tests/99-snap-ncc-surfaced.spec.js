@@ -1,4 +1,5 @@
-// Verify NCC Import xuất hiện ở: sidebar nav · /home launcher · /landing
+// Verify NCC Import xuất hiện ở: sidebar nav · /landing
+// (bài /home đã bỏ 08/09/2026 — trang launcher /home gỡ khỏi routing, xem wwwroot/index.html:183)
 import { test, expect } from '@playwright/test';
 
 import { PHIEN, THIEU_PHIEN } from '../helpers/phien.js';
@@ -10,7 +11,6 @@ async function login(page) {
 }
 
 test('Sidebar — Import NCC (AI) xuất hiện trong nhóm "Tích hợp"', async ({ page }) => {
-
   test.skip(!PHIEN, THIEU_PHIEN);
   await page.setViewportSize({ width: 1440, height: 900 });
   await login(page);
@@ -22,21 +22,7 @@ test('Sidebar — Import NCC (AI) xuất hiện trong nhóm "Tích hợp"', asyn
   await page.screenshot({ path: 'snap-sidebar-with-ncc.png', clip: { x: 0, y: 0, width: 280, height: 900 } });
 });
 
-test('/home — agent card "AI Import NCC" hiện', async ({ page }) => {
-
-  test.skip(!PHIEN, THIEU_PHIEN);
-  await page.setViewportSize({ width: 1440, height: 900 });
-  await login(page);
-  await page.goto('/home', { waitUntil: 'domcontentloaded' });
-  await page.waitForTimeout(1500);
-
-  const card = page.locator('.hp-card', { hasText: 'AI Import NCC' });
-  await expect(card).toBeVisible();
-  await page.screenshot({ path: 'snap-home-with-ncc.png', fullPage: false });
-});
-
 test('/landing — feature card "Import NCC bằng AI" hiện', async ({ page }) => {
-
   test.skip(!PHIEN, THIEU_PHIEN);
   await page.setViewportSize({ width: 1440, height: 900 });
   await page.goto('/landing', { waitUntil: 'domcontentloaded' });

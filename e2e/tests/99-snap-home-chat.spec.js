@@ -4,7 +4,6 @@ import { test, expect } from '@playwright/test';
 import { PHIEN, THIEU_PHIEN } from '../helpers/phien.js';
 
 test('home chat: gửi câu hỏi → bubble có \\n giữa đoạn (pre-wrap render đúng)', async ({ page }) => {
-
   test.skip(!PHIEN, THIEU_PHIEN);
   test.setTimeout(90_000);
   await page.addInitScript((sid) => {

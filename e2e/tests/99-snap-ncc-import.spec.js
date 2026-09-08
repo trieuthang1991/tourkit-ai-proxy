@@ -3,7 +3,6 @@ import { test, expect } from '@playwright/test';
 import { PHIEN, THIEU_PHIEN } from '../helpers/phien.js';
 
 test('NCC Import page — drop zone visible (chưa upload)', async ({ page }) => {
-
   test.skip(!PHIEN, THIEU_PHIEN);
   await page.setViewportSize({ width: 1440, height: 900 });
   await page.addInitScript((sid) => {
@@ -19,7 +18,6 @@ test('NCC Import page — drop zone visible (chưa upload)', async ({ page }) =>
 });
 
 test('NCC Import — upload template Excel → 10 rows preview', async ({ page }) => {
-
   test.skip(!PHIEN, THIEU_PHIEN);
   test.setTimeout(30_000);
   await page.setViewportSize({ width: 1440, height: 900 });
@@ -48,7 +46,6 @@ test('NCC Import — upload template Excel → 10 rows preview', async ({ page }
 });
 
 test('Landing có 9 features (đã thêm NCC Import)', async ({ page }) => {
-
   test.skip(!PHIEN, THIEU_PHIEN);
   await page.setViewportSize({ width: 1440, height: 900 });
   await page.goto('/landing', { waitUntil: 'domcontentloaded' });
