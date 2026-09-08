@@ -63,6 +63,10 @@ public class BatchService
 
         await job.Events.Writer.WriteAsync(new BatchEvent("start", Payload: new { total = job.Total }));
 
+        // int chứ không bool: gán từ nhiều luồng trong Parallel.ForEachAsync. Ghi cùng một giá trị
+        // nên không cần Interlocked, chỉ cần kiểu ghi nguyên tử.
+        var quotaExhausted = 0;
+
         try
         {
             await Parallel.ForEachAsync(
@@ -121,6 +125,13 @@ public class BatchService
                         ), innerCt);
                     }
                     catch (OperationCanceledException) { throw; }
+                    catch (TourkitAiProxy.Services.Quota.QuotaExhaustedException)
+                    {
+                        // Hết lượt AI: mọi KH còn lại cũng hỏng y hệt → đánh dấu, đừng đếm thành
+                        // "lỗi của KH này". Giao diện dựa vào cờ này để nói "hết lượt, nạp thêm"
+                        // thay vì báo chấm xong với một đống lỗi lẻ.
+                        quotaExhausted = 1;
+                    }
                     catch (Exception ex)
                     {
                         _log.LogWarning(ex, "[batch] review KH {Id} failed", id);
@@ -146,7 +157,8 @@ public class BatchService
             job.FinishedAt = DateTime.UtcNow;
             await job.Events.Writer.WriteAsync(new BatchEvent(
                 Type: job.Status,
-                Payload: new { done = job.Done, errors = job.Errors, cached = job.Cached, total = job.Total }
+                Payload: new { done = job.Done, errors = job.Errors, cached = job.Cached, total = job.Total,
+                               quotaExhausted = quotaExhausted == 1 }
             ));
 
             // Trace cho batch: AsyncLocal flow qua Task.Run từ endpoint → traceFinal.Current giờ KHÔNG null.

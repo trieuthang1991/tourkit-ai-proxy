@@ -14,4 +14,8 @@ public static class TkPermissionCodes
     public const string TaoTourGit = "TR_TD_TAOMOI";
     /// Tour FIT (tour khách lẻ) — tạo mới. PermissionCodes.cs:29. Gate đồng bộ CRM loại FIT.
     public const string TaoTourFit = "TR_TM_TAOMOI";
+    /// Khách hàng — xem. PermissionCodes.cs:64. Gate màn Khách hàng (kể cả chấm hạng AI trên đó).
+    public const string XemKhachHang = "KH_KH_XEM";
+    /// Visa — xem. PermissionCodes.cs:149. Gate toàn bộ cụm Thẩm định Visa.
+    public const string XemVisa = "VISA_XEM";
 }

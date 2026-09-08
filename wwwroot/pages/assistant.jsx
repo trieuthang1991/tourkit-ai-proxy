@@ -937,7 +937,12 @@ function AssistantPage({ pushToast }) {
           setStage(null);
           return;
         }
-        if (o.error) { patch(a => ({ ...a, content: '⚠️ ' + o.error, error: true, streaming: false })); setStage(null); return; }
+        if (o.error) {
+          // Hết lượt AI: SSE trả 200 nên authedFetch không thấy 429 → chip "AI n/m" trên thanh trên
+          // sẽ đứng số cũ. Bắn event để nó nạp lại, người dùng bấm chip là ra màn nạp thêm lượt.
+          if (o.quotaExhausted) { try { window.dispatchEvent(new CustomEvent('tourkit:quota-exhausted')); } catch {} }
+          patch(a => ({ ...a, content: '⚠️ ' + o.error, error: true, streaming: false })); setStage(null); return;
+        }
         // CHỈ đọc toolTitle (nhãn nguồn tiếng Việt do backend gửi) — KHÔNG đọc o.tool/o.toolName
         // (tên tool kỹ thuật, không được để lộ ra giao diện).
         if (o.stage) { setStage(o.stage); if (o.data) { setPanelData(o.data); dataSet = true; } if (o.toolTitle) patch(a => ({ ...a, tool: o.toolTitle })); return; }

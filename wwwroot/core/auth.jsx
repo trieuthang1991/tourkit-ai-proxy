@@ -144,6 +144,10 @@
         if (body && body.quota) {
           window.dispatchEvent(new CustomEvent('tourkit:quota', { detail: body.quota }));
         }
+        // Hết lượt AI → báo lên tầng App để mở popup + màn nạp lượt. Bắn ở ĐÂY (một chỗ) thay vì
+        // bắt 429 trong từng trang: mọi màn gọi AI đều đi qua authedFetch, vá lẻ là kiểu gì cũng
+        // sót màn — mà triệu chứng chỉ là một dòng lỗi kỹ thuật khó hiểu, không ai báo lại.
+        window.dispatchEvent(new CustomEvent('tourkit:quota-exhausted', { detail: (body && body.quota) || null }));
       } catch { /* ignore parse fail */ }
     } else if (r.ok && typeof url === 'string' && AI_URL_RX.test(url)) {
       // Stream endpoint: response trả ngay khi headers gửi → quota consume sau. Delay ~2s

@@ -71,6 +71,24 @@
 
 **Tenant scoping** (multi-tenant fix 2026-06-09): tất cả endpoint `/api/v1/mail/*` và `/api/v1/visa/*` YÊU CẦU `X-Session-Id` header (hoặc `sessionId` query/body) — backend resolve `TenantId` qua `ITenantContext`/`HttpTenantContext` từ `TkSessionStore`. KHÔNG session → 401. Cross-tenant access (resource thuộc tenant khác) → null/404.
 
+**Nháp tour + đồng bộ CRM** (màn Tính giá Tour):
+
+| Method | Path | Notes |
+|--------|------|-------|
+| GET/POST/DELETE | `/api/v1/tours[/{id}]` | Nháp tour của công ty (Redis `tkai:tours:{tenant}`, KHÔNG phải SQL) |
+| PATCH  | `/api/v1/tours/{id}/status`  | `draft` \| `sent` \| `success` |
+| POST   | `/api/v1/tours/{id}/save-crm` | Body `{tourType: 3\|2, customerName?, customerPhone?, customerEmail?}` — tạo ĐƠN THẬT trên CRM: **3 = GIT** → TourKit.Api `/api/ai/tours`, **2 = FIT** → `/api/tours/sample`. Nháp nhớ `crmTourId` → bấm lần hai trả **409** thay vì đẻ đơn trùng |
+
+**Gác quyền theo CRM** (sheet bug dòng 105 — quyền lấy từ chính CRM theo phòng ban, không có admin auto-grant):
+
+| Nhóm endpoint | Quyền cần |
+|---|---|
+| `/api/v1/tours*` (ghi) + `/api/v1/tour-quotes*` (ghi) | `TR_TD_TAOMOI` **hoặc** `TR_TM_TAOMOI` — riêng `/save-crm` kiểm ĐÚNG loại đơn đang tạo |
+| `/api/v1/customers*` + `/api/v1/reviews/*` | `KH_KH_XEM` |
+| `/api/v1/visa/*` | `VISA_XEM` — trừ `/visa/questions` (GET/PUT/DELETE) nhận thêm `CH_HT_XEM` vì đó là màn cấu hình |
+
+Gác bằng `RequirePermissionFilter` gắn ở **nhóm** (không phải từng handler) → đường thêm sau tự được gác. Thiếu quyền → **403** kèm mã quyền còn thiếu; chưa đăng nhập vẫn là **401** như cũ.
+
 **Legacy aliases** (`POST /api/ai/complete`, `POST /api/ai/stream`, `GET /api/ai/models`, `GET /api/ai/usage`) point to the same handlers — keep until all clients migrate.
 
 **Request shape** (`CompleteRequest` — flat, NOT OpenAI `messages[]`):

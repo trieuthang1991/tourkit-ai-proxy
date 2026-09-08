@@ -404,7 +404,15 @@ function CustomersPage({ pushToast }) {
       setActiveStream(null);
       if (evt.type === 'done') {
         pushLog(null, 'done', `Hoàn tất · ${evt.payload?.done} xong · ${evt.payload?.cached} cache · ${evt.payload?.errors} lỗi`);
-        pushToast(`✓ Đã review xong ${evt.payload?.done || 0} KH`);
+        // Hết lượt AI giữa chừng → nói đúng nguyên nhân + mở popup nạp lượt, thay vì báo "xong 0 KH".
+        if (evt.payload?.quotaExhausted) {
+          try { window.dispatchEvent(new CustomEvent('tourkit:quota-exhausted')); } catch {}
+          const n = evt.payload?.done || 0;
+          pushToast(n > 0
+            ? `Hết lượt AI — mới chấm được ${n} khách. Nạp thêm lượt để chấm tiếp.`
+            : 'Công ty đã hết lượt AI. Nạp thêm lượt rồi chấm lại.', 'error');
+        }
+        else pushToast(`✓ Đã review xong ${evt.payload?.done || 0} KH`);
         setSelected(new Set());   // clear chọn sau khi xong → bấm Review lại không bị review trùng KH cũ
         loadList();
       } else {

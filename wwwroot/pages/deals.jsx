@@ -419,7 +419,16 @@ function DealsPage({ pushToast }) {
         else if (e.type === 'done') {
           const b = e.payload.board || { items: [...live].sort((a, b) => b.priorityScore - a.priorityScore), scanned: 0, deepScored: live.length };
           setBoard(b);
-          pushToast(`Đã chấm ${b.deepScored || live.length} cơ hội`);
+          const n = b.deepScored || live.length;
+          // Hết lượt AI giữa chừng: báo đúng nguyên nhân thay vì "Đã chấm 0 cơ hội" — câu đó đọc
+          // như đã chạy xong bình thường, người dùng ngồi đợi mãi không hiểu vì sao rỗng.
+          if (e.payload.quotaExhausted) {
+            try { window.dispatchEvent(new CustomEvent('tourkit:quota-exhausted')); } catch {}
+            pushToast(n > 0
+              ? `Hết lượt AI — mới chấm được ${n} cơ hội. Nạp thêm lượt để chấm tiếp.`
+              : 'Công ty đã hết lượt AI. Nạp thêm lượt rồi chấm lại.', 'error');
+          }
+          else pushToast(`Đã chấm ${n} cơ hội`);
           clearSelected();   // clear chọn sau khi xong → bấm Chấm lại không chấm trùng deal cũ
           loadList();
         }

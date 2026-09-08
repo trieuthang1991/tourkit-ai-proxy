@@ -124,7 +124,18 @@ public static class VisaEndpoints
 
     public static void MapVisaEndpoints(this IEndpointRouteBuilder routes)
     {
-        var v1 = routes.MapGroup("/api/v1");
+        // Gác CẢ NHÓM bằng quyền Visa của chính CRM (sheet bug 105: tài khoản đại lý không có quyền
+        // Visa trên CRM nhưng vào thẳng được cụm này trên AI). Đặt ở nhóm nên đường Visa thêm sau
+        // tự được gác — kiểm trong từng handler thì quên một chỗ là thủng mà không có triệu chứng.
+        var v1 = routes.MapGroup("/api/v1")
+            .AddEndpointFilter(new RequirePermissionFilter("Visa", TkPermissionCodes.XemVisa));
+
+        // Nhóm RIÊNG cho 3 đường `/visa/questions` — chúng phục vụ màn "Câu hỏi Visa" (mục Tích hợp,
+        // gate CH_HT_XEM), không phải màn thẩm định. Người quản trị cấu hình bộ câu hỏi hoàn toàn có
+        // thể KHÔNG có quyền Visa; nhét chung nhóm trên là khoá nhầm đúng người đang cần cấu hình.
+        var cfg = routes.MapGroup("/api/v1")
+            .AddEndpointFilter(new RequirePermissionFilter("cấu hình câu hỏi Visa",
+                TkPermissionCodes.CauHinhHeThong, TkPermissionCodes.XemVisa));
 
         // ─── POST /visa/score-wizard ─── 9 câu hỏi + files → AI chấm ─────────────
         // Multipart form:
@@ -163,7 +174,7 @@ public static class VisaEndpoints
         });
 
         // ─── GET /visa/questions ─── per-tenant config (null = dùng default frontend) ───
-        v1.MapGet("/visa/questions", (HttpContext ctx, TkSessionStore sessions, VisaQuestionRepository qrepo) =>
+        cfg.MapGet("/visa/questions", (HttpContext ctx, TkSessionStore sessions, VisaQuestionRepository qrepo) =>
         {
             var auth = RequireSession(ctx, sessions);
             if (auth == null) return Unauthorized();
@@ -179,7 +190,7 @@ public static class VisaEndpoints
         });
 
         // ─── PUT /visa/questions ─── upsert config (body = raw JSON array) ───
-        v1.MapPut("/visa/questions", async (HttpRequest request, HttpContext ctx, TkSessionStore sessions, VisaQuestionRepository qrepo) =>
+        cfg.MapPut("/visa/questions", async (HttpRequest request, HttpContext ctx, TkSessionStore sessions, VisaQuestionRepository qrepo) =>
         {
             var auth = RequireSession(ctx, sessions);
             if (auth == null) return Unauthorized();
@@ -204,7 +215,7 @@ public static class VisaEndpoints
         });
 
         // ─── DELETE /visa/questions ─── reset về default ───
-        v1.MapDelete("/visa/questions", (HttpContext ctx, TkSessionStore sessions, VisaQuestionRepository qrepo) =>
+        cfg.MapDelete("/visa/questions", (HttpContext ctx, TkSessionStore sessions, VisaQuestionRepository qrepo) =>
         {
             var auth = RequireSession(ctx, sessions);
             if (auth == null) return Unauthorized();

@@ -27,7 +27,10 @@ public static class ReviewEndpoints
 
     public static IEndpointRouteBuilder MapReviewEndpoints(this IEndpointRouteBuilder routes)
     {
-        var v1 = routes.MapGroup("/api/v1");
+        // Gác CẢ NHÓM bằng quyền xem Khách hàng của CRM (sheet bug 105). Nhóm này gồm cả /customers
+        // lẫn /reviews/* vì chấm hạng AI là thao tác TRÊN khách hàng — cho xem thì mới có gì để chấm.
+        var v1 = routes.MapGroup("/api/v1")
+            .AddEndpointFilter(new RequirePermissionFilter("xem Khách hàng", TkPermissionCodes.XemKhachHang));
 
         // ─── Customer lookups (loại/nguồn/NV) cho bộ lọc nâng cao ──────────────
         v1.MapGet("/customers/lookups", async (HttpContext ctx, TourKitCustomerSource source, TkSessionStore sessions) =>

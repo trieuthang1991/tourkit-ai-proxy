@@ -641,6 +641,22 @@ public class NativeToolUseAgent : IAgentRuntime
         {
             result = await RunCoreAsync(input, ct, emit: emit);
         }
+        catch (TourkitAiProxy.Services.Quota.QuotaExhaustedException qex)
+        {
+            // Hết lượt AI: BẮT Ở ĐÂY mới có tác dụng. Khối catch chung bên dưới nuốt luôn ngoại lệ
+            // và phát `ex.Message` ra SSE ("Tenant 'x' đã dùng 26001/26000 lượt AI — hết quota"),
+            // nên nhánh xử lý quota ở tầng endpoint KHÔNG BAO GIỜ chạy tới. Người dùng đọc được câu
+            // kỹ thuật đó mà không có nút nạp lượt nào.
+            _log.LogInformation("[NativeTool-stream] hết lượt AI tenant={T} {U}/{L}", qex.Tenant, qex.Used, qex.Limit);
+            await emit(new
+            {
+                error = $"Công ty đã dùng hết {qex.Limit} lượt AI. Nạp thêm lượt để tiếp tục.",
+                quotaExhausted = true,
+                status = 429,
+            });
+            await emit(new { done = true });
+            return;
+        }
         catch (Exception ex)
         {
             _log.LogError(ex, "[NativeTool-stream] RunCoreAsync loi");
