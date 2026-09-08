@@ -98,6 +98,40 @@ test('A1 — bấm "Nhận chăm sóc" phải THẬT SỰ nhận việc', async 
   expect(sau.json.conversation.assignedUserId, 'máy chủ phải thật sự ghi người phụ trách').toBeTruthy();
 });
 
+test('A4 — quản trị có Ô CHỌN NGƯỜI PHỤ TRÁCH ngay cả khi đội trực RỖNG', async ({ page }) => {
+  // ⚠️ Bài này canh một nửa dễ quên. Sáng 08/09/2026 đã sửa MÁY CHỦ cho quản trị giao việc được
+  // khi đội trực rỗng — nhưng giao diện vẫn lọc ô chọn theo đội trực, nên đội trực rỗng là KHÔNG
+  // có ô nào để bấm. Máy chủ cho phép mà màn hình không mở đường thì với người dùng là chưa sửa gì.
+  //
+  // Đội trực sinh ra cho chế độ XOAY VÒNG. Ở chế độ THỦ CÔNG — chế độ mặc định — nó thường rỗng,
+  // nên đây chính là cấu hình mà phần lớn công ty đang chạy.
+  await api.put(`${GOC}/assign-settings`, {
+    headers: nhu(PHIEN_QUAN_TRI, { 'Content-Type': 'application/json' }),
+    data: { mode: 1, scopeOwnOnly: false, autoAssignOnReply: false, memberIds: [] },
+  });
+
+  // Ô chọn đổ từ danh sách nhân viên của ERP. ERP không trả ai thì ô rỗng vì lý do MÔI TRƯỜNG
+  // (phiên hết hạn chẳng hạn), không phải vì luật sai — bỏ qua CÓ TÊN, đừng báo đỏ nhầm chỗ.
+  const ch = await doc(await api.get(`${GOC}/assign-settings`, { headers: nhu(PHIEN_QUAN_TRI) }));
+  test.skip((ch.json?.staffs || []).length === 0,
+    'ERP không trả nhân viên nào cho phiên này — xem cảnh báo [chat/assign-settings] trong log máy chủ.');
+  expect(ch.json.isAdmin, 'E2E_SESSION phải là phiên quản trị').toBe(true);
+  expect(ch.json.memberIds, 'bài này cần đội trực RỖNG').toEqual([]);
+
+  await moTrang(page, '/chat-inbox');
+  const muc = page.locator('.ci-muc').first();
+  await expect(muc, 'không thấy hội thoại nào trong danh sách').toBeVisible({ timeout: 20_000 });
+  await muc.click();
+
+  const o = page.locator('.ci-chon-phutrach');
+  await expect(o, 'quản trị KHÔNG thấy ô chọn người phụ trách dù máy chủ cho phép giao việc')
+    .toBeVisible({ timeout: 15_000 });
+
+  // Có ô mà rỗng thì cũng như không: phải đổ được người ra để chọn.
+  const soLuaChon = await o.locator('option').count();
+  expect(soLuaChon, 'ô chọn chỉ có mục trống — không giao được cho ai').toBeGreaterThan(1);
+});
+
 test('A2 — mở hộp thư chat: không lượt gọi API nào rơi xuống trang SPA', async ({ page }) => {
   // Luật TỔNG QUÁT rút ra từ lỗi trên, áp cho MỌI lượt gọi mà trang tự phát ra. Một nút mới thêm
   // sau này mà gọi sai cách sẽ bị bắt ở đây, không cần ai nhớ viết bài riêng cho nó.

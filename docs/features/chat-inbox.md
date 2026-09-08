@@ -641,6 +641,13 @@ kèm HTML. Không chốt canh đọc văn bản nguồn nào thấy được —
 của mã ta viết. **Luật rút ra: route mà giao diện gọi không kèm `Content-Type` thì không được có
 tham số thân.** Có chốt canh khoá cả hai vế (máy chủ + giao diện).
 
+⚠️ **Ô chọn người phụ trách đổ theo VAI, không phải lúc nào cũng theo đội trực.** Quản trị thấy
+toàn bộ nhân viên; người khác chỉ thấy đội trực — khớp đúng luật ở máy chủ. Sửa máy chủ mà quên
+nửa này thì với người dùng là chưa sửa gì: đội trực rỗng (mặc định ở chế độ thủ công) làm ô chọn
+KHÔNG hiện, nên quản trị không có chỗ nào để giao việc dù máy chủ đã cho phép. Người ĐANG phụ trách
+mà không nằm trong danh sách chọn được vẫn phải hiện, kèm ghi chú "ngoài đội trực" — thiếu thì ô về
+rỗng và đọc thành "chưa ai phụ trách", tức giao diện nói sai.
+
 ⚠️ **Đội trực chỉ ràng buộc người KHÔNG phải quản trị.** Đội trực sinh ra cho *chia lần lượt*, nên
 ở chế độ thủ công — chế độ mặc định — nó thường để trống. Áp luật cho cả quản trị thì họ không
 giao được việc cho ai: bấm giao, nhận lỗi "chưa cấu hình đội trực", trong khi thứ họ muốn chẳng

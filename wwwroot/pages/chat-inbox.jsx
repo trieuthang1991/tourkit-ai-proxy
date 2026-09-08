@@ -1817,6 +1817,16 @@
     // Đội trực = giao của memberIds với danh sách nhân viên ERP. Máy chủ trả MÃ, tên thì tra ở
     // đây — không lưu tên trong CSDL chat để khỏi phải đồng bộ khi ai đó đổi tên.
     const doiTruc = (phanCong.staffs || []).filter(nv => (phanCong.memberIds || []).includes(nv.id));
+
+    // Ai được đổ vào ô chọn người phụ trách: QUẢN TRỊ thấy toàn bộ nhân viên, người khác chỉ thấy
+    // đội trực — khớp ĐÚNG luật ở máy chủ (đặc tả mục 9: đội trực chỉ ràng buộc người KHÔNG phải
+    // quản trị).
+    //
+    // ⚠️ Bản trước luôn lọc theo đội trực. Đội trực sinh ra cho chế độ xoay vòng, nên ở chế độ
+    // THỦ CÔNG — chế độ mặc định — nó thường rỗng, và ô chọn KHÔNG hiện. Kết quả: máy chủ cho phép
+    // quản trị giao việc mà giao diện không có chỗ nào để giao. Sửa một nửa ở máy chủ mà quên nửa
+    // giao diện thì với người dùng là chưa sửa gì (08/09/2026).
+    const chonDuoc = phanCong.isAdmin ? (phanCong.staffs || []) : doiTruc;
     const [soan, setSoan] = useState('');
     const [dangGui, setDangGui] = useState(false);
     const [dangTai, setDangTai] = useState(true);
@@ -2580,13 +2590,24 @@
                   <div className="ci-nut-nhom">
                     {/* Ô chọn người phụ trách đứng TRƯỚC nút nhận: thao tác hay dùng nhất của
                         quản lý là giao việc, còn nút nhận là của người trực. */}
-                    {doiTruc.length > 0 && (
+                    {chonDuoc.length > 0 && (
                       <select className="ci-chon-phutrach"
                               value={v.assignedUserId || ''}
                               onChange={e => giaoCho(e.target.value)}
                               title="Người phụ trách">
                         <option value="">— chưa ai phụ trách —</option>
-                        {doiTruc.map(nv => (
+                        {/* Người ĐANG phụ trách mà không nằm trong danh sách chọn được (bị gỡ khỏi
+                            đội trực sau khi đã nhận việc, hoặc đã nghỉ nên ERP không trả về nữa)
+                            vẫn phải hiện. Thiếu dòng này thì ô chọn về rỗng và đọc thành "chưa ai
+                            phụ trách" — giao diện nói sai, và người xem tưởng hội thoại đang bỏ
+                            trống trong khi nó có chủ. */}
+                        {v.assignedUserId && !chonDuoc.some(nv => nv.id === v.assignedUserId) && (
+                          <option value={v.assignedUserId}>
+                            {(phanCong.staffs || []).find(nv => nv.id === v.assignedUserId)?.name
+                              || v.assignedUsername || ('#' + v.assignedUserId)} (ngoài đội trực)
+                          </option>
+                        )}
+                        {chonDuoc.map(nv => (
                           <option key={nv.id} value={nv.id}>{nv.name}</option>
                         ))}
                       </select>

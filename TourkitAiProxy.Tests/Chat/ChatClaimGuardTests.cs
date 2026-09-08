@@ -310,6 +310,31 @@ public class ChatClaimGuardTests
     }
 
     [Fact]
+    public void O_chon_nguoi_phu_trach_do_theo_VAI_chu_khong_luon_theo_doi_truc()
+    {
+        // ⚠️ NỬA CÒN LẠI của luật "đội trực chỉ ràng buộc người KHÔNG phải quản trị". Sáng
+        // 08/09/2026 đã sửa MÁY CHỦ cho quản trị giao việc được khi đội trực rỗng — nhưng giao
+        // diện vẫn lọc ô chọn theo đội trực, nên đội trực rỗng là KHÔNG có ô nào để bấm. Máy chủ
+        // cho phép mà màn hình không mở đường thì với người dùng là chưa sửa gì.
+        //
+        // Đội trực sinh ra cho chế độ XOAY VÒNG; ở chế độ THỦ CÔNG — chế độ mặc định — nó thường
+        // rỗng. Tức là cấu hình mà phần lớn công ty đang chạy chính là cấu hình bị hỏng.
+        //
+        // Neo vào HAI vế, vì bỏ vế nào cũng làm ô chọn sai mà vế kia vẫn xanh:
+        //   (a) danh sách đổ vào ô phân theo VAI (quản trị: toàn bộ nhân viên; còn lại: đội trực);
+        //   (b) điều kiện HIỆN ô dùng đúng danh sách đó, không dùng lại đội trực.
+        var jsx = ChatSchemaGuardTests.DocFile("wwwroot/pages/chat-inbox.jsx");
+
+        var m = Regex.Match(jsx, @"const (\w+) = phanCong\.isAdmin \? \(phanCong\.staffs \|\| \[\]\) : doiTruc;");
+        Assert.True(m.Success,
+            "Không thấy danh sách người phụ trách phân theo vai — ô chọn đang lọc theo đội trực cho MỌI người?");
+        var bien = m.Groups[1].Value;
+
+        Assert.Matches(@"\{" + Regex.Escape(bien) + @"\.length > 0 && \(\s*<select className=""ci-chon-phutrach""", jsx);
+        Assert.DoesNotContain("{doiTruc.length > 0 && (", jsx);
+    }
+
+    [Fact]
     public void Nha_viec_di_duong_DELETE_rieng()
     {
         // Ba thao tác, ba đường: KHÔNG thân → nhận việc; {"userId":N} → chuyển việc; DELETE →
