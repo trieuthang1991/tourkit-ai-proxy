@@ -2132,12 +2132,15 @@
       await taiDsach(); if (chon) await taiChiTiet(chon);
     }
 
-    // Nhận việc cho mình — LUÔN gửi KHÔNG THÂN. Bản trước gửi {} hoặc {username:''}: cả hai bị
-    // máy chủ hiểu thành CHUYỂN VIỆC cho mã người 0 (không có trong đội trực) → 400, nút bấm mà
-    // không nhận được gì, trông như chạy suốt nhiều tháng.
+    // Nhận việc cho mình — ĐƯỜNG RIÊNG /assign/me, không thân, không header.
+    //
+    // Bản trước POST thẳng /assign không thân, dựa vào việc máy chủ hiểu "thân rỗng = nhận việc".
+    // Nó KHÔNG chạy: thiếu header Content-Type thì minimal API loại luôn route khỏi danh sách ứng
+    // viên, request rơi xuống trang SPA và trả về 404 kèm HTML — bấm nút không có gì xảy ra.
+    // Route riêng không có tham số thân nên không còn phụ thuộc header nào cả.
     async function nhanViec() {
       if (!chon) return;
-      const r = await authedFetch('/api/v1/chat/conversations/' + chon + '/assign', { method: 'POST' });
+      const r = await authedFetch('/api/v1/chat/conversations/' + chon + '/assign/me', { method: 'POST' });
       // 400 = không xác định được mã nhân viên. 409 = người khác nhận trước. Cả hai đều phải
       // BÁO — im lặng là bấm hoài tưởng nút hỏng, hoặc hai người cùng tưởng việc của mình rồi
       // cùng trả lời một khách.

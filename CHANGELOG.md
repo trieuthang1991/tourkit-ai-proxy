@@ -21,11 +21,20 @@ Những cập nhật gần đây của TRAV-AI, viết cho người dùng. Mới
 - Hai cách chia việc: **giao tay**, hoặc **chia lần lượt** cho đội trực chat — cuộc nào chưa có
   người phụ trách thì tự chia cho người kế tiếp.
 - Bật được chế độ **nhân viên chỉ xem cuộc trò chuyện của mình**; quản trị viên vẫn xem tất cả.
+- **Quản trị viên giao việc được ngay, không cần lập đội trực trước.** Đội trực là danh sách dùng
+  cho cách *chia lần lượt*; nếu bạn chỉ muốn giao tay thì không phải lập nó. Nhân viên thường vẫn
+  chỉ chuyển việc được cho người trong đội trực.
 
 ### 🔧 Đã khắc phục
 
 - Nút "Nhận việc" nay ghi rõ là **"Nhận chăm sóc"**, và cột người phụ trách hiện **tên đầy đủ**
   thay cho tên đăng nhập khó đọc.
+
+### 📌 Lưu ý khi cập nhật
+
+- Phần giao việc và phân quyền xem là **tính năng bật riêng**. Sau khi cập nhật, mục *Phân công
+  chat* trong menu sẽ **ẩn cho tới khi được bật** — hộp thư chat vẫn chạy bình thường. Nhờ bộ
+  phận kỹ thuật bật giúp nếu bạn cần dùng.
 
 ## Phiên bản 29/08/2026 — Nhắn tin trên điện thoại, và quyền riêng tư của khách
 

@@ -38,7 +38,7 @@ const NAV_GROUPS = [
     { to: '/deals',     icon: 'trend',   label: 'AI phân tích Cơ hội' },  // opportunity analysis
     { to: '/mail',      icon: 'mail',    label: 'Hộp thư AI' },
     { to: '/chat-inbox', icon: 'send',  label: 'Hộp thư chat', feature: 'chat' },  // tin khách nhắn qua Zalo/kênh khác
-    { to: '/chat-assign-settings', icon: 'share', label: 'Phân công chat', feature: 'chat' },  // ai xem gì, chia hội thoại cho ai
+    { to: '/chat-assign-settings', icon: 'share', label: 'Phân công chat', feature: 'chatAssign' },  // ai xem gì, chia hội thoại cho ai
   ]},
   { label: 'Sản phẩm Tour', items: [
     { to: '/ncc-list',     icon: 'download', label: 'AI Import NCC' },      // NCC: import + danh sách (đặt trên Tính giá Tour)
@@ -196,7 +196,16 @@ function App() {
   // Mục có `feature` còn phải chờ cờ RA MẮT bật — khác quyền: quyền nói "ai được xem", cờ nói
   // "tính năng đã ra mắt chưa". Cờ tắt mà vẫn bày mục menu thì bấm vào chỉ nhận 404.
   const chatOn = window.tourkitFeatures.useFeature('chat');
-  const featureOn = (name) => !name || (name === 'chat' ? chatOn : true);
+  const phanCongOn = window.tourkitFeatures.useFeature('chatAssign');
+  // Bảng tra cờ ĐÃ HỎI SẴN, không gọi hook theo tên động: hook phải chạy đúng thứ tự ở mọi lần
+  // vẽ, gọi nó trong nhánh hay vòng lặp là React ném lỗi.
+  //
+  // ⚠️ Tên KHÔNG có trong bảng nghĩa là "không gắn cờ" ⇒ LUÔN HIỆN. Bản trước chỉ biết mỗi
+  // 'chat' nên mục menu khai feature: 'chatAssign' vẫn hiện y như không khai gì — cờ trông như
+  // đã cắm mà thật ra không gác gì cả. Thêm cờ mới thì thêm một dòng ở đây, đừng chỉ thêm ở
+  // chỗ khai mục menu.
+  const coCua = { chat: chatOn, chatAssign: phanCongOn };
+  const featureOn = (name) => !name || (coCua[name] ?? true);
   const visibleGroups = NAV_GROUPS
     .map(g => ({ ...g, items: g.items.filter(it => hasPerm(it.requirePerm) && featureOn(it.feature)) }))
     .filter(g => g.items.length > 0);
@@ -595,9 +604,11 @@ function App() {
         <Route path="/chat-inbox" render={() => chatOn
           ? <window.ChatInboxPage pushToast={pushToast} />
           : <FeatureOffPage ten="Hộp thư chat" />} />
-        {/* Cùng cờ 'chat' với /chat-inbox — chặn ngay ở route, không chỉ ẩn menu (lý do xem
-            comment ở route /chat-inbox ngay trên). */}
-        <Route path="/chat-assign-settings" render={() => chatOn
+        {/* Cờ RIÊNG 'chatAssign', không dùng chung 'chat': hộp thư chat đã ra mắt từ trước,
+            còn phân công/phân quyền là phần mới bật riêng cho từng bản triển khai. Dùng chung
+            một cờ thì bật hộp thư là lộ luôn màn hình chưa ra mắt. Chặn ngay ở route, không chỉ
+            ẩn menu (lý do xem comment ở route /chat-inbox ngay trên). */}
+        <Route path="/chat-assign-settings" render={() => phanCongOn
           ? <window.ChatAssignSettingsPage pushToast={pushToast} />
           : <FeatureOffPage ten="Phân công chat" />} />
         <Route path="/visa"      render={() => <window.VisaPage pushToast={pushToast} />} />

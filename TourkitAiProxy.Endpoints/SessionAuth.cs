@@ -1,4 +1,4 @@
-using TourkitAiProxy.Domain.Chat;
+﻿using TourkitAiProxy.Domain.Chat;
 using TourkitAiProxy.Infrastructure.Chat.Inbox;
 using TourkitAiProxy.Infrastructure.TourKit;
 
@@ -49,14 +49,26 @@ public static class SessionAuth
 
         // Tự lấp CrmUserId nếu phiên cũ chưa có — KHÔNG bắt người dùng đăng nhập lại.
         var maNguoi = await sessions.EnsureCrmUserIdAsync(a.SessionId, ct);
-        // TẠM: quản trị viên chat chốt theo TÊN ĐĂNG NHẬP, không đọc claim/cột IsAdmin nữa —
-        // yêu cầu của chủ dự án (07/09/2026): "đừng xoá tránh lỗi, cứ để tạm đấy". Cột
-        // dbo.TkSessions.IsAdmin, TkSession.IsAdmin, JwtClaims.TryGetIsAdmin vẫn nạp và ghi
-        // bình thường — chat chỉ THÔI ĐỌC tới chúng. Khi hệ quyền thật (theo permission, không
-        // theo tên) vào, đổi đúng dòng này lại, đừng đổi cả cụm.
-        var xemTatCa = string.Equals(a.Username, "admin", StringComparison.OrdinalIgnoreCase);
-        return (a, new NguoiXem(maNguoi, XemTatCa: xemTatCa));
+        // Quản trị viên chat: xem LaQuanTriChat bên dưới (chốt TẠM theo tên đăng nhập).
+        return (a, new NguoiXem(maNguoi, XemTatCa: LaQuanTriChat(a)));
     }
+
+    /// <summary>
+    /// Tài khoản này có phải <b>quản trị viên chat</b> không.
+    ///
+    /// <para>TẠM chốt theo TÊN ĐĂNG NHẬP, không đọc claim/cột <c>IsAdmin</c> — yêu cầu của chủ dự
+    /// án (07/09/2026): "đừng xoá tránh lỗi, cứ để tạm đấy". Cột <c>dbo.TkSessions.IsAdmin</c>,
+    /// <c>TkSession.IsAdmin</c>, <c>JwtClaims.TryGetIsAdmin</c> vẫn nạp và ghi bình thường — chat
+    /// chỉ THÔI ĐỌC tới chúng.</para>
+    ///
+    /// <para><b>Vì sao gom thành một hàm.</b> Cùng một câu <c>Equals(Username, "admin")</c> từng
+    /// nằm ở hai chỗ (phạm vi xem, và cờ <c>isAdmin</c> phát ra giao diện). Bản thứ BA sắp thêm
+    /// vào (cửa giao việc cho người khác) là lúc phải gom — ba bản chép tay của cùng một câu hỏi
+    /// "ai là quản trị chat" mà lệch nhau thì thành lỗ hổng chứ không phải bất tiện. Khi hệ quyền
+    /// thật (theo permission, không theo tên) vào, đổi ĐÚNG hàm này, đừng đi sửa từng chỗ gọi.</para>
+    /// </summary>
+    public static bool LaQuanTriChat(Ctx a)
+        => string.Equals(a.Username, "admin", StringComparison.OrdinalIgnoreCase);
 
     /// <summary>
     /// Tài khoản này có quyền <b>Cấu hình hệ thống</b> (<c>CH_HT_XEM</c>) không.

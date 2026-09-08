@@ -1,4 +1,4 @@
-using System.Text.RegularExpressions;
+﻿using System.Text.RegularExpressions;
 using Xunit;
 
 namespace TourkitAiProxy.Tests.Chat;
@@ -170,6 +170,33 @@ public class ChatAssignSchemaGuardTests
 
         var m = Regex.Match(kho[batDau..], @"\A.*?\r?\n        \}\);", RegexOptions.Singleline);
         return m.Success ? m.Value : "";
+    }
+
+    [Fact]
+    public void Cau_hinh_phan_cong_KHONG_duoc_doc_thang_vao_record_vi_tri()
+    {
+        // ⚠️ LỖI ĐÃ XẢY RA THẬT (08/09/2026, đo trên staging) và nó tắt CẢ hộp thư chat của
+        // công ty: Dapper dựng record vị trí bằng cách so KIỂU tham số hàm dựng với kiểu cột do
+        // trình đọc khai. Npgsql khai cột integer[] là System.Array (cho phép mảng nhiều chiều),
+        // tham số của ta là int[] — không hàm dựng nào khớp, Dapper ném InvalidOperationException.
+        //
+        // Vì sao không ai thấy suốt cả nhánh: chưa có dòng cấu hình thì truy vấn trả null và mọi
+        // thứ chạy êm. Công ty bấm Lưu ở màn hình Cấu hình phân công LẦN ĐẦU là hỏng — và vì
+        // SessionAuth.ReadNguoiXemAsync gọi LayCauHinhAsync ở MỌI request chat, cả hộp thư 500.
+        // Bấm Lưu một lần, mất hộp thư.
+        //
+        // Luật: đọc vào lớp có thuộc tính GHI ĐƯỢC (đường thuộc tính ép kiểu giá trị THẬT trong
+        // hộp, mà giá trị thật đúng là int[]), rồi mới dựng record miền.
+        // DuongDocCauHinh() trỏ vào ChatInboxEndpoints (đường ĐỌC của endpoint) — lỗi này
+        // nằm ở KHO DỮ LIỆU, file khác hẳn. Đọc đúng file, đừng mượn helper gần đúng.
+        var kho = ChatSchemaGuardTests.DocFile(
+            "TourkitAiProxy.Infrastructure/Chat/Inbox/ChatAssignRepository.cs");
+        Assert.DoesNotContain("Async<ChatAssignSettings>", kho);
+        Assert.Contains("class DongCauHinh", kho);
+        Assert.Contains("int[]? MemberIds", kho);
+        // Cột NULL (dữ liệu cũ) phải thành mảng RỖNG: chỗ gọi đọc .Length và .Contains ngay,
+        // để null lọt ra là NullReferenceException giữa đường phân công.
+        Assert.Contains("Array.Empty<int>()", kho);
     }
 
     [Fact]

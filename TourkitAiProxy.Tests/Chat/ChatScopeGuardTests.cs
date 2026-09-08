@@ -1,4 +1,4 @@
-using System.Collections.Generic;
+﻿using System.Collections.Generic;
 using System.Linq;
 using System.Text.RegularExpressions;
 using Xunit;
@@ -176,14 +176,36 @@ public class ChatScopeGuardTests
         // dbo.TkSessions.IsAdmin, TkSession.IsAdmin, JwtClaims.TryGetIsAdmin PHẢI còn nguyên
         // (test riêng của chúng ở JwtClaimsTests không đụng tới) — guard này chỉ khoá đúng CHỖ
         // ĐỌC, không khoá phần hạ tầng ghi/nạp.
+        //
+        // ⚠️ Bản trước đòi NGUYÊN VĂN câu Equals(...) nằm trong HAI cửa sổ (thân
+        // ReadNguoiXemAsync, route GET /assign-settings). Ngày 08/09/2026 câu đó được gom vào
+        // một hàm dùng chung (SessionAuth.LaQuanTriChat) — đúng việc phải làm khi bản chép thứ
+        // BA sắp xuất hiện — và chốt ĐỎ dù luật không đổi lấy một chữ. Đó là cơ chế mục ruỗng
+        // số 1 đã ghi sổ trên nhánh này: chốt bám CHÍNH TẢ, mã dời sang hàm gói.
+        //
+        // Nay chốt bám LUẬT, ba vế:
+        //   (a) có ĐÚNG MỘT nơi trả lời "ai là quản trị chat", và nó so theo tên đăng nhập;
+        //   (b) mọi cửa quyết định của chat đều HỎI qua nơi đó;
+        //   (c) không cửa nào đọc IsAdmin.
+        // Gom lại lần nữa (đổi tên hàm, dời sang lớp khác) thì vế (b) đỏ và người sửa buộc phải
+        // đọc chốt này — khác hẳn bản cũ, đỏ mà không nói được vì sao.
         var neo = "string.Equals(a.Username, \"admin\", StringComparison.OrdinalIgnoreCase)";
+        var sessionAuth = SessionAuthSrc();
 
-        // Cắt tới THÀNH VIÊN KẾ TIẾP, không đếm ký tự. Cửa sổ 1200 chỉ còn dư 76 ký tự: thêm
-        // đúng MỘT dòng chú thích không đổi hành vi là chốt đỏ (đã đo). Bộ test này đã đỏ oan
-        // ba lần vì đúng cơ chế đó.
+        // (a) MỘT nguồn duy nhất. Đếm chứ không chỉ Contains: bản chép THỨ HAI làm chốt đỏ ngay
+        // tại lúc nó ra đời, không đợi tới bản thứ ba như lần trước.
+        Assert.Contains("public static bool LaQuanTriChat(Ctx a)", sessionAuth);
+        Assert.Equal(1, Regex.Matches(sessionAuth, Regex.Escape(neo)).Count);
+        var thanLaQuanTri = Regex.Match(sessionAuth,
+            @"public static bool LaQuanTriChat\(Ctx a\)(.{0,200})", RegexOptions.Singleline);
+        Assert.True(thanLaQuanTri.Success, "Không thấy thân LaQuanTriChat");
+        Assert.Contains(neo, thanLaQuanTri.Groups[1].Value);
+
+        // (b)+(c) Hai cửa quyết định. Cắt tới THÀNH VIÊN KẾ TIẾP, không đếm ký tự — cửa sổ cố
+        // định 1200 từng chỉ dư 76 ký tự và làm bộ test này đỏ oan ba lần.
         var thanRead = ThanReadNguoiXem();
         Assert.False(string.IsNullOrWhiteSpace(thanRead), "Không cắt được thân ReadNguoiXemAsync");
-        Assert.Contains(neo, thanRead);
+        Assert.Contains("LaQuanTriChat(a)", thanRead);
         Assert.DoesNotContain("s?.IsAdmin", thanRead);
 
         var src = Endpoint();
@@ -191,8 +213,12 @@ public class ChatScopeGuardTests
         var j = src.IndexOf("MapPut(\"/assign-settings\"", System.StringComparison.Ordinal);
         Assert.True(i >= 0 && j > i, "Không thấy route GET /assign-settings trong ChatInboxEndpoints.cs");
         var than = src[i..j];
-        Assert.Contains(neo, than);
+        Assert.Contains("SessionAuth.LaQuanTriChat(a)", than);
         Assert.DoesNotContain("s?.IsAdmin", than);
+
+        // Không bản chép tay nào trong ChatInboxEndpoints. Soi CẢ FILE, không cửa sổ hẹp: cửa sổ
+        // hẹp bị vô hiệu bằng cách dời mã ra ngoài — đã đo hai lần trên chính nhánh này.
+        Assert.DoesNotContain("a.Username, \"admin\"", src);
     }
     /// <summary>Cắt đúng CÂU LỆNH gán <c>var &lt;bien&gt; = …;</c> — trả rỗng nếu không thấy.</summary>
     private static string CauGan(string than, string bien)
@@ -212,7 +238,13 @@ public class ChatScopeGuardTests
         var src = SessionAuthSrc();
         var i = src.IndexOf("ReadNguoiXemAsync", StringComparison.Ordinal);
         if (i < 0) return "";
-        var j = src.IndexOf("\n    public", i + 20, StringComparison.Ordinal);
+        // Dừng ở thành viên kế tiếp HOẶC ở chú thích tài liệu của nó — cái nào tới trước. Chỉ
+        // bắt "\n    public" thì cửa sổ ôm luôn phần /// <summary> của hàm sau, mà chú thích
+        // đó nhắc tên các thứ hàm này KHÔNG được đọc (IsAdmin…) — đủ để một vế DoesNotContain
+        // đỏ oan vì lời văn chứ không vì mã.
+        var j = new[] { src.IndexOf("\n    public", i + 20, StringComparison.Ordinal),
+                        src.IndexOf("\n    /// <summary>", i + 20, StringComparison.Ordinal) }
+                .Where(x => x > 0).DefaultIfEmpty(-1).Min();
         return j < 0 ? src[i..] : src[i..j];
     }
 }

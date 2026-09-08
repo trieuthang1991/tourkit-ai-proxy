@@ -92,6 +92,40 @@ public class ChatFeatureFlagCoverageTests
         Assert.DoesNotContain("FeatureFlags.Chat", than);
     }
 
+    [Fact]
+    public void Co_ChatAssign_phai_di_HET_duong_tu_may_chu_ra_giao_dien()
+    {
+        // ⚠️ Cờ đi được NỬA ĐƯỜNG là kiểu hỏng khó thấy nhất, và nó đã xảy ra ở đây: việc 10
+        // khai FeatureFlags.ChatAssign + khoá trong appsettings.example.json rồi dừng. Không
+        // endpoint nào phát nó ra, không mục giao diện nào đọc nó — cờ trông như đã cắm mà
+        // thật ra bật/tắt đều KHÔNG đổi gì. Đo trên máy chạy thật 08/09/2026: GET /api/v1/features
+        // không hề có khoá chatAssign.
+        //
+        // Một cờ ẩn/hiện giao diện chỉ có nghĩa khi ĐỦ BỐN mắt xích. Chốt này canh cả bốn.
+        var flags = DocFileGoc("TourkitAiProxy.Services/Bootstrap/FeatureFlags.cs");
+        Assert.Contains("public static bool ChatAssign(IConfiguration cfg)", flags);
+
+        // (2) Máy chủ PHÁT ra. Thiếu mắt này thì giao diện hỏi mãi cũng không thấy khoá đâu.
+        var he = DocFileGoc("TourkitAiProxy.Endpoints/SystemEndpoints.cs");
+        Assert.Matches(@"chatAssign\s*=\s*Services\.Bootstrap\.FeatureFlags\.ChatAssign\(cfg\)", he);
+
+        var app = DocFileGoc("wwwroot/app.jsx");
+        // (3) Mục menu khai đúng cờ RIÊNG, không dùng ké cờ 'chat' của hộp thư — hộp thư đã ra
+        // mắt từ trước, dùng chung là bật hộp thư liền lộ màn hình chưa ra mắt.
+        Assert.Matches(@"/chat-assign-settings'[^\n]*feature: 'chatAssign'", app);
+
+        // (4) Và tên cờ phải có trong BẢNG TRA của featureOn. Đây chính là mắt xích im lặng
+        // nhất: featureOn trả TRUE cho mọi tên nó không biết, nên khai feature:'chatAssign' ở
+        // mục menu mà quên thêm vào bảng thì mục vẫn hiện y như không gắn cờ — không lỗi, không
+        // dấu hiệu gì. Đòi cả hai vế cùng lúc.
+        var bang = Regex.Match(app, @"const coCua = \{([^}]*)\}");
+        Assert.True(bang.Success, "Không thấy bảng tra cờ coCua trong app.jsx");
+        Assert.Contains("chatAssign", bang.Groups[1].Value);
+
+        // Và route phải chặn bằng chính cờ đó — ẩn menu thôi là gõ thẳng URL vẫn vào được.
+        Assert.Matches(@"path=""/chat-assign-settings"" render=\{\(\) => phanCongOn", app);
+    }
+
     private static string DocFileGoc(string duongDanTuongDoi)
     {
         var d = new DirectoryInfo(AppContext.BaseDirectory);

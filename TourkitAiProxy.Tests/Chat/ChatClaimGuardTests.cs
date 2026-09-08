@@ -1,4 +1,5 @@
 ﻿using System;
+using System.Linq;
 using System.Text.RegularExpressions;
 using Xunit;
 
@@ -19,21 +20,40 @@ public class ChatClaimGuardTests
     private static string Endpoint() => ChatSchemaGuardTests.DocFile(
         "TourkitAiProxy.Endpoints/ChatInboxEndpoints.cs");
 
-    /// Cắt đúng thân handler <c>POST /assign</c> — soi cả file 2.600+ dòng thì khớp nhầm sang mã
-    /// bên cạnh (chuỗi trùng ngẫu nhiên) là guard xanh giả mà không canh đúng chỗ.
+    /// Cắt đúng thân handler <c>POST /assign</c> — CHUYỂN VIỆC cho người khác. Soi cả file
+    /// 2.600+ dòng thì khớp nhầm sang mã bên cạnh (chuỗi trùng ngẫu nhiên) là guard xanh giả
+    /// mà không canh đúng chỗ.
     ///
-    /// <para>⚠️ Dừng TRƯỚC <c>MapDelete .../assign</c> (nhả việc), không dừng ở
-    /// <c>MapPatch .../status</c> như bản cũ — route DELETE đứng CHEN GIỮA hai route đó từ khi
-    /// nhả việc tách khỏi thân POST, nên cửa sổ cũ ôm luôn cả handler DELETE dù chú thích chỉ
-    /// tuyên bố cắt "thân handler /assign" (số ít, ý nói riêng nhánh POST).</para>
+    /// <para>⚠️ Ba route nằm liền nhau và cửa sổ phải bám ĐÚNG một cái. Thứ tự trong file:
+    /// <c>POST .../assign</c> (chuyển việc) → <c>POST .../assign/me</c> (nhận việc) →
+    /// <c>MapDelete .../assign</c> (nhả việc). Bản trước dừng ở MapDelete vì lúc đó giữa hai
+    /// route không có gì; từ 08/09/2026 nhận việc chen vào giữa, nên cửa sổ phải dừng sớm hơn —
+    /// không thì mọi khẳng định về "chuyển việc" cũng xanh nhờ mã của "nhận việc" nằm cùng cửa sổ.</para>
     private static string AssignHandler()
     {
         var src = Endpoint();
         var i = src.IndexOf("MapPost(\"/conversations/{id:long}/assign\",", StringComparison.Ordinal);
-        var j = src.IndexOf("MapDelete(\"/conversations/{id:long}/assign\"", StringComparison.Ordinal);
+        var j = src.IndexOf("MapPost(\"/conversations/{id:long}/assign/me\"", StringComparison.Ordinal);
         Assert.True(i >= 0 && j > i, "Không thấy handler /assign trong ChatInboxEndpoints.cs");
         return src[i..j];
     }
+
+    /// Cắt đúng thân handler <c>POST /assign/me</c> — NHẬN VIỆC cho chính mình.
+    private static string ClaimHandler()
+    {
+        var src = Endpoint();
+        var i = src.IndexOf("MapPost(\"/conversations/{id:long}/assign/me\"", StringComparison.Ordinal);
+        var j = src.IndexOf("MapDelete(\"/conversations/{id:long}/assign\"", StringComparison.Ordinal);
+        Assert.True(i >= 0 && j > i, "Không thấy handler /assign/me trong ChatInboxEndpoints.cs");
+        return src[i..j];
+    }
+
+    /// Bỏ mọi dòng chú thích <c>//</c> trước khi soi. Chốt canh nào cấm một DẠNG MÃ đều phải đi
+    /// qua đây: chú thích giải thích chính cái dạng bị cấm là chuyện thường (và nên có), để nó
+    /// làm chốt đỏ thì người ta gỡ chú thích chứ không gỡ lỗi. Đã xảy ra một lần trên nhánh này
+    /// theo chiều ngược lại — chốt Shape ĐẾM cả mã đã chú thích nên xanh giả.
+    private static string BoChuThich(string src) => string.Join("\n",
+        src.Split('\n').Where(d => !d.TrimStart().StartsWith("//", StringComparison.Ordinal)));
 
     /// Cắt đúng thân handler <c>/send</c> (gửi tin chữ/đính kèm — KHÔNG phải <c>/send-template</c>).
     private static string SendHandler()
@@ -88,7 +108,7 @@ public class ChatClaimGuardTests
         // Nay đường phân công bỏ hẳn username: nhánh nhận việc phải lấy MÃ từ phiên qua
         // EnsureCrmUserIdAsync, không tin bất cứ gì đọc được từ thân yêu cầu — để client không
         // tự khai mã người khác rồi "nhận việc" hộ họ.
-        var than = AssignHandler();
+        var than = ClaimHandler();
         Assert.Contains("EnsureCrmUserIdAsync(a.SessionId, ct)", than);
         Assert.Matches(@"ClaimConversationAsync\(a\.TenantId, id, maToi\.Value, ct\)", than);
     }
@@ -133,7 +153,7 @@ public class ChatClaimGuardTests
         // EnsureCrmUserIdAsync trả int? — ép thẳng .Value mà không kiểm null trước là
         // InvalidOperationException ném thẳng ra ngoài (500) đúng lúc phiên không tra được mã
         // (JWT thiếu claim, upstream lỗi). Phải chặn và báo lỗi tử tế trước khi ép kiểu.
-        var than = AssignHandler();
+        var than = ClaimHandler();
         Assert.Contains("if (maToi is null)", than);
     }
 
@@ -161,6 +181,35 @@ public class ChatClaimGuardTests
         var than = AssignHandler();
         Assert.Contains("MemberIds.Contains", than);
         Assert.Contains("StatusCodes.Status400BadRequest", than);
+
+        // Mã người nhận phải là người THẬT. 0 là giá trị mặc định của int nên thân {} hay
+        // {"userId":null} đều rơi về 0 mà không lỗi gì — rồi gán hội thoại cho "người số 0".
+        Assert.Contains("if (ma <= 0)", than);
+    }
+
+    [Fact]
+    public void Doi_truc_chi_rang_buoc_nguoi_KHONG_phai_quan_tri()
+    {
+        // Chốt 08/09/2026, sau khi đo trên staging: ở CHẾ ĐỘ THỦ CÔNG — chế độ MẶC ĐỊNH — đội
+        // trực thường để trống (nó vốn sinh ra cho xoay vòng), nên áp luật đội trực cho cả admin
+        // làm admin KHÔNG giao được việc cho ai: bấm giao, nhận 400 "chưa cấu hình đội trực".
+        // Mà đặc tả mục 7.1 nói đúng chiều ngược lại — đường giao việc ở chế độ thủ công CHÍNH LÀ
+        // "admin giao xuống"; và mục 9 phát biểu luật này riêng cho người KHÔNG phải admin.
+        //
+        // Chốt bám vào CẤU TRÚC (hai lần kiểm nằm TRONG nhánh không-phải-quản-trị), không bám
+        // vào lời văn câu lỗi: đổi câu chữ mà bỏ cửa là lỗ hổng, đổi câu chữ mà giữ cửa thì
+        // không phải lỗi — chốt cũ ở nhánh này từng bám lời văn và bị vô hiệu đúng kiểu đó.
+        var than = AssignHandler();
+        var i = than.IndexOf("if (!SessionAuth.LaQuanTriChat(a))", StringComparison.Ordinal);
+        Assert.True(i > 0, "Không thấy cửa quản trị ở đường chuyển việc — đội trực đang ràng buộc cả admin?");
+        var trongNhanh = than[i..];
+        Assert.Contains("MemberIds.Length == 0", trongNhanh);
+        Assert.Contains("MemberIds.Contains", trongNhanh);
+
+        // Và KHÔNG được có bản kiểm đội trực nào NGOÀI nhánh đó — dời một trong hai lên trên
+        // cửa là luật quay lại ràng buộc admin, trong khi hai khẳng định trên vẫn xanh.
+        var truocNhanh = than[..i];
+        Assert.DoesNotContain("MemberIds", truocNhanh);
     }
 
     [Fact]
@@ -205,6 +254,62 @@ public class ChatClaimGuardTests
     }
 
     [Fact]
+    public void Nhan_viec_KHONG_duoc_co_tham_so_than()
+    {
+        // ⚠️ ĐÂY LÀ LỖI ĐÃ XẢY RA THẬT, và 1219 test đã bỏ lọt nó (08/09/2026, đo bằng trình
+        // duyệt trên staging). Nút "Nhận chăm sóc" bấm không có gì xảy ra suốt cả nhánh.
+        //
+        // Gốc: tham số thân của minimal API — KỂ CẢ khai có dấu hỏi — vẫn gắn
+        // AcceptsMetadata("application/json") vào route, và AcceptsMatcherPolicy LOẠI route khỏi
+        // danh sách ứng viên khi request không mang Content-Type. Request rơi xuống MapFallback
+        // (trang SPA) → 404 kèm HTML. Đo được: thiếu header → 404; có header + thân rỗng → 200.
+        //
+        // Task 8 sửa đúng phía client (gửi thân RỖNG HẲN) và chốt canh khoá đúng phía client —
+        // không ai kiểm phía MÁY CHỦ có nhận nổi request đó không. Đó là giới hạn thật của chốt
+        // canh văn bản nguồn, không phải sơ suất của một người.
+        //
+        // Luật khoá lại được bằng văn bản nguồn là luật CẤU TRÚC: route mà giao diện gọi KHÔNG
+        // kèm Content-Type thì KHÔNG được có tham số thân. Không luật nào bắt được "client nhớ
+        // đặt header" — nên đừng đặt cược vào đó.
+        var src = Endpoint();
+        var i = src.IndexOf("MapPost(\"/conversations/{id:long}/assign/me\"", StringComparison.Ordinal);
+        Assert.True(i > 0, "Không thấy route POST /assign/me — nhận việc phải có đường RIÊNG");
+        var j = src.IndexOf(") =>", i, StringComparison.Ordinal);
+        Assert.True(j > i, "Không cắt được chữ ký handler /assign/me");
+        var chuKy = src[i..j];
+        Assert.DoesNotMatch(@"[A-Za-z]+Req\??\s+\w+", chuKy);
+    }
+
+    [Fact]
+    public void Khong_route_chat_nao_khai_than_TUY_CHON()
+    {
+        // "Thân tuỳ chọn" là ảo tưởng: dấu hỏi chỉ nới lỏng lúc GÁN GIÁ TRỊ, không nới lỏng lúc
+        // CHỌN ROUTE. Route vẫn đòi Content-Type, nên client bỏ thân thật thì không tới được
+        // handler mà rơi xuống trang SPA — hỏng câm, đúng như nút "Nhận chăm sóc" đã hỏng.
+        //
+        // Thân bắt buộc thì thiếu/sai header ra 400/415 — nói ra chứ không câm. Muốn "có thể
+        // không có gì để gửi" thì tách route riêng không tham số thân (nhận việc, nhả việc),
+        // hoặc gửi {} với đủ header (gỡ nối CRM).
+        //
+        // Soi CẢ FILE sau khi BỎ CHÚ THÍCH: cửa sổ hẹp bị vô hiệu bằng cách dời mã ra ngoài (đã
+        // đo hai lần trên nhánh này), còn không bỏ chú thích thì chính đoạn giải thích lỗi này
+        // làm chốt đỏ — và người ta sẽ gỡ chú thích chứ không gỡ lỗi.
+        Assert.DoesNotMatch(@"[A-Za-z]+Req\?\s+\w+", BoChuThich(Endpoint()));
+    }
+
+    [Fact]
+    public void Giao_dien_nhan_viec_goi_dung_duong_rieng()
+    {
+        // Nửa còn lại của cùng một luật: máy chủ có route không thân mà giao diện vẫn gọi
+        // /assign trần thì lỗi 404 câm quay lại nguyên vẹn.
+        var jsx = ChatSchemaGuardTests.DocFile("wwwroot/pages/chat-inbox.jsx");
+        Assert.Contains("/assign/me'", jsx);
+        var m = Regex.Match(jsx, @"async function nhanViec\(\)(.{0,700})", RegexOptions.Singleline);
+        Assert.True(m.Success, "Không thấy hàm nhanViec");
+        Assert.Contains("/assign/me'", m.Groups[1].Value);
+    }
+
+    [Fact]
     public void Nha_viec_di_duong_DELETE_rieng()
     {
         // Ba thao tác, ba đường: KHÔNG thân → nhận việc; {"userId":N} → chuyển việc; DELETE →
@@ -245,7 +350,7 @@ public class ChatClaimGuardTests
         // là gì) — không phải chỉ dòng "GIỮ NGUYÊN, đừng thay". Chỉ dẫn quy trình không ngăn
         // được ai sửa sai; câu vì sao mới ngăn. Cả hai nhánh (nhận việc / chuyển-nhả việc) đều
         // đọc lại qua NguoiXem.HeThong nên chỉ cần một chú thích dùng chung không bị mất.
-        var than = AssignHandler();
+        var than = ClaimHandler();
         Assert.Contains("có thể không còn thấy hội thoại này bằng phạm vi cũ", than);
         Assert.Contains("đọc lại HỤT", than);
     }

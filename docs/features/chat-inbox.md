@@ -627,11 +627,30 @@ kèm MÃ người đang giữ (giao diện tự tra tên), không phải 200 im 
 ở máy chủ**, không lấy từ thân yêu cầu — để client tự khai mã là ai cũng gán việc cho người khác
 được.
 
-⚠️ **Ba đường rõ ràng, không phải một route JSON body ôm cả ba ý.** `POST /assign` không thân =
-nhận việc cho mình; `POST /assign {"userId": N}` = chuyển việc cho người đó; `DELETE /assign` =
-nhả việc (trả về hàng chờ chung), cùng lối `POST`/`DELETE` mà `/follow` đã dùng. Nhả việc và
-chuyển việc CỐ Ý không đi đường nguyên tử — cả hai đều là thao tác đè lên người đang giữ. Chỉ
-"nhận việc cho chính mình" mới phải tranh nhau.
+⚠️ **Ba đường rõ ràng, không phải một route JSON body ôm cả ba ý.** `POST /assign/me` = nhận
+việc cho mình; `POST /assign {"userId": N}` = chuyển việc cho người đó; `DELETE /assign` = nhả
+việc (trả về hàng chờ chung), cùng lối `POST`/`DELETE` mà `/follow` đã dùng. Nhả việc và chuyển
+việc CỐ Ý không đi đường nguyên tử — cả hai đều là thao tác đè lên người đang giữ. Chỉ "nhận việc
+cho chính mình" mới phải tranh nhau.
+
+⚠️ **Nhận việc phải là ROUTE RIÊNG, không phải `POST /assign` với thân rỗng.** Bản đầu làm cách
+sau và nút "Nhận chăm sóc" **chết hoàn toàn** — bấm không có gì xảy ra, không lỗi nào hiện ra.
+Gốc: tham số thân của minimal API, *kể cả khai có dấu hỏi*, vẫn gắn `AcceptsMetadata` vào route;
+request không mang `Content-Type` bị loại ngay ở tầng định tuyến, rơi xuống trang SPA và trả 404
+kèm HTML. Không chốt canh đọc văn bản nguồn nào thấy được — đó là hành vi của khung, không phải
+của mã ta viết. **Luật rút ra: route mà giao diện gọi không kèm `Content-Type` thì không được có
+tham số thân.** Có chốt canh khoá cả hai vế (máy chủ + giao diện).
+
+⚠️ **Đội trực chỉ ràng buộc người KHÔNG phải quản trị.** Đội trực sinh ra cho *chia lần lượt*, nên
+ở chế độ thủ công — chế độ mặc định — nó thường để trống. Áp luật cho cả quản trị thì họ không
+giao được việc cho ai: bấm giao, nhận lỗi "chưa cấu hình đội trực", trong khi thứ họ muốn chẳng
+liên quan gì tới vòng quay. Đúng theo đặc tả mục 9 ("không admin không gán được việc cho người
+ngoài đội trực") và mục 7.1 (đường giao việc ở chế độ thủ công chính là "admin giao xuống").
+
+⚠️ **Cấu hình phân công đọc bằng lớp có thuộc tính ghi được, KHÔNG bằng record vị trí.** Dapper so
+kiểu tham số hàm dựng với kiểu cột do trình đọc khai; Npgsql khai `integer[]` là `System.Array`
+nên `int[]` không khớp và nó ném. Hỏng chỉ lộ ra sau khi công ty bấm Lưu LẦN ĐẦU — mà cửa quyền
+xem gọi hàm này ở mọi request chat, nên cả hộp thư 500. **Bấm Lưu một lần là mất hộp thư.**
 
 ### Quyết định bằng mã, hiển thị bằng tên
 

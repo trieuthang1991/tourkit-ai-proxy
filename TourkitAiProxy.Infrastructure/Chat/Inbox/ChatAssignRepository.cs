@@ -1,4 +1,4 @@
-using Dapper;
+﻿using Dapper;
 using TourkitAiProxy.Domain.Chat;
 
 namespace TourkitAiProxy.Infrastructure.Chat.Inbox;
@@ -15,16 +15,48 @@ public class ChatAssignRepository
     public ChatAssignRepository(ChatDb db) => _db = db;
     public bool Configured => _db.Configured;
 
+    /// <summary>
+    /// Dòng thô của <c>chat_assign_settings</c> — thuộc tính GHI ĐƯỢC, không phải record vị trí.
+    ///
+    /// <para>⚠️ <b>Đừng "dọn" thành record cho gọn.</b> Dapper dựng record vị trí bằng cách so
+    /// KIỂU của từng tham số hàm dựng với kiểu cột do trình đọc khai báo. Npgsql khai cột
+    /// <c>integer[]</c> là <c>System.Array</c> (nó cho phép mảng nhiều chiều), mà tham số của ta
+    /// là <c>int[]</c> — hai kiểu KHÁC nhau, không hàm dựng nào khớp, Dapper ném
+    /// InvalidOperationException. Đường thuộc tính thì không so như vậy: nó ép kiểu giá trị THẬT
+    /// đang nằm trong hộp, và giá trị thật đúng là <c>int[]</c>.</para>
+    ///
+    /// <para><b>Lỗi này đã xảy ra thật</b> (08/09/2026, đo trên staging). Nó không hiện ra cho tới
+    /// khi công ty bấm Lưu ở màn hình Cấu hình phân công lần ĐẦU: chưa có dòng thì truy vấn trả
+    /// null và mọi thứ chạy êm. Có dòng rồi thì <c>LayCauHinhAsync</c> ném — và vì
+    /// <c>SessionAuth.ReadNguoiXemAsync</c> gọi nó ở MỌI request chat, cả hộp thư chat của công ty
+    /// đó tắt ngóm với lỗi 500. Bấm Lưu một lần là mất hộp thư.</para>
+    /// </summary>
+    private sealed class DongCauHinh
+    {
+        public string TenantId { get; set; } = "";
+        public short  Mode { get; set; }
+        public bool   ScopeOwnOnly { get; set; }
+        public bool   AutoAssignOnReply { get; set; }
+        public int[]? MemberIds { get; set; }
+        public int?   RotationLastUserId { get; set; }
+    }
+
     /// Trả null khi công ty chưa cấu hình — chỗ gọi phải hiểu null là "giữ nguyên hành vi cũ",
     /// KHÔNG phải "chế độ thủ công". Hai thứ khác nhau ở luật xem.
     public async Task<ChatAssignSettings?> LayCauHinhAsync(string tenant, CancellationToken ct = default)
     {
         await using var c = await _db.OpenAsync(ct);
-        return await c.QuerySingleOrDefaultAsync<ChatAssignSettings>("""
+        var d = await c.QuerySingleOrDefaultAsync<DongCauHinh>("""
             SELECT tenant_id, mode, scope_own_only, auto_assign_on_reply,
                    member_ids, rotation_last_user_id
               FROM chat_assign_settings WHERE tenant_id = @tenant
             """, new { tenant });
+        if (d is null) return null;
+        // MemberIds null (cột NULL do dữ liệu cũ) phải thành mảng RỖNG, không được để null lọt
+        // ra ngoài: chỗ gọi đọc .Length và .Contains ngay, null ở đó là NullReferenceException
+        // giữa đường phân công — hỏng đúng chỗ vừa sửa xong.
+        return new ChatAssignSettings(d.TenantId, d.Mode, d.ScopeOwnOnly, d.AutoAssignOnReply,
+                                      d.MemberIds ?? Array.Empty<int>(), d.RotationLastUserId);
     }
 
     /// Ghi ĐÈ cả cấu hình lẫn đội trực trong MỘT lệnh. Tách hai lượt ghi thì có khoảnh khắc
