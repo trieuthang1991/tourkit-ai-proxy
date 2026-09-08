@@ -647,6 +647,11 @@ giao được việc cho ai: bấm giao, nhận lỗi "chưa cấu hình đội 
 liên quan gì tới vòng quay. Đúng theo đặc tả mục 9 ("không admin không gán được việc cho người
 ngoài đội trực") và mục 7.1 (đường giao việc ở chế độ thủ công chính là "admin giao xuống").
 
+📎 **Hai luật trên có bộ kiểm CHẠY THẬT**, không phải chốt canh đọc mã: `e2e/tests/07-chat-phan-cong-api.spec.js`
+(12 bài — ngữ nghĩa request, vai trò & luật xem, vòng đời cấu hình) và
+`e2e/tests/07b-chat-phan-cong-giao-dien.spec.js` (3 bài — bấm nút thật trên trình duyệt). Cách chạy
+và các cửa an toàn ở `e2e/README.md`. Sửa đường phân công thì chạy hai bộ này, đừng chỉ chạy `dotnet test`.
+
 ⚠️ **Cấu hình phân công đọc bằng lớp có thuộc tính ghi được, KHÔNG bằng record vị trí.** Dapper so
 kiểu tham số hàm dựng với kiểu cột do trình đọc khai; Npgsql khai `integer[]` là `System.Array`
 nên `int[]` không khớp và nó ném. Hỏng chỉ lộ ra sau khi công ty bấm Lưu LẦN ĐẦU — mà cửa quyền

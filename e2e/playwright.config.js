@@ -5,9 +5,13 @@
 import { defineConfig, devices } from '@playwright/test';
 
 const TARGET = process.env.E2E_TARGET === 'local' ? 'local' : 'deployed';
-const BASE_URL = TARGET === 'local'
-  ? 'http://localhost:5080'
-  : 'https://mobile-api2.tourkit.vn';
+// E2E_BASE_URL đè lên cả hai — dùng khi chạy một bản dựng riêng ở cổng khác (5080 thường là bản
+// của người đang ngồi máy, chiếm mất là họ đang thử dở dang thì đứt).
+const BASE_URL = process.env.E2E_BASE_URL
+  || (TARGET === 'local' ? 'http://localhost:5080' : 'https://mobile-api2.tourkit.vn');
+
+// ⚠️ MẶC ĐỊNH LÀ BẢN CHẠY THẬT. Bài nào chỉ ĐỌC thì không sao; bài GHI phải tự chặn mình — xem
+// e2e/helpers/chat-phan-cong.js. Đừng thêm bài ghi mà không đi qua cửa đó.
 
 export default defineConfig({
   testDir: './tests',
@@ -32,13 +36,24 @@ export default defineConfig({
     { name: 'chromium', use: { ...devices['Desktop Chrome'] } },
   ],
 
-  // Auto-start dotnet CHỈ khi chạy local. Default (deployed) → skip.
-  ...(TARGET === 'local' ? {
+  // Auto-start dotnet CHỈ khi chạy local VÀ không tự khai máy chủ. Default (deployed) → skip.
+  ...(TARGET === 'local' && !process.env.E2E_BASE_URL ? {
     webServer: {
-      command: 'dotnet run --project ../TourkitAiProxy.csproj --no-build',
+      command: 'dotnet run --project ../TourkitAiProxy.csproj --no-build --no-launch-profile',
       url: 'http://localhost:5080/healthz',
       reuseExistingServer: true,
       timeout: 60_000,
+      // ⚠️ TẮT WORKER LÀ BẮT BUỘC, không phải cho nhẹ máy. ChatOutboxWorker GỬI TIN CHO KHÁCH và
+      // mặc định BẬT: dựng app để chạy test mà quên tắt là hàng đợi tin thật được gửi đi từ máy
+      // của người đang chạy test. Đã suýt xảy ra ngày 08/09/2026.
+      //
+      // --no-launch-profile cũng bắt buộc: launchSettings.json ĐÈ lên --urls ở môi trường
+      // Development, nên thiếu nó là app chiếm cổng khác cổng mình tưởng.
+      env: {
+        Workflows__RunChatWorkers: 'false',
+        Workflows__RunChatMediaWorker: 'false',
+        Workflows__RunScheduler: 'false',
+      },
     },
   } : {}),
 });
