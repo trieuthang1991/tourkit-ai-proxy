@@ -97,6 +97,42 @@ public class ChatScopeGuardTests
     }
 
     [Fact]
+    public void Duong_tai_tep_cung_phai_qua_luat_xem_chu_khong_chi_kep_theo_cong_ty()
+    {
+        // ⚠️ LỖ THẬT, hoãn từ review việc 3 rồi vá 08/09/2026. Đường tải tệp đính kèm chỉ kiểm
+        // "tin có thuộc công ty này không". Kịch bản: nhân viên từng phụ trách một hội thoại, sau
+        // đó bị chuyển giao. Cửa đã đóng ở màn chi tiết, nhưng còn giữ mã tin thì vẫn tải lại được
+        // ảnh và tệp khách đã gửi. Đóng cửa trước mà để ngỏ cửa sau thì luật xem chỉ là hình thức.
+        //
+        // Chốt neo vào BA điểm, vì bỏ bất kỳ điểm nào là lỗ mở lại mà hai điểm kia vẫn xanh:
+        //   (a) hàm kho NHẬN NguoiXem, và nhận BẮT BUỘC — để nó có giá trị mặc định thì chỗ gọi
+        //       quên truyền vẫn biên dịch được, tức lỗ quay lại trong im lặng;
+        //   (b) câu SQL mang ĐÚNG mệnh đề của GetConversationAsync — hai cách viết cho cùng một
+        //       luật thì sớm muộn lệch, mà lệch ở đây là lệch quyền;
+        //   (c) endpoint đọc NguoiXem và TRUYỀN nó xuống, không dừng ở SessionAuth.Read.
+        var repo = Repo();
+        var m = Regex.Match(repo, @"GetConversationByMessageAsync\(string tenant, long messageId,\s*([^)]*)\)");
+        Assert.True(m.Success, "Không thấy GetConversationByMessageAsync");
+        Assert.Contains("NguoiXem xem", m.Groups[1].Value);
+        Assert.DoesNotContain("NguoiXem? xem", m.Groups[1].Value);
+        Assert.DoesNotContain("NguoiXem xem = ", m.Groups[1].Value);
+
+        var than = Regex.Match(repo, @"GetConversationByMessageAsync(.{0,900})", RegexOptions.Singleline);
+        Assert.Contains("@xemTatCa OR v.assigned_user_id = @maNguoi", than.Groups[1].Value);
+
+        // Cắt đúng thân handler tải tệp — ranh giới cú pháp, không đếm ký tự.
+        var src = Endpoint();
+        var i = src.IndexOf("MapGet(\"/messages/{msgId:long}/file\"", System.StringComparison.Ordinal);
+        var j = src.IndexOf("MapGet(\"/avatars/{accountId}/{fid}\"", System.StringComparison.Ordinal);
+        Assert.True(i >= 0 && j > i, "Không thấy handler tải tệp trong ChatInboxEndpoints.cs");
+        var thanTep = src[i..j];
+        Assert.Contains("SessionAuth.ReadNguoiXemAsync(ctx, sessions, assign, ct)", thanTep);
+        Assert.Contains("GetConversationByMessageAsync(a.TenantId, msgId, xem, ct)", thanTep);
+        // Đọc phiên trần ở đây là dấu hiệu ai đó lùi lại bản cũ.
+        Assert.DoesNotContain("SessionAuth.Read(ctx, sessions)", thanTep);
+    }
+
+    [Fact]
     public void Khong_duoc_xem_thi_tra_404_chu_khong_403()
     {
         // 403 nghĩa là "có hội thoại này nhưng anh không được xem" — tức xác nhận đúng cái

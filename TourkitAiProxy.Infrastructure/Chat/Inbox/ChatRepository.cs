@@ -295,16 +295,26 @@ public class ChatRepository
     /// Hội thoại chứa một tin. Proxy tệp Telegram cần cả hai thứ trong một lượt hỏi: <b>tin có
     /// thuộc công ty này không</b> (id là số tăng dần, đoán được) và <b>tin tới qua tài khoản nào</b>
     /// — vì <c>file_id</c> của Telegram gắn với TỪNG bot, đổi bằng token bot khác là họ trả lỗi.
+    ///
+    /// <para>⚠️ <b><paramref name="xem"/> là BẮT BUỘC, không phải tuỳ chọn.</b> Bản trước chỉ kẹp
+    /// theo công ty, nên đường tải tệp là cửa hậu của luật xem: nhân viên từng phụ trách một hội
+    /// thoại, sau khi bị chuyển giao vẫn tải lại được ảnh và tệp khách đã gửi — chỉ cần còn giữ mã
+    /// tin. Cửa đã đóng ở màn chi tiết mà lối vòng vẫn mở thì luật xem chỉ là hình thức.</para>
+    ///
+    /// <para>Dùng ĐÚNG mệnh đề của <see cref="GetConversationAsync"/>: hai cách viết khác nhau cho
+    /// cùng một luật thì sớm muộn lệch, mà lệch ở đây là lệch quyền.</para>
     /// </summary>
     public async Task<ChatConversation?> GetConversationByMessageAsync(string tenant, long messageId,
-        CancellationToken ct = default)
+        NguoiXem xem, CancellationToken ct = default)
     {
         await using var c = await _db.OpenAsync(ct);
         return await c.QuerySingleOrDefaultAsync<ChatConversation>("""
             SELECT v.* FROM chat_conversations v
               JOIN chat_messages m ON m.conversation_id = v.id
             WHERE m.id = @messageId AND m.tenant_id = @tenant
-            """, new { messageId, tenant });
+              -- Luật xem. Không được xem thì KHÔNG có dòng nào → chỗ gọi trả 404 sẵn có.
+              AND (@xemTatCa OR v.assigned_user_id = @maNguoi)
+            """, new { messageId, tenant, xemTatCa = xem.XemTatCa, maNguoi = xem.CrmUserId });
     }
 
     /// <summary>
@@ -326,8 +336,15 @@ public class ChatRepository
             """, new { tenant, conversationId, externalMsgId });
     }
 
-    /// <summary>Id tin đoán được (số tăng dần) — proxy tệp Telegram phải tự kiểm chủ trước khi
-    /// đổi file_id thành đường tải thật, không tin vào việc id khó đoán.</summary>
+    /// <summary>Id tin đoán được (số tăng dần) — kiểm tin có thuộc công ty này không.
+    ///
+    /// <para>⚠️ <b>HIỆN KHÔNG CHỖ NÀO GỌI</b> (soát 08/09/2026). Giữ lại theo yêu cầu "đừng xoá
+    /// tránh lỗi", nhưng phải sửa lời: chú thích cũ nói proxy tệp Telegram dùng hàm này — KHÔNG
+    /// đúng, proxy đó đi qua <see cref="GetConversationByMessageAsync"/>. Tin vào câu cũ là tưởng
+    /// có một lớp bảo vệ không tồn tại.</para>
+    ///
+    /// <para>Nếu sau này dùng lại: hàm này CHỈ kẹp theo công ty, KHÔNG kẹp luật xem. Muốn kẹp thì
+    /// nối sang chat_conversations và dùng đúng mệnh đề của GetConversationAsync.</para></summary>
     public async Task<bool> MessageBelongsToTenantAsync(string tenant, long messageId, CancellationToken ct = default)
     {
         await using var c = await _db.OpenAsync(ct);

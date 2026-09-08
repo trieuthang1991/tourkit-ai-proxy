@@ -1129,15 +1129,21 @@ public static class ChatInboxEndpoints
         // Proxy tệp Telegram: bot token KHÔNG được lọt ra trình duyệt, nên trình duyệt gọi vào
         // đây, máy chủ tự đổi file_id → đường tải thật rồi chuyển tiếp byte.
         g.MapGet("/messages/{msgId:long}/file", async (long msgId, string fid, HttpContext ctx,
-            TkSessionStore sessions, ChatRepository repo, ChannelCredentialStore cred,
+            TkSessionStore sessions, ChatRepository repo, ChatAssignRepository assign,
+            ChannelCredentialStore cred,
             IEnumerable<Services.Chat.Channels.IChatChannelAdapter> adapters,
             IHttpClientFactory httpFac, IConfiguration cfg, CancellationToken ct) =>
         {
-            var a = SessionAuth.Read(ctx, sessions);
-            if (a == null) return SessionAuth.Unauthorized();
+            // ⚠️ Đọc NguoiXem, KHÔNG chỉ đọc phiên. Bản trước dùng SessionAuth.Read rồi chỉ kẹp
+            // theo công ty, nên đây là CỬA HẬU của luật xem: nhân viên bị chuyển giao hội thoại
+            // vẫn tải lại được ảnh/tệp khách đã gửi nếu còn giữ mã tin. Đóng cửa trước mà để ngỏ
+            // cửa sau thì luật xem chỉ là hình thức.
+            var p = await SessionAuth.ReadNguoiXemAsync(ctx, sessions, assign, ct);
+            if (p == null) return SessionAuth.Unauthorized();
+            var (a, xem) = p.Value;
             if (!repo.Configured) return NotConfigured();
-            // Tin phải thuộc hội thoại của CHÍNH tenant này — chặn ở đây thay vì tin vào id đoán được.
-            var hoiThoai = await repo.GetConversationByMessageAsync(a.TenantId, msgId, ct);
+            // Tin phải thuộc công ty này VÀ người đang xem phải được xem hội thoại chứa nó.
+            var hoiThoai = await repo.GetConversationByMessageAsync(a.TenantId, msgId, xem, ct);
             if (hoiThoai is null) return Results.NotFound();
 
             // ⚠️ Mỗi kênh giấu tệp một kiểu khác nhau, KHÔNG áp một luật:

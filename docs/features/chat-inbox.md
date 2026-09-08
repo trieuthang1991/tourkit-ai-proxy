@@ -647,6 +647,12 @@ giao được việc cho ai: bấm giao, nhận lỗi "chưa cấu hình đội 
 liên quan gì tới vòng quay. Đúng theo đặc tả mục 9 ("không admin không gán được việc cho người
 ngoài đội trực") và mục 7.1 (đường giao việc ở chế độ thủ công chính là "admin giao xuống").
 
+⚠️ **Đường tải tệp đính kèm cũng đi qua luật xem, không chỉ kẹp theo công ty.** Bản đầu chỉ kiểm
+"tin có thuộc công ty này không" — thành cửa hậu: nhân viên từng phụ trách một hội thoại, sau khi
+bị chuyển giao vẫn tải lại được ảnh và tệp khách đã gửi, chỉ cần còn giữ mã tin. Đóng cửa trước mà
+để ngỏ cửa sau thì luật xem chỉ là hình thức. Hàm tra hội thoại theo mã tin nay đòi `NguoiXem`
+**bắt buộc** — để tham số đó có giá trị mặc định thì chỗ gọi quên truyền vẫn biên dịch được.
+
 📎 **Hai luật trên có bộ kiểm CHẠY THẬT**, không phải chốt canh đọc mã: `e2e/tests/07-chat-phan-cong-api.spec.js`
 (12 bài — ngữ nghĩa request, vai trò & luật xem, vòng đời cấu hình) và
 `e2e/tests/07b-chat-phan-cong-giao-dien.spec.js` (3 bài — bấm nút thật trên trình duyệt). Cách chạy

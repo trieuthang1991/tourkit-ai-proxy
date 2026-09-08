@@ -202,6 +202,37 @@ test.describe('Vai trò và luật xem', () => {
     }
   });
 
+  test('C6 — đường TẢI TỆP cũng phải qua luật xem, không chỉ kẹp theo công ty', async () => {
+    // Lỗ thật, hoãn từ review việc 3 rồi vá 08/09/2026. Đường tải tệp đính kèm chỉ kiểm "tin có
+    // thuộc công ty này không". Nhân viên từng phụ trách một hội thoại, sau khi bị chuyển giao vẫn
+    // tải lại được ảnh/tệp khách đã gửi — chỉ cần còn giữ mã tin. Đóng cửa trước mà để ngỏ cửa sau
+    // thì luật xem chỉ là hình thức.
+    //
+    // Khẳng định neo vào tính CHỐNG DÒ, không neo vào mã trạng thái trần: hội thoại của người khác
+    // phải trả về ĐÚNG NHƯ một mã tin không tồn tại. Trả khác nhau là vẫn đoán ra được có gì ở đó.
+    // (Cơ chế — hàm kho nhận NguoiXem và dùng đúng mệnh đề chung — do chốt canh văn bản nguồn
+    //  Duong_tai_tep_cung_phai_qua_luat_xem... khoá lại; ở đây chỉ đo hành vi thật.)
+    await datCauHinh({ mode: 1, scopeOwnOnly: true, autoAssignOnReply: false,
+                       memberIds: [maQuanTri, maNhanVien] });
+    await api.post(`${GOC}/conversations/${maHoiThoai}/assign`, {
+      headers: nhu(PHIEN_QUAN_TRI, { 'Content-Type': 'application/json' }), data: { userId: maQuanTri },
+    });
+
+    // Lấy một mã tin CÓ THẬT trong hội thoại đó.
+    const ct = await doc(await api.get(`${GOC}/conversations/${maHoiThoai}`, { headers: nhu(PHIEN_QUAN_TRI) }));
+    const tin = (ct.json?.messages || [])[0];
+    expect(tin, 'hội thoại đem ra thử phải có ít nhất một tin').toBeTruthy();
+
+    const cuaNguoiKhac = await doc(await api.get(
+      `${GOC}/messages/${tin.id}/file?fid=e2e-khong-co-that`, { headers: nhu(PHIEN_NHAN_VIEN) }));
+    const khongCo = await doc(await api.get(
+      `${GOC}/messages/999999999/file?fid=e2e-khong-co-that`, { headers: nhu(PHIEN_NHAN_VIEN) }));
+
+    expect(cuaNguoiKhac.ma, 'tệp của hội thoại người khác phải bị từ chối').toBe(404);
+    expect(cuaNguoiKhac.chu, 'phải giống hệt mã tin không tồn tại, không thì vẫn dò ra được')
+      .toBe(khongCo.chu);
+  });
+
   test('C4 — hội thoại CHƯA AI NHẬN không hiện với nhân viên thường', async () => {
     // ĐÂY LÀ QUYẾT ĐỊNH, KHÔNG PHẢI SƠ SUẤT (đặc tả mục 6.3). Ai đó "sửa cho tiện" bằng cách thêm
     // vế OR assigned_user_id IS NULL sẽ mở hàng chờ cho cả công ty — bài này chặn lại.
