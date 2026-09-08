@@ -36,7 +36,6 @@ npm run report             # View last HTML report
 |---|---|
 | `01-smoke.spec.js` | 8 page load + JS error + 5xx check |
 | `02-assistant-suggestions.spec.js` | 4 quick chips + toggle + 23 chip expand + SVG icon non-empty + click chip dispatch |
-| `03-home-logout.spec.js` | Logout button + greeting + search |
 | `04-customers-deals.spec.js` | List load + PageHero + checkbox + auto toggle |
 | `05-api-direct.spec.js` | Providers list + Session check + tool catalog |
 | `07-chat-phan-cong-api.spec.js` | 12 bài: ngữ nghĩa request · vai trò & luật xem · vòng đời cấu hình phân công |
@@ -86,9 +85,14 @@ Thiếu `E2E_SESSION` thì bài **bỏ qua có tên** (Playwright in "skipped", 
 xanh. Có phiên mà bị từ chối 401 thì **đỏ** — người chạy tự tay đưa phiên vào thì họ cần biết nó
 chết, không cần một dấu tích xanh.
 
-> 🔑 **Phiên `5294b8…46e1b` phải coi là ĐÃ LỘ.** Tới 08/09/2026 nó nằm ghim cứng trong bảy file
-> spec, tức nằm trong repo và trong **lịch sử git** — gỡ khỏi file không gỡ được khỏi lịch sử.
-> Huỷ phiên đó ở phía máy chủ.
+> 🔑 **HAI phiên phải coi là ĐÃ LỘ, huỷ cả hai ở phía máy chủ:** `5294b8…46e1b` (ghim trong bảy
+> file spec) và `58050a…bb891` (ghim trong chín file khác, dưới tên biến `STAGING_SESSION`). Cả hai
+> nằm trong repo và trong **lịch sử git** — gỡ khỏi file không gỡ được khỏi lịch sử.
+>
+> Có chốt canh chặn tái diễn: `TourkitAiProxy.Tests/E2eSecretGuardTests.cs` quét `e2e/` tìm chuỗi
+> 32 ký tự hex nằm trong dấu nháy, và quét cả lối "bắt 401 rồi `return`". Nó soi theo **dạng chuỗi**
+> chứ không theo tên biến — vì lượt dọn đầu tiên tìm theo tên `TEST_SESSION` nên bỏ sót nguyên mã
+> phiên thứ hai.
 
 ## Bài đang ĐỎ / FIXME sẵn (đo 08/09/2026, KHÔNG phải hồi quy mới)
 
@@ -97,9 +101,13 @@ giữa bài kiểm và giao diện hiện tại**, không phải do đổi cách
 
 | File | Tình trạng |
 |---|---|
-| `03-home-logout.spec.js` | `fixme` cả file — trang launcher `/home` đã **gỡ khỏi routing** (xem `wwwroot/index.html` dòng 183), và `.hp-logout` nay là `.hp-pill--logout`. Hoặc bật lại `/home` rồi sửa bộ chọn, hoặc xoá file. |
+| ~~`03-home-logout.spec.js`~~ | **Đã xoá 08/09/2026** — nó kiểm trang launcher `/home`, mà trang đó đã gỡ khỏi routing (`wwwroot/index.html` dòng 183). Quyết định của chủ dự án. |
 | `02-assistant-suggestions.spec.js` | 1 bài đỏ: đòi 24 chip, giao diện nay có 25. |
 | `06-wizard-v2-pricing.spec.js` | 6 bài đỏ: bộ chọn và phép tính của wizard đã đổi từ tháng 6. |
 
 Chưa sửa vì đó là việc khác hẳn việc gỡ phiên ghim cứng — và vì để đỏ còn hơn tự tay tắt đi một
 tín hiệu có thể là hồi quy thật của giao diện.
+
+⚠️ **Còn hai file nữa cùng cảnh với `03-home-logout` đã xoá**, chưa đụng vì chúng còn kiểm cả thứ
+khác: `99-home-route.spec.js` (toàn bộ file nói về `/home`) và một bài `/home` trong
+`99-snap-ncc-surfaced.spec.js`. Bật lại `/home` hay xoá nốt — cần chủ dự án chốt.

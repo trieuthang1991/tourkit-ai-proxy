@@ -2,14 +2,13 @@
 // → kiểm panel số liệu (stats, title VN) và bubble assistant.
 import { test, expect } from '@playwright/test';
 
-// Session staging tourkit còn sống (đã verify qua /api/v1/session trước khi chạy test này)
-const STAGING_SESSION = '58050a0fe0ab41d884025719103bb891';
+import { PHIEN, THIEU_PHIEN } from '../helpers/phien.js';
 
 async function setSession(page) {
   await page.addInitScript((sid) => {
     localStorage.setItem('tourkit_tk_session', sid);
     localStorage.setItem('tourkit_skip_login_gate', '1');
-  }, STAGING_SESSION);
+  }, PHIEN);
 }
 
 test.describe('Assistant — chat bot end-to-end', () => {
@@ -19,6 +18,8 @@ test.describe('Assistant — chat bot end-to-end', () => {
   });
 
   test('"Doanh thu tháng này" → bot hiểu, panel có thẻ Doanh thu (đ), title TV, có bubble assistant', async ({ page }) => {
+
+    test.skip(!PHIEN, THIEU_PHIEN);
     test.setTimeout(90_000);  // AI cold ~25s, warm cache <1s
 
     await page.locator('.asst-input').fill('Doanh thu tháng này');
@@ -51,6 +52,8 @@ test.describe('Assistant — chat bot end-to-end', () => {
   });
 
   test('list/tours: gửi "Danh sách tour" → bảng dữ liệu hiện, cột curate (không có Khách/SĐT/Seller)', async ({ page }) => {
+
+    test.skip(!PHIEN, THIEU_PHIEN);
     test.setTimeout(90_000);
 
     await page.locator('.asst-input').fill('Danh sách tour sắp khởi hành');

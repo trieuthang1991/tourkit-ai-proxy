@@ -2,11 +2,13 @@
 // markets fetch từ /api/v1/markets thật, summary chỉ revenue.
 import { test, expect } from '@playwright/test';
 
-const STAGING_SESSION = '58050a0fe0ab41d884025719103bb891';
+import { PHIEN, THIEU_PHIEN } from '../helpers/phien.js';
 
 test('tour-builder UI sạch: 3 block, không còn "Dịch vụ điều hành (chi)"', async ({ page }) => {
+
+  test.skip(!PHIEN, THIEU_PHIEN);
   await page.setViewportSize({ width: 1440, height: 900 });
-  await page.addInitScript((sid) => { localStorage.setItem('tourkit_tk_session', sid); }, STAGING_SESSION);
+  await page.addInitScript((sid) => { localStorage.setItem('tourkit_tk_session', sid); }, PHIEN);
 
   await page.goto('/tour-builder', { waitUntil: 'domcontentloaded' });
   await page.waitForTimeout(1500);
@@ -28,8 +30,10 @@ test('tour-builder UI sạch: 3 block, không còn "Dịch vụ điều hành (c
 });
 
 test('markets dropdown: fetch từ /api/v1/markets (real tenant data)', async ({ page }) => {
+
+  test.skip(!PHIEN, THIEU_PHIEN);
   await page.setViewportSize({ width: 1440, height: 900 });
-  await page.addInitScript((sid) => { localStorage.setItem('tourkit_tk_session', sid); }, STAGING_SESSION);
+  await page.addInitScript((sid) => { localStorage.setItem('tourkit_tk_session', sid); }, PHIEN);
 
   await page.goto('/tour-builder', { waitUntil: 'domcontentloaded' });
   await page.waitForTimeout(1800);   // chờ fetch /api/v1/markets

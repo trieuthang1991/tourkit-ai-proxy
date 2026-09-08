@@ -1,13 +1,15 @@
 // /home phải là alias cho / (HomePage launcher) — không 404, không redirect landing.
 import { test, expect } from '@playwright/test';
 
-const STAGING_SESSION = '58050a0fe0ab41d884025719103bb891';
+import { PHIEN, THIEU_PHIEN } from '../helpers/phien.js';
 
 test('/home (logged in) → HomePage render (không 404, không landing)', async ({ page }) => {
+
+  test.skip(!PHIEN, THIEU_PHIEN);
   await page.setViewportSize({ width: 1440, height: 900 });
   await page.addInitScript((sid) => {
     localStorage.setItem('tourkit_tk_session', sid);
-  }, STAGING_SESSION);
+  }, PHIEN);
 
   await page.goto('/home', { waitUntil: 'domcontentloaded' });
   await page.waitForTimeout(1500);
@@ -25,10 +27,12 @@ test('/home (logged in) → HomePage render (không 404, không landing)', async
 });
 
 test('Landing → Vào ứng dụng → /home render HomePage', async ({ page }) => {
+
+  test.skip(!PHIEN, THIEU_PHIEN);
   await page.setViewportSize({ width: 1440, height: 900 });
   await page.addInitScript((sid) => {
     localStorage.setItem('tourkit_tk_session', sid);
-  }, STAGING_SESSION);
+  }, PHIEN);
 
   await page.goto('/landing', { waitUntil: 'domcontentloaded' });
   await page.waitForTimeout(1200);

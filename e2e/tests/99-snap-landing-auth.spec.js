@@ -2,9 +2,11 @@
 // Cũng test menu mở khi click avatar.
 import { test, expect } from '@playwright/test';
 
-const STAGING_SESSION = '58050a0fe0ab41d884025719103bb891';
+import { PHIEN, THIEU_PHIEN } from '../helpers/phien.js';
 
 test('topbar — KHÁCH: hiện Đăng nhập + Đăng ký tư vấn', async ({ page }) => {
+
+  test.skip(!PHIEN, THIEU_PHIEN);
   await page.setViewportSize({ width: 1440, height: 900 });
   await page.goto('/landing', { waitUntil: 'domcontentloaded' });
   await page.waitForTimeout(800);
@@ -15,12 +17,14 @@ test('topbar — KHÁCH: hiện Đăng nhập + Đăng ký tư vấn', async ({ 
 });
 
 test('topbar — LOGGED IN: hiện user chip (tên server-side)', async ({ page }) => {
+
+  test.skip(!PHIEN, THIEU_PHIEN);
   await page.setViewportSize({ width: 1440, height: 900 });
   // Chỉ set session — app.jsx sẽ refresh() để lấy user thật từ /api/v1/session.
   // (Pre-set fake user sẽ bị server-refresh ghi đè — đó là behavior đúng.)
   await page.addInitScript((sid) => {
     localStorage.setItem('tourkit_tk_session', sid);
-  }, STAGING_SESSION);
+  }, PHIEN);
 
   await page.goto('/landing', { waitUntil: 'domcontentloaded' });
   await page.waitForTimeout(1500);   // chờ /api/v1/session resolve
@@ -46,10 +50,12 @@ test('topbar — LOGGED IN: hiện user chip (tên server-side)', async ({ page 
 });
 
 test('feature click khi đã login → navigate, KHÔNG popup', async ({ page }) => {
+
+  test.skip(!PHIEN, THIEU_PHIEN);
   await page.setViewportSize({ width: 1440, height: 900 });
   await page.addInitScript((sid) => {
     localStorage.setItem('tourkit_tk_session', sid);
-  }, STAGING_SESSION);
+  }, PHIEN);
 
   await page.goto('/landing', { waitUntil: 'domcontentloaded' });
   await page.waitForTimeout(500);

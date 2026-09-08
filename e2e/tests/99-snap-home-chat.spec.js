@@ -1,14 +1,16 @@
 // Snapshot home chat (HomeChatCard) — kiểm format reply có xuống dòng giữa các đoạn.
 import { test, expect } from '@playwright/test';
 
-const STAGING_SESSION = '58050a0fe0ab41d884025719103bb891';
+import { PHIEN, THIEU_PHIEN } from '../helpers/phien.js';
 
 test('home chat: gửi câu hỏi → bubble có \\n giữa đoạn (pre-wrap render đúng)', async ({ page }) => {
+
+  test.skip(!PHIEN, THIEU_PHIEN);
   test.setTimeout(90_000);
   await page.addInitScript((sid) => {
     localStorage.setItem('tourkit_tk_session', sid);
     localStorage.setItem('tourkit_skip_login_gate', '1');
-  }, STAGING_SESSION);
+  }, PHIEN);
 
   await page.setViewportSize({ width: 1440, height: 900 });
   await page.goto('/#/', { waitUntil: 'networkidle' });

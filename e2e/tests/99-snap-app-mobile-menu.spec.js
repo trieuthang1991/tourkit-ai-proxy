@@ -2,13 +2,15 @@
 // click "Thêm" → drawer full menu.
 import { test, expect } from '@playwright/test';
 
-const STAGING_SESSION = '58050a0fe0ab41d884025719103bb891';
+import { PHIEN, THIEU_PHIEN } from '../helpers/phien.js';
 
 async function login(page) {
-  await page.addInitScript((sid) => { localStorage.setItem('tourkit_tk_session', sid); }, STAGING_SESSION);
+  await page.addInitScript((sid) => { localStorage.setItem('tourkit_tk_session', sid); }, PHIEN);
 }
 
 test('Mobile (380px): sidebar ẨN, dock dưới có 5 + Thêm', async ({ page }) => {
+
+  test.skip(!PHIEN, THIEU_PHIEN);
   await page.setViewportSize({ width: 380, height: 800 });
   await login(page);
   await page.goto('/customers', { waitUntil: 'domcontentloaded' });
@@ -47,6 +49,8 @@ test('Mobile (380px): sidebar ẨN, dock dưới có 5 + Thêm', async ({ page }
 });
 
 test('Desktop (1440px): sidebar hiện, dock ẨN', async ({ page }) => {
+
+  test.skip(!PHIEN, THIEU_PHIEN);
   await page.setViewportSize({ width: 1440, height: 900 });
   await login(page);
   await page.goto('/customers', { waitUntil: 'domcontentloaded' });
@@ -58,6 +62,8 @@ test('Desktop (1440px): sidebar hiện, dock ẨN', async ({ page }) => {
 });
 
 test('Active state: ở /wizard → mục Wizard nền cam', async ({ page }) => {
+
+  test.skip(!PHIEN, THIEU_PHIEN);
   await page.setViewportSize({ width: 380, height: 800 });
   await login(page);
   await page.goto('/wizard', { waitUntil: 'domcontentloaded' });
