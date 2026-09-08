@@ -1,3 +1,4 @@
+﻿using System.Linq;
 using System.Text.RegularExpressions;
 using Xunit;
 
@@ -79,12 +80,33 @@ public class InboxActionRouteTests
     {
         // Nút nằm ở khung chi tiết. Chỉ chọn cờ ở danh sách thì mở hội thoại lên lại hiện nút sai,
         // và vừa theo dõi xong tải lại chi tiết cũng mất trạng thái mới.
-        var repo = ChatSchemaGuardTests.DocFile("TourkitAiProxy.Infrastructure/Chat/Inbox/ChatRepository.cs");
+        // ⚠️ Cắt theo RANH GIỚI CÚ PHÁP, không đếm ký tự. Cửa sổ 1.000 ký tự cũ ĐÃ ĐƯỢC ĐO là
+        // mong manh: thêm 8 dòng chú thích vô hại vào GetConversationAsync là bài này đỏ oan
+        // (đo trực tiếp 08/09/2026, trong lúc thử chiều ngược lại cho một chốt khác). Bản đo tự
+        // động của tôi KHÔNG xếp hạng được chỗ này vì nó đọc file bằng DocFile trực tiếp chứ
+        // không qua hàm gói — tức là "41 chốt cửa sổ cố định" trong sổ nợ vẫn còn đếm thiếu.
         var endpoint = ChatSchemaGuardTests.DocFile("TourkitAiProxy.Endpoints/ChatInboxEndpoints.cs");
-        var get = Regex.Match(repo, "GetConversationAsync(.{0,1000})", RegexOptions.Singleline);
-        Assert.True(get.Success, "Không thấy GetConversationAsync trong ChatRepository");
-        Assert.Contains("AS followed", get.Groups[1].Value);
+        var than = ThanHamKho("GetConversationAsync");
+        Assert.False(string.IsNullOrWhiteSpace(than), "Không cắt được thân GetConversationAsync");
+        Assert.Contains("AS followed", than);
         Assert.Contains("nguoiDung: await sessions.EnsureCrmUserIdAsync", endpoint);
+    }
+
+    /// <summary>
+    /// Thân một hàm trong <c>ChatRepository</c>, cắt tới THÀNH VIÊN KẾ TIẾP (kể cả chú thích tài
+    /// liệu của nó). Cùng lối <c>ChatScopeGuardTests.ThanHamKho</c> — hai file cùng đọc một kho
+    /// nhưng không dùng chung lớp, nên mỗi bên giữ một bản; đổi cách cắt thì đổi cả hai.
+    /// </summary>
+    private static string ThanHamKho(string ten)
+    {
+        var src = ChatSchemaGuardTests.DocFile("TourkitAiProxy.Infrastructure/Chat/Inbox/ChatRepository.cs");
+        var i = src.IndexOf(" " + ten + "(", StringComparison.Ordinal);
+        if (i < 0) return "";
+        var j = new[] { src.IndexOf("\n    public", i + 20, StringComparison.Ordinal),
+                        src.IndexOf("\n    /// <summary>", i + 20, StringComparison.Ordinal),
+                        src.IndexOf("\n    private", i + 20, StringComparison.Ordinal) }
+                .Where(x => x > 0).DefaultIfEmpty(-1).Min();
+        return j < 0 ? src[i..] : src[i..j];
     }
 
     [Fact]

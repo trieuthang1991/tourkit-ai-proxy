@@ -11,7 +11,30 @@ namespace TourkitAiProxy.Infrastructure.Chat.Inbox;
 /// </summary>
 public class ChatAssignRepository
 {
+    /// <summary>
+    /// Nhớ tạm dòng cấu hình trong bộ nhớ. 60 giây — cùng con số với
+    /// <see cref="ChatBotSettingsRepository"/>, để hai cấu hình của cùng cụm chat không có hai
+    /// cảm giác "bao lâu thì thấy hiệu lực" khác nhau.
+    ///
+    /// <para><b>Vì sao cần.</b> Từ khi có luật xem, MỌI request tới hộp thư chat đọc thêm một dòng
+    /// cấu hình (<see cref="Endpoints"/> gọi qua <c>SessionAuth.ReadNguoiXemAsync</c>) — trước là
+    /// 0 lượt, nay là 27 endpoint. Dòng này gần như không bao giờ đổi.</para>
+    ///
+    /// <para>⚠️ <b>Kho này là singleton</b> (xem <c>WorkflowStackRegistration</c>) nên bộ nhớ tạm
+    /// đặt ở cấp instance mới có tác dụng. Đổi sang scoped là bộ nhớ tạm chết theo từng request và
+    /// im lặng thành vô dụng — không lỗi nào hiện ra, chỉ là chậm lại như cũ.</para>
+    /// </summary>
+    private static readonly TimeSpan NhoTam = TimeSpan.FromSeconds(60);
+
     private readonly ChatDb _db;
+    /// <summary>
+    /// <b>Giá trị null CŨNG được nhớ.</b> "Chưa cấu hình" là trạng thái THƯỜNG GẶP NHẤT (công ty
+    /// nào chưa bật phân công đều thế), nên không nhớ null thì đúng nhóm đông nhất vẫn đánh một
+    /// lượt truy vấn ở mỗi request — tức là làm bộ nhớ tạm cho phần thiểu số.
+    /// </summary>
+    private readonly Dictionary<string, (ChatAssignSettings? Val, DateTime HetHan)> _cache = new();
+    private readonly object _khoa = new();
+
     public ChatAssignRepository(ChatDb db) => _db = db;
     public bool Configured => _db.Configured;
 
@@ -43,7 +66,21 @@ public class ChatAssignRepository
 
     /// Trả null khi công ty chưa cấu hình — chỗ gọi phải hiểu null là "giữ nguyên hành vi cũ",
     /// KHÔNG phải "chế độ thủ công". Hai thứ khác nhau ở luật xem.
+    ///
+    /// <para>Đi qua bộ nhớ tạm (xem <see cref="NhoTam"/>). Lượt ghi ở
+    /// <see cref="LuuCauHinhAsync"/> dọn ngay, nên người vừa bấm Lưu thấy hiệu lực tức thì.</para>
     public async Task<ChatAssignSettings?> LayCauHinhAsync(string tenant, CancellationToken ct = default)
+    {
+        lock (_khoa)
+            if (_cache.TryGetValue(tenant, out var da) && da.HetHan > DateTime.UtcNow)
+                return da.Val;
+
+        var v = await DocCauHinhAsync(tenant, ct);
+        lock (_khoa) _cache[tenant] = (v, DateTime.UtcNow + NhoTam);
+        return v;
+    }
+
+    private async Task<ChatAssignSettings?> DocCauHinhAsync(string tenant, CancellationToken ct)
     {
         await using var c = await _db.OpenAsync(ct);
         var d = await c.QuerySingleOrDefaultAsync<DongCauHinh>("""
@@ -77,6 +114,14 @@ public class ChatAssignRepository
                    member_ids = EXCLUDED.member_ids,
                    updated_utc = now()
             """, new { tenant, mode, scopeOwnOnly, autoAssignOnReply, memberIds });
+
+        // Dọn bộ nhớ tạm NGAY. Chờ hết 60 giây mới thấy hiệu lực thì người vừa bấm Lưu tưởng nút
+        // hỏng rồi bấm thêm mấy lần — lỗi đó đã xảy ra một lần ở cụm này rồi (cấu hình trợ lý chat).
+        // Đặt SAU lượt ghi, không phải trước: dọn trước rồi ghi hỏng là bộ nhớ tạm nạp lại đúng
+        // giá trị cũ, coi như không dọn; mà nếu có ai đọc chen vào giữa thì họ nạp lại giá trị cũ
+        // — vẫn đúng, vì lượt ghi chưa thành công.
+        lock (_khoa) _cache.Remove(tenant);
+
         // ⚠️ KHÔNG đụng rotation_last_user_id: sửa cấu hình mà đặt lại con trỏ thì mỗi lần
         // quản trị bấm Lưu là vòng quay bắt đầu lại từ người đầu danh sách.
     }
@@ -112,6 +157,12 @@ public class ChatAssignRepository
                  WHERE tenant_id = @tenant
             ),
             chon AS (
+                -- ⚠️ Câu này GHI vào chat_assign_settings (đẩy con trỏ) mà KHÔNG dọn bộ nhớ tạm
+                -- của LayCauHinhAsync — CỐ Ý. Nó chỉ đổi rotation_last_user_id, mà không chỗ nào
+                -- đọc trường đó qua LayCauHinhAsync: vòng quay đọc con trỏ ngay TRONG câu lệnh này.
+                -- Có chốt canh khoá điều đó lại (ChatAssignSchemaGuardTests), vì nếu mai kia ai đó
+                -- đọc con trỏ từ đối tượng cấu hình thì họ sẽ nhận giá trị cũ tới 60 giây — vòng
+                -- quay gán trùng người, im lặng.
                 UPDATE chat_assign_settings s
                    SET rotation_last_user_id = COALESCE(
                          (SELECT MIN(user_id) FROM doi

@@ -600,7 +600,12 @@ public class ChatDb
         IF NOT EXISTS (SELECT 1 FROM chat_conversations WHERE assigned_username IS NOT NULL)
         THEN
           DROP INDEX IF EXISTS ix_conv_tenant_assignee;
-          ALTER TABLE chat_conversations DROP COLUMN assigned_username;
+          -- IF EXISTS ở đây là THỪA so với vế IF EXISTS bên ngoài, và cố ý để thừa: câu lệnh tự
+          -- nó chạy lại được thì không phụ thuộc vào việc khối bao quanh còn giữ đúng điều kiện.
+          -- Vế ngoài KHÔNG bỏ được — nó có việc riêng: câu SELECT ngay dưới nhắc tên cột, mà
+          -- PL/pgSQL chuẩn bị câu đó lúc chạy tới, nên cột mất là lỗi PARSE chứ không phải lỗi
+          -- logic. Hai vế canh hai chuyện khác nhau.
+          ALTER TABLE chat_conversations DROP COLUMN IF EXISTS assigned_username;
           RAISE NOTICE 'Da xoa cot assigned_username (khong con du lieu)';
         END IF;
       END IF;

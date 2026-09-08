@@ -89,11 +89,35 @@ public class ChatScopeGuardTests
         // ĐÂY LÀ QUYẾT ĐỊNH, KHÔNG PHẢI SƠ SUẤT (chủ dự án, 07/09/2026). Bản thiết kế đầu có
         // thêm vế "OR assigned_user_id IS NULL" để nhân viên nhìn thấy hàng chờ mà tự nhận;
         // quyết định cuối là BỎ vế đó. Test này khoá lại để đợt sau không ai "sửa" nó.
-        var m = Regex.Match(Repo(), "GetConversationAsync(.{0,1500})", RegexOptions.Singleline);
-        Assert.True(m.Success, "Không thấy GetConversationAsync");
-        var than = m.Groups[1].Value;
+        //
+        // ⚠️ Cắt theo RANH GIỚI CÚ PHÁP, không đếm ký tự. Bản trước lấy cửa sổ 1.500 ký tự và
+        // đã dùng hết 1.058 — thêm sáu dòng chú thích vào hàm là chốt đỏ oan (bộ này đã đỏ oan
+        // ba lần vì đúng cơ chế đó). Với vế DoesNotContain thì cửa sổ đếm ký tự còn nguy theo
+        // chiều NGƯỢC LẠI: nới ra một chút là ôm sang ClaimConversationAsync — hàm đó dùng
+        // "assigned_user_id IS NULL" hoàn toàn hợp lệ — và chốt đỏ vì mã của hàm KHÁC.
+        var than = ThanHamKho("GetConversationAsync");
+        Assert.False(string.IsNullOrWhiteSpace(than), "Không cắt được thân GetConversationAsync");
         Assert.Contains("@xemTatCa OR v.assigned_user_id = @maNguoi", than);
         Assert.DoesNotContain("assigned_user_id IS NULL", than);
+    }
+
+    /// <summary>
+    /// Thân một hàm trong <c>ChatRepository</c>, cắt tới THÀNH VIÊN KẾ TIẾP.
+    ///
+    /// <para>Dừng ở chú thích tài liệu của thành viên sau nếu nó tới trước — chú thích đó hay nhắc
+    /// tên những thứ hàm này KHÔNG được dùng, nên ôm vào là một vế DoesNotContain đỏ vì LỜI VĂN
+    /// chứ không vì mã.</para>
+    /// </summary>
+    private static string ThanHamKho(string ten)
+    {
+        var src = Repo();
+        var i = src.IndexOf(" " + ten + "(", StringComparison.Ordinal);
+        if (i < 0) return "";
+        var j = new[] { src.IndexOf("\n    public", i + 20, StringComparison.Ordinal),
+                        src.IndexOf("\n    /// <summary>", i + 20, StringComparison.Ordinal),
+                        src.IndexOf("\n    private", i + 20, StringComparison.Ordinal) }
+                .Where(x => x > 0).DefaultIfEmpty(-1).Min();
+        return j < 0 ? src[i..] : src[i..j];
     }
 
     [Fact]
@@ -130,6 +154,56 @@ public class ChatScopeGuardTests
         Assert.Contains("GetConversationByMessageAsync(a.TenantId, msgId, xem, ct)", thanTep);
         // Đọc phiên trần ở đây là dấu hiệu ai đó lùi lại bản cũ.
         Assert.DoesNotContain("SessionAuth.Read(ctx, sessions)", thanTep);
+    }
+
+    [Fact]
+    public void HeThong_chi_duoc_dung_de_DOC_LAI_roi_PHAT_SU_KIEN()
+    {
+        // NguoiXem.HeThong bỏ qua luật xem — đó là cả mục đích của nó, và cũng là lý do nó nguy.
+        // Nó tồn tại cho ĐÚNG MỘT việc: sau khi đổi người phụ trách, đọc lại hội thoại để biết
+        // giá trị MỚI mà bắn lên bus. Phải bỏ qua luật xem vì người vừa nhận việc có thể không
+        // còn thấy hội thoại đó bằng phạm vi cũ.
+        //
+        // Nếu giá trị đọc bằng HeThong đi vào THÂN PHẢN HỒI thì luật xem thủng ngay tại đó: người
+        // gọi nhận nội dung hội thoại mà lẽ ra họ không được xem. Đợt review trước đã soi tay ba
+        // chỗ này và kết luận không phải lỗ — nhưng ghi vào sổ nợ rằng KHÔNG có chốt nào giữ, nên
+        // lần sau ai thêm chỗ thứ tư thì không gì cản.
+        //
+        // Cách phát biểu: bám vào BIẾN. Mỗi lượt đọc bằng HeThong gán vào một biến; biến đó chỉ
+        // được xuất hiện ở ba dạng câu — chính câu gán, câu kiểm null, và câu bus.Publish. Xuất
+        // hiện ở bất kỳ đâu khác (nhất là trong Results.*) là đỏ.
+        var src = Endpoint();
+        var gan = Regex.Matches(src,
+            @"var (\w+) = await repo\.GetConversationAsync\([^)]*NguoiXem\.HeThong[^)]*\);");
+
+        // Không khớp chỗ nào = biểu thức đã lạc khỏi cách viết thật. Im lặng bỏ qua thì chốt thành
+        // vô dụng mà vẫn xanh — tệ hơn là không có chốt.
+        Assert.True(gan.Count >= 3,
+            $"Chỉ thấy {gan.Count} lượt đọc bằng NguoiXem.HeThong — biểu thức đã lạc, chốt sẽ xanh giả");
+
+        // Mọi lượt dùng HeThong đều phải đi qua một câu gán như trên. Dùng thẳng trong biểu thức
+        // (không gán ra biến) là cách vòng qua chính chốt này.
+        Assert.Equal(gan.Count + 1, Regex.Matches(src, @"NguoiXem\.HeThong").Count);
+        //                     ^ +1: một lượt nhắc trong chú thích giải thích, không phải mã.
+
+        var dong = src.Split('\n');
+        foreach (Match m in gan)
+        {
+            var bien = m.Groups[1].Value;
+            var pham = dong
+                .Where(d => Regex.IsMatch(d, @"\b" + Regex.Escape(bien) + @"\b"))
+                .Where(d => !d.Contains("GetConversationAsync")            // chính câu gán
+                         && !Regex.IsMatch(d, @"if \(" + Regex.Escape(bien) + @" is null\)")
+                         && !d.Contains("bus.Publish("))
+                .Select(d => d.Trim())
+                .ToList();
+
+            Assert.True(pham.Count == 0,
+                $"Giá trị đọc bằng NguoiXem.HeThong ({bien}) đang đi ra ngoài đường đọc-lại-rồi-phát:\n  "
+                + string.Join("\n  ", pham)
+                + "\n\nHeThong bỏ qua luật xem. Cho nó chạm vào thân phản hồi là thủng luật xem "
+                + "ngay tại chỗ đó.");
+        }
     }
 
     [Fact]

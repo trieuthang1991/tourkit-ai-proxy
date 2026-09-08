@@ -1,4 +1,4 @@
-using System.Text.RegularExpressions;
+﻿using System.Text.RegularExpressions;
 using Xunit;
 
 namespace TourkitAiProxy.Tests.Chat;
@@ -149,7 +149,11 @@ public class ChatOwnerKeyGuardTests
         // khối dọn dẹp — xoá cả khối đi cũng xanh, và cột chết nằm lại trong CSDL mãi mãi.
         var sql = ChatSchemaGuardTests.DocFile(
             "TourkitAiProxy.Infrastructure/Chat/Inbox/ChatDb.cs");
-        Assert.Contains("DROP COLUMN assigned_username", sql);
+        // ⚠️ KHÔNG ghim nguyên văn câu lệnh. Bản trước đòi đúng chuỗi "DROP COLUMN
+        // assigned_username", nên thêm "IF EXISTS" vào giữa — một thay đổi làm câu lệnh AN TOÀN
+        // HƠN — lại làm chốt đỏ (đã xảy ra 08/09/2026). Luật cần giữ là "khối dọn cột chết vẫn
+        // còn", không phải "câu lệnh viết đúng bấy nhiêu chữ".
+        Assert.Matches(@"DROP COLUMN (IF EXISTS )?assigned_username", sql);
         // Lọc theo schema là BẮT BUỘC: thiếu nó thì một bảng trùng tên ở schema khác làm điều
         // kiện luôn đúng, khối DO ném ở MỌI lần khởi động và cuốn theo cả lô SchemaSql.
         Assert.Contains("table_schema = current_schema()", sql);

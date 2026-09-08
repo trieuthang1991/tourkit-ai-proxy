@@ -1,4 +1,5 @@
-﻿using System.Text.RegularExpressions;
+﻿using System.Linq;
+using System.Text.RegularExpressions;
 using Xunit;
 
 namespace TourkitAiProxy.Tests.Chat;
@@ -170,6 +171,94 @@ public class ChatAssignSchemaGuardTests
 
         var m = Regex.Match(kho[batDau..], @"\A.*?\r?\n        \}\);", RegexOptions.Singleline);
         return m.Success ? m.Value : "";
+    }
+
+    [Fact]
+    public void Cau_hinh_phan_cong_phai_nho_tam_VA_don_ngay_khi_luu()
+    {
+        // Từ khi có luật xem, MỌI request hộp thư chat đọc thêm một dòng cấu hình (trước 0, nay 27
+        // endpoint) — dòng gần như không bao giờ đổi. Nhớ tạm 60 giây, cùng con số với cấu hình
+        // trợ lý chat để hai thứ cùng cụm không có hai cảm giác "bao lâu thấy hiệu lực".
+        //
+        // BA vế, thiếu vế nào cũng hỏng theo kiểu IM LẶNG:
+        //   (a) có nhớ tạm — thiếu thì chỉ là chậm, không ai thấy;
+        //   (b) NHỚ CẢ null — "chưa cấu hình" là trạng thái thường gặp NHẤT, không nhớ null thì
+        //       đúng nhóm đông nhất vẫn đánh truy vấn mỗi request, tức làm cache cho phần thiểu số;
+        //   (c) lượt Lưu DỌN NGAY — chờ hết hạn mới thấy hiệu lực thì người vừa bấm Lưu tưởng nút
+        //       hỏng rồi bấm thêm mấy lần. Lỗi này đã xảy ra một lần ở cụm này rồi.
+        // ⚠️ HAI CÁI BẪY, cả hai đã bắt được bản ĐẦU của chính chốt này (08/09/2026):
+        //   • BỎ CHÚ THÍCH TRƯỚC KHI SOI. Bản đầu chỉ Contains("_cache.Remove(tenant)"), nên chú
+        //     thích lại đúng dòng đó là lượt Lưu thôi dọn mà chốt VẪN XANH. Đã đo.
+        //   • BÁM HÌNH DẠNG CÂU LỆNH, không bám chuỗi con. Bản đầu chỉ Contains("_cache.TryGetValue"),
+        //     nên thêm "false && " ngay trước là bộ nhớ tạm không bao giờ được đọc mà chốt VẪN
+        //     XANH. Đã đo. Nay đòi nguyên hình dạng của câu lệnh, chèn gì vào trước điều kiện
+        //     cũng làm lệch hình dạng.
+        //
+        // Vế HÀNH VI thật của luật này nằm ở bài E2E D2 (lưu rồi đọc lại phải ra thứ vừa lưu):
+        // không dọn bộ nhớ tạm thì lượt đọc trả giá trị CŨ và D2 đỏ. Chốt văn bản nguồn ở đây chỉ
+        // giữ cho cấu trúc khỏi mục — nó KHÔNG thay được bài chạy thật.
+        var kho = BoChuThich(Kho());
+        Assert.Contains("private readonly Dictionary<string, (ChatAssignSettings? Val, DateTime HetHan)> _cache", kho);
+
+        var doc = Regex.Match(kho, @"public async Task<ChatAssignSettings\?> LayCauHinhAsync(.{0,700})",
+            RegexOptions.Singleline);
+        Assert.True(doc.Success, "Không thấy LayCauHinhAsync");
+        Assert.Matches(
+            @"if \(_cache\.TryGetValue\(tenant, out var (\w+)\) && \1\.HetHan > DateTime\.UtcNow\)\s*return \1\.Val;",
+            doc.Groups[1].Value);
+        Assert.Matches(@"_cache\[tenant\]\s*=\s*\(\w+, DateTime\.UtcNow \+ NhoTam\)", doc.Groups[1].Value);
+
+        // (c) neo vào CHÍNH thân LuuCauHinhAsync, không phải "đâu đó trong file": Remove nằm ở hàm
+        // khác thì lượt Lưu vẫn để lại giá trị cũ mà hai vế trên vẫn xanh.
+        var luu = Regex.Match(kho, @"public async Task LuuCauHinhAsync(.{0,1800})", RegexOptions.Singleline);
+        Assert.True(luu.Success, "Không thấy LuuCauHinhAsync");
+        Assert.Matches(@"lock \(_khoa\) _cache\.Remove\(tenant\);", luu.Groups[1].Value);
+    }
+
+    /// Bỏ mọi dòng chú thích trước khi soi. Chốt canh nào đòi hoặc cấm một DẠNG MÃ đều phải đi qua
+    /// đây: chú thích nhắc tới chính dạng đó là chuyện thường, mà để nó tính là mã thì chú thích
+    /// lại một dòng là vô hiệu được cả chốt. Đã trả giá đúng kiểu này hai lần trong một ngày.
+    private static string BoChuThich(string src) => string.Join("\n",
+        src.Split('\n').Where(d => !d.TrimStart().StartsWith("//", StringComparison.Ordinal)));
+
+    [Fact]
+    public void Con_tro_vong_quay_KHONG_duoc_doc_qua_doi_tuong_cau_hinh()
+    {
+        // Câu lệnh xoay vòng cũng GHI vào chat_assign_settings (đẩy con trỏ) mà KHÔNG dọn bộ nhớ
+        // tạm — cố ý, vì nó chỉ đổi rotation_last_user_id và vòng quay đọc con trỏ ngay TRONG câu
+        // lệnh đó. Chốt này khoá chính giả định ấy lại: ngày nào có người đọc con trỏ từ đối tượng
+        // cấu hình (tức từ bộ nhớ tạm), họ sẽ nhận giá trị cũ tới 60 giây và vòng quay gán trùng
+        // người — im lặng, không lỗi nào hiện ra. Lúc đó bài này đỏ và nói rõ phải làm gì.
+        //
+        // Cho phép ĐÚNG ba chỗ: khai báo trong bản ghi miền, thuộc tính của dòng thô, và câu dựng
+        // bản ghi. Mọi lượt dùng khác đều phải đỏ.
+        var choPhep = new[]
+        {
+            "TourkitAiProxy.Domain/Chat/ChatAssign.cs",
+            "TourkitAiProxy.Infrastructure/Chat/Inbox/ChatAssignRepository.cs",
+        };
+        var pham = new List<string>();
+        foreach (var f in Directory.EnumerateFiles(GocRepo(), "*.cs", SearchOption.AllDirectories))
+        {
+            var duong = Path.GetRelativePath(GocRepo(), f).Replace(Path.DirectorySeparatorChar, '/');
+            if (duong.Contains("/bin/") || duong.Contains("/obj/")) continue;
+            if (duong.StartsWith("TourkitAiProxy.Tests/")) continue;
+            if (choPhep.Contains(duong)) continue;
+            if (File.ReadAllText(f).Contains("RotationLastUserId")) pham.Add(duong);
+        }
+        Assert.True(pham.Count == 0,
+            "RotationLastUserId đang bị đọc ngoài kho phân công:\n  " + string.Join("\n  ", pham)
+            + "\n\nCon trỏ vòng quay đi qua bộ nhớ tạm nên có thể cũ tới 60 giây. Muốn dùng nó thì "
+            + "phải đọc thẳng CSDL, hoặc cho lượt ghi con trỏ dọn bộ nhớ tạm.");
+    }
+
+    private static string GocRepo()
+    {
+        var d = new DirectoryInfo(AppContext.BaseDirectory);
+        while (d is not null && !File.Exists(Path.Combine(d.FullName, "TourkitAiProxy.csproj")))
+            d = d.Parent;
+        Assert.NotNull(d);
+        return d!.FullName;
     }
 
     [Fact]
