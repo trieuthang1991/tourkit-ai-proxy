@@ -531,6 +531,36 @@ public class ChatDb
       PRIMARY KEY (tenant_id, channel, external_id, tag)
     );
 
+    -- DANH MỤC nhãn của công ty — bộ nhãn dùng chung, tách khỏi việc nhãn nào đang gắn cho ai.
+    --
+    -- VÌ SAO CẦN. Trước 08/09/2026 nhãn chỉ có mỗi bảng chat_contact_tags, tức là gõ tự do: mỗi
+    -- người trực nghĩ ra một cách viết, "khach-vip" và "vip" và "khach-vip-2" cùng tồn tại mà
+    -- không ai biết bộ nhãn của công ty rốt cuộc gồm những gì. Có danh mục thì người trực CHỌN
+    -- từ danh sách sẵn thay vì gõ, và quản trị có một chỗ để dọn.
+    --
+    -- HAI CỘT CHO HAI VIỆC KHÁC NHAU, đừng gộp:
+    --   • slug — DANH TÍNH. Đã chuẩn hoá, là thứ ghi vào chat_contact_tags và đi trên đường dẫn
+    --     API. Không đổi được; đổi là mất liên kết với mọi khách đang mang nhãn đó.
+    --   • name — CHỮ HIỆN RA. Có dấu, viết hoa bình thường ("Khách VIP"). Trước đây không có cột
+    --     này nên màn hình bày thẳng slug cho người dùng đọc: "khach-kho-tinh".
+    CREATE TABLE IF NOT EXISTS chat_tag_catalog (
+      id          bigserial PRIMARY KEY,
+      tenant_id   text NOT NULL,
+      slug        text NOT NULL,
+      name        text NOT NULL,
+      created_utc timestamptz NOT NULL DEFAULT now()
+    );
+    CREATE UNIQUE INDEX IF NOT EXISTS ux_chat_tag_catalog_slug
+      ON chat_tag_catalog (tenant_id, slug);
+
+    -- Nạp danh mục từ những nhãn ĐÃ gắn trước khi có bảng này. Không có bước này thì mọi nhãn cũ
+    -- biến mất khỏi thanh chọn ngay hôm bật tính năng — vẫn nằm trong CSDL, vẫn hiện trên khách
+    -- đang mang, nhưng không gắn cho người tiếp theo được. Tên tạm lấy chính slug; quản trị sửa
+    -- lại cho đẹp sau. Chạy lại nhiều lần vô hại nhờ ON CONFLICT.
+    INSERT INTO chat_tag_catalog (tenant_id, slug, name)
+    SELECT DISTINCT tenant_id, tag, tag FROM chat_contact_tags
+    ON CONFLICT (tenant_id, slug) DO NOTHING;
+
     -- Ghi chú nội bộ về khách. KHÁCH KHÔNG BAO GIỜ THẤY — chỉ nhân viên đọc, nên đây là chỗ
     -- ghi "khách khó tính, đừng gọi trước 9h" mà không sợ lộ.
     CREATE TABLE IF NOT EXISTS chat_contact_notes (

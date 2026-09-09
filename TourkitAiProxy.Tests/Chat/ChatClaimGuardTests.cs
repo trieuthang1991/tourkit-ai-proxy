@@ -199,10 +199,25 @@ public class ChatClaimGuardTests
         // Chốt bám vào CẤU TRÚC (hai lần kiểm nằm TRONG nhánh không-phải-quản-trị), không bám
         // vào lời văn câu lỗi: đổi câu chữ mà bỏ cửa là lỗ hổng, đổi câu chữ mà giữ cửa thì
         // không phải lỗi — chốt cũ ở nhánh này từng bám lời văn và bị vô hiệu đúng kiểu đó.
+        // ⚠️ CỬA NAY CÓ HAI CÁNH (chốt 08/09/2026, lần thứ hai trong ngày): ngoài "không phải
+        // quản trị", còn phải "đang ở chế độ XOAY VÒNG". Đội trực là vòng quay chia việc — nó
+        // trả lời câu "tới lượt ai". Chế độ thủ công không có lượt nào, nên đem vòng quay đi
+        // chặn việc giao tay là mượn luật của việc này áp cho việc khác.
+        //
+        // Vế chế độ còn là ĐIỀU KIỆN để màn hình cấu hình giấu hẳn khối đội trực khi đang thủ
+        // công. Bỏ vế này mà vẫn giấu giao diện thì nhân viên thường bị chặn bởi một danh sách
+        // không ai còn thấy, và câu lỗi chỉ họ tới một khối không còn tồn tại.
         var than = AssignHandler();
-        var i = than.IndexOf("if (!SessionAuth.LaQuanTriChat(a))", StringComparison.Ordinal);
+        var i = than.IndexOf("if (!SessionAuth.LaQuanTriChat(a)", StringComparison.Ordinal);
         Assert.True(i > 0, "Không thấy cửa quản trị ở đường chuyển việc — đội trực đang ràng buộc cả admin?");
+
         var trongNhanh = than[i..];
+        // Cả hai cánh cửa phải nằm trên CÙNG một điều kiện — tách ra hai lần if lồng nhau vẫn
+        // được, nhưng vế chế độ phải xuất hiện trước khi chạm tới MemberIds.
+        var j = trongNhanh.IndexOf("MemberIds", StringComparison.Ordinal);
+        Assert.True(j > 0, "Không thấy bản kiểm đội trực trong nhánh");
+        Assert.Contains("CheDoPhanCong.XoayVong", trongNhanh[..j]);
+
         Assert.Contains("MemberIds.Length == 0", trongNhanh);
         Assert.Contains("MemberIds.Contains", trongNhanh);
 
@@ -320,18 +335,97 @@ public class ChatClaimGuardTests
         // Đội trực sinh ra cho chế độ XOAY VÒNG; ở chế độ THỦ CÔNG — chế độ mặc định — nó thường
         // rỗng. Tức là cấu hình mà phần lớn công ty đang chạy chính là cấu hình bị hỏng.
         //
-        // Neo vào HAI vế, vì bỏ vế nào cũng làm ô chọn sai mà vế kia vẫn xanh:
+        // Neo vào BA vế, vì bỏ vế nào cũng làm ô chọn sai mà vế kia vẫn xanh:
         //   (a) danh sách đổ vào ô phân theo VAI (quản trị: toàn bộ nhân viên; còn lại: đội trực);
-        //   (b) điều kiện HIỆN ô dùng đúng danh sách đó, không dùng lại đội trực.
+        //   (b) danh sách đó ĐI ĐƯỢC tới khối "Phụ trách" trong hồ sơ khách;
+        //   (c) ô chọn người thật sự ăn danh sách đó, không tự lọc lại theo đội trực.
+        //
+        // ⚠️ Bản đầu của chốt này neo vào NGUYÊN VĂN `<select className="ci-chon-phutrach">`.
+        // Ngày 08/09/2026 ô chọn đổi thành component có tìm kiếm (108 nhân viên, hộp thả xuống
+        // của trình duyệt không tìm được) và chốt đỏ oan — trong khi LUẬT nó canh thì không hề
+        // đổi. Nay chốt neo vào luồng dữ liệu, không vào tên thẻ: đổi cách vẽ bao nhiêu lần cũng
+        // được, miễn danh sách vẫn phân theo vai.
         var jsx = ChatSchemaGuardTests.DocFile("wwwroot/pages/chat-inbox.jsx");
 
-        var m = Regex.Match(jsx, @"const (\w+) = phanCong\.isAdmin \? \(phanCong\.staffs \|\| \[\]\) : doiTruc;");
+        // Điều kiện có HAI vế từ 08/09/2026: quản trị thấy mọi người, VÀ ở chế độ thủ công thì
+        // ai cũng thấy mọi người (đội trực chỉ kẹp ở xoay vòng). Khớp đúng luật máy chủ — hai
+        // bên lệch nhau thì ô chọn bày ra người mà bấm vào sẽ nhận 400.
+        var m = Regex.Match(jsx,
+            @"const (\w+) = \(phanCong\.isAdmin \|\| phanCong\.mode !== 2\)\s*\?\s*\(phanCong\.staffs \|\| \[\]\)\s*:\s*doiTruc;");
         Assert.True(m.Success,
-            "Không thấy danh sách người phụ trách phân theo vai — ô chọn đang lọc theo đội trực cho MỌI người?");
+            "Không thấy danh sách người phụ trách phân theo vai + chế độ — ô chọn đang lọc theo đội trực cho MỌI người?");
         var bien = m.Groups[1].Value;
 
-        Assert.Matches(@"\{" + Regex.Escape(bien) + @"\.length > 0 && \(\s*<select className=""ci-chon-phutrach""", jsx);
+        // (b) truyền xuống hồ sơ khách — nơi khối "Phụ trách" sống.
+        Assert.Matches(@"chonDuoc=\{" + Regex.Escape(bien) + @"\}", jsx);
+
+        // (c) ô chọn ăn đúng danh sách ấy. Đây là vế hay bị gỡ nhất khi ai đó "dọn" component.
+        Assert.Matches(@"<window\.ChonNguoi[^>]*danhSach=\{chonDuoc\}", jsx);
+
+        // Và không được quay lại lọc theo đội trực cho mọi người — lỗi gốc 08/09/2026.
         Assert.DoesNotContain("{doiTruc.length > 0 && (", jsx);
+        Assert.DoesNotContain("danhSach={doiTruc}", jsx);
+    }
+
+    [Fact]
+    public void O_chon_nguoi_trong_phai_noi_DUNG_nguyen_nhan()
+    {
+        // HAI NGUYÊN NHÂN, MỘT TRIỆU CHỨNG. Ô chọn người phụ trách trống vì:
+        //   (a) CRM không trả nhân viên nào — lỗi môi trường, thêm người vào đội trực vô ích;
+        //   (b) đội trực chat còn rỗng — lỗi cấu hình, quản trị vào Phân công thêm người là xong.
+        // Hai cách sửa khác hẳn nhau, nên nói nhầm là đẩy người dùng đi sai đường.
+        //
+        // Máy chủ đã tách hai ca này thành hai câu cảnh báo riêng trong log từ 08/09/2026, nhưng
+        // giao diện vẫn đổ chung một câu suốt. Đo trên staging sáng 09/09/2026 gặp đúng ca (a):
+        // CRM trả 0 nhân viên (statuses=10, sources=4 vẫn về bình thường ⇒ không phải lỗi đọc dữ
+        // liệu), mà màn hình lại giục quản trị đi thêm người vào đội trực.
+        var jsx = BoChuThich(ChatSchemaGuardTests.DocFile("wwwroot/pages/chat-inbox.jsx"));
+
+        // Nhánh phân xử phải TỒN TẠI và đứng trước câu nói về đội trực.
+        var i = jsx.IndexOf("(phanCong.staffs || []).length === 0", StringComparison.Ordinal);
+        Assert.True(i > 0,
+            "Không thấy nhánh phân biệt 'CRM không trả nhân viên' với 'đội trực rỗng' — " +
+            "ô chọn trống đang đổ chung một nguyên nhân cho hai ca khác nhau.");
+
+        // Và cả hai câu phải có mặt. Thiếu câu nào là ca đó lại bị nói nhầm thành ca kia.
+        Assert.Contains("Không lấy được danh sách nhân viên từ CRM", jsx);
+        Assert.Contains("Đội trực chat còn trống", jsx);
+    }
+
+    [Fact]
+    public void Ghi_chu_noi_bo_dung_DUNG_khoa_body_o_ca_hai_chieu()
+    {
+        // ⚠️ LỖI THẬT, sống âm thầm tới 08/09/2026. Máy chủ nhận `NoteReq(string? Body)` và trả
+        // về cũng bằng khoá `body`; giao diện thì gửi `{noiDung: …}` và vẽ `{g.noiDung}`. Sai cả
+        // hai chiều nên LƯU GHI CHÚ CHƯA BAO GIỜ CHẠY — mọi lượt gửi nhận 400 "Chưa nhập nội
+        // dung ghi chú", và dù có lưu được thì ô nội dung cũng vẽ ra rỗng.
+        //
+        // Không bộ test nào bắt được: bộ C# đọc mã nguồn hai phía riêng rẽ (mỗi phía tự nó đều
+        // "đúng"), còn bộ E2E không bấm tới nút này. Cùng hình dạng với lỗi nút "Nhận chăm sóc"
+        // mà chốt ngay bên trên canh — hai nửa của một hợp đồng, mỗi nửa hợp lý một mình.
+        // Qua BoChuThich: chính chốt này có một chú thích NHẮC TỚI khoá sai để giải thích lỗi cũ,
+        // và không lọc thì nó tự bắt chú thích của mình rồi đỏ (đã xảy ra ngay lúc viết chốt).
+        var jsx = BoChuThich(ChatSchemaGuardTests.DocFile("wwwroot/pages/chat-inbox.jsx"));
+
+        var m = Regex.Match(jsx, @"async function themGhiChu\(e\)([\s\S]{0,1400}?)\n    \}");
+        Assert.True(m.Success, "Không thấy hàm themGhiChu");
+        var than = m.Groups[1].Value;
+
+        Assert.Contains("/notes", than);
+        Assert.Matches(@"JSON\.stringify\(\{\s*body:", than);
+        Assert.DoesNotMatch(@"JSON\.stringify\(\{\s*noiDung:", than);
+
+        // Và chiều ĐỌC. Sửa mỗi chiều gửi thì ghi chú lưu được nhưng vẫn hiện ra trống.
+        Assert.Contains("{g.body}", jsx);
+        Assert.DoesNotContain("g.noiDung", jsx);
+
+        // TẦNG THỨ BA của cùng một lỗi. Cột trong CSDL tên `noi_dung`, thuộc tính model tên
+        // `Body` — hai TỪ khác nhau nên luật nối tên-có-gạch-dưới của Dapper không bắc cầu được.
+        // Thiếu bí danh thì truy vấn vẫn chạy, vẫn trả đúng số dòng, đúng người, đúng giờ, chỉ
+        // riêng nội dung là rỗng. Sửa hai tầng giao diện mà bỏ tầng này thì màn hình vẫn trắng.
+        var kho = BoChuThich(ChatSchemaGuardTests.DocFile(
+            "TourkitAiProxy.Infrastructure/Chat/Inbox/ChatRepository.cs"));
+        Assert.Matches(@"noi_dung\s+AS\s+""Body""", kho);
     }
 
     [Fact]

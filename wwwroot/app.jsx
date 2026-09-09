@@ -39,7 +39,9 @@ const NAV_GROUPS = [
     { to: '/deals',     icon: 'trend',   label: 'AI phân tích Cơ hội' },  // opportunity analysis
     { to: '/mail',      icon: 'mail',    label: 'Hộp thư AI' },
     { to: '/chat-inbox', icon: 'send',  label: 'Hộp thư chat', feature: 'chat' },  // tin khách nhắn qua Zalo/kênh khác
-    { to: '/chat-assign-settings', icon: 'share', label: 'Phân công chat', feature: 'chatAssign' },  // ai xem gì, chia hội thoại cho ai
+    // 'Phân công chat' ĐÃ BỎ khỏi menu (08/09/2026): nó là cài đặt CỦA hộp thư chat, không phải
+    // một nơi để đi tới. Nay mở bằng nút "Phân công" cạnh "Kết nối kênh" ngay trong hộp thư —
+    // sửa xong là thấy kết quả tại chỗ, không phải rời màn rồi tự tìm đường về.
   ]},
   { label: 'Sản phẩm Tour', items: [
     { to: '/ncc-list',     icon: 'download', label: 'AI Import NCC' },      // NCC: import + danh sách (đặt trên Tính giá Tour)
@@ -104,6 +106,17 @@ const TWEAK_DEFAULTS = /*EDITMODE-BEGIN*/{
 // Cờ RA MẮT tắt → trang nói rõ là chưa mở, KHÁC hẳn "không có quyền": quyền là chuyện của
 // riêng tài khoản này, cờ thì tắt cho tất cả kể cả admin. Nói sai một trong hai thì người dùng
 // đi xin cấp quyền cho một tính năng chưa tồn tại.
+/**
+ * Chuyển hướng một đường dẫn cũ sang đường mới.
+ *
+ * ⚠️ Phải đi qua useEffect. Gọi navigate() thẳng trong thân hàm là đổi state NGAY GIỮA lượt vẽ
+ * của component khác — React cảnh báo, và tuỳ chỗ còn vẽ lại vòng tròn không dừng.
+ */
+function ChuyenHuong({ toi }) {
+  React.useEffect(() => { window.tourkitRouter.navigate(toi); }, [toi]);
+  return null;
+}
+
 function FeatureOffPage({ ten }) {
   return (
     <main className="page" style={{ padding: 60, textAlign: 'center' }}>
@@ -619,13 +632,11 @@ function App() {
         <Route path="/chat-inbox" render={() => chatOn
           ? <window.ChatInboxPage pushToast={pushToast} />
           : <FeatureOffPage ten="Hộp thư chat" />} />
-        {/* Cờ RIÊNG 'chatAssign', không dùng chung 'chat': hộp thư chat đã ra mắt từ trước,
-            còn phân công/phân quyền là phần mới bật riêng cho từng bản triển khai. Dùng chung
-            một cờ thì bật hộp thư là lộ luôn màn hình chưa ra mắt. Chặn ngay ở route, không chỉ
-            ẩn menu (lý do xem comment ở route /chat-inbox ngay trên). */}
-        <Route path="/chat-assign-settings" render={() => phanCongOn
-          ? <window.ChatAssignSettingsPage pushToast={pushToast} />
-          : <FeatureOffPage ten="Phân công chat" />} />
+        {/* Đường cũ của trang "Phân công chat", giữ lại CHỈ để chuyển hướng. Màn hình đó nay là
+            một mục trong hộp cài đặt của hộp thư chat (nút "Phân công"), không còn trang riêng.
+            Xoá hẳn route thì mọi bookmark, mọi link đã gửi cho nhau trong nội bộ đều rơi vào
+            trang trắng — chuyển hướng rẻ hơn nhiều so với một ngõ cụt. */}
+        <Route path="/chat-assign-settings" render={() => <ChuyenHuong toi="/chat-inbox" />} />
         {/* /visa (wizard chấm) và /visa/history vào từ nhiều chỗ, không chỉ menu → gate riêng từng route. */}
         <Route path="/visa"      render={() => gatePerm('/visa', <window.VisaPage pushToast={pushToast} />)} />
         <Route path="/visa/history" render={() => gatePerm('/visa/history', <window.VisaHistoryPage pushToast={pushToast} />)} />

@@ -314,4 +314,37 @@ public class ChatAssignSchemaGuardTests
         Assert.True(chiSoGhiDem > chiSoDieuKien,
             "redis.Set phải nằm SAU điều kiện \"nhanVien.Count > 0\" — đệm danh sách rỗng là bị cấm");
     }
+
+    [Fact]
+    public void Hai_ca_danh_sach_nhan_vien_rong_phai_ghi_HAI_dong_log_KHAC_nhau()
+    {
+        // "Ô chọn người phụ trách trống" có HAI nguyên nhân, và chúng đòi hai người khác nhau
+        // đi sửa hai chỗ khác nhau: ERP không còn người bán nào, hay ERP CÓ trả người bán mà
+        // dòng nào cũng thiếu mã/tên. Một dòng log dùng chung cho cả hai là chỉ sai đường.
+        //
+        // Đã trả giá 09/09/2026: /api/ai/reference trả về ĐỦ 108 người bán nhưng `name` null
+        // sạch, log chỉ ghi "ERP không trả người bán nào", và cả buổi đó đi tìm lỗi kết nối
+        // với lỗi phiên — trong khi kết nối vẫn tốt và dữ liệu vẫn về đủ.
+        var than = BoChuThich(ThanHam("assign-settings"));
+        Assert.False(string.IsNullOrWhiteSpace(than), "Không cắt được thân đường đọc cấu hình");
+
+        // (a) Phải ĐẾM ngay ở đầu vòng lặp đọc người bán. Đếm chỗ khác — sau vòng lặp, hay
+        //     mượn luôn nhanVien.Count — thì con số lại là số GIỮ ĐƯỢC: đúng con số đã làm ta
+        //     lạc đường, không phải con số cần.
+        var dem = Regex.Match(than,
+            @"foreach \(var it in sellers\.EnumerateArray\(\)\)\s*\{\s*(\w+)\+\+;");
+        Assert.True(dem.Success,
+            "Phải đếm số dòng ERP trả về ngay tại đầu vòng lặp đọc sellers");
+        var bien = dem.Groups[1].Value;
+
+        // (b) Ca "ERP không trả dòng nào" phải là một nhánh RIÊNG, phân xử bằng chính biến đếm.
+        Assert.Matches(@"else if \(!\w+ && " + bien + @" == 0\)\s*log\.LogWarning\(", than);
+
+        // (c) Ca còn lại phải NÓI RA con số. Thiếu {N} thì hai dòng chỉ khác nhau ở câu chữ,
+        //     người đọc log vẫn không biết ERP đã gửi về bao nhiêu — tức vẫn không phân biệt
+        //     được "không có ai" với "có mà hỏng", đúng thứ chốt này sinh ra để chặn.
+        var canhBao = Regex.Matches(than, @"log\.LogWarning\((.{0,600}?)\);", RegexOptions.Singleline)
+            .Select(m => m.Groups[1].Value).ToList();
+        Assert.Contains(canhBao, c => c.Contains("{N}") && c.Contains(bien));
+    }
 }

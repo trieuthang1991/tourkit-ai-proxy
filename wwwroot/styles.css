@@ -8995,16 +8995,18 @@ n
 .ci-dai { display: flex; flex-direction: column; align-items: center; gap: 4px; padding: 10px 0;
           min-height: 0; overflow-y: auto; border-right: 1px solid var(--ci-vien-trong);
           background: var(--ci-nen-diu); }
-.ci-dai-nut { position: relative; width: 34px; height: 30px; display: grid; place-items: center;
+.ci-dai-nut { position: relative; width: 40px; height: 36px; display: grid; place-items: center;
               border: 0; border-radius: 8px; background: transparent; cursor: pointer;
               font: inherit; font-size: 11.5px; font-weight: 700; color: var(--text-3);
               line-height: 1; }
 .ci-dai-nut:hover { background: var(--ci-nen-chip); }
 .ci-dai-nut.on { background: var(--dark); color: #fff; }
-.ci-hh { font-size: 11.5px; font-weight: 700; line-height: 1; }
+/* Dải kênh là thứ liếc liên tục để lọc — 13px là cỡ của một biểu tượng phụ, không phải của
+   một nút điều hướng chính. Nâng lên cho đủ nhận dạng nhanh và đủ to để bấm trúng. */
+.ci-hh { font-size: 13px; font-weight: 700; line-height: 1; }
 /* Ô chứa HÌNH phải chiếm đúng chỗ như ô chứa chữ, không thì dải kênh so le. */
 .ci-hh.hinh { display: inline-grid; place-items: center; width: 1em; height: 1em; }
-.ci-hh.hinh > svg { width: 13px; height: 13px; }
+.ci-hh.hinh > svg { width: 17px; height: 17px; }
 /* Chấm báo có hội thoại. Nằm ở góc nên không đẩy chữ. */
 .ci-cham { position: absolute; top: 3px; right: 3px; width: 5px; height: 5px; border-radius: 999px;
            background: var(--primary); }
@@ -9027,7 +9029,7 @@ n
 /* Nhóm ba nút: rãnh xám, nút đang chọn nổi lên bằng nền trắng — không dùng viền, viền trong rãnh
    trông như hai lớp khung lồng nhau. */
 .ci-nhom { display: grid; grid-template-columns: repeat(3, 1fr); gap: 2px; padding: 2px;
-           border-radius: 9px; background: var(--ci-nen-chip); }
+           border-radius: 10px; background: var(--ci-nen-chip); }
 .ci-nhom button { display: flex; align-items: center; justify-content: center; gap: 4px;
                   height: 26px; border: 0; border-radius: 7px; background: transparent;
                   cursor: pointer; font: inherit; font-size: 11.5px; font-weight: 500;
@@ -9104,7 +9106,9 @@ img.ci-avt { object-fit: cover; }
    ⚠️ Góc dưới TRÁI, không phải phải. Bên phải ảnh chính là chỗ dòng xem trước bắt đầu, mà huy
    hiệu thò ra 3px nên nó đè lên chữ — thấy rõ nhất ở các kênh dùng HÌNH (Telegram, Instagram,
    WhatsApp, TikTok) vì hình rộng hơn một chữ cái. Bên trái ảnh là lề trống, không đụng gì. */
-.ci-muc-avt .ci-hh, .ci-hh.dinh { position: absolute; left: -3px; bottom: -3px;
+/* Bản GHIM trên ảnh đại diện từng dòng giữ cỡ nhỏ: đó là dấu phụ của một dòng danh sách,
+   không phải nút bấm như dải kênh. Phóng to cả hai là đè lên mặt khách. */
+.ci-muc-avt .ci-hh, .ci-hh.dinh { font-size: 11.5px; position: absolute; left: -3px; bottom: -3px;
           display: inline-grid; place-items: center; min-width: 17px; height: 17px; padding: 0 4px;
           border-radius: 6px; border: 1px solid var(--border); background: var(--surface);
           color: var(--text-2); font-size: 9.5px; font-weight: 700; line-height: 1; }
@@ -9860,8 +9864,12 @@ img.ci-avt { object-fit: cover; }
 
 /* Nhóm nút lọc: số cột theo SỐ NÚT, không khai cứng. Trước đây khai repeat(3) rồi thêm nút thứ
    tư "Tôi theo dõi" — nó rơi xuống hàng hai, một mình, rộng bằng một phần ba. */
-.ci-nhom { grid-template-columns: none; grid-auto-flow: column; grid-auto-columns: minmax(0, 1fr); }
-.ci-nhom button { white-space: nowrap; min-width: 0; padding: 0 4px; }
+.ci-nhom { display: flex; gap: 3px; padding: 3px; }
+/* ⚠️ KHÔNG chia đều bốn cột. Chia đều (1fr) thì "Của tôi" thừa chỗ còn "Tôi theo dõi"
+   — nhãn dài nhất — chỉ còn 4px đệm hai bên, chữ dính sát viền viên thuốc. `flex: 1 1 auto`
+   cho mỗi nút lớn lên TỪ KÍCH THƯỚC CHỮ CỦA NÓ, nên nhãn dài được chia phần rộng hơn. */
+.ci-nhom button { flex: 1 1 auto; min-width: 0; white-space: nowrap; padding: 0 10px;
+                  height: 28px; }
 
 /* Bảng mẫu trả lời (.ci-mau) neo bottom:100% — phải có mốc định vị ngay tại ô soạn, không thì
    nó neo theo cả trang và bung ra ở trên đỉnh tài liệu, ngoài tầm nhìn. */
@@ -9987,6 +9995,297 @@ img.ci-avt { object-fit: cover; }
 .ci-wrap.di-dong .ci-modal { width: 100%; max-height: calc(100dvh - 24px);
   border-radius: 16px 16px 0 0; }
 .ci-wrap.di-dong .ci-modal-than { padding: 14px 14px calc(14px + env(safe-area-inset-bottom)); }
+
+
+/* ── Ô chọn MỘT người có tìm kiếm (components/chon-nguoi.jsx) ────────────
+   Thay <select> thường ở chỗ danh sách dài. Đo trên staging 08/09/2026: 108 nhân viên, tên dài
+   nhất 57 ký tự — hộp thả xuống của trình duyệt không tìm được và cắt cụt tên. */
+.cn-boc { position: relative; }
+.cn-nut { display: flex; align-items: center; gap: 8px; width: 100%; height: 34px; padding: 0 9px;
+          border: 1px solid var(--border); border-radius: var(--radius); background: var(--surface);
+          font: inherit; font-size: 12.5px; color: var(--text); cursor: pointer; text-align: left;
+          transition: border-color .16s ease, background .16s ease; }
+.cn-nut:hover:not(:disabled) { border-color: var(--text-3); }
+.cn-nut.mo { border-color: var(--primary); box-shadow: 0 0 0 3px rgba(249, 115, 22, .12); }
+.cn-nut:disabled { opacity: .55; cursor: default; }
+.cn-nut > svg:last-child { margin-left: auto; flex: 0 0 auto; color: var(--text-3); }
+.cn-ten { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.cn-ten.trong { color: var(--text-3); }
+/* Nhãn tròn hai chữ đầu — CRM không trả ảnh nhân viên, nên không giả vờ có ảnh. */
+.cn-tron { flex: 0 0 auto; display: grid; place-items: center; width: 22px; height: 22px;
+           border-radius: 7px; background: var(--primary-soft); color: #9A3412;
+           font-size: 9.5px; font-weight: 700; letter-spacing: .02em; }
+
+.cn-hop { position: absolute; z-index: 30; top: calc(100% + 5px); left: 0; right: 0;
+          display: flex; flex-direction: column; overflow: hidden;
+          border: 1px solid var(--border); border-radius: var(--radius-md);
+          background: var(--surface);
+          /* Bóng ngả theo nền xám-xanh của app, không dùng đen thuần. */
+          box-shadow: 0 12px 28px rgba(15, 23, 42, .14), 0 2px 6px rgba(15, 23, 42, .06); }
+.cn-tim { display: flex; align-items: center; gap: 7px; padding: 8px 10px;
+          border-bottom: 1px solid var(--ci-vien-trong); color: var(--text-3); }
+.cn-tim input { flex: 1; min-width: 0; border: 0; background: none; outline: none;
+                font: inherit; font-size: 12.5px; color: var(--text); }
+.cn-ds { max-height: 244px; overflow-y: auto; padding: 4px; }
+.cn-dong { display: flex; align-items: center; gap: 8px; width: 100%; padding: 6px 7px;
+           border: 0; border-radius: 7px; background: none; font: inherit; font-size: 12.5px;
+           color: var(--text); cursor: pointer; text-align: left; }
+/* MỘT trạng thái "đang trỏ" dùng chung cho chuột lẫn bàn phím — hai kiểu tô khác nhau thì đi
+   bằng mũi tên rồi rê chuột vào là màn hình có hai dòng cùng sáng, không biết Enter chọn cái nào. */
+.cn-dong.dang { background: var(--bg); }
+.cn-dong.chon { font-weight: 600; }
+.cn-dong.chon > svg:last-child { margin-left: auto; color: var(--primary); }
+.cn-ma { margin-left: auto; font-size: 10.5px; color: var(--text-3);
+         font-variant-numeric: tabular-nums; }
+.cn-trong { padding: 14px 10px; font-size: 12px; color: var(--text-3); text-align: center; }
+.cn-chan { padding: 6px 10px 7px; border-top: 1px solid var(--ci-vien-trong);
+           background: var(--bg); font-size: 10.5px; color: var(--text-3);
+           font-variant-numeric: tabular-nums; }
+
+/* ── Khối "Phụ trách" trong hồ sơ khách ────────────────────────────────
+   Đứng ngay dưới .ci-hs-dau. Hai việc tách bạch: NHẬN về mình (một chạm) và GÁN cho người khác
+   (chọn rồi mới bấm Gán). */
+.ci-pt-the { display: flex; align-items: center; gap: 9px; padding: 10px 11px;
+             border: 1px solid var(--ci-vien-trong); border-radius: 10px; margin-bottom: 10px; }
+.ci-pt-the.trong { border-style: dashed; }
+.ci-pt-tron { flex: 0 0 auto; display: grid; place-items: center; width: 28px; height: 28px;
+              border-radius: 9px; background: var(--primary-soft); color: #9A3412;
+              font-size: 10.5px; font-weight: 700; }
+/* Chấm rỗng = chưa ai nhận. Cùng màu cam nhắc việc như chấm "chưa đọc" ở tiêu đề, không dùng
+   thêm một màu cảnh báo thứ hai. */
+.ci-pt-cham { flex: 0 0 auto; width: 28px; height: 28px; border-radius: 9px;
+              background: var(--primary-soft);
+              box-shadow: inset 0 0 0 2px rgba(249, 115, 22, .35); }
+.ci-pt-ten { display: grid; gap: 1px; min-width: 0; }
+.ci-pt-ten b { font-size: 12.5px; font-weight: 700; color: var(--text);
+               overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ci-pt-ten > span { font-size: 10.5px; color: var(--text-3); }
+.ci-pt-nut { display: flex; flex-wrap: wrap; gap: 6px; }
+.ci-pt-nut .ci-nut { gap: 5px; }
+.ci-pt-giao { display: grid; gap: 9px; }
+.ci-pt-nhac { margin: 0; font-size: 11.5px; line-height: 1.55; color: var(--text-3); }
+
+/* ── Mục "Phân công" trong hộp cài đặt hộp thư (pages/chat-assign-settings.jsx) ───── */
+.ci-pc { display: grid; gap: 18px; }
+.ci-pc-dangtai { padding: 40px; text-align: center; color: var(--text-3); font-size: 13px; }
+.ci-pc-muc h4 { margin: 0 0 8px; font-size: 9px; font-weight: 700; letter-spacing: .11em;
+                text-transform: uppercase; color: var(--text-3); }
+.ci-pc-phu { margin: 0 0 11px; font-size: 12px; line-height: 1.55; color: var(--text-3); }
+.ci-pc-chedo { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 10px; }
+.ci-pc-the { display: grid; gap: 4px; padding: 12px 13px; text-align: left; cursor: pointer;
+             border: 1px solid var(--border); border-radius: var(--radius-md);
+             background: var(--surface); font: inherit;
+             transition: border-color .16s ease, background .16s ease; }
+.ci-pc-the:hover { border-color: var(--text-3); }
+.ci-pc-the.on { border-color: var(--primary); background: var(--primary-soft); }
+.ci-pc-the b { font-size: 13px; font-weight: 700; color: var(--text); }
+.ci-pc-the > span { font-size: 12px; line-height: 1.5; color: var(--text-3); }
+
+.ci-pc-dem { flex: 0 0 auto; font-size: 11.5px; color: var(--text-3);
+             font-variant-numeric: tabular-nums; }
+.ci-pc-dem b { color: var(--text); font-weight: 700; }
+/* Danh sách 108 người PHẢI có trần chiều cao: để tự do thì hộp cài đặt dài bằng bốn màn hình
+   và nút Lưu trôi ra khỏi tầm nhìn. */
+.ci-pc-canhbao { display: flex; align-items: flex-start; gap: 10px; padding: 11px 13px;
+                 border: 1px solid rgba(245, 158, 11, .35); border-radius: var(--radius);
+                 background: rgba(245, 158, 11, .08);
+                 font-size: 12.5px; line-height: 1.55; color: #92400E; }
+.ci-pc-canhbao > span { flex: 0 0 auto; margin-top: 1px; color: #D97706; }
+.ci-pc-luu { display: flex; justify-content: flex-end; }
+
+
+/* ── Ba thẻ của panel hồ sơ ───────────────────────────────────────────
+   Dính đỉnh cùng .ci-hs-dau: cuộn xuống cuối nhật ký rồi muốn sang thẻ khác mà phải cuộn
+   ngược lên đỉnh là kiểu mệt nhọc nhỏ mà gặp mỗi lần. */
+.ci-hs-tab { position: sticky; top: 57px; z-index: 1; display: flex; gap: 2px; padding: 8px 12px;
+             background: var(--surface); border-bottom: 1px solid var(--ci-vien-trong); }
+.ci-hs-tab-nut { flex: 1 1 auto; height: 27px; padding: 0 8px; border: 0; border-radius: 7px;
+                 background: transparent; cursor: pointer; font: inherit; font-size: 11.5px;
+                 font-weight: 600; color: var(--text-3); white-space: nowrap;
+                 transition: background .16s ease, color .16s ease; }
+.ci-hs-tab-nut:hover { background: var(--bg); color: var(--text-2); }
+.ci-hs-tab-nut.on { background: var(--dark); color: #fff; }
+
+/* Nút "xem thêm" của nhật ký — trải hết chiều ngang để đọc như một dòng tiếp theo của
+   danh sách, không như một nút lạc loài. */
+.ci-hs-them-nut { width: 100%; justify-content: center; gap: 7px; margin-top: 8px; }
+.ci-hs-con { color: var(--text-3); font-weight: 500; font-variant-numeric: tabular-nums; }
+
+/* ── Chế độ phân công: hai thẻ là MỘT lựa chọn, nên có chấm radio ─────────── */
+.ci-pc-the { position: relative; padding-left: 34px; }
+.ci-pc-radio { position: absolute; left: 13px; top: 14px; width: 15px; height: 15px;
+               border-radius: 50%; border: 2px solid var(--border); background: var(--surface);
+               transition: border-color .16s ease; }
+.ci-pc-the.on .ci-pc-radio { border-color: var(--primary); }
+.ci-pc-the.on .ci-pc-radio::after { content: ''; position: absolute; inset: 2.5px;
+                                    border-radius: 50%; background: var(--primary); }
+.ci-pc-mo { font-size: 12px; line-height: 1.5; color: var(--text-3); }
+
+/* Thanh lưu DÍNH ĐÁY: thân hộp cuộn được (danh sách 108 người), nên nút Lưu ở cuối luồng
+   sẽ trôi khỏi tầm nhìn đúng lúc người ta vừa tick xong. */
+.ci-pc-luu { position: sticky; bottom: -16px; display: flex; align-items: center; gap: 12px;
+             justify-content: space-between; margin: 0 -16px -16px; padding: 12px 16px;
+             border-top: 1px solid var(--ci-vien-trong); background: var(--surface); }
+.ci-pc-luu-tom { font-size: 11.5px; color: var(--text-3); line-height: 1.45; }
+
+
+/* ── Thanh nhãn trong khung chat ───────────────────────────────────────
+   Một hàng mỏng ngay dưới tiêu đề. Cố ý KHÔNG có viền dưới riêng: nó đứng giữa hai đường
+   kẻ sẵn có (thanh cửa sổ và vùng tin), thêm một đường nữa là ba vạch ngang trong 90px. */
+.ci-tn { display: flex; flex-wrap: wrap; align-items: center; gap: 6px;
+         margin-bottom: 9px; color: var(--text-3); }
+/* Nằm TRONG .ci-soan (đã có đệm 16px hai bên) nên thanh nhãn không tự đệm ngang nữa —
+   đệm chồng đệm thì chip thụt vào 32px, lệch hẳn so với mép ô soạn ngay dưới. */
+.ci-tn > svg { flex: 0 0 auto; }
+.ci-tn-trong { font-size: 11px; color: var(--text-3); }
+.ci-tn-chip { display: inline-flex; align-items: center; gap: 5px; height: 22px;
+              padding: 0 4px 0 10px; border: 1px solid rgba(249, 115, 22, .3); border-radius: 999px;
+              background: var(--primary-soft); color: #9A3412;
+              font-size: 11px; font-weight: 600; line-height: 1; white-space: nowrap; }
+/* ⚠️ KHÔNG dùng lại lớp .ci-nhan cho thẻ này. Trong trang này .ci-nhan đã mang nghĩa KHÁC —
+   nhãn người gửi trong bong bóng tin (chữ hoa 9px, giãn chữ) — và kiểu thẻ nhãn cũ chỉ ăn khi
+   nằm trong .ci-hs-nhan. Đặt thẻ mới ngoài cái bọc đó là nó nhận khắn phần kiểu bong bóng:
+   chữ hoa tí xuí, không viền, không nền. Chính file này đã cảnh báo ở dòng ".ci-nhan mang HAI
+   nghĩa" — nay tên riêng, hết nhập nhằng. */
+.ci-tn-chip button { display: inline-flex; padding: 2px; border: 0; border-radius: 999px;
+                     background: transparent; color: inherit; cursor: pointer; opacity: .65; }
+.ci-tn-chip button:hover { opacity: 1; background: rgba(249, 115, 22, .16); }
+.ci-tn-chip button:disabled { cursor: default; opacity: .35; }
+.ci-tn-boc { position: relative; }
+.ci-tn-them { display: inline-flex; align-items: center; gap: 4px; height: 22px; padding: 0 9px;
+              border: 1px dashed var(--border); border-radius: 999px; background: transparent;
+              cursor: pointer; font: inherit; font-size: 11px; font-weight: 600;
+              color: var(--text-3); transition: border-color .16s ease, color .16s ease; }
+.ci-tn-them:hover { border-color: var(--primary); color: var(--primary); }
+
+.ci-tn-hop { position: absolute; z-index: 40; top: calc(100% + 6px); left: 0; width: 268px;
+             display: flex; flex-direction: column; overflow: hidden;
+             border: 1px solid var(--border); border-radius: var(--radius-md);
+             background: var(--surface);
+             box-shadow: 0 12px 28px rgba(15, 23, 42, .14), 0 2px 6px rgba(15, 23, 42, .06); }
+.ci-tn-tim { display: flex; align-items: center; gap: 7px; padding: 8px 10px;
+             border-bottom: 1px solid var(--ci-vien-trong); color: var(--text-3); }
+.ci-tn-tim input { flex: 1; min-width: 0; border: 0; background: none; outline: none;
+                   font: inherit; font-size: 12.5px; color: var(--text); }
+.ci-tn-ds { max-height: 210px; overflow-y: auto; padding: 4px; }
+.ci-tn-dong { display: flex; align-items: center; gap: 8px; width: 100%; padding: 6px 8px;
+              border: 0; border-radius: 7px; background: none; cursor: pointer; font: inherit;
+              font-size: 12.5px; color: var(--text); text-align: left; }
+.ci-tn-dong:hover { background: var(--bg); }
+.ci-tn-dong > span { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis;
+                     white-space: nowrap; }
+.ci-tn-dong > i { flex: 0 0 auto; font-style: normal; font-size: 10.5px; color: var(--text-3);
+                  font-variant-numeric: tabular-nums; }
+.ci-tn-rong { padding: 14px 10px; font-size: 12px; color: var(--text-3); text-align: center; }
+.ci-tn-tao { display: flex; align-items: center; gap: 6px; width: 100%; padding: 9px 12px;
+             border: 0; border-top: 1px solid var(--ci-vien-trong); background: var(--bg);
+             cursor: pointer; font: inherit; font-size: 12px; font-weight: 600;
+             color: var(--primary); text-align: left; }
+.ci-tn-tao:hover { background: var(--primary-soft); }
+
+/* ── Bảng quản lý danh mục nhãn (mục "Nhãn" trong hộp cài đặt) ────────────── */
+.ci-qn-them { display: flex; gap: 8px; margin-bottom: 8px; }
+.ci-qn-them input { flex: 1; min-width: 0; height: 34px; padding: 0 11px;
+                    border: 1px solid var(--border); border-radius: var(--radius);
+                    font: inherit; font-size: 13px; color: var(--text); background: var(--surface); }
+.ci-qn-them input:focus { outline: none; border-color: var(--primary);
+                          box-shadow: 0 0 0 3px rgba(249, 115, 22, .12); }
+.ci-qn-rong { padding: 28px 20px; border: 1px dashed var(--border); border-radius: var(--radius-md);
+              font-size: 12.5px; line-height: 1.6; color: var(--text-3); text-align: center; }
+.ci-qn-bang { width: 100%; border-collapse: collapse; margin-top: 6px; }
+.ci-qn-bang th { padding: 7px 10px; text-align: left; font-size: 9px; font-weight: 700;
+                 letter-spacing: .11em; text-transform: uppercase; color: var(--text-3);
+                 border-bottom: 1px solid var(--border); }
+.ci-qn-bang td { padding: 9px 10px; border-bottom: 1px solid var(--ci-vien-trong);
+                 font-size: 13px; color: var(--text); vertical-align: middle; }
+.ci-qn-bang tr:last-child td { border-bottom: 0; }
+/* Số đứng cột: mã và số lượng đọc theo chiều dọc nên phải cùng bề rộng chữ số. */
+.ci-qn-bang td.ma { font-variant-numeric: tabular-nums; color: var(--text-3); font-size: 12px;
+                    white-space: nowrap; }
+.ci-qn-bang td.cuoi { text-align: right; white-space: nowrap; }
+.ci-qn-bang td b { display: block; font-size: 13px; font-weight: 600; }
+.ci-qn-bang td .slug { display: block; margin-top: 1px; font-size: 10.5px; color: var(--text-3);
+                       font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
+
+
+/* ── MỘT HÀNG, MỘT CHIỀU CAO ────────────────────────────────────────────
+   Lớp .nho (26px) sinh ra cho nút ĐỨNG MỘT MÌNH trong khung chật, không phải để đứng cạnh nút
+   thường (30px). Đứng cạnh nhau thì hai đáy lệch 4px và cả hàng trông như bị xê dịch — chủ dự
+   án bắt được ở cặp "Gán cho…" + "Thôi" (08/09/2026).
+
+   Chữa THEO HÀNG chứ không sửa lớp .nho: .nho vẫn đúng ở những chỗ nó đứng riêng. */
+.ci-pt-nut .ci-nut, .ci-pt-nut .ci-nut.nho { height: 30px; }
+.ci-qn-them .ci-nut, .ci-qn-them input { height: 34px; }
+.ci-hs-them .ci-nut, .ci-hs-them .ci-nut.nho, .ci-hs-them input { height: 28px; }
+/* Bảng danh mục: nút Xoá đứng một mình trong ô nên giữ .nho, nhưng mọi dòng phải bằng nhau. */
+.ci-qn-bang .ci-nut.nho { height: 26px; }
+
+
+/* ── Ghi chú nội bộ ─────────────────────────────────────────────────── */
+.ci-gc-dau { display: flex; align-items: center; gap: 7px; }
+/* Viên thuốc "chỉ nội bộ": xám trung tính, KHÔNG cam. Cam trong app này có nghĩa "việc cần làm";
+   ở đây nó chỉ là một lời trấn an, không phải thứ phải bấm. */
+.ci-gc-kin { display: inline-flex; align-items: center; gap: 3px; padding: 2px 7px 2px 6px;
+             border-radius: 999px; background: var(--ci-nen-chip); color: var(--text-3);
+             font-size: 8.5px; font-weight: 700; letter-spacing: .06em; text-transform: none; }
+
+.ci-gc-rong { display: flex; align-items: flex-start; gap: 9px; padding: 13px 12px;
+              border: 1px dashed var(--border); border-radius: var(--radius-md);
+              color: var(--text-3); font-size: 11px; line-height: 1.6; }
+.ci-gc-rong > svg { flex: 0 0 auto; margin-top: 1px; }
+
+/* Một ghi chú = một dòng hội thoại nội bộ, nên dựng như một lời nhắn: nhãn tròn người viết,
+   rồi tên + giờ, rồi nội dung. Bản trước là một dòng 11px trôi nổi, ai viết và viết gì cùng
+   một cỡ chữ — liếc qua không tách được hai ghi chú liền nhau. */
+.ci-gc { display: flex; gap: 9px; padding: 10px 0; border-top: 1px solid var(--ci-vien-trong); }
+.ci-gc:first-of-type { border-top: 0; padding-top: 4px; }
+.ci-gc-tron { flex: 0 0 auto; display: grid; place-items: center; width: 24px; height: 24px;
+              border-radius: 8px; background: var(--ci-nen-chip); color: var(--text-2);
+              font-size: 9px; font-weight: 700; }
+.ci-gc-than { min-width: 0; flex: 1; }
+.ci-gc-meta { display: flex; align-items: baseline; gap: 6px; margin-bottom: 3px; }
+.ci-gc-meta b { font-size: 11px; font-weight: 700; color: var(--text);
+                overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ci-gc-meta time { flex: 0 0 auto; font-size: 10px; color: var(--text-3); }
+.ci-gc-than p { margin: 0; font-size: 11.5px; line-height: 1.62; color: var(--text-2);
+                white-space: pre-wrap; word-break: break-word; }
+
+.ci-gc-soan { margin-top: 10px; }
+.ci-gc-soan textarea { width: 100%; display: block; padding: 8px 10px; resize: none;
+                       border: 1px solid var(--border); border-radius: 10px;
+                       background: var(--surface); font: inherit; font-size: 11.5px;
+                       line-height: 1.6; color: var(--text); transition: border-color .16s ease; }
+.ci-gc-soan textarea::placeholder { color: var(--text-3); }
+.ci-gc-soan textarea:focus { outline: none; border-color: var(--primary);
+                             box-shadow: 0 0 0 3px rgba(249, 115, 22, .12); }
+/* Cùng một hàng thì cùng một chiều cao — xem khối "MỘT HÀNG, MỘT CHIỀU CAO". */
+.ci-gc-nut { display: flex; gap: 6px; margin-top: 7px; }
+.ci-gc-nut .ci-nut, .ci-gc-nut .ci-nut.nho { height: 28px; }
+
+
+/* ── Đội trực: THẺ người đã chọn + ô chọn để thêm ─────────────────────────
+   Bản trước đổ CẢ danh sách nhân viên ra thành lưới ô tick. Công ty vài trăm người thì phải dò
+   mắt qua toàn bộ để biết ai đang trong vòng quay — mà đó lại là câu hỏi duy nhất khối này cần
+   trả lời. Nay chỉ bày người ĐÃ chọn; muốn thêm thì dùng đúng ô chọn của khối "Phụ trách". */
+.ci-pc-doi { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin-bottom: 10px;
+             min-height: 26px; }
+.ci-pc-doi-trong { font-size: 11.5px; color: var(--text-3); }
+.ci-pc-chip { display: inline-flex; align-items: center; gap: 5px; height: 26px;
+              padding: 0 5px 0 11px; border: 1px solid var(--border); border-radius: 999px;
+              background: var(--surface); color: var(--text);
+              font-size: 12px; font-weight: 600; line-height: 1; white-space: nowrap; }
+.ci-pc-chip button { display: inline-flex; padding: 3px; border: 0; border-radius: 999px;
+                     background: transparent; color: var(--text-3); cursor: pointer; }
+.ci-pc-chip button:hover { background: #FEF2F2; color: var(--danger); }
+
+/* Ô chọn không giãn hết chiều ngang: đứng cạnh bộ đếm và nút "Bỏ hết" trên CÙNG một hàng,
+   cùng một chiều cao — xem khối "MỘT HÀNG, MỘT CHIỀU CAO". */
+.ci-pc-them { display: flex; align-items: center; gap: 10px; }
+.ci-pc-them .cn-boc { flex: 1; min-width: 0; max-width: 340px; }
+.ci-pc-them .ci-nut, .ci-pc-them .ci-nut.nho, .ci-pc-them .cn-nut { height: 34px; }
+
+/* Thân hộp của mục Phân công: cho thở hơn một chút so và để thanh lưu dính đáy ăn khớp lề. */
+.ci-modal-than:has(.ci-pc) { padding: 18px 16px 16px; }
 
 /* ── Trang chính sách bảo mật ─────────────────────────────────────────────────
    Trang CÔNG KHAI, người đọc chính là người duyệt của Meta và khách hàng cuối — không phải nhân

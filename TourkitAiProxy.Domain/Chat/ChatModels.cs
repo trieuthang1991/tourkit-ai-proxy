@@ -387,3 +387,24 @@ public class ChatNote
     public string Body { get; set; } = "";
     public DateTime CreatedUtc { get; set; }
 }
+
+/// <summary>
+/// Một nhãn trong <b>danh mục</b> nhãn của công ty (bảng <c>chat_tag_catalog</c>).
+///
+/// <para><see cref="Slug"/> là DANH TÍNH — thứ ghi vào <c>chat_contact_tags</c> và đi trên đường
+/// dẫn API; đổi nó là mất liên kết với mọi khách đang mang nhãn. <see cref="Name"/> chỉ là chữ
+/// hiện ra cho người đọc, sửa thoải mái.</para>
+///
+/// <para>Khai bằng <b>class có thuộc tính ghi được</b>, không dùng record vị trí. Dapper khớp
+/// tham số của record vị trí theo KIỂU cột do driver khai báo, và cách đó đã làm sập hộp thư một
+/// lần (Npgsql khai <c>integer[]</c> là <c>System.Array</c>, không khớp <c>int[]</c>). Đường
+/// thuộc tính thì rộng lượng hơn — giữ nguyên lối này cho mọi model đọc từ Postgres.</para>
+/// </summary>
+public class ChatTag
+{
+    public long Id { get; set; }
+    public string Slug { get; set; } = "";
+    public string Name { get; set; } = "";
+    /// <summary>Số khách đang mang nhãn này — để quản trị biết xoá đi thì ảnh hưởng bao nhiêu.</summary>
+    public int UsageCount { get; set; }
+}

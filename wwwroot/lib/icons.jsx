@@ -8,6 +8,9 @@ const Icon = ({ name, size = 16, stroke = 1.75 }) => {
     calendar: <><rect x="3" y="5" width="18" height="16" rx="2" /><path d="M3 9h18M8 3v4M16 3v4" /></>,
     dollar: <><path d="M12 2v20M17 6H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H7" /></>,
     plus: <path d="M12 5v14M5 12h14" />,
+    // Nhãn dán: hình thẻ vát một góc + lỗ xỏ dây. Vẽ theo cùng lối nét mảnh của cả bộ, không
+    // mượn icon đặc từ bộ khác — lệch độ dày nét là thấy ngay khi nó đứng cạnh icon bên cạnh.
+    tag: <><path d="M20.6 13.4 13.4 20.6a2 2 0 0 1-2.8 0l-7.2-7.2A2 2 0 0 1 2.8 12V4.8A2 2 0 0 1 4.8 2.8H12a2 2 0 0 1 1.4.6l7.2 7.2a2 2 0 0 1 0 2.8z" /><circle cx="7.5" cy="7.5" r="1.3" /></>,
     minus: <path d="M5 12h14" />,
     chevronUp: <path d="M6 15l6-6 6 6" />,
     chevronDown: <path d="M6 9l6 6 6-6" />,
