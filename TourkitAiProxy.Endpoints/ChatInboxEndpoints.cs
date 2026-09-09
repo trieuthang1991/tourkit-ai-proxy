@@ -548,7 +548,6 @@ public static class ChatInboxEndpoints
             if (!assign.Configured) return NotConfigured();
 
             var ch = await assign.LayCauHinhAsync(a.TenantId, ct);
-            var s = sessions.Get(a.SessionId);
             // Hoisted: cần mã của chính người xem TRƯỚC để tính "tôi có đang tạm nghỉ không".
             var maToi = await sessions.EnsureCrmUserIdAsync(a.SessionId, ct);
             var dangNghi = ch?.PausedIds ?? Array.Empty<int>();
@@ -560,6 +559,11 @@ public static class ChatInboxEndpoints
             // phải điều kiện để chạy.
             var khoaDem = $"chat:nhanvien:{a.TenantId}";
             var nhanVien = new List<object>();
+            // Số dòng ERP trả về, khai ở NGOÀI nhánh để còn trả cho giao diện. Khi danh sách rỗng
+            // thì đây là dữ kiện quan trọng nhất: 0 dòng nghĩa là công ty không có ai, còn 108
+            // dòng mà vẫn rỗng nghĩa là ERP trả người nhưng thiếu tên — hai ca đòi hai cách xử lý
+            // khác hẳn, mà màn hình cũ gộp làm một câu "lượt gọi đang hỏng" cho cả hai.
+            var soDongErpTra = 0;
             var daDem = redis.Get(khoaDem);
             if (daDem is not null)
             {
@@ -572,12 +576,17 @@ public static class ChatInboxEndpoints
                 // sửa khi ai đó đổi tên. Best-effort — upstream hỏng thì trả danh sách rỗng, hộp
                 // thư vẫn chạy, chỉ mất ô chọn người.
                 var hoiHong = false;
-                // ERP trả về BAO NHIÊU dòng — khác hẳn "giữ lại được bao nhiêu" (nhanVien.Count).
-                // Thiếu con số này thì hai ca hoàn toàn khác nhau nhìn giống hệt nhau ở log.
-                var soDongErpTra = 0;
                 try
                 {
-                    var r = await api.GetAsync(s!.Jwt, "/api/ai/reference", ct);
+                    // Vé JWT phải lấy qua GetValidJwtAsync, KHÔNG đọc thẳng phiên. Vé không được
+                    // lưu xuống CSDL, nên máy chủ vừa khởi động lại là mọi phiên có vé RỖNG — và
+                    // hết hạn mềm thì vé cũ cũng thành vô dụng. Đọc thẳng thì ERP trả 401, ngoại lệ
+                    // rơi vào catch ngay dưới, và người dùng thấy đúng một triệu chứng: ô chọn
+                    // người phụ trách trống trơn. Đã trả giá 09/09/2026 — mất một buổi vì tưởng
+                    // ERP không trả người bán. Mọi đường khác gọi ERP đều đi qua hàm này (nó tự
+                    // đăng nhập lại ngầm bằng mật khẩu đã lưu); đây là chỗ DUY NHẤT còn sót.
+                    var jwt = await sessions.GetValidJwtAsync(a.SessionId, ct);
+                    var r = await api.GetAsync(jwt, "/api/ai/reference", ct);
                     if (r.TryGetProperty("lookups", out var lk)
                         && lk.TryGetProperty("sellers", out var sellers)
                         && sellers.ValueKind == JsonValueKind.Array)
@@ -667,6 +676,9 @@ public static class ChatInboxEndpoints
                 // Có thể null: phiên cũ chưa lấp mã, hoặc ERP không tra được. Giao diện phải chịu
                 // được null (lùi về cách xưng hô trung tính), đừng coi là lỗi.
                 meId              = maToi,
+                // Bao nhiêu dòng ERP thực sự trả về. Giao diện cần nó để nói ĐÚNG lý do khi ô
+                // chọn người trống — xem chú thích chỗ khai biến.
+                soDongErpTra      = soDongErpTra,
                 // Ai trong đội trực đang tạm nghỉ nhận việc — màn cấu hình dùng để làm mờ thẻ.
                 pausedIds         = dangNghi,
                 // Và riêng CHÍNH TÔI có đang nghỉ không: công tắc trên hộp thư đọc đúng ô này,

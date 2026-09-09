@@ -26,6 +26,14 @@ Những cập nhật gần đây của TRAV-AI, viết cho người dùng. Mới
 
 ### 🔧 Đã khắc phục
 
+- **Ô chọn người phụ trách trống trơn, không giao việc được cho ai.** Màn hình *Phân công* và ô giao
+  việc trong hộp thư không đổ ra được người nào, kèm câu báo dẫn sai hướng là đội trực còn trống —
+  trong khi công ty có đủ nhân viên. Nguyên nhân là phiên làm việc với CRM hết hạn mà không được gia
+  hạn lại, nên danh sách nhân viên về rỗng. Nay danh sách luôn lấy được, kể cả sau khi hệ thống vừa
+  khởi động lại.
+- **Báo “lỗi hệ thống” cho những việc không phải lỗi hệ thống.** Một số thao tác gửi thiếu thông tin
+  nhận về câu *Internal server error*, khiến bạn tưởng hệ thống hỏng và ngồi chờ, trong khi chỉ cần
+  điền lại cho đủ. Nay báo đúng là yêu cầu chưa hợp lệ.
 - **Quyền trong hộp thư chat trước đây dựa vào TÊN ĐĂNG NHẬP**, không dựa vào phân quyền thật.
   Hệ quả sai theo cả hai chiều, và cả hai đều đã xảy ra: người quản lý có quyền xem toàn bộ
   nhưng tên đăng nhập không phải "admin" thì bị kẹp lại chỉ thấy phần của mình; còn tài khoản

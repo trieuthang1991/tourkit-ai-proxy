@@ -1,4 +1,4 @@
-using Microsoft.AspNetCore.Diagnostics;
+﻿using Microsoft.AspNetCore.Diagnostics;
 
 namespace TourkitAiProxy.Services.Logging;
 
@@ -22,16 +22,31 @@ public class GlobalExceptionHandler : IExceptionHandler
         var path = ctx.Request.Path + ctx.Request.QueryString;
         var reqId = ctx.Items.TryGetValue("RequestId", out var r) ? r?.ToString() : null;
 
-        _log.LogError(ex, "UNHANDLED {Method} {Path} → 500: {Type}: {Msg}",
-            method, path, ex.GetType().Name, ex.Message);
+        // BadHttpRequestException MANG SẴN mã của nó (thường 400): thân JSON hỏng, thiếu tham số
+        // bắt buộc, thân quá lớn. Ép hết thành 500 là nói sai hai lần cùng lúc — nói với người gọi
+        // rằng máy chủ hỏng trong khi lỗi nằm ở yêu cầu của họ, và nhét lỗi của người gọi vào nhật
+        // ký lỗi máy chủ nên cảnh báo thật bị chìm. Đã trả giá 09/09/2026: gửi {"userId":null} vào
+        // đường giao việc nhận về "Internal server error", không ai đoán được mình gửi sai gì.
+        var maLoi = ex is BadHttpRequestException loiGoi
+            ? loiGoi.StatusCode
+            : StatusCodes.Status500InternalServerError;
+        var loiNguoiGoi = maLoi >= 400 && maLoi < 500;
+
+        if (loiNguoiGoi)
+            _log.LogWarning("YÊU CẦU HỎNG {Method} {Path} → {Ma}: {Type}: {Msg}",
+                method, path, maLoi, ex.GetType().Name, ex.Message);
+        else
+            _log.LogError(ex, "UNHANDLED {Method} {Path} → {Ma}: {Type}: {Msg}",
+                method, path, maLoi, ex.GetType().Name, ex.Message);
 
         if (ctx.Response.HasStarted) return false;
 
-        ctx.Response.StatusCode = StatusCodes.Status500InternalServerError;
+        ctx.Response.StatusCode = maLoi;
         ctx.Response.ContentType = "application/json";
         await ctx.Response.WriteAsJsonAsync(new
         {
-            error = "Internal server error",
+            // Giữ khoá `error` vì giao diện đang đọc đúng khoá này để hiện câu báo.
+            error = loiNguoiGoi ? "Yêu cầu không hợp lệ" : "Internal server error",
             detail = ex.Message,
             type = ex.GetType().Name,
             requestId = reqId

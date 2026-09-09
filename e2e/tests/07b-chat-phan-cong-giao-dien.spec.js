@@ -133,13 +133,19 @@ test('A4 — quản trị có Ô CHỌN NGƯỜI PHỤ TRÁCH ngay cả khi đ�
   await expect(muc, 'không thấy hội thoại nào trong danh sách').toBeVisible({ timeout: 20_000 });
   await muc.click();
 
-  const o = page.locator('.ci-chon-phutrach');
-  await expect(o, 'quản trị KHÔNG thấy ô chọn người phụ trách dù máy chủ cho phép giao việc')
+  // Ô chọn không còn là thẻ <select> nữa: từ 09/09/2026 nó là thành phần ChonNguoi có
+  // ô tìm (danh sách hàng trăm người thì cuộn tay không dùng được). Bài này canh NĂNG LỰC
+  // — quản trị chọn được người để giao — nên bám lối vào của người dùng, không bám thẻ.
+  const nut = page.locator('.ci-pt-giao .cn-nut');
+  await expect(nut, 'quản trị KHÔNG thấy ô chọn người phụ trách dù máy chủ cho phép giao việc')
     .toBeVisible({ timeout: 15_000 });
 
-  // Có ô mà rỗng thì cũng như không: phải đổ được người ra để chọn.
-  const soLuaChon = await o.locator('option').count();
-  expect(soLuaChon, 'ô chọn chỉ có mục trống — không giao được cho ai').toBeGreaterThan(1);
+  // Có ô mà rỗng thì cũng như không: mở ra phải đổ được người ra để chọn.
+  await nut.click();
+  const dong = page.locator('.ci-pt-giao .cn-hop .cn-dong');
+  await expect(dong.first(), 'ô chọn mở ra nhưng không có ai — không giao được cho ai')
+    .toBeVisible({ timeout: 10_000 });
+  expect(await dong.count(), 'ô chọn rỗng — không giao được cho ai').toBeGreaterThan(0);
 });
 
 test('A2 — mở hộp thư chat: không lượt gọi API nào rơi xuống trang SPA', async ({ page }) => {
