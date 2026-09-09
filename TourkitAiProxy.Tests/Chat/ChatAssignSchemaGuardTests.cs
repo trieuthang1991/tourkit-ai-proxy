@@ -347,4 +347,134 @@ public class ChatAssignSchemaGuardTests
             .Select(m => m.Groups[1].Value).ToList();
         Assert.Contains(canhBao, c => c.Contains("{N}") && c.Contains(bien));
     }
+
+    /// <summary>
+    /// Đường "chia lại hội thoại chưa có người" phải DÙNG LẠI vòng quay, không chép luật chia.
+    ///
+    /// <para><b>Vì sao đây là luật quan trọng nhất của đường này.</b> Vòng quay là MỘT câu lệnh
+    /// vừa đẩy con trỏ vừa gán, để hai tin tới cùng lúc không gán hai người cho một hội thoại.
+    /// Chép luật đó ra bản thứ hai thì hai bản dùng chung một con trỏ mà không chung một cách
+    /// đẩy — vòng quay lệch, và lệch âm thầm: mọi hội thoại vẫn có người, chỉ là chia không đều
+    /// và không ai biết cho tới lúc có người kêu.</para>
+    /// </summary>
+    [Fact]
+    public void Chia_lai_phai_dung_lai_vong_quay_chu_khong_chep_luat_chia()
+    {
+        var than = ThanHamPost("assign-settings/chia-lai");
+        Assert.False(string.IsNullOrWhiteSpace(than), "Không cắt được thân đường chia lại");
+
+        // (a) Dùng lại đúng câu lệnh nguyên tử của vòng quay.
+        Assert.Contains("assign.GanXoayVongAsync(a.TenantId, id, ct)", than);
+        // Và KHÔNG có câu SQL chia nào viết tay ở đây.
+        Assert.DoesNotContain("UPDATE chat_conversations", than);
+        Assert.DoesNotContain("rotation_last_user_id", than);
+
+        // (b) Cùng cửa quyền với chỗ LƯU cấu hình — đây là thao tác trên cấu hình của cả công ty.
+        Assert.Contains("CanConfigSystemAsync", than);
+
+        // (c) HAI câu từ chối RIÊNG cho hai nguyên nhân riêng: sai chế độ, và đội trực rỗng. Gộp
+        //     làm một là chỉ đường sai đúng một nửa số lần — người đọc đi đổi chế độ trong khi
+        //     thứ thiếu là người, hoặc ngược lại.
+        var iChe = than.IndexOf("Mode != CheDoPhanCong.XoayVong", StringComparison.Ordinal);
+        var iDoi = than.IndexOf("MemberIds.Length == 0", StringComparison.Ordinal);
+        Assert.True(iChe > 0, "Thiếu cửa kiểm chế độ xoay vòng");
+        Assert.True(iDoi > iChe, "Thiếu cửa kiểm đội trực rỗng, hoặc nó nằm TRƯỚC cửa chế độ");
+
+        // (d) Có TRẦN mỗi lượt. Lượt chạy gọi CSDL một lần cho mỗi hội thoại; một công ty vừa nối
+        //     kênh có hàng nghìn hội thoại cũ, không có trần thì một cú bấm hết giờ chờ giữa
+        //     chừng — mà phần đã chia thì không hoàn tác được.
+        Assert.Contains("TranChiaLai", than);
+
+        // (e) Nhật ký ghi dưới danh nghĩa NGƯỜI BẤM, không phải null. null nghĩa là hệ thống tự
+        //     làm; đây là việc có người ra lệnh, và "ai bấm" là câu hỏi đầu tiên khi tra lại.
+        Assert.Contains("\"chia-lai\"", than);
+        Assert.DoesNotMatch(@"AppendAuditAsync\([^;]{0,80}?null,\s*""chia-lai""", than);
+    }
+
+    [Fact]
+    public void Man_hinh_phan_cong_phai_co_nut_chia_lai()
+    {
+        // Nửa còn lại của cùng một luật: máy chủ có đường mà giao diện không có nút thì với người
+        // dùng là chưa có gì — và phần tồn đọng vẫn nằm đó, vô hình với nhân viên thường.
+        var jsx = ChatSchemaGuardTests.DocFile("wwwroot/pages/chat-assign-settings.jsx");
+        Assert.Contains("'/api/v1/chat/assign-settings/chia-lai'", jsx);
+        var m = Regex.Match(jsx, @"async function chiaLai\(\)(.{0,900})", RegexOptions.Singleline);
+        Assert.True(m.Success, "Không thấy hàm chiaLai");
+        Assert.Contains("method: 'POST'", m.Groups[1].Value);
+        // Nút chỉ hiện ở chế độ xoay vòng — ở thủ công thì không có vòng quay nào để chia theo.
+        Assert.Contains("{mode === 2 && (", jsx);
+    }
+
+    [Fact]
+    public void Tam_nghi_nhan_viec_phai_dung_luat_o_ca_ba_cho()
+    {
+        var kho = ChatSchemaGuardTests.DocFile(
+            "TourkitAiProxy.Infrastructure/Chat/Inbox/ChatAssignRepository.cs");
+
+        // (a) VÒNG QUAY phải bỏ qua người đang tạm nghỉ. Thiếu vế này thì công tắc chỉ là một
+        //     cái nút đẹp: người bấm tưởng mình đã dừng, việc vẫn rơi vào họ.
+        var vq = Regex.Match(kho, @"GanXoayVongAsync(.{0,3000})", RegexOptions.Singleline);
+        Assert.True(vq.Success, "Không thấy GanXoayVongAsync");
+        Assert.Contains("paused_ids", vq.Groups[1].Value);
+
+        // (b) Cửa "không cho người CUỐI CÙNG nghỉ" phải nằm TRONG câu UPDATE.
+        //     Đọc-rồi-ghi thì hai người cùng bấm một lúc đều thấy "vẫn còn người khác" và cả hai
+        //     cùng nghỉ được → đội trực không còn ai nhận việc → hội thoại nằm lại không người
+        //     phụ trách → vô hình với nhân viên thường. Đúng lỗ hổng vừa bịt cùng ngày.
+        var tn = Regex.Match(kho, @"DatTamNghiAsync(.{0,2500})", RegexOptions.Singleline);
+        Assert.True(tn.Success, "Không thấy DatTamNghiAsync");
+        var than = tn.Groups[1].Value;
+        var iThem = than.IndexOf("array_append", StringComparison.Ordinal);
+        Assert.True(iThem > 0, "Không thấy nhánh BẬT tạm nghỉ");
+        var iHetCau = than.IndexOf("\"\"\"", iThem, StringComparison.Ordinal);
+        Assert.True(iHetCau > iThem, "Không cắt được câu lệnh bật tạm nghỉ");
+        var cauBat = than[iThem..iHetCau];
+        Assert.Contains("EXISTS (SELECT 1 FROM unnest(s.member_ids) u", cauBat);
+        Assert.Contains("u <> @userId", cauBat);
+
+        // (c) Lượt LƯU của quản trị KHÔNG được đụng paused_ids — bấm Lưu một cái mà gọi cả đội
+        //     đi làm lại thì đúng vào lúc người ta đang nghỉ thật, và không ai thấy gì.
+        // Cắt bằng RANH GIỚI CÚ PHÁP (tới thành viên kế tiếp của lớp), không đếm ký tự: bản đầu
+        // của chốt này kẹp 2000 ký tự và đỏ oan ngay khi thân hàm dài thêm mấy dòng chú thích.
+        var iLuu = kho.IndexOf("public async Task LuuCauHinhAsync", StringComparison.Ordinal);
+        Assert.True(iLuu > 0, "Không thấy LuuCauHinhAsync");
+        var sau = kho[(iLuu + 20)..];
+        var mHet = Regex.Match(sau, @"^    (public|/// <summary>)", RegexOptions.Multiline);
+        // BỎ CHÚ THÍCH trước khi soi: chính chú thích ở đó nói "KHÔNG đụng paused_ids", và bản
+        // đầu của chốt này bắt luôn câu ấy. Cấm một DẠNG MÃ thì phải đi qua đây — đã ghi sổ.
+        Assert.DoesNotContain("paused_ids", BoChuThich(mHet.Success ? sau[..mHet.Index] : sau));
+    }
+
+    [Fact]
+    public void Cong_tac_tam_nghi_la_cua_NGUOI_TRUC_khong_phai_cua_quan_tri()
+    {
+        // Người đi họp, đi ăn, hết ca thì tự tắt. Quản trị đặt hộ thì luôn trễ so với thực tế,
+        // mà trễ ở đây nghĩa là khách rơi vào người không có mặt rồi nằm đó.
+        var jsx = ChatSchemaGuardTests.DocFile("wwwroot/pages/chat-inbox.jsx");
+        Assert.Contains("'/api/v1/chat/tam-nghi?nghi=' + nghi", jsx);
+
+        // Công tắc nằm trên HỘP THƯ (nơi người trực ngồi), không nằm trong màn cấu hình.
+        var cas = ChatSchemaGuardTests.DocFile("wwwroot/pages/chat-assign-settings.jsx");
+        Assert.DoesNotContain("tam-nghi", cas);
+
+        // Chỉ hiện khi mình NẰM TRONG đội trực — ngoài đội thì vốn không có lượt nào, bày công
+        // tắc ra chỉ làm người ta tưởng đang có.
+        Assert.Contains("{phanCong.trongDoiTruc && (", jsx);
+
+        // Và máy chủ phải phát ra đủ ba ô giao diện cần, nếu không công tắc vẽ mù.
+        var ep = ChatSchemaGuardTests.DocFile("TourkitAiProxy.Endpoints/ChatInboxEndpoints.cs");
+        foreach (var o in new[] { "pausedIds", "tamNghi", "trongDoiTruc" })
+            Assert.Contains(o + " ", ep);
+    }
+
+    /// <summary>Thân một handler <c>MapPost</c>, cắt tới dấu đóng của chính nó.</summary>
+    private static string ThanHamPost(string ten)
+    {
+        var kho = DuongDocCauHinh();
+        var neo = $"MapPost(\"/{ten}\"";
+        var batDau = kho.IndexOf(neo, StringComparison.Ordinal);
+        if (batDau < 0) return "";
+        var m = Regex.Match(kho[batDau..], @"\A.*?\r?\n        \}\);", RegexOptions.Singleline);
+        return m.Success ? m.Value : "";
+    }
 }

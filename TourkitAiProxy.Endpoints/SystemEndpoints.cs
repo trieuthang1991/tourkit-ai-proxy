@@ -48,11 +48,7 @@ public static class SystemEndpoints
             anomalyWatchdog = Services.Bootstrap.FeatureFlags.AnomalyWatchdog(cfg),
             autoCare        = Services.Bootstrap.FeatureFlags.AutoCare(cfg),
             chat            = Services.Bootstrap.FeatureFlags.Chat(cfg),
-            // Phân công hội thoại + phân quyền xem. PHỤ THUỘC Chat (xem FeatureFlags.ChatAssign).
-            // Cờ này CHỈ ẩn/hiện giao diện: luật xem thật nằm ở dòng cấu hình từng công ty trong
-            // CSDL chat, nên tắt cờ KHÔNG mở lại quyền xem của công ty đã bật — bảo vệ dữ liệu
-            // không được phụ thuộc một cờ khai trên máy chủ.
-            chatAssign      = Services.Bootstrap.FeatureFlags.ChatAssign(cfg),
+            // chatAssign ĐÃ BỎ (09/09/2026): phân công đi cùng hộp thư chat, không có cờ riêng.
             // Hộp thư chat có tin vào ĐẨY tới được không. false = bus chỉ thấy sự kiện của chính
             // instance mình (chưa cắm Redis), nên giao diện phải giữ đường lùi hỏi lại định kỳ.
             // Nói ra chứ không im lặng chạy chế độ kém hơn: triệu chứng "thỉnh thoảng tin mới

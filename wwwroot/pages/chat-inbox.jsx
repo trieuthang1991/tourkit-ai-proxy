@@ -693,7 +693,22 @@
     'sua-tin': 'sửa tin',
     'thu-hoi-tin': 'thu hồi tin',
     'go-ket-noi': 'gỡ kết nối kênh',
+    'danh-dau-chua-doc': 'đánh dấu chưa đọc',
+    // HAI đường TỰ ĐỘNG. Chúng vốn thiếu nhãn nên nhật ký in ra mã trần ("Hệ thống xoay-vong"),
+    // đúng hai dòng người đọc cần nhất khi hỏi "ai giao việc này, máy hay người?".
+    'xoay-vong': 'tự động chia việc',
+    'tu-nhan-khi-tra-loi': 'tự nhận khi trả lời',
+    // Quản trị bấm nút chia lại — KHÁC 'xoay-vong' ở chỗ có người ra lệnh, nên nhật ký ghi tên
+    // người đó chứ không ghi "Hệ thống". Khi tra lại thì "ai bấm" là câu hỏi đầu tiên.
+    'chia-lai': 'chia lại theo vòng quay',
   };
+
+  // Mã người → tên. Nhật ký lưu MÃ (đặc tả mục 4b: quyết định bằng mã, hiển thị bằng tên), còn
+  // `staffs` là danh sách màn hình đã nạp sẵn cho ô phân công — dùng lại, không gọi thêm lượt nào.
+  // Tra không ra thì hiện #mã: người đọc còn biết là có một ai đó và có cái để đi tra, chứ ô
+  // trống thì họ tưởng hỏng.
+  const tenNhanVien = (staffs, ma) =>
+    (staffs || []).find(nv => nv.id === ma)?.name || ('#' + ma);
 
   // `staffs` là danh sách nhân viên màn hình đã nạp sẵn cho ô phân công — dùng lại, không gọi thêm
   // lượt nào. Nhật ký lưu MÃ người (đặc tả mục 4b: quyết định bằng mã, hiển thị bằng tên).
@@ -701,19 +716,23 @@
     // null nghĩa là HỆ THỐNG (vòng quay tự chia việc), KHÔNG phải "không rõ ai" — hai thứ đó khác
     // nhau khi tra lại một hội thoại bị đóng nhầm. Tra không ra tên thì hiện #mã: người dùng còn
     // biết là có ai đó, còn ô trống thì họ tưởng hỏng.
-    const tenNguoi =
-      d.userId == null ? 'Hệ thống'
-      : ((staffs || []).find(nv => nv.id === d.userId)?.name || ('#' + d.userId));
+    const tenNguoi = d.userId == null ? 'Hệ thống' : tenNhanVien(staffs, d.userId);
     let ct = null;
     try { ct = d.chiTiet ? JSON.parse(d.chiTiet) : null; } catch {}
     const them =
-      d.hanhDong === 'chuyen-viec' && ct?.cho ? ' cho ' + ct.cho
+      // Cả giao tay lẫn tự động chia đều ghi {"cho": <mã người>}. Bản trước in thẳng con số ra
+      // ("Hệ thống xoay-vong cho 2") — đúng lớp lỗi đã sửa ở bản tin sáng cùng ngày, và ở đây
+      // còn dễ sửa hơn vì `staffs` đã nằm sẵn trong tay.
+      ['chuyen-viec', 'xoay-vong', 'chia-lai'].includes(d.hanhDong) && ct?.cho
+        ? ' cho ' + tenNhanVien(staffs, ct.cho)
       : d.hanhDong === 'doi-trang-thai' && ct?.trangThai != null ? ' → ' + (TEN_TRANG_THAI[ct.trangThai] || ct.trangThai)
       : d.hanhDong === 'tam-dung-bot' ? (ct?.phut ? ' (tạm dừng ' + ct.phut + ' phút)' : ' (cho chạy lại)')
       : '';
     return (
       <div className="ci-hs-dong nk">
-        <span>{fmtAgo(d.createdUtc)}</span>
+        {/* "3 giờ trước" đủ để lướt, nhưng nhật ký sinh ra để TRA LẠI — mà tra thì cần mốc
+            thật để đối chiếu với hộp thư, với lịch sử CRM, với lời khách kể. Rê chuột là ra. */}
+        <span title={fmtDate(d.createdUtc, { time: true })}>{fmtAgo(d.createdUtc)}</span>
         <b>{tenNguoi}</b> {TEN_HANH_DONG[d.hanhDong] || d.hanhDong}{them}
       </div>
     );
@@ -1801,7 +1820,7 @@
     );
   }
 
-  function KhaiKenh({ pushToast, onDong, mucDau, phanCongOn, onLuuPhanCong }) {
+  function KhaiKenh({ pushToast, onDong, mucDau, onLuuPhanCong }) {
     const [ds, setDs] = useState(null);
     const [dangLuu, setDangLuu] = useState(null);
     const [nhap, setNhap] = useState({});     // { "kenh:accountId" | "kenh:moi" -> {field: value} }
@@ -2221,7 +2240,7 @@
               thích đầu pages/chat-assign-settings.jsx. */}
           <div className="ci-muc">
             {[["kenh", "Kênh"], ["troly", "Trợ lý"], ["mau", "Mẫu trả lời"], ["nhan", "Nhãn"],
-              ...(phanCongOn ? [["phancong", "Phân công"]] : [])].map(([ma, ten]) => (
+              ["phancong", "Phân công"]].map(([ma, ten]) => (
               <button key={ma} className={"ci-muc-nut" + (muc === ma ? " on" : "")}
                       onClick={() => setMuc(ma)}>{ten}</button>
             ))}
@@ -2263,9 +2282,6 @@
     // Cờ RIÊNG 'chatAssign' (không dùng chung 'chat'): hộp thư chat đã ra mắt từ trước, còn phân
     // công thì chưa — dùng chung một cờ là bật cái này thì tắt luôn cả cái kia.
     //
-    // Gọi THẲNG, không bọc điều kiện: đây là hook, mà hook gọi có điều kiện thì thứ tự hook đổi
-    // giữa hai lượt vẽ và React ném lỗi. app.jsx cũng gọi y hệt kiểu này.
-    const phanCongOn = window.tourkitFeatures.useFeature('chatAssign');
     // Đội trực = giao của memberIds với danh sách nhân viên ERP. Máy chủ trả MÃ, tên thì tra ở
     // đây — không lưu tên trong CSDL chat để khỏi phải đồng bộ khi ai đó đổi tên.
     const doiTruc = (phanCong.staffs || []).filter(nv => (phanCong.memberIds || []).includes(nv.id));
@@ -2462,6 +2478,24 @@
       } catch { /* lỗi thì để nguyên mặc định — hộp thư vẫn chạy, chỉ mất ô chọn người */ }
     }, []);
     useEffect(() => { taiPhanCong(); }, [taiPhanCong]);
+
+    // Người trực tự tắt/bật lượt nhận việc của CHÍNH MÌNH — đi họp, đi ăn, hết ca thì tắt.
+    // Không đoán theo "có mở tab không": tab để qua đêm vẫn tính là đang trực, mà người thì đã
+    // về từ lâu. Chỉ có chính họ mới biết mình có đang nhận việc được hay không.
+    async function doiTamNghi() {
+      const nghi = !phanCong.tamNghi;
+      try {
+        const r = await authedFetch('/api/v1/chat/tam-nghi?nghi=' + nghi, { method: 'POST' });
+        const data = await r.json().catch(() => ({}));
+        if (!r.ok) throw new Error(data.error || ('Không đổi được (HTTP ' + r.status + ')'));
+        pushToast(nghi
+          ? 'Đã tạm dừng — hội thoại mới sẽ không chia cho bạn nữa.'
+          : 'Đã nhận việc trở lại.', 'success');
+        taiPhanCong();
+      } catch (e) {
+        pushToast(e.message, 'error');
+      }
+    }
 
     useEffect(() => {
       const el = cuonRef.current;
@@ -2784,8 +2818,7 @@
       // vài trăm mili giây đứng im và người dùng chạm lại lần nữa.
       <main className={'page ci-wrap' + (diDong ? ' di-dong' : '') + (diDong && chon ? ' xem-chat' : '')}>
         {moKhai && <KhaiKenh pushToast={pushToast} onDong={() => setMoKhai(false)}
-                             mucDau={moKhai} phanCongOn={phanCongOn}
-                             onLuuPhanCong={taiPhanCong} />}
+                             mucDau={moKhai} onLuuPhanCong={taiPhanCong} />}
 
         <div ref={gridRef} className={'ci-grid' + (v && moHoSo ? ' co-hoso' : '')}>
           {/* Hàng tiêu đề nằm TRONG thẻ, trải hết các cột.
@@ -2813,12 +2846,27 @@
                 cùng mở một hộp, chỉ khác mục vào thẳng. Trước đây phân công là một TRANG riêng
                 với mục menu bên trái: người dùng phải rời hộp thư, mất chỗ đang đọc, rồi tự tìm
                 đường quay lại. Ẩn khi cờ tắt để không bày một nút dẫn tới hộp trống. */}
-            {phanCongOn && (
-              <button className="ci-dau-nut" onClick={() => setMoKhai(m => m === 'phancong' ? false : 'phancong')}
-                      title="Phân công chat" aria-label="Phân công chat">
-                <window.Icon name="users" size={13} /><span>Phân công</span>
+            {/* Công tắc của CHÍNH NGƯỜI ĐANG TRỰC. Chỉ hiện khi họ nằm trong đội trực — ngoài
+                đội thì vốn không có lượt nào, bày ra chỉ làm người ta tưởng đang có.
+
+                Nhãn nói TRẠNG THÁI ĐANG LÀ, title nói VIỆC SẼ XẢY RA khi bấm. Nút bật/tắt mà
+                nhãn nói hành động thì luôn có người đọc ngược — "Tạm dừng" là đang dừng, hay
+                bấm vào thì dừng? */}
+            {phanCong.trongDoiTruc && (
+              <button className={'ci-dau-nut' + (phanCong.tamNghi ? ' dang-nghi' : '')}
+                      onClick={doiTamNghi}
+                      title={phanCong.tamNghi
+                        ? 'Bấm để nhận việc trở lại'
+                        : 'Bấm để tạm dừng nhận hội thoại mới'}
+                      aria-pressed={!!phanCong.tamNghi}>
+                <window.Icon name={phanCong.tamNghi ? 'stop' : 'check'} size={13} />
+                <span>{phanCong.tamNghi ? 'Đã tạm dừng' : 'Đang nhận việc'}</span>
               </button>
             )}
+            <button className="ci-dau-nut" onClick={() => setMoKhai(m => m === 'phancong' ? false : 'phancong')}
+                    title="Phân công chat" aria-label="Phân công chat">
+              <window.Icon name="users" size={13} /><span>Phân công</span>
+            </button>
             {/* Chữ bọc trong <span> để điện thoại giấu đi, chỉ còn dấu cộng — hàng tiêu đề
                 48px không đủ chỗ cho cả bộ đếm lẫn nhãn nút. title/aria-label giữ nghĩa. */}
             <button className="ci-dau-nut" onClick={() => setMoKhai(m => m === 'kenh' ? false : 'kenh')}

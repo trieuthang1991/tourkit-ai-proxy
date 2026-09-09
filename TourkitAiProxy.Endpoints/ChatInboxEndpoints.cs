@@ -28,6 +28,19 @@ public static class ChatInboxEndpoints
     private static readonly JsonSerializerOptions Web = new(JsonSerializerDefaults.Web);
 
     /// <summary>
+    /// Mỗi lượt bấm "chia lại" xử lý tối đa bấy nhiêu hội thoại.
+    ///
+    /// <para>Có trần vì lượt chạy này gọi CSDL một lần cho MỖI hội thoại (cố ý — để dùng lại đúng
+    /// câu lệnh nguyên tử của vòng quay thay vì chép luật chia ra một bản thứ hai). Một công ty
+    /// vừa nối kênh có thể có hàng nghìn hội thoại cũ; không có trần thì một cú bấm giữ request
+    /// hàng phút rồi hết giờ chờ giữa chừng, mà phần đã chia thì không hoàn tác được.</para>
+    ///
+    /// <para>Còn dư thì màn hình nói rõ và người dùng bấm tiếp — chậm hơn nhưng luôn kết thúc,
+    /// và mỗi lượt đều thấy được kết quả.</para>
+    /// </summary>
+    private const int TranChiaLai = 200;
+
+    /// <summary>
     /// Các tiền tố đường dẫn CHỈ thuộc hộp thư chat — <b>bản kiểm kê bề mặt API của cụm này</b>.
     ///
     /// <para>⚠️ <b>Từ 26/08/2026 danh sách này KHÔNG còn dùng để chặn.</b> Cờ <c>Features:Chat</c> nay
@@ -50,6 +63,10 @@ public static class ChatInboxEndpoints
         "/api/v1/chat/bot-settings",
         "/api/v1/chat/quick-replies",
         "/api/v1/chat/assign-settings",
+        // Người trực tự tắt/bật lượt nhận việc của chính mình. Đường RIÊNG chứ không nằm dưới
+        // /assign-settings: kia là cấu hình của quản trị cho cả công ty, đây là công tắc cá nhân
+        // và ai trong đội trực cũng bấm được.
+        "/api/v1/chat/tam-nghi",
         // Danh mục nhãn của công ty. KHÁC /conversations/{id}/tags — đường kia gắn/gỡ nhãn cho
         // MỘT khách, đường này quản lý bộ nhãn dùng chung.
         "/api/v1/chat/tags",
@@ -505,7 +522,18 @@ public static class ChatInboxEndpoints
 
     private static void MapInbox(IEndpointRouteBuilder routes)
     {
-        var g = routes.MapGroup("/api/v1/chat");
+        // Gác CẢ NHÓM: đủ MỘT trong hai quyền chat của CRM là vào được. Gắn ở nhóm chứ không
+        // rải vào từng handler — nhóm này đã hơn ba mươi đường, thêm đường mới mà quên kiểm là
+        // thủng, và cái thủng đó KHÔNG có triệu chứng: nó chạy đúng, chỉ là chạy cho người không
+        // được phép. Cùng lý lẽ đã áp cho cụm Visa và Khách hàng.
+        //
+        // ⚠️ Webhook nằm trong nhóm này (/api/v1/chat/webhook/…) và KHÔNG có phiên đăng nhập —
+        // bộ lọc cố ý cho request không phiên đi qua để handler tự trả lời, nên kênh vẫn gọi vào
+        // được như cũ. Đừng "sửa cho chặt hơn" bằng cách chặn luôn request không phiên.
+        var g = routes.MapGroup("/api/v1/chat")
+                      .AddEndpointFilter(new RequirePermissionFilter(
+                          "xem hộp thư chat",
+                          TkPermissionCodes.ChatXemTatCa, TkPermissionCodes.ChatXem));
 
         // ── Cấu hình phân công ───────────────────────────────────────────────
         // ĐỌC thì ai cũng được: giao diện cần biết chế độ và đội trực để dựng ô chọn người phụ
@@ -521,6 +549,9 @@ public static class ChatInboxEndpoints
 
             var ch = await assign.LayCauHinhAsync(a.TenantId, ct);
             var s = sessions.Get(a.SessionId);
+            // Hoisted: cần mã của chính người xem TRƯỚC để tính "tôi có đang tạm nghỉ không".
+            var maToi = await sessions.EnsureCrmUserIdAsync(a.SessionId, ct);
+            var dangNghi = ch?.PausedIds ?? Array.Empty<int>();
 
             // Danh sách nhân viên đổi rất thưa (chỉ khi nhân sự thay đổi bên ERP) nhưng bị hỏi ở
             // MỖI lần mở hộp thư và MỖI lần mở màn hình cấu hình. Đệm 2 tiếng theo công ty.
@@ -622,9 +653,9 @@ public static class ChatInboxEndpoints
                 scopeOwnOnly      = ch?.ScopeOwnOnly ?? false,
                 autoAssignOnReply = ch?.AutoAssignOnReply ?? false,
                 memberIds         = ch?.MemberIds ?? Array.Empty<int>(),
-                // Một nguồn duy nhất cho câu hỏi "ai là quản trị chat" — xem
-                // SessionAuth.LaQuanTriChat (chốt TẠM theo tên đăng nhập, không đọc IsAdmin).
-                isAdmin           = SessionAuth.LaQuanTriChat(a),
+                // Một nguồn duy nhất cho câu hỏi "ai là quản trị chat" — nay là quyền
+                // CHAT_XEM_ALL của CRM, xem SessionAuth.IsQuanTriChatAsync.
+                isAdmin           = await SessionAuth.IsQuanTriChatAsync(a.SessionId, sessions, ct),
                 // MÃ CỦA CHÍNH NGƯỜI ĐANG XEM. Giao diện cần nó để phân biệt "Bạn đang phụ trách"
                 // với "Chị Duyên đang phụ trách" — hai câu khác hẳn nhau về việc phải làm tiếp,
                 // mà nếu không có mã này thì màn hình chỉ nói được một câu chung chung cho cả hai.
@@ -635,7 +666,16 @@ public static class ChatInboxEndpoints
                 //
                 // Có thể null: phiên cũ chưa lấp mã, hoặc ERP không tra được. Giao diện phải chịu
                 // được null (lùi về cách xưng hô trung tính), đừng coi là lỗi.
-                meId              = await sessions.EnsureCrmUserIdAsync(a.SessionId, ct),
+                meId              = maToi,
+                // Ai trong đội trực đang tạm nghỉ nhận việc — màn cấu hình dùng để làm mờ thẻ.
+                pausedIds         = dangNghi,
+                // Và riêng CHÍNH TÔI có đang nghỉ không: công tắc trên hộp thư đọc đúng ô này,
+                // không phải tự dò trong mảng trên — dò ở giao diện là một chỗ nữa để sai.
+                tamNghi           = maToi is not null && dangNghi.Contains(maToi.Value),
+                // Người trực chỉ tự tắt lượt được khi mình NẰM TRONG đội trực; ngoài đội thì
+                // vốn đã không có lượt nào, bày công tắc ra chỉ gây hiểu nhầm là đang có.
+                trongDoiTruc      = maToi is not null
+                                    && (ch?.MemberIds ?? Array.Empty<int>()).Contains(maToi.Value),
                 staffs            = nhanVien
             }, Web);
         });
@@ -664,6 +704,105 @@ public static class ChatInboxEndpoints
             return Results.Json(new { ok = true, count = doiTruc.Length }, Web);
         });
 
+        // ── Người trực TỰ tắt/bật lượt nhận việc của chính mình ──────────────
+        //
+        // Không phải cấu hình của quản trị: người đi họp, đi ăn, hết ca thì tự tắt, xong tự bật
+        // lại. Quản trị đặt hộ thì luôn trễ so với thực tế, mà trễ ở đây nghĩa là khách rơi vào
+        // người không có mặt và nằm đó.
+        //
+        // ⚠️ Tham số đi bằng CHUỖI TRUY VẤN, KHÔNG bằng thân request. Tham số thân của minimal
+        // API gắn AcceptsMetadata("application/json") vào route, và request thiếu Content-Type
+        // bị loại khỏi danh sách ứng viên rồi rơi xuống trang SPA — nút bấm nhận 404 kèm HTML,
+        // không có gì xảy ra và không lỗi nào hiện ra. Đã trả giá đúng kiểu đó ở nút "Nhận
+        // chăm sóc" (08/09/2026); đừng đổi lại thành tham số thân.
+        g.MapPost("/tam-nghi", async (bool nghi, HttpContext ctx, TkSessionStore sessions,
+            ChatAssignRepository assign, CancellationToken ct) =>
+        {
+            var a = SessionAuth.Read(ctx, sessions);
+            if (a == null) return SessionAuth.Unauthorized();
+            if (!assign.Configured) return NotConfigured();
+
+            var ma = await sessions.EnsureCrmUserIdAsync(a.SessionId, ct);
+            if (ma is null) return ThieuMaNhanVien();
+
+            var kq = await assign.DatTamNghiAsync(a.TenantId, ma.Value, nghi, ct);
+            return kq switch
+            {
+                ChatAssignRepository.KetQuaTamNghi.Xong
+                    => Results.Json(new { ok = true, tamNghi = nghi }, Web),
+                ChatAssignRepository.KetQuaTamNghi.KhongTrongDoiTruc
+                    => Results.Json(new { error = "Bạn không nằm trong đội trực chat nên không có lượt nào để tạm dừng." },
+                        statusCode: StatusCodes.Status400BadRequest),
+                // Câu này phải nói ra HẬU QUẢ chứ không chỉ nói "không được": người đang định
+                // nghỉ cần biết vì sao mình bị chặn, và biết rằng chờ đồng nghiệp bật lại là đủ.
+                _ => Results.Json(new { error = "Bạn là người cuối cùng còn nhận việc trong đội trực — tạm dừng nữa thì khách nhắn tới sẽ không ai nhận. Nhờ một đồng nghiệp bật lại rồi thử lại." },
+                        statusCode: StatusCodes.Status400BadRequest),
+            };
+        });
+
+        // ── Chia lại những hội thoại CHƯA CÓ NGƯỜI ───────────────────────────
+        //
+        // Vòng quay tự động chỉ chạy lúc khách NHẮN TỚI. Hội thoại nào khách nhắn xong rồi im thì
+        // nằm lại mãi không ai phụ trách — và vì luật xem là "xem tất cả HOẶC việc của tôi", nó
+        // trở nên VÔ HÌNH với mọi nhân viên thường. Khách ngồi chờ, cả đội không biết có khách.
+        //
+        // <b>Vì sao là một cái NÚT chứ không phải tác vụ chạy nền.</b> Chia hàng loạt là việc
+        // không hoàn tác được (mỗi hội thoại một dòng nhật ký), và đúng lý lẽ đó đã khiến luồng
+        // nhận tin CỐ Ý bỏ qua tin lịch sử. Làm âm thầm sau lưng thì quản trị không biết lúc nào
+        // nó chạy, chạy bao nhiêu, hay vì sao hôm nay cả kho hội thoại cũ đổ lên đội trực. Một
+        // nút bấm có chủ đích, báo lại con số ngay, rẻ hơn và nhìn thấy được.
+        g.MapPost("/assign-settings/chia-lai", async (HttpContext ctx, TkSessionStore sessions,
+            ChatRepository repo, ChatAssignRepository assign, ChatEventBus bus,
+            ILoggerFactory lf, CancellationToken ct) =>
+        {
+            var log = lf.CreateLogger("chat.chia-lai");
+            var a = SessionAuth.Read(ctx, sessions);
+            if (a == null) return SessionAuth.Unauthorized();
+            if (!assign.Configured) return NotConfigured();
+            // Cùng cửa quyền với chỗ LƯU cấu hình: đây là thao tác trên cấu hình chia việc của cả
+            // công ty, không phải thao tác trên một hội thoại.
+            if (!await SessionAuth.CanConfigSystemAsync(a.SessionId, sessions, ct))
+                return SessionAuth.ForbiddenConfigSystem();
+
+            var ch = await assign.LayCauHinhAsync(a.TenantId, ct);
+            // Hai câu lỗi RIÊNG cho hai nguyên nhân riêng: một cái bảo đi đổi chế độ, một cái bảo
+            // đi thêm người. Gộp làm một là chỉ sai đường đúng một nửa số lần.
+            if (ch?.Mode != CheDoPhanCong.XoayVong)
+                return Results.BadRequest(new
+                { error = "Chỉ chia lại được ở chế độ xoay vòng. Đang ở chế độ thủ công thì người phụ trách do bạn tự chọn." });
+            if (ch.MemberIds.Length == 0)
+                return Results.BadRequest(new
+                { error = "Đội trực chat đang trống — thêm người vào đội trực trước rồi mới chia lại được." });
+
+            var ds = await assign.HoiThoaiChuaCoNguoiAsync(a.TenantId, TranChiaLai + 1, ct);
+            // Lấy dư MỘT dòng để biết còn nữa hay không mà không phải đếm thêm một lượt.
+            var conNua = ds.Count > TranChiaLai;
+            var maNguoiThaoTac = await sessions.EnsureCrmUserIdAsync(a.SessionId, ct);
+
+            var daChia = 0;
+            foreach (var id in ds.Take(TranChiaLai))
+            {
+                ct.ThrowIfCancellationRequested();
+                // DÙNG LẠI đúng câu lệnh của vòng quay tự động — không chép luật chia sang đây.
+                // Chép ra là hai bản, và hai bản thì con trỏ vòng quay sẽ lệch nhau lúc nào không
+                // ai biết. Hàm tự bỏ qua nếu hội thoại vừa được ai đó nhận trong lúc mình chạy.
+                var choAi = await assign.GanXoayVongAsync(a.TenantId, id, ct);
+                if (choAi is null) continue;
+                daChia++;
+
+                // Người thao tác là QUẢN TRỊ đang bấm nút, KHÔNG phải null. null nghĩa là hệ
+                // thống tự làm — mà đây là việc có người ra lệnh, và khi tra lại thì "ai bấm"
+                // chính là câu hỏi đầu tiên.
+                await repo.AppendAuditAsync(a.TenantId, id, maNguoiThaoTac, "chia-lai",
+                    new JsonObject { ["cho"] = choAi }.ToJsonString(), ct);
+                bus.Publish(new(a.TenantId, id, "doi-hoi-thoai", null) { AssignedUserId = choAi });
+            }
+
+            log.LogInformation("[chat/chia-lai] tenant={T} người={U} chia lại {N} hội thoại{Con}",
+                a.TenantId, a.Username, daChia, conNua ? " (còn nữa)" : "");
+            return Results.Json(new { ok = true, daChia, conNua }, Web);
+        });
+
         // ── Đẩy sự kiện: thay cho hỏi-lại-4-giây ────────────────────────────
         //
         // Dùng SSE chứ không SignalR — dự án đã có sẵn SSE ở CẢ HAI đầu (AiEndpoints, DealEndpoints;
@@ -676,7 +815,7 @@ public static class ChatInboxEndpoints
         g.MapGet("/events", async (HttpContext ctx, TkSessionStore sessions, ChatAssignRepository assign,
             ChatEventBus bus, CancellationToken ct) =>
         {
-            var p = await SessionAuth.ReadNguoiXemAsync(ctx, sessions, assign, ct);
+            var p = await SessionAuth.ReadNguoiXemAsync(ctx, sessions, ct);
             if (p == null) return SessionAuth.Unauthorized();
             var (a, xem) = p.Value;
 
@@ -734,7 +873,7 @@ public static class ChatInboxEndpoints
             short? status, string? search, short? channel, bool? unread, bool? followed, bool? mine,
             string? cursor, CancellationToken ct) =>
         {
-            var p = await SessionAuth.ReadNguoiXemAsync(ctx, sessions, assign, ct);
+            var p = await SessionAuth.ReadNguoiXemAsync(ctx, sessions, ct);
             if (p == null) return SessionAuth.Unauthorized();
             var (a, xem) = p.Value;
             if (!repo.Configured) return NotConfigured();
@@ -807,7 +946,7 @@ public static class ChatInboxEndpoints
         g.MapGet("/conversations/{id:long}", async (long id, HttpContext ctx, TkSessionStore sessions,
             ChatRepository repo, ChatAssignRepository assign, CancellationToken ct) =>
         {
-            var p = await SessionAuth.ReadNguoiXemAsync(ctx, sessions, assign, ct);
+            var p = await SessionAuth.ReadNguoiXemAsync(ctx, sessions, ct);
             if (p == null) return SessionAuth.Unauthorized();
             var (a, xem) = p.Value;
             if (!repo.Configured) return NotConfigured();
@@ -900,7 +1039,7 @@ public static class ChatInboxEndpoints
             IEnumerable<Services.Chat.Channels.IChatChannelAdapter> adapters,
             CancellationToken ct) =>
         {
-            var p = await SessionAuth.ReadNguoiXemAsync(ctx, sessions, assign, ct);
+            var p = await SessionAuth.ReadNguoiXemAsync(ctx, sessions, ct);
             if (p == null) return SessionAuth.Unauthorized();
             var (a, xem) = p.Value;
 
@@ -954,7 +1093,7 @@ public static class ChatInboxEndpoints
             IEnumerable<Services.Chat.Channels.IChatChannelAdapter> adapters,
             CancellationToken ct) =>
         {
-            var p = await SessionAuth.ReadNguoiXemAsync(ctx, sessions, assign, ct);
+            var p = await SessionAuth.ReadNguoiXemAsync(ctx, sessions, ct);
             if (p == null) return SessionAuth.Unauthorized();
             var (a, xem) = p.Value;
             if (string.IsNullOrWhiteSpace(body.TemplateId))
@@ -1016,7 +1155,7 @@ public static class ChatInboxEndpoints
             TkSessionStore sessions, ChatRepository repo, ChatAssignRepository assign, ChatEventBus bus,
             Services.Chat.Inbox.ChatWorkSignal tin, IConfiguration cfg, CancellationToken ct) =>
         {
-            var p = await SessionAuth.ReadNguoiXemAsync(ctx, sessions, assign, ct);
+            var p = await SessionAuth.ReadNguoiXemAsync(ctx, sessions, ct);
             if (p == null) return SessionAuth.Unauthorized();
             var (a, xem) = p.Value;
             if (!repo.Configured) return NotConfigured();
@@ -1123,7 +1262,7 @@ public static class ChatInboxEndpoints
             TkSessionStore sessions, ChatRepository repo, ChatAssignRepository assign,
             IChatFileStorage kho, CancellationToken ct) =>
         {
-            var p = await SessionAuth.ReadNguoiXemAsync(ctx, sessions, assign, ct);
+            var p = await SessionAuth.ReadNguoiXemAsync(ctx, sessions, ct);
             if (p == null) return SessionAuth.Unauthorized();
             var (a, xem) = p.Value;
             if (!repo.Configured) return NotConfigured();
@@ -1167,7 +1306,7 @@ public static class ChatInboxEndpoints
             // theo công ty, nên đây là CỬA HẬU của luật xem: nhân viên bị chuyển giao hội thoại
             // vẫn tải lại được ảnh/tệp khách đã gửi nếu còn giữ mã tin. Đóng cửa trước mà để ngỏ
             // cửa sau thì luật xem chỉ là hình thức.
-            var p = await SessionAuth.ReadNguoiXemAsync(ctx, sessions, assign, ct);
+            var p = await SessionAuth.ReadNguoiXemAsync(ctx, sessions, ct);
             if (p == null) return SessionAuth.Unauthorized();
             var (a, xem) = p.Value;
             if (!repo.Configured) return NotConfigured();
@@ -1226,7 +1365,7 @@ public static class ChatInboxEndpoints
             ILoggerFactory lf, CancellationToken ct) =>
         {
             var log = lf.CreateLogger("chat.assign");
-            var p = await SessionAuth.ReadNguoiXemAsync(ctx, sessions, assign, ct);
+            var p = await SessionAuth.ReadNguoiXemAsync(ctx, sessions, ct);
             if (p == null) return SessionAuth.Unauthorized();
             var (a, xem) = p.Value;
             if (!repo.Configured) return NotConfigured();
@@ -1264,7 +1403,8 @@ public static class ChatInboxEndpoints
             // danh sách họ không thấy, không sửa được, và quản trị cũng không còn chỗ nào để mở
             // ra xem — hỏng nặng hơn hẳn so với trước khi giấu.
             var chAssign = await assign.LayCauHinhAsync(a.TenantId, ct);
-            if (!SessionAuth.LaQuanTriChat(a) && chAssign?.Mode == CheDoPhanCong.XoayVong)
+            if (!await SessionAuth.IsQuanTriChatAsync(a.SessionId, sessions, ct)
+                && chAssign?.Mode == CheDoPhanCong.XoayVong)
             {
                 if (chAssign.MemberIds.Length == 0)
                     // Câu lỗi khác hẳn "không có trong đội trực": ở đây KHÔNG có ai trong đội
@@ -1311,7 +1451,7 @@ public static class ChatInboxEndpoints
             ILoggerFactory lf, CancellationToken ct) =>
         {
             var log = lf.CreateLogger("chat.assign");
-            var p = await SessionAuth.ReadNguoiXemAsync(ctx, sessions, assign, ct);
+            var p = await SessionAuth.ReadNguoiXemAsync(ctx, sessions, ct);
             if (p == null) return SessionAuth.Unauthorized();
             var (a, xem) = p.Value;
             if (!repo.Configured) return NotConfigured();
@@ -1360,7 +1500,7 @@ public static class ChatInboxEndpoints
             ILoggerFactory lf, CancellationToken ct) =>
         {
             var log = lf.CreateLogger("chat.assign");
-            var p = await SessionAuth.ReadNguoiXemAsync(ctx, sessions, assign, ct);
+            var p = await SessionAuth.ReadNguoiXemAsync(ctx, sessions, ct);
             if (p == null) return SessionAuth.Unauthorized();
             var (a, xem) = p.Value;
             if (!repo.Configured) return NotConfigured();
@@ -1382,7 +1522,7 @@ public static class ChatInboxEndpoints
             TkSessionStore sessions, ChatRepository repo, ChatAssignRepository assign, ChatEventBus bus,
             CancellationToken ct) =>
         {
-            var p = await SessionAuth.ReadNguoiXemAsync(ctx, sessions, assign, ct);
+            var p = await SessionAuth.ReadNguoiXemAsync(ctx, sessions, ct);
             if (p == null) return SessionAuth.Unauthorized();
             var (a, xem) = p.Value;
             if (!repo.Configured) return NotConfigured();
@@ -1449,7 +1589,7 @@ public static class ChatInboxEndpoints
         g.MapGet("/conversations/{id:long}/tags", async (long id, HttpContext ctx,
             TkSessionStore sessions, ChatRepository repo, ChatAssignRepository assign, CancellationToken ct) =>
         {
-            var p = await SessionAuth.ReadNguoiXemAsync(ctx, sessions, assign, ct);
+            var p = await SessionAuth.ReadNguoiXemAsync(ctx, sessions, ct);
             if (p == null) return SessionAuth.Unauthorized();
             var (a, xem) = p.Value;
             if (!repo.Configured) return NotConfigured();
@@ -1464,7 +1604,7 @@ public static class ChatInboxEndpoints
         g.MapPost("/conversations/{id:long}/tags", async (long id, TagReq body, HttpContext ctx,
             TkSessionStore sessions, ChatRepository repo, ChatAssignRepository assign, CancellationToken ct) =>
         {
-            var p = await SessionAuth.ReadNguoiXemAsync(ctx, sessions, assign, ct);
+            var p = await SessionAuth.ReadNguoiXemAsync(ctx, sessions, ct);
             if (p == null) return SessionAuth.Unauthorized();
             var (a, xem) = p.Value;
             if (!repo.Configured) return NotConfigured();
@@ -1489,7 +1629,7 @@ public static class ChatInboxEndpoints
         g.MapDelete("/conversations/{id:long}/tags/{tag}", async (long id, string tag, HttpContext ctx,
             TkSessionStore sessions, ChatRepository repo, ChatAssignRepository assign, CancellationToken ct) =>
         {
-            var p = await SessionAuth.ReadNguoiXemAsync(ctx, sessions, assign, ct);
+            var p = await SessionAuth.ReadNguoiXemAsync(ctx, sessions, ct);
             if (p == null) return SessionAuth.Unauthorized();
             var (a, xem) = p.Value;
             if (!repo.Configured) return NotConfigured();
@@ -1506,7 +1646,7 @@ public static class ChatInboxEndpoints
         g.MapGet("/conversations/{id:long}/notes", async (long id, HttpContext ctx,
             TkSessionStore sessions, ChatRepository repo, ChatAssignRepository assign, CancellationToken ct) =>
         {
-            var p = await SessionAuth.ReadNguoiXemAsync(ctx, sessions, assign, ct);
+            var p = await SessionAuth.ReadNguoiXemAsync(ctx, sessions, ct);
             if (p == null) return SessionAuth.Unauthorized();
             var (a, xem) = p.Value;
             if (!repo.Configured) return NotConfigured();
@@ -1521,7 +1661,7 @@ public static class ChatInboxEndpoints
         g.MapPost("/conversations/{id:long}/notes", async (long id, NoteReq body, HttpContext ctx,
             TkSessionStore sessions, ChatRepository repo, ChatAssignRepository assign, CancellationToken ct) =>
         {
-            var p = await SessionAuth.ReadNguoiXemAsync(ctx, sessions, assign, ct);
+            var p = await SessionAuth.ReadNguoiXemAsync(ctx, sessions, ct);
             if (p == null) return SessionAuth.Unauthorized();
             var (a, xem) = p.Value;
             if (!repo.Configured) return NotConfigured();
@@ -1539,7 +1679,7 @@ public static class ChatInboxEndpoints
             HttpContext ctx, TkSessionStore sessions, ChatRepository repo, ChatAssignRepository assign,
             CancellationToken ct) =>
         {
-            var p = await SessionAuth.ReadNguoiXemAsync(ctx, sessions, assign, ct);
+            var p = await SessionAuth.ReadNguoiXemAsync(ctx, sessions, ct);
             if (p == null) return SessionAuth.Unauthorized();
             var (a, xem) = p.Value;
             if (!repo.Configured) return NotConfigured();
@@ -1557,7 +1697,7 @@ public static class ChatInboxEndpoints
             TkSessionStore sessions, ChatRepository repo, ChatAssignRepository assign,
             TourKitCustomerSource khach, CancellationToken ct) =>
         {
-            var p = await SessionAuth.ReadNguoiXemAsync(ctx, sessions, assign, ct);
+            var p = await SessionAuth.ReadNguoiXemAsync(ctx, sessions, ct);
             if (p == null) return SessionAuth.Unauthorized();
             var (a, xem) = p.Value;
             if (!repo.Configured) return NotConfigured();
@@ -1584,7 +1724,7 @@ public static class ChatInboxEndpoints
             TkSessionStore sessions, ChatRepository repo, ChatAssignRepository assign, ChatEventBus bus,
             CancellationToken ct) =>
         {
-            var p = await SessionAuth.ReadNguoiXemAsync(ctx, sessions, assign, ct);
+            var p = await SessionAuth.ReadNguoiXemAsync(ctx, sessions, ct);
             if (p == null) return SessionAuth.Unauthorized();
             var (a, xem) = p.Value;
             if (!repo.Configured) return NotConfigured();
@@ -1608,7 +1748,7 @@ public static class ChatInboxEndpoints
         g.MapGet("/conversations/{id:long}/audit", async (long id, HttpContext ctx,
             TkSessionStore sessions, ChatRepository repo, ChatAssignRepository assign, CancellationToken ct) =>
         {
-            var p = await SessionAuth.ReadNguoiXemAsync(ctx, sessions, assign, ct);
+            var p = await SessionAuth.ReadNguoiXemAsync(ctx, sessions, ct);
             if (p == null) return SessionAuth.Unauthorized();
             var (a, xem) = p.Value;
             if (!repo.Configured) return NotConfigured();
@@ -1638,7 +1778,7 @@ public static class ChatInboxEndpoints
             TkSessionStore sessions, ChatRepository repo, ChatAssignRepository assign,
             ChatInboundService svc, CancellationToken ct) =>
         {
-            var p = await SessionAuth.ReadNguoiXemAsync(ctx, sessions, assign, ct);
+            var p = await SessionAuth.ReadNguoiXemAsync(ctx, sessions, ct);
             if (p == null) return SessionAuth.Unauthorized();
             var (a, xem) = p.Value;
             if (!repo.Configured) return NotConfigured();
@@ -1683,7 +1823,7 @@ public static class ChatInboxEndpoints
         g.MapPost("/conversations/{id:long}/unread", async (long id, HttpContext ctx,
             TkSessionStore sessions, ChatRepository repo, ChatAssignRepository assign, CancellationToken ct) =>
         {
-            var p = await SessionAuth.ReadNguoiXemAsync(ctx, sessions, assign, ct);
+            var p = await SessionAuth.ReadNguoiXemAsync(ctx, sessions, ct);
             if (p == null) return SessionAuth.Unauthorized();
             var (a, xem) = p.Value;
             if (!repo.Configured) return NotConfigured();
@@ -1711,7 +1851,7 @@ public static class ChatInboxEndpoints
             long msgId, HttpContext ctx, TkSessionStore sessions, ChatRepository repo,
             ChatAssignRepository assign, ChatInboundService svc, ChatEventBus bus, CancellationToken ct) =>
         {
-            var p = await SessionAuth.ReadNguoiXemAsync(ctx, sessions, assign, ct);
+            var p = await SessionAuth.ReadNguoiXemAsync(ctx, sessions, ct);
             if (p == null) return SessionAuth.Unauthorized();
             var (a, xem) = p.Value;
             if (!repo.Configured) return NotConfigured();
@@ -1751,7 +1891,7 @@ public static class ChatInboxEndpoints
             HttpContext ctx, TkSessionStore sessions, ChatRepository repo, ChatAssignRepository assign,
             ChatEventBus bus, CancellationToken ct) =>
         {
-            var p = await SessionAuth.ReadNguoiXemAsync(ctx, sessions, assign, ct);
+            var p = await SessionAuth.ReadNguoiXemAsync(ctx, sessions, ct);
             if (p == null) return SessionAuth.Unauthorized();
             var (a, xem) = p.Value;
             if (!repo.Configured) return NotConfigured();
@@ -1770,7 +1910,7 @@ public static class ChatInboxEndpoints
             EditMsgReq body, HttpContext ctx, TkSessionStore sessions, ChatRepository repo,
             ChatAssignRepository assign, ChatEventBus bus, CancellationToken ct) =>
         {
-            var p = await SessionAuth.ReadNguoiXemAsync(ctx, sessions, assign, ct);
+            var p = await SessionAuth.ReadNguoiXemAsync(ctx, sessions, ct);
             if (p == null) return SessionAuth.Unauthorized();
             var (a, xem) = p.Value;
             if (!repo.Configured) return NotConfigured();
@@ -1793,7 +1933,7 @@ public static class ChatInboxEndpoints
         g.MapPost("/conversations/{id:long}/block", async (long id, HttpContext ctx,
             TkSessionStore sessions, ChatRepository repo, ChatAssignRepository assign, CancellationToken ct) =>
         {
-            var p = await SessionAuth.ReadNguoiXemAsync(ctx, sessions, assign, ct);
+            var p = await SessionAuth.ReadNguoiXemAsync(ctx, sessions, ct);
             if (p == null) return SessionAuth.Unauthorized();
             var (a, xem) = p.Value;
             if (!repo.Configured) return NotConfigured();
@@ -1808,7 +1948,7 @@ public static class ChatInboxEndpoints
         g.MapDelete("/conversations/{id:long}/block", async (long id, HttpContext ctx,
             TkSessionStore sessions, ChatRepository repo, ChatAssignRepository assign, CancellationToken ct) =>
         {
-            var p = await SessionAuth.ReadNguoiXemAsync(ctx, sessions, assign, ct);
+            var p = await SessionAuth.ReadNguoiXemAsync(ctx, sessions, ct);
             if (p == null) return SessionAuth.Unauthorized();
             var (a, xem) = p.Value;
             if (!repo.Configured) return NotConfigured();
@@ -1824,7 +1964,7 @@ public static class ChatInboxEndpoints
         g.MapPost("/conversations/{id:long}/follow", async (long id, HttpContext ctx,
             TkSessionStore sessions, ChatRepository repo, ChatAssignRepository assign, CancellationToken ct) =>
         {
-            var p = await SessionAuth.ReadNguoiXemAsync(ctx, sessions, assign, ct);
+            var p = await SessionAuth.ReadNguoiXemAsync(ctx, sessions, ct);
             if (p == null) return SessionAuth.Unauthorized();
             var (a, xem) = p.Value;
             if (!repo.Configured) return NotConfigured();
@@ -1840,7 +1980,7 @@ public static class ChatInboxEndpoints
         g.MapDelete("/conversations/{id:long}/follow", async (long id, HttpContext ctx,
             TkSessionStore sessions, ChatRepository repo, ChatAssignRepository assign, CancellationToken ct) =>
         {
-            var p = await SessionAuth.ReadNguoiXemAsync(ctx, sessions, assign, ct);
+            var p = await SessionAuth.ReadNguoiXemAsync(ctx, sessions, ct);
             if (p == null) return SessionAuth.Unauthorized();
             var (a, xem) = p.Value;
             if (!repo.Configured) return NotConfigured();
@@ -1898,7 +2038,7 @@ public static class ChatInboxEndpoints
             TkSessionStore sessions, ChatRepository repo, ChatAssignRepository assign, ChatEventBus bus,
             CancellationToken ct) =>
         {
-            var p = await SessionAuth.ReadNguoiXemAsync(ctx, sessions, assign, ct);
+            var p = await SessionAuth.ReadNguoiXemAsync(ctx, sessions, ct);
             if (p == null) return SessionAuth.Unauthorized();
             var (a, xem) = p.Value;
             if (!repo.Configured) return NotConfigured();

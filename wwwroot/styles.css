@@ -8990,6 +8990,10 @@ n
               color: var(--text-2); font: inherit; font-size: 11.5px; font-weight: 600;
               flex-shrink: 0; cursor: pointer; }
 .ci-dau-nut:hover { background: var(--bg); color: var(--text); }
+/* Đang tạm dừng nhận việc — phải NHÌN LÀ THẤY ngay từ xa, vì quên bật lại là khách rơi vào
+   người khác suốt cả buổi mà mình không hay. Nền cảnh báo chứ không chỉ đổi chữ. */
+.ci-dau-nut.dang-nghi { border-color: #f5c26b; background: #fff7e6; color: #92610a; }
+.ci-dau-nut.dang-nghi:hover { background: #fff7e6; filter: brightness(0.97); }
 
 /* ── Vùng 1: dải kênh ─────────────────────────────────────────────────────── */
 .ci-dai { display: flex; flex-direction: column; align-items: center; gap: 4px; padding: 10px 0;

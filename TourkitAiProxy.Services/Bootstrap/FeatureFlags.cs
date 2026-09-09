@@ -48,18 +48,12 @@ public static class FeatureFlags
     public static bool ChatHistoryImport(IConfiguration cfg)
         => Chat(cfg) && cfg.GetValue("Features:ChatHistoryImport", false);
 
-    /// <summary>
-    /// Phân công hội thoại và phân quyền xem trong hộp thư chat.
-    ///
-    /// <para>PHỤ THUỘC <see cref="Chat"/>: không có hộp thư thì không có gì để phân công.</para>
-    ///
-    /// <para><b>Cờ này chỉ ẩn/hiện giao diện.</b> Luật xem thật nằm ở
-    /// <c>chat_assign_settings.scope_own_only</c> theo TỪNG CÔNG TY — chưa có dòng thì mọi người
-    /// xem tất cả, y như trước. Tắt cờ mà công ty đã bật kẹp quyền thì luật vẫn chạy: bảo vệ dữ
-    /// liệu không được phụ thuộc vào một cờ khai trong file cấu hình máy chủ.</para>
-    /// </summary>
-    public static bool ChatAssign(IConfiguration cfg)
-        => Chat(cfg) && cfg.GetValue("Features:ChatAssign", false);
+    // Cờ Features:ChatAssign ĐÃ BỎ (09/09/2026). Phân công không phải một tính năng riêng để ra
+    // mắt riêng — nó là cách hộp thư chat chia việc, đi cùng chính hộp thư. Giữ cờ thứ hai chỉ
+    // tạo ra một trạng thái vô nghĩa (có hộp thư mà không có cách giao việc) và một cách hỏng
+    // câm: cờ tắt thì nút Phân công biến mất trong khi máy chủ vẫn nhận lệnh bình thường.
+    //
+    // Ai được XEM gì thì nay do quyền CHAT_XEM / CHAT_XEM_ALL của CRM quyết, không do cờ nào.
 
     /// <summary>
     /// Kiểm tra sẵn sàng khởi hành (tác vụ <c>tour-readiness</c>): quét tour sắp đi, tour nào còn

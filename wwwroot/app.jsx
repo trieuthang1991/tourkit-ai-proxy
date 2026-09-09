@@ -38,7 +38,11 @@ const NAV_GROUPS = [
     { to: '/customers', icon: 'users',   label: 'Khách hàng', requirePerm: 'KH_KH_XEM' },  // people
     { to: '/deals',     icon: 'trend',   label: 'AI phân tích Cơ hội' },  // opportunity analysis
     { to: '/mail',      icon: 'mail',    label: 'Hộp thư AI' },
-    { to: '/chat-inbox', icon: 'send',  label: 'Hộp thư chat', feature: 'chat' },  // tin khách nhắn qua Zalo/kênh khác
+    // Quyền xem hộp thư lấy từ CRM: CHAT_XEM (chỉ phần được giao) hoặc CHAT_XEM_ALL (cả công
+    // ty) — đủ MỘT là hiện mục. Ai không có mã nào thì không thấy, và máy chủ cũng chặn song
+    // song ở nhóm /api/v1/chat, nên gõ tay đường dẫn cũng không vào được.
+    { to: '/chat-inbox', icon: 'send',  label: 'Hộp thư chat', feature: 'chat',
+      requirePerm: ['CHAT_XEM', 'CHAT_XEM_ALL'] },  // tin khách nhắn qua Zalo/kênh khác
     // 'Phân công chat' ĐÃ BỎ khỏi menu (08/09/2026): nó là cài đặt CỦA hộp thư chat, không phải
     // một nơi để đi tới. Nay mở bằng nút "Phân công" cạnh "Kết nối kênh" ngay trong hộp thư —
     // sửa xong là thấy kết quả tại chỗ, không phải rời màn rồi tự tìm đường về.
@@ -213,15 +217,15 @@ function App() {
   // Mục có `feature` còn phải chờ cờ RA MẮT bật — khác quyền: quyền nói "ai được xem", cờ nói
   // "tính năng đã ra mắt chưa". Cờ tắt mà vẫn bày mục menu thì bấm vào chỉ nhận 404.
   const chatOn = window.tourkitFeatures.useFeature('chat');
-  const phanCongOn = window.tourkitFeatures.useFeature('chatAssign');
   // Bảng tra cờ ĐÃ HỎI SẴN, không gọi hook theo tên động: hook phải chạy đúng thứ tự ở mọi lần
   // vẽ, gọi nó trong nhánh hay vòng lặp là React ném lỗi.
   //
-  // ⚠️ Tên KHÔNG có trong bảng nghĩa là "không gắn cờ" ⇒ LUÔN HIỆN. Bản trước chỉ biết mỗi
-  // 'chat' nên mục menu khai feature: 'chatAssign' vẫn hiện y như không khai gì — cờ trông như
-  // đã cắm mà thật ra không gác gì cả. Thêm cờ mới thì thêm một dòng ở đây, đừng chỉ thêm ở
-  // chỗ khai mục menu.
-  const coCua = { chat: chatOn, chatAssign: phanCongOn };
+  // ⚠️ Tên KHÔNG có trong bảng nghĩa là "không gắn cờ" ⇒ LUÔN HIỆN. Thêm cờ mới thì thêm một
+  // dòng ở đây, đừng chỉ thêm ở chỗ khai mục menu — bản trước khai feature:'chatAssign' ở mục
+  // menu mà quên bảng này, nên cờ trông như đã cắm trong khi thật ra không gác gì cả.
+  //
+  // 'chatAssign' đã BỎ (09/09/2026): phân công đi cùng hộp thư chat, không ra mắt riêng.
+  const coCua = { chat: chatOn };
   const featureOn = (name) => !name || (coCua[name] ?? true);
   const visibleGroups = NAV_GROUPS
     .map(g => ({ ...g, items: g.items.filter(it => hasPerm(it.requirePerm) && featureOn(it.feature)) }))
@@ -628,9 +632,14 @@ function App() {
         <Route path="/jarvis"    render={() => <window.JarvisPage pushToast={pushToast} />} />{/* alias link cũ */}
         <Route path="/mail"      render={() => <window.MailPage pushToast={pushToast} />} />
         {/* Cờ tắt thì ẨN MENU thôi chưa đủ: gõ tay /chat-inbox vẫn mở trang, rồi trang gọi API
-            nhận 404 và hiện lỗi kỹ thuật khó hiểu. Chặn ngay ở route. */}
+            nhận 404 và hiện lỗi kỹ thuật khó hiểu. Chặn ngay ở route.
+
+            HAI cửa, và THỨ TỰ có ý nghĩa: cờ nói "tính năng đã ra mắt chưa" (đúng cho mọi
+            người), quyền nói "ai được xem". Hỏi quyền trước khi hỏi cờ thì người không có
+            quyền nhận câu "bạn không có quyền" cho một tính năng chưa hề ra mắt — sai và khó
+            hiểu. Quyền lấy từ ROUTE_REQUIRE_PERM, tự suy ra từ requirePerm của mục menu. */}
         <Route path="/chat-inbox" render={() => chatOn
-          ? <window.ChatInboxPage pushToast={pushToast} />
+          ? gatePerm('/chat-inbox', <window.ChatInboxPage pushToast={pushToast} />)
           : <FeatureOffPage ten="Hộp thư chat" />} />
         {/* Đường cũ của trang "Phân công chat", giữ lại CHỈ để chuyển hướng. Màn hình đó nay là
             một mục trong hộp cài đặt của hộp thư chat (nút "Phân công"), không còn trang riêng.

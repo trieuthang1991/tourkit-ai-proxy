@@ -1,4 +1,4 @@
-namespace TourkitAiProxy.Domain.Chat;
+﻿namespace TourkitAiProxy.Domain.Chat;
 
 /// Chế độ chia hội thoại cho nhân viên.
 public static class CheDoPhanCong
@@ -23,7 +23,15 @@ public record ChatAssignSettings(
     bool   ScopeOwnOnly,
     bool   AutoAssignOnReply,
     int[]  MemberIds,
-    int?   RotationLastUserId);
+    int?   RotationLastUserId,
+    /// <summary>
+    /// Tập con của <paramref name="MemberIds"/> đang TẠM NGHỈ nhận việc — vòng quay bỏ qua.
+    ///
+    /// <para>Luôn khác rỗng-toàn-bộ: máy chủ từ chối lượt lưu nào làm cả đội cùng tạm nghỉ, vì
+    /// lúc đó vòng quay không gán được cho ai và hội thoại nằm lại KHÔNG người phụ trách — mà
+    /// hội thoại như thế thì nhân viên thường không nhìn thấy.</para>
+    /// </summary>
+    int[]  PausedIds);
 
 /// Ai đang xem, và được xem tới đâu.
 ///

@@ -32,43 +32,47 @@ public static class SessionAuth
     ///
     /// <para>Trả <c>null</c> khi phiên hỏng — chỗ gọi trả <see cref="Unauthorized"/> như cũ.</para>
     ///
-    /// <para><b>Chưa có dòng cấu hình, hoặc <c>scope_own_only</c> tắt ⇒ xem tất cả</b> — giữ
-    /// nguyên hành vi của khách đang chạy. Bật rồi thì admin xem tất cả, còn lại chỉ xem hội
-    /// thoại đã giao cho mình.</para>
+    /// <para><b>Phạm vi do QUYỀN CRM quyết, không do cấu hình trong app.</b> Có
+    /// <c>CHAT_XEM_ALL</c> thì xem tất cả; chỉ có <c>CHAT_XEM</c> thì xem phần được giao cho
+    /// mình. Ai không có mã nào thì không vào tới đây — bộ lọc nhóm đã chặn ở cửa.</para>
+    ///
+    /// <para><b>Vì sao bỏ <c>scope_own_only</c> khỏi đường này.</b> Nó ra đời khi chưa có mã
+    /// quyền chat, làm công tắc tạm ở mức công ty để khỏi đột ngột kẹp khách đang chạy. Nay CRM
+    /// đã có <c>CHAT_XEM</c>/<c>CHAT_XEM_ALL</c> cấp theo vai, nên giữ cả hai là hai nguồn sự
+    /// thật cho cùng một câu hỏi — mà hai nguồn lệch nhau ở chuyện quyền thì thành lỗ hổng. Cột
+    /// vẫn nằm trong CSDL (không xoá), chỉ thôi được đọc ở đây.</para>
     /// </summary>
     public static async Task<(Ctx Phien, NguoiXem Xem)?> ReadNguoiXemAsync(
-        HttpContext ctx, TkSessionStore sessions, ChatAssignRepository assign,
-        CancellationToken ct = default)
+        HttpContext ctx, TkSessionStore sessions, CancellationToken ct = default)
     {
         var a = Read(ctx, sessions);
         if (a == null) return null;
 
-        var cauHinh = assign.Configured ? await assign.LayCauHinhAsync(a.TenantId, ct) : null;
-        if (cauHinh is null or { ScopeOwnOnly: false })
+        if (await IsQuanTriChatAsync(a.SessionId, sessions, ct))
             return (a, new NguoiXem(null, XemTatCa: true));
 
         // Tự lấp CrmUserId nếu phiên cũ chưa có — KHÔNG bắt người dùng đăng nhập lại.
         var maNguoi = await sessions.EnsureCrmUserIdAsync(a.SessionId, ct);
-        // Quản trị viên chat: xem LaQuanTriChat bên dưới (chốt TẠM theo tên đăng nhập).
-        return (a, new NguoiXem(maNguoi, XemTatCa: LaQuanTriChat(a)));
+        return (a, new NguoiXem(maNguoi, XemTatCa: false));
     }
 
     /// <summary>
-    /// Tài khoản này có phải <b>quản trị viên chat</b> không.
+    /// Tài khoản này được xem <b>TẤT CẢ</b> hội thoại của công ty không — tức "quản trị chat".
     ///
-    /// <para>TẠM chốt theo TÊN ĐĂNG NHẬP, không đọc claim/cột <c>IsAdmin</c> — yêu cầu của chủ dự
-    /// án (07/09/2026): "đừng xoá tránh lỗi, cứ để tạm đấy". Cột <c>dbo.TkSessions.IsAdmin</c>,
-    /// <c>TkSession.IsAdmin</c>, <c>JwtClaims.TryGetIsAdmin</c> vẫn nạp và ghi bình thường — chat
-    /// chỉ THÔI ĐỌC tới chúng.</para>
+    /// <para>Đọc quyền <c>CHAT_XEM_ALL</c> của CRM. Bản trước chốt bằng
+    /// <c>Equals(Username, "admin")</c> và sai theo CẢ HAI chiều — xem
+    /// <see cref="TkPermissionCodes.ChatXemTatCa"/> để biết số đo thật.</para>
     ///
-    /// <para><b>Vì sao gom thành một hàm.</b> Cùng một câu <c>Equals(Username, "admin")</c> từng
-    /// nằm ở hai chỗ (phạm vi xem, và cờ <c>isAdmin</c> phát ra giao diện). Bản thứ BA sắp thêm
-    /// vào (cửa giao việc cho người khác) là lúc phải gom — ba bản chép tay của cùng một câu hỏi
-    /// "ai là quản trị chat" mà lệch nhau thì thành lỗ hổng chứ không phải bất tiện. Khi hệ quyền
-    /// thật (theo permission, không theo tên) vào, đổi ĐÚNG hàm này, đừng đi sửa từng chỗ gọi.</para>
+    /// <para><b>Vẫn là MỘT hàm cho cả cụm.</b> Cùng câu hỏi này được hỏi ở ba cửa: phạm vi xem,
+    /// cờ <c>isAdmin</c> phát ra giao diện, và cửa giao việc cho người khác. Ba bản chép tay mà
+    /// lệch nhau thì thành lỗ hổng chứ không phải bất tiện.</para>
     /// </summary>
-    public static bool LaQuanTriChat(Ctx a)
-        => string.Equals(a.Username, "admin", StringComparison.OrdinalIgnoreCase);
+    public static async Task<bool> IsQuanTriChatAsync(string sid, TkSessionStore sessions,
+                                                     CancellationToken ct = default)
+    {
+        await sessions.EnsurePermissionsAsync(sid, ct);
+        return sessions.HasPermission(sid, TkPermissionCodes.ChatXemTatCa);
+    }
 
     /// <summary>
     /// Tài khoản này có quyền <b>Cấu hình hệ thống</b> (<c>CH_HT_XEM</c>) không.

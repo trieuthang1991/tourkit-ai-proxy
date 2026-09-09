@@ -78,4 +78,101 @@ public class ChatAuditGuardTests
         Assert.Contains(TourkitAiProxy.Endpoints.ChatInboxEndpoints.OwnedPaths,
             p => duong.StartsWith(p + "/", System.StringComparison.Ordinal));
     }
+
+    /// Bỏ dòng chú thích trước khi soi — chú thích ở cả hai đầu đều nhắc tới chính các mã hành
+    /// động mà chốt đang đối chiếu.
+    private static string BoChuThich(string src) => string.Join("\n",
+        src.Split('\n').Where(d => !d.TrimStart().StartsWith("//", System.StringComparison.Ordinal)));
+
+    /// <summary>
+    /// MỌI mã hành động máy chủ ghi vào nhật ký đều phải có nhãn tiếng Việt ở giao diện.
+    ///
+    /// <para><b>Vì sao cần chốt.</b> Giao diện cố ý lùi về in mã trần khi thiếu nhãn — đúng lựa
+    /// chọn, vì giấu mất dòng nhật ký còn tệ hơn. Nhưng "xấu mà vẫn chạy" nghĩa là KHÔNG có
+    /// triệu chứng nào: bộ test xanh, màn hình vẫn hiện, chỉ là người đọc thấy
+    /// <c>"Hệ thống xoay-vong"</c> thay vì <c>"Hệ thống tự động chia việc"</c>.</para>
+    ///
+    /// <para>Đã trả giá 09/09/2026: máy chủ ghi 16 mã, giao diện có 13 nhãn. Ba mã thiếu gồm
+    /// <c>xoay-vong</c> và <c>tu-nhan-khi-tra-loi</c> — tức là ĐÚNG hai đường tự động, hai dòng
+    /// mà người đọc cần nhất khi hỏi "việc này máy giao hay người giao?".</para>
+    /// </summary>
+    [Fact]
+    public void Moi_ma_hanh_dong_may_chu_ghi_deu_phai_co_nhan_o_giao_dien()
+    {
+        // Quét CẢ HAI dạng gọi trên CẢ HAI tệp.
+        //
+        // ⚠️ Bản đầu của chốt này chỉ quét AppendAuditAsync ở ChatInboundService, vì lúc viết thì
+        // đường nền là chỗ DUY NHẤT ghi thẳng qua kho. Vài giờ sau, đường "chia lại hội thoại
+        // chưa có người" cũng ghi thẳng như thế nhưng nằm ở tệp endpoint — và chốt XANH dù nhãn
+        // còn thiếu. Chốt bám VỊ TRÍ thì mã dời chỗ một cái là vô hiệu; nay bám DẠNG GỌI.
+        var ma = new SortedSet<string>(System.StringComparer.Ordinal);
+        var nguon = new[]
+        {
+            BoChuThich(Endpoint()),
+            BoChuThich(ChatSchemaGuardTests.DocFile(
+                "TourkitAiProxy.Services/Chat/Inbox/ChatInboundService.cs")),
+        };
+        foreach (var src in nguon)
+        {
+            foreach (Match m in Regex.Matches(src,
+                         @"GhiNhatKyAsync\(ctx, repo, sessions, a, [^,]+, ""([a-z][a-z-]+)"""))
+                ma.Add(m.Groups[1].Value);
+            // Ghi thẳng qua kho — dùng khi người thao tác KHÔNG phải chủ thể thông thường của
+            // GhiNhatKyAsync (đường nền ghi dưới danh nghĩa hệ thống, đường chia lại ghi dưới
+            // danh nghĩa quản trị đang bấm nút).
+            foreach (Match m in Regex.Matches(src,
+                         @"AppendAuditAsync\([^;]{0,400}?""([a-z][a-z-]+)""", RegexOptions.Singleline))
+                ma.Add(m.Groups[1].Value);
+        }
+
+        // CHỐT CANH CHO CHÍNH CHỐT NÀY: biểu thức bóc mã mà hỏng thì tập rỗng, và "tập rỗng nằm
+        // trong mọi tập" nên phần đối chiếu bên dưới xanh trong im lặng — canh vào hư không.
+        Assert.True(ma.Count >= 14,
+            $"Chỉ bóc được {ma.Count} mã hành động ({string.Join(", ", ma)}) — biểu thức bóc hỏng rồi.");
+        Assert.Contains("xoay-vong", ma);
+
+        var jsx = BoChuThich(ChatSchemaGuardTests.DocFile("wwwroot/pages/chat-inbox.jsx"));
+        var bang = Regex.Match(jsx, @"const TEN_HANH_DONG = \{(.*?)\n  \};", RegexOptions.Singleline);
+        Assert.True(bang.Success, "Không thấy bảng TEN_HANH_DONG trong chat-inbox.jsx");
+        var nhan = new HashSet<string>(Regex.Matches(bang.Groups[1].Value, @"'([a-z][a-z-]+)':\s*'")
+            .Select(m => m.Groups[1].Value), System.StringComparer.Ordinal);
+
+        var thieu = ma.Where(x => !nhan.Contains(x)).ToList();
+        Assert.True(thieu.Count == 0,
+            "Máy chủ ghi mã này mà giao diện không có nhãn, nhật ký sẽ in mã trần: "
+            + string.Join(", ", thieu));
+    }
+
+    [Fact]
+    public void Nhat_ky_hien_TEN_nguoi_duoc_giao_chu_khong_hien_ma()
+    {
+        // Nhật ký lưu MÃ người (quyết định bằng mã, hiển thị bằng tên). Bản trước in thẳng mã ra
+        // cho "chuyển việc" — đọc thành "Anh A chuyển việc cho 2" — và đường tự động chia thì
+        // không có nhánh nào cả. Cùng lớp lỗi với mục khách quen của bản tin sáng cùng ngày.
+        var jsx = BoChuThich(ChatSchemaGuardTests.DocFile("wwwroot/pages/chat-inbox.jsx"));
+
+        // Có hàm tra tên dùng chung, và nó lùi về #mã khi tra không ra (ô trống thì người dùng
+        // tưởng hỏng).
+        Assert.Matches(@"const tenNhanVien = \(staffs, ma\) =>", jsx);
+        Assert.Contains("'#' + ma", jsx);
+
+        // CẢ HAI đường giao việc đều đi qua hàm đó — giao tay và tự động chia.
+        var m = Regex.Match(jsx, @"const them =(.{0,700}?);", RegexOptions.Singleline);
+        Assert.True(m.Success, "Không thấy nhánh dựng phần đuôi của dòng nhật ký");
+        var them = m.Groups[1].Value;
+        Assert.Contains("'chuyen-viec'", them);
+        Assert.Contains("'xoay-vong'", them);
+        Assert.Contains("tenNhanVien(staffs, ct.cho)", them);
+        // In thẳng mã là dạng mã bị cấm ở đây.
+        Assert.DoesNotContain("' cho ' + ct.cho", them);
+    }
+
+    [Fact]
+    public void Dong_nhat_ky_phai_co_moc_thoi_gian_tuyet_doi()
+    {
+        // "3 giờ trước" đủ để lướt, nhưng nhật ký sinh ra để TRA LẠI: đối chiếu với hộp thư, với
+        // lịch sử CRM, với lời khách kể. Không có mốc thật thì tra bằng gì.
+        var jsx = BoChuThich(ChatSchemaGuardTests.DocFile("wwwroot/pages/chat-inbox.jsx"));
+        Assert.Matches(@"<span title=\{fmtDate\(d\.createdUtc, \{ time: true \}\)\}>\{fmtAgo\(d\.createdUtc\)\}</span>", jsx);
+    }
 }

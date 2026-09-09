@@ -1,4 +1,4 @@
-// pages/chat-assign-settings.jsx — cấu hình chia hội thoại cho nhân viên.
+﻿// pages/chat-assign-settings.jsx — cấu hình chia hội thoại cho nhân viên.
 //
 // ⚠️ ĐÂY KHÔNG CÒN LÀ MỘT TRANG. Trước 08/09/2026 nó là route riêng `/chat-assign-settings` kèm
 // một mục menu bên trái. Bỏ đi vì tách riêng không đúng với việc: đây là cài đặt CỦA hộp thư
@@ -60,6 +60,7 @@
     const [autoAssignOnReply, setAutoAssignOnReply] = useState(false);
     const [memberIds, setMemberIds] = useState([]);
     const [staffs, setStaffs] = useState([]);
+    const [dangChia, setDangChia] = useState(false);
 
     // pushToast không phải chỗ gọi nào cũng truyền — rơi về alert để không bao giờ nuốt lỗi.
     const bao = (msg, kind) => (pushToast ? pushToast(msg, kind) : alert(msg));
@@ -118,6 +119,30 @@
         bao(e.message, 'error');
       } finally {
         setDangLuu(false);
+      }
+    }
+
+    // Chia lại những hội thoại chưa có ai phụ trách, theo đúng vòng quay đang cấu hình.
+    // KHÔNG tự lưu cài đặt giúp trước khi chạy: người dùng vừa đổi chế độ trên màn hình mà chưa
+    // bấm Lưu thì cái họ thấy và cái máy chủ biết là hai thứ khác nhau — tự lưu hộ là ra quyết
+    // định thay họ trên một thao tác không hoàn tác được. Máy chủ từ chối kèm lý do rõ, đủ dùng.
+    async function chiaLai() {
+      setDangChia(true);
+      try {
+        const r = await authedFetch('/api/v1/chat/assign-settings/chia-lai', { method: 'POST' });
+        const data = await r.json().catch(() => ({}));
+        if (!r.ok) throw new Error(data.error || ('Chia lại không xong (HTTP ' + r.status + ')'));
+        if (data.daChia === 0) {
+          bao('Không có hội thoại nào chưa có người phụ trách.', 'success');
+        } else {
+          bao('Đã chia ' + data.daChia + ' hội thoại cho đội trực.'
+              + (data.conNua ? ' Vẫn còn nữa — bấm tiếp để chia phần còn lại.' : ''), 'success');
+        }
+        if (onLuuXong) onLuuXong();
+      } catch (e) {
+        bao(e.message, 'error');
+      } finally {
+        setDangChia(false);
       }
     }
 
@@ -206,6 +231,33 @@
                 </div>
               </>
             )}
+          </section>
+        )}
+
+        {/* Vòng quay chỉ chạy lúc khách NHẮN TỚI, nên nó không bao giờ với tới phần tồn đọng.
+            Khối này là chỗ duy nhất xử lý phần đó — và nó phải nói ra HẬU QUẢ, vì "chưa có người
+            phụ trách" nghe như chuyện gọn gàng, trong khi thật ra là hội thoại đó vô hình với
+            nhân viên thường. */}
+        {mode === 2 && (
+          <section className="ci-pc-muc">
+            <h4>Hội thoại chưa có người phụ trách</h4>
+            <p className="ci-pc-phu">
+              Vòng quay chỉ chia việc <b>lúc khách nhắn tới</b>. Hội thoại khách nhắn xong rồi im
+              — hoặc đã có từ trước khi bạn bật xoay vòng, hoặc lúc đội trực còn trống — sẽ nằm
+              lại không ai phụ trách. Nhân viên thường <b>không nhìn thấy</b> những hội thoại đó,
+              nên khách ngồi chờ mà cả đội không biết.
+            </p>
+            <div className="ci-pc-them">
+              <button type="button" className="ci-nut" onClick={chiaLai}
+                      disabled={dangChia || memberIds.length === 0}>
+                {dangChia ? 'Đang chia…' : 'Chia lại cho đội trực'}
+              </button>
+              <span className="ci-pc-phu">
+                {memberIds.length === 0
+                  ? 'Thêm người vào vòng quay trước đã.'
+                  : 'Chạy được sau khi cài đặt xoay vòng đã được lưu.'}
+              </span>
+            </div>
           </section>
         )}
 

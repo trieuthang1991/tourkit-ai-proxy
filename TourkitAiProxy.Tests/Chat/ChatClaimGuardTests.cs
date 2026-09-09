@@ -208,7 +208,7 @@ public class ChatClaimGuardTests
         // công. Bỏ vế này mà vẫn giấu giao diện thì nhân viên thường bị chặn bởi một danh sách
         // không ai còn thấy, và câu lỗi chỉ họ tới một khối không còn tồn tại.
         var than = AssignHandler();
-        var i = than.IndexOf("if (!SessionAuth.LaQuanTriChat(a)", StringComparison.Ordinal);
+        var i = than.IndexOf("if (!await SessionAuth.IsQuanTriChatAsync(", StringComparison.Ordinal);
         Assert.True(i > 0, "Không thấy cửa quản trị ở đường chuyển việc — đội trực đang ràng buộc cả admin?");
 
         var trongNhanh = than[i..];

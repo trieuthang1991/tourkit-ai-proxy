@@ -661,6 +661,13 @@ public class ChatDb
       -- bớt một người là cả vòng lệch: chị A nhận gấp đôi, anh B không nhận cái nào, và không
       -- ai biết vì sao.
       rotation_last_user_id integer,
+      -- TẠM NGHỈ NHẬN VIỆC — tập con của member_ids. Người vẫn ở trong đội trực (giữ chỗ, giữ
+      -- lượt của mình trong vòng) nhưng vòng quay bỏ qua khi chia.
+      --
+      -- Vì sao KHÔNG bỏ họ ra khỏi member_ids cho gọn: bỏ ra là mất luôn thông tin "người này
+      -- thuộc đội trực", nên lúc họ đi làm lại phải nhớ mà thêm vào — mà không ai nhớ. Nghỉ một
+      -- tuần rồi quay lại thấy mình không còn trong đội là lỗi im lặng điển hình.
+      paused_ids            integer[]   NOT NULL DEFAULT '{}',
       updated_utc           timestamptz NOT NULL DEFAULT now()
     );
 
@@ -668,5 +675,7 @@ public class ChatDb
     -- có lệnh riêng, y như lần thêm account_id cho chat_conversations.
     ALTER TABLE chat_assign_settings
       ADD COLUMN IF NOT EXISTS member_ids integer[] NOT NULL DEFAULT '{}';
+    ALTER TABLE chat_assign_settings
+      ADD COLUMN IF NOT EXISTS paused_ids integer[] NOT NULL DEFAULT '{}';
     """;
 }

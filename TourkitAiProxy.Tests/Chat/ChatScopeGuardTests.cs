@@ -150,7 +150,7 @@ public class ChatScopeGuardTests
         var j = src.IndexOf("MapGet(\"/avatars/{accountId}/{fid}\"", System.StringComparison.Ordinal);
         Assert.True(i >= 0 && j > i, "Không thấy handler tải tệp trong ChatInboxEndpoints.cs");
         var thanTep = src[i..j];
-        Assert.Contains("SessionAuth.ReadNguoiXemAsync(ctx, sessions, assign, ct)", thanTep);
+        Assert.Contains("SessionAuth.ReadNguoiXemAsync(ctx, sessions, ct)", thanTep);
         Assert.Contains("GetConversationByMessageAsync(a.TenantId, msgId, xem, ct)", thanTep);
         // Đọc phiên trần ở đây là dấu hiệu ai đó lùi lại bản cũ.
         Assert.DoesNotContain("SessionAuth.Read(ctx, sessions)", thanTep);
@@ -279,11 +279,14 @@ public class ChatScopeGuardTests
     }
 
     [Fact]
-    public void Quyen_xem_het_chat_chot_tam_theo_TEN_dang_nhap_khong_doc_IsAdmin()
+    public void Quyen_xem_het_chat_doc_QUYEN_CRM_chu_khong_theo_ten_dang_nhap()
     {
-        // Yêu cầu chủ dự án 07/09/2026: chat TẠM chốt quản trị viên theo tên đăng nhập, không
-        // đọc claim/cột IsAdmin nữa — "đừng xoá tránh lỗi, cứ để tạm đấy". Cột
-        // dbo.TkSessions.IsAdmin, TkSession.IsAdmin, JwtClaims.TryGetIsAdmin PHẢI còn nguyên
+        // 09/09/2026: chốt tạm "tên đăng nhập là admin" ĐÃ BỎ. CRM vốn đã có sẵn hai mã quyền
+        // CHAT_XEM và CHAT_XEM_ALL — đo trên staging cùng ngày: AdminThoa có CHAT_XEM_ALL mà bị
+        // kẹp oan, trang01 không có mã nào mà vẫn vào được hộp thư. Chốt tạm ấy sai theo CẢ HAI
+        // chiều, nên nay quyền của CRM là nguồn duy nhất.
+        //
+        // Cột dbo.TkSessions.IsAdmin, TkSession.IsAdmin, JwtClaims.TryGetIsAdmin PHẢI còn nguyên
         // (test riêng của chúng ở JwtClaimsTests không đụng tới) — guard này chỉ khoá đúng CHỖ
         // ĐỌC, không khoá phần hạ tầng ghi/nạp.
         //
@@ -293,29 +296,36 @@ public class ChatScopeGuardTests
         // BA sắp xuất hiện — và chốt ĐỎ dù luật không đổi lấy một chữ. Đó là cơ chế mục ruỗng
         // số 1 đã ghi sổ trên nhánh này: chốt bám CHÍNH TẢ, mã dời sang hàm gói.
         //
-        // Nay chốt bám LUẬT, ba vế:
-        //   (a) có ĐÚNG MỘT nơi trả lời "ai là quản trị chat", và nó so theo tên đăng nhập;
+        // Nay chốt bám LUẬT, bốn vế:
+        //   (a) có ĐÚNG MỘT nơi trả lời "ai là quản trị chat", và nó đọc quyền CHAT_XEM_ALL;
         //   (b) mọi cửa quyết định của chat đều HỎI qua nơi đó;
-        //   (c) không cửa nào đọc IsAdmin.
+        //   (c) không cửa nào đọc IsAdmin;
+        //   (d) KHÔNG chỗ nào quay lại so theo tên đăng nhập.
         // Gom lại lần nữa (đổi tên hàm, dời sang lớp khác) thì vế (b) đỏ và người sửa buộc phải
         // đọc chốt này — khác hẳn bản cũ, đỏ mà không nói được vì sao.
-        var neo = "string.Equals(a.Username, \"admin\", StringComparison.OrdinalIgnoreCase)";
-        var sessionAuth = SessionAuthSrc();
+        var neo = "TkPermissionCodes.ChatXemTatCa";
+        // BỎ CHÚ THÍCH trước khi đếm. Chú thích tài liệu của chính hàm này có <see cref=...> trỏ
+        // tới hằng số đó, nên bản đầu của chốt đếm ra 2 và đỏ oan — đúng cơ chế mục ruỗng số 1
+        // đã ghi sổ trên nhánh này, chỉ khác chiều: lần trước chú thích che mã, lần này chú
+        // thích ĐÓNG VAI mã.
+        var sessionAuth = BoChuThich(SessionAuthSrc());
 
         // (a) MỘT nguồn duy nhất. Đếm chứ không chỉ Contains: bản chép THỨ HAI làm chốt đỏ ngay
         // tại lúc nó ra đời, không đợi tới bản thứ ba như lần trước.
-        Assert.Contains("public static bool LaQuanTriChat(Ctx a)", sessionAuth);
+        Assert.Contains("public static async Task<bool> IsQuanTriChatAsync(", sessionAuth);
         Assert.Equal(1, Regex.Matches(sessionAuth, Regex.Escape(neo)).Count);
-        var thanLaQuanTri = Regex.Match(sessionAuth,
-            @"public static bool LaQuanTriChat\(Ctx a\)(.{0,200})", RegexOptions.Singleline);
-        Assert.True(thanLaQuanTri.Success, "Không thấy thân LaQuanTriChat");
-        Assert.Contains(neo, thanLaQuanTri.Groups[1].Value);
+        var thanQuanTri = Regex.Match(sessionAuth,
+            @"public static async Task<bool> IsQuanTriChatAsync\((.{0,400})", RegexOptions.Singleline);
+        Assert.True(thanQuanTri.Success, "Không thấy thân IsQuanTriChatAsync");
+        Assert.Contains(neo, thanQuanTri.Groups[1].Value);
+        // (d) Chốt tạm cũ không được quay lại — kể cả ở SessionAuth, nơi nó từng sống.
+        Assert.DoesNotContain("a.Username, \"admin\"", sessionAuth);
 
         // (b)+(c) Hai cửa quyết định. Cắt tới THÀNH VIÊN KẾ TIẾP, không đếm ký tự — cửa sổ cố
         // định 1200 từng chỉ dư 76 ký tự và làm bộ test này đỏ oan ba lần.
         var thanRead = ThanReadNguoiXem();
         Assert.False(string.IsNullOrWhiteSpace(thanRead), "Không cắt được thân ReadNguoiXemAsync");
-        Assert.Contains("LaQuanTriChat(a)", thanRead);
+        Assert.Contains("IsQuanTriChatAsync(a.SessionId, sessions, ct)", thanRead);
         Assert.DoesNotContain("s?.IsAdmin", thanRead);
 
         var src = Endpoint();
@@ -323,7 +333,7 @@ public class ChatScopeGuardTests
         var j = src.IndexOf("MapPut(\"/assign-settings\"", System.StringComparison.Ordinal);
         Assert.True(i >= 0 && j > i, "Không thấy route GET /assign-settings trong ChatInboxEndpoints.cs");
         var than = src[i..j];
-        Assert.Contains("SessionAuth.LaQuanTriChat(a)", than);
+        Assert.Contains("SessionAuth.IsQuanTriChatAsync(a.SessionId, sessions, ct)", than);
         Assert.DoesNotContain("s?.IsAdmin", than);
 
         // Không bản chép tay nào trong ChatInboxEndpoints. Soi CẢ FILE, không cửa sổ hẹp: cửa sổ
@@ -356,5 +366,67 @@ public class ChatScopeGuardTests
                         src.IndexOf("\n    /// <summary>", i + 20, StringComparison.Ordinal) }
                 .Where(x => x > 0).DefaultIfEmpty(-1).Min();
         return j < 0 ? src[i..] : src[i..j];
+    }
+
+    /// Bỏ mọi dòng chú thích trước khi soi. Hai chốt dưới đòi những chuỗi (CHAT_XEM,
+    /// /api/auth/permissions) mà chú thích ở chính hai tệp đó có nhắc tới — tính chú thích là mã
+    /// thì gỡ sạch phần thân mà chốt vẫn xanh.
+    private static string BoChuThich(string src) => string.Join("\n",
+        src.Split('\n').Where(d => !d.TrimStart().StartsWith("//", StringComparison.Ordinal)));
+
+    [Fact]
+    public void Ca_nhom_hop_thu_chat_phai_gac_bang_QUYEN_o_ca_hai_dau()
+    {
+        // Máy chủ và giao diện phải nói CÙNG một câu. Chỉ gác một đầu thì:
+        //   · chỉ giao diện  → giấu mục menu, nhưng gõ tay đường dẫn hoặc gọi thẳng API vẫn vào;
+        //   · chỉ máy chủ    → mục menu vẫn bày ra, bấm vào nhận 403 không rõ vì sao.
+        // Đo thật 09/09/2026 trước khi sửa: trang01 không có mã quyền chat nào mà vẫn mở được
+        // hộp thư, vì lúc đó KHÔNG đầu nào gác cả.
+        var src = BoChuThich(Endpoint());
+
+        // Gác ở NHÓM, không rải vào từng handler: nhóm này hơn ba mươi đường, thêm đường mới mà
+        // quên kiểm là thủng mà không có triệu chứng — nó chạy đúng, chỉ là chạy cho người
+        // không được phép.
+        var m = Regex.Match(src, @"MapGroup\(""/api/v1/chat""\)(.{0,400})", RegexOptions.Singleline);
+        Assert.True(m.Success, "Không thấy nhóm /api/v1/chat");
+        var khaiNhom = m.Groups[1].Value;
+        Assert.Contains("RequirePermissionFilter", khaiNhom);
+        Assert.Contains("TkPermissionCodes.ChatXemTatCa", khaiNhom);
+        Assert.Contains("TkPermissionCodes.ChatXem", khaiNhom);
+
+        // Giao diện: mục menu khai ĐỦ HAI mã (đủ một là hiện — hasPerm dùng .some cho mảng), và
+        // route cũng phải qua gatePerm. Thiếu vế route thì bookmark cũ vẫn mở được trang.
+        var app = BoChuThich(ChatSchemaGuardTests.DocFile("wwwroot/app.jsx"));
+        var muc = Regex.Match(app, @"to: '/chat-inbox'(.{0,300}?)\},", RegexOptions.Singleline);
+        Assert.True(muc.Success, "Không thấy mục menu /chat-inbox");
+        Assert.Contains("requirePerm", muc.Groups[1].Value);
+        Assert.Contains("CHAT_XEM'", muc.Groups[1].Value);
+        Assert.Contains("CHAT_XEM_ALL'", muc.Groups[1].Value);
+        Assert.Contains("gatePerm('/chat-inbox'", app);
+    }
+
+    [Fact]
+    public void Duong_doc_quyen_phai_lay_tu_PHIEN_chu_khong_goi_thang_CRM()
+    {
+        // MỘT nguồn sự thật. Máy chủ gác cửa bằng bản quyền lưu trong phiên; nếu giao diện lấy
+        // bản đi thẳng CRM thì hai bản khác thời điểm, và menu với máy chủ nói ngược nhau —
+        // thấy mục menu mà bấm vào nhận 403, hoặc mất mục menu cho thứ vẫn gọi được.
+        //
+        // Kèm lý do đo được (09/09/2026): 17 lượt gọi thẳng CRM trong một buổi, trung bình
+        // 559ms, cá biệt 3,35 giây, ngay trên đường đăng nhập.
+        var src = BoChuThich(ChatSchemaGuardTests.DocFile("TourkitAiProxy.Endpoints/TourEndpoints.cs"));
+        var m = Regex.Match(src, @"MapGet\(""/permissions""(.{0,1800}?)\n        \}\);",
+            RegexOptions.Singleline);
+        Assert.True(m.Success, "Không cắt được handler /permissions");
+        var than = m.Groups[1].Value;
+
+        Assert.Contains("EnsurePermissionsAsync", than);
+        Assert.DoesNotContain("/api/auth/permissions", than);
+
+        // Nạp hụt PHẢI thành lỗi, không thành danh sách rỗng: rỗng là câu trả lời hợp lệ nên
+        // giao diện sẽ tin và cất vào localStorage — mất sạch menu, không lỗi nào hiện ra, và
+        // F5 cũng không cứu vì bản rỗng đã nằm trong bộ nhớ trình duyệt.
+        Assert.Contains("!s.PermissionsLoaded", than);
+        Assert.Contains("statusCode: 502", than);
     }
 }

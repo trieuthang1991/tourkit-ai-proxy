@@ -92,48 +92,60 @@ public class ChatFeatureFlagCoverageTests
         Assert.DoesNotContain("FeatureFlags.Chat", than);
     }
 
+    /// <summary>Bỏ dòng chú thích trước khi soi — chú thích dưới đây nhắc chính tên cờ đã bỏ.</summary>
+    private static string BoChuThich(string src) => string.Join("\n",
+        src.Split('\n').Where(d => !d.TrimStart().StartsWith("//", System.StringComparison.Ordinal)));
+
     [Fact]
-    public void Co_ChatAssign_phai_di_HET_duong_tu_may_chu_ra_giao_dien()
+    public void Co_ChatAssign_da_bo_HAN_ma_tinh_nang_van_con()
     {
-        // ⚠️ Cờ đi được NỬA ĐƯỜNG là kiểu hỏng khó thấy nhất, và nó đã xảy ra ở đây: việc 10
-        // khai FeatureFlags.ChatAssign + khoá trong appsettings.example.json rồi dừng. Không
-        // endpoint nào phát nó ra, không mục giao diện nào đọc nó — cờ trông như đã cắm mà
-        // thật ra bật/tắt đều KHÔNG đổi gì. Đo trên máy chạy thật 08/09/2026: GET /api/v1/features
-        // không hề có khoá chatAssign.
+        // Cờ Features:ChatAssign ĐÃ BỎ (09/09/2026, chủ dự án chốt): phân công không phải một
+        // tính năng ra mắt riêng, nó là cách hộp thư chat chia việc.
         //
-        // Một cờ ẩn/hiện giao diện chỉ có nghĩa khi ĐỦ BỐN mắt xích. Chốt này canh cả bốn.
-        var flags = DocFileGoc("TourkitAiProxy.Services/Bootstrap/FeatureFlags.cs");
-        Assert.Contains("public static bool ChatAssign(IConfiguration cfg)", flags);
-
-        // (2) Máy chủ PHÁT ra. Thiếu mắt này thì giao diện hỏi mãi cũng không thấy khoá đâu.
-        var he = DocFileGoc("TourkitAiProxy.Endpoints/SystemEndpoints.cs");
-        Assert.Matches(@"chatAssign\s*=\s*Services\.Bootstrap\.FeatureFlags\.ChatAssign\(cfg\)", he);
-
-        var app = DocFileGoc("wwwroot/app.jsx");
-        // (3) Giao diện ĐỌC đúng cờ RIÊNG, không dùng ké cờ 'chat' của hộp thư — hộp thư đã ra
-        // mắt từ trước, dùng chung là bật hộp thư liền lộ phần chưa ra mắt.
+        // Chốt này có HAI vế, và vế thứ hai mới là vế dễ quên. Chỉ đòi "cờ biến mất" thì xoá
+        // luôn cả nút Phân công cũng xanh — tức là dọn cờ xong thì tính năng cũng mất, đúng
+        // kiểu hỏng câm mà cả cụm này đã dính mấy lần.
         //
-        // ⚠️ Trước 08/09/2026 mắt xích này là một MỤC MENU trỏ tới trang riêng. Trang đó đã bỏ
-        // (cấu hình phân công nay nằm trong hộp cài đặt của chính hộp thư chat), nên chốt chuyển
-        // sang canh chỗ mới: nút mở cấu hình và mục tab đều phải nằm sau cờ.
-        var inbox = DocFileGoc("wwwroot/pages/chat-inbox.jsx");
-        Assert.Matches(@"const phanCongOn = window\.tourkitFeatures\.useFeature\('chatAssign'\)", inbox);
-        // Nút "Phân công" cạnh "Kết nối kênh" chỉ hiện khi cờ bật.
-        Assert.Matches(@"\{phanCongOn && \(\s*<button className=""ci-dau-nut""", inbox);
-        // Và mục tab trong hộp cài đặt cũng vậy — ẩn nút mà vẫn để lộ tab thì gõ tay vẫn vào được.
-        Assert.Contains("...(phanCongOn ? [[\"phancong\", \"Phân công\"]] : [])", inbox);
+        // ⚠️ Cờ đi được NỬA ĐƯỜNG từng là lỗi thật ở đây: việc 10 khai FeatureFlags.ChatAssign
+        // + khoá trong appsettings.example.json rồi dừng — không endpoint nào phát ra, không
+        // giao diện nào đọc. Nay bỏ thì phải bỏ SẠCH, không để lại nửa mắt xích nào.
 
-        // (4) Và tên cờ phải có trong BẢNG TRA của featureOn. Đây chính là mắt xích im lặng
-        // nhất: featureOn trả TRUE cho mọi tên nó không biết, nên khai feature:'chatAssign' ở
-        // mục menu mà quên thêm vào bảng thì mục vẫn hiện y như không gắn cờ — không lỗi, không
-        // dấu hiệu gì. Đòi cả hai vế cùng lúc.
+        // (1) Không còn dấu vết ở BỐN nơi cờ từng đi qua, cộng tệp cấu hình mẫu.
+        foreach (var tep in new[]
+                 {
+                     "TourkitAiProxy.Services/Bootstrap/FeatureFlags.cs",
+                     "TourkitAiProxy.Endpoints/SystemEndpoints.cs",
+                     "wwwroot/app.jsx",
+                     "wwwroot/pages/chat-inbox.jsx",
+                     "appsettings.example.json",
+                 })
+        {
+            var src = BoChuThich(DocFileGoc(tep));
+            // Soi ĐÚNG CÁC DẠNG CỦA CỜ, không soi chuỗi "ChatAssign" trần: lớp
+            // ChatAssignSettingsForm và ChatAssignRepository là TÊN THÀNH PHẦN, chúng phải sống
+            // tiếp. Bản đầu của chốt này bắt nhầm đúng chỗ đó.
+            Assert.DoesNotContain("chatAssign", src, System.StringComparison.Ordinal);
+            Assert.DoesNotContain("FeatureFlags.ChatAssign", src, System.StringComparison.Ordinal);
+            Assert.DoesNotContain("bool ChatAssign(", src, System.StringComparison.Ordinal);
+            Assert.DoesNotContain("\"ChatAssign\"", src, System.StringComparison.Ordinal);
+        }
+
+        var app = BoChuThich(DocFileGoc("wwwroot/app.jsx"));
+        var inbox = BoChuThich(DocFileGoc("wwwroot/pages/chat-inbox.jsx"));
+
+        // Bảng tra cờ không được giữ khoá chết: featureOn trả TRUE cho mọi tên nó không biết,
+        // nên một khoá thừa ở đây vừa vô nghĩa vừa gây hiểu nhầm là còn cờ.
         var bang = Regex.Match(app, @"const coCua = \{([^}]*)\}");
         Assert.True(bang.Success, "Không thấy bảng tra cờ coCua trong app.jsx");
-        Assert.Contains("chatAssign", bang.Groups[1].Value);
+        Assert.DoesNotContain("chatAssign", bang.Groups[1].Value);
+
+        // (2) VÀ tính năng vẫn còn: nút Phân công cạnh Kết nối kênh, cùng mục tab trong hộp cài
+        //     đặt — cả hai nay VÔ ĐIỀU KIỆN, vì cửa duy nhất còn lại là cờ 'chat' của cả hộp thư.
+        Assert.Matches(@"<button className=""ci-dau-nut"" onClick=\{\(\) => setMoKhai\(m => m === 'phancong'", inbox);
+        Assert.Contains("[\"phancong\", \"Phân công\"]].map(", inbox);
 
         // Đường dẫn CŨ của trang phân công phải CHUYỂN HƯỚNG, không được xoá trắng. Bookmark và
         // link đã gửi cho nhau trong nội bộ vẫn còn sống; xoá route là chúng rơi vào trang trắng.
-        // Đích là /chat-inbox — chính nơi cấu hình đã dọn vào, và nơi đó đã có cờ 'chat' gác.
         Assert.Matches(@"path=""/chat-assign-settings"" render=\{\(\) => <ChuyenHuong toi=""/chat-inbox""", app);
         // Không còn trang riêng nào được dựng lên nữa — còn sót là còn hai đường vào cùng một
         // màn hình, mà chỉ một đường có cờ gác.

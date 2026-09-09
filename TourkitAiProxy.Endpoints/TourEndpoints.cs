@@ -437,37 +437,45 @@ public static class TourEndpoints
         });
 
         // ─── Permissions của user hiện tại ──────────────────────────────────────
-        // Proxy `/api/auth/permissions` upstream → trả list mã quyền (CH_HT_XEM, NC_NC_XEM, …).
-        // Frontend cache 1 lần sau login → filter nav "Tích hợp" + gate các page /widget-admin,
-        // /visa-config, /workflows theo CH_HT_XEM (mirror web CRM). Không cache server-side vì
-        // upstream đã cache theo tenant + response nhẹ (~vài KB).
-        v1.MapGet("/permissions", async (HttpContext ctx, TourKitApiClient api, TkSessionStore sessions, ILogger<EndpointsLog> log) =>
+        // Trả list mã quyền (CH_HT_XEM, CHAT_XEM, …) cho giao diện lọc menu + gác trang.
+        //
+        // ⚠️ ĐỌC TỪ PHIÊN, KHÔNG gọi thẳng CRM mỗi lượt. Bản trước proxy thẳng
+        // `/api/auth/permissions` với lý lẽ "upstream đã cache, response nhẹ" — đo thật
+        // 09/09/2026 thì không nhẹ: 17 lượt trong một buổi, trung bình 559ms, cá biệt 3,35 giây,
+        // và nó nằm ngay trên đường đăng nhập nên người dùng ngồi chờ đúng chừng đó.
+        //
+        // Quan trọng hơn tốc độ: MỘT NGUỒN SỰ THẬT. Máy chủ gác các cửa bằng
+        // TkSessionStore.HasPermission (bản lưu trong phiên), còn giao diện thì lấy bản đi thẳng
+        // CRM. Hai bản khác thời điểm nghĩa là menu và máy chủ có thể nói ngược nhau — người dùng
+        // thấy mục menu rồi bấm vào nhận 403, hoặc mất mục menu cho thứ họ vẫn gọi được.
+        //
+        // Bản lưu trong phiên đã là đệm thật: nạp một lần, giữ trong bộ nhớ VÀ ghi xuống
+        // dbo.TkSessions nên sống qua cả lần khởi động lại, và tự làm mới mỗi lượt đăng nhập lại
+        // (JWT hết hạn ~50 phút). Đổi quyền bên CRM mà không muốn chờ thì gọi kèm `?refresh=1`.
+        v1.MapGet("/permissions", async (HttpContext ctx, TkSessionStore sessions,
+            ILogger<EndpointsLog> log, bool? refresh) =>
         {
             var sid = Sid(ctx);
             var sess = sessions.Get(sid);
             if (sess == null) return Unauthorized();
-            try
+
+            // Cửa thoát cho ca "vừa đổi quyền bên CRM": hạ cờ rồi để EnsurePermissionsAsync lấy lại.
+            if (refresh == true) sess.PermissionsLoaded = false;
+            await sessions.EnsurePermissionsAsync(sid!, ctx.RequestAborted);
+
+            var s = sessions.Get(sid);
+            // ⚠️ Nạp hụt thì trả LỖI, đừng trả danh sách rỗng. Rỗng là một câu trả lời hợp lệ
+            // ("tài khoản này không có quyền nào"), nên giao diện sẽ tin và cất vào localStorage —
+            // kết quả là mất sạch menu, không lỗi nào hiện ra, và F5 cũng không cứu được vì bản
+            // rỗng đã nằm trong bộ nhớ trình duyệt. Trả 502 thì giao diện giữ nguyên bản đã lưu.
+            if (s is null || !s.PermissionsLoaded)
             {
-                var jwt = await sessions.GetValidJwtAsync(sid!, ctx.RequestAborted);
-                JsonElement data;
-                try { data = await api.GetAsync(jwt, "/api/auth/permissions", ctx.RequestAborted); }
-                catch (TourKitApiException ex) when (ex.Status == 401)
-                {
-                    jwt = await sessions.ForceReloginAsync(sid!, ctx.RequestAborted);
-                    data = await api.GetAsync(jwt, "/api/auth/permissions", ctx.RequestAborted);
-                }
-                return Results.Json(data);
+                log.LogWarning("[permissions] chưa nạp được quyền cho {U} — trả 502 để giao diện "
+                    + "giữ bản đã lưu thay vì hiểu nhầm là 'không có quyền nào'", sess.Username);
+                return Results.Json(new { error = "Chưa lấy được quyền từ CRM — thử lại sau." },
+                    statusCode: 502);
             }
-            catch (TourKitApiException ex)
-            {
-                log.LogWarning("[permissions] upstream {Status}: {Msg}", ex.Status, ex.Message);
-                return Results.Json(new { error = ex.Message }, statusCode: ex.Status);
-            }
-            catch (Exception ex)
-            {
-                log.LogError(ex, "[permissions] fail");
-                return Results.Json(new { error = "Không lấy được quyền: " + ex.Message }, statusCode: 502);
-            }
+            return Results.Json(new { permissions = s.Permissions });
         });
 
         return routes;

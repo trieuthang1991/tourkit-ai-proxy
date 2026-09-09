@@ -61,6 +61,7 @@ public class ChatAssignRepository
         public bool   ScopeOwnOnly { get; set; }
         public bool   AutoAssignOnReply { get; set; }
         public int[]? MemberIds { get; set; }
+        public int[]? PausedIds { get; set; }
         public int?   RotationLastUserId { get; set; }
     }
 
@@ -85,7 +86,7 @@ public class ChatAssignRepository
         await using var c = await _db.OpenAsync(ct);
         var d = await c.QuerySingleOrDefaultAsync<DongCauHinh>("""
             SELECT tenant_id, mode, scope_own_only, auto_assign_on_reply,
-                   member_ids, rotation_last_user_id
+                   member_ids, paused_ids, rotation_last_user_id
               FROM chat_assign_settings WHERE tenant_id = @tenant
             """, new { tenant });
         if (d is null) return null;
@@ -93,7 +94,8 @@ public class ChatAssignRepository
         // ra ngoài: chỗ gọi đọc .Length và .Contains ngay, null ở đó là NullReferenceException
         // giữa đường phân công — hỏng đúng chỗ vừa sửa xong.
         return new ChatAssignSettings(d.TenantId, d.Mode, d.ScopeOwnOnly, d.AutoAssignOnReply,
-                                      d.MemberIds ?? Array.Empty<int>(), d.RotationLastUserId);
+                                      d.MemberIds ?? Array.Empty<int>(), d.RotationLastUserId,
+                                      d.PausedIds ?? Array.Empty<int>());
     }
 
     /// Ghi ĐÈ cả cấu hình lẫn đội trực trong MỘT lệnh. Tách hai lượt ghi thì có khoảnh khắc
@@ -124,6 +126,67 @@ public class ChatAssignRepository
 
         // ⚠️ KHÔNG đụng rotation_last_user_id: sửa cấu hình mà đặt lại con trỏ thì mỗi lần
         // quản trị bấm Lưu là vòng quay bắt đầu lại từ người đầu danh sách.
+        //
+        // ⚠️ Và KHÔNG đụng paused_ids. Tạm nghỉ nhận việc là thứ NGƯỜI TRỰC tự bật cho chính
+        // mình (xem DatTamNghiAsync), không phải cấu hình của quản trị. Đưa nó vào lượt ghi đè
+        // này thì quản trị bấm Lưu một cái là cả đội bị gọi đi làm lại — im lặng, và đúng vào
+        // lúc người ta đang nghỉ thật.
+        //
+        // Mã còn sót trong paused_ids của người đã bị bỏ khỏi đội trực là VÔ HẠI: vế lọc
+        // `u <> ALL(paused_ids)` chỉ chạy trên chính member_ids nên id lạ không khớp gì cả.
+    }
+
+    /// <summary>Kết quả một lượt bật/tắt tạm nghỉ nhận việc.</summary>
+    public enum KetQuaTamNghi { Xong, KhongTrongDoiTruc, LaNguoiCuoiCung }
+
+    /// <summary>
+    /// Người trực tự bật/tắt <b>tạm nghỉ nhận việc</b> cho CHÍNH MÌNH.
+    ///
+    /// <para><b>Cửa chặn nằm TRONG câu lệnh, không đọc-rồi-ghi.</b> Hai người cùng bấm tạm nghỉ
+    /// đúng một lúc mà kiểm bằng cách đọc trước thì cả hai đều thấy "vẫn còn người khác" và cả
+    /// hai đều nghỉ được — đội trực không còn ai nhận việc, hội thoại nằm lại KHÔNG người phụ
+    /// trách, mà hội thoại như thế thì nhân viên thường không nhìn thấy. Đúng lỗ hổng vừa bịt
+    /// hôm nay. Đặt điều kiện trong chính câu UPDATE thì CSDL quyết ai là người cuối.</para>
+    ///
+    /// <para>Chiều ĐI LÀM LẠI thì luôn cho, không điều kiện — chỉ chiều NGHỈ mới nguy hiểm.</para>
+    /// </summary>
+    public async Task<KetQuaTamNghi> DatTamNghiAsync(string tenant, int userId, bool nghi,
+        CancellationToken ct = default)
+    {
+        await using var c = await _db.OpenAsync(ct);
+        int soDong;
+        if (nghi)
+        {
+            soDong = await c.ExecuteAsync("""
+                UPDATE chat_assign_settings s
+                   SET paused_ids = array_append(s.paused_ids, @userId), updated_utc = now()
+                 WHERE s.tenant_id = @tenant
+                   AND @userId = ANY(s.member_ids)
+                   AND NOT (@userId = ANY(s.paused_ids))
+                   AND EXISTS (SELECT 1 FROM unnest(s.member_ids) u
+                                WHERE u <> @userId AND u <> ALL(s.paused_ids))
+                """, new { tenant, userId });
+        }
+        else
+        {
+            soDong = await c.ExecuteAsync("""
+                UPDATE chat_assign_settings s
+                   SET paused_ids = array_remove(s.paused_ids, @userId), updated_utc = now()
+                 WHERE s.tenant_id = @tenant AND @userId = ANY(s.member_ids)
+                """, new { tenant, userId });
+        }
+        lock (_khoa) _cache.Remove(tenant);
+
+        if (soDong > 0) return KetQuaTamNghi.Xong;
+
+        // Không đổi dòng nào — phân biệt HAI lý do, vì hai lý do cần hai câu nói khác nhau.
+        // Đọc lại ở đây chỉ để NÓI, không để quyết định; quyết định đã xong ở câu lệnh trên.
+        var ch = await DocCauHinhAsync(tenant, ct);
+        if (ch is null || !ch.MemberIds.Contains(userId)) return KetQuaTamNghi.KhongTrongDoiTruc;
+        // Đang trong đội mà không đổi được: hoặc đã ở đúng trạng thái muốn đặt (bấm hai lần
+        // không phải lỗi), hoặc là người cuối cùng còn nhận việc.
+        if (nghi && ch.PausedIds.Contains(userId)) return KetQuaTamNghi.Xong;
+        return nghi ? KetQuaTamNghi.LaNguoiCuoiCung : KetQuaTamNghi.Xong;
     }
 
     /// <summary>
@@ -152,9 +215,17 @@ public class ChatAssignRepository
         await using var c = await _db.OpenAsync(ct);
         return await c.ExecuteScalarAsync<int?>("""
             WITH doi AS (
-                SELECT unnest(member_ids) AS user_id
-                  FROM chat_assign_settings
-                 WHERE tenant_id = @tenant
+                -- BỎ QUA người đang tạm nghỉ nhận việc. Họ vẫn nằm trong member_ids (giữ chỗ
+                -- trong đội), chỉ không được chia lượt — nên lúc đi làm lại là có lượt ngay,
+                -- không phải nhờ ai thêm mình vào lại. Bỏ hẳn ra khỏi đội cho gọn thì mất luôn
+                -- thông tin "người này thuộc đội trực", và rồi không ai nhớ thêm lại.
+                --
+                -- Con trỏ vòng quay không hề gì: nó lưu MÃ NGƯỜI làm cột mốc, mà cột mốc không
+                -- cần còn nằm trong tập ứng viên — cùng cơ chế đã dùng khi bỏ hẳn một người.
+                SELECT u AS user_id
+                  FROM chat_assign_settings s, unnest(s.member_ids) u
+                 WHERE s.tenant_id = @tenant
+                   AND u <> ALL(COALESCE(s.paused_ids, ARRAY[]::integer[]))
             ),
             chon AS (
                 -- ⚠️ Câu này GHI vào chat_assign_settings (đẩy con trỏ) mà KHÔNG dọn bộ nhớ tạm
@@ -184,5 +255,38 @@ public class ChatAssignRepository
              WHERE v.id = @id AND v.tenant_id = @tenant AND v.assigned_user_id IS NULL
             RETURNING v.assigned_user_id
             """, new { tenant, id = conversationId });
+    }
+
+    /// <summary>
+    /// Hội thoại CHƯA CÓ NGƯỜI phụ trách, để quản trị chia lại một lượt.
+    ///
+    /// <para><b>Vì sao cần đường này khi đã có vòng quay tự động.</b> Vòng quay chỉ chạy lúc
+    /// khách NHẮN TỚI. Hội thoại nào khách nhắn xong rồi im thì nằm lại mãi không ai phụ trách,
+    /// và có ba nguồn sinh ra nó: công ty bật xoay vòng SAU khi khách đã nhắn · đội trực còn
+    /// rỗng lúc khách nhắn rồi sau mới thêm người · tin lịch sử lúc nối kênh lần đầu (luồng nhận
+    /// tin CỐ Ý bỏ qua, xem <c>ChatInboundService</c>).</para>
+    ///
+    /// <para><b>Vì sao đó là chuyện lớn, không phải chuyện thẩm mỹ.</b> Luật xem là
+    /// <c>xemTatCa OR assigned_user_id = maNguoi</c> — hội thoại không có ai phụ trách thì
+    /// KHÔNG nhân viên thường nào nhìn thấy. Khách ngồi chờ, cả đội không biết là có khách.</para>
+    ///
+    /// <para>Bỏ hội thoại đã lưu trữ: chúng đã xong việc, chia lại chỉ làm bẩn hàng của người
+    /// nhận. Xếp theo hoạt động MỚI NHẤT trước — ai vừa nhắn thì đáng được trả lời trước, và khi
+    /// có trần thì trần cắt vào phần nguội chứ không cắt vào phần đang chờ.</para>
+    /// </summary>
+    public async Task<IReadOnlyList<long>> HoiThoaiChuaCoNguoiAsync(
+        string tenant, int gioiHan, CancellationToken ct = default)
+    {
+        await using var c = await _db.OpenAsync(ct);
+        var rows = await c.QueryAsync<long>("""
+            SELECT id
+              FROM chat_conversations
+             WHERE tenant_id = @tenant
+               AND assigned_user_id IS NULL
+               AND archived_at IS NULL
+             ORDER BY last_activity_at DESC NULLS LAST
+             LIMIT @gioiHan
+            """, new { tenant, gioiHan });
+        return rows.ToList();
     }
 }
