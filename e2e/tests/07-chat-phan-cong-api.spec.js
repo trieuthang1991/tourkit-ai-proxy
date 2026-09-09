@@ -1,4 +1,4 @@
-// 07-chat-phan-cong-api.spec.js — phân công hội thoại + phân quyền xem, đo bằng REQUEST THẬT.
+﻿// 07-chat-phan-cong-api.spec.js — phân công hội thoại + phân quyền xem, đo bằng REQUEST THẬT.
 //
 // ⚠️ VÌ SAO BÀI NÀY TỒN TẠI. Ngày 08/09/2026 nhánh phân công đã qua 13 việc, 3 vòng review và
 // 1219 test xanh — mà vẫn còn HAI lỗi chặn, cả hai tìm ra trong nửa giờ gọi API thật:
@@ -46,10 +46,10 @@ test.beforeAll(async ({ baseURL }) => {
   maHoiThoai = await hoiThoaiDeThu(api, PHIEN_QUAN_TRI);
   anhGoc = await chupTrangThai(api, PHIEN_QUAN_TRI, maHoiThoai);
 
-  maQuanTri = await maNguoiCuaPhien(api, PHIEN_QUAN_TRI, maHoiThoai);
-  await api.delete(`${GOC}/conversations/${maHoiThoai}/assign`, { headers: nhu(PHIEN_QUAN_TRI) });
-  maNhanVien = await maNguoiCuaPhien(api, PHIEN_NHAN_VIEN, maHoiThoai);
-  await api.delete(`${GOC}/conversations/${maHoiThoai}/assign`, { headers: nhu(PHIEN_QUAN_TRI) });
+  // Đọc mã người bằng lượt ĐỌC, không bằng lượt ghi — xem chú thích ở maNguoiCuaPhien.
+  // Nhờ vậy phần dựng bài không còn để lại dấu vết nào trên hội thoại đem ra thử.
+  maQuanTri = await maNguoiCuaPhien(api, PHIEN_QUAN_TRI);
+  maNhanVien = await maNguoiCuaPhien(api, PHIEN_NHAN_VIEN);
   expect(maNhanVien, 'Hai phiên phải là HAI người khác nhau').not.toBe(maQuanTri);
 });
 
@@ -245,23 +245,32 @@ test.describe('Vai trò và luật xem', () => {
     expect(co, 'hội thoại chưa ai nhận không được hiện với nhân viên thường').toBe(false);
   });
 
-  test('C5 — đội trực RỖNG: quản trị vẫn giao được việc, nhân viên thường thì không', async () => {
-    // Đội trực sinh ra cho chế độ xoay vòng, nên ở chế độ thủ công — chế độ MẶC ĐỊNH — nó thường
-    // để trống. Áp luật đội trực cho cả quản trị thì họ không giao được việc cho ai: bấm giao,
-    // nhận lỗi "chưa cấu hình đội trực", trong khi thứ họ muốn chẳng liên quan gì tới vòng quay.
-    // Đúng theo đặc tả mục 9 ("KHÔNG ADMIN không gán được việc cho người ngoài đội trực").
+  test('C5 — đội trực chỉ ràng buộc nhân viên thường, và CHỈ ở chế độ xoay vòng', async () => {
+    // ⚠️ BÀI NÀY ĐÃ ĐỔI LUẬT ngày 08/09/2026. Bản trước đòi nhân viên thường bị chặn khi đội trực
+    // rỗng — ở MỌI chế độ. Nhưng đội trực sinh ra cho vòng quay: chế độ thủ công không có lượt
+    // nào để chia, nên đem vòng quay đi chặn việc giao tay là mượn luật của việc này áp cho việc
+    // khác. Ở chế độ thủ công, đội trực rỗng là trạng thái MẶC ĐỊNH của mọi công ty.
+    const giao = async (phien, choAi) => doc(await api.post(`${GOC}/conversations/${maHoiThoai}/assign`, {
+      headers: nhu(phien, { 'Content-Type': 'application/json' }), data: { userId: choAi },
+    }));
+
+    // (1) THỦ CÔNG + đội trực rỗng: cả hai vai đều giao được.
     await datCauHinh({ mode: 1, scopeOwnOnly: false, autoAssignOnReply: false, memberIds: [] });
+    expect((await giao(PHIEN_QUAN_TRI, maNhanVien)).ma,
+      'quản trị phải giao được việc dù chưa lập đội trực').toBe(200);
+    // Giao cho nhân viên TRƯỚC là có chủ đích: từ khi phạm vi xem đi theo quyền CRM, người chỉ có
+    // CHAT_XEM chỉ thao tác được trên hội thoại họ NHÌN THẤY — tức việc của chính họ.
+    expect((await giao(PHIEN_NHAN_VIEN, maQuanTri)).ma,
+      'chế độ thủ công KHÔNG được đòi đội trực').toBe(200);
 
-    const quanTri = await doc(await api.post(`${GOC}/conversations/${maHoiThoai}/assign`, {
-      headers: nhu(PHIEN_QUAN_TRI, { 'Content-Type': 'application/json' }), data: { userId: maNhanVien },
-    }));
-    expect(quanTri.ma, 'quản trị phải giao được việc dù chưa lập đội trực').toBe(200);
-
-    const nhanVien = await doc(await api.post(`${GOC}/conversations/${maHoiThoai}/assign`, {
-      headers: nhu(PHIEN_NHAN_VIEN, { 'Content-Type': 'application/json' }), data: { userId: maQuanTri },
-    }));
-    expect(nhanVien.ma, 'nhân viên thường vẫn phải bị chặn khi chưa có đội trực').toBe(400);
-    expect(nhanVien.json?.error).toBeTruthy();
+    // (2) XOAY VÒNG + người được giao NẰM NGOÀI đội trực: nhân viên bị chặn, quản trị thì không.
+    await giao(PHIEN_QUAN_TRI, maNhanVien);
+    await datCauHinh({ mode: 2, scopeOwnOnly: false, autoAssignOnReply: false, memberIds: [maNhanVien] });
+    const bịChặn = await giao(PHIEN_NHAN_VIEN, maQuanTri);
+    expect(bịChặn.ma, 'nhân viên thường không được giao cho người ngoài đội trực').toBe(400);
+    expect(bịChặn.json?.error).toBeTruthy();
+    expect((await giao(PHIEN_QUAN_TRI, maQuanTri)).ma,
+      'quản trị vẫn giao được cho người ngoài đội trực').toBe(200);
   });
 });
 

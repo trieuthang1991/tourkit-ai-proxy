@@ -1,4 +1,4 @@
-// helpers/chat-phan-cong.js — cửa an toàn + dọn dẹp cho nhóm bài phân công hội thoại.
+﻿// helpers/chat-phan-cong.js — cửa an toàn + dọn dẹp cho nhóm bài phân công hội thoại.
 //
 // ⚠️ VÌ SAO CẦN MỘT FILE RIÊNG CHO CHUYỆN NÀY. Mọi bài E2E có sẵn của repo chỉ ĐỌC. Nhóm phân
 // công là nhóm ĐẦU TIÊN phải GHI: nó nhận việc, giao việc, và lưu cấu hình phân công của cả công
@@ -148,11 +148,21 @@ export async function hoiThoaiDeThu(request, phien) {
   return ds[0].id;
 }
 
-/** Mã người của một phiên — đọc gián tiếp qua chính đường nhận việc, vì không có đường /me. */
-export async function maNguoiCuaPhien(request, phien, maHoiThoai) {
-  const r = await doc(await request.post(`${GOC}/conversations/${maHoiThoai}/assign/me`, { headers: nhu(phien) }));
-  if (r.ma !== 200 || !r.json?.assignedUserId) {
+/**
+ * Mã người của một phiên — đọc thẳng từ `/assign-settings` (ô `meId`).
+ *
+ * ⚠️ TRƯỚC 09/09/2026 hàm này lấy mã bằng cách bắt phiên đó NHẬN VIỆC rồi đọc `assignedUserId`.
+ * Cách ấy chết khi phạm vi xem chuyển sang theo quyền CRM: nhân viên chỉ có `CHAT_XEM` KHÔNG
+ * nhìn thấy hội thoại chưa ai nhận, nên lượt nhận việc trả 404 — và cả nhóm bài đứng ở beforeAll.
+ *
+ * Đó không phải lỗi sản phẩm: chính bài C4 dưới đây khẳng định "hội thoại CHƯA AI NHẬN không
+ * hiện với nhân viên thường". Cái sai là bộ đồ nghề của bài test đi vòng qua một thao tác GHI để
+ * đọc một dữ kiện — nay đọc thẳng, không đụng gì.
+ */
+export async function maNguoiCuaPhien(request, phien) {
+  const r = await doc(await request.get(`${GOC}/assign-settings`, { headers: nhu(phien) }));
+  if (r.ma !== 200 || !r.json?.meId) {
     throw new Error(`Không xác định được mã người của phiên (${r.ma} ${r.chu.slice(0, 120)}).`);
   }
-  return r.json.assignedUserId;
+  return r.json.meId;
 }

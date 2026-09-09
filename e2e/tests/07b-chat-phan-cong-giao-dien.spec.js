@@ -1,4 +1,4 @@
-// 07b-chat-phan-cong-giao-dien.spec.js — bấm NÚT THẬT trên giao diện thật.
+﻿// 07b-chat-phan-cong-giao-dien.spec.js — bấm NÚT THẬT trên giao diện thật.
 //
 // ⚠️ VÌ SAO PHẢI CÓ BÀI TRÌNH DUYỆT RIÊNG, dù bài 07 đã gọi API. Lỗi ngày 08/09/2026 nằm ĐÚNG
 // giữa hai bên: máy chủ có route, giao diện có nút, mà nút gọi sai cách nên request không bao giờ
@@ -67,9 +67,13 @@ test('A1 — bấm "Nhận chăm sóc" phải THẬT SỰ nhận việc', async 
 
   await moTrang(page, '/chat-inbox');
 
-  // Chọn hội thoại đầu danh sách. Neo vào .ci-muc (role=button) — lớp cấu trúc của danh sách,
-  // không phải lớp trang trí, nên sửa CSS không làm bài đỏ oan.
-  const muc = page.locator('.ci-muc').first();
+  // Chọn hội thoại đầu danh sách. Neo vào lớp cấu trúc của danh sách, không phải lớp trang trí,
+  // nên sửa CSS không làm bài đỏ oan.
+  //
+  // ⚠️ PHẢI loại .ci-xuong. Lúc danh sách đang tải, khung xương cũng mang class .ci-muc, và nó
+  // đứng TRƯỚC mọi dòng thật trong DOM — nên `.ci-muc` trần bắt trúng khung xương, bấm vào không
+  // chọn được hội thoại nào, rồi bài đỏ ở tận bước cuối với triệu chứng chẳng liên quan.
+  const muc = page.locator('.ci-muc:not(.ci-xuong)').first();
   await expect(muc, 'không thấy hội thoại nào trong danh sách').toBeVisible({ timeout: 20_000 });
   await muc.click();
 
@@ -91,8 +95,14 @@ test('A1 — bấm "Nhận chăm sóc" phải THẬT SỰ nhận việc', async 
 
   // Và giao diện phải PHẢN ÁNH kết quả. Máy chủ nhận việc xong mà nút không đổi thì với người
   // dùng vẫn là "bấm không ăn thua".
-  await expect(page.getByRole('button', { name: 'Đã nhận chăm sóc', exact: true }))
-    .toBeVisible({ timeout: 15_000 });
+  //
+  // ⚠️ Bài này TRƯỚC ĐÂY đòi nút đổi nhãn thành "Đã nhận chăm sóc". Nhãn đó đã BỊ BỎ ngày
+  // 08/09/2026 vì CHÍNH NÓ là một lỗi: nút hiện "Đã nhận chăm sóc" cho mọi hội thoại đã có
+  // người, kể cả khi người giữ việc là đồng nghiệp — đọc thành "mình đã nhận" trong khi việc
+  // là của người khác. Nay nút nhận việc chỉ tồn tại khi CHƯA AI phụ trách, nên bằng chứng
+  // đúng là nó BIẾN MẤT.
+  await expect(nut, 'nhận việc xong mà nút vẫn còn — giao diện không phản ánh kết quả')
+    .toBeHidden({ timeout: 15_000 });
 
   const sau = await doc(await api.get(`${GOC}/conversations/${maHoiThoai}`, { headers: nhu(PHIEN_QUAN_TRI) }));
   expect(sau.json.conversation.assignedUserId, 'máy chủ phải thật sự ghi người phụ trách').toBeTruthy();
@@ -119,7 +129,7 @@ test('A4 — quản trị có Ô CHỌN NGƯỜI PHỤ TRÁCH ngay cả khi đ�
   expect(ch.json.memberIds, 'bài này cần đội trực RỖNG').toEqual([]);
 
   await moTrang(page, '/chat-inbox');
-  const muc = page.locator('.ci-muc').first();
+  const muc = page.locator('.ci-muc:not(.ci-xuong)').first();
   await expect(muc, 'không thấy hội thoại nào trong danh sách').toBeVisible({ timeout: 20_000 });
   await muc.click();
 
@@ -136,8 +146,8 @@ test('A2 — mở hộp thư chat: không lượt gọi API nào rơi xuống tr
   // Luật TỔNG QUÁT rút ra từ lỗi trên, áp cho MỌI lượt gọi mà trang tự phát ra. Một nút mới thêm
   // sau này mà gọi sai cách sẽ bị bắt ở đây, không cần ai nhớ viết bài riêng cho nó.
   const { phanHoi, loiConsole } = await moTrang(page, '/chat-inbox');
-  await expect(page.locator('.ci-muc').first()).toBeVisible({ timeout: 20_000 });
-  await page.locator('.ci-muc').first().click();
+  await expect(page.locator('.ci-muc:not(.ci-xuong)').first()).toBeVisible({ timeout: 20_000 });
+  await page.locator('.ci-muc:not(.ci-xuong)').first().click();
   await page.waitForTimeout(2000);   // để các lượt gọi chi tiết/nhãn/ghi chú kịp đi
 
   const html = cuaApi(phanHoi).filter(r => r.kieu.includes('html'));
@@ -160,7 +170,7 @@ test('A3 — sau khi LƯU cấu hình phân công, hộp thư vẫn mở đượ
   });
 
   const { phanHoi } = await moTrang(page, '/chat-inbox');
-  await expect(page.locator('.ci-muc').first(),
+  await expect(page.locator('.ci-muc:not(.ci-xuong)').first(),
     'hộp thư không hiện hội thoại nào sau khi lưu cấu hình — đúng triệu chứng lỗi cũ')
     .toBeVisible({ timeout: 20_000 });
 
