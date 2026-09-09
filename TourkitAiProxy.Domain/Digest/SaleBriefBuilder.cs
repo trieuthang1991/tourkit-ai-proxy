@@ -46,6 +46,17 @@ public static class SaleBriefBuilder
     private const int TopN = 5;
     private const int TopHygiene = 3;   // mục "dọn dẹp" ít cấp thiết hơn → cắt sâu hơn
 
+    /// <summary>
+    /// Mỗi mục nêu tên tối đa bao nhiêu dòng trong phần dữ kiện gửi cho AI; quá số này chỉ còn
+    /// đếm "(còn N dòng nữa)".
+    ///
+    /// <para><b>Công khai vì có người bên ngoài phải bám theo.</b> <c>SaleBriefWorkflow</c> tra
+    /// tên khách từ CRM đúng bằng chừng này: tra nhiều hơn là gọi thừa cho những dòng không bao
+    /// giờ in ra, tra ít hơn là có dòng in ra mà trống tên. Để hai nơi mỗi nơi giữ một số 12
+    /// riêng thì lệch lúc nào không ai biết.</para>
+    /// </summary>
+    public const int SoDongDuKien = 12;
+
     private static readonly CultureInfo Vi = CultureInfo.GetCultureInfo("vi-VN");
     private static string Vnd(decimal v) => TourkitAiProxy.Shared.Text.Money.Vnd(v);
 
@@ -162,7 +173,7 @@ public static class SaleBriefBuilder
     public static string BuildPrompt(SaleBriefInput input, DateTime todayLocal, int maxItems)
     {
         var f = new StringBuilder();
-        void List<T>(string label, IReadOnlyList<T> items, Func<T, string> fmt, int take = 12)
+        void List<T>(string label, IReadOnlyList<T> items, Func<T, string> fmt, int take = SoDongDuKien)
         {
             if (items.Count == 0) return;
             f.AppendLine($"{label} (tổng {items.Count}):");

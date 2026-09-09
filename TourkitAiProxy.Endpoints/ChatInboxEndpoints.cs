@@ -50,6 +50,9 @@ public static class ChatInboxEndpoints
         "/api/v1/chat/bot-settings",
         "/api/v1/chat/quick-replies",
         "/api/v1/chat/assign-settings",
+        // Danh mục nhãn của công ty. KHÁC /conversations/{id}/tags — đường kia gắn/gỡ nhãn cho
+        // MỘT khách, đường này quản lý bộ nhãn dùng chung.
+        "/api/v1/chat/tags",
         "/api/v1/chat/events",
         "/api/v1/chat/oauth",
         "/api/v1/chat/webhook",
@@ -538,6 +541,9 @@ public static class ChatInboxEndpoints
                 // sửa khi ai đó đổi tên. Best-effort — upstream hỏng thì trả danh sách rỗng, hộp
                 // thư vẫn chạy, chỉ mất ô chọn người.
                 var hoiHong = false;
+                // ERP trả về BAO NHIÊU dòng — khác hẳn "giữ lại được bao nhiêu" (nhanVien.Count).
+                // Thiếu con số này thì hai ca hoàn toàn khác nhau nhìn giống hệt nhau ở log.
+                var soDongErpTra = 0;
                 try
                 {
                     var r = await api.GetAsync(s!.Jwt, "/api/ai/reference", ct);
@@ -546,6 +552,7 @@ public static class ChatInboxEndpoints
                         && sellers.ValueKind == JsonValueKind.Array)
                         foreach (var it in sellers.EnumerateArray())
                         {
+                            soDongErpTra++;
                             // ⚠️ Khoá số có thể là "value" HOẶC "id" tuỳ enum — DealEndpoints.BuildDealLookups
                             // đã phải xử cả hai. GetInt32() TRẦN còn ném khi ValueKind == Number nhưng giá
                             // trị không vừa Int32 (số thực kiểu 1.0, hoặc tràn số) — ném là rơi thẳng vào
@@ -586,15 +593,26 @@ public static class ChatInboxEndpoints
                 // nào hiện ra. Không tự dựng cơ chế xoá đệm: hai tiếng là hợp đồng đã chốt.
                 if (nhanVien.Count > 0)
                     redis.Set(khoaDem, JsonSerializer.Serialize(nhanVien, Web), TimeSpan.FromHours(2));
-                else if (!hoiHong)
-                    // Không ngoại lệ mà vẫn rỗng: ERP trả 200 nhưng thiếu lookups.sellers, hoặc
-                    // mọi bản ghi đều lệch dạng nên bị bỏ qua từng cái một. Khác hẳn ca ném ở
-                    // trên, và cũng cần nói ra — không thì lại là "trống mà không rõ vì sao".
-                    //
-                    // !hoiHong là BẮT BUỘC: thiếu nó thì lượt gọi ném lỗi ghi RA HAI dòng cảnh
-                    // báo mang hai nguyên nhân khác nhau, dòng sau phủ nhận dòng trước.
+                // Không ngoại lệ mà vẫn rỗng thì có HAI ca, và chúng đòi hai người khác nhau đi
+                // sửa hai chỗ khác nhau — gộp làm một dòng là chỉ đường sai:
+                //   • ERP không trả dòng nào  → hỏi bên CRM xem công ty còn người bán không;
+                //   • ERP trả N dòng mà bỏ hết → dữ liệu về nhưng thiếu mã/tên, lỗi nằm ở ERP.
+                //
+                // Trả giá 09/09/2026: /api/ai/reference trả ĐỦ 108 người bán nhưng `name` null
+                // sạch (cùng lúc với customerTypes và customerSources), mà log chỉ nói "không
+                // trả người bán nào". Mất một buổi đi tìm lỗi kết nối và lỗi phiên — trong khi
+                // kết nối vẫn tốt và dữ liệu vẫn về. Con số N là thứ lẽ ra đã chặn ngay từ đầu.
+                //
+                // !hoiHong là BẮT BUỘC ở CẢ HAI nhánh: thiếu nó thì lượt gọi ném lỗi ghi RA HAI
+                // dòng cảnh báo mang hai nguyên nhân khác nhau, dòng sau phủ nhận dòng trước.
+                else if (!hoiHong && soDongErpTra == 0)
                     log.LogWarning("[chat/assign-settings] ERP không trả người bán nào cho {T} " +
                         "— ô chọn người phụ trách sẽ trống", a.TenantId);
+                else if (!hoiHong)
+                    log.LogWarning("[chat/assign-settings] ERP trả {N} người bán cho {T} nhưng " +
+                        "KHÔNG dòng nào dùng được (thiếu mã, hoặc thiếu tên) — ô chọn người phụ " +
+                        "trách sẽ trống. Kết nối vẫn tốt: lỗi nằm ở dữ liệu ERP trả về.",
+                        soDongErpTra, a.TenantId);
             }
 
             // Chưa cấu hình → mặc định "thủ công, không kẹp quyền" = đúng hành vi hôm nay.
@@ -607,6 +625,17 @@ public static class ChatInboxEndpoints
                 // Một nguồn duy nhất cho câu hỏi "ai là quản trị chat" — xem
                 // SessionAuth.LaQuanTriChat (chốt TẠM theo tên đăng nhập, không đọc IsAdmin).
                 isAdmin           = SessionAuth.LaQuanTriChat(a),
+                // MÃ CỦA CHÍNH NGƯỜI ĐANG XEM. Giao diện cần nó để phân biệt "Bạn đang phụ trách"
+                // với "Chị Duyên đang phụ trách" — hai câu khác hẳn nhau về việc phải làm tiếp,
+                // mà nếu không có mã này thì màn hình chỉ nói được một câu chung chung cho cả hai.
+                //
+                // Bản trước nút ghi "Đã nhận chăm sóc" cho MỌI hội thoại đã có người, kể cả khi
+                // người đó không phải mình — đọc thành "mình đã nhận" trong khi việc là của người
+                // khác. Đây là dữ kiện còn thiếu để nói đúng.
+                //
+                // Có thể null: phiên cũ chưa lấp mã, hoặc ERP không tra được. Giao diện phải chịu
+                // được null (lùi về cách xưng hô trung tính), đừng coi là lỗi.
+                meId              = await sessions.EnsureCrmUserIdAsync(a.SessionId, ct),
                 staffs            = nhanVien
             }, Web);
         });
@@ -1223,16 +1252,27 @@ public static class ChatInboxEndpoints
             //
             // Đội trực là danh sách do chính admin đặt ra và sửa được bất cứ lúc nào; chặn họ
             // bằng luật của chính họ là phiền phức không đổi lấy an toàn nào.
-            if (!SessionAuth.LaQuanTriChat(a))
+            // ⚠️ VÀ CHỈ RÀNG BUỘC Ở CHẾ ĐỘ XOAY VÒNG (chốt 08/09/2026, chủ dự án).
+            //
+            // Đội trực là VÒNG QUAY CHIA VIỆC — nó tồn tại để trả lời câu "tới lượt ai". Ở chế
+            // độ THỦ CÔNG không có lượt nào cả: người có quyền thì giao cho người mình muốn.
+            // Đem một danh sách sinh ra cho xoay vòng đi chặn việc giao tay là mượn luật của
+            // việc này áp cho việc khác.
+            //
+            // Đây cũng là điều kiện để MÀN HÌNH CẤU HÌNH giấu hẳn khối đội trực ở chế độ thủ
+            // công. Nếu chỉ giấu giao diện mà giữ luật này thì nhân viên thường bị chặn bởi một
+            // danh sách họ không thấy, không sửa được, và quản trị cũng không còn chỗ nào để mở
+            // ra xem — hỏng nặng hơn hẳn so với trước khi giấu.
+            var chAssign = await assign.LayCauHinhAsync(a.TenantId, ct);
+            if (!SessionAuth.LaQuanTriChat(a) && chAssign?.Mode == CheDoPhanCong.XoayVong)
             {
-                var ch = await assign.LayCauHinhAsync(a.TenantId, ct);
-                if (ch is null || ch.MemberIds.Length == 0)
+                if (chAssign.MemberIds.Length == 0)
                     // Câu lỗi khác hẳn "không có trong đội trực": ở đây KHÔNG có ai trong đội
                     // trực để so, nói "người này sai" là đổ lỗi nhầm chỗ. Và nhân viên thường
                     // KHÔNG vào được màn hình cấu hình, nên câu chỉ đường phải là "nhờ quản trị".
                     return Results.Json(new { error = "Đội trực chat chưa được cấu hình — nhờ quản trị thêm người vào Cấu hình phân công trước khi giao việc." },
                         statusCode: StatusCodes.Status400BadRequest);
-                if (!ch.MemberIds.Contains(ma))
+                if (!chAssign.MemberIds.Contains(ma))
                     return Results.Json(new { error = "Người này không có trong đội trực chat" },
                         statusCode: StatusCodes.Status400BadRequest);
             }
@@ -1361,6 +1401,51 @@ public static class ChatInboxEndpoints
         //
         // Gắn theo KHÁCH chứ không theo hội thoại: khách nhắn lại sau ba tháng vẫn còn nhãn cũ,
         // còn gắn theo hội thoại thì mỗi lần mở hội thoại mới là mất hết — đúng lúc cần nhất.
+        // ── Danh mục nhãn của công ty ────────────────────────────────────────
+        // ĐỌC thì ai cũng được: thanh nhãn trên khung chat cần danh mục để vẽ, giấu đi thì người
+        // trực không gắn được nhãn nào. GHI cũng để ai cũng được — nhãn là công cụ làm việc hằng
+        // ngày của người trực, bắt xin quản trị mỗi lần nghĩ ra một nhãn mới thì họ quay lại gõ
+        // tự do và danh mục thành vô dụng. XOÁ mới cần cân nhắc (gỡ nhãn khỏi mọi khách).
+        g.MapGet("/tags", async (HttpContext ctx, TkSessionStore sessions, ChatRepository repo,
+            CancellationToken ct) =>
+        {
+            var a = SessionAuth.Read(ctx, sessions);
+            if (a == null) return SessionAuth.Unauthorized();
+            if (!repo.Configured) return NotConfigured();
+            return Results.Json(new { items = await repo.ListTagCatalogAsync(a.TenantId, ct) }, Web);
+        });
+
+        g.MapPost("/tags", async (TagCatalogReq body, HttpContext ctx, TkSessionStore sessions,
+            ChatRepository repo, CancellationToken ct) =>
+        {
+            var a = SessionAuth.Read(ctx, sessions);
+            if (a == null) return SessionAuth.Unauthorized();
+            if (!repo.Configured) return NotConfigured();
+
+            var ten = (body?.Name ?? "").Trim();
+            // Chuẩn hoá DÙNG CHUNG với đường gắn nhãn cho khách — cùng một hàm, nếu không thì
+            // nhãn tạo từ danh mục và nhãn gõ tay ở khung chat sinh ra hai slug khác nhau cho
+            // cùng một chữ, và chúng không bao giờ gặp nhau.
+            var slug = ChatRules.NormalizeSlug(ten);
+            if (slug.Length == 0) return Results.BadRequest(new { error = "Tên nhãn không hợp lệ" });
+
+            return Results.Json(await repo.UpsertTagAsync(a.TenantId, slug, ten, ct), Web);
+        });
+
+        g.MapDelete("/tags/{id:long}", async (long id, HttpContext ctx, TkSessionStore sessions,
+            ChatRepository repo, CancellationToken ct) =>
+        {
+            var a = SessionAuth.Read(ctx, sessions);
+            if (a == null) return SessionAuth.Unauthorized();
+            if (!repo.Configured) return NotConfigured();
+
+            var goBo = await repo.DeleteTagAsync(a.TenantId, id, ct);
+            // null = không có nhãn đó TRONG CÔNG TY NÀY. Trả 404 chứ không im lặng báo ok: nhãn
+            // của công ty khác cũng rơi vào đây, và "ok" cho một lệnh không làm gì là nói dối.
+            if (goBo is null) return Results.NotFound();
+            return Results.Json(new { ok = true, removedFrom = goBo.Value }, Web);
+        });
+
         g.MapGet("/conversations/{id:long}/tags", async (long id, HttpContext ctx,
             TkSessionStore sessions, ChatRepository repo, ChatAssignRepository assign, CancellationToken ct) =>
         {
@@ -1388,10 +1473,16 @@ public static class ChatInboxEndpoints
 
             // Chuẩn hoá DÙNG CHUNG với lệnh gọi mẫu trả lời nhanh — cùng vấn đề, cùng lời giải.
             // Ghi thô thì "Khách VIP" và "khach vip" thành hai nhãn khác nhau.
-            var nhan = ChatRules.NormalizeSlug(body?.Tag);
+            var goc = (body?.Tag ?? "").Trim();
+            var nhan = ChatRules.NormalizeSlug(goc);
             if (nhan.Length == 0) return Results.BadRequest(new { error = "Nhãn không hợp lệ" });
 
             await repo.AddTagAsync(a.TenantId, v.Channel, v.ContactExternalId, nhan, ct);
+            // Nhãn gõ tay ở khung chat cũng VÀO DANH MỤC. Không làm bước này thì danh mục chỉ
+            // biết những nhãn tạo từ màn quản lý, còn nhãn người trực nghĩ ra trong lúc làm việc
+            // thì nằm ngoài — và lần sau không ai bấm chọn lại được, phải gõ đúng y như cũ.
+            // Giữ chữ NGUYÊN BẢN có dấu làm tên hiện; slug vẫn là danh tính.
+            await repo.UpsertTagAsync(a.TenantId, nhan, goc, ct);
             return Results.Json(new { ok = true, tag = nhan }, Web);
         });
 
@@ -2957,6 +3048,9 @@ public record SendReq(string? Text, string? AttachmentUrl = null, string? Attach
     public record LinkCrmReq(int? CustomerId);
     /// <param name="Tag">Nhãn thô — server tự chuẩn hoá (bỏ dấu, hạ chữ thường, gạch nối).</param>
     public record TagReq(string? Tag);
+
+    /// <summary>Thêm một nhãn vào DANH MỤC. Người dùng gõ chữ có dấu; slug do máy chủ tự sinh.</summary>
+    public record TagCatalogReq(string? Name);
     public record NoteReq(string? Body);
     public record StatusReq(short Status);
     public record BotReq(bool Paused, int? Minutes);

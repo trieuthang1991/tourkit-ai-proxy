@@ -508,12 +508,28 @@ public class SaleBriefWorkflow : IScheduledWorkflow
         await Safe("reviews", async () =>
         {
             var rows = await _repo.HangKhachAsync(tenantId, ct);
+            var ngu = new List<(string Ma, string Hang, int SoNgay)>();
             foreach (var r in rows)
             {
                 var days = (int)(DateTimeOffset.UtcNow - DateTimeOffset.FromUnixTimeMilliseconds(r.GeneratedAt)).TotalDays;
-                if (days >= VipSleepDays) vips.Add(new CustomerLine(r.CustomerId, r.Rank, days));
+                if (days >= VipSleepDays) ngu.Add((r.CustomerId, r.Rank, days));
             }
-            vips.Sort((a, b) => b.DaysSinceLastBooking.CompareTo(a.DaysSinceLastBooking));
+            ngu.Sort((a, b) => b.SoNgay.CompareTo(a.SoNgay));
+
+            // Bảng Reviews của proxy chỉ giữ MÃ khách — tên nằm bên CRM, cố ý không nhân bản
+            // sang đây. Trước 09/09/2026 mã được đưa THẲNG vào ô tên, nên bản tin sáng đọc ra
+            // thành "Liên hệ khách hạng B lâu chưa mua lại: 17646 (61 ngày)": đúng cái mục bảo
+            // người ta đi gọi khách, mà lại không nói được đang gọi ai. Dòng đó coi như bỏ đi.
+            //
+            // Chỉ tra tên cho đúng số dòng thật sự được nêu tên (SaleBriefBuilder.SoDongDuKien);
+            // phần đuôi chỉ góp vào CON SỐ tổng nên không cần. Và tra GỘP một lượt, không phải
+            // mỗi khách một lượt: đường sang CRM có lúc chậm tới mức hết giờ chờ, mười mấy lượt
+            // nối tiếp là đủ để cả bản tin sáng lỡ giờ gửi.
+            var ten = await TenKhachAsync(jwt,
+                ngu.Take(SaleBriefBuilder.SoDongDuKien).Select(x => x.Ma), ct);
+            foreach (var (ma, hang, soNgay) in ngu)
+                vips.Add(new CustomerLine(
+                    ten.TryGetValue(ma, out var t) ? t : "Khách #" + ma, hang, soNgay));
         });
 
         // ── Báo giá của mình lâu chưa cập nhật ────────────────────────────────
@@ -542,6 +558,41 @@ public class SaleBriefWorkflow : IScheduledWorkflow
                     tenantId, user, name, ex.Message);
             }
         }
+    }
+
+    /// <summary>
+    /// Mã khách → tên, đọc GỘP một lượt từ CRM (<c>/api/ai/customers/context</c>, cùng đường mà
+    /// luồng chấm hạng đang dùng). Mã nào không tra được thì KHÔNG có mặt trong kết quả — chỗ
+    /// gọi tự lùi về nhãn "Khách #mã".
+    ///
+    /// <para>Nuốt lỗi ở đây là ĐÚNG: hụt tên thì bản tin xấu đi mấy dòng, còn ném ra thì
+    /// <c>Safe</c> nuốt cả mục — mà mục này chính là danh sách khách cần gọi lại. Nuốt IM LẶNG
+    /// mới sai, nên vẫn ghi một dòng cảnh báo có số lượng.</para>
+    /// </summary>
+    private async Task<Dictionary<string, string>> TenKhachAsync(
+        string jwt, IEnumerable<string> maKhach, CancellationToken ct)
+    {
+        var ds = maKhach.Where(m => !string.IsNullOrWhiteSpace(m)).Distinct().ToList();
+        var ten = new Dictionary<string, string>();
+        if (ds.Count == 0) return ten;
+        try
+        {
+            var d = await _api.GetAsync(jwt,
+                "/api/ai/customers/context?ids=" + Uri.EscapeDataString(string.Join(",", ds)), ct);
+            foreach (var it in Items(d))
+            {
+                var ma = Int(it, "id").ToString();
+                var t = Str(it, "fullName") ?? Str(it, "name");
+                if (ma != "0" && !string.IsNullOrWhiteSpace(t)) ten[ma] = t!;
+            }
+        }
+        catch (OperationCanceledException) { throw; }
+        catch (Exception ex)
+        {
+            _log.LogWarning("[sale-brief] tra tên {N} khách hạng A/B lỗi: {Err} — mục khách quen "
+                + "sẽ hiện mã thay vì tên", ds.Count, ex.Message);
+        }
+        return ten;
     }
 
     /// Map mã cơ hội → % khả năng chốt từ điểm AI đã lưu. Chưa chấm thì không có mặt.

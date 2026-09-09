@@ -13,6 +13,73 @@ Những cập nhật gần đây của TRAV-AI, viết cho người dùng. Mới
 
 ---
 
+## Phiên bản 09/09/2026 — Bản tin sáng gọi đúng tên khách
+
+### 🔧 Đã khắc phục
+
+- **Bản tin sáng nhắc khách quen bằng mã số thay vì tên.** Mục *khách hạng A/B lâu chưa mua lại*
+  đọc ra thành "Liên hệ khách hạng B lâu chưa mua lại: 17646 (61 ngày)" — đúng cái mục bảo bạn đi
+  gọi khách, mà lại không nói được đang gọi ai. Nay hiện tên khách. Hiếm khi không tra ra tên thì
+  ghi *Khách #17646* để bạn còn biết đó là một mã cần tra, chứ không phải một con số vô danh.
+- **Ô chọn người phụ trách trống thì báo sai nguyên nhân.** Trước đây màn hình luôn nói "đội trực
+  chat còn trống — nhờ quản trị thêm người", kể cả khi sự thật là không lấy được danh sách nhân
+  viên từ CRM — thêm bao nhiêu người vào đội trực cũng không hết. Nay mỗi trường hợp một câu
+  riêng, và câu nào cũng chỉ đúng việc cần làm tiếp.
+
+---
+
+## Phiên bản 08/09/2026 — Hộp thư chat: gọn lại một bước, và nhãn ra ngay khung chat
+
+### ✨ Tính năng mới
+
+- **Nhãn khách nay nằm ngay trên ô soạn tin.** Bấm một cái là gắn, bấm dấu × là bỏ — không phải mở
+  hồ sơ bên phải nữa (trên điện thoại thì trước đây gần như không dùng được). Kể cả khi hết hạn trả
+  lời cho khách, bạn vẫn gắn nhãn được.
+- **Bộ nhãn dùng chung cho cả công ty.** Trước đây mỗi người tự gõ nên cùng một ý lại thành
+  "khach-vip", "vip", "khachvip" — lọc kiểu gì cũng thiếu. Nay bạn chọn từ danh sách có sẵn, và nhãn
+  nào gõ mới cũng tự vào danh sách cho lần sau. Nhãn cũ được giữ nguyên, không mất cái nào.
+- **Quản lý nhãn** trong *Cài đặt hộp thư → Nhãn*: xem nhãn nào đang gắn cho bao nhiêu khách, đổi
+  tên cho dễ đọc, xoá nhãn không dùng nữa (có hỏi lại kèm số khách bị ảnh hưởng).
+- **Chọn người chăm sóc nay có ô tìm kiếm.** Công ty đông người thì danh sách thả xuống cũ phải cuộn
+  cả trăm dòng và tên bị cắt cụt. Nay gõ vài chữ là ra, gõ không dấu cũng được.
+- **Cấu hình chia việc chuyển vào ngay trong hộp thư** — nút *Phân công* cạnh *Kết nối kênh*. Trước
+  đây nó là một mục menu riêng, phải rời màn đang làm rồi tự tìm đường quay lại.
+- **Hồ sơ khách chia thành ba thẻ**: *Chăm sóc*, *Khách hàng*, *Nhật ký*. Trước đây tất cả xếp dọc
+  trong một cột dài gấp ba màn hình.
+- **Đội trực chat chỉ còn xuất hiện ở chế độ chia xoay vòng** — nơi nó thật sự có việc. Ở chế độ
+  thủ công, ai có quyền thì giao cho người mình muốn, không phải điền danh sách nào trước. Danh
+  sách cũng đổi cách hiển thị: chỉ bày người **đã chọn** thành từng thẻ, thêm người thì dùng ô tìm
+  kiếm. Trước đây nó đổ cả trăm cái tên ra một lưới ô tích, phải dò mắt qua hết mới biết ai đang
+  trong vòng quay.
+
+### 🔧 Đã khắc phục
+
+- Nút chăm sóc **hiện chữ "Đã nhận chăm sóc" ngay cả khi người giữ việc là đồng nghiệp** — đọc thành
+  "mình đã nhận" trong khi việc là của người khác, và bấm vào thì không có gì xảy ra. Nay nói rõ ai
+  đang phụ trách, và chỉ hiện nút khi bạn thật sự nhận được.
+- **Nhận việc và giao việc bị trộn làm một** trên thanh tiêu đề chật. Nay tách hẳn: *Nhận chăm sóc*
+  là nhận về mình, một chạm; giao cho người khác thì chọn người rồi bấm *Gán* — không còn chuyện
+  trượt tay một dòng là hội thoại của khách nhảy sang người khác mà không hỏi lại.
+- **Ghi chú nội bộ bấm Lưu không ăn thua.** Nội dung không bao giờ được lưu, và những ghi chú đã có
+  thì hiện ra trắng trơn — chỉ thấy tên người ghi và thời gian. Nay lưu được và đọc lại được; ghi
+  chú cũ của bạn cũng hiện lại đầy đủ, không mất chữ nào.
+- **Nhật ký thao tác đổ ra hàng chục dòng cùng lúc.** Nay hiện vài dòng gần nhất, còn lại xem thêm
+  khi cần.
+- Chữ trong dãy nút lọc bị **dính sát viền**, và biểu tượng kênh bên trái quá nhỏ — đã chỉnh lại.
+- Vài nút đứng cạnh nhau **cao thấp không đều** nên hàng nút trông lệch — nay bằng nhau.
+- Màn hình *Phân công chat* trước đây **mở lên là trắng** ở bản đã phát hành (bản chạy thử thì
+  bình thường), nên gần như không ai vào được. Nay vào được ở mọi bản.
+- Ở chế độ thủ công, nhân viên **không giao được việc cho đồng nghiệp** nếu chưa ai lập đội trực —
+  báo lỗi *"Đội trực chat chưa được cấu hình"* dù việc đang làm chẳng liên quan gì tới chia xoay
+  vòng. Nay chế độ thủ công không đòi đội trực nữa.
+
+### 📌 Lưu ý
+
+- Mục *Quyền xem & tự nhận* đã bỏ khỏi màn phân công — phần phân quyền thuộc về CRM. Cài đặt cũ của
+  bạn vẫn được giữ nguyên và vẫn có hiệu lực.
+
+---
+
 ## Phiên bản 08/09/2026 — Hết lượt AI: báo rõ ràng và mở luôn màn nạp lượt
 
 ### ✨ Tính năng mới

@@ -110,9 +110,18 @@ public class ChatFeatureFlagCoverageTests
         Assert.Matches(@"chatAssign\s*=\s*Services\.Bootstrap\.FeatureFlags\.ChatAssign\(cfg\)", he);
 
         var app = DocFileGoc("wwwroot/app.jsx");
-        // (3) Mục menu khai đúng cờ RIÊNG, không dùng ké cờ 'chat' của hộp thư — hộp thư đã ra
-        // mắt từ trước, dùng chung là bật hộp thư liền lộ màn hình chưa ra mắt.
-        Assert.Matches(@"/chat-assign-settings'[^\n]*feature: 'chatAssign'", app);
+        // (3) Giao diện ĐỌC đúng cờ RIÊNG, không dùng ké cờ 'chat' của hộp thư — hộp thư đã ra
+        // mắt từ trước, dùng chung là bật hộp thư liền lộ phần chưa ra mắt.
+        //
+        // ⚠️ Trước 08/09/2026 mắt xích này là một MỤC MENU trỏ tới trang riêng. Trang đó đã bỏ
+        // (cấu hình phân công nay nằm trong hộp cài đặt của chính hộp thư chat), nên chốt chuyển
+        // sang canh chỗ mới: nút mở cấu hình và mục tab đều phải nằm sau cờ.
+        var inbox = DocFileGoc("wwwroot/pages/chat-inbox.jsx");
+        Assert.Matches(@"const phanCongOn = window\.tourkitFeatures\.useFeature\('chatAssign'\)", inbox);
+        // Nút "Phân công" cạnh "Kết nối kênh" chỉ hiện khi cờ bật.
+        Assert.Matches(@"\{phanCongOn && \(\s*<button className=""ci-dau-nut""", inbox);
+        // Và mục tab trong hộp cài đặt cũng vậy — ẩn nút mà vẫn để lộ tab thì gõ tay vẫn vào được.
+        Assert.Contains("...(phanCongOn ? [[\"phancong\", \"Phân công\"]] : [])", inbox);
 
         // (4) Và tên cờ phải có trong BẢNG TRA của featureOn. Đây chính là mắt xích im lặng
         // nhất: featureOn trả TRUE cho mọi tên nó không biết, nên khai feature:'chatAssign' ở
@@ -122,8 +131,13 @@ public class ChatFeatureFlagCoverageTests
         Assert.True(bang.Success, "Không thấy bảng tra cờ coCua trong app.jsx");
         Assert.Contains("chatAssign", bang.Groups[1].Value);
 
-        // Và route phải chặn bằng chính cờ đó — ẩn menu thôi là gõ thẳng URL vẫn vào được.
-        Assert.Matches(@"path=""/chat-assign-settings"" render=\{\(\) => phanCongOn", app);
+        // Đường dẫn CŨ của trang phân công phải CHUYỂN HƯỚNG, không được xoá trắng. Bookmark và
+        // link đã gửi cho nhau trong nội bộ vẫn còn sống; xoá route là chúng rơi vào trang trắng.
+        // Đích là /chat-inbox — chính nơi cấu hình đã dọn vào, và nơi đó đã có cờ 'chat' gác.
+        Assert.Matches(@"path=""/chat-assign-settings"" render=\{\(\) => <ChuyenHuong toi=""/chat-inbox""", app);
+        // Không còn trang riêng nào được dựng lên nữa — còn sót là còn hai đường vào cùng một
+        // màn hình, mà chỉ một đường có cờ gác.
+        Assert.DoesNotContain("ChatAssignSettingsPage", app);
     }
 
     private static string DocFileGoc(string duongDanTuongDoi)

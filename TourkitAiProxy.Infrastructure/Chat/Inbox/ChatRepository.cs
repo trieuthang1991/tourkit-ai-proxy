@@ -466,12 +466,90 @@ public class ChatRepository
             """, new { tenant, kenh, externalId, tag });
     }
 
+    // ── Danh mục nhãn của công ty ────────────────────────────────────────────────────────
+
+    /// <summary>
+    /// Cả danh mục nhãn, kèm số khách đang mang từng nhãn.
+    ///
+    /// <para>Đếm bằng LEFT JOIN chứ không phải truy vấn con chạy từng dòng: danh mục vài chục
+    /// nhãn mà mỗi nhãn một lượt đếm là vài chục lượt quay vòng, cho một màn hình chỉ để xem.</para>
+    /// </summary>
+    public async Task<List<ChatTag>> ListTagCatalogAsync(string tenant, CancellationToken ct = default)
+    {
+        await using var c = await _db.OpenAsync(ct);
+        return (await c.QueryAsync<ChatTag>("""
+            SELECT d.id AS "Id", d.slug AS "Slug", d.name AS "Name",
+                   COUNT(t.tag)::int AS "UsageCount"
+            FROM chat_tag_catalog d
+            LEFT JOIN chat_contact_tags t
+              ON t.tenant_id = d.tenant_id AND t.tag = d.slug
+            WHERE d.tenant_id = @tenant
+            GROUP BY d.id, d.slug, d.name
+            ORDER BY d.name
+            """, new { tenant })).ToList();
+    }
+
+    /// <summary>
+    /// Thêm nhãn vào danh mục; trùng slug thì CẬP NHẬT tên hiển thị và trả về dòng đang có.
+    ///
+    /// <para><paramref name="slug"/> phải ĐÃ chuẩn hoá. Trùng không phải lỗi: người dùng gõ
+    /// "Khách VIP" trong khi danh mục đã có "khach-vip" thì việc đúng là dùng lại nhãn cũ (và
+    /// nhân tiện lấy cách viết đẹp hơn), không phải chặn họ lại bằng một thông báo.</para>
+    /// </summary>
+    public async Task<ChatTag> UpsertTagAsync(string tenant, string slug, string name,
+        CancellationToken ct = default)
+    {
+        await using var c = await _db.OpenAsync(ct);
+        return await c.QuerySingleAsync<ChatTag>("""
+            INSERT INTO chat_tag_catalog (tenant_id, slug, name)
+            VALUES (@tenant, @slug, @name)
+            ON CONFLICT (tenant_id, slug) DO UPDATE SET name = EXCLUDED.name
+            RETURNING id AS "Id", slug AS "Slug", name AS "Name", 0 AS "UsageCount"
+            """, new { tenant, slug, name });
+    }
+
+    /// <summary>
+    /// Xoá một nhãn khỏi danh mục VÀ gỡ nó khỏi mọi khách đang mang.
+    ///
+    /// <para>Chỉ xoá dòng danh mục thì nhãn vẫn dính trên khách mà không còn tên để hiện — biến
+    /// thành một chuỗi lạ không gỡ ra được bằng giao diện. Xoá thì xoá cho hết.</para>
+    ///
+    /// <para>Trả về số khách bị gỡ nhãn, để màn hình nói được "đã gỡ khỏi N khách".</para>
+    /// </summary>
+    public async Task<int?> DeleteTagAsync(string tenant, long id, CancellationToken ct = default)
+    {
+        await using var c = await _db.OpenAsync(ct);
+        var slug = await c.QuerySingleOrDefaultAsync<string?>(
+            "SELECT slug FROM chat_tag_catalog WHERE tenant_id = @tenant AND id = @id",
+            new { tenant, id });
+        if (slug is null) return null;
+
+        var goBo = await c.ExecuteAsync(
+            "DELETE FROM chat_contact_tags WHERE tenant_id = @tenant AND tag = @slug",
+            new { tenant, slug });
+        await c.ExecuteAsync("DELETE FROM chat_tag_catalog WHERE tenant_id = @tenant AND id = @id",
+            new { tenant, id });
+        return goBo;
+    }
+
     public async Task<List<ChatNote>> ListNotesAsync(string tenant, short kenh, string externalId,
         int limit = 50, CancellationToken ct = default)
     {
         await using var c = await _db.OpenAsync(ct);
+        // ⚠️ `noi_dung AS "Body"` — BẮT BUỘC có bí danh. Cột tên `noi_dung`, thuộc tính tên
+        // `Body`: hai TỪ khác nhau, không phải khác kiểu viết, nên luật nối tên-có-gạch-dưới của
+        // Dapper không bắc cầu được. Thiếu bí danh thì Body giữ nguyên giá trị mặc định "" —
+        // truy vấn chạy, không lỗi, không cảnh báo, chỉ là mọi ghi chú trả về đều RỖNG.
+        //
+        // Đo trên máy chạy thật 08/09/2026: lưu được ghi chú, danh sách hiện đúng người và đúng
+        // giờ, mà phần nội dung trắng trơn. Ba tầng cùng sai một chỗ (giao diện gửi sai khoá,
+        // giao diện đọc sai khoá, và đây) nên tính năng ghi chú nội bộ chưa từng hoạt động.
         return (await c.QueryAsync<ChatNote>("""
-            SELECT id, username, noi_dung, created_utc FROM chat_contact_notes
+            SELECT id          AS "Id",
+                   username    AS "Username",
+                   noi_dung    AS "Body",
+                   created_utc AS "CreatedUtc"
+            FROM chat_contact_notes
             WHERE tenant_id = @tenant AND channel = @kenh AND external_id = @externalId
             ORDER BY created_utc DESC, id DESC
             LIMIT @limit
