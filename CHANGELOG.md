@@ -13,6 +13,49 @@ Những cập nhật gần đây của TRAV-AI, viết cho người dùng. Mới
 
 ---
 
+## Phiên bản 09/09/2026 — Hộp thư chat đi theo phân quyền của CRM
+
+### ✨ Tính năng mới
+
+- **Ai được vào hộp thư chat nay do phân quyền trên CRM quyết định.** Có quyền *xem đoạn chat*
+  hoặc *xem tất cả đoạn chat* thì thấy mục **Hộp thư chat**; không có quyền nào thì mục đó không
+  hiện, và gõ thẳng đường dẫn cũng không vào được.
+- **Xem tất cả hay chỉ xem phần được giao cũng theo quyền.** Ai có quyền *xem tất cả đoạn chat*
+  thì thấy mọi hội thoại của công ty và giao việc được cho bất kỳ ai; ai chỉ có quyền *xem đoạn
+  chat* thì thấy đúng phần đã giao cho mình.
+
+### 🔧 Đã khắc phục
+
+- **Quyền trong hộp thư chat trước đây dựa vào TÊN ĐĂNG NHẬP**, không dựa vào phân quyền thật.
+  Hệ quả sai theo cả hai chiều, và cả hai đều đã xảy ra: người quản lý có quyền xem toàn bộ
+  nhưng tên đăng nhập không phải "admin" thì bị kẹp lại chỉ thấy phần của mình; còn tài khoản
+  không được cấp quyền chat nào vẫn mở được hộp thư. Nay đi đúng theo phân quyền bạn đặt trên
+  CRM — không phải khai lại ở đâu cả.
+- **Ô xem trước thư nháp hiện đầy mã HTML.** Lúc AI đang soạn, ô xem trước in ra nguyên chuỗi
+  `<p>Kính gửi anh Nam,</p><br/>` thay vì câu chữ — đúng lúc bạn cần đọc xem thư sắp gửi trông
+  thế nào thì lại không đọc được. Nay hiện chữ sạch, giữ nguyên xuống dòng và gạch đầu dòng.
+- **Tạm dừng nhận việc — công tắc của chính người trực.** Đi họp, đi ăn, hết ca thì bấm một cái
+  trên hộp thư: hội thoại mới sẽ không chia cho bạn nữa, xong bấm lại để nhận việc trở lại. Bạn
+  vẫn ở trong đội trực suốt thời gian đó nên không phải nhờ ai thêm mình vào lại. Hệ thống
+  **không cho người cuối cùng còn nhận việc tạm dừng** — nếu không thì khách nhắn tới sẽ không
+  ai nhận mà chẳng ai hay.
+- **Hội thoại cũ không bao giờ được chia cho ai.** Vòng quay chỉ chia việc *lúc khách nhắn tới*,
+  nên hội thoại khách nhắn xong rồi im — hoặc đã có từ trước khi bạn bật xoay vòng, hoặc lúc đội
+  trực còn trống — nằm lại mãi không ai phụ trách. Tệ hơn: nhân viên thường **không nhìn thấy**
+  những hội thoại đó, nên khách ngồi chờ mà cả đội không biết. Nay trong *Phân công* có nút
+  **Chia lại cho đội trực**: bấm một cái là số tồn đọng được chia theo đúng vòng quay, và màn
+  hình báo lại đã chia bao nhiêu.
+- **Nhật ký thao tác đọc không ra chuyện.** Ba loại thao tác hiện lên bằng mã kỹ thuật thay vì
+  tiếng Việt — trong đó có đúng hai loại tự động: *tự động chia việc* và *tự nhận khi trả lời*,
+  tức hai dòng cần nhất khi bạn hỏi "việc này máy giao hay người giao?". Người được giao thì
+  hiện mã số thay vì tên. Nay đọc thành câu hoàn chỉnh, ví dụ *"Hệ thống tự động chia việc cho
+  Kế toán 1"*, và rê chuột vào mốc thời gian là thấy giờ chính xác thay vì chỉ "5 phút trước".
+- **Màn hình chờ lâu sau khi đăng nhập.** Mỗi lần mở app đều hỏi lại CRM toàn bộ danh sách
+  quyền, có lượt mất hơn 3 giây. Nay dùng lại bản đã lấy trong phiên nên vào thẳng. Vừa đổi
+  quyền bên CRM mà muốn thấy ngay thì đăng nhập lại.
+
+---
+
 ## Phiên bản 09/09/2026 — Bản tin sáng gọi đúng tên khách
 
 ### 🔧 Đã khắc phục

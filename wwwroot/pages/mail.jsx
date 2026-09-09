@@ -1,4 +1,4 @@
-// pages/mail.jsx — SmartMail AI ("Hộp thư AI"). Warm Operations Console.
+﻿// pages/mail.jsx — SmartMail AI ("Hộp thư AI"). Warm Operations Console.
 // 3 cột: TRÁI filter rail, GIỮA list email, PHẢI reading pane + composer ghim.
 // Hoàn thiện: đồng bộ incremental (BE), đọc/chưa đọc, soạn thư MỚI, chữ ký.
 
@@ -120,9 +120,39 @@ function RichEditor({ value, onChange, minHeight }) {
   return <textarea ref={ref} className="mail-rich-target" />;
 }
 
+/**
+ * HTML → chữ đọc được, dùng cho ô xem trước lúc AI còn đang soạn.
+ *
+ * ⚠️ Bản nháp AI trả về là HTML. Trước đây ô xem trước in thẳng chuỗi đó ra, nên người dùng đọc
+ * phải `<p>Kính gửi anh Nam,</p><br/>` — không ai biết lá thư sắp gửi trông thế nào, mà đó lại
+ * đúng là câu hỏi duy nhất ô này sinh ra để trả lời.
+ *
+ * Vì sao KHÔNG dựng thẳng HTML ra màn hình: chữ đang chảy nên thẻ luôn dở dang, dựng từng nhịp
+ * thì bố cục nhảy liên tục — chính lý do bản đầu tách ô xem trước khỏi trình soạn thảo.
+ *
+ * Nên ở đây chỉ BỎ THẺ, nhưng bỏ theo NGỮ NGHĨA: đổi thẻ xuống dòng và thẻ khối thành ký tự
+ * xuống dòng TRƯỚC đã, không thì cả lá thư dính thành một khối chữ.
+ */
+function chuTuHtml(html) {
+  if (!html) return '';
+  return String(html)
+    .replace(/<\s*br\s*\/?>/gi, '\n')
+    .replace(/<\s*\/\s*(p|div|li|tr|h[1-6])\s*>/gi, '\n')
+    .replace(/<\s*li[^>]*>/gi, '\u2022 ')
+    .replace(/<[^>]*>/g, '')
+    // Thẻ CHƯA ĐÓNG ở cuối chuỗi là chuyện thường khi chữ còn đang chảy — biểu thức trên không
+    // khớp nó vì thiếu dấu '>'. Bỏ riêng, nếu không người dùng thấy "<stro" nhấp nháy ở cuối.
+    .replace(/<[^>]*$/, '')
+    .replace(/&nbsp;/g, ' ').replace(/&amp;/g, '&').replace(/&lt;/g, '<')
+    .replace(/&gt;/g, '>').replace(/&quot;/g, '"').replace(/&#39;/g, "'")
+    .replace(/[ \t]+\n/g, '\n')
+    .replace(/\n{3,}/g, '\n\n')
+    .replace(/^\s+/, '');
+}
+
 // Lúc AI stream → preview chữ chạy (tránh nhấp nháy editor); xong → editor HTML sửa/định dạng được.
 function MailDraftEditor({ value, onChange, drafting, minHeight }) {
-  if (drafting) return <div className="mail-draft-stream">{value || 'Đang soạn…'}</div>;
+  if (drafting) return <div className="mail-draft-stream">{chuTuHtml(value) || 'Đang soạn…'}</div>;
   return <RichEditor value={value} onChange={onChange} minHeight={minHeight} />;
 }
 
