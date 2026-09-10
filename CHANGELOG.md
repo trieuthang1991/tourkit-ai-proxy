@@ -13,6 +13,22 @@ Những cập nhật gần đây của TRAV-AI, viết cho người dùng. Mới
 
 ---
 
+## Phiên bản 10/09/2026 — Nạp lượt AI: nhận được tiền chuyển qua nhiều cổng hơn
+
+### 🔧 Đã khắc phục
+- **Chuyển khoản mà nội dung bị ngân hàng lược mất dấu gạch nối vẫn được cộng lượt.** Một số cổng
+  thanh toán và ngân hàng tự bỏ ký tự đặc biệt trong nội dung chuyển khoản, khiến mã đơn
+  `TKAI-xxxxxx-xxxxxxxx-xxxx` bị dính liền thành một chuỗi. Trước đây hệ thống không nhận ra mã đó
+  nữa — tiền vào tài khoản nhưng lượt không lên và không có thông báo nào. Nay hệ thống hiểu được
+  cả hai dạng.
+
+### 📌 Lưu ý
+- Nội dung chuyển khoản vẫn nên **giữ nguyên như hệ thống sinh ra** — bấm nút sao chép trên màn
+  hình quét mã, đừng gõ tay. Chữ thừa do ngân hàng chèn thêm (ví dụ "TT CK QR") thì không sao.
+- Đơn nạp lượt vẫn chỉ có hiệu lực **15 phút**. Chuyển sau khoảng đó thì cần tạo đơn mới.
+
+---
+
 ## Phiên bản 09/09/2026 — Hộp thư chat đi theo phân quyền của CRM
 
 ### ✨ Tính năng mới

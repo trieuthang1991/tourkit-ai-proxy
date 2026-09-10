@@ -307,8 +307,30 @@ public static class QuotaOrderEndpoints
     private static string? ExtractOrderId(string memo)
     {
         if (string.IsNullOrWhiteSpace(memo)) return null;
-        var m = System.Text.RegularExpressions.Regex.Match(memo, @"TKAI-[A-F0-9]{6}-[A-F0-9]+-[A-F0-9]{4}",
-            System.Text.RegularExpressions.RegexOptions.IgnoreCase);
-        return m.Success ? m.Value.ToUpperInvariant() : null;
+
+        // Dấu gạch nối là TUỲ CHỌN ở đây, cố ý. Nhiều đường đi làm mất nó trước khi tới được đây:
+        //   • BankHubService.GenerateQrCode bên web tự lọc `[^a-zA-Z0-9\s]` khỏi nội dung CK
+        //     → "TKAI-8E1FBB-6A90F5AA-9A82" thành "TKAI8E1FBB6A90F5AA9A82";
+        //   • một số ngân hàng cũng bỏ ký tự đặc biệt trong nội dung khi đẩy sang cổng trung gian.
+        // Khớp cứng dấu gạch thì những ca đó rơi vào nhánh "không có mã TKAI" → tiền vào mà không
+        // cộng lượt, và người dùng chẳng thấy lỗi gì.
+        //
+        // Ghép lại được vì cấu trúc mã là cố định: TKAI + 6 hex (băm công ty) + N hex (thời điểm)
+        // + 4 hex (ngẫu nhiên) — biết 6 đầu và 4 cuối thì phần giữa là phần còn lại, không mơ hồ.
+        // Thử dạng CÓ gạch nối TRƯỚC. Gộp hai dạng vào một biểu thức với gạch nối tuỳ chọn nghe gọn
+        // hơn nhưng SAI: phần giữa dài bao nhiêu là mơ hồ, "TKAI-8E1FBB-6A90F5AA-9A82" bị cắt nhầm
+        // thành "TKAI-8E1FBB-6A90-F5AA". Tách hai bước thì mỗi bước chỉ có một cách hiểu.
+        const System.Text.RegularExpressions.RegexOptions Ci = System.Text.RegularExpressions.RegexOptions.IgnoreCase;
+
+        var m = System.Text.RegularExpressions.Regex.Match(memo, @"TKAI-[A-F0-9]{6}-[A-F0-9]+-[A-F0-9]{4}", Ci);
+        if (m.Success) return m.Value.ToUpperInvariant();
+
+        // Dạng đã bị lọc mất gạch nối: lấy trọn cụm hex rồi cắt lại theo cấu trúc cố định
+        // (6 đầu = băm công ty · 4 cuối = số ngẫu nhiên · phần giữa = thời điểm).
+        var m2 = System.Text.RegularExpressions.Regex.Match(memo, @"TKAI([A-F0-9]{14,26})(?![A-F0-9])", Ci);
+        if (!m2.Success) return null;
+
+        var hex = m2.Groups[1].Value.ToUpperInvariant();
+        return $"TKAI-{hex[..6]}-{hex[6..^4]}-{hex[^4..]}";
     }
 }
