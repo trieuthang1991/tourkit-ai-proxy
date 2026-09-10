@@ -16,7 +16,7 @@ namespace TourkitAiProxy.Endpoints;
 ///
 /// CHIỀU 2 — CRM → Trav-ai (CRM PHÁT ở SsoController.TravAiSsoTicket, proxy NHẬN). MIRROR y hệt chiều 1,
 /// chỉ đổi vai — 2 endpoint, cùng cơ chế HMAC + code 1-lần:
-///   POST /api/v1/sso/register-code — verify X-Sign → code 1-lần TTL 60s → { exchangeUrl }.
+///   POST /api/v1/sso/register-code — verify X-Sign → code 1-lần TTL cấu hình (mặc định 120s) → { exchangeUrl }.
 ///   GET  /api/v1/sso/exchange?code= — đọc+xoá code → Set-Cookie tk_sso (30s) → 302 về đích.
 ///   Khác CRM đúng một chỗ: CRM thiết lập đăng nhập bằng Forms-auth cookie do chính nó đọc lại, còn
 ///   SPA Trav-ai giữ phiên ở localStorage nên phải trao qua cookie ngắn hạn cho core/auth.jsx nhặt.
@@ -138,9 +138,24 @@ public static class CrmSsoEndpoints
             if (tenant.Length == 0 || username.Length == 0)
                 return Results.Json(new { error = "Payload thiếu" }, statusCode: 400);
 
-            // Sinh code random 256-bit + lưu TTL 60s (giá trị = nguyên body đã verify).
+            // Sinh code random 256-bit + lưu theo TTL cấu hình (giá trị = nguyên body đã verify).
+            //
+            // Nâng mặc định từ 60s lên 120s ngày 2026-09-11: 60s đủ cho đường truyền tốt, nhưng SPA
+            // Trav-ai còn phải tải và khởi động trước khi gọi exchange — máy chậm hoặc mạng yếu là
+            // quá hạn, người dùng bị đá về trang đăng nhập mà không hiểu vì sao.
+            //
+            // PHẢI KHỚP hai nơi kia, nếu không thì một chiều SSO hết hạn sớm hơn chiều còn lại và
+            // rất khó lần ra vì nó phụ thuộc tốc độ máy người dùng:
+            //     tourkit      AppSettings "SsoCodeTtlSeconds"      (CHIỀU 1: Trav-ai → CRM)
+            //     tourkit-hrm  appsettings.json "Sso:CodeTtlSeconds"
+            //
+            // Kéo dài TTL KHÔNG mở thêm cửa phát lại: code là dùng-một-lần, đọc bằng GETDEL nên
+            // dùng xong là mất. Nó chỉ nới cửa sổ cho một code CHƯA ai dùng.
+            var ttlGiay = cfg.GetValue("Sso:CodeTtlSeconds", 120);
+            if (ttlGiay <= 0) ttlGiay = 120;
+
             var code = store.GenCode();
-            if (!store.Save(code, body, TimeSpan.FromSeconds(60)))
+            if (!store.Save(code, body, TimeSpan.FromSeconds(ttlGiay)))
                 return Results.Json(new { error = "Không lưu được code" }, statusCode: 424);
 
             var self = (cfg["TravAiSso:BaseUrl"] ?? "").Trim().TrimEnd('/');
