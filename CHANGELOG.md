@@ -13,6 +13,24 @@ Những cập nhật gần đây của TRAV-AI, viết cho người dùng. Mới
 
 ---
 
+## Phiên bản 10/09/2026 — Import NCC: hết cảnh số nhảy lung tung sang ô giá
+
+### 🔧 Đã khắc phục
+- **Cột Số lượng, STT, Số đêm không còn bị hiểu nhầm thành giá.** Trước đây hệ thống coi mọi cột
+  có nhiều số là cột tiền, nên nhập một bảng báo giá bình thường cũng ra những dòng giá vô nghĩa
+  lấy từ cột số thứ tự hoặc số lượng.
+- **Báo giá chưa điền giá thì để trống, không tự bịa ra số nữa.** Nhập một bảng danh mục dịch vụ
+  chưa có tiền, trước đây hệ thống vẫn tóm đại một cột số rồi dựng thành giá. Nay giữ nguyên tên
+  dịch vụ và để trống phần tiền.
+- **Số lượng lấy đúng từ cột Số lượng trong file.** Trước đây mọi dòng đều bị đặt cứng bằng 1.
+
+### 📌 Lưu ý
+- Bảng thiếu tiêu đề cột thì hệ thống đoán theo độ lớn con số — từ 1.000 trở lên mới coi là tiền.
+  Nếu bảng của bạn có giá dưới 1.000 (ví dụ tính bằng nghìn đồng), nên đặt tên cột rõ là "Giá" để
+  hệ thống nhận đúng.
+
+---
+
 ## Phiên bản 10/09/2026 — Nạp lượt AI: nhận được tiền chuyển qua nhiều cổng hơn
 
 ### 🔧 Đã khắc phục

@@ -90,18 +90,34 @@ public static class NccQuoteMapper
 
         int colCount = Math.Max(cols.Count, matrix.Max(r => r.Count));
 
-        // Phân loại cột: giá (đa số cell là số) vs nhãn (text).
+        // Phân loại cột. Bản cũ chỉ hỏi "cột này có nhiều số không" (`num > 0 && num >= txt`) —
+        // nên MỌI cột số đều thành cột giá: STT, Số lượng, Số đêm, Số khách, Số phòng… Báo giá
+        // không có cột tiền nào thì nó vẫn tóm đại một cột số rồi dựng ra giá — đúng triệu chứng
+        // "không có giá tiền mà hệ thống tự bắt số lượng / giá bán" (sheet bug dòng 113).
+        //
+        // Nay hỏi theo thứ tự: TÊN CỘT nói gì trước, không kết luận được mới nhìn tới giá trị.
         var isPrice = new bool[colCount];
+        var isQty = new bool[colCount];
         for (int c = 0; c < colCount; c++)
         {
-            int num = 0, txt = 0;
+            var header = c < cols.Count ? (cols[c] ?? "") : "";
+
+            if (LaCotSoLuong(header)) { isQty[c] = true; continue; }   // cột đếm — KHÔNG phải giá
+            if (LaCotKhongPhaiGia(header)) continue;                   // STT, mã, ngày, ghi chú…
+
+            if (LaCotGia(header)) { isPrice[c] = true; continue; }     // tên cột đã nói rõ là tiền
+
+            // Tên cột không nói gì (bảng thiếu tiêu đề, hoặc AI đặt tên lạ) → xét GIÁ TRỊ: chỉ coi
+            // là tiền khi con số TRÔNG NHƯ tiền. Ngưỡng 1.000: giá dịch vụ du lịch tính bằng nghìn
+            // đồng trở lên, còn số lượng/số đêm/số khách hầu như luôn dưới ngưỡng này.
+            int tienLike = 0, soNho = 0, txt = 0;
             foreach (var row in matrix)
             {
                 if (c >= row.Count) continue;
-                if (TryNum(row[c], out _)) num++;
+                if (TryNum(row[c], out var v)) { if (Math.Abs(v) >= 1000m) tienLike++; else soNho++; }
                 else if (HasText(row[c])) txt++;
             }
-            isPrice[c] = num > 0 && num >= txt;
+            isPrice[c] = tienLike > 0 && tienLike >= soNho && tienLike >= txt;
         }
         int priceColCount = isPrice.Count(x => x);
 
@@ -118,7 +134,14 @@ public static class NccQuoteMapper
                 ? string.Join(" / ", labelParts)
                 : (!string.IsNullOrEmpty(title) ? $"{title} #{ri + 1}" : $"Dòng {ri + 1}");
 
+            // Số lượng: lấy từ cột "Số lượng" của chính dòng này nếu bảng có; không có thì để
+            // ProviderPricePayload tự dùng mặc định 1 (cột DB không cho rỗng).
+            decimal? qty = null;
+            for (int c = 0; c < colCount && qty == null; c++)
+                if (isQty[c] && c < row.Count && TryNum(row[c], out var q) && q > 0) qty = q;
+
             // Mỗi cột giá có số → 1 dòng giá.
+            var soDongGiaCuaDong = 0;
             for (int c = 0; c < colCount; c++)
             {
                 if (!isPrice[c] || c >= row.Count) continue;
@@ -126,16 +149,77 @@ public static class NccQuoteMapper
                 var colLabel = c < cols.Count ? (cols[c] ?? "") : $"Cột {c + 1}";
                 var name = (priceColCount > 1 && colLabel.Length > 0) ? $"{rowLabel} — {colLabel}" : rowLabel;
                 if (name.Length > 250) name = name[..250];
+                soDongGiaCuaDong++;
                 outRows.Add(new ProviderPricePayload
                 {
                     PriceName = name,
-                    Quantity = 1,
+                    Quantity = qty ?? 1,
                     ContractPrice = val,   // Giá NET — giá NCC báo cho mình
                     Description = string.IsNullOrWhiteSpace(colLabel) ? null : colLabel,
                     Note = string.IsNullOrWhiteSpace(title) ? null : title
                 });
             }
+
+            // Dòng KHÔNG có ô giá nào (bảng danh mục dịch vụ, bảng chưa điền giá): vẫn giữ lại tên
+            // dịch vụ, để trống phần tiền. Bỏ hẳn dòng thì user mất luôn danh mục vừa nhập; bịa một
+            // con số vào đó thì đúng là cái lỗi đang sửa.
+            if (soDongGiaCuaDong == 0 && labelParts.Count > 0)
+                outRows.Add(new ProviderPricePayload
+                {
+                    PriceName = rowLabel.Length > 250 ? rowLabel[..250] : rowLabel,
+                    Quantity = qty ?? 1,
+                    ContractPrice = null,
+                    Note = string.IsNullOrWhiteSpace(title) ? null : title
+                });
         }
+    }
+
+    // ─── nhận diện cột theo TÊN ───────────────────────────────────────────────────
+    // Bỏ dấu tiếng Việt + viết thường trước khi so, vì tiêu đề trong báo giá viết đủ kiểu:
+    // "Giá NET", "GIÁ BÁN", "Đơn giá", "SỐ LƯỢNG", "Sl"…
+    private static string BoDau(string s)
+    {
+        if (string.IsNullOrEmpty(s)) return "";
+        var norm = s.Normalize(System.Text.NormalizationForm.FormD);
+        var sb = new System.Text.StringBuilder(norm.Length);
+        foreach (var ch in norm)
+            if (System.Globalization.CharUnicodeInfo.GetUnicodeCategory(ch)
+                != System.Globalization.UnicodeCategory.NonSpacingMark)
+                sb.Append(ch);
+        return sb.ToString().Replace('đ', 'd').Replace('Đ', 'D').ToLowerInvariant().Trim();
+    }
+
+    /// Cột tiền: "giá", "đơn giá", "giá net", "giá bán", "price", "rate", "phí", "cước".
+    private static bool LaCotGia(string header)
+    {
+        var h = BoDau(header);
+        if (h.Length == 0) return false;
+        return h.Contains("gia") || h.Contains("price") || h.Contains("rate")
+            || h.Contains("phi") || h.Contains("cuoc") || h.Contains("vnd") || h.Contains("usd");
+    }
+
+    /// Cột đếm: "số lượng", "sl", "số phòng", "số đêm", "số khách", "pax", "qty".
+    /// Tách RIÊNG khỏi nhóm "không phải giá" vì còn dùng để điền Số lượng của dòng giá.
+    private static bool LaCotSoLuong(string header)
+    {
+        var h = BoDau(header);
+        if (h.Length == 0) return false;
+        if (h == "sl" || h == "qty" || h == "pax") return true;
+        return h.Contains("so luong") || h.Contains("soluong") || h.Contains("quantity")
+            || h.Contains("so phong") || h.Contains("so dem") || h.Contains("so khach")
+            || h.Contains("so nguoi") || h.Contains("so ngay");
+    }
+
+    /// Cột chắc chắn KHÔNG phải tiền dù toàn số: STT, mã, ngày tháng, ghi chú, số điện thoại…
+    private static bool LaCotKhongPhaiGia(string header)
+    {
+        var h = BoDau(header);
+        if (h.Length == 0) return false;
+        if (h == "stt" || h == "no" || h == "#") return true;
+        return h.Contains("stt") || h.Contains("thu tu") || h.Contains("ma ") || h == "ma"
+            || h.Contains("ngay") || h.Contains("thang") || h.Contains("nam")
+            || h.Contains("ghi chu") || h.Contains("note") || h.Contains("dien thoai")
+            || h.Contains("phone") || h.Contains("email") || h.Contains("dia chi");
     }
 
     // ─── cell helpers ─────────────────────────────────────────────────────────────
