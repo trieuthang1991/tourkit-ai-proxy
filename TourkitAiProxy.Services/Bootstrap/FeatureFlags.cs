@@ -51,15 +51,13 @@ public static class FeatureFlags
     /// <summary>
     /// Xếp hàng tạo <b>Cơ hội bán hàng</b> (= BookingTicket) từ một hội thoại.
     ///
-    /// <para>PHỤ THUỘC <see cref="Chat"/>, và mặc định <b>TẮT</b> — khác với mọi cờ khác, lý do
-    /// tắt ở đây không phải "chưa chắc chắn" mà là <b>bên kia chưa có ai nhặt</b>: worker
-    /// <c>CrmActionSyncWorker</c> mới biết xử lý <c>assign-task</c> và <c>create-appointment</c>,
-    /// chưa có nhánh <c>create-booking-ticket</c> (hợp đồng ở docs/crm-action-contract/README.md
-    /// §3b).</para>
+    /// <para>PHỤ THUỘC <see cref="Chat"/>, mặc định <b>TẮT</b> theo quy ước chung: tính năng mới
+    /// nào cũng có cờ riêng và người dùng tự bật.</para>
     ///
-    /// <para>Bật khi chưa có nhánh đó thì người dùng bấm nút, màn hình báo "đã xếp hàng", và dòng
-    /// nằm ở <i>đang chờ</i> <b>vĩnh viễn</b> — không lỗi, không báo, không ai biết. Đó là kiểu
-    /// hỏng tệ nhất của cụm này, nên cờ phải do người bật có ý thức chứ không mặc định mở.</para>
+    /// <para><b>Ranh giới trách nhiệm.</b> Proxy chỉ thả dòng vào hàng đợi đúng khuôn
+    /// <c>create-booking-ticket</c> (hợp đồng ở docs/crm-action-contract/README.md §3b); phần nhặt
+    /// lên và gọi CRM thuộc worker bên <c>toutkit-app</c>, do chủ dự án lo. Bật cờ này khi bên đó
+    /// sẵn sàng.</para>
     /// </summary>
     public static bool ChatCoHoi(IConfiguration cfg)
         => Chat(cfg) && cfg.GetValue("Features:ChatCoHoi", false);
