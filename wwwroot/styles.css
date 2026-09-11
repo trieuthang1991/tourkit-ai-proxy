@@ -9087,6 +9087,22 @@ n
 /* Tên Trang/OA đứng đầu dòng xem trước. Đậm hơn và sẫm hơn phần xem trước để mắt tách được hai
    thứ trên cùng một dòng; thẻ <i> nhưng KHÔNG nghiêng — nghiêng ở cỡ 11px là khó đọc. */
 .ci-trang { margin-right: 5px; font-style: normal; font-weight: 600; color: var(--text-2); }
+
+/* Gợi ý khách trùng số điện thoại: tách khỏi câu giải thích phía trên bằng một đường kẻ mảnh,
+   để mắt thấy đây là một đề nghị cần quyết chứ không phải phần tiếp của đoạn văn. */
+.ci-hs-goiy { margin-top: 8px; padding-top: 8px; border-top: 1px solid var(--ci-vien-trong);
+              display: grid; gap: 4px; }
+.ci-hs-goiy-dau { font-size: 11px; font-weight: 600; color: var(--text-2); }
+
+/* Các lượt chăm sóc đã ghi. Cố ý KHÔNG dùng màu cho trạng thái bình thường — chỉ lỗi mới có màu,
+   để mắt bắt đúng dòng cần xử lý thay vì phải đọc cả danh sách. */
+.ci-hs-chamsoc { margin-top: 8px; }
+.ci-hs-viec { margin-top: 6px; display: grid; gap: 3px; }
+.ci-hs-viec-dong { display: flex; flex-wrap: wrap; align-items: baseline; gap: 6px;
+                   font-size: 10.5px; color: var(--text-3); }
+.ci-hs-viec-dong b { font-weight: 600; color: var(--text-2); }
+.ci-hs-viec-dong.loi b { color: var(--danger, #dc2626); }
+.ci-hs-viec-dong em { flex: 1 0 100%; font-style: normal; color: var(--danger, #dc2626); }
 .ci-trang::after { content: '·'; margin-left: 5px; font-weight: 400; opacity: .5; }
 .ci-muc-cuoi { display: flex; flex-wrap: wrap; gap: 4px; align-items: center; margin-top: 6px;
                min-width: 0; }

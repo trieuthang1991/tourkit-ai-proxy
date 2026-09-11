@@ -1123,6 +1123,113 @@
     );
   }
 
+  /** Trạng thái đồng bộ của một việc trong hàng đợi, viết cho người đọc chứ không phải mã số. */
+  const TEN_TRANG_THAI_VIEC = {
+    0: 'đang chờ đồng bộ',
+    1: 'đang xử lý',
+    2: 'đã sang CRM',
+    3: 'lỗi',
+  };
+
+  /**
+   * Ghi nhận một lượt chăm sóc vào hồ sơ khách bên CRM.
+   *
+   * Bấm nút KHÔNG gọi CRM ngay: máy chủ thả một dòng vào hàng đợi, worker mới là bên gọi. Nên
+   * chữ trên màn hình phải nói đúng thế — "đã ghi nhận, đang chờ đồng bộ" — chứ không nói "đã
+   * lưu vào CRM". Nói quá một nhịp là người dùng tin việc đã xong rồi không kiểm lại.
+   */
+  function ChamSoc({ hoiThoaiId, pushToast }) {
+    const [ds, setDs] = useState([]);
+    const [dangGhi, setDangGhi] = useState(false);
+
+    const tai = useCallback(async () => {
+      try {
+        const r = await authedFetch('/api/v1/chat/conversations/' + hoiThoaiId + '/cham-soc');
+        if (r.ok) setDs((await r.json()).items || []);
+      } catch { /* mất danh sách thì nút vẫn bấm được — không chặn việc chính */ }
+    }, [hoiThoaiId]);
+
+    useEffect(() => { tai(); }, [tai]);
+
+    async function ghi() {
+      setDangGhi(true);
+      try {
+        // Không kèm Content-Type và không kèm thân: đường này không nhận thân.
+        const r = await authedFetch('/api/v1/chat/conversations/' + hoiThoaiId + '/cham-soc',
+          { method: 'POST' });
+        const j = await r.json().catch(() => ({}));
+        if (!r.ok) { pushToast(j.error || 'Không ghi nhận được', 'error'); return; }
+        pushToast('Đã ghi nhận — đang chờ đồng bộ sang CRM', 'success');
+        await tai();
+      } catch (e) { pushToast('Không ghi nhận được: ' + e.message, 'error'); }
+      finally { setDangGhi(false); }
+    }
+
+    return (
+      <div className="ci-hs-chamsoc">
+        <div className="ci-hs-crm-nut">
+          <button className="ci-nut nho" onClick={ghi} disabled={dangGhi}>
+            {dangGhi ? 'Đang ghi…' : 'Ghi nhận chăm sóc'}
+          </button>
+        </div>
+        {ds.length > 0 && (
+          <div className="ci-hs-viec">
+            {ds.slice(0, 5).map(x => (
+              <div key={x.id} className={'ci-hs-viec-dong' + (x.status === 3 ? ' loi' : '')}>
+                <span>{gioNgan(x.createdUtc)}</span>
+                <b>{TEN_TRANG_THAI_VIEC[x.status] || 'không rõ'}</b>
+                {x.status === 3 && x.errorMessage && <em>{x.errorMessage}</em>}
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+    );
+  }
+
+  /**
+   * Gợi ý khách CRM trùng số điện thoại khách đã cho.
+   *
+   * Tách thành component riêng để nó chỉ tra khi THẬT SỰ được vẽ — nhét vào NoiCrm thì mọi hội
+   * thoại chưa nối đều tra một lượt, kể cả những hội thoại người trực chỉ lướt qua.
+   *
+   * KHÔNG tự nối dù chỉ có đúng một kết quả. Lý do đã ghi trong mã máy chủ: nối nhầm là bot đọc
+   * lịch sử mua của người khác rồi nói với khách này — một lỗi lộ dữ liệu, không phải lỗi hiển thị.
+   */
+  function GoiYNoiTheoSo({ hoiThoaiId, soDt, onNoi, dangLam }) {
+    const [ds, setDs] = useState(null);
+
+    useEffect(() => {
+      if (!hoiThoaiId || !soDt) return;
+      let song = true;
+      authedFetch('/api/v1/chat/conversations/' + hoiThoaiId
+        + '/crm-search?q=' + encodeURIComponent(soDt))
+        .then(r => (r.ok ? r.json() : { items: [] }))
+        .then(j => { if (song) setDs(j.items || []); })
+        .catch(() => { if (song) setDs([]); });
+      return () => { song = false; };
+    }, [hoiThoaiId, soDt]);
+
+    // Không tìm thấy thì im hẳn — một dòng "không thấy khách nào trùng số" chỉ thêm chữ vào chỗ
+    // vốn đã có sẵn câu giải thích ngay trên.
+    if (!ds || ds.length === 0) return null;
+
+    return (
+      <div className="ci-hs-goiy">
+        <div className="ci-hs-goiy-dau">
+          {ds.length === 1 ? 'Có thể là khách này (trùng số điện thoại):'
+                           : ds.length + ' khách trùng số điện thoại này — chọn đúng người:'}
+        </div>
+        {ds.slice(0, 5).map(k => (
+          <button key={k.id} className="ci-hs-crm-kq" disabled={dangLam} onClick={() => onNoi(k.id)}>
+            <b>{k.name}</b>
+            <span>{[k.phone, k.code].filter(Boolean).join(' · ')}</span>
+          </button>
+        ))}
+      </div>
+    );
+  }
+
   function NoiCrm({ chiTiet, pushToast }) {
     const v = chiTiet?.conversation;
     const lh = chiTiet?.contact;
@@ -1179,6 +1286,11 @@
         <div className="ci-hs-trong">
           Chưa nối với khách hàng trong CRM. Bot đang trả lời bằng kiến thức chung, không đọc
           lịch sử mua hay bảng giá của khách này.
+          {/* Khách đã cho số điện thoại thì gợi ý luôn — không bắt người trực gõ lại đúng con số
+              đang hiện ngay phía trên. Chỉ GỢI Ý, không tự nối: trùng số điện thoại trong CRM là
+              chuyện có thật (số công ty, số người nhà), và nối nhầm nghĩa là bot đọc lịch sử mua
+              của người khác rồi nói với khách này. */}
+          {lh?.phone && <GoiYNoiTheoSo hoiThoaiId={v?.id} soDt={lh.phone} onNoi={doiNoi} dangLam={dangLam} />}
           <div className="ci-hs-crm-nut">
             <button className="ci-nut nho" onClick={() => setMo(true)}>Nối khách CRM</button>
           </div>
@@ -1432,6 +1544,11 @@
             <div className="ci-hs-muc">
               <h4>Khách hàng CRM</h4>
               <NoiCrm chiTiet={chiTiet} pushToast={pushToast} />
+              {/* Ghi nhận chăm sóc — chỉ có nghĩa khi đã nối khách, vì việc này đi thẳng vào hồ
+                  sơ khách bên CRM. Chưa nối thì khối trên đã nói rõ phải làm gì trước. */}
+              {chiTiet?.contact?.crmCustomerId > 0 && (
+                <ChamSoc hoiThoaiId={v.id} pushToast={pushToast} />
+              )}
             </div>
 
             <div className="ci-hs-muc">
