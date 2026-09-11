@@ -124,6 +124,53 @@ Payload KHÔNG có `typeSchedule`/`parentTaskId`/`tags` — nếu `CreateCustome
 `CreateOrUpdateTaskingRequest` phía CRM có field bắt buộc khác không nằm trong payload trên, worker
 tự set default hợp lý (proxy chỉ gửi field trợ lý có đủ ngữ cảnh để điền).
 
+## 3b. `create-booking-ticket` → `POST /api/booking-tickets` (`CreateBookingTicketRequest`)
+
+> **CHƯA CÓ HANDLER.** Worker `CrmActionSyncWorker` hiện chỉ biết `assign-task` và
+> `create-appointment`. Mục này là **hợp đồng để viết nhánh thứ ba**, viết trước mã theo đúng
+> nguyên tắc: proxy đã thả dòng đúng khuôn này rồi, nhưng tính năng sinh ra chúng đứng sau cờ
+> `Features:ChatCoHoi` (mặc định **tắt**) cho tới khi nhánh worker chạy được. Bật cờ khi chưa có
+> handler thì người dùng bấm nút xong dòng nằm ở *đang chờ* vĩnh viễn.
+
+**Cơ hội bán hàng = BookingTicket** (xem `toutkit-app/docs/module-mapping.md`) — không phải
+Lead/Prospect.
+
+`PayloadJson` ví dụ:
+
+```json
+{
+  "idKhachHang": 123,
+  "tenKH": "Nguyễn Văn A",
+  "soDienThoaiKH": "0901234567",
+  "emailKH": null,
+  "tenPhieu": "Tư vấn tour Nhật tháng 10",
+  "noiDungPhieu": "Trích từ hộp thư chat:\nKhách: …\nNhân viên: …\n\nXem hội thoại: https://…",
+  "nguonPhieu": 1,
+  "nguoiPhuTrachs": [45]
+}
+```
+
+| Key trong `PayloadJson` | → Field `CreateBookingTicketRequest` | Ghi chú |
+|---|---|---|
+| `idKhachHang` | `IdKhachHang` | **Bắt buộc > 0.** Proxy đã chặn trước khi thả dòng: hội thoại chưa nối khách CRM thì không xếp hàng được. |
+| `tenKH` | `TenKH` | **Bắt buộc.** Lấy từ hồ sơ khách đã nối. |
+| `soDienThoaiKH`, `emailKH` | cùng tên | Từ `chat_contacts`; có thể `null` (Telegram/Messenger không bao giờ cho số). |
+| `tenPhieu` | `TenPhieu` | Người trực gõ, bỏ trống thì proxy dựng `"Chat: {tên khách}"`. |
+| `noiDungPhieu` | `NoiDungPhieu` | Trích đoạn chat + đường dẫn về hội thoại. **Trích, không tóm tắt bằng AI** — người đọc phiếu cần đúng lời khách. |
+| `nguonPhieu` | `NguonPhieu` | Mã số. Web cũ dùng `3` cho đại lý; **chưa có mã cho "từ chat"**. Proxy đọc từ cấu hình `Chat:NguonPhieuCoHoi` (mặc định `1`) → khi CRM cấp mã mới, **sửa cấu hình proxy**, handler không phải đụng vào. |
+| `nguoiPhuTrachs` | `NguoiPhuTrachs` | Mã người trong CRM — người đang phụ trách hội thoại. Mảng rỗng thì handler để CRM tự xử theo mặc định. |
+
+**Ba việc handler phải tự làm:**
+
+1. **Kiểm quyền thì KHÔNG cần** — proxy đã kiểm `CH_TAO_MOI` từ phiên của người bấm nút, trước khi
+   thả dòng. Lý do kiểm ở proxy: `BookingTicketService.CreateAsync` bên CRM **không** kiểm quyền
+   (chỉ `CH_XEM*` khi xem và `CH_SUA` khi sửa), web cũ kiểm ở tầng màn hình — nên nếu proxy không
+   chặn thì ai vào được hộp thư chat cũng tạo được Cơ hội. Worker chạy bằng quyền khác và không
+   biết ai đã bấm, nên nó không thể kiểm thay.
+2. **Ghi `ResultJson`** dạng `{"bookingTicketId": <id>}` khi xong — để sau này giao diện chat dẫn
+   thẳng sang phiếu.
+3. **Trường bắt buộc khác** mà payload không có thì tự đặt mặc định hợp lý, như hai loại việc trên.
+
 ## 4. Vòng đời `Status` — trách nhiệm worker
 
 ```
