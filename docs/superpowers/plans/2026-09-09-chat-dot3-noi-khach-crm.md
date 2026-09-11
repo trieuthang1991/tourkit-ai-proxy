@@ -1,29 +1,53 @@
-# Hộp thư chat — Đợt 3: Nối khách CRM (mục 4, việc 1 + việc 2)
+# Hộp thư chat — Đợt 3: Nối khách CRM + ghi nhận chăm sóc vào hàng đợi (mục 4)
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Khi khách chat đã cho số điện thoại, hộp thư **gợi ý** đúng khách CRM để nhân viên xác nhận nối; khi CRM chưa có, nhân viên **tạo khách mới** ngay từ hội thoại bằng tên/số/email đã có.
+**Bản 2 — 11/09/2026.** Bản 1 cho proxy gọi thẳng `POST /api/customers` của CRM. Bỏ hẳn hướng đó: chủ dự án chốt **mọi thứ ghi sang hệ ngoài đều để lại**, phần cần bắn sang CRM thì lưu trên hệ chat trước để xem và chuẩn hoá, rồi tự viết đường đồng bộ sau. Chỗ lưu đó **đã có sẵn** — xem §0.
 
-**Architecture:** Việc 1 thuần giao diện: `NoiCrm` gọi `GET …/crm-search?q=<số điện thoại>` (đường có sẵn, tìm bằng phiên của chính nhân viên) và bày kết quả như "có thể là…". Việc 2 là một endpoint mới `POST /conversations/{id}/crm-customer` (không thân) gọi `POST /api/customers` của CRM rồi `LinkCrmAsync`. Proxy **tự kiểm quyền** `KH_KH_TAOMOI` vì CRM không kiểm ở `CreateAsync`.
+**Goal:** Khi khách chat đã cho số điện thoại, hộp thư **gợi ý** đúng khách CRM để nhân viên xác nhận nối. Khi nhân viên chốt xong một lượt chăm sóc, hộp thư **ghi một dòng vào hàng đợi hành động CRM** kèm đủ ngữ cảnh — không gọi CRM, không chờ CRM.
 
-**Tech Stack:** .NET 8 minimal API · `TourKitApiClient.PostAsync` (trả `data` đã bóc) · React/Babel UMD · xUnit · Playwright.
+**Spec:** [../specs/2026-09-09-chat-cac-cum-hoan-phan-tich.md](../specs/2026-09-09-chat-cac-cum-hoan-phan-tich.md) §5.
 
-**Spec:** [docs/superpowers/specs/2026-09-09-chat-cac-cum-hoan-phan-tich.md](../specs/2026-09-09-chat-cac-cum-hoan-phan-tich.md) §5.
+---
 
-**Việc 3 (đẩy nhật ký chăm sóc sang CRM) KHÔNG nằm trong plan này** — chờ chốt "theo hội thoại hay theo lượt" (spec §10 câu 4).
+## 0. Vì sao không cần dựng gì mới
+
+`dbo.CrmActionQueue` (CSDL `TourKit_Push`) **đã là hộp thư đi**, và **proxy sở hữu schema** của nó:
+
+| Mảnh | Ở đâu | Trạng thái |
+|---|---|---|
+| Bảng + hai chỉ mục | `TourkitAiProxy.Infrastructure/Db/TourkitAiDb.cs` (`SchemaSql`, ~dòng 585) | có, tạo idempotent mỗi lần khởi động |
+| Thả dòng + đọc để theo dõi | `TourkitAiProxy.Infrastructure/Crm/CrmActionQueueRepository.cs` | có |
+| Worker lấy ra rồi gọi CRM | `toutkit-app/PushNotification.Worker/CrmActionSyncWorker.cs` | có, claim `READPAST/UPDLOCK` |
+| Hợp đồng payload | `docs/crm-action-contract/README.md` | có |
+| Loại việc `create-appointment` → `POST /api/customer-care` | cùng file trên, §3 | **có** — đúng thứ mục 4 việc 3 cần |
+
+Nghĩa là việc 3 ("đẩy nhật ký chăm sóc") **không cần API mới, không cần bảng mới, không cần worker mới**. Chỉ cần thả đúng một dòng.
+
+**Hai cột thêm vào (chủ dự án chốt 11/09):**
+- `Action` — nghiệp vụ phía chat sinh ra dòng này (`chat-cham-soc`, sau này `chat-co-hoi`…). Khác `Kind`: `Kind` trả lời "gọi API CRM nào" và worker phân việc theo nó; `Action` trả lời "việc này từ nghiệp vụ nào ra".
+- `ReferId` — mã hội thoại, để sau truy ngược ra đoạn chat.
+
+Cả hai **NULL được**, mặc định rỗng. Dòng cũ không đổi, worker đang chạy không đọc hai cột này nên cũng không đổi.
+
+**Việc 2 (tạo khách mới trên CRM) ra khỏi đợt này.** Lý do thật, không phải xếp lịch cho gọn: nối khách cần *mã khách* ngay lúc bấm (`chat_contacts.crm_customer_id`), mà thả vào hàng đợi thì mã chỉ có sau khi worker chạy xong. Làm nửa vời sẽ đẻ ra trạng thái "đang chờ nối" mà mọi chỗ đọc `crmCustomerId` đều phải biết — bốn màn hình, một luật mới. Để riêng một đợt, sau khi có đường worker ghi ngược `ResultJson`.
+
+---
 
 ## Global Constraints
 
-- Chữ hiển thị, log, chú thích: tiếng Việt. Ngày giờ UTC kèm `Z`. `CHANGELOG.md` bắt buộc.
-- `codegraph impact` trước khi sửa: `LinkCrmAsync` (1 caller), `NoiCrm` (1 chỗ vẽ).
-- Route mới **không thân** → không khai tham số thân. Mọi dữ liệu lấy từ `chat_contacts`.
-- **CRM `CustomerService.CreateAsync` không kiểm quyền** (đã soát) → proxy kiểm `KH_KH_TAOMOI` qua `TkSessionStore.HasPermission` sau `EnsurePermissionsAsync`.
-- CRM từ chối số điện thoại trùng bằng `InvalidOperationException("Số điện thoại đã tồn tại")` → HTTP 400 → `TourKitApiException(Status 400)`; proxy trả nguyên câu đó cho người dùng.
-- Nhật ký: hành động mới `tao-khach-crm` PHẢI có nhãn trong `TEN_HANH_DONG` (chat-inbox.jsx:682) — `ChatAuditGuardTests` đỏ nếu thiếu.
+- Chữ hiển thị, log, chú thích: tiếng Việt. Ngày giờ UTC kèm `Z`. `CHANGELOG.md` bắt buộc, viết cho người dùng cuối.
+- `codegraph impact` trước khi sửa: `EnqueueAsync`, `ListForMonitorAsync`, `LinkCrmAsync`, `NoiCrm`.
+- **Sửa schema `dbo.CrmActionQueue` là đụng DB_Push** — chủ dự án đã cho phép đúng hai cột `Action` + `ReferId`, mặc định NULL. Thêm gì khác phải xin lại.
+- `ALTER TABLE` phải **idempotent** như mọi thứ trong `SchemaSql`: bọc `IF COL_LENGTH('dbo.CrmActionQueue','Action') IS NULL`. Schema chạy lại mỗi lần khởi động.
+- Route mới **không có thân** → không khai tham số thân (bẫy Content-Type ở tầng định tuyến). Cần dữ liệu thì lấy từ hội thoại.
 - `ChatCrmLinkGuardTests` đang giữ: `crm-search`, `link-crm`, `LinkCrmAsync` kẹp `tenant_id = @tenant`, tìm bằng `a.SessionId`. Không phá.
-- **Ghi vào CRM staging** là được phép; **cấm ghi erp**. E2E dùng số điện thoại thử cố định để lần chạy sau không tạo thêm khách rác.
-- Máy chủ khoá DLL → dừng trước build/test. Toàn bộ `dotnet test` cuối mỗi task. E2E worker tắt, cấm `/send`.
-- Commit trailer `Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>`; không commit 5 tệp đang dở.
+- Hành động nhật ký mới phải có nhãn trong `TEN_HANH_DONG` (chat-inbox.jsx) — `ChatAuditGuardTests` đỏ nếu thiếu.
+- **Không gọi CRM** trong đợt này. Có chốt canh (Task 4).
+- Máy chủ khoá DLL → `taskkill //IM TourkitAiProxy.exe //F` trước build/test. Toàn bộ `dotnet test` cuối mỗi task, không lọc.
+- E2E: `E2E_TARGET=local`, worker chat tắt, cấm `/send`, `/send-template`.
+- Chốt canh mới phải **chứng minh ĐỎ** rồi khôi phục (so mã băm).
+- Commit trailer: `Co-Authored-By: Claude Opus 5 (1M context) <noreply@anthropic.com>`. Không commit năm tệp đang dở: `CLAUDE.md`, `docs/meta-app-review.md`, `docs/postgres-chat-setup.md`, `docs/quy-trinh-multica.md`, `docs/yeu-cau-du-lieu-tu-co-quan.md`.
 
 ---
 
@@ -31,320 +55,174 @@
 
 | Tệp | Trách nhiệm |
 |---|---|
-| `wwwroot/pages/chat-inbox.jsx` — `NoiCrm` (1125–1205) | việc 1: gợi ý theo số ĐT; việc 2: nút *Tạo khách mới trên CRM*; nhãn nhật ký |
-| `TourkitAiProxy.Infrastructure/TourKit/TkPermissionCodes.cs` | `TaoKhachHang = "KH_KH_TAOMOI"` |
-| `TourkitAiProxy.Endpoints/SessionAuth.cs` | `ForbiddenTaoKhachHang()` |
-| `TourkitAiProxy.Endpoints/ChatInboxEndpoints.cs` | `POST /conversations/{id:long}/crm-customer` |
-| `TourkitAiProxy.Tests/Chat/ChatCrmLinkGuardTests.cs` | thêm chốt: tạo khách phải kiểm quyền + nối ngay + ghi nhật ký |
-| `e2e/tests/07-chat-phan-cong-api.spec.js` | nhóm `G — Tạo khách CRM` |
+| `TourkitAiProxy.Infrastructure/Db/TourkitAiDb.cs` | hai cột mới, `ALTER` idempotent + chỉ mục tra theo hội thoại |
+| `TourkitAiProxy.Infrastructure/Crm/CrmActionQueueRepository.cs` | `CrmActionInput` mang `Action`/`ReferId`; `ListByReferAsync` |
+| `TourkitAiProxy.Domain/Chat/ChatRules.cs` | `TomTatChamSoc` — hàm thuần dựng `careDetail` từ N tin cuối |
+| `TourkitAiProxy.Endpoints/ChatInboxEndpoints.cs` | `POST /conversations/{id:long}/cham-soc`, `GET /conversations/{id:long}/cham-soc` |
+| `wwwroot/pages/chat-inbox.jsx` | `NoiCrm`: gợi ý theo số ĐT; khối **Chăm sóc** trong tab khách hàng |
+| `TourkitAiProxy.Tests/Chat/ChatRulesTests.cs` | test `TomTatChamSoc` |
+| `TourkitAiProxy.Tests/Chat/ChatChamSocGuardTests.cs` (mới) | chốt: đòi đã nối khách · thả hàng đợi chứ KHÔNG gọi CRM · ghi nhật ký |
+| `e2e/tests/07-chat-phan-cong-api.spec.js` | nhóm `G — Ghi nhận chăm sóc` |
 | `CHANGELOG.md` | hai mục |
 
 ---
 
-### Task 1: Gợi ý nối theo số điện thoại (thuần giao diện)
+### Task 1: Hai cột `Action` + `ReferId` trên hàng đợi
 
-**Files:**
-- Modify: `wwwroot/pages/chat-inbox.jsx` — `NoiCrm`
+**Files:** `TourkitAiProxy.Infrastructure/Db/TourkitAiDb.cs`, `TourkitAiProxy.Infrastructure/Crm/CrmActionQueueRepository.cs`
 
-**Interfaces:**
-- Consumes: `GET /api/v1/chat/conversations/{id}/crm-search?q=` → `{items:[{id,name,phone,code}]}`; `chiTiet.contact.phone`.
+- [ ] **Step 1:** `codegraph impact EnqueueAsync` — ghi số chỗ gọi vào commit. Dự kiến: `ActionExecutor` (trợ lý số liệu) và `WorkflowEndpoints`. **Cả hai phải tiếp tục chạy nguyên trạng** — đó là lý do hai cột mặc định NULL và tham số mới có giá trị mặc định.
 
-- [ ] **Step 1: State + effect** — trong `NoiCrm`, sau `const [dangLam, setDangLam] = useState(false);`:
+- [ ] **Step 2:** `SchemaSql` — thêm ngay sau khối `CREATE TABLE dbo.CrmActionQueue`:
 
-```jsx
-    // Gợi ý theo SỐ ĐIỆN THOẠI khi kênh cho số (WhatsApp luôn có; Zalo khi khách chia sẻ).
-    // Chỉ GỢI Ý, người bấm mới nối: đoán sai một lần là bot đọc lịch sử mua của khách khác.
-    const [goiY, setGoiY] = useState(null);   // null = chưa hỏi/không có; [] = hỏi rồi, không khớp
-    useEffect(() => {
-      const so = (lh?.phone || '').trim();
-      if (lh?.crmCustomerId || !so || !v?.id) { setGoiY(null); return; }
-      let song = true;
-      authedFetch('/api/v1/chat/conversations/' + v.id + '/crm-search?q=' + encodeURIComponent(so))
-        .then(r => (r.ok ? r.json() : { items: [] }))
-        .then(j => { if (song) setGoiY((j.items || []).slice(0, 3)); })
-        .catch(() => { if (song) setGoiY([]); });
-      return () => { song = false; };
-    }, [v?.id, lh?.phone, lh?.crmCustomerId]);
+```sql
+-- Hai cột BỔ SUNG, thêm 11/09/2026 cho nghiệp vụ chat. Cả hai NULL được và mặc định rỗng:
+-- dòng cũ giữ nguyên, worker app-side không đọc chúng nên không phải deploy lại cùng lúc.
+--   Action  — nghiệp vụ phía chat sinh ra dòng này. KHÁC Kind: Kind nói "gọi API CRM nào" và
+--             worker phân việc theo nó; Action nói "từ nghiệp vụ nào ra", chỉ để tra cứu.
+--   ReferId — mã hội thoại, để truy ngược ra đoạn chat đã đẻ ra việc này.
+IF COL_LENGTH('dbo.CrmActionQueue', 'Action') IS NULL
+    ALTER TABLE dbo.CrmActionQueue ADD Action NVARCHAR(60) NULL;
+IF COL_LENGTH('dbo.CrmActionQueue', 'ReferId') IS NULL
+    ALTER TABLE dbo.CrmActionQueue ADD ReferId NVARCHAR(64) NULL;
+-- Tra "hội thoại này đã đẻ ra những việc gì" — chỗ duy nhất giao diện hỏi tới hai cột này.
+IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name = 'IX_CrmActionQueue_Refer')
+    CREATE INDEX IX_CrmActionQueue_Refer ON dbo.CrmActionQueue(TenantId, ReferId, Id DESC);
 ```
 
-- [ ] **Step 2: Bày gợi ý** — trong nhánh `if (!mo)` (khối "Chưa nối với khách hàng trong CRM…"), thêm **trước** `<div className="ci-hs-crm-nut">`:
+> ⚠️ SQL Server **không** có `ALTER TABLE … ADD IF NOT EXISTS` — phải dùng `COL_LENGTH` như trên.
+> `ALTER` đứng sau `CREATE TABLE` trong cùng đợt chạy là đủ, vì `SchemaSql` chạy tuần tự.
 
-```jsx
-          {goiY && goiY.length > 0 && (
-            <div className="ci-hs-goiy">
-              <span>Cùng số điện thoại trên CRM:</span>
-              {goiY.map(k => (
-                <button key={k.id} className="ci-hs-crm-kq" disabled={dangLam} onClick={() => doiNoi(k.id)}>
-                  <b>{k.name}</b>
-                  <span>{[k.code, k.phone].filter(Boolean).join(' · ') || '#' + k.id}</span>
-                </button>
-              ))}
-            </div>
-          )}
-```
-và CSS (styles.css, cạnh `.ci-hs-crm-kq`):
-```css
-.ci-hs-goiy { display: grid; gap: 6px; margin: 8px 0; }
-.ci-hs-goiy > span { font-size: 11.5px; color: var(--text-3); }
-```
-
-- [ ] **Step 3: Dựng bundle, kiểm tay** — hội thoại WhatsApp hoặc Zalo đã chia sẻ số trên staging: mở hồ sơ → thấy "Cùng số điện thoại trên CRM: …" (nếu CRM có khách cùng số) → bấm → nối. Không có hội thoại nào có số thì ghi rõ trong commit là **chưa kiểm tay**, đừng viết "đã kiểm".
-
-- [ ] **Step 4: Commit**
-
-```bash
-git add wwwroot/pages/chat-inbox.jsx wwwroot/styles.css
-git commit -m "feat(chat): gợi ý khách CRM cùng số điện thoại — người xác nhận mới nối
-
-Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>"
-```
-
----
-
-### Task 2: Mã quyền + câu từ chối
-
-**Files:**
-- Modify: `TourkitAiProxy.Infrastructure/TourKit/TkPermissionCodes.cs` (sau `XemKhachHang`)
-- Modify: `TourkitAiProxy.Endpoints/SessionAuth.cs` (sau `ForbiddenCreateTour`, dòng ~118)
-
-- [ ] **Step 1:**
+- [ ] **Step 3:** `CrmActionInput` thêm hai trường **có mặc định** để mọi chỗ gọi cũ biên dịch nguyên trạng:
 
 ```csharp
-    /// Khách hàng — tạo mới. PermissionCodes.cs:67. Gate "Tạo khách mới trên CRM" từ hộp thư chat —
-    /// CRM KHÔNG kiểm ở CustomerService.CreateAsync, nên proxy phải kiểm thay.
-    public const string TaoKhachHang = "KH_KH_TAOMOI";
+/// <param name="Action">Nghiệp vụ phía chat, vd "chat-cham-soc". Null với hành động do trợ lý
+/// số liệu sinh ra — chúng không thuộc nghiệp vụ chat nào.</param>
+/// <param name="ReferId">Mã hội thoại đã đẻ ra việc này. Null khi không đến từ hội thoại.</param>
+public record CrmActionInput(string TenantId, string Username, string Kind, string PayloadJson,
+    string? Action = null, string? ReferId = null);
 ```
+
+`EnqueueAsync` thêm hai cột vào câu `INSERT` và vào đối tượng tham số. `CrmActionRow` cũng thêm hai trường cuối (có mặc định null) và `ListForMonitorAsync` `SELECT` thêm chúng.
+
+- [ ] **Step 4:** `ListByReferAsync(tenantId, referId, take, ct)` — mới: `WHERE TenantId=@t AND ReferId=@r ORDER BY Id DESC`.
+
+- [ ] **Step 5:** Build + `dotnet test` toàn bộ → xanh. Khởi động máy chủ, xem log `TourkitAiDb schema OK` — đó là bằng chứng `ALTER` chạy thật được trên bảng đang có dữ liệu, thứ không test nào thay thế.
+
+- [ ] **Step 6:** Commit.
+
+---
+
+### Task 2: Gợi ý nối khách theo số điện thoại (thuần giao diện)
+
+**Files:** `wwwroot/pages/chat-inbox.jsx` — `NoiCrm`
+
+Không API mới: `GET …/crm-search?q=` đã có và tìm bằng phiên của chính nhân viên; CRM khớp `filter=` trên cả `phone`.
+
+- [ ] **Step 1:** Khi mở khối nối CRM mà `chiTiet.contact.phone` có giá trị và chưa nối, tự gọi `crm-search` với số đó **một lần**.
+- [ ] **Step 2:** Đúng **một** kết quả → thẻ "Có thể là **{tên}** · {số} — nối?" với hai nút *Nối* / *Không phải*. Nhiều hơn một → hiện danh sách, không chọn hộ.
+- [ ] **Step 3:** **Không tự nối trong mọi trường hợp.** Lý do đã ghi sẵn trong mã `LinkCrmAsync`: nối nhầm là bot đọc lịch sử mua của người khác rồi nói với khách này. Trùng số điện thoại trong CRM là chuyện có thật (số công ty, số người nhà).
+- [ ] **Step 4:** Kiểm tay trên staging với một hội thoại có số ĐT. Commit.
+
+---
+
+### Task 3: Hàm thuần dựng nội dung chăm sóc
+
+**Files:** `TourkitAiProxy.Domain/Chat/ChatRules.cs`, test `ChatRulesTests.cs`
+
+- [ ] **Step 1:** Viết test TRƯỚC, chạy thấy đỏ:
 
 ```csharp
-    public static IResult ForbiddenTaoKhachHang()
-        => Results.Json(new { error = "Bạn không có quyền tạo khách hàng (KH_KH_TAOMOI)." }, statusCode: 403);
+// Lấy N tin cuối, ghi "Khách: …" / "Nhân viên: …", cắt theo GIỚI HẠN KÝ TỰ chứ không theo số tin:
+// careDetail bên CRM là cột có trần, một hội thoại dài đủ sức vượt.
+[Fact] public void Tom_tat_ghi_ro_ai_noi_cau_nao() { … }
+[Fact] public void Tom_tat_cat_theo_tran_ky_tu_va_bao_da_cat() { … }
+[Fact] public void Hoi_thoai_rong_tra_chuoi_rong_chu_khong_nem() { … }
 ```
 
-- [ ] **Step 2: Build xanh. Commit** — `git commit -m "feat(auth): mã quyền tạo khách hàng cho hộp thư chat"` (kèm trailer).
+- [ ] **Step 2:** Viết `TomTatChamSoc(IEnumerable<ChatMessage> tin, int tranKyTu = 1800)`.
+- [ ] **Step 3:** Test xanh. Commit.
 
 ---
 
-### Task 3: `POST /conversations/{id}/crm-customer` — tạo khách rồi nối
+### Task 4: `POST /conversations/{id}/cham-soc` — thả một dòng vào hàng đợi
 
-**Files:**
-- Modify: `TourkitAiProxy.Endpoints/ChatInboxEndpoints.cs` — ngay sau route `link-crm`
-- Modify: `wwwroot/pages/chat-inbox.jsx:682` — `TEN_HANH_DONG` thêm `'tao-khach-crm': 'tạo khách mới trên CRM'`
-- Test: `TourkitAiProxy.Tests/Chat/ChatCrmLinkGuardTests.cs`
+**Files:** `TourkitAiProxy.Endpoints/ChatInboxEndpoints.cs`, test `ChatChamSocGuardTests.cs` (mới)
 
-**Interfaces:**
-- Consumes: `repo.GetContactAsync(tenant, kenh, externalId, ct)` (ChatRepository.cs:580) → `ChatContact {DisplayName, Phone, Email, CrmCustomerId}`; `api.PostAsync(jwt, "/api/customers", body, ct)` → `JsonElement` là `data` = `{ "id": <int> }`; `sessions.GetValidJwtAsync`, `sessions.ForceReloginAsync`; `repo.LinkCrmAsync`.
-- Produces: `200 {ok, crmCustomerId}` · `403` thiếu quyền · `409 {error}` đã nối · `422 {error}` thiếu tên · `400 {error}` CRM từ chối (trùng số).
+**Interfaces:** route **không thân**. Mọi thứ lấy từ hội thoại + phiên.
 
-- [ ] **Step 1: Chốt canh ĐỎ** — thêm vào `ChatCrmLinkGuardTests`:
+- [ ] **Step 1: Chốt canh ĐỎ trước.** Ba điều, và điều thứ nhất là điều quan trọng nhất của cả đợt:
 
 ```csharp
-    private static string ThanTaoKhach()
-    {
-        var src = ChatSchemaGuardTests.DocFile("TourkitAiProxy.Endpoints/ChatInboxEndpoints.cs");
-        src = string.Join("\n", src.Split('\n').Where(d => !d.TrimStart().StartsWith("//", StringComparison.Ordinal)));
-        var i = src.IndexOf("MapPost(\"/conversations/{id:long}/crm-customer\"", StringComparison.Ordinal);
-        Assert.True(i >= 0, "Chưa có route crm-customer");
-        var sau = src.Substring(i);
-        var het = sau.IndexOf("\n        g.Map", 10, StringComparison.Ordinal);
-        return het > 0 ? sau.Substring(0, het) : sau;
-    }
-
-    [Fact]
-    public void Tao_khach_CRM_phai_kiem_quyen_o_proxy_vi_CRM_khong_kiem()
-    {
-        var than = ThanTaoKhach();
-        Assert.Contains("TkPermissionCodes.TaoKhachHang", than);
-        Assert.Contains("ForbiddenTaoKhachHang", than);
-    }
-
-    [Fact]
-    public void Tao_khach_CRM_xong_phai_NOI_NGAY_va_ghi_nhat_ky()
-    {
-        var than = ThanTaoKhach();
-        Assert.Contains("LinkCrmAsync", than);
-        Assert.Contains("\"tao-khach-crm\"", than);
-        Assert.Contains("\"/api/customers\"", than);
-    }
+/// <summary>
+/// Đường ghi nhận chăm sóc THẢ VÀO HÀNG ĐỢI, tuyệt đối không gọi CRM.
+///
+/// <para>Chủ dự án chốt 11/09/2026: mọi thứ bắn sang hệ ngoài để lại, lưu trên hệ chat trước để
+/// xem và chuẩn hoá. Gọi thẳng CRM ở đây là đi ngược quyết định đó — mà lại là kiểu đi ngược
+/// KHÔNG lộ ra: nó chạy được, chỉ là dữ liệu chưa chuẩn đã nằm trong CRM thật rồi.</para>
+/// </summary>
+[Fact] public void Duong_cham_soc_KHONG_goi_CRM()
+{
+    var than = ChatSchemaGuardTests.ThanThanhVien(src, "g.MapPost(\"/conversations/{id:long}/cham-soc\"");
+    Assert.Contains("EnqueueAsync", than);
+    Assert.DoesNotContain("api.PostAsync", than);
+    Assert.DoesNotContain("api.PutAsync", than);
+}
+[Fact] public void Doi_hoi_thoai_da_noi_khach_CRM() { /* Contains("CrmCustomerId") + nhánh trả 400 */ }
+[Fact] public void Ghi_nhat_ky() { /* lượt ghi nhật ký mang hành động "cham-soc" */ }
 ```
 
-- [ ] **Step 2: Chạy — ĐỎ** ("Chưa có route crm-customer").
+- [ ] **Step 2:** Chạy → ĐỎ (chưa có route).
 
-- [ ] **Step 3: Viết route**
+- [ ] **Step 3:** Viết route:
+  - đọc phiên; hội thoại ngoài tầm xem → 404, đi qua `GetConversationAsync` như mọi route khác;
+  - `GetContactAsync` → **chưa nối khách CRM thì 400** kèm câu nói rõ phải nối trước. Không im lặng bỏ qua: `CreateCustomerCareRequest.CustomerId` là bắt buộc, thả dòng thiếu mã là đẩy một việc chắc chắn hỏng cho worker;
+  - dựng `PayloadJson` **đúng hợp đồng** `docs/crm-action-contract/README.md` §3: `customerId`, `careTitle` = `"Chat: " + tên khách`, `careDetail` = `TomTatChamSoc`, `careStartTime`/`careEndTime` = `null`, `status` = 1, `appointmentReminder` = 0, `customerName`, `customerPhone`;
+  - `EnqueueAsync` với `Kind = CrmActionKind.CreateAppointment`, `Action = "chat-cham-soc"`, `ReferId = id.ToString()`;
+  - ghi nhật ký hội thoại, hành động `cham-soc`;
+  - trả `{ id, trangThai: "dang-cho" }`.
 
-```csharp
-        // Tạo khách MỚI trên CRM từ chính hồ sơ chat, rồi nối ngay. Không có thân: tên/số/email
-        // lấy từ chat_contacts — nhân viên muốn sửa thì sửa bên CRM sau, ở đây chỉ một chạm.
-        //
-        // Proxy KIỂM QUYỀN thay CRM: CustomerService.CreateAsync bên đó không kiểm KH_KH_TAOMOI
-        // (đã soát 09/09/2026), web cũ kiểm ở tầng màn hình. Bỏ dòng này là ai vào được hộp thư
-        // cũng tạo được khách.
-        g.MapPost("/conversations/{id:long}/crm-customer", async (long id, HttpContext ctx,
-            TkSessionStore sessions, ChatRepository repo, ChatAssignRepository assign,
-            TourKitApiClient api, ChatEventBus bus, ILoggerFactory lf, CancellationToken ct) =>
-        {
-            var log = lf.CreateLogger("chat.crm-customer");
-            var p = await SessionAuth.ReadNguoiXemAsync(ctx, sessions, ct);
-            if (p == null) return SessionAuth.Unauthorized();
-            var (a, xem) = p.Value;
-            if (!repo.Configured) return NotConfigured();
+- [ ] **Step 4:** `GET /conversations/{id}/cham-soc` → `ListByReferAsync`, trả `{items:[{id, action, status, createdUtc, processedUtc, errorMessage}]}`. **Không trả `PayloadJson`** ra giao diện: nó chứa tên và số điện thoại khách, mà khối này hiện cho mọi người trực đọc được.
 
-            await sessions.EnsurePermissionsAsync(a.SessionId, ct);
-            if (!sessions.HasPermission(a.SessionId, TkPermissionCodes.TaoKhachHang))
-                return SessionAuth.ForbiddenTaoKhachHang();
+- [ ] **Step 5:** Chốt canh xanh; toàn bộ test xanh; chứng minh đỏ bằng cách đổi `EnqueueAsync` thành một lượt gọi CRM rồi khôi phục (so mã băm).
 
-            var v = await repo.GetConversationAsync(a.TenantId, id, xem, ct);
-            if (v is null) return Results.NotFound();
-            var lh = await repo.GetContactAsync(a.TenantId, v.Channel, v.ContactExternalId, ct);
-            if (lh is null) return Results.NotFound();
-            if (lh.CrmCustomerId is { } daCo)
-                return Results.Json(new { error = "Khách này đã nối với khách CRM #" + daCo + ". Gỡ nối trước nếu muốn tạo mới." }, statusCode: 409);
-            var ten = (lh.DisplayName ?? "").Trim();
-            if (ten.Length == 0)
-                return Results.Json(new { error = "Chưa có tên khách để tạo — kênh không gửi tên. Nối tay với khách có sẵn." }, statusCode: 422);
-
-            // CRM trả {id}; trùng số điện thoại thì CRM từ chối bằng 400 kèm câu — trả nguyên cho
-            // người dùng, họ sẽ dùng "Nối khách CRM" tìm theo số thay vì tạo.
-            var payload = new { FullName = ten, PhoneNumber = lh.Phone, Email = lh.Email };
-            JsonElement data;
-            try
-            {
-                var jwt = await sessions.GetValidJwtAsync(a.SessionId, ct);
-                try { data = await api.PostAsync(jwt, "/api/customers", payload, ct); }
-                catch (TourKitApiException ex) when (ex.Status == 401)
-                {
-                    jwt = await sessions.ForceReloginAsync(a.SessionId, ct);
-                    data = await api.PostAsync(jwt, "/api/customers", payload, ct);
-                }
-            }
-            catch (TourKitApiException ex) { return Results.Json(new { error = ex.Message }, statusCode: ex.Status); }
-
-            if (!data.TryGetProperty("id", out var idEl) || !idEl.TryGetInt32(out var maKhach) || maKhach <= 0)
-            {
-                log.LogWarning("[chat/crm-customer] CRM tạo khách nhưng không trả id đọc được: {Json}", data.ToString());
-                return Results.Json(new { error = "CRM không trả mã khách vừa tạo — kiểm tra bên CRM rồi nối tay." }, statusCode: 502);
-            }
-
-            await repo.LinkCrmAsync(a.TenantId, v.Channel, v.ContactExternalId, maKhach, ct);
-            await GhiNhatKyAsync(ctx, repo, sessions, a, id, "tao-khach-crm",
-                new JsonObject { ["khachCrm"] = maKhach }.ToJsonString(), ct);
-            bus.Publish(new(a.TenantId, id, "doi-hoi-thoai", null) { AssignedUserId = v.AssignedUserId });
-            return Results.Json(new { ok = true, crmCustomerId = maKhach }, Web);
-        });
-```
-
-- [ ] **Step 4: Nhãn nhật ký** — `TEN_HANH_DONG` thêm `'tao-khach-crm': 'tạo khách mới trên CRM',` (đặt cạnh `'noi-crm'`/`'go-noi-crm'` nếu có; không có thì cạnh `'chuyen-viec'`).
-
-- [ ] **Step 5: Toàn bộ test — XANH** (kể cả `ChatAuditGuardTests` nhờ nhãn ở bước 4). Chứng minh chốt đỏ: xoá tạm dòng `HasPermission` → chốt quyền ĐỎ; khôi phục.
-
-- [ ] **Step 6: Gọi thật trên staging** — hội thoại thử `e2e-1` (khách "Khach thu E2E 1", chưa nối):
-```
-curl -s -X POST http://localhost:5080/api/v1/chat/conversations/<id>/crm-customer -H "X-Session-Id: <sid admin>"
-```
-Expected lần 1: `{"ok":true,"crmCustomerId":N}`; lần 2: 409 "đã nối". Với phiên `ketoan1` (không có KH_KH_TAOMOI): 403. **Sau khi thử: gỡ nối** (`POST …/link-crm` thân `{}`) để dữ liệu thử về nguyên trạng; khách CRM "Khach thu E2E 1" giữ lại làm khách thử cố định cho e2e.
-
-- [ ] **Step 7: Commit**
-
-```bash
-git add TourkitAiProxy.Endpoints/ChatInboxEndpoints.cs wwwroot/pages/chat-inbox.jsx TourkitAiProxy.Tests/Chat/ChatCrmLinkGuardTests.cs
-git commit -m "feat(chat): tạo khách mới trên CRM từ hồ sơ chat rồi nối ngay
-
-Proxy kiểm KH_KH_TAOMOI vì CRM không kiểm ở CreateAsync (đã chứng minh chốt đỏ).
-
-Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>"
-```
+- [ ] **Step 6:** Commit.
 
 ---
 
-### Task 4: Nút **Tạo khách mới trên CRM**
+### Task 5: Khối **Chăm sóc** trong tab khách hàng
 
-**Files:**
-- Modify: `wwwroot/pages/chat-inbox.jsx` — `NoiCrm`, nhánh `if (!mo)`
+**Files:** `wwwroot/pages/chat-inbox.jsx`, `wwwroot/styles.css`
 
-- [ ] **Step 1: Hàm**
-
-```jsx
-    async function taoKhach() {
-      const ok = window.appConfirm
-        ? await window.appConfirm('Tạo khách "' + (lh?.displayName || '') + '" trên CRM với số/email đang có, rồi nối ngay?',
-                                  { title: 'Tạo khách mới trên CRM', confirmLabel: 'Tạo và nối' })
-        : window.confirm('Tạo khách mới trên CRM rồi nối?');
-      if (!ok) return;
-      setDangLam(true);
-      try {
-        const r = await authedFetch('/api/v1/chat/conversations/' + v.id + '/crm-customer', { method: 'POST' });
-        const j = await r.json().catch(() => ({}));
-        if (!r.ok) { pushToast(j.error || 'Không tạo được khách', 'error'); return; }
-        pushToast('Đã tạo khách CRM #' + j.crmCustomerId + ' và nối', 'success');
-      } finally { setDangLam(false); }
-    }
-```
-
-- [ ] **Step 2: Nút** — trong `<div className="ci-hs-crm-nut">` của nhánh chưa nối, sau nút *Nối khách CRM*:
-
-```jsx
-            {lh?.displayName && (
-              <button className="ci-nut nho" disabled={dangLam} onClick={taoKhach}
-                      title="Tạo khách trên CRM bằng tên, số và email đang có">
-                Tạo khách mới
-              </button>
-            )}
-```
-
-- [ ] **Step 3: Dựng bundle, kiểm tay** — bấm → hộp hỏi → tạo → panel đổi sang "Đã nối với khách #N" (nhờ sự kiện `doi-hoi-thoai` làm mới hồ sơ; nếu không tự đổi, gọi `onDoi` — xem `onGuiXong` ở dòng 3271 làm mẫu và truyền `onDoi={() => taiChiTiet(chon)}` vào `NoiCrm`).
-
-- [ ] **Step 4: Commit** — `git commit -m "feat(chat): nút Tạo khách mới trên CRM trong hồ sơ khách"` (kèm trailer).
+- [ ] **Step 1:** Nút *Ghi nhận chăm sóc*, chỉ bật khi đã nối khách CRM; chưa nối thì hiện câu nhắc nối trước **ngay tại chỗ đó**, không phải toast — toast biến mất trước khi người ta đọc xong.
+- [ ] **Step 2:** Dưới nút, danh sách các lượt đã ghi của **chính hội thoại này**, trạng thái bằng chữ người đọc được: *đang chờ đồng bộ · đang xử lý · đã sang CRM · lỗi*. Lỗi thì hiện `errorMessage`.
+- [ ] **Step 3:** Nhãn `cham-soc` vào `TEN_HANH_DONG`.
+- [ ] **Step 4:** Dựng bundle, khởi động lại, kiểm tay. Commit.
 
 ---
 
-### Task 5: E2E + CHANGELOG
+### Task 6: E2E + CHANGELOG
 
-- [ ] **Step 1: E2E** — nhóm mới trong 07 spec:
-
-```js
-test.describe('G — Tạo khách CRM từ chat', () => {
-  test('G1 — nhân viên không có quyền tạo khách → 403 JSON', async () => {
-    const r = await doc(await api.post(`${GOC}/conversations/${maHoiThoai}/crm-customer`, { headers: nhu(PHIEN_NHAN_VIEN) }));
-    expect(r.laHtml).toBe(false);
-    expect([403, 404], `mã ${r.ma}`).toContain(r.ma);   // 404 nếu luật xem chặn trước quyền
-  });
-
-  test('G2 — quản trị: tạo được (200) hoặc bị CRM từ chối có câu (400/409) — không bao giờ 500/HTML', async () => {
-    const r = await doc(await api.post(`${GOC}/conversations/${maHoiThoai}/crm-customer`, { headers: nhu(PHIEN_QUAN_TRI) }));
-    expect(r.laHtml).toBe(false);
-    expect([200, 400, 409, 422], `mã ${r.ma}: ${JSON.stringify(r.json)}`).toContain(r.ma);
-    if (r.ma !== 200) expect(r.json.error, 'từ chối phải có câu đọc được').toBeTruthy();
-    // Trả lại nguyên trạng: hội thoại thử không nối ai.
-    await api.post(`${GOC}/conversations/${maHoiThoai}/link-crm`, {
-      headers: nhu(PHIEN_QUAN_TRI, { 'Content-Type': 'application/json' }), data: {},
-    });
-  });
-});
-```
-
-- [ ] **Step 2: CHANGELOG** — `### ✨ Tính năng mới`:
-
-```markdown
-- **Gợi ý khách CRM cùng số điện thoại.** Khách chat có số (WhatsApp, hoặc Zalo khi khách chia
-  sẻ số) thì hồ sơ khách hiện ngay những khách CRM trùng số để bạn bấm nối — hệ thống không tự
-  nối, vì nối nhầm là trợ lý đọc lịch sử mua của người khác.
-- **Tạo khách mới trên CRM từ hội thoại.** Chưa có trên CRM thì một nút tạo bằng tên, số và
-  email đang có, rồi nối luôn. Cần quyền tạo khách hàng; trùng số thì CRM báo và bạn nối với
-  khách sẵn có thay vì tạo.
-```
-
-- [ ] **Step 3: Chạy toàn bộ; commit**
-
-```bash
-git add e2e/tests/07-chat-phan-cong-api.spec.js CHANGELOG.md
-git commit -m "test(e2e)+docs: tạo khách CRM từ chat — quyền, và không bao giờ 500/HTML
-
-Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>"
-```
+- [ ] **Step 1:** Nhóm `G — Ghi nhận chăm sóc`:
+  - G1 hội thoại **chưa nối khách** → 400, và **không** đẻ dòng nào trong hàng đợi;
+  - G2 hội thoại đã nối → 200, `GET …/cham-soc` thấy đúng dòng vừa tạo, trạng thái *đang chờ*;
+  - G3 dòng tạo ra mang đúng `action` và `referId`.
+  - E2E ghi vào hàng đợi staging là chấp nhận được (worker staging nhặt lên rồi tự chuyển trạng thái); **cấm chạy trên erp**.
+- [ ] **Step 2:** CHANGELOG — hai mục viết theo trải nghiệm: "gợi ý khách trùng số điện thoại" và "ghi nhận chăm sóc, chờ đồng bộ sang CRM".
+- [ ] **Step 3:** Chạy toàn bộ. Commit.
 
 ---
+
+## Việc còn để lại, và vì sao
+
+| Việc | Vì sao chưa làm |
+|---|---|
+| Tạo khách mới trên CRM từ chat | Cần mã khách ngay lúc bấm để nối; hàng đợi chỉ có mã sau khi worker chạy. Chờ đường worker ghi ngược `ResultJson`. |
+| Worker xử lý `Action` mới | Nằm ở `toutkit-app`, chủ dự án tự viết. Đợt này chỉ thả dòng đúng hợp đồng `create-appointment` — loại việc worker **đã** xử lý được, nên không chờ ai. |
+| Ghi CSKH theo *lượt* hay theo *hội thoại* | Câu hỏi này tự tan: nay là quyết định của người dùng chứ không phải của hệ — mỗi lần bấm nút là một dòng, bấm mấy lần thì mấy dòng. |
 
 ## Self-review
 
-- **Spec coverage:** §5 việc 1 (gợi ý theo số, không tự nối) → Task 1; việc 2 (tạo khách, tiền đề mục 3) → Task 2–4; ràng buộc "CRM không kiểm quyền" → Task 2–3 + chốt; việc 3 → cố ý ngoài phạm vi, ghi ở đầu.
-- **Placeholder:** không.
-- **Nhất quán tên:** `TaoKhachHang`/`ForbiddenTaoKhachHang` (Task 2) ↔ dùng ở Task 3 ↔ chốt canh; hành động `tao-khach-crm` ở route ↔ `TEN_HANH_DONG`; route `crm-customer` ở Task 3–5.
+- **Spec coverage:** §5 việc 1 → Task 2; việc 3 → Task 3–5; việc 2 → ghi rõ để lại, kèm lý do kỹ thuật chứ không phải lý do xếp lịch.
+- **Không ghi hệ ngoài:** có chốt canh mã nguồn (Task 4 Step 1), không chỉ là lời hứa trong chú thích.
+- **Không phá cái đang chạy:** hai cột mặc định NULL, `CrmActionInput` thêm tham số có mặc định — `ActionExecutor` và `WorkflowEndpoints` biên dịch và chạy nguyên trạng.

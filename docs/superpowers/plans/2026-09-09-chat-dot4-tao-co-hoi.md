@@ -2,26 +2,41 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Từ một hội thoại đã nối khách CRM, nhân viên bấm một nút để tạo **Cơ hội bán hàng** (= BookingTicket) trên CRM, mang theo tóm tắt đoạn chat.
+**Bản 2 — 11/09/2026.** Bản 1 cho proxy gọi thẳng `POST /api/booking-tickets` của CRM. Bỏ hướng đó theo quyết định "mọi thứ ghi sang hệ ngoài đều để lại". Nay proxy **thả một dòng vào `dbo.CrmActionQueue`**; worker bên `toutkit-app` gọi CRM — và **handler cho loại việc này chưa tồn tại**, chủ dự án sẽ tự viết. Đợt này giao đúng nửa phần proxy, kèm hợp đồng để bên kia viết đối ứng.
 
-**Architecture:** CRM đã có `POST /api/booking-tickets` (`CreateBookingTicketRequest`). Proxy thêm `POST /conversations/{id}/co-hoi` (có thân: tiêu đề + ghi chú tuỳ chọn), **tự kiểm quyền `CH_TAO_MOI`** vì CRM không kiểm ở `CreateAsync`, đòi hội thoại đã nối khách (`IdKhachHang > 0` là bắt buộc bên CRM), dựng `NoiDungPhieu` từ tóm tắt tin bằng một hàm thuần, gọi CRM, ghi nhật ký. Không lưu mã phiếu phía chat (nhật ký đã ghi).
+**Goal:** Từ một hội thoại đã nối khách CRM, nhân viên bấm một nút để **xếp hàng** tạo Cơ hội bán hàng (= BookingTicket), mang theo tóm tắt đoạn chat; màn hình nói thật là việc đang chờ đồng bộ chứ không giả vờ đã xong.
 
-**Tech Stack:** .NET 8 minimal API · `TourKitApiClient.PostAsync` · React/Babel UMD · xUnit · Playwright.
+**Spec:** [../specs/2026-09-09-chat-cac-cum-hoan-phan-tich.md](../specs/2026-09-09-chat-cac-cum-hoan-phan-tich.md) §6.
+**Phụ thuộc cứng:** [Đợt 3](2026-09-09-chat-dot3-noi-khach-crm.md) — cần hai cột `Action`/`ReferId` và cần hội thoại nối được khách CRM.
 
-**Spec:** [docs/superpowers/specs/2026-09-09-chat-cac-cum-hoan-phan-tich.md](../specs/2026-09-09-chat-cac-cum-hoan-phan-tich.md) §6. **Phụ thuộc:** Đợt 3 (hội thoại phải nối được khách CRM).
+---
+
+## 0. Điều phải nói thẳng trước khi viết dòng nào
+
+Hàng đợi đang có đúng hai loại việc worker biết xử lý: `assign-task` và `create-appointment`. **Cơ hội bán hàng là loại thứ ba, chưa có ai nhặt.** Nghĩa là ngay sau đợt này, bấm nút xong thì dòng nằm ở *đang chờ* **mãi mãi** cho tới khi handler bên `toutkit-app` được viết.
+
+Hệ quả bắt buộc, không phải tuỳ chọn:
+
+1. **Có cờ tính năng riêng** `Features:ChatCoHoi`, **mặc định tắt** — đúng quy ước "tính năng mới thì một cờ riêng, mặc định tắt". Bật khi handler đã chạy.
+2. **Giao diện nói đúng sự thật**: "đã xếp hàng, chờ đồng bộ" — không phải "đã tạo Cơ hội". Một nút báo thành công trong khi bên kia chưa có gì là kiểu hỏng tệ nhất: người dùng tin là xong và không kiểm lại.
+3. **Hợp đồng phải viết trước khi viết mã**, vào `docs/crm-action-contract/README.md`. Đó là thứ chủ dự án đọc để viết handler; thiếu nó thì hai bên đoán nhau.
+
+---
 
 ## Global Constraints
 
 - Chữ hiển thị, log, chú thích: tiếng Việt. Ngày giờ UTC kèm `Z`. `CHANGELOG.md` bắt buộc.
-- **Cơ hội bán hàng = BookingTicket** (`toutkit-app/docs/module-mapping.md`). Không nhầm sang Lead.
-- Route có thân → giao diện **phải** gửi `Content-Type: application/json`; thân là record **không nullable** (`CoHoiReq`), như `AssignReq`.
-- **CRM `BookingTicketService.CreateAsync` không kiểm quyền** (chỉ `CH_XEM*` khi xem, `CH_SUA` khi sửa — đã soát) → proxy kiểm `CH_TAO_MOI`.
-- CRM bắt buộc `IdKhachHang > 0` và `TenKH` — thiếu là `FailMsg` 400.
-- `NguonPhieu` là mã số; web cũ dùng `3` cho đại lý. **Chưa có mã cho "chat"** → đọc từ cấu hình `Chat:NguonPhieuCoHoi` (mặc định `1`), đổi khi bên CRM cấp mã (spec §10 câu 5).
-- Nhật ký: hành động mới `tao-co-hoi` phải có nhãn trong `TEN_HANH_DONG`.
-- Ghi vào CRM staging được; cấm erp. E2E: bài tạo THẬT chỉ chạy khi `E2E_TAO_CO_HOI=1` (mỗi lần chạy là một phiếu mới trên staging).
-- Máy chủ khoá DLL → dừng trước build/test. Toàn bộ `dotnet test` cuối mỗi task. E2E worker tắt, cấm `/send`.
-- Commit trailer `Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>`; không commit 5 tệp đang dở.
+- **Cơ hội bán hàng = BookingTicket** (`toutkit-app/docs/module-mapping.md`). Không nhầm sang Lead/Prospect.
+- Route **có thân** (tiêu đề + ghi chú tuỳ chọn) → giao diện **phải** gửi `Content-Type: application/json`; thân là record **không nullable** như `AssignReq`.
+- **CRM `BookingTicketService.CreateAsync` không kiểm quyền** (chỉ `CH_XEM*` khi xem, `CH_SUA` khi sửa — đã soát). Proxy **tự kiểm `CH_TAO_MOI`** — hằng có thật ở `toutkit-app/TourKit.Shared/PermissionCodes.cs:247`. Kiểm ở lúc **xếp hàng**, không đợi worker: worker chạy bằng quyền khác và không biết ai bấm nút.
+- CRM bắt buộc `IdKhachHang > 0` và `TenKH` → hội thoại **phải** đã nối khách. Chưa nối thì 400, không xếp hàng.
+- `NguonPhieu` là mã số, web cũ dùng `3` cho đại lý, **chưa có mã cho "từ chat"** → đọc từ cấu hình `Chat:NguonPhieuCoHoi` (mặc định `1`), đổi khi bên CRM cấp mã. Đây là thứ duy nhất còn cần bên CRM gật đầu, và nó **không chặn** đợt này.
+- Hành động nhật ký `tao-co-hoi` phải có nhãn trong `TEN_HANH_DONG`.
+- **Không gọi CRM.** Có chốt canh (Task 3).
+- Máy chủ khoá DLL → dừng trước build/test. Toàn bộ `dotnet test` cuối mỗi task, không lọc.
+- E2E: worker chat tắt, cấm `/send`. Cấm chạy trên erp.
+- Chốt canh mới phải chứng minh ĐỎ rồi khôi phục (so mã băm).
+- Commit trailer: `Co-Authored-By: Claude Opus 5 (1M context) <noreply@anthropic.com>`. Không commit năm tệp đang dở.
 
 ---
 
@@ -29,364 +44,179 @@
 
 | Tệp | Trách nhiệm |
 |---|---|
-| `TourkitAiProxy.Domain/Chat/ChatRules.cs` | `TomTatChoCoHoi` — thuần: N tin cuối thành văn bản "Khách: … / Nhân viên: …" |
+| `docs/crm-action-contract/README.md` | §4 mới: `create-booking-ticket` — hợp đồng cho handler bên app |
+| `TourkitAiProxy.Domain/Chat/ChatRules.cs` | `TomTatChoCoHoi` — thuần: N tin cuối + đường dẫn về hội thoại |
+| `TourkitAiProxy.Infrastructure/Crm/CrmActionQueueRepository.cs` | `CrmActionKind.CreateBookingTicket` |
 | `TourkitAiProxy.Infrastructure/TourKit/TkPermissionCodes.cs` | `TaoCoHoi = "CH_TAO_MOI"` |
 | `TourkitAiProxy.Endpoints/SessionAuth.cs` | `ForbiddenTaoCoHoi()` |
 | `TourkitAiProxy.Endpoints/ChatInboxEndpoints.cs` | `POST /conversations/{id:long}/co-hoi` + `record CoHoiReq` |
-| `wwwroot/pages/chat-inbox.jsx` | khối **Cơ hội bán hàng** trong tab Khách hàng CRM; nhãn nhật ký |
+| `wwwroot/pages/chat-inbox.jsx` | khối **Cơ hội bán hàng** trong tab khách hàng; nhãn nhật ký |
 | `TourkitAiProxy.Tests/Chat/ChatRulesTests.cs` | test `TomTatChoCoHoi` |
-| `TourkitAiProxy.Tests/Chat/ChatCoHoiGuardTests.cs` (mới) | chốt: kiểm quyền, đòi nối khách, ghi nhật ký |
-| `e2e/tests/07-chat-phan-cong-api.spec.js` | nhóm `H — Tạo Cơ hội` |
+| `TourkitAiProxy.Tests/Chat/ChatCoHoiGuardTests.cs` (mới) | chốt: kiểm quyền · đòi nối khách · xếp hàng chứ không gọi CRM · ghi nhật ký · có cờ |
+| `e2e/tests/07-chat-phan-cong-api.spec.js` | nhóm `H — Xếp hàng Cơ hội` |
 | `CHANGELOG.md` | một mục |
 
 ---
 
-### Task 1: Hàm thuần tóm tắt đoạn chat
+### Task 1: Viết hợp đồng TRƯỚC
 
-**Files:**
-- Modify: `TourkitAiProxy.Domain/Chat/ChatRules.cs`
-- Test: `TourkitAiProxy.Tests/Chat/ChatRulesTests.cs`
+**Files:** `docs/crm-action-contract/README.md`
 
-**Interfaces:**
-- Produces: `public static string TomTatChoCoHoi(IEnumerable<ChatMessage> tin, int soTin, string duongDan)`.
+- [ ] **Step 1:** Thêm §4 `create-booking-ticket` → `POST /api/booking-tickets` (`CreateBookingTicketRequest`), theo đúng khuôn §2/§3 đang có: một khối JSON ví dụ, rồi bảng ánh xạ từng khoá sang field của CRM kèm ghi chú.
 
-- [ ] **Step 1: Test ĐỎ**
+Payload dự kiến:
 
-```csharp
-    [Fact]
-    public void Tom_tat_cho_co_hoi__N_tin_cuoi__ghi_ro_ai_noi__kem_duong_dan()
-    {
-        var ds = new[]
-        {
-            Tin((short)ChatDirection.In,  "Tin cũ nhất, phải bị cắt"),
-            Tin((short)ChatDirection.In,  "Cho hỏi tour Nhật"),
-            Tin((short)ChatDirection.Out, "Dạ anh đi tháng mấy ạ?"),
-            Tin((short)ChatDirection.In,  null, kind: (short)ChatKind.Image),
-            Tin((short)ChatDirection.In,  "Tháng 10, 4 người"),
-        };
-        var ra = ChatRules.TomTatChoCoHoi(ds, 3, "https://travelai.vn/chat-inbox?hoi-thoai=53");
-        Assert.DoesNotContain("Tin cũ nhất", ra);
-        Assert.Contains("Khách: Cho hỏi tour Nhật", ra);
-        Assert.Contains("Nhân viên: Dạ anh đi tháng mấy ạ?", ra);
-        Assert.Contains("Khách: Tháng 10, 4 người", ra);
-        Assert.EndsWith("https://travelai.vn/chat-inbox?hoi-thoai=53", ra.TrimEnd());
-    }
-
-    [Fact]
-    public void Tom_tat_cho_co_hoi__khong_co_tin_chu_thi_van_co_duong_dan()
-    {
-        var ra = ChatRules.TomTatChoCoHoi(System.Array.Empty<ChatMessage>(), 5, "https://x/y");
-        Assert.Contains("https://x/y", ra);
-    }
-```
-(`Tin(...)` là helper đã thêm ở Đợt 2 Task 1; nếu Đợt 2 chưa chạy, chép helper đó vào đây.)
-
-- [ ] **Step 2: Chạy — ĐỎ.** **Step 3: Viết hàm** (đặt cạnh `TachCauHoiCuoi`):
-
-```csharp
-    /// <summary>
-    /// Tóm tắt đoạn chat để ghi vào <c>NoiDungPhieu</c> của Cơ hội bán hàng: N tin có chữ gần nhất,
-    /// mỗi dòng ghi rõ ai nói, và đường dẫn quay lại hội thoại ở cuối. Không gọi AI — đây là
-    /// TRÍCH, không phải diễn giải; người đọc phiếu cần đúng lời khách, không cần lời máy.
-    /// </summary>
-    public static string TomTatChoCoHoi(IEnumerable<ChatMessage> tin, int soTin, string duongDan)
-    {
-        var dong = tin
-            .Where(m => m.State != (short)ChatState.Failed && !string.IsNullOrWhiteSpace(m.Body))
-            .TakeLast(Math.Max(1, soTin))
-            .Select(m => (m.Direction == (short)ChatDirection.In ? "Khách: " : "Nhân viên: ") + m.Body!.Trim());
-        var sb = new System.Text.StringBuilder();
-        sb.AppendLine("Trích từ hộp thư chat:");
-        foreach (var d in dong) sb.AppendLine(d);
-        sb.AppendLine();
-        sb.Append("Xem hội thoại: ").Append(duongDan);
-        return sb.ToString();
-    }
-```
-
-- [ ] **Step 4: XANH. Commit** — `git commit -m "feat(chat): tóm tắt đoạn chat cho Cơ hội bán hàng — trích, không diễn giải"` (kèm trailer).
-
----
-
-### Task 2: Mã quyền + câu từ chối
-
-**Files:** `TkPermissionCodes.cs`, `SessionAuth.cs`
-
-- [ ] **Step 1:**
-
-```csharp
-    /// Cơ hội bán hàng (BookingTicket) — tạo mới. PermissionCodes.cs:247. CRM KHÔNG kiểm ở
-    /// BookingTicketService.CreateAsync (chỉ kiểm xem/sửa), nên proxy kiểm thay.
-    public const string TaoCoHoi = "CH_TAO_MOI";
-```
-```csharp
-    public static IResult ForbiddenTaoCoHoi()
-        => Results.Json(new { error = "Bạn không có quyền tạo Cơ hội bán hàng (CH_TAO_MOI)." }, statusCode: 403);
-```
-
-- [ ] **Step 2: Build xanh. Commit** — `git commit -m "feat(auth): mã quyền tạo Cơ hội bán hàng cho hộp thư chat"` (kèm trailer).
-
----
-
-### Task 3: Endpoint `POST /conversations/{id}/co-hoi`
-
-**Files:**
-- Modify: `TourkitAiProxy.Endpoints/ChatInboxEndpoints.cs` — route sau `crm-customer` (Đợt 3) hoặc sau `link-crm`; record `CoHoiReq` cạnh `AssignReq` (dòng ~3191)
-- Modify: `wwwroot/pages/chat-inbox.jsx:682` — `TEN_HANH_DONG` thêm `'tao-co-hoi': 'tạo Cơ hội bán hàng'`
-- Test: `TourkitAiProxy.Tests/Chat/ChatCoHoiGuardTests.cs` (mới)
-
-**Interfaces:**
-- Consumes: `ChatRules.TomTatChoCoHoi`, `repo.GetContactAsync`, `repo.ListMessagesAsync(tenant, id, 12, ct)`, `api.PostAsync(jwt, "/api/booking-tickets", …)` → `data` là **số** (id phiếu), `PublicOrigin(ctx, cfg)` (helper có sẵn trong file, dùng ở `/channels`).
-- Produces: `200 {ok, crmTicketId}` · `403` · `409 {error}` chưa nối khách · `400/502 {error}` CRM từ chối.
-
-- [ ] **Step 1: Chốt canh ĐỎ**
-
-```csharp
-// TourkitAiProxy.Tests/Chat/ChatCoHoiGuardTests.cs
-using System;
-using System.Linq;
-using Xunit;
-
-namespace TourkitAiProxy.Tests.Chat;
-
-/// <summary>
-/// Tạo Cơ hội bán hàng là lượt GHI đầu tiên từ hộp thư chat sang dữ liệu bán hàng thật của công
-/// ty. Ba chốt, mỗi chốt chặn một cách hỏng đã thấy ở nơi khác:
-///  · kiểm quyền ở proxy — vì CRM không kiểm ở CreateAsync;
-///  · đòi khách đã nối — vì CRM đòi IdKhachHang, thiếu là 400 vô nghĩa với người dùng;
-///  · ghi nhật ký — vì phía chat không lưu mã phiếu, nhật ký là dấu vết duy nhất.
-/// </summary>
-public class ChatCoHoiGuardTests
+```json
 {
-    private static string Than()
-    {
-        var src = ChatSchemaGuardTests.DocFile("TourkitAiProxy.Endpoints/ChatInboxEndpoints.cs");
-        src = string.Join("\n", src.Split('\n').Where(d => !d.TrimStart().StartsWith("//", StringComparison.Ordinal)));
-        var i = src.IndexOf("MapPost(\"/conversations/{id:long}/co-hoi\"", StringComparison.Ordinal);
-        Assert.True(i >= 0, "Chưa có route co-hoi");
-        var sau = src.Substring(i);
-        var het = sau.IndexOf("\n        g.Map", 10, StringComparison.Ordinal);
-        return het > 0 ? sau.Substring(0, het) : sau;
-    }
-
-    [Fact] public void Kiem_quyen_o_proxy() { var t = Than(); Assert.Contains("TkPermissionCodes.TaoCoHoi", t); Assert.Contains("ForbiddenTaoCoHoi", t); }
-    [Fact] public void Doi_khach_da_noi() { Assert.Contains("CrmCustomerId", Than()); Assert.Contains("statusCode: 409", Than()); }
-    [Fact] public void Ghi_nhat_ky_va_goi_dung_duong_CRM() { var t = Than(); Assert.Contains("\"tao-co-hoi\"", t); Assert.Contains("\"/api/booking-tickets\"", t); }
+  "idKhachHang": 123,
+  "tenKH": "Nguyễn Văn A",
+  "soDienThoaiKH": "0901234567",
+  "emailKH": null,
+  "tenPhieu": "Tư vấn tour Nhật tháng 10",
+  "noiDungPhieu": "Trích từ hộp thư chat:\nKhách: …\nNhân viên: …\n\nXem hội thoại: https://…",
+  "nguonPhieu": 1,
+  "nguoiPhuTrachs": [45]
 }
 ```
 
-- [ ] **Step 2: ĐỎ.** **Step 3: Record + route**
+- [ ] **Step 2:** Ghi rõ ba điều handler **phải** làm, vì proxy không làm hộ được:
+  - `nguoiPhuTrachs` là mã người trong CRM, proxy lấy từ người đang phụ trách hội thoại; rỗng thì handler để CRM tự xử theo mặc định;
+  - `nguonPhieu` còn là số tạm — khi CRM cấp mã cho "từ chat" thì đổi ở **cấu hình proxy**, handler không phải sửa;
+  - `ResultJson` khi xong nên ghi `{"bookingTicketId": <id>}`, để sau này giao diện chat dẫn thẳng sang phiếu.
+- [ ] **Step 3:** Commit — hợp đồng đi riêng một commit để chủ dự án đọc được ngay, không phải chờ hết đợt.
+
+---
+
+### Task 2: Hàm thuần tóm tắt đoạn chat
+
+**Files:** `TourkitAiProxy.Domain/Chat/ChatRules.cs`, test `ChatRulesTests.cs`
+
+Giữ nguyên như bản 1 — nó không dính gì tới chuyện gọi CRM hay xếp hàng.
+
+- [ ] **Step 1: Test ĐỎ trước**
 
 ```csharp
-    /// Tiêu đề và ghi chú thêm cho Cơ hội — cả hai tuỳ chọn, nhưng THÂN thì bắt buộc (như AssignReq):
-    /// giao diện luôn gửi JSON, và tham số thân nullable là dính bẫy Content-Type.
-    public record CoHoiReq(string? TieuDe, string? GhiChu);
+[Fact]
+public void Tom_tat_cho_co_hoi__N_tin_cuoi__ghi_ro_ai_noi__kem_duong_dan()
+{
+    var ds = new[]
+    {
+        Tin((short)ChatDirection.In,  "Tin cũ nhất, phải bị cắt"),
+        Tin((short)ChatDirection.In,  "Cho hỏi tour Nhật"),
+        Tin((short)ChatDirection.Out, "Dạ anh đi tháng mấy ạ?"),
+        Tin((short)ChatDirection.In,  null, kind: (short)ChatKind.Image),
+        Tin((short)ChatDirection.In,  "Tháng 10, 4 người"),
+    };
+    var ra = ChatRules.TomTatChoCoHoi(ds, 3, "https://travelai.vn/chat-inbox?hoi-thoai=53");
+    Assert.DoesNotContain("Tin cũ nhất", ra);
+    Assert.Contains("Khách: Cho hỏi tour Nhật", ra);
+    Assert.Contains("Nhân viên: Dạ anh đi tháng mấy ạ?", ra);
+    Assert.Contains("Khách: Tháng 10, 4 người", ra);
+    Assert.EndsWith("https://travelai.vn/chat-inbox?hoi-thoai=53", ra.TrimEnd());
+}
+
+[Fact]
+public void Tom_tat_cho_co_hoi__khong_co_tin_chu_thi_van_co_duong_dan()
+    => Assert.Contains("https://x/y",
+        ChatRules.TomTatChoCoHoi(System.Array.Empty<ChatMessage>(), 5, "https://x/y"));
 ```
+
+- [ ] **Step 2: ĐỎ. Step 3: Viết hàm** cạnh `TachCauHoiCuoi`:
 
 ```csharp
-        // ── Tạo Cơ hội bán hàng (BookingTicket) từ hội thoại ───────────────────
-        g.MapPost("/conversations/{id:long}/co-hoi", async (long id, CoHoiReq body, HttpContext ctx,
-            TkSessionStore sessions, ChatRepository repo, ChatAssignRepository assign,
-            TourKitApiClient api, IConfiguration cfg, ILoggerFactory lf, CancellationToken ct) =>
-        {
-            var log = lf.CreateLogger("chat.co-hoi");
-            var p = await SessionAuth.ReadNguoiXemAsync(ctx, sessions, ct);
-            if (p == null) return SessionAuth.Unauthorized();
-            var (a, xem) = p.Value;
-            if (!repo.Configured) return NotConfigured();
-
-            // Proxy kiểm thay CRM — BookingTicketService.CreateAsync không kiểm CH_TAO_MOI.
-            await sessions.EnsurePermissionsAsync(a.SessionId, ct);
-            if (!sessions.HasPermission(a.SessionId, TkPermissionCodes.TaoCoHoi))
-                return SessionAuth.ForbiddenTaoCoHoi();
-
-            var v = await repo.GetConversationAsync(a.TenantId, id, xem, ct);
-            if (v is null) return Results.NotFound();
-            var lh = await repo.GetContactAsync(a.TenantId, v.Channel, v.ContactExternalId, ct);
-            // CRM bắt buộc IdKhachHang > 0. Đòi ở đây để câu lỗi nói đúng việc phải làm.
-            if (lh?.CrmCustomerId is not { } maKhach || maKhach <= 0)
-                return Results.Json(new { error = "Nối hội thoại với khách CRM trước, rồi mới tạo Cơ hội." }, statusCode: 409);
-
-            var ten = (lh.DisplayName ?? v.ContactExternalId).Trim();
-            var duongDan = $"{PublicOrigin(ctx, cfg)}/chat-inbox?hoi-thoai={id}";
-            var tin = await repo.ListMessagesAsync(a.TenantId, id, 12, ct);
-            var tomTat = ChatRules.TomTatChoCoHoi(tin, 8, duongDan);
-            var noiDung = string.IsNullOrWhiteSpace(body.GhiChu) ? tomTat : body.GhiChu.Trim() + "\n\n" + tomTat;
-
-            var payload = new
-            {
-                TenKH = ten, SoDienThoaiKH = lh.Phone, EmailKH = lh.Email,
-                TenPhieu = string.IsNullOrWhiteSpace(body.TieuDe) ? $"Chat {ten}" : body.TieuDe.Trim(),
-                NoiDungPhieu = noiDung,
-                IdKhachHang = maKhach,
-                SoLuong = 1,
-                TrangThaiPhieu = 1,
-                // Mã nguồn phiếu cho "từ chat" chưa được CRM cấp — đọc từ cấu hình, mặc định 1.
-                NguonPhieu = cfg.GetValue("Chat:NguonPhieuCoHoi", 1),
-            };
-
-            JsonElement data;
-            try
-            {
-                var jwt = await sessions.GetValidJwtAsync(a.SessionId, ct);
-                try { data = await api.PostAsync(jwt, "/api/booking-tickets", payload, ct); }
-                catch (TourKitApiException ex) when (ex.Status == 401)
-                {
-                    jwt = await sessions.ForceReloginAsync(a.SessionId, ct);
-                    data = await api.PostAsync(jwt, "/api/booking-tickets", payload, ct);
-                }
-            }
-            catch (TourKitApiException ex) { return Results.Json(new { error = ex.Message }, statusCode: ex.Status); }
-
-            // CRM trả OkData(id) → data là một SỐ.
-            if (data.ValueKind != JsonValueKind.Number || !data.TryGetInt32(out var maPhieu) || maPhieu <= 0)
-            {
-                log.LogWarning("[chat/co-hoi] CRM tạo phiếu nhưng không trả id đọc được: {Json}", data.ToString());
-                return Results.Json(new { error = "CRM không trả mã Cơ hội vừa tạo — kiểm tra bên CRM." }, statusCode: 502);
-            }
-
-            await GhiNhatKyAsync(ctx, repo, sessions, a, id, "tao-co-hoi",
-                new JsonObject { ["coHoi"] = maPhieu, ["khachCrm"] = maKhach }.ToJsonString(), ct);
-            return Results.Json(new { ok = true, crmTicketId = maPhieu }, Web);
-        });
+/// <summary>
+/// Tóm tắt đoạn chat để ghi vào <c>NoiDungPhieu</c> của Cơ hội bán hàng: N tin có chữ gần nhất,
+/// mỗi dòng ghi rõ ai nói, và đường dẫn quay lại hội thoại ở cuối. KHÔNG gọi AI — đây là TRÍCH,
+/// không phải diễn giải; người đọc phiếu cần đúng lời khách, không cần lời máy.
+/// </summary>
+public static string TomTatChoCoHoi(IEnumerable<ChatMessage> tin, int soTin, string duongDan)
+{
+    var dong = tin
+        .Where(m => m.State != (short)ChatState.Failed && !string.IsNullOrWhiteSpace(m.Body))
+        .TakeLast(Math.Max(1, soTin))
+        .Select(m => (m.Direction == (short)ChatDirection.In ? "Khách: " : "Nhân viên: ") + m.Body!.Trim());
+    var sb = new System.Text.StringBuilder();
+    sb.AppendLine("Trích từ hộp thư chat:");
+    foreach (var d in dong) sb.AppendLine(d);
+    sb.AppendLine();
+    sb.Append("Xem hội thoại: ").Append(duongDan);
+    return sb.ToString();
+}
 ```
 
-- [ ] **Step 4: Nhãn nhật ký** — `'tao-co-hoi': 'tạo Cơ hội bán hàng',` vào `TEN_HANH_DONG`.
-
-- [ ] **Step 5: Toàn bộ test XANH; chứng minh chốt đỏ** (xoá tạm `HasPermission` → đỏ; khôi phục).
-
-- [ ] **Step 6: Gọi thật trên staging** — hội thoại thử đã nối khách (dùng Đợt 3 Task 3 để nối `e2e-1` với khách thử):
-```
-curl -s -X POST http://localhost:5080/api/v1/chat/conversations/<id>/co-hoi -H "X-Session-Id: <sid admin>" -H "Content-Type: application/json" -d '{"tieuDe":"Thử từ chat","ghiChu":null}'
-```
-Expected: `{"ok":true,"crmTicketId":N}`; mở CRM staging xem phiếu N có `NoiDungPhieu` là trích chat + đường dẫn. Chưa nối → 409. `ketoan1` → 403.
-
-- [ ] **Step 7: Commit**
-
-```bash
-git add TourkitAiProxy.Endpoints/ChatInboxEndpoints.cs wwwroot/pages/chat-inbox.jsx TourkitAiProxy.Tests/Chat/ChatCoHoiGuardTests.cs
-git commit -m "feat(chat): tạo Cơ hội bán hàng trên CRM từ hội thoại, kèm trích đoạn chat
-
-Proxy kiểm CH_TAO_MOI vì CRM không kiểm ở CreateAsync; đòi khách đã nối vì CRM
-đòi IdKhachHang. NguonPhieu đọc từ Chat:NguonPhieuCoHoi (mặc định 1) chờ CRM cấp mã.
-
-Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>"
-```
+- [ ] **Step 4: XANH. Commit.**
 
 ---
 
-### Task 4: Khối **Cơ hội bán hàng** trong tab Khách hàng CRM
+### Task 3: Mã quyền, cờ tính năng, câu từ chối
 
-**Files:**
-- Modify: `wwwroot/pages/chat-inbox.jsx` — sau `<div className="ci-hs-muc"><h4>Khách hàng CRM</h4><NoiCrm …/></div>` (dòng ~1431–1434)
+**Files:** `TkPermissionCodes.cs`, `SessionAuth.cs`, `appsettings.example.json`
 
-- [ ] **Step 1: Component nhỏ** (đặt cạnh `NoiCrm`):
-
-```jsx
-  function TaoCoHoi({ chiTiet, pushToast }) {
-    const v = chiTiet?.conversation;
-    const lh = chiTiet?.contact;
-    const [dangLam, setDangLam] = useState(false);
-    const daNoi = !!lh?.crmCustomerId;
-
-    async function tao() {
-      const tieuDe = window.appPrompt
-        ? await window.appPrompt('Tiêu đề Cơ hội', { defaultValue: 'Chat ' + (lh?.displayName || '') })
-        : window.prompt('Tiêu đề Cơ hội', 'Chat ' + (lh?.displayName || ''));
-      if (tieuDe === null) return;
-      setDangLam(true);
-      try {
-        const r = await authedFetch('/api/v1/chat/conversations/' + v.id + '/co-hoi', {
-          method: 'POST', headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ tieuDe, ghiChu: null }),
-        });
-        const j = await r.json().catch(() => ({}));
-        if (!r.ok) { pushToast(j.error || 'Không tạo được Cơ hội', 'error'); return; }
-        pushToast('Đã tạo Cơ hội #' + j.crmTicketId + ' trên CRM', 'success');
-      } finally { setDangLam(false); }
-    }
-
-    if (!v) return null;
-    return (
-      <div className="ci-hs-muc">
-        <h4>Cơ hội bán hàng</h4>
-        <div className="ci-hs-crm-nut">
-          <button className="ci-nut nho" disabled={dangLam || !daNoi} onClick={tao}
-                  title={daNoi ? 'Tạo Cơ hội trên CRM kèm trích đoạn chat' : 'Nối khách CRM trước'}>
-            {dangLam ? 'Đang tạo…' : 'Tạo Cơ hội từ hội thoại'}
-          </button>
-          {!daNoi && <span className="ci-pc-phu">Nối khách CRM trước.</span>}
-        </div>
-      </div>
-    );
-  }
-```
-> Nếu `window.appPrompt` không tồn tại trong `components/dialogs.jsx`, dùng `window.prompt` (đã có nhánh dự phòng). Đừng thêm tệp .jsx mới.
-
-- [ ] **Step 2: Vẽ** — ngay sau khối `Khách hàng CRM`: `<TaoCoHoi chiTiet={chiTiet} pushToast={pushToast} />`.
-
-- [ ] **Step 3: Dựng bundle, kiểm tay** — chưa nối: nút mờ + câu nhắc; đã nối: bấm → hỏi tiêu đề → toast mã phiếu; nhật ký hội thoại có dòng "tạo Cơ hội bán hàng".
-
-- [ ] **Step 4: Commit** — `git commit -m "feat(chat): nút Tạo Cơ hội từ hội thoại trong hồ sơ khách"` (kèm trailer).
+- [ ] **Step 1:** `TkPermissionCodes.TaoCoHoi = "CH_TAO_MOI"` kèm chú thích nói rõ **vì sao proxy phải tự kiểm**: CRM không kiểm ở `CreateAsync`, web cũ kiểm ở tầng màn hình — nên ai vào được hộp thư chat cũng xếp hàng tạo Cơ hội được nếu proxy không chặn.
+- [ ] **Step 2:** `SessionAuth.ForbiddenTaoCoHoi()` — 403 kèm câu người đọc hiểu, không phải mã lỗi trần.
+- [ ] **Step 3:** Cờ `Features:ChatCoHoi` (mặc định **false**) vào `appsettings.example.json` kèm `_comment` giải thích: bật khi handler `create-booking-ticket` bên worker đã chạy, trước đó bấm nút chỉ sinh ra dòng nằm chờ.
+- [ ] **Step 4:** Commit.
 
 ---
 
-### Task 5: E2E + CHANGELOG
+### Task 4: `POST /conversations/{id}/co-hoi` — xếp hàng
 
-- [ ] **Step 1: E2E**
+**Files:** `ChatInboxEndpoints.cs`, `CrmActionQueueRepository.cs`, test `ChatCoHoiGuardTests.cs` (mới)
 
-```js
-test.describe('H — Tạo Cơ hội bán hàng', () => {
-  const than = { tieuDe: 'E2E thử', ghiChu: null };
-  test('H1 — chưa nối khách CRM → 409 có câu, không phải 400 mù của CRM', async () => {
-    // Bảo đảm hội thoại thử đang KHÔNG nối ai.
-    await api.post(`${GOC}/conversations/${maHoiThoai}/link-crm`, { headers: nhu(PHIEN_QUAN_TRI, { 'Content-Type': 'application/json' }), data: {} });
-    const r = await doc(await api.post(`${GOC}/conversations/${maHoiThoai}/co-hoi`, { headers: nhu(PHIEN_QUAN_TRI, { 'Content-Type': 'application/json' }), data: than }));
-    expect(r.laHtml).toBe(false);
-    expect([409, 403], `mã ${r.ma}`).toContain(r.ma);   // 403 nếu phiên quản trị không có CH_TAO_MOI
-    expect(r.json.error).toBeTruthy();
-  });
-  test('H2 — nhân viên thường → 403/404 JSON', async () => {
-    const r = await doc(await api.post(`${GOC}/conversations/${maHoiThoai}/co-hoi`, { headers: nhu(PHIEN_NHAN_VIEN, { 'Content-Type': 'application/json' }), data: than }));
-    expect(r.laHtml).toBe(false);
-    expect([403, 404]).toContain(r.ma);
-  });
-  test('H3 — tạo THẬT (chỉ khi E2E_TAO_CO_HOI=1)', async () => {
-    test.skip(process.env.E2E_TAO_CO_HOI !== '1', 'Tạo phiếu thật trên staging — bật bằng E2E_TAO_CO_HOI=1');
-    // Nối tạm với khách thử cố định (mã đặt trong E2E_KHACH_THU), tạo, rồi gỡ nối.
-    const khach = Number(process.env.E2E_KHACH_THU || 0);
-    test.skip(!khach, 'Cần E2E_KHACH_THU = mã khách CRM thử trên staging');
-    await api.post(`${GOC}/conversations/${maHoiThoai}/link-crm`, { headers: nhu(PHIEN_QUAN_TRI, { 'Content-Type': 'application/json' }), data: { customerId: khach } });
-    const r = await doc(await api.post(`${GOC}/conversations/${maHoiThoai}/co-hoi`, { headers: nhu(PHIEN_QUAN_TRI, { 'Content-Type': 'application/json' }), data: than }));
-    await api.post(`${GOC}/conversations/${maHoiThoai}/link-crm`, { headers: nhu(PHIEN_QUAN_TRI, { 'Content-Type': 'application/json' }), data: {} });
-    expect(r.ma, JSON.stringify(r.json)).toBe(200);
-    expect(r.json.crmTicketId).toBeGreaterThan(0);
-  });
-});
+- [ ] **Step 1: Chốt canh ĐỎ trước** — năm điều:
+
+```csharp
+[Fact] public void Xep_hang_chu_KHONG_goi_CRM()        // Contains EnqueueAsync, DoesNotContain api.PostAsync
+[Fact] public void Kiem_quyen_CH_TAO_MOI_truoc_khi_xep_hang()
+[Fact] public void Doi_hoi_thoai_da_noi_khach_CRM()
+[Fact] public void Co_co_tinh_nang_rieng()             // Contains "ChatCoHoi"
+[Fact] public void Ghi_nhat_ky_tao_co_hoi()
 ```
 
-- [ ] **Step 2: CHANGELOG** — `### ✨ Tính năng mới`:
+> Điều thứ hai đáng nói riêng: kiểm quyền phải nằm **trước** lượt `EnqueueAsync`, không phải sau. Xếp hàng rồi mới từ chối thì dòng đã nằm đó và worker vẫn nhặt.
 
-```markdown
-- **Tạo Cơ hội bán hàng ngay từ hội thoại.** Hội thoại đã nối khách CRM thì trong hồ sơ khách
-  có nút tạo Cơ hội: bạn đặt tiêu đề, hệ thống điền tên, số, email của khách và trích sẵn mấy
-  tin gần nhất kèm đường dẫn quay lại hội thoại vào nội dung phiếu. Cần quyền tạo Cơ hội; chưa
-  nối khách thì nút báo rõ việc phải làm trước.
-```
+- [ ] **Step 2: ĐỎ.**
 
-- [ ] **Step 3: Chạy toàn bộ; commit**
+- [ ] **Step 3:** `CrmActionKind.CreateBookingTicket = "create-booking-ticket"`.
 
-```bash
-git add e2e/tests/07-chat-phan-cong-api.spec.js CHANGELOG.md
-git commit -m "test(e2e)+docs: tạo Cơ hội từ chat — quyền, đòi nối khách, tạo thật khi bật cờ
+- [ ] **Step 4:** Viết route:
+  - cờ tắt → 404 (không phải 403: tính năng chưa bật thì nó không tồn tại);
+  - phiên + tầm xem như mọi route;
+  - `EnsurePermissionsAsync` rồi `HasPermission(CH_TAO_MOI)` → thiếu thì `ForbiddenTaoCoHoi()`;
+  - chưa nối khách CRM → 400 nói rõ phải nối trước;
+  - `TenPhieu` lấy từ thân, rỗng thì dựng `"Chat: " + tên khách`;
+  - `NoiDungPhieu` = `TomTatChoCoHoi(tin, 20, duongDanHoiThoai)`;
+  - `EnqueueAsync` với `Kind = CreateBookingTicket`, `Action = "chat-co-hoi"`, `ReferId = id.ToString()`;
+  - nhật ký `tao-co-hoi`; trả `{ id, trangThai: "dang-cho" }`.
 
-Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>"
-```
+- [ ] **Step 5:** Chốt canh xanh, toàn bộ test xanh, chứng minh đỏ rồi khôi phục (md5).
+
+- [ ] **Step 6:** Commit.
 
 ---
+
+### Task 5: Khối **Cơ hội bán hàng** + E2E + CHANGELOG
+
+- [ ] **Step 1:** Khối trong tab khách hàng: ô tiêu đề, nút *Xếp hàng tạo Cơ hội*, và danh sách các lượt đã xếp của hội thoại này (dùng chung `GET …/cham-soc` của Đợt 3 nếu đã đổi thành `GET …/hang-doi` trả mọi `Action`; nếu chưa thì thêm đường tương tự). Khối **không hiện** khi cờ tắt.
+- [ ] **Step 2:** Chữ trên nút và trên dòng trạng thái nói **"đã xếp hàng, chờ đồng bộ"**, không nói "đã tạo".
+- [ ] **Step 3:** Nhãn `tao-co-hoi` vào `TEN_HANH_DONG`.
+- [ ] **Step 4:** E2E nhóm `H`: cờ tắt → 404; cờ bật + chưa nối khách → 400; cờ bật + đã nối → 200 và thấy dòng `chat-co-hoi` trong hàng đợi. Không cần biến môi trường riêng như bản 1 (`E2E_TAO_CO_HOI`) vì **không còn ghi vào CRM thật** — đó là cái lợi thấy được ngay của hướng xếp hàng.
+- [ ] **Step 5:** CHANGELOG một mục, nói rõ đang ở giai đoạn chờ đồng bộ.
+- [ ] **Step 6:** Chạy toàn bộ. Commit.
+
+---
+
+## Bàn giao cho chủ dự án
+
+Sau đợt này, phần còn thiếu nằm hết ở `toutkit-app`:
+
+1. `CrmActionSyncWorker` thêm nhánh `create-booking-ticket` → `POST /api/booking-tickets`, đọc payload theo §4 hợp đồng.
+2. Ghi `ResultJson = {"bookingTicketId": …}` khi xong.
+3. Khi CRM cấp mã `NguonPhieu` cho "từ chat": sửa **cấu hình proxy** `Chat:NguonPhieuCoHoi`, không phải sửa mã.
+4. Handler chạy được rồi thì bật `Features:ChatCoHoi`.
 
 ## Self-review
 
-- **Spec coverage:** §6 ràng buộc 1 (IdKhachHang) → Task 3 (409 + chốt); ràng buộc 2 (kiểm quyền) → Task 2–3 (+ chốt); ràng buộc 3 (NguonPhieu) → cấu hình `Chat:NguonPhieuCoHoi`; "kéo nội dung chat sang Cơ hội" → Task 1 + `NoiDungPhieu`; đính kèm tệp → cố ý để đợt sau như tracker.
-- **Placeholder:** không.
-- **Nhất quán tên:** `TaoCoHoi`/`ForbiddenTaoCoHoi` (Task 2) ↔ Task 3 ↔ chốt; `TomTatChoCoHoi` (Task 1) ↔ Task 3; route `co-hoi`, hành động `tao-co-hoi`, trường `crmTicketId` thống nhất Task 3–5.
+- **Spec coverage:** §6 ba ràng buộc — đòi nối khách (Task 4), proxy tự kiểm quyền (Task 3–4), `NguonPhieu` qua cấu hình (Task 3). Kéo nội dung chat sang phiếu → Task 2.
+- **Không giả vờ đã xong:** cờ mặc định tắt + chữ "chờ đồng bộ" + §0 nói thẳng handler chưa có.
+- **Rẻ hơn bản 1 ở E2E:** không ghi CRM thật nên không cần cửa an toàn riêng, không để lại phiếu rác trên staging.
