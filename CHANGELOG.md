@@ -13,6 +13,24 @@ Những cập nhật gần đây của TRAV-AI, viết cho người dùng. Mới
 
 ---
 
+## Phiên bản 11/09/2026 — Hộp thư chat: lọc theo nhãn, biết khách nhắn vào Trang nào
+
+### ✨ Tính năng mới
+- **Lọc hội thoại theo nhãn.** Thanh lọc có thêm hàng nhãn của công ty: bấm một hay nhiều nhãn để
+  chỉ thấy khách đang mang nhãn đó. Chọn nhiều thì thấy khách mang **bất kỳ** nhãn nào trong số đã
+  chọn, bấm lại một nhãn là bỏ nó ra, còn dấu × ở cuối hàng bỏ hết. Số đếm ở hàng trạng thái ngay
+  trên đi theo bộ lọc, không đếm cả công ty nữa. Công ty chưa đặt nhãn nào thì hàng này không hiện.
+- **Biết khách đang nhắn vào Trang nào.** Công ty nối từ hai Trang Facebook hay hai OA Zalo trở lên
+  sẽ thấy tên Trang ngay đầu dòng xem trước và trên đầu khung chat — người trực biết mình đang trả
+  lời dưới tên nào. Nối một Trang thì không hiện gì thêm, vì không có gì để phân biệt.
+
+### 🔧 Đã khắc phục
+- **Biểu tượng kênh trên ảnh khách quá nhỏ để nhìn ra.** Dấu hiệu nhỏ ở góc ảnh đại diện (cho biết
+  hội thoại đến từ Zalo, Messenger hay Telegram) hiển thị nhỏ hơn cả cỡ đáng ra phải có. Nay nó to
+  hơn rõ rệt, và ảnh đại diện trong danh sách cũng được phóng lên cho dễ nhận mặt khách.
+
+---
+
 ## Phiên bản 10/09/2026 — Import NCC: hết cảnh số nhảy lung tung sang ô giá
 
 ### 🔧 Đã khắc phục
