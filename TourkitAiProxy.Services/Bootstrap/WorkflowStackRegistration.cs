@@ -215,6 +215,9 @@ public static class WorkflowStackRegistration
         s.AddSingleton<Chat.Inbox.ChatEventBus>();
         // Tín hiệu đánh thức worker: hàng đợi vừa có việc thì làm ngay, không ngủ hết nhịp.
         s.AddSingleton<Chat.Inbox.ChatWorkSignal>();
+        // Bộ sinh câu trả lời — worker và nút Gợi ý của nhân viên dùng CHUNG một lớp, nên nó phải
+        // đăng ký TRƯỚC ChatInboundService (thứ tự không bắt buộc với DI, nhưng đọc xuôi hơn).
+        s.AddSingleton<Chat.Inbox.ChatReplyComposer>();
         s.AddSingleton<Chat.Inbox.ChatInboundService>();
         s.AddSingleton<ChannelCredentialStore>();
         // Kho ảnh/tệp nhân viên gửi — r2 | s3 | local theo Storage:Provider, xem IChatFileStorage.
