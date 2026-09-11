@@ -274,6 +274,76 @@ test.describe('Vai trò và luật xem', () => {
   });
 });
 
+// ── Nhóm E — lọc theo nhãn ────────────────────────────────────────────────────
+
+test.describe('E — Lọc theo nhãn', () => {
+  // Slug cố định, dọn ở afterAll. Cố định chứ không ngẫu nhiên: chạy hỏng giữa chừng thì lần sau
+  // vẫn dọn được đúng dòng đó thay vì để lại rác mang tên ngẫu nhiên không ai nhận ra.
+  const NHAN = 'e2e-loc-nhan';
+  const NHAN_LA = 'e2e-khong-co-nhan-nay';
+  let maNhan;   // id dòng danh mục, để xoá
+
+  test.beforeAll(async () => {
+    const r = await doc(await api.post(`${GOC}/conversations/${maHoiThoai}/tags`, {
+      headers: nhu(PHIEN_QUAN_TRI, { 'Content-Type': 'application/json' }), data: { tag: NHAN },
+    }));
+    expect(r.ma, 'gắn nhãn thử phải được').toBe(200);
+
+    const dm = await doc(await api.get(`${GOC}/tags`, { headers: nhu(PHIEN_QUAN_TRI) }));
+    maNhan = (dm.json.items || []).find(n => n.slug === NHAN)?.id;
+    expect(maNhan, 'nhãn gõ tay phải tự vào danh mục — chip lọc đọc từ đó').toBeTruthy();
+  });
+
+  test.afterAll(async () => {
+    if (!api) return;
+    await api.delete(`${GOC}/conversations/${maHoiThoai}/tags/${NHAN}`, { headers: nhu(PHIEN_QUAN_TRI) });
+    if (maNhan) await api.delete(`${GOC}/tags/${maNhan}`, { headers: nhu(PHIEN_QUAN_TRI) });
+  });
+
+  test('E1 — lọc đúng nhãn thì thấy hội thoại, và chip đếm nói về ĐÚNG danh sách đó', async () => {
+    const r = await doc(await api.get(`${GOC}/conversations?tag=${NHAN}`, { headers: nhu(PHIEN_QUAN_TRI) }));
+    expect(r.laHtml, 'rơi xuống trang SPA — route không nhận thêm tham số tag').toBe(false);
+    expect(r.ma).toBe(200);
+
+    const ids = (r.json.items || []).map(x => x.id);
+    expect(ids, 'hội thoại vừa gắn nhãn phải nằm trong kết quả lọc').toContain(maHoiThoai);
+
+    // Đây là vế dễ quên nhất: sửa câu liệt kê mà quên câu đếm thì danh sách hiện vài dòng còn
+    // chip trạng thái ngay trên nó vẫn đếm cả công ty. Danh sách thử nhỏ hơn một trang nên
+    // tổng phải bằng đúng số dòng trả về.
+    expect(r.json.counts.tong, 'chip đếm không đi theo bộ lọc nhãn').toBe(ids.length);
+  });
+
+  test('E2 — nhãn không tồn tại phải ra RỖNG, không phải "không lọc"', async () => {
+    // Nếu tham số bị bỏ qua ở đâu đó trên đường đi, bài E1 vẫn xanh (hội thoại nằm trong danh
+    // sách đầy đủ). Chỉ bài này phân biệt được "lọc đúng" với "không lọc gì cả".
+    const r = await doc(await api.get(`${GOC}/conversations?tag=${NHAN_LA}`, { headers: nhu(PHIEN_QUAN_TRI) }));
+    expect(r.ma).toBe(200);
+    expect(r.json.items, 'nhãn lạ mà vẫn ra danh sách nghĩa là tham số bị bỏ qua').toHaveLength(0);
+    expect(r.json.counts.tong).toBe(0);
+  });
+
+  test('E3 — nhiều nhãn là HOẶC: nhãn thật cộng nhãn lạ vẫn thấy hội thoại', async () => {
+    // Chốt đúng cái luật đã chọn. Đổi sang VÀ thì bài này đỏ — và nó ĐÁNG đỏ, vì đó là đổi thói
+    // quen người dùng chứ không phải đổi chi tiết kỹ thuật.
+    const r = await doc(await api.get(`${GOC}/conversations?tag=${NHAN},${NHAN_LA}`,
+      { headers: nhu(PHIEN_QUAN_TRI) }));
+    expect(r.ma).toBe(200);
+    expect((r.json.items || []).map(x => x.id)).toContain(maHoiThoai);
+  });
+
+  test('E4 — tham số tag rỗng KHÔNG được làm trắng danh sách', async () => {
+    // Giao diện bỏ hết nhãn thì không gửi tham số nữa, nhưng URL người dùng sửa tay hoặc lịch sử
+    // trình duyệt vẫn có thể còn "?tag=". Rỗng phải hiểu là KHÔNG LỌC, không phải "không nhãn nào".
+    const khongLoc = await doc(await api.get(`${GOC}/conversations`, { headers: nhu(PHIEN_QUAN_TRI) }));
+    for (const q of ['?tag=', '?tag=,', '?tag=%20']) {
+      const r = await doc(await api.get(`${GOC}/conversations${q}`, { headers: nhu(PHIEN_QUAN_TRI) }));
+      expect(r.ma, `${q} phải trả 200`).toBe(200);
+      expect((r.json.items || []).length, `${q} làm trắng danh sách`).toBe((khongLoc.json.items || []).length);
+    }
+  });
+});
+
 // ── Nhóm D — vòng đời cấu hình ────────────────────────────────────────────────
 
 test.describe('Vòng đời cấu hình phân công', () => {
