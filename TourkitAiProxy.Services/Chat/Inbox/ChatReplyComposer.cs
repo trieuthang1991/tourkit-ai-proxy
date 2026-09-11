@@ -35,25 +35,34 @@ public class ChatReplyComposer
     /// Bản nháp cho NHÂN VIÊN: đọc đoạn hội thoại, lấy tin khách mới nhất làm câu hỏi, sinh câu
     /// trả lời.
     ///
-    /// <para>Trả <c>null</c> ở hai ca, và chỗ gọi phải phân biệt được chúng bằng ngữ cảnh chứ
-    /// không bằng giá trị: khách chưa nói gì mới (tin cuối là của mình — xem
-    /// <see cref="ChatRules.TachCauHoiCuoi"/>), hoặc AI hỏng.</para>
-    ///
     /// <para><b>CHỈ TRẢ CHỮ.</b> Không ghi tin vào hội thoại, không xếp hàng gửi, không đụng
     /// outbox. Đây là chốt cứng của cả tính năng — xem <c>ChatSuggestGuardTests</c>.</para>
+    ///
+    /// <para>Trả về một <b>lý do có tên</b> chứ không phải <c>null</c> trần: bốn ca không sinh
+    /// được chữ cần bốn câu khác nhau trên màn hình, mà một giá trị null thì chỗ gọi không phân
+    /// biệt nổi — và sẽ lại tự đoán, mỗi chỗ đoán một kiểu.</para>
     /// </summary>
-    public async Task<string?> GoiYAsync(string tenantId, long hoiThoaiId, ChatBotSettings cfgBot,
-        CancellationToken ct)
+    public async Task<GoiYKetQua> GoiYAsync(string tenantId, ChatConversation hoiThoai,
+        ChatBotSettings cfgBot, CancellationToken ct)
     {
         // Lấy dư rồi mới lọc — cùng lý do với worker: hàm dựng nhắc bỏ tin hỏng và tin không chữ,
         // nên xin đúng số lượt là hụt mất mấy dòng. Cộng thêm 2 cho chính câu hỏi và một tin ảnh.
-        var lichSu = await _repo.ListMessagesAsync(tenantId, hoiThoaiId, cfgBot.HistoryTurns * 2 + 2, ct);
+        var lichSu = await _repo.ListMessagesAsync(tenantId, hoiThoai.Id, cfgBot.HistoryTurns * 2 + 2, ct);
 
-        var (cauHoi, truoc) = ChatRules.TachCauHoiCuoi(lichSu);
-        if (cauHoi is null) return null;
+        var (cauHoi, hoiLuc, truoc) = ChatRules.TachCauHoiCuoi(lichSu);
+        if (cauHoi is null) return new(GoiY.KhachChuaNoiGi, null);
+
+        // RANH GIỚI bot ↔ gợi ý. Bot lo lượt trả lời tự động, gợi ý lo những lượt bot không lo —
+        // và không bao giờ hai bên cùng nói. Xem ChatRules.BotDangDinhTraLoi.
+        if (ChatRules.BotDangDinhTraLoi(hoiThoai, cfgBot.Enabled, hoiLuc, DateTime.UtcNow))
+            return new(GoiY.BotDangTraLoi, null);
 
         var nhacLai = ChatRules.BuildConversationPrompt(truoc, cauHoi, cfgBot.HistoryTurns);
-        return await SinhAsync(tenantId, hoiThoaiId, nhacLai, cfgBot, ct);
+        var chu = await SinhAsync(tenantId, hoiThoai.Id, nhacLai, cfgBot, ct);
+
+        // SinhAsync nuốt mọi lỗi và trả null — đúng cho worker (im còn hơn gửi rác), nhưng ở đây
+        // phải nói ra: nhân viên vừa bấm một cái nút và đang chờ chữ hiện lên.
+        return chu is null ? new(GoiY.AiHong, null) : new(GoiY.Duoc, chu);
     }
 
     /// <summary>
@@ -127,3 +136,20 @@ public class ChatReplyComposer
         Không hứa thay công ty. Không tự nhận đã đặt chỗ hay đã giữ chỗ cho khách.
         """;
 }
+
+/// <summary>Vì sao lượt xin gợi ý không ra chữ. Mỗi giá trị là một câu khác nhau trên màn hình.</summary>
+public enum GoiY : short
+{
+    /// <summary>Có bản nháp.</summary>
+    Duoc = 0,
+    /// <summary>Tin mới nhất là của mình — khách chưa hỏi gì thêm để mà trả lời.</summary>
+    KhachChuaNoiGi = 1,
+    /// <summary>Bot đang lo câu này. Muốn tự trả lời thì tạm dừng bot trước.</summary>
+    BotDangTraLoi = 2,
+    /// <summary>Gọi AI hỏng hoặc hết lượt.</summary>
+    AiHong = 3,
+}
+
+/// <param name="Ket">Vì sao có/không có chữ.</param>
+/// <param name="Chu">Bản nháp — chỉ khác null khi <paramref name="Ket"/> là <see cref="GoiY.Duoc"/>.</param>
+public record GoiYKetQua(GoiY Ket, string? Chu);

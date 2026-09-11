@@ -200,19 +200,50 @@ public static class ChatRules
     /// <c>CauHoi</c> null nghĩa là KHÔNG có gì để gợi ý — chỗ gọi phải hiểu đó là câu trả lời
     /// hợp lệ, không phải lỗi.
     /// </returns>
-    public static (string? CauHoi, List<ChatMessage> Truoc) TachCauHoiCuoi(IEnumerable<ChatMessage> tin)
+    public static (string? CauHoi, DateTime? HoiLuc, List<ChatMessage> Truoc) TachCauHoiCuoi(
+        IEnumerable<ChatMessage> tin)
     {
         var coChu = tin
             .Where(m => m.State != (short)ChatState.Failed && !string.IsNullOrWhiteSpace(m.Body))
             .ToList();
 
-        if (coChu.Count == 0) return (null, new List<ChatMessage>());
+        if (coChu.Count == 0) return (null, null, new List<ChatMessage>());
 
         var cuoi = coChu[^1];
-        if (cuoi.Direction != (short)ChatDirection.In) return (null, coChu);
+        if (cuoi.Direction != (short)ChatDirection.In) return (null, null, coChu);
 
-        return (cuoi.Body!.Trim(), coChu.Take(coChu.Count - 1).ToList());
+        return (cuoi.Body!.Trim(), cuoi.CreatedUtc, coChu.Take(coChu.Count - 1).ToList());
     }
+
+    /// <summary>
+    /// Bot chỉ trả lời trong quãng ngắn ngay sau khi khách nhắn: 4 giây chờ gộp tin (xem
+    /// <see cref="BurstIdle"/> ở worker) cộng vài giây gọi AI. Để rộng một phút cho chắc.
+    /// </summary>
+    public static readonly TimeSpan CuaSoBotTraLoi = TimeSpan.FromSeconds(60);
+
+    /// <summary>
+    /// Bot có đang định trả lời câu hỏi này không — tức nhân viên bấm <b>Gợi ý</b> lúc này có
+    /// nguy cơ đẻ ra câu trả lời THỨ HAI cho cùng một câu hỏi không.
+    ///
+    /// <para><b>Vì sao cần một luật riêng thay vì chỉ nhìn "bot có bật không".</b> Bot bật không
+    /// có nghĩa bot sẽ nói. Nó im khi hội thoại đã đóng, khách bị chặn, hoặc đang nhường người
+    /// thật — và im cả khi hết lượt AI hay nhà cung cấp hỏng, mà hai ca sau KHÔNG để lại dấu vết
+    /// nào trên hội thoại. Chặn nút Gợi ý chỉ vì "bot đang bật" là chặn đúng vào lúc nhân viên
+    /// cần nó nhất.</para>
+    ///
+    /// <para>Vế thời gian giải quyết việc đó mà không cần bot báo gì: quá
+    /// <see cref="CuaSoBotTraLoi"/> mà hội thoại vẫn chưa có câu trả lời nào thì bot đã không
+    /// trả lời, dù lý do là gì.</para>
+    /// </summary>
+    /// <param name="botBat">Công ty có bật trợ lý tự trả lời không (<c>ChatBotSettings.Enabled</c>).</param>
+    /// <param name="hoiLuc">Lúc khách gửi câu đang chờ trả lời — <c>HoiLuc</c> của
+    /// <see cref="TachCauHoiCuoi"/>. Null nghĩa là không có câu nào đang chờ.</param>
+    public static bool BotDangDinhTraLoi(ChatConversation hoiThoai, bool botBat,
+        DateTime? hoiLuc, DateTime nowUtc)
+        => botBat
+        && hoiLuc is { } luc
+        && nowUtc - luc < CuaSoBotTraLoi
+        && BotMayReply(hoiThoai, nowUtc);
 
     /// <param name="tin">Theo thứ tự thời gian TĂNG dần. Chỉ lấy phần đuôi.</param>
     /// <param name="cauHoi">Cụm tin khách vừa gửi, chưa nằm trong <paramref name="tin"/>.</param>
@@ -240,8 +271,18 @@ public static class ChatRules
         return sb.ToString();
     }
 
+    /// <summary>
+    /// Nhân viên trả lời xong thì bot câm bấy nhiêu phút — giá trị mặc định khi công ty chưa đặt
+    /// riêng. <b>MỘT nguồn duy nhất</b> cho con số này.
+    ///
+    /// <para>Trước 11/09/2026 nó nằm rải ở bốn chỗ dưới dạng số 30 gõ tay: hằng ở đây, mặc định
+    /// của <see cref="ChatBotSettings"/>, và hai lượt <c>?? 30</c> trong endpoint. Bốn chỗ thì
+    /// đổi một chỗ là ba chỗ kia lặng lẽ lệch đi.</para>
+    /// </summary>
+    public const int BotCamPhutMacDinh = 30;
+
     /// Nhân viên trả lời xong thì bot câm bấy lâu.
-    public static readonly TimeSpan DefaultBotMute = TimeSpan.FromMinutes(30);
+    public static readonly TimeSpan DefaultBotMute = TimeSpan.FromMinutes(BotCamPhutMacDinh);
 
     /// <summary>
     /// Còn gửi được cho khách không.

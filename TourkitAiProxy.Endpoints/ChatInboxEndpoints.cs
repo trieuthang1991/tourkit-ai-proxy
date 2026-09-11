@@ -1179,7 +1179,8 @@ public static class ChatInboxEndpoints
 
         g.MapPost("/conversations/{id:long}/send", async (long id, SendReq body, HttpContext ctx,
             TkSessionStore sessions, ChatRepository repo, ChatAssignRepository assign, ChatEventBus bus,
-            Services.Chat.Inbox.ChatWorkSignal tin, IConfiguration cfg, CancellationToken ct) =>
+            Services.Chat.Inbox.ChatWorkSignal tin, IConfiguration cfg,
+            ChatBotSettingsRepository botCfg, CancellationToken ct) =>
         {
             var p = await SessionAuth.ReadNguoiXemAsync(ctx, sessions, ct);
             if (p == null) return SessionAuth.Unauthorized();
@@ -1236,7 +1237,12 @@ public static class ChatInboxEndpoints
             var tomTat = coDinhKem ? (loai == ChatKind.Image ? "Đã gửi 1 ảnh" : "Đã gửi 1 tệp") : chu!;
             await repo.TouchConversationAsync(a.TenantId, id, ChatRules.Summarize(tomTat), false, ct);
             // Người thật vừa trả lời → bot câm một lúc, nếu không nó nói đè lên nhân viên.
-            await repo.PauseBotAsync(a.TenantId, id, (int)ChatRules.DefaultBotMute.TotalMinutes, ct);
+            //
+            // Lấy số phút từ CẤU HÌNH CÔNG TY, không phải hằng số. Trước 11/09/2026 chỗ này dùng
+            // ChatRules.DefaultBotMute (30 phút cứng) trong khi đường tiếng vọng — nhân viên trả
+            // lời từ app của kênh — lại dùng đúng cài đặt. Công ty nào chỉnh xuống 5 phút sẽ thấy
+            // nó không có tác dụng ở chính đường họ dùng nhiều nhất, và không có gì báo cho họ biết.
+            await repo.PauseBotAsync(a.TenantId, id, (await botCfg.GetAsync(a.TenantId, ct)).MuteMinutes, ct);
             // Người thật gõ thì giữ lại vài giây cho kịp bấm Thu hồi. Đây là toàn bộ cơ chế thu
             // hồi: Meta không cho doanh nghiệp thu hồi tin đã gửi, nên cách duy nhất để nút đó
             // nói thật là đừng gửi vội. Đặt 0 trong cấu hình là tắt hẳn, gửi ngay như trước.
@@ -2071,7 +2077,8 @@ public static class ChatInboxEndpoints
             if (await repo.GetConversationAsync(a.TenantId, id, xem, ct) is not { } v) return Results.NotFound();
 
             // paused=false → bỏ câm ngay; true → câm theo số phút (mặc định 30).
-            var phut = body.Paused ? Math.Clamp(body.Minutes ?? 30, 1, 1440) : 0;
+            var phut = body.Paused
+                ? Math.Clamp(body.Minutes ?? ChatRules.BotCamPhutMacDinh, 1, 1440) : 0;
             await repo.PauseBotAsync(a.TenantId, id, phut, ct);
             await GhiNhatKyAsync(ctx, repo, sessions, a, id, "tam-dung-bot",
                 new JsonObject { ["phut"] = phut }.ToJsonString(), ct);
@@ -2674,7 +2681,7 @@ public static class ChatInboxEndpoints
             // và kiểm hai nơi là hai nơi lệch nhau.
             await repo.SaveAsync(a.TenantId, new ChatBotSettings(
                 body.Enabled, body.Persona, body.Greeting,
-                body.MuteMinutes ?? 30, body.HistoryTurns ?? 12), ct);
+                body.MuteMinutes ?? ChatRules.BotCamPhutMacDinh, body.HistoryTurns ?? 12), ct);
 
             return Results.Json(new { ok = true }, Web);
         });

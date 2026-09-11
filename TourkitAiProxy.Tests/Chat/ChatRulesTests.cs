@@ -216,8 +216,10 @@ public class ChatRulesTests
     // ── Tách câu hỏi cuối — nền cho gợi ý trả lời ───────────────────────────
 
     private static ChatMessage Tin(short huong, string? body,
-        short state = (short)ChatState.Sent, short kind = (short)ChatKind.Text)
-        => new() { Direction = huong, Body = body, State = state, Kind = kind };
+        short state = (short)ChatState.Sent, short kind = (short)ChatKind.Text,
+        DateTime? luc = null)
+        => new() { Direction = huong, Body = body, State = state, Kind = kind,
+                   CreatedUtc = luc ?? new DateTime(2026, 9, 11, 9, 0, 0, DateTimeKind.Utc) };
 
     [Fact]
     public void Tach_cau_hoi_cuoi__tin_khach_moi_nhat_la_cau_hoi__phan_truoc_la_lich_su()
@@ -229,7 +231,7 @@ public class ChatRulesTests
             Tin((short)ChatDirection.In,  "Tháng 10, 4 người"),
         };
 
-        var (cauHoi, truoc) = ChatRules.TachCauHoiCuoi(ds);
+        var (cauHoi, _, truoc) = ChatRules.TachCauHoiCuoi(ds);
 
         Assert.Equal("Tháng 10, 4 người", cauHoi);
         Assert.Equal(2, truoc.Count);
@@ -284,7 +286,7 @@ public class ChatRulesTests
             Tin((short)ChatDirection.Out, "gửi hỏng", state: (short)ChatState.Failed),
         };
 
-        var (cauHoi, truoc) = ChatRules.TachCauHoiCuoi(ds);
+        var (cauHoi, _, truoc) = ChatRules.TachCauHoiCuoi(ds);
 
         Assert.Equal("Câu thật", cauHoi);
         Assert.Empty(truoc);
@@ -293,8 +295,78 @@ public class ChatRulesTests
     [Fact]
     public void Tach_cau_hoi_cuoi__hoi_thoai_rong_tra_null_chu_khong_nem()
     {
-        var (cauHoi, truoc) = ChatRules.TachCauHoiCuoi(System.Array.Empty<ChatMessage>());
+        var (cauHoi, _, truoc) = ChatRules.TachCauHoiCuoi(System.Array.Empty<ChatMessage>());
         Assert.Null(cauHoi);
         Assert.Empty(truoc);
+    }
+
+    [Fact]
+    public void Tach_cau_hoi_cuoi__tra_luon_moc_gio_cua_cau_hoi()
+    {
+        // Mốc giờ là thứ luật "bot có đang định trả lời không" dựa vào — thiếu nó thì chỗ gọi
+        // phải tự đi lọc lại danh sách tin, tức có hai luật lọc ở hai nơi.
+        var luc = new DateTime(2026, 9, 11, 8, 30, 0, DateTimeKind.Utc);
+        var ds = new[] { Tin((short)ChatDirection.In, "Khách hỏi", luc: luc) };
+
+        Assert.Equal(luc, ChatRules.TachCauHoiCuoi(ds).HoiLuc);
+    }
+
+    // ── Ranh giới: bot tự trả lời ↔ nhân viên xin gợi ý ─────────────────────
+
+    /// <summary>
+    /// Hai đường cùng sinh ra câu trả lời cho khách, nên phải có đúng MỘT chỗ nói khi nào đường
+    /// nào được nói. Không có luật này thì khách nhận hai câu khác nhau cho một câu hỏi.
+    ///
+    /// <para>Cửa sổ thời gian là mấu chốt. Bot chỉ trả lời trong khoảng chục giây sau khi khách
+    /// nhắn (4 giây gộp tin cộng vài giây gọi AI). Quá cửa đó mà vẫn chưa có câu trả lời nào
+    /// nghĩa là bot KHÔNG trả lời nữa — hết lượt AI, nhà cung cấp hỏng, hoặc bị tắt giữa chừng —
+    /// và đó chính là lúc nhân viên cần nút Gợi ý nhất.</para>
+    /// </summary>
+    [Fact]
+    public void Khach_vua_nhan_va_bot_dang_bat_thi_BOT_lo__goi_y_phai_nhuong()
+    {
+        var ht = new ChatConversation();
+        Assert.True(ChatRules.BotDangDinhTraLoi(ht, botBat: true, Now.AddSeconds(-3), Now));
+    }
+
+    [Fact]
+    public void Bot_tat_thi_goi_y_lam_viec_ngay_khong_phai_cho()
+    {
+        var ht = new ChatConversation();
+        Assert.False(ChatRules.BotDangDinhTraLoi(ht, botBat: false, Now.AddSeconds(-3), Now));
+    }
+
+    [Fact]
+    public void Bot_dang_nhuong_nguoi_that_thi_goi_y_lam_viec()
+    {
+        // Nhân viên vừa trả lời → BotResumeAt còn hiệu lực → bot câm → gợi ý là nguồn duy nhất.
+        var ht = new ChatConversation { BotResumeAt = Now.AddMinutes(10) };
+        Assert.False(ChatRules.BotDangDinhTraLoi(ht, botBat: true, Now.AddSeconds(-3), Now));
+    }
+
+    [Fact]
+    public void Qua_cua_so_ma_bot_van_chua_noi_gi_thi_coi_nhu_bot_KHONG_tra_loi()
+    {
+        // Ca quý nhất của nút Gợi ý: bot bật, được phép nói, nhưng im vì hết lượt AI hoặc nhà
+        // cung cấp hỏng. Không có vế thời gian này thì nhân viên vĩnh viễn nhận câu "bot đang
+        // trả lời" cho một con bot không bao giờ trả lời.
+        var ht = new ChatConversation();
+        Assert.False(ChatRules.BotDangDinhTraLoi(ht, botBat: true,
+            Now - ChatRules.CuaSoBotTraLoi.Add(TimeSpan.FromSeconds(1)), Now));
+    }
+
+    [Fact]
+    public void Hoi_thoai_dong_hoac_khach_bi_chan_thi_bot_khong_lo__goi_y_lam_viec()
+    {
+        Assert.False(ChatRules.BotDangDinhTraLoi(
+            new ChatConversation { Status = (short)ChatStatus.Closed }, true, Now.AddSeconds(-3), Now));
+        Assert.False(ChatRules.BotDangDinhTraLoi(
+            new ChatConversation { BlockedUtc = Now }, true, Now.AddSeconds(-3), Now));
+    }
+
+    [Fact]
+    public void Khong_co_cau_hoi_nao_thi_bot_cung_khong_lo()
+    {
+        Assert.False(ChatRules.BotDangDinhTraLoi(new ChatConversation(), true, null, Now));
     }
 }

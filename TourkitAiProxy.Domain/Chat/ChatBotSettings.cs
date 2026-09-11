@@ -1,4 +1,4 @@
-// Domain/Chat/ChatBotSettings.cs
+﻿// Domain/Chat/ChatBotSettings.cs
 using System.Text;
 
 namespace TourkitAiProxy.Domain.Chat;
@@ -22,7 +22,7 @@ public record ChatBotSettings(
     bool Enabled = true,
     string? Persona = null,
     string? Greeting = null,
-    int MuteMinutes = 30,
+    int MuteMinutes = ChatRules.BotCamPhutMacDinh,
     int HistoryTurns = 12)
 {
     public static readonly ChatBotSettings Default = new();
