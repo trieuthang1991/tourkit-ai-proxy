@@ -1478,6 +1478,47 @@ public static class ChatInboxEndpoints
         //
         // Không chốt canh văn bản nguồn nào thấy được lỗi đó: nó là hành vi của KHUNG, không
         // phải của mã ta viết. Đây là ca biện minh cho bộ kiểm thử chạy request thật.
+        // Bản nháp trả lời cho NHÂN VIÊN. Cùng bộ sinh với bot (ChatReplyComposer) nên cùng khung
+        // cấm bịa giá/lịch/số chỗ, cùng lời dặn công ty, cùng model, cùng cách đếm hạn mức.
+        //
+        // KHÔNG có tham số thân — kể cả một record nullable cũng gắn AcceptsMetadata vào route,
+        // và request thiếu Content-Type bị loại ở tầng ĐỊNH TUYẾN rồi rơi xuống trang SPA: 404 kèm
+        // HTML, bấm nút không có gì xảy ra và không lỗi nào hiện. Đã trả giá một lần ngày
+        // 08/09/2026 với nút "Nhận chăm sóc".
+        g.MapPost("/conversations/{id:long}/goi-y", async (long id, HttpContext ctx,
+            TkSessionStore sessions, ChatRepository repo,
+            Services.Chat.Inbox.ChatReplyComposer soan, ChatBotSettingsRepository botCfg,
+            CancellationToken ct) =>
+        {
+            var p = await SessionAuth.ReadNguoiXemAsync(ctx, sessions, ct);
+            if (p == null) return SessionAuth.Unauthorized();
+            var (a, xem) = p.Value;
+            if (!repo.Configured) return NotConfigured();
+            if (await repo.GetConversationAsync(a.TenantId, id, xem, ct) is not { } v)
+                return Results.NotFound();
+
+            var cfg = await botCfg.GetAsync(a.TenantId, ct);
+            var ra = await soan.GoiYAsync(a.TenantId, v, cfg, ct);
+
+            // Mỗi lý do một câu riêng. Gộp hết thành "không gợi ý được" là bắt người trực đoán
+            // xem nên chờ, nên tạm dừng bot, hay nên báo quản trị nạp thêm lượt.
+            var loiNhan = ra.Ket switch
+            {
+                Services.Chat.Inbox.GoiY.KhachChuaNoiGi =>
+                    "Khách chưa nhắn gì mới — chưa có câu nào để trả lời.",
+                Services.Chat.Inbox.GoiY.BotDangTraLoi =>
+                    "Trợ lý đang trả lời câu này. Muốn tự trả lời thì bấm Tạm dừng trợ lý trước.",
+                Services.Chat.Inbox.GoiY.AiHong =>
+                    "Chưa soạn được lúc này — có thể công ty đã hết lượt AI. Thử lại sau ít phút.",
+                _ => null,
+            };
+
+            // 200 cho MỌI ca, kèm lý do. Ba ca kia không phải lỗi của người bấm và cũng không
+            // phải lỗi hệ thống — trả 4xx thì lớp authedFetch chung coi là hỏng, mà 401 ở đó còn
+            // kéo theo đăng xuất toàn cục.
+            return Results.Json(new { ket = ra.Ket.ToString(), chu = ra.Chu, loiNhan }, Web);
+        });
+
         g.MapPost("/conversations/{id:long}/assign/me", async (long id, HttpContext ctx,
             TkSessionStore sessions, ChatRepository repo, ChatAssignRepository assign, ChatEventBus bus,
             ILoggerFactory lf, CancellationToken ct) =>

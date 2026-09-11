@@ -2367,6 +2367,11 @@
     const [dangTaiTin, setDangTaiTin] = useState(false);
     const [mauTraLoi, setMauTraLoi] = useState([]);
     const [goiY, setGoiY] = useState(null);            // null = đang không gõ lệnh
+    // ⚠️ KHÁC `goiY` ngay trên. Cái kia là ô chọn MẪU TRẢ LỜI khi gõ "/", có sẵn từ trước.
+    // Ba cái dưới là nút nhờ TRỢ LÝ soạn nháp — trùng chữ "gợi ý" ngoài màn hình nhưng là hai
+    // việc khác hẳn, nên tên biến phải tách bạch.
+    const [aiDangSoan, setAiDangSoan] = useState(false);
+    const [aiNhac, setAiNhac] = useState(null);        // câu máy chủ giải thích vì sao chưa có nháp
     // Nút đi kèm tin SẮP gửi, lấy từ mẫu trả lời nhanh vừa chọn. Không phải chữ nên không nằm
     // trong ô soạn được — giữ riêng ở đây và hiện thành dải chip ngay trên ô soạn.
     const [nutSoan, setNutSoan] = useState([]);
@@ -2502,7 +2507,8 @@
     // thì nó lập tức thành tấm trượt che kín khung chat — người dùng không hề bấm gì. Đóng lại.
     useEffect(() => { if (diDong) setMoHoSo(false); }, [diDong]);
     // Nút soạn dở thuộc về hội thoại CŨ. Giữ lại là gửi nhầm nút của khách này cho khách khác.
-    useEffect(() => { setNutSoan([]); setThemNut(null); }, [chon]);
+    // Câu nhắc của trợ lý cũng vậy: "trợ lý đang trả lời câu này" nói về hội thoại vừa rời khỏi.
+    useEffect(() => { setNutSoan([]); setThemNut(null); setAiNhac(null); }, [chon]);
 
     // Tải một lần, KHÔNG bám theo sự kiện đẩy: bộ mẫu hiếm khi đổi, kéo lại liên tục là
     // tốn truy vấn cho thứ gần như đứng yên.
@@ -2671,6 +2677,41 @@
         await taiChiTiet(chon);
       } catch (e) { pushToast('Không gửi được: ' + e.message, 'error'); }
       finally { setDangGui(false); }
+    }
+
+    /**
+     * Nhờ trợ lý soạn nháp trả lời.
+     *
+     * Chữ ĐỔ VÀO Ô SOẠN, không gửi — nhân viên đọc, sửa, rồi tự bấm Gửi. Đây là khác biệt duy
+     * nhất so với việc trợ lý tự trả lời khách: cùng một bộ sinh, cùng khung cấm bịa giá, chỉ
+     * khác chỗ câu chữ đi tới.
+     *
+     * Máy chủ trả 200 cho mọi ca kèm câu nhắc, kể cả khi không soạn được — không phải 4xx, vì
+     * lớp authedFetch chung coi 4xx là hỏng và 401 ở đó còn kéo theo đăng xuất toàn cục.
+     */
+    async function xinNhapAi() {
+      if (!chon || aiDangSoan) return;
+      setAiDangSoan(true);
+      setAiNhac(null);
+      try {
+        // KHÔNG kèm Content-Type và KHÔNG kèm thân: đường này không nhận thân, thêm vào là
+        // request bị loại ở tầng định tuyến rồi rơi xuống trang SPA.
+        const r = await authedFetch('/api/v1/chat/conversations/' + chon + '/goi-y', { method: 'POST' });
+        const j = await r.json().catch(() => ({}));
+        if (!r.ok) { pushToast(j.error || 'Không soạn được', 'error'); return; }
+
+        if (j.chu) {
+          // Nối vào phần đang gõ dở chứ không đè lên: nhân viên có thể đã gõ nửa câu rồi mới
+          // nghĩ ra là nhờ trợ lý, và xoá mất chữ họ vừa gõ là kiểu mất dữ liệu khó chịu nhất.
+          setSoan(cu => (cu.trim() ? cu.replace(/\s*$/, '\n\n') : '') + j.chu);
+        } else {
+          // Câu nhắc hiện ngay dòng dưới ô soạn, KHÔNG dùng toast: toast biến mất sau vài giây,
+          // mà câu "trợ lý đang trả lời, muốn tự trả lời thì tạm dừng trợ lý" là một chỉ dẫn
+          // người ta cần đọc rồi làm theo.
+          setAiNhac(j.loiNhan || 'Chưa soạn được lúc này.');
+        }
+      } catch (e) { pushToast('Không soạn được: ' + e.message, 'error'); }
+      finally { setAiDangSoan(false); }
     }
 
     async function doiTrangThai(tt, id = chon) {
@@ -3463,8 +3504,16 @@
                                   title="Chèn mẫu trả lời">
                             <b>/</b>Mẫu trả lời
                           </button>
+                          {/* Nhờ AI soạn nháp. Chữ đổ vào ô soạn, KHÔNG gửi — nhân viên đọc, sửa,
+                              rồi tự bấm Gửi. Nút luôn hiện: máy chủ mới là chỗ biết lúc nào trợ
+                              lý đang lo câu này, và nó trả về câu nhắc để hiện thẳng ra đây. */}
+                          <button className="mau" onClick={xinNhapAi} disabled={aiDangSoan}
+                                  title="Nhờ trợ lý soạn nháp trả lời — chữ đổ vào ô soạn, chưa gửi">
+                            <window.Icon name={aiDangSoan ? 'refresh' : 'sparkle'} size={13} />
+                            {aiDangSoan ? ' Đang soạn…' : ' Gợi ý'}
+                          </button>
                           <span className="ci-soan-nhac">
-                            Enter để gửi · Shift + Enter xuống dòng
+                            {aiNhac || 'Enter để gửi · Shift + Enter xuống dòng'}
                           </span>
                           <button className="ci-gui" onClick={gui}
                                   disabled={dangGui || (!soan.trim() && !dinhKem)}
