@@ -48,19 +48,17 @@ public static class FeatureFlags
     public static bool ChatHistoryImport(IConfiguration cfg)
         => Chat(cfg) && cfg.GetValue("Features:ChatHistoryImport", false);
 
-    /// <summary>
-    /// Xếp hàng tạo <b>Cơ hội bán hàng</b> (= BookingTicket) từ một hội thoại.
-    ///
-    /// <para>PHỤ THUỘC <see cref="Chat"/>, mặc định <b>TẮT</b> theo quy ước chung: tính năng mới
-    /// nào cũng có cờ riêng và người dùng tự bật.</para>
-    ///
-    /// <para><b>Ranh giới trách nhiệm.</b> Proxy chỉ thả dòng vào hàng đợi đúng khuôn
-    /// <c>create-booking-ticket</c> (hợp đồng ở docs/crm-action-contract/README.md §3b); phần nhặt
-    /// lên và gọi CRM thuộc worker bên <c>toutkit-app</c>, do chủ dự án lo. Bật cờ này khi bên đó
-    /// sẵn sàng.</para>
-    /// </summary>
-    public static bool ChatCoHoi(IConfiguration cfg)
-        => Chat(cfg) && cfg.GetValue("Features:ChatCoHoi", false);
+    // KHÔNG có cờ Features:ChatCoHoi — đã cân nhắc và bỏ (11/09/2026), cùng lý do đã bỏ
+    // Features:ChatAssign ở dưới. Tạo Cơ hội bán hàng từ hội thoại không phải một tính năng riêng
+    // để ra mắt riêng; nó là một việc của hộp thư chat, đi cùng chính hộp thư.
+    //
+    // Lý do thêm cờ lúc đầu — "worker bên app chưa có nhánh create-booking-ticket nên dòng nằm
+    // chờ" — là một điều kiện TẠM THỜI, mà cờ thì vĩnh viễn. Đặt một công tắc vĩnh viễn để canh
+    // một tình trạng vài tuần là để lại đúng thứ rác mà lần bỏ ChatAssign đã dọn.
+    //
+    // Người dùng vẫn không bị lừa: khối trạng thái dưới nút nói rõ từng việc đang ở đâu — đang
+    // chờ đồng bộ · đang xử lý · đã sang CRM · lỗi. Việc chưa được nhặt thì hiện "đang chờ", đúng
+    // sự thật, chứ không phải im lặng.
 
     // Cờ Features:ChatAssign ĐÃ BỎ (09/09/2026). Phân công không phải một tính năng riêng để ra
     // mắt riêng — nó là cách hộp thư chat chia việc, đi cùng chính hộp thư. Giữ cờ thứ hai chỉ

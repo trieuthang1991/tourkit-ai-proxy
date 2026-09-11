@@ -98,9 +98,13 @@ public static class CrmActionKind
     public const string AssignTask = "assign-task";
     public const string CreateAppointment = "create-appointment";
 
-    /// <summary>Cơ hội bán hàng (= BookingTicket). Worker app-side CHƯA có nhánh xử lý loại này —
-    /// hợp đồng ở docs/crm-action-contract/README.md §4. Vì thế tính năng dùng nó đứng sau cờ
-    /// Features:ChatCoHoi, mặc định TẮT.</summary>
+    /// <summary>
+    /// Cơ hội bán hàng (= BookingTicket). Hợp đồng gói tin ở docs/crm-action-contract/README.md §3b.
+    ///
+    /// <para>Worker app-side chưa có nhánh xử lý loại này, nên dòng mang Kind này nằm ở
+    /// <c>Pending</c> cho tới khi nhánh đó có. Đó là trạng thái BÌNH THƯỜNG của một hàng đợi chứ
+    /// không phải lỗi, và giao diện chat hiện đúng là "đang chờ đồng bộ" — nên không cần cờ chặn.</para>
+    /// </summary>
     public const string CreateBookingTicket = "create-booking-ticket";
 }
 

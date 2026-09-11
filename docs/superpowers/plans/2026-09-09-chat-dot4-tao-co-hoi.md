@@ -1,4 +1,4 @@
-# Hộp thư chat — Đợt 4: Tạo Cơ hội bán hàng từ hội thoại (mục 3)
+﻿# Hộp thư chat — Đợt 4: Tạo Cơ hội bán hàng từ hội thoại (mục 3)
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
@@ -17,7 +17,7 @@ Hàng đợi đang có đúng hai loại việc worker biết xử lý: `assign-
 
 Hệ quả bắt buộc, không phải tuỳ chọn:
 
-1. **Có cờ tính năng riêng** `Features:ChatCoHoi`, **mặc định tắt** — đúng quy ước "tính năng mới thì một cờ riêng, mặc định tắt". Bật khi handler đã chạy.
+1. ~~**Có cờ tính năng riêng** `Features:ChatCoHoi`.~~ **ĐÃ BỎ khi thực hiện (11/09/2026).** Lý do bỏ: điều kiện cần canh — worker chưa có nhánh xử lý — là TẠM THỜI, mà cờ thì vĩnh viễn; và chính repo này đã bỏ `Features:ChatAssign` vì cùng lẽ đó. Tạo Cơ hội là một việc của hộp thư chat, không phải tính năng tách rời để ra mắt riêng. Ai được làm thì do quyền `CH_TAO_MOI` quyết.
 2. **Giao diện nói đúng sự thật**: "đã xếp hàng, chờ đồng bộ" — không phải "đã tạo Cơ hội". Một nút báo thành công trong khi bên kia chưa có gì là kiểu hỏng tệ nhất: người dùng tin là xong và không kiểm lại.
 3. **Hợp đồng phải viết trước khi viết mã**, vào `docs/crm-action-contract/README.md`. Đó là thứ chủ dự án đọc để viết handler; thiếu nó thì hai bên đoán nhau.
 
@@ -52,7 +52,7 @@ Hệ quả bắt buộc, không phải tuỳ chọn:
 | `TourkitAiProxy.Endpoints/ChatInboxEndpoints.cs` | `POST /conversations/{id:long}/co-hoi` + `record CoHoiReq` |
 | `wwwroot/pages/chat-inbox.jsx` | khối **Cơ hội bán hàng** trong tab khách hàng; nhãn nhật ký |
 | `TourkitAiProxy.Tests/Chat/ChatRulesTests.cs` | test `TomTatChoCoHoi` |
-| `TourkitAiProxy.Tests/Chat/ChatCoHoiGuardTests.cs` (mới) | chốt: kiểm quyền · đòi nối khách · xếp hàng chứ không gọi CRM · ghi nhật ký · có cờ |
+| `TourkitAiProxy.Tests/Chat/ChatHangDoiCrmGuardTests.cs` | chốt: kiểm quyền TRƯỚC khi thả dòng · đòi nối khách · xếp hàng chứ không gọi CRM · KHÔNG mọc lại cờ riêng |
 | `e2e/tests/07-chat-phan-cong-api.spec.js` | nhóm `H — Xếp hàng Cơ hội` |
 | `CHANGELOG.md` | một mục |
 
@@ -154,14 +154,14 @@ public static string TomTatChoCoHoi(IEnumerable<ChatMessage> tin, int soTin, str
 
 - [ ] **Step 1:** `TkPermissionCodes.TaoCoHoi = "CH_TAO_MOI"` kèm chú thích nói rõ **vì sao proxy phải tự kiểm**: CRM không kiểm ở `CreateAsync`, web cũ kiểm ở tầng màn hình — nên ai vào được hộp thư chat cũng xếp hàng tạo Cơ hội được nếu proxy không chặn.
 - [ ] **Step 2:** `SessionAuth.ForbiddenTaoCoHoi()` — 403 kèm câu người đọc hiểu, không phải mã lỗi trần.
-- [ ] **Step 3:** Cờ `Features:ChatCoHoi` (mặc định **false**) vào `appsettings.example.json` kèm `_comment` giải thích: bật khi handler `create-booking-ticket` bên worker đã chạy, trước đó bấm nút chỉ sinh ra dòng nằm chờ.
+- [x] **Step 3:** ~~Cờ tính năng.~~ Bỏ — xem §0. Thay vào đó thêm `Chat:NguonPhieuCoHoi` (mặc định `1`) vào `appsettings.example.json`: mã nguồn phiếu đọc từ cấu hình để khi CRM cấp mã cho "từ chat" thì đổi cấu hình, không sửa mã.
 - [ ] **Step 4:** Commit.
 
 ---
 
 ### Task 4: `POST /conversations/{id}/co-hoi` — xếp hàng
 
-**Files:** `ChatInboxEndpoints.cs`, `CrmActionQueueRepository.cs`, test `ChatCoHoiGuardTests.cs` (mới)
+**Files:** `ChatInboxEndpoints.cs`, `CrmActionQueueRepository.cs`, test `ChatHangDoiCrmGuardTests.cs`
 
 - [ ] **Step 1: Chốt canh ĐỎ trước** — năm điều:
 
@@ -169,7 +169,7 @@ public static string TomTatChoCoHoi(IEnumerable<ChatMessage> tin, int soTin, str
 [Fact] public void Xep_hang_chu_KHONG_goi_CRM()        // Contains EnqueueAsync, DoesNotContain api.PostAsync
 [Fact] public void Kiem_quyen_CH_TAO_MOI_truoc_khi_xep_hang()
 [Fact] public void Doi_hoi_thoai_da_noi_khach_CRM()
-[Fact] public void Co_co_tinh_nang_rieng()             // Contains "ChatCoHoi"
+[Fact] public void KHONG_mọc_lại_cờ_riêng()            // DoesNotContain "ChatCoHoi"
 [Fact] public void Ghi_nhat_ky_tao_co_hoi()
 ```
 
@@ -213,7 +213,7 @@ Sau đợt này, phần còn thiếu nằm hết ở `toutkit-app`:
 1. `CrmActionSyncWorker` thêm nhánh `create-booking-ticket` → `POST /api/booking-tickets`, đọc payload theo §4 hợp đồng.
 2. Ghi `ResultJson = {"bookingTicketId": …}` khi xong.
 3. Khi CRM cấp mã `NguonPhieu` cho "từ chat": sửa **cấu hình proxy** `Chat:NguonPhieuCoHoi`, không phải sửa mã.
-4. Handler chạy được rồi thì bật `Features:ChatCoHoi`.
+4. Không phải bật cờ nào — tính năng đã chạy sẵn; handler xong là các dòng đang chờ tự được xử lý.
 
 ## Self-review
 

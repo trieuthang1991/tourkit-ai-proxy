@@ -1135,20 +1135,17 @@
   /**
    * Xếp hàng tạo Cơ hội bán hàng từ hội thoại.
    *
-   * Nút chỉ hiện khi máy chủ nhận đường này — cờ Features:ChatCoHoi tắt thì máy chủ trả 404 và
-   * nút tự ẩn. Không hỏi cờ bằng một đường riêng: một lượt gọi thật đã trả lời đúng câu đó.
-   *
    * Chữ nói "xếp hàng" chứ không nói "đã tạo", vì đúng là chưa tạo: dòng nằm trong hàng đợi cho
-   * tới khi worker bên CRM nhặt lên. Nói quá một nhịp ở đây còn tệ hơn ở chỗ chăm sóc — người
-   * dùng tưởng đã có phiếu rồi đi tìm nó trên CRM.
+   * tới khi bên CRM nhặt lên. Nói quá một nhịp ở đây còn tệ hơn ở chỗ chăm sóc — người dùng tưởng
+   * đã có phiếu rồi đi tìm nó trên CRM.
+   *
+   * Ai được bấm thì do quyền CH_TAO_MOI của CRM quyết; thiếu quyền thì máy chủ trả 403 kèm câu
+   * nói rõ. Không có cờ tính năng nào ở đây — xem chú thích trong FeatureFlags.
    */
   function CoHoi({ hoiThoaiId, pushToast, onXong }) {
     const [mo, setMo] = useState(false);
     const [ten, setTen] = useState('');
     const [dang, setDang] = useState(false);
-    const [an, setAn] = useState(false);   // máy chủ trả 404 → tính năng đang tắt
-
-    if (an) return null;
 
     async function xepHang() {
       setDang(true);
@@ -1157,7 +1154,6 @@
           method: 'POST', headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ tenPhieu: ten.trim() || null }),
         });
-        if (r.status === 404) { setAn(true); return; }
         const j = await r.json().catch(() => ({}));
         if (!r.ok) { pushToast(j.error || 'Không xếp hàng được', 'error'); return; }
         pushToast('Đã xếp hàng — chờ đồng bộ sang CRM', 'success');

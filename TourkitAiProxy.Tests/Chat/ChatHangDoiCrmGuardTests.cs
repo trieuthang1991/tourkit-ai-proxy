@@ -101,18 +101,25 @@ public class ChatHangDoiCrmGuardTests
     }
 
     /// <summary>
-    /// Tính năng đứng sau cờ riêng, và cờ TẮT phải trả 404 chứ không phải 403.
+    /// KHÔNG được mọc lại một cờ tính năng riêng cho việc này.
     ///
-    /// <para>403 nói "bạn không được phép" — sai, vì đây không phải chuyện quyền. Tính năng chưa
-    /// bật thì với người gọi nó đơn giản là không tồn tại.</para>
+    /// <para>Bỏ 11/09/2026, cùng lý do đã bỏ <c>Features:ChatAssign</c>: tạo Cơ hội từ hội thoại
+    /// là một việc của hộp thư chat, không phải tính năng tách rời để ra mắt riêng. Lý do thêm cờ
+    /// lúc đầu — worker bên app chưa có nhánh xử lý — là điều kiện TẠM THỜI, mà cờ thì vĩnh viễn.
+    /// Ai được làm thì do quyền <c>CH_TAO_MOI</c> của CRM quyết, không do cờ nào.</para>
     /// </summary>
     [Fact]
-    public void Duong_co_hoi_dung_sau_co_tinh_nang()
+    public void Duong_co_hoi_KHONG_dung_sau_co_tinh_nang_rieng()
     {
-        var than = ThanRoute("g.MapPost(\"/conversations/{id:long}/co-hoi\"");
+        Assert.DoesNotContain("ChatCoHoi",
+            ThanRoute("g.MapPost(\"/conversations/{id:long}/co-hoi\""));
 
-        Assert.Contains("ChatCoHoi", than);
-        Assert.Contains("NotFound", than);
+        // Soi vào MÃ THẬT, bỏ dòng chú thích: chú thích giải thích vì sao đã bỏ thì đương nhiên
+        // được phép nhắc tên cờ — và chính nó là thứ giữ cho quyết định này không bị làm lại.
+        var mã = string.Join("\n", System.Linq.Enumerable.Where(
+            ChatSchemaGuardTests.DocFile("TourkitAiProxy.Services/Bootstrap/FeatureFlags.cs").Split('\n'),
+            d => !d.TrimStart().StartsWith("//", System.StringComparison.Ordinal)));
+        Assert.DoesNotContain("ChatCoHoi", mã);
     }
 
     [Fact]

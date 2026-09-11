@@ -126,10 +126,11 @@ tự set default hợp lý (proxy chỉ gửi field trợ lý có đủ ngữ c�
 
 ## 3b. `create-booking-ticket` → `POST /api/booking-tickets` (`CreateBookingTicketRequest`)
 
-> **Loại việc thứ ba.** Proxy đã thả dòng đúng khuôn này; nhánh xử lý bên
-> `CrmActionSyncWorker` do chủ dự án viết. Mục này là hợp đồng giữa hai bên, viết trước mã để
-> không bên nào phải đoán bên kia. Tính năng sinh ra các dòng này đứng sau cờ `Features:ChatCoHoi`
-> (mặc định tắt, theo quy ước chung cho tính năng mới) — bật khi bên worker sẵn sàng.
+> **Loại việc thứ ba.** Proxy **đã thả dòng** đúng khuôn này — tính năng đang chạy, không có cờ
+> nào chặn. Nhánh xử lý bên `CrmActionSyncWorker` do chủ dự án thống nhất với team rồi làm sau;
+> tới lúc đó các dòng `create-booking-ticket` nằm ở `Status = 0 (Pending)` và giao diện chat hiện
+> đúng là *đang chờ đồng bộ*. Mục này là hợp đồng giữa hai bên, viết trước mã để không bên nào
+> phải đoán bên kia.
 
 **Cơ hội bán hàng = BookingTicket** (xem `toutkit-app/docs/module-mapping.md`) — không phải
 Lead/Prospect.

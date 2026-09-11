@@ -1538,10 +1538,9 @@ public static class ChatInboxEndpoints
 
         // ── Cơ hội bán hàng (= BookingTicket) → hàng đợi ────────────────────────
         //
-        // ⚠️ Loại việc này worker app-side CHƯA có nhánh xử lý — hợp đồng ở
-        // docs/crm-action-contract/README.md §3b. Nên nó đứng sau cờ Features:ChatCoHoi, mặc định
-        // TẮT: bật khi chưa có nhánh đó thì người dùng bấm nút, màn hình báo "đã xếp hàng", và
-        // dòng nằm ở đang chờ vĩnh viễn — không lỗi, không báo, không ai biết.
+        // Hợp đồng gói tin ở docs/crm-action-contract/README.md §3b. KHÔNG có cờ tính năng riêng:
+        // xem chú thích trong FeatureFlags — đây là một việc của hộp thư chat, không phải tính
+        // năng tách rời để ra mắt riêng. Ai được làm thì do quyền CH_TAO_MOI của CRM quyết.
         //
         // Route NÀY có thân (tiêu đề phiếu người trực tự đặt) nên giao diện PHẢI gửi
         // Content-Type: application/json. Thân là record không nullable, như AssignReq.
@@ -1549,10 +1548,6 @@ public static class ChatInboxEndpoints
             TkSessionStore sessions, ChatRepository repo, CrmActionQueueRepository hangDoi,
             IConfiguration cfg, CancellationToken ct) =>
         {
-            // Cờ tắt → 404, KHÔNG phải 403: đây không phải chuyện quyền. Tính năng chưa bật thì
-            // với người gọi nó đơn giản là không tồn tại.
-            if (!Services.Bootstrap.FeatureFlags.ChatCoHoi(cfg)) return Results.NotFound();
-
             var p = await SessionAuth.ReadNguoiXemAsync(ctx, sessions, ct);
             if (p == null) return SessionAuth.Unauthorized();
             var (a, xem) = p.Value;

@@ -35,8 +35,10 @@ Những cập nhật gần đây của TRAV-AI, viết cho người dùng. Mới
   khách bên CRM. Các lượt đã ghi hiện ngay dưới nút kèm trạng thái — *đang chờ · đang xử lý · đã
   sang CRM · lỗi* — để bạn biết việc của mình đang ở đâu thay vì bấm lại lần nữa.
 - **Tạo Cơ hội bán hàng từ hội thoại.** Từ hội thoại đã nối khách, bạn đặt tiêu đề rồi xếp hàng tạo
-  một Cơ hội mang theo đoạn chat và đường dẫn quay lại hội thoại. **Tính năng này đang tắt sẵn** và
-  cần bật riêng — phần nhận bên CRM chưa hoàn thiện, bật sớm thì việc sẽ nằm chờ mà không có gì báo.
+  một Cơ hội mang theo đoạn chat và đường dẫn quay lại hội thoại. Cần quyền *thêm Cơ hội bán hàng*
+  như khi tạo trực tiếp trên CRM. Việc xếp hàng hiện trạng thái ngay dưới nút; **phần chuyển sang
+  CRM còn đang hoàn thiện**, nên trong giai đoạn này việc sẽ dừng ở *đang chờ đồng bộ* — bạn nhìn
+  thấy rõ chứ không phải đoán.
 - **Lọc hội thoại theo nhãn.** Thanh lọc có thêm hàng nhãn của công ty: bấm một hay nhiều nhãn để
   chỉ thấy khách đang mang nhãn đó. Chọn nhiều thì thấy khách mang **bất kỳ** nhãn nào trong số đã
   chọn, bấm lại một nhãn là bỏ nó ra, còn dấu × ở cuối hàng bỏ hết. Số đếm ở hàng trạng thái ngay
