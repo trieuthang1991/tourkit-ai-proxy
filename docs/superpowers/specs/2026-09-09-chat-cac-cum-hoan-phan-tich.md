@@ -219,12 +219,28 @@ phải bảng gốc nên không tra được. Cần mở bảng "Chat đa kênh"
 
 ---
 
-## 10. Việc cần bạn quyết
+## 10. Việc cần bạn quyết — cập nhật 11/09/2026
 
-1. Mục 7: nhiều nhãn → **VÀ** hay **HOẶC**?
-2. Mục 8: chỗ nào sai cỡ?
-3. Mục 1: cho bộ sinh **đọc CRM** khi hội thoại đã nối không? Nhân viên sửa được lời dặn riêng không?
-4. Mục 4: đẩy CSKH theo **hội thoại** hay theo **lượt**?
-5. Mục 3: mã quyền thêm phiếu, và có cấp **mã `NguonPhieu` mới** cho "từ chat" không?
-6. Mục 5 trong bảng gốc là gì?
-7. Đồng ý thứ tự **7+6+8 → 1 → 4 → 3 → 2** chứ?
+| # | Câu hỏi | Trả lời |
+|---|---|---|
+| 1 | Mục 7: nhiều nhãn → VÀ hay HOẶC? | **HOẶC** — đã làm, có bài E2E chốt luật (E3). |
+| 2 | Mục 8: chỗ nào sai cỡ? | "Chỉnh giao diện cho to hơn dễ nhìn hơn" → đã phóng ảnh đại diện và huy hiệu kênh trong danh sách. Hoá ra huy hiệu đang hiện ở 9.5px chứ không phải 11.5px như luật CSS định đặt, vì `font-size` bị khai hai lần. |
+| 4 | Mục 4: đẩy CSKH theo hội thoại hay theo lượt? | **Câu hỏi tự tan.** Chuyển sang xếp hàng thì mỗi lần bấm nút là một dòng — thành quyết định của người dùng, không phải của hệ. |
+| 7 | Đồng ý thứ tự 7+6+8 → 1 → 4 → 3 → 2? | Đồng ý. Đợt 1 (7+6+8) đã xong. |
+| 3 | Mục 1: cho bộ sinh **đọc CRM** khi hội thoại đã nối không? Nhân viên sửa được lời dặn riêng không? | **còn mở** — Đợt 2 tạm chốt là KHÔNG đọc CRM. |
+| 5 | Mục 3: có cấp **mã `NguonPhieu` mới** cho "từ chat" không? | **còn mở**, nhưng không chặn: đọc từ cấu hình `Chat:NguonPhieuCoHoi`. Mã quyền đã tra được — `CH_TAO_MOI`, hằng thật trong `PermissionCodes.cs`. |
+| 6 | Mục 5 trong bảng gốc là gì? | **còn mở** — cần mở bảng "Chat đa kênh". |
+
+## 11. Đổi hướng 11/09/2026 — không ghi thẳng sang CRM nữa
+
+Chủ dự án chốt: **mọi thứ ghi sang hệ ngoài đều để lại**; phần cần bắn sang CRM thì lưu trên hệ
+chat trước để xem và chuẩn hoá, rồi tự viết đường đồng bộ sau.
+
+Hoá ra chỗ lưu đó đã có sẵn và **chính proxy sở hữu schema**: hàng đợi `dbo.CrmActionQueue`, worker
+`CrmActionSyncWorker` bên `toutkit-app` đã chạy, hợp đồng payload đã viết ở
+`docs/crm-action-contract/README.md`. Nó đã xử lý được hai loại việc, trong đó **`create-appointment`
+→ `POST /api/customer-care`** đúng là thứ mục 4 việc 3 cần — nên việc đó không cần API mới, bảng
+mới hay worker mới.
+
+Thêm hai cột `Action` (nghiệp vụ phía chat) và `ReferId` (mã hội thoại), cả hai rỗng được để dòng
+cũ và worker đang chạy không đổi gì. Chi tiết ở plan Đợt 3 §0 và Đợt 4 §0.
