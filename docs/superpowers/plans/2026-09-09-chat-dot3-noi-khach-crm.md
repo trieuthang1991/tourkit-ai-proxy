@@ -217,7 +217,7 @@ Không API mới: `GET …/crm-search?q=` đã có và tìm bằng phiên của 
 
 | Việc | Vì sao chưa làm |
 |---|---|
-| Tạo khách mới trên CRM từ chat | Cần mã khách ngay lúc bấm để nối; hàng đợi chỉ có mã sau khi worker chạy. Chờ đường worker ghi ngược `ResultJson`. |
+| Tạo khách mới trên CRM từ chat | **BỎ HẲN, không phải hoãn** (chủ dự án chốt 11/09/2026). Tạo khách thuộc phía services. Việc của hộp thư chat là **nối** — người trực chọn đúng khách, `crm_customer_id` ghi vào hồ sơ chat, rồi đi theo mọi gói tin xuống hàng đợi để worker biết đường xử lý. Không dựng nút tạo khách ở đây. |
 | Worker xử lý `Action` mới | Nằm ở `toutkit-app`, chủ dự án tự viết. Đợt này chỉ thả dòng đúng hợp đồng `create-appointment` — loại việc worker **đã** xử lý được, nên không chờ ai. |
 | Ghi CSKH theo *lượt* hay theo *hội thoại* | Câu hỏi này tự tan: nay là quyết định của người dùng chứ không phải của hệ — mỗi lần bấm nút là một dòng, bấm mấy lần thì mấy dòng. |
 

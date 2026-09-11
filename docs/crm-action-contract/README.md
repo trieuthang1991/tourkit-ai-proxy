@@ -109,7 +109,7 @@ Worker khi xử lý dòng `Kind='assign-task'` **PHẢI**:
 
 | Key trong `PayloadJson` | → Field `CreateCustomerCareRequest` | Ghi chú |
 |---|---|---|
-| `customerId` | `customerId` | Đã resolve — id trực tiếp hoặc qua `ActionResolver.ResolveCustomerAsync` (tên → id, chặn khi mơ hồ/không khớp trước khi enqueue). |
+| `customerId` | `customerId` | Đã resolve, worker **không phải tra lại**. Hai nguồn: trợ lý số liệu resolve qua `ActionResolver.ResolveCustomerAsync` (tên → id, chặn khi mơ hồ/không khớp trước khi enqueue); hộp thư chat lấy từ `chat_contacts.crm_customer_id` — mã do **người trực tự nối tay**, và proxy từ chối xếp hàng khi chưa nối nên dòng tới worker luôn có mã hợp lệ. |
 | `careTitle` | `careTitle` | Default `"Lịch hẹn"` nếu AI không điền. |
 | `careDetail` | `careDetail` | Mô tả, có thể `null`. |
 | `careStartTime` | `careStartTime` | ISO UTC hoặc `null`. |
@@ -151,7 +151,7 @@ Lead/Prospect.
 
 | Key trong `PayloadJson` | → Field `CreateBookingTicketRequest` | Ghi chú |
 |---|---|---|
-| `idKhachHang` | `IdKhachHang` | **Bắt buộc > 0.** Proxy đã chặn trước khi thả dòng: hội thoại chưa nối khách CRM thì không xếp hàng được. |
+| `idKhachHang` | `IdKhachHang` | **Bắt buộc > 0.** Lấy từ `chat_contacts.crm_customer_id` — mã do người trực tự nối tay. Proxy chặn trước khi thả dòng: chưa nối thì không xếp hàng được, nên worker không bao giờ nhận dòng thiếu mã. **Hộp thư chat KHÔNG tạo khách mới trên CRM** (chốt 11/09/2026) — việc đó thuộc phía services; ở đây chỉ nối. |
 | `tenKH` | `TenKH` | **Bắt buộc.** Lấy từ hồ sơ khách đã nối. |
 | `soDienThoaiKH`, `emailKH` | cùng tên | Từ `chat_contacts`; có thể `null` (Telegram/Messenger không bao giờ cho số). |
 | `tenPhieu` | `TenPhieu` | Người trực gõ, bỏ trống thì proxy dựng `"Chat: {tên khách}"`. |
