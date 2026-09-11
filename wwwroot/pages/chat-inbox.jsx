@@ -886,14 +886,21 @@
   /**
    * Bảng quản lý DANH MỤC nhãn — một mục trong hộp cài đặt hộp thư.
    *
-   * Cột ID hiện MÃ SỐ thật của dòng (chat_tag_catalog.id), còn slug hiện ngay dưới tên: hai thứ
-   * khác nhau và người quản trị cần cả hai. Mã số để gọi API/hỗ trợ kỹ thuật; slug là thứ thật
-   * sự ghi lên khách và đi trên đường dẫn — thấy slug mới hiểu vì sao "Khách VIP" và "khách vip"
-   * lại là cùng một nhãn.
+   * Danh mục này RIÊNG TỪNG CÔNG TY: mọi câu lệnh kẹp tenant_id, khoá duy nhất là (tenant_id, slug),
+   * và công ty lấy từ PHIÊN chứ không từ phía người gọi. Xoá nhãn của công ty khác trả 404.
+   *
+   * Slug đi NGAY SAU tên trên cùng một dòng, không xuống dòng riêng: nó là thứ thật sự ghi lên
+   * khách và đi trên đường dẫn nên phải thấy, nhưng nó là chi tiết phụ, không đáng ăn gấp đôi
+   * chiều cao mỗi dòng.
+   *
+   * ĐÃ BỎ CỘT ID (09/09/2026). Mã số dòng không nói gì với người quản trị — cùng lý do ô chọn
+   * người chỉ hiện mã ở dòng trùng tên. Nó chiếm cột đầu bảng, kéo mắt về trái, rồi không
+   * dùng vào việc gì.
    */
   function QuanLyNhan({ pushToast }) {
     const [ds, setDs] = useState(null);
     const [ten, setTen] = useState('');
+    const [loc, setLoc] = useState('');
     const [dangLam, setDangLam] = useState(false);
 
     const tai = useCallback(async () => {
@@ -942,6 +949,13 @@
 
     if (ds === null) return <div className="ci-pc-dangtai">Đang tải…</div>;
 
+    // Lọc BỎ DẤU, dùng chung hàm chuẩn hoá của ô chọn người: gõ "khach vip" phải ra
+    // “Khách VIP”. Không ai gõ đủ dấu khi đang tìm nhanh.
+    const chuanHoaNhan = (window.ChonNguoiUtil && window.ChonNguoiUtil.chuanHoa)
+      || (x => String(x || '').toLowerCase());
+    const qLoc = chuanHoaNhan(loc);
+    const hienThi = qLoc ? ds.filter(n => chuanHoaNhan(n.name + ' ' + n.slug).includes(qLoc)) : ds;
+
     return (
       <div className="ci-qn">
         <form className="ci-qn-them" onSubmit={them}>
@@ -961,28 +975,47 @@
             bấm chọn thay vì gõ tay mỗi lần.
           </div>
         ) : (
-          <table className="ci-qn-bang">
-            <thead>
-              <tr><th>ID</th><th>Tên nhãn</th><th>Đang gắn</th><th aria-label="Thao tác" /></tr>
-            </thead>
-            <tbody>
-              {ds.map(n => (
-                <tr key={n.id}>
-                  <td className="ma">{n.id}</td>
-                  <td>
-                    <b>{n.name}</b>
-                    {/* Slug hiện mờ ngay dưới tên — nó mới là thứ ghi lên khách. */}
-                    <span className="slug">{n.slug}</span>
-                  </td>
-                  <td className="ma">{n.usageCount > 0 ? n.usageCount + ' khách' : '—'}</td>
-                  <td className="cuoi">
-                    <button className="ci-nut nguyhiem nho" disabled={dangLam}
-                            onClick={() => xoa(n)}>Xoá</button>
-                  </td>
-                </tr>
+          <>
+            {/* Ô lọc CHỈ mọc ra khi danh sách đủ dài để phải tìm. Dưới ngưỡng đó mắt quét hết
+                được, mà một ô tìm luôn hiện thì chỉ là thêm một thứ chiếm chỗ. */}
+            <div className="ci-qn-dau">
+              <span className="ci-qn-dem"><b>{ds.length}</b> nhãn</span>
+              {ds.length > 8 && (
+                <label className="ci-qn-loc">
+                  <Icon name="search" size={13} />
+                  <input value={loc} onChange={e => setLoc(e.target.value)}
+                         placeholder="Lọc theo tên…" aria-label="Lọc nhãn" />
+                </label>
+              )}
+            </div>
+
+            {/* Trần chiều cao + cuộn riêng: công ty dùng nhiều nhãn thì danh sách dài bằng mấy màn
+                hình, đẩy ô thêm nhãn và cả các mục khác ra khỏi tầm nhìn. */}
+            <div className="ci-qn-ds">
+              {hienThi.length === 0 && (
+                <div className="ci-qn-rong-loc">Không nhãn nào khớp “{loc}”.</div>
+              )}
+              {hienThi.map(n => (
+                <div key={n.id} className="ci-qn-dong">
+                  <b>{n.name}</b>
+                  <code>{n.slug}</code>
+                  {/* Nhãn chưa ai mang thì để TRỐNG, không in gạch ngang: một cột gạch ngang chạy
+                      dọc danh sách là nhiễu thuần tuý, trong khi ô trống đã nói đúng điều đó. */}
+                  <span className="ci-qn-gan">
+                    {n.usageCount > 0 ? n.usageCount + ' khách' : ''}
+                  </span>
+                  {/* Nút xoá là BIỂU TƯỢNG mờ, đỏ lên khi trỏ tới. Mỗi dòng một nút đỏ như cũ thì cả
+                      danh sách đỏ rực, trong khi xoá nhãn là việc hiếm nhất ở màn này. Hộp hỏi lại kèm
+                      con số khách vẫn giữ nguyên — đó mới là chốt chặn thật. */}
+                  <button type="button" className="ci-qn-xoa" disabled={dangLam}
+                          title={'Xoá nhãn ' + n.name} aria-label={'Xoá nhãn ' + n.name}
+                          onClick={() => xoa(n)}>
+                    <Icon name="trash" size={13} />
+                  </button>
+                </div>
               ))}
-            </tbody>
-          </table>
+            </div>
+          </>
         )}
       </div>
     );

@@ -10020,6 +10020,9 @@ img.ci-avt { object-fit: cover; }
            border-radius: 7px; background: var(--primary-soft); color: #9A3412;
            font-size: 9.5px; font-weight: 700; letter-spacing: .02em; }
 
+/* Bản NỔI: dựng ở <body> nên toạ độ do JS gán (fixed), và z phải trên nền cửa sổ cài đặt
+   (.ci-modal-nen = 60) — nếu không thì hộp nằm dưới lớp phủ mờ và bấm không trúng. */
+.cn-hop.noi { position: fixed; z-index: 120; top: auto; left: auto; right: auto; }
 .cn-hop { position: absolute; z-index: 30; top: calc(100% + 5px); left: 0; right: 0;
           display: flex; flex-direction: column; overflow: hidden;
           border: 1px solid var(--border); border-radius: var(--radius-md);
@@ -10132,6 +10135,38 @@ img.ci-avt { object-fit: cover; }
              border-top: 1px solid var(--ci-vien-trong); background: var(--surface); }
 .ci-pc-luu-tom { font-size: 11.5px; color: var(--text-3); line-height: 1.45; }
 
+/* TRẠNG THÁI CHẶN của khối đội trực: không lấy được ai để chọn.
+   KHÔNG tô màu cảnh báo. Cảnh báo hàm ý "bạn làm gì đi"; ở đây người dùng không làm gì được
+   ngoài bấm thử lại, nên tô vàng/đỏ chỉ tạo lo lắng mà vẫn bế tắc. Nền trung tính, chữ rõ,
+   một nút — đọc xong biết ngay còn cách nào không. */
+.ci-pc-ket { display: grid; gap: 8px; justify-items: start; padding: 16px 15px;
+             border: 1px solid var(--border, #E2E8F0); border-radius: var(--radius);
+             background: var(--surface-2, #F8FAFC); }
+.ci-pc-ket > b { font-size: 13px; font-weight: 700; color: var(--text); }
+.ci-pc-ket > p { margin: 0; max-width: 62ch; font-size: 12.5px; line-height: 1.6;
+                 color: var(--text-2, #475569); }
+
+/* Nhắc NGAY dưới ô chọn người, đúng chỗ tay đang thao tác — thay cho hộp cảnh báo cũ ở cuối
+   màn. Một vạch mảnh bên trái đủ để nó tách khỏi dòng phụ thường; đóng khung lần nữa thì lại
+   thành cái hộp vừa bỏ đi. */
+.ci-pc-nhac { margin: 9px 0 0; padding-left: 9px; border-left: 2px solid rgba(245, 158, 11, .55);
+              font-size: 12px; line-height: 1.55; color: #92400E; }
+
+/* Phần giải thích cất sau nút mở: người vào đây để bấm một cái, không phải để đọc một bài về
+   cơ chế vòng quay. Ai cần hiểu thì mở, và lúc đó họ đang muốn đọc. */
+.ci-pc-visao { margin-top: 10px; font-size: 12px; color: var(--text-3); }
+.ci-pc-visao > summary { cursor: pointer; list-style: none; width: fit-content;
+                         color: var(--text-2, #475569); }
+.ci-pc-visao > summary::-webkit-details-marker { display: none; }
+/* Mũi nhọn đẶT SAU chữ, không đặt trước. Đặt trước thì chữ bị đẩy vào 13px, lệch khỏi cột
+   chữ của cả khối (tiêu đề, câu dẫn, nút đều bắt đầu ở mép trái) — nhìn ra ngay là một dòng thụt
+   vào vô cớ. Đẩy ra lề trái thì không còn chỗ, vì khối này đã sát mép panel. */
+.ci-pc-visao > summary::after { content: '▸'; display: inline-block; margin-left: 6px;
+                                color: var(--text-3); }
+.ci-pc-visao[open] > summary::after { content: '▾'; }
+.ci-pc-visao > summary:hover { color: var(--text); }
+.ci-pc-visao > p { margin: 7px 0 0; max-width: 62ch; line-height: 1.6; }
+
 
 /* ── Thanh nhãn trong khung chat ───────────────────────────────────────
    Một hàng mỏng ngay dưới tiêu đề. Cố ý KHÔNG có viền dưới riêng: nó đứng giữa hai đường
@@ -10196,20 +10231,46 @@ img.ci-avt { object-fit: cover; }
                           box-shadow: 0 0 0 3px rgba(249, 115, 22, .12); }
 .ci-qn-rong { padding: 28px 20px; border: 1px dashed var(--border); border-radius: var(--radius-md);
               font-size: 12.5px; line-height: 1.6; color: var(--text-3); text-align: center; }
-.ci-qn-bang { width: 100%; border-collapse: collapse; margin-top: 6px; }
-.ci-qn-bang th { padding: 7px 10px; text-align: left; font-size: 9px; font-weight: 700;
-                 letter-spacing: .11em; text-transform: uppercase; color: var(--text-3);
-                 border-bottom: 1px solid var(--border); }
-.ci-qn-bang td { padding: 9px 10px; border-bottom: 1px solid var(--ci-vien-trong);
-                 font-size: 13px; color: var(--text); vertical-align: middle; }
-.ci-qn-bang tr:last-child td { border-bottom: 0; }
-/* Số đứng cột: mã và số lượng đọc theo chiều dọc nên phải cùng bề rộng chữ số. */
-.ci-qn-bang td.ma { font-variant-numeric: tabular-nums; color: var(--text-3); font-size: 12px;
-                    white-space: nowrap; }
-.ci-qn-bang td.cuoi { text-align: right; white-space: nowrap; }
-.ci-qn-bang td b { display: block; font-size: 13px; font-weight: 600; }
-.ci-qn-bang td .slug { display: block; margin-top: 1px; font-size: 10.5px; color: var(--text-3);
-                       font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
+/* ── DANH MỤC NHÃN ──────────────────────────────────────────────────────
+   Trước 09/09/2026 đây là một cái BẢNG: bốn cột (ID · tên · đang gắn · nút Xoá), tên và slug
+   xếp chồng nên mỗi nhãn ăn khoảng 70px, cộng một nút "Xoá" đỏ trên MỌI dòng. Công ty dùng
+   hai chục nhãn thì màn hình thành một bức tường chữ đỏ, và ô thêm nhãn bị đẩy khuất.
+
+   Ba thay đổi, mỗi cái gỡ một thứ chiếm chỗ mà không trả lại gì:
+     · bỏ cột ID — mã số dòng không nói gì với người quản trị (mã vẫn còn trong dữ liệu và
+       vẫn là thứ dùng để xoá, chỉ là không bày ra);
+     · slug về CÙNG DÒNG với tên — vẫn thấy, mà hết một nửa chiều cao;
+     · nút xoá thành biểu tượng mờ, chỉ đỏ khi trỏ tới. */
+.ci-qn-dau { display: flex; align-items: center; gap: 10px; margin: 10px 0 4px; }
+.ci-qn-dem { font-size: 11.5px; color: var(--text-3); font-variant-numeric: tabular-nums; }
+.ci-qn-dem b { color: var(--text); font-weight: 700; }
+.ci-qn-loc { display: flex; align-items: center; gap: 6px; margin-left: auto;
+             height: 28px; padding: 0 9px; border: 1px solid var(--border);
+             border-radius: var(--radius); color: var(--text-3); }
+.ci-qn-loc:focus-within { border-color: var(--primary); }
+.ci-qn-loc input { width: 150px; border: 0; background: none; outline: none;
+                   font-size: 12px; color: var(--text); }
+
+/* Trần chiều cao: danh sách dài thì cuộn TRONG nó, không kéo dài cả hộp cài đặt. */
+.ci-qn-ds { max-height: 300px; overflow-y: auto; border: 1px solid var(--ci-vien-trong);
+            border-radius: var(--radius); }
+.ci-qn-dong { display: flex; align-items: center; gap: 8px; padding: 7px 10px;
+              border-bottom: 1px solid var(--ci-vien-trong); }
+.ci-qn-dong:last-child { border-bottom: 0; }
+.ci-qn-dong:hover { background: var(--bg); }
+.ci-qn-dong > b { font-size: 13px; font-weight: 600; color: var(--text);
+                  overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ci-qn-dong > code { flex: 1; min-width: 0; font-size: 10.5px; color: var(--text-3);
+                     font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+                     overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ci-qn-gan { flex: 0 0 auto; font-size: 11.5px; color: var(--text-3); white-space: nowrap;
+             font-variant-numeric: tabular-nums; }
+.ci-qn-xoa { flex: 0 0 auto; display: grid; place-items: center; width: 26px; height: 26px;
+             border: 0; border-radius: var(--radius); background: none; cursor: pointer;
+             color: var(--text-3); }
+.ci-qn-xoa:hover:not(:disabled) { background: rgba(220, 38, 38, .10); color: #DC2626; }
+.ci-qn-xoa:disabled { opacity: .4; cursor: default; }
+.ci-qn-rong-loc { padding: 16px 10px; font-size: 12px; color: var(--text-3); text-align: center; }
 
 
 /* ── MỘT HÀNG, MỘT CHIỀU CAO ────────────────────────────────────────────
@@ -10287,6 +10348,10 @@ img.ci-avt { object-fit: cover; }
 .ci-pc-them { display: flex; align-items: center; gap: 10px; }
 .ci-pc-them .cn-boc { flex: 1; min-width: 0; max-width: 340px; }
 .ci-pc-them .ci-nut, .ci-pc-them .ci-nut.nho, .ci-pc-them .cn-nut { height: 34px; }
+/* .ci-pc-phu sinh ra cho vai trò câu dẫn DƯỚI tiêu đề nên mang sẵn margin-bottom 11px. Đứng CẠNH
+   nút trong một hàng thì chính margin đó đẩy chữ lên khỏi tâm nút: cùng hàng mà lệch nhau. Căn
+   giữa của flex không cứu được, vì nó căn cả Ô gồm margin chứ không căn riêng dòng chữ. */
+.ci-pc-them .ci-pc-phu { margin: 0; }
 
 /* Thân hộp của mục Phân công: cho thở hơn một chút so và để thanh lưu dính đáy ăn khớp lề. */
 .ci-modal-than:has(.ci-pc) { padding: 18px 16px 16px; }

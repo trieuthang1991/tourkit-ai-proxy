@@ -60,6 +60,21 @@ Những cập nhật gần đây của TRAV-AI, viết cho người dùng. Mới
 
 ### 🔧 Đã khắc phục
 
+- **Dựng đội trực phải thêm từng người một.** Ô chọn người đóng lại sau mỗi lần bấm, nên lập đội
+  tám người là tám lần mở ô, gõ tìm, bấm, rồi mở lại. Nay chọn xong ô vẫn mở và giữ nguyên chữ
+  đang tìm: gõ *sale* một lần rồi thêm liền mấy người. Danh sách hiện cả công ty kèm dấu tích
+  cho ai đã ở trong đội, nên bấm nhầm thì bấm lại là bỏ ra, không phải đóng ô đi tìm thẻ. Danh
+  sách người nay nổi lên trên cửa sổ thay vì chen vào trong, nên mở ra không làm cửa sổ cao vọt
+  rồi phải cuộn tìm lại nút lưu.
+- **Màn hình *Phân công* nói cùng một chuyện tới bốn lần.** Khi chưa chọn ai vào vòng quay, màn
+  hình vừa ghi *chưa có ai*, vừa nhắc ở nút, vừa hiện thêm một hộp cảnh báo ở tận cuối, xa chỗ
+  phải sửa. Nay còn một dòng nhắc, đặt ngay dưới ô chọn người. Phần giải thích vì sao có hội
+  thoại không ai phụ trách gấp vào một nút mở, ai cần thì xem.
+- **Danh sách nhãn chiếm quá nhiều chỗ.** Mỗi nhãn ăn hai dòng, kèm một cột mã số không dùng vào
+  việc gì và một nút *Xoá* đỏ trên mọi dòng, nên vài chục nhãn là một bức tường chữ đỏ. Nay mỗi
+  nhãn một dòng, bỏ cột mã số, nút xoá thành biểu tượng mờ; danh sách dài thì cuộn trong khung
+  chứ không đẩy ô thêm nhãn đi mất, và từ chín nhãn trở lên có thêm ô lọc theo tên (gõ không
+  dấu vẫn ra). Hộp hỏi lại kèm số khách đang mang nhãn vẫn giữ nguyên.
 - **Ô chọn người phụ trách trống trơn, không giao việc được cho ai.** Màn hình *Phân công* và ô giao
   việc trong hộp thư không đổ ra được người nào, kèm câu báo dẫn sai hướng là đội trực còn trống —
   trong khi công ty có đủ nhân viên. Nguyên nhân là phiên làm việc với CRM hết hạn mà không được gia

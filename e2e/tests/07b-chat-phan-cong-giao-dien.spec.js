@@ -142,7 +142,9 @@ test('A4 — quản trị có Ô CHỌN NGƯỜI PHỤ TRÁCH ngay cả khi đ�
 
   // Có ô mà rỗng thì cũng như không: mở ra phải đổ được người ra để chọn.
   await nut.click();
-  const dong = page.locator('.ci-pt-giao .cn-hop .cn-dong');
+  // Hộp danh sách dựng ở LỚP NỔI (portal ra <body>) từ 09/09/2026, nên nó KHÔNG còn là con của
+  // khối giao việc. Bám theo cây DOM cũ là bài này đỏ trong khi màn hình vẫn chạy đúng.
+  const dong = page.locator('.cn-hop .cn-dong');
   await expect(dong.first(), 'ô chọn mở ra nhưng không có ai — không giao được cho ai')
     .toBeVisible({ timeout: 10_000 });
   expect(await dong.count(), 'ô chọn rỗng — không giao được cho ai').toBeGreaterThan(0);

@@ -1,4 +1,4 @@
-// components/chon-nguoi.jsx — ô chọn MỘT người có ô tìm kiếm (window.ChonNguoi).
+﻿// components/chon-nguoi.jsx — ô chọn MỘT người có ô tìm kiếm (window.ChonNguoi).
 //
 // VÌ SAO KHÔNG DÙNG <select> THƯỜNG. Đo trên staging 08/09/2026: công ty đang có **108 nhân
 // viên**, tên dài nhất 57 ký tự, và ô cũ bị chặn ở `max-width: 170px` — tức khoảng 20 ký tự
@@ -52,17 +52,32 @@
    * @param {(id:number)=>void} onChon  gọi khi người dùng chọn MỘT dòng
    * @param {string} nhan             chữ hiện khi chưa chọn ai
    * @param {boolean} khoa            khoá thao tác (đang gửi lệnh lên máy chủ)
+   * @param {boolean} giuMo           CHỌN NHIỀU: bấm xong KHÔNG đóng, giữ nguyên chữ đang tìm
+   * @param {Array<number>} daChon    mã những người đã chọn — để đánh dấu trong danh sách
+   *
+   * HAI VIỆC KHÁC NHAU dùng chung control này, và chúng ngược nhau ở đúng một điểm:
+   *   · giao MỘT hội thoại cho MỘT người  → chọn xong là xong, đóng lại là đúng;
+   *   · dựng ĐỘI TRỰC gồm nhiều người     → chọn xong còn chọn tiếp, đóng lại là bắt mở lại.
+   * Bản đầu chỉ có vế trên, nên dựng đội tám người là tám lần mở/gõ/bấm/đóng. `giuMo` mở vế
+   * dưới mà không đụng gì tới vế trên (mặc định tắt).
    */
-  function ChonNguoi({ danhSach, giaTri, onChon, nhan = 'Chọn người…', khoa = false, autoMo = false }) {
+  function ChonNguoi({ danhSach, giaTri, onChon, nhan = 'Chọn người…', khoa = false, autoMo = false,
+                       giuMo = false, daChon = null }) {
     const [mo, setMo] = useState(false);
     const [tim, setTim] = useState('');
     const [dang, setDang] = useState(0);       // dòng đang được bàn phím trỏ tới
     const boc = useRef(null);
     const oTim = useRef(null);
     const dsRef = useRef(null);
+    const hopRef = useRef(null);
+    // Toạ độ tuyệt đối của hộp, tính từ nút bấm. Chỉ dùng khi hộp đã mở.
+    const [viTri, setViTri] = useState(null);
 
     const ds = danhSach || [];
     const dangChon = ds.find(nv => nv.id === giaTri) || null;
+    // Ở chế độ chọn nhiều thì "đang chọn" là cả một tập, không phải một giá trị.
+    const tapDaChon = useMemo(() => new Set(daChon || []), [daChon]);
+    const daLay = nv => nv.id === giaTri || tapDaChon.has(nv.id);
 
     // Tên nào xuất hiện nhiều hơn một lần thì dòng của nó mới cần thêm mã số để phân biệt.
     const tenTrung = useMemo(() => {
@@ -94,11 +109,48 @@
 
     useEffect(() => { if (autoMo) setMo(true); }, [autoMo]);
 
-    // Bấm ra ngoài là đóng. Không có nó thì hộp dính lại cho tới khi bấm đúng nút — kiểu bực
-    // mình nhỏ mà gặp mỗi lần.
+    // Đo chỗ đặt hộp, và đo LẠI mỗi khi có gì đó cuộn hoặc đổi kích thước.
+    //
+    // Hộp nằm ở lớp nổi (portal ra <body>) nên nó KHÔNG tự đi theo nút nữa — đổi lại, nó không
+    // còn nằm trong luồng cuộn của cửa sổ cài đặt. Đó chính là điều cần: trước đây mở danh sách
+    // ra là cửa sổ dài thêm 250px, người dùng phải cuộn cả cửa sổ mới thấy hết danh sách, và
+    // hộp thì bị cắt ở mép dưới.
+    //
+    // Nghe scroll ở pha BẮT (true): thứ cuộn là thân cửa sổ cài đặt chứ không phải cửa sổ trình
+    // duyệt, mà sự kiện cuộn của phần tử con không nổi bọt lên window.
     useEffect(() => {
       if (!mo) return;
-      const ngoai = e => { if (boc.current && !boc.current.contains(e.target)) setMo(false); };
+      const do_ = () => {
+        const n = boc.current;
+        if (!n) return;
+        const r = n.getBoundingClientRect();
+        const cao = 300;                       // ước lượng chiều cao tối đa của hộp
+        const duoi = window.innerHeight - r.bottom;
+        // Không đủ chỗ bên dưới thì lật lên trên — nhưng chỉ khi bên trên rộng rãi hơn thật.
+        const tren = duoi < cao && r.top > duoi;
+        setViTri({ trai: r.left, rong: r.width, tren, y: tren ? r.top : r.bottom });
+      };
+      do_();
+      window.addEventListener('scroll', do_, true);
+      window.addEventListener('resize', do_);
+      return () => {
+        window.removeEventListener('scroll', do_, true);
+        window.removeEventListener('resize', do_);
+      };
+    }, [mo]);
+
+    // Bấm ra ngoài là đóng. Không có nó thì hộp dính lại cho tới khi bấm đúng nút — kiểu bực
+    // mình nhỏ mà gặp mỗi lần.
+    //
+    // Phải xét CẢ hộp: nó không còn là con của `boc` sau khi ra lớp nổi, nên chỉ hỏi `boc` thì
+    // bấm vào chính danh sách cũng bị tính là bấm ra ngoài.
+    useEffect(() => {
+      if (!mo) return;
+      const ngoai = e => {
+        const trongNut = boc.current && boc.current.contains(e.target);
+        const trongHop = hopRef.current && hopRef.current.contains(e.target);
+        if (!trongNut && !trongHop) setMo(false);
+      };
       document.addEventListener('mousedown', ngoai);
       return () => document.removeEventListener('mousedown', ngoai);
     }, [mo]);
@@ -112,8 +164,16 @@
     }, [dang, mo]);
 
     function chon(nv) {
+      if (!nv) return;
+      if (giuMo) {
+        // Giữ nguyên hộp VÀ chữ đang tìm: gõ "sale" rồi thêm liền ba người trong cùng một lượt
+        // tìm là việc thật hay gặp. Xoá chữ đi thì lần nào cũng phải gõ lại.
+        onChon(nv.id);
+        if (oTim.current) oTim.current.focus();
+        return;
+      }
       setMo(false); setTim('');
-      if (nv && nv.id !== giaTri) onChon(nv.id);
+      if (nv.id !== giaTri) onChon(nv.id);
     }
 
     function phim(e) {
@@ -135,8 +195,20 @@
           <window.Icon name="chevronDown" size={13} />
         </button>
 
-        {mo && (
-          <div className="cn-hop" role="listbox" aria-label="Danh sách nhân viên">
+        {mo && viTri && ReactDOM.createPortal((
+          /* Hộp dựng ở LỚP NỔI (portal ra <body>), không dựng lồng trong nút.
+             Lồng trong nút thì nó là con của thân cửa sổ cài đặt — vốn cuộn được — nên mở danh
+             sách ra là cửa sổ dài thêm chừng 250px, hộp bị cắt ở mép dưới, và muốn xem hết
+             danh sách phải cuộn cả cửa sổ. Ra lớp nổi thì nó phủ lên trên, không đụng gì tới
+             chiều cao cửa sổ.
+
+             z-index phải trên nền cửa sổ cài đặt (60) — xem .cn-hop.noi trong styles.css. */
+          <div ref={hopRef} className="cn-hop noi" role="listbox" aria-label="Danh sách nhân viên"
+               style={{
+                 left: viTri.trai, width: viTri.rong,
+                 ...(viTri.tren ? { bottom: window.innerHeight - viTri.y + 5 }
+                                : { top: viTri.y + 5 }),
+               }}>
             <div className="cn-tim">
               <window.Icon name="search" size={13} />
               <input ref={oTim} value={tim} onChange={e => { setTim(e.target.value); setDang(0); }}
@@ -146,16 +218,16 @@
             <div className="cn-ds" ref={dsRef}>
               {locDuoc.length === 0 && <div className="cn-trong">Không thấy ai khớp “{tim}”.</div>}
               {locDuoc.map((nv, i) => (
-                <button key={nv.id} type="button" role="option" aria-selected={nv.id === giaTri}
+                <button key={nv.id} type="button" role="option" aria-selected={daLay(nv)}
                         data-dang={i === dang ? '1' : '0'}
-                        className={'cn-dong' + (i === dang ? ' dang' : '') + (nv.id === giaTri ? ' chon' : '')}
+                        className={'cn-dong' + (i === dang ? ' dang' : '') + (daLay(nv) ? ' chon' : '')}
                         onMouseEnter={() => setDang(i)}
                         onClick={() => chon(nv)}>
                   <span className="cn-tron" aria-hidden="true">{chuDau(nv.name)}</span>
                   <span className="cn-ten">{nv.name}</span>
                   {/* Chỉ dòng có tên trùng mới cần mã — xem chú thích 3 ở đầu file. */}
                   {tenTrung.has(nv.name) && <span className="cn-ma">#{nv.id}</span>}
-                  {nv.id === giaTri && <window.Icon name="check" size={13} />}
+                  {daLay(nv) && <window.Icon name="check" size={13} />}
                 </button>
               ))}
             </div>
@@ -166,7 +238,7 @@
               {tim ? locDuoc.length + '/' + ds.length + ' người' : ds.length + ' người'}
             </div>
           </div>
-        )}
+        ), document.body)}
       </div>
     );
   }

@@ -60,6 +60,10 @@
     const [autoAssignOnReply, setAutoAssignOnReply] = useState(false);
     const [memberIds, setMemberIds] = useState([]);
     const [staffs, setStaffs] = useState([]);
+    // Bao nhiêu người bán ERP thực sự trả về. Khác staffs.length: staffs đã bỏ dòng thiếu
+    // tên. Hai con số lệch nhau chính là dữ kiện phân biệt 'công ty chưa có ai' với 'ERP trả
+    // người nhưng thiếu tên' — hai ca đòi hai người khác nhau đi sửa.
+    const [soDongErpTra, setSoDongErpTra] = useState(0);
     const [dangChia, setDangChia] = useState(false);
 
     // pushToast không phải chỗ gọi nào cũng truyền — rơi về alert để không bao giờ nuốt lỗi.
@@ -76,6 +80,7 @@
         setAutoAssignOnReply(!!data.autoAssignOnReply);
         setMemberIds(Array.isArray(data.memberIds) ? data.memberIds : []);
         setStaffs(Array.isArray(data.staffs) ? data.staffs : []);
+        setSoDongErpTra(Number(data.soDongErpTra) || 0);
       } catch (e) {
         bao('Không tải được cấu hình phân công: ' + e.message, 'error');
       } finally {
@@ -96,8 +101,6 @@
     const doiTruc = useMemo(
       () => memberIds.map(id => staffs.find(nv => nv.id === id) || { id, name: '#' + id }),
       [memberIds, staffs]);
-    const conLai = useMemo(
-      () => staffs.filter(nv => !memberIds.includes(nv.id)), [memberIds, staffs]);
 
     // Một lượt ghi duy nhất — chế độ và đội trực nằm chung một dòng CSDL, nên không có khoảnh
     // khắc nào chế độ đã là xoay vòng mà đội trực còn rỗng.
@@ -183,11 +186,29 @@
               Hội thoại mới chưa có người phụ trách sẽ được gán lần lượt cho những người dưới đây.
             </p>
 
+            {/* TRẠNG THÁI CHẶN, không phải cảnh báo. Người dùng KHÔNG làm gì được ở đây, nên
+                tô đỏ chỉ làm họ lo mà vẫn bế tắc. Cái họ cần là biết lỗi nằm ở đâu và có một
+                nút để thử lại.
+
+                ⚠️ Câu cũ nói "lượt gọi đang hỏng" — SAI, và sai theo hướng chỉ nhầm người đi
+                sửa. Lượt gọi trả về bình thường, có đủ người bán; chỉ là không dòng nào kèm
+                tên. Đo thật 09/09/2026: 108 dòng, 0 tên, trong khi các danh mục khác cùng lượt
+                gọi đó (loại KH, nguồn KH, chi nhánh) đều có tên đủ. */}
             {staffs.length === 0 ? (
-              <HopCanhBao>
-                Không lấy được danh sách nhân viên từ CRM. Không phải công ty chưa có ai — lượt gọi
-                đang hỏng. Tải lại trang; còn lỗi thì báo để xem log máy chủ.
-              </HopCanhBao>
+              <div className="ci-pc-ket">
+                <b>Chưa có ai để chọn vào vòng quay.</b>
+                <p>
+                  {soDongErpTra > 0
+                    ? <>CRM có trả lời, và danh sách có <b>{soDongErpTra} người bán</b> — nhưng
+                        không người nào kèm tên, nên không có gì để chọn. Đây là lỗi dữ liệu bên
+                        CRM, không phải công ty chưa có ai.</>
+                    : <>CRM không trả về người bán nào. Nhờ bên CRM kiểm tra lại danh sách nhân
+                        viên của công ty.</>}
+                </p>
+                <button type="button" className="ci-nut nho" onClick={load} disabled={loading}>
+                  {loading ? 'Đang tải…' : 'Tải lại danh sách'}
+                </button>
+              </div>
             ) : (
               <>
                 {/* Hiện NGƯỜI ĐÃ CHỌN, không bày cả danh sách công ty.
@@ -209,14 +230,19 @@
                   ))}
                 </div>
 
-                {/* Thêm người bằng ĐÚNG ô chọn đã dùng ở khối "Phụ trách" trên hộp thư — cùng một
-                    việc (tìm một người trong danh sách dài) thì cùng một cách làm, không dựng
-                    control thứ hai để người dùng phải học lại. */}
+                {/* Cùng ô chọn đã dùng ở khối "Phụ trách" trên hộp thư, nhưng bật chế độ CHỌN
+                    NHIỀU: ở đây người dùng dựng một đội, không chọn một người.
+
+                    Đưa CẢ danh sách (không phải phần còn lại) kèm dấu tích: vừa thêm vừa bỏ
+                    ngay trong một hộp, và nhìn thấy ai đã trong đội đúng lúc đang chọn. Bản
+                    trước lọc bỏ người đã chọn, nên bấm nhầm một cái là phải đóng hộp, tìm thẻ
+                    ở trên, bấm dấu x, rồi mở lại. */}
                 <div className="ci-pc-them">
                   {window.ChonNguoi ? (
-                    <window.ChonNguoi danhSach={conLai} giaTri={null} khoa={dangLuu}
-                                      nhan="Thêm người vào vòng quay…"
-                                      onChon={id => bat(id, true)} />
+                    <window.ChonNguoi danhSach={staffs} giaTri={null} khoa={dangLuu}
+                                      giuMo daChon={memberIds}
+                                      nhan="Chọn người vào vòng quay…"
+                                      onChon={id => bat(id, !memberIds.includes(id))} />
                   ) : (
                     <span className="ci-pc-phu">Ô chọn người chưa nạp được.</span>
                   )}
@@ -229,6 +255,16 @@
                     </button>
                   )}
                 </div>
+
+                {/* Nhắc NGAY tại chỗ, một dòng. Bản trước đẩy câu này xuống một hộp cảnh báo ở
+                    cuối màn — cách xa chỗ phải sửa, và là lần thứ ba cùng một sự việc được nói
+                    ra trên một màn hình. */}
+                {memberIds.length === 0 && (
+                  <p className="ci-pc-nhac">
+                    Chưa chọn ai. Lưu lúc này thì mọi hội thoại rơi về hàng chờ, trông y hệt chế
+                    độ thủ công.
+                  </p>
+                )}
               </>
             )}
           </section>
@@ -238,26 +274,32 @@
             Khối này là chỗ duy nhất xử lý phần đó — và nó phải nói ra HẬU QUẢ, vì "chưa có người
             phụ trách" nghe như chuyện gọn gàng, trong khi thật ra là hội thoại đó vô hình với
             nhân viên thường. */}
-        {mode === 2 && (
+        {/* Ẩn khi chưa có ai trong đội: lúc đó không chia được cho ai, bày ra chỉ thêm một khối
+            chữ nữa cho một màn hình vốn đã nói cùng một chuyện nhiều lần. */}
+        {mode === 2 && memberIds.length > 0 && (
           <section className="ci-pc-muc">
             <h4>Hội thoại chưa có người phụ trách</h4>
+            {/* MỘT dòng nói việc, phần giải thích cất sau nút mở. Bản trước là bốn dòng liền
+                mạch đặt ngay trên nút: người vào đây để bấm một cái, không phải để đọc một bài
+                về cơ chế vòng quay. Ai cần hiểu vì sao thì mở ra, và lúc đó họ đang muốn đọc. */}
             <p className="ci-pc-phu">
-              Vòng quay chỉ chia việc <b>lúc khách nhắn tới</b>. Hội thoại khách nhắn xong rồi im
-              — hoặc đã có từ trước khi bạn bật xoay vòng, hoặc lúc đội trực còn trống — sẽ nằm
-              lại không ai phụ trách. Nhân viên thường <b>không nhìn thấy</b> những hội thoại đó,
-              nên khách ngồi chờ mà cả đội không biết.
+              Vòng quay chỉ chia việc <b>lúc khách nhắn tới</b>, nên phần tồn đọng phải chia bằng tay.
             </p>
             <div className="ci-pc-them">
               <button type="button" className="ci-nut" onClick={chiaLai}
                       disabled={dangChia || memberIds.length === 0}>
                 {dangChia ? 'Đang chia…' : 'Chia lại cho đội trực'}
               </button>
-              <span className="ci-pc-phu">
-                {memberIds.length === 0
-                  ? 'Thêm người vào vòng quay trước đã.'
-                  : 'Chạy được sau khi cài đặt xoay vòng đã được lưu.'}
-              </span>
+              <span className="ci-pc-phu">Chạy được sau khi cài đặt đã lưu.</span>
             </div>
+            <details className="ci-pc-visao">
+              <summary>Vì sao có hội thoại không ai phụ trách?</summary>
+              <p>
+                Ba nguồn: khách nhắn xong rồi im · hội thoại đã có từ trước khi bật xoay vòng ·
+                khách nhắn lúc đội trực còn trống. Nhân viên thường <b>không nhìn thấy</b> những
+                hội thoại đó, nên khách ngồi chờ mà cả đội không biết.
+              </p>
+            </details>
           </section>
         )}
 
@@ -270,14 +312,13 @@
             màn hình không còn hiện chúng nữa nên chẳng ai thấy cấu hình vừa bị xoá. Máy chủ vẫn
             đọc và thi hành hai giá trị này như cũ. */}
 
-        {/* Cảnh báo hậu quả — hiện NGAY TRÊN nút Lưu, để đọc được TRƯỚC khi bấm, không phải phát
-            hiện sau khi cả đội mất hộp thư. */}
-        {mode === 2 && memberIds.length === 0 && (
-          <HopCanhBao>
-            <b>Chưa chọn ai vào đội trực.</b> Bật xoay vòng lúc này thì mọi hội thoại rơi về hàng
-            chờ, trông y hệt chế độ thủ công — không ai đoán được nguyên nhân.
-          </HopCanhBao>
-        )}
+        {/* ⚠️ HỘP CẢNH BÁO "Chưa chọn ai vào đội trực" ĐÃ BỎ khỏi đây (09/09/2026).
+            Nó là lần thứ BA cùng một sự việc được nói trên một màn hình: khối đội trực đã ghi
+            "Chưa có ai trong vòng quay", ngay dưới đã có dòng nhắc hậu quả, rồi hộp này lặp lại
+            lần nữa ở tận cuối — xa chỗ phải sửa. Bốn tiếng chuông cho một tình huống thì người
+            đọc không còn phân biệt được cái nào đáng để ý.
+
+            Câu cảnh báo KHÔNG mất: nó nằm ngay dưới ô chọn người, đúng chỗ tay đang thao tác. */}
 
         {/* Thanh lưu DÍNH ĐÁY. Danh sách 108 người làm thân hộp cuộn được, mà nút Lưu nằm cuối
             luồng thì nó trôi khỏi tầm nhìn đúng lúc người ta vừa tick xong — phải cuộn ngược
