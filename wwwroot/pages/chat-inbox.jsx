@@ -695,6 +695,7 @@
     'go-ket-noi': 'gỡ kết nối kênh',
     'danh-dau-chua-doc': 'đánh dấu chưa đọc',
     'cham-soc': 'ghi nhận chăm sóc',
+    'tao-co-hoi': 'tạo Cơ hội bán hàng',
     // HAI đường TỰ ĐỘNG. Chúng vốn thiếu nhãn nên nhật ký in ra mã trần ("Hệ thống xoay-vong"),
     // đúng hai dòng người đọc cần nhất khi hỏi "ai giao việc này, máy hay người?".
     'xoay-vong': 'tự động chia việc',
@@ -1132,6 +1133,59 @@
   };
 
   /**
+   * Xếp hàng tạo Cơ hội bán hàng từ hội thoại.
+   *
+   * Nút chỉ hiện khi máy chủ nhận đường này — cờ Features:ChatCoHoi tắt thì máy chủ trả 404 và
+   * nút tự ẩn. Không hỏi cờ bằng một đường riêng: một lượt gọi thật đã trả lời đúng câu đó.
+   *
+   * Chữ nói "xếp hàng" chứ không nói "đã tạo", vì đúng là chưa tạo: dòng nằm trong hàng đợi cho
+   * tới khi worker bên CRM nhặt lên. Nói quá một nhịp ở đây còn tệ hơn ở chỗ chăm sóc — người
+   * dùng tưởng đã có phiếu rồi đi tìm nó trên CRM.
+   */
+  function CoHoi({ hoiThoaiId, pushToast, onXong }) {
+    const [mo, setMo] = useState(false);
+    const [ten, setTen] = useState('');
+    const [dang, setDang] = useState(false);
+    const [an, setAn] = useState(false);   // máy chủ trả 404 → tính năng đang tắt
+
+    if (an) return null;
+
+    async function xepHang() {
+      setDang(true);
+      try {
+        const r = await authedFetch('/api/v1/chat/conversations/' + hoiThoaiId + '/co-hoi', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ tenPhieu: ten.trim() || null }),
+        });
+        if (r.status === 404) { setAn(true); return; }
+        const j = await r.json().catch(() => ({}));
+        if (!r.ok) { pushToast(j.error || 'Không xếp hàng được', 'error'); return; }
+        pushToast('Đã xếp hàng — chờ đồng bộ sang CRM', 'success');
+        setMo(false); setTen('');
+        onXong?.();
+      } catch (e) { pushToast('Không xếp hàng được: ' + e.message, 'error'); }
+      finally { setDang(false); }
+    }
+
+    if (!mo) {
+      return <button className="ci-nut nho" onClick={() => setMo(true)}>Tạo Cơ hội</button>;
+    }
+
+    return (
+      <div className="ci-hs-cohoi">
+        <input value={ten} onChange={e => setTen(e.target.value)} autoFocus
+               placeholder="Tiêu đề Cơ hội (bỏ trống thì lấy tên khách)" />
+        <div className="ci-hs-crm-nut">
+          <button className="ci-nut nho" onClick={xepHang} disabled={dang}>
+            {dang ? 'Đang xếp…' : 'Xếp hàng tạo'}
+          </button>
+          <button className="ci-nut nho" onClick={() => { setMo(false); setTen(''); }}>Thôi</button>
+        </div>
+      </div>
+    );
+  }
+
+  /**
    * Ghi nhận một lượt chăm sóc vào hồ sơ khách bên CRM.
    *
    * Bấm nút KHÔNG gọi CRM ngay: máy chủ thả một dòng vào hàng đợi, worker mới là bên gọi. Nên
@@ -1171,6 +1225,7 @@
           <button className="ci-nut nho" onClick={ghi} disabled={dangGhi}>
             {dangGhi ? 'Đang ghi…' : 'Ghi nhận chăm sóc'}
           </button>
+          <CoHoi hoiThoaiId={hoiThoaiId} pushToast={pushToast} onXong={tai} />
         </div>
         {ds.length > 0 && (
           <div className="ci-hs-viec">

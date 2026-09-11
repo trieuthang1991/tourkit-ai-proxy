@@ -114,4 +114,18 @@ public static class SessionAuth
 
     public static IResult ForbiddenCreateTour()
         => Results.Json(new { error = "Bạn không có quyền tạo tour (TR_TD_TAOMOI / TR_TM_TAOMOI)." }, statusCode: 403);
+
+    /// <summary>
+    /// Có quyền thêm Cơ hội bán hàng không. CRM không kiểm ở tầng dịch vụ nên proxy phải tự kiểm
+    /// — xem <see cref="TkPermissionCodes.TaoCoHoi"/>.
+    /// </summary>
+    public static async Task<bool> CanCreateCoHoiAsync(string sid, TkSessionStore sessions,
+                                                       CancellationToken ct = default)
+    {
+        await sessions.EnsurePermissionsAsync(sid, ct);
+        return sessions.HasPermission(sid, TkPermissionCodes.TaoCoHoi);
+    }
+
+    public static IResult ForbiddenCoHoi()
+        => Results.Json(new { error = "Bạn không có quyền thêm Cơ hội bán hàng (CH_TAO_MOI)." }, statusCode: 403);
 }

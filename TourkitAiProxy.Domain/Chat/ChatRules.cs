@@ -255,6 +255,33 @@ public static class ChatRules
     }
 
     /// <summary>
+    /// Trích đoạn chat để ghi vào <c>NoiDungPhieu</c> của Cơ hội bán hàng: N tin có chữ gần nhất,
+    /// mỗi dòng ghi rõ ai nói, và đường dẫn quay lại hội thoại ở cuối.
+    ///
+    /// <para>Cùng nguyên tắc với <see cref="TomTatChamSoc"/> — TRÍCH, không diễn giải, không gọi
+    /// AI. Khác một chỗ: cắt theo SỐ TIN chứ không theo ký tự, vì người xử lý phiếu cần đúng mấy
+    /// lượt cuối đã dẫn tới cơ hội này, không cần cả cuộc trò chuyện.</para>
+    ///
+    /// <para>Đường dẫn luôn có, kể cả khi không trích được câu nào: phiếu tạo từ một hội thoại
+    /// toàn ảnh vẫn cần lối quay về hội thoại đó.</para>
+    /// </summary>
+    public static string TomTatChoCoHoi(IEnumerable<ChatMessage> tin, int soTin, string duongDan)
+    {
+        var dong = tin
+            .Where(m => m.State != (short)ChatState.Failed && !string.IsNullOrWhiteSpace(m.Body))
+            .TakeLast(Math.Max(1, soTin))
+            .Select(m => (m.Direction == (short)ChatDirection.In ? "Khách: " : "Nhân viên: ")
+                         + m.Body!.Trim());
+
+        var sb = new System.Text.StringBuilder();
+        sb.AppendLine("Trích từ hộp thư chat:");
+        foreach (var d in dong) sb.AppendLine(d);
+        sb.AppendLine();
+        sb.Append("Xem hội thoại: ").Append(duongDan);
+        return sb.ToString();
+    }
+
+    /// <summary>
     /// Bot chỉ trả lời trong quãng ngắn ngay sau khi khách nhắn: 4 giây chờ gộp tin (xem
     /// <see cref="BurstIdle"/> ở worker) cộng vài giây gọi AI. Để rộng một phút cho chắc.
     /// </summary>

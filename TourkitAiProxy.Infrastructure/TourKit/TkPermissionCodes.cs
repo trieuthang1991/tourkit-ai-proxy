@@ -20,6 +20,19 @@ public static class TkPermissionCodes
     public const string XemVisa = "VISA_XEM";
 
     /// <summary>
+    /// Thêm <b>Cơ hội bán hàng</b> (= BookingTicket). Web cũ gác nút "THÊM MỚI" bằng mã này.
+    ///
+    /// <para><b>Proxy phải TỰ kiểm.</b> <c>BookingTicketService.CreateAsync</c> bên CRM không kiểm
+    /// quyền — chỉ <c>CH_XEM/CH_XEM_ALL</c> khi xem và <c>CH_SUA</c> khi sửa được kiểm; việc gác
+    /// lúc thêm nằm ở tầng màn hình của web cũ. Nên nếu proxy không chặn thì bất kỳ ai vào được
+    /// hộp thư chat đều tạo được Cơ hội, kể cả người chỉ có quyền trực chat.</para>
+    ///
+    /// <para>Và phải kiểm lúc XẾP HÀNG, không đợi worker: worker chạy bằng quyền riêng của nó và
+    /// không biết ai đã bấm nút, nên nó không kiểm thay được.</para>
+    /// </summary>
+    public const string TaoCoHoi = "CH_TAO_MOI";
+
+    /// <summary>
     /// Hộp thư chat — xem phần ĐƯỢC GIAO cho mình. Đây là mức tối thiểu để vào được hộp thư.
     /// </summary>
     public const string ChatXem = "CHAT_XEM";

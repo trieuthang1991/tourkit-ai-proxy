@@ -64,6 +64,69 @@ public class ChatHangDoiCrmGuardTests
         Assert.Contains("CrmActionKind.CreateAppointment", than);
     }
 
+    // ── Cơ hội bán hàng ─────────────────────────────────────────────────────
+
+    [Fact]
+    public void Duong_co_hoi_THA_HANG_DOI_chu_khong_goi_CRM()
+    {
+        var than = ThanRoute("g.MapPost(\"/conversations/{id:long}/co-hoi\"");
+
+        Assert.Contains("EnqueueAsync", than);
+        Assert.Contains("CrmActionKind.CreateBookingTicket", than);
+        Assert.Contains("CrmActionNguon.CoHoi", than);
+        Assert.DoesNotContain("api.PostAsync", than);
+        Assert.DoesNotContain("api.PutAsync", than);
+    }
+
+    /// <summary>
+    /// Kiểm quyền <c>CH_TAO_MOI</c> phải nằm TRƯỚC lượt thả dòng.
+    ///
+    /// <para>CRM không kiểm quyền ở <c>BookingTicketService.CreateAsync</c> — web cũ gác ở tầng
+    /// màn hình — nên proxy là chốt duy nhất. Và worker không kiểm thay được: nó chạy bằng quyền
+    /// riêng và không biết ai đã bấm nút. Thả dòng rồi mới từ chối thì việc vẫn nằm trong hàng
+    /// đợi và worker vẫn nhặt.</para>
+    /// </summary>
+    [Fact]
+    public void Duong_co_hoi_kiem_quyen_TRUOC_khi_tha_dong()
+    {
+        var than = ThanRoute("g.MapPost(\"/conversations/{id:long}/co-hoi\"");
+
+        Assert.Contains("CanCreateCoHoiAsync", than);
+        Assert.Contains("ForbiddenCoHoi", than);
+
+        var viTriQuyen = than.IndexOf("CanCreateCoHoiAsync", System.StringComparison.Ordinal);
+        var viTriTha = than.IndexOf("EnqueueAsync", System.StringComparison.Ordinal);
+        Assert.True(viTriQuyen < viTriTha,
+            "Kiểm quyền SAU khi đã thả dòng — việc vẫn nằm trong hàng đợi và worker vẫn nhặt.");
+    }
+
+    /// <summary>
+    /// Tính năng đứng sau cờ riêng, và cờ TẮT phải trả 404 chứ không phải 403.
+    ///
+    /// <para>403 nói "bạn không được phép" — sai, vì đây không phải chuyện quyền. Tính năng chưa
+    /// bật thì với người gọi nó đơn giản là không tồn tại.</para>
+    /// </summary>
+    [Fact]
+    public void Duong_co_hoi_dung_sau_co_tinh_nang()
+    {
+        var than = ThanRoute("g.MapPost(\"/conversations/{id:long}/co-hoi\"");
+
+        Assert.Contains("ChatCoHoi", than);
+        Assert.Contains("NotFound", than);
+    }
+
+    [Fact]
+    public void Duong_co_hoi_doi_hoi_thoai_da_noi_khach_CRM()
+    {
+        // IdKhachHang > 0 và TenKH là BẮT BUỘC bên CRM — thả dòng thiếu là đẩy việc chắc chắn hỏng.
+        var than = ThanRoute("g.MapPost(\"/conversations/{id:long}/co-hoi\"");
+
+        Assert.Contains("CrmCustomerId", than);
+        var viTriXet = than.IndexOf("CrmCustomerId", System.StringComparison.Ordinal);
+        var viTriTha = than.IndexOf("EnqueueAsync", System.StringComparison.Ordinal);
+        Assert.True(viTriXet < viTriTha, "Xét điều kiện nối khách SAU khi đã thả dòng.");
+    }
+
     /// <summary>
     /// Danh sách việc của một hội thoại KHÔNG được trả nội dung gói tin ra giao diện.
     ///

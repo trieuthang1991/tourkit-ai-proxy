@@ -48,6 +48,22 @@ public static class FeatureFlags
     public static bool ChatHistoryImport(IConfiguration cfg)
         => Chat(cfg) && cfg.GetValue("Features:ChatHistoryImport", false);
 
+    /// <summary>
+    /// Xếp hàng tạo <b>Cơ hội bán hàng</b> (= BookingTicket) từ một hội thoại.
+    ///
+    /// <para>PHỤ THUỘC <see cref="Chat"/>, và mặc định <b>TẮT</b> — khác với mọi cờ khác, lý do
+    /// tắt ở đây không phải "chưa chắc chắn" mà là <b>bên kia chưa có ai nhặt</b>: worker
+    /// <c>CrmActionSyncWorker</c> mới biết xử lý <c>assign-task</c> và <c>create-appointment</c>,
+    /// chưa có nhánh <c>create-booking-ticket</c> (hợp đồng ở docs/crm-action-contract/README.md
+    /// §3b).</para>
+    ///
+    /// <para>Bật khi chưa có nhánh đó thì người dùng bấm nút, màn hình báo "đã xếp hàng", và dòng
+    /// nằm ở <i>đang chờ</i> <b>vĩnh viễn</b> — không lỗi, không báo, không ai biết. Đó là kiểu
+    /// hỏng tệ nhất của cụm này, nên cờ phải do người bật có ý thức chứ không mặc định mở.</para>
+    /// </summary>
+    public static bool ChatCoHoi(IConfiguration cfg)
+        => Chat(cfg) && cfg.GetValue("Features:ChatCoHoi", false);
+
     // Cờ Features:ChatAssign ĐÃ BỎ (09/09/2026). Phân công không phải một tính năng riêng để ra
     // mắt riêng — nó là cách hộp thư chat chia việc, đi cùng chính hộp thư. Giữ cờ thứ hai chỉ
     // tạo ra một trạng thái vô nghĩa (có hộp thư mà không có cách giao việc) và một cách hỏng

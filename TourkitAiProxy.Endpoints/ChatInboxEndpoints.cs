@@ -1536,6 +1536,76 @@ public static class ChatInboxEndpoints
             return Results.Json(new { id = maViec, trangThai = "dang-cho" }, Web);
         });
 
+        // ── Cơ hội bán hàng (= BookingTicket) → hàng đợi ────────────────────────
+        //
+        // ⚠️ Loại việc này worker app-side CHƯA có nhánh xử lý — hợp đồng ở
+        // docs/crm-action-contract/README.md §3b. Nên nó đứng sau cờ Features:ChatCoHoi, mặc định
+        // TẮT: bật khi chưa có nhánh đó thì người dùng bấm nút, màn hình báo "đã xếp hàng", và
+        // dòng nằm ở đang chờ vĩnh viễn — không lỗi, không báo, không ai biết.
+        //
+        // Route NÀY có thân (tiêu đề phiếu người trực tự đặt) nên giao diện PHẢI gửi
+        // Content-Type: application/json. Thân là record không nullable, như AssignReq.
+        g.MapPost("/conversations/{id:long}/co-hoi", async (long id, CoHoiReq body, HttpContext ctx,
+            TkSessionStore sessions, ChatRepository repo, CrmActionQueueRepository hangDoi,
+            IConfiguration cfg, CancellationToken ct) =>
+        {
+            // Cờ tắt → 404, KHÔNG phải 403: đây không phải chuyện quyền. Tính năng chưa bật thì
+            // với người gọi nó đơn giản là không tồn tại.
+            if (!Services.Bootstrap.FeatureFlags.ChatCoHoi(cfg)) return Results.NotFound();
+
+            var p = await SessionAuth.ReadNguoiXemAsync(ctx, sessions, ct);
+            if (p == null) return SessionAuth.Unauthorized();
+            var (a, xem) = p.Value;
+            if (!repo.Configured) return NotConfigured();
+            if (await repo.GetConversationAsync(a.TenantId, id, xem, ct) is not { } v)
+                return Results.NotFound();
+
+            // Kiểm quyền TRƯỚC khi thả dòng. CRM không kiểm ở CreateAsync (web cũ gác ở tầng màn
+            // hình) nên đây là chốt duy nhất — và worker không kiểm thay được, nó chạy bằng quyền
+            // riêng và không biết ai đã bấm nút.
+            if (!await SessionAuth.CanCreateCoHoiAsync(a.SessionId, sessions, ct))
+                return SessionAuth.ForbiddenCoHoi();
+
+            var lienHe = await repo.GetContactAsync(a.TenantId, v.Channel, v.ContactExternalId, ct);
+            if (lienHe?.CrmCustomerId is not { } maKhach || maKhach <= 0)
+                return Results.Json(new
+                {
+                    error = "Hội thoại này chưa nối với khách trên CRM. Nối khách trước rồi tạo Cơ hội.",
+                }, Web, statusCode: StatusCodes.Status400BadRequest);
+
+            var ten = lienHe.DisplayName ?? v.DisplayName ?? v.ContactExternalId;
+            var tieuDe = string.IsNullOrWhiteSpace(body.TenPhieu) ? "Chat: " + ten : body.TenPhieu!.Trim();
+            var tin = await repo.ListMessagesAsync(a.TenantId, id, 60, ct);
+            var duongDan = $"{ctx.Request.Scheme}://{ctx.Request.Host}/chat-inbox?hoi-thoai={id}";
+
+            // Mã nguồn phiếu: web cũ dùng 3 cho đại lý, CHƯA có mã cho "từ chat". Đọc từ cấu hình
+            // để khi bên CRM cấp mã mới thì sửa cấu hình, không phải sửa mã và deploy lại.
+            var nguonPhieu = cfg.GetValue("Chat:NguonPhieuCoHoi", 1);
+
+            var goiTin = JsonSerializer.Serialize(new
+            {
+                idKhachHang = maKhach,
+                tenKH = ten,
+                soDienThoaiKH = lienHe.Phone,
+                emailKH = lienHe.Email,
+                tenPhieu = tieuDe,
+                noiDungPhieu = ChatRules.TomTatChoCoHoi(tin, 20, duongDan),
+                nguonPhieu,
+                // Người đang phụ trách hội thoại. Rỗng thì để CRM tự xử theo mặc định của nó —
+                // đoán một người ở đây là gán việc cho người không biết mình được gán.
+                nguoiPhuTrachs = v.AssignedUserId is { } nv ? new[] { nv } : System.Array.Empty<int>(),
+            }, Web);
+
+            var maViec = await hangDoi.EnqueueAsync(new CrmActionInput(
+                a.TenantId, a.Username, CrmActionKind.CreateBookingTicket, goiTin,
+                Action: CrmActionNguon.CoHoi, ReferId: id.ToString()), ct);
+
+            await GhiNhatKyAsync(ctx, repo, sessions, a, id, "tao-co-hoi",
+                new JsonObject { ["maViec"] = maViec, ["tenPhieu"] = tieuDe }.ToJsonString(), ct);
+
+            return Results.Json(new { id = maViec, trangThai = "dang-cho" }, Web);
+        });
+
         // Các lượt chăm sóc đã ghi TỪ hội thoại này, kèm trạng thái đồng bộ. Người trực bấm nút
         // xong phải thấy việc của mình đang ở đâu, không thì họ bấm lại lần nữa.
         g.MapGet("/conversations/{id:long}/cham-soc", async (long id, HttpContext ctx,
@@ -3352,6 +3422,10 @@ public record SendReq(string? Text, string? AttachmentUrl = null, string? Attach
     /// biệt "khoá vắng mặt" với "khoá mang null" — tức không cần đọc thân thô, tức không có bẫy
     /// Content-Type ném 500.
     public record AssignReq(int UserId);
+
+    /// <param name="TenPhieu">Tiêu đề Cơ hội bán hàng. Bỏ trống thì máy chủ dựng "Chat: {tên
+    /// khách}" — không để trống hẳn, vì danh sách phiếu bên CRM chỉ hiện tiêu đề.</param>
+    public record CoHoiReq(string? TenPhieu);
     /// <param name="CustomerId">Bỏ trống = GỠ nối khách CRM khỏi hội thoại này.</param>
     public record LinkCrmReq(int? CustomerId);
     /// <param name="Tag">Nhãn thô — server tự chuẩn hoá (bỏ dấu, hạ chữ thường, gạch nối).</param>

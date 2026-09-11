@@ -430,4 +430,40 @@ public class ChatRulesTests
     {
         Assert.Equal("", ChatRules.TomTatChamSoc(System.Array.Empty<ChatMessage>()));
     }
+
+    // ── Tóm tắt cho Cơ hội bán hàng ─────────────────────────────────────────
+
+    [Fact]
+    public void Tom_tat_co_hoi__N_tin_cuoi__ghi_ro_ai_noi__kem_duong_dan()
+    {
+        var ds = new[]
+        {
+            Tin((short)ChatDirection.In,  "Tin cũ nhất, phải bị cắt"),
+            Tin((short)ChatDirection.In,  "Cho hỏi tour Nhật"),
+            Tin((short)ChatDirection.Out, "Dạ anh đi tháng mấy ạ?"),
+            Tin((short)ChatDirection.In,  null, kind: (short)ChatKind.Image),
+            Tin((short)ChatDirection.In,  "Tháng 10, 4 người"),
+        };
+
+        var ra = ChatRules.TomTatChoCoHoi(ds, 3, "https://travelai.vn/chat-inbox?hoi-thoai=53");
+
+        Assert.DoesNotContain("Tin cũ nhất", ra);
+        Assert.Contains("Khách: Cho hỏi tour Nhật", ra);
+        Assert.Contains("Nhân viên: Dạ anh đi tháng mấy ạ?", ra);
+        Assert.Contains("Khách: Tháng 10, 4 người", ra);
+        Assert.EndsWith("https://travelai.vn/chat-inbox?hoi-thoai=53", ra.TrimEnd());
+    }
+
+    /// <summary>
+    /// Đường dẫn về hội thoại phải còn KỂ CẢ khi không trích được câu nào.
+    ///
+    /// <para>Phiếu Cơ hội tạo từ một hội thoại toàn ảnh vẫn cần lối quay về hội thoại đó — thiếu
+    /// nó thì người xử lý phiếu chỉ có một ô nội dung trống và không có cách nào tìm lại nguồn.</para>
+    /// </summary>
+    [Fact]
+    public void Tom_tat_co_hoi__khong_co_tin_chu_thi_van_con_duong_dan()
+    {
+        var ra = ChatRules.TomTatChoCoHoi(System.Array.Empty<ChatMessage>(), 5, "https://x/y");
+        Assert.Contains("https://x/y", ra);
+    }
 }
