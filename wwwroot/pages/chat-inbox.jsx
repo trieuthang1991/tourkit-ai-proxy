@@ -2303,6 +2303,8 @@
     const [kenhLoc, setKenhLoc] = useState(null);  // kênh
     const [nhom, setNhom] = useState('tat-ca');    // tat-ca | chua-doc | cua-toi | toi-theo-doi
     const [tim, setTim] = useState('');
+    const [nhanLoc, setNhanLoc] = useState([]);      // slug[] đang lọc — rỗng = không lọc
+    const [danhMucNhan, setDanhMucNhan] = useState([]); // {id, slug, name, usageCount}[]
     const [chon, setChon] = useState(null);        // id hội thoại đang mở
     const [chiTiet, setChiTiet] = useState(null);
     // Cấu hình phân công + đội trực — nạp MỘT lần lúc mở hộp thư (xem effect cạnh chỗ nạp
@@ -2386,6 +2388,7 @@
         if (nhom === 'cua-toi') q.set('mine', 'true');
         if (nhom === 'toi-theo-doi') q.set('followed', 'true');
         if (tim.trim()) q.set('search', tim.trim());
+        if (nhanLoc.length > 0) q.set('tag', nhanLoc.join(','));
         if (cursor) q.set('cursor', cursor);
         const r = await authedFetch('/api/v1/chat/conversations?' + q);
         if (!r.ok) throw new Error('HTTP ' + r.status);
@@ -2408,7 +2411,7 @@
       } catch (e) {
         // Không toast mỗi lần hỏng: trang còn đường lùi tự hỏi lại, mạng chập chờn là spam ngay.
       } finally { setDangTai(false); }
-    }, [loc, kenhLoc, nhom, tim]);
+    }, [loc, kenhLoc, nhom, tim, nhanLoc]);
 
     const taiChiTiet = useCallback(async (id) => {
       if (!id) return;
@@ -2480,7 +2483,18 @@
     }, [taiDsach, taiChiTiet, chon, dayDuTin]);
 
     // Đổi bộ lọc là reset con trỏ + danh sách — không thì trộn kết quả của hai bộ lọc khác nhau.
-    useEffect(() => { setDsach([]); setConTro(null); }, [loc, kenhLoc, nhom, tim]);
+    useEffect(() => { setDsach([]); setConTro(null); }, [loc, kenhLoc, nhom, tim, nhanLoc]);
+
+    // Danh mục nhãn cho chip lọc. Nạp LẠI khi đổi hội thoại: thanh nhãn trong khung chat tạo được
+    // nhãn mới ngay lúc đang trực, mà chip lọc bên trái không có đường nào khác để biết điều đó.
+    useEffect(() => {
+      let song = true;
+      authedFetch('/api/v1/chat/tags')
+        .then(r => (r.ok ? r.json() : { items: [] }))
+        .then(j => { if (song) setDanhMucNhan(j.items || []); })
+        .catch(() => {});
+      return () => { song = false; };
+    }, [chon]);
 
     useEffect(() => { if (chon) taiChiTiet(chon); }, [chon, taiChiTiet]);
     useEffect(() => { setMoMau(false); }, [chon]);
@@ -2843,7 +2857,8 @@
     // Chưa lấy được tên thật thì hiện mã người dùng — xấu nhưng không bịa ra một cái tên.
     const tenKhach = v ? (v.displayName || v.contactExternalId) : '';
     const tinNhan = chiTiet?.messages || [];
-    const coLoc = kenhLoc !== null || nhom !== 'tat-ca' || loc !== null || !!tim.trim();
+    const coLoc = kenhLoc !== null || nhom !== 'tat-ca' || loc !== null || !!tim.trim()
+                || nhanLoc.length > 0;
 
     return (
       // .xem-chat bám theo `chon` (id vừa chạm) chứ không theo `v` (chi tiết đã tải xong): chạm
@@ -2949,6 +2964,25 @@
                   </button>
                 ))}
               </div>
+              {/* Chip NHÃN — chỉ mọc khi công ty đã có nhãn; chưa có nhãn nào thì một hàng trống
+                  chỉ tổ chiếm chỗ. Chọn nhiều nhãn là HOẶC (khách mang bất kỳ nhãn nào), bấm lại
+                  để bỏ. Chip đếm ở hàng trên đi theo bộ lọc này — máy chủ lọc cả hai câu. */}
+              {danhMucNhan.length > 0 && (
+                <div className="ci-chip ci-chip-nhan" aria-label="Lọc theo nhãn">
+                  {danhMucNhan.map(n => (
+                    <button key={n.slug} className={nhanLoc.includes(n.slug) ? 'on' : ''}
+                            title={n.usageCount > 0 ? n.usageCount + ' khách đang mang nhãn này' : 'chưa khách nào mang'}
+                            onClick={() => setNhanLoc(ds => ds.includes(n.slug)
+                              ? ds.filter(s => s !== n.slug) : [...ds, n.slug])}>
+                      {n.name}
+                    </button>
+                  ))}
+                  {nhanLoc.length > 0 && (
+                    <button className="ci-chip-xoa" onClick={() => setNhanLoc([])}
+                            title="Bỏ lọc nhãn" aria-label="Bỏ lọc nhãn">×</button>
+                  )}
+                </div>
+              )}
               <div className="ci-tomtat">
                 {dangTai ? 'Đang tải…' : dsach.length + ' hội thoại đang hiện'}
                 {!dangTai && dem.tong > dsach.length && <span> trên tổng {dem.tong}</span>}

@@ -883,7 +883,7 @@ public static class ChatInboxEndpoints
         g.MapGet("/conversations", async (HttpContext ctx, TkSessionStore sessions, ChatRepository repo,
             ChatAssignRepository assign,
             short? status, string? search, short? channel, bool? unread, bool? followed, bool? mine,
-            string? cursor, CancellationToken ct) =>
+            string? tag, string? cursor, CancellationToken ct) =>
         {
             var p = await SessionAuth.ReadNguoiXemAsync(ctx, sessions, ct);
             if (p == null) return SessionAuth.Unauthorized();
@@ -919,18 +919,28 @@ public static class ChatInboxEndpoints
             // trả rỗng, không được coi như "không lọc" (giaoCho == null cũng mở toang y hệt).
             var giaoChoLoc = mine == true ? (maToi ?? KHONG_XAC_DINH_DUOC_MA) : (int?)null;
 
+            // Nhãn lọc: các slug cách nhau bằng dấu phẩy, tối đa 10. Giao diện chỉ gửi slug lấy từ
+            // danh mục nên không chuẩn hoá lại ở đây; cắt trần để một URL bậy không kéo theo mảng
+            // vài nghìn phần tử xuống SQL. Chuỗi rỗng/khoảng trắng → null, tức KHÔNG lọc — mảng
+            // rỗng thì = ANY(...) không khớp gì và danh sách trắng trơn không lý do.
+            var nhanLoc = string.IsNullOrWhiteSpace(tag) ? null
+                : tag.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+                     .Take(10).ToArray();
+
             // Mã hỏng → Decode() trả null → coi như trang đầu. Không ném: con trỏ nằm trên URL,
             // người dùng sửa tay được và mã cũ từ bản trước còn trong lịch sử trình duyệt.
             const int soDong = 60;
             var items = await repo.ListConversationsAsync(a.TenantId, xem, status, chiCuaToi, search,
                 kenh: channel, giaoCho: giaoChoLoc, chiChuaDoc: unread == true,
                 chiTheoDoi: followed == true,
-                sau: ChatCursor.Decode(cursor), limit: soDong, nguoiDung: maNguoiXem, ct: ct);
+                sau: ChatCursor.Decode(cursor), limit: soDong, nguoiDung: maNguoiXem,
+                nhan: nhanLoc, ct: ct);
             // Truyền kênh đang lọc: chip trạng thái phải nói về ĐÚNG danh sách đang hiện bên dưới.
             // Gọi bằng THAM SỐ CÓ TÊN: chiCuaToi và nguoiDung đều là int? nằm cạnh nhau, đảo nhầm
             // thì vẫn biên dịch được và bộ đếm sai âm thầm — không có gì bắt được.
+            // Nhãn truyền vào ĐÂY NỮA — cùng lý do với kênh. Xem ChatTagFilterGuardTests.
             var dem = await repo.CountAsync(a.TenantId, chiCuaToi: chiCuaToi, xem: xem,
-                nguoiDung: maNguoiXem, kenh: channel, ct: ct);
+                nguoiDung: maNguoiXem, kenh: channel, nhan: nhanLoc, ct: ct);
             return Results.Json(new
             {
                 items = items.Select(x => Shape(x, a.SessionId)),

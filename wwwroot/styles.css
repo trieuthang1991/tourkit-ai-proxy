@@ -9052,6 +9052,13 @@ n
 .ci-chip button.on { background: var(--dark); color: #fff; font-weight: 600; }
 .ci-chip button b { font-size: 10px; font-weight: 700; color: inherit; opacity: .65; }
 
+/* Hàng chip NHÃN đứng dưới hàng chip trạng thái: cùng khuôn, chỉ thêm khoảng cách trên và một
+   đường kẻ mảnh để mắt biết đây là bộ lọc khác chứ không phải trạng thái tràn dòng. Danh mục
+   nhiều nhãn thì cuộn trong khung, không đẩy danh sách hội thoại xuống mất. */
+.ci-chip-nhan { margin-top: 5px; padding-top: 5px; max-height: 66px; overflow-y: auto;
+                border-top: 1px solid var(--ci-vien-trong); }
+.ci-chip-xoa { width: 22px; padding: 0 !important; justify-content: center; }
+
 .ci-tomtat { padding: 8px 14px 6px; font-size: 10.5px; color: var(--text-3);
              font-variant-numeric: tabular-nums; }
 
