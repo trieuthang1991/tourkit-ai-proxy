@@ -881,7 +881,7 @@ public static class ChatInboxEndpoints
         });
 
         g.MapGet("/conversations", async (HttpContext ctx, TkSessionStore sessions, ChatRepository repo,
-            ChatAssignRepository assign,
+            ChatAssignRepository assign, ChannelCredentialStore cred,
             short? status, string? search, short? channel, bool? unread, bool? followed, bool? mine,
             string? tag, string? cursor, CancellationToken ct) =>
         {
@@ -941,9 +941,12 @@ public static class ChatInboxEndpoints
             // Nhãn truyền vào ĐÂY NỮA — cùng lý do với kênh. Xem ChatTagFilterGuardTests.
             var dem = await repo.CountAsync(a.TenantId, chiCuaToi: chiCuaToi, xem: xem,
                 nguoiDung: maNguoiXem, kenh: channel, nhan: nhanLoc, ct: ct);
+            // Tên Trang/OA: MỘT lượt tra cho cả trang danh sách, không phải mỗi dòng một lượt.
+            // Rỗng là chuyện bình thường (công ty một Trang mỗi kênh) chứ không phải lỗi.
+            var tenTrang = await cred.LabelMapAsync(a.TenantId, ct);
             return Results.Json(new
             {
-                items = items.Select(x => Shape(x, a.SessionId)),
+                items = items.Select(x => Shape(x, a.SessionId, tenTrang)),
                 counts = new
                 {
                     moi = dem.TheoTrangThai.GetValueOrDefault((short)0),
@@ -966,7 +969,8 @@ public static class ChatInboxEndpoints
         });
 
         g.MapGet("/conversations/{id:long}", async (long id, HttpContext ctx, TkSessionStore sessions,
-            ChatRepository repo, ChatAssignRepository assign, CancellationToken ct) =>
+            ChatRepository repo, ChatAssignRepository assign, ChannelCredentialStore cred,
+            CancellationToken ct) =>
         {
             var p = await SessionAuth.ReadNguoiXemAsync(ctx, sessions, ct);
             if (p == null) return SessionAuth.Unauthorized();
@@ -994,7 +998,7 @@ public static class ChatInboxEndpoints
                 DateTime.UtcNow, ChatSender.Agent);
             return Results.Json(new
             {
-                conversation = Shape(v, a.SessionId),
+                conversation = Shape(v, a.SessionId, await cred.LabelMapAsync(a.TenantId, ct)),
                 // Hồ sơ khách cho panel bên phải. Chỉ những gì kênh thật sự cho biết — chưa nối CRM
                 // nên crmCustomerId còn trống, giao diện nói thẳng điều đó thay vì bịa một thẻ khách.
                 contact = lienHe is null ? null : new
@@ -3165,7 +3169,16 @@ public static class ChatInboxEndpoints
         }, true),
     };
 
+    /// <summary>Bản rút gọn cho chỗ chưa cần tên Trang.</summary>
     private static object Shape(ChatConversation v, string sessionId)
+        => Shape(v, sessionId, null);
+
+    /// <param name="tenTrang">Bản đồ (kênh, mã tài khoản) → tên Trang/OA. CHỈ có phần tử khi công
+    /// ty nối từ hai tài khoản trở lên trên cùng một kênh — xem
+    /// <c>ChannelCredentialStore.ChonTenTrang</c>. Null hoặc không khớp thì <c>accountLabel</c> về
+    /// null và giao diện không hiện gì thêm.</param>
+    private static object Shape(ChatConversation v, string sessionId,
+        IReadOnlyDictionary<(short, string), string>? tenTrang)
     {
         // Mốc đọc RIÊNG của người đang xem. Chưa mở lần nào thì lùi về mốc chung cũ — không thì
         // mọi hội thoại cũ bật lại thành "chưa đọc" cho tất cả mọi người ngay sau khi nâng cấp.
@@ -3194,6 +3207,10 @@ public static class ChatInboxEndpoints
             botPaused = v.BotResumeAt is { } m && m > DateTime.UtcNow,
             // Chưa đọc = khách nhắn sau lần CHÍNH MÌNH mở gần nhất.
             unread = v.ContactRepliedAt is { } cr && (docToi is null || cr > docToi),
+            // Tên Trang/OA đang nhận tin. null = công ty chỉ nối MỘT tài khoản trên kênh này, nên
+            // không có gì để phân biệt và giao diện bỏ qua.
+            accountLabel = tenTrang is not null
+                        && tenTrang.TryGetValue((v.Channel, v.AccountId), out var nhanTk) ? nhanTk : null,
         };
     }
 

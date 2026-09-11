@@ -9063,7 +9063,7 @@ n
              font-variant-numeric: tabular-nums; }
 
 .ci-ds { flex: 1; overflow-y: auto; min-height: 0; padding: 0 8px 10px; }
-.ci-muc { position: relative; display: grid; grid-template-columns: 38px minmax(0, 1fr); gap: 11px;
+.ci-muc { position: relative; display: grid; grid-template-columns: 44px minmax(0, 1fr); gap: 11px;
           width: 100%; text-align: left; padding: 10px 10px 11px; border: 0; border-radius: 10px;
           background: transparent; cursor: pointer; font: inherit; }
 .ci-muc:hover { background: var(--bg); }
@@ -9072,7 +9072,7 @@ n
    viền làm mọi mục còn lại phải chừa chỗ tương ứng. */
 .ci-muc.on::before { content: ''; position: absolute; left: 0; top: 12px; bottom: 12px;
                      width: 2.5px; border-radius: 999px; background: var(--primary); }
-.ci-muc-avt { position: relative; display: block; width: 38px; height: 38px; }
+.ci-muc-avt { position: relative; display: block; width: 44px; height: 44px; }
 .ci-muc-than { position: relative; display: block; min-width: 0; }
 .ci-muc-dau { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; }
 .ci-ten { font-size: 12.5px; font-weight: 500; color: var(--text-2);
@@ -9084,6 +9084,10 @@ n
                                   background: var(--primary); }
 .ci-xemtruoc { display: block; margin-top: 2px; font-size: 11.5px; color: var(--text-3);
                overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* Tên Trang/OA đứng đầu dòng xem trước. Đậm hơn và sẫm hơn phần xem trước để mắt tách được hai
+   thứ trên cùng một dòng; thẻ <i> nhưng KHÔNG nghiêng — nghiêng ở cỡ 11px là khó đọc. */
+.ci-trang { margin-right: 5px; font-style: normal; font-weight: 600; color: var(--text-2); }
+.ci-trang::after { content: '·'; margin-left: 5px; font-weight: 400; opacity: .5; }
 .ci-muc-cuoi { display: flex; flex-wrap: wrap; gap: 4px; align-items: center; margin-top: 6px;
                min-width: 0; }
 .ci-tt { display: inline-flex; align-items: center; gap: 4px; height: 17px; padding: 0 6px 0 5px;
@@ -9117,12 +9121,17 @@ img.ci-avt { object-fit: cover; }
    ⚠️ Góc dưới TRÁI, không phải phải. Bên phải ảnh chính là chỗ dòng xem trước bắt đầu, mà huy
    hiệu thò ra 3px nên nó đè lên chữ — thấy rõ nhất ở các kênh dùng HÌNH (Telegram, Instagram,
    WhatsApp, TikTok) vì hình rộng hơn một chữ cái. Bên trái ảnh là lề trống, không đụng gì. */
-/* Bản GHIM trên ảnh đại diện từng dòng giữ cỡ nhỏ: đó là dấu phụ của một dòng danh sách,
-   không phải nút bấm như dải kênh. Phóng to cả hai là đè lên mặt khách. */
-.ci-muc-avt .ci-hh, .ci-hh.dinh { font-size: 11.5px; position: absolute; left: -3px; bottom: -3px;
-          display: inline-grid; place-items: center; min-width: 17px; height: 17px; padding: 0 4px;
-          border-radius: 6px; border: 1px solid var(--border); background: var(--surface);
-          color: var(--text-2); font-size: 9.5px; font-weight: 700; line-height: 1; }
+/* Bản GHIM trên ảnh đại diện từng dòng là DẤU PHỤ của một dòng danh sách, không phải nút bấm như
+   dải kênh — nên nó nhỏ hơn. Nhưng "nhỏ hơn" từng thành 9.5px vì luật này khai `font-size` HAI
+   lần và dòng sau đè dòng trước, tức cỡ thật nhỏ hơn cả con số người viết định đặt. Nay một dòng
+   duy nhất, và cả cụm phóng lên cho đọc được ở khoảng cách ngồi thật (11/09/2026). */
+.ci-muc-avt .ci-hh, .ci-hh.dinh { position: absolute; left: -3px; bottom: -3px;
+          display: inline-grid; place-items: center; min-width: 20px; height: 20px; padding: 0 5px;
+          border-radius: 7px; border: 1px solid var(--border); background: var(--surface);
+          color: var(--text-2); font-size: 11px; font-weight: 700; line-height: 1; }
+/* Kênh dùng HÌNH (Telegram, Instagram, WhatsApp, TikTok): hình phải co theo ô ghim, không giữ
+   17px của dải kênh — giữ thì hình chạm sát viền ô và trông như bị cắt. */
+.ci-muc-avt .ci-hh.hinh > svg, .ci-hh.dinh.hinh > svg { width: 14px; height: 14px; }
 
 /* ── Vùng 3: khung chat ───────────────────────────────────────────────────── */
 .ci-chat { display: flex; flex-direction: column; min-width: 0; min-height: 0;
@@ -9816,7 +9825,8 @@ img.ci-avt { object-fit: cover; }
    thanh đó dễ bỏ sót, và nó không nói đang làm việc gì. */
 .xg { display: block; border-radius: 6px; background: var(--ci-nen-chip); }
 .ci-xuong { pointer-events: none; }
-.ci-xuong .xg.tron { width: 38px; height: 38px; border-radius: 50%; }
+/* Khung xương phải đúng cỡ ảnh thật, không thì danh sách nảy một nhịp lúc dữ liệu về. */
+.ci-xuong .xg.tron { width: 44px; height: 44px; border-radius: 50%; }
 .ci-xuong .xg.d1 { width: 45%; height: 11px; }
 .ci-xuong .xg.d2 { width: 78%; height: 10px; margin-top: 8px; }
 .ci-xuong .xg.d3 { width: 32%; height: 9px;  margin-top: 9px; }

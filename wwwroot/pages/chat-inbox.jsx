@@ -3048,7 +3048,13 @@
                       <span className="ci-ten">{c.displayName || c.contactExternalId}</span>
                       <span className="ci-luc">{gioNgan(c.lastActivityAt)}</span>
                     </span>
-                    <span className="ci-xemtruoc">{c.lastPreview || 'chưa có tin nào'}</span>
+                    {/* Tên Trang/OA đi TRƯỚC dòng xem trước, cùng một hàng — giữ nguyên luật hai
+                        hàng của mục. Máy chủ chỉ gửi khi công ty nối từ hai tài khoản cùng kênh
+                        trở lên; một Trang thì đây là null và dòng không đổi gì. */}
+                    <span className="ci-xemtruoc">
+                      {c.accountLabel && <i className="ci-trang">{c.accountLabel}</i>}
+                      {c.lastPreview || 'chưa có tin nào'}
+                    </span>
                     {/* NHÃN CHỮ, không phải biểu tượng bé xíu. Bản trước rút xuống mấy ký hiệu
                         10px (★ ⏸ ⊘ và một chữ cái) cho gọn — nhưng gọn tới mức không ai đoán
                         được nghĩa, phải rê chuột từng cái mới biết. Chữ đọc được thắng chỗ trống
@@ -3164,10 +3170,13 @@
                         Tách thành nhiều thẻ thì hàng tiêu đề cao gấp đôi mà không thêm thông tin. */}
                     <span>
                       <i aria-hidden="true" />
-                      <em>{[KENH[v.channel]?.ten, TEN_TRANG_THAI[v.status],
+                      {/* Tên Trang đứng ngay sau tên kênh: "Messenger · Trang Hà Nội · …".
+                          filter(Boolean) vì accountLabel null khi công ty chỉ nối một tài khoản —
+                          không lọc thì dòng thành "Messenger ·  · Mới". */}
+                      <em>{[KENH[v.channel]?.ten, v.accountLabel, TEN_TRANG_THAI[v.status],
                            (phanCong.staffs || []).find(nv => nv.id === v.assignedUserId)?.name
                              || v.assignedUsername || 'chưa ai nhận',
-                           v.botPaused ? 'bot tạm dừng' : 'bot đang trả lời'].join(' · ')}</em>
+                           v.botPaused ? 'bot tạm dừng' : 'bot đang trả lời'].filter(Boolean).join(' · ')}</em>
                     </span>
                   </div>
                   {/* Học cách Messenger xếp thanh tiêu đề: chỉ để lộ MỘT việc chính cộng nút hồ

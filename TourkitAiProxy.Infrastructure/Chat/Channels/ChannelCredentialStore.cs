@@ -65,6 +65,66 @@ public class ChannelCredentialStore
     }
 
     /// <summary>
+    /// Tên hiển thị của từng tài khoản kênh, CHỈ cho những kênh có từ hai tài khoản trở lên.
+    ///
+    /// <para>Một tài khoản thì tên nó là nhiễu: lặp đúng một chữ trên mọi dòng hội thoại mà không
+    /// nói thêm gì. Xem <c>ChannelLabelMapTests</c>.</para>
+    ///
+    /// <para>Thiếu <c>label</c> thì lùi về mã tài khoản chứ không bỏ trống — trong danh sách hai
+    /// Trang, một dòng có tên và một dòng trống sẽ bị đọc thành "dòng trống là Trang còn lại".</para>
+    /// </summary>
+    public static Dictionary<(short Kenh, string AccountId), string> ChonTenTrang(
+        IEnumerable<(short Kenh, string AccountId, string? Label)> ds)
+    {
+        var ra = new Dictionary<(short, string), string>();
+        foreach (var nhom in ds.GroupBy(x => x.Kenh))
+        {
+            var tk = nhom.ToList();
+            if (tk.Count < 2) continue;
+            foreach (var x in tk)
+                ra[(x.Kenh, x.AccountId)] = string.IsNullOrWhiteSpace(x.Label) ? x.AccountId : x.Label!;
+        }
+        return ra;
+    }
+
+    /// <summary>
+    /// Bản đồ (kênh, mã tài khoản) → tên Trang/OA của một công ty, đọc từ <c>label</c> đã ghi sẵn
+    /// lúc nối kênh (Messenger ghi tên Trang, Zalo ghi tên OA). MỘT truy vấn cho mọi kênh.
+    ///
+    /// <para>Đường <c>GET /channels</c> cũng trả <c>label</c> nhưng gác bằng quyền cấu hình hệ
+    /// thống, nên nhân viên thường gọi là 403 — không dùng được để tra tên ở giao diện hộp thư.</para>
+    ///
+    /// <para>Đọc hỏng thì trả RỖNG, không ném: tên Trang là tiện, không phải điều kiện để hộp thư
+    /// chạy. Mất tên thì danh sách vẫn đủ dùng; ném thì cả hộp thư trắng.</para>
+    /// </summary>
+    public async Task<Dictionary<(short Kenh, string AccountId), string>> LabelMapAsync(
+        string tenantId, CancellationToken ct = default)
+    {
+        try
+        {
+            await using var c = await _db.OpenAsync(ct);
+            var hang = (await c.QueryAsync<(string Channel, string ConfigJson)>(
+                "SELECT Channel, ConfigJson FROM dbo.TenantChannelSettings WHERE TenantId=@t",
+                new { t = tenantId })).ToList();
+
+            var ds = new List<(short, string, string?)>();
+            foreach (var kenh in Enum.GetValues<ChatChannel>())
+            {
+                var tienTo = KeyOf(kenh) + ":";
+                foreach (var h in hang.Where(h => h.Channel.StartsWith(tienTo, StringComparison.Ordinal)))
+                    ds.Add(((short)kenh, h.Channel[tienTo.Length..],
+                            Decode(h.ConfigJson).GetValueOrDefault("label")));
+            }
+            return ChonTenTrang(ds);
+        }
+        catch (Exception ex)
+        {
+            _log.LogWarning(ex, "[chat/cred] đọc tên Trang hỏng, tenant={T} — bỏ trống", tenantId);
+            return new Dictionary<(short, string), string>();
+        }
+    }
+
+    /// <summary>
     /// Tài khoản này thuộc công ty nào. Dùng cho webhook DÙNG CHUNG: khi TourKit sở hữu một ứng
     /// dụng Zalo cho mọi khách hàng thì <c>app_id</c> giống hệt nhau ở mọi công ty, nên không còn
     /// phân biệt được bằng nó nữa — phải tra ngược từ id của OA.
