@@ -344,6 +344,162 @@ test.describe('E — Lọc theo nhãn', () => {
   });
 });
 
+// ── Nhóm F — gợi ý trả lời ────────────────────────────────────────────────────
+
+test.describe('F — Gợi ý trả lời', () => {
+  test('F1 — xin gợi ý KHÔNG kèm Content-Type vẫn phải tới được handler', async () => {
+    // Cùng lỗi đã giết nút "Nhận chăm sóc" hồi 08/09: giao diện gửi POST không thân, không header;
+    // route có tham số thân là request bị loại ở tầng ĐỊNH TUYẾN rồi rơi xuống trang SPA.
+    const r = await doc(await api.post(`${GOC}/conversations/${maHoiThoai}/goi-y`,
+      { headers: nhu(PHIEN_QUAN_TRI) }));
+
+    expect(r.laHtml, `Rơi xuống trang SPA: ${r.ma}. Route đang đòi Content-Type.`).toBe(false);
+    expect(r.ma).toBe(200);
+  });
+
+  test('F2 — mọi ca đều trả 200 kèm LÝ DO CÓ TÊN, không phải 4xx', async () => {
+    // Ba ca không ra chữ dẫn tới ba việc khác nhau — chờ, tạm dừng trợ lý, hay báo quản trị nạp
+    // lượt. Trả 4xx thì lớp authedFetch chung coi là hỏng, mà 401 ở đó còn kéo theo đăng xuất
+    // toàn cục: xin một bản nháp mà bị đá ra khỏi hệ thống.
+    const r = await doc(await api.post(`${GOC}/conversations/${maHoiThoai}/goi-y`,
+      { headers: nhu(PHIEN_QUAN_TRI) }));
+
+    expect(r.ma).toBe(200);
+    expect(['Duoc', 'KhachChuaNoiGi', 'BotDangTraLoi', 'AiHong'],
+      `Lý do lạ: ${r.json?.ket}`).toContain(r.json.ket);
+    // Có chữ thì phải là ca Duoc, và ngược lại — hai trường không được nói hai chuyện khác nhau.
+    expect(!!r.json.chu, 'trường chữ và lý do mâu thuẫn nhau').toBe(r.json.ket === 'Duoc');
+    if (r.json.ket !== 'Duoc')
+      expect(r.json.loiNhan, 'không ra chữ thì phải có câu giải thích cho người trực').toBeTruthy();
+  });
+
+  test('F3 — xin gợi ý TUYỆT ĐỐI không gửi gì cho khách', async () => {
+    // Chốt CỨNG của cả tính năng. Bộ sinh dùng chung với bot, mà bot thì ghi tin rồi xếp hàng gửi
+    // — một lượt chép nhầm vài dòng là bản nháp đi thẳng tới khách trước khi ai kịp đọc.
+    const truoc = await doc(await api.get(`${GOC}/conversations/${maHoiThoai}`,
+      { headers: nhu(PHIEN_QUAN_TRI) }));
+    const soTruoc = (truoc.json.messages || []).length;
+
+    await api.post(`${GOC}/conversations/${maHoiThoai}/goi-y`, { headers: nhu(PHIEN_QUAN_TRI) });
+
+    const sau = await doc(await api.get(`${GOC}/conversations/${maHoiThoai}`,
+      { headers: nhu(PHIEN_QUAN_TRI) }));
+    expect((sau.json.messages || []).length,
+      'Xin gợi ý mà hội thoại mọc thêm tin — bản nháp đã bị gửi đi').toBe(soTruoc);
+  });
+
+  test('F4 — hội thoại của người khác thì 404, không rò bản nháp', async () => {
+    // Gợi ý đọc lịch sử hội thoại để soạn. Không kẹp luật xem ở đây là mở một đường đọc trộm
+    // nội dung chat của đồng nghiệp, đi vòng qua mọi cửa đã dựng cho /conversations/{id}.
+    const r = await doc(await api.post(`${GOC}/conversations/999999999/goi-y`,
+      { headers: nhu(PHIEN_QUAN_TRI) }));
+    expect(r.ma).toBe(404);
+  });
+});
+
+// ── Nhóm G — ghi nhận chăm sóc ────────────────────────────────────────────────
+
+test.describe('G — Ghi nhận chăm sóc', () => {
+  test('G1 — chưa nối khách CRM thì TỪ CHỐI và KHÔNG đẻ dòng nào', async () => {
+    // Mã khách là bắt buộc bên CRM. Thả dòng thiếu mã là đẩy cho worker một việc chắc chắn hỏng,
+    // mà lúc nó hỏng thì người bấm nút đã rời máy từ lâu.
+    const ct = await doc(await api.get(`${GOC}/conversations/${maHoiThoai}`,
+      { headers: nhu(PHIEN_QUAN_TRI) }));
+    const daNoi = (ct.json.contact?.crmCustomerId || 0) > 0;
+
+    const truoc = await doc(await api.get(`${GOC}/conversations/${maHoiThoai}/cham-soc`,
+      { headers: nhu(PHIEN_QUAN_TRI) }));
+    const r = await doc(await api.post(`${GOC}/conversations/${maHoiThoai}/cham-soc`,
+      { headers: nhu(PHIEN_QUAN_TRI) }));
+
+    if (daNoi) {
+      expect(r.ma, 'hội thoại đã nối khách thì phải xếp hàng được').toBe(200);
+      expect(r.json.trangThai).toBe('dang-cho');
+      return;
+    }
+
+    expect(r.ma, 'chưa nối khách mà vẫn cho ghi nhận').toBe(400);
+    expect(r.json.error, 'phải nói rõ là cần nối khách trước').toContain('nối');
+
+    const sau = await doc(await api.get(`${GOC}/conversations/${maHoiThoai}/cham-soc`,
+      { headers: nhu(PHIEN_QUAN_TRI) }));
+    expect((sau.json.items || []).length,
+      'Từ chối rồi mà hàng đợi vẫn mọc thêm dòng').toBe((truoc.json.items || []).length);
+  });
+
+  test('G2 — danh sách việc KHÔNG được trả gói tin ra giao diện', async () => {
+    // Gói tin mang tên và số điện thoại khách. Khối này mọi người trực đọc được, trong khi trang
+    // theo dõi hàng đợi — nơi xem được gói tin — đã gác quyền quản trị.
+    const r = await doc(await api.get(`${GOC}/conversations/${maHoiThoai}/cham-soc`,
+      { headers: nhu(PHIEN_QUAN_TRI) }));
+
+    expect(r.ma).toBe(200);
+    expect(r.laHtml).toBe(false);
+    for (const x of r.json.items || []) {
+      expect(Object.keys(x), 'lộ gói tin ra giao diện').not.toContain('payloadJson');
+      expect(Object.keys(x)).not.toContain('username');
+    }
+  });
+
+  test('G3 — hội thoại của người khác thì 404', async () => {
+    const r = await doc(await api.post(`${GOC}/conversations/999999999/cham-soc`,
+      { headers: nhu(PHIEN_QUAN_TRI) }));
+    expect(r.ma).toBe(404);
+  });
+});
+
+// ── Nhóm H — xếp hàng Cơ hội bán hàng ─────────────────────────────────────────
+
+test.describe('H — Xếp hàng Cơ hội', () => {
+  test('H1 — đường co-hoi KHÔNG còn bị cờ tính năng nào chặn', async () => {
+    // Cờ Features:ChatCoHoi đã bỏ (11/09/2026). Mọc lại thì đường này trả 404 RỖNG — khác hẳn 404
+    // kèm HTML của trang SPA, nên phân biệt được ngay ở đây.
+    //
+    // ⚠️ BÀI NÀY ĐẺ MỘT DÒNG THẬT trong hàng đợi staging mỗi lần chạy. Hôm nay vô hại: chưa có
+    // nhánh worker nào nhặt create-booking-ticket nên dòng nằm im ở Pending. NHƯNG ngày nhánh đó
+    // chạy, những dòng cũ này sẽ thành PHIẾU THẬT trên CRM staging — nên tiêu đề mang tiền tố
+    // "E2E" để nhận ra mà dọn, và người viết handler cần biết điều này trước khi bật nó lần đầu.
+    const r = await doc(await api.post(`${GOC}/conversations/${maHoiThoai}/co-hoi`, {
+      headers: nhu(PHIEN_QUAN_TRI, { 'Content-Type': 'application/json' }),
+      data: { tenPhieu: 'E2E — bài kiểm tự động, xoá được' },
+    }));
+
+    expect(r.laHtml, 'rơi xuống trang SPA').toBe(false);
+    expect([200, 400, 403],
+      `404 rỗng nghĩa là cờ chặn đã mọc lại; nhận được ${r.ma}`).toContain(r.ma);
+  });
+
+  test('H2 — thiếu quyền hoặc chưa nối khách thì nói RÕ lý do, không im lặng 200', async () => {
+    const r = await doc(await api.post(`${GOC}/conversations/${maHoiThoai}/co-hoi`, {
+      headers: nhu(PHIEN_NHAN_VIEN, { 'Content-Type': 'application/json' }),
+      data: { tenPhieu: 'E2E — nhân viên thường' },
+    }));
+
+    // 404 ở đây là hợp lệ: nhân viên thường có thể không thấy hội thoại này.
+    if (r.ma === 404) return;
+    if (r.ma === 200) {
+      expect(r.json.trangThai).toBe('dang-cho');
+      return;
+    }
+    expect([400, 403], `mã lạ: ${r.ma}`).toContain(r.ma);
+    expect(r.json?.error, 'từ chối mà không nói vì sao').toBeTruthy();
+  });
+
+  test('H3 — xếp hàng xong thì việc TRUY NGƯỢC được về đúng hội thoại', async () => {
+    // Đây là cả lý do hai cột Action/ReferId tồn tại. Thiếu chúng thì một việc trong hàng đợi
+    // không còn đường nào tìm lại đoạn chat đã đẻ ra nó.
+    const r = await doc(await api.get(`${GOC}/conversations/${maHoiThoai}/cham-soc`,
+      { headers: nhu(PHIEN_QUAN_TRI) }));
+
+    expect(r.ma).toBe(200);
+    for (const x of r.json.items || []) {
+      expect(['chat-cham-soc', 'chat-co-hoi'],
+        `Action lạ: ${x.action}`).toContain(x.action);
+      expect([0, 1, 2, 3], `trạng thái lạ: ${x.status}`).toContain(x.status);
+    }
+  });
+});
+
 // ── Nhóm D — vòng đời cấu hình ────────────────────────────────────────────────
 
 test.describe('Vòng đời cấu hình phân công', () => {
