@@ -16,6 +16,15 @@ Những cập nhật gần đây của TRAV-AI, viết cho người dùng. Mới
 ## Phiên bản 11/09/2026 — Hộp thư chat: lọc theo nhãn, biết khách nhắn vào Trang nào
 
 ### ✨ Tính năng mới
+- **Nhờ trợ lý soạn nháp trả lời.** Cạnh ô soạn có thêm nút **Gợi ý**: bấm một cái là trợ lý đọc
+  đoạn hội thoại rồi soạn sẵn một câu trả lời, **đổ thẳng vào ô soạn cho bạn sửa** — không tự gửi
+  đi. Nếu bạn đang gõ dở thì câu gợi ý nối xuống dưới, không xoá mất chữ bạn vừa gõ. Trợ lý ở đây
+  chịu đúng những ràng buộc như khi nó tự trả lời khách: không bịa giá tour, lịch khởi hành hay số
+  chỗ còn, và vẫn theo lời dặn riêng công ty bạn đã đặt.
+
+  Nút này dành cho những lượt trợ lý **không** trả lời — khi bạn đã tắt trợ lý, khi nó đang nhường
+  bạn sau lúc bạn vừa nhắn, hoặc khi công ty hết lượt AI. Nếu trợ lý đang lo chính câu đó, màn hình
+  sẽ nói rõ và mời bạn tạm dừng trợ lý trước, để khách không nhận hai câu trả lời khác nhau.
 - **Lọc hội thoại theo nhãn.** Thanh lọc có thêm hàng nhãn của công ty: bấm một hay nhiều nhãn để
   chỉ thấy khách đang mang nhãn đó. Chọn nhiều thì thấy khách mang **bất kỳ** nhãn nào trong số đã
   chọn, bấm lại một nhãn là bỏ nó ra, còn dấu × ở cuối hàng bỏ hết. Số đếm ở hàng trạng thái ngay
@@ -28,6 +37,10 @@ Những cập nhật gần đây của TRAV-AI, viết cho người dùng. Mới
 - **Biểu tượng kênh trên ảnh khách quá nhỏ để nhìn ra.** Dấu hiệu nhỏ ở góc ảnh đại diện (cho biết
   hội thoại đến từ Zalo, Messenger hay Telegram) hiển thị nhỏ hơn cả cỡ đáng ra phải có. Nay nó to
   hơn rõ rệt, và ảnh đại diện trong danh sách cũng được phóng lên cho dễ nhận mặt khách.
+- **Cài đặt "trợ lý nhường bao nhiêu phút sau khi nhân viên trả lời" không có tác dụng.** Con số
+  bạn đặt chỉ được áp dụng khi nhân viên trả lời từ ứng dụng của kênh (Zalo, Messenger…). Trả lời
+  ngay trong hộp thư — cách gần như ai cũng dùng — thì hệ thống vẫn để nguyên 30 phút, và không có
+  gì báo cho bạn biết. Nay cả hai đường đều theo đúng con số bạn đặt.
 
 ---
 
