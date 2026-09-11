@@ -216,6 +216,45 @@ public static class ChatRules
     }
 
     /// <summary>
+    /// Trần độ dài mặc định cho nội dung một lượt chăm sóc gửi sang CRM. Để thấp hơn hẳn trần
+    /// thật của cột bên đó: thừa chỗ còn hơn để một hội thoại dài làm hỏng dòng hàng đợi.
+    /// </summary>
+    public const int TranKyTuChamSoc = 1800;
+
+    /// <summary>
+    /// Trích đoạn chat thành văn bản để ghi vào nhật ký chăm sóc bên CRM.
+    ///
+    /// <para><b>TRÍCH, không diễn giải.</b> Không gọi AI: người đọc hồ sơ khách cần đúng lời khách
+    /// đã nói, không cần bản tóm tắt của máy — và một bản tóm tắt sai thì nằm vĩnh viễn trong hồ
+    /// sơ CRM mà không ai biết nó từng sai.</para>
+    ///
+    /// <para>Vượt trần thì cắt từ ĐẦU và giữ phần cuối, kèm dấu báo đã cắt: phần gần chốt nhất là
+    /// phần đáng giữ. Cắt theo ký tự chứ không theo số tin — cột bên CRM chặn theo độ dài, mà một
+    /// tin có thể dài bằng cả chục tin khác.</para>
+    /// </summary>
+    public static string TomTatChamSoc(IEnumerable<ChatMessage> tin, int tranKyTu = TranKyTuChamSoc)
+    {
+        var dong = tin
+            .Where(m => m.State != (short)ChatState.Failed && !string.IsNullOrWhiteSpace(m.Body))
+            .Select(m => (m.Direction == (short)ChatDirection.In ? "Khách: " : "Nhân viên: ")
+                         + m.Body!.Trim())
+            .ToList();
+
+        if (dong.Count == 0) return "";
+
+        var ra = string.Join("\n", dong);
+        if (ra.Length <= tranKyTu) return ra;
+
+        // Cắt từ đầu, chừa chỗ cho dấu báo. Cắt tại ranh giới dòng gần nhất để không để lại nửa
+        // câu cụt lủn ngay đầu đoạn.
+        const string dauCat = "…\n";
+        var batDau = ra.Length - (tranKyTu - dauCat.Length);
+        var xuong = ra.IndexOf('\n', batDau);
+        if (xuong >= 0 && xuong < ra.Length - 1) batDau = xuong + 1;
+        return dauCat + ra[batDau..];
+    }
+
+    /// <summary>
     /// Bot chỉ trả lời trong quãng ngắn ngay sau khi khách nhắn: 4 giây chờ gộp tin (xem
     /// <see cref="BurstIdle"/> ở worker) cộng vài giây gọi AI. Để rộng một phút cho chắc.
     /// </summary>

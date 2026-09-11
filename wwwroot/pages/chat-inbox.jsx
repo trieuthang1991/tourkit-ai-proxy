@@ -694,6 +694,7 @@
     'thu-hoi-tin': 'thu hồi tin',
     'go-ket-noi': 'gỡ kết nối kênh',
     'danh-dau-chua-doc': 'đánh dấu chưa đọc',
+    'cham-soc': 'ghi nhận chăm sóc',
     // HAI đường TỰ ĐỘNG. Chúng vốn thiếu nhãn nên nhật ký in ra mã trần ("Hệ thống xoay-vong"),
     // đúng hai dòng người đọc cần nhất khi hỏi "ai giao việc này, máy hay người?".
     'xoay-vong': 'tự động chia việc',

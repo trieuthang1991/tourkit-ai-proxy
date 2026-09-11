@@ -369,4 +369,65 @@ public class ChatRulesTests
     {
         Assert.False(ChatRules.BotDangDinhTraLoi(new ChatConversation(), true, null, Now));
     }
+
+    // ── Tóm tắt đoạn chat để gửi sang CRM ───────────────────────────────────
+
+    [Fact]
+    public void Tom_tat_cham_soc__ghi_ro_ai_noi_cau_nao()
+    {
+        var ds = new[]
+        {
+            Tin((short)ChatDirection.In,  "Cho hỏi tour Nhật tháng 10"),
+            Tin((short)ChatDirection.Out, "Dạ để em gửi anh lịch trình ạ"),
+        };
+
+        var ra = ChatRules.TomTatChamSoc(ds);
+
+        Assert.Contains("Khách: Cho hỏi tour Nhật tháng 10", ra);
+        Assert.Contains("Nhân viên: Dạ để em gửi anh lịch trình ạ", ra);
+    }
+
+    /// <summary>
+    /// Cắt theo GIỚI HẠN KÝ TỰ, không theo số tin — và cắt từ đầu, giữ phần cuối.
+    ///
+    /// <para>Cột nội dung chăm sóc bên CRM có trần độ dài. Một hội thoại chăm khách vài tuần thừa
+    /// sức vượt; gửi quá trần thì CRM từ chối và dòng hàng đợi hỏng, mà lúc đó người bấm nút đã
+    /// rời máy từ lâu. Giữ phần CUỐI vì đó là phần gần chốt nhất.</para>
+    /// </summary>
+    [Fact]
+    public void Tom_tat_cham_soc__cat_theo_tran_ky_tu_va_noi_ro_da_cat()
+    {
+        var ds = System.Linq.Enumerable.Range(0, 60)
+            .Select(i => Tin((short)ChatDirection.In, "Câu số " + i + " " + new string('x', 80)))
+            .ToArray();
+
+        var ra = ChatRules.TomTatChamSoc(ds, tranKyTu: 600);
+
+        Assert.True(ra.Length <= 600, $"Dài {ra.Length} ký tự, vượt trần 600");
+        Assert.Contains("Câu số 59", ra);          // giữ phần cuối
+        Assert.DoesNotContain("Câu số 0 ", ra);    // bỏ phần đầu
+        Assert.Contains("…", ra);                  // và nói ra là đã cắt
+    }
+
+    [Fact]
+    public void Tom_tat_cham_soc__bo_tin_hong_va_tin_khong_chu()
+    {
+        var ds = new[]
+        {
+            Tin((short)ChatDirection.In,  "Câu thật"),
+            Tin((short)ChatDirection.In,  null, kind: (short)ChatKind.Image),
+            Tin((short)ChatDirection.Out, "gửi hỏng", state: (short)ChatState.Failed),
+        };
+
+        var ra = ChatRules.TomTatChamSoc(ds);
+
+        Assert.Contains("Câu thật", ra);
+        Assert.DoesNotContain("gửi hỏng", ra);
+    }
+
+    [Fact]
+    public void Tom_tat_cham_soc__hoi_thoai_rong_tra_chuoi_rong_chu_khong_nem()
+    {
+        Assert.Equal("", ChatRules.TomTatChamSoc(System.Array.Empty<ChatMessage>()));
+    }
 }

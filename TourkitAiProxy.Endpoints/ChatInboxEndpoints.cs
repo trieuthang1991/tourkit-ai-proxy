@@ -4,6 +4,7 @@ using System.Text.Json.Nodes;
 using TourkitAiProxy.Infrastructure.Cache;
 using TourkitAiProxy.Infrastructure.Chat.Channels;
 using TourkitAiProxy.Infrastructure.Chat.Inbox;
+using TourkitAiProxy.Infrastructure.Crm;
 using TourkitAiProxy.Services.Storage;
 using TourkitAiProxy.Infrastructure.TourKit;
 using TourkitAiProxy.Domain.Chat;
@@ -1478,6 +1479,86 @@ public static class ChatInboxEndpoints
         //
         // Không chốt canh văn bản nguồn nào thấy được lỗi đó: nó là hành vi của KHUNG, không
         // phải của mã ta viết. Đây là ca biện minh cho bộ kiểm thử chạy request thật.
+        // ── Ghi nhận chăm sóc → hàng đợi hành động CRM ──────────────────────────
+        //
+        // THẢ DÒNG, không gọi CRM. Chủ dự án chốt 11/09/2026: mọi thứ ghi sang hệ ngoài để lại,
+        // lưu trên hệ chat trước để xem và chuẩn hoá. Hàng đợi dbo.CrmActionQueue đã có sẵn và
+        // chính proxy sở hữu schema; worker app-side đã biết xử lý loại việc create-appointment.
+        //
+        // Route KHÔNG có thân — xem chú thích ở đường goi-y bên dưới.
+        g.MapPost("/conversations/{id:long}/cham-soc", async (long id, HttpContext ctx,
+            TkSessionStore sessions, ChatRepository repo, CrmActionQueueRepository hangDoi,
+            CancellationToken ct) =>
+        {
+            var p = await SessionAuth.ReadNguoiXemAsync(ctx, sessions, ct);
+            if (p == null) return SessionAuth.Unauthorized();
+            var (a, xem) = p.Value;
+            if (!repo.Configured) return NotConfigured();
+            if (await repo.GetConversationAsync(a.TenantId, id, xem, ct) is not { } v)
+                return Results.NotFound();
+
+            var lienHe = await repo.GetContactAsync(a.TenantId, v.Channel, v.ContactExternalId, ct);
+            // Chưa nối khách CRM thì TỪ CHỐI ngay, trước khi thả dòng. CustomerId là bắt buộc bên
+            // CRM, nên thả dòng thiếu mã là đẩy cho worker một việc chắc chắn hỏng — mà lúc nó
+            // hỏng thì người bấm nút đã rời máy, và thứ họ thấy lúc bấm là báo thành công.
+            if (lienHe?.CrmCustomerId is not { } maKhach || maKhach <= 0)
+                return Results.Json(new
+                {
+                    error = "Hội thoại này chưa nối với khách trên CRM. Nối khách trước rồi ghi nhận chăm sóc.",
+                }, Web, statusCode: StatusCodes.Status400BadRequest);
+
+            var tin = await repo.ListMessagesAsync(a.TenantId, id, 80, ct);
+            var ten = lienHe.DisplayName ?? v.DisplayName ?? v.ContactExternalId;
+
+            // Gói tin theo ĐÚNG hợp đồng docs/crm-action-contract/README.md §3 — worker gửi thẳng
+            // làm thân request, không dựng lại. Sai một tên khoá ở đây là worker ném lúc bóc.
+            var goiTin = JsonSerializer.Serialize(new
+            {
+                customerId = maKhach,
+                careTitle = "Chat: " + ten,
+                careDetail = ChatRules.TomTatChamSoc(tin),
+                careStartTime = (string?)null,
+                careEndTime = (string?)null,
+                status = 1,
+                appointmentReminder = 0,
+                bookingTicketId = (long?)null,
+                customerName = ten,
+                customerPhone = lienHe.Phone,
+            }, Web);
+
+            var maViec = await hangDoi.EnqueueAsync(new CrmActionInput(
+                a.TenantId, a.Username, CrmActionKind.CreateAppointment, goiTin,
+                Action: CrmActionNguon.ChamSoc, ReferId: id.ToString()), ct);
+
+            await GhiNhatKyAsync(ctx, repo, sessions, a, id, "cham-soc",
+                new JsonObject { ["maViec"] = maViec }.ToJsonString(), ct);
+
+            return Results.Json(new { id = maViec, trangThai = "dang-cho" }, Web);
+        });
+
+        // Các lượt chăm sóc đã ghi TỪ hội thoại này, kèm trạng thái đồng bộ. Người trực bấm nút
+        // xong phải thấy việc của mình đang ở đâu, không thì họ bấm lại lần nữa.
+        g.MapGet("/conversations/{id:long}/cham-soc", async (long id, HttpContext ctx,
+            TkSessionStore sessions, ChatRepository repo, CrmActionQueueRepository hangDoi,
+            CancellationToken ct) =>
+        {
+            var p = await SessionAuth.ReadNguoiXemAsync(ctx, sessions, ct);
+            if (p == null) return SessionAuth.Unauthorized();
+            var (a, xem) = p.Value;
+            if (!repo.Configured) return NotConfigured();
+            if (await repo.GetConversationAsync(a.TenantId, id, xem, ct) is null)
+                return Results.NotFound();
+
+            var ds = await hangDoi.ListByReferAsync(a.TenantId, id.ToString(), ct: ct);
+            return Results.Json(new
+            {
+                items = ds.Select(x => new
+                {
+                    x.Id, x.Action, x.Status, x.CreatedUtc, x.ProcessedUtc, x.ErrorMessage,
+                }),
+            }, Web);
+        });
+
         // Bản nháp trả lời cho NHÂN VIÊN. Cùng bộ sinh với bot (ChatReplyComposer) nên cùng khung
         // cấm bịa giá/lịch/số chỗ, cùng lời dặn công ty, cùng model, cùng cách đếm hạn mức.
         //
