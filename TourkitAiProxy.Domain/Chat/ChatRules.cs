@@ -177,6 +177,43 @@ public static class ChatRules
     /// <para>Ghi nhân viên và trợ lý CHUNG một nhãn "Mình": với khách thì cả hai đều là công ty,
     /// và tách ra chỉ mời model bắt chước giọng của một trong hai.</para>
     /// </summary>
+    /// <summary>
+    /// Từ một đoạn hội thoại (cũ → mới), tách ra CÂU HỎI cần trả lời và LỊCH SỬ đứng trước nó.
+    /// Nền cho nút <b>Gợi ý</b>: chỉ có câu hỏi thì mới có gì để soạn.
+    ///
+    /// <para>Câu hỏi = tin CÓ CHỮ mới nhất, và nó phải là của KHÁCH. Tin mới nhất là của mình thì
+    /// trả <c>null</c>: khách chưa nói gì thêm, gợi ý lúc này là sinh câu thứ hai chồng lên câu
+    /// vừa gửi.</para>
+    ///
+    /// <para><b>Luật lọc ở đây KHÁC <see cref="BuildConversationPrompt"/> một chỗ, và cố ý.</b>
+    /// Hàm kia bỏ tin <c>Pending</c> khỏi lịch sử vì tin chưa tới tay khách thì đưa vào là bot
+    /// tưởng mình đã nói rồi. Còn ở đây <c>Pending</c> của MÌNH vẫn tính là "đã nói": câu trả lời
+    /// bot vừa xếp hàng gửi (ChatInboundService lưu đúng trạng thái đó) mà bị lờ đi thì tin khách
+    /// lại thành tin mới nhất, nút Gợi ý sinh tiếp một câu nữa — khách nhận hai câu trả lời khác
+    /// nhau cho cùng một câu hỏi, cách nhau vài giây.</para>
+    ///
+    /// <para>Tin <b>hỏng</b> thì ngược lại, bỏ ở cả hai phía: khách không nhận được nó, nên nó
+    /// không phải "mình đã nói". Tin không chữ (ảnh, sticker) cũng bỏ — không có gì để đọc.</para>
+    /// </summary>
+    /// <param name="tin">Theo thứ tự thời gian TĂNG dần.</param>
+    /// <returns>
+    /// <c>CauHoi</c> null nghĩa là KHÔNG có gì để gợi ý — chỗ gọi phải hiểu đó là câu trả lời
+    /// hợp lệ, không phải lỗi.
+    /// </returns>
+    public static (string? CauHoi, List<ChatMessage> Truoc) TachCauHoiCuoi(IEnumerable<ChatMessage> tin)
+    {
+        var coChu = tin
+            .Where(m => m.State != (short)ChatState.Failed && !string.IsNullOrWhiteSpace(m.Body))
+            .ToList();
+
+        if (coChu.Count == 0) return (null, new List<ChatMessage>());
+
+        var cuoi = coChu[^1];
+        if (cuoi.Direction != (short)ChatDirection.In) return (null, coChu);
+
+        return (cuoi.Body!.Trim(), coChu.Take(coChu.Count - 1).ToList());
+    }
+
     /// <param name="tin">Theo thứ tự thời gian TĂNG dần. Chỉ lấy phần đuôi.</param>
     /// <param name="cauHoi">Cụm tin khách vừa gửi, chưa nằm trong <paramref name="tin"/>.</param>
     public static string BuildConversationPrompt(IEnumerable<ChatMessage> tin, string cauHoi,

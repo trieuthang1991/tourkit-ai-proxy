@@ -110,7 +110,7 @@ public class ChatRulesTests
         Assert.Equal(MetaSendTag.None, w.Tag);
     }
 
-    [Fact]
+    [Fact]
     public void Khach_chua_nhan_gi_thi_DONG_chu_khong_phai_mo()
     {
         // Ca dễ làm sai nhất: null nghĩa là chưa ai mở lời, tức cửa sổ CHƯA TỪNG mở.
@@ -211,5 +211,90 @@ public class ChatRulesTests
         var s = ChatRules.Summarize(new string('x', 200));
         Assert.Equal(121, s.Length);   // 120 ký tự + dấu …
         Assert.EndsWith("…", s);
+    }
+
+    // ── Tách câu hỏi cuối — nền cho gợi ý trả lời ───────────────────────────
+
+    private static ChatMessage Tin(short huong, string? body,
+        short state = (short)ChatState.Sent, short kind = (short)ChatKind.Text)
+        => new() { Direction = huong, Body = body, State = state, Kind = kind };
+
+    [Fact]
+    public void Tach_cau_hoi_cuoi__tin_khach_moi_nhat_la_cau_hoi__phan_truoc_la_lich_su()
+    {
+        var ds = new[]
+        {
+            Tin((short)ChatDirection.In,  "Cho hỏi tour Nhật"),
+            Tin((short)ChatDirection.Out, "Dạ anh đi tháng mấy ạ?"),
+            Tin((short)ChatDirection.In,  "Tháng 10, 4 người"),
+        };
+
+        var (cauHoi, truoc) = ChatRules.TachCauHoiCuoi(ds);
+
+        Assert.Equal("Tháng 10, 4 người", cauHoi);
+        Assert.Equal(2, truoc.Count);
+        Assert.Equal("Dạ anh đi tháng mấy ạ?", truoc[1].Body);
+    }
+
+    [Fact]
+    public void Tach_cau_hoi_cuoi__minh_vua_tra_loi_xong_thi_KHONG_co_gi_de_goi_y()
+    {
+        // Tin mới nhất là của MÌNH → khách chưa nói gì thêm. Gợi ý lúc này là gợi ý trả lời cho
+        // một câu đã được trả lời — sinh ra câu thứ hai chồng lên câu thứ nhất.
+        var ds = new[]
+        {
+            Tin((short)ChatDirection.In,  "Cho hỏi tour Nhật"),
+            Tin((short)ChatDirection.Out, "Dạ anh đi tháng mấy ạ?"),
+        };
+
+        Assert.Null(ChatRules.TachCauHoiCuoi(ds).CauHoi);
+    }
+
+    /// <summary>
+    /// Tin của mình ĐANG XẾP HÀNG GỬI cũng tính là "mình đã nói".
+    ///
+    /// <para>Đây là chỗ dễ sai nhất và nó không tự lộ ra. <c>BuildConversationPrompt</c> cố ý bỏ
+    /// tin <c>Pending</c> khỏi phần lịch sử — vì tin chưa tới tay khách thì đưa vào là bot tưởng
+    /// mình đã nói rồi. Nhưng ở ĐÂY luật phải ngược lại: câu trả lời của bot vừa được xếp hàng
+    /// (ChatInboundService lưu nó với trạng thái Pending) mà mình lờ đi thì tin khách lại thành
+    /// tin mới nhất, nút Gợi ý sinh tiếp một câu nữa — khách nhận hai câu trả lời khác nhau cho
+    /// cùng một câu hỏi, cách nhau vài giây.</para>
+    /// </summary>
+    [Fact]
+    public void Tach_cau_hoi_cuoi__tin_minh_dang_xep_hang_gui_cung_tinh_la_da_noi()
+    {
+        var ds = new[]
+        {
+            Tin((short)ChatDirection.In,  "Tour Nhật bao nhiêu tiền?"),
+            Tin((short)ChatDirection.Out, "Dạ để em kiểm tra giúp anh ạ", state: (short)ChatState.Pending),
+        };
+
+        Assert.Null(ChatRules.TachCauHoiCuoi(ds).CauHoi);
+    }
+
+    [Fact]
+    public void Tach_cau_hoi_cuoi__bo_qua_tin_hong_va_tin_khong_co_chu()
+    {
+        // Tin hỏng thì khách KHÔNG nhận được, nên nó không phải "mình đã nói". Ảnh và sticker
+        // không có chữ để đưa vào nhắc — cùng luật với BuildConversationPrompt.
+        var ds = new[]
+        {
+            Tin((short)ChatDirection.In,  "Câu thật"),
+            Tin((short)ChatDirection.In,  null, kind: (short)ChatKind.Image),
+            Tin((short)ChatDirection.Out, "gửi hỏng", state: (short)ChatState.Failed),
+        };
+
+        var (cauHoi, truoc) = ChatRules.TachCauHoiCuoi(ds);
+
+        Assert.Equal("Câu thật", cauHoi);
+        Assert.Empty(truoc);
+    }
+
+    [Fact]
+    public void Tach_cau_hoi_cuoi__hoi_thoai_rong_tra_null_chu_khong_nem()
+    {
+        var (cauHoi, truoc) = ChatRules.TachCauHoiCuoi(System.Array.Empty<ChatMessage>());
+        Assert.Null(cauHoi);
+        Assert.Empty(truoc);
     }
 }
