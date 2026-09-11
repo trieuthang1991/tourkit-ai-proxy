@@ -363,10 +363,12 @@ public class ChatRepository
     /// <param name="nguoiDung">MÃ người đang xem — mốc "đã đọc" và cờ theo dõi lấy theo người
     /// này, không phải theo cả công ty. Mã chứ không phải tên đăng nhập: toàn cụm chat một loại
     /// khoá (đặc tả 4b). Null thì lùi về mốc chung cũ và cờ theo dõi về false.</param>
+    /// <param name="nhan">Slug nhãn cần lọc. Nhiều nhãn là <b>HOẶC</b>: khách mang bất kỳ nhãn nào
+    /// trong số đó. Null hoặc rỗng thì không lọc.</param>
     public async Task<List<ChatConversation>> ListConversationsAsync(string tenant, NguoiXem xem, short? trangThai,
         int? chiCuaToi, string? timKiem, short? kenh = null, int? giaoCho = null,
         bool chiChuaDoc = false, bool chiTheoDoi = false, ConvCursor? sau = null, int limit = 60, int? nguoiDung = null,
-        CancellationToken ct = default)
+        string[]? nhan = null, CancellationToken ct = default)
     {
         await using var c = await _db.OpenAsync(ct);
         return (await c.QueryAsync<ChatConversation>("""
@@ -395,6 +397,20 @@ public class ChatRepository
                         OR v.contact_replied_at > COALESCE(r.last_read_at, v.agent_last_read_at))))
               AND (@tim IS NULL OR ct.display_name ILIKE @tim OR v.last_preview ILIKE @tim
                    OR v.contact_external_id ILIKE @tim)
+              -- Lọc theo NHÃN. Nhãn nằm trên KHÁCH (chat_contact_tags), khoá (channel, external_id)
+              -- — đúng cặp đang dùng để nối chat_contacts ngay trên, nên không phải JOIN thêm gì và
+              -- con trỏ phân trang giữ nguyên. Chọn nhiều nhãn là HOẶC: khách mang bất kỳ nhãn nào
+              -- trong số đó. (Muốn VÀ thì thay EXISTS bằng
+              --  (SELECT COUNT(DISTINCT t.tag) FROM … ) = cardinality(@nhan::text[]).)
+              --
+              -- Viết t.tenant_id = @tenant chứ KHÔNG phải = v.tenant_id: hai cách cùng kết quả,
+              -- nhưng ChatTagCatalogGuardTests đòi đúng chữ này ở mọi câu chạm bảng nhãn — mệnh đề
+              -- nối cột từng làm chốt đó xanh nhầm khi vế kẹp công ty đã bị bỏ hẳn.
+              AND (@nhan::text[] IS NULL OR EXISTS (
+                    SELECT 1 FROM chat_contact_tags t
+                     WHERE t.tenant_id = @tenant AND t.channel = v.channel
+                       AND t.external_id = v.contact_external_id
+                       AND t.tag = ANY(@nhan::text[])))
               AND (@sauLuc::timestamptz IS NULL
                    OR (v.last_activity_at, v.id) < (@sauLuc::timestamptz, @sauId::bigint))
               -- Luật xem, giống hệt GetConversationAsync — kẹp ở SQL, không lọc phía client.
@@ -403,6 +419,9 @@ public class ChatRepository
             LIMIT @limit
             """, new { tenant, trangThai, chiCuaToi, kenh, giaoCho, chuaDoc = chiChuaDoc, chiTheoDoi, nguoiDung,
                        tim = string.IsNullOrWhiteSpace(timKiem) ? null : $"%{timKiem.Trim()}%",
+                       // Mảng rỗng KHÁC null ở đây: rỗng thì = ANY(…) không khớp gì và danh sách
+                       // trắng trơn. Về null để mệnh đề tự vô hiệu.
+                       nhan = nhan is { Length: > 0 } ? nhan : null,
                        sauLuc = sau?.LastActivityAt, sauId = sau?.Id,
                        xemTatCa = xem.XemTatCa, maNguoi = xem.CrmUserId,
                        limit = Math.Clamp(limit, 1, 200) })).ToList();
@@ -606,8 +625,10 @@ public class ChatRepository
     /// </summary>
     /// <param name="nguoiDung">MÃ người đang xem — mốc "đã đọc" lấy theo người này. Mã chứ không
     /// phải tên đăng nhập (đặc tả 4b); null thì lùi về mốc chung cũ.</param>
+    /// <param name="nhan">Bộ lọc nhãn ĐANG áp cho danh sách — phải truyền vào đây nữa, xem
+    /// ChatTagFilterGuardTests.</param>
     public async Task<ChatInboxCounts> CountAsync(string tenant, int? chiCuaToi, NguoiXem xem,
-        int? nguoiDung = null, short? kenh = null, CancellationToken ct = default)
+        int? nguoiDung = null, short? kenh = null, string[]? nhan = null, CancellationToken ct = default)
     {
         await using var c = await _db.OpenAsync(ct);
         var rows = (await c.QueryAsync<RowCount>("""
@@ -621,11 +642,21 @@ public class ChatRepository
               ON r.tenant_id = v.tenant_id AND r.conversation_id = v.id AND r.user_id = @nguoiDung
             WHERE v.tenant_id = @tenant
               AND (@chiCuaToi IS NULL OR v.assigned_user_id = @chiCuaToi OR v.assigned_user_id IS NULL)
+              -- CÙNG bộ lọc nhãn với ListConversationsAsync. Chip đếm đứng ngay trên danh sách và
+              -- phải nói về ĐÚNG danh sách đó — cùng lý do đã kẹp theo kênh hồi 28/08/2026.
+              -- Câu này không JOIN chat_contacts, nhưng không cần: cặp khoá (channel,
+              -- contact_external_id) nằm sẵn trên chính chat_conversations.
+              AND (@nhan::text[] IS NULL OR EXISTS (
+                    SELECT 1 FROM chat_contact_tags t
+                     WHERE t.tenant_id = @tenant AND t.channel = v.channel
+                       AND t.external_id = v.contact_external_id
+                       AND t.tag = ANY(@nhan::text[])))
               -- Luật xem, giống hệt GetConversationAsync/ListConversationsAsync — thiếu vế này thì
               -- chip đếm lộ đúng con số mà luật 404 đang giấu (tổng hội thoại, chưa đọc, theo kênh).
               AND (@xemTatCa OR v.assigned_user_id = @maNguoi)
             GROUP BY v.status, v.channel
-            """, new { tenant, chiCuaToi, nguoiDung, xemTatCa = xem.XemTatCa, maNguoi = xem.CrmUserId })).ToList();
+            """, new { tenant, chiCuaToi, nguoiDung, xemTatCa = xem.XemTatCa, maNguoi = xem.CrmUserId,
+                       nhan = nhan is { Length: > 0 } ? nhan : null })).ToList();
 
         var theoTrangThai = new Dictionary<short, int>();
         var theoKenh = new Dictionary<short, int>();

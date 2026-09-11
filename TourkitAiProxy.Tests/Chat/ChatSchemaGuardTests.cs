@@ -1,4 +1,5 @@
-﻿using System.Text.RegularExpressions;
+﻿using System.Text;
+using System.Text.RegularExpressions;
 using Xunit;
 using TourkitAiProxy.Infrastructure.Chat.Inbox;
 
@@ -98,6 +99,38 @@ public class ChatSchemaGuardTests
             .Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
             .Select(x => Regex.Replace(x, @"\s+", " ").Trim()),
             StringComparer.OrdinalIgnoreCase);
+    }
+
+    /// <summary>
+    /// Thân một thành viên trong file C#: từ <paramref name="chuKy"/> đến khai báo thành viên KẾ
+    /// TIẾP ở cùng mức thụt lề (4 dấu cách).
+    ///
+    /// <para>⚠️ Dùng cái này thay cho cửa sổ N ký tự cố định. Đo thật 11/09/2026: chốt luật xem
+    /// cắt <c>.{0,3000}</c> sau tên hàm, và chỉ cần thêm một bộ lọc vào
+    /// <c>ListConversationsAsync</c> là mệnh đề cần canh trôi ra ngoài cửa sổ — chốt đỏ trong khi
+    /// mã hoàn toàn đúng. Lần sau nó có thể sai chiều ngược lại: cửa sổ trèo sang hàm kế và chốt
+    /// xanh nhờ mệnh đề của hàm khác.</para>
+    ///
+    /// <para>Truyền chữ ký ĐỦ (có <c>public</c>, kiểu trả về) chứ không chỉ tên hàm: tên hàm còn
+    /// xuất hiện trong chú thích XML phía trên, và bản cắt sẽ bắt đầu từ đó.</para>
+    /// </summary>
+    internal static string ThanThanhVien(string src, string chuKy)
+    {
+        var i = src.IndexOf(chuKy, StringComparison.Ordinal);
+        Assert.True(i >= 0, $"Không thấy “{chuKy}”");
+
+        var dong = src[i..].Split('\n');
+        var ra = new StringBuilder(dong[0]).Append('\n');
+        foreach (var d in dong.Skip(1))
+        {
+            var thanhVienMoi = d.StartsWith("    ", StringComparison.Ordinal)
+                && !d.StartsWith("     ", StringComparison.Ordinal)
+                && (d.Contains("public ") || d.Contains("private ")
+                 || d.Contains("internal ") || d.Contains("protected "));
+            if (thanhVienMoi) break;
+            ra.Append(d).Append('\n');
+        }
+        return ra.ToString();
     }
 
     internal static string DocFile(string duongDanTuongDoi)
