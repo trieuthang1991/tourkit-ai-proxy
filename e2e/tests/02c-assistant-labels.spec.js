@@ -37,6 +37,16 @@ test.beforeEach(async ({ page }) => {
   // vì lý do sai.)
   await page.route('**/api/v1/quota*', r =>
     r.fulfill({ json: { tenant: 'mock.tourkit.vn', limit: 10000, used: 100, remaining: 9900, usedPct: 1, warn: false, exhausted: false, updatedAt: '2026-07-16T00:00:00Z' } }));
+  // CÙNG LÝ DO với mock quota ngay trên, và đây là hai đường MỌC THÊM SAU khi bài này được viết
+  // (16/07/2026) nên không ai nhớ ra phải mock: cổng phân quyền gọi /permissions ở mỗi lần nạp
+  // trang, còn chuông Bảng tin gọi /insights/unread-count. Cả hai đi qua authedFetch, phiên giả
+  // ở đây đương nhiên 401, và MỘT lượt 401 là logout() toàn cục → màn đăng nhập che mất trang.
+  //
+  // Triệu chứng không hề nói ra điều đó: ba bài chỉ đứng chờ `.asst-input` rồi hết giờ sau 60
+  // giây. Đo 12/09/2026 — chúng đã đỏ như vậy kể từ ngày cổng phân quyền lên.
+  await page.route('**/api/v1/permissions*', r =>
+    r.fulfill({ json: { departmentId: 0, departmentName: 'Test', permissions: [] } }));
+  await page.route('**/api/v1/insights/unread-count*', r => r.fulfill({ json: { count: 0 } }));
   await page.route('**/api/v1/chat/stream', r =>
     r.fulfill({
       status: 200,
