@@ -30,15 +30,16 @@ Những cập nhật gần đây của TRAV-AI, viết cho người dùng. Mới
   lại con số đang hiện ngay phía trên. Hệ thống **không tự nối** kể cả khi chỉ tìm thấy đúng một
   người — trùng số điện thoại là chuyện có thật (số công ty, số người nhà), và nối nhầm thì trợ lý
   sẽ đọc lịch sử mua của người khác để nói chuyện với khách này.
-- **Ghi nhận chăm sóc từ ngay trong hội thoại.** Hội thoại đã nối khách CRM sẽ có nút *Ghi nhận
+- **Ghi nhật ký chăm sóc từ ngay trong hội thoại.** Hội thoại đã nối khách CRM sẽ có nút *Ghi nhận
   chăm sóc*: bấm một cái là nội dung trao đổi được trích lại và **xếp hàng chờ đồng bộ** sang hồ sơ
   khách bên CRM. Các lượt đã ghi hiện ngay dưới nút kèm trạng thái — *đang chờ · đang xử lý · đã
   sang CRM · lỗi* — để bạn biết việc của mình đang ở đâu thay vì bấm lại lần nữa.
 - **Tạo Cơ hội bán hàng từ hội thoại.** Từ hội thoại đã nối khách, bạn đặt tiêu đề rồi xếp hàng tạo
   một Cơ hội mang theo đoạn chat và đường dẫn quay lại hội thoại. Cần quyền *thêm Cơ hội bán hàng*
-  như khi tạo trực tiếp trên CRM. Việc xếp hàng hiện trạng thái ngay dưới nút; **phần chuyển sang
-  CRM còn đang hoàn thiện**, nên trong giai đoạn này việc sẽ dừng ở *đang chờ đồng bộ* — bạn nhìn
-  thấy rõ chứ không phải đoán.
+  như khi tạo trực tiếp trên CRM. Việc xếp hàng hiện trạng thái ngay dưới nút.
+  **Lưu ý:** phần tiếp nhận bên CRM còn đang hoàn thiện, nên trong giai đoạn này việc sẽ báo
+  *lỗi* ngay sau khi xếp hàng. Cơ hội chưa được tạo — hãy tạo trực tiếp trên CRM cho tới khi có
+  thông báo mới.
 - **Lọc hội thoại theo nhãn.** Thanh lọc có thêm hàng nhãn của công ty: bấm một hay nhiều nhãn để
   chỉ thấy khách đang mang nhãn đó. Chọn nhiều thì thấy khách mang **bất kỳ** nhãn nào trong số đã
   chọn, bấm lại một nhãn là bỏ nó ra, còn dấu × ở cuối hàng bỏ hết. Số đếm ở hàng trạng thái ngay
