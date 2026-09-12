@@ -96,6 +96,19 @@ mọi thư, giao diện nhìn vẫn bình thường). Nên thiếu khoá còn t�
 ## Conventions
 
 - User-facing strings, log messages, comments, and README are in Vietnamese — preserve that when editing.
+- **Tên định danh trong mã C#: TIẾNG ANH** (chốt 12/09/2026). Tên tệp, lớp, hàm, thuộc tính, biến,
+  tham số, cột CSDL, khoá JSON — tất cả tiếng Anh. Chữ hiển thị và chú thích vẫn tiếng Việt như
+  dòng trên; chỉ tên định danh là tiếng Anh.
+  - Trước đó quy ước ghi là *"tên định danh theo file mình đang sửa"* và mục này bỏ trống, nên
+    không ai tra ra được câu trả lời. Kết quả đúng như dự đoán: một tệp mới đặt tên tiếng Việt
+    (`CamXucHoiThoai.cs`) chỉ vì tệp bên cạnh có vài hàm tiếng Việt — trong khi chính tệp đó có
+    12 hàm tiếng Anh và 2 hàm tiếng Việt.
+  - **`wwwroot/**/*.jsx` là NGOẠI LỆ và vẫn dùng tiếng Việt**: toàn bộ giao diện đặt tên tiếng
+    Việt từ đầu (`taiDsach`, `chonDuoc`, `phanCong`, `moKhai`…). Đổi sang tiếng Anh ở đó là một
+    đợt sửa riêng rất lớn, không phải việc làm kèm; trước khi đợt đó xảy ra thì viết tiếng Anh
+    lẻ tẻ chỉ làm tệp lẫn lộn hơn.
+  - Còn sót vài tên tiếng Việt trong mã C# cũ (`HoanGuiGiay`, `CoTheSuaTin`, `TachCauHoiCuoi`…).
+    Sửa dần khi đụng tới, đừng đổi hàng loạt trong một commit không liên quan.
 - `appsettings.json` currently contains real-looking API keys. Treat them as secrets: don't echo them, and prefer env vars (e.g. `Providers__OpenCode__ApiKey`, `OPENCODE_API_KEY`, `NINE_ROUTES_API_KEY`) for any production-bound change.
 - Frontend exposes singletons via `window.tourkit*` namespaces (`tourkit.ai`, `tourkitStorage`, `tourkitParsers`, `tourkitRouter`, `tourkitHistory`, `tourkitHooks`, `tourkitUtil`).
 - **DateTime = UTC, luôn kèm `Z`** (STRICT — xem [docs/datetime-convention.md](datetime-convention.md)). Lưu DB bằng `DateTime.UtcNow` / SQL `SYSUTCDATETIME()` (KHÔNG `DateTime.Now`/`GETDATE()`). Parse chuỗi ngày để lưu → `DateTimeStyles.AssumeUniversal | AdjustToUniversal` (TryParse trần ra `Kind=Local` → lưu sai). Trả client: field `DateTime` tự có `Z` qua [`UtcDateTimeConverter`](../TourkitAiProxy.Shared/Json/UtcDateTimeConverter.cs) (global); chuỗi `ToString("o")` từ SQL phải `DateTime.SpecifyKind(x, DateTimeKind.Utc)` trước (Dapper đọc DATETIME2 ra `Kind=Unspecified` → thiếu `Z` → frontend lệch +7h). Frontend dùng `window.tourkitUtil.fmtAgo/fmtDate`, không tự cộng/trừ giờ.

@@ -68,15 +68,18 @@ kết nạp từng tầng, và câu trả lời cho "file này để đâu".
 | Bản tin sáng, Bảng tin, hàng đợi gửi | [docs/features/digest.md](docs/features/digest.md) |
 | Thêm bảng SQL, sửa schema, chống nhắc trùng | [docs/database-schema.md](docs/database-schema.md) |
 | Trang quản trị, log, tra cứu code bằng CodeGraph | [docs/operations.md](docs/operations.md) |
+| Dựng lại CSDL chat trên máy Linux mới | [docs/postgres-chat-setup.md](docs/postgres-chat-setup.md) |
 | Sửa `wwwroot/`, thêm trang, bundle, SEO | [docs/frontend.md](docs/frontend.md) |
 | Cờ tính năng, quota, ngày giờ, CHANGELOG, cách đặt tên | [docs/conventions.md](docs/conventions.md) |
+| Nhận việc mới, theo dõi tiến độ, ghi nợ kỹ thuật (Multica) | [docs/quy-trinh-multica.md](docs/quy-trinh-multica.md) |
 
 **Ba luật không nằm trong file nào khác — đọc ngay ở đây:**
 
 1. **Ngày giờ là UTC, luôn kèm `Z`.** Chi tiết + bẫy `Kind=Unspecified` ở
    [docs/datetime-convention.md](docs/datetime-convention.md).
-2. **Chữ hiển thị, log, chú thích viết tiếng Việt.** Tên định danh thì theo file mình đang sửa,
-   không theo cụm — xem [docs/conventions.md](docs/conventions.md).
+2. **Chữ hiển thị, log, chú thích viết tiếng Việt — tên định danh trong mã C# viết TIẾNG ANH.**
+   Tệp, lớp, hàm, biến, cột CSDL, khoá JSON: tiếng Anh. Ngoại lệ duy nhất là `wwwroot/**/*.jsx`,
+   vốn đặt tên tiếng Việt từ đầu. Chi tiết + lý do ở [docs/conventions.md](docs/conventions.md).
 3. **`CHANGELOG.md` là bắt buộc mỗi lần phát hành**, viết cho người dùng cuối: không mã commit,
    không tên file/hàm/bảng, không thuật ngữ kỹ thuật. Thay đổi có ảnh hưởng người dùng mà chưa có
    dòng trong CHANGELOG → **coi như chưa xong**.
