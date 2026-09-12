@@ -30,7 +30,7 @@ public static class TkPermissionCodes
     /// <para>Và phải kiểm lúc XẾP HÀNG, không đợi worker: worker chạy bằng quyền riêng của nó và
     /// không biết ai đã bấm nút, nên nó không kiểm thay được.</para>
     /// </summary>
-    public const string TaoCoHoi = "CH_TAO_MOI";
+    public const string CreateTicket = "CH_TAO_MOI";
 
     /// <summary>
     /// Hộp thư chat — xem phần ĐƯỢC GIAO cho mình. Đây là mức tối thiểu để vào được hộp thư.

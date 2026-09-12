@@ -101,16 +101,21 @@ public static class CrmActionKind
     /// <summary>
     /// Cơ hội bán hàng (= BookingTicket). Hợp đồng gói tin ở docs/crm-action-contract/README.md §3b.
     ///
-    /// <para>Worker app-side chưa có nhánh xử lý loại này, nên dòng mang Kind này nằm ở
-    /// <c>Pending</c> cho tới khi nhánh đó có. Đó là trạng thái BÌNH THƯỜNG của một hàng đợi chứ
-    /// không phải lỗi, và giao diện chat hiện đúng là "đang chờ đồng bộ" — nên không cần cờ chặn.</para>
+    /// <para><b>⚠️ Worker app-side chưa có nhánh xử lý loại này, và nó KHÔNG để dòng nằm chờ.</b>
+    /// Đo thật trên staging 12/09/2026: worker nhặt lên, không nhận ra Kind, rồi đánh dấu
+    /// <c>Failed</c> kèm <c>ErrorMessage = "Kind không hỗ trợ: 'create-booking-ticket'"</c> —
+    /// chưa tới một phút sau khi thả.</para>
+    ///
+    /// <para>Nghĩa là tới khi nhánh worker có, mỗi lượt bấm nút sinh ra một dòng HỎNG, và câu lỗi
+    /// kỹ thuật đó hiện thẳng ra cho người trực đọc. Trước đó tài liệu ở đây ghi là dòng "nằm chờ"
+    /// — sai, và cái sai đó chỉ lộ ra khi gọi thật.</para>
     /// </summary>
     public const string CreateBookingTicket = "create-booking-ticket";
 }
 
 /// <summary>Nghiệp vụ phía chat sinh ra dòng hàng đợi — giá trị cột Action.</summary>
-public static class CrmActionNguon
+public static class CrmActionOrigin
 {
-    public const string ChamSoc = "chat-cham-soc";
-    public const string CoHoi = "chat-co-hoi";
+    public const string CustomerCare = "chat-cham-soc";
+    public const string SalesOpportunity = "chat-co-hoi";
 }

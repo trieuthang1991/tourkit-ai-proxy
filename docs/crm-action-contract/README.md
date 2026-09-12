@@ -1,4 +1,4 @@
-# Hợp đồng hàng đợi `dbo.CrmActionQueue` — trợ lý hành động → CRM
+﻿# Hợp đồng hàng đợi `dbo.CrmActionQueue` — trợ lý hành động → CRM
 
 Trợ lý (`/assistant`, `/travai`) có 2 hành động ghi vào CRM: **giao việc** (`assign_task`) và
 **tạo lịch hẹn CSKH** (`create_appointment`). Proxy (`tourkit-ai-proxy`) **KHÔNG POST thẳng vào
@@ -127,10 +127,15 @@ tự set default hợp lý (proxy chỉ gửi field trợ lý có đủ ngữ c�
 ## 3b. `create-booking-ticket` → `POST /api/booking-tickets` (`CreateBookingTicketRequest`)
 
 > **Loại việc thứ ba.** Proxy **đã thả dòng** đúng khuôn này — tính năng đang chạy, không có cờ
-> nào chặn. Nhánh xử lý bên `CrmActionSyncWorker` do chủ dự án thống nhất với team rồi làm sau;
-> tới lúc đó các dòng `create-booking-ticket` nằm ở `Status = 0 (Pending)` và giao diện chat hiện
-> đúng là *đang chờ đồng bộ*. Mục này là hợp đồng giữa hai bên, viết trước mã để không bên nào
-> phải đoán bên kia.
+> nào chặn. Nhánh xử lý bên `CrmActionSyncWorker` do chủ dự án thống nhất với team rồi làm sau.
+>
+> **⚠️ Tới lúc đó, dòng KHÔNG nằm chờ mà bị đánh dấu HỎNG.** Đo thật trên staging 12/09/2026:
+> worker nhặt lên trong chưa tới một phút, không nhận ra Kind, ghi
+> `Status = 3 (Failed)` kèm `ErrorMessage = "Kind không hỗ trợ: 'create-booking-ticket'"`. Câu lỗi
+> kỹ thuật đó hiện thẳng cho người trực đọc trong khối trạng thái của hộp thư chat.
+>
+> Nên thứ tự triển khai đúng là: **viết nhánh worker TRƯỚC**, rồi mới mở nút cho người dùng — hoặc
+> chấp nhận một giai đoạn mà mỗi lượt bấm để lại một dòng hỏng nhìn thấy được.
 
 **Cơ hội bán hàng = BookingTicket** (xem `toutkit-app/docs/module-mapping.md`) — không phải
 Lead/Prospect.
@@ -145,7 +150,7 @@ Lead/Prospect.
   "emailKH": null,
   "tenPhieu": "Tư vấn tour Nhật tháng 10",
   "noiDungPhieu": "Trích từ hộp thư chat:\nKhách: …\nNhân viên: …\n\nXem hội thoại: https://…",
-  "nguonPhieu": 1,
+  "nguonPhieu": "chat-messenger",
   "nguoiPhuTrachs": [45]
 }
 ```
@@ -157,7 +162,7 @@ Lead/Prospect.
 | `soDienThoaiKH`, `emailKH` | cùng tên | Từ `chat_contacts`; có thể `null` (Telegram/Messenger không bao giờ cho số). |
 | `tenPhieu` | `TenPhieu` | Người trực gõ, bỏ trống thì proxy dựng `"Chat: {tên khách}"`. |
 | `noiDungPhieu` | `NoiDungPhieu` | Trích đoạn chat + đường dẫn về hội thoại. **Trích, không tóm tắt bằng AI** — người đọc phiếu cần đúng lời khách. |
-| `nguonPhieu` | `NguonPhieu` | Mã số. Web cũ dùng `3` cho đại lý; **chưa có mã cho "từ chat"**. Proxy đọc từ cấu hình `Chat:NguonPhieuCoHoi` (mặc định `1`) → khi CRM cấp mã mới, **sửa cấu hình proxy**, handler không phải đụng vào. |
+| `nguonPhieu` | `NguonPhieu` | **CHUỖI ĐỊNH DANH, không phải mã số** — `"chat-messenger"`, `"chat-zalo"`, `"chat-telegram"`… **Worker phải tự chuẩn hoá** về mã số của CRM (chủ dự án chốt 12/09/2026). Trước đó proxy gửi một mã số đọc từ cấu hình, mặc định `1` — một con số tự chọn, và nếu CRM đang dùng `1` cho việc khác thì mọi Cơ hội từ chat bị gắn sai nguồn trong im lặng. Kèm tên kênh vì báo cáo cần trả lời "Cơ hội đến từ Zalo hay Facebook" — hỏi sau thì không truy lại được. |
 | `nguoiPhuTrachs` | `NguoiPhuTrachs` | Mã người trong CRM — người đang phụ trách hội thoại. Mảng rỗng thì handler để CRM tự xử theo mặc định. |
 
 **Ba việc handler phải tự làm:**

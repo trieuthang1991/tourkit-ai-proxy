@@ -202,6 +202,19 @@ public record StateWatermark(ChatState State, DateTime UpToUtc, string? External
 
 public class ChatContact
 {
+    /// <summary>
+    /// Tên khách TỰ KHAI trong đoạn chat. <c>null</c> khi chưa bắt được.
+    ///
+    /// <para>Tách khỏi <c>DisplayName</c> (tên kênh cung cấp) vì hai thứ khác nguồn và khác độ tin
+    /// cậy. Khi dựng hồ sơ gửi sang CRM thì tên này được ưu tiên: kênh thường chỉ cho biệt danh,
+    /// còn tên khách tự gõ mới là tên đi vào hồ sơ.</para>
+    /// </summary>
+    public string? StatedName { get; set; }
+
+    /// <summary>Tên khách CRM lúc NỐI — ảnh chụp, chỉ để hiển thị. Xem ghi chú ở ChatDb.</summary>
+    public string? CrmCustomerName { get; set; }
+    /// <summary>Mã khách CRM lúc nối (vd <c>KH042841</c>) — ảnh chụp, chỉ để hiển thị.</summary>
+    public string? CrmCustomerCode { get; set; }
     public string TenantId { get; set; } = "";
     public short Channel { get; set; }
     public string ExternalId { get; set; } = "";
@@ -238,6 +251,20 @@ public class ChatConversation
     // Dòng cũ tạo trước 07/09/2026 để null: chưa gán bằng mã, không phải chưa có người.
     public int? AssignedUserId { get; set; }
     public DateTime? BotResumeAt { get; set; }
+    /// <summary>
+    /// TỔNG điểm cảm xúc của mọi tín hiệu trong hội thoại (thang 5 bậc —
+    /// xem <see cref="ConversationSentiment"/>). Đi cùng <see cref="SentimentCount"/>.
+    /// </summary>
+    public int SentimentSum { get; set; }
+    /// <summary>
+    /// SỐ tín hiệu đã góp vào <see cref="SentimentSum"/>.
+    ///
+    /// <para><c>0</c> = <b>chưa có tín hiệu nào</b>, KHÔNG phải trung tính. Hội thoại chưa ai thả
+    /// biểu tượng và hội thoại khách thật sự bình thản là hai chuyện khác nhau.</para>
+    /// </summary>
+    public int SentimentCount { get; set; }
+    /// <summary>Lần cuối có tín hiệu — để biết thống kê đã cũ tới mức nào.</summary>
+    public DateTime? SentimentAt { get; set; }
     public DateTime? ContactRepliedAt { get; set; }
     public DateTime? AgentRepliedAt { get; set; }
     /// Mốc đọc CHUNG của cả công ty. Giữ lại làm mốc ban đầu cho người chưa có dòng riêng —

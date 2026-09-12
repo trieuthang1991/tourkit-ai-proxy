@@ -1,4 +1,4 @@
-using System.Text.RegularExpressions;
+﻿using System.Text.RegularExpressions;
 using Xunit;
 
 namespace TourkitAiProxy.Tests.Chat;
@@ -67,8 +67,8 @@ public class ChatBotRanhGioiGuardTests
         var soan = BoChuThich(ChatSchemaGuardTests.DocFile(
             "TourkitAiProxy.Services/Chat/Inbox/ChatReplyComposer.cs"));
 
-        Assert.Contains("ChatRules.BotDangDinhTraLoi", soan);
-        Assert.Contains("GoiY.BotDangTraLoi", soan);
+        Assert.Contains("ChatRules.BotIsAboutToReply", soan);
+        Assert.Contains("Suggestion.BotIsHandlingIt", soan);
     }
 
     /// <summary>

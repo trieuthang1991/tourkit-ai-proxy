@@ -65,10 +65,12 @@ public class ChannelCredentialStore
     }
 
     /// <summary>
-    /// Tên hiển thị của từng tài khoản kênh, CHỈ cho những kênh có từ hai tài khoản trở lên.
+    /// Tên hiển thị của từng tài khoản kênh — Trang Facebook nào, OA Zalo nào, bot Telegram nào.
     ///
-    /// <para>Một tài khoản thì tên nó là nhiễu: lặp đúng một chữ trên mọi dòng hội thoại mà không
-    /// nói thêm gì. Xem <c>ChannelLabelMapTests</c>.</para>
+    /// <para><b>LUÔN đặt tên, kể cả kênh chỉ có một tài khoản</b> (chủ dự án chốt 12/09/2026).
+    /// Bản đầu bỏ qua kênh một tài khoản với lập luận "tên Trang là nhiễu" — sai trong thực tế:
+    /// người trực nhìn một hộp thư TRỘN NHIỀU KÊNH vẫn cần biết tin này vào từ đâu, mà huy hiệu
+    /// kênh chỉ nói "Facebook" chứ không nói Trang nào. Xem <c>ChannelLabelMapTests</c>.</para>
     ///
     /// <para>Thiếu <c>label</c> thì lùi về mã tài khoản chứ không bỏ trống — trong danh sách hai
     /// Trang, một dòng có tên và một dòng trống sẽ bị đọc thành "dòng trống là Trang còn lại".</para>
@@ -77,13 +79,8 @@ public class ChannelCredentialStore
         IEnumerable<(short Kenh, string AccountId, string? Label)> ds)
     {
         var ra = new Dictionary<(short, string), string>();
-        foreach (var nhom in ds.GroupBy(x => x.Kenh))
-        {
-            var tk = nhom.ToList();
-            if (tk.Count < 2) continue;
-            foreach (var x in tk)
-                ra[(x.Kenh, x.AccountId)] = string.IsNullOrWhiteSpace(x.Label) ? x.AccountId : x.Label!;
-        }
+        foreach (var x in ds)
+            ra[(x.Kenh, x.AccountId)] = string.IsNullOrWhiteSpace(x.Label) ? x.AccountId : x.Label!;
         return ra;
     }
 

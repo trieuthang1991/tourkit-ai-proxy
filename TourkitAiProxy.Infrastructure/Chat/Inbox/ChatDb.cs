@@ -137,6 +137,21 @@ public class ChatDb
     --
     -- Tin của khách bị chặn VẪN ĐƯỢC GHI: chặn không phải xoá, và khi cần đối chất thì đó là
     -- bằng chứng duy nhất còn lại.
+    -- Tên khách TỰ KHAI trong đoạn chat ("mình tên Nguyễn Văn An"), thêm 12/09/2026.
+    -- Cột RIÊNG, cố ý KHÔNG đè lên display_name: display_name là tên kênh cung cấp (thường là
+    -- biệt danh Facebook), còn đây là tên khách tự gõ ra. Hai thứ khác độ tin cậy và khác nguồn;
+    -- gộp một cột thì một lần bắt nhầm là xoá mất tên thật, không lấy lại được.
+    ALTER TABLE chat_contacts ADD COLUMN IF NOT EXISTS stated_name text;
+    -- Ảnh chụp hồ sơ khách CRM LÚC NỐI (12/09/2026). Chỉ để HIỂN THỊ.
+    --
+    -- Vì sao phải lưu: CRM cho tìm theo tên/số/mã khách nhưng KHÔNG có đường lấy khách theo mã.
+    -- Không lưu thì màn hình chỉ hiện được đúng con số "#60423" — vô nghĩa với người trực, mà
+    -- đó chính là thứ chủ dự án bắt được ngày 12/09.
+    --
+    -- Là ẢNH CHỤP nên có thể cũ: khách đổi tên bên CRM thì đây vẫn tên lúc nối. Chấp nhận, vì
+    -- mã khách mới là thứ có thẩm quyền; hai cột này chỉ giúp người đọc nhận ra đúng người.
+    ALTER TABLE chat_contacts ADD COLUMN IF NOT EXISTS crm_customer_name text;
+    ALTER TABLE chat_contacts ADD COLUMN IF NOT EXISTS crm_customer_code text;
     ALTER TABLE chat_contacts ADD COLUMN IF NOT EXISTS blocked_utc timestamptz;
     ALTER TABLE chat_contacts ADD COLUMN IF NOT EXISTS blocked_by  text;
 
@@ -208,6 +223,25 @@ public class ChatDb
     --   source_thread_id  mã BÀI VIẾT. Rỗng với tin nhắn riêng.
     ALTER TABLE chat_conversations ADD COLUMN IF NOT EXISTS surface          smallint NOT NULL DEFAULT 0;
     ALTER TABLE chat_conversations ADD COLUMN IF NOT EXISTS source_thread_id text     NOT NULL DEFAULT '';
+
+    -- CẢM XÚC hội thoại, thang 5 bậc do chủ dự án đặt (12/09/2026): 1 rất tiêu cực … 5 rất tích
+    -- cực. Xem Domain/Chat/ConversationSentiment.cs — thang nằm ở đó, đây chỉ là chỗ cất.
+    --
+    -- THỐNG KÊ CẢ CUỘC HỘI THOẠI, không phải điểm của tín hiệu gần nhất. Chủ dự án chốt
+    -- 12/09/2026: "trong cuộc hội thoại toàn tích cực thì cung bậc cảm xúc phải happy".
+    --
+    -- Cộng dồn chứ không đè: giữ TỔNG điểm và SỐ tín hiệu, điểm hiển thị là trung bình. Bản đầu
+    -- ghi đè mỗi lần có tín hiệu mới — một khách khen mười câu rồi lỡ thả một mặt buồn là cả hội
+    -- thoại thành tiêu cực, và chín tín hiệu tốt trước đó biến mất không dấu vết.
+    --
+    -- count = 0 nghĩa là CHƯA CÓ TÍN HIỆU NÀO, khác hẳn "trung tính". Hội thoại chưa ai thả biểu
+    -- tượng và hội thoại khách thực sự bình thản là hai chuyện; gộp lại thì một hộp thư toàn
+    -- khách im lặng trông như ai cũng hài lòng.
+    --
+    -- sentiment_at = lần cuối có tín hiệu, để biết thống kê này đã cũ tới mức nào.
+    ALTER TABLE chat_conversations ADD COLUMN IF NOT EXISTS sentiment_sum   integer NOT NULL DEFAULT 0;
+    ALTER TABLE chat_conversations ADD COLUMN IF NOT EXISTS sentiment_count integer NOT NULL DEFAULT 0;
+    ALTER TABLE chat_conversations ADD COLUMN IF NOT EXISTS sentiment_at    timestamptz;
 
     -- Khoá gồm CẢ hai cột mới. Một người bình luận dưới hai bài khác nhau là hai hội thoại khác
     -- nhau: gộp lại thì người trực đọc một chuỗi câu rời rạc, không biết câu nào nói về bài nào.

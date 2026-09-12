@@ -1,22 +1,23 @@
-using TourkitAiProxy.Infrastructure.Chat.Channels;
+﻿using TourkitAiProxy.Infrastructure.Chat.Channels;
 using Xunit;
 
 namespace TourkitAiProxy.Tests.Chat;
 
 /// <summary>
-/// Tên Trang chỉ hiện khi nó PHÂN BIỆT được cái gì đó.
+/// Tên Trang/OA/bot LUÔN được đặt — kể cả kênh chỉ có một tài khoản (chủ dự án chốt 12/09/2026).
 ///
-/// <para>Công ty nối một Trang thì tên Trang là nhiễu trên mọi dòng — ai cũng biết tin nhắn đến từ
-/// đâu, dòng nào cũng lặp lại đúng một chữ. Từ hai Trang (hoặc hai OA, hai bot) cùng kênh trở lên
-/// thì ngược lại: thiếu nó, người trực trả lời mà không biết mình đang đứng tên Trang nào.</para>
+/// <para>Bản đầu bỏ qua kênh một tài khoản, lập luận "tên Trang là nhiễu vì ai cũng biết tin đến
+/// từ đâu". Sai trong thực tế: hộp thư TRỘN NHIỀU KÊNH, và huy hiệu kênh chỉ nói "Facebook" chứ
+/// không nói Trang nào. Trên staging — mỗi kênh đúng một tài khoản — luật cũ làm KHÔNG dòng nào
+/// hiện nguồn, nên chủ dự án không biết tin đến từ đâu.</para>
 /// </summary>
 public class ChannelLabelMapTests
 {
     [Fact]
-    public void Mot_tai_khoan_tren_kenh_thi_KHONG_dat_ten()
+    public void Mot_tai_khoan_tren_kenh_VAN_dat_ten()
     {
         var ra = ChannelCredentialStore.ChonTenTrang(new[] { ((short)1, "pageA", (string?)"Trang A") });
-        Assert.Empty(ra);
+        Assert.Equal("Trang A", ra[((short)1, "pageA")]);
     }
 
     [Fact]
@@ -26,13 +27,13 @@ public class ChannelLabelMapTests
         {
             ((short)1, "pageA", (string?)"Trang A"),
             ((short)1, "pageB", (string?)"Trang B"),
-            ((short)4, "oa1",   (string?)"OA duy nhất"),   // kênh khác, một mình → không đặt
+            ((short)4, "oa1",   (string?)"OA duy nhất"),   // kênh khác, một mình → VẪN đặt
         });
 
-        Assert.Equal(2, ra.Count);
+        Assert.Equal(3, ra.Count);
         Assert.Equal("Trang A", ra[((short)1, "pageA")]);
         Assert.Equal("Trang B", ra[((short)1, "pageB")]);
-        Assert.False(ra.ContainsKey(((short)4, "oa1")));
+        Assert.Equal("OA duy nhất", ra[((short)4, "oa1")]);
     }
 
     /// <summary>

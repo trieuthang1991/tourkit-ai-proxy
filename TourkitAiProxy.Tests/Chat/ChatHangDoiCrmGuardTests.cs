@@ -1,4 +1,4 @@
-using Xunit;
+﻿using Xunit;
 
 namespace TourkitAiProxy.Tests.Chat;
 
@@ -33,23 +33,23 @@ public class ChatHangDoiCrmGuardTests
     }
 
     /// <summary>
-    /// Chưa nối khách CRM thì TỪ CHỐI, không thả dòng.
+    /// KHÔNG được đòi nối khách CRM trước (chủ dự án chốt 12/09/2026) — và phải gửi kèm ĐỦ thông
+    /// tin bắt được để phía dịch vụ tự khớp hoặc tạo khách mới.
     ///
-    /// <para><c>CreateCustomerCareRequest.CustomerId</c> là bắt buộc bên CRM. Thả một dòng thiếu
-    /// mã khách là đẩy cho worker một việc chắc chắn hỏng — mà lúc nó hỏng thì người bấm nút đã
-    /// rời máy từ lâu, và thứ họ thấy lúc bấm là một thông báo thành công.</para>
+    /// <para>Bản đầu từ chối thẳng khi chưa nối. Đúng về hợp đồng CRM nhưng sai về nghiệp vụ: hầu
+    /// hết hội thoại không bao giờ được nối tay, nên nút không bao giờ hiện và tính năng gần như
+    /// không dùng được. Chốt này canh đúng chiều đó — mọc lại cửa chặn là đỏ.</para>
     /// </summary>
     [Fact]
-    public void Duong_cham_soc_doi_hoi_thoai_da_noi_khach_CRM()
+    public void Duong_cham_soc_KHONG_doi_noi_khach_va_gui_kem_ten_va_so()
     {
         var than = ThanRoute("g.MapPost(\"/conversations/{id:long}/cham-soc\"");
 
-        Assert.Contains("CrmCustomerId", than);
-        // Và phải từ chối trước khi thả dòng, không phải thả rồi mới xét.
-        var viTriTuChoi = than.IndexOf("CrmCustomerId", System.StringComparison.Ordinal);
-        var viTriTha = than.IndexOf("EnqueueAsync", System.StringComparison.Ordinal);
-        Assert.True(viTriTuChoi < viTriTha,
-            "Xét điều kiện nối khách SAU khi đã thả dòng — dòng hỏng vẫn nằm trong hàng đợi.");
+        // Không còn câu từ chối nào vì chưa nối khách.
+        Assert.DoesNotContain("chưa nối với khách", than);
+        // Và gói tin PHẢI mang tên + số: thiếu chúng thì phía dịch vụ không có gì để khớp.
+        Assert.Contains("customerName", than);
+        Assert.Contains("customerPhone", than);
     }
 
     [Fact]
@@ -60,7 +60,7 @@ public class ChatHangDoiCrmGuardTests
         Assert.Contains("GhiNhatKyAsync", than);
         // Nguồn lấy từ hằng, không gõ chuỗi tay ở endpoint: gõ tay thì chỗ đọc và chỗ ghi lệch
         // nhau một dấu gạch là hàng đợi lọc không ra gì mà không ai thấy lỗi.
-        Assert.Contains("CrmActionNguon.ChamSoc", than);
+        Assert.Contains("CrmActionOrigin.CustomerCare", than);
         Assert.Contains("CrmActionKind.CreateAppointment", than);
     }
 
@@ -73,7 +73,7 @@ public class ChatHangDoiCrmGuardTests
 
         Assert.Contains("EnqueueAsync", than);
         Assert.Contains("CrmActionKind.CreateBookingTicket", than);
-        Assert.Contains("CrmActionNguon.CoHoi", than);
+        Assert.Contains("CrmActionOrigin.SalesOpportunity", than);
         Assert.DoesNotContain("api.PostAsync", than);
         Assert.DoesNotContain("api.PutAsync", than);
     }
@@ -91,10 +91,10 @@ public class ChatHangDoiCrmGuardTests
     {
         var than = ThanRoute("g.MapPost(\"/conversations/{id:long}/co-hoi\"");
 
-        Assert.Contains("CanCreateCoHoiAsync", than);
-        Assert.Contains("ForbiddenCoHoi", than);
+        Assert.Contains("CanCreateTicketAsync", than);
+        Assert.Contains("ForbiddenCreateTicket", than);
 
-        var viTriQuyen = than.IndexOf("CanCreateCoHoiAsync", System.StringComparison.Ordinal);
+        var viTriQuyen = than.IndexOf("CanCreateTicketAsync", System.StringComparison.Ordinal);
         var viTriTha = than.IndexOf("EnqueueAsync", System.StringComparison.Ordinal);
         Assert.True(viTriQuyen < viTriTha,
             "Kiểm quyền SAU khi đã thả dòng — việc vẫn nằm trong hàng đợi và worker vẫn nhặt.");
@@ -123,15 +123,14 @@ public class ChatHangDoiCrmGuardTests
     }
 
     [Fact]
-    public void Duong_co_hoi_doi_hoi_thoai_da_noi_khach_CRM()
+    public void Duong_co_hoi_KHONG_doi_noi_khach_va_gui_kem_ten_va_so()
     {
-        // IdKhachHang > 0 và TenKH là BẮT BUỘC bên CRM — thả dòng thiếu là đẩy việc chắc chắn hỏng.
+        // Cùng lý do với đường cham-soc ở trên.
         var than = ThanRoute("g.MapPost(\"/conversations/{id:long}/co-hoi\"");
 
-        Assert.Contains("CrmCustomerId", than);
-        var viTriXet = than.IndexOf("CrmCustomerId", System.StringComparison.Ordinal);
-        var viTriTha = than.IndexOf("EnqueueAsync", System.StringComparison.Ordinal);
-        Assert.True(viTriXet < viTriTha, "Xét điều kiện nối khách SAU khi đã thả dòng.");
+        Assert.DoesNotContain("chưa nối với khách", than);
+        Assert.Contains("tenKH", than);
+        Assert.Contains("soDienThoaiKH", than);
     }
 
     /// <summary>

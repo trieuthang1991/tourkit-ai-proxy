@@ -231,7 +231,7 @@ public class ChatRulesTests
             Tin((short)ChatDirection.In,  "Tháng 10, 4 người"),
         };
 
-        var (cauHoi, _, truoc) = ChatRules.TachCauHoiCuoi(ds);
+        var (cauHoi, _, truoc) = ChatRules.SplitLatestQuestion(ds);
 
         Assert.Equal("Tháng 10, 4 người", cauHoi);
         Assert.Equal(2, truoc.Count);
@@ -249,7 +249,7 @@ public class ChatRulesTests
             Tin((short)ChatDirection.Out, "Dạ anh đi tháng mấy ạ?"),
         };
 
-        Assert.Null(ChatRules.TachCauHoiCuoi(ds).CauHoi);
+        Assert.Null(ChatRules.SplitLatestQuestion(ds).CauHoi);
     }
 
     /// <summary>
@@ -271,7 +271,7 @@ public class ChatRulesTests
             Tin((short)ChatDirection.Out, "Dạ để em kiểm tra giúp anh ạ", state: (short)ChatState.Pending),
         };
 
-        Assert.Null(ChatRules.TachCauHoiCuoi(ds).CauHoi);
+        Assert.Null(ChatRules.SplitLatestQuestion(ds).CauHoi);
     }
 
     [Fact]
@@ -286,7 +286,7 @@ public class ChatRulesTests
             Tin((short)ChatDirection.Out, "gửi hỏng", state: (short)ChatState.Failed),
         };
 
-        var (cauHoi, _, truoc) = ChatRules.TachCauHoiCuoi(ds);
+        var (cauHoi, _, truoc) = ChatRules.SplitLatestQuestion(ds);
 
         Assert.Equal("Câu thật", cauHoi);
         Assert.Empty(truoc);
@@ -295,7 +295,7 @@ public class ChatRulesTests
     [Fact]
     public void Tach_cau_hoi_cuoi__hoi_thoai_rong_tra_null_chu_khong_nem()
     {
-        var (cauHoi, _, truoc) = ChatRules.TachCauHoiCuoi(System.Array.Empty<ChatMessage>());
+        var (cauHoi, _, truoc) = ChatRules.SplitLatestQuestion(System.Array.Empty<ChatMessage>());
         Assert.Null(cauHoi);
         Assert.Empty(truoc);
     }
@@ -308,7 +308,7 @@ public class ChatRulesTests
         var luc = new DateTime(2026, 9, 11, 8, 30, 0, DateTimeKind.Utc);
         var ds = new[] { Tin((short)ChatDirection.In, "Khách hỏi", luc: luc) };
 
-        Assert.Equal(luc, ChatRules.TachCauHoiCuoi(ds).HoiLuc);
+        Assert.Equal(luc, ChatRules.SplitLatestQuestion(ds).HoiLuc);
     }
 
     // ── Ranh giới: bot tự trả lời ↔ nhân viên xin gợi ý ─────────────────────
@@ -326,14 +326,14 @@ public class ChatRulesTests
     public void Khach_vua_nhan_va_bot_dang_bat_thi_BOT_lo__goi_y_phai_nhuong()
     {
         var ht = new ChatConversation();
-        Assert.True(ChatRules.BotDangDinhTraLoi(ht, botBat: true, Now.AddSeconds(-3), Now));
+        Assert.True(ChatRules.BotIsAboutToReply(ht, botBat: true, Now.AddSeconds(-3), Now));
     }
 
     [Fact]
     public void Bot_tat_thi_goi_y_lam_viec_ngay_khong_phai_cho()
     {
         var ht = new ChatConversation();
-        Assert.False(ChatRules.BotDangDinhTraLoi(ht, botBat: false, Now.AddSeconds(-3), Now));
+        Assert.False(ChatRules.BotIsAboutToReply(ht, botBat: false, Now.AddSeconds(-3), Now));
     }
 
     [Fact]
@@ -341,7 +341,7 @@ public class ChatRulesTests
     {
         // Nhân viên vừa trả lời → BotResumeAt còn hiệu lực → bot câm → gợi ý là nguồn duy nhất.
         var ht = new ChatConversation { BotResumeAt = Now.AddMinutes(10) };
-        Assert.False(ChatRules.BotDangDinhTraLoi(ht, botBat: true, Now.AddSeconds(-3), Now));
+        Assert.False(ChatRules.BotIsAboutToReply(ht, botBat: true, Now.AddSeconds(-3), Now));
     }
 
     [Fact]
@@ -351,23 +351,23 @@ public class ChatRulesTests
         // cung cấp hỏng. Không có vế thời gian này thì nhân viên vĩnh viễn nhận câu "bot đang
         // trả lời" cho một con bot không bao giờ trả lời.
         var ht = new ChatConversation();
-        Assert.False(ChatRules.BotDangDinhTraLoi(ht, botBat: true,
-            Now - ChatRules.CuaSoBotTraLoi.Add(TimeSpan.FromSeconds(1)), Now));
+        Assert.False(ChatRules.BotIsAboutToReply(ht, botBat: true,
+            Now - ChatRules.BotReplyWindow.Add(TimeSpan.FromSeconds(1)), Now));
     }
 
     [Fact]
     public void Hoi_thoai_dong_hoac_khach_bi_chan_thi_bot_khong_lo__goi_y_lam_viec()
     {
-        Assert.False(ChatRules.BotDangDinhTraLoi(
+        Assert.False(ChatRules.BotIsAboutToReply(
             new ChatConversation { Status = (short)ChatStatus.Closed }, true, Now.AddSeconds(-3), Now));
-        Assert.False(ChatRules.BotDangDinhTraLoi(
+        Assert.False(ChatRules.BotIsAboutToReply(
             new ChatConversation { BlockedUtc = Now }, true, Now.AddSeconds(-3), Now));
     }
 
     [Fact]
     public void Khong_co_cau_hoi_nao_thi_bot_cung_khong_lo()
     {
-        Assert.False(ChatRules.BotDangDinhTraLoi(new ChatConversation(), true, null, Now));
+        Assert.False(ChatRules.BotIsAboutToReply(new ChatConversation(), true, null, Now));
     }
 
     // ── Tóm tắt đoạn chat để gửi sang CRM ───────────────────────────────────
@@ -381,7 +381,7 @@ public class ChatRulesTests
             Tin((short)ChatDirection.Out, "Dạ để em gửi anh lịch trình ạ"),
         };
 
-        var ra = ChatRules.TomTatChamSoc(ds);
+        var ra = ChatRules.SummarizeForCareLog(ds);
 
         Assert.Contains("Khách: Cho hỏi tour Nhật tháng 10", ra);
         Assert.Contains("Nhân viên: Dạ để em gửi anh lịch trình ạ", ra);
@@ -401,7 +401,7 @@ public class ChatRulesTests
             .Select(i => Tin((short)ChatDirection.In, "Câu số " + i + " " + new string('x', 80)))
             .ToArray();
 
-        var ra = ChatRules.TomTatChamSoc(ds, tranKyTu: 600);
+        var ra = ChatRules.SummarizeForCareLog(ds, tranKyTu: 600);
 
         Assert.True(ra.Length <= 600, $"Dài {ra.Length} ký tự, vượt trần 600");
         Assert.Contains("Câu số 59", ra);          // giữ phần cuối
@@ -419,7 +419,7 @@ public class ChatRulesTests
             Tin((short)ChatDirection.Out, "gửi hỏng", state: (short)ChatState.Failed),
         };
 
-        var ra = ChatRules.TomTatChamSoc(ds);
+        var ra = ChatRules.SummarizeForCareLog(ds);
 
         Assert.Contains("Câu thật", ra);
         Assert.DoesNotContain("gửi hỏng", ra);
@@ -428,7 +428,7 @@ public class ChatRulesTests
     [Fact]
     public void Tom_tat_cham_soc__hoi_thoai_rong_tra_chuoi_rong_chu_khong_nem()
     {
-        Assert.Equal("", ChatRules.TomTatChamSoc(System.Array.Empty<ChatMessage>()));
+        Assert.Equal("", ChatRules.SummarizeForCareLog(System.Array.Empty<ChatMessage>()));
     }
 
     // ── Tóm tắt cho Cơ hội bán hàng ─────────────────────────────────────────
@@ -445,7 +445,7 @@ public class ChatRulesTests
             Tin((short)ChatDirection.In,  "Tháng 10, 4 người"),
         };
 
-        var ra = ChatRules.TomTatChoCoHoi(ds, 3, "https://travelai.vn/chat-inbox?hoi-thoai=53");
+        var ra = ChatRules.SummarizeForTicket(ds, 3, "https://travelai.vn/chat-inbox?hoi-thoai=53");
 
         Assert.DoesNotContain("Tin cũ nhất", ra);
         Assert.Contains("Khách: Cho hỏi tour Nhật", ra);
@@ -463,7 +463,58 @@ public class ChatRulesTests
     [Fact]
     public void Tom_tat_co_hoi__khong_co_tin_chu_thi_van_con_duong_dan()
     {
-        var ra = ChatRules.TomTatChoCoHoi(System.Array.Empty<ChatMessage>(), 5, "https://x/y");
+        var ra = ChatRules.SummarizeForTicket(System.Array.Empty<ChatMessage>(), 5, "https://x/y");
         Assert.Contains("https://x/y", ra);
     }
+
+    // ── Bắt số điện thoại và tên khách tự khai trong tin nhắn ───────────────
+
+    [Theory]
+    [InlineData("Số mình là 0901234567 nhé", "0901234567")]
+    [InlineData("Khách có gửi Số điện thoại tôi 0982385108", "0982385108")]   // ca thật 12/09/2026
+    [InlineData("0901 234 567", "0901234567")]
+    [InlineData("090.123.4567", "0901234567")]
+    [InlineData("090-123-4567", "0901234567")]
+    [InlineData("Gọi em 0387654321 ạ", "0387654321")]
+    [InlineData("+84901234567", "0901234567")]
+    [InlineData("84901234567", "0901234567")]
+    public void Bat_duoc_so_dien_thoai_khach_go(string chu, string mong)
+        => Assert.Equal(mong, ChatRules.FindPhone(chu));
+
+    [Theory]
+    [InlineData("cho hỏi tour Nhật tháng 10")]
+    [InlineData("giá 120.000.000 đồng")]
+    [InlineData("mã đơn 09012345678901234")]    // dãy dài hơn — KHÔNG được cắt ra 10 số ở giữa
+    [InlineData("0241234567")]                  // cố định, cố ý bỏ qua
+    [InlineData("090123456")]                   // thiếu một chữ số
+    [InlineData("")]
+    [InlineData(null)]
+    public void KHONG_bat_nham_thu_khong_phai_so_dien_thoai(string? chu)
+        => Assert.Null(ChatRules.FindPhone(chu));
+
+    [Fact]
+    public void So_nam_trong_day_dai_hon_thi_BO_QUA()
+    {
+        // Mã đơn, số tài khoản, mã chuyến bay đều là chuỗi số dài. Cắt mười chữ số ở giữa rồi gọi
+        // đó là số điện thoại là bịa ra một khách — và nối nhầm hồ sơ thì không lùi lại được.
+        Assert.Null(ChatRules.FindPhone("STK 190123456789012 Techcombank"));
+        Assert.Null(ChatRules.FindPhone("mã 12309012345671"));
+    }
+
+    [Theory]
+    [InlineData("mình tên Nguyễn Văn An", "Nguyễn Văn An")]
+    [InlineData("Tên tôi là Trần Thị Bình", "Trần Thị Bình")]
+    [InlineData("em là Lan", "Lan")]
+    [InlineData("mình là Lan và mình muốn hỏi tour", "Lan")]
+    [InlineData("tên: Phạm Quốc Cường", "Phạm Quốc Cường")]
+    public void Bat_duoc_ten_khach_TU_KHAI(string chu, string mong)
+        => Assert.Equal(mong, ChatRules.FindStatedName(chu));
+
+    [Theory]
+    [InlineData("cho hỏi tour Đà Nẵng còn chỗ không")]   // địa danh viết hoa, KHÔNG phải tên
+    [InlineData("Khách sạn Mường Thanh có bao gồm không")]
+    [InlineData("giá bao nhiêu vậy")]
+    [InlineData(null)]
+    public void KHONG_doan_ten_khi_khong_co_cum_dan(string? chu)
+        => Assert.Null(ChatRules.FindStatedName(chu));
 }

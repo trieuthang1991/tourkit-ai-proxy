@@ -172,6 +172,21 @@ public class ChatInboundService
         if (e.Reaction is { } camXuc)
         {
             await _repo.SetReactionAsync(tenantId, e.Channel, camXuc, e.ExternalUserId, ct);
+
+            // Khách thả biểu tượng lên tin = đánh giá TRỰC TIẾP nhất có thể có, và không tốn một
+            // lượt AI nào. Chấm ngay theo thang 5 bậc.
+            //
+            // Chỉ chấm khi THẢ, không chấm khi GỠ: gỡ tim không có nghĩa là khách đổi sang ghét,
+            // thường chỉ là bấm nhầm. Biểu tượng lạ trả null và ta bỏ qua — giữ nguyên điểm cũ
+            // còn hơn ghi đè bằng một con số đoán.
+            //
+            // ⚠️ ĐI QUA ScoreReaction, KHÔNG gọi thẳng ScoreEmoji: trường Name mang hai thứ khác
+            // nhau tuỳ kênh (Meta gửi tên cảm xúc, Telegram gửi custom_emoji_id). Chỉ hàm kia mới
+            // biết kênh nào đọc trường nào.
+            if (!camXuc.Removed
+                && ConversationSentiment.ScoreReaction(e.Channel, camXuc.Emoji, camXuc.Name) is { } muc)
+                await _repo.AddSentimentSignalAsync(tenantId, hoiThoai.Id, muc, ct);
+
             _bus.Publish(new(tenantId, hoiThoai.Id, "doi-hoi-thoai", null) { AssignedUserId = hoiThoai.AssignedUserId });
             return;
         }
@@ -255,6 +270,27 @@ public class ChatInboundService
         if (id is null) return;   // webhook gửi lại — bỏ qua, KHÔNG sinh thêm câu trả lời
 
         await _repo.TouchConversationAsync(tenantId, hoiThoai.Id, ChatRules.Summarize(e.Text), true, ct);
+
+        // Biểu tượng khách GÕ trong tin — nguồn tín hiệu thứ hai, và là nguồn DUY NHẤT dùng được
+        // trên Zalo (Zalo chưa gửi sự kiện thả cảm xúc sang). Không tốn lượt AI nào.
+        //
+        // Tin không có biểu tượng nào nhận ra thì ScoreText trả null và ta KHÔNG ghi gì: giữ
+        // nguyên điểm cũ. Ghi đè bằng "trung tính" mỗi lần khách hỏi một câu bình thường sẽ xoá
+        // sạch dấu vết khách vừa bực ở tin trước.
+        if (ConversationSentiment.ScoreText(e.Text) is { } mucGo)
+            await _repo.AddSentimentSignalAsync(tenantId, hoiThoai.Id, mucGo, ct);
+
+        // SỐ ĐIỆN THOẠI và TÊN khách gõ ra trong tin. Đây là nguồn DUY NHẤT cho ba kênh lớn:
+        // Messenger, Instagram và Telegram không bao giờ đưa số điện thoại, mà không có số thì
+        // không tra được khách bên CRM — và mọi việc dựng trên nền đó đều không với tới.
+        //
+        // Chỉ điền vào ô đang trống (xem SaveDetectedContactInfoAsync). Cả hai hàm bắt đều trả
+        // null khi không chắc: thà bỏ sót còn hơn gắn nhầm số của người khác vào hồ sơ khách.
+        var soBatDuoc = ChatRules.FindPhone(e.Text);
+        var tenBatDuoc = ChatRules.FindStatedName(e.Text);
+        if (soBatDuoc is not null || tenBatDuoc is not null)
+            await _repo.SaveDetectedContactInfoAsync(tenantId, (short)e.Channel, e.ExternalUserId,
+                soBatDuoc, tenBatDuoc, ct);
         // Bắn NGAY, trước quãng nghỉ gộp tin: nhân viên phải thấy tin khách lập tức, đừng bắt họ
         // chờ thêm bốn giây chỉ vì bot đang đợi xem khách có gõ tiếp không.
         _bus.Publish(new(tenantId, hoiThoai.Id, "tin-moi", id.Value) { AssignedUserId = hoiThoai.AssignedUserId });
@@ -308,7 +344,7 @@ public class ChatInboundService
 
         // Bộ sinh nằm ở ChatReplyComposer, dùng CHUNG với nút Gợi ý của nhân viên — cùng khung
         // cấm bịa số, cùng lời dặn công ty, cùng model.
-        var traLoi = await _soan.SinhAsync(tenantId, hoiThoai.Id, nhacLai, cfgBot, ct);
+        var traLoi = await _soan.GenerateAsync(tenantId, hoiThoai.Id, nhacLai, cfgBot, ct);
         if (string.IsNullOrWhiteSpace(traLoi)) return;
 
         var idRa = await _repo.AppendMessageAsync(tenantId, hoiThoai.Id, e.Channel, ChatDirection.Out,

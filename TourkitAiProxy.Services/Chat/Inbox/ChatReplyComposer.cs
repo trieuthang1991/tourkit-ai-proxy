@@ -1,4 +1,4 @@
-using TourkitAiProxy.Domain.Chat;
+﻿using TourkitAiProxy.Domain.Chat;
 using TourkitAiProxy.Domain.Models;
 using TourkitAiProxy.Infrastructure.Chat.Inbox;
 using TourkitAiProxy.Services.Providers;
@@ -42,27 +42,27 @@ public class ChatReplyComposer
     /// được chữ cần bốn câu khác nhau trên màn hình, mà một giá trị null thì chỗ gọi không phân
     /// biệt nổi — và sẽ lại tự đoán, mỗi chỗ đoán một kiểu.</para>
     /// </summary>
-    public async Task<GoiYKetQua> GoiYAsync(string tenantId, ChatConversation hoiThoai,
+    public async Task<SuggestionOutcome> SuggestAsync(string tenantId, ChatConversation hoiThoai,
         ChatBotSettings cfgBot, CancellationToken ct)
     {
         // Lấy dư rồi mới lọc — cùng lý do với worker: hàm dựng nhắc bỏ tin hỏng và tin không chữ,
         // nên xin đúng số lượt là hụt mất mấy dòng. Cộng thêm 2 cho chính câu hỏi và một tin ảnh.
         var lichSu = await _repo.ListMessagesAsync(tenantId, hoiThoai.Id, cfgBot.HistoryTurns * 2 + 2, ct);
 
-        var (cauHoi, hoiLuc, truoc) = ChatRules.TachCauHoiCuoi(lichSu);
-        if (cauHoi is null) return new(GoiY.KhachChuaNoiGi, null);
+        var (cauHoi, hoiLuc, truoc) = ChatRules.SplitLatestQuestion(lichSu);
+        if (cauHoi is null) return new(Suggestion.NothingNewFromCustomer, null);
 
         // RANH GIỚI bot ↔ gợi ý. Bot lo lượt trả lời tự động, gợi ý lo những lượt bot không lo —
-        // và không bao giờ hai bên cùng nói. Xem ChatRules.BotDangDinhTraLoi.
-        if (ChatRules.BotDangDinhTraLoi(hoiThoai, cfgBot.Enabled, hoiLuc, DateTime.UtcNow))
-            return new(GoiY.BotDangTraLoi, null);
+        // và không bao giờ hai bên cùng nói. Xem ChatRules.BotIsAboutToReply.
+        if (ChatRules.BotIsAboutToReply(hoiThoai, cfgBot.Enabled, hoiLuc, DateTime.UtcNow))
+            return new(Suggestion.BotIsHandlingIt, null);
 
         var nhacLai = ChatRules.BuildConversationPrompt(truoc, cauHoi, cfgBot.HistoryTurns);
-        var chu = await SinhAsync(tenantId, hoiThoai.Id, nhacLai, cfgBot, ct);
+        var chu = await GenerateAsync(tenantId, hoiThoai.Id, nhacLai, cfgBot, ct);
 
-        // SinhAsync nuốt mọi lỗi và trả null — đúng cho worker (im còn hơn gửi rác), nhưng ở đây
+        // GenerateAsync nuốt mọi lỗi và trả null — đúng cho worker (im còn hơn gửi rác), nhưng ở đây
         // phải nói ra: nhân viên vừa bấm một cái nút và đang chờ chữ hiện lên.
-        return chu is null ? new(GoiY.AiHong, null) : new(GoiY.Duoc, chu);
+        return chu is null ? new(Suggestion.AiFailed, null) : new(Suggestion.Ok, chu);
     }
 
     /// <summary>
@@ -71,7 +71,7 @@ public class ChatReplyComposer
     /// <para>AI hỏng thì trả <c>null</c> — <b>im lặng còn hơn gửi câu rác cho khách</b>. Hội thoại
     /// vẫn nằm trong hộp thư, nhân viên thấy và trả lời tay được.</para>
     /// </summary>
-    public async Task<string?> SinhAsync(string tenantId, long hoiThoaiId, string cauHoi,
+    public async Task<string?> GenerateAsync(string tenantId, long hoiThoaiId, string cauHoi,
         ChatBotSettings cfgBot, CancellationToken ct)
     {
         // Khung an toàn: máy chủ khai đè được (Chat:SystemPrompt) để sửa nóng khi cần, còn mặc
@@ -138,18 +138,18 @@ public class ChatReplyComposer
 }
 
 /// <summary>Vì sao lượt xin gợi ý không ra chữ. Mỗi giá trị là một câu khác nhau trên màn hình.</summary>
-public enum GoiY : short
+public enum Suggestion : short
 {
     /// <summary>Có bản nháp.</summary>
-    Duoc = 0,
+    Ok = 0,
     /// <summary>Tin mới nhất là của mình — khách chưa hỏi gì thêm để mà trả lời.</summary>
-    KhachChuaNoiGi = 1,
+    NothingNewFromCustomer = 1,
     /// <summary>Bot đang lo câu này. Muốn tự trả lời thì tạm dừng bot trước.</summary>
-    BotDangTraLoi = 2,
+    BotIsHandlingIt = 2,
     /// <summary>Gọi AI hỏng hoặc hết lượt.</summary>
-    AiHong = 3,
+    AiFailed = 3,
 }
 
-/// <param name="Ket">Vì sao có/không có chữ.</param>
-/// <param name="Chu">Bản nháp — chỉ khác null khi <paramref name="Ket"/> là <see cref="GoiY.Duoc"/>.</param>
-public record GoiYKetQua(GoiY Ket, string? Chu);
+/// <param name="Outcome">Vì sao có/không có chữ.</param>
+/// <param name="Text">Bản nháp — chỉ khác null khi <paramref name="Outcome"/> là <see cref="Suggestion.Ok"/>.</param>
+public record SuggestionOutcome(Suggestion Outcome, string? Text);

@@ -215,6 +215,33 @@ public class ChatRepository
                        emoji = cx.Emoji, ten = cx.Name });
     }
 
+    /// <summary>
+    /// Góp MỘT tín hiệu cảm xúc vào thống kê của hội thoại (thang 5 bậc —
+    /// xem <see cref="ConversationSentiment"/>).
+    ///
+    /// <para><b>CỘNG DỒN, không đè.</b> Điểm hiển thị là trung bình của mọi tín hiệu, vì thứ người
+    /// dùng muốn biết là "cả cuộc trò chuyện này thế nào" chứ không phải "cái mặt cười cuối cùng
+    /// là gì". Bản đầu ghi đè: một khách khen mười câu rồi lỡ thả một mặt buồn là cả hội thoại
+    /// thành tiêu cực, và chín tín hiệu tốt trước đó biến mất không dấu vết.</para>
+    ///
+    /// <para>Cộng ngay trong câu <c>UPDATE</c> chứ không đọc-rồi-ghi: hai tin của khách tới sát
+    /// nhau thì đọc-rồi-ghi làm mất một tín hiệu, và mất lặng lẽ.</para>
+    ///
+    /// <para>Chỗ gọi phải tự lọc <c>null</c> trước — "không chấm được" thì đừng góp gì.</para>
+    /// </summary>
+    public async Task AddSentimentSignalAsync(string tenant, long hoiThoaiId, SentimentLevel muc,
+        CancellationToken ct = default)
+    {
+        await using var c = await _db.OpenAsync(ct);
+        await c.ExecuteAsync("""
+            UPDATE chat_conversations
+               SET sentiment_sum   = sentiment_sum + @muc,
+                   sentiment_count = sentiment_count + 1,
+                   sentiment_at    = now()
+             WHERE tenant_id = @tenant AND id = @id
+            """, new { tenant, id = hoiThoaiId, muc = (short)muc });
+    }
+
     /// <summary>Cảm xúc của các tin trong một hội thoại, để đính kèm lúc liệt kê tin.</summary>
     public async Task<IReadOnlyList<ChatReactionRow>> ReactionsByConversationAsync(string tenant,
         long hoiThoaiId, CancellationToken ct = default)
@@ -435,15 +462,23 @@ public class ChatRepository
     /// chuyện bình thường ở khách du lịch); ghép theo số điện thoại thì Zalo/Messenger không cho
     /// biết số trừ khi khách tự nhắn. Nối tay đúng 100% và làm được ngay.</para>
     /// </summary>
+    /// <param name="tenKhach">Tên khách CRM lúc nối — ảnh chụp để HIỂN THỊ. Gỡ nối
+    /// (<paramref name="crmCustomerId"/> null) thì xoá luôn, không để tên mồ côi treo lại.</param>
     public async Task<int> LinkCrmAsync(string tenant, short kenh, string externalId,
-        int? crmCustomerId, CancellationToken ct = default)
+        int? crmCustomerId, CancellationToken ct = default,
+        string? tenKhach = null, string? maKhach = null)
     {
         await using var c = await _db.OpenAsync(ct);
         return await c.ExecuteAsync("""
             UPDATE chat_contacts
-               SET crm_customer_id = @crmCustomerId, updated_utc = now()
+               SET crm_customer_id   = @crmCustomerId,
+                   crm_customer_name = @tenKhach,
+                   crm_customer_code = @maKhach,
+                   updated_utc = now()
              WHERE tenant_id = @tenant AND channel = @kenh AND external_id = @externalId
-            """, new { tenant, kenh, externalId, crmCustomerId });
+            """, new { tenant, kenh, externalId, crmCustomerId,
+                       tenKhach = crmCustomerId is null ? null : tenKhach,
+                       maKhach  = crmCustomerId is null ? null : maKhach });
     }
 
     // ── Nhãn và ghi chú của khách ───────────────────────────────────────────
@@ -596,6 +631,33 @@ public class ChatRepository
     }
 
     /// <summary>Hồ sơ khách của một hội thoại. Panel bên phải đọc cái này.</summary>
+    /// <summary>
+    /// Ghi số điện thoại / tên khách <b>bắt được từ đoạn chat</b> vào hồ sơ liên hệ.
+    ///
+    /// <para><b>CHỈ ĐIỀN VÀO Ô ĐANG TRỐNG — không bao giờ đè.</b> Số do kênh cung cấp (Zalo khách
+    /// bấm chia sẻ, WhatsApp) chắc chắn hơn số bóc từ chữ; và tên khách khai lần đầu đáng tin hơn
+    /// một chuỗi bắt nhầm ở tin thứ hai mươi. <c>COALESCE</c> trong câu lệnh lo việc đó, nên không
+    /// có khe giữa đọc và ghi.</para>
+    ///
+    /// <para>Truyền <c>null</c> cho ô nào thì ô đó giữ nguyên.</para>
+    /// </summary>
+    public async Task SaveDetectedContactInfoAsync(string tenant, short kenh, string externalId,
+        string? soDienThoai, string? tenTuKhai, CancellationToken ct = default)
+    {
+        if (soDienThoai is null && tenTuKhai is null) return;
+        await using var c = await _db.OpenAsync(ct);
+        await c.ExecuteAsync("""
+            UPDATE chat_contacts
+               SET phone       = COALESCE(NULLIF(phone, ''), @phone),
+                   stated_name = COALESCE(NULLIF(stated_name, ''), @ten),
+                   updated_utc = now()
+             WHERE tenant_id = @tenant AND channel = @kenh AND external_id = @externalId
+               -- Chỉ chạm dòng thật sự còn thiếu: tránh đụng updated_utc của mọi tin khách gõ số
+               -- lặp lại, và tránh ghi vô ích lên bảng đang có tin vào liên tục.
+               AND (NULLIF(phone, '') IS NULL OR NULLIF(stated_name, '') IS NULL)
+            """, new { tenant, kenh, externalId, phone = soDienThoai, ten = tenTuKhai });
+    }
+
     public async Task<ChatContact?> GetContactAsync(string tenant, short kenh, string externalId,
         CancellationToken ct = default)
     {

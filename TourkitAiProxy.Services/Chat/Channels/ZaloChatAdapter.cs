@@ -238,6 +238,21 @@ public class ZaloChatAdapter : IChatChannelAdapter, IApprovedTemplateSender, IBu
         // nó — nhánh switch của họ không xử lý, rơi vào chỗ đòi msg_id rồi ném.)
     };
 
+    /// <summary>
+    /// Đã kêu về sự kiện Zalo nào rồi — kêu MỘT lần cho mỗi tên, mỗi lần chạy.
+    ///
+    /// <para>Mục đích là để BIẾT Zalo gửi những gì, không phải để đếm. Kêu mọi lượt thì sự kiện
+    /// theo dõi/bỏ theo dõi đủ sức ngập log và chôn vùi đúng cái tên hiếm mình đang muốn thấy.</para>
+    /// </summary>
+    private static readonly System.Collections.Concurrent.ConcurrentDictionary<string, byte> _daKeu = new();
+
+    private void LogUnhandledEvent(string ten)
+    {
+        if (!_daKeu.TryAdd(ten, 0)) return;
+        _log.LogInformation("[chat/zalo] sự kiện CHƯA XỬ LÝ: {Ten} — nếu đây là thứ cần dùng " +
+            "(ví dụ khách thả cảm xúc) thì thêm nhánh bóc cho nó trong ZaloChatAdapter.", ten);
+    }
+
     public IReadOnlyList<InboundChatEvent> Parse(string rawBody)
     {
         var ra = new List<InboundChatEvent>();
@@ -259,7 +274,18 @@ public class ZaloChatAdapter : IChatChannelAdapter, IApprovedTemplateSender, IBu
 
         var laKhach = CustomerKinds.TryGetValue(ten, out var loaiKhach);
         var laOa = !laKhach && OaKinds.TryGetValue(ten, out var loaiOa);
-        if (!laKhach && !laOa) return ra;   // sự kiện gắn thẻ, theo dõi… — chưa dùng
+        if (!laKhach && !laOa)
+        {
+            // Sự kiện chưa dùng (gắn thẻ, theo dõi, bỏ theo dõi…). Trước 12/09/2026 chỗ này bỏ
+            // im lặng HOÀN TOÀN — không log, không đếm. Hệ quả: không ai trả lời được câu "Zalo
+            // có gửi cảm xúc sang không?" mà không đi đọc tài liệu của họ, vì bằng chứng đi qua
+            // đúng dòng này rồi biến mất.
+            //
+            // Ghi TÊN sự kiện thôi, không ghi thân: thân chở mã người dùng và nội dung tin.
+            // Tên sự kiện là tập hữu hạn và nhỏ nên không có nguy cơ ngập log.
+            LogUnhandledEvent(ten);
+            return ra;
+        }
 
         // Tin của khách: người gửi là khách. Tiếng vọng: khách là NGƯỜI NHẬN.
         var uid = laKhach ? goc["sender"]?["id"]?.ToString() : goc["recipient"]?["id"]?.ToString();
