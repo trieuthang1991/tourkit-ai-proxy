@@ -175,9 +175,37 @@ function RunHistoryTable({ runs, loading }) {
 // (xem Services/Crm/CrmActionQueueRepository.cs). Worker app-side (toutkit-app) drain Pending
 // → tạo trong CRM thật → cập nhật Status. Pattern fetch/table giống RunHistoryTable ở trên.
 
+// Tên loại việc cho NGƯỜI ĐỌC. Thiếu một dòng ở đây là bảng in ra mã kỹ thuật thô
+// ("create-booking-ticket") — đúng thứ chủ dự án bắt được ngày 12/09/2026.
 const CRM_QUEUE_KIND_LABEL = {
   'assign-task': 'Giao việc',
-  'create-appointment': 'Lịch hẹn',
+  'create-appointment': 'Lịch hẹn chăm sóc',
+  'create-booking-ticket': 'Cơ hội bán hàng',
+};
+
+/**
+ * Câu lỗi của worker dịch sang tiếng người.
+ *
+ * Worker bên toutkit-app trả câu lỗi kỹ thuật ("Kind không hỗ trợ: 'create-booking-ticket'") —
+ * đúng cho người viết mã, vô nghĩa với quản trị nghiệp vụ đang đọc bảng này. Dịch những câu ĐÃ
+ * BIẾT; câu lạ thì giữ nguyên, vì giấu một lỗi chưa từng gặp còn tệ hơn hiện nó thô.
+ *
+ * Nguyên văn vẫn xem được trong hộp "Xem" — không mất thông tin nào.
+ */
+function crmQueueLoiDeHieu(loi) {
+  if (!loi) return '—';
+  if (/Kind không hỗ trợ/i.test(loi))
+    return 'Bên CRM chưa nhận loại việc này. Đang chờ hoàn thiện, hãy tạo trực tiếp trên CRM.';
+  if (/timeout|timed out/i.test(loi)) return 'CRM không phản hồi kịp. Sẽ thử lại.';
+  if (/401|unauthor/i.test(loi)) return 'CRM từ chối quyền truy cập.';
+  return loi;
+}
+
+// NGHIỆP VỤ đã sinh ra dòng này (cột Action trong dbo.CrmActionQueue). Khác "loại việc":
+// loại việc nói gọi API CRM nào, nghiệp vụ nói nó từ đâu ra. Trống = do trợ lý số liệu tạo.
+const CRM_QUEUE_ORIGIN_LABEL = {
+  'chat-cham-soc': 'Hộp thư chat',
+  'chat-co-hoi': 'Hộp thư chat',
 };
 
 const CRM_QUEUE_STATUS = {
@@ -193,10 +221,11 @@ function crmQueuePayloadLabel(item) {
   try { p = JSON.parse(item.payloadJson || '{}'); } catch { p = {}; }
   if (item.kind === 'assign-task') return p.name || '—';
   if (item.kind === 'create-appointment') return p.careTitle || '—';
-  return p.name || p.careTitle || '—';
+  if (item.kind === 'create-booking-ticket') return p.tenPhieu || p.tenKH || '—';
+  return p.name || p.careTitle || p.tenPhieu || '—';
 }
 
-function CrmQueueTable({ items, loading }) {
+function CrmQueueTable({ items, loading, onXem }) {
   if (loading) return <div className="workflows-history-loading">Đang tải...</div>;
   if (!items || items.length === 0) return <div className="workflows-history-empty">Chưa có hành động CRM nào.</div>;
   return (
@@ -206,9 +235,11 @@ function CrmQueueTable({ items, loading }) {
           <tr>
             <th>Loại</th>
             <th>Nội dung</th>
+            <th>Từ đâu</th>
             <th>Trạng thái</th>
             <th>Thời gian</th>
             <th>Lỗi</th>
+            <th />
           </tr>
         </thead>
         <tbody>
@@ -218,9 +249,20 @@ function CrmQueueTable({ items, loading }) {
               <tr key={it.id} className={it.status === 3 ? 'workflows-run-failed' : ''}>
                 <td>{CRM_QUEUE_KIND_LABEL[it.kind] || it.kind}</td>
                 <td>{crmQueuePayloadLabel(it)}</td>
+                <td className="crmq-nguon">
+                  {CRM_QUEUE_ORIGIN_LABEL[it.action] || (it.action ? it.action : 'Trợ lý số liệu')}
+                </td>
                 <td><span className={'workflows-badge ' + st.cls}>{st.label}</span></td>
                 <td className="workflows-run-ts" title={it.createdUtc}>{relativeTime(it.createdUtc)}</td>
-                <td className="workflows-run-error-text">{it.status === 3 && it.errorMessage ? it.errorMessage : '—'}</td>
+                <td className="workflows-run-error-text" title={it.errorMessage || ''}>
+                  {it.status === 3 ? crmQueueLoiDeHieu(it.errorMessage) : '—'}
+                </td>
+                <td>
+                  {/* Xem ĐÚNG gói tin sắp/đã đẩy sang CRM. Thiếu nút này thì lúc một dòng hỏng,
+                      cách duy nhất biết mình đã gửi gì là mở CSDL lên đọc. */}
+                  <button className="crmq-xem" onClick={() => onXem(it)}
+                          title="Xem nội dung đẩy sang CRM">Xem</button>
+                </td>
               </tr>
             );
           })}
@@ -230,11 +272,98 @@ function CrmQueueTable({ items, loading }) {
   );
 }
 
+// Nhãn tiếng Việt cho từng khoá trong gói tin. Khoá nào chưa có nhãn thì hiện nguyên khoá —
+// thà thấy tên thô còn hơn giấu mất một trường đã gửi đi.
+const CRM_KHOA_LABEL = {
+  tenKH: 'Tên khách', soDienThoaiKH: 'Số điện thoại', emailKH: 'Email', diaChiKH: 'Địa chỉ',
+  tenPhieu: 'Tiêu đề phiếu', noiDungPhieu: 'Nội dung', nguonPhieu: 'Nguồn phiếu',
+  idKhachHang: 'Mã khách CRM', nguoiPhuTrachs: 'Người phụ trách',
+  soLuong: 'Người lớn', gia: 'Giá người lớn',
+  quantityChild: 'Trẻ em', giaChild: 'Giá trẻ em',
+  quantityBaby: 'Em bé', giaBaby: 'Giá em bé',
+  customerId: 'Mã khách CRM', careTitle: 'Tiêu đề', careDetail: 'Nội dung',
+  customerName: 'Tên khách', customerPhone: 'Số điện thoại',
+  name: 'Tên việc', content: 'Nội dung', staffsInCharge: 'Người phụ trách',
+  workflowName: 'Luồng công việc', prioritized: 'Mức ưu tiên', status: 'Trạng thái',
+  startDate: 'Bắt đầu', endDate: 'Kết thúc', appointmentReminder: 'Nhắc trước (phút)',
+};
+
+/**
+ * Hộp xem NỘI DUNG một việc trong hàng đợi CRM.
+ *
+ * Bày gói tin dưới dạng BẢNG NHÃN - GIÁ TRỊ chứ không đổ JSON thô: người đọc bảng này là quản
+ * trị nghiệp vụ, không phải người viết mã. Vẫn giữ được nút xem JSON gốc cho lúc cần đối chiếu
+ * với worker.
+ */
+function CrmQueueXem({ item, onDong }) {
+  const [thoJson, setThoJson] = uS(false);
+  if (!item) return null;
+
+  let p = {};
+  let hong = false;
+  try { p = JSON.parse(item.payloadJson || '{}'); } catch { hong = true; }
+
+  const dong = Object.entries(p).filter(([, v]) => v !== null && v !== '' && v !== undefined);
+
+  return (
+    <div className="crmq-nen" onMouseDown={e => { if (e.target === e.currentTarget) onDong(); }}>
+      <div className="crmq-hop" role="dialog" aria-modal="true" aria-label="Nội dung đẩy sang CRM">
+        <div className="crmq-dau">
+          <b>{CRM_QUEUE_KIND_LABEL[item.kind] || item.kind}</b>
+          <span>{CRM_QUEUE_ORIGIN_LABEL[item.action] || (item.action || 'Trợ lý số liệu')}</span>
+          <button onClick={onDong} aria-label="Đóng">×</button>
+        </div>
+
+        <div className="crmq-than">
+          {hong ? (
+            <p className="crmq-hong">Gói tin không đọc được (JSON hỏng). Xem bản thô bên dưới.</p>
+          ) : dong.length === 0 ? (
+            <p className="crmq-hong">Gói tin rỗng.</p>
+          ) : !thoJson ? (
+            <dl className="crmq-bang">
+              {dong.map(([k, v]) => (
+                <React.Fragment key={k}>
+                  <dt>{CRM_KHOA_LABEL[k] || k}</dt>
+                  <dd>{typeof v === 'object' ? JSON.stringify(v) : String(v)}</dd>
+                </React.Fragment>
+              ))}
+            </dl>
+          ) : (
+            <pre className="crmq-tho">{item.payloadJson}</pre>
+          )}
+
+          {item.status === 3 && item.errorMessage && (
+            <p className="crmq-loi">
+              <b>Lỗi:</b> {crmQueueLoiDeHieu(item.errorMessage)}
+              {/* Nguyên văn để dưới, chữ nhỏ: quản trị nghiệp vụ đọc câu trên, còn người đi sửa
+                  lỗi cần đúng chuỗi mà worker trả về. */}
+              {crmQueueLoiDeHieu(item.errorMessage) !== item.errorMessage && (
+                <em className="crmq-loi-tho">{item.errorMessage}</em>
+              )}
+            </p>
+          )}
+          {item.resultJson && (
+            <p className="crmq-ket"><b>Kết quả:</b> {item.resultJson}</p>
+          )}
+        </div>
+
+        <div className="crmq-chan">
+          <button className="crmq-phu" onClick={() => setThoJson(t => !t)}>
+            {thoJson ? 'Xem dạng bảng' : 'Xem JSON gốc'}
+          </button>
+          <button className="crmq-chinh" onClick={onDong}>Đóng</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function CrmQueueCard() {
   const [items, setItems] = uS([]);
   const [loading, setLoading] = uS(true);
   const [error, setError] = uS(null);
   const [statusFilter, setStatusFilter] = uS('');   // '' = tất cả
+  const [dangXem, setDangXem] = uS(null);          // việc đang mở hộp xem nội dung
 
   const load = uCB(async () => {
     setLoading(true);
@@ -274,7 +403,9 @@ function CrmQueueCard() {
           </button>
         </div>
         {error && <div className="workflows-error">{error}</div>}
-        <CrmQueueTable items={items} loading={loading && items.length === 0} />
+        <CrmQueueTable items={items} loading={loading && items.length === 0}
+                       onXem={setDangXem} />
+        {dangXem && <CrmQueueXem item={dangXem} onDong={() => setDangXem(null)} />}
       </div>
     </section>
   );

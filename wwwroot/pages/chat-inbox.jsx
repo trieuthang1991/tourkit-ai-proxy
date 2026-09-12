@@ -694,8 +694,12 @@
     'thu-hoi-tin': 'thu hồi tin',
     'go-ket-noi': 'gỡ kết nối kênh',
     'danh-dau-chua-doc': 'đánh dấu chưa đọc',
-    'cham-soc': 'ghi nhận chăm sóc',
+    'cham-soc': 'ghi nhật ký chăm sóc',
     'tao-co-hoi': 'tạo Cơ hội bán hàng',
+    // Hai dòng này THIẾU nhãn cho tới 12/09/2026, nên nhật ký in ra mã trần
+    // ("Admin Tourkit noi-crm") — đúng kiểu chữ chỉ người viết mã đọc được.
+    'noi-crm': 'nối khách CRM',
+    'go-noi-crm': 'gỡ nối khách CRM',
     // HAI đường TỰ ĐỘNG. Chúng vốn thiếu nhãn nên nhật ký in ra mã trần ("Hệ thống xoay-vong"),
     // đúng hai dòng người đọc cần nhất khi hỏi "ai giao việc này, máy hay người?".
     'xoay-vong': 'tự động chia việc',
@@ -1115,7 +1119,7 @@
                   {dangLam ? 'Đang lưu…' : 'Lưu ghi chú'}
                 </button>
                 <button className="ci-nut nho" type="button" disabled={dangLam}
-                        onClick={() => setGhiChuMoi('')}>Thôi</button>
+                        onClick={() => setGhiChuMoi('')}>Hủy</button>
               </div>
             )}
           </form>
@@ -1142,42 +1146,212 @@
    * Ai được bấm thì do quyền CH_TAO_MOI của CRM quyết; thiếu quyền thì máy chủ trả 403 kèm câu
    * nói rõ. Không có cờ tính năng nào ở đây — xem chú thích trong FeatureFlags.
    */
-  function CoHoi({ hoiThoaiId, pushToast, onXong }) {
+  /**
+   * Tạo Cơ hội bán hàng — mở hộp thoại XEM TRƯỚC rồi mới gửi.
+   *
+   * Chủ dự án chốt 12/09/2026: bấm nút phải bày ra đúng những gì sắp bắn sang CRM để người dùng
+   * tinh chỉnh. Bản trước chỉ hỏi mỗi tiêu đề; tên khách, số điện thoại, email và cả đoạn tóm tắt
+   * đều do máy tự quyết và đi thẳng, người bấm không bao giờ nhìn thấy trước.
+   *
+   * Bản nháp lấy Từ MÁY CHỦ (`/co-hoi/nhap`) chứ không tự dựng ở đây: phần tóm tắt do luật thuần
+   * ChatRules.SummarizeForTicket sinh ra. Dựng lại ở .jsx là có hai bản, và bản người dùng xem sẽ
+   * khác bản thật sự được gửi.
+   */
+  function CoHoi({ hoiThoaiId, pushToast, onXong, nhanVien }) {
     const [mo, setMo] = useState(false);
-    const [ten, setTen] = useState('');
+    const [nhap, setNhap] = useState(null);     // null = đang tải bản nháp
     const [dang, setDang] = useState(false);
 
-    async function xepHang() {
+    async function moHop() {
+      setMo(true); setNhap(null);
+      try {
+        const r = await authedFetch('/api/v1/chat/conversations/' + hoiThoaiId + '/co-hoi/nhap');
+        const j = await r.json().catch(() => ({}));
+        if (!r.ok) { pushToast(j.error || 'Không lấy được bản nháp', 'error'); setMo(false); return; }
+        setNhap(j);
+      } catch (e) { pushToast('Không lấy được bản nháp: ' + e.message, 'error'); setMo(false); }
+    }
+
+    function sua(khoa, giaTri) { setNhap(n => ({ ...n, [khoa]: giaTri })); }
+
+    // Ô trống gửi null chứ không gửi 0: 0 là một con số có nghĩa (miễn phí), còn trống nghĩa là
+    // chưa biết. Gộp hai thứ là ghi vào phiếu một mức giá chưa ai chốt.
+    const so = x => (x === '' || x === null || x === undefined ? null : Number(x));
+
+    // TIỀN: trong ô thì chấm nghìn kiểu Việt Nam (1.500.000), trong state và lúc gửi thì là số
+    // trần. Giữ state ở dạng CHỈ CHỮ SỐ nên không bao giờ phải bóc ngược chuỗi đã định dạng —
+    // bóc ngược là chỗ dễ sai khi người ta dán vào một chuỗi có sẵn dấu chấm hoặc dấu phẩy.
+    const chiSoTien = x => String(x ?? '').replace(/\D/g, '');
+    const hienTien = x => {
+      const d = chiSoTien(x);
+      return d ? d.replace(/\B(?=(\d{3})+(?!\d))/g, '.') : '';
+    };
+    const thieu = !nhap?.tenKH?.trim() || !nhap?.soDienThoaiKH?.trim();
+
+    async function gui() {
       setDang(true);
       try {
         const r = await authedFetch('/api/v1/chat/conversations/' + hoiThoaiId + '/co-hoi', {
           method: 'POST', headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ tenPhieu: ten.trim() || null }),
+          body: JSON.stringify({
+            tenPhieu: nhap.tenPhieu, tenKH: nhap.tenKH,
+            soDienThoaiKH: nhap.soDienThoaiKH, emailKH: nhap.emailKH,
+            diaChiKH: nhap.diaChiKH, noiDungPhieu: nhap.noiDungPhieu,
+            soLuong: so(nhap.soLuong), gia: so(nhap.gia),
+            quantityChild: so(nhap.quantityChild), giaChild: so(nhap.giaChild),
+            quantityBaby: so(nhap.quantityBaby), giaBaby: so(nhap.giaBaby),
+            // CSV — CreateBookingTicketRequest.NguoiPhuTrachs bên CRM là chuỗi, không phải mảng.
+            nguoiPhuTrachs: nhap.nguoiPhuTrachs ? String(nhap.nguoiPhuTrachs) : null,
+          }),
         });
         const j = await r.json().catch(() => ({}));
         if (!r.ok) { pushToast(j.error || 'Không xếp hàng được', 'error'); return; }
-        pushToast('Đã xếp hàng — chờ đồng bộ sang CRM', 'success');
-        setMo(false); setTen('');
+        pushToast('Đã xếp hàng, chờ đồng bộ sang CRM', 'success');
+        setMo(false); setNhap(null);
         onXong?.();
       } catch (e) { pushToast('Không xếp hàng được: ' + e.message, 'error'); }
       finally { setDang(false); }
     }
 
-    if (!mo) {
-      return <button className="ci-nut nho" onClick={() => setMo(true)}>Tạo Cơ hội</button>;
-    }
-
     return (
-      <div className="ci-hs-cohoi">
-        <input value={ten} onChange={e => setTen(e.target.value)} autoFocus
-               placeholder="Tiêu đề Cơ hội (bỏ trống thì lấy tên khách)" />
-        <div className="ci-hs-crm-nut">
-          <button className="ci-nut nho" onClick={xepHang} disabled={dang}>
-            {dang ? 'Đang xếp…' : 'Xếp hàng tạo'}
-          </button>
-          <button className="ci-nut nho" onClick={() => { setMo(false); setTen(''); }}>Thôi</button>
-        </div>
-      </div>
+      <>
+        <button className="ci-nut nho" onClick={moHop}
+                title="Xem trước rồi tạo Cơ hội bán hàng trên CRM">
+          Tạo Cơ hội
+        </button>
+
+        {mo && ReactDOM.createPortal((
+          <div className="ci-modal-nen" onMouseDown={e => { if (e.target === e.currentTarget) setMo(false); }}>
+            <div className="ci-modal ci-ch-hop" role="dialog" aria-modal="true" aria-label="Tạo Cơ hội bán hàng">
+              <div className="ci-modal-dau">
+                <b>Tạo Cơ hội bán hàng</b>
+                <button className="ci-nut-icon" onClick={() => setMo(false)} aria-label="Đóng">
+                  <window.Icon name="close" size={16} />
+                </button>
+              </div>
+
+              {/* Đang tải: khung xám đúng hình dạng nội dung sắp tới, không phải vòng quay —
+                  người dùng thấy trước bố cục nên lúc chữ về không bị giật. */}
+              {!nhap ? (
+                <div className="ci-modal-than ci-ch-cho">
+                  <i /><i /><i className="dai" />
+                </div>
+              ) : (
+                <>
+                  <div className="ci-modal-than ci-ch-than">
+                    <p className="ci-ch-nhac">
+                      Đây là những gì sẽ gửi sang CRM. Sửa được trước khi gửi.
+                    </p>
+
+                    <label className="ci-ch-o">
+                      <span>Tiêu đề Cơ hội</span>
+                      <input value={nhap.tenPhieu || ''} autoFocus
+                             onChange={e => sua('tenPhieu', e.target.value)} />
+                    </label>
+
+                    <div className="ci-ch-hang">
+                      <label className={'ci-ch-o' + (!nhap.tenKH?.trim() ? ' thieu' : '')}>
+                        <span>Tên khách <u>bắt buộc</u></span>
+                        <input value={nhap.tenKH || ''} onChange={e => sua('tenKH', e.target.value)} />
+                      </label>
+                      <label className={'ci-ch-o' + (!nhap.soDienThoaiKH?.trim() ? ' thieu' : '')}>
+                        <span>Số điện thoại <u>bắt buộc</u></span>
+                        <input value={nhap.soDienThoaiKH || ''} inputMode="tel"
+                               placeholder="khách chưa để lại số"
+                               onChange={e => sua('soDienThoaiKH', e.target.value)} />
+                      </label>
+                    </div>
+
+                    <div className="ci-ch-hang">
+                      <label className="ci-ch-o">
+                        <span>Email</span>
+                        <input value={nhap.emailKH || ''} type="email" placeholder="chưa có"
+                               onChange={e => sua('emailKH', e.target.value)} />
+                      </label>
+                      <label className="ci-ch-o">
+                        <span>Người phụ trách</span>
+                        {/* Mặc định là người đang phụ trách hội thoại — người hiểu câu chuyện
+                            nhất. Đổi được, vì người chốt đơn có thể là người khác. */}
+                        <select value={nhap.nguoiPhuTrachs || ''}
+                                onChange={e => sua('nguoiPhuTrachs', e.target.value)}>
+                          <option value="">để CRM tự xử</option>
+                          {(nhanVien || []).map(nv => (
+                            <option key={nv.id} value={nv.id}>{nv.name}</option>
+                          ))}
+                        </select>
+                      </label>
+                    </div>
+
+                    <label className="ci-ch-o">
+                      <span>Địa chỉ</span>
+                      <input value={nhap.diaChiKH || ''} placeholder="khách chưa cho biết"
+                             onChange={e => sua('diaChiKH', e.target.value)} />
+                    </label>
+
+                    {/* SỐ KHÁCH VÀ GIÁ. Để TRỐNG chứ không điền 0: hộp thư không có cách nào biết,
+                        mà điền sẵn 0 thì người ta bấm gửi luôn và phiếu mang giá sai. */}
+                    <div className="ci-ch-nhom">
+                      <b className="ci-ch-nhom-ten">Số khách và giá</b>
+                      <div className="ci-ch-bang">
+                        <span />
+                        <span>Số lượng</span>
+                        <span>Giá mỗi người (đ)</span>
+
+                        <i>Người lớn</i>
+                        <input type="number" min="0" value={nhap.soLuong ?? ''}
+                               onChange={e => sua('soLuong', e.target.value)} />
+                        <input inputMode="numeric" className="tien"
+                               value={hienTien(nhap.gia)}
+                               onChange={e => sua('gia', chiSoTien(e.target.value))} />
+
+                        <i>Trẻ em</i>
+                        <input type="number" min="0" value={nhap.quantityChild ?? ''}
+                               onChange={e => sua('quantityChild', e.target.value)} />
+                        <input inputMode="numeric" className="tien"
+                               value={hienTien(nhap.giaChild)}
+                               onChange={e => sua('giaChild', chiSoTien(e.target.value))} />
+
+                        <i>Em bé</i>
+                        <input type="number" min="0" value={nhap.quantityBaby ?? ''}
+                               onChange={e => sua('quantityBaby', e.target.value)} />
+                        <input inputMode="numeric" className="tien"
+                               value={hienTien(nhap.giaBaby)}
+                               onChange={e => sua('giaBaby', chiSoTien(e.target.value))} />
+                      </div>
+                    </div>
+
+                    <label className="ci-ch-o">
+                      <span>Ghi chú</span>
+                      <textarea rows={7} value={nhap.noiDungPhieu || ''}
+                                onChange={e => sua('noiDungPhieu', e.target.value)} />
+                    </label>
+
+                    {/* CHỈ ĐỌC — người dùng không sửa được nhưng cần thấy phiếu sẽ gắn vào đâu. */}
+                    <div className="ci-ch-codinh">
+                      <span>Nguồn phiếu<b>{nhap.nguonPhieu}</b></span>
+                      <span>
+                        Khách CRM
+                        <b>{nhap.idKhachHang > 0
+                              ? (nhap.tenKhachCrm || '#' + nhap.idKhachHang)
+                              : 'chưa nối, phía CRM sẽ tự khớp theo tên và số'}</b>
+                      </span>
+                    </div>
+                  </div>
+
+                  <div className="ci-modal-chan">
+                    <button className="ci-nut" onClick={() => setMo(false)} disabled={dang}>Hủy</button>
+                    <button className="ci-nut chinh" onClick={gui}
+                            disabled={dang || thieu || !nhap.tenPhieu?.trim()}
+                            title={thieu ? 'Cần đủ tên khách và số điện thoại' : ''}>
+                      {dang ? 'Đang gửi…' : 'Tạo Cơ hội'}
+                    </button>
+                  </div>
+                </>
+              )}
+            </div>
+          </div>
+        ), document.body)}
+      </>
     );
   }
 
@@ -1217,12 +1391,18 @@
 
     return (
       <div className="ci-hs-chamsoc">
-        <div className="ci-hs-crm-nut">
-          <button className="ci-nut nho" onClick={ghi} disabled={dangGhi}>
-            {dangGhi ? 'Đang ghi…' : 'Ghi nhận chăm sóc'}
-          </button>
-          <CoHoi hoiThoaiId={hoiThoaiId} pushToast={pushToast} onXong={tai} />
-        </div>
+        {/* ⚠️ NÚT "Ghi nhật ký chăm sóc" TẠM ẨN (chủ dự án 12/09/2026: "vẫn chưa hiểu nó có tác
+            dụng gì"). Đường máy chủ, hàng đợi và chốt canh vẫn còn nguyên — chỉ giấu lối vào.
+            Bật lại là bỏ dấu chú thích ở khối dưới.
+
+            Lý do giữ mã thay vì xoá: việc nó làm (đẩy tóm tắt đoạn chat vào lịch sử chăm sóc của
+            khách) có ích thật, cái hỏng là chưa ai giải thích được nó thay cho thao tác nào trong
+            ngày làm việc. Đó là câu hỏi nghiệp vụ, không phải mã.
+        <button className="ci-nut nho" onClick={ghi} disabled={dangGhi}
+                title="Tóm tắt đoạn chat này rồi lưu vào lịch sử chăm sóc của khách trên CRM">
+          {dangGhi ? 'Đang ghi…' : 'Ghi nhật ký chăm sóc'}
+        </button>
+        */}
         {ds.length > 0 && (
           <div className="ci-hs-viec">
             {ds.slice(0, 5).map(x => (
@@ -1247,6 +1427,45 @@
    * KHÔNG tự nối dù chỉ có đúng một kết quả. Lý do đã ghi trong mã máy chủ: nối nhầm là bot đọc
    * lịch sử mua của người khác rồi nói với khách này — một lỗi lộ dữ liệu, không phải lỗi hiển thị.
    */
+  /**
+   * Danh sách khách CRM để bấm chọn. MỘT thành phần cho cả hai chỗ dùng (gợi ý theo số, và tìm
+   * tay) — trước đó là hai bản chép tay, và chúng đã lệch nhau: một bản hiện "số · mã", bản kia
+   * hiện "mã · số".
+   *
+   * ⚠️ `.ci-hs-crm-kq` là lớp của KHUNG CHỨA, không phải của từng nút: luật căn trái và padding
+   * nằm ở `.ci-hs-crm-kq button`. Gán nó thẳng lên nút thì mỗi dòng tự thành một khung cuộn cao
+   * 180px và chữ mất hết padding — đúng lỗi chủ dự án thấy ngày 12/09/2026.
+   */
+  function DsKhachCrm({ ds, dangLam, onNoi, dungSo }) {
+    if (!ds || ds.length === 0) return null;
+    const chuDau = t => (window.ChonNguoiUtil ? window.ChonNguoiUtil.chuDau(t) : (t || '?')[0]);
+
+    return (
+      <div className="ci-hs-crm-kq">
+        {ds.map(k => {
+          // dungSo chỉ có ở lối gợi ý theo số. Tìm tay thì không có khái niệm "trùng đúng".
+          const khop = dungSo ? dungSo(k) : null;
+          return (
+            <button key={k.id} disabled={dangLam} onClick={() => onNoi(k.id, k.name, k.code)}
+                    className={'ci-kh-dong' + (khop === false ? ' khac-so' : '')}
+                    title={khop === false ? 'KHÔNG trùng đúng số điện thoại. Kiểm kỹ trước khi nối.'
+                                          : 'Nối hội thoại này với khách ' + k.name}>
+              <i className="ci-kh-chu" aria-hidden="true">{chuDau(k.name)}</i>
+              <span className="ci-kh-than">
+                <b>{k.name}</b>
+                <em>{[k.phone, k.code].filter(Boolean).join(' · ') || '#' + k.id}</em>
+              </span>
+              {/* Dấu hiệu TRẠNG THÁI THẬT, không phải trang trí: khớp đúng số hay không quyết định
+                  người trực có nên bấm. Đường tìm bên CRM khớp lỏng nên danh sách luôn lẫn cả hai. */}
+              {khop === true && <u className="ci-kh-khop">trùng số</u>}
+              {khop === false && <u className="ci-kh-lech">khác số</u>}
+            </button>
+          );
+        })}
+      </div>
+    );
+  }
+
   function GoiYNoiTheoSo({ hoiThoaiId, soDt, onNoi, dangLam }) {
     const [ds, setDs] = useState(null);
 
@@ -1265,18 +1484,26 @@
     // vốn đã có sẵn câu giải thích ngay trên.
     if (!ds || ds.length === 0) return null;
 
+    // CHỈ SỐ mới tính là trùng, và phải trùng ĐÚNG. Đường tìm bên CRM khớp lỏng — nó trả về cả
+    // 098238521108 (12 chữ số) khi hỏi 0982385108, vì tìm theo nhiều cột và khớp một phần.
+    // Gọi tất cả là "trùng số điện thoại" là nói sai: người trực tin con số rồi bấm nhầm.
+    const chiSo = s => String(s || '').replace(/\D/g, '');
+    const soCanTim = chiSo(soDt);
+    const dungSo = k => chiSo(k.phone) === soCanTim;
+    // Trùng đúng lên trước — thứ tự CRM trả về không nói lên điều gì.
+    const sapXep = [...ds].sort((x, y) => (dungSo(y) ? 1 : 0) - (dungSo(x) ? 1 : 0));
+    const soTrungDung = ds.filter(dungSo).length;
+
     return (
       <div className="ci-hs-goiy">
+        {/* MỘT dòng, hai việc: nói có bao nhiêu hồ sơ, và nói rõ HỆ KHÔNG TỰ NỐI.
+            Bản trước dài ba nhánh câu tuỳ số lượng — đọc mệt mà vẫn không nói được điều quan
+            trọng nhất là ai bấm. */}
         <div className="ci-hs-goiy-dau">
-          {ds.length === 1 ? 'Có thể là khách này (trùng số điện thoại):'
-                           : ds.length + ' khách trùng số điện thoại này — chọn đúng người:'}
+          <b>{ds.length} hồ sơ khớp số {soDt}</b>
+          <span>bấm để nối — hệ không tự nối</span>
         </div>
-        {ds.slice(0, 5).map(k => (
-          <button key={k.id} className="ci-hs-crm-kq" disabled={dangLam} onClick={() => onNoi(k.id)}>
-            <b>{k.name}</b>
-            <span>{[k.phone, k.code].filter(Boolean).join(' · ')}</span>
-          </button>
-        ))}
+        <DsKhachCrm ds={sapXep.slice(0, 5)} dangLam={dangLam} onNoi={onNoi} dungSo={dungSo} />
       </div>
     );
   }
@@ -1307,12 +1534,17 @@
       return () => { song = false; clearTimeout(hen); };
     }, [mo, tim, v?.id]);
 
-    async function doiNoi(customerId) {
+    async function doiNoi(customerId, tenKhach, maKhach) {
       setDangLam(true);
       try {
         const r = await authedFetch('/api/v1/chat/conversations/' + v.id + '/link-crm', {
           method: 'POST', headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(customerId ? { customerId: Number(customerId) } : {}),
+          // Gửi kèm tên + mã khách: CRM không có đường lấy khách theo mã, nên nếu không gửi
+          // bây giờ thì sau này màn hình chỉ hiện được con số. Giao diện đang CÓ SẴN hai thứ này
+          // ngay trong dòng người dùng vừa bấm.
+          body: JSON.stringify(customerId
+            ? { customerId: Number(customerId), customerName: tenKhach || null, customerCode: maKhach || null }
+            : {}),
         });
         if (!r.ok) { pushToast('Không lưu được', 'error'); return; }
         pushToast(customerId ? 'Đã nối với khách CRM' : 'Đã gỡ nối khách CRM', 'success');
@@ -1323,7 +1555,12 @@
     if (lh?.crmCustomerId && !mo) {
       return (
         <div className="ci-hs-crm">
-          Đã nối với khách <b>#{lh.crmCustomerId}</b>
+          {/* Hiện TÊN khách, không phải mã. "#60423" không nói được gì với người trực — chủ dự
+              án bắt được 12/09/2026. Chưa có tên (nối từ trước bản này) thì mới lùi về mã. */}
+          {lh.crmCustomerName
+            ? <>Đã nối: <b>{lh.crmCustomerName}</b>
+                {lh.crmCustomerCode && <span className="ci-hs-crm-ma">{lh.crmCustomerCode}</span>}</>
+            : <>Đã nối với khách <b>#{lh.crmCustomerId}</b></>}
           <div className="ci-hs-crm-nut">
             <button className="ci-nut nho" onClick={() => setMo(true)}>Đổi</button>
             <button className="ci-nut nho" disabled={dangLam} onClick={() => doiNoi(null)}>Gỡ nối</button>
@@ -1349,21 +1586,22 @@
       );
     }
 
+    // ⚠️ .ci-hs-crm-tim là MỘT HÀNG NGANG (display:flex). Trước 12/09/2026 cả ô nhập, dòng trạng
+    // thái, danh sách kết quả và nút Thôi cùng nằm trong nó — nên tất cả xếp cạnh nhau và giao
+    // diện lệch hẳn. Nay chỉ ô nhập và nút Thôi ở trong hàng; phần còn lại xuống dưới.
+    //
+    // Chú thích để Ở ĐÂY chứ không phải {/* */} ngay sau `return (`: chỗ đó dấu ngoặc nhọn bị
+    // đọc thành một đối tượng, và esbuild ném "Expected ) but found className".
     return (
-      <div className="ci-hs-crm-tim">
-        <input value={tim} onChange={e => setTim(e.target.value)} autoFocus
-               placeholder="Tên, số điện thoại hoặc mã khách…" />
+      <div className="ci-hs-crm-tim-khung">
+        <div className="ci-hs-crm-tim">
+          <input value={tim} onChange={e => setTim(e.target.value)} autoFocus
+                 placeholder="Tên, số điện thoại hoặc mã khách…" />
+          <button className="ci-nut nho" onClick={() => { setMo(false); setTim(''); setDs(null); }}>Hủy</button>
+        </div>
         {tim.trim().length >= 2 && ds === null && <div className="ci-hs-trong">Đang tìm…</div>}
         {ds !== null && ds.length === 0 && <div className="ci-hs-trong">Không thấy khách nào khớp.</div>}
-        {(ds || []).map(k => (
-          <button key={k.id} className="ci-hs-crm-kq" disabled={dangLam} onClick={() => doiNoi(k.id)}>
-            <b>{k.name}</b>
-            <span>{[k.code, k.phone].filter(Boolean).join(' · ') || '#' + k.id}</span>
-          </button>
-        ))}
-        <div className="ci-hs-crm-nut">
-          <button className="ci-nut nho" onClick={() => { setMo(false); setTim(''); setDs(null); }}>Thôi</button>
-        </div>
+        {ds !== null && ds.length > 0 && <DsKhachCrm ds={ds} dangLam={dangLam} onNoi={doiNoi} />}
       </div>
     );
   }
@@ -1384,8 +1622,34 @@
    * đồng nghiệp. Đọc thành "mình đã nhận" trong khi việc là của người khác. Nay ba trạng thái
    * nói ba câu khác nhau, dựa trên phanCong.meId.
    */
+  /**
+   * Người đang xem có quyền `ma` không — và VẼ LẠI khi danh sách quyền về.
+   *
+   * Đọc thẳng `hasPermission` trong thân hàm vẽ thì hỏng lúc mở trang nguội: quyền nạp bất đồng
+   * bộ, mà `loadPermissions()` ở auth.jsx không được chờ nên `emit()` chạy trước khi quyền kịp
+   * lưu. Lần vẽ đầu đọc ra rỗng → khối bị ẩn với chính người CÓ quyền, và không có gì kéo nó
+   * hiện lại cho tới một lần vẽ lại tình cờ nào đó.
+   *
+   * auth.jsx phát `tourkit-perms-changed` ngay sau khi lưu xong — nghe đúng sự kiện đó.
+   */
+  function useQuyen(ma) {
+    const [co, setCo] = useState(() => !!window.tourkitAuth?.hasPermission?.(ma));
+    useEffect(() => {
+      const doc = () => setCo(!!window.tourkitAuth?.hasPermission?.(ma));
+      doc();   // quyền có thể đã về giữa lần vẽ đầu và lúc hiệu ứng chạy
+      window.addEventListener('tourkit-perms-changed', doc);
+      return () => window.removeEventListener('tourkit-perms-changed', doc);
+    }, [ma]);
+    return co;
+  }
+
   function KhoiPhuTrach({ v, phanCong, chonDuoc, onNhan, onGiao, onNha }) {
     const [moChon, setMoChon] = useState(false);
+    // Đã có người phụ trách thì các nút đổi/nhả NẤP đi, chỉ còn một biểu tượng bánh răng.
+    // Lý do: trạng thái bình thường của khối này là "đã có người, không phải làm gì nữa" — bày
+    // sẵn ô chọn người và nút Dừng chăm sóc ở đó là mời bấm nhầm vào việc hiếm khi cần, và làm
+    // khối cao gấp ba lần thông tin nó thật sự chở (chủ dự án 12/09/2026).
+    const [moSua, setMoSua] = useState(false);
     const [dinh, setDinh] = useState(null);        // người vừa chọn, CHƯA bấm Gán
     const [dangLam, setDangLam] = useState(false);
 
@@ -1396,9 +1660,18 @@
     const tenPT = nguoiPT?.name || v.assignedUsername || (maPT ? '#' + maPT : null);
     const coNguoi = !!(maPT || v.assignedUsername);
     const laToi = maPT != null && phanCong.meId != null && maPT === phanCong.meId;
-    // Nhân viên thường khi đang kẹp quyền xem: hội thoại họ mở được thì đã là của họ, nút nhận
-    // bấm không ra gì — để nguyên là trông như lỗi.
-    const duocGiao = phanCong.isAdmin || !phanCong.scopeOwnOnly;
+    // AI ĐƯỢC GIAO VIỆC CHO NGƯỜI KHÁC: người có quyền xem TOÀN BỘ chat (chốt 12/09/2026, chủ
+    // dự án). Lý do hợp với chính nghĩa của quyền đó — giao việc là quyết ai làm gì trong cả hộp
+    // thư, mà người chỉ thấy phần việc của mình thì không có cơ sở nào để quyết hộ người khác.
+    //
+    // Thay cho luật cũ `isAdmin || !scopeOwnOnly`: luật đó hỏi CẤU HÌNH của công ty chứ không hỏi
+    // QUYỀN của người đang ngồi, nên công ty nào để chế độ xem chung là mọi nhân viên đều giao
+    // việc được cho nhau.
+    //
+    // ⚠️ Đây là rào GIAO DIỆN, không phải rào an ninh: máy chủ vẫn nhận lệnh giao từ bất kỳ ai
+    // mở được hội thoại (chỉ chặn thêm theo đội trực khi ở chế độ xoay vòng). Muốn chặn thật thì
+    // phải thêm ở đường POST /conversations/{id}/assign — chủ dự án đã chốt đợt này không đụng API.
+    const duocGiao = useQuyen('CHAT_XEM_ALL');
 
     async function chay(fn) {
       setDangLam(true);
@@ -1421,6 +1694,13 @@
                   <b>{laToi ? 'Bạn' : tenPT}</b>
                   <span>đang phụ trách</span>
                 </span>
+                {duocGiao && (
+                  <button className="ci-pt-sua" onClick={() => setMoSua(m => !m)}
+                          aria-expanded={moSua} aria-label="Đổi người phụ trách"
+                          title={moSua ? 'Đóng' : 'Đổi người phụ trách hoặc dừng chăm sóc'}>
+                    <window.Icon name={moSua ? 'close' : 'sliders'} size={13} />
+                  </button>
+                )}
               </>
             : <>
                 <span className="ci-pt-cham" aria-hidden="true" />
@@ -1438,7 +1718,9 @@
 
             Danh sách hiện SẴN, không giấu sau một nút "Gán người khác". Giấu đi thì việc này tốn
             hai lần bấm mà chẳng che được gì — panel còn nguyên chỗ trống bên dưới. */}
-        {duocGiao && (
+        {/* Chưa ai nhận thì mở sẵn — lúc đó việc CẦN làm chính là giao cho ai đó.
+            Đã có người rồi thì chờ bấm bánh răng. */}
+        {duocGiao && (!coNguoi || moSua) && (
           chonDuoc.length === 0 ? (
             /* HAI NGUYÊN NHÂN, MỘT TRIỆU CHỨNG — phải nói đúng cái nào, vì hai cách sửa khác hẳn.
                Máy chủ đã tách hai ca này trong log từ 08/09/2026 (hai câu cảnh báo riêng), nhưng
@@ -1474,7 +1756,7 @@
                       : 'Gán cho ' + ((chonDuoc.find(nv => nv.id === dinh) || {}).name || 'người này')}
                   </button>
                   <button className="ci-nut nho" disabled={dangLam} onClick={() => setDinh(maPT)}>
-                    Thôi
+                    Hủy
                   </button>
                 </div>
               )}
@@ -1493,6 +1775,61 @@
             </div>
           )
         )}
+      </div>
+    );
+  }
+
+  /**
+   * Cảm xúc cuộc trò chuyện — thống kê 5 bậc.
+   *
+   * Máy chủ gửi xuống ĐÃ DỌN SẴN: điểm, chữ trạng thái, biểu tượng, việc nên làm, cờ cần báo, và
+   * số tín hiệu. Ở đây KHÔNG có bảng tra nào — thang nằm một chỗ duy nhất trong
+   * Domain/Chat/ConversationSentiment.cs. Chép nó sang đây là có hai bản sự thật rồi sớm muộn
+   * lệch nhau, mà lệch kiểu này thì màn hình nói một đằng dữ liệu một nẻo.
+   *
+   * Chưa có tín hiệu nào thì máy chủ trả null và cả khối KHÔNG hiện — khác hẳn "trung tính".
+   * Bày một khối rỗng ghi "chưa rõ" chỉ chiếm chỗ mà không nói gì.
+   */
+  function CamXuc({ v }) {
+    const c = v?.sentiment;
+    if (!c) return null;
+
+    // Con trỏ trên dải: bậc 1 → sát trái, bậc 5 → sát phải.
+    const viTri = ((c.level - 1) / 4) * 100;
+
+    return (
+      <div className="ci-hs-muc">
+        <h4>Cảm xúc cuộc trò chuyện</h4>
+
+        {/* Thẻ RIÊNG, không mượn .ci-hs-the: khuôn đó không có padding (nó đẩy padding vào từng
+            dòng con) và có overflow:hidden, nên nội dung tự do như khối này bị dính sát viền rồi
+            bị cắt. Đo thật 12/09/2026 — đúng ba lỗi vẽ ở lần dựng đầu. */}
+        <div className={'ci-cx' + (c.needsEscalation ? ' canh-bao' : '')}>
+          <div className="ci-cx-dau">
+            <b aria-hidden="true">{c.icon}</b>
+            <span>
+              <strong>{c.label}</strong>
+              {/* Một biểu tượng và hai mươi biểu tượng cho cùng một bậc, nhưng đáng tin khác hẳn
+                  nhau — nên số tín hiệu phải hiện, không giấu đi. */}
+              <em>{c.signals === 1 ? '1 tín hiệu' : c.signals + ' tín hiệu'}</em>
+            </span>
+          </div>
+
+          <div className="ci-cx-dai" role="img"
+               aria-label={`Cảm xúc bậc ${c.level} trên 5 — ${c.label}`}>
+            <i style={{ left: viTri + '%' }} />
+          </div>
+
+          {/* VIỆC NÊN LÀM — phần ảnh mẫu không có, mà đây mới là thứ dùng được: biết khách đang
+              bực rồi thì làm gì tiếp. */}
+          <p className="ci-cx-viec">{c.action}</p>
+
+          {/* Nguồn nằm CUỐI thẻ, không nhét vào tiêu đề: tiêu đề .ci-hs-muc h4 dùng chung cho mọi
+              khối, thả một thẻ float vào đó là nó đè lên chữ ở độ rộng hẹp. Và nói RÕ nguồn —
+              ảnh mẫu ghi "AI phân tích", ở đây chưa phải AI; đề sai thì người dùng tin con số
+              hơn mức nó đáng được tin. */}
+          <span className="ci-cx-nguon">theo biểu tượng khách thả trong hội thoại</span>
+        </div>
       </div>
     );
   }
@@ -1541,6 +1878,12 @@
             <window.Icon name="close" size={15} />
           </button>
         </div>
+
+        {/* Cảm xúc đứng NGAY DƯỚI đầu hồ sơ, TRƯỚC dải thẻ — nên thấy được ở mọi thẻ, không phải
+            nhớ nó nằm trong thẻ nào. Đây là thứ trả lời câu "cuộc này đang ổn hay đang căng", mà
+            đó là câu người trực hỏi TRƯỚC khi quyết định làm gì tiếp.
+            Chưa có tín hiệu nào thì khối tự ẩn, dải thẻ dính lên sát đầu như cũ. */}
+        <CamXuc v={v} />
 
         {/* ── Ba thẻ, chia theo VIỆC ĐANG LÀM ───────────────────────────────────────────
             Trước 08/09/2026 panel này là SÁU khối xếp dọc trong một cuộn duy nhất: phụ trách,
@@ -1595,11 +1938,13 @@
             <div className="ci-hs-muc">
               <h4>Khách hàng CRM</h4>
               <NoiCrm chiTiet={chiTiet} pushToast={pushToast} />
-              {/* Ghi nhận chăm sóc — chỉ có nghĩa khi đã nối khách, vì việc này đi thẳng vào hồ
-                  sơ khách bên CRM. Chưa nối thì khối trên đã nói rõ phải làm gì trước. */}
-              {chiTiet?.contact?.crmCustomerId > 0 && (
-                <ChamSoc hoiThoaiId={v.id} pushToast={pushToast} />
-              )}
+              {/* LUÔN hiện, không đòi nối khách CRM trước (chủ dự án chốt 12/09/2026).
+                  Nối rồi thì việc gửi đi kèm mã khách; chưa nối thì gửi tên và số điện thoại bắt
+                  được trong đoạn chat, phía dịch vụ tự khớp hoặc tạo mới.
+
+                  Bản trước chỉ hiện khi đã nối — mà hầu hết hội thoại không bao giờ được nối tay,
+                  nên chính chủ dự án không tìm thấy nút ở đâu cả. */}
+              <ChamSoc hoiThoaiId={v.id} pushToast={pushToast} />
             </div>
 
             <div className="ci-hs-muc">
@@ -1615,12 +1960,32 @@
                     <window.Icon name="copy" size={12} />
                   </button>
                 </div>
+                {/* Tên khách TỰ KHAI trong đoạn chat ("mình tên Nguyễn Văn An"). Dòng RIÊNG chứ
+                    không đè lên tên kênh: kênh thường chỉ cho biệt danh, còn đây là tên khách tự
+                    gõ — hai thứ khác nguồn, và người trực cần biết cái nào là khách tự nói. */}
+                {/* TÊN người đang chat. Ưu tiên tên khách tự gõ ra trong hội thoại; chưa bắt
+                    được thì lấy tên kênh cung cấp — luôn có một cái gì đó, không để trống.
+
+                    Trước 12/09/2026 khối này KHÔNG có dòng tên nào: chỉ có "tên tự khai", mà nó
+                    rỗng cho tới khi khách tự xưng — nên phần Liên hệ nhìn như thiếu tên. */}
+                <Dong nhan="Tên">{lh?.statedName || ten}</Dong>
+                {/* Dòng phụ CHỈ khi hai tên khác nhau: khách xưng "Nguyễn Văn An" mà Facebook ghi
+                    "Bé Mèo Con" thì người trực cần thấy cả hai. Giống nhau thì lặp lại là thừa. */}
+                {lh?.statedName && lh.statedName !== ten && (
+                  <Dong nhan="Kênh gọi là">{ten}</Dong>
+                )}
                 <Dong nhan="Số điện thoại">{lh?.phone}</Dong>
                 <Dong nhan="Email">{lh?.email}</Dong>
                 <Dong nhan="Nhắn lần đầu">{lh?.createdUtc ? fmtDate(lh.createdUtc) : null}</Dong>
                 <Dong nhan="Nhắn gần nhất">
                   {v.contactRepliedAt ? fmtAgo(v.contactRepliedAt) : 'chưa nhắn lần nào'}
                 </Dong>
+              </div>
+
+              {/* Nút đứng NGAY DƯỚI thẻ Liên hệ (chủ dự án 12/09/2026). Đúng thứ tự đọc: xem
+                  mình biết gì về khách, rồi mới quyết có mở Cơ hội hay không. */}
+              <div className="ci-hs-crm-nut">
+                <CoHoi hoiThoaiId={v.id} pushToast={pushToast} nhanVien={phanCong.staffs} />
               </div>
             </div>
 
@@ -1766,7 +2131,7 @@
         </label>
         <div className="ci-bimat-doi-duoi">
           <span>Bấm <b>Lưu</b> để thay khoá cũ.</span>
-          <button type="button" className="ci-lienket" onClick={thoi}>Thôi</button>
+          <button type="button" className="ci-lienket" onClick={thoi}>Hủy</button>
         </div>
       </div>
     );
@@ -1929,7 +2294,7 @@
           <span>{ds.length} mẫu</span>
           <button className="ci-nut nho chinh"
                   onClick={() => setSua(sua ? null : { trigger: '', body: '', buttons: [] })}>
-            {sua ? 'Thôi' : '+ Thêm mẫu'}
+            {sua ? 'Hủy' : '+ Thêm mẫu'}
           </button>
         </div>
 
@@ -2250,13 +2615,13 @@
                      ngay: việc cần làm là báo quản trị, không phải tự đi tìm mã. */
                   <button className="ci-nut nho"
                           onClick={() => setKhaiTay(p => ({ ...p, [k.channel]: !p[k.channel] }))}>
-                    {khaiTay[k.channel] ? 'Thôi' : 'Khai tay'}
+                    {khaiTay[k.channel] ? 'Hủy' : 'Khai tay'}
                   </button>
                 )
                 : (
                   <button className="ci-nut nho"
                           onClick={() => setMo(mo === k.channel + ':moi' ? null : k.channel + ':moi')}>
-                    {mo === k.channel + ':moi' ? 'Thôi' : '+ Thêm'}
+                    {mo === k.channel + ':moi' ? 'Hủy' : '+ Thêm'}
                   </button>
                 )}
             </div>
@@ -2508,6 +2873,10 @@
     const [dangGui, setDangGui] = useState(false);
     const [dangTai, setDangTai] = useState(true);
     const [moKhai, setMoKhai] = useState(false);
+    // Quyền cấu hình hệ thống của CHÍNH người đang xem — cùng mã CH_HT_XEM mà máy chủ đòi ở các
+    // đường ghi cấu hình, và cùng cách hỏi mà trang Tự động hoá đang dùng. Đọc một lần mỗi lần
+    // vẽ lại là đủ: quyền nằm sẵn trong bộ nhớ trình duyệt, không phải lượt gọi mạng.
+    const coQuyenCauHinh = useQuyen('CH_HT_XEM');
     // Bảng chọn tin mẫu — chỉ mở từ ô soạn đang khoá, xem chỗ dùng.
     const [moMau, setMoMau] = useState(false);
     // Điện thoại (≤760px): một màn hình một việc — danh sách HOẶC khung chat, hồ sơ là tấm trượt
@@ -3075,8 +3444,12 @@
       // một dòng là khung chat phải hiện NGAY với khung xương, chờ tải xong mới lật màn thì có
       // vài trăm mili giây đứng im và người dùng chạm lại lần nữa.
       <main className={'page ci-wrap' + (diDong ? ' di-dong' : '') + (diDong && chon ? ' xem-chat' : '')}>
-        {moKhai && <KhaiKenh pushToast={pushToast} onDong={() => setMoKhai(false)}
-                             mucDau={moKhai} onLuuPhanCong={taiPhanCong} />}
+        {/* Kẹp lại quyền NGAY Ở CHỖ VẼ, không chỉ ở chỗ bấm. Ẩn nút mà vẫn vẽ hộp thì chỉ cần
+            một đường mở khác — phím tắt, liên kết sâu, hay một lượt sửa sau này quên mất — là hộp
+            cài đặt lại hiện ra cho người không có quyền. Hai lớp rẻ hơn một lần sót. */}
+        {moKhai && coQuyenCauHinh
+          && <KhaiKenh pushToast={pushToast} onDong={() => setMoKhai(false)}
+                       mucDau={moKhai} onLuuPhanCong={taiPhanCong} />}
 
         <div ref={gridRef} className={'ci-grid' + (v && moHoSo ? ' co-hoso' : '')}>
           {/* Hàng tiêu đề nằm TRONG thẻ, trải hết các cột.
@@ -3121,16 +3494,27 @@
                 <span>{phanCong.tamNghi ? 'Đã tạm dừng' : 'Đang nhận việc'}</span>
               </button>
             )}
-            <button className="ci-dau-nut" onClick={() => setMoKhai(m => m === 'phancong' ? false : 'phancong')}
-                    title="Phân công chat" aria-label="Phân công chat">
-              <window.Icon name="users" size={13} /><span>Phân công</span>
-            </button>
+            {/* HAI NÚT NÀY CHỈ DÀNH CHO NGƯỜI CÓ QUYỀN CẤU HÌNH HỆ THỐNG.
+                Máy chủ vốn đã chặn: PUT /assign-settings, /channels/*, PUT /bot-settings và
+                PUT /quick-replies đều đòi CH_HT_XEM. Nhưng chặn ở máy chủ mà giao diện vẫn bày
+                nút thì người trực mở hộp cài đặt, gõ xong, bấm Lưu rồi mới nhận lỗi — mất công
+                và trông như hệ thống hỏng chứ không như "việc này không phải của bạn".
+                Người trực vẫn gắn nhãn và dùng mẫu trả lời ngay trong khung chat như cũ; thứ mất
+                đi chỉ là màn QUẢN LÝ danh mục, mà xoá một nhãn ở đó là gỡ nhãn khỏi mọi khách. */}
+            {coQuyenCauHinh && (
+              <button className="ci-dau-nut" onClick={() => setMoKhai(m => m === 'phancong' ? false : 'phancong')}
+                      title="Phân công chat" aria-label="Phân công chat">
+                <window.Icon name="users" size={13} /><span>Phân công</span>
+              </button>
+            )}
             {/* Chữ bọc trong <span> để điện thoại giấu đi, chỉ còn dấu cộng — hàng tiêu đề
                 48px không đủ chỗ cho cả bộ đếm lẫn nhãn nút. title/aria-label giữ nghĩa. */}
-            <button className="ci-dau-nut" onClick={() => setMoKhai(m => m === 'kenh' ? false : 'kenh')}
-                    title="Kết nối kênh" aria-label="Kết nối kênh">
-              <window.Icon name="plus" size={12} /><span>Kết nối kênh</span>
-            </button>
+            {coQuyenCauHinh && (
+              <button className="ci-dau-nut" onClick={() => setMoKhai(m => m === 'kenh' ? false : 'kenh')}
+                      title="Kết nối kênh" aria-label="Kết nối kênh">
+                <window.Icon name="plus" size={12} /><span>Kết nối kênh</span>
+              </button>
+            )}
           </div>
           {/* Vùng 1 — dải kênh */}
           <nav className="ci-dai" aria-label="Lọc theo kênh">
@@ -3255,12 +3639,20 @@
                     <span className="ci-muc-dau">
                       {/* Chưa đọc đã có sẵn cơ chế riêng: .ci-muc.chuadoc làm đậm tên và
                           chấm một dấu cạnh giờ. Đừng thêm dấu thứ hai cho cùng một chuyện. */}
+                      {/* Chấm cảm xúc — CHỈ hiện khi cần chú ý (bậc 1–2). Chấm ở mọi dòng thì
+                          nó thành hoa văn: mắt lướt qua không dừng lại, và đúng dòng cần dừng
+                          cũng bị lướt qua nốt. Ngưỡng do máy chủ quyết (needsEscalation), giao
+                          diện không tự so điểm. */}
+                      {c.sentiment?.needsEscalation && (
+                        <i className="ci-cx-cham" title={c.sentiment.label + ' — ' + c.sentiment.action}
+                           aria-label={'Cần chú ý: ' + c.sentiment.label} />
+                      )}
                       <span className="ci-ten">{c.displayName || c.contactExternalId}</span>
                       <span className="ci-luc">{gioNgan(c.lastActivityAt)}</span>
                     </span>
-                    {/* Tên Trang/OA đi TRƯỚC dòng xem trước, cùng một hàng — giữ nguyên luật hai
-                        hàng của mục. Máy chủ chỉ gửi khi công ty nối từ hai tài khoản cùng kênh
-                        trở lên; một Trang thì đây là null và dòng không đổi gì. */}
+                    {/* Tên Trang/OA/bot đi TRƯỚC dòng xem trước, cùng một hàng — giữ nguyên luật
+                        hai hàng của mục. Từ 12/09/2026 luôn có, kể cả khi kênh chỉ nối một tài
+                        khoản: hộp thư trộn nhiều kênh nên người trực cần biết tin vào từ đâu. */}
                     <span className="ci-xemtruoc">
                       {c.accountLabel && <i className="ci-trang">{c.accountLabel}</i>}
                       {c.lastPreview || 'chưa có tin nào'}
@@ -3380,9 +3772,10 @@
                         Tách thành nhiều thẻ thì hàng tiêu đề cao gấp đôi mà không thêm thông tin. */}
                     <span>
                       <i aria-hidden="true" />
-                      {/* Tên Trang đứng ngay sau tên kênh: "Messenger · Trang Hà Nội · …".
-                          filter(Boolean) vì accountLabel null khi công ty chỉ nối một tài khoản —
-                          không lọc thì dòng thành "Messenger ·  · Mới". */}
+                      {/* NGUỒN đứng ngay sau tên kênh: "Messenger · Trang Hà Nội · …" — Trang
+                          Facebook nào, OA Zalo nào, bot Telegram nào. Từ 12/09/2026 luôn có, kể
+                          cả khi kênh chỉ nối một tài khoản. filter(Boolean) giữ lại phòng khi
+                          công ty chưa đặt tên cho tài khoản. */}
                       <em>{[KENH[v.channel]?.ten, v.accountLabel, TEN_TRANG_THAI[v.status],
                            (phanCong.staffs || []).find(nv => nv.id === v.assignedUserId)?.name
                              || v.assignedUsername || 'chưa ai nhận',
@@ -3682,7 +4075,7 @@
                             {aiDangSoan ? ' Đang soạn…' : ' Gợi ý'}
                           </button>
                           <span className="ci-soan-nhac">
-                            {aiNhac || 'Enter để gửi · Shift + Enter xuống dòng'}
+                            Enter để gửi · Shift + Enter xuống dòng
                           </span>
                           <button className="ci-gui" onClick={gui}
                                   disabled={dangGui || (!soan.trim() && !dinhKem)}
@@ -3691,6 +4084,21 @@
                           </button>
                         </div>
                       </div>
+                      {/* Câu trả lời của nút Gợi ý khi KHÔNG ra chữ. Phải là một dòng THẬT, có nền
+                          và có nút bỏ.
+
+                          Bản đầu (12/09/2026) nhét câu này vào ô nhắc "Enter để gửi" — chữ 10px
+                          xám nhạt nép góc phải, và ô đó còn display:none ở cửa sổ hẹp lẫn chế độ
+                          điện thoại. Cộng với việc hai nhánh thoát sớm trả lời trong 13–30ms nên
+                          chữ "Đang soạn…" không kịp nhấp nháy: bấm nút xong màn hình đứng im hoàn
+                          toàn. Chủ dự án bắt được ngay lượt chạy thử đầu tiên. */}
+                      {aiNhac && (
+                        <div className="ci-ai-nhac" role="status">
+                          <window.Icon name="info" size={13} />
+                          <span>{aiNhac}</span>
+                          <button onClick={() => setAiNhac(null)} aria-label="Bỏ lời nhắc">×</button>
+                        </div>
+                      )}
                       {v.botPaused && (
                         <div className="ci-cho-gui">Bot đang tạm dừng nên sẽ không trả lời chen vào.</div>
                       )}
