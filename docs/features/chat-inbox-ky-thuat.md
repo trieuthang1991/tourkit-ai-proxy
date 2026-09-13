@@ -1,4 +1,12 @@
-﻿# Hộp thư chat đa kênh
+﻿# Hộp thư chat đa kênh — ghi chú KỸ THUẬT
+
+> **Đây là tài liệu cho người viết mã.** Nội dung trong đây trước 13/09/2026 nằm ở
+> `docs/features/chat-inbox.md`; hôm đó tách làm hai vì một tệp không thể vừa là hướng dẫn cho
+> nhân viên nghiệp vụ vừa là sổ ghi bẫy webhook và lý do thiết kế.
+> **Hướng dẫn cho người dùng cuối:** [hop-thu-chat.md](hop-thu-chat.md) — đọc tệp đó nếu bạn
+> đang tìm "bấm nút nào để làm gì". Đó cũng là tệp app đọc để dựng trang Hướng dẫn (slug
+> `hop-thu-chat`, đăng ký ở `wwwroot/pages/help.jsx`), nên sửa hướng dẫn là sửa THẲNG tệp đó.
+> Tệp này giữ nguyên phần kỹ thuật, không lược bỏ dòng nào.
 
 > Tách khỏi `CLAUDE.md` ngày 25/08/2026 — file đó đã hơn 1.000 dòng nên không ai đọc hết,
 > mà quy ước không đọc thì bằng không có. Xem `CLAUDE.md` để biết khi nào cần đọc file này.

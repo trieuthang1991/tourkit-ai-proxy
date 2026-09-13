@@ -1,4 +1,4 @@
-# Rà soát ĐỦ hành động của hộp thư chat đa kênh
+﻿# Rà soát ĐỦ hành động của hộp thư chat đa kênh
 
 **Ngày:** 26/08/2026 · **Nguồn đối chiếu:** `D:\MiGroup\AI\chat-bot-xio\ChatbotX` (có CodeGraph —
 `cd` vào đó rồi `codegraph explore "..."`, đừng grep mò) + tài liệu Meta chính thức.
@@ -104,7 +104,7 @@ cáo nào, mã QR nào) — dữ liệu bán hàng thật, mà không bóc lúc 
 3. **Chép CÁCH LÀM, không chép mã** — khác ngôn ngữ, khác kiến trúc.
 4. **Mỗi lần thêm một sự kiện nhận vào: sửa ĐỦ HAI chỗ** — đăng ký bên Meta *và* bóc trong `Parse`.
    Thiếu một là hỏng im lặng, không lỗi, không log.
-5. Chỗ nào cố ý làm khác ChatbotX thì ghi lý do vào [`docs/features/chat-inbox.md`](../../features/chat-inbox.md).
+5. Chỗ nào cố ý làm khác ChatbotX thì ghi lý do vào [`docs/features/chat-inbox-ky-thuat.md`](../../features/chat-inbox-ky-thuat.md).
 
 ---
 

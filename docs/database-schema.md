@@ -1,4 +1,4 @@
-# Database Schema — tourkit-ai-proxy
+﻿# Database Schema — tourkit-ai-proxy
 
 > **1 nguồn cho mọi bảng SQL Server mà proxy đang dùng**. Khi thêm bảng mới hoặc đổi schema → cập nhật file này song song với [Services/Db/TourkitAiDb.cs](../TourkitAiProxy.Infrastructure/Db/TourkitAiDb.cs).
 
@@ -49,6 +49,28 @@
 > Bảng mới (2026-07-14): `dbo.CrmActionQueue` — outbox pattern cho trợ lý hành động (assign_task/create_appointment); proxy chỉ enqueue, worker app-side drain + sync CRM.
 > Bảng mới (2026-07-18): `dbo.TourPriceCatalog` — bảng giá NCC đồng bộ từ TourKit để AI dựng giá bằng số thật (mảng 1: catalog + sync).
 > Bảng mới (2026-08-12, Đợt 1 bản tin): `dbo.AgentInsights`, `dbo.DigestSubscriptions`, `dbo.TenantChannelSettings`.
+> **Cột mới (2026-09-12, Hộp thư chat):** tám cột, tất cả `ALTER … IF NOT EXISTS` và mặc định rỗng
+> nên dòng cũ không đổi và worker đang chạy không phải deploy cùng lúc.
+>
+> · `chat_conversations.sentiment_sum` + `sentiment_count` + `sentiment_at` — thang cảm xúc 5 bậc.
+>   Lưu TỔNG và SỐ tín hiệu chứ không lưu điểm: điểm hiển thị là trung bình cả cuộc trò chuyện.
+>   Bản đầu lưu một điểm rồi ghi đè, nên khách khen mười câu rồi lỡ thả một mặt buồn là cả hội
+>   thoại thành tiêu cực. `count = 0` nghĩa là CHƯA CÓ TÍN HIỆU, khác hẳn "trung tính".
+>   Thang nằm ở [`ConversationSentiment`](../TourkitAiProxy.Domain/Chat/ConversationSentiment.cs).
+>
+> · `chat_contacts.stated_name` — tên khách TỰ KHAI trong đoạn chat. Cột RIÊNG, không đè lên
+>   `display_name` (tên kênh cung cấp): Facebook trả biệt danh, còn đây là tên khách tự gõ ra, và
+>   gộp một cột thì một lần bắt nhầm là mất tên thật không lấy lại được.
+>
+> · `chat_contacts.crm_customer_name` + `crm_customer_code` — ảnh chụp hồ sơ khách CRM LÚC NỐI,
+>   CHỈ để hiển thị. Cần vì CRM cho tìm theo tên/số/mã nhưng KHÔNG có đường lấy khách theo mã:
+>   không lưu thì màn hình chỉ hiện được con số `#60423`. Là ảnh chụp nên có thể cũ — mã khách
+>   mới là thứ có thẩm quyền.
+>
+> · `dbo.CrmActionQueue.Action` + `ReferId` — nghiệp vụ phía chat đã đẻ ra dòng (`chat-cham-soc`,
+>   `chat-co-hoi`) và mã hội thoại. KHÁC `Kind`: `Kind` nói gọi API CRM nào và worker phân việc
+>   theo nó; `Action` chỉ để tra cứu và báo cáo. Kèm chỉ mục `IX_CrmActionQueue_Refer`.
+
 > Cột mới (2026-08-12): `TkSessions.CrmUserId` (id user CRM lấy từ JWT — lọc "việc của riêng người này" khi dựng bản tin); `DigestSubscriptions.SentMask` + `SentAttempts` (cờ bit từng kênh đã gửi được + trần 3 lượt thử/ngày).
 
 ### Tổng cộng: **26 bảng** owned by proxy.

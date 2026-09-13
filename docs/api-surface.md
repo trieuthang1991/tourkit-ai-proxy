@@ -1,4 +1,4 @@
-# Bề mặt API
+﻿# Bề mặt API
 
 > Tách khỏi `CLAUDE.md` ngày 25/08/2026 — file đó đã hơn 1.000 dòng nên không ai đọc hết,
 > mà quy ước không đọc thì bằng không có. Xem `CLAUDE.md` để biết khi nào cần đọc file này.
@@ -68,6 +68,29 @@
 | DELETE | `/api/v1/workflows/service-account` | Xóa tài khoản tự động → workflow ngừng tự login → `{ok, removed}` (require X-Session-Id) |
 | GET    | `/api/v1/workflows/outbound-mails` | Theo dõi hàng đợi gửi `?kind=&status=&channel=&limit=50` → `{items[{id,kind,sourceId,templateCode,toEmail,subject,channel(0=email/1=telegram/2=zalo),status(int),retryCount,errorMessage,scheduledUtc,createdUtc,processedUtc}]}` (require X-Session-Id) |
 | GET    | `/api/v1/workflows/crm-queue`     | Theo dõi hàng đợi hành động CRM (giao việc/lịch hẹn) từ trợ lý `?kind=&status=&limit=50` → `{items[{id,tenantId,username,kind,payloadJson,status(int),resultJson,retryCount,errorMessage,createdUtc,processedUtc}]}` (require X-Session-Id) — chỉ ĐỌC, `Status`/`ResultJson` do worker app-side ghi |
+
+### Hộp thư chat — `/api/v1/chat/*`
+
+> ⚠️ **Bảng trên KHÔNG liệt kê đường chat.** Cụm chat có **63 đường** trong
+> [`ChatInboxEndpoints.cs`](../TourkitAiProxy.Endpoints/ChatInboxEndpoints.cs) và chưa đường nào
+> vào tài liệu này — khoảng trống có từ trước, ghi ra đây để người sau biết mà đừng tin bảng trên
+> là đầy đủ. Mục dưới chỉ chép **bốn đường thêm ngày 12/09/2026**; phần còn lại đọc thẳng mã hoặc
+> hỏi `codegraph explore`.
+
+| Method | Path | Notes |
+|--------|------|-------|
+| POST | `/api/v1/chat/conversations/{id}/goi-y` | Nhờ trợ lý soạn bản nháp trả lời → `{ket, chu, loiNhan}`. **KHÔNG THÂN** — thêm tham số thân là request thiếu `Content-Type` bị loại ở tầng định tuyến rồi rơi xuống trang SPA. **CHỈ TRẢ CHỮ**, không ghi tin, không xếp hàng gửi (có chốt canh). `ket` ∈ `Ok` \| `NothingNewFromCustomer` \| `BotIsHandlingIt` \| `AiFailed`; `chu` chỉ khác null khi `Ok`. **200 cho MỌI ca** kèm `loiNhan` — 4xx thì lớp `authedFetch` chung coi là hỏng, mà 401 ở đó kéo theo đăng xuất toàn cục |
+| POST | `/api/v1/chat/conversations/{id}/cham-soc` | Xếp hàng ghi nhật ký chăm sóc → `{id, trangThai:"dang-cho"}`. **Không thân.** Thả dòng `Kind=create-appointment`, `Action=chat-cham-soc` vào `dbo.CrmActionQueue` — **KHÔNG gọi CRM** (chốt canh cấm `api.PostAsync`). **KHÔNG đòi nối khách CRM trước** (bỏ 12/09/2026): nối rồi thì gửi kèm mã, chưa nối thì gửi `customerId: 0` cùng tên và số điện thoại bắt được trong đoạn chat để phía dịch vụ tự khớp hoặc tạo mới. Ràng buộc cũ đúng về hợp đồng CRM nhưng sai về nghiệp vụ — hầu hết hội thoại không bao giờ được nối tay, nên nút gần như không bao giờ dùng được |
+| GET | `/api/v1/chat/conversations/{id}/cham-soc` | Việc đã xếp hàng TỪ hội thoại này → `{items[{id, action, status, createdUtc, processedUtc, errorMessage}]}`. **KHÔNG trả `payloadJson`**: nó mang tên và số điện thoại khách, mà khối này mọi người vào được hội thoại đều đọc được |
+| POST | `/api/v1/chat/conversations/{id}/co-hoi` | Xếp hàng tạo Cơ hội bán hàng (= BookingTicket) → `{id, trangThai:"dang-cho"}`. **CÓ THÂN** `CreateTicketReq{tenPhieu, tenKH, soDienThoaiKH, emailKH, diaChiKH, noiDungPhieu, soLuong, gia, quantityChild, giaChild, quantityBaby, giaBaby, nguoiPhuTrachs}` → phải gửi `Content-Type: application/json`. Kiểm quyền `CH_TAO_MOI` **TRƯỚC** khi thả dòng (CRM không kiểm ở `CreateAsync`, worker chạy bằng quyền khác và không biết ai bấm nút). `nguoiPhuTrachs` là **chuỗi CSV**, không phải mảng. `nguonPhieu` là **định danh tự mô tả kèm kênh** (`chat-zalo`, `chat-facebook`…), worker tự chuẩn hoá — xem [hợp đồng §3b](crm-action-contract/README.md) |
+
+**Cảm xúc hội thoại** đi kèm mỗi dòng của `GET /conversations` và `GET /conversations/{id}` ở khoá
+`sentiment`: `{level(1..5), label, icon, action, needsEscalation, signals, at}`, hoặc `null` khi
+chưa có tín hiệu nào — `null` KHÁC "trung tính", giao diện phải hiện khác nhau. Thang nằm một chỗ
+duy nhất ở [`ConversationSentiment`](../TourkitAiProxy.Domain/Chat/ConversationSentiment.cs); máy
+chủ gửi kèm cả chữ và việc nên làm để `.jsx` không chép lại bảng tra.
+
+---
 
 **Tenant scoping** (multi-tenant fix 2026-06-09): tất cả endpoint `/api/v1/mail/*` và `/api/v1/visa/*` YÊU CẦU `X-Session-Id` header (hoặc `sessionId` query/body) — backend resolve `TenantId` qua `ITenantContext`/`HttpTenantContext` từ `TkSessionStore`. KHÔNG session → 401. Cross-tenant access (resource thuộc tenant khác) → null/404.
 

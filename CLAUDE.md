@@ -63,13 +63,15 @@ kết nạp từng tầng, và câu trả lời cho "file này để đâu".
 | Đụng nhà cung cấp AI, function-calling, chọn model | [docs/ai-providers.md](docs/ai-providers.md) |
 | Trợ lý số liệu, hành động trợ lý, chấm hạng khách | [docs/features/assistant.md](docs/features/assistant.md) |
 | Hộp thư AI (Gmail IMAP/SMTP, phân loại, soạn nháp) | [docs/features/mail.md](docs/features/mail.md) |
-| Hộp thư chat đa kênh (Zalo/Messenger/Telegram) | [docs/features/chat-inbox.md](docs/features/chat-inbox.md) |
+| Hộp thư chat đa kênh (Zalo/Messenger/Telegram) | [docs/features/chat-inbox-ky-thuat.md](docs/features/chat-inbox-ky-thuat.md) |
 | Tác vụ tự động, worker chạy nền | [docs/features/workflows.md](docs/features/workflows.md) |
 | Bản tin sáng, Bảng tin, hàng đợi gửi | [docs/features/digest.md](docs/features/digest.md) |
 | Thêm bảng SQL, sửa schema, chống nhắc trùng | [docs/database-schema.md](docs/database-schema.md) |
 | Trang quản trị, log, tra cứu code bằng CodeGraph | [docs/operations.md](docs/operations.md) |
+| Dựng lại CSDL chat trên máy Linux mới | [docs/postgres-chat-setup.md](docs/postgres-chat-setup.md) |
 | Sửa `wwwroot/`, thêm trang, bundle, SEO | [docs/frontend.md](docs/frontend.md) |
 | Cờ tính năng, quota, ngày giờ, CHANGELOG, cách đặt tên | [docs/conventions.md](docs/conventions.md) |
+| Nhận việc mới, theo dõi tiến độ, ghi nợ kỹ thuật (Multica) | [docs/quy-trinh-multica.md](docs/quy-trinh-multica.md) |
 
 **Ba luật không nằm trong file nào khác — đọc ngay ở đây:**
 

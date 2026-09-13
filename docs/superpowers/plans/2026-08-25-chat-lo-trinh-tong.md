@@ -1,4 +1,4 @@
-# Hộp thư chat — Lộ trình tổng, Implementation Plan
+﻿# Hộp thư chat — Lộ trình tổng, Implementation Plan
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
@@ -874,7 +874,7 @@ Giao diện nói rõ ở tooltip dấu tích.
   lên dấu tích sẽ thấy giải thích, đây không phải lỗi.
 ```
 
-- [x] **Bước 7: Chạy toàn bộ + đồng bộ + commit** — mục CHANGELOG "Phiên bản 25/08/2026 — Biết khách đã nhận và đã đọc tin chưa" đã có trong [CHANGELOG.md](../../../CHANGELOG.md); `CLAUDE.md` **không** sửa vì phần chat nay nằm ở [docs/features/chat-inbox.md](../../features/chat-inbox.md)
+- [x] **Bước 7: Chạy toàn bộ + đồng bộ + commit** — mục CHANGELOG "Phiên bản 25/08/2026 — Biết khách đã nhận và đã đọc tin chưa" đã có trong [CHANGELOG.md](../../../CHANGELOG.md); `CLAUDE.md` **không** sửa vì phần chat nay nằm ở [docs/features/chat-inbox-ky-thuat.md](../../features/chat-inbox-ky-thuat.md)
 
 ```bash
 dotnet test TourkitAiProxy.Tests/TourkitAiProxy.Tests.csproj
@@ -1338,7 +1338,7 @@ Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>"
 
 - [x] **Bước 2** Chạy, xác nhận đỏ (`ChatEventBus` chưa nhận tham số).
 
-- [x] **Bước 3: Thêm nhánh Redis** — `CLAUDE.md` **không** sửa: file đó nay cố ý ngắn, phần này thuộc [docs/features/chat-inbox.md](../../features/chat-inbox.md)
+- [x] **Bước 3: Thêm nhánh Redis** — `CLAUDE.md` **không** sửa: file đó nay cố ý ngắn, phần này thuộc [docs/features/chat-inbox-ky-thuat.md](../../features/chat-inbox-ky-thuat.md)
 
 `Bao()` publish lên kênh `tkai:chat:events`; lúc khởi tạo subscribe kênh đó và đổ vào các listener nội bộ. **Tự bỏ qua sự kiện do chính instance mình publish** (kèm một id instance vào payload) — không thì mỗi sự kiện xử lý hai lần.
 
@@ -1350,7 +1350,7 @@ _log.LogInformation("[chat/events] chế độ {C}", redis is null
     : "nhiều instance qua Redis pub/sub");
 ```
 
-- [x] **Bước 5: Giao diện có đường lùi.** `GET /api/v1/features` trả thêm `chatRealtime: bool`; giao diện thấy `false` thì giữ `setInterval` **20 giây** chạy liên tục (không phải 4 giây — xem lý do ở [chat-inbox.md](../../features/chat-inbox.md)). **Không im lặng chạy chế độ kém hơn.**
+- [x] **Bước 5: Giao diện có đường lùi.** `GET /api/v1/features` trả thêm `chatRealtime: bool`; giao diện thấy `false` thì giữ `setInterval` **20 giây** chạy liên tục (không phải 4 giây — xem lý do ở [chat-inbox.md](../../features/chat-inbox-ky-thuat.md)). **Không im lặng chạy chế độ kém hơn.**
 
 - [x] **Bước 6: Test + commit** (thông điệp nêu rõ vì sao phải bỏ qua sự kiện của chính mình).
 

@@ -1,4 +1,4 @@
-# Bổ sung hành động hộp thư chat — Đợt 1 Implementation Plan
+﻿# Bổ sung hành động hộp thư chat — Đợt 1 Implementation Plan
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
@@ -630,7 +630,7 @@ git commit -m "feat(hộp thư chat): chặn khách trong hộp thư"
 - Consumes: không có gì từ Task 1–3
 - Produces: `ChatRules.CoTheSuaTin(short state) -> bool` · `ChatRepository.SoftDeleteMessageAsync(...)` · `ChatRepository.EditPendingMessageAsync(...)` · route `DELETE|PATCH /api/v1/chat/conversations/{id}/messages/{msgId}`
 
-**Bối cảnh — hai chỗ cố ý khác ChatbotX, ghi lý do vào `docs/features/chat-inbox.md` theo luật D5:**
+**Bối cảnh — hai chỗ cố ý khác ChatbotX, ghi lý do vào `docs/features/chat-inbox-ky-thuat.md` theo luật D5:**
 
 1. **Xoá là XOÁ MỀM, và chỉ trong hộp thư mình.** Đã kiểm mã ChatbotX: `delete-message.action.ts` gọi `repository.deleteById` — thao tác CSDL thuần, không chạm nền tảng. Meta không cấp API thu hồi cho doanh nghiệp. Nên chữ trên giao diện **phải nói rõ khách vẫn thấy**, nếu không nhân viên tưởng đã thu hồi được câu lỡ tay và không đi xin lỗi khách.
 2. **Sửa pending chỉ cho tin CHƯA GỬI ĐI và chưa bị worker claim.** Tin hỏng dùng thao tác riêng **Sửa và gửi lại** để requeue/reset trạng thái. ChatbotX cho sửa mọi tin, nhưng sửa một tin đã gửi thì hộp thư nói dối về thứ khách thật sự nhận được — tệ hơn xoá.
@@ -789,7 +789,7 @@ Trong phần vẽ dòng tin của `chat-inbox.jsx`, nếu `tin.deletedUtc` thì 
 
 - [ ] **Step 9: Ghi lý do làm khác ChatbotX vào tài liệu**
 
-Thêm vào `docs/features/chat-inbox.md`, mục "Chỗ cố ý khác ChatbotX": hai gạch đầu dòng đã nêu ở phần **Bối cảnh** của task này.
+Thêm vào `docs/features/chat-inbox-ky-thuat.md`, mục "Chỗ cố ý khác ChatbotX": hai gạch đầu dòng đã nêu ở phần **Bối cảnh** của task này.
 
 - [ ] **Step 10: Chạy TOÀN BỘ test**
 

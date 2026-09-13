@@ -30,6 +30,11 @@ Schema idempotent trong [`Services/Db/TourkitAiDb.cs`](../../TourkitAiProxy.Infr
 | `ErrorMessage` | `NVARCHAR(1000)` NULL | Worker ghi lỗi lần POST cuối khi Failed. |
 | `CreatedUtc` | `DATETIME2` | Lúc proxy enqueue (UTC). |
 | `ProcessedUtc` | `DATETIME2` NULL | Lúc worker xử lý xong (Done hoặc Failed) — UTC. |
+| `Action` | `NVARCHAR(60)` NULL | **Thêm 12/09/2026.** Nghiệp vụ phía chat đã đẻ ra dòng này: `chat-cham-soc`, `chat-co-hoi`. **KHÁC `Kind`**: `Kind` nói gọi API CRM nào và worker phân việc theo nó; `Action` chỉ để tra cứu và báo cáo — worker KHÔNG rẽ nhánh theo cột này. `NULL` với hành động do trợ lý số liệu sinh ra (chúng không thuộc nghiệp vụ chat nào). |
+| `ReferId` | `NVARCHAR(64)` NULL | **Thêm 12/09/2026.** Mã hội thoại chat, để truy ngược từ một việc về đúng đoạn chat. `NULL` khi việc không đến từ hội thoại. |
+
+Index: `IX_CrmActionQueue_Refer (TenantId, ReferId, Id DESC)` — tra "hội thoại này đã đẻ ra
+những việc gì", dùng bởi khối trạng thái trong hộp thư chat.
 
 Index: `IX_CrmActionQueue_Poll (Status, CreatedUtc)` — worker poll theo index này (oldest Pending
 trước). `IX_CrmActionQueue_Tenant (TenantId, Status, CreatedUtc)` — cho trang theo dõi per-tenant.
@@ -109,7 +114,7 @@ Worker khi xử lý dòng `Kind='assign-task'` **PHẢI**:
 
 | Key trong `PayloadJson` | → Field `CreateCustomerCareRequest` | Ghi chú |
 |---|---|---|
-| `customerId` | `customerId` | Đã resolve, worker **không phải tra lại**. Hai nguồn: trợ lý số liệu resolve qua `ActionResolver.ResolveCustomerAsync` (tên → id, chặn khi mơ hồ/không khớp trước khi enqueue); hộp thư chat lấy từ `chat_contacts.crm_customer_id` — mã do **người trực tự nối tay**, và proxy từ chối xếp hàng khi chưa nối nên dòng tới worker luôn có mã hợp lệ. |
+| `customerId` | `customerId` | Hai nguồn, và **chúng khác nhau ở điểm quan trọng nhất**:<br>· **Trợ lý số liệu** — đã resolve qua `ActionResolver.ResolveCustomerAsync` (tên → id, chặn khi mơ hồ/không khớp trước khi enqueue). Luôn `> 0`.<br>· **Hộp thư chat** — lấy từ `chat_contacts.crm_customer_id`, mã do người trực tự nối tay. ⚠️ **CÓ THỂ BẰNG `0`** khi hội thoại chưa nối khách: từ 12/09/2026 proxy KHÔNG còn từ chối xếp hàng trong ca đó. Khi `customerId = 0`, **worker PHẢI tự khớp hoặc tạo khách mới** dựa vào `customerName` + `customerPhone` trong cùng payload. Ràng buộc cũ đúng về hợp đồng CRM nhưng sai về nghiệp vụ — hầu hết hội thoại không bao giờ được nối tay. |
 | `careTitle` | `careTitle` | Default `"Lịch hẹn"` nếu AI không điền. |
 | `careDetail` | `careDetail` | Mô tả, có thể `null`. |
 | `careStartTime` | `careStartTime` | ISO UTC hoặc `null`. |
@@ -157,7 +162,7 @@ Lead/Prospect.
 
 | Key trong `PayloadJson` | → Field `CreateBookingTicketRequest` | Ghi chú |
 |---|---|---|
-| `idKhachHang` | `IdKhachHang` | **Bắt buộc > 0.** Lấy từ `chat_contacts.crm_customer_id` — mã do người trực tự nối tay. Proxy chặn trước khi thả dòng: chưa nối thì không xếp hàng được, nên worker không bao giờ nhận dòng thiếu mã. **Hộp thư chat KHÔNG tạo khách mới trên CRM** (chốt 11/09/2026) — việc đó thuộc phía services; ở đây chỉ nối. |
+| `idKhachHang` | `IdKhachHang` | ⚠️ **CÓ THỂ BẰNG `0`.** Lấy từ `chat_contacts.crm_customer_id`, mã do người trực tự nối tay — nhưng từ 12/09/2026 proxy **KHÔNG còn bắt nối trước khi xếp hàng**, nên dòng tới worker có thể thiếu mã. CRM đòi `IdKhachHang > 0`, vì vậy khi nhận `0` thì **worker PHẢI tự khớp hoặc tạo khách** từ `tenKH` + `soDienThoaiKH` trong cùng payload TRƯỚC khi gọi `POST /api/booking-tickets`. Bản trước của tài liệu này khẳng định "worker không bao giờ nhận dòng thiếu mã" — **đã sai** kể từ ngày đó. **Hộp thư chat KHÔNG tự tạo khách trên CRM** (chốt 11/09/2026): việc đó thuộc phía services, ở đây chỉ gửi đủ dữ kiện để bên kia quyết. |
 | `tenKH` | `TenKH` | **Bắt buộc.** Lấy từ hồ sơ khách đã nối. |
 | `soDienThoaiKH`, `emailKH` | cùng tên | Từ `chat_contacts`; có thể `null` (Telegram/Messenger không bao giờ cho số). |
 | `tenPhieu` | `TenPhieu` | Người trực gõ, bỏ trống thì proxy dựng `"Chat: {tên khách}"`. |
