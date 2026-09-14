@@ -9600,9 +9600,17 @@ img.ci-avt { object-fit: cover; }
 .ci-tep-cho button:focus-visible { outline: 2px solid var(--primary); outline-offset: 1px; }
 
 /* Bảng mẫu trả lời — nổi lên trên ô soạn, không đẩy bố cục. */
-.ci-mau { position: absolute; bottom: 100%; left: 0; right: 0; margin-bottom: 8px; z-index: 5;
+/* Hộp mẫu neo vào CHÍNH nút mở nó. Thẻ bọc chỉ để tạo gốc toạ độ, không đổi bố cục hàng nút. */
+.ci-mau-boc { position: relative; display: inline-flex; }
+
+/* Mọc lên TỪ nút: mép trái thẳng hàng với nút, cách 6px cho thấy là hai lớp nhưng vẫn dính nhau.
+   Trước 14/09/2026 nó trải left:0 right:0 phía trên cả ô soạn, cách nút gần một trăm pixel. */
+.ci-mau { position: absolute; bottom: calc(100% + 6px); left: 0; z-index: 20;
+          width: max(240px, 20vw); max-width: 380px;
           background: var(--surface); border: 1px solid var(--border); border-radius: 11px;
-          box-shadow: 0 12px 28px -12px rgba(15, 23, 42, .25); overflow: hidden; }
+          box-shadow: 0 10px 24px -10px rgba(15, 23, 42, .28); overflow: hidden; }
+/* Hẹp quá thì thả sang phải để không tràn khỏi khung chat. */
+@container (max-width: 420px) { .ci-mau { left: auto; right: 0; } }
 /* Ô TÌM thay cho tiêu đề cũ: tiêu đề chỉ lặp lại chữ trên nút vừa bấm, còn ô tìm thì làm việc. */
 .ci-mau-tim { display: flex; align-items: center; gap: 7px; padding: 8px 11px;
               border-bottom: 1px solid var(--ci-vien-trong); color: var(--text-3); }
