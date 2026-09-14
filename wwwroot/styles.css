@@ -8941,8 +8941,18 @@ n
 .ci-wrap { --ci-cam-700: #C2410C;    /* nền đậm, chữ trắng đạt 5.2:1 */
            --ci-cam-800: #9A3412;    /* chữ đậm trên nền cam nhạt, đạt 6.7:1 */
            --ci-vien-trong: #EDF1F5; /* vách ngăn BÊN TRONG thẻ — nhạt hơn viền ngoài */
-           --ci-nen-diu: #FBFCFD;    /* nền dải kênh, nền vùng tin, nền hộp gợi ý */
+           /* Nền CANVAS: dải kênh, vùng tin, hộp gợi ý. Sâu hơn bản cũ #FBFCFD một bậc thật.
+              #FBFCFD chỉ cách trắng 1% nên mắt không nhận ra, và vùng tin trắng đỡ bong bóng
+              cũng trắng thì tin nhắn không nổi lên khỏi nền — chủ dự án gọi là "nhàm chán"
+              (14/09/2026). Vẫn nằm trong họ Slate của dự án, không thêm màu mới. */
+           --ci-nen-diu: #F2F5F9;
            --ci-nen-chip: #F1F5F9;   /* nền rãnh của nhóm nút và chip */
+           /* Bong bóng tin NHÂN VIÊN gửi. Mang màu thương hiệu chứ không phải xanh đen: trước
+              14/09/2026 nó dùng --dark-panel, tạo ra một mảng tối THỨ HAI cạnh tranh với thanh
+              bên vốn đã tối, và vùng làm việc thì sạch màu thương hiệu.
+              KHÔNG dùng thẳng --primary #F97316: chữ trắng trên đó chỉ đạt 2,80:1, trượt chuẩn
+              AA. #C2410C cùng họ cam, đạt 5,18:1 (đo, không ước lượng). */
+           --ci-bong-toi: #C2410C;
            display: flex; flex-direction: column; min-height: 0; padding-bottom: 22px;
            container-type: inline-size; }
 
@@ -9256,17 +9266,25 @@ img.ci-avt { object-fit: cover; }
 
 .ci-bong { padding: 9px 13px; }
 /* Khách: bong bóng trắng, góc dưới-trái vuốt nhọn về phía ảnh đại diện. */
-.ci-khach { background: var(--surface); border: 1px solid #E7ECF2; border-radius: 13px 13px 13px 5px;
-            box-shadow: 0 1px 1px rgba(15, 23, 42, .03); }
+/* Bong bóng NỔI lên khỏi nền canvas: trắng trên nền xám nhạt, viền nhạt đi một bậc (nền đã lo
+   việc tách rồi), bóng đổ đậm hơn chút và nhuộm theo màu nền chứ không phải đen thuần. */
+.ci-khach { background: var(--surface); border: 1px solid #E9EEF4; border-radius: 13px 13px 13px 5px;
+            box-shadow: 0 1px 2px rgba(15, 23, 42, .05), 0 1px 1px rgba(15, 23, 42, .03); }
 /* Tin CHỈ có ảnh/nhãn dán: BỎ HẲN bong bóng. Khung trắng bọc quanh một cái nhãn dán nền trong
    suốt trông như lỗi hiển thị, và với ảnh thì nó chỉ thêm một lớp viền thừa quanh thứ vốn đã có
    khung riêng. Chỉ áp cho tin KHÔNG kèm chữ — còn bong bóng thì tin chữ mất chỗ dựa. */
 .ci-bong.tran { padding: 0; background: none; border: 0; box-shadow: none; }
 
 /* Mình gửi: nền đậm, góc dưới-phải nhọn. Chữ trắng trên #1E293B đạt 13:1. */
-.ci-nv, .ci-hethong { background: var(--dark-panel); border-radius: 13px 13px 5px 13px;
-                      box-shadow: 0 1px 2px rgba(15, 23, 42, .12); }
-.ci-nv .ci-noidung, .ci-hethong .ci-noidung { color: #F8FAFC; }
+/* Tin NHÂN VIÊN: màu thương hiệu. Đây là chỗ duy nhất trong vùng đọc mang màu cam, nên nó vừa
+   nói "cái này của mình" vừa kéo cả hộp thư ra khỏi cảm giác xám trắng. */
+.ci-nv { background: var(--ci-bong-toi); border-radius: 13px 13px 5px 13px;
+         box-shadow: 0 1px 2px rgba(124, 45, 18, .16); }
+/* Tin HỆ THỐNG tách riêng, giữ xanh đen: nó là thông báo của máy, không phải lời của công ty —
+   cho nó màu thương hiệu là nói nhầm ai đang nói. */
+.ci-hethong { background: var(--dark-panel); border-radius: 13px 13px 5px 13px;
+              box-shadow: 0 1px 2px rgba(15, 23, 42, .12); }
+.ci-nv .ci-noidung, .ci-hethong .ci-noidung { color: #FFFFFF; }
 /* Bot: KHÔNG phải bong bóng. Một dải mảnh bên trái, chữ xám hơn — bot nói nhiều, để nó cũng thành
    bong bóng thì cả khung chat đặc kín và mắt không phân biệt nổi đâu là người. */
 .ci-ai { margin: 0 0 14px 38px; max-width: 72%; border-left: 2px solid #C3CCD8;
@@ -10342,7 +10360,12 @@ img.ci-avt { object-fit: cover; }
                  font-weight: 600; color: var(--text-3); white-space: nowrap;
                  transition: background .16s ease, color .16s ease; }
 .ci-hs-tab-nut:hover { background: var(--bg); color: var(--text-2); }
-.ci-hs-tab-nut.on { background: var(--dark); color: #fff; }
+/* Thẻ đang chọn mang màu THƯƠNG HIỆU, không phải xanh đen. Trước 14/09/2026 chỗ này dùng
+   --dark trong khi mục menu đang chọn ở thanh bên dùng cam: hai kiểu "đang chọn" khác nhau
+   trên cùng một màn hình, người dùng phải học hai lần.
+   Dùng --ci-bong-toi (#C2410C) chứ không phải --primary: chữ trắng trên #F97316 chỉ đạt
+   2,80:1, trượt chuẩn AA. */
+.ci-hs-tab-nut.on { background: var(--ci-bong-toi); color: #fff; }
 
 /* Nút "xem thêm" của nhật ký — trải hết chiều ngang để đọc như một dòng tiếp theo của
    danh sách, không như một nút lạc loài. */

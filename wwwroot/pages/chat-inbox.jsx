@@ -368,11 +368,32 @@
         {tin.state === 4 && <span className="ci-loi" title={tin.errorMessage}>gửi hỏng</span>}
       </div>
     );
+    // Biểu tượng khách thả: ÉP KIỂU EMOJI trước khi vẽ.
+    //
+    // Nhiều ký tự cảm xúc theo chuẩn Unicode mặc định là KÝ TỰ CHỮ chứ không phải emoji —
+    // U+2764 (trái tim) là ví dụ hay gặp nhất. Trình duyệt vẽ nó thành hình viền đen trắng.
+    // Phải có U+FE0F đứng sau mới thành ❤️ đỏ.
+    //
+    // Telegram gửi bản TRẦN (đo thật 14/09/2026: U+2764 đơn độc, không kèm U+FE0F), ta lưu
+    // nguyên, nên cả hộp thư hiện trái tim đen — chủ dự án mô tả là "nhìn rất u ám".
+    //
+    // Sửa ở TẦNG VẼ chứ không sửa dữ liệu đã lưu: bản thô là thứ kênh gửi sang, giữ nguyên thì
+    // còn đối chiếu được khi lần sau có nghi ngờ. Và phép chấm cảm xúc bên máy chủ vốn đã cắt
+    // U+FE0F trước khi tra bảng, nên hai bên không đá nhau.
+    //
+    // CHỈ thêm cho ký tự ĐƠN: chuỗi ghép (cờ, emoji có ZWJ như 👨‍👩‍👧) mà chèn thêm là vỡ chuỗi.
+    const epEmoji = e => {
+      const s = String(e || '');
+      if (!s) return s;
+      if (s.includes('️') || s.includes('︎')) return s;   // đã có bộ chọn rồi
+      return [...s].length === 1 ? s + '️' : s;
+    };
+
     const camXuc = (tin.reactions || []).length > 0 && (
       <div className="ci-camxuc">
         {tin.reactions.map(r => (
           <span key={r.emoji} className="ci-camxuc-mot">
-            {r.emoji}{r.count > 1 && <b>{r.count}</b>}
+            {epEmoji(r.emoji)}{r.count > 1 && <b>{r.count}</b>}
           </span>
         ))}
       </div>
