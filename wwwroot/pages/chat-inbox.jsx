@@ -1271,14 +1271,32 @@
                       <label className="ci-ch-o">
                         <span>Người phụ trách</span>
                         {/* Mặc định là người đang phụ trách hội thoại — người hiểu câu chuyện
-                            nhất. Đổi được, vì người chốt đơn có thể là người khác. */}
-                        <select value={nhap.nguoiPhuTrachs || ''}
-                                onChange={e => sua('nguoiPhuTrachs', e.target.value)}>
-                          <option value="">để CRM tự xử</option>
-                          {(nhanVien || []).map(nv => (
-                            <option key={nv.id} value={nv.id}>{nv.name}</option>
-                          ))}
-                        </select>
+                            nhất. Đổi được, vì người chốt đơn có thể là người khác.
+
+                            Dùng ChonNguoi (có ô TÌM) chứ không phải <select> trần: công ty có
+                            hàng trăm nhân viên, cuộn tay trong một danh sách dài như vậy thì
+                            không tìm nổi ai — chủ dự án 14/09/2026. Cùng thành phần với khối
+                            Phụ trách bên hồ sơ, nên thao tác giống nhau ở hai chỗ.
+
+                            ChonNguoi trả MÃ dạng số; CRM đòi chuỗi CSV nên đổi sang chuỗi ngay
+                            tại đây. Bỏ chọn (null) thì để rỗng — CRM tự xử theo mặc định. */}
+                        {window.ChonNguoi ? (
+                          <window.ChonNguoi
+                            danhSach={nhanVien || []}
+                            giaTri={nhap.nguoiPhuTrachs ? Number(nhap.nguoiPhuTrachs) : null}
+                            onChon={ma => sua('nguoiPhuTrachs', ma ? String(ma) : '')}
+                            nhan="để CRM tự xử" />
+                        ) : (
+                          /* Thành phần chưa nạp được thì vẫn phải chọn được người — thà một ô
+                             khó dùng còn hơn một ô không bấm được. */
+                          <select value={nhap.nguoiPhuTrachs || ''}
+                                  onChange={e => sua('nguoiPhuTrachs', e.target.value)}>
+                            <option value="">để CRM tự xử</option>
+                            {(nhanVien || []).map(nv => (
+                              <option key={nv.id} value={nv.id}>{nv.name}</option>
+                            ))}
+                          </select>
+                        )}
                       </label>
                     </div>
 
