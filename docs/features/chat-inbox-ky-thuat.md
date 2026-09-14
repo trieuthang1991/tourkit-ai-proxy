@@ -85,7 +85,7 @@ lần rồi giữ luôn trong `state`, lượt đổi mã dùng lại đúng chu
 **Messenger cũng dùng MỘT ứng dụng Facebook của TourKit** (`Chat:Messenger` trong cấu hình), cùng
 lối với Zalo và **dễ hơn Zalo một bậc**. Khách bấm **"Kết nối Facebook"**, đăng nhập, chọn Trang —
 hết. Đường dẫn: `POST /channels/1/connect-url` → `dialog/oauth` → `GET /api/v1/chat/oauth/messenger/callback`
-→ trang chọn Trang → `POST /api/v1/chat/oauth/messenger/chon`.
+→ trang chọn Trang → `POST /api/v1/chat/oauth/messenger/select`.
 
 ⚠️ **Nối Trang THỨ HAI cùng tài khoản: luồng cổ điển không làm được.** Facebook nhớ lựa chọn Trang
 của lần trước và **bỏ hẳn bước chọn Trang**, nên `/me/accounts` trả về đúng Trang đã nối.

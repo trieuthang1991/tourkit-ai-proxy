@@ -350,7 +350,7 @@ test.describe('F — Gợi ý trả lời', () => {
   test('F1 — xin gợi ý KHÔNG kèm Content-Type vẫn phải tới được handler', async () => {
     // Cùng lỗi đã giết nút "Nhận chăm sóc" hồi 08/09: giao diện gửi POST không thân, không header;
     // route có tham số thân là request bị loại ở tầng ĐỊNH TUYẾN rồi rơi xuống trang SPA.
-    const r = await doc(await api.post(`${GOC}/conversations/${maHoiThoai}/goi-y`,
+    const r = await doc(await api.post(`${GOC}/conversations/${maHoiThoai}/suggest`,
       { headers: nhu(PHIEN_QUAN_TRI) }));
 
     expect(r.laHtml, `Rơi xuống trang SPA: ${r.ma}. Route đang đòi Content-Type.`).toBe(false);
@@ -361,7 +361,7 @@ test.describe('F — Gợi ý trả lời', () => {
     // Ba ca không ra chữ dẫn tới ba việc khác nhau — chờ, tạm dừng trợ lý, hay báo quản trị nạp
     // lượt. Trả 4xx thì lớp authedFetch chung coi là hỏng, mà 401 ở đó còn kéo theo đăng xuất
     // toàn cục: xin một bản nháp mà bị đá ra khỏi hệ thống.
-    const r = await doc(await api.post(`${GOC}/conversations/${maHoiThoai}/goi-y`,
+    const r = await doc(await api.post(`${GOC}/conversations/${maHoiThoai}/suggest`,
       { headers: nhu(PHIEN_QUAN_TRI) }));
 
     expect(r.ma).toBe(200);
@@ -380,7 +380,7 @@ test.describe('F — Gợi ý trả lời', () => {
       { headers: nhu(PHIEN_QUAN_TRI) }));
     const soTruoc = (truoc.json.messages || []).length;
 
-    await api.post(`${GOC}/conversations/${maHoiThoai}/goi-y`, { headers: nhu(PHIEN_QUAN_TRI) });
+    await api.post(`${GOC}/conversations/${maHoiThoai}/suggest`, { headers: nhu(PHIEN_QUAN_TRI) });
 
     const sau = await doc(await api.get(`${GOC}/conversations/${maHoiThoai}`,
       { headers: nhu(PHIEN_QUAN_TRI) }));
@@ -391,7 +391,7 @@ test.describe('F — Gợi ý trả lời', () => {
   test('F4 — hội thoại của người khác thì 404, không rò bản nháp', async () => {
     // Gợi ý đọc lịch sử hội thoại để soạn. Không kẹp luật xem ở đây là mở một đường đọc trộm
     // nội dung chat của đồng nghiệp, đi vòng qua mọi cửa đã dựng cho /conversations/{id}.
-    const r = await doc(await api.post(`${GOC}/conversations/999999999/goi-y`,
+    const r = await doc(await api.post(`${GOC}/conversations/999999999/suggest`,
       { headers: nhu(PHIEN_QUAN_TRI) }));
     expect(r.ma).toBe(404);
   });
@@ -407,9 +407,9 @@ test.describe('G — Ghi nhận chăm sóc', () => {
       { headers: nhu(PHIEN_QUAN_TRI) }));
     const daNoi = (ct.json.contact?.crmCustomerId || 0) > 0;
 
-    const truoc = await doc(await api.get(`${GOC}/conversations/${maHoiThoai}/cham-soc`,
+    const truoc = await doc(await api.get(`${GOC}/conversations/${maHoiThoai}/care-log`,
       { headers: nhu(PHIEN_QUAN_TRI) }));
-    const r = await doc(await api.post(`${GOC}/conversations/${maHoiThoai}/cham-soc`,
+    const r = await doc(await api.post(`${GOC}/conversations/${maHoiThoai}/care-log`,
       { headers: nhu(PHIEN_QUAN_TRI) }));
 
     if (daNoi) {
@@ -421,7 +421,7 @@ test.describe('G — Ghi nhận chăm sóc', () => {
     expect(r.ma, 'chưa nối khách mà vẫn cho ghi nhận').toBe(400);
     expect(r.json.error, 'phải nói rõ là cần nối khách trước').toContain('nối');
 
-    const sau = await doc(await api.get(`${GOC}/conversations/${maHoiThoai}/cham-soc`,
+    const sau = await doc(await api.get(`${GOC}/conversations/${maHoiThoai}/care-log`,
       { headers: nhu(PHIEN_QUAN_TRI) }));
     expect((sau.json.items || []).length,
       'Từ chối rồi mà hàng đợi vẫn mọc thêm dòng').toBe((truoc.json.items || []).length);
@@ -430,7 +430,7 @@ test.describe('G — Ghi nhận chăm sóc', () => {
   test('G2 — danh sách việc KHÔNG được trả gói tin ra giao diện', async () => {
     // Gói tin mang tên và số điện thoại khách. Khối này mọi người trực đọc được, trong khi trang
     // theo dõi hàng đợi — nơi xem được gói tin — đã gác quyền quản trị.
-    const r = await doc(await api.get(`${GOC}/conversations/${maHoiThoai}/cham-soc`,
+    const r = await doc(await api.get(`${GOC}/conversations/${maHoiThoai}/care-log`,
       { headers: nhu(PHIEN_QUAN_TRI) }));
 
     expect(r.ma).toBe(200);
@@ -442,7 +442,7 @@ test.describe('G — Ghi nhận chăm sóc', () => {
   });
 
   test('G3 — hội thoại của người khác thì 404', async () => {
-    const r = await doc(await api.post(`${GOC}/conversations/999999999/cham-soc`,
+    const r = await doc(await api.post(`${GOC}/conversations/999999999/care-log`,
       { headers: nhu(PHIEN_QUAN_TRI) }));
     expect(r.ma).toBe(404);
   });
@@ -459,7 +459,7 @@ test.describe('H — Xếp hàng Cơ hội', () => {
     // nhánh worker nào nhặt create-booking-ticket nên dòng nằm im ở Pending. NHƯNG ngày nhánh đó
     // chạy, những dòng cũ này sẽ thành PHIẾU THẬT trên CRM staging — nên tiêu đề mang tiền tố
     // "E2E" để nhận ra mà dọn, và người viết handler cần biết điều này trước khi bật nó lần đầu.
-    const r = await doc(await api.post(`${GOC}/conversations/${maHoiThoai}/co-hoi`, {
+    const r = await doc(await api.post(`${GOC}/conversations/${maHoiThoai}/booking-ticket`, {
       headers: nhu(PHIEN_QUAN_TRI, { 'Content-Type': 'application/json' }),
       data: { tenPhieu: 'E2E — bài kiểm tự động, xoá được' },
     }));
@@ -470,7 +470,7 @@ test.describe('H — Xếp hàng Cơ hội', () => {
   });
 
   test('H2 — thiếu quyền hoặc chưa nối khách thì nói RÕ lý do, không im lặng 200', async () => {
-    const r = await doc(await api.post(`${GOC}/conversations/${maHoiThoai}/co-hoi`, {
+    const r = await doc(await api.post(`${GOC}/conversations/${maHoiThoai}/booking-ticket`, {
       headers: nhu(PHIEN_NHAN_VIEN, { 'Content-Type': 'application/json' }),
       data: { tenPhieu: 'E2E — nhân viên thường' },
     }));
@@ -488,7 +488,7 @@ test.describe('H — Xếp hàng Cơ hội', () => {
   test('H3 — xếp hàng xong thì việc TRUY NGƯỢC được về đúng hội thoại', async () => {
     // Đây là cả lý do hai cột Action/ReferId tồn tại. Thiếu chúng thì một việc trong hàng đợi
     // không còn đường nào tìm lại đoạn chat đã đẻ ra nó.
-    const r = await doc(await api.get(`${GOC}/conversations/${maHoiThoai}/cham-soc`,
+    const r = await doc(await api.get(`${GOC}/conversations/${maHoiThoai}/care-log`,
       { headers: nhu(PHIEN_QUAN_TRI) }));
 
     expect(r.ma).toBe(200);

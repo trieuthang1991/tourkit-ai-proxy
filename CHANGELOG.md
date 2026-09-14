@@ -13,6 +13,17 @@ Những cập nhật gần đây của TRAV-AI, viết cho người dùng. Mới
 
 ---
 
+## Phiên bản 14/09/2026 — Màn hình Cài đặt hộp thư mở nhanh hơn hẳn
+
+### 🔧 Đã khắc phục
+- **Cài đặt hộp thư chat không còn khựng khi mở.** Trước đây vào tab **Kênh** phải chờ rõ rệt mới
+  thấy danh sách Zalo OA, Trang Facebook, Instagram, WhatsApp, TikTok, Telegram — dù nội dung chỉ
+  là mấy dòng. Lý do: hệ thống đi hỏi từng kênh một, hỏi xong kênh này mới hỏi kênh kế tiếp. Nay
+  hỏi gọn một lượt cho cả sáu kênh, màn hình hiện **nhanh hơn khoảng năm lần**. Danh sách, thứ tự
+  và mọi thông tin hiển thị giữ nguyên như cũ.
+
+---
+
 ## Phiên bản 11/09/2026 — Hộp thư chat: lọc theo nhãn, biết khách nhắn vào Trang nào
 
 ### ✨ Tính năng mới

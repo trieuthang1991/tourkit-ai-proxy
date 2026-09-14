@@ -65,6 +65,58 @@ public class ChannelCredentialStore
     }
 
     /// <summary>
+    /// Danh sách tài khoản của <b>MỌI</b> kênh, của một công ty — <b>một</b> truy vấn thay vì mỗi
+    /// kênh một lượt.
+    ///
+    /// <para>Sinh ra cho <c>GET /channels</c>: đường đó dựng bảng cấu hình cho cả 6 kênh nên bản
+    /// đầu gọi <see cref="ListAccountsAsync"/> trong vòng lặp — 6 lượt đi-về SQL Server NỐI TIẾP,
+    /// đo được 195–227ms trong khi mọi đường chat khác dưới 10ms. Chi phí nằm ở SỐ LƯỢT đi-về
+    /// (CSDL ở xa), không ở khối lượng dữ liệu: vẫn ngần ấy dòng, đọc một lượt là xong.</para>
+    ///
+    /// <para><b>KHÔNG thay thế <see cref="ListAccountsAsync"/>.</b> Hàm kia là đường sáu adapter
+    /// dùng để GỬI tin: ở đó chỉ cần đúng một kênh, và phải đọc tươi vì Zalo tự xoay vòng access
+    /// token. Đây là hàm cho màn hình cấu hình, nơi cần cả sáu kênh cùng lúc. Gộp hai việc làm
+    /// một là mở đường cho việc đệm ở đây rồi gửi tin bằng token đã hết hạn.</para>
+    ///
+    /// <para>Thứ tự trong mỗi kênh giữ y hệt hàm kia (theo <c>label</c>, thiếu thì theo mã) — màn
+    /// hình cấu hình liệt kê nhiều Trang, đảo thứ tự là người dùng tưởng mình bấm nhầm dòng.</para>
+    ///
+    /// <para>Đọc hỏng thì trả RỖNG chứ không ném, giống hàm kia: mất danh sách thì màn hình cấu
+    /// hình nói "chưa nối kênh nào", còn ném thì cả trang trắng.</para>
+    /// </summary>
+    public async Task<Dictionary<ChatChannel, List<ChatAccount>>> ListAllAccountsAsync(
+        string tenantId, CancellationToken ct = default)
+    {
+        try
+        {
+            await using var c = await _db.OpenAsync(ct);
+            var hang = (await c.QueryAsync<(string Channel, string ConfigJson)>(
+                "SELECT Channel, ConfigJson FROM dbo.TenantChannelSettings WHERE TenantId=@t",
+                new { t = tenantId })).ToList();
+
+            var ra = new Dictionary<ChatChannel, List<ChatAccount>>();
+            foreach (var kenh in Enum.GetValues<ChatChannel>())
+            {
+                var tienTo = KeyOf(kenh) + ":";
+                ra[kenh] = hang
+                    .Where(h => h.Channel.StartsWith(tienTo, StringComparison.Ordinal))
+                    .Select(h => new ChatAccount(h.Channel[tienTo.Length..], Decode(h.ConfigJson)))
+                    .OrderBy(a => a.GiaTri.GetValueOrDefault("label", a.AccountId))
+                    .ToList();
+            }
+            return ra;
+        }
+        catch (Exception ex)
+        {
+            _log.LogWarning(ex, "[chat/cred] đọc danh sách tài khoản MỌI kênh hỏng, tenant={T}", tenantId);
+            // Rỗng HẲN, không phải rỗng một nửa: ném giữa chừng thì vài kênh đã có dòng, vài kênh
+            // chưa — trả ra như thế là màn hình cấu hình báo "kênh này chưa nối" cho kênh thật ra
+            // đã nối, tệ hơn hẳn so với nói không đọc được gì cả.
+            return new Dictionary<ChatChannel, List<ChatAccount>>();
+        }
+    }
+
+    /// <summary>
     /// Tên hiển thị của từng tài khoản kênh — Trang Facebook nào, OA Zalo nào, bot Telegram nào.
     ///
     /// <para><b>LUÔN đặt tên, kể cả kênh chỉ có một tài khoản</b> (chủ dự án chốt 12/09/2026).

@@ -23,7 +23,7 @@ public class ChatHangDoiCrmGuardTests
     [Fact]
     public void Duong_cham_soc_THA_HANG_DOI_chu_khong_goi_CRM()
     {
-        var than = ThanRoute("g.MapPost(\"/conversations/{id:long}/cham-soc\"");
+        var than = ThanRoute("g.MapPost(\"/conversations/{id:long}/care-log\"");
 
         Assert.Contains("EnqueueAsync", than);
         // Mọi lối ghi sang CRM đều đi qua TourKitApiClient. Không lối nào được xuất hiện ở đây.
@@ -43,7 +43,7 @@ public class ChatHangDoiCrmGuardTests
     [Fact]
     public void Duong_cham_soc_KHONG_doi_noi_khach_va_gui_kem_ten_va_so()
     {
-        var than = ThanRoute("g.MapPost(\"/conversations/{id:long}/cham-soc\"");
+        var than = ThanRoute("g.MapPost(\"/conversations/{id:long}/care-log\"");
 
         // Không còn câu từ chối nào vì chưa nối khách.
         Assert.DoesNotContain("chưa nối với khách", than);
@@ -55,7 +55,7 @@ public class ChatHangDoiCrmGuardTests
     [Fact]
     public void Duong_cham_soc_ghi_nhat_ky_va_gan_dung_nguon()
     {
-        var than = ThanRoute("g.MapPost(\"/conversations/{id:long}/cham-soc\"");
+        var than = ThanRoute("g.MapPost(\"/conversations/{id:long}/care-log\"");
 
         Assert.Contains("GhiNhatKyAsync", than);
         // Nguồn lấy từ hằng, không gõ chuỗi tay ở endpoint: gõ tay thì chỗ đọc và chỗ ghi lệch
@@ -69,7 +69,7 @@ public class ChatHangDoiCrmGuardTests
     [Fact]
     public void Duong_co_hoi_THA_HANG_DOI_chu_khong_goi_CRM()
     {
-        var than = ThanRoute("g.MapPost(\"/conversations/{id:long}/co-hoi\"");
+        var than = ThanRoute("g.MapPost(\"/conversations/{id:long}/booking-ticket\"");
 
         Assert.Contains("EnqueueAsync", than);
         Assert.Contains("CrmActionKind.CreateBookingTicket", than);
@@ -89,7 +89,7 @@ public class ChatHangDoiCrmGuardTests
     [Fact]
     public void Duong_co_hoi_kiem_quyen_TRUOC_khi_tha_dong()
     {
-        var than = ThanRoute("g.MapPost(\"/conversations/{id:long}/co-hoi\"");
+        var than = ThanRoute("g.MapPost(\"/conversations/{id:long}/booking-ticket\"");
 
         Assert.Contains("CanCreateTicketAsync", than);
         Assert.Contains("ForbiddenCreateTicket", than);
@@ -112,7 +112,7 @@ public class ChatHangDoiCrmGuardTests
     public void Duong_co_hoi_KHONG_dung_sau_co_tinh_nang_rieng()
     {
         Assert.DoesNotContain("ChatCoHoi",
-            ThanRoute("g.MapPost(\"/conversations/{id:long}/co-hoi\""));
+            ThanRoute("g.MapPost(\"/conversations/{id:long}/booking-ticket\""));
 
         // Soi vào MÃ THẬT, bỏ dòng chú thích: chú thích giải thích vì sao đã bỏ thì đương nhiên
         // được phép nhắc tên cờ — và chính nó là thứ giữ cho quyết định này không bị làm lại.
@@ -125,8 +125,8 @@ public class ChatHangDoiCrmGuardTests
     [Fact]
     public void Duong_co_hoi_KHONG_doi_noi_khach_va_gui_kem_ten_va_so()
     {
-        // Cùng lý do với đường cham-soc ở trên.
-        var than = ThanRoute("g.MapPost(\"/conversations/{id:long}/co-hoi\"");
+        // Cùng lý do với đường care-log ở trên.
+        var than = ThanRoute("g.MapPost(\"/conversations/{id:long}/booking-ticket\"");
 
         Assert.DoesNotContain("chưa nối với khách", than);
         Assert.Contains("tenKH", than);

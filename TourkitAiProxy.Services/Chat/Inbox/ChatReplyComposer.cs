@@ -10,7 +10,7 @@ namespace TourkitAiProxy.Services.Chat.Inbox;
 /// Bộ sinh câu trả lời cho khách — MỘT chỗ cho cả hai người dùng nó:
 /// <list type="bullet">
 ///   <item>worker <see cref="ChatInboundService"/> — bot tự trả lời khi khách nhắn;</item>
-///   <item>đường <c>POST /conversations/{id}/goi-y</c> — nhân viên bấm xin bản nháp.</item>
+///   <item>đường <c>POST /conversations/{id}/suggest</c> — nhân viên bấm xin bản nháp.</item>
 /// </list>
 ///
 /// <para>Tách ra để hai đường dùng CHUNG một khung an toàn (cấm bịa giá, lịch, số chỗ), chung lời

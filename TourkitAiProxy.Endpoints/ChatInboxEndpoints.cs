@@ -67,7 +67,7 @@ public static class ChatInboxEndpoints
         // Người trực tự tắt/bật lượt nhận việc của chính mình. Đường RIÊNG chứ không nằm dưới
         // /assign-settings: kia là cấu hình của quản trị cho cả công ty, đây là công tắc cá nhân
         // và ai trong đội trực cũng bấm được.
-        "/api/v1/chat/tam-nghi",
+        "/api/v1/chat/away",
         // Danh mục nhãn của công ty. KHÁC /conversations/{id}/tags — đường kia gắn/gỡ nhãn cho
         // MỘT khách, đường này quản lý bộ nhãn dùng chung.
         "/api/v1/chat/tags",
@@ -493,15 +493,15 @@ public static class ChatInboxEndpoints
 
         // Đường CŨ, mang tên công ty: giữ nguyên cho các OA đã khai theo ứng dụng riêng. Bỏ đi là
         // webhook đang chạy của họ chết ngay lúc deploy.
-        routes.MapPost("/api/v1/chat/webhook/{kenh}/{tenantId}", (
-            string kenh, string tenantId, HttpContext ctx, ChatInboundService svc, ChatRepository repo,
+        routes.MapPost("/api/v1/chat/webhook/{channel}/{tenantId}", (
+            string channel, string tenantId, HttpContext ctx, ChatInboundService svc, ChatRepository repo,
             Services.Chat.Inbox.ChatWorkSignal tin, ILoggerFactory lf, CancellationToken ct)
-            => XuLy(kenh, tenantId, null, ctx, svc, repo, tin, lf, ct));
+            => XuLy(channel, tenantId, null, ctx, svc, repo, tin, lf, ct));
 
-        routes.MapPost("/api/v1/chat/webhook/{kenh}/{tenantId}/{accountId}", (
-            string kenh, string tenantId, string accountId, HttpContext ctx, ChatInboundService svc,
+        routes.MapPost("/api/v1/chat/webhook/{channel}/{tenantId}/{accountId}", (
+            string channel, string tenantId, string accountId, HttpContext ctx, ChatInboundService svc,
             ChatRepository repo, Services.Chat.Inbox.ChatWorkSignal tin, ILoggerFactory lf, CancellationToken ct)
-            => XuLy(kenh, tenantId, accountId, ctx, svc, repo, tin, lf, ct));
+            => XuLy(channel, tenantId, accountId, ctx, svc, repo, tin, lf, ct));
 
         // Meta xác minh địa chỉ webhook bằng một lượt GET riêng trước khi bắt đầu gửi tin. Thiếu
         // đường này thì không đăng ký được webhook Messenger, dù phần nhận tin đã đúng hết.
@@ -728,7 +728,7 @@ public static class ChatInboxEndpoints
         // bị loại khỏi danh sách ứng viên rồi rơi xuống trang SPA — nút bấm nhận 404 kèm HTML,
         // không có gì xảy ra và không lỗi nào hiện ra. Đã trả giá đúng kiểu đó ở nút "Nhận
         // chăm sóc" (08/09/2026); đừng đổi lại thành tham số thân.
-        g.MapPost("/tam-nghi", async (bool nghi, HttpContext ctx, TkSessionStore sessions,
+        g.MapPost("/away", async (bool paused, HttpContext ctx, TkSessionStore sessions,
             ChatAssignRepository assign, CancellationToken ct) =>
         {
             var a = SessionAuth.Read(ctx, sessions);
@@ -738,11 +738,11 @@ public static class ChatInboxEndpoints
             var ma = await sessions.EnsureCrmUserIdAsync(a.SessionId, ct);
             if (ma is null) return ThieuMaNhanVien();
 
-            var kq = await assign.DatTamNghiAsync(a.TenantId, ma.Value, nghi, ct);
+            var kq = await assign.DatTamNghiAsync(a.TenantId, ma.Value, paused, ct);
             return kq switch
             {
                 ChatAssignRepository.KetQuaTamNghi.Xong
-                    => Results.Json(new { ok = true, tamNghi = nghi }, Web),
+                    => Results.Json(new { ok = true, tamNghi = paused }, Web),
                 ChatAssignRepository.KetQuaTamNghi.KhongTrongDoiTruc
                     => Results.Json(new { error = "Bạn không nằm trong đội trực chat nên không có lượt nào để tạm dừng." },
                         statusCode: StatusCodes.Status400BadRequest),
@@ -764,11 +764,11 @@ public static class ChatInboxEndpoints
         // nhận tin CỐ Ý bỏ qua tin lịch sử. Làm âm thầm sau lưng thì quản trị không biết lúc nào
         // nó chạy, chạy bao nhiêu, hay vì sao hôm nay cả kho hội thoại cũ đổ lên đội trực. Một
         // nút bấm có chủ đích, báo lại con số ngay, rẻ hơn và nhìn thấy được.
-        g.MapPost("/assign-settings/chia-lai", async (HttpContext ctx, TkSessionStore sessions,
+        g.MapPost("/assign-settings/rebalance", async (HttpContext ctx, TkSessionStore sessions,
             ChatRepository repo, ChatAssignRepository assign, ChatEventBus bus,
             ILoggerFactory lf, CancellationToken ct) =>
         {
-            var log = lf.CreateLogger("chat.chia-lai");
+            var log = lf.CreateLogger("chat.rebalance");
             var a = SessionAuth.Read(ctx, sessions);
             if (a == null) return SessionAuth.Unauthorized();
             if (!assign.Configured) return NotConfigured();
@@ -811,7 +811,7 @@ public static class ChatInboxEndpoints
                 bus.Publish(new(a.TenantId, id, "doi-hoi-thoai", null) { AssignedUserId = choAi });
             }
 
-            log.LogInformation("[chat/chia-lai] tenant={T} người={U} chia lại {N} hội thoại{Con}",
+            log.LogInformation("[chat/rebalance] tenant={T} người={U} chia lại {N} hội thoại{Con}",
                 a.TenantId, a.Username, daChia, conNua ? " (còn nữa)" : "");
             return Results.Json(new { ok = true, daChia, conNua }, Web);
         });
@@ -1549,8 +1549,8 @@ public static class ChatInboxEndpoints
         // lưu trên hệ chat trước để xem và chuẩn hoá. Hàng đợi dbo.CrmActionQueue đã có sẵn và
         // chính proxy sở hữu schema; worker app-side đã biết xử lý loại việc create-appointment.
         //
-        // Route KHÔNG có thân — xem chú thích ở đường goi-y bên dưới.
-        g.MapPost("/conversations/{id:long}/cham-soc", async (long id, HttpContext ctx,
+        // Route KHÔNG có thân — xem chú thích ở đường suggest bên dưới.
+        g.MapPost("/conversations/{id:long}/care-log", async (long id, HttpContext ctx,
             TkSessionStore sessions, ChatRepository repo, CrmActionQueueRepository hangDoi,
             CancellationToken ct) =>
         {
@@ -1611,7 +1611,7 @@ public static class ChatInboxEndpoints
         // Vì sao cần một đường riêng chứ không để giao diện tự dựng: phần nội dung phiếu là tóm
         // tắt đoạn chat, do luật thuần ChatRules.SummarizeForTicket sinh ra ở máy chủ. Chép luật
         // đó sang .jsx là có hai bản, và bản người dùng xem sẽ khác bản thật sự được gửi đi.
-        g.MapGet("/conversations/{id:long}/co-hoi/nhap", async (long id, HttpContext ctx,
+        g.MapGet("/conversations/{id:long}/booking-ticket/draft", async (long id, HttpContext ctx,
             TkSessionStore sessions, ChatRepository repo, CancellationToken ct) =>
         {
             var p = await SessionAuth.ReadNguoiXemAsync(ctx, sessions, ct);
@@ -1662,7 +1662,7 @@ public static class ChatInboxEndpoints
         //
         // Route NÀY có thân (tiêu đề phiếu người trực tự đặt) nên giao diện PHẢI gửi
         // Content-Type: application/json. Thân là record không nullable, như AssignReq.
-        g.MapPost("/conversations/{id:long}/co-hoi", async (long id, CreateTicketReq body, HttpContext ctx,
+        g.MapPost("/conversations/{id:long}/booking-ticket", async (long id, CreateTicketReq body, HttpContext ctx,
             TkSessionStore sessions, ChatRepository repo, CrmActionQueueRepository hangDoi,
             IConfiguration cfg, CancellationToken ct) =>
         {
@@ -1681,7 +1681,7 @@ public static class ChatInboxEndpoints
 
             var lienHe = await repo.GetContactAsync(a.TenantId, v.Channel, v.ContactExternalId, ct);
 
-            // KHÔNG đòi nối khách CRM trước — xem chú thích cùng nội dung ở đường cham-soc.
+            // KHÔNG đòi nối khách CRM trước — xem chú thích cùng nội dung ở đường care-log.
             // Nối rồi thì gửi kèm mã; chưa nối thì gửi tên + số điện thoại bắt được trong đoạn
             // chat, phía dịch vụ tự khớp hoặc tạo khách mới.
             var maKhach = lienHe?.CrmCustomerId ?? 0;
@@ -1756,7 +1756,7 @@ public static class ChatInboxEndpoints
 
         // Các lượt chăm sóc đã ghi TỪ hội thoại này, kèm trạng thái đồng bộ. Người trực bấm nút
         // xong phải thấy việc của mình đang ở đâu, không thì họ bấm lại lần nữa.
-        g.MapGet("/conversations/{id:long}/cham-soc", async (long id, HttpContext ctx,
+        g.MapGet("/conversations/{id:long}/care-log", async (long id, HttpContext ctx,
             TkSessionStore sessions, ChatRepository repo, CrmActionQueueRepository hangDoi,
             CancellationToken ct) =>
         {
@@ -1784,7 +1784,7 @@ public static class ChatInboxEndpoints
         // và request thiếu Content-Type bị loại ở tầng ĐỊNH TUYẾN rồi rơi xuống trang SPA: 404 kèm
         // HTML, bấm nút không có gì xảy ra và không lỗi nào hiện. Đã trả giá một lần ngày
         // 08/09/2026 với nút "Nhận chăm sóc".
-        g.MapPost("/conversations/{id:long}/goi-y", async (long id, HttpContext ctx,
+        g.MapPost("/conversations/{id:long}/suggest", async (long id, HttpContext ctx,
             TkSessionStore sessions, ChatRepository repo,
             Services.Chat.Inbox.ChatReplyComposer soan, ChatBotSettingsRepository botCfg,
             CancellationToken ct) =>
@@ -2755,7 +2755,7 @@ public static class ChatInboxEndpoints
         // Không có phiên nên chốt chặn nằm ở `ma`: máy chủ tự sinh 32 byte ngẫu nhiên, sống 10
         // phút, và CHỈ nối được Trang nằm trong danh sách đã lưu kèm mã đó. Thiếu vế sau thì ai
         // cầm mã cũng nối được Trang bất kỳ chỉ bằng cách đoán một id.
-        g.MapPost("/oauth/messenger/chon", async (HttpContext ctx, ChannelCredentialStore cred,
+        g.MapPost("/oauth/messenger/select", async (HttpContext ctx, ChannelCredentialStore cred,
             IEnumerable<Services.Chat.Channels.IChatChannelAdapter> adapters,
             Services.Chat.Channels.MessengerPageChoices chon, CancellationToken ct) =>
         {
@@ -2808,9 +2808,13 @@ public static class ChatInboxEndpoints
                                   .FirstOrDefault()?.HasPlatformApp == true;
             var batLichSu = Services.Bootstrap.FeatureFlags.ChatHistoryImport(cfg);
             var ra = new List<object>();
+            // MỘT lượt đọc cho cả sáu kênh. Bản đầu gọi ListAccountsAsync ngay trong vòng lặp dưới
+            // — sáu lượt đi-về SQL Server nối tiếp, đo được 195–227ms trong khi mọi đường chat khác
+            // dưới 10ms. Đừng đưa lượt đọc trở lại vào vòng lặp.
+            var moiKenh = await cred.ListAllAccountsAsync(a.TenantId, ct);
             foreach (var (kenh, ten, tenNgan, oNhap, moiTaiKhoanMotUrl) in KhaiBao)
             {
-                var dsach = await cred.ListAccountsAsync(a.TenantId, kenh, ct);
+                var dsach = moiKenh.GetValueOrDefault(kenh) ?? new List<ChatAccount>();
                 var nhanh = kenh switch
                 {
                     ChatChannel.Zalo => zaloNhanh,
@@ -3289,7 +3293,7 @@ public static class ChatInboxEndpoints
             b.Append("<p>Không có Trang nào để chọn.</p>");
         else
         {
-            b.Append("<form method=\"post\" action=\"/api/v1/chat/oauth/messenger/chon\">");
+            b.Append("<form method=\"post\" action=\"/api/v1/chat/oauth/messenger/select\">");
             b.Append("<input type=\"hidden\" name=\"ma\" value=\"").Append(System.Net.WebUtility.HtmlEncode(ma)).Append("\"><ul>");
             foreach (var t in trang)
             {

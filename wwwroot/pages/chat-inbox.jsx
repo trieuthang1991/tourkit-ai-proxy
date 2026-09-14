@@ -1174,7 +1174,7 @@
    * tinh chỉnh. Bản trước chỉ hỏi mỗi tiêu đề; tên khách, số điện thoại, email và cả đoạn tóm tắt
    * đều do máy tự quyết và đi thẳng, người bấm không bao giờ nhìn thấy trước.
    *
-   * Bản nháp lấy Từ MÁY CHỦ (`/co-hoi/nhap`) chứ không tự dựng ở đây: phần tóm tắt do luật thuần
+   * Bản nháp lấy Từ MÁY CHỦ (`/booking-ticket/draft`) chứ không tự dựng ở đây: phần tóm tắt do luật thuần
    * ChatRules.SummarizeForTicket sinh ra. Dựng lại ở .jsx là có hai bản, và bản người dùng xem sẽ
    * khác bản thật sự được gửi.
    */
@@ -1186,7 +1186,7 @@
     async function moHop() {
       setMo(true); setNhap(null);
       try {
-        const r = await authedFetch('/api/v1/chat/conversations/' + hoiThoaiId + '/co-hoi/nhap');
+        const r = await authedFetch('/api/v1/chat/conversations/' + hoiThoaiId + '/booking-ticket/draft');
         const j = await r.json().catch(() => ({}));
         if (!r.ok) { pushToast(j.error || 'Không lấy được bản nháp', 'error'); setMo(false); return; }
         setNhap(j);
@@ -1212,7 +1212,7 @@
     async function gui() {
       setDang(true);
       try {
-        const r = await authedFetch('/api/v1/chat/conversations/' + hoiThoaiId + '/co-hoi', {
+        const r = await authedFetch('/api/v1/chat/conversations/' + hoiThoaiId + '/booking-ticket', {
           method: 'POST', headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
             tenPhieu: nhap.tenPhieu, tenKH: nhap.tenKH,
@@ -1407,7 +1407,7 @@
 
     const tai = useCallback(async () => {
       try {
-        const r = await authedFetch('/api/v1/chat/conversations/' + hoiThoaiId + '/cham-soc');
+        const r = await authedFetch('/api/v1/chat/conversations/' + hoiThoaiId + '/care-log');
         if (r.ok) setDs((await r.json()).items || []);
       } catch { /* mất danh sách thì nút vẫn bấm được — không chặn việc chính */ }
     }, [hoiThoaiId]);
@@ -1418,7 +1418,7 @@
       setDangGhi(true);
       try {
         // Không kèm Content-Type và không kèm thân: đường này không nhận thân.
-        const r = await authedFetch('/api/v1/chat/conversations/' + hoiThoaiId + '/cham-soc',
+        const r = await authedFetch('/api/v1/chat/conversations/' + hoiThoaiId + '/care-log',
           { method: 'POST' });
         const j = await r.json().catch(() => ({}));
         if (!r.ok) { pushToast(j.error || 'Không ghi nhận được', 'error'); return; }
@@ -3115,7 +3115,7 @@
     async function doiTamNghi() {
       const nghi = !phanCong.tamNghi;
       try {
-        const r = await authedFetch('/api/v1/chat/tam-nghi?nghi=' + nghi, { method: 'POST' });
+        const r = await authedFetch('/api/v1/chat/away?paused=' + nghi, { method: 'POST' });
         const data = await r.json().catch(() => ({}));
         if (!r.ok) throw new Error(data.error || ('Không đổi được (HTTP ' + r.status + ')'));
         pushToast(nghi
@@ -3273,7 +3273,7 @@
       try {
         // KHÔNG kèm Content-Type và KHÔNG kèm thân: đường này không nhận thân, thêm vào là
         // request bị loại ở tầng định tuyến rồi rơi xuống trang SPA.
-        const r = await authedFetch('/api/v1/chat/conversations/' + chon + '/goi-y', { method: 'POST' });
+        const r = await authedFetch('/api/v1/chat/conversations/' + chon + '/suggest', { method: 'POST' });
         const j = await r.json().catch(() => ({}));
         if (!r.ok) { pushToast(j.error || 'Không soạn được', 'error'); return; }
 
@@ -4097,45 +4097,45 @@
                                     title="Chèn mẫu trả lời">
                               <b>/</b>Mẫu trả lời
                             </button>
-                          {/* Hộp chọn MẪU TRẢ LỜI. Nổi TRÊN ô soạn, không đẩy ô soạn xuống.
-
-                              CHỈ hiện TÊN LỆNH, bỏ hẳn phần xem trước nội dung (chủ dự án 14/09/2026).
-                              Nội dung mẫu dài vài dòng, cắt còn một dòng thì vừa không đọc được gì vừa
-                              làm mỗi hàng cao gấp đôi — mà chọn xong nó đổ thẳng vào ô soạn để đọc và
-                              sửa ngay, nên xem trước ở đây là thừa.
-
-                              Ô TÌM nằm trong hộp: mở bằng nút thì gõ ngay tại đây, mở bằng cách gõ "/"
-                              trong ô soạn thì chính ô soạn là chỗ lọc. Cùng một biến goiY lo cả hai
-                              lối, nên không có hai trạng thái đá nhau. */}
-                          {goiY !== null && (() => {
-                            const loc = mauTraLoi.filter(m => m.trigger.toLowerCase().includes(goiY.toLowerCase()));
-                            return (
-                              <div className="ci-mau">
-                                <div className="ci-mau-tim">
-                                  <window.Icon name="search" size={12} />
-                                  <input autoFocus value={goiY} placeholder="Tìm mẫu trả lời…"
-                                         onChange={e => setGoiY(e.target.value.replace(/^\//, ''))}
-                                         onKeyDown={e => { if (e.key === 'Escape') setGoiY(null); }} />
-                                  <em>{loc.length}/{mauTraLoi.length}</em>
-                                </div>
-                                {loc.length === 0 ? (
-                                  <div className="ci-mau-trong">
-                                    {mauTraLoi.length === 0
-                                      ? 'Công ty chưa có mẫu nào. Thêm trong Cài đặt hộp thư.'
-                                      : 'Không có mẫu nào khớp.'}
-                                  </div>
-                                ) : loc.slice(0, 8).map(m => (
-                                  <button key={m.id} className="ci-mau-muc"
-                                          onClick={() => { setSoan(m.body); setNutSoan(m.buttons || []); setGoiY(null); }}>
-                                    <b>/{m.trigger}</b>
-                                    {(m.buttons || []).length > 0 && (
-                                      <i className="ci-mau-conut">{m.buttons.length} nút</i>
-                                    )}
-                                  </button>
-                                ))}
-                              </div>
-                            );
-                          })()}
+                          {/* Hộp chọn MẪU TRẢ LỜI. Nổi TRÊN ô soạn, không đẩy ô soạn xuống.
+
+                              CHỈ hiện TÊN LỆNH, bỏ hẳn phần xem trước nội dung (chủ dự án 14/09/2026).
+                              Nội dung mẫu dài vài dòng, cắt còn một dòng thì vừa không đọc được gì vừa
+                              làm mỗi hàng cao gấp đôi — mà chọn xong nó đổ thẳng vào ô soạn để đọc và
+                              sửa ngay, nên xem trước ở đây là thừa.
+
+                              Ô TÌM nằm trong hộp: mở bằng nút thì gõ ngay tại đây, mở bằng cách gõ "/"
+                              trong ô soạn thì chính ô soạn là chỗ lọc. Cùng một biến goiY lo cả hai
+                              lối, nên không có hai trạng thái đá nhau. */}
+                          {goiY !== null && (() => {
+                            const loc = mauTraLoi.filter(m => m.trigger.toLowerCase().includes(goiY.toLowerCase()));
+                            return (
+                              <div className="ci-mau">
+                                <div className="ci-mau-tim">
+                                  <window.Icon name="search" size={12} />
+                                  <input autoFocus value={goiY} placeholder="Tìm mẫu trả lời…"
+                                         onChange={e => setGoiY(e.target.value.replace(/^\//, ''))}
+                                         onKeyDown={e => { if (e.key === 'Escape') setGoiY(null); }} />
+                                  <em>{loc.length}/{mauTraLoi.length}</em>
+                                </div>
+                                {loc.length === 0 ? (
+                                  <div className="ci-mau-trong">
+                                    {mauTraLoi.length === 0
+                                      ? 'Công ty chưa có mẫu nào. Thêm trong Cài đặt hộp thư.'
+                                      : 'Không có mẫu nào khớp.'}
+                                  </div>
+                                ) : loc.slice(0, 8).map(m => (
+                                  <button key={m.id} className="ci-mau-muc"
+                                          onClick={() => { setSoan(m.body); setNutSoan(m.buttons || []); setGoiY(null); }}>
+                                    <b>/{m.trigger}</b>
+                                    {(m.buttons || []).length > 0 && (
+                                      <i className="ci-mau-conut">{m.buttons.length} nút</i>
+                                    )}
+                                  </button>
+                                ))}
+                              </div>
+                            );
+                          })()}
                           </span>
                           {/* Nhờ AI soạn nháp. Chữ đổ vào ô soạn, KHÔNG gửi — nhân viên đọc, sửa,
                               rồi tự bấm Gửi. Nút luôn hiện: máy chủ mới là chỗ biết lúc nào trợ

@@ -132,7 +132,7 @@
     async function chiaLai() {
       setDangChia(true);
       try {
-        const r = await authedFetch('/api/v1/chat/assign-settings/chia-lai', { method: 'POST' });
+        const r = await authedFetch('/api/v1/chat/assign-settings/rebalance', { method: 'POST' });
         const data = await r.json().catch(() => ({}));
         if (!r.ok) throw new Error(data.error || ('Chia lại không xong (HTTP ' + r.status + ')'));
         if (data.daChia === 0) {
