@@ -971,7 +971,7 @@ public static class ChatInboxEndpoints
 
         g.MapGet("/conversations/{id:long}", async (long id, HttpContext ctx, TkSessionStore sessions,
             ChatRepository repo, ChatAssignRepository assign, ChannelCredentialStore cred,
-            CancellationToken ct) =>
+            TourKitCustomerSource khach, CancellationToken ct) =>
         {
             var p = await SessionAuth.ReadNguoiXemAsync(ctx, sessions, ct);
             if (p == null) return SessionAuth.Unauthorized();
@@ -1022,6 +1022,33 @@ public static class ChatInboxEndpoints
                         so, tenKhai, ct);
                     lienHe = await repo.GetContactAsync(a.TenantId, v.Channel, v.ContactExternalId, ct);
                 }
+            }
+
+            // LẤP TÊN KHÁCH CRM cho hội thoại nối TRƯỚC ngày có tính năng lưu tên (12/09/2026).
+            //
+            // Những hội thoại đó chỉ có mã, nên màn hình hiện "Đã nối với khách #43980" — một con
+            // số không nói gì với người trực. CRM cho tìm theo tên/số/mã nhưng KHÔNG có đường lấy
+            // khách theo mã, nên cách duy nhất là tìm theo SỐ ĐIỆN THOẠI rồi khớp đúng mã.
+            //
+            // CHỈ chạy khi: đã nối, chưa có tên, và có số để tìm. Lấp xong lưu lại nên mỗi hội
+            // thoại tốn đúng một lượt gọi CRM, lần mở sau không tốn gì.
+            if (lienHe is { CrmCustomerId: > 0 } lh2
+                && string.IsNullOrWhiteSpace(lh2.CrmCustomerName)
+                && !string.IsNullOrWhiteSpace(lh2.Phone))
+            {
+                try
+                {
+                    var kq = await khach.ListAsync(a.SessionId, new(Search: lh2.Phone!.Trim()), 1, 10, ct);
+                    // Khớp ĐÚNG MÃ, không lấy dòng đầu: tìm theo số có thể ra nhiều khách (số công
+                    // ty, số người nhà), và gán nhầm tên cho một mã là nói dối người đọc.
+                    if (kq.Items.FirstOrDefault(k => k.Id == lh2.CrmCustomerId.Value.ToString()) is { } dung)
+                    {
+                        await repo.LinkCrmAsync(a.TenantId, v.Channel, v.ContactExternalId,
+                            lh2.CrmCustomerId, ct, tenKhach: dung.Name, maKhach: dung.Code);
+                        lienHe = await repo.GetContactAsync(a.TenantId, v.Channel, v.ContactExternalId, ct);
+                    }
+                }
+                catch { /* CRM hỏng thì thôi, màn hình lùi về hiện mã — không chặn mở hội thoại */ }
             }
 
             // ChatSender.Agent: hai đường này đều là NGƯỜI THẬT đang mở hộp thư và gõ. Messenger
