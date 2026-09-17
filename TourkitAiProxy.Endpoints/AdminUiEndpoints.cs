@@ -5,6 +5,7 @@ using TourkitAiProxy.Domain.Chat;
 using TourkitAiProxy.Infrastructure.Mail;
 using TourkitAiProxy.Domain.Mail;
 using TourkitAiProxy.Services.Quota;
+using TourkitAiProxy.Infrastructure.Quota;
 using TourkitAiProxy.Infrastructure.TourKit;
 using TourkitAiProxy.Services.Admin;
 using TourkitAiProxy.Services.Mail;
@@ -21,6 +22,7 @@ namespace TourkitAiProxy.Endpoints;
 ///   GET  /api/v1/admin/ui/ai-usage?days=30&amp;tenantId=          — aggregate cross-tenant
 ///   GET  /api/v1/admin/ui/quota                                  — list quota mọi tenant
 ///   POST /api/v1/admin/ui/quota/{tenant}/topup                   — cộng quota cho tenant
+///   GET  /api/v1/admin/ui/quota/orders?status=                   — đơn nạp lượt mọi tenant (đối soát tiền)
 ///   GET  /api/v1/admin/ui/consult-leads?status=                  — danh sách đăng ký tư vấn (landing)
 ///   POST /api/v1/admin/ui/consult-leads/{id}/contacted           — đánh dấu đã liên hệ (toggle)
 ///   GET  /api/v1/admin/ui/chat-unresolved?days=&amp;tag=            — câu hỏi /assistant AI không suy luận được
@@ -165,6 +167,57 @@ public static class AdminUiEndpoints
                 warn = snap.Warn,
                 exhausted = snap.Exhausted,
                 updatedAtUtc = snap.UpdatedAt
+            });
+        });
+
+        // GET /api/v1/admin/ui/quota/orders?status= — đơn nạp lượt của MỌI công ty (đối soát tiền)
+        //
+        // Trên sổ phụ ngân hàng chỉ có nội dung CK; ở đây mới trả lời được "công ty nào vừa chuyển".
+        // Mã đơn gắn cứng với TenantId nên khớp mã là biết ngay công ty + người bấm nạp.
+        g.MapGet("/quota/orders", async (
+            string? status,
+            QuotaOrderRepository orders,
+            TkSessionRepository sessions,
+            CancellationToken ct) =>
+        {
+            var all = await orders.ListAllAsync(500, ct);
+
+            var loc = (status ?? "all").Trim().ToLowerInvariant();
+            var rows = loc is "paid" or "pending" or "expired" or "cancelled"
+                ? all.Where(o => string.Equals(o.Status, loc, StringComparison.OrdinalIgnoreCase)).ToList()
+                : all;
+
+            Dictionary<string, string> names;
+            try { names = await sessions.GetTenantNamesAsync(rows.Select(o => o.TenantId).Distinct(), ct); }
+            catch { names = new Dictionary<string, string>(); }
+
+            return Results.Json(new
+            {
+                totals = new
+                {
+                    all       = all.Count,
+                    paid      = all.Count(o => o.Status == "paid"),
+                    pending   = all.Count(o => o.Status == "pending"),
+                    expired   = all.Count(o => o.Status == "expired"),
+                    cancelled = all.Count(o => o.Status == "cancelled"),
+                    // Chỉ cộng đơn ĐÃ THU được tiền — tổng gồm cả đơn treo là con số không nói lên gì.
+                    paidAmountVnd = all.Where(o => o.Status == "paid").Sum(o => o.AmountVnd),
+                },
+                items = rows.Select(o => new
+                {
+                    id          = o.Id,
+                    tenantId    = o.TenantId,
+                    companyName = names.TryGetValue(o.TenantId, out var n) ? n : o.TenantId,
+                    createdBy   = o.CreatedBy,
+                    tierId      = o.TierId,
+                    amountVnd   = o.AmountVnd,
+                    quotaUnits  = o.QuotaUnits,
+                    status      = o.Status,
+                    memo        = o.Memo,
+                    bankRef     = o.TingeeRefId,
+                    createdAtUtc = DateTime.SpecifyKind(o.CreatedAt, DateTimeKind.Utc),
+                    paidAtUtc    = o.PaidAt.HasValue ? DateTime.SpecifyKind(o.PaidAt.Value, DateTimeKind.Utc) : (DateTime?)null,
+                }).ToList()
             });
         });
 

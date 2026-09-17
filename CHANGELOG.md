@@ -13,6 +13,29 @@ Những cập nhật gần đây của TRAV-AI, viết cho người dùng. Mới
 
 ---
 
+## Phiên bản 17/09/2026 — Nạp lượt AI: nội dung chuyển khoản đọc được
+
+### 🔧 Đã khắc phục
+- **Nội dung chuyển khoản khi nạp lượt AI không còn là một dãy ký tự khó hiểu.** Trước đây bạn mở
+  app ngân hàng lên chỉ thấy một mã lạ, không biết mình đang trả cho việc gì, kế toán soi sổ phụ
+  ngân hàng cũng không đọc ra công ty nào vừa chuyển. Nay nội dung ghi rõ tên công ty và mục đích,
+  ví dụ: *"TKAI-8E1FBB-6AAA0748-667D Cong ty CP Tourkit thanh toan nap them luot AI"*.
+
+### ✨ Tính năng mới
+- **Màn "Đơn nạp lượt" trong khu quản trị.** Xem toàn bộ đơn nạp của mọi công ty: mã đơn, tên công
+  ty, người bấm nạp, số tiền, số lượt, đã thu hay đang chờ tiền, thu lúc nào — kèm tổng tiền đã thu
+  và bộ lọc theo trạng thái. Bấm vào mã đơn là copy được để dò với sổ phụ ngân hàng.
+
+### 📌 Lưu ý
+- Nội dung để **không dấu** — đây là cố ý: tiếng Việt có dấu đi qua các cổng ngân hàng hay bị lỗi
+  phông hoặc bị cắt mất chữ.
+- **Mã đơn nằm ở ĐẦU nội dung**, cũng là cố ý: một số ngân hàng giới hạn độ dài nội dung và cắt bớt
+  phần đuôi. Mã đứng đầu thì dù bị cắt, hệ thống vẫn nhận ra tiền của bạn để cộng lượt.
+- Vẫn **giữ nguyên nội dung** khi chuyển khoản như trước. Sửa hay xoá phần mã ở đầu thì hệ thống
+  không nhận ra đơn của bạn.
+
+---
+
 ## Phiên bản 10/09/2026 — Import NCC: hết cảnh số nhảy lung tung sang ô giá
 
 ### 🔧 Đã khắc phục

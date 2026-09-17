@@ -47,7 +47,9 @@ public static class QuotaOrderEndpoints
             if (tier == null) return Results.BadRequest(new { error = "Gói không hợp lệ" });
 
             var orderId = BuildOrderId(sess.TenantId);
-            var memo    = orderId;       // nội dung CK = OrderId → webhook match
+            // Nội dung CK = tên công ty (không dấu) + câu mô tả + MÃ ĐƠN ở cuối. Mã vẫn là thứ duy
+            // nhất dùng đối soát — QuotaMemo.ExtractOrderId quét mã ở bất kỳ đâu trong nội dung.
+            var memo    = QuotaMemo.Build(orderId, sess.CompanyName);
             var now     = DateTime.UtcNow;
             var expires = now.AddMinutes(15);     // 15 phút đủ user mở app banking + chuyển
 
@@ -132,7 +134,7 @@ public static class QuotaOrderEndpoints
             if (req == null || string.IsNullOrWhiteSpace(req.Content))
                 return Results.BadRequest(new { ok = false, error = "thiếu content" });
 
-            var orderId = ExtractOrderId(req.Content);
+            var orderId = QuotaMemo.ExtractOrderId(req.Content);
             if (orderId == null)
             {
                 log.LogWarning("[Tingee credit] content '{C}' không có mã TKAI — skip", req.Content);
@@ -206,7 +208,7 @@ public static class QuotaOrderEndpoints
                 return Results.BadRequest(new { error = "thiếu description (memo)" });
 
             // Memo có thể có ký tự thừa (vd VCB tự prepend "TT CK QR"). Extract token TKAI-xxx.
-            var orderId = ExtractOrderId(payload.Description);
+            var orderId = QuotaMemo.ExtractOrderId(payload.Description);
             if (orderId == null)
             {
                 log.LogWarning("[Tingee webhook] memo '{Memo}' không chứa OrderId — skip", payload.Description);
@@ -288,8 +290,8 @@ public static class QuotaOrderEndpoints
     }
 
     /// <summary>
-    /// Sinh OrderId dạng `TKAI-{tenantHash6}-{ts}-{rand4}` — đủ unique, ngắn để memo VCB không cắt.
-    /// VCB giới hạn nội dung CK 50 ký tự, format này ~24 ký tự an toàn.
+    /// Sinh OrderId dạng `TKAI-{tenantHash6}-{ts}-{rand4}` — đủ unique, và ngắn (25 ký tự) để còn
+    /// chỗ cho phần chữ người đọc được đứng trước nó trong nội dung CK (xem <see cref="QuotaMemo"/>).
     /// </summary>
     private static string BuildOrderId(string tenantId)
     {
@@ -299,38 +301,5 @@ public static class QuotaOrderEndpoints
         var ts    = DateTimeOffset.UtcNow.ToUnixTimeSeconds().ToString("X");
         var rand4 = Random.Shared.Next(0, 0xFFFF).ToString("X4");
         return $"TKAI-{hash6}-{ts}-{rand4}";
-    }
-
-    /// <summary>
-    /// Bóc OrderId TKAI-XXXXXX-XXXXXXXX-XXXX khỏi memo (VCB thường prepend "TT CK QR" hoặc tương tự).
-    /// </summary>
-    private static string? ExtractOrderId(string memo)
-    {
-        if (string.IsNullOrWhiteSpace(memo)) return null;
-
-        // Dấu gạch nối là TUỲ CHỌN ở đây, cố ý. Nhiều đường đi làm mất nó trước khi tới được đây:
-        //   • BankHubService.GenerateQrCode bên web tự lọc `[^a-zA-Z0-9\s]` khỏi nội dung CK
-        //     → "TKAI-8E1FBB-6A90F5AA-9A82" thành "TKAI8E1FBB6A90F5AA9A82";
-        //   • một số ngân hàng cũng bỏ ký tự đặc biệt trong nội dung khi đẩy sang cổng trung gian.
-        // Khớp cứng dấu gạch thì những ca đó rơi vào nhánh "không có mã TKAI" → tiền vào mà không
-        // cộng lượt, và người dùng chẳng thấy lỗi gì.
-        //
-        // Ghép lại được vì cấu trúc mã là cố định: TKAI + 6 hex (băm công ty) + N hex (thời điểm)
-        // + 4 hex (ngẫu nhiên) — biết 6 đầu và 4 cuối thì phần giữa là phần còn lại, không mơ hồ.
-        // Thử dạng CÓ gạch nối TRƯỚC. Gộp hai dạng vào một biểu thức với gạch nối tuỳ chọn nghe gọn
-        // hơn nhưng SAI: phần giữa dài bao nhiêu là mơ hồ, "TKAI-8E1FBB-6A90F5AA-9A82" bị cắt nhầm
-        // thành "TKAI-8E1FBB-6A90-F5AA". Tách hai bước thì mỗi bước chỉ có một cách hiểu.
-        const System.Text.RegularExpressions.RegexOptions Ci = System.Text.RegularExpressions.RegexOptions.IgnoreCase;
-
-        var m = System.Text.RegularExpressions.Regex.Match(memo, @"TKAI-[A-F0-9]{6}-[A-F0-9]+-[A-F0-9]{4}", Ci);
-        if (m.Success) return m.Value.ToUpperInvariant();
-
-        // Dạng đã bị lọc mất gạch nối: lấy trọn cụm hex rồi cắt lại theo cấu trúc cố định
-        // (6 đầu = băm công ty · 4 cuối = số ngẫu nhiên · phần giữa = thời điểm).
-        var m2 = System.Text.RegularExpressions.Regex.Match(memo, @"TKAI([A-F0-9]{14,26})(?![A-F0-9])", Ci);
-        if (!m2.Success) return null;
-
-        var hex = m2.Groups[1].Value.ToUpperInvariant();
-        return $"TKAI-{hex[..6]}-{hex[6..^4]}-{hex[^4..]}";
     }
 }
