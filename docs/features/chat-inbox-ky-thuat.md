@@ -1,4 +1,12 @@
-﻿# Hộp thư chat đa kênh
+﻿# Hộp thư chat đa kênh — ghi chú KỸ THUẬT
+
+> **Đây là tài liệu cho người viết mã.** Nội dung trong đây trước 13/09/2026 nằm ở
+> `docs/features/chat-inbox.md`; hôm đó tách làm hai vì một tệp không thể vừa là hướng dẫn cho
+> nhân viên nghiệp vụ vừa là sổ ghi bẫy webhook và lý do thiết kế.
+> **Hướng dẫn cho người dùng cuối:** [hop-thu-chat.md](hop-thu-chat.md) — đọc tệp đó nếu bạn
+> đang tìm "bấm nút nào để làm gì". Đó cũng là tệp app đọc để dựng trang Hướng dẫn (slug
+> `hop-thu-chat`, đăng ký ở `wwwroot/pages/help.jsx`), nên sửa hướng dẫn là sửa THẲNG tệp đó.
+> Tệp này giữ nguyên phần kỹ thuật, không lược bỏ dòng nào.
 
 > Tách khỏi `CLAUDE.md` ngày 25/08/2026 — file đó đã hơn 1.000 dòng nên không ai đọc hết,
 > mà quy ước không đọc thì bằng không có. Xem `CLAUDE.md` để biết khi nào cần đọc file này.
@@ -77,7 +85,7 @@ lần rồi giữ luôn trong `state`, lượt đổi mã dùng lại đúng chu
 **Messenger cũng dùng MỘT ứng dụng Facebook của TourKit** (`Chat:Messenger` trong cấu hình), cùng
 lối với Zalo và **dễ hơn Zalo một bậc**. Khách bấm **"Kết nối Facebook"**, đăng nhập, chọn Trang —
 hết. Đường dẫn: `POST /channels/1/connect-url` → `dialog/oauth` → `GET /api/v1/chat/oauth/messenger/callback`
-→ trang chọn Trang → `POST /api/v1/chat/oauth/messenger/chon`.
+→ trang chọn Trang → `POST /api/v1/chat/oauth/messenger/select`.
 
 ⚠️ **Nối Trang THỨ HAI cùng tài khoản: luồng cổ điển không làm được.** Facebook nhớ lựa chọn Trang
 của lần trước và **bỏ hẳn bước chọn Trang**, nên `/me/accounts` trả về đúng Trang đã nối.
@@ -423,7 +431,7 @@ Câu hỏi hay gặp: *nối kênh xong, các đoạn chat có từ trước có
 | Zalo | ❌ | Open API không có đầu đọc hội thoại |
 | TikTok | ❌ | có đầu đọc nhưng đòi tư cách **Messaging Partner**, phải xin duyệt riêng |
 
-**Messenger / Instagram** — nằm sau cờ riêng `Features:ChatHistoryImport` và **người dùng tự bấm**
+**Messenger / Instagram** — đi theo cờ `Features:Chat` (không còn cờ riêng) và **người dùng tự bấm**
 từng tài khoản (`POST .../accounts/{id}/import-history`, tra tiến độ bằng `GET` cùng đường). Không
 tự chạy lúc nối: một Trang bán hàng lâu năm có hàng chục nghìn tin, và gọi Graph quá nhiều là
 Facebook chặn tạm cả ứng dụng — lúc đó **tin trực tiếp cũng ngừng về**, tức lấy lịch sử làm hỏng

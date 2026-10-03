@@ -52,6 +52,7 @@ public static class EndpointRegistration
         app.MapQuotaOrderEndpoints();
         app.MapWidgetEndpoints();
         app.MapCrmSsoEndpoints();        // SSO 2 chiều với CRM
+        app.MapAiKeyEndpoints();         // /api/v1/ai-key — key AI riêng của công ty (BYO)
 
         MapVoAdmin(app);
         return app;

@@ -238,6 +238,21 @@ public class ZaloChatAdapter : IChatChannelAdapter, IApprovedTemplateSender, IBu
         // nó — nhánh switch của họ không xử lý, rơi vào chỗ đòi msg_id rồi ném.)
     };
 
+    /// <summary>
+    /// Đã kêu về sự kiện Zalo nào rồi — kêu MỘT lần cho mỗi tên, mỗi lần chạy.
+    ///
+    /// <para>Mục đích là để BIẾT Zalo gửi những gì, không phải để đếm. Kêu mọi lượt thì sự kiện
+    /// theo dõi/bỏ theo dõi đủ sức ngập log và chôn vùi đúng cái tên hiếm mình đang muốn thấy.</para>
+    /// </summary>
+    private static readonly System.Collections.Concurrent.ConcurrentDictionary<string, byte> _daKeu = new();
+
+    private void LogUnhandledEvent(string ten)
+    {
+        if (!_daKeu.TryAdd(ten, 0)) return;
+        _log.LogInformation("[chat/zalo] sự kiện CHƯA XỬ LÝ: {Ten} — nếu đây là thứ cần dùng " +
+            "(ví dụ khách thả cảm xúc) thì thêm nhánh bóc cho nó trong ZaloChatAdapter.", ten);
+    }
+
     public IReadOnlyList<InboundChatEvent> Parse(string rawBody)
     {
         var ra = new List<InboundChatEvent>();
@@ -259,7 +274,18 @@ public class ZaloChatAdapter : IChatChannelAdapter, IApprovedTemplateSender, IBu
 
         var laKhach = CustomerKinds.TryGetValue(ten, out var loaiKhach);
         var laOa = !laKhach && OaKinds.TryGetValue(ten, out var loaiOa);
-        if (!laKhach && !laOa) return ra;   // sự kiện gắn thẻ, theo dõi… — chưa dùng
+        if (!laKhach && !laOa)
+        {
+            // Sự kiện chưa dùng (gắn thẻ, theo dõi, bỏ theo dõi…). Trước 12/09/2026 chỗ này bỏ
+            // im lặng HOÀN TOÀN — không log, không đếm. Hệ quả: không ai trả lời được câu "Zalo
+            // có gửi cảm xúc sang không?" mà không đi đọc tài liệu của họ, vì bằng chứng đi qua
+            // đúng dòng này rồi biến mất.
+            //
+            // Ghi TÊN sự kiện thôi, không ghi thân: thân chở mã người dùng và nội dung tin.
+            // Tên sự kiện là tập hữu hạn và nhỏ nên không có nguy cơ ngập log.
+            LogUnhandledEvent(ten);
+            return ra;
+        }
 
         // Tin của khách: người gửi là khách. Tiếng vọng: khách là NGƯỜI NHẬN.
         var uid = laKhach ? goc["sender"]?["id"]?.ToString() : goc["recipient"]?["id"]?.ToString();
@@ -614,6 +640,58 @@ public class ZaloChatAdapter : IChatChannelAdapter, IApprovedTemplateSender, IBu
     }
 
     private static string Truncate(string s) => s.Length <= 200 ? s : s[..200];
+
+    /// <summary>
+    /// Hỏi Zalo tên + ảnh đại diện của khách.
+    ///
+    /// <para><b>Vì sao kênh này CẦN hàm riêng, dù chú thích ở interface từng nói ngược lại.</b>
+    /// Gói webhook tin nhắn của Zalo chỉ có <c>sender.id</c> — một dãy số. Bộ bóc vẫn đọc
+    /// <c>sender.name</c> vì vài sự kiện khác có kèm, nhưng với tin nhắn thường trường đó luôn
+    /// rỗng, nên hộp thư hiện mã người dùng thay cho tên khách và không bao giờ có ảnh. Telegram
+    /// thì kèm tên thật trong gói tin — đừng gộp hai kênh vào chung một giả định, đó chính là
+    /// nhầm lẫn đã làm Zalo thiếu hàm này từ đầu.</para>
+    ///
+    /// <para>Zalo nhận tham số dưới dạng <b>một chuỗi JSON trong query <c>data</c></b>, không
+    /// phải các ô rời — viết <c>?user_id=…</c> thì Zalo trả lỗi tham số chứ không trả hồ sơ.</para>
+    ///
+    /// <para>Nuốt mọi lỗi và trả <c>null</c>: không lấy được tên thì hiện mã, xấu nhưng vẫn dùng
+    /// được. Chặn tin của khách chỉ vì không lấy được cái tên là đổi lỗi nhỏ lấy lỗi to.</para>
+    /// </summary>
+    public async Task<ContactProfile?> ContactProfileAsync(string tenantId, string accountId,
+        string externalUserId, CancellationToken ct)
+    {
+        var token = await GetAccessTokenAsync(tenantId, accountId, ct);
+        if (string.IsNullOrWhiteSpace(token.Token)) return null;
+        try
+        {
+            var http = _http.CreateClient();
+            var data = Uri.EscapeDataString(
+                new JsonObject { ["user_id"] = externalUserId }.ToJsonString());
+            using var req = new HttpRequestMessage(HttpMethod.Get,
+                $"{ApiBase}/v3.0/oa/user/detail?data={data}");
+            req.Headers.Add("access_token", token.Token);
+            using var res = await http.SendAsync(req, ct);
+            var o = JsonNode.Parse(await res.Content.ReadAsStringAsync(ct))?.AsObject();
+
+            // Zalo trả HTTP 200 kèm error != 0 khi hỏng — không đọc trường đó là tưởng thành công.
+            if (o?["error"]?.GetValue<int>() is not 0)
+            {
+                _log.LogWarning("[chat/zalo] không lấy được hồ sơ khách {Id}: {Loi}",
+                    externalUserId, o?["message"]?.ToString());
+                return null;
+            }
+
+            var d = o["data"];
+            var ten = NullIfBlank(d?["display_name"]?.ToString());
+            var anh = NullIfBlank(d?["avatar"]?.ToString());
+            return ten is null && anh is null ? null : new ContactProfile(ten, anh);
+        }
+        catch (Exception ex)
+        {
+            _log.LogWarning(ex, "[chat/zalo] hỏi hồ sơ khách {Id} hỏng", externalUserId);
+            return null;
+        }
+    }
 
     // ── Access token: tự xoay vòng, KHÔNG chia sẻ với bất kỳ nơi nào khác ─────
 

@@ -79,6 +79,29 @@ public static class ChatTools
             new[] { "startDate", "endDate", "employeeId", "employeeName", "branch" },
             "employees", "Hiệu suất nhân viên"),
 
+        new("tour_catalog",
+            "Danh mục tour FIT để TƯ VẤN KHÁCH — có GIÁ một khách (pricePerSlot), ngày khởi hành, "
+            + "ngày về, số đêm, tổng chỗ và CHỖ CÒN. Đây là nguồn dùng cho MỌI câu khách hỏi về "
+            + "tour: 'có tour đi X không', 'giá bao nhiêu', 'còn chỗ không', 'khởi hành ngày nào'. "
+            + "keyword = điểm đến hoặc tên tour khách vừa nhắc (BẮT BUỘC điền khi khách nói tên một "
+            + "nơi). fromDate/toDate = khoảng ngày khởi hành, dạng yyyy-MM-dd. "
+            + "KHÁC 'tours': nguồn này KHÔNG chứa tên khách, nhân viên bán, doanh thu hay công nợ.",
+            "/api/ai/tour-catalog",
+            new[] { "keyword", "fromDate", "toDate", "pageIndex", "pageSize" },
+            "tours", "Danh mục tour",
+            new() { ["pageIndex"] = "1", ["pageSize"] = "20" }),
+
+        new("tour_detail",
+            "Chi tiết MỘT tour FIT: giá theo từng đối tượng (người lớn, trẻ em, trẻ nhỏ, em bé), "
+            + "giảm giá, DỊCH VỤ BAO GỒM, điều khoản và chính sách, điểm đón - điểm trả, hành trình "
+            + "bay. DÙNG khi khách hỏi sâu về MỘT tour cụ thể: 'giá trẻ em bao nhiêu', 'gồm những "
+            + "gì', 'đón ở đâu', 'huỷ thì sao'. "
+            + "BẮT BUỘC có id — lấy từ trường 'id' của một dòng trong tour_catalog, nên phải gọi "
+            + "tour_catalog TRƯỚC. Không đoán id.",
+            "/api/ai/tour-detail",
+            new[] { "id" },
+            "tours", "Chi tiết tour"),
+
         new("tours",
             "Danh sách tour. " +
             "tourType: 1=LandTour, 2=FIT, 3=GIT, 100=Booking, 101=DV lẻ, 102=Visa, 104=Vé bay. " +

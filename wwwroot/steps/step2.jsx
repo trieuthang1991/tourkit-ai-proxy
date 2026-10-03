@@ -42,7 +42,7 @@ Output JSON THUẦN:
 }
 
 Ví dụ giọng: "Tôi thấy Margin đang ở mức tốt. Tuy nhiên, nếu đổi option <<Resort FLC>> sang <<Anyia Hotel>>, bạn có thể tăng Margin lên [[32%]] mà vẫn đảm bảo tiêu chuẩn 4 sao."`;
-      const raw = await window.claude.complete(prompt);
+      const raw = await window.claude.complete(prompt, { feature: 'quote' });
       const m = raw.match(/\{[\s\S]*\}/);
       if (m) setOptimizer({ ...JSON.parse(m[0]), pristine: false });
       else throw new Error('parse');
@@ -516,7 +516,7 @@ function EditServiceModal({ data, dayNum, onClose, onSave, onDelete, totalPax })
 Suppliers: ${JSON.stringify(lib.map(s => ({name: s.name, ncc: s.ncc, price: s.price})))}
 
 Output JSON: {"advice": "câu khuyên, highlight tên supplier bằng <<...>>"}`;
-      const raw = await window.claude.complete(prompt);
+      const raw = await window.claude.complete(prompt, { feature: 'quote' });
       const m = raw.match(/\{[\s\S]*\}/);
       if (m) { setAdvice(JSON.parse(m[0]).advice); setAdvicePristine(false); }
       else throw new Error('parse');

@@ -4,6 +4,7 @@ using System.Text.Json.Nodes;
 using TourkitAiProxy.Infrastructure.Cache;
 using TourkitAiProxy.Infrastructure.Chat.Channels;
 using TourkitAiProxy.Infrastructure.Chat.Inbox;
+using TourkitAiProxy.Infrastructure.Crm;
 using TourkitAiProxy.Services.Storage;
 using TourkitAiProxy.Infrastructure.TourKit;
 using TourkitAiProxy.Domain.Chat;
@@ -66,7 +67,7 @@ public static class ChatInboxEndpoints
         // Người trực tự tắt/bật lượt nhận việc của chính mình. Đường RIÊNG chứ không nằm dưới
         // /assign-settings: kia là cấu hình của quản trị cho cả công ty, đây là công tắc cá nhân
         // và ai trong đội trực cũng bấm được.
-        "/api/v1/chat/tam-nghi",
+        "/api/v1/chat/away",
         // Danh mục nhãn của công ty. KHÁC /conversations/{id}/tags — đường kia gắn/gỡ nhãn cho
         // MỘT khách, đường này quản lý bộ nhãn dùng chung.
         "/api/v1/chat/tags",
@@ -492,15 +493,15 @@ public static class ChatInboxEndpoints
 
         // Đường CŨ, mang tên công ty: giữ nguyên cho các OA đã khai theo ứng dụng riêng. Bỏ đi là
         // webhook đang chạy của họ chết ngay lúc deploy.
-        routes.MapPost("/api/v1/chat/webhook/{kenh}/{tenantId}", (
-            string kenh, string tenantId, HttpContext ctx, ChatInboundService svc, ChatRepository repo,
+        routes.MapPost("/api/v1/chat/webhook/{channel}/{tenantId}", (
+            string channel, string tenantId, HttpContext ctx, ChatInboundService svc, ChatRepository repo,
             Services.Chat.Inbox.ChatWorkSignal tin, ILoggerFactory lf, CancellationToken ct)
-            => XuLy(kenh, tenantId, null, ctx, svc, repo, tin, lf, ct));
+            => XuLy(channel, tenantId, null, ctx, svc, repo, tin, lf, ct));
 
-        routes.MapPost("/api/v1/chat/webhook/{kenh}/{tenantId}/{accountId}", (
-            string kenh, string tenantId, string accountId, HttpContext ctx, ChatInboundService svc,
+        routes.MapPost("/api/v1/chat/webhook/{channel}/{tenantId}/{accountId}", (
+            string channel, string tenantId, string accountId, HttpContext ctx, ChatInboundService svc,
             ChatRepository repo, Services.Chat.Inbox.ChatWorkSignal tin, ILoggerFactory lf, CancellationToken ct)
-            => XuLy(kenh, tenantId, accountId, ctx, svc, repo, tin, lf, ct));
+            => XuLy(channel, tenantId, accountId, ctx, svc, repo, tin, lf, ct));
 
         // Meta xác minh địa chỉ webhook bằng một lượt GET riêng trước khi bắt đầu gửi tin. Thiếu
         // đường này thì không đăng ký được webhook Messenger, dù phần nhận tin đã đúng hết.
@@ -727,7 +728,7 @@ public static class ChatInboxEndpoints
         // bị loại khỏi danh sách ứng viên rồi rơi xuống trang SPA — nút bấm nhận 404 kèm HTML,
         // không có gì xảy ra và không lỗi nào hiện ra. Đã trả giá đúng kiểu đó ở nút "Nhận
         // chăm sóc" (08/09/2026); đừng đổi lại thành tham số thân.
-        g.MapPost("/tam-nghi", async (bool nghi, HttpContext ctx, TkSessionStore sessions,
+        g.MapPost("/away", async (bool paused, HttpContext ctx, TkSessionStore sessions,
             ChatAssignRepository assign, CancellationToken ct) =>
         {
             var a = SessionAuth.Read(ctx, sessions);
@@ -737,11 +738,11 @@ public static class ChatInboxEndpoints
             var ma = await sessions.EnsureCrmUserIdAsync(a.SessionId, ct);
             if (ma is null) return ThieuMaNhanVien();
 
-            var kq = await assign.DatTamNghiAsync(a.TenantId, ma.Value, nghi, ct);
+            var kq = await assign.DatTamNghiAsync(a.TenantId, ma.Value, paused, ct);
             return kq switch
             {
                 ChatAssignRepository.KetQuaTamNghi.Xong
-                    => Results.Json(new { ok = true, tamNghi = nghi }, Web),
+                    => Results.Json(new { ok = true, tamNghi = paused }, Web),
                 ChatAssignRepository.KetQuaTamNghi.KhongTrongDoiTruc
                     => Results.Json(new { error = "Bạn không nằm trong đội trực chat nên không có lượt nào để tạm dừng." },
                         statusCode: StatusCodes.Status400BadRequest),
@@ -763,11 +764,11 @@ public static class ChatInboxEndpoints
         // nhận tin CỐ Ý bỏ qua tin lịch sử. Làm âm thầm sau lưng thì quản trị không biết lúc nào
         // nó chạy, chạy bao nhiêu, hay vì sao hôm nay cả kho hội thoại cũ đổ lên đội trực. Một
         // nút bấm có chủ đích, báo lại con số ngay, rẻ hơn và nhìn thấy được.
-        g.MapPost("/assign-settings/chia-lai", async (HttpContext ctx, TkSessionStore sessions,
+        g.MapPost("/assign-settings/rebalance", async (HttpContext ctx, TkSessionStore sessions,
             ChatRepository repo, ChatAssignRepository assign, ChatEventBus bus,
             ILoggerFactory lf, CancellationToken ct) =>
         {
-            var log = lf.CreateLogger("chat.chia-lai");
+            var log = lf.CreateLogger("chat.rebalance");
             var a = SessionAuth.Read(ctx, sessions);
             if (a == null) return SessionAuth.Unauthorized();
             if (!assign.Configured) return NotConfigured();
@@ -810,7 +811,7 @@ public static class ChatInboxEndpoints
                 bus.Publish(new(a.TenantId, id, "doi-hoi-thoai", null) { AssignedUserId = choAi });
             }
 
-            log.LogInformation("[chat/chia-lai] tenant={T} người={U} chia lại {N} hội thoại{Con}",
+            log.LogInformation("[chat/rebalance] tenant={T} người={U} chia lại {N} hội thoại{Con}",
                 a.TenantId, a.Username, daChia, conNua ? " (còn nữa)" : "");
             return Results.Json(new { ok = true, daChia, conNua }, Web);
         });
@@ -881,9 +882,9 @@ public static class ChatInboxEndpoints
         });
 
         g.MapGet("/conversations", async (HttpContext ctx, TkSessionStore sessions, ChatRepository repo,
-            ChatAssignRepository assign,
+            ChatAssignRepository assign, ChannelCredentialStore cred,
             short? status, string? search, short? channel, bool? unread, bool? followed, bool? mine,
-            string? cursor, CancellationToken ct) =>
+            string? tag, string? cursor, CancellationToken ct) =>
         {
             var p = await SessionAuth.ReadNguoiXemAsync(ctx, sessions, ct);
             if (p == null) return SessionAuth.Unauthorized();
@@ -919,21 +920,34 @@ public static class ChatInboxEndpoints
             // trả rỗng, không được coi như "không lọc" (giaoCho == null cũng mở toang y hệt).
             var giaoChoLoc = mine == true ? (maToi ?? KHONG_XAC_DINH_DUOC_MA) : (int?)null;
 
+            // Nhãn lọc: các slug cách nhau bằng dấu phẩy, tối đa 10. Giao diện chỉ gửi slug lấy từ
+            // danh mục nên không chuẩn hoá lại ở đây; cắt trần để một URL bậy không kéo theo mảng
+            // vài nghìn phần tử xuống SQL. Chuỗi rỗng/khoảng trắng → null, tức KHÔNG lọc — mảng
+            // rỗng thì = ANY(...) không khớp gì và danh sách trắng trơn không lý do.
+            var nhanLoc = string.IsNullOrWhiteSpace(tag) ? null
+                : tag.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+                     .Take(10).ToArray();
+
             // Mã hỏng → Decode() trả null → coi như trang đầu. Không ném: con trỏ nằm trên URL,
             // người dùng sửa tay được và mã cũ từ bản trước còn trong lịch sử trình duyệt.
             const int soDong = 60;
             var items = await repo.ListConversationsAsync(a.TenantId, xem, status, chiCuaToi, search,
                 kenh: channel, giaoCho: giaoChoLoc, chiChuaDoc: unread == true,
                 chiTheoDoi: followed == true,
-                sau: ChatCursor.Decode(cursor), limit: soDong, nguoiDung: maNguoiXem, ct: ct);
+                sau: ChatCursor.Decode(cursor), limit: soDong, nguoiDung: maNguoiXem,
+                nhan: nhanLoc, ct: ct);
             // Truyền kênh đang lọc: chip trạng thái phải nói về ĐÚNG danh sách đang hiện bên dưới.
             // Gọi bằng THAM SỐ CÓ TÊN: chiCuaToi và nguoiDung đều là int? nằm cạnh nhau, đảo nhầm
             // thì vẫn biên dịch được và bộ đếm sai âm thầm — không có gì bắt được.
+            // Nhãn truyền vào ĐÂY NỮA — cùng lý do với kênh. Xem ChatTagFilterGuardTests.
             var dem = await repo.CountAsync(a.TenantId, chiCuaToi: chiCuaToi, xem: xem,
-                nguoiDung: maNguoiXem, kenh: channel, ct: ct);
+                nguoiDung: maNguoiXem, kenh: channel, nhan: nhanLoc, ct: ct);
+            // Tên Trang/OA: MỘT lượt tra cho cả trang danh sách, không phải mỗi dòng một lượt.
+            // Rỗng là chuyện bình thường (công ty một Trang mỗi kênh) chứ không phải lỗi.
+            var tenTrang = await cred.LabelMapAsync(a.TenantId, ct);
             return Results.Json(new
             {
-                items = items.Select(x => Shape(x, a.SessionId)),
+                items = items.Select(x => Shape(x, a.SessionId, tenTrang)),
                 counts = new
                 {
                     moi = dem.TheoTrangThai.GetValueOrDefault((short)0),
@@ -956,7 +970,8 @@ public static class ChatInboxEndpoints
         });
 
         g.MapGet("/conversations/{id:long}", async (long id, HttpContext ctx, TkSessionStore sessions,
-            ChatRepository repo, ChatAssignRepository assign, CancellationToken ct) =>
+            ChatRepository repo, ChatAssignRepository assign, ChannelCredentialStore cred,
+            TourKitCustomerSource khach, CancellationToken ct) =>
         {
             var p = await SessionAuth.ReadNguoiXemAsync(ctx, sessions, ct);
             if (p == null) return SessionAuth.Unauthorized();
@@ -977,6 +992,65 @@ public static class ChatInboxEndpoints
                 .GroupBy(x => x.ExternalMsgId)
                 .ToDictionary(g => g.Key, g => g.ToList());
             var lienHe = await repo.GetContactAsync(a.TenantId, v.Channel, v.ContactExternalId, ct);
+
+            // QUÉT BÙ số điện thoại và tên khách trên những tin ĐÃ CÓ SẴN.
+            //
+            // Đường bắt chính nằm ở ChatInboundService, và nó chỉ chạy khi có tin MỚI tới. Nghĩa
+            // là mọi hội thoại có sẵn trước hôm bật tính năng — và mọi hội thoại trên máy đang
+            // tắt worker — không bao giờ được quét: khách đã để lại số từ tuần trước mà hồ sơ vẫn
+            // trống, và không có gì nói cho người trực biết vì sao.
+            //
+            // Chạy TẠI ĐÂY, lúc mở hội thoại, và CHỈ khi còn thiếu: hội thoại đã có đủ số lẫn tên
+            // thì không tốn gì. Không cần một lượt chạy nền quét lại toàn bộ CSDL.
+            if (lienHe is not null
+                && (string.IsNullOrWhiteSpace(lienHe.Phone) || string.IsNullOrWhiteSpace(lienHe.StatedName)))
+            {
+                // Chỉ đọc tin của KHÁCH: số trong tin mình gửi đi là số của công ty, không phải
+                // của khách — gắn nhầm vào hồ sơ là sai người.
+                var cuaKhach = tin.Where(m => m.Direction == (short)ChatDirection.In);
+                string? so = null, tenKhai = null;
+                foreach (var m in cuaKhach)
+                {
+                    so ??= ChatRules.FindPhone(m.Body);
+                    tenKhai ??= ChatRules.FindStatedName(m.Body);
+                    if (so is not null && tenKhai is not null) break;
+                }
+                if (so is not null || tenKhai is not null)
+                {
+                    // Hàm lưu tự bỏ qua ô đã có giá trị, nên không đè lên số kênh cung cấp.
+                    await repo.SaveDetectedContactInfoAsync(a.TenantId, v.Channel, v.ContactExternalId,
+                        so, tenKhai, ct);
+                    lienHe = await repo.GetContactAsync(a.TenantId, v.Channel, v.ContactExternalId, ct);
+                }
+            }
+
+            // LẤP TÊN KHÁCH CRM cho hội thoại nối TRƯỚC ngày có tính năng lưu tên (12/09/2026).
+            //
+            // Những hội thoại đó chỉ có mã, nên màn hình hiện "Đã nối với khách #43980" — một con
+            // số không nói gì với người trực. CRM cho tìm theo tên/số/mã nhưng KHÔNG có đường lấy
+            // khách theo mã, nên cách duy nhất là tìm theo SỐ ĐIỆN THOẠI rồi khớp đúng mã.
+            //
+            // CHỈ chạy khi: đã nối, chưa có tên, và có số để tìm. Lấp xong lưu lại nên mỗi hội
+            // thoại tốn đúng một lượt gọi CRM, lần mở sau không tốn gì.
+            if (lienHe is { CrmCustomerId: > 0 } lh2
+                && string.IsNullOrWhiteSpace(lh2.CrmCustomerName)
+                && !string.IsNullOrWhiteSpace(lh2.Phone))
+            {
+                try
+                {
+                    var kq = await khach.ListAsync(a.SessionId, new(Search: lh2.Phone!.Trim()), 1, 10, ct);
+                    // Khớp ĐÚNG MÃ, không lấy dòng đầu: tìm theo số có thể ra nhiều khách (số công
+                    // ty, số người nhà), và gán nhầm tên cho một mã là nói dối người đọc.
+                    if (kq.Items.FirstOrDefault(k => k.Id == lh2.CrmCustomerId.Value.ToString()) is { } dung)
+                    {
+                        await repo.LinkCrmAsync(a.TenantId, v.Channel, v.ContactExternalId,
+                            lh2.CrmCustomerId, ct, tenKhach: dung.Name, maKhach: dung.Code);
+                        lienHe = await repo.GetContactAsync(a.TenantId, v.Channel, v.ContactExternalId, ct);
+                    }
+                }
+                catch { /* CRM hỏng thì thôi, màn hình lùi về hiện mã — không chặn mở hội thoại */ }
+            }
+
             // ChatSender.Agent: hai đường này đều là NGƯỜI THẬT đang mở hộp thư và gõ. Messenger
             // với Instagram cho nhân viên nhắn tới 7 ngày (nhãn HUMAN_AGENT) trong khi bot chỉ có
             // 24 giờ — bỏ tham số này là ô soạn khoá sớm 6 ngày dù nền tảng vẫn cho gửi.
@@ -984,12 +1058,17 @@ public static class ChatInboxEndpoints
                 DateTime.UtcNow, ChatSender.Agent);
             return Results.Json(new
             {
-                conversation = Shape(v, a.SessionId),
+                conversation = Shape(v, a.SessionId, await cred.LabelMapAsync(a.TenantId, ct)),
                 // Hồ sơ khách cho panel bên phải. Chỉ những gì kênh thật sự cho biết — chưa nối CRM
                 // nên crmCustomerId còn trống, giao diện nói thẳng điều đó thay vì bịa một thẻ khách.
                 contact = lienHe is null ? null : new
                 {
                     lienHe.DisplayName, lienHe.Phone, lienHe.Email,
+                    // Tên khách TỰ KHAI trong đoạn chat — tách khỏi DisplayName (tên kênh cho).
+                    // Giao diện hiện riêng hai dòng: người trực cần biết cái nào khách tự nói.
+                    lienHe.StatedName,
+                    // Hồ sơ khách CRM lúc nối — để màn hình hiện TÊN chứ không phải một con số.
+                    lienHe.CrmCustomerName, lienHe.CrmCustomerCode,
                     AvatarUrl = ContactAvatarUrl(lienHe.AvatarUrl, a.SessionId),
                     lienHe.CrmCustomerId, lienHe.CreatedUtc,
                 },
@@ -1165,7 +1244,8 @@ public static class ChatInboxEndpoints
 
         g.MapPost("/conversations/{id:long}/send", async (long id, SendReq body, HttpContext ctx,
             TkSessionStore sessions, ChatRepository repo, ChatAssignRepository assign, ChatEventBus bus,
-            Services.Chat.Inbox.ChatWorkSignal tin, IConfiguration cfg, CancellationToken ct) =>
+            Services.Chat.Inbox.ChatWorkSignal tin, IConfiguration cfg,
+            ChatBotSettingsRepository botCfg, CancellationToken ct) =>
         {
             var p = await SessionAuth.ReadNguoiXemAsync(ctx, sessions, ct);
             if (p == null) return SessionAuth.Unauthorized();
@@ -1222,7 +1302,12 @@ public static class ChatInboxEndpoints
             var tomTat = coDinhKem ? (loai == ChatKind.Image ? "Đã gửi 1 ảnh" : "Đã gửi 1 tệp") : chu!;
             await repo.TouchConversationAsync(a.TenantId, id, ChatRules.Summarize(tomTat), false, ct);
             // Người thật vừa trả lời → bot câm một lúc, nếu không nó nói đè lên nhân viên.
-            await repo.PauseBotAsync(a.TenantId, id, (int)ChatRules.DefaultBotMute.TotalMinutes, ct);
+            //
+            // Lấy số phút từ CẤU HÌNH CÔNG TY, không phải hằng số. Trước 11/09/2026 chỗ này dùng
+            // ChatRules.DefaultBotMute (30 phút cứng) trong khi đường tiếng vọng — nhân viên trả
+            // lời từ app của kênh — lại dùng đúng cài đặt. Công ty nào chỉnh xuống 5 phút sẽ thấy
+            // nó không có tác dụng ở chính đường họ dùng nhiều nhất, và không có gì báo cho họ biết.
+            await repo.PauseBotAsync(a.TenantId, id, (await botCfg.GetAsync(a.TenantId, ct)).MuteMinutes, ct);
             // Người thật gõ thì giữ lại vài giây cho kịp bấm Thu hồi. Đây là toàn bộ cơ chế thu
             // hồi: Meta không cho doanh nghiệp thu hồi tin đã gửi, nên cách duy nhất để nút đó
             // nói thật là đừng gửi vội. Đặt 0 trong cấu hình là tắt hẳn, gửi ngay như trước.
@@ -1458,6 +1543,346 @@ public static class ChatInboxEndpoints
         //
         // Không chốt canh văn bản nguồn nào thấy được lỗi đó: nó là hành vi của KHUNG, không
         // phải của mã ta viết. Đây là ca biện minh cho bộ kiểm thử chạy request thật.
+        // ── Ghi nhận chăm sóc → hàng đợi hành động CRM ──────────────────────────
+        //
+        // THẢ DÒNG, không gọi CRM. Chủ dự án chốt 11/09/2026: mọi thứ ghi sang hệ ngoài để lại,
+        // lưu trên hệ chat trước để xem và chuẩn hoá. Hàng đợi dbo.CrmActionQueue đã có sẵn và
+        // chính proxy sở hữu schema; worker app-side đã biết xử lý loại việc create-appointment.
+        //
+        // Route KHÔNG có thân — xem chú thích ở đường suggest bên dưới.
+        g.MapPost("/conversations/{id:long}/care-log", async (long id, HttpContext ctx,
+            TkSessionStore sessions, ChatRepository repo, CrmActionQueueRepository hangDoi,
+            CancellationToken ct) =>
+        {
+            var p = await SessionAuth.ReadNguoiXemAsync(ctx, sessions, ct);
+            if (p == null) return SessionAuth.Unauthorized();
+            var (a, xem) = p.Value;
+            if (!repo.Configured) return NotConfigured();
+            if (await repo.GetConversationAsync(a.TenantId, id, xem, ct) is not { } v)
+                return Results.NotFound();
+
+            var lienHe = await repo.GetContactAsync(a.TenantId, v.Channel, v.ContactExternalId, ct);
+
+            // KHÔNG đòi phải nối khách CRM trước (chủ dự án chốt 12/09/2026). Nối được thì gửi
+            // kèm mã khách; chưa nối thì gửi những gì bắt được — tên, số điện thoại, email — và
+            // phía dịch vụ tự lo phần khớp hoặc tạo mới.
+            //
+            // Bản trước từ chối thẳng khi chưa nối. Nó ĐÚNG về mặt hợp đồng CRM nhưng SAI về
+            // nghiệp vụ: hầu hết hội thoại không bao giờ được nối tay, nên tính năng gần như
+            // không bao giờ dùng được — chính vì thế chủ dự án không thấy nút ở đâu cả.
+            var maKhach = lienHe?.CrmCustomerId ?? 0;
+
+            var tin = await repo.ListMessagesAsync(a.TenantId, id, 80, ct);
+            // Ưu tiên tên khách TỰ KHAI trong đoạn chat: kênh thường chỉ cho biệt danh, còn tên
+            // khách tự gõ mới là tên đi vào hồ sơ.
+            var ten = lienHe?.StatedName ?? lienHe?.DisplayName ?? v.DisplayName ?? v.ContactExternalId;
+
+            // Gói tin theo ĐÚNG hợp đồng docs/crm-action-contract/README.md §3 — worker gửi thẳng
+            // làm thân request, không dựng lại. Sai một tên khoá ở đây là worker ném lúc bóc.
+            var goiTin = JsonSerializer.Serialize(new
+            {
+                // 0 = chưa nối. Phía dịch vụ nhìn số điện thoại và tên để tự khớp hoặc tạo mới.
+                customerId = maKhach,
+                careTitle = "Chat: " + ten,
+                careDetail = ChatRules.SummarizeForCareLog(tin),
+                careStartTime = (string?)null,
+                careEndTime = (string?)null,
+                status = 1,
+                appointmentReminder = 0,
+                bookingTicketId = (long?)null,
+                customerName = ten,
+                customerPhone = lienHe.Phone,
+            }, Web);
+
+            var maViec = await hangDoi.EnqueueAsync(new CrmActionInput(
+                a.TenantId, a.Username, CrmActionKind.CreateAppointment, goiTin,
+                Action: CrmActionOrigin.CustomerCare, ReferId: id.ToString()), ct);
+
+            await GhiNhatKyAsync(ctx, repo, sessions, a, id, "cham-soc",
+                new JsonObject { ["maViec"] = maViec }.ToJsonString(), ct);
+
+            return Results.Json(new { id = maViec, trangThai = "dang-cho" }, Web);
+        });
+
+        // ── Cơ hội bán hàng (= BookingTicket) → hàng đợi ────────────────────────
+        //
+        // BẢN NHÁP Cơ hội — để hộp thoại bày ra cho người dùng xem và sửa TRƯỚC khi gửi.
+        //
+        // Vì sao cần một đường riêng chứ không để giao diện tự dựng: phần nội dung phiếu là tóm
+        // tắt đoạn chat, do luật thuần ChatRules.SummarizeForTicket sinh ra ở máy chủ. Chép luật
+        // đó sang .jsx là có hai bản, và bản người dùng xem sẽ khác bản thật sự được gửi đi.
+        g.MapGet("/conversations/{id:long}/booking-ticket/draft", async (long id, HttpContext ctx,
+            TkSessionStore sessions, ChatRepository repo, CancellationToken ct) =>
+        {
+            var p = await SessionAuth.ReadNguoiXemAsync(ctx, sessions, ct);
+            if (p == null) return SessionAuth.Unauthorized();
+            var (a, xem) = p.Value;
+            if (!repo.Configured) return NotConfigured();
+            if (await repo.GetConversationAsync(a.TenantId, id, xem, ct) is not { } v)
+                return Results.NotFound();
+
+            var lienHe = await repo.GetContactAsync(a.TenantId, v.Channel, v.ContactExternalId, ct);
+            var tin = await repo.ListMessagesAsync(a.TenantId, id, 60, ct);
+            var ten = lienHe?.StatedName ?? lienHe?.DisplayName ?? v.DisplayName ?? v.ContactExternalId;
+            var duongDan = $"{ctx.Request.Scheme}://{ctx.Request.Host}/chat-inbox?hoi-thoai={id}";
+
+            return Results.Json(new
+            {
+                tenPhieu = "Chat: " + ten,
+                // Hai ô BẮT BUỘC. Chỉ hai ô này mình điền hộ được; phần còn lại người trực tự
+                // nhập vì hộp thư không có cách nào biết (chủ dự án 12/09/2026).
+                tenKH = ten,
+                soDienThoaiKH = lienHe?.Phone,
+                emailKH = lienHe?.Email,
+                diaChiKH = (string?)null,
+                noiDungPhieu = ChatRules.SummarizeForTicket(tin, 20, duongDan),
+
+                // Số lượng và giá mặc định 0 (chủ dự án chốt 12/09/2026). Tôi từng để trống
+                // với lập luận "điền 0 thì người ta bấm gửi luôn và phiếu mang giá sai" — nhưng
+                // ô trống cũng gửi được y như vậy, chỉ khác là người nhập phải gõ thêm ba số 0
+                // cho mọi phiếu chưa chốt giá. Đổi một phiền phức chắc chắn lấy một rủi ro mơ hồ.
+                soLuong = 1, gia = 0m,
+                quantityChild = 0, giaChild = 0m,
+                quantityBaby = 0, giaBaby = 0m,
+
+                // Mặc định là NGƯỜI ĐANG PHỤ TRÁCH hội thoại — người hiểu câu chuyện nhất. Sửa
+                // được ở hộp thoại.
+                nguoiPhuTrachs = v.AssignedUserId,
+
+                // Hai thứ dưới CHỈ ĐỂ ĐỌC.
+                nguonPhieu = "chat-" + ChatRules.ChannelSlug((ChatChannel)v.Channel),
+                idKhachHang = lienHe?.CrmCustomerId ?? 0,
+                tenKhachCrm = lienHe?.CrmCustomerName,
+            }, Web);
+        });
+
+        // Hợp đồng gói tin ở docs/crm-action-contract/README.md §3b. KHÔNG có cờ tính năng riêng:
+        // xem chú thích trong FeatureFlags — đây là một việc của hộp thư chat, không phải tính
+        // năng tách rời để ra mắt riêng. Ai được làm thì do quyền CH_TAO_MOI của CRM quyết.
+        //
+        // Route NÀY có thân (tiêu đề phiếu người trực tự đặt) nên giao diện PHẢI gửi
+        // Content-Type: application/json. Thân là record không nullable, như AssignReq.
+        g.MapPost("/conversations/{id:long}/booking-ticket", async (long id, CreateTicketReq body, HttpContext ctx,
+            TkSessionStore sessions, ChatRepository repo, CrmActionQueueRepository hangDoi,
+            IConfiguration cfg, CancellationToken ct) =>
+        {
+            var p = await SessionAuth.ReadNguoiXemAsync(ctx, sessions, ct);
+            if (p == null) return SessionAuth.Unauthorized();
+            var (a, xem) = p.Value;
+            if (!repo.Configured) return NotConfigured();
+            if (await repo.GetConversationAsync(a.TenantId, id, xem, ct) is not { } v)
+                return Results.NotFound();
+
+            // Kiểm quyền TRƯỚC khi thả dòng. CRM không kiểm ở CreateAsync (web cũ gác ở tầng màn
+            // hình) nên đây là chốt duy nhất — và worker không kiểm thay được, nó chạy bằng quyền
+            // riêng và không biết ai đã bấm nút.
+            if (!await SessionAuth.CanCreateTicketAsync(a.SessionId, sessions, ct))
+                return SessionAuth.ForbiddenCreateTicket();
+
+            var lienHe = await repo.GetContactAsync(a.TenantId, v.Channel, v.ContactExternalId, ct);
+
+            // KHÔNG đòi nối khách CRM trước — xem chú thích cùng nội dung ở đường care-log.
+            // Nối rồi thì gửi kèm mã; chưa nối thì gửi tên + số điện thoại bắt được trong đoạn
+            // chat, phía dịch vụ tự khớp hoặc tạo khách mới.
+            var maKhach = lienHe?.CrmCustomerId ?? 0;
+            var ten = lienHe?.StatedName ?? lienHe?.DisplayName ?? v.DisplayName ?? v.ContactExternalId;
+
+            // TÊN và SỐ ĐIỆN THOẠI là bắt buộc (chủ dự án 12/09/2026). Kiểm ở đây chứ không chỉ
+            // ở giao diện: hộp thoại là một lối vào, không phải lối duy nhất.
+            var tenGui = Gon(body.TenKH) ?? ten;
+            var soGui = Gon(body.SoDienThoaiKH) ?? lienHe?.Phone;
+            if (string.IsNullOrWhiteSpace(tenGui) || string.IsNullOrWhiteSpace(soGui))
+                return Results.Json(new
+                {
+                    error = "Cơ hội cần đủ tên khách và số điện thoại. Bổ sung rồi gửi lại.",
+                }, Web, statusCode: StatusCodes.Status400BadRequest);
+
+            var tieuDe = string.IsNullOrWhiteSpace(body.TenPhieu) ? "Chat: " + ten : body.TenPhieu!.Trim();
+            var tin = await repo.ListMessagesAsync(a.TenantId, id, 60, ct);
+            var duongDan = $"{ctx.Request.Scheme}://{ctx.Request.Host}/chat-inbox?hoi-thoai={id}";
+
+            // NGUỒN PHIẾU: gửi một ĐỊNH DANH TỰ MÔ TẢ, worker bên app tự chuẩn hoá về mã số của
+            // CRM (chủ dự án chốt 12/09/2026: "cứ bắn gì định danh thì bắn").
+            //
+            // Trước đó chỗ này đọc một mã SỐ từ cấu hình, mặc định 1 — một con số tôi tự chọn mà
+            // không ai biết nghĩa, và nếu CRM đang dùng 1 cho việc khác thì mọi Cơ hội từ chat bị
+            // gắn sai nguồn trong im lặng.
+            //
+            // Kèm tên KÊNH chứ không chỉ "chat": báo cáo cần trả lời được "Cơ hội đến từ Zalo hay
+            // từ Facebook", mà đó là câu hỏi kinh doanh thật, hỏi sau thì không truy lại được.
+            var nguonPhieu = "chat-" + ChatRules.ChannelSlug((ChatChannel)v.Channel);
+
+            var goiTin = JsonSerializer.Serialize(new
+            {
+                // 0 = chưa nối khách. Kèm tên và số để phía dịch vụ tự khớp hoặc tạo mới —
+                // đó là lý do hai trường dưới không bao giờ được bỏ trống khi mình có dữ liệu.
+                idKhachHang = maKhach,
+                // Ưu tiên thứ NGƯỜI DÙNG đã sửa trong hộp thoại; bỏ trống thì lùi về dữ liệu
+                // mình tự bắt được. Họ nhìn thấy bản nháp trước khi gửi nên sửa của họ có thẩm
+                // quyền hơn suy đoán của máy.
+                tenKH = Gon(body.TenKH) ?? ten,
+                soDienThoaiKH = Gon(body.SoDienThoaiKH) ?? lienHe?.Phone,
+                emailKH = Gon(body.EmailKH) ?? lienHe?.Email,
+                diaChiKH = Gon(body.DiaChiKH),
+                tenPhieu = tieuDe,
+                noiDungPhieu = Gon(body.NoiDungPhieu) ?? ChatRules.SummarizeForTicket(tin, 20, duongDan),
+                nguonPhieu,
+
+                // Số lượng và giá do người trực nhập. Không có thì gửi số tối thiểu hợp lệ chứ
+                // không gửi null: SoLuong bên CRM là int không nullable.
+                soLuong = body.SoLuong is > 0 ? body.SoLuong.Value : 1,
+                gia = body.Gia,
+                quantityChild = body.QuantityChild is > 0 ? body.QuantityChild.Value : 0,
+                giaChild = body.GiaChild,
+                quantityBaby = body.QuantityBaby is > 0 ? body.QuantityBaby.Value : 0,
+                giaBaby = body.GiaBaby,
+
+                // ⚠️ CHUỖI CSV, không phải mảng — CreateBookingTicketRequest.NguoiPhuTrachs khai
+                // là string. Bản trước gửi mảng int, và worker sẽ ném lúc bóc. Mặc định là người
+                // đang phụ trách hội thoại; rỗng thì để CRM tự xử.
+                nguoiPhuTrachs = Gon(body.NguoiPhuTrachs)
+                                 ?? (v.AssignedUserId is { } nv ? nv.ToString() : null),
+            }, Web);
+
+            var maViec = await hangDoi.EnqueueAsync(new CrmActionInput(
+                a.TenantId, a.Username, CrmActionKind.CreateBookingTicket, goiTin,
+                Action: CrmActionOrigin.SalesOpportunity, ReferId: id.ToString()), ct);
+
+            await GhiNhatKyAsync(ctx, repo, sessions, a, id, "tao-co-hoi",
+                new JsonObject { ["maViec"] = maViec, ["tenPhieu"] = tieuDe }.ToJsonString(), ct);
+
+            return Results.Json(new { id = maViec, trangThai = "dang-cho" }, Web);
+        });
+
+        // Các lượt chăm sóc đã ghi TỪ hội thoại này, kèm trạng thái đồng bộ. Người trực bấm nút
+        // xong phải thấy việc của mình đang ở đâu, không thì họ bấm lại lần nữa.
+        g.MapGet("/conversations/{id:long}/care-log", async (long id, HttpContext ctx,
+            TkSessionStore sessions, ChatRepository repo, CrmActionQueueRepository hangDoi,
+            CancellationToken ct) =>
+        {
+            var p = await SessionAuth.ReadNguoiXemAsync(ctx, sessions, ct);
+            if (p == null) return SessionAuth.Unauthorized();
+            var (a, xem) = p.Value;
+            if (!repo.Configured) return NotConfigured();
+            if (await repo.GetConversationAsync(a.TenantId, id, xem, ct) is null)
+                return Results.NotFound();
+
+            var ds = await hangDoi.ListByReferAsync(a.TenantId, id.ToString(), ct: ct);
+            return Results.Json(new
+            {
+                items = ds.Select(x => new
+                {
+                    x.Id, x.Action, x.Status, x.CreatedUtc, x.ProcessedUtc, x.ErrorMessage,
+                }),
+            }, Web);
+        });
+
+        // Bản nháp trả lời cho NHÂN VIÊN. Cùng bộ sinh với bot (ChatReplyComposer) nên cùng khung
+        // cấm bịa giá/lịch/số chỗ, cùng lời dặn công ty, cùng model, cùng cách đếm hạn mức.
+        //
+        // KHÔNG có tham số thân — kể cả một record nullable cũng gắn AcceptsMetadata vào route,
+        // và request thiếu Content-Type bị loại ở tầng ĐỊNH TUYẾN rồi rơi xuống trang SPA: 404 kèm
+        // HTML, bấm nút không có gì xảy ra và không lỗi nào hiện. Đã trả giá một lần ngày
+        // 08/09/2026 với nút "Nhận chăm sóc".
+        // `tone` đi bằng CHUỖI TRUY VẤN, không phải thân. Tham số thân của minimal API gắn
+        // AcceptsMetadata("application/json") vào route, và request thiếu Content-Type bị loại
+        // ngay ở tầng định tuyến rồi rơi xuống trang SPA — nút bấm nhận 404 kèm HTML, không có gì
+        // xảy ra và không lỗi nào hiện ra. Đã trả giá đúng kiểu đó ở nút "Nhận chăm sóc"
+        // (08/09/2026). Tham số chuỗi truy vấn KHÔNG gắn metadata đó nên an toàn.
+        g.MapPost("/conversations/{id:long}/suggest", async (long id, string? tone, HttpContext ctx,
+            TkSessionStore sessions, ChatRepository repo,
+            Services.Chat.Inbox.ChatReplyComposer soan, ChatBotSettingsRepository botCfg,
+            RedisStore redis, CancellationToken ct) =>
+        {
+            var p = await SessionAuth.ReadNguoiXemAsync(ctx, sessions, ct);
+            if (p == null) return SessionAuth.Unauthorized();
+            var (a, xem) = p.Value;
+            if (!repo.Configured) return NotConfigured();
+            if (await repo.GetConversationAsync(a.TenantId, id, xem, ct) is not { } v)
+                return Results.NotFound();
+
+            var cfg = await botCfg.GetAsync(a.TenantId, ct);
+            // Truyền phiên của CHÍNH nhân viên đang bấm: bản nháp tra dữ liệu tour theo đúng quyền
+            // người đó trên ERP, không phải quyền của một tài khoản dùng chung.
+            var ra = await soan.SuggestAsync(a.TenantId, v, cfg, ct, tone, a.SessionId);
+
+            // Giữ lại bản nháp để người soạn quay lại còn thấy — xem chú thích KhoaNhapAi.
+            if (ra.Text is { Length: > 0 })
+            {
+                var khoa = await KhoaNhapAiAsync(a, id, sessions, ct);
+                if (khoa is not null)
+                    redis.Set(khoa, JsonSerializer.Serialize(
+                        new NhapAiLuu(ra.Text, DateTime.UtcNow, v.LastActivityAt), Web),
+                        NhapAiSong);
+            }
+
+            // Mỗi lý do một câu riêng. Gộp hết thành "không gợi ý được" là bắt người trực đoán
+            // xem nên chờ, nên tạm dừng bot, hay nên báo quản trị nạp thêm lượt.
+            var loiNhan = ra.Outcome switch
+            {
+                Services.Chat.Inbox.Suggestion.NothingNewFromCustomer =>
+                    "Khách chưa nhắn gì mới — chưa có câu nào để trả lời.",
+                Services.Chat.Inbox.Suggestion.BotIsHandlingIt =>
+                    "Trợ lý đang trả lời câu này. Muốn tự trả lời thì bấm Tạm dừng trợ lý trước.",
+                Services.Chat.Inbox.Suggestion.AiFailed =>
+                    "Chưa soạn được lúc này — có thể công ty đã hết lượt AI. Thử lại sau ít phút.",
+                _ => null,
+            };
+
+            // 200 cho MỌI ca, kèm lý do. Ba ca kia không phải lỗi của người bấm và cũng không
+            // phải lỗi hệ thống — trả 4xx thì lớp authedFetch chung coi là hỏng, mà 401 ở đó còn
+            // kéo theo đăng xuất toàn cục.
+            return Results.Json(new { ket = ra.Outcome.ToString(), chu = ra.Text, loiNhan }, Web);
+        });
+
+        // Bản nháp ĐÃ SOẠN của chính người đang xem, nếu còn. Không có thì trả `chu = null` chứ
+        // KHÔNG trả 404: "chưa soạn nháp nào" là trạng thái bình thường nhất của mọi hội thoại,
+        // mà 404 đi qua lớp authedFetch chung sẽ thành một lượt báo hỏng không đáng có.
+        g.MapGet("/conversations/{id:long}/suggest", async (long id, HttpContext ctx,
+            TkSessionStore sessions, ChatRepository repo, RedisStore redis, CancellationToken ct) =>
+        {
+            var p = await SessionAuth.ReadNguoiXemAsync(ctx, sessions, ct);
+            if (p == null) return SessionAuth.Unauthorized();
+            var (a, xem) = p.Value;
+            if (!repo.Configured) return NotConfigured();
+            if (await repo.GetConversationAsync(a.TenantId, id, xem, ct) is not { } v)
+                return Results.NotFound();
+
+            var khoa = await KhoaNhapAiAsync(a, id, sessions, ct);
+            var json = khoa is null ? null : redis.Get(khoa);
+            if (json is null) return Results.Json(new { chu = (string?)null }, Web);
+
+            NhapAiLuu? luu = null;
+            try { luu = JsonSerializer.Deserialize<NhapAiLuu>(json, Web); } catch { /* đệm hỏng = chưa có */ }
+            if (luu is null || string.IsNullOrWhiteSpace(luu.Chu))
+                return Results.Json(new { chu = (string?)null }, Web);
+
+            // Hội thoại đã nhúc nhích kể từ lúc soạn — khách nhắn thêm, hoặc đồng nghiệp đã trả
+            // lời. Vẫn TRẢ bản nháp (người soạn có thể vẫn dùng được phần lớn), nhưng nói thẳng
+            // là nó cũ. Im lặng thì nhân viên gửi một câu trả lời cho tin nhắn đã bị thay thế.
+            return Results.Json(new
+            {
+                chu = luu.Chu,
+                luc = luu.Luc,
+                cu = v.LastActivityAt > luu.MocHoiThoai,
+            }, Web);
+        });
+
+        // Bỏ nháp. Idempotent — bấm hai lần vẫn 200, không có gì để hỏng.
+        g.MapDelete("/conversations/{id:long}/suggest", async (long id, HttpContext ctx,
+            TkSessionStore sessions, ChatRepository repo, RedisStore redis, CancellationToken ct) =>
+        {
+            var p = await SessionAuth.ReadNguoiXemAsync(ctx, sessions, ct);
+            if (p == null) return SessionAuth.Unauthorized();
+            var (a, xem) = p.Value;
+            if (!repo.Configured) return NotConfigured();
+            if (await repo.GetConversationAsync(a.TenantId, id, xem, ct) is null) return Results.NotFound();
+
+            var khoa = await KhoaNhapAiAsync(a, id, sessions, ct);
+            if (khoa is not null) redis.Delete(khoa);
+            return Results.Json(new { ok = true }, Web);
+        });
+
         g.MapPost("/conversations/{id:long}/assign/me", async (long id, HttpContext ctx,
             TkSessionStore sessions, ChatRepository repo, ChatAssignRepository assign, ChatEventBus bus,
             ILoggerFactory lf, CancellationToken ct) =>
@@ -1613,6 +2038,44 @@ public static class ChatInboxEndpoints
             }, Web);
         });
 
+        // Hỏi LẠI nhà cung cấp tên + ảnh của khách, ngay lúc bấm.
+        //
+        // Đường tự động chỉ chạy khi có tin MỚI đến (xem ChatInboundService), nên những hội thoại
+        // đã có từ trước sẽ không bao giờ có tên — cứ phải ngồi chờ khách nhắn lại. Với Zalo thì
+        // đó là TẤT CẢ hội thoại cũ, vì kênh này mới được cài hàm hỏi hồ sơ ngày 02/10/2026.
+        //
+        // Trả về đúng những gì nhà cung cấp nói, kể cả khi không lấy được — người trực cần phân
+        // biệt "kênh không cho hỏi" với "khách không có tên", hai việc khác hẳn nhau.
+        g.MapPost("/conversations/{id:long}/refresh-profile", async (long id, HttpContext ctx,
+            TkSessionStore sessions, ChatRepository repo, IEnumerable<IChatChannelAdapter> boNoi,
+            CancellationToken ct) =>
+        {
+            var p = await SessionAuth.ReadNguoiXemAsync(ctx, sessions, ct);
+            if (p == null) return SessionAuth.Unauthorized();
+            var (a, xem) = p.Value;
+            if (!repo.Configured) return NotConfigured();
+            var v = await repo.GetConversationAsync(a.TenantId, id, xem, ct);
+            if (v is null) return Results.NotFound();
+
+            var kenh = (ChatChannel)v.Channel;
+            var bo = boNoi.FirstOrDefault(x => x.Channel == kenh);
+            if (bo is null) return Results.Json(new { ok = false, error = "Kênh này chưa có bộ nối" }, Web);
+
+            var hoSo = await bo.ContactProfileAsync(a.TenantId, v.AccountId, v.ContactExternalId, ct);
+            if (hoSo is null)
+                return Results.Json(new
+                {
+                    ok = false,
+                    error = "Nhà cung cấp không trả về hồ sơ. Xem nhật ký máy chủ để biết lý do.",
+                }, Web);
+
+            // Lưu URL thô; worker soi ảnh sẽ tự kéo về kho mình sau (xem AvatarToMirror) — không
+            // nhân bản logic soi ảnh ở đây.
+            await repo.UpsertContactAsync(a.TenantId, kenh, v.ContactExternalId,
+                hoSo.Name, hoSo.AvatarUrl, dongMocHoSo: true, ct: ct);
+            return Results.Json(new { ok = true, name = hoSo.Name, avatarUrl = hoSo.AvatarUrl }, Web);
+        });
+
         g.MapPost("/conversations/{id:long}/tags", async (long id, TagReq body, HttpContext ctx,
             TkSessionStore sessions, ChatRepository repo, ChatAssignRepository assign, CancellationToken ct) =>
         {
@@ -1705,9 +2168,12 @@ public static class ChatInboxEndpoints
         // thường ở khách du lịch), còn ghép theo số điện thoại thì Zalo/Messenger không cho biết
         // số trừ khi khách tự nhắn. Nối tay đúng 100% và làm được ngay; tự động để sau khi đã có
         // dữ liệu thật xem tỉ lệ trùng thế nào.
-        g.MapGet("/conversations/{id:long}/crm-search", async (long id, string? q, HttpContext ctx,
+        /// <param name="auto">Lượt TỰ ĐỘNG (giao diện tự tra theo số bắt được trong đoạn chat) hay
+        ///   lượt người dùng TỰ GÕ TÌM. Chỉ lượt tự động mới được đệm — xem chú thích dưới.</param>
+        g.MapGet("/conversations/{id:long}/crm-search", async (long id, string? q, bool? auto,
+            HttpContext ctx,
             TkSessionStore sessions, ChatRepository repo, ChatAssignRepository assign,
-            TourKitCustomerSource khach, CancellationToken ct) =>
+            TourKitCustomerSource khach, RedisStore redis, ILoggerFactory lf, CancellationToken ct) =>
         {
             var p = await SessionAuth.ReadNguoiXemAsync(ctx, sessions, ct);
             if (p == null) return SessionAuth.Unauthorized();
@@ -1716,15 +2182,81 @@ public static class ChatInboxEndpoints
             if (await repo.GetConversationAsync(a.TenantId, id, xem, ct) is null) return Results.NotFound();
             if (string.IsNullOrWhiteSpace(q)) return Results.Json(new { items = Array.Empty<object>() }, Web);
 
+            // ── Đệm, CHỈ cho lượt tự động ───────────────────────────────────────────────────
+            //
+            // Đo ngày 14/09/2026: đường này mất ~1.500ms (5 lượt liên tiếp cùng một số: 1994 · 947
+            // · 1712 · 911 · 1560), chậm gấp ~26 lần đường chậm nhì của cả cụm chat. Nguyên nhân ở
+            // phía ERP: /api/ai/customers chạy ~8–9 truy vấn (tìm + bảng loại + bảng nguồn + bảng
+            // người tạo + gộp tổng đơn hàng + ngày chăm sóc gần nhất + người phụ trách) cho thứ mà
+            // chat chỉ cần bốn trường id/tên/mã/số. Chữa tận gốc là một đường tra nhẹ bên
+            // toutkit-app; đệm ở đây là cách chữa tạm.
+            //
+            // <b>CHỈ lượt TỰ ĐỘNG.</b> Lượt đó người dùng không yêu cầu và không biết là đang chờ.
+            // Lượt tự gõ tìm thì KHÔNG đệm: đó là thao tác chủ động, người ta chấp nhận chờ, mà
+            // đệm còn gây hại — sửa khách trên CRM rồi tìm lại vẫn ra bản cũ.
+            //
+            // <b>Khoá PHẢI kẹp mã nhân viên.</b> Lượt tra chạy bằng phiên của chính nhân viên để
+            // CRM chặn theo quyền họ (xem chú thích ngay dưới), nên hai người hỏi cùng một số có
+            // thể nhận hai kết quả khác nhau. Khoá theo {công ty}:{số} là người xem được cả kho
+            // khách hâm nóng đệm rồi người chỉ được xem khách của mình đọc trúng kết quả đó — rò
+            // rỉ dữ liệu khách hàng, không phải chuyện hiệu năng.
+            //
+            // <b>15 phút, không phải 24 giờ.</b> Đây là gợi ý để NỐI khách, mà khách mới được tạo
+            // trên CRM ngay trong giờ làm việc; nhân viên vừa tạo khách xong quay lại nối mà không
+            // thấy thì tưởng hệ thống hỏng.
+            string? khoa = null;
+            if (auto == true)
+            {
+                var maNguoi = await sessions.EnsureCrmUserIdAsync(a.SessionId, ct);
+                // Không tra ra mã thì BỎ QUA việc đệm, không lùi về khoá theo phiên: mã phiên xoay
+                // vòng nên mỗi lần đăng nhập lại đẻ một khoá mồ côi sống tới hết hạn mới chết.
+                if (maNguoi is not null)
+                    khoa = $"chat:crm-tim:{a.TenantId}:{maNguoi}:{q.Trim().ToLowerInvariant()}";
+            }
+            if (khoa is not null && redis.Get(khoa) is { } daCo)
+                return Results.Text(daCo, "application/json; charset=utf-8");
+
             // Tìm bằng PHIÊN CỦA CHÍNH NHÂN VIÊN, không phải tài khoản dịch vụ — để CRM tự chặn
             // theo quyền của họ. Dùng tài khoản dịch vụ là nhân viên chỉ được xem khách của mình
             // vẫn tra ra cả kho khách của công ty.
-            var kq = await khach.ListAsync(a.SessionId, new(Search: q.Trim()), 1, 10, ct);
-            return Results.Json(new
+            // Đường TRA NHANH, không phải /api/ai/customers. Xem TourKitCustomerSource.LookupAsync:
+            // đường kia chạy ~8–9 truy vấn để tính doanh thu, số tour, ngày chăm sóc, người phụ
+            // trách — toàn thứ màn hình này không hiện. Đường nhẹ trả đúng bốn trường, một truy vấn.
+            //
+            // ⚠️ CÓ ĐƯỜNG LÙI, và nó bắt buộc: đường nhẹ nằm ở toutkit-app, deploy theo nhịp RIÊNG
+            // của kho đó. Proxy lên trước mà ERP chưa lên là mọi lượt tra hỏng và gợi ý nối khách
+            // chết câm. Bỏ đường lùi này SAU KHI ERP đã lên và đã kiểm.
+            //
+            // Bắt MỌI TourKitApiException chứ không lọc theo mã 404, vì mã không tin được: khi ERP
+            // trả 404 kèm thân HTML (đúng ca "route chưa tồn tại"), TourKitApiClient dựng ngoại lệ
+            // với Status = 502 CỨNG và nhét mã thật vào câu chữ. Lọc `ex.Status == 404` nên không
+            // bao giờ khớp — đã trả giá đúng thế lúc 16:36 ngày 14/09/2026, mọi lượt tra trả 500.
+            //
+            // Ghi WARN mỗi lần lùi: lùi êm mà im lặng thì đường nhẹ hỏng sau khi deploy cũng không
+            // ai biết, chỉ thấy "vẫn chậm như cũ".
+            List<TourKitCustomerSource.CustomerLite> kq;
+            try
             {
-                items = kq.Items.Select(k => new { id = k.Id, name = k.Name, phone = k.Phone, code = k.Code }),
-                total = kq.Total,
-            }, Web);
+                kq = await khach.LookupAsync(a.SessionId, q.Trim(), 10, ct);
+            }
+            catch (TourKitApiException ex)
+            {
+                lf.CreateLogger("chat.crm-search").LogWarning(
+                    "Đường tra nhanh /api/ai/customers/lookup hỏng ({Loi}) — lùi về /api/ai/customers. "
+                    + "Nếu ERP đã deploy đường nhẹ thì đây là lỗi cần xem, không phải chuyện thường.",
+                    ex.Message);
+                var cu = await khach.ListAsync(a.SessionId, new(Search: q.Trim()), 1, 10, ct);
+                kq = cu.Items.Select(k => new TourKitCustomerSource.CustomerLite(
+                        int.TryParse(k.Id, out var m) ? m : 0, k.Name, k.Phone, k.Code)).ToList();
+            }
+            var ra = new
+            {
+                items = kq.Select(k => new { id = k.Id, name = k.Name, phone = k.Phone, code = k.Code }),
+                total = kq.Count,
+            };
+            if (khoa is not null)
+                redis.Set(khoa, JsonSerializer.Serialize(ra, Web), CrmTimSong);
+            return Results.Json(ra, Web);
         });
 
         // Thân BẮT BUỘC dù "gỡ nối" không có mã khách: gỡ nối gửi {} (khoá customerId vắng mặt
@@ -1747,7 +2279,8 @@ public static class ChatInboxEndpoints
             // Không có customerId = GỠ nối. Gỡ phải làm được: nối nhầm là bot đọc lịch sử mua của
             // người khác rồi nói với khách này, và không có đường lùi thì chỉ còn cách sửa tay CSDL.
             var ma = body.CustomerId;
-            var soDong = await repo.LinkCrmAsync(a.TenantId, v.Channel, v.ContactExternalId, ma, ct);
+            var soDong = await repo.LinkCrmAsync(a.TenantId, v.Channel, v.ContactExternalId, ma, ct,
+                tenKhach: body.CustomerName?.Trim(), maKhach: body.CustomerCode?.Trim());
             if (soDong == 0) return Results.NotFound();
 
             await GhiNhatKyAsync(ctx, repo, sessions, a, id, ma is null ? "go-noi-crm" : "noi-crm",
@@ -2057,7 +2590,8 @@ public static class ChatInboxEndpoints
             if (await repo.GetConversationAsync(a.TenantId, id, xem, ct) is not { } v) return Results.NotFound();
 
             // paused=false → bỏ câm ngay; true → câm theo số phút (mặc định 30).
-            var phut = body.Paused ? Math.Clamp(body.Minutes ?? 30, 1, 1440) : 0;
+            var phut = body.Paused
+                ? Math.Clamp(body.Minutes ?? ChatRules.BotCamPhutMacDinh, 1, 1440) : 0;
             await repo.PauseBotAsync(a.TenantId, id, phut, ct);
             await GhiNhatKyAsync(ctx, repo, sessions, a, id, "tam-dung-bot",
                 new JsonObject { ["phut"] = phut }.ToJsonString(), ct);
@@ -2089,12 +2623,6 @@ public static class ChatInboxEndpoints
             if (a == null) return SessionAuth.Unauthorized();
             if (!await SessionAuth.CanConfigSystemAsync(a.SessionId, sessions, ct))
                 return SessionAuth.ForbiddenConfigSystem();
-
-            if (!Services.Bootstrap.FeatureFlags.ChatHistoryImport(cfg))
-                return Results.BadRequest(new
-                {
-                    error = "Tính năng lấy lại hội thoại cũ đang tắt (Features:ChatHistoryImport).",
-                });
 
             var kenh = (ChatChannel)channel;
             if (!Services.Chat.Channels.MetaHistoryImporter.Supports(kenh))
@@ -2287,6 +2815,28 @@ public static class ChatInboxEndpoints
 
             var daNoi = await ConnectedIdsAsync(cred, cho.Value.TenantId, ct);
 
+            // ⚠️ KHÔNG TRANG NÀO. Trước 14/09/2026 ca này rơi thẳng xuống màn chọn Trang với danh
+            // sách RỖNG — người dùng vừa đi hết luồng cấp quyền xong thấy một màn hình trắng trơn,
+            // không một lời nào nói vì sao.
+            //
+            // Đây KHÔNG phải ca hiếm, và cũng không phải lỗi người dùng. Chú thích ở
+            // MessengerChatAdapter.Scopes đã ghi đúng hình dạng của nó: Facebook cấp
+            // pages_show_list bình thường nhưng /me/accounts trả về rỗng khi thiếu
+            // business_management, vì Trang do một Danh mục doanh nghiệp sở hữu không liệt kê ra
+            // được. Hai nguyên nhân thường gặp nữa: tài khoản vừa đăng nhập không quản trị Trang
+            // nào, hoặc màn hình đồng ý có bước chọn Trang mà người dùng không tích Trang nào.
+            //
+            // Nói ra cả ba, và cho đường bấm thẳng tới chỗ sửa.
+            if (trang!.Count == 0)
+                return PermissionPage(false,
+                    "Facebook không trả về Trang nào. Ba lý do thường gặp: tài khoản vừa đăng nhập "
+                    + "không quản trị Trang nào; ở màn hình đồng ý có bước chọn Trang nhưng chưa "
+                    + "tích Trang nào; hoặc Trang thuộc một Danh mục doanh nghiệp và lượt cấp quyền "
+                    + "thiếu quyền quản lý doanh nghiệp. Bấm nút dưới để mở phần quyền truy cập, "
+                    + "chọn TourKit AI rồi bấm Chỉnh sửa và tích Trang cần nối.",
+                    "https://www.facebook.com/settings?tab=business_tools",
+                    "Mở phần Quyền truy cập trên Facebook");
+
             // ⚠️ Facebook trả về TOÀN Trang đã nối từ trước = người dùng vừa đi hết luồng mà
             // KHÔNG thêm được gì. Phải nói thẳng, đừng báo thành công.
             //
@@ -2298,13 +2848,17 @@ public static class ChatInboxEndpoints
             // cũ rồi hiện chữ xanh "Đã nối Trang X". Người dùng tưởng xong, quay lại hộp thư thấy
             // y nguyên, và không có gì trên màn hình gợi ý phải làm gì tiếp. Hỏng mà trông như chạy
             // là kiểu tệ nhất — đã mất thời gian thật vì nó.
-            if (trang!.Count > 0 && trang.All(t => daNoi.Contains(t.PageId)))
+            if (trang.All(t => daNoi.Contains(t.PageId)))
                 return PermissionPage(false,
                     $"Facebook chỉ trả về Trang đã nối từ trước ({trang[0].Name}), nên không có gì "
                     + "để thêm. Facebook nhớ lựa chọn cũ và bỏ qua bước chọn Trang. "
                     + "Cách thêm Trang khác: ngay trên màn hình đồng ý của Facebook, bấm "
-                    + "\"Chỉnh sửa quyền truy cập\" rồi tích thêm Trang. Hoặc vào Facebook → "
-                    + "Cài đặt → Ứng dụng và trang web → TourKit AI → Chỉnh sửa.");
+                    + "\"Chỉnh sửa quyền truy cập\" rồi tích thêm Trang. Hoặc bấm nút dưới đây để "
+                    + "vào thẳng chỗ quản lý quyền, chọn TourKit AI rồi bấm Chỉnh sửa.",
+                    // Đường thẳng tới màn quản lý ứng dụng đã cấp quyền. Chữ hướng dẫn bốn lớp menu
+                    // là đúng nhưng gần như không ai đi hết — cho một nút bấm được thì họ tới ngay.
+                    "https://www.facebook.com/settings?tab=business_tools",
+                    "Mở phần Quyền truy cập trên Facebook");
 
             // CHỈ MỘT Trang thì nối luôn, đừng hỏi lại.
             //
@@ -2393,7 +2947,7 @@ public static class ChatInboxEndpoints
         // Không có phiên nên chốt chặn nằm ở `ma`: máy chủ tự sinh 32 byte ngẫu nhiên, sống 10
         // phút, và CHỈ nối được Trang nằm trong danh sách đã lưu kèm mã đó. Thiếu vế sau thì ai
         // cầm mã cũng nối được Trang bất kỳ chỉ bằng cách đoán một id.
-        g.MapPost("/oauth/messenger/chon", async (HttpContext ctx, ChannelCredentialStore cred,
+        g.MapPost("/oauth/messenger/select", async (HttpContext ctx, ChannelCredentialStore cred,
             IEnumerable<Services.Chat.Channels.IChatChannelAdapter> adapters,
             Services.Chat.Channels.MessengerPageChoices chon, CancellationToken ct) =>
         {
@@ -2444,11 +2998,14 @@ public static class ChatInboxEndpoints
                                   .FirstOrDefault()?.HasPlatformApp == true;
             var ttNhanh = adapters.OfType<Services.Chat.Channels.TikTokChatAdapter>()
                                   .FirstOrDefault()?.HasPlatformApp == true;
-            var batLichSu = Services.Bootstrap.FeatureFlags.ChatHistoryImport(cfg);
             var ra = new List<object>();
+            // MỘT lượt đọc cho cả sáu kênh. Bản đầu gọi ListAccountsAsync ngay trong vòng lặp dưới
+            // — sáu lượt đi-về SQL Server nối tiếp, đo được 195–227ms trong khi mọi đường chat khác
+            // dưới 10ms. Đừng đưa lượt đọc trở lại vào vòng lặp.
+            var moiKenh = await cred.ListAllAccountsAsync(a.TenantId, ct);
             foreach (var (kenh, ten, tenNgan, oNhap, moiTaiKhoanMotUrl) in KhaiBao)
             {
-                var dsach = await cred.ListAccountsAsync(a.TenantId, kenh, ct);
+                var dsach = moiKenh.GetValueOrDefault(kenh) ?? new List<ChatAccount>();
                 var nhanh = kenh switch
                 {
                     ChatChannel.Zalo => zaloNhanh,
@@ -2500,8 +3057,7 @@ public static class ChatInboxEndpoints
                     // Telegram Bot API không cho đọc quá khứ, Zalo không có đầu đọc hội thoại,
                     // TikTok đòi tư cách Messaging Partner, WhatsApp thì Meta tự đẩy về lúc nối
                     // chứ không phải mình đi đọc. Để giao diện không phải biết danh sách đó.
-                    layLichSuDuoc = batLichSu
-                                    && Services.Chat.Channels.MetaHistoryImporter.Supports(kenh),
+                    layLichSuDuoc = Services.Chat.Channels.MetaHistoryImporter.Supports(kenh),
                     // Telegram: mỗi bot một URL riêng (thân tin không nói bot nào) → URL chung để
                     // trống, giao diện hiện URL riêng ở từng tài khoản. Zalo/Messenger dùng chung.
                     webhookUrl = moiTaiKhoanMotUrl ? null : duong,
@@ -2636,6 +3192,8 @@ public static class ChatInboxEndpoints
                 greeting = v.Greeting,
                 muteMinutes = v.MuteMinutes,
                 historyTurns = v.HistoryTurns,
+                tourLookup = v.TourLookup,
+                tourLookupByUser = v.TourLookupByUser,
                 // Giới hạn do máy chủ nói ra để giao diện không phải chép cứng — sửa mốc ở
                 // Domain là màn hình đổi theo, không lệch.
                 limits = new
@@ -2660,7 +3218,8 @@ public static class ChatInboxEndpoints
             // và kiểm hai nơi là hai nơi lệch nhau.
             await repo.SaveAsync(a.TenantId, new ChatBotSettings(
                 body.Enabled, body.Persona, body.Greeting,
-                body.MuteMinutes ?? 30, body.HistoryTurns ?? 12), ct);
+                body.MuteMinutes ?? ChatRules.BotCamPhutMacDinh, body.HistoryTurns ?? 12,
+                body.TourLookup ?? false, body.TourLookupByUser ?? false), ct);
 
             return Results.Json(new { ok = true }, Web);
         });
@@ -2927,7 +3486,7 @@ public static class ChatInboxEndpoints
             b.Append("<p>Không có Trang nào để chọn.</p>");
         else
         {
-            b.Append("<form method=\"post\" action=\"/api/v1/chat/oauth/messenger/chon\">");
+            b.Append("<form method=\"post\" action=\"/api/v1/chat/oauth/messenger/select\">");
             b.Append("<input type=\"hidden\" name=\"ma\" value=\"").Append(System.Net.WebUtility.HtmlEncode(ma)).Append("\"><ul>");
             foreach (var t in trang)
             {
@@ -2956,11 +3515,24 @@ public static class ChatInboxEndpoints
     ///
     /// <para>Nên: có cửa sổ mẹ thì đóng như cũ; không có thì quay về thẳng hộp thư.</para>
     /// </summary>
-    private static IResult PermissionPage(bool xong, string thongDiep)
+    /// <param name="duongDan">Đường bấm thẳng tới chỗ người dùng cần đi (tuỳ chọn). Chữ hướng dẫn
+    ///   "vào Facebook → Cài đặt → …" đúng nhưng bắt người ta tự mò qua bốn lớp menu; một đường
+    ///   bấm được thì họ tới nơi ngay.</param>
+    /// <param name="chuDuongDan">Chữ trên đường bấm đó.</param>
+    private static IResult PermissionPage(bool xong, string thongDiep,
+        string? duongDan = null, string? chuDuongDan = null)
     {
         var mau = xong ? "#16A34A" : "#DC2626";
+        // BÁO VỀ CỬA SỔ MẸ trước khi đóng. Thiếu vế này thì cấp quyền xong, cửa sổ phụ tự đóng,
+        // nhưng màn khai kênh ở tab mẹ vẫn hiện trạng thái CŨ — người dùng phải tự tải lại trình
+        // duyệt mới thấy tài khoản vừa nối. Chủ dự án báo 14/09/2026.
+        //
+        // Gửi kèm origin của chính mình và bên nhận cũng kiểm origin: postMessage không kiểm thì
+        // bất kỳ trang nào mở được tab này cũng bắn được lệnh làm mới vào.
         var tuDong = xong
             ? "<script>setTimeout(function(){"
+              + "try{if(window.opener&&!window.opener.closed)"
+              + "window.opener.postMessage({tourkit:'chat-kenh-xong'},location.origin);}catch(e){}"
               + "if(window.opener&&!window.opener.closed){window.close();}"
               + "else{location.href='/chat-inbox';}},1500)</script>"
             : "";
@@ -2970,6 +3542,12 @@ public static class ChatInboxEndpoints
             <body style="font-family:system-ui,sans-serif;padding:32px;line-height:1.6">
             <h2 style="color:{mau};margin:0 0 8px">{(xong ? "Đã cấp quyền" : "Cấp quyền không xong")}</h2>
             <p>{System.Net.WebUtility.HtmlEncode(thongDiep)}</p>
+            {(duongDan is null ? "" : $"""
+              <p><a href="{System.Net.WebUtility.HtmlEncode(duongDan)}" target="_blank" rel="noopener noreferrer"
+                    style="display:inline-block;margin:4px 0 8px;padding:9px 14px;border-radius:8px;
+                           background:#1877F2;color:#fff;text-decoration:none;font-weight:600">
+                {System.Net.WebUtility.HtmlEncode(chuDuongDan ?? "Mở Facebook")}</a></p>
+              """)}
             <p style="color:#64748B">{(xong ? "Đang quay lại hộp thư…" : "Quay lại hộp thư rồi thử lại.")}</p>
             {tuDong}</body></html>
             """;
@@ -3155,7 +3733,45 @@ public static class ChatInboxEndpoints
         }, true),
     };
 
+    /// <summary>Bản rút gọn cho chỗ chưa cần tên Trang.</summary>
+    /// <summary>
+    /// Một bậc cảm xúc, dọn sẵn cho giao diện: điểm, chữ, biểu tượng, việc nên làm, và cờ có cần
+    /// báo người phụ trách không — tất cả lấy từ thang ở <see cref="ConversationSentiment"/>.
+    ///
+    /// <para>Gửi cả <c>canBao</c> chứ không để giao diện tự so <c>bac &lt;= 2</c>: ngưỡng là luật
+    /// nghiệp vụ, phải nằm một chỗ. Hôm nào đổi ngưỡng mà .jsx còn giữ con số cũ thì màn hình và
+    /// máy chủ nói hai chuyện khác nhau, không ai biết bên nào đúng.</para>
+    /// </summary>
+    /// <summary>Chuỗi rỗng hoặc toàn khoảng trắng coi như KHÔNG có. Người dùng xoá trắng một ô
+    /// trong hộp thoại nghĩa là "để máy tự điền", không phải "gửi chuỗi rỗng sang CRM".</summary>
+    private static string? Gon(string? s) => string.IsNullOrWhiteSpace(s) ? null : s.Trim();
+
+    private static object ShapeSentiment(SentimentLevel muc, DateTime? luc, int soTinHieu)
+    {
+        var m = ConversationSentiment.Info(muc);
+        return new
+        {
+            level = (short)m.Level,
+            label = m.Label,
+            icon = m.Icon,
+            action = m.Action,
+            needsEscalation = ConversationSentiment.NeedsEscalation(m.Level),
+            // Bao nhiêu tín hiệu góp nên con số này. Giao diện CẦN nó: một biểu tượng duy nhất và
+            // hai mươi biểu tượng cho ra cùng một bậc, nhưng mức đáng tin khác hẳn nhau.
+            signals = soTinHieu,
+            at = luc,
+        };
+    }
+
     private static object Shape(ChatConversation v, string sessionId)
+        => Shape(v, sessionId, null);
+
+    /// <param name="tenTrang">Bản đồ (kênh, mã tài khoản) → tên Trang/OA. CHỈ có phần tử khi công
+    /// ty nối từ hai tài khoản trở lên trên cùng một kênh — xem
+    /// <c>ChannelCredentialStore.ChonTenTrang</c>. Null hoặc không khớp thì <c>accountLabel</c> về
+    /// null và giao diện không hiện gì thêm.</param>
+    private static object Shape(ChatConversation v, string sessionId,
+        IReadOnlyDictionary<(short, string), string>? tenTrang)
     {
         // Mốc đọc RIÊNG của người đang xem. Chưa mở lần nào thì lùi về mốc chung cũ — không thì
         // mọi hội thoại cũ bật lại thành "chưa đọc" cho tất cả mọi người ngay sau khi nâng cấp.
@@ -3182,8 +3798,24 @@ public static class ChatInboxEndpoints
                 ? null : new { source = v.ReferralSource, gtRef = v.ReferralRef, adId = v.ReferralAdId },
             // Bot có đang bị câm không — giao diện hiện rõ, không thì nhân viên tưởng bot hỏng.
             botPaused = v.BotResumeAt is { } m && m > DateTime.UtcNow,
+            // ...và câm ĐẾN BAO GIỜ. Máy chủ vốn luôn biết mốc này nhưng trước 14/09/2026 không
+            // gửi xuống, nên màn hình chỉ nói được "đang tạm dừng" — trong khi nút tạm dừng gửi
+            // mặc định 30 phút rồi bot tự nói lại. Người trực tưởng đã tắt hẳn, nửa tiếng sau bot
+            // chen vào giữa cuộc họ đang xử lý tay, và không có gì trên màn hình giải thích nổi.
+            botResumeAt = v.BotResumeAt is { } r && r > DateTime.UtcNow ? r : (DateTime?)null,
+            // Cảm xúc hội thoại, thang 5 bậc. Gửi kèm CHỮ và VIỆC NÊN LÀM chứ không gửi trơ con
+            // số: thang nằm ở máy chủ (Domain/Chat/ConversationSentiment.cs), chép nó sang .jsx
+            // là có hai bản sự thật rồi sớm muộn lệch nhau.
+            // null = CHƯA CHẤM ĐƯỢC, không phải trung tính — giao diện phải hiện khác nhau.
+            sentiment = ConversationSentiment.Aggregate(v.SentimentSum, v.SentimentCount) is { } sc
+                ? ShapeSentiment(sc, v.SentimentAt, v.SentimentCount)
+                : null,
             // Chưa đọc = khách nhắn sau lần CHÍNH MÌNH mở gần nhất.
             unread = v.ContactRepliedAt is { } cr && (docToi is null || cr > docToi),
+            // Tên Trang/OA đang nhận tin. null = công ty chỉ nối MỘT tài khoản trên kênh này, nên
+            // không có gì để phân biệt và giao diện bỏ qua.
+            accountLabel = tenTrang is not null
+                        && tenTrang.TryGetValue((v.Channel, v.AccountId), out var nhanTk) ? nhanTk : null,
         };
     }
 
@@ -3196,8 +3828,29 @@ public record SendReq(string? Text, string? AttachmentUrl = null, string? Attach
     /// biệt "khoá vắng mặt" với "khoá mang null" — tức không cần đọc thân thô, tức không có bẫy
     /// Content-Type ném 500.
     public record AssignReq(int UserId);
+
+    /// <param name="TenPhieu">Tiêu đề Cơ hội bán hàng. Bỏ trống thì máy chủ dựng "Chat: {tên
+    /// khách}" — không để trống hẳn, vì danh sách phiếu bên CRM chỉ hiện tiêu đề.</param>
+    /// <summary>
+    /// Thân yêu cầu tạo Cơ hội. MỌI trường đều tuỳ chọn: bỏ trống thì máy chủ tự dựng như cũ.
+    ///
+    /// <para>Người dùng xem bản nháp trong hộp thoại rồi sửa trước khi gửi (chủ dự án chốt
+    /// 12/09/2026) — nên những gì họ sửa phải đi được xuống đây. Trước đó chỉ nhận mỗi tiêu đề,
+    /// mọi thứ khác máy chủ tự quyết và người dùng không xem được trước khi nó đi.</para>
+    /// </summary>
+/// <param name="NguoiPhuTrachs">Mã người phụ trách, CSV — đúng kiểu CRM đòi. Bỏ trống thì để
+/// CRM tự xử theo mặc định của nó.</param>
+    public record CreateTicketReq(string? TenPhieu, string? TenKH = null, string? SoDienThoaiKH = null,
+        string? EmailKH = null, string? DiaChiKH = null, string? NoiDungPhieu = null,
+        int? SoLuong = null, decimal? Gia = null,
+        int? QuantityChild = null, decimal? GiaChild = null,
+        int? QuantityBaby = null, decimal? GiaBaby = null,
+        string? NguoiPhuTrachs = null);
     /// <param name="CustomerId">Bỏ trống = GỠ nối khách CRM khỏi hội thoại này.</param>
-    public record LinkCrmReq(int? CustomerId);
+    /// <param name="CustomerName">Tên khách lúc nối — giao diện đang có sẵn khi người dùng bấm
+    /// chọn, nên gửi kèm. Không có đường lấy khách theo mã bên CRM, không gửi thì màn hình chỉ
+    /// hiện được con số.</param>
+    public record LinkCrmReq(int? CustomerId, string? CustomerName = null, string? CustomerCode = null);
     /// <param name="Tag">Nhãn thô — server tự chuẩn hoá (bỏ dấu, hạ chữ thường, gạch nối).</param>
     public record TagReq(string? Tag);
 
@@ -3206,6 +3859,39 @@ public record SendReq(string? Text, string? AttachmentUrl = null, string? Attach
     public record NoteReq(string? Body);
     public record StatusReq(short Status);
     public record BotReq(bool Paused, int? Minutes);
+
+    /// <summary>Bản nháp AI đã soạn, cất trong Redis. <c>MocHoiThoai</c> là mốc hoạt động của hội
+    /// thoại LÚC SOẠN — dùng để biết nháp đã cũ chưa, không phải để hiển thị.</summary>
+    private record NhapAiLuu(string Chu, DateTime Luc, DateTime MocHoiThoai);
+
+    /// <summary>
+    /// Nháp sống bao lâu. Một ngày: nháp của ca sáng còn dùng được ở ca chiều, nhưng để lâu hơn
+    /// thì nó chỉ còn là rác chiếm chỗ — hội thoại nào cũng đã đi rất xa sau một ngày.
+    /// </summary>
+    private static readonly TimeSpan NhapAiSong = TimeSpan.FromHours(24);
+
+    /// <summary>Gợi ý khách CRM theo số điện thoại sống bao lâu. Xem chú thích ở đường crm-search
+    /// về việc vì sao 15 phút chứ không phải 24 giờ như các khoá cấu hình.</summary>
+    private static readonly TimeSpan CrmTimSong = TimeSpan.FromMinutes(15);
+
+    /// <summary>
+    /// Khoá Redis cho bản nháp AI: <c>chat:nhap:{công ty}:{hội thoại}:{người}</c>.
+    ///
+    /// <para><b>Theo TỪNG NGƯỜI, không dùng chung hội thoại.</b> Nháp là bản viết dở của riêng
+    /// người bấm soạn; hai nhân viên cùng mở một hội thoại mà thấy nháp của nhau thì vừa khó hiểu
+    /// vừa dễ gửi nhầm câu người khác đang cân nhắc.</para>
+    ///
+    /// <para>Trả <c>null</c> khi không tra được mã nhân viên — lúc đó bỏ qua việc đệm chứ không
+    /// lùi về khoá theo phiên: mã phiên xoay vòng, đệm theo nó là mỗi lần đăng nhập lại sinh một
+    /// đống khoá mồ côi sống hết hạn mới chết. Không đệm được thì tính năng vẫn chạy, chỉ là bấm
+    /// lại — đệm là tiện nghi, không phải điều kiện.</para>
+    /// </summary>
+    private static async Task<string?> KhoaNhapAiAsync(SessionAuth.Ctx a, long hoiThoaiId,
+        TkSessionStore sessions, CancellationToken ct)
+    {
+        var ma = await sessions.EnsureCrmUserIdAsync(a.SessionId, ct);
+        return ma is null ? null : $"chat:nhap:{a.TenantId}:{hoiThoaiId}:{ma}";
+    }
     public record EditMsgReq(string? Body);
 
     /// <param name="Trigger">Lệnh gọi thô — server tự chuẩn hoá (bỏ dấu, hạ chữ thường).</param>
@@ -3214,7 +3900,8 @@ public record SendReq(string? Text, string? AttachmentUrl = null, string? Attach
     /// <param name="Persona">Lời dặn RIÊNG của công ty. NỐI THÊM vào khung an toàn, không thay
     /// thế — xem <see cref="ChatBotSettings.BuildSystemPrompt"/>.</param>
     public record BotSettingsReq(bool Enabled, string? Persona, string? Greeting,
-        int? MuteMinutes, int? HistoryTurns);
+        int? MuteMinutes, int? HistoryTurns, bool? TourLookup = null,
+        bool? TourLookupByUser = null);
 
     public record QuickReplyReq(string Trigger, string Body, List<ChatButton>? Buttons = null);
 

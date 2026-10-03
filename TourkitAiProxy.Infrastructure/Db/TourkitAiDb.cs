@@ -55,7 +55,7 @@ public class TourkitAiDb
             await using var cmd = c.CreateCommand();
             cmd.CommandText = SchemaSql;
             await cmd.ExecuteNonQueryAsync(ct);
-            _log.LogInformation("TourkitAiDb schema OK (Reviews/DealScores/MailAccounts/Mails/MailSyncState/TourQuotes/TourPriceCatalog/VisaAssessments/QuotaOrders/WidgetTokens/VisaQuestionSets/TkSessions/TenantQuota/AiUsageCounters/AiUsageHistory/UserWorkflows/WorkflowRuns/OutboundMails/CrmActionQueue/MailTemplates/TenantServiceAccounts/AgentInsights/DigestSubscriptions/TenantChannelSettings đã có/đã tạo)");
+            _log.LogInformation("TourkitAiDb schema OK (Reviews/DealScores/MailAccounts/Mails/MailSyncState/TourQuotes/TourPriceCatalog/VisaAssessments/QuotaOrders/WidgetTokens/VisaQuestionSets/TkSessions/TenantQuota/AiUsageCounters/AiUsageHistory/UserWorkflows/WorkflowRuns/OutboundMails/CrmActionQueue/MailTemplates/TenantServiceAccounts/TenantAiKeys/AgentInsights/DigestSubscriptions/TenantChannelSettings đã có/đã tạo)");
         }
         catch (Exception ex)
         {
@@ -603,6 +603,34 @@ BEGIN
     CREATE INDEX IX_CrmActionQueue_Tenant ON dbo.CrmActionQueue(TenantId, Status, CreatedUtc);
 END;
 
+-- Hai cột BỔ SUNG (11/09/2026) cho các hành động sinh ra từ hộp thư chat. Cả hai NULL được và
+-- mặc định rỗng — cố ý: dòng cũ giữ nguyên, và worker app-side không đọc chúng nên KHÔNG phải
+-- deploy hai bên cùng lúc.
+--   Action  — nghiệp vụ phía chat đã đẻ ra dòng này ('chat-cham-soc', 'chat-co-hoi'…). KHÁC Kind:
+--             Kind nói gọi API CRM nào và worker phân việc theo nó; Action nói từ nghiệp vụ nào
+--             ra, chỉ để tra cứu và báo cáo.
+--   ReferId — mã hội thoại, để truy ngược từ một việc trong hàng đợi về đúng đoạn chat.
+-- SQL Server KHÔNG có cú pháp ALTER TABLE ... ADD IF NOT EXISTS — phải hỏi sys.columns như dưới,
+-- cùng khuôn với cột IsSync của Reviews/DealScores ở đầu file.
+IF NOT EXISTS (SELECT 1 FROM sys.columns WHERE object_id = OBJECT_ID('dbo.CrmActionQueue') AND name = 'Action')
+BEGIN
+    ALTER TABLE dbo.CrmActionQueue ADD Action NVARCHAR(60) NULL;
+END;
+IF NOT EXISTS (SELECT 1 FROM sys.columns WHERE object_id = OBJECT_ID('dbo.CrmActionQueue') AND name = 'ReferId')
+BEGIN
+    ALTER TABLE dbo.CrmActionQueue ADD ReferId NVARCHAR(64) NULL;
+END;
+
+-- ⚠️ sp_executesql, KHÔNG phải CREATE INDEX trần. Chỉ mục này chạm cột ReferId vừa thêm NGAY TRÊN,
+-- trong CÙNG một đợt chạy. SQL Server biên dịch cả đợt trước khi chạy dòng đầu, nên viết trần thì
+-- trên máy chưa có cột nó chết ngay lúc biên dịch với 'Invalid column name' — và cả đợt schema
+-- hỏng theo, mọi bảng khác không được tạo. Máy đã có cột thì lại chạy êm, nên lỗi này chỉ lộ ở
+-- lần cài mới. Cùng cách đã dùng cho IX_Reviews_Unsynced ở đầu file.
+IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name = 'IX_CrmActionQueue_Refer' AND object_id = OBJECT_ID('dbo.CrmActionQueue'))
+BEGIN
+    EXEC sp_executesql N'CREATE INDEX IX_CrmActionQueue_Refer ON dbo.CrmActionQueue(TenantId, ReferId, Id DESC)';
+END;
+
 -- Template mail dùng chung (global, PK=Code) cho hàng đợi dbo.OutboundMails.
 -- Worker (toutkit-app) render Subject+BodyHtml theo cú pháp {{key}} + {{#if key}}...{{/if}}
 -- từ [Params] JSON của từng dòng OutboundMails. Admin sửa nội dung KHÔNG cần deploy lại worker.
@@ -620,6 +648,30 @@ BEGIN
         UpdatedBy    NVARCHAR(120)  NULL,
         UpdatedUtc   DATETIME2      NOT NULL CONSTRAINT DF_MailTemplates_Updated DEFAULT SYSUTCDATETIME(),
         CONSTRAINT PK_MailTemplates PRIMARY KEY CLUSTERED (Code)
+    );
+END;
+
+-- Key AI RIÊNG của công ty (BYO, mở lại 03/10/2026). ApiKeyEnc = Crypton; key thô không bao giờ lưu.
+-- Bật + đã kiểm → mọi lệnh AI của công ty chạy bằng key này và KHÔNG trừ lượt.
+-- 3 cột LastFail*/FailCountSinceOk: key riêng hỏng thì lùi về key hệ thống (có trừ lượt) và GHI
+-- LẠI ở đây để trang cấu hình nói ra được. Giữ trong bảng này thay vì ALTER AiUsageHistory dùng chung.
+-- CHỈ THÊM bảng mới, không đụng bảng nào đang có (chủ dự án duyệt 03/10/2026).
+IF OBJECT_ID('dbo.TenantAiKeys', 'U') IS NULL
+BEGIN
+    CREATE TABLE dbo.TenantAiKeys (
+        TenantId          NVARCHAR(128)  NOT NULL,
+        Provider          NVARCHAR(32)   NOT NULL,
+        Model             NVARCHAR(128)  NULL,
+        ApiKeyEnc         NVARCHAR(1024) NOT NULL,
+        Masked            NVARCHAR(32)   NOT NULL CONSTRAINT DF_TenantAiKeys_Masked  DEFAULT '',
+        Enabled           BIT            NOT NULL CONSTRAINT DF_TenantAiKeys_Enabled DEFAULT 0,
+        ValidatedAtUtc    DATETIME2      NULL,
+        LastFailAtUtc     DATETIME2      NULL,
+        LastFailReason    NVARCHAR(256)  NULL,
+        FailCountSinceOk  INT            NOT NULL CONSTRAINT DF_TenantAiKeys_FailCount DEFAULT 0,
+        UpdatedBy         NVARCHAR(128)  NULL,
+        UpdatedAtUtc      DATETIME2      NOT NULL CONSTRAINT DF_TenantAiKeys_Updated DEFAULT SYSUTCDATETIME(),
+        CONSTRAINT PK_TenantAiKeys PRIMARY KEY CLUSTERED (TenantId)
     );
 END;
 

@@ -1,4 +1,4 @@
-# Phân công & phân quyền xem hộp thư chat — Kế hoạch thi công
+﻿# Phân công & phân quyền xem hộp thư chat — Kế hoạch thi công
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
@@ -74,7 +74,7 @@
 | `TourkitAiProxy.Endpoints/SessionAuth.cs` | Thêm `ReadNguoiXemAsync` |
 | `TourkitAiProxy.Services/Bootstrap/FeatureFlags.cs` | Thêm `ChatAssign` |
 | `wwwroot/pages/chat-inbox.jsx` | Ô chọn người phụ trách, nhãn nút, tên đầy đủ |
-| `CHANGELOG.md` · `docs/features/chat-inbox.md` | Bắt buộc |
+| `CHANGELOG.md` · `docs/features/chat-inbox-ky-thuat.md` | Bắt buộc |
 
 ---
 
@@ -1601,7 +1601,7 @@ git commit -m "feat(chat): màn hình cấu hình phân công hội thoại"
 **Files:**
 - Modify: `TourkitAiProxy.Services/Bootstrap/FeatureFlags.cs`
 - Modify: `appsettings.example.json`
-- Modify: `docs/features/chat-inbox.md`
+- Modify: `docs/features/chat-inbox-ky-thuat.md`
 - Modify: `CHANGELOG.md`
 
 - [ ] **Step 1: Thêm cờ**
@@ -1639,7 +1639,7 @@ buộc vì không có lưới nào đỡ.
 
 - [ ] **Step 4: Viết tài liệu tính năng**
 
-Thêm mục vào `docs/features/chat-inbox.md`, sau mục "Bốn thao tác hộp thư":
+Thêm mục vào `docs/features/chat-inbox-ky-thuat.md`, sau mục "Bốn thao tác hộp thư":
 
 ```markdown
 ### Phân công và quyền xem
@@ -1695,7 +1695,7 @@ Thay `dd/MM/yyyy` bằng ngày phát hành thật.
 - [ ] **Step 6: Commit**
 
 ```bash
-git add TourkitAiProxy.Services/Bootstrap/FeatureFlags.cs appsettings.example.json docs/features/chat-inbox.md CHANGELOG.md
+git add TourkitAiProxy.Services/Bootstrap/FeatureFlags.cs appsettings.example.json docs/features/chat-inbox-ky-thuat.md CHANGELOG.md
 git commit -m "docs(chat): tài liệu và cờ tính năng cho phân công hội thoại"
 ```
 
@@ -1832,12 +1832,12 @@ Tạm trả một bộ lọc về đọc `assigned_username`, chạy test, xác 
 
 - [ ] **Step 8: Tài liệu**
 
-Thêm mục **"quyết định bằng mã, hiển thị bằng tên"** vào `docs/features/chat-inbox.md`: nêu hai lỗi đã xảy ra từ gốc này, nói rõ theo dõi / dấu đã đọc / nhật ký **vẫn** khoá theo tên và đó là cố ý, và dẫn về đặc tả mục 4b.
+Thêm mục **"quyết định bằng mã, hiển thị bằng tên"** vào `docs/features/chat-inbox-ky-thuat.md`: nêu hai lỗi đã xảy ra từ gốc này, nói rõ theo dõi / dấu đã đọc / nhật ký **vẫn** khoá theo tên và đó là cố ý, và dẫn về đặc tả mục 4b.
 
 - [ ] **Step 9: Commit**
 
 ```bash
-git add TourkitAiProxy.Infrastructure/Chat/Inbox/ChatRepository.cs TourkitAiProxy.Infrastructure/Chat/Inbox/ChatDb.cs TourkitAiProxy.Endpoints/ChatInboxEndpoints.cs TourkitAiProxy.Tests/Chat/ChatOwnerKeyGuardTests.cs docs/features/chat-inbox.md
+git add TourkitAiProxy.Infrastructure/Chat/Inbox/ChatRepository.cs TourkitAiProxy.Infrastructure/Chat/Inbox/ChatDb.cs TourkitAiProxy.Endpoints/ChatInboxEndpoints.cs TourkitAiProxy.Tests/Chat/ChatOwnerKeyGuardTests.cs docs/features/chat-inbox-ky-thuat.md
 git commit -m "refactor(chat): bỏ tên đăng nhập khỏi đường phân công — một khoá duy nhất"
 ```
 

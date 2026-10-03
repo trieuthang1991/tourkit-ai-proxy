@@ -45,10 +45,17 @@ public class ChatCrmLinkGuardTests
     {
         // Dùng tài khoản dịch vụ là CRM không chặn được theo quyền của người đang tìm — nhân viên
         // chỉ được xem khách của mình vẫn tra ra cả kho khách của công ty.
-        var src = Endpoint();
-        var m = Regex.Match(src, "crm-search(.{0,1400})", RegexOptions.Singleline);
-        Assert.True(m.Success);
-        Assert.Matches(@"ListAsync\(\s*a\.SessionId", m.Groups[1].Value);
+        //
+        // Canh CẢ HAI đường: từ 14/09/2026 lượt tra đi đường nhẹ LookupAsync, còn ListAsync ở lại
+        // làm đường lùi cho tới khi toutkit-app deploy xong. Cả hai đều phải kẹp phiên nhân viên;
+        // chốt canh chỉ một đường là đường kia lặng lẽ dùng tài khoản dịch vụ mà không ai biết.
+        // Cắt ĐÚNG thân đường — từ lúc đăng ký route tới route kế tiếp — thay vì đếm N ký tự sau
+        // chữ "crm-search". Đếm ký tự là chốt canh giòn: thêm một khối chú thích dài là phần mã
+        // cần canh rơi ra ngoài cửa sổ và chốt xanh giả. Đã dính đúng thế ngày 14/09/2026.
+        var than = ChatSchemaGuardTests.ThanThanhVien(
+            Endpoint(), "g.MapGet(\"/conversations/{id:long}/crm-search\"");
+        Assert.Matches(@"LookupAsync\(\s*a\.SessionId", than);
+        Assert.Matches(@"ListAsync\(\s*a\.SessionId", than);
     }
 
     [Fact]

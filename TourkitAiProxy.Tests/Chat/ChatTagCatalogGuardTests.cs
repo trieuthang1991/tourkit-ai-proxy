@@ -1,3 +1,5 @@
+﻿using System.Collections.Generic;
+using System.Linq;
 using System.Text.RegularExpressions;
 using Xunit;
 
@@ -66,6 +68,123 @@ public class ChatTagCatalogGuardTests
         // Chạy lại nhiều lần phải vô hại — schema này chạy MỖI lần khởi động.
         Assert.Matches(@"INSERT INTO chat_tag_catalog\s*\([\s\S]{0,320}ON CONFLICT[^\n]*DO NOTHING", schema);
     }
+
+    /// <summary>
+    /// Nhãn của công ty này KHÔNG được lọt sang công ty khác.
+    ///
+    /// <para>Một câu lệnh quên <c>tenant_id</c> ở đây không gây lỗi, không gây chậm, và không
+    /// hiện ra ở đâu cả: nó chỉ lặng lẽ trộn danh mục nhãn của mọi công ty vào một chỗ. Người
+    /// dùng thấy nhãn lạ trong danh sách của mình, còn xoá một nhãn thì gỡ nhãn khỏi khách của
+    /// công ty khác. Kiểu lỗi này chỉ lộ khi đã ra tới khách hàng.</para>
+    /// </summary>
+    [Fact]
+    public void Moi_cau_lenh_cham_bang_nhan_deu_phai_kep_theo_cong_ty()
+    {
+        var kho = BoChuThich(DocFile("TourkitAiProxy.Infrastructure/Chat/Inbox/ChatRepository.cs"));
+
+        // MỘT ngoại lệ, và nó phải được khai ra ở đây chứ không được nới lỏng cả bài canh:
+        // DeleteContactDataAsync (Meta Data Deletion Callback) CỐ Ý xoá xuyên công ty, vì Meta chỉ
+        // gửi sang mã người dùng chứ không nói người đó từng nhắn cho công ty nào — mà một người
+        // có thể đã nhắn cho hai công ty cùng dùng hệ này. Kẹp công ty ở đó là xoá thiếu, và lời
+        // hứa "đã xoá" thành lời nói dối.
+        kho = BoNgoaiLe(kho, "public async Task<KetQuaXoa> DeleteContactDataAsync");
+
+        // Soi vào CHÍNH chuỗi SQL, không soi cửa sổ ký tự quanh nó.
+        //
+        // ⚠️ Bản đầu của chốt này lấy 400 ký tự quanh mỗi câu lệnh rồi tìm chữ "tenant" — và nó
+        // XANH cả khi đã bỏ hẳn mệnh đề kẹp, vì tên tham số `string tenant` cùng `new { tenant }`
+        // nằm ngay đó. Thử phá mới lộ ra. Một chốt xanh nhầm còn tệ hơn không có chốt: nó khiến
+        // người sau tin rằng chỗ này đã được canh.
+        var sql = ChuoiSql(kho)
+            .Where(q => q.Contains("chat_tag_catalog", StringComparison.Ordinal)
+                     || q.Contains("chat_contact_tags", StringComparison.Ordinal))
+            .ToList();
+
+        // Canh chính bài canh: phải THẤY các câu lệnh, không thì bài này xanh vì quét trượt.
+        Assert.True(sql.Count >= 4,
+            $"Chỉ thấy {sql.Count} câu SQL chạm bảng nhãn — bài canh đang soi nhầm chỗ.");
+
+        foreach (var q in sql)
+        {
+            // Đòi ĐÚNG MỆNH ĐỀ KẸP, không chỉ đòi có chữ "tenant_id" đâu đó trong câu.
+            //
+            // ⚠️ Bản trước chỉ tìm chữ, và nó XANH khi đã bỏ hẳn mệnh đề WHERE — vì câu liệt kê
+            // còn một dòng JOIN "t.tenant_id = d.tenant_id" đủ làm chữ đó xuất hiện. Chỉ lộ ra khi
+            // thử phá đúng câu đó; chạy suông thì trông như đã được canh.
+            var kep = Regex.IsMatch(q, @"tenant_id\s*=\s*@tenant")
+                   || (Regex.IsMatch(q, @"INSERT\s+INTO", RegexOptions.IgnoreCase)
+                       && Regex.IsMatch(q, @"\(\s*tenant_id\s*,")
+                       && q.Contains("@tenant", StringComparison.Ordinal));
+            Assert.True(kep,
+                "Có câu SQL chạm bảng nhãn mà KHÔNG kẹp tenant_id = @tenant:\n" + q.Trim());
+        }
+    }
+
+    /// <summary>
+    /// Công ty phải lấy từ PHIÊN đăng nhập, không lấy từ thân yêu cầu hay tham số đường dẫn.
+    ///
+    /// <para>Kẹp đúng ở tầng SQL mà lại nhận mã công ty do người gọi đưa lên thì việc kẹp thành
+    /// vô nghĩa: ai cũng tự khai mình thuộc công ty nào.</para>
+    /// </summary>
+    [Fact]
+    public void Duong_nhan_lay_cong_ty_tu_phien_dang_nhap()
+    {
+        var src = BoChuThich(DocFile("TourkitAiProxy.Endpoints/ChatInboxEndpoints.cs"));
+
+        foreach (var moc in new[] { "MapGet(\"/tags\"", "MapPost(\"/tags\"", "MapDelete(\"/tags/{id:long}\"" })
+        {
+            var than = CatKhoi(src, moc);
+            Assert.Contains("SessionAuth.Read(ctx, sessions)", than);
+            Assert.Contains("a.TenantId", than);
+            Assert.DoesNotContain("body.TenantId", than);
+            Assert.DoesNotContain("body?.TenantId", than);
+        }
+    }
+
+    /// <summary>
+    /// Cắt HẲN một phương thức ra khỏi phần được soi, và bắt nó phải TỒN TẠI.
+    ///
+    /// <para>Ngoại lệ phải gọi đúng tên. Đổi cách viết thành "bỏ qua câu nào có chữ Meta" thì
+    /// bất kỳ câu lệnh mới nào lỡ nhắc tới Meta cũng được tha — ngoại lệ nới ra theo thời gian
+    /// mà không ai quyết định điều đó.</para>
+    /// </summary>
+    private static string BoNgoaiLe(string src, string chuKy)
+    {
+        var i = src.IndexOf(chuKy, StringComparison.Ordinal);
+        Assert.True(i > 0,
+            $"Không thấy “{chuKy}” — ngoại lệ đã đổi tên hoặc biến mất. Xem lại chốt, đừng xoá nó.");
+        var sau = src.Substring(i + chuKy.Length);
+        var het = new[] { "\n    public", "\n    private", "\n    /// <summary>" }
+            .Select(m => sau.IndexOf(m, StringComparison.Ordinal))
+            .Where(x => x > 0)
+            .DefaultIfEmpty(sau.Length)
+            .Min();
+        return src.Substring(0, i) + sau.Substring(het);
+    }
+
+    /// <summary>
+    /// Tách mọi chuỗi SQL trong mã nguồn: cả chuỗi thô nhiều dòng (<c>"""…"""</c>) lẫn chuỗi
+    /// một dòng. Trả về nội dung BÊN TRONG chuỗi, để chốt soi đúng câu lệnh chứ không soi
+    /// mã C# quanh nó.
+    /// </summary>
+    private static List<string> ChuoiSql(string src)
+    {
+        var ra = new List<string>();
+        foreach (Match m in Regex.Matches(src, "\"\"\"([\\s\\S]*?)\"\"\""))
+            ra.Add(m.Groups[1].Value);
+        // Bỏ phần chuỗi thô rồi mới quét chuỗi một dòng, tránh đếm trùng.
+        var conLai = Regex.Replace(src, "\"\"\"([\\s\\S]*?)\"\"\"", "");
+        foreach (Match m in Regex.Matches(conLai, "\"([^\"\\n]{12,})\""))
+            ra.Add(m.Groups[1].Value);
+        return ra;
+    }
+
+    /// Bỏ dòng chú thích trước khi soi — chú thích quanh đây có nhắc tên bảng và mệnh đề SQL,
+    /// để nguyên thì bài canh đếm phải chữ của chính nó.
+    private static string BoChuThich(string src) => string.Join("\n",
+        src.Split('\n').Where(d => !d.TrimStart().StartsWith("//", StringComparison.Ordinal)
+                                 && !d.TrimStart().StartsWith("*", StringComparison.Ordinal)
+                                 && !d.TrimStart().StartsWith("--", StringComparison.Ordinal)));
 
     /// <summary>
     /// Cắt từ <paramref name="moc"/> tới mốc cú pháp kế tiếp cùng cấp.

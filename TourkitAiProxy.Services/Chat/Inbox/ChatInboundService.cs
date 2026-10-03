@@ -24,11 +24,8 @@ public class ChatInboundService
     private readonly ChatRepository _repo;
     private readonly ChatWorkSignal _tin;
     private readonly IEnumerable<IChatChannelAdapter> _adapters;
-    private readonly ProviderRegistry _providers;
-    /// Chọn model cho câu trả lời gửi tới khách — xem AiFeature.ChatInbox.
-    private readonly AiModelRegistry _models;
-    private readonly AiCallContext _aiCtx;
-    private readonly IConfiguration _cfg;
+    /// Bộ sinh câu trả lời, dùng CHUNG với nút Gợi ý của nhân viên — xem ChatReplyComposer.
+    private readonly ChatReplyComposer _soan;
     private readonly ILogger<ChatInboundService> _log;
     private readonly ChatBotSettingsRepository _cauHinh;
     private readonly ChatMediaMirror _soiTep;
@@ -36,11 +33,11 @@ public class ChatInboundService
     private readonly ChatAssignRepository _assign;
 
     public ChatInboundService(ChatRepository repo, IEnumerable<IChatChannelAdapter> adapters,
-        ProviderRegistry providers, AiCallContext aiCtx, IConfiguration cfg,
+        ChatReplyComposer soan,
         ILogger<ChatInboundService> log, ChatEventBus bus, ChatWorkSignal tin,
-        ChatBotSettingsRepository cauHinh, ChatMediaMirror soiTep, AiModelRegistry models,
+        ChatBotSettingsRepository cauHinh, ChatMediaMirror soiTep,
         ChatAssignRepository assign)
-    { _repo = repo; _adapters = adapters; _providers = providers; _aiCtx = aiCtx; _cfg = cfg; _log = log; _bus = bus; _tin = tin; _cauHinh = cauHinh; _soiTep = soiTep; _models = models; _assign = assign; }
+    { _repo = repo; _adapters = adapters; _soan = soan; _log = log; _bus = bus; _tin = tin; _cauHinh = cauHinh; _soiTep = soiTep; _assign = assign; }
 
     public IChatChannelAdapter? Adapter(ChatChannel kenh)
         => _adapters.FirstOrDefault(a => a.Channel == kenh);
@@ -105,9 +102,12 @@ public class ChatInboundService
 
         // Còn thiếu tên hoặc ảnh thì hỏi thẳng nhà cung cấp.
         //
-        // Zalo và Telegram kèm sẵn tên trong gói tin nên nhánh này không bao giờ chạy cho hai kênh
-        // đó. Riêng Messenger, gói tin của Meta CHỈ có mã người dùng — không hỏi thì cả hộp thư
-        // hiện một dãy số như "4951953868228330" thay cho tên khách.
+        // Telegram kèm sẵn tên trong gói tin nên nhánh này gần như không chạy cho kênh đó. Còn
+        // Messenger, Instagram và Zalo thì gói tin CHỈ có mã người dùng — không hỏi thì cả hộp
+        // thư hiện một dãy số như "4951953868228330" thay cho tên khách.
+        //
+        // ⚠️ Chỗ này từng ghi Zalo cũng kèm sẵn tên (sai), và ZaloChatAdapter vì thế không cài
+        // ContactProfileAsync — hộp thư Zalo hiện mã người dùng suốt từ đó. Sửa 02/10/2026.
         //
         // Nuốt mọi lỗi bên trong adapter: không lấy được tên thì hiện mã, xấu nhưng vẫn dùng được.
         // Chặn tin của khách chỉ vì không lấy được cái tên là đổi một lỗi nhỏ lấy một lỗi to.
@@ -120,7 +120,10 @@ public class ChatInboundService
             // đồng nghĩa hẹn ngày cả hộp thư hiện ảnh vỡ.
             var anh = (await MirrorAvatarAsync(tenantId, e.Channel, hoSo.AvatarUrl, ct)).Url
                       ?? hoSo.AvatarUrl;
-            await _repo.UpsertContactAsync(tenantId, e.Channel, e.ExternalUserId, hoSo.Name, anh, ct);
+            // `dongMocHoSo: true` — CHỖ DUY NHẤT được đóng mốc, vì đây là chỗ duy nhất thật sự
+            // hỏi nền tảng. Lượt upsert theo từng tin ở trên chỉ chép tên có sẵn trong gói tin.
+            await _repo.UpsertContactAsync(tenantId, e.Channel, e.ExternalUserId, hoSo.Name, anh,
+                                           dongMocHoSo: true, ct: ct);
         }
         var hoiThoai = await _repo.GetOrCreateConversationAsync(tenantId, e.Channel, e.ExternalUserId, accountId, ct);
 
@@ -174,7 +177,30 @@ public class ChatInboundService
         // cũ mà làm hội thoại nhảy lên đầu danh sách như có tin mới là báo động giả.
         if (e.Reaction is { } camXuc)
         {
-            await _repo.SetReactionAsync(tenantId, e.Channel, camXuc, e.ExternalUserId, ct);
+            // Khách thả biểu tượng lên tin = đánh giá TRỰC TIẾP nhất có thể có, và không tốn một
+            // lượt AI nào. Chấm ngay theo thang 5 bậc.
+            //
+            // ⚠️ ĐI QUA ScoreReaction, KHÔNG gọi thẳng ScoreEmoji: trường Name mang hai thứ khác
+            // nhau tuỳ kênh (Meta gửi tên cảm xúc, Telegram gửi custom_emoji_id). Chỉ hàm kia mới
+            // biết kênh nào đọc trường nào.
+            var mucMoi = camXuc.Removed
+                ? null
+                : ConversationSentiment.ScoreReaction(e.Channel, camXuc.Emoji, camXuc.Name);
+
+            // Trả về điểm của cảm xúc CŨ trên chính tin này, nếu có.
+            var mucCu = await _repo.SetReactionAsync(tenantId, e.Channel, camXuc, e.ExternalUserId,
+                                                     mucMoi, ct);
+
+            // RÚT cái cũ rồi mới GÓP cái mới — đúng cho cả ba ca: gỡ hẳn (chỉ rút), đổi sang biểu
+            // tượng khác (rút cái cũ, góp cái mới), thả lần đầu (chỉ góp).
+            //
+            // Bản đầu (12/09/2026) cố ý KHÔNG rút khi gỡ, lập luận "gỡ tim thường chỉ là bấm
+            // nhầm". Lập luận đó nhầm chỗ: giữ nguyên điểm không phải là "không kết luận gì", nó
+            // là TIẾP TỤC KẾT LUẬN bằng một tín hiệu khách đã rút lại — hộp cảm xúc nói dối bằng
+            // con số. Chủ dự án chốt sửa 14/09/2026.
+            if (mucCu is { } cu) await _repo.RemoveSentimentSignalAsync(tenantId, hoiThoai.Id, cu, ct);
+            if (mucMoi is { } vua) await _repo.AddSentimentSignalAsync(tenantId, hoiThoai.Id, vua, ct);
+
             _bus.Publish(new(tenantId, hoiThoai.Id, "doi-hoi-thoai", null) { AssignedUserId = hoiThoai.AssignedUserId });
             return;
         }
@@ -258,6 +284,27 @@ public class ChatInboundService
         if (id is null) return;   // webhook gửi lại — bỏ qua, KHÔNG sinh thêm câu trả lời
 
         await _repo.TouchConversationAsync(tenantId, hoiThoai.Id, ChatRules.Summarize(e.Text), true, ct);
+
+        // Biểu tượng khách GÕ trong tin — nguồn tín hiệu thứ hai, và là nguồn DUY NHẤT dùng được
+        // trên Zalo (Zalo chưa gửi sự kiện thả cảm xúc sang). Không tốn lượt AI nào.
+        //
+        // Tin không có biểu tượng nào nhận ra thì ScoreText trả null và ta KHÔNG ghi gì: giữ
+        // nguyên điểm cũ. Ghi đè bằng "trung tính" mỗi lần khách hỏi một câu bình thường sẽ xoá
+        // sạch dấu vết khách vừa bực ở tin trước.
+        if (ConversationSentiment.ScoreText(e.Text) is { } mucGo)
+            await _repo.AddSentimentSignalAsync(tenantId, hoiThoai.Id, mucGo, ct);
+
+        // SỐ ĐIỆN THOẠI và TÊN khách gõ ra trong tin. Đây là nguồn DUY NHẤT cho ba kênh lớn:
+        // Messenger, Instagram và Telegram không bao giờ đưa số điện thoại, mà không có số thì
+        // không tra được khách bên CRM — và mọi việc dựng trên nền đó đều không với tới.
+        //
+        // Chỉ điền vào ô đang trống (xem SaveDetectedContactInfoAsync). Cả hai hàm bắt đều trả
+        // null khi không chắc: thà bỏ sót còn hơn gắn nhầm số của người khác vào hồ sơ khách.
+        var soBatDuoc = ChatRules.FindPhone(e.Text);
+        var tenBatDuoc = ChatRules.FindStatedName(e.Text);
+        if (soBatDuoc is not null || tenBatDuoc is not null)
+            await _repo.SaveDetectedContactInfoAsync(tenantId, (short)e.Channel, e.ExternalUserId,
+                soBatDuoc, tenBatDuoc, ct);
         // Bắn NGAY, trước quãng nghỉ gộp tin: nhân viên phải thấy tin khách lập tức, đừng bắt họ
         // chờ thêm bốn giây chỉ vì bot đang đợi xem khách có gõ tiếp không.
         _bus.Publish(new(tenantId, hoiThoai.Id, "tin-moi", id.Value) { AssignedUserId = hoiThoai.AssignedUserId });
@@ -309,7 +356,14 @@ public class ChatInboundService
         var lichSu = await _repo.ListMessagesAsync(tenantId, hoiThoai.Id, cfgBot.HistoryTurns * 2, ct);
         var nhacLai = ChatRules.BuildConversationPrompt(lichSu, cauHoi, cfgBot.HistoryTurns);
 
-        var traLoi = await GenerateReplyAsync(tenantId, hoiThoai.Id, nhacLai, cfgBot, ct);
+        // Bộ sinh nằm ở ChatReplyComposer, dùng CHUNG với nút Gợi ý của nhân viên — cùng khung
+        // cấm bịa số, cùng lời dặn công ty, cùng model.
+        // sessionId = null CÓ Ý: đường này không có ai online đang bấm nút. Phạm vi tra tour do Ô
+        // CẤU HÌNH của công ty quyết — tắt thì xem cả kho, bật thì lấy quyền NGƯỜI PHỤ TRÁCH hội
+        // thoại (chưa gán ai thì rơi về cả kho). Không mượn phiên của một nhân viên bất kỳ: phiên
+        // đó là của một người cụ thể, mượn nó để trả lời thay cả công ty là lặng lẽ nới quyền.
+        var traLoi = await _soan.GenerateAsync(tenantId, hoiThoai.Id, nhacLai, cfgBot, ct,
+            cauKhachHoi: cauHoi, sessionId: null, nguoiPhuTrach: hoiThoai.AssignedUsername);
         if (string.IsNullOrWhiteSpace(traLoi)) return;
 
         var idRa = await _repo.AppendMessageAsync(tenantId, hoiThoai.Id, e.Channel, ChatDirection.Out,
@@ -506,7 +560,9 @@ public class ChatInboundService
             return new(null, true);
 
         var khoa = await ChannelTokenAsync(tenantId, kenh, ct);
-        return await _soiTep.MirrorAsync(tenantId, kenh, new(url, null, khoa), ct);
+        // `LaAnhDaiDien: true` — nén theo luật riêng của avatar (cạnh 180px, nén mọi cỡ tệp),
+        // không đi chung luật ảnh thường vốn chỉ nén khi trên 300KB rồi về 1600px.
+        return await _soiTep.MirrorAsync(tenantId, kenh, new(url, null, khoa, LaAnhDaiDien: true), ct);
     }
 
     /// <summary>
@@ -580,74 +636,4 @@ public class ChatInboundService
         return Adapter(kenh) is Channels.WhatsAppChatAdapter wa
             ? await wa.AccessTokenForMediaAsync(tenantId, ct) : null;
     }
-    /// <summary>
-    /// Sinh câu trả lời.
-    ///
-    /// <para>AI hỏng thì trả <c>null</c> — <b>im lặng còn hơn gửi câu rác cho khách</b>. Hội thoại
-    /// vẫn nằm trong hộp thư, nhân viên thấy và trả lời tay được.</para>
-    /// </summary>
-    private async Task<string?> GenerateReplyAsync(string tenantId, long hoiThoaiId, string cauHoi,
-        ChatBotSettings cfgBot, CancellationToken ct)
-    {
-        // Khung an toàn: máy chủ khai đè được (Chat:SystemPrompt) để sửa nóng khi cần, còn mặc
-        // định nằm trong mã. Lời dặn RIÊNG của công ty NỐI THÊM vào, không thay thế — khung chứa
-        // luật chống bịa giá tour, bỏ nó là bot hứa giữ chỗ với khách thật.
-        var khung = _cfg["Chat:SystemPrompt"] ?? DefaultSystemPrompt;
-        var loiDan = cfgBot.BuildSystemPrompt(khung);
-        try
-        {
-            // Gọi từ NỀN nên không có HttpContext — phải Push thủ công, nếu không là bỏ qua hạn
-            // mức tenant và log ra feature "unknown".
-            using var _ = _aiCtx.Push(AiFeatures.ChatInbox, tenantId);
-
-            // Hỏi registry chứ KHÔNG truyền null. Truyền null thì provider tự chọn model mặc
-            // định của nó — đo được trên lịch sử dùng thật: claude-sonnet-4-5, đắt nhất cả hệ,
-            // và bỏ qua luôn cả Models:Primary:Model. Đây lại là tính năng duy nhất nói thẳng
-            // với khách hàng thật, nên là chỗ cần chốt model nhất chứ không phải chỗ được thả nổi.
-            var resolved = _models.Resolve(AiFeature.ChatInbox);
-            var provider = _providers.Resolve(resolved.Provider);
-            var res = await provider.CompleteAsync(new CompleteRequest(
-                Prompt: cauHoi, Provider: provider.Id, Model: resolved.Model,
-                MaxTokens: 700, Temperature: 0.5, System: loiDan, ApiKey: resolved.ApiKey), ct);
-
-            var text = res.Text?.Trim();
-            if (string.IsNullOrWhiteSpace(text))
-            {
-                _log.LogWarning("[chat] AI trả rỗng, hội thoại={C}", hoiThoaiId);
-                return null;
-            }
-            return text;
-        }
-        catch (QuotaExhaustedException)
-        {
-            _log.LogWarning("[chat] tenant={T} hết lượt AI — bot im, nhân viên trả lời tay", tenantId);
-            return null;
-        }
-        catch (Exception ex)
-        {
-            _log.LogError(ex, "[chat] gọi AI hỏng, hội thoại={C}", hoiThoaiId);
-            return null;
-        }
-    }
-
-    /// <summary>
-    /// Lời dặn mặc định cho bot.
-    ///
-    /// <para><b>Cấm bịa số là dòng quan trọng nhất.</b> Đợt 1 bot chưa tra được CRM, nên nếu không
-    /// cấm nó sẽ tự nghĩ ra giá tour và lịch khởi hành — khách đọc xong tưởng thật, và công ty phải
-    /// chịu. Thà nói "để em kiểm rồi báo lại".</para>
-    /// </summary>
-    private const string DefaultSystemPrompt = """
-        Bạn là nhân viên tư vấn của một công ty du lịch Việt Nam, đang trả lời khách qua tin nhắn.
-
-        Cách trả lời:
-        - Tiếng Việt, xưng "em", gọi khách là "anh/chị". Ngắn gọn, 2-4 câu, như tin nhắn thật.
-        - Thân thiện nhưng không màu mè, không dùng emoji quá một cái.
-
-        TUYỆT ĐỐI KHÔNG được bịa: giá tour, lịch khởi hành, số chỗ còn, khuyến mãi, chính sách hoàn
-        huỷ. Bạn KHÔNG có dữ liệu thật của công ty. Gặp câu hỏi cần số liệu thì nói thật là sẽ kiểm
-        tra rồi báo lại, và hỏi thêm thông tin cần thiết (ngày đi, số khách, điểm đến).
-
-        Không hứa thay công ty. Không tự nhận đã đặt chỗ hay đã giữ chỗ cho khách.
-        """;
 }

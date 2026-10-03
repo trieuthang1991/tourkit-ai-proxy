@@ -2,9 +2,10 @@
 
 **Ngày:** 2026-08-05 · **Phạm vi:** TẤT CẢ lệnh AI của tenant (chat/travai, review, mail, deal, tour, visa)
 
-> ⏸️ **KHÔNG ƯU TIÊN** (user chốt 2026-08-11). Thiết kế + kế hoạch đã xong, cất chờ — xem [kế hoạch P4](../plans/2026-08-05-tenant-byo-key.md) khi quay lại. Đừng tự khởi động lại nếu không được yêu cầu.
->
-> Lưu ý khi mở lại: quyết định về ripple "nạp quota AI qua VietQR" (§8) **vẫn còn để ngỏ**.
+> ▶️ **MỞ LẠI 03/10/2026.** Spec này viết trước khi có `AiModelRegistry` (28/08) và một số quyết định
+> nghiệp vụ đã đổi: §8 (VietQR) chốt là **không đụng gì**; §5 "key lỗi thì âm thầm lùi về trial" đổi
+> thành **lùi có điều kiện, trừ quota và phải nói ra**. Đọc mục **"Sửa đổi 03/10"** ở đầu
+> [kế hoạch P4](../plans/2026-08-05-tenant-byo-key.md) — chỗ nào khác nhau thì kế hoạch thắng.
 
 ## 1. Mô hình kinh doanh & mục tiêu
 

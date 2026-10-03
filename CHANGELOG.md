@@ -13,6 +13,51 @@ Những cập nhật gần đây của TRAV-AI, viết cho người dùng. Mới
 
 ---
 
+## Phiên bản 03/10/2026 — Dùng tài khoản AI của chính công ty bạn
+
+### ✨ Tính năng mới
+- **Khai key AI riêng của công ty.** Ngoài cách nạp lượt như trước, nay công ty có thể dùng tài khoản
+  **ChatGPT, Claude hoặc Grok** của chính mình. Vào **Tích hợp → Key AI riêng**, chọn nhà cung cấp,
+  dán key rồi bấm **Kiểm tra & lưu**. Từ lúc đó mọi tính năng AI của công ty chạy bằng tài khoản của
+  bạn và **không trừ lượt**.
+
+  Vài điều đáng biết:
+  - Hệ thống **gọi thử ngay khi bạn bấm lưu** — key sai hoặc hết tiền sẽ bị từ chối kèm lý do rõ ràng,
+    không lưu gì cả.
+  - Nếu sau này tài khoản AI của bạn **hết tiền hoặc key bị thu hồi**, hệ thống **tự chuyển sang dùng
+    lượt chung** để công việc không bị gián đoạn. Trang **Key AI riêng** sẽ hiện cảnh báo để bạn biết,
+    và trong lúc đó **lượt bị trừ như thường** cho tới khi bạn nạp tiền hoặc nhập key mới.
+  - Muốn tạm quay về dùng lượt chung mà không xoá key: bỏ tích ô **Dùng key riêng cho mọi tính năng AI**.
+  - Key được mã hoá khi lưu và không bao giờ hiện lại đầy đủ — trên màn hình chỉ thấy vài ký tự đầu và cuối.
+  - Chỉ người có quyền **Cấu hình hệ thống** mới thấy và chỉnh được mục này.
+
+### 📌 Lưu ý
+- Mục này đang được mở dần cho từng hệ thống. Nếu chưa thấy trong menu **Tích hợp**, liên hệ bộ phận
+  quản trị để được bật.
+
+---
+
+## Phiên bản 02/10/2026 — Hộp thư Zalo hiện đúng tên khách, và gửi tin nhanh hơn
+
+### 🔧 Đã khắc phục
+- **Khách Zalo nay hiện đúng tên và ảnh đại diện.** Trước đây mọi hội thoại Zalo đều hiện một dãy
+  số dài thay cho tên khách, và không có ảnh — nhìn vào hộp thư không biết ai đang nhắn, phải mở
+  từng cuộc ra đọc nội dung mới đoán được. Nguyên nhân: Zalo không gửi kèm tên khách trong tin
+  nhắn, phải hỏi riêng mới có, mà hệ thống lại chưa bao giờ hỏi. Nay mỗi khách mới nhắn tới là hệ
+  thống tự hỏi Zalo lấy tên và ảnh, tự làm mới sau mỗi tuần để khách đổi ảnh thì hộp thư cũng đổi
+  theo. Các hội thoại Zalo cũ sẽ lần lượt có tên khi khách nhắn tin tiếp.
+
+- **Nhân viên bấm Gửi thì tin đi nhanh hơn, bớt được khoảng một nửa thời gian chờ.** Trước đây tin
+  của nhân viên nằm chờ lâu hơn hẳn khoảng vài giây dành cho nút **Thu hồi** — có lúc gần gấp đôi,
+  và không đều nhau nên lúc nhanh lúc chậm không rõ vì sao. Nay tin đi đúng vào thời điểm đã hẹn.
+  Nút Thu hồi vẫn giữ nguyên như cũ, bạn vẫn có từng ấy giây để đổi ý.
+
+### 📌 Lưu ý
+- Khoảng chờ trước khi tin đi là để bạn kịp bấm **Thu hồi**. Nếu đội của bạn muốn tin đi ngay lập
+  tức và không cần nút đó, bộ phận quản trị chỉnh được khoảng chờ này về 0.
+
+---
+
 ## Phiên bản 17/09/2026 — Nạp lượt AI: nội dung chuyển khoản đọc được
 
 ### 🔧 Đã khắc phục
@@ -33,6 +78,95 @@ Những cập nhật gần đây của TRAV-AI, viết cho người dùng. Mới
   phần đuôi. Mã đứng đầu thì dù bị cắt, hệ thống vẫn nhận ra tiền của bạn để cộng lượt.
 - Vẫn **giữ nguyên nội dung** khi chuyển khoản như trước. Sửa hay xoá phần mã ở đầu thì hệ thống
   không nhận ra đơn của bạn.
+
+---
+
+## Phiên bản 14/09/2026 — Màn hình Cài đặt hộp thư mở nhanh hơn hẳn
+
+### ✨ Tính năng mới
+- **Trợ lý chat trả lời được câu hỏi về tour.** Trước đây khách nhắn "tour Đà Nẵng tháng 12 bao
+  nhiêu, còn chỗ không" thì trợ lý chỉ biết hẹn *"để em kiểm rồi báo lại"* — nó không đọc được kho
+  tour của bạn nên không được phép nói bất kỳ con số nào. Nay bạn bật được mục **Cho trợ lý tra dữ
+  liệu tour** trong *Cài đặt trợ lý*: khách hỏi tới tour là trợ lý tự tra kho rồi trả lời kèm tên
+  tour, khoảng giá, ngày khởi hành và **số chỗ còn**.
+
+  Vài điều đáng yên tâm: trợ lý **chỉ đọc**, không bao giờ đặt hay giữ chỗ thay bạn. Nó chỉ xem
+  được dữ liệu tour — không chạm tới cơ hội bán hàng, danh sách khách hay số liệu tài chính. Và nó
+  vẫn **không được tự nghĩ ra số**: cái gì không có trong kho thì nó nói thật là sẽ kiểm rồi báo
+  lại, y như trước. Số chỗ thì thay đổi liên tục nên trợ lý luôn nhắc khách xác nhận lại trước khi
+  chốt.
+
+  Mục này **mặc định tắt**, bạn tự bật khi thấy sẵn sàng. Nhân viên bấm **Gợi ý** cũng được trợ lý
+  tra giúp, và chỉ thấy đúng phần dữ liệu mà tài khoản của chính người đó được xem.
+
+### 🔧 Đã khắc phục
+- **Hết hộp thoại "lạ" của trình duyệt.** Các câu hỏi xác nhận và lời báo lỗi — gỡ Trang, xoá hồ sơ
+  thẩm định, xoá tác vụ tự động, sửa tin chưa gửi, cộng lượt… — trước đây bật lên bằng hộp xám mặc
+  định của trình duyệt: khác hẳn giao diện, có máy còn hiện kèm tên miền trông y như cảnh báo lừa
+  đảo. Nay tất cả dùng chung một kiểu hộp thoại với phần còn lại của hệ thống, ở cả trang người
+  dùng lẫn trang quản trị.
+- **Biết được danh sách kênh đang xem là cũ hay mới.** Màn hình **Kết nối kênh** nay ghi *"Cập nhật
+  lúc …"* kèm nút **Làm mới**. Trước đây danh sách chỉ tự tải lại khi bạn vừa lưu hoặc vừa cấp quyền
+  xong — nên nếu trình duyệt chặn cửa sổ cấp quyền, bạn lỡ đóng nó sớm, hoặc bạn vừa sửa gì đó bên
+  trang quản trị của Zalo/Facebook/TikTok, màn hình vẫn hiện bản cũ mà không báo. Giờ nhìn giờ là
+  biết, và bấm một cái là hỏi lại máy chủ, không phải tải lại cả trang.
+- **Nút "Tạo Cơ hội" hết lẫn với mấy nút phụ.** Trong hộp thư chat, nút mở Cơ hội bán hàng trước đây
+  nhỏ và xám y hệt *Đổi*, *Gỡ nối*, *Nối khách CRM* ngay cạnh, nên mắt lướt qua mất. Nay nó đứng
+  riêng một hàng, căn giữa và tô màu cam — nhìn một cái là thấy.
+- **Hộp thoại nhập liệu hiện đúng câu hỏi.** Trước đây vài chỗ hỏi "nhập gì" nhưng chỉ hiện một ô
+  trống, và nút xác nhận luôn ghi *Thêm vào danh sách* dù việc đang làm là chuyện khác. Nay câu hỏi
+  hiện đầy đủ và nút ghi đúng việc. Hộp thông báo cũng hết mọc thêm một nút trống bên cạnh **OK**.
+- **Cài đặt hộp thư chat không còn khựng khi mở.** Trước đây vào tab **Kênh** phải chờ rõ rệt mới
+  thấy danh sách Zalo OA, Trang Facebook, Instagram, WhatsApp, TikTok, Telegram — dù nội dung chỉ
+  là mấy dòng. Lý do: hệ thống đi hỏi từng kênh một, hỏi xong kênh này mới hỏi kênh kế tiếp. Nay
+  hỏi gọn một lượt cho cả sáu kênh, màn hình hiện **nhanh hơn khoảng năm lần**. Danh sách, thứ tự
+  và mọi thông tin hiển thị giữ nguyên như cũ.
+
+---
+
+## Phiên bản 11/09/2026 — Hộp thư chat: lọc theo nhãn, biết khách nhắn vào Trang nào
+
+### ✨ Tính năng mới
+- **Nhờ trợ lý soạn nháp trả lời.** Cạnh ô soạn có thêm nút **Gợi ý**: bấm một cái là trợ lý đọc
+  đoạn hội thoại rồi soạn sẵn một câu trả lời, **đổ thẳng vào ô soạn cho bạn sửa** — không tự gửi
+  đi. Nếu bạn đang gõ dở thì câu gợi ý nối xuống dưới, không xoá mất chữ bạn vừa gõ. Trợ lý ở đây
+  chịu đúng những ràng buộc như khi nó tự trả lời khách: không bịa giá tour, lịch khởi hành hay số
+  chỗ còn, và vẫn theo lời dặn riêng công ty bạn đã đặt.
+
+  Nút này dành cho những lượt trợ lý **không** trả lời — khi bạn đã tắt trợ lý, khi nó đang nhường
+  bạn sau lúc bạn vừa nhắn, hoặc khi công ty hết lượt AI. Nếu trợ lý đang lo chính câu đó, màn hình
+  sẽ nói rõ và mời bạn tạm dừng trợ lý trước, để khách không nhận hai câu trả lời khác nhau.
+- **Gợi ý sẵn khách CRM trùng số điện thoại.** Khi khách chat đã cho số, hộp thư tự tìm trong CRM
+  và bày ra ngay dưới phần *Khách hàng*: *"Có thể là khách này"*. Bấm một cái là nối, không phải gõ
+  lại con số đang hiện ngay phía trên. Hệ thống **không tự nối** kể cả khi chỉ tìm thấy đúng một
+  người — trùng số điện thoại là chuyện có thật (số công ty, số người nhà), và nối nhầm thì trợ lý
+  sẽ đọc lịch sử mua của người khác để nói chuyện với khách này.
+- **Ghi nhật ký chăm sóc từ ngay trong hội thoại.** Hội thoại đã nối khách CRM sẽ có nút *Ghi nhận
+  chăm sóc*: bấm một cái là nội dung trao đổi được trích lại và **xếp hàng chờ đồng bộ** sang hồ sơ
+  khách bên CRM. Các lượt đã ghi hiện ngay dưới nút kèm trạng thái — *đang chờ · đang xử lý · đã
+  sang CRM · lỗi* — để bạn biết việc của mình đang ở đâu thay vì bấm lại lần nữa.
+- **Tạo Cơ hội bán hàng từ hội thoại.** Từ hội thoại đã nối khách, bạn đặt tiêu đề rồi xếp hàng tạo
+  một Cơ hội mang theo đoạn chat và đường dẫn quay lại hội thoại. Cần quyền *thêm Cơ hội bán hàng*
+  như khi tạo trực tiếp trên CRM. Việc xếp hàng hiện trạng thái ngay dưới nút.
+  **Lưu ý:** phần tiếp nhận bên CRM còn đang hoàn thiện, nên trong giai đoạn này việc sẽ báo
+  *lỗi* ngay sau khi xếp hàng. Cơ hội chưa được tạo — hãy tạo trực tiếp trên CRM cho tới khi có
+  thông báo mới.
+- **Lọc hội thoại theo nhãn.** Thanh lọc có thêm hàng nhãn của công ty: bấm một hay nhiều nhãn để
+  chỉ thấy khách đang mang nhãn đó. Chọn nhiều thì thấy khách mang **bất kỳ** nhãn nào trong số đã
+  chọn, bấm lại một nhãn là bỏ nó ra, còn dấu × ở cuối hàng bỏ hết. Số đếm ở hàng trạng thái ngay
+  trên đi theo bộ lọc, không đếm cả công ty nữa. Công ty chưa đặt nhãn nào thì hàng này không hiện.
+- **Biết khách đang nhắn vào Trang nào.** Công ty nối từ hai Trang Facebook hay hai OA Zalo trở lên
+  sẽ thấy tên Trang ngay đầu dòng xem trước và trên đầu khung chat — người trực biết mình đang trả
+  lời dưới tên nào. Nối một Trang thì không hiện gì thêm, vì không có gì để phân biệt.
+
+### 🔧 Đã khắc phục
+- **Biểu tượng kênh trên ảnh khách quá nhỏ để nhìn ra.** Dấu hiệu nhỏ ở góc ảnh đại diện (cho biết
+  hội thoại đến từ Zalo, Messenger hay Telegram) hiển thị nhỏ hơn cả cỡ đáng ra phải có. Nay nó to
+  hơn rõ rệt, và ảnh đại diện trong danh sách cũng được phóng lên cho dễ nhận mặt khách.
+- **Cài đặt "trợ lý nhường bao nhiêu phút sau khi nhân viên trả lời" không có tác dụng.** Con số
+  bạn đặt chỉ được áp dụng khi nhân viên trả lời từ ứng dụng của kênh (Zalo, Messenger…). Trả lời
+  ngay trong hộp thư — cách gần như ai cũng dùng — thì hệ thống vẫn để nguyên 30 phút, và không có
+  gì báo cho bạn biết. Nay cả hai đường đều theo đúng con số bạn đặt.
 
 ---
 
@@ -83,6 +217,21 @@ Những cập nhật gần đây của TRAV-AI, viết cho người dùng. Mới
 
 ### 🔧 Đã khắc phục
 
+- **Dựng đội trực phải thêm từng người một.** Ô chọn người đóng lại sau mỗi lần bấm, nên lập đội
+  tám người là tám lần mở ô, gõ tìm, bấm, rồi mở lại. Nay chọn xong ô vẫn mở và giữ nguyên chữ
+  đang tìm: gõ *sale* một lần rồi thêm liền mấy người. Danh sách hiện cả công ty kèm dấu tích
+  cho ai đã ở trong đội, nên bấm nhầm thì bấm lại là bỏ ra, không phải đóng ô đi tìm thẻ. Danh
+  sách người nay nổi lên trên cửa sổ thay vì chen vào trong, nên mở ra không làm cửa sổ cao vọt
+  rồi phải cuộn tìm lại nút lưu.
+- **Màn hình *Phân công* nói cùng một chuyện tới bốn lần.** Khi chưa chọn ai vào vòng quay, màn
+  hình vừa ghi *chưa có ai*, vừa nhắc ở nút, vừa hiện thêm một hộp cảnh báo ở tận cuối, xa chỗ
+  phải sửa. Nay còn một dòng nhắc, đặt ngay dưới ô chọn người. Phần giải thích vì sao có hội
+  thoại không ai phụ trách gấp vào một nút mở, ai cần thì xem.
+- **Danh sách nhãn chiếm quá nhiều chỗ.** Mỗi nhãn ăn hai dòng, kèm một cột mã số không dùng vào
+  việc gì và một nút *Xoá* đỏ trên mọi dòng, nên vài chục nhãn là một bức tường chữ đỏ. Nay mỗi
+  nhãn một dòng, bỏ cột mã số, nút xoá thành biểu tượng mờ; danh sách dài thì cuộn trong khung
+  chứ không đẩy ô thêm nhãn đi mất, và từ chín nhãn trở lên có thêm ô lọc theo tên (gõ không
+  dấu vẫn ra). Hộp hỏi lại kèm số khách đang mang nhãn vẫn giữ nguyên.
 - **Ô chọn người phụ trách trống trơn, không giao việc được cho ai.** Màn hình *Phân công* và ô giao
   việc trong hộp thư không đổ ra được người nào, kèm câu báo dẫn sai hướng là đội trực còn trống —
   trong khi công ty có đủ nhân viên. Nguyên nhân là phiên làm việc với CRM hết hạn mà không được gia

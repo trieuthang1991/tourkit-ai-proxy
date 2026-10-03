@@ -1,4 +1,4 @@
-# Hợp đồng hàng đợi `dbo.CrmActionQueue` — trợ lý hành động → CRM
+﻿# Hợp đồng hàng đợi `dbo.CrmActionQueue` — trợ lý hành động → CRM
 
 Trợ lý (`/assistant`, `/travai`) có 2 hành động ghi vào CRM: **giao việc** (`assign_task`) và
 **tạo lịch hẹn CSKH** (`create_appointment`). Proxy (`tourkit-ai-proxy`) **KHÔNG POST thẳng vào
@@ -30,6 +30,11 @@ Schema idempotent trong [`Services/Db/TourkitAiDb.cs`](../../TourkitAiProxy.Infr
 | `ErrorMessage` | `NVARCHAR(1000)` NULL | Worker ghi lỗi lần POST cuối khi Failed. |
 | `CreatedUtc` | `DATETIME2` | Lúc proxy enqueue (UTC). |
 | `ProcessedUtc` | `DATETIME2` NULL | Lúc worker xử lý xong (Done hoặc Failed) — UTC. |
+| `Action` | `NVARCHAR(60)` NULL | **Thêm 12/09/2026.** Nghiệp vụ phía chat đã đẻ ra dòng này: `chat-cham-soc`, `chat-co-hoi`. **KHÁC `Kind`**: `Kind` nói gọi API CRM nào và worker phân việc theo nó; `Action` chỉ để tra cứu và báo cáo — worker KHÔNG rẽ nhánh theo cột này. `NULL` với hành động do trợ lý số liệu sinh ra (chúng không thuộc nghiệp vụ chat nào). |
+| `ReferId` | `NVARCHAR(64)` NULL | **Thêm 12/09/2026.** Mã hội thoại chat, để truy ngược từ một việc về đúng đoạn chat. `NULL` khi việc không đến từ hội thoại. |
+
+Index: `IX_CrmActionQueue_Refer (TenantId, ReferId, Id DESC)` — tra "hội thoại này đã đẻ ra
+những việc gì", dùng bởi khối trạng thái trong hộp thư chat.
 
 Index: `IX_CrmActionQueue_Poll (Status, CreatedUtc)` — worker poll theo index này (oldest Pending
 trước). `IX_CrmActionQueue_Tenant (TenantId, Status, CreatedUtc)` — cho trang theo dõi per-tenant.
@@ -109,7 +114,7 @@ Worker khi xử lý dòng `Kind='assign-task'` **PHẢI**:
 
 | Key trong `PayloadJson` | → Field `CreateCustomerCareRequest` | Ghi chú |
 |---|---|---|
-| `customerId` | `customerId` | Đã resolve — id trực tiếp hoặc qua `ActionResolver.ResolveCustomerAsync` (tên → id, chặn khi mơ hồ/không khớp trước khi enqueue). |
+| `customerId` | `customerId` | Hai nguồn, và **chúng khác nhau ở điểm quan trọng nhất**:<br>· **Trợ lý số liệu** — đã resolve qua `ActionResolver.ResolveCustomerAsync` (tên → id, chặn khi mơ hồ/không khớp trước khi enqueue). Luôn `> 0`.<br>· **Hộp thư chat** — lấy từ `chat_contacts.crm_customer_id`, mã do người trực tự nối tay. ⚠️ **CÓ THỂ BẰNG `0`** khi hội thoại chưa nối khách: từ 12/09/2026 proxy KHÔNG còn từ chối xếp hàng trong ca đó. Khi `customerId = 0`, **worker PHẢI tự khớp hoặc tạo khách mới** dựa vào `customerName` + `customerPhone` trong cùng payload. Ràng buộc cũ đúng về hợp đồng CRM nhưng sai về nghiệp vụ — hầu hết hội thoại không bao giờ được nối tay. |
 | `careTitle` | `careTitle` | Default `"Lịch hẹn"` nếu AI không điền. |
 | `careDetail` | `careDetail` | Mô tả, có thể `null`. |
 | `careStartTime` | `careStartTime` | ISO UTC hoặc `null`. |
@@ -123,6 +128,58 @@ Worker khi xử lý dòng `Kind='assign-task'` **PHẢI**:
 Payload KHÔNG có `typeSchedule`/`parentTaskId`/`tags` — nếu `CreateCustomerCareRequest`/
 `CreateOrUpdateTaskingRequest` phía CRM có field bắt buộc khác không nằm trong payload trên, worker
 tự set default hợp lý (proxy chỉ gửi field trợ lý có đủ ngữ cảnh để điền).
+
+## 3b. `create-booking-ticket` → `POST /api/booking-tickets` (`CreateBookingTicketRequest`)
+
+> **Loại việc thứ ba.** Proxy **đã thả dòng** đúng khuôn này — tính năng đang chạy, không có cờ
+> nào chặn. Nhánh xử lý bên `CrmActionSyncWorker` do chủ dự án thống nhất với team rồi làm sau.
+>
+> **⚠️ Tới lúc đó, dòng KHÔNG nằm chờ mà bị đánh dấu HỎNG.** Đo thật trên staging 12/09/2026:
+> worker nhặt lên trong chưa tới một phút, không nhận ra Kind, ghi
+> `Status = 3 (Failed)` kèm `ErrorMessage = "Kind không hỗ trợ: 'create-booking-ticket'"`. Câu lỗi
+> kỹ thuật đó hiện thẳng cho người trực đọc trong khối trạng thái của hộp thư chat.
+>
+> Nên thứ tự triển khai đúng là: **viết nhánh worker TRƯỚC**, rồi mới mở nút cho người dùng — hoặc
+> chấp nhận một giai đoạn mà mỗi lượt bấm để lại một dòng hỏng nhìn thấy được.
+
+**Cơ hội bán hàng = BookingTicket** (xem `toutkit-app/docs/module-mapping.md`) — không phải
+Lead/Prospect.
+
+`PayloadJson` ví dụ:
+
+```json
+{
+  "idKhachHang": 123,
+  "tenKH": "Nguyễn Văn A",
+  "soDienThoaiKH": "0901234567",
+  "emailKH": null,
+  "tenPhieu": "Tư vấn tour Nhật tháng 10",
+  "noiDungPhieu": "Trích từ hộp thư chat:\nKhách: …\nNhân viên: …\n\nXem hội thoại: https://…",
+  "nguonPhieu": "chat-messenger",
+  "nguoiPhuTrachs": [45]
+}
+```
+
+| Key trong `PayloadJson` | → Field `CreateBookingTicketRequest` | Ghi chú |
+|---|---|---|
+| `idKhachHang` | `IdKhachHang` | ⚠️ **CÓ THỂ BẰNG `0`.** Lấy từ `chat_contacts.crm_customer_id`, mã do người trực tự nối tay — nhưng từ 12/09/2026 proxy **KHÔNG còn bắt nối trước khi xếp hàng**, nên dòng tới worker có thể thiếu mã. CRM đòi `IdKhachHang > 0`, vì vậy khi nhận `0` thì **worker PHẢI tự khớp hoặc tạo khách** từ `tenKH` + `soDienThoaiKH` trong cùng payload TRƯỚC khi gọi `POST /api/booking-tickets`. Bản trước của tài liệu này khẳng định "worker không bao giờ nhận dòng thiếu mã" — **đã sai** kể từ ngày đó. **Hộp thư chat KHÔNG tự tạo khách trên CRM** (chốt 11/09/2026): việc đó thuộc phía services, ở đây chỉ gửi đủ dữ kiện để bên kia quyết. |
+| `tenKH` | `TenKH` | **Bắt buộc.** Lấy từ hồ sơ khách đã nối. |
+| `soDienThoaiKH`, `emailKH` | cùng tên | Từ `chat_contacts`; có thể `null` (Telegram/Messenger không bao giờ cho số). |
+| `tenPhieu` | `TenPhieu` | Người trực gõ, bỏ trống thì proxy dựng `"Chat: {tên khách}"`. |
+| `noiDungPhieu` | `NoiDungPhieu` | Trích đoạn chat + đường dẫn về hội thoại. **Trích, không tóm tắt bằng AI** — người đọc phiếu cần đúng lời khách. |
+| `nguonPhieu` | `NguonPhieu` | **CHUỖI ĐỊNH DANH, không phải mã số** — `"chat-messenger"`, `"chat-zalo"`, `"chat-telegram"`… **Worker phải tự chuẩn hoá** về mã số của CRM (chủ dự án chốt 12/09/2026). Trước đó proxy gửi một mã số đọc từ cấu hình, mặc định `1` — một con số tự chọn, và nếu CRM đang dùng `1` cho việc khác thì mọi Cơ hội từ chat bị gắn sai nguồn trong im lặng. Kèm tên kênh vì báo cáo cần trả lời "Cơ hội đến từ Zalo hay Facebook" — hỏi sau thì không truy lại được. |
+| `nguoiPhuTrachs` | `NguoiPhuTrachs` | Mã người trong CRM — người đang phụ trách hội thoại. Mảng rỗng thì handler để CRM tự xử theo mặc định. |
+
+**Ba việc handler phải tự làm:**
+
+1. **Kiểm quyền thì KHÔNG cần** — proxy đã kiểm `CH_TAO_MOI` từ phiên của người bấm nút, trước khi
+   thả dòng. Lý do kiểm ở proxy: `BookingTicketService.CreateAsync` bên CRM **không** kiểm quyền
+   (chỉ `CH_XEM*` khi xem và `CH_SUA` khi sửa), web cũ kiểm ở tầng màn hình — nên nếu proxy không
+   chặn thì ai vào được hộp thư chat cũng tạo được Cơ hội. Worker chạy bằng quyền khác và không
+   biết ai đã bấm, nên nó không thể kiểm thay.
+2. **Ghi `ResultJson`** dạng `{"bookingTicketId": <id>}` khi xong — để sau này giao diện chat dẫn
+   thẳng sang phiếu.
+3. **Trường bắt buộc khác** mà payload không có thì tự đặt mặc định hợp lý, như hai loại việc trên.
 
 ## 4. Vòng đời `Status` — trách nhiệm worker
 

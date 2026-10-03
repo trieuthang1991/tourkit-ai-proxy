@@ -72,6 +72,7 @@ public static class SeoSetup
         new("/chat-inbox", $"Hộp thư chat · {Brand}"),
         new("/visa", $"Visa AI · {Brand}"),
         new("/visa-config", $"Cấu hình Visa · {Brand}"),
+        new("/ai-key", $"Key AI riêng · {Brand}"),
         new("/ncc-import", $"Import nhà cung cấp · {Brand}"),
         new("/ncc-list", $"Nhà cung cấp · {Brand}"),
         new("/widget-admin", $"Widget chat khách · {Brand}"),
@@ -177,11 +178,43 @@ public static class SeoSetup
         return sb.ToString();
     }
 
+    // ── Danh tính pháp nhân ────────────────────────────────────────────────────
+    //
+    // Bốn giá trị này là thứ Meta/Google đem ĐỐI CHIẾU với ĐKKD khi xác minh doanh nghiệp, nên
+    // chúng phải khớp TỪNG CHỮ với giấy phép — không viết tắt, không bỏ "Công ty Cổ phần".
+    //
+    // Vì sao phải nằm trong HTML máy chủ trả về: đo 19/09/2026, travelai.vn là SPA nên tên công
+    // ty, địa chỉ và MST chỉ hiện SAU khi JavaScript chạy. Người duyệt mở bằng trình duyệt thì
+    // thấy, nhưng trình thu thập của Meta đọc HTML thô thì không thấy gì — và "không tìm thấy
+    // thông tin doanh nghiệp trên website" là một trong những lý do bị trả hồ sơ.
+    //
+    // ⚠️ Trùng nguyên văn với chân trang trong wwwroot/pages/landing.jsx. Sửa một bên phải sửa
+    // bên kia, đúng luật chống lệch nội dung ghi ở đầu lớp này.
+    private const string LegalName = "Công ty Cổ phần TourKit Việt Nam";
+    private const string TaxId     = "0111219654";
+    private const string Street    = "Tầng 3, Số nhà 242 Nguyễn Văn Lộc, Phường Hà Đông";
+    private const string City      = "Thành phố Hà Nội";
+    private const string Phone     = "+84383202404";
+    private const string Email     = "info@tourkit.vn";
+
     private static string JsonLd(string baseUrl) =>
         "<script type=\"application/ld+json\">"
         + "{\"@context\":\"https://schema.org\",\"@graph\":["
-        + "{\"@type\":\"Organization\",\"name\":\"TRAV-AI\",\"url\":\"" + baseUrl + "/\","
+        + "{\"@type\":\"Organization\",\"name\":\"TRAV-AI\","
+        + "\"legalName\":\"" + Esc(LegalName) + "\","
+        + "\"taxID\":\"" + TaxId + "\","
+        + "\"vatID\":\"" + TaxId + "\","
+        + "\"url\":\"" + baseUrl + "/\","
         + "\"logo\":\"" + baseUrl + "/images/tourkit-logo.png\","
+        + "\"email\":\"" + Email + "\","
+        + "\"telephone\":\"" + Phone + "\","
+        + "\"address\":{\"@type\":\"PostalAddress\","
+        + "\"streetAddress\":\"" + Esc(Street) + "\","
+        + "\"addressLocality\":\"" + Esc(City) + "\","
+        + "\"addressCountry\":\"VN\"},"
+        + "\"contactPoint\":{\"@type\":\"ContactPoint\",\"contactType\":\"customer support\","
+        + "\"telephone\":\"" + Phone + "\",\"email\":\"" + Email + "\","
+        + "\"availableLanguage\":[\"vi\",\"en\"]},"
         + "\"areaServed\":\"VN\"},"
         + "{\"@type\":\"SoftwareApplication\",\"name\":\"TRAV-AI\","
         + "\"applicationCategory\":\"BusinessApplication\","
@@ -233,6 +266,18 @@ public static class SeoSetup
         + "<h2>Sẵn sàng để AI gánh việc lặp lại?</h2>"
         + "<p>15 phút demo trực tiếp với team Tourkit, chưa cần thanh toán ngay.</p>"
         + "<p>Đăng ký tư vấn miễn phí</p>"
+        // Khối pháp nhân — thứ người duyệt Meta đi tìm. Dùng microdata (itemprop) chứ không chỉ
+        // chữ thường: cùng một khối vừa cho người đọc vừa cho máy đối chiếu, khỏi khai hai nơi.
+        + "<address id=\"seo-phap-nhan\" itemscope itemtype=\"https://schema.org/Organization\">"
+        + "<span itemprop=\"legalName\">" + Esc(LegalName) + "</span>"
+        + " &middot; MST <span itemprop=\"taxID\">" + TaxId + "</span>"
+        + "<span itemprop=\"address\" itemscope itemtype=\"https://schema.org/PostalAddress\">"
+        + " &middot; <span itemprop=\"streetAddress\">" + Esc(Street) + "</span>"
+        + ", <span itemprop=\"addressLocality\">" + Esc(City) + "</span>"
+        + "</span>"
+        + " &middot; <span itemprop=\"telephone\">0383.202.404</span>"
+        + " &middot; <span itemprop=\"email\">" + Email + "</span>"
+        + "</address>"
         + "</div>";
 
     // ── robots.txt + sitemap.xml ───────────────────────────────────────────────

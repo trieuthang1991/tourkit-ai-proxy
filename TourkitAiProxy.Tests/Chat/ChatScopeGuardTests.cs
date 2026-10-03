@@ -40,12 +40,22 @@ public class ChatScopeGuardTests
         //
         // Phủ CẢ BA hàm đọc hội thoại theo id/tenant — thiếu CountAsync là chip đếm (tổng, chưa
         // đọc, theo kênh) lộ đúng con số mà luật 404 ở hai hàm kia đang giấu.
+        //
+        // ⚠️ Cắt theo MỐC CÚ PHÁP, không theo cửa sổ ký tự. Bản trước lấy `.{0,3000}` sau tên hàm
+        // và đã đỏ oan ngày 11/09/2026: thêm một bộ lọc vào ListConversationsAsync là mệnh đề cần
+        // canh trôi ra ngoài 3000 ký tự, trong khi mã không hề sai. Sai chiều ngược lại còn tệ
+        // hơn — cửa sổ trèo sang hàm kế thì chốt xanh nhờ mệnh đề của hàm khác.
         var repo = Repo();
-        foreach (var ten in new[] { "GetConversationAsync", "ListConversationsAsync", "CountAsync" })
+        var chuKy = new[]
         {
-            var m = Regex.Match(repo, ten + @"(.{0,3000})", RegexOptions.Singleline);
-            Assert.True(m.Success, $"Không thấy {ten}");
-            Assert.Contains("@xemTatCa OR v.assigned_user_id = @maNguoi", m.Groups[1].Value);
+            "public async Task<ChatConversation?> GetConversationAsync(",
+            "public async Task<List<ChatConversation>> ListConversationsAsync(",
+            "public async Task<ChatInboxCounts> CountAsync(",
+        };
+        foreach (var k in chuKy)
+        {
+            var than = ChatSchemaGuardTests.ThanThanhVien(repo, k);
+            Assert.Contains("@xemTatCa OR v.assigned_user_id = @maNguoi", than);
         }
     }
 

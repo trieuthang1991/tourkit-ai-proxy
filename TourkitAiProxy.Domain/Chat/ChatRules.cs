@@ -177,6 +177,215 @@ public static class ChatRules
     /// <para>Ghi nhân viên và trợ lý CHUNG một nhãn "Mình": với khách thì cả hai đều là công ty,
     /// và tách ra chỉ mời model bắt chước giọng của một trong hai.</para>
     /// </summary>
+    /// <summary>
+    /// Từ một đoạn hội thoại (cũ → mới), tách ra CÂU HỎI cần trả lời và LỊCH SỬ đứng trước nó.
+    /// Nền cho nút <b>Gợi ý</b>: chỉ có câu hỏi thì mới có gì để soạn.
+    ///
+    /// <para>Câu hỏi = tin CÓ CHỮ mới nhất, và nó phải là của KHÁCH. Tin mới nhất là của mình thì
+    /// trả <c>null</c>: khách chưa nói gì thêm, gợi ý lúc này là sinh câu thứ hai chồng lên câu
+    /// vừa gửi.</para>
+    ///
+    /// <para><b>Luật lọc ở đây KHÁC <see cref="BuildConversationPrompt"/> một chỗ, và cố ý.</b>
+    /// Hàm kia bỏ tin <c>Pending</c> khỏi lịch sử vì tin chưa tới tay khách thì đưa vào là bot
+    /// tưởng mình đã nói rồi. Còn ở đây <c>Pending</c> của MÌNH vẫn tính là "đã nói": câu trả lời
+    /// bot vừa xếp hàng gửi (ChatInboundService lưu đúng trạng thái đó) mà bị lờ đi thì tin khách
+    /// lại thành tin mới nhất, nút Gợi ý sinh tiếp một câu nữa — khách nhận hai câu trả lời khác
+    /// nhau cho cùng một câu hỏi, cách nhau vài giây.</para>
+    ///
+    /// <para>Tin <b>hỏng</b> thì ngược lại, bỏ ở cả hai phía: khách không nhận được nó, nên nó
+    /// không phải "mình đã nói". Tin không chữ (ảnh, sticker) cũng bỏ — không có gì để đọc.</para>
+    /// </summary>
+    /// <param name="tin">Theo thứ tự thời gian TĂNG dần.</param>
+    /// <returns>
+    /// <c>CauHoi</c> null nghĩa là KHÔNG có gì để gợi ý — chỗ gọi phải hiểu đó là câu trả lời
+    /// hợp lệ, không phải lỗi.
+    /// </returns>
+    public static (string? CauHoi, DateTime? HoiLuc, List<ChatMessage> Truoc) SplitLatestQuestion(
+        IEnumerable<ChatMessage> tin)
+    {
+        var coChu = tin
+            .Where(m => m.State != (short)ChatState.Failed && !string.IsNullOrWhiteSpace(m.Body))
+            .ToList();
+
+        if (coChu.Count == 0) return (null, null, new List<ChatMessage>());
+
+        var cuoi = coChu[^1];
+        if (cuoi.Direction != (short)ChatDirection.In) return (null, null, coChu);
+
+        return (cuoi.Body!.Trim(), cuoi.CreatedUtc, coChu.Take(coChu.Count - 1).ToList());
+    }
+
+    /// <summary>
+    /// Trần độ dài mặc định cho nội dung một lượt chăm sóc gửi sang CRM. Để thấp hơn hẳn trần
+    /// thật của cột bên đó: thừa chỗ còn hơn để một hội thoại dài làm hỏng dòng hàng đợi.
+    /// </summary>
+    public const int CareLogCharLimit = 1800;
+
+    /// <summary>
+    /// Trích đoạn chat thành văn bản để ghi vào nhật ký chăm sóc bên CRM.
+    ///
+    /// <para><b>TRÍCH, không diễn giải.</b> Không gọi AI: người đọc hồ sơ khách cần đúng lời khách
+    /// đã nói, không cần bản tóm tắt của máy — và một bản tóm tắt sai thì nằm vĩnh viễn trong hồ
+    /// sơ CRM mà không ai biết nó từng sai.</para>
+    ///
+    /// <para>Vượt trần thì cắt từ ĐẦU và giữ phần cuối, kèm dấu báo đã cắt: phần gần chốt nhất là
+    /// phần đáng giữ. Cắt theo ký tự chứ không theo số tin — cột bên CRM chặn theo độ dài, mà một
+    /// tin có thể dài bằng cả chục tin khác.</para>
+    /// </summary>
+    /// <summary>
+    /// Số điện thoại khách GÕ TRONG TIN NHẮN, chuẩn hoá về dạng <c>0xxxxxxxxx</c>.
+    /// <c>null</c> khi không thấy số nào đáng tin.
+    ///
+    /// <para><b>Vì sao cần.</b> Kênh chỉ tự đưa số ở hai ca hiếm: Zalo khi khách bấm chia sẻ, và
+    /// WhatsApp (số CHÍNH LÀ định danh). Messenger, Instagram, Telegram <b>không bao giờ</b> cho
+    /// số. Mà không có số thì không tra được khách bên CRM, không nối được, và mọi việc dựng trên
+    /// nền "đã nối khách" đều không với tới. Khách gõ số vào tin nhắn là nguồn duy nhất còn lại.</para>
+    ///
+    /// <para><b>Chấp nhận dấu phân cách</b> (khoảng trắng, chấm, gạch) vì người ta gõ
+    /// "0901 234 567" nhiều hơn là gõ liền. Chấp nhận cả tiền tố <c>+84</c>/<c>84</c>.</para>
+    ///
+    /// <para><b>KHÔNG nhận khi con số nằm trong một dãy dài hơn.</b> Mã đơn, mã chuyến bay, số tài
+    /// khoản đều là chuỗi số dài; cắt ra mười chữ số ở giữa rồi gọi đó là số điện thoại là bịa ra
+    /// một khách. Thà bỏ sót còn hơn nối nhầm hồ sơ.</para>
+    /// </summary>
+    public static string? FindPhone(string? text)
+    {
+        if (string.IsNullOrWhiteSpace(text)) return null;
+
+        // Cụm ứng viên: tiền tố tuỳ chọn, rồi các chữ số có thể xen dấu phân cách.
+        // Hai bên phải KHÔNG phải chữ số — đó là vế chặn "nằm trong dãy dài hơn".
+        foreach (System.Text.RegularExpressions.Match m in System.Text.RegularExpressions.Regex.Matches(
+                     text, @"(?<![0-9])(\+?84|0)[\s.\-]?([0-9][\s.\-]?){8,10}(?![0-9])"))
+        {
+            var so = new string(m.Value.Where(char.IsDigit).ToArray());
+
+            // +84/84 → 0. Làm TRƯỚC khi đo độ dài, không thì "84901234567" bị loại oan.
+            if (so.StartsWith("84", StringComparison.Ordinal) && so.Length == 11)
+                so = "0" + so[2..];
+
+            // Di động Việt Nam sau quy hoạch 2018: đúng 10 chữ số, mở đầu 03/05/07/08/09.
+            // Đầu số cố định (02x) CỐ Ý bỏ qua: khách du lịch để số cố định gần như không có,
+            // trong khi 024/028 lại rất giống phần đầu của nhiều mã số khác.
+            if (so.Length == 10 && so[0] == '0' && so[1] is '3' or '5' or '7' or '8' or '9')
+                return so;
+        }
+        return null;
+    }
+
+    /// <summary>
+    /// Tên khách TỰ KHAI trong tin nhắn ("mình tên Nguyễn Văn An"). <c>null</c> khi không chắc.
+    ///
+    /// <para><b>Đòi có CỤM DẪN rõ ràng</b> ("tên tôi là", "mình tên", "em là"…). Đoán tên bằng
+    /// cách bắt chữ viết hoa thì mọi địa danh trong câu hỏi tour đều thành tên khách — "cho hỏi
+    /// tour Đà Nẵng" ra khách tên "Đà Nẵng".</para>
+    ///
+    /// <para>Kết quả KHÔNG được đè lên tên kênh cung cấp. Đây là "khách tự xưng", một dữ kiện
+    /// khác hẳn và kém chắc chắn hơn — chỗ gọi phải cất riêng.</para>
+    /// </summary>
+    public static string? FindStatedName(string? text)
+    {
+        if (string.IsNullOrWhiteSpace(text)) return null;
+
+        var m = System.Text.RegularExpressions.Regex.Match(text,
+            // \btên\b rồi \s* — KHÔNG phải \s+: người ta gõ "tên: Phạm Quốc Cường" không có
+            // khoảng trắng trước dấu hai chấm, và đó là cách gõ rất thường gặp.
+            @"(?:\btên\b\s*(?:tôi|mình|em|anh|chị|cháu)?\s*(?:là|:)?|(?:tôi|mình|em)\s+\btên\b\s*(?:là)?|(?:tôi|mình|em)\s+là)\s*(?<ten>[^\d,.;!?\n]{2,40})",
+            System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+        if (!m.Success) return null;
+
+        var ten = m.Groups["ten"].Value.Trim();
+        // Cắt ở từ nối: "mình là Lan và mình muốn hỏi tour" → "Lan".
+        foreach (var noi in new[] { " và ", " nhé", " ạ", " nha", " muốn", " cần", " đang", " ở " })
+        {
+            var i = ten.IndexOf(noi, StringComparison.OrdinalIgnoreCase);
+            if (i > 0) ten = ten[..i];
+        }
+        ten = ten.Trim();
+
+        // Tên người Việt: 1–5 tiếng. Dài hơn gần như chắc chắn đã bắt nhầm cả câu.
+        var soTieng = ten.Split(' ', StringSplitOptions.RemoveEmptyEntries).Length;
+        return soTieng is >= 1 and <= 5 && ten.Length >= 2 ? ten : null;
+    }
+
+    public static string SummarizeForCareLog(IEnumerable<ChatMessage> tin, int tranKyTu = CareLogCharLimit)
+    {
+        var dong = tin
+            .Where(m => m.State != (short)ChatState.Failed && !string.IsNullOrWhiteSpace(m.Body))
+            .Select(m => (m.Direction == (short)ChatDirection.In ? "Khách: " : "Nhân viên: ")
+                         + m.Body!.Trim())
+            .ToList();
+
+        if (dong.Count == 0) return "";
+
+        var ra = string.Join("\n", dong);
+        if (ra.Length <= tranKyTu) return ra;
+
+        // Cắt từ đầu, chừa chỗ cho dấu báo. Cắt tại ranh giới dòng gần nhất để không để lại nửa
+        // câu cụt lủn ngay đầu đoạn.
+        const string dauCat = "…\n";
+        var batDau = ra.Length - (tranKyTu - dauCat.Length);
+        var xuong = ra.IndexOf('\n', batDau);
+        if (xuong >= 0 && xuong < ra.Length - 1) batDau = xuong + 1;
+        return dauCat + ra[batDau..];
+    }
+
+    /// <summary>
+    /// Trích đoạn chat để ghi vào <c>NoiDungPhieu</c> của Cơ hội bán hàng: N tin có chữ gần nhất,
+    /// mỗi dòng ghi rõ ai nói, và đường dẫn quay lại hội thoại ở cuối.
+    ///
+    /// <para>Cùng nguyên tắc với <see cref="SummarizeForCareLog"/> — TRÍCH, không diễn giải, không gọi
+    /// AI. Khác một chỗ: cắt theo SỐ TIN chứ không theo ký tự, vì người xử lý phiếu cần đúng mấy
+    /// lượt cuối đã dẫn tới cơ hội này, không cần cả cuộc trò chuyện.</para>
+    ///
+    /// <para>Đường dẫn luôn có, kể cả khi không trích được câu nào: phiếu tạo từ một hội thoại
+    /// toàn ảnh vẫn cần lối quay về hội thoại đó.</para>
+    /// </summary>
+    public static string SummarizeForTicket(IEnumerable<ChatMessage> tin, int soTin, string duongDan)
+    {
+        var dong = tin
+            .Where(m => m.State != (short)ChatState.Failed && !string.IsNullOrWhiteSpace(m.Body))
+            .TakeLast(Math.Max(1, soTin))
+            .Select(m => (m.Direction == (short)ChatDirection.In ? "Khách: " : "Nhân viên: ")
+                         + m.Body!.Trim());
+
+        var sb = new System.Text.StringBuilder();
+        sb.AppendLine("Trích từ hộp thư chat:");
+        foreach (var d in dong) sb.AppendLine(d);
+        sb.AppendLine();
+        sb.Append("Xem hội thoại: ").Append(duongDan);
+        return sb.ToString();
+    }
+
+    /// <summary>
+    /// Bot chỉ trả lời trong quãng ngắn ngay sau khi khách nhắn: 4 giây chờ gộp tin (xem
+    /// <see cref="BurstIdle"/> ở worker) cộng vài giây gọi AI. Để rộng một phút cho chắc.
+    /// </summary>
+    public static readonly TimeSpan BotReplyWindow = TimeSpan.FromSeconds(60);
+
+    /// <summary>
+    /// Bot có đang định trả lời câu hỏi này không — tức nhân viên bấm <b>Gợi ý</b> lúc này có
+    /// nguy cơ đẻ ra câu trả lời THỨ HAI cho cùng một câu hỏi không.
+    ///
+    /// <para><b>Vì sao cần một luật riêng thay vì chỉ nhìn "bot có bật không".</b> Bot bật không
+    /// có nghĩa bot sẽ nói. Nó im khi hội thoại đã đóng, khách bị chặn, hoặc đang nhường người
+    /// thật — và im cả khi hết lượt AI hay nhà cung cấp hỏng, mà hai ca sau KHÔNG để lại dấu vết
+    /// nào trên hội thoại. Chặn nút Gợi ý chỉ vì "bot đang bật" là chặn đúng vào lúc nhân viên
+    /// cần nó nhất.</para>
+    ///
+    /// <para>Vế thời gian giải quyết việc đó mà không cần bot báo gì: quá
+    /// <see cref="BotReplyWindow"/> mà hội thoại vẫn chưa có câu trả lời nào thì bot đã không
+    /// trả lời, dù lý do là gì.</para>
+    /// </summary>
+    /// <param name="botBat">Công ty có bật trợ lý tự trả lời không (<c>ChatBotSettings.Enabled</c>).</param>
+    /// <param name="hoiLuc">Lúc khách gửi câu đang chờ trả lời — <c>HoiLuc</c> của
+    /// <see cref="SplitLatestQuestion"/>. Null nghĩa là không có câu nào đang chờ.</param>
+    public static bool BotIsAboutToReply(ChatConversation hoiThoai, bool botBat,
+        DateTime? hoiLuc, DateTime nowUtc)
+        => botBat
+        && hoiLuc is { } luc
+        && nowUtc - luc < BotReplyWindow
+        && BotMayReply(hoiThoai, nowUtc);
+
     /// <param name="tin">Theo thứ tự thời gian TĂNG dần. Chỉ lấy phần đuôi.</param>
     /// <param name="cauHoi">Cụm tin khách vừa gửi, chưa nằm trong <paramref name="tin"/>.</param>
     public static string BuildConversationPrompt(IEnumerable<ChatMessage> tin, string cauHoi,
@@ -203,8 +412,47 @@ public static class ChatRules
         return sb.ToString();
     }
 
+    /// <summary>
+    /// Nhân viên trả lời xong thì bot câm bấy nhiêu phút — giá trị mặc định khi công ty chưa đặt
+    /// riêng. <b>MỘT nguồn duy nhất</b> cho con số này.
+    ///
+    /// <para>Trước 11/09/2026 nó nằm rải ở bốn chỗ dưới dạng số 30 gõ tay: hằng ở đây, mặc định
+    /// của <see cref="ChatBotSettings"/>, và hai lượt <c>?? 30</c> trong endpoint. Bốn chỗ thì
+    /// đổi một chỗ là ba chỗ kia lặng lẽ lệch đi.</para>
+    /// </summary>
+    public const int BotCamPhutMacDinh = 30;
+
+    /// <summary>
+    /// Bốn hướng soạn nháp mà nhân viên chọn được bằng chip dưới nút "Nhờ AI soạn", và câu dặn
+    /// tương ứng nối vào lời nhắc. Mã không khớp (kể cả <c>null</c>) trả <c>null</c> = soạn thường.
+    ///
+    /// <para><b>TẬP ĐÓNG, dịch ở máy chủ — KHÔNG nhận chữ dặn tự do từ trình duyệt.</b> Chữ ở đây
+    /// đi thẳng vào lời nhắc gửi cho mô hình, nên để trình duyệt gửi chữ gì cũng được là mở toang
+    /// một đường tiêm lời nhắc: bất kỳ ai mở được Bảng điều khiển trình duyệt cũng gỡ được khung
+    /// an toàn cấm bịa giá tour, rồi bảo trợ lý hứa giữ chỗ với khách thật. Giao diện chỉ được
+    /// gửi MỘT MÃ; câu chữ nằm ở đây và chỉ ở đây.</para>
+    ///
+    /// <para>Mã đặt tiếng Anh vì nó là khoá dữ liệu đi qua đường truyền, còn câu dặn tiếng Việt vì
+    /// nó là chữ gửi cho mô hình đang nói chuyện với khách Việt.</para>
+    /// </summary>
+    public static string? SuggestionToneHint(string? ma) => ma switch
+    {
+        "formal" =>
+            "Viết giọng trang trọng, lịch sự, xưng hô đầy đủ. Tránh từ lóng và viết tắt.",
+        "callback" =>
+            "Mục tiêu của câu này là hẹn được một cuộc gọi lại: đề nghị khung giờ cụ thể và "
+            + "hỏi lại số điện thoại nếu đoạn hội thoại chưa có.",
+        "ask-info" =>
+            "Khách chưa nói đủ để tư vấn. Hỏi thêm đúng những thông tin còn thiếu (ngày đi, số "
+            + "người, điểm đến, ngân sách) — hỏi gọn, không quá ba ý.",
+        "apologize" =>
+            "Khách đang không hài lòng. Xin lỗi ngắn gọn và chân thành, KHÔNG biện minh dài dòng, "
+            + "rồi nói rõ việc sẽ làm tiếp theo.",
+        _ => null,
+    };
+
     /// Nhân viên trả lời xong thì bot câm bấy lâu.
-    public static readonly TimeSpan DefaultBotMute = TimeSpan.FromMinutes(30);
+    public static readonly TimeSpan DefaultBotMute = TimeSpan.FromMinutes(BotCamPhutMacDinh);
 
     /// <summary>
     /// Còn gửi được cho khách không.
@@ -267,6 +515,30 @@ public static class ChatRules
 
     /// <summary>Tên kênh cho câu nói với người dùng. Công khai vì tầng endpoint cũng cần —
     /// để mỗi chỗ tự đặt tên riêng thì cùng một kênh có hai cái tên trên hai màn hình.</summary>
+    /// <summary>
+    /// ĐỊNH DANH ổn định của kênh — dùng cho dữ liệu gửi đi hệ khác, báo cáo, khoá tra cứu.
+    ///
+    /// <para><b>Tách hẳn khỏi <see cref="ChannelName"/>.</b> Cái kia là chữ HIỂN THỊ và được phép
+    /// đổi bất cứ lúc nào ("Chat trên web" có dấu cách, "Kênh này" cho giá trị lạ). Đem chữ hiển
+    /// thị đi làm định danh thì một lần sửa câu chữ trên màn hình là bên nhận ánh xạ hỏng — mà
+    /// hỏng lặng lẽ, vì dữ liệu vẫn về, chỉ gắn sai nguồn.</para>
+    ///
+    /// <para>Messenger trả <c>facebook</c> chứ không phải <c>messenger</c>: đây là chuỗi cho
+    /// NGƯỜI KINH DOANH đọc trong báo cáo, và họ gọi kênh đó là Facebook.</para>
+    /// </summary>
+    public static string ChannelSlug(ChatChannel k) => k switch
+    {
+        ChatChannel.Zalo => "zalo",
+        ChatChannel.Messenger => "facebook",
+        ChatChannel.Instagram => "instagram",
+        ChatChannel.WhatsApp => "whatsapp",
+        ChatChannel.TikTok => "tiktok",
+        ChatChannel.Telegram => "telegram",
+        ChatChannel.Webchat => "web",
+        // Kênh mới thêm mà quên khai ở đây thì vẫn ra một chuỗi dùng được, không rơi vào rỗng.
+        _ => k.ToString().ToLowerInvariant(),
+    };
+
     public static string ChannelName(ChatChannel k) => k switch
     {
         ChatChannel.Zalo => "Zalo",

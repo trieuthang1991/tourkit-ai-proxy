@@ -496,7 +496,7 @@
         {/* Khối "KHÁCH HÀNG NÓI GÌ" (testimonials) đã bỏ theo yêu cầu (LP5) */}
 
         {/* ── BIG CTA BAND (1 dấu nhấn cuối, không lặp lại intent CTA) */}
-        <section className="lp-cta-band">
+        <section id="lp-tu-van" className="lp-cta-band">
           <img className="lp-cta-bot-left" src="/images/robots/robot11.PNG" alt="" aria-hidden="true" loading="lazy" decoding="async" />
           <img className="lp-cta-bot-right" src="/images/robots/robot12.PNG" alt="" aria-hidden="true" loading="lazy" decoding="async" />
           <div className="lp-cta-inner">
@@ -527,25 +527,30 @@
                 <div className="lpf-badge"><span className="lpf-badge-dot" /> Hệ thống hoạt động 24/7</div>
               </div>
 
+              {/* MƯỜI đường cụt ở hai cột này (tám href="#" cộng #portfolio và #consultation —
+                  hai mốc neo KHÔNG tồn tại trên trang) đã thay bằng đường thật, 19/09/2026.
+                  Người duyệt Meta bấm thử link chân trang để xem website có phải hàng thật không;
+                  bấm "Về chúng tôi" mà đứng im là dấu hiệu site dựng vội. Thà ÍT mục mà mục nào
+                  cũng tới nơi, còn hơn dài mà rỗng. */}
               <div className="lpf-col">
-                <h4>Dịch Vụ</h4>
+                <h4>Sản phẩm</h4>
                 <ul>
-                  <li><a href="#">Thiết kế Web Du Lịch</a></li>
-                  <li><a href="#">Xây dựng OTA Platform</a></li>
-                  <li><a href="#">Tối ưu chuyển đổi (CRO)</a></li>
-                  <li><a href="#">Thiết kế Landing Page</a></li>
-                  <li><a href="#">AI Trip Planner</a></li>
+                  <li><a href="#lp-features">Tính năng AI</a></li>
+                  <li><a href="#lp-how">Cách bắt đầu</a></li>
+                  <li><a href="/wizard">AI tính giá tour</a></li>
+                  <li><a href="/chat-inbox">Hộp thư chat đa kênh</a></li>
+                  <li><a href="/visa">Thẩm định visa</a></li>
                 </ul>
               </div>
 
               <div className="lpf-col">
-                <h4>Công Ty</h4>
+                <h4>Công ty</h4>
                 <ul>
-                  <li><a href="#">Về chúng tôi</a></li>
-                  <li><a href="#portfolio">Dự án tiêu biểu</a></li>
-                  <li><a href="#">Bảng giá</a></li>
-                  <li><a href="#">Blog chia sẻ</a></li>
-                  <li><a href="#consultation">Liên hệ tư vấn</a></li>
+                  <li><a href="https://tourkit.vn" target="_blank" rel="noopener">Về TourKit</a></li>
+                  <li><a href="#lp-tu-van">Liên hệ tư vấn</a></li>
+                  <li><a href="/privacy">Chính sách bảo mật</a></li>
+                  <li><a href="/dieu-khoan">Điều khoản sử dụng</a></li>
+                  <li><a href="mailto:info@tourkit.vn">Hỗ trợ khách hàng</a></li>
                 </ul>
               </div>
 

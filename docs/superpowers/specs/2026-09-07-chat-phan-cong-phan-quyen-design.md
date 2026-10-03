@@ -1,8 +1,8 @@
-# Hộp thư chat — phân công và phân quyền xem
+﻿# Hộp thư chat — phân công và phân quyền xem
 
 **Ngày:** 07/09/2026 · **Trạng thái:** thiết kế, chưa code
 **Nguồn yêu cầu:** Sheet "Chat đa kênh" (Bug App), mục 9 · 10 · 11 · 12 · 13
-**Liên quan:** [chat-inbox.md](../../features/chat-inbox.md) ·
+**Liên quan:** [chat-inbox.md](../../features/chat-inbox-ky-thuat.md) ·
 [2026-08-20-omnichannel-chat-design.md](2026-08-20-omnichannel-chat-design.md)
 
 ---
@@ -339,7 +339,7 @@ Bộ hiện có hơn 800 test logic thuần, chạy dưới 1 giây. Thêm:
 ## 10. Việc phải làm kèm
 
 - `CHANGELOG.md` — bắt buộc, viết cho người dùng cuối, không tên bảng/hàm.
-- `docs/features/chat-inbox.md` — thêm mục phân công và phân quyền.
+- `docs/features/chat-inbox-ky-thuat.md` — thêm mục phân công và phân quyền.
 - Ngày giờ theo UTC kèm `Z` (xem `docs/datetime-convention.md`).
 
 ## 11. Rủi ro

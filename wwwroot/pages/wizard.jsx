@@ -237,7 +237,7 @@ Bắt đầu output ngay:`;
       const tCall0 = Date.now();
       const rawAll = await window.tourkit.ai.completeStream(promptAll, (_delta, full) => {
         setGenStream(full);
-      }, { model: pickModel('mega'), tag: 'mega', maxTokens: 8192, system: megaSystem, workflow: 'WizardTour' });
+      }, { model: pickModel('mega'), tag: 'mega', maxTokens: 8192, system: megaSystem, workflow: 'WizardTour', feature: 'quote' });
       console.log(`[Gen] Step ALL DONE in ${Date.now() - tCall0}ms, raw=${rawAll.length}ch`);
 
       const parsed = Parsers.parseTourText(rawAll, request.days);
@@ -400,7 +400,7 @@ Output JSON THUẦN:
 }
 
 Tránh từ "tuyệt vời", "hoàn hảo", "đáng nhớ". Tiếng Việt tự nhiên.`;
-      const raw = await window.tourkit.ai.complete(prompt, { model: pickModel('marketing'), workflow: 'WizardMarketing' });
+      const raw = await window.tourkit.ai.complete(prompt, { model: pickModel('marketing'), workflow: 'WizardMarketing', feature: 'quote-marketing' });
       const m = raw.match(/\{[\s\S]*\}/);
       if (m) { mk = JSON.parse(m[0]); setMarketing(mk); }
     } catch (e) {

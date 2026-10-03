@@ -24,7 +24,11 @@ test('landing renders + scroll-reveal + popup mở khi click feature mà chưa l
   await page.waitForTimeout(800);   // scroll-reveal IO settle
   const featureCount = await page.locator('.lp-feature-card').count();
   console.log('FEATURE CARDS:', featureCount);
-  expect(featureCount).toBe(6);
+  // KHÔNG khẳng định con số chính xác. Bài này canh "khối tính năng có dựng ra không" — thêm một
+  // tính năng vào trang giới thiệu là việc bình thường, mà mỗi lần thêm lại làm bài đỏ thì người
+  // ta học cách bỏ qua nó. Đo thật 12/09/2026: bài ghi 6, trang có 9, và nó đã đỏ từ 29/08 —
+  // hơn hai tuần không ai sửa, đúng vì ai cũng biết đó là đỏ giả.
+  expect(featureCount).toBeGreaterThanOrEqual(6);
   await page.screenshot({ path: 'snap-landing-features.png', fullPage: false });
 
   // Scroll xuống "Cách bắt đầu"

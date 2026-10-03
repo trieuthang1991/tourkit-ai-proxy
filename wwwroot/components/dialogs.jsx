@@ -40,7 +40,13 @@ function Dialog({ open, onClose, title, eyebrow, icon = 'sparkle', children, foo
 }
 
 // Prompt dialog with AI suggestion support
-function PromptDialog({ open, title, eyebrow, placeholder, initialValue = '', onClose, onSubmit,
+//
+// `message` và `confirmLabel` là tuỳ chọn, mặc định giữ đúng hành vi cũ (chỗ gọi trực tiếp ở
+// steps/step1.jsx không truyền hai cái này). Thêm vào vì window.appPrompt mang CÂU HỎI qua
+// `message`: thiếu chỗ vẽ thì câu hỏi biến mất, người dùng chỉ thấy một ô trống. Còn nhãn nút
+// "Thêm vào danh sách" viết cứng thì đúng cho step1 nhưng sai cho mọi chỗ gọi khác.
+function PromptDialog({ open, title, eyebrow, message, placeholder, initialValue = '',
+                       confirmLabel = 'Thêm vào danh sách', onClose, onSubmit,
                        aiSuggest, suggestContext }) {
   const [val, setVal] = uD(initialValue);
   const [suggestions, setSuggestions] = uD([]);
@@ -59,7 +65,7 @@ function PromptDialog({ open, title, eyebrow, placeholder, initialValue = '', on
     if (!aiSuggest) return;
     setLoadingSug(true);
     try {
-      const raw = await window.claude.complete(aiSuggest(suggestContext));
+      const raw = await window.claude.complete(aiSuggest(suggestContext), { feature: 'ai-suggest' });
       const m = raw.match(/\[[\s\S]*\]/);
       if (m) setSuggestions(JSON.parse(m[0]).slice(0, 6));
     } catch (e) {
@@ -82,10 +88,11 @@ function PromptDialog({ open, title, eyebrow, placeholder, initialValue = '', on
         <>
           <button className="btn btn-outline" onClick={onClose}>Hủy</button>
           <button className="btn btn-primary" disabled={!val.trim()} onClick={submit}>
-            <Icon name="check" size={14} stroke={2.5} /> Thêm vào danh sách
+            <Icon name="check" size={14} stroke={2.5} /> {confirmLabel}
           </button>
         </>
       }>
+      {message && <p style={{margin: '0 0 12px', fontSize: 14, lineHeight: 1.55, color: 'var(--text-2)'}}>{message}</p>}
       <input ref={inputRef} className="input" placeholder={placeholder}
         value={val} onChange={e => setVal(e.target.value)}
         onKeyDown={e => { if (e.key === 'Enter') submit(); }} />
@@ -119,7 +126,9 @@ function ConfirmDialog({ open, title, eyebrow = 'XÁC NHẬN', message, confirmL
       icon={danger ? 'trash' : 'sparkle'}
       footer={
         <>
-          <button className="btn btn-outline" onClick={onClose}>{cancelLabel}</button>
+          {/* cancelLabel = null nghĩa là "chỉ một nút" — window.appAlert truyền vào đúng như vậy.
+              Vẽ vô điều kiện thì hộp thông báo mọc thêm một nút viền RỖNG CHỮ bên cạnh OK. */}
+          {cancelLabel && <button className="btn btn-outline" onClick={onClose}>{cancelLabel}</button>}
           <button className={danger ? 'btn btn-danger' : 'btn btn-primary'}
             onClick={() => { onConfirm(); onClose(); }}>{confirmLabel}</button>
         </>
@@ -192,7 +201,7 @@ Tour: ${title}
 ${summary}
 Link xem báo giá: ${link}
 
-Output: text thuần, KHÔNG markdown, KHÔNG dấu ngoặc.`);
+Output: text thuần, KHÔNG markdown, KHÔNG dấu ngoặc.`, { feature: 'zalo-compose' });
       setAiMsg(raw.trim().slice(0, 600));
       setAiPristine(false);
     } catch (e) {

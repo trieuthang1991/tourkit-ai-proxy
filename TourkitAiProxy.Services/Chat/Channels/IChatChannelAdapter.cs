@@ -78,9 +78,15 @@ public interface IChatChannelAdapter
     /// Hỏi nhà cung cấp tên + ảnh đại diện của khách. Trả <c>null</c> khi kênh không có (hoặc
     /// không cần) — <b>mặc định là không làm gì</b>.
     ///
-    /// <para><b>Vì sao không bắt mọi kênh làm.</b> Zalo và Telegram gửi sẵn tên ngay trong gói
-    /// tin webhook nên không tốn lượt gọi nào. Chỉ Messenger là gói tin chỉ có mã người dùng —
-    /// muốn biết tên phải hỏi riêng.</para>
+    /// <para><b>Vì sao không bắt mọi kênh làm.</b> Telegram gửi sẵn tên ngay trong gói tin
+    /// webhook nên không tốn lượt gọi nào. Messenger, Instagram và Zalo thì gói tin CHỈ có mã
+    /// người dùng — muốn biết tên phải hỏi riêng.</para>
+    ///
+    /// <para>⚠️ <b>Chỗ này từng ghi là Zalo cũng kèm sẵn tên. Sai.</b> Gói tin nhắn của Zalo chỉ
+    /// có <c>sender.id</c>; vì tin vào câu đó mà <c>ZaloChatAdapter</c> không cài hàm này, rơi về
+    /// bản mặc định trả <c>null</c>, và suốt từ đó hộp thư Zalo hiện một dãy số thay cho tên
+    /// khách — không lỗi, không log, nên không ai thấy. Sửa ngày 02/10/2026. Trước khi bỏ một
+    /// kênh ra khỏi danh sách phải gọi thật một lượt rồi mới kết luận.</para>
     /// </summary>
     Task<ContactProfile?> ContactProfileAsync(string tenantId, string accountId, string externalUserId,
         CancellationToken ct) => Task.FromResult<ContactProfile?>(null);

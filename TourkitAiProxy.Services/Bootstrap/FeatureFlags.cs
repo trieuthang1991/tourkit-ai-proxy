@@ -34,19 +34,25 @@ public static class FeatureFlags
     /// </summary>
     public static bool Chat(IConfiguration cfg) => cfg.GetValue("Features:Chat", false);
 
-    /// <summary>
-    /// Lấy lại các đoạn hội thoại CŨ của Messenger / Instagram (có từ trước lúc nối).
-    ///
-    /// <para>PHỤ THUỘC <see cref="Chat"/>: không có hộp thư thì lấy lịch sử về cũng không có
-    /// chỗ nào đọc.</para>
-    ///
-    /// <para><b>Cờ riêng vì đây là việc TỐN HẠN MỨC.</b> Một Trang bán hàng lâu năm có thể có
-    /// hàng chục nghìn tin; gọi Graph quá nhiều là Facebook chặn tạm cả ứng dụng, mà lúc đó
-    /// <b>tin trực tiếp cũng ngừng về</b> — tức lấy lịch sử làm hỏng chính việc đang chạy. Bật
-    /// có ý thức, và vẫn phải người dùng tự bấm chứ không tự chạy lúc nối.</para>
-    /// </summary>
-    public static bool ChatHistoryImport(IConfiguration cfg)
-        => Chat(cfg) && cfg.GetValue("Features:ChatHistoryImport", false);
+    // Cờ Features:ChatHistoryImport ĐÃ BỎ (18/09/2026). Lấy lại hội thoại cũ đi theo tính năng
+    // chat: TẮT CHAT LÀ TẮT HẾT, không còn công tắc con nào phải nhớ.
+    //
+    // Lý do giữ cờ lúc đầu là sợ tốn hạn mức Graph. Nỗi lo đó vẫn đúng, nhưng cờ không phải thứ
+    // chặn nó — thứ chặn nó là NGƯỜI DÙNG TỰ BẤM từng tài khoản (không có đường nào tự chạy lúc
+    // nối kênh) cộng hàng đợi chạy một lượt tại một thời điểm. Cờ chỉ thêm một cách hỏng câm: nút
+    // biến mất khỏi giao diện mà không ai biết vì sao.
+
+    // KHÔNG có cờ Features:ChatCoHoi — đã cân nhắc và bỏ (11/09/2026), cùng lý do đã bỏ
+    // Features:ChatAssign ở dưới. Tạo Cơ hội bán hàng từ hội thoại không phải một tính năng riêng
+    // để ra mắt riêng; nó là một việc của hộp thư chat, đi cùng chính hộp thư.
+    //
+    // Lý do thêm cờ lúc đầu — "worker bên app chưa có nhánh create-booking-ticket nên dòng nằm
+    // chờ" — là một điều kiện TẠM THỜI, mà cờ thì vĩnh viễn. Đặt một công tắc vĩnh viễn để canh
+    // một tình trạng vài tuần là để lại đúng thứ rác mà lần bỏ ChatAssign đã dọn.
+    //
+    // Người dùng vẫn không bị lừa: khối trạng thái dưới nút nói rõ từng việc đang ở đâu — đang
+    // chờ đồng bộ · đang xử lý · đã sang CRM · lỗi. Việc chưa được nhặt thì hiện "đang chờ", đúng
+    // sự thật, chứ không phải im lặng.
 
     // Cờ Features:ChatAssign ĐÃ BỎ (09/09/2026). Phân công không phải một tính năng riêng để ra
     // mắt riêng — nó là cách hộp thư chat chia việc, đi cùng chính hộp thư. Giữ cờ thứ hai chỉ
@@ -54,6 +60,16 @@ public static class FeatureFlags
     // câm: cờ tắt thì nút Phân công biến mất trong khi máy chủ vẫn nhận lệnh bình thường.
     //
     // Ai được XEM gì thì nay do quyền CHAT_XEM / CHAT_XEM_ALL của CRM quyết, không do cờ nào.
+
+    // Cờ Features:ChatTourLookup ĐÃ BỎ (18/09/2026). Trợ lý tra dữ liệu tour ĐI THEO tính năng
+    // chat — nó không phải một tính năng để ra mắt riêng, mà là cách trợ lý hộp thư trả lời câu
+    // khách hỏi nhiều nhất. Cùng lý do đã bỏ ChatAssign và ChatCoHoi ở trên.
+    //
+    // Lời hứa an toàn vẫn không bị gỡ bừa: công tắc THẬT là ô "Tra dữ liệu tour" trong Cài đặt trợ
+    // lý, theo TỪNG CÔNG TY và mặc định TẮT (chat_bot_settings.tour_lookup). Công ty nào chưa bật
+    // thì không một lượt gọi API nào phát ra, và khung an toàn giữ nguyên luật cấm bot nói giá.
+    // Cờ máy chủ chỉ thêm một công tắc thứ hai mà người vận hành phải nhớ bật — mà quên thì hỏng
+    // câm: ô trong giao diện biến mất, không ai biết vì sao.
 
     /// <summary>
     /// Kiểm tra sẵn sàng khởi hành (tác vụ <c>tour-readiness</c>): quét tour sắp đi, tour nào còn
@@ -99,4 +115,15 @@ public static class FeatureFlags
     /// </summary>
     public static bool AutoCare(IConfiguration cfg)
         => Digest(cfg) && cfg.GetValue("Features:AutoCare", false);
+
+    /// <summary>
+    /// Key AI riêng của công ty (BYO — mở lại 03/10/2026).
+    ///
+    /// <para><b>Tắt = y hệt hôm nay, không một lần đọc CSDL nào thêm.</b> Đây là cờ bảo hiểm cho
+    /// cam kết "không ảnh hưởng hệ thống đang chạy": tính năng chèn vào đường đi của MỌI lệnh AI
+    /// (32 chỗ gọi qua <c>AiModelRegistry.Resolve</c>), nên phải tắt được trọn vẹn bằng một dòng
+    /// cấu hình mà không cần deploy lại. Độc lập, không phụ thuộc cờ nào.</para>
+    /// </summary>
+    public static bool ByoAiKey(IConfiguration cfg)
+        => cfg.GetValue("Features:ByoAiKey", false);
 }

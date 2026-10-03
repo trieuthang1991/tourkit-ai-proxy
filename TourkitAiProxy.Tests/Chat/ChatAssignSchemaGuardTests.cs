@@ -360,7 +360,7 @@ public class ChatAssignSchemaGuardTests
     [Fact]
     public void Chia_lai_phai_dung_lai_vong_quay_chu_khong_chep_luat_chia()
     {
-        var than = ThanHamPost("assign-settings/chia-lai");
+        var than = ThanHamPost("assign-settings/rebalance");
         Assert.False(string.IsNullOrWhiteSpace(than), "Không cắt được thân đường chia lại");
 
         // (a) Dùng lại đúng câu lệnh nguyên tử của vòng quay.
@@ -397,7 +397,7 @@ public class ChatAssignSchemaGuardTests
         // Nửa còn lại của cùng một luật: máy chủ có đường mà giao diện không có nút thì với người
         // dùng là chưa có gì — và phần tồn đọng vẫn nằm đó, vô hình với nhân viên thường.
         var jsx = ChatSchemaGuardTests.DocFile("wwwroot/pages/chat-assign-settings.jsx");
-        Assert.Contains("'/api/v1/chat/assign-settings/chia-lai'", jsx);
+        Assert.Contains("'/api/v1/chat/assign-settings/rebalance'", jsx);
         var m = Regex.Match(jsx, @"async function chiaLai\(\)(.{0,900})", RegexOptions.Singleline);
         Assert.True(m.Success, "Không thấy hàm chiaLai");
         Assert.Contains("method: 'POST'", m.Groups[1].Value);
@@ -451,11 +451,11 @@ public class ChatAssignSchemaGuardTests
         // Người đi họp, đi ăn, hết ca thì tự tắt. Quản trị đặt hộ thì luôn trễ so với thực tế,
         // mà trễ ở đây nghĩa là khách rơi vào người không có mặt rồi nằm đó.
         var jsx = ChatSchemaGuardTests.DocFile("wwwroot/pages/chat-inbox.jsx");
-        Assert.Contains("'/api/v1/chat/tam-nghi?nghi=' + nghi", jsx);
+        Assert.Contains("'/api/v1/chat/away?paused=' + nghi", jsx);
 
         // Công tắc nằm trên HỘP THƯ (nơi người trực ngồi), không nằm trong màn cấu hình.
         var cas = ChatSchemaGuardTests.DocFile("wwwroot/pages/chat-assign-settings.jsx");
-        Assert.DoesNotContain("tam-nghi", cas);
+        Assert.DoesNotContain("away?paused", cas);
 
         // Chỉ hiện khi mình NẰM TRONG đội trực — ngoài đội thì vốn không có lượt nào, bày công
         // tắc ra chỉ làm người ta tưởng đang có.

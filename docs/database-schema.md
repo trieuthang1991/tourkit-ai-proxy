@@ -1,4 +1,4 @@
-# Database Schema — tourkit-ai-proxy
+﻿# Database Schema — tourkit-ai-proxy
 
 > **1 nguồn cho mọi bảng SQL Server mà proxy đang dùng**. Khi thêm bảng mới hoặc đổi schema → cập nhật file này song song với [Services/Db/TourkitAiDb.cs](../TourkitAiProxy.Infrastructure/Db/TourkitAiDb.cs).
 
@@ -42,6 +42,7 @@
 | 24 | `dbo.DigestSubscriptions` | **Sổ người nhận bản tin** (`sale-brief` / `ceo-brief`): ai nhận loại nào, mấy giờ (giờ VN), qua kênh nào + nơi nhận (email/Telegram/Zalo). Cột `ZaloPhone` là **SỐ ĐIỆN THOẠI** (Zalo gửi bằng ZNS, nhắn theo số) — đổi tên từ `ZaloUserId` ngày 14/08 cho khớp nội dung, migration `sp_rename` trong `SchemaSql` (bọc `IF`, chạy lại nhiều lần không sao). ⚠️ `LastSentUtc`/`LastSentLocalDate`/`SentMask`/`SentAttempts` **CODE ĐÃ NGỪNG GHI** (14/08): chống gửi trùng nay hỏi Bảng tin (`InsightRepository.ExistsTodayAsync`), còn trạng thái từng kênh nằm ở `dbo.OutboundMails` (mỗi kênh 1 dòng, có `Status` riêng). Giữ cột để không phá dữ liệu cũ. **PK bỏ `BriefType` (Q11)** → mỗi người ĐÚNG 1 dòng: luật "1 người 1 loại bản tin" thành bất biến cấu trúc, đổi loại là UPDATE cột `BriefType` trên chính dòng cũ (giờ + kênh giữ nguyên) chứ không tạo dòng thứ hai. Migration gộp dòng thừa (giữ dòng `Enabled` + `UpdatedUtc` mới nhất) rồi dựng lại PK — chỉ đụng tuỳ chọn nhận tin, KHÔNG liên quan tài khoản/đăng nhập. | [`DigestSubscriptionRepository`](../TourkitAiProxy.Infrastructure/Digest/DigestSubscriptionRepository.cs) | `(TenantId, Username)` |
 | 25 | `dbo.TenantChannelSettings` | **Kho token gửi đi.** ⚠️ **Đổi chủ 14/08**: trước là cấu hình OA Zalo của TỪNG công ty; nay Zalo dùng OA CHUNG của bên cung cấp dịch vụ nên bảng chỉ còn MỘT dòng `TenantId='(system)'`, `Channel='zalo-zns'` giữ cặp access/refresh token ZNS. Phải lưu vì Zalo đổi `refresh_token` sau mỗi lần làm mới — để yên trong file config là hỏng ngay lần sau. Ghi/đọc bởi **worker** (`PushNotification.Worker/Channels/ZaloTokenStore.cs`), proxy KHÔNG còn đụng tới. Token mã hoá Crypton. | worker toutkit-app | `(TenantId, Channel)` |
 | 26 | `dbo.NotifyLedger` | **Sổ ghi nhắc DÙNG CHUNG — tác vụ mới cần chặn nhắc lặp thì dùng đây, ĐỪNG thêm bảng.** Đếm theo ĐỐI TƯỢNG (`Scope` + `SubjectKey` dạng `customer:58382`), tách rời khỏi thông báo. Cần vì hai cơ chế cũ đều đếm chính cái thông báo — canh thanh toán đếm `AgentInsights.AlertKey`, deal nguội đếm `OutboundMails.SourceId` — chỉ chạy được khi 1 thông báo = 1 đối tượng. Nhắc chăm khách gộp N khách vào 1 thẻ nên phá vỡ giả định đó, và mọi phân hệ sau này gộp nhiều đối tượng vào một thông báo cũng vậy. `StateStamp` = dấu vết trạng thái lúc nhắc (vd ngày chăm sóc gần nhất); đổi = đã có người xử lý thật → bộ đếm về 0. Prune 180 ngày. |
+| 27 | `dbo.TenantAiKeys` | **Key AI RIÊNG của công ty** (BYO — mở lại 03/10/2026). `ApiKeyEnc` Crypton, key thô không bao giờ lưu; `Masked` là thứ duy nhất trả ra giao diện. Bật + đã kiểm → mọi lệnh AI của công ty chạy bằng key này và KHÔNG trừ lượt. `LastFail*`/`FailCountSinceOk`: key riêng hỏng thì lùi về key hệ thống (CÓ trừ lượt) và ghi lại ở đây để trang cấu hình nói ra — giữ trong bảng này thay vì ALTER `AiUsageHistory` dùng chung. Đọc qua bộ đệm RAM làm mới mỗi phút, KHÔNG đọc trên đường gọi AI. Sau cờ `Features:ByoAiKey`. | [`TenantAiKeyRepository`](../TourkitAiProxy.Infrastructure/AiKeys/TenantAiKeyRepository.cs) | `TenantId` |
 
 > Cột mới đáng chú ý (2026-06-26): `Mails.AutoReplyError` (đánh dấu lỗi auto-reply để hiện ở UI); `UserWorkflows.OptionsJson` (điều kiện động).
 > Cột mới (2026-06-28): `DealScores.AutoReviewCount` (số lần workflow tự chấm) + `IsFinalized`/`FinalizedReason` (`manual`/`status-changed`/`aged` — workflow đánh cờ để ngừng review/nhắc) + `LastAutoReviewUtc`.
@@ -49,6 +50,28 @@
 > Bảng mới (2026-07-14): `dbo.CrmActionQueue` — outbox pattern cho trợ lý hành động (assign_task/create_appointment); proxy chỉ enqueue, worker app-side drain + sync CRM.
 > Bảng mới (2026-07-18): `dbo.TourPriceCatalog` — bảng giá NCC đồng bộ từ TourKit để AI dựng giá bằng số thật (mảng 1: catalog + sync).
 > Bảng mới (2026-08-12, Đợt 1 bản tin): `dbo.AgentInsights`, `dbo.DigestSubscriptions`, `dbo.TenantChannelSettings`.
+> **Cột mới (2026-09-12, Hộp thư chat):** tám cột, tất cả `ALTER … IF NOT EXISTS` và mặc định rỗng
+> nên dòng cũ không đổi và worker đang chạy không phải deploy cùng lúc.
+>
+> · `chat_conversations.sentiment_sum` + `sentiment_count` + `sentiment_at` — thang cảm xúc 5 bậc.
+>   Lưu TỔNG và SỐ tín hiệu chứ không lưu điểm: điểm hiển thị là trung bình cả cuộc trò chuyện.
+>   Bản đầu lưu một điểm rồi ghi đè, nên khách khen mười câu rồi lỡ thả một mặt buồn là cả hội
+>   thoại thành tiêu cực. `count = 0` nghĩa là CHƯA CÓ TÍN HIỆU, khác hẳn "trung tính".
+>   Thang nằm ở [`ConversationSentiment`](../TourkitAiProxy.Domain/Chat/ConversationSentiment.cs).
+>
+> · `chat_contacts.stated_name` — tên khách TỰ KHAI trong đoạn chat. Cột RIÊNG, không đè lên
+>   `display_name` (tên kênh cung cấp): Facebook trả biệt danh, còn đây là tên khách tự gõ ra, và
+>   gộp một cột thì một lần bắt nhầm là mất tên thật không lấy lại được.
+>
+> · `chat_contacts.crm_customer_name` + `crm_customer_code` — ảnh chụp hồ sơ khách CRM LÚC NỐI,
+>   CHỈ để hiển thị. Cần vì CRM cho tìm theo tên/số/mã nhưng KHÔNG có đường lấy khách theo mã:
+>   không lưu thì màn hình chỉ hiện được con số `#60423`. Là ảnh chụp nên có thể cũ — mã khách
+>   mới là thứ có thẩm quyền.
+>
+> · `dbo.CrmActionQueue.Action` + `ReferId` — nghiệp vụ phía chat đã đẻ ra dòng (`chat-cham-soc`,
+>   `chat-co-hoi`) và mã hội thoại. KHÁC `Kind`: `Kind` nói gọi API CRM nào và worker phân việc
+>   theo nó; `Action` chỉ để tra cứu và báo cáo. Kèm chỉ mục `IX_CrmActionQueue_Refer`.
+
 > Cột mới (2026-08-12): `TkSessions.CrmUserId` (id user CRM lấy từ JWT — lọc "việc của riêng người này" khi dựng bản tin); `DigestSubscriptions.SentMask` + `SentAttempts` (cờ bit từng kênh đã gửi được + trần 3 lượt thử/ngày).
 
 ### Tổng cộng: **26 bảng** owned by proxy.

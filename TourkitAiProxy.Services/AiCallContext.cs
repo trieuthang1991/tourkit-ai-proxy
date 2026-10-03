@@ -25,6 +25,45 @@ public static class AiFeatures
     public const string WidgetCrmPlan   = "widget-crm-plan";
     public const string Other           = "other";
     public const string Unknown         = "unknown";
+    /// Lệnh gọi thử để KIỂM key AI riêng của công ty trước khi lưu (BYO). Chạy bằng key của khách nên
+    /// không trừ lượt — xem TenantAiKeyValidator.
+    public const string ByoKeyValidate  = "byo-key-validate";
+
+    // ── Các cụm ĐI QUA /completions — khai bằng header X-Ai-Feature ──────────────────
+    //
+    // /completions là cổng gọi AI dùng chung, có từ thời proxy chỉ làm đúng một việc. Mọi thứ đi
+    // qua nó đều rơi chung vào "completions", nên nhìn cột đó tăng thì không biết do trình báo giá
+    // chạy nhiều hay do một cái nút bị bấm nhiều — tức là con số có mà không dùng được.
+    //
+    // Bốn mã dưới đây tách đúng bốn việc khác nhau đang dùng chung cổng đó. Bên gọi tự khai; khai
+    // sai tên thì rơi về "completions" chứ không tạo mã mới — xem CompletionsFeature.
+    /// Trình Tính giá Tour — sinh hành trình, bóc tách, dựng bảng giá.
+    public const string Quote           = "quote";
+    /// Bài đăng marketing sinh từ tour đã báo giá.
+    public const string QuoteMarketing  = "quote-marketing";
+    /// Nút "AI gợi ý" trong các hộp thoại nhập liệu.
+    public const string AiSuggest       = "ai-suggest";
+    /// Soạn tin Zalo gửi báo giá cho khách.
+    public const string ZaloCompose     = "zalo-compose";
+
+    /// <summary>
+    /// Đọc nhãn cụm do bên gọi khai ở header <c>X-Ai-Feature</c>.
+    ///
+    /// <para><b>Tập ĐÓNG, cố ý.</b> Nhận chuỗi tự do thì bảng chi phí mọc thêm một hàng mỗi lần ai
+    /// đó gõ khác đi một chữ, và đến lúc cần đọc thì lại không gộp được. Tên lạ → trả <c>null</c>
+    /// để rơi về <c>completions</c>, tức đúng hành vi cũ.</para>
+    ///
+    /// <para>Chỉ có tác dụng trên đường <c>/completions</c> — xem <c>Resolve</c>. Cho khai trên mọi
+    /// đường là mở cửa cho một lượt gọi tự dán nhãn của cụm khác, rồi hạn mức và chi phí ghi sai chỗ.</para>
+    /// </summary>
+    public static string? CompletionsFeature(string? raw) => (raw ?? "").Trim().ToLowerInvariant() switch
+    {
+        Quote          => Quote,
+        QuoteMarketing => QuoteMarketing,
+        AiSuggest      => AiSuggest,
+        ZaloCompose    => ZaloCompose,
+        _              => null,
+    };
 
     // ── Background workflow features — Push() từ workflow entry ──
     public const string MailAutoSync        = "mail-auto-sync";
@@ -43,6 +82,11 @@ public static class AiFeatures
     /// số liệu) vì hai thứ khác hẳn về lượng và về người trả tiền: trợ lý là nhân viên tự hỏi, còn
     /// cái này là KHÁCH nhắn tới — số lượt do người ngoài quyết định.
     public const string ChatInbox           = "chat-inbox";
+
+    /// Lượt chọn API cho trợ lý hộp thư chat tra dữ liệu tour. Tách khỏi <see cref="ChatInbox"/> vì
+    /// nó là lượt AI THỨ HAI cho cùng một tin khách — gộp chung thì nhìn vào dbo.AiUsageHistory sẽ
+    /// tưởng lượng tin tăng gấp đôi, trong khi thật ra là mỗi tin tốn hai lượt.
+    public const string ChatInboxTourPlan   = "chat-inbox-tour-plan";
 
     /// Đọc tên trạng thái của công ty để chọn sẵn cấu hình. KHÔNG trừ quota — xem ghi chú
     /// <see cref="AiCallContext.Ctx.FreeOfQuota"/>.
@@ -97,6 +141,14 @@ public class AiCallContext
         if (http == null) return new Ctx(AiFeatures.Unknown, null, null);
         var path = http.Request.Path.Value ?? "";
         var feature = FeatureFromPath(path);
+
+        // CHỈ trên /completions mới cho bên gọi tự khai cụm. Các đường khác đã có tên riêng suy ra
+        // từ chính đường dẫn — cho khai đè ở đó là mở cửa để một lượt gọi dán nhãn của cụm khác,
+        // rồi hạn mức trừ nhầm chỗ và bảng chi phí chỉ về sai hướng.
+        if (feature == AiFeatures.Completions
+            && AiFeatures.CompletionsFeature(http.Request.Headers["X-Ai-Feature"].FirstOrDefault()) is { } khai)
+            feature = khai;
+
         var sid = http.Request.Headers["X-Session-Id"].FirstOrDefault();
         var tenant = !string.IsNullOrEmpty(sid) ? _sessions.Get(sid)?.TenantId : null;
         return new Ctx(feature, sid, tenant);

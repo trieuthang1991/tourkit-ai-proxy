@@ -65,6 +65,115 @@ public class ChannelCredentialStore
     }
 
     /// <summary>
+    /// Danh sách tài khoản của <b>MỌI</b> kênh, của một công ty — <b>một</b> truy vấn thay vì mỗi
+    /// kênh một lượt.
+    ///
+    /// <para>Sinh ra cho <c>GET /channels</c>: đường đó dựng bảng cấu hình cho cả 6 kênh nên bản
+    /// đầu gọi <see cref="ListAccountsAsync"/> trong vòng lặp — 6 lượt đi-về SQL Server NỐI TIẾP,
+    /// đo được 195–227ms trong khi mọi đường chat khác dưới 10ms. Chi phí nằm ở SỐ LƯỢT đi-về
+    /// (CSDL ở xa), không ở khối lượng dữ liệu: vẫn ngần ấy dòng, đọc một lượt là xong.</para>
+    ///
+    /// <para><b>KHÔNG thay thế <see cref="ListAccountsAsync"/>.</b> Hàm kia là đường sáu adapter
+    /// dùng để GỬI tin: ở đó chỉ cần đúng một kênh, và phải đọc tươi vì Zalo tự xoay vòng access
+    /// token. Đây là hàm cho màn hình cấu hình, nơi cần cả sáu kênh cùng lúc. Gộp hai việc làm
+    /// một là mở đường cho việc đệm ở đây rồi gửi tin bằng token đã hết hạn.</para>
+    ///
+    /// <para>Thứ tự trong mỗi kênh giữ y hệt hàm kia (theo <c>label</c>, thiếu thì theo mã) — màn
+    /// hình cấu hình liệt kê nhiều Trang, đảo thứ tự là người dùng tưởng mình bấm nhầm dòng.</para>
+    ///
+    /// <para>Đọc hỏng thì trả RỖNG chứ không ném, giống hàm kia: mất danh sách thì màn hình cấu
+    /// hình nói "chưa nối kênh nào", còn ném thì cả trang trắng.</para>
+    /// </summary>
+    public async Task<Dictionary<ChatChannel, List<ChatAccount>>> ListAllAccountsAsync(
+        string tenantId, CancellationToken ct = default)
+    {
+        try
+        {
+            await using var c = await _db.OpenAsync(ct);
+            var hang = (await c.QueryAsync<(string Channel, string ConfigJson)>(
+                "SELECT Channel, ConfigJson FROM dbo.TenantChannelSettings WHERE TenantId=@t",
+                new { t = tenantId })).ToList();
+
+            var ra = new Dictionary<ChatChannel, List<ChatAccount>>();
+            foreach (var kenh in Enum.GetValues<ChatChannel>())
+            {
+                var tienTo = KeyOf(kenh) + ":";
+                ra[kenh] = hang
+                    .Where(h => h.Channel.StartsWith(tienTo, StringComparison.Ordinal))
+                    .Select(h => new ChatAccount(h.Channel[tienTo.Length..], Decode(h.ConfigJson)))
+                    .OrderBy(a => a.GiaTri.GetValueOrDefault("label", a.AccountId))
+                    .ToList();
+            }
+            return ra;
+        }
+        catch (Exception ex)
+        {
+            _log.LogWarning(ex, "[chat/cred] đọc danh sách tài khoản MỌI kênh hỏng, tenant={T}", tenantId);
+            // Rỗng HẲN, không phải rỗng một nửa: ném giữa chừng thì vài kênh đã có dòng, vài kênh
+            // chưa — trả ra như thế là màn hình cấu hình báo "kênh này chưa nối" cho kênh thật ra
+            // đã nối, tệ hơn hẳn so với nói không đọc được gì cả.
+            return new Dictionary<ChatChannel, List<ChatAccount>>();
+        }
+    }
+
+    /// <summary>
+    /// Tên hiển thị của từng tài khoản kênh — Trang Facebook nào, OA Zalo nào, bot Telegram nào.
+    ///
+    /// <para><b>LUÔN đặt tên, kể cả kênh chỉ có một tài khoản</b> (chủ dự án chốt 12/09/2026).
+    /// Bản đầu bỏ qua kênh một tài khoản với lập luận "tên Trang là nhiễu" — sai trong thực tế:
+    /// người trực nhìn một hộp thư TRỘN NHIỀU KÊNH vẫn cần biết tin này vào từ đâu, mà huy hiệu
+    /// kênh chỉ nói "Facebook" chứ không nói Trang nào. Xem <c>ChannelLabelMapTests</c>.</para>
+    ///
+    /// <para>Thiếu <c>label</c> thì lùi về mã tài khoản chứ không bỏ trống — trong danh sách hai
+    /// Trang, một dòng có tên và một dòng trống sẽ bị đọc thành "dòng trống là Trang còn lại".</para>
+    /// </summary>
+    public static Dictionary<(short Kenh, string AccountId), string> ChonTenTrang(
+        IEnumerable<(short Kenh, string AccountId, string? Label)> ds)
+    {
+        var ra = new Dictionary<(short, string), string>();
+        foreach (var x in ds)
+            ra[(x.Kenh, x.AccountId)] = string.IsNullOrWhiteSpace(x.Label) ? x.AccountId : x.Label!;
+        return ra;
+    }
+
+    /// <summary>
+    /// Bản đồ (kênh, mã tài khoản) → tên Trang/OA của một công ty, đọc từ <c>label</c> đã ghi sẵn
+    /// lúc nối kênh (Messenger ghi tên Trang, Zalo ghi tên OA). MỘT truy vấn cho mọi kênh.
+    ///
+    /// <para>Đường <c>GET /channels</c> cũng trả <c>label</c> nhưng gác bằng quyền cấu hình hệ
+    /// thống, nên nhân viên thường gọi là 403 — không dùng được để tra tên ở giao diện hộp thư.</para>
+    ///
+    /// <para>Đọc hỏng thì trả RỖNG, không ném: tên Trang là tiện, không phải điều kiện để hộp thư
+    /// chạy. Mất tên thì danh sách vẫn đủ dùng; ném thì cả hộp thư trắng.</para>
+    /// </summary>
+    public async Task<Dictionary<(short Kenh, string AccountId), string>> LabelMapAsync(
+        string tenantId, CancellationToken ct = default)
+    {
+        try
+        {
+            await using var c = await _db.OpenAsync(ct);
+            var hang = (await c.QueryAsync<(string Channel, string ConfigJson)>(
+                "SELECT Channel, ConfigJson FROM dbo.TenantChannelSettings WHERE TenantId=@t",
+                new { t = tenantId })).ToList();
+
+            var ds = new List<(short, string, string?)>();
+            foreach (var kenh in Enum.GetValues<ChatChannel>())
+            {
+                var tienTo = KeyOf(kenh) + ":";
+                foreach (var h in hang.Where(h => h.Channel.StartsWith(tienTo, StringComparison.Ordinal)))
+                    ds.Add(((short)kenh, h.Channel[tienTo.Length..],
+                            Decode(h.ConfigJson).GetValueOrDefault("label")));
+            }
+            return ChonTenTrang(ds);
+        }
+        catch (Exception ex)
+        {
+            _log.LogWarning(ex, "[chat/cred] đọc tên Trang hỏng, tenant={T} — bỏ trống", tenantId);
+            return new Dictionary<(short, string), string>();
+        }
+    }
+
+    /// <summary>
     /// Tài khoản này thuộc công ty nào. Dùng cho webhook DÙNG CHUNG: khi TourKit sở hữu một ứng
     /// dụng Zalo cho mọi khách hàng thì <c>app_id</c> giống hệt nhau ở mọi công ty, nên không còn
     /// phân biệt được bằng nó nữa — phải tra ngược từ id của OA.
