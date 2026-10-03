@@ -223,8 +223,20 @@ public static class ChannelFailures
     private static readonly HashSet<int> ZaloAuth =
         new() { -101, -103, -104, -124, -1241, -148, -149, -1491, -150 };
 
+    /// <summary>
+    /// <para><b>-224 = OA đang ở gói chưa đủ để dùng tính năng này</b> ("The OA needs to upgrade
+    /// OA Tier Package"). Gặp thật ngày 02/10/2026 trên OA thử: MỌI tin gửi đi đều hỏng, mà vì
+    /// mã này chưa có trong bảng tra nên nó rơi vào <see cref="ChatFailure.Unknown"/> — tức được
+    /// coi là lỗi TẠM THỜI. Hậu quả: hệ thống thử lại ba lần vô ích rồi bỏ cuộc, và người trực
+    /// chỉ thấy nhãn "gửi hỏng" kèm một câu tiếng Anh, không biết là phải đi nâng gói Zalo.</para>
+    ///
+    /// <para>Xếp vào nhóm này là đúng ở cả ba mặt: không thử lại nữa (nâng gói mới xong, thử lại
+    /// không bao giờ qua), nhãn tiếng Việt thành "Kênh bị nền tảng hạn chế", và
+    /// <see cref="NeedsReconnect"/> coi đây là hỏng cấp KÊNH — đúng, vì mọi tin sau cũng hỏng y
+    /// hệt cho tới khi gói được nâng.</para>
+    /// </summary>
     private static readonly HashSet<int> ZaloPermission =
-        new() { -117, -120, -1202, -135, -1351, -136, -138, -1381, -145 };
+        new() { -117, -120, -1202, -135, -1351, -136, -138, -1381, -145, -224 };
 
     private static readonly HashSet<int> ZaloQuota =
         new() { -115, -126, -144, -1441, -147, -1471, -1472, -160 };

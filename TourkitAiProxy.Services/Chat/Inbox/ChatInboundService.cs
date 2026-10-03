@@ -102,9 +102,12 @@ public class ChatInboundService
 
         // Còn thiếu tên hoặc ảnh thì hỏi thẳng nhà cung cấp.
         //
-        // Zalo và Telegram kèm sẵn tên trong gói tin nên nhánh này không bao giờ chạy cho hai kênh
-        // đó. Riêng Messenger, gói tin của Meta CHỈ có mã người dùng — không hỏi thì cả hộp thư
-        // hiện một dãy số như "4951953868228330" thay cho tên khách.
+        // Telegram kèm sẵn tên trong gói tin nên nhánh này gần như không chạy cho kênh đó. Còn
+        // Messenger, Instagram và Zalo thì gói tin CHỈ có mã người dùng — không hỏi thì cả hộp
+        // thư hiện một dãy số như "4951953868228330" thay cho tên khách.
+        //
+        // ⚠️ Chỗ này từng ghi Zalo cũng kèm sẵn tên (sai), và ZaloChatAdapter vì thế không cài
+        // ContactProfileAsync — hộp thư Zalo hiện mã người dùng suốt từ đó. Sửa 02/10/2026.
         //
         // Nuốt mọi lỗi bên trong adapter: không lấy được tên thì hiện mã, xấu nhưng vẫn dùng được.
         // Chặn tin của khách chỉ vì không lấy được cái tên là đổi một lỗi nhỏ lấy một lỗi to.
@@ -117,7 +120,10 @@ public class ChatInboundService
             // đồng nghĩa hẹn ngày cả hộp thư hiện ảnh vỡ.
             var anh = (await MirrorAvatarAsync(tenantId, e.Channel, hoSo.AvatarUrl, ct)).Url
                       ?? hoSo.AvatarUrl;
-            await _repo.UpsertContactAsync(tenantId, e.Channel, e.ExternalUserId, hoSo.Name, anh, ct);
+            // `dongMocHoSo: true` — CHỖ DUY NHẤT được đóng mốc, vì đây là chỗ duy nhất thật sự
+            // hỏi nền tảng. Lượt upsert theo từng tin ở trên chỉ chép tên có sẵn trong gói tin.
+            await _repo.UpsertContactAsync(tenantId, e.Channel, e.ExternalUserId, hoSo.Name, anh,
+                                           dongMocHoSo: true, ct: ct);
         }
         var hoiThoai = await _repo.GetOrCreateConversationAsync(tenantId, e.Channel, e.ExternalUserId, accountId, ct);
 
@@ -171,21 +177,29 @@ public class ChatInboundService
         // cũ mà làm hội thoại nhảy lên đầu danh sách như có tin mới là báo động giả.
         if (e.Reaction is { } camXuc)
         {
-            await _repo.SetReactionAsync(tenantId, e.Channel, camXuc, e.ExternalUserId, ct);
-
             // Khách thả biểu tượng lên tin = đánh giá TRỰC TIẾP nhất có thể có, và không tốn một
             // lượt AI nào. Chấm ngay theo thang 5 bậc.
-            //
-            // Chỉ chấm khi THẢ, không chấm khi GỠ: gỡ tim không có nghĩa là khách đổi sang ghét,
-            // thường chỉ là bấm nhầm. Biểu tượng lạ trả null và ta bỏ qua — giữ nguyên điểm cũ
-            // còn hơn ghi đè bằng một con số đoán.
             //
             // ⚠️ ĐI QUA ScoreReaction, KHÔNG gọi thẳng ScoreEmoji: trường Name mang hai thứ khác
             // nhau tuỳ kênh (Meta gửi tên cảm xúc, Telegram gửi custom_emoji_id). Chỉ hàm kia mới
             // biết kênh nào đọc trường nào.
-            if (!camXuc.Removed
-                && ConversationSentiment.ScoreReaction(e.Channel, camXuc.Emoji, camXuc.Name) is { } muc)
-                await _repo.AddSentimentSignalAsync(tenantId, hoiThoai.Id, muc, ct);
+            var mucMoi = camXuc.Removed
+                ? null
+                : ConversationSentiment.ScoreReaction(e.Channel, camXuc.Emoji, camXuc.Name);
+
+            // Trả về điểm của cảm xúc CŨ trên chính tin này, nếu có.
+            var mucCu = await _repo.SetReactionAsync(tenantId, e.Channel, camXuc, e.ExternalUserId,
+                                                     mucMoi, ct);
+
+            // RÚT cái cũ rồi mới GÓP cái mới — đúng cho cả ba ca: gỡ hẳn (chỉ rút), đổi sang biểu
+            // tượng khác (rút cái cũ, góp cái mới), thả lần đầu (chỉ góp).
+            //
+            // Bản đầu (12/09/2026) cố ý KHÔNG rút khi gỡ, lập luận "gỡ tim thường chỉ là bấm
+            // nhầm". Lập luận đó nhầm chỗ: giữ nguyên điểm không phải là "không kết luận gì", nó
+            // là TIẾP TỤC KẾT LUẬN bằng một tín hiệu khách đã rút lại — hộp cảm xúc nói dối bằng
+            // con số. Chủ dự án chốt sửa 14/09/2026.
+            if (mucCu is { } cu) await _repo.RemoveSentimentSignalAsync(tenantId, hoiThoai.Id, cu, ct);
+            if (mucMoi is { } vua) await _repo.AddSentimentSignalAsync(tenantId, hoiThoai.Id, vua, ct);
 
             _bus.Publish(new(tenantId, hoiThoai.Id, "doi-hoi-thoai", null) { AssignedUserId = hoiThoai.AssignedUserId });
             return;
@@ -344,7 +358,12 @@ public class ChatInboundService
 
         // Bộ sinh nằm ở ChatReplyComposer, dùng CHUNG với nút Gợi ý của nhân viên — cùng khung
         // cấm bịa số, cùng lời dặn công ty, cùng model.
-        var traLoi = await _soan.GenerateAsync(tenantId, hoiThoai.Id, nhacLai, cfgBot, ct);
+        // sessionId = null CÓ Ý: đường này không có ai online đang bấm nút. Phạm vi tra tour do Ô
+        // CẤU HÌNH của công ty quyết — tắt thì xem cả kho, bật thì lấy quyền NGƯỜI PHỤ TRÁCH hội
+        // thoại (chưa gán ai thì rơi về cả kho). Không mượn phiên của một nhân viên bất kỳ: phiên
+        // đó là của một người cụ thể, mượn nó để trả lời thay cả công ty là lặng lẽ nới quyền.
+        var traLoi = await _soan.GenerateAsync(tenantId, hoiThoai.Id, nhacLai, cfgBot, ct,
+            cauKhachHoi: cauHoi, sessionId: null, nguoiPhuTrach: hoiThoai.AssignedUsername);
         if (string.IsNullOrWhiteSpace(traLoi)) return;
 
         var idRa = await _repo.AppendMessageAsync(tenantId, hoiThoai.Id, e.Channel, ChatDirection.Out,
@@ -541,7 +560,9 @@ public class ChatInboundService
             return new(null, true);
 
         var khoa = await ChannelTokenAsync(tenantId, kenh, ct);
-        return await _soiTep.MirrorAsync(tenantId, kenh, new(url, null, khoa), ct);
+        // `LaAnhDaiDien: true` — nén theo luật riêng của avatar (cạnh 180px, nén mọi cỡ tệp),
+        // không đi chung luật ảnh thường vốn chỉ nén khi trên 300KB rồi về 1600px.
+        return await _soiTep.MirrorAsync(tenantId, kenh, new(url, null, khoa, LaAnhDaiDien: true), ct);
     }
 
     /// <summary>

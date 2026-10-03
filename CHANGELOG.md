@@ -13,9 +13,62 @@ Những cập nhật gần đây của TRAV-AI, viết cho người dùng. Mới
 
 ---
 
-## Phiên bản 14/09/2026 — Màn hình Cài đặt hộp thư mở nhanh hơn hẳn
+## Phiên bản 02/10/2026 — Hộp thư Zalo hiện đúng tên khách, và gửi tin nhanh hơn
 
 ### 🔧 Đã khắc phục
+- **Khách Zalo nay hiện đúng tên và ảnh đại diện.** Trước đây mọi hội thoại Zalo đều hiện một dãy
+  số dài thay cho tên khách, và không có ảnh — nhìn vào hộp thư không biết ai đang nhắn, phải mở
+  từng cuộc ra đọc nội dung mới đoán được. Nguyên nhân: Zalo không gửi kèm tên khách trong tin
+  nhắn, phải hỏi riêng mới có, mà hệ thống lại chưa bao giờ hỏi. Nay mỗi khách mới nhắn tới là hệ
+  thống tự hỏi Zalo lấy tên và ảnh, tự làm mới sau mỗi tuần để khách đổi ảnh thì hộp thư cũng đổi
+  theo. Các hội thoại Zalo cũ sẽ lần lượt có tên khi khách nhắn tin tiếp.
+
+- **Nhân viên bấm Gửi thì tin đi nhanh hơn, bớt được khoảng một nửa thời gian chờ.** Trước đây tin
+  của nhân viên nằm chờ lâu hơn hẳn khoảng vài giây dành cho nút **Thu hồi** — có lúc gần gấp đôi,
+  và không đều nhau nên lúc nhanh lúc chậm không rõ vì sao. Nay tin đi đúng vào thời điểm đã hẹn.
+  Nút Thu hồi vẫn giữ nguyên như cũ, bạn vẫn có từng ấy giây để đổi ý.
+
+### 📌 Lưu ý
+- Khoảng chờ trước khi tin đi là để bạn kịp bấm **Thu hồi**. Nếu đội của bạn muốn tin đi ngay lập
+  tức và không cần nút đó, bộ phận quản trị chỉnh được khoảng chờ này về 0.
+
+---
+
+## Phiên bản 14/09/2026 — Màn hình Cài đặt hộp thư mở nhanh hơn hẳn
+
+### ✨ Tính năng mới
+- **Trợ lý chat trả lời được câu hỏi về tour.** Trước đây khách nhắn "tour Đà Nẵng tháng 12 bao
+  nhiêu, còn chỗ không" thì trợ lý chỉ biết hẹn *"để em kiểm rồi báo lại"* — nó không đọc được kho
+  tour của bạn nên không được phép nói bất kỳ con số nào. Nay bạn bật được mục **Cho trợ lý tra dữ
+  liệu tour** trong *Cài đặt trợ lý*: khách hỏi tới tour là trợ lý tự tra kho rồi trả lời kèm tên
+  tour, khoảng giá, ngày khởi hành và **số chỗ còn**.
+
+  Vài điều đáng yên tâm: trợ lý **chỉ đọc**, không bao giờ đặt hay giữ chỗ thay bạn. Nó chỉ xem
+  được dữ liệu tour — không chạm tới cơ hội bán hàng, danh sách khách hay số liệu tài chính. Và nó
+  vẫn **không được tự nghĩ ra số**: cái gì không có trong kho thì nó nói thật là sẽ kiểm rồi báo
+  lại, y như trước. Số chỗ thì thay đổi liên tục nên trợ lý luôn nhắc khách xác nhận lại trước khi
+  chốt.
+
+  Mục này **mặc định tắt**, bạn tự bật khi thấy sẵn sàng. Nhân viên bấm **Gợi ý** cũng được trợ lý
+  tra giúp, và chỉ thấy đúng phần dữ liệu mà tài khoản của chính người đó được xem.
+
+### 🔧 Đã khắc phục
+- **Hết hộp thoại "lạ" của trình duyệt.** Các câu hỏi xác nhận và lời báo lỗi — gỡ Trang, xoá hồ sơ
+  thẩm định, xoá tác vụ tự động, sửa tin chưa gửi, cộng lượt… — trước đây bật lên bằng hộp xám mặc
+  định của trình duyệt: khác hẳn giao diện, có máy còn hiện kèm tên miền trông y như cảnh báo lừa
+  đảo. Nay tất cả dùng chung một kiểu hộp thoại với phần còn lại của hệ thống, ở cả trang người
+  dùng lẫn trang quản trị.
+- **Biết được danh sách kênh đang xem là cũ hay mới.** Màn hình **Kết nối kênh** nay ghi *"Cập nhật
+  lúc …"* kèm nút **Làm mới**. Trước đây danh sách chỉ tự tải lại khi bạn vừa lưu hoặc vừa cấp quyền
+  xong — nên nếu trình duyệt chặn cửa sổ cấp quyền, bạn lỡ đóng nó sớm, hoặc bạn vừa sửa gì đó bên
+  trang quản trị của Zalo/Facebook/TikTok, màn hình vẫn hiện bản cũ mà không báo. Giờ nhìn giờ là
+  biết, và bấm một cái là hỏi lại máy chủ, không phải tải lại cả trang.
+- **Nút "Tạo Cơ hội" hết lẫn với mấy nút phụ.** Trong hộp thư chat, nút mở Cơ hội bán hàng trước đây
+  nhỏ và xám y hệt *Đổi*, *Gỡ nối*, *Nối khách CRM* ngay cạnh, nên mắt lướt qua mất. Nay nó đứng
+  riêng một hàng, căn giữa và tô màu cam — nhìn một cái là thấy.
+- **Hộp thoại nhập liệu hiện đúng câu hỏi.** Trước đây vài chỗ hỏi "nhập gì" nhưng chỉ hiện một ô
+  trống, và nút xác nhận luôn ghi *Thêm vào danh sách* dù việc đang làm là chuyện khác. Nay câu hỏi
+  hiện đầy đủ và nút ghi đúng việc. Hộp thông báo cũng hết mọc thêm một nút trống bên cạnh **OK**.
 - **Cài đặt hộp thư chat không còn khựng khi mở.** Trước đây vào tab **Kênh** phải chờ rõ rệt mới
   thấy danh sách Zalo OA, Trang Facebook, Instagram, WhatsApp, TikTok, Telegram — dù nội dung chỉ
   là mấy dòng. Lý do: hệ thống đi hỏi từng kênh một, hỏi xong kênh này mới hỏi kênh kế tiếp. Nay

@@ -141,6 +141,26 @@ public class ChannelFailuresTests
         Assert.False(ChannelFailures.ShouldRetry(nhom));
     }
 
+    /// <summary>
+    /// Gặp thật 02/10/2026 trên OA thử: mọi tin gửi đi đều trả <c>-224</c> — "The OA needs to
+    /// upgrade OA Tier Package". Lúc đó mã này chưa có trong bảng tra nên rơi vào
+    /// <see cref="ChatFailure.Unknown"/>, tức được coi là lỗi TẠM THỜI: hệ thống thử lại ba lần
+    /// vô ích (nâng gói mới xong, thử lại không bao giờ qua), rồi người trực chỉ thấy "gửi hỏng"
+    /// kèm một câu tiếng Anh và không biết việc cần làm là đi nâng gói Zalo.
+    /// </summary>
+    [Fact]
+    public void Zalo_224_la_OA_chua_du_goi_va_KHONG_duoc_thu_lai()
+    {
+        var nhom = ChannelFailures.FromZalo(-224);
+        Assert.Equal(ChatFailure.PermissionDenied, nhom);
+        Assert.False(ChannelFailures.ShouldRetry(nhom));
+        // Hỏng ở cấp KÊNH, không phải cấp một tin: mọi tin sau cũng hỏng y hệt cho tới khi nâng
+        // gói, nên nhật ký phải ghi mức cao để người quản trị thấy ngay.
+        Assert.True(ChannelFailures.NeedsReconnect(nhom));
+        // Và câu hiện cho người trực phải là tiếng Việt, không phải mã thô của Zalo.
+        Assert.Equal("Kênh bị nền tảng hạn chế", ChannelFailures.Label(nhom));
+    }
+
     [Fact]
     public void Zalo_doc_dung_tung_nhom()
     {

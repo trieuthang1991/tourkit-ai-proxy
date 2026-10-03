@@ -27,15 +27,31 @@ public class ChatRepository
     /// <para>Tên hiển thị chỉ ghi đè khi có giá trị mới: webhook đôi khi không kèm tên, đè bừa sẽ
     /// xoá mất tên đã lấy được từ lần trước.</para>
     /// </summary>
+    /// <param name="dongMocHoSo">
+    /// Có đóng mốc <c>profile_synced_utc</c> không. CHỈ true khi vừa HỎI NỀN TẢNG về hồ sơ.
+    ///
+    /// <para>Telegram gửi kèm tên người gửi trong MỌI gói tin, nên luồng nhận tin gọi hàm này ở
+    /// mỗi tin để cập nhật tên — đó là lý do đổi tên trên Telegram thấy ngay. Nhưng gói tin KHÔNG
+    /// mang ảnh đại diện. Đóng mốc ở lượt gọi đó là nói dối rằng vừa hỏi hồ sơ, và hậu quả đúng
+    /// bằng việc tắt hẳn cơ chế soi lại ảnh: hồ sơ luôn "mới" nên không bao giờ cũ để mà hỏi lại.
+    /// Đã suýt để lọt đúng thế 14/09/2026.</para>
+    /// </param>
     public async Task UpsertContactAsync(string tenant, ChatChannel kenh, string externalId,
-        string? tenHienThi, string? anhDaiDien = null, CancellationToken ct = default)
+        string? tenHienThi, string? anhDaiDien = null, bool dongMocHoSo = false,
+        CancellationToken ct = default)
     {
         await using var c = await _db.OpenAsync(ct);
         await c.ExecuteAsync("""
-            INSERT INTO chat_contacts (tenant_id, channel, external_id, display_name, avatar_url)
-            VALUES (@tenant, @kenh, @id, @ten, @anh)
+            INSERT INTO chat_contacts (tenant_id, channel, external_id, display_name, avatar_url,
+                                       profile_synced_utc)
+            VALUES (@tenant, @kenh, @id, @ten, @anh, CASE WHEN @moc THEN now() END)
             ON CONFLICT (tenant_id, channel, external_id) DO UPDATE
-              SET display_name = COALESCE(NULLIF(EXCLUDED.display_name, ''), chat_contacts.display_name),
+              -- Đóng mốc MỖI lần hỏi được nền tảng, kể cả khi tên/ảnh trả về y như cũ: mốc này
+              -- nói "đã HỎI lúc nào", không phải "đã ĐỔI lúc nào". Chỉ đóng khi đổi thì khách
+              -- không bao giờ đổi ảnh sẽ bị hỏi lại ở MỌI tin nhắn.
+              SET profile_synced_utc = CASE WHEN @moc THEN now()
+                                            ELSE chat_contacts.profile_synced_utc END,
+                  display_name = COALESCE(NULLIF(EXCLUDED.display_name, ''), chat_contacts.display_name),
                   avatar_url   = COALESCE(NULLIF(EXCLUDED.avatar_url, ''), chat_contacts.avatar_url),
                   -- Ảnh ĐỔI sang url khác thì xoá cờ về 0: những lần hỏng trước là của url cũ.
                   -- Không xoá thì khách từng có một ảnh chết sẽ mang số đếm đó mãi, và lần đổi
@@ -45,7 +61,8 @@ public class ChatRepository
                        AND EXCLUDED.avatar_url IS DISTINCT FROM chat_contacts.avatar_url
                       THEN 0 ELSE chat_contacts.avatar_state END,
                   updated_utc  = now()
-            """, new { tenant, kenh = (short)kenh, id = externalId, ten = tenHienThi, anh = anhDaiDien });
+            """, new { tenant, kenh = (short)kenh, id = externalId, ten = tenHienThi, anh = anhDaiDien,
+                       moc = dongMocHoSo });
     }
 
     /// <summary>
@@ -63,6 +80,20 @@ public class ChatRepository
     /// vì có ảnh rồi là thôi không hỏi nữa. Chữa thì cần một cột ghi mốc lần hỏi cuối để hỏi lại
     /// định kỳ — chưa làm: ảnh cũ vẫn là ảnh của đúng người đó, khác hẳn ảnh vỡ.</para>
     /// </summary>
+    /// <summary>
+    /// Hồ sơ khách cũ bao nhiêu ngày thì hỏi lại nền tảng.
+    ///
+    /// <para>Đây là đánh đổi giữa "ảnh mới tới chậm" và "hạn mức gọi Graph". Bảy ngày nghĩa là
+    /// khách đổi ảnh thì chậm nhất một tuần hộp thư mới thấy — chấp nhận được với thứ đổi vài lần
+    /// một năm. Hạ số này xuống là tăng tuyến tính số lượt gọi nền tảng, mà vượt hạn mức Graph
+    /// thì Facebook chặn tạm CẢ ỨNG DỤNG và tin trực tiếp cũng ngừng về.</para>
+    ///
+    /// <para>Lượt hỏi lại CHỈ chạy khi khách nhắn tin tới (hàm này nằm trên luồng nhận tin), nên
+    /// kho khách im lặng không tốn lượt gọi nào. Và vì kho tệp khoá theo BĂM NỘI DUNG, ảnh không
+    /// đổi thì soi lại không ghi thêm gì — cùng băm, cùng khoá, cùng một đối tượng.</para>
+    /// </summary>
+    private const int HoSoCuSauNgay = 7;
+
     public async Task<bool> NeedsContactProfileAsync(string tenant, ChatChannel kenh, string externalId,
         CancellationToken ct = default)
     {
@@ -73,8 +104,13 @@ public class ChatRepository
               WHERE tenant_id = @tenant AND channel = @kenh AND external_id = @id
                 AND display_name IS NOT NULL AND display_name <> ''
                 AND avatar_url IS NOT NULL AND avatar_url <> ''
+                -- ...VÀ hồ sơ chưa quá cũ. Thiếu vế này thì một khách đã có tên và ảnh sẽ KHÔNG
+                -- BAO GIỜ được hỏi lại: đổi ảnh trên Facebook xong, hộp thư giữ ảnh cũ vĩnh viễn.
+                AND profile_synced_utc IS NOT NULL
+                AND profile_synced_utc > now() - @hanHoSo::interval
             )
-            """, new { tenant, kenh = (short)kenh, id = externalId });
+            """, new { tenant, kenh = (short)kenh, id = externalId,
+                       hanHoSo = $"{HoSoCuSauNgay} days" });
     }
 
     /// <summary>Một khách còn giữ ảnh đại diện trỏ thẳng ra máy chủ của kênh, vừa nhận về để soi.</summary>
@@ -190,29 +226,70 @@ public class ChatRepository
     /// Ghi hoặc GỠ một cảm xúc. Một người chỉ giữ MỘT cảm xúc trên một tin — thả cái mới là đè
     /// cái cũ, đúng như hành vi của Messenger.
     /// </summary>
-    public async Task SetReactionAsync(string tenant, ChatChannel kenh, ChatReaction cx,
-        string aiTha, CancellationToken ct = default)
+    /// <returns>Điểm của cảm xúc CŨ trên tin này (nếu có) — chỗ gọi rút nó khỏi thống kê.</returns>
+    public async Task<SentimentLevel?> SetReactionAsync(string tenant, ChatChannel kenh, ChatReaction cx,
+        string aiTha, SentimentLevel? mucMoi = null, CancellationToken ct = default)
     {
         await using var c = await _db.OpenAsync(ct);
+        var khoa = new { tenant, kenh = (short)kenh, mid = cx.ExternalMsgId, ai = aiTha };
+
+        // Điểm của cảm xúc ĐANG có trên tin này, TRƯỚC lượt này. Trả về cho chỗ gọi trừ lại.
+        // Đọc trước rồi mới ghi: cần biết con số cũ để trừ đúng số đã cộng, không đoán.
+        var mucCu = await c.ExecuteScalarAsync<short?>("""
+            SELECT sentiment_level FROM chat_reactions
+            WHERE tenant_id = @tenant AND channel = @kenh
+              AND external_msg_id = @mid AND actor_external_id = @ai
+            """, khoa);
+
         if (cx.Removed)
         {
             await c.ExecuteAsync("""
                 DELETE FROM chat_reactions
                 WHERE tenant_id = @tenant AND channel = @kenh
                   AND external_msg_id = @mid AND actor_external_id = @ai
-                """, new { tenant, kenh = (short)kenh, mid = cx.ExternalMsgId, ai = aiTha });
-            return;
+                """, khoa);
+            return mucCu is { } m ? (SentimentLevel)m : null;
         }
 
         await c.ExecuteAsync("""
             INSERT INTO chat_reactions
-              (tenant_id, channel, external_msg_id, actor_external_id, emoji, reaction_name)
-            VALUES (@tenant, @kenh, @mid, @ai, @emoji, @ten)
+              (tenant_id, channel, external_msg_id, actor_external_id, emoji, reaction_name,
+               sentiment_level)
+            VALUES (@tenant, @kenh, @mid, @ai, @emoji, @ten, @muc)
             ON CONFLICT (tenant_id, channel, external_msg_id, actor_external_id) DO UPDATE
               SET emoji = EXCLUDED.emoji, reaction_name = EXCLUDED.reaction_name,
+                  sentiment_level = EXCLUDED.sentiment_level,
                   created_utc = now()
             """, new { tenant, kenh = (short)kenh, mid = cx.ExternalMsgId, ai = aiTha,
-                       emoji = cx.Emoji, ten = cx.Name });
+                       emoji = cx.Emoji, ten = cx.Name, muc = (short?)mucMoi });
+        return mucCu is { } m2 ? (SentimentLevel)m2 : null;
+    }
+
+    /// <summary>
+    /// Rút MỘT tín hiệu cảm xúc ra khỏi thống kê — khách gỡ biểu tượng đã thả, hoặc đổi sang
+    /// biểu tượng khác (lúc đó cái cũ bị rút, cái mới được góp).
+    ///
+    /// <para><b>Vì sao phải rút, chứ không để nguyên.</b> Bản đầu (12/09/2026) cố ý KHÔNG rút,
+    /// lập luận "gỡ tim không có nghĩa là khách đổi sang ghét, thường chỉ là bấm nhầm". Lập luận
+    /// đó nhầm chỗ: giữ nguyên điểm không phải là "không kết luận gì", nó là TIẾP TỤC KẾT LUẬN
+    /// bằng một tín hiệu khách đã rút lại. Hộp cảm xúc hiện điểm tính cả những lượt thả đã bị gỡ,
+    /// tức nói dối bằng con số. Chủ dự án chốt 14/09/2026.</para>
+    ///
+    /// <para>Kẹp sàn ở 0 cho cả hai cột: dữ liệu cũ (trước khi có cột <c>sentiment_level</c>) có
+    /// những lượt thả đã cộng mà không lưu điểm, nên gỡ chúng sẽ không trừ được gì — và một chuỗi
+    /// gỡ như vậy có thể kéo số đếm xuống âm. Số đếm âm làm phép chia trung bình ra số vô nghĩa.</para>
+    /// </summary>
+    public async Task RemoveSentimentSignalAsync(string tenant, long hoiThoaiId, SentimentLevel muc,
+        CancellationToken ct = default)
+    {
+        await using var c = await _db.OpenAsync(ct);
+        await c.ExecuteAsync("""
+            UPDATE chat_conversations
+               SET sentiment_sum   = GREATEST(sentiment_sum - @muc, 0),
+                   sentiment_count = GREATEST(sentiment_count - 1, 0),
+                   sentiment_at    = now()
+             WHERE tenant_id = @tenant AND id = @id
+            """, new { tenant, id = hoiThoaiId, muc = (short)muc });
     }
 
     /// <summary>
@@ -1522,6 +1599,35 @@ public class ChatRepository
                 LIMIT @n FOR UPDATE SKIP LOCKED)
             RETURNING id, tenant_id, conversation_id, message_id, retry_count
             """, new { n = Math.Clamp(soLuong, 1, 50) })).ToList();
+    }
+
+    /// <summary>
+    /// Còn bao lâu nữa tới dòng <b>đến hạn sớm nhất</b> đang chờ trong hàng đợi.
+    /// <c>null</c> = không có dòng nào hẹn giờ.
+    ///
+    /// <para><b>Để worker ngủ đúng tới lúc đó thay vì ngủ trọn một nhịp.</b> Tin của nhân viên bị
+    /// giữ lại vài giây cho kịp bấm Thu hồi; ngủ cố định thì worker tỉnh dậy giữa chừng, thấy chưa
+    /// tới giờ, ngủ tiếp một nhịp nữa — tin đi trong khoảng hoãn…hoãn+nhịp. Người dùng chỉ thấy
+    /// "gửi rất lâu" mà không có gì giải thích.</para>
+    ///
+    /// <para>Trừ theo <c>now()</c> của CHÍNH CSDL, không phải đồng hồ máy chủ ứng dụng — hai cái
+    /// lệch nhau là ngủ hụt hoặc ngủ quá, mà lệch đồng hồ thì không ai đi tìm.</para>
+    /// </summary>
+    public async Task<TimeSpan?> NextOutboxDueInAsync(CancellationToken ct = default)
+    {
+        await using var c = await _db.OpenAsync(ct);
+        // ⚠️ `::float8` KHÔNG thừa. Từ PostgreSQL 14, EXTRACT trả `numeric`, mà Npgsql map numeric
+        // thành decimal — Dapper đọc vào double? sẽ ném InvalidCastException. Chỗ gọi lại nuốt
+        // mọi lỗi rồi lùi về ngủ trọn nhịp, nên thiếu dấu này thì bản sửa độ trễ KHÔNG chạy mà
+        // mọi thứ vẫn xanh: test nguồn vẫn đạt, log chỉ có một dòng cảnh báo, và tin vẫn gửi
+        // chậm y như cũ. Đúng kiểu hỏng mà không ai tìm ra.
+        var giay = await c.ExecuteScalarAsync<double?>("""
+            SELECT EXTRACT(EPOCH FROM (MIN(send_after) - now()))::float8
+              FROM chat_outbox
+             WHERE status = 0 AND send_after IS NOT NULL
+            """);
+        // Đã quá hạn (dòng bị tiến trình khác giành mất) → 0, để vòng lặp vét lại ngay.
+        return giay is null ? null : TimeSpan.FromSeconds(Math.Max(0, giay.Value));
     }
 
     /// <param name="thuLai">true = trả về hàng đợi để thử lần sau (lỗi tạm thời).</param>

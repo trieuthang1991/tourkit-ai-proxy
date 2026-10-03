@@ -16,6 +16,14 @@ namespace TourkitAiProxy.Services.Chat.Inbox;
 public class ChatOutboxWorker : BackgroundService
 {
     private static readonly TimeSpan Tick = TimeSpan.FromSeconds(5);
+
+    /// Cộng thêm chừng này khi ngủ tới giờ đến hạn, phòng lệch đồng hồ giữa ứng dụng và CSDL —
+    /// dậy sớm vài mili giây là vét hụt rồi phải ngủ thêm trọn một nhịp.
+    private static readonly TimeSpan Nhay = TimeSpan.FromMilliseconds(250);
+
+    /// Sàn thời gian ngủ — chặn quay vòng nóng khi dòng đến hạn vừa bị tiến trình khác giành.
+    private static readonly TimeSpan ToiThieu = TimeSpan.FromMilliseconds(200);
+
     private const int MaxRetries = 3;
 
     /// Vét bao nhiêu dòng mỗi nhịp. Đủ đầy thì gửi tiếp ngay, không ngủ — xem vòng lặp.
@@ -64,8 +72,44 @@ public class ChatOutboxWorker : BackgroundService
             // khi máy đang rảnh.
             if (lam >= PerCall) continue;
 
-            // Chờ TÍN HIỆU hoặc hết nhịp, cái nào tới trước. Nhân viên bấm Gửi là đánh thức ngay.
-            if (!await _tin.WaitAsync(ChatLane.Out, Tick, ct) && ct.IsCancellationRequested) break;
+            // Chờ TÍN HIỆU hoặc hết giờ, cái nào tới trước. Nhân viên bấm Gửi là đánh thức ngay.
+            //
+            // Ngủ TỚI ĐÚNG LÚC dòng sớm nhất đến hạn, không ngủ trọn nhịp — xem ChoBaoLauAsync.
+            var cho = await ChoBaoLauAsync(ct);
+            if (!await _tin.WaitAsync(ChatLane.Out, cho, ct) && ct.IsCancellationRequested) break;
+        }
+    }
+
+    /// <summary>
+    /// Ngủ bao lâu trước lượt vét tiếp: tới <b>đúng lúc</b> dòng sớm nhất đến hạn, nhiều nhất là
+    /// một nhịp.
+    ///
+    /// <para><b>Vì sao không ngủ thẳng một nhịp.</b> Tin của nhân viên bị giữ lại vài giây cho kịp
+    /// bấm Thu hồi (<c>Chat:UndoSendSeconds</c>, mặc định 5). Ngủ cố định 5 giây thì worker tỉnh
+    /// dậy, thấy chưa tới giờ, ngủ tiếp một nhịp nữa — nên tin thật sự đi trong khoảng
+    /// <i>hoãn…hoãn+5 giây</i>, tức 5–10 giây cho mặc định. Nhân viên chỉ thấy "gửi rất lâu" và
+    /// không có gì trong log nói vì sao. Ngủ tới đúng giờ thì độ trễ bằng đúng số giây đã hẹn.</para>
+    ///
+    /// <para>Sàn <see cref="ToiThieu"/> để không quay vòng nóng khi một dòng vừa bị tiến trình
+    /// khác giành mất; hỏng truy vấn thì lùi về ngủ trọn nhịp, vì thà chậm còn hơn quay tít.</para>
+    /// </summary>
+    private async Task<TimeSpan> ChoBaoLauAsync(CancellationToken ct)
+    {
+        try
+        {
+            using var scope = _sp.CreateScope();
+            var repo = scope.ServiceProvider.GetRequiredService<ChatRepository>();
+            if (!repo.Configured) return Tick;
+
+            if (await repo.NextOutboxDueInAsync(ct) is not { } toi) return Tick;
+            var cho = toi + Nhay;
+            return cho > Tick ? Tick : cho < ToiThieu ? ToiThieu : cho;
+        }
+        catch (OperationCanceledException) when (ct.IsCancellationRequested) { return Tick; }
+        catch (Exception ex)
+        {
+            _log.LogWarning(ex, "[chat/outbox] không hỏi được giờ đến hạn — ngủ trọn nhịp");
+            return Tick;
         }
     }
 
