@@ -51,4 +51,64 @@ public static class TenantAiKeyRules
         var model = string.IsNullOrWhiteSpace(key.Model) ? null : key.Model.Trim();
         return new TenantKeyDecision(true, key.Provider, model, rawApiKey);
     }
+
+    // ── Lùi về key hệ thống ──────────────────────────────────────────────────
+
+    /// Câu Claude dùng khi tài khoản hết tiền — kèm mã 400, KHÔNG phải 402.
+    private const string AnthropicLowCredit = "credit balance is too low";
+
+    /// Loại lỗi OpenAI dùng khi tài khoản hết tiền — kèm mã 429.
+    private const string OpenAiInsufficientQuota = "insufficient_quota";
+
+    /// <summary>
+    /// Câu báo KEY SAI. xAI (Grok) gửi kèm mã <b>400</b>, không phải 401 — bắt được thật ngày 03/10/2026:
+    /// <c>{"code":"invalid-argument","error":"Incorrect API key provided. …"}</c>. OpenAI dùng cùng câu này
+    /// nhưng kèm 401 (đã lùi sẵn theo mã).
+    /// </summary>
+    private const string IncorrectApiKey = "incorrect api key";
+
+    /// <summary>
+    /// Key riêng hỏng tới mức phải lùi về key hệ thống (và TRỪ LƯỢT) không.
+    ///
+    /// <para><b>Lùi</b> khi key khách HẾT TIỀN hoặc SAI: 401 · 402 · 429 kèm
+    /// <c>insufficient_quota</c> · 400 kèm câu "credit balance is too low" (Claude hết tiền) hoặc
+    /// "Incorrect API key" (Grok sai key). Hai câu 400 là thứ danh sách gốc (401/402/429) bỏ sót.</para>
+    ///
+    /// <para><b>Không lùi</b> khi chỉ là gọi quá dày (429 thường — vài giây sau là được, lùi là đốt
+    /// lượt của khách vô ích) hay nhà cung cấp đang lỗi (5xx — không liên quan key). Mọi lỗi 400
+    /// khác cũng không: nội dung sai thì lùi cũng hỏng y vậy.</para>
+    /// </summary>
+    public static bool ShouldFallBack(int status, string? body)
+    {
+        var b = body ?? "";
+        return status switch
+        {
+            401 or 402 => true,
+            429 => b.Contains(OpenAiInsufficientQuota, StringComparison.OrdinalIgnoreCase),
+            400 => b.Contains(AnthropicLowCredit, StringComparison.OrdinalIgnoreCase)
+                || b.Contains(IncorrectApiKey, StringComparison.OrdinalIgnoreCase),
+            _ => false,
+        };
+    }
+
+    /// <summary>
+    /// Câu ngắn ghi vào <c>LastFailReason</c> và hiện trên trang cấu hình. Tiếng Việt, có mã để còn
+    /// tra; không đưa mã thô của nhà cung cấp (<c>insufficient_quota</c>…) lên màn hình.
+    /// </summary>
+    public static string FallbackReason(int status, string? body)
+    {
+        var b = body ?? "";
+        return status switch
+        {
+            401 => "Key sai hoặc đã bị thu hồi (401)",
+            402 => "Tài khoản AI hết tiền (402)",
+            429 when b.Contains(OpenAiInsufficientQuota, StringComparison.OrdinalIgnoreCase)
+                => "Tài khoản AI hết tiền hoặc hết hạn mức (429)",
+            400 when b.Contains(AnthropicLowCredit, StringComparison.OrdinalIgnoreCase)
+                => "Tài khoản Claude hết tiền (400)",
+            400 when b.Contains(IncorrectApiKey, StringComparison.OrdinalIgnoreCase)
+                => "Key sai hoặc đã bị thu hồi (400)",
+            _ => $"Key riêng lỗi ({status})",
+        };
+    }
 }

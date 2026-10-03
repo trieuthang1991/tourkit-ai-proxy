@@ -154,6 +154,8 @@ public static class WebFeatureRegistration
         s.AddSingleton<Infrastructure.Visa.VisaQuestionRepository>();
         s.AddSingleton<Visa.VisaExtractionService>();
         s.AddSingleton<Visa.VisaScoringService>();
+        // Kiểm key AI riêng (BYO) trước khi lưu — chỉ endpoint web dùng.
+        s.AddSingleton<AiKeys.TenantAiKeyValidator>();
     }
 
     /// <summary>Tác vụ chạy nền của tiến trình WEB — hai thứ, hai lý do khác hẳn nhau.</summary>

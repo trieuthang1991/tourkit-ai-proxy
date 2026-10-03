@@ -70,26 +70,39 @@ public class TenantAiKeyRepository
     /// chập chờn là mọi công ty đang dùng key riêng bỗng bị trừ lượt cho tới lần nạp sau.</para>
     /// </summary>
     public async Task<IReadOnlyList<Loaded>?> LoadAllAsync(CancellationToken ct = default)
+        => await LoadAllSealedAsync(ct) is { } rows ? rows.Select(Unseal).ToList() : null;
+
+    /// <summary>
+    /// Như <see cref="LoadAllAsync"/> nhưng KHÔNG giải mã — key vẫn ở dạng Crypton. Đây là dạng duy nhất
+    /// được phép đưa vào Redis: key thô của khách không bao giờ nằm ngoài RAM của máy chủ.
+    /// KHÔNG ném; lỗi thì trả <c>null</c> (khác rỗng — xem <see cref="LoadAllAsync"/>).
+    /// </summary>
+    public async Task<IReadOnlyList<TenantAiKey>?> LoadAllSealedAsync(CancellationToken ct = default)
     {
         try
         {
             await using var c = await _db.OpenAsync(ct);
             var rows = await c.QueryAsync<Row>(new CommandDefinition(
                 $"SELECT {Columns} FROM dbo.TenantAiKeys WHERE Enabled = 1", cancellationToken: ct));
-            return rows.Select(r =>
-            {
-                var raw = Crypton.Decrypt(r.ApiKeyEnc);
-                if (string.IsNullOrEmpty(raw))
-                    _log.LogWarning("[byo-key] giải mã key của {Tenant} hỏng — công ty này dùng key hệ thống",
-                        r.TenantId);
-                return new Loaded(r.ToDomain(), string.IsNullOrEmpty(raw) ? null : raw);
-            }).ToList();
+            return rows.Select(r => r.ToDomain()).ToList();
         }
         catch (Exception ex)
         {
             _log.LogWarning(ex, "[byo-key] nạp cấu hình key hỏng — giữ nguyên bản đã nạp lần trước");
             return null;
         }
+    }
+
+    /// <summary>
+    /// Giải mã key của một dòng để đem đi gọi AI. Giải mã hỏng thì key rỗng —
+    /// <c>TenantAiKeyRules.Decide</c> coi đó là không có key, công ty đó chạy bằng key hệ thống.
+    /// </summary>
+    public Loaded Unseal(TenantAiKey k)
+    {
+        var raw = Crypton.Decrypt(k.ApiKeyEnc);
+        if (string.IsNullOrEmpty(raw))
+            _log.LogWarning("[byo-key] giải mã key của {Tenant} hỏng — công ty này dùng key hệ thống", k.TenantId);
+        return new Loaded(k, string.IsNullOrEmpty(raw) ? null : raw);
     }
 
     /// <summary>Cấu hình của một công ty cho trang cài đặt — KHÔNG kèm key thô.</summary>

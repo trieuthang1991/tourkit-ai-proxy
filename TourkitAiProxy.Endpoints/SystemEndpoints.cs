@@ -48,6 +48,7 @@ public static class SystemEndpoints
             anomalyWatchdog = Services.Bootstrap.FeatureFlags.AnomalyWatchdog(cfg),
             autoCare        = Services.Bootstrap.FeatureFlags.AutoCare(cfg),
             chat            = Services.Bootstrap.FeatureFlags.Chat(cfg),
+            byoAiKey        = Services.Bootstrap.FeatureFlags.ByoAiKey(cfg),
             // chatAssign ĐÃ BỎ (09/09/2026): phân công đi cùng hộp thư chat, không có cờ riêng.
             // Hộp thư chat có tin vào ĐẨY tới được không. false = bus chỉ thấy sự kiện của chính
             // instance mình (chưa cắm Redis), nên giao diện phải giữ đường lùi hỏi lại định kỳ.

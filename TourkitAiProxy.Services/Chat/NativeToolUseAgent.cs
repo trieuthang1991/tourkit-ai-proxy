@@ -58,6 +58,7 @@ public class NativeToolUseAgent : IAgentRuntime
     private readonly AiModelRegistry _registry;
     private readonly TenantQuotaStore _quota;
     private readonly IConfiguration _cfg;   // doc co tinh nang -> loc danh muc action gui cho AI
+    private readonly TourkitAiProxy.Services.AiKeys.TenantAiKeyStore _byo;
 
     // System prompt: nhấn mạnh BẮT BUỘC gọi tool cho mọi câu liên quan số liệu kinh doanh,
     // KHUYẾN KHÍCH gọi nhiều tool song song khi cần so sánh, và viết phân tích đầy đủ (không cụt).
@@ -97,7 +98,8 @@ public class NativeToolUseAgent : IAgentRuntime
         AiCallContext ctx,
         AiModelRegistry registry,
         TenantQuotaStore quota,
-        IConfiguration cfg)
+        IConfiguration cfg,
+        TourkitAiProxy.Services.AiKeys.TenantAiKeyStore byo)
     {
         _api        = api;
         _sessions   = sessions;
@@ -111,6 +113,7 @@ public class NativeToolUseAgent : IAgentRuntime
         _registry   = registry;
         _quota      = quota;
         _cfg        = cfg;
+        _byo        = byo;
     }
 
     /// Chi xu ly khi provider la "anthropic".
@@ -133,6 +136,11 @@ public class NativeToolUseAgent : IAgentRuntime
 
         // Quota check ĐẦU vòng lặp — Consume per-iter (mỗi /messages POST = 1 lượt).
         var callCtx = _ctx.Resolve();
+        // Đường này gọi Anthropic TRỰC TIẾP, không qua lớp bọc ByoAwareProvider — nên phải tự hỏi:
+        // key đang dùng có đúng là key riêng của công ty không. Có thì KHÔNG trừ lượt: khách đã tự trả
+        // tiền Anthropic, trừ lượt nữa là thu hai lần (lỗi có thật, tìm ra 03/10/2026 — ChatAgentService
+        // truyền resolved.ApiKey xuống đây, nên công ty khai key Claude là đi đúng đường này).
+        var laKeyKhach = _byo.IsTenantKey(callCtx.Tenant, apiKey);
         if (!string.IsNullOrEmpty(callCtx.Tenant) && !_quota.IsAvailable(callCtx.Tenant))
         {
             var snap = _quota.Snapshot(callCtx.Tenant);
@@ -208,7 +216,7 @@ public class NativeToolUseAgent : IAgentRuntime
             // Per-iter Append + Consume (match grain với IAiProvider). Trước đây chỉ Append aggregate
             // cuối loop nên N iter chỉ tính 1 lượt → user dùng 4 lần hiển thị 2.
             _usage.Append(callCtx.Feature, callCtx.SessionId, callCtx.Tenant, "anthropic", model, iterInTok, iterOutTok, lat);
-            if (!callCtx.FreeOfQuota && !string.IsNullOrEmpty(callCtx.Tenant)) _quota.Consume(callCtx.Tenant);
+            if (!callCtx.FreeOfQuota && !laKeyKhach && !string.IsNullOrEmpty(callCtx.Tenant)) _quota.Consume(callCtx.Tenant);
 
             var stopReason = root.GetProperty("stop_reason").GetString();
 
@@ -546,7 +554,7 @@ public class NativeToolUseAgent : IAgentRuntime
                 totalOutTok += retryOutTok;
                 // Retry cũng là 1 /messages POST → 1 lượt riêng.
                 _usage.Append(callCtx.Feature, callCtx.SessionId, callCtx.Tenant, "anthropic", model, retryInTok, retryOutTok, retryLat);
-                if (!callCtx.FreeOfQuota && !string.IsNullOrEmpty(callCtx.Tenant)) _quota.Consume(callCtx.Tenant);
+                if (!callCtx.FreeOfQuota && !laKeyKhach && !string.IsNullOrEmpty(callCtx.Tenant)) _quota.Consume(callCtx.Tenant);
                 var retrySb = new StringBuilder();
                 foreach (var block in retryDoc.RootElement.GetProperty("content").EnumerateArray())
                 {

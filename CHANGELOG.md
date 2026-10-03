@@ -13,6 +13,30 @@ Những cập nhật gần đây của TRAV-AI, viết cho người dùng. Mới
 
 ---
 
+## Phiên bản 03/10/2026 — Dùng tài khoản AI của chính công ty bạn
+
+### ✨ Tính năng mới
+- **Khai key AI riêng của công ty.** Ngoài cách nạp lượt như trước, nay công ty có thể dùng tài khoản
+  **ChatGPT, Claude hoặc Grok** của chính mình. Vào **Tích hợp → Key AI riêng**, chọn nhà cung cấp,
+  dán key rồi bấm **Kiểm tra & lưu**. Từ lúc đó mọi tính năng AI của công ty chạy bằng tài khoản của
+  bạn và **không trừ lượt**.
+
+  Vài điều đáng biết:
+  - Hệ thống **gọi thử ngay khi bạn bấm lưu** — key sai hoặc hết tiền sẽ bị từ chối kèm lý do rõ ràng,
+    không lưu gì cả.
+  - Nếu sau này tài khoản AI của bạn **hết tiền hoặc key bị thu hồi**, hệ thống **tự chuyển sang dùng
+    lượt chung** để công việc không bị gián đoạn. Trang **Key AI riêng** sẽ hiện cảnh báo để bạn biết,
+    và trong lúc đó **lượt bị trừ như thường** cho tới khi bạn nạp tiền hoặc nhập key mới.
+  - Muốn tạm quay về dùng lượt chung mà không xoá key: bỏ tích ô **Dùng key riêng cho mọi tính năng AI**.
+  - Key được mã hoá khi lưu và không bao giờ hiện lại đầy đủ — trên màn hình chỉ thấy vài ký tự đầu và cuối.
+  - Chỉ người có quyền **Cấu hình hệ thống** mới thấy và chỉnh được mục này.
+
+### 📌 Lưu ý
+- Mục này đang được mở dần cho từng hệ thống. Nếu chưa thấy trong menu **Tích hợp**, liên hệ bộ phận
+  quản trị để được bật.
+
+---
+
 ## Phiên bản 02/10/2026 — Hộp thư Zalo hiện đúng tên khách, và gửi tin nhanh hơn
 
 ### 🔧 Đã khắc phục

@@ -35,4 +35,21 @@ public class TenantAiKeyTests
         const string raw = "sk-ant-SECRETMIDDLEPART-wxyz";
         Assert.DoesNotContain("SECRETMIDDLEPART", TenantAiKey.MaskOf(raw));
     }
+
+    [Fact]
+    public void Survives_a_json_round_trip_for_the_redis_cache()
+    {
+        // Bộ đệm Redis lưu danh sách này dạng JSON. Giải tuần tự hỏng thì đọc Redis luôn trượt — không
+        // lỗi gì nổi lên, chỉ âm thầm mất hết lợi ích và quay về đọc CSDL mỗi phút như chưa có Redis.
+        var goc = new TenantAiKey("staging.tourkit.vn", "anthropic", "claude-sonnet-5", "ENC-abc",
+            "sk-…abcd", true, new DateTime(2026, 10, 3, 1, 0, 0, DateTimeKind.Utc), "admin",
+            new DateTime(2026, 10, 3, 2, 0, 0, DateTimeKind.Utc),
+            new DateTime(2026, 10, 3, 3, 0, 0, DateTimeKind.Utc), "Tài khoản AI hết tiền (402)", 2);
+
+        var json = System.Text.Json.JsonSerializer.Serialize(new List<TenantAiKey> { goc });
+        var lai = System.Text.Json.JsonSerializer.Deserialize<List<TenantAiKey>>(json)!.Single();
+
+        Assert.Equal(goc, lai);
+        Assert.True(lai.IsFailing);
+    }
 }

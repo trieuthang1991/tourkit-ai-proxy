@@ -13,6 +13,10 @@
 | GET    | `/healthz`                        | k8s-style liveness probe                             |
 | GET    | `/api/v1/providers`               | list providers + models + `needsKey` flag (openai/anthropic = BYO key) |
 | GET    | `/api/v1/models`                  | flat models list across all providers                |
+| GET    | `/api/v1/ai-key`                  | **Key AI riêng của công ty (BYO)** — cấu hình hiện tại: `{featureOn, configured, provider, model, masked, enabled, validatedAtUtc, failing, failCount, lastFailAtUtc, lastFailReason}`. KHÔNG BAO GIỜ trả key thô. Cần `CH_HT_XEM`. Cờ `Features:ByoAiKey` tắt → `{featureOn:false}` |
+| PUT    | `/api/v1/ai-key`                  | `{provider, model?, apiKey, enabled?}` — gọi THỬ một lệnh AI bằng key, qua mới lưu (Crypton); 400 kèm lý do tiếng Việt nếu không qua. Lưu xong xoá đệm Redis + báo mọi máy nạp lại. Cần `CH_HT_XEM`; cờ tắt → 404 |
+| POST   | `/api/v1/ai-key/enabled`          | `{enabled}` — bật/tắt mà không phải nhập lại key. Cần `CH_HT_XEM`; cờ tắt → 404 |
+| DELETE | `/api/v1/ai-key`                  | xoá key, công ty quay về dùng key hệ thống + trừ lượt. Cần `CH_HT_XEM`; cờ tắt → 404 |
 | GET    | `/api/v1/usage`                   | UsageTracker snapshot                                |
 | POST   | `/api/v1/completions`             | buffered completion                                  |
 | POST   | `/api/v1/completions/stream`      | SSE stream                                           |
