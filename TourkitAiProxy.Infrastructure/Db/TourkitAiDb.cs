@@ -311,7 +311,8 @@ BEGIN
 END;
 
 -- Đơn nạp quota AI: user click chip → chọn gói → tạo order pending + VietQR.
--- Webhook IPN của Tingee về → match (TingeeRefId hoặc Memo=Id) → UPDATE atomic pending→paid + TopUp tenant.
+-- Webhook IPN của Tingee về → bóc mã TKAI trong nội dung CK (QuotaMemo.ExtractOrderId) → UPDATE atomic
+-- pending→paid + TopUp tenant. Nội dung CK có thêm tên công ty + câu mô tả ở TRƯỚC mã, không chỉ mỗi mã.
 -- TenantId không phải PK clustered (Id đủ unique global TKAI-{hash6}-{ts}-{rand4}) — webhook không có TenantId,
 -- tra theo Id qua index. Nhưng giữ TenantId NOT NULL để ownership-check + report doanh thu.
 IF OBJECT_ID('dbo.QuotaOrders', 'U') IS NULL
@@ -327,7 +328,7 @@ BEGIN
         BankBin         NVARCHAR(16)    NULL,
         AccountNumber   NVARCHAR(64)    NULL,
         AccountName     NVARCHAR(256)   NULL,
-        Memo            NVARCHAR(128)   NOT NULL,    -- nội dung CK = Id (cho webhook match)
+        Memo            NVARCHAR(128)   NOT NULL,    -- nội dung CK: tên cty + Thanh toan nap them luot AI ma + Id (xem QuotaMemo)
         ExpiresAt       DATETIME2       NOT NULL,
         CreatedAt       DATETIME2       NOT NULL,
         PaidAt          DATETIME2       NULL,

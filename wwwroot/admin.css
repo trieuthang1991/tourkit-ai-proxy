@@ -382,6 +382,47 @@
   border-color: var(--accent);
 }
 
+/* ─── Đơn nạp lượt (đối soát tiền) ──────────────────────────────────────── */
+.quota-orders { margin-top: 24px; padding: 16px 16px 0; }
+.quota-orders .ai-usage-header { margin-bottom: 12px; }
+.quota-orders-head-right { display: flex; align-items: center; gap: 12px; }
+.quota-orders-sum {
+  font-family: var(--sans); font-size: 13px; color: var(--text-muted);
+}
+.quota-orders-sum b { color: var(--text-primary); font-variant-numeric: tabular-nums; }
+
+.quota-orders-chips { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 12px; }
+.quota-orders-chip {
+  padding: 5px 12px; border-radius: 999px; cursor: pointer;
+  background: transparent; border: 1px solid var(--border-warm);
+  color: var(--text-muted); font-family: var(--sans);
+  font-size: 12px; font-weight: 600;
+  transition: background .15s, color .15s, border-color .15s;
+}
+.quota-orders-chip:hover { border-color: var(--accent); color: var(--text-primary); }
+.quota-orders-chip.is-on {
+  background: var(--accent); border-color: var(--accent); color: #fff;
+}
+
+/* Mã đơn = thứ dùng để dò với nội dung CK trên sổ phụ → cho copy bằng một cú bấm. */
+.quota-ma {
+  font-family: var(--mono); font-size: 11.5px;
+  background: var(--bg-paper); border: 1px solid var(--border-hair);
+  color: var(--text-primary); padding: 4px 8px; border-radius: 6px;
+  cursor: pointer; white-space: nowrap;
+}
+.quota-ma:hover { border-color: var(--accent); }
+
+.quota-tt {
+  display: inline-block; padding: 3px 9px; border-radius: 999px;
+  font-family: var(--sans); font-size: 11px; font-weight: 700;
+  white-space: nowrap;
+}
+.quota-tt-paid      { background: #ECFDF5; color: var(--success); }
+.quota-tt-pending   { background: #FFFBEB; color: var(--warning); }
+.quota-tt-expired   { background: #FEF2F2; color: var(--danger); }
+.quota-tt-cancelled { background: var(--bg-paper); color: var(--text-faint); }
+
 /* Page header (reuse Quota/OutboundMails/MailTemplates) */
 .ai-usage-header { display: flex; align-items: center; gap: 16px; justify-content: space-between; flex-wrap: wrap; }
 .ai-usage-title {

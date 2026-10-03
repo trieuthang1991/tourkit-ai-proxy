@@ -559,6 +559,108 @@
             </tbody>
           </table>
         </div>
+
+        <QuotaOrdersSection />
+      </div>
+    );
+  }
+
+  // ────── Đơn nạp lượt — đối soát tiền vào ────────────────────────────────────
+  // Sổ phụ ngân hàng chỉ có nội dung CK, không có tên công ty đứng riêng một cột. Bảng này là chỗ
+  // trả lời "công ty nào vừa chuyển khoản": khớp mã TKAI trong nội dung CK với cột Mã đơn ở đây.
+  function QuotaOrdersSection() {
+    const [filter, setFilter] = useState("all");   // all | paid | pending | expired | cancelled
+    const [resp, setResp] = useState({ items: [], totals: {} });
+    const [loading, setLoading] = useState(false);
+    const [error, setError] = useState("");
+    const [copied, setCopied] = useState("");
+
+    async function load() {
+      setLoading(true); setError("");
+      try {
+        const r = await window.adminFetch("/api/v1/admin/ui/quota/orders?status=" + filter);
+        const data = await r.json();
+        if (!r.ok) throw new Error(data.error || `HTTP ${r.status}`);
+        setResp({ items: data.items || [], totals: data.totals || {} });
+      } catch (e) {
+        setError(e.message || "Lỗi tải dữ liệu");
+      } finally {
+        setLoading(false);
+      }
+    }
+
+    useEffect(() => { load(); }, [filter]);
+
+    function copyMa(id) {
+      try { navigator.clipboard.writeText(id); setCopied(id); setTimeout(() => setCopied(""), 1500); } catch {}
+    }
+
+    const t = resp.totals || {};
+    const CHIPS = [
+      { key: "all",       label: "Tất cả",   n: t.all },
+      { key: "paid",      label: "Đã thu",   n: t.paid },
+      { key: "pending",   label: "Chờ tiền", n: t.pending },
+      { key: "expired",   label: "Hết hạn",  n: t.expired },
+      { key: "cancelled", label: "Đã huỷ",   n: t.cancelled },
+    ];
+    const NHAN_TRANG_THAI = {
+      paid: "Đã thu", pending: "Chờ tiền", expired: "Hết hạn", cancelled: "Đã huỷ",
+    };
+
+    return (
+      <div className="quota-section quota-orders">
+        <div className="ai-usage-header">
+          <h1 className="ai-usage-title">Đơn nạp lượt</h1>
+          <div className="quota-orders-head-right">
+            <span className="quota-orders-sum">Đã thu: <b>{fmtVnd(t.paidAmountVnd)}</b></span>
+            <button className="ai-usage-range-btn" onClick={load} disabled={loading}>↻ Refresh</button>
+          </div>
+        </div>
+
+        <div className="quota-orders-chips">
+          {CHIPS.map(c => (
+            <button key={c.key}
+              className={"quota-orders-chip" + (filter === c.key ? " is-on" : "")}
+              onClick={() => setFilter(c.key)}>
+              {c.label}{c.n != null ? ` (${fmtNum(c.n)})` : ""}
+            </button>
+          ))}
+        </div>
+
+        {error && <div className="ai-usage-error">⚠️ {error}</div>}
+
+        <table className="quota-table">
+          <thead>
+            <tr>
+              <th>Mã đơn</th><th>Công ty</th><th>Người nạp</th>
+              <th>Số tiền</th><th>Lượt</th><th>Trạng thái</th><th>Tạo lúc</th><th>Thu lúc</th>
+            </tr>
+          </thead>
+          <tbody>
+            {resp.items.map(o => (
+              <tr key={o.id}>
+                <td>
+                  <button className="quota-ma" onClick={() => copyMa(o.id)} title="Bấm để copy mã">
+                    {o.id} {copied === o.id ? "✓" : "📋"}
+                  </button>
+                </td>
+                <td>
+                  <div className="quota-name">{o.companyName || o.tenantId}</div>
+                  <div className="quota-tid">{o.tenantId}</div>
+                </td>
+                <td className="quota-tid">{o.createdBy || "—"}</td>
+                <td className="quota-num">{fmtVnd(o.amountVnd)}</td>
+                <td className="quota-num">{fmtNum(o.quotaUnits)}</td>
+                <td><span className={"quota-tt quota-tt-" + o.status}>{NHAN_TRANG_THAI[o.status] || o.status}</span></td>
+                <td className="quota-tid">{fmtDate(o.createdAtUtc)}</td>
+                <td className="quota-tid">{fmtDate(o.paidAtUtc)}</td>
+              </tr>
+            ))}
+            {resp.items.length === 0 && !loading && (
+              <tr><td colSpan={8} className="quota-empty">Không có đơn nào.</td></tr>
+            )}
+          </tbody>
+        </table>
       </div>
     );
   }

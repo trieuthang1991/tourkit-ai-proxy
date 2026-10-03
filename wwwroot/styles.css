@@ -5459,7 +5459,16 @@ html[data-home-theme="dark"] .hp-theme {
 .qu-copy:hover { background: #e0f2fe; }
 .qu-copy-ico { font-size: 12px; opacity: 0.6; }
 .qu-memo { font-family: 'JetBrains Mono', 'Cascadia Code', monospace; font-size: 12px !important;
-  letter-spacing: -0.01em; color: #ea580c !important; }
+  letter-spacing: -0.01em; color: #ea580c !important;
+  /* Nội dung CK nay có cả tên công ty + câu mô tả (~75 ký tự) chứ không còn là mỗi mã đơn —
+     phải cho xuống dòng, nếu không nó đẩy vỡ hàng và người dùng không đọc được hết. */
+  white-space: normal; word-break: break-word; line-height: 1.5; text-align: left; }
+/* Hàng "Nội dung CK" xếp DỌC (nhãn trên, nội dung dưới) để chuỗi dài có trọn chiều ngang. */
+.qu-row-memo { flex-direction: column; align-items: stretch; gap: 6px; }
+.qu-row-memo .qu-copy { width: 100%; align-items: flex-start; justify-content: space-between;
+  background: #fff7ed; border: 1px solid #fed7aa; padding: 8px 10px; }
+.qu-row-memo .qu-copy:hover { background: #ffedd5; }
+.qu-row-memo .qu-copy-ico { flex: 0 0 auto; margin-top: 2px; }
 .qu-warn-memo { font-size: 11.5px; color: #92400e; background: #fef3c7;
   padding: 6px 10px; border-radius: 8px; margin: 6px 0 0; }
 .qu-sim-btn { margin-top: 14px; padding: 8px 14px; background: #dbeafe; border: 1px dashed #93c5fd;
