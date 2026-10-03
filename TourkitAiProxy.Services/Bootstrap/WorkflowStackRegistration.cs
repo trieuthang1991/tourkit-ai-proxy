@@ -102,12 +102,15 @@ public static class WorkflowStackRegistration
 
         // ─── Provider stack ──────────────────────────────────────────────────
         s.AddSingleton<ProviderKeyStore>();
-        s.AddSingleton<IAiProvider, OpenCodeProvider>();
-        s.AddSingleton<IAiProvider, NineRoutesProvider>();
-        s.AddSingleton<IAiProvider, OpenAIProvider>();
-        s.AddSingleton<IAiProvider, AnthropicProvider>();
-        s.AddSingleton<IAiProvider, DeepSeekProvider>();
-        s.AddSingleton<IAiProvider, GrokProvider>();
+        // Mỗi nhà cung cấp BỌC trong ByoAwareProvider: lệnh chạy bằng key riêng của công ty thì không
+        // trừ lượt, key riêng hết tiền/sai thì lùi về key hệ thống và trừ lượt. Không có key riêng
+        // (hoặc cờ Features:ByoAiKey tắt) thì lớp bọc đi thẳng xuống, không làm gì thêm.
+        AddWrapped<OpenCodeProvider>(s);
+        AddWrapped<NineRoutesProvider>(s);
+        AddWrapped<OpenAIProvider>(s);
+        AddWrapped<AnthropicProvider>(s);
+        AddWrapped<DeepSeekProvider>(s);
+        AddWrapped<GrokProvider>(s);
         s.AddSingleton<ProviderRegistry>();
         // Key AI riêng của công ty (BYO). Đăng ký ở ĐÂY chứ không ở WebFeatureRegistration: worker
         // nền cũng gọi AI qua AiModelRegistry, khai riêng cho web thì tác vụ tự động của công ty đã
@@ -223,6 +226,7 @@ public static class WorkflowStackRegistration
         s.AddSingleton<Chat.Inbox.ChatWorkSignal>();
         // Bộ sinh câu trả lời — worker và nút Gợi ý của nhân viên dùng CHUNG một lớp, nên nó phải
         // đăng ký TRƯỚC ChatInboundService (thứ tự không bắt buộc với DI, nhưng đọc xuôi hơn).
+        s.AddSingleton<Chat.Inbox.ChatTourLookup>();
         s.AddSingleton<Chat.Inbox.ChatReplyComposer>();
         s.AddSingleton<Chat.Inbox.ChatInboundService>();
         s.AddSingleton<ChannelCredentialStore>();
@@ -288,5 +292,16 @@ public static class WorkflowStackRegistration
         s.AddSingleton<Workflows.WorkflowSchedulerService>();
 
         return s;
+    }
+
+    /// <summary>
+    /// Đăng ký nhà cung cấp <typeparamref name="T"/> dưới dạng ĐÃ BỌC trong
+    /// <see cref="AiKeys.ByoAwareProvider"/>. Lớp cụ thể vẫn đăng ký riêng để DI dựng được nó; còn
+    /// <see cref="IAiProvider"/> — thứ ProviderRegistry nhận — luôn là bản đã bọc.
+    /// </summary>
+    private static void AddWrapped<T>(IServiceCollection s) where T : class, IAiProvider
+    {
+        s.AddSingleton<T>();
+        s.AddSingleton<IAiProvider>(sp => new AiKeys.ByoAwareProvider(sp.GetRequiredService<T>(), sp));
     }
 }

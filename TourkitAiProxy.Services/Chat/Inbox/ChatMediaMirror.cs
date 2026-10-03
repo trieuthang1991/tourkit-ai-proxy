@@ -70,7 +70,9 @@ public class ChatMediaMirror
 
     /// <param name="StickerId">Mã nhãn dán do nền tảng cấp, nếu tệp này là nhãn dán.</param>
     /// <param name="Auth">Khoá kèm theo khi tải (WhatsApp bắt buộc; Meta thường không cần).</param>
-    public record NguonTep(string Url, string? StickerId = null, string? Auth = null);
+    /// <param name="LaAnhDaiDien">Ảnh đại diện thì nén theo luật RIÊNG — xem <see cref="CanhAvatar"/>.</param>
+    public record NguonTep(string Url, string? StickerId = null, string? Auth = null,
+                           bool LaAnhDaiDien = false);
 
     /// <summary>
     /// Kết quả một lượt soi.
@@ -156,7 +158,7 @@ public class ChatMediaMirror
         //
         // KHÔNG nén nhãn dán: chúng vốn đã nhỏ (dưới 100KB), và nén lại thì mất nền trong suốt.
         if (khoaNhanDan is null)
-            (bytes, kieuNoiDung) = NenAnh(bytes, kieuNoiDung, _log);
+            (bytes, kieuNoiDung) = NenAnh(bytes, kieuNoiDung, _log, nguon.LaAnhDaiDien);
 
         // Nhãn dán đi theo mã của nền tảng; tệp thường băm nội dung và khoá theo TỪNG công ty.
         var khoa = khoaNhanDan ?? $"chat/{AnToan(tenantId)}/{Bam(bytes)}{DuoiTep(kieuNoiDung)}";
@@ -196,6 +198,17 @@ public class ChatMediaMirror
     /// <summary>Cạnh dài nhất sau khi nén. Đủ để soi hoá đơn, hộ chiếu; vẫn tải nhanh.</summary>
     private const int CanhToiDa = 1600;
 
+    /// <summary>
+    /// Cạnh dài nhất của ẢNH ĐẠI DIỆN. Nhỏ hơn hẳn ảnh thường, và cố ý.
+    ///
+    /// <para>Giao diện hộp thư vẽ avatar ở 34px (thanh tiêu đề, dòng danh sách) tới 180px (hồ sơ).
+    /// 180 là đủ cho cả màn hình mật độ điểm ảnh gấp đôi ở cỡ lớn nhất đang dùng. Trước
+    /// 14/09/2026 avatar đi chung luật ảnh thường: chỉ nén khi trên 300KB, và nén thì về 1600px —
+    /// tức phần lớn avatar không được nén chút nào, còn cái nào được nén thì vẫn to gấp gần mười
+    /// lần mức cần. Tốn kho, tốn băng thông của khách, không đổi lấy một pixel nào nhìn thấy.</para>
+    /// </summary>
+    private const int CanhAvatar = 180;
+
     /// <summary>Dưới ngưỡng này thì đụng vào chỉ tổ làm ảnh xấu đi mà chẳng nhẹ thêm bao nhiêu.</summary>
     private const int BoQuaDuoi = 300 * 1024;
 
@@ -226,11 +239,14 @@ public class ChatMediaMirror
     /// còn đúng một khung đứng im — khách gửi ảnh động mà hộp thư hiện ảnh tĩnh thì trông như lỗi.</para>
     /// </summary>
     internal static (byte[] Bytes, string Mime) NenAnh(byte[] bytes, string mime,
-        ILogger? log = null)
+        ILogger? log = null, bool laAnhDaiDien = false)
     {
         if (!mime.StartsWith("image/", StringComparison.OrdinalIgnoreCase)) return (bytes, mime);
         if (mime.Contains("gif", StringComparison.OrdinalIgnoreCase)) return (bytes, mime);
-        if (bytes.LongLength <= BoQuaDuoi) return (bytes, mime);
+        // Ảnh đại diện KHÔNG dùng ngưỡng bỏ qua: giao diện vẽ nó ở 34–180px, nên một tấm 900px
+        // nặng 120KB tuy lọt dưới ngưỡng 300KB vẫn là gấp năm lần mức cần. Nén hết, không trừ ai.
+        if (!laAnhDaiDien && bytes.LongLength <= BoQuaDuoi) return (bytes, mime);
+        var canhTran = laAnhDaiDien ? CanhAvatar : CanhToiDa;
 
         try
         {
@@ -249,9 +265,9 @@ public class ChatMediaMirror
             if (anh.Frames.Count > 1) return (bytes, mime);   // ảnh động — xem ghi chú ở trên
 
             var canh = Math.Max(anh.Width, anh.Height);
-            if (canh > CanhToiDa)
+            if (canh > canhTran)
             {
-                var ti = (double)CanhToiDa / canh;
+                var ti = (double)canhTran / canh;
                 anh.Mutate(x => x.Resize(
                     (int)Math.Round(anh.Width * ti), (int)Math.Round(anh.Height * ti)));
             }

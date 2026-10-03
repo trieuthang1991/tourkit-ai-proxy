@@ -92,7 +92,13 @@ function VisaHistoryPage({ pushToast }) {
   function closeDetail() { setOpenId(null); setDetail(null); }
 
   async function removeOne(id) {
-    if (!window.confirm('Xoá hồ sơ đã thẩm định này? Hành động không thể hoàn tác.')) return;
+    // Hộp thoại DÙNG CHUNG của hệ thống, không phải confirm() thô: hộp thô không theo giao
+    // diện, và trên vài trình duyệt di động nó hiện kèm tên miền trông như cảnh báo lừa đảo.
+    const cau = 'Xoá hồ sơ đã thẩm định này? Hành động không thể hoàn tác.';
+    const ok = window.appConfirm
+      ? await window.appConfirm(cau, { title: 'Xoá hồ sơ thẩm định', confirmLabel: 'Xoá hồ sơ', danger: true })
+      : window.confirm(cau);
+    if (!ok) return;
     try {
       const r = await window.tourkitAuth.authedFetch(`/api/v1/visa/assessments/${encodeURIComponent(id)}`,
         { method: 'DELETE' });

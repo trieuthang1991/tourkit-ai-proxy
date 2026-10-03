@@ -33,6 +33,15 @@
 <script src="/lib/tinymce-loader.js"></script>
 
 <!-- Admin shell — toàn bộ shell + pages trong 1 file -->
+<!-- Lớp hộp thoại dùng chung. PHẢI đứng TRƯỚC admin.jsx, và dialogs.jsx phải trước dialog-api.jsx
+     (dialog-api cần window.ConfirmDialog do dialogs.jsx khai).
+
+     Trước 14/09/2026 trang này không nạp hai tệp trên, nên window.appAlert/appConfirm không tồn
+     tại và mọi lời báo lỗi ở màn quản trị rơi về alert()/confirm() thô của trình duyệt. dialog-api
+     tự gắn mình vào DOM khi nạp, không cần dựng thêm gì. -->
+<script type="text/babel" src="/lib/icons.jsx"></script>
+<script type="text/babel" src="/components/dialogs.jsx"></script>
+<script type="text/babel" src="/core/dialog-api.jsx"></script>
 <script type="text/babel" src="/pages/admin.jsx"></script>
 </body>
 </html>

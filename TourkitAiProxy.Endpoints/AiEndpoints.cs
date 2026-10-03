@@ -98,6 +98,28 @@ public static class AiEndpoints
     }
 
     // ─── POST /completions ────────────────────────────────────────────────────
+    /// <summary>
+    /// Khoá <c>Models:</c> nào áp cho lượt gọi <c>/completions</c> này, đọc từ header
+    /// <c>X-Ai-Feature</c>.
+    ///
+    /// <para>Không khai — hoặc khai tên lạ — thì <see cref="AiFeature.Wizard"/>, y như trước
+    /// 18/09/2026. Tập tên là TẬP ĐÓNG (<see cref="AiFeatures.CompletionsFeature"/>): ngoài này
+    /// thì bỏ qua, để một header do ngoài gửi vào không chọn được model tuỳ ý.</para>
+    ///
+    /// <para>Chỉ <c>ai-suggest</c> có khoá riêng — cố ý, vì mỗi khoá mới là một thứ phải nhớ
+    /// chỉnh và nhớ đồng bộ giữa web với worker. <c>quote</c>/<c>quote-marketing</c> là hai bước
+    /// của chính Wizard nên dùng <c>Models:Wizard</c>; <c>zalo-compose</c> viết chữ gửi thẳng tới
+    /// khách nên dùng <c>Models:ChatInbox</c>, cùng khoá với lượt trợ lý tự trả lời khách. Cả ba
+    /// vẫn tách được trong bảng chi phí nhờ nhãn riêng.</para>
+    /// </summary>
+    private static AiFeature ModelFeature(HttpContext ctx)
+        => AiFeatures.CompletionsFeature(ctx.Request.Headers["X-Ai-Feature"].FirstOrDefault()) switch
+        {
+            AiFeatures.AiSuggest   => AiFeature.AiSuggest,
+            AiFeatures.ZaloCompose => AiFeature.ChatInbox,
+            _                      => AiFeature.Wizard,
+        };
+
     private static async Task<IResult> HandleCompleteAsync(
         CompleteRequest req,
         ProviderRegistry registry,
@@ -113,7 +135,7 @@ public static class AiEndpoints
         // Wizard / raw passthrough: nếu caller không chỉ định provider/model → resolve từ Models:Wizard (kế thừa Primary nếu null).
         if (string.IsNullOrWhiteSpace(req.Provider) || string.IsNullOrWhiteSpace(req.Model))
         {
-            var resolved = modelRegistry.Resolve(AiFeature.Wizard, req.Provider, req.Model);
+            var resolved = modelRegistry.Resolve(ModelFeature(ctx), req.Provider, req.Model);
             req = req with { Provider = resolved.Provider, Model = resolved.Model, ApiKey = req.ApiKey ?? resolved.ApiKey };
         }
 
@@ -220,7 +242,7 @@ public static class AiEndpoints
         // Wizard / raw passthrough: nếu caller không chỉ định provider/model → resolve từ Models:Wizard (kế thừa Primary nếu null).
         if (string.IsNullOrWhiteSpace(req.Provider) || string.IsNullOrWhiteSpace(req.Model))
         {
-            var resolved = modelRegistry.Resolve(AiFeature.Wizard, req.Provider, req.Model);
+            var resolved = modelRegistry.Resolve(ModelFeature(ctx), req.Provider, req.Model);
             req = req with { Provider = resolved.Provider, Model = resolved.Model, ApiKey = req.ApiKey ?? resolved.ApiKey };
         }
 

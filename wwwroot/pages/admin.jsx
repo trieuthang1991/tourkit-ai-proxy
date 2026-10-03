@@ -5,6 +5,19 @@
 
   const SESSION_KEY = "tkai_admin_session";
 
+  // ── Hộp thoại dùng chung ───────────────────────────────────────────────────
+  //
+  // Trang quản trị không có dải toast riêng, nên báo lỗi ở đây đi qua hộp thoại chung của hệ
+  // thống thay vì alert()/confirm() thô của trình duyệt. Hộp thô không theo giao diện, chặn cứng
+  // cả luồng, và trên vài trình duyệt di động nó hiện kèm tên miền trông y như cảnh báo lừa đảo.
+  //
+  // Cả ba đều CÓ nhánh lùi về hộp thô: trang quản trị nạp độc lập, không chắc lúc nào lớp hộp
+  // thoại chung cũng đã sẵn sàng — mà mất hẳn lời báo lỗi thì tệ hơn là báo bằng hộp xấu.
+  const bao = (msg) => (window.appAlert ? window.appAlert(String(msg)) : (alert(String(msg)), Promise.resolve()));
+  const hoi = (msg, opts = {}) => (window.appConfirm
+    ? window.appConfirm(msg, opts)
+    : Promise.resolve(window.confirm(msg)));
+
   // ── Session helpers ────────────────────────────────────────────────────────
   function loadSession() {
     try {
@@ -469,11 +482,17 @@
     useEffect(() => { load(); }, []);
 
     async function onTopUp(tenantId, displayName) {
-      const raw = window.prompt(`Cộng bao nhiêu lượt cho "${displayName}"?`, "100");
+      // Hộp thoại DÙNG CHUNG của hệ thống, không phải prompt()/alert() thô của trình duyệt:
+      // hộp thô không theo giao diện, chặn cứng cả luồng, và trên vài trình duyệt di động nó hiện
+      // kèm tên miền trông y như cảnh báo lừa đảo.
+      const raw = window.appPrompt
+        ? await window.appPrompt(`Cộng bao nhiêu lượt cho "${displayName}"?`, "100",
+            { title: "Cộng lượt", placeholder: "Số lượt" })
+        : window.prompt(`Cộng bao nhiêu lượt cho "${displayName}"?`, "100");
       if (raw == null) return;
       const amount = parseInt(raw, 10);
       if (!Number.isInteger(amount) || amount < 1) {
-        alert("Số lượt phải là số nguyên ≥ 1");
+        await bao("Số lượt phải là số nguyên ≥ 1");
         return;
       }
       try {
@@ -486,7 +505,7 @@
         if (!r.ok) throw new Error(data.error || `HTTP ${r.status}`);
         await load();
       } catch (e) {
-        alert(e.message || "Top-up thất bại");
+        await bao(e.message || "Top-up thất bại");
       }
     }
 
@@ -582,7 +601,7 @@
         if (!r.ok) throw new Error(data.error || `HTTP ${r.status}`);
         await load();
       } catch (e) {
-        alert(e.message || "Cập nhật thất bại");
+        await bao(e.message || "Cập nhật thất bại");
       } finally {
         setBusyId(null);
       }
@@ -988,7 +1007,11 @@
 
     async function kick(row) {
       const name = row.companyName || row.fullName || row.username;
-      if (!window.confirm(`Buộc đăng xuất phiên này?\n\n${name} (${row.username})\nTenant: ${row.tenantId}\n\nUser sẽ phải đăng nhập lại lần dùng tiếp theo.`)) return;
+      const ok = await hoi(
+        `Buộc đăng xuất phiên này?\n\n${name} (${row.username})\nTenant: ${row.tenantId}\n\n`
+        + 'User sẽ phải đăng nhập lại lần dùng tiếp theo.',
+        { title: 'Buộc đăng xuất', confirmLabel: 'Buộc đăng xuất', danger: true });
+      if (!ok) return;
       try {
         const r = await window.adminFetch(`/api/v1/admin/ui/tk-sessions/${encodeURIComponent(row.id)}`, {
           method: "DELETE"
@@ -997,7 +1020,7 @@
         if (!r.ok) throw new Error(d.error || `HTTP ${r.status}`);
         load();
       } catch (e) {
-        alert("Lỗi kick: " + (e.message || e));
+        await bao("Lỗi kick: " + (e.message || e));
       }
     }
 
@@ -1698,13 +1721,13 @@
     function patch(field, val) { setEditing(e => ({ ...e, [field]: val })); }
 
     async function save() {
-      if (!editing.code.trim()) { alert("Code không được trống"); return; }
-      if (!editing.name.trim()) { alert("Tên template không được trống"); return; }
-      if (!editing.subject.trim()) { alert("Tiêu đề không được trống"); return; }
-      if (!editing.bodyHtml.trim()) { alert("Nội dung không được trống"); return; }
+      if (!editing.code.trim()) { await bao("Code không được trống"); return; }
+      if (!editing.name.trim()) { await bao("Tên template không được trống"); return; }
+      if (!editing.subject.trim()) { await bao("Tiêu đề không được trống"); return; }
+      if (!editing.bodyHtml.trim()) { await bao("Nội dung không được trống"); return; }
       if (editing.sampleParams && editing.sampleParams.trim()) {
         try { JSON.parse(editing.sampleParams); }
-        catch { alert("SampleParams không phải JSON hợp lệ"); return; }
+        catch { await bao("SampleParams không phải JSON hợp lệ"); return; }
       }
       setSaving(true);
       try {
@@ -1727,14 +1750,18 @@
         cancelEdit();
         load();
       } catch (e) {
-        alert("Lỗi lưu: " + (e.message || e));
+        await bao("Lỗi lưu: " + (e.message || e));
       } finally {
         setSaving(false);
       }
     }
 
     async function del(t) {
-      if (!window.confirm(`Xóa template "${t.name}" (${t.code})?\n\nWorker sẽ fallback về template code mặc định cho mã này.`)) return;
+      const ok = await hoi(
+        `Xóa template "${t.name}" (${t.code})?\n\n`
+        + 'Worker sẽ fallback về template code mặc định cho mã này.',
+        { title: 'Xoá mẫu email', confirmLabel: 'Xoá mẫu', danger: true });
+      if (!ok) return;
       try {
         const r = await window.adminFetch(
           `/api/v1/admin/ui/mail-templates/${encodeURIComponent(t.code)}`, { method: "DELETE" });
@@ -1743,7 +1770,7 @@
         if (editing && editing.code === t.code) cancelEdit();
         load();
       } catch (e) {
-        alert("Lỗi xóa: " + (e.message || e));
+        await bao("Lỗi xóa: " + (e.message || e));
       }
     }
 

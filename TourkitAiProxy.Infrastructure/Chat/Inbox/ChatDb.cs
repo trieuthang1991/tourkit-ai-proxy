@@ -142,6 +142,26 @@ public class ChatDb
     -- biệt danh Facebook), còn đây là tên khách tự gõ ra. Hai thứ khác độ tin cậy và khác nguồn;
     -- gộp một cột thì một lần bắt nhầm là xoá mất tên thật, không lấy lại được.
     ALTER TABLE chat_contacts ADD COLUMN IF NOT EXISTS stated_name text;
+
+    -- Lần cuối HỎI NỀN TẢNG về hồ sơ khách (tên + ảnh đại diện).
+    --
+    -- Không nền tảng nào đẩy sự kiện "khách đổi ảnh", và gói webhook tin nhắn chỉ mang MÃ người
+    -- gửi chứ không mang tên lẫn ảnh — muốn biết là phải tự hỏi. Nên đây là cách duy nhất biết
+    -- hồ sơ đã cũ tới mức nào.
+    --
+    -- Facebook phát link avatar CÓ CHỮ KÝ KÈM HẠN và đổi liên tục, nên không thể cất link rồi
+    -- tải lại sau; phải hỏi lại hồ sơ để lấy link mới còn hạn rồi soi ngay về kho.
+    ALTER TABLE chat_contacts ADD COLUMN IF NOT EXISTS profile_synced_utc timestamptz;
+
+    -- Điểm cảm xúc ĐÃ CỘNG cho chính lượt thả này (thang 5 bậc).
+    --
+    -- Cần lưu để khi khách GỠ biểu tượng thì trừ lại ĐÚNG con số đã cộng, không đoán. Không có
+    -- cột này thì chỉ còn cách chấm lại từ emoji lúc gỡ — mà thang chấm có thể đã đổi giữa lúc
+    -- thả và lúc gỡ, và với Telegram thì trường `name` là custom_emoji_id không chấm lại được.
+    --
+    -- NULL = lượt thả có trước ngày có cột này; gỡ chúng sẽ không trừ được gì. Đó là lý do
+    -- RemoveSentimentSignalAsync kẹp sàn 0 cho cả tổng lẫn số đếm.
+    ALTER TABLE chat_reactions ADD COLUMN IF NOT EXISTS sentiment_level smallint;
     -- Ảnh chụp hồ sơ khách CRM LÚC NỐI (12/09/2026). Chỉ để HIỂN THỊ.
     --
     -- Vì sao phải lưu: CRM cho tìm theo tên/số/mã khách nhưng KHÔNG có đường lấy khách theo mã.
@@ -442,8 +462,26 @@ public class ChatDb
       greeting      text,
       mute_minutes  integer     NOT NULL DEFAULT 30,
       history_turns integer     NOT NULL DEFAULT 12,
+      -- Cho trợ lý TRA dữ liệu tour thật trước khi trả lời khách. MẶC ĐỊNH TẮT, và đây là công tắc
+      -- DUY NHẤT (cờ máy chủ Features:ChatTourLookup đã bỏ 18/09/2026 — tra tour đi theo
+      -- Features:Chat). Bật là đổi luật trong khung an toàn: từ "cấm nói mọi số" sang "được nói
+      -- đúng số trong bảng vừa lấy về".
+      tour_lookup   boolean     NOT NULL DEFAULT false,
+      -- Tra tour THEO QUYỀN nhân viên thay vì xem cả kho. MẶC ĐỊNH false = XEM CẢ KHO: danh mục
+      -- tour là thứ công ty vẫn đem đi chào khách, nên rộng là đúng với việc bán hàng. Bật lên thì
+      -- phạm vi bám quyền một người — nhân viên bấm Gợi ý thì quyền người đó, bot tự trả lời thì
+      -- quyền NGƯỜI PHỤ TRÁCH hội thoại (chưa gán ai thì rơi về cả kho).
+      -- Ô này quyết phạm vi, KHÔNG phải ngữ cảnh lượt gọi: tắt là cả hai đường đều xem cả kho.
+      tour_lookup_by_user boolean NOT NULL DEFAULT false,
       updated_utc   timestamptz NOT NULL DEFAULT now()
     );
+
+    -- Công ty đã có dòng cấu hình từ trước thì mặc định false: bật tính năng trên máy chủ KHÔNG
+    -- được tự động gỡ lời hứa an toàn của công ty đang dùng — họ phải tự bật.
+    ALTER TABLE chat_bot_settings ADD COLUMN IF NOT EXISTS tour_lookup boolean NOT NULL DEFAULT false;
+    -- false = xem cả kho, đúng hành vi công ty đang có trước khi thêm ô này. Đổi mặc định thành
+    -- true sẽ lặng lẽ THU HẸP dữ liệu bot đang tư vấn — hỏng kiểu không ai báo.
+    ALTER TABLE chat_bot_settings ADD COLUMN IF NOT EXISTS tour_lookup_by_user boolean NOT NULL DEFAULT false;
 
     CREATE TABLE IF NOT EXISTS chat_quick_replies (
       id          bigserial PRIMARY KEY,

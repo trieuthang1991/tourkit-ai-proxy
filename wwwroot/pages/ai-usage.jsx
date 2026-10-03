@@ -4,14 +4,46 @@ const { useState: _uS, useEffect: _uE, useCallback: _uCb } = React;
 
 const fmtN = (n) => Number(n || 0).toLocaleString('vi-VN');
 const fmtVnd = (n) => Number(n || 0).toLocaleString('vi-VN');
+// Tên tiếng Việt cho từng mã tính năng trong AiCallContext (phía máy chủ).
+// ⚠️ Thiếu một mã ở đây KHÔNG vỡ gì — bảng rơi về hiện mã thô (xem `|| f.feature` bên dưới).
+// Nhưng mã thô thì người đọc hoá đơn không biết đang trả tiền cho việc gì: trước 18/09/2026 bảng
+// này chỉ có 9 mục trong khi máy chủ phát ra 24 mã, nên hai phần ba số dòng hiện ra như "chat-inbox",
+// "widget-crm-plan". Thêm mã mới bên AiCallContext thì thêm luôn một dòng ở đây.
 const FEATURE_LABEL = {
+  // ── Người dùng tự bấm ──
   visa: 'Thẩm định Visa', deals: 'AI phân tích Cơ hội', chat: 'Trợ lý số liệu',
-  mail: 'Hộp thư AI', reviews: 'Customer Review', 'tour-builder': 'Soạn Tour GIT',
-  'ncc-import': 'Bóc tách NCC', completions: 'Completions (raw)', other: 'Khác',
+  mail: 'Hộp thư AI', reviews: 'Chấm hạng khách', 'tour-builder': 'Soạn Tour GIT',
+  'ncc-import': 'Bóc tách NCC',
+  // ── Bốn ca dùng /completions, tách theo X-Ai-Feature ──
+  quote: 'Tính giá tour', 'quote-marketing': 'Viết lời chào bán',
+  'ai-suggest': 'Gợi ý AI', 'zalo-compose': 'Soạn tin Zalo',
+  // Còn lại là lượt gọi thẳng chưa gắn nhãn — nhìn thấy nhiều ở đây nghĩa là có chỗ gọi quên khai.
+  completions: 'Gọi thẳng — chưa gắn nhãn',
+  // ── Hộp thư chat ──
+  'chat-inbox': 'Trợ lý hộp thư chat', 'chat-inbox-tour-plan': 'Hộp thư chat — chọn API tour',
+  // ── Widget trên web công ty ──
+  widget: 'Widget chat', 'widget-crm': 'Widget tra CRM', 'widget-crm-plan': 'Widget — chọn API',
+  // ── Chạy nền, không ai bấm ──
+  digest: 'Bản tin', 'mail-auto-sync': 'Hộp thư tự đồng bộ',
+  'deal-auto-review': 'Tự chấm Cơ hội', 'customer-auto-review': 'Tự chấm khách',
+  'assistant-action': 'Hành động trợ lý', 'status-semantics': 'Đọc tên trạng thái',
+  other: 'Khác', unknown: 'Không rõ',
 };
+// Cùng cụm thì cùng tông màu, để nhìn bảng là thấy tiền đang dồn vào mảng nào.
 const FEATURE_COLOR = {
   visa: '#2563eb', deals: '#d97706', chat: '#16a34a', mail: '#8b5cf6',
-  reviews: '#0ea5e9', 'tour-builder': '#f97316', 'ncc-import': '#0d9488', completions: '#64748b', other: '#94a3b8',
+  reviews: '#0ea5e9', 'tour-builder': '#f97316', 'ncc-import': '#0d9488',
+  // báo giá — tông cam đất
+  quote: '#ea580c', 'quote-marketing': '#fb923c', 'ai-suggest': '#c2410c', 'zalo-compose': '#f59e0b',
+  completions: '#64748b',
+  // hộp thư chat — tông xanh lá
+  'chat-inbox': '#15803d', 'chat-inbox-tour-plan': '#4ade80',
+  // widget — tông tím
+  widget: '#7c3aed', 'widget-crm': '#a78bfa', 'widget-crm-plan': '#c4b5fd',
+  // chạy nền — tông xám lạnh
+  digest: '#475569', 'mail-auto-sync': '#6366f1', 'deal-auto-review': '#b45309',
+  'customer-auto-review': '#0891b2', 'assistant-action': '#059669', 'status-semantics': '#78716c',
+  other: '#94a3b8', unknown: '#cbd5e1',
 };
 
 // Eyebrow nhỏ (dot cam + uppercase) — DÙNG TỐI ĐA 3 LẦN/page (taste: max 1 eyebrow / 3 section).

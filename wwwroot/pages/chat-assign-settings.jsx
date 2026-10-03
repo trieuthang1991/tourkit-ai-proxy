@@ -66,8 +66,11 @@
     const [soDongErpTra, setSoDongErpTra] = useState(0);
     const [dangChia, setDangChia] = useState(false);
 
-    // pushToast không phải chỗ gọi nào cũng truyền — rơi về alert để không bao giờ nuốt lỗi.
-    const bao = (msg, kind) => (pushToast ? pushToast(msg, kind) : alert(msg));
+    // pushToast không phải chỗ gọi nào cũng truyền. Xuống thang: toast → hộp thoại dùng chung →
+    // alert() thô. alert() chỉ còn là chốt chặn cuối nếu lớp hộp thoại chưa nạp; không bao giờ
+    // nuốt lỗi.
+    const bao = (msg, kind) => (pushToast ? pushToast(msg, kind)
+      : (window.appAlert ? window.appAlert(String(msg)) : alert(msg)));
 
     async function load() {
       setLoading(true);

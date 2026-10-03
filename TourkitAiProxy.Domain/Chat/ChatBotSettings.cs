@@ -18,12 +18,43 @@ namespace TourkitAiProxy.Domain.Chat;
 /// <param name="Greeting">Câu chào cho khách nhắn LẦN ĐẦU. Rỗng = không chào, vào thẳng trả lời.</param>
 /// <param name="MuteMinutes">Nhân viên trả lời xong thì bot câm bấy nhiêu phút.</param>
 /// <param name="HistoryTurns">Bot đọc lại bao nhiêu tin gần nhất để hiểu ngữ cảnh.</param>
+/// <param name="TourLookup">Cho trợ lý TRA dữ liệu tour thật (tên tour, khoảng giá, giá theo ngày
+/// khởi hành, lịch + số chỗ còn) trước khi trả lời.
+///
+/// <para><b>Mặc định TẮT</b>, và đây là công tắc DUY NHẤT — cờ máy chủ <c>Features:ChatTourLookup</c>
+/// đã bỏ (18/09/2026), tra tour đi theo <c>Features:Chat</c>. Bật ô này là đổi luật trong khung an
+/// toàn: từ "cấm nói mọi số" thành "được nói đúng số trong bảng vừa lấy về". Công ty chưa bật thì
+/// KHÔNG một lượt gọi API nào phát ra. Xem <see cref="BuildSystemPrompt"/>.</para>
+///
+/// <para>Thứ nhạy cảm không nằm ở tour mà ở các trường đi kèm trong API nội bộ — tên và số điện
+/// thoại khách đã đặt, hoa hồng, doanh thu. Chặn chúng là việc của danh sách trắng trong
+/// <c>ChatTourLookup</c>, không phải việc của một ô tích.</para></param>
+/// <param name="TourLookupByUser">Tra tour <b>theo quyền của nhân viên</b> thay vì xem cả kho.
+///
+/// <para><b>Mặc định TẮT = xem CẢ KHO, không check quyền.</b> Danh mục tour về bản chất là thứ
+/// công ty vẫn đem đi chào khách, nên mặc định rộng là đúng với việc bán hàng: khách hỏi tour nào
+/// cũng tư vấn được, không phụ thuộc người trực hôm đó được phân công những tour nào.</para>
+///
+/// <para>Bật lên thì phạm vi bám theo quyền một người cụ thể — công ty nào chia tour theo nhóm
+/// bán và không muốn người nhóm này chào tour của nhóm kia thì bật.</para>
+///
+/// <para><b>Phạm vi do Ô NÀY quyết, không do ngữ cảnh lượt gọi.</b> Bản đầu (18/09/2026) suy phạm
+/// vi từ ngữ cảnh — nhân viên bấm Gợi ý thì tự động theo quyền người đó, bot tự trả lời thì đi
+/// tài khoản dịch vụ. Sai: công ty không khai gì mà hai lượt trả lời cùng một câu hỏi lại ra hai
+/// kết quả khác nhau, tuỳ ai bấm. Nay tắt ô là CẢ HAI đường đều xem cả kho, bật ô là cả hai đường
+/// đều theo quyền.</para>
+///
+/// <para>Bật ô mà là lượt <b>bot tự trả lời</b> (không ai online) thì lấy quyền <b>người phụ trách
+/// hội thoại</b>. Hội thoại chưa gán ai — hoặc người đó chưa từng đăng nhập — thì rơi về cả kho:
+/// thà tư vấn rộng hơn ý muốn còn hơn để bot im trước câu hỏi của khách thật.</para></param>
 public record ChatBotSettings(
     bool Enabled = true,
     string? Persona = null,
     string? Greeting = null,
     int MuteMinutes = ChatRules.BotCamPhutMacDinh,
-    int HistoryTurns = 12)
+    int HistoryTurns = 12,
+    bool TourLookup = false,
+    bool TourLookupByUser = false)
 {
     public static readonly ChatBotSettings Default = new();
 

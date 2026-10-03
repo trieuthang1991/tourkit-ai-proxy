@@ -431,7 +431,7 @@ Câu hỏi hay gặp: *nối kênh xong, các đoạn chat có từ trước có
 | Zalo | ❌ | Open API không có đầu đọc hội thoại |
 | TikTok | ❌ | có đầu đọc nhưng đòi tư cách **Messaging Partner**, phải xin duyệt riêng |
 
-**Messenger / Instagram** — nằm sau cờ riêng `Features:ChatHistoryImport` và **người dùng tự bấm**
+**Messenger / Instagram** — đi theo cờ `Features:Chat` (không còn cờ riêng) và **người dùng tự bấm**
 từng tài khoản (`POST .../accounts/{id}/import-history`, tra tiến độ bằng `GET` cùng đường). Không
 tự chạy lúc nối: một Trang bán hàng lâu năm có hàng chục nghìn tin, và gọi Graph quá nhiều là
 Facebook chặn tạm cả ứng dụng — lúc đó **tin trực tiếp cũng ngừng về**, tức lấy lịch sử làm hỏng

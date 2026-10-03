@@ -350,7 +350,7 @@ function SalePredictor({ request }) {
 
         Dự đoán tỉ lệ chốt sale (60-90%) dựa trên lịch sử các deal tương tự. Trả JSON THUẦN:
         {"rate": 78, "reason": "1 câu giải thích ngắn lý do (15-20 chữ)"}`;
-      const raw = await window.claude.complete(prompt);
+      const raw = await window.claude.complete(prompt, { feature: 'quote' });
       const m = raw.match(/\{[\s\S]*\}/);
       if (m) setData({ ...JSON.parse(m[0]), pristine: false });
       else throw new Error('parse');

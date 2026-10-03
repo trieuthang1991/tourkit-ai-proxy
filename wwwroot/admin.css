@@ -413,3 +413,201 @@
 .mailq-ch-0 { background: #EFF6FF; color: #1D4ED8; }   /* Email    */
 .mailq-ch-1 { background: #ECFEFF; color: #0E7490; }   /* Telegram */
 .mailq-ch-2 { background: #F5F3FF; color: #6D28D9; }   /* Zalo     */
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   Hộp thoại dùng chung (appAlert / appConfirm / appPrompt)
+
+   BẢN SAO CÓ CHỦ ĐÍCH từ wwwroot/styles.css. SỬA MỘT BÊN PHẢI SỬA CẢ HAI.
+   Nguồn gốc: .modal-backdrop (styles.css “---------- Modal ----------”),
+   .dialog* (“---------- Dialog ----------”), .btn*, .input, .icon-btn.
+
+   Vì sao chép thay vì nạp styles.css: styles.css gần 10.000 dòng và mang cả
+   bảng màu lẫn layout của website chính — nạp vào trang quản trị là vẽ lại
+   toàn bộ màn admin. Ở đây chỉ cần đúng phần hộp thoại.
+
+   Ba điều chỉnh so với bản gốc, cố ý:
+   1. MỌI luật đều lồng dưới .modal-backdrop. Hộp thoại render qua
+      ReactDOM.createPortal vào <body>, và .modal-backdrop là nút ngoài cùng
+      của nó — nên phạm vi này phủ đủ, mà không một class nào (.btn, .input,
+      button…) rò ra ngoài đụng vào giao diện admin sẵn có.
+   2. Token màu khai lại ngay trên .modal-backdrop. admin.css đặt tên token
+      khác (--accent, --text-primary, --border-warm…) nhưng GIÁ TRỊ trùng
+      website. Khai bằng tên của styles.css giữ được các luật chép xuống dưới
+      NGUYÊN VĂN — và làm inline style var(--text-2) trong ConfirmDialog chạy,
+      vì biến tuỳ biến có kế thừa.
+   3. Thêm .btn:disabled — styles.css KHÔNG có luật này (thiếu sót bên đó).
+      appPrompt khoá nút xác nhận khi ô trống; không có luật thì nút trông y
+      như đang bật mà bấm không ăn. Bên website chính cũng nên thêm.
+   ═══════════════════════════════════════════════════════════════════════════ */
+.modal-backdrop {
+  /* Token của styles.css (giá trị lấy đúng từ :root bên đó) */
+  --primary: #F97316;
+  --primary-dark: #EA580C;
+  --primary-glow: rgba(249, 115, 22, 0.12);
+  --bg: #F8FAFC;
+  --surface: #FFFFFF;
+  --text: #0F172A;
+  --text-2: #475569;
+  --text-3: #64748B;
+  --border: #E2E8F0;
+  --border-strong: #CBD5E1;
+  --danger: #EF4444;
+  --radius: 8px;
+
+  /* admin.css không có reset toàn cục (không * { box-sizing }, không body
+     font) — phải tự dựng trong phạm vi này, nếu không .input/.dialog-msg-box
+     rộng 100% cộng padding sẽ tràn, và chữ rơi về phông mặc định trình duyệt. */
+  font-family: var(--sans);
+  font-size: 14px;
+  line-height: 1.55;
+  color: var(--text);
+  -webkit-font-smoothing: antialiased;
+
+  position: fixed;
+  inset: 0;
+  background: rgba(15, 23, 42, 0.62);
+  backdrop-filter: blur(6px);
+  -webkit-backdrop-filter: blur(6px);
+  z-index: 9999;
+  display: grid;
+  place-items: center;
+  padding: 20px;
+  animation: dialogFadeIn 0.15s ease;
+}
+@keyframes dialogFadeIn { from { opacity: 0; } to { opacity: 1; } }
+
+.modal-backdrop *, .modal-backdrop *::before, .modal-backdrop *::after { box-sizing: border-box; }
+.modal-backdrop button { font-family: inherit; cursor: pointer; border: none; background: none; }
+.modal-backdrop input, .modal-backdrop textarea { font-family: inherit; font-size: inherit; color: inherit; }
+.modal-backdrop input:focus, .modal-backdrop textarea:focus { outline: none; }
+
+.modal-backdrop .dialog {
+  background: #ffffff;
+  border-radius: 16px;
+  width: 100%;
+  max-width: 480px;
+  max-height: 90vh;
+  box-shadow: 0 24px 64px rgba(15,23,42,0.35);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  position: relative;
+  isolation: isolate;
+}
+.modal-backdrop .dialog-head {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 18px 20px 14px;
+  border-bottom: 1px solid var(--border);
+  flex-shrink: 0;
+}
+.modal-backdrop .dialog-head-icon {
+  width: 32px;
+  height: 32px;
+  border-radius: 8px;
+  background: linear-gradient(135deg, var(--primary), var(--primary-dark));
+  color: white;
+  display: grid;
+  place-items: center;
+}
+.modal-backdrop .dialog-eyebrow {
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--text-3);
+  margin-bottom: 2px;
+}
+.modal-backdrop .dialog-title {
+  font-size: 16px;
+  font-weight: 700;
+  margin: 0;
+  letter-spacing: -0.01em;
+}
+.modal-backdrop .dialog-body {
+  padding: 20px;
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+}
+.modal-backdrop .dialog-foot {
+  padding: 14px 20px;
+  background: var(--bg);
+  border-top: 1px solid var(--border);
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+  flex-shrink: 0;
+}
+.modal-backdrop .dialog-msg-box {
+  width: 100%;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 10px 12px;
+  font: inherit;
+  font-size: 12.5px;
+  line-height: 1.55;
+  color: var(--text);
+  background: var(--bg);
+  resize: vertical;
+  display: block;
+}
+.modal-backdrop .dialog-msg-box:focus { outline: none; border-color: var(--primary); }
+
+.modal-backdrop .icon-btn {
+  width: 34px;
+  height: 34px;
+  display: grid;
+  place-items: center;
+  border-radius: 8px;
+  color: var(--text-3);
+  transition: all 0.15s;
+}
+.modal-backdrop .icon-btn:hover { background: var(--bg); color: var(--text); }
+
+.modal-backdrop .input {
+  width: 100%;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 12px 14px;
+  font-size: 14px;
+  color: var(--text);
+  transition: border 0.15s, box-shadow 0.15s;
+}
+.modal-backdrop .input:focus {
+  border-color: var(--primary);
+  box-shadow: 0 0 0 3px var(--primary-glow);
+}
+
+.modal-backdrop .btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 12px 18px;
+  border-radius: var(--radius);
+  font-size: 13px;
+  font-weight: 600;
+  transition: all 0.15s;
+  white-space: nowrap;
+}
+.modal-backdrop .btn:disabled { opacity: 0.45; cursor: not-allowed; }
+.modal-backdrop .btn-primary { background: var(--primary); color: white; }
+.modal-backdrop .btn-primary:hover { background: var(--primary-dark); box-shadow: 0 6px 18px var(--primary-glow); }
+.modal-backdrop .btn-outline {
+  background: transparent;
+  color: var(--text);
+  border: 1px solid var(--border-strong);
+}
+.modal-backdrop .btn-outline:hover { border-color: var(--text); }
+.modal-backdrop .btn-ghost { color: var(--text-2); padding: 8px 12px; }
+.modal-backdrop .btn-ghost:hover { color: var(--primary); background: var(--bg); }
+.modal-backdrop .btn-sm { padding: 8px 12px; font-size: 12px; }
+.modal-backdrop .btn-danger {
+  background: var(--danger);
+  color: white;
+  border: 1px solid var(--danger);
+}
+.modal-backdrop .btn-danger:hover { filter: brightness(1.05); }

@@ -422,6 +422,35 @@ public static class ChatRules
     /// </summary>
     public const int BotCamPhutMacDinh = 30;
 
+    /// <summary>
+    /// Bốn hướng soạn nháp mà nhân viên chọn được bằng chip dưới nút "Nhờ AI soạn", và câu dặn
+    /// tương ứng nối vào lời nhắc. Mã không khớp (kể cả <c>null</c>) trả <c>null</c> = soạn thường.
+    ///
+    /// <para><b>TẬP ĐÓNG, dịch ở máy chủ — KHÔNG nhận chữ dặn tự do từ trình duyệt.</b> Chữ ở đây
+    /// đi thẳng vào lời nhắc gửi cho mô hình, nên để trình duyệt gửi chữ gì cũng được là mở toang
+    /// một đường tiêm lời nhắc: bất kỳ ai mở được Bảng điều khiển trình duyệt cũng gỡ được khung
+    /// an toàn cấm bịa giá tour, rồi bảo trợ lý hứa giữ chỗ với khách thật. Giao diện chỉ được
+    /// gửi MỘT MÃ; câu chữ nằm ở đây và chỉ ở đây.</para>
+    ///
+    /// <para>Mã đặt tiếng Anh vì nó là khoá dữ liệu đi qua đường truyền, còn câu dặn tiếng Việt vì
+    /// nó là chữ gửi cho mô hình đang nói chuyện với khách Việt.</para>
+    /// </summary>
+    public static string? SuggestionToneHint(string? ma) => ma switch
+    {
+        "formal" =>
+            "Viết giọng trang trọng, lịch sự, xưng hô đầy đủ. Tránh từ lóng và viết tắt.",
+        "callback" =>
+            "Mục tiêu của câu này là hẹn được một cuộc gọi lại: đề nghị khung giờ cụ thể và "
+            + "hỏi lại số điện thoại nếu đoạn hội thoại chưa có.",
+        "ask-info" =>
+            "Khách chưa nói đủ để tư vấn. Hỏi thêm đúng những thông tin còn thiếu (ngày đi, số "
+            + "người, điểm đến, ngân sách) — hỏi gọn, không quá ba ý.",
+        "apologize" =>
+            "Khách đang không hài lòng. Xin lỗi ngắn gọn và chân thành, KHÔNG biện minh dài dòng, "
+            + "rồi nói rõ việc sẽ làm tiếp theo.",
+        _ => null,
+    };
+
     /// Nhân viên trả lời xong thì bot câm bấy lâu.
     public static readonly TimeSpan DefaultBotMute = TimeSpan.FromMinutes(BotCamPhutMacDinh);
 

@@ -112,6 +112,10 @@
     // X-Workflow tag để backend gắn workflow name vào trace (vd 'WizardTour', 'WizardMarketing').
     // Trống → trace để tên rỗng (chỉ thấy step ai_complete).
     if (options.workflow) headers['X-Workflow'] = options.workflow;
+    // X-Ai-Feature: nhãn CỤM để trang Giám sát chi phí tách được tiền theo việc. Khác X-Workflow
+    // (chuỗi tự do cho trace) — cái này là tập đóng, backend không nhận tên lạ. Bỏ trống thì rơi
+    // về "Completions (raw)", tức gộp chung như trước.
+    if (options.feature) headers['X-Ai-Feature'] = options.feature;
     const resp = await fetch(`${API_BASE}/completions`, {
       method: 'POST',
       headers,
@@ -138,6 +142,7 @@
     };
     const headers = { 'Content-Type': 'application/json', 'Accept': 'text/event-stream', ...sessionHeader() };
     if (options.workflow) headers['X-Workflow'] = options.workflow;
+    if (options.feature) headers['X-Ai-Feature'] = options.feature;
     const resp = await fetch(`${API_BASE}/completions/stream`, {
       method: 'POST',
       headers,
@@ -248,10 +253,12 @@
   const originalClaudeComplete = window.claude?.complete;
   if (originalClaudeComplete) {
     window.tourkit.ai._originalClaude = originalClaudeComplete;
-    window.claude.complete = (prompt) => window.tourkit.ai.complete(prompt);
+    // Chuyển TIẾP tham số thứ hai: chỗ gọi cần khai nhãn cụm (feature) để chi phí AI ghi đúng
+    // việc. Nuốt mất nó thì mọi lượt qua đường này đều rơi vào "Completions (raw)".
+    window.claude.complete = (prompt, opts) => window.tourkit.ai.complete(prompt, opts);
   } else {
     window.claude = window.claude || {};
-    window.claude.complete = (prompt) => window.tourkit.ai.complete(prompt);
+    window.claude.complete = (prompt, opts) => window.tourkit.ai.complete(prompt, opts);
   }
 })();
 

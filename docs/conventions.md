@@ -20,8 +20,7 @@ tính năng bị ẩn — phiền nhưng sửa 1 dòng; mặc định bật thì
 | `Features:MeetingBrief` | Action `prepare_meeting` (thẻ chuẩn bị gặp khách) | — |
 | `Features:AnomalyWatchdog` | Tác vụ `anomaly-watchdog` (canh doanh thu bất thường) | **CẦN `Digest`** — ghi vào Bảng tin |
 | `Features:AutoCare` | Tác vụ `customer-auto-care` (nhắc chăm lại khách ngủ quên) | **CẦN `Digest`** — ghi vào Bảng tin |
-| `Features:Chat` | Hộp thư chat đa kênh: `/chat-inbox` + webhook 3 kênh + worker gửi + khai kết nối | — (có CSDL riêng, không ghi Bảng tin) |
-| `Features:ChatHistoryImport` | Nạp lịch sử hội thoại cũ từ kênh về hộp thư | **CẦN `Chat`** — không có hộp thư thì không có chỗ để nạp vào |
+| `Features:Chat` | Hộp thư chat đa kênh: `/chat-inbox` + webhook 3 kênh + worker gửi + khai kết nối + nạp lịch sử cũ + trợ lý tra dữ liệu tour | — (có CSDL riêng, không ghi Bảng tin). **MỘT cờ cho cả cụm**: tắt `Chat` là tắt hết. Hai cờ con `ChatHistoryImport` và `ChatTourLookup` đã bỏ (18/09/2026) — chúng không phải tính năng ra mắt riêng, và cờ con chỉ thêm một cách hỏng câm: nút biến mất khỏi giao diện mà không ai biết vì sao |
 | `Features:ChatAssign` | Giao diện phân công hội thoại + màn hình cấu hình đội trực | **CẦN `Chat`**. ⚠️ Cờ này **chỉ ẩn/hiện giao diện** — luật xem thật nằm ở `chat_assign_settings` theo TỪNG công ty, tắt cờ mà công ty đã bật kẹp quyền thì luật vẫn chạy. Bảo vệ dữ liệu không được phụ thuộc vào một cờ khai trong file cấu hình máy chủ |
 
 ⚠️ `AutoCare` là cờ **quan trọng nhất**: tính năng duy nhất của cả hệ đụng tới KHÁCH HÀNG THẬT. Mọi
@@ -57,18 +56,35 @@ Thêm cờ mới: thêm 1 method vào `FeatureFlags` → gate chỗ sinh ra → 
 /api/v1/features` (giao diện đọc qua [`window.tourkitFeatures`](../wwwroot/core/features.js)) → khai key ở
 **CẢ** `appsettings.example.json` lẫn bản của worker. Action tool thì thêm 1 dòng vào `ActionTools.Gated`.
 
-**Frontend reaches AI via `window.claude.complete` or `window.tourkit.ai.complete`/`completeStream`.** `core/ai-provider.jsx` shims `window.claude.complete` to delegate to `window.tourkit.ai`, which POSTs to `/api/v1/completions`. **ALL provider keys (OpenCode/9routes/OpenAI/Anthropic) live server-side** in `appsettings.json` (`Providers:{X}:ApiKey` or `Models:Primary/Review:ApiKey`) or env vars. The AI Settings UI lets users pick provider/model only — no key input. `localStorage["tourkit_ai_config"]` only holds `{provider, model, _v}` (v9). Bump `CONFIG_VERSION` in `ai-provider.jsx` when changing the shape. (Pre-v9: had client-side localStorage key store + dialog input — removed because operationally fragile; see v8→v9 migration comment.)
+**Frontend reaches AI via `window.claude.complete` or `window.tourkit.ai.complete`/`completeStream`.** `core/ai-provider.jsx` shims `window.claude.complete` to delegate to `window.tourkit.ai`, which POSTs to `/api/v1/completions`. **ALL provider keys (OpenCode/9routes/OpenAI/Anthropic) live server-side** in `appsettings.json` (`Providers:{X}:ApiKey` or `Models:Primary/Review:ApiKey`) or env vars. The AI Settings UI lets users pick provider/model only — no key input. **Ngoại lệ có chủ đích (03/10/2026): Key AI riêng của CÔNG TY (BYO)** ở trang `/ai-key` — key lưu PHÍA MÁY CHỦ, mã hoá Crypton trong `dbo.TenantAiKeys`, chỉ trả bản che ra trình duyệt; khác hẳn ô nhập key lưu `localStorage` đã gỡ ở v9 (thứ "operationally fragile" bên dưới). Xem `docs/superpowers/plans/2026-08-05-tenant-byo-key.md`. `localStorage["tourkit_ai_config"]` only holds `{provider, model, _v}` (v9). Bump `CONFIG_VERSION` in `ai-provider.jsx` when changing the shape. (Pre-v9: had client-side localStorage key store + dialog input — removed because operationally fragile; see v8→v9 migration comment.)
 
 **Static files.** `UseStaticFiles` has `ServeUnknownFileTypes = true` + `DefaultContentType = "text/plain"` so `.jsx` loads without a registered MIME type. `.jsx`/`.js`/`.css`/`.html` are served with `Cache-Control: no-cache` so edits show on a plain reload.
 
-**Cấu hình model AI — khai ĐỦ 14 feature, đừng để rơi ngầm.** `AiModelRegistry.Resolve` đi theo
+**Cấu hình model AI — khai ĐỦ 17 feature, đừng để rơi ngầm.** `AiModelRegistry.Resolve` đi theo
 `Models:{Feature}` → `Models:Primary` → default của provider. Nghĩa là **thiếu một khoá thì tính năng đó
 âm thầm chạy bằng `Models:Primary`** — không log, không cảnh báo, chỉ hoá đơn cuối tháng biết. Đã dính
 thật (14/08): appsettings prod thiếu `Models:MailClassify` nên phân loại mail chạy bằng `claude-haiku`
 suốt, mà đó là task chạy **hàng trăm lần mỗi lần đồng bộ hộp thư**; `Models:Digest` cũng thiếu tương tự.
-Danh sách 14 = enum `AiFeature` ([AiModelRegistry.cs](../TourkitAiProxy.Services/Providers/AiModelRegistry.cs)) — khai đủ
+Danh sách 17 = enum `AiFeature` ([AiModelRegistry.cs](../TourkitAiProxy.Services/Providers/AiModelRegistry.cs)) — khai đủ
 ở **CẢ** `appsettings.json` của web **VÀ** của worker (worker mới là nơi chạy `mail-auto-sync`,
 `deal-auto-review`, `customer-auto-review`, `ceo-brief`).
+
+Bốn ca dùng `/completions` chọn khoá qua header `X-Ai-Feature` — **tập đóng**, tên lạ thì rơi về
+`Models:Wizard`. Chỉ **một** trong bốn có khoá riêng, cố ý — mỗi khoá mới là một thứ phải nhớ chỉnh và
+nhớ đồng bộ giữa web với worker:
+
+| Nhãn chi phí | Khoá model dùng | Vì sao |
+|---|---|---|
+| `quote` · `quote-marketing` | `Models:Wizard` | Hai bước của chính Wizard — đó là cấu hình tính giá tour |
+| `zalo-compose` | `Models:ChatInbox` | Viết chữ gửi thẳng tới khách, cùng bản chất với lượt trợ lý tự trả lời |
+| `ai-suggest` | `Models:AiSuggest` | Ca duy nhất **không ai ngoài công ty đọc** — hạ model thoải mái |
+
+**Nhãn chi phí và khoá model là hai việc khác nhau**: cả bốn vẫn tách được dòng riêng trong bảng chi
+phí, nhưng không phải cái nào cũng cần một khoá để nắn.
+
+`ChatInboxTourPlan` tách khỏi `ChatInbox` có chủ đích — bước chọn API là việc máy móc ra vài chục token,
+còn `ChatInbox` là chữ gửi thẳng tới điện thoại khách. Dùng chung khoá thì nâng model cho khách đọc sẽ
+kéo theo bước chọn API tốn tiền hơn mà không được gì.
 
 ⚠️ **Cấu hình đúng KHÔNG chứng minh được là nó đang chạy đúng.** Hai file appsettings nằm trên 2 máy,
 đều gitignore, nên bản trên server có thể là bản cũ mà không chỗ nào lộ ra. Cách duy nhất biết chắc là

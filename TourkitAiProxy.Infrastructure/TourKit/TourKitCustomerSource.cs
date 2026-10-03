@@ -56,6 +56,38 @@ public class TourKitCustomerSource
 
     public record CustomerPage(List<Customer> Items, int Total);
 
+    /// <summary>
+    /// TRA NHANH theo một chuỗi (số điện thoại / tên / mã) — chỉ id, mã, tên, số.
+    ///
+    /// <para>Đi đường <c>/api/ai/customers/lookup</c> chứ KHÔNG đi <c>/api/ai/customers</c>: đường
+    /// kia còn tính doanh thu, số tour, ngày chăm sóc gần nhất và người phụ trách, tổng ~8–9 truy
+    /// vấn — đo trên staging 14/09/2026 mất ~1.500ms mỗi lượt, cho đúng bốn trường mà hộp thư chat
+    /// cần để hỏi "số này là khách nào".</para>
+    ///
+    /// <para>Quyền xem khách do CRM chặn, bằng phiên của chính nhân viên — y hệt đường kia.</para>
+    /// </summary>
+    public async Task<List<CustomerLite>> LookupAsync(string sessionId, string q, int take, CancellationToken ct)
+    {
+        if (string.IsNullOrWhiteSpace(q)) return new List<CustomerLite>();
+        var path = $"/api/ai/customers/lookup?q={Uri.EscapeDataString(q.Trim())}&take={take}";
+        var data = await GetAsync(sessionId, path, ct);
+
+        var ra = new List<CustomerLite>();
+        if (data.ValueKind == JsonValueKind.Object
+            && data.TryGetProperty("items", out var items)
+            && items.ValueKind == JsonValueKind.Array)
+            foreach (var it in items.EnumerateArray())
+                ra.Add(new CustomerLite(
+                    GetInt(it, "id") ?? 0,
+                    GetStr(it, "fullName") ?? "(không tên)",
+                    GetStr(it, "phone"),
+                    GetStr(it, "code")));
+        return ra;
+    }
+
+    /// <summary>Bốn trường đủ để nhận ra một người và bấm nối. Không hơn.</summary>
+    public record CustomerLite(int Id, string Name, string? Phone, string? Code);
+
     /// Bộ filter mở rộng — bám CustomerSearchRequest của TourKit.Api.
     public record CustomerFilter(
         string? Search = null,

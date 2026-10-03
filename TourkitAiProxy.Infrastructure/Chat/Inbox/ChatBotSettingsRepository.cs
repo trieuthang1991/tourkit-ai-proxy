@@ -1,4 +1,4 @@
-// Infrastructure/Chat/Inbox/ChatBotSettingsRepository.cs
+﻿// Infrastructure/Chat/Inbox/ChatBotSettingsRepository.cs
 using Dapper;
 using TourkitAiProxy.Domain.Chat;
 
@@ -45,7 +45,8 @@ public class ChatBotSettingsRepository
         await using var c = await _db.OpenAsync(ct);
         var r = await c.QueryFirstOrDefaultAsync<Dong>("""
             SELECT enabled, persona, greeting, mute_minutes AS MuteMinutes,
-                   history_turns AS HistoryTurns
+                   history_turns AS HistoryTurns, tour_lookup AS TourLookup,
+                   tour_lookup_by_user AS TourLookupByUser
               FROM chat_bot_settings WHERE tenant_id = @tenant
             """, new { tenant });
 
@@ -53,7 +54,8 @@ public class ChatBotSettingsRepository
         // từng có một tin nhắn đều mọc ra một dòng cấu hình họ chưa hề đụng tới.
         return r is null
             ? ChatBotSettings.Default
-            : new ChatBotSettings(r.Enabled, r.Persona, r.Greeting, r.MuteMinutes, r.HistoryTurns)
+            : new ChatBotSettings(r.Enabled, r.Persona, r.Greeting, r.MuteMinutes, r.HistoryTurns,
+                    r.TourLookup, r.TourLookupByUser)
                 .Normalized();
     }
 
@@ -63,16 +65,21 @@ public class ChatBotSettingsRepository
         await using var c = await _db.OpenAsync(ct);
         await c.ExecuteAsync("""
             INSERT INTO chat_bot_settings
-              (tenant_id, enabled, persona, greeting, mute_minutes, history_turns)
-            VALUES (@tenant, @Enabled, @Persona, @Greeting, @MuteMinutes, @HistoryTurns)
+              (tenant_id, enabled, persona, greeting, mute_minutes, history_turns, tour_lookup,
+               tour_lookup_by_user)
+            VALUES (@tenant, @Enabled, @Persona, @Greeting, @MuteMinutes, @HistoryTurns, @TourLookup,
+                    @TourLookupByUser)
             ON CONFLICT (tenant_id) DO UPDATE SET
               enabled       = EXCLUDED.enabled,
               persona       = EXCLUDED.persona,
               greeting      = EXCLUDED.greeting,
               mute_minutes  = EXCLUDED.mute_minutes,
               history_turns = EXCLUDED.history_turns,
+              tour_lookup   = EXCLUDED.tour_lookup,
+              tour_lookup_by_user = EXCLUDED.tour_lookup_by_user,
               updated_utc   = now()
-            """, new { tenant, n.Enabled, n.Persona, n.Greeting, n.MuteMinutes, n.HistoryTurns });
+            """, new { tenant, n.Enabled, n.Persona, n.Greeting, n.MuteMinutes, n.HistoryTurns, n.TourLookup,
+            n.TourLookupByUser });
 
         // Dọn bộ nhớ tạm NGAY: người vừa bấm Lưu sẽ thử lại luôn, chờ 60 giây mới thấy hiệu lực
         // thì họ tưởng nút Lưu hỏng và bấm thêm mấy lần nữa.
@@ -86,5 +93,7 @@ public class ChatBotSettingsRepository
         public string? Greeting { get; set; }
         public int MuteMinutes { get; set; }
         public int HistoryTurns { get; set; }
+        public bool TourLookup { get; set; }
+        public bool TourLookupByUser { get; set; }
     }
 }

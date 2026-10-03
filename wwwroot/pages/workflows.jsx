@@ -451,7 +451,12 @@ function ServiceAccountConfig({ pushToast, onChange }) {
   }
 
   async function remove() {
-    if (!window.confirm('Xóa tài khoản tự động? Workflow sẽ ngừng tự đăng nhập.')) return;
+    // Hộp thoại dùng chung của hệ thống — xem ghi chú cùng nội dung ở các trang khác.
+    const cau = 'Xóa tài khoản tự động? Workflow sẽ ngừng tự đăng nhập.';
+    const ok = window.appConfirm
+      ? await window.appConfirm(cau, { title: 'Xoá tài khoản tự động', confirmLabel: 'Xoá', danger: true })
+      : window.confirm(cau);
+    if (!ok) return;
     setSaving(true);
     try {
       await apiFetch('/api/v1/workflows/service-account', { method: 'DELETE' });

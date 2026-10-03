@@ -120,7 +120,11 @@
     } catch (e) {
       if (win) win.close();
       const msg = 'Không mở được CRM: ' + e.message;
-      if (onError) onError(msg, 'error'); else alert(msg);
+      // Thứ tự xuống thang: toast của chỗ gọi → hộp thoại dùng chung → alert() thô.
+      // alert() chỉ còn là chốt chặn cuối nếu lớp hộp thoại chưa nạp; không bao giờ nuốt lỗi.
+      if (onError) onError(msg, 'error');
+      else if (window.appAlert) window.appAlert(msg, { title: 'Không mở được CRM' });
+      else alert(msg);
     }
   }
 

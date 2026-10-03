@@ -28,7 +28,7 @@
       window.appConfirm = (message, opts = {}) =>
         open('confirm', { title: opts.title || 'Xác nhận', eyebrow: opts.eyebrow || 'XÁC NHẬN', message, icon: opts.icon || 'warning', confirmLabel: opts.confirmLabel || 'Đồng ý', cancelLabel: opts.cancelLabel || 'Hủy', danger: !!opts.danger });
       window.appPrompt  = (message, defaultValue = '', opts = {}) =>
-        open('prompt', { title: opts.title || 'Nhập thông tin', eyebrow: opts.eyebrow || '', message, defaultValue, icon: opts.icon || 'edit', placeholder: opts.placeholder || '' });
+        open('prompt', { title: opts.title || 'Nhập thông tin', eyebrow: opts.eyebrow || '', message, defaultValue, icon: opts.icon || 'edit', placeholder: opts.placeholder || '', confirmLabel: opts.confirmLabel || 'Xác nhận' });
     }, [cur]);
 
     if (!cur) return null;
@@ -50,7 +50,8 @@
     }
     if (cur.kind === 'prompt') {
       return <window.PromptDialog open={true}
-        title={cur.props.title} eyebrow={cur.props.eyebrow}
+        title={cur.props.title} eyebrow={cur.props.eyebrow} message={cur.props.message}
+        confirmLabel={cur.props.confirmLabel}
         placeholder={cur.props.placeholder} initialValue={cur.props.defaultValue}
         onSubmit={(v) => { cur.resolve(v); setQueue(q => q.slice(1)); }}
         onClose={() => { cur.resolve(null); setQueue(q => q.slice(1)); }} />;
