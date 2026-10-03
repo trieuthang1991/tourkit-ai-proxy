@@ -17,6 +17,9 @@ namespace TourkitAiProxy.Domain.AiKeys;
 /// <param name="ApiKeyEnc">Key đã mã hoá Crypton. Key thô KHÔNG BAO GIỜ rời máy chủ, không vào log.</param>
 /// <param name="Masked">Bản đã che (<c>sk-…abcd</c>) — thứ DUY NHẤT được trả ra giao diện.</param>
 /// <param name="Enabled">Tắt = quay về key hệ thống + trừ lượt, nhưng giữ cấu hình để bật lại.</param>
+/// <param name="LastFailAtUtc">Lần gần nhất key riêng hỏng và hệ thống phải lùi về key chung.</param>
+/// <param name="FailCountSinceOk">Số lần lùi kể từ lượt key riêng chạy được gần nhất. &gt;0 nghĩa là
+///   ĐANG lỗi — trang cấu hình phải nói ra, vì lúc này lượt của khách đang bị trừ.</param>
 public record TenantAiKey(
     string TenantId,
     string Provider,
@@ -26,8 +29,14 @@ public record TenantAiKey(
     bool Enabled,
     DateTime? ValidatedAtUtc,
     string? UpdatedBy,
-    DateTime UpdatedAtUtc)
+    DateTime UpdatedAtUtc,
+    DateTime? LastFailAtUtc = null,
+    string? LastFailReason = null,
+    int FailCountSinceOk = 0)
 {
+    /// Key riêng đang hỏng: lượt AI của công ty đang chạy bằng key chung và BỊ TRỪ LƯỢT.
+    public bool IsFailing => FailCountSinceOk > 0;
+
     private const string Hidden = "••••";
 
     /// <summary>

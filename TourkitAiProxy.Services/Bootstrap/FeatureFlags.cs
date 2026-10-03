@@ -111,4 +111,15 @@ public static class FeatureFlags
     /// </summary>
     public static bool AutoCare(IConfiguration cfg)
         => Digest(cfg) && cfg.GetValue("Features:AutoCare", false);
+
+    /// <summary>
+    /// Key AI riêng của công ty (BYO — mở lại 03/10/2026).
+    ///
+    /// <para><b>Tắt = y hệt hôm nay, không một lần đọc CSDL nào thêm.</b> Đây là cờ bảo hiểm cho
+    /// cam kết "không ảnh hưởng hệ thống đang chạy": tính năng chèn vào đường đi của MỌI lệnh AI
+    /// (32 chỗ gọi qua <c>AiModelRegistry.Resolve</c>), nên phải tắt được trọn vẹn bằng một dòng
+    /// cấu hình mà không cần deploy lại. Độc lập, không phụ thuộc cờ nào.</para>
+    /// </summary>
+    public static bool ByoAiKey(IConfiguration cfg)
+        => cfg.GetValue("Features:ByoAiKey", false);
 }

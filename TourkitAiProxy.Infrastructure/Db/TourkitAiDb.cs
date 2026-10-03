@@ -55,7 +55,7 @@ public class TourkitAiDb
             await using var cmd = c.CreateCommand();
             cmd.CommandText = SchemaSql;
             await cmd.ExecuteNonQueryAsync(ct);
-            _log.LogInformation("TourkitAiDb schema OK (Reviews/DealScores/MailAccounts/Mails/MailSyncState/TourQuotes/TourPriceCatalog/VisaAssessments/QuotaOrders/WidgetTokens/VisaQuestionSets/TkSessions/TenantQuota/AiUsageCounters/AiUsageHistory/UserWorkflows/WorkflowRuns/OutboundMails/CrmActionQueue/MailTemplates/TenantServiceAccounts/AgentInsights/DigestSubscriptions/TenantChannelSettings đã có/đã tạo)");
+            _log.LogInformation("TourkitAiDb schema OK (Reviews/DealScores/MailAccounts/Mails/MailSyncState/TourQuotes/TourPriceCatalog/VisaAssessments/QuotaOrders/WidgetTokens/VisaQuestionSets/TkSessions/TenantQuota/AiUsageCounters/AiUsageHistory/UserWorkflows/WorkflowRuns/OutboundMails/CrmActionQueue/MailTemplates/TenantServiceAccounts/TenantAiKeys/AgentInsights/DigestSubscriptions/TenantChannelSettings đã có/đã tạo)");
         }
         catch (Exception ex)
         {
@@ -647,6 +647,30 @@ BEGIN
         UpdatedBy    NVARCHAR(120)  NULL,
         UpdatedUtc   DATETIME2      NOT NULL CONSTRAINT DF_MailTemplates_Updated DEFAULT SYSUTCDATETIME(),
         CONSTRAINT PK_MailTemplates PRIMARY KEY CLUSTERED (Code)
+    );
+END;
+
+-- Key AI RIÊNG của công ty (BYO, mở lại 03/10/2026). ApiKeyEnc = Crypton; key thô không bao giờ lưu.
+-- Bật + đã kiểm → mọi lệnh AI của công ty chạy bằng key này và KHÔNG trừ lượt.
+-- 3 cột LastFail*/FailCountSinceOk: key riêng hỏng thì lùi về key hệ thống (có trừ lượt) và GHI
+-- LẠI ở đây để trang cấu hình nói ra được. Giữ trong bảng này thay vì ALTER AiUsageHistory dùng chung.
+-- CHỈ THÊM bảng mới, không đụng bảng nào đang có (chủ dự án duyệt 03/10/2026).
+IF OBJECT_ID('dbo.TenantAiKeys', 'U') IS NULL
+BEGIN
+    CREATE TABLE dbo.TenantAiKeys (
+        TenantId          NVARCHAR(128)  NOT NULL,
+        Provider          NVARCHAR(32)   NOT NULL,
+        Model             NVARCHAR(128)  NULL,
+        ApiKeyEnc         NVARCHAR(1024) NOT NULL,
+        Masked            NVARCHAR(32)   NOT NULL CONSTRAINT DF_TenantAiKeys_Masked  DEFAULT '',
+        Enabled           BIT            NOT NULL CONSTRAINT DF_TenantAiKeys_Enabled DEFAULT 0,
+        ValidatedAtUtc    DATETIME2      NULL,
+        LastFailAtUtc     DATETIME2      NULL,
+        LastFailReason    NVARCHAR(256)  NULL,
+        FailCountSinceOk  INT            NOT NULL CONSTRAINT DF_TenantAiKeys_FailCount DEFAULT 0,
+        UpdatedBy         NVARCHAR(128)  NULL,
+        UpdatedAtUtc      DATETIME2      NOT NULL CONSTRAINT DF_TenantAiKeys_Updated DEFAULT SYSUTCDATETIME(),
+        CONSTRAINT PK_TenantAiKeys PRIMARY KEY CLUSTERED (TenantId)
     );
 END;
 

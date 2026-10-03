@@ -109,6 +109,12 @@ public static class WorkflowStackRegistration
         s.AddSingleton<IAiProvider, DeepSeekProvider>();
         s.AddSingleton<IAiProvider, GrokProvider>();
         s.AddSingleton<ProviderRegistry>();
+        // Key AI riêng của công ty (BYO). Đăng ký ở ĐÂY chứ không ở WebFeatureRegistration: worker
+        // nền cũng gọi AI qua AiModelRegistry, khai riêng cho web thì tác vụ tự động của công ty đã
+        // khai key vẫn âm thầm chạy bằng key hệ thống và bị trừ lượt. Cờ tắt → không chạm CSDL.
+        s.AddSingleton<TourkitAiProxy.Infrastructure.AiKeys.TenantAiKeyRepository>();
+        s.AddSingleton<TourkitAiProxy.Services.AiKeys.TenantAiKeyStore>();
+        s.AddHostedService<TourkitAiProxy.Services.AiKeys.TenantAiKeyRefresher>();
         s.AddSingleton<AiModelRegistry>();
         s.AddScoped<OpenCodeClient>();
         s.AddSingleton<AnthropicToolsClient>();
