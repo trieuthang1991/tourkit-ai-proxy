@@ -1,12 +1,91 @@
 # BYO AI Key per-tenant — Implementation Plan
 
-> ⏸️ **KHÔNG ƯU TIÊN** (user chốt 2026-08-11) — **CHƯA triển khai**. Cất chờ; KHÔNG tự chạy plan này nếu user không yêu cầu rõ. Spec: [P4 design](../specs/2026-08-05-tenant-byo-key-design.md).
+> ▶️ **MỞ LẠI 03/10/2026** (user yêu cầu). Trước đó cất chờ từ 11/08.
+> Spec: [P4 design](../specs/2026-08-05-tenant-byo-key-design.md) — đọc kèm **§ "Sửa đổi 03/10"** ngay dưới,
+> vì mã đã đổi sau khi spec viết và vài quyết định nghiệp vụ đã khác.
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Mỗi tenant tự mang key AI (`{provider, model, apiKey}`) — bật thì MỌI lệnh AI của tenant chạy bằng key đó và không trừ quota; chưa bật thì dùng key hệ thống + trừ quota như "trial".
+---
 
-**Architecture:** 1 seam ở tầng provider (6 provider) + override provider ở `ProviderRegistry.Resolve`. Key mã hóa Crypton trong `dbo.TenantAiKeys`, resolve qua `TenantAiKeyStore` (cache in-mem, tenant từ `AiCallContext.Resolve().Tenant`).
+## § Sửa đổi 03/10/2026 — ĐỌC TRƯỚC, phần dưới đã lạc hậu một phần
+
+### 1. Mã đã đổi sau khi viết plan
+
+`AiModelRegistry` ra đời **28/08**, sau spec (05/08). Nó là **một tầng mới** nằm TRÊN `ProviderRegistry`:
+
+```csharp
+AiModelRegistry.Resolve(AiFeature feature, string? overrideProvider = null, string? overrideModel = null)
+    → ResolvedModel(Provider, Model, ApiKey)
+```
+
+Đo ngày 03/10: **32 chỗ gọi AI, tất cả đi qua đúng hàm này**. `ResolvedModel` đã mang sẵn ô `ApiKey`.
+
+**Hệ quả:** Task 3 (sửa 6 provider) và Task 4 (override ở `ProviderRegistry.Resolve`) **BỎ** — thay bằng **một** điểm chèn trong `AiModelRegistry.Resolve`. Ít việc hơn plan cũ, không nhiều hơn.
+
+**Bán kính thật** (codegraph 65+88 symbol, lọc bằng grep còn):
+- `new AiModelRegistry(` — 2 dòng trong `TourkitAiProxy.Tests/AiModelRegistryTests.cs`
+- dựng `Ctx` — 3 dòng, đều trong chính `AiCallContext.cs`
+- `SessionAuth.cs:24` dùng `Ctx` KHÁC (trùng tên) — dương tính giả
+
+Không đổi chữ ký `Resolve` → 32 chỗ gọi giữ nguyên.
+
+### 2. Quyết định nghiệp vụ đã khác spec
+
+| | Spec 05/08 | Chốt 03/10 |
+|---|---|---|
+| Luồng VietQR/Tingee bán lượt | §8 để ngỏ, 3 phương án | **KHÔNG ĐỤNG GÌ** — giữ nguyên, vẫn đúng |
+| Quota | đổi nghĩa thành "trial" | giữ nguyên nghĩa; chỉ **không trừ** khi đang dùng key tenant |
+| Key tenant hỏng | âm thầm lùi về trial + log warning | **lùi có điều kiện + NÓI RA** — xem dưới |
+| Phạm vi | 1 config/tenant, mọi feature | giữ nguyên (chưa làm per-feature) |
+
+### 3. Luật lùi key — thứ plan cũ không có
+
+Khách khai key riêng mà key **hết tiền** thì vẫn phải chạy tiếp, lùi về key hệ thống và **trừ quota như thường** (quota khách đã mua, nền tảng không trả hộ).
+
+Nhưng không phải lỗi nào cũng lùi:
+
+| Lỗi upstream | Nghĩa | Lùi? |
+|---|---|---|
+| `402`, hoặc `429` kèm `insufficient_quota` | hết tiền trong tài khoản khách | ✅ lùi |
+| `401` | key sai / đã thu hồi | ✅ lùi (nhưng phải báo — xem dưới) |
+| `429` rate limit thường | gọi quá dày, vài giây sau là được | ❌ không lùi (lùi là phí quota) |
+| `5xx`, timeout | phía nhà cung cấp lỗi | ❌ không lùi (không liên quan key) |
+
+**Bắt buộc nói ra.** Lùi im lặng thì khách tưởng key mình vẫn chạy trong khi quota đang trôi, tới lúc hết mới biết. Ghi cờ vào `AiUsageHistory` + một dòng trên trang cấu hình key: *"Key riêng đang lỗi, hệ thống đang dùng key chung và trừ lượt của bạn."* Không popup, không chặn việc.
+
+**Cái giá:** lượt bị lùi tốn gấp đôi thời gian chờ (gọi hỏng rồi gọi lại). Chỉ xảy ra khi key khách thật sự có vấn đề.
+
+### 4. Kiến trúc sau sửa đổi
+
+```
+AiModelRegistry.Resolve(feature)
+   ├─ tenant có key bật + đã validate → ResolvedModel(key khách) + Ctx.FreeOfQuota = true
+   └─ không  → như hiện tại (Models:{F} → Models:Primary) + trừ quota
+
+ByoFallbackProvider  (lớp BỌC quanh IAiProvider, đăng ký DI, bọc cả 6)
+   ├─ gọi inner bằng key khách
+   ├─ UpstreamException.Status ∈ {401, 402, 429-insufficient} và đang dùng key khách
+   │     → gọi lại bằng key hệ thống, FreeOfQuota = false, CompleteResult.Warning = "đã lùi…"
+   └─ lỗi khác → ném nguyên như cũ
+```
+
+6 provider **không sửa một dòng nào**. Chỗ trừ quota cũng không sửa — cờ `FreeOfQuota` sẵn có đã được cả 6 tôn trọng:
+`if (!c.FreeOfQuota && !string.IsNullOrEmpty(c.Tenant)) _quota.Consume(c.Tenant);`
+
+### 5. Thứ tự làm
+
+1. Bảng `dbo.TenantAiKeys` + model + `MaskOf` + test  ← Task 1, 2 bên dưới vẫn dùng được
+2. Repository + store có cache ngắn
+3. Chèn vào `AiModelRegistry.Resolve` **(thay cho Task 3 + 4 cũ)**
+4. `ByoFallbackProvider` + test phân loại lỗi **(MỚI, plan cũ không có)**
+5. 3 endpoint `GET/PUT/DELETE /api/v1/assistant/ai-key` + validate  ← Task 6 cũ
+6. Trang cấu hình key  ← Task 7 cũ
+7. Manual E2E  ← Task 8 cũ
+
+**Goal:** Mỗi tenant tự mang key AI (`{provider, model, apiKey}`) — bật thì MỌI lệnh AI của tenant chạy bằng key đó và không trừ quota; chưa bật (hoặc key hết/hỏng) thì dùng key hệ thống + trừ quota.
+
+**Architecture:** 1 điểm chèn ở `AiModelRegistry.Resolve` + 1 lớp bọc `IAiProvider` lo việc lùi key. Key mã hóa Crypton trong `dbo.TenantAiKeys`, resolve qua `TenantAiKeyStore` (cache in-mem, tenant từ `AiCallContext.Resolve().Tenant`).
 
 **Tech Stack:** ASP.NET Core 8 Minimal API, Dapper/SQL Server (`PushDb`), Crypton AES, xUnit, React no-build.
 
