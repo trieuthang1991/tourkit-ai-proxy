@@ -99,6 +99,28 @@ Two ways in:
 - **MCP tool** `mcp__codegraph__codegraph_explore` — one call returns the relevant symbols' verbatim, line-numbered source **plus** their call paths **plus** a blast-radius summary (replaces a grep + Read loop).
 - **CLI** `codegraph <cmd>` — `explore` / `query` / `node` / `callers` / `callees` / `impact` / `status`.
 
+## Quy trình mỗi task: test + tối ưu hiệu năng (BẮT BUỘC)
+
+Mỗi task phải tự test và đo theo thứ tự sau. Báo cáo cuối phải ghi rõ đã test gì, số liệu đo, và **chưa test được gì**.
+
+1. **Hiểu yêu cầu, đúng phạm vi** — không tự thêm tính năng ngoài yêu cầu; chỉ hỏi khi mơ hồ về logic.
+2. **Đối chiếu nguồn chuẩn** — nghiệp vụ TourKit lấy web (`tourkit/`) làm chuẩn; đọc code hiện có và làm theo đúng quy ước của repo này trước khi viết.
+3. **Ước lượng hiệu năng trên dữ liệu lớn** — số round-trip, số dòng đọc, RAM, thời gian request. Gộp ở SQL, chia lô ~2000, keyset paging, việc nặng chạy nền.
+4. **Viết code phòng thủ** — null, dữ liệu cũ, DB chưa chạy migration (kiểm tra schema trước khi dùng cột/tham số mới), lỗi từ dịch vụ ngoài (timeout, trả rỗng).
+5. **Test logic cô lập** — chạy riêng hàm với bộ input: bình thường / biên (null, rỗng, 0, ngày lỗi, chuỗi dài, Unicode) / bẩn (JSON hỏng, HTML lạ) / **đúng ca lỗi thật user báo** / dữ liệu cũ. Repo có project test thì chạy và bổ sung test cho ca vừa sửa.
+6. **Test trên DB thật (môi trường test/Demo)** — ghi dữ liệu thì bọc `BEGIN TRAN … ROLLBACK`. Đo:
+   - Plan (`SET STATISTICS PROFILE ON`, tham số đúng kiểu như code gửi): phải **Index Seek**, không Scan bảng lớn, không `CONVERT_IMPLICIT`.
+   - `SET STATISTICS IO, TIME ON`: logical reads không tăng theo kích thước bảng.
+   - Không bọc hàm quanh cột lọc; `OR` làm mất Seek → tách `UNION ALL`; phân trang keyset thay vì `OFFSET` sâu.
+7. **Build** — project bị sửa phải build xanh.
+8. **Test đầu cuối + hồi quy** — gọi endpoint/màn hình thật, kiểm cả dữ liệu trả về lẫn mã lỗi; xem impact (ai đang gọi hàm vừa sửa) → test thêm 1–2 luồng khác dùng chung; test phân quyền (user thường / admin / không quyền).
+9. **Đo trước/sau** — ghi ms, logical reads, plan (Scan → Seek) vào báo cáo.
+10. **Báo cáo trung thực** — đã làm, đã test, số liệu, chưa test được, điểm khác so với nguồn chuẩn.
+
+**Tối ưu tầng code:** không N+1 (không gọi DB/HTTP trong vòng lặp), không ném exception trong vòng lặp nóng, cache dữ liệu đọc nhiều ít đổi, EF dùng `AsNoTracking` + chỉ chọn cột cần, không `ToList()` sớm, async không chặn (`.Result`/`.Wait()`). **UI:** debounce tìm kiếm ~300ms + bỏ kết quả trả về muộn, danh sách phân trang/"Tải thêm".
+
+**Task xuất file (Word/PDF/Excel):** tái hiện bằng đúng bản ghi lỗi và xem dữ liệu gốc trước (lỗi export đa phần do dữ liệu bẩn); làm sạch ở tầng chung; một field hỏng chỉ được làm trống field đó, không làm hỏng cả file; export lại ca lỗi + 1–2 mẫu khác và mở file kiểm tra định dạng.
+
 ## Always Do
 
 - **Assess blast radius before editing any symbol.** Run `codegraph impact <Symbol>` (or `codegraph_explore`) and report the direct callers + affected symbols before modifying a function/class/method. Warn the user when the radius is wide.
