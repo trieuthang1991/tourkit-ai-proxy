@@ -14,7 +14,22 @@ public static class InternalRoomKey
 
     /// "deal" = Cơ hội bán hàng (BookingTicket) — RIÊNG với "order": khác thực thể ở CRM, dùng chung
     /// khoá thì cơ hội #12 và đơn #12 rơi vào cùng một phòng.
-    public static bool IsValidType(string? t) => t is "direct" or "order" or "company" or "deal" or "group";
+    public static bool IsValidType(string? t) => t is "direct" or "order" or "company" or "deal" or "group" or "key";
+
+    /// <summary>
+    /// Khoá TỰ DO do trang gọi tự sinh ("donhang_123", "deal_12131") → "key:donhang_123". Lấy-hoặc-tạo:
+    /// cùng khoá luôn ra cùng một phòng trong công ty. Không kiểm quyền CRM (như order/company) — ai
+    /// có phiên hợp lệ trong công ty và biết khoá thì vào được. Chỉ chữ, số và _ - . : (tối đa 100).
+    /// null = khoá không hợp lệ.
+    /// </summary>
+    public static string? ForCustomKey(string? raw)
+    {
+        var k = raw?.Trim();
+        if (string.IsNullOrEmpty(k) || k.Length > 100) return null;
+        foreach (var ch in k)
+            if (!(char.IsAsciiLetterOrDigit(ch) || ch is '_' or '-' or '.' or ':')) return null;
+        return "key:" + k;
+    }
     public static bool IsEntityType(string? t) => t is "order" or "company" or "deal";
 
     public static string Direct(int a, int b)
@@ -41,6 +56,24 @@ public static class InternalRoomKey
                System.Globalization.CultureInfo.InvariantCulture, out var id) && id > 0 ? id.ToString(System.Globalization.CultureInfo.InvariantCulture) : null;
 }
 
+/// <summary>
+/// Câu thông báo hệ thống trong phòng ("A đã thêm B…") — để ai đổi gì trong phòng đều để lại dấu,
+/// không thì không ai truy được người nào đã bỏ ai. Hàm thuần, chữ cho người dùng cuối.
+/// </summary>
+public static class InternalRoomNotice
+{
+    /// <param name="viec">"đổi tên" | "thêm" | "bỏ" | "rời".</param>
+    /// <param name="gi">Tên phòng mới / danh sách tên người — tuỳ việc.</param>
+    public static string Text(string ai, string viec, string? gi) => viec switch
+    {
+        "đổi tên" => string.IsNullOrWhiteSpace(gi) ? $"{ai} đã bỏ tên phòng" : $"{ai} đã đổi tên phòng thành “{gi}”",
+        "thêm" => $"{ai} đã thêm {gi} vào phòng",
+        "bỏ" => $"{ai} đã bỏ {gi} khỏi phòng",
+        "rời" => $"{ai} đã rời phòng",
+        _ => $"{ai} đã thay đổi phòng",
+    };
+}
+
 public record InternalMember(int UserId, DateTime JoinedUtc);
 
 public record InternalRoom(long Id, string? Title, string EntityType, string? EntityId, string RoomKey,
@@ -48,7 +81,7 @@ public record InternalRoom(long Id, string? Title, string EntityType, string? En
 
 public record InternalMessage(long Id, long RoomId, int? SenderUserId, string? SenderUsername,
     string? Body, DateTime CreatedUtc, DateTime? DeletedUtc, InternalAttachment? Attachment = null,
-    DateTime? EditedUtc = null);
+    DateTime? EditedUtc = null, bool System = false);
 
 /// <summary>Tệp đính kèm một tin nội bộ. <c>Kind</c>: "anh" | "tep" — cùng chữ với hộp thư khách.</summary>
 public record InternalAttachment(string Url, string Name, long Size, string Kind);
@@ -87,7 +120,10 @@ public static class InternalAttachmentRules
     /// <c>{scheme}://{host}/chat-files/</c> với local), mỗi đoạn kết thúc bằng "/".</param>
     public static bool IsOwnUrl(string? url, string tenant, long roomId, IEnumerable<string> bases)
     {
-        if (string.IsNullOrWhiteSpace(url) || url.Contains("..", StringComparison.Ordinal)) return false;
+        // Kho không bao giờ cấp URL có %, ? hay # — chặn hết thay vì đoán từng kiểu mã hoá (%2e%2e
+        // trình duyệt tự giải thành "..", thoát khỏi thư mục của phòng).
+        if (string.IsNullOrWhiteSpace(url) || url.Contains("..", StringComparison.Ordinal)
+            || url.IndexOfAny(new[] { '%', '?', '#' }) >= 0) return false;
         if (!Uri.TryCreate(url, UriKind.Absolute, out var u) || (u.Scheme != "https" && u.Scheme != "http")) return false;
         var prefix = KeyPrefix(tenant, roomId);
         return bases.Any(b => url.StartsWith(b + prefix, StringComparison.Ordinal));

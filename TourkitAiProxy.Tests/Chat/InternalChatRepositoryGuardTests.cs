@@ -83,6 +83,11 @@ public class InternalChatRepositoryGuardTests
         Assert.False(InternalAttachmentRules.IsOwnUrl("javascript:alert(1)//https://upload.travelai.vn/internal/staging/12/", "staging", 12, bases));
         Assert.False(InternalAttachmentRules.IsOwnUrl("https://upload.travelai.vn/internal/staging/12/../13/x.png", "staging", 12, bases));
         Assert.False(InternalAttachmentRules.IsOwnUrl(null, "staging", 12, bases));
+        // Trình duyệt tự giải %2e%2e thành ".." → thoát khỏi thư mục phòng. Kho không bao giờ cấp URL
+        // có %, ? hay # nên chặn hết, khỏi phải đoán từng kiểu mã hoá.
+        Assert.False(InternalAttachmentRules.IsOwnUrl("https://upload.travelai.vn/internal/staging/12/%2e%2e/13/x.png", "staging", 12, bases));
+        Assert.False(InternalAttachmentRules.IsOwnUrl("https://upload.travelai.vn/internal/staging/12/a.png?x=1", "staging", 12, bases));
+        Assert.False(InternalAttachmentRules.IsOwnUrl("https://upload.travelai.vn/internal/staging/12/a.png#x", "staging", 12, bases));
     }
 
     [Theory]
@@ -108,7 +113,7 @@ public class InternalChatRepositoryGuardTests
     // ── Quyền vào phòng theo cơ hội: hỏi CRM bằng phiên của chính người đó ──
 
     [Theory]
-    [InlineData(200, true)]    // CRM trả được cơ hội → người này xem được (kể cả nhờ quyền xem tất cả)
+    [InlineData(200, null)]    // chỉ gọi từ nhánh NGOẠI LỆ — 2xx không bao giờ tới đây, không đoán
     [InlineData(403, false)]   // CRM từ chối dứt khoát
     [InlineData(404, false)]   // không có / không thuộc phạm vi xem
     [InlineData(502, null)]    // CRM hỏng → KHÔNG BIẾT (chỗ gọi phải chặn, không được cho qua)
@@ -143,8 +148,11 @@ public class InternalChatRepositoryGuardTests
         // bị bỏ ra khỏi phòng.
         var src = ChatSchemaGuardTests.DocFile("TourkitAiProxy.Endpoints/InternalChatEndpoints.cs");
         Assert.Matches(@"created\s*&&\s*type\s*==\s*""deal""|type\s*==\s*""deal""\s*&&\s*created", src);
-        Assert.Contains("RETURNING id, (xmax = 0) AS created", ChatSchemaGuardTests.DocFile(
-            "TourkitAiProxy.Infrastructure/Chat/Inbox/InternalChatRepository.cs"));
+        // "Vừa tạo" = INSERT … DO NOTHING trả được dòng; không trả thì là phòng đã có.
+        var tao = InternalChatGuardTests.ThanHam(ChatSchemaGuardTests.DocFile(
+            "TourkitAiProxy.Infrastructure/Chat/Inbox/InternalChatRepository.cs"), "CreateOrGetRoomAsync");
+        Assert.Contains("DO NOTHING", tao);
+        Assert.Contains("created = false", tao);
     }
 
     [Fact]
@@ -152,7 +160,7 @@ public class InternalChatRepositoryGuardTests
     {
         var src = ChatSchemaGuardTests.DocFile("TourkitAiProxy.Endpoints/InternalChatEndpoints.cs");
         Assert.Contains("IsMemberByKeyAsync(", src);
-        Assert.Contains("CanViewAsync(", src);
+        Assert.Contains("GetDetailAsync(", src);
     }
 
     // ── SQL ──────────────────────────────────────────────────────────────
@@ -254,7 +262,7 @@ public class InternalChatRepositoryGuardTests
 
     [Fact]
     public void Vao_lai_phong_tinh_lai_moc_vao()
-        => Assert.Contains("ELSE now() END", InternalChatGuardTests.ThanHam(Repo(), "CreateOrGetRoomAsync"));
+        => Assert.Contains("SET joined_utc = now(), left_utc = NULL", InternalChatGuardTests.ThanHam(Repo(), "CreateOrGetRoomAsync"));
 
     [Fact]
     public void Xoa_phia_toi_la_xoa_mem_rieng_minh()
@@ -277,6 +285,63 @@ public class InternalChatRepositoryGuardTests
     [InlineData("-5", null)]
     public void Ma_co_hoi_chuan_hoa(string vao, string? ra)
         => Assert.Equal(ra, InternalRoomKey.CanonicalDealId(vao));
+
+    // ── Lỗi nhỏ sau review (19/10/2026) ──────────────────────────────────
+
+    // Khoá tự do do trang gọi tự sinh ("donhang_123", "deal_12131") — lấy-hoặc-tạo theo khoá.
+    [Theory]
+    [InlineData("donhang_123", "key:donhang_123")]
+    [InlineData(" deal_12131 ", "key:deal_12131")]
+    [InlineData("crm.don-hang:2026/1", null)]   // "/" không cho
+    [InlineData("có dấu", null)]
+    [InlineData("", null)]
+    [InlineData(null, null)]
+    public void Khoa_tu_do(string? vao, string? ra)
+        => Assert.Equal(ra, InternalRoomKey.ForCustomKey(vao));
+
+    [Fact]
+    public void Khoa_tu_do_toi_da_100_ky_tu()
+    {
+        Assert.NotNull(InternalRoomKey.ForCustomKey(new string('a', 100)));
+        Assert.Null(InternalRoomKey.ForCustomKey(new string('a', 101)));
+        Assert.True(InternalRoomKey.IsValidType("key"));
+    }
+
+    [Fact]
+    public void Bam_Chat_phong_da_co_khong_ghi_gi()
+    {
+        // Phòng đã có: KHÔNG ghi dòng hội thoại (DO NOTHING rồi đọc lại) và chỉ ghi thành viên khi
+        // người đó VÀO LẠI (đã rời) — trước đây mỗi lần bấm đều UPDATE hai bảng.
+        var than = InternalChatGuardTests.ThanHam(Repo(), "CreateOrGetRoomAsync");
+        Assert.Contains("DO NOTHING", than);
+        Assert.Contains("WHERE chat_room_members.left_utc IS NOT NULL", than);
+    }
+
+    [Fact]
+    public void Tin_he_thong_khong_tinh_chua_doc()
+    {
+        Assert.Contains("sender_kind <> 3", InternalChatGuardTests.ThanHam(Repo(), "ListRoomsAsync"));
+        var than = InternalChatGuardTests.ThanHam(Repo(), "AppendSystemMessageAsync");
+        Assert.Contains("tenant_id = @tenant", than);
+        Assert.Contains(", 3,", than);   // sender_kind = 3 (hệ thống)
+    }
+
+    [Fact]
+    public void Ma_phong_khong_phai_so_tra_JSON_khong_roi_xuong_SPA()
+        => Assert.Contains("/{**rest}", ChatSchemaGuardTests.DocFile("TourkitAiProxy.Endpoints/InternalChatEndpoints.cs"));
+
+    [Fact]
+    public void Nhan_vien_moi_hoi_lai_ERP_bo_qua_dem()
+        => Assert.Contains("skipCache: true", ChatSchemaGuardTests.DocFile("TourkitAiProxy.Endpoints/InternalChatEndpoints.cs"));
+
+    [Theory]
+    [InlineData("Trần Thu Hà", "đổi tên", "Đoàn Nhật", "Trần Thu Hà đã đổi tên phòng thành “Đoàn Nhật”")]
+    [InlineData("Trần Thu Hà", "đổi tên", null, "Trần Thu Hà đã bỏ tên phòng")]
+    [InlineData("Trần Thu Hà", "thêm", "Nguyễn Minh, Lê Văn Phúc", "Trần Thu Hà đã thêm Nguyễn Minh, Lê Văn Phúc vào phòng")]
+    [InlineData("Trần Thu Hà", "bỏ", "Nguyễn Minh", "Trần Thu Hà đã bỏ Nguyễn Minh khỏi phòng")]
+    [InlineData("Trần Thu Hà", "rời", null, "Trần Thu Hà đã rời phòng")]
+    public void Cau_thong_bao_he_thong(string ai, string viec, string? gi, string mong)
+        => Assert.Equal(mong, InternalRoomNotice.Text(ai, viec, gi));
 
     [Fact]
     public void Schema_co_cot_da_sua()

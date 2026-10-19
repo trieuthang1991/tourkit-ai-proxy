@@ -50,7 +50,7 @@ public static class InternalChatEndpoints
             if (req is null) return Bad("Thân request không đọc được");
 
             var type = req.EntityType?.Trim().ToLowerInvariant();
-            if (!InternalRoomKey.IsValidType(type)) return Bad("Loại phòng không hợp lệ (direct | order | company | deal | group)");
+            if (!InternalRoomKey.IsValidType(type)) return Bad("Loại phòng không hợp lệ (direct | group | deal | order | company | key)");
             var others = (req.MemberUserIds ?? new()).Where(x => x > 0 && x != me).Distinct().ToList();
             if (others.Count > MaxMembers) return Bad($"Tối đa {MaxMembers} người một phòng");
             // Mã cơ hội chuẩn hoá ("012" = "12") — không thì cùng một cơ hội ra nhiều phòng.
@@ -58,6 +58,8 @@ public static class InternalChatEndpoints
             if (type == "deal" && (rawEntity = InternalRoomKey.CanonicalDealId(rawEntity)) is null)
                 return Bad("Mã cơ hội không hợp lệ");
 
+            // Khoá phòng: 1-1 và nhóm do MÁY CHỦ tự sinh (không cần truyền gì); đơn/cơ hội/công ty theo
+            // mã bản ghi; "key" = khoá tự do do trang gọi tự sinh ("donhang_123") — lấy-hoặc-tạo.
             string key;
             try
             {
@@ -67,6 +69,8 @@ public static class InternalChatEndpoints
                     "direct" => InternalRoomKey.Direct(me, others[0]),
                     "group" when others.Count == 0 => throw new ArgumentException("Nhóm cần ít nhất một người khác"),
                     "group" => InternalRoomKey.Group(),
+                    "key" => InternalRoomKey.ForCustomKey(rawEntity)
+                             ?? throw new ArgumentException("Khoá phòng không hợp lệ (chữ, số, _ - . :, tối đa 100 ký tự)"),
                     _ => InternalRoomKey.ForEntity(type!, rawEntity ?? ""),
                 };
             }
@@ -75,23 +79,26 @@ public static class InternalChatEndpoints
             if (await CheckStaffAsync(others, sessions, api, redis, a!, lf, ct) is { } sai) return sai;
 
             // Phòng theo CƠ HỘI: ai xem được cơ hội đó theo luật của web thì vào được (CH_XEM_ALL: mọi
-            // cơ hội; chỉ CH_XEM: cơ hội mình tạo/phụ trách). CHỈ kiểm lần đầu (chưa là thành viên);
-            // đã là thành viên thì mở lại/gửi tin không tốn gì thêm. Có CH_XEM_ALL thì không gọi CRM.
-            // Đơn hàng / công ty: CHƯA kiểm — xem docs.
+            // cơ hội, KHÔNG gọi CRM; chỉ CH_XEM: cơ hội mình tạo/phụ trách). CHỈ kiểm lần đầu (chưa là
+            // thành viên). Chi tiết cơ hội đọc MỘT lần, dùng lại để thêm người phụ trách khi phòng vừa tạo.
+            // Đơn hàng / công ty / khoá tự do: KHÔNG kiểm — xem docs.
+            TourkitAiProxy.Services.Deals.DealOpportunityClient.DealDetail? chiTiet = null;
             if (type == "deal" && !await repo.IsMemberByKeyAsync(a!.TenantId, key, me, ct))
             {
                 await sessions.EnsurePermissionsAsync(a.SessionId, ct);
-                var xem = await deals.CanViewAsync(a.SessionId, rawEntity!, me,
-                    viewAll: sessions.HasPermission(a.SessionId, TkPermissionCodes.CoHoiXemTatCa),
-                    viewOwn: sessions.HasPermission(a.SessionId, TkPermissionCodes.CoHoiXem), ct);
-                if (xem is null)
-                    return Results.Json(new { error = "Chưa kiểm được quyền xem cơ hội với CRM — thử lại sau" }, statusCode: 503);
-                if (xem == false)
-                    return Results.Json(new { error = "Bạn không có quyền xem cơ hội này" }, statusCode: 403);
+                if (!sessions.HasPermission(a.SessionId, TkPermissionCodes.CoHoiXemTatCa))
+                {
+                    if (!sessions.HasPermission(a.SessionId, TkPermissionCodes.CoHoiXem)) return NoDealAccess();
+                    chiTiet = await deals.GetDetailAsync(a.SessionId, rawEntity!, ct);
+                    if (chiTiet is null)
+                        return Results.Json(new { error = "Chưa kiểm được quyền xem cơ hội với CRM — thử lại sau" }, statusCode: 503);
+                    if (!chiTiet.Exists || !TourkitAiProxy.Domain.Deals.DealAccess.IsOwner(me, chiTiet.InsUid, string.Join(',', chiTiet.Owners)))
+                        return NoDealAccess();
+                }
             }
 
             var title = string.IsNullOrWhiteSpace(req.Title) ? null : req.Title.Trim()[..Math.Min(req.Title.Trim().Length, 120)];
-            var entityId = InternalRoomKey.IsEntityType(type) ? rawEntity : null;
+            var entityId = InternalRoomKey.IsEntityType(type) || type == "key" ? rawEntity : null;
             var (id, created) = await repo.CreateOrGetRoomAsync(a!.TenantId, me, key, type!, entityId, title, others, ct);
 
             // Phòng cơ hội VỪA tạo → thêm người phụ trách (mã lấy thẳng từ CRM, không dò tên). CHỈ lần
@@ -99,10 +106,11 @@ public static class InternalChatEndpoints
             // phòng vẫn mở, người phụ trách tự bấm Chat là vào (họ nhìn thấy cơ hội).
             if (created && type == "deal")
             {
-                var owners = (await deals.GetOwnerIdsAsync(a.SessionId, entityId!, ct)).Where(x => x != me).ToArray();
+                chiTiet ??= await deals.GetDetailAsync(a.SessionId, entityId!, ct);
+                var owners = (chiTiet?.Owners ?? Array.Empty<int>()).Where(x => x != me).ToArray();
                 if (owners.Length > 0) await repo.AddMembersAsync(a.TenantId, id, me, owners, ct);
             }
-            return Results.Json(new { id, roomKey = key }, Web);
+            return Results.Json(new { id, roomKey = key, created }, Web);
         });
 
         g.MapGet("/rooms/{id:long}/messages", async (long id, HttpContext ctx, TkSessionStore sessions,
@@ -207,7 +215,8 @@ public static class InternalChatEndpoints
 
         // ── Cấu hình phòng: đổi tên, thêm/bỏ người. Phòng 1-1 khoá (repo trả false/0 → 403). ──
         g.MapPatch("/rooms/{id:long}", async (long id, HttpContext ctx, TkSessionStore sessions,
-            InternalChatRepository repo, ChatEventBus bus, CancellationToken ct) =>
+            InternalChatRepository repo, ChatEventBus bus, TourKitApiClient api, RedisStore redis, ILoggerFactory lf,
+            CancellationToken ct) =>
         {
             var (loi, a, me) = await GuardAsync(ctx, sessions, repo, ct);
             if (loi is not null) return loi;
@@ -216,6 +225,7 @@ public static class InternalChatEndpoints
             var t = req.Title?.Trim();
             var title = string.IsNullOrEmpty(t) ? null : t[..Math.Min(t.Length, 120)];
             if (!await repo.RenameRoomAsync(a!.TenantId, id, me, title, ct)) return CannotConfigure();
+            await PostNoticeAsync(repo, bus, sessions, api, redis, lf, a, me, id, "đổi tên", Array.Empty<int>(), title, ct);
             await NotifyRoomChangedAsync(repo, bus, a.TenantId, id, null, ct);
             return Results.NoContent();
         });
@@ -232,17 +242,21 @@ public static class InternalChatEndpoints
             if (them.Count > MaxMembers) return Bad($"Tối đa {MaxMembers} người một lần");
             if (await CheckStaffAsync(them, sessions, api, redis, a!, lf, ct) is { } sai) return sai;
             if (await repo.AddMembersAsync(a!.TenantId, id, me, them, ct) == 0) return CannotConfigure();
+            await PostNoticeAsync(repo, bus, sessions, api, redis, lf, a, me, id, "thêm", them, null, ct);
             await NotifyRoomChangedAsync(repo, bus, a.TenantId, id, null, ct);
             return Results.NoContent();
         });
 
         g.MapDelete("/rooms/{id:long}/members/{userId:int}", async (long id, int userId, HttpContext ctx,
-            TkSessionStore sessions, InternalChatRepository repo, ChatEventBus bus, CancellationToken ct) =>
+            TkSessionStore sessions, InternalChatRepository repo, ChatEventBus bus, TourKitApiClient api,
+            RedisStore redis, ILoggerFactory lf, CancellationToken ct) =>
         {
             var (loi, a, me) = await GuardAsync(ctx, sessions, repo, ct);
             if (loi is not null) return loi;
             if (!await repo.RemoveMemberAsync(a!.TenantId, id, me, userId, ct))
                 return Results.Json(new { error = "Không bỏ được người này (không ở trong phòng, hoặc là phòng 1-1)" }, statusCode: 403);
+            await PostNoticeAsync(repo, bus, sessions, api, redis, lf, a, me, id,
+                userId == me ? "rời" : "bỏ", new[] { userId }, null, ct);
             // Báo cả người VỪA bị bỏ: tab của họ phải biết mà đóng phòng.
             await NotifyRoomChangedAsync(repo, bus, a.TenantId, id, userId, ct);
             return Results.NoContent();
@@ -335,6 +349,10 @@ public static class InternalChatEndpoints
             return Results.Empty;
         });
 
+        // Đường không khớp (vd mã phòng không phải số) → 404 JSON. Không có dòng này thì rơi xuống SPA
+        // fallback và widget nhận một trang HTML kèm mã 404.
+        g.Map("/{**rest}", () => Results.Json(new { error = "Không có đường này" }, statusCode: 404));
+
         return routes;
     }
 
@@ -360,6 +378,9 @@ public static class InternalChatEndpoints
 
     private static IResult Bad(string msg) => Results.Json(new { error = msg }, statusCode: 400);
 
+    private static IResult NoDealAccess()
+        => Results.Json(new { error = "Bạn không có quyền xem cơ hội này" }, statusCode: 403);
+
     private static IResult CannotConfigure()
         => Results.Json(new { error = "Không đổi được phòng này (bạn không ở trong phòng, hoặc là phòng 1-1)" }, statusCode: 403);
 
@@ -371,13 +392,48 @@ public static class InternalChatEndpoints
         TourKitApiClient api, RedisStore redis, SessionAuth.Ctx a, ILoggerFactory lf, CancellationToken ct)
     {
         if (ids.Count == 0) return null;
-        var (staffs, _) = await ChatStaffDirectory.ListAsync(sessions, api, redis, a.TenantId, a.SessionId,
-            lf.CreateLogger("chat.internal"), ct);
+        var log = lf.CreateLogger("chat.internal");
+        var (staffs, _) = await ChatStaffDirectory.ListAsync(sessions, api, redis, a.TenantId, a.SessionId, log, ct);
         if (staffs.Count == 0)
             return Results.Json(new { error = "Chưa tải được danh sách nhân viên — thử lại sau" }, statusCode: 503);
         var hopLe = staffs.Select(ChatStaffDirectory.StaffId).OfType<int>().ToHashSet();
         var la = ids.Where(x => !hopLe.Contains(x)).ToList();
+        if (la.Count > 0)
+        {
+            // Có mã lạ: có thể là nhân viên MỚI chưa vào đệm 2 tiếng → hỏi lại ERP một lần, bỏ qua đệm.
+            (staffs, _) = await ChatStaffDirectory.ListAsync(sessions, api, redis, a.TenantId, a.SessionId, log, ct, skipCache: true);
+            hopLe = staffs.Select(ChatStaffDirectory.StaffId).OfType<int>().ToHashSet();
+            la = ids.Where(x => !hopLe.Contains(x)).ToList();
+        }
         return la.Count > 0 ? Bad("Có người không thuộc công ty: " + string.Join(", ", la)) : null;
+    }
+
+    /// <summary>
+    /// Ghi dòng "A đã thêm B…" vào phòng rồi báo như một tin mới. Tên lấy từ danh bạ nhân viên (đệm
+    /// 2 tiếng), không có thì lùi về tên đăng nhập / "#mã". BEST-EFFORT: hỏng thì ghi log và bỏ qua —
+    /// việc đổi phòng đã xong, không được trả lỗi vì một dòng thông báo.
+    /// </summary>
+    private static async Task PostNoticeAsync(InternalChatRepository repo, ChatEventBus bus, TkSessionStore sessions,
+        TourKitApiClient api, RedisStore redis, ILoggerFactory lf, SessionAuth.Ctx a, int me, long roomId,
+        string viec, IReadOnlyCollection<int> ids, string? gi, CancellationToken ct)
+    {
+        var log = lf.CreateLogger("chat.internal");
+        try
+        {
+            var (staffs, _) = await ChatStaffDirectory.ListAsync(sessions, api, redis, a.TenantId, a.SessionId, log, ct);
+            var ten = new Dictionary<int, string>();
+            foreach (var s in staffs)
+                if (ChatStaffDirectory.StaffId(s) is int sid && ChatStaffDirectory.StaffName(s) is { } n) ten[sid] = n;
+            string Ten(int u) => ten.TryGetValue(u, out var n) ? n : (u == me ? a.Username : $"#{u}");
+            if (ids.Count > 0) gi = string.Join(", ", ids.Select(Ten));
+            var r = await repo.AppendSystemMessageAsync(a.TenantId, roomId, InternalRoomNotice.Text(Ten(me), viec, gi), ct);
+            if (r.Id is not null)
+                bus.Publish(new ChatEvent(a.TenantId, roomId, "noi-bo", r.Id) { Recipients = r.Members });
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            log.LogWarning(ex, "Không ghi được thông báo hệ thống phòng {Room}", roomId);
+        }
     }
 
     /// Báo "một tin đã đổi" (sửa / thu hồi) cho thành viên phòng. Loai riêng để widget nạp lại đúng tin.

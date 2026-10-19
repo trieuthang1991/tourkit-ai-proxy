@@ -15,7 +15,10 @@
  *   TkInternalChat.openEntity('deal', 4521, { title: 'CH-0012 · Nguyễn Văn A', members: [...] })   cơ hội
  *   TkInternalChat.findUserIds('Trần Thu Hà, Nguyễn Minh')     → { ids, unmatched } (màn chỉ có tên)
  *   TkInternalChat.openDirect(12)                              1-1 với một người
- *   TkInternalChat.openGroup({ title: 'Đoàn Nhật', members: [12, 34] })
+ *   TkInternalChat.openGroup({ title: 'Đoàn Nhật', members: [12, 34] })   nhóm MỚI mỗi lần gọi (máy chủ tự sinh khoá)
+ *   TkInternalChat.openByKey('donhang_123', { title, members: [...] })  khoá TỰ ĐẶT: chưa có thì tạo, có rồi thì mở
+ *     (vd 'nhom_marketing', 'nhom_cong_ty', 'deal_12131'). Chữ/số/_ - . :, tối đa 100 ký tự. members chỉ
+ *     áp lúc tạo; ai biết khoá và có phiên trong công ty là vào được — đừng dùng cho chuyện cần giữ kín.
  *   TkInternalChat.openRoom(roomId)                            phòng đã có
  *   TkInternalChat.renameRoom(roomId, 'Tên mới')               (không áp cho phòng 1-1)
  *   TkInternalChat.addMembers(roomId, [12, 34])
@@ -53,6 +56,7 @@
   const MAX_BYTES = 15 * 1024 * 1024;
   const PAGE = 50;
   const ENTITY_TYPES = ['order', 'company', 'deal'];   // phòng theo ngữ cảnh — mỗi mã đúng một phòng
+  const LINKED_TYPES = ENTITY_TYPES.concat('key');      // bộ lọc "Đơn · cơ hội": cả phòng khoá tự đặt
 
   // ── Trạng thái ──────────────────────────────────────────────────────────
   const st = {
@@ -89,7 +93,7 @@
     if (r.status === 401) { die(); throw new Error('Phiên đăng nhập đã hết hạn'); }
     if (r.status === 204) return null;
     const data = await r.json().catch(() => null);
-    if (!r.ok) throw new Error((data && data.error) || ('HTTP ' + r.status));
+    if (!r.ok) { const err = new Error((data && data.error) || ('HTTP ' + r.status)); err.status = r.status; throw err; }
     return data;
   }
   function die() { dead = true; host.remove(); if (es) { es.close(); es = null; } console.warn('[tk-chat] phiên hết hạn — widget tắt'); }
@@ -151,6 +155,7 @@
     .empty{padding:32px 16px;text-align:center;color:#5b6270;font-size:13px}
     .ms{flex:1;overflow:auto;padding:12px 14px;display:flex;flex-direction:column;gap:10px;background:#f5f6f8}
     .day{align-self:center;font-size:12px;color:#5b6270}
+    .sys{align-self:center;max-width:90%;text-align:center;font-size:12px;color:#5b6270;background:#f1f3f6;border-radius:10px;padding:2px 10px}
     .m{display:flex;flex-direction:column;align-items:flex-start;gap:2px;max-width:82%}
     .m.me{align-self:flex-end;align-items:flex-end}
     .m .who{font-size:12px;font-weight:600}
@@ -266,6 +271,7 @@
     if (r.entityType === 'order') return 'Đơn ' + r.entityId + (r.title ? ' · ' + r.title : '');
     if (r.entityType === 'company') return r.title || ('Công ty ' + r.entityId);
     if (r.entityType === 'deal') return r.title || ('Cơ hội #' + r.entityId);
+    if (r.entityType === 'key') return r.title || r.entityId || 'Phòng';
     return (r.title || 'Nhóm') + ' · ' + (r.members || []).length + ' người';
   }
   function roomAvatar(r, small) {
@@ -278,13 +284,18 @@
   const convOf = (id) => { let c = st.conv.get(id); if (!c) { c = { msgs: [], hasOlder: false, loaded: false }; st.conv.set(id, c); } return c; };
   const panelRoomVisible = (id) => st.open && st.view === 'room' && st.roomId === id;
   const dockVisible = (id) => st.docks.includes(id) && !st.dockMin.has(id);
-  const isVisible = (id) => panelRoomVisible(id) || dockVisible(id);
+  // Tab ẩn thì KHÔNG tính là đang xem — không thì tin tới lúc người dùng ở tab khác bị đánh dấu đã đọc.
+  const isVisible = (id) => !document.hidden && (panelRoomVisible(id) || dockVisible(id));
 
   // ── Vẽ ──────────────────────────────────────────────────────────────────
   // Vẽ lại cả widget mỗi lần đổi — phải trả lại focus, con trỏ và vị trí cuộn của TỪNG khung tin,
   // không thì người đang gõ bị văng khỏi ô ngay khi có tin mới tới.
+  // Đang gõ dấu (bộ gõ tiếng Việt / IME): vẽ lại giữa chừng là mất chữ đang ghép → hoãn tới compositionend.
+  let composing = false, renderPending = false;
   function render() {
     if (dead) return;
+    if (composing) { renderPending = true; return; }
+    renderPending = false;
     const scroll = {};
     for (const ms of W.querySelectorAll('.ms')) {
       scroll[ms.dataset.k] = { bottom: ms.scrollHeight - ms.scrollTop - ms.clientHeight < 40, top: ms.scrollTop };
@@ -362,7 +373,7 @@
     const q = st.search.trim().toLowerCase();
     const rooms = st.rooms.filter((r) => {
       if (st.filter === 'unread' && !r.unreadCount) return false;
-      if (st.filter === 'entity' && !ENTITY_TYPES.includes(r.entityType)) return false;
+      if (st.filter === 'entity' && !LINKED_TYPES.includes(r.entityType)) return false;
       return !q || roomName(r).toLowerCase().includes(q);
     });
     const unreadRooms = st.rooms.filter((r) => r.unreadCount).length;
@@ -444,24 +455,33 @@
         el('button', { class: 'sec', type: 'button', style: 'justify-content:center;height:36px', on: { click: () => toggleSettings(id, key) } }, 'Xong'))];
   }
 
+  /// Ảnh tải xong làm khung cao thêm: đang ở gần cuối thì kéo xuống cuối, không thì tin mới bị ảnh đẩy khuất.
+  function stickOnImageLoad(e) {
+    const ms = e.target.closest('.ms'); if (!ms) return;
+    const gap = ms.scrollHeight - ms.scrollTop - ms.clientHeight;
+    if (gap - e.target.offsetHeight < 60) ms.scrollTop = ms.scrollHeight;
+  }
+
   function roomBody(id, k) {
     const r = roomOf(id);
     const c = convOf(id);
     const key = k + '-' + id;
     if (st.settings === key && r.entityType !== 'direct') return settingsBody(id, key);
-    const list = el('div', { class: 'ms', 'data-k': key, 'aria-live': 'polite' });
+    // Không aria-live: vẽ lại cả khung mỗi lần đổi → trình đọc màn hình đọc lại TOÀN BỘ tin mỗi lần.
+    const list = el('div', { class: 'ms', 'data-k': key });
     if (c.hasOlder) list.append(el('button', { class: 'sec', type: 'button', style: 'align-self:center', on: { click: () => loadOlder(id, key) } }, 'Xem tin cũ hơn'));
     if (c.loaded && !c.msgs.length) list.append(el('div', { class: 'empty' }, 'Chưa có tin nhắn. Gửi lời chào đầu tiên.'));
     let prevDay = null;
     for (const m of c.msgs) {
       const d = new Date(m.createdUtc);
       if (!prevDay || !sameDay(prevDay, d)) { list.append(el('div', { class: 'day' }, dayLabel(d))); prevDay = d; }
+      if (m.system) { list.append(el('div', { class: 'sys' }, m.body || '')); continue; }   // "A đã thêm B…"
       const mine = m.senderUserId === st.me;
       const deleted = !!m.deletedUtc;
       const a = !deleted && m.attachment && safeUrl(m.attachment.url) ? m.attachment : null;
       const attEl = !a ? null : a.kind === 'anh'
         ? el('a', { class: 'img', href: a.url, target: '_blank', rel: 'noopener noreferrer', 'aria-label': 'Mở ảnh ' + a.name },
-            el('img', { src: a.url, alt: a.name, loading: 'lazy' }))
+            el('img', { src: a.url, alt: a.name, loading: 'lazy', on: { load: stickOnImageLoad } }))
         : el('a', { class: 'fa', href: a.url, target: '_blank', rel: 'noopener noreferrer' }, icon('file', 22),
             el('span', { class: 'tx' }, el('span', { class: 'fn' }, a.name), el('span', { class: 'fs' }, a.size ? fmtSize(a.size) : 'Tệp')));
       const editing = st.editing && st.editing.key === key && st.editing.msgId === m.id;
@@ -650,7 +670,11 @@
     try {
       const rooms = await api('GET', '/rooms?limit=100');
       if (seq !== roomsSeq) return;   // bỏ kết quả về muộn
-      st.rooms = rooms || [];
+      // Phòng ĐANG MỞ mà rơi khỏi 100 phòng gần nhất: giữ bản cũ, không thì ô chat mất tên + thành viên.
+      const fresh = rooms || [];
+      const have = new Set(fresh.map((r) => r.id));
+      const keep = st.rooms.filter((r) => !have.has(r.id) && (st.docks.includes(r.id) || st.roomId === r.id));
+      st.rooms = fresh.concat(keep);
       // Phòng đang hiện trên màn hình thì không tính là chưa đọc (đã/ sắp đánh dấu đọc).
       for (const r of st.rooms) if (isVisible(r.id)) r.unreadCount = 0;
       render();
@@ -845,11 +869,16 @@
     } catch (e) { if (!dead) { errMsg = 'Không sửa được: ' + e.message; st.errRoom = roomId; render(); } }
   }
 
-  /// Một tin ĐÃ CÓ vừa bị sửa / thu hồi ở nơi khác → nạp lại trang tin mới nhất và thay đúng các tin đó.
-  async function refreshChanged(roomId) {
+  /// Một tin ĐÃ CÓ vừa bị sửa / thu hồi ở nơi khác → nạp lại ĐÚNG tin đó (kể cả tin cũ ngoài 50 tin
+  /// gần nhất — trước đây chỉ nạp trang mới nhất nên tin cũ hơn không đổi trên máy người khác).
+  async function refreshChanged(roomId, messageId) {
     const c = st.conv.get(roomId); if (!c?.loaded) return;
+    const old = c.msgs.find((m) => m.id === messageId);
+    if (messageId != null && !old) return;   // tin chưa nạp về máy: lúc cuộn tới sẽ lấy bản mới
     try {
-      const page = await api('GET', `/rooms/${roomId}/messages?limit=${PAGE}`);
+      const page = old
+        ? await api('GET', `/rooms/${roomId}/messages?limit=1&beforeUtc=${encodeURIComponent(old.createdUtc)}&beforeId=${old.id + 1}`)
+        : await api('GET', `/rooms/${roomId}/messages?limit=${PAGE}`);
       const byId = new Map((page || []).map((m) => [m.id, m]));
       c.msgs = c.msgs.map((m) => byId.get(m.id) || m);
       render();
@@ -897,7 +926,11 @@
   function onVisibility() {
     if (dead) return;
     if (document.hidden) { closeStream(); clearTimeout(retryTimer); }
-    else { subscribe(); catchUp(); }
+    else {
+      subscribe(); catchUp();
+      // Tin tới lúc tab ẩn chưa được đánh dấu đọc — giờ người dùng đã nhìn thấy phòng đang mở.
+      for (const id of new Set([...st.docks, st.roomId])) if (id && isVisible(id)) markRead(id);
+    }
     syncPolling();
   }
   function subscribe() {
@@ -907,11 +940,15 @@
       let d; try { d = JSON.parse(ev.data); } catch { return; }
       if (d.messageId == null) {
         // Phòng đổi cấu hình (tên, thành viên). Tải lại ngay; mình bị bỏ ra thì đóng phòng đó.
-        loadRooms().then(() => { if (!st.rooms.some((r) => r.id === d.roomId)) leftRoom(d.roomId); });
+        // Còn là thành viên không: hỏi THẲNG phòng đó (403 = đã bị bỏ), không dò trong danh sách —
+        // danh sách chỉ 100 phòng gần nhất, người nhiều phòng bị đóng nhầm ô đang mở.
+        loadRooms();
+        if (st.conv.has(d.roomId) || st.docks.includes(d.roomId) || st.roomId === d.roomId)
+          api('GET', `/rooms/${d.roomId}/messages?limit=1`).catch((e) => { if (e.status === 403) leftRoom(d.roomId); });
         emit('room', { roomId: d.roomId });
         return;
       }
-      if (d.changed) { refreshChanged(d.roomId); refreshRoomsSoon(); return; }
+      if (d.changed) { refreshChanged(d.roomId, d.messageId); refreshRoomsSoon(); return; }
       if (st.conv.get(d.roomId)?.loaded) fetchNewer(d.roomId);
       refreshRoomsSoon();
       emit('message', { roomId: d.roomId, messageId: d.messageId });
@@ -959,6 +996,16 @@
       const ids = [], unmatched = [];
       for (const n of list) { const hit = index.get(norm(n)) || []; if (hit.length === 1) ids.push(hit[0]); else unmatched.push(n); }
       return { ids: [...new Set(ids)], unmatched };
+    },
+    /**
+     * Phòng theo KHOÁ TỰ ĐẶT ('donhang_123', 'nhom_marketing'…): chưa có thì tạo, có rồi thì mở đúng phòng
+     * đó với đủ lịch sử. members chỉ áp lúc tạo; title còn đặt được nếu phòng chưa có tên.
+     */
+    openByKey(key, info, opts) {
+      const k = key == null ? '' : String(key).trim();
+      if (!/^[A-Za-z0-9_.:-]{1,100}$/.test(k)) return fail(new Error('openByKey: khoá chỉ gồm chữ, số, _ - . : (tối đa 100 ký tự)'));
+      const i = typeof info === 'string' ? { title: info } : (info || {});
+      return createAndShow({ entityType: 'key', entityId: k, title: i.title || null, memberUserIds: ids(i.members) }, whereOf(opts)).catch(fail);
     },
     /** Nhắn 1-1 với một nhân viên (mã người CRM). */
     openDirect(userId, opts) {
@@ -1030,6 +1077,10 @@
     (document.body || document.documentElement).appendChild(host);
     // Esc: đóng khung danh sách (khi focus đang trong widget). Không nghe phím toàn trang.
     root.addEventListener('keydown', (e) => { if (e.key === 'Escape' && st.open) { st.open = false; render(); root.querySelector('.fab')?.focus(); } });
+    root.addEventListener('compositionstart', () => { composing = true; });
+    root.addEventListener('compositionend', () => { composing = false; if (renderPending) setTimeout(render, 0); });
+    // Phòng hờ trình duyệt không bắn compositionend (rời ô giữa lúc ghép chữ) — không thì widget đứng hình.
+    root.addEventListener('focusout', () => { if (composing) { composing = false; if (renderPending) setTimeout(render, 0); } });
     window.addEventListener('resize', onResize);
     document.addEventListener('visibilitychange', onVisibility);
     render();

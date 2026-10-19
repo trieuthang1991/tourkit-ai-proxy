@@ -106,19 +106,20 @@ người CRM → 401; không phải thành viên phòng → 403. Thân request �
 | Method | Path | Notes |
 |--------|------|-------|
 | GET | `/rooms?limit=50` | Phòng của mình, mới hoạt động trước → `[{id,title,entityType,entityId,roomKey,lastPreview,lastActivityAt,unreadCount(≤100),members[{userId,joinedUtc}]}]` |
-| POST | `/rooms` | `{entityType: direct\|order\|company\|group, entityId?, title?, memberUserIds[]}` → `{id, roomKey}`. direct/order/company là **lấy-hoặc-tạo** (cùng khoá = cùng phòng); group luôn tạo mới. Người thêm phải thuộc danh sách nhân viên của công ty |
-| GET | `/rooms/{id}/messages?limit&beforeUtc&beforeId&afterId` | Mới nhất trước, con trỏ `(beforeUtc, beforeId)`; `afterId` = tin mới hơn, cũ trước → `[{id,roomId,senderUserId,senderUsername,body,createdUtc,deletedUtc,attachment{url,name,size,kind}}]` |
+| POST | `/rooms` | `{entityType: direct\|order\|company\|deal\|group\|key, entityId?, title?, memberUserIds[]}` → `{id, roomKey, created}`. direct/order/company/deal/key là **lấy-hoặc-tạo** (cùng khoá = cùng phòng); group luôn tạo mới. Khoá direct/group do MÁY CHỦ sinh — không truyền gì. `key` = khoá tự đặt (`entityId`: chữ/số ASCII + `_ - . :`, ≤100, sai → 400), không kiểm quyền CRM. `memberUserIds` CHỈ áp lúc tạo (`created: true`); phòng đã có thì chỉ người gọi vào (lại). Người thêm phải thuộc danh sách nhân viên của công ty (mã lạ → hỏi lại ERP bỏ qua đệm một lần) |
+| GET | `/rooms/{id}/messages?limit&beforeUtc&beforeId&afterId` | Mới nhất trước, con trỏ `(beforeUtc, beforeId)`; `afterId` = tin mới hơn, cũ trước → `[{id,roomId,senderUserId,senderUsername,body,createdUtc,deletedUtc,attachment{url,name,size,kind},editedUtc,system}]`. `system: true` = dòng thông báo ("A đã thêm B"), không người gửi, không tính chưa đọc |
 | POST | `/rooms/{id}/messages` | `{body?, attachment?}` — ít nhất một. `attachment.url` phải do kho cấp cho ĐÚNG công ty + phòng (`InternalAttachmentRules.IsOwnUrl`) |
 | POST | `/rooms/{id}/upload` | multipart `file` → `{url,name,size,kind}`. ≤15MB, danh sách trắng đuôi (ảnh, PDF, Office, TXT, CSV, ZIP, RAR — chặn html/svg/js). Kho: `IChatFileStorage` (R2 theo `Storage:Provider`) |
 | POST | `/rooms/{id}/read` | Đánh dấu đã đọc cho riêng mình → 204 |
-| PATCH | `/rooms/{id}` | `{title}` đổi tên. Phòng 1-1 → 403 |
-| POST | `/rooms/{id}/members` | `{memberUserIds[]}` thêm người (người đã rời thì vào lại). Phòng 1-1 → 403 |
-| DELETE | `/rooms/{id}/members/{userId}` | Bỏ người; bỏ chính mình = rời phòng. Phòng 1-1 → 403 |
+| PATCH | `/rooms/{id}` | `{title}` đổi tên. Phòng 1-1 → 403. Ghi tin hệ thống |
+| POST | `/rooms/{id}/members` | `{memberUserIds[]}` thêm người (người đã rời thì vào lại). Phòng 1-1 → 403. Ghi tin hệ thống |
+| DELETE | `/rooms/{id}/members/{userId}` | Bỏ người; bỏ chính mình = rời phòng. Phòng 1-1 → 403. Ghi tin hệ thống |
 | DELETE | `/messages/{id}` | Thu hồi tin CỦA MÌNH (xoá mềm, với mọi người; dòng xem trước của phòng tính lại) → 204 / 404. Người đã rời phòng: 404 |
 | PATCH | `/messages/{id}` | `{body}` sửa tin CỦA MÌNH (chưa thu hồi) → 204 / 404; ghi `editedUtc` |
 | POST | `/rooms/{id}/hide` | "Xoá phía tôi" — ẩn phòng + tin cũ với riêng mình (xoá mềm); có tin mới thì phòng hiện lại → 204 / 403 |
 | GET | `/users` | `{meId, users[{id,name}]}` — danh sách nhân viên ERP, đệm Redis 2h (dùng chung `ChatStaffDirectory` với `/assign-settings`) |
 | GET | `/events?sessionId=` | SSE: `data: {roomId, messageId, changed}`; `messageId: null` = phòng đổi cấu hình; `changed: true` = tin đã có vừa sửa/thu hồi (tên/thành viên). Nhịp giữ sống 25s |
+| * | mọi đường khác dưới nhóm (vd `/rooms/abc/messages`) | 404 JSON `{error}` — không rơi xuống SPA fallback |
 
 ---
 

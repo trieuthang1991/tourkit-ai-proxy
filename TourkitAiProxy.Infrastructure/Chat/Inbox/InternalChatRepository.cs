@@ -19,6 +19,9 @@ public class InternalChatRepository
     private readonly ChatDb _db;
 
     public InternalChatRepository(ChatDb db) => _db = db;
+
+    /// sender_kind của chat_messages: 3 = hệ thống (xem ChatDb).
+    private const short SystemSenderKind = 3;
     public bool Configured => _db.Configured;
 
     private sealed class RoomRow
@@ -51,6 +54,7 @@ public class InternalChatRepository
         public DateTime? DeletedUtc { get; set; }
         public string? Attachment { get; set; }
         public DateTime? EditedUtc { get; set; }
+        public short SenderKind { get; set; }
     }
 
     private sealed class AppendRow
@@ -73,31 +77,49 @@ public class InternalChatRepository
     {
         await using var c = await _db.OpenAsync(ct);
         await using var tx = await c.BeginTransactionAsync(ct);
-        // xmax = 0 chỉ đúng với dòng VỪA chèn; nhánh ON CONFLICT DO UPDATE cho xmax khác 0.
-        var (id, created) = await c.QuerySingleAsync<(long, bool)>(new CommandDefinition("""
+        // Phòng ĐÃ CÓ thì không ghi gì (DO NOTHING → không trả dòng → đọc lại). Trước đây DO UPDATE ở
+        // mọi lần bấm Chat: mỗi cú bấm là một dòng chết trong bảng hội thoại. Hai người bấm cùng lúc:
+        // người thua chờ người thắng commit rồi đọc lại ra đúng dòng đó (read committed).
+        var created = true;
+        var id = await c.ExecuteScalarAsync<long?>(new CommandDefinition("""
             INSERT INTO chat_conversations (tenant_id, channel, account_id, contact_external_id, surface,
                                             source_thread_id, entity_type, entity_id, title, last_activity_at)
             VALUES (@tenant, 7, '', @roomKey, 0, '', @entityType, @entityId, @title, now())
-            ON CONFLICT (tenant_id, channel, account_id, contact_external_id, surface, source_thread_id)
-            DO UPDATE SET title = COALESCE(chat_conversations.title, EXCLUDED.title)
-            RETURNING id, (xmax = 0) AS created
+            ON CONFLICT (tenant_id, channel, account_id, contact_external_id, surface, source_thread_id) DO NOTHING
+            RETURNING id
             """, new { tenant, roomKey, entityType, entityId, title }, tx, cancellationToken: ct));
+        if (id is null)
+        {
+            created = false;
+            id = await c.ExecuteScalarAsync<long>(new CommandDefinition("""
+                SELECT id FROM chat_conversations
+                 WHERE tenant_id = @tenant AND channel = 7 AND account_id = '' AND contact_external_id = @roomKey
+                   AND surface = 0 AND source_thread_id = ''
+                """, new { tenant, roomKey }, tx, cancellationToken: ct));
+            // Phòng chưa có tên mà lượt này mang tên (vd phòng cơ hội tạo từ API trần) → đặt tên, MỘT lần.
+            if (!string.IsNullOrWhiteSpace(title))
+                await c.ExecuteAsync(new CommandDefinition("""
+                    UPDATE chat_conversations SET title = @title
+                     WHERE id = @id AND tenant_id = @tenant AND title IS NULL
+                    """, new { id, tenant, title }, tx, cancellationToken: ct));
+        }
 
-        var ids = memberIds.Append(creatorUserId).Distinct().ToArray();
+        // Người khác CHỈ được thêm lúc phòng vừa tạo. Phòng đã có thì chỉ người bấm (vào lại nếu đã rời):
+        // thêm cả danh sách ở mọi lần bấm là kéo lại người đã bị bỏ khỏi phòng / đã tự rời.
+        var ids = created ? memberIds.Append(creatorUserId).Distinct().ToArray() : new[] { creatorUserId };
         await c.ExecuteAsync(new CommandDefinition("""
             INSERT INTO chat_room_members (conversation_id, tenant_id, user_id)
             -- DISTINCT: mảng có trùng thì Postgres ném "ON CONFLICT DO UPDATE cannot affect row a
             -- second time" (đo trên PG 17, 19/10/2026) — chặn ở đây kể cả khi chỗ gọi quên lọc.
             SELECT DISTINCT @id, @tenant, u FROM unnest(@ids) AS u
-            -- Vào LẠI phòng (đã rời) thì mốc vào tính lại từ bây giờ: chưa đọc đếm từ lúc vào lại.
+            -- Chỉ ghi khi người đó VÀO LẠI (đã rời): mốc vào tính lại từ bây giờ. Đang là thành viên thì
+            -- không đụng gì — bấm Chat lại không sinh dòng chết.
             ON CONFLICT (conversation_id, user_id) DO UPDATE
-               SET joined_utc = CASE WHEN chat_room_members.left_utc IS NULL
-                                     THEN chat_room_members.joined_utc ELSE now() END,
-                   left_utc = NULL
-             WHERE chat_room_members.tenant_id = @tenant
+               SET joined_utc = now(), left_utc = NULL
+             WHERE chat_room_members.left_utc IS NOT NULL AND chat_room_members.tenant_id = @tenant
             """, new { id, tenant, ids }, tx, cancellationToken: ct));
         await tx.CommitAsync(ct);
-        return (id, created);
+        return (id.Value, created);
     }
 
     /// <summary>
@@ -128,6 +150,7 @@ public class InternalChatRepository
                          AND m.created_utc > GREATEST(r.last_read_at, mb.joined_utc, mb.hidden_utc)
                          AND m.sender_user_id IS DISTINCT FROM @userId
                          AND m.deleted_utc IS NULL
+                         AND m.sender_kind <> 3   -- tin hệ thống ("A đã thêm B") không tính chưa đọc
                        LIMIT 100) x) AS unread_count
               FROM mb
               -- LATERAL + LIMIT 1 ép thứ tự: mỗi phòng của người này → tra ĐÚNG một dòng theo khoá
@@ -169,7 +192,7 @@ public class InternalChatRepository
         await using var c = await _db.OpenAsync(ct);
         var rows = (await c.QueryAsync<MessageRow>(new CommandDefinition("""
             SELECT m.id, m.conversation_id AS room_id, m.sender_user_id, m.sender_username, m.body,
-                   m.created_utc, m.deleted_utc, m.edited_utc, m.attachment::text AS attachment
+                   m.created_utc, m.deleted_utc, m.edited_utc, m.sender_kind, m.attachment::text AS attachment
               FROM chat_messages m
              WHERE m.conversation_id = @roomId AND m.tenant_id = @tenant
                AND EXISTS (SELECT 1 FROM chat_room_members mb
@@ -196,7 +219,7 @@ public class InternalChatRepository
         await using var c = await _db.OpenAsync(ct);
         var rows = (await c.QueryAsync<MessageRow>(new CommandDefinition("""
             SELECT m.id, m.conversation_id AS room_id, m.sender_user_id, m.sender_username, m.body,
-                   m.created_utc, m.deleted_utc, m.edited_utc, m.attachment::text AS attachment
+                   m.created_utc, m.deleted_utc, m.edited_utc, m.sender_kind, m.attachment::text AS attachment
               FROM chat_messages m
              WHERE m.conversation_id = @roomId AND m.tenant_id = @tenant AND m.id > @afterId
                AND EXISTS (SELECT 1 FROM chat_room_members mb
@@ -322,6 +345,34 @@ public class InternalChatRepository
             SELECT user_id FROM chat_room_members
              WHERE conversation_id = @roomId AND tenant_id = @tenant AND left_utc IS NULL
             """, new { tenant, roomId }, cancellationToken: ct))).ToArray();
+    }
+
+    /// <summary>
+    /// Ghi một dòng thông báo hệ thống vào phòng ("A đã thêm B…") — để thay đổi phòng có dấu vết.
+    /// sender_kind = 3, không có người gửi nên không ai sửa/thu hồi được; không tính chưa đọc.
+    /// Đẩy xem trước + mốc hoạt động như tin thường. Trả mã tin + thành viên để bus báo.
+    /// </summary>
+    public async Task<AppendResult> AppendSystemMessageAsync(string tenant, long roomId, string body,
+        CancellationToken ct = default)
+    {
+        await using var c = await _db.OpenAsync(ct);
+        var r = await c.QuerySingleOrDefaultAsync<AppendRow>(new CommandDefinition("""
+            WITH m AS (
+              INSERT INTO chat_messages (tenant_id, conversation_id, channel, direction, sender_kind, kind, body, state)
+              SELECT @tenant, v.id, 7, 1, 3, 0, @body, 1
+                FROM chat_conversations v WHERE v.id = @roomId AND v.tenant_id = @tenant AND v.channel = 7
+              RETURNING id, created_utc),
+            u AS (
+              UPDATE chat_conversations v SET last_preview = left(@body, 200), last_activity_at = m.created_utc
+                FROM m WHERE v.id = @roomId AND v.tenant_id = @tenant AND v.channel = 7)
+            SELECT m.id, m.created_utc,
+                   (SELECT array_agg(user_id) FROM chat_room_members
+                     WHERE conversation_id = @roomId AND tenant_id = @tenant AND left_utc IS NULL) AS members
+              FROM m
+            """, new { tenant, roomId, body }, cancellationToken: ct));
+        // Không có dòng = phòng không thuộc công ty này / không phải phòng nội bộ → không ghi gì.
+        return r is null ? new AppendResult(null, null, Array.Empty<int>())
+                         : new AppendResult(r.Id, r.CreatedUtc, r.Members ?? Array.Empty<int>());
     }
 
     /// <summary>Đánh dấu đã đọc cho riêng một người. false = không phải thành viên.</summary>
@@ -458,7 +509,8 @@ public class InternalChatRepository
 
     private static InternalMessage ToMessage(MessageRow m) => new(m.Id, m.RoomId, m.SenderUserId,
         m.SenderUsername, m.DeletedUtc is null ? m.Body : null, m.CreatedUtc, m.DeletedUtc,
-        m.DeletedUtc is null ? ReadAttachment(m.Attachment) : null, m.DeletedUtc is null ? m.EditedUtc : null);
+        m.DeletedUtc is null ? ReadAttachment(m.Attachment) : null, m.DeletedUtc is null ? m.EditedUtc : null,
+        m.SenderKind == SystemSenderKind);
 
     /// Đọc gói đính kèm {url, ten, kich, loai}. Hỏng/thiếu url thì bỏ đính kèm, KHÔNG làm hỏng tin.
     public static InternalAttachment? ReadAttachment(string? json)

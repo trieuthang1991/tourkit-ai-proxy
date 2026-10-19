@@ -22,7 +22,7 @@ public static class ChatStaffDirectory
     /// </returns>
     public static async Task<(List<object> Staffs, int ErpRows)> ListAsync(TkSessionStore sessions,
         TourKitApiClient api, RedisStore redis, string tenantId, string sessionId, ILogger log,
-        CancellationToken ct)
+        CancellationToken ct, bool skipCache = false)
     {
         // Danh sách nhân viên đổi rất thưa (chỉ khi nhân sự thay đổi bên ERP) nhưng bị hỏi ở
         // MỖI lần mở hộp thư và MỖI lần mở màn hình cấu hình. Đệm 2 tiếng theo công ty.
@@ -35,7 +35,8 @@ public static class ChatStaffDirectory
         // là công ty không có ai, còn 108 dòng mà vẫn rỗng nghĩa là ERP trả người nhưng thiếu tên
         // — hai ca đòi hai cách xử lý khác hẳn.
         var soDongErpTra = 0;
-        var daDem = redis.Get(khoaDem);
+        // skipCache: chỗ gọi vừa gặp mã người lạ (nhân viên mới?) → hỏi thẳng ERP rồi ghi đè đệm.
+        var daDem = skipCache ? null : redis.Get(khoaDem);
         if (daDem is not null)
         {
             try { nhanVien = JsonSerializer.Deserialize<List<object>>(daDem, Web) ?? new(); }
@@ -104,6 +105,14 @@ public static class ChatStaffDirectory
 
     /// Mã của một dòng trong danh sách nhân viên — dòng mới dựng là đối tượng vô danh, dòng đọc từ
     /// đệm Redis là JsonElement, nên đi qua JSON cho cả hai.
+    /// Tên hiển thị một dòng nhân viên; không có/không phải chuỗi → null.
+    public static string? StaffName(object staff)
+    {
+        var e = staff is JsonElement je ? je : JsonSerializer.SerializeToElement(staff, Web);
+        return e.ValueKind == JsonValueKind.Object && e.TryGetProperty("name", out var v)
+               && v.ValueKind == JsonValueKind.String && !string.IsNullOrWhiteSpace(v.GetString()) ? v.GetString()!.Trim() : null;
+    }
+
     public static int? StaffId(object staff)
     {
         var e = staff is JsonElement je ? je : JsonSerializer.SerializeToElement(staff, Web);
