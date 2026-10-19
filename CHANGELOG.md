@@ -29,7 +29,13 @@ Những cập nhật gần đây của TRAV-AI, viết cho người dùng. Mới
 - **Gửi ảnh và tệp**: bấm nút kẹp giấy, **dán thẳng ảnh chụp màn hình** (Ctrl+V), hoặc kéo thả tệp
   vào khung chat. Nhận ảnh, PDF, Word, Excel, PowerPoint, TXT, CSV, ZIP, RAR; tối đa 15 MB mỗi tệp.
 - **Đổi tên phòng, thêm hoặc bớt người, rời phòng** bằng nút bánh răng ở đầu mỗi nhóm.
-- **Thu hồi tin của mình** khi gửi nhầm.
+- **Nút Chat trên mỗi cơ hội.** Ở màn **Cơ hội**, bấm **Chat** trên dòng, trên thẻ hoặc trong ngăn chi
+  tiết là mở ngay phòng trao đổi của cơ hội đó; người phụ trách được thêm sẵn ngay lần đầu. Ai nhìn
+  thấy cơ hội thì vào được phòng của cơ hội đó.
+- **Sửa tin đã gửi**: di chuột vào tin của bạn, bấm **Sửa**; người khác thấy nội dung mới kèm chữ
+  "đã sửa".
+- **Thu hồi tin của mình** khi gửi nhầm: tin biến mất với mọi người ngay lập tức. Nút thu hồi cần
+  bấm hai lần để tránh lỡ tay.
 - Tin mới hiện ngay, không cần tải lại trang. Đang gõ dở mà có tin tới thì chữ của bạn vẫn còn nguyên.
 
 ### 📌 Lưu ý
