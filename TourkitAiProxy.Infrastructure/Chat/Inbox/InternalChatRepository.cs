@@ -1,0 +1,262 @@
+using Dapper;
+using TourkitAiProxy.Domain.Chat;
+
+namespace TourkitAiProxy.Infrastructure.Chat.Inbox;
+
+/// <summary>
+/// Chat nội bộ giữa nhân viên: phòng là một dòng <c>chat_conversations</c> với channel = 7, tin là
+/// dòng <c>chat_messages</c>, thành viên ở <c>chat_room_members</c>, đã-đọc dùng lại
+/// <c>chat_conversation_reads</c>.
+///
+/// <para><b>Kiểm thành viên nằm TRONG chính câu đọc/ghi</b> (EXISTS trên chat_room_members), không
+/// tách hàm riêng: tách ra là thêm một vòng gọi CSDL cho mỗi tin gửi và mỗi lần mở phòng.</para>
+///
+/// <para>⚠️ Đọc vào lớp dòng có thuộc tính set được rồi mới đổi sang record — Dapper không dựng
+/// được record vị trí khi có cột <c>integer[]</c> (xem ghi chú ở <see cref="ChatAssignRepository"/>).</para>
+/// </summary>
+public class InternalChatRepository
+{
+    private readonly ChatDb _db;
+
+    public InternalChatRepository(ChatDb db) => _db = db;
+    public bool Configured => _db.Configured;
+
+    private sealed class RoomRow
+    {
+        public long Id { get; set; }
+        public string? Title { get; set; }
+        public string? EntityType { get; set; }
+        public string? EntityId { get; set; }
+        public string RoomKey { get; set; } = "";
+        public string? LastPreview { get; set; }
+        public DateTime LastActivityAt { get; set; }
+        public int UnreadCount { get; set; }
+    }
+
+    private sealed class MemberRow
+    {
+        public long ConversationId { get; set; }
+        public int UserId { get; set; }
+        public DateTime JoinedUtc { get; set; }
+    }
+
+    private sealed class MessageRow
+    {
+        public long Id { get; set; }
+        public long RoomId { get; set; }
+        public int? SenderUserId { get; set; }
+        public string? SenderUsername { get; set; }
+        public string? Body { get; set; }
+        public DateTime CreatedUtc { get; set; }
+        public DateTime? DeletedUtc { get; set; }
+    }
+
+    private sealed class AppendRow
+    {
+        public long? Id { get; set; }
+        public DateTime? CreatedUtc { get; set; }
+        public int[]? Members { get; set; }
+    }
+
+    /// <summary>
+    /// Tạo phòng, hoặc trả phòng đã có cùng khoá. Một giao dịch, hai câu: upsert phòng rồi thêm
+    /// thành viên bằng MỘT câu unnest. Thành viên đã rời (left_utc) được thêm lại thì vào lại.
+    /// </summary>
+    /// <param name="memberIds">Đã gồm người tạo, đã bỏ trùng ở chỗ gọi.</param>
+    public async Task<long> CreateOrGetRoomAsync(string tenant, int creatorUserId, string roomKey,
+        string entityType, string? entityId, string? title, IReadOnlyCollection<int> memberIds,
+        CancellationToken ct = default)
+    {
+        await using var c = await _db.OpenAsync(ct);
+        await using var tx = await c.BeginTransactionAsync(ct);
+        var id = await c.ExecuteScalarAsync<long>(new CommandDefinition("""
+            INSERT INTO chat_conversations (tenant_id, channel, account_id, contact_external_id, surface,
+                                            source_thread_id, entity_type, entity_id, title, last_activity_at)
+            VALUES (@tenant, 7, '', @roomKey, 0, '', @entityType, @entityId, @title, now())
+            ON CONFLICT (tenant_id, channel, account_id, contact_external_id, surface, source_thread_id)
+            DO UPDATE SET title = COALESCE(chat_conversations.title, EXCLUDED.title)
+            RETURNING id
+            """, new { tenant, roomKey, entityType, entityId, title }, tx, cancellationToken: ct));
+
+        var ids = memberIds.Append(creatorUserId).Distinct().ToArray();
+        await c.ExecuteAsync(new CommandDefinition("""
+            INSERT INTO chat_room_members (conversation_id, tenant_id, user_id)
+            -- DISTINCT: mảng có trùng thì Postgres ném "ON CONFLICT DO UPDATE cannot affect row a
+            -- second time" (đo trên PG 17, 19/10/2026) — chặn ở đây kể cả khi chỗ gọi quên lọc.
+            SELECT DISTINCT @id, @tenant, u FROM unnest(@ids) AS u
+            ON CONFLICT (conversation_id, user_id) DO UPDATE SET left_utc = NULL
+             WHERE chat_room_members.tenant_id = @tenant
+            """, new { id, tenant, ids }, tx, cancellationToken: ct));
+        await tx.CommitAsync(ct);
+        return id;
+    }
+
+    /// <summary>
+    /// Phòng của một người, mới hoạt động trước. Hai vòng gọi: phòng (kèm số chưa đọc), rồi
+    /// thành viên của đúng các phòng đó — không hỏi thành viên từng phòng một.
+    ///
+    /// <para>Số chưa đọc có TRẦN 100: phòng bị bỏ quên lâu không được kéo chậm cả danh sách, và
+    /// giao diện chỉ cần hiện "99+".</para>
+    /// </summary>
+    public async Task<IReadOnlyList<InternalRoom>> ListRoomsAsync(string tenant, int userId, int limit,
+        CancellationToken ct = default)
+    {
+        await using var c = await _db.OpenAsync(ct);
+        var rows = (await c.QueryAsync<RoomRow>(new CommandDefinition("""
+            SELECT v.id, v.title, v.entity_type, v.entity_id, v.contact_external_id AS room_key,
+                   v.last_preview, v.last_activity_at,
+                   (SELECT count(*)::int FROM (
+                      SELECT 1 FROM chat_messages m
+                       WHERE m.conversation_id = v.id
+                         AND m.created_utc > COALESCE(r.last_read_at, mb.joined_utc)
+                         AND m.sender_user_id IS DISTINCT FROM @userId
+                         AND m.deleted_utc IS NULL
+                       LIMIT 100) x) AS unread_count
+              FROM chat_room_members mb
+              JOIN chat_conversations v
+                ON v.id = mb.conversation_id AND v.tenant_id = @tenant AND v.channel = 7
+              LEFT JOIN chat_conversation_reads r
+                ON r.tenant_id = @tenant AND r.conversation_id = v.id AND r.user_id = @userId
+             WHERE mb.tenant_id = @tenant AND mb.user_id = @userId AND mb.left_utc IS NULL
+             ORDER BY v.last_activity_at DESC, v.id DESC
+             LIMIT @limit
+            """, new { tenant, userId, limit }, cancellationToken: ct))).ToList();
+        if (rows.Count == 0) return Array.Empty<InternalRoom>();
+
+        var ids = rows.Select(r => r.Id).ToArray();
+        var members = (await c.QueryAsync<MemberRow>(new CommandDefinition("""
+            SELECT conversation_id, user_id, joined_utc
+              FROM chat_room_members
+             WHERE tenant_id = @tenant AND conversation_id = ANY(@ids) AND left_utc IS NULL
+            """, new { tenant, ids }, cancellationToken: ct)))
+            .ToLookup(m => m.ConversationId, m => new InternalMember(m.UserId, m.JoinedUtc));
+
+        return rows.Select(r => new InternalRoom(r.Id, r.Title, r.EntityType ?? "direct", r.EntityId,
+            r.RoomKey, r.LastPreview, r.LastActivityAt, r.UnreadCount, members[r.Id].ToList())).ToList();
+    }
+
+    /// <summary>
+    /// Lịch sử, mới nhất trước, phân trang con trỏ (created_utc, id) — khớp chỉ mục ix_msg_conv.
+    /// Trả <c>null</c> khi người hỏi không phải thành viên (chỗ gọi trả 403).
+    /// </summary>
+    public async Task<IReadOnlyList<InternalMessage>?> ListMessagesAsync(string tenant, long roomId, int userId,
+        DateTime? beforeUtc, long? beforeId, int limit, CancellationToken ct = default)
+    {
+        await using var c = await _db.OpenAsync(ct);
+        var rows = (await c.QueryAsync<MessageRow>(new CommandDefinition("""
+            SELECT m.id, m.conversation_id AS room_id, m.sender_user_id, m.sender_username, m.body,
+                   m.created_utc, m.deleted_utc
+              FROM chat_messages m
+             WHERE m.conversation_id = @roomId AND m.tenant_id = @tenant
+               AND EXISTS (SELECT 1 FROM chat_room_members mb
+                            WHERE mb.conversation_id = @roomId AND mb.tenant_id = @tenant
+                              AND mb.user_id = @userId AND mb.left_utc IS NULL)
+               AND (@beforeUtc::timestamptz IS NULL
+                    OR (m.created_utc, m.id) < (@beforeUtc::timestamptz, @beforeId::bigint))
+             ORDER BY m.created_utc DESC, m.id DESC
+             LIMIT @limit
+            """, new { tenant, roomId, userId, beforeUtc = AsUtc(beforeUtc), beforeId = beforeId ?? long.MaxValue, limit },
+            cancellationToken: ct))).ToList();
+        if (rows.Count == 0 && !await IsMemberOrEmptyAsync(c, tenant, roomId, userId, ct)) return null;
+        return rows.Select(ToMessage).ToList();
+    }
+
+    /// <summary>Tin MỚI hơn một mã, cũ trước — để widget bù tin khi có sự kiện hoặc vừa nối lại.</summary>
+    public async Task<IReadOnlyList<InternalMessage>?> ListMessagesAfterAsync(string tenant, long roomId, int userId,
+        long afterId, int limit, CancellationToken ct = default)
+    {
+        await using var c = await _db.OpenAsync(ct);
+        var rows = (await c.QueryAsync<MessageRow>(new CommandDefinition("""
+            SELECT m.id, m.conversation_id AS room_id, m.sender_user_id, m.sender_username, m.body,
+                   m.created_utc, m.deleted_utc
+              FROM chat_messages m
+             WHERE m.conversation_id = @roomId AND m.tenant_id = @tenant AND m.id > @afterId
+               AND EXISTS (SELECT 1 FROM chat_room_members mb
+                            WHERE mb.conversation_id = @roomId AND mb.tenant_id = @tenant
+                              AND mb.user_id = @userId AND mb.left_utc IS NULL)
+             ORDER BY m.id
+             LIMIT @limit
+            """, new { tenant, roomId, userId, afterId, limit }, cancellationToken: ct))).ToList();
+        if (rows.Count == 0 && !await IsMemberOrEmptyAsync(c, tenant, roomId, userId, ct)) return null;
+        return rows.Select(ToMessage).ToList();
+    }
+
+    /// <summary>
+    /// Ghi tin — MỘT câu: kiểm thành viên, chèn tin, đẩy xem trước của phòng, và trả luôn danh sách
+    /// thành viên để bus biết giao cho ai. Không phải thành viên thì không chèn gì, <c>Id</c> null.
+    ///
+    /// <para>direction = 1 và không đính kèm nên vòng soi tệp (ix_msg_media_cho, direction = 0) không
+    /// bao giờ chạm tới; không ghi chat_outbox nên worker gửi ra kênh cũng không.</para>
+    /// </summary>
+    public async Task<AppendResult> AppendMessageAsync(string tenant, long roomId, int senderUserId,
+        string senderUsername, string body, CancellationToken ct = default)
+    {
+        await using var c = await _db.OpenAsync(ct);
+        var r = await c.QuerySingleAsync<AppendRow>(new CommandDefinition("""
+            WITH tv AS (
+              SELECT array_agg(user_id) AS members FROM chat_room_members
+               WHERE conversation_id = @roomId AND tenant_id = @tenant AND left_utc IS NULL),
+            m AS (
+              INSERT INTO chat_messages (tenant_id, conversation_id, channel, direction, sender_kind,
+                                         sender_username, sender_user_id, kind, body, state)
+              SELECT @tenant, @roomId, 7, 1, 2, @senderUsername, @senderUserId, 0, @body, 1
+               WHERE EXISTS (SELECT 1 FROM tv WHERE @senderUserId = ANY(tv.members))
+              RETURNING id, created_utc),
+            u AS (
+              UPDATE chat_conversations v
+                 SET last_preview = left(@body, 200), last_activity_at = m.created_utc
+                FROM m
+               WHERE v.id = @roomId AND v.tenant_id = @tenant AND v.channel = 7)
+            SELECT m.id, m.created_utc, tv.members FROM tv LEFT JOIN m ON true
+            """, new { tenant, roomId, senderUserId, senderUsername, body }, cancellationToken: ct));
+        return new AppendResult(r.Id, r.CreatedUtc, r.Members ?? Array.Empty<int>());
+    }
+
+    /// <summary>Đánh dấu đã đọc cho riêng một người. false = không phải thành viên.</summary>
+    public async Task<bool> MarkReadAsync(string tenant, long roomId, int userId, CancellationToken ct = default)
+    {
+        await using var c = await _db.OpenAsync(ct);
+        return await c.ExecuteAsync(new CommandDefinition("""
+            INSERT INTO chat_conversation_reads (tenant_id, conversation_id, user_id, last_read_at)
+            SELECT @tenant, @roomId, @userId, now()
+             WHERE EXISTS (SELECT 1 FROM chat_room_members mb
+                            WHERE mb.conversation_id = @roomId AND mb.tenant_id = @tenant
+                              AND mb.user_id = @userId AND mb.left_utc IS NULL)
+            ON CONFLICT (tenant_id, conversation_id, user_id) DO UPDATE SET last_read_at = now()
+            """, new { tenant, roomId, userId }, cancellationToken: ct)) > 0;
+    }
+
+    /// <summary>Thu hồi tin CỦA CHÍNH MÌNH — xoá mềm, giữ dòng (như tin khách tự xoá).</summary>
+    public async Task<bool> DeleteOwnMessageAsync(string tenant, long messageId, int userId,
+        CancellationToken ct = default)
+    {
+        await using var c = await _db.OpenAsync(ct);
+        return await c.ExecuteAsync(new CommandDefinition("""
+            UPDATE chat_messages SET deleted_utc = now()
+             WHERE id = @messageId AND tenant_id = @tenant AND channel = 7
+               AND sender_user_id = @userId AND deleted_utc IS NULL
+            """, new { tenant, messageId, userId }, cancellationToken: ct)) > 0;
+    }
+
+    /// Chỉ chạy khi câu đọc trả RỖNG (hiếm): phân biệt "phòng chưa có tin" với "không phải thành viên".
+    private static Task<bool> IsMemberOrEmptyAsync(Npgsql.NpgsqlConnection c, string tenant, long roomId,
+        int userId, CancellationToken ct)
+        => c.ExecuteScalarAsync<bool>(new CommandDefinition("""
+            SELECT EXISTS (SELECT 1 FROM chat_room_members
+                            WHERE conversation_id = @roomId AND tenant_id = @tenant
+                              AND user_id = @userId AND left_utc IS NULL)
+            """, new { tenant, roomId, userId }, cancellationToken: ct));
+
+    private static InternalMessage ToMessage(MessageRow m) => new(m.Id, m.RoomId, m.SenderUserId,
+        m.SenderUsername, m.DeletedUtc is null ? m.Body : null, m.CreatedUtc, m.DeletedUtc);
+
+    /// Npgsql từ chối DateTime Kind=Unspecified cho timestamptz. Toàn hệ quy ước UTC
+    /// (docs/datetime-convention.md) nên Unspecified được hiểu là UTC.
+    private static DateTime? AsUtc(DateTime? d) => d switch
+    {
+        null => null,
+        { Kind: DateTimeKind.Utc } u => u,
+        { Kind: DateTimeKind.Local } l => l.ToUniversalTime(),
+        { } x => DateTime.SpecifyKind(x, DateTimeKind.Utc),
+    };
+}
