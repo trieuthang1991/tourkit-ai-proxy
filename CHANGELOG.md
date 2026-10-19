@@ -13,6 +13,23 @@ Những cập nhật gần đây của TRAV-AI, viết cho người dùng. Mới
 
 ---
 
+## Phiên bản 12/10/2026 — Hộp thư chat chỉ giao việc cho người có quyền chat
+
+### 🔧 Đã khắc phục
+- **Trước đây** ô chọn người phụ trách hội thoại và ô chọn đội trực liệt kê **mọi nhân viên bán
+  hàng**, kể cả người không có quyền chat. Giao cho họ thì hội thoại rơi vào chỗ không ai thấy, vì
+  người nhận không mở được hộp thư. **Nay** hai ô này chỉ hiện người **có quyền xem hộp thư chat**
+  trong phân quyền CRM, và hệ thống cũng từ chối nếu ai đó cố giao cho người không có quyền.
+- Người **đã ở trong đội trực** mà sau đó bị rút quyền chat sẽ được **tự động bỏ qua khi chia
+  việc xoay vòng**. Trong **Phân công chat**, tên họ hiện **gạch ngang** kèm lời nhắc; cấp lại quyền
+  chat là họ có lượt ngay, không cần thêm lại vào đội.
+
+### 📌 Lưu ý
+- Đổi quyền chat bên CRM thì hộp thư cập nhật theo trong khoảng **10 phút**.
+- Ô chọn **người bán** khi tạo cơ hội từ hộp thư **không đổi** — vẫn hiện đủ mọi nhân viên bán hàng.
+
+---
+
 ## Phiên bản 03/10/2026 — Dùng tài khoản AI của chính công ty bạn
 
 ### ✨ Tính năng mới

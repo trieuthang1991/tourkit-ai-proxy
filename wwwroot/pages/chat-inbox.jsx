@@ -1746,7 +1746,7 @@
     const [dangLam, setDangLam] = useState(false);
 
     const maPT = v.assignedUserId || null;
-    const nguoiPT = (phanCong.staffs || []).find(nv => nv.id === maPT) || null;
+    const nguoiPT = (phanCong.allStaffs || phanCong.staffs || []).find(nv => nv.id === maPT) || null;
     // Dòng cũ chỉ có tên đăng nhập, dòng mới chỉ có mã — đọc cả hai, không thì hội thoại cũ hiện
     // ra như chưa ai nhận.
     const tenPT = nguoiPT?.name || v.assignedUsername || (maPT ? '#' + maPT : null);
@@ -2279,7 +2279,7 @@
                   Hàng riêng `ci-hs-cohoi`, KHÔNG dùng chung `ci-hs-crm-nut`: lớp đó còn ôm hai
                   nhóm nút phụ (Đổi/Gỡ nối, Nối khách CRM) vốn phải nằm sát trái và nhỏ. */}
               <div className="ci-hs-cohoi">
-                <CoHoi hoiThoaiId={v.id} pushToast={pushToast} nhanVien={phanCong.staffs} />
+                <CoHoi hoiThoaiId={v.id} pushToast={pushToast} nhanVien={phanCong.allStaffs || phanCong.staffs} />
               </div>
             </div>
 
@@ -2315,7 +2315,7 @@
                 ? <div className="ci-hs-trong">Chưa có thao tác nào được ghi lại.</div>
                 : <>
                     {nhatKy.slice(0, soNhatKy).map(d =>
-                      <MotDongNhatKy key={d.id} d={d} staffs={phanCong?.staffs} />)}
+                      <MotDongNhatKy key={d.id} d={d} staffs={phanCong?.allStaffs || phanCong?.staffs} />)}
                     {/* Nói rõ CÒN BAO NHIÊU, không chỉ "Xem thêm": biết còn 3 hay còn 44 thì mới
                         quyết được có đáng bấm không. Máy chủ chặn ở 50 nên con số này có trần. */}
                     {nhatKy.length > soNhatKy && (
@@ -4469,7 +4469,7 @@
                           dữ liệu mới chỉ có mã, dòng gán từ trước 07/09/2026 chỉ có tên đăng nhập. */}
                       {(c.assignedUserId || c.assignedUsername) && (
                         <span className="ci-giao">
-                          {(phanCong.staffs || []).find(nv => nv.id === c.assignedUserId)?.name
+                          {(phanCong.allStaffs || phanCong.staffs || []).find(nv => nv.id === c.assignedUserId)?.name
                             || c.assignedUsername || 'chưa ai nhận'}
                         </span>
                       )}
@@ -4612,7 +4612,7 @@
                           mà lại là thứ duy nhất trong chuỗi có thể ĐỔI được. Chip vừa nói rõ hơn
                           vừa là lối vào chỗ đổi nó. */}
                       <em>{[KENH[v.channel]?.ten, v.accountLabel, TEN_TRANG_THAI[v.status],
-                           (phanCong.staffs || []).find(nv => nv.id === v.assignedUserId)?.name
+                           (phanCong.allStaffs || phanCong.staffs || []).find(nv => nv.id === v.assignedUserId)?.name
                              || v.assignedUsername || 'chưa ai nhận'].filter(Boolean).join(' · ')}</em>
                     </span>
                   </div>

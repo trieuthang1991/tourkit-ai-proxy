@@ -662,6 +662,23 @@ giao được việc cho ai: bấm giao, nhận lỗi "chưa cấu hình đội 
 liên quan gì tới vòng quay. Đúng theo đặc tả mục 9 ("không admin không gán được việc cho người
 ngoài đội trực") và mục 7.1 (đường giao việc ở chế độ thủ công chính là "admin giao xuống").
 
+⚠️ **Chỉ người CÓ QUYỀN CHAT mới được giao việc / vào đội trực / được vòng xoay chia (12/10/2026).**
+Áp cho CẢ quản trị. Nguồn: ERP `GET /api/ai/users-with-permission?codes=CHAT_XEM,CHAT_XEM_ALL`
+(quyền CRM gán theo phòng ban, proxy không đọc được CSDL CRM). `ChatAgentPermissions` lưu kết quả
+vào Redis `chat:quyen-chat:{tenant}` — hỏi lại ERP sau 10 phút khi có phiên, giữ 24 giờ cho luồng
+khách nhắn tới (không có phiên nên chỉ đọc bản đã lưu). Bốn chỗ dùng:
+- `GET /assign-settings`: `staffs` = chỉ người có quyền chat (ô giao việc + ô đội trực); `allStaffs`
+  = mọi người bán, dùng để TRA TÊN và chọn người bán khi tạo cơ hội — đừng lọc chung một ô;
+  `membersNoChatPermission` = người trong đội đã mất quyền (kèm tên) để màn cấu hình gạch ngang.
+- `POST /conversations/{id}/assign`: 400 nếu người nhận không có quyền chat.
+- `PUT /assign-settings`: 400 nếu THÊM MỚI người không có quyền; người đã trong đội mà mất quyền vẫn
+  lưu lại được (không thì phải gỡ họ mới lưu được thay đổi khác).
+- Vòng xoay + nút chia lại: bỏ qua người không có quyền, giống người tạm nghỉ (vẫn giữ chỗ).
+
+**Không biết ai có quyền thì KHÔNG lọc** — ERP chưa deploy đường mới, ERP lỗi, hoặc trả rỗng. Không
+bao giờ lưu danh sách rỗng. Deploy proxy trước ERP vì thế an toàn: hành vi y như cũ cho tới khi ERP có
+đường mới.
+
 ⚠️ **Đường tải tệp đính kèm cũng đi qua luật xem, không chỉ kẹp theo công ty.** Bản đầu chỉ kiểm
 "tin có thuộc công ty này không" — thành cửa hậu: nhân viên từng phụ trách một hội thoại, sau khi
 bị chuyển giao vẫn tải lại được ảnh và tệp khách đã gửi, chỉ cần còn giữ mã tin. Đóng cửa trước mà

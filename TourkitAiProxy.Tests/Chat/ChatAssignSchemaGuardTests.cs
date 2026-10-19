@@ -364,7 +364,8 @@ public class ChatAssignSchemaGuardTests
         Assert.False(string.IsNullOrWhiteSpace(than), "Không cắt được thân đường chia lại");
 
         // (a) Dùng lại đúng câu lệnh nguyên tử của vòng quay.
-        Assert.Contains("assign.GanXoayVongAsync(a.TenantId, id, ct)", than);
+        // Kèm danh sách người có quyền chat (12/10/2026) — vẫn là CÙNG hàm, chỉ thêm bộ lọc.
+        Assert.Contains("assign.GanXoayVongAsync(a.TenantId, id, ct, chatAgentIds)", than);
         // Và KHÔNG có câu SQL chia nào viết tay ở đây.
         Assert.DoesNotContain("UPDATE chat_conversations", than);
         Assert.DoesNotContain("rotation_last_user_id", than);

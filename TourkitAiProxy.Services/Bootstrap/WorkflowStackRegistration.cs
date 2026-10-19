@@ -228,6 +228,8 @@ public static class WorkflowStackRegistration
         // đăng ký TRƯỚC ChatInboundService (thứ tự không bắt buộc với DI, nhưng đọc xuôi hơn).
         s.AddSingleton<Chat.Inbox.ChatTourLookup>();
         s.AddSingleton<Chat.Inbox.ChatReplyComposer>();
+        // Ai có quyền chat — giao việc / đội trực / vòng xoay chỉ dành cho những người đó.
+        s.AddSingleton<Chat.Inbox.ChatAgentPermissions>();
         s.AddSingleton<Chat.Inbox.ChatInboundService>();
         s.AddSingleton<ChannelCredentialStore>();
         // Kho ảnh/tệp nhân viên gửi — r2 | s3 | local theo Storage:Provider, xem IChatFileStorage.
