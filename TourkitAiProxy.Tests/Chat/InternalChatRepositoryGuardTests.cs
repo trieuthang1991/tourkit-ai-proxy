@@ -383,4 +383,41 @@ public class InternalChatRepositoryGuardTests
         Assert.Contains("left_utc IS NULL", than);
         Assert.Contains("/rooms/lookup", ChatSchemaGuardTests.DocFile("TourkitAiProxy.Endpoints/InternalChatEndpoints.cs"));
     }
+
+    // ── Danh sách phòng: phân trang con trỏ + tìm phía máy chủ ──
+    [Fact]
+    public void Danh_sach_phong_phan_trang_con_tro_khong_OFFSET()
+    {
+        var than = InternalChatGuardTests.ThanHam(Repo(), "ListRoomsAsync");
+        Assert.Contains("(v.last_activity_at, v.id) < (@beforeAt::timestamptz, @beforeId::bigint)", than);
+        Assert.DoesNotContain("OFFSET", than);
+        Assert.Contains("ILIKE @like", than);
+        Assert.Contains("ESCAPE", than);
+    }
+
+    [Theory]
+    [InlineData("Hà", "ha")]
+    [InlineData("  Trần THU Hà ", "tran thu ha")]
+    [InlineData("Đoàn Nhật", "doan nhat")]
+    [InlineData("", "")]
+    [InlineData(null, "")]
+    public void Gap_chu_bo_dau(string? vao, string ra) => Assert.Equal(ra, InternalRoomSearch.Fold(vao));
+
+    [Theory]
+    [InlineData("Trần Thu Hà", "thu ha", true)]
+    [InlineData("Trần Thu Hà", "THU HÀ", true)]
+    [InlineData("Trần Thu Hà", "minh", false)]
+    [InlineData(null, "ha", false)]
+    [InlineData("Trần Thu Hà", "", false)]
+    public void Tim_ten_khong_phan_biet_dau(string? ten, string q, bool khop)
+        => Assert.Equal(khop, InternalRoomSearch.NameMatches(ten, q));
+
+    [Theory]
+    [InlineData("nhat", "%nhat%")]
+    [InlineData("50%", @"%50\%%")]
+    [InlineData("a_b", @"%a\_b%")]
+    [InlineData(@"c\d", @"%c\\d%")]
+    [InlineData("  ", null)]
+    [InlineData(null, null)]
+    public void Mau_ILIKE_thoat_ky_tu_dac_biet(string? q, string? mau) => Assert.Equal(mau, InternalRoomSearch.LikePattern(q));
 }

@@ -58,6 +58,7 @@
   const IMAGES = ['.png', '.jpg', '.jpeg', '.gif', '.webp'];
   const MAX_BYTES = 15 * 1024 * 1024;
   const PAGE = 50;
+  const ROOM_PAGE = 30;   // phòng mỗi lần tải; cuộn tới cuối danh sách thì tải tiếp (con trỏ, không đếm bỏ dòng)
   const ENTITY_TYPES = ['order', 'company', 'deal'];   // phòng theo ngữ cảnh — mỗi mã đúng một phòng
   const LINKED_TYPES = ENTITY_TYPES.concat('key');      // bộ lọc "Đơn · cơ hội": cả phòng khoá tự đặt
 
@@ -73,7 +74,10 @@
     drafts: {}, pending: {}, sending: new Set(), dragKey: null, busy: false,
     settings: null, renameDraft: {}, addSearch: '', addPicked: new Set(),   // màn cấu hình phòng (key = 'panel-12' | 'dock-12')
     editing: null, recallConfirm: null, hideConfirm: null, menu: null,
-    draft: null,   // ô nháp phòng theo bản ghi: { payload, exists, roomKey, where, text, err, sending }   // đang sửa { key, msgId, draft } · tin đang chờ bấm lần hai để thu hồi
+    draft: null,
+    roomsMore: false, roomsCursor: null, roomsExtra: false, roomsLoadingMore: false,   // phân trang danh sách phòng
+    found: null,   // kết quả tìm phía máy chủ: { q, items, more, cursor, loading, error }
+   // ô nháp phòng theo bản ghi: { payload, exists, roomKey, where, text, err, sending }   // đang sửa { key, msgId, draft } · tin đang chờ bấm lần hai để thu hồi
     size: (() => { try { return localStorage.getItem('tk-chat-size') === 'large' ? 'large' : 'compact'; } catch { return 'compact'; } })(),
   };
   let errMsg = '';
@@ -168,6 +172,7 @@
     .pv{font-size:13px;color:#5b6270;flex:1;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.u .pv{color:#11151c;font-weight:500}
     .bd{min-width:20px;height:20px;padding:0 6px;border-radius:6px;background:#1f3fbf;color:#fff;font-size:12px;font-weight:600;display:grid;place-items:center;flex-shrink:0}
     .empty{padding:32px 16px;text-align:center;color:#5b6270;font-size:13px}
+    li.more{display:flex;justify-content:center;padding:10px 0;color:#5b6270;font-size:12px}
     .ms{flex:1;overflow-y:auto;overflow-x:hidden;padding:12px 14px;display:flex;flex-direction:column;gap:10px;background:#f5f6f8}
     .day{align-self:center;font-size:12px;color:#5b6270}
     .sys{align-self:center;max-width:86%;text-align:center;font-size:12px;line-height:1.4;color:#5b6270}
@@ -324,6 +329,9 @@
     for (const ms of W.querySelectorAll('.ms')) {
       scroll[ms.dataset.k] = { bottom: ms.scrollHeight - ms.scrollTop - ms.clientHeight < 40, top: ms.scrollTop };
     }
+    // Danh sách phòng: giữ chỗ đang cuộn qua mỗi lần vẽ lại (tải thêm trang không được kéo người dùng lên đầu).
+    const listTop = {};
+    for (const u of W.querySelectorAll('[data-sk]')) listTop[u.dataset.sk] = u.scrollTop;
     const act = root.activeElement;
     const actId = act && act.id;
     const sel = act && typeof act.selectionStart === 'number' ? [act.selectionStart, act.selectionEnd] : null;
@@ -371,6 +379,7 @@
       if (!s) ms.scrollTop = ms.dataset.top ? 0 : ms.scrollHeight;
       else ms.scrollTop = s.bottom && !ms.dataset.top ? ms.scrollHeight : s.top;
     }
+    for (const u of W.querySelectorAll('[data-sk]')) if (listTop[u.dataset.sk] != null) u.scrollTop = listTop[u.dataset.sk];
     if (actId) {
       const n = root.getElementById(actId);
       if (n) { n.focus(); if (sel) { try { n.setSelectionRange(sel[0], sel[1]); } catch { /* ô không có con trỏ */ } } }
@@ -397,15 +406,28 @@
 
   function viewList() {
     const lg = isLarge();
-    const q = st.search.trim().toLowerCase();
-    const rooms = st.rooms.filter((r) => {
+    const q = st.search.trim();
+    // Có chữ tìm: chờ máy chủ tìm trong TOÀN BỘ phòng; trong lúc chờ (300ms + mạng) lọc tạm trên phòng đã tải.
+    const server = !!(q && st.found && st.found.q === q);
+    const ql = q.toLowerCase();
+    const rooms = (server ? st.found.items : st.rooms).filter((r) => {
       if (st.filter === 'unread' && !r.unreadCount) return false;
       if (st.filter === 'entity' && !LINKED_TYPES.includes(r.entityType)) return false;
-      return !q || roomName(r).toLowerCase().includes(q);
+      return server || !ql || roomName(r).toLowerCase().includes(ql);
     });
+    const finding = !!q && (!server || st.found.loading);
+    const more = server ? st.found.more : (!q && st.roomsMore);
+    const loadingMore = server ? st.found.loading && st.found.items.length > 0 : st.roomsLoadingMore;
+    const foot = finding ? el('li', { class: 'more' }, 'Đang tìm trong tất cả cuộc trò chuyện…')
+      : loadingMore ? el('li', { class: 'more' }, 'Đang tải thêm…')
+      : more ? el('li', { class: 'more' }, el('button', { class: 'sec', type: 'button', on: { click: loadMoreList } }, 'Tải thêm'))
+      : null;
     const unreadRooms = st.rooms.filter((r) => r.unreadCount).length;
     const chip = (key, label) => el('button', { class: 'chip', type: 'button', 'aria-pressed': String(st.filter === key), on: { click: () => { st.filter = key; render(); } } }, label);
-    const search = el('input', { class: 'in', type: 'search', id: 'tk-tim', placeholder: 'Tìm người hoặc phòng', on: liveInput((v) => { st.search = v; }) });
+    const search = el('input', { class: 'in', type: 'search', id: 'tk-tim', placeholder: 'Tìm người hoặc phòng', on: {
+      input: (e) => { if (!e.isComposing) onSearch(e.target.value); },
+      compositionend: (e) => onSearch(e.target.value),
+    } });
     search.value = st.search;
     return el('div', { class: 'pane list' },
       el('div', { class: 'hd' },
@@ -417,15 +439,17 @@
         el('div', { class: 'chips' }, chip('all', 'Tất cả'), chip('unread', 'Chưa đọc' + (unreadRooms ? ' · ' + unreadRooms : '')), chip('entity', 'Đơn · cơ hội'))),
       st.view === 'room' || st.view === 'new' ? null : errBox(),
       rooms.length
-        ? el('ul', {}, rooms.map((r) => el('li', {}, el('button', { class: 'it' + (r.unreadCount ? ' u' : ''), type: 'button',
+        ? el('ul', { 'data-sk': server ? 'found' : 'rooms', on: { scroll: onListScroll } }, rooms.map((r) => el('li', {}, el('button', { class: 'it' + (r.unreadCount ? ' u' : ''), type: 'button',
             'aria-current': lg && st.view === 'room' && st.roomId === r.id ? 'true' : null,
             on: { click: () => showInPanel(r.id) } },
             roomAvatar(r),
             el('span', { class: 'tx' },
               el('span', { class: 'r1' }, el('span', { class: 'nm' }, roomName(r)), el('span', { class: 'tm' }, shortTime(r.lastActivityAt))),
               el('span', { class: 'r2' }, el('span', { class: 'pv' }, r.lastPreview || 'Chưa có tin nhắn'),
-                r.unreadCount ? el('span', { class: 'bd' }, r.unreadCount >= 100 ? '99+' : r.unreadCount) : null))))))
-        : el('div', { class: 'empty' }, st.rooms.length ? 'Không có phòng nào khớp.' : 'Chưa có cuộc trò chuyện nào. Bấm "Trò chuyện mới" để bắt đầu.'));
+                r.unreadCount ? el('span', { class: 'bd' }, r.unreadCount >= 100 ? '99+' : r.unreadCount) : null))))), foot)
+        : el('div', { class: 'empty' }, finding ? 'Đang tìm trong tất cả cuộc trò chuyện…'
+          : q || st.rooms.length ? 'Không có phòng nào khớp.' : 'Chưa có cuộc trò chuyện nào. Bấm "Trò chuyện mới" để bắt đầu.',
+          !finding && more ? el('div', { style: 'margin-top:10px' }, el('button', { class: 'sec', type: 'button', on: { click: loadMoreList } }, 'Tải thêm')) : null));
   }
 
   /// Danh sách tin + ô soạn của một phòng — dùng chung cho khung lớn và ô chat nhỏ.
@@ -490,8 +514,9 @@
     const key = k + '-' + id;
     if (st.settings === key && r.entityType !== 'direct') return settingsBody(id, key);
     // Không aria-live: vẽ lại cả khung mỗi lần đổi → trình đọc màn hình đọc lại TOÀN BỘ tin mỗi lần.
-    const list = el('div', { class: 'ms', 'data-k': key });
-    if (c.hasOlder) list.append(el('button', { class: 'sec', type: 'button', style: 'align-self:center', on: { click: () => loadOlder(id, key) } }, 'Xem tin cũ hơn'));
+    // Cuộn gần lên đầu → tự tải 50 tin cũ hơn (nút vẫn giữ làm đường dự phòng: khung chưa đủ dài để cuộn).
+    const list = el('div', { class: 'ms', 'data-k': key, on: { scroll: (e) => { if (e.target.isConnected && e.target.scrollTop < 80 && c.hasOlder) loadOlder(id, key); } } });
+    if (c.hasOlder) list.append(el('button', { class: 'sec', type: 'button', style: 'align-self:center', on: { click: () => loadOlder(id, key) } }, c.loadingOlder ? 'Đang tải…' : 'Xem tin cũ hơn'));
     if (c.loaded && !c.msgs.length) list.append(el('div', { class: 'empty' }, 'Chưa có tin nhắn. Gửi lời chào đầu tiên.'));
     let prevDay = null;
     for (const m of c.msgs) {
@@ -712,18 +737,86 @@
   async function loadRooms() {
     const seq = ++roomsSeq;
     try {
-      const rooms = await api('GET', '/rooms?limit=100');
+      const fresh = (await api('GET', `/rooms?limit=${ROOM_PAGE}`)) || [];
       if (seq !== roomsSeq) return;   // bỏ kết quả về muộn
-      // Phòng ĐANG MỞ mà rơi khỏi 100 phòng gần nhất: giữ bản cũ, không thì ô chat mất tên + thành viên.
-      const fresh = rooms || [];
+      // Làm mới (mỗi tin mới tới) chỉ lấy TRANG ĐẦU rồi GỘP, không thay cả danh sách: thay là co về 30
+      // phòng, người đang cuộn ở trang 3 bị kéo ngược lên. Giữ lại: phòng cũ hơn phòng cuối trang đầu
+      // (thuộc các trang đã tải), và phòng ĐANG MỞ (không thì ô chat mất tên + thành viên). Phòng không còn
+      // trong trang đầu mà lại MỚI hơn mốc đó = đã ẩn / đã rời → bỏ.
       const have = new Set(fresh.map((r) => r.id));
-      const keep = st.rooms.filter((r) => !have.has(r.id) && (st.docks.includes(r.id) || st.roomId === r.id));
-      st.rooms = fresh.concat(keep);
+      const cut = fresh.length === ROOM_PAGE ? fresh[fresh.length - 1] : null;
+      const keep = st.rooms.filter((r) => !have.has(r.id)
+        && ((cut && st.roomsExtra && olderThan(r, cut)) || st.docks.includes(r.id) || st.roomId === r.id));
+      st.rooms = fresh.concat(keep).sort(byActivity);
+      if (!st.roomsExtra) {
+        st.roomsMore = fresh.length === ROOM_PAGE;
+        st.roomsCursor = fresh.length ? cursorOf(fresh[fresh.length - 1]) : null;
+      }
       // Phòng đang hiện trên màn hình thì không tính là chưa đọc (đã/ sắp đánh dấu đọc).
       for (const r of st.rooms) if (isVisible(r.id)) r.unreadCount = 0;
       render();
     } catch (e) { if (!dead) { errMsg = 'Không tải được danh sách phòng.'; render(); } }
   }
+  const at = (r) => new Date(r.lastActivityAt).getTime();
+  const byActivity = (a, b) => (at(b) - at(a)) || (b.id - a.id);
+  const olderThan = (r, c) => at(r) < at(c) || (at(r) === at(c) && r.id < c.id);
+  const cursorOf = (r) => ({ at: r.lastActivityAt, id: r.id });
+  const cursorQs = (c) => (c ? `&beforeAt=${encodeURIComponent(c.at)}&beforeId=${c.id}` : '');
+
+  /// Trang phòng tiếp theo (con trỏ = phòng cuối của trang đã tải trước đó).
+  async function loadMoreRooms() {
+    if (st.roomsLoadingMore || !st.roomsMore || !st.roomsCursor) return;
+    st.roomsLoadingMore = true; render();
+    try {
+      const page = (await api('GET', `/rooms?limit=${ROOM_PAGE}${cursorQs(st.roomsCursor)}`)) || [];
+      const have = new Set(st.rooms.map((r) => r.id));
+      st.rooms = st.rooms.concat(page.filter((r) => !have.has(r.id))).sort(byActivity);
+      st.roomsExtra = true;
+      st.roomsMore = page.length === ROOM_PAGE;
+      if (page.length) st.roomsCursor = cursorOf(page[page.length - 1]);
+    } catch (e) { if (!dead) errMsg = 'Không tải thêm được: ' + e.message; }
+    finally { st.roomsLoadingMore = false; render(); }
+  }
+
+  // Tìm phía máy chủ: chờ 300ms sau lần gõ cuối, bỏ kết quả về muộn (gõ "ha" rồi "han" thì kết quả "ha"
+  // về sau không được đè lên "han").
+  let findTimer = null, findSeq = 0;
+  function onSearch(v) {
+    st.search = v;
+    clearTimeout(findTimer);
+    const q = v.trim();
+    if (!q) { st.found = null; findSeq++; }
+    else findTimer = setTimeout(() => runFind(q, false), 300);
+    render();
+  }
+  async function runFind(q, more) {
+    const seq = ++findSeq;
+    const f = more && st.found && st.found.q === q ? st.found : { q, items: [], more: false, cursor: null, loading: true };
+    f.loading = true; st.found = f; render();
+    try {
+      const page = (await api('GET', `/rooms?limit=${ROOM_PAGE}&q=${encodeURIComponent(q)}${more ? cursorQs(f.cursor) : ''}`)) || [];
+      if (seq !== findSeq || st.found !== f) return;
+      const have = new Set(f.items.map((r) => r.id));
+      f.items = f.items.concat(page.filter((r) => !have.has(r.id)));
+      f.more = page.length === ROOM_PAGE;
+      if (page.length) f.cursor = cursorOf(page[page.length - 1]);
+    } catch (e) { if (seq === findSeq && !dead) errMsg = 'Không tìm được: ' + e.message; }
+    finally { if (st.found === f) { f.loading = false; render(); } }
+  }
+  function loadMoreList() {
+    const q = st.search.trim();
+    if (q) { if (st.found && st.found.q === q && st.found.more && !st.found.loading) runFind(q, true); }
+    else loadMoreRooms();
+  }
+  /// Cuộn gần tới cuối danh sách phòng → tự tải trang sau.
+  function onListScroll(e) {
+    const u = e.target;
+    // Sự kiện cuộn bắn TRỄ một nhịp: tới lúc nó tới, danh sách có thể đã bị vẽ lại và phần tử cũ đã gỡ khỏi
+    // trang (cao 0 → trông như "đang ở cuối") → tải thừa trang sau, rồi dây chuyền tải hết. Bỏ qua.
+    if (!u.isConnected) return;
+    if (u.scrollHeight - u.scrollTop - u.clientHeight < 120) loadMoreList();
+  }
+
   let refreshTimer = null;
   const refreshRoomsSoon = () => { clearTimeout(refreshTimer); refreshTimer = setTimeout(loadRooms, 800); };
 
@@ -739,15 +832,17 @@
     } catch (e) { if (!dead) { errMsg = e.message; st.errRoom = id; render(); } throw e; }
   }
   async function loadOlder(id, key) {
-    const c = convOf(id); const first = c.msgs[0]; if (!first) return;
+    const c = convOf(id); const first = c.msgs[0]; if (!first || c.loadingOlder) return;
     const ms = W.querySelector(`.ms[data-k="${key}"]`); const before = ms ? ms.scrollHeight - ms.scrollTop : 0;
+    c.loadingOlder = true;
     try {
       const page = await api('GET', `/rooms/${id}/messages?limit=${PAGE}&beforeUtc=${encodeURIComponent(first.createdUtc)}&beforeId=${first.id}`);
       c.msgs = (page || []).slice().reverse().concat(c.msgs);
       c.hasOlder = (page || []).length === PAGE;
       render();
-      const ms2 = W.querySelector(`.ms[data-k="${key}"]`); if (ms2) ms2.scrollTop = ms2.scrollHeight - before;
+      const ms2 = W.querySelector(`.ms[data-k="${key}"]`); if (ms2) ms2.scrollTop = ms2.scrollHeight - before;   // giữ đúng chỗ đang đọc
     } catch (e) { if (!dead) { errMsg = e.message; st.errRoom = id; render(); } }
+    finally { c.loadingOlder = false; }
   }
   function mergeMsgs(id, list) {
     const c = convOf(id);
@@ -1031,6 +1126,9 @@
   }).catch(() => {});
   /// Mình không còn trong phòng (tự rời hoặc bị bỏ): đóng mọi chỗ đang hiện phòng đó.
   function leftRoom(id) {
+    // Gỡ khỏi danh sách NGAY: làm mới giờ gộp trang đầu với phần đã tải, không còn tự rơi mất phòng đã rời.
+    st.rooms = st.rooms.filter((r) => r.id !== id);
+    if (st.found) st.found.items = st.found.items.filter((r) => r.id !== id);
     closeDock(id);
     if (st.roomId === id) { st.view = 'list'; st.roomId = null; }
     if (st.settings && st.settings.endsWith('-' + id)) st.settings = null;
@@ -1192,7 +1290,7 @@
       dead = true;
       closeStream();
       clearInterval(pollTimer);
-      for (const t of [retryTimer, refreshTimer, recallTimer, hideTimer, resizeTimer]) clearTimeout(t);
+      for (const t of [retryTimer, refreshTimer, recallTimer, hideTimer, resizeTimer, findTimer]) clearTimeout(t);
       window.removeEventListener('resize', onResize);
       document.removeEventListener('visibilitychange', onVisibility);
       document.removeEventListener('pointerdown', onOutside, true);

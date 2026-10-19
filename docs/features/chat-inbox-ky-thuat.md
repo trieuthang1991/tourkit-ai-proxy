@@ -1081,5 +1081,20 @@ bằng header chứ không cookie.
 - Bỏ `aria-live` trên danh sách tin (vẽ lại cả khung → trình đọc màn hình đọc lại toàn bộ).
 - Ảnh tải xong: đang gần cuối thì cuộn xuống cuối.
 
+### Phân trang (19/10/2026)
+
+- **Danh sách phòng**: 30 phòng/lần, con trỏ `(last_activity_at, id)` khớp đúng thứ tự sắp xếp. Phần đếm chưa đọc
+  chỉ chạy cho đúng trang (`loops=30`). Đo với một người có 3.000 phòng + 20.000 hội thoại khách: ~9 ms/trang.
+  Giới hạn đã biết: để sắp thứ tự, câu vẫn tra mốc hoạt động của MỌI phòng người đó (3.000 lượt tra khoá chính) —
+  tăng tuyến tính theo số phòng mỗi người. Hết hẳn chỉ khi chép mốc hoạt động sang `chat_room_members` (migration +
+  ghi thêm mỗi tin) — chưa đáng ở quy mô hiện tại.
+- **Làm mới khi có tin** chỉ lấy trang đầu rồi GỘP với phần đã tải (không co về 30, giữ chỗ đang cuộn).
+  `leftRoom` / ẩn phòng tự gỡ phòng khỏi danh sách.
+- **Tìm `q`**: tên người nằm ở danh bạ ERP → endpoint so tên bằng `InternalRoomSearch.NameMatches` (bỏ dấu) ra mã
+  người rồi lọc phòng có họ; tên phòng / mã bản ghi lọc `ILIKE` trong SQL (CÓ phân biệt dấu — Postgres chưa có
+  `unaccent`). Widget chờ 300ms sau lần gõ cuối, bỏ kết quả về muộn.
+- **Tin cũ**: cuộn gần đầu (`< 80px`) tự tải 50 tin, giữ chỗ đang đọc. Sự kiện cuộn của phần tử ĐÃ GỠ (vẽ lại
+  trước khi sự kiện tới) bị bỏ qua — không thì nó trông như "đang ở cuối/đầu" và tải dây chuyền.
+
 **Chưa có:** báo đang gõ; trả lời trích dẫn; tìm trong nội dung tin; nút
 mở phòng trên trang đơn hàng/công ty (hiện chỉ màn Cơ hội gọi `openEntity`).

@@ -54,6 +54,11 @@ Những cập nhật gần đây của TRAV-AI, viết cho người dùng. Mới
 - Tin tới lúc bạn đang ở **tab khác** không còn bị tính là đã đọc. Quay lại tab thì phòng đang mở mới
   được đánh dấu đã đọc.
 - Ảnh vừa tải xong không còn đẩy tin mới nhất khuất khỏi khung.
+- **Danh sách cuộc trò chuyện tải dần**: mở ra hiện ngay 30 cuộc gần nhất, cuộn xuống cuối là tự tải thêm.
+  Trước đây chỉ thấy được 100 cuộc gần nhất, cuộc cũ hơn không có cách nào tìm lại.
+- **Tìm trong tất cả cuộc trò chuyện**, kể cả cuộc cũ chưa hiện trong danh sách: gõ tên phòng, mã đơn/cơ hội
+  hoặc tên người trong phòng. Gõ không dấu cũng tìm ra ("le van phuc" ra "Lê Văn Phúc").
+- **Cuộn lên là tự hiện tin cũ hơn**, không phải bấm nút; chỗ bạn đang đọc giữ nguyên.
 - Nhân viên **mới vào** thêm được vào phòng ngay, không phải chờ vài tiếng.
 - **Ô chat gọn hơn**: tiêu đề ô chat nhỏ hiện đủ tên phòng. Cấu hình phòng, mở khung lớn và xoá cuộc trò
   chuyện gom vào nút **⋯**. Chữ trong ô chat nhỏ lại cho vừa khung, ô soạn tin còn một dòng và tự cao lên

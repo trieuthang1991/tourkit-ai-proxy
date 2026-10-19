@@ -31,12 +31,35 @@ public static class InternalChatEndpoints
     {
         var g = routes.MapGroup(Prefix);
 
+        // Danh sách phòng của mình, mới hoạt động trước. Phân trang con trỏ: trang sau gửi beforeAt +
+        // beforeId của phòng CUỐI trang trước. q = tìm trong TOÀN BỘ phòng (không chỉ trang đã tải):
+        // tên phòng / mã bản ghi, hoặc tên người trong phòng (tra danh bạ, không phân biệt dấu).
         g.MapGet("/rooms", async (HttpContext ctx, TkSessionStore sessions, InternalChatRepository repo,
-            int? limit, CancellationToken ct) =>
+            TourKitApiClient api, RedisStore redis, ILoggerFactory lf,
+            int? limit, string? beforeAt, long? beforeId, string? q, CancellationToken ct) =>
         {
             var (loi, a, me) = await GuardAsync(ctx, sessions, repo, ct);
             if (loi is not null) return loi;
-            var rooms = await repo.ListRoomsAsync(a!.TenantId, me, Math.Clamp(limit ?? 50, 1, 100), ct);
+            DateTime? truoc = null;
+            if (!string.IsNullOrWhiteSpace(beforeAt))
+            {
+                if (!DateTime.TryParse(beforeAt, CultureInfo.InvariantCulture,
+                        DateTimeStyles.AssumeUniversal | DateTimeStyles.AdjustToUniversal, out var t) || beforeId is null)
+                    return Bad("beforeAt (ISO-8601) phải đi kèm beforeId");
+                truoc = t;
+            }
+            var tim = q?.Trim();
+            if (tim?.Length > 100) tim = tim[..100];
+            int[]? nameIds = null;
+            if (!string.IsNullOrEmpty(tim))
+            {
+                var (staffs, _) = await ChatStaffDirectory.ListAsync(sessions, api, redis, a!.TenantId, a.SessionId,
+                    lf.CreateLogger("chat.internal"), ct);
+                nameIds = staffs.Where(s => InternalRoomSearch.NameMatches(ChatStaffDirectory.StaffName(s), tim))
+                    .Select(ChatStaffDirectory.StaffId).OfType<int>().ToArray();
+            }
+            var rooms = await repo.ListRoomsAsync(a!.TenantId, me, Math.Clamp(limit ?? 30, 1, 100),
+                truoc, beforeId, InternalRoomSearch.LikePattern(tim), nameIds, ct);
             return Results.Json(rooms, Web);
         });
 
