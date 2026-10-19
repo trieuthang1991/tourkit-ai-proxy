@@ -82,6 +82,7 @@
     drafts: {}, pending: {}, dragKey: null, busy: false,
     settings: null, renameDraft: {}, addSearch: '', addPicked: new Set(),   // màn cấu hình phòng (key = 'panel-12' | 'dock-12')
     editing: null, recallConfirm: null, hideConfirm: null, menu: null,
+    reactPick: null,   // bảng cảm xúc đang mở: { key, msgId }
     draft: null,
     roomsMore: false, roomsCursor: null, roomsExtra: false, roomsLoadingMore: false,   // phân trang danh sách phòng
     found: null,   // kết quả tìm phía máy chủ: { q, items, more, cursor, loading, error }
@@ -239,6 +240,29 @@
     @media (prefers-reduced-motion:reduce){.acts{transition:none}}
     .ib.warnb{background:#fdecea;color:#8a1c12}
     .rc.warn{background:#fdecea;color:#8a1c12;font-weight:600}
+    /* Tin người khác nằm bên trái → thanh thao tác hiện bên PHẢI bong bóng. */
+    .m:not(.me) .acts{right:auto;left:calc(100% + 6px)}
+    .m:not(.me) .acts::after{left:auto;right:100%}
+    /* Bảng cảm xúc: viên thuốc nổi trên bong bóng. */
+    .rp{position:absolute;bottom:calc(100% + 6px);z-index:3;display:flex;gap:2px;padding:4px;background:#fff;border:1px solid #e3e6ec;border-radius:999px;box-shadow:0 8px 24px -6px rgba(17,21,28,.25)}
+    .me .rp{right:0}.m:not(.me) .rp{left:0}
+    .rpe{width:36px;height:36px;border:0;border-radius:50%;background:transparent;font-size:22px;line-height:1;display:grid;place-items:center;padding:0;transition:transform .12s ease,background .12s}
+    .rpe:hover{transform:scale(1.2)}
+    .rpe.on{background:#eef1fc}
+    .rp .rpe:focus-visible,.rp .rpa:focus-visible{outline:2px solid #9fb1ef;outline-offset:0}
+    .rpd,.rpa{display:none}
+    .rpd{width:1px;align-self:stretch;margin:4px 2px;background:#e3e6ec}
+    .rpa{height:36px;min-width:36px;padding:0 8px;border:0;border-radius:999px;background:transparent;color:#5b6270;align-items:center;justify-content:center;gap:4px;font-size:12px;font-weight:600}
+    .rpa.warn{background:#fdecea;color:#8a1c12}
+    @media (prefers-reduced-motion:reduce){.rpe{transition:none}.rpe:hover{transform:none}}
+    /* Cụm cảm xúc dưới bong bóng. */
+    .rxs{display:flex;flex-wrap:wrap;gap:4px;margin-top:-6px;z-index:1}
+    .me .rxs{justify-content:flex-end}
+    .rx{display:inline-flex;align-items:center;gap:3px;height:22px;padding:0 7px;border:1px solid #e3e6ec;border-radius:999px;background:#fff;font-size:13px;line-height:1;color:#5b6270;box-shadow:0 1px 2px rgba(17,21,28,.06)}
+    .rx span{font-size:11px;font-weight:600}
+    .rx.me{border-color:#9fb1ef;background:#eef1fc;color:#1f3fbf}
+    .rx:hover{border-color:#1f3fbf}
+    @media (hover:none){.acts{display:none!important}.rpd{display:block}.rpa{display:inline-flex}.me .rp.hasa{right:0}.m .row{-webkit-touch-callout:none;-webkit-user-select:none;user-select:none}}
     .edbox{display:flex;flex-direction:column;gap:6px;min-width:220px}
     textarea.edit{min-height:60px;border-color:#1f3fbf}
     .edact{display:flex;gap:6px;justify-content:flex-end}
@@ -297,6 +321,30 @@
     .drop{position:absolute;inset:0;background:rgba(238,241,252,.92);border:2px dashed #1f3fbf;border-radius:6px;display:grid;place-items:center;color:#1f3fbf;font-weight:600;pointer-events:none;z-index:2}
     .sr{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap}
     @media (prefers-reduced-motion:reduce){*{transition:none!important;scroll-behavior:auto!important}}
+    /* Điện thoại — đặt CUỐI để thắng các quy tắc gốc cùng độ ưu tiên ở trên. */
+    @media (max-width:759px){
+      /* Gọn hơn cho màn nhỏ: chữ, nút, ô nhập, khoảng đệm. */
+      .w{font-size:13px}
+      .hd{min-height:48px;padding:6px 6px 6px 10px;gap:6px}
+      .hd h2,.hd .h{font-size:14px}.hd small{font-size:11px}
+      .ib{width:32px;height:32px}
+      .pri{height:32px;padding:0 10px;font-size:12px}
+      .in{height:34px;font-size:14px}
+      .chip{height:28px;padding:0 10px;font-size:12px}
+      .it{padding:8px 6px;gap:9px}.av{width:36px;height:36px;font-size:12px}
+      .nm{font-size:13.5px}.pv{font-size:12px}.tm{font-size:11px}
+      .ms{padding:10px 10px;gap:8px}
+      .bb{padding:7px 11px;font-size:14px}
+      .m .t,.who,.day{font-size:11px}
+      .cp{padding:8px 10px}
+      textarea{min-height:34px;padding:6px 10px;font-size:14px}
+      .send{width:34px;height:34px}.cp .ib{width:30px;height:34px}
+      .older{margin:-10px -10px 2px}   /* theo đệm .ms mới: -10 + 2 + gap 8 = 0 */
+    }
+    /* iPhone tự phóng to trang khi chạm ô nhập có chữ < 16px — giữ 16px trên iOS, chỉ thu chiều cao. */
+    @supports (-webkit-touch-callout:none){
+      @media (max-width:759px){ .in,textarea{font-size:16px} }
+    }
   </style><div class="w"></div>`;
   const W = root.querySelector('.w');
 
@@ -319,6 +367,7 @@
     clip: 'M21 12.5l-8.5 8.5a5 5 0 0 1-7-7l9-9a3.5 3.5 0 0 1 5 5l-9 9a2 2 0 0 1-3-3l8-8',
     file: 'M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8zM14 3v5h5',
     max: 'M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5', min: 'M9 4v5H4M15 4v5h5M9 20v-5H4M15 20v-5h5',
+    smile: 'M12 21a9 9 0 1 0 0-18 9 9 0 0 0 0 18zM8.5 14.5c.9 1.1 2 1.7 3.5 1.7s2.6-.6 3.5-1.7M9 9.8h.01M15 9.8h.01',
     dash: 'M5 12h14', more: 'M6 11.2a.8.8 0 1 0 0 1.6.8.8 0 1 0 0-1.6zM12 11.2a.8.8 0 1 0 0 1.6.8.8 0 1 0 0-1.6zM18 11.2a.8.8 0 1 0 0 1.6.8.8 0 1 0 0-1.6z',
     edit: 'M4 20h4L18.5 9.5a2.1 2.1 0 0 0-3-3L5 17v3zM14 8l3 3', undo: 'M9 14L4 9l5-5M4 9h10.5a5.5 5.5 0 0 1 0 11H11',
     trash: 'M4 7h16M9 7V4h6v3M6 7l1 13h10l1-13M10 11v6M14 11v6',
@@ -634,17 +683,26 @@
       } else bubble = m.body ? el('div', { class: 'bb' }, m.body) : null;
       // Tin của mình: Sửa (tin có chữ) + Thu hồi HAI BƯỚC — bấm nhầm một lần không mất tin.
       const confirming = st.recallConfirm === m.id;
-      const acts = mine && !deleted && !editing ? el('span', { class: 'acts' + (confirming ? ' on' : '') },
-        m.body ? el('button', { class: 'rc', type: 'button', 'aria-label': 'Sửa tin này', title: 'Sửa',
+      const picking = !deleted && !editing && st.reactPick && st.reactPick.key === key && st.reactPick.msgId === m.id;
+      // Nút thả cảm xúc: mọi tin còn hiện (của mình lẫn người khác). Sửa / Thu hồi chỉ tin của mình.
+      const reactBtn = el('button', { class: 'rc rk', type: 'button', 'aria-label': 'Thả cảm xúc', title: 'Thả cảm xúc',
+        'aria-expanded': String(!!picking), on: { click: () => togglePicker(key, m.id) } }, icon('smile', 16));
+      const acts = !deleted && !editing ? el('span', { class: 'acts' + (confirming || picking ? ' on' : '') },
+        reactBtn,
+        !mine ? null : m.body ? el('button', { class: 'rc', type: 'button', 'aria-label': 'Sửa tin này', title: 'Sửa',
           on: { click: () => startEdit(key, m) } }, icon('edit', 15), el('span', { class: 'sr' }, 'Sửa')) : null,
-        el('button', { class: 'rc' + (confirming ? ' warn' : ''), type: 'button',
+        !mine ? null : el('button', { class: 'rc' + (confirming ? ' warn' : ''), type: 'button',
           'aria-label': confirming ? 'Bấm lần nữa để thu hồi tin này với mọi người' : 'Thu hồi tin này',
           title: confirming ? 'Bấm lần nữa để thu hồi' : 'Thu hồi',
           on: { click: () => askRecall(id, m) } }, icon('undo', 15), el('span', { class: confirming ? '' : 'sr' }, confirming ? 'Thu hồi?' : 'Thu hồi'))) : null;
+      const picker = picking ? reactPicker(id, m, key) : null;
+      // Điện thoại không rê chuột được: nhấn giữ tin để mở bảng cảm xúc (như Messenger).
+      const hold = deleted || editing ? null : longPress(() => { st.reactPick = { key, msgId: m.id }; render(); focusPicker(); });
       list.append(el('div', { class: 'm' + (mine ? ' me' : '') },
         !mine && r.entityType !== 'direct' ? el('span', { class: 'who' }, userName(m.senderUserId, m.senderUsername)) : null,
-        attEl ? el('div', { class: 'row' }, bubble ? null : acts, attEl) : null,
-        bubble ? el('div', { class: 'row' }, acts, bubble) : null,
+        attEl ? el('div', { class: 'row', on: hold }, bubble ? null : acts, bubble ? null : picker, attEl) : null,
+        bubble ? el('div', { class: 'row', on: hold }, acts, picker, bubble) : null,
+        deleted ? null : reactionSummary(id, m),
         el('span', { class: 't' }, hm(m.createdUtc) + (m.editedUtc && !deleted ? ' · đã sửa' : ''))));
     }
     // Tin đang chờ gửi: hiện ngay khi bấm Gửi (mờ hơn một chút), máy chủ nhận xong thì thay bằng tin thật.
@@ -1309,6 +1367,81 @@
     if (o.p && o.p.preview) URL.revokeObjectURL(o.p.preview);
     render();
   }
+  // ── Cảm xúc (reaction) ──────────────────────────────────────────────────
+  // Mỗi người MỘT biểu tượng trên một tin (như Messenger): chọn cái khác = đổi, chọn lại cái đang có = gỡ.
+  const REACTIONS = ['👍', '❤️', '😆', '😮', '😢', '😡'];
+  const myReaction = (m) => ((m.reactions || []).find((x) => (x.userIds || []).includes(st.me)) || {}).emoji || null;
+  function togglePicker(key, msgId) {
+    st.reactPick = st.reactPick && st.reactPick.key === key && st.reactPick.msgId === msgId ? null : { key, msgId };
+    render();
+    focusPicker();
+  }
+  /// Đưa con trỏ bàn phím vào bảng (biểu tượng đang chọn, không thì cái đầu): Tab / Esc dùng được, và
+  /// vẽ lại không làm con trỏ rơi ra ngoài widget.
+  function focusPicker() { (root.querySelector('.rp .rpe.on') || root.querySelector('.rp .rpe'))?.focus({ preventScroll: true }); }
+  function reactPicker(roomId, m, key) {
+    const cur = myReaction(m);
+    const mine = m.senderUserId === st.me;
+    const confirming = st.recallConfirm === m.id;
+    // Điện thoại không có thanh rê chuột → Sửa / Thu hồi tin của mình nằm ngay trong bảng nhấn giữ (CSS chỉ
+    // hiện .rpa khi không rê chuột được).
+    const extra = !mine ? [] : [
+      el('span', { class: 'rpd', 'aria-hidden': 'true' }),
+      m.body ? el('button', { class: 'rpa', type: 'button', 'aria-label': 'Sửa tin này', title: 'Sửa',
+        on: { click: () => { st.reactPick = null; startEdit(key, m); } } }, icon('edit', 18)) : null,
+      el('button', { class: 'rpa' + (confirming ? ' warn' : ''), type: 'button',
+        'aria-label': confirming ? 'Chạm lần nữa để thu hồi tin này với mọi người' : 'Thu hồi tin này', title: 'Thu hồi',
+        on: { click: () => { if (confirming) st.reactPick = null; askRecall(roomId, m); } } },
+        icon('undo', 18), confirming ? el('span', {}, 'Thu hồi?') : null),
+    ];
+    return el('div', { class: 'rp' + (mine ? ' hasa' : ''), role: 'menu', 'aria-label': 'Chọn cảm xúc' }, REACTIONS.map((e) =>
+      el('button', { class: 'rpe' + (e === cur ? ' on' : ''), type: 'button', role: 'menuitemradio', 'aria-checked': String(e === cur),
+        'aria-label': (e === cur ? 'Gỡ ' : 'Thả ') + e, on: { click: () => react(roomId, m, e) } }, e)), extra);
+  }
+  /// Cụm cảm xúc dưới bong bóng: mỗi biểu tượng một chip kèm số người; rê vào xem ai thả, bấm để thả / gỡ
+  /// đúng biểu tượng đó.
+  function reactionSummary(roomId, m) {
+    const rs = (m.reactions || []).filter((x) => (x.userIds || []).length);
+    if (!rs.length) return null;
+    return el('div', { class: 'rxs' }, rs.map((x) => {
+      const mineX = x.userIds.includes(st.me);
+      const who = x.userIds.map((u) => (u === st.me ? 'Bạn' : userName(u))).join(', ');
+      return el('button', { class: 'rx' + (mineX ? ' me' : ''), type: 'button', title: who,
+        'aria-label': x.emoji + ' ' + x.userIds.length + ': ' + who + (mineX ? '. Bấm để gỡ' : '. Bấm để thả'),
+        on: { click: () => react(roomId, m, x.emoji) } }, x.emoji, x.userIds.length > 1 ? el('span', {}, x.userIds.length) : null);
+    }));
+  }
+  function withReaction(list, userId, emoji) {
+    const out = (list || []).map((x) => ({ emoji: x.emoji, userIds: x.userIds.filter((u) => u !== userId) }));
+    if (emoji) { const g = out.find((x) => x.emoji === emoji); if (g) g.userIds.push(userId); else out.push({ emoji, userIds: [userId] }); }
+    return out.filter((x) => x.userIds.length);
+  }
+  /// Hiện ngay trên máy mình rồi mới gửi; hỏng thì trả lại như cũ và báo.
+  async function react(roomId, m0, emoji) {
+    const m = convOf(roomId).msgs.find((x) => x.id === m0.id) || m0;   // tin có thể vừa được nạp lại (sự kiện)
+    const next = myReaction(m) === emoji ? null : emoji;
+    const prev = m.reactions;
+    m.reactions = withReaction(prev, st.me, next);
+    st.reactPick = null; render();
+    try { await api('PUT', `/messages/${m.id}/reaction`, { emoji: next }); }
+    catch (e) {
+      if (dead) return;
+      const cur = convOf(roomId).msgs.find((x) => x.id === m.id) || m;
+      cur.reactions = prev; errMsg = 'Chưa thả được cảm xúc: ' + e.message; st.errRoom = roomId; render();
+    }
+  }
+  /// Nhấn giữ ~0,45 giây (chỉ ngón tay / bút) → fn. Kéo đi hoặc nhấc sớm là huỷ, để cuộn không bị bắt nhầm.
+  function longPress(fn) {
+    let t = null, x0 = 0, y0 = 0;
+    const stop = () => { clearTimeout(t); t = null; };
+    return {
+      pointerdown: (e) => { if (e.pointerType === 'mouse') return; x0 = e.clientX; y0 = e.clientY; stop(); t = setTimeout(() => { t = null; fn(); }, 450); },
+      pointermove: (e) => { if (t && Math.hypot(e.clientX - x0, e.clientY - y0) > 10) stop(); },
+      pointerup: stop, pointercancel: stop, pointerleave: stop,
+      contextmenu: (e) => { if (e.pointerType !== 'mouse' && matchMedia('(hover:none)').matches) e.preventDefault(); },
+    };
+  }
+
   // Thu hồi hai bước: lần bấm đầu chỉ đổi nút thành "Thu hồi?", trong 4 giây bấm lần nữa mới làm.
   let recallTimer = null;
   function askRecall(roomId, m) {
@@ -1560,6 +1693,9 @@
   let resizeTimer = null;
   /// Bấm ra ngoài menu ⋯ thì đóng menu (kể cả bấm vào trang CRM bên ngoài widget).
   function onOutside(e) {
+    const inside = (cls) => e.composedPath().some((n) => n.classList && cls.some((c) => n.classList.contains(c)));
+    // Bảng cảm xúc: bấm ra ngoài là đóng (bấm vào chính nó / nút mở thì để nút tự xử lý).
+    if (st.reactPick && !inside(['rp', 'rk'])) { st.reactPick = null; render(); }
     // Chỉ khi menu ĐANG hiện thật: trạng thái treo mà vẽ lại lúc nhấn chuột là nuốt mất cú bấm đó.
     if (!st.menu || !root.querySelector('.menu')) { st.menu = null; return; }
     if (e.composedPath().some((n) => n.classList && (n.classList.contains('menu') || n.classList.contains('mbtn')))) return;
@@ -1571,6 +1707,7 @@
     // Esc: đóng khung danh sách (khi focus đang trong widget). Không nghe phím toàn trang.
     root.addEventListener('keydown', (e) => {
       if (e.key !== 'Escape') return;
+      if (st.reactPick) { st.reactPick = null; render(); return; }
       if (st.menu) { st.menu = null; st.hideConfirm = null; render(); return; }
       if (st.open) { st.open = false; render(); root.querySelector('.fab')?.focus(); }
     });

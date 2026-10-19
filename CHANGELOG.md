@@ -58,6 +58,10 @@ Những cập nhật gần đây của TRAV-AI, viết cho người dùng. Mới
   cơ hội đó trên CRM (đăng nhập sẵn). Các màn hình gắn chat có thể kèm đường dẫn riêng cho từng cuộc, mọi
   người trong phòng đều thấy nút.
 - **Trên điện thoại**, khung chat mở toàn màn hình như ứng dụng nhắn tin, đọc và gõ thoải mái hơn.
+- **Thả cảm xúc lên tin nhắn** như Messenger: 👍 ❤️ 😆 😮 😢 😡. Trên máy tính, rê chuột vào tin rồi bấm biểu
+  tượng mặt cười; trên điện thoại, nhấn giữ tin. Dưới tin hiện số người đã thả, rê vào để xem là ai. Mỗi người
+  một biểu tượng trên một tin: chọn cái khác là đổi, bấm lại cái đang chọn là gỡ. Cảm xúc không tính là tin
+  chưa đọc.
 
 ### 🔧 Đã khắc phục
 - Sửa hoặc thu hồi một tin **cũ** (đã trôi lên xa) giờ cũng đổi ngay trên màn hình người khác.
@@ -79,6 +83,8 @@ Những cập nhật gần đây của TRAV-AI, viết cho người dùng. Mới
 - Bấm **Chat** lại trên một cơ hội đã có phòng thì mở nhanh hơn, và không còn kéo lại người đã rời phòng
   hoặc đã bị bỏ ra.
 - Trên điện thoại, nút chat **không còn che nút "Thêm"** của thanh menu dưới: nút nay nằm ngay phía trên menu.
+- Trên điện thoại, mở chat thì **trang phía sau không còn cuộn theo**. Chữ, ô nhập và nút trong khung chat gọn lại
+  cho vừa màn hình nhỏ; nút Sửa / Thu hồi tin của bạn chuyển vào bảng nhấn giữ, không còn chen cạnh mỗi tin.
 - Nút chat và các biểu tượng **mềm mại hơn**: nút tròn, nét biểu tượng mảnh hơn, số tin chưa đọc là chấm đỏ.
 - Cuộn lên xem tin cũ chỉ hiện một vạch tải mảnh ở mép trên, không còn dòng chữ "Đang tải…" nhảy lên nhảy xuống.
 

@@ -380,6 +380,8 @@ public class ChatDb
     --     (chưa đọc, xem trước, cửa sổ trả lời) đều lệch.
     -- Khoá theo external_msg_id chứ không theo id nội bộ: cảm xúc có thể tới TRƯỚC khi tin được
     -- ghi xong (hai worker khác nhịp), tham chiếu khoá ngoại lúc đó sẽ ném.
+    -- Chat nội bộ (channel = 7) dùng CHUNG bảng này: external_msg_id = mã tin nội bộ, actor = mã người CRM
+    -- (InternalChatRepository.SetReactionAsync). Mọi câu đọc/ghi phải kẹp channel.
     CREATE TABLE IF NOT EXISTS chat_reactions (
       tenant_id       text     NOT NULL,
       channel         smallint NOT NULL,

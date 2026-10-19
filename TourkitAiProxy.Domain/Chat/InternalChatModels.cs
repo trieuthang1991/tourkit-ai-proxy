@@ -169,6 +169,32 @@ public static class InternalRoomData
             ? url : null;
 }
 
+/// <summary>
+/// Cảm xúc thả lên tin nội bộ. Bộ cố định như Messenger; mỗi người MỘT biểu tượng trên một tin (khoá chính
+/// của chat_reactions). Lưu ở chat_reactions với channel = 7, external_msg_id = mã tin, actor = mã người.
+/// </summary>
+public static class InternalReactions
+{
+    public static readonly IReadOnlyList<string> Allowed = new[] { "👍", "❤️", "😆", "😮", "😢", "😡" };
+
+    /// Biểu tượng hợp lệ (đã quy về một dạng) hoặc null. "❤" thiếu dấu biến thể = "❤️".
+    public static string? Normalize(string? emoji)
+    {
+        var e = emoji?.Trim();
+        if (e == "❤") e = "❤️";
+        return e is not null && Allowed.Contains(e) ? e : null;
+    }
+
+    /// Gom các lượt thả (theo thứ tự thả) thành từng biểu tượng kèm danh sách người.
+    public static IReadOnlyList<InternalReaction> Group(IEnumerable<(string Emoji, int UserId)> rows)
+        => rows.GroupBy(r => r.Emoji).Select(g => new InternalReaction(g.Key, g.Select(x => x.UserId).ToList())).ToList();
+}
+
+public record InternalReaction(string Emoji, IReadOnlyList<int> UserIds);
+
+/// <summary>Thả / đổi / gỡ cảm xúc: Emoji null = gỡ.</summary>
+public record ReactionRequest(string? Emoji);
+
 public record InternalMember(int UserId, DateTime JoinedUtc);
 
 /// <param name="LastMessageId">Mã tin mới nhất của phòng — widget chỉ cộng chưa đọc theo sự kiện có mã LỚN
@@ -180,7 +206,7 @@ public record InternalRoom(long Id, string? Title, string EntityType, string? En
 
 public record InternalMessage(long Id, long RoomId, int? SenderUserId, string? SenderUsername,
     string? Body, DateTime CreatedUtc, DateTime? DeletedUtc, InternalAttachment? Attachment = null,
-    DateTime? EditedUtc = null, bool System = false);
+    DateTime? EditedUtc = null, bool System = false, IReadOnlyList<InternalReaction>? Reactions = null);
 
 /// <summary>Tệp đính kèm một tin nội bộ. <c>Kind</c>: "anh" | "tep" — cùng chữ với hộp thư khách.</summary>
 public record InternalAttachment(string Url, string Name, long Size, string Kind);

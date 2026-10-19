@@ -277,6 +277,24 @@ public static class InternalChatEndpoints
             return Results.NoContent();
         });
 
+        // Thả / đổi / gỡ cảm xúc lên một tin ({ emoji: "👍" | null }). Bộ cố định (InternalReactions); mỗi người
+        // một biểu tượng trên một tin. Báo "tin đã đổi" để máy mọi người nạp lại đúng tin đó.
+        g.MapPut("/messages/{id:long}/reaction", async (long id, HttpContext ctx, TkSessionStore sessions,
+            InternalChatRepository repo, ChatEventBus bus, CancellationToken ct) =>
+        {
+            var (loi, a, me) = await GuardAsync(ctx, sessions, repo, ct);
+            if (loi is not null) return loi;
+            var req = await ReadBodyAsync<ReactionRequest>(ctx, ct);
+            if (req is null) return Bad("Thân request không đọc được");
+            string? emoji = null;
+            if (!string.IsNullOrWhiteSpace(req.Emoji) && (emoji = InternalReactions.Normalize(req.Emoji)) is null)
+                return Bad("Biểu tượng không hợp lệ (" + string.Join(" ", InternalReactions.Allowed) + ")");
+            var roomId = await repo.SetReactionAsync(a!.TenantId, id, me, emoji, ct);
+            if (roomId is null) return Results.Json(new { error = "Không thả được cảm xúc cho tin này" }, statusCode: 403);
+            await NotifyMessageChangedAsync(repo, bus, a.TenantId, roomId.Value, id, ct);
+            return Results.NoContent();
+        });
+
         // Thay tham số tự do của phòng ({ data: {...} | null }). Widget gọi khi trang nhúng mở lại bản ghi với
         // tham số KHÁC cái đang lưu (vd đơn đổi đường dẫn) — cùng tham số thì không gọi, không ghi gì.
         g.MapPut("/rooms/{id:long}/data", async (long id, HttpContext ctx, TkSessionStore sessions,

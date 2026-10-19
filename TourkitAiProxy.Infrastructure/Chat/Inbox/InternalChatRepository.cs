@@ -239,7 +239,8 @@ public class InternalChatRepository
             """, new { tenant, roomId, userId, beforeUtc = AsUtc(beforeUtc), beforeId = beforeId ?? long.MaxValue, limit },
             cancellationToken: ct))).ToList();
         if (rows.Count == 0 && !await IsMemberOrEmptyAsync(c, tenant, roomId, userId, ct)) return null;
-        return rows.Select(ToMessage).ToList();
+        var rx = await ReactionsOfAsync(c, tenant, rows, ct);
+        return rows.Select(m => ToMessage(m, rx.GetValueOrDefault(m.Id))).ToList();
     }
 
     /// <summary>Tin MỚI hơn một mã, cũ trước — để widget bù tin khi có sự kiện hoặc vừa nối lại.</summary>
@@ -263,7 +264,8 @@ public class InternalChatRepository
              LIMIT @limit
             """, new { tenant, roomId, userId, afterId, limit }, cancellationToken: ct))).ToList();
         if (rows.Count == 0 && !await IsMemberOrEmptyAsync(c, tenant, roomId, userId, ct)) return null;
-        return rows.Select(ToMessage).ToList();
+        var rx = await ReactionsOfAsync(c, tenant, rows, ct);
+        return rows.Select(m => ToMessage(m, rx.GetValueOrDefault(m.Id))).ToList();
     }
 
     /// <summary>
@@ -580,10 +582,92 @@ public class InternalChatRepository
                               AND user_id = @userId AND left_utc IS NULL)
             """, new { tenant, roomId, userId }, cancellationToken: ct));
 
-    private static InternalMessage ToMessage(MessageRow m) => new(m.Id, m.RoomId, m.SenderUserId,
-        m.SenderUsername, m.DeletedUtc is null ? m.Body : null, m.CreatedUtc, m.DeletedUtc,
+    private static InternalMessage ToMessage(MessageRow m, IReadOnlyList<InternalReaction>? rx = null) => new(m.Id, m.RoomId,
+        m.SenderUserId, m.SenderUsername, m.DeletedUtc is null ? m.Body : null, m.CreatedUtc, m.DeletedUtc,
         m.DeletedUtc is null ? ReadAttachment(m.Attachment) : null, m.DeletedUtc is null ? m.EditedUtc : null,
-        m.SenderKind == SystemSenderKind);
+        m.SenderKind == SystemSenderKind, m.DeletedUtc is null ? rx : null);
+
+    private sealed class ReactionRow
+    {
+        public string ExternalMsgId { get; set; } = "";
+        public string ActorExternalId { get; set; } = "";
+        public string? Emoji { get; set; }
+    }
+
+    /// <summary>
+    /// Cảm xúc của MỘT TRANG tin (≤ 100) — một câu, đi khoá chính của chat_reactions
+    /// (tenant_id, channel, external_msg_id, …). Bỏ tin thu hồi / tin hệ thống (không hiện cảm xúc).
+    /// </summary>
+    private static async Task<Dictionary<long, IReadOnlyList<InternalReaction>>> ReactionsOfAsync(
+        Npgsql.NpgsqlConnection c, string tenant, IReadOnlyList<MessageRow> rows, CancellationToken ct)
+    {
+        var ids = rows.Where(m => m.DeletedUtc is null && m.SenderKind != SystemSenderKind)
+            .Select(m => m.Id.ToString(System.Globalization.CultureInfo.InvariantCulture)).ToArray();
+        if (ids.Length == 0) return new();
+        var list = await c.QueryAsync<ReactionRow>(new CommandDefinition("""
+            SELECT external_msg_id, actor_external_id, emoji
+              FROM chat_reactions
+             WHERE tenant_id = @tenant AND channel = 7 AND external_msg_id = ANY(@ids) AND emoji IS NOT NULL
+             ORDER BY created_utc, actor_external_id
+            """, new { tenant, ids }, cancellationToken: ct));
+        var kq = new Dictionary<long, IReadOnlyList<InternalReaction>>();
+        foreach (var g in list.GroupBy(r => r.ExternalMsgId))
+        {
+            if (!long.TryParse(g.Key, out var mid)) continue;
+            var rs = g.Select(r => (Emoji: r.Emoji!, UserId: int.TryParse(r.ActorExternalId, out var u) ? u : 0))
+                .Where(r => r.UserId > 0);
+            kq[mid] = InternalReactions.Group(rs);
+        }
+        return kq;
+    }
+
+    /// <summary>
+    /// Thả / đổi / gỡ cảm xúc của MỘT người trên một tin nội bộ (emoji null = gỡ). Một câu: chỉ tin kênh 7
+    /// còn hiện (chưa thu hồi, không phải dòng hệ thống) trong phòng người này đang ở. Thả lại đúng biểu
+    /// tượng đang có thì không ghi gì. Trả mã phòng; null = không thả được (không phải thành viên / tin không
+    /// có / đã thu hồi).
+    /// </summary>
+    public async Task<long?> SetReactionAsync(string tenant, long messageId, int userId, string? emoji,
+        CancellationToken ct = default)
+    {
+        await using var c = await _db.OpenAsync(ct);
+        var mid = messageId.ToString(System.Globalization.CultureInfo.InvariantCulture);
+        var uid = userId.ToString(System.Globalization.CultureInfo.InvariantCulture);
+        var sql = emoji is null
+            ? """
+              WITH m AS (
+                SELECT t.conversation_id FROM chat_messages t
+                 WHERE t.id = @messageId AND t.tenant_id = @tenant AND t.channel = 7
+                   AND t.deleted_utc IS NULL AND t.sender_kind <> 3
+                   AND EXISTS (SELECT 1 FROM chat_room_members mb
+                                WHERE mb.conversation_id = t.conversation_id AND mb.tenant_id = @tenant
+                                  AND mb.user_id = @userId AND mb.left_utc IS NULL)),
+              d AS (
+                DELETE FROM chat_reactions r USING m
+                 WHERE r.tenant_id = @tenant AND r.channel = 7 AND r.external_msg_id = @mid AND r.actor_external_id = @uid
+                RETURNING 1)
+              SELECT conversation_id FROM m
+              """
+            : """
+              WITH m AS (
+                SELECT t.conversation_id FROM chat_messages t
+                 WHERE t.id = @messageId AND t.tenant_id = @tenant AND t.channel = 7
+                   AND t.deleted_utc IS NULL AND t.sender_kind <> 3
+                   AND EXISTS (SELECT 1 FROM chat_room_members mb
+                                WHERE mb.conversation_id = t.conversation_id AND mb.tenant_id = @tenant
+                                  AND mb.user_id = @userId AND mb.left_utc IS NULL)),
+              up AS (
+                INSERT INTO chat_reactions (tenant_id, channel, external_msg_id, actor_external_id, emoji)
+                SELECT @tenant, 7, @mid, @uid, @emoji FROM m
+                ON CONFLICT (tenant_id, channel, external_msg_id, actor_external_id) DO UPDATE
+                   SET emoji = EXCLUDED.emoji, created_utc = now()
+                 WHERE chat_reactions.emoji IS DISTINCT FROM EXCLUDED.emoji
+                RETURNING 1)
+              SELECT conversation_id FROM m
+              """;
+        return await c.ExecuteScalarAsync<long?>(new CommandDefinition(sql,
+            new { tenant, messageId, userId, mid, uid, emoji }, cancellationToken: ct));
+    }
 
     /// Đọc gói đính kèm {url, ten, kich, loai}. Hỏng/thiếu url thì bỏ đính kèm, KHÔNG làm hỏng tin.
     public static InternalAttachment? ReadAttachment(string? json)
