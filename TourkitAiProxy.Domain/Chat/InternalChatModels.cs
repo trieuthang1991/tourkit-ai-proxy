@@ -33,6 +33,12 @@ public static class InternalRoomKey
     }
 
     public static string Group() => "group:" + Guid.NewGuid().ToString("N");
+
+    /// Mã cơ hội dạng chuẩn ("012", "+12", " 12 " → "12"); không phải số dương → null. Không chuẩn hoá
+    /// thì cùng một cơ hội ra nhiều khoá → nhiều phòng.
+    public static string? CanonicalDealId(string? raw)
+        => long.TryParse(raw?.Trim(), System.Globalization.NumberStyles.AllowLeadingSign,
+               System.Globalization.CultureInfo.InvariantCulture, out var id) && id > 0 ? id.ToString(System.Globalization.CultureInfo.InvariantCulture) : null;
 }
 
 public record InternalMember(int UserId, DateTime JoinedUtc);

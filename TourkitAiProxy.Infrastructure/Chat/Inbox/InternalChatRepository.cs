@@ -89,7 +89,11 @@ public class InternalChatRepository
             -- DISTINCT: mảng có trùng thì Postgres ném "ON CONFLICT DO UPDATE cannot affect row a
             -- second time" (đo trên PG 17, 19/10/2026) — chặn ở đây kể cả khi chỗ gọi quên lọc.
             SELECT DISTINCT @id, @tenant, u FROM unnest(@ids) AS u
-            ON CONFLICT (conversation_id, user_id) DO UPDATE SET left_utc = NULL
+            -- Vào LẠI phòng (đã rời) thì mốc vào tính lại từ bây giờ: chưa đọc đếm từ lúc vào lại.
+            ON CONFLICT (conversation_id, user_id) DO UPDATE
+               SET joined_utc = CASE WHEN chat_room_members.left_utc IS NULL
+                                     THEN chat_room_members.joined_utc ELSE now() END,
+                   left_utc = NULL
              WHERE chat_room_members.tenant_id = @tenant
             """, new { id, tenant, ids }, tx, cancellationToken: ct));
         await tx.CommitAsync(ct);
@@ -107,22 +111,37 @@ public class InternalChatRepository
         CancellationToken ct = default)
     {
         await using var c = await _db.OpenAsync(ct);
+        // Đi TỪ phòng của người này (ix_room_members_user, vài chục dòng) — MATERIALIZED để planner
+        // không đổi sang đi chỉ mục hoạt động của cả công ty rồi lọc kênh 7 (review 19/10/2026: công
+        // ty nhiều hội thoại khách là quét gần hết, mà mỗi tin mới mọi thành viên đều gọi lại câu này).
+        // Chưa đọc tính từ mốc MUỘN NHẤT trong (đọc lần cuối, vào phòng, xoá phía tôi) — GREATEST bỏ qua NULL.
+        // Phòng đã "xoá phía tôi" chỉ hiện lại khi có hoạt động SAU mốc xoá.
         var rows = (await c.QueryAsync<RoomRow>(new CommandDefinition("""
+            WITH mb AS MATERIALIZED (
+              SELECT conversation_id, joined_utc, hidden_utc FROM chat_room_members
+               WHERE tenant_id = @tenant AND user_id = @userId AND left_utc IS NULL)
             SELECT v.id, v.title, v.entity_type, v.entity_id, v.contact_external_id AS room_key,
                    v.last_preview, v.last_activity_at,
                    (SELECT count(*)::int FROM (
                       SELECT 1 FROM chat_messages m
                        WHERE m.conversation_id = v.id
-                         AND m.created_utc > COALESCE(r.last_read_at, mb.joined_utc)
+                         AND m.created_utc > GREATEST(r.last_read_at, mb.joined_utc, mb.hidden_utc)
                          AND m.sender_user_id IS DISTINCT FROM @userId
                          AND m.deleted_utc IS NULL
                        LIMIT 100) x) AS unread_count
-              FROM chat_room_members mb
-              JOIN chat_conversations v
-                ON v.id = mb.conversation_id AND v.tenant_id = @tenant AND v.channel = 7
+              FROM mb
+              -- LATERAL + LIMIT 1 ép thứ tự: mỗi phòng của người này → tra ĐÚNG một dòng theo khoá
+              -- chính. Thiếu LIMIT 1 thì Postgres kéo phẳng subquery thành JOIN thường rồi lại đi
+              -- ix_conv_tenant_hoatdong của CẢ công ty để khỏi sắp xếp (đo trên PG 17, 19/10/2026).
+              CROSS JOIN LATERAL (
+                SELECT c.id, c.title, c.entity_type, c.entity_id, c.contact_external_id,
+                       c.last_preview, c.last_activity_at
+                  FROM chat_conversations c
+                 WHERE c.id = mb.conversation_id AND c.tenant_id = @tenant AND c.channel = 7
+                 LIMIT 1) v
               LEFT JOIN chat_conversation_reads r
                 ON r.tenant_id = @tenant AND r.conversation_id = v.id AND r.user_id = @userId
-             WHERE mb.tenant_id = @tenant AND mb.user_id = @userId AND mb.left_utc IS NULL
+             WHERE mb.hidden_utc IS NULL OR v.last_activity_at > mb.hidden_utc
              ORDER BY v.last_activity_at DESC, v.id DESC
              LIMIT @limit
             """, new { tenant, userId, limit }, cancellationToken: ct))).ToList();
@@ -156,6 +175,10 @@ public class InternalChatRepository
                AND EXISTS (SELECT 1 FROM chat_room_members mb
                             WHERE mb.conversation_id = @roomId AND mb.tenant_id = @tenant
                               AND mb.user_id = @userId AND mb.left_utc IS NULL)
+               -- "Xoá phía tôi": tin cũ hơn mốc xoá không hiện lại với người này.
+               AND m.created_utc > COALESCE((SELECT h.hidden_utc FROM chat_room_members h
+                                              WHERE h.conversation_id = @roomId AND h.tenant_id = @tenant
+                                                AND h.user_id = @userId), '-infinity'::timestamptz)
                AND (@beforeUtc::timestamptz IS NULL
                     OR (m.created_utc, m.id) < (@beforeUtc::timestamptz, @beforeId::bigint))
              ORDER BY m.created_utc DESC, m.id DESC
@@ -179,6 +202,10 @@ public class InternalChatRepository
                AND EXISTS (SELECT 1 FROM chat_room_members mb
                             WHERE mb.conversation_id = @roomId AND mb.tenant_id = @tenant
                               AND mb.user_id = @userId AND mb.left_utc IS NULL)
+               -- "Xoá phía tôi": tin cũ hơn mốc xoá không hiện lại với người này.
+               AND m.created_utc > COALESCE((SELECT h.hidden_utc FROM chat_room_members h
+                                              WHERE h.conversation_id = @roomId AND h.tenant_id = @tenant
+                                                AND h.user_id = @userId), '-infinity'::timestamptz)
              ORDER BY m.id
              LIMIT @limit
             """, new { tenant, roomId, userId, afterId, limit }, cancellationToken: ct))).ToList();
@@ -318,12 +345,28 @@ public class InternalChatRepository
     public async Task<long?> DeleteOwnMessageAsync(string tenant, long messageId, int userId,
         CancellationToken ct = default)
     {
+        // Một câu: thu hồi + tính lại dòng xem trước của phòng (không thì chữ đã thu hồi vẫn hiện trên
+        // danh sách của MỌI người). CTE cùng câu thấy dữ liệu TRƯỚC khi đổi → tự loại tin vừa thu hồi.
+        // Người đã rời phòng không được đổi lịch sử.
         await using var c = await _db.OpenAsync(ct);
         return await c.ExecuteScalarAsync<long?>(new CommandDefinition("""
-            UPDATE chat_messages SET deleted_utc = now()
-             WHERE id = @messageId AND tenant_id = @tenant AND channel = 7
-               AND sender_user_id = @userId AND deleted_utc IS NULL
-            RETURNING conversation_id
+            WITH d AS (
+              UPDATE chat_messages t SET deleted_utc = now()
+               WHERE t.id = @messageId AND t.tenant_id = @tenant AND t.channel = 7
+                 AND t.sender_user_id = @userId AND t.deleted_utc IS NULL
+                 AND EXISTS (SELECT 1 FROM chat_room_members mb
+                              WHERE mb.conversation_id = t.conversation_id AND mb.tenant_id = @tenant
+                                AND mb.user_id = @userId AND mb.left_utc IS NULL)
+              RETURNING conversation_id),
+            p AS (
+              UPDATE chat_conversations v SET last_preview = (
+                  SELECT left(COALESCE(NULLIF(x.body, ''), CASE x.kind WHEN 1 THEN '[Ảnh] ' ELSE '[Tệp] ' END
+                                       || COALESCE(x.attachment->>'ten', '')), 200)
+                    FROM chat_messages x
+                   WHERE x.conversation_id = v.id AND x.id <> @messageId AND x.deleted_utc IS NULL
+                   ORDER BY x.created_utc DESC, x.id DESC LIMIT 1)
+                FROM d WHERE v.id = d.conversation_id AND v.tenant_id = @tenant AND v.channel = 7)
+            SELECT conversation_id FROM d
             """, new { tenant, messageId, userId }, cancellationToken: ct));
     }
 
@@ -334,13 +377,46 @@ public class InternalChatRepository
     public async Task<long?> EditOwnMessageAsync(string tenant, long messageId, int userId, string body,
         CancellationToken ct = default)
     {
+        // Như thu hồi: một câu, kèm dòng xem trước — chỉ đổi khi tin vừa sửa là tin MỚI NHẤT của phòng.
         await using var c = await _db.OpenAsync(ct);
         return await c.ExecuteScalarAsync<long?>(new CommandDefinition("""
-            UPDATE chat_messages SET body = @body, edited_utc = now()
-             WHERE id = @messageId AND tenant_id = @tenant AND channel = 7
-               AND sender_user_id = @userId AND deleted_utc IS NULL
-            RETURNING conversation_id
+            WITH e AS (
+              UPDATE chat_messages t SET body = @body, edited_utc = now()
+               WHERE t.id = @messageId AND t.tenant_id = @tenant AND t.channel = 7
+                 AND t.sender_user_id = @userId AND t.deleted_utc IS NULL
+                 AND EXISTS (SELECT 1 FROM chat_room_members mb
+                              WHERE mb.conversation_id = t.conversation_id AND mb.tenant_id = @tenant
+                                AND mb.user_id = @userId AND mb.left_utc IS NULL)
+              RETURNING conversation_id),
+            p AS (
+              UPDATE chat_conversations v SET last_preview = left(@body, 200)
+                FROM e WHERE v.id = e.conversation_id AND v.tenant_id = @tenant AND v.channel = 7
+                 AND @messageId = (SELECT x.id FROM chat_messages x
+                                    WHERE x.conversation_id = v.id AND x.deleted_utc IS NULL
+                                    ORDER BY x.created_utc DESC, x.id DESC LIMIT 1))
+            SELECT conversation_id FROM e
             """, new { tenant, messageId, userId, body }, cancellationToken: ct));
+    }
+
+    /// <summary>
+    /// "Xoá phía tôi" — xoá MỀM, riêng người này: ẩn phòng khỏi danh sách của họ và ẩn tin cũ hơn mốc.
+    /// Có tin mới thì phòng tự hiện lại (chỉ với tin mới). Đánh dấu đã đọc luôn để không còn số chưa
+    /// đọc treo. false = không phải thành viên.
+    /// </summary>
+    public async Task<bool> HideRoomAsync(string tenant, long roomId, int userId, CancellationToken ct = default)
+    {
+        await using var c = await _db.OpenAsync(ct);
+        return await c.ExecuteScalarAsync<bool>(new CommandDefinition("""
+            WITH h AS (
+              UPDATE chat_room_members SET hidden_utc = now()
+               WHERE conversation_id = @roomId AND tenant_id = @tenant AND user_id = @userId AND left_utc IS NULL
+              RETURNING conversation_id),
+            r AS (
+              INSERT INTO chat_conversation_reads (tenant_id, conversation_id, user_id, last_read_at)
+              SELECT @tenant, conversation_id, @userId, now() FROM h
+              ON CONFLICT (tenant_id, conversation_id, user_id) DO UPDATE SET last_read_at = now())
+            SELECT EXISTS (SELECT 1 FROM h)
+            """, new { tenant, roomId, userId }, cancellationToken: ct));
     }
 
     /// <summary>

@@ -773,5 +773,8 @@ public class ChatDb
     );
     CREATE INDEX IF NOT EXISTS ix_room_members_user
       ON chat_room_members (tenant_id, user_id) WHERE left_utc IS NULL;
+    -- "Xoá phía tôi" (xoá mềm, riêng một người): ẩn phòng khỏi danh sách của người đó và ẩn tin cũ hơn
+    -- mốc này. Có tin mới sau mốc thì phòng tự hiện lại (chỉ với tin mới). Nullable → chỉ ghi metadata.
+    ALTER TABLE chat_room_members ADD COLUMN IF NOT EXISTS hidden_utc timestamptz;
     """;
 }

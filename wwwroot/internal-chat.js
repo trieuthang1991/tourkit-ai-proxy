@@ -20,6 +20,7 @@
  *   TkInternalChat.renameRoom(roomId, 'Tên mới')               (không áp cho phòng 1-1)
  *   TkInternalChat.addMembers(roomId, [12, 34])
  *   TkInternalChat.removeMember(roomId, 12) / leaveRoom(roomId)
+ *   TkInternalChat.hideRoom(roomId)                           "xoá phía tôi" (xoá mềm, riêng mình)
  *   TkInternalChat.closeRoom(roomId)
  *   TkInternalChat.getUnread()                                 tổng tin chưa đọc
  *   TkInternalChat.on('unread' | 'message' | 'room' | 'error' | 'ready', fn)  → hàm huỷ đăng ký
@@ -64,7 +65,7 @@
     newType: 'group', picked: new Set(), userSearch: '', newTitle: '',
     drafts: {}, pending: {}, sending: new Set(), dragKey: null, busy: false,
     settings: null, renameDraft: {}, addSearch: '', addPicked: new Set(),   // màn cấu hình phòng (key = 'panel-12' | 'dock-12')
-    editing: null, recallConfirm: null,   // đang sửa { key, msgId, draft } · tin đang chờ bấm lần hai để thu hồi
+    editing: null, recallConfirm: null, hideConfirm: null,   // đang sửa { key, msgId, draft } · tin đang chờ bấm lần hai để thu hồi
     size: (() => { try { return localStorage.getItem('tk-chat-size') === 'large' ? 'large' : 'compact'; } catch { return 'compact'; } })(),
   };
   let errMsg = '';
@@ -161,6 +162,7 @@
     .rc{height:26px;padding:0 8px;border:1px solid #d5d9e0;border-radius:6px;background:#fff;color:#11151c;font-size:12px;visibility:hidden}
     .m:hover .rc,.rc:focus-visible,.rc.warn{visibility:visible}
     .acts{display:flex;gap:4px}
+    .ib.warnb{background:#fdecea;color:#8a1c12}
     .rc.warn{border-color:#c0392b;color:#8a1c12;font-weight:600}
     .edbox{display:flex;flex-direction:column;gap:6px;min-width:220px}
     textarea.edit{min-height:60px;border-color:#1f3fbf}
@@ -224,6 +226,7 @@
     file: 'M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8zM14 3v5h5',
     max: 'M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5', min: 'M9 4v5H4M15 4v5h5M9 20v-5H4M15 20v-5h5',
     dash: 'M5 12h14',
+    trash: 'M4 7h16M9 7V4h6v3M6 7l1 13h10l1-13M10 11v6M14 11v6',
     gear: 'M12 15a3 3 0 1 0 0-6 3 3 0 0 0 0 6zM19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z', pop: 'M14 4h6v6M20 4l-8 8M18 14v5a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V7a1 1 0 0 1 1-1h5',
   };
   function icon(name, size) {
@@ -537,6 +540,28 @@
       ? el('a', { class: 'sec', href: ORDER_URL.replace('{id}', encodeURIComponent(r.entityId)), target: '_top' }, 'Mở đơn') : null;
   }
 
+  /// "Xoá phía tôi" hai bước: lần bấm đầu đổi nút sang màu cảnh báo, trong 4 giây bấm lần nữa mới xoá.
+  function hideBtn(id, size) {
+    const asking = st.hideConfirm === id;
+    const label = asking ? 'Bấm lần nữa để xoá cuộc trò chuyện (chỉ phía bạn)' : 'Xoá cuộc trò chuyện (chỉ phía bạn)';
+    return el('button', { class: 'ib' + (asking ? ' warnb' : ''), type: 'button', 'aria-label': label, title: label,
+      on: { click: () => askHide(id) } }, icon('trash', size || 18));
+  }
+  let hideTimer = null;
+  function askHide(id) {
+    if (st.hideConfirm === id) { clearTimeout(hideTimer); st.hideConfirm = null; return hideRoom(id).catch(() => {}); }
+    st.hideConfirm = id; render();
+    clearTimeout(hideTimer);
+    hideTimer = setTimeout(() => { st.hideConfirm = null; render(); }, 4000);
+  }
+  async function hideRoom(id) {
+    try {
+      await api('POST', `/rooms/${id}/hide`);
+      st.rooms = st.rooms.filter((r) => r.id !== id);
+      leftRoom(id);
+    } catch (e) { if (!dead) { errMsg = 'Không xoá được: ' + e.message; st.errRoom = id; render(); } throw e; }
+  }
+
   function roomPane(id, k) {
     const r = roomOf(id);
     const lg = isLarge();
@@ -546,6 +571,7 @@
       el('div', { class: 'hd' }, lg ? null : backBtn(), roomAvatar(r, true),
         el('h2', {}, roomName(r), sub ? el('small', {}, sub) : null), orderLink(r),
         r.entityType === 'direct' ? null : gearBtn(id, k + '-' + id),
+        hideBtn(id),
         maxDocks() ? el('button', { class: 'ib', type: 'button', 'aria-label': 'Tách ra ô chat nhỏ', title: 'Tách ra ô chat nhỏ',
           on: { click: () => { const rid = id; st.view = 'list'; st.roomId = null; if (!lg) closePanel(); addDock(rid); } } }, icon('pop')) : null,
         lg || vw() < 760 ? null : sizeBtn(), lg ? null : closeBtn()),
@@ -567,6 +593,7 @@
         min || r.entityType === 'direct' ? null : gearBtn(id, 'dock-' + id),
         min ? null : el('button', { class: 'ib', type: 'button', 'aria-label': 'Mở trong khung lớn', title: 'Mở trong khung lớn', on: { click: () => { closeDock(id); showInPanel(id); } } }, icon('max', 16)),
         el('button', { class: 'ib', type: 'button', 'aria-label': min ? 'Mở ô' : 'Thu gọn', title: min ? 'Mở ô' : 'Thu gọn', on: { click: toggleMin } }, icon(min ? 'max' : 'dash', 16)),
+        min ? null : hideBtn(id, 16),
         el('button', { class: 'ib', type: 'button', 'aria-label': 'Đóng ô chat', title: 'Đóng', on: { click: () => closeDock(id) } }, icon('x', 16))),
       min ? null : el('div', { class: 'pane' }, roomBody(id, 'dock')));
     return win;
@@ -605,7 +632,7 @@
               el('span', { class: 'av s', 'aria-hidden': 'true' }, initials(name)), el('span', {}, name)))))
         : el('div', { class: 'empty' }, st.users.size ? 'Không thấy nhân viên nào khớp.' : 'Đang tải danh sách nhân viên…'),
       el('div', { class: 'ft' },
-        el('span', { class: 'hint' }, (n ? 'Đã chọn ' + n + ' người · ' : '') + 'Muốn bàn về một đơn hay một công ty, mở phòng ngay trên trang đơn hoặc trang công ty đó'),
+        el('span', { class: 'hint' }, (n ? 'Đã chọn ' + n + ' người · ' : '') + 'Muốn bàn về một cơ hội, bấm nút Chat ngay trên cơ hội đó ở màn Cơ hội'),
         el('button', { class: 'pri', type: 'button', disabled: !can || st.busy, on: { click: createFromForm } }, 'Bắt đầu trò chuyện')));
   }
 
@@ -658,7 +685,8 @@
     const c = convOf(id);
     const seen = new Set(c.msgs.map((m) => m.id));
     for (const m of list) if (!seen.has(m.id)) { c.msgs.push(m); seen.add(m.id); }
-    c.msgs.sort((a, b) => (a.createdUtc < b.createdUtc ? -1 : a.createdUtc > b.createdUtc ? 1 : a.id - b.id));
+    // Theo MÃ (tăng dần = thứ tự ghi). So chuỗi giờ sai: JSON cắt số lẻ của giây (…:00Z vs …:00.12Z).
+    c.msgs.sort((a, b) => a.id - b.id);
   }
   async function fetchNewer(id) {
     const c = convOf(id); if (!c.loaded) return;
@@ -712,9 +740,9 @@
       const body = st.newType === 'direct'
         ? { entityType: 'direct', memberUserIds: [...st.picked] }
         : { entityType: 'group', title: (st.newTitle || '').trim() || null, memberUserIds: [...st.picked] };
-      st.busy = false;
       await createAndShow(body, 'panel');
-    } catch (e) { st.busy = false; if (!dead) { errMsg = e.message; render(); } }
+    } catch (e) { if (!dead) { errMsg = e.message; render(); } }
+    finally { st.busy = false; render(); }
   }
 
   // ── Gửi + tệp đính kèm ──────────────────────────────────────────────────
@@ -854,9 +882,26 @@
   // ── Real-time ───────────────────────────────────────────────────────────
   // EventSource không gửi được header nên phiên đi ?sessionId=. Trình duyệt tự nối lại; mỗi lần
   // nối lại thì bù những gì có thể đã rơi trong lúc đứt.
-  let es = null, hadError = false;
+  // Đường lùi (review 19/10/2026): EventSource tắt HẲN khi nhận mã khác 200 (502 lúc deploy, 503…)
+  // và không tự nối lại; nhiều máy chủ không cắm Redis thì sự kiện không tới đủ (chatRealtime=false).
+  // Lúc đó hỏi lại định kỳ 20 giây. Tab ẩn thì đóng kết nối — mỗi tab giữ một luồng SSE là cạn giới
+  // hạn 6 kết nối/tên miền của trình duyệt; hiện lại thì nối lại và bù tin lỡ.
+  let es = null, hadError = false, connected = false, realtime = true, pollTimer = null, retryTimer = null, backoff = 5000;
+  function catchUp() { loadRooms(); for (const [id, c] of st.conv) if (c.loaded) fetchNewer(id); }
+  function syncPolling() {
+    const need = !dead && !document.hidden && (!connected || !realtime);
+    if (need && !pollTimer) pollTimer = setInterval(catchUp, 20000);
+    if (!need && pollTimer) { clearInterval(pollTimer); pollTimer = null; }
+  }
+  function closeStream() { if (es) { es.close(); es = null; } connected = false; }
+  function onVisibility() {
+    if (dead) return;
+    if (document.hidden) { closeStream(); clearTimeout(retryTimer); }
+    else { subscribe(); catchUp(); }
+    syncPolling();
+  }
   function subscribe() {
-    if (dead || es) return;
+    if (dead || es || document.hidden) return;
     es = new EventSource(API + '/events?sessionId=' + encodeURIComponent(session));
     es.onmessage = (ev) => {
       let d; try { d = JSON.parse(ev.data); } catch { return; }
@@ -871,8 +916,17 @@
       refreshRoomsSoon();
       emit('message', { roomId: d.roomId, messageId: d.messageId });
     };
-    es.onopen = () => { if (hadError) { hadError = false; loadRooms(); for (const [id, c] of st.conv) if (c.loaded) fetchNewer(id); } };
-    es.onerror = () => { hadError = true; };
+    es.onopen = () => { connected = true; backoff = 5000; syncPolling(); if (hadError) { hadError = false; catchUp(); } };
+    es.onerror = () => {
+      hadError = true; connected = false; syncPolling();
+      // CLOSED = trình duyệt bỏ hẳn (không tự nối lại nữa) → tự dựng lại, chờ tăng dần tới 60 giây.
+      if (es && es.readyState === 2) {
+        es = null;
+        clearTimeout(retryTimer);
+        retryTimer = setTimeout(subscribe, backoff);
+        backoff = Math.min(backoff * 2, 60000);
+      }
+    };
   }
 
   // ── API công khai cho trang CRM ─────────────────────────────────────────
@@ -941,6 +995,8 @@
       const id = Number(roomId), u = Number(userId);
       return api('DELETE', `/rooms/${id}/members/${u}`).then(() => { if (u === st.me) leftRoom(id); return loadRooms(); }).catch(fail);
     },
+    /** "Xoá phía tôi": ẩn phòng + tin cũ với riêng mình; có tin mới thì phòng hiện lại. */
+    hideRoom(roomId) { return hideRoom(Number(roomId)).catch(fail); },
     leaveRoom(roomId) { return st.me == null ? fail(new Error('leaveRoom: chưa biết mã người của bạn')) : this.removeMember(roomId, st.me); },
     closeRoom(roomId) { const id = Number(roomId); closeDock(id); if (st.roomId === id) { st.view = 'list'; st.roomId = null; render(); } },
     getUnread() { return totalUnread(); },
@@ -956,7 +1012,11 @@
     /** Gỡ hẳn widget (đăng xuất / đổi tài khoản). Nạp lại script sau đó là khởi tạo mới. */
     destroy() {
       dead = true;
-      if (es) { es.close(); es = null; }
+      closeStream();
+      clearInterval(pollTimer);
+      for (const t of [retryTimer, refreshTimer, recallTimer, hideTimer, resizeTimer]) clearTimeout(t);
+      window.removeEventListener('resize', onResize);
+      document.removeEventListener('visibilitychange', onVisibility);
       host.remove();
       for (const k of Object.keys(listeners)) listeners[k].clear();
       delete window.TkInternalChat;
@@ -964,15 +1024,20 @@
   };
 
   // ── Khởi động ───────────────────────────────────────────────────────────
+  let resizeTimer = null;
+  function onResize() { clearTimeout(resizeTimer); resizeTimer = setTimeout(render, 150); }
   function boot() {
     (document.body || document.documentElement).appendChild(host);
     // Esc: đóng khung danh sách (khi focus đang trong widget). Không nghe phím toàn trang.
     root.addEventListener('keydown', (e) => { if (e.key === 'Escape' && st.open) { st.open = false; render(); root.querySelector('.fab')?.focus(); } });
-    let rz = null;
-    window.addEventListener('resize', () => { clearTimeout(rz); rz = setTimeout(render, 150); });
+    window.addEventListener('resize', onResize);
+    document.addEventListener('visibilitychange', onVisibility);
     render();
+    // Máy chủ có đẩy sự kiện tới đủ mọi máy không (Redis). Không đọc được thì coi như có.
+    fetch(BASE + '/api/v1/features').then((r) => (r.ok ? r.json() : {})).then((f) => { realtime = f.chatRealtime !== false; syncPolling(); }).catch(() => {});
     loadUsers().then(loadRooms).then(() => {
       subscribe();
+      syncPolling();
       emit('ready', { me: st.me });
       window.dispatchEvent(new CustomEvent('tk-internal-chat-ready'));
     });

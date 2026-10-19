@@ -53,6 +53,10 @@ public static class InternalChatEndpoints
             if (!InternalRoomKey.IsValidType(type)) return Bad("Loại phòng không hợp lệ (direct | order | company | deal | group)");
             var others = (req.MemberUserIds ?? new()).Where(x => x > 0 && x != me).Distinct().ToList();
             if (others.Count > MaxMembers) return Bad($"Tối đa {MaxMembers} người một phòng");
+            // Mã cơ hội chuẩn hoá ("012" = "12") — không thì cùng một cơ hội ra nhiều phòng.
+            var rawEntity = req.EntityId?.Trim();
+            if (type == "deal" && (rawEntity = InternalRoomKey.CanonicalDealId(rawEntity)) is null)
+                return Bad("Mã cơ hội không hợp lệ");
 
             string key;
             try
@@ -63,7 +67,7 @@ public static class InternalChatEndpoints
                     "direct" => InternalRoomKey.Direct(me, others[0]),
                     "group" when others.Count == 0 => throw new ArgumentException("Nhóm cần ít nhất một người khác"),
                     "group" => InternalRoomKey.Group(),
-                    _ => InternalRoomKey.ForEntity(type!, req.EntityId ?? ""),
+                    _ => InternalRoomKey.ForEntity(type!, rawEntity ?? ""),
                 };
             }
             catch (ArgumentException ex) { return Bad(ex.Message); }
@@ -77,7 +81,7 @@ public static class InternalChatEndpoints
             if (type == "deal" && !await repo.IsMemberByKeyAsync(a!.TenantId, key, me, ct))
             {
                 await sessions.EnsurePermissionsAsync(a.SessionId, ct);
-                var xem = await deals.CanViewAsync(a.SessionId, req.EntityId!.Trim(), me,
+                var xem = await deals.CanViewAsync(a.SessionId, rawEntity!, me,
                     viewAll: sessions.HasPermission(a.SessionId, TkPermissionCodes.CoHoiXemTatCa),
                     viewOwn: sessions.HasPermission(a.SessionId, TkPermissionCodes.CoHoiXem), ct);
                 if (xem is null)
@@ -87,7 +91,7 @@ public static class InternalChatEndpoints
             }
 
             var title = string.IsNullOrWhiteSpace(req.Title) ? null : req.Title.Trim()[..Math.Min(req.Title.Trim().Length, 120)];
-            var entityId = InternalRoomKey.IsEntityType(type) ? req.EntityId!.Trim() : null;
+            var entityId = InternalRoomKey.IsEntityType(type) ? rawEntity : null;
             var (id, created) = await repo.CreateOrGetRoomAsync(a!.TenantId, me, key, type!, entityId, title, others, ct);
 
             // Phòng cơ hội VỪA tạo → thêm người phụ trách (mã lấy thẳng từ CRM, không dò tên). CHỈ lần
@@ -182,6 +186,15 @@ public static class InternalChatEndpoints
             if (url.StartsWith('/')) url = $"{ctx.Request.Scheme}://{ctx.Request.Host}{url}";
             return Results.Json(new InternalAttachment(url, Path.GetFileName(tep.FileName), tep.Length,
                 InternalAttachmentRules.KindOf(tep.FileName)), Web);
+        });
+
+        // "Xoá phía tôi": xoá mềm, chỉ với người bấm (phòng + tin cũ ẩn; tin mới làm phòng hiện lại).
+        g.MapPost("/rooms/{id:long}/hide", async (long id, HttpContext ctx, TkSessionStore sessions,
+            InternalChatRepository repo, CancellationToken ct) =>
+        {
+            var (loi, a, me) = await GuardAsync(ctx, sessions, repo, ct);
+            if (loi is not null) return loi;
+            return await repo.HideRoomAsync(a!.TenantId, id, me, ct) ? Results.NoContent() : NotMember();
         });
 
         g.MapPost("/rooms/{id:long}/read", async (long id, HttpContext ctx, TkSessionStore sessions,

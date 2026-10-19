@@ -13,15 +13,13 @@ Những cập nhật gần đây của TRAV-AI, viết cho người dùng. Mới
 
 ---
 
-## Phiên bản 19/10/2026 — Chat nội bộ ngay trong CRM
+## Phiên bản 19/10/2026 — Chat nội bộ ngay trong TRAV-AI
 
 ### ✨ Tính năng mới
-- **Nhắn tin nội bộ giữa nhân viên** mà không phải rời màn hình CRM. Bấm nút chat ở góc phải dưới
+- **Nhắn tin nội bộ giữa nhân viên** ngay trong TRAV-AI, không phải mở ứng dụng khác. Bấm nút chat ở góc phải dưới
   để xem các cuộc trò chuyện, số tin chưa đọc hiện ngay trên nút.
 - **Nhắn một người, hoặc tạo nhóm.** Bấm **Trò chuyện mới**, chọn người, đặt tên nhóm nếu cần.
   Mở lại cuộc trò chuyện với cùng một người thì luôn quay về đúng cuộc cũ, không sinh thêm.
-- **Mỗi đơn hàng, mỗi công ty có đúng một phòng chung.** Từ trang đơn hàng, mở phòng của đơn là
-  thấy ngay mọi trao đổi về đơn đó, người cần bàn được thêm sẵn vào phòng.
 - **Ô chat nhỏ nổi**, mở được tối đa hai ô cùng lúc như các ứng dụng nhắn tin quen thuộc. Thu gọn
   ô vẫn thấy số tin mới; bấm để phóng sang khung lớn khi cần.
 - **Khung lớn hai cột**: bấm nút phóng to để xem danh sách bên trái và cuộc trò chuyện bên phải.
@@ -36,10 +34,14 @@ Những cập nhật gần đây của TRAV-AI, viết cho người dùng. Mới
   "đã sửa".
 - **Thu hồi tin của mình** khi gửi nhầm: tin biến mất với mọi người ngay lập tức. Nút thu hồi cần
   bấm hai lần để tránh lỡ tay.
+- **Xoá cuộc trò chuyện phía bạn**: bấm biểu tượng thùng rác ở đầu cuộc trò chuyện (bấm hai lần).
+  Cuộc trò chuyện biến khỏi danh sách của riêng bạn, người khác vẫn thấy bình thường. Khi có tin mới,
+  nó hiện lại và chỉ còn những tin từ sau lúc bạn xoá.
 - Tin mới hiện ngay, không cần tải lại trang. Đang gõ dở mà có tin tới thì chữ của bạn vẫn còn nguyên.
 
 ### 📌 Lưu ý
-- Mọi nhân viên đang dùng CRM đều nhắn được, không cần cấp quyền riêng.
+- Mọi nhân viên đăng nhập TRAV-AI đều nhắn được, không cần cấp quyền riêng. Riêng phòng của một cơ hội thì
+  chỉ ai nhìn thấy cơ hội đó mới vào được.
 - Cuộc trò chuyện một-một không đổi tên hay thêm người được. Cần bàn nhiều người, hãy tạo nhóm.
 - Ai có đường link của một tệp đã gửi là mở được tệp đó. Đừng gửi giấy tờ nhạy cảm qua đây.
 - Tính năng bật theo từng hệ thống; nếu chưa thấy nút chat, hãy liên hệ quản trị.

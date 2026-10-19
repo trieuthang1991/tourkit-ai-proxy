@@ -188,7 +188,8 @@ public class InternalChatRepositoryGuardTests
     {
         var than = InternalChatGuardTests.ThanHam(Repo(), "CreateOrGetRoomAsync");
         Assert.Contains("unnest(@", than);
-        Assert.Contains("ON CONFLICT (conversation_id, user_id) DO UPDATE SET left_utc = NULL", than);
+        Assert.Contains("ON CONFLICT (conversation_id, user_id) DO UPDATE", than);
+        Assert.Contains("left_utc = NULL", than);
     }
 
     [Fact]
@@ -225,6 +226,57 @@ public class InternalChatRepositoryGuardTests
         Assert.Contains("deleted_utc IS NULL", than);           // tin đã thu hồi thì không sửa/thu hồi lại
         Assert.Contains("RETURNING conversation_id", than);     // để bus báo đúng phòng
     }
+
+    // ── Sửa sau review cuối ──────────────────────────────────────────────
+
+    [Theory]
+    [InlineData("EditOwnMessageAsync")]
+    [InlineData("DeleteOwnMessageAsync")]
+    public void Sua_thu_hoi_cap_nhat_dong_xem_truoc_va_doi_con_la_thanh_vien(string method)
+    {
+        // Thu hồi mà dòng xem trước của phòng còn chữ cũ thì chữ đó vẫn hiện trên danh sách của MỌI
+        // người — đúng thứ thu hồi sinh ra để gỡ. Người đã rời phòng không được sửa lịch sử.
+        var than = InternalChatGuardTests.ThanHam(Repo(), method);
+        Assert.Contains("last_preview", than);
+        Assert.Contains("FROM chat_room_members", than);
+    }
+
+    [Fact]
+    public void Danh_sach_phong_di_tu_thanh_vien()
+    {
+        // Đi từ chỉ mục thành viên (vài phòng mỗi người) chứ không đi chỉ mục hoạt động của cả công
+        // ty rồi lọc kênh 7 — công ty nhiều hội thoại khách là quét gần hết.
+        var than = InternalChatGuardTests.ThanHam(Repo(), "ListRoomsAsync");
+        Assert.Contains("AS MATERIALIZED", than);
+        Assert.Contains("GREATEST(r.last_read_at, mb.joined_utc", than);   // vào lại phòng: chưa đọc tính từ lúc vào lại
+        Assert.Contains("hidden_utc", than);                                 // "Xoá phía tôi"
+    }
+
+    [Fact]
+    public void Vao_lai_phong_tinh_lai_moc_vao()
+        => Assert.Contains("ELSE now() END", InternalChatGuardTests.ThanHam(Repo(), "CreateOrGetRoomAsync"));
+
+    [Fact]
+    public void Xoa_phia_toi_la_xoa_mem_rieng_minh()
+    {
+        var than = InternalChatGuardTests.ThanHam(Repo(), "HideRoomAsync");
+        Assert.Contains("SET hidden_utc = now()", than);
+        Assert.Contains("user_id = @userId", than);
+        Assert.DoesNotContain("DELETE", than);
+        Assert.Contains("ADD COLUMN IF NOT EXISTS hidden_utc timestamptz",
+            ChatSchemaGuardTests.DocFile("TourkitAiProxy.Infrastructure/Chat/Inbox/ChatDb.cs"));
+    }
+
+    [Theory]
+    [InlineData("12", "12")]
+    [InlineData("012", "12")]
+    [InlineData("+12", "12")]
+    [InlineData(" 12 ", "12")]
+    [InlineData("abc", null)]
+    [InlineData("0", null)]
+    [InlineData("-5", null)]
+    public void Ma_co_hoi_chuan_hoa(string vao, string? ra)
+        => Assert.Equal(ra, InternalRoomKey.CanonicalDealId(vao));
 
     [Fact]
     public void Schema_co_cot_da_sua()

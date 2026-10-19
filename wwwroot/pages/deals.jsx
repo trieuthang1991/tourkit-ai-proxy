@@ -826,9 +826,10 @@ function DealsPage({ pushToast }) {
                         </>) : <span style={{color:'var(--text-3)'}}>—</span>}
                       </td>
                       <td className="deals-action">{it.analysis?.nextAction || <span style={{color:'var(--text-3)'}}>—</span>}</td>
-                      <td className="deals-go" onClick={(e) => e.stopPropagation()} style={{ whiteSpace: 'nowrap' }}>
+                      {/* Nút Chat tự chặn lan click (DealChatButton) — phần còn lại của ô vẫn mở ngăn chi tiết như cũ. */}
+                      <td className="deals-go" style={{ whiteSpace: 'nowrap' }}>
                         <DealChatButton item={it} pushToast={pushToast} compact />
-                        <span onClick={() => setSel(it)} style={{ cursor: 'pointer', verticalAlign: 'middle' }}><Icon name="chevronRight" size={16} /></span>
+                        <Icon name="chevronRight" size={16} />
                       </td>
                     </tr>
                   );

@@ -1030,4 +1030,20 @@ JS; trang CRM bấm vào một đơn hàng gọi `openEntity('order', mã, { tit
 CORS mở mọi origin, kể cả prod (chốt 19/10/2026): widget nhúng vào CRM của từng công ty, xác thực
 bằng header chứ không cookie.
 
-**Chưa có:** tin hệ thống "A đã thêm/bỏ B"; báo đang gõ; trả lời trích dẫn; tìm trong nội dung tin.
+### Sau review cuối (19/10/2026)
+
+- **Danh sách phòng đi TỪ thành viên**: CTE `MATERIALIZED` trên `ix_room_members_user` + `CROSS JOIN LATERAL
+  (… LIMIT 1)` tra từng phòng theo khoá chính. Thiếu `LIMIT 1` thì Postgres kéo phẳng subquery rồi đi
+  `ix_conv_tenant_hoatdong` của CẢ công ty để khỏi sắp xếp. Đo với 20.000 hội thoại khách cùng tenant:
+  8 buffer, 0,33 ms.
+- **Thu hồi / sửa** là MỘT câu CTE kèm tính lại `last_preview` (CTE cùng câu thấy dữ liệu TRƯỚC khi đổi →
+  tự loại tin vừa thu hồi), và đòi người làm còn là thành viên.
+- **"Xoá phía tôi"** = `chat_room_members.hidden_utc`: phòng ẩn khỏi danh sách của riêng người đó tới khi
+  `last_activity_at > hidden_utc`; tin cũ hơn mốc không hiện lại với họ; đánh dấu đã đọc luôn.
+- **Chưa đọc** tính từ `GREATEST(last_read_at, joined_utc, hidden_utc)`; vào lại phòng thì `joined_utc`
+  tính lại.
+- **Widget có đường lùi real-time**: hỏi lại 20 giây khi SSE mất hoặc `chatRealtime=false`; tab ẩn thì
+  đóng SSE; EventSource `CLOSED` thì tự dựng lại (5 → 60 giây).
+
+**Chưa có:** tin hệ thống "A đã thêm/bỏ B"; báo đang gõ; trả lời trích dẫn; tìm trong nội dung tin; nút
+mở phòng trên trang đơn hàng/công ty (hiện chỉ màn Cơ hội gọi `openEntity`).

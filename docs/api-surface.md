@@ -114,9 +114,11 @@ người CRM → 401; không phải thành viên phòng → 403. Thân request �
 | PATCH | `/rooms/{id}` | `{title}` đổi tên. Phòng 1-1 → 403 |
 | POST | `/rooms/{id}/members` | `{memberUserIds[]}` thêm người (người đã rời thì vào lại). Phòng 1-1 → 403 |
 | DELETE | `/rooms/{id}/members/{userId}` | Bỏ người; bỏ chính mình = rời phòng. Phòng 1-1 → 403 |
-| DELETE | `/messages/{id}` | Thu hồi tin CỦA MÌNH (xoá mềm) → 204 / 404 |
+| DELETE | `/messages/{id}` | Thu hồi tin CỦA MÌNH (xoá mềm, với mọi người; dòng xem trước của phòng tính lại) → 204 / 404. Người đã rời phòng: 404 |
+| PATCH | `/messages/{id}` | `{body}` sửa tin CỦA MÌNH (chưa thu hồi) → 204 / 404; ghi `editedUtc` |
+| POST | `/rooms/{id}/hide` | "Xoá phía tôi" — ẩn phòng + tin cũ với riêng mình (xoá mềm); có tin mới thì phòng hiện lại → 204 / 403 |
 | GET | `/users` | `{meId, users[{id,name}]}` — danh sách nhân viên ERP, đệm Redis 2h (dùng chung `ChatStaffDirectory` với `/assign-settings`) |
-| GET | `/events?sessionId=` | SSE: `data: {roomId, messageId}`; `messageId: null` = phòng đổi cấu hình (tên/thành viên). Nhịp giữ sống 25s |
+| GET | `/events?sessionId=` | SSE: `data: {roomId, messageId, changed}`; `messageId: null` = phòng đổi cấu hình; `changed: true` = tin đã có vừa sửa/thu hồi (tên/thành viên). Nhịp giữ sống 25s |
 
 ---
 
