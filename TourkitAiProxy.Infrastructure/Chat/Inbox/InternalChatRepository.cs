@@ -320,6 +320,23 @@ public class InternalChatRepository
     }
 
     /// <summary>
+    /// Đã là thành viên phòng có khoá này chưa — để đường mở phòng theo cơ hội chỉ hỏi quyền CRM ở
+    /// LẦN ĐẦU vào phòng. Đã là thành viên thì mở lại / gửi tin không tốn lượt gọi CRM nào.
+    /// </summary>
+    public async Task<bool> IsMemberByKeyAsync(string tenant, string roomKey, int userId, CancellationToken ct = default)
+    {
+        await using var c = await _db.OpenAsync(ct);
+        return await c.ExecuteScalarAsync<bool>(new CommandDefinition("""
+            SELECT EXISTS (
+              SELECT 1 FROM chat_conversations v
+                JOIN chat_room_members mb ON mb.conversation_id = v.id AND mb.tenant_id = @tenant
+               WHERE v.tenant_id = @tenant AND v.channel = 7 AND v.account_id = ''
+                 AND v.contact_external_id = @roomKey AND v.surface = 0 AND v.source_thread_id = ''
+                 AND mb.user_id = @userId AND mb.left_utc IS NULL)
+            """, new { tenant, roomKey, userId }, cancellationToken: ct));
+    }
+
+    /// <summary>
     /// Có phải thành viên phòng không — CHỈ cho đường tải tệp lên: phải hỏi TRƯỚC khi đẩy byte lên kho,
     /// không thì người ngoài phòng vẫn đổ được tệp vào kho rồi mới bị từ chối. Đường đọc/ghi tin
     /// không dùng hàm này (kiểm gộp trong câu, xem ghi chú lớp).

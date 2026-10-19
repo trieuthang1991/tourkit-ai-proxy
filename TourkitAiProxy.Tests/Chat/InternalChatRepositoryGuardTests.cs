@@ -105,6 +105,37 @@ public class InternalChatRepositoryGuardTests
         Assert.Equal("anh", a.Kind);
     }
 
+    // ── Quyền vào phòng theo cơ hội: hỏi CRM bằng phiên của chính người đó ──
+
+    [Theory]
+    [InlineData(200, true)]    // CRM trả được cơ hội → người này xem được (kể cả nhờ quyền xem tất cả)
+    [InlineData(403, false)]   // CRM từ chối dứt khoát
+    [InlineData(404, false)]   // không có / không thuộc phạm vi xem
+    [InlineData(502, null)]    // CRM hỏng → KHÔNG BIẾT (chỗ gọi phải chặn, không được cho qua)
+    [InlineData(500, null)]
+    public void Quyen_xem_co_hoi_tu_ma_CRM(int status, bool? ketQua)
+        => Assert.Equal(ketQua, TourkitAiProxy.Services.Deals.DealOpportunityClient.ViewAccessFromStatus(status));
+
+    // Luật bên web (BookingTicketAction: CH_XEM_ALL xem tất cả; chỉ CH_XEM thì lọc theo chính mình).
+    [Theory]
+    [InlineData(7, 7, null, true)]           // người tạo
+    [InlineData(7, 3, ",1,7,9,", true)]      // người phụ trách (DB lưu ",1,7,9,")
+    [InlineData(7, 3, "1,7", true)]          // dạng CSV thường
+    [InlineData(7, 3, ",17,70,", false)]     // KHÔNG khớp nhầm 17/70 với 7
+    [InlineData(7, 3, null, false)]
+    [InlineData(7, 3, "", false)]
+    [InlineData(7, null, " , ,abc", false)]  // dữ liệu bẩn
+    public void Co_hoi_cua_minh(int me, int? insUid, string? phuTrach, bool ok)
+        => Assert.Equal(ok, TourkitAiProxy.Domain.Deals.DealAccess.IsOwner(me, insUid, phuTrach));
+
+    [Fact]
+    public void Vao_phong_co_hoi_phai_kiem_quyen_CRM_khi_chua_la_thanh_vien()
+    {
+        var src = ChatSchemaGuardTests.DocFile("TourkitAiProxy.Endpoints/InternalChatEndpoints.cs");
+        Assert.Contains("IsMemberByKeyAsync(", src);
+        Assert.Contains("CanViewAsync(", src);
+    }
+
     // ── SQL ──────────────────────────────────────────────────────────────
 
     private static string Repo() => ChatSchemaGuardTests.DocFile(

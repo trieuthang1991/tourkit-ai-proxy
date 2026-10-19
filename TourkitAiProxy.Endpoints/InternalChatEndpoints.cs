@@ -41,7 +41,8 @@ public static class InternalChatEndpoints
         });
 
         g.MapPost("/rooms", async (HttpContext ctx, TkSessionStore sessions, InternalChatRepository repo,
-            TourKitApiClient api, RedisStore redis, ILoggerFactory lf, CancellationToken ct) =>
+            TourKitApiClient api, RedisStore redis, ILoggerFactory lf,
+            TourkitAiProxy.Services.Deals.DealOpportunityClient deals, CancellationToken ct) =>
         {
             var (loi, a, me) = await GuardAsync(ctx, sessions, repo, ct);
             if (loi is not null) return loi;
@@ -68,6 +69,22 @@ public static class InternalChatEndpoints
             catch (ArgumentException ex) { return Bad(ex.Message); }
 
             if (await CheckStaffAsync(others, sessions, api, redis, a!, lf, ct) is { } sai) return sai;
+
+            // Phòng theo CƠ HỘI: ai xem được cơ hội đó theo luật của web thì vào được (CH_XEM_ALL: mọi
+            // cơ hội; chỉ CH_XEM: cơ hội mình tạo/phụ trách). CHỈ kiểm lần đầu (chưa là thành viên);
+            // đã là thành viên thì mở lại/gửi tin không tốn gì thêm. Có CH_XEM_ALL thì không gọi CRM.
+            // Đơn hàng / công ty: CHƯA kiểm — xem docs.
+            if (type == "deal" && !await repo.IsMemberByKeyAsync(a!.TenantId, key, me, ct))
+            {
+                await sessions.EnsurePermissionsAsync(a.SessionId, ct);
+                var xem = await deals.CanViewAsync(a.SessionId, req.EntityId!.Trim(), me,
+                    viewAll: sessions.HasPermission(a.SessionId, TkPermissionCodes.CoHoiXemTatCa),
+                    viewOwn: sessions.HasPermission(a.SessionId, TkPermissionCodes.CoHoiXem), ct);
+                if (xem is null)
+                    return Results.Json(new { error = "Chưa kiểm được quyền xem cơ hội với CRM — thử lại sau" }, statusCode: 503);
+                if (xem == false)
+                    return Results.Json(new { error = "Bạn không có quyền xem cơ hội này" }, statusCode: 403);
+            }
 
             var title = string.IsNullOrWhiteSpace(req.Title) ? null : req.Title.Trim()[..Math.Min(req.Title.Trim().Length, 120)];
             var entityId = InternalRoomKey.IsEntityType(type) ? req.EntityId!.Trim() : null;

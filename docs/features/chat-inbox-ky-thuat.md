@@ -990,6 +990,12 @@ mới thì tự thêm `channel <> 7` và thêm tên hàm vào bài canh.
   **trần 100** (phòng bỏ quên không kéo chậm danh sách).
 - Cấu hình phòng (đổi tên, thêm, bỏ, rời): **mọi thành viên** của nhóm/đơn/công ty đều được; không
   lưu người tạo. Muốn chỉ người tạo được bỏ người thì phải thêm cột.
+- **Vào phòng theo cơ hội (`deal:{id}`) = ai nhìn thấy cơ hội đó** (chốt 19/10/2026), đúng luật web
+  `BookingTicketAction`: `CH_XEM_ALL` → mọi cơ hội (không gọi CRM); chỉ `CH_XEM` → cơ hội mình tạo
+  (`InsUid`) hoặc phụ trách (`NguoiPhuTrachs`), đọc chi tiết MỘT lần; không có `CH_XEM` → 403. Chỉ kiểm
+  lúc **chưa là thành viên** (`IsMemberByKeyAsync`) → mở lại/gửi tin không tốn gì thêm. KHÔNG dùng
+  "CRM trả được chi tiết là xem được": đường chi tiết trả dữ liệu cho cả người không có quyền nào, và
+  trả thành công rỗng cho mã không tồn tại (đo trên staging). Phòng đơn hàng / công ty: **chưa kiểm**.
 - Thêm người phải thuộc danh sách nhân viên ERP của công ty (`ChatStaffDirectory`, đệm Redis 2h,
   dùng chung với `/assign-settings`) — mã người là số đoán được.
 - Dọn theo mốc (`ChatRepository.PruneAsync`, hiện CHƯA được gọi ở đâu) loại kênh 7: phòng nội bộ

@@ -366,6 +366,47 @@ public class DealOpportunityClient
         return new DealContext(profile, Fingerprint(profile), commentCount);
     }
 
+    /// <summary>
+    /// Người dùng có XEM được cơ hội này không — luật của web (<see cref="Domain.Deals.DealAccess"/>):
+    /// xem tất cả → được, KHÔNG gọi CRM; không có quyền xem → không, KHÔNG gọi CRM; chỉ xem của mình →
+    /// đọc chi tiết cơ hội MỘT lần để biết họ có là người tạo / người phụ trách không.
+    /// true = xem được · false = không · null = không đọc được CRM (chỗ gọi phải CHẶN).
+    ///
+    /// <para>Không dùng "CRM trả được chi tiết là xem được": đường chi tiết trả dữ liệu cho cả người
+    /// không có quyền nào, và trả thành công rỗng cho mã không tồn tại (đo trên staging 19/10/2026).</para>
+    /// </summary>
+    public async Task<bool?> CanViewAsync(string sessionId, string dealId, int me, bool viewAll, bool viewOwn,
+        CancellationToken ct)
+    {
+        if (!long.TryParse(dealId, out var id) || id <= 0) return false;
+        if (viewAll) return true;
+        if (!viewOwn) return false;
+        try
+        {
+            var d = await GetAsync(sessionId, $"/api/booking-tickets/{id}", ct);
+            if (d.ValueKind != JsonValueKind.Object) return false;   // không tồn tại
+            return Domain.Deals.DealAccess.IsOwner(me, GetInt(d, "insUid"), GetStr(d, "nguoiPhuTrachs"));
+        }
+        catch (TourKitApiException ex)
+        {
+            _log.LogInformation("[deal] kiểm quyền xem cơ hội {Id} → {S}", id, ex.Status);
+            return ViewAccessFromStatus(ex.Status);
+        }
+        catch (Exception ex) when (!ct.IsCancellationRequested)
+        {
+            _log.LogWarning(ex, "[deal] không kiểm được quyền xem cơ hội {Id}", id);
+            return null;
+        }
+    }
+
+    /// Mã HTTP của CRM → quyền xem. Chỉ 403/404 là từ chối DỨT KHOÁT; lỗi máy chủ là "không biết".
+    public static bool? ViewAccessFromStatus(int status) => status switch
+    {
+        >= 200 and < 300 => true,
+        403 or 404 => false,
+        _ => null,
+    };
+
     // ─── helpers ───────────────────────────────────────────────────────────────────
     private async Task<JsonElement> GetAsync(string sessionId, string path, CancellationToken ct)
     {
