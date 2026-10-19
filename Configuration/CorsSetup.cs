@@ -16,7 +16,11 @@ public static class CorsSetup
             )
             .AllowAnyHeader()
             .AllowAnyMethod()
-            .SetIsOriginAllowed(_ => true)   // dev only — siết lại khi deploy prod
+            // MỞ CHO MỌI ORIGIN — cố ý, cả trên prod (chốt 19/10/2026): widget chat nội bộ và widget
+            // trợ lý được nhúng vào CRM của từng công ty, mỗi nơi một tên miền. Xác thực đi bằng
+            // header X-Session-Id / token, KHÔNG dùng cookie (không AllowCredentials), nên mở origin
+            // không cho trang lạ mượn phiên của ai.
+            .SetIsOriginAllowed(_ => true)
         ));
         return services;
     }

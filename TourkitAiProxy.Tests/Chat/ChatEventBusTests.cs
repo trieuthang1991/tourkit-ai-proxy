@@ -255,6 +255,78 @@ public class ChatEventBusTests
         Assert.Equal(2, nhan.Count);
     }
 
+    // ── Chat nội bộ: Recipients tách hai thế giới ngay trong bus ─────────────
+    //
+    // Mỗi test bắn sự kiện CẤM trước rồi một sự kiện MỐC được phép sau; kênh giữ đúng thứ tự nên
+    // nhận đúng một sự kiện và đó là mốc = sự kiện cấm đã bị lọc (cùng lối test người bị giới hạn).
+
+    private static async Task<List<ChatEvent>> NgheMotAsync(ChatEventBus bus,
+        Func<CancellationToken, IAsyncEnumerable<ChatEvent>> nghe, Action ban)
+    {
+        var nhan = new List<ChatEvent>();
+        using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(3));
+        var doc = Task.Run(async () => { await foreach (var e in nghe(cts.Token)) nhan.Add(e); });
+        await ChoDangKyAsync(bus, cts.Token);
+        ban();
+        await ChoNhanDuAsync(nhan, 1, cts.Token);
+        cts.Cancel();
+        try { await doc; } catch (OperationCanceledException) { }
+        return nhan;
+    }
+
+    [Fact]
+    public async Task Su_kien_noi_bo_chi_toi_thanh_vien()
+    {
+        var bus = new ChatEventBus(null);
+        var nhan = await NgheMotAsync(bus, ct => bus.SubscribeInternalAsync("A", 8, ct), () =>
+        {
+            bus.Publish(new ChatEvent("A", 1, "noi-bo", 10) { Recipients = new[] { 7 } });   // không phải 8
+            bus.Publish(new ChatEvent("B", 2, "noi-bo", 20) { Recipients = new[] { 8 } });   // khác công ty
+            bus.Publish(new ChatEvent("A", 3, "noi-bo", 30) { Recipients = new[] { 7, 8 } });
+        });
+        Assert.Single(nhan);
+        Assert.Equal(3, nhan[0].ConversationId);
+    }
+
+    [Fact]
+    public async Task Su_kien_noi_bo_khong_toi_hop_thu_khach_ke_ca_admin()
+    {
+        // Admin xem tất cả hộp thư khách — nếu nhận cả tin nội bộ thì tab khách tải lại theo từng
+        // câu nhân viên nhắn nhau, và lộ nhịp trao đổi nội bộ sang màn hình khác.
+        var bus = new ChatEventBus(null);
+        var nhan = await NgheMotAsync(bus, ct => bus.SubscribeAsync("A", NguoiXem.HeThong, ct), () =>
+        {
+            bus.Publish(new ChatEvent("A", 1, "noi-bo", 10) { Recipients = new[] { 7 } });
+            bus.Publish(new ChatEvent("A", 2, "tin-moi", 20));
+        });
+        Assert.Single(nhan);
+        Assert.Equal(2, nhan[0].ConversationId);
+    }
+
+    [Fact]
+    public async Task Su_kien_khach_khong_toi_nguoi_nghe_noi_bo()
+    {
+        var bus = new ChatEventBus(null);
+        var nhan = await NgheMotAsync(bus, ct => bus.SubscribeInternalAsync("A", 7, ct), () =>
+        {
+            bus.Publish(new ChatEvent("A", 1, "tin-moi", 10) { AssignedUserId = 7 });
+            bus.Publish(new ChatEvent("A", 2, "noi-bo", 20) { Recipients = new[] { 7 } });
+        });
+        Assert.Single(nhan);
+        Assert.Equal(2, nhan[0].ConversationId);
+    }
+
+    [Fact]
+    public async Task Recipients_song_sot_qua_Pack_Unpack()
+    {
+        var bus = new ChatEventBus(null);
+        var nhan = await NgheMotAsync(bus, ct => bus.SubscribeInternalAsync("A", 7, ct), () =>
+            bus.FromRemote(ChatEventBus.Pack("instance-khac",
+                new ChatEvent("A", 5, "noi-bo", 50) { Recipients = new[] { 3, 7 } })));
+        Assert.Single(nhan);
+        Assert.Equal(new[] { 3, 7 }, nhan[0].Recipients);
+    }
+
     /// Chờ tới khi đủ số người nghe đã đăng ký. Ngủ một khoảng cố định thì test lúc xanh lúc đỏ
     /// trên máy chạy chậm — thứ tệ hơn cả không có test, vì người sau sẽ chạy lại cho tới khi xanh.
     private static async Task ChoDangKyAsync(ChatEventBus bus, CancellationToken ct, int can = 1)

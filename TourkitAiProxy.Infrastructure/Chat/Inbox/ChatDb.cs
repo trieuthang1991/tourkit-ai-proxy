@@ -749,5 +749,32 @@ public class ChatDb
       ADD COLUMN IF NOT EXISTS member_ids integer[] NOT NULL DEFAULT '{}';
     ALTER TABLE chat_assign_settings
       ADD COLUMN IF NOT EXISTS paused_ids integer[] NOT NULL DEFAULT '{}';
+
+    -- Chat nội bộ giữa nhân viên (channel = 7). Phòng là một dòng chat_conversations;
+    -- contact_external_id là KHOÁ PHÒNG (direct:a:b / order:id / company:id / group:guid) và chống
+    -- trùng bằng chính ux_conv_scope_surface. Ba cột dưới nullable, không default → chỉ ghi metadata.
+    ALTER TABLE chat_conversations ADD COLUMN IF NOT EXISTS entity_type text;
+    ALTER TABLE chat_conversations ADD COLUMN IF NOT EXISTS entity_id   text;
+    ALTER TABLE chat_conversations ADD COLUMN IF NOT EXISTS title       text;
+    -- Mã người gửi. sender_username là chữ; cả cụm chat đã chuẩn hoá sang mã người (đặc tả 4b).
+    ALTER TABLE chat_messages ADD COLUMN IF NOT EXISTS sender_user_id integer;
+    -- Lần sửa cuối của tin nội bộ (người gửi tự sửa). NULL = chưa sửa. Nullable → chỉ ghi metadata.
+    ALTER TABLE chat_messages ADD COLUMN IF NOT EXISTS edited_utc timestamptz;
+
+    -- Thành viên phòng nội bộ. left_utc NULL = còn là thành viên (chưa có API rời phòng — cột để sẵn).
+    -- "Phòng của tôi" (ListRoomsAsync) đi bằng ix_room_members_user; vị từ phải khớp câu WHERE.
+    CREATE TABLE IF NOT EXISTS chat_room_members (
+      conversation_id bigint      NOT NULL REFERENCES chat_conversations(id) ON DELETE CASCADE,
+      tenant_id       text        NOT NULL,
+      user_id         integer     NOT NULL,
+      joined_utc      timestamptz NOT NULL DEFAULT now(),
+      left_utc        timestamptz,
+      PRIMARY KEY (conversation_id, user_id)
+    );
+    CREATE INDEX IF NOT EXISTS ix_room_members_user
+      ON chat_room_members (tenant_id, user_id) WHERE left_utc IS NULL;
+    -- "Xoá phía tôi" (xoá mềm, riêng một người): ẩn phòng khỏi danh sách của người đó và ẩn tin cũ hơn
+    -- mốc này. Có tin mới sau mốc thì phòng tự hiện lại (chỉ với tin mới). Nullable → chỉ ghi metadata.
+    ALTER TABLE chat_room_members ADD COLUMN IF NOT EXISTS hidden_utc timestamptz;
     """;
 }

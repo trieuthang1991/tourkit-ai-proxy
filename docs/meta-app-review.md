@@ -111,47 +111,7 @@ thấy. Và xác minh doanh nghiệp cũng soi email theo tên miền — Gmail 
 
 ---
 
-## Bước 2 — Xác minh doanh nghiệp
-
-`business.facebook.com` → **Cài đặt doanh nghiệp** → **Trung tâm bảo mật** → *Bắt đầu xác minh*.
-
-### Giấy tờ (Việt Nam)
-
-| Cần | Ghi chú |
-|---|---|
-| Giấy chứng nhận **đăng ký doanh nghiệp** | Bản scan màu, đọc rõ số và tên |
-| **Mã số thuế** | Thường nằm luôn trên ĐKKD |
-| Số điện thoại doanh nghiệp | Meta gọi hoặc nhắn mã xác minh |
-| Website | `travelai.vn` — phải sống và có nhắc tên công ty |
-
-### Bốn lý do bị trả về hay gặp nhất
-
-1. **Tên không khớp từng chữ.** Trên ĐKKD là *"Công ty TNHH ..."* thì trong Business Portfolio
-   phải ghi y hệt — không rút gọn thành "TourKit", không bỏ "Công ty TNHH".
-2. **Địa chỉ viết tắt khác nhau.** "P." với "Phường", "Q.1" với "Quận 1" — Meta so máy móc.
-3. **Số điện thoại không nhận được mã.** Dùng số công ty đang hoạt động, có người nghe.
-4. **Website không nhắc tên pháp nhân.** Thêm tên công ty + địa chỉ vào chân trang `travelai.vn`.
-
-Thường mất **2–5 ngày làm việc**.
-
----
-
-## Bước 3 — Xác minh quyền truy cập (Tech Provider)
-
-Meta hỏi vì sao bạn cần chạm dữ liệu của doanh nghiệp khác. Trả lời:
-
-> TourKit AI is a multi-tenant SaaS inbox for Vietnamese travel agencies. Each agency connects
-> **its own** Facebook Page through Facebook Login. We never access Pages we do not have explicit,
-> revocable consent for. The agency remains the data controller for its customers' conversations;
-> TourKit AI acts as a processor that stores and displays those conversations to that agency's own
-> staff, and drafts suggested replies.
-
-⚠️ **Không quay lại được** sau khi thành Tech Provider. Kèm rà soát định kỳ và yêu cầu bảo vệ dữ
-liệu chặt hơn.
-
----
-
-## Bước 4 — App Review từng quyền
+## Bước 2 — App Review từng quyền
 
 ### `pages_show_list`
 
@@ -200,21 +160,161 @@ không lỗi, mà `/me/accounts` trả rỗng.)*
 
 Đây là chỗ bị trả về nhiều nhất. Meta đòi thấy **thao tác thật**, không nhận ảnh ghép hay slide.
 
+### Trước khi bấm ghi — phải xoá quyền cũ, nếu không mất luôn màn hình đồng ý
+
+Facebook **nhớ lựa chọn Trang của lần trước**. Bấm "Kết nối Facebook" lần thứ hai thì nó bỏ qua
+luôn bước chọn Trang, và màn hình đồng ý — thứ Meta bắt buộc phải thấy ở bước 3 — không hiện ra
+nữa. Quay trong tình trạng đó là quay một video chắc chắn bị trả về.
+
+Xoá quyền cũ ở **tài khoản Facebook cá nhân** — không phải ở Trang. Quyền được cấp ở cấp
+người dùng; Trang chỉ là tài sản được chọn trong đó, nên ở Trang không có gì để gỡ.
+
+```
+https://www.facebook.com/settings?tab=business_tools
+```
+
+Tìm **TourKit AI** → **Xóa**. Lần kết nối sau đó mới ra màn hình đồng ý đầy đủ kèm danh sách Trang.
+
+⚠️ **Đừng tìm ở `settings?tab=applications`.** App xin quyền Trang / `business_management` bị Facebook
+xếp là **business integration**, và những app đó **không hiện** trong danh sách "Ứng dụng và trang
+web" thường. Tìm ở đó không thấy rồi tưởng đã gỡ, quay video xong mới biết là mất cả buổi
+(03/09/2026).
+
+Không thấy ở đâu cả thì có đường không phụ thuộc giao diện: `developers.facebook.com/tools/explorer`
+→ chọn app TourKit AI → phương thức **DELETE** → đường dẫn `me/permissions` → Submit.
+
+⚠️ Thu hồi quyền làm **đứt kết nối của mọi Trang đang chạy**: khoá Trang đã lưu hết hiệu lực ngay
+lập tức, hộp thư ngừng nhận và ngừng gửi tin cho tới khi có người nối lại. Trang của khách thật thì
+làm ngoài giờ và nối lại ngay trong cùng buổi — đừng để qua đêm.
+
+*(Chính chuyện này là lý do ứng dụng báo "Facebook chỉ trả về Trang đã nối từ trước" — 03/09/2026.)*
+
+### Công cụ quay — Xbox Game Bar KHÔNG dùng được
+
+Bước cấp quyền Facebook mở trong **cửa sổ phụ** (`moCuaSoCapQuyen('chat-cap-quyen')`), không phải
+tab mới. Xbox Game Bar (`Win+Alt+R`) chỉ quay **cửa sổ đang focus**, nên đúng lúc cửa sổ phụ bật
+lên là hình ngừng — mất luôn màn hình đồng ý, tức mất đúng thứ Meta bắt buộc phải thấy. Quay xong
+mở ra xem mới biết.
+
+Dùng **OBS Studio** (nguồn *Display Capture*) hoặc **ShareX** (quay toàn màn hình). Quay cả desktop,
+không quay theo cửa sổ.
+
 ### Kịch bản — quay một mạch, không cắt
 
-1. Mở `travelai.vn`, đăng nhập vào TourKit AI *(chuẩn bị sẵn tài khoản thử cho người duyệt)*
-2. Vào **Hộp thư chat** → bấm **Kết nối kênh** → **Kết nối Facebook**
-3. **Quay rõ màn hình đồng ý của Facebook** — thấy được danh sách quyền đang xin. *Bắt buộc.*
-4. Chọn Page **tourkitvn** → quay lại ứng dụng, thấy Page đã nối
-5. Lấy điện thoại nhắn một tin tới Page đó
-6. Tin hiện trong hộp thư → gõ trả lời → quay sang điện thoại cho thấy khách **nhận được**
-7. Bấm **Gỡ nối** để cho thấy dữ liệu ngừng chảy khi agency thôi dùng
+Nhãn dưới đây là nhãn thật trong mã, không phải mô tả:
+
+| # | Thao tác | Khung phải thấy gì |
+|---|---|---|
+| 1 | Mở `travelai.vn`, đăng nhập | Trang đăng nhập → vào được |
+| 2 | Vào **Hộp thư chat** | Hộp thư |
+| 3 | Bấm nút **+ Kết nối kênh** (góc phải hàng tiêu đề) | Bảng danh sách kênh mở ra |
+| 4 | Dòng Messenger → **Kết nối Facebook** | Cửa sổ phụ bật lên |
+| 5 | **Màn hình đồng ý của Facebook** | Thấy rõ **danh sách quyền đang xin**. *Bắt buộc — thiếu là trả về.* |
+| 6 | Chọn Trang **tourkitvn** trong danh sách | Danh sách Trang, và Trang được chọn |
+| 7 | Về ứng dụng, bấm **Tải lại** | Trang đã nối hiện trong danh sách tài khoản |
+| 8 | Điện thoại nhắn một tin tới Trang | Tay bấm trên điện thoại |
+| 9 | Tin hiện trong hộp thư → gõ trả lời | Tin vào, câu trả lời gửi ra |
+| 10 | Quay sang điện thoại | Khách **nhận được** câu trả lời |
+| 11 | **+ Kết nối kênh** → bung dòng tài khoản → **Gỡ kết nối** | Hộp xác nhận, rồi tài khoản biến mất |
+
+Bước 11 là thứ Meta muốn thấy cho `pages_manage_metadata`: dữ liệu **ngừng chảy** khi agency thôi
+dùng. Nút gỡ gọi `DELETE /channels/{kênh}/accounts/{id}`, và endpoint đó **báo Meta trước khi xoá
+khoá** — huỷ `subscribed_apps` xong mới xoá, vì xoá khoá trước thì không còn gì để gọi lệnh huỷ.
+
+⚠️ **Tài khoản thử giao cho người duyệt phải có quyền "Cấu hình hệ thống".** Không có thì họ đăng
+nhập vào, bấm Kết nối kênh và chỉ thấy dòng *"Chỉ tài khoản có quyền Cấu hình hệ thống mới khai
+được kết nối kênh."* — họ không tái hiện được gì và trả về hồ sơ, dù video đúng.
+
+### Bước tái hiện — bản tiếng Anh để dán vào Meta
+
+Ô *"Vui lòng cung cấp hướng dẫn để tạo lại tính năng này"* ở màn **Cách sử dụng hợp lệ** đòi bản
+này. Giữ nguyên nhãn tiếng Việt trong ngoặc — giao diện app là tiếng Việt, người duyệt phải tìm
+đúng chữ trên màn hình.
+
+> **Test account:** provided in the reviewer credentials field. The account already has the
+> "Cấu hình hệ thống" (System configuration) permission, which is required to open the channel
+> connection screen.
+>
+> 1. Sign in at https://travelai.vn with the test account provided.
+> 2. Open **Hộp thư chat** (Chat inbox) from the left sidebar.
+> 3. Click **+ Kết nối kênh** (Connect a channel), top right of the header row.
+> 4. On the **Messenger** row, click **Kết nối Facebook** (Connect Facebook). A popup window opens.
+> 5. Complete the Facebook consent screen and select the Page you want to connect.
+> 6. Back in the app, click **Tải lại** (Reload). The connected Page now appears in the account list.
+> 7. From any Facebook account, send a message to that Page. It appears in the inbox within a few
+>    seconds. Type a reply and send it — it is delivered to the customer as the Page.
+> 8. To stop all data flow: **+ Kết nối kênh** → expand the account row → **Gỡ kết nối**
+>    (Disconnect). The app unsubscribes the Page from our webhook and deletes the stored token.
+
+Bước 8 là câu trả lời cho `pages_manage_metadata`: người duyệt cần thấy dữ liệu **ngừng chảy** khi
+agency thôi dùng, không chỉ thấy lúc bắt đầu.
 
 ### Ba lỗi làm hỏng video
 
 - Thiếu bước 3 (màn hình đồng ý) — gần như chắc chắn bị trả về
 - Quay bằng tài khoản Admin của app: người duyệt muốn thấy luồng của **người dùng thường**
 - Không cho thấy dữ liệu **dùng vào việc gì** sau khi cấp quyền
+
+---
+
+## Bước 3 — Xác minh doanh nghiệp
+
+`business.facebook.com` → **Cài đặt doanh nghiệp** → **Trung tâm bảo mật** → *Bắt đầu xác minh*.
+
+### Chọn loại doanh nghiệp — sai là bị trả về
+
+Meta hỏi *"Doanh nghiệp này thuộc loại nào?"* với năm ô. Với **CÔNG TY CỔ PHẦN TOURKIT VIỆT NAM**
+chọn **Công ty tư nhân**.
+
+| Ô | Chọn? | Vì sao |
+|---|---|---|
+| Tập đoàn | ❌ | Mô tả ghi rõ *"niêm yết công khai"* — công ty đại chúng có mã trên sàn. TourKit là CTCP nhưng **không niêm yết**, Meta sẽ đi tìm hồ sơ sàn rồi trả về |
+| Doanh nghiệp đơn danh | ❌ | Một người kinh doanh dưới tên khác (DBA) |
+| Công ty hợp danh | ❌ | Loại hình hợp danh |
+| **Công ty tư nhân** | ✅ | Bản dịch của *privately held company* — công ty không đại chúng, **mọi loại hình**. CTCP chưa lên sàn nằm đúng đây |
+| Tổ chức | ❌ | Nhà nước, giáo dục, bệnh viện, phi lợi nhuận |
+
+⚠️ **"Công ty tư nhân" ở đây KHÔNG phải "Doanh nghiệp tư nhân" của luật Việt Nam** (một chủ, trách
+nhiệm vô hạn). Dòng ví dụ *"chẳng hạn như Công ty TNHH (LLC)"* là ví dụ, không phải giới hạn — đọc
+nó rồi kết luận "công ty mình là Cổ phần nên không thuộc nhóm này" là sai, và cái sai đó đẩy người
+ta sang ô Tập đoàn.
+
+Cũng đừng nhầm sang xác minh **cá nhân**: xác minh gắn với pháp nhân, xác minh cho tài khoản cá
+nhân rồi muốn đổi sang công ty là bỏ đi làm lại từ đầu.
+
+### Giấy tờ (Việt Nam)
+
+| Cần | Ghi chú |
+|---|---|
+| Giấy chứng nhận **đăng ký doanh nghiệp** | Bản scan màu, đọc rõ số và tên |
+| **Mã số thuế** | Thường nằm luôn trên ĐKKD |
+| Số điện thoại doanh nghiệp | Meta gọi hoặc nhắn mã xác minh |
+| Website | `travelai.vn` — phải sống và có nhắc tên công ty |
+
+### Bốn lý do bị trả về hay gặp nhất
+
+1. **Tên không khớp từng chữ.** Trên ĐKKD là *"Công ty TNHH ..."* thì trong Business Portfolio
+   phải ghi y hệt — không rút gọn thành "TourKit", không bỏ "Công ty TNHH".
+2. **Địa chỉ viết tắt khác nhau.** "P." với "Phường", "Q.1" với "Quận 1" — Meta so máy móc.
+3. **Số điện thoại không nhận được mã.** Dùng số công ty đang hoạt động, có người nghe.
+4. **Website không nhắc tên pháp nhân.** Thêm tên công ty + địa chỉ vào chân trang `travelai.vn`.
+
+Thường mất **2–5 ngày làm việc**.
+
+---
+
+## Bước 4 — Xác minh quyền truy cập (Tech Provider)
+
+Meta hỏi vì sao bạn cần chạm dữ liệu của doanh nghiệp khác. Trả lời:
+
+> TourKit AI is a multi-tenant SaaS inbox for Vietnamese travel agencies. Each agency connects
+> **its own** Facebook Page through Facebook Login. We never access Pages we do not have explicit,
+> revocable consent for. The agency remains the data controller for its customers' conversations;
+> TourKit AI acts as a processor that stores and displays those conversations to that agency's own
+> staff, and drafts suggested replies.
+
+⚠️ **Không quay lại được** sau khi thành Tech Provider. Kèm rà soát định kỳ và yêu cầu bảo vệ dữ
+liệu chặt hơn.
 
 ---
 
@@ -238,7 +338,9 @@ Terms of Service URL   (tuỳ chọn — bỏ trống vẫn lên Live được)
 kiểm là dựng sẵn cửa cho người ngoài xoá dữ liệu khách của mọi công ty. Xoá xong nó trả về
 `{ url, confirmation_code }`; người dùng mở `url` đó xem đã xoá những gì.
 
-Cả hai đường trên **đã sống, mở được không cần đăng nhập** — kiểm ngày 29/08/2026.
+Kiểm lại 03/09/2026: `/privacy` và `/dieu-khoan` trả 200 khi mở bằng trình duyệt, không
+cần đăng nhập. Đường callback chỉ nhận **POST** — mở bằng trình duyệt ra **404, và đó là
+đúng**, đừng "sửa" thành GET được; kiểm nó bằng một POST chữ ký sai, phải trả **400**.
 
 ---
 

@@ -31,13 +31,14 @@ public class ChatInboundService
     private readonly ChatMediaMirror _soiTep;
     private readonly ChatEventBus _bus;
     private readonly ChatAssignRepository _assign;
+    private readonly ChatAgentPermissions _agents;
 
     public ChatInboundService(ChatRepository repo, IEnumerable<IChatChannelAdapter> adapters,
         ChatReplyComposer soan,
         ILogger<ChatInboundService> log, ChatEventBus bus, ChatWorkSignal tin,
         ChatBotSettingsRepository cauHinh, ChatMediaMirror soiTep,
-        ChatAssignRepository assign)
-    { _repo = repo; _adapters = adapters; _soan = soan; _log = log; _bus = bus; _tin = tin; _cauHinh = cauHinh; _soiTep = soiTep; _assign = assign; }
+        ChatAssignRepository assign, ChatAgentPermissions agents)
+    { _repo = repo; _adapters = adapters; _soan = soan; _log = log; _bus = bus; _tin = tin; _cauHinh = cauHinh; _soiTep = soiTep; _assign = assign; _agents = agents; }
 
     public IChatChannelAdapter? Adapter(ChatChannel kenh)
         => _adapters.FirstOrDefault(a => a.Channel == kenh);
@@ -140,7 +141,10 @@ public class ChatInboundService
         // sử.
         if (_assign.Configured && !e.IsHistory)
         {
-            var maNguoiNhan = await _assign.GanXoayVongAsync(hoiThoai.TenantId, hoiThoai.Id, ct);
+            // Bỏ qua người trong đội trực mà đã bị rút quyền chat. Ở đây không có phiên đăng nhập
+            // nên chỉ đọc danh sách đã lưu; chưa có thì chia như cũ — xem ChatAgentPermissions.
+            var maNguoiNhan = await _assign.GanXoayVongAsync(hoiThoai.TenantId, hoiThoai.Id, ct,
+                _agents.GetCachedOnly(hoiThoai.TenantId));
             if (maNguoiNhan is not null)
             {
                 // ChatConversation là CLASS có property đặt được, không phải record — gán thẳng,

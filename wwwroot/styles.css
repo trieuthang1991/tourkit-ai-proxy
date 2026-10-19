@@ -10931,6 +10931,10 @@ img.ci-avt { object-fit: cover; }
 .ci-pc-chip button { display: inline-flex; padding: 3px; border: 0; border-radius: 999px;
                      background: transparent; color: var(--text-3); cursor: pointer; }
 .ci-pc-chip button:hover { background: #FEF2F2; color: var(--danger); }
+/* Người trong đội trực đã bị rút quyền chat — vòng xoay bỏ qua họ. Gạch + mờ để đọc ra ngay
+   "đang trong đội nhưng không nhận việc", cùng ý với người tạm nghỉ. */
+.ci-pc-chip.mat-quyen { border-style: dashed; color: var(--text-3); }
+.ci-pc-chip.mat-quyen .ci-pc-chip-ten { text-decoration: line-through; }
 
 /* Ô chọn không giãn hết chiều ngang: đứng cạnh bộ đếm và nút "Bỏ hết" trên CÙNG một hàng,
    cùng một chiều cao — xem khối "MỘT HÀNG, MỘT CHIỀU CAO". */

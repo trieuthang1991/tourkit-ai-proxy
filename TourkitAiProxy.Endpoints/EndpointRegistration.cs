@@ -37,6 +37,7 @@ public static class EndpointRegistration
 
         MapBanTin(app, cfg);
         MapHopThuChat(app, cfg);
+        MapChatNoiBo(app, cfg);
 
         app.MapTourEndpoints();
         app.MapTourPriceEndpoints();     // GET /api/v1/tour-price/candidates — ứng viên giá NCC cho wizard
@@ -93,6 +94,21 @@ public static class EndpointRegistration
     /// </summary>
     private static void MapHopThuChat(WebApplication app, IConfiguration cfg)
         => app.MapChatInboxEndpoints();
+
+    /// <summary>
+    /// Chat nội bộ nằm sau cờ <c>Features:InternalChat</c>. Tắt thì trả 404 JSON tường minh — không
+    /// map thì đường dẫn rơi xuống SPA fallback và widget nhận về một trang HTML kèm 200.
+    /// </summary>
+    private static void MapChatNoiBo(WebApplication app, IConfiguration cfg)
+    {
+        if (FeatureFlags.InternalChat(cfg))
+        {
+            app.MapInternalChatEndpoints();
+            return;
+        }
+        ChanTuongMinh(app, new[] { InternalChatEndpoints.Prefix },
+            "Tính năng chat nội bộ đang tắt (Features:InternalChat=false).");
+    }
 
     /// <summary>Trả 404 JSON tường minh cho một nhóm tiền tố — xem cảnh báo ở đầu lớp.</summary>
     private static void ChanTuongMinh(WebApplication app, IEnumerable<string> tienTo, string loi)

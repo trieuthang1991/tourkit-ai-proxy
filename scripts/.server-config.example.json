@@ -1,0 +1,6 @@
+{
+  "host": "REPLACE_WITH_SERVER_IP",
+  "user": "root",
+  "password": "REPLACE_WITH_PASSWORD",
+  "backupDir": "D:\\path\\to\\backups"
+}

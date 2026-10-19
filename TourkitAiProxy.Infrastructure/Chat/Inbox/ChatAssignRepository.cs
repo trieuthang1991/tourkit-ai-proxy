@@ -208,12 +208,20 @@ public class ChatAssignRepository
     ///
     /// <para>Trả <c>null</c> khi: chế độ không phải xoay vòng · đội trực rỗng · hội thoại đã có
     /// người. Ba trường hợp đều là "không làm gì", chỗ gọi không cần phân biệt.</para>
+    ///
+    /// <para><paramref name="eligibleUserIds"/>: chỉ chia cho người có quyền chat (12/10/2026). Người
+    /// bị rút quyền vẫn nằm trong <c>member_ids</c> — y như người tạm nghỉ — nên cấp lại quyền là có
+    /// lượt ngay. <c>null</c> = không biết ai có quyền (ERP chưa trả lời lần nào) → chia như cũ;
+    /// mệnh đề lọc chỉ được ghép vào khi có danh sách, để không gửi tham số mảng null cho Npgsql.</para>
     /// </summary>
     public async Task<int?> GanXoayVongAsync(
-        string tenant, long conversationId, CancellationToken ct = default)
+        string tenant, long conversationId, CancellationToken ct = default,
+        IReadOnlyCollection<int>? eligibleUserIds = null)
     {
+        var eligible = eligibleUserIds is { Count: > 0 } ? eligibleUserIds.ToArray() : null;
+        var eligibleFilter = eligible is null ? "" : "\n                   AND u = ANY(@eligible)";
         await using var c = await _db.OpenAsync(ct);
-        return await c.ExecuteScalarAsync<int?>("""
+        return await c.ExecuteScalarAsync<int?>($$"""
             WITH doi AS (
                 -- BỎ QUA người đang tạm nghỉ nhận việc. Họ vẫn nằm trong member_ids (giữ chỗ
                 -- trong đội), chỉ không được chia lượt — nên lúc đi làm lại là có lượt ngay,
@@ -225,7 +233,7 @@ public class ChatAssignRepository
                 SELECT u AS user_id
                   FROM chat_assign_settings s, unnest(s.member_ids) u
                  WHERE s.tenant_id = @tenant
-                   AND u <> ALL(COALESCE(s.paused_ids, ARRAY[]::integer[]))
+                   AND u <> ALL(COALESCE(s.paused_ids, ARRAY[]::integer[])){{eligibleFilter}}
             ),
             chon AS (
                 -- ⚠️ Câu này GHI vào chat_assign_settings (đẩy con trỏ) mà KHÔNG dọn bộ nhớ tạm
@@ -254,7 +262,7 @@ public class ChatAssignRepository
               FROM chon
              WHERE v.id = @id AND v.tenant_id = @tenant AND v.assigned_user_id IS NULL
             RETURNING v.assigned_user_id
-            """, new { tenant, id = conversationId });
+            """, new { tenant, id = conversationId, eligible });
     }
 
     /// <summary>
@@ -282,6 +290,8 @@ public class ChatAssignRepository
             SELECT id
               FROM chat_conversations
              WHERE tenant_id = @tenant
+               -- Phòng chat nội bộ (7) nằm chung bảng — vòng quay không được chia nó cho người trực.
+               AND channel <> 7
                AND assigned_user_id IS NULL
                AND archived_at IS NULL
              ORDER BY last_activity_at DESC NULLS LAST

@@ -21,8 +21,11 @@ namespace TourkitAiProxy.Tests.Chat;
 /// </summary>
 public class ChatErpJwtGuardTests
 {
+    // Danh sách nhân viên tách sang ChatStaffDirectory (19/10/2026) — soi cả hai file, file đó trước
+    // vì bài canh thứ hai bám lần xuất hiện ĐẦU TIÊN của /api/ai/reference.
     private static string Nguon()
-        => BoChuThich(ChatSchemaGuardTests.DocFile("TourkitAiProxy.Endpoints/ChatInboxEndpoints.cs"));
+        => BoChuThich(ChatSchemaGuardTests.DocFile("TourkitAiProxy.Endpoints/ChatStaffDirectory.cs") + "\n"
+                    + ChatSchemaGuardTests.DocFile("TourkitAiProxy.Endpoints/ChatInboxEndpoints.cs"));
 
     /// Bỏ chú thích trước khi soi — chú thích của chính bản vá có nhắc tới dạng mã bị cấm,
     /// để nguyên thì bài canh đếm phải chữ của mình và xanh giả.

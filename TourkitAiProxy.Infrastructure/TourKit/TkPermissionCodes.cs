@@ -32,6 +32,11 @@ public static class TkPermissionCodes
     /// </summary>
     public const string CreateTicket = "CH_TAO_MOI";
 
+    /// Xem cơ hội: <c>CH_XEM_ALL</c> = tất cả; chỉ <c>CH_XEM</c> = của mình (người tạo / phụ trách) —
+    /// đúng luật BookingTicketAction bên web. Chat nội bộ dùng để quyết ai vào được phòng cơ hội.
+    public const string CoHoiXem = "CH_XEM";
+    public const string CoHoiXemTatCa = "CH_XEM_ALL";
+
     /// <summary>
     /// Hộp thư chat — xem phần ĐƯỢC GIAO cho mình. Đây là mức tối thiểu để vào được hộp thư.
     /// </summary>

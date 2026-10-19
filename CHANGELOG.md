@@ -13,6 +13,58 @@ Những cập nhật gần đây của TRAV-AI, viết cho người dùng. Mới
 
 ---
 
+## Phiên bản 19/10/2026 — Chat nội bộ ngay trong TRAV-AI
+
+### ✨ Tính năng mới
+- **Nhắn tin nội bộ giữa nhân viên** ngay trong TRAV-AI, không phải mở ứng dụng khác. Bấm nút chat ở góc phải dưới
+  để xem các cuộc trò chuyện, số tin chưa đọc hiện ngay trên nút.
+- **Nhắn một người, hoặc tạo nhóm.** Bấm **Trò chuyện mới**, chọn người, đặt tên nhóm nếu cần.
+  Mở lại cuộc trò chuyện với cùng một người thì luôn quay về đúng cuộc cũ, không sinh thêm.
+- **Ô chat nhỏ nổi**, mở được tối đa hai ô cùng lúc như các ứng dụng nhắn tin quen thuộc. Thu gọn
+  ô vẫn thấy số tin mới; bấm để phóng sang khung lớn khi cần.
+- **Khung lớn hai cột**: bấm nút phóng to để xem danh sách bên trái và cuộc trò chuyện bên phải.
+  Lựa chọn được nhớ cho lần sau.
+- **Gửi ảnh và tệp**: bấm nút kẹp giấy, **dán thẳng ảnh chụp màn hình** (Ctrl+V), hoặc kéo thả tệp
+  vào khung chat. Nhận ảnh, PDF, Word, Excel, PowerPoint, TXT, CSV, ZIP, RAR; tối đa 15 MB mỗi tệp.
+- **Đổi tên phòng, thêm hoặc bớt người, rời phòng** bằng nút bánh răng ở đầu mỗi nhóm.
+- **Nút Chat trên mỗi cơ hội.** Ở màn **Cơ hội**, bấm **Chat** trên dòng, trên thẻ hoặc trong ngăn chi
+  tiết là mở ngay phòng trao đổi của cơ hội đó; người phụ trách được thêm sẵn ngay lần đầu. Ai nhìn
+  thấy cơ hội thì vào được phòng của cơ hội đó.
+- **Sửa tin đã gửi**: di chuột vào tin của bạn, bấm **Sửa**; người khác thấy nội dung mới kèm chữ
+  "đã sửa".
+- **Thu hồi tin của mình** khi gửi nhầm: tin biến mất với mọi người ngay lập tức. Nút thu hồi cần
+  bấm hai lần để tránh lỡ tay.
+- **Xoá cuộc trò chuyện phía bạn**: bấm biểu tượng thùng rác ở đầu cuộc trò chuyện (bấm hai lần).
+  Cuộc trò chuyện biến khỏi danh sách của riêng bạn, người khác vẫn thấy bình thường. Khi có tin mới,
+  nó hiện lại và chỉ còn những tin từ sau lúc bạn xoá.
+- Tin mới hiện ngay, không cần tải lại trang. Đang gõ dở mà có tin tới thì chữ của bạn vẫn còn nguyên.
+
+### 📌 Lưu ý
+- Mọi nhân viên đăng nhập TRAV-AI đều nhắn được, không cần cấp quyền riêng. Riêng phòng của một cơ hội thì
+  chỉ ai nhìn thấy cơ hội đó mới vào được.
+- Cuộc trò chuyện một-một không đổi tên hay thêm người được. Cần bàn nhiều người, hãy tạo nhóm.
+- Ai có đường link của một tệp đã gửi là mở được tệp đó. Đừng gửi giấy tờ nhạy cảm qua đây.
+- Tính năng bật theo từng hệ thống; nếu chưa thấy nút chat, hãy liên hệ quản trị.
+
+---
+
+## Phiên bản 12/10/2026 — Hộp thư chat chỉ giao việc cho người có quyền chat
+
+### 🔧 Đã khắc phục
+- **Trước đây** ô chọn người phụ trách hội thoại và ô chọn đội trực liệt kê **mọi nhân viên bán
+  hàng**, kể cả người không có quyền chat. Giao cho họ thì hội thoại rơi vào chỗ không ai thấy, vì
+  người nhận không mở được hộp thư. **Nay** hai ô này chỉ hiện người **có quyền xem hộp thư chat**
+  trong phân quyền CRM, và hệ thống cũng từ chối nếu ai đó cố giao cho người không có quyền.
+- Người **đã ở trong đội trực** mà sau đó bị rút quyền chat sẽ được **tự động bỏ qua khi chia
+  việc xoay vòng**. Trong **Phân công chat**, tên họ hiện **gạch ngang** kèm lời nhắc; cấp lại quyền
+  chat là họ có lượt ngay, không cần thêm lại vào đội.
+
+### 📌 Lưu ý
+- Đổi quyền chat bên CRM thì hộp thư cập nhật theo trong khoảng **10 phút**.
+- Ô chọn **người bán** khi tạo cơ hội từ hộp thư **không đổi** — vẫn hiện đủ mọi nhân viên bán hàng.
+
+---
+
 ## Phiên bản 03/10/2026 — Dùng tài khoản AI của chính công ty bạn
 
 ### ✨ Tính năng mới

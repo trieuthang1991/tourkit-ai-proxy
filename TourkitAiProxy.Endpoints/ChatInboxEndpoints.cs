@@ -541,7 +541,7 @@ public static class ChatInboxEndpoints
         // trách, mà giấu hai thứ đó đi không bảo vệ gì cả. GHI mới cần quyền Cấu hình hệ thống.
         g.MapGet("/assign-settings", async (HttpContext ctx, TkSessionStore sessions,
             ChatAssignRepository assign, TourKitApiClient api, RedisStore redis,
-            ILoggerFactory lf, CancellationToken ct) =>
+            ChatAgentPermissions agents, ILoggerFactory lf, CancellationToken ct) =>
         {
             var log = lf.CreateLogger("chat.assign-settings");
             var a = SessionAuth.Read(ctx, sessions);
@@ -553,107 +553,29 @@ public static class ChatInboxEndpoints
             var maToi = await sessions.EnsureCrmUserIdAsync(a.SessionId, ct);
             var dangNghi = ch?.PausedIds ?? Array.Empty<int>();
 
-            // Danh sách nhân viên đổi rất thưa (chỉ khi nhân sự thay đổi bên ERP) nhưng bị hỏi ở
-            // MỖI lần mở hộp thư và MỖI lần mở màn hình cấu hình. Đệm 2 tiếng theo công ty.
-            //
-            // Không có Redis thì Get trả null và ta gọi thẳng ERP như cũ — đệm là tối ưu, không
-            // phải điều kiện để chạy.
-            var khoaDem = $"chat:nhanvien:{a.TenantId}";
-            var nhanVien = new List<object>();
-            // Số dòng ERP trả về, khai ở NGOÀI nhánh để còn trả cho giao diện. Khi danh sách rỗng
-            // thì đây là dữ kiện quan trọng nhất: 0 dòng nghĩa là công ty không có ai, còn 108
-            // dòng mà vẫn rỗng nghĩa là ERP trả người nhưng thiếu tên — hai ca đòi hai cách xử lý
-            // khác hẳn, mà màn hình cũ gộp làm một câu "lượt gọi đang hỏng" cho cả hai.
-            var soDongErpTra = 0;
-            var daDem = redis.Get(khoaDem);
-            if (daDem is not null)
-            {
-                try { nhanVien = JsonSerializer.Deserialize<List<object>>(daDem, Web) ?? new(); }
-                catch { /* đệm hỏng thì coi như chưa có */ }
-            }
-            if (nhanVien.Count == 0)
-            {
-                // Tên nhân viên lấy từ ERP, KHÔNG lưu trong CSDL chat: lưu là nhân đôi chỗ phải
-                // sửa khi ai đó đổi tên. Best-effort — upstream hỏng thì trả danh sách rỗng, hộp
-                // thư vẫn chạy, chỉ mất ô chọn người.
-                var hoiHong = false;
-                try
-                {
-                    // Vé JWT phải lấy qua GetValidJwtAsync, KHÔNG đọc thẳng phiên. Vé không được
-                    // lưu xuống CSDL, nên máy chủ vừa khởi động lại là mọi phiên có vé RỖNG — và
-                    // hết hạn mềm thì vé cũ cũng thành vô dụng. Đọc thẳng thì ERP trả 401, ngoại lệ
-                    // rơi vào catch ngay dưới, và người dùng thấy đúng một triệu chứng: ô chọn
-                    // người phụ trách trống trơn. Đã trả giá 09/09/2026 — mất một buổi vì tưởng
-                    // ERP không trả người bán. Mọi đường khác gọi ERP đều đi qua hàm này (nó tự
-                    // đăng nhập lại ngầm bằng mật khẩu đã lưu); đây là chỗ DUY NHẤT còn sót.
-                    var jwt = await sessions.GetValidJwtAsync(a.SessionId, ct);
-                    var r = await api.GetAsync(jwt, "/api/ai/reference", ct);
-                    if (r.TryGetProperty("lookups", out var lk)
-                        && lk.TryGetProperty("sellers", out var sellers)
-                        && sellers.ValueKind == JsonValueKind.Array)
-                        foreach (var it in sellers.EnumerateArray())
-                        {
-                            soDongErpTra++;
-                            // ⚠️ Khoá số có thể là "value" HOẶC "id" tuỳ enum — DealEndpoints.BuildDealLookups
-                            // đã phải xử cả hai. GetInt32() TRẦN còn ném khi ValueKind == Number nhưng giá
-                            // trị không vừa Int32 (số thực kiểu 1.0, hoặc tràn số) — ném là rơi thẳng vào
-                            // catch NGOÀI vòng foreach, xoá sạch TOÀN BỘ danh sách chỉ vì MỘT bản ghi lệch
-                            // dạng. TryGetInt32 không ném, chỉ bỏ qua đúng bản ghi đó — cùng lối BuildDealLookups.
-                            var ma = 0;
-                            if (it.TryGetProperty("value", out var v) && v.ValueKind == JsonValueKind.Number
-                                && v.TryGetInt32(out var vn))
-                                ma = vn;
-                            else if (it.TryGetProperty("id", out var i2) && i2.ValueKind == JsonValueKind.Number
-                                && i2.TryGetInt32(out var idn))
-                                ma = idn;
-                            // GetString() NÉM nếu "name" không phải chuỗi (ERP trả số chẳng hạn).
-                            // Ném ở đây rơi vào catch NGOÀI vòng lặp -> mất cả danh sách vì MỘT bản
-                            // ghi lệch dạng, rồi lượt đệm lại giữ danh sách cụt đó hai tiếng. Cùng
-                            // lớp lỗi với GetInt32() đã sửa ở ngay trên — sót đúng một dòng.
-                            var ten = it.TryGetProperty("name", out var n)
-                                && n.ValueKind == JsonValueKind.String ? n.GetString() : null;
-                            if (ma > 0 && !string.IsNullOrWhiteSpace(ten))
-                                nhanVien.Add(new { id = ma, name = ten });
-                        }
-                }
-                // Nuốt lỗi là ĐÚNG (mất ô chọn người còn hơn tắt cả màn hình cấu hình), nuốt
-                // IM LẶNG là sai. Triệu chứng nhìn thấy được — "ô chọn người phụ trách biến
-                // mất" — trùng khít với triệu chứng của "chưa ai được thêm vào đội trực", nên
-                // không có dòng này thì không cách nào phân biệt hai nguyên nhân. Đã trả giá
-                // 08/09/2026: danh sách tụt từ 108 người xuống 0 giữa hai lần chạy và KHÔNG có
-                // gì trong log để lần.
-                catch (Exception ex)
-                {
-                    hoiHong = true;
-                    log.LogWarning(ex, "[chat/assign-settings] không lấy được danh sách nhân viên " +
-                        "từ ERP cho {T} — ô chọn người phụ trách sẽ trống", a.TenantId);
-                }
+            // Danh sách nhân viên ERP (đệm Redis 2 tiếng) — dùng chung với chat nội bộ, xem ChatStaffDirectory.
+            var (nhanVien, soDongErpTra) = await ChatStaffDirectory.ListAsync(sessions, api, redis,
+                a.TenantId, a.SessionId, log, ct);
 
-                // ⚠️ CHỈ đệm khi danh sách KHÁC RỖNG — đệm một danh sách rỗng do ERP lỗi nhất
-                // thời là khoá cả công ty ra khỏi màn hình cấu hình suốt hai tiếng, không lỗi
-                // nào hiện ra. Không tự dựng cơ chế xoá đệm: hai tiếng là hợp đồng đã chốt.
-                if (nhanVien.Count > 0)
-                    redis.Set(khoaDem, JsonSerializer.Serialize(nhanVien, Web), TimeSpan.FromHours(2));
-                // Không ngoại lệ mà vẫn rỗng thì có HAI ca, và chúng đòi hai người khác nhau đi
-                // sửa hai chỗ khác nhau — gộp làm một dòng là chỉ đường sai:
-                //   • ERP không trả dòng nào  → hỏi bên CRM xem công ty còn người bán không;
-                //   • ERP trả N dòng mà bỏ hết → dữ liệu về nhưng thiếu mã/tên, lỗi nằm ở ERP.
-                //
-                // Trả giá 09/09/2026: /api/ai/reference trả ĐỦ 108 người bán nhưng `name` null
-                // sạch (cùng lúc với customerTypes và customerSources), mà log chỉ nói "không
-                // trả người bán nào". Mất một buổi đi tìm lỗi kết nối và lỗi phiên — trong khi
-                // kết nối vẫn tốt và dữ liệu vẫn về. Con số N là thứ lẽ ra đã chặn ngay từ đầu.
-                //
-                // !hoiHong là BẮT BUỘC ở CẢ HAI nhánh: thiếu nó thì lượt gọi ném lỗi ghi RA HAI
-                // dòng cảnh báo mang hai nguyên nhân khác nhau, dòng sau phủ nhận dòng trước.
-                else if (!hoiHong && soDongErpTra == 0)
-                    log.LogWarning("[chat/assign-settings] ERP không trả người bán nào cho {T} " +
-                        "— ô chọn người phụ trách sẽ trống", a.TenantId);
-                else if (!hoiHong)
-                    log.LogWarning("[chat/assign-settings] ERP trả {N} người bán cho {T} nhưng " +
-                        "KHÔNG dòng nào dùng được (thiếu mã, hoặc thiếu tên) — ô chọn người phụ " +
-                        "trách sẽ trống. Kết nối vẫn tốt: lỗi nằm ở dữ liệu ERP trả về.",
-                        soDongErpTra, a.TenantId);
+            // CHỈ người có quyền chat mới hiện trong ô chọn người phụ trách và ô chọn đội trực
+            // (12/10/2026). Lọc SAU khi đọc đệm 2 tiếng: đệm giữ danh sách người bán thô, còn quyền
+            // có nhịp riêng 10 phút — gộp hai thứ vào một đệm là rút quyền xong 2 tiếng sau mới ăn.
+            // Không biết ai có quyền (null) thì giữ nguyên danh sách như trước.
+            var chatAgentIds = await ChatAgentsAsync(agents, sessions, a.TenantId, a.SessionId, ct);
+            // Danh sách ĐẦY ĐỦ, giữ lại trước khi lọc: hộp thư còn dùng nó để TRA TÊN (người đang
+            // phụ trách từ trước, nhật ký) và để chọn NGƯỜI BÁN khi tạo cơ hội — hai việc không dính
+            // gì tới quyền chat. Lọc chung một ô là người cũ hiện "#mã", ô người bán mất người.
+            var allStaff = nhanVien;
+            // Người trong đội trực mà đã bị rút quyền chat — kèm TÊN (lấy từ danh sách CHƯA lọc),
+            // vì ô staffs sau lọc không còn họ và thẻ trên màn cấu hình sẽ chỉ hiện "#mã".
+            var membersNoPermission = new List<object>();
+            if (chatAgentIds is not null)
+            {
+                var currentMembers = ch?.MemberIds ?? Array.Empty<int>();
+                membersNoPermission = currentMembers.Where(x => !chatAgentIds.Contains(x))
+                    .Select(x => nhanVien.FirstOrDefault(nv => StaffId(nv) == x) ?? new { id = x, name = "#" + x })
+                    .ToList();
+                nhanVien = nhanVien.Where(x => StaffId(x) is { } id && chatAgentIds.Contains(id)).ToList();
             }
 
             // Chưa cấu hình → mặc định "thủ công, không kẹp quyền" = đúng hành vi hôm nay.
@@ -689,12 +611,19 @@ public static class ChatInboxEndpoints
                 // vốn đã không có lượt nào, bày công tắc ra chỉ gây hiểu nhầm là đang có.
                 trongDoiTruc      = maToi is not null
                                     && (ch?.MemberIds ?? Array.Empty<int>()).Contains(maToi.Value),
-                staffs            = nhanVien
+                // Ô chọn người phụ trách + ô đội trực: CHỈ người có quyền chat.
+                staffs            = nhanVien,
+                // Tra tên + chọn người bán: mọi người bán, không lọc.
+                allStaffs         = allStaff,
+                // Người trong đội trực mà đã bị rút quyền chat: vòng xoay bỏ qua họ, màn cấu hình
+                // cần biết để nói ra thay vì để quản trị tưởng họ vẫn đang nhận việc.
+                membersNoChatPermission = membersNoPermission
             }, Web);
         });
 
         g.MapPut("/assign-settings", async (AssignSettingsReq body, HttpContext ctx,
-            TkSessionStore sessions, ChatAssignRepository assign, CancellationToken ct) =>
+            TkSessionStore sessions, ChatAssignRepository assign, ChatAgentPermissions agents,
+            CancellationToken ct) =>
         {
             var a = SessionAuth.Read(ctx, sessions);
             if (a == null) return SessionAuth.Unauthorized();
@@ -705,6 +634,24 @@ public static class ChatInboxEndpoints
                 return Results.BadRequest(new { error = "Chế độ không hợp lệ" });
 
             var doiTruc = (body.MemberIds ?? Array.Empty<int>()).Where(x => x > 0).Distinct().ToArray();
+
+            // Chỉ thêm MỚI người có quyền chat vào đội trực. Người ĐÃ ở trong đội từ trước mà nay mất
+            // quyền thì cho lưu lại nguyên — chặn họ là bắt quản trị gỡ người ra mới lưu được bất kỳ
+            // thay đổi nào khác; vòng xoay vốn đã bỏ qua họ, và cấp lại quyền là có lượt ngay.
+            var chatAgentIds = await ChatAgentsAsync(agents, sessions, a.TenantId, a.SessionId, ct);
+            if (chatAgentIds is not null)
+            {
+                var savedMembers = (await assign.LayCauHinhAsync(a.TenantId, ct))?.MemberIds ?? Array.Empty<int>();
+                var lackingPermission = doiTruc.Where(x => !chatAgentIds.Contains(x) && !savedMembers.Contains(x)).ToArray();
+                if (lackingPermission.Length > 0)
+                    return Results.Json(new
+                    {
+                        error = lackingPermission.Length == 1
+                            ? "Người vừa chọn không có quyền chat — cấp quyền chat cho họ trong phân quyền CRM trước rồi mới thêm vào đội trực."
+                            : $"{lackingPermission.Length} người vừa chọn không có quyền chat — cấp quyền chat cho họ trong phân quyền CRM trước rồi mới thêm vào đội trực.",
+                        userIds = lackingPermission
+                    }, statusCode: StatusCodes.Status400BadRequest);
+            }
 
             // Bật xoay vòng mà đội trực rỗng thì MỌI hội thoại rơi về hàng chờ, trông y hệt chế
             // độ thủ công — không ai đoán được nguyên nhân. Chặn ngay tại chỗ lưu.
@@ -766,7 +713,7 @@ public static class ChatInboxEndpoints
         // nút bấm có chủ đích, báo lại con số ngay, rẻ hơn và nhìn thấy được.
         g.MapPost("/assign-settings/rebalance", async (HttpContext ctx, TkSessionStore sessions,
             ChatRepository repo, ChatAssignRepository assign, ChatEventBus bus,
-            ILoggerFactory lf, CancellationToken ct) =>
+            ChatAgentPermissions agents, ILoggerFactory lf, CancellationToken ct) =>
         {
             var log = lf.CreateLogger("chat.rebalance");
             var a = SessionAuth.Read(ctx, sessions);
@@ -791,6 +738,8 @@ public static class ChatInboxEndpoints
             // Lấy dư MỘT dòng để biết còn nữa hay không mà không phải đếm thêm một lượt.
             var conNua = ds.Count > TranChiaLai;
             var maNguoiThaoTac = await sessions.EnsureCrmUserIdAsync(a.SessionId, ct);
+            // Hỏi MỘT lần cho cả lượt chia, không hỏi trong vòng lặp.
+            var chatAgentIds = await ChatAgentsAsync(agents, sessions, a.TenantId, a.SessionId, ct);
 
             var daChia = 0;
             foreach (var id in ds.Take(TranChiaLai))
@@ -799,7 +748,7 @@ public static class ChatInboxEndpoints
                 // DÙNG LẠI đúng câu lệnh của vòng quay tự động — không chép luật chia sang đây.
                 // Chép ra là hai bản, và hai bản thì con trỏ vòng quay sẽ lệch nhau lúc nào không
                 // ai biết. Hàm tự bỏ qua nếu hội thoại vừa được ai đó nhận trong lúc mình chạy.
-                var choAi = await assign.GanXoayVongAsync(a.TenantId, id, ct);
+                var choAi = await assign.GanXoayVongAsync(a.TenantId, id, ct, chatAgentIds);
                 if (choAi is null) continue;
                 daChia++;
 
@@ -1459,7 +1408,7 @@ public static class ChatInboxEndpoints
         // thân, nên để nó "tuỳ chọn" chỉ tạo ra một trạng thái im lặng không ai xử.
         g.MapPost("/conversations/{id:long}/assign", async (long id, AssignReq body, HttpContext ctx,
             TkSessionStore sessions, ChatRepository repo, ChatAssignRepository assign, ChatEventBus bus,
-            ILoggerFactory lf, CancellationToken ct) =>
+            ChatAgentPermissions agents, ILoggerFactory lf, CancellationToken ct) =>
         {
             var log = lf.CreateLogger("chat.assign");
             var p = await SessionAuth.ReadNguoiXemAsync(ctx, sessions, ct);
@@ -1475,6 +1424,15 @@ public static class ChatInboxEndpoints
             // lỗi gì — rồi gán hội thoại cho "người số 0", một người không tồn tại. Chặn tại cửa.
             if (ma <= 0)
                 return Results.Json(new { error = "Thiếu mã người nhận việc" },
+                    statusCode: StatusCodes.Status400BadRequest);
+
+            // Chỉ giao cho người CÓ QUYỀN CHAT — áp cho CẢ quản trị (chốt 12/10/2026). Giao cho người
+            // không có quyền là giao vào chỗ không ai thấy: họ không mở được hộp thư. Ô chọn người
+            // đã lọc sẵn; chặn ở đây cho request gửi thẳng hoặc danh sách trên máy đã cũ.
+            // Không biết ai có quyền (ERP chưa trả lời được) thì cho qua như trước.
+            var chatAgentIds = await ChatAgentsAsync(agents, sessions, a.TenantId, a.SessionId, ct);
+            if (chatAgentIds is not null && !chatAgentIds.Contains(ma))
+                return Results.Json(new { error = "Người này không có quyền chat nên không giao việc được — cấp quyền chat cho họ trong phân quyền CRM trước." },
                     statusCode: StatusCodes.Status400BadRequest);
 
             // ĐỘI TRỰC chỉ ràng buộc người KHÔNG PHẢI quản trị — đúng như đặc tả mục 9 phát biểu
@@ -3629,6 +3587,24 @@ public static class ChatInboxEndpoints
 
     private static IResult NotConfigured()
         => Results.Json(new { error = "Chưa khai cơ sở dữ liệu chat (ConnectionStrings:Chat)" }, statusCode: 503);
+
+    /// <summary>
+    /// Ai có quyền chat, dùng vé của người đang thao tác. Lấy vé hỏng (phiên cũ, ERP từ chối đăng
+    /// nhập lại) thì lùi về bản đã lưu — không để chuyện vé làm hỏng thao tác chính. <c>null</c> =
+    /// không biết, chỗ gọi KHÔNG lọc. Xem <see cref="ChatAgentPermissions"/>.
+    /// </summary>
+    private static async Task<IReadOnlySet<int>?> ChatAgentsAsync(ChatAgentPermissions agents,
+        TkSessionStore sessions, string tenantId, string sessionId, CancellationToken ct)
+    {
+        string jwt;
+        try { jwt = await sessions.GetValidJwtAsync(sessionId, ct); }
+        catch (Exception) when (!ct.IsCancellationRequested) { return agents.GetCachedOnly(tenantId); }
+        return await agents.GetAsync(tenantId, jwt, ct);
+    }
+
+    /// Mã của một dòng trong danh sách nhân viên — dòng mới dựng là đối tượng vô danh, dòng đọc từ
+    /// đệm Redis là JsonElement, nên đi qua JSON cho cả hai.
+    private static int? StaffId(object staff) => ChatStaffDirectory.StaffId(staff);
 
     /// <summary>
     /// Ô cần nhập cho từng kênh. MỘT nguồn — giao diện đọc để tự vẽ form, thêm kênh không phải

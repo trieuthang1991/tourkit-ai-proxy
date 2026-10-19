@@ -207,6 +207,8 @@ public static class WorkflowStackRegistration
         s.AddSingleton<ChatRepository>();
         // Cấu hình phân công + đội trực chat — cùng vòng đời với ChatRepository ở trên.
         s.AddSingleton<ChatAssignRepository>();
+        // Chat nội bộ — không giữ trạng thái, phụ thuộc duy nhất là ChatDb (singleton).
+        s.AddSingleton<InternalChatRepository>();
         // Singleton: nó giữ bộ nhớ tạm 60 giây, scoped thì cache chết theo từng lượt gọi.
         s.AddSingleton<ChatBotSettingsRepository>();
         s.AddSingleton<Chat.Inbox.ChatMediaMirror>();
@@ -228,6 +230,8 @@ public static class WorkflowStackRegistration
         // đăng ký TRƯỚC ChatInboundService (thứ tự không bắt buộc với DI, nhưng đọc xuôi hơn).
         s.AddSingleton<Chat.Inbox.ChatTourLookup>();
         s.AddSingleton<Chat.Inbox.ChatReplyComposer>();
+        // Ai có quyền chat — giao việc / đội trực / vòng xoay chỉ dành cho những người đó.
+        s.AddSingleton<Chat.Inbox.ChatAgentPermissions>();
         s.AddSingleton<Chat.Inbox.ChatInboundService>();
         s.AddSingleton<ChannelCredentialStore>();
         // Kho ảnh/tệp nhân viên gửi — r2 | s3 | local theo Storage:Provider, xem IChatFileStorage.

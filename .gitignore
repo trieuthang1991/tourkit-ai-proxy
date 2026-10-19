@@ -120,3 +120,7 @@ gateway/.env
 # File tam cua bo E2E (chua id phien dang nhap) — khong bao gio commit
 .e2e-sid.tmp
 .enc-admin.tmp
+
+# Server credentials + backup files — KHÔNG commit (chứa IP/password và dữ liệu DB thật)
+scripts/.server-config.json
+backups/

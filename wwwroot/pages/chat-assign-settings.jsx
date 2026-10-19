@@ -64,6 +64,9 @@
     // tên. Hai con số lệch nhau chính là dữ kiện phân biệt 'công ty chưa có ai' với 'ERP trả
     // người nhưng thiếu tên' — hai ca đòi hai người khác nhau đi sửa.
     const [soDongErpTra, setSoDongErpTra] = useState(0);
+    // Người trong đội trực nhưng đã bị rút quyền chat ({id, name}). Danh sách staffs chỉ còn người
+    // có quyền chat, nên tên của họ phải lấy từ đây — không thì thẻ chỉ hiện "#mã".
+    const [matQuyen, setMatQuyen] = useState([]);
     const [dangChia, setDangChia] = useState(false);
 
     // pushToast không phải chỗ gọi nào cũng truyền. Xuống thang: toast → hộp thoại dùng chung →
@@ -84,6 +87,7 @@
         setMemberIds(Array.isArray(data.memberIds) ? data.memberIds : []);
         setStaffs(Array.isArray(data.staffs) ? data.staffs : []);
         setSoDongErpTra(Number(data.soDongErpTra) || 0);
+        setMatQuyen(Array.isArray(data.membersNoChatPermission) ? data.membersNoChatPermission : []);
       } catch (e) {
         bao('Không tải được cấu hình phân công: ' + e.message, 'error');
       } finally {
@@ -102,8 +106,13 @@
     // — dạng "#12". Bỏ đi thì nó biến mất khỏi màn hình nhưng VẪN nằm trong vòng quay, và vòng
     // quay sẽ gán hội thoại cho một người không còn đi làm mà không ai gỡ ra được.
     const doiTruc = useMemo(
-      () => memberIds.map(id => staffs.find(nv => nv.id === id) || { id, name: '#' + id }),
-      [memberIds, staffs]);
+      () => memberIds.map(id => {
+        const mq = matQuyen.find(nv => nv.id === id);
+        if (mq) return { ...mq, matQuyen: true };
+        return staffs.find(nv => nv.id === id) || { id, name: '#' + id };
+      }),
+      [memberIds, staffs, matQuyen]);
+    const soMatQuyen = doiTruc.filter(nv => nv.matQuyen).length;
 
     // Một lượt ghi duy nhất — chế độ và đội trực nằm chung một dòng CSDL, nên không có khoảnh
     // khắc nào chế độ đã là xoay vòng mà đội trực còn rỗng.
@@ -223,8 +232,9 @@
                     <span className="ci-pc-doi-trong">Chưa có ai trong vòng quay</span>
                   )}
                   {doiTruc.map(nv => (
-                    <span key={nv.id} className="ci-pc-chip">
-                      {nv.name}
+                    <span key={nv.id} className={'ci-pc-chip' + (nv.matQuyen ? ' mat-quyen' : '')}
+                          title={nv.matQuyen ? 'Không có quyền chat — vòng xoay đang bỏ qua người này' : undefined}>
+                      <span className="ci-pc-chip-ten">{nv.name}</span>
                       <button type="button" onClick={() => bat(nv.id, false)}
                               title={'Bỏ ' + nv.name} aria-label={'Bỏ ' + nv.name}>
                         <Icon name="close" size={11} />
@@ -266,6 +276,16 @@
                   <p className="ci-pc-nhac">
                     Chưa chọn ai. Lưu lúc này thì mọi hội thoại rơi về hàng chờ, trông y hệt chế
                     độ thủ công.
+                  </p>
+                )}
+                {/* Chỉ người có quyền chat mới chọn được vào đội. Người đã trong đội mà sau đó bị
+                    rút quyền thì vẫn giữ chỗ (cấp lại quyền là có lượt ngay) nhưng vòng xoay bỏ qua
+                    — phải nói ra, không thì quản trị tưởng họ vẫn đang nhận việc. */}
+                {soMatQuyen > 0 && (
+                  <p className="ci-pc-nhac">
+                    {soMatQuyen === 1 ? 'Một người' : soMatQuyen + ' người'} trong đội (gạch ngang)
+                    không có quyền chat nên đang không được chia việc. Cấp lại quyền chat trong
+                    phân quyền CRM, hoặc bỏ họ khỏi đội.
                   </p>
                 )}
               </>

@@ -662,6 +662,23 @@ giao được việc cho ai: bấm giao, nhận lỗi "chưa cấu hình đội 
 liên quan gì tới vòng quay. Đúng theo đặc tả mục 9 ("không admin không gán được việc cho người
 ngoài đội trực") và mục 7.1 (đường giao việc ở chế độ thủ công chính là "admin giao xuống").
 
+⚠️ **Chỉ người CÓ QUYỀN CHAT mới được giao việc / vào đội trực / được vòng xoay chia (12/10/2026).**
+Áp cho CẢ quản trị. Nguồn: ERP `GET /api/ai/users-with-permission?codes=CHAT_XEM,CHAT_XEM_ALL`
+(quyền CRM gán theo phòng ban, proxy không đọc được CSDL CRM). `ChatAgentPermissions` lưu kết quả
+vào Redis `chat:quyen-chat:{tenant}` — hỏi lại ERP sau 10 phút khi có phiên, giữ 24 giờ cho luồng
+khách nhắn tới (không có phiên nên chỉ đọc bản đã lưu). Bốn chỗ dùng:
+- `GET /assign-settings`: `staffs` = chỉ người có quyền chat (ô giao việc + ô đội trực); `allStaffs`
+  = mọi người bán, dùng để TRA TÊN và chọn người bán khi tạo cơ hội — đừng lọc chung một ô;
+  `membersNoChatPermission` = người trong đội đã mất quyền (kèm tên) để màn cấu hình gạch ngang.
+- `POST /conversations/{id}/assign`: 400 nếu người nhận không có quyền chat.
+- `PUT /assign-settings`: 400 nếu THÊM MỚI người không có quyền; người đã trong đội mà mất quyền vẫn
+  lưu lại được (không thì phải gỡ họ mới lưu được thay đổi khác).
+- Vòng xoay + nút chia lại: bỏ qua người không có quyền, giống người tạm nghỉ (vẫn giữ chỗ).
+
+**Không biết ai có quyền thì KHÔNG lọc** — ERP chưa deploy đường mới, ERP lỗi, hoặc trả rỗng. Không
+bao giờ lưu danh sách rỗng. Deploy proxy trước ERP vì thế an toàn: hành vi y như cũ cho tới khi ERP có
+đường mới.
+
 ⚠️ **Đường tải tệp đính kèm cũng đi qua luật xem, không chỉ kẹp theo công ty.** Bản đầu chỉ kiểm
 "tin có thuộc công ty này không" — thành cửa hậu: nhân viên từng phụ trách một hội thoại, sau khi
 bị chuyển giao vẫn tải lại được ảnh và tệp khách đã gửi, chỉ cần còn giữ mã tin. Đóng cửa trước mà
@@ -926,3 +943,107 @@ câu xác nhận nói thẳng *"KHÁCH VẪN THẤY tin này"*.
 
 ⚠️ `EnqueueOutboxAsync` vẫn phải đánh thức worker ngay sau đó, kể cả khi có hoãn — `ChatWorkSignalTests`
 canh trong phạm vi 400 ký tự, nên đừng chèn chú thích dài vào giữa hai lệnh (đã dính một lần).
+
+---
+
+## Chat nội bộ (`Features:InternalChat`)
+
+Nhân viên nhắn nhau ngay trong CRM qua widget `wwwroot/internal-chat.js` (nhúng một thẻ
+`<script data-session="…">`). Cờ RIÊNG, độc lập với `Features:Chat`; dùng chung CSDL chat
+(`ConnectionStrings:Chat`). Plan + nhật ký quyết định:
+[plans/2026-10-19-internal-chat-widget.md](../superpowers/plans/2026-10-19-internal-chat-widget.md).
+API: [api-surface.md § Chat nội bộ](../api-surface.md).
+
+**Phòng = một dòng `chat_conversations` với `channel = 7`** (`ChatChannel.Internal`), không webhook,
+không adapter, không OA (`ChannelCredentialStore.ListAllAccountsAsync` bỏ qua kênh 7). Tin = dòng
+`chat_messages` (`direction = 1`, `sender_kind = 2`, `sender_user_id`), nên vòng soi tệp
+(`direction = 0`) và worker gửi ra kênh (không ghi `chat_outbox`) không bao giờ chạm tới.
+
+**Khoá phòng nằm ở `contact_external_id`**, chống trùng bằng chỉ mục sẵn có `ux_conv_scope_surface`:
+
+| Loại | Khoá | Ghi chú |
+|---|---|---|
+| 1-1 | `direct:{min}:{max}` | A mở với B hay B mở với A → cùng phòng. **Khoá cấu hình** (không đổi tên, không thêm/bỏ người) |
+| Theo đơn | `order:{mã}` | Một phòng duy nhất mỗi đơn; ai mở đơn đó là vào phòng |
+| Theo công ty | `company:{mã}` | Như trên |
+| Nhóm | `group:{guid}` | Mỗi lần tạo là nhóm mới |
+
+Ghi chuỗi rỗng vào `contact_external_id` là **mỗi công ty chỉ tạo được đúng một phòng** — dòng thứ
+hai vỡ chỉ mục. Khoá dựng bằng hàm thuần `InternalRoomKey` (có test).
+
+### ⚠️ Luật bắt buộc: luồng khách phải loại kênh 7
+
+Phòng nội bộ nằm CHUNG bảng với hội thoại khách. Mọi câu SQL **của luồng khách** đọc/đếm/chia việc/dọn
+trên `chat_conversations` phải có `channel <> 7`, không thì: vòng quay giao phòng nội bộ cho nhân viên
+trực, hộp thư "tất cả kênh" hiện phòng nội bộ, chip đếm lệch, dọn theo mốc xoá phòng nội bộ.
+`InternalChatGuardTests.Hoi_thoai_khach_phai_loai_phong_noi_bo` canh **theo tên hàm** (cố ý vừa phải,
+chốt 19/10/2026) — **câu MỚI viết sau này không được canh tự động**: viết câu đọc hội thoại khách
+mới thì tự thêm `channel <> 7` và thêm tên hàm vào bài canh.
+
+### Thành viên, đã đọc, quyền
+
+- `chat_room_members (conversation_id, user_id)`, `left_utc NULL` = còn trong phòng; chỉ mục
+  `ix_room_members_user (tenant_id, user_id) WHERE left_utc IS NULL` phục vụ "phòng của tôi".
+- Kiểm thành viên **gộp trong chính câu đọc/ghi** (EXISTS), không tách round-trip — trừ đường tải
+  tệp (`IsMemberForUploadAsync`), phải hỏi TRƯỚC khi đẩy byte lên kho.
+- Đã đọc dùng lại `chat_conversation_reads`. Chưa đọc tính từ `COALESCE(last_read_at, joined_utc)`,
+  **trần 100** (phòng bỏ quên không kéo chậm danh sách).
+- Cấu hình phòng (đổi tên, thêm, bỏ, rời): **mọi thành viên** của nhóm/đơn/công ty đều được; không
+  lưu người tạo. Muốn chỉ người tạo được bỏ người thì phải thêm cột.
+- **Vào phòng theo cơ hội (`deal:{id}`) = ai nhìn thấy cơ hội đó** (chốt 19/10/2026), đúng luật web
+  `BookingTicketAction`: `CH_XEM_ALL` → mọi cơ hội (không gọi CRM); chỉ `CH_XEM` → cơ hội mình tạo
+  (`InsUid`) hoặc phụ trách (`NguoiPhuTrachs`), đọc chi tiết MỘT lần; không có `CH_XEM` → 403. Chỉ kiểm
+  lúc **chưa là thành viên** (`IsMemberByKeyAsync`) → mở lại/gửi tin không tốn gì thêm. KHÔNG dùng
+  "CRM trả được chi tiết là xem được": đường chi tiết trả dữ liệu cho cả người không có quyền nào, và
+  trả thành công rỗng cho mã không tồn tại (đo trên staging). Phòng đơn hàng / công ty: **chưa kiểm**.
+- Thêm người phải thuộc danh sách nhân viên ERP của công ty (`ChatStaffDirectory`, đệm Redis 2h,
+  dùng chung với `/assign-settings`) — mã người là số đoán được.
+- Dọn theo mốc (`ChatRepository.PruneAsync`, hiện CHƯA được gọi ở đâu) loại kênh 7: phòng nội bộ
+  không bị xoá theo hạn lưu.
+
+### Real-time
+
+`ChatEvent.Recipients` khác null = sự kiện nội bộ: `ChatEventBus` chỉ giao cho người nghe đăng ký
+bằng `SubscribeInternalAsync` có mã nằm trong danh sách, và **không bao giờ** giao cho tab hộp thư
+khách (kể cả admin xem tất cả) — ngược lại cũng vậy. Thành viên lấy ngay trong câu ghi tin (một CTE),
+không hỏi lại. Sự kiện mang `{roomId, messageId}`, không mang nội dung; `messageId = null` = phòng đổi
+cấu hình (người bị bỏ cũng nhận để tự đóng phòng). `Recipients` sống sót qua Redis
+(`Pack`/`FromRemote`) — có test.
+
+### Tệp đính kèm
+
+Hai bước như hộp thư khách: `POST /rooms/{id}/upload` → gói `{url,name,size,kind}` → gửi tin kèm
+gói. Kho là `IChatFileStorage` (R2 trên môi trường thật). Luật ở `InternalAttachmentRules`: danh sách
+trắng đuôi (kho local phục vụ trên miền proxy → `.html/.svg` là chạy được script ở đó), 15MB,
+Content-Type đặt theo đuôi, và tin chỉ nhận URL **do kho cấp cho đúng công ty + phòng**. Bucket R2
+đọc công khai (yêu cầu của Zalo/Messenger) → ai có link là xem được; tên tệp là GUID. Chưa có link
+ký hạn.
+
+### Widget
+
+JS thuần, Shadow DOM. Khung danh sách (nhỏ 380px / phóng to hai cột ~920px, nhớ theo trình duyệt),
+ô chat nhỏ nổi (tối đa 2, theo chỗ trống thật; màn hẹp mở thẳng trong khung). Vẽ lại cả widget mỗi
+lần đổi nên PHẢI trả lại focus, con trỏ và vị trí cuộn từng khung tin (đã làm trong `render()`), và
+không vẽ lại giữa lúc bộ gõ đang ghép chữ. API cho trang CRM (`window.TkInternalChat`) ghi ở đầu tệp
+JS; trang CRM bấm vào một đơn hàng gọi `openEntity('order', mã, { title, members })`.
+
+CORS mở mọi origin, kể cả prod (chốt 19/10/2026): widget nhúng vào CRM của từng công ty, xác thực
+bằng header chứ không cookie.
+
+### Sau review cuối (19/10/2026)
+
+- **Danh sách phòng đi TỪ thành viên**: CTE `MATERIALIZED` trên `ix_room_members_user` + `CROSS JOIN LATERAL
+  (… LIMIT 1)` tra từng phòng theo khoá chính. Thiếu `LIMIT 1` thì Postgres kéo phẳng subquery rồi đi
+  `ix_conv_tenant_hoatdong` của CẢ công ty để khỏi sắp xếp. Đo với 20.000 hội thoại khách cùng tenant:
+  8 buffer, 0,33 ms.
+- **Thu hồi / sửa** là MỘT câu CTE kèm tính lại `last_preview` (CTE cùng câu thấy dữ liệu TRƯỚC khi đổi →
+  tự loại tin vừa thu hồi), và đòi người làm còn là thành viên.
+- **"Xoá phía tôi"** = `chat_room_members.hidden_utc`: phòng ẩn khỏi danh sách của riêng người đó tới khi
+  `last_activity_at > hidden_utc`; tin cũ hơn mốc không hiện lại với họ; đánh dấu đã đọc luôn.
+- **Chưa đọc** tính từ `GREATEST(last_read_at, joined_utc, hidden_utc)`; vào lại phòng thì `joined_utc`
+  tính lại.
+- **Widget có đường lùi real-time**: hỏi lại 20 giây khi SSE mất hoặc `chatRealtime=false`; tab ẩn thì
+  đóng SSE; EventSource `CLOSED` thì tự dựng lại (5 → 60 giây).
+
+**Chưa có:** tin hệ thống "A đã thêm/bỏ B"; báo đang gõ; trả lời trích dẫn; tìm trong nội dung tin; nút
+mở phòng trên trang đơn hàng/công ty (hiện chỉ màn Cơ hội gọi `openEntity`).
