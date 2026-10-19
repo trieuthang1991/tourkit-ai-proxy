@@ -128,6 +128,25 @@ public class InternalChatRepositoryGuardTests
     public void Co_hoi_cua_minh(int me, int? insUid, string? phuTrach, bool ok)
         => Assert.Equal(ok, TourkitAiProxy.Domain.Deals.DealAccess.IsOwner(me, insUid, phuTrach));
 
+    [Theory]
+    [InlineData(",1,7,9,", new[] { 1, 7, 9 })]
+    [InlineData("7, 7 ,3", new[] { 7, 3 })]
+    [InlineData(" , ,abc,0,-2", new int[0])]
+    [InlineData(null, new int[0])]
+    public void Tach_ma_nguoi_phu_trach(string? csv, int[] mong)
+        => Assert.Equal(mong, TourkitAiProxy.Domain.Deals.DealAccess.ParseUserIds(csv));
+
+    [Fact]
+    public void Phong_co_hoi_moi_tao_moi_them_nguoi_phu_trach_mot_lan()
+    {
+        // Thêm người phụ trách CHỈ khi phòng vừa được tạo — thêm ở mọi lần bấm là kéo lại người đã
+        // bị bỏ ra khỏi phòng.
+        var src = ChatSchemaGuardTests.DocFile("TourkitAiProxy.Endpoints/InternalChatEndpoints.cs");
+        Assert.Matches(@"created\s*&&\s*type\s*==\s*""deal""|type\s*==\s*""deal""\s*&&\s*created", src);
+        Assert.Contains("RETURNING id, (xmax = 0) AS created", ChatSchemaGuardTests.DocFile(
+            "TourkitAiProxy.Infrastructure/Chat/Inbox/InternalChatRepository.cs"));
+    }
+
     [Fact]
     public void Vao_phong_co_hoi_phai_kiem_quyen_CRM_khi_chua_la_thanh_vien()
     {

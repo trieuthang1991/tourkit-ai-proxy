@@ -64,19 +64,22 @@ public class InternalChatRepository
     /// thành viên bằng MỘT câu unnest. Thành viên đã rời (left_utc) được thêm lại thì vào lại.
     /// </summary>
     /// <param name="memberIds">Đã gồm người tạo, đã bỏ trùng ở chỗ gọi.</param>
-    public async Task<long> CreateOrGetRoomAsync(string tenant, int creatorUserId, string roomKey,
+    /// <returns><c>Created</c> = phòng VỪA được tạo ở lượt này (chưa từng có) — để chỗ gọi làm việc
+    /// chỉ-một-lần như thêm người phụ trách cơ hội.</returns>
+    public async Task<(long Id, bool Created)> CreateOrGetRoomAsync(string tenant, int creatorUserId, string roomKey,
         string entityType, string? entityId, string? title, IReadOnlyCollection<int> memberIds,
         CancellationToken ct = default)
     {
         await using var c = await _db.OpenAsync(ct);
         await using var tx = await c.BeginTransactionAsync(ct);
-        var id = await c.ExecuteScalarAsync<long>(new CommandDefinition("""
+        // xmax = 0 chỉ đúng với dòng VỪA chèn; nhánh ON CONFLICT DO UPDATE cho xmax khác 0.
+        var (id, created) = await c.QuerySingleAsync<(long, bool)>(new CommandDefinition("""
             INSERT INTO chat_conversations (tenant_id, channel, account_id, contact_external_id, surface,
                                             source_thread_id, entity_type, entity_id, title, last_activity_at)
             VALUES (@tenant, 7, '', @roomKey, 0, '', @entityType, @entityId, @title, now())
             ON CONFLICT (tenant_id, channel, account_id, contact_external_id, surface, source_thread_id)
             DO UPDATE SET title = COALESCE(chat_conversations.title, EXCLUDED.title)
-            RETURNING id
+            RETURNING id, (xmax = 0) AS created
             """, new { tenant, roomKey, entityType, entityId, title }, tx, cancellationToken: ct));
 
         var ids = memberIds.Append(creatorUserId).Distinct().ToArray();
@@ -89,7 +92,7 @@ public class InternalChatRepository
              WHERE chat_room_members.tenant_id = @tenant
             """, new { id, tenant, ids }, tx, cancellationToken: ct));
         await tx.CommitAsync(ct);
-        return id;
+        return (id, created);
     }
 
     /// <summary>

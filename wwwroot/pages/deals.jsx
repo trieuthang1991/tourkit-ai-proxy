@@ -34,17 +34,15 @@ async function readDealStream(url, onEvent) {
 
 // ─── Chat nội bộ theo cơ hội ──────────────────────────────────────────────────
 // Mỗi cơ hội đúng MỘT phòng (loại "deal", khoá theo mã cơ hội): bấm là bật ô chat của cơ hội đó, tên
-// phòng = mã + khách, người phụ trách được thêm sẵn. Cấu hình thêm (đổi tên, thêm/bỏ người) làm sau
-// trong ô chat. Dữ liệu cơ hội chỉ có TÊN người phụ trách (CSV) → dò mã qua findUserIds; tên trùng
-// hoặc không thấy thì báo ra, không đoán.
+// phòng = mã + khách. Người phụ trách do MÁY CHỦ thêm, đúng một lần lúc phòng mới tạo (mã lấy thẳng từ
+// CRM) — nên ở đây không gửi kèm ai, và người đã bị bỏ ra không bị kéo lại khi bấm lần sau. Ai nhìn
+// thấy cơ hội thì vào được (máy chủ kiểm). Cấu hình thêm làm trong ô chat.
 async function openDealChat(item, pushToast) {
   const chat = window.TkInternalChat;
   if (!chat) { pushToast?.('Chat nội bộ chưa bật cho hệ thống này', 'warn'); return; }
   try {
-    const { ids, unmatched } = await chat.findUserIds(item.assignees || '');
     const title = [item.code || ('#' + item.id), item.customerName].filter(Boolean).join(' · ');
-    await chat.openEntity('deal', String(item.id), { title, members: ids });
-    if (unmatched.length) pushToast?.('Chưa thêm được người phụ trách: ' + unmatched.join(', ') + ' — thêm tay trong cấu hình phòng', 'warn');
+    await chat.openEntity('deal', String(item.id), { title });
   } catch (e) {
     pushToast?.('Không mở được chat: ' + e.message, 'warn');
   }

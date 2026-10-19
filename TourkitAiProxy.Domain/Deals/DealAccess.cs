@@ -12,11 +12,13 @@ public static class DealAccess
 {
     /// Người này là người tạo hoặc nằm trong danh sách phụ trách (CSV mã người, DB lưu dạng ",1,2,").
     public static bool IsOwner(int me, int? insUid, string? nguoiPhuTrachsCsv)
+        => insUid == me || ParseUserIds(nguoiPhuTrachsCsv).Contains(me);
+
+    /// Mã người từ CSV của CRM (",1,2,3," hoặc "1, 2"). Bỏ rỗng/bẩn/≤0, bỏ trùng, giữ thứ tự.
+    public static int[] ParseUserIds(string? csv)
     {
-        if (insUid == me) return true;
-        if (string.IsNullOrWhiteSpace(nguoiPhuTrachsCsv)) return false;
-        foreach (var part in nguoiPhuTrachsCsv.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
-            if (int.TryParse(part, out var id) && id == me) return true;
-        return false;
+        if (string.IsNullOrWhiteSpace(csv)) return Array.Empty<int>();
+        return csv.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+                  .Select(p => int.TryParse(p, out var id) ? id : 0).Where(id => id > 0).Distinct().ToArray();
     }
 }

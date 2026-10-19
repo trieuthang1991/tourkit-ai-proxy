@@ -88,7 +88,16 @@ public static class InternalChatEndpoints
 
             var title = string.IsNullOrWhiteSpace(req.Title) ? null : req.Title.Trim()[..Math.Min(req.Title.Trim().Length, 120)];
             var entityId = InternalRoomKey.IsEntityType(type) ? req.EntityId!.Trim() : null;
-            var id = await repo.CreateOrGetRoomAsync(a!.TenantId, me, key, type!, entityId, title, others, ct);
+            var (id, created) = await repo.CreateOrGetRoomAsync(a!.TenantId, me, key, type!, entityId, title, others, ct);
+
+            // Phòng cơ hội VỪA tạo → thêm người phụ trách (mã lấy thẳng từ CRM, không dò tên). CHỈ lần
+            // tạo: thêm ở mọi lần bấm là kéo lại người đã bị bỏ ra khỏi phòng. Best-effort: CRM hỏng thì
+            // phòng vẫn mở, người phụ trách tự bấm Chat là vào (họ nhìn thấy cơ hội).
+            if (created && type == "deal")
+            {
+                var owners = (await deals.GetOwnerIdsAsync(a.SessionId, entityId!, ct)).Where(x => x != me).ToArray();
+                if (owners.Length > 0) await repo.AddMembersAsync(a.TenantId, id, me, owners, ct);
+            }
             return Results.Json(new { id, roomKey = key }, Web);
         });
 

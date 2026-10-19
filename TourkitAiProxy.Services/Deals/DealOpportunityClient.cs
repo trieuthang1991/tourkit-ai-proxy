@@ -399,6 +399,27 @@ public class DealOpportunityClient
         }
     }
 
+    /// <summary>
+    /// Mã người phụ trách cơ hội (CRM lưu CSV ",1,2,"). Hỏng / không có thì mảng rỗng — chỗ gọi coi là
+    /// "không thêm được ai", KHÔNG chặn việc mở phòng.
+    /// </summary>
+    public async Task<int[]> GetOwnerIdsAsync(string sessionId, string dealId, CancellationToken ct)
+    {
+        if (!long.TryParse(dealId, out var id) || id <= 0) return Array.Empty<int>();
+        try
+        {
+            var d = await GetAsync(sessionId, $"/api/booking-tickets/{id}", ct);
+            return d.ValueKind == JsonValueKind.Object
+                ? Domain.Deals.DealAccess.ParseUserIds(GetStr(d, "nguoiPhuTrachs"))
+                : Array.Empty<int>();
+        }
+        catch (Exception ex) when (!ct.IsCancellationRequested)
+        {
+            _log.LogWarning(ex, "[deal] không lấy được người phụ trách cơ hội {Id} — phòng mở không kèm họ", id);
+            return Array.Empty<int>();
+        }
+    }
+
     /// Mã HTTP của CRM → quyền xem. Chỉ 403/404 là từ chối DỨT KHOÁT; lỗi máy chủ là "không biết".
     public static bool? ViewAccessFromStatus(int status) => status switch
     {
