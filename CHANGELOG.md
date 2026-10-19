@@ -28,8 +28,11 @@ Những cập nhật gần đây của TRAV-AI, viết cho người dùng. Mới
   vào khung chat. Nhận ảnh, PDF, Word, Excel, PowerPoint, TXT, CSV, ZIP, RAR; tối đa 15 MB mỗi tệp.
 - **Đổi tên phòng, thêm hoặc bớt người, rời phòng** bằng nút bánh răng ở đầu mỗi nhóm.
 - **Nút Chat trên mỗi cơ hội.** Ở màn **Cơ hội**, bấm **Chat** trên dòng, trên thẻ hoặc trong ngăn chi
-  tiết là mở ngay phòng trao đổi của cơ hội đó; người phụ trách được thêm sẵn ngay lần đầu. Ai nhìn
-  thấy cơ hội thì vào được phòng của cơ hội đó.
+  tiết là mở ô trao đổi của cơ hội đó. Ai nhìn thấy cơ hội thì vào được phòng của cơ hội đó.
+- **Bấm nhầm không sao.** Bấm **Chat** chỉ mở một ô để bạn gõ; cuộc trò chuyện chỉ thật sự được tạo khi
+  bạn gửi tin đầu tiên (lúc đó người phụ trách mới được thêm vào). Đóng ô khi chưa gửi là không để lại gì:
+  không có cuộc trò chuyện trống, không làm phiền ai. Cơ hội đã có cuộc trao đổi mà bạn chưa tham gia thì
+  ô báo rõ, gửi một tin là bạn vào và thấy các tin trước đó.
 - **Sửa tin đã gửi**: di chuột vào tin của bạn, bấm **Sửa**; người khác thấy nội dung mới kèm chữ
   "đã sửa".
 - **Thu hồi tin của mình** khi gửi nhầm: tin biến mất với mọi người ngay lập tức. Nút thu hồi cần

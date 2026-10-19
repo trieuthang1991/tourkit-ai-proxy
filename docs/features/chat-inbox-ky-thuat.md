@@ -970,6 +970,12 @@ không adapter, không OA (`ChannelCredentialStore.ListAllAccountsAsync` bỏ qu
 | Nhóm | `group:{guid}` | Mỗi lần tạo là nhóm mới |
 | Khoá tự đặt | `key:{khoá}` | Trang gọi tự đặt (`donhang_123`, `nhom_marketing`): lấy-hoặc-tạo. Chữ/số ASCII + `_ - . :`, ≤100. **Không kiểm quyền** — ai có phiên trong công ty và biết khoá là vào được |
 
+**Bấm Chat trên một bản ghi KHÔNG tạo phòng** (chốt 19/10/2026, chống bấm nhầm): widget gọi
+`GET /rooms/lookup` (chỉ đọc, `FindRoomByKeyAsync` đi `ux_conv_scope_surface`, đo 8 buffer). Đang là thành
+viên → mở thẳng; còn lại → ô nháp, gửi tin đầu tiên mới gọi `POST /rooms` rồi gửi tin. Vì thế phòng trống
+không còn sinh ra từ một cú bấm, người phụ trách cơ hội chỉ bị thêm khi có tin thật, và người đã rời phòng
+không tự bị kéo lại khi lỡ bấm. `POST /rooms` giữ nguyên lấy-hoặc-tạo cho tích hợp gọi thẳng.
+
 1-1 và nhóm không cần truyền khoá — máy chủ tự sinh. Danh sách người (`memberUserIds`) **chỉ áp lúc phòng
 vừa tạo**: áp ở mọi lần gọi là kéo lại người đã tự rời / bị bỏ ra. Phòng đã có thì `CreateOrGetRoomAsync`
 không ghi gì (`ON CONFLICT DO NOTHING` rồi đọc lại; thành viên chỉ ghi khi người gọi VÀO LẠI) — đo trên

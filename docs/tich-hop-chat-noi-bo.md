@@ -174,8 +174,20 @@ function whenChatReady(fn) {
 
 ## 3. Gắn nút Chat vào đơn hàng
 
-Mỗi đơn hàng có **đúng một phòng chat** (khoá `order:<mã đơn>`): bấm lần đầu tạo phòng, các lần sau (ai bấm
-cũng vậy) mở lại đúng phòng đó với đủ lịch sử.
+Mỗi đơn hàng có **đúng một phòng chat** (khoá `order:<mã đơn>`).
+
+**Bấm Chat KHÔNG tạo phòng ngay** (chống bấm nhầm). `openEntity` hỏi máy chủ trước (chỉ đọc):
+
+| Tình huống | Widget làm gì | `openEntity` trả |
+|---|---|---|
+| Phòng đã có, mình đang ở trong | Mở thẳng phòng, đủ lịch sử | `{ roomId: 123 }` |
+| Phòng chưa có | Mở **ô nháp** "Chưa có cuộc trò chuyện nào" | `{ roomId: null, draft: true }` |
+| Phòng đã có, mình chưa vào (hoặc đã rời) | Ô nháp "Đã có cuộc trao đổi về đơn hàng này" | `{ roomId: null, draft: true }` |
+| Không có quyền (phòng cơ hội) | Không mở gì | reject `Error("Bạn không có quyền xem cơ hội này")` |
+
+Phòng chỉ được tạo (hoặc người bấm chỉ được thêm vào) khi **gửi tin đầu tiên** trong ô nháp. Đóng ô nháp
+khi chưa gửi là không để lại gì: không phòng trống, không ai bị kéo vào, không hiện ở danh sách. `members`
+và `title` được dùng lúc tạo đó.
 
 ```html
 <button type="button" class="btn btn-default btn-sm tk-chat-order"
@@ -215,7 +227,11 @@ TkInternalChat.findUserIds('Trần Thu Hà, Nguyễn Minh').then(function (r) {
 });
 ```
 
-Kết quả bấm Chat trên một bản ghi (ảnh từ màn Cơ hội, đơn hàng hiện y hệt):
+Bấm Chat trên một bản ghi chưa có phòng (ảnh từ màn Cơ hội, đơn hàng hiện y hệt):
+
+![Ô nháp: gửi tin đầu tiên mới tạo phòng](images/trien-khai-chat-noi-bo/10-o-nhap.png)
+
+Gửi tin đầu tiên xong, ô nháp thành phòng thật:
 
 ![Phòng chat của một bản ghi](images/trien-khai-chat-noi-bo/07-phong-cua-co-hoi.png)
 
@@ -243,6 +259,7 @@ TkInternalChat.openByKey('nhom_marketing', { title: 'Nhóm Marketing', members: 
 ## 5. Toàn bộ hàm và sự kiện
 
 Mọi hàm `open*` trả `Promise<{ roomId }>`, hỏng thì reject `Error` (thông điệp tiếng Việt, hiện thẳng được).
+`openEntity` / `openByKey` trả `{ roomId: null, draft: true }` khi mở ô nháp (xem §3).
 
 | Hàm | Việc |
 |---|---|
@@ -286,6 +303,17 @@ Ví dụ: tự đặt nút trên thanh menu CRM thay cho nút nổi (`data-launc
 ## 6. Gọi API trực tiếp (không dùng widget)
 
 Khi cần làm việc ở máy chủ (vd tự tạo phòng đơn hàng lúc tạo đơn), gọi REST với header `X-Session-Id`:
+
+Chỉ HỎI phòng của một bản ghi (không tạo gì, kiểm quyền cơ hội ngay):
+
+```http
+GET https://tourkit-ai.tourkit.vn/api/v1/chat/internal/rooms/lookup?entityType=order&entityId=DH-0142
+X-Session-Id: <mã phiên>
+```
+
+→ `{ "id": 20154 | null, "member": true | false, "roomKey": "order:DH-0142" }`.
+
+Tạo (hoặc vào) phòng, nên gọi ngay trước khi gửi tin đầu tiên:
 
 ```http
 POST https://tourkit-ai.tourkit.vn/api/v1/chat/internal/rooms
