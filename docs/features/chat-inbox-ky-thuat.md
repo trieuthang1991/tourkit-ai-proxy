@@ -966,7 +966,14 @@ không adapter, không OA (`ChannelCredentialStore.ListAllAccountsAsync` bỏ qu
 | 1-1 | `direct:{min}:{max}` | A mở với B hay B mở với A → cùng phòng. **Khoá cấu hình** (không đổi tên, không thêm/bỏ người) |
 | Theo đơn | `order:{mã}` | Một phòng duy nhất mỗi đơn; ai mở đơn đó là vào phòng |
 | Theo công ty | `company:{mã}` | Như trên |
+| Theo cơ hội | `deal:{mã}` | Mã chuẩn hoá ("012" = "12"); quyền vào theo quyền xem cơ hội (dưới) |
 | Nhóm | `group:{guid}` | Mỗi lần tạo là nhóm mới |
+| Khoá tự đặt | `key:{khoá}` | Trang gọi tự đặt (`donhang_123`, `nhom_marketing`): lấy-hoặc-tạo. Chữ/số ASCII + `_ - . :`, ≤100. **Không kiểm quyền** — ai có phiên trong công ty và biết khoá là vào được |
+
+1-1 và nhóm không cần truyền khoá — máy chủ tự sinh. Danh sách người (`memberUserIds`) **chỉ áp lúc phòng
+vừa tạo**: áp ở mọi lần gọi là kéo lại người đã tự rời / bị bỏ ra. Phòng đã có thì `CreateOrGetRoomAsync`
+không ghi gì (`ON CONFLICT DO NOTHING` rồi đọc lại; thành viên chỉ ghi khi người gọi VÀO LẠI) — đo trên
+CSDL thật: `xmin` hai bảng không đổi sau lần bấm thứ hai.
 
 Ghi chuỗi rỗng vào `contact_external_id` là **mỗi công ty chỉ tạo được đúng một phòng** — dòng thứ
 hai vỡ chỉ mục. Khoá dựng bằng hàm thuần `InternalRoomKey` (có test).
@@ -993,13 +1000,25 @@ mới thì tự thêm `channel <> 7` và thêm tên hàm vào bài canh.
 - **Vào phòng theo cơ hội (`deal:{id}`) = ai nhìn thấy cơ hội đó** (chốt 19/10/2026), đúng luật web
   `BookingTicketAction`: `CH_XEM_ALL` → mọi cơ hội (không gọi CRM); chỉ `CH_XEM` → cơ hội mình tạo
   (`InsUid`) hoặc phụ trách (`NguoiPhuTrachs`), đọc chi tiết MỘT lần; không có `CH_XEM` → 403. Chỉ kiểm
-  lúc **chưa là thành viên** (`IsMemberByKeyAsync`) → mở lại/gửi tin không tốn gì thêm. KHÔNG dùng
+  lúc **chưa là thành viên** (`IsMemberByKeyAsync`) → mở lại/gửi tin không tốn gì thêm. Chi tiết cơ hội
+  (`DealOpportunityClient.GetDetailAsync`: tồn tại, người tạo, người phụ trách) đọc MỘT lần và dùng lại
+  để thêm người phụ trách khi phòng vừa tạo; CRM không trả lời → 503 (chỉ ở nhánh phải kiểm). KHÔNG dùng
   "CRM trả được chi tiết là xem được": đường chi tiết trả dữ liệu cho cả người không có quyền nào, và
   trả thành công rỗng cho mã không tồn tại (đo trên staging). Phòng đơn hàng / công ty: **chưa kiểm**.
 - Thêm người phải thuộc danh sách nhân viên ERP của công ty (`ChatStaffDirectory`, đệm Redis 2h,
-  dùng chung với `/assign-settings`) — mã người là số đoán được.
+  dùng chung với `/assign-settings`) — mã người là số đoán được. Gặp mã lạ thì hỏi lại ERP một lần
+  với `skipCache: true` (nhân viên mới không phải chờ hết đệm).
 - Dọn theo mốc (`ChatRepository.PruneAsync`, hiện CHƯA được gọi ở đâu) loại kênh 7: phòng nội bộ
   không bị xoá theo hạn lưu.
+
+### Tin hệ thống
+
+Đổi tên / thêm / bỏ / rời phòng ghi một dòng `chat_messages` với `sender_kind = 3`, không
+`sender_user_id` (`AppendSystemMessageAsync`; câu chữ ở hàm thuần `InternalRoomNotice.Text`, có test).
+Không ai sửa/thu hồi được (đường sửa đòi `sender_user_id = me`), không tính chưa đọc (`sender_kind <> 3`
+trong câu đếm), có đẩy xem trước + mốc hoạt động như tin thường. Tên người lấy từ danh bạ nhân viên,
+không có thì lùi về tên đăng nhập / `#mã`. **Best-effort**: ghi hỏng chỉ log cảnh báo, việc đổi phòng vẫn
+trả 204.
 
 ### Real-time
 
@@ -1024,7 +1043,8 @@ ký hạn.
 JS thuần, Shadow DOM. Khung danh sách (nhỏ 380px / phóng to hai cột ~920px, nhớ theo trình duyệt),
 ô chat nhỏ nổi (tối đa 2, theo chỗ trống thật; màn hẹp mở thẳng trong khung). Vẽ lại cả widget mỗi
 lần đổi nên PHẢI trả lại focus, con trỏ và vị trí cuộn từng khung tin (đã làm trong `render()`), và
-không vẽ lại giữa lúc bộ gõ đang ghép chữ. API cho trang CRM (`window.TkInternalChat`) ghi ở đầu tệp
+không vẽ lại giữa lúc bộ gõ đang ghép chữ (`compositionstart`/`compositionend` trên shadow root, hoãn
+`render()`; `focusout` phòng hờ trình duyệt không bắn `compositionend`). API cho trang CRM (`window.TkInternalChat`) ghi ở đầu tệp
 JS; trang CRM bấm vào một đơn hàng gọi `openEntity('order', mã, { title, members })`.
 
 CORS mở mọi origin, kể cả prod (chốt 19/10/2026): widget nhúng vào CRM của từng công ty, xác thực
@@ -1045,5 +1065,15 @@ bằng header chứ không cookie.
 - **Widget có đường lùi real-time**: hỏi lại 20 giây khi SSE mất hoặc `chatRealtime=false`; tab ẩn thì
   đóng SSE; EventSource `CLOSED` thì tự dựng lại (5 → 60 giây).
 
-**Chưa có:** tin hệ thống "A đã thêm/bỏ B"; báo đang gõ; trả lời trích dẫn; tìm trong nội dung tin; nút
+### Sửa lỗi nhỏ (19/10/2026, sau merge)
+
+- Sự kiện `changed` mang mã tin → widget nạp lại ĐÚNG tin đó bằng `?beforeUtc={createdUtc}&beforeId={id+1}&limit=1`
+  (trước chỉ nạp 50 tin mới nhất → tin cũ hơn không đổi bên người nhận).
+- Sự kiện cấu hình phòng: kiểm còn là thành viên bằng `GET /rooms/{id}/messages?limit=1` (403 = bị bỏ), không
+  dò trong danh sách 100 phòng; phòng đang mở mà rơi khỏi danh sách thì giữ thông tin cũ.
+- `isVisible` đòi `!document.hidden` (tab ẩn không đánh dấu đã đọc); tab hiện lại thì `markRead` phòng đang hiện.
+- Bỏ `aria-live` trên danh sách tin (vẽ lại cả khung → trình đọc màn hình đọc lại toàn bộ).
+- Ảnh tải xong: đang gần cuối thì cuộn xuống cuối.
+
+**Chưa có:** báo đang gõ; trả lời trích dẫn; tìm trong nội dung tin; nút
 mở phòng trên trang đơn hàng/công ty (hiện chỉ màn Cơ hội gọi `openEntity`).

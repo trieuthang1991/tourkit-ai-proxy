@@ -37,13 +37,31 @@ Những cập nhật gần đây của TRAV-AI, viết cho người dùng. Mới
 - **Xoá cuộc trò chuyện phía bạn**: bấm biểu tượng thùng rác ở đầu cuộc trò chuyện (bấm hai lần).
   Cuộc trò chuyện biến khỏi danh sách của riêng bạn, người khác vẫn thấy bình thường. Khi có tin mới,
   nó hiện lại và chỉ còn những tin từ sau lúc bạn xoá.
-- Tin mới hiện ngay, không cần tải lại trang. Đang gõ dở mà có tin tới thì chữ của bạn vẫn còn nguyên.
+- Tin mới hiện ngay, không cần tải lại trang. Đang gõ dở mà có tin tới thì chữ của bạn vẫn còn nguyên,
+  kể cả khi đang gõ dấu tiếng Việt.
+- **Dòng thông báo trong phòng**: khi ai đó đổi tên phòng, thêm hoặc bớt người, hay rời phòng, cả phòng
+  thấy một dòng nhỏ ở giữa, ví dụ "Hà đã thêm Minh vào phòng". Dòng này không tính là tin chưa đọc.
+- **Phòng chung đặt tên cố định**, ví dụ nhóm cả công ty hoặc nhóm Marketing: các màn hình khác trong hệ
+  thống có thể mở thẳng một phòng theo tên riêng. Lần đầu sẽ tạo phòng, các lần sau luôn mở đúng phòng đó
+  với đủ lịch sử.
+
+### 🔧 Đã khắc phục
+- Sửa hoặc thu hồi một tin **cũ** (đã trôi lên xa) giờ cũng đổi ngay trên màn hình người khác.
+- Người có rất nhiều cuộc trò chuyện không còn bị **đóng nhầm** ô chat đang mở khi có ai đổi tên phòng.
+- Tin tới lúc bạn đang ở **tab khác** không còn bị tính là đã đọc. Quay lại tab thì phòng đang mở mới
+  được đánh dấu đã đọc.
+- Ảnh vừa tải xong không còn đẩy tin mới nhất khuất khỏi khung.
+- Nhân viên **mới vào** thêm được vào phòng ngay, không phải chờ vài tiếng.
+- Bấm **Chat** lại trên một cơ hội đã có phòng thì mở nhanh hơn, và không còn kéo lại người đã rời phòng
+  hoặc đã bị bỏ ra.
 
 ### 📌 Lưu ý
 - Mọi nhân viên đăng nhập TRAV-AI đều nhắn được, không cần cấp quyền riêng. Riêng phòng của một cơ hội thì
   chỉ ai nhìn thấy cơ hội đó mới vào được.
 - Cuộc trò chuyện một-một không đổi tên hay thêm người được. Cần bàn nhiều người, hãy tạo nhóm.
 - Ai có đường link của một tệp đã gửi là mở được tệp đó. Đừng gửi giấy tờ nhạy cảm qua đây.
+- Phòng chung đặt tên cố định thì ai trong công ty biết tên phòng đều vào được. Chuyện cần giữ kín hãy
+  dùng nhóm thường.
 - Tính năng bật theo từng hệ thống; nếu chưa thấy nút chat, hãy liên hệ quản trị.
 
 ---

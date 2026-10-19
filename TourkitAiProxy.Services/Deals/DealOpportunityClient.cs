@@ -366,67 +366,42 @@ public class DealOpportunityClient
         return new DealContext(profile, Fingerprint(profile), commentCount);
     }
 
+    /// <summary>Phần chi tiết cơ hội mà chat nội bộ cần. <c>Exists</c> false = CRM không có / từ chối.</summary>
+    public record DealDetail(bool Exists, int? InsUid, int[] Owners);
+
     /// <summary>
-    /// Người dùng có XEM được cơ hội này không — luật của web (<see cref="Domain.Deals.DealAccess"/>):
-    /// xem tất cả → được, KHÔNG gọi CRM; không có quyền xem → không, KHÔNG gọi CRM; chỉ xem của mình →
-    /// đọc chi tiết cơ hội MỘT lần để biết họ có là người tạo / người phụ trách không.
-    /// true = xem được · false = không · null = không đọc được CRM (chỗ gọi phải CHẶN).
+    /// Đọc chi tiết cơ hội MỘT lần cho chat nội bộ: người tạo + người phụ trách (mã người). Chỗ gọi tự
+    /// quyết quyền bằng <see cref="Domain.Deals.DealAccess"/> và dùng lại kết quả để thêm người phụ trách —
+    /// trước đây hai hàm riêng gọi CRM hai lần cho cùng một chi tiết.
+    /// null = không đọc được CRM (chỗ gọi phải CHẶN khi cần quyết quyền).
     ///
-    /// <para>Không dùng "CRM trả được chi tiết là xem được": đường chi tiết trả dữ liệu cho cả người
+    /// <para>Không suy "CRM trả được chi tiết là xem được": đường chi tiết trả dữ liệu cho cả người
     /// không có quyền nào, và trả thành công rỗng cho mã không tồn tại (đo trên staging 19/10/2026).</para>
     /// </summary>
-    public async Task<bool?> CanViewAsync(string sessionId, string dealId, int me, bool viewAll, bool viewOwn,
-        CancellationToken ct)
+    public async Task<DealDetail?> GetDetailAsync(string sessionId, string dealId, CancellationToken ct)
     {
-        if (!long.TryParse(dealId, out var id) || id <= 0) return false;
-        if (viewAll) return true;
-        if (!viewOwn) return false;
+        if (!long.TryParse(dealId, out var id) || id <= 0) return new DealDetail(false, null, Array.Empty<int>());
         try
         {
             var d = await GetAsync(sessionId, $"/api/booking-tickets/{id}", ct);
-            if (d.ValueKind != JsonValueKind.Object) return false;   // không tồn tại
-            return Domain.Deals.DealAccess.IsOwner(me, GetInt(d, "insUid"), GetStr(d, "nguoiPhuTrachs"));
+            if (d.ValueKind != JsonValueKind.Object) return new DealDetail(false, null, Array.Empty<int>());
+            return new DealDetail(true, GetInt(d, "insUid"), Domain.Deals.DealAccess.ParseUserIds(GetStr(d, "nguoiPhuTrachs")));
         }
-        catch (TourKitApiException ex)
+        catch (TourKitApiException ex) when (ViewAccessFromStatus(ex.Status) == false)
         {
-            _log.LogInformation("[deal] kiểm quyền xem cơ hội {Id} → {S}", id, ex.Status);
-            return ViewAccessFromStatus(ex.Status);
+            _log.LogInformation("[deal] chi tiết cơ hội {Id} → {S}", id, ex.Status);
+            return new DealDetail(false, null, Array.Empty<int>());
         }
         catch (Exception ex) when (!ct.IsCancellationRequested)
         {
-            _log.LogWarning(ex, "[deal] không kiểm được quyền xem cơ hội {Id}", id);
+            _log.LogWarning(ex, "[deal] không đọc được chi tiết cơ hội {Id}", id);
             return null;
         }
     }
 
-    /// <summary>
-    /// Mã người phụ trách cơ hội (CRM lưu CSV ",1,2,"). Hỏng / không có thì mảng rỗng — chỗ gọi coi là
-    /// "không thêm được ai", KHÔNG chặn việc mở phòng.
-    /// </summary>
-    public async Task<int[]> GetOwnerIdsAsync(string sessionId, string dealId, CancellationToken ct)
-    {
-        if (!long.TryParse(dealId, out var id) || id <= 0) return Array.Empty<int>();
-        try
-        {
-            var d = await GetAsync(sessionId, $"/api/booking-tickets/{id}", ct);
-            return d.ValueKind == JsonValueKind.Object
-                ? Domain.Deals.DealAccess.ParseUserIds(GetStr(d, "nguoiPhuTrachs"))
-                : Array.Empty<int>();
-        }
-        catch (Exception ex) when (!ct.IsCancellationRequested)
-        {
-            _log.LogWarning(ex, "[deal] không lấy được người phụ trách cơ hội {Id} — phòng mở không kèm họ", id);
-            return Array.Empty<int>();
-        }
-    }
-
-    /// Mã HTTP của CRM → quyền xem. Chỉ 403/404 là từ chối DỨT KHOÁT; lỗi máy chủ là "không biết".
-    public static bool? ViewAccessFromStatus(int status) => status switch
-    {
-        >= 200 and < 300 => true,
-        403 or 404 => false,
-        _ => null,
-    };
+    /// Mã lỗi HTTP của CRM (chỉ gọi từ nhánh NGOẠI LỆ) → quyền xem. Chỉ 403/404 là từ chối DỨT KHOÁT;
+    /// còn lại là "không biết".
+    public static bool? ViewAccessFromStatus(int status) => status is 403 or 404 ? false : null;
 
     // ─── helpers ───────────────────────────────────────────────────────────────────
     private async Task<JsonElement> GetAsync(string sessionId, string path, CancellationToken ct)
