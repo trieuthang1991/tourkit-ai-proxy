@@ -32,6 +32,45 @@ async function readDealStream(url, onEvent) {
   await window.tourkitUtil.readSSE(resp, onEvent);
 }
 
+// ─── Chat nội bộ theo cơ hội ──────────────────────────────────────────────────
+// Mỗi cơ hội đúng MỘT phòng (loại "deal", khoá theo mã cơ hội): bấm là bật ô chat của cơ hội đó, tên
+// phòng = mã + khách, người phụ trách được thêm sẵn. Cấu hình thêm (đổi tên, thêm/bỏ người) làm sau
+// trong ô chat. Dữ liệu cơ hội chỉ có TÊN người phụ trách (CSV) → dò mã qua findUserIds; tên trùng
+// hoặc không thấy thì báo ra, không đoán.
+async function openDealChat(item, pushToast) {
+  const chat = window.TkInternalChat;
+  if (!chat) { pushToast?.('Chat nội bộ chưa bật cho hệ thống này', 'warn'); return; }
+  try {
+    const { ids, unmatched } = await chat.findUserIds(item.assignees || '');
+    const title = [item.code || ('#' + item.id), item.customerName].filter(Boolean).join(' · ');
+    await chat.openEntity('deal', String(item.id), { title, members: ids });
+    if (unmatched.length) pushToast?.('Chưa thêm được người phụ trách: ' + unmatched.join(', ') + ' — thêm tay trong cấu hình phòng', 'warn');
+  } catch (e) {
+    pushToast?.('Không mở được chat: ' + e.message, 'warn');
+  }
+}
+
+// Nút chỉ hiện khi widget đã nạp (cờ internalChat bật + đã đăng nhập). Widget nạp async nên nghe
+// sự kiện sẵn sàng để hiện nút mà không cần tải lại trang.
+function DealChatButton({ item, pushToast, compact }) {
+  const [on, setOn] = _dS(() => !!window.TkInternalChat);
+  _dE(() => {
+    if (on) return undefined;
+    const ready = () => setOn(true);
+    window.addEventListener('tk-internal-chat-ready', ready);
+    return () => window.removeEventListener('tk-internal-chat-ready', ready);
+  }, [on]);
+  if (!on) return null;
+  const label = 'Chat nội bộ về cơ hội ' + (item.code || ('#' + item.id));
+  return (
+    <button type="button" className={compact ? 'btn btn-ghost btn-sm' : 'btn btn-ghost'} style={{ gap: 6 }}
+            title={label} aria-label={label}
+            onClick={(e) => { e.stopPropagation(); openDealChat(item, pushToast); }}>
+      <Icon name="users" size={13} /> Chat
+    </button>
+  );
+}
+
 // ─── Drawer chi tiết 1 deal ───────────────────────────────────────────────────
 function DealDrawer({ item: initialItem, onClose, onRescored, pushToast }) {
   const [item, setItem] = React.useState(initialItem);
@@ -96,6 +135,7 @@ function DealDrawer({ item: initialItem, onClose, onRescored, pushToast }) {
 
       {/* Footer: nút Xem CRM (mở tab mới) + Chấm lại (mirror Customer review "Cập nhật review") */}
       <div style={{marginTop: 16, display: 'flex', justifyContent: 'flex-end', gap: 8, flexWrap: 'wrap'}}>
+        <DealChatButton item={item} pushToast={pushToast} />
         {(() => {
           // crmUrl chỉ để kiểm tra đã đăng nhập (có tenant). Điều hướng qua openCrm (SSO) → vào CRM login sẵn.
           const canOpen = !!window.tourkitUtil.crmUrl('/booking-ticket/' + item.id);
@@ -147,7 +187,7 @@ function DealFilters({ q, setQ, shown, total, advCount, advOpen, onAdvToggle, ra
 }
 
 // ─── 1 card (mobile) ──────────────────────────────────────────────────────────
-function DealCard({ item, rank, onClick, coolingConfigured }) {
+function DealCard({ item, rank, onClick, coolingConfigured, pushToast }) {
   const lv = dealLevel(item.level);
   const scored = item._hasScore;
   return (
@@ -169,6 +209,9 @@ function DealCard({ item, rank, onClick, coolingConfigured }) {
         <span className="deal-card-vals">{vndShort(item.totalPrice)}{scored ? ' · EV ' + vndShort(item.expectedValue) : ''}</span>
       </div>
       {item.analysis?.nextAction && <div className="deal-card-action"><Icon name="zap" size={13} /> {item.analysis.nextAction}</div>}
+      <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: 6 }}>
+        <DealChatButton item={item} pushToast={pushToast} compact />
+      </div>
     </div>
   );
 }
@@ -712,7 +755,7 @@ function DealsPage({ pushToast }) {
           <div className="deals-cards">
             {filtered.map((it) => {
               const rank = it._hasScore ? (boardItems.findIndex(b => b.id === it.id) + 1) : null;
-              return <DealCard key={it.id} item={it} rank={rank} onClick={() => setSel(it)} coolingConfigured={coolingConfigured} />;
+              return <DealCard key={it.id} item={it} rank={rank} onClick={() => setSel(it)} coolingConfigured={coolingConfigured} pushToast={pushToast} />;
             })}
           </div>
         ) : (
@@ -785,7 +828,10 @@ function DealsPage({ pushToast }) {
                         </>) : <span style={{color:'var(--text-3)'}}>—</span>}
                       </td>
                       <td className="deals-action">{it.analysis?.nextAction || <span style={{color:'var(--text-3)'}}>—</span>}</td>
-                      <td className="deals-go"><Icon name="chevronRight" size={16} /></td>
+                      <td className="deals-go" onClick={(e) => e.stopPropagation()} style={{ whiteSpace: 'nowrap' }}>
+                        <DealChatButton item={it} pushToast={pushToast} compact />
+                        <span onClick={() => setSel(it)} style={{ cursor: 'pointer', verticalAlign: 'middle' }}><Icon name="chevronRight" size={16} /></span>
+                      </td>
                     </tr>
                   );
                 })}

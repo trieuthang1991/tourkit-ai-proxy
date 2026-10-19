@@ -12,6 +12,8 @@
  * API cho trang CRM (mọi hàm open* trả Promise<{ roomId }>, hỏng thì reject Error):
  *   TkInternalChat.open() / close() / toggle()                 khung danh sách
  *   TkInternalChat.openEntity('order', 'DH-0142', { title, members: [12, 34] }, { in: 'dock' })
+ *   TkInternalChat.openEntity('deal', 4521, { title: 'CH-0012 · Nguyễn Văn A', members: [...] })   cơ hội
+ *   TkInternalChat.findUserIds('Trần Thu Hà, Nguyễn Minh')     → { ids, unmatched } (màn chỉ có tên)
  *   TkInternalChat.openDirect(12)                              1-1 với một người
  *   TkInternalChat.openGroup({ title: 'Đoàn Nhật', members: [12, 34] })
  *   TkInternalChat.openRoom(roomId)                            phòng đã có
@@ -49,6 +51,7 @@
   const IMAGES = ['.png', '.jpg', '.jpeg', '.gif', '.webp'];
   const MAX_BYTES = 15 * 1024 * 1024;
   const PAGE = 50;
+  const ENTITY_TYPES = ['order', 'company', 'deal'];   // phòng theo ngữ cảnh — mỗi mã đúng một phòng
 
   // ── Trạng thái ──────────────────────────────────────────────────────────
   const st = {
@@ -253,12 +256,13 @@
     }
     if (r.entityType === 'order') return 'Đơn ' + r.entityId + (r.title ? ' · ' + r.title : '');
     if (r.entityType === 'company') return r.title || ('Công ty ' + r.entityId);
+    if (r.entityType === 'deal') return r.title || ('Cơ hội #' + r.entityId);
     return (r.title || 'Nhóm') + ' · ' + (r.members || []).length + ' người';
   }
   function roomAvatar(r, small) {
     const cls = 'av' + (small ? ' s' : '');
     if (r.entityType === 'direct') return el('span', { class: cls, 'aria-hidden': 'true' }, initials(roomName(r)));
-    const ic = r.entityType === 'order' ? 'order' : r.entityType === 'company' ? 'company' : 'group';
+    const ic = r.entityType === 'order' || r.entityType === 'deal' ? 'order' : r.entityType === 'company' ? 'company' : 'group';
     return el('span', { class: cls + (r.entityType === 'group' ? '' : ' c'), 'aria-hidden': 'true' }, icon(ic, small ? 18 : 20));
   }
   const totalUnread = () => st.rooms.reduce((s, r) => s + (r.unreadCount || 0), 0);
@@ -349,7 +353,7 @@
     const q = st.search.trim().toLowerCase();
     const rooms = st.rooms.filter((r) => {
       if (st.filter === 'unread' && !r.unreadCount) return false;
-      if (st.filter === 'entity' && !(r.entityType === 'order' || r.entityType === 'company')) return false;
+      if (st.filter === 'entity' && !ENTITY_TYPES.includes(r.entityType)) return false;
       return !q || roomName(r).toLowerCase().includes(q);
     });
     const unreadRooms = st.rooms.filter((r) => r.unreadCount).length;
@@ -363,7 +367,7 @@
         vw() >= 760 ? sizeBtn() : null, closeBtn()),
       el('div', { class: 'tools' },
         el('label', { for: 'tk-tim', class: 'sr' }, 'Tìm người hoặc phòng'), search,
-        el('div', { class: 'chips' }, chip('all', 'Tất cả'), chip('unread', 'Chưa đọc' + (unreadRooms ? ' · ' + unreadRooms : '')), chip('entity', 'Theo đơn'))),
+        el('div', { class: 'chips' }, chip('all', 'Tất cả'), chip('unread', 'Chưa đọc' + (unreadRooms ? ' · ' + unreadRooms : '')), chip('entity', 'Đơn · cơ hội'))),
       st.view === 'room' || st.view === 'new' ? null : errBox(),
       rooms.length
         ? el('ul', {}, rooms.map((r) => el('li', {}, el('button', { class: 'it' + (r.unreadCount ? ' u' : ''), type: 'button',
@@ -815,10 +819,26 @@
     toggle() { st.open ? closePanel() : openPanel(); },
     /** Mở phòng theo đơn hàng / công ty, kèm sẵn người tham gia. Gọi lại nhiều lần vẫn ra CÙNG một phòng. */
     openEntity(type, entityId, info, opts) {
-      if (!(type === 'order' || type === 'company') || entityId == null || String(entityId).trim() === '')
-        return fail(new Error('openEntity: cần type "order" | "company" và mã'));
+      if (!ENTITY_TYPES.includes(type) || entityId == null || String(entityId).trim() === '')
+        return fail(new Error('openEntity: cần type "order" | "company" | "deal" và mã'));
       const i = typeof info === 'string' ? { title: info } : (info || {});
       return createAndShow({ entityType: type, entityId: String(entityId).trim(), title: i.title || null, memberUserIds: ids(i.members) }, whereOf(opts)).catch(fail);
+    },
+    /**
+     * Dò mã người theo TÊN (nhiều màn CRM chỉ có tên người phụ trách, không có mã).
+     * names: mảng hoặc chuỗi phân cách bằng dấu phẩy / chấm phẩy. So khớp không phân biệt hoa thường,
+     * gộp khoảng trắng. Tên trùng nhiều người thì KHÔNG đoán — trả vào unmatched.
+     * → Promise<{ ids: number[], unmatched: string[] }>
+     */
+    async findUserIds(names) {
+      if (!st.users.size) await loadUsers();
+      const norm = (x) => String(x || '').normalize('NFC').trim().replace(/\s+/g, ' ').toLowerCase();
+      const index = new Map();
+      for (const [id, n] of st.users) { const k = norm(n); index.set(k, (index.get(k) || []).concat(id)); }
+      const list = (Array.isArray(names) ? names : String(names || '').split(/[,;]/)).map((x) => String(x || '').trim()).filter(Boolean);
+      const ids = [], unmatched = [];
+      for (const n of list) { const hit = index.get(norm(n)) || []; if (hit.length === 1) ids.push(hit[0]); else unmatched.push(n); }
+      return { ids: [...new Set(ids)], unmatched };
     },
     /** Nhắn 1-1 với một nhân viên (mã người CRM). */
     openDirect(userId, opts) {

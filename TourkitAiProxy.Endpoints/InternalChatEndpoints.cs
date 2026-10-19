@@ -49,7 +49,7 @@ public static class InternalChatEndpoints
             if (req is null) return Bad("Thân request không đọc được");
 
             var type = req.EntityType?.Trim().ToLowerInvariant();
-            if (!InternalRoomKey.IsValidType(type)) return Bad("Loại phòng không hợp lệ (direct | order | company | group)");
+            if (!InternalRoomKey.IsValidType(type)) return Bad("Loại phòng không hợp lệ (direct | order | company | deal | group)");
             var others = (req.MemberUserIds ?? new()).Where(x => x > 0 && x != me).Distinct().ToList();
             if (others.Count > MaxMembers) return Bad($"Tối đa {MaxMembers} người một phòng");
 
@@ -70,7 +70,7 @@ public static class InternalChatEndpoints
             if (await CheckStaffAsync(others, sessions, api, redis, a!, lf, ct) is { } sai) return sai;
 
             var title = string.IsNullOrWhiteSpace(req.Title) ? null : req.Title.Trim()[..Math.Min(req.Title.Trim().Length, 120)];
-            var entityId = type is "order" or "company" ? req.EntityId!.Trim() : null;
+            var entityId = InternalRoomKey.IsEntityType(type) ? req.EntityId!.Trim() : null;
             var id = await repo.CreateOrGetRoomAsync(a!.TenantId, me, key, type!, entityId, title, others, ct);
             return Results.Json(new { id, roomKey = key }, Web);
         });

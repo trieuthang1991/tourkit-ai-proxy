@@ -26,6 +26,10 @@ public class InternalChatRepositoryGuardTests
     {
         Assert.Equal("order:123", InternalRoomKey.ForEntity("order", "123"));
         Assert.Equal("company:9", InternalRoomKey.ForEntity("company", " 9 "));
+        // Cơ hội bán hàng (BookingTicket) — loại RIÊNG, không dùng chung "order": hai thứ khác
+        // nhau ở CRM, dùng chung khoá thì cơ hội #12 và đơn #12 rơi vào cùng một phòng.
+        Assert.Equal("deal:12", InternalRoomKey.ForEntity("deal", "12"));
+        Assert.NotEqual(InternalRoomKey.ForEntity("order", "12"), InternalRoomKey.ForEntity("deal", "12"));
         Assert.Throws<ArgumentException>(() => InternalRoomKey.ForEntity("lead", "1"));
         Assert.Throws<ArgumentException>(() => InternalRoomKey.ForEntity("order", " "));
     }
@@ -43,6 +47,7 @@ public class InternalChatRepositoryGuardTests
     [InlineData("order", true)]
     [InlineData("company", true)]
     [InlineData("group", true)]
+    [InlineData("deal", true)]
     [InlineData("lead", false)]
     [InlineData(null, false)]
     public void Loai_phong_hop_le(string? t, bool ok) => Assert.Equal(ok, InternalRoomKey.IsValidType(t));

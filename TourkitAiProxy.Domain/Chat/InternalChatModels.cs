@@ -12,7 +12,10 @@ public static class InternalRoomKey
 {
     public const short Channel = (short)ChatChannel.Internal;
 
-    public static bool IsValidType(string? t) => t is "direct" or "order" or "company" or "group";
+    /// "deal" = Cơ hội bán hàng (BookingTicket) — RIÊNG với "order": khác thực thể ở CRM, dùng chung
+    /// khoá thì cơ hội #12 và đơn #12 rơi vào cùng một phòng.
+    public static bool IsValidType(string? t) => t is "direct" or "order" or "company" or "deal" or "group";
+    public static bool IsEntityType(string? t) => t is "order" or "company" or "deal";
 
     public static string Direct(int a, int b)
     {
@@ -22,7 +25,7 @@ public static class InternalRoomKey
 
     public static string ForEntity(string entityType, string entityId)
     {
-        if (entityType is not ("order" or "company"))
+        if (!IsEntityType(entityType))
             throw new ArgumentException($"Loại phòng theo ngữ cảnh không hợp lệ: {entityType}");
         var id = entityId?.Trim();
         if (string.IsNullOrEmpty(id)) throw new ArgumentException("Thiếu mã đơn/công ty");
