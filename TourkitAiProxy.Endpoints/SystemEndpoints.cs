@@ -49,6 +49,8 @@ public static class SystemEndpoints
             autoCare        = Services.Bootstrap.FeatureFlags.AutoCare(cfg),
             chat            = Services.Bootstrap.FeatureFlags.Chat(cfg),
             byoAiKey        = Services.Bootstrap.FeatureFlags.ByoAiKey(cfg),
+            // Chat nội bộ — app tự nhúng widget internal-chat.js khi bật (core/internal-chat-loader.js).
+            internalChat    = Services.Bootstrap.FeatureFlags.InternalChat(cfg),
             // chatAssign ĐÃ BỎ (09/09/2026): phân công đi cùng hộp thư chat, không có cờ riêng.
             // Hộp thư chat có tin vào ĐẨY tới được không. false = bus chỉ thấy sự kiện của chính
             // instance mình (chưa cắm Redis), nên giao diện phải giữ đường lùi hỏi lại định kỳ.

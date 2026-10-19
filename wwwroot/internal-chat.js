@@ -22,6 +22,7 @@
  *   TkInternalChat.getUnread()                                 tổng tin chưa đọc
  *   TkInternalChat.on('unread' | 'message' | 'room' | 'error' | 'ready', fn)  → hàm huỷ đăng ký
  *   TkInternalChat.setLauncherVisible(true|false)
+ *   TkInternalChat.destroy()                                   gỡ hẳn (đăng xuất)
  *   opts.in: 'dock' (ô chat nhỏ nổi, mặc định, tối đa 2 ô) | 'panel' (mở trong khung danh sách)
  *
  * Script nạp async: gọi API trước khi nạp xong thì chờ sự kiện window "tk-internal-chat-ready".
@@ -90,6 +91,7 @@
 
   // ── Dựng DOM ────────────────────────────────────────────────────────────
   const host = document.createElement('div');
+  host.id = 'tk-internal-chat';
   host.style.cssText = `position:fixed;${POS}:24px;bottom:24px;z-index:${Z};`;
   const root = host.attachShadow({ mode: 'open' });
   root.innerHTML = `<style>
@@ -865,6 +867,14 @@
       return () => listeners[ev].delete(fn);
     },
     setLauncherVisible(v) { st.launcher = !!v; render(); },
+    /** Gỡ hẳn widget (đăng xuất / đổi tài khoản). Nạp lại script sau đó là khởi tạo mới. */
+    destroy() {
+      dead = true;
+      if (es) { es.close(); es = null; }
+      host.remove();
+      for (const k of Object.keys(listeners)) listeners[k].clear();
+      delete window.TkInternalChat;
+    },
   };
 
   // ── Khởi động ───────────────────────────────────────────────────────────
