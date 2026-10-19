@@ -943,3 +943,85 @@ câu xác nhận nói thẳng *"KHÁCH VẪN THẤY tin này"*.
 
 ⚠️ `EnqueueOutboxAsync` vẫn phải đánh thức worker ngay sau đó, kể cả khi có hoãn — `ChatWorkSignalTests`
 canh trong phạm vi 400 ký tự, nên đừng chèn chú thích dài vào giữa hai lệnh (đã dính một lần).
+
+---
+
+## Chat nội bộ (`Features:InternalChat`)
+
+Nhân viên nhắn nhau ngay trong CRM qua widget `wwwroot/internal-chat.js` (nhúng một thẻ
+`<script data-session="…">`). Cờ RIÊNG, độc lập với `Features:Chat`; dùng chung CSDL chat
+(`ConnectionStrings:Chat`). Plan + nhật ký quyết định:
+[plans/2026-10-19-internal-chat-widget.md](../superpowers/plans/2026-10-19-internal-chat-widget.md).
+API: [api-surface.md § Chat nội bộ](../api-surface.md).
+
+**Phòng = một dòng `chat_conversations` với `channel = 7`** (`ChatChannel.Internal`), không webhook,
+không adapter, không OA (`ChannelCredentialStore.ListAllAccountsAsync` bỏ qua kênh 7). Tin = dòng
+`chat_messages` (`direction = 1`, `sender_kind = 2`, `sender_user_id`), nên vòng soi tệp
+(`direction = 0`) và worker gửi ra kênh (không ghi `chat_outbox`) không bao giờ chạm tới.
+
+**Khoá phòng nằm ở `contact_external_id`**, chống trùng bằng chỉ mục sẵn có `ux_conv_scope_surface`:
+
+| Loại | Khoá | Ghi chú |
+|---|---|---|
+| 1-1 | `direct:{min}:{max}` | A mở với B hay B mở với A → cùng phòng. **Khoá cấu hình** (không đổi tên, không thêm/bỏ người) |
+| Theo đơn | `order:{mã}` | Một phòng duy nhất mỗi đơn; ai mở đơn đó là vào phòng |
+| Theo công ty | `company:{mã}` | Như trên |
+| Nhóm | `group:{guid}` | Mỗi lần tạo là nhóm mới |
+
+Ghi chuỗi rỗng vào `contact_external_id` là **mỗi công ty chỉ tạo được đúng một phòng** — dòng thứ
+hai vỡ chỉ mục. Khoá dựng bằng hàm thuần `InternalRoomKey` (có test).
+
+### ⚠️ Luật bắt buộc: luồng khách phải loại kênh 7
+
+Phòng nội bộ nằm CHUNG bảng với hội thoại khách. Mọi câu SQL **của luồng khách** đọc/đếm/chia việc/dọn
+trên `chat_conversations` phải có `channel <> 7`, không thì: vòng quay giao phòng nội bộ cho nhân viên
+trực, hộp thư "tất cả kênh" hiện phòng nội bộ, chip đếm lệch, dọn theo mốc xoá phòng nội bộ.
+`InternalChatGuardTests.Hoi_thoai_khach_phai_loai_phong_noi_bo` canh **theo tên hàm** (cố ý vừa phải,
+chốt 19/10/2026) — **câu MỚI viết sau này không được canh tự động**: viết câu đọc hội thoại khách
+mới thì tự thêm `channel <> 7` và thêm tên hàm vào bài canh.
+
+### Thành viên, đã đọc, quyền
+
+- `chat_room_members (conversation_id, user_id)`, `left_utc NULL` = còn trong phòng; chỉ mục
+  `ix_room_members_user (tenant_id, user_id) WHERE left_utc IS NULL` phục vụ "phòng của tôi".
+- Kiểm thành viên **gộp trong chính câu đọc/ghi** (EXISTS), không tách round-trip — trừ đường tải
+  tệp (`IsMemberForUploadAsync`), phải hỏi TRƯỚC khi đẩy byte lên kho.
+- Đã đọc dùng lại `chat_conversation_reads`. Chưa đọc tính từ `COALESCE(last_read_at, joined_utc)`,
+  **trần 100** (phòng bỏ quên không kéo chậm danh sách).
+- Cấu hình phòng (đổi tên, thêm, bỏ, rời): **mọi thành viên** của nhóm/đơn/công ty đều được; không
+  lưu người tạo. Muốn chỉ người tạo được bỏ người thì phải thêm cột.
+- Thêm người phải thuộc danh sách nhân viên ERP của công ty (`ChatStaffDirectory`, đệm Redis 2h,
+  dùng chung với `/assign-settings`) — mã người là số đoán được.
+- Dọn theo mốc (`ChatRepository.PruneAsync`, hiện CHƯA được gọi ở đâu) loại kênh 7: phòng nội bộ
+  không bị xoá theo hạn lưu.
+
+### Real-time
+
+`ChatEvent.Recipients` khác null = sự kiện nội bộ: `ChatEventBus` chỉ giao cho người nghe đăng ký
+bằng `SubscribeInternalAsync` có mã nằm trong danh sách, và **không bao giờ** giao cho tab hộp thư
+khách (kể cả admin xem tất cả) — ngược lại cũng vậy. Thành viên lấy ngay trong câu ghi tin (một CTE),
+không hỏi lại. Sự kiện mang `{roomId, messageId}`, không mang nội dung; `messageId = null` = phòng đổi
+cấu hình (người bị bỏ cũng nhận để tự đóng phòng). `Recipients` sống sót qua Redis
+(`Pack`/`FromRemote`) — có test.
+
+### Tệp đính kèm
+
+Hai bước như hộp thư khách: `POST /rooms/{id}/upload` → gói `{url,name,size,kind}` → gửi tin kèm
+gói. Kho là `IChatFileStorage` (R2 trên môi trường thật). Luật ở `InternalAttachmentRules`: danh sách
+trắng đuôi (kho local phục vụ trên miền proxy → `.html/.svg` là chạy được script ở đó), 15MB,
+Content-Type đặt theo đuôi, và tin chỉ nhận URL **do kho cấp cho đúng công ty + phòng**. Bucket R2
+đọc công khai (yêu cầu của Zalo/Messenger) → ai có link là xem được; tên tệp là GUID. Chưa có link
+ký hạn.
+
+### Widget
+
+JS thuần, Shadow DOM. Khung danh sách (nhỏ 380px / phóng to hai cột ~920px, nhớ theo trình duyệt),
+ô chat nhỏ nổi (tối đa 2, theo chỗ trống thật; màn hẹp mở thẳng trong khung). Vẽ lại cả widget mỗi
+lần đổi nên PHẢI trả lại focus, con trỏ và vị trí cuộn từng khung tin (đã làm trong `render()`), và
+không vẽ lại giữa lúc bộ gõ đang ghép chữ. API cho trang CRM (`window.TkInternalChat`) ghi ở đầu tệp
+JS; trang CRM bấm vào một đơn hàng gọi `openEntity('order', mã, { title, members })`.
+
+CORS mở mọi origin, kể cả prod (chốt 19/10/2026): widget nhúng vào CRM của từng công ty, xác thực
+bằng header chứ không cookie.
+
+**Chưa có:** tin hệ thống "A đã thêm/bỏ B"; báo đang gõ; trả lời trích dẫn; tìm trong nội dung tin.

@@ -13,6 +13,33 @@ Những cập nhật gần đây của TRAV-AI, viết cho người dùng. Mới
 
 ---
 
+## Phiên bản 19/10/2026 — Chat nội bộ ngay trong CRM
+
+### ✨ Tính năng mới
+- **Nhắn tin nội bộ giữa nhân viên** mà không phải rời màn hình CRM. Bấm nút chat ở góc phải dưới
+  để xem các cuộc trò chuyện, số tin chưa đọc hiện ngay trên nút.
+- **Nhắn một người, hoặc tạo nhóm.** Bấm **Trò chuyện mới**, chọn người, đặt tên nhóm nếu cần.
+  Mở lại cuộc trò chuyện với cùng một người thì luôn quay về đúng cuộc cũ, không sinh thêm.
+- **Mỗi đơn hàng, mỗi công ty có đúng một phòng chung.** Từ trang đơn hàng, mở phòng của đơn là
+  thấy ngay mọi trao đổi về đơn đó, người cần bàn được thêm sẵn vào phòng.
+- **Ô chat nhỏ nổi**, mở được tối đa hai ô cùng lúc như các ứng dụng nhắn tin quen thuộc. Thu gọn
+  ô vẫn thấy số tin mới; bấm để phóng sang khung lớn khi cần.
+- **Khung lớn hai cột**: bấm nút phóng to để xem danh sách bên trái và cuộc trò chuyện bên phải.
+  Lựa chọn được nhớ cho lần sau.
+- **Gửi ảnh và tệp**: bấm nút kẹp giấy, **dán thẳng ảnh chụp màn hình** (Ctrl+V), hoặc kéo thả tệp
+  vào khung chat. Nhận ảnh, PDF, Word, Excel, PowerPoint, TXT, CSV, ZIP, RAR; tối đa 15 MB mỗi tệp.
+- **Đổi tên phòng, thêm hoặc bớt người, rời phòng** bằng nút bánh răng ở đầu mỗi nhóm.
+- **Thu hồi tin của mình** khi gửi nhầm.
+- Tin mới hiện ngay, không cần tải lại trang. Đang gõ dở mà có tin tới thì chữ của bạn vẫn còn nguyên.
+
+### 📌 Lưu ý
+- Mọi nhân viên đang dùng CRM đều nhắn được, không cần cấp quyền riêng.
+- Cuộc trò chuyện một-một không đổi tên hay thêm người được. Cần bàn nhiều người, hãy tạo nhóm.
+- Ai có đường link của một tệp đã gửi là mở được tệp đó. Đừng gửi giấy tờ nhạy cảm qua đây.
+- Tính năng bật theo từng hệ thống; nếu chưa thấy nút chat, hãy liên hệ quản trị.
+
+---
+
 ## Phiên bản 12/10/2026 — Hộp thư chat chỉ giao việc cho người có quyền chat
 
 ### 🔧 Đã khắc phục
