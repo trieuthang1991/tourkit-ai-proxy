@@ -1430,14 +1430,25 @@
       cur.reactions = prev; errMsg = 'Chưa thả được cảm xúc: ' + e.message; st.errRoom = roomId; render();
     }
   }
-  /// Nhấn giữ ~0,45 giây (chỉ ngón tay / bút) → fn. Kéo đi hoặc nhấc sớm là huỷ, để cuộn không bị bắt nhầm.
+  /// Ngón tay / bút: nhấn giữ ~0,45 giây, hoặc CHẠM NHANH vào bong bóng chữ → fn (không có chuột để rê ra nút
+  /// mặt cười, chạm nhanh dễ tìm hơn nhấn giữ). Kéo đi là huỷ, để cuộn không bị bắt nhầm; chạm vào ảnh / tệp
+  /// vẫn mở ảnh / tệp như cũ.
   function longPress(fn) {
-    let t = null, x0 = 0, y0 = 0;
+    let t = null, x0 = 0, y0 = 0, t0 = 0, moved = false;
     const stop = () => { clearTimeout(t); t = null; };
     return {
-      pointerdown: (e) => { if (e.pointerType === 'mouse') return; x0 = e.clientX; y0 = e.clientY; stop(); t = setTimeout(() => { t = null; fn(); }, 450); },
-      pointermove: (e) => { if (t && Math.hypot(e.clientX - x0, e.clientY - y0) > 10) stop(); },
-      pointerup: stop, pointercancel: stop, pointerleave: stop,
+      pointerdown: (e) => {
+        if (e.pointerType === 'mouse') return;
+        x0 = e.clientX; y0 = e.clientY; t0 = Date.now(); moved = false; stop();
+        t = setTimeout(() => { t = null; t0 = 0; fn(); }, 450);
+      },
+      pointermove: (e) => { if (t && Math.hypot(e.clientX - x0, e.clientY - y0) > 10) { moved = true; stop(); } },
+      pointerup: (e) => {
+        const quick = t && !moved && Date.now() - t0 < 350;
+        stop();
+        if (quick && e.pointerType !== 'mouse' && e.composedPath().some((n) => n.classList && n.classList.contains('bb'))) fn();
+      },
+      pointercancel: stop, pointerleave: stop,
       contextmenu: (e) => { if (e.pointerType !== 'mouse' && matchMedia('(hover:none)').matches) e.preventDefault(); },
     };
   }
