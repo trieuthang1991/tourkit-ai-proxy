@@ -6,7 +6,8 @@
  * Tuỳ chọn data-*:
  *   data-position="br|bl"   góc màn hình (mặc định br)
  *   data-z-index="…"        lớp chồng
- *   data-order-url="…"      mẫu link mở đơn, "{id}" thay bằng mã đơn (hiện nút "Mở đơn")
+ *   data-order-url="…"      mẫu link mở đơn, "{id}" thay bằng mã đơn (hiện nút "Mở đơn", mở tab mới)
+ *   data-deal-url="…"       mẫu link mở cơ hội, "{id}" thay bằng mã cơ hội (hiện nút "Mở cơ hội")
  *   data-launcher="false"   ẩn nút nổi — trang CRM tự đặt nút riêng rồi gọi TkInternalChat.open()
  *
  * API cho trang CRM (mọi hàm open* trả Promise<{ roomId }>, hỏng thì reject Error):
@@ -31,7 +32,12 @@
  *   TkInternalChat.getUnread()                                 tổng tin chưa đọc
  *   TkInternalChat.on('unread' | 'message' | 'room' | 'error' | 'ready', fn)  → hàm huỷ đăng ký
  *   TkInternalChat.setLauncherVisible(true|false)
+ *   TkInternalChat.setEntityLinks({ order: (id) => …, deal: (id) => … })   tự mở bản ghi (vd có đăng nhập sẵn);
+ *     thắng data-order-url / data-deal-url
  *   TkInternalChat.destroy()                                   gỡ hẳn (đăng xuất)
+ *   info.data (openEntity / openByKey): object tự do (≤ 4 KB) lưu theo phòng, mọi thành viên đọc lại được qua
+ *     room.data. Có data.url (http/https) → đầu phòng có nút "Xem lại" mở đường dẫn đó. Mở lại với data
+ *     khác thì thay; giống thì không ghi gì.
  *   opts.in: 'dock' (ô chat nhỏ nổi, mặc định, tối đa 2 ô) | 'panel' (mở trong khung danh sách)
  *
  * Script nạp async: gọi API trước khi nạp xong thì chờ sự kiện window "tk-internal-chat-ready".
@@ -51,7 +57,9 @@
   const API = BASE + '/api/v1/chat/internal';
   const POS = scriptEl.getAttribute('data-position') === 'bl' ? 'left' : 'right';
   const Z = parseInt(scriptEl.getAttribute('data-z-index') || '2147483000', 10);
-  const ORDER_URL = scriptEl.getAttribute('data-order-url') || '';
+  const LINK_URL = { order: scriptEl.getAttribute('data-order-url') || '', deal: scriptEl.getAttribute('data-deal-url') || '' };
+  const LINK_LABEL = { order: 'Mở đơn', deal: 'Mở cơ hội' };
+  let entityOpeners = {};   // setEntityLinks({ order: fn(id), deal: fn(id) }) — thắng mẫu link
 
   // Cùng danh sách trắng với máy chủ (InternalAttachmentRules) — chặn sớm cho đỡ một lượt tải hỏng.
   const ALLOWED = ['.png', '.jpg', '.jpeg', '.gif', '.webp', '.pdf', '.doc', '.docx', '.xls', '.xlsx', '.ppt', '.pptx', '.txt', '.csv', '.zip', '.rar'];
@@ -71,7 +79,7 @@
     rooms: [], me: null, users: new Map(),
     filter: 'all', search: '',
     newType: 'group', picked: new Set(), userSearch: '', newTitle: '',
-    drafts: {}, pending: {}, sending: new Set(), dragKey: null, busy: false,
+    drafts: {}, pending: {}, dragKey: null, busy: false,
     settings: null, renameDraft: {}, addSearch: '', addPicked: new Set(),   // màn cấu hình phòng (key = 'panel-12' | 'dock-12')
     editing: null, recallConfirm: null, hideConfirm: null, menu: null,
     draft: null,
@@ -83,8 +91,10 @@
   let errMsg = '';
   const vw = () => window.innerWidth;
   const isLarge = () => st.size === 'large' && vw() >= 760;
-  // Màn rộng 2 ô, vừa 1 ô, hẹp thì không có ô nổi — mở thẳng trong khung.
-  const maxDocks = () => (vw() >= 1100 ? 2 : vw() >= 760 ? 1 : 0);
+  // Số ô nổi hiện cùng lúc theo bề rộng màn; hẹp thì không có ô nổi — mở thẳng trong khung. Ô mở thêm quá
+  // số này thu thành avatar tròn trên nút nổi (kiểu Messenger), bấm là đổi chỗ với ô cũ nhất.
+  const maxDocks = () => (vw() >= 1440 ? 3 : vw() >= 1100 ? 2 : vw() >= 760 ? 1 : 0);
+  const MAX_OPEN = 8;   // tổng số cuộc đang mở (ô + avatar)
 
   // ── Sự kiện cho trang CRM ───────────────────────────────────────────────
   const listeners = { unread: new Set(), message: new Set(), room: new Set(), error: new Set(), ready: new Set() };
@@ -109,7 +119,9 @@
   // ── Dựng DOM ────────────────────────────────────────────────────────────
   const host = document.createElement('div');
   host.id = 'tk-internal-chat';
-  host.style.cssText = `position:fixed;${POS}:24px;bottom:24px;z-index:${Z};`;
+  // Trang có thanh cố định ở đáy (menu dưới trên điện thoại) thì đặt --tk-chat-bottom / --tk-chat-side
+  // trên #tk-internal-chat để nút nổi nằm trên thanh đó thay vì che mất.
+  host.style.cssText = `position:fixed;${POS}:var(--tk-chat-side,24px);bottom:var(--tk-chat-bottom,24px);z-index:${Z};`;
   const root = host.attachShadow({ mode: 'open' });
   root.innerHTML = `<style>
     :host{all:initial}
@@ -117,12 +129,21 @@
     .w{font-family:"Be Vietnam Pro",system-ui,-apple-system,"Segoe UI",sans-serif;color:#11151c;font-size:14px;line-height:1.5}
     button{font:inherit;cursor:pointer}
     button:focus-visible,a:focus-visible,input:focus-visible,textarea:focus-visible{outline:3px solid #6f86e6;outline-offset:2px}
-    .fab{position:relative;width:56px;height:56px;border:0;border-radius:6px;background:#1f3fbf;color:#fff;display:grid;place-items:center;box-shadow:0 6px 16px rgba(31,63,191,.28)}
-    .fab:hover{background:#18329a}
-    .fab .n{position:absolute;top:-6px;${POS}:-6px;min-width:22px;height:22px;padding:0 6px;border-radius:6px;background:#fff;color:#1f3fbf;border:2px solid #1f3fbf;font-size:12px;font-weight:700;display:grid;place-items:center}
-    .p{position:absolute;bottom:72px;${POS}:0;width:min(380px,calc(100vw - 32px));height:min(560px,calc(100vh - 120px));background:#fff;border:1px solid #e3e6ec;border-radius:6px;box-shadow:0 12px 32px rgba(17,21,28,.14);display:flex;flex-direction:column;overflow:hidden}
+    /* Nút nổi tròn, nền chuyển sắc nhẹ, bóng loang theo màu nút — mềm hơn khối vuông đặc. */
+    .fab{position:relative;width:56px;height:56px;border:0;border-radius:50%;background:linear-gradient(160deg,#3358e0 0%,#1f3fbf 70%);color:#fff;display:grid;place-items:center;
+      box-shadow:0 10px 24px -6px rgba(31,63,191,.45),0 2px 6px rgba(31,63,191,.18);transition:transform .18s ease,box-shadow .18s ease}
+    .fab:hover{transform:translateY(-2px);box-shadow:0 14px 28px -6px rgba(31,63,191,.5),0 3px 8px rgba(31,63,191,.2)}
+    .fab:active{transform:translateY(0) scale(.97)}
+    .fab .n{position:absolute;top:0;${POS}:0;min-width:20px;height:20px;padding:0 6px;border-radius:999px;background:#e5484d;color:#fff;border:2px solid #fff;font-size:11px;font-weight:700;line-height:1;display:grid;place-items:center;box-shadow:0 2px 4px rgba(17,21,28,.15)}
+    .p{position:absolute;bottom:72px;${POS}:0;width:min(380px,calc(100vw - 32px));height:min(560px,calc(100vh - 96px - var(--tk-chat-bottom,24px)));background:#fff;border:1px solid #e3e6ec;border-radius:6px;box-shadow:0 12px 32px rgba(17,21,28,.14);display:flex;flex-direction:column;overflow:hidden}
     .p.nofab{bottom:0}
-    .p.lg{width:min(920px,calc(100vw - 32px));height:min(720px,calc(100vh - 120px));flex-direction:row}
+    .p.lg{width:min(920px,calc(100vw - 32px));height:min(720px,calc(100vh - 96px - var(--tk-chat-bottom,24px)));flex-direction:row}
+    /* Điện thoại: khung chiếm trọn màn như ứng dụng nhắn tin, nút nổi ẩn (đầu khung đã có nút đóng). */
+    @media (max-width:759px){
+      .fab{width:48px;height:48px}
+      .p,.p.nofab{position:fixed;inset:0;width:auto;height:auto;border:0;border-radius:0;box-shadow:none;padding:env(safe-area-inset-top,0px) 0 env(safe-area-inset-bottom,0px)}
+      .p ~ .fab{display:none}
+    }
     .pane{position:relative;display:flex;flex-direction:column;flex:1;min-width:0;min-height:0}
     .lg .pane.list{flex:0 0 300px;border-right:1px solid #e3e6ec}
     .lg .ms{padding:16px 20px}.lg .m{max-width:70%}.lg .img img{max-width:320px;max-height:320px}
@@ -130,6 +151,15 @@
     .docks{position:absolute;bottom:0;display:flex;flex-direction:${POS === 'right' ? 'row-reverse' : 'row'};gap:12px;align-items:flex-end}
     .dk{width:328px;height:min(460px,calc(100vh - 48px));background:#fff;border:1px solid #e3e6ec;border-radius:6px;box-shadow:0 12px 32px rgba(17,21,28,.16);display:flex;flex-direction:column;overflow:hidden}
     .dk.min{height:auto}
+    .heads{position:absolute;bottom:68px;${POS}:4px;display:flex;flex-direction:column-reverse;gap:10px;align-items:center}
+    .hw{position:relative}
+    .head{position:relative;display:block;padding:0;border:2px solid #fff;border-radius:50%;background:#fff;box-shadow:0 6px 16px -4px rgba(17,21,28,.25);transition:transform .15s ease}
+    .head:hover{transform:translateY(-1px)}
+    .head .av{width:44px;height:44px;border-radius:50%;font-size:14px}
+    .head .n{position:absolute;top:-4px;${POS === 'right' ? 'left' : 'right'}:-4px;min-width:18px;height:18px;padding:0 5px;border-radius:999px;background:#e5484d;color:#fff;border:2px solid #fff;font-size:10px;font-weight:700;line-height:1;display:grid;place-items:center}
+    .hx{position:absolute;top:-4px;${POS}:-4px;width:20px;height:20px;padding:0;border:1px solid #e3e6ec;border-radius:50%;background:#fff;color:#5b6270;display:grid;place-items:center;opacity:0;transition:opacity .12s}
+    .hw:hover .hx,.hx:focus-visible{opacity:1}
+    @media (hover:none){.hx{opacity:1}}
     .dk .hd .ttl.static{cursor:default}.dk .hd .ttl.static:hover{background:transparent}
     .nhap{margin:auto;max-width:250px;text-align:center;color:#5b6270;font-size:13px;line-height:1.5;display:flex;flex-direction:column;gap:6px}
     .nhap b{color:#11151c;font-weight:600}
@@ -153,6 +183,8 @@
     .pri{height:36px;padding:0 12px;border:0;border-radius:6px;background:#1f3fbf;color:#fff;font-size:13px;font-weight:600;display:flex;align-items:center;gap:6px;flex-shrink:0}
     .pri:hover{background:#18329a}.pri:disabled{opacity:.55;cursor:default}
     .sec{height:30px;padding:0 10px;border:1px solid #d5d9e0;border-radius:6px;background:#fff;color:#11151c;font-size:12px;text-decoration:none;display:inline-flex;align-items:center;flex-shrink:0}
+    .sec.lk{gap:5px;color:#1f3fbf}.sec.lk:hover{border-color:#1f3fbf}
+    a.ib{color:inherit}
     .sec:hover{background:#eef1fc}
     .tools{padding:12px 16px 8px;display:flex;flex-direction:column;gap:10px}
     .in{width:100%;height:38px;border:1px solid #d5d9e0;border-radius:6px;padding:0 10px;font:inherit;font-size:14px;color:#11151c;background:#fff}
@@ -233,6 +265,22 @@
     .pc.err{border-color:#c0392b;color:#8a1c12}
     .pc .x{position:absolute;top:2px;right:2px;width:22px;height:22px;border:0;background:transparent;color:#5b6270;display:grid;place-items:center}
     .pc .st{font-size:11px;color:#5b6270}
+    .pc .tx{display:flex;flex-direction:column;gap:3px;min-width:0}
+    .bar{position:relative;display:block;width:100%;min-width:60px;height:3px;border-radius:2px;background:#e3e6ec;overflow:hidden}
+    .bar i{position:absolute;inset:0 auto 0 0;background:#1f3fbf;transition:width .2s ease-out}
+    .bar.ind i{width:35%;animation:tkslide 1.1s ease-in-out infinite}
+    .img .bar{position:absolute;left:8px;right:8px;bottom:8px;width:auto;background:rgba(255,255,255,.7)}
+    .img{position:relative}
+    .m.out .bb,.m.out .img,.m.out .fa{opacity:.72}
+    .m.fail .bb{background:#fff;color:#11151c;border-color:#c0392b}
+    .m .t.tfail{color:#8a1c12;display:flex;flex-wrap:wrap;gap:2px 8px;justify-content:flex-end}
+    .m .t.tfail button{border:0;background:transparent;padding:0;color:#1f3fbf;font-size:11px;font-weight:600;text-decoration:underline}
+    .older{position:sticky;top:0;flex-shrink:0;height:0;margin:-12px -14px 2px;z-index:1}   /* -12 + 2 + gap 10 = 0: tin không bị xô */
+    .older::before{content:'';position:absolute;left:0;top:0;height:2px;width:30%;background:#1f3fbf;opacity:.55;animation:tkslide 1s ease-in-out infinite}
+    .oldbtn{align-self:center;flex-shrink:0;border:0;background:transparent;color:#5b6270;font-size:12px;padding:2px 8px;border-radius:6px}
+    .oldbtn:hover{color:#1f3fbf;background:#fff}
+    @keyframes tkslide{from{transform:translateX(-100%)}to{transform:translateX(340%)}}
+    @media (prefers-reduced-motion:reduce){.older::before,.bar.ind i{animation-duration:3s}}
     .drop{position:absolute;inset:0;background:rgba(238,241,252,.92);border:2px dashed #1f3fbf;border-radius:6px;display:grid;place-items:center;color:#1f3fbf;font-weight:600;pointer-events:none;z-index:2}
     .sr{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap}
     @media (prefers-reduced-motion:reduce){*{transition:none!important;scroll-behavior:auto!important}}
@@ -251,13 +299,14 @@
     return e;
   }
   const ICONS = {
-    chat: 'M4 5h16v11H9l-5 4z', plus: 'M12 5v14M5 12h14', x: 'M6 6l12 12M18 6L6 18', back: 'M15 6l-6 6 6 6',
-    send: 'M4 12l16-8-6 16-2-7z', order: 'M7 3h10a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2zM9 8h6M9 12h6M9 16h4',
-    company: 'M4 21V7l8-4 8 4v14M9 21v-6h6v6', group: 'M9 11a3 3 0 1 0 0-6 3 3 0 0 0 0 6zM3 20c0-3 3-5 6-5s6 2 6 5M17 11.5a2.5 2.5 0 1 0 0-5M15 15c3 0 6 1.5 6 4.5',
+    chat: 'M20 14.5a2.5 2.5 0 0 1-2.5 2.5H8.5L4 20.5V6.5A2.5 2.5 0 0 1 6.5 4h11A2.5 2.5 0 0 1 20 6.5zM8.5 9h7M8.5 12.5h4',
+    plus: 'M12 5v14M5 12h14', x: 'M6.5 6.5l11 11M17.5 6.5l-11 11', back: 'M14.5 6l-6 6 6 6',
+    send: 'M4.5 4.5L20 12 4.5 19.5l2.5-7.5zM7 12h6', order: 'M7 3h10a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2zM9 8h6M9 12h6M9 16h4',
+    company: 'M4 21V7l8-4 8 4v14M9 21v-6h6v6', group: 'M9 11a3.5 3.5 0 1 0 0-7 3.5 3.5 0 0 0 0 7zM2.5 20a6.5 6.5 0 0 1 13 0M16 4.3a3.5 3.5 0 0 1 0 6.4M18 14.2a6.5 6.5 0 0 1 3.5 5.8',
     clip: 'M21 12.5l-8.5 8.5a5 5 0 0 1-7-7l9-9a3.5 3.5 0 0 1 5 5l-9 9a2 2 0 0 1-3-3l8-8',
     file: 'M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8zM14 3v5h5',
     max: 'M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5', min: 'M9 4v5H4M15 4v5h5M9 20v-5H4M15 20v-5h5',
-    dash: 'M5 12h14', more: 'M5.5 12h1M11.5 12h1M17.5 12h1',
+    dash: 'M5 12h14', more: 'M6 11.2a.8.8 0 1 0 0 1.6.8.8 0 1 0 0-1.6zM12 11.2a.8.8 0 1 0 0 1.6.8.8 0 1 0 0-1.6zM18 11.2a.8.8 0 1 0 0 1.6.8.8 0 1 0 0-1.6z',
     edit: 'M4 20h4L18.5 9.5a2.1 2.1 0 0 0-3-3L5 17v3zM14 8l3 3', undo: 'M9 14L4 9l5-5M4 9h10.5a5.5 5.5 0 0 1 0 11H11',
     trash: 'M4 7h16M9 7V4h6v3M6 7l1 13h10l1-13M10 11v6M14 11v6',
     gear: 'M12 15a3 3 0 1 0 0-6 3 3 0 0 0 0 6zM19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z', pop: 'M14 4h6v6M20 4l-8 8M18 14v5a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V7a1 1 0 0 1 1-1h5',
@@ -265,7 +314,8 @@
   function icon(name, size) {
     const s = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
     s.setAttribute('width', size || 18); s.setAttribute('height', size || 18); s.setAttribute('viewBox', '0 0 24 24');
-    s.setAttribute('fill', 'none'); s.setAttribute('stroke', 'currentColor'); s.setAttribute('stroke-width', '2');
+    // Nét mảnh: icon lớn 1,6px, icon nhỏ 1,75px (nhỏ quá mà mảnh quá thì mờ).
+    s.setAttribute('fill', 'none'); s.setAttribute('stroke', 'currentColor'); s.setAttribute('stroke-width', (size || 18) >= 22 ? '1.6' : '1.75');
     s.setAttribute('stroke-linecap', 'round'); s.setAttribute('stroke-linejoin', 'round'); s.setAttribute('aria-hidden', 'true');
     const p = document.createElementNS('http://www.w3.org/2000/svg', 'path'); p.setAttribute('d', ICONS[name]); s.append(p);
     return s;
@@ -312,7 +362,8 @@
   const totalUnread = () => st.rooms.reduce((s, r) => s + (r.unreadCount || 0), 0);
   const convOf = (id) => { let c = st.conv.get(id); if (!c) { c = { msgs: [], hasOlder: false, loaded: false }; st.conv.set(id, c); } return c; };
   const panelRoomVisible = (id) => st.open && st.view === 'room' && st.roomId === id;
-  const dockVisible = (id) => st.docks.includes(id) && !st.dockMin.has(id);
+  // Phải là ô ĐANG HIỆN: cuộc thu thành avatar (hết chỗ) vẫn nằm trong st.docks nhưng không ai đang đọc.
+  const dockVisible = (id) => st.docks.includes(id) && !st.dockMin.has(id) && !!W.querySelector(`.dk[data-room="${id}"]`);
   // Tab ẩn thì KHÔNG tính là đang xem — không thì tin tới lúc người dùng ở tab khác bị đánh dấu đã đọc.
   const isVisible = (id) => !document.hidden && (panelRoomVisible(id) || dockVisible(id));
 
@@ -363,6 +414,17 @@
     const docks = n ? st.docks.slice(-n) : [];
     if (docks.length || nhap) {
       W.append(el('div', { class: 'docks', style: `${POS}:${off}px` }, nhap ? draftWin() : null, docks.slice().reverse().map((id) => dockWin(id))));
+    }
+    // Cuộc đang mở mà hết chỗ hiện ô: avatar tròn xếp trên nút nổi, mới nhất ở dưới cùng.
+    const heads = st.launcher && !st.open && maxDocks() ? st.docks.filter((id) => !docks.includes(id)).reverse() : [];
+    if (heads.length) {
+      W.append(el('div', { class: 'heads' }, heads.map((id) => {
+        const r = roomOf(id); const u = r.unreadCount || 0;
+        return el('div', { class: 'hw' },
+          el('button', { class: 'head', type: 'button', title: roomName(r), 'aria-label': 'Mở ô chat ' + roomName(r) + (u ? ', ' + u + ' tin chưa đọc' : ''),
+            on: { click: () => addDock(id) } }, roomAvatar(r), u ? el('span', { class: 'n', 'aria-hidden': 'true' }, u > 99 ? '99+' : u) : null),
+          el('button', { class: 'hx', type: 'button', 'aria-label': 'Đóng ' + roomName(r), title: 'Đóng', on: { click: () => closeDock(id) } }, icon('x', 12)));
+      })));
     }
     if (st.launcher) {
       const n = totalUnread();
@@ -441,7 +503,8 @@
       rooms.length
         ? el('ul', { 'data-sk': server ? 'found' : 'rooms', on: { scroll: onListScroll } }, rooms.map((r) => el('li', {}, el('button', { class: 'it' + (r.unreadCount ? ' u' : ''), type: 'button',
             'aria-current': lg && st.view === 'room' && st.roomId === r.id ? 'true' : null,
-            on: { click: () => showInPanel(r.id) } },
+            // Máy tính, khung nhỏ: mở thành ô nổi + đóng danh sách → mở được nhiều cuộc cùng lúc.
+            on: { click: () => { if (!lg && maxDocks()) { closePanel(); addDock(r.id); } else showInPanel(r.id); } } },
             roomAvatar(r),
             el('span', { class: 'tx' },
               el('span', { class: 'r1' }, el('span', { class: 'nm' }, roomName(r)), el('span', { class: 'tm' }, shortTime(r.lastActivityAt))),
@@ -516,8 +579,13 @@
     // Không aria-live: vẽ lại cả khung mỗi lần đổi → trình đọc màn hình đọc lại TOÀN BỘ tin mỗi lần.
     // Cuộn gần lên đầu → tự tải 50 tin cũ hơn (nút vẫn giữ làm đường dự phòng: khung chưa đủ dài để cuộn).
     const list = el('div', { class: 'ms', 'data-k': key, on: { scroll: (e) => { if (e.target.isConnected && e.target.scrollTop < 80 && c.hasOlder) loadOlder(id, key); } } });
-    if (c.hasOlder) list.append(el('button', { class: 'sec', type: 'button', style: 'align-self:center', on: { click: () => loadOlder(id, key) } }, c.loadingOlder ? 'Đang tải…' : 'Xem tin cũ hơn'));
-    if (c.loaded && !c.msgs.length) list.append(el('div', { class: 'empty' }, 'Chưa có tin nhắn. Gửi lời chào đầu tiên.'));
+    // Đang tải tin cũ: một vạch mảnh chạy ở mép trên, không chiếm chỗ (tin không bị xô). Nút chỉ là đường
+    // dự phòng khi khung chưa đủ dài để cuộn.
+    if (c.loadingOlder) list.append(el('div', { class: 'older', role: 'status', 'aria-label': 'Đang tải tin cũ hơn' }));
+    // Lúc đang tải nút chỉ ẩn đi (vẫn giữ chỗ) để tin bên dưới không nhảy.
+    if (c.hasOlder) list.append(el('button', { class: 'oldbtn', type: 'button', style: c.loadingOlder ? 'visibility:hidden' : '', on: { click: () => loadOlder(id, key) } }, 'Xem tin cũ hơn'));
+    const outbox = c.outbox || [];
+    if (c.loaded && !c.msgs.length && !outbox.length) list.append(el('div', { class: 'empty' }, 'Chưa có tin nhắn. Gửi lời chào đầu tiên.'));
     let prevDay = null;
     for (const m of c.msgs) {
       const d = new Date(m.createdUtc);
@@ -565,6 +633,25 @@
         bubble ? el('div', { class: 'row' }, acts, bubble) : null,
         el('span', { class: 't' }, hm(m.createdUtc) + (m.editedUtc && !deleted ? ' · đã sửa' : ''))));
     }
+    // Tin đang chờ gửi: hiện ngay khi bấm Gửi (mờ hơn một chút), máy chủ nhận xong thì thay bằng tin thật.
+    for (const o of outbox) {
+      const a = o.p;
+      const up = !!a && (a.status === 'prep' || a.status === 'up');
+      const attEl = !a ? null : a.kind === 'anh' && a.preview
+        ? el('div', { class: 'img' }, el('img', { src: a.preview, alt: a.name }), up ? progressBar(a) : null)
+        : el('div', { class: 'fa' }, icon('file', 22), el('span', { class: 'tx' }, el('span', { class: 'fn' }, a.name),
+            up ? progressBar(a) : el('span', { class: 'fs' }, fmtSize(a.size))));
+      const fail = o.status === 'fail';
+      const canRetry = !a || a.status !== 'err' || !!a.blob;
+      const t = fail
+        ? el('span', { class: 't tfail' }, 'Chưa gửi được' + (o.error ? ': ' + o.error : ''),
+            canRetry ? el('button', { type: 'button', on: { click: () => retryOut(id, o) } }, 'Gửi lại') : null,
+            el('button', { type: 'button', on: { click: () => dropOut(id, o) } }, 'Bỏ'))
+        : el('span', { class: 't' }, up ? (a.status === 'prep' ? 'Đang nén ảnh…' : 'Đang tải lên ' + (a.pct || 0) + '%') : 'Đang gửi…');
+      list.append(el('div', { class: 'm me out' + (fail ? ' fail' : '') },
+        attEl ? el('div', { class: 'row' }, attEl) : null,
+        o.body ? el('div', { class: 'row' }, el('div', { class: 'bb' }, o.body)) : null, t));
+    }
 
     const taId = 'tk-soan-' + key, fileId = 'tk-tep-' + key;
     const draft = st.drafts[id] || '';
@@ -580,11 +667,11 @@
     const picker = el('input', { type: 'file', multiple: true, class: 'sr', id: fileId, tabindex: '-1', 'aria-hidden': 'true',
       accept: ALLOWED.join(','), on: { change: (e) => { addFiles(id, [...e.target.files]); e.target.value = ''; } } });
     const pend = st.pending[id] || [];
-    const uploading = pend.some((p) => p.status === 'up');
     const pendEl = pend.length ? el('div', { class: 'pend' }, pend.map((p) => el('div', { class: 'pc' + (p.status === 'err' ? ' err' : '') },
       p.preview ? el('img', { src: p.preview, alt: '' }) : icon('file', 20),
       el('span', { class: 'tx' }, el('span', { class: 'fn' }, p.name),
-        el('span', { class: 'st' }, p.status === 'up' ? 'Đang tải lên…' : p.status === 'err' ? p.error : fmtSize(p.size))),
+        el('span', { class: 'st' }, p.status === 'prep' ? 'Đang nén ảnh…' : p.status === 'up' ? (p.pct || 0) + '%' : p.status === 'err' ? p.error : fmtSize(p.size)),
+        p.status === 'up' || p.status === 'prep' ? progressBar(p) : null),
       el('button', { class: 'x', type: 'button', 'aria-label': 'Bỏ ' + p.name, on: { click: () => removePending(id, p.key) } }, icon('x', 12))))) : null;
 
     return [list, st.errRoom === id ? errBox() : null,
@@ -594,8 +681,7 @@
           el('button', { class: 'ib', type: 'button', 'aria-label': 'Đính kèm tệp', on: { click: () => picker.click() } }, icon('clip')),
           picker,
           el('label', { for: taId, class: 'sr' }, 'Soạn tin nhắn'), ta,
-          el('button', { class: 'send', type: 'button', 'aria-label': uploading ? 'Đang tải tệp lên' : 'Gửi', disabled: uploading || st.sending.has(id),
-            on: { click: () => send(id, taId) } }, icon('send'))),
+          el('button', { class: 'send', type: 'button', 'aria-label': 'Gửi', on: { click: () => send(id, taId) } }, icon('send'))),
         el('span', { class: 'hint' }, 'Enter để gửi, Shift + Enter để xuống dòng. Dán hoặc kéo thả tệp vào khung này.')),
       st.dragKey === key ? el('div', { class: 'drop' }, 'Thả tệp để gửi vào phòng') : null];
   }
@@ -608,9 +694,27 @@
       drop: (e) => { e.preventDefault(); st.dragKey = null; addFiles(id, [...(e.dataTransfer?.files || [])]); },
     };
   }
-  function orderLink(r) {
-    return r.entityType === 'order' && ORDER_URL
-      ? el('a', { class: 'sec', href: ORDER_URL.replace('{id}', encodeURIComponent(r.entityId)), target: '_top' }, 'Mở đơn') : null;
+  /// Nút mở lại bản ghi gốc (đơn / cơ hội) của phòng, để xem lại chi tiết khi đang trao đổi. Trang nhúng
+  /// đăng ký hàm mở qua setEntityLinks (vd mở CRM có tự đăng nhập), hoặc khai mẫu link data-order-url /
+  /// data-deal-url. Không có cả hai thì không hiện nút. compact: chỉ icon (ô chat nhỏ chật chỗ).
+  function entityLink(r, compact) {
+    // Trang nhúng truyền data.url → nút "Xem lại" mở đúng đường dẫn đó (mọi thành viên đều thấy).
+    const u = r.data && safeUrl(r.data.url);
+    if (u) {
+      const tip = 'Xem lại ' + (r.entityType === 'order' ? 'đơn hàng' : r.entityType === 'deal' ? 'cơ hội' : 'bản ghi gốc');
+      return el('a', { class: compact ? 'ib' : 'sec lk', href: u, target: '_blank', rel: 'noopener', title: tip, 'aria-label': tip },
+        ...(compact ? [icon('pop', 16)] : [icon('pop', 14), 'Xem lại']));
+    }
+    const t = r.entityType, id = r.entityId;
+    const label = LINK_LABEL[t];
+    if (!label || id == null || id === '') return null;
+    const fn = entityOpeners[t];
+    const tpl = LINK_URL[t];
+    if (!fn && !tpl) return null;
+    const kids = compact ? [icon('pop', 16)] : [icon('pop', 14), label];
+    const attrs = { class: compact ? 'ib' : 'sec lk', title: label + ' ' + id, 'aria-label': label + ' ' + id };
+    if (fn) return el('button', { ...attrs, type: 'button', on: { click: () => { try { fn(String(id)); } catch (e) { console.error('[tk-chat] mở bản ghi', e); } } } }, ...kids);
+    return el('a', { ...attrs, href: tpl.replace('{id}', encodeURIComponent(id)), target: '_blank', rel: 'noopener' }, ...kids);
   }
 
   /// Nút ⋯ của một phòng: gom việc ít dùng (cấu hình, mở chỗ khác, xoá phía tôi) cho tiêu đề còn chỗ
@@ -659,7 +763,7 @@
     let pane = null;
     pane = el('div', { class: 'pane', role: 'region', 'aria-label': 'Trò chuyện: ' + roomName(r), on: dropHandlers(id, k + '-' + id, () => pane) },
       el('div', { class: 'hd' }, lg ? null : backBtn(), roomAvatar(r, true),
-        el('h2', {}, roomName(r), sub ? el('small', {}, sub) : null), orderLink(r),
+        el('h2', {}, roomName(r), sub ? el('small', {}, sub) : null), entityLink(r, !lg),
         moreBtn(id, k + '-' + id, [
           maxDocks() ? ['pop', 'Tách ra ô chat nhỏ', () => { const rid = id; st.menu = null; st.view = 'list'; st.roomId = null; if (!lg) closePanel(); addDock(rid); }] : null,
         ]),
@@ -674,11 +778,11 @@
     const unread = r.unreadCount || 0;
     let win = null;
     const toggleMin = () => { if (min) { st.dockMin.delete(id); markRead(id); } else st.dockMin.add(id); render(); };
-    win = el('section', { class: 'dk' + (min ? ' min' : ''), 'aria-label': 'Ô chat: ' + roomName(r), on: min ? null : dropHandlers(id, 'dock-' + id, () => win) },
+    win = el('section', { class: 'dk' + (min ? ' min' : ''), 'data-room': id, 'aria-label': 'Ô chat: ' + roomName(r), on: min ? null : dropHandlers(id, 'dock-' + id, () => win) },
       el('div', { class: 'hd' },
         el('button', { class: 'ttl', type: 'button', 'aria-expanded': String(!min), 'aria-label': (min ? 'Mở ô ' : 'Thu gọn ô ') + roomName(r), on: { click: toggleMin } },
           roomAvatar(r, true), el('span', { class: 'h' }, roomName(r)), min && unread ? el('span', { class: 'bd' }, unread > 99 ? '99+' : unread) : null),
-        min ? null : orderLink(r),
+        min ? null : entityLink(r, true),
         min ? null : moreBtn(id, 'dock-' + id, [
           ['max', 'Mở trong khung lớn', () => { st.menu = null; closeDock(id); showInPanel(id); }],
         ]),
@@ -861,15 +965,16 @@
   async function loadOlder(id, key) {
     const c = convOf(id); const first = c.msgs[0]; if (!first || c.loadingOlder) return;
     const ms = W.querySelector(`.ms[data-k="${key}"]`); const before = ms ? ms.scrollHeight - ms.scrollTop : 0;
-    c.loadingOlder = true;
+    c.loadingOlder = true; render();   // hiện vạch tải mảnh
     try {
       const page = await api('GET', `/rooms/${id}/messages?limit=${PAGE}&beforeUtc=${encodeURIComponent(first.createdUtc)}&beforeId=${first.id}`);
       c.msgs = (page || []).slice().reverse().concat(c.msgs);
       c.hasOlder = (page || []).length === PAGE;
+      c.loadingOlder = false;
       render();
       const ms2 = W.querySelector(`.ms[data-k="${key}"]`); if (ms2) ms2.scrollTop = ms2.scrollHeight - before;   // giữ đúng chỗ đang đọc
-    } catch (e) { if (!dead) { errMsg = e.message; st.errRoom = id; render(); } }
-    finally { c.loadingOlder = false; }
+    } catch (e) { if (!dead) { errMsg = e.message; st.errRoom = id; } }
+    finally { if (c.loadingOlder) { c.loadingOlder = false; render(); } }
   }
   function mergeMsgs(id, list) {
     const c = convOf(id);
@@ -906,7 +1011,7 @@
     if (!maxDocks()) return showInPanel(id);
     st.docks = st.docks.filter((x) => x !== id);
     st.docks.push(id);
-    while (st.docks.length > maxDocks()) st.docks.shift();   // ô cũ nhất nhường chỗ
+    while (st.docks.length > MAX_OPEN) st.docks.shift();   // quá nhiều thì cuộc mở lâu nhất đóng hẳn
     st.dockMin.delete(id);
     render();
     ensureConv(id).then(() => markRead(id)).catch(() => {});
@@ -933,6 +1038,9 @@
     const r = await api('GET', `/rooms/lookup?entityType=${encodeURIComponent(payload.entityType)}&entityId=${encodeURIComponent(payload.entityId)}`);
     if (r.member) {
       if (st.draft && st.draft.roomKey === r.roomKey) closeDraft();
+      // Trang nhúng mở lại bản ghi với tham số KHÁC cái đang lưu (vd đường dẫn đổi) → thay. Giống thì không ghi.
+      if (payload.data !== undefined && canon(payload.data) !== canon(r.data))
+        await api('PUT', `/rooms/${r.id}/data`, { data: payload.data }).catch((e) => console.warn('[tk-chat] chưa lưu được data', e.message));
       await loadRooms();
       if (where === 'panel') showInPanel(r.id); else addDock(r.id);
       return { roomId: r.id };
@@ -968,7 +1076,22 @@
       if (!dead && st.draft === d) { d.err = 'Chưa gửi được: ' + e.message; d.sending = false; render(); }
     }
   }
-  const draftRoom = () => ({ entityType: st.draft.payload.entityType, entityId: st.draft.payload.entityId, title: st.draft.payload.title, members: [] });
+  const draftRoom = () => ({ entityType: st.draft.payload.entityType, entityId: st.draft.payload.entityId, title: st.draft.payload.title, members: [], data: st.draft.payload.data });
+  /// JSON so sánh được: khoá xếp theo thứ tự (máy chủ lưu jsonb, trả khoá theo thứ tự KHÁC lúc gửi).
+  function canon(v) {
+    if (v == null) return 'null';
+    if (Array.isArray(v)) return '[' + v.map(canon).join(',') + ']';
+    if (typeof v === 'object') return '{' + Object.keys(v).sort().map((k) => JSON.stringify(k) + ':' + canon(v[k])).join(',') + '}';
+    return JSON.stringify(v);
+  }
+  /// data của trang nhúng: object thường, url (nếu có) phải http(s) đầy đủ — máy chủ kiểm lại.
+  function checkData(d) {
+    if (d === undefined) return undefined;
+    if (d === null) return null;
+    if (typeof d !== 'object' || Array.isArray(d)) throw new Error('data phải là một object');
+    if ('url' in d && !safeUrl(d.url)) throw new Error('data.url phải là đường dẫn http(s) đầy đủ');
+    return d;
+  }
   function draftBody() {
     const d = st.draft;
     const t = d.payload.entityType;
@@ -995,6 +1118,7 @@
     return el('section', { class: 'dk', 'aria-label': 'Ô chat (chưa gửi tin): ' + roomName(r) },
       el('div', { class: 'hd' },
         el('div', { class: 'ttl static' }, roomAvatar(r, true), el('span', { class: 'h' }, roomName(r))),
+        entityLink(r, true),
         el('button', { class: 'ib', type: 'button', 'aria-label': 'Đóng ô chat', title: 'Đóng', on: { click: closeDraft } }, icon('x', 16))),
       el('div', { class: 'pane' }, draftBody()));
   }
@@ -1004,7 +1128,7 @@
     return el('div', { class: 'pane', role: 'region', 'aria-label': 'Trò chuyện (chưa gửi tin): ' + roomName(r) },
       el('div', { class: 'hd' },
         lg ? null : el('button', { class: 'ib', type: 'button', 'aria-label': 'Về danh sách', on: { click: closeDraft } }, icon('back')),
-        roomAvatar(r, true), el('h2', {}, roomName(r)),
+        roomAvatar(r, true), el('h2', {}, roomName(r)), entityLink(r, !lg),
         el('button', { class: 'ib', type: 'button', 'aria-label': 'Bỏ', title: 'Bỏ', on: { click: closeDraft } }, icon('x'))),
       draftBody());
   }
@@ -1030,25 +1154,78 @@
       // Ảnh dán từ clipboard thường tên "image.png" — đặt tên theo giờ cho dễ nhận.
       const name = f.name && f.name !== 'image.png' ? f.name : 'anh-dan-' + new Date().toISOString().slice(0, 19).replace(/[-:T]/g, '') + extOf(f.name || '.png');
       const ext = extOf(name);
-      const p = { key: ++pendSeq, name, size: f.size, kind: IMAGES.includes(ext) ? 'anh' : 'tep', status: 'up', att: null, preview: null, error: '' };
+      // status: prep (đang nén ảnh) → up (đang tải, pct %) → ok | err. done: Promise<tệp đã lưu>.
+      const p = { key: ++pendSeq, name, size: f.size, kind: IMAGES.includes(ext) ? 'anh' : 'tep', status: 'prep', pct: 0,
+        att: null, preview: null, error: '', blob: null, done: null };
       if (!ALLOWED.includes(ext)) { p.status = 'err'; p.error = 'Loại tệp không gửi được'; }
-      else if (f.size > MAX_BYTES) { p.status = 'err'; p.error = 'Quá 15 MB'; }
-      if (p.kind === 'anh' && p.status === 'up') p.preview = URL.createObjectURL(f);
+      else if (p.kind !== 'anh' && f.size > MAX_BYTES) { p.status = 'err'; p.error = 'Quá 15 MB'; }   // ảnh: xét SAU khi nén
+      if (p.kind === 'anh' && p.status !== 'err') p.preview = URL.createObjectURL(f);
       list.push(p);
-      if (p.status === 'up') upload(roomId, p, f, name);
+      if (p.status !== 'err') prepareUpload(roomId, p, f);
     }
     render();
   }
-  async function upload(roomId, p, file, name) {
-    const fd = new FormData(); fd.append('file', file, name);
+  /// Ảnh lớn thu nhỏ trước khi tải (ảnh điện thoại 4–8 MB còn vài trăm KB), rồi mới tải lên.
+  function prepareUpload(roomId, p, file) {
+    p.done = (async () => {
+      let blob = file;
+      if (p.kind === 'anh') {
+        const small = await shrinkImage(file, extOf(p.name));
+        if (small) { blob = small; p.name = p.name.replace(/\.[^.]+$/, '') + '.jpg'; p.size = small.size; }
+      }
+      if (blob.size > MAX_BYTES) throw new Error('Quá 15 MB');
+      p.blob = blob;
+      return startUpload(roomId, p);
+    })().catch((e) => { if (p.status !== 'err') { p.status = 'err'; p.error = e.message || 'Tải lên hỏng'; render(); } throw e; });
+    p.done.catch(() => {});
+  }
+  function startUpload(roomId, p) {
+    p.status = 'up'; p.pct = 0; p.error = ''; render();
+    p.done = xhrUpload(roomId, p.blob, p.name, (v) => {
+      const n = Math.min(99, Math.floor(v * 100));   // 100% chỉ khi máy chủ đã lưu xong
+      if (n - p.pct >= 3) { p.pct = n; render(); }
+    }).then((att) => { p.att = att; p.status = 'ok'; p.pct = 100; render(); return att; },
+      (e) => { p.status = 'err'; p.error = e.message || 'Tải lên hỏng'; render(); throw e; });
+    p.done.catch(() => {});
+    return p.done;
+  }
+  /// Tải lên bằng XHR (fetch chưa báo được tiến độ gửi đi).
+  function xhrUpload(roomId, blob, name, onProgress) {
+    return new Promise((resolve, reject) => {
+      const fd = new FormData(); fd.append('file', blob, name);
+      const x = new XMLHttpRequest();
+      x.open('POST', `${API}/rooms/${roomId}/upload`);
+      x.setRequestHeader('X-Session-Id', session);
+      x.upload.onprogress = (e) => { if (e.lengthComputable && e.total) onProgress(e.loaded / e.total); };
+      x.onload = () => {
+        if (x.status === 401) { die(); reject(new Error('Phiên đăng nhập đã hết hạn')); return; }
+        let d = null; try { d = JSON.parse(x.responseText); } catch { /* không phải JSON */ }
+        if (x.status < 200 || x.status >= 300 || !d || !safeUrl(d.url)) reject(new Error((d && d.error) || ('HTTP ' + x.status)));
+        else resolve(d);
+      };
+      x.onerror = () => reject(new Error('Mất kết nối khi tải lên'));
+      x.send(fd);
+    });
+  }
+  const SHRINK_MIN_BYTES = 300 * 1024, SHRINK_MAX_SIDE = 1920;
+  /// Thu ảnh về cạnh dài ≤ 1920px, JPEG 82%. Trả null = giữ ảnh gốc (ảnh nhỏ sẵn, GIF động, trình duyệt
+  /// không đọc được, hoặc nén xong lại không nhỏ hơn). Nền trắng cho ảnh PNG trong suốt.
+  async function shrinkImage(file, ext) {
+    if (!['.jpg', '.jpeg', '.png', '.webp'].includes(ext) || file.size < SHRINK_MIN_BYTES || typeof createImageBitmap !== 'function') return null;
     try {
-      const r = await fetch(`${API}/rooms/${roomId}/upload`, { method: 'POST', headers: { 'X-Session-Id': session }, body: fd });
-      if (r.status === 401) { die(); return; }
-      const data = await r.json().catch(() => null);
-      if (!r.ok || !data || !safeUrl(data.url)) throw new Error((data && data.error) || ('HTTP ' + r.status));
-      p.att = data; p.status = 'ok';
-    } catch (e) { p.status = 'err'; p.error = e.message || 'Tải lên hỏng'; }
-    render();
+      const bmp = await createImageBitmap(file, { imageOrientation: 'from-image' }).catch(() => createImageBitmap(file));
+      const k = Math.min(1, SHRINK_MAX_SIDE / Math.max(bmp.width, bmp.height));
+      const w = Math.max(1, Math.round(bmp.width * k)), h = Math.max(1, Math.round(bmp.height * k));
+      const cv = document.createElement('canvas'); cv.width = w; cv.height = h;
+      const g = cv.getContext('2d'); g.fillStyle = '#fff'; g.fillRect(0, 0, w, h); g.drawImage(bmp, 0, 0, w, h);
+      if (bmp.close) bmp.close();
+      const out = await new Promise((r) => cv.toBlob(r, 'image/jpeg', 0.82));
+      return out && out.size < file.size ? out : null;
+    } catch { return null; }
+  }
+  function progressBar(p) {
+    return el('span', { class: 'bar' + (p.status === 'prep' ? ' ind' : ''), role: 'progressbar', 'aria-valuemin': '0', 'aria-valuemax': '100',
+      'aria-valuenow': String(p.pct || 0), 'aria-label': 'Tiến độ tải ' + p.name }, el('i', { style: p.status === 'prep' ? '' : `width:${p.pct || 0}%` }));
   }
   function removePending(roomId, key) {
     const list = st.pending[roomId] || [];
@@ -1066,33 +1243,57 @@
       if (!(r.lastMessageId >= m.id)) r.lastMessageId = m.id;   // sự kiện của chính tin này tới sau thì bỏ qua
     }
   }
-  async function send(roomId, taId) {
-    if (st.sending.has(roomId)) return;
+  /// Gửi KHÔNG chờ: tin vào hàng đợi của phòng và hiện ngay, ô soạn trống ngay để gõ tiếp. Tệp còn đang
+  /// tải thì tin đó chờ tệp xong rồi mới gửi. Hàng đợi gửi lần lượt nên thứ tự tin giữ đúng.
+  let outSeq = 0;
+  function send(roomId, taId) {
     const body = (st.drafts[roomId] || '').trim();
-    const pend = st.pending[roomId] || [];
-    if (pend.some((p) => p.status === 'up')) return;   // nút Gửi đã khoá; Enter cũng phải chờ
-    const ready = pend.filter((p) => p.status === 'ok');
-    if (!body && !ready.length) return;
-    st.sending.add(roomId); errMsg = ''; st.errRoom = null;
+    const all = st.pending[roomId] || [];
+    const files = all.filter((p) => p.status !== 'err');   // tệp hỏng (sai loại, quá cỡ) ở lại khay cho người dùng thấy
+    if (!body && !files.length) return;
+    const c = convOf(roomId);
+    const q = c.outbox || (c.outbox = []);
+    // Chữ đi kèm tệp ĐẦU TIÊN; mỗi tệp còn lại là một tin — giống mọi app chat khác.
+    if (files.length) files.forEach((p, i) => q.push({ key: ++outSeq, body: i === 0 ? (body || null) : null, p, status: 'wait', error: '' }));
+    else q.push({ key: ++outSeq, body, p: null, status: 'wait', error: '' });
+    st.drafts[roomId] = '';
+    st.pending[roomId] = all.filter((p) => p.status === 'err');
+    errMsg = ''; if (st.errRoom === roomId) st.errRoom = null;
+    render();
+    for (const ms of W.querySelectorAll(`.ms[data-k$="-${roomId}"]`)) ms.scrollTop = ms.scrollHeight;
+    const ta = root.getElementById(taId); if (ta) { ta.value = ''; autoGrow(ta); ta.focus(); }
+    pumpOutbox(roomId);
+  }
+  async function pumpOutbox(roomId) {
+    const c = convOf(roomId);
+    if (c.pumping) return;
+    c.pumping = true;
     try {
-      // Chữ đi kèm tệp ĐẦU TIÊN; mỗi tệp còn lại là một tin — giống mọi app chat khác.
-      if (ready.length) {
-        for (let i = 0; i < ready.length; i++) {
-          await postMessage(roomId, i === 0 ? (body || null) : null, ready[i].att);
-          if (i === 0) st.drafts[roomId] = '';
-          removePending(roomId, ready[i].key);
+      for (let o; (o = (c.outbox || []).find((x) => x.status === 'wait'));) {
+        o.status = 'sending';
+        try {
+          const att = o.p ? await o.p.done : null;
+          await postMessage(roomId, o.body, att);
+          c.outbox.splice(c.outbox.indexOf(o), 1);
+          if (o.p && o.p.preview) URL.revokeObjectURL(o.p.preview);
+        } catch (e) {
+          if (dead) return;
+          o.status = 'fail'; o.error = e.message || '';   // tin sau vẫn gửi tiếp; tin hỏng chờ "Gửi lại"
         }
-      } else {
-        await postMessage(roomId, body, null);
-        st.drafts[roomId] = '';
+        render();
       }
-    } catch (e) { if (!dead) { errMsg = 'Chưa gửi được: ' + e.message; st.errRoom = roomId; } }   // nháp + tệp chưa gửi còn nguyên
-    finally {
-      st.sending.delete(roomId);
-      render();
-      for (const ms of W.querySelectorAll(`.ms[data-k$="-${roomId}"]`)) ms.scrollTop = ms.scrollHeight;
-      root.getElementById(taId)?.focus();
-    }
+    } finally { c.pumping = false; }
+  }
+  function retryOut(roomId, o) {
+    if (o.p && o.p.status === 'err' && o.p.blob) startUpload(roomId, o.p);
+    o.status = 'wait'; o.error = ''; render();
+    pumpOutbox(roomId);
+  }
+  function dropOut(roomId, o) {
+    const c = convOf(roomId); const i = (c.outbox || []).indexOf(o);
+    if (i >= 0) c.outbox.splice(i, 1);
+    if (o.p && o.p.preview) URL.revokeObjectURL(o.p.preview);
+    render();
   }
   // Thu hồi hai bước: lần bấm đầu chỉ đổi nút thành "Thu hồi?", trong 4 giây bấm lần nữa mới làm.
   let recallTimer = null;
@@ -1241,7 +1442,8 @@
       if (!ENTITY_TYPES.includes(type) || entityId == null || String(entityId).trim() === '')
         return fail(new Error('openEntity: cần type "order" | "company" | "deal" và mã'));
       const i = typeof info === 'string' ? { title: info } : (info || {});
-      return openLinked({ entityType: type, entityId: String(entityId).trim(), title: i.title || null, memberUserIds: ids(i.members) }, whereOf(opts)).catch(fail);
+      let data; try { data = checkData(i.data); } catch (e) { return fail(e); }
+      return openLinked({ entityType: type, entityId: String(entityId).trim(), title: i.title || null, memberUserIds: ids(i.members), data }, whereOf(opts)).catch(fail);
     },
     /**
      * Dò mã người theo TÊN (nhiều màn CRM chỉ có tên người phụ trách, không có mã).
@@ -1267,7 +1469,8 @@
       const k = key == null ? '' : String(key).trim();
       if (!/^[A-Za-z0-9_.:-]{1,100}$/.test(k)) return fail(new Error('openByKey: khoá chỉ gồm chữ, số, _ - . : (tối đa 100 ký tự)'));
       const i = typeof info === 'string' ? { title: info } : (info || {});
-      return openLinked({ entityType: 'key', entityId: k, title: i.title || null, memberUserIds: ids(i.members) }, whereOf(opts)).catch(fail);
+      let data; try { data = checkData(i.data); } catch (e) { return fail(e); }
+      return openLinked({ entityType: 'key', entityId: k, title: i.title || null, memberUserIds: ids(i.members), data }, whereOf(opts)).catch(fail);
     },
     /** Nhắn 1-1 với một nhân viên (mã người CRM). */
     openDirect(userId, opts) {
@@ -1318,6 +1521,11 @@
       return () => listeners[ev].delete(fn);
     },
     setLauncherVisible(v) { st.launcher = !!v; render(); },
+    setEntityLinks(map) {
+      entityOpeners = {};
+      for (const t of Object.keys(LINK_LABEL)) if (map && typeof map[t] === 'function') entityOpeners[t] = map[t];
+      render();
+    },
     /** Gỡ hẳn widget (đăng xuất / đổi tài khoản). Nạp lại script sau đó là khởi tạo mới. */
     destroy() {
       dead = true;

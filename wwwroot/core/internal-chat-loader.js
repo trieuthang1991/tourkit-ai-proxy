@@ -33,6 +33,14 @@
     }
   }
 
+  // Phòng theo cơ hội có nút "Mở cơ hội": mở đúng cơ hội trên CRM, đăng nhập sẵn đúng tài khoản (SSO) —
+  // cùng đường với nút "Xem cơ hội CRM" ở màn Cơ hội.
+  window.addEventListener('tk-internal-chat-ready', () => {
+    const u = window.tourkitUtil;
+    if (!window.TkInternalChat || !u || !u.crmUrl('/')) return;
+    window.TkInternalChat.setEntityLinks({ deal: (id) => u.openCrm('/booking-ticket/' + encodeURIComponent(id)) });
+  });
+
   if (!window.tourkitFeatures) return;
   window.tourkitFeatures.ready.then(sync);
   window.addEventListener('tourkit-auth-changed', sync);

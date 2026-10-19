@@ -80,6 +80,9 @@ public static class InternalChatEndpoints
             var rawEntity = req.EntityId?.Trim();
             if (type == "deal" && (rawEntity = InternalRoomKey.CanonicalDealId(rawEntity)) is null)
                 return Bad("Mã cơ hội không hợp lệ");
+            // Tham số tự do của trang nhúng (vd url xem lại bản ghi) — chặn ở cửa, lưu nguyên.
+            var (dataJson, saiData) = InternalRoomData.Normalize(req.Data);
+            if (saiData is not null) return Bad(saiData);
 
             // Khoá phòng: 1-1 và nhóm do MÁY CHỦ tự sinh (không cần truyền gì); đơn/cơ hội/công ty theo
             // mã bản ghi; "key" = khoá tự do do trang gọi tự sinh ("donhang_123") — lấy-hoặc-tạo.
@@ -115,7 +118,9 @@ public static class InternalChatEndpoints
 
             var title = string.IsNullOrWhiteSpace(req.Title) ? null : req.Title.Trim()[..Math.Min(req.Title.Trim().Length, 120)];
             var entityId = InternalRoomKey.IsEntityType(type) || type == "key" ? rawEntity : null;
-            var (id, created) = await repo.CreateOrGetRoomAsync(a!.TenantId, me, key, type!, entityId, title, others, ct);
+            var (id, created) = await repo.CreateOrGetRoomAsync(a!.TenantId, me, key, type!, entityId, title, others, dataJson, ct);
+            // Phòng ĐÃ CÓ mà lượt này mang tham số → thay (chỉ ghi khi khác giá trị đang có).
+            if (!created && dataJson is not null) await repo.SetRoomDataAsync(a.TenantId, id, me, dataJson, ct);
 
             // Phòng cơ hội VỪA tạo → thêm người phụ trách (mã lấy thẳng từ CRM, không dò tên). CHỈ lần
             // tạo: thêm ở mọi lần bấm là kéo lại người đã bị bỏ ra khỏi phòng. Best-effort: CRM hỏng thì
@@ -141,13 +146,13 @@ public static class InternalChatEndpoints
             if (loi is not null) return loi;
             var key = InternalRoomKey.ForLookup(entityType, entityId);
             if (key is null) return Bad("Cần entityType (order | company | deal | key) và mã hợp lệ");
-            var (id, member) = await repo.FindRoomByKeyAsync(a!.TenantId, key, me, ct);
+            var (id, member, data) = await repo.FindRoomByKeyAsync(a!.TenantId, key, me, ct);
             if (!member && entityType!.Trim().ToLowerInvariant() == "deal")
             {
                 var (cam, _) = await CheckDealViewAsync(sessions, deals, a, me, key["deal:".Length..], ct);
                 if (cam is not null) return cam;
             }
-            return Results.Json(new { id, member, roomKey = key }, Web);
+            return Results.Json(new { id, member, roomKey = key, data }, Web);
         });
 
         g.MapGet("/rooms/{id:long}/messages", async (long id, HttpContext ctx, TkSessionStore sessions,
@@ -269,6 +274,23 @@ public static class InternalChatEndpoints
             if (!await repo.RenameRoomAsync(a!.TenantId, id, me, title, ct)) return CannotConfigure();
             await PostNoticeAsync(repo, bus, sessions, api, redis, lf, a, me, id, "đổi tên", Array.Empty<int>(), title, ct);
             await NotifyRoomChangedAsync(repo, bus, a.TenantId, id, null, ct);
+            return Results.NoContent();
+        });
+
+        // Thay tham số tự do của phòng ({ data: {...} | null }). Widget gọi khi trang nhúng mở lại bản ghi với
+        // tham số KHÁC cái đang lưu (vd đơn đổi đường dẫn) — cùng tham số thì không gọi, không ghi gì.
+        g.MapPut("/rooms/{id:long}/data", async (long id, HttpContext ctx, TkSessionStore sessions,
+            InternalChatRepository repo, ChatEventBus bus, CancellationToken ct) =>
+        {
+            var (loi, a, me) = await GuardAsync(ctx, sessions, repo, ct);
+            if (loi is not null) return loi;
+            var req = await ReadBodyAsync<RoomDataRequest>(ctx, ct);
+            if (req is null) return Bad("Thân request không đọc được");
+            var (dataJson, sai) = InternalRoomData.Normalize(req.Data);
+            if (sai is not null) return Bad(sai);
+            var (ok, changed) = await repo.SetRoomDataAsync(a!.TenantId, id, me, dataJson, ct);
+            if (!ok) return NotMember();
+            if (changed) await NotifyRoomChangedAsync(repo, bus, a.TenantId, id, null, ct);   // người khác thấy nút mới
             return Results.NoContent();
         });
 

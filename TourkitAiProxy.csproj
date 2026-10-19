@@ -43,7 +43,9 @@
        Incremental: MSBuild so mtime Inputs vs Outputs → skip nếu bundle còn fresh.
        Cross-platform: gọi npx trực tiếp (Windows + Linux Docker đều cần Node). -->
   <ItemGroup>
-    <FrontendSources Include="wwwroot/**/*.jsx;wwwroot/bundle-entry.js;wwwroot/lib/data.js" Exclude="wwwroot/dist/**;wwwroot/lib/tinymce/**" />
+    <!-- Cả *.js: bundle-entry.js import cả tệp .js (core/internal-chat-loader.js, core/features.js…). Trước
+         19/10/2026 chỉ theo *.jsx → sửa riêng một tệp .js thì gói cũ vẫn được coi là "còn mới", lên prod bản cũ. -->
+    <FrontendSources Include="wwwroot/**/*.jsx;wwwroot/**/*.js" Exclude="wwwroot/dist/**;wwwroot/lib/tinymce/**" />
   </ItemGroup>
   <Target Name="BuildFrontendBundle" BeforeTargets="Build" Condition="'$(Configuration)' == 'Release'" Inputs="@(FrontendSources)" Outputs="wwwroot/dist/app.bundle.js">
     <Message Text="▶ esbuild bundle wwwroot/dist/app.bundle.js (Release config)" Importance="high" />

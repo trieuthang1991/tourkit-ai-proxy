@@ -756,6 +756,9 @@ public class ChatDb
     ALTER TABLE chat_conversations ADD COLUMN IF NOT EXISTS entity_type text;
     ALTER TABLE chat_conversations ADD COLUMN IF NOT EXISTS entity_id   text;
     ALTER TABLE chat_conversations ADD COLUMN IF NOT EXISTS title       text;
+    -- Tham số tự do trang nhúng gửi kèm phòng theo bản ghi (vd url xem lại đơn) — InternalRoomData chặn
+    -- ở cửa (object, ≤ 4 KB, url chỉ http(s)). Nullable, không default → chỉ ghi metadata.
+    ALTER TABLE chat_conversations ADD COLUMN IF NOT EXISTS entity_data jsonb;
     -- Mã người gửi. sender_username là chữ; cả cụm chat đã chuẩn hoá sang mã người (đặc tả 4b).
     ALTER TABLE chat_messages ADD COLUMN IF NOT EXISTS sender_user_id integer;
     -- Lần sửa cuối của tin nội bộ (người gửi tự sửa). NULL = chưa sửa. Nullable → chỉ ghi metadata.

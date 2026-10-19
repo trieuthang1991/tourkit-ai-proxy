@@ -2149,6 +2149,12 @@ body.editorial .ai-bubble .hl { color: #FDBA74; }
 
   /* Đẩy nội dung trang lên 60px để dock không che cuối trang */
   .app-main { padding-bottom: 60px; }
+
+  /* Nút chat nội bộ (widget Shadow DOM) nằm TRÊN dock, không che ô "Thêm" */
+  body:has(.app-bottom-dock) #tk-internal-chat {
+    --tk-chat-bottom: calc(72px + env(safe-area-inset-bottom, 0px));
+    --tk-chat-side: 12px;
+  }
 }
 
 /* ═══ App drawer (mobile full menu) ═══════════════════════════════════════════ */

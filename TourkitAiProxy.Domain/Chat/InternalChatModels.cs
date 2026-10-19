@@ -140,13 +140,43 @@ public static class InternalMessagePreview
     }
 }
 
+/// <summary>
+/// Tham số tự do trang nhúng gửi kèm phòng theo bản ghi (<c>data</c> của openEntity / openByKey): lưu
+/// nguyên, trả lại cho mọi thành viên. Riêng <c>url</c> có nghĩa — widget hiện nút "Xem lại" mở nó.
+/// </summary>
+public static class InternalRoomData
+{
+    /// Trần cỡ (byte UTF-8 của JSON gọn). Đủ cho vài chục trường; không để thành chỗ chứa tài liệu.
+    public const int MaxBytes = 4096;
+
+    /// <returns>(JSON gọn để lưu, null) · (null, null) = không truyền · (null, lỗi) = chặn.</returns>
+    public static (string? Json, string? Error) Normalize(System.Text.Json.JsonElement? data)
+    {
+        if (data is not { } d || d.ValueKind is System.Text.Json.JsonValueKind.Null or System.Text.Json.JsonValueKind.Undefined)
+            return (null, null);
+        if (d.ValueKind != System.Text.Json.JsonValueKind.Object) return (null, "data phải là một object");
+        if (d.TryGetProperty("url", out var u)
+            && (u.ValueKind != System.Text.Json.JsonValueKind.String || SafeUrl(u.GetString()) is null))
+            return (null, "data.url phải là đường dẫn http(s) đầy đủ");
+        var json = System.Text.Json.JsonSerializer.Serialize(d);
+        if (System.Text.Encoding.UTF8.GetByteCount(json) > MaxBytes) return (null, $"data tối đa {MaxBytes / 1024} KB");
+        return (json, null);
+    }
+
+    /// Đường dẫn tuyệt đối http/https; còn lại (javascript:, data:, tương đối…) → null.
+    public static string? SafeUrl(string? url)
+        => Uri.TryCreate(url, UriKind.Absolute, out var x) && (x.Scheme == Uri.UriSchemeHttp || x.Scheme == Uri.UriSchemeHttps)
+            ? url : null;
+}
+
 public record InternalMember(int UserId, DateTime JoinedUtc);
 
 /// <param name="LastMessageId">Mã tin mới nhất của phòng — widget chỉ cộng chưa đọc theo sự kiện có mã LỚN
 /// hơn, nên một tin vừa có trong danh sách vừa tới qua sự kiện không bị đếm hai lần.</param>
+/// <param name="Data">Tham số tự do của phòng (<see cref="InternalRoomData"/>); null = không có.</param>
 public record InternalRoom(long Id, string? Title, string EntityType, string? EntityId, string RoomKey,
     string? LastPreview, DateTime LastActivityAt, int UnreadCount, IReadOnlyList<InternalMember> Members,
-    long? LastMessageId = null);
+    long? LastMessageId = null, System.Text.Json.JsonElement? Data = null);
 
 public record InternalMessage(long Id, long RoomId, int? SenderUserId, string? SenderUsername,
     string? Body, DateTime CreatedUtc, DateTime? DeletedUtc, InternalAttachment? Attachment = null,
@@ -200,7 +230,10 @@ public static class InternalAttachmentRules
 }
 
 public record CreateRoomRequest(string? Title, List<int>? MemberUserIds, string EntityType = "direct",
-    string? EntityId = null);
+    string? EntityId = null, System.Text.Json.JsonElement? Data = null);
+
+/// <summary>Thay tham số tự do của phòng (<see cref="InternalRoomData"/>); Data null = xoá.</summary>
+public record RoomDataRequest(System.Text.Json.JsonElement? Data);
 
 public record RenameRoomRequest(string? Title);
 public record EditMessageRequest(string? Body);

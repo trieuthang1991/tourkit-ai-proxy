@@ -6,7 +6,7 @@ Hướng dẫn cho lần phát hành 19/10/2026: chat nội bộ giữa nhân vi
 | | |
 |---|---|
 | Mã cần deploy | nhánh `main` trên `origin`, commit `41f9e67` trở về sau |
-| CSDL | **Không phải chạy migration.** CSDL chat (`tourkit-chat` trên 103.154.63.14) đã có đủ cột và chỉ mục, kiểm tra lần cuối 19/10/2026 |
+| CSDL | **Không phải chạy migration bằng tay.** App tự thêm cột còn thiếu lúc khởi động (cột `entity_data` mới 19/10/2026, cho phép trống nên thêm tức thì, bản cũ vẫn chạy). CSDL chat (`tourkit-chat` trên 103.154.63.14) đã có cột này từ 19/10/2026 22:08 |
 | Cấu hình phải thêm | `Features:InternalChat = true` trong `appsettings.json` của site người dùng |
 | Thời gian dự kiến | 15–20 phút, site gián đoạn khoảng 1 phút mỗi lần chép tệp |
 
