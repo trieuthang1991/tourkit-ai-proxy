@@ -36,7 +36,9 @@ public class ChatEventBus
     /// instance, nên không có đường thứ hai để quên lọc.
     private const string EventChannelName = "tkai:chat:events";
 
-    private readonly List<(string Tenant, NguoiXem Xem, Channel<ChatEvent> Kenh)> _nghe = new();
+    /// <c>NoiBo</c> = người nghe của chat nội bộ (widget). Hai loại người nghe không bao giờ nhận
+    /// sự kiện của nhau — xem <see cref="PublishLocal"/>.
+    private readonly List<(string Tenant, NguoiXem Xem, bool NoiBo, Channel<ChatEvent> Kenh)> _nghe = new();
     private readonly object _khoa = new();
     private readonly ISubscriber? _redis;
 
@@ -88,8 +90,11 @@ public class ChatEventBus
     private void PublishLocal(ChatEvent e)
     {
         lock (_khoa)
-            foreach (var (tenant, xem, kenh) in _nghe)
-                if (string.Equals(tenant, e.TenantId, StringComparison.Ordinal) && DuocThay(xem, e))
+            foreach (var (tenant, xem, noiBo, kenh) in _nghe)
+                if (string.Equals(tenant, e.TenantId, StringComparison.Ordinal)
+                    && (e.Recipients is { } nguoiNhan
+                        ? noiBo && xem.CrmUserId is int u && Array.IndexOf(nguoiNhan, u) >= 0
+                        : !noiBo && DuocThay(xem, e)))
                     kenh.Writer.TryWrite(e);   // TryWrite: đầy thì bỏ, KHÔNG chặn
     }
 
@@ -137,7 +142,18 @@ public class ChatEventBus
     /// nhịp: một sự kiện chỉ báo "có gì đó đổi", tab vẫn phải gọi API để lấy nội dung, và API đó
     /// mới là nơi luật xem thật sự chặn.
     /// </param>
-    public async IAsyncEnumerable<ChatEvent> SubscribeAsync(string tenantId, NguoiXem xem,
+    public IAsyncEnumerable<ChatEvent> SubscribeAsync(string tenantId, NguoiXem xem, CancellationToken ct)
+        => NgheAsync(tenantId, xem, noiBo: false, ct);
+
+    /// <summary>
+    /// Nghe sự kiện CHAT NỘI BỘ của một người — chỉ những sự kiện có <c>Recipients</c> chứa mã
+    /// người đó. Thành viên phòng được chốt ngay lúc ghi tin (lấy trong chính câu ghi), nên không
+    /// có ảnh chụp quyền nào bị "đóng băng" ở đây như bên hộp thư khách.
+    /// </summary>
+    public IAsyncEnumerable<ChatEvent> SubscribeInternalAsync(string tenantId, int userId, CancellationToken ct)
+        => NgheAsync(tenantId, new NguoiXem(userId, XemTatCa: false), noiBo: true, ct);
+
+    private async IAsyncEnumerable<ChatEvent> NgheAsync(string tenantId, NguoiXem xem, bool noiBo,
         [System.Runtime.CompilerServices.EnumeratorCancellation] CancellationToken ct)
     {
         var kenh = Channel.CreateBounded<ChatEvent>(new BoundedChannelOptions(100)
@@ -145,7 +161,7 @@ public class ChatEventBus
             FullMode = BoundedChannelFullMode.DropOldest,   // mất sự kiện cũ còn hơn nghẽn
             SingleReader = true,
         });
-        lock (_khoa) _nghe.Add((tenantId, xem, kenh));
+        lock (_khoa) _nghe.Add((tenantId, xem, noiBo, kenh));
         try
         {
             await foreach (var e in kenh.Reader.ReadAllAsync(ct)) yield return e;

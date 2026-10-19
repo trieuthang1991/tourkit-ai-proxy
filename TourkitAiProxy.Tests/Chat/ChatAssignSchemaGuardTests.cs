@@ -297,8 +297,10 @@ public class ChatAssignSchemaGuardTests
         // Đòi LƯỢT GỌI THẬT (có dấu chấm: redis.Get(/redis.Set(), không phải chữ "redis" trần —
         // chữ trần khớp luôn theo TÊN THAM SỐ "RedisStore redis" trong chữ ký hàm, nên ai xoá
         // sạch redis.Get/redis.Set mà quên xoá tham số thì bản test cũ vẫn xanh.
-        var than = ThanHam("assign-settings");
-        Assert.False(string.IsNullOrWhiteSpace(than), "Không cắt được thân đường đọc cấu hình");
+        // Khối đọc nhân viên tách sang ChatStaffDirectory (19/10/2026). Đường cấu hình phải GỌI nó —
+        // thiếu vế này thì xoá lời gọi đi, bài canh vẫn xanh vì file kia vẫn đúng.
+        Assert.Contains("ChatStaffDirectory.ListAsync(", ThanHam("assign-settings"));
+        var than = NguonDanhBa();
         Assert.Contains("redis.Get(", than);
         Assert.Contains("redis.Set(", than);
         Assert.Contains("FromHours(2)", than);
@@ -315,6 +317,9 @@ public class ChatAssignSchemaGuardTests
             "redis.Set phải nằm SAU điều kiện \"nhanVien.Count > 0\" — đệm danh sách rỗng là bị cấm");
     }
 
+    private static string NguonDanhBa()
+        => ChatSchemaGuardTests.DocFile("TourkitAiProxy.Endpoints/ChatStaffDirectory.cs");
+
     [Fact]
     public void Hai_ca_danh_sach_nhan_vien_rong_phai_ghi_HAI_dong_log_KHAC_nhau()
     {
@@ -325,8 +330,7 @@ public class ChatAssignSchemaGuardTests
         // Đã trả giá 09/09/2026: /api/ai/reference trả về ĐỦ 108 người bán nhưng `name` null
         // sạch, log chỉ ghi "ERP không trả người bán nào", và cả buổi đó đi tìm lỗi kết nối
         // với lỗi phiên — trong khi kết nối vẫn tốt và dữ liệu vẫn về đủ.
-        var than = BoChuThich(ThanHam("assign-settings"));
-        Assert.False(string.IsNullOrWhiteSpace(than), "Không cắt được thân đường đọc cấu hình");
+        var than = BoChuThich(NguonDanhBa());
 
         // (a) Phải ĐẾM ngay ở đầu vòng lặp đọc người bán. Đếm chỗ khác — sau vòng lặp, hay
         //     mượn luôn nhanVien.Count — thì con số lại là số GIỮ ĐƯỢC: đúng con số đã làm ta

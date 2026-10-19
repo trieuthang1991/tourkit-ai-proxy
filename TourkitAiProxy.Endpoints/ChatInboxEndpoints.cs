@@ -553,108 +553,9 @@ public static class ChatInboxEndpoints
             var maToi = await sessions.EnsureCrmUserIdAsync(a.SessionId, ct);
             var dangNghi = ch?.PausedIds ?? Array.Empty<int>();
 
-            // Danh sách nhân viên đổi rất thưa (chỉ khi nhân sự thay đổi bên ERP) nhưng bị hỏi ở
-            // MỖI lần mở hộp thư và MỖI lần mở màn hình cấu hình. Đệm 2 tiếng theo công ty.
-            //
-            // Không có Redis thì Get trả null và ta gọi thẳng ERP như cũ — đệm là tối ưu, không
-            // phải điều kiện để chạy.
-            var khoaDem = $"chat:nhanvien:{a.TenantId}";
-            var nhanVien = new List<object>();
-            // Số dòng ERP trả về, khai ở NGOÀI nhánh để còn trả cho giao diện. Khi danh sách rỗng
-            // thì đây là dữ kiện quan trọng nhất: 0 dòng nghĩa là công ty không có ai, còn 108
-            // dòng mà vẫn rỗng nghĩa là ERP trả người nhưng thiếu tên — hai ca đòi hai cách xử lý
-            // khác hẳn, mà màn hình cũ gộp làm một câu "lượt gọi đang hỏng" cho cả hai.
-            var soDongErpTra = 0;
-            var daDem = redis.Get(khoaDem);
-            if (daDem is not null)
-            {
-                try { nhanVien = JsonSerializer.Deserialize<List<object>>(daDem, Web) ?? new(); }
-                catch { /* đệm hỏng thì coi như chưa có */ }
-            }
-            if (nhanVien.Count == 0)
-            {
-                // Tên nhân viên lấy từ ERP, KHÔNG lưu trong CSDL chat: lưu là nhân đôi chỗ phải
-                // sửa khi ai đó đổi tên. Best-effort — upstream hỏng thì trả danh sách rỗng, hộp
-                // thư vẫn chạy, chỉ mất ô chọn người.
-                var hoiHong = false;
-                try
-                {
-                    // Vé JWT phải lấy qua GetValidJwtAsync, KHÔNG đọc thẳng phiên. Vé không được
-                    // lưu xuống CSDL, nên máy chủ vừa khởi động lại là mọi phiên có vé RỖNG — và
-                    // hết hạn mềm thì vé cũ cũng thành vô dụng. Đọc thẳng thì ERP trả 401, ngoại lệ
-                    // rơi vào catch ngay dưới, và người dùng thấy đúng một triệu chứng: ô chọn
-                    // người phụ trách trống trơn. Đã trả giá 09/09/2026 — mất một buổi vì tưởng
-                    // ERP không trả người bán. Mọi đường khác gọi ERP đều đi qua hàm này (nó tự
-                    // đăng nhập lại ngầm bằng mật khẩu đã lưu); đây là chỗ DUY NHẤT còn sót.
-                    var jwt = await sessions.GetValidJwtAsync(a.SessionId, ct);
-                    var r = await api.GetAsync(jwt, "/api/ai/reference", ct);
-                    if (r.TryGetProperty("lookups", out var lk)
-                        && lk.TryGetProperty("sellers", out var sellers)
-                        && sellers.ValueKind == JsonValueKind.Array)
-                        foreach (var it in sellers.EnumerateArray())
-                        {
-                            soDongErpTra++;
-                            // ⚠️ Khoá số có thể là "value" HOẶC "id" tuỳ enum — DealEndpoints.BuildDealLookups
-                            // đã phải xử cả hai. GetInt32() TRẦN còn ném khi ValueKind == Number nhưng giá
-                            // trị không vừa Int32 (số thực kiểu 1.0, hoặc tràn số) — ném là rơi thẳng vào
-                            // catch NGOÀI vòng foreach, xoá sạch TOÀN BỘ danh sách chỉ vì MỘT bản ghi lệch
-                            // dạng. TryGetInt32 không ném, chỉ bỏ qua đúng bản ghi đó — cùng lối BuildDealLookups.
-                            var ma = 0;
-                            if (it.TryGetProperty("value", out var v) && v.ValueKind == JsonValueKind.Number
-                                && v.TryGetInt32(out var vn))
-                                ma = vn;
-                            else if (it.TryGetProperty("id", out var i2) && i2.ValueKind == JsonValueKind.Number
-                                && i2.TryGetInt32(out var idn))
-                                ma = idn;
-                            // GetString() NÉM nếu "name" không phải chuỗi (ERP trả số chẳng hạn).
-                            // Ném ở đây rơi vào catch NGOÀI vòng lặp -> mất cả danh sách vì MỘT bản
-                            // ghi lệch dạng, rồi lượt đệm lại giữ danh sách cụt đó hai tiếng. Cùng
-                            // lớp lỗi với GetInt32() đã sửa ở ngay trên — sót đúng một dòng.
-                            var ten = it.TryGetProperty("name", out var n)
-                                && n.ValueKind == JsonValueKind.String ? n.GetString() : null;
-                            if (ma > 0 && !string.IsNullOrWhiteSpace(ten))
-                                nhanVien.Add(new { id = ma, name = ten });
-                        }
-                }
-                // Nuốt lỗi là ĐÚNG (mất ô chọn người còn hơn tắt cả màn hình cấu hình), nuốt
-                // IM LẶNG là sai. Triệu chứng nhìn thấy được — "ô chọn người phụ trách biến
-                // mất" — trùng khít với triệu chứng của "chưa ai được thêm vào đội trực", nên
-                // không có dòng này thì không cách nào phân biệt hai nguyên nhân. Đã trả giá
-                // 08/09/2026: danh sách tụt từ 108 người xuống 0 giữa hai lần chạy và KHÔNG có
-                // gì trong log để lần.
-                catch (Exception ex)
-                {
-                    hoiHong = true;
-                    log.LogWarning(ex, "[chat/assign-settings] không lấy được danh sách nhân viên " +
-                        "từ ERP cho {T} — ô chọn người phụ trách sẽ trống", a.TenantId);
-                }
-
-                // ⚠️ CHỈ đệm khi danh sách KHÁC RỖNG — đệm một danh sách rỗng do ERP lỗi nhất
-                // thời là khoá cả công ty ra khỏi màn hình cấu hình suốt hai tiếng, không lỗi
-                // nào hiện ra. Không tự dựng cơ chế xoá đệm: hai tiếng là hợp đồng đã chốt.
-                if (nhanVien.Count > 0)
-                    redis.Set(khoaDem, JsonSerializer.Serialize(nhanVien, Web), TimeSpan.FromHours(2));
-                // Không ngoại lệ mà vẫn rỗng thì có HAI ca, và chúng đòi hai người khác nhau đi
-                // sửa hai chỗ khác nhau — gộp làm một dòng là chỉ đường sai:
-                //   • ERP không trả dòng nào  → hỏi bên CRM xem công ty còn người bán không;
-                //   • ERP trả N dòng mà bỏ hết → dữ liệu về nhưng thiếu mã/tên, lỗi nằm ở ERP.
-                //
-                // Trả giá 09/09/2026: /api/ai/reference trả ĐỦ 108 người bán nhưng `name` null
-                // sạch (cùng lúc với customerTypes và customerSources), mà log chỉ nói "không
-                // trả người bán nào". Mất một buổi đi tìm lỗi kết nối và lỗi phiên — trong khi
-                // kết nối vẫn tốt và dữ liệu vẫn về. Con số N là thứ lẽ ra đã chặn ngay từ đầu.
-                //
-                // !hoiHong là BẮT BUỘC ở CẢ HAI nhánh: thiếu nó thì lượt gọi ném lỗi ghi RA HAI
-                // dòng cảnh báo mang hai nguyên nhân khác nhau, dòng sau phủ nhận dòng trước.
-                else if (!hoiHong && soDongErpTra == 0)
-                    log.LogWarning("[chat/assign-settings] ERP không trả người bán nào cho {T} " +
-                        "— ô chọn người phụ trách sẽ trống", a.TenantId);
-                else if (!hoiHong)
-                    log.LogWarning("[chat/assign-settings] ERP trả {N} người bán cho {T} nhưng " +
-                        "KHÔNG dòng nào dùng được (thiếu mã, hoặc thiếu tên) — ô chọn người phụ " +
-                        "trách sẽ trống. Kết nối vẫn tốt: lỗi nằm ở dữ liệu ERP trả về.",
-                        soDongErpTra, a.TenantId);
-            }
+            // Danh sách nhân viên ERP (đệm Redis 2 tiếng) — dùng chung với chat nội bộ, xem ChatStaffDirectory.
+            var (nhanVien, soDongErpTra) = await ChatStaffDirectory.ListAsync(sessions, api, redis,
+                a.TenantId, a.SessionId, log, ct);
 
             // CHỈ người có quyền chat mới hiện trong ô chọn người phụ trách và ô chọn đội trực
             // (12/10/2026). Lọc SAU khi đọc đệm 2 tiếng: đệm giữ danh sách người bán thô, còn quyền
@@ -3703,12 +3604,7 @@ public static class ChatInboxEndpoints
 
     /// Mã của một dòng trong danh sách nhân viên — dòng mới dựng là đối tượng vô danh, dòng đọc từ
     /// đệm Redis là JsonElement, nên đi qua JSON cho cả hai.
-    private static int? StaffId(object staff)
-    {
-        var e = staff is JsonElement je ? je : JsonSerializer.SerializeToElement(staff, Web);
-        return e.ValueKind == JsonValueKind.Object && e.TryGetProperty("id", out var v)
-               && v.ValueKind == JsonValueKind.Number && v.TryGetInt32(out var id) ? id : null;
-    }
+    private static int? StaffId(object staff) => ChatStaffDirectory.StaffId(staff);
 
     /// <summary>
     /// Ô cần nhập cho từng kênh. MỘT nguồn — giao diện đọc để tự vẽ form, thêm kênh không phải

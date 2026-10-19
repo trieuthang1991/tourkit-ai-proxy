@@ -377,6 +377,12 @@ public record ChatEvent(string TenantId, long ConversationId, string Loai, long?
     /// người vừa bị chuyển việc trong đúng cửa sổ đó có thể còn nhận thêm vài sự kiện.</para>
     /// </summary>
     public int? AssignedUserId { get; init; }
+
+    /// <summary>
+    /// Khác null = sự kiện CHAT NỘI BỘ: chỉ giao cho đúng những mã người này, và KHÔNG BAO GIỜ tới
+    /// tab hộp thư khách (kể cả admin xem tất cả). Null = sự kiện hộp thư khách như cũ.
+    /// </summary>
+    public int[]? Recipients { get; init; }
 }
 
 /// <summary>

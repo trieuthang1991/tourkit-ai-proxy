@@ -34,6 +34,15 @@ public static class FeatureFlags
     /// </summary>
     public static bool Chat(IConfiguration cfg) => cfg.GetValue("Features:Chat", false);
 
+    /// <summary>
+    /// Chat nội bộ giữa nhân viên (widget nhúng vào CRM, <c>/api/v1/chat/internal/*</c>).
+    ///
+    /// <para>Cờ RIÊNG, độc lập với <see cref="Chat"/>: dùng chung CSDL chat (cần
+    /// <c>ConnectionStrings:Chat</c>) nhưng là tính năng khác — tắt hộp thư khách không được kéo
+    /// theo tắt nhắn tin nội bộ, và ngược lại. Tắt thì đường dẫn trả 404 JSON tường minh.</para>
+    /// </summary>
+    public static bool InternalChat(IConfiguration cfg) => cfg.GetValue("Features:InternalChat", false);
+
     // Cờ Features:ChatHistoryImport ĐÃ BỎ (18/09/2026). Lấy lại hội thoại cũ đi theo tính năng
     // chat: TẮT CHAT LÀ TẮT HẾT, không còn công tắc con nào phải nhớ.
     //
