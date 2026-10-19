@@ -64,6 +64,7 @@
     newType: 'group', picked: new Set(), userSearch: '', newTitle: '',
     drafts: {}, pending: {}, sending: new Set(), dragKey: null, busy: false,
     settings: null, renameDraft: {}, addSearch: '', addPicked: new Set(),   // màn cấu hình phòng (key = 'panel-12' | 'dock-12')
+    editing: null, recallConfirm: null,   // đang sửa { key, msgId, draft } · tin đang chờ bấm lần hai để thu hồi
     size: (() => { try { return localStorage.getItem('tk-chat-size') === 'large' ? 'large' : 'compact'; } catch { return 'compact'; } })(),
   };
   let errMsg = '';
@@ -158,7 +159,12 @@
     .bb.del{background:#fff;border:1px dashed #d5d9e0;color:#5b6270;font-style:italic;font-size:13px}
     .m .t{font-size:11px;color:#5b6270}
     .rc{height:26px;padding:0 8px;border:1px solid #d5d9e0;border-radius:6px;background:#fff;color:#11151c;font-size:12px;visibility:hidden}
-    .m:hover .rc,.rc:focus-visible{visibility:visible}
+    .m:hover .rc,.rc:focus-visible,.rc.warn{visibility:visible}
+    .acts{display:flex;gap:4px}
+    .rc.warn{border-color:#c0392b;color:#8a1c12;font-weight:600}
+    .edbox{display:flex;flex-direction:column;gap:6px;min-width:220px}
+    textarea.edit{min-height:60px;border-color:#1f3fbf}
+    .edact{display:flex;gap:6px;justify-content:flex-end}
     .img{display:block;border-radius:6px;overflow:hidden;border:1px solid #e3e6ec;background:#fff;line-height:0}
     .img img{display:block;max-width:220px;max-height:220px;object-fit:cover}
     .fa{display:flex;align-items:center;gap:8px;padding:8px 10px;border-radius:6px;background:#fff;border:1px solid #e3e6ec;color:#11151c;text-decoration:none;max-width:240px}
@@ -455,15 +461,37 @@
             el('img', { src: a.url, alt: a.name, loading: 'lazy' }))
         : el('a', { class: 'fa', href: a.url, target: '_blank', rel: 'noopener noreferrer' }, icon('file', 22),
             el('span', { class: 'tx' }, el('span', { class: 'fn' }, a.name), el('span', { class: 'fs' }, a.size ? fmtSize(a.size) : 'Tệp')));
-      const bubble = deleted
-        ? el('div', { class: 'bb del' }, mine ? 'Bạn đã thu hồi một tin nhắn' : 'Tin nhắn đã được thu hồi')
-        : m.body ? el('div', { class: 'bb' }, m.body) : null;
-      const recall = mine && !deleted ? el('button', { class: 'rc', type: 'button', on: { click: () => recallMsg(id, m) } }, 'Thu hồi') : null;
+      const editing = st.editing && st.editing.key === key && st.editing.msgId === m.id;
+      let bubble;
+      if (deleted) bubble = el('div', { class: 'bb del' }, mine ? 'Bạn đã thu hồi một tin nhắn' : 'Tin nhắn đã được thu hồi');
+      else if (editing) {
+        const edId = 'tk-sua-' + key;
+        const ed = el('textarea', { id: edId, class: 'edit', rows: '2', maxlength: '4000', 'aria-label': 'Sửa tin nhắn',
+          on: {
+            input: (e) => { st.editing.draft = e.target.value; },
+            keydown: (e) => {
+              if (e.key === 'Enter' && !e.shiftKey && !e.isComposing) { e.preventDefault(); saveEdit(id, m); }
+              if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); cancelEdit(); }
+            },
+          } });
+        ed.value = st.editing.draft;
+        bubble = el('div', { class: 'edbox' }, ed,
+          el('div', { class: 'edact' },
+            el('button', { class: 'sec', type: 'button', on: { click: cancelEdit } }, 'Huỷ'),
+            el('button', { class: 'pri', type: 'button', style: 'height:30px', on: { click: () => saveEdit(id, m) } }, 'Lưu')));
+      } else bubble = m.body ? el('div', { class: 'bb' }, m.body) : null;
+      // Tin của mình: Sửa (tin có chữ) + Thu hồi HAI BƯỚC — bấm nhầm một lần không mất tin.
+      const confirming = st.recallConfirm === m.id;
+      const acts = mine && !deleted && !editing ? el('span', { class: 'acts' },
+        m.body ? el('button', { class: 'rc', type: 'button', on: { click: () => startEdit(key, m) } }, 'Sửa') : null,
+        el('button', { class: 'rc' + (confirming ? ' warn' : ''), type: 'button',
+          'aria-label': confirming ? 'Bấm lần nữa để thu hồi tin này với mọi người' : 'Thu hồi tin này',
+          on: { click: () => askRecall(id, m) } }, confirming ? 'Thu hồi?' : 'Thu hồi')) : null;
       list.append(el('div', { class: 'm' + (mine ? ' me' : '') },
         !mine && r.entityType !== 'direct' ? el('span', { class: 'who' }, userName(m.senderUserId, m.senderUsername)) : null,
-        attEl ? el('div', { class: 'row' }, bubble ? null : recall, attEl) : null,
-        bubble ? el('div', { class: 'row' }, recall, bubble) : null,
-        el('span', { class: 't' }, hm(m.createdUtc))));
+        attEl ? el('div', { class: 'row' }, bubble ? null : acts, attEl) : null,
+        bubble ? el('div', { class: 'row' }, acts, bubble) : null,
+        el('span', { class: 't' }, hm(m.createdUtc) + (m.editedUtc && !deleted ? ' · đã sửa' : ''))));
     }
 
     const taId = 'tk-soan-' + key, fileId = 'tk-tep-' + key;
@@ -758,9 +786,46 @@
       root.getElementById(taId)?.focus();
     }
   }
+  // Thu hồi hai bước: lần bấm đầu chỉ đổi nút thành "Thu hồi?", trong 4 giây bấm lần nữa mới làm.
+  let recallTimer = null;
+  function askRecall(roomId, m) {
+    if (st.recallConfirm === m.id) { clearTimeout(recallTimer); st.recallConfirm = null; return recallMsg(roomId, m); }
+    st.recallConfirm = m.id; render();
+    clearTimeout(recallTimer);
+    recallTimer = setTimeout(() => { st.recallConfirm = null; render(); }, 4000);
+  }
   async function recallMsg(roomId, m) {
     try { await api('DELETE', `/messages/${m.id}`); m.deletedUtc = new Date().toISOString(); m.body = null; m.attachment = null; render(); }
     catch (e) { if (!dead) { errMsg = 'Không thu hồi được: ' + e.message; st.errRoom = roomId; render(); } }
+  }
+
+  // Sửa tại chỗ: Enter lưu, Esc huỷ. Chỉ tin có chữ của chính mình (máy chủ kiểm lại).
+  function startEdit(key, m) {
+    st.editing = { key, msgId: m.id, draft: m.body || '' };
+    render();
+    const t = root.getElementById('tk-sua-' + key);
+    if (t) { t.focus(); t.setSelectionRange(t.value.length, t.value.length); }
+  }
+  function cancelEdit() { st.editing = null; render(); }
+  async function saveEdit(roomId, m) {
+    const body = (st.editing?.draft || '').trim();
+    if (!body) { errMsg = 'Tin trống — muốn bỏ hẳn thì dùng Thu hồi'; st.errRoom = roomId; return render(); }
+    if (body === m.body) return cancelEdit();
+    try {
+      await api('PATCH', `/messages/${m.id}`, { body });
+      m.body = body; m.editedUtc = new Date().toISOString(); st.editing = null; errMsg = ''; render();
+    } catch (e) { if (!dead) { errMsg = 'Không sửa được: ' + e.message; st.errRoom = roomId; render(); } }
+  }
+
+  /// Một tin ĐÃ CÓ vừa bị sửa / thu hồi ở nơi khác → nạp lại trang tin mới nhất và thay đúng các tin đó.
+  async function refreshChanged(roomId) {
+    const c = st.conv.get(roomId); if (!c?.loaded) return;
+    try {
+      const page = await api('GET', `/rooms/${roomId}/messages?limit=${PAGE}`);
+      const byId = new Map((page || []).map((m) => [m.id, m]));
+      c.msgs = c.msgs.map((m) => byId.get(m.id) || m);
+      render();
+    } catch { /* lần sự kiện sau sẽ bù */ }
   }
 
   // ── Cấu hình phòng ──────────────────────────────────────────────────────
@@ -801,6 +866,7 @@
         emit('room', { roomId: d.roomId });
         return;
       }
+      if (d.changed) { refreshChanged(d.roomId); refreshRoomsSoon(); return; }
       if (st.conv.get(d.roomId)?.loaded) fetchNewer(d.roomId);
       refreshRoomsSoon();
       emit('message', { roomId: d.roomId, messageId: d.messageId });

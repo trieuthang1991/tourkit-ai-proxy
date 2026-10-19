@@ -235,14 +235,31 @@ public static class InternalChatEndpoints
             return Results.NoContent();
         });
 
+        // Thu hồi (xoá với mọi người) và sửa — CHỈ tin của chính mình. Báo cả phòng để màn hình người
+        // khác đổi ngay, không phải tải lại (sự kiện mang mã tin đã có → widget nạp lại tin đó).
         g.MapDelete("/messages/{messageId:long}", async (long messageId, HttpContext ctx, TkSessionStore sessions,
-            InternalChatRepository repo, CancellationToken ct) =>
+            InternalChatRepository repo, ChatEventBus bus, CancellationToken ct) =>
         {
             var (loi, a, me) = await GuardAsync(ctx, sessions, repo, ct);
             if (loi is not null) return loi;
-            return await repo.DeleteOwnMessageAsync(a!.TenantId, messageId, me, ct)
-                ? Results.NoContent()
-                : Results.Json(new { error = "Không thấy tin của bạn để thu hồi" }, statusCode: 404);
+            if (await repo.DeleteOwnMessageAsync(a!.TenantId, messageId, me, ct) is not long roomId)
+                return Results.Json(new { error = "Không thấy tin của bạn để thu hồi" }, statusCode: 404);
+            await NotifyMessageChangedAsync(repo, bus, a.TenantId, roomId, messageId, ct);
+            return Results.NoContent();
+        });
+
+        g.MapPatch("/messages/{messageId:long}", async (long messageId, HttpContext ctx, TkSessionStore sessions,
+            InternalChatRepository repo, ChatEventBus bus, CancellationToken ct) =>
+        {
+            var (loi, a, me) = await GuardAsync(ctx, sessions, repo, ct);
+            if (loi is not null) return loi;
+            var body = (await ReadBodyAsync<EditMessageRequest>(ctx, ct))?.Body?.Trim();
+            if (string.IsNullOrEmpty(body)) return Bad("Tin nhắn trống — muốn bỏ hẳn thì dùng Thu hồi");
+            if (body.Length > MaxBody) return Bad($"Tin nhắn dài quá {MaxBody} ký tự");
+            if (await repo.EditOwnMessageAsync(a!.TenantId, messageId, me, body, ct) is not long roomId)
+                return Results.Json(new { error = "Không sửa được tin này (không phải tin của bạn, hoặc đã thu hồi)" }, statusCode: 404);
+            await NotifyMessageChangedAsync(repo, bus, a.TenantId, roomId, messageId, ct);
+            return Results.NoContent();
         });
 
         g.MapGet("/users", async (HttpContext ctx, TkSessionStore sessions, InternalChatRepository repo,
@@ -295,7 +312,8 @@ public static class InternalChatEndpoints
                         if (!await toi) break;
                         var e = nguon.Current;
                         // Không gửi Recipients ra ngoài: danh sách thành viên là việc của API phòng.
-                        await GhiAsync($"data: {JsonSerializer.Serialize(new { roomId = e.ConversationId, messageId = e.MessageId }, Web)}\n\n");
+                        // changed = tin ĐÃ CÓ vừa bị sửa / thu hồi (khác tin mới) — widget nạp lại tin đó.
+                        await GhiAsync($"data: {JsonSerializer.Serialize(new { roomId = e.ConversationId, messageId = e.MessageId, changed = e.Loai == "noi-bo-sua" }, Web)}\n\n");
                         toi = nguon.MoveNextAsync().AsTask();
                     }
                 }
@@ -348,6 +366,12 @@ public static class InternalChatEndpoints
         var la = ids.Where(x => !hopLe.Contains(x)).ToList();
         return la.Count > 0 ? Bad("Có người không thuộc công ty: " + string.Join(", ", la)) : null;
     }
+
+    /// Báo "một tin đã đổi" (sửa / thu hồi) cho thành viên phòng. Loai riêng để widget nạp lại đúng tin.
+    private static async Task NotifyMessageChangedAsync(InternalChatRepository repo, ChatEventBus bus, string tenant,
+        long roomId, long messageId, CancellationToken ct)
+        => bus.Publish(new ChatEvent(tenant, roomId, "noi-bo-sua", messageId)
+            { Recipients = await repo.MembersAsync(tenant, roomId, ct) });
 
     /// Báo "phòng đổi cấu hình" (MessageId null) cho thành viên hiện tại + người vừa bị bỏ (nếu có).
     private static async Task NotifyRoomChangedAsync(InternalChatRepository repo, ChatEventBus bus, string tenant,

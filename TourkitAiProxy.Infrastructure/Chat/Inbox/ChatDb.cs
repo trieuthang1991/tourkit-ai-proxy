@@ -758,6 +758,8 @@ public class ChatDb
     ALTER TABLE chat_conversations ADD COLUMN IF NOT EXISTS title       text;
     -- Mã người gửi. sender_username là chữ; cả cụm chat đã chuẩn hoá sang mã người (đặc tả 4b).
     ALTER TABLE chat_messages ADD COLUMN IF NOT EXISTS sender_user_id integer;
+    -- Lần sửa cuối của tin nội bộ (người gửi tự sửa). NULL = chưa sửa. Nullable → chỉ ghi metadata.
+    ALTER TABLE chat_messages ADD COLUMN IF NOT EXISTS edited_utc timestamptz;
 
     -- Thành viên phòng nội bộ. left_utc NULL = còn là thành viên (chưa có API rời phòng — cột để sẵn).
     -- "Phòng của tôi" (ListRoomsAsync) đi bằng ix_room_members_user; vị từ phải khớp câu WHERE.

@@ -214,6 +214,23 @@ public class InternalChatRepositoryGuardTests
     public void Phong_1_1_khoa_cau_hinh(string method)
         => Assert.Contains("entity_type IS DISTINCT FROM 'direct'", InternalChatGuardTests.ThanHam(Repo(), method));
 
+    [Theory]
+    [InlineData("EditOwnMessageAsync")]
+    [InlineData("DeleteOwnMessageAsync")]
+    public void Sua_va_thu_hoi_chi_tin_cua_minh_va_tra_phong_de_bao(string method)
+    {
+        var than = InternalChatGuardTests.ThanHam(Repo(), method);
+        Assert.Contains("sender_user_id = @userId", than);
+        Assert.Contains("channel = 7", than);
+        Assert.Contains("deleted_utc IS NULL", than);           // tin đã thu hồi thì không sửa/thu hồi lại
+        Assert.Contains("RETURNING conversation_id", than);     // để bus báo đúng phòng
+    }
+
+    [Fact]
+    public void Schema_co_cot_da_sua()
+        => Assert.Contains("ALTER TABLE chat_messages ADD COLUMN IF NOT EXISTS edited_utc timestamptz",
+                           ChatSchemaGuardTests.DocFile("TourkitAiProxy.Infrastructure/Chat/Inbox/ChatDb.cs"));
+
     [Fact]
     public void Khong_co_ham_kiem_thanh_vien_rieng()
         => Assert.DoesNotContain("IsMemberAsync", Repo());

@@ -50,6 +50,7 @@ public class InternalChatRepository
         public DateTime CreatedUtc { get; set; }
         public DateTime? DeletedUtc { get; set; }
         public string? Attachment { get; set; }
+        public DateTime? EditedUtc { get; set; }
     }
 
     private sealed class AppendRow
@@ -149,7 +150,7 @@ public class InternalChatRepository
         await using var c = await _db.OpenAsync(ct);
         var rows = (await c.QueryAsync<MessageRow>(new CommandDefinition("""
             SELECT m.id, m.conversation_id AS room_id, m.sender_user_id, m.sender_username, m.body,
-                   m.created_utc, m.deleted_utc, m.attachment::text AS attachment
+                   m.created_utc, m.deleted_utc, m.edited_utc, m.attachment::text AS attachment
               FROM chat_messages m
              WHERE m.conversation_id = @roomId AND m.tenant_id = @tenant
                AND EXISTS (SELECT 1 FROM chat_room_members mb
@@ -172,7 +173,7 @@ public class InternalChatRepository
         await using var c = await _db.OpenAsync(ct);
         var rows = (await c.QueryAsync<MessageRow>(new CommandDefinition("""
             SELECT m.id, m.conversation_id AS room_id, m.sender_user_id, m.sender_username, m.body,
-                   m.created_utc, m.deleted_utc, m.attachment::text AS attachment
+                   m.created_utc, m.deleted_utc, m.edited_utc, m.attachment::text AS attachment
               FROM chat_messages m
              WHERE m.conversation_id = @roomId AND m.tenant_id = @tenant AND m.id > @afterId
                AND EXISTS (SELECT 1 FROM chat_room_members mb
@@ -310,16 +311,36 @@ public class InternalChatRepository
             """, new { tenant, roomId, userId }, cancellationToken: ct)) > 0;
     }
 
-    /// <summary>Thu hồi tin CỦA CHÍNH MÌNH — xoá mềm, giữ dòng (như tin khách tự xoá).</summary>
-    public async Task<bool> DeleteOwnMessageAsync(string tenant, long messageId, int userId,
+    /// <summary>
+    /// Thu hồi tin CỦA CHÍNH MÌNH — xoá mềm với MỌI người, giữ dòng (như tin khách tự xoá).
+    /// Trả mã phòng để bus báo cả phòng; null = không phải tin của mình / đã thu hồi.
+    /// </summary>
+    public async Task<long?> DeleteOwnMessageAsync(string tenant, long messageId, int userId,
         CancellationToken ct = default)
     {
         await using var c = await _db.OpenAsync(ct);
-        return await c.ExecuteAsync(new CommandDefinition("""
+        return await c.ExecuteScalarAsync<long?>(new CommandDefinition("""
             UPDATE chat_messages SET deleted_utc = now()
              WHERE id = @messageId AND tenant_id = @tenant AND channel = 7
                AND sender_user_id = @userId AND deleted_utc IS NULL
-            """, new { tenant, messageId, userId }, cancellationToken: ct)) > 0;
+            RETURNING conversation_id
+            """, new { tenant, messageId, userId }, cancellationToken: ct));
+    }
+
+    /// <summary>
+    /// Sửa chữ của tin CỦA CHÍNH MÌNH (tin chưa thu hồi). Ghi mốc sửa để ai cũng thấy "đã sửa".
+    /// Trả mã phòng; null = không sửa được.
+    /// </summary>
+    public async Task<long?> EditOwnMessageAsync(string tenant, long messageId, int userId, string body,
+        CancellationToken ct = default)
+    {
+        await using var c = await _db.OpenAsync(ct);
+        return await c.ExecuteScalarAsync<long?>(new CommandDefinition("""
+            UPDATE chat_messages SET body = @body, edited_utc = now()
+             WHERE id = @messageId AND tenant_id = @tenant AND channel = 7
+               AND sender_user_id = @userId AND deleted_utc IS NULL
+            RETURNING conversation_id
+            """, new { tenant, messageId, userId, body }, cancellationToken: ct));
     }
 
     /// <summary>
@@ -361,7 +382,7 @@ public class InternalChatRepository
 
     private static InternalMessage ToMessage(MessageRow m) => new(m.Id, m.RoomId, m.SenderUserId,
         m.SenderUsername, m.DeletedUtc is null ? m.Body : null, m.CreatedUtc, m.DeletedUtc,
-        m.DeletedUtc is null ? ReadAttachment(m.Attachment) : null);
+        m.DeletedUtc is null ? ReadAttachment(m.Attachment) : null, m.DeletedUtc is null ? m.EditedUtc : null);
 
     /// Đọc gói đính kèm {url, ten, kich, loai}. Hỏng/thiếu url thì bỏ đính kèm, KHÔNG làm hỏng tin.
     public static InternalAttachment? ReadAttachment(string? json)

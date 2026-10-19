@@ -41,7 +41,8 @@ public record InternalRoom(long Id, string? Title, string EntityType, string? En
     string? LastPreview, DateTime LastActivityAt, int UnreadCount, IReadOnlyList<InternalMember> Members);
 
 public record InternalMessage(long Id, long RoomId, int? SenderUserId, string? SenderUsername,
-    string? Body, DateTime CreatedUtc, DateTime? DeletedUtc, InternalAttachment? Attachment = null);
+    string? Body, DateTime CreatedUtc, DateTime? DeletedUtc, InternalAttachment? Attachment = null,
+    DateTime? EditedUtc = null);
 
 /// <summary>Tệp đính kèm một tin nội bộ. <c>Kind</c>: "anh" | "tep" — cùng chữ với hộp thư khách.</summary>
 public record InternalAttachment(string Url, string Name, long Size, string Kind);
@@ -91,6 +92,7 @@ public record CreateRoomRequest(string? Title, List<int>? MemberUserIds, string 
     string? EntityId = null);
 
 public record RenameRoomRequest(string? Title);
+public record EditMessageRequest(string? Body);
 public record AddMembersRequest(List<int>? MemberUserIds);
 
 /// <summary>Gửi tin: chữ, tệp đính kèm (đã tải lên qua /upload), hoặc cả hai — phải có ít nhất một.</summary>
