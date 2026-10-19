@@ -34,6 +34,7 @@ public class InternalChatRepository
         public string? LastPreview { get; set; }
         public DateTime LastActivityAt { get; set; }
         public int UnreadCount { get; set; }
+        public long? LastMessageId { get; set; }
     }
 
     private sealed class MemberRow
@@ -155,7 +156,11 @@ public class InternalChatRepository
                          AND m.sender_user_id IS DISTINCT FROM @userId
                          AND m.deleted_utc IS NULL
                          AND m.sender_kind <> 3   -- tin hệ thống ("A đã thêm B") không tính chưa đọc
-                       LIMIT 100) x) AS unread_count
+                       LIMIT 100) x) AS unread_count,
+                   -- Mã tin mới nhất (kể cả tin hệ thống / đã thu hồi): widget so với mã trong sự kiện để
+                   -- không cộng chưa đọc hai lần cho cùng một tin. Đi ix_msg_conv lùi, một dòng.
+                   (SELECT x.id FROM chat_messages x WHERE x.conversation_id = v.id
+                     ORDER BY x.created_utc DESC, x.id DESC LIMIT 1) AS last_message_id
               FROM mb
               -- LATERAL + LIMIT 1 ép thứ tự: mỗi phòng của người này → tra ĐÚNG một dòng theo khoá
               -- chính. Thiếu LIMIT 1 thì Postgres kéo phẳng subquery thành JOIN thường rồi lại đi
@@ -194,7 +199,7 @@ public class InternalChatRepository
             .ToLookup(m => m.ConversationId, m => new InternalMember(m.UserId, m.JoinedUtc));
 
         return rows.Select(r => new InternalRoom(r.Id, r.Title, r.EntityType ?? "direct", r.EntityId,
-            r.RoomKey, r.LastPreview, r.LastActivityAt, r.UnreadCount, members[r.Id].ToList())).ToList();
+            r.RoomKey, r.LastPreview, r.LastActivityAt, r.UnreadCount, members[r.Id].ToList(), r.LastMessageId)).ToList();
     }
 
     /// <summary>
@@ -265,8 +270,7 @@ public class InternalChatRepository
         short kind = attachment is null ? (short)0 : attachment.Kind == "anh" ? (short)1 : (short)2;
         var att = attachment is null ? null : System.Text.Json.JsonSerializer.Serialize(
             new { url = attachment.Url, ten = attachment.Name, kich = attachment.Size, loai = attachment.Kind });
-        var preview = !string.IsNullOrEmpty(body) ? body
-            : attachment is null ? "" : (kind == 1 ? "[Ảnh] " : "[Tệp] ") + attachment.Name;
+        var preview = InternalMessagePreview.Of(body, attachment);
         await using var c = await _db.OpenAsync(ct);
         var r = await c.QuerySingleAsync<AppendRow>(new CommandDefinition("""
             WITH tv AS (

@@ -119,7 +119,7 @@ người CRM → 401; không phải thành viên phòng → 403. Thân request �
 | PATCH | `/messages/{id}` | `{body}` sửa tin CỦA MÌNH (chưa thu hồi) → 204 / 404; ghi `editedUtc` |
 | POST | `/rooms/{id}/hide` | "Xoá phía tôi" — ẩn phòng + tin cũ với riêng mình (xoá mềm); có tin mới thì phòng hiện lại → 204 / 403 |
 | GET | `/users` | `{meId, users[{id,name}]}` — danh sách nhân viên ERP, đệm Redis 2h (dùng chung `ChatStaffDirectory` với `/assign-settings`) |
-| GET | `/events?sessionId=` | SSE: `data: {roomId, messageId, changed}`; `messageId: null` = phòng đổi cấu hình; `changed: true` = tin đã có vừa sửa/thu hồi (tên/thành viên). Nhịp giữ sống 25s |
+| GET | `/events?sessionId=` | SSE: `data: {roomId, messageId, changed, at, preview, senderId, system}` — 4 trường cuối = tóm tắt tin mới (chỉ chat nội bộ, null ở sự kiện khác) để widget tự cập nhật danh sách không gọi lại `/rooms`; `/rooms` trả thêm `lastMessageId` để widget không cộng chưa đọc hai lần; `messageId: null` = phòng đổi cấu hình; `changed: true` = tin đã có vừa sửa/thu hồi (tên/thành viên). Nhịp giữ sống 25s |
 | * | mọi đường khác dưới nhóm (vd `/rooms/abc/messages`) | 404 JSON `{error}` — không rơi xuống SPA fallback |
 
 ---

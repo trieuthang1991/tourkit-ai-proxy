@@ -383,7 +383,26 @@ public record ChatEvent(string TenantId, long ConversationId, string Loai, long?
     /// tab hộp thư khách (kể cả admin xem tất cả). Null = sự kiện hộp thư khách như cũ.
     /// </summary>
     public int[]? Recipients { get; init; }
+
+    /// <summary>
+    /// Tóm tắt tin mới — <b>CHỈ cho chat nội bộ</b> (đi cùng <see cref="Recipients"/>), để widget tự đẩy phòng
+    /// lên đầu / đổi dòng xem trước / cộng chưa đọc mà KHÔNG gọi lại GET /rooms ở mỗi tin (phòng 20 người là
+    /// 19 lần đọc danh sách cho một tin).
+    ///
+    /// <para><b>Ngoại lệ có chủ đích</b> của nguyên tắc "sự kiện không mang nội dung" ở trên: người nhận đã
+    /// được chốt là thành viên phòng ngay trong câu ghi tin, bus kẹp công ty + người nhận — không có ai thấy
+    /// dòng này mà không đọc được chính tin đó qua API. Sự kiện hộp thư khách KHÔNG BAO GIỜ gắn trường này
+    /// (có guard test).</para>
+    /// </summary>
+    public InternalEventSummary? Summary { get; init; }
 }
+
+/// <summary>Tóm tắt một tin nội bộ mới, đi kèm sự kiện — xem <see cref="ChatEvent.Summary"/>.</summary>
+/// <param name="At">Thời điểm tin (UTC) — mốc hoạt động mới của phòng.</param>
+/// <param name="Preview">Dòng xem trước (≤ 200 ký tự).</param>
+/// <param name="SenderUserId">Người gửi; null = tin hệ thống.</param>
+/// <param name="System">Tin hệ thống ("A đã thêm B") — không tính chưa đọc.</param>
+public record InternalEventSummary(DateTime At, string? Preview, int? SenderUserId, bool System);
 
 /// <summary>
 /// Một dòng nhật ký thao tác. <c>Detail</c> là JSON thô, KHÔNG chứa nội dung tin.

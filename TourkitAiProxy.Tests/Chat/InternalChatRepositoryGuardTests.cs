@@ -385,6 +385,41 @@ public class InternalChatRepositoryGuardTests
     }
 
     // ── Danh sách phòng: phân trang con trỏ + tìm phía máy chủ ──
+    // ── Sự kiện mang tóm tắt: máy người nhận tự cập nhật danh sách, không gọi lại GET /rooms ──
+    [Fact]
+    public void Chi_su_kien_chat_noi_bo_mang_tom_tat()
+    {
+        // ChatEvent cố ý KHÔNG mang nội dung (một đường rò thứ hai). Ngoại lệ DUY NHẤT: chat nội bộ — người
+        // nhận đã chốt là thành viên phòng ngay trong câu ghi. Hộp thư khách không bao giờ được gắn.
+        foreach (var f in new[] { "TourkitAiProxy.Endpoints/ChatInboxEndpoints.cs",
+                     "TourkitAiProxy.Services/Chat/Inbox/ChatInboundService.cs",
+                     "TourkitAiProxy.Services/Chat/Inbox/ChatOutboxWorker.cs" })
+            Assert.DoesNotContain("Summary", ChatSchemaGuardTests.DocFile(f));
+        var ep = ChatSchemaGuardTests.DocFile("TourkitAiProxy.Endpoints/InternalChatEndpoints.cs");
+        Assert.Contains("Summary = new InternalEventSummary(", ep);
+        Assert.Contains("preview =", ep);   // SSE gửi tóm tắt xuống widget
+    }
+
+    [Fact]
+    public void Danh_sach_phong_tra_ma_tin_cuoi_de_khong_dem_trung()
+        => Assert.Contains("AS last_message_id", InternalChatGuardTests.ThanHam(Repo(), "ListRoomsAsync"));
+
+    [Theory]
+    [InlineData("Giá vé tháng 12 tăng", null, "Giá vé tháng 12 tăng")]
+    [InlineData(null, "anh:bao-gia.png", "[Ảnh] bao-gia.png")]
+    [InlineData("", "tep:visa.pdf", "[Tệp] visa.pdf")]
+    [InlineData("  có chữ  ", "tep:x.pdf", "  có chữ  ")]
+    [InlineData(null, null, "")]
+    public void Xem_truoc_tin(string? body, string? tep, string ra)
+    {
+        InternalAttachment? att = tep is null ? null
+            : new InternalAttachment("https://x/" + tep[4..], tep[4..], 1, tep[..3] == "anh" ? "anh" : "tep");
+        Assert.Equal(ra, InternalMessagePreview.Of(body, att));
+    }
+
+    [Fact]
+    public void Xem_truoc_toi_da_200_ky_tu() => Assert.Equal(200, InternalMessagePreview.Of(new string('a', 500), null).Length);
+
     [Fact]
     public void Danh_sach_phong_phan_trang_con_tro_khong_OFFSET()
     {

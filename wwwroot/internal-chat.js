@@ -817,6 +817,33 @@
     if (u.scrollHeight - u.scrollTop - u.clientHeight < 120) loadMoreList();
   }
 
+  /// <summary>
+  /// Áp tóm tắt một tin mới (từ sự kiện) vào danh sách: đẩy phòng lên đầu, đổi dòng xem trước, cộng chưa
+  /// đọc. Cộng ĐÚNG luật máy chủ: không tính tin của mình, tin hệ thống, hay phòng đang hiện trên màn hình.
+  /// Mỗi tin chỉ được cộng MỘT lần: tin có mã ≤ mã tin cuối mà danh sách đã biết (danh sách vừa tải về đã
+  /// tính nó, hoặc sự kiện tới hai lần) thì bỏ qua.
+  /// </summary>
+  /// <returns>false = không áp được (phòng ngoài các trang đã tải, phòng mới với mình, phòng đã ẩn nay hiện
+  /// lại, hoặc máy chủ cũ không gửi tóm tắt) → chỗ gọi tải lại danh sách như trước.</returns>
+  function applySummary(d) {
+    if (!d.at) return false;
+    const r = st.rooms.find((x) => x.id === d.roomId);
+    if (!r) return false;
+    const dem = (x) => {
+      if (x.lastMessageId != null && d.messageId <= x.lastMessageId) return false;
+      x.lastMessageId = d.messageId;
+      x.lastActivityAt = d.at;
+      x.lastPreview = d.preview;
+      if (!d.system && d.senderId !== st.me && !isVisible(x.id)) x.unreadCount = Math.min(100, (x.unreadCount || 0) + 1);
+      return true;
+    };
+    if (dem(r)) st.rooms.sort(byActivity);
+    const f = st.found && st.found.items.find((x) => x.id === d.roomId);   // đang xem kết quả tìm: cập nhật luôn
+    if (f && f !== r) dem(f);
+    render();
+    return true;
+  }
+
   let refreshTimer = null;
   const refreshRoomsSoon = () => { clearTimeout(refreshTimer); refreshTimer = setTimeout(loadRooms, 800); };
 
@@ -1033,7 +1060,11 @@
     const m = await api('POST', `/rooms/${roomId}/messages`, att ? { body, attachment: att } : { body });
     mergeMsgs(roomId, [m]);
     const r = st.rooms.find((x) => x.id === roomId);
-    if (r) { r.lastPreview = body ? body.slice(0, 200) : (att.kind === 'anh' ? '[Ảnh] ' : '[Tệp] ') + att.name; r.lastActivityAt = m.createdUtc; }
+    if (r) {
+      r.lastPreview = body ? body.slice(0, 200) : (att.kind === 'anh' ? '[Ảnh] ' : '[Tệp] ') + att.name;
+      r.lastActivityAt = m.createdUtc;
+      if (!(r.lastMessageId >= m.id)) r.lastMessageId = m.id;   // sự kiện của chính tin này tới sau thì bỏ qua
+    }
   }
   async function send(roomId, taId) {
     if (st.sending.has(roomId)) return;
@@ -1179,7 +1210,9 @@
       }
       if (d.changed) { refreshChanged(d.roomId, d.messageId); refreshRoomsSoon(); return; }
       if (st.conv.get(d.roomId)?.loaded) fetchNewer(d.roomId);
-      refreshRoomsSoon();
+      // Tin mới kèm tóm tắt → cập nhật danh sách TẠI CHỖ, không gọi lại GET /rooms (phòng 20 người là 19 lần
+      // đọc danh sách cho mỗi tin). Không áp được thì tải lại như cũ.
+      if (!applySummary(d)) refreshRoomsSoon();
       emit('message', { roomId: d.roomId, messageId: d.messageId });
     };
     es.onopen = () => { connected = true; backoff = 5000; syncPolling(); if (hadError) { hadError = false; catchUp(); } };

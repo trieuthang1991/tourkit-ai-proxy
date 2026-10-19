@@ -1081,6 +1081,23 @@ bằng header chứ không cookie.
 - Bỏ `aria-live` trên danh sách tin (vẽ lại cả khung → trình đọc màn hình đọc lại toàn bộ).
 - Ảnh tải xong: đang gần cuối thì cuộn xuống cuối.
 
+### Sự kiện kèm tóm tắt — không gọi lại danh sách ở mỗi tin (19/10/2026)
+
+Trước: mỗi tin gửi vào phòng N người làm N−1 máy cùng gọi lại `GET /rooms` (đo staging: 10 tin → người nhận gọi
+10 lần). Nay sự kiện tin mới mang `ChatEvent.Summary` (`InternalEventSummary`: mốc, xem trước, người gửi, tin hệ
+thống) qua đúng kênh Redis pub/sub sẵn có; widget (`applySummary`) đẩy phòng lên đầu, đổi xem trước, cộng chưa đọc
+**theo đúng luật máy chủ** (không tính tin mình / tin hệ thống / phòng đang hiện). Đo lại cùng kịch bản: **0 lần**.
+
+- **Ngoại lệ có chủ đích** của nguyên tắc "sự kiện không mang nội dung": người nhận đã chốt là thành viên trong câu
+  ghi tin, bus kẹp công ty + người nhận. Hộp thư khách KHÔNG BAO GIỜ gắn `Summary` (guard test
+  `Chi_su_kien_chat_noi_bo_mang_tom_tat`).
+- **Chống đếm trùng**: `/rooms` trả `lastMessageId`; widget chỉ cộng khi mã tin trong sự kiện LỚN hơn → danh sách
+  vừa tải đã tính tin đó, hoặc sự kiện tới hai lần, đều không cộng thêm. Cột lấy bằng một lượt lùi `ix_msg_conv`
+  cho đúng 30 phòng của trang (+~0,6 ms với 3.000 phòng/người).
+- **Đường lùi** (vẫn tải lại như cũ): phòng ngoài các trang đã tải, phòng mới với mình, phòng đã "xoá phía tôi" nay
+  có tin, máy chủ bản cũ không gửi tóm tắt; sửa/thu hồi/đổi cấu hình phòng (ít, giữ nguyên).
+- Dòng xem trước: `InternalMessagePreview.Of` dùng chung cho câu ghi tin và tóm tắt — hai nơi không lệch.
+
 ### Phân trang (19/10/2026)
 
 - **Danh sách phòng**: 30 phòng/lần, con trỏ `(last_activity_at, id)` khớp đúng thứ tự sắp xếp. Phần đếm chưa đọc

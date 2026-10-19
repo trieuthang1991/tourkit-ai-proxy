@@ -126,10 +126,27 @@ public static class InternalRoomSearch
     }
 }
 
+/// <summary>Dòng xem trước của một tin — chung cho câu ghi tin và tóm tắt sự kiện, để hai nơi không lệch nhau.</summary>
+public static class InternalMessagePreview
+{
+    public const int MaxLength = 200;
+
+    /// Chữ nếu có, không thì "[Ảnh] tên" / "[Tệp] tên"; cắt còn 200 ký tự.
+    public static string Of(string? body, InternalAttachment? attachment)
+    {
+        var s = !string.IsNullOrEmpty(body) ? body
+            : attachment is null ? "" : (attachment.Kind == "anh" ? "[Ảnh] " : "[Tệp] ") + attachment.Name;
+        return s.Length > MaxLength ? s[..MaxLength] : s;
+    }
+}
+
 public record InternalMember(int UserId, DateTime JoinedUtc);
 
+/// <param name="LastMessageId">Mã tin mới nhất của phòng — widget chỉ cộng chưa đọc theo sự kiện có mã LỚN
+/// hơn, nên một tin vừa có trong danh sách vừa tới qua sự kiện không bị đếm hai lần.</param>
 public record InternalRoom(long Id, string? Title, string EntityType, string? EntityId, string RoomKey,
-    string? LastPreview, DateTime LastActivityAt, int UnreadCount, IReadOnlyList<InternalMember> Members);
+    string? LastPreview, DateTime LastActivityAt, int UnreadCount, IReadOnlyList<InternalMember> Members,
+    long? LastMessageId = null);
 
 public record InternalMessage(long Id, long RoomId, int? SenderUserId, string? SenderUsername,
     string? Body, DateTime CreatedUtc, DateTime? DeletedUtc, InternalAttachment? Attachment = null,
