@@ -24,6 +24,8 @@ public enum ChatChannel : short
     WhatsApp = 5,
     /// <summary>TikTok Direct Message cho tài khoản doanh nghiệp.</summary>
     TikTok = 6,
+    /// <summary>Chat nội bộ giữa nhân viên. Không có webhook, không có OA credential.</summary>
+    Internal = 7,
 }
 
 /// Chiều của tin nhắn.

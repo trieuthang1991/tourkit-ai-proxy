@@ -389,6 +389,8 @@ public class ChatRepository
                 ON ct.tenant_id = v.tenant_id AND ct.channel = v.channel
                AND ct.external_id = v.contact_external_id
              WHERE v.id = @id AND v.tenant_id = @tenant
+               -- Phòng chat nội bộ (7) nằm chung bảng — luồng khách không được thấy.
+               AND v.channel <> 7
                -- Luật xem. Không được xem thì KHÔNG có dòng nào → chỗ gọi trả 404 sẵn có,
                -- không phải viết nhánh 403 mới (403 là xác nhận hội thoại tồn tại).
                AND (@xemTatCa OR v.assigned_user_id = @maNguoi)
@@ -416,6 +418,8 @@ public class ChatRepository
             SELECT v.* FROM chat_conversations v
               JOIN chat_messages m ON m.conversation_id = v.id
             WHERE m.id = @messageId AND m.tenant_id = @tenant
+              -- Phòng chat nội bộ (7) nằm chung bảng — luồng khách không được thấy.
+              AND v.channel <> 7
               -- Luật xem. Không được xem thì KHÔNG có dòng nào → chỗ gọi trả 404 sẵn có.
               AND (@xemTatCa OR v.assigned_user_id = @maNguoi)
             """, new { messageId, tenant, xemTatCa = xem.XemTatCa, maNguoi = xem.CrmUserId });
@@ -487,6 +491,8 @@ public class ChatRepository
             LEFT JOIN chat_conversation_reads r
               ON r.tenant_id = v.tenant_id AND r.conversation_id = v.id AND r.user_id = @nguoiDung
             WHERE v.tenant_id = @tenant
+              -- Phòng chat nội bộ (7) nằm chung bảng — luồng khách không được thấy.
+              AND v.channel <> 7
               AND (@trangThai IS NULL OR v.status = @trangThai)
               AND (@chiCuaToi IS NULL OR v.assigned_user_id = @chiCuaToi OR v.assigned_user_id IS NULL)
               AND (@kenh IS NULL OR v.channel = @kenh)
@@ -780,6 +786,8 @@ public class ChatRepository
             LEFT JOIN chat_conversation_reads r
               ON r.tenant_id = v.tenant_id AND r.conversation_id = v.id AND r.user_id = @nguoiDung
             WHERE v.tenant_id = @tenant
+              -- Phòng chat nội bộ (7) nằm chung bảng — chip đếm không được tính nó.
+              AND v.channel <> 7
               AND (@chiCuaToi IS NULL OR v.assigned_user_id = @chiCuaToi OR v.assigned_user_id IS NULL)
               -- CÙNG bộ lọc nhãn với ListConversationsAsync. Chip đếm đứng ngay trên danh sách và
               -- phải nói về ĐÚNG danh sách đó — cùng lý do đã kẹp theo kênh hồi 28/08/2026.
@@ -1692,11 +1700,13 @@ public class ChatRepository
     }
 
     /// Xoá tin cũ hơn N ngày. Chat sinh nhiều hơn Bảng tin nhiều lần nên phải dọn định kỳ.
+    /// Phòng chat nội bộ (7) KHÔNG dọn theo mốc này: trao đổi công việc nội bộ, khác dữ liệu khách
+    /// (chốt 19/10/2026).
     public async Task<int> PruneAsync(int giuNgay, CancellationToken ct = default)
     {
         await using var c = await _db.OpenAsync(ct);
         return await c.ExecuteAsync(
-            "DELETE FROM chat_conversations WHERE last_activity_at < now() - (@n || ' days')::interval",
+            "DELETE FROM chat_conversations WHERE channel <> 7 AND last_activity_at < now() - (@n || ' days')::interval",
             new { n = giuNgay });
     }
 }

@@ -97,6 +97,7 @@ public class ChannelCredentialStore
             var ra = new Dictionary<ChatChannel, List<ChatAccount>>();
             foreach (var kenh in Enum.GetValues<ChatChannel>())
             {
+                if (kenh == ChatChannel.Internal) continue;
                 var tienTo = KeyOf(kenh) + ":";
                 ra[kenh] = hang
                     .Where(h => h.Channel.StartsWith(tienTo, StringComparison.Ordinal))

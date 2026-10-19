@@ -290,6 +290,8 @@ public class ChatAssignRepository
             SELECT id
               FROM chat_conversations
              WHERE tenant_id = @tenant
+               -- Phòng chat nội bộ (7) nằm chung bảng — vòng quay không được chia nó cho người trực.
+               AND channel <> 7
                AND assigned_user_id IS NULL
                AND archived_at IS NULL
              ORDER BY last_activity_at DESC NULLS LAST
