@@ -102,7 +102,8 @@ function Get-SSHOutput {
             "c.close()`n" +
             "print(out, end='')`n"
     $tmp = Write-SSH-Script $body
-    try { return (py -3 $tmp $CfgPath $Cmd 2>&1) }
+    # Join to ONE string: an array makes -match/-notmatch filter lines instead of returning a bool.
+    try { return ((py -3 $tmp $CfgPath $Cmd 2>&1) -join "`n") }
     finally { Remove-Item $tmp -Force -EA SilentlyContinue }
 }
 
