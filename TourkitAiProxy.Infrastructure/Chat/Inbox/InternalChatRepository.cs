@@ -219,6 +219,80 @@ public class InternalChatRepository
         return new AppendResult(r.Id, r.CreatedUtc, r.Members ?? Array.Empty<int>());
     }
 
+    // ── Cấu hình phòng ─────────────────────────────────────────────────────
+    //
+    // Luật (chốt 19/10/2026, mức vừa phải): phòng 1-1 KHOÁ — không đổi tên, không thêm/bỏ người.
+    // Nhóm / theo đơn / theo công ty: thành viên nào cũng được đổi tên, thêm, bỏ người, tự rời.
+    // Mỗi hàm là MỘT câu: điều kiện "người làm là thành viên" + "không phải 1-1" nằm trong câu.
+
+    /// <summary>Đổi tên phòng. false = không phải thành viên, hoặc là phòng 1-1.</summary>
+    public async Task<bool> RenameRoomAsync(string tenant, long roomId, int userId, string? title,
+        CancellationToken ct = default)
+    {
+        await using var c = await _db.OpenAsync(ct);
+        return await c.ExecuteAsync(new CommandDefinition("""
+            UPDATE chat_conversations v SET title = @title
+             WHERE v.id = @roomId AND v.tenant_id = @tenant AND v.channel = 7
+               AND v.entity_type IS DISTINCT FROM 'direct'
+               AND EXISTS (SELECT 1 FROM chat_room_members mb
+                            WHERE mb.conversation_id = @roomId AND mb.tenant_id = @tenant
+                              AND mb.user_id = @userId AND mb.left_utc IS NULL)
+            """, new { tenant, roomId, userId, title }, cancellationToken: ct)) > 0;
+    }
+
+    /// <summary>
+    /// Thêm người. Người đã rời được thêm lại thì vào lại, mốc vào tính lại từ bây giờ (đếm chưa
+    /// đọc từ lúc vào lại, không dội cả lịch sử lúc vắng mặt). 0 = không được phép.
+    /// </summary>
+    public async Task<int> AddMembersAsync(string tenant, long roomId, int userId, IReadOnlyCollection<int> ids,
+        CancellationToken ct = default)
+    {
+        await using var c = await _db.OpenAsync(ct);
+        return await c.ExecuteAsync(new CommandDefinition("""
+            INSERT INTO chat_room_members (conversation_id, tenant_id, user_id)
+            SELECT DISTINCT @roomId, @tenant, u FROM unnest(@ids) AS u
+             WHERE EXISTS (SELECT 1 FROM chat_conversations v
+                            WHERE v.id = @roomId AND v.tenant_id = @tenant AND v.channel = 7
+                              AND v.entity_type IS DISTINCT FROM 'direct')
+               AND EXISTS (SELECT 1 FROM chat_room_members mb
+                            WHERE mb.conversation_id = @roomId AND mb.tenant_id = @tenant
+                              AND mb.user_id = @userId AND mb.left_utc IS NULL)
+            ON CONFLICT (conversation_id, user_id) DO UPDATE
+               SET joined_utc = CASE WHEN chat_room_members.left_utc IS NULL
+                                     THEN chat_room_members.joined_utc ELSE now() END,
+                   left_utc = NULL
+             WHERE chat_room_members.tenant_id = @tenant
+            """, new { tenant, roomId, userId, ids = ids.Distinct().ToArray() }, cancellationToken: ct));
+    }
+
+    /// <summary>Bỏ một người khỏi phòng (bỏ chính mình = rời phòng). Xoá mềm: tin cũ của họ vẫn còn.</summary>
+    public async Task<bool> RemoveMemberAsync(string tenant, long roomId, int userId, int targetUserId,
+        CancellationToken ct = default)
+    {
+        await using var c = await _db.OpenAsync(ct);
+        return await c.ExecuteAsync(new CommandDefinition("""
+            UPDATE chat_room_members t SET left_utc = now()
+             WHERE t.conversation_id = @roomId AND t.tenant_id = @tenant
+               AND t.user_id = @targetUserId AND t.left_utc IS NULL
+               AND EXISTS (SELECT 1 FROM chat_conversations v
+                            WHERE v.id = @roomId AND v.tenant_id = @tenant AND v.channel = 7
+                              AND v.entity_type IS DISTINCT FROM 'direct')
+               AND EXISTS (SELECT 1 FROM chat_room_members mb
+                            WHERE mb.conversation_id = @roomId AND mb.tenant_id = @tenant
+                              AND mb.user_id = @userId AND mb.left_utc IS NULL)
+            """, new { tenant, roomId, userId, targetUserId }, cancellationToken: ct)) > 0;
+    }
+
+    /// <summary>Thành viên hiện tại — chỉ để bus biết báo cho ai sau khi cấu hình phòng đổi.</summary>
+    public async Task<int[]> MembersAsync(string tenant, long roomId, CancellationToken ct = default)
+    {
+        await using var c = await _db.OpenAsync(ct);
+        return (await c.QueryAsync<int>(new CommandDefinition("""
+            SELECT user_id FROM chat_room_members
+             WHERE conversation_id = @roomId AND tenant_id = @tenant AND left_utc IS NULL
+            """, new { tenant, roomId }, cancellationToken: ct))).ToArray();
+    }
+
     /// <summary>Đánh dấu đã đọc cho riêng một người. false = không phải thành viên.</summary>
     public async Task<bool> MarkReadAsync(string tenant, long roomId, int userId, CancellationToken ct = default)
     {

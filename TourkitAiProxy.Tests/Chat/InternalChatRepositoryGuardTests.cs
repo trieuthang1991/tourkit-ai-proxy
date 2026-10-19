@@ -146,8 +146,18 @@ public class InternalChatRepositoryGuardTests
     [InlineData("ListMessagesAsync")]
     [InlineData("ListMessagesAfterAsync")]
     [InlineData("MarkReadAsync")]
+    [InlineData("RenameRoomAsync")]
+    [InlineData("AddMembersAsync")]
+    [InlineData("RemoveMemberAsync")]
     public void Kiem_thanh_vien_gop_trong_cau(string method)
         => Assert.Contains("FROM chat_room_members", InternalChatGuardTests.ThanHam(Repo(), method));
+
+    [Theory]
+    [InlineData("RenameRoomAsync")]
+    [InlineData("AddMembersAsync")]
+    [InlineData("RemoveMemberAsync")]
+    public void Phong_1_1_khoa_cau_hinh(string method)
+        => Assert.Contains("entity_type IS DISTINCT FROM 'direct'", InternalChatGuardTests.ThanHam(Repo(), method));
 
     [Fact]
     public void Khong_co_ham_kiem_thanh_vien_rieng()

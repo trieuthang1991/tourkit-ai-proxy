@@ -67,18 +67,7 @@ public static class InternalChatEndpoints
             }
             catch (ArgumentException ex) { return Bad(ex.Message); }
 
-            // Chỉ thêm được người CỦA CÔNG TY NÀY — mã người là số đoán được, không kiểm thì kéo được
-            // bất kỳ mã nào vào phòng.
-            if (others.Count > 0)
-            {
-                var (staffs, _) = await ChatStaffDirectory.ListAsync(sessions, api, redis, a!.TenantId,
-                    a.SessionId, lf.CreateLogger("chat.internal"), ct);
-                if (staffs.Count == 0)
-                    return Results.Json(new { error = "Chưa tải được danh sách nhân viên — thử lại sau" }, statusCode: 503);
-                var hopLe = staffs.Select(ChatStaffDirectory.StaffId).OfType<int>().ToHashSet();
-                var la = others.Where(x => !hopLe.Contains(x)).ToList();
-                if (la.Count > 0) return Bad("Có người không thuộc công ty: " + string.Join(", ", la));
-            }
+            if (await CheckStaffAsync(others, sessions, api, redis, a!, lf, ct) is { } sai) return sai;
 
             var title = string.IsNullOrWhiteSpace(req.Title) ? null : req.Title.Trim()[..Math.Min(req.Title.Trim().Length, 120)];
             var entityId = type is "order" or "company" ? req.EntityId!.Trim() : null;
@@ -177,6 +166,49 @@ public static class InternalChatEndpoints
             return await repo.MarkReadAsync(a!.TenantId, id, me, ct) ? Results.NoContent() : NotMember();
         });
 
+        // ── Cấu hình phòng: đổi tên, thêm/bỏ người. Phòng 1-1 khoá (repo trả false/0 → 403). ──
+        g.MapPatch("/rooms/{id:long}", async (long id, HttpContext ctx, TkSessionStore sessions,
+            InternalChatRepository repo, ChatEventBus bus, CancellationToken ct) =>
+        {
+            var (loi, a, me) = await GuardAsync(ctx, sessions, repo, ct);
+            if (loi is not null) return loi;
+            var req = await ReadBodyAsync<RenameRoomRequest>(ctx, ct);
+            if (req is null) return Bad("Thân request không đọc được");
+            var t = req.Title?.Trim();
+            var title = string.IsNullOrEmpty(t) ? null : t[..Math.Min(t.Length, 120)];
+            if (!await repo.RenameRoomAsync(a!.TenantId, id, me, title, ct)) return CannotConfigure();
+            await NotifyRoomChangedAsync(repo, bus, a.TenantId, id, null, ct);
+            return Results.NoContent();
+        });
+
+        g.MapPost("/rooms/{id:long}/members", async (long id, HttpContext ctx, TkSessionStore sessions,
+            InternalChatRepository repo, ChatEventBus bus, TourKitApiClient api, RedisStore redis, ILoggerFactory lf,
+            CancellationToken ct) =>
+        {
+            var (loi, a, me) = await GuardAsync(ctx, sessions, repo, ct);
+            if (loi is not null) return loi;
+            var req = await ReadBodyAsync<AddMembersRequest>(ctx, ct);
+            var them = (req?.MemberUserIds ?? new()).Where(x => x > 0 && x != me).Distinct().ToList();
+            if (them.Count == 0) return Bad("Chưa chọn người để thêm");
+            if (them.Count > MaxMembers) return Bad($"Tối đa {MaxMembers} người một lần");
+            if (await CheckStaffAsync(them, sessions, api, redis, a!, lf, ct) is { } sai) return sai;
+            if (await repo.AddMembersAsync(a!.TenantId, id, me, them, ct) == 0) return CannotConfigure();
+            await NotifyRoomChangedAsync(repo, bus, a.TenantId, id, null, ct);
+            return Results.NoContent();
+        });
+
+        g.MapDelete("/rooms/{id:long}/members/{userId:int}", async (long id, int userId, HttpContext ctx,
+            TkSessionStore sessions, InternalChatRepository repo, ChatEventBus bus, CancellationToken ct) =>
+        {
+            var (loi, a, me) = await GuardAsync(ctx, sessions, repo, ct);
+            if (loi is not null) return loi;
+            if (!await repo.RemoveMemberAsync(a!.TenantId, id, me, userId, ct))
+                return Results.Json(new { error = "Không bỏ được người này (không ở trong phòng, hoặc là phòng 1-1)" }, statusCode: 403);
+            // Báo cả người VỪA bị bỏ: tab của họ phải biết mà đóng phòng.
+            await NotifyRoomChangedAsync(repo, bus, a.TenantId, id, userId, ct);
+            return Results.NoContent();
+        });
+
         g.MapDelete("/messages/{messageId:long}", async (long messageId, HttpContext ctx, TkSessionStore sessions,
             InternalChatRepository repo, CancellationToken ct) =>
         {
@@ -270,6 +302,35 @@ public static class InternalChatEndpoints
     }
 
     private static IResult Bad(string msg) => Results.Json(new { error = msg }, statusCode: 400);
+
+    private static IResult CannotConfigure()
+        => Results.Json(new { error = "Không đổi được phòng này (bạn không ở trong phòng, hoặc là phòng 1-1)" }, statusCode: 403);
+
+    /// <summary>
+    /// Chỉ thêm được người CỦA CÔNG TY NÀY — mã người là số đoán được, không kiểm thì kéo được bất kỳ
+    /// mã nào vào phòng. null = hợp lệ.
+    /// </summary>
+    private static async Task<IResult?> CheckStaffAsync(IReadOnlyCollection<int> ids, TkSessionStore sessions,
+        TourKitApiClient api, RedisStore redis, SessionAuth.Ctx a, ILoggerFactory lf, CancellationToken ct)
+    {
+        if (ids.Count == 0) return null;
+        var (staffs, _) = await ChatStaffDirectory.ListAsync(sessions, api, redis, a.TenantId, a.SessionId,
+            lf.CreateLogger("chat.internal"), ct);
+        if (staffs.Count == 0)
+            return Results.Json(new { error = "Chưa tải được danh sách nhân viên — thử lại sau" }, statusCode: 503);
+        var hopLe = staffs.Select(ChatStaffDirectory.StaffId).OfType<int>().ToHashSet();
+        var la = ids.Where(x => !hopLe.Contains(x)).ToList();
+        return la.Count > 0 ? Bad("Có người không thuộc công ty: " + string.Join(", ", la)) : null;
+    }
+
+    /// Báo "phòng đổi cấu hình" (MessageId null) cho thành viên hiện tại + người vừa bị bỏ (nếu có).
+    private static async Task NotifyRoomChangedAsync(InternalChatRepository repo, ChatEventBus bus, string tenant,
+        long roomId, int? removed, CancellationToken ct)
+    {
+        var ds = (await repo.MembersAsync(tenant, roomId, ct)).ToList();
+        if (removed is int r && !ds.Contains(r)) ds.Add(r);
+        bus.Publish(new ChatEvent(tenant, roomId, "noi-bo-phong", null) { Recipients = ds.ToArray() });
+    }
 
     /// Đoạn đầu của mọi URL kho cấp: PublicBase (r2/s3) hoặc /chat-files/ của chính máy chủ (local).
     private static IEnumerable<string> StorageBases(IChatFileStorage kho, HttpContext ctx)

@@ -87,6 +87,9 @@ public static class InternalAttachmentRules
 public record CreateRoomRequest(string? Title, List<int>? MemberUserIds, string EntityType = "direct",
     string? EntityId = null);
 
+public record RenameRoomRequest(string? Title);
+public record AddMembersRequest(List<int>? MemberUserIds);
+
 /// <summary>Gửi tin: chữ, tệp đính kèm (đã tải lên qua /upload), hoặc cả hai — phải có ít nhất một.</summary>
 public record SendInternalMessageRequest(string? Body, InternalAttachment? Attachment = null);
 
