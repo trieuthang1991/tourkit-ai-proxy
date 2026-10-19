@@ -327,6 +327,21 @@ public class ChatEventBusTests
         Assert.Equal(new[] { 3, 7 }, nhan[0].Recipients);
     }
 
+    [Fact]
+    public async Task Tom_tat_tin_noi_bo_song_sot_qua_Pack_Unpack()
+    {
+        // Tóm tắt đi qua Redis sang instance khác: thiếu nó thì máy người nhận ở instance kia phải gọi lại
+        // GET /rooms cho mỗi tin — đúng thứ tối ưu này bỏ đi.
+        var bus = new ChatEventBus(null);
+        var luc = new DateTime(2026, 10, 19, 9, 0, 0, DateTimeKind.Utc);
+        var nhan = await NgheMotAsync(bus, ct => bus.SubscribeInternalAsync("A", 7, ct), () =>
+            bus.FromRemote(ChatEventBus.Pack("instance-khac",
+                new ChatEvent("A", 5, "noi-bo", 50)
+                { Recipients = new[] { 3, 7 }, Summary = new InternalEventSummary(luc, "Giá vé tháng 12 tăng", 3, false) })));
+        Assert.Single(nhan);
+        Assert.Equal(new InternalEventSummary(luc, "Giá vé tháng 12 tăng", 3, false), nhan[0].Summary);
+    }
+
     /// Chờ tới khi đủ số người nghe đã đăng ký. Ngủ một khoảng cố định thì test lúc xanh lúc đỏ
     /// trên máy chạy chậm — thứ tệ hơn cả không có test, vì người sau sẽ chạy lại cho tới khi xanh.
     private static async Task ChoDangKyAsync(ChatEventBus bus, CancellationToken ct, int can = 1)

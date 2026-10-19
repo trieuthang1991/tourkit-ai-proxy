@@ -199,8 +199,13 @@ public static class InternalChatEndpoints
 
             var r = await repo.AppendMessageAsync(a!.TenantId, id, me, a.Username, body, att, ct);
             if (r.Id is null) return NotMember();
-            // Người gửi cũng nằm trong Recipients: họ có thể đang mở phòng ở tab thứ hai.
-            bus.Publish(new ChatEvent(a.TenantId, id, "noi-bo", r.Id) { Recipients = r.Members });
+            // Người gửi cũng nằm trong Recipients: họ có thể đang mở phòng ở tab thứ hai. Tóm tắt kèm theo để
+            // máy người nhận tự cập nhật danh sách, không gọi lại GET /rooms ở mỗi tin.
+            bus.Publish(new ChatEvent(a.TenantId, id, "noi-bo", r.Id)
+            {
+                Recipients = r.Members,
+                Summary = new InternalEventSummary(r.CreatedUtc ?? DateTime.UtcNow, InternalMessagePreview.Of(body, att), me, false),
+            });
             return Results.Json(new InternalMessage(r.Id.Value, id, me, a.Username, body,
                 r.CreatedUtc ?? DateTime.UtcNow, null, att), Web);
         });
@@ -377,7 +382,13 @@ public static class InternalChatEndpoints
                         var e = nguon.Current;
                         // Không gửi Recipients ra ngoài: danh sách thành viên là việc của API phòng.
                         // changed = tin ĐÃ CÓ vừa bị sửa / thu hồi (khác tin mới) — widget nạp lại tin đó.
-                        await GhiAsync($"data: {JsonSerializer.Serialize(new { roomId = e.ConversationId, messageId = e.MessageId, changed = e.Loai == "noi-bo-sua" }, Web)}\n\n");
+                        // at/preview/senderId/system: tóm tắt tin mới (chỉ chat nội bộ) — widget tự cập nhật danh sách.
+                        var t = e.Summary;
+                        await GhiAsync($"data: {JsonSerializer.Serialize(new
+                        {
+                            roomId = e.ConversationId, messageId = e.MessageId, changed = e.Loai == "noi-bo-sua",
+                            at = t?.At, preview = t?.Preview, senderId = t?.SenderUserId, system = t?.System,
+                        }, Web)}\n\n");
                         toi = nguon.MoveNextAsync().AsTask();
                     }
                 }
@@ -483,9 +494,14 @@ public static class InternalChatEndpoints
                 if (ChatStaffDirectory.StaffId(s) is int sid && ChatStaffDirectory.StaffName(s) is { } n) ten[sid] = n;
             string Ten(int u) => ten.TryGetValue(u, out var n) ? n : (u == me ? a.Username : $"#{u}");
             if (ids.Count > 0) gi = string.Join(", ", ids.Select(Ten));
-            var r = await repo.AppendSystemMessageAsync(a.TenantId, roomId, InternalRoomNotice.Text(Ten(me), viec, gi), ct);
+            var cau = InternalRoomNotice.Text(Ten(me), viec, gi);
+            var r = await repo.AppendSystemMessageAsync(a.TenantId, roomId, cau, ct);
             if (r.Id is not null)
-                bus.Publish(new ChatEvent(a.TenantId, roomId, "noi-bo", r.Id) { Recipients = r.Members });
+                bus.Publish(new ChatEvent(a.TenantId, roomId, "noi-bo", r.Id)
+                {
+                    Recipients = r.Members,
+                    Summary = new InternalEventSummary(r.CreatedUtc ?? DateTime.UtcNow, InternalMessagePreview.Of(cau, null), null, true),
+                });
         }
         catch (Exception ex) when (ex is not OperationCanceledException)
         {
