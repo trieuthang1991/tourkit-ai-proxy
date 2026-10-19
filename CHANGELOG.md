@@ -86,6 +86,9 @@ Những cập nhật gần đây của TRAV-AI, viết cho người dùng. Mới
 - Trên điện thoại, mở chat thì **trang phía sau không còn cuộn theo**. Chữ, ô nhập và nút trong khung chat gọn lại
   cho vừa màn hình nhỏ; nút Sửa / Thu hồi tin của bạn chuyển vào bảng nhấn giữ, không còn chen cạnh mỗi tin.
 - Nút chat và các biểu tượng **mềm mại hơn**: nút tròn, nét biểu tượng mảnh hơn, số tin chưa đọc là chấm đỏ.
+- **Tin nhắn gọn hơn, giống hộp thư chat đa kênh**: không còn in giờ dưới từng tin. Tin liền nhau của cùng một
+  người trong 5 phút gom thành một cụm, tên chỉ hiện một lần. Giờ hiện ở dải giữa khung (đầu ngày, và khi cuộc
+  trò chuyện ngắt quãng từ 20 phút). Muốn xem giờ một tin: rê chuột lên tin, hoặc chạm vào tin trên điện thoại.
 - Cuộn lên xem tin cũ chỉ hiện một vạch tải mảnh ở mép trên, không còn dòng chữ "Đang tải…" nhảy lên nhảy xuống.
 
 ### 📌 Lưu ý

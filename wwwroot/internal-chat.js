@@ -226,6 +226,8 @@
     .m.me{align-self:flex-end;align-items:flex-end}
     .m .who{font-size:12px;font-weight:600}
     .m .row{position:relative;display:flex;align-items:center;gap:6px}
+    .m.cont{margin-top:-7px}   /* tin trong cùng cụm xếp sát (khe 10px của .ms còn 3px) */
+    .m:has(.rxs) + .m.cont{margin-top:0}   /* tin trên có cụm cảm xúc thì chừa chỗ, không đè lên */
     .bb{padding:8px 12px;border-radius:6px;background:#fff;border:1px solid #e3e6ec;white-space:pre-wrap;word-break:break-word}
     .me .bb{background:#1f3fbf;border-color:#1f3fbf;color:#fff}
     .bb.del{background:#fff;border:1px dashed #d5d9e0;color:#5b6270;font-style:italic;font-size:13px}
@@ -402,6 +404,17 @@
     return pad(d.getDate()) + '/' + pad(d.getMonth() + 1) + '/' + d.getFullYear();
   }
   const hm = (iso) => { const d = new Date(iso); return pad(d.getHours()) + ':' + pad(d.getMinutes()); };
+  const WEEKDAYS = ['Chủ nhật', 'Thứ Hai', 'Thứ Ba', 'Thứ Tư', 'Thứ Năm', 'Thứ Sáu', 'Thứ Bảy'];
+  /// "Thứ Hai, 19/10/2026 22:46" — chú thích khi rê chuột lên tin.
+  const fullTime = (iso) => { const d = new Date(iso); return `${WEEKDAYS[d.getDay()]}, ${pad(d.getDate())}/${pad(d.getMonth() + 1)}/${d.getFullYear()} ${hm(iso)}`; };
+  // Cùng hộp thư chat đa kênh (pages/chat-inbox.jsx): 5 phút còn là một cụm, đứt quãng 20 phút thì chèn mốc giờ.
+  const CLUSTER_MS = 5 * 60 * 1000, TIME_MARK_MS = 20 * 60 * 1000;
+  /// Hai tin liền nhau cùng một cụm: cùng người gửi, không lùi giờ (dữ liệu lệch thì thà tách), cách ≤ 5 phút.
+  function sameCluster(a, b) {
+    if (!a || !b || a.system || b.system) return false;
+    const ta = new Date(a.createdUtc).getTime(), tb = new Date(b.createdUtc).getTime();
+    return a.senderUserId === b.senderUserId && tb >= ta && tb - ta <= CLUSTER_MS;
+  }
   const roomOf = (id) => st.rooms.find((x) => x.id === id) || { id, entityType: 'group', members: [] };
   function roomName(r) {
     if (r.entityType === 'direct') {
@@ -649,11 +662,19 @@
     if (c.hasOlder) list.append(el('button', { class: 'oldbtn', type: 'button', style: c.loadingOlder ? 'visibility:hidden' : '', on: { click: () => loadOlder(id, key) } }, 'Xem tin cũ hơn'));
     const outbox = c.outbox || [];
     if (c.loaded && !c.msgs.length && !outbox.length) list.append(el('div', { class: 'empty' }, 'Chưa có tin nhắn. Gửi lời chào đầu tiên.'));
-    let prevDay = null;
+    // Gom tin như hộp thư chat đa kênh: không in giờ dưới TỪNG tin (năm tin liền là năm dòng "22:46").
+    // Giờ nằm ở dải giữa khung — dải ngày kèm giờ tin đầu, và mốc giờ khi đứt quãng ≥ 20 phút; giờ của
+    // từng tin rê chuột (máy tính) / chạm (điện thoại) là thấy. Tin liền nhau của CÙNG một người trong
+    // 5 phút là một cụm: tên chỉ ở đầu cụm, xếp sát nhau.
+    let prevDay = null, prev = null;
     for (const m of c.msgs) {
       const d = new Date(m.createdUtc);
-      if (!prevDay || !sameDay(prevDay, d)) { list.append(el('div', { class: 'day' }, dayLabel(d))); prevDay = d; }
-      if (m.system) { list.append(el('div', { class: 'sys' }, m.body || '')); continue; }   // "A đã thêm B…"
+      let cut = false;   // dải ngày / mốc giờ / dòng hệ thống chen vào là cắt cụm
+      if (!prevDay || !sameDay(prevDay, d)) { list.append(el('div', { class: 'day' }, dayLabel(d) + ' ' + hm(m.createdUtc))); prevDay = d; cut = true; }
+      else if (prev && d - new Date(prev.createdUtc) >= TIME_MARK_MS) { list.append(el('div', { class: 'day' }, hm(m.createdUtc))); cut = true; }
+      if (m.system) { list.append(el('div', { class: 'sys' }, m.body || '')); prev = null; continue; }   // "A đã thêm B…"
+      const cont = !cut && sameCluster(prev, m);
+      prev = m;
       const mine = m.senderUserId === st.me;
       const deleted = !!m.deletedUtc;
       const a = !deleted && m.attachment && safeUrl(m.attachment.url) ? m.attachment : null;
@@ -698,12 +719,16 @@
       const picker = picking ? reactPicker(id, m, key) : null;
       // Điện thoại không rê chuột được: nhấn giữ tin để mở bảng cảm xúc (như Messenger).
       const hold = deleted || editing ? null : longPress(() => { st.reactPick = { key, msgId: m.id }; render(); focusPicker(); });
-      list.append(el('div', { class: 'm' + (mine ? ' me' : '') },
-        !mine && r.entityType !== 'direct' ? el('span', { class: 'who' }, userName(m.senderUserId, m.senderUsername)) : null,
+      // Giờ đầy đủ của TỪNG tin: chú thích khi rê chuột; điện thoại chạm vào tin (mở bảng cảm xúc) thì hiện
+      // ngay dưới tin. "đã sửa" luôn hiện — đó là thông tin, không phải trang trí.
+      const tip = fullTime(m.createdUtc);
+      const tail = [picking ? hm(m.createdUtc) : null, m.editedUtc && !deleted ? 'đã sửa' : null].filter(Boolean).join(' · ');
+      list.append(el('div', { class: 'm' + (mine ? ' me' : '') + (cont ? ' cont' : ''), title: tip },
+        !mine && !cont && r.entityType !== 'direct' ? el('span', { class: 'who' }, userName(m.senderUserId, m.senderUsername)) : null,
         attEl ? el('div', { class: 'row', on: hold }, bubble ? null : acts, bubble ? null : picker, attEl) : null,
         bubble ? el('div', { class: 'row', on: hold }, acts, picker, bubble) : null,
         deleted ? null : reactionSummary(id, m),
-        el('span', { class: 't' }, hm(m.createdUtc) + (m.editedUtc && !deleted ? ' · đã sửa' : ''))));
+        tail ? el('span', { class: 't' }, tail) : null));
     }
     // Tin đang chờ gửi: hiện ngay khi bấm Gửi (mờ hơn một chút), máy chủ nhận xong thì thay bằng tin thật.
     for (const o of outbox) {
