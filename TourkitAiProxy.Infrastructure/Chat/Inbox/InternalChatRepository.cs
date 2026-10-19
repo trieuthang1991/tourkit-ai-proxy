@@ -35,6 +35,15 @@ public class InternalChatRepository
         public DateTime LastActivityAt { get; set; }
         public int UnreadCount { get; set; }
         public long? LastMessageId { get; set; }
+        public string? DataJson { get; set; }
+    }
+
+    /// JSON đã lưu → phần tử để trả ra API; hỏng (không thể xảy ra vì cột là jsonb) thì coi như không có.
+    private static System.Text.Json.JsonElement? ParseData(string? json)
+    {
+        if (string.IsNullOrEmpty(json)) return null;
+        try { using var d = System.Text.Json.JsonDocument.Parse(json); return d.RootElement.Clone(); }
+        catch (System.Text.Json.JsonException) { return null; }
     }
 
     private sealed class MemberRow
@@ -74,7 +83,7 @@ public class InternalChatRepository
     /// chỉ-một-lần như thêm người phụ trách cơ hội.</returns>
     public async Task<(long Id, bool Created)> CreateOrGetRoomAsync(string tenant, int creatorUserId, string roomKey,
         string entityType, string? entityId, string? title, IReadOnlyCollection<int> memberIds,
-        CancellationToken ct = default)
+        string? dataJson = null, CancellationToken ct = default)
     {
         await using var c = await _db.OpenAsync(ct);
         await using var tx = await c.BeginTransactionAsync(ct);
@@ -84,11 +93,11 @@ public class InternalChatRepository
         var created = true;
         var id = await c.ExecuteScalarAsync<long?>(new CommandDefinition("""
             INSERT INTO chat_conversations (tenant_id, channel, account_id, contact_external_id, surface,
-                                            source_thread_id, entity_type, entity_id, title, last_activity_at)
-            VALUES (@tenant, 7, '', @roomKey, 0, '', @entityType, @entityId, @title, now())
+                                            source_thread_id, entity_type, entity_id, title, entity_data, last_activity_at)
+            VALUES (@tenant, 7, '', @roomKey, 0, '', @entityType, @entityId, @title, @dataJson::jsonb, now())
             ON CONFLICT (tenant_id, channel, account_id, contact_external_id, surface, source_thread_id) DO NOTHING
             RETURNING id
-            """, new { tenant, roomKey, entityType, entityId, title }, tx, cancellationToken: ct));
+            """, new { tenant, roomKey, entityType, entityId, title, dataJson }, tx, cancellationToken: ct));
         if (id is null)
         {
             created = false;
@@ -148,7 +157,7 @@ public class InternalChatRepository
               SELECT conversation_id, joined_utc, hidden_utc FROM chat_room_members
                WHERE tenant_id = @tenant AND user_id = @userId AND left_utc IS NULL)
             SELECT v.id, v.title, v.entity_type, v.entity_id, v.contact_external_id AS room_key,
-                   v.last_preview, v.last_activity_at,
+                   v.last_preview, v.last_activity_at, v.entity_data::text AS data_json,
                    (SELECT count(*)::int FROM (
                       SELECT 1 FROM chat_messages m
                        WHERE m.conversation_id = v.id
@@ -167,7 +176,7 @@ public class InternalChatRepository
               -- ix_conv_tenant_hoatdong của CẢ công ty để khỏi sắp xếp (đo trên PG 17, 19/10/2026).
               CROSS JOIN LATERAL (
                 SELECT c.id, c.title, c.entity_type, c.entity_id, c.contact_external_id,
-                       c.last_preview, c.last_activity_at
+                       c.last_preview, c.last_activity_at, c.entity_data
                   FROM chat_conversations c
                  WHERE c.id = mb.conversation_id AND c.tenant_id = @tenant AND c.channel = 7
                  LIMIT 1) v
@@ -199,7 +208,8 @@ public class InternalChatRepository
             .ToLookup(m => m.ConversationId, m => new InternalMember(m.UserId, m.JoinedUtc));
 
         return rows.Select(r => new InternalRoom(r.Id, r.Title, r.EntityType ?? "direct", r.EntityId,
-            r.RoomKey, r.LastPreview, r.LastActivityAt, r.UnreadCount, members[r.Id].ToList(), r.LastMessageId)).ToList();
+            r.RoomKey, r.LastPreview, r.LastActivityAt, r.UnreadCount, members[r.Id].ToList(), r.LastMessageId,
+            ParseData(r.DataJson))).ToList();
     }
 
     /// <summary>
@@ -229,7 +239,8 @@ public class InternalChatRepository
             """, new { tenant, roomId, userId, beforeUtc = AsUtc(beforeUtc), beforeId = beforeId ?? long.MaxValue, limit },
             cancellationToken: ct))).ToList();
         if (rows.Count == 0 && !await IsMemberOrEmptyAsync(c, tenant, roomId, userId, ct)) return null;
-        return rows.Select(ToMessage).ToList();
+        var rx = await ReactionsOfAsync(c, tenant, rows, ct);
+        return rows.Select(m => ToMessage(m, rx.GetValueOrDefault(m.Id))).ToList();
     }
 
     /// <summary>Tin MỚI hơn một mã, cũ trước — để widget bù tin khi có sự kiện hoặc vừa nối lại.</summary>
@@ -253,7 +264,8 @@ public class InternalChatRepository
              LIMIT @limit
             """, new { tenant, roomId, userId, afterId, limit }, cancellationToken: ct))).ToList();
         if (rows.Count == 0 && !await IsMemberOrEmptyAsync(c, tenant, roomId, userId, ct)) return null;
-        return rows.Select(ToMessage).ToList();
+        var rx = await ReactionsOfAsync(c, tenant, rows, ct);
+        return rows.Select(m => ToMessage(m, rx.GetValueOrDefault(m.Id))).ToList();
     }
 
     /// <summary>
@@ -494,20 +506,43 @@ public class InternalChatRepository
     /// một bản ghi chỉ hỏi câu này; phòng chỉ được tạo lúc gửi tin đầu tiên (bấm nhầm không để lại gì).
     /// Một câu, đi chỉ mục duy nhất <c>ux_conv_scope_surface</c>.
     /// </summary>
-    public async Task<(long? Id, bool Member)> FindRoomByKeyAsync(string tenant, string roomKey, int userId,
-        CancellationToken ct = default)
+    /// <returns>Data: tham số tự do của phòng — CHỈ trả cho thành viên (người ngoài chỉ biết phòng có hay không).</returns>
+    public async Task<(long? Id, bool Member, System.Text.Json.JsonElement? Data)> FindRoomByKeyAsync(string tenant,
+        string roomKey, int userId, CancellationToken ct = default)
     {
         await using var c = await _db.OpenAsync(ct);
-        var r = await c.QuerySingleOrDefaultAsync<(long Id, bool Member)>(new CommandDefinition("""
+        var r = await c.QuerySingleOrDefaultAsync<(long Id, bool Member, string? Data)>(new CommandDefinition("""
             SELECT v.id,
                    EXISTS (SELECT 1 FROM chat_room_members mb
                             WHERE mb.conversation_id = v.id AND mb.tenant_id = @tenant
-                              AND mb.user_id = @userId AND mb.left_utc IS NULL) AS member
+                              AND mb.user_id = @userId AND mb.left_utc IS NULL) AS member,
+                   v.entity_data::text AS data
               FROM chat_conversations v
              WHERE v.tenant_id = @tenant AND v.channel = 7 AND v.account_id = ''
                AND v.contact_external_id = @roomKey AND v.surface = 0 AND v.source_thread_id = ''
             """, new { tenant, roomKey, userId }, cancellationToken: ct));
-        return r.Id == 0 ? (null, false) : (r.Id, r.Member);
+        return r.Id == 0 ? (null, false, null) : (r.Id, r.Member, r.Member ? ParseData(r.Data) : null);
+    }
+
+    /// <summary>
+    /// Thay tham số tự do của phòng (null = xoá) — chỉ thành viên, chỉ ghi khi KHÁC giá trị đang có (mở lại
+    /// bản ghi với cùng tham số không sinh dòng chết). Trả false = không phải thành viên / phòng không có.
+    /// </summary>
+    public async Task<(bool Ok, bool Changed)> SetRoomDataAsync(string tenant, long roomId, int userId, string? dataJson,
+        CancellationToken ct = default)
+    {
+        await using var c = await _db.OpenAsync(ct);
+        var r = await c.QuerySingleOrDefaultAsync<(bool Member, int Changed)>(new CommandDefinition("""
+            WITH me AS (SELECT 1 FROM chat_room_members mb
+                         WHERE mb.conversation_id = @roomId AND mb.tenant_id = @tenant
+                           AND mb.user_id = @userId AND mb.left_utc IS NULL),
+                 up AS (UPDATE chat_conversations SET entity_data = @dataJson::jsonb
+                         WHERE id = @roomId AND tenant_id = @tenant AND channel = 7 AND EXISTS (SELECT 1 FROM me)
+                           AND entity_data IS DISTINCT FROM @dataJson::jsonb
+                        RETURNING 1)
+            SELECT EXISTS (SELECT 1 FROM me) AS member, (SELECT count(*)::int FROM up) AS changed
+            """, new { tenant, roomId, userId, dataJson }, cancellationToken: ct));
+        return (r.Member, r.Changed > 0);
     }
 
     /// <summary>
@@ -547,10 +582,92 @@ public class InternalChatRepository
                               AND user_id = @userId AND left_utc IS NULL)
             """, new { tenant, roomId, userId }, cancellationToken: ct));
 
-    private static InternalMessage ToMessage(MessageRow m) => new(m.Id, m.RoomId, m.SenderUserId,
-        m.SenderUsername, m.DeletedUtc is null ? m.Body : null, m.CreatedUtc, m.DeletedUtc,
+    private static InternalMessage ToMessage(MessageRow m, IReadOnlyList<InternalReaction>? rx = null) => new(m.Id, m.RoomId,
+        m.SenderUserId, m.SenderUsername, m.DeletedUtc is null ? m.Body : null, m.CreatedUtc, m.DeletedUtc,
         m.DeletedUtc is null ? ReadAttachment(m.Attachment) : null, m.DeletedUtc is null ? m.EditedUtc : null,
-        m.SenderKind == SystemSenderKind);
+        m.SenderKind == SystemSenderKind, m.DeletedUtc is null ? rx : null);
+
+    private sealed class ReactionRow
+    {
+        public string ExternalMsgId { get; set; } = "";
+        public string ActorExternalId { get; set; } = "";
+        public string? Emoji { get; set; }
+    }
+
+    /// <summary>
+    /// Cảm xúc của MỘT TRANG tin (≤ 100) — một câu, đi khoá chính của chat_reactions
+    /// (tenant_id, channel, external_msg_id, …). Bỏ tin thu hồi / tin hệ thống (không hiện cảm xúc).
+    /// </summary>
+    private static async Task<Dictionary<long, IReadOnlyList<InternalReaction>>> ReactionsOfAsync(
+        Npgsql.NpgsqlConnection c, string tenant, IReadOnlyList<MessageRow> rows, CancellationToken ct)
+    {
+        var ids = rows.Where(m => m.DeletedUtc is null && m.SenderKind != SystemSenderKind)
+            .Select(m => m.Id.ToString(System.Globalization.CultureInfo.InvariantCulture)).ToArray();
+        if (ids.Length == 0) return new();
+        var list = await c.QueryAsync<ReactionRow>(new CommandDefinition("""
+            SELECT external_msg_id, actor_external_id, emoji
+              FROM chat_reactions
+             WHERE tenant_id = @tenant AND channel = 7 AND external_msg_id = ANY(@ids) AND emoji IS NOT NULL
+             ORDER BY created_utc, actor_external_id
+            """, new { tenant, ids }, cancellationToken: ct));
+        var kq = new Dictionary<long, IReadOnlyList<InternalReaction>>();
+        foreach (var g in list.GroupBy(r => r.ExternalMsgId))
+        {
+            if (!long.TryParse(g.Key, out var mid)) continue;
+            var rs = g.Select(r => (Emoji: r.Emoji!, UserId: int.TryParse(r.ActorExternalId, out var u) ? u : 0))
+                .Where(r => r.UserId > 0);
+            kq[mid] = InternalReactions.Group(rs);
+        }
+        return kq;
+    }
+
+    /// <summary>
+    /// Thả / đổi / gỡ cảm xúc của MỘT người trên một tin nội bộ (emoji null = gỡ). Một câu: chỉ tin kênh 7
+    /// còn hiện (chưa thu hồi, không phải dòng hệ thống) trong phòng người này đang ở. Thả lại đúng biểu
+    /// tượng đang có thì không ghi gì. Trả mã phòng; null = không thả được (không phải thành viên / tin không
+    /// có / đã thu hồi).
+    /// </summary>
+    public async Task<long?> SetReactionAsync(string tenant, long messageId, int userId, string? emoji,
+        CancellationToken ct = default)
+    {
+        await using var c = await _db.OpenAsync(ct);
+        var mid = messageId.ToString(System.Globalization.CultureInfo.InvariantCulture);
+        var uid = userId.ToString(System.Globalization.CultureInfo.InvariantCulture);
+        var sql = emoji is null
+            ? """
+              WITH m AS (
+                SELECT t.conversation_id FROM chat_messages t
+                 WHERE t.id = @messageId AND t.tenant_id = @tenant AND t.channel = 7
+                   AND t.deleted_utc IS NULL AND t.sender_kind <> 3
+                   AND EXISTS (SELECT 1 FROM chat_room_members mb
+                                WHERE mb.conversation_id = t.conversation_id AND mb.tenant_id = @tenant
+                                  AND mb.user_id = @userId AND mb.left_utc IS NULL)),
+              d AS (
+                DELETE FROM chat_reactions r USING m
+                 WHERE r.tenant_id = @tenant AND r.channel = 7 AND r.external_msg_id = @mid AND r.actor_external_id = @uid
+                RETURNING 1)
+              SELECT conversation_id FROM m
+              """
+            : """
+              WITH m AS (
+                SELECT t.conversation_id FROM chat_messages t
+                 WHERE t.id = @messageId AND t.tenant_id = @tenant AND t.channel = 7
+                   AND t.deleted_utc IS NULL AND t.sender_kind <> 3
+                   AND EXISTS (SELECT 1 FROM chat_room_members mb
+                                WHERE mb.conversation_id = t.conversation_id AND mb.tenant_id = @tenant
+                                  AND mb.user_id = @userId AND mb.left_utc IS NULL)),
+              up AS (
+                INSERT INTO chat_reactions (tenant_id, channel, external_msg_id, actor_external_id, emoji)
+                SELECT @tenant, 7, @mid, @uid, @emoji FROM m
+                ON CONFLICT (tenant_id, channel, external_msg_id, actor_external_id) DO UPDATE
+                   SET emoji = EXCLUDED.emoji, created_utc = now()
+                 WHERE chat_reactions.emoji IS DISTINCT FROM EXCLUDED.emoji
+                RETURNING 1)
+              SELECT conversation_id FROM m
+              """;
+        return await c.ExecuteScalarAsync<long?>(new CommandDefinition(sql,
+            new { tenant, messageId, userId, mid, uid, emoji }, cancellationToken: ct));
+    }
 
     /// Đọc gói đính kèm {url, ten, kich, loai}. Hỏng/thiếu url thì bỏ đính kèm, KHÔNG làm hỏng tin.
     public static InternalAttachment? ReadAttachment(string? json)

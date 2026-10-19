@@ -47,6 +47,21 @@ Những cập nhật gần đây của TRAV-AI, viết cho người dùng. Mới
 - **Phòng chung đặt tên cố định**, ví dụ nhóm cả công ty hoặc nhóm Marketing: các màn hình khác trong hệ
   thống có thể mở thẳng một phòng theo tên riêng. Lần đầu sẽ tạo phòng, các lần sau luôn mở đúng phòng đó
   với đủ lịch sử.
+- **Mở nhiều cuộc trò chuyện cùng lúc** trên máy tính, giống Messenger: bấm một cuộc trong danh sách là nó mở
+  thành ô chat nhỏ, bấm cuộc khác là thêm ô bên cạnh (tối đa 3 ô trên màn rộng). Cuộc nào hết chỗ thì thu thành
+  hình tròn trên nút chat, có số tin chưa đọc; bấm vào là mở lại.
+- **Gửi tin không phải chờ**: bấm Gửi là tin hiện ngay và ô soạn trống ngay để bạn gõ tiếp. Mạng chậm hay lỗi
+  thì tin hiện "Chưa gửi được" kèm nút **Gửi lại** hoặc **Bỏ**, chữ bạn đã gõ không mất.
+- **Ảnh được thu nhỏ trước khi gửi**: ảnh chụp từ điện thoại vài MB chỉ còn vài trăm KB, gửi nhanh hơn hẳn mà
+  vẫn rõ. Ảnh hay tệp đang tải lên có thanh tiến độ kèm phần trăm; gửi tin ngay lúc ảnh chưa tải xong cũng được.
+- **Nút Xem lại đơn hàng / cơ hội** ngay đầu cuộc trò chuyện: đang trao đổi về một cơ hội thì bấm là mở đúng
+  cơ hội đó trên CRM (đăng nhập sẵn). Các màn hình gắn chat có thể kèm đường dẫn riêng cho từng cuộc, mọi
+  người trong phòng đều thấy nút.
+- **Trên điện thoại**, khung chat mở toàn màn hình như ứng dụng nhắn tin, đọc và gõ thoải mái hơn.
+- **Thả cảm xúc lên tin nhắn** như Messenger: 👍 ❤️ 😆 😮 😢 😡. Trên máy tính, rê chuột vào tin rồi bấm biểu
+  tượng mặt cười; trên điện thoại, nhấn giữ tin. Dưới tin hiện số người đã thả, rê vào để xem là ai. Mỗi người
+  một biểu tượng trên một tin: chọn cái khác là đổi, bấm lại cái đang chọn là gỡ. Cảm xúc không tính là tin
+  chưa đọc.
 
 ### 🔧 Đã khắc phục
 - Sửa hoặc thu hồi một tin **cũ** (đã trôi lên xa) giờ cũng đổi ngay trên màn hình người khác.
@@ -67,6 +82,14 @@ Những cập nhật gần đây của TRAV-AI, viết cho người dùng. Mới
 - Mở một cuộc trò chuyện trong khung lớn thì ô chat nhỏ của chính nó tự đóng, không hiện trùng hai nơi.
 - Bấm **Chat** lại trên một cơ hội đã có phòng thì mở nhanh hơn, và không còn kéo lại người đã rời phòng
   hoặc đã bị bỏ ra.
+- Trên điện thoại, nút chat **không còn che nút "Thêm"** của thanh menu dưới: nút nay nằm ngay phía trên menu.
+- Trên điện thoại, mở chat thì **trang phía sau không còn cuộn theo**. Chữ, ô nhập và nút trong khung chat gọn lại
+  cho vừa màn hình nhỏ; nút Sửa / Thu hồi tin của bạn chuyển vào bảng nhấn giữ, không còn chen cạnh mỗi tin.
+- Nút chat và các biểu tượng **mềm mại hơn**: nút tròn, nét biểu tượng mảnh hơn, số tin chưa đọc là chấm đỏ.
+- **Tin nhắn gọn hơn, giống hộp thư chat đa kênh**: không còn in giờ dưới từng tin. Tin liền nhau của cùng một
+  người trong 5 phút gom thành một cụm, tên chỉ hiện một lần. Giờ hiện ở dải giữa khung (đầu ngày, và khi cuộc
+  trò chuyện ngắt quãng từ 20 phút). Muốn xem giờ một tin: rê chuột lên tin, hoặc chạm vào tin trên điện thoại.
+- Cuộn lên xem tin cũ chỉ hiện một vạch tải mảnh ở mép trên, không còn dòng chữ "Đang tải…" nhảy lên nhảy xuống.
 
 ### 📌 Lưu ý
 - Mọi nhân viên đăng nhập TRAV-AI đều nhắn được, không cần cấp quyền riêng. Riêng phòng của một cơ hội thì

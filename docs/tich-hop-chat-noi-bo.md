@@ -158,7 +158,8 @@ Tuỳ chọn `data-*`:
 | `data-session` | **Bắt buộc.** Mã phiên TRAV-AI (§1) |
 | `data-position` | `br` (phải dưới, mặc định) hoặc `bl` (trái dưới) |
 | `data-z-index` | Lớp chồng, mặc định `2147483000`. Hạ xuống nếu che modal của CRM |
-| `data-order-url` | Mẫu link mở đơn, `{id}` thay bằng mã đơn → phòng đơn hàng có nút **Mở đơn** |
+| `data-order-url` | Mẫu link mở đơn, `{id}` thay bằng mã đơn → phòng đơn hàng có nút **Mở đơn** (mở tab mới) |
+| `data-deal-url` | Như trên cho cơ hội → phòng cơ hội có nút **Mở cơ hội** |
 | `data-launcher` | `false` = ẩn nút nổi, CRM tự đặt nút riêng rồi gọi `TkInternalChat.open()` (§5) |
 
 Script nạp `async`. Muốn gọi API ngay khi trang tải thì chờ widget sẵn sàng:
@@ -204,7 +205,10 @@ và `title` được dùng lúc tạo đó.
     var b = $(this);
     var members = String(b.data('members') || '').split(',').map(Number).filter(Boolean);
     window.TkInternalChat
-      .openEntity('order', String(b.data('order-id')), { title: b.data('order-title'), members: members })
+      .openEntity('order', String(b.data('order-id')), {
+        title: b.data('order-title'), members: members,
+        data: { url: location.origin + '/order-detail?id=' + b.data('order-id') }   // nút "Xem lại" trong phòng
+      })
       .catch(function (e) { alert('Không mở được chat: ' + e.message); });
   });
 </script>
@@ -216,7 +220,33 @@ và `title` được dùng lúc tạo đó.
 | mã | Mã bản ghi, chuỗi. Cùng mã = cùng phòng |
 | `title` | Tên hiển thị. Phòng đơn hàng hiện là `Đơn <mã> · <title>` |
 | `members` | Mã người dùng CRM (`UserId`) cần có mặt. **Chỉ áp lúc phòng vừa tạo**; người bấm luôn được vào |
+| `data` | **Tuỳ chọn.** Object tự do (tối đa 4 KB), lưu theo phòng, mọi thành viên đọc lại được qua `room.data` (§6). Có `data.url` (http/https đầy đủ) thì đầu phòng có nút **Xem lại** mở đường dẫn đó |
 | `opts.in` | `'dock'` (ô chat nhỏ nổi, mặc định) hoặc `'panel'` (mở trong khung danh sách) |
+
+**Truyền thêm tham số (`data`).** Muốn kèm gì thì kèm: đường dẫn, trạng thái, mã khách… Widget chỉ dùng
+`url`, phần còn lại CRM tự đọc lại khi cần:
+
+```js
+TkInternalChat.openEntity('order', 'DH-0142', {
+  title: 'Nhật Bản mùa lá đỏ',
+  data: { url: 'https://crm.cty.vn/order-detail?id=142', trangThai: 'Đã cọc', khach: 'Nguyễn Văn A' }
+});
+```
+
+- Lần đầu: lưu cùng lúc tạo phòng (gửi tin đầu tiên).
+- Mở lại với `data` **khác** cái đang lưu: thay, và mọi người đang mở phòng thấy nút đổi ngay. Giống thì không
+  ghi gì (so theo nội dung, không theo thứ tự khoá). Không truyền `data` thì giữ nguyên cái đang có.
+- `url` phải là đường dẫn đầy đủ `http(s)://…`; `javascript:`, đường dẫn tương đối… bị từ chối (reject `Error`).
+- Có `data.url` thì nút **Xem lại** thắng `data-order-url` / `setEntityLinks`.
+
+Muốn tự mở bản ghi bằng mã (vd mở CRM có đăng nhập sẵn) thay cho mẫu link:
+
+```js
+TkInternalChat.setEntityLinks({
+  order: function (id) { window.open('/order-detail?id=' + encodeURIComponent(id), '_blank'); },
+  deal:  function (id) { window.open('/booking-ticket/' + encodeURIComponent(id), '_blank'); }
+});
+```
 
 Chỉ có **tên** người phụ trách, không có mã? Dò bằng `findUserIds`:
 
@@ -264,10 +294,11 @@ Mọi hàm `open*` trả `Promise<{ roomId }>`, hỏng thì reject `Error` (thô
 | Hàm | Việc |
 |---|---|
 | `open()` / `close()` / `toggle()` | Mở / đóng khung danh sách cuộc trò chuyện |
-| `openEntity(type, id, {title, members}, opts)` | Phòng theo đơn / công ty / cơ hội (§3) |
+| `openEntity(type, id, {title, members, data}, opts)` | Phòng theo đơn / công ty / cơ hội (§3) |
 | `openDirect(userId, opts)` | Nhắn 1-1 |
 | `openGroup({title, members}, opts)` | Tạo nhóm mới |
-| `openByKey(key, {title, members}, opts)` | Phòng khoá tự đặt |
+| `openByKey(key, {title, members, data}, opts)` | Phòng khoá tự đặt (`data` như §3) |
+| `setEntityLinks({ order: fn(id), deal: fn(id) })` | Hàm mở bản ghi cho nút **Mở đơn** / **Mở cơ hội** |
 | `openRoom(roomId, opts)` | Mở phòng đã có theo mã phòng |
 | `findUserIds(names)` | Dò mã người theo tên → `{ ids, unmatched }` |
 | `renameRoom(roomId, title)` | Đổi tên (không áp cho 1-1) |
@@ -311,7 +342,8 @@ GET https://tourkit-ai.tourkit.vn/api/v1/chat/internal/rooms/lookup?entityType=o
 X-Session-Id: <mã phiên>
 ```
 
-→ `{ "id": 20154 | null, "member": true | false, "roomKey": "order:DH-0142" }`.
+→ `{ "id": 20154 | null, "member": true | false, "roomKey": "order:DH-0142", "data": {…} | null }`
+(`data` chỉ trả cho thành viên phòng).
 
 Tạo (hoặc vào) phòng, nên gọi ngay trước khi gửi tin đầu tiên:
 
@@ -320,11 +352,14 @@ POST https://tourkit-ai.tourkit.vn/api/v1/chat/internal/rooms
 X-Session-Id: <mã phiên>
 Content-Type: application/json
 
-{ "entityType": "order", "entityId": "DH-0142", "title": "Nhật Bản mùa lá đỏ", "memberUserIds": [12, 34] }
+{ "entityType": "order", "entityId": "DH-0142", "title": "Nhật Bản mùa lá đỏ", "memberUserIds": [12, 34],
+  "data": { "url": "https://crm.cty.vn/order-detail?id=142" } }
 ```
 
 → `{ "id": 20154, "roomKey": "order:DH-0142", "created": true }`. Gửi tin: `POST /rooms/{id}/messages`
-`{ "body": "…" }`. Danh sách đầy đủ: [api-surface.md § Chat nội bộ](api-surface.md).
+`{ "body": "…" }`. Thay tham số của phòng: `PUT /rooms/{id}/data` `{ "data": {…} | null }` (thành viên phòng;
+giống giá trị đang có thì không ghi). `GET /rooms` trả `data` của từng phòng. Danh sách đầy đủ:
+[api-surface.md § Chat nội bộ](api-surface.md).
 
 ## 7. Kiểm tra sau khi tích hợp
 
