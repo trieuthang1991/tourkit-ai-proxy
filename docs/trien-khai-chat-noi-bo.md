@@ -186,9 +186,8 @@ Xong 5.1 → 5.5 là triển khai đạt. Xoá các phòng thử bằng **⋯ �
 ## 8. Sau khi triển khai
 
 - Báo người dùng: nội dung mới nằm ở [CHANGELOG.md](../CHANGELOG.md) mục "Phiên bản 19/10/2026".
-- Muốn nhúng chat nội bộ vào trang khác (CRM web, màn đơn hàng): xem phần chú thích đầu tệp
-  [wwwroot/internal-chat.js](../wwwroot/internal-chat.js) (`openEntity`, `openByKey`, `openDirect`…) và
-  [docs/api-surface.md § Chat nội bộ](api-surface.md).
+- Muốn nhúng chat nội bộ vào trang khác (CRM web, nút Chat trên đơn hàng): xem
+  [tich-hop-chat-noi-bo.md](tich-hop-chat-noi-bo.md).
 - Ghi chú kỹ thuật: [docs/features/chat-inbox-ky-thuat.md § Chat nội bộ](features/chat-inbox-ky-thuat.md).
 
 **Chưa kiểm thử trước khi phát hành:** người chỉ có quyền `CH_XEM` (không có `CH_XEM_ALL`) vào phòng cơ hội
