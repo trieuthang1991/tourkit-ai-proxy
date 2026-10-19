@@ -52,6 +52,11 @@ Những cập nhật gần đây của TRAV-AI, viết cho người dùng. Mới
   được đánh dấu đã đọc.
 - Ảnh vừa tải xong không còn đẩy tin mới nhất khuất khỏi khung.
 - Nhân viên **mới vào** thêm được vào phòng ngay, không phải chờ vài tiếng.
+- **Ô chat gọn hơn**: tiêu đề ô chat nhỏ hiện đủ tên phòng. Cấu hình phòng, mở khung lớn và xoá cuộc trò
+  chuyện gom vào nút **⋯**. Chữ trong ô chat nhỏ lại cho vừa khung, ô soạn tin còn một dòng và tự cao lên
+  khi bạn gõ dài.
+- **Sửa và Thu hồi** giờ là hai biểu tượng nhỏ hiện cạnh tin khi bạn rê chuột vào, không còn đẩy lệch tin.
+- Mở một cuộc trò chuyện trong khung lớn thì ô chat nhỏ của chính nó tự đóng, không hiện trùng hai nơi.
 - Bấm **Chat** lại trên một cơ hội đã có phòng thì mở nhanh hơn, và không còn kéo lại người đã rời phòng
   hoặc đã bị bỏ ra.
 

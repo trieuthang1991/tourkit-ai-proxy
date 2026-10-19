@@ -69,7 +69,7 @@
     newType: 'group', picked: new Set(), userSearch: '', newTitle: '',
     drafts: {}, pending: {}, sending: new Set(), dragKey: null, busy: false,
     settings: null, renameDraft: {}, addSearch: '', addPicked: new Set(),   // màn cấu hình phòng (key = 'panel-12' | 'dock-12')
-    editing: null, recallConfirm: null, hideConfirm: null,   // đang sửa { key, msgId, draft } · tin đang chờ bấm lần hai để thu hồi
+    editing: null, recallConfirm: null, hideConfirm: null, menu: null,   // đang sửa { key, msgId, draft } · tin đang chờ bấm lần hai để thu hồi
     size: (() => { try { return localStorage.getItem('tk-chat-size') === 'large' ? 'large' : 'compact'; } catch { return 'compact'; } })(),
   };
   let errMsg = '';
@@ -122,10 +122,18 @@
     .docks{position:absolute;bottom:0;display:flex;flex-direction:${POS === 'right' ? 'row-reverse' : 'row'};gap:12px;align-items:flex-end}
     .dk{width:328px;height:min(460px,calc(100vh - 48px));background:#fff;border:1px solid #e3e6ec;border-radius:6px;box-shadow:0 12px 32px rgba(17,21,28,.16);display:flex;flex-direction:column;overflow:hidden}
     .dk.min{height:auto}
-    .dk .hd{min-height:48px;padding:6px 4px 6px 8px}
+    .dk{font-size:13px}
+    .dk .hd{min-height:46px;padding:6px 4px 6px 6px;gap:2px}
+    .dk .hd .h{font-size:14px}
+    .dk .av.s{width:28px;height:28px;font-size:11px}
     .dk .ttl{flex:1;min-width:0;display:flex;align-items:center;gap:8px;border:0;background:transparent;color:#11151c;text-align:left;padding:4px;border-radius:6px}
     .dk .ttl:hover{background:#f5f6f8}
-    .dk .ib{width:32px;height:32px}
+    .dk .ib{width:30px;height:30px}
+    .mw{position:relative;flex-shrink:0}
+    .menu{position:absolute;top:calc(100% + 4px);right:0;z-index:5;min-width:208px;padding:4px;background:#fff;border:1px solid #e3e6ec;border-radius:6px;box-shadow:0 8px 24px rgba(17,21,28,.14);display:flex;flex-direction:column}
+    .mi{display:flex;align-items:center;gap:10px;height:34px;padding:0 10px;border:0;border-radius:4px;background:transparent;color:#11151c;font-size:13px;text-align:left;white-space:nowrap}
+    .mi svg{color:#5b6270;flex-shrink:0}.mi:hover{background:#f5f6f8}
+    .mi.danger{color:#8a1c12}.mi.danger svg{color:#8a1c12}.mi.warnb{background:#fdecea;font-weight:600}
     .hd{display:flex;align-items:center;gap:8px;padding:10px 8px 10px 12px;border-bottom:1px solid #e3e6ec;min-height:57px}
     .hd h2,.hd .h{margin:0;font-size:15px;font-weight:600;flex:1;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
     .hd small{display:block;font-size:12px;color:#5b6270;font-weight:400;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
@@ -153,22 +161,27 @@
     .pv{font-size:13px;color:#5b6270;flex:1;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.u .pv{color:#11151c;font-weight:500}
     .bd{min-width:20px;height:20px;padding:0 6px;border-radius:6px;background:#1f3fbf;color:#fff;font-size:12px;font-weight:600;display:grid;place-items:center;flex-shrink:0}
     .empty{padding:32px 16px;text-align:center;color:#5b6270;font-size:13px}
-    .ms{flex:1;overflow:auto;padding:12px 14px;display:flex;flex-direction:column;gap:10px;background:#f5f6f8}
+    .ms{flex:1;overflow-y:auto;overflow-x:hidden;padding:12px 14px;display:flex;flex-direction:column;gap:10px;background:#f5f6f8}
     .day{align-self:center;font-size:12px;color:#5b6270}
-    .sys{align-self:center;max-width:90%;text-align:center;font-size:12px;color:#5b6270;background:#f1f3f6;border-radius:10px;padding:2px 10px}
+    .sys{align-self:center;max-width:86%;text-align:center;font-size:12px;line-height:1.4;color:#5b6270}
     .m{display:flex;flex-direction:column;align-items:flex-start;gap:2px;max-width:82%}
     .m.me{align-self:flex-end;align-items:flex-end}
     .m .who{font-size:12px;font-weight:600}
-    .m .row{display:flex;align-items:center;gap:6px}
+    .m .row{position:relative;display:flex;align-items:center;gap:6px}
     .bb{padding:8px 12px;border-radius:6px;background:#fff;border:1px solid #e3e6ec;white-space:pre-wrap;word-break:break-word}
     .me .bb{background:#1f3fbf;border-color:#1f3fbf;color:#fff}
     .bb.del{background:#fff;border:1px dashed #d5d9e0;color:#5b6270;font-style:italic;font-size:13px}
     .m .t{font-size:11px;color:#5b6270}
-    .rc{height:26px;padding:0 8px;border:1px solid #d5d9e0;border-radius:6px;background:#fff;color:#11151c;font-size:12px;visibility:hidden}
-    .m:hover .rc,.rc:focus-visible,.rc.warn{visibility:visible}
-    .acts{display:flex;gap:4px}
+    /* Sửa / Thu hồi: thanh nhỏ NỔI cạnh bong bóng, không chiếm chỗ — hiện khi rê chuột hoặc focus. */
+    .acts{position:absolute;top:50%;right:calc(100% + 6px);transform:translateY(-50%);display:flex;gap:2px;padding:2px;background:#fff;border:1px solid #e3e6ec;border-radius:6px;box-shadow:0 2px 8px rgba(17,21,28,.08);opacity:0;pointer-events:none;transition:opacity .12s}
+    .m:hover .acts,.acts:focus-within,.acts.on{opacity:1;pointer-events:auto}
+    .acts::after{content:'';position:absolute;top:-4px;bottom:-4px;left:100%;width:8px}  /* nối khe tới bong bóng: rê chuột qua không mất hover */
+    .rc{height:26px;min-width:26px;padding:0 5px;border:0;border-radius:4px;background:transparent;color:#5b6270;display:inline-flex;align-items:center;justify-content:center;gap:4px;font-size:12px;white-space:nowrap}
+    .rc:hover{background:#eef1fc;color:#1f3fbf}
+    @media (hover:none){.acts{position:static;transform:none;opacity:1;pointer-events:auto;box-shadow:none;border:0;background:transparent;padding:0}}
+    @media (prefers-reduced-motion:reduce){.acts{transition:none}}
     .ib.warnb{background:#fdecea;color:#8a1c12}
-    .rc.warn{border-color:#c0392b;color:#8a1c12;font-weight:600}
+    .rc.warn{background:#fdecea;color:#8a1c12;font-weight:600}
     .edbox{display:flex;flex-direction:column;gap:6px;min-width:220px}
     textarea.edit{min-height:60px;border-color:#1f3fbf}
     .edact{display:flex;gap:6px;justify-content:flex-end}
@@ -181,11 +194,13 @@
     .fa svg{color:#1f3fbf;flex-shrink:0}
     .cp{border-top:1px solid #e3e6ec;padding:10px 12px;display:flex;flex-direction:column;gap:6px}
     .cp .row{display:flex;gap:6px;align-items:flex-end}
-    textarea{flex:1;min-width:0;resize:none;border:1px solid #d5d9e0;border-radius:6px;padding:8px 10px;font:inherit;font-size:14px;color:#11151c;min-height:44px;max-height:120px}
-    .send{width:44px;height:44px;flex-shrink:0;border:0;border-radius:6px;background:#1f3fbf;color:#fff;display:grid;place-items:center}
+    textarea{flex:1;min-width:0;resize:none;border:1px solid #d5d9e0;border-radius:6px;padding:8px 10px;font:inherit;line-height:1.45;color:#11151c;min-height:38px;max-height:120px;overflow-y:auto}
+    textarea:focus{border-color:#1f3fbf;outline:none}
+    .send{width:38px;height:38px;flex-shrink:0;border:0;border-radius:6px;background:#1f3fbf;color:#fff;display:grid;place-items:center}
     .send:hover{background:#18329a}.send:disabled{opacity:.55;cursor:default}
     .hint{font-size:11px;color:#5b6270}
-    .dk .hint{display:none}
+    .cp .hint{display:none}.lg .cp .hint{display:block}
+    .cp .ib{width:34px;height:38px}
     .err{margin:0 12px 8px;padding:8px 10px;border-radius:6px;background:#fdecea;color:#8a1c12;font-size:13px}
     .seg{display:grid;grid-template-columns:1fr 1fr;border:1px solid #d5d9e0;border-radius:6px;overflow:hidden}
     .seg button{height:36px;border:0;background:#fff;color:#11151c;font-size:13px}
@@ -230,7 +245,8 @@
     clip: 'M21 12.5l-8.5 8.5a5 5 0 0 1-7-7l9-9a3.5 3.5 0 0 1 5 5l-9 9a2 2 0 0 1-3-3l8-8',
     file: 'M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8zM14 3v5h5',
     max: 'M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5', min: 'M9 4v5H4M15 4v5h5M9 20v-5H4M15 20v-5h5',
-    dash: 'M5 12h14',
+    dash: 'M5 12h14', more: 'M5.5 12h1M11.5 12h1M17.5 12h1',
+    edit: 'M4 20h4L18.5 9.5a2.1 2.1 0 0 0-3-3L5 17v3zM14 8l3 3', undo: 'M9 14L4 9l5-5M4 9h10.5a5.5 5.5 0 0 1 0 11H11',
     trash: 'M4 7h16M9 7V4h6v3M6 7l1 13h10l1-13M10 11v6M14 11v6',
     gear: 'M12 15a3 3 0 1 0 0-6 3 3 0 0 0 0 6zM19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z', pop: 'M14 4h6v6M20 4l-8 8M18 14v5a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V7a1 1 0 0 1 1-1h5',
   };
@@ -272,7 +288,8 @@
     if (r.entityType === 'company') return r.title || ('Công ty ' + r.entityId);
     if (r.entityType === 'deal') return r.title || ('Cơ hội #' + r.entityId);
     if (r.entityType === 'key') return r.title || r.entityId || 'Phòng';
-    return (r.title || 'Nhóm') + ' · ' + (r.members || []).length + ' người';
+    // Số người đã hiện ở dòng phụ ("3 thành viên") — nối vào tên là tiêu đề ô chat nhỏ bị cắt mất tên.
+    return r.title || ('Nhóm ' + (r.members || []).length + ' người');
   }
   function roomAvatar(r, small) {
     const cls = 'av' + (small ? ' s' : '');
@@ -403,11 +420,6 @@
 
   /// Danh sách tin + ô soạn của một phòng — dùng chung cho khung lớn và ô chat nhỏ.
   /// k = 'panel' | 'dock' làm hậu tố id để hai nơi cùng mở một phòng không trùng id phần tử.
-  function gearBtn(id, key) {
-    const on = st.settings === key;
-    return el('button', { class: 'ib', type: 'button', 'aria-pressed': String(on), 'aria-label': on ? 'Đóng cấu hình phòng' : 'Cấu hình phòng: tên, thành viên',
-      title: 'Cấu hình phòng', on: { click: () => toggleSettings(id, key) } }, icon('gear', 16));
-  }
   function toggleSettings(id, key) {
     if (st.settings === key) { st.settings = null; }
     else { st.settings = key; st.addSearch = ''; st.addPicked = new Set(); st.renameDraft[id] = roomOf(id).title || ''; if (!st.users.size) loadUsers().then(render); }
@@ -505,11 +517,13 @@
       } else bubble = m.body ? el('div', { class: 'bb' }, m.body) : null;
       // Tin của mình: Sửa (tin có chữ) + Thu hồi HAI BƯỚC — bấm nhầm một lần không mất tin.
       const confirming = st.recallConfirm === m.id;
-      const acts = mine && !deleted && !editing ? el('span', { class: 'acts' },
-        m.body ? el('button', { class: 'rc', type: 'button', on: { click: () => startEdit(key, m) } }, 'Sửa') : null,
+      const acts = mine && !deleted && !editing ? el('span', { class: 'acts' + (confirming ? ' on' : '') },
+        m.body ? el('button', { class: 'rc', type: 'button', 'aria-label': 'Sửa tin này', title: 'Sửa',
+          on: { click: () => startEdit(key, m) } }, icon('edit', 15), el('span', { class: 'sr' }, 'Sửa')) : null,
         el('button', { class: 'rc' + (confirming ? ' warn' : ''), type: 'button',
           'aria-label': confirming ? 'Bấm lần nữa để thu hồi tin này với mọi người' : 'Thu hồi tin này',
-          on: { click: () => askRecall(id, m) } }, confirming ? 'Thu hồi?' : 'Thu hồi')) : null;
+          title: confirming ? 'Bấm lần nữa để thu hồi' : 'Thu hồi',
+          on: { click: () => askRecall(id, m) } }, icon('undo', 15), el('span', { class: confirming ? '' : 'sr' }, confirming ? 'Thu hồi?' : 'Thu hồi'))) : null;
       list.append(el('div', { class: 'm' + (mine ? ' me' : '') },
         !mine && r.entityType !== 'direct' ? el('span', { class: 'who' }, userName(m.senderUserId, m.senderUsername)) : null,
         attEl ? el('div', { class: 'row' }, bubble ? null : acts, attEl) : null,
@@ -518,14 +532,16 @@
     }
 
     const taId = 'tk-soan-' + key, fileId = 'tk-tep-' + key;
-    const ta = el('textarea', { id: taId, rows: '2', maxlength: '4000', placeholder: r.entityType === 'direct' ? 'Nhắn cho ' + roomName(r) : 'Nhắn cho cả phòng',
+    const draft = st.drafts[id] || '';
+    const ta = el('textarea', { id: taId, rows: String(Math.min(5, (draft.match(/\n/g) || []).length + 1)), maxlength: '4000',
+      placeholder: r.entityType === 'direct' ? 'Nhắn cho ' + roomName(r) : 'Nhắn cho cả phòng',
       on: {
-        input: (e) => { st.drafts[id] = e.target.value; },
+        input: (e) => { st.drafts[id] = e.target.value; autoGrow(e.target); },
         keydown: (e) => { if (e.key === 'Enter' && !e.shiftKey && !e.isComposing) { e.preventDefault(); send(id, taId); } },
         // Dán ảnh chụp màn hình hoặc tệp đã copy trong Explorer/Finder. Dán chữ thì để mặc định.
         paste: (e) => { const files = [...(e.clipboardData?.files || [])]; if (files.length) { e.preventDefault(); addFiles(id, files); } },
       } });
-    ta.value = st.drafts[id] || '';
+    ta.value = draft;
     const picker = el('input', { type: 'file', multiple: true, class: 'sr', id: fileId, tabindex: '-1', 'aria-hidden': 'true',
       accept: ALLOWED.join(','), on: { change: (e) => { addFiles(id, [...e.target.files]); e.target.value = ''; } } });
     const pend = st.pending[id] || [];
@@ -545,9 +561,11 @@
           el('label', { for: taId, class: 'sr' }, 'Soạn tin nhắn'), ta,
           el('button', { class: 'send', type: 'button', 'aria-label': uploading ? 'Đang tải tệp lên' : 'Gửi', disabled: uploading || st.sending.has(id),
             on: { click: () => send(id, taId) } }, icon('send'))),
-        el('span', { class: 'hint' }, 'Enter để gửi · Shift + Enter xuống dòng · Dán hoặc kéo thả tệp vào đây')),
+        el('span', { class: 'hint' }, 'Enter để gửi, Shift + Enter để xuống dòng. Dán hoặc kéo thả tệp vào khung này.')),
       st.dragKey === key ? el('div', { class: 'drop' }, 'Thả tệp để gửi vào phòng') : null];
   }
+  /// Ô soạn cao theo nội dung (tối đa 120px, quá thì cuộn).
+  function autoGrow(t) { t.style.height = 'auto'; t.style.height = Math.min(120, t.scrollHeight + 2) + 'px'; }
   function dropHandlers(id, key, getEl) {
     return {
       dragover: (e) => { if ([...(e.dataTransfer?.types || [])].includes('Files')) { e.preventDefault(); if (st.dragKey !== key) { st.dragKey = key; render(); } } },
@@ -560,13 +578,30 @@
       ? el('a', { class: 'sec', href: ORDER_URL.replace('{id}', encodeURIComponent(r.entityId)), target: '_top' }, 'Mở đơn') : null;
   }
 
-  /// "Xoá phía tôi" hai bước: lần bấm đầu đổi nút sang màu cảnh báo, trong 4 giây bấm lần nữa mới xoá.
-  function hideBtn(id, size) {
+  /// Nút ⋯ của một phòng: gom việc ít dùng (cấu hình, mở chỗ khác, xoá phía tôi) cho tiêu đề còn chỗ
+  /// hiện đủ tên phòng. extra: [icon, nhãn, hàm] (null = bỏ qua). "Xoá" hai bước: bấm lần đầu chỉ đổi
+  /// sang màu cảnh báo, menu vẫn mở, bấm lần nữa mới xoá.
+  function moreBtn(id, key, extra) {
+    const open = st.menu === key;
+    const r = roomOf(id);
     const asking = st.hideConfirm === id;
-    const label = asking ? 'Bấm lần nữa để xoá cuộc trò chuyện (chỉ phía bạn)' : 'Xoá cuộc trò chuyện (chỉ phía bạn)';
-    return el('button', { class: 'ib' + (asking ? ' warnb' : ''), type: 'button', 'aria-label': label, title: label,
-      on: { click: () => askHide(id) } }, icon('trash', size || 18));
+    const cfgOn = st.settings === key;
+    const items = [
+      r.entityType === 'direct' ? null : ['gear', cfgOn ? 'Đóng cấu hình phòng' : 'Cấu hình phòng: tên, thành viên',
+        () => { st.menu = null; toggleSettings(id, key); }, cfgOn ? 'Đóng cấu hình' : 'Cấu hình phòng'],
+      ...extra,
+      ['trash', asking ? 'Bấm lần nữa để xoá cuộc trò chuyện (chỉ phía bạn)' : 'Xoá cuộc trò chuyện (chỉ phía bạn)',
+        () => askHide(id), asking ? 'Bấm lần nữa để xoá' : 'Xoá phía tôi', 'danger' + (asking ? ' warnb' : '')],
+    ].filter(Boolean);
+    return el('div', { class: 'mw' },
+      el('button', { class: 'ib mbtn', type: 'button', 'aria-label': 'Tuỳ chọn phòng', title: 'Tuỳ chọn', 'aria-haspopup': 'menu', 'aria-expanded': String(open),
+        on: { click: () => { st.menu = open ? null : key; st.hideConfirm = null; render(); } } }, icon('more', 18)),
+      open ? el('div', { class: 'menu', role: 'menu' }, items.map(([ic, aria, fn, text, cls]) =>
+        el('button', { class: 'mi' + (cls ? ' ' + cls : ''), type: 'button', role: 'menuitem', 'aria-label': aria, on: { click: fn } },
+          icon(ic, 16), el('span', {}, text || aria)))) : null);
   }
+
+  /// "Xoá phía tôi" hai bước: lần bấm đầu đổi nút sang màu cảnh báo, trong 4 giây bấm lần nữa mới xoá.
   let hideTimer = null;
   function askHide(id) {
     if (st.hideConfirm === id) { clearTimeout(hideTimer); st.hideConfirm = null; return hideRoom(id).catch(() => {}); }
@@ -590,10 +625,9 @@
     pane = el('div', { class: 'pane', role: 'region', 'aria-label': 'Trò chuyện: ' + roomName(r), on: dropHandlers(id, k + '-' + id, () => pane) },
       el('div', { class: 'hd' }, lg ? null : backBtn(), roomAvatar(r, true),
         el('h2', {}, roomName(r), sub ? el('small', {}, sub) : null), orderLink(r),
-        r.entityType === 'direct' ? null : gearBtn(id, k + '-' + id),
-        hideBtn(id),
-        maxDocks() ? el('button', { class: 'ib', type: 'button', 'aria-label': 'Tách ra ô chat nhỏ', title: 'Tách ra ô chat nhỏ',
-          on: { click: () => { const rid = id; st.view = 'list'; st.roomId = null; if (!lg) closePanel(); addDock(rid); } } }, icon('pop')) : null,
+        moreBtn(id, k + '-' + id, [
+          maxDocks() ? ['pop', 'Tách ra ô chat nhỏ', () => { const rid = id; st.menu = null; st.view = 'list'; st.roomId = null; if (!lg) closePanel(); addDock(rid); }] : null,
+        ]),
         lg || vw() < 760 ? null : sizeBtn(), lg ? null : closeBtn()),
       roomBody(id, k));
     return pane;
@@ -610,10 +644,10 @@
         el('button', { class: 'ttl', type: 'button', 'aria-expanded': String(!min), 'aria-label': (min ? 'Mở ô ' : 'Thu gọn ô ') + roomName(r), on: { click: toggleMin } },
           roomAvatar(r, true), el('span', { class: 'h' }, roomName(r)), min && unread ? el('span', { class: 'bd' }, unread > 99 ? '99+' : unread) : null),
         min ? null : orderLink(r),
-        min || r.entityType === 'direct' ? null : gearBtn(id, 'dock-' + id),
-        min ? null : el('button', { class: 'ib', type: 'button', 'aria-label': 'Mở trong khung lớn', title: 'Mở trong khung lớn', on: { click: () => { closeDock(id); showInPanel(id); } } }, icon('max', 16)),
+        min ? null : moreBtn(id, 'dock-' + id, [
+          ['max', 'Mở trong khung lớn', () => { st.menu = null; closeDock(id); showInPanel(id); }],
+        ]),
         el('button', { class: 'ib', type: 'button', 'aria-label': min ? 'Mở ô' : 'Thu gọn', title: min ? 'Mở ô' : 'Thu gọn', on: { click: toggleMin } }, icon(min ? 'max' : 'dash', 16)),
-        min ? null : hideBtn(id, 16),
         el('button', { class: 'ib', type: 'button', 'aria-label': 'Đóng ô chat', title: 'Đóng', on: { click: () => closeDock(id) } }, icon('x', 16))),
       min ? null : el('div', { class: 'pane' }, roomBody(id, 'dock')));
     return win;
@@ -730,6 +764,8 @@
   function closePanel() { st.open = false; errMsg = ''; render(); }
   function showInPanel(id) {
     errMsg = ''; st.errRoom = null;
+    // Một phòng chỉ hiện MỘT chỗ: mở trong khung thì đóng ô chat nhỏ của chính phòng đó.
+    st.docks = st.docks.filter((x) => x !== id); st.dockMin.delete(id);
     st.open = true; st.view = 'room'; st.roomId = id;
     render();
     ensureConv(id).then(() => markRead(id)).catch(() => {});
@@ -904,6 +940,7 @@
     closeDock(id);
     if (st.roomId === id) { st.view = 'list'; st.roomId = null; }
     if (st.settings && st.settings.endsWith('-' + id)) st.settings = null;
+    if (st.menu && st.menu.endsWith('-' + id)) st.menu = null;
     st.conv.delete(id);
     render();
   }
@@ -1064,6 +1101,7 @@
       for (const t of [retryTimer, refreshTimer, recallTimer, hideTimer, resizeTimer]) clearTimeout(t);
       window.removeEventListener('resize', onResize);
       document.removeEventListener('visibilitychange', onVisibility);
+      document.removeEventListener('pointerdown', onOutside, true);
       host.remove();
       for (const k of Object.keys(listeners)) listeners[k].clear();
       delete window.TkInternalChat;
@@ -1072,11 +1110,23 @@
 
   // ── Khởi động ───────────────────────────────────────────────────────────
   let resizeTimer = null;
+  /// Bấm ra ngoài menu ⋯ thì đóng menu (kể cả bấm vào trang CRM bên ngoài widget).
+  function onOutside(e) {
+    // Chỉ khi menu ĐANG hiện thật: trạng thái treo mà vẽ lại lúc nhấn chuột là nuốt mất cú bấm đó.
+    if (!st.menu || !root.querySelector('.menu')) { st.menu = null; return; }
+    if (e.composedPath().some((n) => n.classList && (n.classList.contains('menu') || n.classList.contains('mbtn')))) return;
+    st.menu = null; st.hideConfirm = null; render();
+  }
   function onResize() { clearTimeout(resizeTimer); resizeTimer = setTimeout(render, 150); }
   function boot() {
     (document.body || document.documentElement).appendChild(host);
     // Esc: đóng khung danh sách (khi focus đang trong widget). Không nghe phím toàn trang.
-    root.addEventListener('keydown', (e) => { if (e.key === 'Escape' && st.open) { st.open = false; render(); root.querySelector('.fab')?.focus(); } });
+    root.addEventListener('keydown', (e) => {
+      if (e.key !== 'Escape') return;
+      if (st.menu) { st.menu = null; st.hideConfirm = null; render(); return; }
+      if (st.open) { st.open = false; render(); root.querySelector('.fab')?.focus(); }
+    });
+    document.addEventListener('pointerdown', onOutside, true);
     root.addEventListener('compositionstart', () => { composing = true; });
     root.addEventListener('compositionend', () => { composing = false; if (renderPending) setTimeout(render, 0); });
     // Phòng hờ trình duyệt không bắn compositionend (rời ô giữa lúc ghép chữ) — không thì widget đứng hình.
