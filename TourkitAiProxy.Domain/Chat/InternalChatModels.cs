@@ -88,6 +88,44 @@ public static class InternalRoomNotice
     };
 }
 
+/// <summary>
+/// Tìm cuộc trò chuyện phía máy chủ — hàm thuần, có test. Tên người nằm ở danh bạ ERP (không ở CSDL
+/// chat), nên chỗ gọi so tên bằng <see cref="NameMatches"/> rồi lọc phòng theo mã người; tên phòng / mã
+/// bản ghi lọc trong SQL bằng <see cref="LikePattern"/>.
+/// </summary>
+public static class InternalRoomSearch
+{
+    /// Bỏ dấu tiếng Việt (kể cả đ/Đ), chữ thường, gộp khoảng trắng — "Trần THU Hà" → "tran thu ha".
+    public static string Fold(string? s)
+    {
+        if (string.IsNullOrWhiteSpace(s)) return "";
+        var d = s.Normalize(System.Text.NormalizationForm.FormD);
+        var sb = new System.Text.StringBuilder(d.Length);
+        foreach (var ch in d)
+        {
+            if (System.Globalization.CharUnicodeInfo.GetUnicodeCategory(ch) == System.Globalization.UnicodeCategory.NonSpacingMark) continue;
+            sb.Append(ch is 'đ' or 'Đ' ? 'd' : char.ToLowerInvariant(ch));
+        }
+        return string.Join(' ', sb.ToString().Split(' ', StringSplitOptions.RemoveEmptyEntries));
+    }
+
+    /// Tên có chứa chuỗi tìm không (không phân biệt hoa thường, có dấu hay không). Chuỗi tìm rỗng → false.
+    public static bool NameMatches(string? name, string? q)
+    {
+        var f = Fold(q);
+        return f.Length > 0 && Fold(name).Contains(f, StringComparison.Ordinal);
+    }
+
+    /// Mẫu cho <c>ILIKE … ESCAPE '\'</c>: thoát % _ \ để người gõ "50%" không thành ký tự đại diện.
+    /// Rỗng → null (không lọc).
+    public static string? LikePattern(string? q)
+    {
+        var t = q?.Trim();
+        if (string.IsNullOrEmpty(t)) return null;
+        return "%" + t.Replace(@"\", @"\\").Replace("%", @"\%").Replace("_", @"\_") + "%";
+    }
+}
+
 public record InternalMember(int UserId, DateTime JoinedUtc);
 
 public record InternalRoom(long Id, string? Title, string EntityType, string? EntityId, string RoomKey,

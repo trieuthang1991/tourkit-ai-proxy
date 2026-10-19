@@ -129,7 +129,11 @@ public class InternalChatRepository
     /// <para>Số chưa đọc có TRẦN 100: phòng bị bỏ quên lâu không được kéo chậm cả danh sách, và
     /// giao diện chỉ cần hiện "99+".</para>
     /// </summary>
+    /// <param name="beforeAt">Con trỏ trang sau: mốc hoạt động + mã của phòng CUỐI trang trước (không OFFSET).</param>
+    /// <param name="like">Mẫu tìm tên phòng / mã bản ghi (<see cref="InternalRoomSearch.LikePattern"/>); null = không tìm.</param>
+    /// <param name="nameIds">Mã những người có tên khớp chuỗi tìm (chỗ gọi tra danh bạ) — phòng có họ cũng khớp.</param>
     public async Task<IReadOnlyList<InternalRoom>> ListRoomsAsync(string tenant, int userId, int limit,
+        DateTime? beforeAt = null, long? beforeId = null, string? like = null, int[]? nameIds = null,
         CancellationToken ct = default)
     {
         await using var c = await _db.OpenAsync(ct);
@@ -164,10 +168,21 @@ public class InternalChatRepository
                  LIMIT 1) v
               LEFT JOIN chat_conversation_reads r
                 ON r.tenant_id = @tenant AND r.conversation_id = v.id AND r.user_id = @userId
-             WHERE mb.hidden_utc IS NULL OR v.last_activity_at > mb.hidden_utc
+             WHERE (mb.hidden_utc IS NULL OR v.last_activity_at > mb.hidden_utc)
+               -- Trang sau: con trỏ (mốc hoạt động, mã) — khớp đúng thứ tự sắp xếp bên dưới; không đếm bỏ N dòng
+               -- đầu (trang càng sâu càng chậm, và lệch khi có phòng mới nhảy lên đầu giữa hai lần tải).
+               AND (@beforeAt::timestamptz IS NULL
+                    OR (v.last_activity_at, v.id) < (@beforeAt::timestamptz, @beforeId::bigint))
+               -- Tìm: tên phòng / mã bản ghi, hoặc phòng có người mang tên khớp (mã do chỗ gọi tra danh bạ).
+               AND (@like::text IS NULL
+                    OR v.title ILIKE @like ESCAPE '\' OR v.entity_id ILIKE @like ESCAPE '\'
+                    OR EXISTS (SELECT 1 FROM chat_room_members o
+                                WHERE o.conversation_id = v.id AND o.tenant_id = @tenant AND o.left_utc IS NULL
+                                  AND o.user_id <> @userId AND o.user_id = ANY(@nameIds)))
              ORDER BY v.last_activity_at DESC, v.id DESC
              LIMIT @limit
-            """, new { tenant, userId, limit }, cancellationToken: ct))).ToList();
+            """, new { tenant, userId, limit, beforeAt = AsUtc(beforeAt), beforeId = beforeId ?? long.MaxValue,
+                       like, nameIds = nameIds ?? Array.Empty<int>() }, cancellationToken: ct))).ToList();
         if (rows.Count == 0) return Array.Empty<InternalRoom>();
 
         var ids = rows.Select(r => r.Id).ToArray();
