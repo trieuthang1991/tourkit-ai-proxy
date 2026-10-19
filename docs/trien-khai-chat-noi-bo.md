@@ -145,8 +145,13 @@ Người B trả lời, người A thấy tin ngay trong ô chat nhỏ:
 
 ![Nút Chat trên mỗi cơ hội](images/trien-khai-chat-noi-bo/06-nut-chat-tren-co-hoi.png)
 
-Bấm là mở phòng của đúng cơ hội đó, tên phòng là mã cơ hội và tên khách. Bấm lại lần nữa phải ra
-**cùng** phòng, không sinh phòng mới:
+Bấm là mở **ô nháp** của đúng cơ hội đó (tên = mã cơ hội và tên khách). Lúc này **chưa có gì được tạo**:
+đóng ô là xong, không để lại cuộc trò chuyện trống.
+
+![Ô nháp khi bấm Chat](images/trien-khai-chat-noi-bo/10-o-nhap.png)
+
+Gửi tin đầu tiên thì phòng mới được tạo (người phụ trách được thêm vào lúc này). Bấm **Chat** lại lần nữa
+phải mở thẳng **cùng** phòng, không sinh phòng mới:
 
 ![Phòng chat của cơ hội](images/trien-khai-chat-noi-bo/07-phong-cua-co-hoi.png)
 

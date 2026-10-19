@@ -85,16 +85,9 @@ public static class InternalChatEndpoints
             TourkitAiProxy.Services.Deals.DealOpportunityClient.DealDetail? chiTiet = null;
             if (type == "deal" && !await repo.IsMemberByKeyAsync(a!.TenantId, key, me, ct))
             {
-                await sessions.EnsurePermissionsAsync(a.SessionId, ct);
-                if (!sessions.HasPermission(a.SessionId, TkPermissionCodes.CoHoiXemTatCa))
-                {
-                    if (!sessions.HasPermission(a.SessionId, TkPermissionCodes.CoHoiXem)) return NoDealAccess();
-                    chiTiet = await deals.GetDetailAsync(a.SessionId, rawEntity!, ct);
-                    if (chiTiet is null)
-                        return Results.Json(new { error = "Chưa kiểm được quyền xem cơ hội với CRM — thử lại sau" }, statusCode: 503);
-                    if (!chiTiet.Exists || !TourkitAiProxy.Domain.Deals.DealAccess.IsOwner(me, chiTiet.InsUid, string.Join(',', chiTiet.Owners)))
-                        return NoDealAccess();
-                }
+                var (cam, ct2) = await CheckDealViewAsync(sessions, deals, a, me, rawEntity!, ct);
+                if (cam is not null) return cam;
+                chiTiet = ct2;
             }
 
             var title = string.IsNullOrWhiteSpace(req.Title) ? null : req.Title.Trim()[..Math.Min(req.Title.Trim().Length, 120)];
@@ -111,6 +104,27 @@ public static class InternalChatEndpoints
                 if (owners.Length > 0) await repo.AddMembersAsync(a.TenantId, id, me, owners, ct);
             }
             return Results.Json(new { id, roomKey = key, created }, Web);
+        });
+
+        // Bấm Chat trên một bản ghi: CHỈ HỎI phòng đã có chưa + mình có trong đó không, KHÔNG tạo gì.
+        // Phòng sinh ra lúc gửi tin đầu tiên (POST /rooms) — bấm nhầm rồi đóng ô là không để lại gì.
+        // Phòng cơ hội: kiểm quyền xem NGAY ở đây (chưa là thành viên) để người không có quyền biết luôn,
+        // không phải gõ xong tin mới bị từ chối.
+        g.MapGet("/rooms/lookup", async (HttpContext ctx, TkSessionStore sessions, InternalChatRepository repo,
+            TourkitAiProxy.Services.Deals.DealOpportunityClient deals, string? entityType, string? entityId,
+            CancellationToken ct) =>
+        {
+            var (loi, a, me) = await GuardAsync(ctx, sessions, repo, ct);
+            if (loi is not null) return loi;
+            var key = InternalRoomKey.ForLookup(entityType, entityId);
+            if (key is null) return Bad("Cần entityType (order | company | deal | key) và mã hợp lệ");
+            var (id, member) = await repo.FindRoomByKeyAsync(a!.TenantId, key, me, ct);
+            if (!member && entityType!.Trim().ToLowerInvariant() == "deal")
+            {
+                var (cam, _) = await CheckDealViewAsync(sessions, deals, a, me, key["deal:".Length..], ct);
+                if (cam is not null) return cam;
+            }
+            return Results.Json(new { id, member, roomKey = key }, Web);
         });
 
         g.MapGet("/rooms/{id:long}/messages", async (long id, HttpContext ctx, TkSessionStore sessions,
@@ -377,6 +391,26 @@ public static class InternalChatEndpoints
     }
 
     private static IResult Bad(string msg) => Results.Json(new { error = msg }, statusCode: 400);
+
+    /// <summary>
+    /// Có được xem cơ hội này không, đúng luật web: <c>CH_XEM_ALL</c> → mọi cơ hội (không gọi CRM); chỉ
+    /// <c>CH_XEM</c> → cơ hội mình tạo / phụ trách (đọc chi tiết MỘT lần, trả lại để dùng tiếp).
+    /// Err null = được xem.
+    /// </summary>
+    private static async Task<(IResult? Err, TourkitAiProxy.Services.Deals.DealOpportunityClient.DealDetail? Detail)>
+        CheckDealViewAsync(TkSessionStore sessions, TourkitAiProxy.Services.Deals.DealOpportunityClient deals,
+            SessionAuth.Ctx a, int me, string dealId, CancellationToken ct)
+    {
+        await sessions.EnsurePermissionsAsync(a.SessionId, ct);
+        if (sessions.HasPermission(a.SessionId, TkPermissionCodes.CoHoiXemTatCa)) return (null, null);
+        if (!sessions.HasPermission(a.SessionId, TkPermissionCodes.CoHoiXem)) return (NoDealAccess(), null);
+        var d = await deals.GetDetailAsync(a.SessionId, dealId, ct);
+        if (d is null)
+            return (Results.Json(new { error = "Chưa kiểm được quyền xem cơ hội với CRM — thử lại sau" }, statusCode: 503), null);
+        if (!d.Exists || !TourkitAiProxy.Domain.Deals.DealAccess.IsOwner(me, d.InsUid, string.Join(',', d.Owners)))
+            return (NoDealAccess(), null);
+        return (null, d);
+    }
 
     private static IResult NoDealAccess()
         => Results.Json(new { error = "Bạn không có quyền xem cơ hội này" }, statusCode: 403);

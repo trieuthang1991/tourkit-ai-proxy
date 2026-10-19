@@ -105,6 +105,7 @@ người CRM → 401; không phải thành viên phòng → 403. Thân request �
 
 | Method | Path | Notes |
 |--------|------|-------|
+| GET | `/rooms/lookup?entityType&entityId` | **Chỉ đọc**: phòng của một bản ghi (`order`\|`company`\|`deal`\|`key`) đã có chưa + mình có trong đó không → `{id\|null, member, roomKey}`. Không tạo gì. Cơ hội mà chưa là thành viên → kiểm quyền xem ngay (403/503). Widget gọi khi bấm Chat; phòng chỉ tạo lúc gửi tin đầu tiên |
 | GET | `/rooms?limit=50` | Phòng của mình, mới hoạt động trước → `[{id,title,entityType,entityId,roomKey,lastPreview,lastActivityAt,unreadCount(≤100),members[{userId,joinedUtc}]}]` |
 | POST | `/rooms` | `{entityType: direct\|order\|company\|deal\|group\|key, entityId?, title?, memberUserIds[]}` → `{id, roomKey, created}`. direct/order/company/deal/key là **lấy-hoặc-tạo** (cùng khoá = cùng phòng); group luôn tạo mới. Khoá direct/group do MÁY CHỦ sinh — không truyền gì. `key` = khoá tự đặt (`entityId`: chữ/số ASCII + `_ - . :`, ≤100, sai → 400), không kiểm quyền CRM. `memberUserIds` CHỈ áp lúc tạo (`created: true`); phòng đã có thì chỉ người gọi vào (lại). Người thêm phải thuộc danh sách nhân viên của công ty (mã lạ → hỏi lại ERP bỏ qua đệm một lần) |
 | GET | `/rooms/{id}/messages?limit&beforeUtc&beforeId&afterId` | Mới nhất trước, con trỏ `(beforeUtc, beforeId)`; `afterId` = tin mới hơn, cũ trước → `[{id,roomId,senderUserId,senderUsername,body,createdUtc,deletedUtc,attachment{url,name,size,kind},editedUtc,system}]`. `system: true` = dòng thông báo ("A đã thêm B"), không người gửi, không tính chưa đọc |

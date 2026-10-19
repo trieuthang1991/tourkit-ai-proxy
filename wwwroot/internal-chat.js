@@ -10,6 +10,9 @@
  *   data-launcher="false"   ẩn nút nổi — trang CRM tự đặt nút riêng rồi gọi TkInternalChat.open()
  *
  * API cho trang CRM (mọi hàm open* trả Promise<{ roomId }>, hỏng thì reject Error):
+ *   openEntity / openByKey KHÔNG tạo phòng ngay: phòng chưa có (hoặc mình chưa ở trong) thì mở Ô NHÁP,
+ *   gửi tin đầu tiên mới tạo / vào phòng — bấm nhầm rồi đóng ô là không để lại gì. Lúc đó trả
+ *   { roomId: null, draft: true }.
  *   TkInternalChat.open() / close() / toggle()                 khung danh sách
  *   TkInternalChat.openEntity('order', 'DH-0142', { title, members: [12, 34] }, { in: 'dock' })
  *   TkInternalChat.openEntity('deal', 4521, { title: 'CH-0012 · Nguyễn Văn A', members: [...] })   cơ hội
@@ -69,7 +72,8 @@
     newType: 'group', picked: new Set(), userSearch: '', newTitle: '',
     drafts: {}, pending: {}, sending: new Set(), dragKey: null, busy: false,
     settings: null, renameDraft: {}, addSearch: '', addPicked: new Set(),   // màn cấu hình phòng (key = 'panel-12' | 'dock-12')
-    editing: null, recallConfirm: null, hideConfirm: null, menu: null,   // đang sửa { key, msgId, draft } · tin đang chờ bấm lần hai để thu hồi
+    editing: null, recallConfirm: null, hideConfirm: null, menu: null,
+    draft: null,   // ô nháp phòng theo bản ghi: { payload, exists, roomKey, where, text, err, sending }   // đang sửa { key, msgId, draft } · tin đang chờ bấm lần hai để thu hồi
     size: (() => { try { return localStorage.getItem('tk-chat-size') === 'large' ? 'large' : 'compact'; } catch { return 'compact'; } })(),
   };
   let errMsg = '';
@@ -122,6 +126,9 @@
     .docks{position:absolute;bottom:0;display:flex;flex-direction:${POS === 'right' ? 'row-reverse' : 'row'};gap:12px;align-items:flex-end}
     .dk{width:328px;height:min(460px,calc(100vh - 48px));background:#fff;border:1px solid #e3e6ec;border-radius:6px;box-shadow:0 12px 32px rgba(17,21,28,.16);display:flex;flex-direction:column;overflow:hidden}
     .dk.min{height:auto}
+    .dk .hd .ttl.static{cursor:default}.dk .hd .ttl.static:hover{background:transparent}
+    .nhap{margin:auto;max-width:250px;text-align:center;color:#5b6270;font-size:13px;line-height:1.5;display:flex;flex-direction:column;gap:6px}
+    .nhap b{color:#11151c;font-weight:600}
     .dk{font-size:13px}
     .dk .hd{min-height:46px;padding:6px 4px 6px 6px;gap:2px}
     .dk .hd .h{font-size:14px}
@@ -327,12 +334,12 @@
     if (st.open) {
       const cls = 'p' + (lg ? ' lg' : '') + (st.launcher ? '' : ' nofab');
       if (lg) {
-        const right = st.view === 'room' && st.roomId ? roomPane(st.roomId, 'panel') : st.view === 'new' ? viewNew()
+        const right = st.view === 'draft' && st.draft ? draftPane() : st.view === 'room' && st.roomId ? roomPane(st.roomId, 'panel') : st.view === 'new' ? viewNew()
           : el('div', { class: 'blank' }, 'Chọn một cuộc trò chuyện bên trái, hoặc bấm "Trò chuyện mới".');
         W.append(el('section', { class: cls, 'aria-label': 'Chat nội bộ' }, viewList(), right));
         panelW = Math.min(920, vw() - 32);
       } else {
-        const one = st.view === 'room' && st.roomId ? roomPane(st.roomId, 'panel') : st.view === 'new' ? viewNew() : viewList();
+        const one = st.view === 'draft' && st.draft ? draftPane() : st.view === 'room' && st.roomId ? roomPane(st.roomId, 'panel') : st.view === 'new' ? viewNew() : viewList();
         W.append(el('section', { class: cls, 'aria-label': 'Chat nội bộ' }, one));
         panelW = Math.min(380, vw() - 32);
       }
@@ -342,9 +349,12 @@
     // vẫn giữ trong danh sách, thu khung lại là hiện lại.
     const off = st.open ? panelW + 12 : (st.launcher ? 72 : 0);
     const fit = Math.max(0, Math.floor((vw() - 24 - 16 - off) / (328 + 12)));
-    const docks = st.docks.slice(-Math.min(maxDocks(), fit));
-    if (docks.length) {
-      W.append(el('div', { class: 'docks', style: `${POS}:${off}px` }, docks.slice().reverse().map((id) => dockWin(id))));
+    const slots = Math.min(maxDocks(), fit);
+    const nhap = !!(st.draft && st.draft.where === 'dock' && slots > 0);   // ô nháp chiếm một chỗ, sát nút nổi
+    const n = Math.max(0, slots - (nhap ? 1 : 0));
+    const docks = n ? st.docks.slice(-n) : [];
+    if (docks.length || nhap) {
+      W.append(el('div', { class: 'docks', style: `${POS}:${off}px` }, nhap ? draftWin() : null, docks.slice().reverse().map((id) => dockWin(id))));
     }
     if (st.launcher) {
       const n = totalUnread();
@@ -793,6 +803,90 @@
     if (where === 'panel') showInPanel(r.id); else addDock(r.id);
     return { roomId: r.id };
   }
+  // ── Ô nháp: bấm Chat trên một bản ghi KHÔNG tạo phòng ──────────────────
+  // Hỏi máy chủ (chỉ đọc) phòng đã có chưa + mình có trong đó không. Có và đang ở trong → mở thẳng.
+  // Còn lại → ô nháp; gửi tin đầu tiên mới gọi POST /rooms (tạo hoặc vào phòng) rồi gửi tin. Bấm nhầm,
+  // đóng ô là không để lại gì: không phòng rỗng, không kéo người phụ trách vào, không hiện ở danh sách.
+  async function openLinked(payload, where) {
+    const r = await api('GET', `/rooms/lookup?entityType=${encodeURIComponent(payload.entityType)}&entityId=${encodeURIComponent(payload.entityId)}`);
+    if (r.member) {
+      if (st.draft && st.draft.roomKey === r.roomKey) closeDraft();
+      await loadRooms();
+      if (where === 'panel') showInPanel(r.id); else addDock(r.id);
+      return { roomId: r.id };
+    }
+    // Bấm lại cùng bản ghi khi đang nháp: giữ chữ đang gõ, và giữ danh sách người của lần bấm trước
+    // nếu lần này không truyền (không thì phòng tạo ra thiếu người đã định mời).
+    const prev = st.draft && st.draft.roomKey === r.roomKey ? st.draft : null;
+    if (prev) payload = { ...payload, title: payload.title || prev.payload.title,
+      memberUserIds: payload.memberUserIds.length ? payload.memberUserIds : prev.payload.memberUserIds };
+    st.draft = { payload, exists: r.id != null, roomKey: r.roomKey, where: where === 'panel' || !maxDocks() ? 'panel' : 'dock',
+      text: prev ? prev.text : '', err: '', sending: false };
+    if (st.draft.where === 'panel') { st.open = true; st.view = 'draft'; }
+    render();
+    setTimeout(() => root.getElementById('tk-soan-nhap')?.focus(), 0);
+    return { roomId: null, draft: true };
+  }
+  function closeDraft() { st.draft = null; if (st.view === 'draft') st.view = 'list'; render(); }
+  async function sendDraft() {
+    const d = st.draft;
+    if (!d || d.sending) return;
+    const body = (d.text || '').trim();
+    if (!body) return;
+    d.sending = true; d.err = ''; render();
+    try {
+      const r = await api('POST', '/rooms', d.payload);
+      await api('POST', `/rooms/${r.id}/messages`, { body });
+      if (st.draft !== d) return;
+      st.draft = null;
+      if (st.view === 'draft') st.view = 'list';
+      await loadRooms();
+      if (d.where === 'panel') showInPanel(r.id); else addDock(r.id);
+    } catch (e) {
+      if (!dead && st.draft === d) { d.err = 'Chưa gửi được: ' + e.message; d.sending = false; render(); }
+    }
+  }
+  const draftRoom = () => ({ entityType: st.draft.payload.entityType, entityId: st.draft.payload.entityId, title: st.draft.payload.title, members: [] });
+  function draftBody() {
+    const d = st.draft;
+    const t = d.payload.entityType;
+    const what = t === 'deal' ? 'cơ hội' : t === 'order' ? 'đơn hàng' : t === 'company' ? 'công ty' : 'chủ đề';
+    const ta = el('textarea', { id: 'tk-soan-nhap', rows: String(Math.min(5, (d.text.match(/\n/g) || []).length + 1)), maxlength: '4000',
+      placeholder: 'Nhắn cho cả phòng', on: {
+        input: (e) => { d.text = e.target.value; autoGrow(e.target); },
+        keydown: (e) => { if (e.key === 'Enter' && !e.shiftKey && !e.isComposing) { e.preventDefault(); sendDraft(); } },
+      } });
+    ta.value = d.text;
+    return [
+      el('div', { class: 'ms', 'data-k': 'nhap' },
+        el('div', { class: 'nhap' },
+          el('b', {}, d.exists ? `Đã có cuộc trao đổi về ${what} này.` : 'Chưa có cuộc trò chuyện nào.'),
+          el('span', {}, d.exists ? 'Gửi tin để tham gia và xem các tin trước đó.' : 'Gửi tin đầu tiên để bắt đầu. Chưa gửi thì chưa tạo gì, đóng ô là xong.'))),
+      d.err ? el('div', { class: 'err', role: 'alert' }, d.err) : null,
+      el('div', { class: 'cp' },
+        el('div', { class: 'row' },
+          el('label', { for: 'tk-soan-nhap', class: 'sr' }, 'Soạn tin nhắn'), ta,
+          el('button', { class: 'send', type: 'button', 'aria-label': d.sending ? 'Đang gửi' : 'Gửi', disabled: d.sending, on: { click: sendDraft } }, icon('send'))))];
+  }
+  function draftWin() {
+    const r = draftRoom();
+    return el('section', { class: 'dk', 'aria-label': 'Ô chat (chưa gửi tin): ' + roomName(r) },
+      el('div', { class: 'hd' },
+        el('div', { class: 'ttl static' }, roomAvatar(r, true), el('span', { class: 'h' }, roomName(r))),
+        el('button', { class: 'ib', type: 'button', 'aria-label': 'Đóng ô chat', title: 'Đóng', on: { click: closeDraft } }, icon('x', 16))),
+      el('div', { class: 'pane' }, draftBody()));
+  }
+  function draftPane() {
+    const r = draftRoom();
+    const lg = isLarge();
+    return el('div', { class: 'pane', role: 'region', 'aria-label': 'Trò chuyện (chưa gửi tin): ' + roomName(r) },
+      el('div', { class: 'hd' },
+        lg ? null : el('button', { class: 'ib', type: 'button', 'aria-label': 'Về danh sách', on: { click: closeDraft } }, icon('back')),
+        roomAvatar(r, true), el('h2', {}, roomName(r)),
+        el('button', { class: 'ib', type: 'button', 'aria-label': 'Bỏ', title: 'Bỏ', on: { click: closeDraft } }, icon('x'))),
+      draftBody());
+  }
+
   async function createFromForm() {
     if (st.busy) return;
     st.busy = true; errMsg = ''; render();
@@ -1016,7 +1110,7 @@
       if (!ENTITY_TYPES.includes(type) || entityId == null || String(entityId).trim() === '')
         return fail(new Error('openEntity: cần type "order" | "company" | "deal" và mã'));
       const i = typeof info === 'string' ? { title: info } : (info || {});
-      return createAndShow({ entityType: type, entityId: String(entityId).trim(), title: i.title || null, memberUserIds: ids(i.members) }, whereOf(opts)).catch(fail);
+      return openLinked({ entityType: type, entityId: String(entityId).trim(), title: i.title || null, memberUserIds: ids(i.members) }, whereOf(opts)).catch(fail);
     },
     /**
      * Dò mã người theo TÊN (nhiều màn CRM chỉ có tên người phụ trách, không có mã).
@@ -1042,7 +1136,7 @@
       const k = key == null ? '' : String(key).trim();
       if (!/^[A-Za-z0-9_.:-]{1,100}$/.test(k)) return fail(new Error('openByKey: khoá chỉ gồm chữ, số, _ - . : (tối đa 100 ký tự)'));
       const i = typeof info === 'string' ? { title: info } : (info || {});
-      return createAndShow({ entityType: 'key', entityId: k, title: i.title || null, memberUserIds: ids(i.members) }, whereOf(opts)).catch(fail);
+      return openLinked({ entityType: 'key', entityId: k, title: i.title || null, memberUserIds: ids(i.members) }, whereOf(opts)).catch(fail);
     },
     /** Nhắn 1-1 với một nhân viên (mã người CRM). */
     openDirect(userId, opts) {

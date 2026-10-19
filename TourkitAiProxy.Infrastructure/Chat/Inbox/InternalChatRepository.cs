@@ -471,6 +471,27 @@ public class InternalChatRepository
     }
 
     /// <summary>
+    /// Phòng có khoá này đã có chưa, và người hỏi có đang ở trong đó không — CHỈ ĐỌC. Bấm Chat trên
+    /// một bản ghi chỉ hỏi câu này; phòng chỉ được tạo lúc gửi tin đầu tiên (bấm nhầm không để lại gì).
+    /// Một câu, đi chỉ mục duy nhất <c>ux_conv_scope_surface</c>.
+    /// </summary>
+    public async Task<(long? Id, bool Member)> FindRoomByKeyAsync(string tenant, string roomKey, int userId,
+        CancellationToken ct = default)
+    {
+        await using var c = await _db.OpenAsync(ct);
+        var r = await c.QuerySingleOrDefaultAsync<(long Id, bool Member)>(new CommandDefinition("""
+            SELECT v.id,
+                   EXISTS (SELECT 1 FROM chat_room_members mb
+                            WHERE mb.conversation_id = v.id AND mb.tenant_id = @tenant
+                              AND mb.user_id = @userId AND mb.left_utc IS NULL) AS member
+              FROM chat_conversations v
+             WHERE v.tenant_id = @tenant AND v.channel = 7 AND v.account_id = ''
+               AND v.contact_external_id = @roomKey AND v.surface = 0 AND v.source_thread_id = ''
+            """, new { tenant, roomKey, userId }, cancellationToken: ct));
+        return r.Id == 0 ? (null, false) : (r.Id, r.Member);
+    }
+
+    /// <summary>
     /// Đã là thành viên phòng có khoá này chưa — để đường mở phòng theo cơ hội chỉ hỏi quyền CRM ở
     /// LẦN ĐẦU vào phòng. Đã là thành viên thì mở lại / gửi tin không tốn lượt gọi CRM nào.
     /// </summary>

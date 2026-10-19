@@ -355,4 +355,32 @@ public class InternalChatRepositoryGuardTests
     [Fact]
     public void Dem_chua_doc_co_tran()
         => Assert.Contains("LIMIT 100", InternalChatGuardTests.ThanHam(Repo(), "ListRoomsAsync"));
+
+    // ── Bấm Chat chỉ HỎI, chưa tạo: phòng sinh ra lúc gửi tin đầu tiên (chống bấm nhầm) ──
+    [Theory]
+    [InlineData("deal", "012", "deal:12")]
+    [InlineData("deal", " 12 ", "deal:12")]
+    [InlineData("order", "DH-0142", "order:DH-0142")]
+    [InlineData("company", "55", "company:55")]
+    [InlineData("key", "nhom_marketing", "key:nhom_marketing")]
+    [InlineData("deal", "abc", null)]
+    [InlineData("deal", null, null)]
+    [InlineData("order", "", null)]
+    [InlineData("key", "có dấu", null)]
+    [InlineData("direct", "12", null)]
+    [InlineData("group", "x", null)]
+    [InlineData(null, "12", null)]
+    public void Khoa_tra_phong_theo_ban_ghi(string? loai, string? ma, string? khoa)
+        => Assert.Equal(khoa, InternalRoomKey.ForLookup(loai, ma));
+
+    [Fact]
+    public void Hoi_phong_theo_ban_ghi_khong_ghi_gi()
+    {
+        var than = InternalChatGuardTests.ThanHam(Repo(), "FindRoomByKeyAsync");
+        Assert.DoesNotContain("INSERT", than);
+        Assert.DoesNotContain("UPDATE", than);
+        Assert.Contains("tenant_id = @tenant", than);
+        Assert.Contains("left_utc IS NULL", than);
+        Assert.Contains("/rooms/lookup", ChatSchemaGuardTests.DocFile("TourkitAiProxy.Endpoints/InternalChatEndpoints.cs"));
+    }
 }

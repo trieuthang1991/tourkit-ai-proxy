@@ -32,6 +32,20 @@ public static class InternalRoomKey
     }
     public static bool IsEntityType(string? t) => t is "order" or "company" or "deal";
 
+    /// <summary>
+    /// Khoá của phòng gắn với MỘT bản ghi (đơn / công ty / cơ hội / khoá tự đặt) — để HỎI phòng đã có
+    /// chưa trước khi tạo. Cùng cách chuẩn hoá với đường tạo phòng (mã cơ hội "012" = "12"), không thì
+    /// hỏi một đằng tạo một nẻo. 1-1 / nhóm không hỏi theo cách này → null. Mã hỏng → null.
+    /// </summary>
+    public static string? ForLookup(string? entityType, string? entityId)
+    {
+        var t = entityType?.Trim().ToLowerInvariant();
+        if (t == "key") return ForCustomKey(entityId);
+        if (!IsEntityType(t)) return null;
+        var id = t == "deal" ? CanonicalDealId(entityId) : entityId?.Trim();
+        return string.IsNullOrEmpty(id) ? null : ForEntity(t!, id);
+    }
+
     public static string Direct(int a, int b)
     {
         if (a == b) throw new ArgumentException("Phòng 1-1 cần hai người khác nhau");
