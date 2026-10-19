@@ -114,7 +114,19 @@
     if (!r.ok) { const err = new Error((data && data.error) || ('HTTP ' + r.status)); err.status = r.status; throw err; }
     return data;
   }
-  function die() { dead = true; host.remove(); if (es) { es.close(); es = null; } console.warn('[tk-chat] phiên hết hạn — widget tắt'); }
+  /// Khoá / mở cuộn của trang nhúng. Giữ nguyên giá trị cũ của trang để trả lại đúng như trước.
+  let pageLock = null;
+  function lockPage(on) {
+    const h = document.documentElement, b = document.body;
+    if (on && !pageLock) {
+      pageLock = { h: h.style.overflow, b: b ? b.style.overflow : '' };
+      h.style.overflow = 'hidden'; if (b) b.style.overflow = 'hidden';
+    } else if (!on && pageLock) {
+      h.style.overflow = pageLock.h; if (b) b.style.overflow = pageLock.b;
+      pageLock = null;
+    }
+  }
+  function die() { dead = true; lockPage(false); host.remove(); if (es) { es.close(); es = null; } console.warn('[tk-chat] phiên hết hạn — widget tắt'); }
 
   // ── Dựng DOM ────────────────────────────────────────────────────────────
   const host = document.createElement('div');
@@ -143,6 +155,7 @@
       .fab{width:48px;height:48px}
       .p,.p.nofab{position:fixed;inset:0;width:auto;height:auto;border:0;border-radius:0;box-shadow:none;padding:env(safe-area-inset-top,0px) 0 env(safe-area-inset-bottom,0px)}
       .p ~ .fab{display:none}
+      .p .ms,.p ul{overscroll-behavior:contain}   /* cuộn tới đầu/cuối danh sách không kéo trang theo */
     }
     .pane{position:relative;display:flex;flex-direction:column;flex:1;min-width:0;min-height:0}
     .lg .pane.list{flex:0 0 300px;border-right:1px solid #e3e6ec}
@@ -390,6 +403,7 @@
 
     const lg = isLarge();
     let panelW = 0;
+    lockPage(st.open && vw() < 760);   // điện thoại: khung phủ toàn màn → trang phía sau không được cuộn theo
     if (st.open) {
       const cls = 'p' + (lg ? ' lg' : '') + (st.launcher ? '' : ' nofab');
       if (lg) {
@@ -1529,6 +1543,7 @@
     /** Gỡ hẳn widget (đăng xuất / đổi tài khoản). Nạp lại script sau đó là khởi tạo mới. */
     destroy() {
       dead = true;
+      lockPage(false);
       closeStream();
       clearInterval(pollTimer);
       for (const t of [retryTimer, refreshTimer, recallTimer, hideTimer, resizeTimer, findTimer]) clearTimeout(t);
