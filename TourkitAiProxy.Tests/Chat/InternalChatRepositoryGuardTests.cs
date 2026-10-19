@@ -47,6 +47,59 @@ public class InternalChatRepositoryGuardTests
     [InlineData(null, false)]
     public void Loai_phong_hop_le(string? t, bool ok) => Assert.Equal(ok, InternalRoomKey.IsValidType(t));
 
+    // ── Tệp đính kèm ─────────────────────────────────────────────────────
+
+    [Theory]
+    [InlineData("anh.PNG", true)]
+    [InlineData("bao-gia.pdf", true)]
+    [InlineData("ds.xlsx", true)]
+    [InlineData("trang.html", false)]   // kho local phục vụ trên miền proxy → chạy được script
+    [InlineData("logo.svg", false)]
+    [InlineData("x.js", false)]
+    [InlineData("khong-duoi", false)]
+    [InlineData("", false)]
+    public void Chi_nhan_duoi_tep_an_toan(string ten, bool ok) => Assert.Equal(ok, InternalAttachmentRules.IsAllowed(ten));
+
+    [Fact]
+    public void Loai_tep_theo_duoi()
+    {
+        Assert.Equal("anh", InternalAttachmentRules.KindOf("a.JPG"));
+        Assert.Equal("tep", InternalAttachmentRules.KindOf("a.pdf"));
+    }
+
+    [Fact]
+    public void Url_dinh_kem_phai_cua_kho_dung_cong_ty_dung_phong()
+    {
+        var bases = new[] { "https://upload.travelai.vn/" };
+        Assert.True(InternalAttachmentRules.IsOwnUrl("https://upload.travelai.vn/internal/staging/12/ab.png", "staging", 12, bases));
+        Assert.False(InternalAttachmentRules.IsOwnUrl("https://upload.travelai.vn/internal/staging/13/ab.png", "staging", 12, bases));
+        Assert.False(InternalAttachmentRules.IsOwnUrl("https://upload.travelai.vn/internal/erp/12/ab.png", "staging", 12, bases));
+        Assert.False(InternalAttachmentRules.IsOwnUrl("https://evil.example/internal/staging/12/ab.png", "staging", 12, bases));
+        Assert.False(InternalAttachmentRules.IsOwnUrl("javascript:alert(1)//https://upload.travelai.vn/internal/staging/12/", "staging", 12, bases));
+        Assert.False(InternalAttachmentRules.IsOwnUrl("https://upload.travelai.vn/internal/staging/12/../13/x.png", "staging", 12, bases));
+        Assert.False(InternalAttachmentRules.IsOwnUrl(null, "staging", 12, bases));
+    }
+
+    [Theory]
+    [InlineData(null)]
+    [InlineData("")]
+    [InlineData("khong-phai-json")]
+    [InlineData("[1,2]")]
+    [InlineData("{\"ten\":\"a.png\"}")]
+    public void Goi_dinh_kem_hong_thi_bo_qua(string? json)
+        => Assert.Null(TourkitAiProxy.Infrastructure.Chat.Inbox.InternalChatRepository.ReadAttachment(json));
+
+    [Fact]
+    public void Doc_goi_dinh_kem_hop_le()
+    {
+        var a = TourkitAiProxy.Infrastructure.Chat.Inbox.InternalChatRepository.ReadAttachment(
+            "{\"url\":\"https://x/internal/t/1/a.png\",\"ten\":\"Ảnh chụp.png\",\"kich\":2048,\"loai\":\"anh\"}");
+        Assert.NotNull(a);
+        Assert.Equal("Ảnh chụp.png", a!.Name);
+        Assert.Equal(2048, a.Size);
+        Assert.Equal("anh", a.Kind);
+    }
+
     // ── SQL ──────────────────────────────────────────────────────────────
 
     private static string Repo() => ChatSchemaGuardTests.DocFile(

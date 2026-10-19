@@ -49,6 +49,7 @@ public class InternalChatRepository
         public string? Body { get; set; }
         public DateTime CreatedUtc { get; set; }
         public DateTime? DeletedUtc { get; set; }
+        public string? Attachment { get; set; }
     }
 
     private sealed class AppendRow
@@ -145,7 +146,7 @@ public class InternalChatRepository
         await using var c = await _db.OpenAsync(ct);
         var rows = (await c.QueryAsync<MessageRow>(new CommandDefinition("""
             SELECT m.id, m.conversation_id AS room_id, m.sender_user_id, m.sender_username, m.body,
-                   m.created_utc, m.deleted_utc
+                   m.created_utc, m.deleted_utc, m.attachment::text AS attachment
               FROM chat_messages m
              WHERE m.conversation_id = @roomId AND m.tenant_id = @tenant
                AND EXISTS (SELECT 1 FROM chat_room_members mb
@@ -168,7 +169,7 @@ public class InternalChatRepository
         await using var c = await _db.OpenAsync(ct);
         var rows = (await c.QueryAsync<MessageRow>(new CommandDefinition("""
             SELECT m.id, m.conversation_id AS room_id, m.sender_user_id, m.sender_username, m.body,
-                   m.created_utc, m.deleted_utc
+                   m.created_utc, m.deleted_utc, m.attachment::text AS attachment
               FROM chat_messages m
              WHERE m.conversation_id = @roomId AND m.tenant_id = @tenant AND m.id > @afterId
                AND EXISTS (SELECT 1 FROM chat_room_members mb
@@ -189,8 +190,14 @@ public class InternalChatRepository
     /// bao giờ chạm tới; không ghi chat_outbox nên worker gửi ra kênh cũng không.</para>
     /// </summary>
     public async Task<AppendResult> AppendMessageAsync(string tenant, long roomId, int senderUserId,
-        string senderUsername, string body, CancellationToken ct = default)
+        string senderUsername, string? body, InternalAttachment? attachment = null, CancellationToken ct = default)
     {
+        // kind: 0 chữ · 1 ảnh · 2 tệp (ChatKind). Xem trước của phòng: chữ nếu có, không thì tên tệp.
+        short kind = attachment is null ? (short)0 : attachment.Kind == "anh" ? (short)1 : (short)2;
+        var att = attachment is null ? null : System.Text.Json.JsonSerializer.Serialize(
+            new { url = attachment.Url, ten = attachment.Name, kich = attachment.Size, loai = attachment.Kind });
+        var preview = !string.IsNullOrEmpty(body) ? body
+            : attachment is null ? "" : (kind == 1 ? "[Ảnh] " : "[Tệp] ") + attachment.Name;
         await using var c = await _db.OpenAsync(ct);
         var r = await c.QuerySingleAsync<AppendRow>(new CommandDefinition("""
             WITH tv AS (
@@ -198,17 +205,17 @@ public class InternalChatRepository
                WHERE conversation_id = @roomId AND tenant_id = @tenant AND left_utc IS NULL),
             m AS (
               INSERT INTO chat_messages (tenant_id, conversation_id, channel, direction, sender_kind,
-                                         sender_username, sender_user_id, kind, body, state)
-              SELECT @tenant, @roomId, 7, 1, 2, @senderUsername, @senderUserId, 0, @body, 1
+                                         sender_username, sender_user_id, kind, body, attachment, state)
+              SELECT @tenant, @roomId, 7, 1, 2, @senderUsername, @senderUserId, @kind, @body, @att::jsonb, 1
                WHERE EXISTS (SELECT 1 FROM tv WHERE @senderUserId = ANY(tv.members))
               RETURNING id, created_utc),
             u AS (
               UPDATE chat_conversations v
-                 SET last_preview = left(@body, 200), last_activity_at = m.created_utc
+                 SET last_preview = left(@preview, 200), last_activity_at = m.created_utc
                 FROM m
                WHERE v.id = @roomId AND v.tenant_id = @tenant AND v.channel = 7)
             SELECT m.id, m.created_utc, tv.members FROM tv LEFT JOIN m ON true
-            """, new { tenant, roomId, senderUserId, senderUsername, body }, cancellationToken: ct));
+            """, new { tenant, roomId, senderUserId, senderUsername, body, kind, att, preview }, cancellationToken: ct));
         return new AppendResult(r.Id, r.CreatedUtc, r.Members ?? Array.Empty<int>());
     }
 
@@ -238,6 +245,17 @@ public class InternalChatRepository
             """, new { tenant, messageId, userId }, cancellationToken: ct)) > 0;
     }
 
+    /// <summary>
+    /// Có phải thành viên phòng không — CHỈ cho đường tải tệp lên: phải hỏi TRƯỚC khi đẩy byte lên kho,
+    /// không thì người ngoài phòng vẫn đổ được tệp vào kho rồi mới bị từ chối. Đường đọc/ghi tin
+    /// không dùng hàm này (kiểm gộp trong câu, xem ghi chú lớp).
+    /// </summary>
+    public async Task<bool> IsMemberForUploadAsync(string tenant, long roomId, int userId, CancellationToken ct = default)
+    {
+        await using var c = await _db.OpenAsync(ct);
+        return await IsMemberOrEmptyAsync(c, tenant, roomId, userId, ct);
+    }
+
     /// Chỉ chạy khi câu đọc trả RỖNG (hiếm): phân biệt "phòng chưa có tin" với "không phải thành viên".
     private static Task<bool> IsMemberOrEmptyAsync(Npgsql.NpgsqlConnection c, string tenant, long roomId,
         int userId, CancellationToken ct)
@@ -248,7 +266,26 @@ public class InternalChatRepository
             """, new { tenant, roomId, userId }, cancellationToken: ct));
 
     private static InternalMessage ToMessage(MessageRow m) => new(m.Id, m.RoomId, m.SenderUserId,
-        m.SenderUsername, m.DeletedUtc is null ? m.Body : null, m.CreatedUtc, m.DeletedUtc);
+        m.SenderUsername, m.DeletedUtc is null ? m.Body : null, m.CreatedUtc, m.DeletedUtc,
+        m.DeletedUtc is null ? ReadAttachment(m.Attachment) : null);
+
+    /// Đọc gói đính kèm {url, ten, kich, loai}. Hỏng/thiếu url thì bỏ đính kèm, KHÔNG làm hỏng tin.
+    public static InternalAttachment? ReadAttachment(string? json)
+    {
+        if (string.IsNullOrWhiteSpace(json)) return null;
+        try
+        {
+            using var d = System.Text.Json.JsonDocument.Parse(json);
+            var r = d.RootElement;
+            if (r.ValueKind != System.Text.Json.JsonValueKind.Object
+                || !r.TryGetProperty("url", out var u) || u.ValueKind != System.Text.Json.JsonValueKind.String) return null;
+            var ten = r.TryGetProperty("ten", out var t) && t.ValueKind == System.Text.Json.JsonValueKind.String ? t.GetString()! : "tệp";
+            var kich = r.TryGetProperty("kich", out var k) && k.TryGetInt64(out var kv) ? kv : 0;
+            var loai = r.TryGetProperty("loai", out var l) && l.GetString() == "anh" ? "anh" : "tep";
+            return new InternalAttachment(u.GetString()!, ten, kich, loai);
+        }
+        catch (System.Text.Json.JsonException) { return null; }
+    }
 
     /// Npgsql từ chối DateTime Kind=Unspecified cho timestamptz. Toàn hệ quy ước UTC
     /// (docs/datetime-convention.md) nên Unspecified được hiểu là UTC.

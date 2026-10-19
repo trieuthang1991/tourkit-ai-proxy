@@ -5,6 +5,7 @@ using TourkitAiProxy.Infrastructure.Cache;
 using TourkitAiProxy.Infrastructure.Chat.Inbox;
 using TourkitAiProxy.Infrastructure.TourKit;
 using TourkitAiProxy.Services.Chat.Inbox;
+using TourkitAiProxy.Services.Storage;
 
 namespace TourkitAiProxy.Endpoints;
 
@@ -111,21 +112,61 @@ public static class InternalChatEndpoints
         });
 
         g.MapPost("/rooms/{id:long}/messages", async (long id, HttpContext ctx, TkSessionStore sessions,
-            InternalChatRepository repo, ChatEventBus bus, CancellationToken ct) =>
+            InternalChatRepository repo, ChatEventBus bus, IChatFileStorage kho, CancellationToken ct) =>
         {
             var (loi, a, me) = await GuardAsync(ctx, sessions, repo, ct);
             if (loi is not null) return loi;
             var req = await ReadBodyAsync<SendInternalMessageRequest>(ctx, ct);
             var body = req?.Body?.Trim();
-            if (string.IsNullOrEmpty(body)) return Bad("Tin nhắn trống");
-            if (body.Length > MaxBody) return Bad($"Tin nhắn dài quá {MaxBody} ký tự");
+            if (string.IsNullOrEmpty(body)) body = null;
+            if (body?.Length > MaxBody) return Bad($"Tin nhắn dài quá {MaxBody} ký tự");
 
-            var r = await repo.AppendMessageAsync(a!.TenantId, id, me, a.Username, body, ct);
+            // Đính kèm: chỉ nhận URL do CHÍNH kho này cấp cho đúng công ty + phòng (InternalAttachmentRules.IsOwnUrl).
+            // Tên/loại dựng lại phía máy chủ, không tin chữ client gửi.
+            InternalAttachment? att = null;
+            if (req?.Attachment is { } ra)
+            {
+                if (!InternalAttachmentRules.IsOwnUrl(ra.Url, a!.TenantId, id, StorageBases(kho, ctx)))
+                    return Bad("Tệp đính kèm không hợp lệ — tải lên lại");
+                var ten = string.IsNullOrWhiteSpace(ra.Name) ? "tệp" : ra.Name.Trim()[..Math.Min(ra.Name.Trim().Length, 200)];
+                att = new InternalAttachment(ra.Url, ten, Math.Max(0, ra.Size), InternalAttachmentRules.KindOf(ra.Url));
+            }
+            if (body is null && att is null) return Bad("Tin nhắn trống");
+
+            var r = await repo.AppendMessageAsync(a!.TenantId, id, me, a.Username, body, att, ct);
             if (r.Id is null) return NotMember();
             // Người gửi cũng nằm trong Recipients: họ có thể đang mở phòng ở tab thứ hai.
             bus.Publish(new ChatEvent(a.TenantId, id, "noi-bo", r.Id) { Recipients = r.Members });
             return Results.Json(new InternalMessage(r.Id.Value, id, me, a.Username, body,
-                r.CreatedUtc ?? DateTime.UtcNow, null), Web);
+                r.CreatedUtc ?? DateTime.UtcNow, null, att), Web);
+        });
+
+        // Tải tệp lên kho (Storage:Provider — R2 ở môi trường thật) rồi trả gói đính kèm để widget gửi
+        // kèm tin. Hai bước như hộp thư khách: người gửi xem trước, bỏ được, rồi mới gửi.
+        g.MapPost("/rooms/{id:long}/upload", async (long id, HttpContext ctx, TkSessionStore sessions,
+            InternalChatRepository repo, IChatFileStorage kho, CancellationToken ct) =>
+        {
+            var (loi, a, me) = await GuardAsync(ctx, sessions, repo, ct);
+            if (loi is not null) return loi;
+            if (!kho.Configured)
+                return Results.Json(new { error = $"Chưa cấu hình kho tệp Storage:{kho.Provider}" }, statusCode: 503);
+            // Hỏi thành viên TRƯỚC khi đẩy byte lên kho — người ngoài phòng không được đổ tệp vào kho.
+            if (!await repo.IsMemberForUploadAsync(a!.TenantId, id, me, ct)) return NotMember();
+            if (!ctx.Request.HasFormContentType) return Bad("Thiếu tệp");
+            var form = await ctx.Request.ReadFormAsync(ct);
+            var tep = form.Files.GetFile("file");
+            if (tep is null || tep.Length == 0) return Bad("Thiếu tệp");
+            if (tep.Length > InternalAttachmentRules.MaxBytes) return Bad("Tệp quá 15MB");
+            if (!InternalAttachmentRules.IsAllowed(tep.FileName))
+                return Bad("Loại tệp này không gửi được (nhận ảnh, PDF, Word, Excel, PowerPoint, TXT, CSV, ZIP, RAR)");
+
+            var duoi = Path.GetExtension(tep.FileName).ToLowerInvariant();
+            var key = InternalAttachmentRules.KeyPrefix(a.TenantId, id) + Guid.NewGuid().ToString("N") + duoi;
+            await using var s = tep.OpenReadStream();
+            var url = await kho.UploadAsync(key, s, ContentTypeOf(duoi), ct);
+            if (url.StartsWith('/')) url = $"{ctx.Request.Scheme}://{ctx.Request.Host}{url}";
+            return Results.Json(new InternalAttachment(url, Path.GetFileName(tep.FileName), tep.Length,
+                InternalAttachmentRules.KindOf(tep.FileName)), Web);
         });
 
         g.MapPost("/rooms/{id:long}/read", async (long id, HttpContext ctx, TkSessionStore sessions,
@@ -229,6 +270,30 @@ public static class InternalChatEndpoints
     }
 
     private static IResult Bad(string msg) => Results.Json(new { error = msg }, statusCode: 400);
+
+    /// Đoạn đầu của mọi URL kho cấp: PublicBase (r2/s3) hoặc /chat-files/ của chính máy chủ (local).
+    private static IEnumerable<string> StorageBases(IChatFileStorage kho, HttpContext ctx)
+    {
+        var b = kho.PublicBase;
+        if (string.IsNullOrWhiteSpace(b)) yield break;
+        if (b.StartsWith('/')) b = $"{ctx.Request.Scheme}://{ctx.Request.Host}{b}";
+        yield return b.EndsWith('/') ? b : b + "/";
+    }
+
+    /// Content-Type đặt theo ĐUÔI (đã qua danh sách trắng), không tin chữ trình duyệt gửi lên.
+    private static string ContentTypeOf(string duoi) => duoi switch
+    {
+        ".png" => "image/png", ".jpg" or ".jpeg" => "image/jpeg", ".gif" => "image/gif", ".webp" => "image/webp",
+        ".pdf" => "application/pdf", ".txt" => "text/plain; charset=utf-8", ".csv" => "text/csv; charset=utf-8",
+        ".doc" => "application/msword",
+        ".docx" => "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+        ".xls" => "application/vnd.ms-excel",
+        ".xlsx" => "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        ".ppt" => "application/vnd.ms-powerpoint",
+        ".pptx" => "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+        ".zip" => "application/zip", ".rar" => "application/vnd.rar",
+        _ => "application/octet-stream",
+    };
 
     /// 403 chứ không 404: người hỏi biết mã phòng (từ chính danh sách của họ hoặc đoán); nói "không
     /// phải thành viên" không lộ thêm gì ngoài điều họ đã biết.
