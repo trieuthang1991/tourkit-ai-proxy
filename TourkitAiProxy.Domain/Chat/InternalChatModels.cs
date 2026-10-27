@@ -76,7 +76,8 @@ public static class InternalRoomKey
 /// </summary>
 public static class InternalRoomNotice
 {
-    /// <param name="viec">"đổi tên" | "thêm" | "bỏ" | "rời".</param>
+    /// <param name="viec">"đổi tên" | "thêm" | "bỏ" | "rời" | "chuyển quyền" | "rời, chuyển quyền" |
+    /// "thêm trưởng nhóm" | "đổi trưởng nhóm" (hai việc cuối: hệ thống làm, <paramref name="ai"/> không dùng).</param>
     /// <param name="gi">Tên phòng mới / danh sách tên người — tuỳ việc.</param>
     public static string Text(string ai, string viec, string? gi) => viec switch
     {
@@ -84,8 +85,64 @@ public static class InternalRoomNotice
         "thêm" => $"{ai} đã thêm {gi} vào phòng",
         "bỏ" => $"{ai} đã bỏ {gi} khỏi phòng",
         "rời" => $"{ai} đã rời phòng",
+        "chuyển quyền" => $"{ai} đã chuyển quyền trưởng nhóm cho {gi}",
+        "rời, chuyển quyền" => $"{ai} đã rời phòng — {gi} là trưởng nhóm mới",
+        // Phòng đơn/công ty đồng bộ theo người tạo bản ghi ở CRM — hệ thống làm, không phải người bấm.
+        "thêm trưởng nhóm" => $"{gi} (người tạo) đã được thêm vào phòng và là trưởng nhóm",
+        "đổi trưởng nhóm" => $"{gi} (người tạo) là trưởng nhóm",
         _ => $"{ai} đã thay đổi phòng",
     };
+}
+
+/// <summary>
+/// Trưởng nhóm của phòng nội bộ (<c>chat_conversations.owner_user_id</c>) — chốt 27/10/2026:
+/// <list type="bullet">
+/// <item>Nhóm / cơ hội / khoá tự do: người tạo phòng. Phòng đơn hàng / công ty: người tạo bản ghi ở CRM
+/// (<c>INS_UID</c>), CRM ký gửi kèm (<see cref="InternalRoomOwnerSignature"/>) — không tin số client tự khai.</item>
+/// <item>Chỉ trưởng nhóm được bỏ người khác, chuyển quyền, xoá phòng. Thành viên thường chỉ tự rời.</item>
+/// <item>Trưởng nhóm rời → quyền tự sang người vào phòng sớm nhất trong số còn lại.</item>
+/// <item>Phòng đơn/công ty cũ mà người tạo bản ghi CHƯA TỪNG ở phòng → tự thêm vào làm trưởng nhóm; đã từng
+/// ở rồi rời → không kéo lại (quyền ở người thứ 2).</item>
+/// <item>Phòng đơn hàng / công ty KHÔNG chuyển quyền tay: quyền bám người tạo bản ghi, mở lại từ CRM là đồng bộ.</item>
+/// </list>
+/// </summary>
+public static class InternalRoomOwner
+{
+    /// Loại phòng có trưởng nhóm (1-1 thì không: hai người ngang nhau, không ai bỏ ai).
+    public static bool HasOwner(string? entityType) => entityType is not null and not "direct";
+
+    /// Loại phòng cho chuyển quyền bằng tay.
+    public static bool CanTransfer(string? entityType) => HasOwner(entityType) && entityType is not ("order" or "company");
+
+    /// Loại phòng nhận trưởng nhóm do CRM ký.
+    public static bool IsCrmOwned(string? entityType) => entityType is "order" or "company";
+}
+
+/// <summary>
+/// Chữ ký CRM cho "trưởng nhóm của phòng theo bản ghi là người X". CRM (module internal-chat) ký bằng chung
+/// secret SSO (<c>Sso:Secret</c> ⇔ AppSettings <c>SsoSecret</c>), widget chuyển nguyên lên proxy. Ký trên
+/// <c>"{tenant}|{roomKey}|{ownerUserId}"</c>: kẹp công ty + đúng phòng, không chép chữ ký sang phòng/công ty khác.
+/// </summary>
+public static class InternalRoomOwnerSignature
+{
+    public static string Payload(string tenant, string roomKey, int ownerUserId)
+        => $"{tenant.Trim().ToLowerInvariant()}|{roomKey}|{ownerUserId.ToString(System.Globalization.CultureInfo.InvariantCulture)}";
+
+    /// HMAC-SHA256 hex thường — khớp hàm HmacHex của CRM (TravAiChatSession).
+    public static string Sign(string secret, string tenant, string roomKey, int ownerUserId)
+    {
+        using var h = new System.Security.Cryptography.HMACSHA256(System.Text.Encoding.UTF8.GetBytes(secret));
+        return Convert.ToHexString(h.ComputeHash(System.Text.Encoding.UTF8.GetBytes(Payload(tenant, roomKey, ownerUserId))))
+            .ToLowerInvariant();
+    }
+
+    public static bool Verify(string? secret, string tenant, string roomKey, int ownerUserId, string? sig)
+    {
+        if (string.IsNullOrEmpty(secret) || string.IsNullOrWhiteSpace(sig) || ownerUserId <= 0) return false;
+        var want = System.Text.Encoding.ASCII.GetBytes(Sign(secret, tenant, roomKey, ownerUserId));
+        var got = System.Text.Encoding.ASCII.GetBytes(sig.Trim().ToLowerInvariant());
+        return System.Security.Cryptography.CryptographicOperations.FixedTimeEquals(want, got);
+    }
 }
 
 /// <summary>
@@ -200,9 +257,10 @@ public record InternalMember(int UserId, DateTime JoinedUtc);
 /// <param name="LastMessageId">Mã tin mới nhất của phòng — widget chỉ cộng chưa đọc theo sự kiện có mã LỚN
 /// hơn, nên một tin vừa có trong danh sách vừa tới qua sự kiện không bị đếm hai lần.</param>
 /// <param name="Data">Tham số tự do của phòng (<see cref="InternalRoomData"/>); null = không có.</param>
+/// <param name="OwnerUserId">Trưởng nhóm (<see cref="InternalRoomOwner"/>); null = phòng 1-1 / chưa xác định.</param>
 public record InternalRoom(long Id, string? Title, string EntityType, string? EntityId, string RoomKey,
     string? LastPreview, DateTime LastActivityAt, int UnreadCount, IReadOnlyList<InternalMember> Members,
-    long? LastMessageId = null, System.Text.Json.JsonElement? Data = null);
+    long? LastMessageId = null, System.Text.Json.JsonElement? Data = null, int? OwnerUserId = null);
 
 public record InternalMessage(long Id, long RoomId, int? SenderUserId, string? SenderUsername,
     string? Body, DateTime CreatedUtc, DateTime? DeletedUtc, InternalAttachment? Attachment = null,
@@ -255,8 +313,11 @@ public static class InternalAttachmentRules
     }
 }
 
+/// <param name="OwnerUserId">Trưởng nhóm phòng đơn/công ty do CRM xác định — chỉ nhận khi kèm <c>OwnerSig</c> đúng.</param>
 public record CreateRoomRequest(string? Title, List<int>? MemberUserIds, string EntityType = "direct",
-    string? EntityId = null, System.Text.Json.JsonElement? Data = null);
+    string? EntityId = null, System.Text.Json.JsonElement? Data = null, int? OwnerUserId = null, string? OwnerSig = null);
+
+public record TransferOwnerRequest(int UserId);
 
 /// <summary>Thay tham số tự do của phòng (<see cref="InternalRoomData"/>); Data null = xoá.</summary>
 public record RoomDataRequest(System.Text.Json.JsonElement? Data);

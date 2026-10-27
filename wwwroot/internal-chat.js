@@ -26,7 +26,9 @@
  *   TkInternalChat.openRoom(roomId)                            phòng đã có
  *   TkInternalChat.renameRoom(roomId, 'Tên mới')               (không áp cho phòng 1-1)
  *   TkInternalChat.addMembers(roomId, [12, 34])
- *   TkInternalChat.removeMember(roomId, 12) / leaveRoom(roomId)
+ *   TkInternalChat.removeMember(roomId, 12) / leaveRoom(roomId)   bỏ người khác: CHỈ trưởng nhóm; tự rời: ai cũng được
+ *   TkInternalChat.transferOwner(roomId, 12)                  trao quyền trưởng nhóm (không áp phòng đơn/công ty)
+ *   TkInternalChat.deleteRoom(roomId)                         xoá phòng với MỌI người — chỉ trưởng nhóm
  *   TkInternalChat.hideRoom(roomId)                           "xoá phía tôi" (xoá mềm, riêng mình)
  *   TkInternalChat.closeRoom(roomId)
  *   TkInternalChat.getUnread()                                 tổng tin chưa đọc
@@ -35,6 +37,8 @@
  *   TkInternalChat.setEntityLinks({ order: (id) => …, deal: (id) => … })   tự mở bản ghi (vd có đăng nhập sẵn);
  *     thắng data-order-url / data-deal-url
  *   TkInternalChat.destroy()                                   gỡ hẳn (đăng xuất)
+ *   info.owner + info.ownerSig (openEntity order/company): trưởng nhóm = người tạo bản ghi, do CRM ký HMAC bằng
+ *     chung secret SSO trên "{tenant}|{order|company}:{mã}|{owner}". Thiếu/sai chữ ký → người tạo phòng làm trưởng nhóm.
  *   info.data (openEntity / openByKey): object tự do (≤ 4 KB) lưu theo phòng, mọi thành viên đọc lại được qua
  *     room.data. Có data.url (http/https) → đầu phòng có nút "Xem lại" mở đường dẫn đó. Mở lại với data
  *     khác thì thay; giống thì không ghi gì.
@@ -81,7 +85,7 @@
     newType: 'group', picked: new Set(), userSearch: '', newTitle: '',
     drafts: {}, pending: {}, dragKey: null, busy: false,
     settings: null, renameDraft: {}, addSearch: '', addPicked: new Set(),   // màn cấu hình phòng (key = 'panel-12' | 'dock-12')
-    editing: null, recallConfirm: null, hideConfirm: null, menu: null,
+    editing: null, recallConfirm: null, hideConfirm: null, deleteConfirm: null, transferConfirm: null, menu: null,
     reactPick: null,   // bảng cảm xúc đang mở: { key, msgId }
     draft: null,
     roomsMore: false, roomsCursor: null, roomsExtra: false, roomsLoadingMore: false,   // phân trang danh sách phòng
@@ -215,6 +219,7 @@
     .r1,.r2{display:flex;gap:8px;align-items:center}
     .nm{font-weight:600;flex:1;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
     .tm{font-size:12px;color:#5b6270;flex-shrink:0}.u .tm{color:#1f3fbf;font-weight:600}
+    .own{display:inline-block;margin-left:6px;padding:1px 6px;border-radius:999px;background:#eef2ff;color:#1f3fbf;font-size:11px;font-weight:600;vertical-align:1px}
     .pv{font-size:13px;color:#5b6270;flex:1;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.u .pv{color:#11151c;font-weight:500}
     .bd{min-width:20px;height:20px;padding:0 6px;border-radius:6px;background:#1f3fbf;color:#fff;font-size:12px;font-weight:600;display:grid;place-items:center;flex-shrink:0}
     .empty{padding:32px 16px;text-align:center;color:#5b6270;font-size:13px}
@@ -599,10 +604,16 @@
     errMsg = ''; st.errRoom = null; render();
   }
 
+  /// Trưởng nhóm (máy chủ quyết, đây chỉ để ẩn/hiện nút): người tạo nhóm; phòng đơn/công ty là người tạo bản ghi ở CRM.
+  const isOwner = (r) => !!r && r.ownerUserId != null && r.ownerUserId === st.me;
+  /// Phòng đơn/công ty không trao quyền tay — quyền bám người tạo bản ghi.
+  const canTransfer = (r) => !!r && !['direct', 'order', 'company'].includes(r.entityType);
+
   /// Cấu hình phòng: đổi tên, xem/bỏ thành viên, thêm người, rời phòng. Phòng 1-1 không có màn này.
   function settingsBody(id, key) {
     const r = roomOf(id);
     const members = (r.members || []).map((m) => m.userId);
+    const owner = isOwner(r);
     const nameId = 'tk-ten-phong-' + key, findId = 'tk-them-' + key;
     const name = el('input', { class: 'in', id: nameId, type: 'text', maxlength: '120', placeholder: 'Tên phòng',
       on: { input: (e) => { st.renameDraft[id] = e.target.value; }, keydown: (e) => { if (e.key === 'Enter') { e.preventDefault(); doRename(id); } } } });
@@ -620,12 +631,20 @@
             el('button', { class: 'pri', type: 'button', disabled: st.busy, on: { click: () => doRename(id) } }, 'Lưu'))),
         el('div', {},
           el('span', { class: 'lb' }, 'Thành viên · ' + members.length),
-          el('ul', { style: 'padding:0;overflow:visible' }, members.map((uid) => el('li', { class: 'opt', style: 'cursor:default' },
+          // Trưởng nhóm lên đầu. Chỉ trưởng nhóm thấy nút Bỏ / Trao quyền; thành viên thường chỉ tự rời.
+          el('ul', { style: 'padding:0;overflow:visible' }, [...members].sort((a, b) => (b === r.ownerUserId) - (a === r.ownerUserId)).map((uid) => el('li', { class: 'opt', style: 'cursor:default;flex-wrap:wrap' },
             el('span', { class: 'av s', 'aria-hidden': 'true' }, initials(userName(uid))),
-            el('span', { style: 'flex:1;min-width:0' }, userName(uid), uid === st.me ? el('span', { class: 'tm' }, ' · Bạn') : null),
+            el('span', { style: 'flex:1;min-width:0' }, userName(uid),
+              uid === r.ownerUserId ? el('span', { class: 'own' }, 'Trưởng nhóm') : null,
+              uid === st.me ? el('span', { class: 'tm' }, ' · Bạn') : null),
             uid === st.me
-              ? el('button', { class: 'sec', type: 'button', on: { click: () => doRemove(id, uid) } }, 'Rời phòng')
-              : el('button', { class: 'sec', type: 'button', 'aria-label': 'Bỏ ' + userName(uid) + ' khỏi phòng', on: { click: () => doRemove(id, uid) } }, 'Bỏ'))))),
+              ? el('button', { class: 'sec', type: 'button', title: owner && members.length > 1 ? 'Quyền trưởng nhóm sẽ chuyển cho người vào phòng sớm nhất' : null,
+                  on: { click: () => doRemove(id, uid) } }, 'Rời phòng')
+              : owner ? el('span', { style: 'display:flex;gap:6px' },
+                  canTransfer(r) ? el('button', { class: 'sec', type: 'button', 'aria-label': 'Chuyển quyền trưởng nhóm cho ' + userName(uid),
+                    on: { click: () => askTransfer(id, uid) } }, st.transferConfirm === id + ':' + uid ? 'Bấm lần nữa' : 'Trao quyền') : null,
+                  el('button', { class: 'sec', type: 'button', 'aria-label': 'Bỏ ' + userName(uid) + ' khỏi phòng', on: { click: () => doRemove(id, uid) } }, 'Bỏ'))
+              : null)))),
         el('div', {},
           el('label', { class: 'lb', for: findId }, 'Thêm người'), find,
           candidates.length
@@ -821,6 +840,7 @@
     const open = st.menu === key;
     const r = roomOf(id);
     const asking = st.hideConfirm === id;
+    const delAsking = st.deleteConfirm === id;
     const cfgOn = st.settings === key;
     const items = [
       r.entityType === 'direct' ? null : ['gear', cfgOn ? 'Đóng cấu hình phòng' : 'Cấu hình phòng: tên, thành viên',
@@ -828,10 +848,13 @@
       ...extra,
       ['trash', asking ? 'Bấm lần nữa để xoá cuộc trò chuyện (chỉ phía bạn)' : 'Xoá cuộc trò chuyện (chỉ phía bạn)',
         () => askHide(id), asking ? 'Bấm lần nữa để xoá' : 'Xoá phía tôi', 'danger' + (asking ? ' warnb' : '')],
+      // Chỉ trưởng nhóm: xoá phòng với MỌI người (khác "Xoá phía tôi").
+      isOwner(r) && r.entityType !== 'direct' ? ['trash', delAsking ? 'Bấm lần nữa để xoá phòng với mọi thành viên' : 'Xoá phòng với mọi thành viên',
+        () => askDeleteRoom(id), delAsking ? 'Bấm lần nữa để xoá nhóm' : 'Xoá nhóm (mọi người)', 'danger' + (delAsking ? ' warnb' : '')] : null,
     ].filter(Boolean);
     return el('div', { class: 'mw' },
       el('button', { class: 'ib mbtn', type: 'button', 'aria-label': 'Tuỳ chọn phòng', title: 'Tuỳ chọn', 'aria-haspopup': 'menu', 'aria-expanded': String(open),
-        on: { click: () => { st.menu = open ? null : key; st.hideConfirm = null; render(); } } }, icon('more', 18)),
+        on: { click: () => { st.menu = open ? null : key; st.hideConfirm = null; st.deleteConfirm = null; render(); } } }, icon('more', 18)),
       open ? el('div', { class: 'menu', role: 'menu' }, items.map(([ic, aria, fn, text, cls]) =>
         el('button', { class: 'mi' + (cls ? ' ' + cls : ''), type: 'button', role: 'menuitem', 'aria-label': aria, on: { click: fn } },
           icon(ic, 16), el('span', {}, text || aria)))) : null);
@@ -844,6 +867,30 @@
     st.hideConfirm = id; render();
     clearTimeout(hideTimer);
     hideTimer = setTimeout(() => { st.hideConfirm = null; render(); }, 4000);
+  }
+  /// Xoá nhóm (mọi người) — hai bước như "Xoá phía tôi". Máy chủ chỉ cho trưởng nhóm.
+  let deleteTimer = null;
+  function askDeleteRoom(id) {
+    if (st.deleteConfirm === id) {
+      clearTimeout(deleteTimer); st.deleteConfirm = null; st.menu = null;
+      return api('DELETE', `/rooms/${id}`).then(() => leftRoom(id))
+        .catch((e) => { if (!dead) { errMsg = 'Không xoá được nhóm: ' + e.message; st.errRoom = id; render(); } });
+    }
+    st.deleteConfirm = id; render();
+    clearTimeout(deleteTimer);
+    deleteTimer = setTimeout(() => { st.deleteConfirm = null; render(); }, 4000);
+  }
+  /// Trao quyền trưởng nhóm — hai bước (bấm lần nữa trong 4 giây).
+  let transferTimer = null;
+  function askTransfer(id, uid) {
+    const k = id + ':' + uid;
+    if (st.transferConfirm === k) {
+      clearTimeout(transferTimer); st.transferConfirm = null;
+      return cfgCall(id, () => api('POST', `/rooms/${id}/owner`, { userId: uid })).catch(() => {});
+    }
+    st.transferConfirm = k; render();
+    clearTimeout(transferTimer);
+    transferTimer = setTimeout(() => { st.transferConfirm = null; render(); }, 4000);
   }
   async function hideRoom(id) {
     try {
@@ -1132,7 +1179,8 @@
   // Còn lại → ô nháp; gửi tin đầu tiên mới gọi POST /rooms (tạo hoặc vào phòng) rồi gửi tin. Bấm nhầm,
   // đóng ô là không để lại gì: không phòng rỗng, không kéo người phụ trách vào, không hiện ở danh sách.
   async function openLinked(payload, where) {
-    const r = await api('GET', `/rooms/lookup?entityType=${encodeURIComponent(payload.entityType)}&entityId=${encodeURIComponent(payload.entityId)}`);
+    const own = payload.ownerUserId ? `&ownerUserId=${payload.ownerUserId}&ownerSig=${encodeURIComponent(payload.ownerSig)}` : '';
+    const r = await api('GET', `/rooms/lookup?entityType=${encodeURIComponent(payload.entityType)}&entityId=${encodeURIComponent(payload.entityId)}${own}`);
     if (r.member) {
       if (st.draft && st.draft.roomKey === r.roomKey) closeDraft();
       // Trang nhúng mở lại bản ghi với tham số KHÁC cái đang lưu (vd đường dẫn đổi) → thay. Giống thì không ghi.
@@ -1255,7 +1303,8 @@
       const p = { key: ++pendSeq, name, size: f.size, kind: IMAGES.includes(ext) ? 'anh' : 'tep', status: 'prep', pct: 0,
         att: null, preview: null, error: '', blob: null, done: null };
       if (!ALLOWED.includes(ext)) { p.status = 'err'; p.error = 'Loại tệp không gửi được'; }
-      else if (p.kind !== 'anh' && f.size > MAX_BYTES) { p.status = 'err'; p.error = 'Quá 15 MB'; }   // ảnh: xét SAU khi nén
+      // Ảnh cũng xét theo cỡ GỐC (chốt 27/10/2026): ảnh 30 MB nén còn 2 MB vẫn bị chặn — không chỉ xét sau khi nén.
+      else if (f.size > MAX_BYTES) { p.status = 'err'; p.error = (p.kind === 'anh' ? 'Ảnh' : 'Tệp') + ' quá 15 MB'; }
       if (p.kind === 'anh' && p.status !== 'err') p.preview = URL.createObjectURL(f);
       list.push(p);
       if (p.status !== 'err') prepareUpload(roomId, p, f);
@@ -1626,7 +1675,10 @@
         return fail(new Error('openEntity: cần type "order" | "company" | "deal" và mã'));
       const i = typeof info === 'string' ? { title: info } : (info || {});
       let data; try { data = checkData(i.data); } catch (e) { return fail(e); }
-      return openLinked({ entityType: type, entityId: String(entityId).trim(), title: i.title || null, memberUserIds: ids(i.members), data }, whereOf(opts)).catch(fail);
+      // owner + ownerSig: trưởng nhóm do CRM ký (người tạo bản ghi) — máy chủ kiểm chữ ký, sai thì bỏ qua.
+      const own = ids([i.owner])[0];
+      const ownerFields = own && i.ownerSig ? { ownerUserId: own, ownerSig: String(i.ownerSig) } : {};
+      return openLinked({ entityType: type, entityId: String(entityId).trim(), title: i.title || null, memberUserIds: ids(i.members), data, ...ownerFields }, whereOf(opts)).catch(fail);
     },
     /**
      * Dò mã người theo TÊN (nhiều màn CRM chỉ có tên người phụ trách, không có mã).
@@ -1690,6 +1742,15 @@
       const id = Number(roomId), u = Number(userId);
       return api('DELETE', `/rooms/${id}/members/${u}`).then(() => { if (u === st.me) leftRoom(id); return loadRooms(); }).catch(fail);
     },
+    /** Trao quyền trưởng nhóm cho một thành viên (chỉ trưởng nhóm; không áp phòng đơn/công ty). */
+    transferOwner(roomId, userId) {
+      return api('POST', `/rooms/${Number(roomId)}/owner`, { userId: Number(userId) }).then(loadRooms).catch(fail);
+    },
+    /** Xoá phòng với mọi thành viên (chỉ trưởng nhóm). */
+    deleteRoom(roomId) {
+      const id = Number(roomId);
+      return api('DELETE', `/rooms/${id}`).then(() => leftRoom(id)).catch(fail);
+    },
     /** "Xoá phía tôi": ẩn phòng + tin cũ với riêng mình; có tin mới thì phòng hiện lại. */
     hideRoom(roomId) { return hideRoom(Number(roomId)).catch(fail); },
     leaveRoom(roomId) { return st.me == null ? fail(new Error('leaveRoom: chưa biết mã người của bạn')) : this.removeMember(roomId, st.me); },
@@ -1735,7 +1796,7 @@
     // Chỉ khi menu ĐANG hiện thật: trạng thái treo mà vẽ lại lúc nhấn chuột là nuốt mất cú bấm đó.
     if (!st.menu || !root.querySelector('.menu')) { st.menu = null; return; }
     if (e.composedPath().some((n) => n.classList && (n.classList.contains('menu') || n.classList.contains('mbtn')))) return;
-    st.menu = null; st.hideConfirm = null; render();
+    st.menu = null; st.hideConfirm = null; st.deleteConfirm = null; render();
   }
   function onResize() { clearTimeout(resizeTimer); resizeTimer = setTimeout(render, 150); }
   function boot() {
@@ -1744,7 +1805,7 @@
     root.addEventListener('keydown', (e) => {
       if (e.key !== 'Escape') return;
       if (st.reactPick) { st.reactPick = null; render(); return; }
-      if (st.menu) { st.menu = null; st.hideConfirm = null; render(); return; }
+      if (st.menu) { st.menu = null; st.hideConfirm = null; st.deleteConfirm = null; render(); return; }
       if (st.open) { st.open = false; render(); root.querySelector('.fab')?.focus(); }
     });
     document.addEventListener('pointerdown', onOutside, true);

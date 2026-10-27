@@ -781,5 +781,28 @@ public class ChatDb
     -- "Xoá phía tôi" (xoá mềm, riêng một người): ẩn phòng khỏi danh sách của người đó và ẩn tin cũ hơn
     -- mốc này. Có tin mới sau mốc thì phòng tự hiện lại (chỉ với tin mới). Nullable → chỉ ghi metadata.
     ALTER TABLE chat_room_members ADD COLUMN IF NOT EXISTS hidden_utc timestamptz;
+
+    -- Trưởng nhóm (InternalRoomOwner, chốt 27/10/2026): chỉ người này bỏ được người khác, chuyển quyền,
+    -- xoá phòng. MỘT CỘT ở phòng chứ không cột vai trò ở thành viên: mỗi phòng đúng một trưởng nhóm, chuyển
+    -- quyền là một câu UPDATE. deleted_utc: phòng đã bị trưởng nhóm xoá (dấu vết; khoá phòng đổi đi để mở
+    -- lại bản ghi là phòng mới). Nullable, không default → chỉ ghi metadata.
+    ALTER TABLE chat_conversations ADD COLUMN IF NOT EXISTS owner_user_id integer;
+    ALTER TABLE chat_conversations ADD COLUMN IF NOT EXISTS deleted_utc   timestamptz;
+    -- Phòng nội bộ chưa có trưởng nhóm — chỉ mục riêng phần để câu gán dưới không quét cả bảng hội thoại
+    -- khách ở mỗi lần khởi động. Gán xong thì dòng tự rời chỉ mục.
+    CREATE INDEX IF NOT EXISTS ix_conv_internal_no_owner ON chat_conversations (id)
+      WHERE channel = 7 AND owner_user_id IS NULL AND entity_type IS DISTINCT FROM 'direct';
+    -- Phòng có từ trước khi có trưởng nhóm: người gửi tin đầu tiên (phòng sinh ra lúc gửi tin đầu → chính là
+    -- người tạo) nếu còn ở phòng; không thì người vào sớm nhất. Phòng đơn mở lại từ CRM sẽ đồng bộ theo INS_UID.
+    UPDATE chat_conversations c SET owner_user_id = COALESCE(
+        (SELECT m.sender_user_id FROM chat_messages m
+           JOIN chat_room_members mb ON mb.conversation_id = c.id AND mb.user_id = m.sender_user_id AND mb.left_utc IS NULL
+          WHERE m.conversation_id = c.id AND m.sender_user_id IS NOT NULL
+          ORDER BY m.created_utc, m.id LIMIT 1),
+        (SELECT mb.user_id FROM chat_room_members mb
+          WHERE mb.conversation_id = c.id AND mb.left_utc IS NULL
+          ORDER BY mb.joined_utc, mb.user_id LIMIT 1))
+     WHERE c.channel = 7 AND c.owner_user_id IS NULL AND c.entity_type IS DISTINCT FROM 'direct'
+       AND EXISTS (SELECT 1 FROM chat_room_members mb WHERE mb.conversation_id = c.id AND mb.left_utc IS NULL);
     """;
 }

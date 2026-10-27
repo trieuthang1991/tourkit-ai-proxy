@@ -13,6 +13,27 @@ Những cập nhật gần đây của TRAV-AI, viết cho người dùng. Mới
 
 ---
 
+## Phiên bản 27/10/2026 — Trưởng nhóm trong chat nội bộ
+
+### ✨ Tính năng mới
+- **Mỗi nhóm chat có một trưởng nhóm**, hiện nhãn "Trưởng nhóm" trong danh sách thành viên. Người tạo nhóm là
+  trưởng nhóm. Với nhóm chat của một đơn hàng, trưởng nhóm là người tạo đơn: người tạo đơn được tự thêm vào
+  nhóm ngay khi có người nhắn đầu tiên, kể cả với nhóm chat đơn có từ trước (trừ khi người tạo đơn đã tự rời).
+- **Chỉ trưởng nhóm được bỏ người khác ra khỏi nhóm.** Thành viên được thêm vào vẫn nhắn tin, thêm người và tự rời
+  nhóm bình thường, nhưng không còn thấy nút "Bỏ" bên cạnh người khác.
+- **Trao quyền trưởng nhóm**: trong cấu hình nhóm, trưởng nhóm bấm **Trao quyền** cạnh tên một thành viên (bấm
+  lần nữa để xác nhận). Nhóm chat của đơn hàng luôn do người tạo đơn làm trưởng nhóm, nên không có nút này.
+- **Trưởng nhóm rời nhóm** thì quyền tự chuyển cho người vào nhóm sớm nhất trong số còn lại, nhóm không bao giờ bị
+  bỏ trống người quản lý.
+- **Xoá nhóm với mọi người**: trưởng nhóm có thêm mục **Xoá nhóm (mọi người)** trong menu ba chấm. Nhóm biến mất
+  khỏi danh sách của tất cả thành viên. Mở lại chat của đơn đã xoá nhóm sẽ bắt đầu một nhóm mới.
+
+### 🔧 Đã khắc phục
+- Trước đây ảnh lớn hơn 15 MB vẫn gửi được nếu sau khi tự thu nhỏ còn dưới 15 MB. Nay ảnh gốc quá 15 MB bị
+  chặn ngay khi chọn, kèm thông báo "Ảnh quá 15 MB".
+
+---
+
 ## Phiên bản 19/10/2026 — Chat nội bộ ngay trong TRAV-AI
 
 ### ✨ Tính năng mới

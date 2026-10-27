@@ -36,6 +36,7 @@ public class InternalChatRepository
         public int UnreadCount { get; set; }
         public long? LastMessageId { get; set; }
         public string? DataJson { get; set; }
+        public int? OwnerUserId { get; set; }
     }
 
     /// JSON đã lưu → phần tử để trả ra API; hỏng (không thể xảy ra vì cột là jsonb) thì coi như không có.
@@ -81,9 +82,11 @@ public class InternalChatRepository
     /// <param name="memberIds">Đã gồm người tạo, đã bỏ trùng ở chỗ gọi.</param>
     /// <returns><c>Created</c> = phòng VỪA được tạo ở lượt này (chưa từng có) — để chỗ gọi làm việc
     /// chỉ-một-lần như thêm người phụ trách cơ hội.</returns>
-    public async Task<(long Id, bool Created)> CreateOrGetRoomAsync(string tenant, int creatorUserId, string roomKey,
+    /// <param name="ownerUserId">Trưởng nhóm do CRM ký (phòng đơn/công ty, đã kiểm chữ ký ở chỗ gọi); null =
+    /// người tạo là trưởng nhóm. Phòng đã có: đồng bộ sang người này nếu họ đang ở phòng.</param>
+    public async Task<(long Id, bool Created, OwnerSync Owner)> CreateOrGetRoomAsync(string tenant, int creatorUserId, string roomKey,
         string entityType, string? entityId, string? title, IReadOnlyCollection<int> memberIds,
-        string? dataJson = null, CancellationToken ct = default)
+        string? dataJson = null, int? ownerUserId = null, CancellationToken ct = default)
     {
         await using var c = await _db.OpenAsync(ct);
         await using var tx = await c.BeginTransactionAsync(ct);
@@ -93,11 +96,13 @@ public class InternalChatRepository
         var created = true;
         var id = await c.ExecuteScalarAsync<long?>(new CommandDefinition("""
             INSERT INTO chat_conversations (tenant_id, channel, account_id, contact_external_id, surface,
-                                            source_thread_id, entity_type, entity_id, title, entity_data, last_activity_at)
-            VALUES (@tenant, 7, '', @roomKey, 0, '', @entityType, @entityId, @title, @dataJson::jsonb, now())
+                                            source_thread_id, entity_type, entity_id, title, entity_data, last_activity_at,
+                                            owner_user_id)
+            VALUES (@tenant, 7, '', @roomKey, 0, '', @entityType, @entityId, @title, @dataJson::jsonb, now(),
+                    CASE WHEN @entityType = 'direct' THEN NULL ELSE COALESCE(@ownerUserId::integer, @creatorUserId) END)
             ON CONFLICT (tenant_id, channel, account_id, contact_external_id, surface, source_thread_id) DO NOTHING
             RETURNING id
-            """, new { tenant, roomKey, entityType, entityId, title, dataJson }, tx, cancellationToken: ct));
+            """, new { tenant, roomKey, entityType, entityId, title, dataJson, ownerUserId, creatorUserId }, tx, cancellationToken: ct));
         if (id is null)
         {
             created = false;
@@ -116,7 +121,10 @@ public class InternalChatRepository
 
         // Người khác CHỈ được thêm lúc phòng vừa tạo. Phòng đã có thì chỉ người bấm (vào lại nếu đã rời):
         // thêm cả danh sách ở mọi lần bấm là kéo lại người đã bị bỏ khỏi phòng / đã tự rời.
-        var ids = created ? memberIds.Append(creatorUserId).Distinct().ToArray() : new[] { creatorUserId };
+        // Trưởng nhóm do CRM ký luôn có mặt lúc tạo phòng (người tạo đơn có thể không phải người bấm).
+        var ids = created
+            ? memberIds.Append(creatorUserId).Concat(ownerUserId is int o0 ? new[] { o0 } : Array.Empty<int>()).Distinct().ToArray()
+            : new[] { creatorUserId };
         await c.ExecuteAsync(new CommandDefinition("""
             INSERT INTO chat_room_members (conversation_id, tenant_id, user_id)
             -- DISTINCT: mảng có trùng thì Postgres ném "ON CONFLICT DO UPDATE cannot affect row a
@@ -128,8 +136,75 @@ public class InternalChatRepository
                SET joined_utc = now(), left_utc = NULL
              WHERE chat_room_members.left_utc IS NOT NULL AND chat_room_members.tenant_id = @tenant
             """, new { id, tenant, ids }, tx, cancellationToken: ct));
+        var sync = default(OwnerSync);
+        if (!created)
+        {
+            if (ownerUserId is int o) sync = await SyncOwnerCoreAsync(c, tx, tenant, id.Value, o, ct);
+            // Phòng mất trưởng nhóm (mọi người đã rời rồi có người vào lại) → người vào lại nhận quyền.
+            // Chỉ ghi khi đang NULL — bấm Chat lại phòng bình thường không sinh dòng chết.
+            await c.ExecuteAsync(new CommandDefinition("""
+                UPDATE chat_conversations SET owner_user_id = @creatorUserId
+                 WHERE id = @id AND tenant_id = @tenant AND channel = 7 AND owner_user_id IS NULL
+                   AND entity_type IS DISTINCT FROM 'direct'
+                """, new { id, tenant, creatorUserId }, tx, cancellationToken: ct));
+        }
         await tx.CommitAsync(ct);
-        return (id.Value, created);
+        return (id.Value, created, sync);
+    }
+
+    /// <summary>
+    /// Phòng đơn/công ty: trưởng nhóm bám người tạo bản ghi ở CRM (chữ ký đã kiểm ở chỗ gọi) — chốt 27/10/2026:
+    /// <list type="bullet">
+    /// <item>Đang ở phòng → nhận quyền (chỉ ghi khi KHÁC người đang giữ).</item>
+    /// <item>CHƯA TỪNG ở phòng (phòng cũ tạo khi chưa có luật này) → thêm vào phòng + nhận quyền.</item>
+    /// <item>Từng ở rồi rời / bị bỏ → KHÔNG kéo lại; quyền ở người được chuyển lúc họ rời.</item>
+    /// </list>
+    /// </summary>
+    public async Task<OwnerSync> SyncOwnerAsync(string tenant, long roomId, int ownerUserId, CancellationToken ct = default)
+    {
+        await using var c = await _db.OpenAsync(ct);
+        return await SyncOwnerCoreAsync(c, null, tenant, roomId, ownerUserId, ct);
+    }
+
+    /// Added = vừa thêm người tạo bản ghi vào phòng (chỗ gọi ghi tin hệ thống); Changed = trưởng nhóm vừa đổi.
+    public readonly record struct OwnerSync(bool Added, bool Changed);
+
+    private sealed class OwnerSyncRow
+    {
+        public bool Added { get; set; }
+        public bool Changed { get; set; }
+    }
+
+    private static async Task<OwnerSync> SyncOwnerCoreAsync(Npgsql.NpgsqlConnection c, System.Data.Common.DbTransaction? tx,
+        string tenant, long roomId, int ownerUserId, CancellationToken ct)
+    {
+        // Một câu. "Chưa từng ở" = không có DÒNG nào (kể cả dòng đã rời) — có dòng left_utc là đã rời, không kéo lại.
+        // CTE cùng câu thấy dữ liệu TRƯỚC khi chèn → điều kiện nhận quyền phải OR với chính dòng vừa chèn.
+        var r = await c.QuerySingleAsync<OwnerSyncRow>(new CommandDefinition("""
+            WITH v AS (
+              SELECT id FROM chat_conversations
+               WHERE id = @roomId AND tenant_id = @tenant AND channel = 7
+                 AND entity_type IN ('order', 'company') AND deleted_utc IS NULL),
+            ins AS (
+              INSERT INTO chat_room_members (conversation_id, tenant_id, user_id)
+              SELECT v.id, @tenant, @ownerUserId FROM v
+               WHERE NOT EXISTS (SELECT 1 FROM chat_room_members mb
+                                  WHERE mb.conversation_id = @roomId AND mb.tenant_id = @tenant
+                                    AND mb.user_id = @ownerUserId)
+              ON CONFLICT (conversation_id, user_id) DO NOTHING
+              RETURNING user_id),
+            up AS (
+              UPDATE chat_conversations c SET owner_user_id = @ownerUserId
+                FROM v WHERE c.id = v.id AND c.tenant_id = @tenant
+                 AND c.owner_user_id IS DISTINCT FROM @ownerUserId
+                 AND (EXISTS (SELECT 1 FROM ins)
+                      OR EXISTS (SELECT 1 FROM chat_room_members mb
+                                  WHERE mb.conversation_id = @roomId AND mb.tenant_id = @tenant
+                                    AND mb.user_id = @ownerUserId AND mb.left_utc IS NULL))
+              RETURNING 1)
+            SELECT EXISTS (SELECT 1 FROM ins) AS added, EXISTS (SELECT 1 FROM up) AS changed
+            """, new { tenant, roomId, ownerUserId }, tx, cancellationToken: ct));
+        return new OwnerSync(r.Added, r.Changed);
     }
 
     /// <summary>
@@ -157,7 +232,7 @@ public class InternalChatRepository
               SELECT conversation_id, joined_utc, hidden_utc FROM chat_room_members
                WHERE tenant_id = @tenant AND user_id = @userId AND left_utc IS NULL)
             SELECT v.id, v.title, v.entity_type, v.entity_id, v.contact_external_id AS room_key,
-                   v.last_preview, v.last_activity_at, v.entity_data::text AS data_json,
+                   v.last_preview, v.last_activity_at, v.entity_data::text AS data_json, v.owner_user_id,
                    (SELECT count(*)::int FROM (
                       SELECT 1 FROM chat_messages m
                        WHERE m.conversation_id = v.id
@@ -176,7 +251,7 @@ public class InternalChatRepository
               -- ix_conv_tenant_hoatdong của CẢ công ty để khỏi sắp xếp (đo trên PG 17, 19/10/2026).
               CROSS JOIN LATERAL (
                 SELECT c.id, c.title, c.entity_type, c.entity_id, c.contact_external_id,
-                       c.last_preview, c.last_activity_at, c.entity_data
+                       c.last_preview, c.last_activity_at, c.entity_data, c.owner_user_id
                   FROM chat_conversations c
                  WHERE c.id = mb.conversation_id AND c.tenant_id = @tenant AND c.channel = 7
                  LIMIT 1) v
@@ -209,7 +284,7 @@ public class InternalChatRepository
 
         return rows.Select(r => new InternalRoom(r.Id, r.Title, r.EntityType ?? "direct", r.EntityId,
             r.RoomKey, r.LastPreview, r.LastActivityAt, r.UnreadCount, members[r.Id].ToList(), r.LastMessageId,
-            ParseData(r.DataJson))).ToList();
+            ParseData(r.DataJson), r.OwnerUserId)).ToList();
     }
 
     /// <summary>
@@ -307,7 +382,8 @@ public class InternalChatRepository
     // ── Cấu hình phòng ─────────────────────────────────────────────────────
     //
     // Luật (chốt 19/10/2026, mức vừa phải): phòng 1-1 KHOÁ — không đổi tên, không thêm/bỏ người.
-    // Nhóm / theo đơn / theo công ty: thành viên nào cũng được đổi tên, thêm, bỏ người, tự rời.
+    // Nhóm / theo đơn / theo công ty: thành viên nào cũng được đổi tên, thêm người, tự rời.
+    // Bỏ NGƯỜI KHÁC / chuyển quyền / xoá phòng: chỉ trưởng nhóm (owner_user_id — InternalRoomOwner, 27/10/2026).
     // Mỗi hàm là MỘT câu: điều kiện "người làm là thành viên" + "không phải 1-1" nằm trong câu.
 
     /// <summary>Đổi tên phòng. false = không phải thành viên, hoặc là phòng 1-1.</summary>
@@ -350,22 +426,106 @@ public class InternalChatRepository
             """, new { tenant, roomId, userId, ids = ids.Distinct().ToArray() }, cancellationToken: ct));
     }
 
-    /// <summary>Bỏ một người khỏi phòng (bỏ chính mình = rời phòng). Xoá mềm: tin cũ của họ vẫn còn.</summary>
-    public async Task<bool> RemoveMemberAsync(string tenant, long roomId, int userId, int targetUserId,
+    private sealed class LeaveRow
+    {
+        public bool Ok { get; set; }
+        public int? NewOwner { get; set; }
+    }
+
+    /// <summary>
+    /// Bỏ một người khỏi phòng (bỏ chính mình = rời phòng). Xoá mềm: tin cũ của họ vẫn còn.
+    /// Bỏ NGƯỜI KHÁC: chỉ trưởng nhóm. Tự rời: ai cũng được; trưởng nhóm rời thì quyền sang người vào
+    /// phòng sớm nhất trong số còn lại (cùng câu — không có quãng phòng không có trưởng nhóm).
+    /// </summary>
+    /// <returns>Ok = đã bỏ; NewOwner = trưởng nhóm mới khi chính trưởng nhóm vừa rời.</returns>
+    public async Task<(bool Ok, int? NewOwner)> RemoveMemberAsync(string tenant, long roomId, int userId, int targetUserId,
         CancellationToken ct = default)
     {
         await using var c = await _db.OpenAsync(ct);
+        if (targetUserId != userId)
+            return (await c.ExecuteAsync(new CommandDefinition("""
+                UPDATE chat_room_members t SET left_utc = now()
+                 WHERE t.conversation_id = @roomId AND t.tenant_id = @tenant
+                   AND t.user_id = @targetUserId AND t.left_utc IS NULL
+                   AND EXISTS (SELECT 1 FROM chat_conversations v
+                                WHERE v.id = @roomId AND v.tenant_id = @tenant AND v.channel = 7
+                                  AND v.entity_type IS DISTINCT FROM 'direct'
+                                  AND v.owner_user_id = @userId)
+                   AND EXISTS (SELECT 1 FROM chat_room_members mb
+                                WHERE mb.conversation_id = @roomId AND mb.tenant_id = @tenant
+                                  AND mb.user_id = @userId AND mb.left_utc IS NULL)
+                """, new { tenant, roomId, userId, targetUserId }, cancellationToken: ct)) > 0, null);
+
+        // CTE cùng câu thấy dữ liệu TRƯỚC khi đổi → người rời vẫn "đang ở" trong n, nên loại bằng user_id.
+        // Người vào cùng lúc (cả nhóm tạo một lượt) → xếp tiếp theo mã người cho ổn định.
+        var r = await c.QuerySingleAsync<LeaveRow>(new CommandDefinition("""
+            WITH t AS (
+              UPDATE chat_room_members SET left_utc = now()
+               WHERE conversation_id = @roomId AND tenant_id = @tenant AND user_id = @userId AND left_utc IS NULL
+                 AND EXISTS (SELECT 1 FROM chat_conversations v
+                              WHERE v.id = @roomId AND v.tenant_id = @tenant AND v.channel = 7
+                                AND v.entity_type IS DISTINCT FROM 'direct')
+              RETURNING conversation_id),
+            n AS (
+              SELECT mb.user_id FROM chat_room_members mb
+               WHERE mb.conversation_id = @roomId AND mb.tenant_id = @tenant AND mb.left_utc IS NULL
+                 AND mb.user_id <> @userId AND EXISTS (SELECT 1 FROM t)
+               ORDER BY mb.joined_utc, mb.user_id LIMIT 1),
+            o AS (
+              UPDATE chat_conversations v SET owner_user_id = (SELECT user_id FROM n)
+                FROM t WHERE v.id = t.conversation_id AND v.tenant_id = @tenant AND v.channel = 7
+                 AND v.owner_user_id = @userId
+              RETURNING v.owner_user_id)
+            SELECT EXISTS (SELECT 1 FROM t) AS ok, (SELECT owner_user_id FROM o) AS new_owner
+            """, new { tenant, roomId, userId }, cancellationToken: ct));
+        return (r.Ok, r.NewOwner);
+    }
+
+    /// <summary>
+    /// Chuyển quyền trưởng nhóm — chỉ trưởng nhóm hiện tại, cho một thành viên đang ở phòng. Phòng đơn/công
+    /// ty không chuyển tay (quyền bám người tạo bản ghi ở CRM). false = không được phép.
+    /// </summary>
+    public async Task<bool> TransferOwnerAsync(string tenant, long roomId, int userId, int targetUserId,
+        CancellationToken ct = default)
+    {
+        if (targetUserId == userId) return false;
+        await using var c = await _db.OpenAsync(ct);
         return await c.ExecuteAsync(new CommandDefinition("""
-            UPDATE chat_room_members t SET left_utc = now()
-             WHERE t.conversation_id = @roomId AND t.tenant_id = @tenant
-               AND t.user_id = @targetUserId AND t.left_utc IS NULL
-               AND EXISTS (SELECT 1 FROM chat_conversations v
-                            WHERE v.id = @roomId AND v.tenant_id = @tenant AND v.channel = 7
-                              AND v.entity_type IS DISTINCT FROM 'direct')
+            UPDATE chat_conversations v SET owner_user_id = @targetUserId
+             WHERE v.id = @roomId AND v.tenant_id = @tenant AND v.channel = 7 AND v.deleted_utc IS NULL
+               AND v.owner_user_id = @userId
+               AND COALESCE(v.entity_type, '') NOT IN ('direct', 'order', 'company')
                AND EXISTS (SELECT 1 FROM chat_room_members mb
                             WHERE mb.conversation_id = @roomId AND mb.tenant_id = @tenant
-                              AND mb.user_id = @userId AND mb.left_utc IS NULL)
+                              AND mb.user_id = @targetUserId AND mb.left_utc IS NULL)
             """, new { tenant, roomId, userId, targetUserId }, cancellationToken: ct)) > 0;
+    }
+
+    /// <summary>
+    /// Xoá phòng — chỉ trưởng nhóm. Xoá MỀM: giữ tin (dấu vết), đánh dấu deleted_utc, mọi thành viên rời
+    /// phòng (nên mọi đường đọc/ghi vốn kiểm thành viên tự chặn, không phải sửa từng câu), và khoá phòng
+    /// đổi đuôi để mở lại bản ghi đó (đơn/công ty) ra phòng MỚI chứ không lôi phòng đã xoá về.
+    /// </summary>
+    /// <returns>Những người vừa bị đưa ra (để báo); rỗng = không được phép / không có phòng.</returns>
+    public async Task<int[]> DeleteRoomAsync(string tenant, long roomId, int userId, CancellationToken ct = default)
+    {
+        await using var c = await _db.OpenAsync(ct);
+        return (await c.QueryAsync<int>(new CommandDefinition("""
+            WITH v AS (
+              UPDATE chat_conversations SET deleted_utc = now(),
+                     contact_external_id = contact_external_id || '#xoa:' || id::text
+               WHERE id = @roomId AND tenant_id = @tenant AND channel = 7 AND deleted_utc IS NULL
+                 AND entity_type IS DISTINCT FROM 'direct' AND owner_user_id = @userId
+                 AND EXISTS (SELECT 1 FROM chat_room_members mb
+                              WHERE mb.conversation_id = @roomId AND mb.tenant_id = @tenant
+                                AND mb.user_id = @userId AND mb.left_utc IS NULL)
+              RETURNING id),
+            m AS (
+              UPDATE chat_room_members mb SET left_utc = now()
+                FROM v WHERE mb.conversation_id = v.id AND mb.tenant_id = @tenant AND mb.left_utc IS NULL
+              RETURNING mb.user_id)
+            SELECT user_id FROM m
+            """, new { tenant, roomId, userId }, cancellationToken: ct))).ToArray();
     }
 
     /// <summary>Thành viên hiện tại — chỉ để bus biết báo cho ai sau khi cấu hình phòng đổi.</summary>
