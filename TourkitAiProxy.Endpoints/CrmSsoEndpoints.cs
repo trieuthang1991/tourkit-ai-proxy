@@ -203,7 +203,9 @@ public static class CrmSsoEndpoints
                 try { s = await sessions.CreateFromSsoAsync(tenant, username, ctx.RequestAborted); }
                 catch { /* fallback: cookie rỗng → login */ }
             }
-            if (s != null) await sessions.EnsurePermissionsAsync(s.Id, ctx.RequestAborted);
+            // Nạp lại quyền NGAY: phiên được dùng lại thì quyền là của lần nạp trước (có thể nhiều ngày trước) — đổi quyền
+            // bên CRM (vd bỏ "Xem tất cả đoạn chat") phải có hiệu lực từ lần đăng nhập này (lỗi 28/10/2026).
+            if (s != null) await sessions.RefreshPermissionsAsync(s.Id, ctx.RequestAborted);
 
             // Response mang Set-Cookie thì tuyệt đối không được cache lại.
             ctx.Response.Headers.CacheControl = "no-store, no-cache";

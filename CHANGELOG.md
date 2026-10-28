@@ -13,6 +13,26 @@ Những cập nhật gần đây của TRAV-AI, viết cho người dùng. Mới
 
 ---
 
+## Phiên bản 28/10/2026 — Phân quyền chat nội bộ
+
+### ✨ Tính năng mới
+- **Chat nội bộ theo phân quyền.** Chỉ người được tick một trong hai quyền mới thấy chat:
+  - **Xem đoạn chat mình được phân công**: thấy các cuộc trò chuyện mình được thêm vào.
+  - **Xem tất cả đoạn chat**: thấy mọi cuộc trò chuyện của công ty.
+- Người không được tick quyền nào sẽ không thấy nút Chat trên thanh trên cùng, trên các đơn hàng, và trang Chat báo
+  chưa được phân quyền.
+- **Chỉ trưởng nhóm thêm được người.** Nhóm chat đã tạo xong thì không ai tự vào được nữa, kể cả người tự rời hay bị
+  bỏ ra: bấm Chat trên đơn không còn đưa họ vào lại. Người có quyền "Xem tất cả đoạn chat" vẫn xem được (chỉ đọc).
+
+### 🔧 Đã khắc phục
+- Đổi quyền chat cho nhân viên trên CRM trước đây không có hiệu lực với chat (vẫn giữ quyền cũ). Nay quyền mới có
+  hiệu lực trong vòng 5 phút, hoặc ngay khi người đó đăng nhập lại.
+
+### 📌 Lưu ý
+- Quyền vừa đổi trên CRM có hiệu lực với chat trong vòng 5 phút, hoặc ngay khi người dùng đăng nhập lại.
+
+---
+
 ## Phiên bản 27/10/2026 — Trang Chat riêng
 
 ### ✨ Tính năng mới
@@ -25,7 +45,7 @@ Những cập nhật gần đây của TRAV-AI, viết cho người dùng. Mới
 - Trên điện thoại, trang Chat đi lần lượt: danh sách, cuộc trò chuyện, rồi thông tin nhóm.
 - **Quyền "Xem tất cả đoạn chat" nay áp cho cả chat nội bộ.** Người được cấp quyền này thấy mọi cuộc trò chuyện
   của công ty, kể cả cuộc mình chưa được thêm vào, không phụ thuộc nhóm, chi nhánh hay quyền xem đơn hàng.
-  Cuộc mình chưa ở được mở ở chế độ chỉ xem; muốn nhắn thì bấm **Tham gia phòng để nhắn** (cuộc 1-1 chỉ xem).
+  Cuộc mình chưa ở được mở ở chế độ chỉ xem; muốn nhắn thì nhờ trưởng nhóm thêm vào.
 
 ### 🔧 Đã khắc phục
 - **Đơn FIT không tạo được đoạn chat**: trước đây bấm Chat trên đơn FIT báo không tìm thấy đơn. Nay ai xem được đơn FIT
@@ -34,7 +54,7 @@ Những cập nhật gần đây của TRAV-AI, viết cho người dùng. Mới
 - Nhóm chat của đơn có nhiều người không còn bị cắt bớt ở 50 người.
 
 ### 📌 Lưu ý
-- Quyền vừa được cấp có hiệu lực sau khi người dùng đăng xuất rồi đăng nhập lại CRM.
+- Quyền vừa được cấp có hiệu lực trong vòng 5 phút, hoặc ngay khi người dùng đăng nhập lại CRM.
 
 ---
 

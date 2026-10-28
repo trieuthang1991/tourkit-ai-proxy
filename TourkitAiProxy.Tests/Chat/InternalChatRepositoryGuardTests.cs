@@ -196,8 +196,9 @@ public class InternalChatRepositoryGuardTests
     {
         var than = InternalChatGuardTests.ThanHam(Repo(), "CreateOrGetRoomAsync");
         Assert.Contains("unnest(@", than);
-        Assert.Contains("ON CONFLICT (conversation_id, user_id) DO UPDATE", than);
-        Assert.Contains("left_utc = NULL", than);
+        // Chốt 28/10/2026: đã có dòng (đang ở HOẶC đã ra) thì không đụng — bấm Chat không đưa người đã ra vào lại.
+        Assert.Contains("ON CONFLICT (conversation_id, user_id) DO NOTHING", than);
+        Assert.DoesNotContain("left_utc = NULL", than);
     }
 
     [Fact]
@@ -261,8 +262,9 @@ public class InternalChatRepositoryGuardTests
     }
 
     [Fact]
-    public void Vao_lai_phong_tinh_lai_moc_vao()
-        => Assert.Contains("SET joined_utc = now(), left_utc = NULL", InternalChatGuardTests.ThanHam(Repo(), "CreateOrGetRoomAsync"));
+    public void Duoc_them_lai_thi_vao_lai_tinh_lai_moc_vao()
+        // Đường DUY NHẤT để người đã ra vào lại là được thêm lại (AddMembersAsync): mốc vào tính lại, xoá dấu bị bỏ.
+        => Assert.Contains("left_utc = NULL, removed_by = NULL", InternalChatGuardTests.ThanHam(Repo(), "AddMembersAsync"));
 
     [Fact]
     public void Xoa_phia_toi_la_xoa_mem_rieng_minh()
@@ -310,11 +312,11 @@ public class InternalChatRepositoryGuardTests
     [Fact]
     public void Bam_Chat_phong_da_co_khong_ghi_gi()
     {
-        // Phòng đã có: KHÔNG ghi dòng hội thoại (DO NOTHING rồi đọc lại) và chỉ ghi thành viên khi
-        // người đó VÀO LẠI (đã rời) — trước đây mỗi lần bấm đều UPDATE hai bảng.
+        // Phòng đã có: KHÔNG ghi dòng hội thoại (DO NOTHING rồi đọc lại) và KHÔNG ghi thành viên đã có dòng
+        // (đang ở hay đã ra — chốt 28/10/2026) — trước đây mỗi lần bấm đều UPDATE hai bảng.
         var than = InternalChatGuardTests.ThanHam(Repo(), "CreateOrGetRoomAsync");
         Assert.Contains("DO NOTHING", than);
-        Assert.Contains("WHERE chat_room_members.left_utc IS NOT NULL", than);
+        Assert.DoesNotContain("ON CONFLICT (conversation_id, user_id) DO UPDATE", than);
     }
 
     [Fact]

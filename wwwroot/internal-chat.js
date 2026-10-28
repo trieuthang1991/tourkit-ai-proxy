@@ -28,7 +28,7 @@
  *     áp lúc tạo; ai biết khoá và có phiên trong công ty là vào được — đừng dùng cho chuyện cần giữ kín.
  *   TkInternalChat.openRoom(roomId)                            phòng đã có
  *   TkInternalChat.renameRoom(roomId, 'Tên mới')               (không áp cho phòng 1-1)
- *   TkInternalChat.addMembers(roomId, [12, 34])
+ *   TkInternalChat.addMembers(roomId, [12, 34])                CHỈ trưởng nhóm; phòng đã có thì không ai tự vào bằng openEntity
  *   TkInternalChat.removeMember(roomId, 12) / leaveRoom(roomId)   bỏ người khác: CHỈ trưởng nhóm; tự rời: ai cũng được
  *   TkInternalChat.transferOwner(roomId, 12)                  trao quyền trưởng nhóm (không áp phòng đơn/công ty)
  *   TkInternalChat.deleteRoom(roomId)                         xoá phòng với MỌI người — chỉ trưởng nhóm
@@ -241,6 +241,7 @@
     a.ib{color:inherit}
     .sec:hover{background:#eef1fc}
     .tools{padding:12px 16px 8px;display:flex;flex-direction:column;gap:10px}
+    .sf{margin:0;display:block}   /* form bọc ô tìm (chống tự điền) — không thêm khoảng, không đổi bố cục */
     .in{width:100%;height:38px;border:1px solid #d5d9e0;border-radius:6px;padding:0 10px;font:inherit;font-size:14px;color:#11151c;background:#fff}
     .chips{display:flex;gap:6px;flex-wrap:wrap}
     .chip{height:30px;padding:0 12px;border:1px solid #d5d9e0;border-radius:6px;background:#fff;color:#11151c;font-size:13px}
@@ -647,6 +648,16 @@
       on: { click: () => openInPage(id) } }, icon('page', size)) : null;
   }
 
+  // Ô tìm kiếm KHÔNG phải ô đăng nhập: trang CRM có lưu tài khoản thì Chrome tự điền tên đăng nhập ("admin") vào ô
+  // nhập văn bản đầu tiên nó thấy — trang Chat riêng dính đúng ô tìm phòng. Tắt tự điền + báo cho trình quản lý mật khẩu
+  // (LastPass / 1Password / Bitwarden) bỏ qua, và bọc trong <form role="search" autocomplete="off">.
+  const NO_FILL = { autocomplete: 'off', autocapitalize: 'off', spellcheck: 'false', 'data-lpignore': 'true', 'data-1p-ignore': 'true', 'data-bwignore': 'true', 'data-form-type': 'other' };
+  /// Bọc ô tìm trong form tìm kiếm: chặn gửi (Enter không tải lại trang), tắt tự điền ở cấp form.
+  function searchForm(...kids) {
+    return el('form', { class: 'sf', role: 'search', autocomplete: 'off', novalidate: true, action: '#',
+      on: { submit: (e) => e.preventDefault() } }, ...kids);
+  }
+
   function liveInput(set) {
     // Bỏ qua lúc bộ gõ đang ghép chữ (composition) — vẽ lại giữa chừng là phá dấu tiếng Việt.
     return {
@@ -687,7 +698,7 @@
       : null;
     const unreadRooms = st.rooms.filter((r) => r.unreadCount).length;
     const chip = (key, label) => el('button', { class: 'chip', type: 'button', 'aria-pressed': String(st.filter === key), on: { click: () => { st.filter = key; render(); } } }, label);
-    const search = el('input', { class: 'in', type: 'search', id: 'tk-tim', placeholder: 'Tìm người hoặc phòng', on: {
+    const search = el('input', { class: 'in', type: 'search', id: 'tk-tim', ...NO_FILL, name: 'tk-chat-tim-phong', placeholder: 'Tìm người hoặc phòng', on: {
       input: (e) => { if (!e.isComposing) onSearch(e.target.value); },
       compositionend: (e) => onSearch(e.target.value),
     } });
@@ -698,7 +709,7 @@
         el('button', { class: 'pri', type: 'button', 'aria-label': 'Trò chuyện mới', on: { click: () => openNew() } }, icon('plus', 16), lg ? null : 'Trò chuyện mới'),
         pageBtn(null), vw() >= 760 ? sizeBtn() : null, closeBtn()),
       el('div', { class: 'tools' },
-        el('label', { for: 'tk-tim', class: 'sr' }, 'Tìm người hoặc phòng'), search,
+        searchForm(el('label', { for: 'tk-tim', class: 'sr' }, 'Tìm người hoặc phòng'), search),
         el('div', { class: 'chips' }, chip('all', 'Tất cả'), chip('unread', 'Chưa đọc' + (unreadRooms ? ' · ' + unreadRooms : '')), chip('entity', 'Đơn · cơ hội'),
           PAGE_MODE ? chip('group', 'Nhóm') : null, PAGE_MODE ? chip('direct', '1-1') : null)),
       st.view === 'room' || st.view === 'new' ? null : errBox(),
@@ -728,19 +739,8 @@
   /// Trưởng nhóm (máy chủ quyết, đây chỉ để ẩn/hiện nút): người tạo nhóm; phòng đơn/công ty là người tạo bản ghi ở CRM.
   const isOwner = (r) => !!r && r.ownerUserId != null && r.ownerUserId === st.me;
   /// Phòng mình không ở, chỉ thấy nhờ quyền "Xem tất cả đoạn chat" (máy chủ trả member: false; mở từ nút Chat của đơn
-  /// thì lookup trả canView). Chỉ đọc: không soạn tin, không thả cảm xúc, không cấu hình.
+  /// thì lookup trả canView). CHỈ ĐỌC, không có đường tự vào (chốt 28/10/2026) — được thêm lại mới nhắn.
   const readOnly = (r) => !!r && r.member !== true && (r.member === false || st.viewOnly.has(r.id));
-  async function joinRoom(id) {
-    if (st.busy) return;
-    st.busy = true; errMsg = ''; st.errRoom = null; render();
-    try {
-      await api('POST', `/rooms/${id}/join`);
-      st.viewOnly.delete(id);
-      await loadRooms();
-      ensureConv(id).then(() => markRead(id)).catch(() => {});
-    } catch (e) { if (!dead) { errMsg = 'Chưa vào được phòng: ' + e.message; st.errRoom = id; } }
-    finally { st.busy = false; render(); }
-  }
   /// Phòng đơn/công ty không trao quyền tay — quyền bám người tạo bản ghi.
   const canTransfer = (r) => !!r && !['direct', 'order', 'company'].includes(r.entityType);
 
@@ -756,7 +756,7 @@
     name.value = st.renameDraft[id] ?? (r.title || '');
     const q = st.addSearch.trim().toLowerCase();
     const candidates = [...st.users.entries()].filter(([uid, n]) => !members.includes(uid) && (!q || n.toLowerCase().includes(q)));
-    const find = el('input', { class: 'in', id: findId, type: 'search', placeholder: 'Tìm nhân viên để thêm', on: liveInput((v) => { st.addSearch = v; }) });
+    const find = el('input', { class: 'in', id: findId, type: 'search', ...NO_FILL, name: 'tk-chat-them-nguoi', placeholder: 'Tìm nhân viên để thêm', on: liveInput((v) => { st.addSearch = v; }) });
     find.value = st.addSearch;
     const n = st.addPicked.size;
     return [
@@ -781,8 +781,9 @@
                     on: { click: () => askTransfer(id, uid) } }, st.transferConfirm === id + ':' + uid ? 'Bấm lần nữa' : 'Trao quyền') : null,
                   el('button', { class: 'sec', type: 'button', 'aria-label': 'Bỏ ' + userName(uid) + ' khỏi phòng', on: { click: () => doRemove(id, uid) } }, 'Bỏ'))
               : null)))),
-        el('div', {},
-          el('label', { class: 'lb', for: findId }, 'Thêm người'), find,
+        // Thêm người: CHỈ trưởng nhóm (chốt 28/10/2026) — thành viên thường không thấy khối này. Máy chủ cũng chặn.
+        !owner ? el('div', { class: 'hint' }, 'Chỉ trưởng nhóm thêm được người vào phòng.') : el('div', {},
+          el('label', { class: 'lb', for: findId }, 'Thêm người'), searchForm(find),
           candidates.length
             ? el('ul', { style: 'padding:4px 0 0;overflow:visible' }, candidates.slice(0, 50).map(([uid, nm]) => el('li', {},
                 el('label', { class: 'opt' },
@@ -791,7 +792,7 @@
             : el('div', { class: 'hint', style: 'padding:8px 0' }, st.users.size ? 'Không còn ai để thêm.' : 'Đang tải danh sách nhân viên…'))),
       st.errRoom === id ? errBox() : null,
       el('div', { class: 'ft' },
-        el('button', { class: 'pri', type: 'button', disabled: !n || st.busy, on: { click: () => doAdd(id) } }, n ? 'Thêm ' + n + ' người' : 'Chọn người để thêm'),
+        owner ? el('button', { class: 'pri', type: 'button', disabled: !n || st.busy, on: { click: () => doAdd(id) } }, n ? 'Thêm ' + n + ' người' : 'Chọn người để thêm') : null,
         inInfo ? null : el('button', { class: 'sec', type: 'button', style: 'justify-content:center;height:36px', on: { click: () => toggleSettings(id, key) } }, 'Xong'))];
   }
 
@@ -906,12 +907,12 @@
         o.body ? el('div', { class: 'row' }, el('div', { class: 'bb' }, o.body)) : null, t));
     }
 
-    // Chỉ xem: không ô soạn. Phòng nhóm/đơn có nút tự vào phòng để nhắn; phòng 1-1 thì chỉ xem.
+    // Chỉ xem: không ô soạn, không nút tự vào (chốt 28/10/2026) — muốn nhắn thì nhờ trưởng nhóm / thành viên thêm vào.
     if (ro) return [list, st.errRoom === id ? errBox() : null,
       el('div', { class: 'vo', role: 'note' },
-        el('span', {}, 'Bạn đang xem cuộc trò chuyện này nhờ quyền "Xem tất cả đoạn chat".'),
-        r.entityType === 'direct' ? null
-          : el('button', { class: 'pri', type: 'button', disabled: st.busy, on: { click: () => joinRoom(id) } }, 'Tham gia phòng để nhắn'))];
+        el('span', {}, r.leftRoom
+          ? 'Bạn không còn ở cuộc trò chuyện này. Bạn chỉ xem được nhờ quyền "Xem tất cả đoạn chat"; muốn nhắn, nhờ trưởng nhóm thêm lại.'
+          : 'Bạn đang xem cuộc trò chuyện này nhờ quyền "Xem tất cả đoạn chat". Muốn nhắn, nhờ trưởng nhóm thêm bạn vào.'))];
 
     const taId = 'tk-soan-' + key, fileId = 'tk-tep-' + key;
     const draft = st.drafts[id] || '';
@@ -1102,7 +1103,7 @@
     const title = el('input', { class: 'in', id: 'tk-ten', type: 'text', maxlength: '120', placeholder: 'Ví dụ: Đoàn Nhật tháng 11',
       on: { input: (e) => { st.newTitle = e.target.value; } } });
     title.value = st.newTitle;
-    const us = el('input', { class: 'in', id: 'tk-tim-nv', type: 'search', placeholder: 'Tìm theo tên nhân viên', on: liveInput((v) => { st.userSearch = v; }) });
+    const us = el('input', { class: 'in', id: 'tk-tim-nv', type: 'search', ...NO_FILL, name: 'tk-chat-tim-nv', placeholder: 'Tìm theo tên nhân viên', on: liveInput((v) => { st.userSearch = v; }) });
     us.value = st.userSearch;
     const seg = (key, label) => el('button', { type: 'button', 'aria-pressed': String(st.newType === key), on: { click: () => { st.newType = key; if (key === 'direct' && st.picked.size > 1) st.picked = new Set([...st.picked].slice(0, 1)); render(); } } }, label);
     const n = st.picked.size;
@@ -1112,7 +1113,7 @@
       el('div', { class: 'tools' },
         el('div', { class: 'seg' }, seg('direct', 'Nhắn một người'), seg('group', 'Tạo nhóm')),
         direct ? null : el('div', {}, el('label', { class: 'lb', for: 'tk-ten' }, 'Tên nhóm'), title),
-        el('div', {}, el('label', { class: 'lb', for: 'tk-tim-nv' }, direct ? 'Nhắn cho' : 'Thêm người'), us),
+        el('div', {}, el('label', { class: 'lb', for: 'tk-tim-nv' }, direct ? 'Nhắn cho' : 'Thêm người'), searchForm(us)),
         n && !direct ? el('div', { class: 'pk' }, [...st.picked].map((id) => el('span', {}, userName(id),
           el('button', { type: 'button', 'aria-label': 'Bỏ ' + userName(id), on: { click: () => pickToggle(id) } }, icon('x', 12))))) : null),
       errBox(),
@@ -1336,11 +1337,16 @@
   async function openLinked(payload, where) {
     const own = payload.ownerUserId ? `&ownerUserId=${payload.ownerUserId}&ownerSig=${encodeURIComponent(payload.ownerSig)}` : '';
     const r = await api('GET', `/rooms/lookup?entityType=${encodeURIComponent(payload.entityType)}&entityId=${encodeURIComponent(payload.entityId)}${own}`);
-    // Phòng có rồi, mình chưa ở nhưng có quyền "Xem tất cả đoạn chat" → mở thẳng ở chế độ chỉ xem (có nút tham gia).
-    if (!r.member && r.canView && r.id != null) {
+    // Phòng ĐÃ CÓ mà mình không ở (chưa từng ở, tự rời hay bị bỏ) → không tự vào (chốt 28/10/2026): có quyền "Xem tất cả
+    // đoạn chat" thì mở CHỈ XEM, không có quyền thì báo. Muốn nhắn phải được trưởng nhóm thêm. Phòng chưa có → ô nháp.
+    if (!r.member && r.id != null) {
       if (st.draft && st.draft.roomKey === r.roomKey) closeDraft();
+      if (!r.canView) throw new Error(r.leftRoom
+        ? 'Bạn không còn ở cuộc trò chuyện này — nhờ trưởng nhóm thêm lại để nhắn'
+        : 'Cuộc trò chuyện này đã có — nhờ trưởng nhóm thêm bạn vào để nhắn');
       st.viewOnly.add(r.id);
       await loadRooms();
+      const lr = st.rooms.find((x) => x.id === r.id); if (lr) lr.leftRoom = true;
       if (where === 'panel') showInPanel(r.id); else addDock(r.id);
       return { roomId: r.id };
     }
@@ -1895,7 +1901,7 @@
     renameRoom(roomId, title) {
       return api('PATCH', `/rooms/${Number(roomId)}`, { title: title == null ? null : String(title) }).then(loadRooms).catch(fail);
     },
-    /** Thêm người vào phòng (mã người CRM). */
+    /** Thêm người vào phòng (mã người CRM) — chỉ trưởng nhóm (máy chủ chặn người khác). */
     addMembers(roomId, members) {
       const m = ids(members);
       if (!m.length) return fail(new Error('addMembers: cần ít nhất một mã người'));

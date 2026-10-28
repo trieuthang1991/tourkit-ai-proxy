@@ -75,6 +75,19 @@ public static class SessionAuth
     }
 
     /// <summary>
+    /// Được dùng CHAT NỘI BỘ không (chốt 28/10/2026): phòng ban được tick một trong hai quyền CRM — "Xem đoạn chat mình
+    /// được phân công" (<c>CHAT_XEM</c>: chỉ cuộc mình được thêm vào) hoặc "Xem tất cả đoạn chat" (<c>CHAT_XEM_ALL</c>: mọi
+    /// cuộc). Không tick quyền nào → không có chat. CRM ẩn nút theo cùng luật (TravAiChatSession.CanUse); đây là chốt máy chủ.
+    /// </summary>
+    public static async Task<bool> CanUseInternalChatAsync(string sid, TkSessionStore sessions,
+                                                          CancellationToken ct = default)
+    {
+        // "Xem tất cả" hỏi qua IsQuanTriChatAsync — MỘT nơi duy nhất đọc CHAT_XEM_ALL (ChatScopeGuardTests canh).
+        if (await IsQuanTriChatAsync(sid, sessions, ct)) return true;
+        return sessions.HasPermission(sid, TkPermissionCodes.ChatXem);
+    }
+
+    /// <summary>
     /// Tài khoản này có quyền <b>Cấu hình hệ thống</b> (<c>CH_HT_XEM</c>) không.
     ///
     /// <para>Trước 20/08/2026 hàm này được chép trong DigestEndpoints và WorkflowEndpoints. Bản thứ

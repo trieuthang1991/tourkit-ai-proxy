@@ -47,12 +47,31 @@ public class InternalChatViewAllTests
         => Assert.DoesNotContain("viewAll", InternalChatGuardTests.ThanHam(Repo(), "AppendMessageAsync"));
 
     [Fact]
-    public void Tu_vao_phong_khong_ap_phong_1_1_va_endpoint_doi_quyen()
+    public void Phong_da_co_khong_ai_tu_vao_chi_truong_nhom_them()
     {
-        Assert.Contains("v.entity_type IS DISTINCT FROM 'direct'", InternalChatGuardTests.ThanHam(Repo(), "JoinRoomAsync"));
+        // Chốt 28/10/2026: phòng đã tạo xong thì KHÔNG ai tự vào — kể cả người chưa từng ở, tự rời hay bị bỏ. Có
+        // CHAT_XEM_ALL thì chỉ xem; muốn nhắn phải được TRƯỞNG NHÓM thêm.
         var ep = Ep();
-        var join = ep[ep.IndexOf("\"/rooms/{id:long}/join\"", StringComparison.Ordinal)..];
-        Assert.True(join.IndexOf("IsQuanTriChatAsync", StringComparison.Ordinal) < join.IndexOf("JoinRoomAsync", StringComparison.Ordinal));
+        Assert.DoesNotContain("/join\"", ep);                                     // không còn đường tự vào
+        Assert.DoesNotContain("JoinRoomAsync", Repo());
+        var tao = InternalChatGuardTests.ThanHam(Repo(), "CreateOrGetRoomAsync").Replace("\r\n", "\n");
+        Assert.Contains(": Array.Empty<int>();", tao);                             // phòng đã có: không thêm ai (cả người bấm)
+        Assert.Contains("if (ids.Length > 0)", tao);
+        Assert.Contains("if (cid is not null && !cmember)", ep);                   // POST /rooms phòng đã có mà không ở → 403
+        Assert.Contains("var canView = !member && id is not null", ep);            // lookup: không ở → chỉ xem (nếu có quyền)
+        var them = InternalChatGuardTests.ThanHam(Repo(), "AddMembersAsync");
+        Assert.Contains("v.owner_user_id = @userId", them);                        // chỉ trưởng nhóm thêm người
+        Assert.Contains("removed_by = NULL", them);                                // được thêm lại thì hết dấu bị bỏ
+    }
+
+    [Fact]
+    public void Bo_nguoi_ghi_dau_bi_bo_tu_roi_thi_khong()
+    {
+        var bo = InternalChatGuardTests.ThanHam(Repo(), "RemoveMemberAsync");
+        Assert.Contains("SET left_utc = now(), removed_by = @userId", bo);
+        Assert.Contains("SET left_utc = now(), removed_by = NULL", bo);
+        Assert.Contains("ADD COLUMN IF NOT EXISTS removed_by integer",
+            ChatSchemaGuardTests.DocFile("TourkitAiProxy.Infrastructure/Chat/Inbox/ChatDb.cs"));
     }
 
     [Fact]
@@ -84,6 +103,42 @@ public class InternalChatViewAllTests
     }
 
     [Fact]
-    public void Cau_thong_bao_tham_gia()
-        => Assert.Equal("Trần Thu Hà đã tham gia phòng", InternalRoomNotice.Text("Trần Thu Hà", "vào", null));
+    public void Khong_co_quyen_chat_nao_thi_moi_duong_chat_noi_bo_deu_403()
+    {
+        // Chốt 28/10/2026: cần CHAT_XEM (cuộc mình ở) hoặc CHAT_XEM_ALL (mọi cuộc). Chốt nằm trong GuardAsync — mọi endpoint
+        // của nhóm (kể cả /events) đi qua đó, không endpoint nào tự kiểm riêng mà quên.
+        var ep = Ep();
+        var guard = InternalChatGuardTests.ThanHam(ep, "GuardAsync");
+        Assert.Contains("CanUseInternalChatAsync", guard);
+        Assert.Contains("statusCode: 403", guard);
+        var auth = ChatSchemaGuardTests.DocFile("TourkitAiProxy.Endpoints/SessionAuth.cs");
+        var than = InternalChatGuardTests.ThanHam(auth, "CanUseInternalChatAsync");
+        Assert.Contains("TkPermissionCodes.ChatXem)", than);
+        Assert.Contains("IsQuanTriChatAsync(sid, sessions, ct)", than);   // "xem tất cả" đi qua nguồn duy nhất
+    }
+
+    [Fact]
+    public void Ca_nhan_chi_thay_phong_minh_o_tat_ca_moi_thay_het()
+    {
+        // CHAT_XEM chỉ: danh sách luồng thường (phòng mình ở). Chế độ "mọi phòng" chỉ bật bằng CHAT_XEM_ALL.
+        var ep = Ep();
+        Assert.Contains("var viewAll = await SessionAuth.IsQuanTriChatAsync(a!.SessionId, sessions, ct);", ep);
+        Assert.Contains("ListAllRoomsAsync(c, tenant, userId", InternalChatGuardTests.ThanHam(Repo(), "ListRoomsAsync"));
+        Assert.Contains("viewAll\n            ? await ListAllRoomsAsync", InternalChatGuardTests.ThanHam(Repo(), "ListRoomsAsync").Replace("\r\n", "\n"));
+    }
+
+    [Fact]
+    public void Doi_quyen_ben_CRM_phai_toi_proxy_khong_dong_bang()
+    {
+        // Lỗi 28/10/2026: bỏ tick "Xem tất cả đoạn chat" mà proxy vẫn cho xem tất cả — quyền nạp MỘT lần rồi đứng yên
+        // (phiên được SSO dùng lại, EnsurePermissionsAsync no-op khi đã loaded). Nay: hết TTL thì nạp lại, và đăng nhập SSO
+        // lại thì nạp ngay.
+        var store = ChatSchemaGuardTests.DocFile("TourkitAiProxy.Infrastructure/TourKit/TkSessionStore.cs");
+        var ensure = InternalChatGuardTests.ThanHam(store, "EnsurePermissionsAsync");
+        Assert.Contains("PermsTtl", ensure);
+        Assert.DoesNotContain("if (s == null || s.PermissionsLoaded) return;", ensure);
+        Assert.Contains("TimeSpan.FromMinutes(5)", store);
+        var sso = ChatSchemaGuardTests.DocFile("TourkitAiProxy.Endpoints/CrmSsoEndpoints.cs");
+        Assert.Contains("RefreshPermissionsAsync(s.Id", sso);
+    }
 }

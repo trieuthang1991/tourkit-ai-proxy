@@ -115,9 +115,8 @@ người CRM → 401; không phải thành viên phòng → 403. Thân request �
 | PATCH | `/rooms/{id}` | `{title}` đổi tên. Phòng 1-1 → 403. Ghi tin hệ thống |
 | PUT | `/messages/{id}/reaction` | `{emoji: "👍"|"❤️"|"😆"|"😮"|"😢"|"😡"|null}` thả / đổi / gỡ cảm xúc (mỗi người một biểu tượng trên một tin; `null` = gỡ). Lưu ở `chat_reactions` với `channel = 7` (dùng chung bảng hộp thư khách). Không tính chưa đọc, không đổi xem trước. Báo sự kiện `changed` → 204 / 400 (ngoài bộ) / 403 (không phải thành viên, tin thu hồi/hệ thống) |
 | PUT | `/rooms/{id}/data` | `{data: {...}\|null}` thay tham số tự do của phòng (thành viên; giống giá trị đang có → không ghi). Đổi thật → sự kiện "phòng đổi cấu hình" để mọi người thấy nút Xem lại mới → 204 / 400 / 403 |
-| POST | `/rooms/{id}/members` | `{memberUserIds[]}` thêm người (người đã rời thì vào lại). Phòng 1-1 → 403. Ghi tin hệ thống |
+| POST | `/rooms/{id}/members` | `{memberUserIds[]}` thêm người — **chỉ trưởng nhóm** (khác → 403); người đã rời / bị bỏ được thêm lại thì vào lại. Đây là đường DUY NHẤT vào phòng đã có (POST /rooms với phòng đã có mà mình không ở → 403). Phòng 1-1 → 403. Ghi tin hệ thống |
 | DELETE | `/rooms/{id}/members/{userId}` | Bỏ người: **chỉ trưởng nhóm** (khác → 403); bỏ chính mình = rời phòng (ai cũng được) — trưởng nhóm rời thì quyền tự sang người vào phòng sớm nhất còn lại. Phòng 1-1 → 403. Ghi tin hệ thống |
-| POST | `/rooms/{id}/join` | Tự vào phòng đang xem nhờ quyền **CHAT_XEM_ALL** (`SessionAuth.IsQuanTriChatAsync`); không áp phòng 1-1 → 204 / 403. Ghi tin hệ thống "A đã tham gia phòng" |
 | POST | `/rooms/{id}/owner` | `{userId}` trao quyền trưởng nhóm — chỉ trưởng nhóm, người nhận phải đang ở phòng; phòng order/company không trao tay (bám người tạo bản ghi) → 204 / 400 / 403. Ghi tin hệ thống |
 | DELETE | `/rooms/{id}` | Xoá phòng với mọi người — **chỉ trưởng nhóm** (khác `/hide`). Xoá mềm: `deleted_utc`, mọi thành viên rời, khoá phòng đổi đuôi `#xoa:{id}` để mở lại bản ghi ra phòng mới → 204 / 403 |
 | DELETE | `/messages/{id}` | Thu hồi tin CỦA MÌNH (xoá mềm, với mọi người; dòng xem trước của phòng tính lại) → 204 / 404. Người đã rời phòng: 404 |

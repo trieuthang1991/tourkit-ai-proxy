@@ -781,6 +781,9 @@ public class ChatDb
     -- "Xoá phía tôi" (xoá mềm, riêng một người): ẩn phòng khỏi danh sách của người đó và ẩn tin cũ hơn
     -- mốc này. Có tin mới sau mốc thì phòng tự hiện lại (chỉ với tin mới). Nullable → chỉ ghi metadata.
     ALTER TABLE chat_room_members ADD COLUMN IF NOT EXISTS hidden_utc timestamptz;
+    -- Ai đã bỏ người này ra (trưởng nhóm). NULL = tự rời / đang ở. Có giá trị = bị đá: KHÔNG tự vào lại bằng nút Chat trên
+    -- đơn hay nút Tham gia — chỉ khi có người thêm lại (28/10/2026). Nullable → chỉ ghi metadata.
+    ALTER TABLE chat_room_members ADD COLUMN IF NOT EXISTS removed_by integer;
 
     -- Trưởng nhóm (InternalRoomOwner, chốt 27/10/2026): chỉ người này bỏ được người khác, chuyển quyền,
     -- xoá phòng. MỘT CỘT ở phòng chứ không cột vai trò ở thành viên: mỗi phòng đúng một trưởng nhóm, chuyển

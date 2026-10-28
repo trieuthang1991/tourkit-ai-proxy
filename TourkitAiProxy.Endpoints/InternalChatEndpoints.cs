@@ -13,7 +13,8 @@ namespace TourkitAiProxy.Endpoints;
 /// Chat nội bộ giữa nhân viên — đường dẫn cho widget nhúng vào CRM.
 ///
 /// <para><b>Nhóm RIÊNG, không nằm dưới nhóm <c>/api/v1/chat</c> của hộp thư khách:</b> nhóm đó gắn
-/// bộ lọc quyền chat (CHAT_XEM/CHAT_XEM_ALL), còn chat nội bộ dành cho MỌI nhân viên có phiên hợp lệ.</para>
+/// bộ lọc quyền chat (CHAT_XEM/CHAT_XEM_ALL), chat nội bộ có chốt riêng trong <c>GuardAsync</c>: cần một trong hai quyền đó (CHAT_XEM = cuộc mình ở,
+/// CHAT_XEM_ALL = mọi cuộc) — chốt 28/10/2026.</para>
 ///
 /// <para>Thân request đọc TAY bằng <c>JsonSerializer</c> chứ không khai tham số thân: tham số thân
 /// của minimal API gắn <c>AcceptsMetadata</c>, request thiếu <c>Content-Type</c> bị loại ở tầng định
@@ -132,6 +133,18 @@ public static class InternalChatEndpoints
                 chiTiet = ct2;
             }
 
+            // Phòng theo bản ghi ĐÃ CÓ mà mình không ở (chưa từng ở, tự rời hay bị bỏ) → không tự vào bằng nút Chat (chốt
+            // 28/10/2026): chỉ trưởng nhóm thêm mới vào. Chỉ hỏi loại có khoá cố định (đơn / công ty / cơ hội / khoá tự do);
+            // nhóm thường luôn là phòng mới, 1-1 thì hai người luôn ở sẵn.
+            if (type is not "group" and not "direct")
+            {
+                var (cid, cmember, _, cleft) = await repo.FindRoomByKeyAsync(a!.TenantId, key, me, ct);
+                if (cid is not null && !cmember)
+                    return Results.Json(new { error = cleft
+                        ? "Bạn không còn ở cuộc trò chuyện này — nhờ trưởng nhóm thêm lại để nhắn"
+                        : "Bạn chưa ở cuộc trò chuyện này — nhờ trưởng nhóm thêm vào để nhắn" }, statusCode: 403);
+            }
+
             var title = string.IsNullOrWhiteSpace(req.Title) ? null : req.Title.Trim()[..Math.Min(req.Title.Trim().Length, 120)];
             var entityId = InternalRoomKey.IsEntityType(type) || type == "key" ? rawEntity : null;
             var (id, created, ownerSync) = await repo.CreateOrGetRoomAsync(a!.TenantId, me, key, type!, entityId, title, others, dataJson, owner, ct);
@@ -164,7 +177,7 @@ public static class InternalChatEndpoints
             if (loi is not null) return loi;
             var key = InternalRoomKey.ForLookup(entityType, entityId);
             if (key is null) return Bad("Cần entityType (order | company | deal | key) và mã hợp lệ");
-            var (id, member, data) = await repo.FindRoomByKeyAsync(a!.TenantId, key, me, ct);
+            var (id, member, data, leftRoom) = await repo.FindRoomByKeyAsync(a!.TenantId, key, me, ct);
             // Đã ở phòng → mở thẳng, không qua POST /rooms; đồng bộ trưởng nhóm theo người tạo bản ghi ngay đây.
             if (member && id is long rid
                 && SignedOwner(cfg, a.TenantId, entityType?.Trim().ToLowerInvariant(), key, ownerUserId, ownerSig) is int so)
@@ -175,9 +188,11 @@ public static class InternalChatEndpoints
                 var (cam, _) = await CheckDealViewAsync(sessions, deals, a, me, key["deal:".Length..], ct);
                 if (cam is not null) return cam;
             }
-            // canView: phòng có rồi, mình chưa ở nhưng có CHAT_XEM_ALL → widget mở thẳng ở chế độ chỉ xem thay vì ô nháp.
-            var canView = id is not null && !member && await SessionAuth.IsQuanTriChatAsync(a.SessionId, sessions, ct);
-            return Results.Json(new { id, member, roomKey = key, data, canView }, Web);
+            // Phòng đã có mà mình không ở → không tự vào (28/10/2026). canView: có CHAT_XEM_ALL → widget mở CHỈ XEM; không có →
+            // widget báo nhờ trưởng nhóm thêm. leftRoom chỉ để chọn câu (từng ở rồi ra / chưa từng ở). Phòng chưa có → ô nháp.
+            var left = leftRoom && !member;
+            var canView = !member && id is not null && await SessionAuth.IsQuanTriChatAsync(a.SessionId, sessions, ct);
+            return Results.Json(new { id, member, roomKey = key, data, canView, leftRoom = left }, Web);
         });
 
         g.MapGet("/rooms/{id:long}/messages", async (long id, HttpContext ctx, TkSessionStore sessions,
@@ -349,7 +364,8 @@ public static class InternalChatEndpoints
             if (them.Count == 0) return Bad("Chưa chọn người để thêm");
             if (them.Count > MaxMembers) return Bad($"Tối đa {MaxMembers} người một lần");
             if (await CheckStaffAsync(them, sessions, api, redis, a!, lf, ct) is { } sai) return sai;
-            if (await repo.AddMembersAsync(a!.TenantId, id, me, them, ct) == 0) return CannotConfigure();
+            if (await repo.AddMembersAsync(a!.TenantId, id, me, them, ct) == 0)
+                return Results.Json(new { error = "Chỉ trưởng nhóm mới thêm được người vào phòng (phòng 1-1 không thêm được)" }, statusCode: 403);
             await PostNoticeAsync(repo, bus, sessions, api, redis, lf, a, me, id, "thêm", them, null, ct);
             await NotifyRoomChangedAsync(repo, bus, a.TenantId, id, null, ct);
             return Results.NoContent();
@@ -373,22 +389,6 @@ public static class InternalChatEndpoints
                     userId == me ? "rời" : "bỏ", new[] { userId }, null, ct);
             // Báo cả người VỪA bị bỏ: tab của họ phải biết mà đóng phòng.
             await NotifyRoomChangedAsync(repo, bus, a.TenantId, id, userId, ct);
-            return Results.NoContent();
-        });
-
-        // Tự vào một phòng đang xem nhờ quyền "Xem tất cả đoạn chat" (CHAT_XEM_ALL) — để nhắn được. Không áp phòng 1-1.
-        g.MapPost("/rooms/{id:long}/join", async (long id, HttpContext ctx, TkSessionStore sessions,
-            InternalChatRepository repo, ChatEventBus bus, TourKitApiClient api, RedisStore redis, ILoggerFactory lf,
-            CancellationToken ct) =>
-        {
-            var (loi, a, me) = await GuardAsync(ctx, sessions, repo, ct);
-            if (loi is not null) return loi;
-            if (!await SessionAuth.IsQuanTriChatAsync(a!.SessionId, sessions, ct))
-                return Results.Json(new { error = "Cần quyền Xem tất cả đoạn chat để tự vào phòng" }, statusCode: 403);
-            if (!await repo.JoinRoomAsync(a.TenantId, id, me, ct))
-                return Results.Json(new { error = "Không vào được phòng này (phòng 1-1, đã xoá, hoặc bạn đã ở trong phòng)" }, statusCode: 403);
-            await PostNoticeAsync(repo, bus, sessions, api, redis, lf, a, me, id, "vào", Array.Empty<int>(), null, ct);
-            await NotifyRoomChangedAsync(repo, bus, a.TenantId, id, null, ct);
             return Results.NoContent();
         });
 
@@ -534,6 +534,9 @@ public static class InternalChatEndpoints
             return (Results.Json(new { error = "Phiên chưa có mã người dùng — đăng nhập lại" }, statusCode: 401), null, 0);
         if (!repo.Configured)
             return (Results.Json(new { error = "Chat nội bộ chưa được cấu hình (ConnectionStrings:Chat)" }, statusCode: 503), null, 0);
+        // Không có CHAT_XEM lẫn CHAT_XEM_ALL → không dùng chat nội bộ (chốt 28/10/2026). Một chốt cho MỌI đường của nhóm.
+        if (!await SessionAuth.CanUseInternalChatAsync(a.SessionId, sessions, ct))
+            return (Results.Json(new { error = "Bạn chưa được phân quyền xem chat nội bộ" }, statusCode: 403), null, 0);
         return (null, a, me.Value);
     }
 

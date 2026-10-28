@@ -60,6 +60,14 @@ public class TkSessionStore
     private readonly ILogger<TkSessionStore> _log;
     private readonly ConcurrentDictionary<string, TkSession> _cache = new();
 
+    /// <summary>
+    /// Mốc nạp quyền gần nhất của từng phiên (trong bộ nhớ). Trước 28/10/2026 quyền nạp MỘT lần rồi đứng yên mãi: phiên
+    /// được dùng lại qua SSO và JWT còn hạn thì đổi quyền bên CRM (vd bỏ "Xem tất cả đoạn chat") không bao giờ tới proxy.
+    /// Nay quá <see cref="PermsTtl"/> là nạp lại. Khởi động lại máy chủ → dict rỗng → mỗi phiên nạp lại một lần, đúng ý.
+    /// </summary>
+    private readonly ConcurrentDictionary<string, DateTime> _permsAt = new();
+    private static readonly TimeSpan PermsTtl = TimeSpan.FromMinutes(5);
+
     // JWT TourKit sống vài giờ; refresh chủ động sau 50 phút cho an toàn (re-login rẻ).
     private static readonly TimeSpan SoftTtl = TimeSpan.FromMinutes(50);
     // Dọn phiên không dùng quá 30 ngày.
@@ -211,24 +219,43 @@ public class TkSessionStore
     }
 
     /// Nạp quyền cho phiên CHƯA loaded (mới tạo lỗi fetch / session cũ trước tính năng / restart mà
-    /// PermissionsJson NULL). Tự lấy LẠI cho tới khi thành công — điều kiện là `!PermissionsLoaded`, nên
-    /// khi đã loaded (kể cả rỗng authoritative) thì NO-OP → bounded, không spam upstream mỗi request.
+    /// PermissionsJson NULL). Tự lấy LẠI cho tới khi thành công. Đã loaded thì chỉ nạp lại tối đa MỘT lần mỗi
+    /// <see cref="PermsTtl"/> / phiên → vẫn bounded, không spam upstream mỗi request.
+    /// <para>Đã nạp mà quá <see cref="PermsTtl"/> (hoặc chưa nạp lần nào từ khi máy chủ lên) → nạp lại để đổi quyền bên
+    /// CRM có hiệu lực. Lỗi khi nạp lại → GIỮ quyền cũ (không khoá oan người dùng vì CRM chập chờn), thử lại sau TTL.</para>
     public async Task EnsurePermissionsAsync(string sessionId, CancellationToken ct)
     {
         var s = Get(sessionId);
-        if (s == null || s.PermissionsLoaded) return;
+        if (s == null) return;
+        var now = DateTime.UtcNow;
+        if (s.PermissionsLoaded && _permsAt.TryGetValue(sessionId, out var at) && now - at < PermsTtl) return;
+        // Đánh dấu TRƯỚC khi gọi: nhiều request cùng lúc của một phiên không cùng đổ về CRM (chỉ một lượt nạp / TTL).
+        if (s.PermissionsLoaded) _permsAt[sessionId] = now;
         try
         {
             var jwt = await GetValidJwtAsync(sessionId, ct);   // relogin nếu JWT rỗng/hết hạn
             var perms = await _api.GetPermissionsAsync(jwt, ct);
-            if (perms != null)   // null = vẫn lỗi → giữ Loaded=false, thử lại lần sau
+            if (perms != null)   // null = vẫn lỗi → chưa nạp lần nào thì giữ Loaded=false, đã có thì giữ quyền cũ
             {
+                var doi = !s.PermissionsLoaded || !perms.ToHashSet(StringComparer.OrdinalIgnoreCase)
+                    .SetEquals(s.Permissions ?? new List<string>());
                 s.Permissions = perms;
                 s.PermissionsLoaded = true;
-                await _repo.UpsertAsync(s, ct);
+                _permsAt[sessionId] = DateTime.UtcNow;
+                if (doi) await _repo.UpsertAsync(s, ct);   // quyền không đổi thì không ghi CSDL mỗi 5 phút
             }
         }
         catch (Exception ex) { _log.LogWarning(ex, "[TkSessionStore] EnsurePermissions {Id} lỗi", sessionId); }
+    }
+
+    /// <summary>
+    /// Nạp lại quyền NGAY (bỏ qua TTL) — gọi khi người dùng vừa đăng nhập lại từ CRM (SSO dùng lại phiên cũ), để quyền
+    /// vừa đổi bên CRM có hiệu lực tức thì thay vì chờ tới lượt làm mới kế tiếp.
+    /// </summary>
+    public Task RefreshPermissionsAsync(string sessionId, CancellationToken ct)
+    {
+        _permsAt.TryRemove(sessionId, out _);
+        return EnsurePermissionsAsync(sessionId, ct);
     }
 
     /// Lấy (hoặc tạo) sessionId cho 1 SERVICE ACCOUNT (tenant, username) — dùng cho workflow nền,

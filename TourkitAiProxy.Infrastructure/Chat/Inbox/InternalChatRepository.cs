@@ -38,6 +38,7 @@ public class InternalChatRepository
         public string? DataJson { get; set; }
         public int? OwnerUserId { get; set; }
         public bool Member { get; set; } = true;
+        public bool LeftRoom { get; set; }
     }
 
     /// JSON đã lưu → phần tử để trả ra API; hỏng (không thể xảy ra vì cột là jsonb) thì coi như không có.
@@ -120,34 +121,24 @@ public class InternalChatRepository
                     """, new { id, tenant, title }, tx, cancellationToken: ct));
         }
 
-        // Người khác CHỈ được thêm lúc phòng vừa tạo. Phòng đã có thì chỉ người bấm (vào lại nếu đã rời):
-        // thêm cả danh sách ở mọi lần bấm là kéo lại người đã bị bỏ khỏi phòng / đã tự rời.
-        // Trưởng nhóm do CRM ký luôn có mặt lúc tạo phòng (người tạo đơn có thể không phải người bấm).
+        // Thành viên CHỈ được đặt lúc phòng vừa tạo (chốt 28/10/2026): phòng đã có thì KHÔNG ai tự vào bằng nút Chat — kể cả
+        // người chưa từng ở; muốn vào phải được trưởng nhóm thêm (AddMembersAsync). Trưởng nhóm do CRM ký luôn có mặt lúc tạo.
         var ids = created
             ? memberIds.Append(creatorUserId).Concat(ownerUserId is int o0 ? new[] { o0 } : Array.Empty<int>()).Distinct().ToArray()
-            : new[] { creatorUserId };
-        await c.ExecuteAsync(new CommandDefinition("""
+            : Array.Empty<int>();
+        if (ids.Length > 0) await c.ExecuteAsync(new CommandDefinition("""
             INSERT INTO chat_room_members (conversation_id, tenant_id, user_id)
             -- DISTINCT: mảng có trùng thì Postgres ném "ON CONFLICT DO UPDATE cannot affect row a
             -- second time" (đo trên PG 17, 19/10/2026) — chặn ở đây kể cả khi chỗ gọi quên lọc.
             SELECT DISTINCT @id, @tenant, u FROM unnest(@ids) AS u
-            -- Chỉ ghi khi người đó VÀO LẠI (đã rời): mốc vào tính lại từ bây giờ. Đang là thành viên thì
-            -- không đụng gì — bấm Chat lại không sinh dòng chết.
-            ON CONFLICT (conversation_id, user_id) DO UPDATE
-               SET joined_utc = now(), left_utc = NULL
-             WHERE chat_room_members.left_utc IS NOT NULL AND chat_room_members.tenant_id = @tenant
+             WHERE EXISTS (SELECT 1 FROM chat_conversations v WHERE v.id = @id AND v.tenant_id = @tenant)
+            -- Phòng vừa tạo nên chưa có dòng nào; DO NOTHING chỉ phòng hờ hai người tạo cùng lúc.
+            ON CONFLICT (conversation_id, user_id) DO NOTHING
             """, new { id, tenant, ids }, tx, cancellationToken: ct));
         var sync = default(OwnerSync);
         if (!created)
         {
             if (ownerUserId is int o) sync = await SyncOwnerCoreAsync(c, tx, tenant, id.Value, o, ct);
-            // Phòng mất trưởng nhóm (mọi người đã rời rồi có người vào lại) → người vào lại nhận quyền.
-            // Chỉ ghi khi đang NULL — bấm Chat lại phòng bình thường không sinh dòng chết.
-            await c.ExecuteAsync(new CommandDefinition("""
-                UPDATE chat_conversations SET owner_user_id = @creatorUserId
-                 WHERE id = @id AND tenant_id = @tenant AND channel = 7 AND owner_user_id IS NULL
-                   AND entity_type IS DISTINCT FROM 'direct'
-                """, new { id, tenant, creatorUserId }, tx, cancellationToken: ct));
         }
         await tx.CommitAsync(ct);
         return (id.Value, created, sync);
@@ -238,7 +229,7 @@ public class InternalChatRepository
 
         return rows.Select(r => new InternalRoom(r.Id, r.Title, r.EntityType ?? "direct", r.EntityId,
             r.RoomKey, r.LastPreview, r.LastActivityAt, r.UnreadCount, members[r.Id].ToList(), r.LastMessageId,
-            ParseData(r.DataJson), r.OwnerUserId, r.Member)).ToList();
+            ParseData(r.DataJson), r.OwnerUserId, r.Member, r.LeftRoom)).ToList();
     }
 
     /// Phòng mình đang ở (luồng thường).
@@ -312,6 +303,9 @@ public class InternalChatRepository
             SELECT v.id, v.title, v.entity_type, v.entity_id, v.contact_external_id AS room_key,
                    v.last_preview, v.last_activity_at, v.entity_data::text AS data_json, v.owner_user_id,
                    (mb.conversation_id IS NOT NULL) AS member,
+                   EXISTS (SELECT 1 FROM chat_room_members k
+                            WHERE k.conversation_id = v.id AND k.tenant_id = @tenant AND k.user_id = @userId
+                              AND k.left_utc IS NOT NULL) AS left_room,
                    CASE WHEN mb.conversation_id IS NULL THEN 0 ELSE (SELECT count(*)::int FROM (
                       SELECT 1 FROM chat_messages m
                        WHERE m.conversation_id = v.id
@@ -450,8 +444,9 @@ public class InternalChatRepository
     // ── Cấu hình phòng ─────────────────────────────────────────────────────
     //
     // Luật (chốt 19/10/2026, mức vừa phải): phòng 1-1 KHOÁ — không đổi tên, không thêm/bỏ người.
-    // Nhóm / theo đơn / theo công ty: thành viên nào cũng được đổi tên, thêm người, tự rời.
-    // Bỏ NGƯỜI KHÁC / chuyển quyền / xoá phòng: chỉ trưởng nhóm (owner_user_id — InternalRoomOwner, 27/10/2026).
+    // Nhóm / theo đơn / theo công ty: thành viên nào cũng được đổi tên, tự rời.
+    // THÊM người / bỏ NGƯỜI KHÁC / chuyển quyền / xoá phòng: chỉ trưởng nhóm (owner_user_id — InternalRoomOwner, 27–28/10/2026).
+    // Phòng đã có thì không ai tự vào (nút Chat / tham gia) — chỉ trưởng nhóm thêm mới vào.
     // Mỗi hàm là MỘT câu: điều kiện "người làm là thành viên" + "không phải 1-1" nằm trong câu.
 
     /// <summary>Đổi tên phòng. false = không phải thành viên, hoặc là phòng 1-1.</summary>
@@ -482,34 +477,18 @@ public class InternalChatRepository
             SELECT DISTINCT @roomId, @tenant, u FROM unnest(@ids) AS u
              WHERE EXISTS (SELECT 1 FROM chat_conversations v
                             WHERE v.id = @roomId AND v.tenant_id = @tenant AND v.channel = 7
-                              AND v.entity_type IS DISTINCT FROM 'direct')
+                              AND v.entity_type IS DISTINCT FROM 'direct'
+                              -- Chỉ TRƯỞNG NHÓM thêm người (chốt 28/10/2026) — đường duy nhất để vào phòng đã có.
+                              AND v.owner_user_id = @userId AND v.deleted_utc IS NULL)
                AND EXISTS (SELECT 1 FROM chat_room_members mb
                             WHERE mb.conversation_id = @roomId AND mb.tenant_id = @tenant
                               AND mb.user_id = @userId AND mb.left_utc IS NULL)
             ON CONFLICT (conversation_id, user_id) DO UPDATE
                SET joined_utc = CASE WHEN chat_room_members.left_utc IS NULL
                                      THEN chat_room_members.joined_utc ELSE now() END,
-                   left_utc = NULL
+                   left_utc = NULL, removed_by = NULL   -- được thêm lại thì hết "bị đá"
              WHERE chat_room_members.tenant_id = @tenant
             """, new { tenant, roomId, userId, ids = ids.Distinct().ToArray() }, cancellationToken: ct));
-    }
-
-    /// <summary>
-    /// Tự vào một phòng mình chưa ở — chỉ cho người có quyền CHAT_XEM_ALL (chỗ gọi kiểm). Không áp phòng 1-1 (phòng
-    /// hai người, thêm người thứ ba là đổi bản chất). Đã rời thì vào lại, mốc vào tính từ bây giờ. Một câu.
-    /// false = phòng không có / đã xoá / là 1-1 / mình đang ở sẵn.
-    /// </summary>
-    public async Task<bool> JoinRoomAsync(string tenant, long roomId, int userId, CancellationToken ct = default)
-    {
-        await using var c = await _db.OpenAsync(ct);
-        return await c.ExecuteAsync(new CommandDefinition("""
-            INSERT INTO chat_room_members (conversation_id, tenant_id, user_id)
-            SELECT v.id, @tenant, @userId FROM chat_conversations v
-             WHERE v.id = @roomId AND v.tenant_id = @tenant AND v.channel = 7 AND v.deleted_utc IS NULL
-               AND v.entity_type IS DISTINCT FROM 'direct'
-            ON CONFLICT (conversation_id, user_id) DO UPDATE SET joined_utc = now(), left_utc = NULL
-             WHERE chat_room_members.left_utc IS NOT NULL AND chat_room_members.tenant_id = @tenant
-            """, new { tenant, roomId, userId }, cancellationToken: ct)) > 0;
     }
 
     private sealed class LeaveRow
@@ -530,7 +509,7 @@ public class InternalChatRepository
         await using var c = await _db.OpenAsync(ct);
         if (targetUserId != userId)
             return (await c.ExecuteAsync(new CommandDefinition("""
-                UPDATE chat_room_members t SET left_utc = now()
+                UPDATE chat_room_members t SET left_utc = now(), removed_by = @userId   -- dấu "bị đá": không tự vào lại
                  WHERE t.conversation_id = @roomId AND t.tenant_id = @tenant
                    AND t.user_id = @targetUserId AND t.left_utc IS NULL
                    AND EXISTS (SELECT 1 FROM chat_conversations v
@@ -546,7 +525,7 @@ public class InternalChatRepository
         // Người vào cùng lúc (cả nhóm tạo một lượt) → xếp tiếp theo mã người cho ổn định.
         var r = await c.QuerySingleAsync<LeaveRow>(new CommandDefinition("""
             WITH t AS (
-              UPDATE chat_room_members SET left_utc = now()
+              UPDATE chat_room_members SET left_utc = now(), removed_by = NULL   -- tự rời: vẫn tự vào lại được
                WHERE conversation_id = @roomId AND tenant_id = @tenant AND user_id = @userId AND left_utc IS NULL
                  AND EXISTS (SELECT 1 FROM chat_conversations v
                               WHERE v.id = @roomId AND v.tenant_id = @tenant AND v.channel = 7
@@ -753,21 +732,25 @@ public class InternalChatRepository
     /// Một câu, đi chỉ mục duy nhất <c>ux_conv_scope_surface</c>.
     /// </summary>
     /// <returns>Data: tham số tự do của phòng — CHỈ trả cho thành viên (người ngoài chỉ biết phòng có hay không).</returns>
-    public async Task<(long? Id, bool Member, System.Text.Json.JsonElement? Data)> FindRoomByKeyAsync(string tenant,
+    public async Task<(long? Id, bool Member, System.Text.Json.JsonElement? Data, bool LeftRoom)> FindRoomByKeyAsync(string tenant,
         string roomKey, int userId, CancellationToken ct = default)
     {
         await using var c = await _db.OpenAsync(ct);
-        var r = await c.QuerySingleOrDefaultAsync<(long Id, bool Member, string? Data)>(new CommandDefinition("""
+        var r = await c.QuerySingleOrDefaultAsync<(long Id, bool Member, string? Data, bool LeftRoom)>(new CommandDefinition("""
             SELECT v.id,
                    EXISTS (SELECT 1 FROM chat_room_members mb
                             WHERE mb.conversation_id = v.id AND mb.tenant_id = @tenant
                               AND mb.user_id = @userId AND mb.left_utc IS NULL) AS member,
-                   v.entity_data::text AS data
+                   v.entity_data::text AS data,
+                   -- Đã từng ở rồi ra (tự rời hay bị bỏ): không tự vào lại, có CHAT_XEM_ALL thì chỉ xem (28/10/2026).
+                   EXISTS (SELECT 1 FROM chat_room_members k
+                            WHERE k.conversation_id = v.id AND k.tenant_id = @tenant AND k.user_id = @userId
+                              AND k.left_utc IS NOT NULL) AS left_room
               FROM chat_conversations v
              WHERE v.tenant_id = @tenant AND v.channel = 7 AND v.account_id = ''
                AND v.contact_external_id = @roomKey AND v.surface = 0 AND v.source_thread_id = ''
             """, new { tenant, roomKey, userId }, cancellationToken: ct));
-        return r.Id == 0 ? (null, false, null) : (r.Id, r.Member, r.Member ? ParseData(r.Data) : null);
+        return r.Id == 0 ? (null, false, null, false) : (r.Id, r.Member, r.Member ? ParseData(r.Data) : null, r.LeftRoom);
     }
 
     /// <summary>

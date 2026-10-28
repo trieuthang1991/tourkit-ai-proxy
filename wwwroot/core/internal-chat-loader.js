@@ -11,7 +11,13 @@
   let loadedFor = null;   // phiên mà widget đang chạy
 
   const sid = () => { try { return localStorage.getItem(KEY); } catch { return null; } };
-  const on = () => !!(window.tourkitFeatures && window.tourkitFeatures.isOn('internalChat'));
+  // Quyền chat (chốt 28/10/2026): "Xem đoạn chat mình được phân công" (CHAT_XEM) hoặc "Xem tất cả đoạn chat"
+  // (CHAT_XEM_ALL). Không tick quyền nào → không nạp widget (máy chủ cũng trả 403). Đọc từ cache quyền của core/auth.jsx.
+  const canChat = () => {
+    try { const p = JSON.parse(localStorage.getItem('tourkit_tk_perms') || '[]'); return Array.isArray(p) && (p.includes('CHAT_XEM') || p.includes('CHAT_XEM_ALL')); }
+    catch { return false; }
+  };
+  const on = () => !!(window.tourkitFeatures && window.tourkitFeatures.isOn('internalChat')) && canChat();
 
   function unload() {
     try { window.TkInternalChat && window.TkInternalChat.destroy(); } catch { /* đã gỡ */ }
@@ -44,6 +50,8 @@
   if (!window.tourkitFeatures) return;
   window.tourkitFeatures.ready.then(sync);
   window.addEventListener('tourkit-auth-changed', sync);
+  // Quyền nạp xong SAU khi đăng nhập (bất đồng bộ) / đổi quyền → đồng bộ lại: có quyền thì nạp, mất quyền thì gỡ.
+  window.addEventListener('tourkit-perms-changed', sync);
   // Đăng nhập / đăng xuất ở tab khác.
-  window.addEventListener('storage', (e) => { if (e.key === KEY) sync(); });
+  window.addEventListener('storage', (e) => { if (e.key === KEY || e.key === 'tourkit_tk_perms') sync(); });
 })();
