@@ -50,6 +50,12 @@
 > Bảng mới (2026-07-14): `dbo.CrmActionQueue` — outbox pattern cho trợ lý hành động (assign_task/create_appointment); proxy chỉ enqueue, worker app-side drain + sync CRM.
 > Bảng mới (2026-07-18): `dbo.TourPriceCatalog` — bảng giá NCC đồng bộ từ TourKit để AI dựng giá bằng số thật (mảng 1: catalog + sync).
 > Bảng mới (2026-08-12, Đợt 1 bản tin): `dbo.AgentInsights`, `dbo.DigestSubscriptions`, `dbo.TenantChannelSettings`.
+> **Cột / chỉ mục mới (2026-10-27/28, Chat nội bộ — CSDL chat Postgres, `ChatDb`):** đều nullable, không default
+> (chỉ đổi metadata). `chat_conversations.owner_user_id` (trưởng nhóm), `chat_conversations.deleted_utc` (phòng bị
+> trưởng nhóm xoá — xoá mềm), `chat_room_members.removed_by` (ai đã bỏ người này; NULL = tự rời). Chỉ mục riêng phần
+> `ix_conv_internal_no_owner`, `ix_conv_internal_activity` (danh sách "Xem tất cả đoạn chat") — môi trường thật nên
+> tạo trước bằng `CREATE INDEX CONCURRENTLY`. Luật nghiệp vụ: [tich-hop-chat-noi-bo.md §9](tich-hop-chat-noi-bo.md).
+>
 > **Cột mới (2026-09-12, Hộp thư chat):** tám cột, tất cả `ALTER … IF NOT EXISTS` và mặc định rỗng
 > nên dòng cũ không đổi và worker đang chạy không phải deploy cùng lúc.
 >

@@ -185,12 +185,13 @@ Mỗi đơn hàng có **đúng một phòng chat** (khoá `order:<mã đơn>`).
 |---|---|---|
 | Phòng đã có, mình đang ở trong | Mở thẳng phòng, đủ lịch sử | `{ roomId: 123 }` |
 | Phòng chưa có | Mở **ô nháp** "Chưa có cuộc trò chuyện nào" | `{ roomId: null, draft: true }` |
-| Phòng đã có, mình chưa vào (hoặc đã rời) | Ô nháp "Đã có cuộc trao đổi về đơn hàng này" | `{ roomId: null, draft: true }` |
+| Phòng đã có, mình KHÔNG ở trong (chưa từng ở, tự rời hay bị bỏ) + có quyền `CHAT_XEM_ALL` | Mở phòng ở chế độ **chỉ xem** (không ô soạn, không nút tham gia) | `{ roomId: 123 }` |
+| Phòng đã có, mình KHÔNG ở trong + không có `CHAT_XEM_ALL` | Không mở gì | reject `Error("… nhờ trưởng nhóm thêm vào để nhắn")` |
 | Không có quyền (phòng cơ hội) | Không mở gì | reject `Error("Bạn không có quyền xem cơ hội này")` |
 
-Phòng chỉ được tạo (hoặc người bấm chỉ được thêm vào) khi **gửi tin đầu tiên** trong ô nháp. Đóng ô nháp
-khi chưa gửi là không để lại gì: không phòng trống, không ai bị kéo vào, không hiện ở danh sách. `members`
-và `title` được dùng lúc tạo đó.
+Phòng chỉ được tạo khi **gửi tin đầu tiên** trong ô nháp; `members`, `title`, `owner` dùng đúng lúc tạo đó. Đóng
+ô nháp khi chưa gửi là không để lại gì. **Phòng đã tạo xong thì không ai tự vào bằng nút Chat** (chốt 28/10/2026),
+muốn vào phải được trưởng nhóm thêm (§9).
 
 ```html
 <button type="button" class="btn btn-default btn-sm tk-chat-order"
@@ -221,7 +222,8 @@ và `title` được dùng lúc tạo đó.
 | `type` | `'order'` (đơn hàng), `'company'` (công ty/khách đoàn), `'deal'` (cơ hội bán hàng) |
 | mã | Mã bản ghi, chuỗi. Cùng mã = cùng phòng |
 | `title` | Tên hiển thị. Phòng đơn hàng hiện là `Đơn <mã> · <title>` |
-| `members` | Mã người dùng CRM (`UserId`) cần có mặt. **Chỉ áp lúc phòng vừa tạo**; người bấm luôn được vào |
+| `members` | Mã người dùng CRM (`UserId`) cần có mặt. **Chỉ áp lúc phòng vừa tạo** (cùng người bấm). Người không có trong danh bạ nhân viên (đại lý / CTV) bị bỏ ra, không làm hỏng lần tạo |
+| `owner` + `ownerSig` | **Tuỳ chọn (order / company).** Trưởng nhóm = người tạo bản ghi, CRM ký HMAC (§9.3). Thiếu / sai chữ ký → người tạo phòng làm trưởng nhóm |
 | `data` | **Tuỳ chọn.** Object tự do (tối đa 4 KB), lưu theo phòng, mọi thành viên đọc lại được qua `room.data` (§6). Có `data.url` (http/https đầy đủ) thì đầu phòng có nút **Xem lại** mở đường dẫn đó |
 | `opts.in` | `'dock'` (ô chat nhỏ nổi, mặc định) hoặc `'panel'` (mở trong khung danh sách) |
 
@@ -269,11 +271,13 @@ Gửi tin đầu tiên xong, ô nháp thành phòng thật:
 
 **Quyền vào phòng:**
 
-| Loại | Ai vào được |
-|---|---|
-| `deal` | Người xem được cơ hội đó trên CRM (`CH_XEM_ALL`: mọi cơ hội; `CH_XEM`: cơ hội mình tạo hoặc phụ trách). Người phụ trách tự được thêm lúc phòng tạo |
-| `order`, `company` | **Chưa kiểm quyền CRM**: mọi nhân viên của công ty bấm nút là vào. Chỉ hiện nút cho người được xem đơn đó |
-| `key` | Ai biết khoá là vào (xem §4) |
+Mọi loại phòng đều cần quyền chat CRM trước (`CHAT_XEM` hoặc `CHAT_XEM_ALL`, §9.1). Thêm vào đó:
+
+| Loại | Ai TẠO được phòng (gửi tin đầu tiên) | Vào phòng đã có |
+|---|---|---|
+| `deal` | Người xem được cơ hội đó trên CRM (`CH_XEM_ALL`: mọi cơ hội; `CH_XEM`: cơ hội mình tạo hoặc phụ trách). Người phụ trách tự được thêm lúc tạo | Chỉ khi trưởng nhóm thêm |
+| `order`, `company` | Nhân viên bấm Chat trên bản ghi (CRM chỉ hiện nút cho người xem được đơn đó) | Chỉ khi trưởng nhóm thêm |
+| `key` | Ai biết khoá (xem §4) | Chỉ khi trưởng nhóm thêm |
 
 ## 4. Các kiểu phòng khác
 
@@ -304,7 +308,11 @@ Mọi hàm `open*` trả `Promise<{ roomId }>`, hỏng thì reject `Error` (thô
 | `openRoom(roomId, opts)` | Mở phòng đã có theo mã phòng |
 | `findUserIds(names)` | Dò mã người theo tên → `{ ids, unmatched }` |
 | `renameRoom(roomId, title)` | Đổi tên (không áp cho 1-1) |
-| `addMembers(roomId, [ids])` / `removeMember(roomId, id)` / `leaveRoom(roomId)` | Thành viên |
+| `addMembers(roomId, [ids])` | Thêm người — **chỉ trưởng nhóm** (§9.2) |
+| `removeMember(roomId, id)` / `leaveRoom(roomId)` | Bỏ người khác: chỉ trưởng nhóm. Tự rời: ai cũng được (trưởng nhóm rời → quyền sang người vào sớm nhất còn lại) |
+| `transferOwner(roomId, userId)` | Trao quyền trưởng nhóm (không áp phòng order / company) |
+| `deleteRoom(roomId)` | Xoá phòng với mọi người — chỉ trưởng nhóm |
+| `openPage(roomId?)` | Sang trang Chat riêng (cần `data-page-url`, §9.5) |
 | `hideRoom(roomId)` | "Xoá phía tôi" (ẩn với riêng mình) |
 | `closeRoom(roomId)` | Đóng ô chat của phòng |
 | `getUnread()` | Tổng tin chưa đọc |
@@ -408,5 +416,114 @@ function OrderChatButton({ order, pushToast }) {
 
 ---
 
+## 9. Phân quyền, trưởng nhóm và luồng vào phòng (chốt 27–28/10/2026)
+
+Mục này là **luật nghiệp vụ** của chat nội bộ. Máy chủ TRAV-AI là chốt cuối; widget và CRM chỉ ẩn / hiện nút theo
+cùng luật để người dùng không bấm vào chỗ sẽ bị từ chối.
+
+### 9.1 Quyền chat (CRM → TRAV-AI)
+
+| Quyền CRM (tick theo phòng ban) | Mã | Thấy gì |
+|---|---|---|
+| Xem đoạn chat mình được phân công | `CHAT_XEM` | Chỉ các cuộc **mình đang ở** |
+| Xem tất cả đoạn chat | `CHAT_XEM_ALL` | **Mọi** cuộc của công ty. Cuộc mình không ở → **chỉ xem** (không soạn, không cảm xúc, không cấu hình, không tự vào) |
+| Không tick cả hai | — | **Không có chat**: CRM ẩn nút Chat (header, đơn hàng), trang `/chat` báo chưa được phân quyền; mọi API `/api/v1/chat/internal/*` trả **403** |
+
+Không phụ thuộc phân quyền nhóm / chi nhánh / quyền đơn hàng. Tài khoản admin cũng theo đúng hai ô tick này.
+
+**Nơi kiểm (một hàm cho mỗi câu hỏi, không chép tay mã quyền):**
+
+| Câu hỏi | TRAV-AI | CRM |
+|---|---|---|
+| Được dùng chat không | `SessionAuth.CanUseInternalChatAsync` (gọi trong `InternalChatEndpoints.GuardAsync` → mọi endpoint) | `TravAiChatSession.CanUse` (Koji.Master, action `internal-chat`, `Pages/InternalChat.aspx`) |
+| Có "xem tất cả" không | `SessionAuth.IsQuanTriChatAsync` — **nơi DUY NHẤT** đọc `CHAT_XEM_ALL` (`ChatScopeGuardTests` đếm) | `UIHelper.CheckCacheFunction("CHAT_XEM_ALL")` |
+| App TRAV-AI có nạp widget không | `wwwroot/core/internal-chat-loader.js` đọc cache quyền `tourkit_tk_perms` | — |
+
+**Đồng bộ quyền khi đổi trên CRM.** Cả hai bên đọc quyền từ cùng bảng phân quyền phòng ban, mỗi bên giữ một bản:
+
+- CRM: `Session["SSListFunction"]` (từ `permission.json`).
+- TRAV-AI: `TkSession.Permissions`, nạp qua TourKit.Api `GET /api/auth/permissions`, **nạp lại** khi:
+  1. người dùng đăng nhập lại từ CRM (SSO exchange → `TkSessionStore.RefreshPermissionsAsync`), hoặc
+  2. quá **5 phút** từ lần nạp trước (`TkSessionStore.EnsurePermissionsAsync`, `PermsTtl`). Lỗi khi nạp lại → giữ quyền cũ.
+
+Trước 28/10/2026 quyền chỉ nạp một lần rồi đứng yên (phiên SSO được dùng lại) — bỏ tick "Xem tất cả" mà vẫn xem
+được tất cả. Sự kiện realtime (`/events`) chốt phạm vi lúc kết nối, nên tab đang mở cần F5 / tự nối lại mới đổi theo.
+
+### 9.2 Thành viên: ai vào phòng bằng đường nào
+
+**Phòng đã tạo xong thì KHÔNG ai tự vào** — kể cả người chưa từng ở, người tự rời hay bị bỏ ra.
+
+| Đường vào | Ai | Ghi chú |
+|---|---|---|
+| Lúc **tạo** phòng (gửi tin đầu tiên / tạo nhóm) | Người tạo + `members` truyền vào + trưởng nhóm CRM ký | `CreateOrGetRoomAsync` chỉ thêm khi `created`; phòng đã có thì không thêm ai |
+| **Trưởng nhóm thêm** (`POST /rooms/{id}/members`) | Chỉ trưởng nhóm | Đường DUY NHẤT vào phòng đã có. Người đã rời / bị bỏ được thêm lại thì vào lại |
+| Phòng đơn cũ: người tạo đơn CHƯA TỪNG ở | Hệ thống tự thêm làm trưởng nhóm khi mở từ CRM | `SyncOwnerCoreAsync` (một lần, chỉ khi chưa có dòng thành viên nào) |
+
+Phòng đã có mà mình không ở:
+
+- `GET /rooms/lookup` trả `member: false`, `canView` (có `CHAT_XEM_ALL`), `leftRoom` (từng ở rồi ra — chỉ để chọn câu báo).
+- `POST /rooms` với phòng đó → **403** "nhờ trưởng nhóm thêm vào".
+- Widget: `canView` → mở **chỉ xem**; không → báo lỗi, không mở ô nháp.
+
+Bỏ người: `RemoveMemberAsync` — bỏ NGƯỜI KHÁC chỉ trưởng nhóm (ghi `chat_room_members.removed_by` = người bỏ); tự
+rời ai cũng được (`removed_by` = NULL). Trưởng nhóm rời → quyền sang người vào phòng sớm nhất còn lại (cùng câu SQL).
+
+### 9.3 Trưởng nhóm (`chat_conversations.owner_user_id`)
+
+| Loại phòng | Trưởng nhóm | Trao quyền tay |
+|---|---|---|
+| Nhóm (`group`), cơ hội (`deal`), khoá tự do (`key`) | Người tạo phòng | Có (`POST /rooms/{id}/owner`) |
+| Đơn hàng (`order`), công ty (`company`) | **Người tạo bản ghi** ở CRM (`INS_UID`; người tạo nghỉ / tài khoản hệ thống → người phụ trách) | Không — bám người tạo bản ghi, mở lại từ CRM là đồng bộ |
+| 1-1 (`direct`) | Không có | — |
+
+Chỉ trưởng nhóm: **thêm người**, bỏ người khác, trao quyền, xoá phòng (`DELETE /rooms/{id}`: xoá mềm, mọi người rời,
+khoá phòng đổi đuôi `#xoa:{id}` để mở lại bản ghi ra phòng mới). Thành viên thường: nhắn, đổi tên, tự rời.
+
+**Chữ ký trưởng nhóm phòng đơn.** CRM (`TravAiChatSession.SignRoomOwner`) ký
+`HMAC-SHA256(SsoSecret, "{host}|order:{tour_type}-{id}|{owner}")` hex thường, widget chuyển nguyên
+(`openEntity(..., { owner, ownerSig })`), TRAV-AI kiểm bằng `InternalRoomOwnerSignature.Verify` với `Sso:Secret`.
+Không tin số client tự khai: không có chữ ký thì ai cũng tự xưng trưởng nhóm để xoá người / xoá phòng.
+
+### 9.4 Phòng chat của đơn (CRM `internal-chat` → `tour-room`)
+
+| Loại đơn | Bảng | Thành viên kéo sẵn lúc tạo phòng (theo thứ tự ưu tiên) |
+|---|---|---|
+| GIT, tour lẻ, VMB, khách sạn, visa, xe… | `tours` | Người tạo, phụ trách, theo dõi, quản lý (`ManagerIds`), người tạo các đơn hàng của tour |
+| **FIT** (nút Chat gửi `type=2`) | **`tour_samples`** (FIT KHÔNG có trong `tours`) | Người tạo, **nhân viên điều hành** (`IdsNguoiTheoDoi`), toàn bộ sale của tour (`tour_sellers`) |
+
+- Khoá phòng: `order:{tour_type}-{id}` (FIT: `order:2-{id}` — bảng `tours` không dùng loại 2 nên không trùng).
+- Lọc mọi loại đơn (`InternalChatAction.ChatMembers`): bỏ người nghỉ việc, tài khoản hệ thống, **đại lý**
+  (`typeuser = 2`) và **CTV** (phòng ban `1004`). Trần 200 người.
+- Sale / điều hành được thêm vào đơn **sau khi** phòng đã tạo không tự vào phòng — trưởng nhóm thêm.
+
+### 9.5 Trang Chat riêng `/chat`
+
+- CRM: route `chat` → `Pages/InternalChat.aspx` có `#tkChatPage`; `internalChat.js` gắn `data-page-url="/chat"` và
+  `data-page-mount="tkChatPage"` → widget vẽ **3 cột** (danh sách | phòng | thông tin) từ 1200px, 2 cột + ngăn kéo
+  thông tin từ 760px, 1 cột trên điện thoại. Nút Chat trên header mở trang này.
+- `?room={id}` trên địa chỉ = phòng đang mở (tải lại / gửi link vẫn đúng phòng).
+- Ô chat nhỏ ở các màn khác có nút **Mở trong trang Chat** → `/chat?room={id}`.
+- Ô tìm bọc `<form role="search" autocomplete="off">` để trình duyệt không tự điền tên đăng nhập.
+
+### 9.6 Khi triển khai
+
+1. DB chat (chạy trước, tránh khoá bảng hội thoại khách lúc proxy khởi động — migration trong `ChatDb` vẫn tự chạy):
+
+   ```sql
+   CREATE INDEX CONCURRENTLY IF NOT EXISTS ix_conv_internal_no_owner ON chat_conversations (id)
+     WHERE channel = 7 AND owner_user_id IS NULL AND entity_type IS DISTINCT FROM 'direct';
+   CREATE INDEX CONCURRENTLY IF NOT EXISTS ix_conv_internal_activity
+     ON chat_conversations (tenant_id, last_activity_at DESC, id DESC) WHERE channel = 7 AND deleted_utc IS NULL;
+   ```
+
+   Các cột mới (`owner_user_id`, `deleted_utc`, `chat_room_members.removed_by`) nullable, không default → chỉ đổi
+   metadata, chạy tức thì.
+2. Deploy TRAV-AI trước, CRM sau. CRM: **tăng `Version`** trong `Configs/AppSettings.config` — script / CSS chat nạp
+   qua `?v=`, không tăng thì trình duyệt giữ bản cũ (đã gây lỗi trưởng nhóm sai 27/10/2026).
+3. Kiểm: log TRAV-AI có `ChatDb schema OK`; tài khoản không tick quyền chat không thấy nút Chat; tài khoản chỉ có
+   `CHAT_XEM` không thấy cuộc đã rời.
+
+---
+
 **Chưa kiểm thử:** luồng lấy mã phiên ở §1 dùng đúng hai endpoint SSO đang chạy nhưng **chưa được gọi thử từ
-CRM**; hãy thử trên staging trước (tenant `staging.tourkit.vn`). Phòng `order`/`company` chưa kiểm quyền CRM.
+CRM**; hãy thử trên staging trước (tenant `staging.tourkit.vn`).

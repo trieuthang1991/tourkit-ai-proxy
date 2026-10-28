@@ -977,9 +977,9 @@ không còn sinh ra từ một cú bấm, người phụ trách cơ hội chỉ 
 không tự bị kéo lại khi lỡ bấm. `POST /rooms` giữ nguyên lấy-hoặc-tạo cho tích hợp gọi thẳng.
 
 1-1 và nhóm không cần truyền khoá — máy chủ tự sinh. Danh sách người (`memberUserIds`) **chỉ áp lúc phòng
-vừa tạo**: áp ở mọi lần gọi là kéo lại người đã tự rời / bị bỏ ra. Phòng đã có thì `CreateOrGetRoomAsync`
-không ghi gì (`ON CONFLICT DO NOTHING` rồi đọc lại; thành viên chỉ ghi khi người gọi VÀO LẠI) — đo trên
-CSDL thật: `xmin` hai bảng không đổi sau lần bấm thứ hai.
+vừa tạo**. Phòng đã có thì `CreateOrGetRoomAsync` không ghi gì — **kể cả người gọi** (chốt 28/10/2026: phòng đã
+tạo thì không ai tự vào; `POST /rooms` với phòng đã có mà mình không ở → 403, chỉ trưởng nhóm thêm). Luật đầy đủ
+về quyền / thành viên / trưởng nhóm: [tich-hop-chat-noi-bo.md §9](../tich-hop-chat-noi-bo.md).
 
 Ghi chuỗi rỗng vào `contact_external_id` là **mỗi công ty chỉ tạo được đúng một phòng** — dòng thứ
 hai vỡ chỉ mục. Khoá dựng bằng hàm thuần `InternalRoomKey` (có test).
@@ -1001,8 +1001,11 @@ mới thì tự thêm `channel <> 7` và thêm tên hàm vào bài canh.
   tệp (`IsMemberForUploadAsync`), phải hỏi TRƯỚC khi đẩy byte lên kho.
 - Đã đọc dùng lại `chat_conversation_reads`. Chưa đọc tính từ `COALESCE(last_read_at, joined_utc)`,
   **trần 100** (phòng bỏ quên không kéo chậm danh sách).
-- Cấu hình phòng (đổi tên, thêm, bỏ, rời): **mọi thành viên** của nhóm/đơn/công ty đều được; không
-  lưu người tạo. Muốn chỉ người tạo được bỏ người thì phải thêm cột.
+- **Quyền dùng chat** (28/10/2026): cần `CHAT_XEM` (cuộc mình ở) hoặc `CHAT_XEM_ALL` (mọi cuộc, cuộc không ở thì
+  chỉ xem — `ListAllRoomsAsync` đi `ix_conv_internal_activity`) — chốt trong `GuardAsync`, không có → 403.
+- **Trưởng nhóm** `chat_conversations.owner_user_id` (27/10/2026): chỉ trưởng nhóm thêm người, bỏ người khác, trao
+  quyền, xoá phòng; thành viên thường đổi tên, tự rời. `chat_room_members.removed_by` = ai đã bỏ người này (NULL =
+  tự rời). Chi tiết: [tich-hop-chat-noi-bo.md §9](../tich-hop-chat-noi-bo.md).
 - **Vào phòng theo cơ hội (`deal:{id}`) = ai nhìn thấy cơ hội đó** (chốt 19/10/2026), đúng luật web
   `BookingTicketAction`: `CH_XEM_ALL` → mọi cơ hội (không gọi CRM); chỉ `CH_XEM` → cơ hội mình tạo
   (`InsUid`) hoặc phụ trách (`NguoiPhuTrachs`), đọc chi tiết MỘT lần; không có `CH_XEM` → 403. Chỉ kiểm
@@ -1010,7 +1013,8 @@ mới thì tự thêm `channel <> 7` và thêm tên hàm vào bài canh.
   (`DealOpportunityClient.GetDetailAsync`: tồn tại, người tạo, người phụ trách) đọc MỘT lần và dùng lại
   để thêm người phụ trách khi phòng vừa tạo; CRM không trả lời → 503 (chỉ ở nhánh phải kiểm). KHÔNG dùng
   "CRM trả được chi tiết là xem được": đường chi tiết trả dữ liệu cho cả người không có quyền nào, và
-  trả thành công rỗng cho mã không tồn tại (đo trên staging). Phòng đơn hàng / công ty: **chưa kiểm**.
+  trả thành công rỗng cho mã không tồn tại (đo trên staging). Phòng đơn hàng / công ty: không kiểm quyền CRM ở
+  TRAV-AI (CRM chỉ hiện nút Chat cho người xem được đơn); trưởng nhóm = người tạo đơn do CRM ký HMAC.
 - Thêm người phải thuộc danh sách nhân viên ERP của công ty (`ChatStaffDirectory`, đệm Redis 2h,
   dùng chung với `/assign-settings`) — mã người là số đoán được. Gặp mã lạ thì hỏi lại ERP một lần
   với `skipCache: true` (nhân viên mới không phải chờ hết đệm).
