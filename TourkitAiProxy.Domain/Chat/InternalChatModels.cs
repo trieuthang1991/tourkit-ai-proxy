@@ -85,6 +85,7 @@ public static class InternalRoomNotice
         "thêm" => $"{ai} đã thêm {gi} vào phòng",
         "bỏ" => $"{ai} đã bỏ {gi} khỏi phòng",
         "rời" => $"{ai} đã rời phòng",
+        "vào" => $"{ai} đã tham gia phòng",
         "chuyển quyền" => $"{ai} đã chuyển quyền trưởng nhóm cho {gi}",
         "rời, chuyển quyền" => $"{ai} đã rời phòng — {gi} là trưởng nhóm mới",
         // Phòng đơn/công ty đồng bộ theo người tạo bản ghi ở CRM — hệ thống làm, không phải người bấm.
@@ -258,9 +259,10 @@ public record InternalMember(int UserId, DateTime JoinedUtc);
 /// hơn, nên một tin vừa có trong danh sách vừa tới qua sự kiện không bị đếm hai lần.</param>
 /// <param name="Data">Tham số tự do của phòng (<see cref="InternalRoomData"/>); null = không có.</param>
 /// <param name="OwnerUserId">Trưởng nhóm (<see cref="InternalRoomOwner"/>); null = phòng 1-1 / chưa xác định.</param>
+/// <param name="Member">false = phòng người xem KHÔNG ở, chỉ thấy nhờ quyền CHAT_XEM_ALL (chỉ đọc, chưa đọc luôn 0).</param>
 public record InternalRoom(long Id, string? Title, string EntityType, string? EntityId, string RoomKey,
     string? LastPreview, DateTime LastActivityAt, int UnreadCount, IReadOnlyList<InternalMember> Members,
-    long? LastMessageId = null, System.Text.Json.JsonElement? Data = null, int? OwnerUserId = null);
+    long? LastMessageId = null, System.Text.Json.JsonElement? Data = null, int? OwnerUserId = null, bool Member = true);
 
 public record InternalMessage(long Id, long RoomId, int? SenderUserId, string? SenderUsername,
     string? Body, DateTime CreatedUtc, DateTime? DeletedUtc, InternalAttachment? Attachment = null,

@@ -9,6 +9,9 @@
  *   data-order-url="…"      mẫu link mở đơn, "{id}" thay bằng mã đơn (hiện nút "Mở đơn", mở tab mới)
  *   data-deal-url="…"       mẫu link mở cơ hội, "{id}" thay bằng mã cơ hội (hiện nút "Mở cơ hội")
  *   data-launcher="false"   ẩn nút nổi — trang CRM tự đặt nút riêng rồi gọi TkInternalChat.open()
+ *   data-page-url="/chat"   có trang Chat riêng: ô chat nhỏ + khung có nút "Mở trong trang Chat" (→ /chat?room=12)
+ *   data-page-mount="id"    ĐANG ở trang Chat: vẽ vào phần tử id đó thành 3 cột (danh sách | phòng | thông tin),
+ *                           không nút nổi, không ô nhỏ; ?room= trên địa chỉ = phòng đang mở
  *
  * API cho trang CRM (mọi hàm open* trả Promise<{ roomId }>, hỏng thì reject Error):
  *   openEntity / openByKey KHÔNG tạo phòng ngay: phòng chưa có (hoặc mình chưa ở trong) thì mở Ô NHÁP,
@@ -64,6 +67,13 @@
   const LINK_URL = { order: scriptEl.getAttribute('data-order-url') || '', deal: scriptEl.getAttribute('data-deal-url') || '' };
   const LINK_LABEL = { order: 'Mở đơn', deal: 'Mở cơ hội' };
   let entityOpeners = {};   // setEntityLinks({ order: fn(id), deal: fn(id) }) — thắng mẫu link
+  // Trang Chat riêng (kiểu Messenger): data-page-url = đường dẫn trang đó → ô chat nhỏ có nút "Mở trong trang Chat".
+  // data-page-mount = id phần tử trên CHÍNH trang đó → widget vẽ vào phần tử ấy thành 3 cột thay vì khung nổi.
+  const PAGE_URL = scriptEl.getAttribute('data-page-url') || '';
+  const pageEl = (() => { const id = scriptEl.getAttribute('data-page-mount'); return id ? document.getElementById(id) : null; })();
+  const PAGE_MODE = !!pageEl;
+  // ?room= lúc mở trang — đọc NGAY, trước lần vẽ đầu (lần vẽ đầu chưa mở phòng nào nên sẽ gỡ tham số khỏi địa chỉ).
+  const PAGE_ROOM = PAGE_MODE ? Number(new URLSearchParams(location.search).get("room")) || 0 : 0;
 
   // Cùng danh sách trắng với máy chủ (InternalAttachmentRules) — chặn sớm cho đỡ một lượt tải hỏng.
   const ALLOWED = ['.png', '.jpg', '.jpeg', '.gif', '.webp', '.pdf', '.doc', '.docx', '.xls', '.xlsx', '.ppt', '.pptx', '.txt', '.csv', '.zip', '.rar'];
@@ -76,8 +86,10 @@
 
   // ── Trạng thái ──────────────────────────────────────────────────────────
   const st = {
-    launcher: scriptEl.getAttribute('data-launcher') !== 'false',
-    open: false, view: 'list', roomId: null,      // khung danh sách + phòng đang mở trong khung
+    launcher: !PAGE_MODE && scriptEl.getAttribute('data-launcher') !== 'false',
+    open: PAGE_MODE, view: 'list', roomId: null,       // khung danh sách + phòng đang mở trong khung (trang Chat: luôn mở)
+    viewOnly: new Set(),                           // mã phòng đang mở ở chế độ chỉ xem (CHAT_XEM_ALL, chưa có trong danh sách)
+    info: true, infoOpen: false,                 // trang Chat: cột thông tin (màn rộng, bật/tắt) · ngăn kéo thông tin (màn hẹp)
     docks: [], dockMin: new Set(),                 // ô chat nhỏ: mã phòng, mới nhất ở cuối
     conv: new Map(),                               // roomId → { msgs, hasOlder, loaded }
     rooms: [], me: null, users: new Map(),
@@ -95,10 +107,11 @@
   };
   let errMsg = '';
   const vw = () => window.innerWidth;
-  const isLarge = () => st.size === 'large' && vw() >= 760;
+  const isLarge = () => (PAGE_MODE || st.size === 'large') && vw() >= 760;
+  const infoDocked = () => PAGE_MODE && vw() >= 1200;   // trang Chat đủ rộng: thông tin phòng là cột thứ ba cố định
   // Số ô nổi hiện cùng lúc theo bề rộng màn; hẹp thì không có ô nổi — mở thẳng trong khung. Ô mở thêm quá
   // số này thu thành avatar tròn trên nút nổi (kiểu Messenger), bấm là đổi chỗ với ô cũ nhất.
-  const maxDocks = () => (vw() >= 1440 ? 3 : vw() >= 1100 ? 2 : vw() >= 760 ? 1 : 0);
+  const maxDocks = () => (PAGE_MODE ? 0 : vw() >= 1440 ? 3 : vw() >= 1100 ? 2 : vw() >= 760 ? 1 : 0);
   const MAX_OPEN = 8;   // tổng số cuộc đang mở (ô + avatar)
 
   // ── Sự kiện cho trang CRM ───────────────────────────────────────────────
@@ -138,7 +151,8 @@
   host.id = 'tk-internal-chat';
   // Trang có thanh cố định ở đáy (menu dưới trên điện thoại) thì đặt --tk-chat-bottom / --tk-chat-side
   // trên #tk-internal-chat để nút nổi nằm trên thanh đó thay vì che mất.
-  host.style.cssText = `position:fixed;${POS}:var(--tk-chat-side,24px);bottom:var(--tk-chat-bottom,24px);z-index:${Z};`;
+  host.style.cssText = PAGE_MODE ? 'position:relative;display:block;width:100%;height:100%;'
+    : `position:fixed;${POS}:var(--tk-chat-side,24px);bottom:var(--tk-chat-bottom,24px);z-index:${Z};`;
   const root = host.attachShadow({ mode: 'open' });
   root.innerHTML = `<style>
     :host{all:initial}
@@ -161,6 +175,28 @@
       .p,.p.nofab{position:fixed;inset:0;width:auto;height:auto;border:0;border-radius:0;box-shadow:none;padding:env(safe-area-inset-top,0px) 0 env(safe-area-inset-bottom,0px)}
       .p ~ .fab{display:none}
       .p .ms,.p ul{overscroll-behavior:contain}   /* cuộn tới đầu/cuối danh sách không kéo trang theo */
+    }
+    /* Trang Chat riêng (data-page-mount): widget lấp đầy phần tử chứa, không nổi. ≥1200px: danh sách | phòng | thông tin.
+       760–1199px: danh sách | phòng, thông tin là ngăn kéo phủ bên phải. <760px: một cột, đi lần lượt danh sách → phòng → thông tin. */
+    .w.pgw{height:100%}
+    .pg{position:relative;display:flex;height:100%;background:#fff;border:1px solid #e3e6ec;border-radius:6px;overflow:hidden}
+    .w .pg.lg .pane.list{flex:0 0 320px}
+    .info{display:flex;flex-direction:column;flex:0 0 300px;min-width:0;min-height:0;border-left:1px solid #e3e6ec;background:#fff}
+    .info .sum{display:flex;flex-direction:column;align-items:center;gap:6px;padding:20px 16px 12px;text-align:center;border-bottom:1px solid #e3e6ec}
+    .info .sum .av{width:56px;height:56px}
+    .info .sum b{font-size:15px;font-weight:600;max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+    .info .sum span{font-size:12px;color:#5b6270}
+    .info .ms{flex:1}
+    .info .ft{padding:10px 16px}
+    .info-bg{display:none}
+    @media (max-width:1199px){
+      .info{position:absolute;top:0;right:0;bottom:0;width:min(340px,100%);z-index:4;box-shadow:-12px 0 32px rgba(17,21,28,.16);border-left:0}
+      .info-bg{display:block;position:absolute;inset:0;z-index:3;background:rgba(17,21,28,.28);border:0;padding:0}
+    }
+    @media (max-width:759px){
+      .pg{border:0;border-radius:0}
+      .info{position:static;width:auto;flex:1;box-shadow:none}
+      .info-bg{display:none}
     }
     .pane{position:relative;display:flex;flex-direction:column;flex:1;min-width:0;min-height:0}
     .lg .pane.list{flex:0 0 300px;border-right:1px solid #e3e6ec}
@@ -219,6 +255,9 @@
     .r1,.r2{display:flex;gap:8px;align-items:center}
     .nm{font-weight:600;flex:1;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
     .tm{font-size:12px;color:#5b6270;flex-shrink:0}.u .tm{color:#1f3fbf;font-weight:600}
+    /* Chỉ xem (quyền Xem tất cả đoạn chat, chưa ở trong phòng): thay chỗ ô soạn tin. */
+    .vo{display:flex;align-items:center;gap:10px;flex-wrap:wrap;padding:10px 14px;border-top:1px solid #e3e6ec;background:#f5f6f8;color:#5b6270;font-size:13px}
+    .vo span{flex:1;min-width:180px}
     .own{display:inline-block;margin-left:6px;padding:1px 6px;border-radius:999px;background:#eef2ff;color:#1f3fbf;font-size:11px;font-weight:600;vertical-align:1px}
     .pv{font-size:13px;color:#5b6270;flex:1;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.u .pv{color:#11151c;font-weight:500}
     .bd{min-width:20px;height:20px;padding:0 6px;border-radius:6px;background:#1f3fbf;color:#fff;font-size:12px;font-weight:600;display:grid;place-items:center;flex-shrink:0}
@@ -379,6 +418,8 @@
     edit: 'M4 20h4L18.5 9.5a2.1 2.1 0 0 0-3-3L5 17v3zM14 8l3 3', undo: 'M9 14L4 9l5-5M4 9h10.5a5.5 5.5 0 0 1 0 11H11',
     trash: 'M4 7h16M9 7V4h6v3M6 7l1 13h10l1-13M10 11v6M14 11v6',
     gear: 'M12 15a3 3 0 1 0 0-6 3 3 0 0 0 0 6zM19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z', pop: 'M14 4h6v6M20 4l-8 8M18 14v5a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V7a1 1 0 0 1 1-1h5',
+    page: 'M4 5a1 1 0 0 1 1-1h14a1 1 0 0 1 1 1v14a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1zM9 4v16M12.5 9h4.5M12.5 12.5h4.5',
+    info: 'M12 21a9 9 0 1 0 0-18 9 9 0 0 0 0 18zM12 11v5.5M12 7.8h.01',
   };
   function icon(name, size) {
     const s = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
@@ -470,8 +511,11 @@
 
     const lg = isLarge();
     let panelW = 0;
-    lockPage(st.open && vw() < 760);   // điện thoại: khung phủ toàn màn → trang phía sau không được cuộn theo
-    if (st.open) {
+    lockPage(!PAGE_MODE && st.open && vw() < 760);   // điện thoại: khung phủ toàn màn → trang phía sau không được cuộn theo
+    if (PAGE_MODE) {
+      W.append(pageView());
+      syncPageUrl();
+    } else if (st.open) {
       const cls = 'p' + (lg ? ' lg' : '') + (st.launcher ? '' : ' nofab');
       if (lg) {
         const right = st.view === 'draft' && st.draft ? draftPane() : st.view === 'room' && st.roomId ? roomPane(st.roomId, 'panel') : st.view === 'new' ? viewNew()
@@ -530,6 +574,79 @@
     emitUnread();
   }
 
+  // ── Trang Chat riêng ────────────────────────────────────────────────────
+  /// Ba cột (≥1200px) · hai cột + ngăn kéo thông tin (760–1199px) · một cột đi lần lượt (<760px).
+  function pageView() {
+    const lg = isLarge();
+    const id = st.view === 'room' ? st.roomId : null;
+    const center = st.view === 'draft' && st.draft ? draftPane() : id ? roomPane(id, 'panel') : st.view === 'new' ? viewNew() : null;
+    const showInfo = !!id && (infoDocked() ? st.info : st.infoOpen);
+    if (!lg) {   // điện thoại: đúng một màn
+      const one = showInfo ? infoPane(id) : center || viewList();
+      return el('section', { class: 'pg', 'aria-label': 'Chat nội bộ' }, one);
+    }
+    return el('section', { class: 'pg lg', 'aria-label': 'Chat nội bộ' },
+      viewList(),
+      center || el('div', { class: 'blank' }, el('div', { class: 'nhap' },
+        el('b', {}, 'Chọn một cuộc trò chuyện'),
+        el('span', {}, 'Hoặc bắt đầu cuộc mới với đồng nghiệp.'),
+        el('div', { style: 'margin-top:8px;display:flex;justify-content:center' },
+          el('button', { class: 'pri', type: 'button', on: { click: () => openNew() } }, icon('plus', 16), 'Trò chuyện mới')))),
+      showInfo && !infoDocked() ? el('button', { class: 'info-bg', type: 'button', 'aria-label': 'Đóng thông tin', tabindex: '-1',
+        on: { click: () => { st.infoOpen = false; render(); } } }) : null,
+      showInfo ? infoPane(id) : null);
+  }
+
+  /// Cột / ngăn kéo thông tin phòng: tóm tắt + (nhóm/đơn) thành viên, trưởng nhóm, đổi tên, thêm người — dùng lại màn cấu hình.
+  function infoPane(id) {
+    const r = roomOf(id);
+    const closeInfo = () => { if (infoDocked()) st.info = false; else st.infoOpen = false; render(); };
+    const kind = r.entityType === 'direct' ? 'Trò chuyện 1-1' : r.entityType === 'group' ? 'Nhóm'
+      : r.entityType === 'order' ? 'Chat theo đơn' : r.entityType === 'deal' ? 'Chat theo cơ hội' : r.entityType === 'company' ? 'Chat theo công ty' : 'Phòng theo chủ đề';
+    const members = (r.members || []).length;
+    const owner = r.ownerUserId != null ? userName(r.ownerUserId) : null;
+    return el('aside', { class: 'info pane', 'aria-label': 'Thông tin: ' + roomName(r) },
+      el('div', { class: 'hd' },
+        vw() < 760 ? el('button', { class: 'ib', type: 'button', 'aria-label': 'Về cuộc trò chuyện', on: { click: closeInfo } }, icon('back')) : null,
+        el('h2', {}, 'Thông tin'),
+        vw() < 760 ? null : el('button', { class: 'ib', type: 'button', 'aria-label': 'Đóng thông tin', title: 'Đóng', on: { click: closeInfo } }, icon('x'))),
+      el('div', { class: 'sum' }, roomAvatar(r), el('b', { title: roomName(r) }, roomName(r)),
+        el('span', {}, kind + (r.entityType === 'direct' ? '' : ' · ' + members + ' thành viên')),
+        owner && r.entityType !== 'direct' ? el('span', {}, 'Trưởng nhóm: ' + owner) : null,
+        entityLink(r, false)),
+      readOnly(r)
+        // Chỉ xem: danh sách thành viên, không nút nào (cấu hình phòng là việc của người trong phòng).
+        ? el('div', { class: 'ms', 'data-k': 'info-ro-' + id, 'data-top': '1', style: 'background:#fff' },
+            el('span', { class: 'lb' }, 'Thành viên · ' + members),
+            el('ul', { style: 'padding:0;overflow:visible' }, (r.members || []).map((m) => el('li', { class: 'opt', style: 'cursor:default' },
+              el('span', { class: 'av s', 'aria-hidden': 'true' }, initials(userName(m.userId))),
+              el('span', { style: 'flex:1;min-width:0' }, userName(m.userId),
+                m.userId === r.ownerUserId ? el('span', { class: 'own' }, 'Trưởng nhóm') : null)))))
+        : r.entityType === 'direct'
+          ? el('div', { class: 'empty' }, 'Trò chuyện 1-1 không có cấu hình phòng.')
+          : settingsBody(id, 'info-' + id, true));
+  }
+
+  /// Trang Chat: giữ ?room= trên địa chỉ để tải lại / gửi link vẫn mở đúng phòng. Chỉ thay khi khác (không thêm lịch sử).
+  function syncPageUrl() {
+    try {
+      const u = new URL(location.href);
+      const want = st.view === 'room' && st.roomId ? String(st.roomId) : null;
+      if (u.searchParams.get('room') === want) return;
+      if (want) u.searchParams.set('room', want); else u.searchParams.delete('room');
+      history.replaceState(history.state, '', u.pathname + u.search + u.hash);
+    } catch { /* trình duyệt chặn history — bỏ qua */ }
+  }
+  /// Ô chat nhỏ / khung → trang Chat riêng, mở đúng phòng.
+  function openInPage(id) {
+    if (!PAGE_URL) return;
+    location.href = PAGE_URL + (id ? (PAGE_URL.includes('?') ? '&' : '?') + 'room=' + encodeURIComponent(id) : '');
+  }
+  function pageBtn(id, size) {
+    return PAGE_URL && !PAGE_MODE ? el('button', { class: 'ib', type: 'button', 'aria-label': 'Mở trong trang Chat', title: 'Mở trong trang Chat',
+      on: { click: () => openInPage(id) } }, icon('page', size)) : null;
+  }
+
   function liveInput(set) {
     // Bỏ qua lúc bộ gõ đang ghép chữ (composition) — vẽ lại giữa chừng là phá dấu tiếng Việt.
     return {
@@ -538,9 +655,10 @@
     };
   }
   function errBox() { return errMsg ? el('div', { class: 'err', role: 'alert' }, errMsg) : null; }
-  function closeBtn() { return el('button', { class: 'ib', type: 'button', 'aria-label': 'Thu nhỏ', on: { click: closePanel } }, icon('x')); }
+  function closeBtn() { return PAGE_MODE ? null : el('button', { class: 'ib', type: 'button', 'aria-label': 'Thu nhỏ', on: { click: closePanel } }, icon('x')); }
   function backBtn() { return el('button', { class: 'ib', type: 'button', 'aria-label': 'Về danh sách', on: { click: () => { st.view = 'list'; st.roomId = null; errMsg = ''; loadRooms(); render(); } } }, icon('back')); }
   function sizeBtn() {
+    if (PAGE_MODE) return null;   // trang Chat luôn là bố cục lớn
     const lg = st.size === 'large';
     return el('button', { class: 'ib', type: 'button', 'aria-label': lg ? 'Thu về khung nhỏ' : 'Phóng to', title: lg ? 'Thu về khung nhỏ' : 'Phóng to',
       on: { click: () => { st.size = lg ? 'compact' : 'large'; try { localStorage.setItem('tk-chat-size', st.size); } catch { /* chế độ riêng tư */ } render(); } } },
@@ -556,6 +674,8 @@
     const rooms = (server ? st.found.items : st.rooms).filter((r) => {
       if (st.filter === 'unread' && !r.unreadCount) return false;
       if (st.filter === 'entity' && !LINKED_TYPES.includes(r.entityType)) return false;
+      if (st.filter === 'group' && r.entityType !== 'group') return false;
+      if (st.filter === 'direct' && r.entityType !== 'direct') return false;
       return server || !ql || roomName(r).toLowerCase().includes(ql);
     });
     const finding = !!q && (!server || st.found.loading);
@@ -576,10 +696,11 @@
       el('div', { class: 'hd' },
         el('h2', {}, 'Chat nội bộ'),
         el('button', { class: 'pri', type: 'button', 'aria-label': 'Trò chuyện mới', on: { click: () => openNew() } }, icon('plus', 16), lg ? null : 'Trò chuyện mới'),
-        vw() >= 760 ? sizeBtn() : null, closeBtn()),
+        pageBtn(null), vw() >= 760 ? sizeBtn() : null, closeBtn()),
       el('div', { class: 'tools' },
         el('label', { for: 'tk-tim', class: 'sr' }, 'Tìm người hoặc phòng'), search,
-        el('div', { class: 'chips' }, chip('all', 'Tất cả'), chip('unread', 'Chưa đọc' + (unreadRooms ? ' · ' + unreadRooms : '')), chip('entity', 'Đơn · cơ hội'))),
+        el('div', { class: 'chips' }, chip('all', 'Tất cả'), chip('unread', 'Chưa đọc' + (unreadRooms ? ' · ' + unreadRooms : '')), chip('entity', 'Đơn · cơ hội'),
+          PAGE_MODE ? chip('group', 'Nhóm') : null, PAGE_MODE ? chip('direct', '1-1') : null)),
       st.view === 'room' || st.view === 'new' ? null : errBox(),
       rooms.length
         ? el('ul', { 'data-sk': server ? 'found' : 'rooms', on: { scroll: onListScroll } }, rooms.map((r) => el('li', {}, el('button', { class: 'it' + (r.unreadCount ? ' u' : ''), type: 'button',
@@ -606,11 +727,26 @@
 
   /// Trưởng nhóm (máy chủ quyết, đây chỉ để ẩn/hiện nút): người tạo nhóm; phòng đơn/công ty là người tạo bản ghi ở CRM.
   const isOwner = (r) => !!r && r.ownerUserId != null && r.ownerUserId === st.me;
+  /// Phòng mình không ở, chỉ thấy nhờ quyền "Xem tất cả đoạn chat" (máy chủ trả member: false; mở từ nút Chat của đơn
+  /// thì lookup trả canView). Chỉ đọc: không soạn tin, không thả cảm xúc, không cấu hình.
+  const readOnly = (r) => !!r && r.member !== true && (r.member === false || st.viewOnly.has(r.id));
+  async function joinRoom(id) {
+    if (st.busy) return;
+    st.busy = true; errMsg = ''; st.errRoom = null; render();
+    try {
+      await api('POST', `/rooms/${id}/join`);
+      st.viewOnly.delete(id);
+      await loadRooms();
+      ensureConv(id).then(() => markRead(id)).catch(() => {});
+    } catch (e) { if (!dead) { errMsg = 'Chưa vào được phòng: ' + e.message; st.errRoom = id; } }
+    finally { st.busy = false; render(); }
+  }
   /// Phòng đơn/công ty không trao quyền tay — quyền bám người tạo bản ghi.
   const canTransfer = (r) => !!r && !['direct', 'order', 'company'].includes(r.entityType);
 
   /// Cấu hình phòng: đổi tên, xem/bỏ thành viên, thêm người, rời phòng. Phòng 1-1 không có màn này.
-  function settingsBody(id, key) {
+  /// inInfo: vẽ trong cột thông tin của trang Chat — không có nút "Xong" (cột tự đóng bằng nút của nó).
+  function settingsBody(id, key, inInfo) {
     const r = roomOf(id);
     const members = (r.members || []).map((m) => m.userId);
     const owner = isOwner(r);
@@ -656,7 +792,7 @@
       st.errRoom === id ? errBox() : null,
       el('div', { class: 'ft' },
         el('button', { class: 'pri', type: 'button', disabled: !n || st.busy, on: { click: () => doAdd(id) } }, n ? 'Thêm ' + n + ' người' : 'Chọn người để thêm'),
-        el('button', { class: 'sec', type: 'button', style: 'justify-content:center;height:36px', on: { click: () => toggleSettings(id, key) } }, 'Xong'))];
+        inInfo ? null : el('button', { class: 'sec', type: 'button', style: 'justify-content:center;height:36px', on: { click: () => toggleSettings(id, key) } }, 'Xong'))];
   }
 
   /// Ảnh tải xong làm khung cao thêm: đang ở gần cuối thì kéo xuống cuối, không thì tin mới bị ảnh đẩy khuất.
@@ -670,7 +806,8 @@
     const r = roomOf(id);
     const c = convOf(id);
     const key = k + '-' + id;
-    if (st.settings === key && r.entityType !== 'direct') return settingsBody(id, key);
+    const ro = readOnly(r);   // đang xem nhờ quyền "Xem tất cả đoạn chat", chưa ở trong phòng
+    if (st.settings === key && r.entityType !== 'direct' && !ro) return settingsBody(id, key);
     // Không aria-live: vẽ lại cả khung mỗi lần đổi → trình đọc màn hình đọc lại TOÀN BỘ tin mỗi lần.
     // Cuộn gần lên đầu → tự tải 50 tin cũ hơn (nút vẫn giữ làm đường dự phòng: khung chưa đủ dài để cuộn).
     const list = el('div', { class: 'ms', 'data-k': key, on: { scroll: (e) => { if (e.target.isConnected && e.target.scrollTop < 80 && c.hasOlder) loadOlder(id, key); } } });
@@ -680,7 +817,7 @@
     // Lúc đang tải nút chỉ ẩn đi (vẫn giữ chỗ) để tin bên dưới không nhảy.
     if (c.hasOlder) list.append(el('button', { class: 'oldbtn', type: 'button', style: c.loadingOlder ? 'visibility:hidden' : '', on: { click: () => loadOlder(id, key) } }, 'Xem tin cũ hơn'));
     const outbox = c.outbox || [];
-    if (c.loaded && !c.msgs.length && !outbox.length) list.append(el('div', { class: 'empty' }, 'Chưa có tin nhắn. Gửi lời chào đầu tiên.'));
+    if (c.loaded && !c.msgs.length && !outbox.length) list.append(el('div', { class: 'empty' }, ro ? 'Phòng chưa có tin nhắn.' : 'Chưa có tin nhắn. Gửi lời chào đầu tiên.'));
     // Gom tin như hộp thư chat đa kênh: không in giờ dưới TỪNG tin (năm tin liền là năm dòng "22:46").
     // Giờ nằm ở dải giữa khung — dải ngày kèm giờ tin đầu, và mốc giờ khi đứt quãng ≥ 20 phút; giờ của
     // từng tin rê chuột (máy tính) / chạm (điện thoại) là thấy. Tin liền nhau của CÙNG một người trong
@@ -727,7 +864,7 @@
       // Nút thả cảm xúc: mọi tin còn hiện (của mình lẫn người khác). Sửa / Thu hồi chỉ tin của mình.
       const reactBtn = el('button', { class: 'rc rk', type: 'button', 'aria-label': 'Thả cảm xúc', title: 'Thả cảm xúc',
         'aria-expanded': String(!!picking), on: { click: () => togglePicker(key, m.id) } }, icon('smile', 16));
-      const acts = !deleted && !editing ? el('span', { class: 'acts' + (confirming || picking ? ' on' : '') },
+      const acts = !deleted && !editing && !ro ? el('span', { class: 'acts' + (confirming || picking ? ' on' : '') },
         reactBtn,
         !mine ? null : m.body ? el('button', { class: 'rc', type: 'button', 'aria-label': 'Sửa tin này', title: 'Sửa',
           on: { click: () => startEdit(key, m) } }, icon('edit', 15), el('span', { class: 'sr' }, 'Sửa')) : null,
@@ -737,7 +874,7 @@
           on: { click: () => askRecall(id, m) } }, icon('undo', 15), el('span', { class: confirming ? '' : 'sr' }, confirming ? 'Thu hồi?' : 'Thu hồi'))) : null;
       const picker = picking ? reactPicker(id, m, key) : null;
       // Điện thoại không rê chuột được: nhấn giữ tin để mở bảng cảm xúc (như Messenger).
-      const hold = deleted || editing ? null : longPress(() => { st.reactPick = { key, msgId: m.id }; render(); focusPicker(); });
+      const hold = deleted || editing || ro ? null : longPress(() => { st.reactPick = { key, msgId: m.id }; render(); focusPicker(); });
       // Giờ đầy đủ của TỪNG tin: chú thích khi rê chuột; điện thoại chạm vào tin (mở bảng cảm xúc) thì hiện
       // ngay dưới tin. "đã sửa" luôn hiện — đó là thông tin, không phải trang trí.
       const tip = fullTime(m.createdUtc);
@@ -768,6 +905,13 @@
         attEl ? el('div', { class: 'row' }, attEl) : null,
         o.body ? el('div', { class: 'row' }, el('div', { class: 'bb' }, o.body)) : null, t));
     }
+
+    // Chỉ xem: không ô soạn. Phòng nhóm/đơn có nút tự vào phòng để nhắn; phòng 1-1 thì chỉ xem.
+    if (ro) return [list, st.errRoom === id ? errBox() : null,
+      el('div', { class: 'vo', role: 'note' },
+        el('span', {}, 'Bạn đang xem cuộc trò chuyện này nhờ quyền "Xem tất cả đoạn chat".'),
+        r.entityType === 'direct' ? null
+          : el('button', { class: 'pri', type: 'button', disabled: st.busy, on: { click: () => joinRoom(id) } }, 'Tham gia phòng để nhắn'))];
 
     const taId = 'tk-soan-' + key, fileId = 'tk-tep-' + key;
     const draft = st.drafts[id] || '';
@@ -841,17 +985,22 @@
     const r = roomOf(id);
     const asking = st.hideConfirm === id;
     const delAsking = st.deleteConfirm === id;
+    const ro = readOnly(r);   // chỉ xem: không cấu hình, không "xoá phía tôi" (mình không ở trong phòng)
     const cfgOn = st.settings === key;
     const items = [
-      r.entityType === 'direct' ? null : ['gear', cfgOn ? 'Đóng cấu hình phòng' : 'Cấu hình phòng: tên, thành viên',
-        () => { st.menu = null; toggleSettings(id, key); }, cfgOn ? 'Đóng cấu hình' : 'Cấu hình phòng'],
+      // Trang Chat: cấu hình nằm sẵn ở cột thông tin → mục này mở cột đó thay vì đè lên khung tin.
+      r.entityType === 'direct' ? null : ro && !PAGE_MODE ? null : PAGE_MODE && key.startsWith('panel-')
+        ? ['gear', 'Thông tin và cấu hình phòng', () => { st.menu = null; if (infoDocked()) st.info = true; else st.infoOpen = true; render(); }, 'Cấu hình phòng']
+        : ['gear', cfgOn ? 'Đóng cấu hình phòng' : 'Cấu hình phòng: tên, thành viên',
+          () => { st.menu = null; toggleSettings(id, key); }, cfgOn ? 'Đóng cấu hình' : 'Cấu hình phòng'],
       ...extra,
-      ['trash', asking ? 'Bấm lần nữa để xoá cuộc trò chuyện (chỉ phía bạn)' : 'Xoá cuộc trò chuyện (chỉ phía bạn)',
+      ro ? null : ['trash', asking ? 'Bấm lần nữa để xoá cuộc trò chuyện (chỉ phía bạn)' : 'Xoá cuộc trò chuyện (chỉ phía bạn)',
         () => askHide(id), asking ? 'Bấm lần nữa để xoá' : 'Xoá phía tôi', 'danger' + (asking ? ' warnb' : '')],
       // Chỉ trưởng nhóm: xoá phòng với MỌI người (khác "Xoá phía tôi").
       isOwner(r) && r.entityType !== 'direct' ? ['trash', delAsking ? 'Bấm lần nữa để xoá phòng với mọi thành viên' : 'Xoá phòng với mọi thành viên',
         () => askDeleteRoom(id), delAsking ? 'Bấm lần nữa để xoá nhóm' : 'Xoá nhóm (mọi người)', 'danger' + (delAsking ? ' warnb' : '')] : null,
     ].filter(Boolean);
+    if (!items.length) return null;
     return el('div', { class: 'mw' },
       el('button', { class: 'ib mbtn', type: 'button', 'aria-label': 'Tuỳ chọn phòng', title: 'Tuỳ chọn', 'aria-haspopup': 'menu', 'aria-expanded': String(open),
         on: { click: () => { st.menu = open ? null : key; st.hideConfirm = null; st.deleteConfirm = null; render(); } } }, icon('more', 18)),
@@ -908,6 +1057,10 @@
     pane = el('div', { class: 'pane', role: 'region', 'aria-label': 'Trò chuyện: ' + roomName(r), on: dropHandlers(id, k + '-' + id, () => pane) },
       el('div', { class: 'hd' }, lg ? null : backBtn(), roomAvatar(r, true),
         el('h2', {}, roomName(r), sub ? el('small', {}, sub) : null), entityLink(r, !lg),
+        PAGE_MODE ? el('button', { class: 'ib', type: 'button', 'aria-label': 'Thông tin phòng', title: 'Thông tin phòng',
+          'aria-pressed': String(infoDocked() ? st.info : st.infoOpen),
+          on: { click: () => { if (infoDocked()) st.info = !st.info; else st.infoOpen = !st.infoOpen; render(); } } }, icon('info')) : null,
+        pageBtn(id),
         moreBtn(id, k + '-' + id, [
           maxDocks() ? ['pop', 'Tách ra ô chat nhỏ', () => { const rid = id; st.menu = null; st.view = 'list'; st.roomId = null; if (!lg) closePanel(); addDock(rid); }] : null,
         ]),
@@ -930,6 +1083,7 @@
         min ? null : moreBtn(id, 'dock-' + id, [
           ['max', 'Mở trong khung lớn', () => { st.menu = null; closeDock(id); showInPanel(id); }],
         ]),
+        min ? null : pageBtn(id, 16),
         el('button', { class: 'ib', type: 'button', 'aria-label': min ? 'Mở ô' : 'Thu gọn', title: min ? 'Mở ô' : 'Thu gọn', on: { click: toggleMin } }, icon(min ? 'max' : 'dash', 16)),
         el('button', { class: 'ib', type: 'button', 'aria-label': 'Đóng ô chat', title: 'Đóng', on: { click: () => closeDock(id) } }, icon('x', 16))),
       min ? null : el('div', { class: 'pane' }, roomBody(id, 'dock')));
@@ -1082,7 +1236,7 @@
       x.lastMessageId = d.messageId;
       x.lastActivityAt = d.at;
       x.lastPreview = d.preview;
-      if (!d.system && d.senderId !== st.me && !isVisible(x.id)) x.unreadCount = Math.min(100, (x.unreadCount || 0) + 1);
+      if (!d.system && d.senderId !== st.me && !isVisible(x.id) && x.member !== false) x.unreadCount = Math.min(100, (x.unreadCount || 0) + 1);
       return true;
     };
     if (dem(r)) st.rooms.sort(byActivity);
@@ -1136,13 +1290,14 @@
     } catch { /* lần sự kiện sau sẽ bù */ }
   }
   async function markRead(id) {
+    if (readOnly(roomOf(id))) return;   // chỉ xem: không phải người nhận, không có "đã đọc"
     try { await api('POST', `/rooms/${id}/read`); } catch { return; }
     const r = st.rooms.find((x) => x.id === id); if (r && r.unreadCount) { r.unreadCount = 0; render(); }
   }
 
   // ── Mở / đóng ───────────────────────────────────────────────────────────
   function openPanel() { st.open = true; loadRooms(); render(); }
-  function closePanel() { st.open = false; errMsg = ''; render(); }
+  function closePanel() { if (PAGE_MODE) return; st.open = false; errMsg = ''; render(); }
   function showInPanel(id) {
     errMsg = ''; st.errRoom = null;
     // Một phòng chỉ hiện MỘT chỗ: mở trong khung thì đóng ô chat nhỏ của chính phòng đó.
@@ -1181,6 +1336,14 @@
   async function openLinked(payload, where) {
     const own = payload.ownerUserId ? `&ownerUserId=${payload.ownerUserId}&ownerSig=${encodeURIComponent(payload.ownerSig)}` : '';
     const r = await api('GET', `/rooms/lookup?entityType=${encodeURIComponent(payload.entityType)}&entityId=${encodeURIComponent(payload.entityId)}${own}`);
+    // Phòng có rồi, mình chưa ở nhưng có quyền "Xem tất cả đoạn chat" → mở thẳng ở chế độ chỉ xem (có nút tham gia).
+    if (!r.member && r.canView && r.id != null) {
+      if (st.draft && st.draft.roomKey === r.roomKey) closeDraft();
+      st.viewOnly.add(r.id);
+      await loadRooms();
+      if (where === 'panel') showInPanel(r.id); else addDock(r.id);
+      return { roomId: r.id };
+    }
     if (r.member) {
       if (st.draft && st.draft.roomKey === r.roomKey) closeDraft();
       // Trang nhúng mở lại bản ghi với tham số KHÁC cái đang lưu (vd đường dẫn đổi) → thay. Giống thì không ghi.
@@ -1477,12 +1640,13 @@
   function reactionSummary(roomId, m) {
     const rs = (m.reactions || []).filter((x) => (x.userIds || []).length);
     if (!rs.length) return null;
+    const ro = readOnly(roomOf(roomId));   // chỉ xem: hiện cảm xúc nhưng không bấm được
     return el('div', { class: 'rxs' }, rs.map((x) => {
       const mineX = x.userIds.includes(st.me);
       const who = x.userIds.map((u) => (u === st.me ? 'Bạn' : userName(u))).join(', ');
       return el('button', { class: 'rx' + (mineX ? ' me' : ''), type: 'button', title: who,
         'aria-label': x.emoji + ' ' + x.userIds.length + ': ' + who + (mineX ? '. Bấm để gỡ' : '. Bấm để thả'),
-        on: { click: () => react(roomId, m, x.emoji) } }, x.emoji, x.userIds.length > 1 ? el('span', {}, x.userIds.length) : null);
+        disabled: ro, on: ro ? null : { click: () => react(roomId, m, x.emoji) } }, x.emoji, x.userIds.length > 1 ? el('span', {}, x.userIds.length) : null);
     }));
   }
   function withReaction(list, userId, emoji) {
@@ -1751,6 +1915,8 @@
       const id = Number(roomId);
       return api('DELETE', `/rooms/${id}`).then(() => leftRoom(id)).catch(fail);
     },
+    /** Sang trang Chat riêng (cần data-page-url), mở sẵn phòng nếu truyền mã. */
+    openPage(roomId) { if (!PAGE_URL) return fail(new Error("openPage: thiếu data-page-url")); openInPage(Number(roomId) || null); return Promise.resolve(); },
     /** "Xoá phía tôi": ẩn phòng + tin cũ với riêng mình; có tin mới thì phòng hiện lại. */
     hideRoom(roomId) { return hideRoom(Number(roomId)).catch(fail); },
     leaveRoom(roomId) { return st.me == null ? fail(new Error('leaveRoom: chưa biết mã người của bạn')) : this.removeMember(roomId, st.me); },
@@ -1800,12 +1966,14 @@
   }
   function onResize() { clearTimeout(resizeTimer); resizeTimer = setTimeout(render, 150); }
   function boot() {
-    (document.body || document.documentElement).appendChild(host);
+    if (PAGE_MODE) { W.classList.add('pgw'); pageEl.appendChild(host); }
+    else (document.body || document.documentElement).appendChild(host);
     // Esc: đóng khung danh sách (khi focus đang trong widget). Không nghe phím toàn trang.
     root.addEventListener('keydown', (e) => {
       if (e.key !== 'Escape') return;
       if (st.reactPick) { st.reactPick = null; render(); return; }
       if (st.menu) { st.menu = null; st.hideConfirm = null; st.deleteConfirm = null; render(); return; }
+      if (PAGE_MODE) { if (st.infoOpen) { st.infoOpen = false; render(); } return; }   // trang Chat: Esc chỉ đóng ngăn kéo thông tin
       if (st.open) { st.open = false; render(); root.querySelector('.fab')?.focus(); }
     });
     document.addEventListener('pointerdown', onOutside, true);
@@ -1819,6 +1987,10 @@
     // Máy chủ có đẩy sự kiện tới đủ mọi máy không (Redis). Không đọc được thì coi như có.
     fetch(BASE + '/api/v1/features').then((r) => (r.ok ? r.json() : {})).then((f) => { realtime = f.chatRealtime !== false; syncPolling(); }).catch(() => {});
     loadUsers().then(loadRooms).then(() => {
+      // Trang Chat mở bằng link ?room= (từ ô chat nhỏ "Mở trong trang Chat", hoặc tải lại trang) → mở đúng phòng.
+      if (PAGE_MODE) {
+        if (Number.isInteger(PAGE_ROOM) && PAGE_ROOM > 0) showInPanel(PAGE_ROOM);
+      }
       subscribe();
       syncPolling();
       emit('ready', { me: st.me });

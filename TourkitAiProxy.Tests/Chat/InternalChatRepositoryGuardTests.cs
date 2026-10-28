@@ -254,7 +254,7 @@ public class InternalChatRepositoryGuardTests
     {
         // Đi từ chỉ mục thành viên (vài phòng mỗi người) chứ không đi chỉ mục hoạt động của cả công
         // ty rồi lọc kênh 7 — công ty nhiều hội thoại khách là quét gần hết.
-        var than = InternalChatGuardTests.ThanHam(Repo(), "ListRoomsAsync");
+        var than = InternalChatGuardTests.ThanHam(Repo(), "ListMyRoomsAsync");
         Assert.Contains("AS MATERIALIZED", than);
         Assert.Contains("GREATEST(r.last_read_at, mb.joined_utc", than);   // vào lại phòng: chưa đọc tính từ lúc vào lại
         Assert.Contains("hidden_utc", than);                                 // "Xoá phía tôi"
@@ -320,7 +320,7 @@ public class InternalChatRepositoryGuardTests
     [Fact]
     public void Tin_he_thong_khong_tinh_chua_doc()
     {
-        Assert.Contains("sender_kind <> 3", InternalChatGuardTests.ThanHam(Repo(), "ListRoomsAsync"));
+        Assert.Contains("sender_kind <> 3", InternalChatGuardTests.ThanHam(Repo(), "ListMyRoomsAsync"));
         var than = InternalChatGuardTests.ThanHam(Repo(), "AppendSystemMessageAsync");
         Assert.Contains("tenant_id = @tenant", than);
         Assert.Contains(", 3,", than);   // sender_kind = 3 (hệ thống)
@@ -354,7 +354,7 @@ public class InternalChatRepositoryGuardTests
 
     [Fact]
     public void Dem_chua_doc_co_tran()
-        => Assert.Contains("LIMIT 100", InternalChatGuardTests.ThanHam(Repo(), "ListRoomsAsync"));
+        => Assert.Contains("LIMIT 100", InternalChatGuardTests.ThanHam(Repo(), "ListMyRoomsAsync"));
 
     // ── Bấm Chat chỉ HỎI, chưa tạo: phòng sinh ra lúc gửi tin đầu tiên (chống bấm nhầm) ──
     [Theory]
@@ -402,7 +402,7 @@ public class InternalChatRepositoryGuardTests
 
     [Fact]
     public void Danh_sach_phong_tra_ma_tin_cuoi_de_khong_dem_trung()
-        => Assert.Contains("AS last_message_id", InternalChatGuardTests.ThanHam(Repo(), "ListRoomsAsync"));
+        => Assert.Contains("AS last_message_id", InternalChatGuardTests.ThanHam(Repo(), "ListMyRoomsAsync"));
 
     [Theory]
     [InlineData("Giá vé tháng 12 tăng", null, "Giá vé tháng 12 tăng")]
@@ -423,7 +423,7 @@ public class InternalChatRepositoryGuardTests
     [Fact]
     public void Danh_sach_phong_phan_trang_con_tro_khong_OFFSET()
     {
-        var than = InternalChatGuardTests.ThanHam(Repo(), "ListRoomsAsync");
+        var than = InternalChatGuardTests.ThanHam(Repo(), "ListMyRoomsAsync");
         Assert.Contains("(v.last_activity_at, v.id) < (@beforeAt::timestamptz, @beforeId::bigint)", than);
         Assert.DoesNotContain("OFFSET", than);
         Assert.Contains("ILIKE @like", than);

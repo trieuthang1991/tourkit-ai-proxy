@@ -792,6 +792,10 @@ public class ChatDb
     -- khách ở mỗi lần khởi động. Gán xong thì dòng tự rời chỉ mục.
     CREATE INDEX IF NOT EXISTS ix_conv_internal_no_owner ON chat_conversations (id)
       WHERE channel = 7 AND owner_user_id IS NULL AND entity_type IS DISTINCT FROM 'direct';
+    -- Quyền "Xem tất cả đoạn chat" (CHAT_XEM_ALL): danh sách MỌI phòng nội bộ của công ty, mới hoạt động trước, phân
+    -- trang con trỏ. Chỉ mục riêng phần kênh 7 — chỉ mục hoạt động chung của bảng lẫn cả hội thoại khách (đông hơn nhiều).
+    CREATE INDEX IF NOT EXISTS ix_conv_internal_activity
+      ON chat_conversations (tenant_id, last_activity_at DESC, id DESC) WHERE channel = 7 AND deleted_utc IS NULL;
     -- Phòng có từ trước khi có trưởng nhóm: người gửi tin đầu tiên (phòng sinh ra lúc gửi tin đầu → chính là
     -- người tạo) nếu còn ở phòng; không thì người vào sớm nhất. Phòng đơn mở lại từ CRM sẽ đồng bộ theo INS_UID.
     UPDATE chat_conversations c SET owner_user_id = COALESCE(

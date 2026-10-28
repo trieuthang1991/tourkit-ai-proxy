@@ -161,6 +161,8 @@ Tuỳ chọn `data-*`:
 | `data-order-url` | Mẫu link mở đơn, `{id}` thay bằng mã đơn → phòng đơn hàng có nút **Mở đơn** (mở tab mới) |
 | `data-deal-url` | Như trên cho cơ hội → phòng cơ hội có nút **Mở cơ hội** |
 | `data-launcher` | `false` = ẩn nút nổi, CRM tự đặt nút riêng rồi gọi `TkInternalChat.open()` (§5) |
+| `data-page-url` | Đường dẫn trang Chat riêng (CRM: `/chat`). Có thì ô chat nhỏ và khung có nút **Mở trong trang Chat** → `{url}?room={id}`; `TkInternalChat.openPage(roomId?)` |
+| `data-page-mount` | Id phần tử trên CHÍNH trang Chat. Có thì widget vẽ vào đó thành 3 cột (danh sách · phòng · thông tin, ≥1200px), 2 cột + ngăn kéo thông tin (760–1199px), 1 cột (<760px); không nút nổi, không ô nhỏ; `?room=` trên địa chỉ = phòng đang mở. Phần tử phải có chiều cao |
 
 Script nạp `async`. Muốn gọi API ngay khi trang tải thì chờ widget sẵn sàng:
 

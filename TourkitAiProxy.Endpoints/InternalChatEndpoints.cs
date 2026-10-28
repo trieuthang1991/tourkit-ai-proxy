@@ -58,8 +58,10 @@ public static class InternalChatEndpoints
                 nameIds = staffs.Where(s => InternalRoomSearch.NameMatches(ChatStaffDirectory.StaffName(s), tim))
                     .Select(ChatStaffDirectory.StaffId).OfType<int>().ToArray();
             }
-            var rooms = await repo.ListRoomsAsync(a!.TenantId, me, Math.Clamp(limit ?? 30, 1, 100),
-                truoc, beforeId, InternalRoomSearch.LikePattern(tim), nameIds, ct);
+            // CHAT_XEM_ALL: mọi phòng nội bộ của công ty (kể cả phòng mình không ở) — không phụ thuộc nhóm / chi nhánh / quyền đơn.
+            var viewAll = await SessionAuth.IsQuanTriChatAsync(a!.SessionId, sessions, ct);
+            var rooms = await repo.ListRoomsAsync(a.TenantId, me, Math.Clamp(limit ?? 30, 1, 100),
+                truoc, beforeId, InternalRoomSearch.LikePattern(tim), nameIds, viewAll, ct);
             return Results.Json(rooms, Web);
         });
 
@@ -107,7 +109,16 @@ public static class InternalChatEndpoints
             var owner = SignedOwner(cfg, a!.TenantId, type, key, req.OwnerUserId, req.OwnerSig);
             if (owner is int o && o != me && !others.Contains(o)) others.Add(o);
 
-            if (await CheckStaffAsync(others, sessions, api, redis, a!, lf, ct) is { } sai) return sai;
+            if (InternalRoomKey.IsEntityType(type))
+            {
+                // Phòng theo bản ghi: danh sách người do TRANG NHÚNG gom (vd mọi sale của tour FIT) — một tài khoản lạ (đại lý /
+                // CTV không có trong danh bạ nhân viên) chỉ bị BỎ RA, không làm hỏng cả lần tạo phòng (lỗi FIT 27/10/2026).
+                var (giu, saiNv) = await KeepStaffAsync(others, sessions, api, redis, a!, lf, ct);
+                if (saiNv is not null) return saiNv;
+                others = giu;
+                if (owner is int o2 && o2 != me && !others.Contains(o2)) owner = null;
+            }
+            else if (await CheckStaffAsync(others, sessions, api, redis, a!, lf, ct) is { } sai) return sai;
 
             // Phòng theo CƠ HỘI: ai xem được cơ hội đó theo luật của web thì vào được (CH_XEM_ALL: mọi
             // cơ hội, KHÔNG gọi CRM; chỉ CH_XEM: cơ hội mình tạo/phụ trách). CHỈ kiểm lần đầu (chưa là
@@ -164,7 +175,9 @@ public static class InternalChatEndpoints
                 var (cam, _) = await CheckDealViewAsync(sessions, deals, a, me, key["deal:".Length..], ct);
                 if (cam is not null) return cam;
             }
-            return Results.Json(new { id, member, roomKey = key, data }, Web);
+            // canView: phòng có rồi, mình chưa ở nhưng có CHAT_XEM_ALL → widget mở thẳng ở chế độ chỉ xem thay vì ô nháp.
+            var canView = id is not null && !member && await SessionAuth.IsQuanTriChatAsync(a.SessionId, sessions, ct);
+            return Results.Json(new { id, member, roomKey = key, data, canView }, Web);
         });
 
         g.MapGet("/rooms/{id:long}/messages", async (long id, HttpContext ctx, TkSessionStore sessions,
@@ -174,9 +187,10 @@ public static class InternalChatEndpoints
             var (loi, a, me) = await GuardAsync(ctx, sessions, repo, ct);
             if (loi is not null) return loi;
             var n = Math.Clamp(limit ?? 50, 1, 100);
+            var viewAll = await SessionAuth.IsQuanTriChatAsync(a!.SessionId, sessions, ct);   // CHAT_XEM_ALL: đọc cả phòng mình không ở
             IReadOnlyList<InternalMessage>? msgs;
             if (afterId is { } sau)
-                msgs = await repo.ListMessagesAfterAsync(a!.TenantId, id, me, sau, n, ct);
+                msgs = await repo.ListMessagesAfterAsync(a.TenantId, id, me, sau, n, viewAll, ct);
             else
             {
                 DateTime? truoc = null;
@@ -187,7 +201,7 @@ public static class InternalChatEndpoints
                         return Bad("beforeUtc không đúng định dạng ISO-8601");
                     truoc = t;
                 }
-                msgs = await repo.ListMessagesAsync(a!.TenantId, id, me, truoc, beforeId, n, ct);
+                msgs = await repo.ListMessagesAsync(a.TenantId, id, me, truoc, beforeId, n, viewAll, ct);
             }
             return msgs is null ? NotMember() : Results.Json(msgs, Web);
         });
@@ -362,6 +376,22 @@ public static class InternalChatEndpoints
             return Results.NoContent();
         });
 
+        // Tự vào một phòng đang xem nhờ quyền "Xem tất cả đoạn chat" (CHAT_XEM_ALL) — để nhắn được. Không áp phòng 1-1.
+        g.MapPost("/rooms/{id:long}/join", async (long id, HttpContext ctx, TkSessionStore sessions,
+            InternalChatRepository repo, ChatEventBus bus, TourKitApiClient api, RedisStore redis, ILoggerFactory lf,
+            CancellationToken ct) =>
+        {
+            var (loi, a, me) = await GuardAsync(ctx, sessions, repo, ct);
+            if (loi is not null) return loi;
+            if (!await SessionAuth.IsQuanTriChatAsync(a!.SessionId, sessions, ct))
+                return Results.Json(new { error = "Cần quyền Xem tất cả đoạn chat để tự vào phòng" }, statusCode: 403);
+            if (!await repo.JoinRoomAsync(a.TenantId, id, me, ct))
+                return Results.Json(new { error = "Không vào được phòng này (phòng 1-1, đã xoá, hoặc bạn đã ở trong phòng)" }, statusCode: 403);
+            await PostNoticeAsync(repo, bus, sessions, api, redis, lf, a, me, id, "vào", Array.Empty<int>(), null, ct);
+            await NotifyRoomChangedAsync(repo, bus, a.TenantId, id, null, ct);
+            return Results.NoContent();
+        });
+
         // Chuyển quyền trưởng nhóm ({ userId }) — chỉ trưởng nhóm; phòng đơn/công ty không chuyển tay.
         g.MapPost("/rooms/{id:long}/owner", async (long id, HttpContext ctx, TkSessionStore sessions,
             InternalChatRepository repo, ChatEventBus bus, TourKitApiClient api, RedisStore redis, ILoggerFactory lf,
@@ -450,7 +480,8 @@ public static class InternalChatEndpoints
                 await ctx.Response.Body.FlushAsync(ct);
             }
 
-            await using var nguon = bus.SubscribeInternalAsync(a!.TenantId, me, ct).GetAsyncEnumerator(ct);
+            var viewAll = await SessionAuth.IsQuanTriChatAsync(a!.SessionId, sessions, ct);
+            await using var nguon = bus.SubscribeInternalAsync(a.TenantId, me, ct, viewAll).GetAsyncEnumerator(ct);
             using var dongHo = new PeriodicTimer(TimeSpan.FromSeconds(25));
             var toi = nguon.MoveNextAsync().AsTask();
             var nhip = dongHo.WaitForNextTickAsync(ct).AsTask();
@@ -584,6 +615,31 @@ public static class InternalChatEndpoints
             la = ids.Where(x => !hopLe.Contains(x)).ToList();
         }
         return la.Count > 0 ? Bad("Có người không thuộc công ty: " + string.Join(", ", la)) : null;
+    }
+
+    /// <summary>
+    /// Như <see cref="CheckStaffAsync"/> nhưng LỌC thay vì từ chối: giữ người của công ty này, bỏ mã lạ (sau một lần hỏi lại
+    /// ERP bỏ qua đệm — có thể là nhân viên mới). Lỗi chỉ khi không tải được danh bạ.
+    /// </summary>
+    private static async Task<(List<int> Keep, IResult? Err)> KeepStaffAsync(List<int> ids, TkSessionStore sessions,
+        TourKitApiClient api, RedisStore redis, SessionAuth.Ctx a, ILoggerFactory lf, CancellationToken ct)
+    {
+        if (ids.Count == 0) return (ids, null);
+        var log = lf.CreateLogger("chat.internal");
+        var (staffs, _) = await ChatStaffDirectory.ListAsync(sessions, api, redis, a.TenantId, a.SessionId, log, ct);
+        if (staffs.Count == 0)
+            return (ids, Results.Json(new { error = "Chưa tải được danh sách nhân viên — thử lại sau" }, statusCode: 503));
+        var hopLe = staffs.Select(ChatStaffDirectory.StaffId).OfType<int>().ToHashSet();
+        if (ids.Any(x => !hopLe.Contains(x)))
+        {
+            (staffs, _) = await ChatStaffDirectory.ListAsync(sessions, api, redis, a.TenantId, a.SessionId, log, ct, skipCache: true);
+            hopLe = staffs.Select(ChatStaffDirectory.StaffId).OfType<int>().ToHashSet();
+        }
+        var keep = ids.Where(hopLe.Contains).ToList();
+        if (keep.Count < ids.Count)
+            log.LogInformation("Phòng theo bản ghi: bỏ {N} người không có trong danh bạ nhân viên ({Ids})",
+                ids.Count - keep.Count, string.Join(",", ids.Where(x => !hopLe.Contains(x))));
+        return (keep, null);
     }
 
     /// <summary>

@@ -93,7 +93,8 @@ public class ChatEventBus
             foreach (var (tenant, xem, noiBo, kenh) in _nghe)
                 if (string.Equals(tenant, e.TenantId, StringComparison.Ordinal)
                     && (e.Recipients is { } nguoiNhan
-                        ? noiBo && xem.CrmUserId is int u && Array.IndexOf(nguoiNhan, u) >= 0
+                        // Chat nội bộ: thành viên phòng, hoặc người có quyền xem tất cả đoạn chat (CHAT_XEM_ALL).
+                        ? noiBo && (xem.XemTatCa || xem.CrmUserId is int u && Array.IndexOf(nguoiNhan, u) >= 0)
                         : !noiBo && DuocThay(xem, e)))
                     kenh.Writer.TryWrite(e);   // TryWrite: đầy thì bỏ, KHÔNG chặn
     }
@@ -150,8 +151,10 @@ public class ChatEventBus
     /// người đó. Thành viên phòng được chốt ngay lúc ghi tin (lấy trong chính câu ghi), nên không
     /// có ảnh chụp quyền nào bị "đóng băng" ở đây như bên hộp thư khách.
     /// </summary>
-    public IAsyncEnumerable<ChatEvent> SubscribeInternalAsync(string tenantId, int userId, CancellationToken ct)
-        => NgheAsync(tenantId, new NguoiXem(userId, XemTatCa: false), noiBo: true, ct);
+    /// <param name="viewAll">Người có quyền CHAT_XEM_ALL — nhận sự kiện của MỌI phòng nội bộ trong công ty (kể cả phòng
+    /// mình không ở), để trang Chat của họ tự cập nhật. Đóng băng lúc đăng ký như hộp thư khách.</param>
+    public IAsyncEnumerable<ChatEvent> SubscribeInternalAsync(string tenantId, int userId, CancellationToken ct, bool viewAll = false)
+        => NgheAsync(tenantId, new NguoiXem(userId, XemTatCa: viewAll), noiBo: true, ct);
 
     private async IAsyncEnumerable<ChatEvent> NgheAsync(string tenantId, NguoiXem xem, bool noiBo,
         [System.Runtime.CompilerServices.EnumeratorCancellation] CancellationToken ct)

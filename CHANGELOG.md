@@ -13,6 +13,31 @@ Những cập nhật gần đây của TRAV-AI, viết cho người dùng. Mới
 
 ---
 
+## Phiên bản 27/10/2026 — Trang Chat riêng
+
+### ✨ Tính năng mới
+- **Trang Chat toàn màn hình** như các ứng dụng nhắn tin quen thuộc. Bấm nút Chat trên thanh trên cùng của CRM là
+  sang trang Chat thay vì bung khung nhỏ. Màn hình rộng có ba cột: danh sách cuộc trò chuyện bên trái, cuộc đang mở ở
+  giữa, thông tin nhóm (thành viên, trưởng nhóm, đổi tên, thêm người) bên phải.
+- **Lọc nhanh** danh sách theo Tất cả, Chưa đọc, Đơn và cơ hội, Nhóm, 1-1.
+- **Mở trong trang Chat**: ô chat nhỏ trên các màn đơn hàng có thêm nút chuyển sang trang Chat, mở đúng cuộc đang xem.
+- Đường dẫn trang Chat giữ cuộc đang mở, tải lại trang hoặc gửi link cho người khác vẫn vào đúng cuộc đó.
+- Trên điện thoại, trang Chat đi lần lượt: danh sách, cuộc trò chuyện, rồi thông tin nhóm.
+- **Quyền "Xem tất cả đoạn chat" nay áp cho cả chat nội bộ.** Người được cấp quyền này thấy mọi cuộc trò chuyện
+  của công ty, kể cả cuộc mình chưa được thêm vào, không phụ thuộc nhóm, chi nhánh hay quyền xem đơn hàng.
+  Cuộc mình chưa ở được mở ở chế độ chỉ xem; muốn nhắn thì bấm **Tham gia phòng để nhắn** (cuộc 1-1 chỉ xem).
+
+### 🔧 Đã khắc phục
+- **Đơn FIT không tạo được đoạn chat**: trước đây bấm Chat trên đơn FIT báo không tìm thấy đơn. Nay ai xem được đơn FIT
+  đều tạo được đoạn chat; nhóm chat tự có người tạo đơn và toàn bộ sale được thêm vào tour, bỏ tài khoản đại lý và CTV.
+- Màn xem chi tiết vé máy bay lẻ có thêm nút Chat, nằm trước nút Chốt quyết toán.
+- Nhóm chat của đơn có nhiều người không còn bị cắt bớt ở 50 người.
+
+### 📌 Lưu ý
+- Quyền vừa được cấp có hiệu lực sau khi người dùng đăng xuất rồi đăng nhập lại CRM.
+
+---
+
 ## Phiên bản 27/10/2026 — Trưởng nhóm trong chat nội bộ
 
 ### ✨ Tính năng mới

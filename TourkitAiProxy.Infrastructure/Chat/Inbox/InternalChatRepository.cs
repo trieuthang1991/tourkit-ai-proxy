@@ -37,6 +37,7 @@ public class InternalChatRepository
         public long? LastMessageId { get; set; }
         public string? DataJson { get; set; }
         public int? OwnerUserId { get; set; }
+        public bool Member { get; set; } = true;
     }
 
     /// JSON đã lưu → phần tử để trả ra API; hỏng (không thể xảy ra vì cột là jsonb) thì coi như không có.
@@ -219,9 +220,31 @@ public class InternalChatRepository
     /// <param name="nameIds">Mã những người có tên khớp chuỗi tìm (chỗ gọi tra danh bạ) — phòng có họ cũng khớp.</param>
     public async Task<IReadOnlyList<InternalRoom>> ListRoomsAsync(string tenant, int userId, int limit,
         DateTime? beforeAt = null, long? beforeId = null, string? like = null, int[]? nameIds = null,
-        CancellationToken ct = default)
+        bool viewAll = false, CancellationToken ct = default)
     {
         await using var c = await _db.OpenAsync(ct);
+        var rows = viewAll
+            ? await ListAllRoomsAsync(c, tenant, userId, limit, beforeAt, beforeId, like, nameIds, ct)
+            : await ListMyRoomsAsync(c, tenant, userId, limit, beforeAt, beforeId, like, nameIds, ct);
+        if (rows.Count == 0) return Array.Empty<InternalRoom>();
+
+        var ids = rows.Select(r => r.Id).ToArray();
+        var members = (await c.QueryAsync<MemberRow>(new CommandDefinition("""
+            SELECT conversation_id, user_id, joined_utc
+              FROM chat_room_members
+             WHERE tenant_id = @tenant AND conversation_id = ANY(@ids) AND left_utc IS NULL
+            """, new { tenant, ids }, cancellationToken: ct)))
+            .ToLookup(m => m.ConversationId, m => new InternalMember(m.UserId, m.JoinedUtc));
+
+        return rows.Select(r => new InternalRoom(r.Id, r.Title, r.EntityType ?? "direct", r.EntityId,
+            r.RoomKey, r.LastPreview, r.LastActivityAt, r.UnreadCount, members[r.Id].ToList(), r.LastMessageId,
+            ParseData(r.DataJson), r.OwnerUserId, r.Member)).ToList();
+    }
+
+    /// Phòng mình đang ở (luồng thường).
+    private static async Task<List<RoomRow>> ListMyRoomsAsync(Npgsql.NpgsqlConnection c, string tenant, int userId, int limit,
+        DateTime? beforeAt, long? beforeId, string? like, int[]? nameIds, CancellationToken ct)
+    {
         // Đi TỪ phòng của người này (ix_room_members_user, vài chục dòng) — MATERIALIZED để planner
         // không đổi sang đi chỉ mục hoạt động của cả công ty rồi lọc kênh 7 (review 19/10/2026: công
         // ty nhiều hội thoại khách là quét gần hết, mà mỗi tin mới mọi thành viên đều gọi lại câu này).
@@ -272,27 +295,64 @@ public class InternalChatRepository
              LIMIT @limit
             """, new { tenant, userId, limit, beforeAt = AsUtc(beforeAt), beforeId = beforeId ?? long.MaxValue,
                        like, nameIds = nameIds ?? Array.Empty<int>() }, cancellationToken: ct))).ToList();
-        if (rows.Count == 0) return Array.Empty<InternalRoom>();
-
-        var ids = rows.Select(r => r.Id).ToArray();
-        var members = (await c.QueryAsync<MemberRow>(new CommandDefinition("""
-            SELECT conversation_id, user_id, joined_utc
-              FROM chat_room_members
-             WHERE tenant_id = @tenant AND conversation_id = ANY(@ids) AND left_utc IS NULL
-            """, new { tenant, ids }, cancellationToken: ct)))
-            .ToLookup(m => m.ConversationId, m => new InternalMember(m.UserId, m.JoinedUtc));
-
-        return rows.Select(r => new InternalRoom(r.Id, r.Title, r.EntityType ?? "direct", r.EntityId,
-            r.RoomKey, r.LastPreview, r.LastActivityAt, r.UnreadCount, members[r.Id].ToList(), r.LastMessageId,
-            ParseData(r.DataJson), r.OwnerUserId)).ToList();
+        return rows;
     }
+
+    /// <summary>
+    /// Quyền "Xem tất cả đoạn chat" (CHAT_XEM_ALL, chốt 27/10/2026): MỌI phòng nội bộ còn người của công ty, kể cả
+    /// phòng mình không ở — không phụ thuộc nhóm / chi nhánh / quyền đơn hàng. Phòng mình không ở: Member = false,
+    /// chưa đọc = 0 (mình không phải người nhận). Phòng mình ở: tính như luồng thường, tôn trọng "xoá phía tôi".
+    ///
+    /// <para>Đi chỉ mục riêng phần <c>ix_conv_internal_activity</c> (tenant, hoạt động, mã) WHERE channel = 7 AND
+    /// deleted_utc IS NULL — không đi chỉ mục hoạt động của cả công ty rồi lọc kênh (lẫn hội thoại khách).</para>
+    /// </summary>
+    private static async Task<List<RoomRow>> ListAllRoomsAsync(Npgsql.NpgsqlConnection c, string tenant, int userId, int limit,
+        DateTime? beforeAt, long? beforeId, string? like, int[]? nameIds, CancellationToken ct)
+        => (await c.QueryAsync<RoomRow>(new CommandDefinition("""
+            SELECT v.id, v.title, v.entity_type, v.entity_id, v.contact_external_id AS room_key,
+                   v.last_preview, v.last_activity_at, v.entity_data::text AS data_json, v.owner_user_id,
+                   (mb.conversation_id IS NOT NULL) AS member,
+                   CASE WHEN mb.conversation_id IS NULL THEN 0 ELSE (SELECT count(*)::int FROM (
+                      SELECT 1 FROM chat_messages m
+                       WHERE m.conversation_id = v.id
+                         AND m.created_utc > GREATEST(r.last_read_at, mb.joined_utc, mb.hidden_utc)
+                         AND m.sender_user_id IS DISTINCT FROM @userId
+                         AND m.deleted_utc IS NULL
+                         AND m.sender_kind <> 3
+                       LIMIT 100) x) END AS unread_count,
+                   (SELECT x.id FROM chat_messages x WHERE x.conversation_id = v.id
+                     ORDER BY x.created_utc DESC, x.id DESC LIMIT 1) AS last_message_id
+              FROM chat_conversations v
+              LEFT JOIN chat_room_members mb
+                ON mb.conversation_id = v.id AND mb.tenant_id = @tenant AND mb.user_id = @userId AND mb.left_utc IS NULL
+              LEFT JOIN chat_conversation_reads r
+                ON r.tenant_id = @tenant AND r.conversation_id = v.id AND r.user_id = @userId
+             WHERE v.tenant_id = @tenant AND v.channel = 7 AND v.deleted_utc IS NULL
+               -- Phòng không còn ai (mọi người đã rời) thì bỏ — không có gì để giám sát.
+               -- Subquery VÔ HƯỚNG + LIMIT 1 chứ KHÔNG phải EXISTS: EXISTS bị kéo thành hash semi-join, planner bỏ chỉ
+               -- mục riêng phần mà quét lùi khoá chính (đo PG 17, 200k hội thoại khách: 3471 buffer → 164, đi đúng
+               -- ix_conv_internal_activity và dừng ở LIMIT).
+               AND (SELECT 1 FROM chat_room_members o
+                     WHERE o.conversation_id = v.id AND o.tenant_id = @tenant AND o.left_utc IS NULL LIMIT 1) IS NOT NULL
+               AND (mb.hidden_utc IS NULL OR v.last_activity_at > mb.hidden_utc)
+               AND (@beforeAt::timestamptz IS NULL
+                    OR (v.last_activity_at, v.id) < (@beforeAt::timestamptz, @beforeId::bigint))
+               AND (@like::text IS NULL
+                    OR v.title ILIKE @like ESCAPE '\' OR v.entity_id ILIKE @like ESCAPE '\'
+                    OR EXISTS (SELECT 1 FROM chat_room_members o
+                                WHERE o.conversation_id = v.id AND o.tenant_id = @tenant AND o.left_utc IS NULL
+                                  AND o.user_id <> @userId AND o.user_id = ANY(@nameIds)))
+             ORDER BY v.last_activity_at DESC, v.id DESC
+             LIMIT @limit
+            """, new { tenant, userId, limit, beforeAt = AsUtc(beforeAt), beforeId = beforeId ?? long.MaxValue,
+                       like, nameIds = nameIds ?? Array.Empty<int>() }, cancellationToken: ct))).ToList();
 
     /// <summary>
     /// Lịch sử, mới nhất trước, phân trang con trỏ (created_utc, id) — khớp chỉ mục ix_msg_conv.
     /// Trả <c>null</c> khi người hỏi không phải thành viên (chỗ gọi trả 403).
     /// </summary>
     public async Task<IReadOnlyList<InternalMessage>?> ListMessagesAsync(string tenant, long roomId, int userId,
-        DateTime? beforeUtc, long? beforeId, int limit, CancellationToken ct = default)
+        DateTime? beforeUtc, long? beforeId, int limit, bool viewAll = false, CancellationToken ct = default)
     {
         await using var c = await _db.OpenAsync(ct);
         var rows = (await c.QueryAsync<MessageRow>(new CommandDefinition("""
@@ -300,9 +360,13 @@ public class InternalChatRepository
                    m.created_utc, m.deleted_utc, m.edited_utc, m.sender_kind, m.attachment::text AS attachment
               FROM chat_messages m
              WHERE m.conversation_id = @roomId AND m.tenant_id = @tenant
-               AND EXISTS (SELECT 1 FROM chat_room_members mb
+               AND (EXISTS (SELECT 1 FROM chat_room_members mb
                             WHERE mb.conversation_id = @roomId AND mb.tenant_id = @tenant
                               AND mb.user_id = @userId AND mb.left_utc IS NULL)
+                    -- Quyền CHAT_XEM_ALL: đọc được phòng nội bộ còn tồn tại của công ty dù không ở trong.
+                    OR (@viewAll AND EXISTS (SELECT 1 FROM chat_conversations cv
+                                              WHERE cv.id = @roomId AND cv.tenant_id = @tenant AND cv.channel = 7
+                                                AND cv.deleted_utc IS NULL)))
                -- "Xoá phía tôi": tin cũ hơn mốc xoá không hiện lại với người này.
                AND m.created_utc > COALESCE((SELECT h.hidden_utc FROM chat_room_members h
                                               WHERE h.conversation_id = @roomId AND h.tenant_id = @tenant
@@ -311,16 +375,16 @@ public class InternalChatRepository
                     OR (m.created_utc, m.id) < (@beforeUtc::timestamptz, @beforeId::bigint))
              ORDER BY m.created_utc DESC, m.id DESC
              LIMIT @limit
-            """, new { tenant, roomId, userId, beforeUtc = AsUtc(beforeUtc), beforeId = beforeId ?? long.MaxValue, limit },
+            """, new { tenant, roomId, userId, beforeUtc = AsUtc(beforeUtc), beforeId = beforeId ?? long.MaxValue, limit, viewAll },
             cancellationToken: ct))).ToList();
-        if (rows.Count == 0 && !await IsMemberOrEmptyAsync(c, tenant, roomId, userId, ct)) return null;
+        if (rows.Count == 0 && !await IsMemberOrEmptyAsync(c, tenant, roomId, userId, ct, viewAll)) return null;
         var rx = await ReactionsOfAsync(c, tenant, rows, ct);
         return rows.Select(m => ToMessage(m, rx.GetValueOrDefault(m.Id))).ToList();
     }
 
     /// <summary>Tin MỚI hơn một mã, cũ trước — để widget bù tin khi có sự kiện hoặc vừa nối lại.</summary>
     public async Task<IReadOnlyList<InternalMessage>?> ListMessagesAfterAsync(string tenant, long roomId, int userId,
-        long afterId, int limit, CancellationToken ct = default)
+        long afterId, int limit, bool viewAll = false, CancellationToken ct = default)
     {
         await using var c = await _db.OpenAsync(ct);
         var rows = (await c.QueryAsync<MessageRow>(new CommandDefinition("""
@@ -328,17 +392,21 @@ public class InternalChatRepository
                    m.created_utc, m.deleted_utc, m.edited_utc, m.sender_kind, m.attachment::text AS attachment
               FROM chat_messages m
              WHERE m.conversation_id = @roomId AND m.tenant_id = @tenant AND m.id > @afterId
-               AND EXISTS (SELECT 1 FROM chat_room_members mb
+               AND (EXISTS (SELECT 1 FROM chat_room_members mb
                             WHERE mb.conversation_id = @roomId AND mb.tenant_id = @tenant
                               AND mb.user_id = @userId AND mb.left_utc IS NULL)
+                    -- Quyền CHAT_XEM_ALL: đọc được phòng nội bộ còn tồn tại của công ty dù không ở trong.
+                    OR (@viewAll AND EXISTS (SELECT 1 FROM chat_conversations cv
+                                              WHERE cv.id = @roomId AND cv.tenant_id = @tenant AND cv.channel = 7
+                                                AND cv.deleted_utc IS NULL)))
                -- "Xoá phía tôi": tin cũ hơn mốc xoá không hiện lại với người này.
                AND m.created_utc > COALESCE((SELECT h.hidden_utc FROM chat_room_members h
                                               WHERE h.conversation_id = @roomId AND h.tenant_id = @tenant
                                                 AND h.user_id = @userId), '-infinity'::timestamptz)
              ORDER BY m.id
              LIMIT @limit
-            """, new { tenant, roomId, userId, afterId, limit }, cancellationToken: ct))).ToList();
-        if (rows.Count == 0 && !await IsMemberOrEmptyAsync(c, tenant, roomId, userId, ct)) return null;
+            """, new { tenant, roomId, userId, afterId, limit, viewAll }, cancellationToken: ct))).ToList();
+        if (rows.Count == 0 && !await IsMemberOrEmptyAsync(c, tenant, roomId, userId, ct, viewAll)) return null;
         var rx = await ReactionsOfAsync(c, tenant, rows, ct);
         return rows.Select(m => ToMessage(m, rx.GetValueOrDefault(m.Id))).ToList();
     }
@@ -424,6 +492,24 @@ public class InternalChatRepository
                    left_utc = NULL
              WHERE chat_room_members.tenant_id = @tenant
             """, new { tenant, roomId, userId, ids = ids.Distinct().ToArray() }, cancellationToken: ct));
+    }
+
+    /// <summary>
+    /// Tự vào một phòng mình chưa ở — chỉ cho người có quyền CHAT_XEM_ALL (chỗ gọi kiểm). Không áp phòng 1-1 (phòng
+    /// hai người, thêm người thứ ba là đổi bản chất). Đã rời thì vào lại, mốc vào tính từ bây giờ. Một câu.
+    /// false = phòng không có / đã xoá / là 1-1 / mình đang ở sẵn.
+    /// </summary>
+    public async Task<bool> JoinRoomAsync(string tenant, long roomId, int userId, CancellationToken ct = default)
+    {
+        await using var c = await _db.OpenAsync(ct);
+        return await c.ExecuteAsync(new CommandDefinition("""
+            INSERT INTO chat_room_members (conversation_id, tenant_id, user_id)
+            SELECT v.id, @tenant, @userId FROM chat_conversations v
+             WHERE v.id = @roomId AND v.tenant_id = @tenant AND v.channel = 7 AND v.deleted_utc IS NULL
+               AND v.entity_type IS DISTINCT FROM 'direct'
+            ON CONFLICT (conversation_id, user_id) DO UPDATE SET joined_utc = now(), left_utc = NULL
+             WHERE chat_room_members.left_utc IS NOT NULL AND chat_room_members.tenant_id = @tenant
+            """, new { tenant, roomId, userId }, cancellationToken: ct)) > 0;
     }
 
     private sealed class LeaveRow
@@ -734,13 +820,17 @@ public class InternalChatRepository
     }
 
     /// Chỉ chạy khi câu đọc trả RỖNG (hiếm): phân biệt "phòng chưa có tin" với "không phải thành viên".
+    /// viewAll (CHAT_XEM_ALL): phòng nội bộ còn tồn tại của công ty cũng tính là xem được.
     private static Task<bool> IsMemberOrEmptyAsync(Npgsql.NpgsqlConnection c, string tenant, long roomId,
-        int userId, CancellationToken ct)
+        int userId, CancellationToken ct, bool viewAll = false)
         => c.ExecuteScalarAsync<bool>(new CommandDefinition("""
             SELECT EXISTS (SELECT 1 FROM chat_room_members
                             WHERE conversation_id = @roomId AND tenant_id = @tenant
                               AND user_id = @userId AND left_utc IS NULL)
-            """, new { tenant, roomId, userId }, cancellationToken: ct));
+                OR (@viewAll AND EXISTS (SELECT 1 FROM chat_conversations
+                                          WHERE id = @roomId AND tenant_id = @tenant AND channel = 7
+                                            AND deleted_utc IS NULL))
+            """, new { tenant, roomId, userId, viewAll }, cancellationToken: ct));
 
     private static InternalMessage ToMessage(MessageRow m, IReadOnlyList<InternalReaction>? rx = null) => new(m.Id, m.RoomId,
         m.SenderUserId, m.SenderUsername, m.DeletedUtc is null ? m.Body : null, m.CreatedUtc, m.DeletedUtc,
