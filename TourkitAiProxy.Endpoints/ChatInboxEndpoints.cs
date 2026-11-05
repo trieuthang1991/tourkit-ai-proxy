@@ -1090,7 +1090,7 @@ public static class ChatInboxEndpoints
                 },
                 messages = tin.Select(m => new
                 {
-                    m.Id, m.Direction, m.SenderKind, m.SenderUsername, m.Kind,
+                    m.Id, m.Direction, m.SenderKind, m.SenderUsername, m.SenderAvatarUrl, m.Kind,
                     m.Body, m.State, m.ErrorMessage, m.CreatedUtc,
                     // Tin đã xoá khỏi hộp thư. Vẫn gửi ra để giao diện hiện "đã bị xoá" thay
                     // cho nội dung — biến mất hẳn thì người trực tưởng mình nhớ nhầm.
@@ -2650,10 +2650,11 @@ public static class ChatInboxEndpoints
                 return SessionAuth.ForbiddenConfigSystem();
 
             var kenh = (ChatChannel)channel;
-            if (!Services.Chat.Channels.MetaHistoryImporter.Supports(kenh))
+            if (!Services.Chat.Channels.ChatHistoryImport.Supports(kenh))
                 return Results.BadRequest(new
                 {
-                    error = $"{kenh} không có đường đọc lại hội thoại cũ. Chỉ Facebook và Instagram cho phép.",
+                    error = $"{kenh} không có đường đọc lại hội thoại cũ. "
+                          + "Chỉ Facebook, Instagram và Pancake cho phép.",
                 });
 
             if (!viec.BatDau(a.TenantId, kenh, accountId))
@@ -3101,7 +3102,7 @@ public static class ChatInboxEndpoints
                     // Telegram Bot API không cho đọc quá khứ, Zalo không có đầu đọc hội thoại,
                     // TikTok đòi tư cách Messaging Partner, WhatsApp thì Meta tự đẩy về lúc nối
                     // chứ không phải mình đi đọc. Để giao diện không phải biết danh sách đó.
-                    layLichSuDuoc = Services.Chat.Channels.MetaHistoryImporter.Supports(kenh),
+                    layLichSuDuoc = Services.Chat.Channels.ChatHistoryImport.Supports(kenh),
                     // Telegram: mỗi bot một URL riêng (thân tin không nói bot nào) → URL chung để
                     // trống, giao diện hiện URL riêng ở từng tài khoản. Zalo/Messenger dùng chung.
                     webhookUrl = moiTaiKhoanMotUrl ? null : duong,
@@ -3175,13 +3176,15 @@ public static class ChatInboxEndpoints
                 var loiTrang = await pc.VerifyPageTokenAsync(pageId, token, ct);
                 if (loiTrang is not null)
                     return Results.BadRequest(new { error = $"Khoá trang không dùng được: {loiTrang}" });
+                // Pancake KHÔNG có endpoint tra tên trang bằng khoá trang (đã dò tận nơi, xem
+                // GuessPageNameAsync) — phải lấy gián tiếp qua thứ do chính trang tạo ra. Đoán hụt
+                // thì để trống cho người khai tự gõ, KHÔNG bịa: một cái nhãn sai trong hộp thư thì
+                // sau này không ai truy được nó từ đâu ra.
+                var tenDoan = await pc.GuessPageNameAsync(pageId, token, ct);
                 return Results.Json(new
                 {
                     tokenType = "page",
-                    // Đặc tả Pancake KHÔNG có endpoint tra tên trang bằng khoá trang, nên để trống
-                    // tên và để giao diện cho người khai tự đặt — bịa một cái tên ở đây thì hộp thư
-                    // hiện một nhãn sai mà không ai biết nó từ đâu ra.
-                    pages = new[] { new { id = pageId, name = (string?)null, platform = (string?)null,
+                    pages = new[] { new { id = pageId, name = tenDoan, platform = (string?)null,
                                           pageAccessToken = token } }
                 }, Web);
             }
@@ -3205,6 +3208,8 @@ public static class ChatInboxEndpoints
         g.MapPost("/channels/pancake/connect", async (PancakeConnectReq body, HttpContext ctx,
             TkSessionStore sessions, ChannelCredentialStore cred,
             IEnumerable<Services.Chat.Channels.IChatChannelAdapter> adapters,
+            Services.Chat.Channels.ChatHistoryImportQueue hangLichSu,
+            Services.Chat.Channels.ChatHistoryJobs viecLichSu,
             ILoggerFactory lf, CancellationToken ct) =>
         {
             var a = SessionAuth.Read(ctx, sessions);
@@ -3224,6 +3229,9 @@ public static class ChatInboxEndpoints
 
             var xong = new List<object>();
             var hong = new List<object>();
+            // Mã trang đã lưu được, giữ riêng để xếp lượt kéo lịch sử ở cuối — `xong` là kiểu vô
+            // danh dựng cho JSON trả về, moi lại trường từ đó phải dùng dynamic.
+            var maDaNoi = new List<string>();
             foreach (var t in body.Pages)
             {
                 if (string.IsNullOrWhiteSpace(t.Id)) continue;
@@ -3269,6 +3277,7 @@ public static class ChatInboxEndpoints
                 {
                     await cred.SaveAsync(a.TenantId, ChatChannel.Pancake, t.Id!.Trim(), o, ct);
                     xong.Add(new { id = t.Id, name = t.Name, platform = t.Platform });
+                    maDaNoi.Add(t.Id!.Trim());
                 }
                 catch (Exception ex)
                 {
@@ -3277,9 +3286,35 @@ public static class ChatInboxEndpoints
                 }
             }
 
+            // Kéo hội thoại cũ NGAY, không bắt người dùng đi tìm nút.
+            //
+            // Khác Facebook/Instagram (ở đó vẫn phải bấm tay) vì Pancake ở hoàn cảnh khác: webhook
+            // chỉ đẩy tin MỚI, nên trang vừa nối xong là một hộp thư trống trơn — không có gì để
+            // nhìn, và người khai không có cách nào biết mình đã nối đúng hay sai.
+            //
+            // An toàn vì hàng đợi chạy MỘT lượt tại một thời điểm cho cả máy chủ (xem
+            // ChatHistoryImportQueue): nối 4 trang là 4 lượt NỐI TIẾP, không phải 4 lượt dồn cùng
+            // lúc — đúng thứ Pancake chặn. Xếp hàng xong trả lời ngay, không giữ yêu cầu HTTP.
+            foreach (var ma in maDaNoi)
+            {
+                // BatDau giữ chỗ để lượt thứ hai (bấm nối lại) không xếp chồng lên lượt đang chạy.
+                if (!viecLichSu.BatDau(a.TenantId, ChatChannel.Pancake, ma)) continue;
+                try { await hangLichSu.XepAsync(new(a.TenantId, ChatChannel.Pancake, ma), ct); }
+                catch (Exception ex)
+                {
+                    // Xếp hàng hỏng KHÔNG được làm hỏng lượt nối: trang đã lưu rồi, người dùng vẫn
+                    // bấm "Lấy hội thoại cũ" lại được.
+                    viecLichSu.KetThuc(a.TenantId, ChatChannel.Pancake, ma,
+                        new(0, 0, false, "Không xếp được vào hàng đợi: " + ex.Message));
+                    log.LogWarning(ex, "[chat/pancake] tenant={T} trang={P} không xếp được lượt kéo lịch sử",
+                        a.TenantId, ma);
+                }
+            }
+
             log.LogInformation("[chat/pancake] tenant={T} nối {N} trang, hỏng {H}",
                 a.TenantId, xong.Count, hong.Count);
-            return Results.Json(new { ok = xong.Count > 0, connected = xong, failed = hong }, Web);
+            return Results.Json(new { ok = xong.Count > 0, connected = xong, failed = hong,
+                                      dangLayLichSu = xong.Count > 0 }, Web);
         });
 
         g.MapPost("/channels/{channel:int}/accounts", async (int channel, Dictionary<string, string?> body,

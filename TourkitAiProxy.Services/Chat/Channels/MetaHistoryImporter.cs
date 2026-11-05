@@ -32,14 +32,13 @@ public class MetaHistoryImporter
     private const string ApiVersion = "v21.0";
 
     /// <summary>
-    /// Số hội thoại tối đa một lượt. Chặn để một Trang mười năm tuổi không nuốt trọn hạn mức gọi
-    /// Graph của cả ngày — hết hạn mức là <b>tin trực tiếp cũng ngừng về</b>, tức lấy lịch sử làm
-    /// hỏng chính việc đang chạy. Hết chặn thì bấm lại lượt nữa: đã ghi rồi thì bỏ qua.
+    /// Trần một lượt, dùng chung với mọi bộ kéo khác (<see cref="ChatHistoryImport"/>). Chặn để
+    /// một Trang mười năm tuổi không nuốt trọn hạn mức gọi Graph của cả ngày — hết hạn mức là
+    /// <b>tin trực tiếp cũng ngừng về</b>, tức lấy lịch sử làm hỏng chính việc đang chạy. Hết
+    /// chặn thì bấm lại lượt nữa: đã ghi rồi thì bỏ qua.
     /// </summary>
-    private const int MaxConversations = 200;
-
-    /// <summary>Số tin tối đa mỗi hội thoại. Đủ cho ngữ cảnh bán hàng, không phải bản sao lưu.</summary>
-    private const int MaxMessagesPerConversation = 200;
+    private const int MaxConversations = ChatHistoryImport.MaxConversations;
+    private const int MaxMessagesPerConversation = ChatHistoryImport.MaxMessagesPerConversation;
 
     /// <summary>Graph cho tối đa 500 mục một trang.</summary>
     private const int PageSize = 100;
@@ -54,17 +53,14 @@ public class MetaHistoryImporter
         ChatRepository repo, ChatWorkSignal tin, ILogger<MetaHistoryImporter> log)
     { _http = http; _cred = cred; _repo = repo; _tin = tin; _log = log; }
 
-    /// <param name="SoHoiThoai">Số hội thoại đã đọc.</param>
-    /// <param name="SoTin">Số tin đã xếp vào hàng đợi — <b>chưa</b> phải số tin ghi được, vì tin đã
-    /// có sẵn sẽ bị chống trùng loại bỏ ở bước sau.</param>
-    /// <param name="ConNua">Còn hội thoại chưa đọc vì chạm mức chặn. Giao diện nói ra để người dùng
-    /// biết bấm thêm lượt nữa, thay vì tưởng đã lấy hết.</param>
-    public record KetQua(int SoHoiThoai, int SoTin, bool ConNua, string? Loi);
-
+    /// <summary>
+    /// Bộ kéo NÀY làm được kênh nào. Muốn hỏi "kênh này lấy lại hội thoại cũ được không" thì hỏi
+    /// <see cref="ChatHistoryImport.Supports"/> — Pancake có bộ kéo riêng nên nó trả false ở đây.
+    /// </summary>
     public static bool Supports(ChatChannel kenh)
         => kenh is ChatChannel.Messenger or ChatChannel.Instagram;
 
-    public async Task<KetQua> ImportAsync(string tenantId, ChatChannel kenh, string accountId,
+    public async Task<ChatHistoryImport.KetQua> ImportAsync(string tenantId, ChatChannel kenh, string accountId,
         CancellationToken ct)
     {
         if (!Supports(kenh))

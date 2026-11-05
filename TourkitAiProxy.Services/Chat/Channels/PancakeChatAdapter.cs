@@ -317,11 +317,32 @@ public class PancakeChatAdapter : IChatChannelAdapter
             && !string.Equals(loaiSuKien, "messaging", StringComparison.OrdinalIgnoreCase))
             return ra;
 
-        var m = goc["data"]?["message"];
-        if (m is null) return ra;
-
         var pageId = goc["page_id"]?.ToString();
         var hoiThoai = goc["data"]?["conversation"];
+
+        // Webhook thật gửi MỘT tin (data.message). Lượt kéo lịch sử dựng gói cùng hình dạng nhưng
+        // mang CẢ TRANG tin (data.messages) — xem PancakeHistoryImporter. Đi chung một đường đọc là
+        // cố ý: tin cũ và tin mới phải ra cùng một kết quả, nếu không thì mỗi lỗi phải sửa hai nơi
+        // và hai nơi đó sẽ trôi xa nhau.
+        // Gói do PancakeHistoryImporter dựng mang cờ này. Phải chuyển xuống từng tin: lõi dùng nó
+        // để KHÔNG sinh câu trả lời của trợ lý, KHÔNG cho bot câm, và giữ đúng giờ gửi gốc.
+        var laLichSu = goc["tourkit_lich_su"]?.GetValue<bool>() == true;
+
+        if (goc["data"]?["messages"] is JsonArray nhieuTin)
+        {
+            foreach (var t in nhieuTin) MotTin(goc, t, pageId, hoiThoai, laLichSu, ra);
+            return ra;
+        }
+
+        MotTin(goc, goc["data"]?["message"], pageId, hoiThoai, laLichSu, ra);
+        return ra;
+    }
+
+    /// <summary>Đọc MỘT tin trong gói (webhook thật hoặc gói lịch sử) và xếp vào <paramref name="ra"/>.</summary>
+    private void MotTin(JsonNode goc, JsonNode? m, string? pageId, JsonNode? hoiThoai,
+        bool laLichSu, List<InboundChatEvent> ra)
+    {
+        if (m is null) return;
 
         // NGƯỜI GỬI. Gói tin không có cờ "của khách hay của trang" — phải so id người gửi với
         // id trang. Bỏ bước này thì tin nhân viên trả lời từ chính app Pancake quay về thành tin
@@ -330,30 +351,68 @@ public class PancakeChatAdapter : IChatChannelAdapter
         var laTiengVong = !string.IsNullOrWhiteSpace(pageId)
                        && string.Equals(fromId, pageId, StringComparison.Ordinal);
 
-        // KHÁCH là ai: tin của khách thì lấy người gửi; tiếng vọng thì người gửi là trang, phải
-        // lấy khách từ hội thoại.
-        var khachId = laTiengVong ? hoiThoai?["from"]?["id"]?.ToString() : fromId;
-        if (string.IsNullOrWhiteSpace(khachId)) return ra;
+        // "Mã khách" ở kênh này là MÃ HỘI THOẠI, không phải mã người gửi — xem SendTextAsync: API
+        // gửi của Pancake nhận conversation_id. Lấy mã người gửi là câu trả lời đi tới một hội
+        // thoại không tồn tại và KHÔNG BAO GIỜ tới khách, mà hộp thư vẫn báo đã gửi.
+        //
+        // Hai mã này thật sự khác nhau, không phải lo xa: đo trên dữ liệu thật 05/11/2026, cả 3/3
+        // hội thoại đều lệch — hội thoại pzl_u_490605425456992929_3510358233866837464 có người gửi
+        // pzl_u_3510358233866837464.
+        //
+        // Còn một hệ quả nữa: chat NHÓM (Zalo group) có nhiều người gửi khác nhau trong cùng một
+        // hội thoại. Khoá theo người gửi thì một nhóm vỡ thành nhiều hội thoại rời trong hộp thư.
+        var khachId = hoiThoai?["id"]?.ToString() ?? m["conversation_id"]?.ToString();
+        if (string.IsNullOrWhiteSpace(khachId)) return;
 
         // INBOX = nhắn riêng · COMMENT/COMMENT_LIVESTREAM = bình luận công khai dưới bài.
         // Phân biệt vì nó quyết định trợ lý có được tự trả lời không.
         var loaiTin = (m["type"]?.ToString() ?? hoiThoai?["type"]?.ToString() ?? "INBOX").ToUpperInvariant();
         var congKhai = loaiTin.StartsWith("COMMENT", StringComparison.Ordinal);
 
-        var chu = m["message"]?.ToString() ?? m["original_message"]?.ToString();
+        // original_message TRƯỚC, message sau. Pancake trả `message` đã DỰNG HTML — đo trên dữ liệu
+        // thật 05/11/2026: 30/30 tin có thẻ, câu "đúng rồi" về thành "<div>đúng rồi</div>". Đọc
+        // `message` trước là hộp thư hiện nguyên thẻ cho nhân viên đọc, và trợ lý cũng học theo đó.
+        // Thứ tự ngược lại (bản đầu) không lộ ra ở webhook vì gói webhook thường mang chữ trần.
+        var chu = m["original_message"]?.ToString() is { Length: > 0 } tho
+            ? tho
+            : BoThe(m["message"]?.ToString());
+        chu = ThayNhacTen(chu, m["message_tags"] as JsonArray);
+        // CHỈ giữ phần tử thật sự là TỆP. Mảng attachments của Pancake còn chở tin trích dẫn, thả
+        // cảm xúc, thông báo hệ thống và cả định dạng chữ in đậm — xem ChatAttachment.LocTepPancake.
+        // Lọc chung một chỗ với màn hiển thị, để tin không bị phân loại một kiểu rồi hiện một kiểu.
         var dinhKem = m["attachments"] as JsonArray;
-        var coDinhKem = dinhKem is { Count: > 0 };
+        var tep = ChatAttachment.LocTepPancake(dinhKem);
+        var coDinhKem = tep.Count > 0;
+
+        // Hai loại bị lọc khỏi danh sách TỆP nhưng vẫn phải hiện ra, vì bên Pancake có:
+        //   · thông báo nền tảng ("X đã rời khỏi nhóm") — chữ rỗng, phải tự dựng câu;
+        //   · thẻ ngân hàng Zalo — số tài khoản là thứ nhân viên cần đọc và chép.
+        // Chỉ dựng khi tin KHÔNG có chữ sẵn: thẻ/thông báo luôn đi một mình trong ca thật, mà nếu
+        // có chữ thật thì chữ đó mới là nội dung chính, đừng đè lên.
+        var laThongBao = false;
+        if (string.IsNullOrWhiteSpace(chu) && dinhKem is not null)
+            foreach (var a in dinhKem.OfType<JsonObject>())
+            {
+                if (MoTaThongBao(a) is { Length: > 0 } cauTb) { chu = cauTb; laThongBao = true; break; }
+                if (MoTaTheNganHang(a) is { Length: > 0 } cauTk) { chu = cauTk; break; }
+            }
 
         if (!coDinhKem && string.IsNullOrWhiteSpace(chu))
         {
             // Không nhận ra thì BỎ QUA, đừng ghi dòng trắng — dòng trắng vẫn đẩy hội thoại lên đầu
             // và vẫn tính chưa đọc, nhân viên mở ra không thấy gì. Ghi log để còn biết mà bổ sung.
-            _log.LogWarning("[chat/pancake] gói không có chữ lẫn đính kèm, bỏ qua. Trường: {Truong}",
-                string.Join(", ", m.AsObject().Select(x => x.Key)));
-            return ra;
+            // Ghi loại attachment đã bị lọc, không ghi tên trường: ca thường gặp nhất là tin CHỈ
+            // có một lượt thả cảm xúc, và biết đúng loại thì khỏi phải đi dò lại từ đầu.
+            _log.LogDebug("[chat/pancake] gói không có chữ lẫn tệp, bỏ qua. Loại đính kèm: {Loai}",
+                dinhKem is null ? "(không có)"
+                    : string.Join(", ", dinhKem.OfType<JsonObject>()
+                        .Select(x => x["type"]?.ToString() ?? "?").Distinct()));
+            return;
         }
 
-        var kind = coDinhKem ? DoanLoai(dinhKem!) : ChatKind.Text;
+        // Lấy loại từ danh sách ĐÃ LỌC: lấy từ mảng gốc thì một tin chữ kèm styled_message bị đoán
+        // thành tin tệp, và hộp thư hiện một đính kèm rỗng không bấm được.
+        var kind = coDinhKem ? DoanLoai(tep) : ChatKind.Text;
 
         ra.Add(new(
             ChatChannel.Pancake,
@@ -361,14 +420,135 @@ public class PancakeChatAdapter : IChatChannelAdapter
             m["id"]?.ToString(),
             kind,
             chu,
-            coDinhKem ? dinhKem!.ToJsonString() : null,
+            // Lưu bản ĐÃ LỌC, không lưu mảng gốc: mảng gốc chở cả tin trích dẫn và nhật ký cuộc
+            // gọi, có cái dài hàng nghìn ký tự — phình cột attachment mà không dùng tới.
+            coDinhKem ? new JsonArray(tep.Select(x => x.DeepClone()).ToArray()).ToJsonString() : null,
             DocGio(m["inserted_at"]?.ToString()),
             IsEcho: laTiengVong,
-            DisplayName: (laTiengVong ? hoiThoai?["from"]?["name"] : m["from"]?["name"])?.ToString(),
+            // Tên hội thoại TRƯỚC tên người gửi: dòng trong hộp thư nay là một HỘI THOẠI, nên
+            // nhóm Zalo phải mang tên nhóm ("SUPPORT TOURKIT - HAPPY TRIP"), không mang tên người
+            // vừa nhắn — nếu không thì tên dòng đổi theo từng tin, tuỳ ai trong nhóm nói sau cùng.
+            DisplayName: (hoiThoai?["from"]?["name"] ?? m["from"]?["name"])?.ToString(),
             Surface: congKhai ? ChatSurface.Comment : ChatSurface.DirectMessage,
             ThreadId: congKhai ? goc["data"]?["post"]?["id"]?.ToString() : null,
-            ParentExternalId: congKhai ? m["parent_id"]?.ToString() : null));
-        return ra;
+            ParentExternalId: congKhai ? m["parent_id"]?.ToString() : null,
+            IsHistory: laLichSu,
+            // Tên người gửi RIÊNG của tin này — chỉ ghi khi nó KHÁC tên hội thoại, tức là hội
+            // thoại nhiều người (nhóm Zalo). Ở hội thoại một-một thì người gửi chính là khách,
+            // nhắc lại tên dưới mỗi tin là thừa và làm rối màn hình.
+            SenderName: laThongBao ? null : TenNguoiGui(m, hoiThoai),
+            IsSystemNotice: laThongBao,
+            // Ảnh đại diện đi CÙNG tên: có tên riêng nghĩa là hội thoại nhiều người, và đó mới là
+            // chỗ cần ảnh riêng từng tin. Hội thoại một-một dùng ảnh của hội thoại là đủ.
+            SenderAvatarUrl: laThongBao || TenNguoiGui(m, hoiThoai) is null
+                ? null : (m["from"] as JsonObject)?["avatar_url"]?.ToString()));
+    }
+
+    /// <summary>
+    /// Đổi thông báo của nền tảng thành một câu tiếng Việt đọc được — <b>hàm thuần</b>.
+    ///
+    /// <para>Zalo gửi những việc này dưới dạng <c>attachments[{type:"zalo_system_message"}]</c>
+    /// với phần chữ <b>rỗng</b>, nên không dựng câu ở đây thì tin bị bỏ hẳn và hội thoại mất hẳn
+    /// dấu vết ai vào ai ra — trong khi bên Pancake vẫn thấy.</para>
+    ///
+    /// <para>Trả <c>null</c> khi không dựng nổi câu nào (vd <c>unsupported_message</c>): thà bỏ
+    /// còn hơn ghi một dòng trống không ai hiểu.</para>
+    /// </summary>
+    public static string? MoTaThongBao(JsonObject? att)
+    {
+        if (att is null) return null;
+
+        // Dạng đơn giản: Pancake cho sẵn câu chữ (vd "Tác nhân AI sẽ phản hồi.").
+        if (att["type"]?.ToString() == "system_message")
+            return att["message"]?.ToString() is { Length: > 0 } s ? s : null;
+
+        if (att["type"]?.ToString() != "zalo_system_message") return null;
+        var d = att["data"] as JsonObject;
+        var viec = d?["type"]?.ToString();
+        var nguoiLam = (d?["implementer"] as JsonObject)?["name"]?.ToString();
+        var ai = string.Join(", ", ((d?["update_members"] as JsonArray) ?? new JsonArray())
+            .OfType<JsonObject>().Select(x => x["dName"]?.ToString())
+            .Where(x => !string.IsNullOrWhiteSpace(x)));
+
+        return viec switch
+        {
+            // Người tự rời: Zalo đặt chính họ ở cả implementer lẫn update_members.
+            "msg_member_leave_group" =>
+                $"{(string.IsNullOrWhiteSpace(ai) ? nguoiLam : ai)} đã rời khỏi nhóm",
+            "remove_member" when ai.Length > 0 && !string.IsNullOrWhiteSpace(nguoiLam) =>
+                $"{nguoiLam} đã mời {ai} ra khỏi nhóm",
+            "remove_member" when ai.Length > 0 => $"{ai} đã rời khỏi nhóm",
+            "members_join_group" when ai.Length > 0 && !string.IsNullOrWhiteSpace(nguoiLam) =>
+                $"{nguoiLam} đã thêm {ai} vào nhóm",
+            "members_join_group" when ai.Length > 0 => $"{ai} đã tham gia nhóm",
+            _ => null,   // unsupported_message và mọi việc chưa biết: bỏ, đừng đoán
+        };
+    }
+
+    /// <summary>
+    /// Đổi thẻ ngân hàng Zalo thành chữ đọc được. Phần mã QR đi theo đường ĐÍNH KÈM (ảnh), xem
+    /// <c>ChatAttachment</c> — ở đây chỉ dựng dòng chữ mang <b>tên ngân hàng và số tài khoản</b>,
+    /// vì đó mới là thứ nhân viên cần đọc, chép và tìm kiếm lại được.
+    /// </summary>
+    public static string? MoTaTheNganHang(JsonObject? att)
+    {
+        if (att?["bank_card"] is not JsonObject t) return null;
+        var ten = t["bank_name"]?.ToString();
+        var so = t["bank_number"]?.ToString();
+        if (string.IsNullOrWhiteSpace(so)) return string.IsNullOrWhiteSpace(ten) ? null : ten;
+        return string.IsNullOrWhiteSpace(ten) ? $"Số tài khoản: {so}" : $"{ten} · {so}";
+    }
+
+    /// <summary>
+    /// Đổi mã người được nhắc thành TÊN — <b>hàm thuần</b>.
+    ///
+    /// <para>Pancake để nhắc-tên ở hai dạng: <c>original_message</c> mang mã trần
+    /// (<c>"chị @6043324489577600945 làm hồ sơ…"</c>), còn <c>message</c> đã dựng HTML có sẵn tên
+    /// (<c>&lt;span class='message-tag'&gt;@Hoai Thu&lt;/span&gt;</c>). Mình đọc
+    /// <c>original_message</c> (vì bản kia là HTML), nên phải tự dịch — không thì hộp thư hiện
+    /// một dãy 19 chữ số giữa câu và chẳng ai biết đang gọi ai.</para>
+    ///
+    /// <para>Dịch bằng <c>message_tags</c> chứ KHÔNG dùng <c>pos</c>/<c>len</c> trong đó: hai số
+    /// ấy tính theo bản ĐÃ DỰNG (<c>"@Hoai Thu"</c> dài 9), không khớp vị trí trong bản thô
+    /// (<c>"@6043324489577600945"</c> dài 20). Thay theo chuỗi thì không phụ thuộc vị trí.</para>
+    /// </summary>
+    public static string? ThayNhacTen(string? chu, JsonArray? the)
+    {
+        if (string.IsNullOrEmpty(chu) || the is null || the.Count == 0) return chu;
+        foreach (var t in the.OfType<JsonObject>())
+        {
+            var ma = t["id"]?.ToString();
+            var ten = t["name"]?.ToString();
+            if (string.IsNullOrWhiteSpace(ma) || string.IsNullOrWhiteSpace(ten)) continue;
+            // `name` của Pancake đã kèm sẵn dấu @ ("@Hoai Thu"), nên thay cả "@" + mã — để lại
+            // dấu @ cũ là ra "@@Hoai Thu".
+            chu = chu!.Replace("@" + ma, ten, StringComparison.Ordinal);
+        }
+        return chu;
+    }
+
+    /// <summary>
+    /// Bỏ thẻ HTML khỏi nội dung tin — <b>hàm thuần</b>, chỉ dùng khi không có
+    /// <c>original_message</c>.
+    ///
+    /// <para><c>&lt;br&gt;</c> và <c>&lt;/div&gt;</c> thành XUỐNG DÒNG chứ không thành rỗng: bỏ
+    /// trắng thì tin nhiều dòng dính liền thành một câu dài vô nghĩa.</para>
+    /// </summary>
+    public static string? BoThe(string? html)
+    {
+        if (string.IsNullOrWhiteSpace(html)) return html;
+
+        // KHÔNG chặn sớm khi chuỗi không có '<'. Trường này luôn là bản Pancake đã dựng, nên
+        // "gi&aacute; 5 &amp; 7" là thực thể HTML cần giải chứ không phải chữ khách gõ ra — chặn
+        // sớm là hộp thư hiện nguyên "&aacute;" giữa câu tiếng Việt.
+        var s = System.Text.RegularExpressions.Regex.Replace(
+            html!, @"<\s*(br|/p|/div|/li)\s*/?\s*>", "\n",
+            System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+        s = System.Text.RegularExpressions.Regex.Replace(s, "<[^>]+>", "");
+        s = System.Net.WebUtility.HtmlDecode(s);
+        // Gộp dòng trống thừa do thẻ lồng nhau sinh ra, rồi cắt hai đầu.
+        s = System.Text.RegularExpressions.Regex.Replace(s, @"\n{3,}", "\n\n");
+        return s.Trim();
     }
 
     /// <summary>
@@ -376,9 +556,29 @@ public class PancakeChatAdapter : IChatChannelAdapter
     /// theo nền tảng gốc (Facebook "photo", TikTok "video"…) nên khớp theo tiền tố, không khớp
     /// cứng cả chuỗi.
     /// </summary>
-    private static ChatKind DoanLoai(JsonArray dinhKem)
+    /// <summary>
+    /// Tên thành viên đã gửi tin này trong hội thoại NHIỀU NGƯỜI, hoặc <c>null</c> ở hội thoại
+    /// một-một.
+    ///
+    /// <para>Pancake để tên ở ba trường tuỳ nền tảng gốc: <c>name</c>, <c>displayName</c>,
+    /// <c>zaloName</c>. Lấy cái đầu tiên có chữ.</para>
+    ///
+    /// <para>Trả <c>null</c> khi tên trùng tên hội thoại — đó là ca một-một, lặp lại tên khách
+    /// dưới từng tin chỉ làm rối.</para>
+    /// </summary>
+    private static string? TenNguoiGui(JsonNode m, JsonNode? hoiThoai)
     {
-        var t = (dinhKem[0]?["type"]?.ToString() ?? "").ToLowerInvariant();
+        var ten = (m["from"] as JsonObject) is { } f
+            ? f["name"]?.ToString() ?? f["displayName"]?.ToString() ?? f["zaloName"]?.ToString()
+            : null;
+        if (string.IsNullOrWhiteSpace(ten)) return null;
+        var tenHoiThoai = (hoiThoai?["from"] as JsonObject)?["name"]?.ToString();
+        return string.Equals(ten, tenHoiThoai, StringComparison.Ordinal) ? null : ten;
+    }
+
+    private static ChatKind DoanLoai(IReadOnlyList<JsonObject> tep)
+    {
+        var t = (tep[0]["type"]?.ToString() ?? "").ToLowerInvariant();
         if (t.Contains("photo") || t.Contains("image")) return ChatKind.Image;
         if (t.Contains("audio") || t.Contains("voice")) return ChatKind.Audio;
         if (t.Contains("sticker")) return ChatKind.Sticker;
@@ -402,10 +602,38 @@ public class PancakeChatAdapter : IChatChannelAdapter
     /// API gửi của Pancake nhận <c>conversation_id</c>. Lõi vốn gọi mọi kênh bằng "mã khách", nên
     /// đây là chỗ hai bên khác khái niệm — hội thoại Pancake được lưu với mã khách = mã hội thoại
     /// để hai đầu khớp nhau.
+    ///
+    /// <para><b>⚠️ <c>action</c> là trường BẮT BUỘC</b>, không phải tuỳ chọn. Thiếu nó Pancake trả
+    /// HTTP 200 kèm <c>Missing required field: 'action'</c> và tin KHÔNG tới khách — gặp thật
+    /// 05/11/2026, ba dòng hàng đợi hỏng liên tiếp.</para>
+    ///
+    /// <para><b>Chỉ làm <c>reply_inbox</c> (nhắn riêng).</b> Trả lời BÌNH LUẬN cần
+    /// <c>action: reply_comment</c> kèm <c>message_id</c> của chính bình luận đó, mà đường gửi của
+    /// lõi không mang mã ấy xuống tới đây. Nên bình luận gửi đi sẽ bị Pancake từ chối và báo lỗi
+    /// tường minh — thà vậy còn hơn im lặng gửi nhầm vào hộp thư riêng của khách.</para>
     /// </summary>
+    /// <summary>
+    /// Thân lệnh gửi tin nhắn riêng. Tách ra để <b>test được</b> — hình dạng thân là chỗ đã hỏng
+    /// một lần (thiếu <c>action</c>), và nó chỉ lộ ra lúc gọi mạng thật nếu không khoá bằng test.
+    /// </summary>
+    /// <remarks>
+    /// Khai <c>[JsonPropertyName]</c> rõ ràng, KHÔNG dựa vào quy ước đặt tên của bộ tuần tự hoá:
+    /// mặc định của .NET giữ nguyên chữ hoa (<c>"Action"</c>), mà Pancake chỉ nhận <c>"action"</c>.
+    /// Và chỗ gọi có thể đổi tuỳ chọn tuần tự hoá bất cứ lúc nào mà không ai nghĩ tới chỗ này.
+    /// </remarks>
+    public record ThanGui(
+        [property: System.Text.Json.Serialization.JsonPropertyName("action")] string Action,
+        [property: System.Text.Json.Serialization.JsonPropertyName("message")] string Message);
+
+    public static ThanGui ThanGuiChu(string text) => new("reply_inbox", text);
+
+    /// <summary>Thân lệnh gửi tệp. Pancake không nhận URL ảnh trực tiếp nên gửi dưới dạng chữ.</summary>
+    public static ThanGui ThanGuiTep(string url, string? caption)
+        => new("reply_inbox", string.IsNullOrWhiteSpace(caption) ? url : caption + "\n" + url);
+
     public Task<SendResult> SendTextAsync(string tenantId, string accountId, string externalUserId,
         string text, CancellationToken ct)
-        => GuiAsync(tenantId, accountId, externalUserId, new { message = text }, ct);
+        => GuiAsync(tenantId, accountId, externalUserId, ThanGuiChu(text), ct);
 
     /// <summary>
     /// Pancake <b>không nhận URL ảnh trực tiếp</b> ở lệnh gửi tin: ảnh phải tải lên trước rồi gửi
@@ -414,8 +642,7 @@ public class PancakeChatAdapter : IChatChannelAdapter
     /// </summary>
     public Task<SendResult> SendMediaAsync(string tenantId, string accountId, string externalUserId,
         ChatKind loai, string url, string? caption, CancellationToken ct)
-        => GuiAsync(tenantId, accountId, externalUserId,
-            new { message = string.IsNullOrWhiteSpace(caption) ? url : caption + "\n" + url }, ct);
+        => GuiAsync(tenantId, accountId, externalUserId, ThanGuiTep(url, caption), ct);
 
     private async Task<SendResult> GuiAsync(string tenantId, string accountId, string conversationId,
         object body, CancellationToken ct)
@@ -460,6 +687,27 @@ public class PancakeChatAdapter : IChatChannelAdapter
         return ChannelFailures.FromHttp(httpStatus == 200 ? 400 : httpStatus);
     }
 
+    /// <summary>
+    /// Đổi lỗi khoá của Pancake thành câu nói rõ PHẢI LÀM GÌ. Hai mã dưới đây chiếm gần hết ca
+    /// thật, và câu gốc của Pancake ("access_token renewed please use new access_token") không
+    /// gợi ra nổi rằng người dùng cần vào Pancake lấy khoá mới rồi khai lại.
+    /// </summary>
+    private static string MoTaKhoaHong(JsonObject o)
+    {
+        var ma = o["error_code"]?.ToString();
+        var goc = MoTaLoi(o) ?? "Pancake từ chối";
+        return ma switch
+        {
+            // 105: ai đó bấm "Tạo Token" bên Pancake → khoá cũ bị huỷ ngay lúc đó.
+            "105" => "Khoá trang đã bị thay bên Pancake nên khoá đang lưu hết tác dụng. "
+                   + "Vào Pancake → trang → Cài đặt → Công cụ, copy Public API access token mới "
+                   + "rồi khai lại trang này.",
+            "102" => "Pancake không nhận khoá trang đang lưu. Lấy lại khoá ở Cài đặt → Công cụ "
+                   + "của trang rồi khai lại.",
+            _ => goc,
+        };
+    }
+
     private static string? MoTaLoi(JsonObject? o)
         => o?["message"]?.ToString() ?? o?["error"]?.ToString() ?? o?["error_description"]?.ToString();
 
@@ -467,8 +715,11 @@ public class PancakeChatAdapter : IChatChannelAdapter
 
     // ── Kéo lịch sử (dùng lúc vừa nối) ───────────────────────────────────────
 
-    /// <summary>Một trang hội thoại kèm con trỏ sang trang kế. Xem <see cref="ListConversationsAsync"/>.</summary>
-    public record TrangHoiThoai(IReadOnlyList<JsonNode> HoiThoai, string? ConTroTiep);
+    /// <param name="Loi">Pancake từ chối vì lý do gì. <b>Phải có vế này</b>: khoá trang chết thì
+    /// danh sách rỗng y hệt lúc trang thật sự không có hội thoại nào, và người dùng chỉ thấy
+    /// "0 hội thoại" — đúng kiểu hỏng câm. Gặp thật 05/11/2026 với <c>error_code 105</c>
+    /// ("access_token renewed please use new access_token").</param>
+    public record TrangHoiThoai(IReadOnlyList<JsonNode> HoiThoai, string? ConTroTiep, string? Loi = null);
 
     /// <summary>
     /// Liệt kê hội thoại của một trang — <b>60 cái mỗi lượt</b>, phân trang bằng mã hội thoại cuối
@@ -480,7 +731,8 @@ public class PancakeChatAdapter : IChatChannelAdapter
     {
         var c = await _cred.GetAsync(tenantId, Channel, accountId, ct);
         var token = c is not null && c.TryGetValue("pageAccessToken", out var t) ? t : null;
-        if (string.IsNullOrWhiteSpace(token)) return new(Array.Empty<JsonNode>(), null);
+        if (string.IsNullOrWhiteSpace(token))
+            return new(Array.Empty<JsonNode>(), null, "Trang này chưa có khoá — khai lại rồi thử.");
 
         try
         {
@@ -492,6 +744,15 @@ public class PancakeChatAdapter : IChatChannelAdapter
 
             using var res = await http.GetAsync(url, ct);
             var o = JsonNode.Parse(await res.Content.ReadAsStringAsync(ct))?.AsObject();
+
+            // Pancake báo hỏng bằng HTTP 200 + success:false. Không soi vế này thì khoá chết trả
+            // về y hệt "trang không có hội thoại nào" — người dùng thấy 0 và không biết vì sao.
+            if (o?["success"]?.GetValue<bool>() == false)
+                return new(Array.Empty<JsonNode>(), null, MoTaKhoaHong(o));
+            if (!res.IsSuccessStatusCode)
+                return new(Array.Empty<JsonNode>(), null,
+                    MoTaLoi(o) ?? $"Pancake trả HTTP {(int)res.StatusCode}");
+
             var ds = (o?["conversations"] ?? o?["data"]) as JsonArray;
             if (ds is null || ds.Count == 0) return new(Array.Empty<JsonNode>(), null);
 
@@ -502,7 +763,118 @@ public class PancakeChatAdapter : IChatChannelAdapter
         {
             _log.LogWarning(ex, "[chat/pancake] kéo danh sách hội thoại lỗi tenant={T} page={P}",
                 tenantId, accountId);
-            return new(Array.Empty<JsonNode>(), null);
+            return new(Array.Empty<JsonNode>(), null, ex.Message);
+        }
+    }
+
+    /// <summary>
+    /// Đọc tin của MỘT hội thoại — <b>30 tin mỗi lượt</b>, lùi dần bằng <c>current_count</c> (vị
+    /// trí tính từ đầu danh sách, không phải con trỏ). Tin trả về xếp MỚI TRƯỚC CŨ SAU.
+    ///
+    /// <para>Trả nguyên thân JSON để chỗ gọi tự bọc thành gói lịch sử — thân này mang cả
+    /// <c>conv_from</c> (khách là ai) lẫn <c>messages</c>, đủ dựng gói mà không phải gọi thêm.</para>
+    /// </summary>
+    public async Task<JsonObject?> ReadMessagesAsync(string pageId, string token, string convId,
+        int daDoc, CancellationToken ct)
+    {
+        try
+        {
+            var http = _http.CreateClient();
+            var url = $"{PageApiV1}/pages/{Uri.EscapeDataString(pageId)}"
+                    + $"/conversations/{Uri.EscapeDataString(convId)}/messages"
+                    + $"?page_access_token={Uri.EscapeDataString(token)}"
+                    + (daDoc > 0 ? $"&current_count={daDoc}" : "");
+            using var res = await http.GetAsync(url, ct);
+            var o = JsonNode.Parse(await res.Content.ReadAsStringAsync(ct))?.AsObject();
+            // Lỗi báo bằng HTTP 200 + success:false — soi thân, đừng soi mã.
+            return o?["success"]?.GetValue<bool>() == false ? null : o;
+        }
+        catch (Exception ex)
+        {
+            _log.LogWarning(ex, "[chat/pancake] đọc tin hội thoại {C} của trang {P} lỗi", convId, pageId);
+            return null;
+        }
+    }
+
+    /// <summary>
+    /// Đoán TÊN TRANG để điền sẵn lúc khai — <b>không có đường hỏi thẳng</b>.
+    ///
+    /// <para>Đã dò tận nơi: <c>GET /pages/{id}</c>, <c>/info</c>, <c>/settings</c> đều KHÔNG tồn
+    /// tại (trả trang HTML của Pancake, trong khi route có thật trả JSON <c>error_code 102</c>).
+    /// Đặc tả cũng không có endpoint nào lấy thông tin một trang bằng khoá trang.</para>
+    ///
+    /// <para>Nên lấy gián tiếp: tên trang xuất hiện ở <c>from</c> của thứ do CHÍNH TRANG tạo ra —
+    /// bài đăng của trang, hay tin do trang trả lời. Tìm trong bài đăng trước (rẻ, một lượt gọi),
+    /// không thấy thì lục danh sách hội thoại.</para>
+    ///
+    /// <para>Thất bại trả <c>null</c>, KHÔNG đoán bừa: thà để người khai tự gõ còn hơn gắn một cái
+    /// nhãn sai mà sau này không ai truy được nó từ đâu ra.</para>
+    /// </summary>
+    public async Task<string?> GuessPageNameAsync(string pageId, string token, CancellationToken ct)
+    {
+        try
+        {
+            var http = _http.CreateClient();
+            var den = DateTimeOffset.UtcNow.ToUnixTimeSeconds();
+            var tu = DateTimeOffset.UtcNow.AddYears(-3).ToUnixTimeSeconds();
+            var url = $"{PageApiV1}/pages/{Uri.EscapeDataString(pageId)}/posts"
+                    + $"?page_access_token={Uri.EscapeDataString(token)}"
+                    + $"&since={tu}&until={den}&page_number=1&page_size=10";
+            using var res = await http.GetAsync(url, ct);
+            if (DocTenTrang(await res.Content.ReadAsStringAsync(ct), pageId) is { } ten) return ten;
+        }
+        catch (Exception ex) { _log.LogDebug(ex, "[chat/pancake] đoán tên trang qua bài đăng hụt"); }
+
+        // Trang chưa đăng bài nào (hoặc token không có quyền đọc bài) — lục hội thoại.
+        try
+        {
+            var http = _http.CreateClient();
+            var url = $"{PageApiV2}/pages/{Uri.EscapeDataString(pageId)}/conversations"
+                    + $"?page_access_token={Uri.EscapeDataString(token)}";
+            using var res = await http.GetAsync(url, ct);
+            return DocTenTrang(await res.Content.ReadAsStringAsync(ct), pageId);
+        }
+        catch (Exception ex)
+        {
+            _log.LogDebug(ex, "[chat/pancake] đoán tên trang qua hội thoại hụt");
+            return null;
+        }
+    }
+
+    /// <summary>
+    /// Lục cả cây JSON tìm object dạng <c>{"id": &lt;mã trang&gt;, "name": ...}</c> — <b>hàm thuần</b>.
+    ///
+    /// <para>Lục cả cây chứ không đi theo đường dẫn cố định vì tên trang nằm ở chỗ khác nhau tuỳ
+    /// nguồn: bài đăng để ở <c>posts[].from</c>, hội thoại để ở <c>conversations[].from</c>, tin
+    /// nhắn để ở <c>messages[].from</c>. Bám một đường dẫn là mỗi nguồn phải viết một hàm.</para>
+    ///
+    /// <para>Khớp theo ĐÚNG mã trang, không lấy <c>name</c> đầu tiên gặp được: phần lớn
+    /// <c>from</c> trong các thân này là KHÁCH, lấy bừa là đặt tên trang bằng tên một khách hàng.</para>
+    /// </summary>
+    public static string? DocTenTrang(string? rawJson, string pageId)
+    {
+        if (string.IsNullOrWhiteSpace(rawJson) || string.IsNullOrWhiteSpace(pageId)) return null;
+        JsonNode? goc;
+        try { goc = JsonNode.Parse(rawJson!); } catch { return null; }
+        return Luc(goc, pageId, 0);
+
+        static string? Luc(JsonNode? nut, string pageId, int sau)
+        {
+            if (nut is null || sau > 12) return null;   // chặn cây lồng sâu bất thường
+            switch (nut)
+            {
+                case JsonObject o:
+                    if (o["id"]?.ToString() == pageId
+                        && o["name"]?.ToString() is { Length: > 0 } ten) return ten;
+                    foreach (var kv in o)
+                        if (Luc(kv.Value, pageId, sau + 1) is { } t) return t;
+                    return null;
+                case JsonArray a:
+                    foreach (var x in a)
+                        if (Luc(x, pageId, sau + 1) is { } t) return t;
+                    return null;
+                default: return null;
+            }
         }
     }
 }

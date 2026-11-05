@@ -28,6 +28,36 @@ Những cập nhật gần đây của TRAV-AI, viết cho người dùng. Mới
   một hàng tên trang: bấm "Fanpage Hà Nội" là chỉ còn khách của trang đó, bấm "Tất cả" để xem gộp
   lại. Hàng này dùng được cho mọi kênh, không riêng Pancake — công ty nối 2 OA Zalo cũng có.
 
+- **Tự điền tên trang.** Dán khoá một trang thì tên trang được tìm giúp từ bài đăng hoặc hội thoại
+  của chính trang đó, điền sẵn vào ô — sửa lại được nếu không ưng. Không tìm ra thì ô để trống cho
+  bạn tự đặt, hệ thống không tự bịa một cái tên.
+- **Lấy hội thoại cũ cho Pancake.** Trang vừa nối thì hộp thư trống cho tới khi có khách nhắn.
+  Nối xong hệ thống **tự kéo** các hội thoại đã có về, không phải bấm gì; xong sẽ báo kèm số hội
+  thoại lấy được. Muốn lùi xa hơn nữa thì bấm "Lấy hội thoại cũ" ở thẻ của trang — mỗi lượt vừa
+  cập nhật tin mới vừa lùi thêm một quãng về quá khứ.
+- **Thấy ai nói câu nào trong nhóm.** Hội thoại nhóm (nhóm Zalo gom qua Pancake) hiện đúng tên và
+  ảnh đại diện của từng người gửi, thay vì cả nhóm chung một khuôn mặt. Tên nhóm vẫn là nhãn của
+  cả dòng trong danh sách.
+- **Thông báo của nhóm.** "Ai đó đã rời khỏi nhóm", "Ai đó đã thêm ai vào nhóm" nay hiện thành một
+  dòng xám giữa hội thoại, đúng như bên Pancake.
+- **Thẻ ngân hàng.** Khách gửi thẻ chuyển khoản Zalo thì hộp thư hiện tên ngân hàng kèm số tài
+  khoản (chép và tìm kiếm lại được) và mã QR để quét.
+
+### 🔧 Đã khắc phục
+- **Ảnh và tệp khách gửi không hiện.** Ảnh qua Pancake bị mất hẳn, chỉ còn một dòng trống; tệp thì
+  hiện "Tệp đính kèm" thay vì tên thật như *ZNS.OHIDO.102026.xlsx*. Nay ảnh, tài liệu, nhãn dán và
+  liên kết đều hiện đúng, kèm tên tệp. Lỗi tên tệp vốn có ở **mọi kênh**, không riêng Pancake — nay
+  Zalo, Messenger, Telegram cũng hiện đúng tên và dung lượng.
+- **Nhắc tên ra dãy số.** Câu có nhắc đồng nghiệp hiện `@6043324489577600945` thay vì `@Hoai Thu`.
+- **Bấm vào hội thoại ra trang trắng.** Một số hội thoại Pancake báo lỗi máy chủ khi mở.
+- **Trợ lý trả lời tin cũ.** Lượt nhập lịch sử đầu tiên khiến trợ lý sinh câu trả lời cho những tin
+  từ nhiều tháng trước. Nay tin cũ đi đường riêng: giữ đúng giờ gửi gốc, không đánh thức trợ lý,
+  không tính là chưa đọc.
+- **Trả lời không tới khách.** Mọi tin nhân viên gửi qua Pancake đều bị từ chối — nay gửi được.
+- **Khoá trang hỏng mà báo "0 hội thoại".** Khi ai đó tạo lại token bên Pancake, hệ thống im lặng
+  trả về không có gì. Nay nói rõ phải vào đâu lấy khoá mới.
+- **Lịch sử dừng ở một mốc rồi bấm mãi không lùi thêm.**
+
 ### 📌 Lưu ý
 - Sau khi nối còn **một việc phải làm tay**: copy "Địa chỉ nhận tin" trong màn Cài đặt hộp thư rồi
   dán vào Pancake → từng trang → Cài đặt → Công cụ → Webhook. Pancake không cho khai hộ, nên nối

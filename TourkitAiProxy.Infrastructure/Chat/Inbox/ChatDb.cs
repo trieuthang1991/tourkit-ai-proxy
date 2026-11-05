@@ -287,6 +287,21 @@ public class ChatDb
     CREATE INDEX IF NOT EXISTS ix_conv_tenant_hoatdong
       ON chat_conversations (tenant_id, last_activity_at DESC, id DESC);
 
+    -- Cùng phân trang đó nhưng LỌC THEO KÊNH / THEO TRANG (dải chip tên trang trên đầu danh sách).
+    --
+    -- Chỉ mục ở trên không đủ cho ca này: nó xếp theo hoạt động của CẢ công ty, nên lọc một trang
+    -- ít tin là phải đi qua rất nhiều dòng của trang khác mới gom đủ 30 dòng — càng nhiều hội
+    -- thoại càng chậm, đúng kiểu chỉ lộ ra ở công ty lớn. Dựng khoá theo đúng hình dạng truy vấn
+    -- thì thành một lượt seek rồi đọc thẳng 30 dòng.
+    --
+    -- account_id để SAU channel và cho phép rỗng: lọc "cả kênh" (chưa chọn trang) vẫn dùng được
+    -- chỉ mục này nhờ tiền tố (tenant_id, channel).
+    --
+    -- Chịu được chi phí ghi thêm vì chat_conversations là bảng ÍT biến động — mỗi hội thoại một
+    -- dòng, không phải mỗi tin một dòng như chat_messages.
+    CREATE INDEX IF NOT EXISTS ix_conv_tenant_kenh_trang_hoatdong
+      ON chat_conversations (tenant_id, channel, account_id, last_activity_at DESC, id DESC);
+
     CREATE TABLE IF NOT EXISTS chat_messages (
       id              bigserial PRIMARY KEY,
       tenant_id       text     NOT NULL,
@@ -318,6 +333,18 @@ public class ChatDb
     -- thoại — không lưu thì dòng tin chỉ còn chữ, và không ai biết khách đã được mời chọn gì.
     -- Dạng: [{"chu":"Xem tour","url":"https://…"},{"chu":"Gọi lại cho tôi"}]
     ALTER TABLE chat_messages ADD COLUMN IF NOT EXISTS buttons jsonb;
+
+    -- Ảnh đại diện của NGƯỜI GỬI TIN NÀY, chỉ dùng ở hội thoại nhiều người (nhóm Zalo gom qua
+    -- Pancake). Khác chat_contacts.avatar_url: cột kia là ảnh của cả hội thoại, mà trong nhóm thì
+    -- mỗi tin một người — dùng ảnh hội thoại là cả nhóm hiện chung một khuôn mặt.
+    --
+    -- Lưu URL của nhà cung cấp chứ KHÔNG tải về kho mình như ảnh đính kèm: đây là ảnh phụ trợ,
+    -- hỏng thì giao diện lùi về chữ cái đầu tên, không mất gì. Tải về cả nghìn ảnh thành viên để
+    -- trang trí là đổi một việc nhỏ lấy một hàng đợi lớn.
+    --
+    -- Cột KHÔNG mặc định nên ALTER chỉ ghi metadata, không viết lại bảng — chạy được trên bảng
+    -- tin nhắn đã lớn.
+    ALTER TABLE chat_messages ADD COLUMN IF NOT EXISTS sender_avatar_url text;
 
     -- ── Cờ soi tệp về kho riêng ──────────────────────────────────────────────
     --

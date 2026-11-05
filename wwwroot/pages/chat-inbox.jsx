@@ -182,7 +182,7 @@
             // Nói thẳng thay vì hiện ảnh vỡ — nhân viên biết mà hỏi lại khách.
             <div key={i} className="ci-tep hong">
               <window.Icon name="warning" size={14} />
-              <span>{f.ten || 'Tệp đính kèm'} — chưa tải được</span>
+              <span>{f.name || 'Tệp đính kèm'} — chưa tải được</span>
             </div>
           );
           // Ảnh: hiện thẳng, bấm để mở cỡ đầy đủ. loading="lazy" vì một hội thoại có thể có
@@ -192,15 +192,15 @@
           if (tin.kind === 1 || tin.kind === 4) return (
             <a key={i} href={f.url} target="_blank" rel="noopener noreferrer"
                className={'ci-anh' + (tin.kind === 4 ? ' sticker' : '')}>
-              <img src={f.url} alt={f.ten || (tin.kind === 4 ? 'Sticker' : 'Ảnh khách gửi')}
+              <img src={f.url} alt={f.name || (tin.kind === 4 ? 'Sticker' : 'Ảnh khách gửi')}
                    loading="lazy" />
             </a>
           );
           return (
             <a key={i} className="ci-tep" href={f.url} target="_blank" rel="noopener noreferrer">
               <window.Icon name="paperclip" size={14} />
-              <span>{f.ten || 'Tệp đính kèm'}</span>
-              {f.kich > 0 && <em>{coCho(f.kich)}</em>}
+              <span>{f.name || 'Tệp đính kèm'}</span>
+              {f.size > 0 && <em>{coCho(f.size)}</em>}
             </a>
           );
         })}
@@ -309,8 +309,16 @@
     const cuaMinh = tin.direction === 1;
     const lop = ben === 0 ? 'ci-khach' : ben === 1 ? 'ci-ai' : ben === 3 ? 'ci-hethong' : 'ci-nv';
     // Nhãn người gửi chỉ ở ĐẦU cụm — lặp lại dưới mỗi bong bóng của cùng một người là thừa.
+    //
+    // Tin của KHÁCH (ben 0) cũng có nhãn khi biết tên người gửi riêng: đó là hội thoại NHIỀU
+    // NGƯỜI (nhóm Zalo gom qua Pancake), nơi mỗi tin một thành viên khác nhau. Không có nhãn thì
+    // cả nhóm hiện cùng một tên và nhân viên đọc lại không biết ai nói câu nào. Hội thoại một-một
+    // để trống senderUsername nên vẫn không có nhãn thừa.
     const nhan = !dauCum ? null
-      : ben === 1 ? 'AI trả lời' : ben === 2 ? (tin.senderUsername || 'Nhân viên') : null;
+      : ben === 1 ? 'AI trả lời'
+      : ben === 2 ? (tin.senderUsername || 'Nhân viên')
+      : ben === 0 ? (tin.senderUsername || null)
+      : null;
 
     // Toạ độ mở menu của tin, hoặc null. Lưu TOẠ ĐỘ chứ không phải cờ bật/tắt: menu vẽ bằng
     // position:fixed nên nó không nằm trong luồng của khung chat — không nong chiều ngang,
@@ -419,12 +427,18 @@
         {/* Ảnh đại diện MỘT LẦN cho cả cụm, đặt ở tin CUỐI — đó là chỗ Messenger đặt, và mắt
             đọc từ trên xuống nên nó đóng cụm lại. Các tin trên giữ một ô trống cùng bề ngang
             để bong bóng không bị lệch trái. */}
+        {/* Ảnh RIÊNG của người gửi tin này nếu có (hội thoại nhóm), không thì chữ cái đầu tên.
+            Dùng ảnh của cả hội thoại ở đây là cả nhóm hiện chung một khuôn mặt. */}
         {cuoiCum
-          ? <AnhDaiDien ten={tin.senderUsername || ten0} co={26} />
+          ? <AnhDaiDien ten={tin.senderUsername || ten0} url={tin.senderAvatarUrl} co={26} />
           : <span className="ci-avt-cho" aria-hidden="true" />}
         <div style={{ minWidth: 0 }}>
           <div className={'ci-bong ci-khach' + (chiMedia ? ' tran' : '')}
-               title={gioDayDu(tin.createdUtc)}>{noiDung}</div>
+               title={gioDayDu(tin.createdUtc)}>
+            {/* Tên thành viên trong hội thoại nhóm — xem `nhan` ở đầu component. */}
+            {nhan && <div className="ci-nhan">{nhan}</div>}
+            {noiDung}
+          </div>
           {gio}
           {camXuc}
         </div>
@@ -2953,9 +2967,17 @@
         const hong = (j.failed || []).length;
         // Nói rõ phần CÒN PHẢI LÀM TAY ngay lúc này. Báo "đã nối xong" trơn là người dùng đóng cửa
         // sổ rồi ngồi đợi tin — mà chưa dán địa chỉ nhận tin sang Pancake thì không tin nào về.
-        if (so > 0)
-          pushToast(`Đã nối ${so} trang. CÒN MỘT BƯỚC: copy "Địa chỉ nhận tin" rồi dán vào Pancake `
-            + `→ từng trang → Cài đặt → Công cụ → Webhook.`, 'success');
+        if (so > 0) {
+          // Hội thoại cũ nay tự kéo về ngay sau khi nối — nói ra để người dùng biết mà CHỜ, thay
+          // vì nhìn hộp thư trống rồi tưởng nối hỏng.
+          pushToast(`Đã nối ${so} trang. Đang kéo hội thoại cũ về, xong sẽ báo — `
+            + `không phải ngồi F5 canh.`, 'success');
+          // Bám tiến độ của lượt máy chủ TỰ xếp hàng lúc nối. Thiếu khúc này thì nút vẫn ghi
+          // "Lấy hội thoại cũ" như chưa chạy gì, và không có gì báo lúc xong.
+          (j.connected || []).forEach(t => { if (t?.id) theoDoiLichSu(8, t.id, t.name); });
+          pushToast(`CÒN MỘT BƯỚC để nhận tin MỚI: copy "Địa chỉ nhận tin" rồi dán vào Pancake `
+            + `→ từng trang → Cài đặt → Công cụ → Webhook.`, 'warn');
+        }
         if (hong > 0)
           pushToast(`${hong} trang không nối được: ${(j.failed || []).map(x => x.name || x.id).join(', ')}`, 'error');
         dongPancake();
@@ -3025,26 +3047,79 @@
     // Lấy lại đoạn chat cũ. Chạy nền vài phút nên đây chỉ ra lệnh bắt đầu rồi hỏi tiến độ —
     // giữ yêu cầu HTTP mở suốt lượt lấy thì trình duyệt hoặc proxy sẽ cắt, và người dùng thấy
     // "lỗi" trong khi việc vẫn đang chạy tốt.
+    const duongLichSu = (kenh, accId) =>
+      '/api/v1/chat/channels/' + kenh + '/accounts/' + encodeURIComponent(accId) + '/import-history';
+
     async function layLichSu(kenh, accId) {
-      const goc = '/api/v1/chat/channels/' + kenh + '/accounts/' + encodeURIComponent(accId) + '/import-history';
-      const r = await authedFetch(goc, { method: 'POST' });
+      const r = await authedFetch(duongLichSu(kenh, accId), { method: 'POST' });
       let j = null; try { j = await r.json(); } catch {}
       if (!r.ok) { pushToast(j?.error || 'Không bắt đầu được', 'error'); return; }
-
       pushToast('Đang lấy hội thoại cũ về…', 'success');
-      setLichSu(t => ({ ...t, [kenh + ':' + accId]: { running: true } }));
+      theoDoiLichSu(kenh, accId);
+    }
+
+    /**
+     * Hỏi tiến độ MỘT LẦN lúc bung thẻ tài khoản, và bám tiếp nếu lượt kéo đang chạy.
+     *
+     * Vì sao cần: `lichSu` chỉ sống trong màn cài đặt. Đóng rồi mở lại giữa chừng thì nút quay về
+     * chữ "Lấy hội thoại cũ" như chưa chạy gì — bấm lại là máy chủ trả 409 "Đang lấy dở cho tài
+     * khoản này rồi", một câu không giải thích được gì cho người đang nhìn.
+     *
+     * Hỏi lúc BUNG chứ không hỏi lúc mở màn: công ty khai mười tài khoản thì mở màn là mười lượt
+     * gọi, trong khi người ta chỉ bung đúng một thẻ.
+     */
+    async function hoiLichSuMotLan(k, accId) {
+      if (!k?.layLichSuDuoc) return;
+      const khoa = k.channel + ':' + accId;
+      if (lichSu[khoa]) return;            // đã biết rồi
+      try {
+        const r = await authedFetch(duongLichSu(k.channel, accId));
+        if (!r.ok) return;
+        const j = await r.json();
+        if (!j?.ever) return;              // chưa chạy lần nào — để nút nguyên trạng
+        setLichSu(t => ({ ...t, [khoa]: j }));
+        if (j.running) theoDoiLichSu(k.channel, accId);
+      } catch { /* hỏi hụt thì thôi, nút vẫn bấm được */ }
+    }
+
+    /**
+     * Bám tiến độ một lượt kéo ĐANG CHẠY và báo khi xong.
+     *
+     * Tách khỏi `layLichSu` vì có HAI đường khởi động lượt kéo: người dùng bấm nút, và máy chủ tự
+     * xếp hàng ngay sau khi nối trang. Đường thứ hai trước đây không bật theo dõi — người dùng nối
+     * xong chỉ thấy một dòng "đang kéo…" rồi im bặt, không biết lúc nào xong, phải F5 đoán mò.
+     *
+     * @param {string=} ten Tên trang để nhắc trong thông báo khi nối nhiều trang một lúc.
+     */
+    function theoDoiLichSu(kenh, accId, ten) {
+      const goc = duongLichSu(kenh, accId);
+      const khoa = kenh + ':' + accId;
+      const nhan = ten ? `"${ten}"` : 'trang này';
+      setLichSu(t => ({ ...t, [khoa]: { running: true } }));
 
       // Hỏi lại mỗi 3 giây. Bỏ hẳn sau 10 phút: quá mức đó thì hoặc đã xong mà mình lỡ nhịp,
       // hoặc máy chủ đã khởi động lại — hỏi mãi cũng không ra thêm gì.
       const hetHan = Date.now() + 10 * 60 * 1000;
       const hoi = async () => {
-        const rr = await authedFetch(goc);
-        if (!rr.ok) return;
-        const jj = await rr.json();
-        setLichSu(t => ({ ...t, [kenh + ':' + accId]: jj }));
+        let jj = null;
+        try {
+          const rr = await authedFetch(goc);
+          if (!rr.ok) return;
+          jj = await rr.json();
+        } catch { return; }   // mạng chớp nhoáng — thôi, đừng dựng báo lỗi giả
+
+        setLichSu(t => ({ ...t, [khoa]: jj }));
         if (jj.running && Date.now() < hetHan) { setTimeout(hoi, 3000); return; }
-        if (jj.error) pushToast(jj.error, 'error');
-        else if (!jj.running) pushToast(`Đã lấy ${jj.conversations} hội thoại về hộp thư`, 'success');
+        if (jj.error) { pushToast(`${nhan}: ${jj.error}`, 'error'); return; }
+        if (jj.running) return;   // hết giờ chờ mà vẫn chạy — im, đừng báo xong sai
+
+        // BÁO XONG kèm con số. Đây là tín hiệu duy nhất người dùng có nếu họ đã đóng cửa sổ cài
+        // đặt, nên nó phải nói đủ: lấy được bao nhiêu, còn nữa không, và phải làm gì tiếp.
+        pushToast(
+          `Xong ${nhan}: đã lấy ${jj.conversations || 0} hội thoại về hộp thư.`
+          + (jj.more ? ' Còn nữa — bấm "Lấy hội thoại cũ" lần nữa để lấy tiếp.' : ''),
+          'success');
+        taiLai();
       };
       setTimeout(hoi, 3000);
     }
@@ -3197,7 +3272,9 @@
               const dangMo = mo === khoa;
               return (
                 <div key={t.accountId} className={'ci-tk' + (dangMo ? ' mo' : '')}>
-                  <button className="ci-tk-dong" onClick={() => setMo(dangMo ? null : khoa)}
+                  <button className="ci-tk-dong"
+                          onClick={() => { setMo(dangMo ? null : khoa);
+                                           if (!dangMo) hoiLichSuMotLan(k, t.accountId); }}
                           aria-expanded={dangMo}>
                     <window.Icon name={dangMo ? 'chevronDown' : 'chevronRight'} size={14} />
                     <b>{t.label || t.oaName || 'Chưa đặt tên'}</b>
@@ -3416,9 +3493,11 @@
                           <label>
                             <input type="checkbox" checked={!!pcChon[t.id]} disabled={pcBan}
                                    onChange={e => setPcChon(s => ({ ...s, [t.id]: e.target.checked }))} />
-                            {/* Khoá trang không tra được tên (Pancake không có đường): để người
-                                khai tự đặt. Khoá tài khoản thì Pancake trả sẵn tên — hiện chữ. */}
-                            {t.name
+                            {/* Khoá TÀI KHOẢN: Pancake trả tên chính xác → hiện chữ, khỏi sửa.
+                                Khoá TRANG: Pancake không có đường tra tên, tên hiện ra là ĐOÁN từ
+                                bài đăng/hội thoại của trang — nên luôn để ô sửa được, và đoán hụt
+                                thì ô trống cho người khai tự gõ. */}
+                            {pcLoai !== 'page' && t.name
                               ? <span className="ci-pc-ten">{t.name}</span>
                               : <input type="text" className="ci-pc-o-ten" disabled={pcBan}
                                        value={pcTen[t.id] || ''} placeholder={'Đặt tên trang ' + t.id}
@@ -3426,7 +3505,8 @@
                                        onChange={e => setPcTen(s => ({ ...s, [t.id]: e.target.value }))} />}
                             {t.platform && <i className="ci-pc-nen-tang">{t.platform}</i>}
                           </label>
-                          {!t.name && <small className="ci-pc-ma">Mã trang {t.id}</small>}
+                          {(pcLoai === 'page' || !t.name)
+                            && <small className="ci-pc-ma">Mã trang {t.id}</small>}
                         </li>
                       ))}
                     </ul>
@@ -4639,7 +4719,16 @@
                 <div className="ci-trong">
                   {coLoc
                     ? <>Không có hội thoại nào khớp bộ lọc.<br />
-                        <span className="muted">Bỏ bớt bộ lọc để xem lại toàn bộ.</span></>
+                        <span className="muted">Bỏ bớt bộ lọc để xem lại toàn bộ.</span>
+                        {/* Kênh vừa nối thì hộp thư trống cho tới khi có tin MỚI — webhook không
+                            đẩy tin cũ. Chỉ đường tới nút kéo lịch sử ngay tại đây: nó nằm trong
+                            thẻ tài khoản ở màn Cài đặt, phải bung dòng ra mới thấy, nên không ai
+                            tự tìm ra lúc đang đứng nhìn một danh sách rỗng. */}
+                        <br /><br />
+                        <span className="muted">Kênh vừa nối? Hộp thư chỉ nhận tin <b>mới</b>.
+                          Để kéo hội thoại <b>cũ</b> về: <b>Cài đặt</b> → tab <b>Kênh</b> → chọn
+                          kênh → bấm mũi tên <b>›</b> ở dòng trang để bung ra → <b>Lấy hội thoại
+                          cũ</b>.</span></>
                     : <>Chưa có hội thoại nào.<br />
                         <span className="muted">Bấm “Kết nối kênh” ở trên để lấy địa chỉ nhận tin, rồi dán vào trang quản trị của Zalo OA, Facebook hoặc Telegram.</span></>}
                 </div>

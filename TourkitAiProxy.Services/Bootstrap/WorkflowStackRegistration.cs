@@ -223,6 +223,7 @@ public static class WorkflowStackRegistration
         s.AddSingleton<Chat.Channels.MessengerPageChoices>();
         // Không giữ trạng thái nào — mọi phụ thuộc đều singleton, nên cũng singleton.
         s.AddSingleton<Chat.Channels.MetaHistoryImporter>();
+        s.AddSingleton<Chat.Channels.PancakeHistoryImporter>();
         s.AddSingleton<Chat.Channels.ChatHistoryJobs>();
         s.AddSingleton<Chat.Channels.ChatHistoryImportQueue>();
         s.AddHostedService<Chat.Channels.ChatHistoryImportWorker>();
@@ -246,7 +247,12 @@ public static class WorkflowStackRegistration
         s.AddSingleton<Chat.Channels.IChatChannelAdapter, Chat.Channels.InstagramChatAdapter>();
         s.AddSingleton<Chat.Channels.IChatChannelAdapter, Chat.Channels.WhatsAppChatAdapter>();
         s.AddSingleton<Chat.Channels.IChatChannelAdapter, Chat.Channels.TikTokChatAdapter>();
-        s.AddSingleton<Chat.Channels.IChatChannelAdapter, Chat.Channels.PancakeChatAdapter>();
+        // Pancake đăng ký KIỂU THẬT trước rồi mới trỏ interface vào đó: PancakeHistoryImporter cần
+        // lấy đích danh. Khai hai lần độc lập thì sinh HAI thực thể — vô hại hôm nay vì adapter
+        // không giữ trạng thái, nhưng là cái bẫy cho ai thêm bộ nhớ đệm vào sau này.
+        s.AddSingleton<Chat.Channels.PancakeChatAdapter>();
+        s.AddSingleton<Chat.Channels.IChatChannelAdapter>(
+            sp => sp.GetRequiredService<Chat.Channels.PancakeChatAdapter>());
         // MessengerChatAdapter cần được lấy đích danh cho bước Meta xác minh địa chỉ webhook.
         s.AddSingleton<Chat.Channels.MessengerChatAdapter>();
         // Ghi chú cũ, giữ lại để hiểu vì sao từng có giai đoạn không có lớp này:

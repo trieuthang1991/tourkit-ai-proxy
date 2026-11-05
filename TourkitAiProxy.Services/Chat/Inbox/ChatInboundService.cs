@@ -253,9 +253,13 @@ public class ChatInboundService
         {
             var idCu = await _repo.AppendMessageAsync(tenantId, hoiThoai.Id, e.Channel,
                 e.IsEcho ? ChatDirection.Out : ChatDirection.In,
-                e.IsEcho ? ChatSender.Agent : ChatSender.Customer, null, e.Kind, e.Text,
+                // Thông báo nền tảng ("X đã rời khỏi nhóm") ghi là HỆ THỐNG, không phải lời khách
+                // — giao diện vẽ thành dòng xám giữa hội thoại thay vì một bong bóng của khách.
+                e.IsSystemNotice ? ChatSender.System
+                    : e.IsEcho ? ChatSender.Agent : ChatSender.Customer, e.SenderName, e.Kind, e.Text,
                 e.AttachmentJson, e.ExternalMsgId,
-                e.IsEcho ? ChatState.Sent : ChatState.Delivered, ct, e.SentUtc);
+                e.IsEcho ? ChatState.Sent : ChatState.Delivered, ct, e.SentUtc,
+                senderAvatarUrl: e.SenderAvatarUrl);
             if (idCu is null) return;   // đã nhập lần trước — nền tảng gửi lại cùng một mảnh
 
             // Đánh dấu đã xử lý NGAY: nếu không, cụm gộp tin của lượt tin thật kế tiếp sẽ vơ cả
@@ -283,9 +287,24 @@ public class ChatInboundService
         }
 
         // ── Tin của khách ────────────────────────────────────────────────────
+        // e.SenderName: tên THÀNH VIÊN gửi tin, chỉ có ở hội thoại nhiều người (nhóm Zalo gom qua
+        // Pancake). Các kênh một-một để null — ở đó người gửi chính là khách, tên đã nằm trên
+        // dòng hội thoại rồi.
         var id = await _repo.AppendMessageAsync(tenantId, hoiThoai.Id, e.Channel, ChatDirection.In,
-            ChatSender.Customer, null, e.Kind, e.Text, e.AttachmentJson, e.ExternalMsgId, ChatState.Delivered, ct);
+            e.IsSystemNotice ? ChatSender.System : ChatSender.Customer,
+            e.SenderName, e.Kind, e.Text, e.AttachmentJson, e.ExternalMsgId,
+            ChatState.Delivered, ct, senderAvatarUrl: e.SenderAvatarUrl);
         if (id is null) return;   // webhook gửi lại — bỏ qua, KHÔNG sinh thêm câu trả lời
+
+        // Thông báo nền tảng DỪNG Ở ĐÂY. Đi tiếp là trợ lý sinh một câu trả lời cho "X đã rời
+        // khỏi nhóm", và hội thoại bị tính là khách vừa nhắn — cả hai đều sai.
+        if (e.IsSystemNotice)
+        {
+            await _repo.MarkProcessedAsync(tenantId, new[] { id.Value }, ct);
+            await _repo.RecomputeActivityAsync(tenantId, hoiThoai.Id, ct);
+            _bus.Publish(new(tenantId, hoiThoai.Id, "tin-moi", id.Value) { AssignedUserId = hoiThoai.AssignedUserId });
+            return;
+        }
 
         await _repo.TouchConversationAsync(tenantId, hoiThoai.Id, ChatRules.Summarize(e.Text), true, ct);
 

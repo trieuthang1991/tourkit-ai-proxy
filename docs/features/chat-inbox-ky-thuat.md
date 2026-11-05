@@ -41,6 +41,45 @@ nằm ở trường `platform` khi liệt kê trang. Tài liệu gốc: `develop
 ngay như Zalo. Hai API `GET …/conversations` và `GET …/conversations/{id}/messages` chỉ dùng kéo
 LỊCH SỬ lúc vừa nối; hộp thư hằng ngày đọc từ CSDL của mình.
 
+⚠️ **Trang vừa nối thì hộp thư TRỐNG cho tới khi có tin mới** — webhook chỉ đẩy tin mới. Và nếu máy
+chủ chưa có địa chỉ công khai (chạy nội bộ) thì trống **mãi**: Pancake không gọi nổi `localhost`.
+`PancakeHistoryImporter` là đường duy nhất thấy được hội thoại mà không cần webhook; người dùng tự
+bấm, không chạy ngầm lúc nối.
+
+Bộ kéo đó **dựng gói đúng hình dạng webhook** (`data.messages` là mảng thay vì `data.message` một
+tin) rồi để chính `PancakeChatAdapter.Parse` đọc, thay vì viết bộ đọc thứ hai: tin cũ và tin mới
+phải ra cùng kết quả, tách đôi là mỗi lỗi phải sửa hai nơi rồi hai nơi trôi xa nhau.
+
+⚠️ **`attachments[]` KHÔNG chỉ chứa tệp.** Đo trên dữ liệu thật 05/11/2026: 15 loại, quá nửa số
+lượt không phải tệp — `replied_message` 119, `photo` 106, `reaction` 82, `system_message` +
+`zalo_system_message` 51, `ad_click` 17, `template` 13, `sticker` 11, `styled_message` 9,
+`link` 8, `pzl_chat_recommended` 8, `document` 3. Lọc ở `ChatAttachment.LocTepPancake` bằng danh
+sách CẤM (loại tệp mới vẫn chạy), và đường dẫn nằm ở **năm chỗ** tuỳ loại: `url`, `origin_url`,
+`link`, `image.url`, `media.image.src`, cộng `bank_card.qr_code`. Không lọc thì một tin chữ kèm
+`styled_message` (chỉ là chữ in đậm) bị đoán thành tin TỆP.
+
+⚠️ **Hai loại bị lọc khỏi danh sách tệp nhưng VẪN phải hiện**: `zalo_system_message` (dựng câu ở
+`MoTaThongBao`, ghi với `ChatSender.System` và **dừng trước đường trợ lý**) và thẻ ngân hàng
+`chat.webcontent` (`MoTaTheNganHang` cho chữ, mã QR đi đường đính kèm).
+
+⚠️ **Nhắc tên nằm ở `message_tags`, không nằm trong `original_message`.** Bản thô chỉ có mã
+(`@6043324489577600945`); bản `message` đã dựng HTML mới có tên. Thay theo CHUỖI, đừng dùng
+`pos`/`len` của Pancake — hai số đó tính trên bản đã dựng nên lệch vị trí ở bản thô.
+
+⚠️ **Phân trang tin: đặc tả ghi NGƯỢC.** Tài liệu nói tin xếp mới→cũ; đo thật thì **trong mỗi
+trang là cũ→mới**, còn các trang thì lùi dần về quá khứ theo `current_count`. `PancakeHistoryImporter`
+dựa vào đúng điểm này để biết khi nào chạm vùng đã có.
+
+⚠️ **Lượt kéo phải có HAI PHA.** Chỉ đào sâu từ vị trí đã dừng thì tin MỚI (nằm ở đầu danh sách)
+bị bỏ qua vĩnh viễn — hội thoại đứng im ở mốc lần nhập đầu dù khách vẫn nhắn. Pha *bắt kịp* đọc từ
+vị trí 0 và dừng ngay khi chạm vùng đã có (thường đúng một lượt gọi); pha *đào sâu* mới đi tiếp
+xuống quá khứ. Mốc "đã có tới đâu" lấy từ `ChatRepository.CountMessagesPerConversationAsync` —
+**một truy vấn cho cả trang**, không hỏi lẻ từng hội thoại.
+
+⚠️ Hỏi "kênh này lấy lại hội thoại cũ được không" bằng **`ChatHistoryImport.Supports`**,
+đừng hỏi `MetaHistoryImporter.Supports` — hàm đó chỉ nói về bộ kéo Meta, Pancake có bộ kéo riêng nên nó làm được mà
+vẫn nằm ngoài câu hỏi đó. Hỏi nhầm thì nút "Lấy hội thoại cũ" biến mất khỏi Pancake, không lỗi nào.
+
 ⚠️ **HAI loại token, và người khai KHÔNG phân biệt được bằng mắt** — cả hai đều là chuỗi dài, mọi
 màn hình Pancake đều gọi là "token":
 
@@ -62,10 +101,17 @@ mang sẵn `{"id":"<mã trang>"}` trong phần tải (`PancakeChatAdapter.DocPag
 xác minh bằng một lượt `GET …/pages/{id}/tags` thật. Phần tải JWT ai cũng sửa được nên nó **chỉ để
 nhận dạng** — mã trang luôn phải đem xác minh trước khi lưu.
 
-⚠️ **Khoá trang không tra được tên trang.** Đặc tả không có endpoint lấy thông tin một trang bằng
-`page_access_token` (xem danh sách path trong `openapi.yaml` — chỉ có `/pages` cấp tài khoản). Nên
-đường khoá-trang để người khai **tự đặt tên**; bịa tên ở máy chủ thì hộp thư hiện một nhãn sai mà
-không ai truy được nguồn.
+⚠️ **Khoá trang không tra được tên trang — phải lấy gián tiếp.** Không có endpoint lấy thông tin
+một trang bằng `page_access_token`. Đã **dò tận nơi**, không chỉ đọc đặc tả: `GET /pages/{id}`,
+`/info`, `/settings` đều trả trang HTML của Pancake, trong khi route có thật trả JSON
+`error_code 102` — tức là ba đường đó không tồn tại.
+
+`GuessPageNameAsync` vì thế lấy gián tiếp: tên trang xuất hiện ở `from` của thứ do **chính trang**
+tạo ra. Thử `/posts` trước (một lượt gọi, rẻ), không thấy thì lục `/conversations`. `DocTenTrang`
+lục cả cây JSON tìm object `{"id": <mã trang>, "name": …}` — lục cả cây chứ không bám đường dẫn cố
+định vì mỗi nguồn để ở một chỗ khác nhau, và khớp **đúng mã trang** chứ không lấy `name` đầu tiên
+gặp được (phần lớn `from` trong các thân này là KHÁCH — lấy bừa là đặt tên trang bằng tên một khách
+hàng). Đoán hụt thì trả `null` để người khai tự gõ, **không bịa**.
 
 ⚠️ **Mã trang Pancake DÀI — cột khoá phải chứa nổi.** Khoá bản ghi trong `TenantChannelSettings` là
 `'chat-pancake:' + mã trang`, mà mã trang do Pancake đặt chứ không phải mình: một trang Zalo mang

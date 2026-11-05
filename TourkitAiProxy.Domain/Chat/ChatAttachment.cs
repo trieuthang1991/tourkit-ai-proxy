@@ -53,7 +53,9 @@ public static class ChatAttachment
         if (goc is JsonObject g && g["tk"] is not null && g["tep"] is JsonArray daSoi)
         {
             var ra = new List<ChatFile>();
-            foreach (var f in daSoi.OfType<JsonNode>())
+            // OfType<JsonObject> chứ không phải OfType<JsonNode>: phần tử là chuỗi/số thì đánh
+            // chỉ mục ["url"] lên nó sẽ ném, và cả màn hình hội thoại trả 500 vì một dòng rác.
+            foreach (var f in daSoi.OfType<JsonObject>())
             {
                 var url = Str(f["url"]);
                 if (string.IsNullOrWhiteSpace(url)) continue;
@@ -62,11 +64,19 @@ public static class ChatAttachment
             return ra;
         }
 
-        if (chieu == 1)
-        {
-            var o = goc.AsObject();
-            return new[] { new ChatFile(Name: Str(o["ten"]), Size: Num(o["kich"]), Url: Str(o["url"])) };
-        }
+        // Tin GỬI ĐI do mình dựng: một object {ten, kich, url}.
+        //
+        // ⚠️ Phải kiểm hình dạng, KHÔNG ép kiểu thẳng. Tin chiều ra không phải lúc nào cũng do
+        // mình dựng: tin "tiếng vọng" (nhân viên trả lời từ app của kênh, hoặc tin cũ kéo về) đi
+        // thẳng từ nhà cung cấp nên mang hình dạng CỦA KÊNH — với Pancake là một MẢNG. Ép
+        // .AsObject() lên mảng thì .NET ném, và vì hàm này chạy lúc dựng màn hình hội thoại, lỗi
+        // hiện ra thành GET /chat/conversations/{id} → 500: bấm vào hội thoại là trang trắng.
+        // Gặp thật 05/11/2026 với tin lịch sử Pancake.
+        //
+        // Không khớp thì RƠI XUỐNG nhánh theo kênh bên dưới — đó mới là nơi đọc được hình dạng gốc.
+        if (chieu == 1 && goc is JsonObject raNgoai)
+            return new[] { new ChatFile(Name: Str(raNgoai["ten"]), Size: Num(raNgoai["kich"]),
+                                        Url: Str(raNgoai["url"])) };
 
         return kenh switch
         {
@@ -91,17 +101,90 @@ public static class ChatAttachment
     /// <para>Pancake <b>không cho kích thước tệp</b> (chỉ có kích thước ảnh tính bằng điểm ảnh),
     /// nên <c>Size</c> để trống. Bịa một con số ở đây là nói dối trên giao diện.</para>
     /// </summary>
+    /// <summary>
+    /// Những <c>attachments[].type</c> của Pancake <b>KHÔNG phải tệp</b> — đo trên dữ liệu thật
+    /// 05/11/2026, 15 loại trong đó quá nửa số lượt là mấy thứ này:
+    ///
+    /// <list type="bullet">
+    /// <item><c>replied_message</c> (119 lượt) — tin được trích dẫn, chở nguyên một tin khác bên trong.</item>
+    /// <item><c>reaction</c> (82) — thả cảm xúc lên tin cũ.</item>
+    /// <item><c>system_message</c> · <c>zalo_system_message</c> (51) — thông báo của nền tảng.</item>
+    /// <item><c>styled_message</c> (9) — <b>chỉ là chữ in đậm/nghiêng</b> của chính tin đó.</item>
+    /// <item><c>ad_click</c> · <c>template</c> · <c>pzl_chat_recommended</c> · <c>address</c> ·
+    ///       <c>chat.webcontent</c> — sự kiện quảng cáo, nút bấm, nhật ký cuộc gọi, thẻ ngân hàng.</item>
+    /// </list>
+    ///
+    /// <para><b>Không lọc thì hỏng hai đường.</b> Một: tin chữ bình thường có kèm
+    /// <c>styled_message</c> bị đoán thành tin TỆP, hộp thư hiện một đính kèm rỗng không bấm được.
+    /// Hai: tin chỉ có <c>reaction</c> bị dựng thành một dòng trắng trong hội thoại.</para>
+    ///
+    /// <para>Dùng danh sách CẤM chứ không dùng danh sách cho phép: loại tệp mới của Pancake (hay
+    /// của một nền tảng nó mới gom thêm) vẫn chạy được, chỉ cần nó có đường dẫn http.</para>
+    /// </summary>
+    private static readonly HashSet<string> PancakeKhongPhaiTep = new(StringComparer.OrdinalIgnoreCase)
+    {
+        "replied_message", "reaction", "system_message", "zalo_system_message",
+        "styled_message", "ad_click", "template", "pzl_chat_recommended",
+        "address",
+        // chat.webcontent KHÔNG nằm trong danh sách cấm: thẻ ngân hàng Zalo đi qua loại này và
+        // mang một mã QR chuyển khoản — thứ khách thật sự cần quét. Xem DuongDanPancake.
+    };
+
+    /// <summary>
+    /// Lọc ra những phần tử <c>attachments[]</c> THẬT SỰ là tệp. <b>Hàm thuần</b>, dùng chung cho
+    /// cả chỗ hiển thị (ở đây) lẫn chỗ đoán loại tin (<c>PancakeChatAdapter</c>) — hai nơi lọc
+    /// khác nhau thì tin hiện ra một kiểu còn được phân loại một kiểu.
+    /// </summary>
+    public static List<JsonObject> LocTepPancake(JsonArray? ds)
+    {
+        var ra = new List<JsonObject>();
+        if (ds is null) return ra;
+        foreach (var a in ds)
+        {
+            if (a is not JsonObject o) continue;
+            var loai = o["type"]?.ToString();
+            if (loai is not null && PancakeKhongPhaiTep.Contains(loai)) continue;
+            if (DuongDanPancake(o) is null) continue;   // không có đường dẫn thì không phải tệp
+            ra.Add(o);
+        }
+        return ra;
+    }
+
+    /// <summary>
+    /// Đường dẫn tệp trong một phần tử <c>attachments[]</c> của Pancake — <b>nằm ở bốn chỗ khác
+    /// nhau tuỳ loại</b>: ảnh ở <c>url</c>/<c>origin_url</c>, sticker ở <c>link</c>, bài chia sẻ ở
+    /// <c>media.image.src</c>. Đọc thiếu một chỗ là mất hẳn loại đó mà không có lỗi nào.
+    /// </summary>
+    private static string? DuongDanPancake(JsonObject o)
+    {
+        var url = Str(o["url"]) ?? Str(o["origin_url"]) ?? Str(o["link"])
+               ?? Str((o["image"] as JsonObject)?["url"])
+               ?? Str(((o["media"] as JsonObject)?["image"] as JsonObject)?["src"])
+               // Thẻ ngân hàng Zalo (chat.webcontent · zinstant.bankcard): ảnh đáng giữ là mã QR
+               // chuyển khoản, không phải hình nền hay logo ngân hàng đi kèm.
+               ?? Str((o["bank_card"] as JsonObject)?["qr_code"]);
+        // Phải là đường dẫn http thật. Vài loại mang "url" là chuỗi rỗng hoặc "https:" cụt
+        // (trường thumb_url của document chẳng hạn) — nhận vào là hộp thư hiện nút bấm chết.
+        return url is not null && url.StartsWith("http", StringComparison.OrdinalIgnoreCase)
+               && url.Length > "https://".Length ? url : null;
+    }
+
     private static IReadOnlyList<ChatFile> ReadPancake(JsonNode goc)
     {
         if (goc is not JsonArray ds) return Array.Empty<ChatFile>();
 
         var ra = new List<ChatFile>();
-        foreach (var a in ds)
+        foreach (var a in LocTepPancake(ds))
         {
-            if (a is null) continue;
-            var url = Str(a["image"]?["url"]) ?? Str(a["link"]);
-            if (string.IsNullOrWhiteSpace(url)) continue;
-            ra.Add(new ChatFile(Name: Str(a["title"]) ?? Str(a["description"]), Size: null, Url: url));
+            // LocTepPancake đã chắc chắn a là object VÀ có đường dẫn http — xem ở đó.
+            var url = DuongDanPancake(a)!;
+            // Tên tệp: document có "name" thật (vd "Phản hồi về Chuyển sever.pdf"), liên kết có
+            // "name", bài chia sẻ có "title"/"description". Ảnh không có tên — để trống, giao diện
+            // tự hiện ảnh chứ không cần nhãn.
+            ra.Add(new ChatFile(
+                Name: Str(a["name"]) ?? Str(a["title"]) ?? Str(a["description"])
+                      ?? (a["bank_card"] is JsonObject ? "Mã QR chuyển khoản" : null),
+                Size: null, Url: url));
         }
         return ra;
     }

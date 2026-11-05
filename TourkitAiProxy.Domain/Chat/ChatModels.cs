@@ -141,6 +141,20 @@ public record ChatButton(string Label, string? Url = null)
 /// nhập là cả năm hội thoại dồn vào một phút.</para></param>
 /// <param name="Surface">Riêng hay công khai. Xem <see cref="ChatSurface"/> — đây là thứ quyết
 /// định trợ lý có được tự trả lời không, nên đừng để mặc định trôi qua với sự kiện bình luận.</param>
+/// <param name="IsSystemNotice">Thông báo của NỀN TẢNG, không phải lời của người nào: "X đã rời
+/// khỏi nhóm", "Y đã thêm Z vào nhóm".
+///
+/// <para>Ghi với <see cref="ChatSender.System"/> nên giao diện vẽ thành một dòng xám giữa hội
+/// thoại thay vì bong bóng của khách. Coi nó là tin của khách thì hội thoại nhảy lên đầu, tính
+/// chưa đọc, và trợ lý có thể đi trả lời một câu không ai hỏi.</para></param>
+/// <param name="SenderName">Tên người gửi RIÊNG của tin này, khi nó khác tên hội thoại.
+///
+/// <para>Chỉ có nghĩa ở hội thoại NHIỀU NGƯỜI — nhóm Zalo/Telegram gom về qua Pancake. Ở đó
+/// <c>DisplayName</c> là tên NHÓM (nhãn của cả dòng trong hộp thư), còn mỗi tin lại do một
+/// thành viên khác nhau gửi. Thiếu trường này thì mọi tin trong nhóm hiện cùng một tên và cùng
+/// một chữ cái đại diện, nhân viên đọc lại không biết ai nói câu nào.</para>
+///
+/// <para><c>null</c> ở hội thoại một-một — ở đó người gửi CHÍNH LÀ khách, nhắc lại tên là thừa.</para></param>
 /// <param name="ThreadId">Mã BÀI VIẾT khi <paramref name="Surface"/> là bình luận.
 ///
 /// <para>Cần nó vì một người có thể bình luận dưới nhiều bài khác nhau, và gộp hết vào một chỗ
@@ -167,7 +181,10 @@ public record InboundChatEvent(
     ChatSurface Surface = ChatSurface.DirectMessage,
     string? ThreadId = null,
     string? ParentExternalId = null,
-    CommentChange? CommentChange = null);
+    CommentChange? CommentChange = null,
+    string? SenderName = null,
+    bool IsSystemNotice = false,
+    string? SenderAvatarUrl = null);
 
 /// <summary>
 /// Khách đến từ đâu — quảng cáo nào, liên kết nào, mã QR nào.
@@ -316,6 +333,10 @@ public class ChatMessage
     public short Direction { get; set; }
     public short SenderKind { get; set; }
     public string? SenderUsername { get; set; }
+    /// <summary>Ảnh đại diện của người gửi TIN NÀY — chỉ có ở hội thoại nhiều người (nhóm Zalo
+    /// gom qua Pancake). Khác ảnh của hội thoại: trong nhóm mỗi tin một người, dùng ảnh hội thoại
+    /// là cả nhóm hiện chung một khuôn mặt. Null thì giao diện lùi về chữ cái đầu tên.</summary>
+    public string? SenderAvatarUrl { get; set; }
     public short Kind { get; set; }
     public string? Body { get; set; }
     public string? Attachment { get; set; }

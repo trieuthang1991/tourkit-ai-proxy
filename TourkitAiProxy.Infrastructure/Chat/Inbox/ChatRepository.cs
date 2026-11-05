@@ -1199,27 +1199,60 @@ public class ChatRepository
     /// <param name="createdUtc">Thời điểm THẬT của tin. Để <c>null</c> ở tin trực tiếp — cột tự
     /// đóng dấu giờ ghi, lệch vài giây không ai thấy. Chỉ NHẬP LỊCH SỬ mới cần truyền: bỏ qua là
     /// cả năm hội thoại cũ dồn vào một phút và dòng thời gian đảo lộn hết.</param>
+    /// <summary>
+    /// Số tin ĐÃ CÓ của từng hội thoại thuộc một tài khoản — khoá theo mã hội thoại phía nhà cung
+    /// cấp (<c>contact_external_id</c>).
+    ///
+    /// <para>Dùng cho lượt kéo lịch sử: Pancake phân trang tin bằng VỊ TRÍ tính từ tin mới nhất,
+    /// nên muốn lấy tiếp phần CŨ HƠN thì phải biết đã lấy tới đâu. Không có con số này thì mỗi
+    /// lượt bấm lại tải đúng những tin mới nhất đã có, bị chống trùng loại sạch, và người dùng
+    /// không bao giờ lấy được lịch sử xa hơn.</para>
+    ///
+    /// <para><b>MỘT truy vấn cho cả tài khoản</b>, không hỏi từng hội thoại: một trang có tới 200
+    /// hội thoại, hỏi lẻ là 200 lượt đi-về chỉ để biết vài con số.</para>
+    /// </summary>
+    /// <param name="So">Số tin đã có — dùng làm vị trí bắt đầu cho pha ĐÀO SÂU.</param>
+    /// <param name="MoiNhat">Tin mới nhất đã có — dùng làm mốc dừng cho pha BẮT KỊP.</param>
+    public record TienDoHoiThoai(int So, DateTime MoiNhat);
+
+    public async Task<Dictionary<string, TienDoHoiThoai>> CountMessagesPerConversationAsync(
+        string tenant, ChatChannel kenh, string accountId, CancellationToken ct = default)
+    {
+        await using var c = await _db.OpenAsync(ct);
+        var hang = await c.QueryAsync<(string Ma, int So, DateTime MoiNhat)>("""
+            SELECT v.contact_external_id, count(m.id)::int, max(m.created_utc)
+            FROM   chat_conversations v
+            JOIN   chat_messages m ON m.conversation_id = v.id
+            WHERE  v.tenant_id = @tenant AND v.channel = @kenh AND v.account_id = @acc
+            GROUP  BY v.contact_external_id
+            """, new { tenant, kenh = (short)kenh, acc = accountId });
+        return hang.ToDictionary(x => x.Ma, x => new TienDoHoiThoai(x.So, x.MoiNhat),
+            StringComparer.Ordinal);
+    }
+
     public async Task<long?> AppendMessageAsync(string tenant, long conversationId, ChatChannel kenh,
         ChatDirection chieu, ChatSender nguoiGui, string? username, ChatKind loai, string? noiDung,
         string? attachmentJson, string? externalMsgId, ChatState trangThai, CancellationToken ct = default,
-        DateTime? createdUtc = null, string? buttonsJson = null, string? parentExternalId = null)
+        DateTime? createdUtc = null, string? buttonsJson = null, string? parentExternalId = null,
+        string? senderAvatarUrl = null)
     {
         await using var c = await _db.OpenAsync(ct);
         var id = await c.ExecuteScalarAsync<long?>("""
             INSERT INTO chat_messages
               (tenant_id, conversation_id, channel, direction, sender_kind, sender_username,
                kind, body, attachment, external_msg_id, state, created_utc, buttons,
-               parent_external_id)
+               parent_external_id, sender_avatar_url)
             VALUES (@tenant, @conv, @kenh, @chieu, @nguoiGui, @username,
                     @loai, @noiDung, @att::jsonb, @ext, @tt,
-                    COALESCE(@luc, NOW() AT TIME ZONE 'utc'), @nut::jsonb, @cha)
+                    COALESCE(@luc, NOW() AT TIME ZONE 'utc'), @nut::jsonb, @cha, @anh)
             ON CONFLICT (tenant_id, channel, external_msg_id) WHERE external_msg_id IS NOT NULL
               DO NOTHING
             RETURNING id
             """, new { tenant, conv = conversationId, kenh = (short)kenh, chieu = (short)chieu,
                        nguoiGui = (short)nguoiGui, username, loai = (short)loai, noiDung,
                        att = attachmentJson, ext = externalMsgId, tt = (short)trangThai,
-                       luc = createdUtc, nut = buttonsJson, cha = parentExternalId });
+                       luc = createdUtc, nut = buttonsJson, cha = parentExternalId,
+                       anh = senderAvatarUrl });
 
         if (id is null) _log.LogDebug("[chat] bỏ tin trùng ext={Ext} conv={Conv}", externalMsgId, conversationId);
         return id;

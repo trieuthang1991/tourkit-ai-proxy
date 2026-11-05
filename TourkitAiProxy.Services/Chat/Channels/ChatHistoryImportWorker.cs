@@ -55,9 +55,14 @@ public class ChatHistoryImportWorker : BackgroundService
             try
             {
                 using var scope = _sp.CreateScope();
-                var bo = scope.ServiceProvider.GetRequiredService<MetaHistoryImporter>();
-                _viec.KetThuc(y.TenantId, y.Kenh, y.AccountId,
-                    await bo.ImportAsync(y.TenantId, y.Kenh, y.AccountId, ct));
+                // Mỗi kênh một bộ kéo: Meta đi Graph (Messenger/Instagram), Pancake đi API riêng
+                // của nó. Cùng trả MetaHistoryImporter.KetQua nên chỗ ghi kết quả không đổi.
+                var kq = y.Kenh == ChatChannel.Pancake
+                    ? await scope.ServiceProvider.GetRequiredService<PancakeHistoryImporter>()
+                            .ImportAsync(y.TenantId, y.AccountId, ct)
+                    : await scope.ServiceProvider.GetRequiredService<MetaHistoryImporter>()
+                            .ImportAsync(y.TenantId, y.Kenh, y.AccountId, ct);
+                _viec.KetThuc(y.TenantId, y.Kenh, y.AccountId, kq);
             }
             catch (OperationCanceledException) when (ct.IsCancellationRequested)
             {

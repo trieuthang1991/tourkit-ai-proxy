@@ -47,7 +47,7 @@ public class ChatHistoryJobs
     }
 
     public void KetThuc(string tenantId, ChatChannel kenh, string accountId,
-        MetaHistoryImporter.KetQua kq)
+        ChatHistoryImport.KetQua kq)
     {
         var k = Khoa(tenantId, kenh, accountId);
         var batDau = _viec.TryGetValue(k, out var cu) ? cu.BatDauUtc : DateTime.UtcNow;
