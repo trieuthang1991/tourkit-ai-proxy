@@ -190,6 +190,11 @@ _ = Task.Run(async () =>
 // singleton chỉ instantiate khi có AI call đầu tiên → migration trễ.
 _ = app.Services.GetRequiredService<TourkitAiProxy.Infrastructure.AiUsageLog>();
 
+// Cùng lý do: CTOR của InternalChatPushClient in ra BẬT/TẮT + nhịp nghỉ giữa hai lần bắn thông báo.
+// Không có dòng này thì singleton chỉ dựng lúc có tin nhắn ĐẦU TIÊN — gõ sai khoá hay quên bật là
+// không ai biết cho tới khi có người thắc mắc "sao app không thông báo".
+_ = app.Services.GetRequiredService<TourkitAiProxy.Infrastructure.TourKit.InternalChatPushClient>();
+
 // DB init: tạo schema dbo.Reviews/DealScores/AiHistory nếu chưa có + migrate JSON cũ vào DB.
 // Chạy async fire-and-forget — không block startup. Nếu DB chưa sẵn sàng → log warning, fallback file.
 _ = Task.Run(async () =>

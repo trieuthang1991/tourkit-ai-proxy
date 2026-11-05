@@ -26,6 +26,21 @@ public enum ChatChannel : short
     TikTok = 6,
     /// <summary>Chat nội bộ giữa nhân viên. Không có webhook, không có OA credential.</summary>
     Internal = 7,
+
+    /// <summary>
+    /// Pancake (pages.fm) — <b>cổng gom</b>, không phải một nền tảng nhắn tin. Nó đứng giữa, gom
+    /// hộp thư Facebook · Instagram · TikTok · Zalo của khách về một chỗ.
+    ///
+    /// <para>Vì vậy MỘT TRANG Pancake có thể trùng với một tài khoản đã nối thẳng ở kênh khác. Nối
+    /// cả hai đường cho cùng một trang thì mỗi tin của khách vào hộp thư HAI LẦN, thành hai hội
+    /// thoại tách rời — xem cảnh báo ở màn Cài đặt hộp thư.</para>
+    ///
+    /// <para>Khác biệt kỹ thuật: Pancake <b>không ký nội dung webhook</b> (chặn bằng đoạn bí mật
+    /// trên URL + đối chiếu <c>page_id</c>), <b>trả lỗi bằng HTTP 200</b> kèm <c>success:false</c>,
+    /// và mã "khách" ở kênh này chính là <b>mã hội thoại</b> vì API gửi tin nhận
+    /// <c>conversation_id</c>. Xem <c>PancakeChatAdapter</c>.</para>
+    /// </summary>
+    Pancake = 8,
 }
 
 /// Chiều của tin nhắn.
@@ -232,9 +247,13 @@ public class ChatContact
 /// <summary>Bộ đếm cho hộp thư: theo trạng thái, theo kênh, số chưa đọc, tổng.</summary>
 /// <param name="TheoTrangThai">status -> số hội thoại.</param>
 /// <param name="TheoKenh">channel -> số hội thoại. Dải kênh bên trái giao diện đọc cái này.</param>
+/// <param name="TheoTaiKhoan">"{kênh}:{mã tài khoản}" -> số hội thoại. Dải TRANG đọc cái này — một
+/// công ty có thể nối nhiều Trang Pancake / nhiều OA Zalo, và nhân viên cần lọc tới từng trang.
+/// Khoá ghép cả mã kênh vì mã tài khoản do nhà cung cấp đặt, hai kênh trùng mã là cộng dồn nhầm.</param>
 public record ChatInboxCounts(
     Dictionary<short, int> TheoTrangThai,
     Dictionary<short, int> TheoKenh,
+    Dictionary<string, int> TheoTaiKhoan,
     int Unread,
     int Tong);
 

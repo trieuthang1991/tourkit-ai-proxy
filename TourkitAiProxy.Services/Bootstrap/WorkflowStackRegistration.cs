@@ -143,6 +143,9 @@ public static class WorkflowStackRegistration
         s.AddSingleton<TenantServiceAccountStore>();
         s.AddSingleton<TourKitCustomerSource>();
         s.AddSingleton<TourKitNccClient>();
+        // Thông báo chat nội bộ sang app mobile. Tự tắt khi InternalChat:Notify:Enabled=false hoặc
+        // thiếu khoá — đăng ký vô điều kiện để chỗ gọi không phải kiểm null.
+        s.AddSingleton<InternalChatPushClient>();
 
         // ─── Review (customer + KH ingest) ───────────────────────────────────
         s.AddSingleton<CustomerRepository>();
@@ -243,6 +246,7 @@ public static class WorkflowStackRegistration
         s.AddSingleton<Chat.Channels.IChatChannelAdapter, Chat.Channels.InstagramChatAdapter>();
         s.AddSingleton<Chat.Channels.IChatChannelAdapter, Chat.Channels.WhatsAppChatAdapter>();
         s.AddSingleton<Chat.Channels.IChatChannelAdapter, Chat.Channels.TikTokChatAdapter>();
+        s.AddSingleton<Chat.Channels.IChatChannelAdapter, Chat.Channels.PancakeChatAdapter>();
         // MessengerChatAdapter cần được lấy đích danh cho bước Meta xác minh địa chỉ webhook.
         s.AddSingleton<Chat.Channels.MessengerChatAdapter>();
         // Ghi chú cũ, giữ lại để hiểu vì sao từng có giai đoạn không có lớp này:

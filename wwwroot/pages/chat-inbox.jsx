@@ -35,8 +35,12 @@
     6: { ten: 'TikTok', hinh: 'tiktok' },
     2: { ten: 'Web', chu: 'W' },
     3: { ten: 'Telegram', hinh: 'telegram' },
+    // Pancake là CỔNG GOM (Facebook/Instagram/TikTok/Zalo đổ về một chỗ), không phải một nền tảng
+    // nhắn tin. Không có biểu tượng riêng trong bộ hình nên dùng chữ ký 'P' — cùng lối với Zalo 'Z'
+    // và Messenger 'f'.
+    8: { ten: 'Pancake', chu: 'P' },
   };
-  const KENH_SONG = [0, 1, 4, 5, 6, 3];   // kênh đã nối thật; Web chỉ hiện khi có dữ liệu
+  const KENH_SONG = [0, 1, 4, 5, 6, 3, 8];   // kênh đã nối thật; Web chỉ hiện khi có dữ liệu
 
   const TRANG_THAI = [
     { v: null, nhan: 'Tất cả' },
@@ -2881,6 +2885,85 @@
     // Tiến độ lấy hội thoại cũ, khoá theo 'kênh:tài khoản'.
     const [lichSu, setLichSu] = React.useState({});
 
+    // ── Nối Pancake: dán MỘT token tài khoản → tick các trang ─────────────────
+    //
+    // Khác bốn kênh nối-một-chạm còn lại: Pancake KHÔNG có OAuth, nên không mở cửa sổ sang nhà
+    // cung cấp — người khai dán token.
+    //
+    // Pancake có HAI loại token và không ai phân biệt nổi bằng mắt (cả hai đều là chuỗi dài, mọi
+    // màn hình đều gọi là "token"):
+    //   · khoá TÀI KHOẢN (pages.fm → Tài khoản → Cài đặt cá nhân) — ra nhiều trang, hết hạn 90 ngày;
+    //   · khoá TRANG (pancake.vn → trang → Cài đặt → Công cụ) — một trang, không hết hạn.
+    // Nên ô nhập chỉ có MỘT, máy chủ tự nhận dạng. Bắt người khai chọn loại là bắt họ trả lời một
+    // câu hỏi mà chính Pancake không cho họ dữ kiện để trả lời.
+    //
+    // Token không lưu lại ở bước dò: khoá tài khoản mở được mọi trang nên chỉ đi qua một lượt rồi
+    // thôi. Khoá TRANG thì ngược lại — nó CHÍNH LÀ thứ phải lưu, nên bước nối gửi lại nó xuống.
+    const [pcMo, setPcMo] = React.useState(false);
+    const [pcToken, setPcToken] = React.useState('');
+    const [pcTrang, setPcTrang] = React.useState(null);   // null = chưa dò; [] = dò ra rỗng
+    const [pcChon, setPcChon] = React.useState({});       // id trang -> có tick không
+    const [pcTen, setPcTen] = React.useState({});         // id trang -> tên người khai tự đặt
+    const [pcLoai, setPcLoai] = React.useState(null);     // 'user' | 'page' — loại token đã dán
+    const [pcBan, setPcBan] = React.useState(false);
+
+    function dongPancake() {
+      setPcMo(false); setPcToken(''); setPcTrang(null); setPcChon({});
+      setPcTen({}); setPcLoai(null); setPcBan(false);
+    }
+
+    async function doTrangPancake() {
+      if (!pcToken.trim()) { pushToast('Chưa dán token', 'warn'); return; }
+      setPcBan(true);
+      try {
+        const r = await authedFetch('/api/v1/chat/channels/pancake/pages', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ userAccessToken: pcToken.trim() }),
+        });
+        const j = await r.json().catch(() => null);
+        if (!r.ok) { pushToast(j?.error || 'Không đọc được danh sách trang', 'error'); return; }
+        const ds = j.pages || [];
+        setPcTrang(ds);
+        setPcLoai(j.tokenType || null);
+        // Tick sẵn TẤT CẢ: người vào đây là để nối, bỏ tick vài trang nhanh hơn tick mười trang.
+        setPcChon(Object.fromEntries(ds.map(t => [t.id, true])));
+        setPcTen(Object.fromEntries(ds.map(t => [t.id, t.name || ''])));
+        if (j.tokenType === 'page')
+          pushToast('Đây là khoá của MỘT trang — nối xong trang này, dán khoá trang kế tiếp để nối tiếp.', 'info');
+      } catch (e) { pushToast('Lỗi: ' + e.message, 'error'); }
+      finally { setPcBan(false); }
+    }
+
+    async function noiTrangPancake() {
+      // Gửi kèm tên người khai tự đặt: với khoá trang, Pancake KHÔNG có đường tra tên trang nên
+      // tên rỗng — để rỗng thì hộp thư hiện mã trang, một dãy số không ai nhận ra là trang nào.
+      const chon = (pcTrang || []).filter(t => pcChon[t.id])
+        .map(t => ({ ...t, name: (pcTen[t.id] || '').trim() || t.name || t.id }));
+      if (chon.length === 0) { pushToast('Chưa tick trang nào', 'warn'); return; }
+      setPcBan(true);
+      try {
+        const r = await authedFetch('/api/v1/chat/channels/pancake/connect', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ userAccessToken: pcToken.trim(), pages: chon }),
+        });
+        const j = await r.json().catch(() => null);
+        if (!r.ok) { pushToast(j?.error || 'Nối thất bại', 'error'); return; }
+
+        const so = (j.connected || []).length;
+        const hong = (j.failed || []).length;
+        // Nói rõ phần CÒN PHẢI LÀM TAY ngay lúc này. Báo "đã nối xong" trơn là người dùng đóng cửa
+        // sổ rồi ngồi đợi tin — mà chưa dán địa chỉ nhận tin sang Pancake thì không tin nào về.
+        if (so > 0)
+          pushToast(`Đã nối ${so} trang. CÒN MỘT BƯỚC: copy "Địa chỉ nhận tin" rồi dán vào Pancake `
+            + `→ từng trang → Cài đặt → Công cụ → Webhook.`, 'success');
+        if (hong > 0)
+          pushToast(`${hong} trang không nối được: ${(j.failed || []).map(x => x.name || x.id).join(', ')}`, 'error');
+        dongPancake();
+        await taiLai();
+      } catch (e) { pushToast('Lỗi: ' + e.message, 'error'); }
+      finally { setPcBan(false); }
+    }
+
     /**
      * Thao tác một nhịp đang chạy ở màn khai kênh (null = rảnh) — cùng cơ chế `lamViec` của trang
      * hộp thư, xem chú thích ở đó.
@@ -2923,6 +3006,8 @@
     };
 
     async function noiNhanhKenh(kenh) {
+      // Pancake không có OAuth — nối bằng cửa sổ ngay tại đây, không đá sang nhà cung cấp.
+      if (kenh === 8) { setPcMo(true); return; }
       return lamViecKenh('Đang dựng đường kết nối…', async () => {
       const cua = moCuaSoCapQuyen('chat-cap-quyen');
       const r = await authedFetch('/api/v1/chat/channels/' + kenh + '/connect-url', { method: 'POST' });
@@ -3267,6 +3352,107 @@
               : <div className="ci-pc-dangtai">Khối phân công chưa nạp được.</div>)}
           </div>
         </div>
+
+        {/* Cửa sổ nối Pancake — chồng LÊN cửa sổ cài đặt (z cao hơn), vì nó là một bước con của
+            chính màn khai kênh. Bấm nền ngoài không đóng: người dùng đang có một token dán dở
+            trong ô, đóng nhầm là phải sang Pancake copy lại. */}
+        {pcMo && (
+          <div className="ci-modal-nen ci-pc-nen" onMouseDown={e => e.stopPropagation()}>
+            <div className="ci-modal ci-pc-hop" role="dialog" aria-modal="true" aria-label="Kết nối Pancake">
+              <div className="ci-modal-dau">
+                <b>Kết nối Pancake</b>
+                <button className="ci-nut-icon" onClick={dongPancake} aria-label="Đóng">
+                  <window.Icon name="close" size={16} />
+                </button>
+              </div>
+
+              <div className="ci-modal-than">
+                <p className="ci-pc-ghi">
+                  Dán <b>một trong hai</b> loại token của Pancake — hệ thống tự nhận ra loại nào:
+                </p>
+                <ul className="ci-pc-buoc">
+                  <li><b>Khoá một trang</b> — pancake.vn → chọn trang → <b>Cài đặt</b> → <b>Công
+                      cụ</b> → <i>Public API access token</i>. Nối được đúng trang đó, không hết
+                      hạn. Đây cũng là màn hình phải dán địa chỉ nhận tin, nên làm một lượt cho gọn.</li>
+                  <li><b>Khoá cả tài khoản</b> — pages.fm → <b>Tài khoản</b> → <b>Cài đặt cá
+                      nhân</b> → <i>API Access Token</i>. Ra hết mọi trang để tick một lần, nhưng
+                      hết hạn sau 90 ngày.</li>
+                </ul>
+
+                <label className="ci-pc-nhan" htmlFor="pc-token">Token Pancake</label>
+                <div className="ci-pc-hang">
+                  <input id="pc-token" type="password" className="ci-pc-o" value={pcToken}
+                         placeholder="Dán token ở đây" autoComplete="off" disabled={pcBan}
+                         onChange={e => { setPcToken(e.target.value); setPcTrang(null); setPcLoai(null); }}
+                         onKeyDown={e => { if (e.key === 'Enter' && !pcBan) doTrangPancake(); }} />
+                  <button className="ci-nut nho chinh" onClick={doTrangPancake} disabled={pcBan}>
+                    {pcBan && pcTrang === null ? 'Đang dò…' : 'Dò trang'}
+                  </button>
+                </div>
+                <p className="ci-pc-ghi">
+                  {pcLoai === 'page'
+                    ? <>Đã nhận ra <b>khoá của một trang</b>. Khoá này được lưu lại để gửi tin trả
+                       lời — đó là việc của nó.</>
+                    : pcLoai === 'user'
+                    ? <>Đã nhận ra <b>khoá cả tài khoản</b>. Khoá này mở được mọi trang nên hệ thống
+                       <b> không lưu lại</b>, chỉ dùng đúng lượt nối này.</>
+                    : <>Khoá cả tài khoản sẽ không được lưu lại; khoá một trang thì có — vì phải
+                       dùng nó để gửi tin trả lời.</>}
+                </p>
+
+                {pcTrang !== null && pcTrang.length > 0 && (
+                  <>
+                    <div className="ci-pc-dau-ds">
+                      <span>{pcTrang.length} trang · đã tick {pcTrang.filter(t => pcChon[t.id]).length}</span>
+                      <div>
+                        <button className="ci-nut nho" onClick={() => setPcChon(
+                          Object.fromEntries(pcTrang.map(t => [t.id, true])))}>Tick hết</button>
+                        <button className="ci-nut nho" onClick={() => setPcChon({})}>Bỏ hết</button>
+                      </div>
+                    </div>
+                    <ul className="ci-pc-ds">
+                      {pcTrang.map(t => (
+                        <li key={t.id}>
+                          <label>
+                            <input type="checkbox" checked={!!pcChon[t.id]} disabled={pcBan}
+                                   onChange={e => setPcChon(s => ({ ...s, [t.id]: e.target.checked }))} />
+                            {/* Khoá trang không tra được tên (Pancake không có đường): để người
+                                khai tự đặt. Khoá tài khoản thì Pancake trả sẵn tên — hiện chữ. */}
+                            {t.name
+                              ? <span className="ci-pc-ten">{t.name}</span>
+                              : <input type="text" className="ci-pc-o-ten" disabled={pcBan}
+                                       value={pcTen[t.id] || ''} placeholder={'Đặt tên trang ' + t.id}
+                                       onClick={e => e.preventDefault()}
+                                       onChange={e => setPcTen(s => ({ ...s, [t.id]: e.target.value }))} />}
+                            {t.platform && <i className="ci-pc-nen-tang">{t.platform}</i>}
+                          </label>
+                          {!t.name && <small className="ci-pc-ma">Mã trang {t.id}</small>}
+                        </li>
+                      ))}
+                    </ul>
+                    <p className="ci-pc-canh">
+                      ⚠️ Trang nào đã nối <b>thẳng</b> vào hộp thư ở tab Messenger / Instagram /
+                      TikTok / Zalo thì <b>đừng tick lại ở đây</b> — mỗi tin của khách sẽ vào hộp thư
+                      hai lần, thành hai hội thoại tách rời.
+                    </p>
+                    <p className="ci-pc-canh">
+                      ⚠️ Mỗi trang bật Webhook ăn thêm <b>1 connection slot</b> trong gói Pancake.
+                      Hết slot thì phải nâng gói trước khi nối.
+                    </p>
+                  </>
+                )}
+              </div>
+
+              <div className="ci-pc-chan">
+                <button className="ci-nut" onClick={dongPancake} disabled={pcBan}>Huỷ</button>
+                <button className="ci-nut chinh" onClick={noiTrangPancake}
+                        disabled={pcBan || pcTrang === null || pcTrang.length === 0}>
+                  {pcBan && pcTrang !== null ? 'Đang nối…' : 'Nối'}
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
       </div>
     );
   }
@@ -3279,6 +3465,33 @@
     const [demKenh, setDemKenh] = useState({});
     const [loc, setLoc] = useState(null);          // trạng thái xử lý
     const [kenhLoc, setKenhLoc] = useState(null);  // kênh
+    // Lọc tới MỘT tài khoản trong kênh (một Trang Pancake, một OA Zalo…). null = mọi tài khoản.
+    // Dải này chỉ mọc khi kênh đang chọn có từ 2 tài khoản trở lên — một tài khoản thì nó là dải
+    // thừa, chiếm một hàng mà không cho thêm lựa chọn nào.
+    const [taiKhoanLoc, setTaiKhoanLoc] = useState(null);
+    const [demTaiKhoan, setDemTaiKhoan] = useState({});   // "{kênh}:{mã}" -> số hội thoại
+    const [tenTaiKhoan, setTenTaiKhoan] = useState({});   // "{kênh}:{mã}" -> tên gợi nhớ
+
+    // Các trang/tài khoản của kênh ĐANG CHỌN. Chưa chọn kênh thì không dựng dải này: gộp trang của
+    // mọi kênh vào một hàng thì "Fanpage Hà Nội" (Pancake) nằm cạnh "OA Hà Nội" (Zalo) mà không có
+    // gì phân biệt, bấm nhầm là lọc ra một danh sách trống.
+    const trangCuaKenh = useMemo(() => {
+      if (kenhLoc === null) return [];
+      const tien = kenhLoc + ':';
+      // Lấy từ CẢ hai nguồn: tài khoản đã khai (có tên gợi nhớ) và tài khoản đang có hội thoại.
+      // Chỉ lấy một nguồn thì hoặc mất trang vừa nối chưa có tin nào, hoặc mất trang có tin mà
+      // nhân viên trực không đủ quyền đọc danh sách khai báo.
+      const ma = new Set();
+      Object.keys(tenTaiKhoan).forEach(k => { if (k.startsWith(tien)) ma.add(k.slice(tien.length)); });
+      Object.keys(demTaiKhoan).forEach(k => { if (k.startsWith(tien)) ma.add(k.slice(tien.length)); });
+      return [...ma]
+        .map(id => ({ id, ten: tenTaiKhoan[tien + id] || id, so: demTaiKhoan[tien + id] || 0 }))
+        .sort((a, b) => b.so - a.so || a.ten.localeCompare(b.ten, 'vi'));
+    }, [kenhLoc, tenTaiKhoan, demTaiKhoan]);
+
+    // Đổi kênh thì BỎ lọc trang: mã trang gắn với kênh cũ, giữ lại là lọc ra danh sách trống mà
+    // không có gì trên màn hình nói vì sao.
+    useEffect(() => { setTaiKhoanLoc(null); }, [kenhLoc]);
     const [nhom, setNhom] = useState('tat-ca');    // tat-ca | chua-doc | cua-toi | toi-theo-doi
     const [tim, setTim] = useState('');
     const [nhanLoc, setNhanLoc] = useState([]);      // slug[] đang lọc — rỗng = không lọc
@@ -3440,6 +3653,7 @@
         const q = new URLSearchParams();
         if (loc !== null) q.set('status', loc);
         if (kenhLoc !== null) q.set('channel', kenhLoc);
+        if (taiKhoanLoc) q.set('accountId', taiKhoanLoc);
         if (nhom === 'chua-doc') q.set('unread', 'true');
         if (nhom === 'cua-toi') q.set('mine', 'true');
         if (nhom === 'toi-theo-doi') q.set('followed', 'true');
@@ -3464,10 +3678,12 @@
         }
         setDem(j.counts || {});
         setDemKenh(j.channelCounts || {});
+        setDemTaiKhoan(j.accountCounts || {});
+        setTenTaiKhoan(j.accountLabels || {});
       } catch (e) {
         // Không toast mỗi lần hỏng: trang còn đường lùi tự hỏi lại, mạng chập chờn là spam ngay.
       } finally { setDangTai(false); }
-    }, [loc, kenhLoc, nhom, tim, nhanLoc]);
+    }, [loc, kenhLoc, taiKhoanLoc, nhom, tim, nhanLoc]);
 
     /**
      * @param imLang MẶC ĐỊNH LÀ IM LẶNG, và đó là chủ ý.
@@ -3601,7 +3817,7 @@
     }, [taiDsach, taiChiTiet, dayDuTin]);
 
     // Đổi bộ lọc là reset con trỏ + danh sách — không thì trộn kết quả của hai bộ lọc khác nhau.
-    useEffect(() => { setDsach([]); setConTro(null); }, [loc, kenhLoc, nhom, tim, nhanLoc]);
+    useEffect(() => { setDsach([]); setConTro(null); }, [loc, kenhLoc, taiKhoanLoc, nhom, tim, nhanLoc]);
 
     // Danh mục nhãn cho chip lọc — tải MỘT LẦN cho cả trang.
     //
@@ -4375,6 +4591,25 @@
                     <button className="ci-chip-xoa" onClick={() => setNhanLoc([])}
                             title="Bỏ lọc nhãn" aria-label="Bỏ lọc nhãn">×</button>
                   )}
+                </div>
+              )}
+
+              {/* Hàng chip TRANG — chỉ mọc khi kênh đang chọn có từ 2 tài khoản trở lên. Một tài
+                  khoản thì hàng này không cho thêm lựa chọn nào, chỉ chiếm chỗ.
+                  Đặt trong khối đầu cột (không phải ở dải kênh bên trái) vì dải kênh là một CỘT
+                  DỌC hẹp 40px — tên trang không nhét vừa, và nó nói về danh sách ngay bên dưới. */}
+              {trangCuaKenh.length > 1 && (
+                <div className="ci-chip ci-chip-trang" aria-label="Lọc theo trang">
+                  <button className={taiKhoanLoc === null ? 'on' : ''}
+                          onClick={() => setTaiKhoanLoc(null)}>Tất cả</button>
+                  {trangCuaKenh.map(t => (
+                    <button key={t.id} className={taiKhoanLoc === t.id ? 'on' : ''}
+                            title={t.ten + ' · ' + (t.so || 0) + ' hội thoại'}
+                            onClick={() => setTaiKhoanLoc(taiKhoanLoc === t.id ? null : t.id)}>
+                      <span className="ci-ct-ten">{t.ten}</span>
+                      {t.so > 0 && <b>{t.so}</b>}
+                    </button>
+                  ))}
                 </div>
               )}
               {/* Dòng "N hội thoại đang hiện" ĐÃ BỎ (14/09/2026, chủ dự án chốt): danh sách

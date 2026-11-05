@@ -476,7 +476,7 @@ public class ChatRepository
     public async Task<List<ChatConversation>> ListConversationsAsync(string tenant, NguoiXem xem, short? trangThai,
         int? chiCuaToi, string? timKiem, short? kenh = null, int? giaoCho = null,
         bool chiChuaDoc = false, bool chiTheoDoi = false, ConvCursor? sau = null, int limit = 60, int? nguoiDung = null,
-        string[]? nhan = null, CancellationToken ct = default)
+        string[]? nhan = null, string? taiKhoan = null, CancellationToken ct = default)
     {
         await using var c = await _db.OpenAsync(ct);
         return (await c.QueryAsync<ChatConversation>("""
@@ -496,6 +496,10 @@ public class ChatRepository
               AND (@trangThai IS NULL OR v.status = @trangThai)
               AND (@chiCuaToi IS NULL OR v.assigned_user_id = @chiCuaToi OR v.assigned_user_id IS NULL)
               AND (@kenh IS NULL OR v.channel = @kenh)
+              -- Lọc theo TÀI KHOẢN trong kênh (một OA Zalo, một Trang Facebook, một trang Pancake).
+              -- Thiếu vế này thì công ty nối nhiều trang chỉ lọc được tới mức "cả kênh", mọi trang
+              -- đổ chung một rổ không tách ra được.
+              AND (@taiKhoan IS NULL OR v.account_id = @taiKhoan)
               AND (@giaoCho IS NULL OR v.assigned_user_id = @giaoCho)
               AND (NOT @chiTheoDoi OR EXISTS (
                     SELECT 1 FROM chat_conversation_follows f
@@ -528,6 +532,7 @@ public class ChatRepository
             ORDER BY v.last_activity_at DESC, v.id DESC
             LIMIT @limit
             """, new { tenant, trangThai, chiCuaToi, kenh, giaoCho, chuaDoc = chiChuaDoc, chiTheoDoi, nguoiDung,
+                       taiKhoan = string.IsNullOrWhiteSpace(taiKhoan) ? null : taiKhoan!.Trim(),
                        tim = string.IsNullOrWhiteSpace(timKiem) ? null : $"%{timKiem.Trim()}%",
                        // Mảng rỗng KHÁC null ở đây: rỗng thì = ANY(…) không khớp gì và danh sách
                        // trắng trơn. Về null để mệnh đề tự vô hiệu.
@@ -777,7 +782,7 @@ public class ChatRepository
     {
         await using var c = await _db.OpenAsync(ct);
         var rows = (await c.QueryAsync<RowCount>("""
-            SELECT v.status, v.channel, COUNT(*)::int AS so,
+            SELECT v.status, v.channel, v.account_id, COUNT(*)::int AS so,
                    COUNT(*) FILTER (WHERE v.contact_replied_at IS NOT NULL
                         AND (COALESCE(r.last_read_at, v.agent_last_read_at) IS NULL
                              OR v.contact_replied_at > COALESCE(r.last_read_at, v.agent_last_read_at)))::int
@@ -801,23 +806,36 @@ public class ChatRepository
               -- Luật xem, giống hệt GetConversationAsync/ListConversationsAsync — thiếu vế này thì
               -- chip đếm lộ đúng con số mà luật 404 đang giấu (tổng hội thoại, chưa đọc, theo kênh).
               AND (@xemTatCa OR v.assigned_user_id = @maNguoi)
-            GROUP BY v.status, v.channel
+            -- Gộp thêm theo TÀI KHOẢN để dựng dải trang (một công ty nối nhiều Trang/OA). Thêm một
+            -- cột vào GROUP BY không đổi cách quét: vẫn một lượt gộp trên cùng tập dòng đã lọc.
+            GROUP BY v.status, v.channel, v.account_id
             """, new { tenant, chiCuaToi, nguoiDung, xemTatCa = xem.XemTatCa, maNguoi = xem.CrmUserId,
                        nhan = nhan is { Length: > 0 } ? nhan : null })).ToList();
 
         var theoTrangThai = new Dictionary<short, int>();
         var theoKenh = new Dictionary<short, int>();
+        var theoTaiKhoan = new Dictionary<string, int>();
         foreach (var r in rows)
         {
             // Dải kênh luôn đếm ĐỦ MỌI KÊNH — xem ghi chú ở chữ ký hàm.
             theoKenh[r.Channel] = theoKenh.GetValueOrDefault(r.Channel) + r.So;
+
+            // Khoá "{kênh}:{tài khoản}" chứ không chỉ mã tài khoản: mã do nhà cung cấp đặt nên hai
+            // kênh khác nhau trùng mã là chuyện có thể xảy ra, và trùng thì hai dải cộng dồn vào
+            // nhau — con số sai mà không có dấu hiệu gì.
+            if (!string.IsNullOrEmpty(r.Account_Id))
+            {
+                var khoa = r.Channel + ":" + r.Account_Id;
+                theoTaiKhoan[khoa] = theoTaiKhoan.GetValueOrDefault(khoa) + r.So;
+            }
+
             if (kenh is { } k && r.Channel != k) continue;
             theoTrangThai[r.Status] = theoTrangThai.GetValueOrDefault(r.Status) + r.So;
         }
 
         // Tổng và chưa đọc đi theo chip trạng thái: chúng đứng cùng chỗ và nói về cùng một danh sách.
         var trongKenh = kenh is { } kk ? rows.Where(r => r.Channel == kk).ToList() : rows;
-        return new ChatInboxCounts(theoTrangThai, theoKenh,
+        return new ChatInboxCounts(theoTrangThai, theoKenh, theoTaiKhoan,
             trongKenh.Sum(r => r.Unread), trongKenh.Sum(r => r.So));
     }
 
@@ -825,6 +843,8 @@ public class ChatRepository
     {
         public short Status { get; set; }
         public short Channel { get; set; }
+        /// Dapper khớp cột `account_id` theo tên có gạch dưới — giữ nguyên lối đặt tên này.
+        public string? Account_Id { get; set; }
         public int So { get; set; }
         public int Unread { get; set; }
     }

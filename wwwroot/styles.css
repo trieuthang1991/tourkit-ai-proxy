@@ -9106,6 +9106,66 @@ n
                 border-top: 1px solid var(--ci-vien-trong); }
 .ci-chip-xoa { width: 22px; padding: 0 !important; justify-content: center; }
 
+/* Hàng chip TRANG (một công ty nối nhiều Trang Pancake / nhiều OA Zalo). Cùng khuôn hàng chip
+   nhãn; khác hai điểm:
+   • KHÔNG xuống dòng, CUỘN NGANG. Tên trang là chuỗi dài do khách đặt ("Tourkit Việt Nam Travel
+     AI"), cho xuống dòng thì 10 trang đẩy danh sách hội thoại tụt khỏi màn hình. Cuộn ngang giữ
+     chiều cao cố định dù nối bao nhiêu trang.
+   • Mỗi chip CẮT NGẮN tên ở 120px, tên đầy đủ nằm ở tooltip. */
+.ci-chip-trang { margin-top: 5px; padding-top: 5px; flex-wrap: nowrap; overflow-x: auto;
+                 border-top: 1px solid var(--ci-vien-trong); scrollbar-width: thin; }
+.ci-chip-trang button { flex: 0 0 auto; max-width: 150px; }
+.ci-ct-ten { max-width: 120px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+/* ── Cửa sổ nối Pancake ───────────────────────────────────────────────────── */
+/* Chồng lên cửa sổ cài đặt: nó là một bước con của chính màn khai kênh. */
+.ci-pc-nen { z-index: 1200; }
+.ci-pc-hop { max-width: 540px; display: flex; flex-direction: column; }
+.ci-pc-buoc { margin: 0 0 14px; padding-left: 20px; font-size: 12.5px; line-height: 1.75;
+              color: var(--text-2); }
+.ci-pc-nhan { display: block; font-size: 11.5px; font-weight: 600; color: var(--text-2);
+              margin-bottom: 5px; }
+.ci-pc-hang { display: flex; gap: 8px; align-items: center; }
+.ci-pc-o { flex: 1; min-width: 0; height: 32px; padding: 0 10px; border-radius: 8px;
+           border: 1px solid var(--ci-vien-trong); background: var(--bg); font: inherit;
+           font-size: 12.5px; color: var(--text-1); }
+.ci-pc-ghi { margin: 7px 0 0; font-size: 11.5px; line-height: 1.6; color: var(--text-3); }
+
+.ci-pc-dau-ds { display: flex; justify-content: space-between; align-items: center; gap: 8px;
+                flex-wrap: wrap; margin: 16px 0 6px; font-size: 11.5px; color: var(--text-3); }
+.ci-pc-dau-ds > div { display: flex; gap: 6px; }
+.ci-pc-ds { list-style: none; margin: 0; padding: 0; max-height: 220px; overflow-y: auto;
+            border: 1px solid var(--ci-vien-trong); border-radius: 8px; }
+.ci-pc-ds li + li { border-top: 1px solid var(--ci-vien-trong); }
+.ci-pc-ds label { display: flex; align-items: center; gap: 9px; padding: 9px 11px; cursor: pointer;
+                  font-size: 12.5px; }
+.ci-pc-ds label:hover { background: var(--ci-nen-chip); }
+.ci-pc-ten { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+             color: var(--text-1); }
+/* Ô đặt tên trang — chỉ hiện khi Pancake không trả tên (dán khoá của một trang). */
+/* font-family (không phải shorthand `font`) — shorthand sẽ xoá luôn font-size đặt ngay trên nó. */
+.ci-pc-o-ten { flex: 1; min-width: 0; padding: 5px 8px; font-family: inherit; font-size: 12.5px;
+               border: 1px solid var(--ci-vien-trong); border-radius: 6px;
+               background: var(--ci-nen-o, transparent); color: var(--text-1); }
+.ci-pc-o-ten:focus { outline: 2px solid var(--brand, #F97316); outline-offset: -1px; }
+.ci-pc-ma { display: block; padding: 0 11px 8px 40px; font-size: 10.5px; color: var(--text-3); }
+.ci-pc-nen-tang { flex: 0 0 auto; font-style: normal; font-size: 10.5px; padding: 2px 7px;
+                  border-radius: 999px; background: var(--ci-nen-chip); color: var(--text-3); }
+.ci-pc-canh { margin: 10px 0 0; padding: 8px 10px; border-radius: 8px; font-size: 11.5px;
+              line-height: 1.6; background: #FFF7ED; color: #92400E; }
+.ci-pc-chan { display: flex; justify-content: flex-end; gap: 8px; padding: 12px 16px;
+              border-top: 1px solid var(--ci-vien-trong); }
+
+/* Điện thoại: cửa sổ chiếm gần hết bề ngang, các bước và danh sách vẫn đọc được. */
+@media (max-width: 480px) {
+  .ci-pc-hop { max-width: 100%; }
+  .ci-pc-hang { flex-wrap: wrap; }
+  .ci-pc-hang .ci-nut { width: 100%; }
+  .ci-pc-ds { max-height: 180px; }
+  .ci-chip-trang button { max-width: 120px; }
+  .ci-ct-ten { max-width: 92px; }
+}
+
 .ci-ds { flex: 1; overflow-y: auto; min-height: 0; padding: 0 8px 10px; }
 .ci-muc { position: relative; display: grid; grid-template-columns: 44px minmax(0, 1fr); gap: 11px;
           width: 100%; text-align: left; padding: 10px 10px 11px; border: 0; border-radius: 10px;

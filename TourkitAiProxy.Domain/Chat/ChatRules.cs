@@ -474,7 +474,14 @@ public static class ChatRules
         // Khoá ô soạn theo một con số tự đoán là tự khoá tay nhân viên vì một luật có thể không
         // tồn tại. Để mở, và nếu TikTok từ chối thì câu lỗi của họ hiện lên — thà biết muộn còn
         // hơn chặn nhầm. Tra ra hạn thật thì chuyển xuống dưới.
-        if (kenh is ChatChannel.Webchat or ChatChannel.Telegram or ChatChannel.TikTok)
+        // ⚠️ Pancake nằm đây vì một lý do RIÊNG nữa: nó là cổng gom, nên hạn trả lời thật là hạn
+        // của NỀN TẢNG GỐC sau lưng từng trang (Meta 24 giờ, Zalo 48 giờ) — mà hàm này chỉ biết
+        // "kênh", không biết trang nào thuộc nền tảng nào. Lấy đại một con số là khoá nhầm tay nhân
+        // viên ở nửa số trang. Để mở, và nếu quá hạn thật thì câu từ chối của Pancake hiện lên cho
+        // người trực đọc. Muốn siết đúng thì phải truyền thêm nền tảng của trang vào đây — lúc đó
+        // sửa ở một chỗ này, đừng rải luật ra chỗ gọi.
+        if (kenh is ChatChannel.Webchat or ChatChannel.Telegram or ChatChannel.TikTok
+                 or ChatChannel.Pancake)
             return new(true, TimeSpan.MaxValue, "");
 
         // Zalo 48h; Messenger, Instagram và WhatsApp đều 24h.
@@ -534,6 +541,7 @@ public static class ChatRules
         ChatChannel.WhatsApp => "whatsapp",
         ChatChannel.TikTok => "tiktok",
         ChatChannel.Telegram => "telegram",
+        ChatChannel.Pancake => "pancake",
         ChatChannel.Webchat => "web",
         // Kênh mới thêm mà quên khai ở đây thì vẫn ra một chuỗi dùng được, không rơi vào rỗng.
         _ => k.ToString().ToLowerInvariant(),
@@ -547,6 +555,7 @@ public static class ChatRules
         ChatChannel.WhatsApp => "WhatsApp",
         ChatChannel.TikTok => "TikTok",
         ChatChannel.Telegram => "Telegram",
+        ChatChannel.Pancake => "Pancake",
         ChatChannel.Webchat => "Chat trên web",
         _ => "Kênh này",
     };

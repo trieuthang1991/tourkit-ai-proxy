@@ -222,7 +222,8 @@ public static class InternalChatEndpoints
         });
 
         g.MapPost("/rooms/{id:long}/messages", async (long id, HttpContext ctx, TkSessionStore sessions,
-            InternalChatRepository repo, ChatEventBus bus, IChatFileStorage kho, CancellationToken ct) =>
+            InternalChatRepository repo, ChatEventBus bus, IChatFileStorage kho,
+            RedisStore redis, InternalChatPushClient push, CancellationToken ct) =>
         {
             var (loi, a, me) = await GuardAsync(ctx, sessions, repo, ct);
             if (loi is not null) return loi;
@@ -245,13 +246,15 @@ public static class InternalChatEndpoints
 
             var r = await repo.AppendMessageAsync(a!.TenantId, id, me, a.Username, body, att, ct);
             if (r.Id is null) return NotMember();
+            var xemTruoc = InternalMessagePreview.Of(body, att);
             // Người gửi cũng nằm trong Recipients: họ có thể đang mở phòng ở tab thứ hai. Tóm tắt kèm theo để
             // máy người nhận tự cập nhật danh sách, không gọi lại GET /rooms ở mỗi tin.
             bus.Publish(new ChatEvent(a.TenantId, id, "noi-bo", r.Id)
             {
                 Recipients = r.Members,
-                Summary = new InternalEventSummary(r.CreatedUtc ?? DateTime.UtcNow, InternalMessagePreview.Of(body, att), me, false),
+                Summary = new InternalEventSummary(r.CreatedUtc ?? DateTime.UtcNow, xemTruoc, me, false),
             });
+            NotifyWithCooldown(redis, push, a.TenantId, id, r.Id.Value, me, a.Username, xemTruoc, r.Members);
             return Results.Json(new InternalMessage(r.Id.Value, id, me, a.Username, body,
                 r.CreatedUtc ?? DateTime.UtcNow, null, att), Web);
         });
@@ -365,7 +368,7 @@ public static class InternalChatEndpoints
             if (them.Count > MaxMembers) return Bad($"Tối đa {MaxMembers} người một lần");
             if (await CheckStaffAsync(them, sessions, api, redis, a!, lf, ct) is { } sai) return sai;
             if (await repo.AddMembersAsync(a!.TenantId, id, me, them, ct) == 0)
-                return Results.Json(new { error = "Chỉ trưởng nhóm mới thêm được người vào phòng (phòng 1-1 không thêm được)" }, statusCode: 403);
+                return Results.Json(new { error = "Không thêm được người (bạn không còn ở trong phòng, phòng đã xoá, hoặc là phòng 1-1)" }, statusCode: 403);
             await PostNoticeAsync(repo, bus, sessions, api, redis, lf, a, me, id, "thêm", them, null, ct);
             await NotifyRoomChangedAsync(repo, bus, a.TenantId, id, null, ct);
             return Results.NoContent();
@@ -595,6 +598,46 @@ public static class InternalChatEndpoints
 
     private static IResult CannotConfigure()
         => Results.Json(new { error = "Không đổi được phòng này (bạn không ở trong phòng, hoặc là phòng 1-1)" }, statusCode: 403);
+
+    /// <summary>
+    /// Bắn thông báo sang app, nhưng mỗi (người nhận, phòng) chỉ một lần trong
+    /// <c>InternalChat:Notify:CooldownMinutes</c>. Hai người nhắn qua lại 20 câu ⇒ rung 1 lần.
+    ///
+    /// <para>Khoá tính theo CẢ phòng, không chỉ theo người: tính theo người thì một phòng ồn sẽ bịt
+    /// miệng mọi phòng khác — khách quan trọng nhắn ở đơn B cũng im (chốt 04/11/2026).</para>
+    ///
+    /// <para><b>Hệ quả đã biết, chấp nhận:</b> tin CUỐI rơi trong cửa sổ nghỉ thì không ai được báo —
+    /// không có worker nào thức dậy lúc hết hạn để dọn. Đây là cái giá của việc không có worker; người
+    /// nhận mở app ra là thấy đủ.</para>
+    ///
+    /// <para><b>Redis xuống thì bắn hết</b> (<c>!redis.Available</c>), KHÔNG im lặng bỏ:
+    /// <c>SetIfNotExists</c> vốn là nguyên hàm khoá nên nó fail-closed — trả false cả khi Redis lỗi.
+    /// Dùng nguyên xi thì Redis chập một nhịp là thông báo tắt mà không ai biết. Thà rung nhiều hơn.</para>
+    ///
+    /// <para><b>Chạy nền hết, kể cả vòng lặp Redis.</b> Redis nằm ở máy khác nên mỗi
+    /// <c>SetIfNotExists</c> là một lượt đi-về qua mạng; để trên đường gửi tin thì phòng N người cộng
+    /// N lượt vào thời gian gửi MỖI tin nhắn (phòng 10 người × ~10ms = 100ms, trần phòng là 200 người).
+    /// Thông báo chậm vài trăm mili giây không ai thấy; tin nhắn chậm thì ai cũng thấy.</para>
+    /// </summary>
+    private static void NotifyWithCooldown(RedisStore redis, InternalChatPushClient push,
+        string tenantId, long roomId, long messageId, int senderUserId, string? senderName,
+        string? preview, IReadOnlyCollection<int> members)
+    {
+        if (!push.Available || members.Count == 0) return;   // tắt cấu hình ⇒ không tốn lượt Redis nào
+
+        _ = Task.Run(async () =>
+        {
+            var send = new List<int>(members.Count);
+            foreach (var u in members)
+            {
+                if (u == senderUserId) continue;   // người gửi không tự báo cho mình
+                if (!redis.Available ||
+                    redis.SetIfNotExists($"chat:notif:{tenantId}:{u}:{roomId}", "1", push.Cooldown))
+                    send.Add(u);
+            }
+            await push.NotifyAsync(tenantId, roomId, messageId, senderUserId, senderName, preview, send);
+        });
+    }
 
     /// <summary>
     /// Chỉ thêm được người CỦA CÔNG TY NÀY — mã người là số đoán được, không kiểm thì kéo được bất kỳ

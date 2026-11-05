@@ -97,6 +97,7 @@
     newType: 'group', picked: new Set(), userSearch: '', newTitle: '',
     drafts: {}, pending: {}, dragKey: null, busy: false,
     settings: null, renameDraft: {}, addSearch: '', addPicked: new Set(),   // màn cấu hình phòng (key = 'panel-12' | 'dock-12')
+    renaming: null,   // mã phòng đang mở ô sửa tên (bấm bút chì) — null = chỉ hiện tên
     editing: null, recallConfirm: null, hideConfirm: null, deleteConfirm: null, transferConfirm: null, menu: null,
     reactPick: null,   // bảng cảm xúc đang mở: { key, msgId }
     draft: null,
@@ -186,6 +187,13 @@
     .info .sum .av{width:56px;height:56px}
     .info .sum b{font-size:15px;font-weight:600;max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
     .info .sum span{font-size:12px;color:#5b6270}
+    .rn-v{display:flex;align-items:center;justify-content:center;gap:2px;max-width:100%;min-width:0}
+    .rn-v b,.rn-v .rn-t{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+    .rn-v .rn-t{font-size:14px;color:#11151c}.rn-v .rn-t.mt{color:#8a909c;font-style:italic}
+    .ms .rn-v{justify-content:flex-start}
+    .ib.rn-b{width:28px;height:28px}
+    .rn{display:flex;gap:6px;width:100%}.rn .in{flex:1;min-width:0}
+    .rn .pri,.rn .sec{height:38px}
     .info .ms{flex:1}
     .info .ft{padding:10px 16px}
     .info-bg{display:none}
@@ -611,7 +619,10 @@
         vw() < 760 ? el('button', { class: 'ib', type: 'button', 'aria-label': 'Về cuộc trò chuyện', on: { click: closeInfo } }, icon('back')) : null,
         el('h2', {}, 'Thông tin'),
         vw() < 760 ? null : el('button', { class: 'ib', type: 'button', 'aria-label': 'Đóng thông tin', title: 'Đóng', on: { click: closeInfo } }, icon('x'))),
-      el('div', { class: 'sum' }, roomAvatar(r), el('b', { title: roomName(r) }, roomName(r)),
+      el('div', { class: 'sum' }, roomAvatar(r),
+        // Bút chì cạnh tên → bấm mới ra ô sửa (không còn ô nhập + nút Lưu luôn mở bên dưới).
+        st.renaming === id && canRename(r) ? renameEditor(id, 'info-' + id)
+          : el('div', { class: 'rn-v' }, el('b', { title: roomName(r) }, roomName(r)), canRename(r) ? renameBtn(id) : null),
         el('span', {}, kind + (r.entityType === 'direct' ? '' : ' · ' + members + ' thành viên')),
         owner && r.entityType !== 'direct' ? el('span', {}, 'Trưởng nhóm: ' + owner) : null,
         entityLink(r, false)),
@@ -733,7 +744,33 @@
   function toggleSettings(id, key) {
     if (st.settings === key) { st.settings = null; }
     else { st.settings = key; st.addSearch = ''; st.addPicked = new Set(); st.renameDraft[id] = roomOf(id).title || ''; if (!st.users.size) loadUsers().then(render); }
-    errMsg = ''; st.errRoom = null; render();
+    st.renaming = null; errMsg = ''; st.errRoom = null; render();
+  }
+
+  /// Đổi tên phòng — chốt 04/11/2026: mặc định CHỈ HIỆN tên + nút bút chì; bấm bút chì mới ra ô nhập + Lưu / Huỷ.
+  /// Trước đó ô nhập + nút "Lưu" luôn mở sẵn → người dùng tưởng là ô khác, gõ rồi bấm Lưu là đổi mất tên phòng.
+  /// Thành viên nào cũng sửa được (trừ phòng 1-1 và phòng chỉ xem) — máy chủ kiểm lại ở PATCH /rooms/{id}.
+  const canRename = (r) => !!r && r.entityType !== 'direct' && !readOnly(r);
+  function startRename(id, key) {
+    st.renaming = id; st.renameDraft[id] = roomOf(id).title || ''; errMsg = ''; st.errRoom = null; render();
+    setTimeout(() => { const n = root.getElementById('tk-ten-phong-' + key); if (n) { n.focus(); n.select(); } }, 0);
+  }
+  const cancelRename = () => { st.renaming = null; errMsg = ''; st.errRoom = null; render(); };
+  const renameBtn = (id, key) => el('button', { class: 'ib rn-b', type: 'button', 'aria-label': 'Sửa tên phòng', title: 'Sửa tên',
+    on: { click: () => startRename(id, key || 'info-' + id) } }, icon('edit', 16));
+  function renameEditor(id, key) {
+    const r = roomOf(id);
+    const name = el('input', { class: 'in', id: 'tk-ten-phong-' + key, type: 'text', maxlength: '120',
+      placeholder: r.entityType === 'order' ? 'Tên hiển thị (đi sau mã đơn)' : 'Tên phòng', 'aria-label': 'Tên phòng',
+      on: { input: (e) => { st.renameDraft[id] = e.target.value; },
+            keydown: (e) => {
+              if (e.key === 'Enter') { e.preventDefault(); doRename(id); }
+              else if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); cancelRename(); }
+            } } });
+    name.value = st.renameDraft[id] ?? (r.title || '');
+    return el('div', { class: 'rn' }, name,
+      el('button', { class: 'pri', type: 'button', disabled: st.busy, on: { click: () => doRename(id) } }, 'Lưu'),
+      el('button', { class: 'sec', type: 'button', disabled: st.busy, on: { click: cancelRename } }, 'Huỷ'));
   }
 
   /// Trưởng nhóm (máy chủ quyết, đây chỉ để ẩn/hiện nút): người tạo nhóm; phòng đơn/công ty là người tạo bản ghi ở CRM.
@@ -750,10 +787,7 @@
     const r = roomOf(id);
     const members = (r.members || []).map((m) => m.userId);
     const owner = isOwner(r);
-    const nameId = 'tk-ten-phong-' + key, findId = 'tk-them-' + key;
-    const name = el('input', { class: 'in', id: nameId, type: 'text', maxlength: '120', placeholder: 'Tên phòng',
-      on: { input: (e) => { st.renameDraft[id] = e.target.value; }, keydown: (e) => { if (e.key === 'Enter') { e.preventDefault(); doRename(id); } } } });
-    name.value = st.renameDraft[id] ?? (r.title || '');
+    const findId = 'tk-them-' + key;
     const q = st.addSearch.trim().toLowerCase();
     const candidates = [...st.users.entries()].filter(([uid, n]) => !members.includes(uid) && (!q || n.toLowerCase().includes(q)));
     const find = el('input', { class: 'in', id: findId, type: 'search', ...NO_FILL, name: 'tk-chat-them-nguoi', placeholder: 'Tìm nhân viên để thêm', on: liveInput((v) => { st.addSearch = v; }) });
@@ -761,10 +795,12 @@
     const n = st.addPicked.size;
     return [
       el('div', { class: 'ms', 'data-k': key + '-cfg', 'data-top': '1', style: 'background:#fff;gap:14px' },
-        el('div', {},
-          el('label', { class: 'lb', for: nameId }, r.entityType === 'order' ? 'Tên hiển thị (đi sau mã đơn)' : 'Tên phòng'),
-          el('div', { style: 'display:flex;gap:6px' }, name,
-            el('button', { class: 'pri', type: 'button', disabled: st.busy, on: { click: () => doRename(id) } }, 'Lưu'))),
+        // Cột thông tin đã có tên + bút chì ở khối tóm tắt phía trên → không lặp lại ở đây.
+        inInfo ? null : el('div', {},
+          el('span', { class: 'lb' }, r.entityType === 'order' ? 'Tên hiển thị (đi sau mã đơn)' : 'Tên phòng'),
+          st.renaming === id ? renameEditor(id, key)
+            : el('div', { class: 'rn-v' }, el('span', { class: 'rn-t' + (r.title ? '' : ' mt'), title: r.title || '' }, r.title || 'Chưa đặt tên'),
+                renameBtn(id, key))),
         el('div', {},
           el('span', { class: 'lb' }, 'Thành viên · ' + members.length),
           // Trưởng nhóm lên đầu. Chỉ trưởng nhóm thấy nút Bỏ / Trao quyền; thành viên thường chỉ tự rời.
@@ -781,8 +817,8 @@
                     on: { click: () => askTransfer(id, uid) } }, st.transferConfirm === id + ':' + uid ? 'Bấm lần nữa' : 'Trao quyền') : null,
                   el('button', { class: 'sec', type: 'button', 'aria-label': 'Bỏ ' + userName(uid) + ' khỏi phòng', on: { click: () => doRemove(id, uid) } }, 'Bỏ'))
               : null)))),
-        // Thêm người: CHỈ trưởng nhóm (chốt 28/10/2026) — thành viên thường không thấy khối này. Máy chủ cũng chặn.
-        !owner ? el('div', { class: 'hint' }, 'Chỉ trưởng nhóm thêm được người vào phòng.') : el('div', {},
+        // Thêm người: MỌI thành viên (chốt 04/11/2026, thay luật "chỉ trưởng nhóm" 28/10). Bỏ người khác vẫn chỉ trưởng nhóm.
+        el('div', {},
           el('label', { class: 'lb', for: findId }, 'Thêm người'), searchForm(find),
           candidates.length
             ? el('ul', { style: 'padding:4px 0 0;overflow:visible' }, candidates.slice(0, 50).map(([uid, nm]) => el('li', {},
@@ -792,7 +828,7 @@
             : el('div', { class: 'hint', style: 'padding:8px 0' }, st.users.size ? 'Không còn ai để thêm.' : 'Đang tải danh sách nhân viên…'))),
       st.errRoom === id ? errBox() : null,
       el('div', { class: 'ft' },
-        owner ? el('button', { class: 'pri', type: 'button', disabled: !n || st.busy, on: { click: () => doAdd(id) } }, n ? 'Thêm ' + n + ' người' : 'Chọn người để thêm') : null,
+        el('button', { class: 'pri', type: 'button', disabled: !n || st.busy, on: { click: () => doAdd(id) } }, n ? 'Thêm ' + n + ' người' : 'Chọn người để thêm'),
         inInfo ? null : el('button', { class: 'sec', type: 'button', style: 'justify-content:center;height:36px', on: { click: () => toggleSettings(id, key) } }, 'Xong'))];
   }
 
@@ -1752,7 +1788,10 @@
     catch (e) { if (!dead) { errMsg = e.message; st.errRoom = id; } throw e; }
     finally { st.busy = false; render(); }
   }
-  const doRename = (id) => cfgCall(id, () => api('PATCH', `/rooms/${id}`, { title: (st.renameDraft[id] || '').trim() || null })).catch(() => {});
+  const doRename = (id) => cfgCall(id, async () => {
+    await api('PATCH', `/rooms/${id}`, { title: (st.renameDraft[id] || '').trim() || null });
+    st.renaming = null;   // lưu xong mới đóng ô sửa; lỗi thì giữ ô + chữ đang gõ để sửa lại
+  }).catch(() => {});
   const doAdd = (id) => cfgCall(id, async () => { await api('POST', `/rooms/${id}/members`, { memberUserIds: [...st.addPicked] }); st.addPicked = new Set(); st.addSearch = ''; }).catch(() => {});
   const doRemove = (id, uid) => cfgCall(id, async () => {
     await api('DELETE', `/rooms/${id}/members/${uid}`);
@@ -1901,7 +1940,7 @@
     renameRoom(roomId, title) {
       return api('PATCH', `/rooms/${Number(roomId)}`, { title: title == null ? null : String(title) }).then(loadRooms).catch(fail);
     },
-    /** Thêm người vào phòng (mã người CRM) — chỉ trưởng nhóm (máy chủ chặn người khác). */
+    /** Thêm người vào phòng (mã người CRM) — thành viên nào đang ở phòng cũng thêm được (trừ phòng 1-1). */
     addMembers(roomId, members) {
       const m = ids(members);
       if (!m.length) return fail(new Error('addMembers: cần ít nhất một mã người'));

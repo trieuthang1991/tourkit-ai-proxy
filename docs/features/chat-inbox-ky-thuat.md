@@ -29,6 +29,97 @@ khách/tour bên SQL Server và **không có giao dịch chung** — ghi tin nh�
 thử lại. Schema ở [`ChatDb.SchemaSql`](../../TourkitAiProxy.Infrastructure/Chat/Inbox/ChatDb.cs); thiếu chuỗi kết nối thì cụm chat
 tự tắt, KHÔNG làm sập app.
 
+### Pancake — cổng gom, không phải một nền tảng nhắn tin
+
+Pancake (`pages.fm`) đứng giữa, gom hộp thư Facebook · Instagram · TikTok · Zalo của khách về một
+chỗ. Nên **một "tài khoản" ở kênh này là MỘT TRANG trong Pancake**, và trang đó thuộc nền tảng nào
+nằm ở trường `platform` khi liệt kê trang. Tài liệu gốc: `developer.pancake.biz`
+([API](https://developer.pancake.biz/openapi/openapi.yaml) ·
+[Webhook](https://developer.pancake.biz/openapi/webhook.yaml)).
+
+**Có webhook đẩy tin thật** (sự kiện `messaging`), không phải đi hỏi theo chu kỳ — tin mới hiện lên
+ngay như Zalo. Hai API `GET …/conversations` và `GET …/conversations/{id}/messages` chỉ dùng kéo
+LỊCH SỬ lúc vừa nối; hộp thư hằng ngày đọc từ CSDL của mình.
+
+⚠️ **HAI loại token, và người khai KHÔNG phân biệt được bằng mắt** — cả hai đều là chuỗi dài, mọi
+màn hình Pancake đều gọi là "token":
+
+| | Khoá **tài khoản** | Khoá **trang** |
+|---|---|---|
+| Lấy ở | pages.fm → Tài khoản → Cài đặt cá nhân | pancake.vn → trang → Cài đặt → **Công cụ** |
+| Phạm vi | mọi trang người đó quản lý | đúng một trang |
+| Hạn | 90 ngày (hoặc khi đăng xuất) | không hết hạn |
+| Tham số | `access_token` ở `pages.fm/api/v1` | `page_access_token` ở `…/public_api/v1\|v2` |
+| Có lưu không | **không** — chỉ đi qua lượt khai | **có** — là thứ dùng để gửi tin |
+
+Dán nhầm loại vào `GET /pages` thì Pancake trả đúng ba chữ `Invalid access_token` (HTTP **200**,
+`error_code: 102`) — không gợi ý nổi người khai phải làm gì. Và đa số sẽ cầm **khoá trang**, vì
+chính đặc tả Pancake chỉ tới màn hình đó ("Page's settings → Tools"), mà đó cũng là nơi phải dán
+URL webhook.
+
+Nên `POST /channels/pancake/pages` **tự nhận dạng**, không bắt người khai chọn: khoá trang là JWT
+mang sẵn `{"id":"<mã trang>"}` trong phần tải (`PancakeChatAdapter.DocPageIdTuToken`), đọc ra rồi
+xác minh bằng một lượt `GET …/pages/{id}/tags` thật. Phần tải JWT ai cũng sửa được nên nó **chỉ để
+nhận dạng** — mã trang luôn phải đem xác minh trước khi lưu.
+
+⚠️ **Khoá trang không tra được tên trang.** Đặc tả không có endpoint lấy thông tin một trang bằng
+`page_access_token` (xem danh sách path trong `openapi.yaml` — chỉ có `/pages` cấp tài khoản). Nên
+đường khoá-trang để người khai **tự đặt tên**; bịa tên ở máy chủ thì hộp thư hiện một nhãn sai mà
+không ai truy được nguồn.
+
+⚠️ **Mã trang Pancake DÀI — cột khoá phải chứa nổi.** Khoá bản ghi trong `TenantChannelSettings` là
+`'chat-pancake:' + mã trang`, mà mã trang do Pancake đặt chứ không phải mình: một trang Zalo mang
+`pzl_490605425456992929` (22 ký tự) → tổng 35, TikTok tương đương. Cột `Channel` ban đầu là
+`NVARCHAR(32)` nên SQL Server từ chối **cả câu lệnh** (lỗi 2628 *String or binary data would be
+truncated*) và người dùng chỉ thấy `Internal server error` đúng lúc bấm Nối. Đã nới lên
+`NVARCHAR(128)` (migration ở cuối `TourkitAiDb.SchemaSql`, phải bỏ rồi dựng lại khoá chính).
+**Không băm mã cho ngắn**: `ListAccountsAsync` lấy lại mã tài khoản bằng cách cắt tiền tố khỏi
+chính cột này, băm là mất đường về.
+
+⚠️ **`activated_page_ids` là mảng CHUỖI.** Trả về của `GET /pages` gói năm nhóm — `activated`,
+`inactivated`, `hidden`, `nopermission` và `activated_page_ids` — nhóm cuối chứa mã trang dạng
+chuỗi, không phải object. Đánh chỉ mục `["id"]` lên một `JsonValue` thì .NET ném
+`InvalidOperationException` và **cả lượt dò trang hỏng dù token hoàn toàn đúng**. `GomTrang` vì thế
+chỉ nhận phần tử là `JsonObject`.
+
+⚠️ **Pancake KHÔNG ký nội dung webhook** — đặc tả của họ không có chữ ký, không khoá bí mật, không
+header xác thực nào. Chặn bằng HAI lớp: **đoạn bí mật trên chính URL** (máy chủ sinh, giống Telegram
+vì Telegram cũng không ký) + **đối chiếu `page_id` với trang đã khai**. Thiếu lớp nào cũng mở cửa
+cho người ngoài bơm tin giả vào hộp thư của khách.
+
+⚠️ **Một URL cho mọi trang**, định tuyến bằng `page_id` (y như Zalo bằng id OA). Vì Pancake khai
+webhook trong phần Công cụ của TỪNG trang và **không có API khai hộ** (đã tra cả hai đặc tả), nối 5
+trang là dán 5 lần — một chuỗi chung thì copy một lần dán nhiều lần. Chuỗi bí mật dùng chung cho cả
+công ty và **lấy lại chuỗi cũ** khi nối thêm trang: sinh chuỗi mới là mọi URL đã dán bên Pancake
+chết cùng lúc, không cảnh báo, chỉ là tin ngừng về.
+
+⚠️ **Pancake trả lỗi bằng HTTP 200** kèm `success:false`. Đọc mã HTTP để quyết định thử lại là luôn
+thấy "thành công" — tin biến mất mà hàng đợi báo đã gửi xong. Mã `102` = token sai/đã bị sinh lại,
+quy về `AuthFailed` vì cả trang đã mất đường gửi chứ không phải một tin hỏng.
+
+⚠️ **`generate_page_access_token` HUỶ token cũ của trang đó.** Trang nào đang dùng token cho việc
+khác (phần mềm khác, hay chính tích hợp Pancake bên web TourKit — `Cấu hình → Pancake` lưu "Access
+Token Page") thì bấm nối là làm chết tích hợp kia. Vì thế `/channels/pancake/connect` chỉ sinh mới
+khi **thật sự hết đường**, theo đúng thứ tự:
+
+1. khoá người khai dán kèm trang đó;
+2. khoá Pancake trả sẵn ở `settings.page_access_token` lúc liệt kê trang (có khi chủ token là quản trị);
+3. chính khoá đã dán ở ô đầu, nếu đó là khoá trang và `DocPageIdTuToken` khớp đúng trang này;
+4. cùng đường mới gọi `generate_page_access_token`.
+
+⚠️ **Mỗi trang bật Webhook ăn 1 connection slot** trong gói Pancake của khách, và Pancake **tự ngắt**
+webhook khi trong 30 phút tỉ lệ lỗi vượt 80% hoặc có ≥300 lượt hỏng — ngắt rồi phải vào Pancake bật
+lại TAY. Nên đường nhận phải trả 200 thật nhanh rồi xử lý nền (ghi hàng đợi là xong, như các kênh khác).
+
+⚠️ **Mã "khách" ở kênh này là MÃ HỘI THOẠI**, không phải mã khách: API gửi tin của Pancake nhận
+`conversation_id`. Lõi gọi mọi kênh bằng "mã khách" nên hai bên khác khái niệm — hội thoại Pancake
+lưu mã khách = mã hội thoại để hai đầu khớp.
+
+⚠️ **Trang nối cả hai đường thì tin vào hộp thư HAI LẦN.** Pancake gom đúng những kênh hộp thư đã
+nối thẳng được, nên một Trang Facebook vừa nối thẳng vừa đi qua Pancake sẽ thành hai hội thoại tách
+rời, hai nhân viên trả lời một khách mà không thấy nhau. Màn Cài đặt cảnh báo tại chỗ; hệ **không
+tự chặn** vì đó là lựa chọn vận hành của công ty.
+
 **Ba kênh, MỘT đường dẫn webhook:** `POST /api/v1/chat/webhook/{kenh}/{tenantId}` với `kenh` ∈
 `zalo` · `messenger` · `telegram` — **công khai** (kênh gọi tới, không có phiên), gác bằng chữ ký.
 Viết riêng từng kênh thì phần chung (đọc thân thô, kiểm chữ ký, trả 200 ngay, xử lý nền) bị chép ba

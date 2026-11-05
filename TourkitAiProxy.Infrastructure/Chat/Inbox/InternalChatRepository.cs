@@ -445,8 +445,9 @@ public class InternalChatRepository
     //
     // Luật (chốt 19/10/2026, mức vừa phải): phòng 1-1 KHOÁ — không đổi tên, không thêm/bỏ người.
     // Nhóm / theo đơn / theo công ty: thành viên nào cũng được đổi tên, tự rời.
-    // THÊM người / bỏ NGƯỜI KHÁC / chuyển quyền / xoá phòng: chỉ trưởng nhóm (owner_user_id — InternalRoomOwner, 27–28/10/2026).
-    // Phòng đã có thì không ai tự vào (nút Chat / tham gia) — chỉ trưởng nhóm thêm mới vào.
+    // THÊM người: thành viên nào đang ở phòng cũng được (chốt 04/11/2026 — trước đó chỉ trưởng nhóm, bất tiện cho thành viên).
+    // Bỏ NGƯỜI KHÁC / chuyển quyền / xoá phòng: chỉ trưởng nhóm (owner_user_id — InternalRoomOwner, 27–28/10/2026).
+    // Phòng đã có thì không ai TỰ vào (nút Chat / tham gia) — phải được một thành viên trong phòng thêm vào.
     // Mỗi hàm là MỘT câu: điều kiện "người làm là thành viên" + "không phải 1-1" nằm trong câu.
 
     /// <summary>Đổi tên phòng. false = không phải thành viên, hoặc là phòng 1-1.</summary>
@@ -478,8 +479,8 @@ public class InternalChatRepository
              WHERE EXISTS (SELECT 1 FROM chat_conversations v
                             WHERE v.id = @roomId AND v.tenant_id = @tenant AND v.channel = 7
                               AND v.entity_type IS DISTINCT FROM 'direct'
-                              -- Chỉ TRƯỞNG NHÓM thêm người (chốt 28/10/2026) — đường duy nhất để vào phòng đã có.
-                              AND v.owner_user_id = @userId AND v.deleted_utc IS NULL)
+                              -- Thành viên nào cũng thêm được (chốt 04/11/2026); điều kiện "đang ở phòng" ở EXISTS dưới.
+                              AND v.deleted_utc IS NULL)
                AND EXISTS (SELECT 1 FROM chat_room_members mb
                             WHERE mb.conversation_id = @roomId AND mb.tenant_id = @tenant
                               AND mb.user_id = @userId AND mb.left_utc IS NULL)

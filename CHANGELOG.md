@@ -13,6 +13,36 @@ Những cập nhật gần đây của TRAV-AI, viết cho người dùng. Mới
 
 ---
 
+## Phiên bản 04/11/2026 — Nối Pancake vào hộp thư chat
+
+### ✨ Tính năng mới
+- **Kênh Pancake.** Hộp thư chat nhận được tin khách từ Pancake và trả lời ngay trong hộp thư, nằm
+  cạnh Zalo, Messenger, Instagram, WhatsApp, TikTok và Telegram. Tin mới hiện lên ngay, không phải
+  bấm tải lại.
+- **Dán loại token nào cũng được.** Pancake có hai chỗ cho token và nhìn bằng mắt không phân biệt
+  nổi: khoá của **một trang** (trong Cài đặt → Công cụ của chính trang đó) và khoá của **cả tài
+  khoản** (pages.fm → Tài khoản → Cài đặt cá nhân). Ô nhập chỉ có một, hệ thống tự nhận ra bạn
+  đang dán loại nào. Dán khoá cả tài khoản thì nó liệt kê mọi trang bạn quản lý để tick chọn một
+  lần; dán khoá một trang thì nối đúng trang đó, và bạn tự đặt tên cho trang hiện trong hộp thư.
+- **Lọc theo trang.** Kênh nào đang nối từ 2 trang trở lên thì trên đầu danh sách hội thoại có thêm
+  một hàng tên trang: bấm "Fanpage Hà Nội" là chỉ còn khách của trang đó, bấm "Tất cả" để xem gộp
+  lại. Hàng này dùng được cho mọi kênh, không riêng Pancake — công ty nối 2 OA Zalo cũng có.
+
+### 📌 Lưu ý
+- Sau khi nối còn **một việc phải làm tay**: copy "Địa chỉ nhận tin" trong màn Cài đặt hộp thư rồi
+  dán vào Pancake → từng trang → Cài đặt → Công cụ → Webhook. Pancake không cho khai hộ, nên nối
+  bao nhiêu trang thì dán bấy nhiêu lần. **Chưa dán thì tin mới không về.**
+- Mỗi trang bật Webhook **ăn thêm 1 connection slot** trong gói Pancake của công ty. Hết slot thì
+  phải nâng gói hoặc mua thêm trước khi nối.
+- **Đừng nối một trang bằng cả hai đường.** Trang nào đã nối thẳng ở tab Messenger / Instagram /
+  TikTok / Zalo thì đừng nối lại qua Pancake: mỗi tin của khách sẽ vào hộp thư hai lần, thành hai
+  hội thoại tách rời, và hai nhân viên có thể trả lời cùng một khách mà không nhìn thấy nhau.
+- **Khoá trang sẵn có được giữ nguyên.** Nếu trang đã có khoá dùng cho việc khác, hệ thống dùng
+  lại khoá đó chứ không tạo khoá mới — tạo mới là huỷ khoá cũ, làm chết phần mềm khác đang cắm
+  vào cùng trang.
+
+---
+
 ## Phiên bản 28/10/2026 — Phân quyền chat nội bộ
 
 ### ✨ Tính năng mới
@@ -1663,3 +1693,6 @@ nhận thêm loại tin mới (khách thả cảm xúc). Facebook chỉ nhận d
 ## 🔜 Sắp có
 - **Đăng nhập nhanh sang TRAV-AI thẳng từ TourkitERP** — chỉ bấm một nút, không phải nhập lại mật khẩu.
   (Đang hoàn thiện và kiểm tra kỹ trước khi mở.)
+- **Thông báo chat nội bộ trên điện thoại** — có người nhắn trong đơn mà bạn không mở máy tính thì điện
+  thoại sẽ báo. Mỗi đơn chỉ báo một lần rồi nghỉ vài phút, nên hai người nhắn qua lại cả chục câu cũng
+  không làm máy bạn rung liên tục. (Đã dựng xong phần gửi, đang chờ màn hình chat trên ứng dụng.)

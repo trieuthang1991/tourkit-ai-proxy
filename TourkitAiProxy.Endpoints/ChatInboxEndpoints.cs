@@ -97,6 +97,7 @@ public static class ChatInboxEndpoints
         ["instagram"] = ChatChannel.Instagram,
         ["whatsapp"] = ChatChannel.WhatsApp,
         ["tiktok"] = ChatChannel.TikTok,
+        ["pancake"] = ChatChannel.Pancake,
     };
 
     private static void MapWebhook(IEndpointRouteBuilder routes)
@@ -214,6 +215,61 @@ public static class ChatInboxEndpoints
         // Zalo có thể gọi thử bằng GET thay vì POST tuỳ lúc. Không có đường GET thì máy chủ trả 405
         // và lượt kiểm cũng trượt — thêm một dòng còn hơn ngồi đoán vì sao không lưu được.
         routes.MapGet("/api/v1/chat/webhook/zalo", () => Results.Ok());
+
+        // ── Pancake: MỘT đường cho mọi trang, đoạn bí mật nằm trên URL ────────────
+        //
+        // Pancake KHÔNG ký nội dung (đã tra đặc tả webhook của họ: không chữ ký, không khoá, không
+        // header xác thực nào). Nên chặn bằng hai lớp: đoạn bí mật trên đường dẫn + đối chiếu
+        // page_id trong gói tin với trang đã khai. Thiếu lớp nào cũng mở cửa cho người ngoài bơm
+        // tin giả vào hộp thư của khách.
+        //
+        // ⚠️ Phải trả 200 THẬT NHANH: Pancake tự ngắt webhook khi trong 30 phút tỉ lệ lỗi vượt 80%
+        // hoặc có từ 300 lượt hỏng, và ngắt rồi thì phải vào Pancake bật lại TAY. Vì vậy ở đây chỉ
+        // ghi hàng đợi rồi trả về — mọi việc nặng để worker làm.
+        routes.MapPost("/api/v1/chat/webhook/pancake/{secret}", async (string secret, HttpContext ctx,
+            ChatInboundService svc, ChatRepository repo, Services.Chat.Inbox.ChatWorkSignal tin,
+            ILoggerFactory lf, CancellationToken ct) =>
+        {
+            var log = lf.CreateLogger("chat.webhook");
+            if (svc.Adapter(ChatChannel.Pancake) is not Services.Chat.Channels.PancakeChatAdapter pc)
+                return Results.NotFound();
+
+            ctx.Request.EnableBuffering();
+            using var reader = new StreamReader(ctx.Request.Body, leaveOpen: true);
+            var raw = await reader.ReadToEndAsync(ct);
+            ctx.Request.Body.Position = 0;
+
+            var ai = await pc.ResolveSharedWebhookAsync(raw, secret, ct);
+            if (ai is null)
+            {
+                // Tách ba ca trong log, vì cách chữa khác hẳn nhau: Pancake gọi thử lúc lưu URL /
+                // trang chưa ai nối / đoạn bí mật sai. Gộp một dòng thì đọc log không biết đang
+                // gặp cái nào.
+                var page = Services.Chat.Channels.PancakeChatAdapter.PageIdOfEvent(raw);
+                if (page is null)
+                    log.LogInformation("[chat/webhook] pancake: gói không có page_id (nhiều khả năng "
+                        + "là lượt gọi thử lúc lưu URL) — trả 200, không ghi gì");
+                else
+                    log.LogWarning("[chat/webhook] pancake: TỪ CHỐI tin của trang {Page} — đoạn bí mật "
+                        + "sai hoặc chưa công ty nào nối trang này. Tin KHÔNG vào hộp thư.", page);
+                return Results.Ok();
+            }
+
+            var sk = pc.Parse(raw);
+            if (sk.Count == 0) return Results.Ok();
+
+            var id = await repo.EnqueueInboundAsync(ai.Value.TenantId, ChatChannel.Pancake,
+                ai.Value.AccountId, sk[0].ExternalMsgId, raw, ct);
+            if (id is not null) tin.Signal(Services.Chat.Inbox.ChatLane.In);
+            else
+                log.LogInformation("[chat/webhook] bỏ qua bản gửi lại, pancake tenant={T} sk={S}",
+                    ai.Value.TenantId, sk[0].ExternalMsgId);
+            return Results.Ok();
+        });
+
+        // Pancake kiểm địa chỉ bằng một lượt gọi lúc lưu URL — có lúc là GET. Thiếu đường này thì
+        // máy chủ trả 405 và họ báo "URL không hợp lệ" dù phần nhận tin đã đúng.
+        routes.MapGet("/api/v1/chat/webhook/pancake/{secret}", (string secret) => Results.Ok());
 
         // Đường DÙNG CHUNG cho Messenger — cùng lý do với Zalo: ứng dụng Facebook là của TourKit,
         // khai một lần, mọi khách hàng dùng chung nên URL không mang tên công ty được.
@@ -833,6 +889,10 @@ public static class ChatInboxEndpoints
         g.MapGet("/conversations", async (HttpContext ctx, TkSessionStore sessions, ChatRepository repo,
             ChatAssignRepository assign, ChannelCredentialStore cred,
             short? status, string? search, short? channel, bool? unread, bool? followed, bool? mine,
+            // accountId: lọc tới MỘT tài khoản trong kênh (một Trang Pancake, một OA Zalo…). Chỉ có
+            // nghĩa khi đã chọn kênh; không chọn kênh mà truyền mã tài khoản thì vẫn chạy đúng vì
+            // mã tài khoản là duy nhất trong phạm vi công ty.
+            string? accountId,
             string? tag, string? cursor, CancellationToken ct) =>
         {
             var p = await SessionAuth.ReadNguoiXemAsync(ctx, sessions, ct);
@@ -884,7 +944,7 @@ public static class ChatInboxEndpoints
                 kenh: channel, giaoCho: giaoChoLoc, chiChuaDoc: unread == true,
                 chiTheoDoi: followed == true,
                 sau: ChatCursor.Decode(cursor), limit: soDong, nguoiDung: maNguoiXem,
-                nhan: nhanLoc, ct: ct);
+                nhan: nhanLoc, taiKhoan: accountId, ct: ct);
             // Truyền kênh đang lọc: chip trạng thái phải nói về ĐÚNG danh sách đang hiện bên dưới.
             // Gọi bằng THAM SỐ CÓ TÊN: chiCuaToi và nguoiDung đều là int? nằm cạnh nhau, đảo nhầm
             // thì vẫn biên dịch được và bộ đếm sai âm thầm — không có gì bắt được.
@@ -907,6 +967,13 @@ public static class ChatInboxEndpoints
                 },
                 // Dải kênh bên trái: kênh nào có bao nhiêu hội thoại. Khoá là số của ChatChannel.
                 channelCounts = dem.TheoKenh.ToDictionary(k => k.Key.ToString(), k => k.Value),
+                // Số hội thoại theo TỪNG tài khoản ("{kênh}:{mã}") + tên gợi nhớ, để giao diện dựng
+                // dải trang mà không phải gọi thêm một lượt sang /channels (đường đó đòi quyền cấu
+                // hình hệ thống — nhân viên trực bình thường không có).
+                accountCounts = dem.TheoTaiKhoan,
+                accountLabels = await cred.LabelMapAsync(a.TenantId, ct) is { } nhan
+                    ? nhan.ToDictionary(x => x.Key.Kenh + ":" + x.Key.AccountId, x => x.Value)
+                    : new Dictionary<string, string>(),
                 // Kẹp CẢ HAI luật: quyền CH_HT_XEM cũ (xemHet) VÀ luật phân công mới (xem.XemTatCa).
                 // Chỉ báo "toàn công ty" khi cả hai cùng cho phép — thiếu vế nào cũng là giao diện nói
                 // dối, vì dữ liệu trả về đã bị vế còn lại kẹp hẹp hơn rồi.
@@ -2970,13 +3037,26 @@ public static class ChatInboxEndpoints
                     ChatChannel.Messenger => fbNhanh,
                     ChatChannel.WhatsApp => waNhanh,
                     ChatChannel.TikTok => ttNhanh,
+                    // Pancake không cần khoá ứng dụng cấp máy chủ: người khai tự mang token tài
+                    // khoản của chính họ. Nên đường nối luôn dùng được, không phụ thuộc cấu hình.
+                    ChatChannel.Pancake => true,
                     _ => false,
                 };
                 // Ứng dụng dùng chung thì URL webhook cũng dùng chung — khai MỘT lần trong ứng dụng
                 // của TourKit, khách không phải dán gì. Vẫn trả về để quản trị đối chiếu.
-                var duong = nhanh
-                    ? $"{goc}/api/v1/chat/webhook/{kenh.ToString().ToLowerInvariant()}"
-                    : $"{goc}/api/v1/chat/webhook/{kenh.ToString().ToLowerInvariant()}/{a.TenantId}";
+                // Pancake: đường dẫn mang ĐOẠN BÍ MẬT, không mang mã công ty. Lý do nằm ở chỗ
+                // Pancake không ký nội dung — đoạn này là thứ duy nhất ngăn người ngoài bơm tin,
+                // nên nó phải là chuỗi ngẫu nhiên chứ không phải mã công ty (ai cũng đoán được).
+                // Chưa nối trang nào thì chưa có đoạn bí mật: nói thẳng thay vì bày một URL cụt mà
+                // người dùng dán sang Pancake rồi ngồi đợi tin không bao giờ tới.
+                var duong = kenh == ChatChannel.Pancake
+                    ? (dsach.Select(x => x.GiaTri.GetValueOrDefault("webhookSecret"))
+                            .FirstOrDefault(x => !string.IsNullOrWhiteSpace(x)) is { } bm
+                        ? $"{goc}/api/v1/chat/webhook/pancake/{bm}"
+                        : "")
+                    : nhanh
+                        ? $"{goc}/api/v1/chat/webhook/{kenh.ToString().ToLowerInvariant()}"
+                        : $"{goc}/api/v1/chat/webhook/{kenh.ToString().ToLowerInvariant()}/{a.TenantId}";
                 ra.Add(new
                 {
                     channel = (short)kenh, name = ten, shortName = tenNgan, fields = oNhap,
@@ -2990,8 +3070,13 @@ public static class ChatInboxEndpoints
                     // thì người dùng nhìn thấy bốn ô kỹ thuật và tưởng đó là việc của mình, đi
                     // tìm mã trong bảng điều khiển Meta — trong khi việc cần làm là báo quản trị
                     // điền một khoá vào máy chủ.
+                    // Pancake có đường một nút theo nghĩa KHÁC bốn kênh kia: không OAuth, mà là dán
+                    // MỘT token tài khoản rồi hệ tự liệt kê trang cho tick chọn. Người khai vẫn chỉ
+                    // làm một việc, nên nó thuộc nhóm này; khác ở chỗ nó không cần khoá ứng dụng
+                    // cấp máy chủ, nên luôn sẵn sàng (cờ `noiNhanh` bên dưới của nó luôn bật).
                     hoTroNoiNhanh = kenh is ChatChannel.Zalo or ChatChannel.Messenger
-                                         or ChatChannel.WhatsApp or ChatChannel.TikTok,
+                                         or ChatChannel.WhatsApp or ChatChannel.TikTok
+                                         or ChatChannel.Pancake,
                     // Chữ trên nút. Để máy chủ quyết định để giao diện không phải biết tên kênh —
                     // thêm kênh nối-một-chạm mới thì không phải sửa .jsx.
                     nutNoi = kenh switch
@@ -3001,6 +3086,7 @@ public static class ChatInboxEndpoints
                         ChatChannel.WhatsApp => "Kết nối WhatsApp",
                         ChatChannel.TikTok => "Kết nối TikTok",
                         ChatChannel.Instagram => "Kết nối qua Facebook",
+                        ChatChannel.Pancake => "Kết nối Pancake",
                         _ => "Kết nối",
                     },
                     // Kênh này nối KÈM kênh nào (mã kênh), hay tự nối lấy.
@@ -3051,6 +3137,151 @@ public static class ChatInboxEndpoints
 
         // Tạo tài khoản mới cho một kênh. Mã tài khoản do MÁY CHỦ sinh, không nhận từ client —
         // nó nằm trên URL webhook công khai nên phải chắc chắn không trùng và không có ký tự lạ.
+        // ── Pancake: dán MỘT token → ra danh sách trang để tick chọn ──────────────
+        //
+        // Pancake có HAI loại khoá và người khai không có cách nào biết mình đang cầm loại nào —
+        // cả hai đều là chuỗi dài loằng ngoằng, và màn hình nào cũng gọi nó là "token":
+        //
+        //   · Khoá TÀI KHOẢN — pages.fm → Tài khoản → Cài đặt cá nhân. Mở mọi trang, hết hạn sau
+        //     90 ngày. Dò ra nhiều trang một lúc.
+        //   · Khoá TRANG — pancake.vn → (trang) → Cài đặt → Công cụ → "Public API access token".
+        //     Chỉ một trang, không hết hạn. Đây là chỗ ĐẶC TẢ Pancake chỉ người dùng tới, và cũng
+        //     là màn hình phải dán URL webhook — nên đa số sẽ cầm loại này.
+        //
+        // Vì vậy KHÔNG bắt người khai chọn loại: tự nhận dạng. Khoá trang là JWT mang sẵn mã trang
+        // trong phần tải, đọc ra rồi gọi thử một lượt để chắc nó còn sống. Đoán sai loại thì Pancake
+        // chỉ trả đúng ba chữ "Invalid access_token" — không gợi ý nổi người khai phải làm gì.
+        //
+        // Khoá KHÔNG lưu ở bước này: với khoá tài khoản thì nó mở mọi trang nên chỉ đi qua một lần
+        // rồi thôi; với khoá trang thì phải tick chọn xong, bước /connect mới lưu.
+        g.MapPost("/channels/pancake/pages", async (PancakeTokenReq body, HttpContext ctx,
+            TkSessionStore sessions,
+            IEnumerable<Services.Chat.Channels.IChatChannelAdapter> adapters, CancellationToken ct) =>
+        {
+            var a = SessionAuth.Read(ctx, sessions);
+            if (a == null) return SessionAuth.Unauthorized();
+            if (!await SessionAuth.CanConfigSystemAsync(a.SessionId, sessions, ct))
+                return SessionAuth.ForbiddenConfigSystem();
+            if (string.IsNullOrWhiteSpace(body?.UserAccessToken))
+                return Results.BadRequest(new { error = "Thiếu token Pancake" });
+            if (adapters.OfType<Services.Chat.Channels.PancakeChatAdapter>().FirstOrDefault() is not { } pc)
+                return Results.BadRequest(new { error = "Chưa bật kênh Pancake" });
+
+            var token = body!.UserAccessToken!.Trim();
+
+            // Khoá TRANG: mã trang nằm trong chính token.
+            if (Services.Chat.Channels.PancakeChatAdapter.DocPageIdTuToken(token) is { } pageId)
+            {
+                var loiTrang = await pc.VerifyPageTokenAsync(pageId, token, ct);
+                if (loiTrang is not null)
+                    return Results.BadRequest(new { error = $"Khoá trang không dùng được: {loiTrang}" });
+                return Results.Json(new
+                {
+                    tokenType = "page",
+                    // Đặc tả Pancake KHÔNG có endpoint tra tên trang bằng khoá trang, nên để trống
+                    // tên và để giao diện cho người khai tự đặt — bịa một cái tên ở đây thì hộp thư
+                    // hiện một nhãn sai mà không ai biết nó từ đâu ra.
+                    pages = new[] { new { id = pageId, name = (string?)null, platform = (string?)null,
+                                          pageAccessToken = token } }
+                }, Web);
+            }
+
+            // Khoá TÀI KHOẢN: hỏi Pancake liệt kê trang.
+            var (trang, loi) = await pc.ListPagesAsync(token, ct);
+            if (loi is not null) return Results.BadRequest(new { error = loi });
+            if (trang.Count == 0)
+                return Results.BadRequest(new { error = "Token hợp lệ nhưng không quản lý trang nào. "
+                    + "Nếu đây là khoá của MỘT trang (Cài đặt → Công cụ bên Pancake) thì nó phải có "
+                    + "dạng JWT ba đoạn ngăn bởi dấu chấm — kiểm lại xem copy có thiếu không." });
+            return Results.Json(new
+            {
+                tokenType = "user",
+                pages = trang.Select(t => new { id = t.Id, name = t.Name, platform = t.Platform,
+                                                pageAccessToken = t.PageAccessToken })
+            }, Web);
+        });
+
+        // ── Pancake: tick xong → sinh khoá trang + lưu từng trang thành một tài khoản ──
+        g.MapPost("/channels/pancake/connect", async (PancakeConnectReq body, HttpContext ctx,
+            TkSessionStore sessions, ChannelCredentialStore cred,
+            IEnumerable<Services.Chat.Channels.IChatChannelAdapter> adapters,
+            ILoggerFactory lf, CancellationToken ct) =>
+        {
+            var a = SessionAuth.Read(ctx, sessions);
+            if (a == null) return SessionAuth.Unauthorized();
+            if (!await SessionAuth.CanConfigSystemAsync(a.SessionId, sessions, ct))
+                return SessionAuth.ForbiddenConfigSystem();
+            if (string.IsNullOrWhiteSpace(body?.UserAccessToken) || body!.Pages is not { Count: > 0 })
+                return Results.BadRequest(new { error = "Chưa chọn trang nào" });
+            if (adapters.OfType<Services.Chat.Channels.PancakeChatAdapter>().FirstOrDefault() is not { } pc)
+                return Results.BadRequest(new { error = "Chưa bật kênh Pancake" });
+
+            var log = lf.CreateLogger("chat.pancake");
+            // MỘT chuỗi bí mật cho cả công ty: người khai copy một lần, dán sang từng trang bên
+            // Pancake. Đã nối trang nào trước đó thì giữ nguyên chuỗi cũ — đổi chuỗi là mọi URL đã
+            // dán bên Pancake chết sạch cùng lúc.
+            var biMat = await ChuoiBiMatPancakeAsync(cred, a.TenantId, ct);
+
+            var xong = new List<object>();
+            var hong = new List<object>();
+            foreach (var t in body.Pages)
+            {
+                if (string.IsNullOrWhiteSpace(t.Id)) continue;
+
+                // Khoá của trang, theo thứ tự ưu tiên:
+                //   1. khoá người khai dán kèm trang đó (hoặc Pancake trả sẵn lúc liệt kê),
+                //   2. chính khoá đã dán ở ô đầu, nếu đó là khoá TRANG và đúng trang này,
+                //   3. cùng đường mới sinh khoá mới.
+                // Thứ tự này là cố ý: sinh mới là HUỶ khoá cũ của trang đó, nên trang nào đang
+                // dùng khoá cho việc khác (phần mềm khác, hay tích hợp Pancake bên web TourKit)
+                // sẽ chết ngay lúc bấm nối. Chỉ sinh khi thật sự không còn đường nào.
+                var token = t.PageAccessToken?.Trim();
+                if (string.IsNullOrWhiteSpace(token)
+                    && Services.Chat.Channels.PancakeChatAdapter
+                           .DocPageIdTuToken(body.UserAccessToken) == t.Id?.Trim())
+                    token = body.UserAccessToken!.Trim();
+                if (string.IsNullOrWhiteSpace(token))
+                {
+                    var (sinh, loi) = await pc.GeneratePageTokenAsync(body.UserAccessToken!.Trim(), t.Id!, ct);
+                    if (sinh is null)
+                    {
+                        hong.Add(new { id = t.Id, name = t.Name, error = loi });
+                        log.LogWarning("[chat/pancake] tenant={T} trang={P} sinh token hỏng: {L}",
+                            a.TenantId, t.Id, loi);
+                        continue;
+                    }
+                    token = sinh;
+                }
+
+                var o = new Dictionary<string, string?>
+                {
+                    ["label"] = string.IsNullOrWhiteSpace(t.Name) ? t.Id : t.Name,
+                    ["pageId"] = t.Id,
+                    ["pageAccessToken"] = token,
+                    ["platform"] = t.Platform,
+                    ["webhookSecret"] = biMat,
+                };
+                // Một trang hỏng KHÔNG được làm sập cả lượt: người khai tick 5 trang mà trang thứ
+                // ba lỗi thì phải nối xong 4 trang kia và nói rõ trang nào hỏng, chứ không trả 500
+                // rồi để họ đoán. Trước khi có khối này, một mã trang dài quá cột CSDL làm cả lượt
+                // nối trả "Internal server error" — không chỉ ra nổi trang nào, vì sao.
+                try
+                {
+                    await cred.SaveAsync(a.TenantId, ChatChannel.Pancake, t.Id!.Trim(), o, ct);
+                    xong.Add(new { id = t.Id, name = t.Name, platform = t.Platform });
+                }
+                catch (Exception ex)
+                {
+                    hong.Add(new { id = t.Id, name = t.Name, error = ex.Message });
+                    log.LogError(ex, "[chat/pancake] tenant={T} trang={P} lưu hỏng", a.TenantId, t.Id);
+                }
+            }
+
+            log.LogInformation("[chat/pancake] tenant={T} nối {N} trang, hỏng {H}",
+                a.TenantId, xong.Count, hong.Count);
+            return Results.Json(new { ok = xong.Count > 0, connected = xong, failed = hong }, Web);
+        });
+
         g.MapPost("/channels/{channel:int}/accounts", async (int channel, Dictionary<string, string?> body,
             HttpContext ctx, TkSessionStore sessions, ChannelCredentialStore cred, IConfiguration cfg,
             IEnumerable<Services.Chat.Channels.IChatChannelAdapter> adapters, CancellationToken ct) =>
@@ -3062,7 +3293,23 @@ public static class ChatInboxEndpoints
             if (!Enum.IsDefined(typeof(ChatChannel), (short)channel))
                 return Results.BadRequest(new { error = "Kênh không hợp lệ" });
 
-            var accountId = Guid.NewGuid().ToString("N")[..8];
+            // ⚠️ Pancake BẮT BUỘC lấy page_id làm mã tài khoản, không được sinh ngẫu nhiên: webhook
+            // của Pancake dùng chung MỘT đường cho mọi trang và định tuyến ra công ty bằng chính
+            // page_id trong gói tin. Đặt mã ngẫu nhiên thì khai xong vẫn không tin nào vào được, mà
+            // màn hình lại hiện "đã khai đủ".
+            string accountId;
+            if ((ChatChannel)channel == ChatChannel.Pancake)
+            {
+                var pid = body.GetValueOrDefault("pageId");
+                if (string.IsNullOrWhiteSpace(pid))
+                    return Results.BadRequest(new { error = "Thiếu Page ID — Pancake định tuyến tin theo mã trang" });
+                accountId = pid!.Trim();
+                // Chuỗi bí mật webhook: dùng CHUNG một chuỗi cho mọi trang của công ty (một URL dán
+                // nhiều nơi). Đã có trang nào khai rồi thì lấy lại đúng chuỗi đó.
+                if (string.IsNullOrWhiteSpace(body.GetValueOrDefault("webhookSecret")))
+                    body["webhookSecret"] = await ChuoiBiMatPancakeAsync(cred, a.TenantId, ct);
+            }
+            else accountId = Guid.NewGuid().ToString("N")[..8];
 
             var loi = await ConnectTelegramBotAsync(adapters, ctx, cfg, a.TenantId, accountId,
                 (ChatChannel)channel, body, ct);
@@ -3532,8 +3779,44 @@ public static class ChatInboxEndpoints
         ChatChannel.WhatsApp => g.ContainsKey("phoneNumberId") && g.ContainsKey("accessToken"),
         ChatChannel.TikTok => g.ContainsKey("openId") && g.ContainsKey("businessId")
                               && g.ContainsKey("accessToken"),
+        // Pancake KHÔNG ký nội dung webhook, nên thiếu webhookSecret là coi như chưa khai xong —
+        // dù đã có khoá gửi tin. Có khoá mà thiếu chuỗi bí mật thì gửi đi được nhưng không nhận
+        // được tin nào, và trên màn hình trông y hệt một kênh đã nối xong.
+        ChatChannel.Pancake => g.ContainsKey("pageAccessToken") && g.ContainsKey("webhookSecret"),
         _ => false,
     };
+
+    /// <summary>
+    /// Chuỗi bí mật webhook Pancake của MỘT công ty — dùng chung cho mọi trang.
+    ///
+    /// <para>Vì sao dùng chung: Pancake bắt khai webhook ở phần Công cụ của TỪNG trang và không có
+    /// API khai hộ, nên nối 5 trang là dán 5 lần. Một chuỗi chung thì copy một lần dán nhiều lần.
+    /// URL riêng từng trang cũng không an toàn hơn đáng kể, vì đằng nào cũng phải đối chiếu
+    /// <c>page_id</c> mới tin được gói tin.</para>
+    ///
+    /// <para><b>Đã có trang nào khai rồi thì LẤY LẠI chuỗi cũ.</b> Sinh chuỗi mới là mọi URL đã dán
+    /// bên Pancake chết cùng lúc, và không có cảnh báo nào — chỉ là tin ngừng về.</para>
+    /// </summary>
+    private static async Task<string> ChuoiBiMatPancakeAsync(ChannelCredentialStore cred,
+        string tenantId, CancellationToken ct)
+    {
+        var ds = await cred.ListAccountsAsync(tenantId, ChatChannel.Pancake, ct);
+        var cu = ds.Select(x => x.GiaTri.GetValueOrDefault("webhookSecret"))
+                   .FirstOrDefault(x => !string.IsNullOrWhiteSpace(x));
+        return string.IsNullOrWhiteSpace(cu)
+            ? Services.Chat.Channels.PancakeChatAdapter.SinhChuoiBiMat()
+            : cu!;
+    }
+
+    /// Thân POST /channels/pancake/pages — chỉ mang token tài khoản, không lưu lại.
+    public record PancakeTokenReq(string? UserAccessToken);
+
+    /// Một trang người dùng đã tick. <paramref name="PageAccessToken"/> có giá trị = dán lại token
+    /// sẵn có (KHÔNG sinh mới, tránh huỷ token đang dùng cho việc khác).
+    public record PancakePagePick(string? Id, string? Name, string? Platform, string? PageAccessToken);
+
+    /// Thân POST /channels/pancake/connect.
+    public record PancakeConnectReq(string? UserAccessToken, List<PancakePagePick>? Pages);
 
     /// <summary>
     /// Ghi một dòng nhật ký dưới danh nghĩa NGƯỜI ĐANG THAO TÁC.
@@ -3691,6 +3974,28 @@ public static class ChatInboxEndpoints
             new FieldSpec("note2",
                 "TikTok cần ứng dụng TikTok for Business đã được duyệt quyền nhắn tin. Kênh này "
                 + "chỉ gửi được CHỮ và ẢNH; tệp, âm thanh, video thì gửi đường dẫn bằng tin chữ.", "note"),
+        }, false),
+        (ChatChannel.Pancake, "Pancake", "Pancake", new[]
+        {
+            new FieldSpec("label",           "Tên gợi nhớ", "text", "Fanpage Hà Nội"),
+            new FieldSpec("pageId",          "Page ID",     "text", "Mã trang trong Pancake"),
+            new FieldSpec("pageAccessToken", "Page Access Token", "secret",
+                "Pancake → trang → Cài đặt → Công cụ. Không hết hạn trừ khi sinh lại"),
+            new FieldSpec("note",
+                "Bình thường bấm \"Kết nối Pancake\", dán API Access Token của tài khoản rồi tick "
+                + "các trang muốn nối — hai ô trên tự điền. Chỉ khai tay khi tài khoản của bạn "
+                + "không phải quản trị viên của trang.", "note"),
+            new FieldSpec("note2",
+                "SAU KHI nối còn MỘT việc phải làm tay: copy \"Địa chỉ nhận tin\" ở trên rồi dán "
+                + "vào Pancake → trang → Cài đặt → Công cụ → Webhook, làm cho TỪNG trang. Pancake "
+                + "không có cách khai hộ. Chưa dán thì tin mới không chảy về hộp thư.", "note"),
+            new FieldSpec("note3",
+                "Mỗi trang bật Webhook ăn thêm 1 connection slot trong gói Pancake của công ty. "
+                + "Hết slot thì phải nâng gói hoặc mua thêm trước khi nối.", "note"),
+            new FieldSpec("note4",
+                "Pancake gom Facebook/Instagram/TikTok/Zalo. Trang nào đã nối THẲNG vào hộp thư ở "
+                + "tab khác thì đừng nối lại qua đây — mỗi tin của khách sẽ vào hộp thư hai lần, "
+                + "thành hai hội thoại tách rời.", "note"),
         }, false),
         (ChatChannel.Telegram, "Telegram", "Telegram", new[]
         {

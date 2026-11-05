@@ -811,7 +811,9 @@ IF OBJECT_ID('dbo.TenantChannelSettings', 'U') IS NULL
 BEGIN
     CREATE TABLE dbo.TenantChannelSettings (
         TenantId   NVARCHAR(128) NOT NULL,
-        Channel    NVARCHAR(32)  NOT NULL,
+        -- 128 chứ không phải 32: khoá là 'tiền tố kênh:mã tài khoản', mà mã tài khoản do nhà cung
+        -- cấp đặt (trang Pancake mang mã dài 22 ký tự). Xem câu ALTER nới cột ở cuối tệp.
+        Channel    NVARCHAR(128) NOT NULL,
         ConfigJson NVARCHAR(MAX) NOT NULL,
         UpdatedUtc DATETIME2     NOT NULL,
         CONSTRAINT PK_TenantChannelSettings PRIMARY KEY (TenantId, Channel)
@@ -868,6 +870,33 @@ BEGIN
     DELETE FROM ranked WHERE rn > 1;
     ALTER TABLE dbo.DigestSubscriptions DROP CONSTRAINT PK_DigestSubscriptions;
     ALTER TABLE dbo.DigestSubscriptions ADD CONSTRAINT PK_DigestSubscriptions PRIMARY KEY (TenantId, Username);
+END;
+
+--
+-- TenantChannelSettings.Channel: NVARCHAR(32) -> NVARCHAR(128).
+--
+-- Khoá bản ghi là 'tiền tố kênh' + ':' + mã tài khoản, và mã tài khoản là mã do NHÀ CUNG CẤP đặt
+-- chứ không phải mình đặt — 32 ký tự chỉ đủ cho tới khi gặp Pancake. Một trang Zalo trong Pancake
+-- mang mã 'pzl_490605425456992929' (22 ký tự), cộng tiền tố 'chat-pancake:' (13) là 35: SQL Server
+-- từ chối cả câu lệnh (lỗi 2628) và người dùng thấy 'Internal server error' đúng lúc bấm Nối.
+-- Trang TikTok cũng dài tương đương ('tt_' + 19 chữ số).
+--
+-- KHÔNG băm mã cho ngắn lại: ListAccountsAsync lấy lại mã tài khoản bằng cách CẮT tiền tố khỏi
+-- chính cột này, nên mã phải đọc ngược ra được. Băm là mất đường về.
+--
+-- Chọn 128 cho bằng TenantId. Khoá chính (TenantId, Channel) khi đó rộng 256 ký tự = 512 byte,
+-- vẫn dưới trần 900 byte của chỉ mục SQL Server.
+--
+-- Nới cột trong khoá chính thì phải bỏ khoá rồi dựng lại — SQL Server không cho ALTER COLUMN trên
+-- cột đang nằm trong ràng buộc. Rẻ: bảng này mỗi công ty chỉ vài dòng cấu hình kênh.
+IF EXISTS (SELECT 1 FROM sys.columns
+           WHERE object_id = OBJECT_ID('dbo.TenantChannelSettings')
+             AND name = 'Channel' AND max_length < 256)   -- max_length tính theo BYTE với NVARCHAR
+BEGIN
+    ALTER TABLE dbo.TenantChannelSettings DROP CONSTRAINT PK_TenantChannelSettings;
+    ALTER TABLE dbo.TenantChannelSettings ALTER COLUMN Channel NVARCHAR(128) NOT NULL;
+    ALTER TABLE dbo.TenantChannelSettings ADD CONSTRAINT PK_TenantChannelSettings
+        PRIMARY KEY (TenantId, Channel);
 END;
 ";
 }

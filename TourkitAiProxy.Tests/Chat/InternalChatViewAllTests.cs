@@ -47,10 +47,11 @@ public class InternalChatViewAllTests
         => Assert.DoesNotContain("viewAll", InternalChatGuardTests.ThanHam(Repo(), "AppendMessageAsync"));
 
     [Fact]
-    public void Phong_da_co_khong_ai_tu_vao_chi_truong_nhom_them()
+    public void Phong_da_co_khong_ai_tu_vao_thanh_vien_them()
     {
         // Chốt 28/10/2026: phòng đã tạo xong thì KHÔNG ai tự vào — kể cả người chưa từng ở, tự rời hay bị bỏ. Có
-        // CHAT_XEM_ALL thì chỉ xem; muốn nhắn phải được TRƯỞNG NHÓM thêm.
+        // CHAT_XEM_ALL thì chỉ xem; muốn nhắn phải được một THÀNH VIÊN đang ở phòng thêm vào (04/11/2026 nới từ
+        // "chỉ trưởng nhóm" sang mọi thành viên; bỏ người khác vẫn chỉ trưởng nhóm).
         var ep = Ep();
         Assert.DoesNotContain("/join\"", ep);                                     // không còn đường tự vào
         Assert.DoesNotContain("JoinRoomAsync", Repo());
@@ -60,7 +61,10 @@ public class InternalChatViewAllTests
         Assert.Contains("if (cid is not null && !cmember)", ep);                   // POST /rooms phòng đã có mà không ở → 403
         Assert.Contains("var canView = !member && id is not null", ep);            // lookup: không ở → chỉ xem (nếu có quyền)
         var them = InternalChatGuardTests.ThanHam(Repo(), "AddMembersAsync");
-        Assert.Contains("v.owner_user_id = @userId", them);                        // chỉ trưởng nhóm thêm người
+        Assert.DoesNotContain("owner_user_id", them);                              // mọi thành viên thêm được người
+        Assert.Contains("mb.user_id = @userId AND mb.left_utc IS NULL", them);     // …nhưng người thêm phải đang ở phòng
+        Assert.Contains("v.owner_user_id = @userId",
+            InternalChatGuardTests.ThanHam(Repo(), "RemoveMemberAsync"));          // bỏ người khác: vẫn chỉ trưởng nhóm
         Assert.Contains("removed_by = NULL", them);                                // được thêm lại thì hết dấu bị bỏ
     }
 

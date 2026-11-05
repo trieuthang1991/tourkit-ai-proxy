@@ -76,8 +76,34 @@ public static class ChatAttachment
             ChatChannel.Zalo => ReadZalo(goc),
             ChatChannel.WhatsApp => ReadWhatsApp(goc),
             ChatChannel.TikTok => ReadTikTok(goc),
+            ChatChannel.Pancake => ReadPancake(goc),
             _ => Array.Empty<ChatFile>(),
         };
+    }
+
+    /// <summary>
+    /// Pancake: <c>attachments[] = [{type, title, description, link, image:{url}}]</c>.
+    ///
+    /// <para>Đường dẫn nằm ở <b>hai chỗ</b> tuỳ loại: ảnh thì <c>image.url</c>, còn liên kết/tệp
+    /// thì <c>link</c>. Chỉ đọc một chỗ là mất hẳn loại kia — không lỗi, chỉ là nhân viên thấy một
+    /// đính kèm không bấm được.</para>
+    ///
+    /// <para>Pancake <b>không cho kích thước tệp</b> (chỉ có kích thước ảnh tính bằng điểm ảnh),
+    /// nên <c>Size</c> để trống. Bịa một con số ở đây là nói dối trên giao diện.</para>
+    /// </summary>
+    private static IReadOnlyList<ChatFile> ReadPancake(JsonNode goc)
+    {
+        if (goc is not JsonArray ds) return Array.Empty<ChatFile>();
+
+        var ra = new List<ChatFile>();
+        foreach (var a in ds)
+        {
+            if (a is null) continue;
+            var url = Str(a["image"]?["url"]) ?? Str(a["link"]);
+            if (string.IsNullOrWhiteSpace(url)) continue;
+            ra.Add(new ChatFile(Name: Str(a["title"]) ?? Str(a["description"]), Size: null, Url: url));
+        }
+        return ra;
     }
 
     // Telegram gói mỗi loại một kiểu, và KHÔNG cho đường dẫn — chỉ cho file_id.

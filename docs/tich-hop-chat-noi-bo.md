@@ -308,7 +308,7 @@ Mọi hàm `open*` trả `Promise<{ roomId }>`, hỏng thì reject `Error` (thô
 | `openRoom(roomId, opts)` | Mở phòng đã có theo mã phòng |
 | `findUserIds(names)` | Dò mã người theo tên → `{ ids, unmatched }` |
 | `renameRoom(roomId, title)` | Đổi tên (không áp cho 1-1) |
-| `addMembers(roomId, [ids])` | Thêm người — **chỉ trưởng nhóm** (§9.2) |
+| `addMembers(roomId, [ids])` | Thêm người — **mọi thành viên đang ở phòng** (§9.2, từ 04/11/2026) |
 | `removeMember(roomId, id)` / `leaveRoom(roomId)` | Bỏ người khác: chỉ trưởng nhóm. Tự rời: ai cũng được (trưởng nhóm rời → quyền sang người vào sớm nhất còn lại) |
 | `transferOwner(roomId, userId)` | Trao quyền trưởng nhóm (không áp phòng order / company) |
 | `deleteRoom(roomId)` | Xoá phòng với mọi người — chỉ trưởng nhóm |
@@ -456,7 +456,7 @@ Trước 28/10/2026 quyền chỉ nạp một lần rồi đứng yên (phiên S
 | Đường vào | Ai | Ghi chú |
 |---|---|---|
 | Lúc **tạo** phòng (gửi tin đầu tiên / tạo nhóm) | Người tạo + `members` truyền vào + trưởng nhóm CRM ký | `CreateOrGetRoomAsync` chỉ thêm khi `created`; phòng đã có thì không thêm ai |
-| **Trưởng nhóm thêm** (`POST /rooms/{id}/members`) | Chỉ trưởng nhóm | Đường DUY NHẤT vào phòng đã có. Người đã rời / bị bỏ được thêm lại thì vào lại |
+| **Thành viên thêm** (`POST /rooms/{id}/members`) | Mọi thành viên đang ở phòng (từ 04/11/2026) | Đường DUY NHẤT vào phòng đã có. Người đã rời / bị bỏ được thêm lại thì vào lại |
 | Phòng đơn cũ: người tạo đơn CHƯA TỪNG ở | Hệ thống tự thêm làm trưởng nhóm khi mở từ CRM | `SyncOwnerCoreAsync` (một lần, chỉ khi chưa có dòng thành viên nào) |
 
 Phòng đã có mà mình không ở:
@@ -476,7 +476,7 @@ rời ai cũng được (`removed_by` = NULL). Trưởng nhóm rời → quyền
 | Đơn hàng (`order`), công ty (`company`) | **Người tạo bản ghi** ở CRM (`INS_UID`; người tạo nghỉ / tài khoản hệ thống → người phụ trách) | Không — bám người tạo bản ghi, mở lại từ CRM là đồng bộ |
 | 1-1 (`direct`) | Không có | — |
 
-Chỉ trưởng nhóm: **thêm người**, bỏ người khác, trao quyền, xoá phòng (`DELETE /rooms/{id}`: xoá mềm, mọi người rời,
+Chỉ trưởng nhóm: bỏ người khác, trao quyền, xoá phòng (`DELETE /rooms/{id}`: xoá mềm, mọi người rời,
 khoá phòng đổi đuôi `#xoa:{id}` để mở lại bản ghi ra phòng mới). Thành viên thường: nhắn, đổi tên, tự rời.
 
 **Chữ ký trưởng nhóm phòng đơn.** CRM (`TravAiChatSession.SignRoomOwner`) ký
