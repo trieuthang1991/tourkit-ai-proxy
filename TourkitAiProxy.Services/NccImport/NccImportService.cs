@@ -301,8 +301,13 @@ QUY TẮC:
         // Models:Primary:ApiKey không tới được → throw "Chưa nhập API key cho Claude").
         var resolved = _modelRegistry.Resolve(AiFeature.NccImport, providerId, model);
         var provider = _registry.Resolve(resolved.Provider);
+
+        // CẮT trước khi gửi. Trước đây gửi nguyên văn cả file: một bảng giá PDF vài chục trang
+        // vượt cửa sổ ngữ cảnh, nhà cung cấp từ chối CẢ LƯỢT và người dùng mất trắng — thà lấy
+        // được phần đầu kèm lời nhắc còn hơn không có gì.
+        var (noiDung, daCat) = CatBotChoVua(text);
         var req = new CompleteRequest(
-            Prompt: QUOTE_PROMPT + "\n\n=== NỘI DUNG FILE ===\n" + text,
+            Prompt: QUOTE_PROMPT + "\n\n=== NỘI DUNG FILE ===\n" + noiDung,
             Provider: provider.Id,
             Model: resolved.Model,
             MaxTokens: 8000,
@@ -315,7 +320,77 @@ QUY TẮC:
         if (a < 0 || b < 0 || b < a) throw new InvalidOperationException("AI không trả JSON hợp lệ");
         using var jd = System.Text.Json.JsonDocument.Parse(raw.Substring(a, b - a + 1));
         var quote = jd.RootElement.Clone();
-        return new NccQuoteResult(quote, ai.LatencyMs, ai.InputTokens, ai.OutputTokens, ai.Warning);
+        // Nói ra việc đã cắt. Im lặng cắt là tệ hơn cả báo lỗi: người dùng thấy bảng giá ra bình
+        // thường, không biết mấy trang cuối đã rụng, rồi báo giá thiếu dòng mà không ai hiểu vì sao.
+        var canhBao = daCat
+            ? $"File dài {text.Length:N0} ký tự, AI chỉ đọc được {TranKyTu:N0} ký tự đầu nên "
+            + "có thể thiếu dòng ở cuối. Kiểm lại bảng dưới; thiếu thì tách file rồi tải phần còn lại."
+              + (string.IsNullOrWhiteSpace(ai.Warning) ? "" : " · " + ai.Warning)
+            : ai.Warning;
+        return new NccQuoteResult(quote, ai.LatencyMs, ai.InputTokens, ai.OutputTokens, canhBao);
+    }
+
+    /// <summary>
+    /// Trần ký tự gửi cho AI mỗi lượt bóc báo giá.
+    ///
+    /// <para>120.000 ký tự ≈ 30–40 nghìn token tiếng Việt. Model mặc định của tính năng này là
+    /// <c>ds/deepseek-chat</c> qua 9routes, cửa sổ 64K token — nên mức này còn chừa chỗ cho câu
+    /// lệnh và 8.000 token trả về.</para>
+    ///
+    /// <para>Cố ý đặt THẤP hơn trần thật kha khá, không đặt sát: trần đếm theo token mà đây đếm
+    /// theo ký tự, tỉ lệ quy đổi đổi theo nội dung (bảng số nhiều token hơn văn xuôi), và đổi
+    /// sang model cửa sổ nhỏ hơn thì chỗ này không phải sửa.</para>
+    /// </summary>
+    public const int TranKyTu = 120_000;
+
+    /// <summary>
+    /// Đổi lỗi của nhà cung cấp AI thành câu nói rõ PHẢI LÀM GÌ — <b>hàm thuần</b>.
+    ///
+    /// <para>Tên nhà cung cấp (9routes, OpenCode…) là chuyện nội bộ: người dùng không chọn, không
+    /// sửa được, nêu ra chỉ làm họ hoang mang. Trước đây màn hình hiện đúng một dòng
+    /// <c>"Lỗi server (UpstreamException): 9routes error"</c> — không nói được chuyện gì, trong
+    /// khi lý do thật nằm sẵn trong thân lỗi và bị vứt đi.</para>
+    ///
+    /// <para>Nêu thứ người dùng QUYẾT ĐỊNH được: file dài quá thì tách bớt, hết hạn mức thì chờ,
+    /// khoá hỏng thì báo quản trị.</para>
+    /// </summary>
+    /// <param name="status">Mã HTTP nhà cung cấp trả về.</param>
+    /// <param name="body">Thân lỗi gốc, có thể rỗng.</param>
+    public static string MoTaLoiAi(int status, string? body)
+    {
+        var than = (body ?? "").ToLowerInvariant();
+
+        // Quá dài là ca thường gặp nhất với báo giá PDF nhiều trang, và mỗi hãng gọi một kiểu —
+        // khớp theo từ khoá thay vì theo mã lỗi riêng của từng hãng.
+        if (status == 413
+            || (than.Contains("context") && than.Contains("length"))
+            || than.Contains("too long") || than.Contains("maximum context")
+            || (than.Contains("token") && than.Contains("exceed")))
+            return "File quá dài so với mức AI đọc được một lần. Tách bớt trang (giữ phần bảng giá) "
+                 + "rồi tải lại, hoặc dán thẳng phần bảng giá vào ô nhập text.";
+
+        return status switch
+        {
+            401 or 403 => "Khoá AI của hệ thống bị từ chối. Báo quản trị kiểm lại cấu hình khoá.",
+            429 => "AI đang quá tải hoặc đã hết hạn mức lượt gọi. Chờ một lát rồi thử lại.",
+            >= 500 => "Dịch vụ AI đang lỗi phía họ. Thử lại sau ít phút — file của bạn không sao.",
+            _ => $"AI không xử lý được file này (mã {status}). "
+               + "Thử lại, hoặc dán phần bảng giá vào ô nhập text.",
+        };
+    }
+
+    /// <summary>
+    /// Cắt cho vừa trần, <b>ưu tiên cắt ở ranh giới dòng</b> gần cuối: cắt giữa một dòng bảng giá
+    /// thì AI đọc được nửa dòng và bịa nốt phần còn lại — sai số im lặng, tệ hơn mất hẳn dòng đó.
+    /// </summary>
+    public static (string NoiDung, bool DaCat) CatBotChoVua(string text)
+    {
+        if (text.Length <= TranKyTu) return (text, false);
+        var cat = text[..TranKyTu];
+        var dongCuoi = cat.LastIndexOf('\n');
+        // Chỉ lùi về cuối dòng nếu không mất quá nhiều (5%) — file một dòng khổng lồ thì cứ cắt thẳng.
+        if (dongCuoi > TranKyTu * 95 / 100) cat = cat[..dongCuoi];
+        return (cat, true);
     }
 
     // ──────────────────────────────────────────────────────────────────────────

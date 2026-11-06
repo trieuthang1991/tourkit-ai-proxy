@@ -124,6 +124,17 @@ public static class NccImportEndpoints
                 log.LogWarning(ex, "[ncc-import] extract-quote parse fail");
                 return Results.BadRequest(new { error = ex.Message });
             }
+            // Lỗi từ NHÀ CUNG CẤP AI đi đường riêng. Rơi vào catch chung bên dưới thì người dùng
+            // chỉ thấy "Lỗi server (UpstreamException): 9routes error" — ba chữ không nói được
+            // chuyện gì, trong khi lý do thật (file quá dài, hết hạn mức, khoá sai…) nằm sẵn
+            // trong ex.Body và bị vứt đi.
+            catch (Services.Providers.UpstreamException ex)
+            {
+                log.LogError(ex, "[ncc-import] nhà cung cấp AI từ chối: HTTP {Status} — {Body}",
+                    ex.Status, ex.Body);
+                return Results.Json(new { error = Services.NccImport.NccImportService.MoTaLoiAi(ex.Status, ex.Body), detail = ex.Body },
+                    statusCode: 502);
+            }
             catch (Exception ex)
             {
                 log.LogError(ex, "[ncc-import] extract-quote unhandled");

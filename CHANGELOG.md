@@ -13,6 +13,23 @@ Những cập nhật gần đây của TRAV-AI, viết cho người dùng. Mới
 
 ---
 
+## Phiên bản 06/11/2026 — AI Import NCC: file dài không còn hỏng cả lượt
+
+### 🔧 Đã khắc phục
+- **Tải báo giá dài lên thì báo lỗi khó hiểu.** File nhiều trang (bảng giá hợp đồng cả năm chẳng
+  hạn) làm hỏng cả lượt bóc, và màn hình chỉ hiện một dòng kỹ thuật không nói được chuyện gì.
+  Nay AI đọc phần đầu của file và **vẫn trả về bảng giá**, kèm lời nhắc rõ đã đọc tới đâu để bạn
+  biết mà kiểm phần cuối hoặc tách file tải tiếp.
+- **Thông báo lỗi nói được việc cần làm.** Khi dịch vụ AI từ chối, thay vì một dòng tên kỹ thuật,
+  nay hiện đúng tình huống: file quá dài thì bảo tách bớt trang, hết hạn mức thì bảo chờ, khoá
+  hỏng thì bảo báo quản trị.
+
+### 📌 Lưu ý
+- Lúc bóc file dài, bảng kết quả có thể **thiếu dòng ở cuối** — phần nhắc trên màn hình sẽ nói rõ.
+  Cần đủ thì tách file rồi tải phần còn lại, hoặc dán thẳng phần bảng giá vào ô nhập text.
+
+---
+
 ## Phiên bản 04/11/2026 — Nối Pancake vào hộp thư chat
 
 ### ✨ Tính năng mới

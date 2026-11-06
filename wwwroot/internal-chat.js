@@ -28,13 +28,14 @@
  *     áp lúc tạo; ai biết khoá và có phiên trong công ty là vào được — đừng dùng cho chuyện cần giữ kín.
  *   TkInternalChat.openRoom(roomId)                            phòng đã có
  *   TkInternalChat.renameRoom(roomId, 'Tên mới')               (không áp cho phòng 1-1)
- *   TkInternalChat.addMembers(roomId, [12, 34])                CHỈ trưởng nhóm; phòng đã có thì không ai tự vào bằng openEntity
+ *   TkInternalChat.addMembers(roomId, [12, 34])                mọi thành viên đang ở phòng; phòng đã có thì không ai tự vào bằng openEntity
  *   TkInternalChat.removeMember(roomId, 12) / leaveRoom(roomId)   bỏ người khác: CHỈ trưởng nhóm; tự rời: ai cũng được
  *   TkInternalChat.transferOwner(roomId, 12)                  trao quyền trưởng nhóm (không áp phòng đơn/công ty)
  *   TkInternalChat.deleteRoom(roomId)                         xoá phòng với MỌI người — chỉ trưởng nhóm
  *   TkInternalChat.hideRoom(roomId)                           "xoá phía tôi" (xoá mềm, riêng mình)
  *   TkInternalChat.closeRoom(roomId)
  *   TkInternalChat.getUnread()                                 tổng tin chưa đọc
+ *   TkInternalChat.getUnreadRooms()                            số CUỘC có tin chưa đọc (badge menu Chat của CRM)
  *   TkInternalChat.on('unread' | 'message' | 'room' | 'error' | 'ready', fn)  → hàm huỷ đăng ký
  *   TkInternalChat.setLauncherVisible(true|false)
  *   TkInternalChat.setEntityLinks({ order: (id) => …, deal: (id) => … })   tự mở bản ghi (vd có đăng nhập sẵn);
@@ -1967,6 +1968,7 @@
     leaveRoom(roomId) { return st.me == null ? fail(new Error('leaveRoom: chưa biết mã người của bạn')) : this.removeMember(roomId, st.me); },
     closeRoom(roomId) { const id = Number(roomId); closeDock(id); if (st.roomId === id) { st.view = 'list'; st.roomId = null; render(); } },
     getUnread() { return totalUnread(); },
+    getUnreadRooms() { return st.rooms.filter((r) => r.unreadCount).length; },
     on(ev, fn) {
       if (!listeners[ev] || typeof fn !== 'function') throw new Error('on: sự kiện không có — unread | message | room | error | ready');
       listeners[ev].add(fn);
