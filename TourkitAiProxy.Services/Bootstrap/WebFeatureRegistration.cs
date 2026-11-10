@@ -46,7 +46,8 @@ public static class WebFeatureRegistration
     /// chạy MỖI request — "hôm nay" trong chỉ dẫn luôn đúng ngày.</item>
     /// <item>Giới hạn tần suất móc vào <c>tools/call</c> (không đếm initialize/tools/list). Chưa xác thực
     /// mà lọt tới đây (không thể, middleware chặn trước) thì vẫn từ chối — đóng cửa là mặc định.</item>
-    /// <item>Chưa có tool nào (Task 4 thêm). <c>tools/list</c> trả rỗng.</item>
+    /// <item>Tool: 20 tool ĐỌC sinh từ <c>ChatTools.All</c> (<c>Mcp.McpToolCatalog</c>). Tool hành động
+    /// là đợt sau, sau cờ <c>Features:McpActions</c>.</item>
     /// </list>
     /// </summary>
     private static void AddMcp(this IServiceCollection s)
@@ -65,9 +66,12 @@ public static class WebFeatureRegistration
         s.AddMcpServer(o =>
             {
                 o.ServerInfo = new ModelContextProtocol.Protocol.Implementation { Name = "tourkit", Title = "TourKit CRM", Version = "1.0.0" };
-                // Bộ sưu tập RỖNG nhưng KHÁC null: SDK chỉ khai năng lực "tools" (và nhận tools/list,
+                // Bộ sưu tập phải KHÁC null: SDK chỉ khai năng lực "tools" (và nhận tools/list,
                 // tools/call) khi có bộ sưu tập — null thì tools/list trả -32601 "not available".
+                // Tool sinh một lần lúc khởi động từ ChatTools.All; dịch vụ (runner, người gọi) lấy
+                // theo từng lời gọi nên dùng chung được cho mọi request không trạng thái.
                 o.ToolCollection = new();
+                foreach (var tool in Mcp.McpToolCatalog.Create()) o.ToolCollection.Add(tool);
             })
             .WithHttpTransport(o =>
             {

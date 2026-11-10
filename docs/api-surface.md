@@ -143,6 +143,11 @@ cả hai nhóm trả 404 JSON tường minh, DI của SDK cũng không đăng k�
   tối đa 60 giây (chưa có kênh báo chéo) — nhận có chủ đích.
 - **Giới hạn**: 60 lời gọi `tools/call`/phút/khoá, cửa sổ trượt trong bộ nhớ (mỗi instance đếm riêng). Vượt → kết quả
   tool `isError` "Bạn gọi quá nhanh, thử lại sau N giây" (HTTP vẫn 200, để AI đọc được và tự chờ). `initialize`/`tools/list` không tính.
+- **Tool**: 20 tool CHỈ ĐỌC sinh từ `ChatTools.All` (`Services/Mcp/McpToolCatalog.cs`) — cùng tên/mô tả với trợ lý,
+  chạy qua `CrmToolRunner` (cùng đệm 30 phút, cùng quyền CRM của chủ khoá). Kiểu tham số khai ở
+  `Domain/Mcp/McpToolSchemas.cs` (ngày `yyyy-MM-dd`, `pageSize` ≤ 50); tool có `marketId` nhận thêm `marketName`.
+  Kết quả: bảng markdown ≤ 20 dòng/≤ 30.000 ký tự kèm "còn N dòng", `structuredContent` = envelope với `items` ≤ 20.
+  Mọi lỗi (tham số, CRM, bất ngờ) → `isError` tiếng Việt, không lỗi JSON-RPC. Tool hành động: chưa có (`Features:McpActions`).
 
 ---
 
