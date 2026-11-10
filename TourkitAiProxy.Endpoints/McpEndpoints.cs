@@ -36,8 +36,12 @@ public static class McpEndpoints
             if (a == null) return SessionAuth.Unauthorized();
 
             CreateReq? body = null;
+            // Thiếu thân/Content-Type không phải JSON thì ReadFromJsonAsync ném InvalidOperationException → 500; chặn thành 400.
+            if (!ctx.Request.HasJsonContentType())
+                return Results.BadRequest(new { error = "Cần gửi JSON (Content-Type: application/json) có trường label" });
             try { body = await ctx.Request.ReadFromJsonAsync<CreateReq>(new JsonSerializerOptions(JsonSerializerDefaults.Web), ct); }
             catch (JsonException) { return Results.BadRequest(new { error = "Nội dung gửi lên không phải JSON hợp lệ" }); }
+            catch (InvalidOperationException) { return Results.BadRequest(new { error = "Thiếu nội dung JSON" }); }
 
             var label = (body?.Label ?? "").Trim();
             if (label.Length == 0) return Results.BadRequest(new { error = "Cần đặt tên cho khoá (label)" });

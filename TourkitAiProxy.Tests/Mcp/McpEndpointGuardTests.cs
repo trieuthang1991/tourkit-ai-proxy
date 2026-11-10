@@ -39,6 +39,14 @@ public class McpEndpointGuardTests
         return src.Substring(open, j - open + 1);
     }
 
+    [Fact]
+    public void Tao_khoa_khong_co_JSON_thi_tra_400_chu_khong_500()
+    {
+        var body = Body(Src("TourkitAiProxy.Endpoints/McpEndpoints.cs"), "g.MapPost(\"\"");
+        Assert.Contains("HasJsonContentType()", body);
+        Assert.Contains("catch (InvalidOperationException)", body);
+    }
+
     // ── Cờ ────────────────────────────────────────────────────────────────
 
     [Fact]

@@ -21,8 +21,12 @@
         noiDung: `claude mcp add --transport http tourkit ${url} --header "Authorization: Bearer ${khoa}"` },
       { id: 'cursor', ten: 'Cursor (.cursor/mcp.json)',
         noiDung: JSON.stringify({ mcpServers: { tourkit: { url, headers: { Authorization: 'Bearer ' + khoa } } } }, null, 2) },
-      { id: 'claude-desktop', ten: 'Claude Desktop (qua mcp-remote)',
-        noiDung: `npx mcp-remote ${url} --header "Authorization: Bearer ${khoa}"` },
+      // Dạng biến môi trường của mcp-remote: tránh Windows cắt đối số có dấu cách ("Bearer <khoá>").
+      { id: 'claude-desktop', ten: 'Claude Desktop (claude_desktop_config.json)',
+        ghiChu: 'Dán vào file cấu hình: Claude Desktop → Settings → Developer → Edit Config, rồi khởi động lại Claude Desktop.',
+        noiDung: JSON.stringify({ mcpServers: { tourkit: { command: 'npx',
+          args: ['-y', 'mcp-remote', url, '--header', 'Authorization:${AUTH_HEADER}'],
+          env: { AUTH_HEADER: 'Bearer ' + khoa } } } }, null, 2) },
     ];
   }
 
@@ -34,6 +38,7 @@
     const [loi, setLoi] = useState(null);
     const [moi, setMoi] = useState(null);          // { id, token, label } — chỉ giữ trong bộ nhớ trang
     const [chuaThuHoi, setChuaThuHoi] = useState(null); // id đang chờ bấm lần hai
+    const dangThuHoi = useRef(false);          // chặn bấm đúp bắn hai DELETE
     const hen = useRef(null);
 
     async function tai() {
@@ -67,9 +72,12 @@
       finally { setDangTao(false); }
     }
 
-    function chep(noiDung, nhan) {
-      window.tourkitUtil.copyText(noiDung);
-      pushToast?.('Đã chép ' + nhan, 'success');
+    async function chep(noiDung, nhan) {
+      // Khoá chỉ hiện một lần: báo "Đã chép" khi chưa chép được thì người dùng mất khoá mà không hay.
+      let ok = false;
+      try { ok = await window.tourkitUtil.copyText(noiDung); } catch { ok = false; }
+      if (ok) pushToast?.('Đã chép ' + nhan, 'success');
+      else pushToast?.('Không chép được — hãy bôi đen và chép tay', 'error');
     }
 
     async function thuHoi(k) {
@@ -79,12 +87,17 @@
         hen.current = setTimeout(() => setChuaThuHoi(null), 4000);
         return;
       }
+      if (dangThuHoi.current) return;
+      dangThuHoi.current = true;
       setChuaThuHoi(null);
-      const r = await api('/api/v1/mcp/tokens/' + encodeURIComponent(k.id), { method: 'DELETE' });
-      if (!r.ok && r.status !== 404) { pushToast?.('Không thu hồi được khoá', 'error'); return; }
-      if (moi?.id === k.id) setMoi(null);
-      pushToast?.('Đã thu hồi khoá "' + k.label + '"', 'success');
-      await tai();
+      try {
+        const r = await api('/api/v1/mcp/tokens/' + encodeURIComponent(k.id), { method: 'DELETE' });
+        if (!r.ok && r.status !== 404) { pushToast?.('Không thu hồi được khoá', 'error'); return; }
+        if (moi?.id === k.id) setMoi(null);
+        pushToast?.('Đã thu hồi khoá "' + k.label + '"', 'success');
+        await tai();
+      } catch { pushToast?.('Không thu hồi được khoá', 'error'); }
+      finally { dangThuHoi.current = false; }
     }
 
     return (
@@ -128,6 +141,7 @@
                   <b>{m.ten}</b><span className="mcp-gian" />
                   <button className="mcp-nut" onClick={() => chep(m.noiDung, m.ten)}><Icon name="copy" size={13} /> Chép</button>
                 </div>
+                {m.ghiChu && <p className="mcp-ghichu">{m.ghiChu}</p>}
                 <pre className="mcp-pre" data-testid={'mcp-mau-' + m.id}>{m.noiDung}</pre>
               </div>
             ))}

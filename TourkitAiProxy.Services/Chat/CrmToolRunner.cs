@@ -11,9 +11,6 @@ using TourkitAiProxy.Infrastructure.TourKit;
 
 namespace TourkitAiProxy.Services.Chat;
 
-/// <summary>Một lệnh gọi tool CRM đã quy đổi tên → mã và dựng đường dẫn.</summary>
-public sealed record CrmToolCall(ChatTool Tool, string Path, JsonElement? ResolvedParams);
-
 /// <summary>
 /// Báo hiệu: lần gọi đầu 401, đã đăng nhập lại, mà lần thử lại cũng hỏng (mọi loại lỗi). Chỉ tín hiệu này mới
 /// được ghi upstream_persistent_error — lỗi 400/404/500 ở lần đầu vẫn ném nguyên, không ghi.

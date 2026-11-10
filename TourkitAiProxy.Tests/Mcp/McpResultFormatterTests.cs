@@ -45,6 +45,15 @@ public class McpResultFormatterTests
     }
 
     [Fact]
+    public void Trang_50_dong_tong_50_van_goi_y_phan_trang()
+    {
+        var text = McpResultFormatter.ToText(Tool("customers"), Envelope(50, 50));
+        Assert.Contains("còn 30 dòng", text);
+        Assert.Contains("pageSize=20", text);
+        Assert.Contains("pageIndex", text);
+    }
+
+    [Fact]
     public void Ky_co_nhan_in_nhan_va_ngay_ISO()
     {
         var env = Json("""{"title":"T","period":{"startDate":"2026-11-01T00:00:00","endDate":"2026-11-30T00:00:00","label":"01/11/2026 - 30/11/2026"},"items":[]}""");

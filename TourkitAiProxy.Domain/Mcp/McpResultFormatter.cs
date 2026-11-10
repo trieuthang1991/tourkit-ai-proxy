@@ -135,14 +135,15 @@ public static class McpResultFormatter
             sb.Append("\n_… còn ").Append(remaining.ToString(CultureInfo.InvariantCulture))
               .Append(" dòng nữa chưa hiện");
             // Mỗi lần chỉ HIỆN 20 dòng: trang 50 dòng thì dòng 21–50 không bao giờ thấy được, nên
-            // gợi ý phân trang theo 20 chứ không chỉ "gửi pageIndex".
-            if (all > rowCount) sb.Append(" — thu hẹp bộ lọc, hoặc xem tiếp bằng pageSize=20 và pageIndex=2, 3…");
+            // gợi ý phân trang theo 20 chứ không chỉ "gửi pageIndex". Luôn nói, kể cả khi upstream đã trả
+            // trọn bộ trong một trang (all == rowCount): phần bị cắt vẫn chỉ xem được bằng cách này.
+            sb.Append(" — thu hẹp bộ lọc, hoặc xem tiếp bằng pageSize=20 và pageIndex=2, 3…");
             sb.Append("._\n");
         }
         return Cap(sb.ToString());
     }
 
-    private static string Cap(string s)
+    public static string Cap(string s)
         => s.Length <= MaxChars ? s : s[..(MaxChars - 30)] + "\n_… (đã cắt bớt cho gọn)._";
 
     private static string PeriodText(JsonElement p)

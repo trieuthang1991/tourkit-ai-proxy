@@ -48,7 +48,6 @@ public class NativeToolUseAgent : IAgentRuntime
 {
     private readonly TourKitApiClient _api;
     private readonly TkSessionStore _sessions;
-    private readonly ChatCache _cache;
     private readonly UnresolvedQuestionsLog _unresolved;
     private readonly ILogger<NativeToolUseAgent> _log;
     private readonly CrmToolRunner _runner;
@@ -90,7 +89,6 @@ public class NativeToolUseAgent : IAgentRuntime
     public NativeToolUseAgent(
         TourKitApiClient api,
         TkSessionStore sessions,
-        ChatCache cache,
         CrmToolRunner runner,
         UnresolvedQuestionsLog unresolved,
         ILogger<NativeToolUseAgent> log,
@@ -105,7 +103,6 @@ public class NativeToolUseAgent : IAgentRuntime
     {
         _api        = api;
         _sessions   = sessions;
-        _cache      = cache;
         _runner     = runner;
         _unresolved = unresolved;
         _log        = log;
@@ -327,6 +324,10 @@ public class NativeToolUseAgent : IAgentRuntime
             // Emit: bao frontend dang goi tool nao de hien trang thai "Đang lấy số liệu".
             if (emit != null && toolUseBlocks.Count > 0)
                 await emit(new { stage = "fetching", iteration, tools = toolUseBlocks.Select(t => t.Name).ToArray() });
+
+            // Lấy/làm mới JWT MỘT lần trước khi chạy song song: runner gọi GetValidJwtAsync cho từng tool,
+            // JWT hết hạn mà không làm trước thì tới 5 tool cùng đăng nhập lại một lúc.
+            await _sessions.GetValidJwtAsync(input.SessionId, ct);
 
             // ── Thuc thi TAT CA tools song song (Task.WhenAll) ─────────────────
             var execTasks = toolUseBlocks.Select(async tub =>

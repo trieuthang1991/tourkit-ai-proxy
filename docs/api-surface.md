@@ -135,7 +135,7 @@ cả hai nhóm trả 404 JSON tường minh, DI của SDK cũng không đăng k�
 | Method | Path | Notes |
 |--------|------|-------|
 | POST | `/api/v1/mcp/tokens` `{label}` | `X-Session-Id`. Tạo khoá `tkmcp_…` — hiện nguyên văn **một lần**, chỉ lưu SHA-256. Tối đa 20 khoá đang dùng/người |
-| GET | `/api/v1/mcp/tokens` | Danh sách khoá của mình (không có khoá, không có sessionId) |
+| GET | `/api/v1/mcp/tokens` | Danh sách khoá của mình, dạng `{items:[…]}` (không có khoá, không có sessionId) |
 | DELETE | `/api/v1/mcp/tokens/{id}` | Thu hồi → 204; chết **ngay** trong tiến trình này (xoá khỏi đệm xác thực) |
 | POST | `/mcp` | Streamable HTTP (SDK `ModelContextProtocol.AspNetCore` 2.3.0, không trạng thái). `Authorization: Bearer tkmcp_…`; thiếu/sai/thu hồi → 401 + `WWW-Authenticate: Bearer` + `{error}` tiếng Việt; phiên gốc hết → 401 "Phiên gốc đã hết — tạo khoá mới"; CSDL không trả lời → 503 (không bao giờ cho qua). `instructions` trong `initialize` có ngày hôm nay theo giờ VN |
 

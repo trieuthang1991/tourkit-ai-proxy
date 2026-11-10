@@ -69,11 +69,16 @@ public static class McpToolCatalog
         }
 
         var text = McpResultFormatter.ToText(tool, outcome.Data);
+        // Runner không khớp tên thì lặng lẽ bỏ lọc (hành vi chung với trợ lý). Ở MCP phải nói ra: không
+        // thì mô hình trình bày số của MỌI thị trường/nhân viên như số của người dùng hỏi.
+        var notice = "";
         if (MarketFilterDropped(prms, outcome.Path) is { } market)
-            // Runner không khớp tên thì lặng lẽ bỏ lọc (hành vi chung với trợ lý). Ở MCP phải nói ra: không
-            // thì mô hình trình bày số của MỌI thị trường như số của thị trường người dùng hỏi.
-            text = $"⚠️ Không tìm thấy thị trường \"{market}\" — số liệu dưới đây KHÔNG lọc theo thị trường. " +
-                   "Gọi list_markets để xem tên đúng.\n\n" + text;
+            notice += $"⚠️ Không tìm thấy thị trường \"{Clip(market)}\" — số liệu dưới đây KHÔNG lọc theo thị trường. " +
+                      "Gọi list_markets để xem tên đúng.\n\n";
+        if (EmployeeFilterDropped(prms, outcome.Path) is { } emp)
+            notice += $"⚠️ Không tìm thấy nhân viên \"{Clip(emp)}\" — số liệu KHÔNG lọc theo nhân viên.\n\n";
+        // Cảnh báo chèn TRƯỚC rồi mới cắt trần, để tổng không vượt MaxChars.
+        if (notice.Length > 0) text = McpResultFormatter.Cap(notice + text);
 
         var result = new CallToolResult { Content = [new TextContentBlock { Text = text }] };
         if (outcome.Data.ValueKind is JsonValueKind.Object or JsonValueKind.Array)
@@ -98,6 +103,19 @@ public static class McpToolCatalog
         if (p.TryGetProperty("marketId", out _)) return null;
         return path.Contains("marketId=", StringComparison.OrdinalIgnoreCase) ? null : mn.GetString();
     }
+
+    /// <summary>Tên nhân viên người gọi gửi mà đường dẫn cuối không có <c>employeeId=</c> → trả tên đó.</summary>
+    internal static string? EmployeeFilterDropped(JsonElement? prms, string path)
+    {
+        if (prms is not { ValueKind: JsonValueKind.Object } p
+            || !p.TryGetProperty("employeeName", out var en) || en.ValueKind != JsonValueKind.String
+            || string.IsNullOrWhiteSpace(en.GetString())) return null;
+        if (p.TryGetProperty("employeeId", out _)) return null;
+        return path.Contains("employeeId=", StringComparison.OrdinalIgnoreCase) ? null : en.GetString();
+    }
+
+    // Tên người gọi gửi có thể rất dài — chỉ lặp lại tối đa 60 ký tự trong cảnh báo.
+    private static string Clip(string s) => s.Length <= 60 ? s : s[..60] + "…";
 
     private static CallToolResult Error(string text) => new()
     {

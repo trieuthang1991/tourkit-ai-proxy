@@ -2,6 +2,7 @@ using System.Text.Json;
 using Microsoft.Extensions.Logging.Abstractions;
 using ModelContextProtocol.Protocol;
 using TourkitAiProxy.Domain.Chat;
+using TourkitAiProxy.Domain.Mcp;
 using TourkitAiProxy.Infrastructure.TourKit;
 using TourkitAiProxy.Services.Chat;
 using TourkitAiProxy.Services.Mcp;
@@ -117,5 +118,32 @@ public class McpToolCatalogTests
             (_, _, _) => Ok(Tool("market_analysis"), "/api/ai/market-analysis?marketId=3",
                 """{"title":"Phân tích thị trường","items":[{"marketName":"Nhật","revenue":1}]}"""));
         Assert.DoesNotContain("KHÔNG lọc", Text(ok));
+    }
+
+    [Fact]
+    public async Task Ten_nhan_vien_khong_khop_thi_bao_khong_loc_va_cat_ten_dai()
+    {
+        var tool = Tool("employee_performance");
+        var longName = new string('A', 200);
+        var args = Args("{\"employeeName\":\"" + longName + "\"}");
+        var r = await Run(tool, args, (_, _, _) => Ok(tool, "/api/x?pageSize=20",
+            """{"title":"T","count":0,"total":0,"items":[]}"""));
+        var text = Text(r);
+        Assert.StartsWith("⚠️ Không tìm thấy nhân viên", text);
+        Assert.Contains("KHÔNG lọc theo nhân viên", text);
+        Assert.DoesNotContain(new string('A', 61), text);
+    }
+
+    [Fact]
+    public async Task Canh_bao_dat_truoc_van_nam_trong_gioi_han_ky_tu()
+    {
+        var tool = Tool("employee_performance");
+        var rows = string.Join(",", Enumerable.Range(1, 20).Select(i => "{\"id\":" + i + ",\"fullName\":\"" + new string('x', 3000) + "\"}"));
+        var args = Args("""{"employeeName":"Lan"}""");
+        var r = await Run(tool, args, (_, _, _) => Ok(tool, "/api/x",
+            "{\"title\":\"T\",\"count\":20,\"total\":20,\"items\":[" + rows + "]}"));
+        var text = Text(r);
+        Assert.StartsWith("⚠️", text);
+        Assert.True(text.Length <= McpResultFormatter.MaxChars);
     }
 }

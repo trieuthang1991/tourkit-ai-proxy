@@ -23,8 +23,9 @@ claude mcp add --transport http tourkit https://tourkit-ai.tourkit.vn/mcp --head
 # Cursor — .cursor/mcp.json
 {"mcpServers":{"tourkit":{"url":"https://tourkit-ai.tourkit.vn/mcp","headers":{"Authorization":"Bearer <khoá>"}}}}
 
-# Claude Desktop (qua mcp-remote)
-npx mcp-remote https://tourkit-ai.tourkit.vn/mcp --header "Authorization: Bearer <khoá>"
+# Claude Desktop — claude_desktop_config.json (Settings → Developer → Edit Config), dạng biến môi trường
+# của mcp-remote để Windows không cắt đối số có dấu cách
+{"mcpServers":{"tourkit":{"command":"npx","args":["-y","mcp-remote","https://tourkit-ai.tourkit.vn/mcp","--header","Authorization:${AUTH_HEADER}"],"env":{"AUTH_HEADER":"Bearer <khoá>"}}}}
 ```
 
 Thu hồi: nút **Thu hồi** trên cùng trang, bấm hai lần (lần một đổi chữ thành "Bấm lần nữa để thu hồi").
@@ -43,6 +44,7 @@ song song. Thêm/sửa tool ở `ChatTools` thì MCP tự theo. Mỗi tool gọi
 - Mỗi lời gọi: khoá → tra người dùng → phiên TourKit (`TkSessionStore`).
 - Thu hồi qua `DELETE /api/v1/mcp/tokens/{id}`. Kết quả tra khoá được **đệm 60 giây**; khi chạy nhiều
   instance, thu hồi có hiệu lực trễ tối đa 60 giây trên máy khác.
+- Kết thúc/đá phiên TourKit gốc thì khoá chết trong tối đa 60 giây (đệm tra khoá).
 - Tối đa 20 khoá còn hiệu lực mỗi người; nhãn bắt buộc, ≤100 ký tự.
 
 ## Giới hạn
@@ -55,7 +57,7 @@ song song. Thêm/sửa tool ở `ChatTools` thì MCP tự theo. Mỗi tool gọi
 
 | Cờ | Mặc định | Ý nghĩa |
 |---|---|---|
-| `Features:Mcp` | tắt | Bật `/mcp`, `/api/v1/mcp/tokens*` và mục menu. Tắt: route trả trang "chưa mở", menu ẩn |
+| `Features:Mcp` | tắt | Bật `/mcp`, `/api/v1/mcp/tokens*` và mục menu. Tắt: trang giao diện hiện "chưa mở", menu ẩn; còn `/mcp` và `/api/v1/mcp/tokens*` trả 404 JSON |
 | `Features:McpActions` | tắt | Giai đoạn 1b (hành động ghi). Chưa dùng ở giai đoạn 1 |
 
 ## Bật trên prod
