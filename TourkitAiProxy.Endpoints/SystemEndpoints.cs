@@ -49,6 +49,7 @@ public static class SystemEndpoints
             autoCare        = Services.Bootstrap.FeatureFlags.AutoCare(cfg),
             chat            = Services.Bootstrap.FeatureFlags.Chat(cfg),
             byoAiKey        = Services.Bootstrap.FeatureFlags.ByoAiKey(cfg),
+            mcp             = Services.Bootstrap.FeatureFlags.Mcp(cfg),
             // Chat nội bộ — app tự nhúng widget internal-chat.js khi bật (core/internal-chat-loader.js).
             internalChat    = Services.Bootstrap.FeatureFlags.InternalChat(cfg),
             // chatAssign ĐÃ BỎ (09/09/2026): phân công đi cùng hộp thư chat, không có cờ riêng.

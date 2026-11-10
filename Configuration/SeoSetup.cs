@@ -73,6 +73,7 @@ public static class SeoSetup
         new("/visa", $"Visa AI · {Brand}"),
         new("/visa-config", $"Cấu hình Visa · {Brand}"),
         new("/ai-key", $"Key AI riêng · {Brand}"),
+        new("/mcp-connect", $"Kết nối AI · {Brand}"),
         new("/ncc-import", $"Import nhà cung cấp · {Brand}"),
         new("/ncc-list", $"Nhà cung cấp · {Brand}"),
         new("/widget-admin", $"Widget chat khách · {Brand}"),

@@ -32,7 +32,71 @@ public static class WebFeatureRegistration
         s.AddGiongNoi();
         s.AddThamDinhVisa();
         s.AddWorkerNen(cfg);
+        if (FeatureFlags.Mcp(cfg)) s.AddMcp();
         return s;
+    }
+
+    /// <summary>
+    /// Máy chủ MCP tại <c>/mcp</c> + kho khoá MCP. <b>Chỉ đăng ký khi bật <c>Features:Mcp</c></b> —
+    /// đường dẫn cũng chỉ map khi bật (<c>EndpointRegistration.MapMcp</c>), hai nửa phải khớp nhau.
+    ///
+    /// <list type="bullet">
+    /// <item><b>Không trạng thái</b> (mặc định của SDK 2.3 theo bản giao thức 2026-07-28): mỗi request
+    /// dựng máy chủ mới, không cần dính phiên vào một instance. Nhờ vậy <c>ConfigureSessionOptions</c>
+    /// chạy MỖI request — "hôm nay" trong chỉ dẫn luôn đúng ngày.</item>
+    /// <item>Giới hạn tần suất móc vào <c>tools/call</c> (không đếm initialize/tools/list). Chưa xác thực
+    /// mà lọt tới đây (không thể, middleware chặn trước) thì vẫn từ chối — đóng cửa là mặc định.</item>
+    /// <item>Tool: 20 tool ĐỌC sinh từ <c>ChatTools.All</c> (<c>Mcp.McpToolCatalog</c>). Tool hành động
+    /// là đợt sau, sau cờ <c>Features:McpActions</c>.</item>
+    /// </list>
+    /// </summary>
+    private static void AddMcp(this IServiceCollection s)
+    {
+        s.AddSingleton<Infrastructure.Mcp.IMcpTokenStore, Infrastructure.Mcp.McpTokenRepository>();
+        s.AddSingleton<Mcp.McpRateLimiter>();
+        s.AddSingleton(sp =>
+        {
+            var sessions = sp.GetRequiredService<Infrastructure.TourKit.TkSessionStore>();
+            return new Mcp.McpAuthenticator(
+                sp.GetRequiredService<Infrastructure.Mcp.IMcpTokenStore>(),
+                sid => sessions.Get(sid) is { } x ? new Mcp.McpSessionOwner(x.TenantId, x.Username) : null,
+                sp.GetRequiredService<ILogger<Mcp.McpAuthenticator>>());
+        });
+
+        s.AddMcpServer(o =>
+            {
+                o.ServerInfo = new ModelContextProtocol.Protocol.Implementation { Name = "tourkit", Title = "TourKit CRM", Version = "1.0.0" };
+                // Bộ sưu tập phải KHÁC null: SDK chỉ khai năng lực "tools" (và nhận tools/list,
+                // tools/call) khi có bộ sưu tập — null thì tools/list trả -32601 "not available".
+                // Tool sinh một lần lúc khởi động từ ChatTools.All; dịch vụ (runner, người gọi) lấy
+                // theo từng lời gọi nên dùng chung được cho mọi request không trạng thái.
+                o.ToolCollection = new();
+                foreach (var tool in Mcp.McpToolCatalog.Create()) o.ToolCollection.Add(tool);
+            })
+            .WithHttpTransport(o =>
+            {
+                o.ConfigureSessionOptions = (_, opts, _) =>
+                {
+                    opts.ServerInstructions = Mcp.McpServerInstructions.Build(DateTime.UtcNow);
+                    return Task.CompletedTask;
+                };
+            })
+            .WithRequestFilters(f => f.AddCallToolFilter(next => async (ctx, ct) =>
+            {
+                var http = ctx.Services?.GetService<IHttpContextAccessor>()?.HttpContext;
+                if (http?.Items[Mcp.McpAuthenticator.ItemKey] is not Mcp.McpCaller caller)
+                    return ToolError(Mcp.McpAuthenticator.MissingKey);
+                var limiter = ctx.Services!.GetRequiredService<Mcp.McpRateLimiter>();
+                if (!limiter.TryAcquire(caller.TokenId, out var wait))
+                    return ToolError(Mcp.McpRateLimiter.Message(wait));
+                return await next(ctx, ct);
+            }));
+
+        static ModelContextProtocol.Protocol.CallToolResult ToolError(string text) => new()
+        {
+            IsError = true,
+            Content = [new ModelContextProtocol.Protocol.TextContentBlock { Text = text }],
+        };
     }
 
     /// <summary>Quản trị — xác thực qua <c>Admin:Users</c> (JSON config) + phiên in-mem.</summary>
@@ -78,6 +142,9 @@ public static class WebFeatureRegistration
         // JsonPlannerAgent là fallback cho mọi provider khác (OpenCode, 9routes…).
         // ChatAgentService resolve runtime ĐẦU TIÊN có Supports(provider)=true — đảo hai dòng này
         // là mọi provider rơi hết về đường JSON-prompt mà không lỗi nào hiện lên.
+        // Runner dùng chung (đổi tên → mã, đệm "d|", re-login 401). Singleton vì cả hai agent là singleton;
+        // MCP cũng gọi qua đây.
+        s.AddSingleton<Chat.CrmToolRunner>();
         s.AddSingleton<Chat.IAgentRuntime, Chat.NativeToolUseAgent>();
         s.AddSingleton<Chat.IAgentRuntime, Chat.JsonPlannerAgent>();
         s.AddSingleton<Chat.UnresolvedQuestionsLog>();
