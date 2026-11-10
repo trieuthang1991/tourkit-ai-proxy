@@ -1,4 +1,6 @@
 using System.Text.Json;
+using TourkitAiProxy.Domain.Chat;
+using TourkitAiProxy.Infrastructure.TourKit;
 using TourkitAiProxy.Services.Chat;
 using Xunit;
 
@@ -64,5 +66,33 @@ public class CrmToolRunnerTests
         Assert.DoesNotContain("private async Task<JsonElement?> ResolveMarketAsync", src);
         Assert.DoesNotContain("private async Task<JsonElement?> ResolveEmployeeAsync", src);
         Assert.DoesNotContain("private static int? MatchMarket", src);
+    }
+
+    private static readonly ChatTool AnyTool = ChatTools.All[0];
+
+    [Fact]
+    public async Task Loi_khong_phai_401_o_lan_dau_khong_phat_tin_hieu_thu_lai_hong()
+    {
+        var runner = CrmToolRunner.ForTest((relogin, _) => throw new TourKitApiException("boom", 500));
+
+        var ex = await Assert.ThrowsAsync<TourKitApiException>(
+            () => runner.RunAsync("s", "t", AnyTool, null, default));
+        Assert.Equal(500, ex.Status);
+    }
+
+    [Fact]
+    public async Task Thu_lai_sau_401_van_hong_thi_phat_tin_hieu_thu_lai_hong()
+    {
+        var goi = new List<bool>();
+        var runner = CrmToolRunner.ForTest((relogin, _) =>
+        {
+            goi.Add(relogin);
+            throw relogin ? new TimeoutException("het gio") : new TourKitApiException("het han", 401);
+        });
+
+        var ex = await Assert.ThrowsAsync<CrmRetryFailedException>(
+            () => runner.RunAsync("s", "t", AnyTool, null, default));
+        Assert.IsType<TimeoutException>(ex.InnerException);
+        Assert.Equal(new[] { false, true }, goi);   // đúng một lần thử lại
     }
 }

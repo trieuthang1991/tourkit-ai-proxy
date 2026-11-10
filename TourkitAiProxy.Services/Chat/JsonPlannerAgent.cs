@@ -269,7 +269,7 @@ public class JsonPlannerAgent : IAgentRuntime
         var dispatchTimer = trace?.Begin("tool_dispatch");
         CrmToolOutcome outcome;
         try { outcome = await _runner.RunAsync(input.SessionId, input.TenantId, tool, toolParams, ct); }
-        catch (TourKitApiException ex2)
+        catch (CrmRetryFailedException rf) when (rf.InnerException is TourKitApiException ex2)
         {
             // Trigger: upstream_persistent_error -- loi sau khi runner da re-login 1 lan
             _unresolved.Append(
@@ -287,6 +287,13 @@ public class JsonPlannerAgent : IAgentRuntime
                 latencyMs:      latency,
                 tokensIn:       tokIn,
                 tokensOut:      tokOut);
+            System.Runtime.ExceptionServices.ExceptionDispatchInfo.Capture(ex2).Throw();   // giữ nguyên loại lỗi như trước
+            throw;
+        }
+        catch (CrmRetryFailedException rf2) when (rf2.InnerException != null)
+        {
+            // Lỗi khác TourKitApiException ở lần thử lại: trước đây ném nguyên, không ghi unresolved.
+            System.Runtime.ExceptionServices.ExceptionDispatchInfo.Capture(rf2.InnerException).Throw();
             throw;
         }
         var data = outcome.Data;
@@ -720,7 +727,7 @@ public class JsonPlannerAgent : IAgentRuntime
         var dispatchTimer = trace?.Begin("tool_dispatch");
         CrmToolOutcome outcome;
         try { outcome = await _runner.RunAsync(input.SessionId, input.TenantId, tool, toolParams, ct); }
-        catch (TourKitApiException ex2)
+        catch (CrmRetryFailedException rf) when (rf.InnerException is TourKitApiException ex2)
         {
             // Trigger: upstream_persistent_error -- loi sau khi runner da re-login 1 lan
             _unresolved.Append(
@@ -738,6 +745,13 @@ public class JsonPlannerAgent : IAgentRuntime
                 latencyMs:      0,
                 tokensIn:       0,
                 tokensOut:      0);
+            System.Runtime.ExceptionServices.ExceptionDispatchInfo.Capture(ex2).Throw();   // giữ nguyên loại lỗi như trước
+            throw;
+        }
+        catch (CrmRetryFailedException rf2) when (rf2.InnerException != null)
+        {
+            // Lỗi khác TourKitApiException ở lần thử lại: trước đây ném nguyên, không ghi unresolved.
+            System.Runtime.ExceptionServices.ExceptionDispatchInfo.Capture(rf2.InnerException).Throw();
             throw;
         }
         var data = outcome.Data;

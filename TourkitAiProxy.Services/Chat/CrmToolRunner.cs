@@ -14,6 +14,15 @@ namespace TourkitAiProxy.Services.Chat;
 /// <summary>Một lệnh gọi tool CRM đã quy đổi tên → mã và dựng đường dẫn.</summary>
 public sealed record CrmToolCall(ChatTool Tool, string Path, JsonElement? ResolvedParams);
 
+/// <summary>
+/// Báo hiệu: lần gọi đầu 401, đã đăng nhập lại, mà lần thử lại cũng hỏng (mọi loại lỗi). Chỉ tín hiệu này mới
+/// được ghi upstream_persistent_error — lỗi 400/404/500 ở lần đầu vẫn ném nguyên, không ghi.
+/// </summary>
+public sealed class CrmRetryFailedException : Exception
+{
+    public CrmRetryFailedException(Exception inner) : base(inner.Message, inner) { }
+}
+
 /// <summary>Kết quả một lệnh gọi tool CRM: dữ liệu thô + khung hiển thị đã dựng.</summary>
 public sealed record CrmToolOutcome(ChatTool Tool, string Path, JsonElement Data, ChatData View, bool FromCache);
 
@@ -30,6 +39,7 @@ public class CrmToolRunner
     private readonly ChatCache? _cache;
     private readonly ILogger<CrmToolRunner>? _log;
     private readonly Func<Task<List<(int Id, string Name)>>>? _marketsOverride;   // seam cho test
+    private readonly Func<bool, string, Task<JsonElement>>? _fetchOverride;        // seam cho test: (đã re-login?, path)
 
     // Dữ liệu CRM đệm 30 phút theo (tenant|đường dẫn): key xác định trọn vẹn kết quả.
     private static readonly TimeSpan CacheTtl = TimeSpan.FromMinutes(30);
@@ -43,10 +53,15 @@ public class CrmToolRunner
         _api = api; _sessions = sessions; _cache = cache; _log = log;
     }
 
-    private CrmToolRunner(Func<Task<List<(int Id, string Name)>>> markets) { _marketsOverride = markets; }
+    private CrmToolRunner(Func<Task<List<(int Id, string Name)>>> markets, Func<bool, string, Task<JsonElement>>? fetch = null)
+    { _marketsOverride = markets; _fetchOverride = fetch; }
 
     /// <summary>Chỉ cho test: runner không chạm TourKit, danh sách thị trường lấy từ <paramref name="markets"/>.</summary>
     internal static CrmToolRunner ForTest(Func<Task<List<(int Id, string Name)>>> markets) => new(markets);
+
+    /// <summary>Chỉ cho test: thay lần gọi API (không đệm, không phiên) để kiểm luồng 401 → thử lại.</summary>
+    internal static CrmToolRunner ForTest(Func<bool, string, Task<JsonElement>> fetch)
+        => new(() => Task.FromResult(new List<(int, string)>()), fetch);
 
     // ─── Chạy một tool ───────────────────────────────────────────────────────────
 
@@ -57,20 +72,38 @@ public class CrmToolRunner
         var path = ChatTools.BuildPath(tool, prms);
         var cacheKey = "d|" + $"{tenantId}|{path}";
 
-        if (_cache!.TryGet<JsonElement>(cacheKey, out var cached))
+        if (_fetchOverride == null && _cache!.TryGet<JsonElement>(cacheKey, out var cached))
             return new CrmToolOutcome(tool, path, cached, ChatDataBuilder.Build(tool, cached), true);
 
+        var data = await FetchAsync(sessionId, path, ct);
+        if (_fetchOverride == null && IsUsableData(data)) _cache!.Set(cacheKey, data, CacheTtl);   // không đệm kết quả rỗng
+        return new CrmToolOutcome(tool, path, data, ChatDataBuilder.Build(tool, data), false);
+    }
+
+    private async Task<JsonElement> FetchAsync(string sessionId, string path, CancellationToken ct)
+    {
+        if (_fetchOverride != null)
+        {
+            try { return await _fetchOverride(false, path); }
+            catch (TourKitApiException ex) when (ex.Status == 401)
+            {
+                try { return await _fetchOverride(true, path); }
+                catch (Exception ex2) { throw new CrmRetryFailedException(ex2); }
+            }
+        }
+
         var jwt = await _sessions!.GetValidJwtAsync(sessionId, ct);
-        JsonElement data;
-        try { data = await _api!.GetAsync(jwt, path, ct); }
+        try { return await _api!.GetAsync(jwt, path, ct); }
         catch (TourKitApiException ex) when (ex.Status == 401)
         {
-            // JWT hết hạn giữa chừng → đăng nhập lại 1 lần rồi thử lại.
-            jwt = await _sessions.ForceReloginAsync(sessionId, ct);
-            data = await _api!.GetAsync(jwt, path, ct);
+            // JWT hết hạn giữa chừng → đăng nhập lại 1 lần rồi thử lại; lần thử lại hỏng thì báo bằng tín hiệu riêng.
+            try
+            {
+                jwt = await _sessions.ForceReloginAsync(sessionId, ct);
+                return await _api!.GetAsync(jwt, path, ct);
+            }
+            catch (Exception ex2) { throw new CrmRetryFailedException(ex2); }
         }
-        if (IsUsableData(data)) _cache.Set(cacheKey, data, CacheTtl);   // không đệm kết quả rỗng
-        return new CrmToolOutcome(tool, path, data, ChatDataBuilder.Build(tool, data), false);
     }
 
     public async Task<JsonElement?> ResolveNamesAsync(string sessionId, JsonElement? prms, CancellationToken ct)

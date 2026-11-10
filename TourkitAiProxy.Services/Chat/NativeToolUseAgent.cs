@@ -350,9 +350,10 @@ public class NativeToolUseAgent : IAgentRuntime
                     var pars = JsonSerializer.Deserialize<object>(tub.Input.GetRawText());
                     return (tub, ResultJson: oc.Data.GetRawText(), Tool: (ChatTool?)tool, Data: (ChatData?)oc.View, Params: (object?)pars);
                 }
-                catch (TourKitApiException ex2)
+                catch (CrmRetryFailedException rf)
                 {
-                    // Runner đã đăng nhập lại 1 lần mà vẫn lỗi.
+                    var ex2 = rf.InnerException ?? rf;
+                    // Runner đã đăng nhập lại 1 lần mà lần thử lại vẫn lỗi (mọi loại lỗi, như catch cũ).
                     _log.LogError(ex2, "[NativeTool] tool {Name} that bai sau re-login", tub.Name);
                     // Trigger: upstream_persistent_error (re-login van fail)
                     var q401 = input.History.LastOrDefault(m => m.Role == "user")?.Content ?? "";
