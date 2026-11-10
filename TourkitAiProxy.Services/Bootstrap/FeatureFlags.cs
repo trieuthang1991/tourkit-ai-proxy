@@ -144,4 +144,14 @@ public static class FeatureFlags
     /// mặc định tắt: khoá cấp ra cho phép đọc dữ liệu công ty từ ngoài trình duyệt nên phải bật có chủ đích.</para>
     /// </summary>
     public static bool Mcp(IConfiguration cfg) => cfg.GetValue("Features:Mcp", false);
+
+    /// <summary>
+    /// Hành động GHI qua MCP (giao việc, lịch hẹn, gửi/soạn mail…) — luôn hai bước đề xuất → xác nhận
+    /// như trợ lý. Tắt thì MCP chỉ liệt kê tool đọc.
+    ///
+    /// <para>Cờ RIÊNG, mặc định tắt, tách khỏi <see cref="Mcp"/>: mở cho AI ngoài ĐỌC số liệu là một
+    /// quyết định, cho nó GHI vào CRM là quyết định khác và nặng hơn — bật đọc không được kéo theo ghi.
+    /// Chỉ có nghĩa khi <see cref="Mcp"/> bật (không có <c>/mcp</c> thì chẳng có gì để liệt kê).</para>
+    /// </summary>
+    public static bool McpActions(IConfiguration cfg) => cfg.GetValue("Features:McpActions", false);
 }

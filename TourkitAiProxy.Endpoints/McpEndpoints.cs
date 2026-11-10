@@ -1,6 +1,7 @@
 using System.Text.Json;
 using TourkitAiProxy.Infrastructure.Mcp;
 using TourkitAiProxy.Infrastructure.TourKit;
+using TourkitAiProxy.Services.Mcp;
 
 namespace TourkitAiProxy.Endpoints;
 
@@ -8,7 +9,10 @@ namespace TourkitAiProxy.Endpoints;
 /// Quản lý khoá MCP của chính người đăng nhập (phiên TourKit qua <c>X-Session-Id</c>):
 ///   POST   /api/v1/mcp/tokens {label}  → {id, token, createdUtc}  (khoá hiện MỘT lần duy nhất)
 ///   GET    /api/v1/mcp/tokens          → danh sách, KHÔNG có khoá
-///   DELETE /api/v1/mcp/tokens/{id}     → 204 / 404
+///   DELETE /api/v1/mcp/tokens/{id}     → 204 / 404  (xoá luôn khỏi đệm xác thực — chết NGAY)
+///
+/// <para>Và chính máy chủ MCP tại <see cref="McpPath"/> (<see cref="MapMcpServer"/>): Streamable HTTP
+/// của SDK, đứng sau <see cref="McpAuthMiddleware"/> (khoá <c>Authorization: Bearer tkmcp_…</c>).</para>
 ///
 /// <para>Mọi thao tác lọc theo (tenant, username) của phiên: người khác — kể cả cùng công ty — không
 /// thấy, không thu hồi được khoá của bạn (404, không phải 403, để không lộ khoá có tồn tại).</para>
@@ -16,6 +20,7 @@ namespace TourkitAiProxy.Endpoints;
 public static class McpEndpoints
 {
     public const string TokensPrefix = "/api/v1/mcp/tokens";
+    public const string McpPath = "/mcp";
     private const int MaxLabel = 100;
     private const int MaxActivePerUser = 20;
 
@@ -64,13 +69,31 @@ public static class McpEndpoints
             return Results.Json(new { items }, new JsonSerializerOptions(JsonSerializerDefaults.Web));
         });
 
-        g.MapDelete("/{id:long}", async (long id, HttpContext ctx, TkSessionStore sessions, IMcpTokenStore store, CancellationToken ct) =>
+        g.MapDelete("/{id:long}", async (long id, HttpContext ctx, TkSessionStore sessions, IMcpTokenStore store,
+            McpAuthenticator auth, CancellationToken ct) =>
         {
             var a = SessionAuth.Read(ctx, sessions);
             if (a == null) return SessionAuth.Unauthorized();
-            return await store.RevokeAsync(id, a.TenantId, a.Username, ct)
-                ? Results.NoContent()
-                : Results.NotFound(new { error = "Không tìm thấy khoá" });
+            if (!await store.RevokeAsync(id, a.TenantId, a.Username, ct))
+                return Results.NotFound(new { error = "Không tìm thấy khoá" });
+            // Thu hồi phải có hiệu lực NGAY, không chờ đệm xác thực 60 giây hết hạn (cùng tiến trình).
+            auth.Evict(id);
+            return Results.NoContent();
         });
+    }
+
+    /// <summary>
+    /// Máy chủ MCP tại <see cref="McpPath"/>. Cổng xác thực gắn bằng <c>UseWhen</c> theo đúng tiền tố này —
+    /// chỉ request tới <c>/mcp</c> mới đi qua nó, phần còn lại của app không đổi gì. Middleware được thêm
+    /// vào pipeline TRƯỚC bước thực thi endpoint (WebApplication tự đặt UseEndpoints ở cuối), nên request
+    /// không có khoá bị chặn trước khi SDK đọc tới thân JSON-RPC.
+    ///
+    /// <para>Chỉ gọi khi bật <c>Features:Mcp</c> — xem <c>EndpointRegistration.MapMcp</c>.</para>
+    /// </summary>
+    public static void MapMcpServer(this WebApplication app)
+    {
+        app.UseWhen(ctx => ctx.Request.Path.StartsWithSegments(McpPath),
+            b => b.UseMiddleware<McpAuthMiddleware>());
+        app.MapMcp(McpPath);
     }
 }

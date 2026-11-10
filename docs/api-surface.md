@@ -126,6 +126,24 @@ người CRM → 401; không phải thành viên phòng → 403. Thân request �
 | GET | `/events?sessionId=` | SSE: `data: {roomId, messageId, changed, at, preview, senderId, system}` — 4 trường cuối = tóm tắt tin mới (chỉ chat nội bộ, null ở sự kiện khác) để widget tự cập nhật danh sách không gọi lại `/rooms`; `/rooms` trả thêm `lastMessageId` để widget không cộng chưa đọc hai lần; `messageId: null` = phòng đổi cấu hình; `changed: true` = tin đã có vừa sửa/thu hồi (tên/thành viên). Nhịp giữ sống 25s |
 | * | mọi đường khác dưới nhóm (vd `/rooms/abc/messages`) | 404 JSON `{error}` — không rơi xuống SPA fallback |
 
+### Máy chủ MCP — `/mcp` + `/api/v1/mcp/tokens` (`Features:Mcp`)
+
+Cho Claude Code / Cursor / Claude Desktop gọi vào số liệu CRM của chính người dùng. Mã:
+[`McpEndpoints.cs`](../TourkitAiProxy.Endpoints/McpEndpoints.cs), xác thực ở `TourkitAiProxy.Services/Mcp/`. Cờ tắt →
+cả hai nhóm trả 404 JSON tường minh, DI của SDK cũng không đăng ký.
+
+| Method | Path | Notes |
+|--------|------|-------|
+| POST | `/api/v1/mcp/tokens` `{label}` | `X-Session-Id`. Tạo khoá `tkmcp_…` — hiện nguyên văn **một lần**, chỉ lưu SHA-256. Tối đa 20 khoá đang dùng/người |
+| GET | `/api/v1/mcp/tokens` | Danh sách khoá của mình (không có khoá, không có sessionId) |
+| DELETE | `/api/v1/mcp/tokens/{id}` | Thu hồi → 204; chết **ngay** trong tiến trình này (xoá khỏi đệm xác thực) |
+| POST | `/mcp` | Streamable HTTP (SDK `ModelContextProtocol.AspNetCore` 2.3.0, không trạng thái). `Authorization: Bearer tkmcp_…`; thiếu/sai/thu hồi → 401 + `WWW-Authenticate: Bearer` + `{error}` tiếng Việt; phiên gốc hết → 401 "Phiên gốc đã hết — tạo khoá mới"; CSDL không trả lời → 503 (không bao giờ cho qua). `instructions` trong `initialize` có ngày hôm nay theo giờ VN |
+
+- **Đệm xác thực 60 giây** theo bản băm khoá. Chạy **nhiều instance** thì instance KHÁC vẫn có thể nhận khoá vừa thu hồi
+  tối đa 60 giây (chưa có kênh báo chéo) — nhận có chủ đích.
+- **Giới hạn**: 60 lời gọi `tools/call`/phút/khoá, cửa sổ trượt trong bộ nhớ (mỗi instance đếm riêng). Vượt → kết quả
+  tool `isError` "Bạn gọi quá nhanh, thử lại sau N giây" (HTTP vẫn 200, để AI đọc được và tự chờ). `initialize`/`tools/list` không tính.
+
 ---
 
 **Tenant scoping** (multi-tenant fix 2026-06-09): tất cả endpoint `/api/v1/mail/*` và `/api/v1/visa/*` YÊU CẦU `X-Session-Id` header (hoặc `sessionId` query/body) — backend resolve `TenantId` qua `ITenantContext`/`HttpTenantContext` từ `TkSessionStore`. KHÔNG session → 401. Cross-tenant access (resource thuộc tenant khác) → null/404.

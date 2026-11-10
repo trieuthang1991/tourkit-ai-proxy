@@ -111,15 +111,20 @@ public static class EndpointRegistration
             "Tính năng chat nội bộ đang tắt (Features:InternalChat=false).");
     }
 
-    /// <summary>Khoá MCP nằm sau cờ <c>Features:Mcp</c>; tắt thì 404 JSON tường minh.</summary>
+    /// <summary>
+    /// Máy chủ MCP (<c>/mcp</c>) và trang quản lý khoá nằm sau cờ <c>Features:Mcp</c>; tắt thì CẢ HAI
+    /// trả 404 JSON tường minh. DI của SDK cũng chỉ đăng ký khi bật (<c>WebFeatureRegistration.AddMcp</c>)
+    /// — gọi <c>MapMcpServer</c> ngoài nhánh này là app ném lỗi lúc khởi động vì thiếu dịch vụ.
+    /// </summary>
     private static void MapMcp(WebApplication app, IConfiguration cfg)
     {
         if (FeatureFlags.Mcp(cfg))
         {
             app.MapMcpEndpoints();
+            app.MapMcpServer();
             return;
         }
-        ChanTuongMinh(app, new[] { McpEndpoints.TokensPrefix },
+        ChanTuongMinh(app, new[] { McpEndpoints.TokensPrefix, McpEndpoints.McpPath },
             "Tính năng MCP đang tắt (Features:Mcp=false).");
     }
 
