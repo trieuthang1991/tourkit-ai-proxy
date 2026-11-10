@@ -146,6 +146,7 @@ public static class WorkflowStackRegistration
         // Thông báo chat nội bộ sang app mobile. Tự tắt khi InternalChat:Notify:Enabled=false hoặc
         // thiếu khoá — đăng ký vô điều kiện để chỗ gọi không phải kiểm null.
         s.AddSingleton<InternalChatPushClient>();
+        s.AddSingleton<InternalChatOrderFileClient>();
 
         // ─── Review (customer + KH ingest) ───────────────────────────────────
         s.AddSingleton<CustomerRepository>();

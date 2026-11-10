@@ -221,9 +221,28 @@ public static class InternalChatEndpoints
             return msgs is null ? NotMember() : Results.Json(msgs, Web);
         });
 
+        // Tab "File đính kèm" trong khung Thông tin của phòng.
+        g.MapGet("/rooms/{id:long}/attachments", async (long id, HttpContext ctx, TkSessionStore sessions,
+            InternalChatRepository repo, string? beforeUtc, long? beforeId, int? limit, CancellationToken ct) =>
+        {
+            var (loi, a, me) = await GuardAsync(ctx, sessions, repo, ct);
+            if (loi is not null) return loi;
+            DateTime? truoc = null;
+            if (!string.IsNullOrWhiteSpace(beforeUtc))
+            {
+                if (!DateTime.TryParse(beforeUtc, CultureInfo.InvariantCulture,
+                        DateTimeStyles.AssumeUniversal | DateTimeStyles.AdjustToUniversal, out var t))
+                    return Bad("beforeUtc không đúng định dạng ISO-8601");
+                truoc = t;
+            }
+            var viewAll = await SessionAuth.IsQuanTriChatAsync(a!.SessionId, sessions, ct);
+            var files = await repo.ListAttachmentsAsync(a.TenantId, id, me, truoc, beforeId, Math.Clamp(limit ?? 30, 1, 100), viewAll, ct);
+            return files is null ? NotMember() : Results.Json(files, Web);
+        });
+
         g.MapPost("/rooms/{id:long}/messages", async (long id, HttpContext ctx, TkSessionStore sessions,
             InternalChatRepository repo, ChatEventBus bus, IChatFileStorage kho,
-            RedisStore redis, InternalChatPushClient push, CancellationToken ct) =>
+            RedisStore redis, InternalChatPushClient push, InternalChatOrderFileClient orderFiles, CancellationToken ct) =>
         {
             var (loi, a, me) = await GuardAsync(ctx, sessions, repo, ct);
             if (loi is not null) return loi;
@@ -255,6 +274,7 @@ public static class InternalChatEndpoints
                 Summary = new InternalEventSummary(r.CreatedUtc ?? DateTime.UtcNow, xemTruoc, me, false),
             });
             NotifyWithCooldown(redis, push, a.TenantId, id, r.Id.Value, me, a.Username, xemTruoc, r.Members);
+            if (att is not null) SyncFileToOrder(repo, orderFiles, ctx, a.TenantId, id, r.Id.Value, me, att);
             return Results.Json(new InternalMessage(r.Id.Value, id, me, a.Username, body,
                 r.CreatedUtc ?? DateTime.UtcNow, null, att), Web);
         });
@@ -619,6 +639,27 @@ public static class InternalChatEndpoints
     /// N lượt vào thời gian gửi MỖI tin nhắn (phòng 10 người × ~10ms = 100ms, trần phòng là 200 người).
     /// Thông báo chậm vài trăm mili giây không ai thấy; tin nhắn chậm thì ai cũng thấy.</para>
     /// </summary>
+    /// <summary>File gửi trong phòng theo đơn được lưu luôn vào tab Thảo luận của đơn. Chạy nền để không làm chậm việc gửi tin.</summary>
+    private static void SyncFileToOrder(InternalChatRepository repo, InternalChatOrderFileClient orderFiles, HttpContext ctx,
+        string tenantId, long roomId, long messageId, int senderUserId, InternalAttachment attachment)
+    {
+        if (!orderFiles.Available) return;
+        var log = ctx.RequestServices.GetRequiredService<ILoggerFactory>().CreateLogger("InternalChat");
+        _ = Task.Run(async () =>
+        {
+            try
+            {
+                var entityId = await repo.GetOrderEntityIdAsync(tenantId, roomId);
+                if (InternalRoomKey.TryParseOrder(entityId, out var tourType, out var tourId))
+                    await orderFiles.SendAsync(tenantId, messageId, tourType, tourId, senderUserId, attachment);
+            }
+            catch (Exception ex)
+            {
+                log.LogWarning(ex, "[chat-order-file] {Tenant} phòng {Room}: không đọc được mã đơn", tenantId, roomId);
+            }
+        });
+    }
+
     private static void NotifyWithCooldown(RedisStore redis, InternalChatPushClient push,
         string tenantId, long roomId, long messageId, int senderUserId, string? senderName,
         string? preview, IReadOnlyCollection<int> members)

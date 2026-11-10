@@ -376,6 +376,49 @@ public class InternalChatRepository
         return rows.Select(m => ToMessage(m, rx.GetValueOrDefault(m.Id))).ToList();
     }
 
+    /// <summary>
+    /// Tab "File đính kèm": các tin còn file của phòng, mới nhất trước, cùng điều kiện xem với
+    /// <see cref="ListMessagesAsync"/>. Trả <c>null</c> khi người hỏi không được xem phòng.
+    /// </summary>
+    public async Task<IReadOnlyList<InternalMessage>?> ListAttachmentsAsync(string tenant, long roomId, int userId,
+        DateTime? beforeUtc, long? beforeId, int limit, bool viewAll = false, CancellationToken ct = default)
+    {
+        await using var c = await _db.OpenAsync(ct);
+        var rows = (await c.QueryAsync<MessageRow>(new CommandDefinition("""
+            SELECT m.id, m.conversation_id AS room_id, m.sender_user_id, m.sender_username, m.body,
+                   m.created_utc, m.deleted_utc, m.edited_utc, m.sender_kind, m.attachment::text AS attachment
+              FROM chat_messages m
+             WHERE m.conversation_id = @roomId AND m.tenant_id = @tenant
+               AND m.kind IN (1, 2) AND m.attachment IS NOT NULL AND m.deleted_utc IS NULL
+               AND (EXISTS (SELECT 1 FROM chat_room_members mb
+                            WHERE mb.conversation_id = @roomId AND mb.tenant_id = @tenant
+                              AND mb.user_id = @userId AND mb.left_utc IS NULL)
+                    OR (@viewAll AND EXISTS (SELECT 1 FROM chat_conversations cv
+                                              WHERE cv.id = @roomId AND cv.tenant_id = @tenant AND cv.channel = 7
+                                                AND cv.deleted_utc IS NULL)))
+               AND m.created_utc > COALESCE((SELECT h.hidden_utc FROM chat_room_members h
+                                              WHERE h.conversation_id = @roomId AND h.tenant_id = @tenant
+                                                AND h.user_id = @userId), '-infinity'::timestamptz)
+               AND (@beforeUtc::timestamptz IS NULL
+                    OR (m.created_utc, m.id) < (@beforeUtc::timestamptz, @beforeId::bigint))
+             ORDER BY m.created_utc DESC, m.id DESC
+             LIMIT @limit
+            """, new { tenant, roomId, userId, beforeUtc = AsUtc(beforeUtc), beforeId = beforeId ?? long.MaxValue, limit, viewAll },
+            cancellationToken: ct))).ToList();
+        if (rows.Count == 0 && !await IsMemberOrEmptyAsync(c, tenant, roomId, userId, ct, viewAll)) return null;
+        return rows.Select(m => ToMessage(m)).ToList();
+    }
+
+    /// <summary>Mã đơn của phòng, <c>null</c> nếu đây không phải phòng theo đơn.</summary>
+    public async Task<string?> GetOrderEntityIdAsync(string tenant, long roomId)
+    {
+        await using var c = await _db.OpenAsync();
+        return await c.ExecuteScalarAsync<string?>("""
+            SELECT entity_id FROM chat_conversations
+             WHERE id = @roomId AND tenant_id = @tenant AND channel = 7 AND entity_type = 'order'
+            """, new { tenant, roomId });
+    }
+
     /// <summary>Tin MỚI hơn một mã, cũ trước — để widget bù tin khi có sự kiện hoặc vừa nối lại.</summary>
     public async Task<IReadOnlyList<InternalMessage>?> ListMessagesAfterAsync(string tenant, long roomId, int userId,
         long afterId, int limit, bool viewAll = false, CancellationToken ct = default)

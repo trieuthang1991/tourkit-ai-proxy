@@ -63,6 +63,7 @@
 
   const BASE = (() => { try { return new URL(scriptEl.src).origin; } catch { return location.origin; } })();
   const API = BASE + '/api/v1/chat/internal';
+  const FILE_PAGE = 30;   // số file mỗi lần tải ở tab File đính kèm
   const POS = scriptEl.getAttribute('data-position') === 'bl' ? 'left' : 'right';
   const Z = parseInt(scriptEl.getAttribute('data-z-index') || '2147483000', 10);
   const LINK_URL = { order: scriptEl.getAttribute('data-order-url') || '', deal: scriptEl.getAttribute('data-deal-url') || '' };
@@ -90,6 +91,7 @@
     launcher: !PAGE_MODE && scriptEl.getAttribute('data-launcher') !== 'false',
     open: PAGE_MODE, view: 'list', roomId: null,       // khung danh sách + phòng đang mở trong khung (trang Chat: luôn mở)
     viewOnly: new Set(),                           // mã phòng đang mở ở chế độ chỉ xem (CHAT_XEM_ALL, chưa có trong danh sách)
+    infoTab: 'info', files: new Map(),           // tab đang mở của khung Thông tin · roomId → { items, loading, more, err }
     info: true, infoOpen: false,                 // trang Chat: cột thông tin (màn rộng, bật/tắt) · ngăn kéo thông tin (màn hẹp)
     docks: [], dockMin: new Set(),                 // ô chat nhỏ: mã phòng, mới nhất ở cuối
     conv: new Map(),                               // roomId → { msgs, hasOlder, loaded }
@@ -197,6 +199,14 @@
     .rn .pri,.rn .sec{height:38px}
     .info .ms{flex:1}
     .info .ft{padding:10px 16px}
+    .itabs{display:flex;border-bottom:1px solid #e3e6ec;flex-shrink:0}
+    .itabs button{flex:1;height:42px;border:0;border-bottom:2px solid transparent;background:none;font:inherit;font-size:13px;font-weight:500;color:#5b6270;cursor:pointer}
+    .itabs button[aria-selected=true]{color:#1f3fbf;border-bottom-color:#1f3fbf}
+    .itabs button:focus-visible{outline:2px solid #1f3fbf;outline-offset:-2px}
+    .fl{flex:1;min-height:0;overflow-y:auto;padding:10px 12px;display:flex;flex-direction:column;gap:6px}
+    .fl .fa{max-width:none;flex-shrink:0}
+    .fl .th{width:36px;height:36px;object-fit:cover;border-radius:4px;flex-shrink:0}
+    .fl .sec{flex-shrink:0;align-self:center}
     .info-bg{display:none}
     @media (max-width:1199px){
       .info{position:absolute;top:0;right:0;bottom:0;width:min(340px,100%);z-index:4;box-shadow:-12px 0 32px rgba(17,21,28,.16);border-left:0}
@@ -284,6 +294,8 @@
     .m:has(.rxs) + .m.cont{margin-top:0}   /* tin trên có cụm cảm xúc thì chừa chỗ, không đè lên */
     .bb{padding:8px 12px;border-radius:6px;background:#fff;border:1px solid #e3e6ec;white-space:pre-wrap;word-break:break-word}
     .me .bb{background:#1f3fbf;border-color:#1f3fbf;color:#fff}
+    .bb a.lnk{color:#0b63ce;text-decoration:underline;text-underline-offset:2px}
+    .me .bb a.lnk{color:#cfe1ff}   /* bong bóng của mình nền xanh đậm: xanh nhạt mới đọc được */
     .bb.del{background:#fff;border:1px dashed #d5d9e0;color:#5b6270;font-style:italic;font-size:13px}
     .m .t{font-size:11px;color:#5b6270}
     /* Sửa / Thu hồi: thanh nhỏ NỔI cạnh bong bóng, không chiếm chỗ — hiện khi rê chuột hoặc focus. */
@@ -366,6 +378,7 @@
     .img{position:relative}
     .m.out .bb,.m.out .img,.m.out .fa{opacity:.72}
     .m.fail .bb{background:#fff;color:#11151c;border-color:#c0392b}
+    .m.fail .bb a.lnk{color:#0b63ce}
     .m .t.tfail{color:#8a1c12;display:flex;flex-wrap:wrap;gap:2px 8px;justify-content:flex-end}
     .m .t.tfail button{border:0;background:transparent;padding:0;color:#1f3fbf;font-size:11px;font-weight:600;text-decoration:underline}
     .older{position:sticky;top:0;flex-shrink:0;height:0;margin:-12px -14px 2px;z-index:1}   /* -12 + 2 + gap 10 = 0: tin không bị xô */
@@ -443,6 +456,31 @@
   const extOf = (n) => { const i = (n || '').lastIndexOf('.'); return i < 0 ? '' : n.slice(i).toLowerCase(); };
   const fmtSize = (b) => b >= 1048576 ? (b / 1048576).toFixed(1).replace('.', ',') + ' MB' : Math.max(1, Math.round(b / 1024)) + ' KB';
   const safeUrl = (u) => typeof u === 'string' && /^https?:\/\//i.test(u) ? u : null;
+  // Tách URL trong nội dung tin thành thẻ <a>, phần còn lại vẫn là chữ thuần (el() đưa vào bằng text node).
+  const URL_IN_TEXT = /\b(?:https?:\/\/|www\.)[^\s<>"'`]+/gi;
+  const trimUrlEnd = (u) => {
+    for (;;) {
+      const c = u[u.length - 1];
+      const open = { ')': '(', ']': '[', '}': '{' }[c];
+      if ('.,;:!?…。，、'.includes(c)) u = u.slice(0, -1);
+      else if (open && u.split(c).length > u.split(open).length) u = u.slice(0, -1);   // ngoặc đóng thuộc câu, không thuộc link
+      else return u;
+    }
+  };
+  const bodyParts = (text) => {
+    const parts = [];
+    let at = 0;
+    for (const hit of text.matchAll(URL_IN_TEXT)) {
+      const shown = trimUrlEnd(hit[0]);
+      const href = safeUrl(/^www\./i.test(shown) ? 'https://' + shown : shown);
+      if (!href) continue;
+      if (hit.index > at) parts.push(text.slice(at, hit.index));
+      parts.push(el('a', { class: 'lnk', href, target: '_blank', rel: 'noopener noreferrer' }, shown));
+      at = hit.index + shown.length;
+    }
+    if (at < text.length) parts.push(text.slice(at));
+    return parts;
+  };
   const initials = (n) => (n || '?').trim().split(/\s+/).filter(Boolean).slice(-2).map((w) => w[0]).join('').toUpperCase() || '?';
   const userName = (id, fallback) => st.users.get(id) || fallback || ('#' + id);
   const pad = (n) => String(n).padStart(2, '0');
@@ -608,6 +646,52 @@
   }
 
   /// Cột / ngăn kéo thông tin phòng: tóm tắt + (nhóm/đơn) thành viên, trưởng nhóm, đổi tên, thêm người — dùng lại màn cấu hình.
+  /// Tab File đính kèm: tải lại mỗi khi mở tab; `more` = tải tiếp trang cũ hơn.
+  async function loadFiles(id, more) {
+    const old = st.files.get(id);
+    if (old && old.loading) return;
+    const items = more && old ? old.items : [];
+    st.files.set(id, { items, loading: true, more: false, err: '' });
+    const last = items[items.length - 1];
+    const q = last ? `&beforeUtc=${encodeURIComponent(last.createdUtc)}&beforeId=${last.id}` : '';
+    try {
+      const page = await api('GET', `/rooms/${id}/attachments?limit=${FILE_PAGE}${q}`);
+      st.files.set(id, { items: items.concat(page || []), loading: false, more: (page || []).length === FILE_PAGE, err: '' });
+    } catch (e) {
+      if (dead) return;
+      st.files.set(id, { items, loading: false, more: false, err: 'Không tải được danh sách file: ' + e.message });
+    }
+    render();
+  }
+  function fileRow(m) {
+    const a = m.attachment;
+    if (!a || !safeUrl(a.url)) return null;
+    const d = new Date(m.createdUtc);
+    const meta = [a.size ? fmtSize(a.size) : 'Tệp', userName(m.senderUserId, m.senderUsername), pad(d.getDate()) + '/' + pad(d.getMonth() + 1) + ' ' + hm(m.createdUtc)].join(' · ');
+    return el('a', { class: 'fa', href: a.url, target: '_blank', rel: 'noopener noreferrer', title: a.name },
+      a.kind === 'anh' ? el('img', { class: 'th', src: a.url, alt: '', loading: 'lazy' }) : icon('file', 22),
+      el('span', { class: 'tx' }, el('span', { class: 'fn' }, a.name), el('span', { class: 'fs' }, meta)));
+  }
+  function filesBody(id) {
+    const f = st.files.get(id);
+    if (!f) { loadFiles(id); return el('div', { class: 'empty' }, 'Đang tải…'); }
+    if (f.err && !f.items.length) return el('div', { class: 'empty', role: 'alert' }, f.err);
+    if (!f.items.length) return el('div', { class: 'empty' }, f.loading ? 'Đang tải…' : 'Chưa có file nào trong đoạn chat này.');
+    return el('div', { class: 'fl', 'data-sk': 'files-' + id }, f.items.map(fileRow),
+      f.more ? el('button', { class: 'sec', type: 'button', on: { click: () => loadFiles(id, true) } }, 'Xem thêm') : null,
+      f.loading ? el('div', { class: 'empty', style: 'padding:8px' }, 'Đang tải…') : null);
+  }
+  function openInfoTab(id, tab) {
+    st.infoTab = tab;
+    if (tab === 'files') st.files.delete(id);   // mở tab là lấy danh sách mới nhất
+    render();
+  }
+  function infoTabs(id, memberLabel) {
+    const tab = (key, text) => el('button', { type: 'button', role: 'tab', 'aria-selected': String(st.infoTab === key),
+      on: { click: () => openInfoTab(id, key) } }, text);
+    return el('div', { class: 'itabs', role: 'tablist', 'aria-label': 'Nội dung thông tin phòng' }, tab('info', memberLabel), tab('files', 'File đính kèm'));
+  }
+
   function infoPane(id) {
     const r = roomOf(id);
     const closeInfo = () => { if (infoDocked()) st.info = false; else st.infoOpen = false; render(); };
@@ -627,7 +711,8 @@
         el('span', {}, kind + (r.entityType === 'direct' ? '' : ' · ' + members + ' thành viên')),
         owner && r.entityType !== 'direct' ? el('span', {}, 'Trưởng nhóm: ' + owner) : null,
         entityLink(r, false)),
-      readOnly(r)
+      infoTabs(id, r.entityType === 'direct' ? 'Thông tin' : 'Thành viên'),
+      st.infoTab === 'files' ? filesBody(id) : readOnly(r)
         // Chỉ xem: danh sách thành viên, không nút nào (cấu hình phòng là việc của người trong phòng).
         ? el('div', { class: 'ms', 'data-k': 'info-ro-' + id, 'data-top': '1', style: 'background:#fff' },
             el('span', { class: 'lb' }, 'Thành viên · ' + members),
@@ -895,7 +980,7 @@
           el('div', { class: 'edact' },
             el('button', { class: 'sec', type: 'button', on: { click: cancelEdit } }, 'Huỷ'),
             el('button', { class: 'pri', type: 'button', style: 'height:30px', on: { click: () => saveEdit(id, m) } }, 'Lưu')));
-      } else bubble = m.body ? el('div', { class: 'bb' }, m.body) : null;
+      } else bubble = m.body ? el('div', { class: 'bb' }, bodyParts(m.body)) : null;
       // Tin của mình: Sửa (tin có chữ) + Thu hồi HAI BƯỚC — bấm nhầm một lần không mất tin.
       const confirming = st.recallConfirm === m.id;
       const picking = !deleted && !editing && st.reactPick && st.reactPick.key === key && st.reactPick.msgId === m.id;
@@ -941,7 +1026,7 @@
         : el('span', { class: 't' }, up ? (a.status === 'prep' ? 'Đang nén ảnh…' : 'Đang tải lên ' + (a.pct || 0) + '%') : 'Đang gửi…');
       list.append(el('div', { class: 'm me out' + (fail ? ' fail' : '') },
         attEl ? el('div', { class: 'row' }, attEl) : null,
-        o.body ? el('div', { class: 'row' }, el('div', { class: 'bb' }, o.body)) : null, t));
+        o.body ? el('div', { class: 'row' }, el('div', { class: 'bb' }, bodyParts(o.body))) : null, t));
     }
 
     // Chỉ xem: không ô soạn, không nút tự vào (chốt 28/10/2026) — muốn nhắn thì nhờ trưởng nhóm / thành viên thêm vào.
@@ -1313,6 +1398,7 @@
     finally { if (c.loadingOlder) { c.loadingOlder = false; render(); } }
   }
   function mergeMsgs(id, list) {
+    if (list.some((m) => m.attachment) && st.files.has(id)) st.files.delete(id);   // có file mới: tab File đính kèm tự lấy lại
     const c = convOf(id);
     const seen = new Set(c.msgs.map((m) => m.id));
     for (const m of list) if (!seen.has(m.id)) { c.msgs.push(m); seen.add(m.id); }
@@ -1743,7 +1829,7 @@
     recallTimer = setTimeout(() => { st.recallConfirm = null; render(); }, 4000);
   }
   async function recallMsg(roomId, m) {
-    try { await api('DELETE', `/messages/${m.id}`); m.deletedUtc = new Date().toISOString(); m.body = null; m.attachment = null; render(); }
+    try { await api('DELETE', `/messages/${m.id}`); m.deletedUtc = new Date().toISOString(); m.body = null; m.attachment = null; st.files.delete(roomId); render(); }
     catch (e) { if (!dead) { errMsg = 'Không thu hồi được: ' + e.message; st.errRoom = roomId; render(); } }
   }
 
