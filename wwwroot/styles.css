@@ -11181,3 +11181,41 @@ img.ci-avt { object-fit: cover; }
 .aik-chinh:hover:not(:disabled) { background: var(--primary-dark); }
 .aik-nguy { color: var(--danger); }
 @media (max-width: 560px) { .aik-ncc { grid-template-columns: 1fr; } }
+
+/* ═══ Kết nối AI (MCP) — pages/mcp-connect.jsx ═══════════════════════════════════════════════ */
+.mcp-page { max-width: 800px; }
+.mcp-the { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius-md);
+           padding: 18px 20px; margin-top: 14px; display: grid; gap: 12px; }
+.mcp-moi { border-color: var(--primary); }
+.mcp-tieude { margin: 0; font-size: 15px; font-weight: 600; }
+.mcp-con { margin: 4px 0 0; font-size: 13px; font-weight: 600; color: var(--text-2); }
+.mcp-ghichu { margin: 0; font-size: 12px; line-height: 1.55; color: var(--text-3); }
+.mcp-trong { color: var(--text-3); padding: 12px 0; text-align: center; font-size: 13px; }
+.mcp-canhbao { display: flex; gap: 10px; align-items: flex-start; margin-top: 14px; padding: 12px 14px;
+               border-radius: var(--radius-md); border: 1px solid var(--warning); font-size: 13px;
+               background: color-mix(in srgb, var(--warning) 10%, var(--surface)); }
+.mcp-hang { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.mcp-gian { flex: 1; }
+.mcp-nhap { flex: 1; min-width: 180px; height: 36px; padding: 0 10px; border: 1px solid var(--border);
+            border-radius: var(--radius); background: var(--surface); font-size: 13px; }
+.mcp-nhap:focus { outline: none; border-color: var(--primary); box-shadow: 0 0 0 3px var(--primary-glow); }
+.mcp-loi { display: flex; align-items: center; gap: 6px; font-size: 13px; color: var(--danger); }
+.mcp-ma, .mcp-pre { font-family: ui-monospace, "SF Mono", monospace; font-size: 12px; background: var(--bg);
+                    border: 1px solid var(--border); border-radius: var(--radius); padding: 8px 10px;
+                    word-break: break-all; white-space: pre-wrap; }
+.mcp-ma { flex: 1; min-width: 0; }
+.mcp-pre { margin: 6px 0 0; overflow-x: auto; }
+.mcp-mau { display: grid; }
+.mcp-khoa { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap;
+            padding: 10px 0; border-top: 1px solid var(--border); }
+.mcp-khoa-tt { display: grid; gap: 2px; font-size: 13px; min-width: 0; }
+.mcp-khoa-tt span { color: var(--text-3); font-size: 12px; }
+.mcp-nut { display: inline-flex; align-items: center; gap: 6px; height: 34px; padding: 0 14px;
+           border: 1px solid var(--border); border-radius: var(--radius); background: var(--surface);
+           font-size: 13px; font-weight: 500; cursor: pointer; transition: background .15s, border-color .15s; }
+.mcp-nut:hover:not(:disabled) { background: var(--bg); }
+.mcp-nut:disabled { opacity: .55; cursor: default; }
+.mcp-chinh { background: var(--primary); border-color: var(--primary); color: #fff; }
+.mcp-chinh:hover:not(:disabled) { background: var(--primary-dark); }
+.mcp-nguy { color: var(--danger); }
+.mcp-nguy.dang-hoi { background: var(--danger); border-color: var(--danger); color: #fff; }
