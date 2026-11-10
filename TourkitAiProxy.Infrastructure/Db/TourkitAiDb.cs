@@ -55,7 +55,7 @@ public class TourkitAiDb
             await using var cmd = c.CreateCommand();
             cmd.CommandText = SchemaSql;
             await cmd.ExecuteNonQueryAsync(ct);
-            _log.LogInformation("TourkitAiDb schema OK (Reviews/DealScores/MailAccounts/Mails/MailSyncState/TourQuotes/TourPriceCatalog/VisaAssessments/QuotaOrders/WidgetTokens/VisaQuestionSets/TkSessions/TenantQuota/AiUsageCounters/AiUsageHistory/UserWorkflows/WorkflowRuns/OutboundMails/CrmActionQueue/MailTemplates/TenantServiceAccounts/TenantAiKeys/AgentInsights/DigestSubscriptions/TenantChannelSettings đã có/đã tạo)");
+            _log.LogInformation("TourkitAiDb schema OK (Reviews/DealScores/MailAccounts/Mails/MailSyncState/TourQuotes/TourPriceCatalog/VisaAssessments/QuotaOrders/WidgetTokens/VisaQuestionSets/TkSessions/TenantQuota/AiUsageCounters/AiUsageHistory/UserWorkflows/WorkflowRuns/OutboundMails/CrmActionQueue/MailTemplates/TenantServiceAccounts/TenantAiKeys/AgentInsights/DigestSubscriptions/TenantChannelSettings/McpTokens đã có/đã tạo)");
         }
         catch (Exception ex)
         {
@@ -362,6 +362,26 @@ BEGIN
         CONSTRAINT PK_WidgetTokens PRIMARY KEY CLUSTERED (Token)
     );
     CREATE INDEX IX_WidgetTokens_Tenant ON dbo.WidgetTokens(TenantId, CreatedAt DESC);
+END;
+
+-- Khoá MCP: máy khách MCP (Claude Desktop/Cursor) gọi vào TourKit bằng khoá này. CHỈ lưu bản băm
+-- SHA-256 (TokenHash), không lưu khoá. Gắn SessionId lúc tạo; thu hồi mềm bằng RevokedUtc.
+IF OBJECT_ID('dbo.McpTokens', 'U') IS NULL
+BEGIN
+    CREATE TABLE dbo.McpTokens (
+        Id           BIGINT IDENTITY(1,1) NOT NULL,
+        TokenHash    CHAR(64)       NOT NULL,
+        TenantId     NVARCHAR(128)  NOT NULL,
+        Username     NVARCHAR(128)  NOT NULL,
+        SessionId    NVARCHAR(64)   NOT NULL,
+        Label        NVARCHAR(100)  NOT NULL,
+        CreatedUtc   DATETIME2      NOT NULL,
+        LastUsedUtc  DATETIME2      NULL,
+        RevokedUtc   DATETIME2      NULL,
+        CONSTRAINT PK_McpTokens PRIMARY KEY CLUSTERED (Id),
+        CONSTRAINT UQ_McpTokens_Hash UNIQUE (TokenHash)
+    );
+    CREATE INDEX IX_McpTokens_Owner ON dbo.McpTokens(TenantId, Username);
 END;
 
 -- Mở rộng widget cho phép cắm CRM TourKit (Phase 2):

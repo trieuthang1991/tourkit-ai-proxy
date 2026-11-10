@@ -13,6 +13,11 @@ Những cập nhật gần đây của TRAV-AI, viết cho người dùng. Mới
 
 ---
 
+## 🔜 Sắp có
+- **Kết nối AI.** Bạn sẽ có thể hỏi số liệu TourKit ngay trong Claude hay Cursor mà mình đang dùng: tạo một khoá riêng cho từng thiết bị ở mục "Kết nối AI", dán vào công cụ, rồi hỏi doanh thu, công nợ, khách hàng… như đang trò chuyện với trợ lý số liệu. Bạn tự thu hồi khoá bất cứ lúc nào. Tính năng sẽ được mở dần.
+
+---
+
 ## Phiên bản 06/11/2026 — AI Import NCC: file dài không còn hỏng cả lượt
 
 ### 🔧 Đã khắc phục

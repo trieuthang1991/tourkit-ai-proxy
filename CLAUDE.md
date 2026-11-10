@@ -62,6 +62,7 @@ kết nạp từng tầng, và câu trả lời cho "file này để đâu".
 | Thêm/sửa endpoint, tra đường dẫn API | [docs/api-surface.md](docs/api-surface.md) |
 | Đụng nhà cung cấp AI, function-calling, chọn model | [docs/ai-providers.md](docs/ai-providers.md) |
 | Trợ lý số liệu, hành động trợ lý, chấm hạng khách | [docs/features/assistant.md](docs/features/assistant.md) |
+| Kết nối AI ngoài (MCP server, khoá `tkmcp_`, trang `/mcp-connect`) | [docs/features/mcp.md](docs/features/mcp.md) |
 | Hộp thư AI (Gmail IMAP/SMTP, phân loại, soạn nháp) | [docs/features/mail.md](docs/features/mail.md) |
 | Hộp thư chat đa kênh (Zalo/Messenger/Telegram) | [docs/features/chat-inbox-ky-thuat.md](docs/features/chat-inbox-ky-thuat.md) |
 | Tác vụ tự động, worker chạy nền | [docs/features/workflows.md](docs/features/workflows.md) |

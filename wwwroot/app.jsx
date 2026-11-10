@@ -64,6 +64,8 @@ const NAV_GROUPS = [
     { to: '/visa-config',  icon: 'sliders', label: 'Câu hỏi Visa', requirePerm: 'CH_HT_XEM' },  // admin tenant chỉnh wizard câu hỏi
     // Key AI riêng của công ty (BYO). Gác bằng CẢ quyền lẫn cờ — xem bảng coCua bên dưới.
     { to: '/ai-key',       icon: 'user',    label: 'Key AI riêng', requirePerm: 'CH_HT_XEM', feature: 'byoAiKey' },
+    // Kết nối AI (MCP): KHÔNG đòi quyền quản trị — nhân viên nào cũng tự kết nối AI của mình; chỉ gác bằng cờ.
+    { to: '/mcp-connect',  icon: 'sparkle', label: 'Kết nối AI', feature: 'mcp' },
     // "Tự động hóa" ở CUỐI khối này (vị trí quen thuộc, đáy sidebar) nhưng KHÔNG có requirePerm:
     // trang có phần của RIÊNG người dùng (đồng bộ Gmail của tôi, bản tin của tôi khi bật cờ) nên
     // nhân viên không có quyền cấu hình vẫn phải vào được. Lịch chạy cấp công ty + tài khoản dịch
@@ -220,6 +222,7 @@ function App() {
   // "tính năng đã ra mắt chưa". Cờ tắt mà vẫn bày mục menu thì bấm vào chỉ nhận 404.
   const chatOn = window.tourkitFeatures.useFeature('chat');
   const byoOn = window.tourkitFeatures.useFeature('byoAiKey');
+  const mcpOn = window.tourkitFeatures.useFeature('mcp');
   // Bảng tra cờ ĐÃ HỎI SẴN, không gọi hook theo tên động: hook phải chạy đúng thứ tự ở mọi lần
   // vẽ, gọi nó trong nhánh hay vòng lặp là React ném lỗi.
   //
@@ -228,7 +231,7 @@ function App() {
   // menu mà quên bảng này, nên cờ trông như đã cắm trong khi thật ra không gác gì cả.
   //
   // 'chatAssign' đã BỎ (09/09/2026): phân công đi cùng hộp thư chat, không ra mắt riêng.
-  const coCua = { chat: chatOn, byoAiKey: byoOn };
+  const coCua = { chat: chatOn, byoAiKey: byoOn, mcp: mcpOn };
   const featureOn = (name) => !name || (coCua[name] ?? true);
   const visibleGroups = NAV_GROUPS
     .map(g => ({ ...g, items: g.items.filter(it => hasPerm(it.requirePerm) && featureOn(it.feature)) }))
@@ -663,6 +666,9 @@ function App() {
         <Route path="/ai-key" render={() => byoOn
           ? gatePerm('/ai-key', <window.AiKeyPage pushToast={pushToast} />)
           : <FeatureOffPage ten="Key AI riêng" />} />
+        <Route path="/mcp-connect" render={() => mcpOn
+          ? <window.McpConnectPage pushToast={pushToast} />
+          : <FeatureOffPage ten="Kết nối AI" />} />
         <Route path="/workflows"    render={() => <window.WorkflowsPage pushToast={pushToast} />} />
         <Route path="/flow-preview" render={() => gatePerm('/flow-preview', <window.FlowPreviewPage pushToast={pushToast} />)} />
         {/* /flow-preview/:type — sơ đồ của 1 workflow cụ thể (nút "Xem sơ đồ" ở trang Tự động hoá) */}
