@@ -28,7 +28,7 @@ public sealed record CrmToolOutcome(ChatTool Tool, string Path, JsonElement Data
 
 /// <summary>
 /// Đường chạy tool CRM dùng chung cho trợ lý (NativeToolUseAgent, JsonPlannerAgent) và MCP:
-/// quy đổi tên → mã (thị trường, nhân viên) → dựng đường dẫn → đệm "d|" → gọi API (401 thì đăng nhập lại
+/// quy đổi tên → mã (thị trường, nhân viên) → dựng đường dẫn → đệm "d|" theo người dùng → gọi API (401 thì đăng nhập lại
 /// đúng một lần) → dựng ChatData. Rút ra từ JsonPlannerAgent để mọi lối vào cùng một hành vi — trước đây
 /// chỉ JsonPlannerAgent đổi được tên, nên cùng câu hỏi mà đường Anthropic không lọc theo thị trường.
 /// </summary>
@@ -41,7 +41,7 @@ public class CrmToolRunner
     private readonly Func<Task<List<(int Id, string Name)>>>? _marketsOverride;   // seam cho test
     private readonly Func<bool, string, Task<JsonElement>>? _fetchOverride;        // seam cho test: (đã re-login?, path)
 
-    // Dữ liệu CRM đệm 30 phút theo (tenant|đường dẫn): key xác định trọn vẹn kết quả.
+    // Dữ liệu CRM đệm 30 phút theo (tenant|người dùng|đường dẫn): key xác định trọn vẹn kết quả.
     private static readonly TimeSpan CacheTtl = TimeSpan.FromMinutes(30);
     // Danh mục thị trường/nhân viên theo tenant — giữ trong RAM, đổi chậm nên TTL dài.
     private readonly ConcurrentDictionary<string, (List<(int Id, string Name)> List, DateTime Exp)> _markets = new();
@@ -70,14 +70,25 @@ public class CrmToolRunner
     {
         prms = await ResolveNamesAsync(sessionId, prms, ct);
         var path = ChatTools.BuildPath(tool, prms);
-        var cacheKey = "d|" + $"{tenantId}|{path}";
+        // Báo cáo CRM theo quyền người gọi → khoá đệm gồm cả người dùng; không rõ người dùng thì không đệm.
+        var cacheKey = _fetchOverride == null ? DataCacheKey(tenantId, _sessions!.Get(sessionId)?.Username, path) : null;
 
-        if (_fetchOverride == null && _cache!.TryGet<JsonElement>(cacheKey, out var cached))
+        if (cacheKey != null && _cache!.TryGet<JsonElement>(cacheKey, out var cached))
             return new CrmToolOutcome(tool, path, cached, ChatDataBuilder.Build(tool, cached), true);
 
         var data = await FetchAsync(sessionId, path, ct);
-        if (_fetchOverride == null && IsUsableData(data)) _cache!.Set(cacheKey, data, CacheTtl);   // không đệm kết quả rỗng
+        if (cacheKey != null && IsUsableData(data)) _cache!.Set(cacheKey, data, CacheTtl);   // không đệm kết quả rỗng
         return new CrmToolOutcome(tool, path, data, ChatDataBuilder.Build(tool, data), false);
+    }
+
+    /// <summary>
+    /// Khoá đệm dữ liệu CRM: tenant + người dùng + đường dẫn. Giữ tiền tố "d|{tenant}|" để nút "Xóa cache" vẫn xoá được.
+    /// Trả null (không đệm) khi không biết người dùng — không bao giờ rơi về khoá chung cả công ty.
+    /// </summary>
+    internal static string? DataCacheKey(string tenantId, string? username, string path)
+    {
+        var user = username?.Trim().ToLowerInvariant();
+        return string.IsNullOrEmpty(user) ? null : $"d|{tenantId}|u:{user}|{path}";
     }
 
     private async Task<JsonElement> FetchAsync(string sessionId, string path, CancellationToken ct)
@@ -214,7 +225,7 @@ public class CrmToolRunner
     // ─── Resolver nhân viên: tên -> employeeId (cho employee_performance) ─────────
     // Nguồn = chính API thống kê hiệu suất /api/ai/employee-performance: nó trả TẤT CẢ nhân viên
     // (theo quyền) kèm employeeId + fullName → đúng phạm vi report có thể lọc tới, không cần endpoint khác.
-    // Cache theo tenant (MarketTtl 6h) y như markets. Dùng lại MatchMarket (fuzzy (Id,Name)).
+    // Cache theo (tenant, người dùng) (MarketTtl 6h) vì danh sách theo quyền. Dùng lại MatchMarket (fuzzy (Id,Name)).
 
     private static bool PropCI(JsonElement obj, string name, out JsonElement val)
     {
@@ -227,8 +238,12 @@ public class CrmToolRunner
 
     private async Task<List<(int Id, string Name)>> GetEmployeesAsync(string sessionId, CancellationToken ct)
     {
-        var tenant = _sessions!.Get(sessionId)?.TenantId ?? "";
-        if (_employees.TryGetValue(tenant, out var c) && c.Exp > DateTime.UtcNow) return c.List;
+        var sess = _sessions!.Get(sessionId);
+        var tenant = sess?.TenantId ?? "";
+        // Danh sách nhân viên trả theo quyền người gọi → đệm theo (tenant, người dùng); không rõ người dùng thì không đệm.
+        var user = sess?.Username?.Trim().ToLowerInvariant();
+        var empKey = string.IsNullOrEmpty(user) ? null : $"{tenant}|{user}";
+        if (empKey != null && _employees.TryGetValue(empKey, out var c) && c.Exp > DateTime.UtcNow) return c.List;
 
         JsonElement data;
         var jwt = await _sessions.GetValidJwtAsync(sessionId, ct);
@@ -249,7 +264,7 @@ public class CrmToolRunner
                     && !string.IsNullOrWhiteSpace(np.GetString()))
                     list.Add((id, np.GetString()!));
 
-        _employees[tenant] = (list, DateTime.UtcNow.Add(MarketTtl));
+        if (empKey != null) _employees[empKey] = (list, DateTime.UtcNow.Add(MarketTtl));
         _log?.LogInformation("Loaded {N} nhân viên (từ employee-performance) cho tenant {T}", list.Count, tenant);
         return list;
     }

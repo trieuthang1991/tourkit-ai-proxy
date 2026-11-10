@@ -139,7 +139,7 @@ public class ChatAgentService
         bool useCache = !string.IsNullOrWhiteSpace(tenantId) && !string.IsNullOrWhiteSpace(username);
 
         // KHÔNG cache câu trả lời AI (bỏ 2026-08-11). Chỉ cache DỮ LIỆU CRM ("d|" trong JsonPlannerAgent),
-        // vì key của nó (tenant + đường dẫn API) xác định TRỌN VẸN kết quả. Ngược lại câu trả lời AI phụ
+        // vì key của nó (tenant + người dùng + đường dẫn API) xác định TRỌN VẸN kết quả. Ngược lại câu trả lời AI phụ
         // thuộc câu chữ + ngữ cảnh hội thoại + focus + ý so sánh + model… — key nào cũng chỉ bắt được một
         // phần, đã gây 3 bug "trả lời cũ" liên tiếp (so sánh / hỏi nguồn gốc / chi phí ăn đáp án doanh thu).
         // Xem docs/test-plans/2026-08-11-chat-e2e-question-bank.md.

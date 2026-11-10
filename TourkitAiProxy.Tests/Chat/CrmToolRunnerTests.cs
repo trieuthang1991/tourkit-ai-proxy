@@ -95,4 +95,37 @@ public class CrmToolRunnerTests
         Assert.IsType<TimeoutException>(ex.InnerException);
         Assert.Equal(new[] { false, true }, goi);   // đúng một lần thử lại
     }
+
+    // ─── Khoá đệm dữ liệu theo từng người ───────────────────────────────────────
+
+    [Fact]
+    public void Khoa_dem_du_lieu_gom_tenant_nguoi_dung_va_duong_dan()
+        => Assert.Equal("d|staging.tourkit.vn|u:admin|/api/ai/x?a=1",
+            CrmToolRunner.DataCacheKey("staging.tourkit.vn", "Admin", "/api/ai/x?a=1"));
+
+    [Fact]
+    public void Hai_nguoi_cung_cong_ty_khac_khoa_dem()
+        => Assert.NotEqual(CrmToolRunner.DataCacheKey("t", "admin", "/p"), CrmToolRunner.DataCacheKey("t", "adminthoa", "/p"));
+
+    [Theory]
+    [InlineData(null)]
+    [InlineData("")]
+    [InlineData("  ")]
+    public void Khong_co_username_thi_khong_dem(string? user)
+        => Assert.Null(CrmToolRunner.DataCacheKey("t", user, "/p"));
+
+    [Fact]
+    public void Khoa_dem_van_bat_dau_bang_d_tenant_de_xoa_cache_duoc()
+        => Assert.StartsWith("d|staging.tourkit.vn|", CrmToolRunner.DataCacheKey("staging.tourkit.vn", "a", "/p"));
+
+    [Fact]
+    public void Guard_CrmToolRunner_khong_con_khoa_dem_chung_tenant()
+    {
+        var dir = AppContext.BaseDirectory;
+        while (dir != null && !File.Exists(Path.Combine(dir, "TourkitAiProxy.Services", "Chat", "CrmToolRunner.cs")))
+            dir = Path.GetDirectoryName(dir);
+        Assert.NotNull(dir);
+        var src = File.ReadAllText(Path.Combine(dir!, "TourkitAiProxy.Services", "Chat", "CrmToolRunner.cs"));
+        Assert.DoesNotContain("\"d|\" + $\"{tenantId}|{path}\"", src);
+    }
 }

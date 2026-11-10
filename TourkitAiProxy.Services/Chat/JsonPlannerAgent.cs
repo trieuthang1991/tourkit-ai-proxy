@@ -257,7 +257,7 @@ public class JsonPlannerAgent : IAgentRuntime
             new() { ["before"] = paramsBefore, ["after"] = paramsAfter });
 
         // KHÔNG cache câu trả lời AI (bỏ 2026-08-11) — chỉ cache DỮ LIỆU CRM ("d|" bên dưới).
-        // Lý do: key của "d|" (tenant + đường dẫn API) xác định trọn vẹn kết quả, còn câu trả lời AI
+        // Lý do: key của "d|" (tenant + người dùng + đường dẫn API) xác định trọn vẹn kết quả, còn câu trả lời AI
         // phụ thuộc thêm câu chữ + focus + ngữ cảnh + model → mọi key đều thiếu chiều, đã gây 3 bug
         // "trả lời cũ" liên tiếp. compareShift vẫn cần cho LOGIC so sánh bên dưới (không phải cho cache).
         var compareShift = DetectCompareIntent(question);
