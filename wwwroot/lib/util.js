@@ -32,6 +32,49 @@
     }
   }
 
+  // ── Đọc JSON từ Response — KHÔNG tin là máy chủ có trả JSON ───────────────
+  // Hạ tầng chen ngang GIỮA trình duyệt và ứng dụng (Cloudflare 524 quá giờ / 502 app
+  // chết / 403 WAF chặn, IIS 411 thiếu Content-Length / 413 file nặng / 502.5) trả về
+  // TRANG HTML. Gọi thẳng r.json() khi đó ném "Unexpected token '<', "<!DOCTYPE "…" —
+  // câu ấy nuốt mất status thật, đúng vào lúc cần biết status nhất.
+  //
+  // Trả về object đã parse. Ném Error với câu đọc hiểu được khi body không phải JSON
+  // hoặc HTTP không thành công → chỗ gọi chỉ còn việc hiện e.message.
+  async function jsonHoacLoi(response) {
+    const tho = await response.text();
+    let j;
+    try { j = tho ? JSON.parse(tho) : null; } catch { j = undefined; }
+    if (j === undefined || typeof j !== 'object') throw new Error(moTaTrangLoi(response, tho));
+    if (!response.ok) throw new Error((j && j.error) || ('HTTP ' + response.status));
+    return j || {};
+  }
+
+  // Câu mô tả cho TRANG LỖI của hạ tầng (không phải lỗi của app): kèm status, nguyên nhân
+  // hay gặp, <title> của trang (Cloudflare ghi sẵn "524: A timeout occurred") và mã CF-RAY
+  // để tra trong dashboard. Cùng origin nên đọc được header.
+  function moTaTrangLoi(response, tho) {
+    const s = response.status;
+    const viCo = {
+      403: 'tường lửa Cloudflare chặn yêu cầu',
+      411: 'thiếu Content-Length, http.sys chặn trước khi tới ứng dụng',
+      413: 'file quá nặng, bị chặn trước khi tới ứng dụng',
+      502: 'ứng dụng không trả lời (vừa khởi động lại, hoặc hết bộ nhớ giữa chừng)',
+      503: 'ứng dụng đang không chạy (hoặc đang deploy)',
+      504: 'xử lý quá lâu nên bị cắt',
+      520: 'máy chủ trả phản hồi hỏng',
+      521: 'máy chủ từ chối kết nối',
+      524: 'xử lý quá 100 giây nên Cloudflare cắt kết nối',
+    }[s];
+    const tieuDe = (String(tho || '').match(/<title[^>]*>([^<]{0,160})<\/title>/i) || [])[1];
+    const ray = (response.headers && response.headers.get) ? response.headers.get('cf-ray') : null;
+    return (response.ok
+      ? 'máy chủ trả dữ liệu không phải JSON (HTTP ' + s + ')'
+      : 'máy chủ trả về trang lỗi HTTP ' + s + ' chứ không phải dữ liệu')
+      + (viCo ? ' — ' + viCo : '')
+      + (tieuDe ? ' ["' + tieuDe.trim() + '"]' : '')
+      + (ray ? ' · mã tra cứu ' + ray : '');
+  }
+
   // ── Time ago ──────────────────────────────────────────────────────────────
   // "5 phút trước". opts.seconds=true → hiện cả mốc "giây trước". null/invalid →
   // opts.empty (mặc định ''). >30 ngày → ngày tuyệt đối dd/MM/yyyy.
@@ -107,15 +150,8 @@
       const r = await window.tourkitAuth.authedFetch(
         '/api/v1/crm-sso-ticket?redirect=' + encodeURIComponent(redirect),
         { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' });
-      // Đọc TEXT rồi mới parse. Hạ tầng chen ngang (Cloudflare 502/504, IIS 411/502.5) trả TRANG HTML,
-      // r.json() sẽ ném "Unexpected token '<', <!DOCTYPE" — nuốt mất status thật, không ai chẩn được.
-      const raw = await r.text();
-      let j = null;
-      try { j = JSON.parse(raw); } catch { /* không phải JSON = trang lỗi của hạ tầng, không phải của app */ }
-      if (!j) throw new Error(r.ok
-        ? 'máy chủ trả dữ liệu không hợp lệ (không phải JSON)'
-        : 'máy chủ lỗi HTTP ' + r.status + ' (Cloudflare/IIS chặn, chưa tới ứng dụng)');
-      if (!r.ok || j.error) throw new Error(j.error || ('HTTP ' + r.status));
+      const j = await jsonHoacLoi(r);
+      if (j.error) throw new Error(j.error);
       if (win) win.location = j.url; else window.location = j.url;
     } catch (e) {
       if (win) win.close();
@@ -128,5 +164,5 @@
     }
   }
 
-  window.tourkitUtil = { readSSE, fmtAgo, fmtDate, copyText, crmUrl, openCrm };
+  window.tourkitUtil = { readSSE, fmtAgo, fmtDate, copyText, crmUrl, openCrm, jsonHoacLoi, moTaTrangLoi };
 })();

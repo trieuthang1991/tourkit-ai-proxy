@@ -811,6 +811,20 @@ public class PancakeChatAdapter : IChatChannelAdapter
     /// nhãn sai mà sau này không ai truy được nó từ đâu ra.</para>
     /// </summary>
     public async Task<string?> GuessPageNameAsync(string pageId, string token, CancellationToken ct)
+        => (await GuessPageInfoAsync(pageId, token, ct)).Name;
+
+    /// <summary>
+    /// Đoán tên VÀ nền tảng của trang từ chính khoá trang.
+    ///
+    /// <para>Nền tảng phải đoán cùng lúc với tên chứ không gọi riêng một lượt: hai thứ nằm trong
+    /// CÙNG một thân phản hồi, tách ra là nhân đôi số lượt gọi sang Pancake cho đúng một việc.</para>
+    ///
+    /// <para>Nền tảng đoán hụt thì về null và hội thoại hiện "Pancake" như trước — KHÔNG đoán bừa
+    /// là "facebook" chỉ vì đa số trang là Facebook. Nói sai nguồn của khách còn tệ hơn không nói:
+    /// người trực chọn giọng và tính hạn trả lời theo đúng thứ này.</para>
+    /// </summary>
+    public async Task<(string? Name, string? Platform)> GuessPageInfoAsync(
+        string pageId, string token, CancellationToken ct)
     {
         try
         {
@@ -821,7 +835,8 @@ public class PancakeChatAdapter : IChatChannelAdapter
                     + $"?page_access_token={Uri.EscapeDataString(token)}"
                     + $"&since={tu}&until={den}&page_number=1&page_size=10";
             using var res = await http.GetAsync(url, ct);
-            if (DocTenTrang(await res.Content.ReadAsStringAsync(ct), pageId) is { } ten) return ten;
+            var tin = DocThongTinTrang(await res.Content.ReadAsStringAsync(ct), pageId);
+            if (tin.Name is { Length: > 0 }) return tin;
         }
         catch (Exception ex) { _log.LogDebug(ex, "[chat/pancake] đoán tên trang qua bài đăng hụt"); }
 
@@ -832,12 +847,12 @@ public class PancakeChatAdapter : IChatChannelAdapter
             var url = $"{PageApiV2}/pages/{Uri.EscapeDataString(pageId)}/conversations"
                     + $"?page_access_token={Uri.EscapeDataString(token)}";
             using var res = await http.GetAsync(url, ct);
-            return DocTenTrang(await res.Content.ReadAsStringAsync(ct), pageId);
+            return DocThongTinTrang(await res.Content.ReadAsStringAsync(ct), pageId);
         }
         catch (Exception ex)
         {
             _log.LogDebug(ex, "[chat/pancake] đoán tên trang qua hội thoại hụt");
-            return null;
+            return (null, null);
         }
     }
 
@@ -852,20 +867,33 @@ public class PancakeChatAdapter : IChatChannelAdapter
     /// <c>from</c> trong các thân này là KHÁCH, lấy bừa là đặt tên trang bằng tên một khách hàng.</para>
     /// </summary>
     public static string? DocTenTrang(string? rawJson, string pageId)
-    {
-        if (string.IsNullOrWhiteSpace(rawJson) || string.IsNullOrWhiteSpace(pageId)) return null;
-        JsonNode? goc;
-        try { goc = JsonNode.Parse(rawJson!); } catch { return null; }
-        return Luc(goc, pageId, 0);
+        => DocThongTinTrang(rawJson, pageId).Name;
 
-        static string? Luc(JsonNode? nut, string pageId, int sau)
+    /// <summary>
+    /// Như <see cref="DocTenTrang"/> nhưng lấy cả <c>platform</c> của đúng trang đó — <b>hàm thuần</b>.
+    ///
+    /// <para>Vẫn khớp theo ĐÚNG mã trang: phần lớn object <c>from</c> trong các thân này là KHÁCH,
+    /// lấy bừa là gán nhầm tên (và nền tảng) của một khách hàng cho trang.</para>
+    ///
+    /// <para>Trang khớp mà không kèm <c>platform</c> thì vế đó về null — thân của Pancake không
+    /// phải chỗ nào cũng có trường này, và trống thì thà im còn hơn đoán.</para>
+    /// </summary>
+    public static (string? Name, string? Platform) DocThongTinTrang(string? rawJson, string pageId)
+    {
+        if (string.IsNullOrWhiteSpace(rawJson) || string.IsNullOrWhiteSpace(pageId)) return (null, null);
+        JsonNode? goc;
+        try { goc = JsonNode.Parse(rawJson!); } catch { return (null, null); }
+        return Luc(goc, pageId, 0) ?? (null, null);
+
+        static (string?, string?)? Luc(JsonNode? nut, string pageId, int sau)
         {
             if (nut is null || sau > 12) return null;   // chặn cây lồng sâu bất thường
             switch (nut)
             {
                 case JsonObject o:
                     if (o["id"]?.ToString() == pageId
-                        && o["name"]?.ToString() is { Length: > 0 } ten) return ten;
+                        && o["name"]?.ToString() is { Length: > 0 } ten)
+                        return (ten, o["platform"]?.ToString() is { Length: > 0 } nt ? nt : null);
                     foreach (var kv in o)
                         if (Luc(kv.Value, pageId, sau + 1) is { } t) return t;
                     return null;

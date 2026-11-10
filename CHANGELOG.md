@@ -13,6 +13,35 @@ Những cập nhật gần đây của TRAV-AI, viết cho người dùng. Mới
 
 ---
 
+## Phiên bản 10/11/2026 — Hộp thư chat: rõ nguồn khách, đủ ảnh, tắt được kênh chưa dùng
+
+### ✨ Tính năng mới
+- **Hộp thư nói rõ khách nhắn từ đâu.** Hội thoại đi qua Pancake trước đây chỉ hiện chữ "Pancake"
+  — không biết khách tới từ Facebook, Zalo hay TikTok, trong khi đó là thứ quyết định cách xưng hô
+  và thời hạn còn được phép trả lời. Nay danh sách hiện thẳng dấu hiệu của nền tảng thật, và dòng
+  tiêu đề trên khung chat ghi đủ "Pancake · Facebook · tên Trang".
+- **Lọc theo Trang cũng thấy nền tảng.** Khi một kênh có nhiều Trang, mỗi nút lọc nay mang dấu
+  hiệu nền tảng của Trang đó, nên hai Trang tên gần giống nhau không còn bị lẫn.
+- **Tắt bớt kênh chat công ty chưa dùng.** Quản trị có thể tắt những kênh công ty chưa mở — ví dụ
+  Facebook khi chưa xin được Facebook chấp thuận, và tin Facebook đang đi vòng qua Pancake. Kênh
+  đã tắt sẽ không còn ô lọc riêng trong hộp thư và không còn hiện ở màn hình kết nối, nên nhân
+  viên không bấm nhầm vào một kênh chưa nối được.
+
+### 🔧 Đã khắc phục
+- **Thiếu ảnh đại diện khách ở danh sách hội thoại.** Với hội thoại qua Pancake, ảnh khách hiện
+  trong khung chat nhưng danh sách bên trái lại chỉ hiện chữ cái đầu — và chỉ xảy ra với một số
+  người, nên rất khó nhận ra. Nay ảnh được lấy ngay từ lúc nhận tin và lưu về kho riêng, nên
+  danh sách hiện đúng ảnh như trên Pancake.
+- Ảnh của những khách đang bị thiếu sẽ tự hiện lại **ngay khi người đó nhắn tin tiếp theo** — bạn
+  không phải làm gì cả.
+
+### 📌 Lưu ý
+- **Tắt một kênh KHÔNG làm mất tin nhắn cũ.** Mọi hội thoại đã có vẫn nằm trong mục "Tất cả" và
+  vẫn trả lời bình thường — chỉ riêng ô lọc của kênh đó biến mất.
+- Bật lại chỉ là một dòng trong cấu hình máy chủ, không phải cài đặt lại phần mềm.
+
+---
+
 ## Phiên bản 06/11/2026 — AI Import NCC: file dài không còn hỏng cả lượt
 
 ### 🔧 Đã khắc phục
@@ -23,6 +52,13 @@ Những cập nhật gần đây của TRAV-AI, viết cho người dùng. Mới
 - **Thông báo lỗi nói được việc cần làm.** Khi dịch vụ AI từ chối, thay vì một dòng tên kỹ thuật,
   nay hiện đúng tình huống: file quá dài thì bảo tách bớt trang, hết hạn mức thì bảo chờ, khoá
   hỏng thì bảo báo quản trị.
+- **Lỗi hiện ra một dòng tiếng Anh khó hiểu — chỉ trên bản chạy thật.** Khi AI từ chối file, lời
+  giải thích bị thay mất trên đường về trình duyệt, nên màn hình chỉ còn một dòng tiếng Anh về
+  dấu ngoặc nhọn. Thử ở máy nội bộ thì vẫn thấy đúng lý do, nên lỗi này rất khó nhận ra. Nay lý
+  do thật về được tới màn hình trên cả bản chạy thật.
+- **Khi mạng chen ngang thì nói rõ là mạng.** Lượt tải file bị chặn hoặc bị cắt giữa chừng nay
+  hiện đúng tình huống (xử lý quá lâu nên bị cắt, hệ thống vừa khởi động lại, file quá nặng bị
+  chặn từ ngoài…) kèm **mã tra cứu** để bạn gửi cho kỹ thuật tìm đúng lượt đó.
 
 ### 📌 Lưu ý
 - Lúc bóc file dài, bảng kết quả có thể **thiếu dòng ở cuối** — phần nhắc trên màn hình sẽ nói rõ.

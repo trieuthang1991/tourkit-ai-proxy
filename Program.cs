@@ -238,6 +238,10 @@ app.UseMiddleware<TourkitAiProxy.Services.Logging.RequestLoggingMiddleware>();
 // UseExceptionHandler → sink cuối cho unhandled exception. Đặt SAU 2 middleware trên
 // để error log kèm RequestId + tenant. GlobalExceptionHandler (IExceptionHandler) đã DI.
 app.UseExceptionHandler();
+// Đổi 502/504 → 422 trước khi ra khỏi tiến trình. Cloudflare THAY thân phản hồi của hai status
+// đó bằng trang HTML của nó, nuốt mất JSON báo lỗi của mình → giao diện chỉ còn
+// "Unexpected token '<'". Đặt SỚM để trùm mọi endpoint; chi tiết trong CdnSafeStatusMiddleware.
+app.UseMiddleware<TourkitAiProxy.Services.Http.CdnSafeStatusMiddleware>();
 
 // ─── HTTPS pipeline (phải ở SỚM nhất — trước CORS/routing) ──────────────────
 // UseForwardedHeaders TRƯỚC mọi thứ khác → Request.Scheme/Request.Host correct ngay từ đầu.

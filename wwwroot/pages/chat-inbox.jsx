@@ -42,6 +42,39 @@
   };
   const KENH_SONG = [0, 1, 4, 5, 6, 3, 8];   // kênh đã nối thật; Web chỉ hiện khi có dữ liệu
 
+  // Nền tảng THẬT bên dưới một cổng gom. Chỉ hội thoại Pancake mới có, vì chỉ Pancake là cổng gom:
+  // nó nhận hộ Facebook, Instagram, TikTok, Zalo rồi đổ chung về đây. Huy hiệu "P" nói đúng đường
+  // tin đi nhưng không nói được thứ người trực cần biết — khách này nhắn từ Facebook hay từ Zalo.
+  //
+  // Khoá viết THƯỜNG vì giá trị do Pancake trả về, không có gì bảo đảm kiểu chữ; chỗ tra luôn hạ
+  // về chữ thường trước. Nền tảng lạ (Pancake thêm kênh mới) thì KHÔNG bỏ qua — hiện nguyên chữ
+  // nhà cung cấp trả, còn hơn im lặng nuốt mất rồi người trực tưởng là Facebook.
+  const NEN_TANG = {
+    facebook:  { ten: 'Facebook',  chu: 'f' },
+    messenger: { ten: 'Facebook',  chu: 'f' },
+    instagram: { ten: 'Instagram', hinh: 'instagram' },
+    tiktok:    { ten: 'TikTok',    hinh: 'tiktok' },
+    zalo:      { ten: 'Zalo',      chu: 'Z' },
+    whatsapp:  { ten: 'WhatsApp',  hinh: 'whatsapp' },
+  };
+
+  // Huy hiệu nên vẽ gì: nền tảng thật nếu biết, không thì chính kênh.
+  function huyHieuCua(kenh, nenTang) {
+    const n = nenTang && NEN_TANG[String(nenTang).trim().toLowerCase()];
+    return n || KENH[kenh] || null;
+  }
+
+  // Chữ mô tả nguồn: "Pancake · Facebook" khi đi qua cổng gom, "Zalo" khi kênh tự nó là nền tảng.
+  // Giữ CẢ HAI vế cho hội thoại qua cổng: bỏ "Pancake" đi thì người trực tưởng đang nối thẳng
+  // Facebook, rồi đi tìm Trang đó trong màn hình kết nối Facebook mà không bao giờ thấy.
+  function moTaNguon(kenh, nenTang) {
+    const tenKenh = KENH[kenh]?.ten;
+    const raw = nenTang && String(nenTang).trim();
+    if (!raw) return tenKenh;
+    const ten = NEN_TANG[raw.toLowerCase()]?.ten || (raw[0].toUpperCase() + raw.slice(1));
+    return tenKenh && ten !== tenKenh ? tenKenh + ' · ' + ten : (ten || tenKenh);
+  }
+
   const TRANG_THAI = [
     { v: null, nhan: 'Tất cả' },
     { v: 0, nhan: 'Mới' },
@@ -125,12 +158,16 @@
     return <span className="ci-avt" style={style}>{chuDau(ten)}</span>;
   }
 
-  function HuyHieuKenh({ kenh, day }) {
-    const k = KENH[kenh];
+  function HuyHieuKenh({ kenh, day, nenTang }) {
+    const k = huyHieuCua(kenh, nenTang);
     if (!k) return null;
     // Hình vẽ theo cỡ chữ quanh nó nên nằm cùng hàng với chữ ký Z/f, không nhảy dòng.
+    //
+    // Nhãn tooltip dùng moTaNguon chứ không dùng k.ten: huy hiệu vẽ Facebook mà rê chuột cũng chỉ
+    // hiện "Facebook" thì mất hẳn thông tin tin này vào qua Pancake.
     return (
-      <span className={'ci-hh' + (day ? ' day' : '') + (k.hinh ? ' hinh' : '')} title={k.ten}>
+      <span className={'ci-hh' + (day ? ' day' : '') + (k.hinh ? ' hinh' : '')}
+            title={moTaNguon(kenh, nenTang)}>
         {k.hinh ? <window.Icon name={k.hinh} size={13} stroke={1.9} /> : k.chu}
       </span>
     );
@@ -3543,6 +3580,10 @@
     const [dsach, setDsach] = useState([]);
     const [dem, setDem] = useState({ moi: 0, dangXuLy: 0, daDong: 0, chuaDoc: 0, tong: 0 });
     const [demKenh, setDemKenh] = useState({});
+    // Kênh máy chủ nói là đang tắt ở bản cài đặt này. Rỗng cho tới lượt tải đầu tiên — thà hiện
+    // thừa một tab trong nửa giây rồi nó biến mất, còn hơn giấu nhầm kênh đang chạy thật mỗi lần
+    // mạng chập chờn.
+    const [kenhAn, setKenhAn] = useState([]);
     const [loc, setLoc] = useState(null);          // trạng thái xử lý
     const [kenhLoc, setKenhLoc] = useState(null);  // kênh
     // Lọc tới MỘT tài khoản trong kênh (một Trang Pancake, một OA Zalo…). null = mọi tài khoản.
@@ -3551,6 +3592,7 @@
     const [taiKhoanLoc, setTaiKhoanLoc] = useState(null);
     const [demTaiKhoan, setDemTaiKhoan] = useState({});   // "{kênh}:{mã}" -> số hội thoại
     const [tenTaiKhoan, setTenTaiKhoan] = useState({});   // "{kênh}:{mã}" -> tên gợi nhớ
+    const [nenTangTaiKhoan, setNenTangTaiKhoan] = useState({}); // "{kênh}:{mã}" -> nền tảng thật
 
     // Các trang/tài khoản của kênh ĐANG CHỌN. Chưa chọn kênh thì không dựng dải này: gộp trang của
     // mọi kênh vào một hàng thì "Fanpage Hà Nội" (Pancake) nằm cạnh "OA Hà Nội" (Zalo) mà không có
@@ -3565,9 +3607,10 @@
       Object.keys(tenTaiKhoan).forEach(k => { if (k.startsWith(tien)) ma.add(k.slice(tien.length)); });
       Object.keys(demTaiKhoan).forEach(k => { if (k.startsWith(tien)) ma.add(k.slice(tien.length)); });
       return [...ma]
-        .map(id => ({ id, ten: tenTaiKhoan[tien + id] || id, so: demTaiKhoan[tien + id] || 0 }))
+        .map(id => ({ id, ten: tenTaiKhoan[tien + id] || id, so: demTaiKhoan[tien + id] || 0,
+                      nenTang: nenTangTaiKhoan[tien + id] || null }))
         .sort((a, b) => b.so - a.so || a.ten.localeCompare(b.ten, 'vi'));
-    }, [kenhLoc, tenTaiKhoan, demTaiKhoan]);
+    }, [kenhLoc, tenTaiKhoan, demTaiKhoan, nenTangTaiKhoan]);
 
     // Đổi kênh thì BỎ lọc trang: mã trang gắn với kênh cũ, giữ lại là lọc ra danh sách trống mà
     // không có gì trên màn hình nói vì sao.
@@ -3758,8 +3801,10 @@
         }
         setDem(j.counts || {});
         setDemKenh(j.channelCounts || {});
+        setKenhAn(j.hiddenChannels || []);
         setDemTaiKhoan(j.accountCounts || {});
         setTenTaiKhoan(j.accountLabels || {});
+        setNenTangTaiKhoan(j.accountPlatforms || {});
       } catch (e) {
         // Không toast mỗi lần hỏng: trang còn đường lùi tự hỏi lại, mạng chập chờn là spam ngay.
       } finally { setDangTai(false); }
@@ -4111,12 +4156,25 @@
     const cuaSo = chiTiet?.sendWindow;
     const khoaSoan = !cuaSo?.open;
 
-    // Kênh nào hiện trên dải: ba kênh đã nối, cộng kênh nào đang có dữ liệu thật.
+    // Kênh nào hiện trên dải: các kênh đã nối, cộng kênh nào đang có dữ liệu thật, TRỪ kênh máy
+    // chủ đang tắt.
+    //
+    // Trừ phải làm SAU CÙNG, sau cả bước cộng kênh-có-dữ-liệu: kênh tắt mà còn hội thoại cũ thì
+    // chính vế cộng đó kéo tab quay lại: ẩn xong vẫn thấy tab Facebook là đúng triệu chứng này.
+    // Hội thoại cũ không mất — chúng vẫn nằm trong mục "Tất cả", chỉ không còn tab lọc riêng.
     const kenhHien = useMemo(() => {
       const co = new Set(KENH_SONG);
       Object.keys(demKenh).forEach(k => { if (demKenh[k] > 0) co.add(Number(k)); });
+      kenhAn.forEach(k => co.delete(Number(k)));
       return [...co].sort((a, b) => a - b);
-    }, [demKenh]);
+    }, [demKenh, kenhAn]);
+
+    // Đang lọc theo một kênh rồi kênh đó bị tắt (quản trị đổi cấu hình lúc màn hình đang mở) thì
+    // nhả bộ lọc ra. Không nhả thì danh sách trống trơn mà cái tab đang bật đã biến mất — không
+    // còn chỗ nào bấm để thoát.
+    useEffect(() => {
+      if (kenhLoc !== null && kenhAn.includes(kenhLoc)) setKenhLoc(null);
+    }, [kenhAn, kenhLoc]);
 
     // Tải tệp lên kho TRƯỚC, gửi sau — hai bước tách nhau để nhân viên xem trước ảnh rồi mới bấm
     // gửi thật, giống mọi app chat khác. Gửi thẳng lúc chọn tệp thì lỡ tay là khách nhận ngay.
@@ -4684,8 +4742,13 @@
                           onClick={() => setTaiKhoanLoc(null)}>Tất cả</button>
                   {trangCuaKenh.map(t => (
                     <button key={t.id} className={taiKhoanLoc === t.id ? 'on' : ''}
-                            title={t.ten + ' · ' + (t.so || 0) + ' hội thoại'}
+                            title={moTaNguon(kenhLoc, t.nenTang) + ' · ' + t.ten
+                                   + ' · ' + (t.so || 0) + ' hội thoại'}
                             onClick={() => setTaiKhoanLoc(taiKhoanLoc === t.id ? null : t.id)}>
+                      {/* Dải này chỉ mọc khi kênh có từ 2 trang trở lên — mà với Pancake, hai
+                          trang đó hay thuộc hai nền tảng khác nhau. Thiếu huy hiệu thì "Hà Nội"
+                          và "Hà Nội 2" nằm cạnh nhau không nói được cái nào là Facebook. */}
+                      {t.nenTang && <HuyHieuKenh kenh={kenhLoc} nenTang={t.nenTang} />}
                       <span className="ci-ct-ten">{t.ten}</span>
                       {t.so > 0 && <b>{t.so}</b>}
                     </button>
@@ -4748,7 +4811,7 @@
                         hiện "TT" trong khi đầu khung chat ngay cạnh hiện ảnh thật của cùng khách. */}
                     <AnhDaiDien ten={c.displayName || c.contactExternalId}
                                 url={c.avatarUrl} co={36} />
-                    <HuyHieuKenh kenh={c.channel} />
+                    <HuyHieuKenh kenh={c.channel} nenTang={c.accountPlatform} />
                   </span>
                   {/* HAI hàng, không phải ba — học cách Messenger xếp danh sách: tên + giờ, rồi
                       dòng xem trước, hết. Bản trước có thêm một hàng huy hiệu CHỮ ("Đang xử lý" ·
@@ -4935,7 +4998,7 @@
                           chữ thứ năm trong một chuỗi nối bằng dấu chấm giữa, đọc lướt không thấy,
                           mà lại là thứ duy nhất trong chuỗi có thể ĐỔI được. Chip vừa nói rõ hơn
                           vừa là lối vào chỗ đổi nó. */}
-                      <em>{[KENH[v.channel]?.ten, v.accountLabel, TEN_TRANG_THAI[v.status],
+                      <em>{[moTaNguon(v.channel, v.accountPlatform), v.accountLabel, TEN_TRANG_THAI[v.status],
                            (phanCong.allStaffs || phanCong.staffs || []).find(nv => nv.id === v.assignedUserId)?.name
                              || v.assignedUsername || 'chưa ai nhận'].filter(Boolean).join(' · ')}</em>
                     </span>

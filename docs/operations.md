@@ -70,6 +70,34 @@ Sidebar, sub-router, auth gate tự pick up. KHÔNG cần đụng `Program.cs`, 
 
 **Không log**: JWT (có trong session raw), password, email body, phone number đầy đủ.
 
+## Cloudflare nuốt thân phản hồi 502/504
+
+Bản chạy thật đứng sau Cloudflare (`Server: cloudflare` trong header của travelai.vn). Cloudflare
+coi **502 và 504** là lỗi cổng nối của chính nó, nên **vứt thân phản hồi của máy chủ gốc** và phục
+vụ trang HTML của nó thay vào. Đo ngày 06/11/2026:
+
+| App trả | Người dùng nhận |
+|---|---|
+| `500` + `{"error":"…"}` | nguyên văn JSON — Cloudflare cho qua |
+| `502` + `{"error":"…"}` | `text/html` 6.390 byte, `<title>travelai.vn \| 502: Bad gateway</title>` |
+
+Hậu quả: mọi `r.json()` ở giao diện ném `Unexpected token '<', "<!DOCTYPE "…`, nuốt mất lý do thật.
+**Máy dev không có Cloudflare nên JSON về nguyên vẹn** — lỗi chỉ lộ trên bản chạy thật, và lộ dưới
+dạng một câu hoàn toàn không liên quan đến nguyên nhân.
+
+Hai lớp chặn, đã có sẵn, **đừng gỡ**:
+
+1. [CdnSafeStatusMiddleware](../TourkitAiProxy.Services/Http/CdnSafeStatusMiddleware.cs) đổi
+   502/504 thành **422** ngay trước lúc đẩy header đi, giữ status gốc ở header
+   `X-Upstream-Status`. Endpoint cứ viết `statusCode: 502` như cũ, không phải nhớ gì.
+2. `window.tourkitUtil.jsonHoacLoi(response)` ở [wwwroot/lib/util.js](../wwwroot/lib/util.js) —
+   dùng THAY CHO `r.json()` ở mọi chỗ gọi API. Đọc text rồi mới parse; không parse được thì dựng
+   câu nêu status, nguyên nhân hay gặp, `<title>` của trang lỗi và mã `CF-RAY` để tra.
+
+Khi thêm status mới cho phản hồi lỗi: tránh 502/504; cần báo "dịch vụ ngoài hỏng" thì dùng 422
+hoặc 500. Muốn đổi bảng trong `CanThay` thì **đo trước** bằng `curl -D -` qua tên miền thật, đừng
+suy đoán — mỗi status đổi đi là một ý nghĩa HTTP bị mất.
+
 ## Code lookup (CodeGraph MCP)
 
 Khi câu hỏi liên quan đến **cấu trúc code** (callers/callees, "X dùng ở đâu", flow nghiệp vụ, blast-radius trước khi đổi tên), **PHẢI dùng CodeGraph trước** `Grep`/`Glob`. CodeGraph chạy trên knowledge graph SQLite build sẵn (auto-sync khi sửa file) → nhanh hơn nhiều lần so với re-scan file, bắt đúng symbol thay vì khớp text mù, và trả luôn source code kèm số dòng.

@@ -460,6 +460,55 @@ public class PancakeAdapterTests
     public void Khong_doan_bua_ten_trang(string? json)
         => Assert.Null(PancakeChatAdapter.DocTenTrang(json, Page));
 
+    // ── Nền tảng thật của trang (10/11/2026) ─────────────────────────────────
+    // Pancake là CỔNG GOM: hội thoại hiện huy hiệu "Pancake" thì người trực không biết khách nhắn
+    // từ Facebook hay từ Zalo — mà đó là thứ quyết định giọng trả lời và hạn trả lời.
+
+    [Fact]
+    public void Doc_duoc_nen_tang_cua_dung_trang_do()
+    {
+        var (ten, nenTang) = PancakeChatAdapter.DocThongTinTrang(
+            "{\"conversations\":[{\"id\":\"c1\",\"from\":{\"id\":\"" + Page
+            + "\",\"name\":\"Ho tro ki thuat\",\"platform\":\"facebook\"}}]}", Page);
+
+        Assert.Equal("Ho tro ki thuat", ten);
+        Assert.Equal("facebook", nenTang);
+    }
+
+    /// Nền tảng của KHÁCH không được gán cho trang — cùng cái bẫy đã có với tên.
+    [Fact]
+    public void Khong_lay_nen_tang_cua_khach_gan_cho_trang()
+    {
+        var (ten, nenTang) = PancakeChatAdapter.DocThongTinTrang(
+            "{\"posts\":["
+            + "{\"id\":\"p1\",\"from\":{\"id\":\"" + Khach + "\",\"name\":\"Khach La\",\"platform\":\"tiktok\"}},"
+            + "{\"id\":\"p2\",\"from\":{\"id\":\"" + Page + "\",\"name\":\"nF store VN\",\"platform\":\"zalo\"}}]}", Page);
+
+        Assert.Equal("nF store VN", ten);
+        Assert.Equal("zalo", nenTang);
+    }
+
+    /// Thân không kèm platform là chuyện BÌNH THƯỜNG — về null, giao diện lùi về hiện "Pancake".
+    /// Đoán bừa "facebook" vì đa số trang là Facebook thì sai một lần là sai vĩnh viễn, mà không
+    /// có gì trên màn hình nói rằng đó chỉ là phỏng đoán.
+    [Fact]
+    public void Thieu_platform_thi_null_chu_khong_doan()
+    {
+        var (ten, nenTang) = PancakeChatAdapter.DocThongTinTrang(
+            "{\"conversations\":[{\"id\":\"c1\",\"from\":{\"id\":\"" + Page
+            + "\",\"name\":\"Ho tro ki thuat\"}}]}", Page);
+
+        Assert.Equal("Ho tro ki thuat", ten);
+        Assert.Null(nenTang);
+    }
+
+    [Theory]
+    [InlineData("khong phai json")]
+    [InlineData("")]
+    [InlineData(null)]
+    public void Than_hong_thi_ca_hai_ve_deu_null(string? json)
+        => Assert.Equal((null, null), PancakeChatAdapter.DocThongTinTrang(json, Page));
+
     /// Trang có mã trùng nhưng KHÔNG có tên thì vẫn phải trả null, không trả chuỗi rỗng.
     [Fact]
     public void Ma_trung_ma_khong_co_ten_thi_null()

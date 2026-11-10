@@ -175,6 +175,49 @@ public class ChannelCredentialStore
     }
 
     /// <summary>
+    /// Bản đồ (kênh, mã tài khoản) → <b>nền tảng thật</b> của tài khoản đó. MỘT truy vấn cho mọi kênh.
+    ///
+    /// <para>Chỉ Pancake có giá trị ở đây, và đó là lý do nó tồn tại: Pancake là CỔNG GOM, một
+    /// "tài khoản" của nó là một Trang có thể thuộc Facebook, Instagram, TikTok hay Zalo. Huy hiệu
+    /// kênh nói "Pancake" là nói đúng đường đi nhưng sai thứ người trực cần biết — họ cần biết
+    /// khách đang nhắn từ Facebook hay từ Zalo để chọn giọng và biết hạn trả lời.</para>
+    ///
+    /// <para>KHÔNG lùi về mã tài khoản khi thiếu như <see cref="ChonTenTrang"/> làm với tên: thiếu
+    /// nền tảng thì để null, giao diện hiện đúng "Pancake" như trước. Bịa ra một nền tảng là nói
+    /// dối người trực về nguồn gốc của khách — tệ hơn hẳn việc im lặng.</para>
+    ///
+    /// <para>Đọc hỏng thì trả RỖNG, không ném — cùng lý do với <see cref="LabelMapAsync"/>.</para>
+    /// </summary>
+    public async Task<Dictionary<(short Kenh, string AccountId), string>> PlatformMapAsync(
+        string tenantId, CancellationToken ct = default)
+    {
+        var ra = new Dictionary<(short, string), string>();
+        try
+        {
+            await using var c = await _db.OpenAsync(ct);
+            var hang = (await c.QueryAsync<(string Channel, string ConfigJson)>(
+                "SELECT Channel, ConfigJson FROM dbo.TenantChannelSettings WHERE TenantId=@t",
+                new { t = tenantId })).ToList();
+
+            foreach (var kenh in Enum.GetValues<ChatChannel>())
+            {
+                var tienTo = KeyOf(kenh) + ":";
+                foreach (var h in hang.Where(h => h.Channel.StartsWith(tienTo, StringComparison.Ordinal)))
+                {
+                    var nenTang = Decode(h.ConfigJson).GetValueOrDefault("platform");
+                    if (!string.IsNullOrWhiteSpace(nenTang))
+                        ra[((short)kenh, h.Channel[tienTo.Length..])] = nenTang!.Trim();
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            _log.LogWarning(ex, "[chat/cred] đọc nền tảng trang hỏng, tenant={T} — bỏ trống", tenantId);
+        }
+        return ra;
+    }
+
+    /// <summary>
     /// Tài khoản này thuộc công ty nào. Dùng cho webhook DÙNG CHUNG: khi TourKit sở hữu một ứng
     /// dụng Zalo cho mọi khách hàng thì <c>app_id</c> giống hệt nhau ở mọi công ty, nên không còn
     /// phân biệt được bằng nó nữa — phải tra ngược từ id của OA.

@@ -893,7 +893,7 @@ public static class ChatInboxEndpoints
             // nghĩa khi đã chọn kênh; không chọn kênh mà truyền mã tài khoản thì vẫn chạy đúng vì
             // mã tài khoản là duy nhất trong phạm vi công ty.
             string? accountId,
-            string? tag, string? cursor, CancellationToken ct) =>
+            string? tag, string? cursor, IConfiguration cfg, CancellationToken ct) =>
         {
             var p = await SessionAuth.ReadNguoiXemAsync(ctx, sessions, ct);
             if (p == null) return SessionAuth.Unauthorized();
@@ -954,9 +954,12 @@ public static class ChatInboxEndpoints
             // Tên Trang/OA: MỘT lượt tra cho cả trang danh sách, không phải mỗi dòng một lượt.
             // Rỗng là chuyện bình thường (công ty một Trang mỗi kênh) chứ không phải lỗi.
             var tenTrang = await cred.LabelMapAsync(a.TenantId, ct);
+            // Nền tảng thật của từng Trang Pancake. MỘT lượt đọc cho cả trang danh sách — đừng
+            // đưa nó vào vòng lặp dựng dòng, đó là N+1 trên đúng đường nóng nhất của hộp thư.
+            var nenTangTk = await cred.PlatformMapAsync(a.TenantId, ct);
             return Results.Json(new
             {
-                items = items.Select(x => Shape(x, a.SessionId, tenTrang)),
+                items = items.Select(x => Shape(x, a.SessionId, tenTrang, nenTangTk)),
                 counts = new
                 {
                     moi = dem.TheoTrangThai.GetValueOrDefault((short)0),
@@ -967,13 +970,25 @@ public static class ChatInboxEndpoints
                 },
                 // Dải kênh bên trái: kênh nào có bao nhiêu hội thoại. Khoá là số của ChatChannel.
                 channelCounts = dem.TheoKenh.ToDictionary(k => k.Key.ToString(), k => k.Value),
+                // Kênh bản cài đặt này KHÔNG mời nối (xem ChatChannelVisibility) — giao diện bỏ khỏi
+                // dải tab. Trả ở ĐÂY chứ không ở /channels vì đường kia đòi quyền cấu hình hệ thống,
+                // mà nhân viên trực bình thường không có; đường này thì mỗi lần mở hộp thư đều gọi,
+                // nên không tốn thêm lượt đi-về nào.
+                //
+                // Hội thoại CŨ của kênh ẩn vẫn nằm trong danh sách "Tất cả" và vẫn trả lời được:
+                // giấu cái tab không được phép chôn tin nhắn thật của khách.
+                hiddenChannels = Services.Chat.ChatChannelVisibility.Hidden(cfg)
+                    .Select(x => (short)x).OrderBy(x => x).ToArray(),
                 // Số hội thoại theo TỪNG tài khoản ("{kênh}:{mã}") + tên gợi nhớ, để giao diện dựng
                 // dải trang mà không phải gọi thêm một lượt sang /channels (đường đó đòi quyền cấu
                 // hình hệ thống — nhân viên trực bình thường không có).
                 accountCounts = dem.TheoTaiKhoan,
-                accountLabels = await cred.LabelMapAsync(a.TenantId, ct) is { } nhan
-                    ? nhan.ToDictionary(x => x.Key.Kenh + ":" + x.Key.AccountId, x => x.Value)
-                    : new Dictionary<string, string>(),
+                // Dùng LẠI bản đồ đã đọc ở trên. Trước đây chỗ này gọi LabelMapAsync lần thứ
+                // hai trong cùng một request — đọc lại y hệt những dòng vừa đọc xong.
+                accountLabels = tenTrang.ToDictionary(x => x.Key.Kenh + ":" + x.Key.AccountId, x => x.Value),
+                // Nền tảng thật theo tài khoản, cùng khoá "{kênh}:{mã}" — để dải Trang và bộ lọc
+                // hiện được phù hiệu Facebook/Zalo chứ không phải chữ P chung chung.
+                accountPlatforms = nenTangTk.ToDictionary(x => x.Key.Kenh + ":" + x.Key.AccountId, x => x.Value),
                 // Kẹp CẢ HAI luật: quyền CH_HT_XEM cũ (xemHet) VÀ luật phân công mới (xem.XemTatCa).
                 // Chỉ báo "toàn công ty" khi cả hai cùng cho phép — thiếu vế nào cũng là giao diện nói
                 // dối, vì dữ liệu trả về đã bị vế còn lại kẹp hẹp hơn rồi.
@@ -1074,7 +1089,8 @@ public static class ChatInboxEndpoints
                 DateTime.UtcNow, ChatSender.Agent);
             return Results.Json(new
             {
-                conversation = Shape(v, a.SessionId, await cred.LabelMapAsync(a.TenantId, ct)),
+                conversation = Shape(v, a.SessionId, await cred.LabelMapAsync(a.TenantId, ct),
+                                     await cred.PlatformMapAsync(a.TenantId, ct)),
                 // Hồ sơ khách cho panel bên phải. Chỉ những gì kênh thật sự cho biết — chưa nối CRM
                 // nên crmCustomerId còn trống, giao diện nói thẳng điều đó thay vì bịa một thẻ khách.
                 contact = lienHe is null ? null : new
@@ -2702,6 +2718,7 @@ public static class ChatInboxEndpoints
             if (a == null) return SessionAuth.Unauthorized();
             if (!await SessionAuth.CanConfigSystemAsync(a.SessionId, sessions, ct))
                 return SessionAuth.ForbiddenConfigSystem();
+            if (ChanKenhAn(cfg, (ChatChannel)channel) is { } an) return an;
             // accountId để TRỐNG ở cả hai nhánh: chưa biết OA/Trang nào cho tới lúc nhà cung cấp
             // trả hồ sơ về. Mã tài khoản sẽ là chính id OA / id Trang.
             if ((ChatChannel)channel == ChatChannel.Zalo)
@@ -2771,6 +2788,7 @@ public static class ChatInboxEndpoints
             if (a == null) return SessionAuth.Unauthorized();
             if (!await SessionAuth.CanConfigSystemAsync(a.SessionId, sessions, ct))
                 return SessionAuth.ForbiddenConfigSystem();
+            if (ChanKenhAn(cfg, (ChatChannel)channel) is { } an) return an;
             if ((ChatChannel)channel != ChatChannel.Zalo)
                 return Results.BadRequest(new { error = "Chỉ Zalo OA mới có bước cấp quyền này" });
 
@@ -3029,8 +3047,12 @@ public static class ChatInboxEndpoints
             // — sáu lượt đi-về SQL Server nối tiếp, đo được 195–227ms trong khi mọi đường chat khác
             // dưới 10ms. Đừng đưa lượt đọc trở lại vào vòng lặp.
             var moiKenh = await cred.ListAllAccountsAsync(a.TenantId, ct);
+            var kenhAn = Services.Chat.ChatChannelVisibility.Hidden(cfg);
             foreach (var (kenh, ten, tenNgan, oNhap, moiTaiKhoanMotUrl) in KhaiBao)
             {
+                // Kênh đang ẩn thì không bày mục khai của nó ra. Bày ra là mời người dùng đi nối
+                // một kênh mà hệ thống sẽ từ chối ở bước sau — xem ChanKenhAn.
+                if (kenhAn.Contains(kenh)) continue;
                 var dsach = moiKenh.GetValueOrDefault(kenh) ?? new List<ChatAccount>();
                 var nhanh = kenh switch
                 {
@@ -3125,6 +3147,12 @@ public static class ChatInboxEndpoints
                                  is { Length: > 0 } idTrang ? idTrang
                                  : t.GiaTri.GetValueOrDefault("botId", ""),
                         configured = IsFullyConfigured(kenh, t.GiaTri, nhanh),
+                        // Nền tảng THẬT của trang — chỉ Pancake có, vì chỉ nó là cổng gom. Đã ghi
+                        // sẵn lúc nối (xem /channels/pancake/connect) nhưng trước đây không trả ra,
+                        // nên màn hình khai kết nối liệt kê một loạt trang mà không nói nổi trang
+                        // nào là Facebook, trang nào là Zalo.
+                        platform = t.GiaTri.GetValueOrDefault("platform", "") is { Length: > 0 } nt
+                                   ? nt : null,
                         webhookUrl = moiTaiKhoanMotUrl ? $"{duong}/{t.AccountId}" : duong,
                         // Giá trị điền sẵn khi sửa — CHỈ trường không phải bí mật. Bí mật thì
                         // tuyệt đối không trả ra: giao diện để trống, gửi rỗng = giữ nguyên.
@@ -3180,11 +3208,14 @@ public static class ChatInboxEndpoints
                 // GuessPageNameAsync) — phải lấy gián tiếp qua thứ do chính trang tạo ra. Đoán hụt
                 // thì để trống cho người khai tự gõ, KHÔNG bịa: một cái nhãn sai trong hộp thư thì
                 // sau này không ai truy được nó từ đâu ra.
-                var tenDoan = await pc.GuessPageNameAsync(pageId, token, ct);
+                var (tenDoan, nenTangDoan) = await pc.GuessPageInfoAsync(pageId, token, ct);
                 return Results.Json(new
                 {
                     tokenType = "page",
-                    pages = new[] { new { id = pageId, name = tenDoan, platform = (string?)null,
+                    // Nền tảng lấy LUÔN ở đây chứ không để null như trước: trang nối bằng khoá
+                    // một-trang vì thế không còn mù nguồn, hội thoại của nó hiện được "Pancake ·
+                    // Facebook" thay vì mỗi chữ "Pancake". Đoán hụt thì vẫn null, không bịa.
+                    pages = new[] { new { id = pageId, name = tenDoan, platform = nenTangDoan,
                                           pageAccessToken = token } }
                 }, Web);
             }
@@ -3327,6 +3358,7 @@ public static class ChatInboxEndpoints
                 return SessionAuth.ForbiddenConfigSystem();
             if (!Enum.IsDefined(typeof(ChatChannel), (short)channel))
                 return Results.BadRequest(new { error = "Kênh không hợp lệ" });
+            if (ChanKenhAn(cfg, (ChatChannel)channel) is { } an) return an;
 
             // ⚠️ Pancake BẮT BUỘC lấy page_id làm mã tài khoản, không được sinh ngẫu nhiên: webhook
             // của Pancake dùng chung MỘT đường cho mọi trang và định tuyến ra công ty bằng chính
@@ -3932,6 +3964,21 @@ public static class ChatInboxEndpoints
     /// biết bot nào); Zalo/Messenger nhiều tài khoản chung một URL.</remarks>
     /// <param name="Type">"text" (điền sẵn lại được) · "secret" (KHÔNG bao giờ trả ra client) ·
     /// "note" (chỉ là dòng hướng dẫn, không phải ô nhập).</param>
+    /// <summary>
+    /// Chốt chặn thứ hai cho kênh đang ẩn: KHÔNG cho nối thêm tài khoản mới.
+    ///
+    /// <para>Giấu mục khai khỏi màn hình (xem <c>GET /channels</c>) mới là chặn nửa vời — tab mở
+    /// từ trước lúc đổi cấu hình, bản lưu trong trình duyệt, hay một lệnh gọi thẳng đều đi vòng
+    /// qua được. Nối lén được một Trang là tin khách chảy vào một kênh công ty không định mở.</para>
+    ///
+    /// <para>CHỈ chặn đường NỐI MỚI. Sửa/xoá/nạp lịch sử của tài khoản đã nối vẫn cho qua: ẩn một
+    /// kênh không có nghĩa là nhốt luôn thứ đang chạy — người vận hành còn phải dọn được.</para>
+    /// </summary>
+    private static IResult? ChanKenhAn(IConfiguration cfg, ChatChannel kenh)
+        => Services.Chat.ChatChannelVisibility.IsHidden(cfg, kenh)
+            ? Results.BadRequest(new { error = "Kênh này đang tắt trên hệ thống. Liên hệ quản trị nếu cần mở lại." })
+            : null;
+
     /// <param name="Hint">Chữ mờ trong ô — cho VÍ DỤ về định dạng, không lặp lại nhãn. Ô token
     /// dài mà không có ví dụ thì người khai không biết mình dán đúng thứ chưa.</param>
     private record FieldSpec(string Key, string Label, string Type = "text", string Hint = "");
@@ -4080,14 +4127,18 @@ public static class ChatInboxEndpoints
     }
 
     private static object Shape(ChatConversation v, string sessionId)
-        => Shape(v, sessionId, null);
+        => Shape(v, sessionId, null, null);
 
     /// <param name="tenTrang">Bản đồ (kênh, mã tài khoản) → tên Trang/OA. CHỈ có phần tử khi công
     /// ty nối từ hai tài khoản trở lên trên cùng một kênh — xem
     /// <c>ChannelCredentialStore.ChonTenTrang</c>. Null hoặc không khớp thì <c>accountLabel</c> về
     /// null và giao diện không hiện gì thêm.</param>
+    /// <param name="nenTang">Bản đồ (kênh, mã tài khoản) → nền tảng THẬT, chỉ Pancake có. Xem
+    /// <c>ChannelCredentialStore.PlatformMapAsync</c>. Null/không khớp thì <c>accountPlatform</c>
+    /// về null và giao diện hiện đúng tên kênh như trước.</param>
     private static object Shape(ChatConversation v, string sessionId,
-        IReadOnlyDictionary<(short, string), string>? tenTrang)
+        IReadOnlyDictionary<(short, string), string>? tenTrang,
+        IReadOnlyDictionary<(short, string), string>? nenTang)
     {
         // Mốc đọc RIÊNG của người đang xem. Chưa mở lần nào thì lùi về mốc chung cũ — không thì
         // mọi hội thoại cũ bật lại thành "chưa đọc" cho tất cả mọi người ngay sau khi nâng cấp.
@@ -4132,6 +4183,14 @@ public static class ChatInboxEndpoints
             // không có gì để phân biệt và giao diện bỏ qua.
             accountLabel = tenTrang is not null
                         && tenTrang.TryGetValue((v.Channel, v.AccountId), out var nhanTk) ? nhanTk : null,
+            // Khách đang nhắn TỪ NỀN TẢNG NÀO. Chỉ có giá trị với Pancake — nó là cổng gom, nên
+            // huy hiệu "Pancake" nói đúng đường đi nhưng không nói được thứ người trực cần: khách
+            // này tới từ Facebook hay từ Zalo. Kênh khác đã tự nó là nền tảng nên để null.
+            //
+            // null KHÔNG phải lỗi: trang nối bằng khoá-một-trang đời đầu không ghi được nền tảng
+            // (Pancake không có đường tra). Giao diện lùi về hiện "Pancake" như trước.
+            accountPlatform = nenTang is not null
+                        && nenTang.TryGetValue((v.Channel, v.AccountId), out var nt) ? nt : null,
         };
     }
 

@@ -29,6 +29,61 @@ khách/tour bên SQL Server và **không có giao dịch chung** — ghi tin nh�
 thử lại. Schema ở [`ChatDb.SchemaSql`](../../TourkitAiProxy.Infrastructure/Chat/Inbox/ChatDb.cs); thiếu chuỗi kết nối thì cụm chat
 tự tắt, KHÔNG làm sập app.
 
+### Ảnh đại diện khách ở kênh KHÔNG có đường tra hồ sơ
+
+`ChatInboundService.OneEventAsync` có hai nguồn ảnh, theo thứ tự:
+
+1. `ContactProfileAsync` của adapter — Messenger · Instagram · Telegram · Zalo cài, **Pancake KHÔNG**.
+2. **Chính gói tin webhook** (`InboundChatEvent.SenderAvatarUrl`) — lối duy nhất cho Pancake.
+
+Trước 10/11/2026 chỉ có nguồn (1), nên hồ sơ khách Pancake **không bao giờ** có ảnh: hàng
+`chat_contacts.avatar_url` rỗng vĩnh viễn trong khi `chat_messages.sender_avatar_url` thì đầy
+đủ. Triệu chứng vì thế rất dễ đọc nhầm — bong bóng chat có ảnh (đọc cột của tin), danh sách hội
+thoại thì không (đọc cột của hồ sơ).
+
+⚠️ **Nguồn (2) phải loại TIẾNG VỌNG** (`e.IsEcho`). Tin dội lại do chính Trang gửi, nên ảnh trong
+đó là ảnh Trang; gán vào hồ sơ khách là cả danh sách hiện logo công ty thay cho mặt khách — hỏng
+im lặng, vì trông vẫn "có ảnh".
+
+⚠️ **Đóng mốc `profile_synced_utc` chỉ khi THẬT SỰ cầm được ảnh.** Không đóng thì
+`NeedsContactProfileAsync` luôn trả true (nó đòi mốc không null) → mỗi tin khách nhắn là một lượt
+tải ảnh về kho. Đóng bừa thì ngược lại: gói tin Telegram có tên mà không có ảnh, đóng mốc ở đó là
+tắt hẳn cơ chế soi lại ảnh. `ChatAvatarCamXucGuardTests` canh cả hai phía.
+
+📌 **Chưa làm: vét ảnh cho hồ sơ cũ.** Khách đã có hội thoại từ trước vẫn thiếu ảnh cho tới lượt
+nhắn kế tiếp. Vét được — `chat_messages.sender_avatar_url` còn giữ url — nhưng phần lớn url đó
+đã hết hạn, nên giá trị thật của một lượt vét chưa rõ; đo trước khi làm.
+
+### Tắt bớt kênh theo bản cài đặt — `Chat:HiddenChannels`
+
+Mảng tên kênh trong `appsettings.json`, một nguồn ở
+[`ChatChannelVisibility`](../../TourkitAiProxy.Services/Chat/ChatChannelVisibility.cs). Khai
+`["Messenger", "Instagram"]` thì ba chỗ cùng im: dải tab trong hộp thư, mục khai ở
+`GET /channels`, và mọi đường NỐI MỚI (`connect-url` · `oauth-url` · `POST .../accounts`).
+
+Giao diện biết qua trường `hiddenChannels` của `GET /conversations` — **không** qua
+`/channels`, vì đường đó đòi quyền cấu hình hệ thống mà nhân viên trực không có; đường danh sách
+thì mỗi lần mở hộp thư đều gọi nên không tốn thêm lượt đi-về nào.
+
+⚠️ **Đây KHÔNG phải cờ `Features:*`.** Repo đã bỏ bốn cờ con của chat (`ChatHistoryImport`,
+`ChatAssign`, `ChatCoHoi`, `ChatTourLookup`) vì cờ con cho một điều kiện TẠM THỜI thì điều
+kiện hết mà cờ ở lại. Khoá này là chuyện khác: người vận hành khai bản cài đặt của mình mời những
+kênh nào, giống khai OA hay Trang. Vì thế **thiếu khoá = không ẩn gì** — ngược hướng an toàn của
+`FeatureFlags`, và cố ý: ẩn một kênh không lộ gì cho ai, trong khi mặc định ẩn thì ai quên khai
+lúc deploy là mất sạch kênh đang chạy thật mà không có lấy một dòng log.
+
+⚠️ **Ẩn KHÁC gỡ, và ranh giới đó phải giữ.** Đường nhận tin vẫn chạy nguyên (Meta/Zalo đánh dấu
+một địa chỉ nhận lỗi là hỏng — tới lúc duyệt xong phải đi khai lại từ đầu), và hội thoại cũ vẫn
+đọc/trả lời được ở mục "Tất cả". Ở giao diện, phép trừ phải làm **sau** bước cộng kênh-có-dữ-liệu
+vào `kenhHien`, nếu không chính vế cộng đó kéo tab vừa ẩn quay lại.
+
+⚠️ **Ẩn Messenger thì ẩn Instagram cùng.** Instagram nối THÔNG QUA một Trang Facebook
+(`noiKemKenh`), nên chưa duyệt được Facebook thì tab Instagram cũng chỉ là nút bấm vào không
+nối được.
+
+Sửa/xoá/nạp lịch sử của tài khoản ĐÃ nối thì **không** chặn: ẩn một kênh không có nghĩa là nhốt
+luôn thứ đang chạy, người vận hành còn phải dọn được.
+
 ### Pancake — cổng gom, không phải một nền tảng nhắn tin
 
 Pancake (`pages.fm`) đứng giữa, gom hộp thư Facebook · Instagram · TikTok · Zalo của khách về một
