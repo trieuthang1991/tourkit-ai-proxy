@@ -1,0 +1,68 @@
+using System.Text.Json;
+using TourkitAiProxy.Services.Chat;
+using Xunit;
+
+namespace TourkitAiProxy.Tests.Chat;
+
+/// <summary>
+/// Khóa bộ quy đổi tên → mã dùng chung cho trợ lý và MCP. Danh sách thị trường đưa vào qua seam
+/// nên test không cần phiên TourKit thật.
+/// </summary>
+public class CrmToolRunnerTests
+{
+    private static readonly List<(int, string)> Markets = new()
+    {
+        (1, "Nhật Bản"), (2, "Hàn Quốc"), (3, "Châu Âu"),
+    };
+
+    private static CrmToolRunner Runner()
+        => CrmToolRunner.ForTest(() => Task.FromResult(Markets));
+
+    private static JsonElement J(string json) => JsonDocument.Parse(json).RootElement.Clone();
+
+    [Fact]
+    public async Task Quy_doi_marketName_thanh_marketId_va_bo_ten_khoi_query()
+    {
+        var kq = await Runner().ResolveNamesAsync("s", J("{\"marketName\":\"nhat ban\",\"top\":5}"), default);
+
+        Assert.NotNull(kq);
+        Assert.Equal(1, kq!.Value.GetProperty("marketId").GetInt32());
+        Assert.False(kq.Value.TryGetProperty("marketName", out _));
+        Assert.Equal("5", kq.Value.GetProperty("top").GetString());
+    }
+
+    [Fact]
+    public async Task Khong_doi_khi_da_co_marketId()
+    {
+        var kq = await Runner().ResolveNamesAsync("s", J("{\"marketName\":\"Hàn Quốc\",\"marketId\":9}"), default);
+
+        Assert.Equal("9", kq!.Value.GetProperty("marketId").GetString());   // số được giữ dạng chuỗi như trước
+        Assert.False(kq.Value.TryGetProperty("marketName", out _));
+    }
+
+    [Fact]
+    public async Task Ten_thi_truong_khong_khop_thi_giu_nguyen_khong_doan()
+    {
+        var kq = await Runner().ResolveNamesAsync("s", J("{\"marketName\":\"Sao Hỏa\"}"), default);
+
+        Assert.False(kq!.Value.TryGetProperty("marketId", out _));
+    }
+
+    [Fact]
+    public async Task Khong_co_ten_thi_tra_nguyen_params()
+    {
+        var p = J("{\"top\":3}");
+        var kq = await Runner().ResolveNamesAsync("s", p, default);
+        Assert.Equal(p.GetRawText(), kq!.Value.GetRawText());
+        Assert.Null(await Runner().ResolveNamesAsync("s", null, default));
+    }
+
+    [Fact]
+    public void Guard_JsonPlannerAgent_khong_con_resolver_rieng()
+    {
+        var src = ChatSchemaGuardTests.DocFile("TourkitAiProxy.Services/Chat/JsonPlannerAgent.cs");
+        Assert.DoesNotContain("private async Task<JsonElement?> ResolveMarketAsync", src);
+        Assert.DoesNotContain("private async Task<JsonElement?> ResolveEmployeeAsync", src);
+        Assert.DoesNotContain("private static int? MatchMarket", src);
+    }
+}

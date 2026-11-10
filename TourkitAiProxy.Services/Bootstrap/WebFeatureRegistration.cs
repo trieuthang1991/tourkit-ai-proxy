@@ -78,6 +78,9 @@ public static class WebFeatureRegistration
         // JsonPlannerAgent là fallback cho mọi provider khác (OpenCode, 9routes…).
         // ChatAgentService resolve runtime ĐẦU TIÊN có Supports(provider)=true — đảo hai dòng này
         // là mọi provider rơi hết về đường JSON-prompt mà không lỗi nào hiện lên.
+        // Runner dùng chung (đổi tên → mã, đệm "d|", re-login 401). Singleton vì cả hai agent là singleton;
+        // MCP cũng gọi qua đây.
+        s.AddSingleton<Chat.CrmToolRunner>();
         s.AddSingleton<Chat.IAgentRuntime, Chat.NativeToolUseAgent>();
         s.AddSingleton<Chat.IAgentRuntime, Chat.JsonPlannerAgent>();
         s.AddSingleton<Chat.UnresolvedQuestionsLog>();

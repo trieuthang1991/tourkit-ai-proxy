@@ -24,22 +24,17 @@ public class JsonPlannerAgent : IAgentRuntime
     private readonly ProviderRegistry _registry;
     private readonly TourKitApiClient _api;
     private readonly TkSessionStore _sessions;
-    private readonly ChatCache _cache;
+    private readonly CrmToolRunner _runner;
     private readonly UnresolvedQuestionsLog _unresolved;
     private readonly ILogger<JsonPlannerAgent> _log;
     private readonly IConfiguration _cfg;   // doc co tinh nang -> loc danh muc action gui cho AI
 
-    private static readonly TimeSpan CacheTtl = TimeSpan.FromMinutes(30);
-    // Danh muc thi truong theo tenant (cho resolver ten -> id) -- giu in-memory, doi cham. TTL dai.
-    private readonly ConcurrentDictionary<string, (List<(int Id, string Name)> List, DateTime Exp)> _markets = new();
-    private readonly ConcurrentDictionary<string, (List<(int Id, string Name)> List, DateTime Exp)> _employees = new();
-    private static readonly TimeSpan MarketTtl = TimeSpan.FromHours(6);
 
     public JsonPlannerAgent(
         ProviderRegistry registry,
         TourKitApiClient api,
         TkSessionStore sessions,
-        ChatCache cache,
+        CrmToolRunner runner,
         UnresolvedQuestionsLog unresolved,
         ILogger<JsonPlannerAgent> log,
         IConfiguration cfg)
@@ -47,7 +42,7 @@ public class JsonPlannerAgent : IAgentRuntime
         _registry   = registry;
         _api        = api;
         _sessions   = sessions;
-        _cache      = cache;
+        _runner     = runner;
         _unresolved = unresolved;
         _log        = log;
         _cfg        = cfg;
@@ -253,8 +248,7 @@ public class JsonPlannerAgent : IAgentRuntime
         // ─── Resolver: doi marketName -> marketId ───────────────────────────────
         var resolverTimer = trace?.Begin("market_resolver");
         var paramsBefore = toolParams?.GetRawText();
-        toolParams = await ResolveMarketAsync(input.SessionId, toolParams, ct);
-        toolParams = await ResolveEmployeeAsync(input.SessionId, toolParams, ct);
+        toolParams = await _runner.ResolveNamesAsync(input.SessionId, toolParams, ct);
         var paramsAfter = toolParams?.GetRawText();
         resolverTimer?.Done(paramsBefore != paramsAfter ? "ok" : "skip",
             paramsBefore != paramsAfter
@@ -272,54 +266,31 @@ public class JsonPlannerAgent : IAgentRuntime
         var path = ChatTools.BuildPath(tool, toolParams);
         _log.LogInformation("[JsonPlanner] tool={Tool} path={Path}", tool.Name, path);
 
-        var cacheKey = $"{input.TenantId}|{path}";
         var dispatchTimer = trace?.Begin("tool_dispatch");
-        JsonElement data;
-        bool cacheHit = false;
-        if (_cache.TryGet<JsonElement>("d|" + cacheKey, out var cachedData))
+        CrmToolOutcome outcome;
+        try { outcome = await _runner.RunAsync(input.SessionId, input.TenantId, tool, toolParams, ct); }
+        catch (TourKitApiException ex2)
         {
-            data = cachedData;
-            cacheHit = true;
-            _log.LogInformation("[JsonPlanner] cache hit ({Key})", cacheKey);
+            // Trigger: upstream_persistent_error -- loi sau khi runner da re-login 1 lan
+            _unresolved.Append(
+                tag:            "upstream_persistent_error",
+                sessionId:      input.SessionId,
+                tenantId:       input.TenantId,
+                question:       question,
+                history:        input.History,
+                plannerRaw:     plan.Text,
+                toolChosen:     tool.Name,
+                aiReplyPreview: ex2.Message,
+                provider:       provider.Id,
+                model:          input.Model,
+                iterations:     1,
+                latencyMs:      latency,
+                tokensIn:       tokIn,
+                tokensOut:      tokOut);
+            throw;
         }
-        else
-        {
-            var jwt = await _sessions.GetValidJwtAsync(input.SessionId, ct);
-            try
-            {
-                data = await _api.GetAsync(jwt, path, ct);
-            }
-            catch (TourKitApiException ex) when (ex.Status == 401)
-            {
-                // JWT het han giua chung -> re-login 1 lan roi thu lai.
-                jwt = await _sessions.ForceReloginAsync(input.SessionId, ct);
-                try
-                {
-                    data = await _api.GetAsync(jwt, path, ct);
-                }
-                catch (TourKitApiException ex2)
-                {
-                    // Trigger: upstream_persistent_error -- loi sau ca 2 lan (re-login van fail)
-                    _unresolved.Append(
-                        tag:            "upstream_persistent_error",
-                        sessionId:      input.SessionId,
-                        tenantId:       input.TenantId,
-                        question:       question,
-                        history:        input.History,
-                        plannerRaw:     plan.Text,
-                        toolChosen:     tool.Name,
-                        aiReplyPreview: ex2.Message,
-                        provider:       provider.Id,
-                        model:          input.Model,
-                        iterations:     1,
-                        latencyMs:      latency,
-                        tokensIn:       tokIn,
-                        tokensOut:      tokOut);
-                    throw;
-                }
-            }
-            if (IsUsableData(data)) _cache.Set("d|" + cacheKey, data, CacheTtl);
-        }
+        var data = outcome.Data;
+        bool cacheHit = outcome.FromCache;
         var fullUrl = _api.BaseUrl + path;
         var rawJson = data.GetRawText();
         var itemCount = data.ValueKind == JsonValueKind.Object && data.TryGetProperty("items", out var itEl)
@@ -361,16 +332,8 @@ public class JsonPlannerAgent : IAgentRuntime
                     var compPath = ChatTools.BuildPath(tool, comparePrms);
                     _log.LogInformation("[JsonPlanner] Compare dispatch tool={Tool} path={Path}", tool.Name, compPath);
 
-                    JsonElement compData;
-                    var compCacheKey = $"{input.TenantId}|{compPath}";
-                    if (_cache.TryGet<JsonElement>("d|" + compCacheKey, out var cachedComp))
-                        compData = cachedComp;
-                    else
-                    {
-                        var jwt = await _sessions.GetValidJwtAsync(input.SessionId, ct);
-                        compData = await _api.GetAsync(jwt, compPath, ct);
-                        if (IsUsableData(compData)) _cache.Set("d|" + compCacheKey, compData, CacheTtl);
-                    }
+                    var compDataOut = await _runner.RunAsync(input.SessionId, input.TenantId, tool, comparePrms, ct);
+                    var compData = compDataOut.Data;
 
                     var compChat = BuildChatData(tool, compData);
                     if (HasContent(compChat))
@@ -740,8 +703,7 @@ public class JsonPlannerAgent : IAgentRuntime
         await emit(new { stage = "fetching", tool = tool.Name, title = tool.Title, toolTitle = tool.Title });
         var resolverTimer = trace?.Begin("market_resolver");
         var paramsBefore = toolParams?.GetRawText();
-        toolParams = await ResolveMarketAsync(input.SessionId, toolParams, ct);
-        toolParams = await ResolveEmployeeAsync(input.SessionId, toolParams, ct);
+        toolParams = await _runner.ResolveNamesAsync(input.SessionId, toolParams, ct);
         var paramsAfter = toolParams?.GetRawText();
         resolverTimer?.Done(paramsBefore != paramsAfter ? "ok" : "skip",
             paramsBefore != paramsAfter ? "Có marketName → tra /api/tours/markets → đổi sang marketId"
@@ -755,49 +717,31 @@ public class JsonPlannerAgent : IAgentRuntime
         var path = ChatTools.BuildPath(tool, toolParams);
         _log.LogInformation("[JsonPlanner-stream] tool={Tool} path={Path}", tool.Name, path);
 
-        var cacheKey = $"{input.TenantId}|{path}";
         var dispatchTimer = trace?.Begin("tool_dispatch");
-        JsonElement data;
-        bool cacheHit = false;
-        if (_cache.TryGet<JsonElement>("d|" + cacheKey, out var cachedData))
+        CrmToolOutcome outcome;
+        try { outcome = await _runner.RunAsync(input.SessionId, input.TenantId, tool, toolParams, ct); }
+        catch (TourKitApiException ex2)
         {
-            data = cachedData;
-            cacheHit = true;
+            // Trigger: upstream_persistent_error -- loi sau khi runner da re-login 1 lan
+            _unresolved.Append(
+                tag:            "upstream_persistent_error",
+                sessionId:      input.SessionId,
+                tenantId:       input.TenantId,
+                question:       question,
+                history:        input.History,
+                plannerRaw:     plan.Text,
+                toolChosen:     tool.Name,
+                aiReplyPreview: ex2.Message,
+                provider:       provider.Id,
+                model:          input.Model,
+                iterations:     1,
+                latencyMs:      0,
+                tokensIn:       0,
+                tokensOut:      0);
+            throw;
         }
-        else
-        {
-            var jwt = await _sessions.GetValidJwtAsync(input.SessionId, ct);
-            try { data = await _api.GetAsync(jwt, path, ct); }
-            catch (TourKitApiException ex) when (ex.Status == 401)
-            {
-                jwt = await _sessions.ForceReloginAsync(input.SessionId, ct);
-                try
-                {
-                    data = await _api.GetAsync(jwt, path, ct);
-                }
-                catch (TourKitApiException ex2)
-                {
-                    // Trigger: upstream_persistent_error (stream path)
-                    _unresolved.Append(
-                        tag:            "upstream_persistent_error",
-                        sessionId:      input.SessionId,
-                        tenantId:       input.TenantId,
-                        question:       question,
-                        history:        input.History,
-                        plannerRaw:     plan.Text,
-                        toolChosen:     tool.Name,
-                        aiReplyPreview: ex2.Message,
-                        provider:       provider.Id,
-                        model:          input.Model,
-                        iterations:     1,
-                        latencyMs:      0,
-                        tokensIn:       0,
-                        tokensOut:      0);
-                    throw;
-                }
-            }
-            if (IsUsableData(data)) _cache.Set("d|" + cacheKey, data, CacheTtl);
-        }
+        var data = outcome.Data;
+        bool cacheHit = outcome.FromCache;
         var fullUrl = _api.BaseUrl + path;
         var rawJson = data.GetRawText();
         var itemCount = data.ValueKind == JsonValueKind.Object && data.TryGetProperty("items", out var itEl)
@@ -830,16 +774,8 @@ public class JsonPlannerAgent : IAgentRuntime
                 {
                     var compPathS = ChatTools.BuildPath(tool, comparePrmsS);
                     _log.LogInformation("[JsonPlanner-stream] Compare dispatch tool={Tool} path={Path}", tool.Name, compPathS);
-                    JsonElement compDataS;
-                    var compCacheKeyS = $"{input.TenantId}|{compPathS}";
-                    if (_cache.TryGet<JsonElement>("d|" + compCacheKeyS, out var cachedCompS))
-                        compDataS = cachedCompS;
-                    else
-                    {
-                        var jwtS = await _sessions.GetValidJwtAsync(input.SessionId, ct);
-                        compDataS = await _api.GetAsync(jwtS, compPathS, ct);
-                        if (IsUsableData(compDataS)) _cache.Set("d|" + compCacheKeyS, compDataS, CacheTtl);
-                    }
+                    var compDataSOut = await _runner.RunAsync(input.SessionId, input.TenantId, tool, comparePrmsS, ct);
+                    var compDataS = compDataSOut.Data;
                     var compChatS = BuildChatData(tool, compDataS);
                     if (HasContent(compChatS))
                     {
@@ -1218,168 +1154,6 @@ Yêu cầu:
         return (null, null);
     }
 
-    // ─── Resolver thi truong: ten -> marketId ────────────────────────────────────
-
-    private async Task<List<(int Id, string Name)>> GetMarketsAsync(string sessionId, CancellationToken ct)
-    {
-        var tenant = _sessions.Get(sessionId)?.TenantId ?? "";
-        if (_markets.TryGetValue(tenant, out var c) && c.Exp > DateTime.UtcNow) return c.List;
-
-        JsonElement data;
-        var jwt = await _sessions.GetValidJwtAsync(sessionId, ct);
-        try { data = await _api.GetAsync(jwt, "/api/tours/markets", ct); }
-        catch (TourKitApiException ex) when (ex.Status == 401)
-        {
-            jwt = await _sessions.ForceReloginAsync(sessionId, ct);
-            data = await _api.GetAsync(jwt, "/api/tours/markets", ct);
-        }
-
-        var list = new List<(int, string)>();
-        if (data.ValueKind == JsonValueKind.Array)
-            foreach (var m in data.EnumerateArray())
-                if (m.ValueKind == JsonValueKind.Object
-                    && m.TryGetProperty("id", out var idp) && idp.TryGetInt32(out var id)
-                    && m.TryGetProperty("name", out var np) && np.ValueKind == JsonValueKind.String)
-                    list.Add((id, np.GetString()!));
-
-        _markets[tenant] = (list, DateTime.UtcNow.Add(MarketTtl));
-        _log.LogInformation("Loaded {N} markets cho tenant {T}", list.Count, tenant);
-        return list;
-    }
-
-    // Chuan hoa: thuong hoa, bo dau tieng Viet, d->d, bo dau cau, gop khoang trang.
-    private static string Norm(string s)
-    {
-        s = (s ?? "").ToLowerInvariant().Replace('đ', 'd').Normalize(NormalizationForm.FormD);
-        var sb = new StringBuilder();
-        foreach (var ch in s)
-        {
-            if (CharUnicodeInfo.GetUnicodeCategory(ch) == UnicodeCategory.NonSpacingMark) continue;
-            sb.Append(char.IsLetterOrDigit(ch) ? ch : ' ');
-        }
-        return string.Join(' ', sb.ToString().Split(' ', StringSplitOptions.RemoveEmptyEntries));
-    }
-
-    private static int? MatchMarket(List<(int Id, string Name)> markets, string query)
-    {
-        var q = Norm(query);
-        if (q.Length == 0) return null;
-        foreach (var m in markets) if (Norm(m.Name) == q) return m.Id;
-        foreach (var m in markets) { var n = Norm(m.Name); if (n.Contains(q) || q.Contains(n)) return m.Id; }
-        var qt = q.Split(' ');
-        foreach (var m in markets)
-        {
-            var mt = Norm(m.Name).Split(' ').ToHashSet();
-            if (qt.Length > 1 && qt.All(t => mt.Contains(t))) return m.Id;
-        }
-        return null;
-    }
-
-    private async Task<JsonElement?> ResolveMarketAsync(string sessionId, JsonElement? prms, CancellationToken ct)
-    {
-        if (prms is not { ValueKind: JsonValueKind.Object } obj) return prms;
-        if (!obj.TryGetProperty("marketName", out var mn) || mn.ValueKind != JsonValueKind.String) return prms;
-
-        var name = mn.GetString()?.Trim() ?? "";
-        var dict = new Dictionary<string, object?>();
-        foreach (var p in obj.EnumerateObject())
-        {
-            if (p.Name.Equals("marketName", StringComparison.OrdinalIgnoreCase)) continue;
-            dict[p.Name] = p.Value.ValueKind switch
-            {
-                JsonValueKind.String => p.Value.GetString(),
-                JsonValueKind.Number => p.Value.GetRawText(),
-                JsonValueKind.True => "true",
-                JsonValueKind.False => "false",
-                _ => null
-            };
-        }
-
-        if (name.Length > 0 && !dict.ContainsKey("marketId"))
-        {
-            var markets = await GetMarketsAsync(sessionId, ct);
-            var id = MatchMarket(markets, name);
-            if (id.HasValue) { dict["marketId"] = id.Value; _log.LogInformation("[JsonPlanner] thi truong '{Name}' -> marketId={Id}", name, id); }
-            else _log.LogInformation("[JsonPlanner] khong khop thi truong '{Name}'", name);
-        }
-
-        return JsonSerializer.SerializeToElement(dict);
-    }
-
-    // ─── Resolver nhân viên: tên -> employeeId (cho employee_performance) ─────────
-    // Nguồn = chính API thống kê hiệu suất /api/ai/employee-performance: nó trả TẤT CẢ nhân viên
-    // (theo quyền) kèm employeeId + fullName → đúng phạm vi report có thể lọc tới, không cần endpoint khác.
-    // Cache theo tenant (MarketTtl 6h) y như markets. Dùng lại MatchMarket (fuzzy (Id,Name)).
-
-    private static bool PropCI(JsonElement obj, string name, out JsonElement val)
-    {
-        if (obj.ValueKind == JsonValueKind.Object)
-            foreach (var p in obj.EnumerateObject())
-                if (p.Name.Equals(name, StringComparison.OrdinalIgnoreCase)) { val = p.Value; return true; }
-        val = default;
-        return false;
-    }
-
-    private async Task<List<(int Id, string Name)>> GetEmployeesAsync(string sessionId, CancellationToken ct)
-    {
-        var tenant = _sessions.Get(sessionId)?.TenantId ?? "";
-        if (_employees.TryGetValue(tenant, out var c) && c.Exp > DateTime.UtcNow) return c.List;
-
-        JsonElement data;
-        var jwt = await _sessions.GetValidJwtAsync(sessionId, ct);
-        try { data = await _api.GetAsync(jwt, "/api/ai/employee-performance", ct); }
-        catch (TourKitApiException ex) when (ex.Status == 401)
-        {
-            jwt = await _sessions.ForceReloginAsync(sessionId, ct);
-            data = await _api.GetAsync(jwt, "/api/ai/employee-performance", ct);
-        }
-
-        // Envelope {section,title,items[...]}; mỗi item có employeeId + fullName.
-        var list = new List<(int, string)>();
-        if (PropCI(data, "items", out var items) && items.ValueKind == JsonValueKind.Array)
-            foreach (var it in items.EnumerateArray())
-                if (it.ValueKind == JsonValueKind.Object
-                    && PropCI(it, "employeeId", out var idp) && idp.TryGetInt32(out var id)
-                    && PropCI(it, "fullName", out var np) && np.ValueKind == JsonValueKind.String
-                    && !string.IsNullOrWhiteSpace(np.GetString()))
-                    list.Add((id, np.GetString()!));
-
-        _employees[tenant] = (list, DateTime.UtcNow.Add(MarketTtl));
-        _log.LogInformation("Loaded {N} nhân viên (từ employee-performance) cho tenant {T}", list.Count, tenant);
-        return list;
-    }
-
-    private async Task<JsonElement?> ResolveEmployeeAsync(string sessionId, JsonElement? prms, CancellationToken ct)
-    {
-        if (prms is not { ValueKind: JsonValueKind.Object } obj) return prms;
-        if (!obj.TryGetProperty("employeeName", out var en) || en.ValueKind != JsonValueKind.String) return prms;
-
-        var name = en.GetString()?.Trim() ?? "";
-        var dict = new Dictionary<string, object?>();
-        foreach (var p in obj.EnumerateObject())
-        {
-            if (p.Name.Equals("employeeName", StringComparison.OrdinalIgnoreCase)) continue;  // bỏ name khỏi query cuối
-            dict[p.Name] = p.Value.ValueKind switch
-            {
-                JsonValueKind.String => p.Value.GetString(),
-                JsonValueKind.Number => p.Value.GetRawText(),
-                JsonValueKind.True => "true",
-                JsonValueKind.False => "false",
-                _ => null
-            };
-        }
-
-        if (name.Length > 0 && !dict.ContainsKey("employeeId"))
-        {
-            var employees = await GetEmployeesAsync(sessionId, ct);
-            var id = MatchMarket(employees, name);   // fuzzy match (Id,Name) — dùng chung với thị trường
-            if (id.HasValue) { dict["employeeId"] = id.Value; _log.LogInformation("[JsonPlanner] nhân viên '{Name}' -> employeeId={Id}", name, id); }
-            else _log.LogInformation("[JsonPlanner] không khớp nhân viên '{Name}'", name);
-        }
-
-        return JsonSerializer.SerializeToElement(dict);
-    }
-
     // ─── BuildChatData + Stats (server-side deterministic) ───────────────────────
 
     private static readonly (string Token, string[] Kw)[] FocusTokens =
@@ -1441,15 +1215,6 @@ Yêu cầu:
         if (has && rows.GetArrayLength() > 0 && rows[0].ValueKind == JsonValueKind.Object)
             foreach (var p in rows[0].EnumerateObject()) set.Add(p.Name);
         return set;
-    }
-
-    private static bool IsUsableData(JsonElement d)
-    {
-        if (d.ValueKind is JsonValueKind.Undefined or JsonValueKind.Null) return false;
-        if (d.ValueKind == JsonValueKind.Array) return true;
-        if (d.ValueKind == JsonValueKind.Object)
-            return d.TryGetProperty("items", out _) || d.EnumerateObject().Any();
-        return false;
     }
 
     private static bool HasContent(ChatData? d)
@@ -1608,7 +1373,7 @@ Yêu cầu:
     private static bool HasDataKeyword(string question)
     {
         if (string.IsNullOrWhiteSpace(question)) return false;
-        // Từ khóa viết sẵn ở dạng ĐÃ chuẩn hóa (không dấu) để so khớp trực tiếp với Norm(question).
+        // Từ khóa viết sẵn ở dạng ĐÃ chuẩn hóa (không dấu) để so khớp trực tiếp với CrmToolRunner.Norm(question).
         string[] keywords =
         {
             // VN
@@ -1621,7 +1386,7 @@ Yêu cầu:
             // "opportunit" = gốc từ để bắt cả opportunity/opportunities (đuôi -y/-ies không khớp chuỗi con).
             "opportunit", "task", "voucher", "appointment"
         };
-        var norm = Norm(question);
+        var norm = CrmToolRunner.Norm(question);
         return keywords.Any(k => norm.Contains(k));
     }
 
@@ -1634,7 +1399,7 @@ Yêu cầu:
     internal static bool IsProvenanceQuestion(string question)
     {
         if (string.IsNullOrWhiteSpace(question)) return false;
-        var n = Norm(question);   // vd "so lieu nay lay tu dau"
+        var n = CrmToolRunner.Norm(question);   // vd "so lieu nay lay tu dau"
         if (n.Length == 0) return false;
 
         // Loại trừ câu phân bổ/xếp hạng (breakdown) — đó là câu SỐ LIỆU thật, không phải hỏi nguồn.
