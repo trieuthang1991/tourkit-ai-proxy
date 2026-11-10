@@ -1,4 +1,4 @@
-using Microsoft.AspNetCore.Builder;
+﻿using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Routing;
 using Microsoft.Extensions.Configuration;
@@ -38,6 +38,7 @@ public static class EndpointRegistration
         MapBanTin(app, cfg);
         MapHopThuChat(app, cfg);
         MapChatNoiBo(app, cfg);
+        MapMcp(app, cfg);
 
         app.MapTourEndpoints();
         app.MapTourPriceEndpoints();     // GET /api/v1/tour-price/candidates — ứng viên giá NCC cho wizard
@@ -108,6 +109,18 @@ public static class EndpointRegistration
         }
         ChanTuongMinh(app, new[] { InternalChatEndpoints.Prefix },
             "Tính năng chat nội bộ đang tắt (Features:InternalChat=false).");
+    }
+
+    /// <summary>Khoá MCP nằm sau cờ <c>Features:Mcp</c>; tắt thì 404 JSON tường minh.</summary>
+    private static void MapMcp(WebApplication app, IConfiguration cfg)
+    {
+        if (FeatureFlags.Mcp(cfg))
+        {
+            app.MapMcpEndpoints();
+            return;
+        }
+        ChanTuongMinh(app, new[] { McpEndpoints.TokensPrefix },
+            "Tính năng MCP đang tắt (Features:Mcp=false).");
     }
 
     /// <summary>Trả 404 JSON tường minh cho một nhóm tiền tố — xem cảnh báo ở đầu lớp.</summary>

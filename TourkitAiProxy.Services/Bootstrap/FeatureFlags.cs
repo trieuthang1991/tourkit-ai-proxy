@@ -135,4 +135,13 @@ public static class FeatureFlags
     /// </summary>
     public static bool ByoAiKey(IConfiguration cfg)
         => cfg.GetValue("Features:ByoAiKey", false);
+
+    /// <summary>
+    /// Máy chủ MCP: cho Claude Desktop/Cursor gọi vào số liệu CRM bằng khoá MCP
+    /// (<c>/api/v1/mcp/tokens</c> quản lý khoá).
+    ///
+    /// <para>Tắt thì đường dẫn trả 404 JSON tường minh (không rơi xuống SPA fallback). Cờ RIÊNG,
+    /// mặc định tắt: khoá cấp ra cho phép đọc dữ liệu công ty từ ngoài trình duyệt nên phải bật có chủ đích.</para>
+    /// </summary>
+    public static bool Mcp(IConfiguration cfg) => cfg.GetValue("Features:Mcp", false);
 }

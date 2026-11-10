@@ -66,6 +66,7 @@ public static class WebFeatureRegistration
     private static void AddWidgetChat(this IServiceCollection s)
     {
         s.AddSingleton<Infrastructure.Widget.WidgetTokenRepository>();
+        s.AddSingleton<Infrastructure.Mcp.IMcpTokenStore, Infrastructure.Mcp.McpTokenRepository>();
         s.AddSingleton<Widget.WidgetChatService>();
         s.AddSingleton<Widget.WidgetCrmLinkService>();
         s.AddSingleton<Widget.WidgetChatCrmService>();
