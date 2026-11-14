@@ -53,6 +53,7 @@ public static class WebFeatureRegistration
     private static void AddMcp(this IServiceCollection s)
     {
         s.AddSingleton<Infrastructure.Mcp.IMcpTokenStore, Infrastructure.Mcp.McpTokenRepository>();
+        s.AddSingleton<Infrastructure.Mcp.IMcpOAuthStore, Infrastructure.Mcp.McpOAuthRepository>();
         s.AddSingleton<Mcp.McpRateLimiter>();
         s.AddSingleton(sp =>
         {
