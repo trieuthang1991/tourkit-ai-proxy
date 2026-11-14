@@ -50,6 +50,8 @@ public static class SystemEndpoints
             chat            = Services.Bootstrap.FeatureFlags.Chat(cfg),
             byoAiKey        = Services.Bootstrap.FeatureFlags.ByoAiKey(cfg),
             mcp             = Services.Bootstrap.FeatureFlags.Mcp(cfg),
+            // Kết nối Claude.ai / ChatGPT bằng OAuth — trang Kết nối AI hiện khối "Ứng dụng đã kết nối".
+            mcpOAuth        = Services.Bootstrap.FeatureFlags.McpOAuth(cfg),
             // Chat nội bộ — app tự nhúng widget internal-chat.js khi bật (core/internal-chat-loader.js).
             internalChat    = Services.Bootstrap.FeatureFlags.InternalChat(cfg),
             // chatAssign ĐÃ BỎ (09/09/2026): phân công đi cùng hộp thư chat, không có cờ riêng.

@@ -122,10 +122,22 @@ public static class EndpointRegistration
         {
             app.MapMcpEndpoints();
             app.MapMcpServer();
+            // OAuth (Claude.ai / ChatGPT) là cờ RIÊNG trên nền MCP, cần thêm Mcp:PublicBaseUrl.
+            if (FeatureFlags.McpOAuth(cfg))
+                app.MapMcpOAuthEndpoints();
+            else
+            {
+                if (cfg.GetValue("Features:McpOAuth", false))
+                    app.Logger.LogError("Features:McpOAuth đang bật nhưng Mcp:PublicBaseUrl thiếu hoặc không hợp lệ " +
+                        "(cần dạng https://ten-mien, không đường dẫn con) — KHÔNG mở đường OAuth nào.");
+                ChanTuongMinh(app, McpOAuthEndpoints.Prefixes,
+                    "Kết nối OAuth cho MCP đang tắt (Features:McpOAuth=false hoặc thiếu Mcp:PublicBaseUrl).");
+            }
             return;
         }
         ChanTuongMinh(app, new[] { McpEndpoints.TokensPrefix, McpEndpoints.McpPath },
             "Tính năng MCP đang tắt (Features:Mcp=false).");
+        ChanTuongMinh(app, McpOAuthEndpoints.Prefixes, "Tính năng MCP đang tắt (Features:Mcp=false).");
     }
 
     /// <summary>Trả 404 JSON tường minh cho một nhóm tiền tố — xem cảnh báo ở đầu lớp.</summary>

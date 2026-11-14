@@ -5,8 +5,11 @@ namespace TourkitAiProxy.Services.Mcp;
 /// bật <c>Features:Mcp</c>. Đạt thì đặt <see cref="McpCaller"/> vào <c>HttpContext.Items</c> rồi cho đi
 /// tiếp; trượt thì trả JSON <c>{ error }</c> tiếng Việt và DỪNG — SDK MCP không bao giờ thấy request.
 ///
-/// <para>401 luôn kèm <c>WWW-Authenticate: Bearer</c>: client MCP (Claude Code, mcp-remote) dựa vào
-/// header này để biết là lỗi khoá chứ không phải máy chủ hỏng.</para>
+/// <para>401 luôn kèm <c>WWW-Authenticate</c> (<see cref="McpAuthenticator.WwwAuthenticate"/>): client MCP
+/// (Claude Code, mcp-remote) dựa vào header này để biết là lỗi khoá chứ không phải máy chủ hỏng. Khi cờ
+/// <c>Features:McpOAuth</c> có hiệu lực, header là <c>Bearer resource_metadata="{PublicBaseUrl}/.well-known/oauth-protected-resource",
+/// scope="tourkit.read"</c> — Claude.ai/ChatGPT chỉ bắt đầu đăng nhập OAuth khi gặp đúng 401 này. Tắt thì là <c>Bearer</c>
+/// như giai đoạn 1.</para>
 /// </summary>
 public sealed class McpAuthMiddleware
 {
@@ -25,7 +28,7 @@ public sealed class McpAuthMiddleware
         }
 
         ctx.Response.StatusCode = r.Status;
-        if (r.Status == StatusCodes.Status401Unauthorized) ctx.Response.Headers.WWWAuthenticate = "Bearer";
+        if (r.Status == StatusCodes.Status401Unauthorized) ctx.Response.Headers.WWWAuthenticate = auth.WwwAuthenticate;
         await ctx.Response.WriteAsJsonAsync(new { error = r.Error }, ctx.RequestAborted);
     }
 }

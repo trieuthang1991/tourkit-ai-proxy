@@ -73,10 +73,13 @@ public class McpEndpointGuardTests
     public void Dang_ky_may_chu_MCP_chi_khi_bat_co()
     {
         var src = Src("TourkitAiProxy.Services/Bootstrap/WebFeatureRegistration.cs");
-        Assert.Contains("if (FeatureFlags.Mcp(cfg)) s.AddMcp();", src);
+        Assert.Contains("if (FeatureFlags.Mcp(cfg)) s.AddMcp(FeatureFlags.McpOAuth(cfg));", src);
         // Đăng ký SDK + kho khoá chỉ nằm trong AddMcp — không còn lẫn trong cụm widget.
         Assert.DoesNotContain("IMcpTokenStore", Body(src, "private static void AddWidgetChat(this IServiceCollection s)"));
-        var addMcp = Body(src, "private static void AddMcp(this IServiceCollection s)");
+        var addMcp = Body(src, "private static void AddMcp(this IServiceCollection s, bool oauthOn)");
+        // Cổng /mcp chỉ nhận tkoat_ khi cờ OAuth có hiệu lực: kho OAuth + cấu hình chỉ truyền vào authenticator khi oauthOn.
+        Assert.Contains("oauthStore: oauthOn ?", addMcp);
+        Assert.Contains("oauth: oauthOn ?", addMcp);
         Assert.Contains("AddMcpServer(", addMcp);
         Assert.Contains("IMcpTokenStore", addMcp);
         // Thiếu dòng này thì tools/list trả -32601 "not available" (đã dính lúc kiểm thật ngày 10/11).

@@ -74,6 +74,8 @@ public static class SeoSetup
         new("/visa-config", $"Cấu hình Visa · {Brand}"),
         new("/ai-key", $"Key AI riêng · {Brand}"),
         new("/mcp-connect", $"Kết nối AI · {Brand}"),
+        // Trang đồng ý OAuth (Claude.ai/ChatGPT mở ra): xử lý ngoài <Route>, noindex như mọi trang nội bộ.
+        new("/oauth/authorize", $"Cho phép kết nối · {Brand}"),
         new("/ncc-import", $"Import nhà cung cấp · {Brand}"),
         new("/ncc-list", $"Nhà cung cấp · {Brand}"),
         new("/widget-admin", $"Widget chat khách · {Brand}"),

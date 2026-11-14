@@ -88,6 +88,7 @@ import "./pages/ncc-list.jsx";
 import "./pages/visa-config.jsx";
 import "./pages/ai-key.jsx";
 import "./pages/mcp-connect.jsx";
+import "./pages/oauth-consent.jsx";
 // Nạp TRƯỚC workflows.jsx: trang đó nhúng window.DigestSubBlock + window.InsightsFeed.
 import "./pages/insights.jsx";
 import "./pages/digest.jsx";
