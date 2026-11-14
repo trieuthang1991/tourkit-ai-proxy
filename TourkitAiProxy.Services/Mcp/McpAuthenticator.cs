@@ -30,6 +30,12 @@ public sealed record McpAuthResult(McpCaller? Caller, int Status, string? Error)
 /// <c>AccessExpiresUtc</c>. Chạy NHIỀU instance thì instance khác vẫn có thể cho khoá đã thu hồi qua tối đa
 /// 60 giây (chưa có kênh báo chéo) — nhận có chủ đích, ghi ở docs/api-surface.md.</para>
 ///
+/// <para><b>Tombstone grant vừa thu hồi.</b> Xoá đệm thôi chưa đủ: một lời gọi có thể đã đọc grant CÒN SỐNG
+/// từ CSDL ngay trước khi thu hồi, rồi ghi đệm ngay SAU khi <see cref="EvictGrant"/> quét xong → token đã thu hồi
+/// được đệm thêm 60 giây. Vì vậy <see cref="EvictGrant"/> ghi Id grant vào danh sách "vừa thu hồi" giữ
+/// <see cref="TombstoneTtl"/> (= 2 × TTL đệm): đọc CSDL xong mà trúng tombstone → 401, không ghi đệm; trúng đệm
+/// mà trúng tombstone → xoá mục, 401. Chỉ áp cho grant OAuth; khoá tay <c>tkmcp_</c> không đổi.</para>
+///
 /// <para><b>Không gian Id tách theo loại.</b> Id khoá tay (<c>dbo.McpTokens</c>) và Id grant
 /// (<c>dbo.McpOAuthGrants</c>) đánh số độc lập; mục đệm mang <see cref="McpCaller.Kind"/> nên
 /// <see cref="Evict"/> chỉ xoá khoá tay, <see cref="EvictGrant"/> chỉ xoá grant. Bản băm của hai loại khác
@@ -59,6 +65,11 @@ public sealed class McpAuthenticator
     // Đệm chặn trên để khoá rác không làm phình bộ nhớ vô hạn; vượt thì dọn mục hết hạn.
     private const int PruneAbove = 2000;
 
+    /// <summary>Giữ tombstone đủ lâu để mọi lời gọi đã đọc grant trước lúc thu hồi kịp chạy xong (≥ 2 × TTL đệm).</summary>
+    public static readonly TimeSpan TombstoneTtl = CacheTtl * 2;
+    /// <summary>Trần số tombstone. Vượt trần thì bỏ mục gần hết hạn nhất — chỉ xảy ra khi hơn 10.000 lần thu hồi trong 2 phút.</summary>
+    public const int MaxTombstones = 10_000;
+
     private readonly IMcpTokenStore _store;
     private readonly Func<string, McpSessionOwner?> _findSession;
     private readonly ILogger<McpAuthenticator> _log;
@@ -66,6 +77,7 @@ public sealed class McpAuthenticator
     private readonly IMcpOAuthStore? _oauthStore;
     private readonly string? _resource;
     private readonly ConcurrentDictionary<string, (McpCaller Caller, DateTimeOffset Expires)> _cache = new();
+    private readonly ConcurrentDictionary<long, DateTimeOffset> _revokedGrants = new();
 
     /// <param name="findSession">Tra chủ phiên TourKit theo sessionId; null = phiên đã hết/không còn.
     /// Là hàm chứ không phải <c>TkSessionStore</c> để test dựng được mà không cần CSDL.</param>
@@ -138,7 +150,13 @@ public sealed class McpAuthenticator
     {
         var hash = OAuthRules.Hash(token);
         var now = _clock.GetUtcNow();
-        if (_cache.TryGetValue(hash, out var hit) && hit.Expires > now) return McpAuthResult.Ok(hit.Caller);
+        if (_cache.TryGetValue(hash, out var hit) && hit.Expires > now)
+        {
+            if (!IsGrantTombstoned(hit.Caller.TokenId)) return McpAuthResult.Ok(hit.Caller);
+            // Mục đệm lọt khỏi lượt quét của EvictGrant (ghi đồng thời) — grant đã thu hồi, không cho qua.
+            _cache.TryRemove(hash, out _);
+            return McpAuthResult.Deny(OAuthInvalid);
+        }
 
         McpOAuthGrant? g;
         McpSessionOwner? owner = null;
@@ -155,7 +173,8 @@ public sealed class McpAuthenticator
         }
 
         _cache.TryRemove(hash, out _);
-        if (g == null || g.RevokedUtc != null) return McpAuthResult.Deny(OAuthInvalid);
+        // Tombstone: grant bị thu hồi SAU lúc ta đọc CSDL — bản vừa đọc đã cũ.
+        if (g == null || g.RevokedUtc != null || IsGrantTombstoned(g.Id)) return McpAuthResult.Deny(OAuthInvalid);
 
         // Kho trả DateTime Kind=Utc; vẫn ép Utc phòng dữ liệu Unspecified (docs/datetime-convention.md).
         var expires = new DateTimeOffset(DateTime.SpecifyKind(g.AccessExpiresUtc, DateTimeKind.Utc));
@@ -179,8 +198,46 @@ public sealed class McpAuthenticator
     /// <summary>Bỏ KHOÁ TAY khỏi đệm NGAY — gọi sau khi thu hồi thành công. Đệm nhỏ nên quét tuyến tính là đủ.</summary>
     public void Evict(long tokenId) => EvictWhere(McpCallerKind.ManualKey, tokenId);
 
-    /// <summary>Bỏ KẾT NỐI OAUTH (grant) khỏi đệm NGAY — gọi sau khi thu hồi kết nối thành công.</summary>
-    public void EvictGrant(long grantId) => EvictWhere(McpCallerKind.OAuthGrant, grantId);
+    /// <summary>
+    /// Bỏ KẾT NỐI OAUTH (grant) khỏi đệm NGAY — gọi sau MỌI lần thu hồi grant (người dùng xoá kết nối, dịch vụ
+    /// OAuth thu hồi vì refresh bị dùng lại / sai client / phiên hết). Ghi tombstone TRƯỚC khi quét đệm để lời
+    /// gọi đang đua không ghi lại được.
+    /// </summary>
+    public void EvictGrant(long grantId)
+    {
+        MarkGrantRevoked(grantId);
+        EvictWhere(McpCallerKind.OAuthGrant, grantId);
+    }
+
+    /// <summary>Ghi tombstone cho grant (không quét đệm — <see cref="EvictGrant"/> làm cả hai).</summary>
+    internal void MarkGrantRevoked(long grantId)
+    {
+        var now = _clock.GetUtcNow();
+        _revokedGrants[grantId] = now + TombstoneTtl;
+        if (_revokedGrants.Count > MaxTombstones) PruneTombstones(now);
+    }
+
+    internal bool IsGrantTombstoned(long grantId)
+    {
+        if (!_revokedGrants.TryGetValue(grantId, out var until)) return false;
+        if (until > _clock.GetUtcNow()) return true;
+        // Hết hạn: chỉ xoá nếu chưa bị ghi mới (thu hồi lại cùng Id thì giữ bản mới).
+        _revokedGrants.TryRemove(new KeyValuePair<long, DateTimeOffset>(grantId, until));
+        return false;
+    }
+
+    internal int TombstoneCount => _revokedGrants.Count;
+
+    private void PruneTombstones(DateTimeOffset now)
+    {
+        foreach (var kv in _revokedGrants)
+            if (kv.Value <= now) _revokedGrants.TryRemove(kv);
+        if (_revokedGrants.Count <= MaxTombstones) return;
+        // Vẫn quá trần: bỏ mục gần hết hạn nhất, xuống 90% trần để không phải sắp xếp ở mỗi lần thêm.
+        var excess = _revokedGrants.Count - MaxTombstones * 9 / 10;
+        foreach (var kv in _revokedGrants.OrderBy(x => x.Value).Take(excess).ToList()) _revokedGrants.TryRemove(kv);
+        _log.LogWarning("[mcp] quá {Max} grant bị thu hồi trong {Ttl} giây — bỏ bớt {N} tombstone cũ nhất", MaxTombstones, TombstoneTtl.TotalSeconds, excess);
+    }
 
     private void EvictWhere(McpCallerKind kind, long id)
     {
@@ -195,6 +252,8 @@ public sealed class McpAuthenticator
 
     private void Remember(string hash, McpCaller caller, DateTimeOffset expires, DateTimeOffset now)
     {
+        // Grant vừa bị thu hồi thì không vào đệm (lỡ lọt giữa lúc kiểm và lúc ghi thì lần trúng đệm sẽ chặn).
+        if (caller.Kind == McpCallerKind.OAuthGrant && IsGrantTombstoned(caller.TokenId)) return;
         if (_cache.Count > PruneAbove) Prune(now);
         _cache[hash] = (caller, expires);
     }

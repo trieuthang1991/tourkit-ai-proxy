@@ -73,13 +73,17 @@ public sealed class McpOAuthService
     private readonly McpOAuthOptions _opts;
     private readonly ILogger<McpOAuthService> _log;
     private readonly TimeProvider _clock;
+    private readonly Action<long>? _onGrantRevoked;
 
+    /// <param name="onGrantRevoked">Gọi với Id grant sau MỌI lần dịch vụ thu hồi grant — nối vào
+    /// <c>McpAuthenticator.EvictGrant</c> để token đang trong đệm xác thực chết NGAY trên instance này.</param>
     /// <param name="findSession">Tra chủ phiên TourKit; null = phiên đã hết. Hàm thay vì <c>TkSessionStore</c> để test không cần CSDL.</param>
     public McpOAuthService(IMcpOAuthStore store, IClientMetadataFetcher fetcher, Func<string, McpSessionOwner?> findSession,
-        McpOAuthOptions options, ILogger<McpOAuthService> log, TimeProvider? clock = null)
+        McpOAuthOptions options, ILogger<McpOAuthService> log, TimeProvider? clock = null, Action<long>? onGrantRevoked = null)
     {
         _store = store; _fetcher = fetcher; _findSession = findSession; _opts = options; _log = log;
         _clock = clock ?? TimeProvider.System;
+        _onGrantRevoked = onGrantRevoked;
     }
 
     private DateTime Now => _clock.GetUtcNow().UtcDateTime;
@@ -208,7 +212,9 @@ public sealed class McpOAuthService
 
     private async Task<McpOAuthResponse> ExchangeCodeAsync(Params p, CancellationToken ct)
     {
-        string? code = p["code"], verifier = p["code_verifier"], redirect = p["redirect_uri"], clientId = p["client_id"];
+        string? code = p["code"], verifier = p["code_verifier"], redirect = p["redirect_uri"];
+        var (clientId, idError) = TokenClientId(p);
+        if (idError != null) return idError;
         if (string.IsNullOrEmpty(code) || string.IsNullOrEmpty(verifier) || string.IsNullOrEmpty(redirect) || string.IsNullOrEmpty(clientId))
             return Error("invalid_request", "Can code, code_verifier, redirect_uri va client_id");
 
@@ -240,7 +246,9 @@ public sealed class McpOAuthService
 
     private async Task<McpOAuthResponse> RefreshAsync(Params p, CancellationToken ct)
     {
-        string? refresh = p["refresh_token"], clientId = p["client_id"];
+        string? refresh = p["refresh_token"];
+        var (clientId, idError) = TokenClientId(p);
+        if (idError != null) return idError;
         if (string.IsNullOrEmpty(refresh) || string.IsNullOrEmpty(clientId))
             return Error("invalid_request", "Can refresh_token va client_id");
         if (!IsToken(refresh, "tkort_")) return Error("invalid_grant", "refresh_token khong hop le");
@@ -263,7 +271,7 @@ public sealed class McpOAuthService
                 return Error("invalid_grant", "refresh_token khong hop le hoac da het han");
             case McpRefreshStatus.Reused:
                 var reused = rot.Grant!;
-                await _store.RevokeGrantAsync(reused.Id, reused.TenantId, reused.Username, ct);
+                await RevokeGrantAsync(reused, ct);
                 _log.LogWarning("OAuth MCP: refresh cũ của grant {Id} ({Client}, {User}@{Tenant}) bị dùng lại — đã thu hồi cả grant",
                     reused.Id, reused.ClientId, reused.Username, reused.TenantId);
                 return Error("invalid_grant", "refresh_token da dung roi - ket noi da bi thu hoi, hay ket noi lai");
@@ -272,13 +280,13 @@ public sealed class McpOAuthService
         var g = rot.Grant!;
         if (!string.Equals(g.ClientId, clientId, StringComparison.Ordinal))
         {
-            await _store.RevokeGrantAsync(g.Id, g.TenantId, g.Username, ct);
+            await RevokeGrantAsync(g, ct);
             _log.LogWarning("OAuth MCP: refresh của grant {Id} ({Bound}) bị trình ở client {ClientId} — đã thu hồi", g.Id, g.ClientId, clientId);
             return Error("invalid_grant", "refresh_token khong cap cho client nay");
         }
         if (!SessionAlive(g.SessionId, g.TenantId, g.Username))
         {
-            await _store.RevokeGrantAsync(g.Id, g.TenantId, g.Username, ct);
+            await RevokeGrantAsync(g, ct);
             return Error("invalid_grant", "Phien dang nhap TourKit da het - hay ket noi lai");
         }
 
@@ -292,6 +300,53 @@ public sealed class McpOAuthService
         if (requested is { Length: > 0 } && requested.All(granted.Contains))
             scope = string.Join(' ', SupportedScopes.Where(requested.Contains));
         return Tokens(access, newRefresh, scope);
+    }
+
+    /// <summary>
+    /// client_id của yêu cầu token. Mọi client đều là client CÔNG KHAI: <c>client_assertion</c> /
+    /// <c>client_assertion_type</c> (ChatGPT khai <c>private_key_jwt</c>) KHÔNG BAO GIỜ được coi là xác thực
+    /// và không thay được PKCE. Có client_id → bỏ qua assertion hoàn toàn. Thiếu client_id mà có assertion →
+    /// đọc <c>iss</c> của JWT KHÔNG kiểm chữ ký, CHỈ để biết tra client nào; mã vẫn phải gắn đúng client đó,
+    /// đúng redirect, đúng PKCE như mọi lần đổi mã — nên iss bịa không mở được gì.
+    /// </summary>
+    private (string? ClientId, McpOAuthResponse? Error) TokenClientId(Params p)
+    {
+        var clientId = p["client_id"];
+        if (!string.IsNullOrEmpty(clientId)) return (clientId, null);
+        var assertion = p["client_assertion"];
+        if (string.IsNullOrEmpty(assertion)) return (null, null);
+
+        var iss = ReadUnverifiedIssuer(assertion);
+        if (iss == null) return (null, Error("invalid_request", "Thieu client_id va client_assertion khong doc duoc"));
+        _log.LogInformation("OAuth MCP: yêu cầu token thiếu client_id — lấy iss {ClientId} từ client_assertion (không kiểm chữ ký, chỉ để tra client)", iss);
+        return (iss, null);
+    }
+
+    private const int MaxAssertion = 8192;
+
+    /// <summary>
+    /// Đọc <c>iss</c> từ phần payload của JWT dạng compact (<c>header.payload.chữ-ký</c>) — KHÔNG kiểm chữ ký.
+    /// Phòng thủ với dữ liệu rác: quá dài, sai số phần, base64url hỏng, payload không phải đối tượng JSON,
+    /// iss thiếu/không phải chuỗi/rỗng/quá dài → null.
+    /// </summary>
+    internal static string? ReadUnverifiedIssuer(string assertion)
+    {
+        if (assertion.Length > MaxAssertion) return null;
+        var parts = assertion.Split('.');
+        if (parts.Length != 3 || parts[1].Length == 0) return null;
+        var b64 = parts[1];
+        if (b64.Any(ch => !(ch is >= 'A' and <= 'Z' or >= 'a' and <= 'z' or >= '0' and <= '9' or '-' or '_'))) return null;
+        b64 = b64.Replace('-', '+').Replace('_', '/');
+        b64 += (b64.Length % 4) switch { 2 => "==", 3 => "=", 0 => "", _ => "!" };
+        try
+        {
+            using var doc = JsonDocument.Parse(Convert.FromBase64String(b64));
+            if (doc.RootElement.ValueKind != JsonValueKind.Object
+                || !doc.RootElement.TryGetProperty("iss", out var iss) || iss.ValueKind != JsonValueKind.String) return null;
+            var v = iss.GetString();
+            return string.IsNullOrEmpty(v) || v.Length > MaxClientId ? null : v;
+        }
+        catch (Exception ex) when (ex is FormatException or JsonException) { return null; }
     }
 
     // ═══ Đăng ký client động (RFC 7591) ════════════════════════════════════
@@ -362,6 +417,20 @@ public sealed class McpOAuthService
         if (clientId.Length > MaxClientId) return false;
         if (clientId.Contains("://", StringComparison.Ordinal)) return _fetcher.CanFetch(clientId);
         return clientId.StartsWith(DcrPrefix, StringComparison.Ordinal) && await _store.GetClientAsync(clientId, ct) != null;
+    }
+
+    /// <summary>
+    /// Thu hồi grant trong CSDL rồi báo cổng <c>/mcp</c> xoá đệm + ghi tombstone. Báo cả khi CSDL lỗi (finally):
+    /// chặn nhầm grant còn sống tối đa 2 phút còn hơn để token đáng ngờ chạy tiếp 60 giây.
+    /// </summary>
+    private async Task RevokeGrantAsync(McpOAuthGrant g, CancellationToken ct)
+    {
+        try { await _store.RevokeGrantAsync(g.Id, g.TenantId, g.Username, ct); }
+        finally
+        {
+            try { _onGrantRevoked?.Invoke(g.Id); }
+            catch (Exception ex) { _log.LogWarning(ex, "OAuth MCP: xoá đệm xác thực cho grant {Id} lỗi", g.Id); }
+        }
     }
 
     private bool SessionAlive(string sessionId, string tenantId, string username)

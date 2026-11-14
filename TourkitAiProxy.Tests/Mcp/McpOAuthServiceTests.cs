@@ -45,6 +45,7 @@ public class McpOAuthServiceTests
         public FakeMcpOAuthStore Store = new();
         public FakeFetcher Fetcher = new();
         public HashSet<string> LiveSessions = new() { "sid-a" };
+        public List<long> Evicted = new();
         public McpOAuthService Svc = null!;
     }
 
@@ -55,7 +56,7 @@ public class McpOAuthServiceTests
         t.Fetcher.Docs[ChatGptClient] = new ClientMetadata(ChatGptClient, "ChatGPT", new[] { ChatGptCb }, null);
         t.Svc = new McpOAuthService(t.Store, t.Fetcher,
             sid => t.LiveSessions.Contains(sid) ? new McpSessionOwner("t1", "a") : null,
-            new McpOAuthOptions(Base), NullLogger<McpOAuthService>.Instance);
+            new McpOAuthOptions(Base), NullLogger<McpOAuthService>.Instance, onGrantRevoked: id => t.Evicted.Add(id));
         return t;
     }
 
@@ -406,6 +407,115 @@ public class McpOAuthServiceTests
         Assert.Equal(200, (await t.Svc.TokenAsync(CodeForm(code), default)).Status);
     }
 
+    // ── Token: client_assertion (ChatGPT khai private_key_jwt) ────────────
+    // Ta coi mọi client là CÔNG KHAI: assertion KHÔNG BAO GIỜ là xác thực, không thay PKCE. Chỉ khi thiếu
+    // client_id thì đọc "iss" (không kiểm chữ ký) để biết tra client nào — mã vẫn gắn client + PKCE.
+
+    private const string JwtBearerType = "urn:ietf:params:oauth:client-assertion-type:jwt-bearer";
+
+    private static string B64Url(string s) => Convert.ToBase64String(System.Text.Encoding.UTF8.GetBytes(s)).TrimEnd('=').Replace('+', '-').Replace('/', '_');
+
+    /// JWT có chữ ký rác — máy chủ không kiểm chữ ký nên vẫn đọc được iss.
+    private static string Assertion(string payloadJson)
+        => B64Url("""{"alg":"RS256","typ":"JWT"}""") + "." + B64Url(payloadJson) + ".chu-ky-rac";
+
+    private static Dictionary<string, StringValues> WithAssertion(Dictionary<string, StringValues> form, string assertion, bool dropClientId)
+    {
+        if (dropClientId) form.Remove("client_id");
+        form["client_assertion_type"] = JwtBearerType;
+        form["client_assertion"] = assertion;
+        return form;
+    }
+
+    [Fact]
+    public async Task Doi_ma_co_assertion_va_client_id_van_chay_va_khong_doc_assertion()
+    {
+        var t = Make();
+        var code = await IssueCode(t, ChatGptClient, ChatGptCb);
+        // Assertion rác vẫn chạy: có client_id thì assertion bị bỏ qua hoàn toàn.
+        var r = await t.Svc.TokenAsync(WithAssertion(CodeForm(code, clientId: ChatGptClient, redirect: ChatGptCb), "rac", dropClientId: false), default);
+        Assert.Equal(200, r.Status);
+    }
+
+    [Fact]
+    public async Task Assertion_khong_thay_duoc_PKCE()
+    {
+        var t = Make();
+        var code = await IssueCode(t, ChatGptClient, ChatGptCb);
+        var form = WithAssertion(CodeForm(code, clientId: ChatGptClient, redirect: ChatGptCb, verifier: new string('a', 43)),
+            Assertion($$"""{"iss":"{{ChatGptClient}}","sub":"{{ChatGptClient}}"}"""), dropClientId: false);
+        Assert.Equal("invalid_grant", Err(await t.Svc.TokenAsync(form, default)));
+        var noVerifier = WithAssertion(CodeForm(await IssueCode(t, ChatGptClient, ChatGptCb), clientId: ChatGptClient, redirect: ChatGptCb),
+            Assertion($$"""{"iss":"{{ChatGptClient}}"}"""), dropClientId: true);
+        noVerifier.Remove("code_verifier");
+        Assert.Equal("invalid_request", Err(await t.Svc.TokenAsync(noVerifier, default)));
+    }
+
+    [Fact]
+    public async Task Doi_ma_thieu_client_id_co_assertion_thi_dung_iss_de_tra_client()
+    {
+        var t = Make();
+        var code = await IssueCode(t, ChatGptClient, ChatGptCb);
+        var form = WithAssertion(CodeForm(code, clientId: ChatGptClient, redirect: ChatGptCb),
+            Assertion($$"""{"iss":"{{ChatGptClient}}","sub":"{{ChatGptClient}}","aud":"{{Base}}/oauth/token","exp":1}"""), dropClientId: true);
+        var r = await t.Svc.TokenAsync(form, default);
+        Assert.Equal(200, r.Status);
+        var g = await t.Store.FindGrantByAccessAsync(OAuthRules.Hash(r.Body["access_token"]!.GetValue<string>()), default);
+        Assert.Equal(ChatGptClient, g!.ClientId);
+    }
+
+    [Fact]
+    public async Task Refresh_thieu_client_id_co_assertion_thi_dung_iss()
+    {
+        var t = Make();
+        var first = await t.Svc.TokenAsync(CodeForm(await IssueCode(t, ChatGptClient, ChatGptCb), clientId: ChatGptClient, redirect: ChatGptCb), default);
+        var form = WithAssertion(RefreshForm(first.Body["refresh_token"]!.GetValue<string>(), clientId: ChatGptClient),
+            Assertion($$"""{"iss":"{{ChatGptClient}}"}"""), dropClientId: true);
+        Assert.Equal(200, (await t.Svc.TokenAsync(form, default)).Status);
+    }
+
+    [Theory]
+    [InlineData("rac")]
+    [InlineData("a.b")]
+    [InlineData("a.!!!.c")]
+    [InlineData("..")]
+    [InlineData("")]
+    [InlineData("e30.bm90LWpzb24.c")]                     // payload "not-json"
+    [InlineData("e30.e30.c")]                             // payload {} — thiếu iss
+    [InlineData("e30.eyJpc3MiOjEyM30.c")]                 // iss là số
+    [InlineData("e30.WzFd.c")]                            // payload là mảng
+    [InlineData("e30.eyJpc3MiOiIifQ.c")]                  // iss rỗng
+    public async Task Assertion_rac_va_thieu_client_id_thi_invalid_request(string assertion)
+    {
+        var t = Make();
+        var code = await IssueCode(t, ChatGptClient, ChatGptCb);
+        var r = await t.Svc.TokenAsync(WithAssertion(CodeForm(code, clientId: ChatGptClient, redirect: ChatGptCb), assertion, dropClientId: true), default);
+        Assert.Equal(400, r.Status);
+        Assert.Equal("invalid_request", Err(r));
+        // Mã chưa bị đốt: client hợp lệ vẫn đổi được.
+        Assert.Equal(200, (await t.Svc.TokenAsync(CodeForm(code, clientId: ChatGptClient, redirect: ChatGptCb), default)).Status);
+    }
+
+    [Fact]
+    public async Task Assertion_qua_dai_thi_invalid_request()
+    {
+        var t = Make();
+        var code = await IssueCode(t, ChatGptClient, ChatGptCb);
+        var huge = Assertion($$"""{"iss":"{{ChatGptClient}}","pad":"{{new string('x', 20_000)}}"}""");
+        var r = await t.Svc.TokenAsync(WithAssertion(CodeForm(code, clientId: ChatGptClient, redirect: ChatGptCb), huge, dropClientId: true), default);
+        Assert.Equal("invalid_request", Err(r));
+    }
+
+    [Fact]
+    public async Task Assertion_iss_khac_client_cua_ma_thi_invalid_grant()
+    {
+        var t = Make();
+        var code = await IssueCode(t, ChatGptClient, ChatGptCb);   // mã cấp cho ChatGPT
+        var form = WithAssertion(CodeForm(code, clientId: ChatGptClient, redirect: ChatGptCb),
+            Assertion($$"""{"iss":"{{ClaudeClient}}"}"""), dropClientId: true);
+        Assert.Equal("invalid_grant", Err(await t.Svc.TokenAsync(form, default)));
+    }
+
     [Fact]
     public async Task Tham_so_token_sai_tra_dung_ma_loi()
     {
@@ -461,6 +571,40 @@ public class McpOAuthServiceTests
         Assert.NotNull((await t.Store.ListGrantsAsync("t1", "a", default)).Single().RevokedUtc);
         Assert.Equal("invalid_grant", Err(await t.Svc.TokenAsync(RefreshForm(r2), default)));
         Assert.Null(await t.Store.FindGrantByAccessAsync(OAuthRules.Hash(a2), default));
+    }
+
+    // ── Thu hồi phía dịch vụ phải báo cổng /mcp xoá đệm NGAY (C7b) ──────
+
+    private static async Task<long> OnlyGrantId(T t) => (await t.Store.ListGrantsAsync("t1", "a", default)).Single().Id;
+
+    [Fact]
+    public async Task Dung_lai_refresh_cu_thu_hoi_va_bao_xoa_dem()
+    {
+        var t = Make();
+        var r1 = (await Exchange(t, await IssueCode(t)))["refresh_token"]!.GetValue<string>();
+        Assert.Equal(200, (await t.Svc.TokenAsync(RefreshForm(r1), default)).Status);
+        Assert.Empty(t.Evicted);                                         // xoay bình thường không thu hồi gì
+        Assert.Equal("invalid_grant", Err(await t.Svc.TokenAsync(RefreshForm(r1), default)));
+        Assert.Equal(new[] { await OnlyGrantId(t) }, t.Evicted);
+    }
+
+    [Fact]
+    public async Task Refresh_sai_client_thu_hoi_va_bao_xoa_dem()
+    {
+        var t = Make();
+        var first = await Exchange(t, await IssueCode(t));
+        Assert.Equal("invalid_grant", Err(await t.Svc.TokenAsync(RefreshForm(first["refresh_token"]!.GetValue<string>(), clientId: ChatGptClient), default)));
+        Assert.Equal(new[] { await OnlyGrantId(t) }, t.Evicted);
+    }
+
+    [Fact]
+    public async Task Refresh_khi_phien_het_thu_hoi_va_bao_xoa_dem()
+    {
+        var t = Make();
+        var first = await Exchange(t, await IssueCode(t));
+        t.LiveSessions.Clear();
+        Assert.Equal("invalid_grant", Err(await t.Svc.TokenAsync(RefreshForm(first["refresh_token"]!.GetValue<string>()), default)));
+        Assert.Equal(new[] { await OnlyGrantId(t) }, t.Evicted);
     }
 
     [Fact]
@@ -558,6 +702,7 @@ public class McpOAuthServiceTests
     [InlineData("""{"redirect_uris":["https://evil.com/cb"]}""", "invalid_redirect_uri")]
     [InlineData("""{"redirect_uris":[]}""", "invalid_redirect_uri")]
     [InlineData("""{"redirect_uris":["http://localhost:1/cb"],"token_endpoint_auth_method":"client_secret_basic"}""", "invalid_client_metadata")]
+    [InlineData("""{"redirect_uris":["http://localhost:1/cb"],"token_endpoint_auth_method":"private_key_jwt","token_endpoint_auth_methods_supported":["none","private_key_jwt"]}""", "invalid_client_metadata")]
     [InlineData("""{"redirect_uris":["http://localhost:1/cb"],"grant_types":["implicit"]}""", "invalid_client_metadata")]
     [InlineData("""{"redirect_uris":["http://localhost:1/cb"],"response_types":["token"]}""", "invalid_client_metadata")]
     [InlineData("khong phai json", "invalid_client_metadata")]

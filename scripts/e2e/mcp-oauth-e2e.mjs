@@ -18,7 +18,7 @@
 //              nhận ĐÚNG 1 đối số là câu SQL, in mảng JSON các dòng. Cần cho ca ép hết hạn/sai resource (C6, E3–E6)
 //              và để XOÁ SẠCH dòng test cuối lượt. Thiếu → các ca đó SKIP, cuối lượt chỉ thu hồi qua API.
 //              Mọi câu ghi đều kẹp dòng do CHÍNH lượt chạy tạo (ClientName/Label bắt đầu 'T6 e2e').
-//   --fast     không chờ hết đệm xác thực 60 s ở ca C7 (dùng lại refresh cũ).
+//   --fast     ca C7b mà hồi quy (access còn 200 sau thu hồi) thì báo FAIL ngay, không chờ đo thời gian sống ~60 s.
 //
 // Lưu ý: DCR giới hạn 20 client/giờ/IP; mỗi lượt đăng ký 2 client (xoá khi có --db-cmd nên không dồn).
 // Token in ra luôn bị che (giữ tiền tố + 4 ký tự). Thoát mã 1 nếu có ca FAIL.
@@ -307,13 +307,14 @@ async function main() {
       if (DB_CMD) revokedDb = sql(`SELECT RevokedUtc FROM dbo.McpOAuthGrants WHERE RefreshHash = '${hex(sha(nR))}' AND ${mineGrant}`)[0]?.RevokedUtc ?? null;
       check('C7', r1.status === 200 && warm.status === 200 && isInvalidGrant(reuse) && isInvalidGrant(nextR) && (DB_CMD ? !!revokedDb : true),
         'dùng lại refresh cũ → invalid_grant + cả grant bị thu hồi (refresh mới cũng chết)', { reuse: reuse.body?.error, newRefresh: nextR.body?.error, revokedUtc: revokedDb });
-      // Access mới đã nằm trong đệm 60 s: service thu hồi grant nhưng chưa xoá đệm (đã biết, chờ sửa).
+      // Access mới đã nằm trong đệm 60 s: service thu hồi grant phải xoá đệm + ghi tombstone → 401 NGAY (cùng instance).
       if (nowA.status === 401) check('C7b', is401(nowA), 'access mới 401 NGAY sau khi grant bị thu hồi do dùng lại refresh', { ms: Date.now() - tReuse });
-      else if (FAST) record('C7b', 'FAIL', 'access mới vẫn 200 ngay sau thu hồi do dùng lại refresh (đệm chưa bị xoá — lỗi đã biết, chờ sửa)', { status: nowA.status, note: '--fast: không đo thời gian sống' });
+      else if (FAST) record('C7b', 'FAIL', 'access mới vẫn 200 ngay sau thu hồi do dùng lại refresh (đệm xác thực chưa bị xoá)', { status: nowA.status, note: '--fast: không đo thời gian sống' });
       else {
+        // Hồi quy: đo xem token còn sống bao lâu để chẩn đoán (trước bản sửa là ~61 s).
         let st = nowA.status, ms = 0;
         while (st !== 401 && Date.now() - tReuse < 75000) { await sleep(5000); st = (await toolsList(nA)).status; ms = Date.now() - tReuse; }
-        record('C7b', 'FAIL', 'access mới vẫn 200 sau thu hồi do dùng lại refresh — đệm xác thực chưa bị xoá (lỗi đã biết, chờ sửa)',
+        record('C7b', 'FAIL', 'access mới vẫn 200 sau thu hồi do dùng lại refresh — đệm xác thực chưa bị xoá',
           { immediately: nowA.status, became401AfterMs: st === 401 ? ms : null, finalStatus: st });
       }
     }

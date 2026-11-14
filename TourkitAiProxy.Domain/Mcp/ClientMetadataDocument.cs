@@ -20,7 +20,7 @@ public static class ClientMetadataDocument
 
         // client_id trong tài liệu phải đúng bằng URL vừa tải — chống một trang tự nhận là client khác.
         if (Str(el, "client_id") != fetchedUrl) return (null, "invalid_client_metadata");
-        return Build(el, fetchedUrl, extraRedirects ?? Array.Empty<string>());
+        return Build(el, fetchedUrl, extraRedirects ?? Array.Empty<string>(), cimd: true);
     }
 
     /// <summary>Lỗi trả đúng mã RFC 7591: <c>invalid_redirect_uri</c> / <c>invalid_client_metadata</c>. ClientId để trống — tầng lưu trữ cấp.</summary>
@@ -28,14 +28,12 @@ public static class ClientMetadataDocument
     {
         var root = ParseObject(json);
         if (root is null) return (null, "invalid_client_metadata");
-        return Build(root.Value, "", extraRedirects ?? Array.Empty<string>());
+        return Build(root.Value, "", extraRedirects ?? Array.Empty<string>(), cimd: false);
     }
 
-    private static (ClientMetadata? Doc, string? Error) Build(JsonElement el, string clientId, IReadOnlyCollection<string> extra)
+    private static (ClientMetadata? Doc, string? Error) Build(JsonElement el, string clientId, IReadOnlyCollection<string> extra, bool cimd)
     {
-        // Thiếu hoặc "none" = client công khai. Mọi kiểu có bí mật đều bị từ chối.
-        var method = Str(el, "token_endpoint_auth_method");
-        if (method is not null && method != "none") return (null, "invalid_client_metadata");
+        if (!IsPublicClient(el, cimd)) return (null, "invalid_client_metadata");
 
         if (!el.TryGetProperty("redirect_uris", out var arr) || arr.ValueKind != JsonValueKind.Array || arr.GetArrayLength() == 0)
             return (null, "invalid_redirect_uri");
@@ -47,6 +45,24 @@ public static class ClientMetadataDocument
             uris.Add(u!);
         }
         return (new ClientMetadata(clientId, Str(el, "client_name"), uris, Str(el, "logo_uri")), null);
+    }
+
+    /// <summary>
+    /// Thiếu hoặc "none" = client công khai. Mọi kiểu có bí mật (<c>client_secret_*</c>, mTLS…) đều bị từ chối.
+    /// <para>Ngoại lệ DUY NHẤT, chỉ cho CIMD: <c>private_key_jwt</c> kèm <c>"none"</c> trong
+    /// <c>token_endpoint_auth_methods_supported</c> — đúng tài liệu thật của ChatGPT. Máy chủ ta chỉ quảng cáo
+    /// <c>none</c>, nên client đó được coi là công khai: token endpoint KHÔNG kiểm chữ ký JWT, chỉ dựa PKCE +
+    /// mã gắn client. DCR giữ chặt "none": ai cũng gửi được yêu cầu đăng ký, còn CIMD do chủ tên miền công bố.</para>
+    /// </summary>
+    private static bool IsPublicClient(JsonElement el, bool cimd)
+    {
+        var method = Str(el, "token_endpoint_auth_method");
+        if (method is null || method == "none") return true;
+        if (!cimd || method != "private_key_jwt") return false;
+        if (!el.TryGetProperty("token_endpoint_auth_methods_supported", out var arr) || arr.ValueKind != JsonValueKind.Array) return false;
+        foreach (var item in arr.EnumerateArray())
+            if (item.ValueKind == JsonValueKind.String && item.GetString() == "none") return true;
+        return false;
     }
 
     private static JsonElement? ParseObject(string json)

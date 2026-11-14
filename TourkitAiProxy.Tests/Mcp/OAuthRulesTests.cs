@@ -131,4 +131,65 @@ public class OAuthRulesTests
         Assert.Null(ok.Error);
         Assert.Equal("Claude", ok.Doc!.ClientName);
     }
+
+    // ── CIMD của ChatGPT: khai private_key_jwt nhưng có "none" trong danh sách hỗ trợ ──
+
+    private const string ChatGptUrl = "https://chatgpt.com/oauth/client.json";
+    private const string ChatGptCb = "https://chatgpt.com/connector_platform_oauth_redirect";
+
+    /// Tài liệu THẬT tải từ https://chatgpt.com/oauth/client.json ngày 14/11/2026 (giữ nguyên từng byte).
+    private static string ChatGptFixture([System.Runtime.CompilerServices.CallerFilePath] string here = "")
+        => File.ReadAllText(Path.Combine(Path.GetDirectoryName(here)!, "Fixtures", "chatgpt-client-metadata.json"));
+
+    private static string ChatGptDoc(string method, string? supportedJson)
+        => "{\"client_id\":\"" + ChatGptUrl + "\",\"client_name\":\"ChatGPT\",\"redirect_uris\":[\"" + ChatGptCb + "\"],"
+           + "\"token_endpoint_auth_method\":\"" + method + "\""
+           + (supportedJson == null ? "" : ",\"token_endpoint_auth_methods_supported\":" + supportedJson) + "}";
+
+    [Fact]
+    public void Cimd_tai_lieu_that_cua_ChatGPT_duoc_nhan_nhu_client_cong_khai()
+    {
+        var r = ClientMetadataDocument.ParseCimd(ChatGptUrl, ChatGptFixture());
+        Assert.Null(r.Error);
+        Assert.Equal("ChatGPT", r.Doc!.ClientName);
+        Assert.Equal(new[] { ChatGptCb }, r.Doc.RedirectUris);
+        Assert.Equal(ChatGptUrl, r.Doc.ClientId);
+    }
+
+    [Theory]
+    [InlineData(null)]                                   // không khai danh sách hỗ trợ
+    [InlineData("[\"private_key_jwt\"]")]                // có danh sách nhưng thiếu none
+    [InlineData("\"none\"")]                             // chuỗi, không phải mảng
+    [InlineData("[1,\"private_key_jwt\"]")]
+    [InlineData("[\"NONE\"]")]                           // phân biệt hoa thường như mọi giá trị OAuth
+    [InlineData("{\"none\":true}")]
+    public void Cimd_private_key_jwt_khong_co_none_trong_danh_sach_ho_tro_bi_tu_choi(string? supported)
+    {
+        var r = ClientMetadataDocument.ParseCimd(ChatGptUrl, ChatGptDoc("private_key_jwt", supported));
+        Assert.Null(r.Doc);
+        Assert.Equal("invalid_client_metadata", r.Error);
+    }
+
+    [Theory]
+    [InlineData("client_secret_basic")]
+    [InlineData("client_secret_post")]
+    [InlineData("client_secret_jwt")]
+    [InlineData("tls_client_auth")]
+    public void Cimd_kieu_bi_mat_bi_tu_choi_ke_ca_khi_danh_sach_ho_tro_co_none(string method)
+    {
+        var r = ClientMetadataDocument.ParseCimd(ChatGptUrl, ChatGptDoc(method, "[\"none\",\"" + method + "\"]"));
+        Assert.Null(r.Doc);
+        Assert.Equal("invalid_client_metadata", r.Error);
+    }
+
+    [Fact]
+    public void Dcr_private_key_jwt_bi_tu_choi_ke_ca_khi_danh_sach_ho_tro_co_none()
+    {
+        // Ngoại lệ private_key_jwt CHỈ dành cho CIMD (tài liệu do chủ tên miền công bố). DCR ai cũng gửi được → giữ chặt "none".
+        var r = ClientMetadataDocument.ParseDcrRequest(
+            "{\"token_endpoint_auth_method\":\"private_key_jwt\",\"token_endpoint_auth_methods_supported\":[\"none\",\"private_key_jwt\"],"
+            + "\"redirect_uris\":[\"" + ClaudeCb + "\"]}");
+        Assert.Null(r.Doc);
+        Assert.Equal("invalid_client_metadata", r.Error);
+    }
 }

@@ -99,7 +99,9 @@ connector, đăng nhập TRAV-AI, bấm "Cho phép", và ứng dụng nhận tok
    Trượt bất kỳ điều nào → 401 + header ở bước 1 → ứng dụng tự refresh hoặc đăng nhập lại.
 7. Hết access → ứng dụng `POST /oauth/token grant_type=refresh_token` → cặp mới (refresh **xoay vòng**).
 8. Người dùng ngắt kết nối ở trang **Kết nối AI → Ứng dụng đã kết nối** → `DELETE /api/v1/mcp/oauth/connections/{id}`
-   → token chết **ngay** trong tiến trình này (xoá khỏi đệm), instance khác trễ tối đa 60 giây.
+   → token chết ngay **trên instance này** (xoá khỏi đệm + ghi dấu "vừa thu hồi" 2 phút để lời gọi đang chạy dở
+   không ghi lại đệm); chạy nhiều instance thì instance khác có thể còn nhận token **tối đa 60 giây**. Máy chủ tự thu
+   hồi grant (refresh cũ bị dùng lại, refresh trình ở client khác, phiên TourKit đã hết) cũng xoá đệm y như vậy.
 
 ### Bảng (CSDL TourKit_Push, chỉ thêm)
 
@@ -131,13 +133,23 @@ Issuer/resource **không bao giờ** lấy từ header `Host`.
 **CIMD:** chỉ tải `client_id` https thuộc `claude.ai`, `chatgpt.com` (+ `Mcp:OAuth:CimdHosts`), timeout 5 giây, tối đa
 64 KB, không theo chuyển hướng, chặn địa chỉ nội bộ (SSRF), `client_id` trong tài liệu phải bằng URL đã tải.
 
+**ChatGPT khai `private_key_jwt` nhưng ta coi là client công khai.** Tài liệu thật của ChatGPT
+(`https://chatgpt.com/oauth/client.json`) khai `token_endpoint_auth_method: "private_key_jwt"` kèm `"none"` trong
+`token_endpoint_auth_methods_supported`. Luật (chỉ cho CIMD): nhận nếu phương thức thiếu hoặc `none`, hoặc
+`private_key_jwt` **và** `token_endpoint_auth_methods_supported` là mảng có `"none"`. Mọi `client_secret_*` luôn bị
+từ chối; DCR (`/oauth/register`) vẫn chỉ nhận `none`. Ở `/oauth/token`, `client_assertion` / `client_assertion_type`
+**không bao giờ** được coi là xác thực và không thay PKCE — máy chủ không kiểm chữ ký JWT. Riêng khi thiếu
+`client_id` mà có `client_assertion`, máy chủ đọc `iss` của JWT (không kiểm) **chỉ để biết tra client nào**; mã vẫn
+phải gắn đúng client đó, đúng redirect, đúng PKCE. Assertion hỏng → `invalid_request`; `iss` khác client của mã →
+`invalid_grant`.
+
 ### Token
 
 | Loại | Dạng | Sống | Ghi chú |
 |---|---|---|---|
 | Mã uỷ quyền | `tkoac_` + 32 hex | 5 phút | Dùng một lần, gắn client + redirect + PKCE + resource |
 | Access | `tkoat_` + 32 hex | 1 giờ | Gắn `resource` (audience); `/mcp` từ chối resource khác. Đệm xác thực 60 giây nhưng **không bao giờ** quá hạn access |
-| Refresh | `tkort_` + 32 hex | 30 ngày | **Xoay vòng** mỗi lần dùng. Dùng lại refresh cũ = **thu hồi cả grant**. Không có cửa sổ ân hạn |
+| Refresh | `tkort_` + 32 hex | 30 ngày | **Xoay vòng** mỗi lần dùng. Dùng lại refresh cũ = **thu hồi cả grant**: access đang dùng chết ngay trên instance này, instance khác tối đa 60 giây. Không có cửa sổ ân hạn |
 
 Scope: `tourkit.read` (+ `offline_access` để nhận refresh). Không khai `openid/email/profile`. Phiên TourKit của
 người bấm "Cho phép" hết → token 401, refresh `invalid_grant` → ứng dụng đăng nhập lại.
@@ -181,6 +193,7 @@ trên server cổng riêng với phiên staging. Cách chạy ở đầu file; c
   → coi là dùng lại → thu hồi grant → người dùng phải kết nối lại.
 - Sau khi refresh, access cũ không còn tra được trong SQL (cột `AccessHash` bị thay) — chỉ còn sống tối đa 60 giây nhờ đệm.
 - **CIMD chỉ tải từ `claude.ai` / `chatgpt.com`** (+ cấu hình). Client khác dùng DCR.
-- Nhiều instance: thu hồi trễ tối đa 60 giây ở instance khác (như khoá tay).
+- Nhiều instance: thu hồi (người dùng ngắt kết nối hay máy chủ tự thu hồi) có hiệu lực ngay trên instance xử lý
+  yêu cầu đó, nhưng instance khác trễ tối đa 60 giây (như khoá tay) — chưa có kênh báo chéo.
 - Chưa dọn mã/grant hết hạn tự động.
 - Chưa có hành động ghi (giai đoạn 1b, sau cờ `Features:McpActions`).

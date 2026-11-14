@@ -337,7 +337,123 @@ public class McpOAuthBearerTests
         Assert.Equal(404, Status(await McpOAuthEndpoints.RevokeConnectionAsync(id, new SessionAuth.Ctx("sid-a", "t1", "a"), c.OAuth, c.Auth, default)));
     }
 
+    // ── Tombstone: grant vừa thu hồi không được quay lại đệm (cuộc đua đọc–thu hồi–ghi đệm) ──
+
+    /// Dựng cuộc đua: lời gọi /mcp đã đọc grant CÒN SỐNG từ CSDL, rồi — trước khi kịp ghi đệm — nơi khác
+    /// thu hồi + xoá đệm. Không có tombstone thì token đã thu hồi được đệm thêm 60 giây.
+    private static async Task RaceRevokeBetweenReadAndRemember(Ctx c, RacyOAuthStore racy, long id, string access, Func<Task> revoke)
+    {
+        racy.AfterRead = revoke;
+        Assert401(await Call(c, access));                                // chính lời gọi đang đua cũng bị chặn
+        Assert401(await Call(c, access));                                // và KHÔNG có gì nằm lại trong đệm
+    }
+
+    [Fact]
+    public async Task Tombstone_chan_ghi_dem_sau_khi_da_xoa_dem()
+    {
+        var racy = new RacyOAuthStore();
+        var c = Build(oauthStore: racy);
+        var (id, access) = await GrantIn(racy.Inner, c);
+        await RaceRevokeBetweenReadAndRemember(c, racy, id, access, async () =>
+        {
+            await racy.Inner.RevokeGrantAsync(id, "t1", "a", default);
+            c.Auth.EvictGrant(id);
+        });
+    }
+
+    [Fact]
+    public async Task Tombstone_ap_ca_cho_DELETE_ket_noi()
+    {
+        var racy = new RacyOAuthStore();
+        var c = Build(oauthStore: racy);
+        var (id, access) = await GrantIn(racy.Inner, c);
+        await RaceRevokeBetweenReadAndRemember(c, racy, id, access, async () =>
+            Assert.Equal(204, Status(await McpOAuthEndpoints.RevokeConnectionAsync(id, new SessionAuth.Ctx("sid-a", "t1", "a"), racy.Inner, c.Auth, default))));
+    }
+
+    [Fact]
+    public async Task Trung_dem_cua_grant_da_tombstone_thi_401()
+    {
+        // Mục đệm đã nằm sẵn (lọt khỏi lượt quét của EvictGrant vì ghi đồng thời) → lần trúng đệm phải tự kiểm tombstone.
+        var c = Build();
+        var (id, access) = await Grant(c);
+        Assert.Equal(200, (await Call(c, access)).Response.StatusCode);  // đã vào đệm
+        c.Auth.MarkGrantRevoked(id);                                     // chỉ đánh dấu, KHÔNG quét đệm
+        Assert401(await Call(c, access));
+    }
+
+    [Fact]
+    public async Task Tombstone_het_han_sau_hai_lan_TTL_dem()
+    {
+        var c = Build();
+        var (id, access) = await Grant(c, ttl: TimeSpan.FromHours(2));
+        c.Auth.MarkGrantRevoked(id);
+        c.Clock.Advance(McpAuthenticator.CacheTtl * 2 - TimeSpan.FromSeconds(1));
+        Assert401(await Call(c, access));                                // còn trong hạn tombstone
+        c.Clock.Advance(TimeSpan.FromSeconds(2));
+        Assert.Equal(200, (await Call(c, access)).Response.StatusCode);  // CSDL vẫn nói grant sống → tombstone đã hết, cho qua
+    }
+
+    [Fact]
+    public async Task Tombstone_khong_anh_huong_khoa_tay_cung_so_id()
+    {
+        var c = Build();
+        var (keyId, key) = await c.Keys.CreateAsync("t1", "a", "sid-a", "may", default);
+        Assert.Equal(200, (await Call(c, key)).Response.StatusCode);    // khoá tay vào đệm
+        c.Auth.EvictGrant(keyId);                                        // grant cùng số id bị thu hồi
+        Assert.Equal(200, (await Call(c, key)).Response.StatusCode);    // trúng đệm
+        c.Clock.Advance(McpAuthenticator.CacheTtl + TimeSpan.FromSeconds(1));
+        Assert.Equal(200, (await Call(c, key)).Response.StatusCode);    // tra lại CSDL, ghi đệm lại
+    }
+
+    [Fact]
+    public void Tombstone_co_tran_va_khong_bo_muc_moi_nhat()
+    {
+        var c = Build();
+        for (long i = 1; i <= McpAuthenticator.MaxTombstones + 500; i++)
+        {
+            c.Auth.MarkGrantRevoked(i);
+            if (i % 1000 == 0) c.Clock.Advance(TimeSpan.FromMilliseconds(1));
+        }
+        Assert.InRange(c.Auth.TombstoneCount, 1, McpAuthenticator.MaxTombstones + 1);
+        Assert.True(c.Auth.IsGrantTombstoned(McpAuthenticator.MaxTombstones + 500));
+    }
+
     // ── Đồ giả ────────────────────────────────────────────────────────────
+
+    private static async Task<(long Id, string Access)> GrantIn(FakeMcpOAuthStore store, Ctx c)
+    {
+        var access = OAuthRules.NewAccessToken();
+        var now = c.Clock.GetUtcNow().UtcDateTime;
+        var id = await store.CreateGrantAsync(new McpOAuthNewGrant("https://chatgpt.com/oauth/client.json", "ChatGPT",
+            "t1", "a", "sid-a", Resource, "tourkit.read offline_access", OAuthRules.Hash(access), now.AddHours(1),
+            OAuthRules.Hash(OAuthRules.NewRefreshToken()), now.AddDays(30)), default);
+        return (id, access);
+    }
+
+    /// Kho bọc kho giả: đọc grant xong thì chạy <see cref="AfterRead"/> (một lần) rồi mới trả bản đã đọc — tức bản CŨ.
+    private sealed class RacyOAuthStore : IMcpOAuthStore
+    {
+        public readonly FakeMcpOAuthStore Inner = new();
+        public Func<Task>? AfterRead;
+        public async Task<McpOAuthGrant?> FindGrantByAccessAsync(string accessHash, CancellationToken ct)
+        {
+            var g = await Inner.FindGrantByAccessAsync(accessHash, ct);
+            var hook = AfterRead; AfterRead = null;
+            if (hook != null) await hook();
+            return g;
+        }
+        public Task CreateClientAsync(McpOAuthClient client, CancellationToken ct) => Inner.CreateClientAsync(client, ct);
+        public Task<McpOAuthClient?> GetClientAsync(string clientId, CancellationToken ct) => Inner.GetClientAsync(clientId, ct);
+        public Task<int> CountClientsByIpSinceAsync(string ip, DateTime sinceUtc, CancellationToken ct) => Inner.CountClientsByIpSinceAsync(ip, sinceUtc, ct);
+        public Task SaveCodeAsync(McpOAuthCode code, CancellationToken ct) => Inner.SaveCodeAsync(code, ct);
+        public Task<McpOAuthCode?> ConsumeCodeAsync(string codeHash, CancellationToken ct) => Inner.ConsumeCodeAsync(codeHash, ct);
+        public Task<long> CreateGrantAsync(McpOAuthNewGrant grant, CancellationToken ct) => Inner.CreateGrantAsync(grant, ct);
+        public Task<McpRefreshResult> RotateRefreshAsync(string o, string a, DateTime ae, string r, DateTime re, CancellationToken ct) => Inner.RotateRefreshAsync(o, a, ae, r, re, ct);
+        public Task<bool> RevokeGrantAsync(long id, string tenant, string username, CancellationToken ct) => Inner.RevokeGrantAsync(id, tenant, username, ct);
+        public Task<IReadOnlyList<McpOAuthGrant>> ListGrantsAsync(string tenant, string username, CancellationToken ct) => Inner.ListGrantsAsync(tenant, username, ct);
+        public Task TouchGrantAsync(long id, CancellationToken ct) => Inner.TouchGrantAsync(id, ct);
+    }
 
     private sealed class ThrowingOAuthStore : IMcpOAuthStore
     {

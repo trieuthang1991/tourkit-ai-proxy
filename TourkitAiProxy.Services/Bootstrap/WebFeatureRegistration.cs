@@ -91,7 +91,10 @@ public static class WebFeatureRegistration
                 sp.GetRequiredService<Mcp.OAuth.IClientMetadataFetcher>(),
                 sid => sessions.Get(sid) is { } x ? new Mcp.McpSessionOwner(x.TenantId, x.Username) : null,
                 sp.GetRequiredService<Mcp.OAuth.McpOAuthOptions>(),
-                sp.GetRequiredService<ILogger<Mcp.OAuth.McpOAuthService>>());
+                sp.GetRequiredService<ILogger<Mcp.OAuth.McpOAuthService>>(),
+                clock: null,
+                // Dịch vụ thu hồi grant (refresh bị dùng lại, sai client, phiên hết) → token trong đệm chết NGAY.
+                onGrantRevoked: id => sp.GetRequiredService<Mcp.McpAuthenticator>().EvictGrant(id));
         });
 
         s.AddMcpServer(o =>
