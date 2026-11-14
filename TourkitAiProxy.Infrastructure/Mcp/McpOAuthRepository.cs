@@ -36,7 +36,9 @@ public interface IMcpOAuthStore
     Task<McpOAuthCode?> ConsumeCodeAsync(string codeHash, CancellationToken ct);
 
     Task<long> CreateGrantAsync(McpOAuthNewGrant grant, CancellationToken ct);
+    /// <summary>Tìm grant còn hiệu lực theo bản băm access. CHỈ lọc RevokedUtc, KHÔNG kiểm AccessExpiresUtc: chỗ gọi PHẢI tự kiểm hạn.</summary>
     Task<McpOAuthGrant?> FindGrantByAccessAsync(string accessHash, CancellationToken ct);
+    /// <summary>Xoay refresh nguyên tử. Khi trả <c>Reused</c> chỗ gọi PHẢI thu hồi grant (RevokeGrantAsync) — kho không tự thu hồi.</summary>
     Task<McpRefreshResult> RotateRefreshAsync(string oldRefreshHash, string newAccessHash, DateTime newAccessExpiresUtc,
         string newRefreshHash, DateTime newRefreshExpiresUtc, CancellationToken ct);
     Task<bool> RevokeGrantAsync(long id, string tenant, string username, CancellationToken ct);
@@ -56,6 +58,9 @@ public class McpOAuthRepository : IMcpOAuthStore
 
     // Dapper đọc datetime2 thành Kind=Unspecified; mọi giá trị trong bảng là UTC nên gắn Kind=Utc để
     // ToString("o") ra "Z" (xem docs/datetime-convention.md).
+    // Cột băm là CHAR(64): gửi kiểu ANSI cố định 64 để SQL không CONVERT_IMPLICIT (nvarchar > char làm mất Index Seek).
+    private static DbString H(string h) => new() { Value = h, IsAnsi = true, IsFixedLength = true, Length = 64 };
+
     private static DateTime Utc(DateTime d) => DateTime.SpecifyKind(d, DateTimeKind.Utc);
     private static DateTime? Utc(DateTime? d) => d.HasValue ? Utc(d.Value) : null;
     private static McpOAuthGrant? Fix(McpOAuthGrant? g) => g == null ? null : g with
@@ -100,7 +105,7 @@ SELECT COUNT(*) FROM dbo.McpOAuthClients WHERE CreatedIp = @ip AND CreatedUtc >=
 INSERT INTO dbo.McpOAuthCodes (CodeHash, ClientId, RedirectUri, CodeChallenge, Resource, Scope, TenantId, Username, SessionId, ExpiresUtc)
 VALUES (@CodeHash, @ClientId, @RedirectUri, @CodeChallenge, @Resource, @Scope, @TenantId, @Username, @SessionId, @ExpiresUtc);";
         await using var c = await _db.OpenAsync(ct);
-        await c.ExecuteAsync(new CommandDefinition(sql, code, cancellationToken: ct));
+        await c.ExecuteAsync(new CommandDefinition(sql, new { CodeHash = H(code.CodeHash), code.ClientId, code.RedirectUri, code.CodeChallenge, code.Resource, code.Scope, code.TenantId, code.Username, code.SessionId, code.ExpiresUtc }, cancellationToken: ct));
     }
 
     public async Task<McpOAuthCode?> ConsumeCodeAsync(string codeHash, CancellationToken ct)
@@ -113,7 +118,7 @@ OUTPUT inserted.CodeHash, inserted.ClientId, inserted.RedirectUri, inserted.Code
        inserted.Scope, inserted.TenantId, inserted.Username, inserted.SessionId, inserted.ExpiresUtc, inserted.UsedUtc
  WHERE CodeHash = @codeHash AND UsedUtc IS NULL AND ExpiresUtc > SYSUTCDATETIME();";
         await using var c = await _db.OpenAsync(ct);
-        var r = await c.QuerySingleOrDefaultAsync<McpOAuthCode>(new CommandDefinition(sql, new { codeHash }, cancellationToken: ct));
+        var r = await c.QuerySingleOrDefaultAsync<McpOAuthCode>(new CommandDefinition(sql, new { codeHash = H(codeHash) }, cancellationToken: ct));
         return r == null ? null : r with { ExpiresUtc = Utc(r.ExpiresUtc), UsedUtc = Utc(r.UsedUtc) };
     }
 
@@ -127,7 +132,7 @@ VALUES (@ClientId, @ClientName, @TenantId, @Username, @SessionId, @Resource, @Sc
         @AccessHash, @AccessExpiresUtc, @RefreshHash, @RefreshExpiresUtc, @now);";
         await using var c = await _db.OpenAsync(ct);
         return await c.ExecuteScalarAsync<long>(new CommandDefinition(sql,
-            new { g.ClientId, g.ClientName, g.TenantId, g.Username, g.SessionId, g.Resource, g.Scope, g.AccessHash, g.AccessExpiresUtc, g.RefreshHash, g.RefreshExpiresUtc, now = DateTime.UtcNow },
+            new { g.ClientId, g.ClientName, g.TenantId, g.Username, g.SessionId, g.Resource, g.Scope, AccessHash = H(g.AccessHash), g.AccessExpiresUtc, RefreshHash = H(g.RefreshHash), g.RefreshExpiresUtc, now = DateTime.UtcNow },
             cancellationToken: ct));
     }
 
@@ -138,7 +143,7 @@ VALUES (@ClientId, @ClientName, @TenantId, @Username, @SessionId, @Resource, @Sc
         const string sql = "SELECT " + GrantCols + @"
   FROM dbo.McpOAuthGrants WHERE AccessHash = @accessHash AND RevokedUtc IS NULL;";
         await using var c = await _db.OpenAsync(ct);
-        return Fix(await c.QuerySingleOrDefaultAsync<McpOAuthGrant>(new CommandDefinition(sql, new { accessHash }, cancellationToken: ct)));
+        return Fix(await c.QuerySingleOrDefaultAsync<McpOAuthGrant>(new CommandDefinition(sql, new { accessHash = H(accessHash) }, cancellationToken: ct)));
     }
 
     public async Task<McpRefreshResult> RotateRefreshAsync(string oldRefreshHash, string newAccessHash, DateTime newAccessExpiresUtc,
@@ -155,10 +160,10 @@ OUTPUT " + GrantColsInserted + @"
         const string reuse = "SELECT " + GrantCols + @"
   FROM dbo.McpOAuthGrants WHERE PrevRefreshHash = @oldRefreshHash AND RevokedUtc IS NULL;";
         await using var c = await _db.OpenAsync(ct);
-        var p = new { oldRefreshHash, newAccessHash, newAccessExpiresUtc, newRefreshHash, newRefreshExpiresUtc };
+        var p = new { oldRefreshHash = H(oldRefreshHash), newAccessHash = H(newAccessHash), newAccessExpiresUtc, newRefreshHash = H(newRefreshHash), newRefreshExpiresUtc };
         var rotated = Fix(await c.QuerySingleOrDefaultAsync<McpOAuthGrant>(new CommandDefinition(rotate, p, cancellationToken: ct)));
         if (rotated != null) return new McpRefreshResult(McpRefreshStatus.Rotated, rotated);
-        var reused = Fix(await c.QuerySingleOrDefaultAsync<McpOAuthGrant>(new CommandDefinition(reuse, new { oldRefreshHash }, cancellationToken: ct)));
+        var reused = Fix(await c.QuerySingleOrDefaultAsync<McpOAuthGrant>(new CommandDefinition(reuse, new { oldRefreshHash = H(oldRefreshHash) }, cancellationToken: ct)));
         return reused != null ? new McpRefreshResult(McpRefreshStatus.Reused, reused) : new McpRefreshResult(McpRefreshStatus.NotFound, null);
     }
 

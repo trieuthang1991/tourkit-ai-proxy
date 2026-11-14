@@ -13,6 +13,8 @@ public class McpOAuthStoreTests
         return File.ReadAllText(Path.Combine(d!.FullName, rel));
     }
 
+    private static string N(string s) => System.Text.RegularExpressions.Regex.Replace(s, @"\s+", " ");
+
     private const string RepoPath = "TourkitAiProxy.Infrastructure/Mcp/McpOAuthRepository.cs";
 
     /// <summary>Lấy thân một phương thức theo dấu "-- X:" tới dấu kế tiếp / hết tệp.</summary>
@@ -21,7 +23,7 @@ public class McpOAuthStoreTests
         var i = src.IndexOf(marker, StringComparison.Ordinal);
         Assert.True(i >= 0, marker);
         var j = src.IndexOf("public async", i, StringComparison.Ordinal);
-        return j < 0 ? src[i..] : src[i..j];
+        return System.Text.RegularExpressions.Regex.Replace(j < 0 ? src[i..] : src[i..j], @"\s+", " ");
     }
 
     private static McpOAuthNewGrant NewGrant(string tenant = "t1", string user = "a", string acc = "A1", string refr = "R1")
@@ -63,6 +65,36 @@ public class McpOAuthStoreTests
     }
 
     [Fact]
+    public async Task Xoay_refresh_tren_grant_da_thu_hoi_khong_xoay_duoc()
+    {
+        var s = new FakeMcpOAuthStore();
+        var id = await s.CreateGrantAsync(NewGrant(), default);
+        Assert.True(await s.RevokeGrantAsync(id, "t1", "a", default));
+        var r = await s.RotateRefreshAsync("R1", "A2", DateTime.UtcNow.AddHours(1), "R2", DateTime.UtcNow.AddDays(30), default);
+        Assert.Equal(McpRefreshStatus.NotFound, r.Status);
+        Assert.Null(r.Grant);
+    }
+
+    [Fact]
+    public async Task Xoay_refresh_het_han_khong_xoay_duoc()
+    {
+        var s = new FakeMcpOAuthStore();
+        await s.CreateGrantAsync(NewGrant() with { RefreshExpiresUtc = DateTime.UtcNow.AddMinutes(-1) }, default);
+        var r = await s.RotateRefreshAsync("R1", "A2", DateTime.UtcNow.AddHours(1), "R2", DateTime.UtcNow.AddDays(30), default);
+        Assert.NotEqual(McpRefreshStatus.Rotated, r.Status);
+        Assert.NotNull(await s.FindGrantByAccessAsync("A1", default));
+    }
+
+    [Fact]
+    public void Guard_Ma_bam_gui_kieu_ANSI_64_de_khong_CONVERT_IMPLICIT()
+    {
+        var repo = Src(RepoPath);
+        Assert.Contains("IsAnsi = true, IsFixedLength = true, Length = 64", N(repo));
+        Assert.Contains("accessHash = H(accessHash)", repo);
+        Assert.Contains("codeHash = H(codeHash)", repo);
+    }
+
+    [Fact]
     public async Task Thu_hoi_va_liet_ke_chi_trong_pham_vi_chu_so_huu()
     {
         var s = new FakeMcpOAuthStore();
@@ -93,6 +125,8 @@ public class McpOAuthStoreTests
         Assert.Contains("OUTPUT", b);
         Assert.Contains("RevokedUtc IS NULL", b);
         Assert.Contains("PrevRefreshHash = @oldRefreshHash", b);
+        Assert.Contains("RefreshExpiresUtc > SYSUTCDATETIME()", b);
+        Assert.Contains("RefreshHash = @oldRefreshHash AND RevokedUtc IS NULL", b);
     }
 
     [Fact]
@@ -121,9 +155,9 @@ public class McpOAuthStoreTests
         Assert.Contains("IF OBJECT_ID('dbo.McpOAuthClients', 'U') IS NULL", schema);
         Assert.Contains("IF OBJECT_ID('dbo.McpOAuthCodes', 'U') IS NULL", schema);
         Assert.Contains("IF OBJECT_ID('dbo.McpOAuthGrants', 'U') IS NULL", schema);
-        Assert.Contains("ON dbo.McpOAuthGrants(AccessHash)  WHERE AccessHash IS NOT NULL", schema);
-        Assert.Contains("ON dbo.McpOAuthGrants(RefreshHash) WHERE RefreshHash IS NOT NULL", schema);
-        Assert.Contains("ON dbo.McpOAuthGrants(TenantId, Username)", schema);
+        Assert.Contains("ON dbo.McpOAuthGrants(AccessHash) WHERE AccessHash IS NOT NULL", N(schema));
+        Assert.Contains("ON dbo.McpOAuthGrants(RefreshHash) WHERE RefreshHash IS NOT NULL", N(schema));
+        Assert.Contains("ON dbo.McpOAuthGrants(TenantId, Username)", N(schema));
         Assert.DoesNotContain("DROP TABLE dbo.McpOAuth", schema);
         Assert.DoesNotContain("SELECT *", Src(RepoPath));
     }
