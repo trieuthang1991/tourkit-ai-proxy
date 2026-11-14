@@ -62,6 +62,8 @@ public class ClientMetadataFetcherTests
     [InlineData("https://claude.ai@evil.com/x", false)]
     [InlineData("https://claude.ai:8443/x", false)]
     [InlineData("https://claude.ai/x#frag", false)]
+    [InlineData("https://claude.ai/x?a=1", false)]
+    [InlineData("https://claude.ai/x?", false)]
     [InlineData("https://claude.ai/", false)]
     [InlineData("https://claude.ai", false)]
     [InlineData("ftp://claude.ai/x", false)]
@@ -222,6 +224,59 @@ public class ClientMetadataFetcherTests
         var sw = Stopwatch.StartNew();
         Assert.Null(await f.FetchAsync(Url, default));
         Assert.True(sw.Elapsed < TimeSpan.FromSeconds(3), $"Mất {sw.Elapsed}");
+    }
+
+    [Fact]
+    public async Task Dem_co_tran_cung_khong_phinh_vo_han()
+    {
+        // Đường dẫn do người ngoài chọn: mỗi URL lạ một mục đệm — phải có trần cứng, kể cả khi mục chưa hết hạn.
+        var (f, _, _) = Make((_, _) => Task.FromResult(new HttpResponseMessage(HttpStatusCode.NotFound)));
+        for (var i = 0; i < ClientMetadataFetcher.MaxCacheEntries + 200; i++)
+            await f.FetchAsync($"https://claude.ai/p{i}", default);
+        Assert.InRange(f.CachedCount, 1, ClientMetadataFetcher.MaxCacheEntries);
+    }
+
+    [Fact]
+    public async Task Dem_day_van_dem_tai_lieu_hop_le_moi()
+    {
+        var (f, h, _) = Make((req, _) => Task.FromResult(Json(Doc(req.RequestUri!.AbsoluteUri))));
+        for (var i = 0; i < ClientMetadataFetcher.MaxCacheEntries + 50; i++)
+            Assert.NotNull(await f.FetchAsync($"https://claude.ai/p{i}", default));
+        Assert.InRange(f.CachedCount, 1, ClientMetadataFetcher.MaxCacheEntries);
+        var before = h.Calls;
+        var last = $"https://claude.ai/p{ClientMetadataFetcher.MaxCacheEntries + 49}";
+        Assert.NotNull(await f.FetchAsync(last, default));
+        Assert.Equal(before, h.Calls);   // mục mới nhất vẫn nằm trong đệm
+    }
+
+    [Fact]
+    public async Task Nhieu_loi_goi_dong_thoi_cung_URL_chi_tai_mot_lan()
+    {
+        var gate = new TaskCompletionSource();
+        var (f, h, _) = Make(async (_, _) => { await gate.Task; return Json(Doc()); });
+        var tasks = Enumerable.Range(0, 10).Select(_ => f.FetchAsync(Url, default)).ToArray();
+        await Task.Delay(50);
+        gate.SetResult();
+        var docs = await Task.WhenAll(tasks);
+        Assert.All(docs, Assert.NotNull);
+        Assert.Equal(1, h.Calls);
+    }
+
+    [Fact]
+    public async Task Nguoi_goi_huy_khong_lam_hong_luot_tai_chung()
+    {
+        var gate = new TaskCompletionSource();
+        var (f, h, _) = Make(async (_, _) => { await gate.Task; return Json(Doc()); });
+        using var cts = new CancellationTokenSource();
+        var cancelled = f.FetchAsync(Url, cts.Token);
+        var other = f.FetchAsync(Url, default);
+        cts.Cancel();
+        // Người huỷ được trả về NGAY (không chờ lượt tải chung); chặn 3 s để test không treo nếu sai.
+        var ex = await Record.ExceptionAsync(() => cancelled.WaitAsync(TimeSpan.FromSeconds(3)));
+        gate.SetResult();
+        Assert.IsAssignableFrom<OperationCanceledException>(ex);
+        Assert.NotNull(await other);
+        Assert.Equal(1, h.Calls);
     }
 
     [Fact]

@@ -86,6 +86,45 @@ public class McpOAuthGuardTests
         Assert.DoesNotContain("X-Forwarded-For", src);
     }
 
+    private sealed class NoFetch : IClientMetadataFetcher
+    {
+        public bool CanFetch(string? url) => false;
+        public Task<TourkitAiProxy.Domain.Mcp.ClientMetadata?> FetchAsync(string url, CancellationToken ct) => Task.FromResult<TourkitAiProxy.Domain.Mcp.ClientMetadata?>(null);
+    }
+
+    /// Thân request đọc giữa chừng thì lỗi (client ngắt, vượt giới hạn Kestrel).
+    private sealed class BrokenStream(Exception ex) : Stream
+    {
+        public override bool CanRead => true; public override bool CanSeek => false; public override bool CanWrite => false;
+        public override long Length => throw new NotSupportedException();
+        public override long Position { get => 0; set => throw new NotSupportedException(); }
+        public override void Flush() { }
+        public override int Read(byte[] b, int o, int c) => throw ex;
+        public override ValueTask<int> ReadAsync(Memory<byte> buffer, CancellationToken ct = default) => ValueTask.FromException<int>(ex);
+        public override long Seek(long o, SeekOrigin s) => throw new NotSupportedException();
+        public override void SetLength(long v) => throw new NotSupportedException();
+        public override void Write(byte[] b, int o, int c) => throw new NotSupportedException();
+    }
+
+    [Fact]
+    public async Task Dang_ky_doc_than_loi_thi_400_khong_500()
+    {
+        var store = new FakeMcpOAuthStore();
+        var svc = new McpOAuthService(store, new NoFetch(), _ => null, new McpOAuthOptions("https://a.vn"),
+            Microsoft.Extensions.Logging.Abstractions.NullLogger<McpOAuthService>.Instance);
+        foreach (var ex in new Exception[] { new Microsoft.AspNetCore.Http.BadHttpRequestException("ngắt"), new IOException("ngắt") })
+        {
+            var ctx = new Microsoft.AspNetCore.Http.DefaultHttpContext();
+            ctx.Request.Method = "POST";
+            ctx.Request.ContentType = "application/json";
+            ctx.Request.Body = new BrokenStream(ex);
+            var r = await McpOAuthEndpoints.RegisterAsync(ctx, svc, default);
+            Assert.Equal(400, Assert.IsAssignableFrom<Microsoft.AspNetCore.Http.IStatusCodeHttpResult>(r).StatusCode);
+            Assert.Contains("invalid_client_metadata", Assert.IsType<Microsoft.AspNetCore.Http.HttpResults.ContentHttpResult>(r).ResponseContent);
+        }
+        Assert.Equal(0, await store.CountClientsByIpSinceAsync("?", DateTime.UtcNow.AddHours(-1), default));
+    }
+
     [Fact]
     public void Client_tai_CIMD_khong_theo_chuyen_huong()
     {

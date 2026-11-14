@@ -25,7 +25,8 @@ public interface IClientMetadataFetcher
 /// thì đọc tới ngưỡng rồi NGỪNG (không tải nốt 10 MB). Tối đa 5 giây cho cả lượt.</item>
 /// </list>
 /// Đệm theo URL: thành công 1 giờ (tài liệu ít đổi, Claude/ChatGPT gọi authorize liên tục), lỗi 60 giây
-/// (để một URL hỏng không biến mỗi lượt authorize thành một lượt gọi ra ngoài).
+/// (để một URL hỏng không biến mỗi lượt authorize thành một lượt gọi ra ngoài); trần cứng
+/// <see cref="MaxCacheEntries"/> mục; cùng URL thì các lời gọi đồng thời dùng chung một lượt tải.
 /// </summary>
 public sealed class ClientMetadataFetcher : IClientMetadataFetcher
 {
@@ -35,8 +36,9 @@ public sealed class ClientMetadataFetcher : IClientMetadataFetcher
     public static readonly TimeSpan SuccessTtl = TimeSpan.FromHours(1);
     public static readonly TimeSpan FailureTtl = TimeSpan.FromSeconds(60);
 
-    // Chặn trên số URL trong đệm: client_id do người ngoài chọn, không để họ làm phình RAM.
-    private const int PruneAbove = 500;
+    /// <summary>Trần CỨNG số URL trong đệm: client_id do người ngoài chọn, không để họ làm phình RAM.</summary>
+    public const int MaxCacheEntries = 500;
+    internal int CachedCount => _cache.Count;
 
     private readonly IHttpClientFactory _factory;
     private readonly McpOAuthOptions _options;
@@ -44,6 +46,10 @@ public sealed class ClientMetadataFetcher : IClientMetadataFetcher
     private readonly TimeProvider _clock;
     private readonly TimeSpan _timeout;
     private readonly ConcurrentDictionary<string, (ClientMetadata? Doc, DateTimeOffset Expires)> _cache = new(StringComparer.Ordinal);
+    private readonly object _cacheWrite = new();
+    // Mỗi URL tối đa MỘT lượt tải đang chạy: Claude/ChatGPT bắn vài request authorize cùng lúc, không nhân
+    // thành vài lượt gọi ra ngoài. Lazy để hai luồng cùng GetOrAdd không cùng khởi động tải.
+    private readonly ConcurrentDictionary<string, Lazy<Task<ClientMetadata?>>> _inFlight = new(StringComparer.Ordinal);
 
     public ClientMetadataFetcher(IHttpClientFactory factory, McpOAuthOptions options, ILogger<ClientMetadataFetcher> log,
         TimeProvider? clock = null, TimeSpan? timeout = null)
@@ -58,7 +64,9 @@ public sealed class ClientMetadataFetcher : IClientMetadataFetcher
     {
         if (string.IsNullOrWhiteSpace(url) || url.Length > 200) return false;
         // Kiểm trên chuỗi thô trước khi để Uri "chuẩn hoá giùm": '#', '@', '\' là các mẹo đánh lừa bộ tách host.
-        if (url.IndexOfAny(new[] { '#', '@', '\\' }) >= 0) return false;
+        // '?': tài liệu CIMD là một URL cố định — query cho phép sinh vô số client_id từ một tài liệu
+        // (lách/phình đệm), nên không nhận.
+        if (url.IndexOfAny(new[] { '?', '#', '@', '\\' }) >= 0) return false;
         if (!url.StartsWith("https://", StringComparison.OrdinalIgnoreCase)) return false;
         if (!Uri.TryCreate(url, UriKind.Absolute, out var u)) return false;
         if (u.Scheme != Uri.UriSchemeHttps || u.Port != 443 || !string.IsNullOrEmpty(u.UserInfo)) return false;
@@ -75,18 +83,48 @@ public sealed class ClientMetadataFetcher : IClientMetadataFetcher
     public async Task<ClientMetadata?> FetchAsync(string clientIdUrl, CancellationToken ct)
     {
         if (!CanFetch(clientIdUrl)) return null;
+        if (_cache.TryGetValue(clientIdUrl, out var hit) && hit.Expires > _clock.GetUtcNow()) return hit.Doc;
+
+        var lazy = _inFlight.GetOrAdd(clientIdUrl, u => new Lazy<Task<ClientMetadata?>>(() => LoadAndCacheAsync(u)));
+        // Lượt tải chung KHÔNG gắn ct của một người gọi (người này huỷ không làm hỏng người khác); nó tự giới
+        // hạn bằng timeout 5 giây. Người huỷ thì được trả về ngay bằng OperationCanceledException.
+        return await lazy.Value.WaitAsync(ct);
+    }
+
+    private async Task<ClientMetadata?> LoadAndCacheAsync(string url)
+    {
+        try
+        {
+            var doc = await DownloadAsync(url, CancellationToken.None);
+            Remember(url, doc);
+            return doc;
+        }
+        finally
+        {
+            _inFlight.TryRemove(url, out _);
+        }
+    }
+
+    private void Remember(string url, ClientMetadata? doc)
+    {
         var now = _clock.GetUtcNow();
-        if (_cache.TryGetValue(clientIdUrl, out var hit) && hit.Expires > now) return hit.Doc;
-
-        var doc = await DownloadAsync(clientIdUrl, ct);
-        // Người gọi tự huỷ (đóng trình duyệt) thì không ghi đệm lỗi oan cho URL này.
-        if (doc == null && ct.IsCancellationRequested) return null;
-
-        if (_cache.Count > PruneAbove)
-            foreach (var kv in _cache)
-                if (kv.Value.Expires <= now) _cache.TryRemove(kv.Key, out _);
-        _cache[clientIdUrl] = (doc, now + (doc != null ? SuccessTtl : FailureTtl));
-        return doc;
+        lock (_cacheWrite)
+        {
+            if (_cache.Count >= MaxCacheEntries && !_cache.ContainsKey(url))
+            {
+                foreach (var kv in _cache)
+                    if (kv.Value.Expires <= now) _cache.TryRemove(kv.Key, out _);
+                if (_cache.Count >= MaxCacheEntries)
+                {
+                    // Đầy mà toàn mục còn hạn: lỗi mới thì thôi không đệm (chỉ là tối ưu); tài liệu hợp lệ thì
+                    // đẩy mục sắp hết hạn nhất ra để client thật không bị kẹt sau rác.
+                    if (doc == null) return;
+                    var oldest = _cache.MinBy(kv => kv.Value.Expires);
+                    _cache.TryRemove(oldest.Key, out _);
+                }
+            }
+            _cache[url] = (doc, now + (doc != null ? SuccessTtl : FailureTtl));
+        }
     }
 
     private async Task<ClientMetadata?> DownloadAsync(string url, CancellationToken ct)

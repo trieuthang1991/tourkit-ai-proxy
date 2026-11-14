@@ -165,10 +165,20 @@ public sealed class McpOAuthService
         return new McpIssueCodeResult(AppendQuery(r.RedirectUri, ("code", code), ("state", r.State), ("iss", _opts.Issuer)), null);
     }
 
-    /// <summary>Người dùng bấm "Từ chối" → báo client <c>access_denied</c>. Chỉ gọi với yêu cầu đã kiểm (Valid).</summary>
-    public string Deny(McpAuthorizeRequest request)
-        => AppendQuery(request.RedirectUri, ("error", "access_denied"), ("error_description", "Nguoi dung tu choi ket noi"),
-            ("state", request.State), ("iss", _opts.Issuer));
+    /// <summary>
+    /// Người dùng bấm "Từ chối" → báo client <c>access_denied</c>. KIỂM LẠI y như <see cref="IssueCodeAsync"/>:
+    /// yêu cầu đến từ POST của trình duyệt, nếu tin redirect_uri trong đó thì nút "Từ chối" thành cầu
+    /// chuyển hướng tới bất kỳ đâu. Không hợp lệ → <see cref="McpIssueCodeResult.Error"/>, không có URL.
+    /// </summary>
+    public async Task<McpIssueCodeResult> DenyAsync(McpAuthorizeRequest request, CancellationToken ct)
+    {
+        var v = await ValidateAuthorizeRequestAsync(ToQuery(request), ct);
+        if (v.Outcome != McpAuthorizeOutcome.Valid || v.Request == null)
+            return new McpIssueCodeResult(null, v.Error ?? "Yêu cầu kết nối không hợp lệ — hãy bắt đầu lại từ ứng dụng AI.");
+        var r = v.Request;
+        return new McpIssueCodeResult(AppendQuery(r.RedirectUri, ("error", "access_denied"), ("error_description", "Nguoi dung tu choi ket noi"),
+            ("state", r.State), ("iss", _opts.Issuer)), null);
+    }
 
     // ═══ Token ═════════════════════════════════════════════════════════════
 
@@ -272,14 +282,15 @@ public sealed class McpOAuthService
             return Error("invalid_grant", "Phien dang nhap TourKit da het - hay ket noi lai");
         }
 
+        // Kho chưa đọc được grant mà không xoay, nên scope so với grant SAU khi đã xoay. Lúc này cặp token mới
+        // là cặp DUY NHẤT còn sống — vứt đi thì lần refresh sau của client bị coi là dùng lại và grant bị thu
+        // hồi oan. Vì vậy KHÔNG trả lỗi: xin rộng hơn grant thì cấp đúng scope đã cấp và báo thật trong
+        // "scope" (RFC 6749 §3.3 cho phép cấp hẹp hơn yêu cầu). Xin hẹp hơn thì báo scope hẹp (chỉ áp cho
+        // phản hồi; grant giữ scope gốc vì kho chưa lưu thu hẹp).
         var granted = SplitScope(g.Scope);
         var scope = g.Scope;
-        if (requested != null)
-        {
-            // Chỉ được thu hẹp. Phạm vi thu hẹp áp cho phản hồi này; grant giữ phạm vi gốc (kho chưa lưu thu hẹp).
-            if (requested.Any(s => !granted.Contains(s))) return Error("invalid_scope", "Chi duoc thu hep scope da cap");
+        if (requested is { Length: > 0 } && requested.All(granted.Contains))
             scope = string.Join(' ', SupportedScopes.Where(requested.Contains));
-        }
         return Tokens(access, newRefresh, scope);
     }
 

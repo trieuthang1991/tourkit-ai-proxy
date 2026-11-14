@@ -41,19 +41,7 @@ public static class McpOAuthEndpoints
         routes.MapGet(AuthorizationServerPath, (HttpContext ctx, McpOAuthOptions o) => Metadata(ctx, OAuthMetadata.AuthorizationServer(o.BaseUrl)));
         routes.MapGet(OpenIdConfigurationPath, (HttpContext ctx, McpOAuthOptions o) => Metadata(ctx, OAuthMetadata.AuthorizationServer(o.BaseUrl)));
 
-        routes.MapPost(RegisterPath, async (HttpContext ctx, McpOAuthService svc, CancellationToken ct) =>
-        {
-            NoStore(ctx);
-            if (!ctx.Request.HasJsonContentType())
-                return Json(400, OAuthError("invalid_client_metadata", "Can gui JSON (Content-Type: application/json)"));
-            var json = await ReadBodyAsync(ctx.Request, ct);
-            if (json == null) return Json(413, OAuthError("invalid_client_metadata", "Noi dung qua lon"));
-            // IP lấy từ kết nối — đã qua UseForwardedHeaders trong Program.cs, không tự đọc header ở đây.
-            var ip = ctx.Connection.RemoteIpAddress?.ToString();
-            var r = await svc.RegisterAsync(json, ip, ct);
-            return Json(r.Status, r.Body);
-        });
-
+        routes.MapPost(RegisterPath, RegisterAsync);
         routes.MapPost(TokenPath, async (HttpContext ctx, McpOAuthService svc, CancellationToken ct) =>
         {
             NoStore(ctx);
@@ -76,6 +64,23 @@ public static class McpOAuthEndpoints
             var r = await svc.TokenAsync(form, ct);
             return Json(r.Status, r.Body);
         });
+    }
+
+    internal static async Task<IResult> RegisterAsync(HttpContext ctx, McpOAuthService svc, CancellationToken ct)
+    {
+        NoStore(ctx);
+        if (!ctx.Request.HasJsonContentType())
+            return Json(400, OAuthError("invalid_client_metadata", "Can gui JSON (Content-Type: application/json)"));
+        string? json;
+        try { json = await ReadBodyAsync(ctx.Request, ct); }
+        // Client ngắt giữa chừng / Kestrel từ chối thân (BadHttpRequestException là một IOException):
+        // lỗi của request, không phải của máy chủ → 400 như token endpoint, không để thành 500.
+        catch (BadHttpRequestException) { return Json(400, OAuthError("invalid_client_metadata", "Khong doc duoc noi dung gui len")); }
+        catch (IOException) { return Json(400, OAuthError("invalid_client_metadata", "Khong doc duoc noi dung gui len")); }
+        if (json == null) return Json(413, OAuthError("invalid_client_metadata", "Noi dung qua lon"));
+        // IP lấy từ kết nối — đã qua UseForwardedHeaders trong Program.cs, không tự đọc header ở đây.
+        var r = await svc.RegisterAsync(json, ctx.Connection.RemoteIpAddress?.ToString(), ct);
+        return Json(r.Status, r.Body);
     }
 
     private static IResult Metadata(HttpContext ctx, JsonObject body)

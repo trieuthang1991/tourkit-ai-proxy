@@ -277,12 +277,34 @@ public class McpOAuthServiceTests
     {
         var t = Make();
         var v = await t.Svc.ValidateAuthorizeRequestAsync(Authorize(), default);
-        var url = t.Svc.Deny(v.Request!);
+        var r = await t.Svc.DenyAsync(v.Request!, default);
+        Assert.Null(r.Error);
+        var url = r.RedirectUrl!;
         var q = ParseQuery(url);
         Assert.StartsWith(ClaudeCb + "?", url);
         Assert.Equal("access_denied", q["error"]);
         Assert.Equal("st-1", q["state"]);
         Assert.Equal(Base, q["iss"]);
+    }
+
+    [Fact]
+    public async Task Tu_choi_kiem_lai_redirect_khong_thanh_cau_chuyen_huong()
+    {
+        // Task 4 dựng yêu cầu từ POST của trình duyệt — redirect bị sửa thì không được sinh URL chuyển hướng.
+        var t = Make();
+        var v = await t.Svc.ValidateAuthorizeRequestAsync(Authorize(), default);
+        foreach (var forged in new[]
+        {
+            v.Request! with { RedirectUri = "https://evil.com/cb" },
+            v.Request! with { RedirectUri = ChatGptCb },                          // hợp lệ nhưng không phải của client này
+            v.Request! with { ClientId = "https://evil.com/c.json", RedirectUri = "https://evil.com/cb" },
+            v.Request! with { ClientId = "tkdcr_khongco" },
+        })
+        {
+            var r = await t.Svc.DenyAsync(forged, default);
+            Assert.Null(r.RedirectUrl);
+            Assert.False(string.IsNullOrWhiteSpace(r.Error));
+        }
     }
 
     // ── Token: authorization_code ─────────────────────────────────────────
@@ -472,6 +494,26 @@ public class McpOAuthServiceTests
         Assert.Equal("tourkit.read", narrow.Body["scope"]!.GetValue<string>());
         var wide = await t.Svc.TokenAsync(RefreshForm(narrow.Body["refresh_token"]!.GetValue<string>(), scope: "openid"), default);
         Assert.Equal("invalid_scope", Err(wide));
+    }
+
+    [Fact]
+    public async Task Refresh_xin_scope_rong_hon_grant_van_tra_cap_moi_voi_scope_da_cap()
+    {
+        // Grant chỉ có tourkit.read; refresh xin thêm offline_access. Đã xoay rồi thì PHẢI trả cặp mới
+        // (scope thực = scope đã cấp) — vứt cặp mới đi là lần refresh sau của client bị coi là dùng lại → thu hồi oan.
+        var t = Make();
+        var v = await t.Svc.ValidateAuthorizeRequestAsync(Authorize(scope: "tourkit.read"), default);
+        var code = ParseQuery((await t.Svc.IssueCodeAsync(v.Request!, Approver, default)).RedirectUrl!)["code"];
+        var first = await Exchange(t, code);
+        Assert.Equal("tourkit.read", first["scope"]!.GetValue<string>());
+
+        var wide = await t.Svc.TokenAsync(RefreshForm(first["refresh_token"]!.GetValue<string>(), scope: "tourkit.read offline_access"), default);
+        Assert.Equal(200, wide.Status);
+        Assert.Equal("tourkit.read", wide.Body["scope"]!.GetValue<string>());
+
+        var next = await t.Svc.TokenAsync(RefreshForm(wide.Body["refresh_token"]!.GetValue<string>()), default);
+        Assert.Equal(200, next.Status);
+        Assert.Null((await t.Store.ListGrantsAsync("t1", "a", default)).Single().RevokedUtc);
     }
 
     [Fact]
