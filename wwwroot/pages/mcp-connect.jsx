@@ -1,8 +1,11 @@
-// pages/mcp-connect.jsx — Kết nối AI (MCP, giai đoạn 1: chỉ đọc).
+// pages/mcp-connect.jsx — Kết nối AI (MCP, chỉ đọc).
 //
 // Mỗi nhân viên tự tạo khoá riêng cho từng thiết bị rồi dán vào Claude Code / Cursor / Claude Desktop
 // để hỏi số liệu TourKit ngay trong công cụ AI của mình. Khoá chỉ hiện ĐÚNG MỘT LẦN lúc tạo —
 // máy chủ chỉ giữ bản băm. Thu hồi hai bước để khỏi lỡ tay.
+//
+// Khi bật cờ mcpOAuth: thêm khối "Ứng dụng đã kết nối" (Claude.ai, ChatGPT… kết nối bằng nút đăng nhập,
+// không cần khoá) + hướng dẫn thêm connector. Thu hồi ở đây là ứng dụng đó mất quyền NGAY.
 
 (function () {
   const { useState, useEffect, useRef } = React;
@@ -30,7 +33,98 @@
     ];
   }
 
+  // Khối "Ứng dụng đã kết nối" — chỉ vẽ khi cờ mcpOAuth bật (máy chủ chỉ map endpoint khi bật).
+  function UngDungDaKetNoi({ pushToast }) {
+    const [dangTai, setDangTai] = useState(true);
+    const [ds, setDs] = useState([]);
+    const [chuaThuHoi, setChuaThuHoi] = useState(null); // id đang chờ bấm lần hai
+    const dangThuHoi = useRef(false);                  // chặn bấm đúp bắn hai DELETE
+    const hen = useRef(null);
+
+    async function tai() {
+      try {
+        const r = await api('/api/v1/mcp/oauth/connections');
+        const j = await r.json().catch(() => ({}));
+        if (!r.ok) throw new Error(j.error || 'HTTP ' + r.status);
+        setDs((j.items || []).filter(k => !k.revokedUtc));
+      } catch (e) { pushToast?.('Không tải được danh sách ứng dụng đã kết nối: ' + e.message, 'error'); }
+      finally { setDangTai(false); }
+    }
+    useEffect(() => { tai(); return () => clearTimeout(hen.current); }, []);
+
+    async function thuHoi(k) {
+      if (chuaThuHoi !== k.id) {
+        setChuaThuHoi(k.id);
+        clearTimeout(hen.current);
+        hen.current = setTimeout(() => setChuaThuHoi(null), 4000);
+        return;
+      }
+      if (dangThuHoi.current) return;
+      dangThuHoi.current = true;
+      setChuaThuHoi(null);
+      try {
+        const r = await api('/api/v1/mcp/oauth/connections/' + encodeURIComponent(k.id), { method: 'DELETE' });
+        if (!r.ok && r.status !== 404) { pushToast?.('Không thu hồi được kết nối', 'error'); return; }
+        pushToast?.('Đã ngắt kết nối "' + k.clientName + '"', 'success');
+        await tai();
+      } catch { pushToast?.('Không thu hồi được kết nối', 'error'); }
+      finally { dangThuHoi.current = false; }
+    }
+
+    async function chepDiaChi() {
+      let ok = false;
+      try { ok = await window.tourkitUtil.copyText(diaChiMcp()); } catch { ok = false; }
+      if (ok) pushToast?.('Đã chép địa chỉ kết nối', 'success');
+      else pushToast?.('Không chép được — hãy bôi đen và chép tay', 'error');
+    }
+
+    return (
+      <>
+        <section className="mcp-the" data-testid="mcp-ung-dung">
+          <h3 className="mcp-tieude">Ứng dụng đã kết nối</h3>
+          <p className="mcp-ghichu">Claude, ChatGPT… mà bạn đã bấm "Cho phép". Ứng dụng đọc số liệu theo đúng quyền của bạn;
+            ngắt kết nối là ứng dụng mất quyền ngay.</p>
+          {dangTai ? <div className="mcp-trong">Đang tải…</div>
+            : ds.length === 0 ? <div className="mcp-trong">Chưa có ứng dụng nào được kết nối.</div>
+            : ds.map(k => (
+              <div key={k.id} className="mcp-khoa" data-testid="mcp-ket-noi">
+                <div className="mcp-khoa-tt">
+                  <b>{k.clientName || 'Ứng dụng AI'}</b>
+                  <span>Kết nối {luc(k.createdUtc)} · Dùng lần cuối: {luc(k.lastUsedUtc)}</span>
+                </div>
+                <button className={'mcp-nut mcp-nguy' + (chuaThuHoi === k.id ? ' dang-hoi' : '')} onClick={() => thuHoi(k)}>
+                  <Icon name="trash" size={13} /> {chuaThuHoi === k.id ? 'Bấm lần nữa để ngắt' : 'Thu hồi'}
+                </button>
+              </div>
+            ))}
+        </section>
+
+        <section className="mcp-the">
+          <h3 className="mcp-tieude">Thêm TourKit vào Claude.ai / ChatGPT</h3>
+          <p className="mcp-ghichu">Không cần tạo khoá: ứng dụng sẽ mở trang TourKit để bạn đăng nhập và bấm "Cho phép".</p>
+          <div className="mcp-hang">
+            <code className="mcp-ma" data-testid="mcp-dia-chi">{diaChiMcp()}</code>
+            <button className="mcp-nut" onClick={chepDiaChi}><Icon name="copy" size={13} /> Chép địa chỉ</button>
+          </div>
+          <h4 className="mcp-con">Claude.ai</h4>
+          <ol className="mcp-buoc">
+            <li>Mở <b>Customize → Connectors</b>, bấm <b>Add custom connector</b>.</li>
+            <li>Dán địa chỉ ở trên vào ô URL rồi bấm Add.</li>
+            <li>Claude mở trang đăng nhập TourKit — bấm <b>Cho phép</b>.</li>
+          </ol>
+          <h4 className="mcp-con">ChatGPT (bản web)</h4>
+          <ol className="mcp-buoc">
+            <li>Mở <b>chatgpt.com/plugins</b>, bấm <b>+</b> → <b>Add custom MCP server</b>.</li>
+            <li>Dán địa chỉ ở trên vào ô <b>Server URL</b>, phần Authentication chọn <b>OAuth</b>.</li>
+            <li>ChatGPT mở trang đăng nhập TourKit — bấm <b>Cho phép</b>.</li>
+          </ol>
+        </section>
+      </>
+    );
+  }
+
   function McpConnectPage({ pushToast }) {
+    const oauthOn = window.tourkitFeatures.useFeature('mcpOAuth');
     const [dangTai, setDangTai] = useState(true);
     const [ds, setDs] = useState([]);
     const [ten, setTen] = useState('');
@@ -113,6 +207,8 @@
           <span>Dữ liệu bạn hỏi sẽ được gửi tới dịch vụ AI bạn đang dùng (Claude, Cursor…). Chỉ kết nối
             công cụ mà công ty cho phép, và không chia sẻ khoá cho người khác.</span>
         </section>
+
+        {oauthOn && <UngDungDaKetNoi pushToast={pushToast} />}
 
         <form className="mcp-the" onSubmit={tao}>
           <h3 className="mcp-tieude">Tạo khoá mới</h3>

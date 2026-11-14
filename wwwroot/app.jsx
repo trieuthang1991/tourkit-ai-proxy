@@ -255,7 +255,8 @@ function App() {
       const saved = sessionStorage.getItem('tk_return_to');
       if (saved) return saved;
       const p = window.location.pathname || '/';
-      if (p !== '/' && !p.startsWith('/login')) {
+      // /oauth/authorize giữ query của ứng dụng AI và KHÔNG đi qua LoginGate chung (tự lo đăng nhập tại chỗ) → không lưu return-to.
+      if (p !== '/' && !p.startsWith('/login') && !p.startsWith('/oauth/')) {
         sessionStorage.setItem('tk_return_to', p); return p;
       }
     } catch {}
@@ -462,6 +463,13 @@ function App() {
     if (m) {
       return <window.QuoteViewPage id={m[1]} />;
     }
+  }
+
+  // ─── /oauth/authorize — trang đồng ý kết nối của Claude.ai/ChatGPT (MCP OAuth). NGOÀI khung menu, TRƯỚC cổng
+  // đăng nhập chung: trang tự hiện LoginGate khi cần mà KHÔNG đổi URL, nên đăng nhập xong vẫn đứng đúng thẻ đồng
+  // ý với query còn nguyên (qua cổng chung thì query bị mất vì return-to chỉ nhớ pathname).
+  if (cur === '/oauth/authorize' && window.OAuthConsentPage) {
+    return <window.OAuthConsentPage authUser={authUser} authReady={authReady} onAuthed={(u) => setAuthUser(u)} />;
   }
 
   // ─── PUBLIC landing /landing — marketing page, không cần đăng nhập.

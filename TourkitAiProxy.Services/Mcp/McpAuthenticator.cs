@@ -1,6 +1,7 @@
 using System.Collections.Concurrent;
 using TourkitAiProxy.Domain.Mcp;
 using TourkitAiProxy.Infrastructure.Mcp;
+using TourkitAiProxy.Services.Mcp.OAuth;
 
 namespace TourkitAiProxy.Services.Mcp;
 
@@ -13,13 +14,32 @@ public sealed record McpAuthResult(McpCaller? Caller, int Status, string? Error)
 }
 
 /// <summary>
-/// Đổi <c>Authorization: Bearer tkmcp_…</c> thành <see cref="McpCaller"/>:
-/// định dạng → băm → <see cref="IMcpTokenStore.FindActiveAsync"/> → phiên gốc còn sống và đúng chủ.
+/// Đổi <c>Authorization: Bearer …</c> thành <see cref="McpCaller"/>. Hai loại thông tin xác thực:
+/// <list type="bullet">
+/// <item><b>Khoá tay <c>tkmcp_</c></b> (giai đoạn 1): định dạng → băm → <see cref="IMcpTokenStore.FindActiveAsync"/>
+/// → phiên gốc còn sống và đúng chủ.</item>
+/// <item><b>Access token OAuth <c>tkoat_</c></b> (Claude.ai / ChatGPT) — CHỈ khi dựng kèm kho OAuth + cấu hình, tức
+/// cờ <c>Features:McpOAuth</c> có hiệu lực: băm → <see cref="IMcpOAuthStore.FindGrantByAccessAsync"/> (chỉ lọc đã
+/// thu hồi) → TỰ kiểm còn hạn (UTC), <c>Resource</c> đúng bằng resource của mình (audience), phiên TourKit còn và
+/// đúng chủ. Cờ tắt thì <c>tkoat_</c> rơi vào nhánh "khoá không hợp lệ" như mọi chuỗi rác.</item>
+/// </list>
 ///
 /// <para><b>Đệm 60 giây theo bản băm.</b> Claude/Cursor bắn vài lời gọi mỗi câu hỏi; tra SQL mỗi lần là
-/// thừa. Đổi lại, thu hồi phải có hiệu lực NGAY trong tiến trình này — <see cref="Evict"/> được endpoint
-/// thu hồi gọi. Chạy NHIỀU instance thì instance khác vẫn có thể cho khoá đã thu hồi qua tối đa 60 giây
-/// (chưa có kênh báo chéo) — nhận có chủ đích, ghi ở docs/api-surface.md.</para>
+/// thừa. Đổi lại, thu hồi phải có hiệu lực NGAY trong tiến trình này — <see cref="Evict"/> /
+/// <see cref="EvictGrant"/> được endpoint thu hồi gọi. Token OAuth không bao giờ được đệm quá
+/// <c>AccessExpiresUtc</c>. Chạy NHIỀU instance thì instance khác vẫn có thể cho khoá đã thu hồi qua tối đa
+/// 60 giây (chưa có kênh báo chéo) — nhận có chủ đích, ghi ở docs/api-surface.md.</para>
+///
+/// <para><b>Tombstone grant vừa thu hồi.</b> Xoá đệm thôi chưa đủ: một lời gọi có thể đã đọc grant CÒN SỐNG
+/// từ CSDL ngay trước khi thu hồi, rồi ghi đệm ngay SAU khi <see cref="EvictGrant"/> quét xong → token đã thu hồi
+/// được đệm thêm 60 giây. Vì vậy <see cref="EvictGrant"/> ghi Id grant vào danh sách "vừa thu hồi" giữ
+/// <see cref="TombstoneTtl"/> (= 2 × TTL đệm): đọc CSDL xong mà trúng tombstone → 401, không ghi đệm; trúng đệm
+/// mà trúng tombstone → xoá mục, 401. Chỉ áp cho grant OAuth; khoá tay <c>tkmcp_</c> không đổi.</para>
+///
+/// <para><b>Không gian Id tách theo loại.</b> Id khoá tay (<c>dbo.McpTokens</c>) và Id grant
+/// (<c>dbo.McpOAuthGrants</c>) đánh số độc lập; mục đệm mang <see cref="McpCaller.Kind"/> nên
+/// <see cref="Evict"/> chỉ xoá khoá tay, <see cref="EvictGrant"/> chỉ xoá grant. Bản băm của hai loại khác
+/// tiền tố nên khoá đệm (bản băm) không bao giờ trùng.</para>
 ///
 /// <para><b>Chỉ đệm kết quả ĐẠT.</b> Khoá sai không đệm: đệm lỗi thì khoá vừa tạo xong bị từ chối oan
 /// suốt 60 giây; còn khoá sai đúng định dạng đi tra SQL bằng chỉ mục bản băm, rẻ.</para>
@@ -36,28 +56,57 @@ public sealed class McpAuthenticator
     public const string InvalidKey = "Khoá MCP không hợp lệ hoặc đã bị thu hồi — tạo khoá mới ở trang Kết nối AI";
     public const string SessionGone = "Phiên gốc đã hết — tạo khoá mới";
     public const string CannotVerify = "Chưa kiểm được khoá MCP lúc này (máy chủ dữ liệu không phản hồi) — thử lại sau ít phút";
+    public const string OAuthInvalid = "Kết nối đã hết hạn hoặc đã bị thu hồi — hãy kết nối lại TourKit trong ứng dụng AI";
+    public const string OAuthSessionGone = "Phiên đăng nhập TourKit của kết nối này đã hết — hãy kết nối lại trong ứng dụng AI";
+
+    /// <summary>Header 401 của giai đoạn 1 (cờ OAuth tắt).</summary>
+    public const string PlainChallenge = "Bearer";
 
     // Đệm chặn trên để khoá rác không làm phình bộ nhớ vô hạn; vượt thì dọn mục hết hạn.
     private const int PruneAbove = 2000;
+
+    /// <summary>Giữ tombstone đủ lâu để mọi lời gọi đã đọc grant trước lúc thu hồi kịp chạy xong (≥ 2 × TTL đệm).</summary>
+    public static readonly TimeSpan TombstoneTtl = CacheTtl * 2;
+    /// <summary>Trần số tombstone. Vượt trần thì bỏ mục gần hết hạn nhất — chỉ xảy ra khi hơn 10.000 lần thu hồi trong 2 phút.</summary>
+    public const int MaxTombstones = 10_000;
 
     private readonly IMcpTokenStore _store;
     private readonly Func<string, McpSessionOwner?> _findSession;
     private readonly ILogger<McpAuthenticator> _log;
     private readonly TimeProvider _clock;
+    private readonly IMcpOAuthStore? _oauthStore;
+    private readonly string? _resource;
     private readonly ConcurrentDictionary<string, (McpCaller Caller, DateTimeOffset Expires)> _cache = new();
+    private readonly ConcurrentDictionary<long, DateTimeOffset> _revokedGrants = new();
 
     /// <param name="findSession">Tra chủ phiên TourKit theo sessionId; null = phiên đã hết/không còn.
     /// Là hàm chứ không phải <c>TkSessionStore</c> để test dựng được mà không cần CSDL.</param>
+    /// <param name="oauthStore">Kho OAuth — chỉ truyền khi <c>FeatureFlags.McpOAuth</c> có hiệu lực.</param>
+    /// <param name="oauth">Cấu hình OAuth (resource, địa chỉ metadata) — truyền cùng <paramref name="oauthStore"/>.
+    /// Thiếu một trong hai = OAuth tắt: không nhận <c>tkoat_</c>, header 401 như giai đoạn 1.</param>
     public McpAuthenticator(IMcpTokenStore store, Func<string, McpSessionOwner?> findSession,
-        ILogger<McpAuthenticator> log, TimeProvider? clock = null)
+        ILogger<McpAuthenticator> log, TimeProvider? clock = null,
+        IMcpOAuthStore? oauthStore = null, McpOAuthOptions? oauth = null)
     {
         _store = store; _findSession = findSession; _log = log; _clock = clock ?? TimeProvider.System;
+        if (oauthStore != null && oauth != null)
+        {
+            _oauthStore = oauthStore;
+            _resource = OAuthRules.NormalizeResource(oauth.Resource);
+            // Claude chỉ bắt đầu đăng nhập OAuth khi gặp HTTP 401 kèm đúng header này (RFC 9728 §5.1).
+            WwwAuthenticate = $"Bearer resource_metadata=\"{oauth.BaseUrl}/.well-known/oauth-protected-resource\", scope=\"tourkit.read\"";
+        }
+        else WwwAuthenticate = PlainChallenge;
     }
+
+    /// <summary>Giá trị <c>WWW-Authenticate</c> cho MỌI 401 của <c>/mcp</c>.</summary>
+    public string WwwAuthenticate { get; }
 
     public async Task<McpAuthResult> AuthenticateAsync(string? authorization, CancellationToken ct)
     {
         var token = ReadBearer(authorization);
         if (token == null) return McpAuthResult.Deny(MissingKey);
+        if (_oauthStore != null && OAuthRules.LooksLikeAccessToken(token)) return await AuthenticateOAuthAsync(token, ct);
         if (!McpTokens.LooksValid(token)) return McpAuthResult.Deny(InvalidKey);
 
         var hash = McpTokens.Hash(token);
@@ -81,26 +130,132 @@ public sealed class McpAuthenticator
 
         // Phiên đã bị dọn (30 ngày không dùng) hoặc — phòng dữ liệu lệch — thuộc người khác: khoá của A
         // tuyệt đối không được chạy bằng quyền CRM của B.
-        if (owner == null
-            || !string.Equals(owner.TenantId, row.TenantId, StringComparison.OrdinalIgnoreCase)
-            || !string.Equals(owner.Username, row.Username, StringComparison.OrdinalIgnoreCase))
+        if (!SameOwner(owner, row.TenantId, row.Username))
         {
             _cache.TryRemove(hash, out _);
             return McpAuthResult.Deny(SessionGone);
         }
 
         var caller = new McpCaller(row.Id, row.SessionId, row.TenantId, row.Username);
-        if (_cache.Count > PruneAbove) Prune(now);
-        _cache[hash] = (caller, now + CacheTtl);
+        Remember(hash, caller, now + CacheTtl, now);
         Touch(row.Id);
         return McpAuthResult.Ok(caller);
     }
 
-    /// <summary>Bỏ khoá khỏi đệm NGAY — gọi sau khi thu hồi thành công. Đệm nhỏ nên quét tuyến tính là đủ.</summary>
-    public void Evict(long tokenId)
+    /// <summary>
+    /// Nhánh <c>tkoat_</c>. Kho chỉ lọc RevokedUtc — hạn và audience PHẢI kiểm ở đây (nghĩa vụ ghi ở
+    /// <see cref="IMcpOAuthStore.FindGrantByAccessAsync"/>). Mọi trượt đều 401, kể cả token cấp cho resource khác.
+    /// </summary>
+    private async Task<McpAuthResult> AuthenticateOAuthAsync(string token, CancellationToken ct)
+    {
+        var hash = OAuthRules.Hash(token);
+        var now = _clock.GetUtcNow();
+        if (_cache.TryGetValue(hash, out var hit) && hit.Expires > now)
+        {
+            if (!IsGrantTombstoned(hit.Caller.TokenId)) return McpAuthResult.Ok(hit.Caller);
+            // Mục đệm lọt khỏi lượt quét của EvictGrant (ghi đồng thời) — grant đã thu hồi, không cho qua.
+            _cache.TryRemove(hash, out _);
+            return McpAuthResult.Deny(OAuthInvalid);
+        }
+
+        McpOAuthGrant? g;
+        McpSessionOwner? owner = null;
+        try
+        {
+            g = await _oauthStore!.FindGrantByAccessAsync(hash, ct);
+            if (g != null) owner = _findSession(g.SessionId);
+        }
+        catch (OperationCanceledException) when (ct.IsCancellationRequested) { throw; }
+        catch (Exception ex)
+        {
+            _log.LogWarning(ex, "[mcp] tra token OAuth/phiên lỗi — đóng cửa (503), không cho qua");
+            return McpAuthResult.Unavailable(CannotVerify);
+        }
+
+        _cache.TryRemove(hash, out _);
+        // Tombstone: grant bị thu hồi SAU lúc ta đọc CSDL — bản vừa đọc đã cũ.
+        if (g == null || g.RevokedUtc != null || IsGrantTombstoned(g.Id)) return McpAuthResult.Deny(OAuthInvalid);
+
+        // Kho trả DateTime Kind=Utc; vẫn ép Utc phòng dữ liệu Unspecified (docs/datetime-convention.md).
+        var expires = new DateTimeOffset(DateTime.SpecifyKind(g.AccessExpiresUtc, DateTimeKind.Utc));
+        if (now >= expires) return McpAuthResult.Deny(OAuthInvalid);
+
+        if (_resource == null || !string.Equals(OAuthRules.NormalizeResource(g.Resource), _resource, StringComparison.Ordinal))
+        {
+            _log.LogWarning("[mcp] token OAuth của grant {Id} cấp cho resource khác — từ chối", g.Id);
+            return McpAuthResult.Deny(OAuthInvalid);
+        }
+
+        if (!SameOwner(owner, g.TenantId, g.Username)) return McpAuthResult.Deny(OAuthSessionGone);
+
+        var caller = new McpCaller(g.Id, g.SessionId, g.TenantId, g.Username, McpCallerKind.OAuthGrant);
+        var until = now + CacheTtl;
+        Remember(hash, caller, until < expires ? until : expires, now);
+        TouchGrant(g.Id);
+        return McpAuthResult.Ok(caller);
+    }
+
+    /// <summary>Bỏ KHOÁ TAY khỏi đệm NGAY — gọi sau khi thu hồi thành công. Đệm nhỏ nên quét tuyến tính là đủ.</summary>
+    public void Evict(long tokenId) => EvictWhere(McpCallerKind.ManualKey, tokenId);
+
+    /// <summary>
+    /// Bỏ KẾT NỐI OAUTH (grant) khỏi đệm NGAY — gọi sau MỌI lần thu hồi grant (người dùng xoá kết nối, dịch vụ
+    /// OAuth thu hồi vì refresh bị dùng lại / sai client / phiên hết). Ghi tombstone TRƯỚC khi quét đệm để lời
+    /// gọi đang đua không ghi lại được.
+    /// </summary>
+    public void EvictGrant(long grantId)
+    {
+        MarkGrantRevoked(grantId);
+        EvictWhere(McpCallerKind.OAuthGrant, grantId);
+    }
+
+    /// <summary>Ghi tombstone cho grant (không quét đệm — <see cref="EvictGrant"/> làm cả hai).</summary>
+    internal void MarkGrantRevoked(long grantId)
+    {
+        var now = _clock.GetUtcNow();
+        _revokedGrants[grantId] = now + TombstoneTtl;
+        if (_revokedGrants.Count > MaxTombstones) PruneTombstones(now);
+    }
+
+    internal bool IsGrantTombstoned(long grantId)
+    {
+        if (!_revokedGrants.TryGetValue(grantId, out var until)) return false;
+        if (until > _clock.GetUtcNow()) return true;
+        // Hết hạn: chỉ xoá nếu chưa bị ghi mới (thu hồi lại cùng Id thì giữ bản mới).
+        _revokedGrants.TryRemove(new KeyValuePair<long, DateTimeOffset>(grantId, until));
+        return false;
+    }
+
+    internal int TombstoneCount => _revokedGrants.Count;
+
+    private void PruneTombstones(DateTimeOffset now)
+    {
+        foreach (var kv in _revokedGrants)
+            if (kv.Value <= now) _revokedGrants.TryRemove(kv);
+        if (_revokedGrants.Count <= MaxTombstones) return;
+        // Vẫn quá trần: bỏ mục gần hết hạn nhất, xuống 90% trần để không phải sắp xếp ở mỗi lần thêm.
+        var excess = _revokedGrants.Count - MaxTombstones * 9 / 10;
+        foreach (var kv in _revokedGrants.OrderBy(x => x.Value).Take(excess).ToList()) _revokedGrants.TryRemove(kv);
+        _log.LogWarning("[mcp] quá {Max} grant bị thu hồi trong {Ttl} giây — bỏ bớt {N} tombstone cũ nhất", MaxTombstones, TombstoneTtl.TotalSeconds, excess);
+    }
+
+    private void EvictWhere(McpCallerKind kind, long id)
     {
         foreach (var kv in _cache)
-            if (kv.Value.Caller.TokenId == tokenId) _cache.TryRemove(kv.Key, out _);
+            if (kv.Value.Caller.Kind == kind && kv.Value.Caller.TokenId == id) _cache.TryRemove(kv.Key, out _);
+    }
+
+    private static bool SameOwner(McpSessionOwner? owner, string tenant, string username)
+        => owner != null
+           && string.Equals(owner.TenantId, tenant, StringComparison.OrdinalIgnoreCase)
+           && string.Equals(owner.Username, username, StringComparison.OrdinalIgnoreCase);
+
+    private void Remember(string hash, McpCaller caller, DateTimeOffset expires, DateTimeOffset now)
+    {
+        // Grant vừa bị thu hồi thì không vào đệm (lỡ lọt giữa lúc kiểm và lúc ghi thì lần trúng đệm sẽ chặn).
+        if (caller.Kind == McpCallerKind.OAuthGrant && IsGrantTombstoned(caller.TokenId)) return;
+        if (_cache.Count > PruneAbove) Prune(now);
+        _cache[hash] = (caller, expires);
     }
 
     /// "Bearer xxx" (scheme không phân biệt hoa thường — RFC 6750). Rỗng/khác scheme → null.
@@ -121,6 +276,13 @@ public sealed class McpAuthenticator
     {
         try { await _store.TouchAsync(id, CancellationToken.None); }
         catch (Exception ex) { _log.LogWarning(ex, "[mcp] ghi LastUsedUtc cho khoá {Id} lỗi (bỏ qua)", id); }
+    });
+
+    /// <summary>Như <see cref="Touch"/> nhưng cho grant OAuth (kho cũng tự chặn ≤ 1 lần/phút trong SQL).</summary>
+    private void TouchGrant(long id) => _ = Task.Run(async () =>
+    {
+        try { await _oauthStore!.TouchGrantAsync(id, CancellationToken.None); }
+        catch (Exception ex) { _log.LogWarning(ex, "[mcp] ghi LastUsedUtc cho kết nối OAuth {Id} lỗi (bỏ qua)", id); }
     });
 
     private void Prune(DateTimeOffset now)

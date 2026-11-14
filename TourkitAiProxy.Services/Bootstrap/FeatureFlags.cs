@@ -154,4 +154,17 @@ public static class FeatureFlags
     /// Chỉ có nghĩa khi <see cref="Mcp"/> bật (không có <c>/mcp</c> thì chẳng có gì để liệt kê).</para>
     /// </summary>
     public static bool McpActions(IConfiguration cfg) => cfg.GetValue("Features:McpActions", false);
+
+    /// <summary>
+    /// Máy chủ OAuth cho <c>/mcp</c> — để Claude.ai / ChatGPT thêm TourKit làm connector bằng "Kết nối →
+    /// đăng nhập → Cho phép" thay vì chép khoá tay.
+    ///
+    /// <para><b>Chỉ có hiệu lực khi đủ BA điều kiện:</b> <c>Features:McpOAuth</c> bật, <see cref="Mcp"/>
+    /// bật (không có <c>/mcp</c> thì cấp quyền cho cái gì), và <c>Mcp:PublicBaseUrl</c> là địa chỉ hợp lệ
+    /// (issuer/resource lấy từ đây, KHÔNG từ header Host). Thiếu một là không map đường OAuth nào —
+    /// <c>EndpointRegistration.MapMcp</c> ghi log lỗi khi cờ bật mà thiếu địa chỉ.</para>
+    /// </summary>
+    public static bool McpOAuth(IConfiguration cfg)
+        => Mcp(cfg) && cfg.GetValue("Features:McpOAuth", false)
+           && global::TourkitAiProxy.Services.Mcp.OAuth.McpOAuthOptions.NormalizeBaseUrl(cfg["Mcp:PublicBaseUrl"]) != null;
 }

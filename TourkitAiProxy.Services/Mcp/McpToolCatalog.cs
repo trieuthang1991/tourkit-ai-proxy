@@ -60,11 +60,11 @@ public static class McpToolCatalog
             var real = ex is CrmRetryFailedException { InnerException: { } inner } ? inner : ex;
             if (real is TourKitApiException api)
             {
-                log.LogWarning("[mcp] tool={Tool} token={TokenId} CRM lỗi {Status}: {Msg}",
-                    tool.Name, caller.TokenId, api.Status, api.Message);
+                log.LogWarning("[mcp] tool={Tool} token={Kind}:{TokenId} CRM lỗi {Status}: {Msg}",
+                    tool.Name, caller.Kind, caller.TokenId, api.Status, api.Message);
                 return Error(CrmErrorText(tool, api));
             }
-            log.LogError(real, "[mcp] tool={Tool} token={TokenId} lỗi bất ngờ", tool.Name, caller.TokenId);
+            log.LogError(real, "[mcp] tool={Tool} token={Kind}:{TokenId} lỗi bất ngờ", tool.Name, caller.Kind, caller.TokenId);
             return Error($"Không lấy được \"{tool.Title}\" do lỗi hệ thống — thử lại sau ít phút.");
         }
 
