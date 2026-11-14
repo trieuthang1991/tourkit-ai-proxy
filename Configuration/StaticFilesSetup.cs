@@ -31,6 +31,19 @@ public static class StaticFilesSetup
         app.MapGet("/", (HttpContext ctx) => ServeIndex(ctx, webRoot, isDev));
         app.MapGet("/index.html", (HttpContext ctx) => ServeIndex(ctx, webRoot, isDev));
 
+        // Trang đồng ý OAuth của MCP (Claude.ai / ChatGPT). MapGet tường minh thắng MapFallback; chỉ map khi tính năng
+        // có hiệu lực — tắt thì ChanTuongMinh (EndpointRegistration) đã trả 404 JSON cho cả tiền tố /oauth.
+        if (TourkitAiProxy.Services.Bootstrap.FeatureFlags.McpOAuth(app.Configuration))
+            app.MapGet(TourkitAiProxy.Endpoints.McpOAuthEndpoints.AuthorizePath, (HttpContext ctx) =>
+            {
+                // Trang bấm "Cho phép": cấm nhúng trong iframe (clickjacking → ép người dùng cấp quyền mà không biết)
+                // và không gửi Referer (URL chứa state/code_challenge, không để lọt sang máy chủ logo).
+                ctx.Response.Headers["Content-Security-Policy"] = "frame-ancestors 'none'";
+                ctx.Response.Headers["X-Frame-Options"] = "DENY";
+                ctx.Response.Headers["Referrer-Policy"] = "no-referrer";
+                return ServeIndex(ctx, webRoot, isDev);
+            });
+
         // robots.txt + sitemap.xml — phải đăng ký TRƯỚC MapFallback, không thì fallback nuốt và trả
         // index.html kèm status 200 (đúng cái bẫy đã ghi trong Program.cs cho /api/**).
         app.MapSeoEndpoints();

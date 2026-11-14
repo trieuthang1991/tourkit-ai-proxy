@@ -11,6 +11,9 @@ public sealed class FakeMcpOAuthStore : IMcpOAuthStore
     private readonly List<G> _grants = new();
     private long _next = 1;
 
+    /// <summary>Số mã uỷ quyền đã lưu — để test khẳng định không cấp mã.</summary>
+    public int CodeCount { get { lock (_lock) return _codes.Count; } }
+
     private sealed class G
     {
         public long Id; public McpOAuthNewGrant N = null!; public string? Access, Refresh, Prev;

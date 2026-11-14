@@ -75,6 +75,37 @@ public class McpOAuthGuardTests
     }
 
     [Fact]
+    public void Trang_dong_y_chi_map_khi_co_McpOAuth_tat_thi_404_JSON_va_cam_nhung_iframe()
+    {
+        // Tắt cờ → cả /oauth (trang) lẫn /api/v1/mcp/oauth (API của trang) nằm trong danh sách chặn 404 JSON.
+        Assert.Contains("/oauth", McpOAuthEndpoints.Prefixes);
+        Assert.Contains("/api/v1/mcp/oauth", McpOAuthEndpoints.Prefixes);
+        Assert.StartsWith("/api/v1/mcp/oauth/", McpOAuthEndpoints.AuthorizeInfoPath);
+        Assert.StartsWith("/api/v1/mcp/oauth/", McpOAuthEndpoints.ApprovePath);
+        Assert.StartsWith("/api/v1/mcp/oauth/", McpOAuthEndpoints.DenyPath);
+
+        // GET /oauth/authorize (SPA) chỉ được map SAU điều kiện cờ, kèm tiêu đề chống nhúng iframe + không Referer.
+        var src = Src("Configuration/StaticFilesSetup.cs");
+        var co = src.IndexOf("FeatureFlags.McpOAuth(app.Configuration)", StringComparison.Ordinal);
+        var map = src.IndexOf("McpOAuthEndpoints.AuthorizePath", StringComparison.Ordinal);
+        Assert.True(co >= 0 && map > co, "MapGet /oauth/authorize phải nằm sau if (FeatureFlags.McpOAuth(...)).");
+        var tail = src.Substring(map, 900);
+        Assert.Contains("frame-ancestors 'none'", tail);
+        Assert.Contains("X-Frame-Options", tail);
+        Assert.Contains("Referrer-Policy", tail);
+    }
+
+    [Fact]
+    public void Approve_va_deny_doc_phien_qua_SessionAuth_con_authorize_info_thi_khong()
+    {
+        var src = Src("TourkitAiProxy.Endpoints/McpOAuthEndpoints.cs");
+        // Hai lệnh bấm nút lấy phiên từ X-Session-Id (SessionAuth.Read), KHÔNG cookie.
+        Assert.Equal(2, System.Text.RegularExpressions.Regex.Matches(src, @"DecideAsync\(ctx, SessionAuth\.Read\(ctx, sessions\)").Count);
+        Assert.Contains("routes.MapGet(AuthorizeInfoPath, AuthorizeInfoAsync)", src);
+        Assert.DoesNotContain("Cookies", src);
+    }
+
+    [Fact]
     public void Token_endpoint_khong_cho_dem_va_chi_nhan_form()
     {
         var src = Src("TourkitAiProxy.Endpoints/McpOAuthEndpoints.cs");

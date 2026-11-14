@@ -68,7 +68,7 @@ if (notCovered.length === 0) {
 
 // Chiều ngược: khai ở C# mà app.jsx không có route → không hỏng gì, chỉ là rác. Cảnh báo thôi,
 // vì có đường xử lý ngoài <Route> (vd "/" và "/landing" bắt sớm, "/home" chuyển hướng).
-const handledOutsideRoute = ['/', '/landing', '/home'];
+const handledOutsideRoute = ['/', '/landing', '/home', '/oauth/authorize'];
 const orphan = seoPaths.filter(p => !handledOutsideRoute.includes(p) && !declared.includes(p));
 if (orphan.length > 0) {
   warn('Khai o SeoSetup.Routes nhung khong thay <Route> tuong ung (co the la duong cu):');
