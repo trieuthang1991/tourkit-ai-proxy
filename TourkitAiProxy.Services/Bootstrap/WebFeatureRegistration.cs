@@ -64,6 +64,31 @@ public static class WebFeatureRegistration
                 sp.GetRequiredService<ILogger<Mcp.McpAuthenticator>>());
         });
 
+        // OAuth cho Claude.ai / ChatGPT. Đăng ký cùng MCP (singleton, dựng lười); chỉ được resolve khi
+        // FeatureFlags.McpOAuth có hiệu lực — lúc đó Mcp:PublicBaseUrl chắc chắn hợp lệ.
+        s.AddSingleton(sp => Mcp.OAuth.McpOAuthOptions.FromConfig(sp.GetRequiredService<IConfiguration>())
+            ?? throw new InvalidOperationException("Thiếu hoặc sai Mcp:PublicBaseUrl — không dựng được máy chủ OAuth MCP"));
+        // Client tải CIMD: KHÔNG theo chuyển hướng (chuyển hướng sang 169.254.169.254 là SSRF), 5 giây là bỏ.
+        s.AddHttpClient(Mcp.OAuth.ClientMetadataFetcher.HttpClientName, c => c.Timeout = Mcp.OAuth.ClientMetadataFetcher.DefaultTimeout)
+            .ConfigurePrimaryHttpMessageHandler(() => new System.Net.Http.SocketsHttpHandler
+            {
+                AllowAutoRedirect = false,
+                UseCookies = false,
+                ConnectTimeout = Mcp.OAuth.ClientMetadataFetcher.DefaultTimeout,
+                MaxResponseHeadersLength = 16,   // KB
+            });
+        s.AddSingleton<Mcp.OAuth.IClientMetadataFetcher, Mcp.OAuth.ClientMetadataFetcher>();
+        s.AddSingleton(sp =>
+        {
+            var sessions = sp.GetRequiredService<Infrastructure.TourKit.TkSessionStore>();
+            return new Mcp.OAuth.McpOAuthService(
+                sp.GetRequiredService<Infrastructure.Mcp.IMcpOAuthStore>(),
+                sp.GetRequiredService<Mcp.OAuth.IClientMetadataFetcher>(),
+                sid => sessions.Get(sid) is { } x ? new Mcp.McpSessionOwner(x.TenantId, x.Username) : null,
+                sp.GetRequiredService<Mcp.OAuth.McpOAuthOptions>(),
+                sp.GetRequiredService<ILogger<Mcp.OAuth.McpOAuthService>>());
+        });
+
         s.AddMcpServer(o =>
             {
                 o.ServerInfo = new ModelContextProtocol.Protocol.Implementation { Name = "tourkit", Title = "TourKit CRM", Version = "1.0.0" };
