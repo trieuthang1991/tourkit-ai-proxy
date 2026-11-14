@@ -166,6 +166,12 @@ kết nối OAuth (`OAuthGrant`, Id trong `dbo.McpOAuthGrants`). Hai bảng đá
   bị thay bằng trang HTML thì client không đọc được JSON lỗi.
 - `/.well-known/*` phải tới được app (kiểm không có luật nào chặn đường bắt đầu bằng dấu chấm).
 
+### Kiểm đầu-cuối (script)
+
+`scripts/e2e/mcp-oauth-e2e.mjs` chạy luồng OAuth thật (DCR → trang đồng ý qua Playwright → token → `/mcp` → refresh → thu hồi)
+và các ca bảo mật (redirect, mã/PKCE, CIMD/SSRF, token sai đối tượng, CSRF trang đồng ý, header chống nhúng khung, khoá `tkmcp_`)
+trên server cổng riêng với phiên staging. Cách chạy ở đầu file; cần `--db-cmd` để ép hết hạn và xoá sạch dòng test.
+
 ### Giới hạn đã biết (OAuth)
 
 - **Scope thu hẹp không được lưu**: xin `tourkit.read` hay thêm `offline_access` đều ra cùng grant; refresh xin rộng
