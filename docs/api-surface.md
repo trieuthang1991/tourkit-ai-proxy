@@ -137,7 +137,7 @@ cả hai nhóm trả 404 JSON tường minh, DI của SDK cũng không đăng k�
 | POST | `/api/v1/mcp/tokens` `{label}` | `X-Session-Id`. Tạo khoá `tkmcp_…` — hiện nguyên văn **một lần**, chỉ lưu SHA-256. Tối đa 20 khoá đang dùng/người |
 | GET | `/api/v1/mcp/tokens` | Danh sách khoá của mình, dạng `{items:[…]}` (không có khoá, không có sessionId) |
 | DELETE | `/api/v1/mcp/tokens/{id}` | Thu hồi → 204; chết **ngay** trong tiến trình này (xoá khỏi đệm xác thực) |
-| POST | `/mcp` | Streamable HTTP (SDK `ModelContextProtocol.AspNetCore` 2.3.0, không trạng thái). `Authorization: Bearer tkmcp_…`; thiếu/sai/thu hồi → 401 + `WWW-Authenticate: Bearer` + `{error}` tiếng Việt; phiên gốc hết → 401 "Phiên gốc đã hết — tạo khoá mới"; CSDL không trả lời → 503 (không bao giờ cho qua). `instructions` trong `initialize` có ngày hôm nay theo giờ VN |
+| POST | `/mcp` | Streamable HTTP (SDK `ModelContextProtocol.AspNetCore` 2.3.0, không trạng thái). `Authorization: Bearer tkmcp_…` (hoặc `Bearer tkoat_…` khi bật `Features:McpOAuth`); thiếu/sai/thu hồi → 401 + `WWW-Authenticate: Bearer` (cờ OAuth bật: `Bearer resource_metadata="{PublicBaseUrl}/.well-known/oauth-protected-resource", scope="tourkit.read"`) + `{error}` tiếng Việt; phiên gốc hết → 401 "Phiên gốc đã hết — tạo khoá mới"; CSDL không trả lời → 503 (không bao giờ cho qua). `instructions` trong `initialize` có ngày hôm nay theo giờ VN |
 
 - **Đệm xác thực 60 giây** theo bản băm khoá. Chạy **nhiều instance** thì instance KHÁC vẫn có thể nhận khoá vừa thu hồi
   tối đa 60 giây (chưa có kênh báo chéo) — nhận có chủ đích.
@@ -148,6 +148,25 @@ cả hai nhóm trả 404 JSON tường minh, DI của SDK cũng không đăng k�
   `Domain/Mcp/McpToolSchemas.cs` (ngày `yyyy-MM-dd`, `pageSize` ≤ 50); tool có `marketId` nhận thêm `marketName`.
   Kết quả: bảng markdown ≤ 20 dòng/≤ 30.000 ký tự kèm "còn N dòng", `structuredContent` = envelope với `items` ≤ 20.
   Mọi lỗi (tham số, CRM, bất ngờ) → `isError` tiếng Việt, không lỗi JSON-RPC. Tool hành động: chưa có (`Features:McpActions`).
+
+### OAuth cho Claude.ai / ChatGPT (`Features:McpOAuth` + `Mcp:PublicBaseUrl`)
+
+Mã: [`McpOAuthEndpoints.cs`](../TourkitAiProxy.Endpoints/McpOAuthEndpoints.cs), luật ở `Services/Mcp/OAuth/McpOAuthService.cs`
+và `Domain/Mcp/OAuthRules.cs`. Chỉ map khi cờ có hiệu lực (cần cả `Features:Mcp`); tắt → mọi đường dưới đây 404 JSON.
+Địa chỉ quảng cáo lấy từ `Mcp:PublicBaseUrl`, không từ `Host`. Chi tiết luồng: [features/mcp.md](features/mcp.md).
+
+| Method | Path | Notes |
+|--------|------|-------|
+| GET | `/.well-known/oauth-protected-resource` (+ `/mcp`) | RFC 9728: `resource={base}/mcp`, `authorization_servers=[base]`, `scopes_supported`. `Cache-Control: public, max-age=300` |
+| GET | `/.well-known/oauth-authorization-server`, `/.well-known/openid-configuration` | RFC 8414 (cùng nội dung): endpoint authorize/token/register, `S256`, `none`, `client_id_metadata_document_supported`, `authorization_response_iss_parameter_supported` |
+| POST | `/oauth/register` (JSON) | DCR RFC 7591 — chỉ client công khai, redirect trong danh sách trắng, 20 lần/giờ/IP → 201; lỗi `invalid_redirect_uri` / `invalid_client_metadata` |
+| GET | `/oauth/authorize` | Trả SPA (trang đồng ý) |
+| GET | `/api/v1/mcp/oauth/authorize-info?<query gốc>` | Không cần phiên. `{kind:"consent", clientName, logoUri, redirectHost, scope}` / `{kind:"redirect", url}` / `{kind:"error", message}` |
+| POST | `/api/v1/mcp/oauth/approve` `{query}` | `X-Session-Id`. Kiểm lại toàn bộ → `{redirectUrl}` có `code`, `state`, `iss`; không phiên 401; sai 400 không URL |
+| POST | `/api/v1/mcp/oauth/deny` `{query}` | Như approve → `redirectUrl` có `error=access_denied` |
+| POST | `/oauth/token` (form) | `authorization_code` (+ PKCE) / `refresh_token` (xoay vòng; dùng lại refresh cũ → thu hồi grant) → `{access_token, token_type, expires_in:3600, refresh_token, scope}`; lỗi RFC 6749 §5.2; `Cache-Control: no-store` |
+| GET | `/api/v1/mcp/oauth/connections` | `X-Session-Id`. "Ứng dụng đã kết nối" của chính mình: `{items:[{id, clientName, createdUtc, lastUsedUtc, revokedUtc?}]}` — không có băm/sessionId/clientId |
+| DELETE | `/api/v1/mcp/oauth/connections/{id}` | `X-Session-Id`. Thu hồi kết nối của mình → 204 (xoá khỏi đệm xác thực — token chết **ngay**); của người khác / không có / đã thu hồi → 404 |
 
 ---
 

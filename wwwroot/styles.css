@@ -11218,4 +11218,5 @@ img.ci-avt { object-fit: cover; }
 .mcp-chinh { background: var(--primary); border-color: var(--primary); color: #fff; }
 .mcp-chinh:hover:not(:disabled) { background: var(--primary-dark); }
 .mcp-nguy { color: var(--danger); }
-.mcp-nguy.dang-hoi { background: var(--danger); border-color: var(--danger); color: #fff; }
+.mcp-buoc { margin: 0; padding-left: 20px; font-size: 13px; line-height: 1.6; color: var(--text-2); }
+.mcp-nguy.dang-hoi, .mcp-nguy.dang-hoi:hover:not(:disabled) { background: var(--danger); border-color: var(--danger); color: #fff; }

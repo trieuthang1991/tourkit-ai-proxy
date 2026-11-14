@@ -72,6 +72,16 @@ public static class OAuthRules
     public static string NewRefreshToken() => "tkort_" + Random32Hex();
     public static string NewAuthCode() => "tkoac_" + Random32Hex();
 
+    /// <summary>Đúng dạng access token (<c>tkoat_</c> + 32 hex thường)? Chỉ để loại sớm chuỗi rác trước khi chạm CSDL.</summary>
+    public static bool LooksLikeAccessToken(string? t)
+    {
+        const string prefix = "tkoat_";
+        if (t is null || t.Length != prefix.Length + 32 || !t.StartsWith(prefix, StringComparison.Ordinal)) return false;
+        for (var i = prefix.Length; i < t.Length; i++)
+            if (!(t[i] is >= '0' and <= '9' || t[i] is >= 'a' and <= 'f')) return false;
+        return true;
+    }
+
     /// <summary>Chỉ lưu bản băm. Cùng thuật toán với khoá MCP nên dùng lại, khỏi có hai bản băm.</summary>
     public static string Hash(string token) => McpTokens.Hash(token);
 

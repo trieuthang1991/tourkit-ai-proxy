@@ -32,7 +32,7 @@ public static class WebFeatureRegistration
         s.AddGiongNoi();
         s.AddThamDinhVisa();
         s.AddWorkerNen(cfg);
-        if (FeatureFlags.Mcp(cfg)) s.AddMcp();
+        if (FeatureFlags.Mcp(cfg)) s.AddMcp(FeatureFlags.McpOAuth(cfg));
         return s;
     }
 
@@ -50,7 +50,9 @@ public static class WebFeatureRegistration
     /// là đợt sau, sau cờ <c>Features:McpActions</c>.</item>
     /// </list>
     /// </summary>
-    private static void AddMcp(this IServiceCollection s)
+    /// <param name="oauthOn"><c>FeatureFlags.McpOAuth</c> có hiệu lực → cổng <c>/mcp</c> nhận thêm access token
+    /// OAuth (<c>tkoat_</c>) và mọi 401 kèm <c>resource_metadata</c>. Tắt → hành vi giai đoạn 1 nguyên vẹn.</param>
+    private static void AddMcp(this IServiceCollection s, bool oauthOn)
     {
         s.AddSingleton<Infrastructure.Mcp.IMcpTokenStore, Infrastructure.Mcp.McpTokenRepository>();
         s.AddSingleton<Infrastructure.Mcp.IMcpOAuthStore, Infrastructure.Mcp.McpOAuthRepository>();
@@ -61,7 +63,10 @@ public static class WebFeatureRegistration
             return new Mcp.McpAuthenticator(
                 sp.GetRequiredService<Infrastructure.Mcp.IMcpTokenStore>(),
                 sid => sessions.Get(sid) is { } x ? new Mcp.McpSessionOwner(x.TenantId, x.Username) : null,
-                sp.GetRequiredService<ILogger<Mcp.McpAuthenticator>>());
+                sp.GetRequiredService<ILogger<Mcp.McpAuthenticator>>(),
+                clock: null,
+                oauthStore: oauthOn ? sp.GetRequiredService<Infrastructure.Mcp.IMcpOAuthStore>() : null,
+                oauth: oauthOn ? sp.GetRequiredService<Mcp.OAuth.McpOAuthOptions>() : null);
         });
 
         // OAuth cho Claude.ai / ChatGPT. Đăng ký cùng MCP (singleton, dựng lười); chỉ được resolve khi
@@ -113,7 +118,7 @@ public static class WebFeatureRegistration
                 if (http?.Items[Mcp.McpAuthenticator.ItemKey] is not Mcp.McpCaller caller)
                     return ToolError(Mcp.McpAuthenticator.MissingKey);
                 var limiter = ctx.Services!.GetRequiredService<Mcp.McpRateLimiter>();
-                if (!limiter.TryAcquire(caller.TokenId, out var wait))
+                if (!limiter.TryAcquire(caller, out var wait))
                     return ToolError(Mcp.McpRateLimiter.Message(wait));
                 return await next(ctx, ct);
             }));

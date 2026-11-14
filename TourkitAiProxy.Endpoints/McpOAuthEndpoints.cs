@@ -5,7 +5,9 @@ using Microsoft.AspNetCore.WebUtilities;
 using Microsoft.Extensions.Primitives;
 using Microsoft.Net.Http.Headers;
 using TourkitAiProxy.Domain.Mcp;
+using TourkitAiProxy.Infrastructure.Mcp;
 using TourkitAiProxy.Infrastructure.TourKit;
+using TourkitAiProxy.Services.Mcp;
 using TourkitAiProxy.Services.Mcp.OAuth;
 
 namespace TourkitAiProxy.Endpoints;
@@ -20,6 +22,7 @@ namespace TourkitAiProxy.Endpoints;
 /// <item><c>GET /oauth/authorize</c> — trang đồng ý (SPA; map ở <c>StaticFilesSetup</c> vì cần <c>ServeIndex</c>).
 /// Trang gọi <c>GET /api/v1/mcp/oauth/authorize-info</c> (không cần phiên) rồi <c>POST .../approve|deny</c> (cần phiên, header
 /// <c>X-Session-Id</c>); hai lệnh POST nhận lại NGUYÊN query gốc và kiểm lại toàn bộ.</item>
+/// <item><c>GET /api/v1/mcp/oauth/connections</c> + <c>DELETE …/{id}</c> — "Ứng dụng đã kết nối" của chính người đăng nhập.</item>
 /// </list>
 /// Chỉ map khi <c>FeatureFlags.McpOAuth</c> có hiệu lực (xem <c>EndpointRegistration.MapMcp</c>).
 /// Địa chỉ quảng cáo lấy từ <see cref="McpOAuthOptions"/> (cấu hình), không bao giờ từ header Host.
@@ -37,6 +40,7 @@ public static class McpOAuthEndpoints
     public const string AuthorizeInfoPath = ApiPrefix + "/authorize-info";
     public const string ApprovePath = ApiPrefix + "/approve";
     public const string DenyPath = ApiPrefix + "/deny";
+    public const string ConnectionsPath = ApiPrefix + "/connections";
 
     /// <summary>Các tiền tố phải trả 404 JSON khi tính năng tắt (không để rơi xuống SPA fallback).</summary>
     public static readonly string[] Prefixes = { ProtectedResourcePath, AuthorizationServerPath, OpenIdConfigurationPath, OAuthPrefix, ApiPrefix };
@@ -61,6 +65,12 @@ public static class McpOAuthEndpoints
             => DecideAsync(ctx, SessionAuth.Read(ctx, sessions), svc, deny: false, ct));
         routes.MapPost(DenyPath, (HttpContext ctx, TkSessionStore sessions, McpOAuthService svc, CancellationToken ct)
             => DecideAsync(ctx, SessionAuth.Read(ctx, sessions), svc, deny: true, ct));
+        // "Ứng dụng đã kết nối" trên trang Kết nối AI — phiên TourKit qua X-Session-Id, kẹp chủ sở hữu.
+        routes.MapGet(ConnectionsPath, (HttpContext ctx, TkSessionStore sessions, IMcpOAuthStore store, CancellationToken ct)
+            => ListConnectionsAsync(SessionAuth.Read(ctx, sessions), store, ct));
+        routes.MapDelete(ConnectionsPath + "/{id:long}", (long id, HttpContext ctx, TkSessionStore sessions, IMcpOAuthStore store,
+            McpAuthenticator auth, CancellationToken ct) => RevokeConnectionAsync(id, SessionAuth.Read(ctx, sessions), store, auth, ct));
+
         routes.MapPost(TokenPath, async (HttpContext ctx, McpOAuthService svc, CancellationToken ct) =>
         {
             NoStore(ctx);
@@ -168,6 +178,47 @@ public static class McpOAuthEndpoints
             ? Json(400, new JsonObject { ["error"] = res.Error ?? InvalidRequestVi })
             : Json(200, new JsonObject { ["redirectUrl"] = res.RedirectUrl });
     }
+
+    /// <summary>
+    /// "Ứng dụng đã kết nối" của CHÍNH người đăng nhập (kẹp tenant + username ở SQL). Chiếu thủ công: không bao giờ
+    /// trả SessionId (bí mật đăng nhập), ClientId, bản băm hay resource — trang chỉ cần tên + mốc thời gian.
+    /// Gồm cả kết nối đã thu hồi (có <c>revokedUtc</c>) để người dùng thấy lịch sử.
+    /// </summary>
+    internal static async Task<IResult> ListConnectionsAsync(SessionAuth.Ctx? session, IMcpOAuthStore store, CancellationToken ct)
+    {
+        if (session == null) return SessionAuth.Unauthorized();
+        var rows = await store.ListGrantsAsync(session.TenantId, session.Username, ct);
+        var items = new JsonArray();
+        foreach (var g in rows)
+        {
+            var o = new JsonObject
+            {
+                ["id"] = g.Id,
+                ["clientName"] = g.ClientName,
+                ["createdUtc"] = Iso(g.CreatedUtc),
+                ["lastUsedUtc"] = g.LastUsedUtc is { } l ? Iso(l) : null,
+            };
+            if (g.RevokedUtc is { } r) o["revokedUtc"] = Iso(r);
+            items.Add(o);
+        }
+        return Json(200, new JsonObject { ["items"] = items });
+    }
+
+    /// <summary>
+    /// Thu hồi một kết nối của chính mình → 204; của người khác / không có / đã thu hồi → 404 (không lộ tồn tại).
+    /// Xoá luôn khỏi đệm xác thực của tiến trình này: token đang dùng chết NGAY, không chờ 60 giây.
+    /// </summary>
+    internal static async Task<IResult> RevokeConnectionAsync(long id, SessionAuth.Ctx? session, IMcpOAuthStore store,
+        McpAuthenticator auth, CancellationToken ct)
+    {
+        if (session == null) return SessionAuth.Unauthorized();
+        if (!await store.RevokeGrantAsync(id, session.TenantId, session.Username, ct))
+            return Json(404, new JsonObject { ["error"] = "Không tìm thấy kết nối" });
+        auth.EvictGrant(id);
+        return Results.NoContent();
+    }
+
+    private static string Iso(DateTime d) => DateTime.SpecifyKind(d, DateTimeKind.Utc).ToString("o");
 
     private static string? HttpsOrNull(string? url)
         => Uri.TryCreate(url, UriKind.Absolute, out var u) && u.Scheme == Uri.UriSchemeHttps && url!.Length <= 2000 ? u.AbsoluteUri : null;
