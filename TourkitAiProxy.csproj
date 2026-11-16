@@ -85,6 +85,17 @@
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
     </None>
   </ItemGroup>
+  <!-- Hướng dẫn cho trang /help: StaticFilesSetup phục vụ docs/features + docs/images từ thư mục chạy.
+       Trước 16/11/2026 publish KHÔNG chép docs/ → prod trả 404, trang /help báo "Không tải được hướng
+       dẫn" (dev không thấy vì chạy từ thư mục nguồn). CHỈ chép bài hướng dẫn người dùng — DANH SÁCH
+       TRẮNG, khớp GUIDES trong wwwroot/pages/help.jsx (test HelpGuidesPublishTests canh). Tài liệu kỹ
+       thuật cùng thư mục (mcp, mail, workflows…) KHÔNG được chép: /docs/features ai cũng đọc được. -->
+  <ItemGroup>
+    <Content Include="docs/features/bao-gia-tour.md;docs/features/nhap-gia-ncc.md;docs/features/danh-gia-khach-hang.md;docs/features/tro-ly-so-lieu.md;docs/features/hop-thu-ai.md;docs/features/hop-thu-chat.md;docs/features/uu-tien-deal.md;docs/features/tham-dinh-visa.md;docs/features/tu-dong-hoa.md;docs/features/jarvis.md;docs/features/nhac-cham-khach.md;docs/images/**">
+      <CopyToPublishDirectory>PreserveNewest</CopyToPublishDirectory>
+      <CopyToOutputDirectory>Never</CopyToOutputDirectory>
+    </Content>
+  </ItemGroup>
   <!-- Seed NCC mẫu (data/seed/**) KHÔNG copy vào publish: seed CHỈ chạy ở Development (đọc từ
        thư mục project). Public/prod không auto-seed — dữ liệu mẫu đã nằm trong DB dùng chung. -->
 </Project>
