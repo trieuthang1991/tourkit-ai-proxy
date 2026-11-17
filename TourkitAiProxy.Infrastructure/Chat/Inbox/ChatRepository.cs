@@ -473,10 +473,13 @@ public class ChatRepository
     /// khoá (đặc tả 4b). Null thì lùi về mốc chung cũ và cờ theo dõi về false.</param>
     /// <param name="nhan">Slug nhãn cần lọc. Nhiều nhãn là <b>HOẶC</b>: khách mang bất kỳ nhãn nào
     /// trong số đó. Null hoặc rỗng thì không lọc.</param>
+    /// <param name="nguon">Lọc theo <see cref="ChatSource">nguồn</see> — nơi khách thật sự nhắn
+    /// từ đó, đã nở sẵn thành tập kênh + tập tài khoản. Null thì không lọc.</param>
     public async Task<List<ChatConversation>> ListConversationsAsync(string tenant, NguoiXem xem, short? trangThai,
         int? chiCuaToi, string? timKiem, short? kenh = null, int? giaoCho = null,
         bool chiChuaDoc = false, bool chiTheoDoi = false, ConvCursor? sau = null, int limit = 60, int? nguoiDung = null,
-        string[]? nhan = null, string? taiKhoan = null, CancellationToken ct = default)
+        string[]? nhan = null, string? taiKhoan = null, NguonLoc? nguon = null,
+        CancellationToken ct = default)
     {
         await using var c = await _db.OpenAsync(ct);
         return (await c.QueryAsync<ChatConversation>("""
@@ -500,6 +503,16 @@ public class ChatRepository
               -- Thiếu vế này thì công ty nối nhiều trang chỉ lọc được tới mức "cả kênh", mọi trang
               -- đổ chung một rổ không tách ra được.
               AND (@taiKhoan IS NULL OR v.account_id = @taiKhoan)
+              -- Lọc theo NGUỒN (nền tảng thật khách đang nhắn từ đó). Hai vế là HOẶC vì nguồn nằm
+              -- ở hai nơi: kênh nối thẳng mang nguồn trên chính cột channel, còn Trang của cổng
+              -- gom mang nguồn trong bảng khai báo kênh — bảng đó nằm ở CSDL KHÁC (SQL Server),
+              -- không JOIN sang được, nên chỗ gọi nở sẵn thành hai danh sách mã.
+              --
+              -- @locNguon tách riêng, KHÔNG suy từ "mảng rỗng": rỗng ở đây có nghĩa thật — nguồn
+              -- không khớp tài khoản nào thì danh sách phải TRỐNG, không phải mở toang.
+              AND (NOT @locNguon
+                   OR v.channel = ANY(@nguonKenh::smallint[])
+                   OR v.account_id = ANY(@nguonTaiKhoan::text[]))
               AND (@giaoCho IS NULL OR v.assigned_user_id = @giaoCho)
               AND (NOT @chiTheoDoi OR EXISTS (
                     SELECT 1 FROM chat_conversation_follows f
@@ -533,6 +546,8 @@ public class ChatRepository
             LIMIT @limit
             """, new { tenant, trangThai, chiCuaToi, kenh, giaoCho, chuaDoc = chiChuaDoc, chiTheoDoi, nguoiDung,
                        taiKhoan = string.IsNullOrWhiteSpace(taiKhoan) ? null : taiKhoan!.Trim(),
+                       locNguon = nguon is not null,
+                       nguonKenh = nguon?.Kenh ?? [], nguonTaiKhoan = nguon?.TaiKhoan ?? [],
                        tim = string.IsNullOrWhiteSpace(timKiem) ? null : $"%{timKiem.Trim()}%",
                        // Mảng rỗng KHÁC null ở đây: rỗng thì = ANY(…) không khớp gì và danh sách
                        // trắng trơn. Về null để mệnh đề tự vô hiệu.
@@ -777,9 +792,24 @@ public class ChatRepository
     /// phải tên đăng nhập (đặc tả 4b); null thì lùi về mốc chung cũ.</param>
     /// <param name="nhan">Bộ lọc nhãn ĐANG áp cho danh sách — phải truyền vào đây nữa, xem
     /// ChatTagFilterGuardTests.</param>
+    /// <param name="nguon">Bộ lọc nguồn ĐANG áp cho danh sách. Truyền vào thì nó THAY
+    /// <paramref name="kenh"/> ở vai trò kẹp chip trạng thái — hai cái cùng nói về một danh sách,
+    /// mà giao diện chỉ gửi một trong hai.</param>
     public async Task<ChatInboxCounts> CountAsync(string tenant, int? chiCuaToi, NguoiXem xem,
-        int? nguoiDung = null, short? kenh = null, string[]? nhan = null, CancellationToken ct = default)
+        int? nguoiDung = null, short? kenh = null, string[]? nhan = null, NguonLoc? nguon = null,
+        CancellationToken ct = default)
     {
+        // Kẹp theo NGUỒN làm ngay trên bộ dòng đã gộp, KHÔNG thêm điều kiện vào SQL: câu đếm đã
+        // gộp sẵn theo (trạng thái, kênh, tài khoản) nên mọi thứ cần để quyết định đều nằm trong
+        // tay rồi. Đẩy xuống SQL chỉ thêm hai mảng tham số cho đúng một phép so bằng trên vài
+        // chục dòng đã gộp.
+        var nguonKenh = nguon is { } nk ? new HashSet<short>(nk.Kenh) : null;
+        var nguonTaiKhoan = nguon is { } nt ? new HashSet<string>(nt.TaiKhoan, StringComparer.Ordinal) : null;
+        bool TrongPhamVi(RowCount r) =>
+            nguonKenh is not null
+                ? nguonKenh.Contains(r.Channel)
+                  || (r.Account_Id is { Length: > 0 } ma && nguonTaiKhoan!.Contains(ma))
+                : kenh is not { } k || r.Channel == k;
         await using var c = await _db.OpenAsync(ct);
         var rows = (await c.QueryAsync<RowCount>("""
             SELECT v.status, v.channel, v.account_id, COUNT(*)::int AS so,
@@ -829,12 +859,12 @@ public class ChatRepository
                 theoTaiKhoan[khoa] = theoTaiKhoan.GetValueOrDefault(khoa) + r.So;
             }
 
-            if (kenh is { } k && r.Channel != k) continue;
+            if (!TrongPhamVi(r)) continue;
             theoTrangThai[r.Status] = theoTrangThai.GetValueOrDefault(r.Status) + r.So;
         }
 
         // Tổng và chưa đọc đi theo chip trạng thái: chúng đứng cùng chỗ và nói về cùng một danh sách.
-        var trongKenh = kenh is { } kk ? rows.Where(r => r.Channel == kk).ToList() : rows;
+        var trongKenh = rows.Where(TrongPhamVi).ToList();
         return new ChatInboxCounts(theoTrangThai, theoKenh, theoTaiKhoan,
             trongKenh.Sum(r => r.Unread), trongKenh.Sum(r => r.So));
     }

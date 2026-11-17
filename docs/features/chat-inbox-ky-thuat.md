@@ -54,16 +54,81 @@ tắt hẳn cơ chế soi lại ảnh. `ChatAvatarCamXucGuardTests` canh cả ha
 nhắn kế tiếp. Vét được — `chat_messages.sender_avatar_url` còn giữ url — nhưng phần lớn url đó
 đã hết hạn, nên giá trị thật của một lượt vét chưa rõ; đo trước khi làm.
 
+### Nguồn ≠ kênh
+
+**Kênh** là đường tin đi vào hệ thống (`ChatChannel`). **Nguồn** là nơi khách thật sự đang nhắn
+từ đó. Hai thứ trùng nhau ở mọi kênh nối thẳng và **tách ra ở cổng gom**: qua Pancake thì mọi hội
+thoại chung một kênh, còn nguồn thật nằm ở từng Trang.
+
+Một nguồn ở [`ChatSource` / `ChatSourceMap`](../../TourkitAiProxy.Domain/Chat/ChatSource.cs):
+
+| Hàm | Trả lời câu hỏi |
+|---|---|
+| `Cua(kênh, nền tảng)` | Tài khoản này thuộc nguồn nào (nền tảng nếu biết, không thì nguồn của kênh) |
+| `Dem(theoKênh, theoTàiKhoản, môTả)` | Mỗi nguồn bao nhiêu hội thoại — dựng từ hai bộ đếm sẵn có, **không** thêm lượt đọc |
+| `DaKhai(môTả, kênhẨn)` | Nguồn nào đã khai nhưng chưa có tin — để tab mọc ngay sau khi nối Trang |
+| `No(nguồn, môTả)` | Nở nguồn thành `NguonLoc(Kenh[], TaiKhoan[])` cho SQL kẹp |
+
+`GET /conversations?source=facebook` lọc theo nguồn; `channel` vẫn còn nhưng giao diện không
+dùng nữa. Trả về `sourceCounts` · `sources` · `accountSources`, và mỗi hội thoại mang
+`accountSource`.
+
+⚠️ **Quy đổi nằm ở máy chủ, KHÔNG ở giao diện.** `chat-inbox.jsx` chỉ giữ bảng *hiển thị*
+(`NGUON`: tên + biểu tượng) và nhận nguồn đã là chuỗi sẵn. Chép bảng quy đổi kênh → nguồn sang
+JavaScript là có hai bản sự thật, rồi tab đếm một đằng danh sách lọc ra một nẻo.
+
+⚠️ **Nguồn lạ nở ra hai tập RỖNG, không phải `null`.** Rỗng = danh sách trống (đúng); `null` =
+không lọc, tức bấm tab rồi thấy nguyên cả hộp thư. Xem `ChatSourceTests`.
+
+⚠️ **Cổng gom không bao giờ vào bộ lọc theo trọn kênh** — vào thế thì bấm tab "Facebook" đổ ra cả
+Trang Zalo nằm cùng kênh. Trang của cổng gom luôn vào theo từng mã.
+
+Phần dôi giữa "tổng của kênh" và "tổng của các Trang" về nguồn mặc định của kênh: hội thoại tạo
+trước 24/08/2026 không ghi mã tài khoản, bỏ đi thì cộng các tab lại nhỏ hơn tab "Tất cả".
+
+Bộ lọc nguồn phải xuống **cả hai** câu — liệt kê VÀ đếm — đúng luật đã chốt cho lọc theo kênh rồi
+lọc theo nhãn. Có chốt `ChatSourceFilterGuardTests`.
+
+#### Nguồn của một Trang nằm ở đâu, và chữa thế nào khi thiếu
+
+Nguồn thật ghi trong `ConfigJson` của `dbo.TenantChannelSettings`, khoá `platform`, **chỉ lúc
+nối Trang**. Đối chiếu bằng mắt ở **Kết nối kênh → tab Pancake**: mỗi Trang mang nhãn nguồn, thiếu
+thì ghi *"chưa rõ nguồn"* — nói thành lời chứ không để trống, vì để trống thì người khai nhìn hộp
+thư thấy "Pancake" mà không biết vì sao và có chữa được không.
+
+Trang nối **trước 10/11/2026** không có `platform` (đường nối cũ không ghi), nên cả hộp thư hiện
+"Pancake". Chữa bằng nút **Nhận lại nguồn** → `POST /channels/pancake/refresh-source`: duyệt mọi
+Trang Pancake, hỏi Pancake bằng chính khoá đã lưu (`GuessPageInfoAsync`), ghi lại đúng một trường.
+
+⚠️ **Không chữa bằng cách nối lại Trang.** Luồng nối có thể **sinh khoá mới**, mà sinh khoá mới là
+huỷ khoá cũ — mọi tích hợp khác đang dùng khoá đó chết theo. Đó là lý do đường này tồn tại.
+
+Ba ràng buộc giữ nó an toàn, có chốt `PancakeRefreshSourceGuardTests`:
+
+| Ràng buộc | Hỏng thì sao |
+|---|---|
+| Không gọi `GeneratePageTokenAsync` | Giết khoá đang dùng ở nơi khác |
+| Không đụng `label` | Người khai mất tên tự đặt, không có gì báo |
+| Hỏi hụt thì **giữ nguyên**, không xoá | Một lượt mạng chập chờn làm cả hộp thư về "Pancake" |
+
+Và `SaveAsync` **thay cả khối**, nên phải chép lại mọi khoá cũ trước khi ghi — dựng từ điển chỉ
+có `platform` là Trang mất khoá của chính nó lẫn chuỗi bí mật webhook.
+
 ### Tắt bớt kênh theo bản cài đặt — `Chat:HiddenChannels`
 
 Mảng tên kênh trong `appsettings.json`, một nguồn ở
 [`ChatChannelVisibility`](../../TourkitAiProxy.Services/Chat/ChatChannelVisibility.cs). Khai
-`["Messenger", "Instagram"]` thì ba chỗ cùng im: dải tab trong hộp thư, mục khai ở
-`GET /channels`, và mọi đường NỐI MỚI (`connect-url` · `oauth-url` · `POST .../accounts`).
+`["Messenger", "Instagram"]` thì ba chỗ cùng im: mục khai ở `GET /channels`, mọi đường NỐI MỚI
+(`connect-url` · `oauth-url` · `POST .../accounts`), và danh sách nguồn dựng sẵn cho dải tab.
 
-Giao diện biết qua trường `hiddenChannels` của `GET /conversations` — **không** qua
-`/channels`, vì đường đó đòi quyền cấu hình hệ thống mà nhân viên trực không có; đường danh sách
-thì mỗi lần mở hộp thư đều gọi nên không tốn thêm lượt đi-về nào.
+Máy chủ áp sẵn: `sources` của `GET /conversations` đã trừ kênh tắt. Trả ở đường đó chứ **không**
+ở `/channels`, vì đường kia đòi quyền cấu hình hệ thống mà nhân viên trực không có; đường danh
+sách thì mỗi lần mở hộp thư đều gọi nên không tốn thêm lượt đi-về nào.
+
+⚠️ **Tắt kênh không tắt được một NGUỒN, và không nên.** Dải tab nói về nơi khách nhắn, không nói
+về đường tin đi vào: tắt kênh Messenger mà tin Facebook đang về qua Pancake thì tab "Facebook"
+vẫn mọc — đúng như chủ dự án yêu cầu 10/11/2026. Kênh tắt chỉ mất phần *mời nối*; hội thoại cũ
+của nó vẫn đếm bình thường và vẫn có tab nếu thật sự có tin.
 
 ⚠️ **Đây KHÔNG phải cờ `Features:*`.** Repo đã bỏ bốn cờ con của chat (`ChatHistoryImport`,
 `ChatAssign`, `ChatCoHoi`, `ChatTourLookup`) vì cờ con cho một điều kiện TẠM THỜI thì điều
@@ -74,8 +139,8 @@ lúc deploy là mất sạch kênh đang chạy thật mà không có lấy mộ
 
 ⚠️ **Ẩn KHÁC gỡ, và ranh giới đó phải giữ.** Đường nhận tin vẫn chạy nguyên (Meta/Zalo đánh dấu
 một địa chỉ nhận lỗi là hỏng — tới lúc duyệt xong phải đi khai lại từ đầu), và hội thoại cũ vẫn
-đọc/trả lời được ở mục "Tất cả". Ở giao diện, phép trừ phải làm **sau** bước cộng kênh-có-dữ-liệu
-vào `kenhHien`, nếu không chính vế cộng đó kéo tab vừa ẩn quay lại.
+đọc/trả lời được ở mục "Tất cả" **và vẫn có tab nguồn riêng** — giấu tab đi là chôn tin nhắn thật
+của khách.
 
 ⚠️ **Ẩn Messenger thì ẩn Instagram cùng.** Instagram nối THÔNG QUA một Trang Facebook
 (`noiKemKenh`), nên chưa duyệt được Facebook thì tab Instagram cũng chỉ là nút bấm vào không

@@ -133,9 +133,17 @@ public class ChannelCredentialStore
     {
         var ra = new Dictionary<(short, string), string>();
         foreach (var x in ds)
-            ra[(x.Kenh, x.AccountId)] = string.IsNullOrWhiteSpace(x.Label) ? x.AccountId : x.Label!;
+            ra[(x.Kenh, x.AccountId)] = TenTrang(x.Label, x.AccountId);
         return ra;
     }
+
+    /// <summary>
+    /// Luật đặt tên cho MỘT tài khoản, tách riêng để <see cref="ChonTenTrang"/> và
+    /// <see cref="MoTaTaiKhoanAsync"/> không mỗi nơi một bản — hai bản lệch nhau thì màn cấu hình
+    /// và hộp thư gọi cùng một Trang bằng hai cái tên khác nhau.
+    /// </summary>
+    public static string TenTrang(string? label, string accountId)
+        => string.IsNullOrWhiteSpace(label) ? accountId : label!.Trim();
 
     /// <summary>
     /// Bản đồ (kênh, mã tài khoản) → tên Trang/OA của một công ty, đọc từ <c>label</c> đã ghi sẵn
@@ -149,33 +157,10 @@ public class ChannelCredentialStore
     /// </summary>
     public async Task<Dictionary<(short Kenh, string AccountId), string>> LabelMapAsync(
         string tenantId, CancellationToken ct = default)
-    {
-        try
-        {
-            await using var c = await _db.OpenAsync(ct);
-            var hang = (await c.QueryAsync<(string Channel, string ConfigJson)>(
-                "SELECT Channel, ConfigJson FROM dbo.TenantChannelSettings WHERE TenantId=@t",
-                new { t = tenantId })).ToList();
-
-            var ds = new List<(short, string, string?)>();
-            foreach (var kenh in Enum.GetValues<ChatChannel>())
-            {
-                var tienTo = KeyOf(kenh) + ":";
-                foreach (var h in hang.Where(h => h.Channel.StartsWith(tienTo, StringComparison.Ordinal)))
-                    ds.Add(((short)kenh, h.Channel[tienTo.Length..],
-                            Decode(h.ConfigJson).GetValueOrDefault("label")));
-            }
-            return ChonTenTrang(ds);
-        }
-        catch (Exception ex)
-        {
-            _log.LogWarning(ex, "[chat/cred] đọc tên Trang hỏng, tenant={T} — bỏ trống", tenantId);
-            return new Dictionary<(short, string), string>();
-        }
-    }
+        => (await MoTaTaiKhoanAsync(tenantId, ct)).ToDictionary(x => x.Key, x => x.Value.Ten);
 
     /// <summary>
-    /// Bản đồ (kênh, mã tài khoản) → <b>nền tảng thật</b> của tài khoản đó. MỘT truy vấn cho mọi kênh.
+    /// Bản đồ (kênh, mã tài khoản) → <b>nền tảng thật</b> của tài khoản đó.
     ///
     /// <para>Chỉ Pancake có giá trị ở đây, và đó là lý do nó tồn tại: Pancake là CỔNG GOM, một
     /// "tài khoản" của nó là một Trang có thể thuộc Facebook, Instagram, TikTok hay Zalo. Huy hiệu
@@ -185,13 +170,32 @@ public class ChannelCredentialStore
     /// <para>KHÔNG lùi về mã tài khoản khi thiếu như <see cref="ChonTenTrang"/> làm với tên: thiếu
     /// nền tảng thì để null, giao diện hiện đúng "Pancake" như trước. Bịa ra một nền tảng là nói
     /// dối người trực về nguồn gốc của khách — tệ hơn hẳn việc im lặng.</para>
-    ///
-    /// <para>Đọc hỏng thì trả RỖNG, không ném — cùng lý do với <see cref="LabelMapAsync"/>.</para>
     /// </summary>
     public async Task<Dictionary<(short Kenh, string AccountId), string>> PlatformMapAsync(
         string tenantId, CancellationToken ct = default)
     {
         var ra = new Dictionary<(short, string), string>();
+        foreach (var (khoa, mo) in await MoTaTaiKhoanAsync(tenantId, ct))
+            if (mo.NenTang is { Length: > 0 } nt) ra[khoa] = nt;
+        return ra;
+    }
+
+    /// <summary>
+    /// Bản đồ (kênh, mã tài khoản) → <b>tên Trang + nền tảng thật</b> của mọi tài khoản một công
+    /// ty đã khai, MỌI kênh, trong <b>MỘT truy vấn</b>.
+    ///
+    /// <para><b>Một lượt đọc, không phải hai.</b> Hộp thư cần cả hai thứ cùng lúc và hỏi lại 4
+    /// giây một lần; trước 10/11/2026 tên và nền tảng là hai hàm riêng, mỗi hàm mở một kết nối và
+    /// quét đúng những dòng hàm kia vừa quét xong. Cần riêng một thứ thì vẫn gọi
+    /// <see cref="LabelMapAsync"/> / <see cref="PlatformMapAsync"/> — chúng gọi vào đây.</para>
+    ///
+    /// <para>Đọc hỏng thì trả RỖNG, không ném: tên Trang và nguồn là tiện, không phải điều kiện để
+    /// hộp thư chạy. Mất chúng thì danh sách vẫn đủ dùng; ném thì cả hộp thư trắng.</para>
+    /// </summary>
+    public async Task<Dictionary<(short Kenh, string AccountId), MoTaTaiKhoan>> MoTaTaiKhoanAsync(
+        string tenantId, CancellationToken ct = default)
+    {
+        var ra = new Dictionary<(short, string), MoTaTaiKhoan>();
         try
         {
             await using var c = await _db.OpenAsync(ct);
@@ -204,15 +208,19 @@ public class ChannelCredentialStore
                 var tienTo = KeyOf(kenh) + ":";
                 foreach (var h in hang.Where(h => h.Channel.StartsWith(tienTo, StringComparison.Ordinal)))
                 {
-                    var nenTang = Decode(h.ConfigJson).GetValueOrDefault("platform");
-                    if (!string.IsNullOrWhiteSpace(nenTang))
-                        ra[((short)kenh, h.Channel[tienTo.Length..])] = nenTang!.Trim();
+                    var ma = h.Channel[tienTo.Length..];
+                    var giaTri = Decode(h.ConfigJson);
+                    var ten = giaTri.GetValueOrDefault("label");
+                    var nenTang = giaTri.GetValueOrDefault("platform");
+                    ra[((short)kenh, ma)] = new MoTaTaiKhoan(TenTrang(ten, ma),
+                        string.IsNullOrWhiteSpace(nenTang) ? null : nenTang!.Trim());
                 }
             }
         }
         catch (Exception ex)
         {
-            _log.LogWarning(ex, "[chat/cred] đọc nền tảng trang hỏng, tenant={T} — bỏ trống", tenantId);
+            _log.LogWarning(ex, "[chat/cred] đọc mô tả tài khoản hỏng, tenant={T} — bỏ trống", tenantId);
+            return new Dictionary<(short, string), MoTaTaiKhoan>();
         }
         return ra;
     }
@@ -329,3 +337,4 @@ public class ChannelCredentialStore
 /// người dùng đặt tay, để khỏi phải lo trùng/ký tự lạ trong URL webhook.</param>
 /// <param name="GiaTri">Khoá đã giải mã, gồm cả <c>label</c> (tên hiển thị người dùng đặt).</param>
 public record ChatAccount(string AccountId, IReadOnlyDictionary<string, string> GiaTri);
+

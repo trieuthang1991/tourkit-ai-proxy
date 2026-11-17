@@ -35,12 +35,25 @@ Những cập nhật gần đây của TRAV-AI, viết cho người dùng. Mới
   — không biết khách tới từ Facebook, Zalo hay TikTok, trong khi đó là thứ quyết định cách xưng hô
   và thời hạn còn được phép trả lời. Nay danh sách hiện thẳng dấu hiệu của nền tảng thật, và dòng
   tiêu đề trên khung chat ghi đủ "Pancake · Facebook · tên Trang".
-- **Lọc theo Trang cũng thấy nền tảng.** Khi một kênh có nhiều Trang, mỗi nút lọc nay mang dấu
-  hiệu nền tảng của Trang đó, nên hai Trang tên gần giống nhau không còn bị lẫn.
+- **Dải lọc bên trái nay chia theo nơi khách nhắn, không theo đường tin đi vào.** Trước đây mọi
+  hội thoại nhận hộ qua Pancake dồn chung vào một ô "Pancake", nên không có cách nào xem riêng
+  khách Facebook hay khách Zalo. Nay dải lọc hiện đúng "Facebook · Zalo · TikTok…" như chính
+  trang Pancake, kèm số hội thoại từng nơi — bấm vào là chỉ còn khách của nơi đó. Khách nhắn
+  thẳng vào Zalo và khách nhắn qua Pancake về cùng một Trang Zalo nằm chung một ô, vì với người
+  trực đó là cùng một chỗ.
+- **Lọc tới từng Trang.** Chọn một nơi rồi mà nơi đó có nhiều Trang (hai Fanpage Facebook chẳng
+  hạn) thì có thêm hàng nút để chọn riêng từng Trang, kèm số hội thoại của Trang đó.
+- **Xem được từng Trang đang lấy tin từ đâu.** Vào *Kết nối kênh → Pancake*, mỗi Trang nay ghi rõ
+  nguồn của nó (Facebook, Zalo…). Trang nào chưa xác định được thì ghi thẳng "chưa rõ nguồn" chứ
+  không bỏ trống, để bạn biết vì sao hộp thư còn hiện "Pancake".
+- **Nút "Nhận lại nguồn" cho các Trang nối từ trước.** Những Trang nối trước bản này chưa lưu
+  nguồn, nên vẫn dồn chung vào ô "Pancake". Bấm một lần là hệ thống tự hỏi lại Pancake cho từng
+  Trang rồi điền vào — **không** phải nối lại Trang, **không** đổi tên bạn đã đặt, và **không**
+  sinh khoá mới (nối lại có thể làm hỏng khoá đang dùng ở nơi khác).
 - **Tắt bớt kênh chat công ty chưa dùng.** Quản trị có thể tắt những kênh công ty chưa mở — ví dụ
   Facebook khi chưa xin được Facebook chấp thuận, và tin Facebook đang đi vòng qua Pancake. Kênh
-  đã tắt sẽ không còn ô lọc riêng trong hộp thư và không còn hiện ở màn hình kết nối, nên nhân
-  viên không bấm nhầm vào một kênh chưa nối được.
+  đã tắt không còn hiện ở màn hình kết nối và không nối mới được, nên nhân viên không bấm nhầm
+  vào một kênh chưa nối được.
 
 ### 🔧 Đã khắc phục
 - **Thiếu ảnh đại diện khách ở danh sách hội thoại.** Với hội thoại qua Pancake, ảnh khách hiện
@@ -51,8 +64,13 @@ Những cập nhật gần đây của TRAV-AI, viết cho người dùng. Mới
   không phải làm gì cả.
 
 ### 📌 Lưu ý
-- **Tắt một kênh KHÔNG làm mất tin nhắn cũ.** Mọi hội thoại đã có vẫn nằm trong mục "Tất cả" và
-  vẫn trả lời bình thường — chỉ riêng ô lọc của kênh đó biến mất.
+- **Tắt một kênh KHÔNG làm mất tin nhắn cũ.** Mọi hội thoại đã có vẫn nằm trong mục "Tất cả", vẫn
+  có ô lọc riêng và vẫn trả lời bình thường. Tắt chỉ có nghĩa là thôi không mời nối thêm.
+- **Ô lọc "Facebook" vẫn hiện dù kênh Facebook đang tắt** — vì tin Facebook đang về qua Pancake,
+  và ô lọc nói về nơi khách nhắn chứ không nói về đường tin đi vào.
+- **Hộp thư còn hiện "Pancake" sau khi cập nhật là bình thường** — các Trang nối từ trước chưa lưu
+  nguồn. Vào *Kết nối kênh → Pancake* bấm **Nhận lại nguồn** một lần là xong. Trang nào Pancake
+  không nói được nguồn thì vẫn để "Pancake", hệ thống không đoán bừa.
 - Bật lại chỉ là một dòng trong cấu hình máy chủ, không phải cài đặt lại phần mềm.
 
 ---
