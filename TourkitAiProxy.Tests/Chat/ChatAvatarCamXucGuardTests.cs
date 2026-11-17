@@ -38,6 +38,54 @@ public class ChatAvatarCamXucGuardTests
         Assert.Contains("HoSoCuSauNgay", than);
     }
 
+    // ── Ảnh đại diện nhặt từ chính gói tin (10/11/2026) ─────────────────────
+    // Ca thật: Pancake KHÔNG có đường tra hồ sơ khách, nên ContactProfileAsync trả null và hồ sơ
+    // khách không bao giờ có ảnh — trong khi gói webhook thì CÓ sẵn ảnh, chỉ là trước đây ghi vào
+    // từng tin nhắn rồi bỏ đi. Triệu chứng sếp báo: bong bóng chat có ảnh, danh sách thì không.
+
+    /// <summary>
+    /// Kênh không có đường hỏi hồ sơ thì phải lấy ảnh từ chính gói tin. Mất vế này là quay về
+    /// đúng lỗi cũ, mà lỗi đó KHÔNG báo gì — chỉ là danh sách hiện chữ cái đầu thay cho ảnh.
+    /// </summary>
+    [Fact]
+    public void Khong_hoi_duoc_ho_so_thi_phai_nhat_anh_trong_goi_tin()
+    {
+        var than = ChatSchemaGuardTests.ThanThanhVien(Nhan(), "private async Task OneEventAsync");
+
+        Assert.Contains("e.SenderAvatarUrl", than);
+        Assert.Contains("MirrorAvatarAsync", than);
+    }
+
+    /// <summary>
+    /// <b>Tiếng vọng phải bị loại.</b> Tin dội lại là do TRANG gửi, nên ảnh trong đó là ảnh của
+    /// Trang. Gán nó vào hồ sơ khách thì cả danh sách hội thoại hiện logo công ty thay cho mặt
+    /// khách — hỏng im lặng, trông vẫn "có ảnh" nên không ai báo.
+    /// </summary>
+    [Fact]
+    public void Khong_duoc_lay_anh_cua_TRANG_trong_tin_doi_lai_gan_cho_khach()
+    {
+        var than = ChatSchemaGuardTests.ThanThanhVien(Nhan(), "private async Task OneEventAsync");
+        var i = than.IndexOf("e.SenderAvatarUrl", StringComparison.Ordinal);
+        Assert.True(i > 0, "Không thấy chỗ nhặt ảnh từ gói tin");
+
+        // Điều kiện loại tiếng vọng phải nằm NGAY TRONG cùng điều kiện nhặt ảnh, không phải ở
+        // một chỗ nào đó khác trong hàm.
+        Assert.Contains("!e.IsEcho", than[Math.Max(0, i - 200)..i]);
+    }
+
+    /// <summary>
+    /// Chỉ đóng mốc hồ sơ khi trong tay THẬT SỰ có ảnh. Gói tin Telegram có tên nhưng không có
+    /// ảnh — đóng mốc ở đó là tắt hẳn cơ chế soi lại ảnh, vì hồ sơ luôn "mới" nên không bao giờ
+    /// cũ để mà hỏi lại.
+    /// </summary>
+    [Fact]
+    public void Chi_dong_moc_ho_so_khi_that_su_co_anh()
+    {
+        var than = ChatSchemaGuardTests.ThanThanhVien(Nhan(), "private async Task OneEventAsync");
+
+        Assert.Contains("dongMocHoSo: hoSo is not null || !string.IsNullOrWhiteSpace(anh)", than);
+    }
+
     /// <summary>
     /// Mốc phải đóng ở MỌI lượt hỏi được nền tảng, kể cả khi tên và ảnh trả về y như cũ. Chỉ đóng
     /// khi có thay đổi thì khách không bao giờ đổi ảnh sẽ bị hỏi lại ở MỖI tin nhắn — đúng thứ
@@ -61,8 +109,12 @@ public class ChatAvatarCamXucGuardTests
         // Mỗi khẳng định nằm gọn MỘT DÒNG. Khẳng định vắt qua dấu xuống dòng là chốt canh giòn:
         // file này lưu bằng CRLF nên `\n` trong chuỗi C# không bao giờ khớp (đã dính 14/09/2026).
         var nhan = Nhan();
-        // Lượt sau khi HỎI HỒ SƠ: có bật cờ.
-        Assert.Contains("dongMocHoSo: true, ct: ct);", nhan);
+        // Lượt LẤY HỒ SƠ: có bật cờ — nay là một ĐIỀU KIỆN chứ không còn là `true` trần.
+        //
+        // Đổi 10/11/2026 cùng lúc với việc nhặt ảnh từ gói tin cho Pancake. Lằn ranh cũ giữ
+        // nguyên, chỉ nói chặt hơn: đóng mốc khi đã hỏi được nền tảng HOẶC khi thật sự cầm được
+        // ảnh trong tay. Xem Chi_dong_moc_ho_so_khi_that_su_co_anh.
+        Assert.Contains("dongMocHoSo: hoSo is not null || !string.IsNullOrWhiteSpace(anh)", nhan);
         // Lượt theo TỪNG TIN (tên lấy sẵn trong gói tin): KHÔNG được bật cờ.
         Assert.Contains("e.ExternalUserId, e.DisplayName, ct: ct);", nhan);
         Assert.DoesNotContain("e.DisplayName, dongMocHoSo", nhan);

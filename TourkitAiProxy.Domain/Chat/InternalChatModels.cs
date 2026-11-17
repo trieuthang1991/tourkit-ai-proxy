@@ -61,6 +61,17 @@ public static class InternalRoomKey
         return $"{entityType}:{id}";
     }
 
+    /// <summary>Mã phòng đơn do CRM đặt có dạng "{loại đơn}-{mã đơn}", ví dụ "3-210983".</summary>
+    public static bool TryParseOrder(string? entityId, out int tourType, out int tourId)
+    {
+        tourType = 0;
+        tourId = 0;
+        var parts = entityId?.Trim().Split('-');
+        return parts is { Length: 2 }
+            && int.TryParse(parts[0], out tourType) && tourType > 0
+            && int.TryParse(parts[1], out tourId) && tourId > 0;
+    }
+
     public static string Group() => "group:" + Guid.NewGuid().ToString("N");
 
     /// Mã cơ hội dạng chuẩn ("012", "+12", " 12 " → "12"); không phải số dương → null. Không chuẩn hoá

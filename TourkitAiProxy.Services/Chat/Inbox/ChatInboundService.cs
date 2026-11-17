@@ -112,19 +112,52 @@ public class ChatInboundService
         //
         // Nuốt mọi lỗi bên trong adapter: không lấy được tên thì hiện mã, xấu nhưng vẫn dùng được.
         // Chặn tin của khách chỉ vì không lấy được cái tên là đổi một lỗi nhỏ lấy một lỗi to.
-        if (await _repo.NeedsContactProfileAsync(tenantId, e.Channel, e.ExternalUserId, ct)
-            && Adapter(e.Channel) is { } boNoi
-            && await boNoi.ContactProfileAsync(tenantId, accountId, e.ExternalUserId, ct) is { } hoSo)
+        if (await _repo.NeedsContactProfileAsync(tenantId, e.Channel, e.ExternalUserId, ct))
         {
-            // Ảnh đại diện đi thẳng về kho mình ngay tại đây, không lưu url của Meta: url đó có
-            // hạn, mà chỗ này lại KHÔNG bao giờ hỏi lại một khách đã có ảnh — nên lưu url của họ
-            // đồng nghĩa hẹn ngày cả hộp thư hiện ảnh vỡ.
-            var anh = (await MirrorAvatarAsync(tenantId, e.Channel, hoSo.AvatarUrl, ct)).Url
-                      ?? hoSo.AvatarUrl;
-            // `dongMocHoSo: true` — CHỖ DUY NHẤT được đóng mốc, vì đây là chỗ duy nhất thật sự
-            // hỏi nền tảng. Lượt upsert theo từng tin ở trên chỉ chép tên có sẵn trong gói tin.
-            await _repo.UpsertContactAsync(tenantId, e.Channel, e.ExternalUserId, hoSo.Name, anh,
-                                           dongMocHoSo: true, ct: ct);
+            var hoSo = Adapter(e.Channel) is { } boNoi
+                ? await boNoi.ContactProfileAsync(tenantId, accountId, e.ExternalUserId, ct)
+                : null;
+
+            // KÊNH KHÔNG CÓ ĐƯỜNG HỎI HỒ SƠ — nhặt ngay trong gói tin vừa nhận.
+            //
+            // Pancake là ca thật (sếp báo 09/11/2026: "web Pancake có ảnh, travel-ai thì không,
+            // mà chỉ thỉnh thoảng một người"). Pancake KHÔNG có đường tra hồ sơ khách, nên
+            // ContactProfileAsync của nó trả null và nhánh trên không bao giờ ghi được gì — ảnh
+            // trong hồ sơ khách rỗng vĩnh viễn. Nhưng chính gói tin webhook lại CÓ sẵn ảnh: nó
+            // đang được ghi vào từng tin nhắn (sender_avatar_url) rồi bỏ đi. Đó là lý do bong
+            // bóng chat có ảnh mà danh sách hội thoại thì không.
+            //
+            // ⚠️ BỎ QUA TIẾNG VỌNG (e.IsEcho). Tin dội lại là do TRANG gửi đi, nên ảnh trong đó
+            // là ảnh của Trang — gán vào hồ sơ khách là cả danh sách hiện logo công ty thay cho
+            // mặt khách, mà không có gì trên màn hình nói vì sao.
+            var anhGoc = hoSo?.AvatarUrl;
+            var tenMoi = hoSo?.Name;
+            if (string.IsNullOrWhiteSpace(anhGoc) && !e.IsEcho
+                && e.SenderAvatarUrl is { Length: > 0 } anhGoiTin)
+            {
+                anhGoc = anhGoiTin;
+                if (string.IsNullOrWhiteSpace(tenMoi)) tenMoi = e.SenderName ?? e.DisplayName;
+            }
+
+            if (hoSo is not null || !string.IsNullOrWhiteSpace(anhGoc))
+            {
+                // Ảnh đại diện đi thẳng về kho mình ngay tại đây, không lưu url của nhà cung cấp:
+                // url đó có hạn, mà một khách đã có ảnh thì bảy ngày mới soi lại — lưu url của họ
+                // đồng nghĩa hẹn ngày cả hộp thư hiện ảnh vỡ.
+                var anh = (await MirrorAvatarAsync(tenantId, e.Channel, anhGoc, ct)).Url ?? anhGoc;
+
+                // Đóng mốc khi ĐÃ HỎI được nền tảng, HOẶC khi nhặt được ảnh thật từ gói tin.
+                //
+                // Chú thích cũ ở đây cấm đóng mốc ngoài lượt hỏi nền tảng, và lý do đó vẫn đúng
+                // nguyên: gói tin Telegram có tên nhưng KHÔNG có ảnh, đóng mốc ở đó là tắt hẳn cơ
+                // chế soi lại ảnh (hồ sơ luôn "mới" nên không bao giờ cũ để hỏi lại). Điều kiện
+                // dưới đây giữ đúng lằn ranh ấy: chỉ đóng khi trong tay THẬT SỰ có ảnh.
+                //
+                // Với Pancake, không đóng mốc còn tai hại hơn: hồ sơ mãi "thiếu" nên MỖI tin
+                // khách nhắn là một lượt tải ảnh về kho.
+                await _repo.UpsertContactAsync(tenantId, e.Channel, e.ExternalUserId, tenMoi, anh,
+                    dongMocHoSo: hoSo is not null || !string.IsNullOrWhiteSpace(anh), ct: ct);
+            }
         }
         var hoiThoai = await _repo.GetOrCreateConversationAsync(tenantId, e.Channel, e.ExternalUserId, accountId, ct);
 
