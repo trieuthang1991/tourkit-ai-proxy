@@ -38,6 +38,7 @@ public static class EndpointRegistration
         MapBanTin(app, cfg);
         MapHopThuChat(app, cfg);
         MapChatNoiBo(app, cfg);
+        MapMcp(app, cfg);
 
         app.MapTourEndpoints();
         app.MapTourPriceEndpoints();     // GET /api/v1/tour-price/candidates — ứng viên giá NCC cho wizard
@@ -108,6 +109,35 @@ public static class EndpointRegistration
         }
         ChanTuongMinh(app, new[] { InternalChatEndpoints.Prefix },
             "Tính năng chat nội bộ đang tắt (Features:InternalChat=false).");
+    }
+
+    /// <summary>
+    /// Máy chủ MCP (<c>/mcp</c>) và trang quản lý khoá nằm sau cờ <c>Features:Mcp</c>; tắt thì CẢ HAI
+    /// trả 404 JSON tường minh. DI của SDK cũng chỉ đăng ký khi bật (<c>WebFeatureRegistration.AddMcp</c>)
+    /// — gọi <c>MapMcpServer</c> ngoài nhánh này là app ném lỗi lúc khởi động vì thiếu dịch vụ.
+    /// </summary>
+    private static void MapMcp(WebApplication app, IConfiguration cfg)
+    {
+        if (FeatureFlags.Mcp(cfg))
+        {
+            app.MapMcpEndpoints();
+            app.MapMcpServer();
+            // OAuth (Claude.ai / ChatGPT) là cờ RIÊNG trên nền MCP, cần thêm Mcp:PublicBaseUrl.
+            if (FeatureFlags.McpOAuth(cfg))
+                app.MapMcpOAuthEndpoints();
+            else
+            {
+                if (cfg.GetValue("Features:McpOAuth", false))
+                    app.Logger.LogError("Features:McpOAuth đang bật nhưng Mcp:PublicBaseUrl thiếu hoặc không hợp lệ " +
+                        "(cần dạng https://ten-mien, không đường dẫn con) — KHÔNG mở đường OAuth nào.");
+                ChanTuongMinh(app, McpOAuthEndpoints.Prefixes,
+                    "Kết nối OAuth cho MCP đang tắt (Features:McpOAuth=false hoặc thiếu Mcp:PublicBaseUrl).");
+            }
+            return;
+        }
+        ChanTuongMinh(app, new[] { McpEndpoints.TokensPrefix, McpEndpoints.McpPath },
+            "Tính năng MCP đang tắt (Features:Mcp=false).");
+        ChanTuongMinh(app, McpOAuthEndpoints.Prefixes, "Tính năng MCP đang tắt (Features:Mcp=false).");
     }
 
     /// <summary>Trả 404 JSON tường minh cho một nhóm tiền tố — xem cảnh báo ở đầu lớp.</summary>

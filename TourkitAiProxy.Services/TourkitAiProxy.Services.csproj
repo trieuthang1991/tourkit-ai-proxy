@@ -61,6 +61,11 @@
     <PackageReference Include="MailKit" Version="4.17.0" />
     <PackageReference Include="Microsoft.Data.SqlClient" Version="7.0.1" />
     <PackageReference Include="Microsoft.Extensions.Logging.Log4Net.AspNetCore" Version="8.0.0" />
+    <!-- Máy chủ MCP (/mcp). GHIM ĐÚNG 2.3.0 (phát hành 20/10/2026, có net8.0) — không 2.3.1/2.4.0 khi
+         chưa qua hai tuần. Nằm ở tầng này vì đăng ký DI (AddMcpServer) ở WebFeatureRegistration;
+         Endpoints dùng MapMcp qua tham chiếu bắc cầu. Gói kéo Microsoft.Extensions.*.Abstractions
+         10.0.13 (repo vốn đã ở 10.0.3 qua gói khác); các gói ghim 8.0.0 không đổi. -->
+    <PackageReference Include="ModelContextProtocol.AspNetCore" Version="2.3.0" />
     <PackageReference Include="Mscc.GenerativeAI" Version="3.1.0" />
     <PackageReference Include="Npgsql" Version="8.0.5" />
     <PackageReference Include="OpenAI" Version="2.4.0" />

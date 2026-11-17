@@ -135,4 +135,36 @@ public static class FeatureFlags
     /// </summary>
     public static bool ByoAiKey(IConfiguration cfg)
         => cfg.GetValue("Features:ByoAiKey", false);
+
+    /// <summary>
+    /// Máy chủ MCP: cho Claude Desktop/Cursor gọi vào số liệu CRM bằng khoá MCP
+    /// (<c>/api/v1/mcp/tokens</c> quản lý khoá).
+    ///
+    /// <para>Tắt thì đường dẫn trả 404 JSON tường minh (không rơi xuống SPA fallback). Cờ RIÊNG,
+    /// mặc định tắt: khoá cấp ra cho phép đọc dữ liệu công ty từ ngoài trình duyệt nên phải bật có chủ đích.</para>
+    /// </summary>
+    public static bool Mcp(IConfiguration cfg) => cfg.GetValue("Features:Mcp", false);
+
+    /// <summary>
+    /// Hành động GHI qua MCP (giao việc, lịch hẹn, gửi/soạn mail…) — luôn hai bước đề xuất → xác nhận
+    /// như trợ lý. Tắt thì MCP chỉ liệt kê tool đọc.
+    ///
+    /// <para>Cờ RIÊNG, mặc định tắt, tách khỏi <see cref="Mcp"/>: mở cho AI ngoài ĐỌC số liệu là một
+    /// quyết định, cho nó GHI vào CRM là quyết định khác và nặng hơn — bật đọc không được kéo theo ghi.
+    /// Chỉ có nghĩa khi <see cref="Mcp"/> bật (không có <c>/mcp</c> thì chẳng có gì để liệt kê).</para>
+    /// </summary>
+    public static bool McpActions(IConfiguration cfg) => cfg.GetValue("Features:McpActions", false);
+
+    /// <summary>
+    /// Máy chủ OAuth cho <c>/mcp</c> — để Claude.ai / ChatGPT thêm TourKit làm connector bằng "Kết nối →
+    /// đăng nhập → Cho phép" thay vì chép khoá tay.
+    ///
+    /// <para><b>Chỉ có hiệu lực khi đủ BA điều kiện:</b> <c>Features:McpOAuth</c> bật, <see cref="Mcp"/>
+    /// bật (không có <c>/mcp</c> thì cấp quyền cho cái gì), và <c>Mcp:PublicBaseUrl</c> là địa chỉ hợp lệ
+    /// (issuer/resource lấy từ đây, KHÔNG từ header Host). Thiếu một là không map đường OAuth nào —
+    /// <c>EndpointRegistration.MapMcp</c> ghi log lỗi khi cờ bật mà thiếu địa chỉ.</para>
+    /// </summary>
+    public static bool McpOAuth(IConfiguration cfg)
+        => Mcp(cfg) && cfg.GetValue("Features:McpOAuth", false)
+           && global::TourkitAiProxy.Services.Mcp.OAuth.McpOAuthOptions.NormalizeBaseUrl(cfg["Mcp:PublicBaseUrl"]) != null;
 }

@@ -13,6 +13,21 @@ Những cập nhật gần đây của TRAV-AI, viết cho người dùng. Mới
 
 ---
 
+## 🔜 Sắp có
+- **Kết nối AI.** Bạn sẽ có thể hỏi số liệu TourKit ngay trong Claude hay Cursor mà mình đang dùng: tạo một khoá riêng cho từng thiết bị ở mục "Kết nối AI", dán vào công cụ, rồi hỏi doanh thu, công nợ, khách hàng… như đang trò chuyện với trợ lý số liệu. Bạn tự thu hồi khoá bất cứ lúc nào. Tính năng sẽ được mở dần.
+- **Kết nối TourKit thẳng trong Claude và ChatGPT.** Không cần tạo hay dán khoá: thêm TourKit vào Claude hoặc ChatGPT, đăng nhập tài khoản TRAV-AI của bạn rồi bấm "Cho phép" là hỏi được số liệu ngay. Ở mục "Kết nối AI" bạn thấy những ứng dụng đã kết nối, lần dùng gần nhất, và ngắt kết nối bất cứ lúc nào chỉ với hai lần bấm.
+
+---
+
+## Phiên bản 16/11/2026 — Trang Hướng dẫn mở lại được
+
+### 🔧 Đã khắc phục
+- **Bấm vào một bài trong trang Hướng dẫn chỉ thấy "Không tải được hướng dẫn cho tính năng này".**
+  Nội dung các bài và ảnh minh hoạ chưa được đưa lên máy chủ cùng bản cập nhật. Nay mọi bài hướng dẫn
+  (Tính giá Tour, Hộp thư AI, Tự động hoá, TRAVAI…) mở được đầy đủ, kèm ảnh.
+
+---
+
 ## Phiên bản 10/11/2026 — Hộp thư chat: rõ nguồn khách, đủ ảnh, tắt được kênh chưa dùng
 
 ### ✨ Tính năng mới

@@ -42,6 +42,12 @@ data/visa-files/
 data/chat-unresolved.jsonl
 data/chat-unresolved.jsonl.*
 
+# Trạng thái "đã liên hệ" khách đăng ký tư vấn (app tự ghi lúc chạy) — KHÔNG commit
+data/consult-leads-status.json
+
+# Script thử/chụp màn hình dùng tạm trong e2e/
+e2e/*.tmp.mjs
+
 # Hộp thư chat — ảnh/tệp khách gửi và nhân viên gửi, khi Storage:Provider=local.
 # Nội dung do người ngoài tải lên (hoá đơn, hộ chiếu…) — KHÔNG commit, y như data/visa-files/.
 data/chat-uploads/

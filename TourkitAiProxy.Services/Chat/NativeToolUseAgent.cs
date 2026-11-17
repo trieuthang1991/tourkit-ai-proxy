@@ -48,9 +48,9 @@ public class NativeToolUseAgent : IAgentRuntime
 {
     private readonly TourKitApiClient _api;
     private readonly TkSessionStore _sessions;
-    private readonly ChatCache _cache;
     private readonly UnresolvedQuestionsLog _unresolved;
     private readonly ILogger<NativeToolUseAgent> _log;
+    private readonly CrmToolRunner _runner;
     private readonly IHttpClientFactory _http;
     private readonly ProviderKeyStore _keys;
     private readonly AiUsageLog _usage;
@@ -89,7 +89,7 @@ public class NativeToolUseAgent : IAgentRuntime
     public NativeToolUseAgent(
         TourKitApiClient api,
         TkSessionStore sessions,
-        ChatCache cache,
+        CrmToolRunner runner,
         UnresolvedQuestionsLog unresolved,
         ILogger<NativeToolUseAgent> log,
         IHttpClientFactory http,
@@ -103,7 +103,7 @@ public class NativeToolUseAgent : IAgentRuntime
     {
         _api        = api;
         _sessions   = sessions;
-        _cache      = cache;
+        _runner     = runner;
         _unresolved = unresolved;
         _log        = log;
         _http       = http;
@@ -325,10 +325,11 @@ public class NativeToolUseAgent : IAgentRuntime
             if (emit != null && toolUseBlocks.Count > 0)
                 await emit(new { stage = "fetching", iteration, tools = toolUseBlocks.Select(t => t.Name).ToArray() });
 
-            // ── Thuc thi TAT CA tools song song (Task.WhenAll) ─────────────────
-            // Lay JWT 1 lan truoc khi bat dau parallel tasks (co the bi renew ben trong)
-            var jwt = await _sessions.GetValidJwtAsync(input.SessionId, linked.Token);
+            // Lấy/làm mới JWT MỘT lần trước khi chạy song song: runner gọi GetValidJwtAsync cho từng tool,
+            // JWT hết hạn mà không làm trước thì tới 5 tool cùng đăng nhập lại một lúc.
+            await _sessions.GetValidJwtAsync(input.SessionId, ct);
 
+            // ── Thuc thi TAT CA tools song song (Task.WhenAll) ─────────────────
             var execTasks = toolUseBlocks.Select(async tub =>
             {
                 var tool = ChatTools.Find(tub.Name);
@@ -344,52 +345,39 @@ public class NativeToolUseAgent : IAgentRuntime
 
                 try
                 {
-                    var path = ChatTools.BuildPath(tool, tub.Input);
-                    _log.LogInformation("[NativeTool] tool={Tool} path={Path}", tool.Name, path);
-                    var data   = await _api.GetAsync(jwt, path, linked.Token);
-                    var cd     = ChatDataBuilder.Build(tool, data);
-                    var pars   = JsonSerializer.Deserialize<object>(tub.Input.GetRawText());
-                    return (tub, ResultJson: data.GetRawText(), Tool: (ChatTool?)tool, Data: (ChatData?)cd, Params: (object?)pars);
+                    // Runner lo quy đổi tên → mã, đệm "d|", và đăng nhập lại 1 lần khi 401.
+                    var oc   = await _runner.RunAsync(input.SessionId, input.TenantId, tool, tub.Input, linked.Token);
+                    _log.LogInformation("[NativeTool] tool={Tool} path={Path} cache={Cache}", tool.Name, oc.Path, oc.FromCache);
+                    var pars = JsonSerializer.Deserialize<object>(tub.Input.GetRawText());
+                    return (tub, ResultJson: oc.Data.GetRawText(), Tool: (ChatTool?)tool, Data: (ChatData?)oc.View, Params: (object?)pars);
                 }
-                catch (TourKitApiException ex) when (ex.Status == 401)
+                catch (CrmRetryFailedException rf)
                 {
-                    // JWT het han giua chung → re-login + retry 1 lan
-                    _log.LogWarning("[NativeTool] 401 khi goi tool {Name}, re-login...", tub.Name);
-                    try
-                    {
-                        var freshJwt = await _sessions.ForceReloginAsync(input.SessionId, linked.Token);
-                        var path     = ChatTools.BuildPath(tool, tub.Input);
-                        var data     = await _api.GetAsync(freshJwt, path, linked.Token);
-                        var cd       = ChatDataBuilder.Build(tool, data);
-                        var pars     = JsonSerializer.Deserialize<object>(tub.Input.GetRawText());
-                        return (tub, ResultJson: data.GetRawText(), Tool: (ChatTool?)tool, Data: (ChatData?)cd, Params: (object?)pars);
-                    }
-                    catch (Exception ex2)
-                    {
-                        _log.LogError(ex2, "[NativeTool] tool {Name} that bai sau re-login", tub.Name);
-                        // Trigger: upstream_persistent_error (re-login van fail)
-                        var q401 = input.History.LastOrDefault(m => m.Role == "user")?.Content ?? "";
-                        _unresolved.Append(
-                            tag:            "upstream_persistent_error",
-                            sessionId:      input.SessionId,
-                            tenantId:       input.TenantId,
-                            question:       q401,
-                            history:        input.History,
-                            plannerRaw:     null,
-                            toolChosen:     tub.Name,
-                            aiReplyPreview: ex2.Message,
-                            provider:       "anthropic",
-                            model:          input.Model,
-                            iterations:     iteration,
-                            latencyMs:      totalLat,
-                            tokensIn:       totalInTok,
-                            tokensOut:      totalOutTok);
-                        return (tub,
-                            ResultJson: $"{{\"error\":\"{ex2.Message}\"}}",
-                            Tool: (ChatTool?)tool,
-                            Data: (ChatData?)null,
-                            Params: (object?)null);
-                    }
+                    var ex2 = rf.InnerException ?? rf;
+                    // Runner đã đăng nhập lại 1 lần mà lần thử lại vẫn lỗi (mọi loại lỗi, như catch cũ).
+                    _log.LogError(ex2, "[NativeTool] tool {Name} that bai sau re-login", tub.Name);
+                    // Trigger: upstream_persistent_error (re-login van fail)
+                    var q401 = input.History.LastOrDefault(m => m.Role == "user")?.Content ?? "";
+                    _unresolved.Append(
+                        tag:            "upstream_persistent_error",
+                        sessionId:      input.SessionId,
+                        tenantId:       input.TenantId,
+                        question:       q401,
+                        history:        input.History,
+                        plannerRaw:     null,
+                        toolChosen:     tub.Name,
+                        aiReplyPreview: ex2.Message,
+                        provider:       "anthropic",
+                        model:          input.Model,
+                        iterations:     iteration,
+                        latencyMs:      totalLat,
+                        tokensIn:       totalInTok,
+                        tokensOut:      totalOutTok);
+                    return (tub,
+                        ResultJson: $"{{\"error\":\"{ex2.Message}\"}}",
+                        Tool: (ChatTool?)tool,
+                        Data: (ChatData?)null,
+                        Params: (object?)null);
                 }
                 catch (Exception ex)
                 {

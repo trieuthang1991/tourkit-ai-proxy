@@ -55,7 +55,7 @@ public class TourkitAiDb
             await using var cmd = c.CreateCommand();
             cmd.CommandText = SchemaSql;
             await cmd.ExecuteNonQueryAsync(ct);
-            _log.LogInformation("TourkitAiDb schema OK (Reviews/DealScores/MailAccounts/Mails/MailSyncState/TourQuotes/TourPriceCatalog/VisaAssessments/QuotaOrders/WidgetTokens/VisaQuestionSets/TkSessions/TenantQuota/AiUsageCounters/AiUsageHistory/UserWorkflows/WorkflowRuns/OutboundMails/CrmActionQueue/MailTemplates/TenantServiceAccounts/TenantAiKeys/AgentInsights/DigestSubscriptions/TenantChannelSettings đã có/đã tạo)");
+            _log.LogInformation("TourkitAiDb schema OK (Reviews/DealScores/MailAccounts/Mails/MailSyncState/TourQuotes/TourPriceCatalog/VisaAssessments/QuotaOrders/WidgetTokens/VisaQuestionSets/TkSessions/TenantQuota/AiUsageCounters/AiUsageHistory/UserWorkflows/WorkflowRuns/OutboundMails/CrmActionQueue/MailTemplates/TenantServiceAccounts/TenantAiKeys/AgentInsights/DigestSubscriptions/TenantChannelSettings/McpTokens/McpOAuthClients/McpOAuthCodes/McpOAuthGrants đã có/đã tạo)");
         }
         catch (Exception ex)
         {
@@ -362,6 +362,86 @@ BEGIN
         CONSTRAINT PK_WidgetTokens PRIMARY KEY CLUSTERED (Token)
     );
     CREATE INDEX IX_WidgetTokens_Tenant ON dbo.WidgetTokens(TenantId, CreatedAt DESC);
+END;
+
+-- Khoá MCP: máy khách MCP (Claude Desktop/Cursor) gọi vào TourKit bằng khoá này. CHỈ lưu bản băm
+-- SHA-256 (TokenHash), không lưu khoá. Gắn SessionId lúc tạo; thu hồi mềm bằng RevokedUtc.
+IF OBJECT_ID('dbo.McpTokens', 'U') IS NULL
+BEGIN
+    CREATE TABLE dbo.McpTokens (
+        Id           BIGINT IDENTITY(1,1) NOT NULL,
+        TokenHash    CHAR(64)       NOT NULL,
+        TenantId     NVARCHAR(128)  NOT NULL,
+        Username     NVARCHAR(128)  NOT NULL,
+        SessionId    NVARCHAR(64)   NOT NULL,
+        Label        NVARCHAR(100)  NOT NULL,
+        CreatedUtc   DATETIME2      NOT NULL,
+        LastUsedUtc  DATETIME2      NULL,
+        RevokedUtc   DATETIME2      NULL,
+        CONSTRAINT PK_McpTokens PRIMARY KEY CLUSTERED (Id),
+        CONSTRAINT UQ_McpTokens_Hash UNIQUE (TokenHash)
+    );
+    CREATE INDEX IX_McpTokens_Owner ON dbo.McpTokens(TenantId, Username);
+END;
+
+-- OAuth cho MCP (Claude.ai/ChatGPT): client đăng ký động, mã uỷ quyền dùng một lần, grant (access+refresh).
+-- Mọi mã/token chỉ lưu BẢN BĂM SHA-256. Chỉ THÊM bảng.
+IF OBJECT_ID('dbo.McpOAuthClients', 'U') IS NULL
+BEGIN
+    CREATE TABLE dbo.McpOAuthClients (
+        ClientId          NVARCHAR(200)  NOT NULL,
+        ClientName        NVARCHAR(200)  NOT NULL,
+        RedirectUrisJson  NVARCHAR(MAX)  NOT NULL,
+        CreatedUtc        DATETIME2      NOT NULL,
+        CreatedIp         NVARCHAR(64)   NULL,
+        CONSTRAINT PK_McpOAuthClients PRIMARY KEY CLUSTERED (ClientId)
+    );
+    CREATE INDEX IX_McpOAuthClients_Ip ON dbo.McpOAuthClients(CreatedIp, CreatedUtc);
+END;
+
+IF OBJECT_ID('dbo.McpOAuthCodes', 'U') IS NULL
+BEGIN
+    CREATE TABLE dbo.McpOAuthCodes (
+        CodeHash       CHAR(64)       NOT NULL,
+        ClientId       NVARCHAR(200)  NOT NULL,
+        RedirectUri    NVARCHAR(2000) NOT NULL,
+        CodeChallenge  NVARCHAR(128)  NOT NULL,
+        Resource       NVARCHAR(500)  NOT NULL,
+        Scope          NVARCHAR(200)  NOT NULL,
+        TenantId       NVARCHAR(128)  NOT NULL,
+        Username       NVARCHAR(128)  NOT NULL,
+        SessionId      NVARCHAR(64)   NOT NULL,
+        ExpiresUtc     DATETIME2      NOT NULL,
+        UsedUtc        DATETIME2      NULL,
+        CONSTRAINT PK_McpOAuthCodes PRIMARY KEY CLUSTERED (CodeHash)
+    );
+END;
+
+IF OBJECT_ID('dbo.McpOAuthGrants', 'U') IS NULL
+BEGIN
+    CREATE TABLE dbo.McpOAuthGrants (
+        Id                 BIGINT IDENTITY(1,1) NOT NULL,
+        ClientId           NVARCHAR(200)  NOT NULL,
+        ClientName         NVARCHAR(200)  NOT NULL,
+        TenantId           NVARCHAR(128)  NOT NULL,
+        Username           NVARCHAR(128)  NOT NULL,
+        SessionId          NVARCHAR(64)   NOT NULL,
+        Resource           NVARCHAR(500)  NOT NULL,
+        Scope              NVARCHAR(200)  NOT NULL,
+        AccessHash         CHAR(64)       NULL,
+        AccessExpiresUtc   DATETIME2      NOT NULL,
+        RefreshHash        CHAR(64)       NULL,
+        RefreshExpiresUtc  DATETIME2      NOT NULL,
+        PrevRefreshHash    CHAR(64)       NULL,
+        CreatedUtc         DATETIME2      NOT NULL,
+        LastUsedUtc        DATETIME2      NULL,
+        RevokedUtc         DATETIME2      NULL,
+        CONSTRAINT PK_McpOAuthGrants PRIMARY KEY CLUSTERED (Id)
+    );
+    CREATE UNIQUE INDEX UX_McpOAuthGrants_Access  ON dbo.McpOAuthGrants(AccessHash)  WHERE AccessHash IS NOT NULL;
+    CREATE UNIQUE INDEX UX_McpOAuthGrants_Refresh ON dbo.McpOAuthGrants(RefreshHash) WHERE RefreshHash IS NOT NULL;
+    CREATE INDEX IX_McpOAuthGrants_Prev  ON dbo.McpOAuthGrants(PrevRefreshHash) WHERE PrevRefreshHash IS NOT NULL;
+    CREATE INDEX IX_McpOAuthGrants_Owner ON dbo.McpOAuthGrants(TenantId, Username);
 END;
 
 -- Mở rộng widget cho phép cắm CRM TourKit (Phase 2):
