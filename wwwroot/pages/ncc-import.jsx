@@ -8,6 +8,9 @@
   'use strict';
   const { useState, useRef } = React;
   const fmtNum = window.fmtNum || ((n) => Number(n || 0).toLocaleString('vi-VN'));
+  // Đọc JSON mà KHÔNG tin máy chủ có trả JSON — Cloudflare/IIS chen ngang bằng trang HTML
+  // thì r.json() chỉ ném "Unexpected token '<'", che mất status thật (524 quá giờ, 502 app chết…).
+  const docJson = (r) => window.tourkitUtil.jsonHoacLoi(r);
   const cellText = (c) => c == null ? '' : (typeof c === 'number' ? fmtNum(c) : String(c));
 
   const MAX_FILES = 10;
@@ -89,8 +92,7 @@
       try {
         const fd = new FormData(); fd.append('file', file);
         const r = await fetch('/api/v1/ncc-import/extract-quote', { method: 'POST', body: fd });
-        const j = await r.json();
-        if (!r.ok) throw new Error(j.error || ('HTTP ' + r.status));
+        const j = await docJson(r);
         const list = await ensureServices();
         patchItem(idx, {
           status: 'done',
@@ -140,8 +142,7 @@
       try {
         const r = await fetch('/api/v1/ncc-import/extract-quote', {
           method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ text: t }) });
-        const j = await r.json();
-        if (!r.ok) throw new Error(j.error || ('HTTP ' + r.status));
+        const j = await docJson(r);
         const list = await ensureServices();
         patchItem(idx, {
           status: 'done',
@@ -178,8 +179,8 @@
           headers: { 'Content-Type': 'application/json', 'X-Session-Id': sid() },
           body: JSON.stringify({ quote: active.quote, serviceId: active.serviceId, providerCode: active.pcode.trim() || null }),
         });
-        const j = await r.json();
-        if (!r.ok || j.error) throw new Error(j.error || ('HTTP ' + r.status));
+        const j = await docJson(r);
+        if (j.error) throw new Error(j.error);
         const res = j.result || {};
         patchItem(activeIdx, {
           saved: {

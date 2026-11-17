@@ -40,7 +40,59 @@
     // và Messenger 'f'.
     8: { ten: 'Pancake', chu: 'P' },
   };
-  const KENH_SONG = [0, 1, 4, 5, 6, 3, 8];   // kênh đã nối thật; Web chỉ hiện khi có dữ liệu
+  // NGUỒN — nơi khách THẬT SỰ đang nhắn từ đó, khác với kênh là đường tin đi vào hệ thống. Hai
+  // thứ trùng nhau ở mọi kênh nối thẳng và TÁCH ra ở cổng gom Pancake: mọi hội thoại vào cùng một
+  // kênh, còn nguồn thật nằm ở từng Trang (Trang này của Facebook, Trang kia của Zalo).
+  //
+  // Bảng này CHỈ để hiển thị. Việc quy đổi kênh/Trang → nguồn nằm ở máy chủ (Domain/Chat/
+  // ChatSource.cs) và xuống đây đã thành chuỗi sẵn — giữ thêm một bảng quy đổi ở giao diện là có
+  // hai bản sự thật, rồi tab đếm một đằng danh sách lọc ra một nẻo.
+  //
+  // Khoá viết THƯỜNG, đúng như máy chủ gửi. Nguồn LẠ (Pancake thêm nền tảng mới) không bị bỏ qua:
+  // hiện nguyên chữ nhận được, còn hơn im lặng nuốt mất rồi người trực tưởng là Facebook.
+  const NGUON = {
+    facebook:  { ten: 'Facebook',  chu: 'f' },
+    instagram: { ten: 'Instagram', hinh: 'instagram' },
+    tiktok:    { ten: 'TikTok',    hinh: 'tiktok' },
+    zalo:      { ten: 'Zalo',      chu: 'Z' },
+    whatsapp:  { ten: 'WhatsApp',  hinh: 'whatsapp' },
+    telegram:  { ten: 'Telegram',  hinh: 'telegram' },
+    web:       { ten: 'Web',       chu: 'W' },
+    // Hội thoại qua cổng gom mà KHÔNG biết nền tảng thật. Để nguyên tên cổng chứ không đoán bừa
+    // là Facebook: nói sai nguồn tệ hơn nói "chưa rõ", vì người trực chọn giọng và hạn trả lời
+    // theo nguồn.
+    pancake:   { ten: 'Pancake',   chu: 'P' },
+  };
+
+  // Thứ tự tab CỐ ĐỊNH, không sắp theo số hội thoại: sắp theo số thì mỗi lần có tin mới các tab
+  // đổi chỗ nhau, người trực bấm quen tay là bấm nhầm. Nguồn lạ xếp cuối theo vần.
+  const THU_TU_NGUON = ['facebook', 'zalo', 'instagram', 'tiktok', 'telegram', 'whatsapp', 'web', 'pancake'];
+
+  function tenNguon(nguon) {
+    const n = nguon && String(nguon).trim();
+    if (!n) return '';
+    return NGUON[n]?.ten || (n[0].toUpperCase() + n.slice(1));
+  }
+
+  // Huy hiệu nên vẽ gì: nguồn thật nếu biết, không thì chính kênh.
+  //
+  // Nguồn LẠ (Pancake thêm nền tảng mới) lấy chữ cái đầu làm ký hiệu — cùng lối với Zalo 'Z' và
+  // Facebook 'f'. Trả null thì cái tab hiện ra một ô trống bấm được mà không nói nó là gì.
+  function huyHieuCua(kenh, nguon) {
+    const n = nguon && String(nguon).trim();
+    if (n) return NGUON[n] || { ten: tenNguon(n), chu: n[0].toUpperCase() };
+    return KENH[kenh] || null;
+  }
+
+  // Chữ mô tả nguồn: "Pancake · Facebook" khi đi qua cổng gom, "Zalo" khi kênh tự nó là nền tảng.
+  // Giữ CẢ HAI vế cho hội thoại qua cổng: bỏ "Pancake" đi thì người trực tưởng đang nối thẳng
+  // Facebook, rồi đi tìm Trang đó trong màn hình kết nối Facebook mà không bao giờ thấy.
+  function moTaNguon(kenh, nguon) {
+    const tenKenh = KENH[kenh]?.ten;
+    const ten = tenNguon(nguon);
+    if (!ten) return tenKenh;
+    return tenKenh && ten !== tenKenh ? tenKenh + ' · ' + ten : (ten || tenKenh);
+  }
 
   const TRANG_THAI = [
     { v: null, nhan: 'Tất cả' },
@@ -125,12 +177,16 @@
     return <span className="ci-avt" style={style}>{chuDau(ten)}</span>;
   }
 
-  function HuyHieuKenh({ kenh, day }) {
-    const k = KENH[kenh];
+  function HuyHieuKenh({ kenh, day, nguon }) {
+    const k = huyHieuCua(kenh, nguon);
     if (!k) return null;
     // Hình vẽ theo cỡ chữ quanh nó nên nằm cùng hàng với chữ ký Z/f, không nhảy dòng.
+    //
+    // Nhãn tooltip dùng moTaNguon chứ không dùng k.ten: huy hiệu vẽ Facebook mà rê chuột cũng chỉ
+    // hiện "Facebook" thì mất hẳn thông tin tin này vào qua Pancake.
     return (
-      <span className={'ci-hh' + (day ? ' day' : '') + (k.hinh ? ' hinh' : '')} title={k.ten}>
+      <span className={'ci-hh' + (day ? ' day' : '') + (k.hinh ? ' hinh' : '')}
+            title={moTaNguon(kenh, nguon)}>
         {k.hinh ? <window.Icon name={k.hinh} size={13} stroke={1.9} /> : k.chu}
       </span>
     );
@@ -2155,7 +2211,7 @@
           <AnhDaiDien ten={ten} url={lh?.avatarUrl} co={34} />
           <div className="ci-hs-ten">
             <b>{ten}</b>
-            <span>{KENH[v.channel]?.ten}</span>
+            <span>{moTaNguon(v.channel, v.accountSource)}</span>
           </div>
           <button className="ci-nut-icon" onClick={onDong} title="Đóng hồ sơ" aria-label="Đóng hồ sơ">
             <window.Icon name="close" size={15} />
@@ -3141,6 +3197,31 @@
     }
 
 
+    // Hỏi lại Pancake nguồn của từng Trang đã nối.
+    //
+    // Cần vì nguồn chỉ được ghi lúc nối, mà đường nối cũ không ghi — Trang nối từ trước vì thế
+    // hiện "Pancake" mãi. Chữa bằng cách nối lại thì có thể SINH KHOÁ MỚI và giết khoá đang dùng
+    // ở nơi khác, nên phải có đường riêng.
+    async function nhanLaiNguon() {
+      setDangXuLyKenh('Đang hỏi Pancake nguồn của từng Trang…');
+      try {
+        const r = await authedFetch('/api/v1/chat/channels/pancake/refresh-source', { method: 'POST' });
+        const j = await r.json().catch(() => ({}));
+        if (!r.ok) { pushToast(j.error || 'Không hỏi được Pancake', 'error'); return; }
+        const hong = (j.items || []).filter(x => x.error).length;
+        // Nói ĐỦ cả ba con số: đổi được bao nhiêu, hỏng bao nhiêu. Chỉ báo "xong" thì Trang nào
+        // vẫn chưa rõ nguồn người khai phải tự dò ra, mà màn hình không nói gì thêm.
+        pushToast(j.changed > 0
+          ? 'Đã nhận nguồn cho ' + j.changed + ' Trang' + (hong ? ', còn ' + hong + ' Trang chưa ra' : '')
+          : (hong ? 'Chưa Trang nào ra nguồn — xem lại khoá của ' + hong + ' Trang'
+                  : 'Mọi Trang đã có nguồn sẵn, không có gì phải đổi'),
+          j.changed > 0 ? 'success' : 'info');
+        await taiLai();
+      } catch {
+        pushToast('Không hỏi được Pancake', 'error');
+      } finally { setDangXuLyKenh(null); }
+    }
+
     // Dải "đang xử lý" của màn khai kênh. Cùng kiểu với dải ở khung chat.
     const daiBan = dangXuLyKenh ? (
       <div className="ci-dang-xuly" role="status" aria-live="polite">
@@ -3184,6 +3265,15 @@
             <window.Icon name="refresh" size={12} />
             {dangTai ? 'Đang tải…' : 'Làm mới'}
           </button>
+          {/* Chỉ mọc ở tab Pancake, và chỉ khi THẬT SỰ còn Trang chưa rõ nguồn — bày một nút
+              không còn việc để làm thì lần sau người ta bấm thử cho biết. */}
+          {tab === 8 && ds.some(k => k.channel === 8 && k.accounts.some(t => !t.platform)) && (
+            <button className="ci-nut nho" onClick={nhanLaiNguon} disabled={dangTai || !!dangXuLyKenh}
+                    title="Hỏi lại Pancake xem từng Trang lấy tin từ nền tảng nào. Không đụng tên gợi nhớ, không sinh khoá mới.">
+              <window.Icon name="refresh" size={12} />
+              Nhận lại nguồn
+            </button>
+          )}
         </div>
         {ds.filter(k => k.channel === tab).map(k => (
           <div key={k.channel} className="ci-tab-noi">
@@ -3281,6 +3371,16 @@
                     {/* Tên OA thật do Zalo trả về — khác "Tên gợi nhớ" người dùng tự đặt. Khai
                         nhiều OA mà không có nó thì không biết dòng nào là OA nào. */}
                     {t.oaName && t.label && <span className="ci-tk-oa">{t.oaName}</span>}
+                    {/* NGUỒN của Trang — chỗ duy nhất đối chiếu được "Trang này lấy tin từ đâu".
+                        Chỉ hiện ở cổng gom: kênh nối thẳng thì nguồn CHÍNH LÀ kênh, nhắc lại chỉ
+                        là nhiễu.
+
+                        Thiếu nguồn phải nói THÀNH LỜI, không được im: im thì người khai nhìn hộp
+                        thư thấy "Pancake" mà không biết vì sao, cũng không biết có chữa được
+                        không. */}
+                    {k.channel === 8 && (t.platform
+                      ? <span className="ci-tk-nguon">{tenNguon(t.platform)}</span>
+                      : <span className="ci-tk-nguon trong">chưa rõ nguồn</span>)}
                     {t.configured
                       ? <span className="ci-xong">đã khai</span>
                       : <span className="ci-chua">thiếu khoá</span>}
@@ -3542,36 +3642,39 @@
   function ChatInboxPage({ pushToast }) {
     const [dsach, setDsach] = useState([]);
     const [dem, setDem] = useState({ moi: 0, dangXuLy: 0, daDong: 0, chuaDoc: 0, tong: 0 });
-    const [demKenh, setDemKenh] = useState({});
+    const [demNguon, setDemNguon] = useState({});  // "facebook" -> số hội thoại
+    // Nguồn công ty đã khai nhưng chưa có hội thoại nào — tab vẫn phải mọc, không thì nối Trang
+    // xong mở hộp thư thấy y như cũ, tưởng nối hỏng.
+    const [nguonKhai, setNguonKhai] = useState([]);
     const [loc, setLoc] = useState(null);          // trạng thái xử lý
-    const [kenhLoc, setKenhLoc] = useState(null);  // kênh
+    const [nguonLoc, setNguonLoc] = useState(null); // nguồn ("facebook"…); null = tất cả
     // Lọc tới MỘT tài khoản trong kênh (một Trang Pancake, một OA Zalo…). null = mọi tài khoản.
     // Dải này chỉ mọc khi kênh đang chọn có từ 2 tài khoản trở lên — một tài khoản thì nó là dải
     // thừa, chiếm một hàng mà không cho thêm lựa chọn nào.
     const [taiKhoanLoc, setTaiKhoanLoc] = useState(null);
     const [demTaiKhoan, setDemTaiKhoan] = useState({});   // "{kênh}:{mã}" -> số hội thoại
     const [tenTaiKhoan, setTenTaiKhoan] = useState({});   // "{kênh}:{mã}" -> tên gợi nhớ
+    const [nguonTaiKhoan, setNguonTaiKhoan] = useState({}); // "{kênh}:{mã}" -> nguồn
 
-    // Các trang/tài khoản của kênh ĐANG CHỌN. Chưa chọn kênh thì không dựng dải này: gộp trang của
-    // mọi kênh vào một hàng thì "Fanpage Hà Nội" (Pancake) nằm cạnh "OA Hà Nội" (Zalo) mà không có
-    // gì phân biệt, bấm nhầm là lọc ra một danh sách trống.
-    const trangCuaKenh = useMemo(() => {
-      if (kenhLoc === null) return [];
-      const tien = kenhLoc + ':';
+    // Các trang/tài khoản của NGUỒN đang chọn. Chưa chọn nguồn thì không dựng dải này: gộp trang
+    // của mọi nguồn vào một hàng thì "Fanpage Hà Nội" (Facebook) nằm cạnh "OA Hà Nội" (Zalo) mà
+    // không có gì phân biệt, bấm nhầm là lọc ra một danh sách trống.
+    const trangCuaNguon = useMemo(() => {
+      if (nguonLoc === null) return [];
       // Lấy từ CẢ hai nguồn: tài khoản đã khai (có tên gợi nhớ) và tài khoản đang có hội thoại.
       // Chỉ lấy một nguồn thì hoặc mất trang vừa nối chưa có tin nào, hoặc mất trang có tin mà
       // nhân viên trực không đủ quyền đọc danh sách khai báo.
-      const ma = new Set();
-      Object.keys(tenTaiKhoan).forEach(k => { if (k.startsWith(tien)) ma.add(k.slice(tien.length)); });
-      Object.keys(demTaiKhoan).forEach(k => { if (k.startsWith(tien)) ma.add(k.slice(tien.length)); });
-      return [...ma]
-        .map(id => ({ id, ten: tenTaiKhoan[tien + id] || id, so: demTaiKhoan[tien + id] || 0 }))
+      const khoa = new Set([...Object.keys(tenTaiKhoan), ...Object.keys(demTaiKhoan)]);
+      return [...khoa]
+        .filter(k => nguonTaiKhoan[k] === nguonLoc)
+        .map(k => ({ khoa: k, id: k.slice(k.indexOf(':') + 1), kenh: Number(k.slice(0, k.indexOf(':'))),
+                     ten: tenTaiKhoan[k] || k.slice(k.indexOf(':') + 1), so: demTaiKhoan[k] || 0 }))
         .sort((a, b) => b.so - a.so || a.ten.localeCompare(b.ten, 'vi'));
-    }, [kenhLoc, tenTaiKhoan, demTaiKhoan]);
+    }, [nguonLoc, tenTaiKhoan, demTaiKhoan, nguonTaiKhoan]);
 
-    // Đổi kênh thì BỎ lọc trang: mã trang gắn với kênh cũ, giữ lại là lọc ra danh sách trống mà
+    // Đổi nguồn thì BỎ lọc trang: trang gắn với nguồn cũ, giữ lại là lọc ra danh sách trống mà
     // không có gì trên màn hình nói vì sao.
-    useEffect(() => { setTaiKhoanLoc(null); }, [kenhLoc]);
+    useEffect(() => { setTaiKhoanLoc(null); }, [nguonLoc]);
     const [nhom, setNhom] = useState('tat-ca');    // tat-ca | chua-doc | cua-toi | toi-theo-doi
     const [tim, setTim] = useState('');
     const [nhanLoc, setNhanLoc] = useState([]);      // slug[] đang lọc — rỗng = không lọc
@@ -3732,7 +3835,7 @@
       try {
         const q = new URLSearchParams();
         if (loc !== null) q.set('status', loc);
-        if (kenhLoc !== null) q.set('channel', kenhLoc);
+        if (nguonLoc !== null) q.set('source', nguonLoc);
         if (taiKhoanLoc) q.set('accountId', taiKhoanLoc);
         if (nhom === 'chua-doc') q.set('unread', 'true');
         if (nhom === 'cua-toi') q.set('mine', 'true');
@@ -3757,13 +3860,15 @@
                            return moi.concat(cu.filter(x => !co.has(x.id))); });
         }
         setDem(j.counts || {});
-        setDemKenh(j.channelCounts || {});
+        setDemNguon(j.sourceCounts || {});
+        setNguonKhai(j.sources || []);
         setDemTaiKhoan(j.accountCounts || {});
         setTenTaiKhoan(j.accountLabels || {});
+        setNguonTaiKhoan(j.accountSources || {});
       } catch (e) {
         // Không toast mỗi lần hỏng: trang còn đường lùi tự hỏi lại, mạng chập chờn là spam ngay.
       } finally { setDangTai(false); }
-    }, [loc, kenhLoc, taiKhoanLoc, nhom, tim, nhanLoc]);
+    }, [loc, nguonLoc, taiKhoanLoc, nhom, tim, nhanLoc]);
 
     /**
      * @param imLang MẶC ĐỊNH LÀ IM LẶNG, và đó là chủ ý.
@@ -3897,7 +4002,7 @@
     }, [taiDsach, taiChiTiet, dayDuTin]);
 
     // Đổi bộ lọc là reset con trỏ + danh sách — không thì trộn kết quả của hai bộ lọc khác nhau.
-    useEffect(() => { setDsach([]); setConTro(null); }, [loc, kenhLoc, taiKhoanLoc, nhom, tim, nhanLoc]);
+    useEffect(() => { setDsach([]); setConTro(null); }, [loc, nguonLoc, taiKhoanLoc, nhom, tim, nhanLoc]);
 
     // Danh mục nhãn cho chip lọc — tải MỘT LẦN cho cả trang.
     //
@@ -4111,12 +4216,27 @@
     const cuaSo = chiTiet?.sendWindow;
     const khoaSoan = !cuaSo?.open;
 
-    // Kênh nào hiện trên dải: ba kênh đã nối, cộng kênh nào đang có dữ liệu thật.
-    const kenhHien = useMemo(() => {
-      const co = new Set(KENH_SONG);
-      Object.keys(demKenh).forEach(k => { if (demKenh[k] > 0) co.add(Number(k)); });
-      return [...co].sort((a, b) => a - b);
-    }, [demKenh]);
+    // Nguồn nào hiện trên dải: nguồn công ty đã khai, cộng nguồn nào đang có hội thoại thật.
+    //
+    // Vế thứ hai không bỏ được: Trang gỡ khai báo rồi, hay kênh thôi không mời nối nữa, thì hội
+    // thoại cũ vẫn còn đó và vẫn phải có đường lọc tới. Giấu tab đi là chôn tin nhắn thật của
+    // khách — chúng chỉ còn nằm lẫn trong mục "Tất cả".
+    const nguonHien = useMemo(() => {
+      const co = new Set(nguonKhai);
+      Object.keys(demNguon).forEach(n => { if (demNguon[n] > 0) co.add(n); });
+      return [...co].sort((a, b) => {
+        const ia = THU_TU_NGUON.indexOf(a), ib = THU_TU_NGUON.indexOf(b);
+        if (ia !== ib) return (ia < 0 ? 99 : ia) - (ib < 0 ? 99 : ib);
+        return a.localeCompare(b);
+      });
+    }, [demNguon, nguonKhai]);
+
+    // Đang lọc theo một nguồn rồi nguồn đó biến mất khỏi dải (quản trị gỡ Trang lúc màn hình đang
+    // mở) thì nhả bộ lọc ra. Không nhả thì danh sách trống trơn mà cái tab đang bật đã biến mất —
+    // không còn chỗ nào bấm để thoát.
+    useEffect(() => {
+      if (nguonLoc !== null && nguonHien.length > 0 && !nguonHien.includes(nguonLoc)) setNguonLoc(null);
+    }, [nguonHien, nguonLoc]);
 
     // Tải tệp lên kho TRƯỚC, gửi sau — hai bước tách nhau để nhân viên xem trước ảnh rồi mới bấm
     // gửi thật, giống mọi app chat khác. Gửi thẳng lúc chọn tệp thì lỡ tay là khách nhận ngay.
@@ -4532,7 +4652,7 @@
     // Chưa lấy được tên thật thì hiện mã người dùng — xấu nhưng không bịa ra một cái tên.
     const tenKhach = v ? (v.displayName || v.contactExternalId) : '';
     const tinNhan = chiTiet?.messages || [];
-    const coLoc = kenhLoc !== null || nhom !== 'tat-ca' || loc !== null || !!tim.trim()
+    const coLoc = nguonLoc !== null || nhom !== 'tat-ca' || loc !== null || !!tim.trim()
                 || nhanLoc.length > 0;
 
     return (
@@ -4612,18 +4732,19 @@
               </button>
             )}
           </div>
-          {/* Vùng 1 — dải kênh */}
-          <nav className="ci-dai" aria-label="Lọc theo kênh">
-            <button className={'ci-dai-nut' + (kenhLoc === null ? ' on' : '')}
-                    onClick={() => setKenhLoc(null)} title="Tất cả kênh">
+          {/* Vùng 1 — dải NGUỒN (khách nhắn từ đâu), không phải dải kênh: qua cổng gom Pancake
+              thì mọi hội thoại chung một kênh, dải theo kênh gộp Facebook với Zalo vào một chỗ. */}
+          <nav className="ci-dai" aria-label="Lọc theo nguồn">
+            <button className={'ci-dai-nut' + (nguonLoc === null ? ' on' : '')}
+                    onClick={() => setNguonLoc(null)} title="Tất cả nguồn">
               <span className="ci-hh">Tất</span>
             </button>
-            {kenhHien.map(k => (
-              <button key={k} className={'ci-dai-nut' + (kenhLoc === k ? ' on' : '')}
-                      onClick={() => setKenhLoc(kenhLoc === k ? null : k)}
-                      title={KENH[k].ten + (demKenh[k] ? ' · ' + demKenh[k] + ' hội thoại' : ' · chưa có hội thoại nào')}>
-                <HuyHieuKenh kenh={k} />
-                {demKenh[k] > 0 && <i className="ci-cham" aria-hidden="true" />}
+            {nguonHien.map(n => (
+              <button key={n} className={'ci-dai-nut' + (nguonLoc === n ? ' on' : '')}
+                      onClick={() => setNguonLoc(nguonLoc === n ? null : n)}
+                      title={tenNguon(n) + (demNguon[n] ? ' · ' + demNguon[n] + ' hội thoại' : ' · chưa có hội thoại nào')}>
+                <HuyHieuKenh nguon={n} />
+                {demNguon[n] > 0 && <i className="ci-cham" aria-hidden="true" />}
               </button>
             ))}
           </nav>
@@ -4678,13 +4799,14 @@
                   khoản thì hàng này không cho thêm lựa chọn nào, chỉ chiếm chỗ.
                   Đặt trong khối đầu cột (không phải ở dải kênh bên trái) vì dải kênh là một CỘT
                   DỌC hẹp 40px — tên trang không nhét vừa, và nó nói về danh sách ngay bên dưới. */}
-              {trangCuaKenh.length > 1 && (
+              {trangCuaNguon.length > 1 && (
                 <div className="ci-chip ci-chip-trang" aria-label="Lọc theo trang">
                   <button className={taiKhoanLoc === null ? 'on' : ''}
                           onClick={() => setTaiKhoanLoc(null)}>Tất cả</button>
-                  {trangCuaKenh.map(t => (
-                    <button key={t.id} className={taiKhoanLoc === t.id ? 'on' : ''}
-                            title={t.ten + ' · ' + (t.so || 0) + ' hội thoại'}
+                  {trangCuaNguon.map(t => (
+                    <button key={t.khoa} className={taiKhoanLoc === t.id ? 'on' : ''}
+                            title={moTaNguon(t.kenh, nguonLoc) + ' · ' + t.ten
+                                   + ' · ' + (t.so || 0) + ' hội thoại'}
                             onClick={() => setTaiKhoanLoc(taiKhoanLoc === t.id ? null : t.id)}>
                       <span className="ci-ct-ten">{t.ten}</span>
                       {t.so > 0 && <b>{t.so}</b>}
@@ -4748,7 +4870,7 @@
                         hiện "TT" trong khi đầu khung chat ngay cạnh hiện ảnh thật của cùng khách. */}
                     <AnhDaiDien ten={c.displayName || c.contactExternalId}
                                 url={c.avatarUrl} co={36} />
-                    <HuyHieuKenh kenh={c.channel} />
+                    <HuyHieuKenh kenh={c.channel} nguon={c.accountSource} />
                   </span>
                   {/* HAI hàng, không phải ba — học cách Messenger xếp danh sách: tên + giờ, rồi
                       dòng xem trước, hết. Bản trước có thêm một hàng huy hiệu CHỮ ("Đang xử lý" ·
@@ -4935,7 +5057,7 @@
                           chữ thứ năm trong một chuỗi nối bằng dấu chấm giữa, đọc lướt không thấy,
                           mà lại là thứ duy nhất trong chuỗi có thể ĐỔI được. Chip vừa nói rõ hơn
                           vừa là lối vào chỗ đổi nó. */}
-                      <em>{[KENH[v.channel]?.ten, v.accountLabel, TEN_TRANG_THAI[v.status],
+                      <em>{[moTaNguon(v.channel, v.accountSource), v.accountLabel, TEN_TRANG_THAI[v.status],
                            (phanCong.allStaffs || phanCong.staffs || []).find(nv => nv.id === v.assignedUserId)?.name
                              || v.assignedUsername || 'chưa ai nhận'].filter(Boolean).join(' · ')}</em>
                     </span>

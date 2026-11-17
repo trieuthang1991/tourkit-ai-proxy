@@ -32,12 +32,15 @@ public class InboxActionRouteTests
         var repo = ChatSchemaGuardTests.DocFile("TourkitAiProxy.Infrastructure/Chat/Inbox/ChatRepository.cs");
 
         Assert.Contains("public bool Followed", model);
-        var m = Regex.Match(repo, "ListConversationsAsync(.{0,2600})", RegexOptions.Singleline);
-        Assert.True(m.Success, "Không thấy ListConversationsAsync trong ChatRepository");
-        Assert.Contains("bool chiTheoDoi = false", m.Groups[1].Value);
-        Assert.Contains("AS followed", m.Groups[1].Value);
-        Assert.Contains("NOT @chiTheoDoi OR EXISTS", m.Groups[1].Value);
-        Assert.Contains("f.user_id = @nguoiDung", m.Groups[1].Value);
+        // Cắt theo MỐC CÚ PHÁP, không theo N ký tự: bản đầu cắt 2600 ký tự sau tên hàm và đã đỏ
+        // thật ngày 10/11/2026 — thêm một khối chú thích vào giữa câu SQL là mệnh đề cần canh
+        // trôi ra ngoài cửa sổ, trong khi mã hoàn toàn đúng. Xem ChatSchemaGuardTests.ThanThanhVien.
+        var than = ChatSchemaGuardTests.ThanThanhVien(repo,
+            "public async Task<List<ChatConversation>> ListConversationsAsync(");
+        Assert.Contains("bool chiTheoDoi = false", than);
+        Assert.Contains("AS followed", than);
+        Assert.Contains("NOT @chiTheoDoi OR EXISTS", than);
+        Assert.Contains("f.user_id = @nguoiDung", than);
     }
 
     [Fact]

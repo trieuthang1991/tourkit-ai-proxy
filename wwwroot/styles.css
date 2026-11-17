@@ -10215,6 +10215,14 @@ img.ci-avt { object-fit: cover; }
 .ci-tk-dong:first-child { border-top: 0; }
 .ci-tk-dong:hover { background: var(--bg); }
 .ci-tk-oa { font-size: 11px; color: var(--text-3); }
+/* NGUỒN của một Trang cổng gom. Có nguồn thì đọc như một nhãn bình thường; CHƯA RÕ thì phải
+   nhạt và nghiêng — nó là lời thú nhận "chưa biết", không phải tên một nền tảng. Hai thứ trông
+   giống nhau là người khai đọc "chưa rõ nguồn" thành tên nền tảng. */
+.ci-tk-nguon { font-size: 11px; font-weight: 600; color: var(--text-2);
+  background: var(--bg); border: 1px solid var(--border); border-radius: 999px;
+  padding: 1px 8px; white-space: nowrap; }
+.ci-tk-nguon.trong { font-weight: 400; font-style: italic; color: var(--text-3);
+  background: transparent; border-style: dashed; }
 .ci-chua { display: inline-flex; align-items: center; height: 18px; padding: 0 7px;
            border-radius: 999px; background: var(--primary-soft); color: var(--ci-cam-800);
            font-size: 10px; font-weight: 700; }
